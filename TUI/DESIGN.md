@@ -116,8 +116,8 @@ interface Renderer {
 
 0. **DSH adapter spike**（丢弃式脚本，非最终 adapter）：订阅一个会话 → 收到流式文本 → 发送一次审批。产出：state 模型形状 + renderer 实现顺序的依据。当前仓库无 DSH 源码，ctx API 未确认，adapter 必须架在接口后以便 mock/真实替换。
 1. 实现 renderer 最小可用（raw mode + 输入解码 + 整帧重绘），`demo/` 跑通
-2. 接入 DSH 核心（adapter/dsh.ts，含审批与流式输出）
-3. 完善交互功能并打包为 DSH Profile Bundle（bin/dsh-tui.js）
+1. 接入 DSH 核心（adapter/dsh.ts，含审批与流式输出）
+1. 完善交互功能并打包为 DSH Profile Bundle（bin/dsh-tui.js）
 
 由 advisor 审阅（2026-08-22），本版修正：
 
