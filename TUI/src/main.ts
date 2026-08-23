@@ -16,6 +16,7 @@ import type { DshAdapter } from "./app/adapter/dsh.ts";
 import {
   createRealDshAdapter,
   type DshAgentLike,
+  type DshCommandLike,
   type DshRuntime,
   type DshUserMessageLike,
 } from "./app/adapter/dsh.ts";
@@ -132,10 +133,19 @@ export async function apply(
     );
   }
 
+  // slash 命令注册表：官方 dsh-commands 服务(cordis 挂载，未在本插件 inject 声明，
+  // 经 ctx.get 读取)。真实 agent 用于注册表作用域查找(runCommand 需要完整 Agent，
+  // 而 app 层只有瘦 DshAgentLike)。结构面见 DshCommandLike(与 DSH-CTX-API.md 契约一致)。
+  const commands = (ctx as { get?: (name: string) => unknown }).get?.(
+    "commands",
+  ) as DshCommandLike | undefined;
+
   const adapter = createRealDshAdapter({
     runtime,
     sessionId: agentLike.session.id,
     agent: agentLike,
+    commandAgent: rawAgent,
+    commands,
     approvalTimeoutMs: config?.approvalTimeoutMs ?? 60_000,
   });
 

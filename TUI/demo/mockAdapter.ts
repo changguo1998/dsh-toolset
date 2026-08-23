@@ -33,6 +33,17 @@ export class MockDshAdapter implements DshAdapter {
     this.scheduleReply();
   }
 
+  /**
+   * mock 无 commands 注册表：本地渲染命令由 app 层直接处理，此处仅对非本地命令
+   * 回 notice 提示(demo 模式下 slash 命令不可用)。
+   */
+  runCommand(line: string): void {
+    this.emit({
+      type: "notice",
+      text: `[demo] slash 命令 "${line}" 在 demo 模式下不可用（无 commands 注册表）。`,
+    });
+  }
+
   approve(id: string, allow: boolean): void {
     this.emit({
       type: "stream",
@@ -150,6 +161,8 @@ export class MockDshAdapter implements DshAdapter {
       "  - 输入消息后回车 → 触发模拟流式回复",
       "  - ↑/↓/PageUp/PageDown 在 scrollback 里翻页（上滚暂停跟随）",
       "  - 等第二次回复后出现审批弹窗 → y 批准 / n 拒绝",
+      "  - 输入 /help /clear /quit 体验本地渲染命令",
+      "  - 其他 /xxx 在 demo 模式回提示（真实模式走 commands 注册表）",
       "  - Ctrl+C 或 Esc 退出",
       "",
     ].join("\n");

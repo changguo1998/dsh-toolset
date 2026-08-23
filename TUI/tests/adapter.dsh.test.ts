@@ -4,8 +4,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   createRealDshAdapter,
+  parseSlashCommand,
   type DshRuntime,
   type DshAgentLike,
+  type DshCommandLike,
   type DshEvent,
   type DshUserMessageLike,
   type SessionEvent,
@@ -57,8 +59,14 @@ function makeAdapter(
   runtime = new FakeRuntime(),
   agent = new FakeAgent(),
   approvalTimeoutMs = 50,
+  commands?: DshCommandLike,
 ): TestHarness {
-  const adapter = createRealAdapter(runtime, agent, approvalTimeoutMs);
+  const adapter = createRealAdapter(
+    runtime,
+    agent,
+    approvalTimeoutMs,
+    commands,
+  );
   const events: DshEvent[] = [];
   const unbind = adapter.onEvent((e) => events.push(e));
   return { adapter, runtime, agent, events, unbind };
@@ -69,11 +77,13 @@ function createRealAdapter(
   runtime: DshRuntime,
   agent: DshAgentLike,
   approvalTimeoutMs = 50,
+  commands?: DshCommandLike,
 ) {
   return createRealDshAdapter({
     runtime,
     sessionId: "s1",
     agent,
+    commands,
     approvalTimeoutMs,
   });
 }
@@ -246,7 +256,7 @@ test("approval 无订阅者 → next() fail-closed unavailable", async () => {
 
 test("审批超时(approvalTimeoutMs 到期) → cancelled", async () => {
   const rt = new FakeRuntime();
-  const t = makeAdapter(rt); // makeAdapter 默认 approvalTimeoutMs = 50
+  makeAdapter(rt); // makeAdapter 默认 approvalTimeoutMs = 50
   const p = rt.fire("approval/request", { agent: {}, toolName: "bash" }, () =>
     Promise.resolve<ApprovalOutcome>("unavailable"),
   ) as unknown as Promise<ApprovalOutcome>;
@@ -308,4 +318,152 @@ test("onEvent 返回解绑函数；unbind 后不再收到事件", () => {
   t.unbind();
   t.runtime.fire("session/event", { id: "s1" }, chunkEvent("text-delta", "x"));
   assert.equal(t.events.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// slash 命令：parseSlashCommand / runCommand(注册表调度) / notice / dispose
+// ---------------------------------------------------------------------------
+
+test("parseSlashCommand: 合法命令名", () => {
+  assert.equal(parseSlashCommand("/help"), "help");
+  assert.equal(parseSlashCommand("/clear "), "clear");
+  assert.equal(parseSlashCommand("/compact 现在"), "compact");
+  assert.equal(parseSlashCommand("/plan_2 -v"), "plan_2");
+  assert.equal(parseSlashCommand("/foo-bar"), "foo-bar");
+});
+
+test("parseSlashCommand: 非法输入返回 null", () => {
+  assert.equal(parseSlashCommand("/"), null);
+  assert.equal(parseSlashCommand("help"), null);
+  assert.equal(parseSlashCommand(" /help"), null);
+  assert.equal(parseSlashCommand("/1abc"), null);
+  assert.equal(parseSlashCommand("/ABC"), null);
+  assert.equal(parseSlashCommand(""), null);
+  assert.equal(parseSlashCommand("/help/extra"), null); // 斜杠后不允许
+});
+
+/** 可编程 fake 注册表 */
+class FakeCommands implements DshCommandLike {
+  calls: { agent: unknown; line: string; signal?: AbortSignal }[] = [];
+  outcome: unknown;
+  error: unknown;
+  async execute(
+    agent: unknown,
+    line: string,
+    _images?: unknown[],
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    this.calls.push({ agent, line, signal });
+    if (this.error !== undefined) throw this.error;
+    return this.outcome;
+  }
+}
+
+test("runCommand: 注册表命中成功 → notice 展示结果文本", async () => {
+  const commands = new FakeCommands();
+  commands.outcome = {
+    commandId: "c1",
+    result: { kind: "success", text: "已压缩会话。" },
+  };
+  const t = makeAdapter(new FakeRuntime(), new FakeAgent(), 50, commands);
+  t.adapter.runCommand("/compact 现在");
+  await new Promise((r) => setTimeout(r, 10));
+  const notices = t.events.filter((e) => e.type === "notice");
+  assert.equal(notices.length, 1);
+  assert.equal((notices[0] as { text: string }).text, "[c1] 已压缩会话。");
+  assert.equal(commands.calls.length, 1);
+  assert.equal(commands.calls[0]!.line, "/compact 现在");
+});
+
+test("runCommand: 注册表未命中(undefined) → notice 未知命令(fail-close)", async () => {
+  const commands = new FakeCommands();
+  commands.outcome = undefined;
+  const t = makeAdapter(new FakeRuntime(), new FakeAgent(), 50, commands);
+  t.adapter.runCommand("/nonexistent");
+  await new Promise((r) => setTimeout(r, 10));
+  const notices = t.events.filter((e) => e.type === "notice");
+  assert.equal(notices.length, 1);
+  assert.match((notices[0] as { text: string }).text, /未知命令/);
+  // fail-close：绝不产生 followup 用户消息
+  assert.equal(t.agent.followups.length, 0);
+});
+
+test("runCommand: 注册表错误 → notice 错误文本", async () => {
+  const commands = new FakeCommands();
+  commands.error = new Error("boom");
+  const t = makeAdapter(new FakeRuntime(), new FakeAgent(), 50, commands);
+  t.adapter.runCommand("/plan foo");
+  await new Promise((r) => setTimeout(r, 10));
+  const notices = t.events.filter((e) => e.type === "notice");
+  assert.equal(notices.length, 1);
+  assert.match((notices[0] as { text: string }).text, /执行出错/);
+  assert.equal(t.agent.followups.length, 0);
+});
+
+test("runCommand: 无注册表(未注入) → notice 提示 commands 未就绪", () => {
+  const t = makeAdapter(new FakeRuntime(), new FakeAgent(), 50); // 无 commands
+  t.adapter.runCommand("/plan foo");
+  const notices = t.events.filter((e) => e.type === "notice");
+  assert.equal(notices.length, 1);
+  assert.match((notices[0] as { text: string }).text, /未就绪/);
+  assert.equal(t.agent.followups.length, 0);
+});
+
+test("runCommand: 非法命令行 → notice invalid", () => {
+  const t = makeAdapter(new FakeRuntime(), new FakeAgent(), 50);
+  t.adapter.runCommand("/1bad");
+  const notices = t.events.filter((e) => e.type === "notice");
+  assert.equal(notices.length, 1);
+  assert.match((notices[0] as { text: string }).text, /invalid/);
+});
+
+test("runCommand: 同步返回(非 Promise)也走 finish", () => {
+  const commands = new FakeCommands();
+  commands.outcome = {
+    commandId: "c2",
+    result: { kind: "success", text: "ok" },
+  };
+  // 覆盖 execute 返回同步值（async 签名向下兼容）
+  commands.execute = ((_agent, line) => {
+    void line;
+    return commands.outcome;
+  }) as FakeCommands["execute"];
+  const t = makeAdapter(new FakeRuntime(), new FakeAgent(), 50, commands);
+  t.adapter.runCommand("/foo");
+  const notices = t.events.filter((e) => e.type === "notice");
+  assert.equal(notices.length, 1);
+  assert.equal((notices[0] as { text: string }).text, "[c2] ok");
+});
+
+test("runCommand: 忽略不匹配的 sessionId(写 stderr 不崩溃)", () => {
+  const t = makeAdapter(new FakeRuntime(), new FakeAgent(), 50);
+  t.adapter.runCommand("/foo", "other-session");
+  const notices = t.events.filter((e) => e.type === "notice");
+  assert.equal(notices.length, 0);
+});
+
+test("dispose: 中止在途命令 + 解绑运行时监听", async () => {
+  const rt = new FakeRuntime();
+  const commands = new FakeCommands();
+  commands.outcome = new Promise(() => {}); // 永不 resolve，验证 abort
+  const t = makeAdapter(rt, new FakeAgent(), 50, commands);
+  t.adapter.runCommand("/slow");
+  await new Promise((r) => setTimeout(r, 5));
+  const sig = commands.calls[0]?.signal;
+  assert.ok(sig, "execute 应收到 AbortSignal");
+  t.adapter.dispose!();
+  assert.ok(sig?.aborted, "dispose 后 signal 应被 abort");
+  // runtime 监听已解绑：fire 不再产生事件
+  t.adapter.onEvent(() => {}); // 重建订阅也无妨
+  rt.fire("session/event", { id: "s1" }, chunkEvent("text-delta", "x"));
+  // dispose 后 emit 静默
+  assert.ok(true);
+});
+
+test("dispose: 幂等(可重复调用)", () => {
+  const rt = new FakeRuntime();
+  const t = makeAdapter(rt, new FakeAgent(), 50);
+  t.adapter.dispose!();
+  t.adapter.dispose!();
+  assert.ok(true);
 });

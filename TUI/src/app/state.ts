@@ -60,6 +60,23 @@ export function appendStream(state: AppState, text: string): AppState {
   return { ...state, buffer };
 }
 
+/**
+ * 追加一条命令通知(notice)：独立成行，不并入 buffer 末行(与流式 append 不同)。
+ * 用于 slash 命令的提示/结果文本(绝不进入模型历史，仅 UI 展示)。
+ */
+export function appendNotice(state: AppState, text: string): AppState {
+  const buffer = state.buffer.length ? [...state.buffer] : [];
+  buffer.push(text);
+  if (buffer.length > MAX_BUFFER_LINES)
+    buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
+  return { ...state, buffer };
+}
+
+/** 清空会话缓冲(本地 /clear 命令)。 */
+export function clearBuffer(state: AppState): AppState {
+  return { ...state, buffer: [], scrollOffset: 0, followBottom: true };
+}
+
 /** 追加 agent 状态 */
 export function setAgentStatus(state: AppState, status: AgentStatus): AppState {
   return { ...state, agentStatus: status };
@@ -89,6 +106,10 @@ export function reduceState(state: AppState, action: StateAction): AppState {
   switch (action.type) {
     case "append":
       return appendStream(state, action.text);
+    case "notice":
+      return appendNotice(state, action.text);
+    case "clear-buffer":
+      return clearBuffer(state);
     case "agent-status":
       return setAgentStatus(state, action.status);
     case "approval":
@@ -110,6 +131,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
 
 export type StateAction =
   | { type: "append"; text: string }
+  | { type: "notice"; text: string }
+  | { type: "clear-buffer" }
   | { type: "agent-status"; status: AgentStatus }
   | { type: "approval"; approval: ApprovalItem | null }
   | { type: "sessions"; sessions: SessionMeta[] }

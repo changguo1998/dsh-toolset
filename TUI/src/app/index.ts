@@ -7,6 +7,7 @@ import type { Renderer, KeyEvent } from "../renderer/index.ts";
 import type { AppState } from "./state.ts";
 import { initialState, reduceState } from "./state.ts";
 import type { DshAdapter, DshEvent } from "./adapter/dsh.ts";
+import { parseSlashCommand } from "./adapter/dsh.ts";
 import { buildFrame } from "./layout.ts";
 
 export interface AppDeps {
@@ -40,6 +41,7 @@ export class App {
     this.disposed = true;
     for (const f of this.unbindEvents) f();
     this.unbindEvents = [];
+    this.deps.adapter.dispose?.();
     this.deps.renderer.close();
   }
 
@@ -65,6 +67,10 @@ export class App {
             approval: { id: e.id, prompt: e.prompt },
           }),
         );
+        break;
+      case "notice":
+        // 命令通知(结果/提示/错误)只进 UI 缓冲，绝不进模型历史
+        this.apply((s) => reduceState(s, { type: "notice", text: e.text }));
         break;
       case "turn-end":
         break; // 阶段 1 无动作；阶段 2 可触发额外 UI
@@ -154,11 +160,65 @@ export class App {
   private submit(): void {
     const text = this.state.inputText.trim();
     if (!text) return;
+    // 以 / 开头的输入按 slash 命令处理（不进模型/会话历史）
+    if (text.startsWith("/")) {
+      this.handleSlash(text);
+      this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
+      return;
+    }
     this.deps.adapter.sendMessage(
       text,
       this.state.activeSessionId ?? undefined,
     );
     this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
+  }
+
+  /**
+   * Slash 命令路由：
+   *  - 渲染相关命令(/help /clear /quit)→ 本地小命令表
+   *  - 其他 /name → adapter.runCommand → commands 注册表调用(官方机制)
+   *  - 未命中注册表 → adapter 侧 notice 提示(fail-close，绝不经 sendMessage)
+   */
+  private handleSlash(line: string): void {
+    const name = parseSlashCommand(line);
+    if (!name) {
+      this.apply((s) =>
+        reduceState(s, { type: "notice", text: "无效命令: " + line }),
+      );
+      return;
+    }
+    switch (name) {
+      case "help":
+        this.apply((s) =>
+          reduceState(s, {
+            type: "notice",
+            text: this.helpText(),
+          }),
+        );
+        return;
+      case "clear":
+        this.apply((s) => reduceState(s, { type: "clear-buffer" }));
+        return;
+      case "quit":
+        this.deps.renderer.close();
+        return;
+      default:
+        // 非本地命令 → 注册表调用
+        this.deps.adapter.runCommand(
+          line,
+          this.state.activeSessionId ?? undefined,
+        );
+    }
+  }
+
+  private helpText(): string {
+    return [
+      "本地命令：",
+      "  /help   显示本帮助",
+      "  /clear  清空缓冲",
+      "  /quit   退出",
+      "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
+    ].join("\n");
   }
 
   private insertChar(c: string): void {

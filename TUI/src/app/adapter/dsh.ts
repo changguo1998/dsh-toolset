@@ -36,6 +36,7 @@ export type DshEvent =
   | { type: "stream"; sessionId: string; text: string }
   | { type: "approval"; id: string; prompt: string }
   | { type: "agent-status"; sessionId: string; status: AgentStatus }
+  | { type: "notice"; text: string }
   | { type: "turn-end" };
 
 /** 应用层对 adapter 的唯一依赖面：事件流入 + 两个出站回调 */
@@ -44,6 +45,15 @@ export interface DshAdapter {
   onEvent(cb: (e: DshEvent) => void): () => void;
   /** 发送用户消息 */
   sendMessage(text: string, sessionId?: string): void;
+  /**
+   * 执行 slash 命令行(形如 /name args...)。约定：命令通过注册表调用 → 结果经
+   * notice 事件回报；未命中(undefined)→ notice 提示未知命令(fail-close)，绝不
+   * 作为用户消息发送给模型。渲染类命令(/help /clear /quit)由 app 层本地表处理，
+   * 不经过本方法。
+   */
+  runCommand(line: string, sessionId?: string): void;
+  /** 释放：中止在途命令分发、解绑运行时监听；可选(mock 无状态可缺省) */
+  dispose?(): void;
   /** 审批：allow=true 批准（DSH 'allowed-once'），false 拒绝（'rejected'） */
   approve(id: string, allow: boolean): void;
 }
@@ -167,12 +177,41 @@ export interface DshUserMessageLike {
   readonly source: { kind: "user" } | { kind: "plugin"; plugin: string };
 }
 
+/**
+ * 结构面：官方 @deepseek-ai/dsh-commands 注册表（ctx.commands.execute）。
+ * execute(agent, line, images, signal) → CommandExecution | undefined；
+ * undefined 表示未命中注册表(fail-close)。与官方 packages/interaction/commands/
+ * src/types.ts 契约一致(DSH-CTX-API.md)。
+ */
+export interface DshCommandLike {
+  execute(
+    agent: unknown,
+    line: string,
+    images?: unknown[],
+    signal?: AbortSignal,
+  ): Promise<unknown> | unknown;
+}
+
 export interface RealAdapterOptions {
   runtime: DshRuntime;
   sessionId: string;
+  /** app 使用的瘦 agent(用于 followup) */
   agent: DshAgentLike;
+  /** 真实 Agent(注册表作用域查找用，通常与 main.ts 的 handle.agent 相同) */
+  commandAgent?: unknown;
+  /** DSH commands 注册表(来自 ctx.get('commands')，bundle 已挂载) */
+  commands?: DshCommandLike;
   /** 审批弹窗超时（ms），超时未答 fallback 'cancelled'；默认 60s */
   approvalTimeoutMs?: number;
+}
+
+/**
+ * 解析 slash 命令行首段命令名。与官方 client 共用同一语法：
+ * 小写字母开头[a-z][a-z0-9_-]*，后跟空白或行尾。非法返回 null。
+ */
+export function parseSlashCommand(line: string): string | null {
+  const m = /^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/.exec(line);
+  return m ? m[1]! : null;
 }
 
 /** 从 DSH ApprovalRequest 构造 app 审批提示文案 */
@@ -216,7 +255,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     }
   >();
   let approvalSeq = 0;
-  const disposed = false;
+  let disposed = false;
+  const runtimeUnbinds: (() => void)[] = [];
+  const activeCommands = new Set<AbortController>();
 
   const emit = (e: DshEvent): void => {
     if (disposed) return;
@@ -319,24 +360,127 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       agent.followup(buildUserMessage(text));
     },
+    runCommand(line, targetSessionId) {
+      if (disposed) return;
+      if (targetSessionId && targetSessionId !== sessionId) {
+        process.stderr.write(
+          "[dsh adapter] runCommand: sessionId " +
+            targetSessionId +
+            " not active\n",
+        );
+        return;
+      }
+      dispatchCommand(line);
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      for (const c of activeCommands) c.abort();
+      activeCommands.clear();
+      for (const u of runtimeUnbinds) u();
+      runtimeUnbinds.length = 0;
+      listeners.clear();
+    },
     approve(id, allow) {
       if (disposed) return;
       settle(id, allow ? "allowed-once" : "rejected");
     },
   };
 
-  runtime.on("session/event", (session, event) =>
-    onSessionEvent(session, event as SessionEvent),
+  collectUnbind(
+    runtime.on("session/event", (session, event) =>
+      onSessionEvent(session, event as SessionEvent),
+    ),
   );
-  runtime.on("agent/status", (payload) =>
-    emitAgentStatus(payload as { agent?: unknown; status?: string }),
+  collectUnbind(
+    runtime.on("agent/status", (payload) =>
+      emitAgentStatus(payload as { agent?: unknown; status?: string }),
+    ),
   );
-  runtime.on(
-    "approval/request",
-    approvalAnswerer as (...args: unknown[]) => unknown,
+  collectUnbind(
+    runtime.on(
+      "approval/request",
+      approvalAnswerer as (...args: unknown[]) => unknown,
+    ),
   );
 
   return adapter;
+
+  /** 收集 runtime.on 解绑函数(可能有返回)；dispose 时一并释放 */
+  function collectUnbind(fn: (() => void) | void): void {
+    if (typeof fn === "function") runtimeUnbinds.push(fn);
+  }
+
+  /**
+   * 执行 slash 命令行：解析出命令名 → 查注册表 → 分发。结果经 notice 回报。
+   * - 未注册(execute 返回 undefined) → notice 提示未知命令(fail-close)
+   * - execute 抛错/reject → notice 错误文本
+   * - 成功 → notice 文本(若有)
+   * 全程不调用 agent.followup(不进模型历史)。
+   */
+  function dispatchCommand(line: string): void {
+    const name = parseSlashCommand(line);
+    if (!name) {
+      emit({ type: "notice", text: "invalid slash command: " + line });
+      return;
+    }
+    const { commands } = opts;
+    if (!commands || typeof commands.execute !== "function") {
+      emit({ type: "notice", text: "commands 未就绪，无法执行 /" + name });
+      return;
+    }
+    const controller = new AbortController();
+    activeCommands.add(controller);
+    const execAgent = opts.commandAgent ?? agent;
+    let res: unknown;
+    try {
+      res = commands.execute(execAgent, line, [], controller.signal);
+    } catch (err) {
+      activeCommands.delete(controller);
+      emit({ type: "notice", text: formatCommandError(name, err) });
+      return;
+    }
+    if (res && typeof (res as { then?: unknown }).then === "function") {
+      void (res as Promise<unknown>)
+        .then((r) => finish(r, controller))
+        .catch((err) => {
+          activeCommands.delete(controller);
+          emit({ type: "notice", text: formatCommandError(name, err) });
+        });
+    } else {
+      finish(res, controller);
+    }
+  }
+
+  function finish(res: unknown, controller: AbortController): void {
+    activeCommands.delete(controller);
+    if (disposed) return;
+    const exec = res as
+      | { commandId?: string; result?: { kind?: string; text?: string } }
+      | undefined;
+    if (exec === undefined) {
+      // 官方 fail-close：未命中 → 提示，绝不 sendMessage 给模型
+      emit({ type: "notice", text: "未知命令，输入 /help 查看可用命令。" });
+      return;
+    }
+    const kind = exec.result?.kind;
+    const text = exec.result?.text;
+    if (kind === "error") {
+      emit({
+        type: "notice",
+        text: "命令 " + (exec.commandId ?? "") + " 执行出错：" + (text ?? ""),
+      });
+      return;
+    }
+    emit({
+      type: "notice",
+      text: (exec.commandId ? "[" + exec.commandId + "] " : "") + (text ?? ""),
+    });
+  }
+
+  function formatCommandError(name: string, err: unknown): string {
+    return "/" + name + " 执行出错：" + String(err);
+  }
 
   function emitAgentStatus(payload: {
     agent?: unknown;
