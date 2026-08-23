@@ -1,0 +1,32 @@
+{
+    "name": "@dsh-toolset/dsh-tui",
+    "version": "0.1.0",
+    "description": "DSH (DeepSeek Harness) 进程内集成终端 UI",
+    "type": "module",
+    "bin": {
+        "dsh-tui": "./bin/dsh-tui.js"
+    },
+    "main": "dist/src/main.js",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "check": "tsc -p tsconfig.json --noEmit",
+        "demo": "npm run build && node dist/demo/main.js",
+        "test": "node --test 'tests/*.test.ts'"
+    },
+    "dependencies": {
+        "chalk": "^5.6.2"
+    },
+    "devDependencies": {
+        "@types/node": "^24.13.3",
+        "typescript": "^5.9.3"
+    },
+    "files": [
+        "dist",
+        "bin",
+        "LICENSE",
+        "README.md"
+    ],
+    "engines": {
+        "node": ">=22.19.0"
+    }
+}
