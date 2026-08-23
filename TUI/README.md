@@ -62,6 +62,17 @@ pnpm demo     # 构建后跑 mock demo
 - `files` 发布字段覆盖 `dist/`、`bin/` 等；`cordis.patch.yml` 由 `package.json` 的 `dsh.bundle.patch` 引用。
 - 事件契约与归一化映射见仓库根 `DSH-CTX-API.md` 与 `src/…/adapter/dsh.ts` 文件头。
 
+## Slash 命令
+
+以 `/` 开头的输入按 slash 命令处理（不走 `agent.followup`，不进入模型历史/会话记录）：
+
+- **渲染相关命令 → 本地小命令表**（app 层直接处理，不经 adapter）：
+  - `/help` — 显示本地命令帮助
+  - `/clear` — 清空会话缓冲
+  - `/quit` — 关闭 renderer 退出
+- **其他功能命令 → commands 注册表**（官方 `dsh-commands` 机制）：输入路由到 `adapter.runCommand` → `ctx.commands.execute(agent, line)`，结果/错误经 `notice` 事件展示在 UI 缓冲。未命中注册表 → 提示未知命令（官方 fail-close 策略，绝不把 slash 行发给模型）。
+- demo 模式无 commands 注册表，非本地 `/xxx` 回提示。
+
 ## 退出契约
 
 进程生命周期归 renderer：`close()` / SIGINT / SIGTERM 先恢复终端再退出；退出码随底层（`dsh` 委托场景透传，demo 场景 renderer 自行 exit）。
