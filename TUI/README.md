@@ -68,7 +68,7 @@ pnpm demo     # 构建后跑 mock demo
 
 - **渲染相关命令 → 本地小命令表**（app 层直接处理，不经 adapter）：
   - `/help` — 显示本地命令帮助
-  - `/clear` — 清空会话缓冲
+  - `/clearscreen`（简写 `/cls`）— 清空显示缓冲（只清 UI，不动会话上下文）
   - `/quit` — 关闭 renderer 退出
 - **其他功能命令 → commands 注册表**（官方 `dsh-commands` 机制）：输入路由到 `adapter.runCommand` → `ctx.commands.execute(agent, line)`，结果/错误经 `notice` 事件展示在 UI 缓冲。未命中注册表 → 提示未知命令（官方 fail-close 策略，绝不把 slash 行发给模型）。
 - demo 模式无 commands 注册表，非本地 `/xxx` 回提示。
