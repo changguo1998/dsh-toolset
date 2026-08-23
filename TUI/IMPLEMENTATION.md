@@ -14,20 +14,18 @@
 
 目标：确认 DSH 插件运行时（cordis `ctx`）的会话订阅 API，产出 state 模型形状与 adapter 接口。
 
-依据（2026-08-22 调研，`wa_dsh_doc.md`）：DSH 插件 = 带 `dsh:{bundle:{patch}}` 的 npm 包，经 `dsh plugin add` 挂进 profile；宿主用 cordis 组合树；插件导出 `apply(ctx)`。会话事件名可见：`turn/start`、`assistant/chunk`、`tool/call`、`tool/result`、`turn/end`、`agent/status`。
+依据（2026-08-23 更新）：早期社区观测 `wa_dsh_doc.md`（事件名 turn/start、assistant/chunk、tool/call、tool/result、turn/end)已由官方源码研读核实并修订（agent/status 属 agent 层事件，不在 session 词汇表；见仓库根 `DSH-CTX-API.md`）。
 
 任务：
 
-- [ ] T0.1 `scripts/spike-dsh.ts`（一次性脚本，不入 src）：列出可用 `ctx` 方法/事件（console 打印），确认：
-  - 订阅会话事件的方式（`ctx.on(...)`？事件名与载荷形状？）
-  - 发送审批 / 发消息的回调接口
-  - 会话列表枚举接口
-- [ ] T0.2 把确认到的接口形状写回 `src/app/adapter/dsh.ts` 的类型骨架（`DshAdapter` interface + 事件载荷 type）
-- [ ] T0.3 若事件名/载荷与假设不符，更新/增补 DESIGN.md「开发阶段（含 spike）」段里的 DSH adapter 相关内容
+- [x] T0.1 `scripts/spike-dsh.ts` → 改为**官方源码研读**（`~/GithubRepos/deepseek-harness`，b150a551b8），免去一次性 spike 脚本：
+  - 订阅会话事件：`ctx.on('session/event', (session, event) => …)`，事件带 `seq` 连续契约
+  - 审批回调：waterfall 链 `approval/request`，应答返回 `ApprovalOutcome`
+  - 会话枚举：`ctx.sessions.list()`；发消息：进程内 `agent.followup`，外部桥 `session/prompt`
+- [x] T0.2 接口形状已写回 `src/app/adapter/dsh.ts` 类型骨架（`DshAdapter` + 归一化 `DshEvent` + DSH 原生类型参照）
+- [x] T0.3 DESIGN.md「开发阶段」段已更新（spike 描述 → 接口确认描述）
 
-Done when：spike 脚本在真实 DSH profile 内跑通一次，打印出流式文本事件+至少一次审批回调；adapter 类型骨架与真实接口一致。
-
-风险：仓库无 DSH 源码，接口以 spike 实证为准；`wa_dsh_doc.md` 中的事件名为社区插件观测值，需在 T0.1 核实。
+Done when：经官方源码核实任一断言（本次以 `grep` 交叉验证 JSONRPC server / session store / user-approval）；adapter 类型骨架与真实接口一致。真机跑通推迟到 T2.1（渲染层定型后），不再单独做 T0.1 落地。
 
 ## 阶段 1：renderer 最小可用
 
@@ -74,17 +72,17 @@ T3.1/3.2 ← T2.2；T3.3/3.4 ← T3.1
 
 ## 风险登记
 
-| 风险 | 等级 | 缓解 |
-|---|---|---|
-| DSH ctx API 未确认（事件名/载荷/审批回调） | 高 | T0.1 spike 实证；adapter 接口化，先 mock 后置换 |
-| ANSI 输入解码漏组合键 | 中 | T1.2 用字节流单测覆盖所有设计到的手/终端场景 |
-| 整帧重绘在大滚动下闪烁/卡顿 | 低 | T1.4 末行追写优化；`ponytail:` 留了增量渲染升级位 |
-| profile 打包（bundle patch / files 字段）细节未知 | 中 | T3.3 参照社区包（`dsh-working-activity`）结构；T3.4 全新安装验证 |
-| node-pty 未引入，DSH 若要求 TUI 自开 shell 则缺能力 | 低 | 设计已定会话由 DSH 管理；出现需求再加可选依赖 |
+| 风险                                                                    | 等级 | 缓解                                                             |
+| ----------------------------------------------------------------------- | ---- | ---------------------------------------------------------------- |
+| DSH ctx API（已研读确认并沉淀 DSH-CTX-API.md，但未在真实 profile 实证） | 中   | T2.1 真机验证事件名/载荷；adapter 接口化，先 mock 后置换         |
+| ANSI 输入解码漏组合键                                                   | 中   | T1.2 用字节流单测覆盖所有设计到的手/终端场景                     |
+| 整帧重绘在大滚动下闪烁/卡顿                                             | 低   | T1.4 末行追写优化；`ponytail:` 留了增量渲染升级位                |
+| profile 打包（bundle patch / files 字段）细节未知                       | 中   | T3.3 参照社区包（`dsh-working-activity`）结构；T3.4 全新安装验证 |
+| node-pty 未引入，DSH 若要求 TUI 自开 shell 则缺能力                     | 低   | 设计已定会话由 DSH 管理；出现需求再加可选依赖                    |
 
 ## 验证方式汇总
 
 - 单元：`node --test`（input 解码、layout 视口）
 - 集成：`pnpm demo`（mock 全栈）
-- 真机：真实 DSH profile 跑通（T0.1 / T2.1）
+- 真机：真实 DSH profile 跑通（T2.1；阶段 0 spike 改为源码研读，无真机脚本）
 - 打包：全新 `pnpm install && pnpm build && bin/dsh-tui.js`（T3.4）

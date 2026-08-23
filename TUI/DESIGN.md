@@ -22,7 +22,13 @@
 - 砍掉：帧 diff、组件树、布局引擎。渲染核心约 150 行。
 - 输入解码是隐藏大头：需手写 ANSI 转义序列解析（方向键、Home/End、Ctrl 组合、bracketed paste）。node 无 stdlib 键盘解析，这是自研 vs 用 Ink 的真正代价。
 - node-pty 是原生二进制，暂不引入。
-- 风险最高的部分是 DSH 适配层（"通过 ctx 订阅会话事件、驱动 Agent"），应在 renderer 定稿前先做 spike 确认接口。当前仓库无 DSH 源码可查，接口待确认。
+- 自研渲染层约 150 行验证可行（阶段 1 已实现并审计通过）。
+- DSH 适配层（"通过 ctx 订阅会话事件、驱动 Agent"）接口风险已解除：改以**官方源码研读**（`~/GithubRepos/deepseek-harness`，b150a551b8 = dsh-0.1.1-rc.2）确认接口形状，沉淀于仓库根 `DSH-CTX-API.md`。确认结果：
+  - 进程内宿主为 vendored `@deepseek-ai/cordis`（Context/Service/Fiber），插件导出 `apply(ctx)`；
+  - 订阅会话事件：`ctx.on('session/event', (session, event) => …)`（带 `seq` 连续契约），词汇表见 `KNOWN_SESSION_EVENT_TYPES`；
+  - 审批应答链：`ctx.on('approval/request', (req, next) => …)`，返回 `ApprovalOutcome`（'allowed-once'|'rejected'|'cancelled'|'unavailable'），须在 open turn 内；
+  - 发消息：进程内 `agent.followup(...)`；进程外官方桥为 JSON-RPC `session/prompt`；
+  - agent 状态是 agent 层事件 `agent/status`，不在 session 事件词汇表内。
 
 ## 文件结构（单包分目录）
 
@@ -114,7 +120,7 @@ interface Renderer {
 
 ## 开发阶段（含 spike）
 
-0. **DSH adapter spike**（丢弃式脚本，非最终 adapter）：订阅一个会话 → 收到流式文本 → 发送一次审批。产出：state 模型形状 + renderer 实现顺序的依据。当前仓库无 DSH 源码，ctx API 未确认，adapter 必须架在接口后以便 mock/真实替换。
+0. **DSH adapter 接口确认**（已完成，2026-08-23）：研读官方源码并沉淀于仓库根 `DSH-CTX-API.md`，接口形状已写入 `src/app/adapter/dsh.ts` 的类型骨架（DSH 原生类型 + 归一化映射表）。不再需要一次性的 spike 脚本；阶段 2 实现 real adapter 时直接在真实 DSH profile 内验证（订阅 → 流式 → 审批应答）。adapter 保持接口化以便 mock/真实替换。
 1. 实现 renderer 最小可用（raw mode + 输入解码 + 整帧重绘），`demo/` 跑通
 1. 接入 DSH 核心（adapter/dsh.ts，含审批与流式输出）
 1. 完善交互功能并打包为 DSH Profile Bundle（bin/dsh-tui.js）
