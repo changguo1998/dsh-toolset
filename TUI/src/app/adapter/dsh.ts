@@ -48,7 +48,7 @@ export interface DshAdapter {
   /**
    * 执行 slash 命令行(形如 /name args...)。约定：命令通过注册表调用 → 结果经
    * notice 事件回报；未命中(undefined)→ notice 提示未知命令(fail-close)，绝不
-   * 作为用户消息发送给模型。渲染类命令(/help /clear /quit)由 app 层本地表处理，
+   * 作为用户消息发送给模型。渲染类命令(/help /clearscreen /cls /quit)由 app 层本地表处理，
    * 不经过本方法。
    */
   runCommand(line: string, sessionId?: string): void;

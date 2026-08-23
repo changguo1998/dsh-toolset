@@ -175,7 +175,7 @@ export class App {
 
   /**
    * Slash 命令路由：
-   *  - 渲染相关命令(/help /clear /quit)→ 本地小命令表
+   *  - 渲染相关命令(/help /clearscreen /cls /quit)→ 本地小命令表
    *  - 其他 /name → adapter.runCommand → commands 注册表调用(官方机制)
    *  - 未命中注册表 → adapter 侧 notice 提示(fail-close，绝不经 sendMessage)
    */
@@ -196,7 +196,8 @@ export class App {
           }),
         );
         return;
-      case "clear":
+      case "clearscreen":
+      case "cls":
         this.apply((s) => reduceState(s, { type: "clear-buffer" }));
         return;
       case "quit":
@@ -215,7 +216,7 @@ export class App {
     return [
       "本地命令：",
       "  /help   显示本帮助",
-      "  /clear  清空缓冲",
+      "  /clearscreen (/cls)  清空缓冲(只清显示，不动上下文)",
       "  /quit   退出",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");

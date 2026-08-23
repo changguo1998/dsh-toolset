@@ -1,6 +1,6 @@
 // tests/app.test.ts — App 层 slash 命令路由单测
 //
-// 覆盖：submit() 对 / 前缀行走 slash 路由；本地表 /help /clear /quit；
+// 覆盖：submit() 对 / 前缀行走 slash 路由；本地表 /help /clearscreen /cls /quit；
 // 未知命令 fail-close(不经 sendMessage)；notice 事件进入缓冲。
 
 import { test } from "node:test";
@@ -101,9 +101,16 @@ test("/help → 本地表(不经 sendMessage/runCommand)", () => {
   assert.deepEqual(adapter.commands, []);
 });
 
-test("/clear → 本地表(不经 sendMessage/runCommand)", () => {
+test("/clearscreen → 本地表(不经 sendMessage/runCommand)", () => {
   const { renderer, adapter } = makeApp();
-  typeAndEnter(renderer, "/clear");
+  typeAndEnter(renderer, "/clearscreen");
+  assert.deepEqual(adapter.sent, []);
+  assert.deepEqual(adapter.commands, []);
+});
+
+test("/cls 别名 → 与 /clearscreen 同一功能", () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/cls");
   assert.deepEqual(adapter.sent, []);
   assert.deepEqual(adapter.commands, []);
 });

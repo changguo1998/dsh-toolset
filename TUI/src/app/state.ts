@@ -72,7 +72,7 @@ export function appendNotice(state: AppState, text: string): AppState {
   return { ...state, buffer };
 }
 
-/** 清空会话缓冲(本地 /clear 命令)。 */
+/** 清空显示缓冲(本地 /clearscreen，别名 /cls)——只清 UI，不动会话上下文。 */
 export function clearBuffer(state: AppState): AppState {
   return { ...state, buffer: [], scrollOffset: 0, followBottom: true };
 }

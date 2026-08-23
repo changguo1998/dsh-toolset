@@ -327,6 +327,8 @@ test("onEvent 返回解绑函数；unbind 后不再收到事件", () => {
 test("parseSlashCommand: 合法命令名", () => {
   assert.equal(parseSlashCommand("/help"), "help");
   assert.equal(parseSlashCommand("/clear "), "clear");
+  assert.equal(parseSlashCommand("/clearscreen"), "clearscreen");
+  assert.equal(parseSlashCommand("/cls"), "cls");
   assert.equal(parseSlashCommand("/compact 现在"), "compact");
   assert.equal(parseSlashCommand("/plan_2 -v"), "plan_2");
   assert.equal(parseSlashCommand("/foo-bar"), "foo-bar");
