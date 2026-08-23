@@ -42,13 +42,20 @@ Done when：`pnpm demo` 启动后可见流式滚动、可上滚回翻、审批�
 
 `ponytail:` screen 无 diff 整帧重绘，行数大时若有闪烁再考虑增量。
 
-## 阶段 2：adapter 接入 DSH
+## 阶段 2：adapter 接入 DSH（已完成 2026-08-23）
 
-- [ ] T2.1 `src/app/adapter/dsh.ts`：按 T0.2 骨架实现，`ctx.on` 会话事件 → 写 state（流式增量、审批项、agent 状态）。
-- [ ] T2.2 `main.ts`：组装 renderer + app + real adapter；发消息/审批 → 回调 DSH。
-- [ ] T2.3 mock/真实切换：demo 直接用 mock 适配器（构造注入），不改 app 层。
+- [x] T2.1 `src/app/adapter/dsh.ts`：实现 `createRealDshAdapter`——`ctx.on('session/event')` 归一化（assistant/chunk、turn/start|turn/end、agent/status）→ `DshEvent` 写 state；注册 `approval/request` waterfall 应答者（approve→'allowed-once'/'rejected'，signal 中断/超时→'cancelled'，无订阅者→next() fail-closed 'unavailable'）。
+- [x] T2.2 `main.ts`：双角色——导出 cordis 插件入口 `{ name, inject, apply }`（apply 内解析模型 route→`agents.create`→组装 renderer+app+real adapter，**无顶层副作用**）；`main()` 供 bin 显式调用。
+- [x] T2.3 mock/真实切换：`createMockDshAdapter` 仅 demo/`bin` 使用（构造注入），app 层零改动。
 
-Done when：真实 DSH profile 内运行，TUI 显示真实会话流式输出，审批流转回 DSH。
+真机结论（2026-08-23，profile `dsh-toolset-tui` + DEEPSEEK_API_KEY）：
+
+- 「实测载荷」：deepseek adapter 的 `assistant/chunk` 以 `block-start`/`block-end`（`block-end` 携带完整 `text`：含 reasoning 块与 text 块）送达，而非 T0.2 假设的 `text-delta`/`reasoning-delta`——adapter 已兼容两种形态（两种不会在同一 provider 并存）。
+- 链路：`user/message`（followup 送达）→ `request/header`（route deepseek-official/deepseek-v4-flash 生效）→ `assistant/chunk`×N（真实 token）→ `turn/end completed`；状态栏 idle→thinking→idle；Ctrl+C 退出码 0。
+- 插件 `Config` 需为 schemastery Schema 才导出（cordis `resolveConfig` 要求 `Config['~standard'].validate`）；本项目零依赖故不导出，loader 透传 config。
+- 未注入服务（如 `agentDefaultModel`）只能经 `ctx.get()` 访问，不能直接属性读取（cordis 严格模式）。
+
+Done when：真实 DSH profile 内运行，TUI 显示真实会话流式输出，审批流转回 DSH。——✅ 已达成（流式落屏 + turn 完成；审批交互走同一条 waterfall 链，真机未人为触发审批弹窗）。
 
 ## 阶段 3：集成与打包
 
@@ -72,13 +79,13 @@ T3.1/3.2 ← T2.2；T3.3/3.4 ← T3.1
 
 ## 风险登记
 
-| 风险                                                                    | 等级 | 缓解                                                             |
+| 风险 | 等级 | 缓解 |
 | ----------------------------------------------------------------------- | ---- | ---------------------------------------------------------------- |
-| DSH ctx API（已研读确认并沉淀 DSH-CTX-API.md，但未在真实 profile 实证） | 中   | T2.1 真机验证事件名/载荷；adapter 接口化，先 mock 后置换         |
-| ANSI 输入解码漏组合键                                                   | 中   | T1.2 用字节流单测覆盖所有设计到的手/终端场景                     |
-| 整帧重绘在大滚动下闪烁/卡顿                                             | 低   | T1.4 末行追写优化；`ponytail:` 留了增量渲染升级位                |
-| profile 打包（bundle patch / files 字段）细节未知                       | 中   | T3.3 参照社区包（`dsh-working-activity`）结构；T3.4 全新安装验证 |
-| node-pty 未引入，DSH 若要求 TUI 自开 shell 则缺能力                     | 低   | 设计已定会话由 DSH 管理；出现需求再加可选依赖                    |
+| DSH ctx API（已研读确认并沉淀 DSH-CTX-API.md，且 T2.1 已真机实证） | 低 | 真机验证事件名/载荷已完成；adapter 接口化，mock/真实可置换 |
+| ANSI 输入解码漏组合键 | 中 | T1.2 用字节流单测覆盖所有设计到的手/终端场景 |
+| 整帧重绘在大滚动下闪烁/卡顿 | 低 | T1.4 末行追写优化；`ponytail:` 留了增量渲染升级位 |
+| profile 打包（bundle patch / files 字段）细节未知 | 中 | T3.3 参照社区包（`dsh-working-activity`）结构；T3.4 全新安装验证 |
+| node-pty 未引入，DSH 若要求 TUI 自开 shell 则缺能力 | 低 | 设计已定会话由 DSH 管理；出现需求再加可选依赖 |
 
 ## 验证方式汇总
 
