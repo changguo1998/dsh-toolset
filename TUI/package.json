@@ -24,9 +24,15 @@
         "dist",
         "bin",
         "LICENSE",
-        "README.md"
+        "README.md",
+        "cordis.patch.yml"
     ],
     "engines": {
         "node": ">=22.19.0"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
     }
 }
