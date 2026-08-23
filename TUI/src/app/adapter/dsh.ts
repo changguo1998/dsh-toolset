@@ -1,24 +1,22 @@
-// src/app/adapter/dsh.ts — DSH 适配层契约（阶段 1 只定义接口，真实实现属阶段 2）
+// src/app/adapter/dsh.ts — DSH 适配层契约（阶段 1 + 阶段 2 真实实现）
 //
 // 接口化让 mock（demo/）与真实（阶段 2）可互换，app 层不感知实现。
 // 类型骨架依据官方 deepseek-harness 源码研读沉淀对齐（见 dsh-toolset/DSH-CTX-API.md，
-// clone b150a551b8 = dsh-0.1.1-rc.2；早期 wa_dsh_doc.md 社区观测已核实）。
+// clone b150a551b8 = dsh-0.1.1-rc.2）。
 //
-// DSH 原生信号 → app 归一化事件的映射（阶段 2 在真实 adapter 内实现）：
-//   ctx.sessions.list()                    → { type: 'session-list' }
-//   ctx.on('session/event', (session, e))  → 按 e.type 归一化：
+// DSH 原生信号 → app 归一化事件的映射（阶段 2 已在 createRealDshAdapter 内实现）：
+//   runtime.on('session/event', (session, e))  → 按 e.type 归一化：
 //     - 'assistant/chunk' {turn,step,chunk} 中 chunk.type='text-delta'|'reasoning-delta'
 //       的 text 合并 → { type: 'stream' }
-//     - 'approval/asked' {id,toolName,callId?,reason?} → { type: 'approval' }
-//     - 'turn/start' | 'turn/end'          → { type: 'turn-end' }（阶段 2 可加 turn-start UI）
-//     - 'user/message' | 'assistant/message' | 'tool/call' | 'tool/result'（阶段 2 可选展示）
-//   ctx.on('agent/status', ({agent, status})) → { type: 'agent-status' }
+//     - 'turn/start' | 'turn/end'          → { type: 'turn-end' }
+//   runtime.on('agent/status', ({agent, status})) → { type: 'agent-status' }
 //     （agent/status 是 agent 层事件，不在 session 日志词汇表内）
 //
 // 审批应答契约：DSH 侧是 waterfall 链事件 'approval/request'(req, next)，监听者返回
-// ApprovalOutcome 即裁定；无人应答 fail-closed。request 须在 open turn 内发起。
-// adapter 需向 ctx 注册应答者，并把 app 的 approve(id, allow) 映射为
-// allow ? 'allowed-once' : 'rejected'。
+// ApprovalOutcome 即裁定；调用 next() 放行给后续监听者，最终无应答 fail-closed。
+// request 须在 open turn 内发起。adapter 注册应答者，并把 app 的 approve(id, allow)
+// 映射为 allow ? 'allowed-once' : 'rejected'；signal 中断/超时 → 'cancelled'：
+// request 携带的 signal 中断立即取消，另有可配置的 approvalTimeoutMs 超时兜底。
 
 export type AgentStatus = "idle" | "thinking" | "tool" | "done";
 
@@ -52,10 +50,12 @@ export interface DshAdapter {
 
 // ---------- 以下 DSH 原生类型仅供阶段 2 adapter 实现参考（app 层不消费） ----------
 
-/** DSH 会话事件类型子集（完整词汇表见 KNOWN_SESSION_EVENT_TYPES，generated） */
+/** DSH 会话事件类型子集（完整枚举见 KNOWN_SESSION_EVENT_TYPES，generated） */
 export type SessionEventType =
   | "turn/start"
   | "turn/end"
+  | "step/start"
+  | "step/end"
   | "user/message"
   | "assistant/message"
   | "assistant/chunk"
@@ -64,13 +64,15 @@ export type SessionEventType =
   | "approval/asked"
   | "approval/decided"
   | "approval/policy"
+  | "session/end-seed"
   | "session/title"
   | "goal/change"
   | "compaction/start"
   | "compaction/end"
   | "plan/mode"
   | "sandbox/mode"
-  | "subagent/descriptor";
+  | "subagent/descriptor"
+  | "agent/preset/selected";
 
 /** StreamChunk 子集（assistant/chunk 事件的 chunk 载荷；完整变体见 stream 契约） */
 export type StreamChunk =
@@ -84,13 +86,19 @@ export type StreamChunk =
       name?: string;
       argumentsDelta?: string;
     }
-  | { type: "block-end"; index: number; blockType?: string }
+  | {
+      type: "block-end";
+      index: number;
+      blockType?: string;
+      /** 真实 DSH 载荷:完整块文本嵌套在 block.text(与 DSH-CTX-API.md StreamChunk 契约一致) */
+      block?: { type?: string; text?: string; [k: string]: unknown };
+    }
   | { type: "usage"; index?: number; usage: Record<string, unknown> }
   | { type: "finish"; reason: string; replayState?: unknown };
 
 /** DSH 审批请求（approval/request 载荷） */
 export interface ApprovalRequest {
-  agent: unknown; // dsh-agent Agent 实例
+  agent: unknown;
   toolName: string;
   callId?: string;
   reason?: string;
@@ -101,10 +109,240 @@ export interface ApprovalRequest {
 export type ApprovalOutcome =
   "allowed-once" | "rejected" | "cancelled" | "unavailable";
 
-/** DSH 会话事件原始载荷（session/event 的 event 参数；阶段 2 按 type 分开处理） */
-export interface SessionEvent {
-  type: SessionEventType;
+/** 各 type 的 data 载荷（阶段 2 用到的子集） */
+export interface SessionEventDataMap {
+  "turn/start": { turn: number };
+  "turn/end": { turn: number; reason: string };
+  "step/start": { turn: number; step: number };
+  "step/end": { turn: number; step: number };
+  "assistant/chunk": { turn: number; step: number; chunk: StreamChunk };
+  "user/message": { id?: string };
+  "assistant/message": { turn: number; step: number };
+  "tool/call": { callId: string; name: string; arguments: string };
+  "tool/result": { callId: string };
+  "approval/asked": {
+    id: string;
+    toolName: string;
+    callId?: string;
+    reason?: string;
+  };
+  "approval/decided": { id: string; outcome: ApprovalOutcome };
+  "approval/policy": { policy: "ask" | "never" };
+  "session/title": { title: string };
+  "agent/preset/selected": { preset: string };
+}
+
+/** DSH 会话事件（session/event 的 event 参数，type 与 data 联动窄化） */
+export interface SessionEvent<T extends SessionEventType = SessionEventType> {
+  type: T;
   seq: number;
+  time: number;
+  data: T extends keyof SessionEventDataMap
+    ? SessionEventDataMap[T]
+    : Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// 阶段 2 真实实现：createRealDshAdapter
+// ---------------------------------------------------------------------------
+
+/** DSH 宿主的 slim 结构面（cordis Context 的结构子集），便于独立测试。 */
+export interface DshRuntime {
+  on(
+    event: string,
+    listener: (...args: unknown[]) => unknown,
+  ): (() => void) | void;
+}
+
+/** 结构型 agent（真机来自 ctx.agents.create() 的 AgentHandle.agent） */
+export interface DshAgentLike {
+  readonly session: { readonly id: string };
+  followup(message: DshUserMessageLike): void;
+}
+
+/** 结构型用户消息（真机应改用 createUserMessage 生成，字段同构） */
+export interface DshUserMessageLike {
+  readonly role: "user";
+  readonly content: readonly { type: "text"; text: string }[];
+  readonly source: { kind: "user" } | { kind: "plugin"; plugin: string };
+}
+
+export interface RealAdapterOptions {
+  runtime: DshRuntime;
   sessionId: string;
-  [key: string]: unknown; // 各 type 特有字段：turn/step/title/payload...
+  agent: DshAgentLike;
+  /** 审批弹窗超时（ms），超时未答 fallback 'cancelled'；默认 60s */
+  approvalTimeoutMs?: number;
+}
+
+/** 从 DSH ApprovalRequest 构造 app 审批提示文案 */
+export function buildApprovalPrompt(req: ApprovalRequest): string {
+  const reason = req.reason ? "：" + req.reason : "";
+  return `允许工具 ${req.toolName} 执行?${reason}`;
+}
+
+/** 构造结构型用户消息（真机字段同 createUserMessage 输出） */
+export function buildUserMessage(text: string): DshUserMessageLike {
+  return {
+    role: "user",
+    content: [{ type: "text", text }],
+    source: { kind: "user" },
+  };
+}
+
+/** DSH 'running'|'idle' → app AgentStatus */
+export function normalizeAgentStatus(s: string | undefined): AgentStatus {
+  switch (s) {
+    case "running":
+      return "thinking";
+    case "tool":
+      return "tool";
+    case "idle":
+      return "idle";
+    default:
+      return "idle";
+  }
+}
+
+/** 构造真实 DSH adapter：注册应答者 + 订阅会话事件，归一化为 DshEvent。 */
+export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
+  const { runtime, sessionId, agent } = opts;
+  const listeners = new Set<(e: DshEvent) => void>();
+  const pendingApprovals = new Map<
+    string,
+    {
+      resolve: (o: ApprovalOutcome) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  let approvalSeq = 0;
+  const disposed = false;
+
+  const emit = (e: DshEvent): void => {
+    if (disposed) return;
+    for (const cb of listeners) {
+      try {
+        cb(e);
+      } catch (err) {
+        process.stderr.write("[dsh adapter] emit error: " + String(err) + "\n");
+      }
+    }
+  };
+
+  // --- session/event 归一化 ---
+  const onSessionEvent = (session: unknown, raw: SessionEvent): void => {
+    const sid = (session as { id?: string } | null)?.id ?? sessionId;
+    const data = raw.data as { chunk?: StreamChunk; text?: string };
+    switch (raw.type) {
+      case "assistant/chunk": {
+        const chunk = data.chunk as StreamChunk | undefined;
+        if (!chunk) return;
+        // DSH deepseek adapter 实测送达形式：block-start/block-end(block-end 携带
+        // 完整 text)。text-delta/reasoning-delta 为增量契约(部分 provider 使用)。
+        // 统一归一化为 stream 事件，两种形态不会在同一 provider 上同时出现。
+        if (chunk.type === "text-delta" || chunk.type === "reasoning-delta") {
+          emit({ type: "stream", sessionId: sid, text: chunk.text });
+        } else if (
+          chunk.type === "block-end" &&
+          (chunk.block?.text ??
+            (chunk as StreamChunk & { text?: string }).text) !== undefined
+        ) {
+          emit({
+            type: "stream",
+            sessionId: sid,
+            text:
+              chunk.block?.text ??
+              (chunk as StreamChunk & { text?: string }).text!,
+          });
+        }
+        return;
+      }
+      case "turn/start":
+      case "turn/end":
+        emit({ type: "turn-end" });
+        return;
+      default:
+        return;
+    }
+  };
+
+  // --- approval/request waterfall 应答者 ---
+  const settle = (id: string, outcome: ApprovalOutcome): void => {
+    const pending = pendingApprovals.get(id);
+    if (!pending) return;
+    pendingApprovals.delete(id);
+    clearTimeout(pending.timer);
+    pending.resolve(outcome);
+  };
+
+  const approvalAnswerer = (
+    req: ApprovalRequest,
+    next: () => Promise<ApprovalOutcome>,
+  ): Promise<ApprovalOutcome> => {
+    if (disposed || listeners.size === 0) return next();
+    const id = "approval-" + approvalSeq++;
+    const prompt = buildApprovalPrompt(req);
+    const timer = setTimeout(
+      () => settle(id, "cancelled"),
+      opts.approvalTimeoutMs ?? 60_000,
+    );
+    return new Promise<ApprovalOutcome>((resolve) => {
+      pendingApprovals.set(id, { resolve, timer });
+      emit({ type: "approval", id, prompt });
+      const signal = req.signal;
+      if (signal?.aborted) {
+        settle(id, "cancelled");
+        resolve("cancelled");
+        return;
+      }
+      signal?.addEventListener("abort", () => settle(id, "cancelled"), {
+        once: true,
+      });
+    });
+  };
+
+  const adapter: DshAdapter = {
+    onEvent(cb) {
+      if (disposed) return () => {};
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    sendMessage(text, targetSessionId) {
+      if (disposed) return;
+      if (targetSessionId && targetSessionId !== sessionId) {
+        process.stderr.write(
+          "[dsh adapter] sendMessage: sessionId " +
+            targetSessionId +
+            " not active\n",
+        );
+        return;
+      }
+      agent.followup(buildUserMessage(text));
+    },
+    approve(id, allow) {
+      if (disposed) return;
+      settle(id, allow ? "allowed-once" : "rejected");
+    },
+  };
+
+  runtime.on("session/event", (session, event) =>
+    onSessionEvent(session, event as SessionEvent),
+  );
+  runtime.on("agent/status", (payload) =>
+    emitAgentStatus(payload as { agent?: unknown; status?: string }),
+  );
+  runtime.on(
+    "approval/request",
+    approvalAnswerer as (...args: unknown[]) => unknown,
+  );
+
+  return adapter;
+
+  function emitAgentStatus(payload: {
+    agent?: unknown;
+    status?: string;
+  }): void {
+    const status = normalizeAgentStatus(payload?.status);
+    emit({ type: "agent-status", sessionId, status });
+  }
 }
