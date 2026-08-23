@@ -76,3 +76,5 @@ pnpm demo     # 构建后跑 mock demo
 ## 退出契约
 
 进程生命周期归 renderer：`close()` / SIGINT / SIGTERM 先恢复终端再退出；退出码随底层（`dsh` 委托场景透传，demo 场景 renderer 自行 exit）。
+
+> 按键退出：`Esc` 与 `Ctrl+C` 不再触发退出（避免误触丢会话）；请用 `/quit` 命令退出。系统信号（SIGINT/SIGTERM）仍正常处理。

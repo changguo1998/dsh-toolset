@@ -12,4 +12,4 @@ const adapter = createMockDshAdapter();
 const app = new App({ renderer, adapter });
 app.start();
 
-// 退出路径交 renderer：demo 命中 (Ctrl+C/Esc) 或信号即可；此处不加额外逻辑。
+// 退出路径交 renderer：/quit 命令、SIGINT/SIGTERM 信号或进程结束即可；此处不加额外逻辑。

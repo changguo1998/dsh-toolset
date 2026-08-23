@@ -124,6 +124,20 @@ test("/quit → 关闭 renderer", () => {
   app.dispose();
 });
 
+test("Esc 不再触发退出(close 不被调用)", () => {
+  const { renderer, adapter } = makeApp();
+  renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+  assert.equal(renderer.closed, 0);
+  assert.deepEqual(adapter.sent, []);
+});
+
+test("Ctrl+C 不再触发退出(close 不被调用)", () => {
+  const { renderer, adapter } = makeApp();
+  renderer.press({ name: "c", ctrl: true, meta: false, shift: false });
+  assert.equal(renderer.closed, 0);
+  assert.deepEqual(adapter.sent, []);
+});
+
 test("未知 /xxx → adapter.runCommand(fail-close 不经 sendMessage)", () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/plan 明天");

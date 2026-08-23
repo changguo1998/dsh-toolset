@@ -130,9 +130,6 @@ export class App {
       case "enter":
         this.submit();
         break;
-      case "escape":
-        this.deps.renderer.close();
-        break;
       case "paste":
         if (k.text) {
           const t = k.text;
@@ -149,9 +146,8 @@ export class App {
         }
         break;
       default:
-        // 可打印字符：插入输入框
+        // 可打印字符：插入输入框（Esc/Ctrl+C 不再触发退出；退出请用 /quit 或系统信号）
         if (name.length === 1 && !ctrl) this.insertChar(name);
-        else if (ctrl && name === "c") this.deps.renderer.close();
         break;
     }
     this.paint();
