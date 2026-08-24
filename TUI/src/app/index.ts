@@ -86,7 +86,7 @@ export class App {
     if (this.disposed) return;
     const { name, ctrl } = k;
 
-    // 审批模式：y/n/q + 滚动
+    // 审批模式：y/n + 滚动
     if (this.state.approval && (name === "y" || name === "n")) {
       const allow = name === "y";
       this.deps.adapter.approve(this.state.approval.id, allow);
@@ -95,7 +95,26 @@ export class App {
       return;
     }
 
+    // Ctrl+L：强制整帧重绘（绕过 delta 优化）。放在 switch 前，避免吞掉普通 'l' 输入。
+    if (ctrl && name === "l") {
+      this.refresh();
+      return;
+    }
+
     switch (name) {
+      case "escape":
+        // Esc 打断思考：真实链路映射 agent.cancel({kind:'user'})，demo 为 notice
+        this.deps.adapter.interrupt();
+        break;
+      case "tab":
+        // ponytail: 单会话占位，多会话基建落地后再实现真正的标签页切换
+        this.apply((s) =>
+          reduceState(s, {
+            type: "notice",
+            text: "标签页切换待实现（当前为单会话）",
+          }),
+        );
+        break;
       case "up":
         this.apply((s) => reduceState(s, { type: "scroll", delta: 1 }));
         break;
@@ -231,6 +250,14 @@ export class App {
     const cur = Math.max(0, s.inputCursor - 1);
     const text = s.inputText.slice(0, cur) + s.inputText.slice(s.inputCursor);
     return reduceState(s, { type: "input", text, cursor: cur });
+  }
+
+  /** 强制整帧重绘（Ctrl+L）：绕过 delta，走 renderer.refresh */
+  private refresh(): void {
+    if (this.disposed) return;
+    const size = this.deps.renderer.getSize();
+    const frame = buildFrame(this.state, size);
+    this.deps.renderer.refresh(frame);
   }
 
   private paint(): void {

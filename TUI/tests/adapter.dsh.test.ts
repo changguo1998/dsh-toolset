@@ -78,6 +78,7 @@ function createRealAdapter(
   agent: DshAgentLike,
   approvalTimeoutMs = 50,
   commands?: DshCommandLike,
+  interrupt?: () => void,
 ) {
   return createRealDshAdapter({
     runtime,
@@ -85,6 +86,7 @@ function createRealAdapter(
     agent,
     commands,
     approvalTimeoutMs,
+    interrupt,
   });
 }
 
@@ -468,4 +470,38 @@ test("dispose: 幂等(可重复调用)", () => {
   t.adapter.dispose!();
   t.adapter.dispose!();
   assert.ok(true);
+});
+
+test("interrupt: 调用传入的 interrupt 回调", () => {
+  let calls = 0;
+  const agent = new FakeAgent();
+  const adapter = createRealAdapter(
+    new FakeRuntime(),
+    agent,
+    50,
+    undefined,
+    () => calls++,
+  );
+  adapter.interrupt();
+  assert.equal(calls, 1);
+});
+
+test("interrupt: 无回调时为 no-op(不抛错,不发事件)", () => {
+  const t = makeAdapter();
+  t.adapter.interrupt();
+  assert.equal(t.events.length, 0);
+});
+
+test("interrupt: dispose 后为 no-op", () => {
+  let calls = 0;
+  const adapter = createRealAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    () => calls++,
+  );
+  adapter.dispose!();
+  adapter.interrupt();
+  assert.equal(calls, 0);
 });

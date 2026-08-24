@@ -119,6 +119,8 @@ export async function apply(
   const rawAgent = handle.agent as {
     session: { id: string };
     followup(m: DshUserMessageLike): void;
+    /** DSH Agent.cancel(cause)：中断当前 turn/step（{kind:'user'} 为用户手动打断） */
+    cancel?(cause: { kind: "user" }): void;
   };
   // SAFETY: agents.create 的返回契约(AgentHandle.agent)来自 @deepseek-ai/dsh-agent，
   // agent.session.id 与 agent.followup(UserMessage) 已获官方源码确认(DSH-CTX-API.md)。
@@ -145,6 +147,7 @@ export async function apply(
     sessionId: agentLike.session.id,
     agent: agentLike,
     commandAgent: rawAgent,
+    interrupt: () => rawAgent.cancel?.({ kind: "user" }),
     commands,
     approvalTimeoutMs: config?.approvalTimeoutMs ?? 60_000,
   });

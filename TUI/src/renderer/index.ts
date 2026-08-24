@@ -19,6 +19,8 @@ export type { Size };
 export interface Renderer {
   /** 整帧重绘；render 内含末尾追加的 delta 优化 */
   render(lines: RenderLine[]): void;
+  /** 强制整帧重绘（绕过 delta 优化，Ctrl+L 用） */
+  refresh(lines: RenderLine[]): void;
   onKey(cb: (k: KeyEvent) => void): void;
   onResize(cb: (cols: number, rows: number) => void): void;
   getSize(): Size;
@@ -101,6 +103,11 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       }
       screen.render(lines);
       prevLines = lines;
+    },
+    refresh(lines: RenderLine[]): void {
+      if (closed) return;
+      prevLines = null; // 强制走全帧 screen.render(清屏+重绘)
+      this.render(lines);
     },
     onKey(cb: (k: KeyEvent) => void): void {
       keyCbs.add(cb);

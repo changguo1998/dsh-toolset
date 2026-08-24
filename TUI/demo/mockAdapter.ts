@@ -52,6 +52,13 @@ export class MockDshAdapter implements DshAdapter {
     });
   }
 
+  interrupt(): void {
+    this.emit({
+      type: "notice",
+      text: "[demo] 打断请求（demo 无真实 agent，已忽略）",
+    });
+  }
+
   dispose(): void {
     for (const t of this.timers) clearTimeout(t);
     this.timers = [];

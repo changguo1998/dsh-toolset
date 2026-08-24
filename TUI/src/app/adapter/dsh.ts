@@ -39,7 +39,7 @@ export type DshEvent =
   | { type: "notice"; text: string }
   | { type: "turn-end" };
 
-/** 应用层对 adapter 的唯一依赖面：事件流入 + 两个出站回调 */
+/** 应用层对 adapter 的唯一依赖面：事件流入 + 出站回调（消息/命令/审批/打断） */
 export interface DshAdapter {
   /** 订阅 DSH 会话事件；返回解绑函数 */
   onEvent(cb: (e: DshEvent) => void): () => void;
@@ -56,6 +56,8 @@ export interface DshAdapter {
   dispose?(): void;
   /** 审批：allow=true 批准（DSH 'allowed-once'），false 拒绝（'rejected'） */
   approve(id: string, allow: boolean): void;
+  /** 打断当前思考/turn（真实实现映射 agent.cancel({kind:'user'})；宿主无取消能力时为 no-op） */
+  interrupt(): void;
 }
 
 // ---------- 以下 DSH 原生类型仅供阶段 2 adapter 实现参考（app 层不消费） ----------
@@ -203,6 +205,8 @@ export interface RealAdapterOptions {
   commands?: DshCommandLike;
   /** 审批弹窗超时（ms），超时未答 fallback 'cancelled'；默认 60s */
   approvalTimeoutMs?: number;
+  /** 打断当前思考/turn 的回调（调用 agent.cancel({kind:'user'})）；宿主无 cancel 能力时不传 */
+  interrupt?: () => void;
 }
 
 /**
@@ -384,6 +388,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     approve(id, allow) {
       if (disposed) return;
       settle(id, allow ? "allowed-once" : "rejected");
+    },
+    interrupt() {
+      if (disposed) return;
+      opts.interrupt?.();
     },
   };
 

@@ -14,11 +14,15 @@ import type { RenderLine, Size } from "../src/renderer/screen.ts";
 class FakeRenderer implements Renderer {
   keys: KeyEvent[] = [];
   renders = 0;
+  refreshes = 0;
   closed = 0;
   size: Size = { cols: 80, rows: 24 };
 
   render(_lines: RenderLine[]): void {
     this.renders++;
+  }
+  refresh(_lines: RenderLine[]): void {
+    this.refreshes++;
   }
   onKey(cb: (k: KeyEvent) => void): void {
     this.keys.length = 0;
@@ -64,6 +68,10 @@ class FakeAdapter implements DshAdapter {
     this.disposed++;
   }
   approve(_id: string, _allow: boolean): void {}
+  interrupts = 0;
+  interrupt(): void {
+    this.interrupts++;
+  }
 
   /** 测试辅助：注入事件 */
   push(e: DshEvent): void {
@@ -124,11 +132,35 @@ test("/quit → 关闭 renderer", () => {
   app.dispose();
 });
 
-test("Esc 不再触发退出(close 不被调用)", () => {
+test("Esc 触发打断(interrupt)，不触发退出(close 不被调用)", () => {
   const { renderer, adapter } = makeApp();
   renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+  assert.equal(adapter.interrupts, 1);
   assert.equal(renderer.closed, 0);
   assert.deepEqual(adapter.sent, []);
+});
+
+test("Ctrl+L 触发强制重绘(refresh)，不吞普通 'l' 输入", () => {
+  const { renderer, adapter } = makeApp();
+  renderer.press({ name: "l", ctrl: true, meta: false, shift: false });
+  assert.equal(renderer.refreshes, 1);
+  assert.equal(renderer.closed, 0);
+  assert.deepEqual(adapter.sent, []);
+});
+
+test("普通 'l' 仍插入输入框(不被 Ctrl+L 分支吞掉)", () => {
+  const { renderer, adapter } = makeApp();
+  renderer.press({ name: "l", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.sent, ["l"]);
+  assert.equal(renderer.refreshes, 0);
+});
+
+test("Tab 占位提示进 UI 缓冲(不影响 sendMessage)", () => {
+  const { renderer, adapter } = makeApp();
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.sent, []);
+  assert.equal(renderer.renders > 1, true);
 });
 
 test("Ctrl+C 不再触发退出(close 不被调用)", () => {

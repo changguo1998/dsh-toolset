@@ -73,6 +73,23 @@ pnpm demo     # 构建后跑 mock demo
 - **其他功能命令 → commands 注册表**（官方 `dsh-commands` 机制）：输入路由到 `adapter.runCommand` → `ctx.commands.execute(agent, line)`，结果/错误经 `notice` 事件展示在 UI 缓冲。未命中注册表 → 提示未知命令（官方 fail-close 策略，绝不把 slash 行发给模型）。
 - demo 模式无 commands 注册表，非本地 `/xxx` 回提示。
 
+## 按键
+
+| 按键 | 行为 |
+| --- | --- |
+| `↑` / `↓` | 滚动 1 行 |
+| `PageUp` / `PageDown` | 滚动 10 行 |
+| `Home` / `End` | 回到底部 / 跳到顶部 |
+| `←` / `→` | 输入框光标移动 |
+| `Backspace` | 删除光标前字符 |
+| `Enter` | 提交输入（普通文本 → agent；`/` 开头 → slash 命令） |
+| 可打印字符（含 CJK） | 插入输入框 |
+| 终端粘贴（bracketed paste） | 插入粘贴文本 |
+| `y` / `n` | 审批弹窗确认 / 拒绝 |
+| `Esc` | 打断当前思考/turn（真实链路 `agent.cancel({kind:'user'})`；demo 提示忽略） |
+| `Tab` | 标签页切换（预留，多会话基建落地后实现；当前提示占位） |
+| `Ctrl+L` | 强制整帧重绘（绕过 delta 优化） |
+
 ## 退出契约
 
 进程生命周期归 renderer：`close()` / SIGINT / SIGTERM 先恢复终端再退出；退出码随底层（`dsh` 委托场景透传，demo 场景 renderer 自行 exit）。
