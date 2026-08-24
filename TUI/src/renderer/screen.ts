@@ -9,6 +9,8 @@ import chalk from "chalk";
 export interface RenderLine {
   text: string;
   style?: { fg?: string; bg?: string; bold?: boolean };
+  /** 渲染后硬件光标停留的显示列(0 基)；仅输入行设置(TextInput 计算) */
+  caret?: number;
 }
 
 export interface ScreenOptions {
@@ -43,13 +45,23 @@ export class Screen {
     return { cols: this.cols, rows: this.rows };
   }
 
-  /** 整帧重绘：清屏 → 原点 → 每行样式化输出 → 光标归位 */
+  /** 整帧重绘：清屏 → 原点 → 每行样式化输出 → 末尾光标回到输入行 */
   render(lines: RenderLine[]): void {
     const out: string[] = ["\x1b[2J\x1b[H"]; // 清屏 + 光标回原点
-    for (const line of lines) {
+    let caret: { row: number; col: number } | null = null; // 输入行光标(0 基列)
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
       out.push(styleLine(line));
-      out.push("\r\n");
+      if (line.caret !== undefined) {
+        // 输入行不加尾部 \r\n：满高帧时为最后一行，CRLF 触发触底上滚，
+        // 使下方多出一整行、光标落在输入行下一行。光标由末尾转义精确定位。
+        caret = { row: i + 1, col: line.caret };
+      } else {
+        out.push("\r\n");
+      }
     }
+    // 光标必须在所有行写完后再移动，否则后续行从光标列起写
+    if (caret) out.push(`\x1b[${caret.row};${caret.col + 1}H`);
     this.write(out.join(""));
   }
 
@@ -59,10 +71,19 @@ export class Screen {
     const height = Math.max(1, this.rows);
     // 光标移动到 startLine（1 基数）
     out.push(`\x1b[${startLine};1H`);
-    for (const line of lines) {
+    let caret: { row: number; col: number } | null = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
       out.push(styleLine(line));
-      out.push("\r\n\x1b[K"); // 每行写完后擦除到行尾，避免残留上一帧更长的旧字符
+      if (line.caret !== undefined) {
+        // 输入行：仅擦除行尾残留，不回车换行(避免满高帧触底上滚后光标偏下一行)
+        out.push("\x1b[K");
+        caret = { row: startLine + i, col: line.caret };
+      } else {
+        out.push("\r\n\x1b[K"); // 每行写完后擦除到行尾，避免残留上一帧更长的旧字符
+      }
     }
+    if (caret) out.push(`\x1b[${caret.row};${caret.col + 1}H`);
     this.write(out.join(""));
     void height;
   }

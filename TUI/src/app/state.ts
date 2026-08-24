@@ -65,8 +65,10 @@ export function appendStream(state: AppState, text: string): AppState {
  * 用于 slash 命令的提示/结果文本(绝不进入模型历史，仅 UI 展示)。
  */
 export function appendNotice(state: AppState, text: string): AppState {
+  // 多行 notice 拆成多行 buffer，否则 wrapLine 把 \n 当普通字符(宽1)会让列宽对不齐，
+  // 字词在中间被截断(例如 /quit 在 i 与 t 之间换行)。
   const buffer = state.buffer.length ? [...state.buffer] : [];
-  buffer.push(text);
+  for (const line of text.split("\n")) buffer.push(line);
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
   return { ...state, buffer };

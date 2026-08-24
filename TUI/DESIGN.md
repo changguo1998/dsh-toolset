@@ -79,6 +79,7 @@ adapter → app（喂状态）
 interface RenderLine {
   text: string;
   style?: { fg?: string; bg?: string; bold?: boolean };
+  caret?: number; // 渲染后硬件光标停留列(0 基)，仅输入行设置
 }
 
 // 应用收到的按键事件：input.ts 解码后的结构化结果

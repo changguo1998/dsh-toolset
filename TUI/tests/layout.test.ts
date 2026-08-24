@@ -8,6 +8,8 @@ import {
   wrapLines,
   computeViewport,
 } from "../src/app/layout.ts";
+import { initialState, reduceState } from "../src/app/state.ts";
+import { renderTextInput } from "../src/app/components/TextInput.ts";
 
 // ---- charWidth / displayWidth ----
 
@@ -123,4 +125,55 @@ test("滚回底部（offset=0, follow=false）恢复跟随", () => {
     }),
     { start: 15, end: 20, followBottom: true, scrollOffset: 0 },
   );
+});
+
+// ---- 修复回归：多行 notice 拆分（REGRESSION: /help 在 "quit" 中间折行） ----
+
+test("appendNotice: 多行 notice 文本拆成多行 buffer（不再整块折行导致词内断行）", () => {
+  const s = _stateWith({ type: "notice", text: "本地命令：\n  /quit   退出\n其他 /name 走注册表。" });
+  assert.deepEqual(s.buffer, ["本地命令：", "  /quit   退出", "其他 /name 走注册表。"]);
+});
+
+test("appendNotice: 多行拆分不改变已有 buffer 末行语义", () => {
+  let s = _stateWith({ type: "append", text: "第1行" });
+  s = _stateWith({ type: "notice", text: "A\nB" }, s);
+  assert.deepEqual(s.buffer, ["第1行", "A", "B"]);
+});
+
+function _stateWith(action: { type: "notice"; text: string } | { type: "append"; text: string }, s = initialState()) {
+  return reduceState(s, action);
+}
+
+// ---- 修复回归：光标列 = 显示列（含 CJK），不再是 code unit 下标 ----
+
+test("renderTextInput: 光标列按显示宽度计算（ASCII）", () => {
+  const line = renderTextInput("hello", 3, "...", 40)[0]!;
+  // prompt="❯ "(2 列) + "hel"(3 列) = caret 列 5(0 基)
+  assert.equal(line.caret, 2 + 3);
+  assert.equal(line.text, "❯ hello");
+});
+
+test("renderTextInput: 光标列按显示宽度计算（CJK 占 2 列）", () => {
+  const line = renderTextInput("中文a", 3, "...", 40)[0]!;
+  // prompt(2) + 中(2)+文(2)+a(1) = 7(0 基)
+  assert.equal(line.caret, 7);
+});
+
+test("renderTextInput: 光标在行尾也能给出列（不在文本中间画块）", () => {
+  const line = renderTextInput("中文", 2, "...", 40)[0]!;
+  assert.equal(line.caret, 6); // prompt(2)+中(2)+文(2)
+});
+
+test("renderTextInput: 空文本按 placeholder 渲染且光标在 prompt 之后", () => {
+  const line = renderTextInput("", 0, "Type a message…", 40)[0]!;
+  assert.equal(line.text, "❯ Type a message…");
+  assert.equal(line.caret, 2);
+});
+
+test("renderTextInput: 宽度不足时水平滚动仍保持光标可见", () => {
+  const text = "abcdefghij";
+  // avail = 10-2 = 8，文本 10 列超宽，光标在末尾(cursor=5)应滚到可见区
+  const line = renderTextInput(text, 5, "...", 10)[0]!;
+  const caret = line.caret!;
+  assert.ok(caret >= 2 && caret < 2 + 8, "光标列应在可视窗口内");
 });

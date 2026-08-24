@@ -142,6 +142,8 @@ function commonPrefix(a: RenderLine[], b: RenderLine[]): number {
 
 function sameLine(x: RenderLine, y: RenderLine): boolean {
   if (x.text !== y.text) return false;
+  // caret 变化(纯光标移动)也阻止 delta 合并，否则硬件光标不更新
+  if (x.caret !== y.caret) return false;
   const sx = x.style !== undefined;
   const sy = y.style !== undefined;
   if (sx !== sy) return false;
