@@ -31,12 +31,12 @@ Done when：经官方源码核实任一断言（本次以 `grep` 交叉验证 JS
 
 按依赖顺序实现，每文件独立可测。
 
-- [ ] T1.1 `terminal.ts`：raw mode 开/关（`process.stdin`）、`resize` 监听、读取退出信号，并在**所有退出路径**（`close()`、SIGINT/SIGTERM、`uncaughtException`/`unhandledRejection`）恢复终端。assert: raw 状态切换正确、信号处理后终端已恢复。
-- [ ] T1.2 `input.ts`：stdin 字节 → `KeyEvent` 解码（方向键、Home/End、Ctrl 组合、Tab、Esc、bracketed paste）。`tests/input.test.ts` 喂字节流断言 KeyEvent（node:test）。
-- [ ] T1.3 `screen.ts`：帧缓冲 + 整帧重绘（全部行每次 `write`，无 diff）。含 ANSI 光标定位/清屏。
-- [ ] T1.4 `index.ts`：`Renderer` 公共 API（`render/onKey/onResize/getSize/close`），`render` 追写最后一行优化。
-- [ ] T1.5 `app/state.ts` `layout.ts` `components/`：状态模型（会话列表、流式增量、审批项）+ viewport 切分（wrapping、2000 行上限、跟随底部/上滚暂停跟随）。`layout.ts` 的视口计算抽纯函数，可单测。
-- [ ] T1.6 `demo/`：mock adapter 喂模拟流式文本与审批，`pnpm demo` 完整走通 renderer→app 栈。
+- [x] T1.1 `terminal.ts`：raw mode 开/关（`process.stdin`）、`resize` 监听、读取退出信号，并在**所有退出路径**（`close()`、SIGINT/SIGTERM、`uncaughtException`/`unhandledRejection`）恢复终端。assert: raw 状态切换正确、信号处理后终端已恢复。
+- [x] T1.2 `input.ts`：stdin 字节 → `KeyEvent` 解码（方向键、Home/End、Ctrl 组合、Tab、Esc、bracketed paste）。`tests/input.test.ts` 喂字节流断言 KeyEvent（node:test）。
+- [x] T1.3 `screen.ts`：帧缓冲 + 整帧重绘（全部行每次 `write`，无 diff）。含 ANSI 光标定位/清屏。
+- [x] T1.4 `index.ts`：`Renderer` 公共 API（`render/onKey/onResize/getSize/close`），`render` 追写最后一行优化。
+- [x] T1.5 `app/state.ts` `layout.ts` `components/`：状态模型（会话列表、流式增量、审批项）+ viewport 切分（wrapping、2000 行上限、跟随底部/上滚暂停跟随）。`layout.ts` 的视口计算抽纯函数，可单测。
+- [x] T1.6 `demo/`：mock adapter 喂模拟流式文本与审批，`pnpm demo` 完整走通 renderer→app 栈。
 
 Done when：`pnpm demo` 启动后可见流式滚动、可上滚回翻、审批弹窗可确认/拒绝；`node --test tests/` 全绿。
 
@@ -82,6 +82,13 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 - **dispose 修复**：原 `const disposed = false` 致 dispose 永不生效——改为 `let`，并实现：中止在途命令的 AbortController、解绑 runtime 监听（`collectUnbind`）、清空监听集。`App.dispose()` 透传 `adapter.dispose?.()`。
 - **mock/demo**：`MockDshAdapter.runCommand` 回 `notice` 提示 demo 模式无注册表；`App` 层本地表在 demo 同样生效。
 - **测试**：`tests/adapter.dsh.test.ts` 新增 parseSlashCommand、runCommand（命中/未命中/错误/无注册表/非法行/同步返回/sessionId 过滤）、notice、dispose（abort + 解绑 + 幂等）用例；新增 `tests/app.test.ts` 覆盖 submit 路由（普通消息→sendMessage、/help /clearscreen /cls /quit→本地表、未知 /xxx→runCommand、notice 渲染、dispose 透传）。`package.json` test 脚本加 `--experimental-transform-types`（app 层参数属性需 transform 模式）。
+
+## 按键扩展（2026-08-24）
+
+- **Esc** → `App.handleKey` case `escape` → `adapter.interrupt()` → 真实链路 `agent.cancel({kind:'user'})`（`main.ts` 给 rawAgent 结构面加 `cancel?` 并注入 `interrupt` 回调）；demo 模式回 notice 提示。
+- **Tab** → 占位：notice「标签页切换待实现（当前为单会话）」。真正的标签页切换需 per-session buffer 基建（`sessions` 表已存在但渲染共享单缓冲）。
+- **Ctrl+L** → `renderer.refresh()` 强制全帧重绘（`prevLines=null`，绕过 delta 优化）。
+- 测试：`tests/app.test.ts` 4 例（Esc 打断 + Ctrl+L 刷新 + 普通 'l' 不吞 + Tab 占位）、`tests/adapter.dsh.test.ts` 3 例（回调/no-op/dispose 后 no-op）。`npm run check && npm test` 全绿。
 
 ## 依赖顺序
 
