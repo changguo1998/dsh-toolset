@@ -90,6 +90,14 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 - **Ctrl+L** → `renderer.refresh()` 强制全帧重绘（`prevLines=null`，绕过 delta 优化）。
 - 测试：`tests/app.test.ts` 4 例（Esc 打断 + Ctrl+L 刷新 + 普通 'l' 不吞 + Tab 占位）、`tests/adapter.dsh.test.ts` 3 例（回调/no-op/dispose 后 no-op）。`npm run check && npm test` 全绿。
 
+## 阶段 4：四区域布局 + 系统状态区（2026-08-24）
+
+- [x] T4.1 `layout.ts` 重构：`FrameMetrics` 改为 `topHeight/statusHeight/footerHeight/pluginWidth/historyWidth`；顶部高度 = rows - 状态(1) - 输入(1)；顶部区域内左侧固定 `PLUGIN_WIDTH=14` 插件窄条占位框 + 右侧历史区（按 historyWidth 换行，沿用 scrollback 语义）。
+- [x] T4.2 `state.ts`：新增 `SystemStatus` 字段与 `{type:"status"}`（合并更新）、`{type:"turn-end"}`（`appendTurnSeparator` 追加分隔线，空 buffer/重复 turn-end 不重复追加）；`appendStream` 在末行为分隔线时不再合并（硬边界）。
+- [x] T4.3 `status.ts` 新增：`StatusTicker`（合并节流，queries/schedule 可注入，tickCount 可数）+ `createProcessStatusQueries`/`gitStatus` 真实实现。
+- [x] T4.4 `app/index.ts`：`turn-end` → reducer；`AppDeps.status` 可选，提供后自动启停 StatusTicker；`main.ts`/demo 接入真实查询器。
+- [x] T4.5 单测：`tests/layout4.test.ts`（四区顺序/尺寸、turn 分隔、truncateToWidth）、`tests/status.test.ts`（合并节流、可注入调度、占位不抛错）。`npm run check && npm test` 全绿（98/98）。
+
 ## 依赖顺序
 
 ```
@@ -104,7 +112,7 @@ T3.1/3.2 ← T2.2；T3.3/3.4 ← T3.1
 ## 风险登记
 
 | 风险 | 等级 | 缓解 |
-| ----------------------------------------------------------------------- | ---- | ---------------------------------------------------------------- |
+| ------------------------------------------------------------------ | ---- | ---------------------------------------------------------------- |
 | DSH ctx API（已研读确认并沉淀 DSH-CTX-API.md，且 T2.1 已真机实证） | 低 | 真机验证事件名/载荷已完成；adapter 接口化，mock/真实可置换 |
 | ANSI 输入解码漏组合键 | 中 | T1.2 用字节流单测覆盖所有设计到的手/终端场景 |
 | 整帧重绘在大滚动下闪烁/卡顿 | 低 | T1.4 末行追写优化；`ponytail:` 留了增量渲染升级位 |

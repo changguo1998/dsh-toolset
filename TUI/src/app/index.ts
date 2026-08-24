@@ -9,10 +9,16 @@ import { initialState, reduceState } from "./state.ts";
 import type { DshAdapter, DshEvent } from "./adapter/dsh.ts";
 import { parseSlashCommand } from "./adapter/dsh.ts";
 import { buildFrame } from "./layout.ts";
+import { StatusTicker, type StatusQueries } from "./status.ts";
 
 export interface AppDeps {
   renderer: Renderer;
   adapter: DshAdapter;
+  /** 可选：系统状态区数据源；提供后 App 自动启动合并节流 ticker */
+  status?: {
+    queries: StatusQueries;
+    intervalMs?: number;
+  };
 }
 
 export class App {
@@ -20,6 +26,7 @@ export class App {
   private unbindEvents: (() => void)[] = [];
   private log: (msg: string) => void = () => {};
   private disposed = false;
+  private statusTicker: StatusTicker | null = null;
 
   constructor(private deps: AppDeps) {}
 
@@ -33,6 +40,19 @@ export class App {
     this.unbindEvents.push(
       this.deps.adapter.onEvent((e) => this.handleEvent(e)),
     );
+    // 系统状态区：合并节流 ticker（tick 一次批量查 cwd/git/time）
+    if (this.deps.status) {
+      this.statusTicker = new StatusTicker({
+        queries: this.deps.status.queries,
+        intervalMs: this.deps.status.intervalMs ?? 5000,
+        apply: (status) => {
+          this.apply((s) => reduceState(s, { type: "status", status }));
+          this.paint();
+        },
+      });
+      this.statusTicker.start();
+      this.unbindEvents.push(() => this.statusTicker?.stop());
+    }
     this.paint();
   }
 
@@ -73,7 +93,9 @@ export class App {
         this.apply((s) => reduceState(s, { type: "notice", text: e.text }));
         break;
       case "turn-end":
-        break; // 阶段 1 无动作；阶段 2 可触发额外 UI
+        // turn 结束：追加分隔线，让对话历史每个 turn 之间可见分隔
+        this.apply((s) => reduceState(s, { type: "turn-end" }));
+        break;
       default: {
         const _exhaustive: never = e;
         void _exhaustive;

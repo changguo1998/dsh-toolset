@@ -132,6 +132,13 @@ export class MockDshAdapter implements DshAdapter {
         delay + chunks.length * 90 + 40,
       ),
     );
+    // 流式结束后补发 turn-end：演示 turn 分隔线与状态区
+    this.timers.push(
+      setTimeout(
+        () => this.emit({ type: "turn-end" }),
+        delay + chunks.length * 90 + 60,
+      ),
+    );
     if (this.seq === 2) {
       // 第二次回复后触发一次审批
       const apId = this.sessionId + "/" + this.seq;

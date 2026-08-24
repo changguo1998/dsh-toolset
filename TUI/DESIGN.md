@@ -58,9 +58,10 @@ src/renderer/
 
 ```
 src/app/
-  state.ts       # 状态模型：会话列表、流式文本增量、审批项
-  layout.ts      # header / 流式区 / 输入行 / 审批弹窗
-  components/    # TextInput、ScrollView（流式区）、ApprovalPrompt
+  state.ts       # 状态模型：会话列表、流式文本增量、审批项、系统状态区、turn 分隔
+  layout.ts      # 四区域帧：顶部(插件窄条+历史) / 状态区 / 输入行 / 审批弹窗
+  status.ts      # 系统状态区数据源：StatusTicker 合并节流读取 cwd/git/time
+  components/    # TextInput、ScrollView（历史区）、ApprovalPrompt
   adapter/dsh.ts # ctx 订阅 → 写入 state；审批/发消息 → 回调 DSH
   index.ts
 ```
@@ -99,6 +100,20 @@ interface Renderer {
   close(): void; // 恢复终端，退出事件循环
 }
 ```
+
+## 四区域布局
+
+屏幕自上而下切分为：**顶部区域**（左侧插件窄条占位 + 右侧对话历史）、**系统状态区**（一行横向）、**输入区**（含审批弹窗形态）：
+
+- **高度分配**：顶部高度 = `rows - 状态区(1) - 输入区(1)`（审批弹窗时输入区更高，沿用 `max(4, rows*0.3)`）；「中间与底部满足显示需要，剩余高度全部由上方两个填充」。
+- **插件窄条**：固定 `PLUGIN_WIDTH=14` 列，绘制占位框（`┌─ plugin ─┐` + 空区 + `└──┘`），本轮不读取插件数据。
+- **历史区**：按 `historyWidth = cols - pluginWidth` 换行，沿用 scrollback 语义（wrapping、followBottom、scrollOffset、2000 行上限）。
+- **状态区**：横向单行 `时间 12:00:00 · 目录 ~/proj · git main · 模型 — · 状态 idle · ctx — · cache —`；超宽按显示宽度截断（`truncateToWidth`，不切半个 CJK；不用 emoji 避免宽度模型偏差）。
+- **turn 分隔**：`turn-end` 事件 → `appendTurnSeparator` 往 buffer 追加 `TURN_SEPARATOR` 横线行，让每个 turn 之间可见分隔；`appendStream` 遇到末行为分隔线时不合并（硬边界，下个 turn 另起一行）。
+
+### 状态区数据流
+
+`StatusTicker`（`status.ts`）以固定间隔 tick，**一次 tick 内合并查询 cwd/git/time**（不重复 fork 子进程），聚合为单个 `Partial<SystemStatus>` 经 `{type:"status"}` reducer 更新。模型/上下文长度/缓存命中率无数据源，保持占位 `—`。queries 与 schedule 均可注入（测试断言调用次数）；真实实现：`process.cwd()` + `git status --porcelain --branch`（execFile，1.5s 超时，失败回 `—`）。
 
 ## 流式滚屏（scrollback）行为
 

@@ -12,6 +12,7 @@
 
 import { createRenderer, type Renderer } from "./renderer/index.ts";
 import { App } from "./app/index.ts";
+import { createProcessStatusQueries } from "./app/status.ts";
 import type { DshAdapter } from "./app/adapter/dsh.ts";
 import {
   createRealDshAdapter,
@@ -27,7 +28,11 @@ export function main(opts: {
   logger?: (m: string) => void;
 }): void {
   const renderer: Renderer = createRenderer();
-  const app = new App({ renderer, adapter: opts.adapter });
+  const app = new App({
+    renderer,
+    adapter: opts.adapter,
+    status: { queries: createProcessStatusQueries(), intervalMs: 5000 },
+  });
   app.setLogger(opts.logger ?? ((msg) => void msg));
   app.start();
   void renderer;

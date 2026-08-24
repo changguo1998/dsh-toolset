@@ -56,10 +56,13 @@ function delegate(args) {
 async function demo() {
   const { createRenderer } = await import("../dist/src/renderer/index.js");
   const { App } = await import("../dist/src/app/index.js");
+  const { createProcessStatusQueries } =
+    await import("../dist/src/app/status.js");
   const { createMockDshAdapter } = await import("../dist/demo/mockAdapter.js");
   const app = new App({
     renderer: createRenderer(),
     adapter: createMockDshAdapter(),
+    status: { queries: createProcessStatusQueries(), intervalMs: 5000 },
   });
   app.start();
 }

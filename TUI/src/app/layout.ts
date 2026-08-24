@@ -11,7 +11,6 @@ import type { RenderLine } from "../renderer/index.ts";
 import type { Size } from "../renderer/index.ts";
 import type { AppState } from "./state.ts";
 import type { ApprovalItem } from "./adapter/dsh.ts";
-import { renderScrollView } from "./components/ScrollView.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
 
@@ -40,6 +39,20 @@ export function displayWidth(text: string): number {
   let w = 0;
   for (const ch of text) w += charWidth(ch);
   return w;
+}
+
+/** 按显示宽度截断：超出 cols 的尾部丢弃（不切半个 CJK 字符） */
+export function truncateToWidth(text: string, cols: number): string {
+  if (cols <= 0) return "";
+  let w = 0;
+  let out = "";
+  for (const ch of text) {
+    const cw = charWidth(ch);
+    if (w + cw > cols) break;
+    out += ch;
+    w += cw;
+  }
+  return out;
 }
 
 /**
@@ -117,51 +130,126 @@ export function computeViewport(vp: ViewportInput): Viewport {
 
 // ---------- 帧组装 ----------
 
+/** 顶部区域(插件窄条 + 对话历史)固定宽度列数 */
+export const PLUGIN_WIDTH = 14;
+
 export interface FrameMetrics {
-  headerHeight: number;
-  scrollHeight: number;
+  /** 顶部区域行数 = rows - 状态区 - 输入区（剩余高度全给上方两个） */
+  topHeight: number;
+  /** 系统状态区行数（固定 1） */
+  statusHeight: number;
+  /** 输入区行数（审批弹窗时更高） */
   footerHeight: number;
-  scrollStart: number; // scroll 区域第一行行号（1-based）
+  /** 插件窄条固定宽 */
+  pluginWidth: number;
+  /** 历史区宽 = cols - pluginWidth */
+  historyWidth: number;
 }
 
 export function metricsFor(
   size: Size,
   hasApprovalPrompt: boolean,
 ): FrameMetrics {
-  const headerHeight = 1;
+  const statusHeight = 1;
   const footerHeight = hasApprovalPrompt
     ? Math.max(4, Math.floor(size.rows * 0.3))
     : 1;
-  const scrollHeight = Math.max(0, size.rows - headerHeight - footerHeight);
+  // 插件窄条：固定宽，但窄终端时让出至少 1 列给历史区
+  const pluginWidth = Math.min(PLUGIN_WIDTH, Math.max(1, size.cols - 2));
+  const historyWidth = Math.max(1, size.cols - pluginWidth);
+  const topHeight = Math.max(0, size.rows - statusHeight - footerHeight);
   return {
-    headerHeight,
-    scrollHeight,
+    topHeight,
+    statusHeight,
     footerHeight,
-    scrollStart: headerHeight + 1,
+    pluginWidth,
+    historyWidth,
   };
 }
 
-/** 由渲染帧（AppState → RenderLine[]），header + 流式区 + 输入行/审批弹窗 */
+/**
+ * 插件窄条占位框的第 row 行单元格（0 基，rows 行为总高）。
+ * 返回恰好 pluginWidth 列宽的字符串（边框 + 标题/空区）。
+ */
+function pluginCell(row: number, rows: number, width: number): string {
+  const TOP = "┌─ plugin ─"; // 11 字符（含尾 ─）
+  const bottom = "└" + "─".repeat(Math.max(0, width - 2)) + "┘";
+  const middle = "│" + " ".repeat(Math.max(0, width - 2)) + "│";
+  if (rows <= 1) return TOP.slice(0, Math.max(0, width));
+  if (row === 0) {
+    const fill = "─".repeat(Math.max(0, width - TOP.length - 1));
+    return TOP + fill + "┐";
+  }
+  if (row === rows - 1) return bottom;
+  return middle;
+}
+
+/** 顶部区域：每行 = 左侧插件窄条 + 右侧历史行（合并为一个 RenderLine） */
+function buildTopRegion(
+  state: AppState,
+  topHeight: number,
+  pluginWidth: number,
+  historyWidth: number,
+  cols: number,
+): RenderLine[] {
+  const wrapped = wrapLines(state.buffer, historyWidth);
+  const vp = computeViewport({
+    totalRows: wrapped.length,
+    height: topHeight,
+    followBottom: state.followBottom,
+    scrollOffset: state.scrollOffset,
+  });
+  const rows: RenderLine[] = [];
+  for (let i = 0; i < topHeight; i++) {
+    const left = pluginCell(i, topHeight, pluginWidth);
+    const idx = vp.start + i;
+    const right = idx < vp.end ? (wrapped[idx] ?? "") : "";
+    rows.push({ text: truncateToWidth(left + right, cols) });
+  }
+  return rows;
+}
+
+/** 系统状态区：横向单行，超宽截断 */
+export function renderStatusLine(
+  status: AppState["systemStatus"],
+  agentStatus: string,
+  cols: number,
+): RenderLine {
+  // 用纯文本标签（不用 emoji：emoji 终端宽 2 列但 charWidth 模型按 1 列，
+  // 会在边界处把行撑超 1 列）
+  const items = [
+    `时间 ${status.time}`,
+    `目录 ${status.cwd}`,
+    `git ${status.git}`,
+    `模型 ${status.model}`,
+    `状态 ${agentStatus}`,
+    `ctx ${status.contextLen}`,
+    `cache ${status.cacheHit}`,
+  ];
+  const text = truncateToWidth(" " + items.join(" · ") + " ", cols);
+  return { text };
+}
+
+/** 由渲染帧（AppState → RenderLine[]）：顶部(插件+历史) + 状态区 + 输入/审批 */
 export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const approval = state.approval;
   const showApproval = approval !== null;
   const metrics = metricsFor(size, showApproval);
   const fullWidth = Math.max(1, size.cols);
 
-  // header：会话标题 + agent 状态
-  const headerLine: RenderLine = {
-    text: ` DSHTUI · ${state.activeSessionId ?? "—"} · ${state.agentStatus} `,
-  };
+  const topRegion = buildTopRegion(
+    state,
+    metrics.topHeight,
+    metrics.pluginWidth,
+    metrics.historyWidth,
+    fullWidth,
+  );
 
-  // 流式区
-  const wrapped = wrapLines(state.buffer, fullWidth);
-  const vp = computeViewport({
-    totalRows: wrapped.length,
-    height: metrics.scrollHeight,
-    followBottom: state.followBottom,
-    scrollOffset: state.scrollOffset,
-  });
-  const scrollLines = renderScrollView(wrapped, vp.start, vp.end, fullWidth);
+  const statusLine = renderStatusLine(
+    state.systemStatus,
+    state.agentStatus,
+    fullWidth,
+  );
 
   const footerLines = showApproval
     ? renderApprovalPrompt(
@@ -176,5 +264,5 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
         fullWidth,
       );
 
-  return [headerLine, ...scrollLines, ...footerLines];
+  return [...topRegion, statusLine, ...footerLines];
 }
