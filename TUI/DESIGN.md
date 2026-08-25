@@ -105,10 +105,10 @@ interface Renderer {
 
 屏幕自上而下切分为：**顶部区域**（左侧插件窄条占位 + 右侧对话历史）、**系统状态区**（一行横向）、**输入区**（含审批弹窗形态）：
 
-- **高度分配**：顶部高度 = `rows - 状态区(1) - 输入区(1)`（审批弹窗时输入区更高，沿用 `max(4, rows*0.3)`）；「中间与底部满足显示需要，剩余高度全部由上方两个填充」。
-- **插件窄条**：固定 `PLUGIN_WIDTH=14` 列，绘制占位框（`┌─ plugin ─┐` + 空区 + `└──┘`），本轮不读取插件数据。
+- **高度分配**：顶部高度 = `rows - 状态区(1) - 输入区(1) - 分隔行(2)`（审批弹窗时输入区更高，沿用 `max(4, rows*0.3)`）；「中间与底部满足显示需要，剩余高度全部由上方两个填充」；`buildFrame` 输出顺序为 顶部区 → 横线分隔行 → 状态区 → 横线分隔行 → 输入/审批。
+- **插件窄条**：固定 `PLUGIN_WIDTH=2` 列，仅最左一列竖线 `│` 区分左右分区，其余留白；无边框、无标题、本轮不读取插件数据。
 - **历史区**：按 `historyWidth = cols - pluginWidth` 换行，沿用 scrollback 语义（wrapping、followBottom、scrollOffset、2000 行上限）。
-- **状态区**：横向单行 `时间 12:00:00 · 目录 ~/proj · git main · 模型 — · 状态 idle · ctx — · cache —`；超宽按显示宽度截断（`truncateToWidth`，不切半个 CJK；不用 emoji 避免宽度模型偏差）。
+- **状态区**：横向单行 `12:00:00|~/proj|main|—|—|—`（六段：时间/路径/git/模型/上下文/缓存；无标题、仅值，`|` 分隔；默认前景色，仅路径段染蓝；推理状态段已移除）。超宽按显示宽度截断。通用配色：边框/分隔线（分离行、顶部竖线）统一灰色 `chalk.gray`，输入栏为默认前景色（不切半个 CJK；不用 emoji 避免宽度模型偏差）。
 - **turn 分隔**：`turn-end` 事件 → `appendTurnSeparator` 往 buffer 追加 `TURN_SEPARATOR` 横线行，让每个 turn 之间可见分隔；`appendStream` 遇到末行为分隔线时不合并（硬边界，下个 turn 另起一行）。
 
 ### 状态区数据流
@@ -138,8 +138,8 @@ interface Renderer {
 
 0. **DSH adapter 接口确认**（已完成，2026-08-23）：研读官方源码并沉淀于仓库根 `DSH-CTX-API.md`，接口形状已写入 `src/app/adapter/dsh.ts` 的类型骨架（DSH 原生类型 + 归一化映射表）。不再需要一次性的 spike 脚本；阶段 2 实现 real adapter 时直接在真实 DSH profile 内验证（订阅 → 流式 → 审批应答）。adapter 保持接口化以便 mock/真实替换。
 1. 实现 renderer 最小可用（raw mode + 输入解码 + 整帧重绘），`demo/` 跑通
-1. 接入 DSH 核心（adapter/dsh.ts，含审批与流式输出）
-1. 完善交互功能并打包为 DSH Profile Bundle（bin/dsh-tui.js）
+2. 接入 DSH 核心（adapter/dsh.ts，含审批与流式输出）
+3. 完善交互功能并打包为 DSH Profile Bundle（bin/dsh-tui.js）
 
 由 advisor 审阅（2026-08-22），本版修正：
 

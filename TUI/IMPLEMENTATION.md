@@ -51,7 +51,7 @@ Done when：`pnpm demo` 启动后可见流式滚动、可上滚回翻、审批�
 真机结论（2026-08-23，profile `dsh-toolset-tui` + DEEPSEEK_API_KEY）：
 
 - 「实测载荷」：deepseek adapter 的 `assistant/chunk` 以 `block-start`/`block-end`（`block-end` 携带完整 `text`：含 reasoning 块与 text 块）送达，而非 T0.2 假设的 `text-delta`/`reasoning-delta`——adapter 已兼容两种形态（两种不会在同一 provider 并存）。
-- 链路：`user/message`（followup 送达）→ `request/header`（route deepseek-official/deepseek-v4-flash 生效）→ `assistant/chunk`×N（真实 token）→ `turn/end completed`；状态栏 idle→thinking→idle；Ctrl+C 退出码 0。
+- 链路：`user/message`（followup 送达）→ `request/header`（route deepseek-official/deepseek-v4-flash 生效）→ `assistant/chunk`×N（真实 token）→ `turn/end completed`；状态栏 `>`→`?`→`>`（idle/thinking 提示符）；Ctrl+C 退出码 0。
 - 插件 `Config` 需为 schemastery Schema 才导出（cordis `resolveConfig` 要求 `Config['~standard'].validate`）；本项目零依赖故不导出，loader 透传 config。
 - 未注入服务（如 `agentDefaultModel`）只能经 `ctx.get()` 访问，不能直接属性读取（cordis 严格模式）。
 
@@ -64,7 +64,7 @@ Done when：真实 DSH profile 内运行，TUI 显示真实会话流式输出，
 - [x] T3.3 `cordis.patch.yml`（insert dsh-tui 行）+ `dsh.profile.bundles` 注册（见 `~/.dsh/profiles/dsh-toolset-tui` 示例）+ `README.md`（包定位、双态用法、挂载步骤、demo 与真实链路、构建/测试命令）。
 - [x] T3.4 全新环境验证：`pnpm pack` 产物 `dsh-toolset-dsh-tui-0.1.0.tgz`，tarball 成员含 `dist/`（34 文件，src/demo/tests）、`bin/dsh-tui.js`、`cordis.patch.yml`、`README.md`；临时空目录 `pnpm add <tarball>` 后 `node_modules/@dsh-toolset/dsh-tui` 内 bin、cordis.patch.yml、dist（含 `apply` 导出）齐全，`--help` 正常。
 
-真机结论（2026-08-23，阶段 3 回归）：双态 bin 委托路径经伪 TTY 拉起真实链路（`dsh --profile dsh-toolset-tui`），进程无崩溃；无 DSH 空 `$DSH_HOME` 走 demo 分支存活；冒烟捕获 `thinking` 状态栏与真实作答（"7\*8 = 56"），turn 正常回 idle。
+真机结论（2026-08-23，阶段 3 回归）：双态 bin 委托路径经伪 TTY 拉起真实链路（`dsh --profile dsh-toolset-tui`），进程无崩溃；无 DSH 空 `$DSH_HOME` 走 demo 分支存活；冒烟捕获 thinking 推理与真实作答（"7\*8 = 56"），turn 正常回 idle。
 
 Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可独立启动并与 profile 内会话交互；无 DSH 环境退化为 demo 模式。——✅ 已达成（挂载→委托→真实链路已验证；`dsh plugin add` 的发布分发形态见 README，本地开发经 `file:` 依赖同路径验证）。
 
@@ -92,7 +92,7 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 
 ## 阶段 4：四区域布局 + 系统状态区（2026-08-24）
 
-- [x] T4.1 `layout.ts` 重构：`FrameMetrics` 改为 `topHeight/statusHeight/footerHeight/pluginWidth/historyWidth`；顶部高度 = rows - 状态(1) - 输入(1)；顶部区域内左侧固定 `PLUGIN_WIDTH=14` 插件窄条占位框 + 右侧历史区（按 historyWidth 换行，沿用 scrollback 语义）。
+- [x] T4.1 `layout.ts` 重构：`FrameMetrics` 改为 `topHeight/statusHeight/footerHeight/pluginWidth/historyWidth`；顶部高度 = rows - 状态(1) - 输入(1) - 分隔行(2)；顶部区域内左侧固定 `PLUGIN_WIDTH=2` 竖线窄条（无边框无标题）+ 右侧历史区（按 historyWidth 换行，沿用 scrollback 语义）；上/中/下三区之间各有一条横线分隔行（`SEPARATOR_ROWS`）。
 - [x] T4.2 `state.ts`：新增 `SystemStatus` 字段与 `{type:"status"}`（合并更新）、`{type:"turn-end"}`（`appendTurnSeparator` 追加分隔线，空 buffer/重复 turn-end 不重复追加）；`appendStream` 在末行为分隔线时不再合并（硬边界）。
 - [x] T4.3 `status.ts` 新增：`StatusTicker`（合并节流，queries/schedule 可注入，tickCount 可数）+ `createProcessStatusQueries`/`gitStatus` 真实实现。
 - [x] T4.4 `app/index.ts`：`turn-end` → reducer；`AppDeps.status` 可选，提供后自动启停 StatusTicker；`main.ts`/demo 接入真实查询器。

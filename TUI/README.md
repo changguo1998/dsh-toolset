@@ -3,11 +3,12 @@
 DSH（DeepSeek Harness）进程内集成的终端 UI 插件。复用 DSH 核心服务（会话、Agent 驱动、审批链等），提供 Web UI / CLI 之外的第三种交互方式，由自研极简渲染层驱动（不依赖 Ink / Solid-TUI / node-pty，运行时唯一依赖 `chalk`）。
 
 ```
-┌─ plugin ───┐ 真实会话流式输出                 <- 左侧插件窄条(占位)
-│            │ ……                              <- 右侧对话历史(assistant/chunk)
-└────────────┘
- 时间 12:00:00 · 目录 ~/proj · git main · 模型 — · 状态 idle · ctx — · cache —   <- 系统状态区
-❯ 输入消息…                                   <- 回车发送,Enter 走 agent.followup
+│ 真实会话流式输出             <- 左侧插件窄条(占位，仅竖线)
+│ ……                          <- 右侧对话历史(assistant/chunk)
+───────────────────────────── <- 横线分隔行
+12:00:00|~/proj|main|—|—|—   <- 系统状态区（无标题、| 分隔；默认前景色，仅路径段蓝色；分隔线灰色；不含推理状态段）
+───────────────────────────── <- 横线分隔行
+❯ 输入消息…                   <- 回车发送, Enter 走 agent.followup
 ```
 
 ## 双态启动
@@ -18,16 +19,18 @@ DSH（DeepSeek Harness）进程内集成的终端 UI 插件。复用 DSH 核心�
 - **无 DSH 退化**：无可用 profile 或传 `--demo` 时，运行 mock demo（renderer + app + mock adapter 全栈走通，不触碰 DSH）。
 
 ```
-dsh-tui              # 双态自动判定
-dsh-tui --demo       # 强制 mock demo（无 DSH 依赖）
+
+dsh-tui            # 双态自动判定
+dsh-tui --demo     # 强制 mock demo（无 DSH 依赖）
 dsh-tui --help
+
 ```
 
 ## 界面布局
 
 屏幕自上而下分四区（`layout.ts` 纯函数组装，见 `DESIGN.md`「四区域布局」）：
 
-- **顶部区域**：左侧固定 `PLUGIN_WIDTH=14` 列插件窄条（占位框，当前为空，插件能力后续实现）；右侧对话历史，按 `historyWidth` 换行，支持滚动（↑/↓/PageUp/PageDown）。
+- **顶部区域**：左侧固定 `PLUGIN_WIDTH=2` 列插件窄条（仅竖线 `│`，无边框无标题，当前为空，插件能力后续实现）；右侧对话历史，按 `historyWidth` 换行，支持滚动（↑/↓/PageUp/PageDown）；顶部/状态/输入三区之间各有横线分隔行（`SEPARATOR_ROWS=2`）。
 - **系统状态区**：横向一行展示时间、当前目录、git 分支与 dirty 标记、模型、推理状态、上下文长度、缓存命中率（后三者无数据源时为 `—` 占位）。`StatusTicker` 合并节流读取（5s 一次，一次 tick 批量查 cwd/git/time，避免高频 fork 子进程）。
 - **输入区**：`❯` 提示符 + 硬件光标；审批弹窗时该区更高。
 - **turn 分隔**：每个对话 turn 结束后插入横线分隔行，流式输出实时合入历史。

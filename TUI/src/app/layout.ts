@@ -12,6 +12,7 @@ import type { Size } from "../renderer/index.ts";
 import type { AppState } from "./state.ts";
 import type { ApprovalItem } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
+import chalk from "chalk";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
 
 // ---------- 换行（wrapping）纯函数 ----------
@@ -130,11 +131,17 @@ export function computeViewport(vp: ViewportInput): Viewport {
 
 // ---------- 帧组装 ----------
 
-/** 顶部区域(插件窄条 + 对话历史)固定宽度列数 */
-export const PLUGIN_WIDTH = 14;
+/** 顶部(插件窄条 + 对话历史)固定宽度列数 */
+export const PLUGIN_WIDTH = 2;
+
+/** 水平分隔线字符 */
+export const SEPARATOR = "─";
+
+/** 上/中/下三区之间的横线分隔行数 */
+export const SEPARATOR_ROWS = 2;
 
 export interface FrameMetrics {
-  /** 顶部区域行数 = rows - 状态区 - 输入区（剩余高度全给上方两个） */
+  /** 顶部区域行数 = rows - 状态区 - 输入区 - 分隔行（剩余高度全给上方两个） */
   topHeight: number;
   /** 系统状态区行数（固定 1） */
   statusHeight: number;
@@ -157,7 +164,10 @@ export function metricsFor(
   // 插件窄条：固定宽，但窄终端时让出至少 1 列给历史区
   const pluginWidth = Math.min(PLUGIN_WIDTH, Math.max(1, size.cols - 2));
   const historyWidth = Math.max(1, size.cols - pluginWidth);
-  const topHeight = Math.max(0, size.rows - statusHeight - footerHeight);
+  const topHeight = Math.max(
+    0,
+    size.rows - statusHeight - footerHeight - SEPARATOR_ROWS,
+  );
   return {
     topHeight,
     statusHeight,
@@ -168,20 +178,12 @@ export function metricsFor(
 }
 
 /**
- * 插件窄条占位框的第 row 行单元格（0 基，rows 行为总高）。
- * 返回恰好 pluginWidth 列宽的字符串（边框 + 标题/空区）。
+ * 顶部插件竖线单元格（0 基，rows 行为总高）。
+ * 无边框无标题，仅左右分区之间的竖线（占整列 pluginWidth 宽）。
  */
-function pluginCell(row: number, rows: number, width: number): string {
-  const TOP = "┌─ plugin ─"; // 11 字符（含尾 ─）
-  const bottom = "└" + "─".repeat(Math.max(0, width - 2)) + "┘";
-  const middle = "│" + " ".repeat(Math.max(0, width - 2)) + "│";
-  if (rows <= 1) return TOP.slice(0, Math.max(0, width));
-  if (row === 0) {
-    const fill = "─".repeat(Math.max(0, width - TOP.length - 1));
-    return TOP + fill + "┐";
-  }
-  if (row === rows - 1) return bottom;
-  return middle;
+function pluginCell(_row: number, _rows: number, width: number): string {
+  // 竖线在最左，其余留白；超宽由调用方 truncate
+  return "│" + " ".repeat(Math.max(0, width - 1));
 }
 
 /** 顶部区域：每行 = 左侧插件窄条 + 右侧历史行（合并为一个 RenderLine） */
@@ -204,33 +206,50 @@ function buildTopRegion(
     const left = pluginCell(i, topHeight, pluginWidth);
     const idx = vp.start + i;
     const right = idx < vp.end ? (wrapped[idx] ?? "") : "";
-    rows.push({ text: truncateToWidth(left + right, cols) });
+    // 竖线(边框)灰色：先对纯文本做宽度截断，再把左侧竖线段染灰，
+    // 避免 ANSI 码被 displayWidth/truncateToWidth 误计入显示宽度
+    const trim = truncateToWidth(left + right, cols);
+    const text =
+      trim.length >= left.length
+        ? chalk.gray(left) + trim.slice(left.length)
+        : trim;
+    rows.push({ text });
   }
   return rows;
 }
 
-/** 系统状态区：横向单行，超宽截断 */
+/** 系统状态区：横向单行；无标题，`|` 分隔，仅路径段染蓝；超宽截断不切半个 CJK */
 export function renderStatusLine(
   status: AppState["systemStatus"],
-  agentStatus: string,
   cols: number,
 ): RenderLine {
-  // 用纯文本标签（不用 emoji：emoji 终端宽 2 列但 charWidth 模型按 1 列，
-  // 会在边界处把行撑超 1 列）
-  const items = [
-    `时间 ${status.time}`,
-    `目录 ${status.cwd}`,
-    `git ${status.git}`,
-    `模型 ${status.model}`,
-    `状态 ${agentStatus}`,
-    `ctx ${status.contextLen}`,
-    `cache ${status.cacheHit}`,
+  const values = [
+    status.time,
+    status.cwd,
+    status.git,
+    status.model,
+    status.contextLen,
+    status.cacheHit,
   ];
-  const text = truncateToWidth(" " + items.join(" · ") + " ", cols);
-  return { text };
+  // 状态栏默认前景色；仅路径(目录)段染蓝（values 下标 1，整状态段已移除）。
+  // 纯文本宽度预算决定放得下的段（ANSI 着色不影响显示宽度：先布局、后着色）
+  let used = 0; // 已占用可见宽度（含分隔符，不含首尾空格）
+  const kept: Array<{ idx: number; text: string }> = [];
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i]!;
+    const sepW = kept.length > 0 ? 1 : 0; // '|' 宽 1
+    const vw = displayWidth(v);
+    if (used + sepW + vw > cols - 2) break; // 留首尾各 1 列，避免换行溢出
+    kept.push({ idx: i, text: v });
+    used += sepW + vw;
+  }
+  const text = kept
+    .map((k) => (k.idx === 1 ? chalk.blue(k.text) : k.text))
+    .join("|");
+  return { text: " " + text + " " };
 }
 
-/** 由渲染帧（AppState → RenderLine[]）：顶部(插件+历史) + 状态区 + 输入/审批 */
+/** 由渲染帧（AppState → RenderLine[]）：顶部(插件+历史) + 分隔线 + 状态区 + 分隔线 + 输入/审批 */
 export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const approval = state.approval;
   const showApproval = approval !== null;
@@ -245,11 +264,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     fullWidth,
   );
 
-  const statusLine = renderStatusLine(
-    state.systemStatus,
-    state.agentStatus,
-    fullWidth,
-  );
+  const statusLine = renderStatusLine(state.systemStatus, fullWidth);
 
   const footerLines = showApproval
     ? renderApprovalPrompt(
@@ -264,5 +279,9 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
         fullWidth,
       );
 
-  return [...topRegion, statusLine, ...footerLines];
+  // 上/中/下三区之间各插一条横线分隔行（边框统一灰色：先纯文本截断再着色）
+  const sepLine: RenderLine = {
+    text: chalk.gray(truncateToWidth(SEPARATOR.repeat(fullWidth), fullWidth)),
+  };
+  return [...topRegion, sepLine, statusLine, sepLine, ...footerLines];
 }

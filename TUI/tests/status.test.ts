@@ -95,9 +95,11 @@ test("renderStatusLine: 缺失数据源项以占位渲染，不抛错；行含�
       contextLen: "—",
       cacheHit: "—",
     },
-    "idle",
     80,
   );
   assert.equal(line.text.includes("—"), true);
-  assert.ok(line.text.includes("状态 idle"), "含推理状态");
+  assert.ok(
+    !line.text.includes(">") && !line.text.includes("?"),
+    "推理状态段已移除（无提示符）",
+  );
 });

@@ -25,29 +25,36 @@ function frameWith(rows: number, cols: number) {
   return { s, frame };
 }
 
-test("metricsFor: 顶部高度 = rows - 状态(1) - 输入(1)；插件固定宽，历史区 = cols - 插件宽", () => {
+test("metricsFor: 顶部高度 = rows - 状态(1) - 输入(1) - 分隔行(2)；插件竖线固定宽，历史区 = cols - 插件宽", () => {
   const m = metricsFor({ rows: 24, cols: 60 }, false);
-  assert.equal(m.topHeight, 22);
+  assert.equal(m.topHeight, 20);
   assert.equal(m.statusHeight, 1);
   assert.equal(m.footerHeight, 1);
   assert.equal(m.pluginWidth, PLUGIN_WIDTH);
   assert.equal(m.historyWidth, 60 - PLUGIN_WIDTH);
 });
 
-test("buildFrame: 四区顺序与高度正确（顶部插件+历史 / 状态 / 输入）", () => {
+test("buildFrame: 四区顺序与高度正确（顶部插件竖线+历史 / 分隔线 / 状态 / 分隔线 / 输入）", () => {
   const { frame } = frameWith(24, 60);
-  assert.equal(frame.length, 24, "帧恰好铺满 rows");
-  // 顶部区域：前 topHeight 行
-  const top = frame.slice(0, 22);
-  assert.ok(top[0]!.text.startsWith("┌─ plugin"), "首行含插件框顶");
-  assert.ok(top[21]!.text.startsWith("└"), "末行含插件框底");
+  assert.equal(frame.length, 24, "帧恰好铺满 24 行");
+  // 顶部区域：前 topHeight 行，每行以竖线开头（无边框无标题）
+  const top = frame.slice(0, 20);
+  assert.ok(
+    top.every((l) => l.text.startsWith("│ ")),
+    "顶部每行含竖线分区",
+  );
   assert.ok(top[0]!.text.includes("第一行"), "历史区内容在插件右侧");
-  // 状态区：第 23 行（topHeight+1）
-  const status = frame[22]!;
+  // 横线分隔：20 行后是分隔行，再之后是状态区
+  const separator1 = frame[20]!;
+  assert.ok(separator1.text.startsWith("─"), "顶部与状态区之间横线分隔");
+  const status = frame[21]!;
   assert.ok(status.text.includes("12:00:00"), "状态行含时间");
   assert.ok(status.text.includes("/home/u"), "状态行含当前目录");
-  assert.ok(status.text.includes("git main"), "状态行含 git");
-  // 输入区：最后一行
+  assert.ok(status.text.includes("main"), "状态行含 git(branch)");
+  assert.ok(status.text.includes("|"), "状态行段间用 | 分隔");
+  // 第二个横线分隔行，然后输入区
+  const separator2 = frame[22]!;
+  assert.ok(separator2.text.startsWith("─"), "状态区与输入区之间横线分隔");
   assert.equal(frame[23]!.text, "❯ Type a message…");
 });
 
@@ -59,7 +66,7 @@ test("buildFrame: 审批弹窗时 footer 更高，顶部高度相应缩减", () 
   });
   const m = metricsFor({ rows: 24, cols: 60 }, s.approval !== null);
   assert.equal(m.footerHeight, Math.max(4, Math.floor(24 * 0.3)));
-  assert.equal(m.topHeight, 24 - m.statusHeight - m.footerHeight);
+  assert.equal(m.topHeight, 24 - m.statusHeight - m.footerHeight - 2);
   const frame = buildFrame(s, { rows: 24, cols: 60 });
   assert.equal(frame.length, 24);
 });
@@ -101,7 +108,6 @@ test("renderStatusLine: 超宽截断不抛错", () => {
       contextLen: "12345",
       cacheHit: "87%",
     },
-    "thinking",
     20,
   );
   assert.ok(line.text.length > 0);
