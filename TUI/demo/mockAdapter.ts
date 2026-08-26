@@ -64,7 +64,11 @@ export class MockDshAdapter implements DshAdapter {
 
   private modelList: ModelInfo[] = [
     { provider: "deepseek", id: "deepseek-chat", name: "DeepSeek Chat" },
-    { provider: "deepseek", id: "deepseek-reasoner", name: "DeepSeek Reasoner" },
+    {
+      provider: "deepseek",
+      id: "deepseek-reasoner",
+      name: "DeepSeek Reasoner",
+    },
   ];
   private currentModel: ModelSelection = {
     provider: "deepseek",
@@ -79,7 +83,7 @@ export class MockDshAdapter implements DshAdapter {
     };
   }
 
-  async setDefaultModel(sel: ModelSelection): Promise<ModelSelection> {
+  async setSessionModel(sel: ModelSelection): Promise<ModelSelection> {
     this.currentModel = { ...sel };
     return { ...sel };
   }

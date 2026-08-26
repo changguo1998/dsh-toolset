@@ -20,6 +20,9 @@ import type {
 } from "./app/adapter/dsh.ts";
 import {
   createRealDshAdapter,
+  installSessionModelSelection,
+  readDefaultSelection,
+  type SessionModelSelectionRef,
   type DshAgentLike,
   type DshCommandLike,
   type DshRuntime,
@@ -82,6 +85,8 @@ export async function apply(
           sessionId: string;
           meta?: { cwd?: string };
           agentOptions?: Record<string, unknown>;
+          /** 与官方 AgentSetup 同构：拿到未发布的 agentCtx(结构面为 DshRuntime) */
+          setup?: (agentCtx: DshRuntime) => unknown;
         }): Promise<{ agent: unknown; dispose(): Promise<void> }>;
       }
     | undefined;
@@ -117,12 +122,39 @@ export async function apply(
           }
         : {};
 
+  // 会话内模型选择引用：仅显式 config 固定种子；宿主默认(settings)交由实时兜底
+  // `readDefaultSelection(defaultModelSvc)`，避免启动时序吞掉热加载的设置。
+  // /model 切换只改该引用，绝不调用宿主的 saveSelection——避免覆盖配置中的默认模型。
+  const sessionModel: SessionModelSelectionRef = {
+    current:
+      config?.provider && config?.model
+        ? {
+            provider: config.provider,
+            model: config.model,
+            ...(config.reasoningEffort
+              ? { reasoningEffort: config.reasoningEffort }
+              : {}),
+          }
+        : undefined,
+  };
+
   const { randomUUID } = await import("node:crypto");
   const sessionId = "tui-" + randomUUID();
   const handle = await agents.create({
     sessionId,
     meta: { cwd: config?.cwd ?? process.cwd() },
     agentOptions: route,
+    // 与官方 headless bundle 同构：通过 setup 把会话级模型选择挂到 agentCtx，
+    // 下一 step 起生效（system-prompt/assemble + agent/request 双钩子）。
+    // 注意：不能把 installSessionModelSelection 的返回值（解绑函数）交给 setup，
+    // 官方 AgentSetup 只认 void/commit，乱返回会被宿主当 commit 处理失败。
+    setup: (agentCtx) => {
+      void installSessionModelSelection(
+        agentCtx as DshRuntime,
+        sessionModel,
+        () => readDefaultSelection(defaultModelSvc),
+      );
+    },
   });
 
   const rawAgent = handle.agent as {
@@ -158,9 +190,10 @@ export async function apply(
     commandAgent: rawAgent,
     interrupt: () => rawAgent.cancel?.({ kind: "user" }),
     commands,
-    llm: (ctx as { get?: (name: string) => unknown }).get?.(
-      "llm",
-    ) as LlmLike | undefined,
+    llm: (ctx as { get?: (name: string) => unknown }).get?.("llm") as
+      LlmLike | undefined,
+    sessionModel,
+    // 只读兜底：会话未切换时 /model 目录/状态显示与组装默认取宿主实时值(settings 热更新生效)
     defaultModel: defaultModelSvc,
     approvalTimeoutMs: config?.approvalTimeoutMs ?? 60_000,
   });

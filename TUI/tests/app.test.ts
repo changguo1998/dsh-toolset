@@ -22,8 +22,11 @@ class FakeRenderer implements Renderer {
   refreshes = 0;
   closed = 0;
   size: Size = { cols: 80, rows: 24 };
+  /** 最近一次 render 的文本行（仅文本，无 ANSI） */
+  lastRender: string[] = [];
 
-  render(_lines: RenderLine[]): void {
+  render(lines: RenderLine[]): void {
+    this.lastRender = lines.map((l) => l.text);
     this.renders++;
   }
   refresh(_lines: RenderLine[]): void {
@@ -86,7 +89,11 @@ class FakeAdapter implements DshAdapter {
     providers: [{ provider: "deepseek", name: "deepseek" }],
     models: [
       { provider: "deepseek", id: "deepseek-chat", name: "DeepSeek Chat" },
-      { provider: "deepseek", id: "deepseek-reasoner", name: "DeepSeek Reasoner" },
+      {
+        provider: "deepseek",
+        id: "deepseek-reasoner",
+        name: "DeepSeek Reasoner",
+      },
     ],
     current: { provider: "deepseek", model: "deepseek-chat" },
   };
@@ -94,7 +101,7 @@ class FakeAdapter implements DshAdapter {
     this.catalogCalls++;
     return this.modelCatalogData;
   }
-  async setDefaultModel(sel: ModelSelection): Promise<ModelSelection> {
+  async setSessionModel(sel: ModelSelection): Promise<ModelSelection> {
     this.savedSelections.push(sel);
     this.modelCatalogData = { ...this.modelCatalogData, current: { ...sel } };
     return { ...sel };
@@ -244,7 +251,6 @@ test("Ctrl+D 但状态非 idle → 不退出", () => {
   assert.equal(renderer.closed, 0);
 });
 
-
 test("formatModelCatalog ASCII 紧凑格式: -> 标记当前, 空格缩进其他", () => {
   const text = formatModelCatalog({
     providers: [{ provider: "deepseek", name: "deepseek" }],
@@ -298,7 +304,11 @@ test("resolveModelSpec 裸 id 唯一匹配 / 未匹配 / 歧义", () => {
 });
 
 test("resolveModelSpec provider/model 显式直通（无需目录命中）", () => {
-  const catalog: ModelCatalog = { providers: [], models: [], current: undefined };
+  const catalog: ModelCatalog = {
+    providers: [],
+    models: [],
+    current: undefined,
+  };
   const r = resolveModelSpec(catalog, "custom/deepseek-v3");
   assert.ok(!("error" in r));
   assert.deepEqual(r.selection, { provider: "custom", model: "deepseek-v3" });
@@ -313,7 +323,7 @@ test("/model 无参 → 调用 modelCatalog（不经 sendMessage）", async () =
   assert.deepEqual(adapter.sent, []);
 });
 
-test("/model <id> → setDefaultModel + 更新", async () => {
+test("/model <id> → setSessionModel + 更新", async () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/model deepseek-reasoner");
   await flush();
@@ -321,9 +331,21 @@ test("/model <id> → setDefaultModel + 更新", async () => {
     { provider: "deepseek", model: "deepseek-reasoner" },
   ]);
   assert.deepEqual(adapter.sent, []);
+
+  test("/model 切换后状态栏显示新模型", async () => {
+    const { renderer, adapter } = makeApp();
+    typeAndEnter(renderer, "/model deepseek-reasoner");
+    await flush();
+    const joined = renderer.lastRender.join("\n");
+    assert.ok(
+      joined.includes("deepseek-reasoner"),
+      "状态栏应含新模型，实际:\n" + joined,
+    );
+    assert.ok(adapter.savedSelections.length === 1); // 确认确实切换了
+  });
 });
 
-test("/model 未知模型 → 不调用 setDefaultModel", async () => {
+test("/model 未知模型 → 不调用 setSessionModel", async () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/model nope");
   await flush();

@@ -86,7 +86,7 @@ test("StatusTicker: git 返回 Promise 也支持（合并等待后 apply）", as
 });
 
 test("renderStatusLine: 缺失数据源项以占位渲染，不抛错；行含时间与 git", () => {
-  const line = renderStatusLine(
+  const lines = renderStatusLine(
     {
       time: "—",
       cwd: "—",
@@ -97,9 +97,10 @@ test("renderStatusLine: 缺失数据源项以占位渲染，不抛错；行含�
     },
     80,
   );
-  assert.equal(line.text.includes("—"), true);
+  const joined = lines.map((l) => l.text).join("\n");
+  assert.equal(joined.includes("—"), true);
   assert.ok(
-    !line.text.includes(">") && !line.text.includes("?"),
+    !joined.includes(">") && !joined.includes("?"),
     "推理状态段已移除（无提示符）",
   );
 });

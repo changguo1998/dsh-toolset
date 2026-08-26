@@ -14,7 +14,7 @@ export interface SystemStatus {
   time: string;
   cwd: string;
   git: string;
-  /** 无数据源时的占位符（模型/上下文长度/缓存命中率） */
+  /** 无数据源时的占位符（上下文长度/缓存命中率；model 默认占位、切换会话模型后更新） */
   model: string;
   contextLen: string;
   cacheHit: string;
@@ -55,7 +55,7 @@ export interface PickerOption {
   label: string;
   /** 确认后应用的模型选择 */
   selection: ModelSelection;
-  /** 是否为当前默认模型（行内标记 + 高亮） */
+  /** 是否为当前会话模型（行内标记 + 高亮） */
   current: boolean;
 }
 

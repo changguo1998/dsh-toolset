@@ -60,8 +60,8 @@ export interface DshAdapter {
   interrupt(): void;
   /** 查询可用模型目录（provider + 各 provider 可用模型 + 当前默认选择） */
   modelCatalog(): Promise<ModelCatalog>;
-  /** 切换默认模型（写 agentDefaultModel 服务）；返回保存后的选择 */
-  setDefaultModel(sel: ModelSelection): Promise<ModelSelection>;
+  /** 切换当前会话模型（只改会话内 ref，绝不落盘）；返回应用后的选择 */
+  setSessionModel(sel: ModelSelection): Promise<ModelSelection>;
 }
 
 /** 模型目录条目（/model 列表展示用） */
@@ -76,6 +76,66 @@ export interface ModelSelection {
   provider: string;
   model: string;
   reasoningEffort?: string;
+}
+
+/** 会话级模型选择引用：current 应用于下一 step；assembled 为当前 step 组装时的快照 */
+export interface SessionModelSelectionRef {
+  current: ModelSelection | undefined;
+  assembled?: ModelSelection | undefined;
+}
+
+/**
+ * 镜像官方 @deepseek-ai/dsh-agent installModelSelection：挂钩 agentCtx 的
+ * system-prompt/assemble 与 agent/request waterfall，把 ref.current 应用到
+ * 下一 step 请求(provider/model + 可选 effort)。assembled 快照保证切换不撕裂
+ * 当步请求(prompt 组装先于 request，二者读同一快照)。零运行时依赖，仅用结构面。
+ */
+export function installSessionModelSelection(
+  ctx: DshRuntime,
+  ref: SessionModelSelectionRef,
+  /** 未切换时的实时兜底（宿主 agentDefaultModel.currentSelection，read-only） */
+  fallback?: () => ModelSelection | undefined,
+): () => void {
+  const unbinds: Array<(() => void) | void> = [];
+  unbinds.push(
+    ctx.on("system-prompt/assemble", async (_assembly, _context, next) => {
+      // 有效选择 = 会话内切换 ?? 宿主实时默认；settings 热加载完成后自动生效
+      const selected = ref.current ?? fallback?.();
+      const assembled = await (next as () => unknown)();
+      ref.assembled = selected;
+      if (selected === undefined) return assembled;
+      return {
+        ...(assembled as object),
+        variables: {
+          ...(assembled as { variables?: object }).variables,
+          provider: selected.provider,
+          model: selected.model,
+        },
+      } as unknown;
+    }),
+  );
+  unbinds.push(
+    ctx.on("agent/request", async (_payload, next) => {
+      const resolved = await (next as () => unknown)();
+      const selected = ref.assembled;
+      if (selected === undefined) return resolved;
+      const { reasoningEffort: _inherited, ...rest } = resolved as {
+        reasoningEffort?: string;
+        [k: string]: unknown;
+      };
+      return {
+        ...rest,
+        provider: selected.provider,
+        model: selected.model,
+        ...(selected.reasoningEffort
+          ? { reasoningEffort: selected.reasoningEffort }
+          : {}),
+      } as unknown;
+    }),
+  );
+  return () => {
+    for (const u of unbinds) if (typeof u === "function") u();
+  };
 }
 
 export interface ModelCatalog {
@@ -225,25 +285,28 @@ export interface LlmLike {
     provider: string,
   ):
     | Promise<
-        readonly { provider?: string; id?: string; name?: string; description?: string }[]
+        readonly {
+          provider?: string;
+          id?: string;
+          name?: string;
+          description?: string;
+        }[]
       >
-    | readonly { provider?: string; id?: string; name?: string; description?: string }[];
+    | readonly {
+        provider?: string;
+        id?: string;
+        name?: string;
+        description?: string;
+      }[];
 }
 
-/** ctx.get('agentDefaultModel') 服务结构面 */
 export interface AgentDefaultModelLike {
   currentSelection?():
-    | { provider?: string; model?: string; reasoningEffort?: string }
-    | undefined;
-  saveSelection?(next: {
-    provider: string;
-    model: string;
-    reasoningEffort?: string;
-  }): Promise<void> | void;
+    { provider?: string; model?: string; reasoningEffort?: string } | undefined;
 }
 
-/** 读取当前默认模型选择（结构面防御：服务缺失/字段缺失均容错） */
-function readDefaultSelection(
+/** 从宿主选择读数（结构面防御：服务缺失/字段缺失均容错） */
+export function readDefaultSelection(
   svc: AgentDefaultModelLike | undefined,
 ): ModelSelection | undefined {
   if (!svc || typeof svc.currentSelection !== "function") return undefined;
@@ -271,7 +334,9 @@ export interface RealAdapterOptions {
   interrupt?: () => void;
   /** ctx.get('llm') 服务（dsh-llm LlmRuntime）结构面 */
   llm?: LlmLike;
-  /** ctx.get('agentDefaultModel') 服务结构面 */
+  /** 会话级模型选择引用；提供时 setSessionModel 只改 ref、不落盘 */
+  sessionModel?: SessionModelSelectionRef;
+  /** ctx.get('agentDefaultModel') 服务（只读兜底：会话未切换时作为目录/状态显示与组装默认） */
   defaultModel?: AgentDefaultModelLike;
 }
 
@@ -460,7 +525,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       opts.interrupt?.();
     },
     async modelCatalog() {
-      const current = readDefaultSelection(opts.defaultModel);
+      const current =
+        opts.sessionModel?.current ?? readDefaultSelection(opts.defaultModel);
       const providers: ModelCatalog["providers"] = [];
       const models: ModelInfo[] = [];
       const llm = opts.llm;
@@ -485,12 +551,12 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       return { providers, models, current };
     },
-    async setDefaultModel(sel) {
-      const svc = opts.defaultModel;
-      if (!svc || typeof svc.saveSelection !== "function") {
-        throw new Error("agentDefaultModel 服务不可用，无法切换模型");
+    async setSessionModel(sel) {
+      if (!opts.sessionModel) {
+        throw new Error("会话模型引用未注入，无法切换模型");
       }
-      await svc.saveSelection(sel);
+      // 只改会话语义内的引用，绝不写宿主 settings（避免覆盖配置默认模型）
+      opts.sessionModel.current = sel;
       return sel;
     },
   };

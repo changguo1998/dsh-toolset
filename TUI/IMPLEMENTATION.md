@@ -85,13 +85,19 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 
 ## /model 命令（2026-08-26）
 
-- **能力**：查询可用模型 + 切换默认模型。命令形式：
+- **能力**：查询可用模型 + 切换当前会话模型（不落盘）。命令形式：
+
   - `/model`（无参）→ 进入**交互选择模式**（面板渲染在 footer 区）：↑/↓ 移动高亮（选项超出可视高度时视口跟随选中项滚动），Enter 确认切换，Esc 取消不改变；普通字符键在该模式下被忽略（不进入输入框）。
   - `/model <provider>/<model>` → 显式指定切换；`/model <modelId>` → 跨全部 provider 唯一匹配（未匹配或歧义给错误提示，不落盘）。
+
 - **交互选择面板**（2026-08-26）：`AppState.picker`（`PickerState`：options + index）+ reducer action（`picker-open`/`picker-move`/`picker-close`）。渲染为 `src/app/components/ModelPicker.ts` 纯函数（输出恰 footerHeight 行）：当前模型行恒为首行、标 `*` 并附 `[current]` 后缀（即使不在候选目录 `listModels()` 中也补行显示），选中项标 `>` 并加粗；两者重叠时标记取 `*`（选中仍加粗）。`layout.ts` `metricsFor` 增加 picker 高度预算（footer 三分支：审批弹窗 / 选择面板 / 输入框）。
-- **交互确认**：Enter 复用 `applyModelSelection()`（与 `/model <name>` 带参共用）：保留当前 `reasoningEffort`、写 `ctx.agentDefaultModel.saveSelection()`；选中当前模型时提示 `already on default model`，不重复切换。Esc 仅关闭面板。
-- **切换语义**：写 `ctx.agentDefaultModel.saveSelection()`（默认模型作用域，影响下一 step；`installModelSelection` 快照保证不撕裂当步请求）。切换时保留当前 `reasoningEffort`，不提供 effort 参数（YAGNI）。
-- **接线**：`DshAdapter` 接口新增 `modelCatalog()` / `setDefaultModel()`；`main.ts` apply() 经 `ctx.get('llm')` 与 `ctx.get('agentDefaultModel')` 传入 `createRealDshAdapter`（结构面 `LlmLike`/`AgentDefaultModelLike`，零运行时依赖）。demo 的 `MockDshAdapter` 提供同构 mock 数据。
+
+- **交互确认**：Enter 复用 `applyModelSelection()`（与 `/model <name>` 带参共用）：保留当前 `reasoningEffort`、写入会话内模型引用（不写宿主设置）；选中当前模型时提示 `already on current model`，不重复切换。Esc 仅关闭面板。
+
+- **切换语义**：只改会话内 `SessionModelSelectionRef.current`（经 `installSessionModelSelection` 挂到 agentCtx 的 `system-prompt/assemble` + `agent/request` 双钩子，下一 step 生效，快照保证不撕裂当步请求）；**绝不调用宿主 `agentDefaultModel.saveSelection()`**，避免覆盖配置中的默认模型。有效选择 = 会话内切换 ?? 宿主实时默认（`currentSelection()` 只读兜底：settings.yaml 热加载生效后自动跟上；启动时 TUI 不做一次性快照，避免异步 publish 时序吞掉设置）。切换时保留当前 `reasoningEffort`，不提供 effort 参数（YAGNI）。
+
+- **接线**：`DshAdapter` 接口新增 `modelCatalog()` / `setSessionModel()`；`main.ts` apply() 在 `agents.create({ setup })` 中把 `installSessionModelSelection(agentCtx, sessionModel, () => readDefaultSelection(defaultModelSvc))` 挂上（`setup` 为官方 `AgentSetup` 结构面），并把同一 `sessionModel` 引用 + 只读 `defaultModel` 兜底传入 `createRealDshAdapter`（结构面 `LlmLike`/`AgentDefaultModelLike`，零运行时依赖）。demo 的 `MockDshAdapter` 提供同构 mock 数据。
+
 - **显示格式**（2026-08-26 修改）：纯 ASCII，紧凑 `provider/model` 一行一个模型；当前模型前 `->`，其余模型前空格缩进对齐，无标题行。示例：
 
   ```
@@ -99,8 +105,10 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
        deepseek/deepseek-reasoner
   ```
 
-- **状态回显**：切换成功后 `systemStatus.model` 更新为 `provider/model` 并写入 notice；`/help` 命令表加入 `/model`。
-- **测试**：`tests/app.test.ts` 覆盖 formatModelCatalog/resolveModelSpec 纯函数与 `/model` 路由（带参切换、未知模型、当前模型不重复切换）及交互选择（面板打开后普通字符忽略、↑/↓ + Enter 持久切换并保留 reasoningEffort、Esc 取消后输入恢复、当前模型不在候选时补行不重复切换）；`tests/modelpicker.test.ts` 覆盖 ModelPicker 渲染（`*`/`>` 标记、current 后缀、加粗、视口跟随、纯 ASCII）与 picker reducer（open/move clamp/close）；`tests/adapter.dsh.test.ts` 覆盖 modelCatalog 聚合/空目录容错、setDefaultModel 保存/无服务抛错；`tests/renderer.test.ts` 覆盖 Renderer `emitKey` 合成按键注入。
+- **状态回显**：切换成功后 `systemStatus.model` 更新为 `provider/model` 并写入 notice；`/help` 命令表加入 `/model`。2026-08-28 修改：`renderStatusLine` 改为返回可多行 `RenderLine[]`，状态栏内容超出行宽时溢出到下一行（不再截断丢弃段），model 排在 time 之后的第 2 位优先显示；`metricsFor` 新增 `statusHeight` 参数按实际行数压缩顶部区域，保证帧不溢出终端。未切换前 model 仍为占位 `—`。
+
+- **测试**：`tests/app.test.ts` 覆盖 formatModelCatalog/resolveModelSpec 纯函数与 `/model` 路由（带参切换、未知模型、当前模型不重复切换）及交互选择（面板打开后普通字符忽略、↑/↓ + Enter 会话内切换并保留 reasoningEffort、Esc 取消后输入恢复、当前模型不在候选时补行不重复切换）；`tests/modelpicker.test.ts` 覆盖 ModelPicker 渲染（`*`/`>` 标记、current 后缀、加粗、视口跟随、纯 ASCII）与 picker reducer（open/move clamp/close）；`tests/adapter.dsh.test.ts` 覆盖 modelCatalog 聚合/空目录容错、setSessionModel 只改 ref 不落盘/无引用抛错、installSessionModelSelection 的 agent/request 覆盖与 effort 移除；`tests/renderer.test.ts` 覆盖 Renderer `emitKey` 合成按键注入。
+
 - **demo 冒烟**（2026-08-26）：`demo/main.ts` 在无 TTY（管道/CI）或带 `--smoke` 时自动用 `renderer.emitKey()`（Renderer 合成按键注入）驱动 `/model`（进入交互选择）→ `down` → `enter` 确认切换 → `/quit`，以退出码 0 收尾，便于无头演示与机械验证。`createRenderer` 的 `close()` 同步 `pause()` stdin（与启动时 `resume()` 对称），保证嵌入/无头场景下事件循环可退出。根目录 `package.json` 委托 `TUI/` 的 check/build/test/demo，仓库根可直接 `npm run demo`。
 
 ## 按键扩展（2026-08-24）

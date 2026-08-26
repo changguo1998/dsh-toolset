@@ -98,8 +98,8 @@ test("truncateToWidth: 按显示宽度截断，不切半个 CJK", () => {
   assert.equal(truncateToWidth("abc", 0), "");
 });
 
-test("renderStatusLine: 超宽截断不抛错", () => {
-  const line = renderStatusLine(
+test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", () => {
+  const lines = renderStatusLine(
     {
       time: "12:00:00",
       cwd: "/very/long/path/that/exceeds/width",
@@ -110,6 +110,12 @@ test("renderStatusLine: 超宽截断不抛错", () => {
     },
     20,
   );
-  assert.ok(line.text.length > 0);
-  assert.ok(line.text.length <= 20);
+  assert.ok(lines.length >= 2, "应溢出为多行");
+  const joined = lines.map((l) => l.text).join("\n");
+  for (const seg of ["12:00:00", "/very/long/path", "deepseek", "87%"]) {
+    assert.ok(joined.includes(seg), `段未溢出保留: ${seg}`);
+  }
+  for (const l of lines) {
+    assert.ok(l.text.length <= 20, `行超宽: ${l.text}`);
+  }
 });

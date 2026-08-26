@@ -280,7 +280,7 @@ export class App {
     }
   }
 
-  /** /model 命令：无参进入交互选择；带参切换默认模型（保留当前 reasoningEffort） */
+  /** /model 命令：无参进入交互选择；带参切换当前会话模型（保留当前 reasoningEffort） */
   private async handleModelCommand(line: string): Promise<void> {
     const spec = line.slice("/model".length).trim();
     try {
@@ -356,7 +356,7 @@ export class App {
     }
   }
 
-  /** 持久切换默认模型（保留当前 reasoningEffort）；/model 带参与交互选择共用 */
+  /** 切换当前会话模型（只改会话内引用，不写宿主设置）；/model 带参与交互选择共用 */
   private async applyModelSelection(selection: ModelSelection): Promise<void> {
     const catalog = await this.deps.adapter.modelCatalog();
     const cur = catalog.current;
@@ -366,7 +366,7 @@ export class App {
       cur.model === selection.model
     ) {
       this.notice(
-        `already on default model ${selection.provider}/${selection.model}`,
+        `already on current model ${selection.provider}/${selection.model}`,
       );
       return;
     }
@@ -374,14 +374,14 @@ export class App {
     const sel: ModelSelection = reasoningEffort
       ? { ...selection, reasoningEffort }
       : selection;
-    const saved = await this.deps.adapter.setDefaultModel(sel);
+    const saved = await this.deps.adapter.setSessionModel(sel);
     this.apply((s) =>
       reduceState(s, {
         type: "status",
         status: { model: `${saved.provider}/${saved.model}` },
       }),
     );
-    this.notice(`default model -> ${saved.provider}/${saved.model}`);
+    this.notice(`current model -> ${saved.provider}/${saved.model}`);
   }
 
   /** 追加一条命令通知并重绘（/model 结果/错误统一入口） */
@@ -397,7 +397,7 @@ export class App {
       "  /help   显示本帮助",
       "  /clearscreen (/cls)  清空缓冲(只清显示，不动上下文)",
       "  /quit   退出",
-      "  /model [provider/]model  switch default model; bare /model: interactive picker",
+      "  /model [provider/]model  switch current-session model; bare /model: interactive picker",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }
@@ -436,7 +436,6 @@ export class App {
     this.state = fn(this.state);
   }
 }
-
 
 // ---------------------------------------------------------------------------
 // /model 辅助（纯函数，便于单测）

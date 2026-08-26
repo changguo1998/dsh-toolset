@@ -144,7 +144,7 @@ export const SEPARATOR_ROWS = 2;
 export interface FrameMetrics {
   /** 顶部区域行数 = rows - 状态区 - 输入区 - 分隔行（剩余高度全给上方两个） */
   topHeight: number;
-  /** 系统状态区行数（固定 1） */
+  /** 系统状态区行数（可 >1：状态内容溢出到多行时按实际行数） */
   statusHeight: number;
   /** 输入区行数（审批弹窗时更高） */
   footerHeight: number;
@@ -158,8 +158,9 @@ export function metricsFor(
   size: Size,
   hasApprovalPrompt: boolean,
   pickerRows = 0,
+  /** 状态区行数（默认 1；可多行溢出时按实际行数压缩顶部区域） */
+  statusHeight = 1,
 ): FrameMetrics {
-  const statusHeight = 1;
   // footer 高度：审批弹窗 / 选择面板 / 单行输入框
   let footerHeight = 1;
   if (hasApprovalPrompt) {
@@ -227,35 +228,46 @@ function buildTopRegion(
   return rows;
 }
 
-/** 系统状态区：横向单行；无标题，`|` 分隔，仅路径段染蓝；超宽截断不切半个 CJK */
+/** 系统状态区：可多行；无标题，`|` 分隔，仅路径段染蓝；超宽时溢出到下一行（不截断） */
 export function renderStatusLine(
   status: AppState["systemStatus"],
   cols: number,
-): RenderLine {
-  const values = [
-    status.time,
-    status.cwd,
-    status.git,
-    status.model,
-    status.contextLen,
-    status.cacheHit,
+): RenderLine[] {
+  const values: Array<{ seg: string; blue: boolean }> = [
+    { seg: status.time, blue: false },
+    { seg: status.model, blue: false },
+    { seg: status.cwd, blue: true },
+    { seg: status.git, blue: false },
+    { seg: status.contextLen, blue: false },
+    { seg: status.cacheHit, blue: false },
   ];
-  // 状态栏默认前景色；仅路径(目录)段染蓝（values 下标 1，整状态段已移除）。
-  // 纯文本宽度预算决定放得下的段（ANSI 着色不影响显示宽度：先布局、后着色）
-  let used = 0; // 已占用可见宽度（含分隔符，不含首尾空格）
-  const kept: Array<{ idx: number; text: string }> = [];
-  for (let i = 0; i < values.length; i++) {
-    const v = values[i]!;
-    const sepW = kept.length > 0 ? 1 : 0; // '|' 宽 1
-    const vw = displayWidth(v);
-    if (used + sepW + vw > cols - 2) break; // 留首尾各 1 列，避免换行溢出
-    kept.push({ idx: i, text: v });
-    used += sepW + vw;
+  // 状态栏默认前景色；仅路径(目录)段染蓝；段按行内剩余宽度放置，放不下则溢出到下一行
+  const rows: RenderLine[] = [];
+  let line: Array<{ text: string; blue: boolean }> = [];
+  let used = 0; // 已占用可见宽度（含分隔符，不含行首尾空格）
+  const maxSegW = Math.max(1, cols - 2); // 留首尾各 1 列
+  const flush = (): void => {
+    rows.push({
+      text:
+        " " +
+        line.map((k) => (k.blue ? chalk.blue(k.text) : k.text)).join("|") +
+        " ",
+    });
+    line = [];
+    used = 0;
+  };
+  for (const v of values) {
+    // 段本身先按预算分块，保证任何单块都不超一行的可用宽度（避免单段硬挤爆行）
+    for (const chunk of wrapLine(v.seg, maxSegW)) {
+      const sepW = line.length > 0 ? 1 : 0;
+      const vw = displayWidth(chunk);
+      if (line.length > 0 && used + sepW + vw > maxSegW) flush();
+      line.push({ text: chunk, blue: v.blue });
+      used += (line.length > 1 ? 1 : 0) + vw;
+    }
   }
-  const text = kept
-    .map((k) => (k.idx === 1 ? chalk.blue(k.text) : k.text))
-    .join("|");
-  return { text: " " + text + " " };
+  flush();
+  return rows;
 }
 
 /** 由渲染帧（AppState → RenderLine[]）：顶部(插件+历史) + 分隔线 + 状态区 + 分隔线 + 输入/审批 */
@@ -263,8 +275,15 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const approval = state.approval;
   const showApproval = approval !== null;
   const picker = state.picker;
-  const metrics = metricsFor(size, showApproval, picker?.options.length ?? 0);
   const fullWidth = Math.max(1, size.cols);
+  // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
+  const statusLines = renderStatusLine(state.systemStatus, fullWidth);
+  const metrics = metricsFor(
+    size,
+    showApproval,
+    picker?.options.length ?? 0,
+    statusLines.length,
+  );
 
   const topRegion = buildTopRegion(
     state,
@@ -273,8 +292,6 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     metrics.historyWidth,
     fullWidth,
   );
-
-  const statusLine = renderStatusLine(state.systemStatus, fullWidth);
 
   let footerLines: RenderLine[];
   if (showApproval) {
@@ -302,5 +319,5 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const sepLine: RenderLine = {
     text: chalk.gray(truncateToWidth(SEPARATOR.repeat(fullWidth), fullWidth)),
   };
-  return [...topRegion, sepLine, statusLine, sepLine, ...footerLines];
+  return [...topRegion, sepLine, ...statusLines, sepLine, ...footerLines];
 }
