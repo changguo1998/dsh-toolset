@@ -1,0 +1,12 @@
+{
+  "name": "dsh-toolset",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH（DeepSeek Harness）进程内集成插件工具集",
+  "scripts": {
+    "check": "npm --prefix TUI run check",
+    "build": "npm --prefix TUI run build",
+    "test": "npm --prefix TUI run test",
+    "demo": "npm --prefix TUI run demo"
+  }
+}
