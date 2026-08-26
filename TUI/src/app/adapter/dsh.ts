@@ -58,6 +58,30 @@ export interface DshAdapter {
   approve(id: string, allow: boolean): void;
   /** 打断当前思考/turn（真实实现映射 agent.cancel({kind:'user'})；宿主无取消能力时为 no-op） */
   interrupt(): void;
+  /** 查询可用模型目录（provider + 各 provider 可用模型 + 当前默认选择） */
+  modelCatalog(): Promise<ModelCatalog>;
+  /** 切换默认模型（写 agentDefaultModel 服务）；返回保存后的选择 */
+  setDefaultModel(sel: ModelSelection): Promise<ModelSelection>;
+}
+
+/** 模型目录条目（/model 列表展示用） */
+export interface ModelInfo {
+  provider: string;
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface ModelSelection {
+  provider: string;
+  model: string;
+  reasoningEffort?: string;
+}
+
+export interface ModelCatalog {
+  providers: { provider: string; name?: string }[];
+  models: ModelInfo[];
+  current: ModelSelection | undefined;
 }
 
 // ---------- 以下 DSH 原生类型仅供阶段 2 adapter 实现参考（app 层不消费） ----------
@@ -194,6 +218,44 @@ export interface DshCommandLike {
   ): Promise<unknown> | unknown;
 }
 
+/** ctx.get('llm') 服务（dsh-llm LlmRuntime）结构面，零运行时依赖 */
+export interface LlmLike {
+  listProviders?(): readonly { id?: string; name?: string }[];
+  listModels?(
+    provider: string,
+  ):
+    | Promise<
+        readonly { provider?: string; id?: string; name?: string; description?: string }[]
+      >
+    | readonly { provider?: string; id?: string; name?: string; description?: string }[];
+}
+
+/** ctx.get('agentDefaultModel') 服务结构面 */
+export interface AgentDefaultModelLike {
+  currentSelection?():
+    | { provider?: string; model?: string; reasoningEffort?: string }
+    | undefined;
+  saveSelection?(next: {
+    provider: string;
+    model: string;
+    reasoningEffort?: string;
+  }): Promise<void> | void;
+}
+
+/** 读取当前默认模型选择（结构面防御：服务缺失/字段缺失均容错） */
+function readDefaultSelection(
+  svc: AgentDefaultModelLike | undefined,
+): ModelSelection | undefined {
+  if (!svc || typeof svc.currentSelection !== "function") return undefined;
+  const cur = svc.currentSelection();
+  if (!cur?.provider || !cur.model) return undefined;
+  return {
+    provider: cur.provider,
+    model: cur.model,
+    ...(cur.reasoningEffort ? { reasoningEffort: cur.reasoningEffort } : {}),
+  };
+}
+
 export interface RealAdapterOptions {
   runtime: DshRuntime;
   sessionId: string;
@@ -207,6 +269,10 @@ export interface RealAdapterOptions {
   approvalTimeoutMs?: number;
   /** 打断当前思考/turn 的回调（调用 agent.cancel({kind:'user'})）；宿主无 cancel 能力时不传 */
   interrupt?: () => void;
+  /** ctx.get('llm') 服务（dsh-llm LlmRuntime）结构面 */
+  llm?: LlmLike;
+  /** ctx.get('agentDefaultModel') 服务结构面 */
+  defaultModel?: AgentDefaultModelLike;
 }
 
 /**
@@ -392,6 +458,40 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     interrupt() {
       if (disposed) return;
       opts.interrupt?.();
+    },
+    async modelCatalog() {
+      const current = readDefaultSelection(opts.defaultModel);
+      const providers: ModelCatalog["providers"] = [];
+      const models: ModelInfo[] = [];
+      const llm = opts.llm;
+      if (llm && typeof llm.listProviders === "function") {
+        for (const p of llm.listProviders() ?? []) {
+          const pid = p.id ?? "";
+          if (!pid) continue;
+          providers.push({ provider: pid, name: p.name });
+          if (typeof llm.listModels === "function") {
+            const list = await llm.listModels(pid);
+            for (const m of list ?? []) {
+              if (!m.id) continue;
+              models.push({
+                provider: pid,
+                id: m.id,
+                name: m.name ?? m.id,
+                description: m.description,
+              });
+            }
+          }
+        }
+      }
+      return { providers, models, current };
+    },
+    async setDefaultModel(sel) {
+      const svc = opts.defaultModel;
+      if (!svc || typeof svc.saveSelection !== "function") {
+        throw new Error("agentDefaultModel 服务不可用，无法切换模型");
+      }
+      await svc.saveSelection(sel);
+      return sel;
     },
   };
 

@@ -6,7 +6,12 @@
 import type { Renderer, KeyEvent } from "../renderer/index.ts";
 import type { AppState } from "./state.ts";
 import { initialState, reduceState } from "./state.ts";
-import type { DshAdapter, DshEvent } from "./adapter/dsh.ts";
+import type {
+  DshAdapter,
+  DshEvent,
+  ModelCatalog,
+  ModelSelection,
+} from "./adapter/dsh.ts";
 import { parseSlashCommand } from "./adapter/dsh.ts";
 import { buildFrame } from "./layout.ts";
 import { StatusTicker, type StatusQueries } from "./status.ts";
@@ -24,15 +29,13 @@ export interface AppDeps {
 export class App {
   private state: AppState = initialState();
   private unbindEvents: (() => void)[] = [];
-  private log: (msg: string) => void = () => {};
   private disposed = false;
   private statusTicker: StatusTicker | null = null;
 
   constructor(private deps: AppDeps) {}
 
-  setLogger(fn: (msg: string) => void): void {
-    this.log = fn;
-  }
+  /** 预留日志注入点（当前无内部消费方，保持 API 兼容为 no-op） */
+  setLogger(_fn: (msg: string) => void): void {}
 
   start(): void {
     this.deps.renderer.onKey((k) => this.handleKey(k));
@@ -248,6 +251,9 @@ export class App {
       case "quit":
         this.deps.renderer.close();
         return;
+      case "model":
+        void this.handleModelCommand(line);
+        return;
       default:
         // 非本地命令 → 注册表调用
         this.deps.adapter.runCommand(
@@ -257,12 +263,58 @@ export class App {
     }
   }
 
+  /** /model 命令：无参列出可用模型；带参切换默认模型（保留当前 reasoningEffort） */
+  private async handleModelCommand(line: string): Promise<void> {
+    const spec = line.slice("/model".length).trim();
+    try {
+      if (!spec) {
+        const catalog = await this.deps.adapter.modelCatalog();
+        this.notice(formatModelCatalog(catalog));
+        return;
+      }
+      const catalog = await this.deps.adapter.modelCatalog();
+      const resolved = resolveModelSpec(catalog, spec);
+      if ("error" in resolved) {
+        this.notice(resolved.error);
+        return;
+      }
+      if (resolved.same) {
+        this.notice(
+          `already on default model ${resolved.selection.provider}/${resolved.selection.model}`,
+        );
+        return;
+      }
+      const reasoningEffort = catalog.current?.reasoningEffort;
+      const sel: ModelSelection = reasoningEffort
+        ? { ...resolved.selection, reasoningEffort }
+        : resolved.selection;
+      const saved = await this.deps.adapter.setDefaultModel(sel);
+      this.apply((s) =>
+        reduceState(s, {
+          type: "status",
+          status: { model: `${saved.provider}/${saved.model}` },
+        }),
+      );
+      this.notice(`default model -> ${saved.provider}/${saved.model}`);
+    } catch (err) {
+      this.notice("model command failed: " + String(err));
+    }
+  }
+
+  /** 追加一条命令通知并重绘（/model 结果/错误统一入口） */
+  private notice(text: string): void {
+    if (this.disposed) return;
+    this.apply((s) => reduceState(s, { type: "notice", text }));
+    this.paint();
+  }
+
   private helpText(): string {
     return [
       "本地命令：",
       "  /help   显示本帮助",
       "  /clearscreen (/cls)  清空缓冲(只清显示，不动上下文)",
       "  /quit   退出",
+      "  /model [provider/]model  list/switch default model",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }
@@ -300,4 +352,66 @@ export class App {
   private apply(fn: (s: AppState) => AppState): void {
     this.state = fn(this.state);
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// /model 辅助（纯函数，便于单测）
+// ---------------------------------------------------------------------------
+
+/** 格式化模型目录为多行文本（/model 无参输出）：纯 ASCII，当前模型前 ->、其余空格缩进 */
+export function formatModelCatalog(catalog: ModelCatalog): string {
+  const current = catalog.current;
+  const lines: string[] = [];
+  // listModels 为 advisory 目录，当前默认模型可能不在其中——始终渲染为首行并带 -> 标记
+  if (current?.provider && current?.model) {
+    lines.push(`  -> ${current.provider}/${current.model}`);
+  }
+  for (const m of catalog.models) {
+    const key = `${m.provider}/${m.id}`;
+    const isCurrent =
+      current?.provider === m.provider && current?.model === m.id;
+    if (isCurrent) continue;
+    lines.push(`     ${key}`);
+  }
+  if (lines.length === 0) {
+    return "no available models (llm service missing or no adapter registered)";
+  }
+  return lines.join("\n");
+}
+
+/** 解析 /model <spec>：显式 provider/model 直通；裸 model id 需跨 provider 唯一匹配 */
+export function resolveModelSpec(
+  catalog: ModelCatalog,
+  spec: string,
+): { error: string } | { selection: ModelSelection; same: boolean } {
+  const current = catalog.current;
+  const same = (p: string, m: string): boolean =>
+    current?.provider === p && current?.model === m;
+  const slash = spec.indexOf("/");
+  if (slash >= 0) {
+    const provider = spec.slice(0, slash);
+    const model = spec.slice(slash + 1);
+    if (!provider || !model)
+      return {
+        error: "usage: /model <provider>/<model> or /model <modelId>",
+      };
+    return { selection: { provider, model }, same: same(provider, model) };
+  }
+  const matches = catalog.models.filter((m) => m.id === spec);
+  if (matches.length === 0)
+    return {
+      error: `model "${spec}" not found in available models. Use /model to list.`,
+    };
+  if (matches.length > 1) {
+    const ps = matches.map((m) => m.provider).join(", ");
+    return {
+      error: `model "${spec}" exists in multiple providers (${ps}). Use /model <provider>/<model>.`,
+    };
+  }
+  const m = matches[0]!;
+  return {
+    selection: { provider: m.provider, model: m.id },
+    same: same(m.provider, m.id),
+  };
 }

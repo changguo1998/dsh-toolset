@@ -7,6 +7,9 @@ import type {
   DshAdapter,
   DshEvent,
   AgentStatus,
+  ModelCatalog,
+  ModelInfo,
+  ModelSelection,
 } from "../src/app/adapter/dsh.ts";
 
 export class MockDshAdapter implements DshAdapter {
@@ -57,6 +60,28 @@ export class MockDshAdapter implements DshAdapter {
       type: "notice",
       text: "[demo] 打断请求（demo 无真实 agent，已忽略）",
     });
+  }
+
+  private modelList: ModelInfo[] = [
+    { provider: "deepseek", id: "deepseek-chat", name: "DeepSeek Chat" },
+    { provider: "deepseek", id: "deepseek-reasoner", name: "DeepSeek Reasoner" },
+  ];
+  private currentModel: ModelSelection = {
+    provider: "deepseek",
+    model: "deepseek-chat",
+  };
+
+  async modelCatalog(): Promise<ModelCatalog> {
+    return {
+      providers: [{ provider: "deepseek", name: "deepseek" }],
+      models: this.modelList,
+      current: { ...this.currentModel },
+    };
+  }
+
+  async setDefaultModel(sel: ModelSelection): Promise<ModelSelection> {
+    this.currentModel = { ...sel };
+    return { ...sel };
   }
 
   dispose(): void {

@@ -13,7 +13,11 @@
 import { createRenderer, type Renderer } from "./renderer/index.ts";
 import { App } from "./app/index.ts";
 import { createProcessStatusQueries } from "./app/status.ts";
-import type { DshAdapter } from "./app/adapter/dsh.ts";
+import type {
+  DshAdapter,
+  AgentDefaultModelLike,
+  LlmLike,
+} from "./app/adapter/dsh.ts";
 import {
   createRealDshAdapter,
   type DshAgentLike,
@@ -89,10 +93,10 @@ export async function apply(
   // 模型 route 解析：显式 config > 宿主默认选择(agentDefaultModel) > 空。
   // 注意 agentDefaultModel 未在本插件 inject 中声明，须经 ctx.get() 读取
   // (cordis 严格模式禁止未注入服务的直接属性访问)。
-  const defaultModel = (
-    (ctx as { get?: (name: string) => unknown }).get?.("agentDefaultModel") as
-      { currentSelection?(): unknown } | undefined
-  )?.currentSelection?.() as
+  const defaultModelSvc = (ctx as { get?: (name: string) => unknown }).get?.(
+    "agentDefaultModel",
+  ) as AgentDefaultModelLike | undefined;
+  const defaultModel = defaultModelSvc?.currentSelection?.() as
     { provider?: string; model?: string; reasoningEffort?: string } | undefined;
   const route: { provider?: string; model?: string; reasoningEffort?: string } =
     config?.provider && config?.model
@@ -154,6 +158,10 @@ export async function apply(
     commandAgent: rawAgent,
     interrupt: () => rawAgent.cancel?.({ kind: "user" }),
     commands,
+    llm: (ctx as { get?: (name: string) => unknown }).get?.(
+      "llm",
+    ) as LlmLike | undefined,
+    defaultModel: defaultModelSvc,
     approvalTimeoutMs: config?.approvalTimeoutMs ?? 60_000,
   });
 

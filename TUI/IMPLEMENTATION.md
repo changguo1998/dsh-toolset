@@ -83,6 +83,23 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 - **mock/demo**：`MockDshAdapter.runCommand` 回 `notice` 提示 demo 模式无注册表；`App` 层本地表在 demo 同样生效。
 - **测试**：`tests/adapter.dsh.test.ts` 新增 parseSlashCommand、runCommand（命中/未命中/错误/无注册表/非法行/同步返回/sessionId 过滤）、notice、dispose（abort + 解绑 + 幂等）用例；新增 `tests/app.test.ts` 覆盖 submit 路由（普通消息→sendMessage、/help /clearscreen /cls /quit→本地表、未知 /xxx→runCommand、notice 渲染、dispose 透传）。`package.json` test 脚本加 `--experimental-transform-types`（app 层参数属性需 transform 模式）。
 
+## /model 命令（2026-08-26）
+
+- **能力**：查询可用模型 + 切换默认模型。命令形式：
+  - `/model`（无参）→ 列出已注册 provider、各 provider 可用模型（经后台 `ctx.get('llm')` 的 `listProviders()`/`listModels()`），并标出当前默认选择（`agentDefaultModel.currentSelection()`）。
+  - `/model <provider>/<model>` → 显式指定切换；`/model <modelId>` → 跨全部 provider 唯一匹配（未匹配或歧义给错误提示，不落盘）。
+- **切换语义**：写 `ctx.agentDefaultModel.saveSelection()`（默认模型作用域，影响下一 step；`installModelSelection` 快照保证不撕裂当步请求）。切换时保留当前 `reasoningEffort`，不提供 effort 参数（YAGNI）。
+- **接线**：`DshAdapter` 接口新增 `modelCatalog()` / `setDefaultModel()`；`main.ts` apply() 经 `ctx.get('llm')` 与 `ctx.get('agentDefaultModel')` 传入 `createRealDshAdapter`（结构面 `LlmLike`/`AgentDefaultModelLike`，零运行时依赖）。demo 的 `MockDshAdapter` 提供同构 mock 数据。
+- **显示格式**（2026-08-26 修改）：纯 ASCII，紧凑 `provider/model` 一行一个模型；当前模型前 `->`，其余模型前空格缩进对齐，无标题行。示例：
+
+  ```
+    -> deepseek/deepseek-chat
+       deepseek/deepseek-reasoner
+  ```
+
+- **状态回显**：切换成功后 `systemStatus.model` 更新为 `provider/model` 并写入 notice；`/help` 命令表加入 `/model`。
+- **测试**：`tests/app.test.ts` 覆盖 formatModelCatalog/resolveModelSpec 纯函数与 `/model` 路由（无参、带参切换、未知模型、当前模型不重复切换）；`tests/adapter.dsh.test.ts` 覆盖 modelCatalog 聚合/空目录容错、setDefaultModel 保存/无服务抛错。
+
 ## 按键扩展（2026-08-24）
 
 - **Esc** → `App.handleKey` case `escape` → `adapter.interrupt()` → 真实链路 `agent.cancel({kind:'user'})`（`main.ts` 给 rawAgent 结构面加 `cancel?` 并注入 `interrupt` 回调）；demo 模式回 notice 提示。

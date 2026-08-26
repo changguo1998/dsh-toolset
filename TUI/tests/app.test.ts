@@ -5,8 +5,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { App } from "../src/app/index.ts";
-import type { DshAdapter, DshEvent } from "../src/app/adapter/dsh.ts";
+import { App, formatModelCatalog, resolveModelSpec } from "../src/app/index.ts";
+import type {
+  DshAdapter,
+  DshEvent,
+  ModelCatalog,
+  ModelSelection,
+} from "../src/app/adapter/dsh.ts";
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
 import type { RenderLine, Size } from "../src/renderer/screen.ts";
 
@@ -72,6 +77,25 @@ class FakeAdapter implements DshAdapter {
   interrupt(): void {
     this.interrupts++;
   }
+  catalogCalls = 0;
+  savedSelections: ModelSelection[] = [];
+  modelCatalogData: ModelCatalog = {
+    providers: [{ provider: "deepseek", name: "deepseek" }],
+    models: [
+      { provider: "deepseek", id: "deepseek-chat", name: "DeepSeek Chat" },
+      { provider: "deepseek", id: "deepseek-reasoner", name: "DeepSeek Reasoner" },
+    ],
+    current: { provider: "deepseek", model: "deepseek-chat" },
+  };
+  async modelCatalog(): Promise<ModelCatalog> {
+    this.catalogCalls++;
+    return this.modelCatalogData;
+  }
+  async setDefaultModel(sel: ModelSelection): Promise<ModelSelection> {
+    this.savedSelections.push(sel);
+    this.modelCatalogData = { ...this.modelCatalogData, current: { ...sel } };
+    return { ...sel };
+  }
 
   /** 测试辅助：注入事件 */
   push(e: DshEvent): void {
@@ -93,6 +117,11 @@ function typeAndEnter(renderer: FakeRenderer, text: string): void {
     renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
   }
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+}
+
+/** 等待 /model 的 async 链路（Promise 微任务 + setTimeout 0）落定 */
+function flush(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 0));
 }
 
 test("普通输入(不以 / 开头) → sendMessage", () => {
@@ -210,4 +239,99 @@ test("Ctrl+D 但状态非 idle → 不退出", () => {
   adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
   renderer.press({ name: "d", ctrl: true, meta: false, shift: false });
   assert.equal(renderer.closed, 0);
+});
+
+
+test("formatModelCatalog ASCII 紧凑格式: -> 标记当前, 空格缩进其他", () => {
+  const text = formatModelCatalog({
+    providers: [{ provider: "deepseek", name: "deepseek" }],
+    models: [
+      { provider: "deepseek", id: "deepseek-chat", name: "chat" },
+      { provider: "deepseek", id: "deepseek-reasoner", name: "reasoner" },
+    ],
+    current: { provider: "deepseek", model: "deepseek-chat" },
+  });
+  assert.match(text, /^ {2}-> deepseek\/deepseek-chat$/m);
+  assert.match(text, /^ {5}deepseek\/deepseek-reasoner$/m);
+  // 无中文（纯 ASCII）
+  assert.ok(!/[\u4e00-\u9fff]/.test(text), "不应含汉字: " + text);
+});
+
+test("formatModelCatalog 当前模型不在列表中也以 -> 显示", () => {
+  const text = formatModelCatalog({
+    providers: [{ provider: "deepseek", name: "deepseek" }],
+    models: [{ provider: "deepseek", id: "deepseek-chat", name: "chat" }],
+    current: { provider: "deepseek", model: "deepseek-reasoner" },
+  });
+  assert.match(text, /^ {2}-> deepseek\/deepseek-reasoner$/m);
+  assert.match(text, /^ {5}deepseek\/deepseek-chat$/m);
+});
+
+test("resolveModelSpec 裸 id 唯一匹配 / 未匹配 / 歧义", () => {
+  const catalog: ModelCatalog = {
+    providers: [
+      { provider: "p1", name: "p1" },
+      { provider: "p2", name: "p2" },
+    ],
+    models: [
+      { provider: "p1", id: "chat", name: "chat" },
+      { provider: "p2", id: "chat", name: "chat" },
+      { provider: "p1", id: "reasoner", name: "reasoner" },
+    ],
+    current: { provider: "p1", model: "chat" },
+  };
+  const uniq = resolveModelSpec(catalog, "reasoner");
+  assert.ok(!("error" in uniq));
+  assert.deepEqual(uniq.selection, { provider: "p1", model: "reasoner" });
+  assert.equal(uniq.same, false);
+
+  const missing = resolveModelSpec(catalog, "nope");
+  assert.ok("error" in missing);
+  assert.match(missing.error, /not found/);
+
+  const amb = resolveModelSpec(catalog, "chat");
+  assert.ok("error" in amb);
+  assert.match(amb.error, /multiple providers/);
+});
+
+test("resolveModelSpec provider/model 显式直通（无需目录命中）", () => {
+  const catalog: ModelCatalog = { providers: [], models: [], current: undefined };
+  const r = resolveModelSpec(catalog, "custom/deepseek-v3");
+  assert.ok(!("error" in r));
+  assert.deepEqual(r.selection, { provider: "custom", model: "deepseek-v3" });
+});
+
+test("/model 无参 → 调用 modelCatalog（不经 sendMessage）", async () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/model");
+  await flush();
+  assert.ok(adapter.catalogCalls >= 1);
+  assert.deepEqual(adapter.savedSelections, []);
+  assert.deepEqual(adapter.sent, []);
+});
+
+test("/model <id> → setDefaultModel + 更新", async () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/model deepseek-reasoner");
+  await flush();
+  assert.deepEqual(adapter.savedSelections, [
+    { provider: "deepseek", model: "deepseek-reasoner" },
+  ]);
+  assert.deepEqual(adapter.sent, []);
+});
+
+test("/model 未知模型 → 不调用 setDefaultModel", async () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/model nope");
+  await flush();
+  assert.deepEqual(adapter.savedSelections, []);
+  assert.deepEqual(adapter.sent, []);
+});
+
+test("/model 当前模型 → 不重复切换", async () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/model deepseek-chat");
+  await flush();
+  assert.deepEqual(adapter.savedSelections, []);
+  assert.deepEqual(adapter.sent, []);
 });

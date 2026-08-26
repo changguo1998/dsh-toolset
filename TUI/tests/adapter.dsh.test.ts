@@ -13,6 +13,10 @@ import {
   type SessionEvent,
   type ApprovalOutcome,
   normalizeAgentStatus,
+  type ModelCatalog,
+  type ModelSelection,
+  type LlmLike,
+  type AgentDefaultModelLike,
 } from "../src/app/adapter/dsh.ts";
 
 /** 可编程 fake 宿主 */
@@ -504,4 +508,86 @@ test("interrupt: dispose 后为 no-op", () => {
   adapter.dispose!();
   adapter.interrupt();
   assert.equal(calls, 0);
+});
+
+
+test("modelCatalog: 聚合 llm listProviders/listModels + 当前默认选择", async () => {
+  const llm: LlmLike = {
+    listProviders: () => [
+      { id: "deepseek", name: "deepseek" },
+      { id: "pi", name: "pi" },
+    ],
+    listModels: async (p) => [
+      { provider: p, id: p === "deepseek" ? "deepseek-chat" : "pi-4o", name: p },
+    ],
+  };
+  const defaultModel: AgentDefaultModelLike = {
+    currentSelection: () => ({ provider: "deepseek", model: "deepseek-chat" }),
+  };
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    llm,
+    defaultModel,
+  });
+  const catalog = await adapter.modelCatalog();
+  assert.deepEqual(catalog.providers, [
+    { provider: "deepseek", name: "deepseek" },
+    { provider: "pi", name: "pi" },
+  ]);
+  assert.deepEqual(
+    catalog.models.map((m) => [m.provider, m.id]),
+    [
+      ["deepseek", "deepseek-chat"],
+      ["pi", "pi-4o"],
+    ],
+  );
+  assert.deepEqual(catalog.current, {
+    provider: "deepseek",
+    model: "deepseek-chat",
+  });
+});
+
+test("modelCatalog: 无 llm/defaultModel 服务时返回空目录(不抛错)", async () => {
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+  });
+  const catalog: ModelCatalog = await adapter.modelCatalog();
+  assert.deepEqual(catalog.providers, []);
+  assert.deepEqual(catalog.models, []);
+  assert.equal(catalog.current, undefined);
+});
+
+test("setDefaultModel: 调用 saveSelection 并返回选择", async () => {
+  const saved: ModelSelection[] = [];
+  const defaultModel: AgentDefaultModelLike = {
+    saveSelection: async (next) => {
+      saved.push(next);
+    },
+  };
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    defaultModel,
+  });
+  const sel: ModelSelection = { provider: "deepseek", model: "deepseek-reasoner" };
+  const out = await adapter.setDefaultModel(sel);
+  assert.deepEqual(saved, [sel]);
+  assert.deepEqual(out, sel);
+});
+
+test("setDefaultModel: 无 saveSelection 服务时抛错", async () => {
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+  });
+  await assert.rejects(
+    adapter.setDefaultModel({ provider: "deepseek", model: "x" }),
+    /agentDefaultModel 服务不可用/,
+  );
 });
