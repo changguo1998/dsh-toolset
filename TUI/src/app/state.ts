@@ -4,6 +4,7 @@
 // 滚动状态：followBottom 跟随底部；scrollOffset = 上滚的行单位偏移。
 
 import type { ApprovalItem, AgentStatus, SessionMeta } from "./adapter/dsh.ts";
+import type { ModelSelection } from "./adapter/dsh.ts";
 
 /** scrollback 行数上限（纯物理上限；DESIGN:2000 行） */
 export const MAX_BUFFER_LINES = 2000;
@@ -36,6 +37,26 @@ export interface AppState {
   approval: ApprovalItem | null;
   agentStatus: AgentStatus;
   systemStatus: SystemStatus;
+  /** 模型交互选择模式（/model 无参进入；null = 未激活） */
+  picker: PickerState | null;
+}
+
+/** /model 交互选择面板状态：选项列表 + 当前高亮索引 */
+export interface PickerState {
+  /** 可选模型（含当前模型补行） */
+  options: PickerOption[];
+  /** 当前高亮索引（0..options.length-1） */
+  index: number;
+}
+
+/** 选择面板单个选项 */
+export interface PickerOption {
+  /** 纯 ASCII 展示文本，如 "deepseek/deepseek-chat" */
+  label: string;
+  /** 确认后应用的模型选择 */
+  selection: ModelSelection;
+  /** 是否为当前默认模型（行内标记 + 高亮） */
+  current: boolean;
 }
 
 export function initialState(): AppState {
@@ -48,6 +69,7 @@ export function initialState(): AppState {
     inputText: "",
     inputCursor: 0,
     approval: null,
+    picker: null,
     agentStatus: "idle",
     systemStatus: {
       time: "—",
@@ -168,6 +190,12 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       return setApproval(state, action.approval);
     case "sessions":
       return setSessions(state, action.sessions);
+    case "picker-open":
+      return { ...state, picker: action.picker };
+    case "picker-move":
+      return movePicker(state, action);
+    case "picker-close":
+      return { ...state, picker: null };
     case "input":
       return setInput(state, action);
     case "move-cursor":
@@ -191,6 +219,9 @@ export type StateAction =
   | { type: "clear-buffer" }
   | { type: "agent-status"; status: AgentStatus }
   | { type: "approval"; approval: ApprovalItem | null }
+  | { type: "picker-open"; picker: PickerState }
+  | { type: "picker-move"; delta: number }
+  | { type: "picker-close" }
   | { type: "sessions"; sessions: SessionMeta[] }
   | { type: "input"; text: string; cursor: number }
   | { type: "move-cursor"; delta: number }
@@ -218,6 +249,21 @@ function moveCursor(
   return { ...state, inputCursor: cursor };
 }
 
+/**
+ * picker 高亮移动：在 0..options.length-1 内 clamp（上下键导航）。
+ */
+function movePicker(
+  state: AppState,
+  action: Extract<StateAction, { type: "picker-move" }>,
+): AppState {
+  const picker = state.picker;
+  if (!picker || picker.options.length === 0) return state;
+  const index = Math.max(
+    0,
+    Math.min(picker.index + action.delta, picker.options.length - 1),
+  );
+  return { ...state, picker: { ...picker, index } };
+}
 /**
  * 按 delta 滚动：正数上滚（delta>0 暂停跟随），负数下滚；滚回底部恢复跟随。
  * scrollOffset 语义 = 距底部多少行。

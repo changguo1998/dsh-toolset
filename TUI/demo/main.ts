@@ -21,7 +21,7 @@ app.start();
 
 // 退出路径交 renderer：/quit 命令、SIGINT/SIGTERM 信号或进程结束即可；此处不加额外逻辑。
 
-// —— 冒烟模式（无 TTY 或显式 --smoke）：合成按键驱动 /model 与切换后退出 0 ——
+// —— 冒烟模式（无 TTY 或显式 --smoke）：合成按键驱动 /model 交互选择与切换后退出 0 ——
 const smoke = process.argv.includes("--smoke") || !process.stdin.isTTY;
 
 const key = (name: string): KeyEvent => ({
@@ -41,9 +41,11 @@ if (smoke) {
   // 等 app.start() 完成 onKey 注册与首帧渲染后再注入按键
   setTimeout(() => {
     void (async () => {
-      typeLine("/model"); // 无参列出
-      await sleep(600); // 等 modelCatalog 异步完成并渲染
-      typeLine("/model deepseek-reasoner"); // 切换默认模型
+      typeLine("/model"); // 无参进入交互选择
+      await sleep(600); // 等 modelCatalog 异步完成并渲染面板
+      renderer.emitKey(key("down")); // 移到下一项（mock: deepseek-reasoner）
+      await sleep(150);
+      renderer.emitKey(key("enter")); // 确认切换默认模型
       await sleep(600);
       typeLine("/quit");
     })();

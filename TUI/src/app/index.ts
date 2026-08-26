@@ -4,7 +4,7 @@
 // 处理按键、接收事件、重绘。
 
 import type { Renderer, KeyEvent } from "../renderer/index.ts";
-import type { AppState } from "./state.ts";
+import type { AppState, PickerOption } from "./state.ts";
 import { initialState, reduceState } from "./state.ts";
 import type {
   DshAdapter,
@@ -117,6 +117,23 @@ export class App {
       this.deps.adapter.approve(this.state.approval.id, allow);
       this.apply((s) => reduceState(s, { type: "approval", approval: null }));
       this.paint();
+      return;
+    }
+
+    // 模型选择模式（/model 无参）：↑/↓ 移动，Enter 确认，Esc 取消；其余按键忽略
+    if (this.state.picker) {
+      if (name === "up") {
+        this.apply((s) => reduceState(s, { type: "picker-move", delta: -1 }));
+        this.paint();
+      } else if (name === "down") {
+        this.apply((s) => reduceState(s, { type: "picker-move", delta: 1 }));
+        this.paint();
+      } else if (name === "enter") {
+        void this.confirmModelPicker();
+      } else if (name === "escape") {
+        this.apply((s) => reduceState(s, { type: "picker-close" }));
+        this.paint();
+      }
       return;
     }
 
@@ -263,13 +280,13 @@ export class App {
     }
   }
 
-  /** /model 命令：无参列出可用模型；带参切换默认模型（保留当前 reasoningEffort） */
+  /** /model 命令：无参进入交互选择；带参切换默认模型（保留当前 reasoningEffort） */
   private async handleModelCommand(line: string): Promise<void> {
     const spec = line.slice("/model".length).trim();
     try {
       if (!spec) {
         const catalog = await this.deps.adapter.modelCatalog();
-        this.notice(formatModelCatalog(catalog));
+        this.openModelPicker(catalog);
         return;
       }
       const catalog = await this.deps.adapter.modelCatalog();
@@ -278,27 +295,93 @@ export class App {
         this.notice(resolved.error);
         return;
       }
-      if (resolved.same) {
-        this.notice(
-          `already on default model ${resolved.selection.provider}/${resolved.selection.model}`,
-        );
-        return;
-      }
-      const reasoningEffort = catalog.current?.reasoningEffort;
-      const sel: ModelSelection = reasoningEffort
-        ? { ...resolved.selection, reasoningEffort }
-        : resolved.selection;
-      const saved = await this.deps.adapter.setDefaultModel(sel);
-      this.apply((s) =>
-        reduceState(s, {
-          type: "status",
-          status: { model: `${saved.provider}/${saved.model}` },
-        }),
-      );
-      this.notice(`default model -> ${saved.provider}/${saved.model}`);
+      await this.applyModelSelection(resolved.selection);
     } catch (err) {
       this.notice("model command failed: " + String(err));
     }
+  }
+
+  /** 无参 /model：进入交互选择模式（当前模型行始终显示，不在候选目录中也补行） */
+  private openModelPicker(catalog: ModelCatalog): void {
+    const current = catalog.current;
+    const options: PickerOption[] = [];
+    // 当前默认模型恒为首行并标 current（listModels 为 advisory 目录，可能不在其中）
+    if (current?.provider && current?.model) {
+      options.push({
+        label: `${current.provider}/${current.model}`,
+        selection: {
+          provider: current.provider,
+          model: current.model,
+          reasoningEffort: current.reasoningEffort,
+        },
+        current: true,
+      });
+    }
+    for (const m of catalog.models) {
+      const isCurrent =
+        current?.provider === m.provider && current?.model === m.id;
+      if (isCurrent) continue;
+      options.push({
+        label: `${m.provider}/${m.id}`,
+        selection: { provider: m.provider, model: m.id },
+        current: false,
+      });
+    }
+    if (options.length === 0) {
+      this.notice(
+        "no available models (llm service missing or no adapter registered)",
+      );
+      return;
+    }
+    this.apply((s) =>
+      reduceState(s, {
+        type: "picker-open",
+        picker: { options, index: 0 },
+      }),
+    );
+    this.paint();
+  }
+
+  /** 选择面板确认：应用选中模型后退出面板（失败也退出并提示） */
+  private async confirmModelPicker(): Promise<void> {
+    const picker = this.state.picker;
+    if (!picker) return;
+    const opt = picker.options[picker.index];
+    this.apply((s) => reduceState(s, { type: "picker-close" }));
+    if (!opt) return;
+    try {
+      await this.applyModelSelection(opt.selection);
+    } catch (err) {
+      this.notice("model command failed: " + String(err));
+    }
+  }
+
+  /** 持久切换默认模型（保留当前 reasoningEffort）；/model 带参与交互选择共用 */
+  private async applyModelSelection(selection: ModelSelection): Promise<void> {
+    const catalog = await this.deps.adapter.modelCatalog();
+    const cur = catalog.current;
+    if (
+      cur &&
+      cur.provider === selection.provider &&
+      cur.model === selection.model
+    ) {
+      this.notice(
+        `already on default model ${selection.provider}/${selection.model}`,
+      );
+      return;
+    }
+    const reasoningEffort = cur?.reasoningEffort;
+    const sel: ModelSelection = reasoningEffort
+      ? { ...selection, reasoningEffort }
+      : selection;
+    const saved = await this.deps.adapter.setDefaultModel(sel);
+    this.apply((s) =>
+      reduceState(s, {
+        type: "status",
+        status: { model: `${saved.provider}/${saved.model}` },
+      }),
+    );
+    this.notice(`default model -> ${saved.provider}/${saved.model}`);
   }
 
   /** 追加一条命令通知并重绘（/model 结果/错误统一入口） */
@@ -314,7 +397,7 @@ export class App {
       "  /help   显示本帮助",
       "  /clearscreen (/cls)  清空缓冲(只清显示，不动上下文)",
       "  /quit   退出",
-      "  /model [provider/]model  list/switch default model",
+      "  /model [provider/]model  switch default model; bare /model: interactive picker",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }

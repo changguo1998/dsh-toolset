@@ -338,3 +338,77 @@ test("/model 当前模型 → 不重复切换", async () => {
   assert.deepEqual(adapter.savedSelections, []);
   assert.deepEqual(adapter.sent, []);
 });
+
+// ---------- /model 交互选择模式 ----------
+
+test("交互选择：无参 /model 打开面板；模式下普通字符不插入输入框", async () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/model");
+  await flush();
+  assert.ok(adapter.catalogCalls >= 1);
+  assert.deepEqual(adapter.savedSelections, []);
+  // 选择模式下按普通字符 x：不进入输入框、不发送
+  renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  // index 0 = 当前模型 → 确认 = 不重复切换
+  assert.deepEqual(adapter.savedSelections, []);
+  assert.deepEqual(adapter.sent, []);
+});
+
+test("交互选择：↑/↓ 移动，Enter 确认持久切换并保留当前 reasoningEffort", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.modelCatalogData = {
+    ...adapter.modelCatalogData,
+    current: {
+      provider: "deepseek",
+      model: "deepseek-chat",
+      reasoningEffort: "high",
+    },
+  };
+  typeAndEnter(renderer, "/model");
+  await flush();
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  assert.deepEqual(adapter.savedSelections, [
+    {
+      provider: "deepseek",
+      model: "deepseek-reasoner",
+      reasoningEffort: "high",
+    },
+  ]);
+  assert.deepEqual(adapter.sent, []);
+});
+
+test("交互选择：Esc 取消不改变，退出后输入恢复正常", async () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/model");
+  await flush();
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+  await flush();
+  assert.deepEqual(adapter.savedSelections, []);
+  // 退出面板后：普通输入恢复进输入框
+  renderer.press({ name: "a", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.sent, ["a"]);
+});
+
+test("交互选择：当前模型不在候选目录中时补行，Enter 确认当前 → 不重复切换", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.modelCatalogData = {
+    providers: [{ provider: "deepseek", name: "deepseek" }],
+    models: [
+      { provider: "deepseek", id: "deepseek-chat", name: "DeepSeek Chat" },
+    ],
+    current: { provider: "deepseek", model: "deepseek-reasoner" }, // 不在 models 里
+  };
+  typeAndEnter(renderer, "/model");
+  await flush();
+  // index 0 = 补行的当前模型 deepseek-reasoner → 确认 = 不重复切换
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  assert.deepEqual(adapter.savedSelections, []);
+  assert.deepEqual(adapter.sent, []);
+});

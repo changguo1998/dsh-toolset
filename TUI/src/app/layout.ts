@@ -12,6 +12,7 @@ import type { Size } from "../renderer/index.ts";
 import type { AppState } from "./state.ts";
 import type { ApprovalItem } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
+import { renderModelPicker } from "./components/ModelPicker.ts";
 import chalk from "chalk";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
 
@@ -156,11 +157,19 @@ export interface FrameMetrics {
 export function metricsFor(
   size: Size,
   hasApprovalPrompt: boolean,
+  pickerRows = 0,
 ): FrameMetrics {
   const statusHeight = 1;
-  const footerHeight = hasApprovalPrompt
-    ? Math.max(4, Math.floor(size.rows * 0.3))
-    : 1;
+  // footer 高度：审批弹窗 / 选择面板 / 单行输入框
+  let footerHeight = 1;
+  if (hasApprovalPrompt) {
+    footerHeight = Math.max(4, Math.floor(size.rows * 0.3));
+  } else if (pickerRows > 0) {
+    footerHeight = Math.min(
+      pickerRows,
+      Math.max(4, Math.floor(size.rows * 0.4)),
+    );
+  }
   // 插件窄条：固定宽，但窄终端时让出至少 1 列给历史区
   const pluginWidth = Math.min(PLUGIN_WIDTH, Math.max(1, size.cols - 2));
   const historyWidth = Math.max(1, size.cols - pluginWidth);
@@ -253,7 +262,8 @@ export function renderStatusLine(
 export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const approval = state.approval;
   const showApproval = approval !== null;
-  const metrics = metricsFor(size, showApproval);
+  const picker = state.picker;
+  const metrics = metricsFor(size, showApproval, picker?.options.length ?? 0);
   const fullWidth = Math.max(1, size.cols);
 
   const topRegion = buildTopRegion(
@@ -266,18 +276,27 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
 
   const statusLine = renderStatusLine(state.systemStatus, fullWidth);
 
-  const footerLines = showApproval
-    ? renderApprovalPrompt(
-        approval as ApprovalItem,
-        metrics.footerHeight,
-        fullWidth,
-      )
-    : renderTextInput(
-        state.inputText,
-        state.inputCursor,
-        "Type a message…",
-        fullWidth,
-      );
+  let footerLines: RenderLine[];
+  if (showApproval) {
+    footerLines = renderApprovalPrompt(
+      approval as ApprovalItem,
+      metrics.footerHeight,
+      fullWidth,
+    );
+  } else if (picker) {
+    footerLines = renderModelPicker({
+      picker,
+      height: metrics.footerHeight,
+      width: fullWidth,
+    });
+  } else {
+    footerLines = renderTextInput(
+      state.inputText,
+      state.inputCursor,
+      "Type a message…",
+      fullWidth,
+    );
+  }
 
   // 上/中/下三区之间各插一条横线分隔行（边框统一灰色：先纯文本截断再着色）
   const sepLine: RenderLine = {
