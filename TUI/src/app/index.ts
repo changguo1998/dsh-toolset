@@ -117,6 +117,14 @@ export class App {
       return;
     }
 
+    // Ctrl+D：仅 idle 且输入区为空时退出（输入非空时按无操作忽略）
+    if (ctrl && name === "d") {
+      if (this.state.agentStatus === "idle" && this.state.inputText === "") {
+        this.deps.renderer.close();
+      }
+      return;
+    }
+
     // Ctrl+L：强制整帧重绘（绕过 delta 优化）。放在 switch 前，避免吞掉普通 'l' 输入。
     if (ctrl && name === "l") {
       this.refresh();

@@ -190,3 +190,24 @@ test("dispose 调用 adapter.dispose", () => {
   app.dispose();
   assert.equal(adapter.disposed, 1);
 });
+
+test("Ctrl+D 且 idle+输入区空 → 退出(close 被调用)", () => {
+  const { renderer, adapter } = makeApp();
+  renderer.press({ name: "d", ctrl: true, meta: false, shift: false });
+  assert.equal(renderer.closed, 1);
+  assert.deepEqual(adapter.sent, []);
+});
+
+test("Ctrl+D 但输入区非空 → 不退出", () => {
+  const { renderer } = makeApp();
+  renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "d", ctrl: true, meta: false, shift: false });
+  assert.equal(renderer.closed, 0);
+});
+
+test("Ctrl+D 但状态非 idle → 不退出", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
+  renderer.press({ name: "d", ctrl: true, meta: false, shift: false });
+  assert.equal(renderer.closed, 0);
+});
