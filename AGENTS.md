@@ -18,6 +18,13 @@ npm run demo    # 构建并运行 mock demo（无 DSH 依赖）
 
 修改后至少跑 `npm run check`；涉及逻辑改动跑 `npm run test`。
 
+## 构建 → 部署到 profile（本地迭代）
+
+1. `npm run build` 编译到 `dist/`（产物性改动后按下方「变更流程」同步构建）。
+2. profile（`~/.dsh/profiles/dsh-toolset-tui`，参见 `TUI/README.md` 挂载示例）以 `link:` 依赖指向本 TUI 包，构建产物经 symlink 实时可见，**无需** `pnpm install`——直接 `dsh --profile dsh-toolset-tui` 即生效。
+3. 迭代回合：改代码 → `npm run build` → 重启 `dsh --profile dsh-toolset-tui`。
+4. 勿用 `file:` 依赖：install 时复制快照且 pnpm v11 不跟踪目录内容变化，源码变更后 profile 报 `ERR_MODULE_NOT_FOUND`（2026-08-26 实测踩坑）。
+
 ## 变更流程
 
 - 任何变更（代码/配置/文档之外的产物性改动）完成后必须执行 `npm run build` 重新构建，并由**人工确认变更效果**（如运行 `npm run demo` 或实际接入验证），人工确认通过后才允许后续提交（commit）。
