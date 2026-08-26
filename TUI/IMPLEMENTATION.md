@@ -98,7 +98,8 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
   ```
 
 - **状态回显**：切换成功后 `systemStatus.model` 更新为 `provider/model` 并写入 notice；`/help` 命令表加入 `/model`。
-- **测试**：`tests/app.test.ts` 覆盖 formatModelCatalog/resolveModelSpec 纯函数与 `/model` 路由（无参、带参切换、未知模型、当前模型不重复切换）；`tests/adapter.dsh.test.ts` 覆盖 modelCatalog 聚合/空目录容错、setDefaultModel 保存/无服务抛错。
+- **测试**：`tests/app.test.ts` 覆盖 formatModelCatalog/resolveModelSpec 纯函数与 `/model` 路由（无参、带参切换、未知模型、当前模型不重复切换）；`tests/adapter.dsh.test.ts` 覆盖 modelCatalog 聚合/空目录容错、setDefaultModel 保存/无服务抛错；`tests/renderer.test.ts` 覆盖 Renderer `emitKey` 合成按键注入。
+- **demo 冒烟**（2026-08-26）：`demo/main.ts` 在无 TTY（管道/CI）或带 `--smoke` 时自动用 `renderer.emitKey()`（Renderer 新增合成按键注入）驱动 `/model` 列表 → `/model deepseek-reasoner` 切换 → `/quit`，以退出码 0 收尾，便于无头演示与机械验证。`createRenderer` 的 `close()` 同步 `pause()` stdin（与启动时 `resume()` 对称），保证嵌入/无头场景下事件循环可退出。根目录 `package.json` 委托 `TUI/` 的 check/build/test/demo，仓库根可直接 `npm run demo`。
 
 ## 按键扩展（2026-08-24）
 

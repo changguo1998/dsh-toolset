@@ -22,6 +22,8 @@ export interface Renderer {
   /** 强制整帧重绘（绕过 delta 优化，Ctrl+L 用） */
   refresh(lines: RenderLine[]): void;
   onKey(cb: (k: KeyEvent) => void): void;
+  /** 合成按键注入（无 TTY / 测试 / 脚本驱动用；不经 stdin 解码） */
+  emitKey(k: KeyEvent): void;
   onResize(cb: (cols: number, rows: number) => void): void;
   getSize(): Size;
   /** 恢复终端并退出事件循环 */
@@ -112,6 +114,9 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
     onKey(cb: (k: KeyEvent) => void): void {
       keyCbs.add(cb);
     },
+    emitKey(k: KeyEvent): void {
+      for (const cb of keyCbs) cb(k);
+    },
     onResize(cb: (cols: number, rows: number) => void): void {
       resizeCbs.add(cb);
     },
@@ -123,6 +128,7 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       closed = true;
       detach(); // 移除退出钩子，防止 close 后再被信号触发
       stdio.removeListener("data", onData);
+      stdio.pause(); // 对称：启动时 resume()，关闭时 pause() 释放事件循环持有
       process.stdout.removeListener("resize", onResizeEvt);
       process.removeListener("beforeExit", restore);
       terminal.close();

@@ -35,6 +35,9 @@ class FakeRenderer implements Renderer {
     this.keys.push({ name: "__cb__", ctrl: false } as KeyEvent);
     this.press = cb;
   }
+  emitKey(k: KeyEvent): void {
+    this.press(k);
+  }
   onResize(cb: (cols: number, rows: number) => void): void {
     this.resize = cb;
   }
