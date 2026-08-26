@@ -313,15 +313,16 @@ test("resolveModelSpec 裸 id 唯一匹配 / 未匹配 / 歧义", () => {
   assert.match(amb.error, /multiple providers/);
 });
 
-test("/model 面板: Tab 切到思考等级, ↓ 选等级, Enter 应用(模型+等级一起)", async () => {
+test("/model 面板: 三列独立, 切 model 区选模型 + thinking 区选等级, Enter 应用", async () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/model");
   await flush();
-  // 模型焦点区: 下移离开 current 行(选中 deepseek-reasoner)
-  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
-  await flush();
+  // Tab -> model 区(phase1), ↓ 选 deepseek-reasoner
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
-  await flush(); // phase -> 1, efforts已加载(low/high/max)
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  await flush(); // 触发 reload efforts(low/high/max)
+  // Tab -> thinking 区, ↓ 选 high
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   await flush(); // effortIndex -> 1 = high
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
@@ -339,7 +340,8 @@ test("/model 面板: 同模型改等级不触发 already-on, 应用 max", async 
   typeAndEnter(renderer, "/model");
   await flush(); // 模型焦点区 index0 = current 行(deepseek-chat)
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
-  await flush(); // 等级焦点区
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  await flush(); // thinking 区焦点
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   await flush();
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
@@ -446,14 +448,17 @@ test("交互选择：↑/↓ 移动，Enter 确认持久切换并保留当前 re
   };
   typeAndEnter(renderer, "/model");
   await flush();
+  // Tab -> model 区, ↓ 选 deepseek-reasoner（effort 列独立, 默认第一项 low）
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  await flush();
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await flush();
   assert.deepEqual(adapter.savedSelections, [
     {
       provider: "deepseek",
       model: "deepseek-reasoner",
-      reasoningEffort: "high",
+      reasoningEffort: "low",
     },
   ]);
   assert.deepEqual(adapter.sent, []);

@@ -4,7 +4,7 @@
 // 处理按键、接收事件、重绘。
 
 import type { Renderer, KeyEvent } from "../renderer/index.ts";
-import type { AppState, PickerOption } from "./state.ts";
+import type { AppState } from "./state.ts";
 import { initialState, reduceState } from "./state.ts";
 import type {
   DshAdapter,
@@ -143,8 +143,8 @@ export class App {
       return;
     }
 
-    // /model 交互面板：↑/↓ 在焦点区移动，Tab 切换 模型/思考等级 焦点区，
-    // Enter 确认（应用模型+高亮等级），Esc 取消；其余按键忽略
+    // /model 交互面板：↑/↓ 在焦点列内移动，Tab 循环切换 provider/model/thinking
+    // 焦点区，Enter 确认（应用模型+等级），Esc 取消；其余按键忽略
     if (this.state.picker) {
       if (name === "up" || name === "down") {
         this.apply((s) =>
@@ -154,8 +154,9 @@ export class App {
           }),
         );
         this.paint();
-        // 模型焦点区移动后重载该模型的思考等级（等级区移动不重载）
-        if (this.state.picker?.phase === 0) void this.reloadPickerEfforts();
+        // provider/model 区移动后重载思考等级（thinking 区移动不重载）
+        const phase = this.state.picker?.phase;
+        if (phase === 0 || phase === 1) void this.reloadPickerEfforts();
         return;
       }
       if (name === "tab") {
@@ -342,30 +343,25 @@ export class App {
   /** 无参 /model：进入交互选择模式（当前模型行始终显示，不在候选目录中也补行） */
   private openModelPicker(catalog: ModelCatalog): void {
     const current = catalog.current;
-    const options: PickerOption[] = [];
-    // 当前默认模型恒为首行并标 current（listModels 为 advisory 目录，可能不在其中）
-    if (current?.provider && current?.model) {
-      options.push({
-        label: `${current.provider}/${current.model}`,
-        selection: {
-          provider: current.provider,
-          model: current.model,
-          reasoningEffort: current.reasoningEffort,
-        },
-        current: true,
-      });
-    }
-    for (const m of catalog.models) {
-      const isCurrent =
-        current?.provider === m.provider && current?.model === m.id;
-      if (isCurrent) continue;
-      options.push({
-        label: `${m.provider}/${m.id}`,
-        selection: { provider: m.provider, model: m.id },
-        current: false,
-      });
-    }
-    if (options.length === 0) {
+    // provider 列：去重（当前 provider 恒首位，可能不在 catalog.providers 中）
+    const providers: string[] = [];
+    const pushProvider = (p: string | undefined) => {
+      if (p && !providers.includes(p)) providers.push(p);
+    };
+    pushProvider(current?.provider);
+    for (const pr of catalog.providers) pushProvider(pr.provider);
+    for (const m of catalog.models) pushProvider(m.provider);
+    // 每个 provider 的模型列表（去重；当前模型恒首位，可能不在目录中）
+    const providerModels: Record<string, string[]> = {};
+    const pushModel = (p: string | undefined, id: string | undefined) => {
+      if (!p || !id) return;
+      const list = providerModels[p] ?? (providerModels[p] = []);
+      if (!list.includes(id)) list.push(id);
+    };
+    pushModel(current?.provider, current?.model);
+    for (const m of catalog.models) pushModel(m.provider, m.id);
+    const models = providerModels[providers[0]!] ?? [];
+    if (models.length === 0) {
       this.notice(
         "no available models (llm service missing or no adapter registered)",
       );
@@ -374,40 +370,58 @@ export class App {
     this.apply((s) =>
       reduceState(s, {
         type: "picker-open",
-        picker: { options, index: 0, phase: 0, efforts: [], effortIndex: 0 },
+        picker: {
+          providers,
+          providerIndex: 0,
+          providerModels,
+          models,
+          modelIndex: 0,
+          efforts: [],
+          effortIndex: 0,
+          phase: 0,
+          current:
+            current?.provider && current?.model
+              ? {
+                  provider: current.provider,
+                  model: current.model,
+                  reasoningEffort: current.reasoningEffort,
+                }
+              : undefined,
+        },
       }),
     );
     this.paint();
     void this.reloadPickerEfforts();
   }
 
-  /** 按当前高亮模型异步加载思考等级，落定后再下发（面板可能已关闭/换行） */
+  /** 按当前高亮 model 异步加载思考等级，落定后再下发（面板可能已关闭/换行） */
   private async reloadPickerEfforts(): Promise<void> {
     const picker = this.state.picker;
-    const opt = picker?.options[picker.index];
-    if (!opt) return;
-    const label = opt.label;
+    if (!picker) return;
+    const model = picker.models[picker.modelIndex];
+    const provider = picker.providers[picker.providerIndex];
+    if (!model) return;
     try {
       const efforts = await this.deps.adapter.modelEfforts(
-        opt.selection.provider,
-        opt.selection.model,
+        provider ?? "",
+        model,
       );
       if (this.disposed) return;
       const cur = this.state.picker;
-      if (
-        !cur ||
-        cur.options[cur.index]?.label !== label ||
-        cur.options[cur.index] === undefined
-      ) {
-        return; // 已切换高亮或面板关闭，丢弃旧结果
+      const prevModel = cur?.models[cur.modelIndex];
+      if (!cur || prevModel !== model) {
+        return; // 已切换高亮模型或面板关闭，丢弃旧结果
       }
-      // 高亮的模型行自带等级时，预设为列表中的同一等级（其余默认第一项）
-      const hiOpt = cur.options[cur.index]!;
-      const wantIdx = hiOpt.selection.reasoningEffort
-        ? (efforts?.findIndex(
-            (e) => e.id === hiOpt.selection.reasoningEffort,
-          ) ?? -1)
-        : -1;
+      // 当前生效模型自带等级时，预设为列表中同一等级（其余默认第一项）
+      const onCurrent =
+        cur.current &&
+        cur.current.model === model &&
+        cur.current.provider === (provider ?? "");
+      const wantIdx =
+        onCurrent && cur.current?.reasoningEffort
+          ? (efforts?.findIndex((e) => e.id === cur.current!.reasoningEffort) ??
+            -1)
+          : -1;
       const expectedIndex = wantIdx >= 0 ? wantIdx : 0;
       this.apply((s) =>
         reduceState(s, {
@@ -418,21 +432,21 @@ export class App {
       );
       this.paint();
     } catch {
-      // 加载失败保持空列表（面板显示"不支持"）
+      // 加载失败保持空列表（面板显示"unsupported"）
     }
   }
 
-  /** 选择面板确认：应用选中模型 + 该模型的思考等级后退出（失败也退出并提示） */
+  /** 选择面板确认：应用三列当前高亮（provider × model × effort）后退出 */
   private async confirmModelPicker(): Promise<void> {
     const picker = this.state.picker;
     if (!picker) return;
-    const opt = picker.options[picker.index];
+    const provider = picker.providers[picker.providerIndex];
+    const model = picker.models[picker.modelIndex];
     const effort = picker.efforts[picker.effortIndex];
     this.apply((s) => reduceState(s, { type: "picker-close" }));
-    if (!opt) return;
-    const selection = effort
-      ? { ...opt.selection, reasoningEffort: effort.id }
-      : opt.selection; // 无等级可选 → 保留原选择（当前模型行含原 effort）
+    if (!provider || !model) return;
+    const selection: ModelSelection = { provider, model };
+    if (effort) selection.reasoningEffort = effort.id; // 无等级可选 → 不带 effort
     try {
       await this.applyModelSelection(selection);
     } catch (err) {

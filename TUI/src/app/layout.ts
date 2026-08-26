@@ -302,10 +302,11 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const metrics = metricsFor(
     size,
     showApproval,
-    // 模型 + 思考等级两列同屏，footer 高度按两者较大者算，保证两列都放得下
+    // 三列共用同一视口高度；按 providers 与各 provider 的模型列表较大者算，
+    // 不随当前 models/efforts 变化，保证切换 provider 时面板高度稳定不跳动
     Math.max(
-      picker?.options.length ?? 0,
-      picker?.efforts.length ? picker.efforts.length + 1 : 0,
+      picker?.providers.length ?? 0,
+      ...Object.values(picker?.providerModels ?? {}).map((list) => list.length),
     ),
     statusLines.length,
   );

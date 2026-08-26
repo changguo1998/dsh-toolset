@@ -41,18 +41,26 @@ export interface AppState {
   picker: PickerState | null;
 }
 
-/** /model 交互选择面板状态：选项列表 + 当前高亮索引 */
+/** /model 交互选择面板状态：三列列表（provider/model/effort）+ 高亮索引 */
 export interface PickerState {
-  /** 可选模型（含当前模型补行） */
-  options: PickerOption[];
-  /** 当前高亮索引（0..options.length-1） */
-  index: number;
-  /** 焦点区：0=模型列表，1=思考等级列表（Tab 切换，两者同屏显示） */
-  phase: 0 | 1;
+  /** 去重后的 provider 列表 */
+  providers: string[];
+  /** provider 列高亮索引 */
+  providerIndex: number;
+  /** 每个 provider 的模型列表（model 列随 provider 动态调整） */
+  providerModels: Record<string, string[]>;
+  /** 当前高亮 provider 的模型列表（跟随 provider 切换） */
+  models: string[];
+  /** model 列高亮索引 */
+  modelIndex: number;
   /** 当前高亮模型的思考等级选项（id/name；非思考模型为空） */
   efforts: { id: string; name: string }[];
-  /** 思考等级列表高亮索引 */
+  /** thinking 列高亮索引 */
   effortIndex: number;
+  /** 焦点区：0=provider 列，1=model 列，2=thinking 列（Tab 循环切换三列同屏） */
+  phase: 0 | 1 | 2;
+  /** 当前生效选择（各列标星参考） */
+  current?: ModelSelection;
 }
 
 /** 选择面板单个选项 */
@@ -282,31 +290,49 @@ function movePicker(
 ): AppState {
   const picker = state.picker;
   if (!picker) return state;
-  // 思考等级焦点区：在 efforts 内 clamp；无等级时忽略方向键
-  if (picker.phase === 1) {
-    if (picker.efforts.length === 0) return state;
-    const ei = Math.max(
+  // 分区各自的列表独立 clamp：
+  // phase0=provider 列, phase1=model 列, phase2=thinking 列
+  if (picker.phase === 0) {
+    if (picker.providers.length === 0) return state;
+    const pi = Math.max(
       0,
-      Math.min(picker.effortIndex + action.delta, picker.efforts.length - 1),
+      Math.min(
+        picker.providerIndex + action.delta,
+        picker.providers.length - 1,
+      ),
     );
-    if (ei === picker.effortIndex) return state;
-    return { ...state, picker: { ...picker, effortIndex: ei } };
+    if (pi === picker.providerIndex) return state;
+    // 切换 provider 时 model 列同步为该 provider 的模型列表并重置高亮
+    const models = picker.providerModels[picker.providers[pi]!] ?? [];
+    return {
+      ...state,
+      picker: { ...picker, providerIndex: pi, models, modelIndex: 0 },
+    };
   }
-  // 模型焦点区：在 options 内 clamp
-  if (picker.options.length === 0) return state;
-  const index = Math.max(
+  if (picker.phase === 1) {
+    if (picker.models.length === 0) return state;
+    const mi = Math.max(
+      0,
+      Math.min(picker.modelIndex + action.delta, picker.models.length - 1),
+    );
+    if (mi === picker.modelIndex) return state;
+    return { ...state, picker: { ...picker, modelIndex: mi } };
+  }
+  // thinking 焦点区：在 efforts 内 clamp；无等级时忽略方向键
+  if (picker.efforts.length === 0) return state;
+  const ei = Math.max(
     0,
-    Math.min(picker.index + action.delta, picker.options.length - 1),
+    Math.min(picker.effortIndex + action.delta, picker.efforts.length - 1),
   );
-  if (index === picker.index) return state;
-  return { ...state, picker: { ...picker, index } };
+  if (ei === picker.effortIndex) return state;
+  return { ...state, picker: { ...picker, effortIndex: ei } };
 }
 
-/** Tab 在模型/思考等级焦点区间切换（efforts 为空时切过去仍为灰色提示） */
+/** Tab 循环切换三列焦点区（efforts 为空时切到 thinking 列仍为灰色提示） */
 function tabPicker(state: AppState): AppState {
   const picker = state.picker;
   if (!picker) return state;
-  const phase = picker.phase === 0 ? 1 : 0;
+  const phase = ((picker.phase + 1) % 3) as 0 | 1 | 2;
   return { ...state, picker: { ...picker, phase, effortIndex: 0 } };
 }
 
