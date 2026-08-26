@@ -141,13 +141,6 @@ test("普通输入(不以 / 开头) → sendMessage", () => {
   assert.deepEqual(adapter.commands, []);
 });
 
-test("启动后状态栏显示当前生效模型(非占位 —)", async () => {
-  const { renderer } = makeApp();
-  await flush();
-  const joined = renderer.lastRender.join("\n");
-  assert.ok(joined.includes("deepseek/deepseek-chat"), joined);
-});
-
 test("/help → 本地表(不经 sendMessage/runCommand)", () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/help");

@@ -51,26 +51,35 @@ export class App {
         apply: (status) => {
           this.apply((s) => reduceState(s, { type: "status", status }));
           this.paint();
+          // 随 ticker 周期刷新生效模型(会话切换 ?? 宿主默认)：宿主 provider 注册
+          // 可能晚于启动，早读会拿到内置兜底(如 deepseek-official)，故常驻跟随，
+          // 值变化才重绘。与 /model 显示同一来源。
+          this.refreshModelStatus();
         },
       });
       this.statusTicker.start();
       this.unbindEvents.push(() => this.statusTicker?.stop());
     }
-    // 启动即显示当前生效模型（会话切换 ?? 宿主默认），不再用占位 —
+    this.paint();
+  }
+
+  /** 生效模型缓存 key；值变化才重绘（避免每 5s 空重绘） */
+  private modelStatusKey: string | undefined;
+
+  /** 读取生效模型(会话切换 ?? 宿主默认)写入状态栏 model；无变化时跳过 */
+  private refreshModelStatus(): void {
     void this.deps.adapter.modelCatalog().then((catalog) => {
       if (this.disposed) return;
       const cur = catalog.current;
-      if (cur?.provider && cur?.model) {
-        this.apply((s) =>
-          reduceState(s, {
-            type: "status",
-            status: { model: `${cur.provider}/${cur.model}` },
-          }),
-        );
-        this.paint();
-      }
+      if (!cur?.provider || !cur.model) return;
+      const key = `${cur.provider}/${cur.model}`;
+      if (key === this.modelStatusKey) return;
+      this.modelStatusKey = key;
+      this.apply((s) =>
+        reduceState(s, { type: "status", status: { model: key } }),
+      );
+      this.paint();
     });
-    this.paint();
   }
 
   dispose(): void {

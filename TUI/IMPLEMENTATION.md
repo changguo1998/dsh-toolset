@@ -105,7 +105,9 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
        deepseek/deepseek-reasoner
   ```
 
-- **状态回显**：切换成功后 `systemStatus.model` 更新为 `provider/model` 并写入 notice；`/help` 命令表加入 `/model`。2026-08-28 修改：`renderStatusLine` 改为返回可多行 `RenderLine[]`，状态栏内容超出行宽时溢出到下一行（不再截断丢弃段），model 排在 time 之后的第 2 位优先显示；`metricsFor` 新增 `statusHeight` 参数按实际行数压缩顶部区域，保证帧不溢出终端。未切换前 model 仍为占位 `—`。
+- **状态回显**：切换成功后 `systemStatus.model` 更新为 `provider/model` 并写入 notice；`/help` 命令表加入 `/model`。2026-08-28 修改：`renderStatusLine` 改为返回可多行 `RenderLine[]`，状态栏内容超出行宽时溢出到下一行（不再截断丢弃段），model 排在 time 之后的第 2 位优先显示；`metricsFor` 新增 `statusHeight` 参数按实际行数压缩顶部区域，保证帧不溢出终端。
+
+- **启动状态回显**：`App.start()` 读取 `modelCatalog().current` 写入 `systemStatus.model`（不再用占位 `—`）。宿主 `agentDefaultModel` 需等 LLM provider 注册后才返回真实路由，早读会拿到内置兜底（如 `deepseek-official`）；故改为**常驻跟随 StatusTicker 的 5s 周期**（值变更才重绘），不再受启动窗口限制，运行中宿主默认变化也会自动跟上。实测：启动早期 `deepseek-official/...` → `ustc/deepseek-v4-flash`，与 `agent/request` 实际下发的 provider/model 一致。
 
 - **测试**：`tests/app.test.ts` 覆盖 formatModelCatalog/resolveModelSpec 纯函数与 `/model` 路由（带参切换、未知模型、当前模型不重复切换）及交互选择（面板打开后普通字符忽略、↑/↓ + Enter 会话内切换并保留 reasoningEffort、Esc 取消后输入恢复、当前模型不在候选时补行不重复切换）；`tests/modelpicker.test.ts` 覆盖 ModelPicker 渲染（`*`/`>` 标记、current 后缀、加粗、视口跟随、纯 ASCII）与 picker reducer（open/move clamp/close）；`tests/adapter.dsh.test.ts` 覆盖 modelCatalog 聚合/空目录容错、setSessionModel 只改 ref 不落盘/无引用抛错、installSessionModelSelection 的 agent/request 覆盖与 effort 移除；`tests/renderer.test.ts` 覆盖 Renderer `emitKey` 合成按键注入。
 
