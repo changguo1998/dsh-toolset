@@ -18,6 +18,10 @@ npm run demo    # 构建并运行 mock demo（无 DSH 依赖）
 
 修改后至少跑 `npm run check`；涉及逻辑改动跑 `npm run test`。
 
+## 变更流程
+
+- 任何变更（代码/配置/文档之外的产物性改动）完成后必须执行 `npm run build` 重新构建，并由**人工确认变更效果**（如运行 `npm run demo` 或实际接入验证），人工确认通过后才允许后续提交（commit）。
+
 ## 结构与约定
 
 - `TUI/src/app/` 状态与纯函数层（state/layout），`TUI/src/renderer/` 终端渲染层，`TUI/src/app/adapter/` 插拔适配层，`TUI/demo/` mock demo。
