@@ -74,11 +74,27 @@ export class StatusTicker {
 // 真实实现：time = 本地时间；cwd = 进程当前目录；git = status --porcelain --branch
 // ---------------------------------------------------------------------------
 
+/** 家目录简写为 ~；非家目录下原样返回 */
+export function shortenHome(path: string): string {
+  const home = process.env.HOME;
+  if (home && (path === home || path.startsWith(home + "/"))) {
+    return "~" + path.slice(home.length);
+  }
+  return path;
+}
+
 /** 默认查询器：time/cwd 同步，git 走子进程（异常时返回占位 "—"） */
 export function createProcessStatusQueries(): StatusQueries {
   return {
-    time: () => new Date().toLocaleTimeString("zh-CN", { hour12: false }),
-    cwd: () => process.cwd(),
+    // 时间精确到分钟
+    time: () =>
+      new Date().toLocaleTimeString("zh-CN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }),
+    // 家目录简写为 ~
+    cwd: () => shortenHome(process.cwd()),
     git: () => gitStatus(),
   };
 }

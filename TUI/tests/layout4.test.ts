@@ -5,6 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import chalk from "chalk";
 import {
   buildFrame,
   metricsFor,
@@ -98,6 +99,26 @@ test("truncateToWidth: 按显示宽度截断，不切半个 CJK", () => {
   assert.equal(truncateToWidth("abc", 0), "");
 });
 
+test("renderStatusLine: model 段 provider 紫色、模型名绿色，路径段染蓝", () => {
+  // 显式启用 ANSI(测试无 TTY 时 chalk 默认降级为纯文本)
+  chalk.level = 1;
+  const lines = renderStatusLine(
+    {
+      time: "10:00",
+      cwd: "~/proj",
+      git: "main",
+      model: "ustc/deepseek-v4-flash",
+      contextLen: "123",
+      cacheHit: "87%",
+    },
+    80,
+  );
+  const text = lines.map((l) => l.text).join("\n");
+  assert.ok(text.includes("\x1b[35m") || text.includes("\x1b[95m"), "应有紫色");
+  assert.ok(text.includes("\x1b[32m"), "应有绿色");
+  assert.ok(text.includes("\x1b[34m"), "路径段应染蓝");
+});
+
 test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", () => {
   const lines = renderStatusLine(
     {
@@ -116,6 +137,7 @@ test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", ()
     assert.ok(joined.includes(seg), `段未溢出保留: ${seg}`);
   }
   for (const l of lines) {
-    assert.ok(l.text.length <= 20, `行超宽: ${l.text}`);
+    const visible = l.text.replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(visible.length <= 20, `行超宽: ${visible}`);
   }
 });

@@ -5,7 +5,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { StatusTicker, type StatusQueries } from "../src/app/status.ts";
+import {
+  StatusTicker,
+  shortenHome,
+  createProcessStatusQueries,
+  type StatusQueries,
+} from "../src/app/status.ts";
 import { renderStatusLine } from "../src/app/layout.ts";
 
 /** 计数假查询器：断言一次 tick 内每个查询各执行一次 */
@@ -54,7 +59,7 @@ test("StatusTicker: schedule 可注入，手动触发可数 tickCount", async ()
     queries: q,
     intervalMs: 500,
     apply: () => {},
-    schedule: (fn) => {
+    schedule: (_fn) => {
       scheduled++;
       return () => {
         cancelCalled++;
@@ -68,6 +73,19 @@ test("StatusTicker: schedule 可注入，手动触发可数 tickCount", async ()
   assert.equal(scheduled, 1, "只注册一次 interval");
   t.stop();
   assert.equal(cancelCalled, 1, "stop 取消调度");
+});
+
+test("shortenHome: 家目录外路径简写为 ~，非家目录路径原样", () => {
+  const home = process.env.HOME ?? "/home/me";
+  const sub = home + "/Projects/x";
+  assert.equal(shortenHome(sub), "~/Projects/x");
+  assert.equal(shortenHome("/tmp/other"), "/tmp/other");
+});
+
+test("createProcessStatusQueries: 时间精确到分钟且家目录简写", () => {
+  const q = createProcessStatusQueries();
+  assert.match(q.time(), /^\d{2}:\d{2}$/);
+  assert.equal(q.cwd().startsWith("~"), true);
 });
 
 test("StatusTicker: git 返回 Promise 也支持（合并等待后 apply）", async () => {

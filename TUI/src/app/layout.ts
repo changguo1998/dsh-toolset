@@ -228,41 +228,45 @@ function buildTopRegion(
   return rows;
 }
 
-/** 系统状态区：可多行；无标题，`|` 分隔，仅路径段染蓝；超宽时溢出到下一行（不截断） */
+/** 系统状态区：可多行；无标题，`|` 分隔；超宽时溢出到下一行（不截断） */
+const identity = (s: string): string => s;
+/** provider 紫色，模型名绿色；无 "/" 时整体绿色（如占位 "—" 保持无色） */
+function colorModel(s: string): string {
+  const i = s.indexOf("/");
+  if (i < 0) return s === "—" ? s : chalk.green(s);
+  return chalk.magenta(s.slice(0, i)) + chalk.green(s.slice(i));
+}
 export function renderStatusLine(
   status: AppState["systemStatus"],
   cols: number,
 ): RenderLine[] {
-  const values: Array<{ seg: string; blue: boolean }> = [
-    { seg: status.time, blue: false },
-    { seg: status.model, blue: false },
-    { seg: status.cwd, blue: true },
-    { seg: status.git, blue: false },
-    { seg: status.contextLen, blue: false },
-    { seg: status.cacheHit, blue: false },
+  const values: Array<{ seg: string; color: (s: string) => string }> = [
+    { seg: status.time, color: identity },
+    { seg: status.model, color: colorModel },
+    { seg: status.cwd, color: chalk.blue },
+    { seg: status.git, color: identity },
+    { seg: status.contextLen, color: identity },
+    { seg: status.cacheHit, color: identity },
   ];
-  // 状态栏默认前景色；仅路径(目录)段染蓝；段按行内剩余宽度放置，放不下则溢出到下一行
+  // 布局先用纯文本算宽，着色放在行组装时（ANSI 码不进入宽度计算）。
+  // 放不下的段溢出到下一行；段本身先按预算分块，保证任何单块都不超一行可用宽度。
   const rows: RenderLine[] = [];
-  let line: Array<{ text: string; blue: boolean }> = [];
+  let line: Array<{ text: string; color: (s: string) => string }> = [];
   let used = 0; // 已占用可见宽度（含分隔符，不含行首尾空格）
   const maxSegW = Math.max(1, cols - 2); // 留首尾各 1 列
   const flush = (): void => {
     rows.push({
-      text:
-        " " +
-        line.map((k) => (k.blue ? chalk.blue(k.text) : k.text)).join("|") +
-        " ",
+      text: " " + line.map((k) => k.color(k.text)).join("|") + " ",
     });
     line = [];
     used = 0;
   };
   for (const v of values) {
-    // 段本身先按预算分块，保证任何单块都不超一行的可用宽度（避免单段硬挤爆行）
     for (const chunk of wrapLine(v.seg, maxSegW)) {
       const sepW = line.length > 0 ? 1 : 0;
       const vw = displayWidth(chunk);
       if (line.length > 0 && used + sepW + vw > maxSegW) flush();
-      line.push({ text: chunk, blue: v.blue });
+      line.push({ text: chunk, color: v.color });
       used += (line.length > 1 ? 1 : 0) + vw;
     }
   }
