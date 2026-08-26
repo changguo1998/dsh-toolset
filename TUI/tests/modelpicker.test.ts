@@ -1,8 +1,8 @@
 // tests/modelpicker.test.ts — /model 交互选择面板渲染 + picker reducer 单测
 //
-// 覆盖：模型/思考等级两列同屏、当前模型 `*` + [current]、焦点行 `>` + 加粗、
-// Tab 切换焦点区(phase)、视口跟随、纯 ASCII；reduceState 的 picker-open/move/tab/
-// efforts/close。
+// 覆盖：左右分栏同屏（模型列 + 思考等级列）、当前模型 `*` [current]、焦点行
+// `>` 行内加粗、Tab 切换焦点区(phase)、effort (unsupported)、纯 ASCII；
+// reduceState 的 picker-open/move/tab/efforts/close。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -32,28 +32,41 @@ function picker(partial: Partial<PickerState> = {}): PickerState {
   };
 }
 
-test("渲染：模型列标 * [current]，焦点行 > 加粗；等级列同屏显示", () => {
+const BOLD_ON = "\u001b[1m";
+function stripAnsi(s: string): string {
+  return s.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
+test("渲染：左右分栏, 模型列标 * [current] 焦点行 > 加粗, 等级列同屏", () => {
   const p = picker({
     efforts: [
       { id: "max", name: "max" },
       { id: "low", name: "low" },
     ],
   });
-  const rows = renderModelPicker({ picker: p, height: 8, width: 60 });
-  // 模型列占上半屏：头部 + 3 行模型
-  assert.equal(rows[0]!.text.trim(), "model:");
-  assert.equal(rows[1]!.text.trim(), "* a/b [current]");
-  assert.equal(rows[1]!.style, undefined);
-  assert.equal(rows[2]!.text.trim(), "> a/c");
-  assert.deepEqual(rows[2]!.style, { bold: true });
-  assert.equal(rows[3]!.text.trim(), "a/d");
-  // 等级列占下半屏：头部 + 2 行等级(其余补空)
-  assert.equal(rows[4]!.text.trim(), "effort:");
-  assert.equal(rows[5]!.text.trim(), "max");
-  assert.equal(rows[6]!.text.trim(), "low");
+  const rows = renderModelPicker({ picker: p, height: 6, width: 60 });
+  // 头部行: 左 model: 右 effort:
+  const h = stripAnsi(rows[0]!.text);
+  assert.ok(h.includes("model:") && h.includes("effort:"), h);
+  // 左列: current 行标 *, 焦点行 > 且行内加粗; 右列同行的等级显示
+  assert.ok(
+    stripAnsi(rows[1]!.text).includes("* a/b [current]"),
+    stripAnsi(rows[1]!.text),
+  );
+  assert.ok(rows[1]!.text.includes(BOLD_ON) === false, rows[1]!.text);
+  const r1 = stripAnsi(rows[1]!.text);
+  assert.ok(r1.includes("max"), "等级列与模型同屏: " + r1);
+  const r2 = stripAnsi(rows[2]!.text);
+  assert.ok(r2.includes("> a/c") && r2.includes("low"), r2);
+  assert.ok(
+    rows[2]!.text.includes(BOLD_ON + " > a/c"),
+    "模型焦点行应单元格加粗",
+  );
+  const r3 = stripAnsi(rows[3]!.text);
+  assert.ok(r3.includes("a/d"), r3);
 });
 
-test("渲染：焦点在等级列时,模型列不加粗、等级行 > 加粗", () => {
+test("渲染：焦点在等级列时,模型列无 > 且不加粗,等级行 > 行内加粗", () => {
   const p = picker({
     phase: 1,
     efforts: [
@@ -62,24 +75,30 @@ test("渲染：焦点在等级列时,模型列不加粗、等级行 > 加粗", (
     ],
     effortIndex: 1,
   });
-  const rows = renderModelPicker({ picker: p, height: 8, width: 60 });
-  assert.equal(rows[1]!.text.trim(), "* a/b [current]");
-  assert.equal(rows[1]!.style, undefined);
-  assert.equal(rows[2]!.text.trim(), "a/c");
-  assert.equal(rows[2]!.style, undefined);
-  assert.equal(rows[3]!.text.trim(), "a/d");
-  assert.equal(rows[4]!.text.trim(), "effort:");
-  assert.equal(rows[5]!.text.trim(), "max");
-  assert.equal(rows[6]!.text.trim(), "> low");
-  assert.deepEqual(rows[6]!.style, { bold: true });
+  const rows = renderModelPicker({ picker: p, height: 6, width: 60 });
+  // 头部行: 等级列头部加粗 (焦点在等级列)
+  assert.ok(rows[0]!.text.includes(BOLD_ON + " effort:"), rows[0]!.text);
+  // 模型列: current 行标 *, 其余无 > 无加粗
+  assert.ok(stripAnsi(rows[1]!.text).includes("* a/b [current]"));
+  const r2 = stripAnsi(rows[2]!.text);
+  assert.ok(r2.includes("a/c") && !r2.includes("> a/c"), r2);
+  assert.ok(
+    !rows[2]!.text.includes(BOLD_ON + " a/c"),
+    "模型列单元格不应加粗: " + rows[2]!.text,
+  );
+  // 等级列: 焦点行(低) > 且加粗
+  const r1 = stripAnsi(rows[1]!.text);
+  assert.ok(r1.includes("max") && !r1.includes("> max"), r1);
+  const r22 = stripAnsi(rows[2]!.text);
+  assert.ok(r22.includes("> low"), r22);
+  assert.ok(rows[2]!.text.includes(BOLD_ON + " > low"), "等级焦点行应加粗");
 });
 
 test("渲染：模型无等级时显示 effort (unsupported)", () => {
   const rows = renderModelPicker({ picker: picker(), height: 6, width: 60 });
-  const texts = rows.map((r) => r.text.trim());
   assert.ok(
-    texts.some((t) => t.includes("effort: (unsupported)")),
-    texts.join(","),
+    stripAnsi(rows[0]!.text).includes("effort: (unsupported)"),
+    stripAnsi(rows[0]!.text),
   );
 });
 

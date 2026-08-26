@@ -205,12 +205,11 @@ export function reduceState(state: AppState, action: StateAction): AppState {
     case "picker-efforts":
       return setPickerEfforts(
         state,
-        (
-          action as {
-            type: "picker-efforts";
-            efforts: { id: string; name: string }[];
-          }
-        ).efforts,
+        action as {
+          type: "picker-efforts";
+          efforts: { id: string; name: string }[];
+          effortIndex?: number;
+        },
       );
     case "picker-close":
       return { ...state, picker: null };
@@ -240,7 +239,12 @@ export type StateAction =
   | { type: "picker-open"; picker: PickerState }
   | { type: "picker-move"; delta: number }
   | { type: "picker-tab" }
-  | { type: "picker-efforts"; efforts: { id: string; name: string }[] }
+  | {
+      type: "picker-efforts";
+      efforts: { id: string; name: string }[];
+      /** 非 0 时代表预设高亮等级（模型行自带等级时的默认选中），匹配不到回退 0 */
+      effortIndex?: number;
+    }
   | { type: "picker-close" }
   | { type: "sessions"; sessions: SessionMeta[] }
   | { type: "input"; text: string; cursor: number }
@@ -309,11 +313,25 @@ function tabPicker(state: AppState): AppState {
 /** 替换当前高亮模型的思考等级选项（异步加载完成后下发） */
 function setPickerEfforts(
   state: AppState,
-  efforts: { id: string; name: string }[],
+  action: {
+    type: "picker-efforts";
+    efforts: { id: string; name: string }[];
+    effortIndex?: number;
+  },
 ): AppState {
   const picker = state.picker;
   if (!picker) return state;
-  return { ...state, picker: { ...picker, efforts, effortIndex: 0 } };
+  const preset = action.effortIndex ?? 0;
+  const effortIndex =
+    preset > 0 && preset < action.efforts.length
+      ? preset
+      : preset >= action.efforts.length && action.efforts.length > 0
+        ? action.efforts.length - 1
+        : 0; // 预设越界时回退末尾/0
+  return {
+    ...state,
+    picker: { ...picker, efforts: action.efforts, effortIndex },
+  };
 }
 /**
  * 按 delta 滚动：正数上滚（delta>0 暂停跟随），负数下滚；滚回底部恢复跟随。

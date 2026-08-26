@@ -401,10 +401,19 @@ export class App {
       ) {
         return; // 已切换高亮或面板关闭，丢弃旧结果
       }
+      // 高亮的模型行自带等级时，预设为列表中的同一等级（其余默认第一项）
+      const hiOpt = cur.options[cur.index]!;
+      const wantIdx = hiOpt.selection.reasoningEffort
+        ? (efforts?.findIndex(
+            (e) => e.id === hiOpt.selection.reasoningEffort,
+          ) ?? -1)
+        : -1;
+      const expectedIndex = wantIdx >= 0 ? wantIdx : 0;
       this.apply((s) =>
         reduceState(s, {
           type: "picker-efforts",
           efforts: efforts ?? [],
+          effortIndex: expectedIndex,
         }),
       );
       this.paint();
@@ -435,19 +444,20 @@ export class App {
   private async applyModelSelection(selection: ModelSelection): Promise<void> {
     const catalog = await this.deps.adapter.modelCatalog();
     const cur = catalog.current;
+    // 面板已显式选了等级时用面板选择，否则沿用当前模型的等级（/model <id> 路径）
+    const effort = selection.reasoningEffort ?? cur?.reasoningEffort;
     if (
       cur &&
       cur.provider === selection.provider &&
-      cur.model === selection.model
+      cur.model === selection.model &&
+      (cur.reasoningEffort ?? "") === (effort ?? "")
     ) {
-      this.notice(
-        `already on current model ${selection.provider}/${selection.model}`,
-      );
+      const label = modelLabel(selection);
+      this.notice(`already on current model ${label}`);
       return;
     }
-    const reasoningEffort = cur?.reasoningEffort;
-    const sel: ModelSelection = reasoningEffort
-      ? { ...selection, reasoningEffort }
+    const sel: ModelSelection = effort
+      ? { ...selection, reasoningEffort: effort }
       : selection;
     const saved = await this.deps.adapter.setSessionModel(sel);
     const label = modelLabel(saved);

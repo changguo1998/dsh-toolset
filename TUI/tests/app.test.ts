@@ -334,6 +334,25 @@ test("/model 面板: Tab 切到思考等级, ↓ 选等级, Enter 应用(模型+
   });
 });
 
+test("/model 面板: 同模型改等级不触发 already-on, 应用 max", async () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/model");
+  await flush(); // 模型焦点区 index0 = current 行(deepseek-chat)
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  await flush(); // 等级焦点区
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  await flush();
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  await flush(); // effortIndex -> 2 = max
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  assert.deepEqual(adapter.savedSelections[0], {
+    provider: "deepseek",
+    model: "deepseek-chat",
+    reasoningEffort: "max",
+  });
+});
+
 test("resolveModelSpec provider/model 显式直通（无需目录命中）", () => {
   const catalog: ModelCatalog = {
     providers: [],
@@ -400,12 +419,18 @@ test("交互选择：无参 /model 打开面板；模式下普通字符不插入
   await flush();
   assert.ok(adapter.catalogCalls >= 1);
   assert.deepEqual(adapter.savedSelections, []);
-  // 选择模式下按普通字符 x：不进入输入框、不发送
+  // 选择模式下按普通字符 x 与方向之外的键：不进入输入框、不发送
   renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await flush();
-  // index 0 = 当前模型 → 确认 = 不重复切换
-  assert.deepEqual(adapter.savedSelections, []);
+  // index 0 = 当前模型行, 默认等级 low → 同模型但等级不同 → 允许切换
+  assert.deepEqual(adapter.savedSelections, [
+    {
+      provider: "deepseek",
+      model: "deepseek-chat",
+      reasoningEffort: "low",
+    },
+  ]);
   assert.deepEqual(adapter.sent, []);
 });
 
@@ -455,11 +480,15 @@ test("交互选择：当前模型不在候选目录中时补行，Enter 确认�
     models: [
       { provider: "deepseek", id: "deepseek-chat", name: "DeepSeek Chat" },
     ],
-    current: { provider: "deepseek", model: "deepseek-reasoner" }, // 不在 models 里
+    current: {
+      provider: "deepseek",
+      model: "deepseek-reasoner",
+      reasoningEffort: "low", // 不在 models 里, 且等级与面板默认(低)一致
+    },
   };
   typeAndEnter(renderer, "/model");
   await flush();
-  // index 0 = 补行的当前模型 deepseek-reasoner → 确认 = 不重复切换
+  // index 0 = 补行的当前模型 deepseek-reasoner, 等级 low == 默认等级 → 不重复切换
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await flush();
   assert.deepEqual(adapter.savedSelections, []);
