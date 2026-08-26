@@ -88,6 +88,19 @@ export class MockDshAdapter implements DshAdapter {
     return { ...sel };
   }
 
+  async modelEfforts(
+    _provider: string,
+    _model: string,
+  ): Promise<{ id: string; name: string }[] | undefined> {
+    return [
+      { id: "minimal", name: "minimal" },
+      { id: "low", name: "low" },
+      { id: "medium", name: "medium" },
+      { id: "high", name: "high" },
+      { id: "max", name: "max" },
+    ];
+  }
+
   dispose(): void {
     for (const t of this.timers) clearTimeout(t);
     this.timers = [];

@@ -230,11 +230,28 @@ function buildTopRegion(
 
 /** 系统状态区：可多行；无标题，`|` 分隔；超宽时溢出到下一行（不截断） */
 const identity = (s: string): string => s;
-/** provider 紫色，模型名绿色；无 "/" 时整体绿色（如占位 "—" 保持无色） */
+/** 模型段标签：provider/model[:reasoningEffort]，无 effort 时不带冒号后缀 */
+export function modelLabel(sel: {
+  provider: string;
+  model: string;
+  reasoningEffort?: string;
+}): string {
+  return `${sel.provider}/${sel.model}${sel.reasoningEffort ? ":" + sel.reasoningEffort : ""}`;
+}
+
+/** provider 浅紫，模型名绿色，:effort 灰色；无 "/" 时整体绿色（如占位 "—" 保持无色） */
 function colorModel(s: string): string {
-  const i = s.indexOf("/");
-  if (i < 0) return s === "—" ? s : chalk.green(s);
-  return chalk.magenta(s.slice(0, i)) + chalk.green(s.slice(i));
+  const slash = s.indexOf("/");
+  if (slash < 0) return s === "—" ? s : chalk.green(s);
+  const rest = s.slice(slash + 1);
+  const colon = rest.indexOf(":");
+  const model = colon < 0 ? rest : rest.slice(0, colon);
+  const effort = colon < 0 ? "" : rest.slice(colon);
+  return (
+    chalk.magentaBright(s.slice(0, slash)) +
+    chalk.green("/" + model) +
+    (effort ? chalk.gray(effort) : "")
+  );
 }
 export function renderStatusLine(
   status: AppState["systemStatus"],
@@ -285,7 +302,11 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const metrics = metricsFor(
     size,
     showApproval,
-    picker?.options.length ?? 0,
+    // 模型 + 思考等级两列同屏，footer 高度按两者较大者算，保证两列都放得下
+    Math.max(
+      picker?.options.length ?? 0,
+      picker?.efforts.length ? picker.efforts.length + 1 : 0,
+    ),
     statusLines.length,
   );
 

@@ -90,7 +90,7 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
   - `/model`（无参）→ 进入**交互选择模式**（面板渲染在 footer 区）：↑/↓ 移动高亮（选项超出可视高度时视口跟随选中项滚动），Enter 确认切换，Esc 取消不改变；普通字符键在该模式下被忽略（不进入输入框）。
   - `/model <provider>/<model>` → 显式指定切换；`/model <modelId>` → 跨全部 provider 唯一匹配（未匹配或歧义给错误提示，不落盘）。
 
-- **交互选择面板**（2026-08-26）：`AppState.picker`（`PickerState`：options + index）+ reducer action（`picker-open`/`picker-move`/`picker-close`）。渲染为 `src/app/components/ModelPicker.ts` 纯函数（输出恰 footerHeight 行）：当前模型行恒为首行、标 `*` 并附 `[current]` 后缀（即使不在候选目录 `listModels()` 中也补行显示），选中项标 `>` 并加粗；两者重叠时标记取 `*`（选中仍加粗）。`layout.ts` `metricsFor` 增加 picker 高度预算（footer 三分支：审批弹窗 / 选择面板 / 输入框）。
+- **交互选择面板**（2026-08-26 建立，2026-08-28 扩展思考等级）：`AppState.picker`（`PickerState`：options + index + phase + efforts + effortIndex）+ reducer action（`picker-open`/`picker-move`/`picker-tab`/`picker-efforts`/`picker-close`）。渲染为 `src/app/components/ModelPicker.ts` 纯函数（输出恰 footerHeight 行）：**模型列 + 思考等级列同屏**，`model:`/`effort:` 头部，Tab 切换焦点区（phase 0/1），当前模型恒为首行标 `*` 附 `[current]`，焦点行标 `>` 并加粗。等级列表经 adapter 新增 `modelEfforts(provider, model)`（结构面调用宿主 `llm.resolveModelInfo` → `reasoning.efforts`；非思考模型返回 undefined，面板显示 `effort: (unsupported)`）异步按高亮模型加载，Enter 应用「模型 + 高亮等级」。`layout.ts` `metricsFor` 的 picker 高度预算取（模型列表、等级列表）较大者。demo mock 与测试（renderer 渲染/phase 切换/app 交互/适配层）同步覆盖。
 
 - **交互确认**：Enter 复用 `applyModelSelection()`（与 `/model <name>` 带参共用）：保留当前 `reasoningEffort`、写入会话内模型引用（不写宿主设置）；选中当前模型时提示 `already on current model`，不重复切换。Esc 仅关闭面板。
 

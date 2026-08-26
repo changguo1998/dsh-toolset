@@ -107,7 +107,7 @@ test("renderStatusLine: model 段 provider 紫色、模型名绿色，路径段�
       time: "10:00",
       cwd: "~/proj",
       git: "main",
-      model: "ustc/deepseek-v4-flash",
+      model: "ustc/deepseek-v4-flash:max",
       contextLen: "123",
       cacheHit: "87%",
     },
@@ -117,6 +117,7 @@ test("renderStatusLine: model 段 provider 紫色、模型名绿色，路径段�
   assert.ok(text.includes("\x1b[35m") || text.includes("\x1b[95m"), "应有紫色");
   assert.ok(text.includes("\x1b[32m"), "应有绿色");
   assert.ok(text.includes("\x1b[34m"), "路径段应染蓝");
+  assert.ok(text.includes(":max"), "思考等级随行显示");
 });
 
 test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", () => {

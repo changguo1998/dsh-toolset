@@ -106,6 +106,16 @@ class FakeAdapter implements DshAdapter {
     this.modelCatalogData = { ...this.modelCatalogData, current: { ...sel } };
     return { ...sel };
   }
+  async modelEfforts(
+    _provider: string,
+    _model: string,
+  ): Promise<{ id: string; name: string }[] | undefined> {
+    return [
+      { id: "low", name: "low" },
+      { id: "high", name: "high" },
+      { id: "max", name: "max" },
+    ];
+  }
 
   /** 测试辅助：注入事件 */
   push(e: DshEvent): void {
@@ -301,6 +311,27 @@ test("resolveModelSpec 裸 id 唯一匹配 / 未匹配 / 歧义", () => {
   const amb = resolveModelSpec(catalog, "chat");
   assert.ok("error" in amb);
   assert.match(amb.error, /multiple providers/);
+});
+
+test("/model 面板: Tab 切到思考等级, ↓ 选等级, Enter 应用(模型+等级一起)", async () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/model");
+  await flush();
+  // 模型焦点区: 下移离开 current 行(选中 deepseek-reasoner)
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  await flush();
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  await flush(); // phase -> 1, efforts已加载(low/high/max)
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  await flush(); // effortIndex -> 1 = high
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  assert.ok(adapter.savedSelections.length >= 1, "应有切换");
+  assert.deepEqual(adapter.savedSelections[0], {
+    provider: "deepseek",
+    model: "deepseek-reasoner",
+    reasoningEffort: "high",
+  });
 });
 
 test("resolveModelSpec provider/model 显式直通（无需目录命中）", () => {

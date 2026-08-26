@@ -13,7 +13,7 @@ import type {
   ModelSelection,
 } from "./adapter/dsh.ts";
 import { parseSlashCommand } from "./adapter/dsh.ts";
-import { buildFrame } from "./layout.ts";
+import { buildFrame, modelLabel } from "./layout.ts";
 import { StatusTicker, type StatusQueries } from "./status.ts";
 
 export interface AppDeps {
@@ -72,7 +72,7 @@ export class App {
       if (this.disposed) return;
       const cur = catalog.current;
       if (!cur?.provider || !cur.model) return;
-      const key = `${cur.provider}/${cur.model}`;
+      const key = modelLabel(cur);
       if (key === this.modelStatusKey) return;
       this.modelStatusKey = key;
       this.apply((s) =>
@@ -143,19 +143,34 @@ export class App {
       return;
     }
 
-    // 模型选择模式（/model 无参）：↑/↓ 移动，Enter 确认，Esc 取消；其余按键忽略
+    // /model 交互面板：↑/↓ 在焦点区移动，Tab 切换 模型/思考等级 焦点区，
+    // Enter 确认（应用模型+高亮等级），Esc 取消；其余按键忽略
     if (this.state.picker) {
-      if (name === "up") {
-        this.apply((s) => reduceState(s, { type: "picker-move", delta: -1 }));
+      if (name === "up" || name === "down") {
+        this.apply((s) =>
+          reduceState(s, {
+            type: "picker-move",
+            delta: name === "up" ? -1 : 1,
+          }),
+        );
         this.paint();
-      } else if (name === "down") {
-        this.apply((s) => reduceState(s, { type: "picker-move", delta: 1 }));
+        // 模型焦点区移动后重载该模型的思考等级（等级区移动不重载）
+        if (this.state.picker?.phase === 0) void this.reloadPickerEfforts();
+        return;
+      }
+      if (name === "tab") {
+        this.apply((s) => reduceState(s, { type: "picker-tab" }));
         this.paint();
-      } else if (name === "enter") {
+        return;
+      }
+      if (name === "enter") {
         void this.confirmModelPicker();
-      } else if (name === "escape") {
+        return;
+      }
+      if (name === "escape") {
         this.apply((s) => reduceState(s, { type: "picker-close" }));
         this.paint();
+        return;
       }
       return;
     }
@@ -359,21 +374,58 @@ export class App {
     this.apply((s) =>
       reduceState(s, {
         type: "picker-open",
-        picker: { options, index: 0 },
+        picker: { options, index: 0, phase: 0, efforts: [], effortIndex: 0 },
       }),
     );
     this.paint();
+    void this.reloadPickerEfforts();
   }
 
-  /** 选择面板确认：应用选中模型后退出面板（失败也退出并提示） */
+  /** 按当前高亮模型异步加载思考等级，落定后再下发（面板可能已关闭/换行） */
+  private async reloadPickerEfforts(): Promise<void> {
+    const picker = this.state.picker;
+    const opt = picker?.options[picker.index];
+    if (!opt) return;
+    const label = opt.label;
+    try {
+      const efforts = await this.deps.adapter.modelEfforts(
+        opt.selection.provider,
+        opt.selection.model,
+      );
+      if (this.disposed) return;
+      const cur = this.state.picker;
+      if (
+        !cur ||
+        cur.options[cur.index]?.label !== label ||
+        cur.options[cur.index] === undefined
+      ) {
+        return; // 已切换高亮或面板关闭，丢弃旧结果
+      }
+      this.apply((s) =>
+        reduceState(s, {
+          type: "picker-efforts",
+          efforts: efforts ?? [],
+        }),
+      );
+      this.paint();
+    } catch {
+      // 加载失败保持空列表（面板显示"不支持"）
+    }
+  }
+
+  /** 选择面板确认：应用选中模型 + 该模型的思考等级后退出（失败也退出并提示） */
   private async confirmModelPicker(): Promise<void> {
     const picker = this.state.picker;
     if (!picker) return;
     const opt = picker.options[picker.index];
+    const effort = picker.efforts[picker.effortIndex];
     this.apply((s) => reduceState(s, { type: "picker-close" }));
     if (!opt) return;
+    const selection = effort
+      ? { ...opt.selection, reasoningEffort: effort.id }
+      : opt.selection; // 无等级可选 → 保留原选择（当前模型行含原 effort）
     try {
-      await this.applyModelSelection(opt.selection);
+      await this.applyModelSelection(selection);
     } catch (err) {
       this.notice("model command failed: " + String(err));
     }
@@ -398,13 +450,11 @@ export class App {
       ? { ...selection, reasoningEffort }
       : selection;
     const saved = await this.deps.adapter.setSessionModel(sel);
+    const label = modelLabel(saved);
     this.apply((s) =>
-      reduceState(s, {
-        type: "status",
-        status: { model: `${saved.provider}/${saved.model}` },
-      }),
+      reduceState(s, { type: "status", status: { model: label } }),
     );
-    this.notice(`current model -> ${saved.provider}/${saved.model}`);
+    this.notice(`current model -> ${label}`);
   }
 
   /** 追加一条命令通知并重绘（/model 结果/错误统一入口） */

@@ -62,6 +62,11 @@ export interface DshAdapter {
   modelCatalog(): Promise<ModelCatalog>;
   /** 切换当前会话模型（只改会话内 ref，绝不落盘）；返回应用后的选择 */
   setSessionModel(sel: ModelSelection): Promise<ModelSelection>;
+  /** 查询指定 provider/model 的可选思考等级；非思考模型或服务缺失返回 undefined */
+  modelEfforts(
+    provider: string,
+    model: string,
+  ): Promise<{ id: string; name: string }[] | undefined>;
 }
 
 /** 模型目录条目（/model 列表展示用） */
@@ -281,9 +286,7 @@ export interface DshCommandLike {
 /** ctx.get('llm') 服务（dsh-llm LlmRuntime）结构面，零运行时依赖 */
 export interface LlmLike {
   listProviders?(): readonly { id?: string; name?: string }[];
-  listModels?(
-    provider: string,
-  ):
+  listModels?(provider: string):
     | Promise<
         readonly {
           provider?: string;
@@ -298,6 +301,28 @@ export interface LlmLike {
         name?: string;
         description?: string;
       }[];
+  /** 精确路由推理元数据（结构面：官方 LlmService.resolveModelInfo → LlmResolvedModelInfo.reasoning） */
+  resolveModelInfo?(
+    provider: string,
+    model: string,
+    signal?: unknown,
+  ):
+    | Promise<
+        | {
+            reasoning?: {
+              efforts?: readonly { id?: string; name?: string }[];
+              defaultEffort?: string;
+            };
+          }
+        | undefined
+      >
+    | {
+        reasoning?: {
+          efforts?: readonly { id?: string; name?: string }[];
+          defaultEffort?: string;
+        };
+      }
+    | undefined;
 }
 
 export interface AgentDefaultModelLike {
@@ -558,6 +583,22 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       // 只改会话语义内的引用，绝不写宿主 settings（避免覆盖配置默认模型）
       opts.sessionModel.current = sel;
       return sel;
+    },
+    async modelEfforts(provider, model) {
+      const llm = opts.llm;
+      if (!llm || typeof llm.resolveModelInfo !== "function") return undefined;
+      let info;
+      try {
+        info = await llm.resolveModelInfo(provider, model);
+      } catch {
+        return undefined;
+      }
+      const efforts = info?.reasoning?.efforts ?? [];
+      const list = efforts
+        .map((e) => (e.id ? { id: e.id, name: e.name ?? e.id } : null))
+        .filter((e): e is { id: string; name: string } => e !== null);
+      // 非思考模型(无 efforts)按 undefined 处理，面板显示"不支持"
+      return list.length > 0 ? list : undefined;
     },
   };
 

@@ -589,6 +589,49 @@ test("setSessionModel: 只改会话内 ref，不写宿主设置", async () => {
   assert.deepEqual(catalog.current, sel);
 });
 
+test("modelEfforts: 经 llm.resolveModelInfo 读取思考等级", async () => {
+  const llm: LlmLike = {
+    resolveModelInfo: async () => ({
+      reasoning: {
+        efforts: [
+          { id: "low", name: "low" },
+          { id: "max", name: "max" },
+        ],
+        defaultEffort: "low",
+      },
+    }),
+  };
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    llm,
+  });
+  const efforts = await adapter.modelEfforts("ustc", "deepseek-v4-flash");
+  assert.deepEqual(efforts, [
+    { id: "low", name: "low" },
+    { id: "max", name: "max" },
+  ]);
+});
+
+test("modelEfforts: 非思考模型/服务缺失返回 undefined", async () => {
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+  });
+  assert.equal(await adapter.modelEfforts("ustc", "x"), undefined);
+  // 服务存在但模型无 reasoning
+  const llm: LlmLike = { resolveModelInfo: async () => ({}) };
+  const adapter2 = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    llm,
+  });
+  assert.equal(await adapter2.modelEfforts("ustc", "x"), undefined);
+});
+
 test("setSessionModel: 无 sessionModel 引用时抛错", async () => {
   const adapter = createRealDshAdapter({
     runtime: new FakeRuntime(),

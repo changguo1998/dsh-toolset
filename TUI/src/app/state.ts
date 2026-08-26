@@ -47,6 +47,12 @@ export interface PickerState {
   options: PickerOption[];
   /** 当前高亮索引（0..options.length-1） */
   index: number;
+  /** 焦点区：0=模型列表，1=思考等级列表（Tab 切换，两者同屏显示） */
+  phase: 0 | 1;
+  /** 当前高亮模型的思考等级选项（id/name；非思考模型为空） */
+  efforts: { id: string; name: string }[];
+  /** 思考等级列表高亮索引 */
+  effortIndex: number;
 }
 
 /** 选择面板单个选项 */
@@ -194,6 +200,18 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       return { ...state, picker: action.picker };
     case "picker-move":
       return movePicker(state, action);
+    case "picker-tab":
+      return tabPicker(state);
+    case "picker-efforts":
+      return setPickerEfforts(
+        state,
+        (
+          action as {
+            type: "picker-efforts";
+            efforts: { id: string; name: string }[];
+          }
+        ).efforts,
+      );
     case "picker-close":
       return { ...state, picker: null };
     case "input":
@@ -221,6 +239,8 @@ export type StateAction =
   | { type: "approval"; approval: ApprovalItem | null }
   | { type: "picker-open"; picker: PickerState }
   | { type: "picker-move"; delta: number }
+  | { type: "picker-tab" }
+  | { type: "picker-efforts"; efforts: { id: string; name: string }[] }
   | { type: "picker-close" }
   | { type: "sessions"; sessions: SessionMeta[] }
   | { type: "input"; text: string; cursor: number }
@@ -257,12 +277,43 @@ function movePicker(
   action: Extract<StateAction, { type: "picker-move" }>,
 ): AppState {
   const picker = state.picker;
-  if (!picker || picker.options.length === 0) return state;
+  if (!picker) return state;
+  // 思考等级焦点区：在 efforts 内 clamp；无等级时忽略方向键
+  if (picker.phase === 1) {
+    if (picker.efforts.length === 0) return state;
+    const ei = Math.max(
+      0,
+      Math.min(picker.effortIndex + action.delta, picker.efforts.length - 1),
+    );
+    if (ei === picker.effortIndex) return state;
+    return { ...state, picker: { ...picker, effortIndex: ei } };
+  }
+  // 模型焦点区：在 options 内 clamp
+  if (picker.options.length === 0) return state;
   const index = Math.max(
     0,
     Math.min(picker.index + action.delta, picker.options.length - 1),
   );
+  if (index === picker.index) return state;
   return { ...state, picker: { ...picker, index } };
+}
+
+/** Tab 在模型/思考等级焦点区间切换（efforts 为空时切过去仍为灰色提示） */
+function tabPicker(state: AppState): AppState {
+  const picker = state.picker;
+  if (!picker) return state;
+  const phase = picker.phase === 0 ? 1 : 0;
+  return { ...state, picker: { ...picker, phase, effortIndex: 0 } };
+}
+
+/** 替换当前高亮模型的思考等级选项（异步加载完成后下发） */
+function setPickerEfforts(
+  state: AppState,
+  efforts: { id: string; name: string }[],
+): AppState {
+  const picker = state.picker;
+  if (!picker) return state;
+  return { ...state, picker: { ...picker, efforts, effortIndex: 0 } };
 }
 /**
  * 按 delta 滚动：正数上滚（delta>0 暂停跟随），负数下滚；滚回底部恢复跟随。
