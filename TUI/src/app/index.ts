@@ -56,6 +56,20 @@ export class App {
       this.statusTicker.start();
       this.unbindEvents.push(() => this.statusTicker?.stop());
     }
+    // 启动即显示当前生效模型（会话切换 ?? 宿主默认），不再用占位 —
+    void this.deps.adapter.modelCatalog().then((catalog) => {
+      if (this.disposed) return;
+      const cur = catalog.current;
+      if (cur?.provider && cur?.model) {
+        this.apply((s) =>
+          reduceState(s, {
+            type: "status",
+            status: { model: `${cur.provider}/${cur.model}` },
+          }),
+        );
+        this.paint();
+      }
+    });
     this.paint();
   }
 
