@@ -5,7 +5,6 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import chalk from "chalk";
 import {
   buildFrame,
   metricsFor,
@@ -14,6 +13,7 @@ import {
   truncateToWidth,
 } from "../src/app/layout.ts";
 import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
+import type { RenderLine } from "../src/renderer/screen.ts";
 
 function frameWith(rows: number, cols: number) {
   let s = initialState();
@@ -38,16 +38,18 @@ test("metricsFor: 顶部高度 = rows - 状态(1) - 输入(1) - 分隔行(2)；�
 test("buildFrame: 四区顺序与高度正确（顶部插件竖线+历史 / 分隔线 / 状态 / 分隔线 / 输入）", () => {
   const { frame } = frameWith(24, 60);
   assert.equal(frame.length, 24, "帧恰好铺满 24 行");
+  // 主题给边框/分隔线上色后带 ANSI 前缀，先剥离再断言
+  const plain = (l: RenderLine) => l.text.replace(/\x1b\[[0-9;]*m/g, "");
   // 顶部区域：前 topHeight 行，每行以竖线开头（无边框无标题）
   const top = frame.slice(0, 20);
   assert.ok(
-    top.every((l) => l.text.startsWith("│ ")),
+    top.every((l) => plain(l).startsWith("│ ")),
     "顶部每行含竖线分区",
   );
   assert.ok(top[0]!.text.includes("第一行"), "历史区内容在插件右侧");
   // 横线分隔：20 行后是分隔行，再之后是状态区
   const separator1 = frame[20]!;
-  assert.ok(separator1.text.startsWith("─"), "顶部与状态区之间横线分隔");
+  assert.ok(plain(separator1).startsWith("─"), "顶部与状态区之间横线分隔");
   const status = frame[21]!;
   assert.ok(status.text.includes("12:00:00"), "状态行含时间");
   assert.ok(status.text.includes("/home/u"), "状态行含当前目录");
@@ -55,7 +57,7 @@ test("buildFrame: 四区顺序与高度正确（顶部插件竖线+历史 / 分�
   assert.ok(status.text.includes("|"), "状态行段间用 | 分隔");
   // 第二个横线分隔行，然后输入区
   const separator2 = frame[22]!;
-  assert.ok(separator2.text.startsWith("─"), "状态区与输入区之间横线分隔");
+  assert.ok(plain(separator2).startsWith("─"), "状态区与输入区之间横线分隔");
   assert.equal(frame[23]!.text, "❯ Type a message…");
 });
 
@@ -100,8 +102,6 @@ test("truncateToWidth: 按显示宽度截断，不切半个 CJK", () => {
 });
 
 test("renderStatusLine: model 段 provider 紫色、模型名绿色，路径段染蓝", () => {
-  // 显式启用 ANSI(测试无 TTY 时 chalk 默认降级为纯文本)
-  chalk.level = 1;
   const lines = renderStatusLine(
     {
       time: "10:00",
@@ -111,12 +111,19 @@ test("renderStatusLine: model 段 provider 紫色、模型名绿色，路径段�
       contextLen: "123",
       cacheHit: "87%",
     },
+    "dark",
     80,
   );
   const text = lines.map((l) => l.text).join("\n");
-  assert.ok(text.includes("\x1b[35m") || text.includes("\x1b[95m"), "应有紫色");
-  assert.ok(text.includes("\x1b[32m"), "应有绿色");
-  assert.ok(text.includes("\x1b[34m"), "路径段应染蓝");
+  assert.ok(
+    text.includes("\x1b[38;2;199;135;239m"),
+    "应有紫色(brightMagenta #C787EF)",
+  );
+  assert.ok(text.includes("\x1b[38;2;132;231;70m"), "应有绿色(green #84E746)");
+  assert.ok(
+    text.includes("\x1b[38;2;70;132;231m"),
+    "路径段应染蓝(blue #4684E7)",
+  );
   assert.ok(text.includes(":max"), "思考等级随行显示");
 });
 
@@ -130,6 +137,7 @@ test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", ()
       contextLen: "12345",
       cacheHit: "87%",
     },
+    "dark",
     20,
   );
   assert.ok(lines.length >= 2, "应溢出为多行");

@@ -5,6 +5,7 @@
 
 import { Screen, type RenderLine } from "./screen.ts";
 import type { Size } from "./screen.ts";
+import type { ThemeId } from "./theme.ts";
 import type { KeyEvent } from "./input.ts";
 import { KeyDecoder } from "./input.ts";
 import {
@@ -26,6 +27,8 @@ export interface Renderer {
   emitKey(k: KeyEvent): void;
   onResize(cb: (cols: number, rows: number) => void): void;
   getSize(): Size;
+  /** 切换主题（改变基底前景/背景与 16 色槽位映射） */
+  setTheme(id: ThemeId): void;
   /** 恢复终端并退出事件循环 */
   close(): void;
 }
@@ -123,6 +126,10 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
     getSize(): Size {
       return screen.getSize();
     },
+    setTheme(id: ThemeId): void {
+      screen.setTheme(id);
+      prevLines = null; // 使下一帧走全帧重绘，把新背景/调色板画满屏幕
+    },
     close(): void {
       if (closed) return;
       closed = true;
@@ -131,6 +138,7 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       stdio.pause(); // 对称：启动时 resume()，关闭时 pause() 释放事件循环持有
       process.stdout.removeListener("resize", onResizeEvt);
       process.removeListener("beforeExit", restore);
+      screen.reset(); // 恢复终端默认 SGR，避免残留主题色
       terminal.close();
       // DESIGN：close() = 恢复终端 + 退出事件循环
       if (exitOnClose) process.exit(0);

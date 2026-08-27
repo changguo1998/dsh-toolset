@@ -13,7 +13,8 @@ import type { AppState } from "./state.ts";
 import type { ApprovalItem } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
-import chalk from "chalk";
+import type { ThemeId } from "../renderer/theme.ts";
+import { colorFor } from "../renderer/theme.ts";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
 
 // ---------- 换行（wrapping）纯函数 ----------
@@ -221,7 +222,7 @@ function buildTopRegion(
     const trim = truncateToWidth(left + right, cols);
     const text =
       trim.length >= left.length
-        ? chalk.gray(left) + trim.slice(left.length)
+        ? colorFor(state.themeId, "gray")(left) + trim.slice(left.length)
         : trim;
     rows.push({ text });
   }
@@ -240,27 +241,28 @@ export function modelLabel(sel: {
 }
 
 /** provider 浅紫，模型名绿色，:effort 灰色；无 "/" 时整体绿色（如占位 "—" 保持无色） */
-function colorModel(s: string): string {
+function colorModel(themeId: ThemeId, s: string): string {
   const slash = s.indexOf("/");
-  if (slash < 0) return s === "—" ? s : chalk.green(s);
+  if (slash < 0) return s === "—" ? s : colorFor(themeId, "green")(s);
   const rest = s.slice(slash + 1);
   const colon = rest.indexOf(":");
   const model = colon < 0 ? rest : rest.slice(0, colon);
   const effort = colon < 0 ? "" : rest.slice(colon);
   return (
-    chalk.magentaBright(s.slice(0, slash)) +
-    chalk.green("/" + model) +
-    (effort ? chalk.gray(effort) : "")
+    colorFor(themeId, "brightMagenta")(s.slice(0, slash)) +
+    colorFor(themeId, "green")("/" + model) +
+    (effort ? colorFor(themeId, "gray")(effort) : "")
   );
 }
 export function renderStatusLine(
   status: AppState["systemStatus"],
+  themeId: ThemeId,
   cols: number,
 ): RenderLine[] {
   const values: Array<{ seg: string; color: (s: string) => string }> = [
     { seg: status.time, color: identity },
-    { seg: status.model, color: colorModel },
-    { seg: status.cwd, color: chalk.blue },
+    { seg: status.model, color: (s) => colorModel(themeId, s) },
+    { seg: status.cwd, color: colorFor(themeId, "blue") },
     { seg: status.git, color: identity },
     { seg: status.contextLen, color: identity },
     { seg: status.cacheHit, color: identity },
@@ -298,7 +300,11 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const picker = state.picker;
   const fullWidth = Math.max(1, size.cols);
   // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
-  const statusLines = renderStatusLine(state.systemStatus, fullWidth);
+  const statusLines = renderStatusLine(
+    state.systemStatus,
+    state.themeId,
+    fullWidth,
+  );
   const metrics = metricsFor(
     size,
     showApproval,
@@ -344,7 +350,10 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
 
   // 上/中/下三区之间各插一条横线分隔行（边框统一灰色：先纯文本截断再着色）
   const sepLine: RenderLine = {
-    text: chalk.gray(truncateToWidth(SEPARATOR.repeat(fullWidth), fullWidth)),
+    text: colorFor(
+      state.themeId,
+      "gray",
+    )(truncateToWidth(SEPARATOR.repeat(fullWidth), fullWidth)),
   };
   return [...topRegion, sepLine, ...statusLines, sepLine, ...footerLines];
 }

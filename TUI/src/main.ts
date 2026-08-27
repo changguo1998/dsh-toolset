@@ -11,6 +11,7 @@
 //   2. 独立 `main()`：供 bin/dsh-tui.js 显式调用(阶段 3 再指向 profile boot)。
 
 import { createRenderer, type Renderer } from "./renderer/index.ts";
+import { normalizeThemeId, type ThemeId } from "./renderer/theme.ts";
 import { App } from "./app/index.ts";
 import { createProcessStatusQueries } from "./app/status.ts";
 import type {
@@ -33,12 +34,15 @@ import {
 export function main(opts: {
   adapter: DshAdapter;
   logger?: (m: string) => void;
+  /** 初始主题（默认 dark） */
+  initialTheme?: ThemeId;
 }): void {
   const renderer: Renderer = createRenderer();
   const app = new App({
     renderer,
     adapter: opts.adapter,
     status: { queries: createProcessStatusQueries(), intervalMs: 5000 },
+    initialTheme: opts.initialTheme,
   });
   app.setLogger(opts.logger ?? ((msg) => void msg));
   app.start();
@@ -62,6 +66,8 @@ export interface DshTuiConfig {
   provider?: string;
   model?: string;
   reasoningEffort?: string;
+  /** 初始主题（默认 dark=BlueDark；light=YellowBright） */
+  theme?: ThemeId;
 }
 
 /**
@@ -200,9 +206,9 @@ export async function apply(
 
   main({
     adapter,
+    initialTheme: normalizeThemeId(config?.theme ?? undefined),
     logger: (msg) => process.stderr.write("[dsh-tui] " + msg + "\n"),
   });
-
   // renderer 的退出钩子(SIGINT/TERM/Esc → close()) 负责进程退出；此处兜底
   // 清理 agent(避免残留运行中的 loop)。
   process.once("exit", () => {

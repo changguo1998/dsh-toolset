@@ -113,6 +113,7 @@ test("renderStatusLine: 缺失数据源项以占位渲染，不抛错；行含�
       contextLen: "—",
       cacheHit: "—",
     },
+    "dark",
     80,
   );
   const joined = lines.map((l) => l.text).join("\n");

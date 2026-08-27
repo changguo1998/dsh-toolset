@@ -113,6 +113,12 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 
 - **demo 冒烟**（2026-08-26）：`demo/main.ts` 在无 TTY（管道/CI）或带 `--smoke` 时自动用 `renderer.emitKey()`（Renderer 合成按键注入）驱动 `/model`（进入交互选择）→ `down` → `enter` 确认切换 → `/quit`，以退出码 0 收尾，便于无头演示与机械验证。`createRenderer` 的 `close()` 同步 `pause()` stdin（与启动时 `resume()` 对称），保证嵌入/无头场景下事件循环可退出。根目录 `package.json` 委托 `TUI/` 的 check/build/test/demo，仓库根可直接 `npm run demo`。
 
+## /theme 命令（2026-08-28）
+
+- **配色方案**：内嵌 `~/fff/config/terminal-colortheme/` 的两份 JSON（`BlueDark` = dark、`YellowBright` = light）作默认浅深模式，定义 16 个 ANSI 槽位 + 基底前景/背景，全部换成 truecolor ANSI。来源为副本——`src/renderer/theme.ts` 的 `THEMES`，改动需手动同步 fff 配置（运行时读取留作后续 YAGNI）。
+- **槽位映射**：`black..white` → `ansi[]`，`brightBlack..brightWhite` → `bright[]`，`gray` = `brightBlack`。`ansiNameToHex(theme, name)` 解析（颜色名转小写后查表）。`colorFor(themeId, name)` 手工拼接 truecolor ANSI 前景并**以主题基底前景收尾**（不用 chalk：chalk 以 `39m`/`49m` 收尾会复位到终端默认，浅色主题下不可读），`layout.ts` 状态区改用（边框灰/路径蓝/模型区绿+紫+灰均按当前 `state.themeId` 取色，不再直接 `chalk.*`）。`RenderLine.style` 由 `styleLine` 按 Manual-ANSI 处理（fg/bg 分别 `38;2`/`48;2`，bold 用 `1m`/`22m`，各自恢复主题基底）。
+- **基底色**：`Screen` 持有当前主题（`setTheme(id)`），整帧渲染在 `ESC[2J` 清屏**之前**写出基底前景/背景（truecolor 背景 → 清屏即填充主题色）；每个 delta 行也带基底，保证 `ESC[K` 擦除以主题背景填充。`setTheme` 同时清掉渲染器 delta 缓存（`prevLines = null`），切换后必然全帧重绘。`close()` 前 `Screen.reset()` 输出 `ESC[0m` 恢复终端默认。
+
 ## 按键扩展（2026-08-24）
 
 - **Esc** → `App.handleKey` case `escape` → `adapter.interrupt()` → 真实链路 `agent.cancel({kind:'user'})`（`main.ts` 给 rawAgent 结构面加 `cancel?` 并注入 `interrupt` 回调）；demo 模式回 notice 提示。

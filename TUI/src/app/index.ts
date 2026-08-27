@@ -14,6 +14,12 @@ import type {
 } from "./adapter/dsh.ts";
 import { parseSlashCommand } from "./adapter/dsh.ts";
 import { buildFrame, modelLabel } from "./layout.ts";
+import {
+  DEFAULT_THEME,
+  normalizeThemeId,
+  THEMES,
+  type ThemeId,
+} from "../renderer/theme.ts";
 import { StatusTicker, type StatusQueries } from "./status.ts";
 
 export interface AppDeps {
@@ -24,15 +30,21 @@ export interface AppDeps {
     queries: StatusQueries;
     intervalMs?: number;
   };
+  /** 初始主题（默认 dark=BlueDark；/theme 切换仅当前会话） */
+  initialTheme?: ThemeId;
 }
 
 export class App {
-  private state: AppState = initialState();
+  private state: AppState;
   private unbindEvents: (() => void)[] = [];
   private disposed = false;
   private statusTicker: StatusTicker | null = null;
 
-  constructor(private deps: AppDeps) {}
+  constructor(private deps: AppDeps) {
+    this.state = initialState(
+      normalizeThemeId(this.deps.initialTheme ?? DEFAULT_THEME),
+    );
+  }
 
   /** 预留日志注入点（当前无内部消费方，保持 API 兼容为 no-op） */
   setLogger(_fn: (msg: string) => void): void {}
@@ -60,6 +72,8 @@ export class App {
       this.statusTicker.start();
       this.unbindEvents.push(() => this.statusTicker?.stop());
     }
+    // 首帧前同步 renderer 主题（基底色/词槽位随 /theme 切换）
+    this.deps.renderer.setTheme(this.state.themeId);
     this.paint();
   }
 
@@ -327,6 +341,9 @@ export class App {
       case "model":
         void this.handleModelCommand(line);
         return;
+      case "theme":
+        this.handleThemeCommand(line);
+        return;
       default:
         // 非本地命令 → 注册表调用
         this.deps.adapter.runCommand(
@@ -355,6 +372,27 @@ export class App {
     } catch (err) {
       this.notice("model command failed: " + String(err));
     }
+  }
+
+  /** /theme 命令：无参/toggle 在 dark|light 间切换；带参显式设置；非法参数提示 usage */
+  private handleThemeCommand(line: string): void {
+    const arg = line.slice("/theme".length).trim().toLowerCase();
+    const cur = this.state.themeId;
+    let next: ThemeId;
+    if (arg === "" || arg === "toggle") {
+      next = cur === "dark" ? "light" : "dark";
+    } else if (arg === "light" || arg === "dark") {
+      next = arg;
+    } else {
+      this.notice("usage: /theme [light|dark|toggle]");
+      return;
+    }
+    if (next !== cur) {
+      this.apply((s) => reduceState(s, { type: "set-theme", themeId: next }));
+      this.deps.renderer.setTheme(next);
+      this.paint();
+    }
+    this.notice(`theme: ${next} (${THEMES[next].name})`);
   }
 
   /** 无参 /model：进入交互选择模式（当前模型行始终显示，不在候选目录中也补行） */
@@ -518,6 +556,7 @@ export class App {
       "  /help   显示本帮助",
       "  /clearscreen (/cls)  清空缓冲(只清显示，不动上下文)",
       "  /quit   退出",
+      "  /theme [dark|light|toggle]  切换主题(默认 dark=BlueDark, light=YellowBright)",
       "  /model [provider/]model  switch current-session model; bare /model: interactive picker",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");

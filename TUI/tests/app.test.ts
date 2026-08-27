@@ -14,6 +14,7 @@ import type {
 } from "../src/app/adapter/dsh.ts";
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
 import type { RenderLine, Size } from "../src/renderer/screen.ts";
+import type { ThemeId } from "../src/renderer/theme.ts";
 
 /** 记录行为的 fake renderer */
 class FakeRenderer implements Renderer {
@@ -46,6 +47,11 @@ class FakeRenderer implements Renderer {
   }
   getSize(): Size {
     return this.size;
+  }
+  /** 记录 setTheme 调用（断言初始主题与 /theme 切换用） */
+  themeCalls: ThemeId[] = [];
+  setTheme(id: ThemeId): void {
+    this.themeCalls.push(id);
   }
   close(): void {
     this.closed++;
@@ -562,4 +568,52 @@ test("交互选择：当前模型不在候选目录中时补行，Enter 确认�
   await flush();
   assert.deepEqual(adapter.savedSelections, []);
   assert.deepEqual(adapter.sent, []);
+});
+
+test("/theme 无参循环切换 dark<->light,并同步 renderer", () => {
+  const { renderer } = makeApp();
+  // start() 首帧前同步初始主题 dark
+  assert.deepEqual(renderer.themeCalls, ["dark"]);
+  typeAndEnter(renderer, "/theme");
+  assert.deepEqual(renderer.themeCalls, ["dark", "light"]);
+  typeAndEnter(renderer, "/theme");
+  assert.deepEqual(renderer.themeCalls, ["dark", "light", "dark"]);
+});
+
+test("/theme light|dark 显式切换,同步 renderer;同主题不重复 setTheme", () => {
+  const { renderer } = makeApp();
+  typeAndEnter(renderer, "/theme light");
+  assert.deepEqual(renderer.themeCalls, ["dark", "light"]);
+  // 已在 light,再切同主题:只提示不重复调用 setTheme
+  // 已在 light,再切同主题:只提示不重复调用 setTheme
+  typeAndEnter(renderer, "/theme light");
+  typeAndEnter(renderer, "/theme light");
+  assert.deepEqual(renderer.themeCalls, ["dark", "light"]);
+  // toggle 显式等价
+  typeAndEnter(renderer, "/theme toggle");
+  assert.deepEqual(renderer.themeCalls, ["dark", "light", "dark"]);
+});
+
+test("/theme 非法参数 → notice usage,不调用 renderer.setTheme", () => {
+  const { renderer } = makeApp();
+  const before = renderer.themeCalls.length;
+  typeAndEnter(renderer, "/theme xyz");
+  assert.deepEqual(renderer.themeCalls.slice(before), []);
+  // notice 内容进入 UI 缓冲
+  assert.ok(
+    renderer.lastRender.join("\n").includes("usage: /theme"),
+    "应有 usage 提示，实际:\n" + renderer.lastRender.join("\n"),
+  );
+});
+
+test("App initialTheme 非法值回落 dark(外部配置健壮性)", () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  new App({
+    renderer,
+    adapter,
+    initialTheme: "invalid" as ThemeId,
+  }).start();
+  // 无效配置经 normalizeThemeId 兜底为 dark,首帧前以 dark 同步 renderer
+  assert.deepEqual(renderer.themeCalls, ["dark"]);
 });

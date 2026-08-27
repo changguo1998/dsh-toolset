@@ -51,6 +51,7 @@ src/renderer/
   terminal.ts    # raw mode 开/关、resize 监听、退出清理
   input.ts       # stdin 键解码：ANSI 转义序列 → 结构化 key 事件
   screen.ts      # 帧缓冲 + 整帧重绘
+  theme.ts      # 内嵌 fff BlueDark/YellowBright truecolor 调色板 + ANSI 槽位映射
   index.ts       # 公共 API
 ```
 
@@ -97,6 +98,7 @@ interface Renderer {
   onKey(cb: (k: KeyEvent) => void): void;
   onResize(cb: (cols: number, rows: number) => void): void;
   getSize(): { cols: number; rows: number };
+  setTheme(id: "dark" | "light"): void; // 切换主题(基底色+槽位),并令 delta 缓存失效
   close(): void; // 恢复终端，退出事件循环
 }
 ```
@@ -108,7 +110,7 @@ interface Renderer {
 - **高度分配**：顶部高度 = `rows - 状态区(1) - 输入区(1) - 分隔行(2)`（审批弹窗时输入区更高，沿用 `max(4, rows*0.3)`）；「中间与底部满足显示需要，剩余高度全部由上方两个填充」；`buildFrame` 输出顺序为 顶部区 → 横线分隔行 → 状态区 → 横线分隔行 → 输入/审批。
 - **插件窄条**：固定 `PLUGIN_WIDTH=2` 列，仅最左一列竖线 `│` 区分左右分区，其余留白；无边框、无标题、本轮不读取插件数据。
 - **历史区**：按 `historyWidth = cols - pluginWidth` 换行，沿用 scrollback 语义（wrapping、followBottom、scrollOffset、2000 行上限）。
-- **状态区**：横向单行 `12:00:00|~/proj|main|—|—|—`（六段：时间/路径/git/模型/上下文/缓存；无标题、仅值，`|` 分隔；默认前景色，仅路径段染蓝；推理状态段已移除）。超宽按显示宽度截断。通用配色：边框/分隔线（分离行、顶部竖线）统一灰色 `chalk.gray`，输入栏为默认前景色（不切半个 CJK；不用 emoji 避免宽度模型偏差）。
+- **状态区**：横向单行 `12:00:00|~/proj|main|—|—|—`（六段：时间/路径/git/模型/上下文/缓存；无标题、仅值，`|` 分隔；默认前景色，路径段染蓝；推理状态段已移除）。超宽按显示宽度截断。通用配色：边框/分隔线（分离行、顶部竖线）统一灰色，输入栏为默认前景色（不切半个 CJK；不用 emoji 避免宽度模型偏差）。2026-08-28 起颜色经 `src/renderer/theme.ts`（内嵌 fff 的 BlueDark/YellowBright 两份 truecolor 调色板）解析，`AppState.themeId` 决定取色（/theme 切换并同步 Screen 基底色），见 IMPLEMENTATION.md「/theme 命令」。
 - **turn 分隔**：`turn-end` 事件 → `appendTurnSeparator` 往 buffer 追加 `TURN_SEPARATOR` 横线行，让每个 turn 之间可见分隔；`appendStream` 遇到末行为分隔线时不合并（硬边界，下个 turn 另起一行）。
 
 ### 状态区数据流

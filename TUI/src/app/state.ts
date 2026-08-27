@@ -5,6 +5,7 @@
 
 import type { ApprovalItem, AgentStatus, SessionMeta } from "./adapter/dsh.ts";
 import type { ModelSelection } from "./adapter/dsh.ts";
+import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
 
 /** scrollback 行数上限（纯物理上限；DESIGN:2000 行） */
 export const MAX_BUFFER_LINES = 2000;
@@ -37,6 +38,8 @@ export interface AppState {
   approval: ApprovalItem | null;
   agentStatus: AgentStatus;
   systemStatus: SystemStatus;
+  /** 主题（默认 dark=BlueDark；/theme 运行时切换，仅当前会话） */
+  themeId: ThemeId;
   /** 模型交互选择模式（/model 无参进入；null = 未激活） */
   picker: PickerState | null;
 }
@@ -77,7 +80,7 @@ export interface PickerOption {
   current: boolean;
 }
 
-export function initialState(): AppState {
+export function initialState(themeId: ThemeId = DEFAULT_THEME): AppState {
   return {
     sessions: [],
     activeSessionId: null,
@@ -89,6 +92,7 @@ export function initialState(): AppState {
     approval: null,
     picker: null,
     agentStatus: "idle",
+    themeId,
     systemStatus: {
       time: "—",
       cwd: "—",
@@ -241,6 +245,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       return appendTurnSeparator(state);
     case "status":
       return setSystemStatus(state, action.status);
+    case "set-theme":
+      return { ...state, themeId: action.themeId };
     default:
       return state;
   }
@@ -270,7 +276,8 @@ export type StateAction =
   | { type: "scroll"; delta: number }
   | { type: "scroll-to-bottom" }
   | { type: "turn-end" }
-  | { type: "status"; status: Partial<SystemStatus> };
+  | { type: "status"; status: Partial<SystemStatus> }
+  | { type: "set-theme"; themeId: ThemeId };
 
 function setInput(
   state: AppState,
