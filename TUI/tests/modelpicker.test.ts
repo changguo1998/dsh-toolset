@@ -35,7 +35,7 @@ function stripAnsi(s: string): string {
   return s.replace(/\u001b\[[0-9;]*m/g, "");
 }
 
-test("渲染：三列同屏, 头部全小写, 当前生效值各列标星", () => {
+test("渲染：三列同屏, 头部全小写, 焦点行箭头, 当前生效值不标星", () => {
   const p = picker({
     efforts: [
       { id: "low", name: "low" },
@@ -49,15 +49,15 @@ test("渲染：三列同屏, 头部全小写, 当前生效值各列标星", () =
     h,
   );
   assert.ok(!h.includes("[current]"), "不应有 [current]: " + h);
-  // 当前提供方 deepseek 标星（provider 列第1行）
+  // 当前提供方 deepseek 不再标星（浅绿显示，非 TTY 下无 ANSI 时仅无星号）
   const r1 = stripAnsi(rows[1]!.text);
-  assert.ok(r1.includes("* "), "provider 列当前值标星: " + r1);
+  assert.ok(!r1.includes("* "), "当前值不应标星: " + r1);
   assert.ok(!r1.includes("[current]"), r1);
   // provider 列第2行 = ustc；焦点行(phase0, providerIndex=1)标 > 且列表无边框
   const r2 = stripAnsi(rows[2]!.text);
   assert.ok(r2.includes("> ustc"), r2);
   assert.ok(!r2.includes("["), "列表行不应有边框: " + r2);
-  // model 列与 effort 列也同屏且 effort 标星（当前 low）
+  // model 列与 effort 列也同屏且 effort 列有内容
   assert.ok(r2.includes("reasoner"), r2);
   assert.ok(
     rows[1]!.text.includes("low") || rows[1]!.text.includes("max"),
@@ -65,7 +65,51 @@ test("渲染：三列同屏, 头部全小写, 当前生效值各列标星", () =
   );
 });
 
-test("渲染：当前 model 与 effort 也标星（不只在 provider）", () => {
+test("渲染：effort 列 id!=name 时选中仍按 id 标星", () => {
+  const p = picker({
+    efforts: [
+      { id: "low", name: "Low" },
+      { id: "max", name: "Max" },
+    ],
+    effortIndex: 1,
+    phase: 2,
+    selectedEffort: "max",
+  });
+  const rows = renderModelPicker({ picker: p, height: 6, width: 80 });
+  // effort 列显示名 Max 标星（选中键 id="max" 匹配；选中与焦点同行时星号优先）
+  const r2 = stripAnsi(rows[2]!.text);
+  assert.ok(r2.includes("* Max"), "effort 按 id 标星: " + r2);
+  // 未选中的 Low 不标星
+  assert.ok(!rows[1]!.text.includes("* Low"), "未选中不标星");
+});
+
+test("渲染：星号标各列选中值（独立于焦点/当前），可与箭头同行", () => {
+  const p = picker({
+    providers: ["deepseek", "ustc", "ali"],
+    providerIndex: 2, // 焦点行 = ali
+    phase: 0,
+    selectedProvider: "deepseek", // 星号在 deepseek
+    selectedModel: "reasoner",
+    efforts: [
+      { id: "low", name: "low" },
+      { id: "max", name: "max" },
+    ],
+    selectedEffort: "max",
+  });
+  const rows = renderModelPicker({ picker: p, height: 6, width: 80 });
+  const r1 = stripAnsi(rows[1]!.text);
+  const r2 = stripAnsi(rows[2]!.text);
+  const r3 = stripAnsi(rows[3]!.text);
+  // provider 列: 行1 = deepseek(星号)、行2 = ustc、行3 = ali(焦点箭头)
+  assert.ok(r1.includes("* deepseek"), "provider 选中标星: " + r1);
+  assert.ok(r3.includes("> ali"), "焦点行箭头: " + r3);
+  // model 列: 行2 = reasoner 标星（models=["chat","reasoner"]）
+  assert.ok(r2.includes("* reasoner"), "model 选中标星: " + r2);
+  // effort 列 max 标星
+  assert.ok(r2.includes("* max"), "effort 选中标星: " + r2);
+});
+
+test("渲染：当前 model 与 effort 值只以浅绿方式呈现（不标星）", () => {
   const p = picker({
     efforts: [
       { id: "low", name: "low" },
@@ -74,10 +118,15 @@ test("渲染：当前 model 与 effort 也标星（不只在 provider）", () =>
   });
   const rows = renderModelPicker({ picker: p, height: 5, width: 80 });
   // 行1: provider 第1行 deepseek、model 第1行 chat、effort 第1行 low
+  // phase=0 焦点在 provider 列(providerIndex=1=ustc)，所以 providerIndex=0=deepseek
+  // 非焦点 → 当前值行无星号
   const r1 = stripAnsi(rows[1]!.text);
-  assert.ok(r1.includes("* deepseek"), "provider 标星: " + r1);
-  assert.ok(r1.includes("* chat"), "model 列标星: " + r1);
-  assert.ok(r1.includes("* low"), "effort 列标星: " + r1);
+  assert.ok(r1.includes("deepseek"), r1);
+  assert.ok(!r1.includes("* deepseek"), "当前值不标星: " + r1);
+  assert.ok(r1.includes("chat"), "model 当前值: " + r1);
+  assert.ok(!r1.includes("* chat"), "model 当前值不标星: " + r1);
+  assert.ok(r1.includes("low"), "effort 当前值: " + r1);
+  assert.ok(!r1.includes("* low"), "effort 当前值不标星: " + r1);
 });
 
 test("渲染：焦点在 model 列时 model 标题加边框, model 焦点行 > 无边框", () => {
@@ -93,7 +142,7 @@ test("渲染：焦点在 model 列时 model 标题加边框, model 焦点行 > �
     rows[0]!.text.includes("[ model ]"),
     "model 标题应加边框: " + rows[0]!.text,
   );
-  // model 列焦点行(行2, modelIndex=1=reasoner) > 且无边框
+  // model 列焦点行(行2, modelIndex=1=reasoner) 箭头 > 且无边框
   const r2 = stripAnsi(rows[2]!.text);
   assert.ok(r2.includes("> reasoner"), r2);
   assert.ok(!r2.includes("["), "列表行不应有边框: " + r2);
@@ -108,34 +157,34 @@ test("渲染：模型无等级时 effort 列显示 (unsupported)", () => {
 });
 
 test("渲染：列表上下有未显示项时顶/底行显示省略号, 焦点行不显示", () => {
-  // provider 5 项、可视 listRows=3（height 4）：焦点在 index=3 时
-  // scrollStart=1，顶部省略号(行1) + 底部省略号(行3)都出现
+  // provider 6 项、数据行 listRows=4（height 6, 末行为帮助行）、内容行 2：
+  // 焦点 index=2 时 start=1，顶部省略号 + 底部省略号同时出现，焦点恒可见
   const p = picker({
-    providers: ["a", "b", "c", "d", "e"],
-    providerIndex: 3,
+    providers: ["a", "b", "c", "d", "e", "f"],
+    providerIndex: 2,
     phase: 0,
   });
-  const rows = renderModelPicker({ picker: p, height: 4, width: 80 });
+  const rows = renderModelPicker({ picker: p, height: 6, width: 80 });
   const r1 = stripAnsi(rows[1]!.text);
-  const r3 = stripAnsi(rows[3]!.text);
+  const r4 = stripAnsi(rows[4]!.text);
   assert.ok(r1.includes("..."), "顶部应有省略号: " + r1);
-  assert.ok(r3.includes("..."), "底部应有省略号: " + r3);
-  // 焦点行(providerIndex=3)应显示 d 而非省略号
-  const focusRow = stripAnsi(rows[2]!.text);
-  assert.ok(focusRow.includes("> d"), "焦点行应显示内容: " + focusRow);
+  assert.ok(r4.includes("..."), "底部应有省略号: " + r4);
+  // 焦点行(providerIndex=2)应显示 c 而非省略号（箭头指示位置）
+  const focusRow = stripAnsi(rows[3]!.text);
+  assert.ok(focusRow.includes("> c"), "焦点行应显示内容: " + focusRow);
 });
 
 test("渲染：焦点在列表顶部时顶部不显示省略号", () => {
   const p = picker({
-    providers: ["a", "b", "c", "d", "e"],
+    providers: ["a", "b", "c", "d", "e", "f"],
     providerIndex: 0,
     phase: 0,
   });
-  const rows = renderModelPicker({ picker: p, height: 4, width: 80 });
+  const rows = renderModelPicker({ picker: p, height: 6, width: 80 });
   const r1 = stripAnsi(rows[1]!.text);
   assert.ok(r1.includes("a"), "首行应为焦点内容 a: " + r1);
-  const r3 = stripAnsi(rows[3]!.text);
-  assert.ok(r3.includes("..."), "底部应有省略号: " + r3);
+  const r4 = stripAnsi(rows[4]!.text);
+  assert.ok(r4.includes("..."), "底部应有省略号: " + r4);
 });
 
 test("渲染：纯 ASCII（无汉字）且各列对齐", () => {

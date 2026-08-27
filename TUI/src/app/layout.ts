@@ -303,11 +303,12 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     size,
     showApproval,
     // 三列共用同一视口高度；按 providers 与各 provider 的模型列表较大者算，
-    // 不随当前 models/efforts 变化，保证切换 provider 时面板高度稳定不跳动
+    // 不随当前 models/efforts 变化，保证切换 provider 时面板高度稳定不跳动。
+    // +1 用于最底行按键帮助
     Math.max(
       picker?.providers.length ?? 0,
       ...Object.values(picker?.providerModels ?? {}).map((list) => list.length),
-    ),
+    ) + 1,
     statusLines.length,
   );
 

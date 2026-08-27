@@ -313,17 +313,19 @@ test("resolveModelSpec 裸 id 唯一匹配 / 未匹配 / 歧义", () => {
   assert.match(amb.error, /multiple providers/);
 });
 
-test("/model 面板: 三列独立, 切 model 区选模型 + thinking 区选等级, Enter 应用", async () => {
+test("/model 面板: 三列独立, 切 model 区选模型 + thinking 区选等级, space 记录, Enter 应用", async () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/model");
   await flush();
-  // Tab -> model 区(phase1), ↓ 选 deepseek-reasoner
+  // Tab -> model 区(phase1), ↓ 移动到 deepseek-reasoner，space 写入选中
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "space", ctrl: false, meta: false, shift: false });
   await flush(); // 触发 reload efforts(low/high/max)
-  // Tab -> thinking 区, ↓ 选 high
+  // Tab -> thinking 区, 移动到 high，space 写入选中
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "space", ctrl: false, meta: false, shift: false });
   await flush(); // effortIndex -> 1 = high
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await flush();
@@ -332,6 +334,43 @@ test("/model 面板: 三列独立, 切 model 区选模型 + thinking 区选等�
     provider: "deepseek",
     model: "deepseek-reasoner",
     reasoningEffort: "high",
+  });
+});
+
+test("/model 面板: 空格(真实字符)记录选中不提交, 方向键移动焦点, Enter 提交", async () => {
+  const { renderer, adapter } = makeApp();
+  // 单 provider + 两模型：便于验证 model 列「移动箭头 → 空格确认选中」
+  adapter.modelCatalogData = {
+    providers: [{ provider: "deepseek", name: "deepseek" }],
+    models: [
+      { provider: "deepseek", id: "deepseek-chat", name: "chat" },
+      { provider: "deepseek", id: "deepseek-reasoner", name: "reasoner" },
+    ],
+    current: { provider: "deepseek", model: "deepseek-chat" },
+  };
+  typeAndEnter(renderer, "/model");
+  await flush(); // phase0 provider 区, providerIndex0=deepseek
+  // 空格 = 把当前焦点行写入选中（星号），不应提交
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  await flush(); // selectedProvider=当前行，无提交
+  assert.equal(adapter.savedSelections.length, 0, "空格不应提交");
+  // Tab 到 model 区, ↓ 移动焦点箭头（位置指示）到 reasoner（选中仍 chat）
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  await flush(); // modelIndex=1=reasoner
+  assert.equal(adapter.savedSelections.length, 0, "方向键不提交");
+  // 空格把选中改到焦点行 reasoner
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  await flush();
+  assert.equal(adapter.savedSelections.length, 0, "空格不提交");
+  // Enter 提交选中的 model
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  assert.ok(adapter.savedSelections.length >= 1, "应有提交");
+  assert.deepEqual(adapter.savedSelections[0], {
+    provider: "deepseek",
+    model: "deepseek-reasoner",
+    reasoningEffort: "low",
   });
 });
 
@@ -448,9 +487,11 @@ test("交互选择：↑/↓ 移动，Enter 确认持久切换并保留当前 re
   };
   typeAndEnter(renderer, "/model");
   await flush();
-  // Tab -> model 区, ↓ 选 deepseek-reasoner（effort 列独立, 默认第一项 low）
+  // Tab -> model 区, ↓ 移动焦点到 deepseek-reasoner, space 记录选中
+  // （effort 列初始选中 = 当前 high，未动则保持；验证选中与焦点分离）
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "space", ctrl: false, meta: false, shift: false });
   await flush();
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await flush();
@@ -458,7 +499,7 @@ test("交互选择：↑/↓ 移动，Enter 确认持久切换并保留当前 re
     {
       provider: "deepseek",
       model: "deepseek-reasoner",
-      reasoningEffort: "low",
+      reasoningEffort: "high",
     },
   ]);
   assert.deepEqual(adapter.sent, []);

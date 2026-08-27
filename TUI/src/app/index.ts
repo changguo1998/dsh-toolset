@@ -143,20 +143,27 @@ export class App {
       return;
     }
 
-    // /model 交互面板：↑/↓ 在焦点列内移动，Tab 循环切换 provider/model/thinking
-    // 焦点区，Enter 确认（应用模型+等级），Esc 取消；其余按键忽略
+    // /model 交互面板：↑/↓ 移动焦点箭头（位置指示），空格把焦点行写入
+    // 选中（星号，Enter 提交它，不提交；真实键盘空格为普通字符 " "），
+    // Tab 循环切换三列焦点区，Enter 提交各列选中值（应用模型+等级），
+    // Esc 取消；其余按键忽略
     if (this.state.picker) {
       if (name === "up" || name === "down") {
         this.apply((s) =>
           reduceState(s, {
             type: "picker-move",
-            delta: name === "up" ? -1 : 1,
+            delta: name === "down" ? 1 : -1,
           }),
         );
         this.paint();
         // provider/model 区移动后重载思考等级（thinking 区移动不重载）
         const phase = this.state.picker?.phase;
         if (phase === 0 || phase === 1) void this.reloadPickerEfforts();
+        return;
+      }
+      if (name === " " || name === "space") {
+        this.apply((s) => reduceState(s, { type: "picker-select" }));
+        this.paint();
         return;
       }
       if (name === "tab") {
@@ -379,6 +386,10 @@ export class App {
           efforts: [],
           effortIndex: 0,
           phase: 0,
+          // 初始选中 = 当前生效值（打开面板 Enter 不改模型）
+          selectedProvider: current?.provider,
+          selectedModel: current?.model,
+          selectedEffort: current?.reasoningEffort,
           current:
             current?.provider && current?.model
               ? {
@@ -436,13 +447,16 @@ export class App {
     }
   }
 
-  /** 选择面板确认：应用三列当前高亮（provider × model × effort）后退出 */
+  /** 选择面板确认：应用各列选中值（星号所指，回退焦点/当前）后退出 */
   private async confirmModelPicker(): Promise<void> {
     const picker = this.state.picker;
     if (!picker) return;
-    const provider = picker.providers[picker.providerIndex];
-    const model = picker.models[picker.modelIndex];
-    const effort = picker.efforts[picker.effortIndex];
+    const provider =
+      picker.selectedProvider ?? picker.providers[picker.providerIndex];
+    const model = picker.selectedModel ?? picker.models[picker.modelIndex];
+    const effort = picker.selectedEffort
+      ? picker.efforts.find((e) => e.id === picker.selectedEffort)
+      : picker.efforts[picker.effortIndex];
     this.apply((s) => reduceState(s, { type: "picker-close" }));
     if (!provider || !model) return;
     const selection: ModelSelection = { provider, model };

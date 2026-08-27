@@ -59,7 +59,11 @@ export interface PickerState {
   effortIndex: number;
   /** 焦点区：0=provider 列，1=model 列，2=thinking 列（Tab 循环切换三列同屏） */
   phase: 0 | 1 | 2;
-  /** 当前生效选择（各列标星参考） */
+  /** 待提交选中（各列星号标记；Enter 提交它，独立于焦点箭头） */
+  selectedProvider?: string;
+  selectedModel?: string;
+  selectedEffort?: string;
+  /** 当前生效选择（各列浅绿显示） */
   current?: ModelSelection;
 }
 
@@ -210,6 +214,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       return movePicker(state, action);
     case "picker-tab":
       return tabPicker(state);
+    case "picker-select":
+      return selectPicker(state);
     case "picker-efforts":
       return setPickerEfforts(
         state,
@@ -247,6 +253,7 @@ export type StateAction =
   | { type: "picker-open"; picker: PickerState }
   | { type: "picker-move"; delta: number }
   | { type: "picker-tab" }
+  | { type: "picker-select" }
   | {
       type: "picker-efforts";
       efforts: { id: string; name: string }[];
@@ -326,6 +333,33 @@ function movePicker(
   );
   if (ei === picker.effortIndex) return state;
   return { ...state, picker: { ...picker, effortIndex: ei } };
+}
+
+/**
+ * 选择面板「选中」：把当前 phase 焦点行值写入对应列的选中字段（星号标记），
+ * 与焦点箭头（位置指示）分离。Enter 提交的是各列选中值。
+ */
+function selectPicker(state: AppState): AppState {
+  const picker = state.picker;
+  if (!picker) return state;
+  if (picker.phase === 0) {
+    const v = picker.providers[picker.providerIndex];
+    if (!v) return state;
+    return {
+      ...state,
+      picker: { ...picker, selectedProvider: v },
+    };
+  }
+  if (picker.phase === 1) {
+    const v = picker.models[picker.modelIndex];
+    if (!v) return state;
+    return { ...state, picker: { ...picker, selectedModel: v } };
+  }
+  // phase 2：effort 区，仅列表非空时标记
+  if (picker.efforts.length === 0) return state;
+  const v = picker.efforts[picker.effortIndex];
+  if (!v) return state;
+  return { ...state, picker: { ...picker, selectedEffort: v.id } };
 }
 
 /** Tab 循环切换三列焦点区（efforts 为空时切到 thinking 列仍为灰色提示） */
