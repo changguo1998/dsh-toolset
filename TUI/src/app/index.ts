@@ -145,7 +145,7 @@ export class App {
 
     // /model 交互面板：↑/↓ 移动焦点箭头（位置指示），空格把焦点行写入
     // 选中（星号，Enter 提交它，不提交；真实键盘空格为普通字符 " "），
-    // Tab 循环切换三列焦点区，Enter 提交各列选中值（应用模型+等级），
+    // ←/→ 左右切换三列焦点区（clamp 不循环），Tab 循环切换，Enter 提交各列选中值
     // Esc 取消；其余按键忽略
     if (this.state.picker) {
       if (name === "up" || name === "down") {
@@ -168,6 +168,16 @@ export class App {
       }
       if (name === "tab") {
         this.apply((s) => reduceState(s, { type: "picker-tab" }));
+        this.paint();
+        return;
+      }
+      if (name === "left" || name === "right") {
+        this.apply((s) =>
+          reduceState(s, {
+            type: "picker-phase",
+            delta: name === "right" ? 1 : -1,
+          }),
+        );
         this.paint();
         return;
       }

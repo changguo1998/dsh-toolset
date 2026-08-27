@@ -214,6 +214,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       return movePicker(state, action);
     case "picker-tab":
       return tabPicker(state);
+    case "picker-phase":
+      return phasePicker(state, action);
     case "picker-select":
       return selectPicker(state);
     case "picker-efforts":
@@ -253,6 +255,7 @@ export type StateAction =
   | { type: "picker-open"; picker: PickerState }
   | { type: "picker-move"; delta: number }
   | { type: "picker-tab" }
+  | { type: "picker-phase"; delta: 1 | -1 }
   | { type: "picker-select" }
   | {
       type: "picker-efforts";
@@ -368,6 +371,19 @@ function tabPicker(state: AppState): AppState {
   if (!picker) return state;
   const phase = ((picker.phase + 1) % 3) as 0 | 1 | 2;
   return { ...state, picker: { ...picker, phase, effortIndex: 0 } };
+}
+
+/** 左右方向键切换三列焦点区（clamp 不循环：左到头/右到尾保持不动） */
+function phasePicker(
+  state: AppState,
+  action: Extract<StateAction, { type: "picker-phase" }>,
+): AppState {
+  const picker = state.picker;
+  if (!picker) return state;
+  const phase = Math.max(0, Math.min(picker.phase + action.delta, 2)) as
+    0 | 1 | 2;
+  if (phase === picker.phase) return state;
+  return { ...state, picker: { ...picker, phase } };
 }
 
 /** 替换当前高亮模型的思考等级选项（异步加载完成后下发） */

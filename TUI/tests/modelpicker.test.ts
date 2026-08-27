@@ -259,6 +259,41 @@ test("reducer：picker-open 激活 / 各列 clamp / tab 三区循环 / efforts /
   assert.equal(s8.picker, null);
 });
 
+test("reducer：左右方向键切换焦点区,clamp 不循环(右到头/左到头不动)", () => {
+  const base = initialState();
+  const s1 = reduceState(base, {
+    type: "picker-open",
+    picker: picker({
+      efforts: [
+        { id: "low", name: "low" },
+        { id: "max", name: "max" },
+      ],
+      effortIndex: 1,
+    }),
+  });
+  assert.ok(s1.picker);
+
+  // 右: 0 -> 1 -> 2,到 2 后再右不动(不循环回 0)
+  const r1 = reduceState(s1, { type: "picker-phase", delta: 1 });
+  assert.equal(r1.picker!.phase, 1);
+  const r2 = reduceState(r1, { type: "picker-phase", delta: 1 });
+  assert.equal(r2.picker!.phase, 2);
+  const r3 = reduceState(r2, { type: "picker-phase", delta: 1 });
+  assert.equal(r3.picker!.phase, 2);
+
+  // 左: 2 -> 1 -> 0,到 0 后再左不动(不循环回 2)
+  const l1 = reduceState(r2, { type: "picker-phase", delta: -1 });
+  assert.equal(l1.picker!.phase, 1);
+  const l2 = reduceState(l1, { type: "picker-phase", delta: -1 });
+  assert.equal(l2.picker!.phase, 0);
+  const l3 = reduceState(l2, { type: "picker-phase", delta: -1 });
+  assert.equal(l3.picker!.phase, 0);
+
+  // 左右切换只改 phase，保留各列独立行位置（effortIndex 不被重置）
+  assert.equal(r1.picker!.effortIndex, 1);
+  assert.equal(l1.picker!.effortIndex, 1);
+});
+
 test("reducer：thinking 区 efforts 为空时,方向键不移动(整面板不崩)", () => {
   const base = initialState();
   const s1 = reduceState(base, {

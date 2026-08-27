@@ -374,6 +374,29 @@ test("/model 面板: 空格(真实字符)记录选中不提交, 方向键移动�
   });
 });
 
+test("/model 面板: ←/→ 左右切换焦点区,clamp 不循环", async () => {
+  const { renderer } = makeApp();
+  typeAndEnter(renderer, "/model");
+  await flush(); // phase0 provider 区
+  // 右 → model 区(phase1)，再右 → thinking 区(phase2)，再右不动(不循环回 0)
+  renderer.press({ name: "right", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "right", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "right", ctrl: false, meta: false, shift: false });
+  await flush();
+  // 焦点区变化不可直接读 state，用标题方括号断言：thinking 列应带 [ ]
+  const after = renderer.lastRender;
+  const hdr = after.find((t) => t.includes("effort")) ?? "";
+  assert.ok(hdr.includes("[ effort ]"), "当前焦点区应标 [ effort ]: " + hdr);
+  // 左 → model 区，再左 → provider 区，再左不动(不循环回 2)
+  renderer.press({ name: "left", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "left", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "left", ctrl: false, meta: false, shift: false });
+  await flush();
+  const after2 = renderer.lastRender;
+  const hdr2 = after2.find((t) => t.includes("provider")) ?? "";
+  assert.ok(hdr2.includes("[ provider ]"), "焦点应回到 [ provider ]: " + hdr2);
+});
+
 test("/model 面板: 同模型改等级不触发 already-on, 应用 max", async () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/model");

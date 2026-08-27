@@ -1,13 +1,14 @@
 // src/app/components/ModelPicker.ts — /model 交互选择面板渲染（纯函数）
 //
 // 输出恰 height 行，**三列独立列表同屏**：provider / model / effort 三列独立
-// 滚动，头部全小写。Tab 循环切换焦点分区（phase 0=provider，1=model，
-// 2=effort）。条目有两种标记：星号 `*` = 待提交选中（Enter 提交它，
+// 滚动，头部全小写。←/→ 左右切换三列焦点区（clamp 不循环；phase 0=provider，
+// 1=model，2=effort），Tab 循环切换。
+// 条目有两种标记：星号 `*` = 待提交选中（Enter 提交它，
 // 按 space 把焦点行写入）、大于号 `>` = 当前位置指示（焦点行，临时态，
 // 需按 space 确认选中）。焦点列标题用 `[ ]` 方括号包裹（如
 // `[ provider ]`），列表行不加边框。某列上方/下方有未显示项时，可视区
 // 顶部/底部对应行显示 `...` 省略号（焦点所在行不显示省略号，保证焦点
-// 恒可见）。最底行打印按键帮助：空格=选中，Tab=下一列，Enter=提交，
+// 恒可见）。最底行打印按键帮助：空格=选中，←/→=切换列，Tab=下一列，Enter=提交，
 // Esc=取消。
 
 import type { RenderLine } from "../../renderer/index.ts";
@@ -129,7 +130,7 @@ export function renderModelPicker(view: ModelPickerView): RenderLine[] {
     } else if (r === height - 1) {
       // 最底行按键帮助（ASCII，避免面板出现汉字）
       cells = [
-        "space: select   tab: next col   enter: commit   esc: cancel",
+        "space: select   left/right: col   tab: next col   enter: commit   esc: cancel",
         "",
         "",
       ];
