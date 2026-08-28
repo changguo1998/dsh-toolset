@@ -115,6 +115,9 @@ export class App {
       case "stream":
         this.apply((s) => reduceState(s, { type: "append", text: e.text }));
         break;
+      case "thinking":
+        this.apply((s) => reduceState(s, { type: "thinking", text: e.text }));
+        break;
       case "agent-status":
         this.apply((s) =>
           reduceState(s, { type: "agent-status", status: e.status }),
@@ -301,6 +304,8 @@ export class App {
       this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
       return;
     }
+    // 真实 DSH 不回显 user/message,由 app 在发送前本地追加用户行
+    this.apply((s) => reduceState(s, { type: "user-line", text }));
     this.deps.adapter.sendMessage(
       text,
       this.state.activeSessionId ?? undefined,

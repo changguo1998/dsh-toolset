@@ -109,7 +109,7 @@ function chunkEvent(
   };
 }
 
-test("assistant/chunk text-delta + reasoning-delta 归一化为 stream 事件", () => {
+test("assistant/chunk text-delta 与 reasoning-delta 分别归一化为 stream/thinking 事件", () => {
   const t = makeAdapter();
   t.runtime.fire(
     "session/event",
@@ -128,11 +128,12 @@ test("assistant/chunk text-delta + reasoning-delta 归一化为 stream 事件", 
   );
   assert.equal(t.events[0]!.type, "stream");
   assert.equal((t.events[0] as { text: string }).text, "你好");
+  assert.equal(t.events[1]!.type, "thinking");
   assert.equal((t.events[1] as { text: string }).text, "（思考中）");
   assert.equal((t.events[2] as { text: string }).text, "世界");
 });
 
-test("assistant/chunk block-end(携带完整 text)→ stream 事件(真机型)", () => {
+test("assistant/chunk block-end(携带完整 text)→ thinking/stream 事件(真机型)", () => {
   const t = makeAdapter();
   // 真机实测 payload：deepseek adapter 以 block-end 的 block.text 携带完整块文本送达
   t.runtime.fire(
@@ -188,11 +189,12 @@ test("assistant/chunk block-end(携带完整 text)→ stream 事件(真机型)",
     },
   );
   assert.equal(t.events.length, 2);
+  assert.equal(t.events[0]!.type, "thinking");
   assert.equal((t.events[0] as { text: string }).text, "The user asks 1+1?");
   assert.equal((t.events[1] as { text: string }).text, "1+1=2。");
 });
 
-test("turn/start | turn/end → turn-end 事件", () => {
+test("turn/start 忽略；turn/end → turn-end 事件", () => {
   const t = makeAdapter();
   t.runtime.fire(
     "session/event",
@@ -209,7 +211,7 @@ test("turn/start | turn/end → turn-end 事件", () => {
       data: { turn: 1, reason: "completed" },
     },
   );
-  assert.deepEqual(t.events, [{ type: "turn-end" }, { type: "turn-end" }]);
+  assert.deepEqual(t.events, [{ type: "turn-end" }]);
 });
 
 test("agent/status payload → agent-status 事件", () => {

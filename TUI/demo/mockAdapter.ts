@@ -27,12 +27,8 @@ export class MockDshAdapter implements DshAdapter {
     };
   }
 
-  sendMessage(text: string): void {
-    this.emit({
-      type: "stream",
-      sessionId: this.sessionId,
-      text: `[你] ${text}`,
-    });
+  sendMessage(_text: string): void {
+    // App 在发送前本地回显用户行；mock 只负责模拟模型响应。
     this.scheduleReply();
   }
 
@@ -147,6 +143,28 @@ export class MockDshAdapter implements DshAdapter {
         delay,
       ),
     );
+    // 分片思考流：验证最新几行限高与正文到达后清除。
+    const thoughts = [
+      "先理解问题…",
+      "检查现有状态…",
+      "组织回答结构…",
+      "准备输出…",
+      "完成推理。",
+    ];
+    for (let i = 0; i < thoughts.length; i++) {
+      this.timers.push(
+        setTimeout(
+          () =>
+            this.emit({
+              type: "thinking",
+              sessionId: this.sessionId,
+              text: thoughts[i]! + "\n",
+            }),
+          delay + i * 55,
+        ),
+      );
+    }
+    const replyStart = delay + thoughts.length * 55 + 60;
     const text = this.assistantText();
     // 分片流式输出
     const chunks = splitChunks(text, 6);
@@ -159,7 +177,7 @@ export class MockDshAdapter implements DshAdapter {
               sessionId: this.sessionId,
               text: chunks[i]!,
             }),
-          delay + 60 + i * 90,
+          replyStart + i * 90,
         ),
       );
     }
@@ -171,14 +189,14 @@ export class MockDshAdapter implements DshAdapter {
             sessionId: this.sessionId,
             status: "tool" as AgentStatus,
           }),
-        delay + chunks.length * 90 + 40,
+        replyStart + chunks.length * 90 + 40,
       ),
     );
     // 流式结束后补发 turn-end：演示 turn 分隔线与状态区
     this.timers.push(
       setTimeout(
         () => this.emit({ type: "turn-end" }),
-        delay + chunks.length * 90 + 60,
+        replyStart + chunks.length * 90 + 60,
       ),
     );
     if (this.seq === 2) {
@@ -192,7 +210,7 @@ export class MockDshAdapter implements DshAdapter {
               id: apId,
               prompt: "允许工具执行 rm -rf /tmp/tui-demo?（y/n）",
             }),
-          delay + chunks.length * 90 + 120,
+          replyStart + chunks.length * 90 + 120,
         ),
       );
     }

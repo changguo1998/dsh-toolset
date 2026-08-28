@@ -10,6 +10,18 @@ import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
 /** scrollback 行数上限（纯物理上限；DESIGN:2000 行） */
 export const MAX_BUFFER_LINES = 2000;
 
+/** 缓冲行类型:用户输出靠右缩进展示,模型正文靠左;思考行限高,完成后清除 */
+export type BufferKind =
+  "user" | "assistant" | "thinking" | "notice" | "separator" | "plain";
+
+/** 缓冲行:纯文本 + 类型标记(展示时决定缩进/配色) */
+export interface BufferLine {
+  text: string;
+  kind: BufferKind;
+}
+
+export type Buffer = BufferLine[];
+
 /** 系统状态区各字段：time/cwd/git 由 StatusTicker 合并节流读取，其余为占位 */
 export interface SystemStatus {
   time: string;
@@ -28,7 +40,7 @@ export interface AppState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
   /** 会话纯文本行（未换行，展示时才按列宽切分） */
-  buffer: string[];
+  buffer: Buffer;
   /** 是否跟随底部 */
   followBottom: boolean;
   /** 上滚偏移（行） */
@@ -111,22 +123,27 @@ export function initialState(themeId: ThemeId = DEFAULT_THEME): AppState {
  *  - 若文本以换行结尾，末尾出现一个空行
  *  - 末行为 turn 分隔线时不合并（分隔线是硬边界，下个 turn 另起一行）
  */
-export function appendStream(state: AppState, text: string): AppState {
-  const buffer = state.buffer.length ? [...state.buffer] : [];
+export function appendStream(
+  state: AppState,
+  text: string,
+  kind: BufferKind = "assistant",
+): AppState {
+  // 正文流先清掉遗留的思考行（思考完成后消失，不留屏外历史）。
+  const buffer = (state.buffer.length ? [...state.buffer] : []).filter(
+    (l) => kind === "thinking" || l.kind !== "thinking",
+  );
   const parts = text.split("\n");
+  const lastIndex = buffer.length - 1;
+  const last = buffer[lastIndex];
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]!;
-    if (
-      i === 0 &&
-      buffer.length > 0 &&
-      buffer[buffer.length - 1] !== TURN_SEPARATOR
-    ) {
-      if (part !== "") buffer[buffer.length - 1] += part;
+    // 首个段落合并进末尾同类行(流式续写)；不合并时不产生中间状态
+    if (i === 0 && last && last.kind === kind && last.kind !== "separator") {
+      if (part !== "") buffer[lastIndex] = { ...last, text: last.text + part };
     } else {
-      buffer.push(part);
+      buffer.push({ text: part, kind });
     }
   }
-  // scrollback 上限裁剪
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
   return { ...state, buffer };
@@ -140,21 +157,33 @@ export function appendNotice(state: AppState, text: string): AppState {
   // 多行 notice 拆成多行 buffer，否则 wrapLine 把 \n 当普通字符(宽1)会让列宽对不齐，
   // 字词在中间被截断(例如 /quit 在 i 与 t 之间换行)。
   const buffer = state.buffer.length ? [...state.buffer] : [];
-  for (const line of text.split("\n")) buffer.push(line);
+  for (const line of text.split("\n"))
+    buffer.push({ text: line, kind: "notice" });
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
   return { ...state, buffer };
 }
 
 /**
- * turn 结束：往 buffer 追加分隔线，让对话历史每个 turn 之间可见分隔。
+ * 追加模型思考行。复用流式续写(并入末尾 thinking 行)语义；正文/turn 结束时
+ * 由 appendStream / appendTurnSeparator 统一清除(思考完成后即消失)。
+ */
+export function appendThinking(state: AppState, text: string): AppState {
+  return appendStream(state, text, "thinking");
+}
+
+/**
+ * turn 结束：清掉本 turn 遗留思考行(兜底)后追加分隔线，让对话历史每个 turn 之间可见分隔。
  * 空 buffer 或末尾已是分隔线时不追加（避免孤立/重复分隔）。
  */
 export function appendTurnSeparator(state: AppState): AppState {
-  if (state.buffer.length === 0) return state;
-  const last = state.buffer[state.buffer.length - 1];
-  if (last === TURN_SEPARATOR) return state;
-  const buffer = [...state.buffer, TURN_SEPARATOR];
+  let buffer = state.buffer.length ? [...state.buffer] : [];
+  buffer = buffer.filter((l) => l.kind !== "thinking");
+  if (buffer.length === 0) return { ...state, buffer };
+  const last = buffer[buffer.length - 1];
+  if (last && last.kind === "separator" && last.text === TURN_SEPARATOR)
+    return { ...state, buffer };
+  buffer.push({ text: TURN_SEPARATOR, kind: "separator" });
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
   return { ...state, buffer };
@@ -202,6 +231,10 @@ export function reduceState(state: AppState, action: StateAction): AppState {
   switch (action.type) {
     case "append":
       return appendStream(state, action.text);
+    case "user-line":
+      return appendStream(state, action.text, "user");
+    case "thinking":
+      return appendThinking(state, action.text);
     case "notice":
       return appendNotice(state, action.text);
     case "clear-buffer":
@@ -254,6 +287,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
 
 export type StateAction =
   | { type: "append"; text: string }
+  | { type: "user-line"; text: string }
+  | { type: "thinking"; text: string }
   | { type: "notice"; text: string }
   | { type: "clear-buffer" }
   | { type: "agent-status"; status: AgentStatus }

@@ -130,17 +130,31 @@ test("滚回底部（offset=0, follow=false）恢复跟随", () => {
 // ---- 修复回归：多行 notice 拆分（REGRESSION: /help 在 "quit" 中间折行） ----
 
 test("appendNotice: 多行 notice 文本拆成多行 buffer（不再整块折行导致词内断行）", () => {
-  const s = _stateWith({ type: "notice", text: "本地命令：\n  /quit   退出\n其他 /name 走注册表。" });
-  assert.deepEqual(s.buffer, ["本地命令：", "  /quit   退出", "其他 /name 走注册表。"]);
+  const s = _stateWith({
+    type: "notice",
+    text: "本地命令：\n  /quit   退出\n其他 /name 走注册表。",
+  });
+  assert.deepEqual(s.buffer, [
+    { text: "本地命令：", kind: "notice" },
+    { text: "  /quit   退出", kind: "notice" },
+    { text: "其他 /name 走注册表。", kind: "notice" },
+  ]);
 });
 
 test("appendNotice: 多行拆分不改变已有 buffer 末行语义", () => {
   let s = _stateWith({ type: "append", text: "第1行" });
   s = _stateWith({ type: "notice", text: "A\nB" }, s);
-  assert.deepEqual(s.buffer, ["第1行", "A", "B"]);
+  assert.deepEqual(s.buffer, [
+    { text: "第1行", kind: "assistant" },
+    { text: "A", kind: "notice" },
+    { text: "B", kind: "notice" },
+  ]);
 });
 
-function _stateWith(action: { type: "notice"; text: string } | { type: "append"; text: string }, s = initialState()) {
+function _stateWith(
+  action: { type: "notice"; text: string } | { type: "append"; text: string },
+  s = initialState(),
+) {
   return reduceState(s, action);
 }
 

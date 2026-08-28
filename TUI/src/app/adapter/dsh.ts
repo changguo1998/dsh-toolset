@@ -6,9 +6,9 @@
 //
 // DSH 原生信号 → app 归一化事件的映射（阶段 2 已在 createRealDshAdapter 内实现）：
 //   runtime.on('session/event', (session, e))  → 按 e.type 归一化：
-//     - 'assistant/chunk' {turn,step,chunk} 中 chunk.type='text-delta'|'reasoning-delta'
-//       的 text 合并 → { type: 'stream' }
-//     - 'turn/start' | 'turn/end'          → { type: 'turn-end' }
+//     - 'assistant/chunk' text-delta → { type: 'stream' }；reasoning-delta / reasoning block → { type: 'thinking' }
+//       （正文与思考分别归一化，思考仅作为临时 UI 流展示）
+//     - 'turn/start' 忽略；'turn/end' → { type: 'turn-end' }
 //   runtime.on('agent/status', ({agent, status})) → { type: 'agent-status' }
 //     （agent/status 是 agent 层事件，不在 session 日志词汇表内）
 //
@@ -34,6 +34,7 @@ export interface ApprovalItem {
 export type DshEvent =
   | { type: "session-list"; sessions: SessionMeta[] }
   | { type: "stream"; sessionId: string; text: string }
+  | { type: "thinking"; sessionId: string; text: string }
   | { type: "approval"; id: string; prompt: string }
   | { type: "agent-status"; sessionId: string; status: AgentStatus }
   | { type: "notice"; text: string }
@@ -440,25 +441,33 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         if (!chunk) return;
         // DSH deepseek adapter 实测送达形式：block-start/block-end(block-end 携带
         // 完整 text)。text-delta/reasoning-delta 为增量契约(部分 provider 使用)。
-        // 统一归一化为 stream 事件，两种形态不会在同一 provider 上同时出现。
-        if (chunk.type === "text-delta" || chunk.type === "reasoning-delta") {
+        // 正文与思考分别归一化；同一 provider 不会同时使用两种载荷形态。
+        if (chunk.type === "reasoning-delta") {
+          emit({ type: "thinking", sessionId: sid, text: chunk.text });
+        } else if (chunk.type === "text-delta") {
           emit({ type: "stream", sessionId: sid, text: chunk.text });
         } else if (
           chunk.type === "block-end" &&
           (chunk.block?.text ??
             (chunk as StreamChunk & { text?: string }).text) !== undefined
         ) {
-          emit({
-            type: "stream",
-            sessionId: sid,
-            text:
-              chunk.block?.text ??
-              (chunk as StreamChunk & { text?: string }).text!,
-          });
+          const text =
+            chunk.block?.text ??
+            (chunk as StreamChunk & { text?: string }).text!;
+          if (
+            chunk.block?.type === "reasoning" ||
+            chunk.blockType === "reasoning"
+          ) {
+            emit({ type: "thinking", sessionId: sid, text });
+          } else {
+            emit({ type: "stream", sessionId: sid, text });
+          }
         }
         return;
       }
       case "turn/start":
+        // turn/start 只标记新回合，不插入历史分隔线；用户本地回显后应紧邻模型响应。
+        return;
       case "turn/end":
         emit({ type: "turn-end" });
         return;

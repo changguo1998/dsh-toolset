@@ -10,6 +10,8 @@
 import type { RenderLine } from "../renderer/index.ts";
 import type { Size } from "../renderer/index.ts";
 import type { AppState } from "./state.ts";
+
+import type { Buffer, BufferKind } from "./state.ts";
 import type { ApprovalItem } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
@@ -205,7 +207,7 @@ function buildTopRegion(
   historyWidth: number,
   cols: number,
 ): RenderLine[] {
-  const wrapped = wrapLines(state.buffer, historyWidth);
+  const wrapped = wrapBufferLines(state.buffer, historyWidth);
   const vp = computeViewport({
     totalRows: wrapped.length,
     height: topHeight,
@@ -215,18 +217,84 @@ function buildTopRegion(
   const rows: RenderLine[] = [];
   for (let i = 0; i < topHeight; i++) {
     const left = pluginCell(i, topHeight, pluginWidth);
-    const idx = vp.start + i;
-    const right = idx < vp.end ? (wrapped[idx] ?? "") : "";
-    // 竖线(边框)灰色：先对纯文本做宽度截断，再把左侧竖线段染灰，
-    // 避免 ANSI 码被 displayWidth/truncateToWidth 误计入显示宽度
-    const trim = truncateToWidth(left + right, cols);
-    const text =
-      trim.length >= left.length
-        ? colorFor(state.themeId, "gray")(left) + trim.slice(left.length)
+    const w = wrapped[vp.start + i];
+    const content =
+      w && vp.start + i < vp.end ? indentOf(w.kind, historyWidth) + w.text : "";
+    const trim = truncateToWidth(left + content, cols);
+    // 极限窄终端若连一个宽字符都容不下，保留该字符而不静默丢失内容。
+    const visible =
+      content && displayWidth(trim) <= displayWidth(left)
+        ? left + content
         : trim;
+    const text =
+      visible.length >= left.length
+        ? colorFor(state.themeId, "gray")(left) + visible.slice(left.length)
+        : visible;
     rows.push({ text });
   }
   return rows;
+}
+
+export const USER_INDENT = 10;
+export const THINKING_INDENT = 2;
+export const THINKING_MAX = 4;
+export const THINKING_MORE = "…(更多思考已折叠)";
+export const THINKING_PREFIX = "[思考] ";
+
+function indentOf(kind: BufferKind, width: number): string {
+  if (kind === "user")
+    return " ".repeat(Math.min(USER_INDENT, Math.max(0, width - 2)));
+  if (kind === "thinking")
+    return " ".repeat(
+      Math.min(
+        THINKING_INDENT,
+        Math.max(0, width - thinkingPrefix(width).length - 2),
+      ),
+    );
+  return "";
+}
+
+function thinkingPrefix(width: number): string {
+  return width >= THINKING_PREFIX.length + 2 ? THINKING_PREFIX : "";
+}
+
+function wrapBufferLines(
+  buffer: Buffer,
+  width: number,
+): Array<{ text: string; kind: BufferKind }> {
+  const out: Array<{ text: string; kind: BufferKind }> = [];
+  const thinking: string[] = [];
+  for (const line of buffer) {
+    if (line.kind === "thinking") {
+      const prefix = thinkingPrefix(width);
+      thinking.push(
+        ...wrapLine(
+          line.text,
+          Math.max(1, width - THINKING_INDENT - prefix.length),
+        ),
+      );
+      continue;
+    }
+    const content =
+      line.kind === "separator"
+        ? SEPARATOR.repeat(Math.max(1, width))
+        : line.text;
+    const indent =
+      line.kind === "user" ? Math.min(USER_INDENT, Math.max(0, width - 2)) : 0;
+    const contentWidth = Math.max(1, width - indent);
+    const rows = content === "" ? [""] : wrapLine(content, contentWidth);
+    for (const text of rows) out.push({ text, kind: line.kind });
+  }
+  if (thinking.length > 0) {
+    const hasMore = thinking.length > THINKING_MAX;
+    const visible = thinking.slice(
+      -(hasMore ? THINKING_MAX - 1 : THINKING_MAX),
+    );
+    if (hasMore) visible.unshift(THINKING_MORE);
+    for (const text of visible)
+      out.push({ text: thinkingPrefix(width) + text, kind: "thinking" });
+  }
+  return out;
 }
 
 /** 系统状态区：可多行；无标题，`|` 分隔；超宽时溢出到下一行（不截断） */

@@ -157,6 +157,30 @@ test("普通输入(不以 / 开头) → sendMessage", () => {
   assert.deepEqual(adapter.commands, []);
 });
 
+test("普通输入同时本地回显用户行且靠右，不依赖 adapter 回显", () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "你好");
+  assert.deepEqual(adapter.sent, ["你好"]);
+  const plain = renderer.lastRender.map((line) =>
+    line.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plain.some(
+      (line) => line.includes("你好") && line.startsWith("│           "),
+    ),
+  );
+});
+
+test("thinking 事件显示临时思考，正文事件到达后消失", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({ type: "thinking", sessionId: "s1", text: "正在分析" });
+  assert.ok(renderer.lastRender.join("\n").includes("[思考] 正在分析"));
+  adapter.push({ type: "stream", sessionId: "s1", text: "回答正文" });
+  const joined = renderer.lastRender.join("\n");
+  assert.ok(joined.includes("回答正文"));
+  assert.ok(!joined.includes("正在分析"));
+});
+
 test("/help → 本地表(不经 sendMessage/runCommand)", () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/help");
