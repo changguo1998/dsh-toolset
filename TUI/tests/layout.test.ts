@@ -277,3 +277,30 @@ test("无 markdown 标记时 wrapInlineMarkdown 与 wrapLine 输出一致", () =
   assert.deepEqual(wrapInlineMarkdown(text, 10, "dark"), wrapLine(text, 10));
   assert.equal(parseInlineMarkdown("纯文本").length, 1);
 });
+
+test("行内 markdown：粗斜/删除线/下划线/转义/自动链接/图片（扩展子集）", () => {
+  const cases: Array<[string, string]> = [
+    ["***粗斜***", "粗斜"],
+    ["~~删除~~", "删除"],
+    ["__下划线__", "下划线"],
+    ["\\*不斜*", "*不斜*"],
+    ["H~2~O", "H~2~O"],
+    ["x^2^", "x^2^"],
+    ["_单_", "_单_"],
+    ["<https://a.b/x>", "https://a.b/x"],
+    ["![a](https://x/i.png)", "[a] https://x/i.png"],
+  ];
+  for (const [src, expect] of cases) {
+    assert.equal(strip(wrapInlineMarkdown(src, 60, "dark")[0]!), expect, src);
+  }
+  const bi = wrapInlineMarkdown("***粗斜***", 60, "dark")[0]!;
+  assert.ok(bi.includes("\x1b[1m") && bi.includes("\x1b[3m"), "*** 同段粗斜");
+  const st = wrapInlineMarkdown("~~删除~~", 60, "dark")[0]!;
+  assert.ok(st.includes("\x1b[9m") && st.includes("\x1b[29m"), "删除线 SGR");
+  const ul = wrapInlineMarkdown("__下划线__", 60, "dark")[0]!;
+  assert.ok(ul.includes("\x1b[4m") && ul.includes("\x1b[24m"), "下划线 SGR");
+  const esc = wrapInlineMarkdown("\\*不斜*", 60, "dark")[0]!;
+  assert.ok(!esc.includes("\x1b[3m"), "\\* 不触发斜体");
+  const al = wrapInlineMarkdown("<https://a.b>", 60, "dark")[0]!;
+  assert.ok(al.includes("\x1b[4m"), "自动链接下划线");
+});

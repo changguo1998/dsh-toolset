@@ -526,11 +526,52 @@ test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代�
   assert.ok(!joined.includes("example.com/x"), "链接 URL 不显示");
   // 图片：占位 [alt]，URL 不显示
   assert.ok(joined.includes("[图描述]"), "图片 [alt] 占位");
-  assert.ok(!joined.includes("i.png"), "图片 URL 不显示");
+  assert.ok(joined.includes("i.png"), "图片占位显示 URL");
   // 代码块：fence 不显示、代码原样、语言标签、块内不解析、背景存在
   assert.ok(!joined.includes("```"), "fence 开关行不显示");
   assert.ok(joined.includes("const a: number = 1;"), "代码原样保留");
   assert.ok(joined.includes("**不加粗**"), "fence 内不解析粗体");
   assert.ok(plain.some((l) => l.trim().endsWith("ts")), "语言标签显示");
   assert.ok(raw.some((l) => /\x1b\[48;2;\d+;\d+;\d+m/.test(l.text)), "代码行有背景");
+});
+
+test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 >/thinking 不渲染", () => {
+  const lines = [
+    "- 圆点一",
+    "* 圆点二",
+    "1. 编号一",
+    "- [x] 完成了",
+    "- [ ] 未完成",
+    "> > 残留引用",
+    "**粗** 在 thinking",
+  ];
+  // append 为流式合并语义：一次 append 整份多行文本（贴近真实回复）
+  let s = initialState();
+  s = reduceState(s, {
+    type: "append",
+    text: lines.slice(0, 6).join("\n") + "\n",
+  });
+  s = reduceState(s, { type: "thinking", text: lines[6]! });
+  const raw = buildFrame(s, { rows: 40, cols: 80 });
+  const plain = raw.map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""));
+  const joined = plain.join("\n");
+  // 无序列表：-/*/ + 统一 •；有序列表保留数字
+  assert.ok(joined.includes("• 圆点一") && joined.includes("• 圆点二"), "• 圆点");
+  assert.ok(!joined.includes("- 圆点一"), "前缀 - 被替换");
+  assert.ok(joined.includes("1. 编号一"), "有序列表保留数字");
+  // 引用：隐藏正文开头残留的 >，单层竖线渲染
+  assert.ok(joined.includes("│ 残留引用"), "引用隐藏残留 >");
+  // 已完成任务：灰色删除线 SGR（前缀带 ANSI，先用 strip 后的 plain 定位）
+  const doneIdx = plain.findIndex((l) => l.includes("[x] 完成了"));
+  assert.ok(doneIdx >= 0, "已完成任务可见");
+  assert.ok(raw[doneIdx]!.text.includes("\x1b[9m"), "已完成任务删除线");
+  // thinking 保持纯文本（markdown 只作用于最终正文）
+  const thinkPlain = plain.find(
+    (l) => l.replace(/^│\s*/, "").trim() === "**粗** 在 thinking",
+  );
+  assert.ok(thinkPlain, "thinking 保持原样");
+  const thinkRaw = raw.find((l) =>
+    l.text.replace(/\x1b\[[0-9;]*m/g, "").includes("**粗** 在 thinking"),
+  );
+  assert.ok(thinkRaw && !thinkRaw.text.includes("\x1b[1m"), "thinking 不解析 markdown");
 });
