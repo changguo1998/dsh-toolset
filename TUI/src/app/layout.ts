@@ -367,11 +367,7 @@ const RULE_RE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$/;
 const HEADING_FG: ColorName = "brightCyan";
 
 /** 代码块行：整行主题灰底并补齐到内容区宽度；fence 内不解析 markdown */
-function wrapCodeLine(
-  text: string,
-  width: number,
-  themeId: ThemeId,
-): string[] {
+function wrapCodeLine(text: string, width: number, themeId: ThemeId): string[] {
   if (text === "") return [""];
   const bg = CODE_BG[themeId];
   const segs: InlineSegment[] = [{ text, style: { bg } }];
@@ -414,10 +410,7 @@ function wrapAssistantLine(
             style: mergeStyle({ fg: "gray", strike: true }, s.style ?? {}),
           })),
         ]
-      : [
-          { text: "[ ] ", style: { fg: "gray" } },
-          ...body,
-        ];
+      : [{ text: "[ ] ", style: { fg: "gray" } }, ...body];
     return wrapSegments(segs, width, themeId);
   }
   // 3. 标题：去掉 #，整行 bold + 醒目青；行内 token（如 **粗**）叠加保留
@@ -449,9 +442,7 @@ function wrapAssistantLine(
   if (list) {
     // 无序列表 (-/*/+) 统一显示为明显的 •；有序列表保留数字前缀
     const bullet = /^[ \t]*[-*+][ \t]+/.test(text);
-    const prefix = bullet
-      ? "• "
-      : text.slice(0, text.length - list[1]!.length);
+    const prefix = bullet ? "• " : text.slice(0, text.length - list[1]!.length);
     const segs: InlineSegment[] = [
       { text: prefix, style: { fg: "gray" } },
       ...parseInlineMarkdown(list[1]!, themeId),
@@ -461,7 +452,6 @@ function wrapAssistantLine(
   // 6. 普通行内 markdown
   return wrapSegments(parseInlineMarkdown(text, themeId), width, themeId);
 }
-
 
 // ---------- 视口纯函数 ----------
 
@@ -741,11 +731,7 @@ function wrapBufferLines(
   for (let i = spaced.length - 1; i >= 0; i--) {
     const row = spaced[i]!;
     if (row.kind === "assistant" && row.text !== "") hasBodyAfter = true;
-    else if (
-      row.kind === "assistant" &&
-      row.text === "" &&
-      !hasBodyAfter
-    )
+    else if (row.kind === "assistant" && row.text === "" && !hasBodyAfter)
       spaced.splice(i, 1);
   }
   return spaced;

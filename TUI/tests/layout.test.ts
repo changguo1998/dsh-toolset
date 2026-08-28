@@ -204,7 +204,10 @@ test("行内 markdown：单独粗体 / 斜体 / 行内 code 均渲染且带样�
   assert.ok(bold.includes("\x1b[1m") && bold.includes("\x1b[22m"), "bold SGR");
   assert.equal(strip(bold), "加粗");
   const italic = wrapInlineMarkdown("*斜体*", 60, "dark")[0]!;
-  assert.ok(italic.includes("\x1b[3m") && italic.includes("\x1b[23m"), "italic SGR");
+  assert.ok(
+    italic.includes("\x1b[3m") && italic.includes("\x1b[23m"),
+    "italic SGR",
+  );
   assert.equal(strip(italic), "斜体");
   const code = wrapInlineMarkdown("`代码`", 60, "dark")[0]!;
   assert.ok(
@@ -221,13 +224,20 @@ test("行内 markdown：三种样式混排顺序保留", () => {
 });
 
 test("行内 markdown：样式跨软换行后每行 ANSI 成对且不超宽", () => {
-  const rows = wrapInlineMarkdown("alpha**boldbeta boldbeta**gamma", 10, "dark");
+  const rows = wrapInlineMarkdown(
+    "alpha**boldbeta boldbeta**gamma",
+    10,
+    "dark",
+  );
   assert.ok(rows.length >= 2, "宽 10 内应软换行");
   for (const row of rows) {
     const on = (row.match(/\x1b\[1m/g) ?? []).length;
     const off = (row.match(/\x1b\[22m/g) ?? []).length;
     assert.equal(on, off, `每行 1m/22m 成对: ${JSON.stringify(row)}`);
-    assert.ok(displayWidth(strip(row)) <= 10, `行不超宽: ${JSON.stringify(row)}`);
+    assert.ok(
+      displayWidth(strip(row)) <= 10,
+      `行不超宽: ${JSON.stringify(row)}`,
+    );
   }
 });
 

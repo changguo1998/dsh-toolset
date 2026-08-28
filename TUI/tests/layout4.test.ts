@@ -508,9 +508,7 @@ test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代�
   assert.ok(!joined.includes("# 一级标题"), "# 前缀被消费");
   assert.ok(joined.includes("二级 粗 标题"), "标题内行内粗体");
   assert.ok(
-    raw.some(
-      (l) => l.text.includes("一级标题") && l.text.includes("\x1b[1m"),
-    ),
+    raw.some((l) => l.text.includes("一级标题") && l.text.includes("\x1b[1m")),
     "标题 bold 强调",
   );
   // 任务列表：ASCII [x]/[ ]，前缀 - 被消费
@@ -520,7 +518,10 @@ test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代�
   // 引用：竖线前缀 + 行内粗体合并
   assert.ok(joined.includes("│ 引用内容 加粗"), "引用带竖线前缀");
   // 分隔线：灰色横线铺满
-  assert.ok(plain.some((l) => /^│ ─+$/.test(l)), "分隔线横线");
+  assert.ok(
+    plain.some((l) => /^│ ─+$/.test(l)),
+    "分隔线横线",
+  );
   // 链接：文本可见、URL 不显示
   assert.ok(joined.includes("链接文档"), "链接文本");
   assert.ok(!joined.includes("example.com/x"), "链接 URL 不显示");
@@ -531,8 +532,14 @@ test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代�
   assert.ok(!joined.includes("```"), "fence 开关行不显示");
   assert.ok(joined.includes("const a: number = 1;"), "代码原样保留");
   assert.ok(joined.includes("**不加粗**"), "fence 内不解析粗体");
-  assert.ok(plain.some((l) => l.trim().endsWith("ts")), "语言标签显示");
-  assert.ok(raw.some((l) => /\x1b\[48;2;\d+;\d+;\d+m/.test(l.text)), "代码行有背景");
+  assert.ok(
+    plain.some((l) => l.trim().endsWith("ts")),
+    "语言标签显示",
+  );
+  assert.ok(
+    raw.some((l) => /\x1b\[48;2;\d+;\d+;\d+m/.test(l.text)),
+    "代码行有背景",
+  );
 });
 
 test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 >/thinking 不渲染", () => {
@@ -556,7 +563,10 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
   const plain = raw.map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""));
   const joined = plain.join("\n");
   // 无序列表：-/*/ + 统一 •；有序列表保留数字
-  assert.ok(joined.includes("• 圆点一") && joined.includes("• 圆点二"), "• 圆点");
+  assert.ok(
+    joined.includes("• 圆点一") && joined.includes("• 圆点二"),
+    "• 圆点",
+  );
   assert.ok(!joined.includes("- 圆点一"), "前缀 - 被替换");
   assert.ok(joined.includes("1. 编号一"), "有序列表保留数字");
   // 引用：隐藏正文开头残留的 >，单层竖线渲染
@@ -573,5 +583,8 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
   const thinkRaw = raw.find((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, "").includes("**粗** 在 thinking"),
   );
-  assert.ok(thinkRaw && !thinkRaw.text.includes("\x1b[1m"), "thinking 不解析 markdown");
+  assert.ok(
+    thinkRaw && !thinkRaw.text.includes("\x1b[1m"),
+    "thinking 不解析 markdown",
+  );
 });
