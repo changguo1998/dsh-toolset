@@ -16,10 +16,17 @@ import type { ApprovalItem } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
-import { colorFor } from "../renderer/theme.ts";
+import { colorFor, THEMES, ansiNameToHex, hexSgr } from "../renderer/theme.ts";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
 
 // ---------- 换行（wrapping）纯函数 ----------
+
+/** ANSI SGR 转义序列：宽度计算与截断需跳过、原样透传 */
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+/** 剥离全部 ANSI SGR 转义（displayWidth 前处理，保证宽字符计算不见转义） */
+function stripAnsi(text: string): string {
+  return text.replace(ANSI_RE, "");
+}
 
 /** 按字符显示宽度计算（CJK/全角 = 2 列，其余 = 1 列） */
 export function charWidth(ch: string): number {
@@ -42,19 +49,27 @@ export function charWidth(ch: string): number {
 
 export function displayWidth(text: string): number {
   let w = 0;
-  for (const ch of text) w += charWidth(ch);
+  for (const ch of stripAnsi(text)) w += charWidth(ch);
   return w;
 }
 
-/** 按显示宽度截断：超出 cols 的尾部丢弃（不切半个 CJK 字符） */
+/**
+ * 按显示宽度截断：超出 cols 的尾部丢弃（不切半个 CJK 字符）。
+ * ANSI 转义不计宽并原样透传（不切断转义序列，避免破坏着色）。
+ */
 export function truncateToWidth(text: string, cols: number): string {
   if (cols <= 0) return "";
   let w = 0;
   let out = "";
-  for (const ch of text) {
-    const cw = charWidth(ch);
-    if (w + cw > cols) break;
-    out += ch;
+  for (const m of text.matchAll(/\x1b\[[0-9;]*m|[\s\S]/gu)) {
+    const t = m[0]!;
+    if (t.startsWith("\x1b")) {
+      out += t;
+      continue;
+    }
+    const cw = charWidth(t);
+    if (w + cw > cols) continue; // 丢弃超宽字符，后续转义仍透传(样式不泄漏)
+    out += t;
     w += cw;
   }
   return out;
@@ -95,6 +110,124 @@ export function wrapLines(lines: string[], width: number): string[] {
     out.push(...wrapLine(line, width));
   }
   return out;
+}
+
+// ---------- 行内 markdown（assistant 正文：粗体 / 斜体 / 行内代码） ----------
+
+/** 行内样式：bold(1m) / italic(3m) / code(主题灰前景)；code 只取主题色，不引入新依赖 */
+interface InlineStyle {
+  bold?: boolean;
+  italic?: boolean;
+  code?: boolean;
+}
+
+/** 带样式的文本段：先保持纯文本，按显示宽度换行完成后再序列化为 ANSI */
+interface InlineSegment {
+  text: string;
+  style?: InlineStyle;
+}
+
+/** 行内 token：`` `code` ``、`**bold**`、`*italic*`；内容不含 `*` 防嵌套，未闭合按普通文本保留 */
+const INLINE_RE = /(`[^`]+`)|(\*\*[^*]+\*\*)|((?<!\*)\*[^*\s][^*]*\*)/g;
+
+/**
+ * 解析行内 markdown 为样式段。不实现嵌套/转义/跨行强调：最外层 token 生效，
+ * 嵌套或未闭合的 `*`/`` ` `` 按普通文本原样保留（不误删用户内容）。
+ */
+export function parseInlineMarkdown(text: string): InlineSegment[] {
+  const segs: InlineSegment[] = [];
+  let last = 0;
+  for (const m of text.matchAll(INLINE_RE)) {
+    const idx = m.index!;
+    if (idx > last) segs.push({ text: text.slice(last, idx) });
+    const [full, code, bold, _italic] = m;
+    // 定界符去除：code/italic 各 1 个字符，bold 需去掉首尾各 2 个星号
+    const fullText = full!;
+    if (code) segs.push({ text: fullText.slice(1, -1), style: { code: true } });
+    else if (bold)
+      segs.push({ text: fullText.slice(2, -2), style: { bold: true } });
+    else segs.push({ text: fullText.slice(1, -1), style: { italic: true } });
+    last = idx + full!.length;
+  }
+  if (last < text.length) segs.push({ text: text.slice(last) });
+  return segs;
+}
+
+/** 相邻段样式是否相同（换行后合并用） */
+function sameStyle(a?: InlineStyle, b?: InlineStyle): boolean {
+  return (
+    a?.bold === b?.bold && a?.italic === b?.italic && a?.code === b?.code
+  );
+}
+
+/** 单段序列化为 manual ANSI：open + text + close（恢复主题基底前景，不用 39m/0m） */
+function renderSeg(seg: InlineSegment, themeId: ThemeId): string {
+  const st = seg.style;
+  if (!st) return seg.text;
+  const theme = THEMES[themeId];
+  const open: string[] = [];
+  const close: string[] = [];
+  if (st.bold) {
+    open.push("\x1b[1m");
+    close.push("\x1b[22m");
+  }
+  if (st.italic) {
+    open.push("\x1b[3m");
+    close.push("\x1b[23m");
+  }
+  if (st.code) {
+    const hex = ansiNameToHex(theme, "gray");
+    if (hex) {
+      open.push(hexSgr(hex, true));
+      close.push(hexSgr(theme.foreground, true));
+    }
+  }
+  if (open.length === 0) return seg.text;
+  return open.join("") + seg.text + close.reverse().join("");
+}
+
+/**
+ * 行内 markdown 正文按显示宽度软换行：逐字符计宽（CJK 2 列），样式段跨行时
+ * 每行独立打开/关闭样式，相邻同样式段合并后序列化为 ANSI。空串保持 [""]
+ * 语义，行首超宽字符强制放下（与 wrapLine 一致）。
+ */
+export function wrapInlineMarkdown(
+  text: string,
+  width: number,
+  themeId: ThemeId,
+): string[] {
+  if (width <= 0)
+    return text === ""
+      ? [""]
+      : [parseInlineMarkdown(text).map((s) => renderSeg(s, themeId)).join("")];
+  const rows: InlineSegment[][] = [];
+  let cur: InlineSegment[] = [];
+  let curW = 0;
+  const flush = (): void => {
+    if (cur.length > 0) rows.push(cur);
+    cur = [];
+    curW = 0;
+  };
+  for (const seg of parseInlineMarkdown(text)) {
+    const style = seg.style;
+    for (const ch of seg.text) {
+      const w = charWidth(ch);
+      if (curW > 0 && curW + w > width) flush();
+      cur.push({ text: ch, style });
+      curW += w;
+    }
+  }
+  flush();
+  if (rows.length === 0) return [""];
+  return rows.map((line) => {
+    const merged: InlineSegment[] = [];
+    for (const s of line) {
+      const lastSeg = merged[merged.length - 1];
+      if (lastSeg && sameStyle(lastSeg.style, s.style)) lastSeg.text += s.text;
+      else merged.push({ text: s.text, style: s.style });
+    }
+    return merged.map((s) => renderSeg(s, themeId)).join("");
+  });
 }
 
 // ---------- 视口纯函数 ----------
@@ -212,6 +345,7 @@ function buildTopRegion(
     historyWidth,
     state.thinkingMaxLines,
     state.messageGutter,
+    state.themeId,
   );
   const vp = computeViewport({
     totalRows: wrapped.length,
@@ -278,6 +412,7 @@ function wrapBufferLines(
   width: number,
   thinkingMaxLines: number,
   gutter: number,
+  themeId: ThemeId,
 ): WrappedRow[] {
   const out: WrappedRow[] = [];
   const thinking: WrappedRow[] = [];
@@ -299,8 +434,13 @@ function wrapBufferLines(
       continue;
     }
     if (line.kind === "assistant") {
-      // 模型正文：右缘保留与用户块左缘对称的空间(交错布局)，文本不顶满右缘
-      const rows = wrapLine(line.text, assistantMaxBodyWidth(width, gutter));
+      // 模型正文：右缘保留与用户块左缘对称的空间(交错布局)，文本不顶满右缘；
+      // 正文按行内 markdown 渲染（粗体/斜体/行内代码），样式序列化为 ANSI
+      const rows = wrapInlineMarkdown(
+        line.text,
+        assistantMaxBodyWidth(width, gutter),
+        themeId,
+      );
       for (const text of rows) out.push({ text, kind: line.kind, indent: 0 });
       continue;
     }

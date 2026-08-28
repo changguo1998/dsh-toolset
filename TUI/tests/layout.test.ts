@@ -7,6 +7,9 @@ import {
   wrapLine,
   wrapLines,
   computeViewport,
+  parseInlineMarkdown,
+  wrapInlineMarkdown,
+  truncateToWidth,
 } from "../src/app/layout.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { renderTextInput } from "../src/app/components/TextInput.ts";
@@ -190,4 +193,87 @@ test("renderTextInput: 宽度不足时水平滚动仍保持光标可见", () => 
   const line = renderTextInput(text, 5, "...", 10)[0]!;
   const caret = line.caret!;
   assert.ok(caret >= 2 && caret < 2 + 8, "光标列应在可视窗口内");
+});
+
+// ---- 行内 markdown（粗体 / 斜体 / 行内代码）----
+
+const strip = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
+const firstSgr = (s: string): string =>
+  /\x1b\[38;2;\d+;\d+;\d+m/.exec(s)?.[0] ?? "";
+
+test("行内 markdown：单独粗体 / 斜体 / 行内 code 均渲染且带样式", () => {
+  const bold = wrapInlineMarkdown("**加粗**", 60, "dark")[0]!;
+  assert.ok(bold.includes("\x1b[1m") && bold.includes("\x1b[22m"), "bold SGR");
+  assert.equal(strip(bold), "加粗");
+  const italic = wrapInlineMarkdown("*斜体*", 60, "dark")[0]!;
+  assert.ok(italic.includes("\x1b[3m") && italic.includes("\x1b[23m"), "italic SGR");
+  assert.equal(strip(italic), "斜体");
+  const code = wrapInlineMarkdown("`代码`", 60, "dark")[0]!;
+  assert.ok(
+    (code.match(/\x1b\[38;2;/g) ?? []).length >= 2,
+    "code 用主题前景色打开/关闭",
+  );
+  assert.equal(strip(code), "代码");
+});
+
+test("行内 markdown：三种样式混排顺序保留", () => {
+  const out = wrapInlineMarkdown("前**粗**中`码`后*斜*尾", 60, "dark")[0]!;
+  assert.equal(strip(out), "前粗中码后斜尾");
+  assert.ok(out.includes("\x1b[1m") && out.includes("\x1b[3m"));
+});
+
+test("行内 markdown：样式跨软换行后每行 ANSI 成对且不超宽", () => {
+  const rows = wrapInlineMarkdown("alpha**boldbeta boldbeta**gamma", 10, "dark");
+  assert.ok(rows.length >= 2, "宽 10 内应软换行");
+  for (const row of rows) {
+    const on = (row.match(/\x1b\[1m/g) ?? []).length;
+    const off = (row.match(/\x1b\[22m/g) ?? []).length;
+    assert.equal(on, off, `每行 1m/22m 成对: ${JSON.stringify(row)}`);
+    assert.ok(displayWidth(strip(row)) <= 10, `行不超宽: ${JSON.stringify(row)}`);
+  }
+});
+
+test("行内 markdown：CJK 按 2 列精确换行，粗体跨行不丢字", () => {
+  const rows = wrapInlineMarkdown("一二**三四五六**七八", 6, "dark");
+  assert.deepEqual(rows.map(strip), ["一二三", "四五六", "七八"]);
+  for (const r of rows) assert.ok(displayWidth(strip(r)) <= 6);
+});
+
+test("行内 markdown：未闭合或嵌套时字符不丢失且约定输出稳定", () => {
+  const cases: Array<[string, string]> = [
+    ["**未闭合*尾", "**未闭合*尾"],
+    ["*未闭合", "*未闭合"],
+    ["a `未闭合", "a `未闭合"],
+    ["**bold**", "bold"],
+    ["**外*内*外**", "**外内外**"],
+  ];
+  for (const [src, expect] of cases) {
+    const out = wrapInlineMarkdown(src, 60, "dark")[0]!;
+    assert.equal(strip(out), expect, `输入: ${src}`);
+  }
+});
+
+test("ANSI 感知：displayWidth 不计转义；truncateToWidth 透传转义不切断", () => {
+  const colored = "\x1b[38;2;216;216;216mhello\x1b[38;2;237;237;237m";
+  assert.equal(displayWidth(colored), 5);
+  assert.equal(displayWidth("\x1b[1mabc\x1b[22m"), 3);
+  const cut = truncateToWidth("\x1b[1mabcdef\x1b[22m", 3);
+  assert.equal(cut, "\x1b[1mabc\x1b[22m");
+  assert.equal(displayWidth(cut), 3);
+  // 转义序列整体透传：截断点落在序列内时序列完整保留、字符不计数
+  const mid = truncateToWidth("ab\x1b[38;2;1;2;3mcd", 2);
+  assert.equal(mid, "ab\x1b[38;2;1;2;3m");
+});
+
+test("行内 code 颜色随主题：dark / light 使用各自 gray 色板", () => {
+  const d = wrapInlineMarkdown("`x`", 60, "dark")[0]!;
+  const l = wrapInlineMarkdown("`x`", 60, "light")[0]!;
+  assert.ok(firstSgr(d) && firstSgr(l), "两主题均有着色");
+  assert.notEqual(firstSgr(d), firstSgr(l), "深浅主题 code 前景色不同");
+});
+
+test("无 markdown 标记时 wrapInlineMarkdown 与 wrapLine 输出一致", () => {
+  const text = "一二三四五六七八九十";
+  assert.deepEqual(wrapInlineMarkdown(text, 10, "dark"), wrapLine(text, 10));
+  assert.equal(parseInlineMarkdown("纯文本").length, 1);
 });
