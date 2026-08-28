@@ -87,15 +87,27 @@ test("输入栏符号随模式（> ! $ /），颜色随状态（绿/黄/红）",
   const last = (s: ReturnType<typeof initialState>): RenderLine =>
     buildFrame(s, { rows: 10, cols: 40 }).at(-1)!;
   const mk = (mode: InputMode, status: InputStatus) =>
-    reduceState(
-      reduceState(initialState(), { type: "input-mode", mode }),
-      { type: "input-status", status },
-    );
+    reduceState(reduceState(initialState(), { type: "input-mode", mode }), {
+      type: "input-status",
+      status,
+    });
   // 符号只受模式影响
-  assert.ok(strip(last(mk("normal", "success"))).startsWith("> "), "normal 显示 >");
-  assert.ok(strip(last(mk("interrupt", "success"))).startsWith("! "), "interrupt 显示 !");
-  assert.ok(strip(last(mk("shell", "success"))).startsWith("$ "), "shell 显示 $");
-  assert.ok(strip(last(mk("slash", "success"))).startsWith("/ "), "slash 显示 /");
+  assert.ok(
+    strip(last(mk("normal", "success"))).startsWith("> "),
+    "normal 显示 >",
+  );
+  assert.ok(
+    strip(last(mk("interrupt", "success"))).startsWith("! "),
+    "interrupt 显示 !",
+  );
+  assert.ok(
+    strip(last(mk("shell", "success"))).startsWith("$ "),
+    "shell 显示 $",
+  );
+  assert.ok(
+    strip(last(mk("slash", "success"))).startsWith("/ "),
+    "slash 显示 /",
+  );
   // 颜色三态互异且均着色
   const green = sgr(last(mk("normal", "success")));
   const yellow = sgr(last(mk("normal", "running")));
@@ -325,6 +337,37 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   const uu = plain.findIndex((l) => l.includes("孤立"));
   const nextU = plain[uu + 1] ?? "";
   assert.ok(nextU.includes("─"), "user 后紧跟分隔线，无空行");
+});
+
+test("会话流：模型回复尾部空行不显示；正文段落间空行保留", () => {
+  // 流式正文块以换行结尾 → appendStream 会留末尾空 assistant 行；
+  // 下回合分隔线应紧贴正文末行，不留多余空白
+  let s = initialState();
+  s = reduceState(s, { type: "user-line", text: "问题" });
+  s = reduceState(s, { type: "append", text: "第一段\n" });
+  s = reduceState(s, { type: "append", text: "第二段\n" });
+  s = reduceState(s, { type: "append", text: "```\n" });
+  s = reduceState(s, { type: "turn-begin" });
+  const plain = buildFrame(s, { rows: 12, cols: 40 }).map((l) =>
+    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const codeIdx = plain.findIndex((l) => l.includes("```"));
+  // 历史区内的 turn 分隔线带插件竖线前缀；底部全屏横线(┼)不在此列
+  const sepIdx = plain.findIndex((l) => l.startsWith("│ ─"));
+  assert.ok(codeIdx >= 0 && sepIdx > codeIdx, "正文与分隔线都应存在且顺序正确");
+  const gap = plain.slice(codeIdx + 1, sepIdx);
+  assert.equal(gap.length, 0, "回复末尾不留空行：正文末行后直接分隔线");
+
+  // 正文段落之间的空行（一段\n\n二段）必须保留
+  let p = initialState();
+  p = reduceState(p, { type: "append", text: "一段\n\n二段\n" });
+  const plainP = buildFrame(p, { rows: 12, cols: 40 }).map((l) =>
+    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const i1 = plainP.findIndex((l) => l.includes("一段"));
+  const i2 = plainP.findIndex((l) => l.includes("二段"));
+  assert.ok(i1 >= 0 && i2 > i1);
+  assert.equal(i2 - i1, 2, "两段正文之间的空行保留");
 });
 
 test("会话流：思考只显示最新几行，并在正文或 turn-end 后消失", () => {

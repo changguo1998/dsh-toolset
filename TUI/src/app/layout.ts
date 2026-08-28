@@ -340,6 +340,20 @@ function wrapBufferLines(
     }
     spaced.push(row);
   }
+  // 模型回复尾部空行不显示：流式块以换行结尾时 appendStream 会留下末尾空
+  // assistant 行；仅两个正文段之间的空行才有段落意义(保留)，其后不再有正文
+  // 的空行（分隔线/下条用户消息/缓冲尾部之前）视为多余。
+  let hasBodyAfter = false;
+  for (let i = spaced.length - 1; i >= 0; i--) {
+    const row = spaced[i]!;
+    if (row.kind === "assistant" && row.text !== "") hasBodyAfter = true;
+    else if (
+      row.kind === "assistant" &&
+      row.text === "" &&
+      !hasBodyAfter
+    )
+      spaced.splice(i, 1);
+  }
   return spaced;
 }
 
