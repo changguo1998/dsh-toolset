@@ -12,10 +12,10 @@ import type { Size } from "../renderer/index.ts";
 import type { AppState } from "./state.ts";
 
 import type { Buffer, BufferKind } from "./state.ts";
-import type { ApprovalItem } from "./adapter/dsh.ts";
+import type { ApprovalItem, AgentStatus } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
-import type { ThemeId } from "../renderer/theme.ts";
+import type { ColorName, ThemeId } from "../renderer/theme.ts";
 import { colorFor } from "../renderer/theme.ts";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
 
@@ -407,6 +407,17 @@ export function renderStatusLine(
   return rows;
 }
 
+/** 输入栏提示随 agentStatus：占位符文字 + ❯ 前缀颜色（idle 可输入，其余忙碌提示） */
+const INPUT_HINT: Record<
+  AgentStatus,
+  { placeholder: string; color: ColorName | null }
+> = {
+  idle: { placeholder: "Type a message…", color: "green" },
+  thinking: { placeholder: "思考中…", color: "yellow" },
+  tool: { placeholder: "正在调用工具…", color: "blue" },
+  done: { placeholder: "思考中…", color: "yellow" },
+};
+
 /** 由渲染帧（AppState → RenderLine[]）：顶部(插件+历史) + 分隔线 + 状态区 + 分隔线 + 输入/审批 */
 export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const approval = state.approval;
@@ -454,11 +465,14 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
       width: fullWidth,
     });
   } else {
+    const hint = INPUT_HINT[state.agentStatus] ?? INPUT_HINT.idle;
+    const color = hint.color; // 收紧联合类型，供闭包安全捕获
     footerLines = renderTextInput(
       state.inputText,
       state.inputCursor,
-      "Type a message…",
+      hint.placeholder,
       fullWidth,
+      color === null ? undefined : (s) => colorFor(state.themeId, color)(s),
     );
   }
 

@@ -72,7 +72,29 @@ test("buildFrame: 四区顺序与高度正确（顶部插件竖线+历史 / 分�
   // 第二个横线分隔行，然后输入区
   const separator2 = frame[22]!;
   assert.ok(plain(separator2).startsWith("─"), "状态区与输入区之间横线分隔");
-  assert.equal(frame[23]!.text, "❯ Type a message…");
+  assert.ok(
+    plain(frame[23]!).includes("Type a message…"),
+    "idle 显示输入占位提示",
+  );
+});
+
+test("输入栏提示符随 agentStatus：忙碌提示文字 + 前缀着色", () => {
+  const strip = (l: RenderLine): string =>
+    l.text.replace(/\x1b\[[0-9;]*m/g, "");
+  const last = (s: ReturnType<typeof initialState>): RenderLine =>
+    buildFrame(s, { rows: 10, cols: 40 }).at(-1)!;
+  const idle = last(initialState());
+  assert.ok(strip(idle).includes("Type a message…"));
+  assert.ok(idle.text.includes("\x1b["), "idle 前缀绿色");
+  const thinking = last(
+    reduceState(initialState(), { type: "agent-status", status: "thinking" }),
+  );
+  assert.ok(strip(thinking).includes("思考中…"), "thinking 显示忙碌提示");
+  assert.ok(!strip(thinking).includes("Type a message…"));
+  const tool = last(
+    reduceState(initialState(), { type: "agent-status", status: "tool" }),
+  );
+  assert.ok(strip(tool).includes("正在调用工具…"), "tool 显示工具提示");
 });
 
 test("buildFrame: 审批弹窗时 footer 更高，顶部高度相应缩减", () => {

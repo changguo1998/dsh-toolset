@@ -10,6 +10,8 @@ import { displayWidth, charWidth } from "../layout.ts";
 /**
  * 生成输入行。cursor 为文本内光标位置(0..text.length，按 code point)。
  * width 为终端列宽(超宽输入做水平滚动保留光标可见——见 hshift)。
+ * promptColor 可选：对 "❯ " 前缀着色（如随 agentStatus 变色）；宽度始终
+ * 按纯文本计算（ANSI 序列不占列）。
  * 返回行附带 caret=光标显示列(0 基)，供 Screen 移动硬件光标。
  */
 export function renderTextInput(
@@ -17,9 +19,12 @@ export function renderTextInput(
   cursor: number,
   placeholder: string,
   width: number,
+  promptColor?: (s: string) => string,
 ): RenderLine[] {
-  const prompt = "❯ ";
-  const promptWidth = displayWidth(prompt); // "❯ " = ❯(2)+space(1)
+  const PLAIN_PROMPT = "❯ ";
+  // prompt 可带 ANSI 着色，宽度按纯文本算，避免把转义序列计进显示宽度
+  const prompt = promptColor ? promptColor(PLAIN_PROMPT) : PLAIN_PROMPT;
+  const promptWidth = displayWidth(PLAIN_PROMPT); // "❯ " = ❯(2)+space(1)
   const avail = Math.max(1, width - promptWidth); // 输入区可用列数
 
   // 按 code point 拆开并计算各自显示宽度
@@ -42,7 +47,7 @@ export function renderTextInput(
   // 组装可见文本 + 光标列
   let display = "";
   let col = 0; // 当前字符相对输入区起点的显示列
-  let caret = cursorCol - hshift; // 相对输入区起点，稍后加 promptWidth
+  const caret = cursorCol - hshift; // 相对输入区起点，稍后加 promptWidth
   for (let i = 0; i < chars.length; i++) {
     const ch = chars[i]!;
     const w = widths[i]!;
