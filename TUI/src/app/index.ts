@@ -345,7 +345,11 @@ export class App {
         return;
       }
       if (name === "escape") {
+        // 关闭面板；Esc 是唯一重置输入模式的交互（Enter 确认保留模式）
         this.apply((s) => reduceState(s, { type: "picker-close" }));
+        this.apply((s) =>
+          reduceState(s, { type: "input-mode", mode: "normal" }),
+        );
         this.paint();
         return;
       }

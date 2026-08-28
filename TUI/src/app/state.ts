@@ -200,11 +200,12 @@ export function appendNotice(
     buffer.push({ text: line, kind: "notice" });
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
-  // 失败标记(error notice，如未知 slash 命令 fail-close)→ 输入栏失败色(红)
+  // 失败标记(error notice，如未知 slash 命令 fail-close)→ 输入栏失败色(红)；
+  // agent 仍活跃时保持黄（活跃守卫），绿/红仅空闲时暴露
   return {
     ...state,
     buffer,
-    inputStatus: error ? "failure" : state.inputStatus,
+    inputStatus: error ? statusFor(state, "failure") : state.inputStatus,
   };
 }
 
@@ -214,6 +215,11 @@ export function appendNotice(
  */
 export function appendThinking(state: AppState, text: string): AppState {
   return appendStream(state, text, "thinking");
+}
+
+/** 任务进行中(黄)权威：agent 活跃期间不接受绿/红结果覆盖，绿/红仅空闲时暴露 */
+function statusFor(state: AppState, fallback: InputStatus): InputStatus {
+  return state.agentStatus === "idle" ? fallback : "running";
 }
 
 /** 清掉遗留 thinking 行（turn-end 兜底；正文到达时 appendStream 已清） */
@@ -306,8 +312,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
     case "sessions":
       return setSessions(state, action.sessions);
     case "picker-open":
-      // 面板是全屏交互态：进入即重置输入模式，退出面板后从基础模式(>)开始
-      return { ...state, picker: action.picker, inputMode: "normal" };
+      // 面板打开保留输入模式；仅真实 Esc（主输入态或关闭面板）才重置为 normal
+      return { ...state, picker: action.picker };
     case "picker-move":
       return movePicker(state, action);
     case "picker-tab":
@@ -332,7 +338,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
     case "input-mode":
       return { ...state, inputMode: action.mode };
     case "input-status":
-      return { ...state, inputStatus: action.status };
+      // 活跃守卫：agent 非 idle 时绿/红结果不暴露（压回黄），空闲后才显示结果色
+      return { ...state, inputStatus: statusFor(state, action.status) };
     case "move-cursor":
       return moveCursor(state, action);
     case "scroll":

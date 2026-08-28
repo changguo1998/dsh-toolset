@@ -287,6 +287,51 @@ test("shell 模式提交：仅展示层，文本原样走 sendMessage（不加 $
   assert.deepEqual(adapter.log, ["send:ls"]);
 });
 
+test("活跃任务中 slash 结果不覆盖黄：/help、无效命令、error notice 均保持黄", () => {
+  const { renderer, adapter } = makeApp();
+  const sgr = (): string =>
+    /^\x1b\[38;2;\d+;\d+;\d+m/.exec(
+      renderer.lastRender.at(-1) ?? "",
+    )?.[0] ?? "";
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
+  const yellow = sgr();
+  assert.ok(yellow, "活跃任务前缀为黄");
+  // 成功 slash（/help 本地命令）→ 保持黄
+  typeAndEnter(renderer, "/help");
+  assert.equal(sgr(), yellow, "活跃中 /help 成功不覆盖黄");
+  // 无效 slash（slash 模式提交 "!" 构成 "/!"，语法无效）→ 保持黄
+  renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.equal(sgr(), yellow, "活跃中无效 slash 不覆盖黄");
+  // error notice（fail-close 路径）→ 保持黄
+  adapter.push({
+    type: "notice",
+    text: "未知命令，输入 /help 查看可用命令。",
+    error: true,
+  });
+  assert.equal(sgr(), yellow, "活跃中 error notice 不覆盖黄");
+  // 回合结束 → 回绿
+  adapter.push({ type: "turn-end" });
+  assert.notEqual(sgr(), yellow, "回合结束回到成功绿");
+});
+
+test("slash 模式 /model Enter 确认后模式保留（仅 Esc 取消回 >）", async () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/model");
+  await flush();
+  // Enter 确认（关闭面板，不重置模式）
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  // 仍 slash 模式：提交 "zzz" 应自动补 / 走 slash 路由，而非 sendMessage
+  typeAndEnter(renderer, "zzz");
+  assert.deepEqual(adapter.sent, [], "Enter 确认后仍 slash 模式，不经 sendMessage");
+  assert.ok(
+    adapter.commands.some((c) => c === "/zzz"),
+    "仍处 slash 模式，自动补 / 前缀",
+  );
+});
+
 test("未知 slash 命令：error notice → 前缀红；turn-end → 回绿", () => {
   const { renderer, adapter } = makeApp();
   // 输入行（末行）前缀的第一段 SGR（状态色）；start 后无渲染，先 push 触发一帧
