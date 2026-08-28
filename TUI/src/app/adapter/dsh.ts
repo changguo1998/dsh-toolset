@@ -421,6 +421,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   const activeCommands = new Set<AbortController>();
   // 流式块去重累计：key = session:turn:step:index，block-end 只补发未输出部分
   const emittedByBlock = new Map<string, string>();
+  // 按 (session:turn:step) 累计已流式输出的正文（text 块；reasoning 不计）。
+  // assistant/message 是每个 step 结束必发的完整正文表面事件，据此只补发缺失后缀；
+  // 非流式 provider（无任何 chunk）时累计为空 → 直接输出完整正文，保证回复可见。
+  const stepEmitted = new Map<string, string>();
 
   const emit = (e: DshEvent): void => {
     if (disposed) return;
@@ -441,6 +445,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       text?: string;
       turn?: number;
       step?: number;
+      message?: { content?: unknown[] };
     };
     switch (raw.type) {
       case "assistant/chunk": {
@@ -474,6 +479,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
             sessionId: sid,
             text: chunk.text,
           });
+          // 仅正文进 step 累计（reasoning 为瞬态展示，不进 assistant/message）
+          if (!isReasoning) {
+            const sk = sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0);
+            stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + chunk.text);
+          }
         } else if (chunk.type === "block-end") {
           const full =
             chunk.block?.text ??
@@ -488,6 +498,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
               sessionId: sid,
               text: full,
             });
+            if (!isReasoning) {
+              const sk = sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0);
+              stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + full);
+            }
           } else if (full.startsWith(done)) {
             // 已流式输出 delta，仅补发缺失后缀
             const rest = full.slice(done.length);
@@ -497,10 +511,51 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
                 sessionId: sid,
                 text: rest,
               });
+              if (!isReasoning) {
+                const sk =
+                  sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0);
+                stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + rest);
+              }
             }
           }
           // delta 与 block-end 文本不一致时不再输出（append-only UI 无法安全重写）
         }
+        return;
+      }
+
+      case "assistant/message": {
+        // 每 step 结束必发的完整正文表面事件（append 语义）。流式链路已按 delta
+        // 输出正文，这里只按 step 补发缺失后缀；非流式 provider 无任何 chunk 时
+        // stepEmitted 为空 → 直接输出完整正文，保证不支持流式/思考的模型回复可见。
+        // surfaceOp 为 replace 的影子覆盖事件跳过（append-only 无法安全重写）。
+        const op = (raw as { surfaceOp?: string }).surfaceOp;
+        if (op === "replace") return;
+        const content = data.message?.content;
+        const text = Array.isArray(content)
+          ? content
+              .filter(
+                (b): b is { type: "text"; text: string } =>
+                  !!b &&
+                  typeof b === "object" &&
+                  (b as { type?: string }).type === "text" &&
+                  typeof (b as { text?: string }).text === "string",
+              )
+              .map((b) => b.text)
+              .join("")
+          : "";
+        if (text === "") return;
+        const sk = sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0);
+        const done = stepEmitted.get(sk) ?? "";
+        stepEmitted.delete(sk);
+        if (done === "") {
+          emit({ type: "stream", sessionId: sid, text });
+        } else if (text.startsWith(done)) {
+          const rest = text.slice(done.length);
+          if (rest.length > 0) {
+            emit({ type: "stream", sessionId: sid, text: rest });
+          }
+        }
+        // delta 与 message 文本不一致时不再输出（append-only UI 无法安全重写）
         return;
       }
 
@@ -510,6 +565,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       case "turn/end":
         // turn 结束：清空流式累计，block index 跨 turn 复用不残留
         emittedByBlock.clear();
+        stepEmitted.clear();
         emit({ type: "turn-end" });
         return;
       default:
@@ -590,6 +646,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       for (const u of runtimeUnbinds) u();
       runtimeUnbinds.length = 0;
       emittedByBlock.clear();
+      stepEmitted.clear();
       listeners.clear();
     },
     approve(id, allow) {

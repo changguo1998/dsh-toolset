@@ -289,6 +289,128 @@ test("assistant/chunk 纯 block-end(无 delta)→ 输出完整文本", () => {
   assert.equal(joinStreams(t.events), "完整文本");
 });
 
+// --- assistant/message：非流式 provider 的完整回复补发（含去重） ---
+/** 构造 assistant/message 完整正文事件（surface append/replace 可选） */
+function rawMessage(
+  content: unknown[],
+  turn = 1,
+  step = 1,
+  surfaceOp?: "append" | "replace",
+): SessionEvent<"assistant/message"> {
+  return {
+    type: "assistant/message",
+    seq: 1,
+    time: Date.now(),
+    surfaceOp,
+    data: { turn, step, message: { content } },
+  } as unknown as SessionEvent<"assistant/message">;
+}
+
+test("assistant/message：非流式/无 chunk provider 直接输出完整正文(修复回复不显示)", () => {
+  const t = makeAdapter();
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawMessage([{ type: "text", text: "不支持流式的完整回复" }]),
+  );
+  assert.equal(joinStreams(t.events), "不支持流式的完整回复");
+});
+
+test("assistant/message：流式已完整输出后不再重复(不打两遍)", () => {
+  const t = makeAdapter();
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk({ type: "text-delta", index: 0, text: "Hello" }),
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk({ type: "text-delta", index: 0, text: " world" }),
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawMessage([{ type: "text", text: "Hello world" }]),
+  );
+  assert.equal(joinStreams(t.events), "Hello world");
+});
+
+test("assistant/message：流式只输出一部分 → 仅补发缺失后缀", () => {
+  const t = makeAdapter();
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk({ type: "text-delta", index: 0, text: "Hello " }),
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawMessage([{ type: "text", text: "Hello world" }]),
+  );
+  assert.deepEqual(
+    t.events
+      .filter((e) => e.type === "stream")
+      .map((e) => (e as { text: string }).text),
+    ["Hello ", "world"],
+  );
+});
+
+test("assistant/message：无 text 块(tool-call/reasoning)不输出；replace 表面事件跳过", () => {
+  const t = makeAdapter();
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawMessage([
+      { type: "tool-call", id: "c1", name: "read", arguments: "{}" },
+      { type: "reasoning", text: "think" },
+    ]),
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawMessage(
+      [{ type: "text", text: "被 replace 覆盖的旧文本" }],
+      1,
+      1,
+      "replace",
+    ),
+  );
+  // also a normal append second step still emits
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawMessage([{ type: "text", text: "第二步正文" }], 1, 2),
+  );
+  assert.equal(joinStreams(t.events), "第二步正文");
+});
+
+test("assistant/message 不跨 turn 复用：同 turn/step 键在 turn-end 后被清除", () => {
+  const t = makeAdapter();
+  // step 0 有 chunk；turn 结束清除累计后，同样 turn/step 键的新一组事件按新 step 处理
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk({ type: "text-delta", index: 0, text: "A" }, 1, 0),
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    {
+      type: "turn/end",
+      seq: 2,
+      time: Date.now(),
+      data: { turn: 1, reason: "ok" },
+    },
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawMessage([{ type: "text", text: "B" }], 1, 0),
+  );
+  assert.equal(joinStreams(t.events), "AB");
+});
+
 test("assistant/chunk reasoning delta+block-end 去重：思考流同样不重复", () => {
   const t = makeAdapter();
   t.runtime.fire(
