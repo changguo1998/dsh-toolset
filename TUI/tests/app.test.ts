@@ -641,3 +641,60 @@ test("App initialTheme 非法值回落 dark(外部配置健壮性)", () => {
   // 无效配置经 normalizeThemeId 兜底为 dark,首帧前以 dark 同步 renderer
   assert.deepEqual(renderer.themeCalls, ["dark"]);
 });
+
+// ---------------------------------------------------------------------------
+// 慢速流式（仅真实链路 slowStream=true，mock 默认关闭保持原速）
+// ---------------------------------------------------------------------------
+
+test("slowStream=true：stream 不即时全量显示，turn-end 立即落盘全部文本", () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const app = new App({ renderer, adapter, slowStream: true });
+  app.start();
+  const text = "abcdefghijklmnopqrstuvwxyz0123456789"; // 36 字符 > 单 tick
+  adapter.push({ type: "stream", sessionId: "s1", text });
+  // 首个同步帧内 tick 尚未发生，正文不应出现
+  assert.ok(
+    !renderer.lastRender.join("\n").includes("abcdefghij"),
+    "首个同步帧不应展示流式正文",
+  );
+  // turn-end 触发 flush：慢速队列剩余正文一次性落盘，绝不因回合结束丢文本
+  adapter.push({ type: "turn-end" });
+  assert.ok(
+    renderer.lastRender.join("\n").includes(text),
+    "turn-end 后正文应完整显示",
+  );
+  app.dispose();
+});
+
+test("slowStream=true：正文按 tick 节奏渐进显示", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const app = new App({ renderer, adapter, slowStream: true });
+  app.start();
+  const text = "0123456789abcdefghij0123456789abcdefghij0123456789abcdefghij"; // 60 字符 ≈ 10 ticks
+  adapter.push({ type: "stream", sessionId: "s1", text });
+  await new Promise((r) => setTimeout(r, 150)); // 约 3 ticks：部分可见
+  const mid = renderer.lastRender.join("\n");
+  assert.ok(mid.includes("0123456789"), "应渐进显示开头部分");
+  assert.ok(!mid.includes(text), "150ms 不应已完整显示(仍有慢速节奏)");
+  await new Promise((r) => setTimeout(r, 700)); // 累计 850ms > 500ms 全部完成
+  assert.ok(
+    renderer.lastRender.join("\n").includes(text),
+    "足够时间后应完整显示",
+  );
+  app.dispose();
+});
+
+test("slowStream 默认关闭：stream 即时显示(mock/demo 原速)", () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const app = new App({ renderer, adapter });
+  app.start();
+  adapter.push({ type: "stream", sessionId: "s1", text: "即时文本" });
+  assert.ok(
+    renderer.lastRender.join("\n").includes("即时文本"),
+    "未开启 slowStream 应立即展示",
+  );
+  app.dispose();
+});

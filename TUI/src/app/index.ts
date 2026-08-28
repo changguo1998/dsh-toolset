@@ -22,6 +22,12 @@ import {
 } from "../renderer/theme.ts";
 import { StatusTicker, type StatusQueries } from "./status.ts";
 
+// 仅真实链路生效的慢速流式(打字机)节奏：每 tick 放出 SLOW_CHARS_PER_TICK 字符。
+// ~120 字符/秒，便于阅读；mock demo 保持自身节奏不变。ponytail: 固定常量，
+// 需要调速时改这两处即可(或后续提升为配置项)。
+const SLOW_TICK_MS = 50;
+const SLOW_CHARS_PER_TICK = 6;
+
 export interface AppDeps {
   renderer: Renderer;
   adapter: DshAdapter;
@@ -32,6 +38,8 @@ export interface AppDeps {
   };
   /** 初始主题（默认 dark=BlueDark；/theme 切换仅当前会话） */
   initialTheme?: ThemeId;
+  /** 真实链路：流式正文放缓显示(打字机节奏)；mock demo 默认关闭保持原速 */
+  slowStream?: boolean;
 }
 
 export class App {
@@ -39,6 +47,9 @@ export class App {
   private unbindEvents: (() => void)[] = [];
   private disposed = false;
   private statusTicker: StatusTicker | null = null;
+  // 慢速流式队列：真实链路正文先入队，按 tick 节奏逐段 append(仅 slowStream 开启时使用)
+  private slowPending = "";
+  private slowTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private deps: AppDeps) {
     this.state = initialState(
@@ -99,6 +110,8 @@ export class App {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.slowStop();
+    this.slowPending = "";
     for (const f of this.unbindEvents) f();
     this.unbindEvents = [];
     this.deps.adapter.dispose?.();
@@ -113,7 +126,13 @@ export class App {
         );
         break;
       case "stream":
-        this.apply((s) => reduceState(s, { type: "append", text: e.text }));
+        if (this.deps.slowStream) {
+          // 真实链路：先入队按打字机节奏逐段显示；mock 保持原速即时展示
+          this.slowPending += e.text;
+          this.slowStart();
+        } else {
+          this.apply((s) => reduceState(s, { type: "append", text: e.text }));
+        }
         break;
       case "thinking":
         this.apply((s) => reduceState(s, { type: "thinking", text: e.text }));
@@ -136,7 +155,8 @@ export class App {
         this.apply((s) => reduceState(s, { type: "notice", text: e.text }));
         break;
       case "turn-end":
-        // turn 结束：追加分隔线，让对话历史每个 turn 之间可见分隔
+        // turn 结束：先把慢速队列中剩余的正文一次性落盘(避免截断)，再追加分隔线
+        if (this.deps.slowStream) this.slowFlush();
         this.apply((s) => reduceState(s, { type: "turn-end" }));
         break;
       default: {
@@ -145,6 +165,39 @@ export class App {
       }
     }
     this.paint();
+  }
+
+  /** 启动慢速打字机；已在跑或已 disposed 时不动 */
+  private slowStart(): void {
+    if (this.slowTimer || this.disposed) return;
+    this.slowTimer = setInterval(() => {
+      if (this.slowPending === "") {
+        this.slowStop();
+        return;
+      }
+      const take = Math.min(SLOW_CHARS_PER_TICK, this.slowPending.length);
+      const text = this.slowPending.slice(0, take);
+      this.slowPending = this.slowPending.slice(take);
+      this.apply((s) => reduceState(s, { type: "append", text }));
+      this.paint();
+    }, SLOW_TICK_MS);
+  }
+
+  /** 立即落盘慢速队列剩余正文并停表（turn-end/dispose 时调用，防止丢文本） */
+  private slowFlush(): void {
+    this.slowStop();
+    if (this.slowPending === "") return;
+    const text = this.slowPending;
+    this.slowPending = "";
+    this.apply((s) => reduceState(s, { type: "append", text }));
+    this.paint();
+  }
+
+  private slowStop(): void {
+    if (this.slowTimer) {
+      clearInterval(this.slowTimer);
+      this.slowTimer = null;
+    }
   }
 
   private handleKey(k: KeyEvent): void {

@@ -77,6 +77,7 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
   - 其他 `/name` → `adapter.runCommand(line)` → `ctx.commands.execute(agent, line, [], signal)`（官方注册表）。
   - 未命中注册表（execute 返回 `undefined`）→ `notice` 提示未知命令（**官方 fail-close**：绝不 sendMessage 给模型）。
 - **事件面**：`DshEvent` 新增 `{ type: "notice"; text }`——命令结果/错误/提示只进 UI 缓冲（`appendNotice`，独立成行，不入流式末行），经 `notice` reducer 落地。
+- **慢速流式**：真实链路由 `main()` 传 `slowStream: true`，App 将 `stream` 正文先入队列按 tick（默认 50ms/6 字符 ≈ 120 字符/秒）逐段 append；`turn-end` 先 `slowFlush()` 落盘剩余正文再插分隔线；mock/demo 不开启保持原速。
 - **命令名语法**：`parseSlashCommand` 与官方 client 一致——`/^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/`。
 - **服务解析**：`main.ts` 经 `ctx.get("commands")` 取注册表（cordis 严格模式不允许未注入服务直接属性访问），`commandAgent` 传真实 Agent（注册表作用域查找需要完整 agent，而非 app 的瘦 `DshAgentLike`）。
 - **dispose 修复**：原 `const disposed = false` 致 dispose 永不生效——改为 `let`，并实现：中止在途命令的 AbortController、解绑 runtime 监听（`collectUnbind`）、清空监听集。`App.dispose()` 透传 `adapter.dispose?.()`。
@@ -117,7 +118,7 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 
 - `AppState.buffer` 使用结构化 `BufferLine`（`user` / `assistant` / `thinking` / `notice` / `separator`），避免靠字符串前缀猜测角色。
 
-- 普通消息由 App 发送前本地回显为用户行；历史区内模型正文靠左，用户块使用 `USER_INDENT` 左缩进靠右，换行宽度扣除缩进。
+- 普通消息由 App 发送前本地回显为用户行；历史区内模型正文靠左。用户块按内容收缩：`wrapBufferLines` 先按 `userMaxBodyWidth`（= 宽度 - `USER_MIN_LEFT_GUTTER`）换行（含显式换行），取最大行宽作块宽，整块统一 `leftPad`、右缘贴历史区右缘，块内左对齐；续行共享同一左边界。`wrapBufferLines` 输出扩展为 `{text, kind, indent}`，`buildTopRegion` 直接按 `indent` 渲染（thinking 用固定缩进，assistant/plain/separator 为 0）。用户块与随后回答/思考之间插入一行空行（后处理，纯布局不改 state）。
 
 - adapter 将 `reasoning-delta` 与 reasoning `block-end` 映射为 `thinking` 事件。思考区只显示最新 `THINKING_MAX=4` 行，超出显示折叠提示，不提供展开/收起；首条正文或 turn-end 到达时清除思考行。
 

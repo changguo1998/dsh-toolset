@@ -36,6 +36,8 @@ export function main(opts: {
   logger?: (m: string) => void;
   /** 初始主题（默认 dark） */
   initialTheme?: ThemeId;
+  /** 真实链路：流式正文放缓显示(打字机节奏)，mock demo 不传保持原速 */
+  slowStream?: boolean;
 }): void {
   const renderer: Renderer = createRenderer();
   const app = new App({
@@ -43,6 +45,7 @@ export function main(opts: {
     adapter: opts.adapter,
     status: { queries: createProcessStatusQueries(), intervalMs: 5000 },
     initialTheme: opts.initialTheme,
+    slowStream: opts.slowStream,
   });
   app.setLogger(opts.logger ?? ((msg) => void msg));
   app.start();
@@ -208,6 +211,8 @@ export async function apply(
     adapter,
     initialTheme: normalizeThemeId(config?.theme ?? undefined),
     logger: (msg) => process.stderr.write("[dsh-tui] " + msg + "\n"),
+    // 真实接入链路：流式正文放缓显示，便于阅读；mock demo 不经过此处
+    slowStream: true,
   });
   // renderer 的退出钩子(SIGINT/TERM/Esc → close()) 负责进程退出；此处兜底
   // 清理 agent(避免残留运行中的 loop)。

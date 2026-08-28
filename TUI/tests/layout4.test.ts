@@ -11,10 +11,12 @@ import {
   renderStatusLine,
   PLUGIN_WIDTH,
   truncateToWidth,
+  displayWidth,
   THINKING_MAX,
   THINKING_MORE,
   THINKING_PREFIX,
-  USER_INDENT,
+  USER_MIN_LEFT_GUTTER,
+  userMaxBodyWidth,
 } from "../src/app/layout.ts";
 import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
 import type { RenderLine } from "../src/renderer/screen.ts";
@@ -168,7 +170,7 @@ test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", ()
   }
 });
 
-test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进", () => {
+test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(块右对齐、内部左对齐)", () => {
   let s = initialState();
   s = reduceState(s, {
     type: "user-line",
@@ -179,7 +181,11 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进",
   const plain = (line: RenderLine): string =>
     line.text.replace(/\x1b\[[0-9;]*m/g, "");
   const visible = top.map(plain);
-  const userPrefix = "│ " + " ".repeat(USER_INDENT);
+  // 长消息占满最大正文宽 ⇒ 左边界 = 历史宽 - userMaxBodyWidth
+  const hist = 40 - PLUGIN_WIDTH;
+  const pad = hist - userMaxBodyWidth(hist);
+  assert.equal(pad, USER_MIN_LEFT_GUTTER, "长消息左边界应为 gutter");
+  const userPrefix = "│ " + " ".repeat(pad);
   const userRows = visible.filter(
     (line) =>
       line.startsWith(userPrefix) && line.slice(userPrefix.length).trim(),
@@ -191,6 +197,85 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进",
       (line) => line.includes("模型回答") && line.startsWith("│ 模型"),
     ),
   );
+});
+
+test("会话流：短用户消息块整体靠右，右缘贴历史区右缘，块内左对齐", () => {
+  let s = initialState();
+  s = reduceState(s, { type: "user-line", text: "你好" });
+  const plain = buildFrame(s, { rows: 10, cols: 40 }).map((line) =>
+    line.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const row = plain.find((l) => l.includes("你好"))!;
+  assert.ok(row.startsWith("│ "), "应在插件竖线右侧");
+  assert.equal(displayWidth(row), 40, "短消息整行铺满 ⇒ 右缘贴历史区右缘");
+  assert.ok(row.endsWith("你好"), "文本整体靠右");
+  assert.equal(
+    row.indexOf("你好") + 2,
+    row.length,
+    "块内结尾即文本(内部左对齐)",
+  );
+});
+
+test("会话流：用户消息显式换行与软换行共享同一左边界", () => {
+  let s = initialState();
+  s = reduceState(s, {
+    type: "user-line",
+    text: "第一行内容\n第二行更长的内容会触发软换行继续向下一行展示",
+  });
+  const plain = buildFrame(s, { rows: 10, cols: 40 }).map((line) =>
+    line.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const rows = plain.filter(
+    (l) =>
+      l.includes("第一行") ||
+      l.includes("第二行") ||
+      l.includes("向下一行展示"),
+  );
+  assert.ok(rows.length >= 3, "应至少三行(显式换行 1 + 软换行 2)");
+  const indents = rows.map((l) => l.length - l.trimStart().length);
+  assert.equal(new Set(indents).size, 1, `所有续行共享同一左边界: ${indents}`);
+});
+
+test("会话流：用户块与回答/思考之间恰有一行空行；无回复或紧跟分隔线时不加空行", () => {
+  // user → assistant：恰有一行空白
+  let s = initialState();
+  s = reduceState(s, { type: "user-line", text: "问题" });
+  s = reduceState(s, { type: "append", text: "答案" });
+  let plain = buildFrame(s, { rows: 10, cols: 40 }).map((l) =>
+    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const ui = plain.findIndex((l) => l.includes("问题"));
+  const ai = plain.findIndex((l) => l.includes("答案"));
+  assert.ok(ui >= 0 && ai > ui);
+  const between = plain.slice(ui + 1, ai);
+  assert.equal(between.length, 1, "用户与答案之间应恰有一行");
+  assert.equal(
+    between[0]!.replace(/^│ /, "").trim(),
+    "",
+    "该行为空行(仅插件竖线)",
+  );
+  assert.ok(between[0]!.startsWith("│"), "空行仍保留插件竖线");
+
+  // user → thinking：恰有一行空白
+  let t = reduceState(initialState(), { type: "user-line", text: "q" });
+  t = reduceState(t, { type: "thinking", text: "思考中" });
+  plain = buildFrame(t, { rows: 10, cols: 40 }).map((l) =>
+    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const ut = plain.findIndex((l) => l.includes("q"));
+  const tt = plain.findIndex((l) => l.includes("思考中"));
+  assert.ok(ut >= 0 && tt - ut === 2, "user→thinking 之间应恰有一行空白");
+  assert.equal(plain[ut + 1]!.replace(/^│ /, "").trim(), "");
+
+  // user → turn 分隔线：不加空行
+  let u = reduceState(initialState(), { type: "user-line", text: "孤立" });
+  u = reduceState(u, { type: "turn-end" });
+  plain = buildFrame(u, { rows: 10, cols: 20 }).map((l) =>
+    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const uu = plain.findIndex((l) => l.includes("孤立"));
+  const nextU = plain[uu + 1] ?? "";
+  assert.ok(nextU.includes("─"), "user 后紧跟分隔线，无空行");
 });
 
 test("会话流：思考只显示最新几行，并在正文或 turn-end 后消失", () => {

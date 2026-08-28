@@ -33,7 +33,7 @@ dsh-tui --help
 - **顶部区域**：左侧固定 `PLUGIN_WIDTH=2` 列插件窄条（仅竖线 `│`，无边框无标题，当前为空，插件能力后续实现）；右侧对话历史，按 `historyWidth` 换行，支持滚动（↑/↓/PageUp/PageDown）；顶部/状态/输入三区之间各有横线分隔行（`SEPARATOR_ROWS=2`）。
 - **系统状态区**：按可用宽度展示时间、当前目录、git 分支与 dirty 标记、模型、上下文长度、缓存命中率；内容过宽时溢出到多行并压缩顶部区域（上下文长度与缓存命中率无数据源时为 `—` 占位；模型默认 `—`，`/model` 切换本会话后更新且不落盘）。`StatusTicker` 合并节流读取（5s 一次，一次 tick 批量查 cwd/git/time，避免高频 fork 子进程）。
 - **输入区**：`❯` 提示符 + 硬件光标；审批弹窗时该区更高。
-- **会话流**：模型正文位于历史区左侧，用户消息本地回显并向右缩进；reasoning 仅显示最新 4 行，首条正文或 turn 结束后消失。
+- **会话流**：模型正文位于历史区左侧；用户消息本地回显为**整体靠右的收缩块**（块内左对齐、右缘贴历史区右缘），用户输入与回答之间空一行；reasoning 仅显示最新 4 行，首条正文或 turn 结束后消失。真实链路下流式正文按打字机节奏放缓显示（默认约 120 字符/秒，`slowStream` 开启；mock demo 保持原速；回合结束即落盘剩余正文）。
 - **turn 分隔**：每个对话 turn 结束后插入横线分隔行，流式输出实时合入历史。
 
 ## 作为 bundle 挂载（在 DSH profile 中使用）
@@ -62,6 +62,22 @@ dsh --profile <p>
 ```
 
 从 npm 分发的正式安装形态为 `dsh plugin --profile <p> add <包名>`（待发布后使用），本地开发期用 `file:` 依赖即可。
+
+## 主题配置
+
+- **内置主题**：`BlueDark`（`dark`，默认）与 `YellowBright`（`light`）两套 truecolor 配色。
+- **profile 配置**：在 profile 的 `cordis.patch.yml` 中给 `dsh-tui` 节点加 `config.theme`：
+
+```yaml
+- id: dsh-tui
+  name: '@dsh-toolset/dsh-tui'
+  config:
+    theme: light        # dark | light
+```
+
+配置在 profile 启动时解析，改后需重启 `dsh --profile <p>` 生效。
+
+- **会话内切换**：`/theme`（无参 toggle）、`/theme dark`、`/theme light` 仅切换当前会话，不落盘。
 
 ## 构建 / 测试
 

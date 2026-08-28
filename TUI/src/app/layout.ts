@@ -219,7 +219,7 @@ function buildTopRegion(
     const left = pluginCell(i, topHeight, pluginWidth);
     const w = wrapped[vp.start + i];
     const content =
-      w && vp.start + i < vp.end ? indentOf(w.kind, historyWidth) + w.text : "";
+      w && vp.start + i < vp.end ? " ".repeat(w.indent) + w.text : "";
     const trim = truncateToWidth(left + content, cols);
     // 极限窄终端若连一个宽字符都容不下，保留该字符而不静默丢失内容。
     const visible =
@@ -235,66 +235,101 @@ function buildTopRegion(
   return rows;
 }
 
-export const USER_INDENT = 10;
+export const USER_MIN_LEFT_GUTTER = 8;
 export const THINKING_INDENT = 2;
 export const THINKING_MAX = 4;
 export const THINKING_MORE = "…(更多思考已折叠)";
 export const THINKING_PREFIX = "[思考] ";
 
-function indentOf(kind: BufferKind, width: number): string {
-  if (kind === "user")
-    return " ".repeat(Math.min(USER_INDENT, Math.max(0, width - 2)));
-  if (kind === "thinking")
-    return " ".repeat(
-      Math.min(
-        THINKING_INDENT,
-        Math.max(0, width - thinkingPrefix(width).length - 2),
-      ),
-    );
-  return "";
+/** 用户消息块最大正文宽：块整体靠右，左侧至少保留 USER_MIN_LEFT_GUTTER */
+export function userMaxBodyWidth(width: number): number {
+  return Math.max(
+    1,
+    width - Math.min(USER_MIN_LEFT_GUTTER, Math.max(0, width - 1)),
+  );
 }
 
-function thinkingPrefix(width: number): string {
+function thinkingPrefixText(width: number): string {
   return width >= THINKING_PREFIX.length + 2 ? THINKING_PREFIX : "";
 }
 
-function wrapBufferLines(
-  buffer: Buffer,
-  width: number,
-): Array<{ text: string; kind: BufferKind }> {
-  const out: Array<{ text: string; kind: BufferKind }> = [];
-  const thinking: string[] = [];
+function thinkingIndentOf(width: number): number {
+  return Math.min(
+    THINKING_INDENT,
+    Math.max(0, width - thinkingPrefixText(width).length - 2),
+  );
+}
+
+interface WrappedRow {
+  text: string;
+  kind: BufferKind;
+  indent: number;
+}
+
+function wrapBufferLines(buffer: Buffer, width: number): WrappedRow[] {
+  const out: WrappedRow[] = [];
+  const thinking: WrappedRow[] = [];
   for (const line of buffer) {
     if (line.kind === "thinking") {
-      const prefix = thinkingPrefix(width);
-      thinking.push(
-        ...wrapLine(
-          line.text,
-          Math.max(1, width - THINKING_INDENT - prefix.length),
-        ),
+      const indent = thinkingIndentOf(width);
+      const rows = wrapLine(
+        line.text,
+        Math.max(1, width - indent - thinkingPrefixText(width).length),
       );
+      for (const text of rows)
+        thinking.push({ text, kind: "thinking", indent });
+      continue;
+    }
+    if (line.kind === "user") {
+      // 用户消息块：按内容收缩宽度并整体靠右（统一 leftPad），块内保持左对齐
+      const maxBody = userMaxBodyWidth(width);
+      const rows = wrapLines(line.text.split("\n"), maxBody);
+      const bodyWidth = Math.max(1, ...rows.map((r) => displayWidth(r)));
+      const pad = Math.max(0, width - bodyWidth);
+      for (const text of rows) out.push({ text, kind: "user", indent: pad });
       continue;
     }
     const content =
       line.kind === "separator"
         ? SEPARATOR.repeat(Math.max(1, width))
         : line.text;
-    const indent =
-      line.kind === "user" ? Math.min(USER_INDENT, Math.max(0, width - 2)) : 0;
-    const contentWidth = Math.max(1, width - indent);
-    const rows = content === "" ? [""] : wrapLine(content, contentWidth);
-    for (const text of rows) out.push({ text, kind: line.kind });
+    const rows = content === "" ? [""] : wrapLine(content, Math.max(1, width));
+    for (const text of rows) out.push({ text, kind: line.kind, indent: 0 });
   }
   if (thinking.length > 0) {
     const hasMore = thinking.length > THINKING_MAX;
     const visible = thinking.slice(
       -(hasMore ? THINKING_MAX - 1 : THINKING_MAX),
     );
-    if (hasMore) visible.unshift(THINKING_MORE);
-    for (const text of visible)
-      out.push({ text: thinkingPrefix(width) + text, kind: "thinking" });
+    if (hasMore) {
+      visible.unshift({
+        text: THINKING_MORE,
+        kind: "thinking",
+        indent: thinkingIndentOf(width),
+      });
+    }
+    for (const row of visible) {
+      out.push({
+        text: thinkingPrefixText(width) + row.text,
+        kind: "thinking",
+        indent: row.indent,
+      });
+    }
   }
-  return out;
+  // 用户消息块与随后的答案/思考之间空一行（纯布局展示，不写状态）
+  const spaced: WrappedRow[] = [];
+  for (const row of out) {
+    const last = spaced[spaced.length - 1];
+    if (
+      last &&
+      last.kind === "user" &&
+      (row.kind === "assistant" || row.kind === "thinking")
+    ) {
+      spaced.push({ text: "", kind: "plain", indent: 0 });
+    }
+    spaced.push(row);
+  }
+  return spaced;
 }
 
 /** 系统状态区：可多行；无标题，`|` 分隔；超宽时溢出到下一行（不截断） */
