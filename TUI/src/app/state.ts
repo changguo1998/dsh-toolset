@@ -13,6 +13,9 @@ export const MAX_BUFFER_LINES = 2000;
 /** thinking/reasoning 最大显示行数默认值（可经 initialState 配置，超出折叠） */
 export const DEFAULT_THINKING_MAX_LINES = 4;
 
+/** 用户块左缘/回复右缘对称留空默认列数（可经 initialState 配置，交错布局用） */
+export const DEFAULT_MESSAGE_GUTTER = 4;
+
 /** 缓冲行类型:用户输出靠右缩进展示,模型正文靠左;思考行限高,完成后清除 */
 export type BufferKind =
   "user" | "assistant" | "thinking" | "notice" | "separator" | "plain";
@@ -57,6 +60,8 @@ export interface AppState {
   themeId: ThemeId;
   /** thinking/reasoning 最大显示行数（渲染折叠用，默认 4） */
   thinkingMaxLines: number;
+  /** 用户块左缘/回复右缘对称留空列数（交错布局，默认 4，可配置） */
+  messageGutter: number;
   /** 模型交互选择模式（/model 无参进入；null = 未激活） */
   picker: PickerState | null;
 }
@@ -99,12 +104,16 @@ export interface PickerOption {
 
 export function initialState(
   themeId: ThemeId = DEFAULT_THEME,
-  opts?: { thinkingMaxLines?: number },
+  opts?: { thinkingMaxLines?: number; messageGutter?: number },
 ): AppState {
   const thinkingMaxLines =
     opts?.thinkingMaxLines === undefined
       ? DEFAULT_THINKING_MAX_LINES
       : Math.max(1, Math.floor(opts.thinkingMaxLines));
+  const messageGutter =
+    opts?.messageGutter === undefined
+      ? DEFAULT_MESSAGE_GUTTER
+      : Math.max(0, Math.floor(opts.messageGutter));
   return {
     sessions: [],
     activeSessionId: null,
@@ -126,6 +135,7 @@ export function initialState(
       cacheHit: "—",
     },
     thinkingMaxLines,
+    messageGutter,
   };
 }
 

@@ -231,16 +231,13 @@ test("会话流：用户消息显式换行与软换行共享同一左边界", ()
   let s = initialState();
   s = reduceState(s, {
     type: "user-line",
-    text: "第一行内容\n第二行更长的内容会触发软换行继续向下一行展示",
+    text: "第一行内容\n第二行更长的内容会触发软换行继续向下一行展示直到超出三十六列宽度限制为止",
   });
   const plain = buildFrame(s, { rows: 10, cols: 40 }).map((line) =>
     line.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const rows = plain.filter(
-    (l) =>
-      l.includes("第一行") ||
-      l.includes("第二行") ||
-      l.includes("向下一行展示"),
+    (l) => l.includes("第一行") || l.includes("第二行") || l.includes("展示"),
   );
   assert.ok(rows.length >= 3, "应至少三行(显式换行 1 + 软换行 2)");
   const indents = rows.map((l) => l.length - l.trimStart().length);
@@ -363,7 +360,7 @@ test("会话流：turn 分隔线在历史区铺满宽度", () => {
 
 test("交错布局：模型正文右缘保留与用户块左缘对称的空位(gutter)；用户块仍贴右缘", () => {
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
-  // 40 列，USER_MIN_LEFT_GUTTER=8 → 模型正文最大宽 32
+  // cols=40 → historyWidth=38；USER_MIN_LEFT_GUTTER=4 → 正文宽 34(右留 4)
   let s = initialState();
   s = reduceState(s, {
     type: "append",
@@ -371,12 +368,14 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
   });
   const rows = buildFrame(s, { rows: 10, cols: 40 })
     .map((l) => strip(l.text))
-    .filter((l) => l.includes("0123"));
+    .filter((l) => /[0-9]/.test(l));
   assert.ok(rows.length >= 2, "超 gutter 宽的正文应软换行");
   for (const l of rows) {
     const body = l.replace(/^│ /, "");
-    assert.ok(body.length <= 32, `正文行右侧保留 gutter，不顶满右缘: ${l}`);
+    assert.ok(body.length <= 34, `正文行右侧保留 gutter，不顶满右缘: ${l}`);
   }
+  const first = rows[0]!.replace(/^│ /, "");
+  assert.equal(first.length, 34, "默认 gutter=4：正文宽恰为 38-4");
   // 用户块仍整体靠右(行尾即内容)
   let u = initialState();
   u = reduceState(u, { type: "user-line", text: "hi" });
@@ -384,4 +383,20 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
     .map((l) => strip(l.text))
     .find((l) => l.includes("hi"));
   assert.ok(uf !== undefined && uf.endsWith("hi"), "用户块贴右缘");
+});
+
+test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满历史区右缘", () => {
+  const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
+  let s = initialState(undefined, { messageGutter: 0 });
+  s = reduceState(s, {
+    type: "append",
+    text: "0123456789012345678901234567890123456789", // 40 字符
+  });
+  const rows = buildFrame(s, { rows: 10, cols: 40 })
+    .map((l) => strip(l.text))
+    .filter((l) => /[0-9]/.test(l));
+  // historyWidth = cols(40) - plugin(2) = 38；gutter=0 → 正文宽 38，顶满右缘
+  assert.ok(rows.length >= 2, "40 字符在 38 宽下软换行");
+  const body = rows[0]!.replace(/^│ /, "");
+  assert.equal(body.length, 38, "gutter=0 时正文顶满历史区宽度");
 });

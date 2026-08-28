@@ -42,6 +42,8 @@ export function main(opts: {
   streamCharsPerSecond?: number;
   /** thinking 最大显示行数(默认 4；由 apply 归一化) */
   thinkingMaxLines?: number;
+  /** 用户块左缘/回复右缘对称留空(列数，默认 4；由 apply 归一化，域 0..20) */
+  messageGutter?: number;
 }): void {
   const renderer: Renderer = createRenderer();
   const app = new App({
@@ -52,6 +54,7 @@ export function main(opts: {
     slowStream: opts.slowStream,
     streamCharsPerSecond: opts.streamCharsPerSecond,
     thinkingMaxLines: opts.thinkingMaxLines,
+    messageGutter: opts.messageGutter,
   });
   app.setLogger(opts.logger ?? ((msg) => void msg));
   app.start();
@@ -83,6 +86,8 @@ export interface DshTuiConfig {
   streamCharsPerSecond?: number;
   /** thinking/reasoning 最大显示行数（默认 4；合法域 1..50，非法回退默认） */
   thinkingMaxLines?: number;
+  /** 用户块左缘/回复右缘对称留空（列数，默认 4；合法域 0..20，非法回退默认） */
+  messageGutter?: number;
 }
 
 export interface TuiDisplayConfig {
@@ -92,6 +97,8 @@ export interface TuiDisplayConfig {
   streamCharsPerSecond: number;
   /** thinkingMaxLines 归一化结果（1..50） */
   thinkingMaxLines: number;
+  /** messageGutter 归一化结果（0..20，默认 4） */
+  messageGutter: number;
 }
 
 /**
@@ -103,7 +110,10 @@ export function normalizeTuiDisplayConfig(
     | Partial<
         Pick<
           DshTuiConfig,
-          "streamTypewriter" | "streamCharsPerSecond" | "thinkingMaxLines"
+          | "streamTypewriter"
+          | "streamCharsPerSecond"
+          | "thinkingMaxLines"
+          | "messageGutter"
         >
       >
     | undefined,
@@ -141,6 +151,7 @@ export function normalizeTuiDisplayConfig(
       "streamCharsPerSecond",
     ),
     thinkingMaxLines: num(raw?.thinkingMaxLines, 4, 1, 50, "thinkingMaxLines"),
+    messageGutter: num(raw?.messageGutter, 4, 0, 20, "messageGutter"),
   };
 }
 
@@ -288,6 +299,7 @@ export async function apply(
     slowStream: display.streamTypewriter,
     streamCharsPerSecond: display.streamCharsPerSecond,
     thinkingMaxLines: display.thinkingMaxLines,
+    messageGutter: display.messageGutter,
   });
   // renderer 的退出钩子(SIGINT/TERM/Esc → close()) 负责进程退出；此处兜底
   // 清理 agent(避免残留运行中的 loop)。

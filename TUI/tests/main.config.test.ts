@@ -13,25 +13,28 @@ function collect(): { warns: string[]; warn: (m: string) => void } {
   return { warns, warn: (m) => warns.push(m) };
 }
 
-test("归一化默认值：streamTypewriter=true, 流速 120, thinking 行数 4", () => {
+test("归一化默认值：streamTypewriter=true, 流速 120, thinking 4, gutter 4", () => {
   const c = normalizeTuiDisplayConfig(undefined);
   assert.deepEqual(c, {
     streamTypewriter: true,
     streamCharsPerSecond: 120,
     thinkingMaxLines: 4,
+    messageGutter: 4,
   });
 });
 
-test("归一化合法值透传：可关打字机、自定义流速与行数", () => {
+test("归一化合法值透传：可关打字机、自定义流速/行数/gutter", () => {
   const c = normalizeTuiDisplayConfig({
     streamTypewriter: false,
     streamCharsPerSecond: 2000,
     thinkingMaxLines: 50,
+    messageGutter: 20,
   });
   assert.deepEqual(c, {
     streamTypewriter: false,
     streamCharsPerSecond: 2000,
     thinkingMaxLines: 50,
+    messageGutter: 20,
   });
 });
 
@@ -56,6 +59,7 @@ test("归一化越界/非有限数同样回退", () => {
     {
       streamCharsPerSecond: 2001,
       thinkingMaxLines: 51,
+      messageGutter: 21,
       // @ts-expect-error 运行时可能注入非法类型
       streamTypewriter: "yes",
     },
@@ -63,7 +67,8 @@ test("归一化越界/非有限数同样回退", () => {
   );
   assert.equal(c.streamCharsPerSecond, 120);
   assert.equal(c.thinkingMaxLines, 4);
-  assert.ok(warns.length >= 2);
+  assert.equal(c.messageGutter, 4, "越界回退默认");
+  assert.ok(warns.length >= 3);
   // streamTypewriter 不做类型校验：truthy 字符串视为开启（布尔宽松）
   assert.equal(c.streamTypewriter, true);
 });
@@ -73,4 +78,6 @@ test("归一化小数四舍五入并在界内", () => {
   assert.equal(c.streamCharsPerSecond, 100);
   const c2 = normalizeTuiDisplayConfig({ thinkingMaxLines: 2.4 });
   assert.equal(c2.thinkingMaxLines, 2);
+  const c3 = normalizeTuiDisplayConfig({ messageGutter: 3.6 });
+  assert.equal(c3.messageGutter, 4);
 });

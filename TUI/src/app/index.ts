@@ -49,6 +49,8 @@ export interface AppDeps {
   streamCharsPerSecond?: number;
   /** thinking/reasoning 最大显示行数（默认 4，经 initialState 落到 state） */
   thinkingMaxLines?: number;
+  /** 用户块左缘/回复右缘对称留空(列数，默认 4，经 initialState 落到 state) */
+  messageGutter?: number;
 }
 
 export class App {
@@ -84,7 +86,10 @@ export class App {
     }
     this.state = initialState(
       normalizeThemeId(this.deps.initialTheme ?? DEFAULT_THEME),
-      { thinkingMaxLines: this.deps.thinkingMaxLines },
+      {
+        thinkingMaxLines: this.deps.thinkingMaxLines,
+        messageGutter: this.deps.messageGutter,
+      },
     );
   }
 

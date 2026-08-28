@@ -211,6 +211,7 @@ function buildTopRegion(
     state.buffer,
     historyWidth,
     state.thinkingMaxLines,
+    state.messageGutter,
   );
   const vp = computeViewport({
     totalRows: wrapped.length,
@@ -239,26 +240,26 @@ function buildTopRegion(
   return rows;
 }
 
-export const USER_MIN_LEFT_GUTTER = 8;
+export const USER_MIN_LEFT_GUTTER = 4;
 export const THINKING_INDENT = 2;
 export const THINKING_MORE = "…(更多思考已折叠)";
 /** THINKING_MAX 兼容导出（state.DEFAULT_THINKING_MAX_LINES 为权威默认） */
 export const THINKING_MAX: number = 4;
 
-/** 用户消息块最大正文宽：块整体靠右，左侧至少保留 USER_MIN_LEFT_GUTTER */
-export function userMaxBodyWidth(width: number): number {
-  return Math.max(
-    1,
-    width - Math.min(USER_MIN_LEFT_GUTTER, Math.max(0, width - 1)),
-  );
+/** 用户消息块最大正文宽：块整体靠右，左侧至少保留 gutter(默认 USER_MIN_LEFT_GUTTER) */
+export function userMaxBodyWidth(
+  width: number,
+  gutter: number = USER_MIN_LEFT_GUTTER,
+): number {
+  return Math.max(1, width - Math.min(gutter, Math.max(0, width - 1)));
 }
 
-/** 模型正文块最大宽：右缘与用户块左缘对称留白，与用户输入形成左右交错的视觉 */
-export function assistantMaxBodyWidth(width: number): number {
-  return Math.max(
-    1,
-    width - Math.min(USER_MIN_LEFT_GUTTER, Math.max(0, width - 1)),
-  );
+/** 模型正文块最大宽：右缘与用户块左缘对称留白(gutter)，与用户输入形成左右交错 */
+export function assistantMaxBodyWidth(
+  width: number,
+  gutter: number = USER_MIN_LEFT_GUTTER,
+): number {
+  return Math.max(1, width - Math.min(gutter, Math.max(0, width - 1)));
 }
 
 /** 思考行缩进列数：顶部窄条 "│ " 之外再缩进 THINKING_INDENT（足够窄时收敛到 0） */
@@ -276,6 +277,7 @@ function wrapBufferLines(
   buffer: Buffer,
   width: number,
   thinkingMaxLines: number,
+  gutter: number,
 ): WrappedRow[] {
   const out: WrappedRow[] = [];
   const thinking: WrappedRow[] = [];
@@ -289,7 +291,7 @@ function wrapBufferLines(
     }
     if (line.kind === "user") {
       // 用户消息块：按内容收缩宽度并整体靠右（统一 leftPad），块内保持左对齐
-      const maxBody = userMaxBodyWidth(width);
+      const maxBody = userMaxBodyWidth(width, gutter);
       const rows = wrapLines(line.text.split("\n"), maxBody);
       const bodyWidth = Math.max(1, ...rows.map((r) => displayWidth(r)));
       const pad = Math.max(0, width - bodyWidth);
@@ -298,7 +300,7 @@ function wrapBufferLines(
     }
     if (line.kind === "assistant") {
       // 模型正文：右缘保留与用户块左缘对称的空间(交错布局)，文本不顶满右缘
-      const rows = wrapLine(line.text, assistantMaxBodyWidth(width));
+      const rows = wrapLine(line.text, assistantMaxBodyWidth(width, gutter));
       for (const text of rows) out.push({ text, kind: line.kind, indent: 0 });
       continue;
     }
