@@ -162,9 +162,9 @@ function _stateWith(
 
 test("renderTextInput: 光标列按显示宽度计算（ASCII）", () => {
   const line = renderTextInput("hello", 3, "...", 40)[0]!;
-  // prompt="❯ "(2 列) + "hel"(3 列) = caret 列 5(0 基)
+  // prompt="> "(2 列) + "hel"(3 列) = caret 列 5(0 基)
   assert.equal(line.caret, 2 + 3);
-  assert.equal(line.text, "❯ hello");
+  assert.equal(line.text, "> hello");
 });
 
 test("renderTextInput: 光标列按显示宽度计算（CJK 占 2 列）", () => {
@@ -180,7 +180,7 @@ test("renderTextInput: 光标在行尾也能给出列（不在文本中间画块
 
 test("renderTextInput: 空文本按 placeholder 渲染且光标在 prompt 之后", () => {
   const line = renderTextInput("", 0, "Type a message…", 40)[0]!;
-  assert.equal(line.text, "❯ Type a message…");
+  assert.equal(line.text, "> Type a message…");
   assert.equal(line.caret, 2);
 });
 

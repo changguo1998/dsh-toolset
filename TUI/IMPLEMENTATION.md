@@ -121,7 +121,7 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 
 - 普通消息由 App 发送前本地回显为用户行；历史区内模型正文靠左、右缘按 `assistantMaxBodyWidth`（= 宽度 - `messageGutter`）保留与用户块左缘对称的空位，与右对齐的用户输入形成左右交错；`messageGutter`（默认 4，域 0..20）经 `normalizeTuiDisplayConfig` → `initialState` 落到 `AppState`，`buildFrame` 从 state 读取并传给 `userMaxBodyWidth`/`assistantMaxBodyWidth`（布局层不再硬编码 USER_MIN_LEFT_GUTTER=4 常量）。用户块按内容收缩：`wrapBufferLines` 先按 `userMaxBodyWidth`（= 宽度 - `messageGutter`）换行（含显式换行），取最大行宽作块宽，整块统一 `leftPad`、右缘贴历史区右缘，块内左对齐；续行共享同一左边界。`wrapBufferLines` 输出扩展为 `{text, kind, indent}`，`buildTopRegion` 直接按 `indent` 渲染（thinking 用固定缩进，assistant/plain/separator 为 0）。用户块与随后回答/思考之间插入一行空行（后处理，纯布局不改 state）。
 
-- 输入栏占位提示与 `❯` 前缀颜色随 `agentStatus` 变化（`idle` 绿 / `thinking` 黄 / `tool` 蓝；`done` 兜底同 thinking）：`buildFrame` 查 `INPUT_HINT` 表，`renderTextInput` 可选 `promptColor` 对着色，前缀宽度按纯文本 `"❯ "` 计算避免把 ANSI 计进显示宽。
+- 输入栏占位提示与 `>` 前缀颜色随 `agentStatus` 变化（`idle` 绿 / `thinking` 黄 / `tool` 蓝；`done` 兜底同 thinking）：`buildFrame` 查 `INPUT_HINT` 表，`renderTextInput` 可选 `promptColor` 对着色，前缀宽度按纯文本 `"> "` 计算避免把 ANSI 计进显示宽。
 
 - adapter 将 `reasoning-delta` 与 reasoning `block-end` 映射为 `thinking` 事件。思考区只以 2 空格缩进展示（无 `[思考]` 前缀文字），只显示最新 `thinkingMaxLines`（默认 4，可配置）行，超出显示折叠提示，不提供展开/收起；首条正文或 turn-end 到达时清除思考行。
 

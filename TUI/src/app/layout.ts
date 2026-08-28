@@ -407,7 +407,7 @@ export function renderStatusLine(
   return rows;
 }
 
-/** 输入栏提示随 agentStatus：占位符文字 + ❯ 前缀颜色（idle 可输入，其余忙碌提示） */
+/** 输入栏提示随 agentStatus：占位符文字 + > 前缀颜色（idle 可输入，其余忙碌提示） */
 const INPUT_HINT: Record<
   AgentStatus,
   { placeholder: string; color: ColorName | null }

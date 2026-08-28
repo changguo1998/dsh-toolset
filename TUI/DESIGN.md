@@ -111,7 +111,7 @@ interface Renderer {
 - **插件窄条**：固定 `PLUGIN_WIDTH=2` 列，仅最左一列竖线 `│` 区分左右分区，其余留白；无边框、无标题、本轮不读取插件数据。
 - **历史区**：按 `historyWidth = cols - pluginWidth` 换行，沿用 scrollback 语义（wrapping、followBottom、scrollOffset、2000 行上限）。
 - **状态区**：横向单行 `12:00:00|~/proj|main|—|—|—`（六段：时间/路径/git/模型/上下文/缓存；无标题、仅值，`|` 分隔；默认前景色，路径段染蓝；推理状态段已移除）。超宽按显示宽度截断。通用配色：边框/分隔线（分离行、顶部竖线）统一灰色，输入栏为默认前景色（不切半个 CJK；不用 emoji 避免宽度模型偏差）。2026-08-28 起颜色经 `src/renderer/theme.ts`（内嵌 fff 的 BlueDark/YellowBright 两份 truecolor 调色板）解析，`AppState.themeId` 决定取色（/theme 切换并同步 Screen 基底色），见 IMPLEMENTATION.md「/theme 命令」。
-- **输入区提示**：占位提示与 `❯` 前缀颜色随 `agentStatus` 变化（`idle` 绿色「Type a message…」、`thinking` 黄色「思考中…」、`tool` 蓝色「正在调用工具…」；`done` 兜底同 thinking）。`renderTextInput` 接受可选 `promptColor`，前缀宽度始终按纯文本 `"❯ "` 计算（ANSI 序列不计显示宽）。
+- **输入区提示**：占位提示与 `>` 前缀颜色随 `agentStatus` 变化（`idle` 绿色「Type a message…」、`thinking` 黄色「思考中…」、`tool` 蓝色「正在调用工具…」；`done` 兜底同 thinking）。`renderTextInput` 接受可选 `promptColor`，前缀宽度始终按纯文本 `"> "` 计算（ANSI 序列不计显示宽）。
 - **turn 分隔**：`turn-begin`（回合开始：App 在提交用户消息前或首条思考/正文到达时触发）→ `appendTurnSeparator` 往 buffer 追加 `TURN_SEPARATOR` 横线行；`turn-end` 仅清遗留思考、不再画线。`appendStream` 遇到末行为分隔线时不合并（硬边界，下个 turn 另起一行）。
 - **会话流对话式展示**（2026-08-27）：历史 buffer 使用结构化行类型。模型正文靠历史区左侧，右缘按 `assistantMaxBodyWidth`（= 宽度 - `messageGutter`）保留与用户块左缘对称的空位，与右对齐的用户输入形成左右交错的视觉（`messageGutter` 默认 4，可配置）；用户消息由 App 本地回显，渲染为**整体靠右的收缩块**——先按 `userMaxBodyWidth`（= 宽度 - `USER_MIN_LEFT_GUTTER`）换行（含显式换行），取最大行宽作块宽，整块统一 leftPad、右缘贴历史区右缘，块内文本左对齐，续行共享同一左边界。用户块与随后回答/思考之间空一行（`wrapBufferLines` 后处理，纯布局不改 state）。reasoning 流作为临时 thinking 行显示，仅以 2 空格缩进区分（无 [思考] 前缀文字），最多保留最近几行并显示折叠提示，首条正文或 turn-end 到达后立即清除，不提供展开/收起交互。
 
