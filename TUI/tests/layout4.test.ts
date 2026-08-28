@@ -346,12 +346,12 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   s = reduceState(s, { type: "user-line", text: "问题" });
   s = reduceState(s, { type: "append", text: "第一段\n" });
   s = reduceState(s, { type: "append", text: "第二段\n" });
-  s = reduceState(s, { type: "append", text: "```\n" });
+  s = reduceState(s, { type: "append", text: "第三段\n" });
   s = reduceState(s, { type: "turn-begin" });
   const plain = buildFrame(s, { rows: 12, cols: 40 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
-  const codeIdx = plain.findIndex((l) => l.includes("```"));
+  const codeIdx = plain.findIndex((l) => l.includes("第三段"));
   // 历史区内的 turn 分隔线带插件竖线前缀；底部全屏横线(┼)不在此列
   const sepIdx = plain.findIndex((l) => l.startsWith("│ ─"));
   assert.ok(codeIdx >= 0 && sepIdx > codeIdx, "正文与分隔线都应存在且顺序正确");
@@ -482,4 +482,55 @@ test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满历
   assert.ok(rows.length >= 2, "40 字符在 38 宽下软换行");
   const body = rows[0]!.replace(/^│ /, "");
   assert.equal(body.length, 38, "gutter=0 时正文顶满历史区宽度");
+});
+
+test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代码块", () => {
+  const lines = [
+    "# 一级标题",
+    "## 二级 **粗** 标题",
+    "- [x] 已完成",
+    "- [ ] 未完成",
+    "> 引用内容 **加粗**",
+    "---",
+    "看 [链接文档](https://example.com/x) 和 ![图描述](https://example.com/i.png)",
+    "```ts",
+    "const a: number = 1; // 注释 **不加粗**",
+    "```",
+  ];
+  // append 为流式合并语义：逐条会粘连成一行，须一次 append 整份多行文本（贴近真实回复）
+  let s = initialState();
+  s = reduceState(s, { type: "append", text: lines.join("\n") + "\n" });
+  const raw = buildFrame(s, { rows: 40, cols: 80 });
+  const plain = raw.map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""));
+  const joined = plain.join("\n");
+  // 标题：内容保留、# 前缀消费、行内粗体叠加且有 bold SGR
+  assert.ok(joined.includes("一级标题"), "标题内容");
+  assert.ok(!joined.includes("# 一级标题"), "# 前缀被消费");
+  assert.ok(joined.includes("二级 粗 标题"), "标题内行内粗体");
+  assert.ok(
+    raw.some(
+      (l) => l.text.includes("一级标题") && l.text.includes("\x1b[1m"),
+    ),
+    "标题 bold 强调",
+  );
+  // 任务列表：ASCII [x]/[ ]，前缀 - 被消费
+  assert.ok(joined.includes("[x] 已完成"), "已完成显示 [x]");
+  assert.ok(joined.includes("[ ] 未完成"), "未完成显示 [ ]");
+  assert.ok(!joined.includes("- [x]"), "列表前缀被消费");
+  // 引用：竖线前缀 + 行内粗体合并
+  assert.ok(joined.includes("│ 引用内容 加粗"), "引用带竖线前缀");
+  // 分隔线：灰色横线铺满
+  assert.ok(plain.some((l) => /^│ ─+$/.test(l)), "分隔线横线");
+  // 链接：文本可见、URL 不显示
+  assert.ok(joined.includes("链接文档"), "链接文本");
+  assert.ok(!joined.includes("example.com/x"), "链接 URL 不显示");
+  // 图片：占位 [alt]，URL 不显示
+  assert.ok(joined.includes("[图描述]"), "图片 [alt] 占位");
+  assert.ok(!joined.includes("i.png"), "图片 URL 不显示");
+  // 代码块：fence 不显示、代码原样、语言标签、块内不解析、背景存在
+  assert.ok(!joined.includes("```"), "fence 开关行不显示");
+  assert.ok(joined.includes("const a: number = 1;"), "代码原样保留");
+  assert.ok(joined.includes("**不加粗**"), "fence 内不解析粗体");
+  assert.ok(plain.some((l) => l.trim().endsWith("ts")), "语言标签显示");
+  assert.ok(raw.some((l) => /\x1b\[48;2;\d+;\d+;\d+m/.test(l.text)), "代码行有背景");
 });

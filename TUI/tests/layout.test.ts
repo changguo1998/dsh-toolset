@@ -198,8 +198,6 @@ test("renderTextInput: 宽度不足时水平滚动仍保持光标可见", () => 
 // ---- 行内 markdown（粗体 / 斜体 / 行内代码）----
 
 const strip = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
-const firstSgr = (s: string): string =>
-  /\x1b\[38;2;\d+;\d+;\d+m/.exec(s)?.[0] ?? "";
 
 test("行内 markdown：单独粗体 / 斜体 / 行内 code 均渲染且带样式", () => {
   const bold = wrapInlineMarkdown("**加粗**", 60, "dark")[0]!;
@@ -210,8 +208,8 @@ test("行内 markdown：单独粗体 / 斜体 / 行内 code 均渲染且带样�
   assert.equal(strip(italic), "斜体");
   const code = wrapInlineMarkdown("`代码`", 60, "dark")[0]!;
   assert.ok(
-    (code.match(/\x1b\[38;2;/g) ?? []).length >= 2,
-    "code 用主题前景色打开/关闭",
+    (code.match(/\x1b\[48;2;/g) ?? []).length >= 2,
+    "code 用主题背景色打开/关闭(48;2)",
   );
   assert.equal(strip(code), "代码");
 });
@@ -265,11 +263,13 @@ test("ANSI 感知：displayWidth 不计转义；truncateToWidth 透传转义不�
   assert.equal(mid, "ab\x1b[38;2;1;2;3m");
 });
 
-test("行内 code 颜色随主题：dark / light 使用各自 gray 色板", () => {
+test("行内 code 颜色随主题：dark / light 使用各自 gray 背景色板", () => {
+  const bgSgr = (s: string): string =>
+    /\x1b\[48;2;\d+;\d+;\d+m/.exec(s)?.[0] ?? "";
   const d = wrapInlineMarkdown("`x`", 60, "dark")[0]!;
   const l = wrapInlineMarkdown("`x`", 60, "light")[0]!;
-  assert.ok(firstSgr(d) && firstSgr(l), "两主题均有着色");
-  assert.notEqual(firstSgr(d), firstSgr(l), "深浅主题 code 前景色不同");
+  assert.ok(bgSgr(d) && bgSgr(l), "两主题代码均有背景色");
+  assert.notEqual(bgSgr(d), bgSgr(l), "深浅主题 code 背景色不同");
 });
 
 test("无 markdown 标记时 wrapInlineMarkdown 与 wrapLine 输出一致", () => {

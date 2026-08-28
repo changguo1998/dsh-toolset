@@ -112,13 +112,15 @@ export function wrapLines(lines: string[], width: number): string[] {
   return out;
 }
 
-// ---------- 行内 markdown（assistant 正文：粗体 / 斜体 / 行内代码） ----------
+// ---------- markdown 子集（粗体 / 斜体 / 行内代码 / 链接 / 图片 / 块级） ----------
 
-/** 行内样式：bold(1m) / italic(3m) / code(主题灰前景)；code 只取主题色，不引入新依赖 */
+/** 语义化行内样式：fg/bg 为主题色名；渲染时始终恢复主题基底前景/背景（不用 39m/0m） */
 interface InlineStyle {
   bold?: boolean;
   italic?: boolean;
-  code?: boolean;
+  underline?: boolean;
+  fg?: ColorName;
+  bg?: ColorName;
 }
 
 /** 带样式的文本段：先保持纯文本，按显示宽度换行完成后再序列化为 ANSI */
@@ -127,12 +129,23 @@ interface InlineSegment {
   style?: InlineStyle;
 }
 
-/** 行内 token：`` `code` ``、`**bold**`、`*italic*`；内容不含 `*` 防嵌套，未闭合按普通文本保留 */
-const INLINE_RE = /(`[^`]+`)|(\*\*[^*]+\*\*)|((?<!\*)\*[^*\s][^*]*\*)/g;
+/**
+ * 行内 token：`` `code` ``、`**bold**`、`*italic*`、`[文字](url)` 链接、
+ * `![alt](url)` 图片占位。内容不含 `*` 防嵌套；未闭合/歧义按普通文本保留。
+ * 图片组在链接组之前（`![` 以 `[` 前缀出现），以保证 `![alt](url)` 先命中。
+ */
+const INLINE_RE =
+  /(`[^`]+`)|(\*\*[^*]+\*\*)|((?<!\*)\*[^*\s][^*]*\*)|(!\[[^\]\n]*\]\([^)\s]*\))|(\[[^\]\n]+\]\([^)\s]*\))/g;
+
+/** 从 `[alt](url)` / `[text](url)` 提取方括号内文本 */
+function bracketText(full: string): string {
+  const m = /\[([^\]]*)\]/.exec(full);
+  return m?.[1] ?? full;
+}
 
 /**
- * 解析行内 markdown 为样式段。不实现嵌套/转义/跨行强调：最外层 token 生效，
- * 嵌套或未闭合的 `*`/`` ` `` 按普通文本原样保留（不误删用户内容）。
+ * 解析行内 markdown 为样式段。只实现最外层 token：嵌套/转义/跨行强调/复杂
+ * URL 不支持，未闭合标记按普通文本原样保留（不误删用户内容）。
  */
 export function parseInlineMarkdown(text: string): InlineSegment[] {
   const segs: InlineSegment[] = [];
@@ -140,27 +153,51 @@ export function parseInlineMarkdown(text: string): InlineSegment[] {
   for (const m of text.matchAll(INLINE_RE)) {
     const idx = m.index!;
     if (idx > last) segs.push({ text: text.slice(last, idx) });
-    const [full, code, bold, _italic] = m;
-    // 定界符去除：code/italic 各 1 个字符，bold 需去掉首尾各 2 个星号
+    const [full, code, bold, _italic, img, link] = m;
     const fullText = full!;
-    if (code) segs.push({ text: fullText.slice(1, -1), style: { code: true } });
-    else if (bold)
+    if (code) {
+      // 行内代码：主题灰底 + 基底前景，保证浅色/深色主题下都清晰
+      segs.push({ text: fullText.slice(1, -1), style: { bg: "gray" } });
+    } else if (bold) {
       segs.push({ text: fullText.slice(2, -2), style: { bold: true } });
-    else segs.push({ text: fullText.slice(1, -1), style: { italic: true } });
-    last = idx + full!.length;
+    } else if (img) {
+      // 图片占位：终端不显示图片，仅以 [alt] 灰斜体标记
+      segs.push({
+        text: `[${bracketText(fullText)}]`,
+        style: { fg: "gray", italic: true },
+      });
+    } else if (link) {
+      // 链接：只显示可见文本，蓝色下划线（无点击交互）
+      segs.push({
+        text: bracketText(fullText),
+        style: { fg: "blue", underline: true },
+      });
+    } else {
+      segs.push({ text: fullText.slice(1, -1), style: { italic: true } });
+    }
+    last = idx + fullText.length;
   }
   if (last < text.length) segs.push({ text: text.slice(last) });
   return segs;
 }
 
+/** 样式叠加（块级前缀样式 + 行内 token 样式），冲突时后者（b）胜 */
+function mergeStyle(a: InlineStyle, b: InlineStyle): InlineStyle {
+  return { ...a, ...b };
+}
+
 /** 相邻段样式是否相同（换行后合并用） */
 function sameStyle(a?: InlineStyle, b?: InlineStyle): boolean {
   return (
-    a?.bold === b?.bold && a?.italic === b?.italic && a?.code === b?.code
+    a?.bold === b?.bold &&
+    a?.italic === b?.italic &&
+    a?.underline === b?.underline &&
+    a?.fg === b?.fg &&
+    a?.bg === b?.bg
   );
 }
 
-/** 单段序列化为 manual ANSI：open + text + close（恢复主题基底前景，不用 39m/0m） */
+/** 单段序列化为 manual ANSI：open + text + close（恢复主题基底前景/背景） */
 function renderSeg(seg: InlineSegment, themeId: ThemeId): string {
   const st = seg.style;
   if (!st) return seg.text;
@@ -175,11 +212,22 @@ function renderSeg(seg: InlineSegment, themeId: ThemeId): string {
     open.push("\x1b[3m");
     close.push("\x1b[23m");
   }
-  if (st.code) {
-    const hex = ansiNameToHex(theme, "gray");
+  if (st.underline) {
+    open.push("\x1b[4m");
+    close.push("\x1b[24m");
+  }
+  if (st.fg) {
+    const hex = ansiNameToHex(theme, st.fg);
     if (hex) {
       open.push(hexSgr(hex, true));
       close.push(hexSgr(theme.foreground, true));
+    }
+  }
+  if (st.bg) {
+    const hex = ansiNameToHex(theme, st.bg);
+    if (hex) {
+      open.push(hexSgr(hex, false));
+      close.push(hexSgr(theme.background, false));
     }
   }
   if (open.length === 0) return seg.text;
@@ -187,7 +235,7 @@ function renderSeg(seg: InlineSegment, themeId: ThemeId): string {
 }
 
 /**
- * 行内 markdown 正文按显示宽度软换行：逐字符计宽（CJK 2 列），样式段跨行时
+ * 行内 markdown 正文按显示宽度软换行：逐字符计宽（CJK 2 列），样式跨行时
  * 每行独立打开/关闭样式，相邻同样式段合并后序列化为 ANSI。空串保持 [""]
  * 语义，行首超宽字符强制放下（与 wrapLine 一致）。
  */
@@ -196,10 +244,16 @@ export function wrapInlineMarkdown(
   width: number,
   themeId: ThemeId,
 ): string[] {
-  if (width <= 0)
-    return text === ""
-      ? [""]
-      : [parseInlineMarkdown(text).map((s) => renderSeg(s, themeId)).join("")];
+  return wrapSegments(parseInlineMarkdown(text), width, themeId);
+}
+
+/** 段集按显示宽度软换行：样式跨行每行独立开/闭，合并相邻同样式后序列化 */
+function wrapSegments(
+  segs: InlineSegment[],
+  width: number,
+  themeId: ThemeId,
+): string[] {
+  if (width <= 0) return [segs.map((s) => renderSeg(s, themeId)).join("")];
   const rows: InlineSegment[][] = [];
   let cur: InlineSegment[] = [];
   let curW = 0;
@@ -208,7 +262,7 @@ export function wrapInlineMarkdown(
     cur = [];
     curW = 0;
   };
-  for (const seg of parseInlineMarkdown(text)) {
+  for (const seg of segs) {
     const style = seg.style;
     for (const ch of seg.text) {
       const w = charWidth(ch);
@@ -229,6 +283,114 @@ export function wrapInlineMarkdown(
     return merged.map((s) => renderSeg(s, themeId)).join("");
   });
 }
+
+// ---------- 块级 markdown（标题 / 引用 / 列表 / 任务列表 / 分隔线 / fenced 代码块） ----------
+
+/** fenced 代码块开/关行：三个以上反引号或波浪号，后可跟语言标签 */
+const FENCE_RE = /^ {0,3}(```+|~~~+)[ \t]*([\w.+-]*)[ \t]*$/;
+
+/** 标题：行首 1-6 个 `#` 后跟空格（`#hashtag` 不算） */
+const HEADING_RE = /^[ \t]*(#{1,6})[ \t]+(.+)$/;
+
+/** 引用：行首 `>`（可带一个空格） */
+const QUOTE_RE = /^[ \t]*>[ \t]?(.*)$/;
+
+/** 任务列表：`- [ ]` / `- [x]`（`*`/`+` 前缀亦支持） */
+const TASK_RE = /^[ \t]*[-*+][ \t]+\[([ xX])\][ \t]+(.+)$/;
+
+/** 普通列表项：`-`/`*`/`+` 或 `1.` 前缀 */
+const LIST_RE = /^[ \t]*(?:[-*+]+|\d+\.)[ \t]+(.+)$/;
+
+/** 分隔线：三个以上 - / * / _ */
+const RULE_RE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$/;
+
+/** 标题强调色：深色/浅色主题下均醒目的青 */
+const HEADING_FG: ColorName = "brightCyan";
+
+/** 代码块行：整行主题灰底并补齐到内容区宽度；fence 内不解析 markdown */
+function wrapCodeLine(
+  text: string,
+  width: number,
+  bg: ColorName,
+  themeId: ThemeId,
+): string[] {
+  if (text === "") return [""];
+  const segs: InlineSegment[] = [{ text, style: { bg } }];
+  return wrapSegments(segs, width, themeId).map((row) => {
+    const pad = Math.max(0, width - displayWidth(stripAnsi(row)));
+    return pad > 0
+      ? row + renderSeg({ text: " ".repeat(pad), style: { bg } }, themeId)
+      : row;
+  });
+}
+
+/**
+ * 普通 assistant 行（fence 外）按块级元素分类渲染：
+ * 分隔线 → 任务列表 → 标题 → 引用 → 普通列表 → 行内 markdown。
+ */
+function wrapAssistantLine(
+  text: string,
+  width: number,
+  themeId: ThemeId,
+): string[] {
+  // 1. 分隔线：灰色横线铺满内容区（与 turn 分隔线视觉区分）
+  if (RULE_RE.test(text)) {
+    return wrapSegments(
+      [{ text: "─".repeat(Math.max(0, width)), style: { fg: "gray" } }],
+      width,
+      themeId,
+    );
+  }
+  // 2. 任务列表：ASCII [x]/[ ]，已完成绿色加粗、未完成灰色
+  const task = TASK_RE.exec(text);
+  if (task) {
+    const checked = task[1]!.toLowerCase() === "x";
+    const segs: InlineSegment[] = [
+      {
+        text: checked ? "[x] " : "[ ] ",
+        style: { fg: checked ? "green" : "gray", bold: checked },
+      },
+      ...parseInlineMarkdown(task[2]!),
+    ];
+    return wrapSegments(segs, width, themeId);
+  }
+  // 3. 标题：去掉 #，整行 bold + 醒目青；行内 token（如 **粗**）叠加保留
+  const heading = HEADING_RE.exec(text);
+  if (heading) {
+    const segs = parseInlineMarkdown(heading[2]!).map((s) => ({
+      text: s.text,
+      style: mergeStyle({ bold: true, fg: HEADING_FG }, s.style ?? {}),
+    }));
+    return wrapSegments(segs, width, themeId);
+  }
+  // 4. 引用：竖线前缀 + 整体灰斜体
+  const quote = QUOTE_RE.exec(text);
+  if (quote) {
+    const body = quote[1]!.trim();
+    if (body === "") return [""];
+    const segs: InlineSegment[] = [
+      { text: "│ ", style: { fg: "gray" } },
+      ...parseInlineMarkdown(body).map((s) => ({
+        text: s.text,
+        style: mergeStyle({ fg: "gray", italic: true }, s.style ?? {}),
+      })),
+    ];
+    return wrapSegments(segs, width, themeId);
+  }
+  // 5. 普通列表项：前缀灰色，内容走行内解析
+  const list = LIST_RE.exec(text);
+  if (list) {
+    const prefix = text.slice(0, text.length - list[1]!.length);
+    const segs: InlineSegment[] = [
+      { text: prefix, style: { fg: "gray" } },
+      ...parseInlineMarkdown(list[1]!),
+    ];
+    return wrapSegments(segs, width, themeId);
+  }
+  // 6. 普通行内 markdown
+  return wrapSegments(parseInlineMarkdown(text), width, themeId);
+}
+
 
 // ---------- 视口纯函数 ----------
 
@@ -416,6 +578,7 @@ function wrapBufferLines(
 ): WrappedRow[] {
   const out: WrappedRow[] = [];
   const thinking: WrappedRow[] = [];
+  let inFence = false;
   for (const line of buffer) {
     if (line.kind === "thinking") {
       const indent = thinkingIndentOf(width);
@@ -434,13 +597,33 @@ function wrapBufferLines(
       continue;
     }
     if (line.kind === "assistant") {
-      // 模型正文：右缘保留与用户块左缘对称的空间(交错布局)，文本不顶满右缘；
-      // 正文按行内 markdown 渲染（粗体/斜体/行内代码），样式序列化为 ANSI
-      const rows = wrapInlineMarkdown(
-        line.text,
-        assistantMaxBodyWidth(width, gutter),
-        themeId,
-      );
+      // 模型正文：右缘保留交错留白；fence 代码块内原样展示（块背景不解析），
+      // 块外按块级/行内 markdown 子集渲染（标题/引用/列表/任务/分隔线/粗斜/行内代码/链接/图片）
+      const fence = FENCE_RE.exec(line.text);
+      if (fence && fence[1]!.length >= 3) {
+        if (inFence) {
+          inFence = false;
+        } else {
+          inFence = true;
+          const lang = fence[2] ?? "";
+          if (lang) {
+            // 代码块语言标签行：灰斜体（fence 开关行本身不显示）
+            out.push({
+              text: renderSeg(
+                { text: lang, style: { fg: "gray", italic: true } },
+                themeId,
+              ),
+              kind: line.kind,
+              indent: 0,
+            });
+          }
+        }
+        continue;
+      }
+      const bodyWidth = assistantMaxBodyWidth(width, gutter);
+      const rows = inFence
+        ? wrapCodeLine(line.text, bodyWidth, "gray", themeId)
+        : wrapAssistantLine(line.text, bodyWidth, themeId);
       for (const text of rows) out.push({ text, kind: line.kind, indent: 0 });
       continue;
     }
