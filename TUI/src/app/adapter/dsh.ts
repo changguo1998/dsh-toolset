@@ -37,7 +37,7 @@ export type DshEvent =
   | { type: "thinking"; sessionId: string; text: string }
   | { type: "approval"; id: string; prompt: string }
   | { type: "agent-status"; sessionId: string; status: AgentStatus }
-  | { type: "notice"; text: string }
+  | { type: "notice"; text: string; error?: boolean }
   | { type: "turn-end" };
 
 /** 应用层对 adapter 的唯一依赖面：事件流入 + 出站回调（消息/命令/审批/打断） */
@@ -749,7 +749,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     }
     const { commands } = opts;
     if (!commands || typeof commands.execute !== "function") {
-      emit({ type: "notice", text: "commands 未就绪，无法执行 /" + name });
+      emit({
+        type: "notice",
+        text: "commands 未就绪，无法执行 /" + name,
+        error: true,
+      });
       return;
     }
     const controller = new AbortController();
@@ -782,8 +786,12 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       | { commandId?: string; result?: { kind?: string; text?: string } }
       | undefined;
     if (exec === undefined) {
-      // 官方 fail-close：未命中 → 提示，绝不 sendMessage 给模型
-      emit({ type: "notice", text: "未知命令，输入 /help 查看可用命令。" });
+      // 官方 fail-close：未命中 → 提示(标记失败色)，绝不 sendMessage 给模型
+      emit({
+        type: "notice",
+        text: "未知命令，输入 /help 查看可用命令。",
+        error: true,
+      });
       return;
     }
     const kind = exec.result?.kind;
@@ -792,6 +800,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       emit({
         type: "notice",
         text: "命令 " + (exec.commandId ?? "") + " 执行出错：" + (text ?? ""),
+        error: true,
       });
       return;
     }

@@ -188,7 +188,11 @@ export function appendStream(
  * 追加一条命令通知(notice)：独立成行，不并入 buffer 末行(与流式 append 不同)。
  * 用于 slash 命令的提示/结果文本(绝不进入模型历史，仅 UI 展示)。
  */
-export function appendNotice(state: AppState, text: string): AppState {
+export function appendNotice(
+  state: AppState,
+  text: string,
+  error = false,
+): AppState {
   // 多行 notice 拆成多行 buffer，否则 wrapLine 把 \n 当普通字符(宽1)会让列宽对不齐，
   // 字词在中间被截断(例如 /quit 在 i 与 t 之间换行)。
   const buffer = state.buffer.length ? [...state.buffer] : [];
@@ -196,7 +200,12 @@ export function appendNotice(state: AppState, text: string): AppState {
     buffer.push({ text: line, kind: "notice" });
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
-  return { ...state, buffer };
+  // 失败标记(error notice，如未知 slash 命令 fail-close)→ 输入栏失败色(红)
+  return {
+    ...state,
+    buffer,
+    inputStatus: error ? "failure" : state.inputStatus,
+  };
 }
 
 /**
@@ -280,7 +289,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
     case "thinking":
       return appendThinking(state, action.text);
     case "notice":
-      return appendNotice(state, action.text);
+      return appendNotice(state, action.text, action.error);
     case "clear-buffer":
       return clearBuffer(state);
     case "agent-status":
@@ -349,7 +358,7 @@ export type StateAction =
   | { type: "append"; text: string }
   | { type: "user-line"; text: string }
   | { type: "thinking"; text: string }
-  | { type: "notice"; text: string }
+  | { type: "notice"; text: string; error?: boolean }
   | { type: "clear-buffer" }
   | { type: "agent-status"; status: AgentStatus }
   | { type: "approval"; approval: ApprovalItem | null }

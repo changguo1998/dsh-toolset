@@ -202,8 +202,11 @@ export class App {
         );
         break;
       case "notice":
-        // 命令通知(结果/提示/错误)只进 UI 缓冲，绝不进模型历史
-        this.apply((s) => reduceState(s, { type: "notice", text: e.text }));
+        // 命令通知(结果/提示/错误)只进 UI 缓冲，绝不进模型历史；
+        // error 标记(如未知 slash 命令 fail-close)→ 输入栏失败色(红)
+        this.apply((s) =>
+          reduceState(s, { type: "notice", text: e.text, error: e.error }),
+        );
         break;
       case "turn-end":
         // turn 结束：不再画分隔线(下个回合开始时画)；登记下轮流速回落。

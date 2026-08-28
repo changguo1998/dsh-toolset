@@ -40,6 +40,7 @@ export class MockDshAdapter implements DshAdapter {
     this.emit({
       type: "notice",
       text: `[demo] slash 命令 "${line}" 在 demo 模式下不可用（无 commands 注册表）。`,
+      error: true,
     });
   }
 
@@ -237,7 +238,7 @@ export class MockDshAdapter implements DshAdapter {
       "  - 等第二次回复后出现审批弹窗 → y 批准 / n 拒绝",
       "  - 输入 /help /clearscreen /cls /quit 体验本地渲染命令",
       "  - 其他 /xxx 在 demo 模式回提示（真实模式走 commands 注册表）",
-      "  - Ctrl+C 或 Esc 退出",
+      "  - 输入框为空按 ! / $ / / 切模式，Esc 回 >；退出用 /quit",
       "",
     ].join("\n");
   }

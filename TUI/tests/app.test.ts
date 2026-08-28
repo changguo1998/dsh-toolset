@@ -84,6 +84,12 @@ class FakeAdapter implements DshAdapter {
   runCommand(line: string): void {
     this.commands.push(line);
     this.log.push("cmd:" + line);
+    // 真实适配器对未命中注册表的命令回 error notice（fail-close）
+    this.push({
+      type: "notice",
+      text: "未知命令，输入 /help 查看可用命令。",
+      error: true,
+    });
   }
   dispose(): void {
     this.disposed++;
@@ -279,6 +285,25 @@ test("shell 模式提交：仅展示层，文本原样走 sendMessage（不加 $
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(adapter.sent, ["ls"], "shell 模式不加 $ 前缀");
   assert.deepEqual(adapter.log, ["send:ls"]);
+});
+
+test("未知 slash 命令：error notice → 前缀红；turn-end → 回绿", () => {
+  const { renderer, adapter } = makeApp();
+  // 输入行（末行）前缀的第一段 SGR（状态色）；start 后无渲染，先 push 触发一帧
+  const sgr = (): string =>
+    /^\x1b\[38;2;\d+;\d+;\d+m/.exec(
+      renderer.lastRender.at(-1) ?? "",
+    )?.[0] ?? "";
+  adapter.push({ type: "turn-end" }); // 触发首帧渲染，success 绿
+  const green = sgr();
+  assert.ok(green, "初始 success 前缀为绿色");
+  // 未知命令：/ 开头直接走 handleSlash → runCommand → error notice（fail-close）
+  typeAndEnter(renderer, "/nope");
+  const red = sgr();
+  assert.ok(red && red !== green, "未知 slash 命令后前缀变红");
+  // 回合正常结束 → 回绿
+  adapter.push({ type: "turn-end" });
+  assert.equal(sgr(), green, "turn-end 后前缀回到绿");
 });
 
 test("Ctrl+L 触发强制重绘(refresh)，不吞普通 'l' 输入", () => {
