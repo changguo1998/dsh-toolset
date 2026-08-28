@@ -1,7 +1,7 @@
 // tests/layout4.test.ts — 四区域布局回归单测
 //
 // 覆盖：buildFrame 输出四区顺序与尺寸（顶部插件+历史 / 状态区 / 输入区）；
-// 顶部高度 = rows - 状态(1) - 输入(1)；turn-end 分隔线；历史按 top 宽换行。
+// 顶部高度 = rows - 状态(1) - 输入(1)；turn-begin 分隔线；历史按 top 宽换行。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -12,14 +12,22 @@ import {
   PLUGIN_WIDTH,
   truncateToWidth,
   displayWidth,
-  THINKING_MAX,
   THINKING_MORE,
-  THINKING_PREFIX,
   USER_MIN_LEFT_GUTTER,
   userMaxBodyWidth,
 } from "../src/app/layout.ts";
-import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
+import {
+  initialState,
+  reduceState,
+  TURN_SEPARATOR,
+  DEFAULT_THINKING_MAX_LINES,
+} from "../src/app/state.ts";
 import type { RenderLine } from "../src/renderer/screen.ts";
+
+/** 去 ANSI 取行文本；思考行无前缀、仅 2 空格缩进（顶部窄条 "│ " 外再多 2 空格） */
+const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
+const isThinkingRow = (l: { text: string }): boolean =>
+  stripAnsi(l.text).startsWith("│   ");
 
 function frameWith(rows: number, cols: number) {
   let s = initialState();
@@ -80,10 +88,10 @@ test("buildFrame: 审批弹窗时 footer 更高，顶部高度相应缩减", () 
   assert.equal(frame.length, 24);
 });
 
-test("turn-end: buffer 末尾追加分隔线；流式内容仍实时合入 buffer", () => {
+test("turn-begin: 回合开始时在历史末尾追加分隔线；流式内容仍实时合入 buffer", () => {
   let s = initialState();
   s = reduceState(s, { type: "append", text: "hi" });
-  s = reduceState(s, { type: "turn-end" });
+  s = reduceState(s, { type: "turn-begin" });
   assert.deepEqual(s.buffer[s.buffer.length - 1], {
     text: TURN_SEPARATOR,
     kind: "separator",
@@ -93,15 +101,18 @@ test("turn-end: buffer 末尾追加分隔线；流式内容仍实时合入 buffe
   assert.equal(s.buffer[s.buffer.length - 1]?.text, " more");
 });
 
-test("turn-end: 空 buffer 不追加孤立分隔线；重复 turn-end 不重复追加", () => {
+test("turn-begin: 空 buffer 不画孤立分隔线；重复 begin 不重复；turn-end 不画线", () => {
   let s = initialState();
-  s = reduceState(s, { type: "turn-end" });
+  s = reduceState(s, { type: "turn-begin" });
   assert.equal(s.buffer.length, 0);
   s = reduceState(s, { type: "append", text: "a" });
+  s = reduceState(s, { type: "turn-begin" });
   s = reduceState(s, { type: "turn-end" });
-  s = reduceState(s, { type: "turn-end" });
-  const seps = s.buffer.filter((l) => l.kind === "separator").length;
-  assert.equal(seps, 1, "重复 turn-end 只保留一条分隔线");
+  let seps = s.buffer.filter((l) => l.kind === "separator").length;
+  assert.equal(seps, 1, "turn-end 不增线，仅 turn-begin 画一条");
+  s = reduceState(s, { type: "turn-begin" });
+  seps = s.buffer.filter((l) => l.kind === "separator").length;
+  assert.equal(seps, 1, "重复 begin 只保留一条分隔线");
 });
 
 test("appendStream 不修改旧 state 的行对象", () => {
@@ -267,9 +278,10 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   assert.ok(ut >= 0 && tt - ut === 2, "user→thinking 之间应恰有一行空白");
   assert.equal(plain[ut + 1]!.replace(/^│ /, "").trim(), "");
 
-  // user → turn 分隔线：不加空行
+  // user → 下回合 begin 分隔线：不加空行
   let u = reduceState(initialState(), { type: "user-line", text: "孤立" });
   u = reduceState(u, { type: "turn-end" });
+  u = reduceState(u, { type: "turn-begin" });
   plain = buildFrame(u, { rows: 10, cols: 20 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
@@ -285,10 +297,8 @@ test("会话流：思考只显示最新几行，并在正文或 turn-end 后消�
     text: "t1\nt2\nt3\nt4\nt5\nt6",
   });
   const frame = buildFrame(s, { rows: 12, cols: 60 });
-  const thinkingLines = frame.filter((line) =>
-    line.text.includes(THINKING_PREFIX),
-  );
-  assert.ok(thinkingLines.length <= THINKING_MAX);
+  const thinkingLines = frame.filter(isThinkingRow);
+  assert.ok(thinkingLines.length <= DEFAULT_THINKING_MAX_LINES);
   assert.ok(frame.some((line) => line.text.includes(THINKING_MORE)));
   assert.ok(frame.some((line) => line.text.includes("t6")));
   assert.ok(!frame.some((line) => line.text.includes("t1")));
@@ -305,6 +315,19 @@ test("会话流：思考只显示最新几行，并在正文或 turn-end 后消�
     s.buffer.some((line) => line.kind === "thinking"),
     false,
   );
+});
+
+test("thinkingMaxLines 可配置：initialState(opts) 决定折叠阈值", () => {
+  const s = initialState("light", { thinkingMaxLines: 2 });
+  assert.equal(s.thinkingMaxLines, 2, "state 记录自定义上限");
+  const with3 = reduceState(s, { type: "thinking", text: "x1\nx2\nx3" });
+  const frame = buildFrame(with3, { rows: 12, cols: 60 });
+  const thinking = frame.filter(isThinkingRow);
+  // cap=2 且已有 3 行 → 折叠：显示 cap-1 行 + 折叠提示
+  assert.ok(thinking.length <= 2, "自定义上限内");
+  assert.ok(frame.some((line) => line.text.includes(THINKING_MORE)));
+  assert.ok(frame.some((line) => line.text.includes("x3")));
+  assert.ok(!frame.some((line) => line.text.includes("x1")));
 });
 
 test("会话流：窄终端仍保留用户与思考文本", () => {
@@ -336,4 +359,29 @@ test("会话流：turn 分隔线在历史区铺满宽度", () => {
   assert.ok(
     plain.some((line) => line.length === 20 && line.includes("─".repeat(18))),
   );
+});
+
+test("交错布局：模型正文右缘保留与用户块左缘对称的空位(gutter)；用户块仍贴右缘", () => {
+  const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
+  // 40 列，USER_MIN_LEFT_GUTTER=8 → 模型正文最大宽 32
+  let s = initialState();
+  s = reduceState(s, {
+    type: "append",
+    text: "0123456789012345678901234567890123456789", // 40 字符
+  });
+  const rows = buildFrame(s, { rows: 10, cols: 40 })
+    .map((l) => strip(l.text))
+    .filter((l) => l.includes("0123"));
+  assert.ok(rows.length >= 2, "超 gutter 宽的正文应软换行");
+  for (const l of rows) {
+    const body = l.replace(/^│ /, "");
+    assert.ok(body.length <= 32, `正文行右侧保留 gutter，不顶满右缘: ${l}`);
+  }
+  // 用户块仍整体靠右(行尾即内容)
+  let u = initialState();
+  u = reduceState(u, { type: "user-line", text: "hi" });
+  const uf = buildFrame(u, { rows: 10, cols: 40 })
+    .map((l) => strip(l.text))
+    .find((l) => l.includes("hi"));
+  assert.ok(uf !== undefined && uf.endsWith("hi"), "用户块贴右缘");
 });

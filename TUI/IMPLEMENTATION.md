@@ -77,7 +77,8 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
   - 其他 `/name` → `adapter.runCommand(line)` → `ctx.commands.execute(agent, line, [], signal)`（官方注册表）。
   - 未命中注册表（execute 返回 `undefined`）→ `notice` 提示未知命令（**官方 fail-close**：绝不 sendMessage 给模型）。
 - **事件面**：`DshEvent` 新增 `{ type: "notice"; text }`——命令结果/错误/提示只进 UI 缓冲（`appendNotice`，独立成行，不入流式末行），经 `notice` reducer 落地。
-- **慢速流式**：真实链路由 `main()` 传 `slowStream: true`，App 将 `stream` 正文先入队列按 tick（默认 50ms/6 字符 ≈ 120 字符/秒）逐段 append；`turn-end` 先 `slowFlush()` 落盘剩余正文再插分隔线；mock/demo 不开启保持原速。
+- **思考打字机（配置化）**：真实链路由 `main()` 传 `slowStream: streamTypewriter`（默认 true）。打字机只作用于 thinking（reasoning）——它是输出结束会被隐藏的瞬态内容；初始流速 `streamCharsPerSecond`（默认 120，分数累计配额、按码点切分）随 tick（50ms）逐段 append；收到正文 `stream` 事件后 `slowCps` 自动切到 `SLOW_STREAM_ARRIVED_CPS`（200，固定）加速放完剩余思考。`turn-end` 置 `slowNewTurn`，下一条 thinking 把 `slowCps` 回落到 `slowCpsBase`（配置值或默认）——**每个 turn 的思考都从初始速度重新开始**。正文 `stream` 为最终保留的回复，**即时显示**：思考队列运行期间到达的正文段按序缓冲（`pendingStream`），`turn-end` 记 `pendingTurnEnd`，思考放完后一次性铺出正文、再执行 turn-end（仅清思考，不画分隔线；分隔线改由下个回合 `turn-begin` 时画；dispose 才丢弃缓冲与队列）。`thinkingMaxLines`（默认 4）经 `initialState` 落到 `AppState`，`buildTopRegion` 按其折叠思考区。以上均由 `normalizeTuiDisplayConfig` 在 `apply()` 归一化。
+- **非流式回复补发（assistant/message）**：`assistant/message` 是每个 step 结束必发的完整正文 surface 事件（官方 agent-loop 在 stream 结束后 append）。adapter 按 (session:turn:step) 累计已流式输出的正文（reasoning 不计），`assistant/message` 只补发缺失后缀；非流式/无思考 provider（无任何 chunk）累计为空 → 直接输出完整正文，保证不支持流式输出的模型回复也可见。`surfaceOp: replace` 的影子覆盖事件跳过（append-only 无法安全重写）；`turn/end` 与 dispose 清空累计。效用：既有块级去重 + step 级去重，流式模型不重复输出、非流式模型不丢回复。
 - **命令名语法**：`parseSlashCommand` 与官方 client 一致——`/^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/`。
 - **服务解析**：`main.ts` 经 `ctx.get("commands")` 取注册表（cordis 严格模式不允许未注入服务直接属性访问），`commandAgent` 传真实 Agent（注册表作用域查找需要完整 agent，而非 app 的瘦 `DshAgentLike`）。
 - **dispose 修复**：原 `const disposed = false` 致 dispose 永不生效——改为 `let`，并实现：中止在途命令的 AbortController、解绑 runtime 监听（`collectUnbind`）、清空监听集。`App.dispose()` 透传 `adapter.dispose?.()`。
@@ -118,9 +119,9 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 
 - `AppState.buffer` 使用结构化 `BufferLine`（`user` / `assistant` / `thinking` / `notice` / `separator`），避免靠字符串前缀猜测角色。
 
-- 普通消息由 App 发送前本地回显为用户行；历史区内模型正文靠左。用户块按内容收缩：`wrapBufferLines` 先按 `userMaxBodyWidth`（= 宽度 - `USER_MIN_LEFT_GUTTER`）换行（含显式换行），取最大行宽作块宽，整块统一 `leftPad`、右缘贴历史区右缘，块内左对齐；续行共享同一左边界。`wrapBufferLines` 输出扩展为 `{text, kind, indent}`，`buildTopRegion` 直接按 `indent` 渲染（thinking 用固定缩进，assistant/plain/separator 为 0）。用户块与随后回答/思考之间插入一行空行（后处理，纯布局不改 state）。
+- 普通消息由 App 发送前本地回显为用户行；历史区内模型正文靠左、右缘按 `assistantMaxBodyWidth`（= 宽度 - `USER_MIN_LEFT_GUTTER`）保留与用户块左缘对称的空位，与右对齐的用户输入形成左右交错。用户块按内容收缩：`wrapBufferLines` 先按 `userMaxBodyWidth`（= 宽度 - `USER_MIN_LEFT_GUTTER`）换行（含显式换行），取最大行宽作块宽，整块统一 `leftPad`、右缘贴历史区右缘，块内左对齐；续行共享同一左边界。`wrapBufferLines` 输出扩展为 `{text, kind, indent}`，`buildTopRegion` 直接按 `indent` 渲染（thinking 用固定缩进，assistant/plain/separator 为 0）。用户块与随后回答/思考之间插入一行空行（后处理，纯布局不改 state）。
 
-- adapter 将 `reasoning-delta` 与 reasoning `block-end` 映射为 `thinking` 事件。思考区只显示最新 `THINKING_MAX=4` 行，超出显示折叠提示，不提供展开/收起；首条正文或 turn-end 到达时清除思考行。
+- adapter 将 `reasoning-delta` 与 reasoning `block-end` 映射为 `thinking` 事件。思考区只以 2 空格缩进展示（无 `[思考]` 前缀文字），只显示最新 `thinkingMaxLines`（默认 4，可配置）行，超出显示折叠提示，不提供展开/收起；首条正文或 turn-end 到达时清除思考行。
 
 - mock demo 同样发送思考分片，用于无 DSH 环境验证对话流与思考限高。
 

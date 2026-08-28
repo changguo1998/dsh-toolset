@@ -33,8 +33,8 @@ dsh-tui --help
 - **顶部区域**：左侧固定 `PLUGIN_WIDTH=2` 列插件窄条（仅竖线 `│`，无边框无标题，当前为空，插件能力后续实现）；右侧对话历史，按 `historyWidth` 换行，支持滚动（↑/↓/PageUp/PageDown）；顶部/状态/输入三区之间各有横线分隔行（`SEPARATOR_ROWS=2`）。
 - **系统状态区**：按可用宽度展示时间、当前目录、git 分支与 dirty 标记、模型、上下文长度、缓存命中率；内容过宽时溢出到多行并压缩顶部区域（上下文长度与缓存命中率无数据源时为 `—` 占位；模型默认 `—`，`/model` 切换本会话后更新且不落盘）。`StatusTicker` 合并节流读取（5s 一次，一次 tick 批量查 cwd/git/time，避免高频 fork 子进程）。
 - **输入区**：`❯` 提示符 + 硬件光标；审批弹窗时该区更高。
-- **会话流**：模型正文位于历史区左侧；用户消息本地回显为**整体靠右的收缩块**（块内左对齐、右缘贴历史区右缘），用户输入与回答之间空一行；reasoning 仅显示最新 4 行，首条正文或 turn 结束后消失。真实链路下流式正文按打字机节奏放缓显示（默认约 120 字符/秒，`slowStream` 开启；mock demo 保持原速；回合结束即落盘剩余正文）。
-- **turn 分隔**：每个对话 turn 结束后插入横线分隔行，流式输出实时合入历史。
+- **会话流**：模型正文位于历史区左侧、右缘与用户块左缘对称留白（左右交错）；用户消息本地回显为**整体靠右的收缩块**（块内左对齐、右缘贴历史区右缘），用户输入与回答之间空一行；reasoning 仅显示最新 4 行，首条正文或 turn 结束后消失。真实链路下 reasoning（思考）按打字机节奏放缓显示，正文回复即时展示（思考放完后再铺正文；思考初始约 120 字符/秒，收到正文后剩余思考自动加速到 200 字符/秒再铺正文，每个 turn 结束后回落初始速度；`streamTypewriter` 开启；mock demo 保持原速；回合开始时先画分隔线、turn 结束不再画）。思考以缩进层级展示（无前缀文字），仅保留最新几行。
+- **turn 分隔**：每个回合开始时先插入横线分隔行（上一轮内容 → 分隔线 → 新回合内容），流式输出实时合入历史；turn 结束不再画线。
 
 ## 作为 bundle 挂载（在 DSH profile 中使用）
 
@@ -63,21 +63,22 @@ dsh --profile <p>
 
 从 npm 分发的正式安装形态为 `dsh plugin --profile <p> add <包名>`（待发布后使用），本地开发期用 `file:` 依赖即可。
 
-## 主题配置
+## profile 配置（主题与流式显示）
 
-- **内置主题**：`BlueDark`（`dark`，默认）与 `YellowBright`（`light`）两套 truecolor 配色。
-- **profile 配置**：在 profile 的 `cordis.patch.yml` 中给 `dsh-tui` 节点加 `config.theme`：
+- **内置主题**：`BlueDark`（`dark`，默认）与 `YellowBright`（`light`）两套 truecolor 配色；`/theme`（无参 toggle）仅切换当前会话，不落盘。
+- 在 profile 的 `cordis.patch.yml` 中给 `dsh-tui` 节点加 `config` 即可配置以下项（缺省/非法值回退默认，非法值会在启动时告警）：
 
 ```yaml
 - id: dsh-tui
   name: '@dsh-toolset/dsh-tui'
   config:
-    theme: light        # dark | light
+    theme: light            # dark | light（默认 dark）
+    streamTypewriter: true  # 打字机总开关（默认 true：真实链路放缓流式正文显示）
+    streamCharsPerSecond: 120   # 思考打字机流速，字符/秒（默认 120；收到正文后加速到 200、turn 结束回落；合法域 1..2000）
+    thinkingMaxLines: 4     # thinking/reasoning 最大显示行数（默认 4，合法域 1..50，超出折叠）
 ```
 
-配置在 profile 启动时解析，改后需重启 `dsh --profile <p>` 生效。
-
-- **会话内切换**：`/theme`（无参 toggle）、`/theme dark`、`/theme light` 仅切换当前会话，不落盘。
+配置在 profile 启动时解析，改后需重启 `dsh --profile <p>` 生效。说明：`streamCharsPerSecond`/`thinkingMaxLines` 只在 `streamTypewriter: true` 时生效（mock demo 不经此配置）；`thinkingMaxLines` 计的是历史逻辑行（终端换行前），超出的思考行折叠为提示行；`streamCharsPerSecond` 按码点切分，不会拆断 emoji/CJK。
 
 ## 构建 / 测试
 

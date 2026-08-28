@@ -22,11 +22,16 @@ import {
 } from "../renderer/theme.ts";
 import { StatusTicker, type StatusQueries } from "./status.ts";
 
-// 仅真实链路生效的慢速流式(打字机)节奏：每 tick 放出 SLOW_CHARS_PER_TICK 字符。
-// ~120 字符/秒，便于阅读；mock demo 保持自身节奏不变。ponytail: 固定常量，
-// 需要调速时改这两处即可(或后续提升为配置项)。
+// 仅真实链路生效的思考打字机节奏：tick 固定 50ms，每 tick 放出的字符数
+// 由 streamCharsPerSecond(字符/秒)折算并按分数累计，低速下也能正确逐字输出；
+// 切分按码点进行，避免把 emoji/CJK 代理对拆断；对象仅为 thinking(reasoning)。
+// 正文回复即时显示；正文到达后剩余思考自动加速到 SLOW_STREAM_ARRIVED_CPS 放完，
+// 尽快进入正文。mock demo 不经过该队列。
 const SLOW_TICK_MS = 50;
-const SLOW_CHARS_PER_TICK = 6;
+/** streamCharsPerSecond 缺省/非法时的兜底流速(字符/秒) */
+const SLOW_DEFAULT_CPS = 120;
+/** 收到正文回复(stream)后：剩余思考的加速流速(尽快进入正题) */
+const SLOW_STREAM_ARRIVED_CPS = 200;
 
 export interface AppDeps {
   renderer: Renderer;
@@ -40,6 +45,10 @@ export interface AppDeps {
   initialTheme?: ThemeId;
   /** 真实链路：流式正文放缓显示(打字机节奏)；mock demo 默认关闭保持原速 */
   slowStream?: boolean;
+  /** 打字机流速(字符/秒，合法性由 main 归一化；兜底 SLOW_DEFAULT_CPS) */
+  streamCharsPerSecond?: number;
+  /** thinking/reasoning 最大显示行数（默认 4，经 initialState 落到 state） */
+  thinkingMaxLines?: number;
 }
 
 export class App {
@@ -47,13 +56,35 @@ export class App {
   private unbindEvents: (() => void)[] = [];
   private disposed = false;
   private statusTicker: StatusTicker | null = null;
-  // 慢速流式队列：真实链路正文先入队，按 tick 节奏逐段 append(仅 slowStream 开启时使用)
-  private slowPending = "";
+  // 打字机队列：仅作用于 thinking(reasoning)——正文是最终保留的回复，须即时显示；
+  // 思考是“输出结束会被隐藏”的瞬态内容，按 tick 逐段放出便于阅读（slowStream 开启时使用）。
+  private thinkingPending = "";
+  /** 思考放完前到达的正文段按序缓冲，思考清空后再即时显示(不限制正文流速) */
+  private pendingStream: string[] = [];
+  /** 思考放完前到达的 turn-end 记下，放完后补插分隔线 */
+  private pendingTurnEnd = false;
   private slowTimer: ReturnType<typeof setInterval> | null = null;
+  private slowCps = SLOW_DEFAULT_CPS;
+  /** 每 turn 思考的初始流速（配置值或默认）；正文加速后在下个 turn 回落 */
+  private slowCpsBase = SLOW_DEFAULT_CPS;
+  /** turn-end 后置位：下一条 thinking 视为新 turn，先把流速回落到 slowCpsBase */
+  private slowNewTurn = false;
+  /** 当前 turn 是否已画分隔线(回合开始画；turn-end 清) */
+  private turnOpen = false;
+  /** 每 tick 累积的字符配额余数（低速时不足 1 字符的跨 tick 累计） */
+  private slowCredit = 0;
 
   constructor(private deps: AppDeps) {
+    // 初始思考流速来自配置(默认 120)；收到正文后由 SLOW_STREAM_ARRIVED_CPS 加速，
+    // turn 结束后回落到 slowCpsBase（下个 turn 重新从慢速开始）
+    const cps = this.deps.streamCharsPerSecond;
+    if (typeof cps === "number" && Number.isFinite(cps) && cps > 0) {
+      this.slowCps = cps;
+      this.slowCpsBase = cps;
+    }
     this.state = initialState(
       normalizeThemeId(this.deps.initialTheme ?? DEFAULT_THEME),
+      { thinkingMaxLines: this.deps.thinkingMaxLines },
     );
   }
 
@@ -110,8 +141,9 @@ export class App {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.slowStop();
-    this.slowPending = "";
+    this.dropThinking();
+    this.pendingStream = [];
+    this.pendingTurnEnd = false;
     for (const f of this.unbindEvents) f();
     this.unbindEvents = [];
     this.deps.adapter.dispose?.();
@@ -126,16 +158,30 @@ export class App {
         );
         break;
       case "stream":
-        if (this.deps.slowStream) {
-          // 真实链路：先入队按打字机节奏逐段显示；mock 保持原速即时展示
-          this.slowPending += e.text;
-          this.slowStart();
+        this.beginTurnIfNeeded();
+        if (this.deps.slowStream && this.slowTimer) {
+          // 思考打字机进行中：正文段入缓冲，等思考放完再即时显示(不限制正文流速)；
+          // 正文已到=模型进入正题，剩余思考加速放完
+          this.slowCps = SLOW_STREAM_ARRIVED_CPS;
+          this.pendingStream.push(e.text);
         } else {
           this.apply((s) => reduceState(s, { type: "append", text: e.text }));
         }
         break;
       case "thinking":
-        this.apply((s) => reduceState(s, { type: "thinking", text: e.text }));
+        this.beginTurnIfNeeded();
+        if (this.deps.slowStream) {
+          // 打字机只作用于 thinking(reasoning)：逐段放出便于阅读；正文不受此限制。
+          // 每个 turn 的思考从初始流速开始（正文加速仅限当次回合）
+          if (this.slowNewTurn) {
+            this.slowNewTurn = false;
+            this.slowCps = this.slowCpsBase;
+          }
+          this.thinkingPending += e.text;
+          this.slowStart();
+        } else {
+          this.apply((s) => reduceState(s, { type: "thinking", text: e.text }));
+        }
         break;
       case "agent-status":
         this.apply((s) =>
@@ -155,9 +201,15 @@ export class App {
         this.apply((s) => reduceState(s, { type: "notice", text: e.text }));
         break;
       case "turn-end":
-        // turn 结束：先把慢速队列中剩余的正文一次性落盘(避免截断)，再追加分隔线
-        if (this.deps.slowStream) this.slowFlush();
-        this.apply((s) => reduceState(s, { type: "turn-end" }));
+        // turn 结束：不再画分隔线(下个回合开始时画)；登记下轮流速回落。
+        // 思考打字机进行中则等其放完再清思考(不打断思考读取)
+        this.slowNewTurn = true;
+        this.turnOpen = false;
+        if (this.deps.slowStream && this.slowTimer) {
+          this.pendingTurnEnd = true;
+        } else {
+          this.apply((s) => reduceState(s, { type: "turn-end" }));
+        }
         break;
       default: {
         const _exhaustive: never = e;
@@ -167,30 +219,53 @@ export class App {
     this.paint();
   }
 
-  /** 启动慢速打字机；已在跑或已 disposed 时不动 */
+  /** 回合开始：先画分隔线(仅首个回合空历史时跳过)；submit 与首条思考/正文均需走这里 */
+  private beginTurnIfNeeded(): void {
+    if (this.turnOpen) return;
+    this.turnOpen = true;
+    this.apply((s) => reduceState(s, { type: "turn-begin" }));
+  }
+
+  /** 启动 thinking 打字机；已在跑或已 disposed 时不动 */
   private slowStart(): void {
     if (this.slowTimer || this.disposed) return;
     this.slowTimer = setInterval(() => {
-      if (this.slowPending === "") {
-        this.slowStop();
+      if (this.thinkingPending === "") {
+        this.flushPending();
         return;
       }
-      const take = Math.min(SLOW_CHARS_PER_TICK, this.slowPending.length);
-      const text = this.slowPending.slice(0, take);
-      this.slowPending = this.slowPending.slice(take);
-      this.apply((s) => reduceState(s, { type: "append", text }));
+      // 分数累计配额：cps→每 tick 的字符数，余数跨 tick 保留（低速也逐步输出）
+      this.slowCredit += (this.slowCps * SLOW_TICK_MS) / 1000;
+      let n = Math.floor(this.slowCredit);
+      this.slowCredit -= n;
+      if (n < 1) return; // 本 tick 不足 1 字符，继续等待下一 tick
+      const pts = Array.from(this.thinkingPending);
+      n = Math.min(n, pts.length);
+      const text = pts.slice(0, n).join("");
+      this.thinkingPending = pts.slice(n).join("");
+      this.apply((s) => reduceState(s, { type: "thinking", text }));
       this.paint();
+      if (this.thinkingPending === "") this.flushPending();
     }, SLOW_TICK_MS);
   }
 
-  /** 立即落盘慢速队列剩余正文并停表（turn-end/dispose 时调用，防止丢文本） */
-  private slowFlush(): void {
+  /** thinking 放完后：按序即时显示积压正文，再补挂起的 turn-end(仅清思考，不再画线) */
+  private flushPending(): void {
     this.slowStop();
-    if (this.slowPending === "") return;
-    const text = this.slowPending;
-    this.slowPending = "";
-    this.apply((s) => reduceState(s, { type: "append", text }));
-    this.paint();
+    const texts = this.pendingStream;
+    this.pendingStream = [];
+    if (texts.length > 0) {
+      this.dropThinking(); // 正文 append 会清除 thinking 行，未放完的队列一并丢弃
+      for (const t of texts)
+        this.apply((s) => reduceState(s, { type: "append", text: t }));
+      this.paint();
+    }
+    if (this.pendingTurnEnd) {
+      this.pendingTurnEnd = false;
+      this.dropThinking();
+      this.apply((s) => reduceState(s, { type: "turn-end" }));
+      this.paint();
+    }
   }
 
   private slowStop(): void {
@@ -198,6 +273,12 @@ export class App {
       clearInterval(this.slowTimer);
       this.slowTimer = null;
     }
+  }
+
+  /** 正文/turn-end 接管：思考为瞬态展示，未放完的队列直接丢弃（正文即时优先） */
+  private dropThinking(): void {
+    this.slowStop();
+    this.thinkingPending = "";
   }
 
   private handleKey(k: KeyEvent): void {
@@ -357,7 +438,9 @@ export class App {
       this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
       return;
     }
-    // 真实 DSH 不回显 user/message,由 app 在发送前本地追加用户行
+    // 真实 DSH 不回显 user/message,由 app 在发送前本地追加用户行。
+    // 回合开始时先画分隔线(上一轮内容 → 分隔线 → 新用户消息)
+    this.beginTurnIfNeeded();
     this.apply((s) => reduceState(s, { type: "user-line", text }));
     this.deps.adapter.sendMessage(
       text,

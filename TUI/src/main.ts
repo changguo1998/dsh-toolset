@@ -38,6 +38,10 @@ export function main(opts: {
   initialTheme?: ThemeId;
   /** 真实链路：流式正文放缓显示(打字机节奏)，mock demo 不传保持原速 */
   slowStream?: boolean;
+  /** 思考打字机流速(字符/秒，默认 120；收到正文后自动加速到 200；由 apply 归一化) */
+  streamCharsPerSecond?: number;
+  /** thinking 最大显示行数(默认 4；由 apply 归一化) */
+  thinkingMaxLines?: number;
 }): void {
   const renderer: Renderer = createRenderer();
   const app = new App({
@@ -46,6 +50,8 @@ export function main(opts: {
     status: { queries: createProcessStatusQueries(), intervalMs: 5000 },
     initialTheme: opts.initialTheme,
     slowStream: opts.slowStream,
+    streamCharsPerSecond: opts.streamCharsPerSecond,
+    thinkingMaxLines: opts.thinkingMaxLines,
   });
   app.setLogger(opts.logger ?? ((msg) => void msg));
   app.start();
@@ -71,6 +77,71 @@ export interface DshTuiConfig {
   reasoningEffort?: string;
   /** 初始主题（默认 dark=BlueDark；light=YellowBright） */
   theme?: ThemeId;
+  /** 打字机总开关（默认 true：真实链路放缓流式正文显示；false 恢复原速） */
+  streamTypewriter?: boolean;
+  /** 思考打字机流速（字符/秒，默认 120；收到正文后自动加速到 200；合法域 1..2000，非法回退默认） */
+  streamCharsPerSecond?: number;
+  /** thinking/reasoning 最大显示行数（默认 4；合法域 1..50，非法回退默认） */
+  thinkingMaxLines?: number;
+}
+
+export interface TuiDisplayConfig {
+  /** streamTypewriter 归一化结果 */
+  streamTypewriter: boolean;
+  /** streamCharsPerSecond 归一化结果（1..2000） */
+  streamCharsPerSecond: number;
+  /** thinkingMaxLines 归一化结果（1..50） */
+  thinkingMaxLines: number;
+}
+
+/**
+ * 归一化展示类配置：非法值（非有限数/越界）回退默认并发出一次性告警。
+ * 纯函数，便于单测；在 apply() 配置边界集中处理，app 内不需要再判断合法性。
+ */
+export function normalizeTuiDisplayConfig(
+  raw:
+    | Partial<
+        Pick<
+          DshTuiConfig,
+          "streamTypewriter" | "streamCharsPerSecond" | "thinkingMaxLines"
+        >
+      >
+    | undefined,
+  warn: (msg: string) => void = (m) =>
+    process.stderr.write("[dsh-tui] config warning: " + m + "\n"),
+): TuiDisplayConfig {
+  const num = (
+    v: number | undefined,
+    def: number,
+    min: number,
+    max: number,
+    name: string,
+  ): number => {
+    if (v === undefined) return def;
+    const n = Math.round(v);
+    if (!Number.isFinite(n) || n < min || n > max) {
+      warn(
+        `${name}=${String(v)} 非法（合法域 ${min}..${max}），回退默认 ${def}`,
+      );
+      return def;
+    }
+    return n;
+  };
+  return {
+    // 显式给出的值就地布尔化（YAML 写 false/0 均按关闭处理），缺省开启
+    streamTypewriter:
+      raw?.streamTypewriter === undefined
+        ? true
+        : Boolean(raw.streamTypewriter),
+    streamCharsPerSecond: num(
+      raw?.streamCharsPerSecond,
+      120,
+      1,
+      2000,
+      "streamCharsPerSecond",
+    ),
+    thinkingMaxLines: num(raw?.thinkingMaxLines, 4, 1, 50, "thinkingMaxLines"),
+  };
 }
 
 /**
@@ -207,12 +278,16 @@ export async function apply(
     approvalTimeoutMs: config?.approvalTimeoutMs ?? 60_000,
   });
 
+  // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）
+  const display = normalizeTuiDisplayConfig(config);
   main({
     adapter,
     initialTheme: normalizeThemeId(config?.theme ?? undefined),
     logger: (msg) => process.stderr.write("[dsh-tui] " + msg + "\n"),
-    // 真实接入链路：流式正文放缓显示，便于阅读；mock demo 不经过此处
-    slowStream: true,
+    // 真实接入链路：打字机放缓默认开启，streamTypewriter: false 可关闭
+    slowStream: display.streamTypewriter,
+    streamCharsPerSecond: display.streamCharsPerSecond,
+    thinkingMaxLines: display.thinkingMaxLines,
   });
   // renderer 的退出钩子(SIGINT/TERM/Esc → close()) 负责进程退出；此处兜底
   // 清理 agent(避免残留运行中的 loop)。

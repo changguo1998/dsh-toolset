@@ -10,6 +10,9 @@ import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
 /** scrollback 行数上限（纯物理上限；DESIGN:2000 行） */
 export const MAX_BUFFER_LINES = 2000;
 
+/** thinking/reasoning 最大显示行数默认值（可经 initialState 配置，超出折叠） */
+export const DEFAULT_THINKING_MAX_LINES = 4;
+
 /** 缓冲行类型:用户输出靠右缩进展示,模型正文靠左;思考行限高,完成后清除 */
 export type BufferKind =
   "user" | "assistant" | "thinking" | "notice" | "separator" | "plain";
@@ -52,6 +55,8 @@ export interface AppState {
   systemStatus: SystemStatus;
   /** 主题（默认 dark=BlueDark；/theme 运行时切换，仅当前会话） */
   themeId: ThemeId;
+  /** thinking/reasoning 最大显示行数（渲染折叠用，默认 4） */
+  thinkingMaxLines: number;
   /** 模型交互选择模式（/model 无参进入；null = 未激活） */
   picker: PickerState | null;
 }
@@ -92,7 +97,14 @@ export interface PickerOption {
   current: boolean;
 }
 
-export function initialState(themeId: ThemeId = DEFAULT_THEME): AppState {
+export function initialState(
+  themeId: ThemeId = DEFAULT_THEME,
+  opts?: { thinkingMaxLines?: number },
+): AppState {
+  const thinkingMaxLines =
+    opts?.thinkingMaxLines === undefined
+      ? DEFAULT_THINKING_MAX_LINES
+      : Math.max(1, Math.floor(opts.thinkingMaxLines));
   return {
     sessions: [],
     activeSessionId: null,
@@ -113,6 +125,7 @@ export function initialState(themeId: ThemeId = DEFAULT_THEME): AppState {
       contextLen: "—",
       cacheHit: "—",
     },
+    thinkingMaxLines,
   };
 }
 
@@ -172,9 +185,18 @@ export function appendThinking(state: AppState, text: string): AppState {
   return appendStream(state, text, "thinking");
 }
 
+/** 清掉遗留 thinking 行（turn-end 兜底；正文到达时 appendStream 已清） */
+export function clearThinkingLines(state: AppState): AppState {
+  if (!state.buffer.some((l) => l.kind === "thinking")) return state;
+  return {
+    ...state,
+    buffer: state.buffer.filter((l) => l.kind !== "thinking"),
+  };
+}
+
 /**
- * turn 结束：清掉本 turn 遗留思考行(兜底)后追加分隔线，让对话历史每个 turn 之间可见分隔。
- * 空 buffer 或末尾已是分隔线时不追加（避免孤立/重复分隔）。
+ * turn 开始：清掉上一轮遗留思考行后，在历史末尾追加分隔线，让每个回合之间可见分隔。
+ * 空 buffer 或末尾已是分隔线时不追加（避免孤立/重复分隔）。由 `turn-begin` 触发。
  */
 export function appendTurnSeparator(state: AppState): AppState {
   let buffer = state.buffer.length ? [...state.buffer] : [];
@@ -274,8 +296,12 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       return scrollBy(state, action.delta);
     case "scroll-to-bottom":
       return { ...state, followBottom: true, scrollOffset: 0 };
-    case "turn-end":
+    case "turn-begin":
+      // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容
       return appendTurnSeparator(state);
+    case "turn-end":
+      // 回合结束：不再画分隔线(下个回合 begin 时画)；清遗留思考行(兜底)
+      return clearThinkingLines(state);
     case "status":
       return setSystemStatus(state, action.status);
     case "set-theme":
@@ -310,6 +336,7 @@ export type StateAction =
   | { type: "move-cursor"; delta: number }
   | { type: "scroll"; delta: number }
   | { type: "scroll-to-bottom" }
+  | { type: "turn-begin" }
   | { type: "turn-end" }
   | { type: "status"; status: Partial<SystemStatus> }
   | { type: "set-theme"; themeId: ThemeId };

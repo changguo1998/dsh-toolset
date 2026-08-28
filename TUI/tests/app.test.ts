@@ -3,7 +3,7 @@
 // 覆盖：submit() 对 / 前缀行走 slash 路由；本地表 /help /clearscreen /cls /quit；
 // 未知命令 fail-close(不经 sendMessage)；notice 事件进入缓冲。
 
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { App, formatModelCatalog, resolveModelSpec } from "../src/app/index.ts";
 import type {
@@ -174,7 +174,11 @@ test("普通输入同时本地回显用户行且靠右，不依赖 adapter 回�
 test("thinking 事件显示临时思考，正文事件到达后消失", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "thinking", sessionId: "s1", text: "正在分析" });
-  assert.ok(renderer.lastRender.join("\n").includes("[思考] 正在分析"));
+  const strip = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.ok(
+    strip(renderer.lastRender.join("\n")).includes("│   正在分析"),
+    "思考行仅缩进展示(无[思考]前缀)",
+  );
   adapter.push({ type: "stream", sessionId: "s1", text: "回答正文" });
   const joined = renderer.lastRender.join("\n");
   assert.ok(joined.includes("回答正文"));
@@ -646,44 +650,189 @@ test("App initialTheme 非法值回落 dark(外部配置健壮性)", () => {
 // 慢速流式（仅真实链路 slowStream=true，mock 默认关闭保持原速）
 // ---------------------------------------------------------------------------
 
-test("slowStream=true：stream 不即时全量显示，turn-end 立即落盘全部文本", () => {
-  const renderer = new FakeRenderer();
-  const adapter = new FakeAdapter();
-  const app = new App({ renderer, adapter, slowStream: true });
-  app.start();
-  const text = "abcdefghijklmnopqrstuvwxyz0123456789"; // 36 字符 > 单 tick
-  adapter.push({ type: "stream", sessionId: "s1", text });
-  // 首个同步帧内 tick 尚未发生，正文不应出现
-  assert.ok(
-    !renderer.lastRender.join("\n").includes("abcdefghij"),
-    "首个同步帧不应展示流式正文",
-  );
-  // turn-end 触发 flush：慢速队列剩余正文一次性落盘，绝不因回合结束丢文本
-  adapter.push({ type: "turn-end" });
-  assert.ok(
-    renderer.lastRender.join("\n").includes(text),
-    "turn-end 后正文应完整显示",
-  );
-  app.dispose();
+// 全宽横线行计数：固定区域分隔(顶/状态/输入)恒为 2 行；turn 分隔线追加后为 3 行
+function barRowCount(renderer: FakeRenderer): number {
+  return renderer.lastRender.filter((l) => {
+    const t = l.replace(/\x1b\[[0-9;]*m/g, "");
+    return t.includes("─") && t.replace(/[│─]/g, "").trim() === "";
+  }).length;
+}
+
+// 辅助：enable 仅 setInterval 的假定时器，测试后必须 reset(即使失败)
+function withFakeTimers(fn: () => void): void {
+  mock.timers.enable({ apis: ["setInterval"] });
+  try {
+    fn();
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+// 打字机只作用于 thinking（输出结束会被隐藏的瞬态内容）；正文为最终回复即时显示。
+// 用户在澄清中选择：思考放完后再显示正文（正文/turn-end 都不打断思考读取）。
+test("slowStream=true：thinking 渐进、正文到后剩余思考加速放完再铺正文", () => {
+  withFakeTimers(() => {
+    const renderer = new FakeRenderer();
+    const adapter = new FakeAdapter();
+    const app = new App({
+      renderer,
+      adapter,
+      slowStream: true,
+      streamCharsPerSecond: 20, // 初始思考 1 字符/tick，便于精确断言
+    });
+    app.start();
+    const think = "abcdefghijklmnopqrst"; // 20 字符
+    adapter.push({ type: "thinking", sessionId: "s1", text: think });
+    // 首个同步帧：thinking 尚未放出
+    assert.ok(
+      !renderer.lastRender.join("\n").includes("abc"),
+      "thinking 应先入队，不即时全量显示",
+    );
+    // 6 ticks：初始 20cps 每 tick 1 字符
+    mock.timers.tick(300);
+    let frame = renderer.lastRender.join("\n");
+    assert.ok(frame.includes("abcdef"), "初始流速每 tick 1 字符");
+    assert.ok(!frame.includes("abcdefg"), "6 ticks 不应放出第 7 个字符");
+    // 正文到达：缓冲显示，并把剩余思考加速到 120cps(每 tick 6 字符)
+    adapter.push({ type: "stream", sessionId: "s1", text: "正文回复" });
+    frame = renderer.lastRender.join("\n");
+    assert.ok(!frame.includes("正文回复"), "思考未完正文应缓冲");
+    mock.timers.tick(50); // +1 tick：120cps 放出 6 字符
+    frame = renderer.lastRender.join("\n");
+    assert.ok(
+      frame.includes("abcdefghijkl"),
+      "正文到后 1 tick 放 6 字符(120cps 加速)",
+    );
+    assert.ok(!frame.includes("正文回复"), "思考未完正文仍缓冲");
+    // 再 2 ticks：剩余 8 字符放完，flush 一次性铺出正文
+    mock.timers.tick(100);
+    frame = renderer.lastRender.join("\n");
+    assert.ok(frame.includes("正文回复"), "思考放完后正文即时显示");
+    assert.ok(!frame.includes(think), "正文接管后 thinking 行被清除");
+    app.dispose();
+  });
 });
 
-test("slowStream=true：正文按 tick 节奏渐进显示", async () => {
-  const renderer = new FakeRenderer();
-  const adapter = new FakeAdapter();
-  const app = new App({ renderer, adapter, slowStream: true });
-  app.start();
-  const text = "0123456789abcdefghij0123456789abcdefghij0123456789abcdefghij"; // 60 字符 ≈ 10 ticks
-  adapter.push({ type: "stream", sessionId: "s1", text });
-  await new Promise((r) => setTimeout(r, 150)); // 约 3 ticks：部分可见
-  const mid = renderer.lastRender.join("\n");
-  assert.ok(mid.includes("0123456789"), "应渐进显示开头部分");
-  assert.ok(!mid.includes(text), "150ms 不应已完整显示(仍有慢速节奏)");
-  await new Promise((r) => setTimeout(r, 700)); // 累计 850ms > 500ms 全部完成
-  assert.ok(
-    renderer.lastRender.join("\n").includes(text),
-    "足够时间后应完整显示",
-  );
-  app.dispose();
+test("慢速流：分隔线在回合开始画，turn-end 不再画", () => {
+  withFakeTimers(() => {
+    const renderer = new FakeRenderer();
+    const adapter = new FakeAdapter();
+    const app = new App({ renderer, adapter, slowStream: true });
+    app.start();
+    // 回合 1：空历史，首条正文不画孤立线
+    adapter.push({ type: "stream", sessionId: "s1", text: "第一回合正文" });
+    assert.equal(barRowCount(renderer), 2, "首回合空历史不画孤立线");
+    adapter.push({ type: "turn-end" });
+    assert.equal(barRowCount(renderer), 2, "turn-end 不再画分隔线");
+    // 回合 2：首条正文到达 → 回合开始时先画线，再进入内容
+    adapter.push({ type: "stream", sessionId: "s1", text: "第二回合正文" });
+    const plain = renderer.lastRender.map((l) =>
+      l.replace(/\x1b\[[0-9;]*m/g, ""),
+    );
+    assert.equal(barRowCount(renderer), 3, "回合开始时先画分隔线");
+    const joined = plain.join("\n");
+    assert.ok(
+      joined.indexOf("第二回合正文") > joined.indexOf("────"),
+      "分隔线应位于回合内容之前",
+    );
+    app.dispose();
+  });
+});
+
+test("slowStream=true：turn 结束后流速回落，下一轮思考重新从初始速度开始", () => {
+  withFakeTimers(() => {
+    const renderer = new FakeRenderer();
+    const adapter = new FakeAdapter();
+    const app = new App({
+      renderer,
+      adapter,
+      slowStream: true,
+      streamCharsPerSecond: 20, // 1 字符/tick
+    });
+    app.start();
+    // 第一轮：思考被正文触发加速放完
+    adapter.push({ type: "thinking", sessionId: "s1", text: "aaaaaaaaaa" });
+    mock.timers.tick(300); // 6 ticks → 6 字符
+    adapter.push({ type: "stream", sessionId: "s1", text: "正文" }); // 切到 120
+    mock.timers.tick(200); // 2 ticks@6 字符/tick：剩余 4 字放完并铺正文
+    assert.ok(
+      renderer.lastRender.join("\n").includes("正文"),
+      "第一轮思考放完正文铺出",
+    );
+    adapter.push({ type: "turn-end" });
+    assert.equal(barRowCount(renderer), 2, "turn-end 不再画线");
+    // 第二轮：思考应从初始 20cps 重新开始(不回落到 120)
+    adapter.push({ type: "thinking", sessionId: "s1", text: "bbbbbbbbbb" });
+    assert.equal(barRowCount(renderer), 3, "新一轮回合开始时先画线");
+    assert.ok(
+      !renderer.lastRender.join("\n").includes("b"),
+      "新 turn 思考先入队",
+    );
+    mock.timers.tick(300); // 6 ticks：回落 20cps → 6 字符；若仍 120 早已放完
+    const frame = renderer.lastRender.join("\n");
+    assert.ok(frame.includes("bbbbbb"), "回落后仍为 1 字符/tick");
+    assert.ok(!frame.includes("bbbbbbb"), "6 ticks 不应放出第 7 个字符");
+    app.dispose();
+  });
+});
+
+test("slowStream=true：低速(streamCharsPerSecond=10)分数累计逐字输出思考", () => {
+  withFakeTimers(() => {
+    const renderer = new FakeRenderer();
+    const adapter = new FakeAdapter();
+    const app = new App({
+      renderer,
+      adapter,
+      slowStream: true,
+      streamCharsPerSecond: 10, // 每 tick 0.5 字符
+    });
+    app.start();
+    const text = "0123456789"; // 10 字符
+    adapter.push({ type: "thinking", sessionId: "s1", text });
+    // 3 ticks：credit 累计 1.5 → 只发出 1 字符
+    mock.timers.tick(150);
+    let frame = renderer.lastRender.join("\n");
+    assert.ok(frame.includes("0"), "低速下先显示开头");
+    assert.ok(!frame.includes("01"), "3 ticks 不应已输出第 2 个字符");
+    // 再 5 ticks(共 8 ticks→4 字符)
+    mock.timers.tick(250);
+    frame = renderer.lastRender.join("\n");
+    assert.ok(frame.includes("0123"), "8 ticks 应输出 4 个字符");
+    assert.ok(!frame.includes("01234"), "8 ticks 不应输出第 5 个字符");
+    // 20 ticks 全量（无正文/turn-end → thinking 行保留显示）
+    mock.timers.tick(600);
+    assert.ok(renderer.lastRender.join("\n").includes(text), "低速最终排空");
+    app.dispose();
+  });
+});
+
+test("slowStream=true：思考按码点切分，emoji/代理对不被拆断", () => {
+  withFakeTimers(() => {
+    const renderer = new FakeRenderer();
+    const adapter = new FakeAdapter();
+    const app = new App({
+      renderer,
+      adapter,
+      slowStream: true,
+      streamCharsPerSecond: 20, // 每 tick 1 个码点
+    });
+    app.start();
+    adapter.push({
+      type: "thinking",
+      sessionId: "s1",
+      text: "\u{1F600}\u{1F600}\u{1F600}",
+    }); // 😀😀😀
+    mock.timers.tick(50);
+    const frame1 = renderer.lastRender.join("\n");
+    assert.ok(frame1.includes("\u{1F600}"), "1 tick 应显示 1 个 emoji");
+    assert.ok(!frame1.includes("\uFFFD"), "不应出现替换符(代理对被拆断)");
+    mock.timers.tick(150);
+    assert.ok(
+      renderer.lastRender.join("\n").includes("\u{1F600}\u{1F600}\u{1F600}"),
+      "3 tick 后三个 emoji 完整",
+    );
+    app.dispose();
+  });
 });
 
 test("slowStream 默认关闭：stream 即时显示(mock/demo 原速)", () => {
@@ -694,7 +843,12 @@ test("slowStream 默认关闭：stream 即时显示(mock/demo 原速)", () => {
   adapter.push({ type: "stream", sessionId: "s1", text: "即时文本" });
   assert.ok(
     renderer.lastRender.join("\n").includes("即时文本"),
-    "未开启 slowStream 应立即展示",
+    "未开启 slowStream 正文应立即展示",
+  );
+  adapter.push({ type: "thinking", sessionId: "s1", text: "即时思考" });
+  assert.ok(
+    renderer.lastRender.join("\n").includes("即时思考"),
+    "未开启 slowStream 思考也应即时展示",
   );
   app.dispose();
 });

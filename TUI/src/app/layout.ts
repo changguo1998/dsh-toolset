@@ -207,7 +207,11 @@ function buildTopRegion(
   historyWidth: number,
   cols: number,
 ): RenderLine[] {
-  const wrapped = wrapBufferLines(state.buffer, historyWidth);
+  const wrapped = wrapBufferLines(
+    state.buffer,
+    historyWidth,
+    state.thinkingMaxLines,
+  );
   const vp = computeViewport({
     totalRows: wrapped.length,
     height: topHeight,
@@ -237,9 +241,9 @@ function buildTopRegion(
 
 export const USER_MIN_LEFT_GUTTER = 8;
 export const THINKING_INDENT = 2;
-export const THINKING_MAX = 4;
 export const THINKING_MORE = "…(更多思考已折叠)";
-export const THINKING_PREFIX = "[思考] ";
+/** THINKING_MAX 兼容导出（state.DEFAULT_THINKING_MAX_LINES 为权威默认） */
+export const THINKING_MAX: number = 4;
 
 /** 用户消息块最大正文宽：块整体靠右，左侧至少保留 USER_MIN_LEFT_GUTTER */
 export function userMaxBodyWidth(width: number): number {
@@ -249,15 +253,17 @@ export function userMaxBodyWidth(width: number): number {
   );
 }
 
-function thinkingPrefixText(width: number): string {
-  return width >= THINKING_PREFIX.length + 2 ? THINKING_PREFIX : "";
+/** 模型正文块最大宽：右缘与用户块左缘对称留白，与用户输入形成左右交错的视觉 */
+export function assistantMaxBodyWidth(width: number): number {
+  return Math.max(
+    1,
+    width - Math.min(USER_MIN_LEFT_GUTTER, Math.max(0, width - 1)),
+  );
 }
 
+/** 思考行缩进列数：顶部窄条 "│ " 之外再缩进 THINKING_INDENT（足够窄时收敛到 0） */
 function thinkingIndentOf(width: number): number {
-  return Math.min(
-    THINKING_INDENT,
-    Math.max(0, width - thinkingPrefixText(width).length - 2),
-  );
+  return Math.min(THINKING_INDENT, Math.max(0, width - 2));
 }
 
 interface WrappedRow {
@@ -266,16 +272,17 @@ interface WrappedRow {
   indent: number;
 }
 
-function wrapBufferLines(buffer: Buffer, width: number): WrappedRow[] {
+function wrapBufferLines(
+  buffer: Buffer,
+  width: number,
+  thinkingMaxLines: number,
+): WrappedRow[] {
   const out: WrappedRow[] = [];
   const thinking: WrappedRow[] = [];
   for (const line of buffer) {
     if (line.kind === "thinking") {
       const indent = thinkingIndentOf(width);
-      const rows = wrapLine(
-        line.text,
-        Math.max(1, width - indent - thinkingPrefixText(width).length),
-      );
+      const rows = wrapLine(line.text, Math.max(1, width - indent));
       for (const text of rows)
         thinking.push({ text, kind: "thinking", indent });
       continue;
@@ -289,6 +296,12 @@ function wrapBufferLines(buffer: Buffer, width: number): WrappedRow[] {
       for (const text of rows) out.push({ text, kind: "user", indent: pad });
       continue;
     }
+    if (line.kind === "assistant") {
+      // 模型正文：右缘保留与用户块左缘对称的空间(交错布局)，文本不顶满右缘
+      const rows = wrapLine(line.text, assistantMaxBodyWidth(width));
+      for (const text of rows) out.push({ text, kind: line.kind, indent: 0 });
+      continue;
+    }
     const content =
       line.kind === "separator"
         ? SEPARATOR.repeat(Math.max(1, width))
@@ -297,10 +310,9 @@ function wrapBufferLines(buffer: Buffer, width: number): WrappedRow[] {
     for (const text of rows) out.push({ text, kind: line.kind, indent: 0 });
   }
   if (thinking.length > 0) {
-    const hasMore = thinking.length > THINKING_MAX;
-    const visible = thinking.slice(
-      -(hasMore ? THINKING_MAX - 1 : THINKING_MAX),
-    );
+    const cap = Math.max(1, thinkingMaxLines);
+    const hasMore = thinking.length > cap;
+    const visible = thinking.slice(-(hasMore ? cap - 1 : cap));
     if (hasMore) {
       visible.unshift({
         text: THINKING_MORE,
@@ -309,11 +321,8 @@ function wrapBufferLines(buffer: Buffer, width: number): WrappedRow[] {
       });
     }
     for (const row of visible) {
-      out.push({
-        text: thinkingPrefixText(width) + row.text,
-        kind: "thinking",
-        indent: row.indent,
-      });
+      // 思考行仅保留缩进展示，不加 [思考] 前缀（正文区分靠缩进层级）
+      out.push({ text: row.text, kind: "thinking", indent: row.indent });
     }
   }
   // 用户消息块与随后的答案/思考之间空一行（纯布局展示，不写状态）
