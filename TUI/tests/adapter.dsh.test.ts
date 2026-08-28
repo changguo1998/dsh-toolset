@@ -194,6 +194,159 @@ test("assistant/chunk block-end(携带完整 text)→ thinking/stream 事件(真
   assert.equal((t.events[1] as { text: string }).text, "1+1=2。");
 });
 
+// --- 流式块去重（delta + block-end 同时送达）回归测试 ---
+function joinStreams(events: DshEvent[]): string {
+  return events
+    .filter((e) => e.type === "stream")
+    .map((e) => (e as { text: string }).text)
+    .join("");
+}
+
+function joinThinking(events: DshEvent[]): string {
+  return events
+    .filter((e) => e.type === "thinking")
+    .map((e) => (e as { text: string }).text)
+    .join("");
+}
+
+function rawChunk(
+  chunk: SessionEvent<"assistant/chunk">["data"]["chunk"],
+  turn = 1,
+  step = 1,
+): SessionEvent<"assistant/chunk"> {
+  return {
+    type: "assistant/chunk",
+    seq: 1,
+    time: Date.now(),
+    data: { turn, step, chunk },
+  };
+}
+
+test("assistant/chunk delta+block-end 去重：完整正文不重复输出(真机同时送达两种载荷)", () => {
+  const t = makeAdapter();
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk({ type: "text-delta", index: 0, text: "Hel" }),
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk({ type: "text-delta", index: 0, text: "lo" }),
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk({
+      type: "block-end",
+      index: 0,
+      blockType: "text",
+      block: { type: "text", text: "Hello" },
+    }),
+  );
+  // 总输出恰为 "Hello"，而非 delta 累计 + block-end 完整文本两遍
+  assert.equal(joinStreams(t.events), "Hello");
+});
+
+test("assistant/chunk 部分 delta + 更长的 block-end → 仅补发缺失后缀", () => {
+  const t = makeAdapter();
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk({ type: "text-delta", index: 0, text: "Hello " }),
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk({
+      type: "block-end",
+      index: 0,
+      blockType: "text",
+      block: { type: "text", text: "Hello world" },
+    }),
+  );
+  assert.equal(joinStreams(t.events), "Hello world");
+  assert.deepEqual(
+    t.events
+      .filter((e) => e.type === "stream")
+      .map((e) => (e as { text: string }).text),
+    ["Hello ", "world"],
+  );
+});
+
+test("assistant/chunk 纯 block-end(无 delta)→ 输出完整文本", () => {
+  const t = makeAdapter();
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk({
+      type: "block-end",
+      index: 2,
+      blockType: "text",
+      block: { type: "text", text: "完整文本" },
+    }),
+  );
+  assert.equal(joinStreams(t.events), "完整文本");
+});
+
+test("assistant/chunk reasoning delta+block-end 去重：思考流同样不重复", () => {
+  const t = makeAdapter();
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk({ type: "reasoning-delta", index: 0, text: "think" }),
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk({
+      type: "block-end",
+      index: 0,
+      blockType: "reasoning",
+      block: { type: "reasoning", text: "thinkingx" },
+    }),
+  );
+  assert.equal(joinThinking(t.events), "thinkingx");
+});
+
+test("assistant/chunk 复用 index 的 block 不继承上轮累计", () => {
+  const t = makeAdapter();
+  // turn 1：delta + block-end 完整文本
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk({ type: "text-delta", index: 0, text: "a" }, 1),
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk(
+      {
+        type: "block-end",
+        index: 0,
+        blockType: "text",
+        block: { type: "text", text: "ab" },
+      },
+      1,
+    ),
+  );
+  // turn 2 同 index：无 delta，block-end 应完整输出，而非复用 turn1 的累计
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    rawChunk(
+      {
+        type: "block-end",
+        index: 0,
+        blockType: "text",
+        block: { type: "text", text: "zz" },
+      },
+      2,
+    ),
+  );
+  assert.equal(joinStreams(t.events), "abzz");
+});
+
 test("turn/start 忽略；turn/end → turn-end 事件", () => {
   const t = makeAdapter();
   t.runtime.fire(

@@ -419,6 +419,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   let disposed = false;
   const runtimeUnbinds: (() => void)[] = [];
   const activeCommands = new Set<AbortController>();
+  // 流式块去重累计：key = session:turn:step:index，block-end 只补发未输出部分
+  const emittedByBlock = new Map<string, string>();
 
   const emit = (e: DshEvent): void => {
     if (disposed) return;
@@ -434,41 +436,80 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   // --- session/event 归一化 ---
   const onSessionEvent = (session: unknown, raw: SessionEvent): void => {
     const sid = (session as { id?: string } | null)?.id ?? sessionId;
-    const data = raw.data as { chunk?: StreamChunk; text?: string };
+    const data = raw.data as {
+      chunk?: StreamChunk;
+      text?: string;
+      turn?: number;
+      step?: number;
+    };
     switch (raw.type) {
       case "assistant/chunk": {
         const chunk = data.chunk as StreamChunk | undefined;
         if (!chunk) return;
-        // DSH deepseek adapter 实测送达形式：block-start/block-end(block-end 携带
-        // 完整 text)。text-delta/reasoning-delta 为增量契约(部分 provider 使用)。
-        // 正文与思考分别归一化；同一 provider 不会同时使用两种载荷形态。
-        if (chunk.type === "reasoning-delta") {
-          emit({ type: "thinking", sessionId: sid, text: chunk.text });
-        } else if (chunk.type === "text-delta") {
-          emit({ type: "stream", sessionId: sid, text: chunk.text });
+        // 真实 DSH 同时送达增量 delta 与 block-end 完整块文本（DSH-CTX-API.md §2
+        // PartialAccumulator 折叠语义）。按 (session, turn, step, index) 累计已流式
+        // 输出的 delta，block-end 只补发未输出部分，避免完整正文被重复显示。
+        // 同一 index 跨 turn/step 不复用累计（key 含 turn/step；turn/end 亦清空）。
+        // finish/usage 等载荷可能无 index；仅带 index 的块类型参与累计
+        const index = (chunk as { index?: number }).index ?? 0;
+        const blockKey =
+          sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0) + ":" + index;
+        const isReasoning =
+          chunk.type === "reasoning-delta" ||
+          (chunk.type === "block-end" &&
+            (chunk.block?.type === "reasoning" ||
+              chunk.blockType === "reasoning"));
+        if (chunk.type === "block-start") {
+          emittedByBlock.delete(blockKey);
         } else if (
-          chunk.type === "block-end" &&
-          (chunk.block?.text ??
-            (chunk as StreamChunk & { text?: string }).text) !== undefined
+          chunk.type === "reasoning-delta" ||
+          chunk.type === "text-delta"
         ) {
-          const text =
+          emittedByBlock.set(
+            blockKey,
+            (emittedByBlock.get(blockKey) ?? "") + chunk.text,
+          );
+          emit({
+            type: isReasoning ? "thinking" : "stream",
+            sessionId: sid,
+            text: chunk.text,
+          });
+        } else if (chunk.type === "block-end") {
+          const full =
             chunk.block?.text ??
-            (chunk as StreamChunk & { text?: string }).text!;
-          if (
-            chunk.block?.type === "reasoning" ||
-            chunk.blockType === "reasoning"
-          ) {
-            emit({ type: "thinking", sessionId: sid, text });
-          } else {
-            emit({ type: "stream", sessionId: sid, text });
+            (chunk as StreamChunk & { text?: string }).text;
+          if (full === undefined) return;
+          const done = emittedByBlock.get(blockKey) ?? "";
+          emittedByBlock.delete(blockKey);
+          if (done === "") {
+            // 无 delta 的 provider：block-end 即完整文本
+            emit({
+              type: isReasoning ? "thinking" : "stream",
+              sessionId: sid,
+              text: full,
+            });
+          } else if (full.startsWith(done)) {
+            // 已流式输出 delta，仅补发缺失后缀
+            const rest = full.slice(done.length);
+            if (rest.length > 0) {
+              emit({
+                type: isReasoning ? "thinking" : "stream",
+                sessionId: sid,
+                text: rest,
+              });
+            }
           }
+          // delta 与 block-end 文本不一致时不再输出（append-only UI 无法安全重写）
         }
         return;
       }
+
       case "turn/start":
         // turn/start 只标记新回合，不插入历史分隔线；用户本地回显后应紧邻模型响应。
         return;
       case "turn/end":
+        // turn 结束：清空流式累计，block index 跨 turn 复用不残留
+        emittedByBlock.clear();
         emit({ type: "turn-end" });
         return;
       default:
@@ -548,6 +589,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       activeCommands.clear();
       for (const u of runtimeUnbinds) u();
       runtimeUnbinds.length = 0;
+      emittedByBlock.clear();
       listeners.clear();
     },
     approve(id, allow) {
