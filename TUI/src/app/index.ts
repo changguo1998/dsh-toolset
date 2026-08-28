@@ -4,7 +4,7 @@
 // 处理按键、接收事件、重绘。
 
 import type { Renderer, KeyEvent } from "../renderer/index.ts";
-import type { AppState } from "./state.ts";
+import type { AppState, InputMode } from "./state.ts";
 import { initialState, reduceState } from "./state.ts";
 import type {
   DshAdapter,
@@ -365,8 +365,12 @@ export class App {
 
     switch (name) {
       case "escape":
-        // Esc 打断思考：真实链路映射 agent.cancel({kind:'user'})，demo 为 notice
-        this.deps.adapter.interrupt();
+        // Esc：退回一般模式（符号代表模式；非 normal 时吞键回 >，不打断 agent）
+        if (this.state.inputMode !== "normal") {
+          this.apply((s) =>
+            reduceState(s, { type: "input-mode", mode: "normal" }),
+          );
+        }
         break;
       case "tab":
         // ponytail: 单会话占位，多会话基建落地后再实现真正的标签页切换
@@ -427,6 +431,20 @@ export class App {
         }
         break;
       default:
+        // 模式键：输入框为空时按 ! / $ / / 切换模式并吞键（> 不参与；同符号幂等）
+        if (
+          name.length === 1 &&
+          !ctrl &&
+          this.state.inputText === "" &&
+          (name === "!" || name === "$" || name === "/")
+        ) {
+          const mode: InputMode =
+            name === "!" ? "interrupt" : name === "$" ? "shell" : "slash";
+          if (this.state.inputMode !== mode) {
+            this.apply((s) => reduceState(s, { type: "input-mode", mode }));
+          }
+          break;
+        }
         // 可打印字符：插入输入框（Esc/Ctrl+C 不再触发退出；退出请用 /quit 或系统信号）
         if (name.length === 1 && !ctrl) this.insertChar(name);
         break;
@@ -437,12 +455,20 @@ export class App {
   private submit(): void {
     const text = this.state.inputText.trim();
     if (!text) return;
-    // 以 / 开头的输入按 slash 命令处理（不进模型/会话历史）
-    if (text.startsWith("/")) {
-      this.handleSlash(text);
+    const mode = this.state.inputMode;
+    // slash 模式：自动补 "/" 前缀走既有路由（规则：文本中不需要再在开头加 /）
+    const slashLine =
+      mode === "slash" && !text.startsWith("/") ? "/" + text : text;
+    if (slashLine.startsWith("/")) {
+      this.handleSlash(slashLine);
       this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
       return;
     }
+    // 打断模式：先打断当前 agent，再发送新消息（立即置进行中，黄）
+    if (mode === "interrupt") this.deps.adapter.interrupt();
+    this.apply((s) =>
+      reduceState(s, { type: "input-status", status: "running" }),
+    );
     // 真实 DSH 不回显 user/message,由 app 在发送前本地追加用户行。
     // 回合开始时先画分隔线(上一轮内容 → 分隔线 → 新用户消息)
     this.beginTurnIfNeeded();
@@ -466,8 +492,16 @@ export class App {
       this.apply((s) =>
         reduceState(s, { type: "notice", text: "无效命令: " + line }),
       );
+      // 本地可检测的无效 slash 命令 → 失败色(红)
+      this.apply((s) =>
+        reduceState(s, { type: "input-status", status: "failure" }),
+      );
       return;
     }
+    // 已识别 slash 命令（本地成功或注册表 dispatch）→ 成功色(绿)
+    this.apply((s) =>
+      reduceState(s, { type: "input-status", status: "success" }),
+    );
     switch (name) {
       case "help":
         this.apply((s) =>

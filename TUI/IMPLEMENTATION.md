@@ -121,7 +121,7 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 
 - 普通消息由 App 发送前本地回显为用户行；历史区内模型正文靠左、右缘按 `assistantMaxBodyWidth`（= 宽度 - `messageGutter`）保留与用户块左缘对称的空位，与右对齐的用户输入形成左右交错；`messageGutter`（默认 4，域 0..20）经 `normalizeTuiDisplayConfig` → `initialState` 落到 `AppState`，`buildFrame` 从 state 读取并传给 `userMaxBodyWidth`/`assistantMaxBodyWidth`（布局层不再硬编码 USER_MIN_LEFT_GUTTER=4 常量）。用户块按内容收缩：`wrapBufferLines` 先按 `userMaxBodyWidth`（= 宽度 - `messageGutter`）换行（含显式换行），取最大行宽作块宽，整块统一 `leftPad`、右缘贴历史区右缘，块内左对齐；续行共享同一左边界。`wrapBufferLines` 输出扩展为 `{text, kind, indent}`，`buildTopRegion` 直接按 `indent` 渲染（thinking 用固定缩进，assistant/plain/separator 为 0）。用户块与随后回答/思考之间插入一行空行（后处理，纯布局不改 state）。
 
-- 输入栏占位提示与 `>` 前缀颜色随 `agentStatus` 变化（`idle` 绿 / `thinking` 黄 / `tool` 蓝；`done` 兜底同 thinking）：`buildFrame` 查 `INPUT_HINT` 表，`renderTextInput` 可选 `promptColor` 对着色，前缀宽度按纯文本 `"> "` 计算避免把 ANSI 计进显示宽。
+- 输入栏「符号代表模式、颜色代表状态」：`inputMode`（normal/interrupt/shell/slash，默认 normal、提交后保留、Esc 回 normal、picker-open 重置）经 `MODE_PROMPT` 映射符号，`inputStatus`（success/running/failure，默认 success）经 `INPUT_STATUS_COLOR` 映射绿/黄/红，`buildFrame` 传 `renderTextInput(text, cursor, placeholder, width, promptText, promptColor?)`，宽度按未着色 `promptText` 计算。模式键处理：输入框为空时按 `!/$///` 切模式并吞键（`>` 不参与、同符号幂等），非空时当普通字符。提交路由：`!` 先 `adapter.interrupt()` 再发送；`/` 自动补 `/` 前缀走 `handleSlash`（不经 sendMessage）；`$` 仅符号展示（原样 sendMessage）。状态转移：正常提交置 running；`agent-status` 的 thinking/tool 兜底置 running；`turn-end` 置 success；本地可检测的无效 slash 命令置 failure。
 
 - adapter 将 `reasoning-delta` 与 reasoning `block-end` 映射为 `thinking` 事件。思考区只以 2 空格缩进展示（无 `[思考]` 前缀文字），只显示最新 `thinkingMaxLines`（默认 4，可配置）行，超出显示折叠提示，不提供展开/收起；首条正文或 turn-end 到达时清除思考行。
 

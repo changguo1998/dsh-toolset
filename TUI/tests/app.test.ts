@@ -75,11 +75,15 @@ class FakeAdapter implements DshAdapter {
       if (i >= 0) this.cbs.splice(i, 1);
     };
   }
+  /** 有序行为日志（断言互操作顺序，如打断先于发送） */
+  log: string[] = [];
   sendMessage(text: string): void {
     this.sent.push(text);
+    this.log.push("send:" + text);
   }
   runCommand(line: string): void {
     this.commands.push(line);
+    this.log.push("cmd:" + line);
   }
   dispose(): void {
     this.disposed++;
@@ -88,6 +92,7 @@ class FakeAdapter implements DshAdapter {
   interrupts = 0;
   interrupt(): void {
     this.interrupts++;
+    this.log.push("interrupt");
   }
   catalogCalls = 0;
   savedSelections: ModelSelection[] = [];
@@ -215,12 +220,65 @@ test("/quit → 关闭 renderer", () => {
   app.dispose();
 });
 
-test("Esc 触发打断(interrupt)，不触发退出(close 不被调用)", () => {
+test("Esc 退回一般模式：不触发打断(interrupt)；打断仅由 ! 模式提交触发", () => {
   const { renderer, adapter } = makeApp();
+  // 先切到打断模式，再 Esc 回 normal，再普通提交
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
-  assert.equal(adapter.interrupts, 1);
+  renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.log, ["send:x"], "Esc 退回后按正常模式发送");
+  assert.equal(adapter.interrupts, 0);
   assert.equal(renderer.closed, 0);
+});
+
+test("模式键：空输入按 ! / $ / / 切换模式且吞键；同符号幂等；提交后保留", () => {
+  const { renderer, adapter } = makeApp();
+  // ! 切打断模式，"!" 被吞（消息仅 "x"）
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.log, ["interrupt", "send:x"], "先打断再发送");
+  // 同符号幂等：仍打断模式，再提交仍是 interrupt 先于 send
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "y", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.log, [
+    "interrupt",
+    "send:x",
+    "interrupt",
+    "send:y",
+  ], "模式提交后保留，同符号再次按下幂等");
+});
+
+test("非空输入时 ! / $ / / 为普通字符（不切模式）", () => {
+  const { renderer, adapter } = makeApp();
+  renderer.press({ name: "a", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.sent, ["a!"]);
+  assert.deepEqual(adapter.log, ["send:a!"]);
+});
+
+test("slash 模式提交：自动补 / 前缀转发，不经 sendMessage", () => {
+  const { renderer, adapter } = makeApp();
+  renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
+  for (const ch of Array.from("plan 明天")) {
+    renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
+  }
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(adapter.sent, []);
+  assert.deepEqual(adapter.commands, ["/plan 明天"], "自动补 / 后走注册表");
+});
+
+test("shell 模式提交：仅展示层，文本原样走 sendMessage（不加 $）", () => {
+  const { renderer, adapter } = makeApp();
+  renderer.press({ name: "$", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "l", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "s", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.sent, ["ls"], "shell 模式不加 $ 前缀");
+  assert.deepEqual(adapter.log, ["send:ls"]);
 });
 
 test("Ctrl+L 触发强制重绘(refresh)，不吞普通 'l' 输入", () => {

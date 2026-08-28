@@ -16,6 +16,12 @@ export const DEFAULT_THINKING_MAX_LINES = 4;
 /** 用户块左缘/回复右缘对称留空默认列数（可经 initialState 配置，交错布局用） */
 export const DEFAULT_MESSAGE_GUTTER = 4;
 
+/** 输入栏模式：符号代表模式（> 一般 / ! 打断 / $ shell / / slash；提交后保留，Esc 回 normal） */
+export type InputMode = "normal" | "interrupt" | "shell" | "slash";
+
+/** 输入栏状态色：绿=成功等待 / 黄=进行中 / 红=失败等待 */
+export type InputStatus = "success" | "running" | "failure";
+
 /** 缓冲行类型:用户输出靠右缩进展示,模型正文靠左;思考行限高,完成后清除 */
 export type BufferKind =
   "user" | "assistant" | "thinking" | "notice" | "separator" | "plain";
@@ -53,6 +59,10 @@ export interface AppState {
   scrollOffset: number;
   inputText: string;
   inputCursor: number;
+  /** 输入模式（符号代表模式；提交后保留，Esc 回 normal） */
+  inputMode: InputMode;
+  /** 输入状态色（绿=成功等待 / 黄=进行中 / 红=失败等待） */
+  inputStatus: InputStatus;
   approval: ApprovalItem | null;
   agentStatus: AgentStatus;
   systemStatus: SystemStatus;
@@ -122,6 +132,8 @@ export function initialState(
     scrollOffset: 0,
     inputText: "",
     inputCursor: 0,
+    inputMode: "normal",
+    inputStatus: "success",
     approval: null,
     picker: null,
     agentStatus: "idle",
@@ -272,13 +284,21 @@ export function reduceState(state: AppState, action: StateAction): AppState {
     case "clear-buffer":
       return clearBuffer(state);
     case "agent-status":
-      return setAgentStatus(state, action.status);
+      // 外部活动兜底：thinking/tool 视为进行中(黄)；idle 不改状态色
+      return {
+        ...setAgentStatus(state, action.status),
+        inputStatus:
+          action.status === "thinking" || action.status === "tool"
+            ? "running"
+            : state.inputStatus,
+      };
     case "approval":
       return setApproval(state, action.approval);
     case "sessions":
       return setSessions(state, action.sessions);
     case "picker-open":
-      return { ...state, picker: action.picker };
+      // 面板是全屏交互态：进入即重置输入模式，退出面板后从基础模式(>)开始
+      return { ...state, picker: action.picker, inputMode: "normal" };
     case "picker-move":
       return movePicker(state, action);
     case "picker-tab":
@@ -300,6 +320,10 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       return { ...state, picker: null };
     case "input":
       return setInput(state, action);
+    case "input-mode":
+      return { ...state, inputMode: action.mode };
+    case "input-status":
+      return { ...state, inputStatus: action.status };
     case "move-cursor":
       return moveCursor(state, action);
     case "scroll":
@@ -310,8 +334,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容
       return appendTurnSeparator(state);
     case "turn-end":
-      // 回合结束：不再画分隔线(下个回合 begin 时画)；清遗留思考行(兜底)
-      return clearThinkingLines(state);
+      // 回合结束：不再画分隔线(下个回合 begin 时画)；清遗留思考行(兜底)；置成功色(绿)
+      return { ...clearThinkingLines(state), inputStatus: "success" };
     case "status":
       return setSystemStatus(state, action.status);
     case "set-theme":
@@ -343,6 +367,8 @@ export type StateAction =
   | { type: "picker-close" }
   | { type: "sessions"; sessions: SessionMeta[] }
   | { type: "input"; text: string; cursor: number }
+  | { type: "input-mode"; mode: InputMode }
+  | { type: "input-status"; status: InputStatus }
   | { type: "move-cursor"; delta: number }
   | { type: "scroll"; delta: number }
   | { type: "scroll-to-bottom" }

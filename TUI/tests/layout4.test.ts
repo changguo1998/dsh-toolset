@@ -22,6 +22,7 @@ import {
   TURN_SEPARATOR,
   DEFAULT_THINKING_MAX_LINES,
 } from "../src/app/state.ts";
+import type { InputMode, InputStatus } from "../src/app/state.ts";
 import type { RenderLine } from "../src/renderer/screen.ts";
 
 /** 去 ANSI 取行文本；思考行无前缀、仅 2 空格缩进（顶部窄条 "│ " 外再多 2 空格） */
@@ -78,23 +79,40 @@ test("buildFrame: 四区顺序与高度正确（顶部插件竖线+历史 / 分�
   );
 });
 
-test("输入栏提示符随 agentStatus：忙碌提示文字 + 前缀着色", () => {
+test("输入栏符号随模式（> ! $ /），颜色随状态（绿/黄/红）", () => {
   const strip = (l: RenderLine): string =>
     l.text.replace(/\x1b\[[0-9;]*m/g, "");
+  const sgr = (l: RenderLine): string =>
+    /^\x1b\[38;2;\d+;\d+;\d+m/.exec(l.text)?.[0] ?? "";
   const last = (s: ReturnType<typeof initialState>): RenderLine =>
     buildFrame(s, { rows: 10, cols: 40 }).at(-1)!;
-  const idle = last(initialState());
-  assert.ok(strip(idle).includes("Type a message…"));
-  assert.ok(idle.text.includes("\x1b["), "idle 前缀绿色");
-  const thinking = last(
+  const mk = (mode: InputMode, status: InputStatus) =>
+    reduceState(
+      reduceState(initialState(), { type: "input-mode", mode }),
+      { type: "input-status", status },
+    );
+  // 符号只受模式影响
+  assert.ok(strip(last(mk("normal", "success"))).startsWith("> "), "normal 显示 >");
+  assert.ok(strip(last(mk("interrupt", "success"))).startsWith("! "), "interrupt 显示 !");
+  assert.ok(strip(last(mk("shell", "success"))).startsWith("$ "), "shell 显示 $");
+  assert.ok(strip(last(mk("slash", "success"))).startsWith("/ "), "slash 显示 /");
+  // 颜色三态互异且均着色
+  const green = sgr(last(mk("normal", "success")));
+  const yellow = sgr(last(mk("normal", "running")));
+  const red = sgr(last(mk("normal", "failure")));
+  assert.ok(green && yellow && red, "三态前缀均有着色");
+  assert.notEqual(green, yellow);
+  assert.notEqual(yellow, red);
+  // 外部活动（thinking/tool）→ 进行中黄
+  const busy = last(
     reduceState(initialState(), { type: "agent-status", status: "thinking" }),
   );
-  assert.ok(strip(thinking).includes("思考中…"), "thinking 显示忙碌提示");
-  assert.ok(!strip(thinking).includes("Type a message…"));
-  const tool = last(
-    reduceState(initialState(), { type: "agent-status", status: "tool" }),
+  assert.equal(sgr(busy), yellow, "thinking 视为进行中");
+  // 占位提示固定
+  assert.ok(
+    strip(last(mk("normal", "success"))).includes("Type a message…"),
+    "占位提示固定",
   );
-  assert.ok(strip(tool).includes("正在调用工具…"), "tool 显示工具提示");
 });
 
 test("buildFrame: 审批弹窗时 footer 更高，顶部高度相应缩减", () => {
