@@ -18,12 +18,17 @@ npm run demo    # 构建并运行 mock demo（无 DSH 依赖）
 
 修改后至少跑 `npm run check`；涉及逻辑改动跑 `npm run test`。
 
+## 格式化
+
+- 默认用 `format` 命令（`/home/guochang/fff/scripts/format`，按扩展名选择格式化器：TS/JS → prettier、MD → mdformat、YAML → yq、JSON → jq 等）格式化改动文件；若项目引入自有格式化脚本（如 `package.json` 中的 `format`），则优先使用项目脚本。
+- 提交前对本次改动的文件执行 `format <文件...>`。
+
 ## 构建 → 部署到 profile（本地迭代）
 
 1. `npm run build` 编译到 `dist/`（产物性改动后按下方「变更流程」同步构建）。
-2. profile（`~/.dsh/profiles/dsh-toolset-tui`，参见 `TUI/README.md` 挂载示例）以 `link:` 依赖指向本 TUI 包，构建产物经 symlink 实时可见，**无需** `pnpm install`——直接 `dsh --profile dsh-toolset-tui` 即生效。
-3. 迭代回合：改代码 → `npm run build` → 重启 `dsh --profile dsh-toolset-tui`。
-4. 勿用 `file:` 依赖：install 时复制快照且 pnpm v11 不跟踪目录内容变化，源码变更后 profile 报 `ERR_MODULE_NOT_FOUND`（2026-08-26 实测踩坑）。
+1. profile（`~/.dsh/profiles/dsh-toolset-tui`，参见 `TUI/README.md` 挂载示例）以 `link:` 依赖指向本 TUI 包，构建产物经 symlink 实时可见，**无需** `pnpm install`——直接 `dsh --profile dsh-toolset-tui` 即生效。
+1. 迭代回合：改代码 → `npm run build` → 重启 `dsh --profile dsh-toolset-tui`。
+1. 勿用 `file:` 依赖：install 时复制快照且 pnpm v11 不跟踪目录内容变化，源码变更后 profile 报 `ERR_MODULE_NOT_FOUND`（2026-08-26 实测踩坑）。
 
 ## 变更流程
 
