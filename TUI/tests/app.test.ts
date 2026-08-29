@@ -246,6 +246,25 @@ test("Esc 打断运行：agent 非 idle(thinking) 时调用 interrupt 一次", (
   assert.equal(renderer.closed, 0);
 });
 
+test("审批弹窗打开时 Esc 不打断不关闭：仅 y/n 应答（审批模式不变契约）", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "tool" });
+  adapter.push({ type: "approval", id: "a1", prompt: "允许执行?" });
+  // Esc 不得打断运行、不得关闭审批弹窗
+  renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+  assert.equal(adapter.interrupts, 0, "审批弹窗 Esc 不打断");
+  const frame = renderer.lastRender.join("\n");
+  assert.ok(frame.includes("允许执行?"), "审批弹窗仍打开");
+  // 其他按键（如 Ctrl+L 之外的普通键）也吞掉，不进入输入框
+  renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
+  assert.equal(adapter.log.length, 0, "审批弹窗普通键被吞");
+  // y 正常应答关闭弹窗，不触发 interrupt
+  renderer.press({ name: "y", ctrl: false, meta: false, shift: false });
+  assert.equal(adapter.interrupts, 0);
+  const frame2 = renderer.lastRender.join("\n");
+  assert.ok(!frame2.includes("允许执行?"), "y 后审批弹窗关闭");
+});
+
 test("模式键：空输入按 $ / / 切换模式且吞键，! 为普通字符；提交后回退 normal", () => {
   const { renderer, adapter } = makeApp();
   // ! 不再切模式：空输入也作为普通字符插入

@@ -142,7 +142,9 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 - **提交后自动回退**：任何提交（普通/slash/shell）完成后 `inputMode` 重置 normal（提示符回 `>`），不再记忆上次模式。
 - **Backspace 空输入回退**：非 normal 模式下若输入框为空，Backspace 直接回退 `inputMode` 至 normal（切了模式不输入可反悔），不做删除动作（有输入时仍正常删除）。
 - **两字符提示符**：左字符 = 上次提交模式符号 + 状态色（绿/黄/红，符号不随状态变），右字符 = 当前模式符号（`>`/`$`/`/`，默认前景色）；`layout.ts` 以 `STATUS_PROMPT_COLOR`（状态色）+ `MODE_SYMBOL`（左右两字符符号）映射，state 新增 `lastSubmitMode`（提交时记录），prompt 预着色传给 `renderTextInput`（宽度按未着色文本计）。
-- **测试**：`tests/app.test.ts` 更新 Esc（idle 无操作 / 非 idle 打断）、模式键（`$/` 切模式 + `!` 普通字符）、Alt+Enter（先 interrupt 再 send、空输入无操作）、提交回退（slash/shell 提交后普通发送）、/model 面板确认后回退 normal；`tests/input.test.ts` 新增 ESC CR/LF → meta+enter 解码用例。`npm run check && npm test` 全绿。
+- **测试**：`tests/app.test.ts` 更新 Esc（idle 无操作 / 非 idle 打断）、模式键（`$/` 切模式 + `!` 普通字符）、Alt+Enter（先 interrupt 再 send、空输入无操作）、提交回退（slash/shell 提交后普通发送）、/model 面板确认后回退 normal、**审批弹窗打开时 Esc 不打断不关闭（仅 y/n 应答）**；`tests/input.test.ts` 新增 ESC CR/LF → meta+enter 解码用例。`npm run check && npm test` 全绿（218 例）。
+- **审批弹窗守卫**：`handleKey` 中审批打开时仅 y/n 应答，其余按键（含 Esc、Ctrl+D、Ctrl+L）一律吞掉——不打断运行、不关闭弹窗、不改输入模式（“审批模式不变”契约；修复原 Esc 落入全局打断分支的回归）。
+- **demo 冒烟自断言**：`demo/main.ts` 无 TTY/`--smoke` 时合成按键驱动并自断言——`!` 普通字符发送、`$` 切模式 shell 提交（左提示符 `$`）、空输入 Backspace 回退、Alt+Enter 先打断再发送（interrupts==1）、Esc idle 无操作、审批弹窗 Esc 不打断不关闭；mock 以 `autoApproval:false` 关闭自动审批避免 timing 干扰，冒烟逐项输出 `SMOKE_PASS/SMOKE_FAIL`，失败置非零退出码。
 
 ## 按键扩展（2026-08-24）
 
@@ -150,7 +152,7 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 - **Alt+Enter** → `KeyDecoder` 将 ESC CR / ESC LF 合并解码为 `{name:"enter", meta:true}`（stepEscape 在 SS3 之后、可打印字符之前处理 0x0d/0x0a）；`App.handleKey` case `enter` → `submit(k.meta)`，meta 时先 `adapter.interrupt()` 再发送（等效旧 `!` 模式语义）。
 - **Tab** → 占位：notice「标签页切换待实现（当前为单会话）」。真正的标签页切换需 per-session buffer 基建（`sessions` 表已存在但渲染共享单缓冲）。
 - **Ctrl+L** → `renderer.refresh()` 强制全帧重绘（`prevLines=null`，绕过 delta 优化）。
-- 测试：`tests/app.test.ts` 4 例（Esc 回 `>` 不打断 + Ctrl+L 刷新 + 普通 'l' 不吞 + Tab 占位）、`tests/adapter.dsh.test.ts` 3 例（回调/no-op/dispose 后 no-op）。`npm run check && npm test` 全绿。
+- 测试：`tests/app.test.ts` 4 例（当时 Esc 语义仍为“退回一般模式不打断 + Ctrl+L 刷新 + 普通 'l' 不吞 + Tab 占位”；该 Esc 语义已被上方「输入栏改造（2026-08-29）」取代为**打断运行**，相关用例同步改写）、`tests/adapter.dsh.test.ts` 3 例（回调/no-op/dispose 后 no-op）。`npm run check && npm test` 全绿。
 
 ## 阶段 4：四区域布局 + 系统状态区（2026-08-24）
 

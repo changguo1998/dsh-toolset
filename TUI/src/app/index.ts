@@ -294,11 +294,15 @@ export class App {
     const { name, ctrl } = k;
 
     // 审批模式：y/n + 滚动
-    if (this.state.approval && (name === "y" || name === "n")) {
-      const allow = name === "y";
-      this.deps.adapter.approve(this.state.approval.id, allow);
-      this.apply((s) => reduceState(s, { type: "approval", approval: null }));
-      this.paint();
+    // 审批模式：仅 y/n 应答；其余按键（含 Esc、Ctrl+D、Ctrl+L）一律吞掉——
+    // 不打断运行、不关闭弹窗、不改输入模式（“审批模式不变”契约）
+    if (this.state.approval) {
+      if (name === "y" || name === "n") {
+        const allow = name === "y";
+        this.deps.adapter.approve(this.state.approval.id, allow);
+        this.apply((s) => reduceState(s, { type: "approval", approval: null }));
+        this.paint();
+      }
       return;
     }
 

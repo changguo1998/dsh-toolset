@@ -16,8 +16,13 @@ export class MockDshAdapter implements DshAdapter {
   private cbs: ((e: DshEvent) => void)[] = [];
   private timers: ReturnType<typeof setTimeout>[] = [];
   private seq = 0;
+  /** 第二次回复后是否自动触发审批（冒烟用 false，由脚本显式驱动审批弹窗） */
+  private autoApproval: boolean;
   private sessionId = "mock-1";
 
+  constructor(autoApproval: boolean = true) {
+    this.autoApproval = autoApproval;
+  }
   onEvent(cb: (e: DshEvent) => void): () => void {
     this.cbs.push(cb);
     if (this.cbs.length === 1) this.schedule();
@@ -27,9 +32,19 @@ export class MockDshAdapter implements DshAdapter {
     };
   }
 
-  sendMessage(_text: string): void {
-    // App 在发送前本地回显用户行；mock 只负责模拟模型响应。
+  sendMessage(text: string): void {
+    // App 在发送前本地回显用户行；mock 只负责模拟模型响应（冒烟断言记 sent）。
+    this.sent.push(text);
     this.scheduleReply();
+  }
+
+  /** 冒烟自断言计数：收到 sendMessage 的文本（不含 mock 自动回复） */
+  sent: string[] = [];
+  /** 冒烟自断言计数：interrupt 调用次数 */
+  interrupts = 0;
+  /** 冒烟驱动：向 app 推送任意事件 */
+  emitEvent(e: DshEvent): void {
+    this.emit(e);
   }
 
   /**
@@ -53,6 +68,7 @@ export class MockDshAdapter implements DshAdapter {
   }
 
   interrupt(): void {
+    this.interrupts++;
     this.emit({
       type: "notice",
       text: "[demo] 打断请求（demo 无真实 agent，已忽略）",
@@ -200,7 +216,7 @@ export class MockDshAdapter implements DshAdapter {
         replyStart + chunks.length * 90 + 60,
       ),
     );
-    if (this.seq === 2) {
+    if (this.seq === 2 && this.autoApproval) {
       // 第二次回复后触发一次审批
       const apId = this.sessionId + "/" + this.seq;
       this.timers.push(
@@ -262,8 +278,10 @@ function splitChunks(text: string, n: number): string[] {
   return out.length ? out : [""];
 }
 
-export function createMockDshAdapter(): DshAdapter {
-  return new MockDshAdapter();
+export function createMockDshAdapter(opts?: {
+  autoApproval?: boolean;
+}): DshAdapter {
+  return new MockDshAdapter(opts?.autoApproval ?? true);
 }
 
 /** log stub — 阶段 1 demo；无需引入日志库 */
