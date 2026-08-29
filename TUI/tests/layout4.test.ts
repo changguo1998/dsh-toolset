@@ -79,47 +79,73 @@ test("buildFrame: 四区顺序与高度正确（顶部插件竖线+历史 / 分�
   );
 });
 
-test("输入栏符号随模式（> ! $ /），颜色随状态（绿/黄/红）", () => {
+test("输入栏两字符提示符：左=上次提交模式符号+状态色，右=当前模式符号（默认前景色）", () => {
   const strip = (l: RenderLine): string =>
     l.text.replace(/\x1b\[[0-9;]*m/g, "");
   const sgr = (l: RenderLine): string =>
     /^\x1b\[38;2;\d+;\d+;\d+m/.exec(l.text)?.[0] ?? "";
   const last = (s: ReturnType<typeof initialState>): RenderLine =>
     buildFrame(s, { rows: 10, cols: 40 }).at(-1)!;
-  const mk = (mode: InputMode, status: InputStatus) =>
-    reduceState(reduceState(initialState(), { type: "input-mode", mode }), {
-      type: "input-status",
-      status,
-    });
-  // 符号只受模式影响
+  const mk = (
+    lastMode: InputMode,
+    status: InputStatus,
+    curMode: InputMode = "normal",
+  ) =>
+    reduceState(
+      reduceState(
+        reduceState(initialState(), {
+          type: "last-submit-mode",
+          mode: lastMode,
+        }),
+        { type: "input-status", status },
+      ),
+      { type: "input-mode", mode: curMode },
+    );
+  // 左字符=上次提交模式符号，右字符=当前模式符号
+  // 左字符=上次提交模式符号，右字符=当前模式符号
   assert.ok(
-    strip(last(mk("normal", "success"))).startsWith("> "),
-    "normal 显示 >",
+    strip(last(mk("normal", "success"))).startsWith(">> "),
+    "normal 提交成功显示 >> ",
   );
   assert.ok(
-    strip(last(mk("interrupt", "success"))).startsWith("! "),
-    "interrupt 显示 !",
+    strip(last(mk("shell", "success"))).startsWith("$> "),
+    "shell 提交成功显示 $>（左 $ 绿）",
   );
   assert.ok(
-    strip(last(mk("shell", "success"))).startsWith("$ "),
-    "shell 显示 $",
+    strip(last(mk("slash", "success"))).startsWith("/> "),
+    "slash 提交成功显示 /> ",
   );
   assert.ok(
-    strip(last(mk("slash", "success"))).startsWith("/ "),
-    "slash 显示 /",
+    strip(last(mk("shell", "success", "shell"))).startsWith("$$ "),
+    "当前模式 shell 时右字符 $",
   );
-  // 颜色三态互异且均着色
-  const green = sgr(last(mk("normal", "success")));
-  const yellow = sgr(last(mk("normal", "running")));
-  const red = sgr(last(mk("normal", "failure")));
-  assert.ok(green && yellow && red, "三态前缀均有着色");
+  assert.ok(
+    strip(last(mk("normal", "running"))).startsWith(">> "),
+    "running 左字符仍为上次模式符号",
+  );
+  assert.ok(
+    strip(last(mk("normal", "failure"))).startsWith(">> "),
+    "failure 左字符仍为上次模式符号",
+  );
+  // 左字符 SGR 三态为绿/黄/红且互异
+  const green = sgr(last(mk("shell", "success")));
+  const yellow = sgr(last(mk("shell", "running")));
+  const red = sgr(last(mk("shell", "failure")));
+  assert.ok(green && yellow && red, "左字符三态均有着色");
   assert.notEqual(green, yellow);
   assert.notEqual(yellow, red);
+  // 结构：SGR + 左符号 + 恢复 SGR + 右符号（右符号前无新 SGR，默认前景色）
+  const t = last(mk("shell", "success")).text;
+  assert.ok(
+    /^(\x1b\[38;2;\d+;\d+;\d+m)(\$)(\x1b\[38;2;\d+;\d+;\d+m)(>)/.test(t),
+    "两字符提示符结构：着色 $ + 恢复 + 默认色 >",
+  );
   // 外部活动（thinking/tool）→ 进行中黄
   const busy = last(
     reduceState(initialState(), { type: "agent-status", status: "thinking" }),
   );
   assert.equal(sgr(busy), yellow, "thinking 视为进行中");
+  assert.ok(strip(busy).startsWith(">> "), "thinking 左字符保持上次模式符号");
   // 占位提示固定
   assert.ok(
     strip(last(mk("normal", "success"))).includes("Type a message…"),

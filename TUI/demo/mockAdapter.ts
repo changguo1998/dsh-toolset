@@ -238,7 +238,7 @@ export class MockDshAdapter implements DshAdapter {
       "  - 等第二次回复后出现审批弹窗 → y 批准 / n 拒绝",
       "  - 输入 /help /clearscreen /cls /quit 体验本地渲染命令",
       "  - 其他 /xxx 在 demo 模式回提示（真实模式走 commands 注册表）",
-      "  - 输入框为空按 ! / $ / / 切模式，Esc 回 >；退出用 /quit",
+      "  - 输入框为空按 $ / / 切模式（空输入 Backspace 回退）；Esc 打断运行；Alt+Enter 打断并发送；退出用 /quit",
       "",
     ].join("\n");
   }

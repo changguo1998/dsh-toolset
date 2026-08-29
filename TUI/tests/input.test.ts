@@ -80,6 +80,19 @@ test("ESC + 字母 = meta 键", () => {
   ]);
 });
 
+test("Alt+Enter = ESC CR / ESC LF 合并为单个 meta+enter", () => {
+  const altEnter = { name: "enter", ctrl: false, meta: true, shift: false };
+  // ESC CR（0x1b 0x0d）→ 单个 meta+enter
+  assert.deepEqual(dec([0x1b, 0x0d]), [altEnter]);
+  // ESC LF（0x1b 0x0a）→ 单个 meta+enter
+  assert.deepEqual(dec([0x1b, 0x0a]), [altEnter]);
+  // 不影响既有序列：单 ESC 仍是 escape；CR/LF 独立仍为普通 enter（防误判）
+  assert.deepEqual(names([0x0d]), ["enter"]);
+  assert.deepEqual(names([0x0a]), ["enter"]);
+  assert.deepEqual(names([0x0d, 0x0a]), ["enter"]); // CRLF 合并不受影响
+  assert.deepEqual(names([0x1b]), ["escape"]);
+});
+
 test("Ctrl+方向键（CSI 带修饰符）", () => {
   // ESC [ 1 ; 5 A → Ctrl+Shift+Up（5 = ctrl(4)+shift(1)）
   assert.deepEqual(dec([0x1b, 0x5b, 0x31, 0x3b, 0x35, 0x41]), [

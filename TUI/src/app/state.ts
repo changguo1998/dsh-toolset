@@ -16,8 +16,8 @@ export const DEFAULT_THINKING_MAX_LINES = 4;
 /** 用户块左缘/回复右缘对称留空默认列数（可经 initialState 配置，交错布局用） */
 export const DEFAULT_MESSAGE_GUTTER = 4;
 
-/** 输入栏模式：符号代表模式（> 一般 / ! 打断 / $ shell / / slash；提交后保留，Esc 回 normal） */
-export type InputMode = "normal" | "interrupt" | "shell" | "slash";
+/** 输入栏临时模式（$ shell / / slash；提交后自动回退 normal，不再有 Esc 回退） */
+export type InputMode = "normal" | "shell" | "slash";
 
 /** 输入栏状态色：绿=成功等待 / 黄=进行中 / 红=失败等待 */
 export type InputStatus = "success" | "running" | "failure";
@@ -59,8 +59,10 @@ export interface AppState {
   scrollOffset: number;
   inputText: string;
   inputCursor: number;
-  /** 输入模式（符号代表模式；提交后保留，Esc 回 normal） */
+  /** 输入模式（符号代表模式；提交后自动回退 normal） */
   inputMode: InputMode;
+  /** 上次提交所用模式（提示符左字符符号来源；提交时记录，回退 normal 不影响） */
+  lastSubmitMode: InputMode;
   /** 输入状态色（绿=成功等待 / 黄=进行中 / 红=失败等待） */
   inputStatus: InputStatus;
   approval: ApprovalItem | null;
@@ -133,6 +135,7 @@ export function initialState(
     inputText: "",
     inputCursor: 0,
     inputMode: "normal",
+    lastSubmitMode: "normal",
     inputStatus: "success",
     approval: null,
     picker: null,
@@ -337,6 +340,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       return setInput(state, action);
     case "input-mode":
       return { ...state, inputMode: action.mode };
+    case "last-submit-mode":
+      return { ...state, lastSubmitMode: action.mode };
     case "input-status":
       // 活跃守卫：agent 非 idle 时绿/红结果不暴露（压回黄），空闲后才显示结果色
       return { ...state, inputStatus: statusFor(state, action.status) };
@@ -384,6 +389,7 @@ export type StateAction =
   | { type: "sessions"; sessions: SessionMeta[] }
   | { type: "input"; text: string; cursor: number }
   | { type: "input-mode"; mode: InputMode }
+  | { type: "last-submit-mode"; mode: InputMode }
   | { type: "input-status"; status: InputStatus }
   | { type: "move-cursor"; delta: number }
   | { type: "scroll"; delta: number }

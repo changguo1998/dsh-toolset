@@ -801,19 +801,19 @@ export function renderStatusLine(
   return rows;
 }
 
-/** 输入栏符号代表模式（> 一般 / ! 打断 / $ shell / / slash） */
-const MODE_PROMPT: Record<InputMode, string> = {
-  normal: "> ",
-  interrupt: "! ",
-  shell: "$ ",
-  slash: "/ ",
-};
+/** 提示符左字符 = 上次提交所用模式的符号（normal > / shell $ / slash /；颜色随状态） */
 
-/** 输入栏状态色：绿=成功等待 / 黄=进行中 / 红=失败等待 */
-const INPUT_STATUS_COLOR: Record<InputStatus, ColorName> = {
+/** 提示符左字符状态色：绿=成功等待 / 黄=进行中 / 红=失败等待 */
+const STATUS_PROMPT_COLOR: Record<InputStatus, ColorName> = {
   success: "green",
   running: "yellow",
   failure: "red",
+};
+/** 提示符右字符 = 当前输入模式符号（normal > / shell $ / slash /；默认前景色，不着色） */
+const MODE_SYMBOL: Record<InputMode, string> = {
+  normal: ">",
+  shell: "$",
+  slash: "/",
 };
 
 /** 由渲染帧（AppState → RenderLine[]）：顶部(插件+历史) + 分隔线 + 状态区 + 分隔线 + 输入/审批 */
@@ -863,14 +863,22 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
       width: fullWidth,
     });
   } else {
-    const prompt = MODE_PROMPT[state.inputMode] ?? "> ";
+    // 两字符提示符：左字符 = 上次提交所用模式符号（MODE_SYMBOL[lastSubmitMode]，
+    // 颜色随状态绿/黄/红），右字符 = 当前输入模式符号（MODE_SYMBOL[inputMode]，
+    // 默认前景色不着色）；prompt 预先分段着色，renderTextInput 宽度按未着色文本计算。
+    const prompt =
+      colorFor(
+        state.themeId,
+        STATUS_PROMPT_COLOR[state.inputStatus],
+      )(MODE_SYMBOL[state.lastSubmitMode] ?? ">") +
+      (MODE_SYMBOL[state.inputMode] ?? ">") +
+      " ";
     footerLines = renderTextInput(
       state.inputText,
       state.inputCursor,
       "Type a message…",
       fullWidth,
       prompt,
-      (s) => colorFor(state.themeId, INPUT_STATUS_COLOR[state.inputStatus])(s),
     );
   }
 

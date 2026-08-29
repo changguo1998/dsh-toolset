@@ -95,6 +95,11 @@ export class KeyDecoder {
     }
     if (second === 0x5b /* '[' */) return this.stepCsi();
     if (second === 0x4f /* 'O' */) return this.stepSs3();
+    // ESC CR / ESC LF = Alt+Enter（Alt 前缀 + 回车）：合并为单个 meta+enter
+    if (second === 0x0d || second === 0x0a) {
+      this.pending.splice(0, 2);
+      return { name: "enter", ctrl: false, meta: true, shift: false };
+    }
     if (second >= 0x20 && second < 0x7f) {
       this.pending.splice(0, 2);
       return {

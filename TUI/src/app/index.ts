@@ -345,7 +345,7 @@ export class App {
         return;
       }
       if (name === "escape") {
-        // 关闭面板；Esc 是唯一重置输入模式的交互（Enter 确认保留模式）
+        // 关闭面板（并重置输入模式为 normal；提交后的自动回退见 submit）
         this.apply((s) => reduceState(s, { type: "picker-close" }));
         this.apply((s) =>
           reduceState(s, { type: "input-mode", mode: "normal" }),
@@ -372,12 +372,8 @@ export class App {
 
     switch (name) {
       case "escape":
-        // Esc：退回一般模式（符号代表模式；非 normal 时吞键回 >，不打断 agent）
-        if (this.state.inputMode !== "normal") {
-          this.apply((s) =>
-            reduceState(s, { type: "input-mode", mode: "normal" }),
-          );
-        }
+        // Esc：打断运行（agent 非 idle 时 interrupt；idle 无操作；picker 面板已在上方分支关闭）
+        if (this.state.agentStatus !== "idle") this.deps.adapter.interrupt();
         break;
       case "tab":
         // ponytail: 单会话占位，多会话基建落地后再实现真正的标签页切换
@@ -417,10 +413,18 @@ export class App {
         this.apply((s) => reduceState(s, { type: "move-cursor", delta: 1 }));
         break;
       case "backspace":
-        this.apply((s) => this.backspace(s));
+        // 输入为空时 Backspace 回退模式（$ / 切了模式但没输入，用 Backspace 回 >）
+        if (this.state.inputText === "" && this.state.inputMode !== "normal") {
+          this.apply((s) =>
+            reduceState(s, { type: "input-mode", mode: "normal" }),
+          );
+        } else {
+          this.apply((s) => this.backspace(s));
+        }
         break;
       case "enter":
-        this.submit();
+        // Alt+Enter（解码层提供 meta:true）打断并发送；普通 Enter 排队/发送
+        this.submit(k.meta);
         break;
       case "paste":
         if (k.text) {
@@ -438,15 +442,14 @@ export class App {
         }
         break;
       default:
-        // 模式键：输入框为空时按 ! / $ / / 切换模式并吞键（> 不参与；同符号幂等）
+        // 模式键：输入框为空时按 $ / / 切换模式并吞键（同符号幂等；提交后自动回退 >；! 为普通字符）
         if (
           name.length === 1 &&
           !ctrl &&
           this.state.inputText === "" &&
-          (name === "!" || name === "$" || name === "/")
+          (name === "$" || name === "/")
         ) {
-          const mode: InputMode =
-            name === "!" ? "interrupt" : name === "$" ? "shell" : "slash";
+          const mode: InputMode = name === "$" ? "shell" : "slash";
           if (this.state.inputMode !== mode) {
             this.apply((s) => reduceState(s, { type: "input-mode", mode }));
           }
@@ -459,20 +462,23 @@ export class App {
     this.paint();
   }
 
-  private submit(): void {
+  private submit(interrupt = false): void {
     const text = this.state.inputText.trim();
     if (!text) return;
+    // Alt+Enter：先打断当前 agent，再发送（普通 Enter 排队发送路径无标志）
+    if (interrupt) this.deps.adapter.interrupt();
     const mode = this.state.inputMode;
+    // 记录本次提交所用模式：提示符左字符符号来源（随后 inputMode 回退 normal 不影响）
+    this.apply((s) => reduceState(s, { type: "last-submit-mode", mode }));
     // slash 模式：自动补 "/" 前缀走既有路由（规则：文本中不需要再在开头加 /）
     const slashLine =
       mode === "slash" && !text.startsWith("/") ? "/" + text : text;
     if (slashLine.startsWith("/")) {
       this.handleSlash(slashLine);
       this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
+      this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
       return;
     }
-    // 打断模式：先打断当前 agent，再发送新消息（立即置进行中，黄）
-    if (mode === "interrupt") this.deps.adapter.interrupt();
     this.apply((s) =>
       reduceState(s, { type: "input-status", status: "running" }),
     );
@@ -485,6 +491,8 @@ export class App {
       this.state.activeSessionId ?? undefined,
     );
     this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
+    // 任何提交后自动回退普通模式（提示符回 >）
+    this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
   }
 
   /**

@@ -10,8 +10,8 @@ import { displayWidth, charWidth } from "../layout.ts";
 /**
  * 生成输入行。cursor 为文本内光标位置(0..text.length，按 code point)。
  * width 为终端列宽(超宽输入做水平滚动保留光标可见——见 hshift)。
- * promptText 为显示前缀（如 "> " / "! " / "$ " / "/ "，默认 "> "）；promptColor
- * 可选对着色（如随状态变色）；宽度始终按未着色纯文本计算（ANSI 序列不占列）。
+ * promptText 为显示前缀（如两字符提示 "✓> "，可携带分段 ANSI 着色，默认 "> "）；
+ * promptColor 可选对整体着色；宽度始终按未着色纯文本经 displayWidth 计算（ANSI 序列不占列）。
  * 返回行附带 caret=光标显示列(0 基)，供 Screen 移动硬件光标。
  */
 export function renderTextInput(
