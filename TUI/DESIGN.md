@@ -8,7 +8,7 @@
 
 - 语言：TypeScript（与 DSH 核心一致）
 - 运行时：Node.js
-- 包管理：pnpm
+- 包管理：npm（开发脚本）；发布验证历史上使用 pnpm
 - 依赖：chalk（ANSI 颜色控制）
 - 可选依赖：node-pty（已评估，暂不引入；除非 TUI 需直接开 shell，否则会话由 DSH 管理）
 
@@ -147,7 +147,7 @@ interface Renderer {
 
 - 构建：`tsc`（无 bundler，Node CLI 无需打包），`outDir: dist/`，ESM
 - bin：`bin/dsh-tui.js` = shebang + `import('../dist/main.js')`，`package.json.bin` 指向它
-- demo：`pnpm demo` → tsc 后 `node dist/demo/main.js`
+- demo：`npm run demo` → tsc 后 `node dist/demo/main.js`
 
 ## 开发阶段（含 spike）
 

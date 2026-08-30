@@ -62,7 +62,7 @@ Done when：真实 DSH profile 内运行，TUI 显示真实会话流式输出，
 - [x] T3.1 `package.json`（type: module、bin: dsh-tui.js、dsh.bundle.patch→./cordis.patch.yml、files 覆盖 dist/bin/cordis.patch.yml）、`tsconfig.json`（ESM、NodeNext、outDir dist）。此前阶段已就绪，本阶段复核。
 - [x] T3.2 `bin/dsh-tui.js`：双态 delegating launcher（shebang 可执行 755）——目标 profile（默认 dsh-toolset-tui，DSH_TUI_PROFILE 可覆盖）已装本 bundle → spawn `dsh --profile <p>` 透传 argv/退出码/信号；无 DSH/`--demo` → 退化 mock demo；`--help`。零第三方依赖（仅 node 内建模块）。
 - [x] T3.3 `cordis.patch.yml`（insert dsh-tui 行）+ `dsh.profile.bundles` 注册（见 `~/.dsh/profiles/dsh-toolset-tui` 示例）+ `README.md`（包定位、双态用法、挂载步骤、demo 与真实链路、构建/测试命令）。
-- [x] T3.4 全新环境验证：`pnpm pack` 产物 `dsh-toolset-dsh-tui-0.1.0.tgz`，tarball 成员含 `dist/`（34 文件，src/demo/tests）、`bin/dsh-tui.js`、`cordis.patch.yml`、`README.md`；临时空目录 `pnpm add <tarball>` 后 `node_modules/@dsh-toolset/dsh-tui` 内 bin、cordis.patch.yml、dist（含 `apply` 导出）齐全，`--help` 正常。
+- [x] T3.4 全新环境验证（历史验证使用 pnpm）：`pnpm pack` 产物 `dsh-toolset-dsh-tui-0.1.0.tgz`，tarball 成员含 `dist/`（34 文件，src/demo/tests）、`bin/dsh-tui.js`、`cordis.patch.yml`、`README.md`；临时空目录 `pnpm add <tarball>` 后 `node_modules/@dsh-toolset/dsh-tui` 内 bin、cordis.patch.yml、dist（含 `apply` 导出）齐全，`--help` 正常。当前开发脚本使用 `npm run`。
 
 真机结论（2026-08-23，阶段 3 回归）：双态 bin 委托路径经伪 TTY 拉起真实链路（`dsh --profile dsh-toolset-tui`），进程无崩溃；无 DSH 空 `$DSH_HOME` 走 demo 分支存活；冒烟捕获 thinking 推理与真实作答（"7\*8 = 56"），turn 正常回 idle。
 
@@ -195,4 +195,4 @@ T3.1/3.2 ← T2.2；T3.3/3.4 ← T3.1
 - 单元：`node --test`（input 解码、layout 视口）
 - 集成：`npm run demo`（mock 全栈）
 - 真机：真实 DSH profile 跑通（T2.1；阶段 0 spike 改为源码研读，无真机脚本）
-- 打包：`pnpm pack` + 全新空目录 `pnpm add <tarball>` 验证 files/bundle patch（T3.4，已通过）
+- 打包：历史验证使用 `pnpm pack` + 全新空目录 `pnpm add <tarball>` 验证 files/bundle patch（T3.4，已通过）；当前开发脚本使用 `npm run`

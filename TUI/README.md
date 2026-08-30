@@ -48,10 +48,10 @@ dsh-tui --help
 }
 ```
 
-1. 安装依赖并核对组合树：
+1. 核对组合树（本地 link: 依赖无需重新安装）：
 
 ```sh
-cd <profile> && pnpm install
+# 本地开发使用 link: 依赖，无需重新安装；正式发布使用 dsh plugin add
 dsh --profile <p> --dump-config        # 应出现 - id: dsh-tui 行
 ```
 
