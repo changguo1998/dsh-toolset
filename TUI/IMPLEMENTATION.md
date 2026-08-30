@@ -5,9 +5,9 @@
 
 ## 技术决策（已定，不再重议）
 
-- TS + Node（当前 v24），pnpm，ESM，仅依赖 `chalk`。
+- TS + Node（当前 v24），npm，ESM，仅依赖 `chalk`。
 - 构建：`tsc`（无 bundler），`outDir: dist/`。
-- 运行/测试：demo 走 `pnpm demo`，测试用 `node --test`（无框架）。
+- 运行/测试：demo 走 `npm run demo`，测试用 `npm run test`（无框架）。
 - 会话/输入完全由 renderer 自研，不引入 Ink / Solid-TUI / node-pty。
 
 ## 阶段 0：DSH adapter spike（丢弃式）
@@ -35,10 +35,10 @@ Done when：经官方源码核实任一断言（本次以 `grep` 交叉验证 JS
 - [x] T1.2 `input.ts`：stdin 字节 → `KeyEvent` 解码（方向键、Home/End、Ctrl 组合、Tab、Esc、bracketed paste）。`tests/input.test.ts` 喂字节流断言 KeyEvent（node:test）。
 - [x] T1.3 `screen.ts`：帧缓冲 + 整帧重绘（全部行每次 `write`，无 diff）。含 ANSI 光标定位/清屏。
 - [x] T1.4 `index.ts`：`Renderer` 公共 API（`render/onKey/onResize/getSize/close`），`render` 追写最后一行优化。
-- [x] T1.5 `app/state.ts` `layout.ts` `components/`：状态模型（会话列表、流式增量、审批项）+ viewport 切分（wrapping、2000 行上限、跟随底部/上滚暂停跟随）。`layout.ts` 的视口计算抽纯函数，可单测。
-- [x] T1.6 `demo/`：mock adapter 喂模拟流式文本与审批，`pnpm demo` 完整走通 renderer→app 栈。
+- [x] T1.5 `app/state.ts` `layout.ts` `components/`：状态模型（会话列表、流式增量、审批项、问答项、模型选择面板）+ viewport 切分（wrapping、2000 行上限、跟随底部/上滚暂停跟随）。`layout.ts` 的视口计算抽纯函数，可单测。
+- [x] T1.6 `demo/`：mock adapter 喂模拟流式文本、审批与问答，`npm run demo` 完整走通 renderer→app 栈。
 
-Done when：`pnpm demo` 启动后可见流式滚动、可上滚回翻、审批弹窗可确认/拒绝；`node --test tests/` 全绿。
+Done when：`npm run demo` 启动后可见流式滚动、可上滚回翻、审批与问答面板可交互；`npm run test` 全绿。
 
 `ponytail:` screen 无 diff 整帧重绘，行数大时若有闪烁再考虑增量。
 
@@ -66,7 +66,7 @@ Done when：真实 DSH profile 内运行，TUI 显示真实会话流式输出，
 
 真机结论（2026-08-23，阶段 3 回归）：双态 bin 委托路径经伪 TTY 拉起真实链路（`dsh --profile dsh-toolset-tui`），进程无崩溃；无 DSH 空 `$DSH_HOME` 走 demo 分支存活；冒烟捕获 thinking 推理与真实作答（"7\*8 = 56"），turn 正常回 idle。
 
-Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可独立启动并与 profile 内会话交互；无 DSH 环境退化为 demo 模式。——✅ 已达成（挂载→委托→真实链路已验证；`dsh plugin add` 的发布分发形态见 README，本地开发经 `file:` 依赖同路径验证）。
+Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可独立启动并与 profile 内会话交互；无 DSH 环境退化为 demo 模式。——✅ 已达成（挂载→委托→真实链路已验证；`dsh plugin add` 的发布分发形态见 README，本地开发经 `link:` 依赖同路径验证）。
 
 ## Slash 命令（2026-08-23）
 
@@ -193,6 +193,6 @@ T3.1/3.2 ← T2.2；T3.3/3.4 ← T3.1
 ## 验证方式汇总
 
 - 单元：`node --test`（input 解码、layout 视口）
-- 集成：`pnpm demo`（mock 全栈）
+- 集成：`npm run demo`（mock 全栈）
 - 真机：真实 DSH profile 跑通（T2.1；阶段 0 spike 改为源码研读，无真机脚本）
 - 打包：`pnpm pack` + 全新空目录 `pnpm add <tarball>` 验证 files/bundle patch（T3.4，已通过）

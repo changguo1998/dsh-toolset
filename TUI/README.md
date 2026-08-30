@@ -43,7 +43,7 @@ dsh-tui --help
 ```jsonc
 // <profile>/package.json
 {
-  "dependencies": { "@dsh-toolset/dsh-tui": "file:<本包路径>" },
+  "dependencies": { "@dsh-toolset/dsh-tui": "link:<本包路径>" },
   "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@dsh-toolset/dsh-tui"] } }
 }
 ```
@@ -61,7 +61,7 @@ dsh --profile <p> --dump-config        # 应出现 - id: dsh-tui 行
 dsh --profile <p>
 ```
 
-从 npm 分发的正式安装形态为 `dsh plugin --profile <p> add <包名>`（待发布后使用），本地开发期用 `file:` 依赖即可。
+从 npm 分发的正式安装形态为 `dsh plugin --profile <p> add <包名>`（待发布后使用）；本地开发期使用 `link:` 依赖，构建产物经 symlink 实时可见，源码变更后无需重新安装。
 
 ## profile 配置（主题与流式显示）
 
@@ -84,10 +84,10 @@ dsh --profile <p>
 ## 构建 / 测试
 
 ```sh
-pnpm build    # tsc → dist/（无 bundler，Node CLI）
-pnpm check    # tsc --noEmit 类型检查
-pnpm test     # node --test 全量（renderer 解码 + adpater fake-ctx 单测）
-pnpm demo     # 构建后跑 mock demo
+npm run build # tsc → dist/（无 bundler，Node CLI）
+npm run check # tsc --noEmit 类型检查
+npm run test  # node --test 全量（renderer 解码 + adapter fake-ctx 单测）
+npm run demo  # 构建后跑 mock demo
 ```
 
 - `files` 发布字段覆盖 `dist/`、`bin/` 等；`cordis.patch.yml` 由 `package.json` 的 `dsh.bundle.patch` 引用。

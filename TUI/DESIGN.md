@@ -165,5 +165,5 @@ interface Renderer {
 - 构建工具选定 tsc，产物 dist/，bin 指向 dist/main.js
 - demo 与 tests 定位：demo 用 mock adapter 走通全栈；tests 优先覆盖 input.ts
 - 信号/退出契约归 renderer
-- components 清单落实为 TextInput / ScrollView / ApprovalPrompt
+- components 清单落实为 TextInput / ScrollView / ApprovalPrompt / ModelPicker / QuestionPrompt
 - adapter 接口化，ctx API 未确认前可 mock 替换
