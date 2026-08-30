@@ -146,6 +146,13 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 - **审批弹窗守卫**：`handleKey` 中审批打开时仅 y/n 应答，其余按键（含 Esc、Ctrl+D、Ctrl+L）一律吞掉——不打断运行、不关闭弹窗、不改输入模式（“审批模式不变”契约；修复原 Esc 落入全局打断分支的回归）。
 - **demo 冒烟自断言**：`demo/main.ts` 无 TTY/`--smoke` 时合成按键驱动并自断言——`!` 普通字符发送、`$` 切模式 shell 提交（左提示符 `$`）、空输入 Backspace 回退、Alt+Enter 先打断再发送（interrupts==1）、Esc idle 无操作、审批弹窗 Esc 不打断不关闭；mock 以 `autoApproval:false` 关闭自动审批避免 timing 干扰，冒烟逐项输出 `SMOKE_PASS/SMOKE_FAIL`，失败置非零退出码。
 
+## 用户提问面板（2026-08-30）
+
+- **服务接线**：`main.ts` 经 `ctx.get("userQuestions")` 取 `user-questions` 服务（结构面判定后传入 adapter）。`adapter/dsh.ts` 注册 `registerProvider({ask})`——单活动请求守卫（并发 ask 直接 reject）、`signal` abort → reject；DSH 回调提问归一化为 `DshEvent {type:'question'; id; questions[]}`。App 应答走 `answerQuestion(id, {answers})`（整批），Esc/cancel 走 `cancelQuestion(id)`（仅 reject）。注册失败（DUPLICATE_PROVIDER）不阻塞启动：stderr 告警 + notice，构造期 notice 先进 `pendingRegNotices` 缓冲、首个 `onEvent` 订阅时补发（避开构造期无监听者丢事件）。`emit_models` 等既有逻辑不受影响。
+- **状态与交互**：`AppState.question`（`QuestionPanelState`）+ 6 个 reducer action（open/move/nav/select/custom/close）。`handleQuestionKey` 路由在 approval 之后、picker 之前：Esc 仅取消；**Enter 有下一题时 `question-nav +1` 进下一题、末题 `submitQuestion()` 提交整批**（修复：原直接提交导致多问答完第一题就被收走，模型拿不到后续题目答案）。**「自定义回答」作为选项列表末位（`optionIndex === options.length`）**，与预设选项共用 `question-move`（↑/↓ 在 0..options.length 内 clamp）——不再有独立 focus 字段、**Tab 已释放**（落入默认分支吞掉）；空格/可打印字符/退格仅在自定义项高亮时编辑 custom（预设选项上键入被吞，不落入主输入栏）。单选互斥：`selectQuestionOption` 选预设清空 custom、`setQuestionCustom` 输入首字符清空 selected；多选 preset 与 custom 并存。`navQuestion` 切题重置于列表首项。
+- **渲染**：`QuestionPrompt.ts` 输出恰 footer 高度；**自定义兜底项为普通列表行，高亮在其上且列表超长时强制该行可见**（修复「自由回答不显示输入文字」，输入文本就地在行尾回显 `自定义回答：文本`）；选项标记纯 ASCII：首列光标 `>`/空格、次列选中 `*`（单选）/`+`（多选）/空格（修复复杂符号，未选中以空格对齐）。**操作提示只显示实际用到的按键**：Enter 文案区分「下一题/提交」（多题首/中题=下一题、末题与单题=提交）、多题才显示「[←/→] 切题」、有预设选项才显示「[空格] 选择」与「[↑/↓] 选项」。`plan-review` intent 以「计划卡片」呈现 detail、标题「计划审批」。`metricsFor` footer 优先级 approval > question > picker > 输入栏。
+- **测试**：`tests/adapter.dsh.test.ts` 6 例（register → question 事件 → answerQuestion resolve；cancel reject；并发 ask 拒绝；DUPLICATE_PROVIDER notice 缓冲补发且 sendMessage 不受影响；abort；dispose 注销）；`tests/app.test.ts` 9 例（渲染+动态按键提示/单选替换+末题 Enter 提交/切题+多选 toggle/↓ 到自定义项键入+空格+退格修改+单选互斥/多选预设+custom 并存/预设选项键入被吞/Tab 释放被吞/Esc 取消不打断/plan-review 卡片+单题提示）；demo 冒烟 4 断言（question-rendered/submitted/cancelled/Esc 不打断）。`npm run check && npm run test && npm run build && npm run demo -- --smoke`（233 例）全绿。
+
 ## 按键扩展（2026-08-24）
 
 - **Esc** → `App.handleKey` case `escape` → 若 `agentStatus !== "idle"` 调 `adapter.interrupt()`（打断运行）；idle 无操作；picker 面板打开时 Esc 仍由 picker 分支关闭面板。**不再回退输入模式**（提交后自动回退；`!` 打断模式已移除）。
