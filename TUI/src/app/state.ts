@@ -3,7 +3,12 @@
 // buffer 持有会话文本行（无界，超出 SCROLLBACK_MAX 裁剪旧行）。
 // 滚动状态：followBottom 跟随底部；scrollOffset = 上滚的行单位偏移。
 
-import type { ApprovalItem, AgentStatus, SessionMeta } from "./adapter/dsh.ts";
+import type {
+  ApprovalItem,
+  AgentStatus,
+  SessionMeta,
+  QuestionItem,
+} from "./adapter/dsh.ts";
 import type { ModelSelection } from "./adapter/dsh.ts";
 import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
 
@@ -76,6 +81,8 @@ export interface AppState {
   messageGutter: number;
   /** 模型交互选择模式（/model 无参进入；null = 未激活） */
   picker: PickerState | null;
+  /** 问答面板（userQuestions 提问；null = 未激活） */
+  question: QuestionPanelState | null;
 }
 
 /** /model 交互选择面板状态：三列列表（provider/model/effort）+ 高亮索引 */
@@ -105,6 +112,7 @@ export interface PickerState {
 }
 
 /** 选择面板单个选项 */
+/** 选择面板单个选项 */
 export interface PickerOption {
   /** 纯 ASCII 展示文本，如 "deepseek/deepseek-chat" */
   label: string;
@@ -112,6 +120,33 @@ export interface PickerOption {
   selection: ModelSelection;
   /** 是否为当前会话模型（行内标记 + 高亮） */
   current: boolean;
+}
+
+/** 问答面板单题交互状态 */
+export interface QuestionPanelItem {
+  id: string;
+  question: string;
+  /** 待审计划正文（plan-review intent 展示用） */
+  detail?: string;
+  header?: string;
+  options: { label: string; description?: string }[];
+  multiSelect: boolean;
+  intent?: { kind: "plan-review"; approve: string };
+  /** 列表高亮索引：0..options.length（=options.length 表示高亮在“自定义回答”兜底项） */
+  optionIndex: number;
+  /** 已选选项 label（单选最多 1 项；多选可多项） */
+  selected: string[];
+  /** 自定义回答文本 */
+  custom: string;
+}
+
+/** 问答面板整体状态（一次 ask() = 一批题；每屏显示一题，第 n/m 题导航） */
+export interface QuestionPanelState {
+  /** 面板 id（question 事件 id，answerQuestion/cancelQuestion 用它） */
+  id: string;
+  items: QuestionPanelItem[];
+  /** 当前显示题号（0-based） */
+  itemIndex: number;
 }
 
 export function initialState(
@@ -139,6 +174,7 @@ export function initialState(
     inputStatus: "success",
     approval: null,
     picker: null,
+    question: null,
     agentStatus: "idle",
     themeId,
     systemStatus: {
@@ -336,6 +372,18 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       );
     case "picker-close":
       return { ...state, picker: null };
+    case "question-open":
+      return openQuestion(state, action);
+    case "question-move":
+      return moveQuestion(state, action);
+    case "question-nav":
+      return navQuestion(state, action);
+    case "question-select":
+      return selectQuestionOption(state);
+    case "question-custom":
+      return setQuestionCustom(state, action.text);
+    case "question-close":
+      return { ...state, question: null };
     case "input":
       return setInput(state, action);
     case "input-mode":
@@ -386,6 +434,12 @@ export type StateAction =
       effortIndex?: number;
     }
   | { type: "picker-close" }
+  | { type: "question-open"; id: string; questions: QuestionItem[] }
+  | { type: "question-move"; delta: 1 | -1 }
+  | { type: "question-nav"; delta: 1 | -1 }
+  | { type: "question-select" }
+  | { type: "question-custom"; text: string }
+  | { type: "question-close" }
   | { type: "sessions"; sessions: SessionMeta[] }
   | { type: "input"; text: string; cursor: number }
   | { type: "input-mode"; mode: InputMode }
@@ -536,6 +590,105 @@ function setPickerEfforts(
     picker: { ...picker, efforts: action.efforts, effortIndex },
   };
 }
+
+/** 打开问答面板：把一次 ask() 的整批题转为交互状态（无题则不变） */
+function openQuestion(
+  state: AppState,
+  action: { type: "question-open"; id: string; questions: QuestionItem[] },
+): AppState {
+  if (action.questions.length === 0) return state;
+  const items: QuestionPanelItem[] = action.questions.map((q) => ({
+    id: q.id,
+    question: q.question,
+    header: q.header,
+    detail: q.detail,
+    options: q.options ?? [],
+    multiSelect: q.multiSelect ?? false,
+    intent: q.intent
+      ? { kind: "plan-review", approve: q.intent.approve }
+      : undefined,
+    optionIndex: 0,
+    selected: [],
+    custom: "",
+  }));
+  // 移除 unused first 引用（自定义兑底项始终存在，列表总长度 = options.length + 1）
+  return {
+    ...state,
+    question: {
+      id: action.id,
+      items,
+      itemIndex: 0,
+    },
+  };
+}
+
+/** 列表高亮移动：↑/↓ 在 0..options.length（末位为“自定义回答”兑底项）内 clamp */
+function moveQuestion(
+  state: AppState,
+  action: { type: "question-move"; delta: 1 | -1 },
+): AppState {
+  const panel = state.question;
+  if (!panel) return state;
+  const item = panel.items[panel.itemIndex];
+  if (!item) return state;
+  const max = item.options.length; // 末位 = 自定义兑底项
+  const next = Math.max(0, Math.min(item.optionIndex + action.delta, max));
+  if (next === item.optionIndex) return state;
+  const items = [...panel.items];
+  items[panel.itemIndex] = { ...item, optionIndex: next };
+  return { ...state, question: { ...panel, items } };
+}
+
+/** 第 n/m 题导航：左右切换题目（clamp 不循环），每题重置于列表首项 */
+function navQuestion(
+  state: AppState,
+  action: { type: "question-nav"; delta: 1 | -1 },
+): AppState {
+  const panel = state.question;
+  if (!panel) return state;
+  const next = Math.max(
+    0,
+    Math.min(panel.itemIndex + action.delta, panel.items.length - 1),
+  );
+  if (next === panel.itemIndex) return state;
+  const items = [...panel.items];
+  items[next] = { ...items[next]!, optionIndex: 0 };
+  return { ...state, question: { ...panel, itemIndex: next, items } };
+}
+
+/** 选中/取消选中高亮选项：单选替换（同时清掉自定义文本，二选一互斥）、多选 toggle */
+function selectQuestionOption(state: AppState): AppState {
+  const panel = state.question;
+  if (!panel) return state;
+  const items = [...panel.items];
+  const item = items[panel.itemIndex];
+  if (!item) return state;
+  const label = item.options[item.optionIndex]?.label;
+  if (!label) return state; // 高亮在自定义兑底项（无 label）时空格无效
+  items[panel.itemIndex] = item.multiSelect
+    ? {
+        ...item,
+        selected: item.selected.includes(label)
+          ? item.selected.filter((s) => s !== label)
+          : [...item.selected, label],
+      }
+    : { ...item, selected: [label], custom: "" }; // 单选选预设即覆盖自定义
+  return { ...state, question: { ...panel, items } };
+}
+
+/** 自定义回答文本（每次键入全量替换）；单选时输入会清空已选预设（二选一互斥） */
+function setQuestionCustom(state: AppState, text: string): AppState {
+  const panel = state.question;
+  if (!panel) return state;
+  const items = [...panel.items];
+  const item = items[panel.itemIndex];
+  if (!item) return state;
+  items[panel.itemIndex] = item.multiSelect
+    ? { ...item, custom: text }
+    : { ...item, custom: text, selected: text === "" ? item.selected : [] };
+  return { ...state, question: { ...panel, items } };
+}
+
 /**
  * 按 delta 滚动：正数上滚（delta>0 暂停跟随），负数下滚；滚回底部恢复跟随。
  * scrollOffset 语义 = 距底部多少行。

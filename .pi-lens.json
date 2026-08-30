@@ -1,0 +1,10 @@
+{
+    "rules": {
+        "yaml-schema: JSONPatch:0": {
+            "disable": true
+        },
+        "yaml-schema: JSONPatch:513": {
+            "disable": true
+        }
+    }
+}

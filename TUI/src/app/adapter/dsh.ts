@@ -36,6 +36,7 @@ export type DshEvent =
   | { type: "stream"; sessionId: string; text: string }
   | { type: "thinking"; sessionId: string; text: string }
   | { type: "approval"; id: string; prompt: string }
+  | { type: "question"; id: string; questions: QuestionItem[] }
   | { type: "agent-status"; sessionId: string; status: AgentStatus }
   | { type: "notice"; text: string; error?: boolean }
   | { type: "turn-end" };
@@ -57,6 +58,10 @@ export interface DshAdapter {
   dispose?(): void;
   /** 审批：allow=true 批准（DSH 'allowed-once'），false 拒绝（'rejected'） */
   approve(id: string, allow: boolean): void;
+  /** 提交问答整批答案（id = question 事件 id；Esc 取消走 cancelQuestion） */
+  answerQuestion(id: string, answer: QuestionAnswer): void;
+  /** 取消问答（Esc）：reject 当前 ask，不打断 turn */
+  cancelQuestion(id: string): void;
   /** 打断当前思考/turn（真实实现映射 agent.cancel({kind:'user'})；宿主无取消能力时为 no-op） */
   interrupt(): void;
   /** 查询可用模型目录（provider + 各 provider 可用模型 + 当前默认选择） */
@@ -211,6 +216,55 @@ export interface ApprovalRequest {
 export type ApprovalOutcome =
   "allowed-once" | "rejected" | "cancelled" | "unavailable";
 
+/** 问答单个选项（镜像 dsh-user-questions AskUserQuestionOption） */
+export interface QuestionOption {
+  label: string;
+  description?: string;
+}
+
+/** 问答呈现意图（plan-review：detail 为待审计划，approve 命名的选项即批准） */
+export interface QuestionIntent {
+  kind: "plan-review";
+  approve: string;
+}
+
+/** 单个问题（镜像 dsh-user-questions AskUserQuestionItem） */
+export interface QuestionItem {
+  id: string;
+  question: string;
+  detail?: string;
+  header?: string;
+  options?: QuestionOption[];
+  multiSelect?: boolean;
+  intent?: QuestionIntent;
+}
+
+/** 单个回答（镜像 AskUserQuestionAnswerItem） */
+export interface QuestionAnswerItem {
+  id: string;
+  selected: string[];
+  custom?: string;
+}
+
+/** 整批回答（镜像 AskUserQuestionAnswer） */
+export interface QuestionAnswer {
+  answers: QuestionAnswerItem[];
+}
+
+/** ctx.get('userQuestions') 结构面（dsh-user-questions 0.1.1：单 provider registerProvider） */
+export interface UserQuestionsLike {
+  registerProvider(provider: {
+    ask(req: UserQuestionRequestLike): Promise<QuestionAnswer>;
+  }): () => void;
+}
+
+/** AskUserQuestionRequest 结构面（agent 存活/委托校验由宿主 ask() 完成） */
+export interface UserQuestionRequestLike {
+  questions: QuestionItem[];
+  agent?: unknown;
+  signal?: AbortSignal;
+}
+
 /** 各 type 的 data 载荷（阶段 2 用到的子集） */
 export interface SessionEventDataMap {
   "turn/start": { turn: number };
@@ -364,6 +418,8 @@ export interface RealAdapterOptions {
   sessionModel?: SessionModelSelectionRef;
   /** ctx.get('agentDefaultModel') 服务（只读兜底：会话未切换时作为目录/状态显示与组装默认） */
   defaultModel?: AgentDefaultModelLike;
+  /** ctx.get('userQuestions') 服务（dsh-user-questions 0.1.1 单 provider）；缺失时提问功能不可用但 adapter 正常启动 */
+  userQuestions?: UserQuestionsLike;
 }
 
 /**
@@ -608,10 +664,96 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     });
   };
 
+  // --- user-questions provider 接线（0.1.1 单 provider；每次最多一个活动请求） ---
+  let questionSeq = 0;
+  const pendingQuestions = new Map<
+    string,
+    {
+      resolve: (a: QuestionAnswer) => void;
+      reject: (err: unknown) => void;
+      cleanup: () => void;
+    }
+  >();
+  const questionDisposers: (() => void)[] = [];
+  // 构造期注册失败先缓冲，待首个监听者订阅后补发（构造时无人订阅，直接 emit 会丢）
+  let pendingRegNotices: DshEvent[] = [];
+
+  const questionProvider = {
+    ask(req: UserQuestionRequestLike): Promise<QuestionAnswer> {
+      // 单面板约束：已有活动请求时拒绝新请求（绝不覆盖旧 Promise），让 agent 自行处理
+      if (pendingQuestions.size > 0) {
+        return Promise.reject(
+          new Error("已有待回答的提问，请先完成当前问答面板"),
+        );
+      }
+      const id = "question-" + questionSeq++;
+      return new Promise<QuestionAnswer>((resolve, reject) => {
+        const entry = {
+          resolve,
+          reject,
+          cleanup: () => {},
+        };
+        const onAbort = () => {
+          entry.cleanup();
+          reject(
+            new Error("ask_user_question was aborted before the user answered"),
+          );
+        };
+        entry.cleanup = () => {
+          if (pendingQuestions.get(id) !== entry) return;
+          pendingQuestions.delete(id);
+          req.signal?.removeEventListener("abort", onAbort);
+        };
+        pendingQuestions.set(id, entry);
+        if (req.signal?.aborted) {
+          onAbort();
+          return;
+        }
+        req.signal?.addEventListener("abort", onAbort, { once: true });
+        emit({ type: "question", id, questions: req.questions });
+      });
+    },
+  };
+
+  // 注册问题 provider。0.1.1 是单 provider：已有 provider（如官方 client UI）时
+  // 宿主抛 DUPLICATE_PROVIDER —— 不覆盖、不阻塞 TUI 启动，仅报告并 fail-safe。
+  try {
+    const disposer = opts.userQuestions?.registerProvider(questionProvider);
+    if (disposer) questionDisposers.push(disposer);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      "[dsh adapter] userQuestions provider 注册失败: " + detail + "\n",
+    );
+    const notice: DshEvent = {
+      type: "notice",
+      text: "问答面板不可用（provider 注册失败）：" + detail,
+      error: true,
+    };
+    if (listeners.size > 0) {
+      emit(notice);
+    } else {
+      // 构造期无订阅者：缓冲，onEvent 首次订阅时补发（真实链路 App 紧随订阅）
+      pendingRegNotices.push(notice);
+    }
+  }
+
   const adapter: DshAdapter = {
     onEvent(cb) {
       if (disposed) return () => {};
       listeners.add(cb);
+      // 补发构造期缓冲的注册失败 notice（一次性，触碰即清）
+      if (pendingRegNotices.length > 0) {
+        const flush = pendingRegNotices;
+        pendingRegNotices = [];
+        for (const n of flush) {
+          try {
+            cb(n);
+          } catch {
+            /* 订阅者异常不影响其他事件 */
+          }
+        }
+      }
       return () => listeners.delete(cb);
     },
     sendMessage(text, targetSessionId) {
@@ -645,6 +787,20 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       activeCommands.clear();
       for (const u of runtimeUnbinds) u();
       runtimeUnbinds.length = 0;
+      // 拒绝所有悬挂问答（绝不留下悬浮 Promise），并注销 provider
+      for (const p of pendingQuestions.values()) {
+        p.cleanup();
+        p.reject(new Error("adapter disposed"));
+      }
+      pendingQuestions.clear();
+      for (const d of questionDisposers) {
+        try {
+          d();
+        } catch {
+          /* 注销失败不影响退出 */
+        }
+      }
+      questionDisposers.length = 0;
       emittedByBlock.clear();
       stepEmitted.clear();
       listeners.clear();
@@ -652,6 +808,20 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     approve(id, allow) {
       if (disposed) return;
       settle(id, allow ? "allowed-once" : "rejected");
+    },
+    answerQuestion(id, answer) {
+      if (disposed) return;
+      const pending = pendingQuestions.get(id);
+      if (!pending) return;
+      pending.cleanup();
+      pending.resolve(answer);
+    },
+    cancelQuestion(id) {
+      if (disposed) return;
+      const pending = pendingQuestions.get(id);
+      if (!pending) return;
+      pending.cleanup();
+      pending.reject(new Error("用户取消了提问"));
     },
     interrupt() {
       if (disposed) return;

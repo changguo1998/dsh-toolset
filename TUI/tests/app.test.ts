@@ -11,6 +11,7 @@ import type {
   DshEvent,
   ModelCatalog,
   ModelSelection,
+  QuestionAnswer,
 } from "../src/app/adapter/dsh.ts";
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
 import type { RenderLine, Size } from "../src/renderer/screen.ts";
@@ -95,6 +96,17 @@ class FakeAdapter implements DshAdapter {
     this.disposed++;
   }
   approve(_id: string, _allow: boolean): void {}
+  /** 问答提交记录（含整批答案），供测试断言 */
+  answeredQuestions: { id: string; answer: QuestionAnswer }[] = [];
+  cancelledQuestions: string[] = [];
+  answerQuestion(id: string, answer: QuestionAnswer): void {
+    this.answeredQuestions.push({ id, answer });
+    this.log.push("answer:" + id);
+  }
+  cancelQuestion(id: string): void {
+    this.cancelledQuestions.push(id);
+    this.log.push("cancel:" + id);
+  }
   interrupts = 0;
   interrupt(): void {
     this.interrupts++;
@@ -1072,5 +1084,265 @@ test("slowStream 默认关闭：stream 即时显示(mock/demo 原速)", () => {
     renderer.lastRender.join("\n").includes("即时思考"),
     "未开启 slowStream 思考也应即时展示",
   );
+  app.dispose();
+});
+
+// ---------------------------------------------------------------------------
+// 问答面板（DSH 提问；/model 之后 picker 之前按键路由，见 handleKey）
+// ---------------------------------------------------------------------------
+
+/** 注入一个两题问答（单选 + 多选）事件 */
+function pushQuestion(adapter: FakeAdapter): void {
+  adapter.push({
+    type: "question",
+    id: "q1",
+    questions: [
+      {
+        id: "qa",
+        question: "选择部署环境？",
+        header: "部署",
+        options: [{ label: "生产" }, { label: "测试", description: "staging" }],
+      },
+      {
+        id: "qb",
+        question: "保留哪些产物？",
+        multiSelect: true,
+        options: [{ label: "日志" }, { label: "快照" }],
+      },
+    ],
+  });
+}
+
+const plainFrame = (renderer: FakeRenderer): string =>
+  renderer.lastRender.join("\n");
+
+test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多题动态按键提示", () => {
+  const { app, renderer, adapter } = makeApp();
+  pushQuestion(adapter);
+  const plain = plainFrame(renderer);
+  assert.ok(plain.includes("请回答（第 1/2 题）"), "标题含第 n/m 导航");
+  assert.ok(plain.includes("选择部署环境？"), "题干渲染");
+  assert.ok(plain.includes("部署：选择部署环境？"), "header 前缀渲染");
+  assert.ok(
+    plain.includes(">  生产") && plain.includes("    测试"),
+    "选项渲染：光标 > 首个选项，未选中标记为空格",
+  );
+  assert.ok(plain.includes("    自定义回答"), "自定义兜底项在列表末位");
+  // 动态按键提示：多题首题 Enter=下一题；有预设显示空格/上下；多题显示切题；无 Tab
+  assert.ok(plain.includes("[Enter] 下一题"), "非末题 Enter 显示下一题");
+  assert.ok(!plain.includes("提交"), "非末题不显示提交");
+  assert.ok(plain.includes("[空格] 选择"), "有预设选项显示空格选择");
+  assert.ok(plain.includes("[↑/↓] 选项"), "有预设选项显示上下导航");
+  assert.ok(plain.includes("[←/→] 切题"), "多题显示切题");
+  assert.ok(!plain.includes("Tab"), "不显示 Tab");
+  app.dispose();
+});
+
+test("问答面板：↑/↓ 移动高亮，空格单选并替换，末题 Enter 提交整批", () => {
+  const { app, renderer, adapter } = makeApp();
+  pushQuestion(adapter);
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  assert.ok(plainFrame(renderer).includes(">* 测试"), "单选选中标记 *");
+  renderer.press({ name: "up", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  assert.ok(plainFrame(renderer).includes(">* 生产"), "改选替换为生产");
+  assert.ok(!plainFrame(renderer).includes("* 测试"), "单选替换后旧项无 *");
+  // 第 1 题答完后 Enter：还有下一题 → 进入第 2 题（不提交）
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.ok(
+    plainFrame(renderer).includes("请回答（第 2/2 题）"),
+    "非末题 Enter 推进到下一题",
+  );
+  assert.ok(
+    plainFrame(renderer).includes("[Enter] 提交"),
+    "末题 Enter 显示提交",
+  );
+  assert.ok(!plainFrame(renderer).includes("下一题"), "末题不显示下一题");
+  // 第 2 题（末题）再 Enter 才提交整批
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.equal(adapter.answeredQuestions.length, 1, "提交一次");
+  const { id, answer } = adapter.answeredQuestions[0]!;
+  assert.equal(id, "q1");
+  // 单选：先选“测试”再改选“生产”→ 最终 selected 只有“生产”；第二题未动为空
+  assert.deepEqual(answer.answers, [
+    { id: "qa", selected: ["生产"] },
+    { id: "qb", selected: [] },
+  ]);
+  app.dispose();
+});
+
+test("问答面板：←/→ 切题（第 n/m），多选 toggle，提交含多选结果", () => {
+  const { app, renderer, adapter } = makeApp();
+  pushQuestion(adapter);
+  renderer.press({ name: "right", ctrl: false, meta: false, shift: false });
+  assert.ok(
+    plainFrame(renderer).includes("请回答（第 2/2 题）"),
+    "切到第 2 题",
+  );
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  assert.ok(plainFrame(renderer).includes("+ 日志"), "多选选中标记 +");
+  assert.ok(!plainFrame(renderer).includes("+ 快照"), "重选取消多选标记");
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  const { answer } = adapter.answeredQuestions[0]!;
+  assert.deepEqual(answer.answers, [
+    { id: "qa", selected: [] },
+    { id: "qb", selected: ["日志"] },
+  ]);
+  app.dispose();
+});
+
+test("问答面板：↓ 到自定义兜底项键入，可追加/空格/退格修改，单选选预设清空 custom", () => {
+  const { app, renderer, adapter } = makeApp();
+  pushQuestion(adapter);
+  // q1：生产 → 测试 → 自定义兜底项；连贯输入 分+空格+段 → 显示即时回显
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "n", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "o", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "t", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "e", ctrl: false, meta: false, shift: false });
+  assert.ok(
+    plainFrame(renderer).includes("自定义回答：no te"),
+    "输入+空格即时可见",
+  );
+  // 退格修改：删掉空格
+  renderer.press({ name: "backspace", ctrl: false, meta: false, shift: false });
+  assert.ok(
+    plainFrame(renderer).includes("自定义回答：no t"),
+    "退格删除末字符",
+  );
+  // 单选互斥：↑ 回“测试”并按空格选预设 → custom 被清空
+  renderer.press({ name: "up", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  assert.ok(plainFrame(renderer).includes(">* 测试"), "单选选预设");
+  assert.ok(
+    !plainFrame(renderer).includes("自定义回答："),
+    "单选选预设清空自定义文本",
+  );
+  // 提交：q1 → Enter 进 q2 → Enter（末题）提交
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.equal(adapter.sent.length, 0, "不落入 sendMessage");
+  const { answer } = adapter.answeredQuestions[0]!;
+  assert.deepEqual(answer.answers, [
+    { id: "qa", selected: ["测试"] },
+    { id: "qb", selected: [] },
+  ]);
+  app.dispose();
+});
+
+test("问答面板：多选预设 + 自定义并存，提交同时含 selected 与 custom", () => {
+  const { app, renderer, adapter } = makeApp();
+  pushQuestion(adapter);
+  renderer.press({ name: "right", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false }); // 选“日志”
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "n", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "e", ctrl: false, meta: false, shift: false });
+  assert.ok(plainFrame(renderer).includes("+ 日志"), "多选保留预设选中");
+  assert.ok(
+    plainFrame(renderer).includes("自定义回答：ne"),
+    "多选可附加自定义",
+  );
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.answeredQuestions[0]!.answer.answers, [
+    { id: "qa", selected: [] },
+    { id: "qb", selected: ["日志"], custom: "ne" },
+  ]);
+  app.dispose();
+});
+
+test("问答面板：预设选项上键入被吞（不落入主输入栏、不改自定义）", () => {
+  const { app, renderer, adapter } = makeApp();
+  pushQuestion(adapter);
+  renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "y", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "backspace", ctrl: false, meta: false, shift: false });
+  assert.equal(adapter.sent.length, 0, "不落入 sendMessage");
+  assert.ok(
+    !plainFrame(renderer).includes("自定义回答："),
+    "预设选项上键入不改自定义",
+  );
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.answeredQuestions[0]!.answer.answers, [
+    { id: "qa", selected: [] },
+    { id: "qb", selected: [] },
+  ]);
+  app.dispose();
+});
+
+test("问答面板：Tab 已释放（吞掉），不再切焦点、不落入主输入栏", () => {
+  const { app, renderer, adapter } = makeApp();
+  pushQuestion(adapter);
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
+  assert.equal(adapter.sent.length, 0, "Tab/字符不落入主输入栏");
+  assert.ok(
+    !plainFrame(renderer).includes("自定义回答："),
+    "Tab 不再切到自定义输入",
+  );
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.answeredQuestions[0]!.answer.answers, [
+    { id: "qa", selected: [] },
+    { id: "qb", selected: [] },
+  ]);
+  app.dispose();
+});
+
+test("问答面板：Esc 仅取消问答（cancelQuestion），不打断 turn，关闭面板", () => {
+  const { app, renderer, adapter } = makeApp();
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
+  pushQuestion(adapter);
+  renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+  assert.equal(adapter.interrupts, 0, "问答 Esc 绝不打断运行");
+  assert.deepEqual(
+    adapter.cancelledQuestions,
+    ["q1"],
+    "cancelQuestion 收到 id",
+  );
+  assert.ok(!plainFrame(renderer).includes("请回答"), "面板已关闭");
+  app.dispose();
+});
+
+test("问答面板：plan-review 单题以计划卡片呈现，hints 只显示用到的按键", () => {
+  const { app, renderer, adapter } = makeApp();
+  adapter.push({
+    type: "question",
+    id: "plan",
+    questions: [
+      {
+        id: "p1",
+        question: "批准该计划？",
+        intent: { kind: "plan-review", approve: "批准" },
+        detail: "步骤 1：安装依赖\n步骤 2：运行测试",
+        options: [{ label: "批准" }, { label: "拒绝" }],
+      },
+    ],
+  });
+  const plain = plainFrame(renderer);
+  assert.ok(plain.includes("计划审批（第 1/1 题）"), "plan-review 标题");
+  assert.ok(plain.includes("待审计划"), "detail 卡片标题");
+  assert.ok(
+    plain.includes("安装依赖") && plain.includes("运行测试"),
+    "detail 正文",
+  );
+  // 单题提示：Enter=提交、无切题、无下一题
+  assert.ok(plain.includes("[Enter] 提交"), "单题 Enter 显示提交");
+  assert.ok(!plain.includes("[←/→] 切题"), "单题不显示切题");
+  assert.ok(!plain.includes("下一题"), "单题不显示下一题");
+  // approve 选项按意图 label 识别：选择“批准”后提交
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.answeredQuestions[0]!.answer.answers, [
+    { id: "p1", selected: ["批准"] },
+  ]);
   app.dispose();
 });

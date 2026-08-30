@@ -119,6 +119,48 @@ if (smoke) {
       renderer.emitKey(key("y"));
       await sleep(300);
 
+      // 8. 问答面板提交：question 事件 → ↓/空格选“测试” → 右切题 → Tab 自定义输入键入 note → Enter 提交整批
+      adapter.emitEvent({
+        type: "question",
+        id: "smoke-q1",
+        questions: [
+          {
+            id: "sq1",
+            question: "选择部署环境？",
+            header: "部署",
+            options: [{ label: "生产" }, { label: "测试" }],
+          },
+          {
+            id: "sq2",
+            question: "保留日志？",
+            multiSelect: true,
+            options: [{ label: "保留" }, { label: "压缩" }],
+          },
+        ],
+      });
+      await sleep(300);
+      renderer.emitKey(key("down"));
+      renderer.emitKey(key(" "));
+      await sleep(150);
+      renderer.emitKey(key("right")); // 切到第 2 题
+      renderer.emitKey(key("down")); // 压缩
+      renderer.emitKey(key("down")); // “自定义回答”兜底项
+      typeText("note");
+      await sleep(150);
+      renderer.emitKey(key("enter"));
+      await sleep(400);
+      // 9. 问答面板取消：question 事件 → Esc 仅取消（不打断 turn）
+      adapter.emitEvent({
+        type: "question",
+        id: "smoke-q2",
+        questions: [
+          { id: "sq3", question: "取消测试？", options: [{ label: "A" }] },
+        ],
+      });
+      await sleep(300);
+      renderer.emitKey(key("escape"));
+      await sleep(300);
+
       // —— 自断言（interrupt 应恰好 1 次：仅 Alt+Enter；Esc idle 与审批 Esc 均不得打断）——
       const sent = adapter.sent;
       ok(
@@ -152,6 +194,34 @@ if (smoke) {
         "approval-rendered",
         plain.includes("允许执行?"),
         "approval text absent from frames",
+      );
+
+      // 问答面板断言：提交整批（含第 2 题自定义 note）、取消走 cancelQuestion、Esc 不打断
+      ok(
+        "question-rendered",
+        plain.includes("请回答（第"),
+        "question panel title absent from frames",
+      );
+      ok(
+        "question-submitted",
+        adapter.answeredQuestions.length === 1 &&
+          adapter.answeredQuestions[0]!.id === "smoke-q1" &&
+          JSON.stringify(adapter.answeredQuestions[0]!.answer.answers) ===
+            JSON.stringify([
+              { id: "sq1", selected: ["测试"] },
+              { id: "sq2", selected: [], custom: "note" },
+            ]),
+        "answered=" + JSON.stringify(adapter.answeredQuestions),
+      );
+      ok(
+        "question-cancelled",
+        adapter.cancelledQuestions.includes("smoke-q2"),
+        "cancelled=" + JSON.stringify(adapter.cancelledQuestions),
+      );
+      ok(
+        "question-esck-no-interrupt",
+        adapter.interrupts === 1,
+        "question Esc must not interrupt, interrupts=" + adapter.interrupts,
       );
       console.error(
         "SMOKE_OK sent=" +

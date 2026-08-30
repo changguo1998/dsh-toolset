@@ -1,3 +1,11 @@
+# dsh-tui bundle 的插件声明。dsh-base bundle 已提供用户提问服务(user-questions)，
+# 但模型侧 `ask_user_question` 工具插件(@deepseek-ai/dsh-tool-ask-user)不自带 bundle 声明，
+# 需求方需在此显式插入：模型调用工具后才经 ctx.userQuestions 触发 TUI 问答面板。
+# 注：LSP 将本文件误按 JSON Patch schema 校验，而 `insert` 是 dsh 官方 patch DSL
+# (dsh-app-boot applyEntryPatches 明确支持)，此处由 YAML 注释内联抑制该误报。
+# pi-lens-ignore: yaml-schema: JSONPatch:0, yaml-schema: JSONPatch:513
 - insert:
+    - id: tool-ask-user
+      name: '@deepseek-ai/dsh-tool-ask-user'
     - id: dsh-tui
       name: '@dsh-toolset/dsh-tui'

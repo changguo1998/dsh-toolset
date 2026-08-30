@@ -9,12 +9,18 @@
 
 import type { RenderLine } from "../renderer/index.ts";
 import type { Size } from "../renderer/index.ts";
-import type { AppState, InputMode, InputStatus } from "./state.ts";
+import type {
+  AppState,
+  InputMode,
+  InputStatus,
+  QuestionPanelState,
+} from "./state.ts";
 
 import type { Buffer, BufferKind } from "./state.ts";
 import type { ApprovalItem } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
+import { renderQuestionPanel } from "./components/QuestionPrompt.ts";
 import type { ColorName, ColorTheme, ThemeId } from "../renderer/theme.ts";
 import { colorFor, THEMES, ansiNameToHex, hexSgr } from "../renderer/theme.ts";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
@@ -519,11 +525,18 @@ export function metricsFor(
   pickerRows = 0,
   /** 状态区行数（默认 1；可多行溢出时按实际行数压缩顶部区域） */
   statusHeight = 1,
+  /** 问答面板所需行数（粗估；0 = 未激活） */
+  questionRows = 0,
 ): FrameMetrics {
-  // footer 高度：审批弹窗 / 选择面板 / 单行输入框
+  // footer 高度：审批弹窗 / 问答面板 / 选择面板 / 单行输入框
   let footerHeight = 1;
   if (hasApprovalPrompt) {
     footerHeight = Math.max(4, Math.floor(size.rows * 0.3));
+  } else if (questionRows > 0) {
+    footerHeight = Math.min(
+      questionRows,
+      Math.max(4, Math.floor(size.rows * 0.4)),
+    );
   } else if (pickerRows > 0) {
     footerHeight = Math.min(
       pickerRows,
@@ -821,6 +834,8 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const approval = state.approval;
   const showApproval = approval !== null;
   const picker = state.picker;
+  const question = state.question;
+  const qItem = question?.items[question.itemIndex];
   const fullWidth = Math.max(1, size.cols);
   // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
   const statusLines = renderStatusLine(
@@ -839,6 +854,14 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
       ...Object.values(picker?.providerModels ?? {}).map((list) => list.length),
     ) + 1,
     statusLines.length,
+    // 问答面板所需行数粗估（标题 + 操作提示 + 选项 + 自定义 + detail）
+    qItem
+      ? 2 +
+          qItem.options.length +
+          1 +
+          (qItem.detail ? qItem.detail.split("\n").length + 2 : 0) +
+          (qItem.header ? 1 : 0)
+      : 0,
   );
 
   const topRegion = buildTopRegion(
@@ -853,6 +876,12 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   if (showApproval) {
     footerLines = renderApprovalPrompt(
       approval as ApprovalItem,
+      metrics.footerHeight,
+      fullWidth,
+    );
+  } else if (question) {
+    footerLines = renderQuestionPanel(
+      question as QuestionPanelState,
       metrics.footerHeight,
       fullWidth,
     );

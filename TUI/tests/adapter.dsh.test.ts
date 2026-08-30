@@ -19,6 +19,10 @@ import {
   type ModelSelection,
   type LlmLike,
   type AgentDefaultModelLike,
+  type UserQuestionsLike,
+  type UserQuestionRequestLike,
+  type QuestionAnswer,
+  type QuestionItem,
 } from "../src/app/adapter/dsh.ts";
 
 /** 可编程 fake 宿主 */
@@ -1020,4 +1024,180 @@ test("modelCatalog: 会话未切换时 current 兜底宿主播放值(defaultMode
   const catalog = await adapter.modelCatalog();
   assert.equal(catalog.current?.provider, "ustc");
   assert.equal(catalog.current?.model, "deepseek-v4-flash");
+});
+
+// ---------------------------------------------------------------------------
+// userQuestions provider 接线（0.1.1 单 provider，见 RealAdapterOptions.userQuestions）
+// ---------------------------------------------------------------------------
+
+/** 记录型 fake userQuestions 服务（0.1.1 单 provider registerProvider） */
+class FakeUserQuestions implements UserQuestionsLike {
+  provider: {
+    ask(req: UserQuestionRequestLike): Promise<QuestionAnswer>;
+  } | null = null;
+  registerCount = 0;
+  registerProvider(p: {
+    ask(req: UserQuestionRequestLike): Promise<QuestionAnswer>;
+  }): () => void {
+    this.provider = p;
+    this.registerCount++;
+    return () => {
+      this.provider = null;
+    };
+  }
+}
+
+test("userQuestions: 注册 provider 后 ask() → question 事件；answerQuestion 整批回答 resolve", async () => {
+  const runtime = new FakeRuntime();
+  const uq = new FakeUserQuestions();
+  const adapter = createRealDshAdapter({
+    runtime,
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    userQuestions: uq,
+  });
+  const events: DshEvent[] = [];
+  adapter.onEvent((e) => events.push(e));
+  assert.equal(uq.registerCount, 1, "构造时注册 provider");
+
+  const questions: QuestionItem[] = [
+    { id: "qa", question: "继续?", options: [{ label: "A" }, { label: "B" }] },
+  ];
+  const askPromise = uq.provider!.ask({ questions });
+  // 微任务落定，确保 question 事件已发出
+  await new Promise((r) => setTimeout(r, 0));
+  const qEvt = events.find(
+    (e): e is Extract<DshEvent, { type: "question" }> => e.type === "question",
+  );
+  assert.ok(qEvt, "should emit question event");
+  assert.equal(qEvt!.questions[0]?.question, "继续?");
+  assert.equal(qEvt!.questions[0]?.options?.length, 2);
+
+  const answer: QuestionAnswer = {
+    answers: [{ id: "qa", selected: ["A"] }],
+  };
+  adapter.answerQuestion(qEvt!.id, answer);
+  assert.deepEqual(
+    await askPromise,
+    answer,
+    "answerQuestion 使 ask resolve 整批回答",
+  );
+});
+
+test("userQuestions: cancelQuestion → reject ask（取消不 resolve，不打断 turn）", async () => {
+  const runtime = new FakeRuntime();
+  const uq = new FakeUserQuestions();
+  const adapter = createRealDshAdapter({
+    runtime,
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    userQuestions: uq,
+  });
+  const events: DshEvent[] = [];
+  adapter.onEvent((e) => events.push(e));
+  const askPromise = uq.provider!.ask({
+    questions: [{ id: "qa", question: "取消?" }],
+  });
+  await new Promise((r) => setTimeout(r, 0));
+  const qEvt = events.find((e) => e.type === "question") as
+    Extract<DshEvent, { type: "question" }> | undefined;
+  adapter.cancelQuestion(qEvt!.id);
+  await assert.rejects(
+    askPromise,
+    /用户取消了提问/,
+    "cancelQuestion reject ask",
+  );
+});
+
+test("userQuestions: 已有活动请求时第二个 ask() 直接拒绝（单面板约束）", async () => {
+  const runtime = new FakeRuntime();
+  const uq = new FakeUserQuestions();
+  const adapter = createRealDshAdapter({
+    runtime,
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    userQuestions: uq,
+  });
+  adapter.onEvent(() => {});
+  void uq.provider!.ask({ questions: [{ id: "qa", question: "第一问" }] });
+  await assert.rejects(
+    uq.provider!.ask({ questions: [{ id: "qb", question: "第二问" }] }),
+    /已有待回答的提问/,
+    "单面板：并发 ask 拒绝",
+  );
+});
+
+test("userQuestions: 注册失败(重复 provider) → notice 错误事件且不阻塞构造", () => {
+  const runtime = new FakeRuntime();
+  const agent = new FakeAgent();
+  const uq: UserQuestionsLike = {
+    registerProvider() {
+      throw new Error("DUPLICATE_PROVIDER");
+    },
+  };
+  const adapter = createRealDshAdapter({
+    runtime,
+    sessionId: "s1",
+    agent,
+    userQuestions: uq,
+  });
+  const events: DshEvent[] = [];
+  adapter.onEvent((e) => events.push(e));
+  const notice = events.find((e) => e.type === "notice");
+  assert.ok(notice && notice.type === "notice" && notice.error === true);
+  assert.match((notice as { text: string }).text, /问答面板不可用/);
+  // 失败不影响 sendMessage 等既有能力
+  adapter.sendMessage("hi");
+  assert.equal(agent.followups.length, 1, "注册失败后 sendMessage 仍可用");
+});
+
+test("userQuestions: 请求 signal 中断 → reject ask（agent 主动放弃）", async () => {
+  const runtime = new FakeRuntime();
+  const uq = new FakeUserQuestions();
+  const adapter = createRealDshAdapter({
+    runtime,
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    userQuestions: uq,
+  });
+  adapter.onEvent(() => {});
+  const ctrl = new AbortController();
+  const askPromise = uq.provider!.ask({
+    questions: [{ id: "qa", question: "中断?" }],
+    signal: ctrl.signal,
+  });
+  await new Promise((r) => setTimeout(r, 0));
+  ctrl.abort();
+  await assert.rejects(askPromise, /aborted/, "signal 中断 reject ask");
+  // 中断后 map 清空，可再次 ask
+  const again = uq.provider!.ask({
+    questions: [{ id: "qb", question: "再来" }],
+  });
+  adapter.answerQuestion("question-1", {
+    answers: [{ id: "qb", selected: ["再来"] }],
+  });
+  await assert.doesNotReject(again);
+});
+
+test("userQuestions: dispose 拒绝悬挂 ask 并注销 provider", async () => {
+  const runtime = new FakeRuntime();
+  const uq = new FakeUserQuestions();
+  const adapter = createRealDshAdapter({
+    runtime,
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    userQuestions: uq,
+  });
+  adapter.onEvent(() => {});
+  const askPromise = uq.provider!.ask({
+    questions: [{ id: "qa", question: "挂起" }],
+  });
+  adapter.dispose?.();
+  await assert.rejects(
+    askPromise,
+    /adapter disposed/,
+    "dispose reject 悬挂 ask",
+  );
+  // 注销：dispose 后 provider 引用被清理（FakeUserQuestions 的 disposer 置空）
+  assert.equal(uq.provider, null, "dispose 调用 provider disposer");
 });

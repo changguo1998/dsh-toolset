@@ -10,10 +10,14 @@ import type {
   ModelCatalog,
   ModelInfo,
   ModelSelection,
+  QuestionAnswer,
 } from "../src/app/adapter/dsh.ts";
 
 export class MockDshAdapter implements DshAdapter {
   private cbs: ((e: DshEvent) => void)[] = [];
+  /** 冒烟断言用：问答提交/取消记录 */
+  answeredQuestions: { id: string; answer: QuestionAnswer }[] = [];
+  cancelledQuestions: string[] = [];
   private timers: ReturnType<typeof setTimeout>[] = [];
   private seq = 0;
   /** 第二次回复后是否自动触发审批（冒烟用 false，由脚本显式驱动审批弹窗） */
@@ -64,6 +68,25 @@ export class MockDshAdapter implements DshAdapter {
       type: "stream",
       sessionId: this.sessionId,
       text: `[审批 ${id} → ${allow ? "批准 ✓" : "拒绝 ✗"}]`,
+    });
+  }
+
+  answerQuestion(id: string, answer: QuestionAnswer): void {
+    this.answeredQuestions.push({ id, answer });
+    this.emit({
+      type: "stream",
+      sessionId: this.sessionId,
+      // demo 无真实 ask()，收到回答说明有人在测接口——直接回报即可
+      text: `[问答已提交：${JSON.stringify(answer)}]`,
+    });
+  }
+
+  cancelQuestion(id: string): void {
+    this.cancelledQuestions.push(id);
+    this.emit({
+      type: "stream",
+      sessionId: this.sessionId,
+      text: `[问答 ${id} 已取消]`,
     });
   }
 

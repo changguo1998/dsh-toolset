@@ -201,6 +201,16 @@ export class App {
           }),
         );
         break;
+      case "question":
+        // DSH 提问：整批题一次打开（一次 ask() 一批；面板内逐题导航，提交整批）
+        this.apply((s) =>
+          reduceState(s, {
+            type: "question-open",
+            id: e.id,
+            questions: e.questions,
+          }),
+        );
+        break;
       case "notice":
         // 命令通知(结果/提示/错误)只进 UI 缓冲，绝不进模型历史；
         // error 标记(如未知 slash 命令 fail-close)→ 输入栏失败色(红)
@@ -303,6 +313,14 @@ export class App {
         this.apply((s) => reduceState(s, { type: "approval", approval: null }));
         this.paint();
       }
+      return;
+    }
+
+    // 问答面板：↑/↓ 移动选项高亮，←/→ 切换题目（第 n/m 题），Tab 选项<->自定义切换，
+    // 空格选中/取消选项，Enter 提交整批答案，Esc 仅取消问答（reject ask，不打断 turn）；
+    // 自定义输入焦点时可打印字符/退格编辑文本；其余按键吞掉不落入输入栏。
+    if (this.state.question) {
+      this.handleQuestionKey(k);
       return;
     }
 
@@ -463,6 +481,113 @@ export class App {
         if (name.length === 1 && !ctrl) this.insertChar(name);
         break;
     }
+    this.paint();
+  }
+
+  /** 问答面板按键路由（approval 之后 picker 之前，见 handleKey） */
+  private handleQuestionKey(k: KeyEvent): void {
+    const { name, ctrl } = k;
+    const panel = this.state.question;
+    if (!panel) return;
+    const item = panel.items[panel.itemIndex];
+    // 高亮在“自定义回答”兑底项（列表末位）时为自定义输入
+    const onCustom = !!item && item.optionIndex >= item.options.length;
+
+    // Esc：仅取消问答（reject ask，绝不 interrupt，不打断 turn）
+    if (name === "escape") {
+      this.cancelQuestion();
+      return;
+    }
+    // Enter：还有下一题时进入下一题；最后一题才提交整批答案
+    if (name === "enter") {
+      if (panel.itemIndex < panel.items.length - 1) {
+        this.apply((s) => reduceState(s, { type: "question-nav", delta: 1 }));
+      } else {
+        this.submitQuestion();
+      }
+      this.paint();
+      return;
+    }
+    // 退格：仅自定义项高亮时删除末字符；其余位置吞掉
+    if (name === "backspace") {
+      if (onCustom) {
+        const t = item?.custom ?? "";
+        this.apply((s) =>
+          reduceState(s, {
+            type: "question-custom",
+            text: t.slice(0, Math.max(0, t.length - 1)),
+          }),
+        );
+        this.paint();
+      }
+      return;
+    }
+    // 空格：自定义项=输入空格；预设选项=选中/取消（Ctrl+Space 同义）
+    if (name === " " || name === "space") {
+      if (onCustom) {
+        const t = (item?.custom ?? "") + " ";
+        this.apply((s) => reduceState(s, { type: "question-custom", text: t }));
+      } else {
+        this.apply((s) => reduceState(s, { type: "question-select" }));
+      }
+      this.paint();
+      return;
+    }
+    // 其他可打印字符：仅自定义项高亮时追加；预设选项上吞掉（不落入主输入栏）
+    if (name.length === 1 && !ctrl) {
+      if (onCustom) {
+        const t = (item?.custom ?? "") + name;
+        this.apply((s) => reduceState(s, { type: "question-custom", text: t }));
+        this.paint();
+      }
+      return;
+    }
+    switch (name) {
+      case "up":
+      case "down":
+        this.apply((s) =>
+          reduceState(s, {
+            type: "question-move",
+            delta: name === "down" ? 1 : -1,
+          }),
+        );
+        break;
+      case "left":
+      case "right":
+        this.apply((s) =>
+          reduceState(s, {
+            type: "question-nav",
+            delta: name === "right" ? 1 : -1,
+          }),
+        );
+        break;
+      default:
+        // Tab 等其余按键吞掉（不落入主输入栏，也不再切焦点）
+        return;
+    }
+    this.paint();
+  }
+
+  /** 提交问答：整批 answer 交给 adapter（answerQuestion → resolve ask）并关闭面板 */
+  private submitQuestion(): void {
+    const panel = this.state.question;
+    if (!panel) return;
+    const answers = panel.items.map((it) => ({
+      id: it.id,
+      selected: it.selected,
+      ...(it.custom ? { custom: it.custom } : {}),
+    }));
+    this.apply((s) => reduceState(s, { type: "question-close" }));
+    this.deps.adapter.answerQuestion(panel.id, { answers });
+    this.paint();
+  }
+
+  /** 取消问答：reject ask（不打断 turn），关闭面板 */
+  private cancelQuestion(): void {
+    const panel = this.state.question;
+    if (!panel) return;
+    this.apply((s) => reduceState(s, { type: "question-close" }));
+    this.deps.adapter.cancelQuestion(panel.id);
     this.paint();
   }
 
