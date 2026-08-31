@@ -13,7 +13,12 @@ import type {
   ModelSelection,
 } from "./adapter/dsh.ts";
 import { parseSlashCommand } from "./adapter/dsh.ts";
-import { resolveModelSpec } from "./commands.ts";
+import {
+  modelCommandSpec,
+  resolveModelSpec,
+  routeSlashCommand,
+  themeCommandDecision,
+} from "./commands.ts";
 export { formatModelCatalog, resolveModelSpec } from "./commands.ts";
 import {
   buildQuestionAnswers,
@@ -610,7 +615,7 @@ export class App {
     this.apply((s) =>
       reduceState(s, { type: "input-status", status: "success" }),
     );
-    switch (name) {
+    switch (routeSlashCommand(name)) {
       case "help":
         this.apply((s) =>
           reduceState(s, {
@@ -620,7 +625,6 @@ export class App {
         );
         return;
       case "clearscreen":
-      case "cls":
         this.apply((s) => reduceState(s, { type: "clear-buffer" }));
         return;
       case "quit":
@@ -632,7 +636,7 @@ export class App {
       case "theme":
         this.handleThemeCommand(line);
         return;
-      default:
+      case "registry":
         // 非本地命令 → 注册表调用
         this.deps.adapter.runCommand(
           line,
@@ -643,7 +647,7 @@ export class App {
 
   /** /model 命令：无参进入交互选择；带参切换当前会话模型（保留当前 reasoningEffort） */
   private async handleModelCommand(line: string): Promise<void> {
-    const spec = line.slice("/model".length).trim();
+    const spec = modelCommandSpec(line);
     try {
       if (!spec) {
         const catalog = await this.deps.adapter.modelCatalog();
@@ -664,17 +668,13 @@ export class App {
 
   /** /theme 命令：无参/toggle 在 dark|light 间切换；带参显式设置；非法参数提示 usage */
   private handleThemeCommand(line: string): void {
-    const arg = line.slice("/theme".length).trim().toLowerCase();
     const cur = this.state.themeId;
-    let next: ThemeId;
-    if (arg === "" || arg === "toggle") {
-      next = cur === "dark" ? "light" : "dark";
-    } else if (arg === "light" || arg === "dark") {
-      next = arg;
-    } else {
+    const decision = themeCommandDecision(line, cur);
+    if (decision.kind === "usage") {
       this.notice("usage: /theme [light|dark|toggle]");
       return;
     }
+    const next = decision.theme;
     if (next !== cur) {
       this.apply((s) => reduceState(s, { type: "set-theme", themeId: next }));
       this.deps.renderer.setTheme(next);

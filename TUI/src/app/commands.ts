@@ -4,6 +4,7 @@
 // （adapter 调用、paint、notice）留在 App 执行。
 
 import type { ModelCatalog, ModelSelection } from "./adapter/dsh.ts";
+import type { ThemeId } from "../renderer/theme.ts";
 
 /** 格式化模型目录为多行文本（/model 无参输出）：纯 ASCII，当前模型前 ->、其余空格缩进 */
 export function formatModelCatalog(catalog: ModelCatalog): string {
@@ -60,4 +61,49 @@ export function resolveModelSpec(
     selection: { provider: m.provider, model: m.id },
     same: same(m.provider, m.id),
   };
+}
+
+/** Slash 路由决策：本地命令 → 对应 kind；其余一律 adapter commands 注册表（fail-close，绝不经 sendMessage） */
+export type SlashRoute =
+  "help" | "clearscreen" | "quit" | "model" | "theme" | "registry";
+
+export function routeSlashCommand(name: string): SlashRoute {
+  switch (name) {
+    case "help":
+      return "help";
+    case "clearscreen":
+    case "cls":
+      return "clearscreen";
+    case "quit":
+      return "quit";
+    case "model":
+      return "model";
+    case "theme":
+      return "theme";
+    default:
+      return "registry";
+  }
+}
+
+/** /model 参数（命令名之后的文本，去首尾空白）；空串 = 无参（进入交互选择） */
+export function modelCommandSpec(line: string): string {
+  return line.slice("/model".length).trim();
+}
+
+/** /theme 参数决策：""/toggle → dark|light 互切；显式 light/dark → 取之；其余参数 → usage 错误 */
+export type ThemeCommandDecision =
+  { kind: "usage" } | { kind: "apply"; theme: ThemeId };
+
+export function themeCommandDecision(
+  line: string,
+  cur: ThemeId,
+): ThemeCommandDecision {
+  const arg = line.slice("/theme".length).trim().toLowerCase();
+  if (arg === "" || arg === "toggle") {
+    return { kind: "apply", theme: cur === "dark" ? "light" : "dark" };
+  }
+  if (arg === "light" || arg === "dark") {
+    return { kind: "apply", theme: arg };
+  }
+  return { kind: "usage" };
 }
