@@ -58,7 +58,7 @@ export interface AppDeps {
     queries: StatusQueries;
     intervalMs?: number;
   };
-  /** 初始主题（默认 dark=BlueDark；/theme 切换仅当前会话） */
+  /** 初始主题（默认 dark=fffdark；/theme 切换仅当前会话） */
   initialTheme?: ThemeId;
   /** 真实链路：流式正文放缓显示(打字机节奏)；mock demo 默认关闭保持原速 */
   slowStream?: boolean;
@@ -776,7 +776,7 @@ export class App {
       "  /help   显示本帮助",
       "  /clearscreen (/cls)  清空缓冲(只清显示，不动上下文)",
       "  /quit   退出",
-      "  /theme [dark|light|toggle]  切换主题(默认 dark=BlueDark, light=YellowBright)",
+      "  /theme [dark|light|toggle]  切换主题(默认 dark=fffdark, light=ffflight)",
       "  /model [provider/]model  switch current-session model; bare /model: interactive picker",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");

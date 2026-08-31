@@ -79,7 +79,7 @@ export interface DshTuiConfig {
   provider?: string;
   model?: string;
   reasoningEffort?: string;
-  /** 初始主题（默认 dark=BlueDark；light=YellowBright） */
+  /** 初始主题（默认 dark=fffdark；light=ffflight） */
   theme?: ThemeId;
   /** 打字机总开关（默认 true：真实链路放缓流式正文显示；false 恢复原速） */
   streamTypewriter?: boolean;

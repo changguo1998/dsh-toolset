@@ -65,7 +65,7 @@ dsh --profile <p>
 
 ## profile 配置（主题与流式显示）
 
-- **内置主题**：`BlueDark`（`dark`，默认）与 `YellowBright`（`light`）两套 truecolor 配色；`/theme`（无参 toggle）仅切换当前会话，不落盘。
+- **内置主题**：`fffdark`（`dark`，默认）与 `ffflight`（`light`）两套 truecolor 配色；`/theme`（无参 toggle）仅切换当前会话，不落盘。
 - 在 profile 的 `cordis.patch.yml` 中给 `dsh-tui` 节点加 `config` 即可配置以下项（缺省/非法值回退默认，非法值会在启动时告警）：
 
 ```yaml

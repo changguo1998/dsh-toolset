@@ -28,7 +28,7 @@ class FakeWrite {
 
 test("内嵌两套配色与 fff terminal-colortheme JSON 一致", () => {
   assert.deepEqual(THEMES.dark, {
-    name: "BlueDark",
+    name: "fffdark",
     ansi: [
       "#434343",
       "#E74684",
@@ -53,29 +53,29 @@ test("内嵌两套配色与 fff terminal-colortheme JSON 一致", () => {
     foreground: "#FFFFFF",
   });
   assert.deepEqual(THEMES.light, {
-    name: "YellowBright",
+    name: "ffflight",
     ansi: [
       "#000000",
-      "#640016",
-      "#166400",
-      "#644E00",
-      "#001664",
-      "#4E0064",
-      "#00644E",
-      "#808080",
+      "#C5225E",
+      "#50A74E",
+      "#C5984E",
+      "#4032D3",
+      "#B622D3",
+      "#40A7C3",
+      "#F4F4F4",
     ],
     bright: [
-      "#444444",
-      "#990021",
-      "#166400",
-      "#644E00",
-      "#002199",
-      "#780099",
-      "#00644E",
-      "#444444",
+      "#555555",
+      "#EE6DA4",
+      "#96D099",
+      "#EEC499",
+      "#8B78FC",
+      "#E26DFC",
+      "#8BD0F0",
+      "#FFFFFF",
     ],
-    background: "#FBEBB5",
-    foreground: "#000000",
+    background: "#DFE3F8",
+    foreground: "#555555",
   });
   assert.equal(DEFAULT_THEME, "dark");
   assert.equal(normalizeThemeId("dark"), "dark");
@@ -95,21 +95,21 @@ test("ANSI 槽位映射:基础色 → ansi[],bright* → bright[],gray → brigh
   assert.equal(ansiNameToHex(d, "brightWhite"), d.bright[7]);
   assert.equal(ansiNameToHex(d, "gray"), d.bright[0]);
   assert.equal(ansiNameToHex(d, "notacolor"), null);
-  // 浅色主题同槽位取 YellowBright 调色板
-  assert.equal(ansiNameToHex(THEMES.light, "brightMagenta"), "#780099");
+  // 浅色主题同槽位取 ffflight 调色板
+  assert.equal(ansiNameToHex(THEMES.light, "brightMagenta"), "#E26DFC");
 });
 
 test("themeSgr 输出 truecolor SGR(前景/背景)", () => {
   assert.equal(themeSgr(THEMES.dark, true), "\x1b[38;2;255;255;255m");
   assert.equal(themeSgr(THEMES.dark, false), "\x1b[48;2;3;3;39m");
-  assert.equal(themeSgr(THEMES.light, true), "\x1b[38;2;0;0;0m");
-  assert.equal(themeSgr(THEMES.light, false), "\x1b[48;2;251;235;181m");
+  assert.equal(themeSgr(THEMES.light, true), "\x1b[38;2;85;85;85m");
+  assert.equal(themeSgr(THEMES.light, false), "\x1b[48;2;223;227;248m");
 });
 
 test("colorFor(light,…) 以主题基底前景收尾，绝不出现 `39m`", () => {
   const c = colorFor("light", "brightMagenta")("M");
-  assert.ok(c.startsWith("\x1b[38;2;120;0;153m"), "应以前景 SGR 开头");
-  assert.ok(c.endsWith("\x1b[38;2;0;0;0m"), "应以 YellowBright 基底前景收尾");
+  assert.ok(c.startsWith("\x1b[38;2;226;109;252m"), "应以前景 SGR 开头");
+  assert.ok(c.endsWith("\x1b[38;2;85;85;85m"), "应以 ffflight 基底前景收尾");
   assert.ok(!c.includes("39m") && !c.includes("\x1b[m"), "不得复位到终端默认");
 });
 
@@ -119,12 +119,12 @@ test("Screen.render 每行前缀主题基底前景/背景;setTheme 切换", () =
   screen.setTheme("light");
   screen.render([{ text: "hi" }]);
   const out = w.out;
-  // 基底 = YellowBright foreground #000000 + background #FBEBB5
-  assert.ok(out.includes("\x1b[38;2;0;0;0m"), "应有浅色基底前景");
-  assert.ok(out.includes("\x1b[48;2;251;235;181m"), "应有浅色基底背景");
+  // 基底 = ffflight foreground #555555 + background #DFE3F8
+  assert.ok(out.includes("\x1b[38;2;85;85;85m"), "应有浅色基底前景");
+  assert.ok(out.includes("\x1b[48;2;223;227;248m"), "应有浅色基底背景");
   // 清屏在基底设置后写入(以当前 bg 填充) —— 顺序:先基底色后清屏
   assert.ok(
-    out.indexOf("48;2;251;235;181") < out.indexOf("2J"),
+    out.indexOf("48;2;223;227;248") < out.indexOf("2J"),
     "基底背景应先于清屏写",
   );
   assert.ok(out.includes("hi"), "文本行应写入");
@@ -178,7 +178,7 @@ test("createRenderer.close 输出 SGR 复位;setTheme 使 delta 缓存失效全�
   w.out = "";
   r.render([{ text: "x" }]);
   assert.ok(w.out.includes("2J"), "setTheme 后应全帧清屏重绘");
-  assert.ok(w.out.includes("\x1b[48;2;251;235;181m"), "清屏含新浅背景");
+  assert.ok(w.out.includes("\x1b[48;2;223;227;248m"), "清屏含新浅背景");
 
   // close 恢复终端默认样式
   r.close();

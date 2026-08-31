@@ -1,5 +1,5 @@
 // renderer/theme.ts — TUI 主题：内嵌 ~/fff/config/terminal-colortheme 的两份配色
-// (BlueDark=dark / YellowBright=light) 作默认浅深色模式。
+// (fffdark=dark / ffflight=light) 作默认浅深色模式。
 //
 // 终端 16 色槽位映射：black..white → ansi[]，brightBlack..brightWhite → bright[]，
 // gray 语义 = brightBlack(bright[0])。background/foreground 为终端基底色，
@@ -26,10 +26,10 @@ export function normalizeThemeId(value: unknown): ThemeId {
   return value === "light" ? "light" : "dark"; // dark 兜底（含非法值）
 }
 
-/** 内嵌 ~/fff/config/terminal-colortheme/BlueDark.json / YellowBright.json */
+/** 内嵌 ~/fff/config/terminal-colortheme/fffdark.json / ffflight.json */
 export const THEMES: Record<ThemeId, ColorTheme> = {
   dark: {
-    name: "BlueDark",
+    name: "fffdark",
     ansi: [
       "#434343",
       "#E74684",
@@ -54,29 +54,29 @@ export const THEMES: Record<ThemeId, ColorTheme> = {
     foreground: "#FFFFFF",
   },
   light: {
-    name: "YellowBright",
+    name: "ffflight",
     ansi: [
       "#000000",
-      "#640016",
-      "#166400",
-      "#644E00",
-      "#001664",
-      "#4E0064",
-      "#00644E",
-      "#808080",
+      "#C5225E",
+      "#50A74E",
+      "#C5984E",
+      "#4032D3",
+      "#B622D3",
+      "#40A7C3",
+      "#F4F4F4",
     ],
     bright: [
-      "#444444",
-      "#990021",
-      "#166400",
-      "#644E00",
-      "#002199",
-      "#780099",
-      "#00644E",
-      "#444444",
+      "#555555",
+      "#EE6DA4",
+      "#96D099",
+      "#EEC499",
+      "#8B78FC",
+      "#E26DFC",
+      "#8BD0F0",
+      "#FFFFFF",
     ],
-    background: "#FBEBB5",
-    foreground: "#000000",
+    background: "#DFE3F8",
+    foreground: "#555555",
   },
 };
 

@@ -73,7 +73,7 @@ export interface AppState {
   approval: ApprovalItem | null;
   agentStatus: AgentStatus;
   systemStatus: SystemStatus;
-  /** 主题（默认 dark=BlueDark；/theme 运行时切换，仅当前会话） */
+  /** 主题（默认 dark=fffdark；/theme 运行时切换，仅当前会话） */
   themeId: ThemeId;
   /** thinking/reasoning 最大显示行数（渲染折叠用，默认 4） */
   thinkingMaxLines: number;
