@@ -19,6 +19,12 @@ import {
   buildQuestionAnswers,
   questionKeyDecision,
 } from "./question-transition.ts";
+import {
+  buildPickerInit,
+  pickerEffortIndex,
+  planModelSwitch,
+  resolvePickerSelection,
+} from "./model-transition.ts";
 import { buildFrame, modelLabel } from "./layout.ts";
 import {
   DEFAULT_THEME,
@@ -679,57 +685,15 @@ export class App {
 
   /** 无参 /model：进入交互选择模式（当前模型行始终显示，不在候选目录中也补行） */
   private openModelPicker(catalog: ModelCatalog): void {
-    const current = catalog.current;
-    // provider 列：去重（当前 provider 恒首位，可能不在 catalog.providers 中）
-    const providers: string[] = [];
-    const pushProvider = (p: string | undefined) => {
-      if (p && !providers.includes(p)) providers.push(p);
-    };
-    pushProvider(current?.provider);
-    for (const pr of catalog.providers) pushProvider(pr.provider);
-    for (const m of catalog.models) pushProvider(m.provider);
-    // 每个 provider 的模型列表（去重；当前模型恒首位，可能不在目录中）
-    const providerModels: Record<string, string[]> = {};
-    const pushModel = (p: string | undefined, id: string | undefined) => {
-      if (!p || !id) return;
-      const list = providerModels[p] ?? (providerModels[p] = []);
-      if (!list.includes(id)) list.push(id);
-    };
-    pushModel(current?.provider, current?.model);
-    for (const m of catalog.models) pushModel(m.provider, m.id);
-    const models = providerModels[providers[0]!] ?? [];
-    if (models.length === 0) {
+    const init = buildPickerInit(catalog);
+    if (!init.ok) {
       this.notice(
         "no available models (llm service missing or no adapter registered)",
       );
       return;
     }
     this.apply((s) =>
-      reduceState(s, {
-        type: "picker-open",
-        picker: {
-          providers,
-          providerIndex: 0,
-          providerModels,
-          models,
-          modelIndex: 0,
-          efforts: [],
-          effortIndex: 0,
-          phase: 0,
-          // 初始选中 = 当前生效值（打开面板 Enter 不改模型）
-          selectedProvider: current?.provider,
-          selectedModel: current?.model,
-          selectedEffort: current?.reasoningEffort,
-          current:
-            current?.provider && current?.model
-              ? {
-                  provider: current.provider,
-                  model: current.model,
-                  reasoningEffort: current.reasoningEffort,
-                }
-              : undefined,
-        },
-      }),
+      reduceState(s, { type: "picker-open", picker: init.picker }),
     );
     this.paint();
     void this.reloadPickerEfforts();
@@ -754,16 +718,7 @@ export class App {
         return; // 已切换高亮模型或面板关闭，丢弃旧结果
       }
       // 当前生效模型自带等级时，预设为列表中同一等级（其余默认第一项）
-      const onCurrent =
-        cur.current &&
-        cur.current.model === model &&
-        cur.current.provider === (provider ?? "");
-      const wantIdx =
-        onCurrent && cur.current?.reasoningEffort
-          ? (efforts?.findIndex((e) => e.id === cur.current!.reasoningEffort) ??
-            -1)
-          : -1;
-      const expectedIndex = wantIdx >= 0 ? wantIdx : 0;
+      const expectedIndex = pickerEffortIndex(cur, model, provider, efforts);
       this.apply((s) =>
         reduceState(s, {
           type: "picker-efforts",
@@ -781,16 +736,9 @@ export class App {
   private async confirmModelPicker(): Promise<void> {
     const picker = this.state.picker;
     if (!picker) return;
-    const provider =
-      picker.selectedProvider ?? picker.providers[picker.providerIndex];
-    const model = picker.selectedModel ?? picker.models[picker.modelIndex];
-    const effort = picker.selectedEffort
-      ? picker.efforts.find((e) => e.id === picker.selectedEffort)
-      : picker.efforts[picker.effortIndex];
+    const selection = resolvePickerSelection(picker);
     this.apply((s) => reduceState(s, { type: "picker-close" }));
-    if (!provider || !model) return;
-    const selection: ModelSelection = { provider, model };
-    if (effort) selection.reasoningEffort = effort.id; // 无等级可选 → 不带 effort
+    if (!selection) return;
     try {
       await this.applyModelSelection(selection);
     } catch (err) {
@@ -801,23 +749,13 @@ export class App {
   /** 切换当前会话模型（只改会话内引用，不写宿主设置）；/model 带参与交互选择共用 */
   private async applyModelSelection(selection: ModelSelection): Promise<void> {
     const catalog = await this.deps.adapter.modelCatalog();
-    const cur = catalog.current;
-    // 面板已显式选了等级时用面板选择，否则沿用当前模型的等级（/model <id> 路径）
-    const effort = selection.reasoningEffort ?? cur?.reasoningEffort;
-    if (
-      cur &&
-      cur.provider === selection.provider &&
-      cur.model === selection.model &&
-      (cur.reasoningEffort ?? "") === (effort ?? "")
-    ) {
+    const plan = planModelSwitch(selection, catalog.current);
+    if (plan.same) {
       const label = modelLabel(selection);
       this.notice(`already on current model ${label}`);
       return;
     }
-    const sel: ModelSelection = effort
-      ? { ...selection, reasoningEffort: effort }
-      : selection;
-    const saved = await this.deps.adapter.setSessionModel(sel);
+    const saved = await this.deps.adapter.setSessionModel(plan.selection);
     const label = modelLabel(saved);
     this.apply((s) =>
       reduceState(s, { type: "status", status: { model: label } }),
