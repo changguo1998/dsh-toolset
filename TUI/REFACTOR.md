@@ -1,18 +1,43 @@
-# TUI 拆分实施方案（RFC v3，未执行）
+# TUI 拆分实施方案（RFC v3，已执行 2026-08-31）
 
-> 本文件仅为规划。触发条件不满足时不要执行：见末尾「何时执行」。
+> 本文件原为 RFC 规划，已于 2026-08-31 按 6 步全部执行并合入 `main`（commit `5bb189b`→`134ff09`，门禁逐步全绿、233 测试零断言改动）。以下正文保留为实施记录与模板，后续同类拆分可复用。
 > 原则：**拆文件不拆架构、只拆纯逻辑**。分层方向（renderer ← app ← adapter 单向下行）与各文件公共导出保持不变；不引入框架、不抽象通用 Panel、不改任何运行时行为。副作用（adapter 调用、paint、notice、异步）一律留在 `App`，本方案只搬运**纯状态转换与纯函数**。
-> 基线：`npm run test` 现有 233 测试全绿；每一步完成后原有测试全部通过。
+> 基线（执行前）：`npm run test` 233 测试全绿；每一步完成后原有测试全部通过（零断言改动）。
 
 ## 现状与切分边界（基于真实符号结构核实）
 
 | 文件 | 行数 | 真实结构 | 处置 |
 |---|---|---|---|
-| `src/app/adapter/dsh.ts` | 995 | 29 个纯类型导出（已核实零运行时值）+ `installSessionModelSelection` + `createRealDshAdapter` + 5 个纯函数 | 拆 |
-| `src/app/layout.ts` | 923 | 25 个导出；markdown 解析与宽度/viewport 计算混居 | 拆 |
-| `src/app/index.ts` | 984 | `App` 类 ~28 方法 + 底部 2 纯函数（`formatModelCatalog`/`resolveModelSpec`） | 按序拆 |
+| `src/app/adapter/dsh.ts` | 692 | 29 个纯类型 + `installSessionModelSelection` + `createRealDshAdapter` + 5 个纯函数 | 已拆 2026-08-31 |
+| `src/app/layout.ts` | 566 | 25 个导出；宽度/viewport 计算与 markdown 解析分居 | 已拆 2026-08-31 |
+| `src/app/index.ts` | 818 | `App` 类 ~28 方法 + slash/模型/问答纯逻辑 | 已拆 2026-08-31 |
 | `src/app/state.ts` | 711 | 37 个导出，大 reducer + 面板子 reducer，结构清晰 | **不动** |
 | `src/renderer/*` | 98–261 | 已符合「极简渲染层」目标 | **不动** |
+
+### 拆分后新增文件（2026-08-31）
+
+| 文件 | 内容 |
+|---|---|
+| `src/app/commands.ts` | `formatModelCatalog`/`resolveModelSpec` + slash 路由/决策纯函数（`routeSlashCommand`/`modelCommandSpec`/`themeCommandDecision` + `SlashRoute`/`ThemeCommandDecision`） |
+| `src/app/adapter/types.ts` | 29 个纯类型原样迁移 |
+| `src/app/adapter/normalize.ts` | `parseSlashCommand`/`buildApprovalPrompt`/`buildUserMessage`/`normalizeAgentStatus`/`readDefaultSelection` |
+| `src/app/layout/markdown.ts` | 宽度原语 + markdown 行内/块级解析（`parseInlineMarkdown`/`wrapInlineMarkdown`/`wrapAssistantLine` 等） |
+| `src/app/question-transition.ts` | 问答纯状态转换（`QuestionKeyDecision`/`questionKeyDecision`/`buildQuestionAnswers`） |
+| `src/app/model-transition.ts` | 模型选择纯状态转换（`PickerInit`/`buildPickerInit`/`pickerEffortIndex`/`resolvePickerSelection`/`ModelSwitchPlan`/`planModelSwitch`） |
+
+## 执行记录（2026-08-31，已全部完成）
+
+| 步 | commit | 内容 |
+|---|---|---|
+| 1 | `5bb189b` | 提取模型目录纯函数（`commands.ts`） |
+| 2 | `ddf4829` | 拆分 adapter 类型与归一化工具 |
+| 3 | `ebe6c2e` | 拆分 layout markdown 解析 |
+| 4 | `49b401e` | 提取问答纯状态转换 |
+| 5 | `88e08ef` | 提取模型选择纯状态转换 |
+| 6 | `134ff09` | 提取 slash 命令解析 |
+
+- 门禁：6 步每步 `npm run check`/`test`（233 全绿）/`build`/`git diff --check` 通过后提交，`DSH-CTX-API.md`、`state.ts`、`renderer/` 全程零改动。
+- 后续事项：`IMPLEMENTATION.md`/`DESIGN.md` 同步了新文件布局；`dsh.ts` 14 个未使用 `import type` 名（TS 6196 警告级）留作后续清理。
 
 依赖方向（不变）：`main.ts` → `App` → `state/适配器`；`layout.ts` → 组件渲染函数（`renderQuestionPanel`/`renderModelPicker`）。
 
@@ -129,5 +154,7 @@ git diff --find-renames --stat
 - `state.ts` ← 4 个测试文件（不动，仅记录）
 
 ## 何时执行
+
+> 已于 2026-08-31 执行完毕（触发条件：单文件反复改动、`dsh.ts`/`layout.ts`/`index.ts` 持续膨胀）。以下为原始触发标准，留档参考：
 
 满足其一再启动：新增 2+ 个交互面板；DSH API 大版本变更导致 `dsh.ts` 扩散；单文件反复改动使某测试文件难维护；出现跨层或循环依赖。否则保持现状。

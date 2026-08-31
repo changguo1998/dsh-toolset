@@ -169,6 +169,23 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 - [x] T4.4 `app/index.ts`：`turn-end` → reducer；`AppDeps.status` 可选，提供后自动启停 StatusTicker；`main.ts`/demo 接入真实查询器。
 - [x] T4.5 单测：`tests/layout4.test.ts`（四区顺序/尺寸、turn 分隔、truncateToWidth）、`tests/status.test.ts`（合并节流、可注入调度、占位不抛错）。`npm run check && npm test` 全绿（98/98）。
 
+## 模块拆分（2026-08-31，RFC v3 已执行）
+
+按 `REFACTOR.md` v3 渐进式拆出 6 个纯逻辑文件（6 commit：`5bb189b`→`134ff09`，233 测试零断言改动，门禁全绿）。原则：**拆文件不拆架构、只拆纯逻辑**，副作用（adapter 调用、paint、notice、异步）一律留在 `App`（`index.ts`）。
+
+| 新文件 | 内容 | 来源 |
+|---|---|---|
+| `src/app/commands.ts` | `formatModelCatalog`/`resolveModelSpec` + slash 路由/决策纯函数（`routeSlashCommand`/`modelCommandSpec`/`themeCommandDecision` + `SlashRoute`/`ThemeCommandDecision`） | 原 `index.ts` 底部 2 纯函数 + Step 6 |
+| `src/app/adapter/types.ts` | 29 个纯类型 | 原 `adapter/dsh.ts` |
+| `src/app/adapter/normalize.ts` | `parseSlashCommand`/`buildApprovalPrompt`/`buildUserMessage`/`normalizeAgentStatus`/`readDefaultSelection` | 原 `adapter/dsh.ts` |
+| `src/app/layout/markdown.ts` | 宽度原语 + markdown 行内/块级纯解析（`charWidth`/`displayWidth`/`parseInlineMarkdown`/`wrapInlineMarkdown`/`wrapAssistantLine` 等） | 原 `layout.ts` |
+| `src/app/question-transition.ts` | 问答纯状态转换（`QuestionKeyDecision`/`questionKeyDecision`/`buildQuestionAnswers`） | 原 `index.ts` Step 4 |
+| `src/app/model-transition.ts` | 模型选择纯状态转换（`PickerInit`/`buildPickerInit`/`pickerEffortIndex`/`resolvePickerSelection`/`ModelSwitchPlan`/`planModelSwitch`） | 原 `index.ts` Step 5 |
+
+- 兼容策略：`index.ts` 重导 `formatModelCatalog`/`resolveModelSpec`；`layout.ts` 重导 markdown 纯函数；`adapter/dsh.ts` 显式类型/函数重导（不用 `export *`，避免 verbatimModuleSyntax 与循环依赖）。外部 import 路径全部不变。
+- 明确不动：`state.ts`、`renderer/`、`DSH-CTX-API.md`。
+- 遗留：`adapter/dsh.ts` 14 个未使用 `import type`（TS 6196 警告级，`noUnusedLocals` 关闭故 tsc 不报），留作后续清理。
+
 ## 依赖顺序
 
 ```

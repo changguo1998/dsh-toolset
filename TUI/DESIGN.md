@@ -59,12 +59,20 @@ src/renderer/
 
 ```
 src/app/
-  state.ts       # 状态模型：会话列表、流式文本增量、审批项、系统状态区、turn 分隔
-  layout.ts      # 四区域帧：顶部(插件窄条+历史) / 状态区 / 输入行 / 审批弹窗
+  state.ts       # 状态模型：会话列表、流式文本增量、审批项、系统状态区、turn 分隔（拆分后未动）
+  layout.ts      # 四区域帧：顶部(插件窄条+历史) / 状态区 / 输入行 / 审批弹窗；保留宽度/viewport/buildFrame
+  layout/
+    markdown.ts   # 宽度原语 + markdown 行内/块级纯解析（2026-08-31 从 layout.ts 拆出）
   status.ts      # 系统状态区数据源：StatusTicker 合并节流读取 cwd/git/time
-  components/    # TextInput、ScrollView（历史区）、ApprovalPrompt
-  adapter/dsh.ts # ctx 订阅 → 写入 state；审批/发消息 → 回调 DSH
-  index.ts
+  commands.ts    # 纯函数：模型目录格式化/规格解析 + slash 路由/决策（2026-08-31 拆出）
+  question-transition.ts  # 问答纯状态转换（2026-08-31 拆出）
+  model-transition.ts     # 模型选择纯状态转换（2026-08-31 拆出）
+  components/    # TextInput、ScrollView（历史区）、ApprovalPrompt、QuestionPrompt、ModelPicker（纯渲染）
+  adapter/
+    dsh.ts       # ctx 订阅 → 写入 state；审批/发消息 → 回调 DSH；保留 installSessionModelSelection + createRealDshAdapter
+    types.ts     # 29 个纯类型（2026-08-31 从 dsh.ts 拆出）
+    normalize.ts # 5 个纯归一化函数（2026-08-31 从 dsh.ts 拆出）
+  index.ts       # App：组装层，副作用（adapter 调用/paint/notice/异步）都在此
 ```
 
 依赖方向（单向）：
