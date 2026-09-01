@@ -29,6 +29,8 @@ import {
   type DshCommandLike,
   type DshRuntime,
   type DshUserMessageLike,
+  type SessionQueryLike,
+  type SessionStoreLike,
 } from "./app/adapter/dsh.ts";
 
 /** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
@@ -292,6 +294,13 @@ export async function apply(
     userQuestions: (ctx as { get?: (name: string) => unknown }).get?.(
       "userQuestions",
     ) as UserQuestionsLike | undefined,
+    // 历史会话查询服务（ctx.get('sessionQuery')；缺失时 /session 提示不可用）
+    sessionQuery: (ctx as { get?: (name: string) => unknown }).get?.(
+      "sessionQuery",
+    ) as SessionQueryLike | undefined,
+    // 会话存储服务（ctx.get('sessions')；live 会话读取原始事件需经它，缺失时降级 readSurface/readSession）
+    sessions: (ctx as { get?: (name: string) => unknown }).get?.("sessions") as
+      SessionStoreLike | undefined,
   });
 
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）

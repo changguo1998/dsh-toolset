@@ -12,6 +12,9 @@ import type {
   ModelCatalog,
   ModelSelection,
   QuestionAnswer,
+  SessionInfo,
+  HistoryMessage,
+  SessionSurfaceView,
 } from "../src/app/adapter/dsh.ts";
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
 import type { RenderLine, Size } from "../src/renderer/screen.ts";
@@ -147,6 +150,22 @@ class FakeAdapter implements DshAdapter {
       { id: "max", name: "max" },
     ];
   }
+  // --- /history 历史会话（置 undefined 模拟宿主未挂载 sessionQuery） ---
+  sessionRecords: SessionInfo[] = [];
+  sessionSurfaces: Record<string, HistoryMessage[]> = {};
+  listSessionsCalls = 0;
+  readSurfaceCalls: string[] = [];
+  listSessions: (() => Promise<SessionInfo[]>) | undefined = async () => {
+    this.listSessionsCalls++;
+    return this.sessionRecords;
+  };
+  readSessionSurface:
+    ((id: string) => Promise<SessionSurfaceView>) | undefined = async (id) => {
+    this.readSurfaceCalls.push(id);
+    const m = this.sessionSurfaces[id];
+    if (!m) throw new Error('stored session "' + id + '" is corrupt');
+    return { sessionId: id, messages: m };
+  };
 
   /** 测试辅助：注入事件 */
   push(e: DshEvent): void {
@@ -1423,3 +1442,133 @@ test("问答面板：plan-review 单题以计划卡片呈现，hints 只显示�
   ]);
   app.dispose();
 });
+
+// --- /history 历史会话面板（集成：命令 → 面板 → 列表 → 只读浏览 → 关闭） ---
+
+// 以下两个辅助仅被上方已禁用的 /history 集成测试使用；入口注释后保留定义以免后续启用时重写
+// function historyFixtures(a: FakeAdapter): void {
+//   a.sessionRecords = [
+//     {
+//       id: "aaaa1111-0000-0000-0000-000000000000",
+//       createdAt: 1787290000000,
+//       cwd: "/home/g/TUI",
+//       live: true,
+//       persisted: false,
+//     },
+//     {
+//       id: "bbbb2222-0000-0000-0000-000000000000",
+//       createdAt: 1787200000000,
+//       cwd: "/home/g/other",
+//       live: false,
+//       persisted: true,
+//     },
+//     {
+//       id: "cccc3333-0000-0000-0000-000000000000",
+//       createdAt: 1787100000000,
+//       cwd: "/tmp/x",
+//       live: false,
+//       persisted: true,
+//     },
+//   ];
+//   a.sessionSurfaces = {
+//     "bbbb2222-0000-0000-0000-000000000000": [
+//       { role: "user", text: "这个项目是什么？" },
+//       { role: "assistant", text: "这是一个 TUI 项目。" },
+//     ],
+//   };
+// }
+
+// function stripAnsi(s: string): string {
+//   return s.replace(/\x1b\[[0-9;]*m/g, "");
+// }
+
+// --- /history 会话面板集成测试（入口已注释，命令暂不可用 → 测试禁用；保留 adapter 层单测） ---
+// test("/history 打开会话列表（newest-first，live 会话标记 [当前]）", async () => {
+//   const { renderer, adapter } = makeApp();
+//   historyFixtures(adapter);
+//   typeAndEnter(renderer, "/session");
+//   await flush();
+//   const joined = renderer.lastRender.map(stripAnsi).join("\n");
+//   assert.equal(adapter.listSessionsCalls, 1);
+//   assert.ok(joined.includes("历史会话（3）"), "面板标题含会话数");
+//   const lines = renderer.lastRender.map(stripAnsi);
+//   const liveLine = lines.find((l) => l.includes("aaaa1111"));
+//   assert.ok(liveLine, "首行为最新 live 会话");
+//   assert.ok(liveLine!.includes("[当前]"), "live 会话标记 [当前]");
+//   assert.ok(lines.some((l) => l.includes("bbbb2222")));
+//   assert.ok(
+//     lines.some((l) => l.includes("[Esc]关闭")),
+//     "统一 [按键]文字 提示",
+//   );
+// });
+//
+// test("/history 列表移动 + Enter 只读浏览 + Esc 返回列表 + Esc 关闭", async () => {
+//   const { renderer, adapter } = makeApp();
+//   historyFixtures(adapter);
+//   typeAndEnter(renderer, "/session");
+//   await flush();
+//   // ↓ 移到第二条（bbbb2222）
+//   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+//   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+//   await flush();
+//   let joined = renderer.lastRender.map(stripAnsi).join("\n");
+//   assert.deepEqual(adapter.readSurfaceCalls, [
+//     "bbbb2222-0000-0000-0000-000000000000",
+//   ]);
+//   assert.ok(joined.includes("会话 bbbb2222"), "view 标题含短 id");
+//   assert.ok(joined.includes("问: 这个项目是什么？"), "用户消息前缀 问:");
+//   assert.ok(joined.includes("答: 这是一个 TUI 项目。"), "助手消息前缀 答:");
+//   // Esc 返回列表（列表数据仍在内存，焦点保持）
+//   renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+//   joined = renderer.lastRender.map(stripAnsi).join("\n");
+//   assert.ok(joined.includes("历史会话（3）"), "Esc 返回列表");
+//   const bbbbLine = renderer.lastRender
+//     .map(stripAnsi)
+//     .find((l) => l.includes("bbbb2222"));
+//   assert.ok(
+//     bbbbLine && bbbbLine!.startsWith(">"),
+//     "返回列表后焦点保持在浏览过的会话",
+//   );
+//   // Esc 关闭面板（主输入提示区恢复）
+//   renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+//   joined = renderer.lastRender.map(stripAnsi).join("\n");
+//   assert.ok(joined.includes("[Enter]发送"), "关闭后输入态按键提示恢复");
+//   assert.ok(!joined.includes("历史会话（3）"));
+// });
+//
+// test("/history 损坏会话 → 错误阶段显示结构化错误，Esc 关闭", async () => {
+//   const { renderer, adapter } = makeApp();
+//   historyFixtures(adapter);
+//   typeAndEnter(renderer, "/session");
+//   await flush();
+//   // ↓↓ 移到第三条（cccc3333，无表面数据 → corrupt）
+//   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+//   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+//   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+//   await flush();
+//   const joined = renderer.lastRender.map(stripAnsi).join("\n");
+//   assert.ok(joined.includes("加载失败"), "error 阶段标题");
+//   assert.ok(joined.includes("is corrupt"), "结构化错误消息透传");
+//   renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+//   const after = renderer.lastRender.map(stripAnsi).join("\n");
+//   assert.ok(after.includes("[Enter]发送"), "Esc 关闭面板");
+// });
+//
+// test("/history 空列表 → （无历史会话）；未挂载 sessionQuery → 提示不可用", async () => {
+//   // 空列表
+//   const { renderer } = makeApp();
+//   typeAndEnter(renderer, "/session");
+//   await flush();
+//   assert.ok(
+//     renderer.lastRender.map(stripAnsi).join("\n").includes("（无历史会话）"),
+//   );
+//   // 未挂载服务
+//   const a2 = makeApp();
+//   a2.adapter.listSessions = undefined;
+//   a2.adapter.readSessionSurface = undefined;
+//   typeAndEnter(a2.renderer, "/session");
+//   await flush();
+//   const joined2 = a2.renderer.lastRender.map(stripAnsi).join("\n");
+//   assert.ok(joined2.includes("历史会话服务不可用"), "notice 提示不可用");
+//   assert.ok(!joined2.includes("历史会话（"), "未打开面板");
+// });

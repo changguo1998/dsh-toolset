@@ -65,7 +65,14 @@ export function resolveModelSpec(
 
 /** Slash 路由决策：本地命令 → 对应 kind；其余一律 adapter commands 注册表（fail-close，绝不经 sendMessage） */
 export type SlashRoute =
-  "help" | "clearscreen" | "quit" | "model" | "theme" | "registry";
+  | "help"
+  | "clearscreen"
+  | "quit"
+  | "model"
+  | "theme"
+  // session 入口已注释（历史会话功能保留代码）：/session 暂不可用
+  // | "session"
+  | "registry";
 
 export function routeSlashCommand(name: string): SlashRoute {
   switch (name) {
@@ -80,6 +87,9 @@ export function routeSlashCommand(name: string): SlashRoute {
       return "model";
     case "theme":
       return "theme";
+    // /session 入口已注释（保留历史会话代码）：/session 走 registry（未知命令提示）
+    // case "session":
+    //   return "session";
     default:
       return "registry";
   }

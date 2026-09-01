@@ -58,6 +58,10 @@ export interface DshAdapter {
     provider: string,
     model: string,
   ): Promise<{ id: string; name: string }[] | undefined>;
+  /** 历史会话列表（newest-first，含当前 live 会话）；宿主未挂载会话查询服务时为 undefined */
+  listSessions?(): Promise<SessionInfo[]>;
+  /** 读取指定历史会话的只读消息列表（损坏会话 reject 结构化错误） */
+  readSessionSurface?(id: string): Promise<SessionSurfaceView>;
 }
 
 /** 模型目录条目（/model 列表展示用） */
@@ -316,6 +320,62 @@ export interface AgentDefaultModelLike {
     { provider?: string; model?: string; reasoningEffort?: string } | undefined;
 }
 
+/** 单条历史会话记录（宿主 @deepseek-ai/dsh-session-query SessionRecord 的归一化面） */
+export interface SessionInfo {
+  id: string;
+  /** 创建时间（Unix 毫秒） */
+  createdAt: number;
+  /** 会话启动时工作目录（列表展示用） */
+  cwd?: string;
+  /** 是否当前运行的 live 会话（列表标记 [当前]） */
+  live: boolean;
+  /** 是否已持久化到磁盘 */
+  persisted: boolean;
+}
+
+/** 历史会话只读表面的归一化消息（v1 仅保留 user/assistant 正文，tool/result 省略） */
+export interface HistoryMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
+/** 单个历史会话的只读表面视图（归一化后的消息列表） */
+export interface SessionSurfaceView {
+  sessionId: string;
+  messages: HistoryMessage[];
+}
+
+/** 宿主会话存储服务结构面（ctx.get('sessions')，dsh-session SessionStore；读 live 会话原始事件用） */
+export interface SessionStoreLike {
+  get(sessionId: string):
+    | {
+        id: string;
+        events: readonly Record<string, unknown>[];
+      }
+    | undefined;
+}
+
+/** 宿主会话查询服务结构面（ctx.get('sessionQuery')，@deepseek-ai/dsh-session-query；契约见仓库根 DSH-CTX-API.md） */
+export interface SessionQueryLike {
+  listSessions(): Promise<
+    readonly {
+      header: { id: string; createdAt: number; cwd?: string };
+      live: boolean;
+      persisted: boolean;
+    }[]
+  >;
+  /** 完整原始事件日志；内部经 Session.create 全量校验，混合日志（agent/inbox/spliced + 未 identified user/message）会抛校验错，仅作最后兜底 */
+  readSession?(sessionId: string): Promise<{
+    session: { id: string };
+    events: readonly Record<string, unknown>[];
+  }>;
+  /** 当前模型表面事件（persisted 会话可用；live 会话内存事件缺 surfaceOp 标记 surface fold → 返回空） */
+  readSurface?(sessionId: string): Promise<{
+    session: { id: string };
+    events: readonly Record<string, unknown>[];
+  }>;
+}
+
 export interface RealAdapterOptions {
   runtime: DshRuntime;
   sessionId: string;
@@ -337,4 +397,8 @@ export interface RealAdapterOptions {
   defaultModel?: AgentDefaultModelLike;
   /** ctx.get('userQuestions') 服务（dsh-user-questions 0.1.1 单 provider）；缺失时提问功能不可用但 adapter 正常启动 */
   userQuestions?: UserQuestionsLike;
+  /** ctx.get('sessionQuery') 服务（dsh-session-query）；缺失时历史会话浏览不可用但 adapter 正常启动 */
+  sessionQuery?: SessionQueryLike;
+  /** ctx.get('sessions') 会话存储服务（读 live 会话原始事件；缺失时仅 live 会话内容读取降级走 readSurface/readSession） */
+  sessions?: SessionStoreLike;
 }

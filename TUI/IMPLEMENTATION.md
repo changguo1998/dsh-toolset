@@ -215,6 +215,38 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 - Enter 提交仍走 `resolvePickerSelection`「星号优先、焦点兜底」（打开时已用当前值预填星号，通常即星号值）。
 - 测试：`tests/modelpicker.test.ts` reducer 断言改为「焦点移动不切 model 列」+ picker-select 新用例；`tests/app.test.ts` FakeAdapter 新增 `modelEffortsCalls` 记录，新增双 provider 用例验证 model 列/思考等级列表只随星号变化（240/240 绿）。
 
+## /session 历史会话只读浏览（2026-09-01）
+
+- 背景：DSH 宿主经 cordis 挂载 `sessionQuery` 服务（`@deepseek-ai/dsh-session-query`，d-base 的 `session-query-sqlite`，`openAt: never` 仅关 FTS 不关引擎）。运行时 smoke test 确认 `ctx.get("sessionQuery")` 已挂载、`listSessions()` 返回 140+ 会话（newest-first，live/persisted 标记）、`readSurface(id)` 返回 `{session, events}`（事件结构：`user/message` → `data.content[]`、`assistant/message` → `data.message.content[]`、`tool/result`）；**`readSurface` 解构调用丢失 `this`（读 `_corpus` 报错），必须 `sq.readSurface(id)` 直接调用**；损坏会话返回结构化错误（`stored session "..." is corrupt`）。
+- 适配层（`types.ts`/`dsh.ts`/`main.ts`）：新增 `SessionInfo`/`HistoryMessage`/`SessionSurfaceView`/`SessionQueryLike`（结构类型，仅 `listSessions`/`readSurface`）；`DshAdapter` 追加可选方法 `listSessions?()`/`readSessionSurface?()`；`createRealDshAdapter` 接收可选 `sessionQuery`（`main.ts` 经 `ctx.get("sessionQuery")` 注入，不塞入 DshRuntime）。归一化纯函数 `extractTextBlocks`/`normalizeHistoryMessages`：仅 user/assistant 的 text blocks（reasoning/tool 结果 v1 省略）。
+- 状态层（`state.ts`）：`HistoryPanelState` 五阶段（loading-list/list/loading-view/view/error）+ `AppState.history`；10 个 reducer action，async 结果 action 均带 phase stale guard。
+- App 层（`index.ts`/`commands.ts`）：`/session` 进本地命令表；`openHistory()`（服务缺失 → notice 不打开）/`openHistoryView()`（list 阶段 Enter 触发）承载异步与 paint；`handleKey` 历史面板分支（list: ↑↓/Enter/Esc；view: ↑↓/PgUp/PgDn/Esc→back；error: Esc→close；loading 吞键），优先级 approval > question > picker > history。
+- 渲染（`components/HistoryPanel.ts` 新文件 + `layout.ts`）：纯函数无 ANSI，占满固定交互区（footer 分发追加 `else if (history)` 分支，`normalInput` 判据加 `!history`）；列表行 `> MM-DD HH:mm  <8位短id>  .../cwd  [当前]`、view 行 `问:`/`答:` 前缀换行缩进；复用 `truncateToWidth`/`wrapLine`/`displayWidth`。
+- 测试：`tests/adapter.dsh.test.ts` 4 例（listSessions 归一化/readSurface 归一化含 reasoning+tool 省略/损坏会话 reject/未注入时方法 undefined）；`tests/app.test.ts` 4 例（列表打开 + [当前] 标记/列表移动 + Enter 只读浏览 + Esc 返回 + Esc 关闭/损坏会话 error 阶段 + Esc 关闭/空列表 + 服务缺失 notice）。`npm run check && npm test && npm run build` 全绿（248/248）。
+- 实测（PTY 接真实 dsh）：`/session` 打开 144 会话列表（`> 09-01 15:07 tui-dc2b … [当前]` 焦点行 + live 标记）、↓ 移动、Enter 进入 view（标题含完整会话 id + `[↑/↓]滚动 · [PgUp/PgDn]翻页` 提示）、Esc 返回列表、Esc 关闭回输入态（`[Enter]发送` 提示恢复）。
+
+## /history → /session 更名与 live 会话读取修复（2026-09-01）
+
+- **命令更名**：`/history` → `/session`（用户指定，语义更贴合"会话浏览"）。路由（`commands.ts` SlashRoute/case、`index.ts` handleSlash case、helpText）、测试（`app.test.ts` 4 处命令字符串）、文档（README/DESIGN/IMPLEMENTATION）同步。
+- **问题**：live 会话 Enter 查看无内容。
+- **根因（运行时 probe 逐层定位）**：
+  - readSurface 的 surface fold 要求事件带 `surfaceOp` 标记（`isSurfaceEvent`），而 `ctx.sessions` 内存事件（`permission/preset`/`agent/inbox/spliced`/`turn/start` 等）不含该标记 → live 会话 readSurface 恒返回空；
+  - readSystem 走完整日志但内部 `Session.create` 全量校验，live 混合日志（`agent/inbox/spliced` 中 `inserted` 消息未 identified）抛 `seed user/message ... lacks an identified message`；
+  - 当前 dsh live 会话的消息形态是 **`agent/inbox/spliced`**（`data.inserted[].role/content[].text` 提取 user 消息），**assistant 输出不落 session store 事件**（模型已回复但 store 45s 后仍无 assistant 记录，实时「收到」经 `assistant/chunk` 流式到 UI），persisted 会话才有完整 `assistant/message`。
+- **修复**：`readSessionSurface` 读取顺序 = ① live（`opts.sessions.get(id).events` 直接读原始事件，不触 fold/校验）→ ② persisted `readSurface` → ③ 兜底 `readSession` → ④ 皆缺结构化错误。`types.ts` 新增 `SessionStoreLike`（`SessionQueryLike.readSession?`/`readSurface?` 改造为可选）；`normalizeHistoryMessages` 兼容 `agent/inbox/spliced`；`main.ts` 注入 `sessions: ctx.get("sessions")`；`HistoryPanel.ts` view 无可提取文本时显示占位提示（区分空会话与 live 未落 assistant）。
+- 测试：`tests/adapter.dsh.test.ts` 重写读取链路（persisted→readSurface / live→sessions store / 瘦服务回退 readSession / 无读取面抛错）；`tests/app.test.ts` 命令字符串 `/session`。`npm run check && npm test && npm run build` 全绿（251/251）。
+- 实测（PTY）：live 会话 view 显示 `问: 请回复两个字：收到`（agent/inbox/spliced 提取）；空会话显示「（该会话暂无文本消息…）」占位；`/session` 打开 158 会话列表、Enter 查看/Esc 返回/Esc 关闭全部正常。
+
+### 入口注释禁用（2026-09-01 用户反馈）
+
+用户实测 `/session` 加载失败后要求**保留实现代码、注释掉命令入口**。现状：
+
+- `commands.ts` `SlashRoute` 与 `routeSlashCommand` 的 `session` 分支注释（`/session` 走 registry → 未知命令提示）；
+- `index.ts` `handleSlash` 的 `case "session"` 与 helpText 行注释；`void this.openHistory` 保留引用防误删（私有方法无其他调用方）；
+- `tests/app.test.ts` 4 个 `/history`/-session 集成测试与 `historyFixtures`/`stripAnsi` 辅助注释禁用（adapter 层单测保留：`tests/adapter.dsh.test.ts` 读取链路用例仍在）。
+- 门禁：`npm run check && npm test` 全绿（247/247）。
+- 重新启用：取消 `commands.ts` 与 `index.ts` 的 `session` 分支注释、`helpText` 行注释、`app.test.ts` 集成测试注释即可；live 会话读取（`sessions` store 直读 + `agent/inbox/spliced` 归一化）实现已就绪。
+
 ## 依赖顺序
 
 ```

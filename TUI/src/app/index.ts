@@ -396,6 +396,51 @@ export class App {
       return;
     }
 
+    // /history 历史会话面板：list 阶段 ↑/↓ 移动、Enter 查看、Esc 关闭；
+    // view 阶段 ↑/↓/PgUp/PgDn 滚动、Esc 返回列表；loading/error 阶段吞键（error 可 Esc 关闭）
+    if (this.state.history) {
+      const h = this.state.history;
+      if (h.phase === "list") {
+        if (name === "up")
+          this.apply((st) =>
+            reduceState(st, { type: "history-move", delta: -1 }),
+          );
+        else if (name === "down")
+          this.apply((st) =>
+            reduceState(st, { type: "history-move", delta: 1 }),
+          );
+        else if (name === "enter") {
+          void this.openHistoryView();
+          return;
+        } else if (name === "escape")
+          this.apply((st) => reduceState(st, { type: "history-close" }));
+      } else if (h.phase === "view") {
+        if (name === "up")
+          this.apply((st) =>
+            reduceState(st, { type: "history-scroll", delta: -1 }),
+          );
+        else if (name === "down")
+          this.apply((st) =>
+            reduceState(st, { type: "history-scroll", delta: 1 }),
+          );
+        else if (name === "pageup")
+          this.apply((st) =>
+            reduceState(st, { type: "history-scroll", delta: -10 }),
+          );
+        else if (name === "pagedown")
+          this.apply((st) =>
+            reduceState(st, { type: "history-scroll", delta: 10 }),
+          );
+        else if (name === "escape")
+          // 返回列表（列表数据仍在内存）
+          this.apply((st) => reduceState(st, { type: "history-back" }));
+      } else if (h.phase === "error" && name === "escape") {
+        this.apply((st) => reduceState(st, { type: "history-close" }));
+      }
+      this.paint();
+      return;
+    }
+
     // Ctrl+D：仅 idle 且输入区为空时退出（输入非空时按无操作忽略）
     if (ctrl && name === "d") {
       if (this.state.agentStatus === "idle" && this.state.inputText === "") {
@@ -637,6 +682,12 @@ export class App {
       case "theme":
         this.handleThemeCommand(line);
         return;
+        // /session 入口已注释（保留 openHistory/history 面板代码）：
+        // 历史会话功能暂不可用，避免 live 读取链路在宿主上加载失败
+        // case "session":
+        //   void this.openHistory();
+        //   return;
+        void this.openHistory; // 保留方法引用（防误删；重新启用时取消上方 case 注释）
       case "registry":
         // 非本地命令 → 注册表调用
         this.deps.adapter.runCommand(
@@ -682,6 +733,52 @@ export class App {
       this.paint();
     }
     this.notice(`theme: ${next} (${THEMES[next].name})`);
+  }
+
+  /** /session：打开历史会话面板（宿主未挂载会话查询服务时提示不可用） */
+  private async openHistory(): Promise<void> {
+    const list = this.deps.adapter.listSessions;
+    if (!list) {
+      this.notice("历史会话服务不可用（宿主未挂载 sessionQuery）");
+      return;
+    }
+    this.apply((s) => reduceState(s, { type: "history-open" }));
+    this.paint();
+    try {
+      const records = await list();
+      this.apply((s) => reduceState(s, { type: "history-list", records }));
+    } catch (err) {
+      this.apply((s) =>
+        reduceState(s, { type: "history-list-error", error: String(err) }),
+      );
+    }
+    this.paint();
+  }
+
+  /** 历史面板 list→view：读取高亮会话的只读表面（损坏会话进入 error 阶段） */
+  private async openHistoryView(): Promise<void> {
+    const read = this.deps.adapter.readSessionSurface;
+    if (!read) return;
+    this.apply((s) => reduceState(s, { type: "history-open-view" }));
+    this.paint();
+    const panel = this.state.history;
+    const rec = panel ? panel.records[panel.index] : undefined;
+    if (!panel || !rec) return;
+    try {
+      const view = await read(rec.id);
+      this.apply((s) =>
+        reduceState(s, {
+          type: "history-view",
+          id: rec.id,
+          messages: view.messages,
+        }),
+      );
+    } catch (err) {
+      this.apply((s) =>
+        reduceState(s, { type: "history-view-error", error: String(err) }),
+      );
+    }
+    this.paint();
   }
 
   /** 无参 /model：进入交互选择模式（当前模型行始终显示，不在候选目录中也补行） */
@@ -783,6 +880,7 @@ export class App {
       "  /clearscreen (/cls)  清空缓冲(只清显示，不动上下文)",
       "  /quit   退出",
       "  /theme [dark|light|toggle]  切换主题(默认 dark=fffdark, light=ffflight)",
+      // "  /session  浏览历史会话(只读)",  // 入口已注释暂不可用
       "  /model [provider/]model  switch current-session model; bare /model: interactive picker",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");

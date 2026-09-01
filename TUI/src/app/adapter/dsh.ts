@@ -52,6 +52,10 @@ import type {
   LlmLike,
   AgentDefaultModelLike,
   RealAdapterOptions,
+  SessionInfo,
+  HistoryMessage,
+  SessionSurfaceView,
+  SessionQueryLike,
 } from "./types.ts";
 import {
   buildApprovalPrompt,
@@ -91,6 +95,11 @@ export type {
   LlmLike,
   AgentDefaultModelLike,
   RealAdapterOptions,
+  SessionInfo,
+  HistoryMessage,
+  SessionSurfaceView,
+  SessionQueryLike,
+  SessionStoreLike,
 } from "./types.ts";
 export {
   buildApprovalPrompt,
@@ -158,9 +167,53 @@ export function installSessionModelSelection(
 // 阶段 2 真实实现：createRealDshAdapter
 // ---------------------------------------------------------------------------
 
+/** 从表面事件 content 块数组提取纯文本（v1 仅取 text 块；reasoning/tool-result 省略） */
+function extractTextBlocks(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const b of content as Array<Record<string, unknown>>) {
+    if (b && b.type === "text" && typeof b.text === "string")
+      parts.push(b.text);
+  }
+  return parts.join("\n");
+}
+
+/** 表面事件数组 → app 消息列表。
+ * 支持两种落在原始日志里的消息形态：
+ *  1. user/message、assistant/message（旧/其他 backend 的完整消息事件）；
+ *  2. agent/inbox/spliced（当前 dsh 内存会话承载消息的形态）——文本在
+ *     data.inserted[].content[]（role 取 inserted[].role，仅 user/assistant）。
+ * 其余（tool/result、系统事件）省略。
+ */
+function normalizeHistoryMessages(
+  events: readonly Record<string, unknown>[],
+): HistoryMessage[] {
+  const out: HistoryMessage[] = [];
+  for (const e of events) {
+    const data = e.data as Record<string, unknown> | undefined;
+    if (!data) continue;
+    if (e.type === "user/message") {
+      out.push({ role: "user", text: extractTextBlocks(data.content) });
+    } else if (e.type === "assistant/message") {
+      const msg = data.message as Record<string, unknown> | undefined;
+      out.push({ role: "assistant", text: extractTextBlocks(msg?.content) });
+    } else if (e.type === "agent/inbox/spliced") {
+      const inserted = data.inserted;
+      if (!Array.isArray(inserted)) continue;
+      for (const item of inserted as Array<Record<string, unknown>>) {
+        const role = item.role;
+        if (role !== "user" && role !== "assistant") continue;
+        out.push({ role, text: extractTextBlocks(item.content) });
+      }
+    }
+  }
+  return out;
+}
+
 /** 构造真实 DSH adapter：注册应答者 + 订阅会话事件，归一化为 DshEvent。 */
 export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   const { runtime, sessionId, agent } = opts;
+  const sessionQuery = opts.sessionQuery;
   const listeners = new Set<(e: DshEvent) => void>();
   const pendingApprovals = new Map<
     string,
@@ -552,6 +605,53 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       return { providers, models, current };
     },
+    // 历史会话只读浏览（宿主挂载 sessionQuery 时可用）
+    listSessions: sessionQuery
+      ? async () => {
+          const rs = await sessionQuery.listSessions();
+          return rs.map((r) => ({
+            id: r.header.id,
+            createdAt: r.header.createdAt,
+            cwd: r.header.cwd,
+            live: r.live,
+            persisted: r.persisted,
+          }));
+        }
+      : undefined,
+    readSessionSurface: sessionQuery
+      ? async (id) => {
+          // 读取顺序（按 live/persisted 判定，避免走错接口）：
+          //  1. live 会话（在 sessions store 内存）→ 直接读原始事件，不经过
+          //     surface fold（缺 surfaceOp）也不经过 Session.create 校验
+          //     （agent/inbox/spliced 混入日志会抛校验错）；
+          //  2. persisted 会话 → readSurface（持久化时已补 surfaceOp 标记）；
+          //  3. 兜底 readSession / 显式抛错。
+          const live = opts.sessions?.get(id);
+          if (live && Array.isArray(live.events)) {
+            return {
+              sessionId: id,
+              messages: normalizeHistoryMessages(live.events),
+            };
+          }
+          if (sessionQuery.readSurface) {
+            const snap = await sessionQuery.readSurface(id);
+            return {
+              sessionId: id,
+              messages: normalizeHistoryMessages(snap.events),
+            };
+          }
+          if (sessionQuery.readSession) {
+            const snap = await sessionQuery.readSession(id);
+            return {
+              sessionId: id,
+              messages: normalizeHistoryMessages(snap.events),
+            };
+          }
+          throw new Error(
+            "sessionQuery 未暴露 readSession/readSurface，无法读取会话内容",
+          );
+        }
+      : undefined,
     async setSessionModel(sel) {
       if (!opts.sessionModel) {
         throw new Error("会话模型引用未注入，无法切换模型");

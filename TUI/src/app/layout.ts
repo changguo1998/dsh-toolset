@@ -23,6 +23,7 @@ import type { Buffer, BufferKind } from "./state.ts";
 import type { ApprovalItem } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
+import { renderHistoryPanel } from "./components/HistoryPanel.ts";
 import { renderQuestionPanel } from "./components/QuestionPrompt.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
 import { colorFor } from "../renderer/theme.ts";
@@ -477,10 +478,11 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const showApproval = approval !== null;
   const picker = state.picker;
   const question = state.question;
+  const history = state.history;
   const fullWidth = Math.max(1, size.cols);
   // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
-  // 按键提示区仅输入态存在（审批/问答/选择面板自带按键提示），与输入区之间不画横线
-  const normalInput = !showApproval && !question && !picker;
+  // 按键提示区仅输入态存在（审批/问答/选择/历史面板自带按键提示），与输入区之间不画横线
+  const normalInput = !showApproval && !question && !picker && !history;
   const statusLines = renderStatusLine(
     state.systemStatus,
     state.themeId,
@@ -518,6 +520,12 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   } else if (picker) {
     footerLines = renderModelPicker({
       picker,
+      height: metrics.footerHeight,
+      width: fullWidth,
+    });
+  } else if (history) {
+    footerLines = renderHistoryPanel({
+      history,
       height: metrics.footerHeight,
       width: fullWidth,
     });

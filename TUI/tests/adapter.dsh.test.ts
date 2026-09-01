@@ -21,6 +21,8 @@ import {
   type AgentDefaultModelLike,
   type UserQuestionsLike,
   type UserQuestionRequestLike,
+  type SessionQueryLike,
+  type SessionStoreLike,
   type QuestionAnswer,
   type QuestionItem,
 } from "../src/app/adapter/dsh.ts";
@@ -1201,3 +1203,240 @@ test("userQuestions: dispose 拒绝悬挂 ask 并注销 provider", async () => {
   // 注销：dispose 后 provider 引用被清理（FakeUserQuestions 的 disposer 置空）
   assert.equal(uq.provider, null, "dispose 调用 provider disposer");
 });
+
+// --- 历史会话（sessionQuery）归一化 ---
+
+class FakeSessionQuery implements SessionQueryLike {
+  records: {
+    header: { id: string; createdAt: number; cwd?: string };
+    live: boolean;
+    persisted: boolean;
+  }[] = [
+    {
+      header: { id: "live-1", createdAt: 1787290000000, cwd: "/home/x/TUI" },
+      live: true,
+      persisted: false,
+    },
+    {
+      header: { id: "old-2", createdAt: 1787200000000, cwd: "/home/x/other" },
+      live: false,
+      persisted: true,
+    },
+  ];
+  events: Record<string, unknown>[] = [
+    {
+      type: "user/message",
+      seq: 1,
+      data: {
+        content: [
+          { type: "text", text: "你好" },
+          { type: "text", text: "第二行" },
+        ],
+        role: "user",
+      },
+    },
+    {
+      type: "assistant/message",
+      seq: 2,
+      data: {
+        message: {
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: "思考中（应被省略）" },
+            { type: "text", text: "回复正文" },
+          ],
+        },
+      },
+    },
+    {
+      type: "tool/result",
+      seq: 3,
+      data: {
+        message: {
+          content: [
+            {
+              type: "tool-result",
+              content: [{ type: "text", text: "工具输出（v1 省略）" }],
+            },
+          ],
+        },
+      },
+    },
+  ];
+  /** live 会话消息形态：agent/inbox/spliced（readSession 优先返回此日志） */
+  splicedEvents: Record<string, unknown>[] = [
+    {
+      type: "agent/inbox/spliced",
+      seq: 3,
+      data: {
+        target: "next-turn",
+        start: 0,
+        inserted: [
+          { role: "user", content: [{ type: "text", text: "内存消息：你好" }] },
+        ],
+      },
+    },
+    {
+      type: "agent/inbox/spliced",
+      seq: 5,
+      data: {
+        target: "next-turn",
+        start: 0,
+        inserted: [
+          { role: "assistant", content: [{ type: "text", text: "内存回复" }] },
+        ],
+      },
+    },
+  ];
+  /** 标记会话用 readSession（agent/inbox/spliced 形态）而不是 readSurface */
+  usesSplicedSessions = new Set<string>(["live-1"]);
+  readCalls: string[] = [];
+  listSessions(): Promise<
+    {
+      header: { id: string; createdAt: number; cwd?: string };
+      live: boolean;
+      persisted: boolean;
+    }[]
+  > {
+    return Promise.resolve(this.records);
+  }
+  readSession(
+    id: string,
+  ): Promise<{ session: { id: string }; events: Record<string, unknown>[] }> {
+    this.readCalls.push("session:" + id);
+    if (id === "corrupt-9") {
+      return Promise.reject(new Error('stored session "corrupt-9" is corrupt'));
+    }
+    if (this.usesSplicedSessions.has(id)) {
+      return Promise.resolve({
+        session: { id },
+        events: [...this.events, ...this.splicedEvents],
+      });
+    }
+    return Promise.resolve({ session: { id }, events: this.events });
+  }
+  readSurface(
+    id: string,
+  ): Promise<{ session: { id: string }; events: Record<string, unknown>[] }> {
+    this.readCalls.push("surface:" + id);
+    if (id === "corrupt-9") {
+      return Promise.reject(new Error('stored session "corrupt-9" is corrupt'));
+    }
+    return Promise.resolve({ session: { id }, events: this.events });
+  }
+}
+
+test("历史会话：listSessions 归一化（id/时间/cwd/live/persisted）", async () => {
+  const sq = new FakeSessionQuery();
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const records = await adapter.listSessions!();
+  assert.deepEqual(records, [
+    {
+      id: "live-1",
+      createdAt: 1787290000000,
+      cwd: "/home/x/TUI",
+      live: true,
+      persisted: false,
+    },
+    {
+      id: "old-2",
+      createdAt: 1787200000000,
+      cwd: "/home/x/other",
+      live: false,
+      persisted: true,
+    },
+  ]);
+});
+
+test("历史会话：persisted 会话走 readSurface（普通事件归一化，reasoning/tool 省略）", async () => {
+  const sq = new FakeSessionQuery();
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const view = await adapter.readSessionSurface!("old-2");
+  assert.equal(sq.readCalls[0], "surface:old-2");
+  assert.equal(view.sessionId, "old-2");
+  assert.deepEqual(view.messages, [
+    { role: "user", text: "你好\n第二行" },
+    { role: "assistant", text: "回复正文" },
+  ]);
+});
+
+test("历史会话：live 会话经 sessions store 原始事件（agent/inbox/spliced）提取", async () => {
+  const sq = new FakeSessionQuery();
+  const store = {
+    get(id: string) {
+      if (id !== "live-1") return undefined;
+      return { id, events: [...sq.events, ...sq.splicedEvents] };
+    },
+  };
+  const { adapter } = makeAdapterWithSessionQuery(sq, store);
+  const view = await adapter.readSessionSurface!("live-1");
+  // live 直接从内存 store 读，不触 readSurface/readSession
+  assert.deepEqual(sq.readCalls, []);
+  assert.deepEqual(view.messages, [
+    { role: "user", text: "你好\n第二行" },
+    { role: "assistant", text: "回复正文" },
+    { role: "user", text: "内存消息：你好" },
+    { role: "assistant", text: "内存回复" },
+  ]);
+});
+
+test("历史会话：宿主无 sessions store 且无 readSurface 时回退 readSession", async () => {
+  const sq = new FakeSessionQuery();
+  // 模拟瘦 sessionQuery：仅 readSession（拿完整日志）
+  const slim: SessionQueryLike = {
+    listSessions: () => Promise.resolve(sq.records),
+    readSession: (id) =>
+      Promise.resolve({ session: { id }, events: sq.events }),
+  };
+  const { adapter } = makeAdapterWithSessionQuery(slim);
+  const view = await adapter.readSessionSurface!("old-2");
+  assert.deepEqual(view.messages, [
+    { role: "user", text: "你好\n第二行" },
+    { role: "assistant", text: "回复正文" },
+  ]);
+});
+
+test("历史会话：宿主无任何读取面时抛结构化错误（app 层 error 阶段显示）", async () => {
+  const slim: SessionQueryLike = {
+    listSessions: () => Promise.resolve([]),
+  };
+  const { adapter } = makeAdapterWithSessionQuery(slim);
+  await assert.rejects(
+    adapter.readSessionSurface!("old-2"),
+    /未暴露 readSession\/readSurface/,
+    "缺读取面时结构化错误",
+  );
+});
+
+test("历史会话：损坏会话 readSessionSurface reject（结构化错误透传）", async () => {
+  const sq = new FakeSessionQuery();
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  await assert.rejects(
+    adapter.readSessionSurface!("corrupt-9"),
+    /corrupt/,
+    "损坏会话错误透传给 app 层显示",
+  );
+});
+
+test("历史会话：未注入 sessionQuery 时方法为 undefined（app 层提示不可用）", () => {
+  const { adapter } = makeAdapter();
+  assert.equal(adapter.listSessions, undefined);
+  assert.equal(adapter.readSessionSurface, undefined);
+});
+
+function makeAdapterWithSessionQuery(
+  sq: SessionQueryLike,
+  sessions?: SessionStoreLike,
+): {
+  adapter: ReturnType<typeof createRealDshAdapter>;
+} {
+  return {
+    adapter: createRealDshAdapter({
+      runtime: new FakeRuntime(),
+      sessionId: "s1",
+      agent: new FakeAgent(),
+      sessionQuery: sq,
+      sessions,
+    }),
+  };
+}

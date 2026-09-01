@@ -8,6 +8,8 @@ import type {
   AgentStatus,
   SessionMeta,
   QuestionItem,
+  SessionInfo,
+  HistoryMessage,
 } from "./adapter/dsh.ts";
 import type { ModelSelection } from "./adapter/dsh.ts";
 import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
@@ -53,6 +55,27 @@ export interface SystemStatus {
 /** turn 分隔线（横线占位；实际宽度由历史区换行决定） */
 export const TURN_SEPARATOR = "────────";
 
+/** 历史会话面板阶段：列表加载 → 列表 → 会话加载 → 浏览 → 错误（任一阶段可关闭） */
+export type HistoryPhase =
+  "loading-list" | "list" | "loading-view" | "view" | "error";
+
+/** /history 历史会话面板状态（只读浏览；list 与 view 两阶段） */
+export interface HistoryPanelState {
+  phase: HistoryPhase;
+  /** 会话列表（newest-first；list 阶段填充） */
+  records: SessionInfo[];
+  /** 列表高亮索引 */
+  index: number;
+  /** view 阶段浏览的会话 id */
+  currentId?: string;
+  /** view 阶段归一化消息列表 */
+  messages: HistoryMessage[];
+  /** view 阶段滚动行偏移（渲染层按可视高度 clamp） */
+  scroll: number;
+  /** error 阶段错误消息 */
+  error?: string;
+}
+
 export interface AppState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
@@ -83,6 +106,8 @@ export interface AppState {
   picker: PickerState | null;
   /** 问答面板（userQuestions 提问；null = 未激活） */
   question: QuestionPanelState | null;
+  /** /history 历史会话面板（只读浏览）；null = 未打开 */
+  history: HistoryPanelState | null;
 }
 
 /** /model 交互选择面板状态：三列列表（provider/model/effort）+ 高亮索引 */
@@ -175,6 +200,7 @@ export function initialState(
     approval: null,
     picker: null,
     question: null,
+    history: null,
     agentStatus: "idle",
     themeId,
     systemStatus: {
@@ -384,6 +410,100 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       return setQuestionCustom(state, action.text);
     case "question-close":
       return { ...state, question: null };
+    case "history-open":
+      return {
+        ...state,
+        history: {
+          phase: "loading-list",
+          records: [],
+          index: 0,
+          messages: [],
+          scroll: 0,
+        },
+      };
+    case "history-list":
+      // 面板已关闭则丢弃过期结果（异步竞态守卫）
+      if (!state.history) return state;
+      return {
+        ...state,
+        history: {
+          ...state.history,
+          phase: "list",
+          records: action.records,
+          index: 0,
+          error: undefined,
+        },
+      };
+    case "history-list-error":
+      if (!state.history) return state;
+      return {
+        ...state,
+        history: { ...state.history, phase: "error", error: action.error },
+      };
+    case "history-move": {
+      if (!state.history || state.history.phase !== "list") return state;
+      const hmv = state.history;
+      const next = Math.max(
+        0,
+        Math.min(hmv.records.length - 1, hmv.index + action.delta),
+      );
+      return { ...state, history: { ...hmv, index: next } };
+    }
+    case "history-open-view": {
+      if (!state.history || state.history.phase !== "list") return state;
+      const hov = state.history;
+      const rec = hov.records[hov.index];
+      if (!rec) return state;
+      return {
+        ...state,
+        history: { ...hov, phase: "loading-view", currentId: rec.id },
+      };
+    }
+    case "history-view":
+      if (!state.history || state.history.phase !== "loading-view")
+        return state;
+      return {
+        ...state,
+        history: {
+          ...state.history,
+          phase: "view",
+          currentId: action.id,
+          messages: action.messages,
+          scroll: 0,
+          error: undefined,
+        },
+      };
+    case "history-view-error":
+      if (!state.history || state.history.phase !== "loading-view")
+        return state;
+      return {
+        ...state,
+        history: { ...state.history, phase: "error", error: action.error },
+      };
+    case "history-scroll": {
+      if (!state.history || state.history.phase !== "view") return state;
+      const hsc = state.history;
+      return {
+        ...state,
+        history: { ...hsc, scroll: Math.max(0, hsc.scroll + action.delta) },
+      };
+    }
+    case "history-back": {
+      if (!state.history || state.history.phase !== "view") return state;
+      const hbk = state.history;
+      return {
+        ...state,
+        history: {
+          ...hbk,
+          phase: "list",
+          currentId: undefined,
+          messages: [],
+          scroll: 0,
+        },
+      };
+    }
+    case "history-close":
+      return { ...state, history: null };
     case "input":
       return setInput(state, action);
     case "input-mode":
@@ -440,6 +560,16 @@ export type StateAction =
   | { type: "question-select" }
   | { type: "question-custom"; text: string }
   | { type: "question-close" }
+  | { type: "history-open" }
+  | { type: "history-list"; records: SessionInfo[] }
+  | { type: "history-list-error"; error: string }
+  | { type: "history-move"; delta: number }
+  | { type: "history-open-view" }
+  | { type: "history-view"; id: string; messages: HistoryMessage[] }
+  | { type: "history-view-error"; error: string }
+  | { type: "history-scroll"; delta: number }
+  | { type: "history-back" }
+  | { type: "history-close" }
   | { type: "sessions"; sessions: SessionMeta[] }
   | { type: "input"; text: string; cursor: number }
   | { type: "input-mode"; mode: InputMode }
