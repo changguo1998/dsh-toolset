@@ -2,6 +2,7 @@
 //
 // 只依赖 ./types.ts 的纯类型；dsh.ts 内部调用并以具名重导保持原导出不变。
 
+import { randomUUID } from "node:crypto";
 import type {
   AgentDefaultModelLike,
   AgentStatus,
@@ -39,9 +40,15 @@ export function buildApprovalPrompt(req: ApprovalRequest): string {
   return `允许工具 ${req.toolName} 执行?${reason}`;
 }
 
-/** 构造结构型用户消息（真机字段同 createUserMessage 输出） */
+/**
+ * 构造结构型用户消息（真机字段同 createUserMessage 输出）。
+ * 必须带唯一 id：DSH 持久化校验以消息 id 判定 identified（agent/inbox/spliced
+ * 与 user/message 缺 id 会导致后续 resume 时 SessionPersistenceCorruptionError：
+ * "session event at seq N lacks an identified message"）。
+ */
 export function buildUserMessage(text: string): DshUserMessageLike {
   return {
+    id: randomUUID(),
     role: "user",
     content: [{ type: "text", text }],
     source: { kind: "user" },

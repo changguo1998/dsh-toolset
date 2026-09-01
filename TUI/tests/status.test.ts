@@ -113,6 +113,7 @@ test("renderStatusLine: 缺失数据源项以占位渲染，不抛错；行含�
       contextLen: "—",
       cacheHit: "—",
     },
+    "（新会话）",
     "dark",
     80,
   );
@@ -122,4 +123,27 @@ test("renderStatusLine: 缺失数据源项以占位渲染，不抛错；行含�
     !joined.includes(">") && !joined.includes("?"),
     "推理状态段已移除（无提示符）",
   );
+});
+
+test("renderStatusLine: 会话标题段显示于时间后（dark 主题 cyan 色，窄终端隐藏）", () => {
+  const status = {
+    time: "10:00",
+    cwd: "~/proj",
+    git: "main",
+    model: "ustc/deepseek-v4-flash:max",
+    contextLen: "12k",
+    cacheHit: "35%",
+  };
+  // 常规宽度：标题段出现在时间之后
+  const wide = renderStatusLine(status, "我的问题", "dark", 80)
+    .map((l) => l.text)
+    .join("\n");
+  const timePos = wide.indexOf("10:00");
+  const titlePos = wide.indexOf("我的问题");
+  assert.ok(timePos >= 0 && titlePos > timePos, "标题段在时间之后");
+  // 极窄终端（<24 列）省略标题段，保留对话区宽度
+  const narrow = renderStatusLine(status, "我的问题", "dark", 20)
+    .map((l) => l.text)
+    .join("\n");
+  assert.ok(!narrow.includes("我的问题"), "窄终端隐藏标题段");
 });

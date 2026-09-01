@@ -57,7 +57,7 @@ export const TURN_SEPARATOR = "────────";
 
 /** 历史会话面板阶段：列表加载 → 列表 → 会话加载 → 浏览 → 错误（任一阶段可关闭） */
 export type HistoryPhase =
-  "loading-list" | "list" | "loading-view" | "view" | "error";
+  "loading-list" | "list" | "loading-view" | "view" | "resuming" | "error";
 
 /** /history 历史会话面板状态（只读浏览；list 与 view 两阶段） */
 export interface HistoryPanelState {
@@ -74,6 +74,8 @@ export interface HistoryPanelState {
   scroll: number;
   /** error 阶段错误消息 */
   error?: string;
+  /** resume 切换的目标会话 id（resuming 阶段）；成功后清空 */
+  pendingResume?: string;
 }
 
 export interface AppState {
@@ -106,8 +108,10 @@ export interface AppState {
   picker: PickerState | null;
   /** 问答面板（userQuestions 提问；null = 未激活） */
   question: QuestionPanelState | null;
-  /** /history 历史会话面板（只读浏览）；null = 未打开 */
+  /** /history 历史会话面板（只读浏览 + resume 切换）；null = 未打开 */
   history: HistoryPanelState | null;
+  /** 当前会话标题（resume 后由 surface 首条用户消息生成；新会话为（新会话）） */
+  sessionTitle: string;
 }
 
 /** /model 交互选择面板状态：三列列表（provider/model/effort）+ 高亮索引 */
@@ -189,6 +193,7 @@ export function initialState(
   return {
     sessions: [],
     activeSessionId: null,
+    sessionTitle: "（新会话）",
     buffer: [],
     followBottom: true,
     scrollOffset: 0,
@@ -502,8 +507,62 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         },
       };
     }
+    case "history-resume":
+      return state.history
+        ? {
+            ...state,
+            history: {
+              ...state.history,
+              phase: "resuming",
+              pendingResume: action.id,
+              error: undefined,
+            },
+          }
+        : state;
+    case "history-resume-error":
+      // 会话陈旧则丢弃（面板已关闭/已切换目标）
+      if (
+        !state.history ||
+        state.history.phase !== "resuming" ||
+        state.history.pendingResume !== action.id
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        history: {
+          ...state.history,
+          phase: "error",
+          error: action.error,
+          pendingResume: undefined,
+        },
+      };
+    case "history-resume-ok":
+      // 会话陈旧则丢弃（面板已关闭/已切换目标）
+      if (
+        !state.history ||
+        state.history.phase !== "resuming" ||
+        state.history.pendingResume !== action.id
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        activeSessionId: action.id,
+        sessionTitle: action.title,
+        history: null,
+        buffer: action.rows as BufferLine[],
+        followBottom: true,
+        scrollOffset: 0,
+      };
     case "history-close":
       return { ...state, history: null };
+    case "session-identify":
+      return {
+        ...state,
+        activeSessionId: action.id,
+        sessionTitle: action.title,
+      };
     case "input":
       return setInput(state, action);
     case "input-mode":
@@ -567,9 +626,18 @@ export type StateAction =
   | { type: "history-open-view" }
   | { type: "history-view"; id: string; messages: HistoryMessage[] }
   | { type: "history-view-error"; error: string }
+  | { type: "history-resume"; id: string }
+  | { type: "history-resume-error"; id: string; error: string }
+  | {
+      type: "history-resume-ok";
+      id: string;
+      title: string;
+      rows: { text: string; kind: "user" | "assistant" }[];
+    }
   | { type: "history-scroll"; delta: number }
   | { type: "history-back" }
   | { type: "history-close" }
+  | { type: "session-identify"; id: string; title: string }
   | { type: "sessions"; sessions: SessionMeta[] }
   | { type: "input"; text: string; cursor: number }
   | { type: "input-mode"; mode: InputMode }

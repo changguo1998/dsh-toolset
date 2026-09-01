@@ -11,12 +11,17 @@ import type {
   DshEvent,
   ModelCatalog,
   ModelSelection,
+  HistoryMessage,
 } from "./adapter/dsh.ts";
 import { parseSlashCommand } from "./adapter/dsh.ts";
 import {
+  buildOsc52,
+  deriveTitle,
+  lastAssistantText,
   modelCommandSpec,
   resolveModelSpec,
   routeSlashCommand,
+  surfaceToBuffer,
   themeCommandDecision,
 } from "./commands.ts";
 export { formatModelCatalog, resolveModelSpec } from "./commands.ts";
@@ -410,7 +415,13 @@ export class App {
             reduceState(st, { type: "history-move", delta: 1 }),
           );
         else if (name === "enter") {
-          void this.openHistoryView();
+          const rec = h.records[h.index];
+          if (!rec) return;
+          if (rec.live) {
+            this.notice("live 会话不可续（仅 persisted 会话可切换）");
+            return;
+          }
+          void this.resumeToSession(rec.id);
           return;
         } else if (name === "escape")
           this.apply((st) => reduceState(st, { type: "history-close" }));
@@ -682,12 +693,13 @@ export class App {
       case "theme":
         this.handleThemeCommand(line);
         return;
-        // /session 入口已注释（保留 openHistory/history 面板代码）：
-        // 历史会话功能暂不可用，避免 live 读取链路在宿主上加载失败
-        // case "session":
-        //   void this.openHistory();
-        //   return;
-        void this.openHistory; // 保留方法引用（防误删；重新启用时取消上方 case 注释）
+      case "session":
+        // 会话列表 + 切换：见 openHistory / resumeToSession
+        void this.openHistory();
+        return;
+      case "copy":
+        this.copyLastReply();
+        return;
       case "registry":
         // 非本地命令 → 注册表调用
         this.deps.adapter.runCommand(
@@ -779,6 +791,61 @@ export class App {
       );
     }
     this.paint();
+  }
+
+  /** 切换到持久化会话：agents.resume → 读 surface 展示上下文 → 生成标题并关面板 */
+  private async resumeToSession(id: string): Promise<void> {
+    void this.openHistoryView; // 保留只读查看方法引用（list Enter 现走切换，需要时可恢复引出）
+    const resumeTo = this.deps.adapter.resumeTo;
+    if (!resumeTo) {
+      this.notice("会话切换不可用（宿主未配置会话持久化）");
+      return;
+    }
+    this.apply((s) => reduceState(s, { type: "history-resume", id }));
+    this.paint();
+    try {
+      await resumeTo(id);
+      const read = this.deps.adapter.readSessionSurface;
+      const view = read
+        ? await read(id)
+        : { sessionId: id, messages: [] as HistoryMessage[] };
+      if (this.disposed) return;
+      // stale guard：面板已关闭/目标已换 → 丢弃结果
+      const cur = this.state.history;
+      if (!cur || cur.phase !== "resuming" || cur.pendingResume !== id) return;
+      const firstUser = view.messages.find((m) => m.role === "user");
+      const title = deriveTitle(firstUser?.text);
+      this.apply((s) =>
+        reduceState(s, {
+          type: "history-resume-ok",
+          id,
+          title,
+          rows: surfaceToBuffer(view.messages),
+        }),
+      );
+      this.notice(`已切换到会话「${title}」`);
+    } catch (err) {
+      if (this.disposed) return;
+      this.apply((s) =>
+        reduceState(s, {
+          type: "history-resume-error",
+          id,
+          error: String(err),
+        }),
+      );
+    }
+    this.paint();
+  }
+
+  /** /copy：最后一条模型回复经 OSC52 写入系统剪贴板（ANSI 已剥离，纯文本） */
+  private copyLastReply(): void {
+    const text = lastAssistantText(this.state.buffer);
+    if (!text) {
+      this.notice("没有可复制的模型回复");
+      return;
+    }
+    process.stdout.write(buildOsc52(text));
+    this.notice("已复制最后一条回复到剪贴板");
   }
 
   /** 无参 /model：进入交互选择模式（当前模型行始终显示，不在候选目录中也补行） */
@@ -880,7 +947,8 @@ export class App {
       "  /clearscreen (/cls)  清空缓冲(只清显示，不动上下文)",
       "  /quit   退出",
       "  /theme [dark|light|toggle]  切换主题(默认 dark=fffdark, light=ffflight)",
-      // "  /session  浏览历史会话(只读)",  // 入口已注释暂不可用
+      "  /session  会话列表：Enter 切换到 persisted 会话(live 不可续)",
+      "  /copy     复制最后一条模型回复到剪贴板(OSC52)",
       "  /model [provider/]model  switch current-session model; bare /model: interactive picker",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");

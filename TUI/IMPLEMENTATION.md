@@ -237,15 +237,30 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 - 测试：`tests/adapter.dsh.test.ts` 重写读取链路（persisted→readSurface / live→sessions store / 瘦服务回退 readSession / 无读取面抛错）；`tests/app.test.ts` 命令字符串 `/session`。`npm run check && npm test && npm run build` 全绿（251/251）。
 - 实测（PTY）：live 会话 view 显示 `问: 请回复两个字：收到`（agent/inbox/spliced 提取）；空会话显示「（该会话暂无文本消息…）」占位；`/session` 打开 158 会话列表、Enter 查看/Esc 返回/Esc 关闭全部正常。
 
-### 入口注释禁用（2026-09-01 用户反馈）
+### 入口注释禁用（2026-09-01 用户反馈）→ **已重新启用（2026-09-02，见下节 P0 会话生命周期）**
 
-用户实测 `/session` 加载失败后要求**保留实现代码、注释掉命令入口**。现状：
+用户实测 `/session` 加载失败后要求**保留实现代码、注释掉命令入口**。当时现状：
 
 - `commands.ts` `SlashRoute` 与 `routeSlashCommand` 的 `session` 分支注释（`/session` 走 registry → 未知命令提示）；
 - `index.ts` `handleSlash` 的 `case "session"` 与 helpText 行注释；`void this.openHistory` 保留引用防误删（私有方法无其他调用方）；
 - `tests/app.test.ts` 4 个 `/history`/-session 集成测试与 `historyFixtures`/`stripAnsi` 辅助注释禁用（adapter 层单测保留：`tests/adapter.dsh.test.ts` 读取链路用例仍在）。
-- 门禁：`npm run check && npm test` 全绿（247/247）。
-- 重新启用：取消 `commands.ts` 与 `index.ts` 的 `session` 分支注释、`helpText` 行注释、`app.test.ts` 集成测试注释即可；live 会话读取（`sessions` store 直读 + `agent/inbox/spliced` 归一化）实现已就绪。
+
+P0 会话生命周期落地时已恢复：`commands.ts` 与 `index.ts` 的 `session` 分支、`helpText` 行全部恢复启用；`/session` 现承担「列表 + 切换」职责（不再是只读浏览），view 只读浏览代码保留（`openHistoryView` 引用防误删）。
+
+## P0 会话生命周期：/session 会话切换 + 标题 + /copy（2026-09-02）
+
+按功能差距 P0 补齐三项：**① 会话列表 + 切换 + resume（继续旧会话）② 会话标题 ③ 输出复制（OSC52）**。真机验证见 `TUI/scripts/verify-p0.py`（入库，`RESUME_PASS`/`COPY_OSC_PASS`）。
+
+- **适配层（types.ts/dsh.ts→createRealDshAdapter）**：`DshAdapter.resumeTo?(id)` 可选方法；新增 `AgentRegistryLike`（`agents.resume({resumeSessionId, agentOptions?, setup?, signal?})`——字段是 `resumeSessionId` 非 `sessionId`，官方 `dsh-agent` 契约）；`RealAdapterOptions` 增 `agents?/setup?/agentOptions?/handleDispose?`。`resumeTo` 实现：校验 `agents?.resume` → `agents.resume(...)` → 校验返回 agent.session → **先切活跃引用再释放旧 handle**（`prevDispose` 异步释放、失败不阻断切换；新 handle 由 `adapter.dispose` 释放）→ `activeSessionId/activeAgent/activeCommandAgent/activeCancel/activeDispose` 全部切换；错误路径 dispose 新 handle 并 reject。`sendMessage/runCommand/onSessionEvent/emitAgentStatus/dispatchCommand` 改用活跃引用（resume 后落到新会话）。`dispose()` 释放 `activeDispose`。
+- **main.ts 接线**：`createRealDshAdapter` 注入 `agents`（`AgentRegistryLike | undefined`）、`setup: makeSetup()`（提取：installSessionModelSelection + installToolBootstrap 闭包，create/resume 共用；setup 只能 void 挂载，不可乱返回）、`agentOptions: route`、`handleDispose: () => handle.dispose()`。
+- **state.ts**：`AppState.sessionTitle`（初始 `（新会话）`）、`HistoryPanelState.pendingResume?`、`HistoryPhase` 增 `"resuming"`；actions `history-resume`（resuming + 记 id）/`history-resume-error`（id 匹配才进 error）/`history-resume-ok`（stale guard：id 匹配 + 面板在 resuming → 关面板、buffer 替换为 surface 行、更新 activeSessionId/title、followBottom）。每个 async action 带 stale guard（防迟到响应用错面板）。
+- **commands.ts 纯函数**：`deriveTitle`（剥空白、>30 字符截断加 `…`、空 → `（新会话）`）、`lastAssistantText`（buffer 反向找最后非空 assistant）、`buildOsc52`（`ESC ]52;c;<base64 utf8> BEL`）、`surfaceToBuffer`（HistoryMessage → buffer 行，仅 user/assistant）。`SlashRoute` 恢复 `session` 并新增 `copy`。
+- **App 层（index.ts）**：`handleSlash case "session"` → `openHistory()`；list Enter 对 persisted 会话走 `resumeToSession(id)`（live → notice「live 会话不可续」；无 `resumeTo` → notice「会话切换不可用」）；`resumeToSession`：history-resume → `adapter.resumeTo(id)` → 读 `readSessionSurface(id)` → stale guard → `history-resume-ok`（title=deriveTitle(首条 user 文本)）+ notice；catch → `history-resume-error`。`/copy` → `copyLastReply()`：`lastAssistantText(buffer)` → `process.stdout.write(buildOsc52(text))` + notice；无回复提示。状态栏：`renderStatusLine(status, title, themeId, cols)` 标题段紧跟时间（cyan），**极窄终端（\<24 列）省略标题段**保留对话内容。
+- **测试**（282/282）：`tests/adapter.dsh.test.ts` resumeTo 4 例（成功切换→旧 handle 释放→sendMessage 走新 agent / 无效 agent→释放新 handle 抛错 / agents 未暴露→报错 / disposed→拒绝）；`tests/app.test.ts` 纯函数 4 例 + reducer 3 例 + /session 集成 3 例（persisted Enter→resume+surface 展示 / 失败→error / 无 resumeTo→提示）+ /copy 2 例（无可复制 / mock stdout 断言 OSC52 字节）；`tests/status.test.ts` 状态栏标题段显示/窄屏隐藏。
+- 既有变更：`renderStatusLine` 签名加 title 参数（`tests/layout4.test.ts`/`tests/status.test.ts` 调用同步）。
+- **identified 根因修复（真机实测定位）**：`buildUserMessage` 原来缺少官方 `createUserMessage/createMessage` 生成的稳定消息 `id`，导致 agent/inbox/spliced 与 user/message 无 identified 标记——后续进程若对这类会话执行 `agents.resume`，`dsh-session-persistence.prepare` 全量校验抛 `SessionPersistenceCorruptionError: session event at seq N lacks an identified message`（会话永久不可 resume）。修复：`DshUserMessageLike.id?: string` + `buildUserMessage` 用 `crypto.randomUUID()` 生成；单测断言 UUID v4 形态且每次不同（`tests/adapter.dsh.test.ts`）。修复后 TUI 用户消息可正常持久化落盘。
+- **resume 宿主语义（实测确认）**：`agents.resume({resumeSessionId})` 返回的 `agent.session.id` 与 `resumeSessionId` 一致（原会话继续，不创建 continuation），resume 后 followup 追加写入被恢复会话的 `session.jsonl.zstd`。
+- 真机验证脚本 `TUI/scripts/verify-p0.py`（两阶段，可重复执行）：阶段 A 先建 identified 目标会话（`/quit` 优雅退出落盘）；阶段 B 再起 TUI 在 `/session` 面板精确选中该会话 → resume → 发探测消息 → `/copy`。RESUME_PASS 断言探测文本落入被恢复会话 JSONL（以 resume 返回的实际 session id 为准）；COPY_OSC_PASS 断言 OSC52 字节真实出现在 PTY 日志。已实测 exit=0（见验证方式汇总）。
 
 ## 锚定工具引导（2026-09-01，两阶段工具锁定-释放）
 

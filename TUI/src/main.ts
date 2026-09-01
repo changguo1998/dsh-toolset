@@ -32,6 +32,7 @@ import {
   type DshUserMessageLike,
   type SessionQueryLike,
   type SessionStoreLike,
+  type AgentRegistryLike,
 } from "./app/adapter/dsh.ts";
 
 /** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
@@ -186,6 +187,11 @@ export async function apply(
           /** 与官方 AgentSetup 同构：拿到未发布的 agentCtx(结构面为 DshRuntime) */
           setup?: (agentCtx: DshRuntime) => unknown;
         }): Promise<{ agent: unknown; dispose(): Promise<void> }>;
+        resume?(opts: {
+          resumeSessionId: string;
+          agentOptions?: Record<string, unknown>;
+          setup?: (agentCtx: unknown) => unknown;
+        }): Promise<{ agent: unknown; dispose(): Promise<void> }>;
       }
     | undefined;
 
@@ -238,25 +244,24 @@ export async function apply(
 
   const { randomUUID } = await import("node:crypto");
   const sessionId = "tui-" + randomUUID();
+  // 会话钩子（模型选择 + 锚定工具引导）：create/resume 共用同一 setup。
+  // 注意：返回离谱值会被宿主当 commit 处理失败，故 setup 只 void 挂载。
+  const makeSetup = (): ((agentCtx: unknown) => unknown) => (agentCtx) => {
+    void installSessionModelSelection(
+      agentCtx as DshRuntime,
+      sessionModel,
+      () => readDefaultSelection(defaultModelSvc),
+    );
+    // 锚定工具引导：仅 deepseek-v4-pro 触发锁定-释放；开关可配置关停
+    void installToolBootstrap(agentCtx as DshRuntime, {
+      enabled: config?.toolBootstrap ?? true,
+    });
+  };
   const handle = await agents.create({
     sessionId,
     meta: { cwd: config?.cwd ?? process.cwd() },
     agentOptions: route,
-    // 与官方 headless bundle 同构：通过 setup 把会话级模型选择挂到 agentCtx，
-    // 下一 step 起生效（system-prompt/assemble + agent/request 双钩子）。
-    // 注意：不能把 installSessionModelSelection 的返回值（解绑函数）交给 setup，
-    // 官方 AgentSetup 只认 void/commit，乱返回会被宿主当 commit 处理失败。
-    setup: (agentCtx) => {
-      void installSessionModelSelection(
-        agentCtx as DshRuntime,
-        sessionModel,
-        () => readDefaultSelection(defaultModelSvc),
-      );
-      // 锚定工具引导：仅 deepseek-v4-pro 触发锁定-释放；开关可配置关停
-      void installToolBootstrap(agentCtx as DshRuntime, {
-        enabled: config?.toolBootstrap ?? true,
-      });
-    },
+    setup: makeSetup(),
   });
 
   const rawAgent = handle.agent as {
@@ -291,6 +296,11 @@ export async function apply(
     agent: agentLike,
     commandAgent: rawAgent,
     interrupt: () => rawAgent.cancel?.({ kind: "user" }),
+    // 会话切换（resume）：agents 注册表 + 与 create 相同的钩子/路由，handle 由 adapter 接管释放
+    agents: agents as AgentRegistryLike | undefined,
+    setup: makeSetup(),
+    agentOptions: route,
+    handleDispose: () => handle.dispose(),
     commands,
     llm: (ctx as { get?: (name: string) => unknown }).get?.("llm") as
       LlmLike | undefined,

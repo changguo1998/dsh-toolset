@@ -24,8 +24,6 @@
 // request 携带的 signal 中断立即取消，另有可配置的 approvalTimeoutMs 超时兜底。
 
 import type {
-  AgentStatus,
-  SessionMeta,
   DshEvent,
   DshAdapter,
   ModelInfo,
@@ -35,11 +33,11 @@ import type {
   StreamChunk,
   ApprovalRequest,
   ApprovalOutcome,
-  QuestionItem,
   QuestionAnswer,
   UserQuestionRequestLike,
   SessionEvent,
   DshRuntime,
+  DshAgentLike,
   RealAdapterOptions,
   HistoryMessage,
 } from "./types.ts";
@@ -86,6 +84,7 @@ export type {
   SessionSurfaceView,
   SessionQueryLike,
   SessionStoreLike,
+  AgentRegistryLike,
 } from "./types.ts";
 export {
   buildApprovalPrompt,
@@ -211,8 +210,15 @@ function normalizeHistoryMessages(
 
 /** 构造真实 DSH adapter：注册应答者 + 订阅会话事件，归一化为 DshEvent。 */
 export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
-  const { runtime, sessionId, agent } = opts;
+  const { runtime } = opts;
   const sessionQuery = opts.sessionQuery;
+  // 活跃会话引用（可变）：初始来自 opts；resumeTo 切换后指向新 agent/会话。
+  // 旧 handle 在切换成功后释放（activeDispose），新 handle 由 adapter.dispose 释放。
+  let activeSessionId = opts.sessionId;
+  let activeAgent = opts.agent;
+  let activeCommandAgent = opts.commandAgent;
+  let activeCancel = opts.interrupt ?? (() => {});
+  let activeDispose = opts.handleDispose;
   const listeners = new Set<(e: DshEvent) => void>();
   const pendingApprovals = new Map<
     string,
@@ -245,7 +251,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
 
   // --- session/event 归一化 ---
   const onSessionEvent = (session: unknown, raw: SessionEvent): void => {
-    const sid = (session as { id?: string } | null)?.id ?? sessionId;
+    const sid = (session as { id?: string } | null)?.id ?? activeSessionId;
     const data = raw.data as {
       chunk?: StreamChunk;
       text?: string;
@@ -508,7 +514,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     },
     sendMessage(text, targetSessionId) {
       if (disposed) return;
-      if (targetSessionId && targetSessionId !== sessionId) {
+      if (targetSessionId && targetSessionId !== activeSessionId) {
         process.stderr.write(
           "[dsh adapter] sendMessage: sessionId " +
             targetSessionId +
@@ -516,11 +522,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         );
         return;
       }
-      agent.followup(buildUserMessage(text));
+      activeAgent.followup(buildUserMessage(text));
     },
     runCommand(line, targetSessionId) {
       if (disposed) return;
-      if (targetSessionId && targetSessionId !== sessionId) {
+      if (targetSessionId && targetSessionId !== activeSessionId) {
         process.stderr.write(
           "[dsh adapter] runCommand: sessionId " +
             targetSessionId +
@@ -554,6 +560,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       emittedByBlock.clear();
       stepEmitted.clear();
       listeners.clear();
+      if (activeDispose) {
+        void activeDispose().catch(() => {});
+        activeDispose = undefined;
+      }
     },
     approve(id, allow) {
       if (disposed) return;
@@ -575,7 +585,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     },
     interrupt() {
       if (disposed) return;
-      opts.interrupt?.();
+      activeCancel?.();
     },
     async modelCatalog() {
       const current =
@@ -651,6 +661,56 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           );
         }
       : undefined,
+    async resumeTo(id) {
+      if (disposed) {
+        throw new Error("adapter 已释放，无法切换会话");
+      }
+      if (!opts.agents || typeof opts.agents.resume !== "function") {
+        throw new Error("agents 未暴露 resume（宿主未配置会话持久化）");
+      }
+      const handle = await opts.agents.resume({
+        resumeSessionId: id,
+        ...(opts.agentOptions ? { agentOptions: opts.agentOptions } : {}),
+        ...(opts.setup ? { setup: opts.setup } : {}),
+      });
+      const rawAgent = handle.agent as
+        | {
+            session?: { id?: string };
+            followup?: (m: ReturnType<typeof buildUserMessage>) => void;
+            cancel?: (cause: { kind: "user" }) => void;
+          }
+        | undefined;
+      if (!rawAgent?.session || !rawAgent.session.id) {
+        try {
+          await handle.dispose();
+        } catch {
+          /* 释放失败不阻断 */
+        }
+        throw new Error("resume 未返回有效 agent");
+      }
+      // 先切引用再释放旧 handle：避免新 handle 生效前旧 agent 被中断
+      const prevDispose = activeDispose;
+      const newAgent = {
+        session: rawAgent.session,
+        followup: (m: ReturnType<typeof buildUserMessage>) =>
+          rawAgent.followup?.(m),
+      } as DshAgentLike;
+      activeAgent = newAgent;
+      activeCommandAgent = rawAgent as unknown;
+      activeCancel =
+        rawAgent.cancel === undefined
+          ? () => {}
+          : () => rawAgent.cancel?.({ kind: "user" });
+      activeSessionId = id;
+      activeDispose = () => handle.dispose();
+      if (prevDispose) {
+        try {
+          await prevDispose();
+        } catch {
+          // 旧 handle 释放失败不阻断切换
+        }
+      }
+    },
     async setSessionModel(sel) {
       if (!opts.sessionModel) {
         throw new Error("会话模型引用未注入，无法切换模型");
@@ -725,7 +785,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     }
     const controller = new AbortController();
     activeCommands.add(controller);
-    const execAgent = opts.commandAgent ?? agent;
+    const execAgent = activeCommandAgent ?? activeAgent;
     let res: unknown;
     try {
       res = commands.execute(execAgent, line, [], controller.signal);
@@ -786,6 +846,6 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     status?: string;
   }): void {
     const status = normalizeAgentStatus(payload?.status);
-    emit({ type: "agent-status", sessionId, status });
+    emit({ type: "agent-status", sessionId: activeSessionId, status });
   }
 }

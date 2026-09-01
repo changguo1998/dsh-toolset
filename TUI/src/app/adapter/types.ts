@@ -62,6 +62,9 @@ export interface DshAdapter {
   listSessions?(): Promise<SessionInfo[]>;
   /** 读取指定历史会话的只读消息列表（损坏会话 reject 结构化错误） */
   readSessionSurface?(id: string): Promise<SessionSurfaceView>;
+  /** 运行时切换到持久化会话（agents.resume）：dispose 旧 agent → resume 新 agent，
+   *  成功后本 adapter 的活跃会话变为该 id。宿主未挂载 agents.resume 时 reject 提示。 */
+  resumeTo?(id: string): Promise<void>;
 }
 
 /** 模型目录条目（/model 列表展示用） */
@@ -253,6 +256,8 @@ export interface DshAgentLike {
 
 /** 结构型用户消息（真机应改用 createUserMessage 生成，字段同构） */
 export interface DshUserMessageLike {
+  /** 消息唯一 id（identified 判定依据；官方 createMessage 生成，缺则持久化校验失败） */
+  readonly id?: string;
   readonly role: "user";
   readonly content: readonly { type: "text"; text: string }[];
   readonly source: { kind: "user" } | { kind: "plugin"; plugin: string };
@@ -376,6 +381,18 @@ export interface SessionQueryLike {
   }>;
 }
 
+/** 结构面：ctx.agents 注册表（仅需 resume：加载持久化会话继续对话）。
+ *  官方 AgentRegistry.resume(ownerCtx, {resumeSessionId, agentOptions?, setup?, signal?})
+ *  委托给 agent-loop 工厂；要求宿主加载 sessionPersistence 后端。 */
+export interface AgentRegistryLike {
+  resume(opts: {
+    resumeSessionId: string;
+    agentOptions?: Record<string, unknown>;
+    setup?: (agentCtx: unknown) => unknown;
+    signal?: AbortSignal;
+  }): Promise<{ agent: unknown; dispose(): Promise<void> }>;
+}
+
 export interface RealAdapterOptions {
   runtime: DshRuntime;
   sessionId: string;
@@ -401,4 +418,13 @@ export interface RealAdapterOptions {
   sessionQuery?: SessionQueryLike;
   /** ctx.get('sessions') 会话存储服务（读 live 会话原始事件；缺失时仅 live 会话内容读取降级走 readSurface/readSession） */
   sessions?: SessionStoreLike;
+  /** ctx.agents（resume 持久化会话用）；缺失时 resumeTo 提示不可用 */
+  agents?: AgentRegistryLike;
+  /** 创建/resume agent 时注入的 setup（挂 installSessionModelSelection / installToolBootstrap）；
+   *  传给 agents.resume 保持钩子在新会话同样生效 */
+  setup?: (agentCtx: unknown) => unknown;
+  /** 创建 agent 时的 agentOptions（route provider/model/effort），resume 时沿用 */
+  agentOptions?: Record<string, unknown>;
+  /** 初始 agent handle 的释放函数（main.ts 的 handle.dispose）；resume 切换后由 adapter 负责释放 */
+  handleDispose?: () => Promise<void>;
 }

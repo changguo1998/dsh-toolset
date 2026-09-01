@@ -234,6 +234,7 @@ test("renderStatusLine: model 段 provider 紫色、模型名绿色，路径段�
       contextLen: "123",
       cacheHit: "87%",
     },
+    "（新会话）",
     "dark",
     80,
   );
@@ -260,6 +261,7 @@ test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", ()
       contextLen: "12345",
       cacheHit: "87%",
     },
+    "（新会话）",
     "dark",
     20,
   );

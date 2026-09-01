@@ -6,6 +6,13 @@
 import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { App, formatModelCatalog, resolveModelSpec } from "../src/app/index.ts";
+import {
+  buildOsc52,
+  deriveTitle,
+  lastAssistantText,
+  surfaceToBuffer,
+} from "../src/app/commands.ts";
+import { initialState, reduceState } from "../src/app/state.ts";
 import type {
   DshAdapter,
   DshEvent,
@@ -165,6 +172,12 @@ class FakeAdapter implements DshAdapter {
     const m = this.sessionSurfaces[id];
     if (!m) throw new Error('stored session "' + id + '" is corrupt');
     return { sessionId: id, messages: m };
+  };
+  resumeCalls: string[] = [];
+  resumeReject?: string;
+  resumeTo: ((id: string) => Promise<void>) | undefined = async (id) => {
+    this.resumeCalls.push(id);
+    if (this.resumeReject) throw new Error(this.resumeReject);
   };
 
   /** 测试辅助：注入事件 */
@@ -1572,3 +1585,248 @@ test("问答面板：plan-review 单题以计划卡片呈现，hints 只显示�
 //   assert.ok(joined2.includes("历史会话服务不可用"), "notice 提示不可用");
 //   assert.ok(!joined2.includes("历史会话（"), "未打开面板");
 // });
+
+// --- P0 纯函数：标题 / OSC52 / 末条助理行 / surface→buffer ---
+
+test("deriveTitle：空/空白 →（新会话）；>30 字符截断加省略号；空白折叠", () => {
+  assert.equal(deriveTitle(undefined), "（新会话）");
+  assert.equal(deriveTitle("   "), "（新会话）");
+  const short = deriveTitle("你好 DSH");
+  assert.equal(short, "你好 DSH");
+  const long = deriveTitle("a".repeat(40));
+  assert.equal(long, "a".repeat(30) + "…");
+  assert.equal(deriveTitle("a\n\n  b"), "a b");
+});
+
+test("buildOsc52：ESC ]52;c;<base64 utf8> BEL", () => {
+  assert.equal(
+    buildOsc52("你好"),
+    "\x1b]52;c;" + Buffer.from("你好").toString("base64") + "\x07",
+  );
+  assert.equal(buildOsc52(""), "\x1b]52;c;\x07");
+});
+
+test("lastAssistantText：取最后一条非空 assistant 正文，忽略 user/空行", () => {
+  assert.equal(lastAssistantText([]), undefined);
+  assert.equal(
+    lastAssistantText([
+      { text: "q", kind: "user" },
+      { text: "  ", kind: "assistant" },
+      { text: "a1", kind: "assistant" },
+    ]),
+    "a1",
+  );
+  // 最后一条 assistant 为空 → 回退到更早的非空 assistant
+  assert.equal(
+    lastAssistantText([
+      { text: "a0", kind: "assistant" },
+      { text: "\n", kind: "assistant" },
+    ]),
+    "a0",
+  );
+});
+
+test("surfaceToBuffer：仅保留 user/assistant 正文行", () => {
+  const rows = surfaceToBuffer([
+    { role: "user", text: "q1" },
+    { role: "assistant", text: "a1" },
+    { role: "user", text: "q2" },
+  ]);
+  assert.deepEqual(rows, [
+    { text: "q1", kind: "user" },
+    { text: "a1", kind: "assistant" },
+    { text: "q2", kind: "user" },
+  ]);
+});
+
+// --- P0 reducer：history-resume 状态机 ---
+
+test("history-resume：面板进入 resuming 并记住目标 id", () => {
+  let s = reduceState(initialState(), { type: "history-open" });
+  s = reduceState(s, {
+    type: "history-list",
+    records: [{ id: "s2", createdAt: 1, live: false, persisted: true }],
+  });
+  s = reduceState(s, { type: "history-resume", id: "s2" });
+  assert.equal(s.history?.phase, "resuming");
+  assert.equal(s.history?.pendingResume, "s2");
+  assert.equal(s.history?.error, undefined);
+});
+
+test("history-resume-error：目标不符/面板已关 → 忽略；匹配 → error 态清 pending", () => {
+  let s = reduceState(initialState(), { type: "history-open" });
+  s = reduceState(s, {
+    type: "history-list",
+    records: [],
+  });
+  s = reduceState(s, { type: "history-resume", id: "s2" });
+  // 目标不符（过期结果）：
+  const sStale = reduceState(s, {
+    type: "history-resume-error",
+    id: "s3",
+    error: "x",
+  });
+  assert.equal(sStale.history?.phase, "resuming");
+  // 目标匹配：
+  const sErr = reduceState(s, {
+    type: "history-resume-error",
+    id: "s2",
+    error: "boom",
+  });
+  assert.equal(sErr.history?.phase, "error");
+  assert.equal(sErr.history?.error, "boom");
+  assert.equal(sErr.history?.pendingResume, undefined);
+});
+
+test("history-resume-ok：替换 buffer、关面板、更新 activeSessionId/标题", () => {
+  let s = reduceState(initialState(), { type: "history-open" });
+  s = reduceState(s, {
+    type: "history-list",
+    records: [],
+  });
+  s = reduceState(s, { type: "history-resume", id: "s2" });
+  s = reduceState(s, {
+    type: "history-resume-ok",
+    id: "s2",
+    title: "我的问题",
+    rows: [
+      { text: "q", kind: "user" },
+      { text: "a", kind: "assistant" },
+    ],
+  });
+  assert.equal(s.history, null);
+  assert.equal(s.activeSessionId, "s2");
+  assert.equal(s.sessionTitle, "我的问题");
+  assert.deepEqual(s.buffer, [
+    { text: "q", kind: "user" },
+    { text: "a", kind: "assistant" },
+  ]);
+  assert.equal(s.followBottom, true);
+  // 过期结果被丢弃
+  let s2 = reduceState(initialState(), { type: "history-open" });
+  s2 = reduceState(s2, { type: "history-resume", id: "s2" });
+  const s2Stale = reduceState(s2, {
+    type: "history-resume-ok",
+    id: "s3",
+    title: "t",
+    rows: [],
+  });
+  assert.equal(s2Stale.history?.phase, "resuming");
+});
+
+// --- P0 集成：/session 列表 → 切换 ---
+
+test("/session：persisted 会话 Enter → resume 并展示其表面+标题", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.sessionRecords = [
+    { id: "s99", createdAt: Date.now(), live: true, persisted: false },
+    { id: "s42", createdAt: 1, live: false, persisted: true },
+  ];
+  adapter.sessionSurfaces["s42"] = [
+    { role: "user", text: "回顾上轮结论" },
+    { role: "assistant", text: "结论：完成。" },
+  ];
+  typeAndEnter(renderer, "/session");
+  await flush();
+  // list 高亮首行（s99 live），Enter 应提示不可续而非 resume
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  assert.deepEqual(adapter.resumeCalls, [], "live 会话不触发 resume");
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plain.some((l) => l.includes("不可续")),
+    "live 会话提示不可续",
+  );
+  // 移到 s42 并 Enter → resume + surface 展示
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  await flush();
+  assert.deepEqual(adapter.resumeCalls, ["s42"]);
+  const plain2 = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plain2.some((l) => l.includes("回顾上轮结论")),
+    "resume 后展示历史上下文",
+  );
+});
+
+test("/session：resume 失败 → 面板 error 态不崩溃", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.sessionRecords = [
+    { id: "s1", createdAt: 1, live: false, persisted: true },
+  ];
+  adapter.sessionSurfaces["s1"] = [];
+  adapter.resumeReject = "宿主 resume 失败";
+  typeAndEnter(renderer, "/session");
+  await flush();
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  await flush();
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plain.some((l) => l.includes("宿主 resume 失败")),
+    "error 展示",
+  );
+});
+
+test("/session：resume 不可用（无 adapter.resumeTo）→ 提示不可切换", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.sessionRecords = [
+    { id: "s1", createdAt: 1, live: false, persisted: true },
+  ];
+  adapter.resumeTo = undefined;
+  typeAndEnter(renderer, "/session");
+  await flush();
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plain.some((l) => l.includes("不可用")),
+    "提示不可切换",
+  );
+});
+
+// --- P0 集成：/copy（OSC52） ---
+
+test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC52", async () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/copy");
+  await flush();
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(plain.some((l) => l.includes("没有可复制的模型回复")));
+
+  const w = mock.method(process.stdout, "write", () => true);
+  try {
+    adapter.push({ type: "stream", sessionId: "s1", text: "最终答复" });
+    typeAndEnter(renderer, "/copy");
+    await flush();
+    const calls = w.mock.calls;
+    assert.ok(calls.length >= 1, "向 stdout 写入 OSC52");
+    const first = String(
+      calls.find((c) => typeof c.arguments[0] === "string")?.arguments[0] ?? "",
+    );
+    assert.equal(
+      first,
+      "\x1b]52;c;" + Buffer.from("最终答复").toString("base64") + "\x07",
+    );
+    const plain2 = renderer.lastRender.map((l) =>
+      l.replace(/\x1b\[[0-9;]*m/g, ""),
+    );
+    assert.ok(
+      plain2.some((l) => l.includes("已复制")),
+      "notice 提示已复制",
+    );
+  } finally {
+    w.mock.restore();
+  }
+});

@@ -420,11 +420,21 @@ function colorModel(themeId: ThemeId, s: string): string {
 }
 export function renderStatusLine(
   status: AppState["systemStatus"],
+  title: string,
   themeId: ThemeId,
   cols: number,
 ): RenderLine[] {
   const values: Array<{ seg: string; color: (s: string) => string }> = [
     { seg: status.time, color: identity },
+    // 会话标题段：极窄终端（<24 列）省略以保留对话内容（窄屏退化）
+    ...(cols >= 24
+      ? [
+          {
+            seg: title,
+            color: (_s: string) => colorFor(themeId, "cyan")(title),
+          },
+        ]
+      : []),
     { seg: status.model, color: (s) => colorModel(themeId, s) },
     { seg: status.cwd, color: colorFor(themeId, "blue") },
     { seg: status.git, color: identity },
@@ -485,6 +495,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const normalInput = !showApproval && !question && !picker && !history;
   const statusLines = renderStatusLine(
     state.systemStatus,
+    state.sessionTitle,
     state.themeId,
     fullWidth,
   );

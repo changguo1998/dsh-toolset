@@ -97,7 +97,7 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
       break;
     case "list":
       title = truncateToWidth(
-        `历史会话（${h.records.length}） [↑/↓]移动 · [Enter]查看 · [Esc]关闭`,
+        `历史会话（${h.records.length}） [↑/↓]移动 · [Enter]切换 · [Esc]关闭`,
         width,
       );
       if (h.records.length === 0) body = ["（无历史会话）"];
@@ -113,6 +113,10 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
     case "loading-view":
       title = "历史会话 · " + (h.currentId ?? "").slice(0, 8);
       body = ["加载内容…"];
+      break;
+    case "resuming":
+      title = "历史会话 · " + (h.pendingResume ?? "").slice(0, 8);
+      body = ["切换到该会话…"];
       break;
     case "view": {
       title = truncateToWidth(

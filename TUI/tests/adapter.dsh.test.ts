@@ -25,6 +25,8 @@ import {
   type SessionStoreLike,
   type QuestionAnswer,
   type QuestionItem,
+  type AgentRegistryLike,
+  buildUserMessage,
 } from "../src/app/adapter/dsh.ts";
 
 /** 可编程 fake 宿主 */
@@ -1440,3 +1442,99 @@ function makeAdapterWithSessionQuery(
     }),
   };
 }
+
+// --- resumeTo：会话切换（P0 会话生命周期） ---
+
+test("resumeTo：切换成功 → 旧 handle 释放 → 后续 sendMessage/cancel 走新 agent", async () => {
+  const runtime = new FakeRuntime();
+  const log: string[] = [];
+  const agent2 = new FakeAgent();
+  agent2.session = { id: "s2" };
+  const resume = async (o: { resumeSessionId: string }) => {
+    log.push("resume:" + o.resumeSessionId);
+    return {
+      agent: agent2,
+      dispose: async (): Promise<void> => {
+        log.push("dispose2");
+      },
+    };
+  };
+  const adapter = createRealDshAdapter({
+    runtime,
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    agents: { resume } as unknown as AgentRegistryLike,
+    handleDispose: async (): Promise<void> => {
+      log.push("dispose1");
+    },
+  });
+  await adapter.resumeTo!("s2");
+  // 先 resume 再释放旧 handle（切换成功后）
+  assert.deepEqual(log, ["resume:s2", "dispose1"]);
+  // 新 agent 生效：sendMessage 走 agent2.followup
+  adapter.sendMessage("hi");
+  assert.equal(agent2.followups.length, 1);
+});
+
+test("resumeTo：resume 未返回有效 agent → 释放新 handle 并抛错", async () => {
+  const runtime = new FakeRuntime();
+  const log: string[] = [];
+  const resume = async (o: { resumeSessionId: string }) => {
+    log.push("resume:" + o.resumeSessionId);
+    return {
+      agent: { session: undefined },
+      dispose: async (): Promise<void> => {
+        log.push("dispose2");
+      },
+    };
+  };
+  const adapter = createRealDshAdapter({
+    runtime,
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    agents: { resume } as unknown as AgentRegistryLike,
+    handleDispose: async (): Promise<void> => {
+      log.push("dispose1");
+    },
+  });
+  await assert.rejects(adapter.resumeTo!("s2"), /未返回有效 agent/);
+  assert.deepEqual(log, ["resume:s2", "dispose2"]);
+});
+
+test("resumeTo：agents 未暴露 resume → 明确报错（宿主未配置会话持久化）", async () => {
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+  });
+  await assert.rejects(adapter.resumeTo!("s2"), /agents 未暴露 resume/);
+});
+
+test("resumeTo：adapter 已 dispose → 拒绝切换", async () => {
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+  });
+  adapter.dispose?.();
+  await assert.rejects(adapter.resumeTo!("s2"), /adapter 已释放/);
+});
+
+// --- buildUserMessage identified 修复（P0：持久化校验需消息带 id） ---
+// DSH 持久化/会话校验以消息 id 判定 identified：缺 id 的 user 消息会导致
+// 后续 resume 时 SessionPersistenceCorruptionError（seq N lacks an identified message）。
+
+test("buildUserMessage：携带 UUID 形态 id（identified），role/content/source 不变", () => {
+  const m = buildUserMessage("hello");
+  assert.equal(m.role, "user");
+  assert.deepEqual(m.content, [{ type: "text", text: "hello" }]);
+  assert.deepEqual(m.source, { kind: "user" });
+  // id 存在且是 UUID v4 形态（8-4-4-4-12 十六进制）
+  assert.ok(m.id, "消息应携带稳定 id");
+  assert.match(
+    m.id!,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+  // 每次调用生成不同 id（稳定身份，非共享单例）
+  assert.notEqual(buildUserMessage("a").id, buildUserMessage("b").id);
+});
