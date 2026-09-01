@@ -145,6 +145,19 @@ interface Renderer {
   - `thinkingMaxLines`（默认 4，域 1..50）：思考区显示行数上限（逻辑行），超出折叠为提示行。
   - `messageGutter`（默认 4，域 0..20）：用户块左缘/回复右缘对称留空列数（交错布局；0 表示右缘顶满）。
 - theme（`dark|light`）由配置注入、`/theme` 会话内切换不落盘（见 IMPLEMENTATION「/theme 命令」）。
+- `toolBootstrap`（默认 true）：锚定工具引导总开关（见 IMPLEMENTATION「锚定工具引导」），非行为展示类配置，在 `apply()` 直接读 `config.toolBootstrap` 透传给 `installToolBootstrap`，不参与 display 归一化。
+
+## 锚定工具引导（两阶段工具锁定-释放）
+
+完整移植 dsh-anchored-standard（v2，MIT）的机制到 TUI 持有的 agent：
+
+- **目的**：V4 Pro 的能力上限由**首个 API 请求**所见内容决定——首请求用小而任务匹配的认知开局（2-3 工具 + 单一 persona），首次 durable `tool/call` 后解锁全量工具目录，使推理轨迹锚定在任务匹配的支架上（参考评估 98/99 vs 全量 91/92）。
+- **门控**：仅 `deepseek-v4-pro`（`isV4ProModel`，deepseek-v4 系含 pro 的 model id）应用；flash 与非 deepseek 模型、`toolBootstrap: false`、自定义门控不命中时，`system-prompt/assemble` 原样透传（零改动）。
+- **状态机**（按会话，resume-safe）：任务模式由**首个真实 user 消息**分类（spec/react/weak），文本在 `agent/inbox/inserted` 捕获（严格早于首组装事件）、`agent/pre-step` 兜底；promotion 由会话 events 含 `tool/call` 派生，进程内 Set 记忆（append-only）。
+- **首请求**：persona-only section（anchored-persona，order 0）、contexts 清空、工具目录过滤到 core（spec=bash+read+edit / react=bash+read+write / weak=bash+read；glob/grep 永不进入，参考测量轨迹边界）。
+- **解锁后**：全量工具目录 + 完整 prompt sections（plan-mode 等回归）、persona 恒定、contexts 保持清空。
+- **健壮性（fail-open）**：缺失 shell、过滤器内部异常一律降级全量目录并 warnOnce；logger 经窄化访问（cordis 严格模式）；解绑函数与 `installSessionModelSelection` 同构（setup 内 void 丢弃）。
+- **接入点**：`main.ts` setup 中与 `installSessionModelSelection` 并列挂 `installToolBootstrap(agentCtx, { enabled })`，同一条 `system-prompt/assemble` waterfall，顺序无关可共存。
 
 ## 流式滚屏（scrollback）行为
 

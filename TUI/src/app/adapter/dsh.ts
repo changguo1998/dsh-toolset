@@ -5,6 +5,7 @@
 // ./adapter/dsh.ts 公共导出不变（外部 import 路径无需改动）。
 //
 // 接口化让 mock（demo/）与真实（阶段 2）可互换，app 层不感知实现。
+// tool-bootstrap（锚定工具引导）见 ./tool-bootstrap.ts，本文件显式重导保持公共导出不变。
 // 类型骨架依据官方 deepseek-harness 源码研读沉淀对齐（见 dsh-toolset/DSH-CTX-API.md，
 // clone b150a551b8 = dsh-0.1.1-rc.2）。
 //
@@ -25,37 +26,22 @@
 import type {
   AgentStatus,
   SessionMeta,
-  ApprovalItem,
   DshEvent,
   DshAdapter,
   ModelInfo,
   ModelSelection,
   SessionModelSelectionRef,
   ModelCatalog,
-  SessionEventType,
   StreamChunk,
   ApprovalRequest,
   ApprovalOutcome,
-  QuestionOption,
-  QuestionIntent,
   QuestionItem,
-  QuestionAnswerItem,
   QuestionAnswer,
-  UserQuestionsLike,
   UserQuestionRequestLike,
-  SessionEventDataMap,
   SessionEvent,
   DshRuntime,
-  DshAgentLike,
-  DshUserMessageLike,
-  DshCommandLike,
-  LlmLike,
-  AgentDefaultModelLike,
   RealAdapterOptions,
-  SessionInfo,
   HistoryMessage,
-  SessionSurfaceView,
-  SessionQueryLike,
 } from "./types.ts";
 import {
   buildApprovalPrompt,
@@ -108,6 +94,19 @@ export {
   parseSlashCommand,
   readDefaultSelection,
 } from "./normalize.ts";
+
+export {
+  classifyTask,
+  coreFor,
+  personaFor,
+  applyPersona,
+  sessionMode,
+  isV4ProModel,
+  isPromotedFromEvents,
+  installToolBootstrap,
+  type ToolBootstrapOptions,
+  type TaskAnchor,
+} from "./tool-bootstrap.ts";
 
 /**
  * 镜像官方 @deepseek-ai/dsh-agent installModelSelection：挂钩 agentCtx 的

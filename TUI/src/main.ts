@@ -23,6 +23,7 @@ import type {
 import {
   createRealDshAdapter,
   installSessionModelSelection,
+  installToolBootstrap,
   readDefaultSelection,
   type SessionModelSelectionRef,
   type DshAgentLike,
@@ -91,6 +92,9 @@ export interface DshTuiConfig {
   thinkingMaxLines?: number;
   /** 用户块左缘/回复右缘对称留空（列数，默认 4；合法域 0..20，非法回退默认） */
   messageGutter?: number;
+  /** 锚定工具引导（两阶段工具锁定-释放，移植自 dsh-anchored-standard）。
+   *  仅 deepseek-v4-pro 生效；其他模型与 false 时原样透传。默认 true。 */
+  toolBootstrap?: boolean;
 }
 
 export interface TuiDisplayConfig {
@@ -248,6 +252,10 @@ export async function apply(
         sessionModel,
         () => readDefaultSelection(defaultModelSvc),
       );
+      // 锚定工具引导：仅 deepseek-v4-pro 触发锁定-释放；开关可配置关停
+      void installToolBootstrap(agentCtx as DshRuntime, {
+        enabled: config?.toolBootstrap ?? true,
+      });
     },
   });
 

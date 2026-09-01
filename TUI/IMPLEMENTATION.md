@@ -184,7 +184,7 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 
 - 兼容策略：`index.ts` 重导 `formatModelCatalog`/`resolveModelSpec`；`layout.ts` 重导 markdown 纯函数；`adapter/dsh.ts` 显式类型/函数重导（不用 `export *`，避免 verbatimModuleSyntax 与循环依赖）。外部 import 路径全部不变。
 - 明确不动：`state.ts`、`renderer/`、`DSH-CTX-API.md`。
-- 遗留：`adapter/dsh.ts` 14 个未使用 `import type`（TS 6196 警告级，`noUnusedLocals` 关闭故 tsc 不报），留作后续清理。
+- 遗留（已清理）：2026-09-01 前 `adapter/dsh.ts` 有 14 个未使用 `import type`（TS 6196 警告级，`noUnusedLocals` 关闭故 tsc 不报）；在锚定工具引导提交中一并清理（仅 import 块，export 重导保留为公共导出）。
 
 ## 输入态按键提示条（2026-08-31）
 
@@ -246,6 +246,20 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 - `tests/app.test.ts` 4 个 `/history`/-session 集成测试与 `historyFixtures`/`stripAnsi` 辅助注释禁用（adapter 层单测保留：`tests/adapter.dsh.test.ts` 读取链路用例仍在）。
 - 门禁：`npm run check && npm test` 全绿（247/247）。
 - 重新启用：取消 `commands.ts` 与 `index.ts` 的 `session` 分支注释、`helpText` 行注释、`app.test.ts` 集成测试注释即可；live 会话读取（`sessions` store 直读 + `agent/inbox/spliced` 归一化）实现已就绪。
+
+## 锚定工具引导（2026-09-01，两阶段工具锁定-释放）
+
+完整移植 [dsh-anchored-standard](https://github.com/Jungod1121/dsh-anchored-standard)（v2）机制到 TUI 持有的 agent（`tui-<uuid>`）。目标：仅 deepseek-v4-pro 模型提高首请求轨迹质量（参考评估 98/99 vs 全量 91/92），其他模型完全不加操作。
+
+- **门控**：`isV4ProModel`（`/deepseek-v4.*pro/i`，兼容 provider/model 前缀形态）；`installToolBootstrap(ctx, { enabled, isTarget? })`——`enabled` 来自 `config.toolBootstrap`（默认 true），`isTarget` 可注入覆盖门控。非目标模型/开关关闭时 `system-prompt/assemble` 原样透传。
+- **文件**：`src/app/adapter/tool-bootstrap.ts`（新）——纯函数 `classifyTask`/`coreFor`/`personaFor`/`applyPersona`/`sessionMode`/`isV4ProModel`/`isPromotedFromEvents` + 安装函数 `installToolBootstrap`（挂 `system-prompt/assemble` waterfall，返回解绑函数）；`dsh.ts` 显式重导保持公共导出路径；`main.ts` setup 中与 `installSessionModelSelection` 并列挂载。
+- **状态（按会话，resume-safe）**：首文本在 `agent/inbox/inserted` 捕获（消息进 inbox 严格早于首组装事件）、`agent/pre-step` 兜底；模式由 `classifyTask(首文本)`，兜底 `sessionMode`（events 内 user/message 推导）；promotion 由 events 含 `tool/call` 派生 + 进程内 Set 记忆（append-only）。
+- **首请求**：`sections` 仅 `anchored-persona`（persona 为唯一 section）、`contexts: []`、`tools` 过滤到 `coreFor(mode, shell)`（spec=bash+read+edit / react=bash+read+write / weak=bash+read；glob/grep 绝不进入——参考测量 V4 Pro 轨迹边界；shell 从目录动态取 bash/pwsh）。
+- **解锁后**：`tools` 全量不动、`sections` 经 `applyPersona` 替换 persona（保留 plan-mode 等其余 section）、`contexts: []`（persona 恒定）。
+- **fail-open**：无 shell、过滤器内部异常 → warnOnce（窄化 logger）+ 原样返回 assembled，绝不阻塞步骤管线。
+- **测试**：`tests/tool-bootstrap.test.ts`（新，19 例）——classifyTask 三分类、coreFor 三目录且不含 glob/grep、personaFor pro/flash 分支、isV4ProModel 门控、sessionMode/isPromotedFromEvents 事件推导、applyPersona 替换、安装端到端（spec 锁定目录+persona-only+contexts 清空 / react 目录 / 已有 tool/call 全量不锁定 / 首次 tool/call 后进程内解锁 / flash 与 enabled:false 与 isTarget:false 原样透传 / 无 shell 与内部抛错降级全量 / 解绑）。`npm run check && npm test` 全绿（266/266）。
+- **配置**：`DshTuiConfig.toolBootstrap?: boolean`（默认 true；README/DESIGN 同步）。
+- **真机线缆验证**：deepseek-v4-pro 新会话 `request/header` 首 header 仅锁定目录（2-3 工具）且 sections 仅 anchored-persona、首次 tool/call 后下一 header 全量目录（≥20 工具）——证据见完成汇报；flash/非 v4 不裁剪（透传）。
 
 ## 依赖顺序
 

@@ -77,9 +77,12 @@ dsh --profile <p>
     streamCharsPerSecond: 120   # 思考打字机流速，字符/秒（默认 120；收到正文后加速到 200、turn 结束回落；合法域 1..2000）
     thinkingMaxLines: 4     # thinking/reasoning 最大显示行数（默认 4，合法域 1..50，超出折叠）
     messageGutter: 4        # 用户块左缘/回复右缘对称留空列数（默认 4，合法域 0..20）
+    toolBootstrap: true     # 锚定工具引导（默认 true：两阶段工具锁定-释放，仅 deepseek-v4-pro 生效）
 ```
 
 配置在 profile 启动时解析，改后需重启 `dsh --profile <p>` 生效。说明：`streamCharsPerSecond`/`thinkingMaxLines` 只在 `streamTypewriter: true` 时生效（mock demo 不经此配置）；`messageGutter` 同时作用于用户块左缘与回复右缘（交错对称）；`thinkingMaxLines` 计的是历史逻辑行（终端换行前），超出的思考行折叠为提示行；`streamCharsPerSecond` 按码点切分，不会拆断 emoji/CJK。
+
+**锚定工具引导（`toolBootstrap`，默认 true）**：完整移植 [dsh-anchored-standard](https://github.com/Jungod1121/dsh-anchored-standard) 的两阶段工具锁定-释放——按会话首个真实用户消息分类（spec/react/weak），首请求仅暴露 `bash`+`read`（spec 加 `edit`、react 加 `write`，`glob`/`grep` 永不进入）并把 persona 作为唯一 prompt section、清空 contexts；会话记录首次 `tool/call` 后解锁全量工具目录并恢复完整 sections（persona 恒定）。**仅对 `deepseek-v4-pro` 模型生效**；flash、其他模型及 `toolBootstrap: false` 时原样透传（零改动）。promotion 状态按会话记忆（进程内 + 会话事件派生，resume 保留）；任何异常降级为全量目录（fail-open），绝不阻塞会话。
 
 ## 构建 / 测试
 
