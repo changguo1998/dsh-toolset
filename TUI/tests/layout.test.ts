@@ -187,12 +187,34 @@ test("renderTextInput: 空文本按 placeholder 渲染且光标在 prompt 之后
   assert.equal(line.caret, 2);
 });
 
-test("renderTextInput: 宽度不足时水平滚动仍保持光标可见", () => {
+test("renderTextInput: 宽度不足时按 avail 换行，单行区域跟随光标所在行", () => {
   const text = "abcdefghij";
-  // avail = 10-2 = 8，文本 10 列超宽，光标在末尾(cursor=5)应滚到可见区
-  const line = renderTextInput(text, 5, "...", 10)[0]!;
-  const caret = line.caret!;
-  assert.ok(caret >= 2 && caret < 2 + 8, "光标列应在可视窗口内");
+  // avail = 10-2 = 8：row0=abcdefgh row1=ij；光标在末尾(cursor=10)→ 滚动到 row1
+  const line = renderTextInput(text, 10, "...", 10)[0]!;
+  assert.equal(line.text, "  ij", "光标行(续行)缩进对齐，无 prompt");
+  assert.equal(line.caret, 2 + 2, "caret = prompt 宽 + 行内列");
+  // 光标在 row0 内时不滚动
+  const first = renderTextInput(text, 5, "...", 10)[0]!;
+  assert.equal(first.text, "> abcdefgh");
+  assert.equal(first.caret, 2 + 5);
+});
+
+test("renderTextInput: 多行输入区文本换行、顶部对齐、仅光标行有 caret", () => {
+  const lines = renderTextInput("abcdefghij", 9, "...", 10, "> ", undefined, 3);
+  assert.equal(lines.length, 3, "输出恰好 height 行");
+  assert.equal(lines[0]!.text, "> abcdefgh", "首行带 prompt");
+  assert.equal(lines[1]!.text, "  ij", "续行缩进对齐");
+  assert.equal(lines[2]!.text, "", "文本之外的行留空");
+  assert.equal(lines[0]!.caret, undefined, "非光标行无 caret");
+  assert.equal(lines[1]!.caret, 2 + 1, "光标行 caret = prompt 宽 + 行内列");
+});
+
+test("renderTextInput: 光标在换行边界/文本末尾时落在空行且 caret 正确", () => {
+  // 文本恰好 8 列 = 一个 avail；光标在末尾 → row1 空行
+  const line = renderTextInput("abcdefgh", 8, "...", 10, "> ", undefined, 2);
+  assert.equal(line.length, 2);
+  assert.equal(line[1]!.text, "");
+  assert.equal(line[1]!.caret, 2, "空行光标在 prompt 宽度处");
 });
 
 // ---- 行内 markdown（粗体 / 斜体 / 行内代码）----

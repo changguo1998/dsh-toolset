@@ -12,7 +12,7 @@ export function renderApprovalPrompt(
   width: number,
 ): RenderLine[] {
   const avail = Math.max(4, width - 4);
-  const maxBody = Math.max(1, height - 2); // 去掉标题行和操作提示行后的可装行数
+  const maxBody = Math.max(0, height - 2); // 去掉标题行和操作提示行后的可装行数（高度 <3 时可为 0）
 
   const lines: string[] = [];
   for (const seg of approval.prompt.split("\n")) {
@@ -24,7 +24,7 @@ export function renderApprovalPrompt(
   // 主体内容（可能截断）
   const body = lines.slice(0, maxBody);
   for (let i = 0; i < maxBody; i++) out.push({ text: " " + (body[i] ?? "") });
-  out.push({ text: " [y] 批准   [n] 拒绝   [Esc] 退出 " });
+  out.push({ text: " [y]批准 · [n]拒绝 · [Esc]退出 " });
   return out;
 }
 

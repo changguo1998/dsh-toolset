@@ -128,12 +128,15 @@ export function renderModelPicker(view: ModelPickerView): RenderLine[] {
           : hdr("effort", phase === 2),
       ];
     } else if (r === height - 1) {
-      // 最底行按键帮助（ASCII，避免面板出现汉字）
-      cells = [
-        "space: select   left/right: col   tab: next col   enter: commit   esc: cancel",
-        "",
-        "",
-      ];
+      // 最底行按键帮助：整行满宽单行（ASCII，避免面板出现汉字；
+      // 旧实现放入第一列单元、被截断到列宽，实际仅前 ~16 字符可见）
+      rows.push({
+        text: truncateToWidth(
+          "[space]select · [left/right]col · [tab]next col · [enter]commit · [esc]cancel",
+          width,
+        ).padEnd(width),
+      });
+      continue;
     } else {
       const rowIdx = r - 1;
       cells[0] = renderColumnCell(

@@ -60,7 +60,7 @@ export class Screen {
     this.theme = THEMES[id];
   }
 
-  /** 整帧重绘：清屏 → 原点 → 每行(基底色+样式)输出 → 末尾光标回到输入行 */
+  /** 整帧重绘：清屏 → 原点 → 每行(基底色+样式)输出（末行不写 CRLF，防满高帧触底上滚）→ 末尾光标回到输入行 */
   render(lines: RenderLine[]): void {
     const base = baseSgr(this.theme); // 主题基底前景+背景
     // 基底色先于清屏写出：ESC[2J 以当前(主题)背景填充整屏；后续每行再补
@@ -72,12 +72,16 @@ export class Screen {
       // 每行前缀主题基底色：行内样式段只改前景/背景并恢复到主题基底，
       // 但 bold 用 22m 收尾可能留下中间态，统一每行重设基底最稳妥
       out.push(base + styleLine(line, this.theme));
-      if (line.caret === undefined) {
-        out.push("\r\n");
-      } else {
-        // 输入行不加尾部 \r\n：满高帧时为最后一行，CRLF 触发触底上滚，
-        // 使下方多出一整行、光标落在输入行下一行。光标由末尾转义精确定位。
+      if (line.caret !== undefined) {
+        // 输入行仅记录硬件光标停留列；换行统一由「末行不写 CRLF」规则管理
         caret = { row: i + 1, col: line.caret };
+      }
+      // 仅末行不写尾部 CRLF：满高帧时末行 CRLF 触发触底上滚，下方多出一整行、
+      // 硬件光标落在显示内容下方一行；光标由末尾转义精确定位。
+      // （按键提示区加入后输入行不再占末行、须 CRLF 换行；此前无 caret 行的
+      // 面板帧末行会写 CRLF 同样触底上滚 1 行，此处一并修正）
+      if (i < lines.length - 1) {
+        out.push("\r\n");
       }
     }
     // 光标必须在所有行写完后再移动，否则后续行从光标列起写
@@ -95,13 +99,11 @@ export class Screen {
       const line = lines[i]!;
       // ESC[K 擦除以当前 bg 填充，故每个 delta 行都要带主题基底色
       out.push(baseSgr(this.theme) + styleLine(line, this.theme));
-      if (line.caret === undefined) {
-        out.push("\r\n\x1b[K"); // 每行写完后擦除到行尾，避免残留上一帧更长的旧字符
-      } else {
-        // 输入行：仅擦除行尾残留，不回车换行(避免满高帧触底上滚后光标偏下一行)
-        out.push("\x1b[K");
+      if (line.caret !== undefined) {
         caret = { row: startLine + i, col: line.caret };
       }
+      // 非末行 CRLF 换行、末行省略 CRLF（防满高帧触底上滚）；ESC[K 擦除行尾残留旧字符
+      out.push(i < lines.length - 1 ? "\r\n\x1b[K" : "\x1b[K");
     }
     if (caret) out.push(`\x1b[${caret.row};${caret.col + 1}H`);
     this.write(out.join(""));

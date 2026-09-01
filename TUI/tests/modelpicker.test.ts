@@ -35,6 +35,16 @@ function stripAnsi(s: string): string {
   return s.replace(/\u001b\[[0-9;]*m/g, "");
 }
 
+test("最底行按键帮助：整行满宽 [按键]文字 格式，不按列宽截断", () => {
+  const rows = renderModelPicker({ picker: picker(), height: 6, width: 80 });
+  const last = stripAnsi(rows.at(-1)!.text.trim());
+  assert.equal(
+    last,
+    "[space]select · [left/right]col · [tab]next col · [enter]commit · [esc]cancel",
+    last,
+  );
+});
+
 test("渲染：三列同屏, 头部全小写, 焦点行箭头, 当前生效值不标星", () => {
   const p = picker({
     efforts: [

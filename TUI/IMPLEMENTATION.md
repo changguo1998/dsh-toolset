@@ -129,7 +129,7 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 
 ## /theme 命令（2026-08-28）
 
-- **配色方案**：内嵌 `~/fff/config/terminal-colortheme/` 的两份 JSON（`BlueDark` = dark、`YellowBright` = light）作默认浅深模式，定义 16 个 ANSI 槽位 + 基底前景/背景，全部换成 truecolor ANSI。来源为副本——`src/renderer/theme.ts` 的 `THEMES`，改动需手动同步 fff 配置（运行时读取留作后续 YAGNI）。
+- **配色方案**：内嵌 `~/fff/config/terminal-colortheme/` 的两份 JSON（`fffdark` = dark、`ffflight` = light）作默认浅深模式，定义 16 个 ANSI 槽位 + 基底前景/背景，全部换成 truecolor ANSI。来源为副本——`src/renderer/theme.ts` 的 `THEMES`，改动需手动同步 fff 配置（运行时读取留作后续 YAGNI）。
 
 - **槽位映射**：`black..white` → `ansi[]`，`brightBlack..brightWhite` → `bright[]`，`gray` = `brightBlack`。`ansiNameToHex(theme, name)` 解析（颜色名转小写后查表）。`colorFor(themeId, name)` 手工拼接 truecolor ANSI 前景并**以主题基底前景收尾**（不用 chalk：chalk 以 `39m`/`49m` 收尾会复位到终端默认，浅色主题下不可读），`layout.ts` 状态区改用（边框灰/路径蓝/模型区绿+紫+灰均按当前 `state.themeId` 取色，不再直接 `chalk.*`）。`RenderLine.style` 由 `styleLine` 按 Manual-ANSI 处理（fg/bg 分别 `38;2`/`48;2`，bold 用 `1m`/`22m`，各自恢复主题基底）。
 
@@ -150,7 +150,7 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 
 - **服务接线**：`main.ts` 经 `ctx.get("userQuestions")` 取 `user-questions` 服务（结构面判定后传入 adapter）。`adapter/dsh.ts` 注册 `registerProvider({ask})`——单活动请求守卫（并发 ask 直接 reject）、`signal` abort → reject；DSH 回调提问归一化为 `DshEvent {type:'question'; id; questions[]}`。App 应答走 `answerQuestion(id, {answers})`（整批），Esc/cancel 走 `cancelQuestion(id)`（仅 reject）。注册失败（DUPLICATE_PROVIDER）不阻塞启动：stderr 告警 + notice，构造期 notice 先进 `pendingRegNotices` 缓冲、首个 `onEvent` 订阅时补发（避开构造期无监听者丢事件）。`emit_models` 等既有逻辑不受影响。
 - **状态与交互**：`AppState.question`（`QuestionPanelState`）+ 6 个 reducer action（open/move/nav/select/custom/close）。`handleQuestionKey` 路由在 approval 之后、picker 之前：Esc 仅取消；**Enter 有下一题时 `question-nav +1` 进下一题、末题 `submitQuestion()` 提交整批**（修复：原直接提交导致多问答完第一题就被收走，模型拿不到后续题目答案）。**「自定义回答」作为选项列表末位（`optionIndex === options.length`）**，与预设选项共用 `question-move`（↑/↓ 在 0..options.length 内 clamp）——不再有独立 focus 字段、**Tab 已释放**（落入默认分支吞掉）；空格/可打印字符/退格仅在自定义项高亮时编辑 custom（预设选项上键入被吞，不落入主输入栏）。单选互斥：`selectQuestionOption` 选预设清空 custom、`setQuestionCustom` 输入首字符清空 selected；多选 preset 与 custom 并存。`navQuestion` 切题重置于列表首项。
-- **渲染**：`QuestionPrompt.ts` 输出恰 footer 高度；**自定义兜底项为普通列表行，高亮在其上且列表超长时强制该行可见**（修复「自由回答不显示输入文字」，输入文本就地在行尾回显 `自定义回答：文本`）；选项标记纯 ASCII：首列光标 `>`/空格、次列选中 `*`（单选）/`+`（多选）/空格（修复复杂符号，未选中以空格对齐）。**操作提示只显示实际用到的按键**：Enter 文案区分「下一题/提交」（多题首/中题=下一题、末题与单题=提交）、多题才显示「[←/→] 切题」、有预设选项才显示「[空格] 选择」与「[↑/↓] 选项」。`plan-review` intent 以「计划卡片」呈现 detail、标题「计划审批」。`metricsFor` footer 优先级 approval > question > picker > 输入栏。
+- **渲染**：`QuestionPrompt.ts` 输出恰 footer 高度；**自定义兜底项为普通列表行，高亮在其上且列表超长时强制该行可见**（修复「自由回答不显示输入文字」，输入文本就地在行尾回显 `自定义回答：文本`）；选项标记纯 ASCII：首列光标 `>`/空格、次列选中 `*`（单选）/`+`（多选）/空格（修复复杂符号，未选中以空格对齐）。**操作提示只显示实际用到的按键**：Enter 文案区分「下一题/提交」（多题首/中题=下一题、末题与单题=提交）、多题才显示「[←/→]切题」、有预设选项才显示「[空格]选择」与「[↑/↓]选项」。`plan-review` intent 以「计划卡片」呈现 detail、标题「计划审批」。`metricsFor` footer 优先级 approval > question > picker > 输入栏。
 - **测试**：`tests/adapter.dsh.test.ts` 6 例（register → question 事件 → answerQuestion resolve；cancel reject；并发 ask 拒绝；DUPLICATE_PROVIDER notice 缓冲补发且 sendMessage 不受影响；abort；dispose 注销）；`tests/app.test.ts` 9 例（渲染+动态按键提示/单选替换+末题 Enter 提交/切题+多选 toggle/↓ 到自定义项键入+空格+退格修改+单选互斥/多选预设+custom 并存/预设选项键入被吞/Tab 释放被吞/Esc 取消不打断/plan-review 卡片+单题提示）；demo 冒烟 4 断言（question-rendered/submitted/cancelled/Esc 不打断）。`npm run check && npm run test && npm run build && npm run demo -- --smoke`（233 例）全绿。
 
 ## 按键扩展（2026-08-24）
@@ -185,6 +185,27 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 - 兼容策略：`index.ts` 重导 `formatModelCatalog`/`resolveModelSpec`；`layout.ts` 重导 markdown 纯函数；`adapter/dsh.ts` 显式类型/函数重导（不用 `export *`，避免 verbatimModuleSyntax 与循环依赖）。外部 import 路径全部不变。
 - 明确不动：`state.ts`、`renderer/`、`DSH-CTX-API.md`。
 - 遗留：`adapter/dsh.ts` 14 个未使用 `import type`（TS 6196 警告级，`noUnusedLocals` 关闭故 tsc 不报），留作后续清理。
+
+## 输入态按键提示条（2026-08-31）
+
+- 全部界面按键提示统一为「**[按键]文字**」格式、项间 `·` 分隔：主输入提示区（`HINT_LINE`）、审批面板 `[y]批准 · [n]拒绝 · [Esc]退出`、问答面板 `[Enter]下一题/提交 · [Esc]取消 · …`、模型选择面板 `[space]select · [left/right]col · [tab]next col · [enter]commit · [esc]cancel`（保持 ASCII 无汉字；最底行帮助改整行满宽单行——旧实现放入第一列单元被截断到列宽，实际仅前 ~16 字符可见，`modelpicker.test.ts` 加回归断言）。
+- 输入态底部新增独立的**按键提示区**（1 行，`layout.ts` 导出 `HINT_LINE`）：`[Enter]发送 · [Alt+Enter]打断并发送 · [Esc]打断 · [Ctrl+L]重绘 · [/help]更多命令`，统一灰色（同边框），窄终端按显示宽度截断；**与输入区之间不画横线**；审批/问答/模型选择面板自带操作提示，不显示该区。
+- `FrameMetrics` 新增 `hintHeight` 字段、`metricsFor` 新增第 6 参 `hintRows`（按键提示区独立计入，输入态 1）；顺手修复既有高度误算：picker 的「+1 最底行按键帮助」原先无面板时也按 1 计入（`Math.max(0, ...[]) + 1`），导致输入态 footer 少算 1 行、整帧比终端高 1 行，现改为仅面板打开时计入。
+- 测试：`tests/layout4.test.ts`（四区索引、按键提示区内容、metricsFor hintRows/hintHeight）、`tests/app.test.ts` 输入行 SGR 断言由末行改倒数第 2 行。`npm run check && npm run test` 全绿（236/236，含下述 Screen 回归用例）。
+- `Screen` 换行规则由「输入行(caret 行)不写尾部 CRLF」改为「**仅帧末行不写 CRLF**」（caret 行只记录光标停留位置）——提示区加入后输入行不再占末行，旧规则使提示文本与输入行同行；无 caret 行的面板帧满高时末行 CRLF 触底上滚 1 行的潜在问题一并修正（`screen.ts` `render`/`renderDelta`，`tests/screen.test.ts` 新增 2 个回归用例）。
+
+## 交互区高度规则与多行输入框（2026-08-31）
+
+- **交互区 1/4 规则**：输入区+按键提示区共同构成「交互区」——总高足够时占 `floor(rows/4)`，不足时每区至少 1 行（输入 1 + 提示 1）；提示区固定 1 行，输入区取剩余：`metricsFor` 普通输入态 `footerHeight = max(1, floor(rows/4) - 1)`（替换固定 1 行）。面板态（审批/问答/选择器）高度逻辑不变。
+- **多行输入框**：`renderTextInput` 新增 `height` 参数（默认 1），`buildFrame` 传 `metrics.footerHeight`。文本按 `avail = width - promptWidth` 显示列统一换行（字符不跨行、不切半个 CJK）；首行带 prompt、续行缩进 `promptWidth` 列、顶部对齐；光标行 `floor(cursorFlowCol/avail)` 超出窗口时按 `vshift` 整体滚动跟随；仅光标行带 `caret`（`promptWidth + 行内列`）。文本恰在换行边界/末尾时光标落在空行。原单行「水平滚动」被换行语义取代（高度 1 时显示光标所在换行，滚动到续行时该行无 prompt、仅缩进）。
+- 测试：`tests/layout.test.ts` 水平滚动用例改为换行断言，新增多行框（顶部对齐/续行缩进/留空行/caret 仅光标行）与换行边界空行用例；`tests/layout4.test.ts` 四区用例按新高度重排（24 行终端：顶部 15 + 分隔 2 + 状态 1 + 输入 5 + 提示 1）、metricsFor 断言更新并补小终端最小值；`tests/app.test.ts` 输入行 SGR 断言改倒数第 6 行（24 行终端输入区 5 + 提示区 1）。`npm run check && npm run test` 全绿（238/238）。
+
+## 面板态共用固定交互区高度（2026-08-31）
+
+- 交互区（输入区+按键提示区）高度固定为 `max(2, floor(rows/4))`，不再随面板打开变化：普通输入态 = 提示区 1 行 + 输入区剩余；面板态（审批/问答/模型选择）整体占据交互区（面板自带最底行按键提示、无独立提示区）。此前审批 `max(4, rows*0.3)`、问答/选择 `min(所需, max(4, rows*0.4))` 会使面板开关时顶部区域上下跳动，现统一不调整。
+- `metricsFor` 签名收敛为 `(size, hasPanel?, statusHeight?, hintRows?)`：面板「所需行数」估算（选择器列表长度、问答选项/detail 粗估）不再参与高度计算，`buildFrame` 中相应计算一并移除。
+- 面板适配固定高度（此前最小高度 ≥4 的隐含前提不再成立）：问答面板可截断区（题干/detail/选项/自定义兜底项）改为按**高亮行滚动窗口**——高亮项（当前选项或自定义项）恒在可视窗口内，取代旧的「自定义行强制放底部」特例（`QuestionPrompt.ts`）；审批/问答 `maxBody = max(0, height-2)`，高度 \<3 时只渲染标题+操作提示行，输出行数恒等于高度。
+- 测试：`tests/layout4.test.ts` metricsFor 断言改 4 参签名并新增面板态同高断言、审批弹窗用例改「交互区高度与输入态一致」；`tests/app.test.ts` plan-review 用例改为短 detail（固定 6 行面板下 2 行 detail + 2 选项 + 兜底项无法同屏），并新增「超长时末位选项初始不可见、↓ 滚动后可见」断言。`npm run check && npm run test` 全绿（238/238）。
 
 ## 依赖顺序
 

@@ -20,13 +20,14 @@ export function renderQuestionPanel(
   width: number,
 ): RenderLine[] {
   const avail = Math.max(4, width - 4);
-  const maxBody = Math.max(1, height - 2); // 去掉标题行和操作提示行后的可装行数
+  const maxBody = Math.max(0, height - 2); // 去掉标题行和操作提示行后的可装行数（高度 <3 时可为 0）
   const item = panel.items[panel.itemIndex];
+  // 高亮行号（pool 内）：当前选项/自定义兜底项，供滚动窗口定位
+  let hl = -1;
   const total = panel.items.length;
   const isPlan = item?.intent?.kind === "plan-review";
   const multi = item?.multiSelect ?? false;
   const hasPreset = (item?.options.length ?? 0) > 0;
-  const onCustom = !!item && item.optionIndex >= item.options.length;
 
   // 可截断区：题干/detail/选项（含“自定义回答”兜底项）
   const pool: string[] = [];
@@ -42,7 +43,8 @@ export function renderQuestionPanel(
       }
       if (isPlan) pool.push(" ──────────────");
     }
-    // 预设选项
+    // 预设选项（记录选项区起点，供高亮行滚动窗口定位）
+    const optStart = pool.length;
     for (let i = 0; i < item.options.length; i++) {
       const opt = item.options[i]!;
       const selected = item.selected.includes(opt.label);
@@ -62,14 +64,20 @@ export function renderQuestionPanel(
         " 自定义回答" +
         (item.custom === "" ? "" : "：" + item.custom),
     );
+    // 自定义项下标 = optStart + options.length，与 optionIndex 取值域一致
+    hl = optStart + item.optionIndex;
   }
 
-  // 高亮在自定义项且列表超长时，把该行强制放在底部（可截断区让位）
-  const fits = pool.length <= maxBody;
-  const body =
-    onCustom && !fits
-      ? [...pool.slice(0, maxBody - 1), pool[pool.length - 1] ?? ""]
-      : pool.slice(0, maxBody);
+  // 高亮行（当前选项/自定义兜底项）恒在可视窗口内：可截断区超出时按
+  // 高亮行整体滚动（取代旧的「自定义行强制放底部」特例）
+  const start =
+    hl < 0 || pool.length <= maxBody
+      ? 0
+      : Math.min(
+          Math.max(0, hl - (maxBody - 1)),
+          Math.max(0, pool.length - maxBody),
+        );
+  const body = pool.slice(start, start + maxBody);
 
   const out: RenderLine[] = [];
   out.push({
@@ -81,13 +89,13 @@ export function renderQuestionPanel(
   // 操作提示：只显示当前实际用到的按键
   const parts: string[] = [];
   parts.push(
-    "[Enter] " + (total > 1 && panel.itemIndex < total - 1 ? "下一题" : "提交"),
+    "[Enter]" + (total > 1 && panel.itemIndex < total - 1 ? "下一题" : "提交"),
   );
-  parts.push("[Esc] 取消");
-  if (hasPreset) parts.push("[空格] 选择");
-  if (hasPreset) parts.push("[↑/↓] 选项");
-  if (total > 1) parts.push("[←/→] 切题");
-  out.push({ text: " " + parts.join("   ") + " " });
+  parts.push("[Esc]取消");
+  if (hasPreset) parts.push("[空格]选择");
+  if (hasPreset) parts.push("[↑/↓]选项");
+  if (total > 1) parts.push("[←/→]切题");
+  out.push({ text: " " + parts.join(" · ") + " " });
   return out;
 }
 

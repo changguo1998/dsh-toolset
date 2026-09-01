@@ -150,13 +150,19 @@ export const SEPARATOR = "─";
 /** 上/中/下三区之间的横线分隔行数 */
 export const SEPARATOR_ROWS = 2;
 
+/** 按键提示区内容（独立区域，位于输入区下方、之间不画横线；窄终端按显示宽度截断；审批/问答/选择面板自带按键提示，不显示该区） */
+export const HINT_LINE =
+  "[Enter]发送 · [Alt+Enter]打断并发送 · [Esc]打断 · [Ctrl+L]重绘 · [/help]更多命令";
+
 export interface FrameMetrics {
-  /** 顶部区域行数 = rows - 状态区 - 输入区 - 分隔行（剩余高度全给上方两个） */
+  /** 顶部区域行数 = rows - 状态区 - 输入区 - 按键提示区 - 分隔行（剩余高度全给上方两个） */
   topHeight: number;
   /** 系统状态区行数（可 >1：状态内容溢出到多行时按实际行数） */
   statusHeight: number;
   /** 输入区行数（审批弹窗时更高） */
   footerHeight: number;
+  /** 按键提示区行数（独立区域，位于输入区下方、之间不画横线；输入态 1，面板打开 0） */
+  hintHeight: number;
   /** 插件窄条固定宽 */
   pluginWidth: number;
   /** 历史区宽 = cols - pluginWidth */
@@ -165,39 +171,31 @@ export interface FrameMetrics {
 
 export function metricsFor(
   size: Size,
-  hasApprovalPrompt: boolean,
-  pickerRows = 0,
+  /** 是否有交互面板打开（审批/问答/模型选择） */
+  hasPanel = false,
   /** 状态区行数（默认 1；可多行溢出时按实际行数压缩顶部区域） */
   statusHeight = 1,
-  /** 问答面板所需行数（粗估；0 = 未激活） */
-  questionRows = 0,
+  /** 按键提示区行数（独立区域，与输入区共同构成交互区；输入态 1） */
+  hintRows = 0,
 ): FrameMetrics {
-  // footer 高度：审批弹窗 / 问答面板 / 选择面板 / 单行输入框
-  let footerHeight = 1;
-  if (hasApprovalPrompt) {
-    footerHeight = Math.max(4, Math.floor(size.rows * 0.3));
-  } else if (questionRows > 0) {
-    footerHeight = Math.min(
-      questionRows,
-      Math.max(4, Math.floor(size.rows * 0.4)),
-    );
-  } else if (pickerRows > 0) {
-    footerHeight = Math.min(
-      pickerRows,
-      Math.max(4, Math.floor(size.rows * 0.4)),
-    );
-  }
+  // 「交互区」（输入区+按键提示区）高度固定：总高足够时占 floor(rows/4)，
+  // 不足时至少 2 行（输入 1 + 提示 1）。面板态（审批/问答/选择）整体占据
+  // 交互区（面板自带最底行按键提示、无独立提示区），与输入态同高——
+  // 面板开关不改变交互区高度，避免顶部区域上下跳动
+  const interaction = Math.max(2, Math.floor(size.rows / 4));
+  const footerHeight = hasPanel ? interaction : interaction - 1;
   // 插件窄条：固定宽，但窄终端时让出至少 1 列给历史区
   const pluginWidth = Math.min(PLUGIN_WIDTH, Math.max(1, size.cols - 2));
   const historyWidth = Math.max(1, size.cols - pluginWidth);
   const topHeight = Math.max(
     0,
-    size.rows - statusHeight - footerHeight - SEPARATOR_ROWS,
+    size.rows - statusHeight - footerHeight - hintRows - SEPARATOR_ROWS,
   );
   return {
     topHeight,
     statusHeight,
     footerHeight,
+    hintHeight: hintRows,
     pluginWidth,
     historyWidth,
   };
@@ -479,33 +477,21 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const showApproval = approval !== null;
   const picker = state.picker;
   const question = state.question;
-  const qItem = question?.items[question.itemIndex];
   const fullWidth = Math.max(1, size.cols);
   // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
+  // 按键提示区仅输入态存在（审批/问答/选择面板自带按键提示），与输入区之间不画横线
+  const normalInput = !showApproval && !question && !picker;
   const statusLines = renderStatusLine(
     state.systemStatus,
     state.themeId,
     fullWidth,
   );
+  // 面板态/输入态共用固定交互区高度（见 metricsFor）；提示区仅输入态计入
   const metrics = metricsFor(
     size,
-    showApproval,
-    // 三列共用同一视口高度；按 providers 与各 provider 的模型列表较大者算，
-    // 不随当前 models/efforts 变化，保证切换 provider 时面板高度稳定不跳动。
-    // +1 用于最底行按键帮助
-    Math.max(
-      picker?.providers.length ?? 0,
-      ...Object.values(picker?.providerModels ?? {}).map((list) => list.length),
-    ) + 1,
+    !normalInput,
     statusLines.length,
-    // 问答面板所需行数粗估（标题 + 操作提示 + 选项 + 自定义 + detail）
-    qItem
-      ? 2 +
-          qItem.options.length +
-          1 +
-          (qItem.detail ? qItem.detail.split("\n").length + 2 : 0) +
-          (qItem.header ? 1 : 0)
-      : 0,
+    normalInput ? 1 : 0,
   );
 
   const topRegion = buildTopRegion(
@@ -539,6 +525,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     // 两字符提示符：左字符 = 上次提交所用模式符号（MODE_SYMBOL[lastSubmitMode]，
     // 颜色随状态绿/黄/红），右字符 = 当前输入模式符号（MODE_SYMBOL[inputMode]，
     // 默认前景色不着色）；prompt 预先分段着色，renderTextInput 宽度按未着色文本计算。
+    // 输入区为多行框：文本按宽度换行、顶部对齐，光标行超出区域时跟随。
     const prompt =
       colorFor(
         state.themeId,
@@ -552,8 +539,22 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
       "Type a message…",
       fullWidth,
       prompt,
+      undefined,
+      metrics.footerHeight,
     );
   }
+
+  // 按键提示区（独立区域，与输入区之间不画横线；统一灰色同边框；窄终端按显示宽度截断）
+  const hintLines: RenderLine[] = normalInput
+    ? [
+        {
+          text: colorFor(
+            state.themeId,
+            "gray",
+          )(truncateToWidth(HINT_LINE, fullWidth)),
+        },
+      ]
+    : [];
 
   // 上/中/下三区之间各插一条横线分隔行（边框统一灰色：先纯文本截断再着色）
   const sepLine: RenderLine = {
@@ -562,5 +563,12 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
       "gray",
     )(truncateToWidth(SEPARATOR.repeat(fullWidth), fullWidth)),
   };
-  return [...topRegion, sepLine, ...statusLines, sepLine, ...footerLines];
+  return [
+    ...topRegion,
+    sepLine,
+    ...statusLines,
+    sepLine,
+    ...footerLines,
+    ...hintLines,
+  ];
 }
