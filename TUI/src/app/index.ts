@@ -342,7 +342,8 @@ export class App {
     }
 
     // /model 交互面板：↑/↓ 移动焦点箭头（位置指示），空格把焦点行写入
-    // 选中（星号，Enter 提交它，不提交；真实键盘空格为普通字符 " "），
+    // 选中（星号，Enter 提交它，不提交；真实键盘空格为普通字符 " "）；
+    // model/思考等级列表跟随星号（选中），不随 > 焦点切换，
     // ←/→ 左右切换三列焦点区（clamp 不循环），Tab 循环切换，Enter 提交各列选中值
     // Esc 取消；其余按键忽略
     if (this.state.picker) {
@@ -354,14 +355,14 @@ export class App {
           }),
         );
         this.paint();
-        // provider/model 区移动后重载思考等级（thinking 区移动不重载）
-        const phase = this.state.picker?.phase;
-        if (phase === 0 || phase === 1) void this.reloadPickerEfforts();
         return;
       }
       if (name === " " || name === "space") {
         this.apply((s) => reduceState(s, { type: "picker-select" }));
         this.paint();
+        // provider/model 区星号移动后重载思考等级列表（thinking 区选择不变列表）
+        const phase = this.state.picker?.phase;
+        if (phase === 0 || phase === 1) void this.reloadPickerEfforts();
         return;
       }
       if (name === "tab") {
@@ -699,12 +700,14 @@ export class App {
     void this.reloadPickerEfforts();
   }
 
-  /** 按当前高亮 model 异步加载思考等级，落定后再下发（面板可能已关闭/换行） */
+  /** 按选中（星号）model 异步加载思考等级，落定后再下发（面板可能已关闭/换选） */
   private async reloadPickerEfforts(): Promise<void> {
     const picker = this.state.picker;
     if (!picker) return;
-    const model = picker.models[picker.modelIndex];
-    const provider = picker.providers[picker.providerIndex];
+    // 思考等级列表跟随选中（星号）模型，不随 > 焦点变化；未选中回退焦点行
+    const model = picker.selectedModel ?? picker.models[picker.modelIndex];
+    const provider =
+      picker.selectedProvider ?? picker.providers[picker.providerIndex];
     if (!model) return;
     try {
       const efforts = await this.deps.adapter.modelEfforts(
@@ -713,9 +716,12 @@ export class App {
       );
       if (this.disposed) return;
       const cur = this.state.picker;
-      const prevModel = cur?.models[cur.modelIndex];
-      if (!cur || prevModel !== model) {
-        return; // 已切换高亮模型或面板关闭，丢弃旧结果
+      if (!cur) return;
+      const prevModel = cur.selectedModel ?? cur.models[cur.modelIndex];
+      const prevProvider =
+        cur.selectedProvider ?? cur.providers[cur.providerIndex];
+      if (prevModel !== model || prevProvider !== provider) {
+        return; // 已切换选中模型/provider 或面板关闭，丢弃旧结果
       }
       // 当前生效模型自带等级时，预设为列表中同一等级（其余默认第一项）
       const expectedIndex = pickerEffortIndex(cur, model, provider, efforts);

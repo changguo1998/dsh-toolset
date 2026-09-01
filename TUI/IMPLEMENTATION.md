@@ -207,6 +207,14 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 - 面板适配固定高度（此前最小高度 ≥4 的隐含前提不再成立）：问答面板可截断区（题干/detail/选项/自定义兜底项）改为按**高亮行滚动窗口**——高亮项（当前选项或自定义项）恒在可视窗口内，取代旧的「自定义行强制放底部」特例（`QuestionPrompt.ts`）；审批/问答 `maxBody = max(0, height-2)`，高度 \<3 时只渲染标题+操作提示行，输出行数恒等于高度。
 - 测试：`tests/layout4.test.ts` metricsFor 断言改 4 参签名并新增面板态同高断言、审批弹窗用例改「交互区高度与输入态一致」；`tests/app.test.ts` plan-review 用例改为短 detail（固定 6 行面板下 2 行 detail + 2 选项 + 兜底项无法同屏），并新增「超长时末位选项初始不可见、↓ 滚动后可见」断言。`npm run check && npm run test` 全绿（238/238）。
 
+## /model 面板列表跟随星号选中（2026-08-31）
+
+- 问题：model 列与思考等级列表原先由 `>` 焦点驱动（provider 列上下移动即切换 model 列表、焦点移动即重载 efforts），与「星号 `*` = 待提交选中、`>` = 临时焦点」的语义不一致。
+- 变更后：`movePicker` phase 0 仅移动 `providerIndex`；`selectPicker` 在星号移到新 provider 时才把 `models` 切到该 provider 的列表、`modelIndex=0`、旧 `selectedModel` 失效（effort 列表清空由 App 重载；思考等级星号保留，新列表中存在才显示），重选同一 provider 幂等不重置；phase 1 选中保留 `selectedEffort`（维持「保留当前 reasoningEffort」的既有行为）。
+- `App.reloadPickerEfforts()` 目标由焦点改为选中（星号）的 model/provider（未选中回退焦点行）；触发时机由 `picker-move` 改为 `picker-select`（仅 provider/model 区星号移动时重载）；旧结果校验改为同时比较 provider 与 model。
+- Enter 提交仍走 `resolvePickerSelection`「星号优先、焦点兜底」（打开时已用当前值预填星号，通常即星号值）。
+- 测试：`tests/modelpicker.test.ts` reducer 断言改为「焦点移动不切 model 列」+ picker-select 新用例；`tests/app.test.ts` FakeAdapter 新增 `modelEffortsCalls` 记录，新增双 provider 用例验证 model 列/思考等级列表只随星号变化（240/240 绿）。
+
 ## 依赖顺序
 
 ```

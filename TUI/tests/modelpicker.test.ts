@@ -223,16 +223,16 @@ test("reducer：picker-open 激活 / 各列 clamp / tab 三区循环 / efforts /
   assert.equal(s1.picker!.modelIndex, 1);
   assert.equal(s1.picker!.phase, 0);
 
-  // provider 列上移 → 切换到 deepseek, model 列同步为该 provider 的模型并重置
+  // provider 列焦点移动只移动 > 焦点, model 列跟随星号(选中)不变
   const s2 = reduceState(s1, { type: "picker-move", delta: -3 });
   assert.equal(s2.picker!.providerIndex, 0);
   assert.deepEqual(s2.picker!.models, ["chat", "reasoner"]);
-  assert.equal(s2.picker!.modelIndex, 0);
-  // 再移动 provider 到 ustc → model 列切换为 ustc 的模型并重置
+  assert.equal(s2.picker!.modelIndex, 1);
+  // 再移动 provider 到 ustc → model 列仍不变
   const s2b = reduceState(s2, { type: "picker-move", delta: 1 });
   assert.equal(s2b.picker!.providerIndex, 1);
-  assert.deepEqual(s2b.picker!.models, ["glm", "mi"]);
-  assert.equal(s2b.picker!.modelIndex, 0);
+  assert.deepEqual(s2b.picker!.models, ["chat", "reasoner"]);
+  assert.equal(s2b.picker!.modelIndex, 1);
   // Tab -> model 区
   const s3 = reduceState(s2b, { type: "picker-tab" });
   assert.equal(s3.picker!.phase, 1);
@@ -267,6 +267,28 @@ test("reducer：picker-open 激活 / 各列 clamp / tab 三区循环 / efforts /
 
   const s8 = reduceState(s7, { type: "picker-close" });
   assert.equal(s8.picker, null);
+});
+
+test("reducer：picker-select 星号移到新 provider → model 列同步, 旧 model 选中失效", () => {
+  const s1 = reduceState(initialState(), {
+    type: "picker-open",
+    picker: picker({
+      selectedProvider: "deepseek",
+      selectedModel: "chat",
+      selectedEffort: "low",
+    }),
+  });
+  // 焦点在 ustc(providerIndex=1), 星号在 deepseek → 空格选中 ustc
+  const s2 = reduceState(s1, { type: "picker-select" });
+  assert.equal(s2.picker!.selectedProvider, "ustc");
+  assert.deepEqual(s2.picker!.models, ["glm", "mi"]);
+  assert.equal(s2.picker!.modelIndex, 0);
+  assert.equal(s2.picker!.selectedModel, undefined, "旧 model 选中失效");
+  assert.equal(s2.picker!.selectedEffort, "low", "思考等级星号保留");
+  assert.deepEqual(s2.picker!.efforts, [], "effort 列表清空待重载");
+  // 幂等：再选同一 provider 不重置 model 列
+  const s3 = reduceState(s2, { type: "picker-select" });
+  assert.deepEqual(s3.picker!.models, ["glm", "mi"]);
 });
 
 test("reducer：左右方向键切换焦点区,clamp 不循环(右到头/左到头不动)", () => {

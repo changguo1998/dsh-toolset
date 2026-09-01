@@ -93,11 +93,11 @@ export interface PickerState {
   providerIndex: number;
   /** 每个 provider 的模型列表（model 列随 provider 动态调整） */
   providerModels: Record<string, string[]>;
-  /** 当前高亮 provider 的模型列表（跟随 provider 切换） */
+  /** 选中 provider（星号）的模型列表（跟随星号移动，不随 > 焦点切换） */
   models: string[];
   /** model 列高亮索引 */
   modelIndex: number;
-  /** 当前高亮模型的思考等级选项（id/name；非思考模型为空） */
+  /** 选中模型（星号）的思考等级选项（id/name；非思考模型为空） */
   efforts: { id: string; name: string }[];
   /** thinking 列高亮索引 */
   effortIndex: number;
@@ -493,12 +493,8 @@ function movePicker(
       ),
     );
     if (pi === picker.providerIndex) return state;
-    // 切换 provider 时 model 列同步为该 provider 的模型列表并重置高亮
-    const models = picker.providerModels[picker.providers[pi]!] ?? [];
-    return {
-      ...state,
-      picker: { ...picker, providerIndex: pi, models, modelIndex: 0 },
-    };
+    // model 列跟随星号（selectedProvider），不随 > 焦点切换（见 selectPicker）
+    return { ...state, picker: { ...picker, providerIndex: pi } };
   }
   if (picker.phase === 1) {
     if (picker.models.length === 0) return state;
@@ -529,14 +525,30 @@ function selectPicker(state: AppState): AppState {
   if (picker.phase === 0) {
     const v = picker.providers[picker.providerIndex];
     if (!v) return state;
+    if (v === picker.selectedProvider) {
+      // 幂等：重选同一 provider 不重置 model/思考等级列
+      return { ...state, picker: { ...picker, selectedProvider: v } };
+    }
+    // 星号移到新 provider：model 列跟随选中 provider，旧 model 选中失效
+    // （effort 列表由 App 重载；思考等级星号保留，新列表中存在才显示）
+    const models = picker.providerModels[v] ?? [];
     return {
       ...state,
-      picker: { ...picker, selectedProvider: v },
+      picker: {
+        ...picker,
+        selectedProvider: v,
+        models,
+        modelIndex: 0,
+        selectedModel: undefined,
+        efforts: [],
+        effortIndex: 0,
+      },
     };
   }
   if (picker.phase === 1) {
     const v = picker.models[picker.modelIndex];
     if (!v) return state;
+    // 思考等级星号保留（跨模型沿用，如当前 reasoningEffort），effort 列表由 App 重载
     return { ...state, picker: { ...picker, selectedModel: v } };
   }
   // phase 2：effort 区，仅列表非空时标记

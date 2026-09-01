@@ -135,10 +135,12 @@ class FakeAdapter implements DshAdapter {
     this.modelCatalogData = { ...this.modelCatalogData, current: { ...sel } };
     return { ...sel };
   }
+  modelEffortsCalls: { provider: string; model: string }[] = [];
   async modelEfforts(
-    _provider: string,
-    _model: string,
+    provider: string,
+    model: string,
   ): Promise<{ id: string; name: string }[] | undefined> {
+    this.modelEffortsCalls.push({ provider, model });
     return [
       { id: "low", name: "low" },
       { id: "high", name: "high" },
@@ -639,6 +641,77 @@ test("/model 面板: 空格(真实字符)记录选中不提交, 方向键移动�
   assert.deepEqual(adapter.savedSelections[0], {
     provider: "deepseek",
     model: "deepseek-reasoner",
+    reasoningEffort: "low",
+  });
+});
+
+test("/model 面板: model/思考等级列表跟随星号(选中)而非 > 焦点", async () => {
+  const { renderer, adapter } = makeApp();
+  // 双 provider 各两模型：便于验证列表跟随行为
+  adapter.modelCatalogData = {
+    providers: [
+      { provider: "p1", name: "p1" },
+      { provider: "p2", name: "p2" },
+    ],
+    models: [
+      { provider: "p1", id: "m1a", name: "m1a" },
+      { provider: "p1", id: "m1b", name: "m1b" },
+      { provider: "p2", id: "m2a", name: "m2a" },
+      { provider: "p2", id: "m2b", name: "m2b" },
+    ],
+    current: { provider: "p1", model: "m1a" },
+  };
+  typeAndEnter(renderer, "/model");
+  await flush();
+  assert.ok(plainFrame(renderer).includes("m1a"), "model 列随选中 provider p1");
+  const calls0 = adapter.modelEffortsCalls.length;
+  // ↓ 把 > 焦点移到 p2：model 列与思考等级列表不变
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  await flush();
+  const plain1 = plainFrame(renderer);
+  assert.ok(
+    plain1.includes("m1a") && !plain1.includes("m2a"),
+    "焦点移到 p2 不切 model 列表",
+  );
+  assert.equal(
+    adapter.modelEffortsCalls.length,
+    calls0,
+    "焦点移动不重载思考等级",
+  );
+  // 空格选中 p2（星号移动）：model 列切换为 p2 的模型列表，思考等级重载
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  await flush();
+  const plain2 = plainFrame(renderer);
+  assert.ok(
+    plain2.includes("m2a") && !plain2.includes("m1a"),
+    "星号移到 p2 后 model 列表跟随",
+  );
+  assert.deepEqual(
+    adapter.modelEffortsCalls[adapter.modelEffortsCalls.length - 1],
+    { provider: "p2", model: "m2a" },
+    "思考等级按选中 provider 的首个模型重载",
+  );
+  // model 区 ↓ 焦点到 m2b：思考等级列表不变
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  await flush();
+  assert.equal(
+    adapter.modelEffortsCalls.length,
+    calls0 + 1,
+    "model 焦点移动不重载思考等级",
+  );
+  // 空格选中 m2b：思考等级列表按选中模型重载
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  await flush();
+  assert.deepEqual(
+    adapter.modelEffortsCalls[adapter.modelEffortsCalls.length - 1],
+    { provider: "p2", model: "m2b" },
+  );
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  assert.deepEqual(adapter.savedSelections[0], {
+    provider: "p2",
+    model: "m2b",
     reasoningEffort: "low",
   });
 });
