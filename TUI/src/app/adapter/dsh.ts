@@ -469,9 +469,13 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         return;
       case "session/title": {
         // 官方 dsh-session-title 落盘事件（fallback/provider/user 任一 source）：
-        // 转发给 app，状态栏标题优先该官方折叠结果
+        // 仅转发当前活跃会话（adapter 视角权威），状态栏标题优先该官方折叠结果
         const title = (raw.data as { title?: unknown }).title;
-        if (typeof title === "string" && title.trim() !== "") {
+        if (
+          sid === activeSessionId &&
+          typeof title === "string" &&
+          title.trim() !== ""
+        ) {
           emit({ type: "session-title", sessionId: sid, title });
         }
         return;
@@ -738,6 +742,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
             cwd: r.header.cwd,
             live: r.live,
             persisted: r.persisted,
+            // 当前活跃判定以 adapter 视角为准（活跃会话在内存 store 中必为 live）
+            ...(r.live && r.header.id === activeSessionId
+              ? { current: true }
+              : {}),
             ...((official.get(r.header.id) ?? byId.get(r.header.id))
               ? { title: official.get(r.header.id) ?? byId.get(r.header.id) }
               : {}),

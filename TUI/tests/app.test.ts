@@ -1783,6 +1783,51 @@ test("/session：resume 失败 → 面板 error 态不崩溃", async () => {
   );
 });
 
+test("/session：列表渲染——当前 live 行 [当前] [不可续]，其他 live 行 [不可续]，persisted 行显示标题", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.sessionRecords = [
+    {
+      id: "s99",
+      createdAt: Date.now(),
+      live: true,
+      persisted: false,
+      current: true,
+    },
+    { id: "s98", createdAt: 2, live: true, persisted: false },
+    {
+      id: "s42",
+      createdAt: 1,
+      live: false,
+      persisted: true,
+      title: "历史标题",
+    },
+  ];
+  typeAndEnter(renderer, "/session");
+  await flush();
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const line99 = plain.find((l) => l.includes("s99"));
+  const line98 = plain.find((l) => l.includes("s98"));
+  const line42 = plain.find((l) => l.includes("s42"));
+  assert.ok(
+    line99 && line99.includes("[当前] [不可续]"),
+    "当前 live 行双标: " + line99,
+  );
+  assert.ok(
+    line98 && line98.includes("[不可续]") && !line98.includes("[当前]"),
+    "其他 live 行仅 [不可续]: " + line98,
+  );
+  assert.ok(
+    line42 && line42.includes("历史标题"),
+    "persisted 行显示标题: " + line42,
+  );
+  assert.ok(
+    line42 && !line42.includes("不可续"),
+    "persisted 行无不可续标记: " + line42,
+  );
+});
+
 test("/session：resume 后标题——官方 sessionTitle 优先于本地兜底", async () => {
   const { renderer, adapter } = makeApp();
   adapter.sessionRecords = [

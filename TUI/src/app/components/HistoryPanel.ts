@@ -17,8 +17,6 @@ export interface HistoryPanelView {
   height: number;
   /** 面板可用列宽 */
   width: number;
-  /** 当前活跃会话 id（live 行标记 [当前] / 其余 live 行标 [不可续]） */
-  currentId?: string;
 }
 
 /** 时间戳（Unix 毫秒）→ `MM-DD HH:mm`（本地时区） */
@@ -47,17 +45,16 @@ function tailCwd(cwd: string, w: number): string {
  * 标题优先官方 session/title 事件，缺失本地兜底；两者皆无显示（新会话）。
  * live 会话：当前活跃标 [当前]，其余 live 标 [不可续]（不可选中）。
  */
-function listLine(
-  rec: SessionInfo,
-  isFocus: boolean,
-  width: number,
-  currentId?: string,
-): string {
+function listLine(rec: SessionInfo, isFocus: boolean, width: number): string {
   const marker = isFocus ? "> " : "  ";
   const time = fmtTime(rec.createdAt);
   const id = rec.id.slice(0, 8);
-  const isCurrent = rec.live && rec.id === currentId;
-  const tag = rec.live ? (isCurrent ? " [当前]" : " [不可续]") : "";
+  // 当前活跃 live 行双标（[当前] 活跃 + [不可续] 不可选中）；其余 live 仅 [不可续]
+  const tag = rec.live
+    ? rec.current === true
+      ? " [当前] [不可续]"
+      : " [不可续]"
+    : "";
   const fixed =
     displayWidth(marker) + displayWidth(time) + 2 + 8 + 2 + displayWidth(tag);
   const avail = Math.max(0, width - fixed);
@@ -122,9 +119,7 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
         for (let r = 0; r < bodyRows; r++) {
           const idx = start + r;
           const rec = h.records[idx];
-          body.push(
-            rec ? listLine(rec, idx === h.index, width, view.currentId) : "",
-          );
+          body.push(rec ? listLine(rec, idx === h.index, width) : "");
         }
       }
       break;

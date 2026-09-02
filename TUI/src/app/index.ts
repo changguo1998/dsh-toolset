@@ -12,6 +12,7 @@ import type {
   ModelCatalog,
   ModelSelection,
   HistoryMessage,
+  SessionSurfaceView,
 } from "./adapter/dsh.ts";
 import { parseSlashCommand } from "./adapter/dsh.ts";
 import {
@@ -185,9 +186,12 @@ export class App {
         );
         break;
       case "session-title":
-        // 官方 dsh-session-title 事件（fallback/provider/user 任一 source）：
-        // 仅接受当前活跃会话，状态栏标题优先官方折叠结果
-        if (e.sessionId === this.state.activeSessionId) {
+        // 官方 dsh-session-title 事件（fallback/provider/user 任一 source）。
+        // adapter 已按活跃会话过滤；App 启动初期 activeSessionId 尚未建立时仍接受
+        if (
+          !this.state.activeSessionId ||
+          e.sessionId === this.state.activeSessionId
+        ) {
           this.apply((s) =>
             reduceState(s, {
               type: "session-identify",
@@ -819,9 +823,22 @@ export class App {
     try {
       await resumeTo(id);
       const read = this.deps.adapter.readSessionSurface;
-      const view = read
-        ? await read(id)
-        : { sessionId: id, messages: [] as HistoryMessage[] };
+      let view: SessionSurfaceView;
+      if (read) {
+        // 切换后刚 resume 的会话在内存 store 可能尚未完全入列：读空则轻量轮询
+        view = await read(id);
+        for (
+          let i = 0;
+          i < 4 && view.messages.length === 0 && !this.disposed;
+          i++
+        ) {
+          await new Promise((r) => setTimeout(r, 250));
+          if (this.disposed) return;
+          view = await read(id);
+        }
+      } else {
+        view = { sessionId: id, messages: [] as HistoryMessage[] };
+      }
       if (this.disposed) return;
       // stale guard：面板已关闭/目标已换 → 丢弃结果
       const cur = this.state.history;

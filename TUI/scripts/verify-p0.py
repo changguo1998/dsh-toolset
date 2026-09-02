@@ -26,7 +26,7 @@ PROFILE = os.environ.get("DSH_TUI_PROFILE", "dsh-toolset-tui")
 CWDDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # TUI/
 SESSIONS_ROOT = os.path.expanduser("~/.dsh/sessions")
 MODEL_ROUND = 20.0  # 阶段 A：消息发出后等模型消费一轮的预算
-START_TIMEOUT = 90.0  # 阶段 B 等待 resume + 模型回复的预算
+START_TIMEOUT = 180.0  # 阶段 B 等待 resume + 模型回复正文落到 buffer 的预算（/copy 期间周期重试）
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[@-Z\\-_]")
 OSC52_RE = re.compile(rb"\x1b]52;c;[A-Za-z0-9+/=]*\x07")
@@ -147,8 +147,13 @@ def run_tui_phase(
     *,
     resume_target: str | None,
     do_copy: bool,
+    title_needle: str | None = None,
 ) -> tuple[str | None, list[str]]:
-    """启动一次 TUI（可选 resume 到目标会话），发消息，收 OSC52。"""
+    """启动一次 TUI（可选 resume 到目标会话），发消息，收 OSC52。
+
+    title_needle：阶段 B 期望的目标会话官方标题片段（阶段 A seed 文本；
+    官方 dsh-session-title fallback 标题即首条用户消息）——面板行含它为 TITLE_OK。
+    """
     p = Pty(["dsh", "--profile", PROFILE], cwd=CWDDIR)
     diag: list[str] = []
     target_used: str | None = None
@@ -172,6 +177,10 @@ def run_tui_phase(
                 return target_used, diag + [
                     f"FAIL: 面板中找不到目标 {resume_target}（rows={rows}）"
                 ]
+            # 官方标题证据：目标行含阶段 A seed（官方 session/title fallback 标题）
+            row_line = panel_rows(p.s)[idx]
+            if title_needle and title_needle in row_line:
+                diag.append("TITLE_OK (官方 session/title 标题显示于列表行)")
             for _ in range(idx):
                 p.send_key(b"\x1b[B")
             p.pump(0.3)
@@ -190,7 +199,8 @@ def run_tui_phase(
 
         p.send(seed + "\r")
 
-        # 等 seed 本地回显铺出（确认已发出）；阶段 B 期间周期性 /copy 直到捕获 OSC52
+        # 阶段 B：resume 后立即周期 /copy（surface 若有历史回复即可复制；无则等
+        # 探测消息正文落到 buffer 后再捕获）；阶段 A 等 seed 回显 + 一轮模型消费。
         start = time.time()
         echoes = False
         got_osc = False
@@ -198,7 +208,7 @@ def run_tui_phase(
             p.pump(0.4)
             if seed in p.s:
                 echoes = True
-            if do_copy and echoes:
+            if do_copy:
                 p.send("/copy\r")
                 p.pump(0.5)
                 if OSC52_RE.search(p.raw):
@@ -207,8 +217,11 @@ def run_tui_phase(
             elif echoes and time.time() - start > MODEL_ROUND:
                 break  # 阶段 A：消息已发出且等过一轮，足够落盘
         if do_copy and not got_osc:
+            dump = "/tmp/p0-pty-fail.txt"
+            with open(dump, "w") as f:
+                f.write(p.s[-4000:])
             return target_used, diag + [
-                "FAIL: 未捕获 /copy 的 OSC52（尾部：\n" + p.s[-500:] + "\n)"
+                f"FAIL: 未捕获 /copy 的 OSC52（PTY 尾部已存 {dump}：\n" + p.s[-500:] + "\n)"
             ]
         osc = "COPY_OSC_PASS" if got_osc else "COPY_OSC_FAIL"
 
@@ -268,7 +281,12 @@ def main() -> int:
         probe = "p0-probe-" + str(int(time.time() * 1000))
     except Exception:
         probe = "p0-probe-fallback"
-    resumed, diag_b = run_tui_phase(probe, resume_target=target_sid, do_copy=True)
+    resumed, diag_b = run_tui_phase(
+        probe,
+        resume_target=target_sid,
+        do_copy=True,
+        title_needle=seed,
+    )
     time.sleep(4)  # 落盘
     real_sid = resumed or target_sid
     probe_sid: str | None = None
@@ -296,7 +314,7 @@ def main() -> int:
     for line in diag_b:
         if line == "COPY_OSC_PASS":
             copy_pass = True
-        if line.startswith(("FAIL", "COPY_OSC")):
+        if line.startswith(("FAIL", "COPY_OSC", "TITLE_OK")):
             print("  " + line)
 
     print("RESUME_PASS" if resume_pass else "RESUME_FAIL")

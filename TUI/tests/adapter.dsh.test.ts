@@ -1378,6 +1378,27 @@ test("历史会话：listSessions 标题——官方 session/title 事件优先�
   );
 });
 
+test("历史会话：listSessions 标记 current——live 且 id==活跃会话 → current:true", async () => {
+  const sq = new FakeSessionQuery();
+  sq.records = [
+    {
+      header: { id: "s1", createdAt: 1, cwd: "/x" },
+      live: true,
+      persisted: false,
+    },
+    {
+      header: { id: "s9", createdAt: 2, cwd: "/y" },
+      live: true,
+      persisted: false,
+    },
+  ];
+  // makeAdapterWithSessionQuery 的 adapter sessionId = "s1"
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const records = await adapter.listSessions!();
+  assert.equal(records[0]!.current, true, "活跃 live 会话标记 current");
+  assert.equal("current" in records[1]!, false, "非活跃 live 会话不标 current");
+});
+
 test("历史会话：listSessions 标题——损坏/不可读会话省略 title（渲染层显示（新会话））", async () => {
   const sq = new FakeSessionQuery();
   sq.records = [

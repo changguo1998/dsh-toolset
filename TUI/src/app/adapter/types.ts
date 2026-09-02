@@ -338,6 +338,9 @@ export interface SessionInfo {
   cwd?: string;
   /** 是否 live 会话（内存 store 中）：当前活跃标 [当前]、其余 live 标 [不可续] 不可选中 */
   live: boolean;
+  /** 是否当前活跃 live 会话（adapter 视角权威：初始 opts.sessionId、resume 后切换）；
+   *  列表行标记 [当前] */
+  current?: boolean;
   /** 是否已持久化到磁盘 */
   persisted: boolean;
   /** 会话标题：官方 session/title 事件标题，缺失时本地兜底（首条用户消息前 30 字符）；
