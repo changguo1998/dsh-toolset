@@ -13,7 +13,10 @@
 import { createRenderer, type Renderer } from "./renderer/index.ts";
 import { normalizeThemeId, type ThemeId } from "./renderer/theme.ts";
 import { App } from "./app/index.ts";
-import { createProcessStatusQueries } from "./app/status.ts";
+import {
+  createProcessStatusQueries,
+  type StatusQueries,
+} from "./app/status.ts";
 import type {
   DshAdapter,
   AgentDefaultModelLike,
@@ -49,12 +52,19 @@ export function main(opts: {
   thinkingMaxLines?: number;
   /** 用户块左缘/回复右缘对称留空(列数，默认 4；由 apply 归一化，域 0..20) */
   messageGutter?: number;
-}): void {
-  const renderer: Renderer = createRenderer();
+  /** 测试注入：替代真实终端 renderer（缺省 createRenderer()） */
+  renderer?: Renderer;
+  /** 测试注入：替代真实状态查询（缺省 createProcessStatusQueries()） */
+  statusQueries?: StatusQueries;
+}): () => void {
+  const renderer: Renderer = opts.renderer ?? createRenderer();
   const app = new App({
     renderer,
     adapter: opts.adapter,
-    status: { queries: createProcessStatusQueries(), intervalMs: 5000 },
+    status: {
+      queries: opts.statusQueries ?? createProcessStatusQueries(),
+      intervalMs: 5000,
+    },
     initialTheme: opts.initialTheme,
     slowStream: opts.slowStream,
     streamCharsPerSecond: opts.streamCharsPerSecond,
@@ -64,6 +74,9 @@ export function main(opts: {
   app.setLogger(opts.logger ?? ((msg) => void msg));
   app.start();
   void renderer;
+  // 返回 disposer：Cordis pause/unload 与信号/退出均经它释放 App/adapter
+  // （adapter.dispose 释放当前活跃 handle，含 resume 后由 adapter 持有的新 handle）
+  return () => app.dispose();
 }
 
 // ---------------------------------------------------------------------------
@@ -323,7 +336,7 @@ export async function apply(
 
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）
   const display = normalizeTuiDisplayConfig(config);
-  main({
+  const disposeApp = main({
     adapter,
     initialTheme: normalizeThemeId(config?.theme ?? undefined),
     logger: (msg) => process.stderr.write("[dsh-tui] " + msg + "\n"),
@@ -333,9 +346,15 @@ export async function apply(
     thinkingMaxLines: display.thinkingMaxLines,
     messageGutter: display.messageGutter,
   });
-  // renderer 的退出钩子(SIGINT/TERM/Esc → close()) 负责进程退出；此处兜底
-  // 清理 agent(避免残留运行中的 loop)。
+  // Cordis 插件生命周期：pause/unload 时释放 App/adapter——
+  // adapter.dispose 释放当前活跃 handle（含 resume 后由 adapter 持有的新 handle）。
+  const ctxAny = ctx as { effect?: (fn: () => unknown) => unknown };
+  ctxAny.effect?.(() => () => {
+    disposeApp();
+  });
+  // 信号/退出兜底（renderer 的 SIGINT/TERM/Esc → close() 后进程退出）：
+  // 同一清理路径，不再只释放初始 handle。
   process.once("exit", () => {
-    void handle.dispose();
+    disposeApp();
   });
 }

@@ -202,6 +202,14 @@ export class App {
         }
         break;
       case "stream":
+        // 单活跃会话：非当前活跃会话的流式事件不进入 buffer（adapter 已过滤，
+        // 此处 App 侧兜底，供直接 push 事件的集成断言使用）
+        if (
+          this.state.activeSessionId &&
+          e.sessionId !== this.state.activeSessionId
+        ) {
+          break;
+        }
         this.beginTurnIfNeeded();
         if (this.deps.slowStream && this.slowTimer) {
           // 思考打字机进行中：正文段入缓冲，等思考放完再即时显示(不限制正文流速)；
@@ -213,6 +221,12 @@ export class App {
         }
         break;
       case "thinking":
+        if (
+          this.state.activeSessionId &&
+          e.sessionId !== this.state.activeSessionId
+        ) {
+          break;
+        }
         this.beginTurnIfNeeded();
         if (this.deps.slowStream) {
           // 打字机只作用于 thinking(reasoning)：逐段放出便于阅读；正文不受此限制。
@@ -228,6 +242,12 @@ export class App {
         }
         break;
       case "agent-status":
+        if (
+          this.state.activeSessionId &&
+          e.sessionId !== this.state.activeSessionId
+        ) {
+          break;
+        }
         this.apply((s) =>
           reduceState(s, { type: "agent-status", status: e.status }),
         );

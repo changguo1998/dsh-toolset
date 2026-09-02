@@ -346,6 +346,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   // --- session/event 归一化 ---
   const onSessionEvent = (session: unknown, raw: SessionEvent): void => {
     const sid = (session as { id?: string } | null)?.id ?? activeSessionId;
+    // 单活跃会话：非当前活跃会话的事件一律丢弃——其他 live 会话（列表标 [不可续]）
+    // 不可注入输出/思考/标题到本会话 buffer 或状态栏
+    if (sid !== activeSessionId) return;
     const data = raw.data as {
       chunk?: StreamChunk;
       text?: string;
@@ -962,6 +965,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     agent?: unknown;
     status?: string;
   }): void {
+    // 仅转发当前活跃 agent 的状态：其他 live agent（如平行会话）不得污染状态栏
+    const agentSid = (
+      payload?.agent as { session?: { id?: string } } | undefined
+    )?.session?.id;
+    if (agentSid && agentSid !== activeSessionId) return;
     const status = normalizeAgentStatus(payload?.status);
     emit({ type: "agent-status", sessionId: activeSessionId, status });
   }

@@ -40,9 +40,10 @@ export function lastAssistantText(
   return text === "" ? undefined : text;
 }
 
-/** ANSI 转义序列（CSI/OSC/单字符 ESC）正则（与 verify-p0.py ANSI_RE 同款） */
+/** ANSI 转义序列（CSI/OSC/单字符 ESC）正则。OSC 支持 BEL（\x07）与 ST（ESC\）
+ *  两种结尾（OSC 8 超链接等 ST 结尾序列不再泄漏载荷文本）。 */
 const ANSI_ESCAPE_RE =
-  /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*\u0007|\u001b[@-Z\\-_]/g;
+  /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g;
 
 /** 剥离 ANSI 转义序列 → 纯文本（/copy 编码前必须剥离控制序列） */
 export function stripAnsi(text: string): string {

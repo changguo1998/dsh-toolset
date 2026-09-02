@@ -6,6 +6,7 @@
 import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { App, formatModelCatalog, resolveModelSpec } from "../src/app/index.ts";
+import { main } from "../src/main.ts";
 import {
   buildOsc52,
   deriveTitle,
@@ -569,6 +570,28 @@ test("dispose 调用 adapter.dispose", () => {
   const { app, adapter } = makeApp();
   app.dispose();
   assert.equal(adapter.disposed, 1);
+});
+
+test("main(): 返回 disposer——调用后关闭 renderer 并释放 adapter（Cordis pause/退出共用清理）", () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const dispose = main({
+    adapter,
+    renderer,
+    statusQueries: {
+      time: () => "00:00",
+      cwd: () => "",
+      git: () => "",
+    },
+  });
+  assert.equal(typeof dispose, "function", "main 返回 disposer");
+  dispose();
+  assert.equal(
+    adapter.disposed,
+    1,
+    "disposer 释放 adapter（含当前活跃 handle）",
+  );
+  assert.equal(renderer.closed, 1, "disposer 关闭 renderer");
 });
 
 test("Ctrl+D 且 idle+输入区空 → 退出(走 dispose：close + 释放 adapter)", () => {
@@ -1641,11 +1664,16 @@ test("buildOsc52：ESC ]52;c;<base64 utf8> BEL，编码前剥离 ANSI", () => {
   );
 });
 
-test("stripAnsi：剥离 CSI/OSC/单字符 ESC 序列", () => {
+test("stripAnsi：剥离 CSI/OSC(BEL/ST 两种结尾)/单字符 ESC 序列", () => {
   assert.equal(stripAnsi("\x1b[31mred\x1b[0m"), "red");
   assert.equal(stripAnsi("a\x1b[1mb\x1b[0m c"), "ab c");
   assert.equal(stripAnsi("\x1b]52;c;xxx\x07wrap"), "wrap");
   assert.equal(stripAnsi("plain"), "plain");
+  // OSC 8 超链接（ST 结尾 ESC\）：载荷与链接目标均不得泄漏进剪贴板
+  assert.equal(
+    stripAnsi("A\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\B"),
+    "AlinkB",
+  );
 });
 
 test("lastAssistantText：收集完整最后回复（连续 assistant 行），去首尾空白", () => {
@@ -1959,6 +1987,47 @@ test("session-title 事件：官方折叠标题实时流入状态栏（仅当前
     !after2.some((l) => l.includes("无关")),
     "非活跃会话标题不流入状态栏",
   );
+});
+
+test("非活跃会话事件不污染活跃 buffer 与状态（App 侧兜底过滤）", async () => {
+  const { renderer, adapter } = makeApp();
+  // 建立活跃会话：session-list 选首个会话为 activeSessionId
+  adapter.push({
+    type: "session-list",
+    sessions: [{ id: "live-1", title: "" }],
+  });
+  const before = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  // 非活跃会话的流式/思考/状态事件 → 一律忽略
+  adapter.push({ type: "stream", sessionId: "other", text: "OTHER_OUTPUT" });
+  adapter.push({ type: "thinking", sessionId: "other", text: "OTHER_THINK" });
+  adapter.push({
+    type: "agent-status",
+    sessionId: "other",
+    status: "thinking",
+  });
+  const after = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    !after.some((l) => l.includes("OTHER_OUTPUT")),
+    "非活跃会话流式文本不进入 buffer",
+  );
+  assert.ok(
+    !after.some((l) => l.includes("OTHER_THINK")),
+    "非活跃会话思考不进入 buffer",
+  );
+  // 活跃会话事件照常生效
+  adapter.push({ type: "stream", sessionId: "live-1", text: "ACTIVE_OUTPUT" });
+  const active = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    active.some((l) => l.includes("ACTIVE_OUTPUT")),
+    "活跃会话流式文本正常进入 buffer",
+  );
+  void before;
 });
 
 test("/session：resume 不可用（无 adapter.resumeTo）→ 提示不可切换", async () => {

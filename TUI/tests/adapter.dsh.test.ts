@@ -505,6 +505,44 @@ test("agent/status payload → agent-status 事件", () => {
   ]);
 });
 
+test("agent/status：非活跃 agent 状态不转发（不污染状态栏）", () => {
+  const t = makeAdapter();
+  t.runtime.fire("agent/status", {
+    agent: { session: { id: "other" } },
+    status: "running",
+  });
+  assert.equal(t.events.length, 0, "其他 live agent 的状态被丢弃");
+  // 当前活跃 agent 的状态仍转发
+  t.runtime.fire("agent/status", {
+    agent: { session: { id: "s1" } },
+    status: "running",
+  });
+  assert.deepEqual(t.events, [
+    { type: "agent-status", sessionId: "s1", status: "thinking" },
+  ]);
+});
+
+test("session/event：非活跃会话事件不转发（不污染活跃 buffer）", () => {
+  const t = makeAdapter();
+  t.runtime.fire(
+    "session/event",
+    { id: "other" },
+    chunkEvent("text-delta", "OTHER_OUTPUT"),
+  );
+  assert.equal(t.events.length, 0, "其他 live 会话的流式事件被丢弃");
+  // 当前活跃会话的事件正常转发
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    chunkEvent("text-delta", "MY_OUTPUT"),
+  );
+  const evs: DshEvent[] = t.events;
+  assert.ok(
+    evs.some((e) => e.type === "stream" && e.text === "MY_OUTPUT"),
+    "活跃会话流式事件照常转发",
+  );
+});
+
 test("normalizeAgentStatus 映射", () => {
   assert.equal(normalizeAgentStatus("running"), "thinking");
   assert.equal(normalizeAgentStatus("idle"), "idle");
@@ -1475,7 +1513,9 @@ test("历史会话：live store 空事件（resume 入列竞态）→ 回退 per
   // sessions store 对该会话返回空事件数组（模拟刚 resume 尚未完全入列）
   const { adapter } = makeAdapterWithSessionQuery(sq, {
     get: (id: string) =>
-      id === "old-2" ? { id, events: [] as Record<string, unknown>[] } : undefined,
+      id === "old-2"
+        ? { id, events: [] as Record<string, unknown>[] }
+        : undefined,
   });
   const view = await adapter.readSessionSurface!("old-2");
   // 空 live 表面 → 回退 readSurface：仍拿到首条用户消息（完整历史，多块换行拼接）
