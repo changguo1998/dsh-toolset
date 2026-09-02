@@ -1295,9 +1295,17 @@ class FakeSessionQuery implements SessionQueryLike {
   readCalls: string[] = [];
   /** 官方标题折叠（dsh-session-title 落盘日志）；缺省 undefined = 服务不可用 */
   readTitle?: (id: string) => Promise<{ title: string } | undefined>;
-  readTitleSnapshots?: (
-    ids: string[],
-  ) => Promise<readonly { sessionId?: string; title?: { title: string } }[]>;
+  /** 官方批量折叠（settlement 形态：fulfilled 携带 value.title / rejected 携带 reason） */
+  readTitleSnapshots?: (ids: string[]) => Promise<
+    readonly (
+      | {
+          sessionId: string;
+          status: "fulfilled";
+          value: { title?: { title: string } | undefined };
+        }
+      | { sessionId: string; status: "rejected"; reason?: unknown }
+    )[]
+  >;
   listSessions(): Promise<
     {
       header: { id: string; createdAt: number; cwd?: string };
@@ -1360,21 +1368,34 @@ test("历史会话：listSessions 归一化（id/时间/cwd/live/persisted + 无
 
 test("历史会话：listSessions 标题——官方 session/title 事件优先，缺失本地兜底", async () => {
   const sq = new FakeSessionQuery();
-  // 官方批量折叠：old-2 有官方标题（即使 surface 也有首条消息，官方优先）
+  // 官方批量折叠（真实 settlement 形态）：old-2 官方标题「OFFICIAL TITLE」与本地兜底
+  // 「你好 第二行」不同 → 断言官方优先；live-1 走 rejected 隔离（回落到本地兜底）
   sq.readTitleSnapshots = async (ids) =>
     ids.map((id) =>
       id === "old-2"
-        ? { sessionId: id, title: { title: "官方标题" } }
-        : { sessionId: id },
+        ? {
+            sessionId: id,
+            status: "fulfilled" as const,
+            value: { title: { title: "OFFICIAL TITLE" } },
+          }
+        : {
+            sessionId: id,
+            status: "rejected" as const,
+            reason: new Error("corrupt"),
+          },
     );
   const { adapter } = makeAdapterWithSessionQuery(sq);
   const records = await adapter.listSessions!();
   const byId = new Map(records.map((r) => [r.id, r.title]));
-  assert.equal(byId.get("old-2"), "官方标题");
+  assert.equal(
+    byId.get("old-2"),
+    "OFFICIAL TITLE",
+    "官方 settlement 标题优先于本地兜底",
+  );
   assert.equal(
     byId.get("live-1"),
     "你好 第二行",
-    "无官方标题 → surface 首条用户消息兜底",
+    "rejected 隔离 → surface 首条用户消息兜底",
   );
 });
 
@@ -1447,6 +1468,18 @@ test("历史会话：persisted 会话走 readSurface（普通事件归一化，r
     { role: "user", text: "你好\n第二行" },
     { role: "assistant", text: "回复正文" },
   ]);
+});
+
+test("历史会话：live store 空事件（resume 入列竞态）→ 回退 persisted readSurface 读完整历史", async () => {
+  const sq = new FakeSessionQuery();
+  // sessions store 对该会话返回空事件数组（模拟刚 resume 尚未完全入列）
+  const { adapter } = makeAdapterWithSessionQuery(sq, {
+    get: (id: string) =>
+      id === "old-2" ? { id, events: [] as Record<string, unknown>[] } : undefined,
+  });
+  const view = await adapter.readSessionSurface!("old-2");
+  // 空 live 表面 → 回退 readSurface：仍拿到首条用户消息（完整历史，多块换行拼接）
+  assert.equal(view.messages[0]?.text, "你好\n第二行");
 });
 
 test("历史会话：live 会话经 sessions store 原始事件（agent/inbox/spliced）提取", async () => {
@@ -1587,6 +1620,45 @@ test("resumeTo：resume 未返回有效 agent → 释放新 handle 并抛错", a
   await assert.rejects(adapter.resumeTo!("s2"), /未返回有效 agent/);
   // 先 dispose 旧 handle，再 resume；resume 返回无效 agent → 释放新 handle 并抛错
   assert.deepEqual(log, ["dispose1", "resume:s2", "dispose2"]);
+});
+
+test("resumeTo 后 dispose → 释放当前（新）活跃 handle（auditor：退出须释放 resume 后的 agent）", async () => {
+  const runtime = new FakeRuntime();
+  const log: string[] = [];
+  const agent2 = new FakeAgent();
+  agent2.session = { id: "s2" };
+  const resume = async (o: { resumeSessionId: string }) => {
+    log.push("resume:" + o.resumeSessionId);
+    return {
+      agent: agent2,
+      dispose: async (): Promise<void> => {
+        log.push("dispose2");
+      },
+    };
+  };
+  const adapter = createRealDshAdapter({
+    runtime,
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    agents: { resume } as unknown as AgentRegistryLike,
+    handleDispose: async (): Promise<void> => {
+      log.push("dispose1");
+    },
+  });
+  await adapter.resumeTo!("s2");
+  assert.deepEqual(
+    log,
+    ["dispose1", "resume:s2"],
+    "契约顺序：dispose 旧 → resume",
+  );
+  log.length = 0;
+  adapter.dispose?.();
+  await new Promise((r) => setTimeout(r, 0)); // 让 activeDispose 微任务落地
+  assert.deepEqual(
+    log,
+    ["dispose2"],
+    "adapter.dispose 释放 resume 后的新 handle",
+  );
 });
 
 test("resumeTo：agents 未暴露 resume → 明确报错（宿主未配置会话持久化）", async () => {

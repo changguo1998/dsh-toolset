@@ -17,22 +17,42 @@ export function deriveTitle(text: string | undefined): string {
   return localTitleFromText(text) ?? "（新会话）";
 }
 
-/** 最后一条非空 assistant 正文（buffer 反向查找；无则 undefined） */
+/**
+ * 收集末尾连续 assistant 行（完整最后一条模型回复），以 \n 连接并去首尾空白。
+ * 多行回复经 appendStream 按 \n 拆成多条 assistant buffer 行，/copy 须整体收集
+ * 而非只取末行；无任何 assistant 正文 → undefined。
+ */
 export function lastAssistantText(
   lines: readonly { text: string; kind: string }[],
 ): string | undefined {
-  for (let i = lines.length - 1; i >= 0; i--) {
+  // 从末尾跳过非 assistant 杂讯行（notice/separator 等），定位最后一条 assistant，
+  // 再向上收集该回复的全部连续 assistant 行（多行回复整体复制）
+  let end = lines.length - 1;
+  while (end >= 0 && (!lines[end] || lines[end]!.kind !== "assistant")) end--;
+  if (end < 0) return undefined;
+  const reply: string[] = [];
+  for (let i = end; i >= 0; i--) {
     const line = lines[i];
-    if (line && line.kind === "assistant" && line.text.trim() !== "") {
-      return line.text;
-    }
+    if (!line || line.kind !== "assistant") break;
+    reply.unshift(line.text);
   }
-  return undefined;
+  const text = reply.join("\n").trim();
+  return text === "" ? undefined : text;
 }
 
-/** OSC52 剪贴板序列：ESC ]52;c;<base64 utf8> BEL（终端识别后写入系统剪贴板） */
+/** ANSI 转义序列（CSI/OSC/单字符 ESC）正则（与 verify-p0.py ANSI_RE 同款） */
+const ANSI_ESCAPE_RE =
+  /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*\u0007|\u001b[@-Z\\-_]/g;
+
+/** 剥离 ANSI 转义序列 → 纯文本（/copy 编码前必须剥离控制序列） */
+export function stripAnsi(text: string): string {
+  return text.replace(ANSI_ESCAPE_RE, "");
+}
+
+/** OSC52 剪贴板序列：ESC ]52;c;<base64 utf8> BEL（终端识别后写入系统剪贴板）；
+ *  编码前剥离 ANSI 控制序列，保证剪贴板内容为纯文本 */
 export function buildOsc52(text: string): string {
-  const b64 = Buffer.from(text, "utf8").toString("base64");
+  const b64 = Buffer.from(stripAnsi(text), "utf8").toString("base64");
   return `\x1b]52;c;${b64}\x07`;
 }
 

@@ -392,11 +392,20 @@ export interface SessionQueryLike {
   /** 折叠最新 session/title 事件标题（官方 @deepseek-ai/dsh-session-title 落盘日志；
    *  live 优先→persisted；无标题事件返回 undefined） */
   readTitle?(sessionId: string): Promise<{ title: string } | undefined>;
-  /** 批量折叠标题（单次 corpus 观察，比逐条 readTitle 高效）；缺失服务时省略 */
-  readTitleSnapshots?(
-    ids: string[],
-  ): Promise<
-    readonly { sessionId?: string; title?: { title: string } | undefined }[]
+  /**
+   * 批量折叠标题（单次 corpus 观察，比逐条 readTitle 高效；缺失服务时省略）。
+   * 官方契约为 settlement 形态：每条为 fulfilled（value: {session, title?}）或
+   * rejected（reason）——仅消费 fulfilled 的 value.title。
+   */
+  readTitleSnapshots?(ids: string[]): Promise<
+    readonly (
+      | {
+          sessionId: string;
+          status: "fulfilled";
+          value: { title?: { title: string } | undefined };
+        }
+      | { sessionId: string; status: "rejected"; reason?: unknown }
+    )[]
   >;
 }
 

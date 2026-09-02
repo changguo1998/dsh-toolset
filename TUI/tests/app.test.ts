@@ -10,6 +10,7 @@ import {
   buildOsc52,
   deriveTitle,
   lastAssistantText,
+  stripAnsi,
   surfaceToBuffer,
 } from "../src/app/commands.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
@@ -271,13 +272,32 @@ test("/cls 别名 → 与 /clearscreen 同一功能", () => {
   assert.deepEqual(adapter.commands, []);
 });
 
-test("/quit → 关闭 renderer", () => {
+test("/quit → 走 App.dispose：关闭 renderer 且释放 adapter", () => {
   const { app, renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/quit");
   assert.equal(renderer.closed, 1);
+  assert.equal(adapter.disposed, 1, "/quit 释放 adapter（含当前活跃 handle）");
   assert.deepEqual(adapter.sent, []);
   assert.deepEqual(adapter.commands, []);
   app.dispose();
+});
+
+test("/quit after resume → 释放 adapter（resume 后的活跃 handle 归 adapter 持有）", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.sessionRecords = [
+    { id: "s42", createdAt: 1, live: false, persisted: true },
+  ];
+  adapter.sessionSurfaces["s42"] = [{ role: "user", text: "q" }];
+  typeAndEnter(renderer, "/session");
+  await flush();
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  await flush();
+  assert.deepEqual(adapter.resumeCalls, ["s42"], "resume 生效");
+  typeAndEnter(renderer, "/quit");
+  await flush();
+  assert.equal(adapter.disposed, 1, "/quit after resume 释放 adapter");
+  assert.equal(renderer.closed, 1, "renderer 关闭");
 });
 
 test("Esc idle 时无操作：不触发 interrupt、不关闭 renderer，输入不受影响", () => {
@@ -551,10 +571,11 @@ test("dispose 调用 adapter.dispose", () => {
   assert.equal(adapter.disposed, 1);
 });
 
-test("Ctrl+D 且 idle+输入区空 → 退出(close 被调用)", () => {
+test("Ctrl+D 且 idle+输入区空 → 退出(走 dispose：close + 释放 adapter)", () => {
   const { renderer, adapter } = makeApp();
   renderer.press({ name: "d", ctrl: true, meta: false, shift: false });
   assert.equal(renderer.closed, 1);
+  assert.equal(adapter.disposed, 1, "Ctrl+D 释放 adapter");
   assert.deepEqual(adapter.sent, []);
 });
 
@@ -1606,15 +1627,28 @@ test("deriveTitle：空/空白 →（新会话）；>30 字符截断加省略号
   assert.equal(deriveTitle("a\n\n  b"), "a b");
 });
 
-test("buildOsc52：ESC ]52;c;<base64 utf8> BEL", () => {
+test("buildOsc52：ESC ]52;c;<base64 utf8> BEL，编码前剥离 ANSI", () => {
   assert.equal(
     buildOsc52("你好"),
     "\x1b]52;c;" + Buffer.from("你好").toString("base64") + "\x07",
   );
   assert.equal(buildOsc52(""), "\x1b]52;c;\x07");
+  // ANSI 控制序列在 base64 编码前剥离（剪贴板内容为纯文本）
+  const ansi = "\x1b[31mred\x1b[0m";
+  assert.equal(
+    buildOsc52(ansi),
+    "\x1b]52;c;" + Buffer.from("red").toString("base64") + "\x07",
+  );
 });
 
-test("lastAssistantText：取最后一条非空 assistant 正文，忽略 user/空行", () => {
+test("stripAnsi：剥离 CSI/OSC/单字符 ESC 序列", () => {
+  assert.equal(stripAnsi("\x1b[31mred\x1b[0m"), "red");
+  assert.equal(stripAnsi("a\x1b[1mb\x1b[0m c"), "ab c");
+  assert.equal(stripAnsi("\x1b]52;c;xxx\x07wrap"), "wrap");
+  assert.equal(stripAnsi("plain"), "plain");
+});
+
+test("lastAssistantText：收集完整最后回复（连续 assistant 行），去首尾空白", () => {
   assert.equal(lastAssistantText([]), undefined);
   assert.equal(
     lastAssistantText([
@@ -1624,7 +1658,24 @@ test("lastAssistantText：取最后一条非空 assistant 正文，忽略 user/�
     ]),
     "a1",
   );
-  // 最后一条 assistant 为空 → 回退到更早的非空 assistant
+  // 末尾连续 assistant 行整体收集（多行回复）
+  assert.equal(
+    lastAssistantText([
+      { text: "q", kind: "user" },
+      { text: "line1", kind: "assistant" },
+      { text: "line2", kind: "assistant" },
+    ]),
+    "line1\nline2",
+  );
+  // 非 assistant 行（user/notice）截断收集
+  assert.equal(
+    lastAssistantText([
+      { text: "a0", kind: "assistant" },
+      { text: "n", kind: "notice" },
+    ]),
+    "a0",
+  );
+  // 全空白/尾部空白 → 去尾后仍为空白则 undefined
   assert.equal(
     lastAssistantText([
       { text: "a0", kind: "assistant" },
@@ -1954,14 +2005,55 @@ test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC5
       first,
       "\x1b]52;c;" + Buffer.from("最终答复").toString("base64") + "\x07",
     );
-    const plain2 = renderer.lastRender.map((l) =>
-      l.replace(/\x1b\[[0-9;]*m/g, ""),
-    );
-    assert.ok(
-      plain2.some((l) => l.includes("已复制")),
-      "notice 提示已复制",
-    );
   } finally {
     w.mock.restore();
   }
+
+  // 多行回复：/copy 复制完整最后回复（连续 assistant 行以 \n 连接）
+  const w2 = mock.method(process.stdout, "write", () => true);
+  try {
+    adapter.push({ type: "stream", sessionId: "s1", text: "第一行" });
+    adapter.push({ type: "stream", sessionId: "s1", text: "\n第二行" });
+    typeAndEnter(renderer, "/copy");
+    await flush();
+    const osc = String(
+      w2.mock.calls
+        .map((c) => c.arguments[0])
+        .find((a) => typeof a === "string") ?? "",
+    );
+    const payload = Buffer.from(osc.slice(7, -1), "base64").toString("utf8");
+    assert.equal(payload, "第一行\n第二行", "复制完整多行回复");
+  } finally {
+    w2.mock.restore();
+  }
+
+  // ANSI 剥离：回复含控制序列 → OSC52 载荷为纯文本
+  const w3 = mock.method(process.stdout, "write", () => true);
+  try {
+    adapter.push({
+      type: "stream",
+      sessionId: "s1",
+      text: "\x1b[31m红\x1b[0m字",
+    });
+    typeAndEnter(renderer, "/copy");
+    await flush();
+    const osc3 = String(
+      w3.mock.calls
+        .map((c) => c.arguments[0])
+        .find((a) => typeof a === "string") ?? "",
+    );
+    const payload3 = Buffer.from(osc3.slice(7, -1), "base64").toString("utf8");
+    assert.equal(payload3, "红字", "OSC52 载荷剥离 ANSI");
+  } finally {
+    w3.mock.restore();
+  }
+
+  // 复制成功 notice（最后一次 /copy 触发）
+  const plainN = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plainN.some((l) => l.includes("已复制")),
+    "notice 提示已复制",
+  );
 });

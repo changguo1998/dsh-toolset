@@ -6,13 +6,15 @@
   阶段 B 在 /session 面板中精确选中该会话 → Enter 切换（agents.resume，契约顺序
   dispose→resume）→ 发探测消息 → 断言探测文本落入【被恢复会话】（resume 为原会话
   继续语义）的 session.jsonl.zstd。Enter 未在超时内生效会自动重试一次。
-- COPY_OSC_PASS：/copy 输出的 OSC52 序列（ESC ]52;c;...BEL）真实出现在 PTY 字节流。
+- COPY_OSC_PASS：/copy 输出的 OSC52 序列（ESC ]52;c;...BEL）真实出现在 PTY 字节流，
+  并解码 base64 载荷断言为非空纯文本（无 ANSI 控制序列，OSC52_PAYLOAD_OK）。
 
 用法：python3 TUI/scripts/verify-p0.py
 退出码：0 = 全部 PASS；1 = 任一 FAIL；2 = 环境/脚本错误。
 """
 from __future__ import annotations
 
+import base64
 import glob
 import os
 import re
@@ -211,8 +213,20 @@ def run_tui_phase(
             if do_copy:
                 p.send("/copy\r")
                 p.pump(0.5)
-                if OSC52_RE.search(p.raw):
+                m = OSC52_RE.search(p.raw)
+                if m:
                     got_osc = True
+                    # 载荷校验：base64 解码后须为非空纯文本（无 ANSI 控制序列）
+                    try:
+                        payload = base64.b64decode(m.group(0).split(b";c;")[1][:-1]).decode(
+                            "utf-8", "replace"
+                        )
+                    except Exception:
+                        payload = ""
+                    if payload.strip() and "\x1b" not in payload:
+                        diag.append("OSC52_PAYLOAD_OK")
+                    else:
+                        diag.append("OSC52_PAYLOAD_BAD")
                     break
             elif echoes and time.time() - start > MODEL_ROUND:
                 break  # 阶段 A：消息已发出且等过一轮，足够落盘
@@ -314,7 +328,7 @@ def main() -> int:
     for line in diag_b:
         if line == "COPY_OSC_PASS":
             copy_pass = True
-        if line.startswith(("FAIL", "COPY_OSC", "TITLE_OK")):
+        if line.startswith(("FAIL", "COPY_OSC", "TITLE_OK", "OSC52_PAYLOAD")):
             print("  " + line)
 
     print("RESUME_PASS" if resume_pass else "RESUME_FAIL")

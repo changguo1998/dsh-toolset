@@ -469,10 +469,11 @@ export class App {
       return;
     }
 
-    // Ctrl+D：仅 idle 且输入区为空时退出（输入非空时按无操作忽略）
+    // Ctrl+D：仅 idle 且输入区为空时退出（输入非空时按无操作忽略）；
+    // 走 App.dispose 释放 adapter 与当前活跃 handle
     if (ctrl && name === "d") {
       if (this.state.agentStatus === "idle" && this.state.inputText === "") {
-        this.deps.renderer.close();
+        this.dispose();
       }
       return;
     }
@@ -702,7 +703,9 @@ export class App {
         this.apply((s) => reduceState(s, { type: "clear-buffer" }));
         return;
       case "quit":
-        this.deps.renderer.close();
+        // 走 App.dispose：释放 adapter 与当前活跃 handle（含 resume 后由 adapter
+        // 持有的新 handle），再恢复终端退出
+        this.dispose();
         return;
       case "model":
         void this.handleModelCommand(line);

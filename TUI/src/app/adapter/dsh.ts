@@ -262,10 +262,12 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     }
     const live = opts.sessions?.get(id);
     if (live && Array.isArray(live.events)) {
-      return {
-        sessionId: id,
-        messages: normalizeHistoryMessages(live.events),
-      };
+      const messages = normalizeHistoryMessages(live.events);
+      // 刚 resume 的会话在内存 store 可能尚未完全入列：live 表面为空时
+      // 回退到 persisted 读取面（readSurface）拿完整历史，避免切换后空屏
+      if (messages.length > 0) {
+        return { sessionId: id, messages };
+      }
     }
     if (sessionQuery.readSurface) {
       const snap = await sessionQuery.readSurface(id);
@@ -316,8 +318,13 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       if (typeof sessionQuery.readTitleSnapshots === "function") {
         const snaps = await sessionQuery.readTitleSnapshots(ids);
         for (const snap of snaps) {
-          if (snap?.sessionId && snap.title?.title) {
-            map.set(snap.sessionId, snap.title.title);
+          // 官方 settlement 形态：仅消费 fulfilled 的 value.title；rejected 隔离到单会话
+          if (
+            snap.status === "fulfilled" &&
+            snap.value?.title?.title &&
+            snap.sessionId
+          ) {
+            map.set(snap.sessionId, snap.value.title.title);
           }
         }
       } else if (typeof sessionQuery.readTitle === "function") {
