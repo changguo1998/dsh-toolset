@@ -55,6 +55,19 @@ export function buildUserMessage(text: string): DshUserMessageLike {
   };
 }
 
+/**
+ * 本地兜底会话标题核心：空白折叠 + 截断到 ≤30 显示字符。
+ * 空/空白输入返回 undefined（列表行占位（新会话）由渲染层补）。
+ * 供列表行与 resume 切换后状态栏标题在无官方标题事件时兜底。
+ */
+export function localTitleFromText(
+  text: string | undefined,
+): string | undefined {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return undefined;
+  return t.length > 30 ? t.slice(0, 30) + "…" : t;
+}
+
 /** DSH 'running'|'idle' → app AgentStatus */
 export function normalizeAgentStatus(s: string | undefined): AgentStatus {
   switch (s) {

@@ -18,6 +18,7 @@ export interface ApprovalItem {
 /** 应用层收到的归一化事件（见文件头映射表） */
 export type DshEvent =
   | { type: "session-list"; sessions: SessionMeta[] }
+  | { type: "session-title"; sessionId: string; title: string }
   | { type: "stream"; sessionId: string; text: string }
   | { type: "thinking"; sessionId: string; text: string }
   | { type: "approval"; id: string; prompt: string }
@@ -60,6 +61,9 @@ export interface DshAdapter {
   ): Promise<{ id: string; name: string }[] | undefined>;
   /** 历史会话列表（newest-first，含当前 live 会话）；宿主未挂载会话查询服务时为 undefined */
   listSessions?(): Promise<SessionInfo[]>;
+  /** 会话标题（官方 session/title 事件折叠，dsh-session-title 落盘日志优先）；
+   *  无官方标题事件 → undefined（调用方以本地兜底 deriveTitle 补）。 */
+  sessionTitle?(sessionId: string): Promise<string | undefined>;
   /** 读取指定历史会话的只读消息列表（损坏会话 reject 结构化错误） */
   readSessionSurface?(id: string): Promise<SessionSurfaceView>;
   /** 运行时切换到持久化会话（agents.resume）：dispose 旧 agent → resume 新 agent，
@@ -332,10 +336,13 @@ export interface SessionInfo {
   createdAt: number;
   /** 会话启动时工作目录（列表展示用） */
   cwd?: string;
-  /** 是否当前运行的 live 会话（列表标记 [当前]） */
+  /** 是否 live 会话（内存 store 中）：当前活跃标 [当前]、其余 live 标 [不可续] 不可选中 */
   live: boolean;
   /** 是否已持久化到磁盘 */
   persisted: boolean;
+  /** 会话标题：官方 session/title 事件标题，缺失时本地兜底（首条用户消息前 30 字符）；
+   *  两者皆无 → 省略（列表渲染占位（新会话）） */
+  title?: string;
 }
 
 /** 历史会话只读表面的归一化消息（v1 仅保留 user/assistant 正文，tool/result 省略） */
@@ -379,6 +386,15 @@ export interface SessionQueryLike {
     session: { id: string };
     events: readonly Record<string, unknown>[];
   }>;
+  /** 折叠最新 session/title 事件标题（官方 @deepseek-ai/dsh-session-title 落盘日志；
+   *  live 优先→persisted；无标题事件返回 undefined） */
+  readTitle?(sessionId: string): Promise<{ title: string } | undefined>;
+  /** 批量折叠标题（单次 corpus 观察，比逐条 readTitle 高效）；缺失服务时省略 */
+  readTitleSnapshots?(
+    ids: string[],
+  ): Promise<
+    readonly { sessionId?: string; title?: { title: string } | undefined }[]
+  >;
 }
 
 /** 结构面：ctx.agents 注册表（仅需 resume：加载持久化会话继续对话）。

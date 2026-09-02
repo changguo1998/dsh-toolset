@@ -1293,6 +1293,11 @@ class FakeSessionQuery implements SessionQueryLike {
   /** 标记会话用 readSession（agent/inbox/spliced 形态）而不是 readSurface */
   usesSplicedSessions = new Set<string>(["live-1"]);
   readCalls: string[] = [];
+  /** 官方标题折叠（dsh-session-title 落盘日志）；缺省 undefined = 服务不可用 */
+  readTitle?: (id: string) => Promise<{ title: string } | undefined>;
+  readTitleSnapshots?: (
+    ids: string[],
+  ) => Promise<readonly { sessionId?: string; title?: { title: string } }[]>;
   listSessions(): Promise<
     {
       header: { id: string; createdAt: number; cwd?: string };
@@ -1328,10 +1333,11 @@ class FakeSessionQuery implements SessionQueryLike {
   }
 }
 
-test("历史会话：listSessions 归一化（id/时间/cwd/live/persisted）", async () => {
+test("历史会话：listSessions 归一化（id/时间/cwd/live/persisted + 无官方标题时本地兜底）", async () => {
   const sq = new FakeSessionQuery();
   const { adapter } = makeAdapterWithSessionQuery(sq);
   const records = await adapter.listSessions!();
+  // 无 readTitle（官方服务不可用）→ surface 首条用户消息本地兜底（两块拼接完整文本）
   assert.deepEqual(records, [
     {
       id: "live-1",
@@ -1339,6 +1345,7 @@ test("历史会话：listSessions 归一化（id/时间/cwd/live/persisted）", 
       cwd: "/home/x/TUI",
       live: true,
       persisted: false,
+      title: "你好 第二行",
     },
     {
       id: "old-2",
@@ -1346,8 +1353,67 @@ test("历史会话：listSessions 归一化（id/时间/cwd/live/persisted）", 
       cwd: "/home/x/other",
       live: false,
       persisted: true,
+      title: "你好 第二行",
     },
   ]);
+});
+
+test("历史会话：listSessions 标题——官方 session/title 事件优先，缺失本地兜底", async () => {
+  const sq = new FakeSessionQuery();
+  // 官方批量折叠：old-2 有官方标题（即使 surface 也有首条消息，官方优先）
+  sq.readTitleSnapshots = async (ids) =>
+    ids.map((id) =>
+      id === "old-2"
+        ? { sessionId: id, title: { title: "官方标题" } }
+        : { sessionId: id },
+    );
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const records = await adapter.listSessions!();
+  const byId = new Map(records.map((r) => [r.id, r.title]));
+  assert.equal(byId.get("old-2"), "官方标题");
+  assert.equal(
+    byId.get("live-1"),
+    "你好 第二行",
+    "无官方标题 → surface 首条用户消息兜底",
+  );
+});
+
+test("历史会话：listSessions 标题——损坏/不可读会话省略 title（渲染层显示（新会话））", async () => {
+  const sq = new FakeSessionQuery();
+  sq.records = [
+    {
+      header: { id: "corrupt-9", createdAt: 1, cwd: "/x" },
+      live: false,
+      persisted: true,
+    },
+  ];
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const records = await adapter.listSessions!();
+  assert.equal(records[0]!.id, "corrupt-9");
+  assert.equal("title" in records[0]!, false, "损坏会话不产生 title");
+});
+
+test("sessionTitle：官方 readTitle 优先；readTitle 缺失/出错 → undefined（app 层本地兜底）", async () => {
+  const sq = new FakeSessionQuery();
+  sq.readTitle = async () => ({ title: "官方标题" });
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  assert.equal(await adapter.sessionTitle!("old-2"), "官方标题");
+
+  const sq2 = new FakeSessionQuery(); // 无 readTitle（服务不可用）
+  const a2 = makeAdapterWithSessionQuery(sq2).adapter;
+  assert.equal(await a2.sessionTitle!("old-2"), undefined);
+
+  const sq3 = new FakeSessionQuery();
+  sq3.readTitle = async () => {
+    throw new Error("title 服务异常");
+  };
+  const a3 = makeAdapterWithSessionQuery(sq3).adapter;
+  assert.equal(await a3.sessionTitle!("old-2"), undefined);
+
+  const a4 = makeAdapterWithSessionQuery(
+    undefined as unknown as SessionQueryLike,
+  ).adapter;
+  assert.equal(await a4.sessionTitle!("anything"), undefined);
 });
 
 test("历史会话：persisted 会话走 readSurface（普通事件归一化，reasoning/tool 省略）", async () => {
@@ -1469,8 +1535,8 @@ test("resumeTo：切换成功 → 旧 handle 释放 → 后续 sendMessage/cance
     },
   });
   await adapter.resumeTo!("s2");
-  // 先 resume 再释放旧 handle（切换成功后）
-  assert.deepEqual(log, ["resume:s2", "dispose1"]);
+  // 契约顺序：先 dispose 旧 handle，再 agents.resume（P0 切换）
+  assert.deepEqual(log, ["dispose1", "resume:s2"]);
   // 新 agent 生效：sendMessage 走 agent2.followup
   adapter.sendMessage("hi");
   assert.equal(agent2.followups.length, 1);
@@ -1498,7 +1564,8 @@ test("resumeTo：resume 未返回有效 agent → 释放新 handle 并抛错", a
     },
   });
   await assert.rejects(adapter.resumeTo!("s2"), /未返回有效 agent/);
-  assert.deepEqual(log, ["resume:s2", "dispose2"]);
+  // 先 dispose 旧 handle，再 resume；resume 返回无效 agent → 释放新 handle 并抛错
+  assert.deepEqual(log, ["dispose1", "resume:s2", "dispose2"]);
 });
 
 test("resumeTo：agents 未暴露 resume → 明确报错（宿主未配置会话持久化）", async () => {

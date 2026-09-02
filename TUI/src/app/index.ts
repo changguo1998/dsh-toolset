@@ -184,6 +184,19 @@ export class App {
           reduceState(s, { type: "sessions", sessions: e.sessions }),
         );
         break;
+      case "session-title":
+        // 官方 dsh-session-title 事件（fallback/provider/user 任一 source）：
+        // 仅接受当前活跃会话，状态栏标题优先官方折叠结果
+        if (e.sessionId === this.state.activeSessionId) {
+          this.apply((s) =>
+            reduceState(s, {
+              type: "session-identify",
+              id: e.sessionId,
+              title: e.title,
+            }),
+          );
+        }
+        break;
       case "stream":
         this.beginTurnIfNeeded();
         if (this.deps.slowStream && this.slowTimer) {
@@ -814,7 +827,12 @@ export class App {
       const cur = this.state.history;
       if (!cur || cur.phase !== "resuming" || cur.pendingResume !== id) return;
       const firstUser = view.messages.find((m) => m.role === "user");
-      const title = deriveTitle(firstUser?.text);
+      // 标题：官方 session/title 事件优先（dsh-session-title 落盘日志），
+      // 缺失时本地兜底（surface 首条用户消息前 30 字符 / （新会话））
+      const official = this.deps.adapter.sessionTitle
+        ? await this.deps.adapter.sessionTitle(id).catch(() => undefined)
+        : undefined;
+      const title = official ?? deriveTitle(firstUser?.text);
       this.apply((s) =>
         reduceState(s, {
           type: "history-resume-ok",

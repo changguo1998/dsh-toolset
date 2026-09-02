@@ -40,10 +40,12 @@ import type {
   DshAgentLike,
   RealAdapterOptions,
   HistoryMessage,
+  SessionSurfaceView,
 } from "./types.ts";
 import {
   buildApprovalPrompt,
   buildUserMessage,
+  localTitleFromText,
   normalizeAgentStatus,
   parseSlashCommand,
   readDefaultSelection,
@@ -249,6 +251,91 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     }
   };
 
+  /** 只读会话表面（live 直接读内存事件；persisted 走 readSurface；兜底 readSession） */
+  const doReadSessionSurface = async (
+    id: string,
+  ): Promise<SessionSurfaceView> => {
+    if (!sessionQuery) {
+      throw new Error(
+        "sessionQuery 未暴露 readSession/readSurface，无法读取会话内容",
+      );
+    }
+    const live = opts.sessions?.get(id);
+    if (live && Array.isArray(live.events)) {
+      return {
+        sessionId: id,
+        messages: normalizeHistoryMessages(live.events),
+      };
+    }
+    if (sessionQuery.readSurface) {
+      const snap = await sessionQuery.readSurface(id);
+      return {
+        sessionId: id,
+        messages: normalizeHistoryMessages(snap.events),
+      };
+    }
+    if (sessionQuery.readSession) {
+      const snap = await sessionQuery.readSession(id);
+      return {
+        sessionId: id,
+        messages: normalizeHistoryMessages(snap.events),
+      };
+    }
+    throw new Error(
+      "sessionQuery 未暴露 readSession/readSurface，无法读取会话内容",
+    );
+  };
+
+  /** 有界并发助手（列表标题本地兜底读取用，避免 180+ 会话顺序读拖慢面板） */
+  const mapLimit = async <T, R>(
+    items: T[],
+    limit: number,
+    fn: (item: T) => Promise<R>,
+  ): Promise<R[]> => {
+    const out = new Array<R>(items.length);
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (true) {
+        const idx = cursor++;
+        if (idx >= items.length) return;
+        out[idx] = await fn(items[idx]!);
+      }
+    };
+    const n = Math.min(limit, items.length);
+    await Promise.all(Array.from({ length: n }, () => worker()));
+    return out;
+  };
+
+  /** 官方标题：批量折叠 session/title 事件（readTitleSnapshots 优先；缺失逐条 readTitle） */
+  const officialTitles = async (
+    ids: string[],
+  ): Promise<Map<string, string>> => {
+    const map = new Map<string, string>();
+    if (!sessionQuery) return map;
+    try {
+      if (typeof sessionQuery.readTitleSnapshots === "function") {
+        const snaps = await sessionQuery.readTitleSnapshots(ids);
+        for (const snap of snaps) {
+          if (snap?.sessionId && snap.title?.title) {
+            map.set(snap.sessionId, snap.title.title);
+          }
+        }
+      } else if (typeof sessionQuery.readTitle === "function") {
+        await mapLimit(ids, 8, async (id) => {
+          try {
+            const t = await sessionQuery.readTitle!(id);
+            if (t?.title) map.set(id, t.title);
+          } catch {
+            /* 单个会话标题读取失败不阻断 */
+          }
+        });
+      }
+    } catch {
+      /* 标题服务不可用 → 全走本地兜底 */
+    }
+    return map;
+  };
+
   // --- session/event 归一化 ---
   const onSessionEvent = (session: unknown, raw: SessionEvent): void => {
     const sid = (session as { id?: string } | null)?.id ?? activeSessionId;
@@ -380,6 +467,15 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         stepEmitted.clear();
         emit({ type: "turn-end" });
         return;
+      case "session/title": {
+        // 官方 dsh-session-title 落盘事件（fallback/provider/user 任一 source）：
+        // 转发给 app，状态栏标题优先该官方折叠结果
+        const title = (raw.data as { title?: unknown }).title;
+        if (typeof title === "string" && title.trim() !== "") {
+          emit({ type: "session-title", sessionId: sid, title });
+        }
+        return;
+      }
       default:
         return;
     }
@@ -614,59 +710,74 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       return { providers, models, current };
     },
-    // 历史会话只读浏览（宿主挂载 sessionQuery 时可用）
+    // 历史会话列表（宿主挂载 sessionQuery 时可用）：newest-first；
+    // 标题优先官方 session/title 事件（批量折叠），缺失时本地兜底首条用户消息
     listSessions: sessionQuery
       ? async () => {
           const rs = await sessionQuery.listSessions();
+          const ids = rs.map((r) => r.header.id);
+          const official = await officialTitles(ids);
+          // 无官方标题的会话：本地兜底（surface 首条用户消息）；损坏/不可读取 → 省略
+          const fallback = await mapLimit(
+            ids.filter((id) => !official.has(id)),
+            8,
+            async (id) => {
+              try {
+                const view = await doReadSessionSurface(id);
+                const first = view.messages.find((m) => m.role === "user");
+                return [id, localTitleFromText(first?.text)] as const;
+              } catch {
+                return [id, undefined] as const;
+              }
+            },
+          );
+          const byId = new Map(fallback.filter(([, t]) => t !== undefined));
           return rs.map((r) => ({
             id: r.header.id,
             createdAt: r.header.createdAt,
             cwd: r.header.cwd,
             live: r.live,
             persisted: r.persisted,
+            ...((official.get(r.header.id) ?? byId.get(r.header.id))
+              ? { title: official.get(r.header.id) ?? byId.get(r.header.id) }
+              : {}),
           }));
         }
       : undefined,
     readSessionSurface: sessionQuery
-      ? async (id) => {
-          // 读取顺序（按 live/persisted 判定，避免走错接口）：
-          //  1. live 会话（在 sessions store 内存）→ 直接读原始事件，不经过
-          //     surface fold（缺 surfaceOp）也不经过 Session.create 校验
-          //     （agent/inbox/spliced 混入日志会抛校验错）；
-          //  2. persisted 会话 → readSurface（持久化时已补 surfaceOp 标记）；
-          //  3. 兜底 readSession / 显式抛错。
-          const live = opts.sessions?.get(id);
-          if (live && Array.isArray(live.events)) {
-            return {
-              sessionId: id,
-              messages: normalizeHistoryMessages(live.events),
-            };
-          }
-          if (sessionQuery.readSurface) {
-            const snap = await sessionQuery.readSurface(id);
-            return {
-              sessionId: id,
-              messages: normalizeHistoryMessages(snap.events),
-            };
-          }
-          if (sessionQuery.readSession) {
-            const snap = await sessionQuery.readSession(id);
-            return {
-              sessionId: id,
-              messages: normalizeHistoryMessages(snap.events),
-            };
-          }
-          throw new Error(
-            "sessionQuery 未暴露 readSession/readSurface，无法读取会话内容",
-          );
+      ? (id) => {
+          // 读取顺序（按 live/persisted 判定，避免走错接口）见 doReadSessionSurface
+          return doReadSessionSurface(id);
         }
       : undefined,
+    async sessionTitle(id) {
+      if (!sessionQuery || typeof sessionQuery.readTitle !== "function") {
+        return undefined;
+      }
+      try {
+        const t = await sessionQuery.readTitle(id);
+        return t?.title;
+      } catch {
+        return undefined;
+      }
+    },
     async resumeTo(id) {
       if (disposed) {
         throw new Error("adapter 已释放，无法切换会话");
       }
       if (!opts.agents || typeof opts.agents.resume !== "function") {
         throw new Error("agents 未暴露 resume（宿主未配置会话持久化）");
+      }
+      // 契约顺序（P0 切换）：先释放当前 agent 的 handle（旧会话不再活跃），
+      // 再 agents.resume 加载目标持久化会话；resume 失败 → 面板 error 态不崩溃。
+      const prevDispose = activeDispose;
+      if (prevDispose) {
+        activeDispose = undefined;
+        try {
+          await prevDispose();
+        } catch {
+          /* 旧 handle 释放失败不阻断切换 */
+        }
       }
       const handle = await opts.agents.resume({
         resumeSessionId: id,
@@ -688,8 +799,6 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         }
         throw new Error("resume 未返回有效 agent");
       }
-      // 先切引用再释放旧 handle：避免新 handle 生效前旧 agent 被中断
-      const prevDispose = activeDispose;
       const newAgent = {
         session: rawAgent.session,
         followup: (m: ReturnType<typeof buildUserMessage>) =>
@@ -703,13 +812,6 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           : () => rawAgent.cancel?.({ kind: "user" });
       activeSessionId = id;
       activeDispose = () => handle.dispose();
-      if (prevDispose) {
-        try {
-          await prevDispose();
-        } catch {
-          // 旧 handle 释放失败不阻断切换
-        }
-      }
     },
     async setSessionModel(sel) {
       if (!opts.sessionModel) {

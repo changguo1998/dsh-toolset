@@ -539,6 +539,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
       history,
       height: metrics.footerHeight,
       width: fullWidth,
+      currentId: state.activeSessionId ?? undefined,
     });
   } else {
     // 两字符提示符：左字符 = 上次提交所用模式符号（MODE_SYMBOL[lastSubmitMode]，

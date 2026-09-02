@@ -3,18 +3,18 @@
 // 只处理「输入文本/状态 → 决策结果」的纯函数；副作用编排
 // （adapter 调用、paint、notice）留在 App 执行。
 
+import { localTitleFromText } from "./adapter/normalize.ts";
 import type { ModelCatalog, ModelSelection } from "./adapter/dsh.ts";
 import type { ThemeId } from "../renderer/theme.ts";
 
 /** 格式化模型目录为多行文本（/model 无参输出）：纯 ASCII，当前模型前 ->、其余空格缩进 */
 /**
  * 会话标题：剥空白并截断到 ≤30 显示字符；空文本 →（新会话）。
- * 用于 resume 后从 surface 首条用户消息生成标题（本地兜底，无官方 title 服务依赖）。
+ * 为 resume 后从 surface 首条用户消息生成标题的本地兜底（无官方 title 服务依赖时）；
+ * 标题核心逻辑与 adapter 列表行共享（normalize.localTitleFromText）。
  */
 export function deriveTitle(text: string | undefined): string {
-  const t = (text ?? "").replace(/\s+/g, " ").trim();
-  if (!t) return "（新会话）";
-  return t.length > 30 ? t.slice(0, 30) + "…" : t;
+  return localTitleFromText(text) ?? "（新会话）";
 }
 
 /** 最后一条非空 assistant 正文（buffer 反向查找；无则 undefined） */

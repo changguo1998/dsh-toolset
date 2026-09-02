@@ -3,9 +3,9 @@
 
 覆盖：
 - RESUME_PASS：阶段 A 先创建 identified 目标会话（消息带 id、优雅退出落盘）；
-  阶段 B 在 /session 面板中精确选中该会话 → Enter 切换（agents.resume）→ 发探测
-  消息 → 断言探测文本落入 adapter 诊断行（[adapter-resume] returnedAgentSession）
-  报告的实际续写会话。
+  阶段 B 在 /session 面板中精确选中该会话 → Enter 切换（agents.resume，契约顺序
+  dispose→resume）→ 发探测消息 → 断言探测文本落入【被恢复会话】（resume 为原会话
+  继续语义）的 session.jsonl.zstd。Enter 未在超时内生效会自动重试一次。
 - COPY_OSC_PASS：/copy 输出的 OSC52 序列（ESC ]52;c;...BEL）真实出现在 PTY 字节流。
 
 用法：python3 TUI/scripts/verify-p0.py
@@ -176,17 +176,16 @@ def run_tui_phase(
                 p.send_key(b"\x1b[B")
             p.pump(0.3)
             p.send("\r")
-            if not p.want("已切换到会话", 30):
-                return target_used, diag + [
-                    "FAIL: resume 未出现「已切换到会话」（尾部：\n" + p.s[-400:] + "\n)"
-                ]
-            # 从 adapter 诊断行取实际续写会话 id（resume 返回的 agent.session.id）
-            for line in p.s.splitlines():
-                if "[adapter-resume]" in line:
-                    diag.append(line)
-                    m = re.search(r"returnedAgentSession=(\S+)", line)
-                    if m and m.group(1):
-                        target_used = m.group(1)
+            if not p.want("已切换到会话", 20):
+                # 加固：面板可能仍打开（Enter 未切走）——重试一次 Enter
+                p.send("\r")
+                if not p.want("已切换到会话", 25):
+                    return target_used, diag + [
+                        "FAIL: resume 未出现「已切换到会话」（尾部：\n" + p.s[-400:] + "\n)"
+                    ]
+            # resume 为原会话语义（resumeSessionId == 返回 agent.session.id），
+            # 断言落盘目标即选中目标；不再依赖 adapter 诊断行
+            target_used = resume_target
             p.pump(0.4)
 
         p.send(seed + "\r")
@@ -297,7 +296,7 @@ def main() -> int:
     for line in diag_b:
         if line == "COPY_OSC_PASS":
             copy_pass = True
-        if line.startswith(("FAIL", "[adapter-resume]", "COPY_OSC")):
+        if line.startswith(("FAIL", "COPY_OSC")):
             print("  " + line)
 
     print("RESUME_PASS" if resume_pass else "RESUME_FAIL")

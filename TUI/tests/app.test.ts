@@ -179,6 +179,14 @@ class FakeAdapter implements DshAdapter {
     this.resumeCalls.push(id);
     if (this.resumeReject) throw new Error(this.resumeReject);
   };
+  /** 官方 session/title 标题（缺省无 → app 走 deriveTitle 本地兜底） */
+  sessionTitleValues: Record<string, string> = {};
+  sessionTitleCalls: string[] = [];
+  sessionTitle: ((id: string) => Promise<string | undefined>) | undefined =
+    async (id) => {
+      this.sessionTitleCalls.push(id);
+      return this.sessionTitleValues[id];
+    };
 
   /** 测试辅助：注入事件 */
   push(e: DshEvent): void {
@@ -1772,6 +1780,88 @@ test("/session：resume 失败 → 面板 error 态不崩溃", async () => {
   assert.ok(
     plain.some((l) => l.includes("宿主 resume 失败")),
     "error 展示",
+  );
+});
+
+test("/session：resume 后标题——官方 sessionTitle 优先于本地兜底", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.sessionRecords = [
+    { id: "s42", createdAt: 1, live: false, persisted: true },
+  ];
+  adapter.sessionSurfaces["s42"] = [{ role: "user", text: "回顾上轮结论" }];
+  adapter.sessionTitleValues["s42"] = "官方标题";
+  typeAndEnter(renderer, "/session");
+  await flush();
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  await flush();
+  assert.deepEqual(adapter.sessionTitleCalls, ["s42"], "resume 后读取官方标题");
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plain.some((l) => l.includes("官方标题")),
+    "状态栏显示官方标题而非本地兜底",
+  );
+});
+
+test("/session：resume 后标题——无官方 sessionTitle → deriveTitle 本地兜底", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.sessionRecords = [
+    { id: "s42", createdAt: 1, live: false, persisted: true },
+  ];
+  adapter.sessionSurfaces["s42"] = [{ role: "user", text: "回顾上轮结论" }];
+  // sessionTitle 缺省返回 undefined → 兜底 = surface 首条用户消息前 30 字符
+  typeAndEnter(renderer, "/session");
+  await flush();
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  await flush();
+  assert.deepEqual(adapter.sessionTitleCalls, ["s42"]);
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plain.some((l) => l.includes("回顾上轮结论")),
+    "本地兜底标题（首条用户消息）",
+  );
+});
+
+test("session-title 事件：官方折叠标题实时流入状态栏（仅当前活跃会话）", async () => {
+  const { renderer, adapter } = makeApp();
+  // 建立活跃会话（session-list 会选首个会话为 activeSessionId）
+  adapter.push({
+    type: "session-list",
+    sessions: [{ id: "live-1", title: "" }],
+  });
+  const before = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    before.some((l) => l.includes("（新会话）")),
+    "初始标题为（新会话）",
+  );
+  // 官方 session/title 事件到达 → 状态栏更新为官方标题
+  adapter.push({
+    type: "session-title",
+    sessionId: "live-1",
+    title: "官方折叠标题",
+  });
+  const after = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    after.some((l) => l.includes("官方折叠标题")),
+    "状态栏显示官方折叠标题",
+  );
+  // 非活跃会话的标题事件被忽略
+  adapter.push({ type: "session-title", sessionId: "other", title: "无关" });
+  const after2 = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    !after2.some((l) => l.includes("无关")),
+    "非活跃会话标题不流入状态栏",
   );
 });
 

@@ -17,6 +17,8 @@ export interface HistoryPanelView {
   height: number;
   /** 面板可用列宽 */
   width: number;
+  /** 当前活跃会话 id（live 行标记 [当前] / 其余 live 行标 [不可续]） */
+  currentId?: string;
 }
 
 /** 时间戳（Unix 毫秒）→ `MM-DD HH:mm`（本地时区） */
@@ -40,17 +42,31 @@ function tailCwd(cwd: string, w: number): string {
   return "…" + out;
 }
 
-/** 列表行：`> MM-DD HH:mm  <短id>  .../cwd`；live 会话尾标 [当前] */
-function listLine(rec: SessionInfo, isFocus: boolean, width: number): string {
+/**
+ * 列表行：`> MM-DD HH:mm  <短id>  <标题>  .../cwd  [当前]|[不可续]`。
+ * 标题优先官方 session/title 事件，缺失本地兜底；两者皆无显示（新会话）。
+ * live 会话：当前活跃标 [当前]，其余 live 标 [不可续]（不可选中）。
+ */
+function listLine(
+  rec: SessionInfo,
+  isFocus: boolean,
+  width: number,
+  currentId?: string,
+): string {
   const marker = isFocus ? "> " : "  ";
   const time = fmtTime(rec.createdAt);
   const id = rec.id.slice(0, 8);
-  const fixed = displayWidth(marker) + displayWidth(time) + 2 + 8 + 2;
-  const tag = rec.live ? " [当前]" : "";
-  const cwdW = Math.max(0, width - fixed - displayWidth(tag));
-  const cwd = rec.cwd ? tailCwd(rec.cwd, cwdW) : "";
+  const isCurrent = rec.live && rec.id === currentId;
+  const tag = rec.live ? (isCurrent ? " [当前]" : " [不可续]") : "";
+  const fixed =
+    displayWidth(marker) + displayWidth(time) + 2 + 8 + 2 + displayWidth(tag);
+  const avail = Math.max(0, width - fixed);
+  const titleText = rec.title?.trim() ? rec.title : "（新会话）";
+  const title = truncateToWidth(titleText, avail);
+  const left = Math.max(0, avail - displayWidth(title));
+  const cwd = rec.cwd && left > 1 ? tailCwd(rec.cwd, left) : "";
   return truncateToWidth(
-    marker + time + "  " + id + (cwd ? "  " + cwd : "") + tag,
+    marker + time + "  " + id + "  " + title + (cwd ? "  " + cwd : "") + tag,
     width,
   );
 }
@@ -106,7 +122,9 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
         for (let r = 0; r < bodyRows; r++) {
           const idx = start + r;
           const rec = h.records[idx];
-          body.push(rec ? listLine(rec, idx === h.index, width) : "");
+          body.push(
+            rec ? listLine(rec, idx === h.index, width, view.currentId) : "",
+          );
         }
       }
       break;
