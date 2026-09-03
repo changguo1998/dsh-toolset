@@ -87,6 +87,21 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
 
 ## /model 命令（2026-08-26）
 
+## 事件渲染分流（P1 阶段 2/3 落地，2026-09-03）
+
+adapter 归一化后的 DshEvent → App 事件 switch → state reducer → buildFrame 渲染：
+
+| DshEvent | reducer | 渲染 |
+| --- | --- | --- |
+| `tool-call {sessionId,name,summary}` | `appendToolLine(toolCallLine)` | 缓冲工具行 `⚙ <name> <summary>`（不进思考打字机队列） |
+| `tool-result {sessionId,ok,detail}` | `appendToolLine(toolResultLine, ok?无:error)` | 缓冲工具行 `✓ <detail>`，失败红色 `✗ <detail>` |
+| `usage {input,output,cacheRead}` | 写入 `state.usage` | 状态栏 contextLen `ctx 12.4k` / cacheHit `cache 92%`（k/M 缩写，无用量保持 `—`） |
+| `compaction {phase}` | `appendNotice` | toast `正在压缩上下文…` / `压缩完成` |
+| `retry {attempt,max,delayMs,code,message?}` | `appendNotice(tone:warn)` | 黄色 toast `重试 1/2 (1.5s): TRANSPORT 连接被重置` |
+| `notice {text,error?,tone?}` | `appendNotice(…,tone)` | tone 着色：error 红 / warn 黄 / muted 灰 |
+
+工具行文本由 `src/app/layout/tool-line.ts` 纯函数组装；summary/detail 启发式由 adapter（dsh.ts）在归一化时产出。真实 DSH PTY 冒烟脚本 `demo/smokePty.mjs`（`npm run smoke:pty`）用 `script` 分配 PTY、喂显式 bash 提示词，断言工具行 ⚙ 与状态栏 usage（ctx/cache）同现为成功。
+
 - **能力**：查询可用模型 + 切换当前会话模型（不落盘）。命令形式：
 
   - `/model`（无参）→ 进入**交互选择模式**（面板渲染在 footer 区）：↑/↓ 移动高亮（选项超出可视高度时视口跟随选中项滚动），←/→ 左右切换三列焦点区（clamp 不循环），Enter 确认切换，Esc 取消不改变；普通字符键在该模式下被忽略（不进入输入框）。

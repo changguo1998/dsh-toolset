@@ -295,6 +295,16 @@ interface Renderer {
 | 2 | 同上 + `npm run build` + demo 场景断言（tool 行、状态栏 usage、error notice 均出现于帧输出） |
 | 3 | PTY 冒烟（真实 DSH 工具调用 + usage）+ 三文档 grep 检查 + 工作区干净 |
 
+#### P1 计划状态：完成（2026-09-03）
+
+P1 三阶段全部落地并经审计通过：
+
+- **阶段 1**：adapter 归一化 + 事件类型（tool-call/tool-result/usage/compaction/retry、notice `tone?`、finish reason 分级 notice）。
+- **阶段 2**：渲染 + 状态栏（工具行 ⚙/✓/✗、notice tone 红/黄/灰着色、状态栏 contextLen/cacheHit、retry/compaction toast）。
+- **阶段 3**：真实 DSH PTY 冒烟 happy path（`npm run smoke:pty`：真实会话断言 ⚙ 工具行与状态栏 usage）+ 本文档/IMPLEMENTATION.md/README 收尾。
+
+backlog 状态：P1 完成；P2/P3 待排期。
+
 ### 风险 / 实现时需确认
 
 | 项 | 说明 |
