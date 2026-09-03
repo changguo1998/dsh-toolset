@@ -801,6 +801,95 @@ test("buildFrame: notice tone 行在帧内红/黄/灰着色", () => {
   assert.ok(joined.includes("\x1b[38;2;120;120;120m灰"), "muted → 灰");
 });
 
+test("buildFrame: 工具历史仅显示最近 4 组，更早以折叠标记隐藏，组间空行", () => {
+  let s = initialState();
+  // 6 次调用组（每次 ⚙ + ✓），应只保留最近 4 组
+  for (let i = 1; i <= 6; i++) {
+    s = reduceState(s, {
+      type: "tool-call",
+      sessionId: "s1",
+      name: "bash",
+      summary: "cmd " + i,
+    });
+    s = reduceState(s, {
+      type: "tool-result",
+      sessionId: "s1",
+      ok: true,
+      detail: "ok " + i,
+    });
+  }
+  const joined = buildFrame(s, { rows: 20, cols: 50 })
+    .map((l) => l.text)
+    .join("\n");
+  const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.ok(plain.includes("…(更早工具调用已隐藏)"), "超出上限应出现折叠标记");
+  assert.ok(plain.includes("cmd 6"), "最新调用应保留");
+  assert.ok(plain.includes("cmd 5"), "倒数第二调用应保留");
+  assert.ok(plain.includes("cmd 4"), "倒数第三调用应保留");
+  assert.ok(plain.includes("cmd 3"), "倒数第四调用应保留");
+  assert.ok(!plain.includes("cmd 1"), "最早调用应被隐藏");
+  assert.ok(!plain.includes("cmd 2"), "第二早调用应被隐藏");
+});
+
+test("buildFrame: 两次调用组之间插空行分隔", () => {
+  let s = initialState();
+  for (const n of [1, 2]) {
+    s = reduceState(s, {
+      type: "tool-call",
+      sessionId: "s1",
+      name: "bash",
+      summary: "run " + n,
+    });
+    s = reduceState(s, {
+      type: "tool-result",
+      sessionId: "s1",
+      ok: true,
+      detail: "out " + n,
+    });
+  }
+  const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
+    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const i1 = lines.findIndex((l) => l.includes("run 1"));
+  const i2 = lines.findIndex((l) => l.includes("run 2"));
+  assert.ok(i1 >= 0 && i2 >= 0, "两次调用都应出现");
+  assert.equal(
+    lines.slice(i1, i2).filter((l) => l.replace(/[│\s]/g, "") === "").length,
+    1,
+    "两次调用之间应有 1 个空行",
+  );
+});
+
+test("buildFrame: 工具行前缀/工具名独立着色（⚙ 青、名黄、✓ 绿；✗ 整行红）", () => {
+  let s = initialState();
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "ls",
+  });
+  s = reduceState(s, {
+    type: "tool-result",
+    sessionId: "s1",
+    ok: true,
+    detail: "ok",
+  });
+  s = reduceState(s, {
+    type: "tool-result",
+    sessionId: "s1",
+    ok: false,
+    detail: "EACCES",
+  });
+  const joined = buildFrame(s, { rows: 12, cols: 40 })
+    .map((l) => l.text)
+    .join("\n");
+  // dark 主题 24bit 码：青 #46E7A9 / 黄 #E7A946 / 绿 #84E746 / 红 #E74684
+  assert.ok(joined.includes("\x1b[38;2;70;231;169m⚙"), "⚙ 前缀着青");
+  assert.ok(joined.includes("\x1b[38;2;231;169;70mbash"), "工具名着黄");
+  assert.ok(joined.includes("\x1b[38;2;132;231;70m✓"), "✓ 前缀着绿");
+  assert.ok(joined.includes("\x1b[38;2;231;70;132m✗ EACCES"), "✗ 失败整行着红");
+});
+
 test("buildFrame: usage 入帧 → 状态栏显示 ctx/cache（取代占位 —）", () => {
   let s = initialState();
   s = reduceState(s, {

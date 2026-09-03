@@ -19,7 +19,7 @@ import type {
   QuestionPanelState,
 } from "./state.ts";
 
-import type { Buffer, BufferKind } from "./state.ts";
+import type { Buffer, BufferKind, BufferLine } from "./state.ts";
 import type { ApprovalItem, NoticeTone } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
@@ -256,6 +256,9 @@ function buildTopRegion(
 export const USER_MIN_LEFT_GUTTER = 4;
 export const THINKING_INDENT = 2;
 export const THINKING_MORE = "…(更多思考已折叠)";
+/** 工具调用历史：仅展示最近 TOOL_MAX_GROUPS 个调用组，更早隐藏（折叠标记） */
+export const TOOL_MAX_GROUPS = 4;
+export const TOOL_MORE = "…(更早工具调用已隐藏)";
 /** THINKING_MAX 兼容导出（state.DEFAULT_THINKING_MAX_LINES 为权威默认） */
 export const THINKING_MAX: number = 4;
 
@@ -296,7 +299,49 @@ function wrapBufferLines(
   const out: WrappedRow[] = [];
   const thinking: WrappedRow[] = [];
   let inFence = false;
+  // 工具行按连续 run 收集，flush 时做折叠/分组渲染；遇到非工具行先落盘
+  const toolRun: BufferLine[] = [];
+  const flushToolRun = (): void => {
+    if (toolRun.length === 0) return;
+    // 按调用分组：⚙ 起新组，后续 ✓/✗ 结果归入当前组
+    const groups: BufferLine[][] = [[]];
+    for (const l of toolRun) {
+      if (l.text.startsWith("⚙") && groups[groups.length - 1]!.length > 0)
+        groups.push([]);
+      groups[groups.length - 1]!.push(l);
+    }
+    // 折叠：仅保留最近 TOOL_MAX_GROUPS 组，更早以灰色折叠标记隐藏
+    const visible = groups.slice(-TOOL_MAX_GROUPS);
+    const hasMore = groups.length > TOOL_MAX_GROUPS;
+    if (hasMore) {
+      out.push({
+        text: colorFor(themeId, NOTICE_TONE_COLOR.muted)(TOOL_MORE),
+        kind: "tool",
+        indent: 0,
+      });
+    }
+    for (let gi = 0; gi < visible.length; gi++) {
+      if (gi > 0) out.push({ text: "", kind: "tool", indent: 0 }); // 组间空行
+      for (const l of visible[gi]!) {
+        const rows =
+          l.text === "" ? [""] : wrapLine(l.text, Math.max(1, width));
+        // ✗ 由 tone 整体着红；⚙/✓ 前缀+工具名特殊着色（见 renderToolText）
+        for (const t of rows) {
+          const text = l.tone
+            ? colorFor(themeId, NOTICE_TONE_COLOR[l.tone])(t)
+            : renderToolText(t, themeId);
+          out.push({ text, kind: "tool", indent: 0 });
+        }
+      }
+    }
+    toolRun.length = 0;
+  };
   for (const line of buffer) {
+    if (line.kind !== "tool" && toolRun.length > 0) flushToolRun();
+    if (line.kind === "tool") {
+      toolRun.push(line);
+      continue;
+    }
     if (line.kind === "thinking") {
       const indent = thinkingIndentOf(width);
       const rows = wrapLine(line.text, Math.max(1, width - indent));
@@ -357,6 +402,7 @@ function wrapBufferLines(
     for (const text of rows)
       out.push({ text: color(text), kind: line.kind, indent: 0 });
   }
+  flushToolRun();
   if (thinking.length > 0) {
     const cap = Math.max(1, thinkingMaxLines);
     const hasMore = thinking.length > cap;
@@ -430,6 +476,26 @@ const NOTICE_TONE_COLOR: Record<NoticeTone, ColorName> = {
   warn: "yellow",
   muted: "gray",
 };
+
+/** 工具行前缀着色：⚙ 前缀青、工具名黄；✓ 前缀绿；✗/续行原样（✗ 由 tone 整体着红） */
+function renderToolText(text: string, themeId: ThemeId): string {
+  if (text.startsWith("⚙ ")) {
+    const rest = text.slice(2);
+    const sp = rest.indexOf(" ");
+    const name = sp < 0 ? rest : rest.slice(0, sp);
+    const summary = sp < 0 ? "" : rest.slice(sp); // 含前导空格
+    return (
+      colorFor(themeId, "cyan")("⚙") +
+      " " +
+      colorFor(themeId, "yellow")(name) +
+      summary
+    );
+  }
+  if (text.startsWith("✓ ")) {
+    return colorFor(themeId, "green")("✓") + " " + text.slice(2);
+  }
+  return text;
+}
 
 /** token 数 → 紧凑缩写（k 千 / M 百万，1 位小数，如 12.4k / 1.5M） */
 function formatTokens(n: number): string {
