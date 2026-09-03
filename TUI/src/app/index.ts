@@ -288,6 +288,15 @@ export class App {
           this.apply((s) => reduceState(s, { type: "turn-end" }));
         }
         break;
+      case "tool-call":
+      case "tool-result":
+      case "usage":
+      case "compaction":
+      case "retry":
+        // 阶段 1 pass-through：仅入 reducer（事件结构 = StateAction 同型），不渲染；
+        // 阶段 2 按事件落 buffer 工具行 / toast / 状态栏槽位
+        this.apply((s) => reduceState(s, e));
+        break;
       default: {
         const _exhaustive: never = e;
         void _exhaustive;

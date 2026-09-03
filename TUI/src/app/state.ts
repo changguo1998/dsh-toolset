@@ -97,6 +97,8 @@ export interface AppState {
   inputStatus: InputStatus;
   approval: ApprovalItem | null;
   agentStatus: AgentStatus;
+  /** 最新一次模型调用的 token 用量（assistant/message.usage 归一化；阶段 2 状态栏 contextLen/cacheHit 读取） */
+  usage?: { input: number; output: number; cacheRead: number };
   systemStatus: SystemStatus;
   /** 主题（默认 dark=fffdark；/theme 运行时切换，仅当前会话） */
   themeId: ThemeId;
@@ -588,6 +590,22 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       return setSystemStatus(state, action.status);
     case "set-theme":
       return { ...state, themeId: action.themeId };
+    case "tool-call":
+    case "tool-result":
+    case "compaction":
+    case "retry":
+      // 阶段 1：透传（case 已识别、不渲染）；阶段 2 落 buffer 工具行 / toast
+      return state;
+    case "usage":
+      // 阶段 1：仅入状态（阶段 2 状态栏 contextLen/cacheHit 从 state.usage 读取）
+      return {
+        ...state,
+        usage: {
+          input: action.input,
+          output: action.output,
+          cacheRead: action.cacheRead,
+        },
+      };
     default:
       return state;
   }
@@ -649,7 +667,25 @@ export type StateAction =
   | { type: "turn-begin" }
   | { type: "turn-end" }
   | { type: "status"; status: Partial<SystemStatus> }
-  | { type: "set-theme"; themeId: ThemeId };
+  | { type: "set-theme"; themeId: ThemeId }
+  | { type: "tool-call"; sessionId: string; name: string; summary: string }
+  | { type: "tool-result"; sessionId: string; ok: boolean; detail: string }
+  | {
+      type: "usage";
+      sessionId: string;
+      input: number;
+      output: number;
+      cacheRead: number;
+    }
+  | { type: "compaction"; phase: "start" | "end" }
+  | {
+      type: "retry";
+      attempt: number;
+      max: number;
+      delayMs: number;
+      code: string;
+      message?: string;
+    };
 
 function setInput(
   state: AppState,

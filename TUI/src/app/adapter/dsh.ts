@@ -41,6 +41,7 @@ import type {
   RealAdapterOptions,
   HistoryMessage,
   SessionSurfaceView,
+  TokenUsage,
 } from "./types.ts";
 import {
   buildApprovalPrompt,
@@ -87,6 +88,8 @@ export type {
   SessionQueryLike,
   SessionStoreLike,
   AgentRegistryLike,
+  NoticeTone,
+  TokenUsage,
 } from "./types.ts";
 export {
   buildApprovalPrompt,
@@ -210,6 +213,110 @@ function normalizeHistoryMessages(
   return out;
 }
 
+/** 单行摘要最大长度（超出截断，避免工具行撑爆窄终端） */
+const SUMMARY_MAX = 80;
+
+/**
+ * tool/call.arguments（原始 JSON 字符串）→ 单行摘要：优先关键字段启发式
+ * （path/file/url/command/pattern/query/dir——read/write/edit→路径、bash→命令等），
+ * 无关键字段回落原始紧凑串；JSON 解析失败兜底原样。阶段 2 按工具名再细化渲染。
+ */
+function summarizeToolArguments(args: string): string {
+  const raw = args.trim();
+  if (raw.startsWith("{")) {
+    try {
+      const obj = JSON.parse(raw) as Record<string, unknown>;
+      const preferred = [
+        "path",
+        "file",
+        "url",
+        "command",
+        "pattern",
+        "query",
+        "dir",
+      ];
+      for (const key of preferred) {
+        const v = obj[key];
+        if (typeof v === "string" && v !== "") return truncateSummary(v);
+      }
+      const flat = Object.entries(obj)
+        .map(
+          ([k, v]) => k + "=" + (typeof v === "string" ? v : JSON.stringify(v)),
+        )
+        .join(" ");
+      if (flat !== "") return truncateSummary(flat);
+    } catch {
+      /* 非 JSON：回落原始串 */
+    }
+  }
+  return truncateSummary(raw === "" ? "(无参数)" : raw);
+}
+
+function truncateSummary(s: string): string {
+  return s.length > SUMMARY_MAX ? s.slice(0, SUMMARY_MAX - 1) + "…" : s;
+}
+
+/**
+ * tool/result.message（ToolResultMessage.content=[ToolResultBlock]）→ 首段文本：
+ * 取内层第一个 text 块首行（v1 足够）；形状不符/空 → ""。
+ */
+function toolResultDetail(message: unknown): string {
+  const content = (message as { content?: unknown } | undefined)?.content;
+  if (!Array.isArray(content)) return "";
+  for (const block of content as unknown[]) {
+    const inner = (block as { content?: unknown } | undefined)?.content;
+    if (!Array.isArray(inner)) continue;
+    for (const part of inner as Array<Record<string, unknown>>) {
+      if (
+        part?.type === "text" &&
+        typeof part.text === "string" &&
+        part.text !== ""
+      ) {
+        return truncateSummary(part.text.split("\n")[0] ?? "");
+      }
+    }
+  }
+  return "";
+}
+
+/**
+ * turn/end.reason（结构化判别联合；向后兼容字符串 reason）→ 分级 notice：
+ * error/max-tokens/aborted/interrupted/blocked 显式提示并带 tone，completed 及未知静默。
+ */
+function turnEndNotice(
+  reason: unknown,
+): Extract<DshEvent, { type: "notice" }> | undefined {
+  const kind =
+    typeof reason === "string"
+      ? reason
+      : (reason as { kind?: unknown } | null)?.kind;
+  switch (kind) {
+    case "error": {
+      const err = (reason as { error?: { code?: string; message?: string } })
+        .error;
+      const text = "✗ " + [err?.code, err?.message].filter(Boolean).join(": ");
+      return {
+        type: "notice",
+        text: text === "✗ " ? "✗ 输出错误" : text,
+        error: true,
+        tone: "error",
+      };
+    }
+    case "max-tokens":
+      return { type: "notice", text: "输出达 token 上限", tone: "warn" };
+    case "aborted":
+      return { type: "notice", text: "已取消", tone: "muted" };
+    case "interrupted":
+      return { type: "notice", text: "已中断", tone: "muted" };
+    case "blocked":
+      return { type: "notice", text: "已阻塞（等待审批）", tone: "warn" };
+    case "completed":
+      return undefined;
+    default:
+      // 向后兼容：字符串 reason（历史日志/测试）不视为已知失败，静默处理
+      return undefined;
+  }
+}
 /** 构造真实 DSH adapter：注册应答者 + 订阅会话事件，归一化为 DshEvent。 */
 export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   const { runtime } = opts;
@@ -355,6 +462,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       turn?: number;
       step?: number;
       message?: { content?: unknown[] };
+      usage?: TokenUsage;
+      name?: string;
+      arguments?: string;
+      error?: { name?: string; code?: string };
+      reason?: unknown;
     };
     switch (raw.type) {
       case "assistant/chunk": {
@@ -439,6 +551,16 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         // surfaceOp 为 replace 的影子覆盖事件跳过（append-only 无法安全重写）。
         const op = (raw as { surfaceOp?: string }).surfaceOp;
         if (op === "replace") return;
+        // 单次模型调用 token 用量：与正文同行送达（阶段 2 依 state.usage 落状态栏槽位）
+        if (data.usage) {
+          emit({
+            type: "usage",
+            sessionId: sid,
+            input: data.usage.inputTokens ?? 0,
+            output: data.usage.outputTokens ?? 0,
+            cacheRead: data.usage.cacheReadTokens ?? 0,
+          });
+        }
         const content = data.message?.content;
         const text = Array.isArray(content)
           ? content
@@ -471,12 +593,16 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       case "turn/start":
         // turn/start 只标记新回合，不插入历史分隔线；用户本地回显后应紧邻模型响应。
         return;
-      case "turn/end":
+      case "turn/end": {
         // turn 结束：清空流式累计，block index 跨 turn 复用不残留
         emittedByBlock.clear();
         stepEmitted.clear();
         emit({ type: "turn-end" });
+        // finish reason 分级 notice：completed 静默、异常 kind 带 tone（阶段 2 按 tone 渲染）
+        const endNote = turnEndNotice(data.reason);
+        if (endNote) emit(endNote);
         return;
+      }
       case "session/title": {
         // 官方 dsh-session-title 落盘事件（fallback/provider/user 任一 source）：
         // 仅转发当前活跃会话（adapter 视角权威），状态栏标题优先该官方折叠结果
@@ -488,6 +614,65 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         ) {
           emit({ type: "session-title", sessionId: sid, title });
         }
+        return;
+      }
+      case "tool/call": {
+        // 工具调用：紧凑一行（名称 + arguments 摘要）；阶段 2 渲染 ⚙ <name> <summary>
+        const name = data.name;
+        if (typeof name !== "string" || name === "") return;
+        emit({
+          type: "tool-call",
+          sessionId: sid,
+          name,
+          summary: summarizeToolArguments(data.arguments ?? ""),
+        });
+        return;
+      }
+      case "tool/result": {
+        // 工具结果：成功/失败一行；error 分支（结构化错误 {name, code}）标记失败
+        const err = data.error;
+        const detail = toolResultDetail(data.message);
+        emit({
+          type: "tool-result",
+          sessionId: sid,
+          ok: !err,
+          detail: err
+            ? (err.name ? err.name + ": " : "") + (detail || err.code || "")
+            : detail,
+        });
+        return;
+      }
+      case "compaction/start":
+      case "compaction/end": {
+        // 长会话压缩：start/end 折叠为一个 compaction 事件（阶段 2 渲染 toast）
+        emit({
+          type: "compaction",
+          phase: raw.type === "compaction/start" ? "start" : "end",
+        });
+        return;
+      }
+      case "llm/retry": {
+        // 模型重试透明化：第 attempt/max 次 + 退避 delayMs + 失败码/消息（阶段 2 渲染 toast）
+        // SAFETY: rc.2 llm/retry 载荷字段均为可选数值/可选字符串，宽松读取安全——
+        // 缺字段以 0/"" 兜底，绝不抛错；raw.data 类型未含该会话事件（仅子集）。
+        const retry = data as unknown as {
+          retry?: number;
+          maxRetries?: number;
+          delayMs?: number;
+          failure?: { code?: string; message?: string };
+        };
+        emit({
+          type: "retry",
+          attempt: typeof retry.retry === "number" ? retry.retry : 0,
+          max: typeof retry.maxRetries === "number" ? retry.maxRetries : 0,
+          delayMs: typeof retry.delayMs === "number" ? retry.delayMs : 0,
+          code:
+            typeof retry.failure?.code === "string" ? retry.failure.code : "",
+          message:
+            typeof retry.failure?.message === "string"
+              ? retry.failure.message
+              : undefined,
+        });
         return;
       }
       default:

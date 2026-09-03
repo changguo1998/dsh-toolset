@@ -28,6 +28,7 @@ import {
   type AgentRegistryLike,
   buildUserMessage,
 } from "../src/app/adapter/dsh.ts";
+import { initialState, reduceState } from "../src/app/state.ts";
 
 /** 可编程 fake 宿主 */
 class FakeRuntime implements DshRuntime {
@@ -1737,4 +1738,294 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
   );
   // 每次调用生成不同 id（稳定身份，非共享单例）
   assert.notEqual(buildUserMessage("a").id, buildUserMessage("b").id);
+
+  // ---------------------------------------------------------------------------
+  // P1 阶段 1：tool/call、tool/result、usage、compaction、retry 归一化 + finish reason
+  // ---------------------------------------------------------------------------
+
+  /** 构造并发送一条原始 session/event（data 宽松；onSessionEvent 内宽松读取关键字段） */
+  function fireEvent(
+    t: TestHarness,
+    type: string,
+    data: Record<string, unknown>,
+    sid = "s1",
+  ): void {
+    const ev = {
+      type,
+      seq: 1,
+      time: Date.now(),
+      data,
+    } as unknown as SessionEvent;
+    t.runtime.fire("session/event", { id: sid }, ev);
+  }
+
+  test("tool/call → tool-call：arguments 关键字段摘要（path 优先，读取真实路径）", () => {
+    const t = makeAdapter();
+    fireEvent(t, "tool/call", {
+      turn: 1,
+      step: 1,
+      callId: "c1",
+      name: "read",
+      arguments: JSON.stringify({ path: "/etc/hosts", offset: 0 }),
+    });
+    assert.deepEqual(t.events, [
+      {
+        type: "tool-call",
+        sessionId: "s1",
+        name: "read",
+        summary: "/etc/hosts",
+      },
+    ]);
+  });
+
+  test("tool/call：arguments 解析失败 → 摘要兜底原始串（不抛错）", () => {
+    const t = makeAdapter();
+    fireEvent(t, "tool/call", {
+      turn: 1,
+      step: 1,
+      callId: "c2",
+      name: "bash",
+      arguments: "not-json{{",
+    });
+    assert.deepEqual(t.events, [
+      {
+        type: "tool-call",
+        sessionId: "s1",
+        name: "bash",
+        summary: "not-json{{",
+      },
+    ]);
+  });
+
+  test("tool/call：无关键字段 → 紧凑键值回显；空 arguments → (无参数)", () => {
+    const t = makeAdapter();
+    fireEvent(t, "tool/call", {
+      callId: "c3",
+      name: "grep",
+      arguments: '{"a":"b","n":1}',
+    });
+    fireEvent(t, "tool/call", { callId: "c4", name: "x", arguments: "" });
+    assert.deepEqual(t.events, [
+      {
+        type: "tool-call",
+        sessionId: "s1",
+        name: "grep",
+        summary: "a=b n=1",
+      },
+      { type: "tool-call", sessionId: "s1", name: "x", summary: "(无参数)" },
+    ]);
+  });
+
+  test("tool/result → tool-result：成功取 message 内层 text 块首行", () => {
+    const t = makeAdapter();
+    fireEvent(t, "tool/result", {
+      turn: 1,
+      step: 1,
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c1",
+            content: [{ type: "text", text: "line1\nline2" }],
+          },
+        ],
+      },
+    });
+    assert.deepEqual(t.events, [
+      { type: "tool-result", sessionId: "s1", ok: true, detail: "line1" },
+    ]);
+  });
+
+  test("tool/result：error 分支 → ok:false 且 detail 带错误名/码", () => {
+    const t = makeAdapter();
+    fireEvent(t, "tool/result", {
+      turn: 1,
+      step: 1,
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c2",
+            content: [{ type: "text", text: "" }],
+          },
+        ],
+      },
+      error: { name: "EACCES", code: "13" },
+    });
+    assert.deepEqual(t.events, [
+      {
+        type: "tool-result",
+        sessionId: "s1",
+        ok: false,
+        detail: "EACCES: 13",
+      },
+    ]);
+  });
+
+  test("compaction/start + compaction/end → compaction {phase}", () => {
+    const t = makeAdapter();
+    fireEvent(t, "compaction/start", {
+      compactionId: "cp1",
+      sourceCommandId: "fx-cmd-1",
+    });
+    fireEvent(t, "compaction/end", {
+      compactionId: "cp1",
+      sourceCommandId: "fx-cmd-1",
+    });
+    assert.deepEqual(t.events, [
+      { type: "compaction", phase: "start" },
+      { type: "compaction", phase: "end" },
+    ]);
+  });
+
+  test("llm/retry → retry（attempt/max/delayMs/code/message）", () => {
+    const t = makeAdapter();
+    fireEvent(t, "llm/retry", {
+      turn: 1,
+      step: 2,
+      provider: "pi",
+      mode: "normal",
+      policyKey: "p",
+      retry: 1,
+      maxRetries: 2,
+      delayMs: 1500,
+      failure: { code: "TRANSPORT", message: "连接被重置" },
+    });
+    assert.deepEqual(t.events, [
+      {
+        type: "retry",
+        attempt: 1,
+        max: 2,
+        delayMs: 1500,
+        code: "TRANSPORT",
+        message: "连接被重置",
+      },
+    ]);
+  });
+
+  test("assistant/message：usage 补发 usage 事件（input/output/cacheRead）", () => {
+    const t = makeAdapter();
+    fireEvent(t, "assistant/message", {
+      turn: 1,
+      step: 1,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "hi" }],
+      },
+      usage: {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 800,
+        cacheWriteTokens: 10,
+      },
+    });
+    assert.deepEqual(t.events, [
+      {
+        type: "usage",
+        sessionId: "s1",
+        input: 100,
+        output: 50,
+        cacheRead: 800,
+      },
+      { type: "stream", sessionId: "s1", text: "hi" },
+    ]);
+  });
+
+  test("turn/end reason：error → 带 tone 的错误 notice（code/消息）", () => {
+    const t = makeAdapter();
+    fireEvent(t, "turn/end", {
+      turn: 1,
+      reason: {
+        kind: "error",
+        error: { code: "RATE_LIMIT", message: "429 too many" },
+      },
+    });
+    assert.deepEqual(t.events, [
+      { type: "turn-end" },
+      {
+        type: "notice",
+        text: "✗ RATE_LIMIT: 429 too many",
+        error: true,
+        tone: "error",
+      },
+    ]);
+  });
+
+  test("turn/end reason：max-tokens/aborted → 带 tone 的提示", () => {
+    const t = makeAdapter();
+    fireEvent(t, "turn/end", { turn: 2, reason: { kind: "max-tokens" } });
+    fireEvent(t, "turn/end", {
+      turn: 3,
+      reason: { kind: "aborted", reason: { kind: "user" } },
+    });
+    assert.deepEqual(t.events, [
+      { type: "turn-end" },
+      { type: "notice", text: "输出达 token 上限", tone: "warn" },
+      { type: "turn-end" },
+      { type: "notice", text: "已取消", tone: "muted" },
+    ]);
+  });
+
+  test("turn/end reason：completed 静默（仅 turn-end，无 notice）", () => {
+    const t = makeAdapter();
+    fireEvent(t, "turn/end", { turn: 1, reason: { kind: "completed" } });
+    assert.deepEqual(t.events, [{ type: "turn-end" }]);
+  });
+
+  test("session/event：非活跃会话的 tool/compaction/retry 事件丢弃", () => {
+    const t = makeAdapter(); // 活跃会话 = s1
+    fireEvent(
+      t,
+      "tool/call",
+      { callId: "c9", name: "read", arguments: "{}" },
+      "other",
+    );
+    fireEvent(t, "compaction/start", { compactionId: "x" }, "other");
+    fireEvent(
+      t,
+      "llm/retry",
+      { retry: 1, maxRetries: 2, failure: { code: "T", message: "m" } },
+      "other",
+    );
+    assert.equal(t.events.length, 0, "非活跃会话事件被丢弃");
+  });
+
+  test("reduceState：usage → state.usage（仅入状态）；tool/compaction/retry 透传不渲染", () => {
+    const s0 = initialState();
+    const s1 = reduceState(s0, {
+      type: "usage",
+      sessionId: "s1",
+      input: 10,
+      output: 20,
+      cacheRead: 30,
+    });
+    assert.deepEqual(s1.usage, { input: 10, output: 20, cacheRead: 30 });
+    // 透传：引用稳定（不产成新 buffer 行、不改状态，阶段 2 才渲染）
+    const s2 = reduceState(s1, {
+      type: "tool-call",
+      sessionId: "s1",
+      name: "bash",
+      summary: "ls",
+    });
+    assert.equal(s2, s1);
+    const s3 = reduceState(s2, { type: "compaction", phase: "start" });
+    assert.equal(s3, s2);
+    const s4 = reduceState(s3, {
+      type: "retry",
+      attempt: 1,
+      max: 2,
+      delayMs: 5,
+      code: "T",
+    });
+    assert.equal(s4, s3);
+    const s5 = reduceState(s4, {
+      type: "tool-result",
+      sessionId: "s1",
+      ok: true,
+      detail: "ok",
+    });
+    assert.equal(s5, s4);
+  });
 });

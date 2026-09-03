@@ -15,6 +15,8 @@ export interface ApprovalItem {
   prompt: string;
 }
 
+/** notice 色调分级（turn/end finish reason 等驱动：error 红 / warn 黄 / muted 灰） */
+export type NoticeTone = "error" | "warn" | "muted";
 /** 应用层收到的归一化事件（见文件头映射表） */
 export type DshEvent =
   | { type: "session-list"; sessions: SessionMeta[] }
@@ -24,8 +26,26 @@ export type DshEvent =
   | { type: "approval"; id: string; prompt: string }
   | { type: "question"; id: string; questions: QuestionItem[] }
   | { type: "agent-status"; sessionId: string; status: AgentStatus }
-  | { type: "notice"; text: string; error?: boolean }
-  | { type: "turn-end" };
+  | { type: "notice"; text: string; error?: boolean; tone?: NoticeTone }
+  | { type: "turn-end" }
+  | { type: "tool-call"; sessionId: string; name: string; summary: string }
+  | { type: "tool-result"; sessionId: string; ok: boolean; detail: string }
+  | {
+      type: "usage";
+      sessionId: string;
+      input: number;
+      output: number;
+      cacheRead: number;
+    }
+  | { type: "compaction"; phase: "start" | "end" }
+  | {
+      type: "retry";
+      attempt: number;
+      max: number;
+      delayMs: number;
+      code: string;
+      message?: string;
+    };
 
 /** 应用层对 adapter 的唯一依赖面：事件流入 + 出站回调（消息/命令/审批/打断） */
 export interface DshAdapter {
@@ -97,6 +117,16 @@ export interface ModelCatalog {
   current: ModelSelection | undefined;
 }
 
+/** 单次模型调用的 token 用量（assistant/message.usage 载荷；cache 字段可选） */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+}
+
 // ---------- 以下 DSH 原生类型仅供阶段 2 adapter 实现参考（app 层不消费） ----------
 
 /** DSH 会话事件类型子集（完整枚举见 KNOWN_SESSION_EVENT_TYPES，generated） */
@@ -118,6 +148,7 @@ export type SessionEventType =
   | "goal/change"
   | "compaction/start"
   | "compaction/end"
+  | "llm/retry"
   | "plan/mode"
   | "sandbox/mode"
   | "subagent/descriptor"
