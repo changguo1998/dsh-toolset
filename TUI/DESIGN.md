@@ -229,3 +229,82 @@ interface Renderer {
 - **特性级**（需产品决策，非渲染缺口）：session fork（`sessions.fork`）、多会话并行（P0 边界排除）、feedback 评价
 - **TUI 自身渲染边界**：嵌套 markdown、上下标、thinking 展开/收起
 - **0.1.2 alpha 专有**（等出 rc 再评估）：`model/selection`、`subagent/model-selection-policy`、`session-log-deepseek/delivery-accepted`
+
+## P1 实现计划（2026-09-03，三阶段，每阶段一个可审计 goal）
+
+### 范围与关键决策
+
+| 决策点 | 结论 | 理由 |
+| --- | --- | --- |
+| 范围 | P1 五项：工具可见性、usage 状态栏、finish reason、compaction toast、retry toast | P2 需面板/槽位设计，依赖 P1 工具域先行 |
+| 工具可视化形态 | 紧凑 buffer 行（append-only），不做面板 | 现有 buffer 管线可直接承载；面板属 P2 |
+| 通道 | 全部走现有 DshEvent → reducer → 渲染链路，新增 4 个事件类型 | 不引入新管线 |
+| usage 落点 | 复用状态栏已有 `contextLen`/`cacheHit` 槽位（当前硬编码 "—"，state.ts:216） | 零新增布局 |
+| finish reason 数据源 | `turn/end.reason`（rc.2 为结构化判别联合，比 StreamChunk finish 更完整） | 现状 turn/end 只发空 `turn-end`，丢弃了 reason |
+| 不做 | `meta` diff 展示、callId 配对 spinner、多行工具面板 | 全部归 P2 |
+
+### 事件映射（rc.2 载荷 → TUI DshEvent）
+
+| rc.2 事件（载荷已核实） | 新 DshEvent | 渲染 |
+| --- | --- | --- |
+| `tool/call` `{turn, step, callId, name, arguments: string}` | `tool-call` `{sessionId, name, summary}` | buffer 行 `⚙ <name> <summary>`（summary = arguments JSON 关键字段启发式提取，截断一行） |
+| `tool/result` `{message, error?: {name, code}, meta?}` | `tool-result` `{sessionId, ok, detail}` | buffer 行 `✓ <detail 首行截断>`；错误 `✗ <error.name>: <message>`（红色） |
+| `assistant/message` 的 `usage?: TokenUsage`（现已解析即丢） | `usage` `{sessionId, input, output, cacheRead}` | 状态栏槽位 `ctx 12.4k` + `cache 92%`（最新一次请求为准，不累计） |
+| `turn/end` 的 `reason`（completed/aborted/blocked/error/max-tokens/interrupted） | 现有 `notice` 增加可选 `tone` 字段 | error → 红 `✗ <code>: <message>`；max-tokens → 黄"输出达 token 上限"；aborted → 灰"已取消"；completed 静默 |
+| `compaction/start` + `compaction/end` `{compactionId, sourceCommandId?}` | `compaction` `{phase}` | notice toast："正在压缩上下文…" / "压缩完成" |
+| `llm/retry` `{retry, maxRetries, delayMs, failure: {code, message}, provider}` | `retry` `{attempt, max, delayMs, code}` | notice toast："重试 1/2 (1.5s): TRANSPORT 连接被重置"；`llm/retry-started` 先不处理，形状实现时再核 |
+
+### 阶段 1 — adapter 归一化 + 事件类型（无 UI 变化）
+
+| 文件 | 改动 | 估计 |
+| --- | --- | --- |
+| `src/app/adapter/types.ts` | 新增 4 个 DshEvent 类型；notice 加 `tone?` | ~25 行 |
+| `src/app/adapter/dsh.ts`（onSessionEvent 归一化 switch） | 新增 tool/call、tool/result、compaction start/end、llm/retry case；assistant/message 补发 usage；turn/end 按 reason 发带 tone 的 notice | ~80 行 |
+| `src/app/state.ts` | reducer 对应 case（本阶段仅入状态/透传，不渲染） | ~30 行 |
+| `tests/adapter.dsh.test.ts` | mock session 事件序列 → 断言 DshEvent 序列（arguments 解析失败兜底、error 分支、非活跃会话丢弃） | ~250 行 |
+
+### 阶段 2 — 渲染 + 状态栏
+
+| 文件 | 改动 | 估计 |
+| --- | --- | --- |
+| `src/app/index.ts`（事件 switch） | tool-call/tool-result 直接 append（不进打字机队列）；usage/retry/compaction 分流 | ~50 行 |
+| 工具行渲染（`src/app/markdown.ts` 或新 `tool-line.ts`） | summary 启发式提取（read/write/edit → path，bash → command，grep → pattern，兜底 = 原始 JSON 截断）；wrap 遵循现有行规则 | ~60 行 |
+| `src/app/layout.ts`（状态栏） | `contextLen`/`cacheHit` 从 state.usage 取值（无 usage 时保持 "—"） | ~15 行 |
+| `tests/app.test.ts`、`tests/layout.test.ts`、`tests/screen.test.ts` | reducer/布局/帧测试 | ~300 行 |
+| `demo/` mock adapter | 注入 tool-call/result、usage、error turn 场景（PTY 验证依赖） | ~80 行 |
+
+### 阶段 3 — 联调与文档
+
+| 事项 | 内容 |
+| --- | --- |
+| 真实 DSH 验证 | 真实会话触发工具调用（读文件/跑命令）→ 紧凑行出现；turn 结束状态栏出 usage；error/retry/compaction toast 由 demo 场景覆盖 |
+| 文档同步 | 本文档 backlog 标记 P1 完成；IMPLEMENTATION.md 增补事件表；README 功能列表（AGENTS.md 要求） |
+| 收尾 | `format` 改动文件 → commit |
+
+### 验证契约（审计用）
+
+| 阶段 | 契约 |
+| --- | --- |
+| 1 | `npm run check` / `npm test` 全绿（含新 adapter 测试）；`git status` 干净 |
+| 2 | 同上 + `npm run build` + demo 场景断言（tool 行、状态栏 usage、error notice 均出现于帧输出） |
+| 3 | PTY 冒烟（真实 DSH 工具调用 + usage）+ 三文档 grep 检查 + 工作区干净 |
+
+### 风险 / 实现时需确认
+
+| 项 | 说明 |
+| --- | --- |
+| `ToolResultMessage` 内部形状 | 计划按 content blocks 取首行文本，实现时核 rc.2 定义 |
+| `TokenUsage` 字段名 | cache 读取字段的准确命名以 dsh-llm 类型为准（TUI types.ts 已有 usage chunk 雏形可对齐） |
+| retry/compaction 真实触发难 | 单测 + demo fixture 覆盖，真实设备只验 happy path |
+| 窄终端工具行换行 | 遵循现有 wrap 规则，测试覆盖 |
+
+### P1 之后（供排序，不展开）
+
+| 优先级 | 项 |
+| --- | --- |
+| P2 首 | `goal/change` + `todo/write` 迷你面板（复用 P1 工具行验证过的 buffer 行模式） |
+| P2 | 状态栏模式徽标（plan/sandbox/permission）、`step/start` + `step/end` 分步、审批策略切换 UI、`subagent/descriptor` |
+| P2 | tool `meta` diff 展示（+N/-M） |
+| P3 | 按上方 backlog 清单暂缓 |
+
+预估总改动 ~800 行（含测试）。每阶段完成报验证结果后再进下一阶段。
