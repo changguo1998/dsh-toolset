@@ -199,3 +199,33 @@ interface Renderer {
 - 信号/退出契约归 renderer
 - components 清单落实为 TextInput / ScrollView / ApprovalPrompt / ModelPicker / QuestionPrompt
 - adapter 接口化，ctx API 未确认前可 mock 替换
+
+## 能力缺口 Backlog（2026-09-03，基准 v0.1.1-rc.2）
+
+对照官方 `deepseek-harness` v0.1.1-rc.2（= 本机安装宿主）的接口与功能盘点。rc.2 的 8 个插件可消费服务（sessions / agents / approval / userQuestions / llm / commands / sessionQuery / agentDefaultModel）已全部接入；缺口集中在**事件可视化与交互能力**（rc.2 事件词汇表 48 项，以该 tag 的 `packages/core/session/src/known-event-types.ts` 为准）。优先级依据：用户感知频率 × 实现成本（现有 DshEvent / reducer / notice / 状态栏通道可复用程度）。
+
+### P1 — 核心体验补全（高频感知，现有通道即可落地）
+
+| 缺口 | 通道 | 理由 |
+| --- | --- | --- |
+| `tool/call` + `tool/result` | 新 DshEvent + 紧凑渲染（工具名+摘要+结果折叠） | 编码代理 TUI 的第一可见性，当前完全不可见 |
+| usage/cost 状态栏 | 状态栏扩展（usage chunk 已解析，零新事件） | 成本几乎为零 |
+| `finish` reason | 挂 turn-end notice | 截断/失败静默是体验坑 |
+| `compaction/start` + `compaction/end` | notice toast | 长会话静默压缩造成困惑 |
+| `llm/retry-started` + `llm/retry` | notice toast | 重试透明化 |
+
+### P2 — 状态可见性与交互完整（中频，需小面板或状态栏槽位）
+
+- `goal/change`、`todo/write` — 状态区/迷你面板
+- `plan/mode`、`sandbox/mode`、`permission/preset` — 状态栏模式徽标
+- `step/start`|`end` — turn 内分步（依赖 P1 工具域先行）
+- 审批策略切换 UI（`setPolicy` ask/never）
+- `subagent/descriptor` — 子代理可见性
+
+### P3 — 低频生态域与特性决策（toast 或暂缓）
+
+- **生态事件**（低频/功能仍在演进）：`team/*`、`schedule/change`、`agent-preset/selected`、`tool-workflow/*`、`tool/code-dispatch*`、`hook/*`、`command/run`|`done`、`request/context`|`header`、`feedback/record`
+- **审计对**（log-only，无渲染需求，仅调试视图）：`approval/asked`|`decided`|`policy`、`session/end-seed`、`session/title-llm-request`、`web/deepseek-search-llm-request`
+- **特性级**（需产品决策，非渲染缺口）：session fork（`sessions.fork`）、多会话并行（P0 边界排除）、feedback 评价
+- **TUI 自身渲染边界**：嵌套 markdown、上下标、thinking 展开/收起
+- **0.1.2 alpha 专有**（等出 rc 再评估）：`model/selection`、`subagent/model-selection-policy`、`session-log-deepseek/delivery-accepted`
