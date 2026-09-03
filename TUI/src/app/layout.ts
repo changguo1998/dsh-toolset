@@ -20,7 +20,7 @@ import type {
 } from "./state.ts";
 
 import type { Buffer, BufferKind } from "./state.ts";
-import type { ApprovalItem } from "./adapter/dsh.ts";
+import type { ApprovalItem, NoticeTone } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
 import { renderHistoryPanel } from "./components/HistoryPanel.ts";
@@ -349,7 +349,13 @@ function wrapBufferLines(
         ? SEPARATOR.repeat(Math.max(1, width))
         : line.text;
     const rows = content === "" ? [""] : wrapLine(content, Math.max(1, width));
-    for (const text of rows) out.push({ text, kind: line.kind, indent: 0 });
+    // notice/tool 行可按 tone 着色（error 红 / warn 黄 / muted 灰）；无 tone 保持默认前景
+    const tone = line.tone;
+    const color = tone
+      ? (s: string) => colorFor(themeId, NOTICE_TONE_COLOR[tone])(s)
+      : (s: string) => s;
+    for (const text of rows)
+      out.push({ text: color(text), kind: line.kind, indent: 0 });
   }
   if (thinking.length > 0) {
     const cap = Math.max(1, thinkingMaxLines);
@@ -418,12 +424,42 @@ function colorModel(themeId: ThemeId, s: string): string {
     (effort ? colorFor(themeId, "gray")(effort) : "")
   );
 }
+/** notice/tool 行 tone → 着色名（error 红 / warn 黄 / muted 灰） */
+const NOTICE_TONE_COLOR: Record<NoticeTone, ColorName> = {
+  error: "red",
+  warn: "yellow",
+  muted: "gray",
+};
+
+/** token 数 → 紧凑缩写（k 千 / M 百万，1 位小数，如 12.4k / 1.5M） */
+function formatTokens(n: number): string {
+  if (n >= 1_000_000)
+    return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, "") + "k";
+  return String(n);
+}
+
+/** state.usage → 状态栏 contextLen/cacheHit 段（total<=0 或无用量时 undefined，保留占位） */
+function usageStatus(u: {
+  input: number;
+  output: number;
+  cacheRead: number;
+}): { ctx: string; cache: string } | undefined {
+  const total = u.input + u.cacheRead;
+  if (total <= 0) return undefined;
+  const pct = Math.round((u.cacheRead / total) * 100);
+  return { ctx: "ctx " + formatTokens(total), cache: "cache " + pct + "%" };
+}
+
 export function renderStatusLine(
   status: AppState["systemStatus"],
   title: string,
   themeId: ThemeId,
   cols: number,
+  /** 最新一次模型调用 token 用量（有且 total>0 时覆盖 contextLen/cacheHit 占位） */
+  usage?: AppState["usage"],
 ): RenderLine[] {
+  const u = usage ? usageStatus(usage) : undefined;
   const values: Array<{ seg: string; color: (s: string) => string }> = [
     { seg: status.time, color: identity },
     // 会话标题段：极窄终端（<24 列）省略以保留对话内容（窄屏退化）
@@ -438,8 +474,8 @@ export function renderStatusLine(
     { seg: status.model, color: (s) => colorModel(themeId, s) },
     { seg: status.cwd, color: colorFor(themeId, "blue") },
     { seg: status.git, color: identity },
-    { seg: status.contextLen, color: identity },
-    { seg: status.cacheHit, color: identity },
+    { seg: u?.ctx ?? status.contextLen, color: identity },
+    { seg: u?.cache ?? status.cacheHit, color: identity },
   ];
   // 布局先用纯文本算宽，着色放在行组装时（ANSI 码不进入宽度计算）。
   // 放不下的段溢出到下一行；段本身先按预算分块，保证任何单块都不超一行可用宽度。
@@ -498,6 +534,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     state.sessionTitle,
     state.themeId,
     fullWidth,
+    state.usage,
   );
   // 面板态/输入态共用固定交互区高度（见 metricsFor）；提示区仅输入态计入
   const metrics = metricsFor(

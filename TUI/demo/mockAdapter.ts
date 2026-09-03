@@ -239,6 +239,71 @@ export class MockDshAdapter implements DshAdapter {
         replyStart + chunks.length * 90 + 60,
       ),
     );
+    // 阶段 2 演示场景：工具调用/结果行、compaction/retry toast、错误回合红字、
+    // token 用量（状态栏 contextLen/cacheHit，cacheRead 随 seq 递增演示命中率）
+    const sceneAt = replyStart + chunks.length * 90 + 45;
+    this.timers.push(
+      setTimeout(() => {
+        if (this.seq === 1) {
+          // 归一化事件 tool-call（对应真实适配器 raw "tool/call"，阶段 3 联调由 dsh.ts 产出）
+          this.emit({
+            type: "tool-call",
+            sessionId: this.sessionId,
+            name: "bash",
+            summary: "ls -la src/app",
+          });
+          this.emit({
+            type: "tool-result",
+            sessionId: this.sessionId,
+            ok: true,
+            detail: "总用量 3 目录，代码 2.4k 行",
+          });
+        } else if (this.seq === 2) {
+          this.emit({
+            type: "retry",
+            attempt: 1,
+            max: 2,
+            delayMs: 1500,
+            code: "TRANSPORT",
+            message: "连接被重置",
+          });
+          this.emit({ type: "compaction", phase: "start" });
+          this.emit({ type: "compaction", phase: "end" });
+          this.emit({
+            type: "tool-call",
+            sessionId: this.sessionId,
+            name: "bash",
+            summary: "rm -rf /tmp/tui-demo",
+          });
+          this.emit({
+            type: "tool-result",
+            sessionId: this.sessionId,
+            ok: false,
+            detail: "EACCES: 13 权限不足",
+          });
+        } else if (this.seq === 3) {
+          this.emit({
+            type: "notice",
+            text: "回合失败：E1301 mock 模拟 transport 错误",
+            error: true,
+            tone: "error",
+          });
+        }
+      }, sceneAt),
+    );
+    this.timers.push(
+      setTimeout(
+        () =>
+          this.emit({
+            type: "usage",
+            sessionId: this.sessionId,
+            input: 4000 + this.seq * 2000,
+            output: 900 + this.seq * 120,
+            cacheRead: this.seq * 8000,
+          }),
+        sceneAt + 40,
+      ),
+    );
     if (this.seq === 2 && this.autoApproval) {
       // 第二次回复后触发一次审批
       const apId = this.sessionId + "/" + this.seq;
@@ -275,6 +340,7 @@ export class MockDshAdapter implements DshAdapter {
       "  - 输入消息后回车 → 触发模拟流式回复",
       "  - ↑/↓/PageUp/PageDown 在 scrollback 里翻页（上滚暂停跟随）",
       "  - 等第二次回复后出现审批弹窗 → y 批准 / n 拒绝",
+      "  - 每次回复演示阶段 2：工具行 ⚙/✓/✗、状态栏 ctx/cache、retry/compaction toast、错误回合红字",
       "  - 输入 /help /clearscreen /cls /quit 体验本地渲染命令",
       "  - 其他 /xxx 在 demo 模式回提示（真实模式走 commands 注册表）",
       "  - 输入框为空按 $ / / 切模式（空输入 Backspace 回退）；Esc 打断运行；Alt+Enter 打断并发送；退出用 /quit",

@@ -631,3 +631,189 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
     "thinking 不解析 markdown",
   );
 });
+
+// ===== 阶段 2：usage 状态栏槽位 + 工具行/notice tone 着色 =====
+
+const baseStatus = {
+  time: "10:00",
+  cwd: "~/p",
+  git: "main",
+  model: "deepseek",
+  contextLen: "—",
+  cacheHit: "—",
+};
+
+test("renderStatusLine: 有 usage 显示 ctx/cache，无 usage 保留占位 —", () => {
+  const noUsage = renderStatusLine(baseStatus, "（新会话）", "dark", 80);
+  assert.ok(
+    noUsage
+      .map((l) => l.text)
+      .join("\n")
+      .includes("—"),
+    "无 usage 保留占位 —",
+  );
+  const withUsage = renderStatusLine(baseStatus, "（新会话）", "dark", 80, {
+    input: 12000,
+    output: 900,
+    cacheRead: 24000,
+  });
+  const t = withUsage.map((l) => l.text).join("\n");
+  assert.ok(t.includes("ctx 36k"), `contextLen 段应显示 ctx 36k (got ${t})`);
+  assert.ok(t.includes("cache 67%"), "cacheHit 段应显示 cache 67%");
+});
+
+test("renderStatusLine: token 缩写 k/M（12.4k / 1.5M），零总量回占位", () => {
+  const mid = renderStatusLine(baseStatus, "t", "dark", 120, {
+    input: 12400,
+    output: 0,
+    cacheRead: 0,
+  });
+  assert.ok(
+    mid
+      .map((l) => l.text)
+      .join("\n")
+      .includes("ctx 12.4k"),
+  );
+  const big = renderStatusLine(baseStatus, "t", "dark", 120, {
+    input: 1500000,
+    output: 0,
+    cacheRead: 0,
+  });
+  assert.ok(
+    big
+      .map((l) => l.text)
+      .join("\n")
+      .includes("ctx 1.5M"),
+  );
+  const zero = renderStatusLine(baseStatus, "t", "dark", 120, {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+  });
+  assert.ok(
+    zero
+      .map((l) => l.text)
+      .join("\n")
+      .includes("—"),
+    "总量为 0 回占位",
+  );
+});
+
+test("buildFrame: 工具调用/结果行（⚙/✓/✗，失败着红）", () => {
+  let s = initialState();
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "ls",
+  });
+  s = reduceState(s, {
+    type: "tool-result",
+    sessionId: "s1",
+    ok: true,
+    detail: "总用量 0",
+  });
+  s = reduceState(s, {
+    type: "tool-result",
+    sessionId: "s1",
+    ok: false,
+    detail: "EACCES: 13",
+  });
+  const joined = buildFrame(s, { rows: 10, cols: 40 })
+    .map((l) => l.text)
+    .join("\n");
+  const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.ok(plain.includes("⚙ bash ls"), "工具调用行 ⚙ name summary");
+  assert.ok(plain.includes("✓ 总用量 0"), "成功结果行 ✓ detail");
+  assert.ok(plain.includes("✗ EACCES: 13"), "失败结果行 ✗ detail");
+  assert.ok(
+    joined.includes("\x1b[38;2;231;70;132m✗ EACCES: 13"),
+    "失败工具行着红(231;70;132)",
+  );
+});
+
+test("buildFrame: notice tone 行在帧内红/黄/灰着色", () => {
+  let s = initialState();
+  s = reduceState(s, { type: "notice", text: "红", tone: "error" });
+  s = reduceState(s, { type: "notice", text: "黄", tone: "warn" });
+  s = reduceState(s, { type: "notice", text: "灰", tone: "muted" });
+  const joined = buildFrame(s, { rows: 10, cols: 40 })
+    .map((l) => l.text)
+    .join("\n");
+  assert.ok(joined.includes("\x1b[38;2;231;70;132m红"), "error → 红");
+  assert.ok(joined.includes("\x1b[38;2;231;169;70m黄"), "warn → 黄");
+  assert.ok(joined.includes("\x1b[38;2;120;120;120m灰"), "muted → 灰");
+});
+
+test("buildFrame: usage 入帧 → 状态栏显示 ctx/cache（取代占位 —）", () => {
+  let s = initialState();
+  s = reduceState(s, {
+    type: "usage",
+    sessionId: "s1",
+    input: 8000,
+    output: 200,
+    cacheRead: 4000,
+  });
+  const plain = buildFrame(s, { rows: 6, cols: 60 })
+    .map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""))
+    .join("\n");
+  // total=12000 → ctx 12k；cache=4000/12000≈33%
+  assert.ok(plain.includes("ctx 12k"), "帧内状态栏应有 ctx 12k");
+  assert.ok(plain.includes("cache 33%"), "帧内状态栏应有 cache 33%");
+  assert.ok(!plain.includes("ctx —"), "usage 后 contextLen 不再显示占位 —");
+});
+
+test("buildFrame: compaction/retry toast 文案入帧", () => {
+  let s = initialState();
+  s = reduceState(s, { type: "compaction", phase: "start" });
+  s = reduceState(s, { type: "compaction", phase: "end" });
+  s = reduceState(s, {
+    type: "retry",
+    attempt: 1,
+    max: 2,
+    delayMs: 1500,
+    code: "TRANSPORT",
+    message: "连接被重置",
+  });
+  const plain = buildFrame(s, { rows: 10, cols: 60 })
+    .map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""))
+    .join("\n");
+  assert.ok(plain.includes("正在压缩上下文…"), "start toast");
+  assert.ok(plain.includes("压缩完成"), "end toast");
+  assert.ok(
+    plain.includes("重试 1/2 (1.5s): TRANSPORT 连接被重置"),
+    "retry toast 文案",
+  );
+});
+
+test("renderStatusLine: cache 命中率取整（全命中 → cache 100%）", () => {
+  const t = renderStatusLine(baseStatus, "t", "dark", 120, {
+    input: 500,
+    output: 500,
+    cacheRead: 9500,
+  })
+    .map((l) => l.text)
+    .join("\n");
+  assert.ok(t.includes("ctx 10k"), "total=10000 → ctx 10k");
+  assert.ok(t.includes("cache 95%"), "9500/10000 → cache 95%");
+  const full = renderStatusLine(baseStatus, "t", "dark", 120, {
+    input: 0,
+    output: 100,
+    cacheRead: 20000,
+  })
+    .map((l) => l.text)
+    .join("\n");
+  assert.ok(full.includes("cache 100%"), "cacheRead 全命中 → cache 100%");
+});
+
+test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段仍保留", () => {
+  const t = renderStatusLine(baseStatus, "（新会话）", "dark", 20, {
+    input: 12400,
+    output: 0,
+    cacheRead: 0,
+  })
+    .map((l) => l.text)
+    .join("\n");
+  assert.ok(t.includes("ctx 12.4k"), "窄列下 contextLen 段保留");
+  assert.ok(!t.includes("新会话"), "窄列下标题段省略");
+});

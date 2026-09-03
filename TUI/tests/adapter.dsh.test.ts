@@ -1992,7 +1992,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
     assert.equal(t.events.length, 0, "非活跃会话事件被丢弃");
   });
 
-  test("reduceState：usage → state.usage（仅入状态）；tool/compaction/retry 透传不渲染", () => {
+  test("reduceState：usage → state.usage；tool-call/tool-result/compaction/retry 阶段 2 真实渲染", () => {
     const s0 = initialState();
     const s1 = reduceState(s0, {
       type: "usage",
@@ -2002,30 +2002,63 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
       cacheRead: 30,
     });
     assert.deepEqual(s1.usage, { input: 10, output: 20, cacheRead: 30 });
-    // 透传：引用稳定（不产成新 buffer 行、不改状态，阶段 2 才渲染）
+    // 阶段 2：工具调用落工具行（⚙、新 buffer 行）
     const s2 = reduceState(s1, {
       type: "tool-call",
       sessionId: "s1",
       name: "bash",
       summary: "ls",
     });
-    assert.equal(s2, s1);
+    assert.notEqual(s2, s1, "tool-call 应产生新状态");
+    assert.ok(
+      s2.buffer.some((l) => l.kind === "tool" && l.text === "⚙ bash ls"),
+      "工具调用行入 buffer",
+    );
+    // compaction → notice toast
     const s3 = reduceState(s2, { type: "compaction", phase: "start" });
-    assert.equal(s3, s2);
-    const s4 = reduceState(s3, {
+    assert.ok(s3.buffer.some((l) => l.text === "正在压缩上下文…"));
+    const s3b = reduceState(s3, { type: "compaction", phase: "end" });
+    assert.ok(s3b.buffer.some((l) => l.text === "压缩完成"));
+    // retry → warn tone notice toast（黄）
+    const s4 = reduceState(s3b, {
       type: "retry",
       attempt: 1,
       max: 2,
       delayMs: 5,
       code: "T",
     });
-    assert.equal(s4, s3);
-    const s5 = reduceState(s4, {
+    assert.ok(
+      s4.buffer.some(
+        (l) =>
+          l.kind === "notice" &&
+          l.tone === "warn" &&
+          l.text.includes("重试 1/2"),
+      ),
+      "retry toast 为 warn notice",
+    );
+    // tool-result 成功 → ✓ 行（无 tone）；失败 → ✗ 行（error tone）
+    const okLine = reduceState(s4, {
       type: "tool-result",
       sessionId: "s1",
       ok: true,
       detail: "ok",
     });
-    assert.equal(s5, s4);
+    assert.ok(
+      okLine.buffer.some((l) => l.kind === "tool" && l.text === "✓ ok"),
+      "成功结果行 ✓",
+    );
+    const errLine = reduceState(okLine, {
+      type: "tool-result",
+      sessionId: "s1",
+      ok: false,
+      detail: "EACCES: 13",
+    });
+    assert.ok(
+      errLine.buffer.some(
+        (l) =>
+          l.kind === "tool" && l.tone === "error" && l.text === "✗ EACCES: 13",
+      ),
+      "失败结果行 ✗ + error tone",
+    );
   });
 });

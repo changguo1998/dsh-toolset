@@ -10,9 +10,11 @@ import type {
   QuestionItem,
   SessionInfo,
   HistoryMessage,
+  NoticeTone,
 } from "./adapter/dsh.ts";
 import type { ModelSelection } from "./adapter/dsh.ts";
 import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
+import { toolCallLine, toolResultLine } from "./layout/tool-line.ts";
 
 /** scrollback 行数上限（纯物理上限；DESIGN:2000 行） */
 export const MAX_BUFFER_LINES = 2000;
@@ -31,12 +33,13 @@ export type InputStatus = "success" | "running" | "failure";
 
 /** 缓冲行类型:用户输出靠右缩进展示,模型正文靠左;思考行限高,完成后清除 */
 export type BufferKind =
-  "user" | "assistant" | "thinking" | "notice" | "separator" | "plain";
+  "user" | "assistant" | "thinking" | "notice" | "tool" | "separator" | "plain";
 
-/** 缓冲行:纯文本 + 类型标记(展示时决定缩进/配色) */
+/** 缓冲行:纯文本 + 类型标记(展示时决定缩进/配色) + 可选 tone（notice/tool 行着色分级） */
 export interface BufferLine {
   text: string;
   kind: BufferKind;
+  tone?: NoticeTone;
 }
 
 export type Buffer = BufferLine[];
@@ -264,12 +267,13 @@ export function appendNotice(
   state: AppState,
   text: string,
   error = false,
+  tone?: NoticeTone,
 ): AppState {
   // 多行 notice 拆成多行 buffer，否则 wrapLine 把 \n 当普通字符(宽1)会让列宽对不齐，
   // 字词在中间被截断(例如 /quit 在 i 与 t 之间换行)。
   const buffer = state.buffer.length ? [...state.buffer] : [];
   for (const line of text.split("\n"))
-    buffer.push({ text: line, kind: "notice" });
+    buffer.push({ text: line, kind: "notice", ...(tone ? { tone } : {}) });
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
   // 失败标记(error notice，如未知 slash 命令 fail-close)→ 输入栏失败色(红)；
@@ -279,6 +283,22 @@ export function appendNotice(
     buffer,
     inputStatus: error ? statusFor(state, "failure") : state.inputStatus,
   };
+}
+
+/**
+ * 追加一条工具行（工具调用 ⚙ / 结果 ✓|✗）：独立成行、不进模型历史（与 notice 同）。
+ * tone=error 时渲染红色（工具结果失败 ✗），其余默认色。
+ */
+export function appendToolLine(
+  state: AppState,
+  text: string,
+  tone?: NoticeTone,
+): AppState {
+  const buffer = state.buffer.length ? [...state.buffer] : [];
+  buffer.push({ text, kind: "tool", ...(tone ? { tone } : {}) });
+  if (buffer.length > MAX_BUFFER_LINES)
+    buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
+  return { ...state, buffer };
 }
 
 /**
@@ -367,7 +387,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
     case "thinking":
       return appendThinking(state, action.text);
     case "notice":
-      return appendNotice(state, action.text, action.error);
+      return appendNotice(state, action.text, action.error, action.tone);
     case "clear-buffer":
       return clearBuffer(state);
     case "agent-status":
@@ -591,11 +611,30 @@ export function reduceState(state: AppState, action: StateAction): AppState {
     case "set-theme":
       return { ...state, themeId: action.themeId };
     case "tool-call":
+      // 工具调用：紧凑工具行（⚙ <name> <summary> 由 tool-line.ts 组装），不进模型历史
+      return appendToolLine(state, toolCallLine(action.name, action.summary));
     case "tool-result":
+      // 工具结果：✓ 成功 / ✗ 失败（失败红色，tone=error）
+      return appendToolLine(
+        state,
+        toolResultLine(action.ok, action.detail),
+        action.ok ? undefined : "error",
+      );
     case "compaction":
+      // 长会话压缩 toast：start/end 提示
+      return appendNotice(
+        state,
+        action.phase === "start" ? "正在压缩上下文…" : "压缩完成",
+      );
     case "retry":
-      // 阶段 1：透传（case 已识别、不渲染）；阶段 2 落 buffer 工具行 / toast
-      return state;
+      // 模型重试 toast：第 attempt/max 次 + 退避 + 失败码（黄色，表进行中）
+      return appendNotice(
+        state,
+        `重试 ${action.attempt}/${action.max} (${(action.delayMs / 1000).toFixed(1)}s): ${action.code}` +
+          (action.message ? " " + action.message : ""),
+        false,
+        "warn",
+      );
     case "usage":
       // 阶段 1：仅入状态（阶段 2 状态栏 contextLen/cacheHit 从 state.usage 读取）
       return {
@@ -615,7 +654,7 @@ export type StateAction =
   | { type: "append"; text: string }
   | { type: "user-line"; text: string }
   | { type: "thinking"; text: string }
-  | { type: "notice"; text: string; error?: boolean }
+  | { type: "notice"; text: string; error?: boolean; tone?: NoticeTone }
   | { type: "clear-buffer" }
   | { type: "agent-status"; status: AgentStatus }
   | { type: "approval"; approval: ApprovalItem | null }

@@ -272,9 +272,15 @@ export class App {
         break;
       case "notice":
         // 命令通知(结果/提示/错误)只进 UI 缓冲，绝不进模型历史；
-        // error 标记(如未知 slash 命令 fail-close)→ 输入栏失败色(红)
+        // error 标记(如未知 slash 命令 fail-close)→ 输入栏失败色(红)；
+        // tone 标记（turn/end finish reason 等）→ 渲染层按红/黄/灰着色
         this.apply((s) =>
-          reduceState(s, { type: "notice", text: e.text, error: e.error }),
+          reduceState(s, {
+            type: "notice",
+            text: e.text,
+            error: e.error,
+            tone: e.tone,
+          }),
         );
         break;
       case "turn-end":

@@ -2126,3 +2126,107 @@ test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC5
     "notice 提示已复制",
   );
 });
+
+// ===== 阶段 2：工具行 / usage 状态栏 / retry+compaction toast / notice tone 渲染 =====
+
+// 颜色断言用 dark 主题 24bit 前景码：红 #E74684 / 黄 #E7A946 / 灰 #434343
+test("tool-call → 缓冲出现工具行 ⚙ <name> <summary>", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "ls -la src/app",
+  });
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plain.some((l) => l.includes("⚙ bash ls -la src/app")),
+    "工具调用行含 ⚙ <name> <summary>",
+  );
+});
+
+test("tool-result 成功 → ✓ <detail>；失败 → 红色 ✗ <detail>", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({
+    type: "tool-result",
+    sessionId: "s1",
+    ok: true,
+    detail: "done: 0",
+  });
+  adapter.push({
+    type: "tool-result",
+    sessionId: "s1",
+    ok: false,
+    detail: "EACCES: 13",
+  });
+  const joined = renderer.lastRender.join("\n");
+  const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.ok(plain.includes("✓ done: 0"), "成功结果行 ✓ <detail>");
+  assert.ok(plain.includes("✗ EACCES: 13"), "失败结果行 ✗ <detail>");
+  assert.ok(
+    joined.includes("\x1b[38;2;231;70;132m✗ EACCES: 13"),
+    "失败工具行着红(231;70;132)",
+  );
+});
+
+test("notice tone → 红/黄/灰对应前景着色", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({ type: "notice", text: "出错", error: true, tone: "error" });
+  adapter.push({ type: "notice", text: "重试提示", tone: "warn" });
+  adapter.push({ type: "notice", text: "已删除", tone: "muted" });
+  const joined = renderer.lastRender.join("\n");
+  assert.ok(joined.includes("\x1b[38;2;231;70;132m出错"), "error tone → 红");
+  assert.ok(joined.includes("\x1b[38;2;231;169;70m重试提示"), "warn tone → 黄");
+  assert.ok(joined.includes("\x1b[38;2;120;120;120m已删除"), "muted tone → 灰");
+});
+
+test("compaction/retry → toast notice 文本（retry warn 黄）", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({ type: "compaction", phase: "start" });
+  adapter.push({ type: "compaction", phase: "end" });
+  adapter.push({
+    type: "retry",
+    attempt: 1,
+    max: 2,
+    delayMs: 1500,
+    code: "TRANSPORT",
+    message: "连接被重置",
+  });
+  const joined = renderer.lastRender.join("\n");
+  const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.ok(plain.includes("正在压缩上下文…"), "compaction start toast");
+  assert.ok(plain.includes("压缩完成"), "compaction end toast");
+  assert.ok(
+    plain.includes("重试 1/2 (1.5s): TRANSPORT 连接被重置"),
+    "retry toast 文案",
+  );
+  assert.ok(
+    joined.includes("\x1b[38;2;231;169;70m重试 1/2"),
+    "retry toast warn 黄",
+  );
+});
+
+test("usage 事件 → 状态栏显示 ctx/cache（替换占位 —）", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({
+    type: "usage",
+    sessionId: "s1",
+    input: 12000,
+    output: 900,
+    cacheRead: 24000,
+  });
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  // total=36000 → ctx 36k；cache=24000/36000≈67%
+  assert.ok(
+    plain.some((l) => l.includes("ctx 36k")),
+    "状态栏显示 ctx 36k",
+  );
+  assert.ok(
+    plain.some((l) => l.includes("cache 67%")),
+    "状态栏显示 cache 67%",
+  );
+});
