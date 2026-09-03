@@ -263,6 +263,12 @@ interface Renderer {
 | `src/app/state.ts` | reducer 对应 case（本阶段仅入状态/透传，不渲染） | ~30 行 |
 | `tests/adapter.dsh.test.ts` | mock session 事件序列 → 断言 DshEvent 序列（arguments 解析失败兜底、error 分支、非活跃会话丢弃） | ~250 行 |
 
+#### 阶段 1 边界修正（2026-09-03，已在暂停卡批准）
+
+- 阶段 1 允许改动 `src/app/index.ts`：仅新增 5 个新事件的 pass-through 分发（入 reducer，不渲染；渲染仍归阶段 2）。原因：`DshEvent` 为封闭联合 + index.ts 穷尽 `never` switch，新增成员若不在 index.ts 登记，`npm run check` 必失败——「不改 index.ts」与「新增成员 + tsc 全绿」互斥。
+- `state.ts` 的 StateAction 与 reducer 增加对应 case：`usage` 仅入状态（`state.usage`，阶段 2 状态栏 contextLen/cacheHit 读取）；tool-call/tool-result/compaction/retry 透传（case 已识别、不渲染）。
+- `retry` DshEvent 在计划 `{attempt, max, delayMs, code}` 基础上增加可选 `message`（llm/retry.failure.message），供 render 示例「TRANSPORT 连接被重置」使用；`tool-call.summary` / `tool-result.detail` 的启发式提取函数落在 dsh.ts（阶段 2 渲染如需更细可迁至 tool-line.ts）。
+
 ### 阶段 2 — 渲染 + 状态栏
 
 | 文件 | 改动 | 估计 |
