@@ -37,7 +37,7 @@
 | 6 | `134ff09` | 提取 slash 命令解析 |
 
 - 门禁：6 步每步 `npm run check`/`test`（233 全绿）/`build`/`git diff --check` 通过后提交，`DSH-CTX-API.md`、`state.ts`、`renderer/` 全程零改动。
-- 后续事项：`IMPLEMENTATION.md`/`DESIGN.md` 同步了新文件布局；`dsh.ts` 14 个未使用 `import type` 名（TS 6196 警告级）留作后续清理。
+- 后续事项：`IMPLEMENTATION.md`/`DESIGN.md` 已同步新文件布局；原 14 个未使用 `import type` 名（TS 6196）已随后续重构清理完毕（2026-09-03 复核：`tsc --noUnusedLocals` 零警告）。
 
 依赖方向（不变）：`main.ts` → `App` → `state/适配器`；`layout.ts` → 组件渲染函数（`renderQuestionPanel`/`renderModelPicker`）。
 
