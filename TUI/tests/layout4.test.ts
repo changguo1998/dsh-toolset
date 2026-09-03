@@ -277,6 +277,62 @@ test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", ()
 });
 
 test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(块右对齐、内部左对齐)", () => {
+  test("renderStatusLine: 长 cwd 按余宽保尾截断，中等宽度单行容纳", () => {
+    const lines = renderStatusLine(
+      {
+        time: "10:00",
+        cwd: "0123456789ABCDEF", // 16 字符，远超窄列余宽
+        git: "main",
+        model: "deepseek",
+        contextLen: "123",
+        cacheHit: "87%",
+      },
+      "t",
+      "dark",
+      40,
+    );
+    assert.equal(
+      lines.length,
+      1,
+      `中等宽度下预算截断应单行容纳 (got ${lines.length} lines)`,
+    );
+    const visible = lines[0]!.text.replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(visible.includes("…"), "cwd 过长应出现省略号");
+    assert.ok(!visible.includes("0123456789ABCDEF"), "cwd 不应原样整段保留");
+    assert.ok(visible.includes("9ABCDEF"), "cwd 截断应保留路径尾部");
+    assert.ok(visible.length <= 40, `单行不应超宽: ${visible}`);
+  });
+
+  test("renderStatusLine: 固定预算截断 git/标题（开头+…），稳定段宽度有上限", () => {
+    const lines = renderStatusLine(
+      {
+        time: "10:00",
+        cwd: "~/p",
+        git: "feature/very-long-branch-name",
+        model: "deepseek",
+        contextLen: "123",
+        cacheHit: "87%",
+      },
+      "一个非常长的会话标题标题标题标题标题标题标题",
+      "dark",
+      60,
+    );
+    // 未做固定预算截断时总宽 ≈ 5+15*2+26 会超过 60 列必然换行；应单行 + 省略号
+    assert.equal(
+      lines.length,
+      1,
+      `标题/git 截断后应单行容纳 (got ${lines.length} lines)`,
+    );
+    const visible = lines
+      .map((l) => l.text)
+      .join("\n")
+      .replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(visible.includes("…"), "git/标题过长应截断");
+    assert.ok(
+      !visible.includes("feature/very-long-branch-name"),
+      "超长分支名不应整段保留",
+    );
+  });
   let s = initialState();
   s = reduceState(s, {
     type: "user-line",

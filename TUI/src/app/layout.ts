@@ -451,6 +451,41 @@ function usageStatus(u: {
   return { ctx: "ctx " + formatTokens(total), cache: "cache " + pct + "%" };
 }
 
+/** 段文本按预算截断：过长保留开头 + 省略号（w<=3 视作不截断，交给换行兜底） */
+function fitHead(s: string, w: number): string {
+  if (w <= 3 || displayWidth(s) <= w) return s;
+  return truncateToWidth(s, w - 1) + "…";
+}
+
+/** 路径段按预算截断：保留末尾 + 省略号（路径尾部更有辨识度） */
+function fitTail(s: string, w: number): string {
+  if (w <= 3 || displayWidth(s) <= w) return s;
+  const budget = w - 1; // 省略号占 1 列
+  let kept = "";
+  let used = 0;
+  for (const ch of [...s].reverse()) {
+    const cw = charWidth(ch);
+    if (budget - used < cw) break; // 剩余预算放不下该字符则停，保留已取尾部
+    kept = ch + kept;
+    used += cw;
+  }
+  return "…" + kept;
+}
+
+/**
+ * 模型段按预算截断：优先截 provider/model 名，保留 effort 后缀（:min/:med/:max 等）。
+ * 稳定内容紧凑化，避免长模型名挤占动态段（cwd/ctx/cache）的宽度。
+ */
+function fitModel(s: string, w: number): string {
+  const slash = s.indexOf("/");
+  const colon = (slash < 0 ? s : s.slice(slash)).indexOf(":");
+  const effort = colon >= 0 ? s.slice(slash + colon) : ""; // 含 : 前缀
+  const body = effort ? s.slice(0, s.length - effort.length) : s;
+  if (w <= 4 || displayWidth(s) <= w) return s;
+  const bodyW = Math.max(1, w - 1 - displayWidth(effort)); // 留 1 列省略号
+  return truncateToWidth(body, bodyW) + "…" + effort;
+}
+
 export function renderStatusLine(
   status: AppState["systemStatus"],
   title: string,
@@ -460,32 +495,48 @@ export function renderStatusLine(
   usage?: AppState["usage"],
 ): RenderLine[] {
   const u = usage ? usageStatus(usage) : undefined;
-  const values: Array<{ seg: string; color: (s: string) => string }> = [
+  const ctxSeg = u?.ctx ?? status.contextLen;
+  const cacheSeg = u?.cache ?? status.cacheHit;
+  // 稳定组（time/title/model/git）按固定预算截断 → 各段宽度有上限、不变频跳动；
+  // 动态组（cwd/ctx/cache）独立成段，其中 cwd 独占单行余下宽度（留足变化空间）。
+  const titleSeg = cols >= 24 ? fitHead(title, 16) : "";
+  const gitSeg = fitHead(status.git, 12);
+  const fixed: Array<{ seg: string; color: (s: string) => string }> = [
     { seg: status.time, color: identity },
     // 会话标题段：极窄终端（<24 列）省略以保留对话内容（窄屏退化）
     ...(cols >= 24
       ? [
           {
-            seg: title,
-            color: (_s: string) => colorFor(themeId, "cyan")(title),
+            seg: titleSeg,
+            color: (_s: string) => colorFor(themeId, "cyan")(titleSeg),
           },
         ]
       : []),
-    { seg: status.model, color: (s) => colorModel(themeId, s) },
-    { seg: status.cwd, color: colorFor(themeId, "blue") },
-    { seg: status.git, color: identity },
-    { seg: u?.ctx ?? status.contextLen, color: identity },
-    { seg: u?.cache ?? status.cacheHit, color: identity },
+    { seg: fitModel(status.model, 22), color: (s) => colorModel(themeId, s) },
+    { seg: gitSeg, color: identity },
+    { seg: ctxSeg, color: identity },
+    { seg: cacheSeg, color: identity },
+  ];
+  // 单行预算：留首尾各 1 列，减固定段宽与 k 个分隔符，余下全给 cwd。
+  const maxSegW = Math.max(1, cols - 2); // 留首尾各 1 列
+  const k = fixed.length; // 固定段数 = 单行分隔符数（cwd 占 1 个分隔符）
+  const sumFixed = fixed.reduce((acc, f) => acc + displayWidth(f.seg), 0);
+  const cwdSeg = fitTail(status.cwd, maxSegW - k - sumFixed);
+  // 段序：稳定组在前（time|title|model|git），动态组在后（cwd|ctx|cache）
+  const headN = cols >= 24 ? 4 : 3;
+  const values: Array<{ seg: string; color: (s: string) => string }> = [
+    ...fixed.slice(0, headN),
+    { seg: cwdSeg, color: colorFor(themeId, "blue") },
+    ...fixed.slice(headN), // ctx/cache
   ];
   // 布局先用纯文本算宽，着色放在行组装时（ANSI 码不进入宽度计算）。
-  // 放不下的段溢出到下一行；段本身先按预算分块，保证任何单块都不超一行可用宽度。
+  // 极窄终端预算不足（cwd 未截断）时仍可溢出到下一行，段不丢。
   const rows: RenderLine[] = [];
   let line: Array<{ text: string; color: (s: string) => string }> = [];
   let used = 0; // 已占用可见宽度（含分隔符，不含行首尾空格）
-  const maxSegW = Math.max(1, cols - 2); // 留首尾各 1 列
   const flush = (): void => {
     rows.push({
-      text: " " + line.map((k) => k.color(k.text)).join("|") + " ",
+      text: " " + line.map((k2) => k2.color(k2.text)).join("|") + " ",
     });
     line = [];
     used = 0;
