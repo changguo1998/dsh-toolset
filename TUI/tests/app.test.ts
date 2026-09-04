@@ -952,6 +952,14 @@ test("交互选择：↑/↓ 移动，Enter 确认持久切换并保留当前 re
     },
   ]);
   assert.deepEqual(adapter.sent, []);
+  // 状态栏 model 段：多等级模型开启思考 → 按实际等级名显示（而非笼统 on）
+  const statusJoined = renderer.lastRender
+    .map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""))
+    .join("\n");
+  assert.ok(
+    statusJoined.includes(":high"),
+    "多等级开启应按实际等级名显示 (deepseek-reasoner:high)",
+  );
 });
 
 test("交互选择：Esc 取消不改变，退出后输入恢复正常", async () => {

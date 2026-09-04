@@ -51,6 +51,8 @@ export interface SystemStatus {
   git: string;
   /** 无数据源时的占位符（上下文长度/缓存命中率；model 默认占位、切换会话模型后更新） */
   model: string;
+  /** 思考后缀：none=不支持、off=支持但未开启、on=单等级开启、实际等级名=多等级开启（缺失=未知，按 none 渲染） */
+  modelThinking?: string;
   contextLen: string;
   cacheHit: string;
 }

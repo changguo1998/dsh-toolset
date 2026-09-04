@@ -659,6 +659,13 @@ export function renderStatusLine(
   // 动态组（cwd/ctx/cache）独立成段，其中 cwd 独占单行余下宽度（留足变化空间）。
   const titleSeg = cols >= 24 ? fitHead(title, 16) : "";
   const gitSeg = fitHead(status.git, 12);
+  // 思考状态并入 model 段（同一段）：provider/model:{后缀}
+  // 后缀=on/off/none 或实际等级名（多等级开启如 high/low/max）
+  const modelBase = status.model.replace(/:[^:]*$/, "");
+  const thinkOn = status.model !== modelBase;
+  // modelThinking 显式后缀；缺失时按字符串回退（有 :effort=on，其余 none）
+  const thinkState = status.modelThinking ?? (thinkOn ? "on" : "none");
+  const modelSeg = `${modelBase}:${thinkState}`;
   const fixed: Array<{ seg: string; color: (s: string) => string }> = [
     { seg: status.time, color: identity },
     // 会话标题段：极窄终端（<24 列）省略以保留对话内容（窄屏退化）
@@ -670,7 +677,7 @@ export function renderStatusLine(
           },
         ]
       : []),
-    { seg: fitModel(status.model, 22), color: (s) => colorModel(themeId, s) },
+    { seg: fitModel(modelSeg, 22), color: (s) => colorModel(themeId, s) },
     { seg: gitSeg, color: identity },
     { seg: ctxSeg, color: identity },
     { seg: cacheSeg, color: identity },

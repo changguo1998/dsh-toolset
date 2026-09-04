@@ -283,7 +283,9 @@ test("renderStatusLine: model 段 provider 紫色、模型名绿色，路径段�
     text.includes("\x1b[38;2;70;132;231m"),
     "路径段应染蓝(blue #4684E7)",
   );
-  assert.ok(text.includes(":max"), "思考等级随行显示");
+  const visible = text.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.ok(visible.includes(":on"), "开启思考并入 model 段（:on 后缀保尾）");
+  assert.ok(!visible.includes(":max"), "思考状态以 on/off/none 取代实际等级名");
 });
 
 test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", () => {
@@ -347,12 +349,13 @@ test("renderStatusLine: 长 cwd 按余宽保尾截断，中等宽度单行容纳
       cwd: "0123456789ABCDEF", // 16 字符，远超窄列余宽
       git: "main",
       model: "deepseek",
+      modelThinking: "off", // 支持思考模型但当前未开启
       contextLen: "123",
       cacheHit: "87%",
     },
     "t",
     "dark",
-    40,
+    48,
   );
   assert.equal(
     lines.length,
@@ -360,10 +363,14 @@ test("renderStatusLine: 长 cwd 按余宽保尾截断，中等宽度单行容纳
     `中等宽度下预算截断应单行容纳 (got ${lines.length} lines)`,
   );
   const visible = lines[0]!.text.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.ok(
+    visible.includes("deepseek:off"),
+    "支持但未开启并入 model 段显示 off",
+  );
   assert.ok(visible.includes("…"), "cwd 过长应出现省略号");
   assert.ok(!visible.includes("0123456789ABCDEF"), "cwd 不应原样整段保留");
   assert.ok(visible.includes("9ABCDEF"), "cwd 截断应保留路径尾部");
-  assert.ok(visible.length <= 40, `单行不应超宽: ${visible}`);
+  assert.ok(visible.length <= 48, `单行不应超宽: ${visible}`);
 });
 
 test("renderStatusLine: 固定预算截断 git/标题（开头+…），稳定段宽度有上限", () => {
@@ -378,7 +385,7 @@ test("renderStatusLine: 固定预算截断 git/标题（开头+…），稳定�
     },
     "一个非常长的会话标题标题标题标题标题标题标题",
     "dark",
-    60,
+    68,
   );
   // 未做固定预算截断时总宽 ≈ 5+15*2+26 会超过 60 列必然换行；应单行 + 省略号
   assert.equal(
@@ -395,6 +402,40 @@ test("renderStatusLine: 固定预算截断 git/标题（开头+…），稳定�
     !visible.includes("feature/very-long-branch-name"),
     "超长分支名不应整段保留",
   );
+});
+
+test("renderStatusLine: 思考后缀 none/off/on/实际等级名", () => {
+  // none=不支持；off=支持未开；on=单等级开启；等级名=多等级开启（modelThinking 显式驱动）
+  const cases: Array<[string, string]> = [
+    ["none", "deepseek:none"],
+    ["off", "deepseek:off"],
+    ["on", "deepseek:on"],
+    ["high", "deepseek:high"],
+  ];
+  for (const [mt, expect] of cases) {
+    const lines = renderStatusLine(
+      {
+        time: "10:00",
+        cwd: "~/p",
+        git: "main",
+        model: "deepseek",
+        modelThinking: mt,
+        contextLen: "123",
+        cacheHit: "87%",
+      },
+      "t",
+      "dark",
+      80,
+    );
+    const visible = lines
+      .map((l) => l.text)
+      .join("")
+      .replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(
+      visible.includes(expect),
+      `modelThinking=${mt} 应显示 ${expect} (got ${visible})`,
+    );
+  }
 });
 
 test("会话流：短用户消息块整体靠右，右缘贴历史区右缘，块内左对齐", () => {
@@ -551,7 +592,7 @@ test("会话流：窄终端仍保留用户与思考文本", () => {
   let s = initialState();
   s = reduceState(s, { type: "user-line", text: "用户" });
   s = reduceState(s, { type: "thinking", text: "思考" });
-  const plain = buildFrame(s, { rows: 10, cols: 8 }).map((line) =>
+  const plain = buildFrame(s, { rows: 12, cols: 8 }).map((line) =>
     line.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const narrowJoined = plain.join("");

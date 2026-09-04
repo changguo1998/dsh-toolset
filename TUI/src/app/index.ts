@@ -150,20 +150,50 @@ export class App {
   /** 生效模型缓存 key；值变化才重绘（避免每 5s 空重绘） */
   private modelStatusKey: string | undefined;
 
-  /** 读取生效模型(会话切换 ?? 宿主默认)写入状态栏 model；无变化时跳过 */
-  private refreshModelStatus(): void {
-    void this.deps.adapter.modelCatalog().then((catalog) => {
-      if (this.disposed) return;
-      const cur = catalog.current;
-      if (!cur?.provider || !cur.model) return;
-      const key = modelLabel(cur);
-      if (key === this.modelStatusKey) return;
-      this.modelStatusKey = key;
-      this.apply((s) =>
-        reduceState(s, { type: "status", status: { model: key } }),
-      );
-      this.paint();
-    });
+  /** 读取生效模型(会话切换 ?? 宿主默认)写入状态栏 model+思考徽标；无变化时跳过 */
+  private async refreshModelStatus(): Promise<void> {
+    const catalog = await this.deps.adapter.modelCatalog();
+    if (this.disposed) return;
+    const cur = catalog.current;
+    if (!cur?.provider || !cur.model) return;
+    const key = modelLabel(cur);
+    if (key === this.modelStatusKey) return;
+    this.modelStatusKey = key;
+    const thinking = await this.resolveThinking(
+      cur.provider,
+      cur.model,
+      cur.reasoningEffort,
+    );
+    if (this.disposed || key !== this.modelStatusKey) return;
+    this.apply((s) =>
+      reduceState(s, {
+        type: "status",
+        status: { model: key, modelThinking: thinking },
+      }),
+    );
+    this.paint();
+  }
+
+  /** 解析思考后缀（写状态栏 model 段）：none=不支持、off=未开启、on=单等级开启、
+   *  多等级开启时返回实际等级名（如 high/low/max） */
+  private async resolveThinking(
+    provider: string,
+    model: string,
+    effort?: string,
+  ): Promise<string> {
+    let efforts: Array<{ id: string; name: string }> | undefined;
+    try {
+      efforts = await this.deps.adapter.modelEfforts(provider, model);
+    } catch {
+      return "none";
+    }
+    if (!efforts || efforts.length === 0) return "none";
+    if (!effort) return "off";
+    if (efforts.length > 1) {
+      const picked = efforts.find((e) => e.id === effort);
+      return picked ? picked.name : effort;
+    }
+    return "on";
   }
 
   dispose(): void {
@@ -1000,8 +1030,17 @@ export class App {
     }
     const saved = await this.deps.adapter.setSessionModel(plan.selection);
     const label = modelLabel(saved);
+    const thinking = await this.resolveThinking(
+      saved.provider,
+      saved.model,
+      saved.reasoningEffort,
+    );
+    if (this.disposed) return;
     this.apply((s) =>
-      reduceState(s, { type: "status", status: { model: label } }),
+      reduceState(s, {
+        type: "status",
+        status: { model: label, modelThinking: thinking },
+      }),
     );
     this.notice(`current model -> ${label}`);
   }
