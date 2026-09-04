@@ -93,6 +93,7 @@ npm run build # tsc → dist/（无 bundler，Node CLI）
 npm run check # tsc --noEmit 类型检查
 npm run test  # node --test 全量（renderer 解码 + adapter fake-ctx 单测）
 npm run demo  # 构建后跑 mock demo
+npm run watch # tsc --watch 常驻：源码变更自动编译到 dist/（仍需重启 dsh 生效）
 ```
 
 - `files` 发布字段覆盖 `dist/`、`bin/` 等；`cordis.patch.yml` 由 `package.json` 的 `dsh.bundle.patch` 引用。
