@@ -3,7 +3,7 @@
 //
 // 用真实 `dsh --profile dsh-toolset-tui`（PTY 由 `script` 分配）建一个真机会话，
 // 自动喂一条要求跑 bash 的提示词，限时轮询会话输出并断言：
-//   - 工具行「⚙ <name> <summary>」出现 → 阶段 2 工具行渲染经真实链路生效
+//   - 工具行「○ <name> <summary>」出现 → 阶段 2 工具行渲染经真实链路生效
 //   - 状态栏 usage「ctx <…> / cache <…%>」出现 → turn 结束状态栏 usage 生效
 // 同时命中即成功退出 0；多次尝试（默认 3 次）仍超时/未命中退出 1。
 // 副作用：每次尝试向 ~/.dsh 写入一个新冒烟会话（有界、默认 ≤3），
@@ -32,7 +32,7 @@ const fileOf = (pid) =>
 
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
 const wanted = (plain) =>
-  /⚙ /.test(plain) && /ctx \d/.test(plain) && /cache \d+%/.test(plain);
+  /\* /.test(plain) && /ctx \d/.test(plain) && /cache \d+%/.test(plain);
 
 /** 跑一次真实会话：喂提示词 → 轮询 → 命中返回捕获文本，否则返回 null */
 function runAttempt(attempt, file) {
@@ -126,7 +126,7 @@ for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     /* 清理失败不阻塞 */
   }
   if (res.ok) {
-    const key = (l) => /⚙|✓|✗|ctx |cache |重试|压缩|回合失败/.test(l);
+    const key = (l) => /○ |✓|✗|ctx |cache |重试|压缩|回合失败/.test(l);
     console.log("=== smoke evidence (关键行) ===");
     console.log(res.plain.split("\n").filter(key).slice(-40).join("\n"));
     console.log("SMOKE OK");
@@ -135,10 +135,10 @@ for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
   process.stderr.write(`[smoke] 尝试 ${attempt} 未命中，继续…\n`);
 }
 
-const key = (l) => /⚙|✓|✗|ctx |cache |重试|压缩|回合失败/.test(l);
+const key = (l) => /○ |✓|✗|ctx |cache |重试|压缩|回合失败/.test(l);
 console.log("=== smoke evidence (关键行, 最后尝试) ===");
 console.log(lastPlain.split("\n").filter(key).slice(-40).join("\n") || "(空)");
 console.log(
-  `SMOKE FAIL: ${ATTEMPTS} 次尝试均未同时出现 ⚙ 工具行与状态栏 usage（ctx/cache）`,
+  `SMOKE FAIL: ${ATTEMPTS} 次尝试均未同时出现 ○ 工具行与状态栏 usage（ctx/cache）`,
 );
 process.exit(1);

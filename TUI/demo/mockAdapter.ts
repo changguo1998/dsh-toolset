@@ -340,7 +340,7 @@ export class MockDshAdapter implements DshAdapter {
       "  - 输入消息后回车 → 触发模拟流式回复",
       "  - ↑/↓/PageUp/PageDown 在 scrollback 里翻页（上滚暂停跟随）",
       "  - 等第二次回复后出现审批弹窗 → y 批准 / n 拒绝",
-      "  - 每次回复演示阶段 2：工具行 ⚙/✓/✗、状态栏 ctx/cache、retry/compaction toast、错误回合红字",
+      "  - 每次回复演示阶段 2：工具行 ○/✓/✗、状态栏 ctx/cache、retry/compaction toast、错误回合红字",
       "  - 输入 /help /clearscreen /cls /quit 体验本地渲染命令",
       "  - 其他 /xxx 在 demo 模式回提示（真实模式走 commands 注册表）",
       "  - 输入框为空按 $ / / 切模式（空输入 Backspace 回退）；Esc 打断运行；Alt+Enter 打断并发送；退出用 /quit",

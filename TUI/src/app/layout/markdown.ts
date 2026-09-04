@@ -325,7 +325,7 @@ export function wrapAssistantLine(
   // 1. 分隔线：灰色横线铺满内容区（与 turn 分隔线视觉区分）
   if (RULE_RE.test(text)) {
     return wrapSegments(
-      [{ text: "─".repeat(Math.max(0, width)), style: { fg: "gray" } }],
+      [{ text: "-".repeat(Math.max(0, width)), style: { fg: "gray" } }],
       width,
       themeId,
     );
@@ -363,7 +363,7 @@ export function wrapAssistantLine(
     const body = quote[1]!.replace(/^[>\s]+/, "").trim();
     if (body === "") return [""];
     const segs: InlineSegment[] = [
-      { text: "│ ", style: { fg: "gray" } },
+      { text: "> ", style: { fg: "gray" } },
       ...parseInlineMarkdown(body, themeId).map((s) => ({
         text: s.text,
         style: mergeStyle({ fg: "gray" }, s.style ?? {}),

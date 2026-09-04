@@ -2002,7 +2002,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
       cacheRead: 30,
     });
     assert.deepEqual(s1.usage, { input: 10, output: 20, cacheRead: 30 });
-    // 阶段 2：工具调用落工具行（⚙、新 buffer 行）
+    // 阶段 2：工具调用落工具行（*、新 buffer 行）
     const s2 = reduceState(s1, {
       type: "tool-call",
       sessionId: "s1",
@@ -2011,12 +2011,12 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
     });
     assert.notEqual(s2, s1, "tool-call 应产生新状态");
     assert.ok(
-      s2.buffer.some((l) => l.kind === "tool" && l.text === "⚙ bash ls"),
+      s2.buffer.some((l) => l.kind === "tool" && l.text === "○ bash ls"),
       "工具调用行入 buffer",
     );
     // compaction → notice toast
     const s3 = reduceState(s2, { type: "compaction", phase: "start" });
-    assert.ok(s3.buffer.some((l) => l.text === "正在压缩上下文…"));
+    assert.ok(s3.buffer.some((l) => l.text === "正在压缩上下文..."));
     const s3b = reduceState(s3, { type: "compaction", phase: "end" });
     assert.ok(s3b.buffer.some((l) => l.text === "压缩完成"));
     // retry → warn tone notice toast（黄）
@@ -2036,7 +2036,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
       ),
       "retry toast 为 warn notice",
     );
-    // tool-result 成功 → ✓ 行（无 tone）；失败 → ✗ 行（error tone）
+    // tool-result 成功 → + 行（无 tone）；失败 → x 行（error tone）
     const okLine = reduceState(s4, {
       type: "tool-result",
       sessionId: "s1",
@@ -2045,7 +2045,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
     });
     assert.ok(
       okLine.buffer.some((l) => l.kind === "tool" && l.text === "✓ ok"),
-      "成功结果行 ✓",
+      "成功结果行 +",
     );
     const errLine = reduceState(okLine, {
       type: "tool-result",

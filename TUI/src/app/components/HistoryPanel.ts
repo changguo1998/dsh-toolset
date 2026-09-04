@@ -37,7 +37,7 @@ function tailCwd(cwd: string, w: number): string {
     used += c === "\t" ? 1 : displayWidth(c);
     out = c + out;
   }
-  return "…" + out;
+  return "..." + out;
 }
 
 /**
@@ -106,7 +106,7 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
   switch (h.phase) {
     case "loading-list":
       title = "历史会话";
-      body = ["加载中…"];
+      body = ["加载中..."];
       break;
     case "list":
       title = truncateToWidth(
@@ -125,11 +125,11 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
       break;
     case "loading-view":
       title = "历史会话 · " + (h.currentId ?? "").slice(0, 8);
-      body = ["加载内容…"];
+      body = ["加载内容..."];
       break;
     case "resuming":
       title = "历史会话 · " + (h.pendingResume ?? "").slice(0, 8);
-      body = ["切换到该会话…"];
+      body = ["切换到该会话..."];
       break;
     case "view": {
       title = truncateToWidth(

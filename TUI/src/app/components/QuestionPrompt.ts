@@ -36,12 +36,12 @@ export function renderQuestionPanel(
     pool.push(" " + (item.header ? item.header + "：" : "") + item.question);
     // detail：plan-review 以计划卡片呈现，普通题作为说明正文
     if (item.detail) {
-      if (isPlan) pool.push(" ── 待审计划 ──");
+      if (isPlan) pool.push(" -- 待审计划 --");
       for (const seg of item.detail.split("\n")) {
         if (seg === "") continue;
         pool.push(...wrapByWidth(" " + seg, avail));
       }
-      if (isPlan) pool.push(" ──────────────");
+      if (isPlan) pool.push(" --------------");
     }
     // 预设选项（记录选项区起点，供高亮行滚动窗口定位）
     const optStart = pool.length;

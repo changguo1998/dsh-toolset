@@ -69,7 +69,7 @@ const toolNames = (assembled: Record<string, unknown>): string[] =>
 const sectionNames = (assembled: Record<string, unknown>): string[] =>
   ((assembled.sections as Array<{ name: string }>) ?? []).map((s) => s.name);
 
-/* ── classifyTask ────────────────────────────────────────────────────────── */
+/* -- classifyTask ---------------------------------------------------------- */
 
 test("classifyTask: react 关键词胜出归 react", () => {
   assert.equal(classifyTask("从零开发一个网页游戏"), "react");
@@ -87,7 +87,7 @@ test("classifyTask: 未匹配或并列归 weak", () => {
   assert.equal(classifyTask("修复并开发"), "weak"); // 并列 → weak
 });
 
-/* ── coreFor ─────────────────────────────────────────────────────────────── */
+/* -- coreFor --------------------------------------------------------------- */
 
 test("coreFor: 三种模式目录正确且永不包含 glob/grep", () => {
   assert.deepEqual(coreFor("spec", "bash"), ["bash", "read", "edit"]);
@@ -101,7 +101,7 @@ test("coreFor: 三种模式目录正确且永不包含 glob/grep", () => {
   assert.deepEqual(coreFor("weak", "pwsh"), ["pwsh", "read"]);
 });
 
-/* ── personaFor ──────────────────────────────────────────────────────────── */
+/* -- personaFor ------------------------------------------------------------ */
 
 test("personaFor: spec/react 固定文案，weak 按模型分 pro/flash", () => {
   assert.match(personaFor("spec", "deepseek-v4-pro"), /software engineer/);
@@ -112,7 +112,7 @@ test("personaFor: spec/react 固定文案，weak 按模型分 pro/flash", () => 
   assert.match(personaFor("weak", "deepseek-v4-flash"), /environment checks/);
 });
 
-/* ── 模型门控 ─────────────────────────────────────────────────────────────── */
+/* -- 模型门控 --------------------------------------------------------------- */
 
 test("isV4ProModel: 仅 deepseek-v4 系的 pro 变体", () => {
   assert.equal(isV4ProModel("deepseek-v4-pro"), true);
@@ -125,7 +125,7 @@ test("isV4ProModel: 仅 deepseek-v4 系的 pro 变体", () => {
   assert.equal(isV4ProModel(""), false);
 });
 
-/* ── durable 事件推导 ─────────────────────────────────────────────────────── */
+/* -- durable 事件推导 ------------------------------------------------------- */
 
 test("sessionMode: 从首个 user/message 推导模式", () => {
   const events = [
@@ -149,7 +149,7 @@ test("isPromotedFromEvents: 存在 tool/call 即已提升", () => {
   assert.equal(isPromotedFromEvents(undefined), false);
 });
 
-/* ── applyPersona ─────────────────────────────────────────────────────────── */
+/* -- applyPersona ----------------------------------------------------------- */
 
 test("applyPersona: 替换 persona section 并保留其他", () => {
   const out = applyPersona(
@@ -164,7 +164,7 @@ test("applyPersona: 替换 persona section 并保留其他", () => {
   assert.equal(out[1]?.name, "agent-instructions");
 });
 
-/* ── installToolBootstrap 端到端 ─────────────────────────────────────────── */
+/* -- installToolBootstrap 端到端 ------------------------------------------- */
 
 const v4proCtx = (events: Record<string, unknown>[] = []) => ({
   agent: {

@@ -58,7 +58,7 @@ export interface SystemStatus {
 }
 
 /** turn 分隔线（横线占位；实际宽度由历史区换行决定） */
-export const TURN_SEPARATOR = "────────";
+export const TURN_SEPARATOR = "--------";
 
 /** 历史会话面板阶段：列表加载 → 列表 → 会话加载 → 浏览 → 错误（任一阶段可关闭） */
 export type HistoryPhase =
@@ -288,7 +288,7 @@ export function appendNotice(
 }
 
 /**
- * 追加一条工具行（工具调用 ⚙ / 结果 ✓|✗）：独立成行、不进模型历史（与 notice 同）。
+ * 追加一条工具行（工具调用 ○ / 结果 ✓|✗）：独立成行、不进模型历史（与 notice 同）。
  * tone=error 时渲染红色（工具结果失败 ✗），其余默认色。
  */
 export function appendToolLine(
@@ -630,7 +630,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       // 长会话压缩 toast：start/end 提示
       return appendNotice(
         state,
-        action.phase === "start" ? "正在压缩上下文…" : "压缩完成",
+        action.phase === "start" ? "正在压缩上下文..." : "压缩完成",
       );
     case "retry":
       // 模型重试 toast：第 attempt/max 次 + 退避 + 失败码（黄色，表进行中）

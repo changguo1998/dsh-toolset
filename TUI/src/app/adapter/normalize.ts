@@ -65,7 +65,7 @@ export function localTitleFromText(
 ): string | undefined {
   const t = (text ?? "").replace(/\s+/g, " ").trim();
   if (!t) return undefined;
-  return t.length > 30 ? t.slice(0, 30) + "…" : t;
+  return t.length > 30 ? t.slice(0, 30) + "..." : t;
 }
 
 /** DSH 'running'|'idle' → app AgentStatus */

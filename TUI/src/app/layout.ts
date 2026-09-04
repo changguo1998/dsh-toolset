@@ -146,7 +146,7 @@ export function computeViewport(vp: ViewportInput): Viewport {
 export const PLUGIN_WIDTH = 2;
 
 /** 水平分隔线字符 */
-export const SEPARATOR = "─";
+export const SEPARATOR = "-";
 
 /** 上/中/下三区之间的横线分隔行数 */
 export const SEPARATOR_ROWS = 2;
@@ -209,17 +209,17 @@ export function metricsFor(
  */
 function pluginCell(_row: number, _rows: number, width: number): string {
   // 竖线在最左，其余留白；超宽由调用方 truncate
-  return "│" + " ".repeat(Math.max(0, width - 1));
+  return "|" + " ".repeat(Math.max(0, width - 1));
 }
 
 /** 顶部区域：每行 = 左侧插件窄条 + 右侧历史行（合并为一个 RenderLine） */
 /** 对话区仅保留最近 DIALOGUE_KEEP_REPLIES 条回复，更早以灰占位折叠 */
 export const DIALOGUE_KEEP_REPLIES = 3;
-export const DIALOGUE_MORE = "…(更早回复已折叠)";
+export const DIALOGUE_MORE = "...(更早回复已折叠)";
 /** 活动区固定行高（下方思考/工具/瞬态窗口） */
 export const ACTIVITY_HEIGHT = 5;
 /** 活动区分隔线字形（与 turn/区域分隔线 `─` 区分，不参与 barRowCount 统计） */
-export const ACTIVITY_SEPARATOR = "╌";
+export const ACTIVITY_SEPARATOR = "=";
 
 /** 对话区按回复组折叠：仅保留最近 keep 组 assistant 回复，更早替换为灰色占位 */
 function foldDialogue(
@@ -333,10 +333,10 @@ function buildTopRegion(
 
 export const USER_MIN_LEFT_GUTTER = 4;
 export const THINKING_INDENT = 2;
-export const THINKING_MORE = "…(更多思考已折叠)";
+export const THINKING_MORE = "...(更多思考已折叠)";
 /** 工具调用历史：仅展示最近 TOOL_MAX_GROUPS 个调用组，更早隐藏（折叠标记） */
 export const TOOL_MAX_GROUPS = 4;
-export const TOOL_MORE = "…(更早工具调用已隐藏)";
+export const TOOL_MORE = "...(更早工具调用已隐藏)";
 /** THINKING_MAX 兼容导出（state.DEFAULT_THINKING_MAX_LINES 为权威默认） */
 export const THINKING_MAX: number = 4;
 
@@ -392,7 +392,7 @@ function wrapBufferLines(
     // 按调用分组：⚙ 起新组，后续 ✓/✗ 结果归入当前组
     const groups: BufferLine[][] = [[]];
     for (const l of toolRun) {
-      if (l.text.startsWith("⚙") && groups[groups.length - 1]!.length > 0)
+      if (l.text.startsWith("○") && groups[groups.length - 1]!.length > 0)
         groups.push([]);
       groups[groups.length - 1]!.push(l);
     }
@@ -548,17 +548,18 @@ export function modelLabel(sel: {
   return `${sel.provider}/${sel.model}${sel.reasoningEffort ? ":" + sel.reasoningEffort : ""}`;
 }
 
-/** provider 浅紫，模型名绿色，:effort 灰色；无 "/" 时整体绿色（如占位 "—" 保持无色） */
+/** provider 亮紫，模型名亮青，:后缀 灰色；无 "/" 时整体亮青（占位 "—" 保持无色）。
+ *  状态栏段配色约定：相邻段不同色、不用红/黄/绿状态色。 */
 function colorModel(themeId: ThemeId, s: string): string {
   const slash = s.indexOf("/");
-  if (slash < 0) return s === "—" ? s : colorFor(themeId, "green")(s);
+  if (slash < 0) return s === "—" ? s : colorFor(themeId, "brightCyan")(s);
   const rest = s.slice(slash + 1);
   const colon = rest.indexOf(":");
   const model = colon < 0 ? rest : rest.slice(0, colon);
   const effort = colon < 0 ? "" : rest.slice(colon);
   return (
     colorFor(themeId, "brightMagenta")(s.slice(0, slash)) +
-    colorFor(themeId, "green")("/" + model) +
+    colorFor(themeId, "brightCyan")("/" + model) +
     (effort ? colorFor(themeId, "gray")(effort) : "")
   );
 }
@@ -569,15 +570,15 @@ const NOTICE_TONE_COLOR: Record<NoticeTone, ColorName> = {
   muted: "gray",
 };
 
-/** 工具行前缀着色：⚙ 前缀青、工具名黄；✓ 前缀绿；✗/续行原样（✗ 由 tone 整体着红） */
+/** 工具行前缀着色：○ 前缀黄（运行中）、工具名黄；✓ 前缀绿；✗/续行原样（✗ 由 tone 整体着红） */
 function renderToolText(text: string, themeId: ThemeId): string {
-  if (text.startsWith("⚙ ")) {
+  if (text.startsWith("○ ")) {
     const rest = text.slice(2);
     const sp = rest.indexOf(" ");
     const name = sp < 0 ? rest : rest.slice(0, sp);
     const summary = sp < 0 ? "" : rest.slice(sp); // 含前导空格
     return (
-      colorFor(themeId, "cyan")("⚙") +
+      colorFor(themeId, "yellow")("○") +
       " " +
       colorFor(themeId, "yellow")(name) +
       summary
@@ -679,9 +680,13 @@ export function renderStatusLine(
   const groupWidth = (g: Seg[]): number =>
     g.reduce((acc, s, i) => acc + (i > 0 ? 1 : 0) + displayWidth(s.text), 0);
   // 各组完整版
+  // 段配色：time 默认 / git 洋红 / cwd 蓝 / title 青 / provider 亮紫 / model 亮青
+  //          / 后缀 灰 / ctx 亮蓝 / cache 默认——相邻段均异色，且不用红/黄/绿状态色
+  const magenta = (s: string) => colorFor(themeId, "magenta")(s);
+  const brightBlue = (s: string) => colorFor(themeId, "brightBlue")(s);
   const envFull: Seg[] = [
     { text: status.time, color: identity },
-    { text: status.git, color: identity },
+    { text: status.git, color: magenta },
     { text: status.cwd, color: blue },
   ];
   const sessionFull: Seg[] = withTitle
@@ -689,7 +694,7 @@ export function renderStatusLine(
     : [];
   const llmFull: Seg[] = [
     { text: modelSeg, color: (s) => colorModel(themeId, s) },
-    { text: ctxSeg, color: identity },
+    { text: ctxSeg, color: brightBlue },
     { text: cacheSeg, color: identity },
   ];
   // 各组超宽兜底（单组放不满一行时组内压缩）
@@ -701,7 +706,7 @@ export function renderStatusLine(
     );
     return [
       { text: status.time, color: identity },
-      { text: gitS, color: identity },
+      { text: gitS, color: magenta },
       { text: fitTail(status.cwd, budget), color: blue },
     ];
   };
@@ -718,7 +723,7 @@ export function renderStatusLine(
         text: fitModel(modelSeg, budget),
         color: (s) => colorModel(themeId, s),
       },
-      { text: ctxSeg, color: identity },
+      { text: ctxSeg, color: brightBlue },
       { text: cacheSeg, color: identity },
     ];
   };
@@ -853,7 +858,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     footerLines = renderTextInput(
       state.inputText,
       state.inputCursor,
-      "Type a message…",
+      "Type a message...",
       fullWidth,
       prompt,
       undefined,

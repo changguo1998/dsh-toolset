@@ -182,8 +182,8 @@ test("renderTextInput: 光标在行尾也能给出列（不在文本中间画块
 });
 
 test("renderTextInput: 空文本按 placeholder 渲染且光标在 prompt 之后", () => {
-  const line = renderTextInput("", 0, "Type a message…", 40)[0]!;
-  assert.equal(line.text, "> Type a message…");
+  const line = renderTextInput("", 0, "Type a message...", 40)[0]!;
+  assert.equal(line.text, "> Type a message...");
   assert.equal(line.caret, 2);
 });
 

@@ -233,7 +233,7 @@ test("普通输入同时本地回显用户行且靠右，不依赖 adapter 回�
   );
   assert.ok(
     plain.some(
-      (line) => line.includes("你好") && line.startsWith("│           "),
+      (line) => line.includes("你好") && line.startsWith("|           "),
     ),
   );
 });
@@ -243,7 +243,7 @@ test("thinking 事件显示临时思考，正文事件到达后消失", () => {
   adapter.push({ type: "thinking", sessionId: "s1", text: "正在分析" });
   const strip = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
   assert.ok(
-    strip(renderer.lastRender.join("\n")).includes("│   正在分析"),
+    strip(renderer.lastRender.join("\n")).includes("|   正在分析"),
     "思考行仅缩进展示(无[思考]前缀)",
   );
   adapter.push({ type: "stream", sessionId: "s1", text: "回答正文" });
@@ -1054,7 +1054,7 @@ test("App initialTheme 非法值回落 dark(外部配置健壮性)", () => {
 function barRowCount(renderer: FakeRenderer): number {
   return renderer.lastRender.filter((l) => {
     const t = l.replace(/\x1b\[[0-9;]*m/g, "");
-    return t.includes("─") && t.replace(/[│─]/g, "").trim() === "";
+    return t.includes("-") && t.replace(/[|-]/g, "").trim() === "";
   }).length;
 }
 
@@ -1132,7 +1132,7 @@ test("慢速流：分隔线在回合开始画，turn-end 不再画", () => {
     assert.equal(barRowCount(renderer), 3, "回合开始时先画分隔线");
     const joined = plain.join("\n");
     assert.ok(
-      joined.indexOf("第二回合正文") > joined.indexOf("────"),
+      joined.indexOf("第二回合正文") > joined.indexOf("----"),
       "分隔线应位于回合内容之前",
     );
     app.dispose();
@@ -1663,7 +1663,7 @@ test("deriveTitle：空/空白 →（新会话）；>30 字符截断加省略号
   const short = deriveTitle("你好 DSH");
   assert.equal(short, "你好 DSH");
   const long = deriveTitle("a".repeat(40));
-  assert.equal(long, "a".repeat(30) + "…");
+  assert.equal(long, "a".repeat(30) + "...");
   assert.equal(deriveTitle("a\n\n  b"), "a b");
 });
 
@@ -2147,7 +2147,7 @@ test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC5
 // ===== 阶段 2：工具行 / usage 状态栏 / retry+compaction toast / notice tone 渲染 =====
 
 // 颜色断言用 dark 主题 24bit 前景码：红 #E74684 / 黄 #E7A946 / 灰 #434343
-test("tool-call → 缓冲出现工具行 ⚙ <name> <summary>", () => {
+test("tool-call → 缓冲出现工具行 ○ <name> <summary>", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({
     type: "tool-call",
@@ -2159,8 +2159,8 @@ test("tool-call → 缓冲出现工具行 ⚙ <name> <summary>", () => {
     l.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   assert.ok(
-    plain.some((l) => l.includes("⚙ bash ls -la src/app")),
-    "工具调用行含 ⚙ <name> <summary>",
+    plain.some((l) => l.includes("○ bash ls -la src/app")),
+    "工具调用行含 ○ <name> <summary>",
   );
 });
 
@@ -2213,7 +2213,7 @@ test("compaction/retry → toast notice 文本（retry warn 黄）", () => {
   });
   const joined = renderer.lastRender.join("\n");
   const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
-  assert.ok(plain.includes("正在压缩上下文…"), "compaction start toast");
+  assert.ok(plain.includes("正在压缩上下文..."), "compaction start toast");
   assert.ok(plain.includes("压缩完成"), "compaction end toast");
   assert.ok(
     plain.includes("重试 1/2 (1.5s): TRANSPORT 连接被重置"),

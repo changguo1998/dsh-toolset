@@ -25,7 +25,7 @@ function capture(
 }
 
 test("满高帧 render：输入行(caret)后无 CRLF，光标精确落在输入行", () => {
-  const footer: RenderLine = { text: "> Type a message…", caret: 2 };
+  const footer: RenderLine = { text: "> Type a message...", caret: 2 };
   const lines: RenderLine[] = [
     ...Array.from({ length: 23 }, (_, i) => ({ text: `line${i}` })),
     footer,
@@ -46,7 +46,7 @@ test("满高帧 render：输入行(caret)后无 CRLF，光标精确落在输入�
 });
 
 test("非满高帧 render：普通行保留 CRLF，输入行仍定位正确", () => {
-  const footer: RenderLine = { text: "> Type a message…", caret: 2 };
+  const footer: RenderLine = { text: "> Type a message...", caret: 2 };
   const out = capture([{ text: "header" }, footer], 40, 24);
   const idx = out.lastIndexOf(footer.text);
   assert.equal(
@@ -75,7 +75,7 @@ test("renderDelta 非满高帧：输入行 CRLF-替换为 K + 定位，位置正
 });
 
 test("满高帧 render：输入行后 CRLF 换行、按键提示区另起一行；末行(提示区)无 CRLF", () => {
-  const input: RenderLine = { text: "> Type a message…", caret: 2 };
+  const input: RenderLine = { text: "> Type a message...", caret: 2 };
   const hint: RenderLine = { text: "[Enter]发送 · [Esc]打断" };
   const lines: RenderLine[] = [
     ...Array.from({ length: 22 }, (_, i) => ({ text: `line${i}` })),

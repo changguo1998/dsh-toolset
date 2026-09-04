@@ -106,7 +106,7 @@ test("themeSgr 输出 truecolor SGR(前景/背景)", () => {
   assert.equal(themeSgr(THEMES.light, false), "\x1b[48;2;223;227;248m");
 });
 
-test("colorFor(light,…) 以主题基底前景收尾，绝不出现 `39m`", () => {
+test("colorFor(light,...) 以主题基底前景收尾，绝不出现 `39m`", () => {
   const c = colorFor("light", "brightMagenta")("M");
   assert.ok(c.startsWith("\x1b[38;2;226;109;252m"), "应以前景 SGR 开头");
   assert.ok(c.endsWith("\x1b[38;2;85;85;85m"), "应以 ffflight 基底前景收尾");
