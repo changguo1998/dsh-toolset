@@ -185,8 +185,8 @@ interface Renderer {
 
 0. **DSH adapter 接口确认**（已完成，2026-08-23）：研读官方源码并沉淀于仓库根 `DSH-CTX-API.md`，接口形状已写入 `src/app/adapter/dsh.ts` 的类型骨架（DSH 原生类型 + 归一化映射表）。不再需要一次性的 spike 脚本；阶段 2 实现 real adapter 时直接在真实 DSH profile 内验证（订阅 → 流式 → 审批应答）。adapter 保持接口化以便 mock/真实替换。
 1. 实现 renderer 最小可用（raw mode + 输入解码 + 整帧重绘），`demo/` 跑通
-2. 接入 DSH 核心（adapter/dsh.ts，含审批与流式输出）
-3. 完善交互功能并打包为 DSH Profile Bundle（bin/dsh-tui.js）
+1. 接入 DSH 核心（adapter/dsh.ts，含审批与流式输出）
+1. 完善交互功能并打包为 DSH Profile Bundle（bin/dsh-tui.js）
 
 由 advisor 审阅（2026-08-22），本版修正：
 
@@ -200,9 +200,13 @@ interface Renderer {
 - components 清单落实为 TextInput / ScrollView / ApprovalPrompt / ModelPicker / QuestionPrompt
 - adapter 接口化，ctx API 未确认前可 mock 替换
 
-## 能力缺口 Backlog（2026-09-03，基准 v0.1.1-rc.2）
+## 能力缺口 Backlog（2026-09-03 首版；2026-09-04 复核：基准仍为 v0.1.1-rc.2 = 48 项，暂不升级 0.1.2）
 
-对照官方 `deepseek-harness` v0.1.1-rc.2（= 本机安装宿主）的接口与功能盘点。rc.2 的 8 个插件可消费服务（sessions / agents / approval / userQuestions / llm / commands / sessionQuery / agentDefaultModel）已全部接入；缺口集中在**事件可视化与交互能力**（rc.2 事件词汇表 48 项，以该 tag 的 `packages/core/session/src/known-event-types.ts` 为准）。优先级依据：用户感知频率 × 实现成本（现有 DshEvent / reducer / notice / 状态栏通道可复用程度）。
+对照官方 `deepseek-harness` v0.1.1-rc.2（= 本机安装宿主）的接口与功能盘点。8 个插件可消费服务（sessions / agents / approval / userQuestions / llm / commands / sessionQuery / agentDefaultModel）已全部接入；缺口集中在**事件可视化与交互能力**（rc.2 事件词汇表 48 项，以该 tag 的 `packages/core/session/src/known-event-types.ts` 为准）。优先级依据：用户感知频率 × 实现成本（现有 DshEvent / reducer / notice / 状态栏通道可复用程度）。
+
+- 事件词汇表以 rc.2 的 48 项为准；2026-09-04 与最新 master（52 项）核对，差异仅 3 项（`model/selection`、`subagent/model-selection-policy`、`session-log-deepseek/delivery-accepted`）——**因暂不升级 0.1.2，标为「master 前瞻」不入当前分级**（见下方 P3 末尾）。
+- `compaction/summary` / `compaction/prune` / `agent/inbox/spliced` / `team/*` 等在 rc.2 已存在，此前分级未单列，本次补齐；其中 `agent/inbox/spliced` **已用于历史重建**（`normalizeHistoryMessages`，当前 dsh 内存会话承载消息的形态）。
+- 优先级依据：用户感知频率 × 实现成本（现有 DshEvent / reducer / notice / 状态栏通道可复用程度）。
 
 ### P1 — 核心体验补全（高频感知，现有通道即可落地）
 
@@ -212,7 +216,7 @@ interface Renderer {
 | usage/cost 状态栏 | 状态栏扩展（usage chunk 已解析，零新事件） | 成本几乎为零 |
 | `finish` reason | 挂 turn-end notice | 截断/失败静默是体验坑 |
 | `compaction/start` + `compaction/end` | notice toast | 长会话静默压缩造成困惑 |
-| `llm/retry-started` + `llm/retry` | notice toast | 重试透明化 |
+| `llm/retry`（`retry-started` 先不处理，见事件映射表注） | notice toast | 重试透明化 |
 
 ### P2 — 状态可见性与交互完整（中频，需小面板或状态栏槽位）
 
@@ -221,14 +225,18 @@ interface Renderer {
 - `step/start`|`end` — turn 内分步（依赖 P1 工具域先行）
 - 审批策略切换 UI（`setPolicy` ask/never）
 - `subagent/descriptor` — 子代理可见性
+- `compaction/summary` — 压缩摘要文本展示（toast/折叠，压缩后的总结可读）
 
 ### P3 — 低频生态域与特性决策（toast 或暂缓）
 
 - **生态事件**（低频/功能仍在演进）：`team/*`、`schedule/change`、`agent-preset/selected`、`tool-workflow/*`、`tool/code-dispatch*`、`hook/*`、`command/run`|`done`、`request/context`|`header`、`feedback/record`
-- **审计对**（log-only，无渲染需求，仅调试视图）：`approval/asked`|`decided`|`policy`、`session/end-seed`、`session/title-llm-request`、`web/deepseek-search-llm-request`
+- **审计对**（log-only，无渲染需求，仅调试视图）：`approval/asked`|`decided`|`policy`、`session/end-seed`、`session/title-llm-request`、`web/deepseek-search-llm-request`、`compaction/prune`
 - **特性级**（需产品决策，非渲染缺口）：session fork（`sessions.fork`）、多会话并行（P0 边界排除）、feedback 评价
 - **TUI 自身渲染边界**：嵌套 markdown、上下标、thinking 展开/收起
-- **0.1.2 alpha 专有**（等出 rc 再评估）：`model/selection`、`subagent/model-selection-policy`、`session-log-deepseek/delivery-accepted`
+- **master 前瞻（rc.2 宿主不产生；暂不升级 0.1.2，升级后再评估）**：
+  - `model/selection` — 官方模型切换回放（届时可与 TUI /model 联动）
+  - `subagent/model-selection-policy` — 子代理模型策略
+  - `session-log-deepseek/delivery-accepted` — 内部日志交付确认
 
 ## P1 实现计划（2026-09-03，三阶段，每阶段一个可审计 goal）
 
@@ -247,7 +255,7 @@ interface Renderer {
 
 | rc.2 事件（载荷已核实） | 新 DshEvent | 渲染 |
 | --- | --- | --- |
-| `tool/call` `{turn, step, callId, name, arguments: string}` | `tool-call` `{sessionId, name, summary}` | buffer 行 `⚙ <name> <summary>`（summary = arguments JSON 关键字段启发式提取，截断一行） |
+| `tool/call` `{turn, step, callId, name, arguments: string}` | `tool-call` `{sessionId, name, summary}` | buffer 行 `○ <name> <summary>`（summary = arguments JSON 关键字段启发式提取，截断一行） |
 | `tool/result` `{message, error?: {name, code}, meta?}` | `tool-result` `{sessionId, ok, detail}` | buffer 行 `✓ <detail 首行截断>`；错误 `✗ <error.name>: <message>`（红色） |
 | `assistant/message` 的 `usage?: TokenUsage`（现已解析即丢） | `usage` `{sessionId, input, output, cacheRead}` | 状态栏槽位 `ctx 12.4k` + `cache 92%`（最新一次请求为准，不累计） |
 | `turn/end` 的 `reason`（completed/aborted/blocked/error/max-tokens/interrupted） | 现有 `notice` 增加可选 `tone` 字段 | error → 红 `✗ <code>: <message>`；max-tokens → 黄"输出达 token 上限"；aborted → 灰"已取消"；completed 静默 |
@@ -300,8 +308,8 @@ interface Renderer {
 P1 三阶段全部落地并经审计通过：
 
 - **阶段 1**：adapter 归一化 + 事件类型（tool-call/tool-result/usage/compaction/retry、notice `tone?`、finish reason 分级 notice）。
-- **阶段 2**：渲染 + 状态栏（工具行 ⚙/✓/✗、notice tone 红/黄/灰着色、状态栏 contextLen/cacheHit、retry/compaction toast）。
-- **阶段 3**：真实 DSH PTY 冒烟 happy path（`npm run smoke:pty`：真实会话断言 ⚙ 工具行与状态栏 usage）+ 本文档/IMPLEMENTATION.md/README 收尾。
+- **阶段 2**：渲染 + 状态栏（工具行 ○/✓/✗、notice tone 红/黄/灰着色、状态栏 contextLen/cacheHit、retry/compaction toast）。
+- **阶段 3**：真实 DSH PTY 冒烟 happy path（`npm run smoke:pty`：真实会话断言 ○ 工具行与状态栏 usage）+ 本文档/IMPLEMENTATION.md/README 收尾。
 
 backlog 状态：P1 完成；P2/P3 待排期。
 
