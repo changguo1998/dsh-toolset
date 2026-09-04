@@ -404,6 +404,32 @@ test("renderStatusLine: 固定预算截断 git/标题（开头+…），稳定�
   );
 });
 
+test("renderStatusLine: 宽度足够时各段完整显示不省略号", () => {
+  // 回归：宽屏不应因固定预算把 model/标题/git/cwd 截断隐藏
+  const cwd = "/home/user/projects/very/long/path/component";
+  const lines = renderStatusLine(
+    {
+      time: "10:00",
+      cwd,
+      git: "feature/very-long-branch",
+      model: "ustc/deepseek-v4-pro:high",
+      modelThinking: "high",
+      contextLen: "123",
+      cacheHit: "87%",
+    },
+    "一个非常长的会话标题标题标题",
+    "dark",
+    160,
+  );
+  assert.equal(lines.length, 1, "宽屏应单行容纳");
+  const visible = lines[0]!.text.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.ok(visible.includes("ustc/deepseek-v4-pro:high"), "model 全名完整");
+  assert.ok(visible.includes(cwd), "cwd 完整");
+  assert.ok(visible.includes("feature/very-long-branch"), "git 完整");
+  assert.ok(visible.includes("一个非常长的会话标题"), "标题完整");
+  assert.ok(!visible.includes("…"), "宽度足够时不应出现省略号");
+});
+
 test("renderStatusLine: 思考后缀 none/off/on/实际等级名", () => {
   // none=不支持；off=支持未开；on=单等级开启；等级名=多等级开启（modelThinking 显式驱动）
   const cases: Array<[string, string]> = [

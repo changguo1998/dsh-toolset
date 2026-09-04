@@ -655,10 +655,6 @@ export function renderStatusLine(
   const u = usage ? usageStatus(usage) : undefined;
   const ctxSeg = u?.ctx ?? status.contextLen;
   const cacheSeg = u?.cache ?? status.cacheHit;
-  // 稳定组（time/title/model/git）按固定预算截断 → 各段宽度有上限、不变频跳动；
-  // 动态组（cwd/ctx/cache）独立成段，其中 cwd 独占单行余下宽度（留足变化空间）。
-  const titleSeg = cols >= 24 ? fitHead(title, 16) : "";
-  const gitSeg = fitHead(status.git, 12);
   // 思考状态并入 model 段（同一段）：provider/model:{后缀}
   // 后缀=on/off/none 或实际等级名（多等级开启如 high/low/max）
   const modelBase = status.model.replace(/:[^:]*$/, "");
@@ -666,6 +662,23 @@ export function renderStatusLine(
   // modelThinking 显式后缀；缺失时按字符串回退（有 :effort=on，其余 none）
   const thinkState = status.modelThinking ?? (thinkOn ? "on" : "none");
   const modelSeg = `${modelBase}:${thinkState}`;
+  // 两档布局：宽度足以完整容纳全部段（含 cwd）时一律不截断；
+  // 放不下才走下方固定/动态预算截断退化（窄屏各段有上限、cwd 独占余宽）。
+  const withTitle = cols >= 24;
+  const fullBudget =
+    displayWidth(status.time) +
+    (withTitle ? displayWidth(title) : 0) +
+    displayWidth(modelSeg) +
+    displayWidth(status.git) +
+    displayWidth(ctxSeg) +
+    displayWidth(cacheSeg) +
+    displayWidth(status.cwd) +
+    (withTitle ? 6 : 5) + // 分隔符数 = 段数-1
+    2; // 行首尾各 1 空格
+  const full = fullBudget <= cols;
+  const titleSeg = withTitle ? (full ? title : fitHead(title, 16)) : "";
+  const gitSeg = full ? status.git : fitHead(status.git, 12);
+  const modelShown = full ? modelSeg : fitModel(modelSeg, 22);
   const fixed: Array<{ seg: string; color: (s: string) => string }> = [
     { seg: status.time, color: identity },
     // 会话标题段：极窄终端（<24 列）省略以保留对话内容（窄屏退化）
@@ -677,7 +690,7 @@ export function renderStatusLine(
           },
         ]
       : []),
-    { seg: fitModel(modelSeg, 22), color: (s) => colorModel(themeId, s) },
+    { seg: modelShown, color: (s) => colorModel(themeId, s) },
     { seg: gitSeg, color: identity },
     { seg: ctxSeg, color: identity },
     { seg: cacheSeg, color: identity },
@@ -686,7 +699,9 @@ export function renderStatusLine(
   const maxSegW = Math.max(1, cols - 2); // 留首尾各 1 列
   const k = fixed.length; // 固定段数 = 单行分隔符数（cwd 占 1 个分隔符）
   const sumFixed = fixed.reduce((acc, f) => acc + displayWidth(f.seg), 0);
-  const cwdSeg = fitTail(status.cwd, maxSegW - k - sumFixed);
+  const cwdSeg = full
+    ? status.cwd
+    : fitTail(status.cwd, maxSegW - k - sumFixed);
   // 段序：稳定组在前（time|title|model|git），动态组在后（cwd|ctx|cache）
   const headN = cols >= 24 ? 4 : 3;
   const values: Array<{ seg: string; color: (s: string) => string }> = [
