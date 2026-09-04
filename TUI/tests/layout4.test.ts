@@ -277,69 +277,13 @@ test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", ()
 });
 
 test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(块右对齐、内部左对齐)", () => {
-  test("renderStatusLine: 长 cwd 按余宽保尾截断，中等宽度单行容纳", () => {
-    const lines = renderStatusLine(
-      {
-        time: "10:00",
-        cwd: "0123456789ABCDEF", // 16 字符，远超窄列余宽
-        git: "main",
-        model: "deepseek",
-        contextLen: "123",
-        cacheHit: "87%",
-      },
-      "t",
-      "dark",
-      40,
-    );
-    assert.equal(
-      lines.length,
-      1,
-      `中等宽度下预算截断应单行容纳 (got ${lines.length} lines)`,
-    );
-    const visible = lines[0]!.text.replace(/\x1b\[[0-9;]*m/g, "");
-    assert.ok(visible.includes("…"), "cwd 过长应出现省略号");
-    assert.ok(!visible.includes("0123456789ABCDEF"), "cwd 不应原样整段保留");
-    assert.ok(visible.includes("9ABCDEF"), "cwd 截断应保留路径尾部");
-    assert.ok(visible.length <= 40, `单行不应超宽: ${visible}`);
-  });
-
-  test("renderStatusLine: 固定预算截断 git/标题（开头+…），稳定段宽度有上限", () => {
-    const lines = renderStatusLine(
-      {
-        time: "10:00",
-        cwd: "~/p",
-        git: "feature/very-long-branch-name",
-        model: "deepseek",
-        contextLen: "123",
-        cacheHit: "87%",
-      },
-      "一个非常长的会话标题标题标题标题标题标题标题",
-      "dark",
-      60,
-    );
-    // 未做固定预算截断时总宽 ≈ 5+15*2+26 会超过 60 列必然换行；应单行 + 省略号
-    assert.equal(
-      lines.length,
-      1,
-      `标题/git 截断后应单行容纳 (got ${lines.length} lines)`,
-    );
-    const visible = lines
-      .map((l) => l.text)
-      .join("\n")
-      .replace(/\x1b\[[0-9;]*m/g, "");
-    assert.ok(visible.includes("…"), "git/标题过长应截断");
-    assert.ok(
-      !visible.includes("feature/very-long-branch-name"),
-      "超长分支名不应整段保留",
-    );
-  });
   let s = initialState();
   s = reduceState(s, {
     type: "user-line",
     text: "用户消息很长用于验证历史区的右侧缩进和续行换行行为这是一段更长的内容",
   });
   s = reduceState(s, { type: "append", text: "模型回答" });
-  const top = buildFrame(s, { rows: 10, cols: 40 }).slice(0, 7);
+  const top = buildFrame(s, { rows: 20, cols: 40 }).slice(0, 7);
   const plain = (line: RenderLine): string =>
     line.text.replace(/\x1b\[[0-9;]*m/g, "");
   const visible = top.map(plain);
@@ -358,6 +302,63 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(�
     visible.some(
       (line) => line.includes("模型回答") && line.startsWith("│ 模型"),
     ),
+  );
+});
+
+test("renderStatusLine: 长 cwd 按余宽保尾截断，中等宽度单行容纳", () => {
+  const lines = renderStatusLine(
+    {
+      time: "10:00",
+      cwd: "0123456789ABCDEF", // 16 字符，远超窄列余宽
+      git: "main",
+      model: "deepseek",
+      contextLen: "123",
+      cacheHit: "87%",
+    },
+    "t",
+    "dark",
+    40,
+  );
+  assert.equal(
+    lines.length,
+    1,
+    `中等宽度下预算截断应单行容纳 (got ${lines.length} lines)`,
+  );
+  const visible = lines[0]!.text.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.ok(visible.includes("…"), "cwd 过长应出现省略号");
+  assert.ok(!visible.includes("0123456789ABCDEF"), "cwd 不应原样整段保留");
+  assert.ok(visible.includes("9ABCDEF"), "cwd 截断应保留路径尾部");
+  assert.ok(visible.length <= 40, `单行不应超宽: ${visible}`);
+});
+
+test("renderStatusLine: 固定预算截断 git/标题（开头+…），稳定段宽度有上限", () => {
+  const lines = renderStatusLine(
+    {
+      time: "10:00",
+      cwd: "~/p",
+      git: "feature/very-long-branch-name",
+      model: "deepseek",
+      contextLen: "123",
+      cacheHit: "87%",
+    },
+    "一个非常长的会话标题标题标题标题标题标题标题",
+    "dark",
+    60,
+  );
+  // 未做固定预算截断时总宽 ≈ 5+15*2+26 会超过 60 列必然换行；应单行 + 省略号
+  assert.equal(
+    lines.length,
+    1,
+    `标题/git 截断后应单行容纳 (got ${lines.length} lines)`,
+  );
+  const visible = lines
+    .map((l) => l.text)
+    .join("\n")
+    .replace(/\x1b\[[0-9;]*m/g, "");
+  assert.ok(visible.includes("…"), "git/标题过长应截断");
+  assert.ok(
+    !visible.includes("feature/very-long-branch-name"),
+    "超长分支名不应整段保留",
   );
 });
 
@@ -384,7 +385,7 @@ test("会话流：用户消息显式换行与软换行共享同一左边界", ()
     type: "user-line",
     text: "第一行内容\n第二行更长的内容会触发软换行继续向下一行展示直到超出三十六列宽度限制为止",
   });
-  const plain = buildFrame(s, { rows: 10, cols: 40 }).map((line) =>
+  const plain = buildFrame(s, { rows: 20, cols: 40 }).map((line) =>
     line.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const rows = plain.filter(
@@ -415,16 +416,18 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   );
   assert.ok(between[0]!.startsWith("│"), "空行仍保留插件竖线");
 
-  // user → thinking：恰有一行空白
+  // user → thinking：思考归属活动区（分隔线之下展示），不再要求与用户消息间空行
   let t = reduceState(initialState(), { type: "user-line", text: "q" });
   t = reduceState(t, { type: "thinking", text: "思考中" });
-  plain = buildFrame(t, { rows: 10, cols: 40 }).map((l) =>
+  plain = buildFrame(t, { rows: 16, cols: 40 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
-  const ut = plain.findIndex((l) => l.includes("q"));
   const tt = plain.findIndex((l) => l.includes("思考中"));
-  assert.ok(ut >= 0 && tt - ut === 2, "user→thinking 之间应恰有一行空白");
-  assert.equal(plain[ut + 1]!.replace(/^│ /, "").trim(), "");
+  assert.ok(tt >= 0, "思考应在帧内可见");
+  assert.ok(
+    plain.slice(0, tt).some((l2) => l2.includes("╌")),
+    "思考应位于活动区分隔线之下",
+  );
 
   // user → 下回合 begin 分隔线：不加空行
   let u = reduceState(initialState(), { type: "user-line", text: "孤立" });
@@ -475,7 +478,7 @@ test("会话流：思考只显示最新几行，并在正文或 turn-end 后消�
     type: "thinking",
     text: "t1\nt2\nt3\nt4\nt5\nt6",
   });
-  const frame = buildFrame(s, { rows: 12, cols: 60 });
+  const frame = buildFrame(s, { rows: 16, cols: 60 });
   const thinkingLines = frame.filter(isThinkingRow);
   assert.ok(thinkingLines.length <= DEFAULT_THINKING_MAX_LINES);
   assert.ok(frame.some((line) => line.text.includes(THINKING_MORE)));
@@ -500,7 +503,7 @@ test("thinkingMaxLines 可配置：initialState(opts) 决定折叠阈值", () =>
   const s = initialState("light", { thinkingMaxLines: 2 });
   assert.equal(s.thinkingMaxLines, 2, "state 记录自定义上限");
   const with3 = reduceState(s, { type: "thinking", text: "x1\nx2\nx3" });
-  const frame = buildFrame(with3, { rows: 12, cols: 60 });
+  const frame = buildFrame(with3, { rows: 16, cols: 60 });
   const thinking = frame.filter(isThinkingRow);
   // cap=2 且已有 3 行 → 折叠：显示 cap-1 行 + 折叠提示
   assert.ok(thinking.length <= 2, "自定义上限内");
@@ -775,7 +778,7 @@ test("buildFrame: 工具调用/结果行（⚙/✓/✗，失败着红）", () =>
     ok: false,
     detail: "EACCES: 13",
   });
-  const joined = buildFrame(s, { rows: 10, cols: 40 })
+  const joined = buildFrame(s, { rows: 16, cols: 40 })
     .map((l) => l.text)
     .join("\n");
   const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
@@ -793,7 +796,7 @@ test("buildFrame: notice tone 行在帧内红/黄/灰着色", () => {
   s = reduceState(s, { type: "notice", text: "红", tone: "error" });
   s = reduceState(s, { type: "notice", text: "黄", tone: "warn" });
   s = reduceState(s, { type: "notice", text: "灰", tone: "muted" });
-  const joined = buildFrame(s, { rows: 10, cols: 40 })
+  const joined = buildFrame(s, { rows: 16, cols: 40 })
     .map((l) => l.text)
     .join("\n");
   assert.ok(joined.includes("\x1b[38;2;231;70;132m红"), "error → 红");
@@ -801,9 +804,9 @@ test("buildFrame: notice tone 行在帧内红/黄/灰着色", () => {
   assert.ok(joined.includes("\x1b[38;2;120;120;120m灰"), "muted → 灰");
 });
 
-test("buildFrame: 工具历史仅显示最近 4 组，更早以折叠标记隐藏，组间空行", () => {
+test("buildFrame: 工具历史在活动区窗口内只显最近行，窗口内组间仍有空行", () => {
   let s = initialState();
-  // 6 次调用组（每次 ⚙ + ✓），应只保留最近 4 组
+  // 6 次调用组（每次 ⚙ + ✓）：活动区为固定 5 行窗口，只显示最后约 2 组
   for (let i = 1; i <= 6; i++) {
     s = reduceState(s, {
       type: "tool-call",
@@ -822,13 +825,25 @@ test("buildFrame: 工具历史仅显示最近 4 组，更早以折叠标记隐�
     .map((l) => l.text)
     .join("\n");
   const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
-  assert.ok(plain.includes("…(更早工具调用已隐藏)"), "超出上限应出现折叠标记");
-  assert.ok(plain.includes("cmd 6"), "最新调用应保留");
+  assert.ok(plain.includes("cmd 6"), "最新调用应保留在活动区窗口");
+  assert.ok(plain.includes("ok 6"), "最新结果应保留");
   assert.ok(plain.includes("cmd 5"), "倒数第二调用应保留");
-  assert.ok(plain.includes("cmd 4"), "倒数第三调用应保留");
-  assert.ok(plain.includes("cmd 3"), "倒数第四调用应保留");
-  assert.ok(!plain.includes("cmd 1"), "最早调用应被隐藏");
-  assert.ok(!plain.includes("cmd 2"), "第二早调用应被隐藏");
+  assert.ok(!plain.includes("cmd 4"), "更早调用被 5 行窗口裁出");
+  assert.ok(!plain.includes("cmd 3"), "更早调用被裁出");
+  assert.ok(!plain.includes("cmd 1"), "最早调用不可见");
+  assert.ok(!plain.includes("cmd 2"), "第二早调用不可见");
+  // 窗口内 cmd5/cmd6 之间仍有空行分隔
+  const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
+    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const i5 = lines.findIndex((l) => l.includes("cmd 5"));
+  const i6 = lines.findIndex((l) => l.includes("cmd 6"));
+  assert.ok(i5 >= 0 && i6 > i5, "cmd5/cmd6 均在帧中");
+  assert.equal(
+    lines.slice(i5, i6).filter((l) => l.replace(/[│\s]/g, "") === "").length,
+    1,
+    "窗口内组间有 1 个空行",
+  );
 });
 
 test("buildFrame: 两次调用组之间插空行分隔", () => {
@@ -880,7 +895,7 @@ test("buildFrame: 工具行前缀/工具名独立着色（⚙ 青、名黄、✓
     ok: false,
     detail: "EACCES",
   });
-  const joined = buildFrame(s, { rows: 12, cols: 40 })
+  const joined = buildFrame(s, { rows: 16, cols: 40 })
     .map((l) => l.text)
     .join("\n");
   // dark 主题 24bit 码：青 #46E7A9 / 黄 #E7A946 / 绿 #84E746 / 红 #E74684
@@ -920,7 +935,7 @@ test("buildFrame: compaction/retry toast 文案入帧", () => {
     code: "TRANSPORT",
     message: "连接被重置",
   });
-  const plain = buildFrame(s, { rows: 10, cols: 60 })
+  const plain = buildFrame(s, { rows: 16, cols: 60 })
     .map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""))
     .join("\n");
   assert.ok(plain.includes("正在压缩上下文…"), "start toast");

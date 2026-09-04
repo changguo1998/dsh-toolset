@@ -212,6 +212,48 @@ function pluginCell(_row: number, _rows: number, width: number): string {
 }
 
 /** 顶部区域：每行 = 左侧插件窄条 + 右侧历史行（合并为一个 RenderLine） */
+/** 对话区仅保留最近 DIALOGUE_KEEP_REPLIES 条回复，更早以灰占位折叠 */
+export const DIALOGUE_KEEP_REPLIES = 3;
+export const DIALOGUE_MORE = "…(更早回复已折叠)";
+/** 活动区固定行高（下方思考/工具/瞬态窗口） */
+export const ACTIVITY_HEIGHT = 5;
+/** 活动区分隔线字形（与 turn/区域分隔线 `─` 区分，不参与 barRowCount 统计） */
+export const ACTIVITY_SEPARATOR = "╌";
+
+/** 对话区按回复组折叠：仅保留最近 keep 组 assistant 回复，更早替换为灰色占位 */
+function foldDialogue(
+  rows: WrappedRow[],
+  themeId: ThemeId,
+  keep: number,
+): WrappedRow[] {
+  // 回复组 = 连续 assistant 行（同一回复的流式/多行）
+  const starts: number[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (
+      rows[i]!.kind === "assistant" &&
+      (i === 0 || rows[i - 1]!.kind !== "assistant")
+    )
+      starts.push(i);
+  }
+  if (starts.length <= keep) return rows;
+  // 剪切点：第 keep 新回复组起点，前移包含其前置用户消息/分隔线/空行，
+  // 使可见区从“最后 keep 组对话”的用户消息开始，读起来完整。
+  let cut = starts[starts.length - keep]!;
+  while (cut > 0 && isConversationKind(rows[cut - 1]!.kind)) cut--;
+  const marker: WrappedRow = {
+    text: colorFor(themeId, NOTICE_TONE_COLOR.muted)(DIALOGUE_MORE),
+    kind: "plain",
+    indent: 0,
+  };
+  return [marker, ...rows.slice(cut)];
+}
+
+/** 对话区前置段类型（剪切点外推）：用户/分隔线/空行属于回复的陪衬 */
+function isConversationKind(kind: BufferKind): boolean {
+  return kind === "user" || kind === "separator" || kind === "plain";
+}
+
+/** 顶部区域：上部对话区（视口滚动）+ 下部活动区（固定高、底部跟随） */
 function buildTopRegion(
   state: AppState,
   topHeight: number,
@@ -219,25 +261,39 @@ function buildTopRegion(
   historyWidth: number,
   cols: number,
 ): RenderLine[] {
-  const wrapped = wrapBufferLines(
+  const { dialogue, activity } = wrapBufferLines(
     state.buffer,
     historyWidth,
     state.thinkingMaxLines,
     state.messageGutter,
     state.themeId,
   );
+  const dialogueRows = foldDialogue(
+    dialogue,
+    state.themeId,
+    DIALOGUE_KEEP_REPLIES,
+  );
+  // 活动区固定 ACTIVITY_HEIGHT 行 + 1 条分隔线；极窄时收缩保对话区非空
+  // 活动区固定 ACTIVITY_HEIGHT 行 + 1 条分隔线；极窄终端收缩活动区，
+  // 为对话区保留至少 DIALOGUE_MIN_ROWS 行（避免把对话完全挤出历史区）
+  const dialogueMin = Math.min(3, Math.max(0, topHeight - 1));
+  const activityH = Math.min(
+    ACTIVITY_HEIGHT,
+    Math.max(1, topHeight - 1 - dialogueMin),
+  );
+  const dialogueH = Math.max(
+    0,
+    topHeight - activityH - (activityH > 0 ? 1 : 0),
+  );
   const vp = computeViewport({
-    totalRows: wrapped.length,
-    height: topHeight,
+    totalRows: dialogueRows.length,
+    height: dialogueH,
     followBottom: state.followBottom,
     scrollOffset: state.scrollOffset,
   });
   const rows: RenderLine[] = [];
-  for (let i = 0; i < topHeight; i++) {
-    const left = pluginCell(i, topHeight, pluginWidth);
-    const w = wrapped[vp.start + i];
-    const content =
-      w && vp.start + i < vp.end ? " ".repeat(w.indent) + w.text : "";
+  const histLine = (row: number, content: string): RenderLine => {
+    const left = pluginCell(row, topHeight, pluginWidth);
     const trim = truncateToWidth(left + content, cols);
     // 极限窄终端若连一个宽字符都容不下，保留该字符而不静默丢失内容。
     const visible =
@@ -248,7 +304,28 @@ function buildTopRegion(
       visible.length >= left.length
         ? colorFor(state.themeId, "gray")(left) + visible.slice(left.length)
         : visible;
-    rows.push({ text });
+    return { text };
+  };
+  // 对话区：视口窗口可见行（followBottom / scrollOffset 只作用于对话区）
+  for (let i = 0; i < dialogueH; i++) {
+    const w = dialogueRows[vp.start + i];
+    const content =
+      w && vp.start + i < vp.end ? " ".repeat(w.indent) + w.text : "";
+    rows.push(histLine(i, content));
+  }
+  if (activityH > 0) {
+    // 两区分隔线
+    rows.push(
+      histLine(dialogueH, ACTIVITY_SEPARATOR.repeat(Math.max(1, historyWidth))),
+    );
+    // 活动区：底部对齐显示最近 activityH 行，不足时顶部留白
+    const act = activity.slice(-activityH);
+    const topPad = activityH - act.length;
+    for (let i = 0; i < activityH; i++) {
+      const a = i - topPad;
+      const content = a >= 0 ? " ".repeat(act[a]!.indent) + act[a]!.text : "";
+      rows.push(histLine(dialogueH + 1 + i, content));
+    }
   }
   return rows;
 }
@@ -289,14 +366,22 @@ interface WrappedRow {
   indent: number;
 }
 
+interface PaneRows {
+  /** 对话区行：user/assistant/separator/plain（可滚动视口） */
+  dialogue: WrappedRow[];
+  /** 活动区行：thinking/tool/notice（瞬态，底部固定窗口） */
+  activity: WrappedRow[];
+}
+
 function wrapBufferLines(
   buffer: Buffer,
   width: number,
   thinkingMaxLines: number,
   gutter: number,
   themeId: ThemeId,
-): WrappedRow[] {
-  const out: WrappedRow[] = [];
+): PaneRows {
+  const dialogue: WrappedRow[] = [];
+  const activity: WrappedRow[] = [];
   const thinking: WrappedRow[] = [];
   let inFence = false;
   // 工具行按连续 run 收集，flush 时做折叠/分组渲染；遇到非工具行先落盘
@@ -314,14 +399,14 @@ function wrapBufferLines(
     const visible = groups.slice(-TOOL_MAX_GROUPS);
     const hasMore = groups.length > TOOL_MAX_GROUPS;
     if (hasMore) {
-      out.push({
+      activity.push({
         text: colorFor(themeId, NOTICE_TONE_COLOR.muted)(TOOL_MORE),
         kind: "tool",
         indent: 0,
       });
     }
     for (let gi = 0; gi < visible.length; gi++) {
-      if (gi > 0) out.push({ text: "", kind: "tool", indent: 0 }); // 组间空行
+      if (gi > 0) activity.push({ text: "", kind: "tool", indent: 0 }); // 组间空行
       for (const l of visible[gi]!) {
         const rows =
           l.text === "" ? [""] : wrapLine(l.text, Math.max(1, width));
@@ -330,7 +415,7 @@ function wrapBufferLines(
           const text = l.tone
             ? colorFor(themeId, NOTICE_TONE_COLOR[l.tone])(t)
             : renderToolText(t, themeId);
-          out.push({ text, kind: "tool", indent: 0 });
+          activity.push({ text, kind: "tool", indent: 0 });
         }
       }
     }
@@ -355,7 +440,8 @@ function wrapBufferLines(
       const rows = wrapLines(line.text.split("\n"), maxBody);
       const bodyWidth = Math.max(1, ...rows.map((r) => displayWidth(r)));
       const pad = Math.max(0, width - bodyWidth);
-      for (const text of rows) out.push({ text, kind: "user", indent: pad });
+      for (const text of rows)
+        dialogue.push({ text, kind: "user", indent: pad });
       continue;
     }
     if (line.kind === "assistant") {
@@ -370,7 +456,7 @@ function wrapBufferLines(
           const lang = fence[2] ?? "";
           if (lang) {
             // 代码块语言标签行：灰斜体（fence 开关行本身不显示）
-            out.push({
+            dialogue.push({
               text: renderSeg(
                 { text: lang, style: { fg: "gray", italic: true } },
                 themeId,
@@ -386,23 +472,33 @@ function wrapBufferLines(
       const rows = inFence
         ? wrapCodeLine(line.text, bodyWidth, themeId)
         : wrapAssistantLine(line.text, bodyWidth, themeId);
-      for (const text of rows) out.push({ text, kind: line.kind, indent: 0 });
+      for (const text of rows)
+        dialogue.push({ text, kind: line.kind, indent: 0 });
       continue;
     }
+    if (line.kind === "notice") {
+      // notice → 活动区（瞬态提示）
+      const rows =
+        line.text === "" ? [""] : wrapLine(line.text, Math.max(1, width));
+      const tone = line.tone;
+      const color = tone
+        ? (s: string) => colorFor(themeId, NOTICE_TONE_COLOR[tone])(s)
+        : (s: string) => s;
+      for (const text of rows)
+        activity.push({ text: color(text), kind: "notice", indent: 0 });
+      continue;
+    }
+    // separator / plain → 对话区
     const content =
       line.kind === "separator"
         ? SEPARATOR.repeat(Math.max(1, width))
         : line.text;
     const rows = content === "" ? [""] : wrapLine(content, Math.max(1, width));
-    // notice/tool 行可按 tone 着色（error 红 / warn 黄 / muted 灰）；无 tone 保持默认前景
-    const tone = line.tone;
-    const color = tone
-      ? (s: string) => colorFor(themeId, NOTICE_TONE_COLOR[tone])(s)
-      : (s: string) => s;
     for (const text of rows)
-      out.push({ text: color(text), kind: line.kind, indent: 0 });
+      dialogue.push({ text, kind: line.kind, indent: 0 });
   }
   flushToolRun();
+  // 思考折叠 → 活动区
   if (thinking.length > 0) {
     const cap = Math.max(1, thinkingMaxLines);
     const hasMore = thinking.length > cap;
@@ -415,19 +511,14 @@ function wrapBufferLines(
       });
     }
     for (const row of visible) {
-      // 思考行仅保留缩进展示，不加 [思考] 前缀（正文区分靠缩进层级）
-      out.push({ text: row.text, kind: "thinking", indent: row.indent });
+      activity.push({ text: row.text, kind: "thinking", indent: row.indent });
     }
   }
-  // 用户消息块与随后的答案/思考之间空一行（纯布局展示，不写状态）
+  // 对话区：用户消息块与随后的答案之间空一行（纯布局展示，不写状态）
   const spaced: WrappedRow[] = [];
-  for (const row of out) {
+  for (const row of dialogue) {
     const last = spaced[spaced.length - 1];
-    if (
-      last &&
-      last.kind === "user" &&
-      (row.kind === "assistant" || row.kind === "thinking")
-    ) {
+    if (last && last.kind === "user" && row.kind === "assistant") {
       spaced.push({ text: "", kind: "plain", indent: 0 });
     }
     spaced.push(row);
@@ -442,7 +533,7 @@ function wrapBufferLines(
     else if (row.kind === "assistant" && row.text === "" && !hasBodyAfter)
       spaced.splice(i, 1);
   }
-  return spaced;
+  return { dialogue: spaced, activity };
 }
 
 /** 系统状态区：可多行；无标题，`|` 分隔；超宽时溢出到下一行（不截断） */
