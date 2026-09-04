@@ -69,14 +69,19 @@ export function renderQuestionPanel(
   }
 
   // 高亮行（当前选项/自定义兜底项）恒在可视窗口内：可截断区超出时按
-  // 高亮行整体滚动（取代旧的「自定义行强制放底部」特例）
+  // 高亮行整体滚动（取代旧的「自定义行强制放底部」特例）。
+  // 未导航（optionIndex==0）时窗口锚定内容顶部——默认展示题干/计划卡片头
+  // （如 plan-review 的长 detail），用户下移导航后才跟随高亮行滚动。
+  const following = (item?.optionIndex ?? 0) > 0;
   const start =
     hl < 0 || pool.length <= maxBody
       ? 0
-      : Math.min(
-          Math.max(0, hl - (maxBody - 1)),
-          Math.max(0, pool.length - maxBody),
-        );
+      : following
+        ? Math.min(
+            Math.max(0, hl - (maxBody - 1)),
+            Math.max(0, pool.length - maxBody),
+          )
+        : 0;
   const body = pool.slice(start, start + maxBody);
 
   const out: RenderLine[] = [];

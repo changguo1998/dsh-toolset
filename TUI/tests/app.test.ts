@@ -448,8 +448,8 @@ test("shell 模式提交：仅展示层，文本原样走 sendMessage（不加 $
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(adapter.sent, ["ls"], "shell 模式不加 $ 前缀");
   assert.deepEqual(adapter.log, ["send:ls"]);
-  // 左提示符 = 上次提交模式 $，右提示符 = 当前模式 normal >（24 行终端输入区 5 行+提示区 1 行，输入行为倒数第 6 行）
-  const lastLine = renderer.lastRender.at(-6) ?? "";
+  // 左提示符 = 上次提交模式 $，右提示符 = 当前模式 normal >（24 行终端输入区 3 行+提示区 1 行，输入行为倒数第 4 行）
+  const lastLine = renderer.lastRender.at(-4) ?? "";
   const plain = lastLine.replace(/\x1b\[[0-9;]*m/g, "");
   assert.ok(
     plain.startsWith("$> "),
@@ -459,9 +459,9 @@ test("shell 模式提交：仅展示层，文本原样走 sendMessage（不加 $
 
 test("活跃任务中 slash 结果不覆盖黄：/help、无效命令、error notice 均保持黄", () => {
   const { renderer, adapter } = makeApp();
-  // 输入行前缀 SGR（24 行终端输入区 5 行+提示区 1 行，输入行为倒数第 6 行）
+  // 输入行前缀 SGR（24 行终端输入区 3 行+提示区 1 行，输入行为倒数第 4 行）
   const sgr = (): string =>
-    /^\x1b\[38;2;\d+;\d+;\d+m/.exec(renderer.lastRender.at(-6) ?? "")?.[0] ??
+    /^\x1b\[38;2;\d+;\d+;\d+m/.exec(renderer.lastRender.at(-4) ?? "")?.[0] ??
     "";
   adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
   const yellow = sgr();
@@ -505,9 +505,9 @@ test("slash 模式 /model 提交后回退 normal：确认面板后普通发送",
 
 test("未知 slash 命令：error notice → 前缀红；turn-end → 回绿", () => {
   const { renderer, adapter } = makeApp();
-  // 输入行（24 行终端输入区 5 行+提示区 1 行，输入行为倒数第 6 行）前缀的第一段 SGR（状态色）；start 后无渲染，先 push 触发一帧
+  // 输入行（24 行终端输入区 3 行+提示区 1 行，输入行为倒数第 4 行）前缀的第一段 SGR（状态色）；start 后无渲染，先 push 触发一帧
   const sgr = (): string =>
-    /^\x1b\[38;2;\d+;\d+;\d+m/.exec(renderer.lastRender.at(-6) ?? "")?.[0] ??
+    /^\x1b\[38;2;\d+;\d+;\d+m/.exec(renderer.lastRender.at(-4) ?? "")?.[0] ??
     "";
   adapter.push({ type: "turn-end" }); // 触发首帧渲染，success 绿
   const green = sgr();
@@ -1281,11 +1281,16 @@ test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多�
   assert.ok(plain.includes("请回答（第 1/2 题）"), "标题含第 n/m 导航");
   assert.ok(plain.includes("选择部署环境？"), "题干渲染");
   assert.ok(plain.includes("部署：选择部署环境？"), "header 前缀渲染");
+  // 交互区固 1/5（24 行 → 4 行，选项区 body 2 行）：未导航时窗口锚定顶部
+  assert.ok(plain.includes(">  生产"), "选项渲染：光标 > 首个选项");
+  assert.ok(!plain.includes("    测试"), "初始窗口裁掉更后选项");
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  assert.ok(plainFrame(renderer).includes(">  测试"), "↓ 后第二选项带光标可见");
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(
-    plain.includes(">  生产") && plain.includes("    测试"),
-    "选项渲染：光标 > 首个选项，未选中标记为空格",
+    plainFrame(renderer).includes(">  自定义回答"),
+    "自定义兜底项在列表末位（继续 ↓ 带光标可见）",
   );
-  assert.ok(plain.includes("    自定义回答"), "自定义兜底项在列表末位");
   // 动态按键提示：多题首题 Enter=下一题；有预设显示空格/上下；多题显示切题；无 Tab
   assert.ok(plain.includes("[Enter]下一题"), "非末题 Enter 显示下一题");
   assert.ok(!plain.includes("提交"), "非末题不显示提交");
@@ -1399,11 +1404,11 @@ test("问答面板：多选预设 + 自定义并存，提交同时含 selected �
   pushQuestion(adapter);
   renderer.press({ name: "right", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false }); // 选“日志”
+  assert.ok(plainFrame(renderer).includes("+ 日志"), "多选保留预设选中");
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "n", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "e", ctrl: false, meta: false, shift: false });
-  assert.ok(plainFrame(renderer).includes("+ 日志"), "多选保留预设选中");
   assert.ok(
     plainFrame(renderer).includes("自定义回答：ne"),
     "多选可附加自定义",
@@ -1488,9 +1493,13 @@ test("问答面板：plan-review 单题以计划卡片呈现，hints 只显示�
   const plain = plainFrame(renderer);
   assert.ok(plain.includes("计划审批（第 1/1 题）"), "plan-review 标题");
   assert.ok(plain.includes("待审计划"), "detail 卡片标题");
-  assert.ok(plain.includes("安装依赖并运行测试"), "detail 正文");
-  // 固定交互区高度（24 行终端 = 6 行）：选项区滚动窗口保持高亮项可见，
-  // 未选中的第二选项初始不可见，↓ 后出现
+  assert.ok(plain.includes("批准该计划？"), "题干渲染");
+  // 固定交互区高度（24 行终端 = 4 行，选项区 body 2 行）：未导航时窗口锚定顶部，
+  // 题干+卡片头可见、detail 正文与末位选项被裁，↓ 后选项窗口跟随高亮
+  assert.ok(
+    !plain.includes("安装依赖并运行测试"),
+    "紧凑面板下 detail 正文初始被裁",
+  );
   assert.ok(!plain.includes("拒绝"), "超长时窗口未覆盖末位选项");
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(plainFrame(renderer).includes("拒绝"), "↓ 滚动后末位选项可见");

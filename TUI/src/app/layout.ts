@@ -179,11 +179,12 @@ export function metricsFor(
   /** 按键提示区行数（独立区域，与输入区共同构成交互区；输入态 1） */
   hintRows = 0,
 ): FrameMetrics {
-  // 「交互区」（输入区+按键提示区）高度固定：总高足够时占 floor(rows/4)，
+  // 「交互区」（输入框 3 行 + 按键提示区 1 行）固定为 4 行；
   // 不足时至少 2 行（输入 1 + 提示 1）。面板态（审批/问答/选择）整体占据
   // 交互区（面板自带最底行按键提示、无独立提示区），与输入态同高——
   // 面板开关不改变交互区高度，避免顶部区域上下跳动
-  const interaction = Math.max(2, Math.floor(size.rows / 4));
+  // 输入框固定 3 行(+按键提示 1 行 → 交互区 4 行)；矮终端按 1/5 比例收缩保底每区 ≥1 行
+  const interaction = Math.min(4, Math.max(2, Math.floor(size.rows / 5)));
   const footerHeight = hasPanel ? interaction : interaction - 1;
   // 插件窄条：固定宽，但窄终端时让出至少 1 列给历史区
   const pluginWidth = Math.min(PLUGIN_WIDTH, Math.max(1, size.cols - 2));

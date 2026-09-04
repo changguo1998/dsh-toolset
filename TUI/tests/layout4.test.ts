@@ -41,16 +41,16 @@ function frameWith(rows: number, cols: number) {
   return { s, frame };
 }
 
-test("metricsFor: 交互区(输入+提示)占 1/4 且至少 2 行；插件竖线固定宽，历史区 = cols - 插件宽", () => {
-  // rows=24 → 交互区 = floor(24/4) = 6：输入区 5 + 提示区 1
+test("metricsFor: 交互区(输入+提示)占 1/5 且至少 2 行；插件竖线固定宽，历史区 = cols - 插件宽", () => {
+  // rows=24 → 交互区 = floor(24/5) = 4：输入区 3 + 提示区 1
   const m = metricsFor({ rows: 24, cols: 60 }, false);
-  assert.equal(m.footerHeight, 5, "输入区 = 交互区 6 - 提示区 1");
-  assert.equal(m.topHeight, 24 - 1 - 5 - 2);
+  assert.equal(m.footerHeight, 3, "输入区 = 交互区 4 - 提示区 1");
+  assert.equal(m.topHeight, 24 - 1 - 3 - 2);
   // 按键提示区独立计入（不进 footerHeight）：输入态 hintRows=1
   const withHint = metricsFor({ rows: 24, cols: 60 }, false, 1, 1);
-  assert.equal(withHint.footerHeight, 5);
+  assert.equal(withHint.footerHeight, 3);
   assert.equal(withHint.hintHeight, 1);
-  // 不足时每区至少 1 行：rows=10 → 交互区 max(2, floor(10/4)) = 2
+  // 不足时每区至少 1 行：rows=10 → 交互区 max(2, floor(10/5)) = 2
   const small = metricsFor({ rows: 10, cols: 60 }, false, 1, 1);
   assert.equal(small.footerHeight, 1, "输入区最小 1 行");
   assert.equal(small.hintHeight, 1, "提示区最小 1 行");
@@ -58,34 +58,34 @@ test("metricsFor: 交互区(输入+提示)占 1/4 且至少 2 行；插件竖线
   assert.equal(m.historyWidth, 60 - PLUGIN_WIDTH);
 });
 
-test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / 分隔线 / 输入区 5 行 + 按键提示区 1 行）", () => {
+test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / 分隔线 / 输入区 3 行 + 按键提示区 1 行）", () => {
   const { frame } = frameWith(24, 60);
   assert.equal(frame.length, 24, "帧恰好铺满 24 行");
   // 主题给边框/分隔线上色后带 ANSI 前缀，先剥离再断言
   const plain = (l: RenderLine) => l.text.replace(/\x1b\[[0-9;]*m/g, "");
-  // 顶部区域：前 topHeight=15 行（24 - 状态1 - 输入5 - 提示1 - 分隔2），每行以竖线开头
-  const top = frame.slice(0, 15);
+  // 顶部区域：前 topHeight=17 行（24 - 状态1 - 输入3 - 提示1 - 分隔2），每行以竖线开头
+  const top = frame.slice(0, 17);
   assert.ok(
     top.every((l) => plain(l).startsWith("│ ")),
     "顶部每行含竖线分区",
   );
   assert.ok(top[0]!.text.includes("第一行"), "历史区内容在插件右侧");
-  // 横线分隔：16 行后是分隔行，再之后是状态区
-  const separator1 = frame[15]!;
+  // 横线分隔：17 行后是分隔行，再之后是状态区
+  const separator1 = frame[17]!;
   assert.ok(plain(separator1).startsWith("─"), "顶部与状态区之间横线分隔");
-  const status = frame[16]!;
+  const status = frame[18]!;
   assert.ok(status.text.includes("12:00:00"), "状态行含时间");
   assert.ok(status.text.includes("/home/u"), "状态行含当前目录");
   assert.ok(status.text.includes("main"), "状态行含 git(branch)");
   assert.ok(status.text.includes("|"), "状态行段间用 | 分隔");
-  // 第二个横线分隔行，然后输入区（5 行，多行框顶部对齐：首行占位提示）
-  const separator2 = frame[17]!;
+  // 第二个横线分隔行，然后输入区（3 行，多行框顶部对齐：首行占位提示）
+  const separator2 = frame[19]!;
   assert.ok(plain(separator2).startsWith("─"), "状态区与输入区之间横线分隔");
   assert.ok(
-    plain(frame[18]!).includes("Type a message…"),
+    plain(frame[20]!).includes("Type a message…"),
     "idle 显示输入占位提示（输入区首行）",
   );
-  assert.ok(plain(frame[22]!).trim() === "", "输入区第 5 行留空");
+  assert.ok(plain(frame[22]!).trim() === "", "输入区第 3 行留空");
   // 按键提示区（独立区域，与输入区之间不画横线）
   assert.ok(plain(frame[23]!).startsWith("[Enter]发送"), "末行为按键提示区");
 });
@@ -170,9 +170,9 @@ test("buildFrame: 审批弹窗时交互区高度与输入态一致（不上下�
     type: "approval",
     approval: { id: "a1", prompt: "允许?" },
   });
-  // 面板占据整个交互区：footer=交互区高度（24 行 → 6），与输入态（输入 5+提示 1）同高
+  // 面板占据整个交互区：footer=交互区高度（24 行 → 4），与输入态（输入 3+提示 1）同高
   const m = metricsFor({ rows: 24, cols: 60 }, true);
-  assert.equal(m.footerHeight, Math.max(2, Math.floor(24 / 4)));
+  assert.equal(m.footerHeight, Math.max(2, Math.floor(24 / 5)));
   assert.equal(
     m.topHeight,
     metricsFor({ rows: 24, cols: 60 }, false, 1, 1).topHeight,
@@ -206,6 +206,41 @@ test("turn-begin: 空 buffer 不画孤立分隔线；重复 begin 不重复；tu
   s = reduceState(s, { type: "turn-begin" });
   seps = s.buffer.filter((l) => l.kind === "separator").length;
   assert.equal(seps, 1, "重复 begin 只保留一条分隔线");
+});
+
+test("turn-begin: 新回合清空旧活动区瞬态（工具/notice），仅保留对话与分隔线", () => {
+  let s = initialState();
+  s = reduceState(s, { type: "user-line", text: "问题 1" });
+  s = reduceState(s, { type: "thinking", text: "思考 1" });
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s",
+    name: "bash",
+    summary: "cmd 1",
+  });
+  s = reduceState(s, {
+    type: "tool-result",
+    sessionId: "s",
+    ok: true,
+    detail: "ok 1",
+  });
+  s = reduceState(s, { type: "notice", text: "theme: dark" });
+  s = reduceState(s, { type: "turn-end" }); // 回合结束：思考清空，工具/notice 保留
+  const transient1 = s.buffer.filter(
+    (l) => l.kind === "tool" || l.kind === "notice",
+  );
+  assert.ok(transient1.length === 3, "turn-end 后工具(⚙+✓)与 notice 仍可见");
+  s = reduceState(s, { type: "turn-begin" }); // 新回合：旧活动结果被冲掉
+  const kinds = s.buffer.map((l) => l.kind);
+  assert.ok(!kinds.includes("tool"), "新回合清空旧工具行");
+  assert.ok(!kinds.includes("notice"), "新回合清空旧 notice");
+  assert.ok(!kinds.includes("thinking"), "新回合无思考残留");
+  assert.ok(kinds.includes("user"), "对话保留");
+  assert.equal(
+    kinds.filter((k) => k === "separator").length,
+    1,
+    "新回合带一条分隔线",
+  );
 });
 
 test("appendStream 不修改旧 state 的行对象", () => {

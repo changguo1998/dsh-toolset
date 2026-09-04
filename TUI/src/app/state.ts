@@ -324,12 +324,16 @@ export function clearThinkingLines(state: AppState): AppState {
 }
 
 /**
- * turn 开始：清掉上一轮遗留思考行后，在历史末尾追加分隔线，让每个回合之间可见分隔。
+ * turn 开始：清掉上一轮遗留瞬态活动行（思考/工具调用/notice，即活动区内容），
+ * 再在历史末尾追加分隔线，让每个新回合从干净的活动区开始（新结果冲掉旧命令活动）。
  * 空 buffer 或末尾已是分隔线时不追加（避免孤立/重复分隔）。由 `turn-begin` 触发。
  */
 export function appendTurnSeparator(state: AppState): AppState {
   let buffer = state.buffer.length ? [...state.buffer] : [];
-  buffer = buffer.filter((l) => l.kind !== "thinking");
+  // 瞬态活动行仅当前回合可见：清思考 + 工具/notice（新回合冲掉旧命令的活动结果）
+  buffer = buffer.filter(
+    (l) => l.kind !== "thinking" && l.kind !== "tool" && l.kind !== "notice",
+  );
   if (buffer.length === 0) return { ...state, buffer };
   const last = buffer[buffer.length - 1];
   if (last && last.kind === "separator" && last.text === TURN_SEPARATOR)
