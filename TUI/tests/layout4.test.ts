@@ -70,14 +70,17 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     "顶部每行含竖线分区",
   );
   assert.ok(top[0]!.text.includes("第一行"), "历史区内容在插件右侧");
-  // 横线分隔：17 行后是分隔行，再之后是状态区
+  // 横线分隔：17 行后是分隔行，再之后状态区（短 cwd 下动态单行：env|会话|LLM 全在一行）
   const separator1 = frame[17]!;
   assert.ok(plain(separator1).startsWith("─"), "顶部与状态区之间横线分隔");
   const status = frame[18]!;
-  assert.ok(status.text.includes("12:00:00"), "状态行含时间");
-  assert.ok(status.text.includes("/home/u"), "状态行含当前目录");
-  assert.ok(status.text.includes("main"), "状态行含 git(branch)");
-  assert.ok(status.text.includes("|"), "状态行段间用 | 分隔");
+  assert.ok(status.text.includes("12:00:00"), "状态含时间");
+  assert.ok(status.text.includes("/home/u"), "状态含当前目录");
+  assert.ok(status.text.includes("main"), "状态含 git(branch)");
+  assert.ok(status.text.includes("（新会话）"), "状态含会话标题");
+  assert.ok(status.text.includes("·"), "组内段用 · 分隔");
+  assert.ok(status.text.includes("|"), "组间用 | 分隔");
+  assert.ok(status.text.includes("none"), "LLM 组含模型思考后缀");
   // 第二个横线分隔行，然后输入区（3 行，多行框顶部对齐：首行占位提示）
   const separator2 = frame[19]!;
   assert.ok(plain(separator2).startsWith("─"), "状态区与输入区之间横线分隔");
@@ -302,11 +305,12 @@ test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", ()
     "dark",
     20,
   );
-  assert.ok(lines.length >= 2, "应溢出为多行");
+  // 极端窄屏：分组折行 + 单组超宽组内压缩（cwd 保尾 / model 保后缀），行不超宽
+  assert.ok(lines.length >= 2, "窄屏应折行为多行");
   const joined = lines.map((l) => l.text).join("\n");
-  for (const seg of ["12:00:00", "/very/long/path", "deepseek", "87%"]) {
-    assert.ok(joined.includes(seg), `段未溢出保留: ${seg}`);
-  }
+  assert.ok(joined.includes("12:00:00"), "时间保留");
+  assert.ok(joined.includes("87%"), "缓存命中保留");
+  assert.ok(joined.includes(":none"), "model 段思考后缀保尾保留");
   for (const l of lines) {
     const visible = l.text.replace(/\x1b\[[0-9;]*m/g, "");
     assert.ok(visible.length <= 20, `行超宽: ${visible}`);
@@ -342,11 +346,11 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(�
   );
 });
 
-test("renderStatusLine: 长 cwd 按余宽保尾截断，中等宽度单行容纳", () => {
+test("renderStatusLine: 长 cwd 按余宽保尾截断，行1 预算内单行容纳", () => {
   const lines = renderStatusLine(
     {
       time: "10:00",
-      cwd: "0123456789ABCDEF", // 16 字符，远超窄列余宽
+      cwd: "0123456789ABCDEF", // 16 字符，超出窄宽行1 余宽
       git: "main",
       model: "deepseek",
       modelThinking: "off", // 支持思考模型但当前未开启
@@ -355,14 +359,12 @@ test("renderStatusLine: 长 cwd 按余宽保尾截断，中等宽度单行容纳
     },
     "t",
     "dark",
-    48,
+    24,
   );
-  assert.equal(
-    lines.length,
-    1,
-    `中等宽度下预算截断应单行容纳 (got ${lines.length} lines)`,
-  );
-  const visible = lines[0]!.text.replace(/\x1b\[[0-9;]*m/g, "");
+  // 窄屏单组(环境)超行宽 → 组内压缩，cwd 保尾截断；LLM 组折行
+  assert.ok(lines.length >= 2, `窄屏应折为多行 (got ${lines.length} lines)`);
+  const joined = lines.map((l) => l.text).join("\n");
+  const visible = joined.replace(/\x1b\[[0-9;]*m/g, "");
   assert.ok(
     visible.includes("deepseek:off"),
     "支持但未开启并入 model 段显示 off",
@@ -370,10 +372,15 @@ test("renderStatusLine: 长 cwd 按余宽保尾截断，中等宽度单行容纳
   assert.ok(visible.includes("…"), "cwd 过长应出现省略号");
   assert.ok(!visible.includes("0123456789ABCDEF"), "cwd 不应原样整段保留");
   assert.ok(visible.includes("9ABCDEF"), "cwd 截断应保留路径尾部");
-  assert.ok(visible.length <= 48, `单行不应超宽: ${visible}`);
+  for (const l of lines) {
+    assert.ok(
+      l.text.replace(/\x1b\[[0-9;]*m/g, "").length <= 24,
+      `行不应超宽: ${l.text}`,
+    );
+  }
 });
 
-test("renderStatusLine: 固定预算截断 git/标题（开头+…），稳定段宽度有上限", () => {
+test("renderStatusLine: 超长标题/git 折行完整保留（不截断）", () => {
   const lines = renderStatusLine(
     {
       time: "10:00",
@@ -387,21 +394,26 @@ test("renderStatusLine: 固定预算截断 git/标题（开头+…），稳定�
     "dark",
     68,
   );
-  // 未做固定预算截断时总宽 ≈ 5+15*2+26 会超过 60 列必然换行；应单行 + 省略号
-  assert.equal(
-    lines.length,
-    1,
-    `标题/git 截断后应单行容纳 (got ${lines.length} lines)`,
-  );
+  // 完整优先：单组放得下就完整显示并折行，不截断内容
+  assert.ok(lines.length >= 2, `应折行为多行 (got ${lines.length} lines)`);
   const visible = lines
     .map((l) => l.text)
     .join("\n")
     .replace(/\x1b\[[0-9;]*m/g, "");
-  assert.ok(visible.includes("…"), "git/标题过长应截断");
   assert.ok(
-    !visible.includes("feature/very-long-branch-name"),
-    "超长分支名不应整段保留",
+    visible.includes("feature/very-long-branch-name"),
+    "超长分支名完整保留",
   );
+  assert.ok(
+    visible.includes("一个非常长的会话标题标题标题标题标题标题标题"),
+    "超长标题完整保留",
+  );
+  for (const l of lines) {
+    assert.ok(
+      l.text.replace(/\x1b\[[0-9;]*m/g, "").length <= 68,
+      `行不应超宽: ${l.text}`,
+    );
+  }
 });
 
 test("renderStatusLine: 宽度足够时各段完整显示不省略号", () => {
@@ -421,8 +433,11 @@ test("renderStatusLine: 宽度足够时各段完整显示不省略号", () => {
     "dark",
     160,
   );
-  assert.equal(lines.length, 1, "宽屏应单行容纳");
-  const visible = lines[0]!.text.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.equal(lines.length, 1, "宽屏完整单行(env|会话|LLM 分组)");
+  const visible = lines
+    .map((l) => l.text)
+    .join("\n")
+    .replace(/\x1b\[[0-9;]*m/g, "");
   assert.ok(visible.includes("ustc/deepseek-v4-pro:high"), "model 全名完整");
   assert.ok(visible.includes(cwd), "cwd 完整");
   assert.ok(visible.includes("feature/very-long-branch"), "git 完整");
@@ -503,7 +518,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   let s = initialState();
   s = reduceState(s, { type: "user-line", text: "问题" });
   s = reduceState(s, { type: "append", text: "答案" });
-  let plain = buildFrame(s, { rows: 10, cols: 40 }).map((l) =>
+  let plain = buildFrame(s, { rows: 12, cols: 40 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const ui = plain.findIndex((l) => l.includes("问题"));

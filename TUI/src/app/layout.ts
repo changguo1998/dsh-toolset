@@ -611,13 +611,15 @@ function usageStatus(u: {
 
 /** 段文本按预算截断：过长保留开头 + 省略号（w<=3 视作不截断，交给换行兜底） */
 function fitHead(s: string, w: number): string {
-  if (w <= 3 || displayWidth(s) <= w) return s;
+  if (displayWidth(s) <= w) return s;
+  if (w <= 1) return "…";
   return truncateToWidth(s, w - 1) + "…";
 }
 
 /** 路径段按预算截断：保留末尾 + 省略号（路径尾部更有辨识度） */
 function fitTail(s: string, w: number): string {
-  if (w <= 3 || displayWidth(s) <= w) return s;
+  if (displayWidth(s) <= w) return s;
+  if (w <= 1) return "…";
   const budget = w - 1; // 省略号占 1 列
   let kept = "";
   let used = 0;
@@ -639,7 +641,8 @@ function fitModel(s: string, w: number): string {
   const colon = (slash < 0 ? s : s.slice(slash)).indexOf(":");
   const effort = colon >= 0 ? s.slice(slash + colon) : ""; // 含 : 前缀
   const body = effort ? s.slice(0, s.length - effort.length) : s;
-  if (w <= 4 || displayWidth(s) <= w) return s;
+  if (displayWidth(s) <= w) return s;
+  if (w <= 1) return "…";
   const bodyW = Math.max(1, w - 1 - displayWidth(effort)); // 留 1 列省略号
   return truncateToWidth(body, bodyW) + "…" + effort;
 }
@@ -662,76 +665,104 @@ export function renderStatusLine(
   // modelThinking 显式后缀；缺失时按字符串回退（有 :effort=on，其余 none）
   const thinkState = status.modelThinking ?? (thinkOn ? "on" : "none");
   const modelSeg = `${modelBase}:${thinkState}`;
-  // 两档布局：宽度足以完整容纳全部段（含 cwd）时一律不截断；
-  // 放不下才走下方固定/动态预算截断退化（窄屏各段有上限、cwd 独占余宽）。
-  const withTitle = cols >= 24;
-  const fullBudget =
-    displayWidth(status.time) +
-    (withTitle ? displayWidth(title) : 0) +
-    displayWidth(modelSeg) +
-    displayWidth(status.git) +
-    displayWidth(ctxSeg) +
-    displayWidth(cacheSeg) +
-    displayWidth(status.cwd) +
-    (withTitle ? 6 : 5) + // 分隔符数 = 段数-1
-    2; // 行首尾各 1 空格
-  const full = fullBudget <= cols;
-  const titleSeg = withTitle ? (full ? title : fitHead(title, 16)) : "";
-  const gitSeg = full ? status.git : fitHead(status.git, 12);
-  const modelShown = full ? modelSeg : fitModel(modelSeg, 22);
-  const fixed: Array<{ seg: string; color: (s: string) => string }> = [
-    { seg: status.time, color: identity },
-    // 会话标题段：极窄终端（<24 列）省略以保留对话内容（窄屏退化）
-    ...(cols >= 24
-      ? [
-          {
-            seg: titleSeg,
-            color: (_s: string) => colorFor(themeId, "cyan")(titleSeg),
-          },
-        ]
-      : []),
-    { seg: modelShown, color: (s) => colorModel(themeId, s) },
-    { seg: gitSeg, color: identity },
-    { seg: ctxSeg, color: identity },
-    { seg: cacheSeg, color: identity },
-  ];
-  // 单行预算：留首尾各 1 列，减固定段宽与 k 个分隔符，余下全给 cwd。
+
+  // 状态栏按类分组（组间 `|` 分隔、组内 `·` 分隔），行数动态尽量少：
+  //   环境组：time · git · cwd            （本机/工作区信息，与会话无关）
+  //   会话组：标题                        （当前会话身份）
+  //   LLM 组：model:{后缀} · ctx · cache  （最近一次模型调用指标）
+  // 宽度足够 → 单行完整显示；放不下 → 按组折行（标题与模型各自成组、组间可折行），单组超宽才组内截断。
   const maxSegW = Math.max(1, cols - 2); // 留首尾各 1 列
-  const k = fixed.length; // 固定段数 = 单行分隔符数（cwd 占 1 个分隔符）
-  const sumFixed = fixed.reduce((acc, f) => acc + displayWidth(f.seg), 0);
-  const cwdSeg = full
-    ? status.cwd
-    : fitTail(status.cwd, maxSegW - k - sumFixed);
-  // 段序：稳定组在前（time|title|model|git），动态组在后（cwd|ctx|cache）
-  const headN = cols >= 24 ? 4 : 3;
-  const values: Array<{ seg: string; color: (s: string) => string }> = [
-    ...fixed.slice(0, headN),
-    { seg: cwdSeg, color: colorFor(themeId, "blue") },
-    ...fixed.slice(headN), // ctx/cache
+  const withTitle = cols >= 24;
+  const blue = (s: string) => colorFor(themeId, "blue")(s);
+  const cyanTitle = (s: string) => colorFor(themeId, "cyan")(s);
+  type Seg = { text: string; color: (s: string) => string };
+  const groupWidth = (g: Seg[]): number =>
+    g.reduce((acc, s, i) => acc + (i > 0 ? 1 : 0) + displayWidth(s.text), 0);
+  // 各组完整版
+  const envFull: Seg[] = [
+    { text: status.time, color: identity },
+    { text: status.git, color: identity },
+    { text: status.cwd, color: blue },
   ];
-  // 布局先用纯文本算宽，着色放在行组装时（ANSI 码不进入宽度计算）。
-  // 极窄终端预算不足（cwd 未截断）时仍可溢出到下一行，段不丢。
-  const rows: RenderLine[] = [];
-  let line: Array<{ text: string; color: (s: string) => string }> = [];
-  let used = 0; // 已占用可见宽度（含分隔符，不含行首尾空格）
-  const flush = (): void => {
-    rows.push({
-      text: " " + line.map((k2) => k2.color(k2.text)).join("|") + " ",
-    });
-    line = [];
-    used = 0;
+  const sessionFull: Seg[] = withTitle
+    ? [{ text: title, color: cyanTitle }]
+    : [];
+  const llmFull: Seg[] = [
+    { text: modelSeg, color: (s) => colorModel(themeId, s) },
+    { text: ctxSeg, color: identity },
+    { text: cacheSeg, color: identity },
+  ];
+  // 各组超宽兜底（单组放不满一行时组内压缩）
+  const envFit = (w: number): Seg[] => {
+    const gitS = fitHead(status.git, 12);
+    const budget = Math.max(
+      1,
+      w - displayWidth(status.time) - displayWidth(gitS) - 2 - 1,
+    );
+    return [
+      { text: status.time, color: identity },
+      { text: gitS, color: identity },
+      { text: fitTail(status.cwd, budget), color: blue },
+    ];
   };
-  for (const v of values) {
-    for (const chunk of wrapLine(v.seg, maxSegW)) {
-      const sepW = line.length > 0 ? 1 : 0;
-      const vw = displayWidth(chunk);
-      if (line.length > 0 && used + sepW + vw > maxSegW) flush();
-      line.push({ text: chunk, color: v.color });
-      used += (line.length > 1 ? 1 : 0) + vw;
+  const sessionFit = (w: number): Seg[] => [
+    { text: fitHead(title, Math.max(1, w - 1)), color: cyanTitle },
+  ];
+  const llmFit = (w: number): Seg[] => {
+    const budget = Math.max(
+      1,
+      w - displayWidth(ctxSeg) - displayWidth(cacheSeg) - 2 - 1,
+    );
+    return [
+      {
+        text: fitModel(modelSeg, budget),
+        color: (s) => colorModel(themeId, s),
+      },
+      { text: ctxSeg, color: identity },
+      { text: cacheSeg, color: identity },
+    ];
+  };
+  const groups: Array<{
+    full: Seg[];
+    fit: (w: number) => Seg[];
+  }> = [
+    { full: envFull, fit: envFit },
+    ...(sessionFull.length > 0 ? [{ full: sessionFull, fit: sessionFit }] : []),
+    { full: llmFull, fit: llmFit },
+  ];
+
+  const renderRow = (row: Seg[][]): RenderLine => ({
+    text:
+      " " +
+      row.map((g) => g.map((s) => s.color(s.text)).join("·")).join("|") +
+      " ",
+  });
+
+  // 单行完整（宽度足够）→ 各段完整、无省略号
+  const fullW = groups.reduce(
+    (acc, g, gi) => acc + (gi > 0 ? 1 : 0) + groupWidth(g.full),
+    0,
+  );
+  if (fullW <= maxSegW) return [renderRow(groups.map((g) => g.full))];
+
+  // 折行（尽量少行）：以组为单位依次放入，放不下整组换行。
+  // 标题=会话组、模型=LLM 组首段，二者是不同组（组间 `|`），自然允许在它们之间折行。
+  // 单组超行宽时才组内压缩（cwd 保尾 / model 保后缀）。
+  const lines: Seg[][][] = [[]];
+  let used = 0;
+  for (const g of groups) {
+    let segs = g.full;
+    if (groupWidth(segs) > maxSegW) segs = g.fit(maxSegW);
+    const gap = used > 0 ? 1 : 0;
+    if (used > 0 && used + gap + groupWidth(segs) > maxSegW) {
+      lines.push([]);
+      used = 0;
     }
+    const row = lines[lines.length - 1]!;
+    row.push(segs);
+    used += (used > 0 ? 1 : 0) + groupWidth(segs);
   }
-  flush();
-  return rows;
+  return lines.map(renderRow);
 }
 
 /** 提示符左字符 = 上次提交所用模式的符号（normal > / shell $ / slash /；颜色随状态） */
@@ -749,7 +780,6 @@ const MODE_SYMBOL: Record<InputMode, string> = {
   slash: "/",
 };
 
-/** 由渲染帧（AppState → RenderLine[]）：顶部(插件+历史) + 分隔线 + 状态区 + 分隔线 + 输入/审批 */
 export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const approval = state.approval;
   const showApproval = approval !== null;
