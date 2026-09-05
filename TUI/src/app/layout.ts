@@ -17,14 +17,17 @@ import type {
   InputMode,
   InputStatus,
   QuestionPanelState,
+  GoalState,
+  ModeState,
 } from "./state.ts";
 
 import type { Buffer, BufferKind, BufferLine } from "./state.ts";
-import type { ApprovalItem, NoticeTone } from "./adapter/dsh.ts";
+import type { ApprovalItem, NoticeTone, TodoItemLike } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
 import { renderHistoryPanel } from "./components/HistoryPanel.ts";
 import { renderQuestionPanel } from "./components/QuestionPrompt.ts";
+import { renderGoalPanel } from "./components/GoalPanel.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
 import { colorFor } from "../renderer/theme.ts";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
@@ -655,6 +658,8 @@ export function renderStatusLine(
   cols: number,
   /** 最新一次模型调用 token 用量（有且 total>0 时覆盖 contextLen/cacheHit 占位） */
   usage?: AppState["usage"],
+  /** P2 B1+B2：当前活跃会话的 goal/todo/mode（状态栏 goal 徽标 + todo 计数 + 模式徽标三合一；缺省不显示） */
+  session?: { goal?: GoalState; todos?: TodoItemLike[]; mode?: ModeState },
 ): RenderLine[] {
   const u = usage ? usageStatus(usage) : undefined;
   const ctxSeg = u?.ctx ?? status.contextLen;
@@ -684,14 +689,54 @@ export function renderStatusLine(
   //          / 后缀 灰 / ctx 亮蓝 / cache 默认——相邻段均异色，且不用红/黄/绿状态色
   const magenta = (s: string) => colorFor(themeId, "magenta")(s);
   const brightBlue = (s: string) => colorFor(themeId, "brightBlue")(s);
+  // P2 B2：模式徽标三合一（plan→sandbox→permission 固定顺序，组内 · 分隔）。
+  // 省略规则（DESIGN:369）：plan 仅 active 显示；sandbox 等于部署默认（workspace-write→wr）省略；
+  // permission 缩略与 sandbox 相同省略；三者皆省略整槽消失。窄屏随 session 组级折行。
+  const MODE_SHORT: Record<string, string> = {
+    "read-only": "ro",
+    "workspace-write": "wr",
+    "danger-full-access": "full",
+  };
+  const modeBadge = (m: ModeState | undefined): Seg[] => {
+    if (!m) return [];
+    const parts: string[] = [];
+    if (m.plan === "on") parts.push("plan");
+    const sandbox =
+      m.sandbox === undefined
+        ? undefined
+        : (MODE_SHORT[m.sandbox] ?? m.sandbox);
+    if (sandbox !== undefined && sandbox !== "wr") parts.push(sandbox);
+    const permission =
+      m.permission === undefined
+        ? undefined
+        : (MODE_SHORT[m.permission] ?? m.permission);
+    if (permission !== undefined && permission !== sandbox)
+      parts.push(permission);
+    return parts.length === 0
+      ? []
+      : [{ text: parts.join("·"), color: identity }];
+  };
+  /** P2 B1：goal 状态徽标（phase）+ todo 活动计数（in_progress n/共 m），缺省省略 */
+  const taskBadges = (): Seg[] => {
+    const out: Seg[] = [];
+    // goal clear → 徽标省略（DESIGN:355）
+    if (session?.goal && session.goal.status === "set")
+      out.push({ text: `goal:${session.goal.goal.phase}`, color: identity });
+    if (session?.todos && session.todos.length > 0) {
+      const n = session.todos.filter((t) => t.status === "in_progress").length;
+      out.push({ text: `todo ${n}/${session.todos.length}`, color: identity });
+    }
+    out.push(...modeBadge(session?.mode));
+    return out;
+  };
   const envFull: Seg[] = [
     { text: status.time, color: identity },
     { text: status.git, color: magenta },
     { text: status.cwd, color: blue },
   ];
   const sessionFull: Seg[] = withTitle
-    ? [{ text: title, color: cyanTitle }]
-    : [];
+    ? [{ text: title, color: cyanTitle }, ...taskBadges()]
+    : taskBadges();
   const llmFull: Seg[] = [
     { text: modelSeg, color: (s) => colorModel(themeId, s) },
     { text: ctxSeg, color: brightBlue },
@@ -710,9 +755,22 @@ export function renderStatusLine(
       { text: fitTail(status.cwd, budget), color: blue },
     ];
   };
-  const sessionFit = (w: number): Seg[] => [
-    { text: fitHead(title, Math.max(1, w - 1)), color: cyanTitle },
-  ];
+  const sessionFit = (w: number): Seg[] => {
+    // 组内压缩仅压标题（goal/todo/模式徽标短且新，优先保留）；宽度不足时整组走折行
+    const badges = taskBadges();
+    const bw =
+      badges.reduce(
+        (acc, s, i) => acc + (i > 0 ? 1 : 0) + displayWidth(s.text),
+        0,
+      ) + (badges.length > 0 ? 1 : 0); // 标题与徽标间的 ·
+    const tw = Math.max(0, w - bw);
+    return [
+      ...(withTitle
+        ? [{ text: fitHead(title, Math.max(0, tw)), color: cyanTitle }]
+        : []),
+      ...badges,
+    ];
+  };
   const llmFit = (w: number): Seg[] => {
     const budget = Math.max(
       1,
@@ -791,16 +849,29 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const picker = state.picker;
   const question = state.question;
   const history = state.history;
+  const goalPanel = state.goalPanel;
+  // B1+B2：状态栏徽标与 /goal 面板只读当前活跃会话的 goal/todo/模式
+  const goal = state.activeSessionId
+    ? state.goalBySession[state.activeSessionId]
+    : undefined;
+  const todos = state.activeSessionId
+    ? state.todoBySession[state.activeSessionId]
+    : undefined;
+  const mode = state.activeSessionId
+    ? state.modeBySession[state.activeSessionId]
+    : undefined;
   const fullWidth = Math.max(1, size.cols);
   // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
   // 按键提示区仅输入态存在（审批/问答/选择/历史面板自带按键提示），与输入区之间不画横线
-  const normalInput = !showApproval && !question && !picker && !history;
+  const normalInput =
+    !showApproval && !question && !picker && !history && !goalPanel;
   const statusLines = renderStatusLine(
     state.systemStatus,
     state.sessionTitle,
     state.themeId,
     fullWidth,
     state.usage,
+    { goal, todos, mode },
   );
   // 面板态/输入态共用固定交互区高度（见 metricsFor）；提示区仅输入态计入
   const metrics = metricsFor(
@@ -842,6 +913,15 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
       history,
       height: metrics.footerHeight,
       width: fullWidth,
+    });
+  } else if (goalPanel) {
+    footerLines = renderGoalPanel({
+      goal,
+      todos,
+      scroll: goalPanel.scroll,
+      height: metrics.footerHeight,
+      width: fullWidth,
+      themeId: state.themeId,
     });
   } else {
     // 两字符提示符：左字符 = 上次提交所用模式符号（MODE_SYMBOL[lastSubmitMode]，

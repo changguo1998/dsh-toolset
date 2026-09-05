@@ -489,6 +489,22 @@ export class App {
       return;
     }
 
+    // /goal 面板：↑/↓ 滚动正文、Esc 关闭；其余按键吞掉（不落入输入栏）
+    if (this.state.goalPanel) {
+      if (name === "up")
+        this.apply((st) =>
+          reduceState(st, { type: "goal-panel-scroll", delta: -1 }),
+        );
+      else if (name === "down")
+        this.apply((st) =>
+          reduceState(st, { type: "goal-panel-scroll", delta: 1 }),
+        );
+      else if (name === "escape")
+        this.apply((st) => reduceState(st, { type: "goal-panel-close" }));
+      this.paint();
+      return;
+    }
+
     // /history 历史会话面板：list 阶段 ↑/↓ 移动、Enter 查看、Esc 关闭；
     // view 阶段 ↑/↓/PgUp/PgDn 滚动、Esc 返回列表；loading/error 阶段吞键（error 可 Esc 关闭）
     if (this.state.history) {
@@ -788,6 +804,9 @@ export class App {
         // 会话列表 + 切换：见 openHistory / resumeToSession
         void this.openHistory();
         return;
+      case "goal":
+        this.handleGoalCommand();
+        return;
       case "copy":
         this.copyLastReply();
         return;
@@ -1051,6 +1070,25 @@ export class App {
     this.notice(`current model -> ${label}`);
   }
 
+  /**
+   * /goal：打开/关闭当前会话目标迷你面板（只读当前活跃会话 goal/todo）。
+   * 打开时关闭互斥面板（历史/模型选择）；关闭见面板按键分支（Esc）。
+   */
+  private handleGoalCommand(): void {
+    this.apply((s) => {
+      let next = s;
+      if (next.goalPanel) {
+        next = reduceState(next, { type: "goal-panel-close" });
+      } else {
+        if (next.history) next = reduceState(next, { type: "history-close" });
+        if (next.picker) next = reduceState(next, { type: "picker-close" });
+        next = reduceState(next, { type: "goal-panel-open" });
+      }
+      return next;
+    });
+    this.paint();
+  }
+
   /** 追加一条命令通知并重绘（/model 结果/错误统一入口） */
   private notice(text: string): void {
     if (this.disposed) return;
@@ -1066,6 +1104,7 @@ export class App {
       "  /quit   退出",
       "  /theme [dark|light|toggle]  切换主题(默认 dark=fffdark, light=ffflight)",
       "  /session  会话列表：Enter 切换到 persisted 会话(live 不可续)",
+      "  /goal     当前会话目标迷你面板（goal/todo 只读；↑/↓ 滚动，Esc 关闭）",
       "  /copy     复制最后一条模型回复到剪贴板(OSC52)",
       "  /model [provider/]model  switch current-session model; bare /model: interactive picker",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",

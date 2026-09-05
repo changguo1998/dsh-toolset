@@ -2247,3 +2247,27 @@ test("usage 事件 → 状态栏显示 ctx/cache（替换占位 —）", () => {
     "状态栏显示 cache 67%",
   );
 });
+
+test("/goal：slash 打开迷你面板，Esc 关闭（footer 面板态）", () => {
+  const { renderer } = makeApp();
+  typeAndEnter(renderer, "/goal");
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plain.some((l) => l.includes("当前目标")),
+    "面板打开：footer 渲染 goal 面板标题",
+  );
+  assert.ok(
+    plain.some((l) => l.includes("（当前会话无 goal）")),
+    "无 goal 数据时面板占位",
+  );
+  renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+  const closed = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    !closed.some((l) => l.includes("当前目标")),
+    "Esc 关闭 → 回到输入态（无面板标题）",
+  );
+});

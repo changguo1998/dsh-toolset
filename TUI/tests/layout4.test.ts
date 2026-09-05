@@ -1131,4 +1131,102 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
     .join("\n");
   assert.ok(t.includes("ctx 12.4k"), "窄列下 contextLen 段保留");
   assert.ok(!t.includes("新会话"), "窄列下标题段省略");
+
+  // --- P2 B1+B2：状态栏 goal 徽标 / todo 计数 / 模式徽标三合一 ---
+
+  const sessionText = (
+    s: Parameters<typeof renderStatusLine>[5],
+    cols = 120,
+  ): string =>
+    renderStatusLine(baseStatus, "t", "dark", cols, undefined, s)
+      .map((l) => l.text)
+      .join("\n");
+
+  test("renderStatusLine: goal 徽标 + todo 计数 + 模式徽标三合一", () => {
+    const t = sessionText({
+      goal: {
+        status: "set",
+        operation: "create",
+        goal: { id: "g1", revision: 1, objective: "x", phase: "active" },
+      } as const,
+      todos: [
+        { content: "a", status: "in_progress" },
+        { content: "b", status: "pending" },
+        { content: "c", status: "completed" },
+      ],
+      mode: {
+        plan: "on",
+        sandbox: "read-only",
+        permission: "danger-full-access",
+      },
+    });
+    assert.ok(t.includes("goal:active"), `goal 徽标 phase (${t})`);
+    assert.ok(t.includes("todo 1/3"), `todo in_progress 1/共3 (${t})`);
+    assert.ok(t.includes("plan·ro·full"), `模式徽标三合一 (${t})`);
+  });
+
+  test("renderStatusLine: goal clear → 徽标省略；无 todo/mode → 缺省省略", () => {
+    const t = sessionText({
+      goal: {
+        status: "cleared",
+        operation: "clear",
+        cleared: { id: "g1" },
+      } as const,
+    });
+    assert.ok(!t.includes("goal:"), "clear 后不显示 goal 徽标");
+    const t2 = sessionText({});
+    assert.ok(!t2.includes("todo"), "无 todo 不显示计数");
+  });
+
+  test("renderStatusLine: 模式徽标省略规则（sandbox=wr 默认省略、permission 同缩略省略、三缺整槽消失）", () => {
+    const t1 = sessionText({
+      mode: { sandbox: "workspace-write", permission: "danger-full-access" },
+    });
+    assert.ok(!t1.includes("wr"), "sandbox 默认 workspace-write 省略");
+    assert.ok(t1.includes("full"), `permission full 保留 (${t1})`);
+    const t2 = sessionText({
+      mode: { sandbox: "read-only", permission: "read-only" },
+    });
+    assert.ok(!t2.includes("ro·ro"), "permission 与 sandbox 同缩略时省略");
+    assert.ok(t2.includes("·ro"), `sandbox ro 保留 (${t2})`);
+    const t3 = sessionText({
+      mode: {
+        plan: "off",
+        sandbox: "workspace-write",
+        permission: "workspace-write",
+      },
+    });
+    assert.ok(
+      !t3.includes("plan") &&
+        !t3.includes("ro") &&
+        !t3.includes("wr") &&
+        !t3.includes("full"),
+      `三缺整槽消失 (${t3})`,
+    );
+  });
+
+  test("renderStatusLine: 窄屏会话组（标题+徽标）组级折行、徽标完整不截断", () => {
+    const cols = 34;
+    const lines = renderStatusLine(
+      baseStatus,
+      "会话标题很长很长很长",
+      "dark",
+      cols,
+      undefined,
+      {
+        goal: {
+          status: "set",
+          operation: "create",
+          goal: { id: "g", revision: 1, objective: "x", phase: "blocked" },
+        } as const,
+        todos: [{ content: "a", status: "in_progress" }],
+        mode: { plan: "on", sandbox: "read-only" },
+      },
+    );
+    const t = lines.map((l) => l.text).join("\n");
+    assert.ok(t.includes("goal:blocked"), `窄屏徽标完整 (${t})`);
+    assert.ok(t.includes("plan·ro"), `窄屏模式徽标完整 (${t})`);
+    for (const l of lines)
+      assert.ok(displayWidth(l.text) <= cols, `每行不超宽 (${l.text})`);
+  });
 });

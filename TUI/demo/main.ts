@@ -96,7 +96,7 @@ if (smoke) {
       // 6. Esc：idle 时无操作（显式推 agent-status idle 保证确定性）
       adapter.emitEvent({
         type: "agent-status",
-        sessionId: "s1",
+        sessionId: "mock-1",
         status: "idle",
       });
       await sleep(200);
@@ -105,7 +105,7 @@ if (smoke) {
       // 7. 审批弹窗：agent 活跃 + approval 打开时 Esc 不打断、不关闭；y 关闭
       adapter.emitEvent({
         type: "agent-status",
-        sessionId: "s1",
+        sessionId: "mock-1",
         status: "tool",
       });
       adapter.emitEvent({
@@ -223,6 +223,35 @@ if (smoke) {
         adapter.interrupts === 1,
         "question Esc must not interrupt, interrupts=" + adapter.interrupts,
       );
+      // 10. P2 B1+B2：状态栏 goal/todo/模式徽标 + /goal 面板（mock 启动 90–130ms 已注入场景）
+      const badgePlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
+      ok(
+        "goal-badge",
+        badgePlain.includes("goal:active"),
+        "no goal:active badge in frames",
+      );
+      ok(
+        "todo-count",
+        badgePlain.includes("todo 2/3"),
+        "no todo 2/3 count in frames",
+      );
+      ok(
+        "mode-badge",
+        badgePlain.includes("plan·ro·full"),
+        "no plan·ro·full mode badge in frames",
+      );
+      typeLine("/goal");
+      await sleep(300);
+      const panelPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
+      ok(
+        "goal-panel",
+        panelPlain.includes("当前目标") &&
+          panelPlain.includes("目标: ") &&
+          panelPlain.includes("todo 2/3"),
+        "goal panel title/objective/todo absent from frames",
+      );
+      renderer.emitKey(key("escape")); // 关闭 goal 面板，避免吞掉 /quit
+      await sleep(200);
       console.error(
         "SMOKE_OK sent=" +
           JSON.stringify(sent) +

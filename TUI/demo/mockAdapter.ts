@@ -167,6 +167,65 @@ export class MockDshAdapter implements DshAdapter {
         60,
       ),
     );
+    // P2 B1+B2 demo：注入 goal/todo/mode 事件（状态栏徽标 + /goal 面板场景）
+    this.timers.push(
+      setTimeout(
+        () =>
+          this.emit({
+            type: "goal-change",
+            sessionId: this.sessionId,
+            operation: "create",
+            goal: {
+              id: "demo-goal-1",
+              revision: 1,
+              objective: "P2 阶段 B1+B2：/goal 迷你面板与状态栏模式徽标",
+              phase: "active",
+              maxGoalRounds: 10,
+            },
+            roundsStarted: 0,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          }),
+        90,
+      ),
+    );
+    this.timers.push(
+      setTimeout(
+        () =>
+          this.emit({
+            type: "todo-write",
+            sessionId: this.sessionId,
+            todos: [
+              {
+                content: "状态栏 goal 徽标与 todo 计数",
+                status: "in_progress",
+              },
+              { content: "/goal 迷你面板", status: "in_progress" },
+              { content: "模式徽标三合一", status: "completed" },
+            ],
+          }),
+        110,
+      ),
+    );
+    // 模式徽标：plan 开启 + sandbox read-only + permission danger-full-access → plan·ro·full
+    for (const [kind, value] of [
+      ["plan", "on"],
+      ["sandbox", "read-only"],
+      ["permission", "danger-full-access"],
+    ] as const) {
+      this.timers.push(
+        setTimeout(
+          () =>
+            this.emit({
+              type: "mode",
+              sessionId: this.sessionId,
+              kind,
+              value,
+            }),
+          130,
+        ),
+      );
+    }
   }
 
   private scheduleReply(): void {
