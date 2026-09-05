@@ -827,15 +827,22 @@ export function reduceState(state: AppState, action: StateAction): AppState {
     case "subagent":
       // B4：subagent 行（`@ <label> <os|ct>`，append-only 不配对不折叠）入 buffer，不进模型历史
       return appendToolLine(state, subagentLine(action.label, action.mode));
-    case "compaction-summary":
-      // P2：压缩摘要仅 toast（text）+ 每会话保留最近一条原始载荷（raw，不改写）
-      return {
-        ...state,
-        compactionBySession: {
-          ...state.compactionBySession,
-          [action.sessionId]: { raw: action.raw, text: action.text },
+    case "compaction-summary": {
+      // B5：压缩摘要仅 toast（`压缩完成：<text 首行>`；空摘要给占位）+ 每会话保留最近一条原始载荷（raw，不改写）
+      const toast = action.text
+        ? "压缩完成：" + action.text.split("\n")[0]
+        : "压缩完成（无摘要）";
+      return appendNotice(
+        {
+          ...state,
+          compactionBySession: {
+            ...state.compactionBySession,
+            [action.sessionId]: { raw: action.raw, text: action.text },
+          },
         },
-      };
+        toast,
+      );
+    }
     default:
       return state;
   }

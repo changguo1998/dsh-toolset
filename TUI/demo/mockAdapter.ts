@@ -384,6 +384,18 @@ export class MockDshAdapter implements DshAdapter {
             label: "researcher",
             mode: "one-shot",
           });
+          // B5：compaction 摘要 toast（`压缩完成：<text 首行>`；raw 携完整载荷入 state）
+          this.emit({
+            type: "compaction-summary",
+            sessionId: this.sessionId,
+            text: "已压缩 182 条历史消息，保留关键上下文",
+            raw: {
+              compactionId: "demo-c1",
+              shadowedTokenCount: 182000,
+              provider: "deepseek",
+              model: "deepseek-v4",
+            },
+          });
         }
       }, sceneAt),
     );

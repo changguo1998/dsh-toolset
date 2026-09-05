@@ -250,6 +250,11 @@ if (smoke) {
         badgePlain.includes("@ researcher os"),
         "no @ label os subagent line in frames",
       );
+      ok(
+        "compaction-summary-toast",
+        badgePlain.includes("压缩完成：已压缩 182 条历史消息"),
+        "no compaction-summary toast in frames",
+      );
       typeLine("/goal");
       await sleep(300);
       const panelPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");

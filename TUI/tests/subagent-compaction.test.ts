@@ -36,3 +36,60 @@ test("B4 subagent 行：mode 缩略映射 one-shot→os / continuable→ct，lab
   ];
   assert.deepEqual(texts, ["@ arch os", "@ impl ct"]);
 });
+
+const raw = { compactionId: "c1", model: "deepseek-v4" };
+
+test("B5 compaction 摘要 toast：非空 text 取首行 `压缩完成：<text 首行>`", () => {
+  let s = initialState();
+  s = reduceState(s, {
+    type: "compaction-summary",
+    sessionId: "s1",
+    text: "第一行总结\n第二行",
+    raw,
+  });
+  const texts = s.buffer.map((l) => l.text);
+  assert.deepEqual(texts, ["压缩完成：第一行总结"]);
+});
+
+test("B5 compaction 摘要空文本：toast 给「压缩完成（无摘要）」", () => {
+  let s = initialState();
+  s = reduceState(s, {
+    type: "compaction-summary",
+    sessionId: "s1",
+    text: "",
+    raw: { compactionId: "c2" },
+  });
+  assert.deepEqual(s.buffer.map((l) => l.text), ["压缩完成（无摘要）"]);
+});
+
+test("B5 compaction 摘要：原始载荷保留于 state，每会话仅最近一条", () => {
+  let s = initialState();
+  s = reduceState(s, {
+    type: "compaction-summary",
+    sessionId: "s1",
+    text: "旧",
+    raw: { compactionId: "c-old" },
+  });
+  s = reduceState(s, {
+    type: "compaction-summary",
+    sessionId: "s1",
+    text: "新",
+    raw: { compactionId: "c-new" },
+  });
+  s = reduceState(s, {
+    type: "compaction-summary",
+    sessionId: "s2",
+    text: "另一会话",
+    raw: { compactionId: "c-s2" },
+  });
+  assert.deepEqual(s.compactionBySession["s1"], {
+    text: "新",
+    raw: { compactionId: "c-new" },
+  });
+  assert.equal(s.compactionBySession["s2"]!.text, "另一会话");
+  // toast 行按事件累计（每个摘要一条 notice）
+  assert.deepEqual(
+    s.buffer.map((l) => l.text),
+    ["压缩完成：旧", "压缩完成：新", "压缩完成：另一会话"],
+  );
+});
