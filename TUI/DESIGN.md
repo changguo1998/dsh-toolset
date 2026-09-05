@@ -333,7 +333,7 @@ backlog 状态：P1 完成；P2/P3 待排期。
 
 预估总改动 ~800 行（含测试）。每阶段完成报验证结果后再进下一阶段。
 
-## P2 实现计划（2026-09-04 编制 v1；2026-09-05 advisor 多轮审阅修订 v4 定稿，载荷已对照 dsh-v0.1.1-rc.2 源码核实；待排期）
+## P2 实现计划（2026-09-04 编制 v1；2026-09-05 advisor 多轮审阅修订 v4 定稿；同日 A0+A 完成并提交，B1 起待排期）
 
 ### 范围与关键决策
 
@@ -346,7 +346,7 @@ backlog 状态：P1 完成；P2/P3 待排期。
 | step 分步 | 仅在该 step 出现首个工具调用时渲染分组头 `step N`；无工具 step 静默 | step/start 无载荷值，只为工具行分组服务 |
 | subagent 行 | buffer 行前缀 **候选**「`@ <label>`」+ mode 缩略（os/ct）；**符号与展示形态验收前需用户确认**，不视为已定 | 低频，行级即可；符号沿用用户符号偏好流程 |
 | compaction 摘要 | **仅 toast（复用 notice 通道，tone 默认）**：`压缩完成：<首个非空文本块首行>`；不写持久 buffer、不做折叠行；完整载荷只入 state 待查 | 压缩可高频，持久行污染对话历史；与 compaction/start/end 现有 toast 一致 |
-| 审批策略切换 UI | **条件化范围**：A0 确认宿主是否支持会话级 `approval/policy` 写路径；支持→做 ask/never 两态切换，不支持→仅实现 preset 选择 UI（不发明独立开关）。**`approval/policy` 是既有事件（P3 审计对同源），不属本轮新增事件**；仅当需要展示当前策略时才把它归一化为 DshEvent（见阶段 A 注） | ApprovalPolicy（ask/never）、PresetService 配置表已核，写路径未核——不把 UI 形态押在未核 API 上 |
+| 审批策略切换 UI | **条件化范围**：A0 确认宿主是否支持会话级 `approval/policy` 写路径；支持→做 ask/never 两态切换，不支持→仅实现 preset 选择 UI（不发明独立开关）。**`approval/policy` 是既有事件（P3 审计对同源），不属本轮新增事件**；仅当需要展示当前策略时才把它归一化为 DshEvent（见阶段 A 注） | ApprovalPolicy（ask/never）、PresetService 配置表与写路径均已在 rc.2 源码核实（A0）——C 定案为 ask/never 两态切换 |
 
 ### 事件映射（rc.2 载荷已核 → TUI DshEvent）
 
@@ -381,8 +381,8 @@ backlog 状态：P1 完成；P2/P3 待排期。
 
 | 阶段 | 内容 | 文件 | 估计 |
 | --- | --- | --- | --- |
-| A0 — 宿主写路径核验 | 确认是否存在会话级 `approval/policy` 写 API；支持 → C 做 ask/never 切换；不支持 → C 仅 preset 选择。**若 C 需展示当前策略，`approval/policy` 归一化为第 10 个新 DshEvent（既有事件源，仅 C 依 A0 结果按需引入）**。结论落 DSH-CTX-API.md 备注 | 调研 | ~0 代码 |
-| A — 事件层（无 UI） | **9 个新增 DshEvent 类型**（6 项能力；不含 `approval/policy`——其为既有事件）。dsh.ts 归一化 case + reducer 入状态（**goal/todo/模式/compaction 全部按 sessionId 隔离存储**）+ index.ts 透传 + **seq 守卫**；载荷结论同步 DSH-CTX-API.md | types.ts / dsh.ts / state.ts / index.ts / tests/adapter.dsh.test.ts | ~260 |
+| A0 — 宿主写路径核验 ✅ | **结论：宿主存在会话级写路径** `ctx.approval.setPolicy(agent, 'ask' | 'never')`（rc.2`user-approval/src/index.ts` L226 → `setApprovalPolicy` → `session.append('approval/policy')`）→ **C 做 ask/never 两态切换**；`permissionPresets`仅为替代的组合预设路径（PresetService 配置表键 workspace-write/danger-full-access，配置可增）。**若 C 需展示当前策略**，`approval/policy` 归一化为第 10 个新 DshEvent（既有事件源，仅 C 依 A0 结果按需引入）。调研结论记入本文件（DSH-CTX-API.md 只读，偏差见提交说明） | 调研 | ✅ ~0 代码 |
+| A — 事件层（无 UI） ✅ | **9 个新增 DshEvent 类型**（6 项能力；不含 `approval/policy`——其为既有事件）：types.ts 加 GoalOperation/GoalRefLike/GoalSnapshotLike/GoalChangeLike/TodoItemLike/SubagentDescriptorLike/ContentBlockLike/CompactionSummaryPayloadLike 与 9 个 DshEvent（goal-change 判别联合、mode×3 合一、step×2、subagent、compaction-summary{text,raw}）+ SessionEventType/DataMap 同步；dsh.ts 归一化 case（goal 以 operation==='clear' 选判别成员；todo 数组兜底空；plan/mode active→on/off；subagent label 缺省回落 provider；compaction text 取首个非空文本块）+ reducer 入状态（**goal/todo/模式/compaction 全部按 sessionId 隔离**；compaction 每会话仅最新一条不裁剪 raw）+ index.ts 透传 + **seq 守卫**（per-session 游标 `sessionSeq`：同 seq 重复/倒序丢弃、间隙接受；缺 seq 的旧 mock 跳过；非活跃会话沿用 P1 丢弃）。测试侧：FakeRuntime.fire 自动按 sessionId 分配递增 seq（兼容历史用例固定 seq:1），新增 fireRaw 供守卫用例显式注入 | types.ts / dsh.ts / state.ts / index.ts / tests/adapter.dsh.test.ts | ~260 ✅ |
 | B1 — `/goal` 迷你面板 | 状态栏 goal 徽标 + todo 计数 slot + 面板（纯函数渲染 + footer 面板态，复用 HistoryPanel 模式）；goal clear/blocked 展示 | state.ts / 新 components/GoalPanel.ts / layout.ts / index.ts + 测试 | ~240 |
 | B2 — 状态栏模式徽标 | plan/sandbox/permission 三合一 slot（顺序/省略/缩略规则见渲染语义） | layout.ts + tests/layout4.test.ts | ~60 |
 | B3 — step 分步 | 工具行分组头 `step N`（新 step 先 flush 当前组）；无工具 step 静默 | layout.ts / tool-line.ts + 测试 | ~60 |
@@ -394,8 +394,8 @@ backlog 状态：P1 完成；P2/P3 待排期。
 
 | 阶段 | 契约 |
 | --- | --- |
-| A0 | 调研结论落 DSH-CTX-API.md 备注，无代码 |
-| A | `npm run check` / `npm test` 全绿；adapter 测试含具体 seq 守卫断言（同 seq 重复丢弃、倒序丢弃、间隙接受、非当前 sessionId 丢弃各 ≥1）+ goal clear 与 todo 全量替换断言 + 会话切换隔离断言（切走后旧会话 goal/todo/模式/compaction 不泄漏） |
+| A0 ✅ | 写路径在 rc.2 源码核实（`user-approval/src/index.ts` L226 `setApprovalPolicy` → `session.append('approval/policy')`），结论记入本文件阶段划分（DSH-CTX-API.md 只读，偏差已记录）；无代码 |
+| A ✅ | `npm run check` / `npm test` / `npm run build` 全绿（344 tests）；adapter 测试含 seq 守卫断言（同 seq 重复丢弃、倒序丢弃、间隙接受、非当前 sessionId 丢弃各 ≥1）+ goal 判别联合 set/clear + todo 全量替换 + reducer 级会话切换隔离断言（s1/s2 goal/todo/mode/compaction 互不泄漏） |
 | B（每项） | 同上 + `npm run build` + demo 帧断言（goal 面板、徽标、step、subagent、summary toast 出现于帧输出；窄终端徽标组级折行；compaction 空摘要分支；goal blocked/clear 分支） |
 | C | 同上 + PTY 冒烟（真实 goal/todo/plan 会话，如可达）；三文档 grep 检查 + 工作区干净 |
 
@@ -403,9 +403,11 @@ backlog 状态：P1 完成；P2/P3 待排期。
 
 | 项 | 说明 |
 | --- | --- |
-| 审批策略写路径 | A0 定 C 形态：会话级 `approval/policy` 可用→两态切换；仅 preset 组合→preset 选择 UI |
+| 审批策略写路径 ✅ 已定 | A0 已核 `ctx.approval.setPolicy(agent, 'ask' | 'never')` 可用 → **C 做 ask/never 两态切换** |
 | `/goal` 面板会话范围 | 单活跃会话设计，仅展示当前会话 goal/todo；面板关闭/切会话后迟到 reducer 只更新 state（stale guard 沿用 P1 面板模式） |
 | subagent 行符号 | `@` 前缀与 os/ct 缩略为**候选**，B4 开工前请用户确认 |
 | compaction/summary 持久化 | 本轮仅 toast 不落 buffer；若后续要可读历史（/inspect 类），另立条目 |
 
 预估总改动 ~850 行（含测试）。每阶段完成报验证结果后再进下一阶段。
+
+**阶段进度（2026-09-05）**：A0 ✅（写路径核实：`ctx.approval.setPolicy(agent, 'ask'|'never')` 存在，C 定案两态切换；结论本文件，非只读的 DSH-CTX-API.md）→ A ✅（9 事件归一化 + seq 守卫 + 4 隔离 store，344 tests 绿，已提交）。B1（/goal 面板）起待排期。

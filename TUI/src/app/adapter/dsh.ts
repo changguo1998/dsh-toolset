@@ -42,6 +42,14 @@ import type {
   HistoryMessage,
   SessionSurfaceView,
   TokenUsage,
+  GoalOperation,
+  GoalRefLike,
+  GoalSnapshotLike,
+  GoalChangeLike,
+  TodoItemLike,
+  SubagentDescriptorLike,
+  ContentBlockLike,
+  CompactionSummaryPayloadLike,
 } from "./types.ts";
 import {
   buildApprovalPrompt,
@@ -90,6 +98,14 @@ export type {
   AgentRegistryLike,
   NoticeTone,
   TokenUsage,
+  GoalOperation,
+  GoalRefLike,
+  GoalSnapshotLike,
+  GoalChangeLike,
+  TodoItemLike,
+  SubagentDescriptorLike,
+  ContentBlockLike,
+  CompactionSummaryPayloadLike,
 } from "./types.ts";
 export {
   buildApprovalPrompt,
@@ -342,6 +358,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   const activeCommands = new Set<AbortController>();
   // 流式块去重累计：key = session:turn:step:index，block-end 只补发未输出部分
   const emittedByBlock = new Map<string, string>();
+  // P2 seq 守卫：per-session 游标，同 seq 重复/倒序丢弃（防重放），间隙接受
+  const sessionSeq = new Map<string, number>();
   // 按 (session:turn:step) 累计已流式输出的正文（text 块；reasoning 不计）。
   // assistant/message 是每个 step 结束必发的完整正文表面事件，据此只补发缺失后缀；
   // 非流式 provider（无任何 chunk）时累计为空 → 直接输出完整正文，保证回复可见。
@@ -456,6 +474,14 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     // 单活跃会话：非当前活跃会话的事件一律丢弃——其他 live 会话（列表标 [不可续]）
     // 不可注入输出/思考/标题到本会话 buffer 或状态栏
     if (sid !== activeSessionId) return;
+    // P2 seq 守卫：同 seq 重复/倒序（<= lastSeq）丢弃防重放；间隙接受并更新游标
+    // （seed 边界由宿主 session/end-seed 标记；缺 seq 的事件（旧 mock）跳过守卫）
+    const seq = (raw as { seq?: unknown }).seq;
+    if (typeof seq === "number") {
+      const last = sessionSeq.get(sid) ?? 0;
+      if (seq <= last) return;
+      sessionSeq.set(sid, seq);
+    }
     const data = raw.data as {
       chunk?: StreamChunk;
       text?: string;
@@ -672,6 +698,113 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
             typeof retry.failure?.message === "string"
               ? retry.failure.message
               : undefined,
+        });
+        return;
+      }
+      case "goal/change": {
+        // P2 goal 全量快照 + clear 墓碑（判别联合，完整保留字段；按 sessionId 隔离存储）
+        const goal = raw.data as GoalChangeLike;
+        if (goal.operation === "clear") {
+          emit({
+            type: "goal-change",
+            sessionId: sid,
+            operation: "clear",
+            cleared: goal.cleared,
+            clearedAt: goal.clearedAt,
+          });
+          return;
+        }
+        emit({
+          type: "goal-change",
+          sessionId: sid,
+          operation: goal.operation,
+          goal: goal.goal,
+          roundsStarted: goal.roundsStarted,
+          createdAt: goal.createdAt,
+          updatedAt: goal.updatedAt,
+        });
+        return;
+      }
+      case "todo/write": {
+        // P2 todo 全量快照（last-write-wins，无 id），按 sessionId 隔离
+        const todos = (raw.data as { todos?: unknown }).todos;
+        emit({
+          type: "todo-write",
+          sessionId: sid,
+          todos: Array.isArray(todos) ? (todos as TodoItemLike[]) : [],
+        });
+        return;
+      }
+      case "plan/mode": {
+        const active = (raw.data as { active?: unknown }).active;
+        emit({
+          type: "mode",
+          sessionId: sid,
+          kind: "plan",
+          value: active === true ? "on" : "off",
+        });
+        return;
+      }
+      case "sandbox/mode": {
+        const mode = (raw.data as { mode?: unknown }).mode;
+        emit({
+          type: "mode",
+          sessionId: sid,
+          kind: "sandbox",
+          value: typeof mode === "string" ? mode : "",
+        });
+        return;
+      }
+      case "permission/preset": {
+        const preset = (raw.data as { preset?: unknown }).preset;
+        emit({
+          type: "mode",
+          sessionId: sid,
+          kind: "permission",
+          value: typeof preset === "string" ? preset : "",
+        });
+        return;
+      }
+      case "step/start":
+      case "step/end":
+        // P2 step 边界（B3 工具行分组头）；载荷为 {turn, step}，无独立值
+        emit({
+          type: "step",
+          sessionId: sid,
+          turn: data.turn ?? 0,
+          step: data.step ?? 0,
+          phase: raw.type === "step/start" ? "start" : "end",
+        });
+        return;
+      case "subagent/descriptor": {
+        const d = raw.data as SubagentDescriptorLike;
+        emit({
+          type: "subagent",
+          sessionId: sid,
+          label:
+            typeof d.label === "string" && d.label !== ""
+              ? d.label
+              : d.provider,
+          mode: d.mode === "continuable" ? "continuable" : "one-shot",
+        });
+        return;
+      }
+      case "compaction/summary": {
+        // P2 压缩摘要：text 取首个非空文本块首行入 toast；完整原始载荷随事件带出（raw，不改写）
+        const payload = raw.data as CompactionSummaryPayloadLike;
+        const blocks = Array.isArray(payload.summary) ? payload.summary : [];
+        const firstText = blocks.find(
+          (b): b is ContentBlockLike & { text: string } =>
+            !!b &&
+            b.type === "text" &&
+            typeof b.text === "string" &&
+            b.text.trim() !== "",
+        );
+        emit({
+          type: "compaction-summary",
+          sessionId: sid,
+          text: firstText ? firstText.text : "",
+          raw: payload,
         });
         return;
       }

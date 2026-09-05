@@ -33,6 +33,7 @@ import { initialState, reduceState } from "../src/app/state.ts";
 /** 可编程 fake 宿主 */
 class FakeRuntime implements DshRuntime {
   listeners = new Map<string, Set<(...args: unknown[]) => unknown>>();
+  private seqCounter = new Map<string, number>();
   on(event: string, listener: (...args: unknown[]) => unknown): () => void {
     let set = this.listeners.get(event);
     if (!set) {
@@ -42,7 +43,31 @@ class FakeRuntime implements DshRuntime {
     set.add(listener);
     return () => set.delete(listener);
   }
+  /**
+   * 转发事件。session/event 自动把 seq 规范为按 sessionId 单调递增（1..N），
+   * 兼容历史用例固定 seq:1 的写法；P2 seq 守卫专项用例用 fireRaw 显式注入。
+   */
   fire(event: string, ...args: unknown[]): unknown {
+    if (
+      event === "session/event" &&
+      args.length >= 2 &&
+      args[1] !== null &&
+      typeof args[1] === "object" &&
+      typeof (args[1] as { seq?: unknown }).seq === "number"
+    ) {
+      const session = args[0] as { id?: string } | null;
+      const key = session?.id ?? "?";
+      const next = (this.seqCounter.get(key) ?? 0) + 1;
+      this.seqCounter.set(key, next);
+      args = [args[0], { ...(args[1] as object), seq: next }];
+    }
+    return this.dispatch(event, args);
+  }
+  /** 原样转发（不规范化 seq），供 seq 守卫测试注入重复/倒序/间隙 */
+  fireRaw(event: string, ...args: unknown[]): unknown {
+    return this.dispatch(event, args);
+  }
+  private dispatch(event: string, args: unknown[]): unknown {
     const set = this.listeners.get(event);
     if (!set) return undefined;
     let last: unknown;
@@ -2061,4 +2086,379 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
       "失败结果行 ✗ + error tone",
     );
   });
+});
+
+// ---------------------------------------------------------------------------
+// P2 阶段 A：seq 守卫 + 9 事件归一化 + reducer 按 sessionId 隔离
+// ---------------------------------------------------------------------------
+
+/** 构造带显式 seq 的 assistant/chunk 事件（seq 守卫用例用 fireRaw 注入） */
+function chunkAt(seq: number, text: string): SessionEvent<"assistant/chunk"> {
+  return {
+    type: "assistant/chunk",
+    seq,
+    time: 1,
+    data: { turn: 1, step: 1, chunk: { type: "text-delta", index: 0, text } },
+  };
+}
+
+test("P2 seq 守卫：同 seq 重复丢弃、倒序丢弃、间隙接受", () => {
+  const t = makeAdapter();
+  t.runtime.fireRaw("session/event", { id: "s1" }, chunkAt(10, "a"));
+  assert.deepEqual(t.events, [{ type: "stream", sessionId: "s1", text: "a" }]);
+  // 同 seq 重复：丢弃（<= lastSeq）
+  t.runtime.fireRaw("session/event", { id: "s1" }, chunkAt(10, "dup"));
+  // 倒序：seq 8 < 10 丢弃
+  t.runtime.fireRaw("session/event", { id: "s1" }, chunkAt(8, "back"));
+  assert.deepEqual(t.events, [{ type: "stream", sessionId: "s1", text: "a" }]);
+  // 间隙：seq 12 > 10 接受并游标前移（不补缺）
+  t.runtime.fireRaw("session/event", { id: "s1" }, chunkAt(12, "b"));
+  assert.deepEqual(t.events, [
+    { type: "stream", sessionId: "s1", text: "a" },
+    { type: "stream", sessionId: "s1", text: "b" },
+  ]);
+});
+
+test("P2 seq 守卫：非当前活跃会话事件丢弃，当前会话正常", () => {
+  const t = makeAdapter();
+  t.runtime.fire(
+    "session/event",
+    { id: "other" },
+    chunkEvent("text-delta", "x"),
+  );
+  assert.deepEqual(t.events, []);
+  t.runtime.fire("session/event", { id: "s1" }, chunkEvent("text-delta", "ok"));
+  assert.deepEqual(t.events, [{ type: "stream", sessionId: "s1", text: "ok" }]);
+});
+
+test("P2 goal/change create → goal-change set 事件（完整快照字段）", () => {
+  const t = makeAdapter();
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "goal/change",
+    seq: 1,
+    time: 1,
+    data: {
+      kind: "goal/change",
+      version: 1,
+      operation: "create",
+      goal: {
+        id: "g1",
+        revision: 1,
+        objective: "目标",
+        phase: "active",
+        maxGoalRounds: 3,
+      },
+      roundsStarted: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  } as SessionEvent<"goal/change">);
+  assert.deepEqual(t.events, [
+    {
+      type: "goal-change",
+      sessionId: "s1",
+      operation: "create",
+      goal: {
+        id: "g1",
+        revision: 1,
+        objective: "目标",
+        phase: "active",
+        maxGoalRounds: 3,
+      },
+      roundsStarted: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  ]);
+});
+
+test("P2 goal/change clear → goal-change clear 事件（墓碑 ref）", () => {
+  const t = makeAdapter();
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "goal/change",
+    seq: 1,
+    time: 1,
+    data: {
+      kind: "goal/change",
+      version: 1,
+      operation: "clear",
+      cleared: { id: "g1", revision: 2 },
+      clearedAt: 9,
+    },
+  } as SessionEvent<"goal/change">);
+  assert.deepEqual(t.events, [
+    {
+      type: "goal-change",
+      sessionId: "s1",
+      operation: "clear",
+      cleared: { id: "g1", revision: 2 },
+      clearedAt: 9,
+    },
+  ]);
+});
+
+test("P2 todo/write → todo-write 全量快照转发（最后一次写入整体替换）", () => {
+  const t = makeAdapter();
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "todo/write",
+    seq: 1,
+    time: 1,
+    data: {
+      todos: [
+        { content: "a", status: "in_progress" },
+        { content: "b", status: "pending" },
+      ],
+    },
+  } as SessionEvent<"todo/write">);
+  assert.deepEqual(t.events, [
+    {
+      type: "todo-write",
+      sessionId: "s1",
+      todos: [
+        { content: "a", status: "in_progress" },
+        { content: "b", status: "pending" },
+      ],
+    },
+  ]);
+  t.events.length = 0;
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "todo/write",
+    seq: 1,
+    time: 1,
+    data: { todos: [{ content: "c", status: "completed" }] },
+  } as SessionEvent<"todo/write">);
+  assert.deepEqual(t.events, [
+    {
+      type: "todo-write",
+      sessionId: "s1",
+      todos: [{ content: "c", status: "completed" }],
+    },
+  ]);
+});
+
+test("P2 plan/sandbox/permission → mode 事件（kind 区分，值原样）", () => {
+  const t = makeAdapter();
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "plan/mode",
+    seq: 1,
+    time: 1,
+    data: { active: true },
+  } as SessionEvent<"plan/mode">);
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "sandbox/mode",
+    seq: 1,
+    time: 1,
+    data: { mode: "read-only" },
+  } as SessionEvent<"sandbox/mode">);
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "permission/preset",
+    seq: 1,
+    time: 1,
+    data: { preset: "workspace-write" },
+  } as SessionEvent<"permission/preset">);
+  assert.deepEqual(t.events, [
+    { type: "mode", sessionId: "s1", kind: "plan", value: "on" },
+    { type: "mode", sessionId: "s1", kind: "sandbox", value: "read-only" },
+    {
+      type: "mode",
+      sessionId: "s1",
+      kind: "permission",
+      value: "workspace-write",
+    },
+  ]);
+});
+
+test("P2 step/start|end → step 事件（turn/step/phase）", () => {
+  const t = makeAdapter();
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "step/start",
+    seq: 1,
+    time: 1,
+    data: { turn: 2, step: 1 },
+  } as SessionEvent<"step/start">);
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "step/end",
+    seq: 1,
+    time: 1,
+    data: { turn: 2, step: 1 },
+  } as SessionEvent<"step/end">);
+  assert.deepEqual(t.events, [
+    { type: "step", sessionId: "s1", turn: 2, step: 1, phase: "start" },
+    { type: "step", sessionId: "s1", turn: 2, step: 1, phase: "end" },
+  ]);
+});
+
+test("P2 subagent/descriptor → subagent（label 缺省回落到 provider；os/ct 区分）", () => {
+  const t = makeAdapter();
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "subagent/descriptor",
+    seq: 1,
+    time: 1,
+    data: {
+      version: 2,
+      mode: "continuable",
+      provider: "spawn",
+      label: "child",
+    },
+  } as SessionEvent<"subagent/descriptor">);
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "subagent/descriptor",
+    seq: 1,
+    time: 1,
+    data: { version: 2, mode: "one-shot", provider: "spawn" },
+  } as SessionEvent<"subagent/descriptor">);
+  assert.deepEqual(t.events, [
+    { type: "subagent", sessionId: "s1", label: "child", mode: "continuable" },
+    { type: "subagent", sessionId: "s1", label: "spawn", mode: "one-shot" },
+  ]);
+});
+
+test("P2 compaction/summary → compaction-summary（text 取首个非空文本块；raw 完整保留）", () => {
+  const t = makeAdapter();
+  const payload = {
+    compactionId: "c1",
+    summary: [
+      { type: "text", text: "" },
+      { type: "text", text: "已压缩旧内容" },
+      { type: "image_url", url: "x" },
+    ],
+    shadowedSeqs: [1, 2, 3],
+    shadowedTokenCount: 100,
+    provider: "deepseek",
+    model: "deepseek-v3",
+  };
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "compaction/summary",
+    seq: 1,
+    time: 1,
+    data: payload,
+  } as SessionEvent<"compaction/summary">);
+  assert.deepEqual(t.events, [
+    {
+      type: "compaction-summary",
+      sessionId: "s1",
+      text: "已压缩旧内容",
+      raw: payload,
+    },
+  ]);
+  // 空摘要（无文本块）→ text 空串，raw 原样
+  t.events.length = 0;
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "compaction/summary",
+    seq: 1,
+    time: 1,
+    data: { compactionId: "c2", summary: [] },
+  } as SessionEvent<"compaction/summary">);
+  assert.deepEqual(t.events, [
+    {
+      type: "compaction-summary",
+      sessionId: "s1",
+      text: "",
+      raw: { compactionId: "c2", summary: [] },
+    },
+  ]);
+});
+
+test("P2 reducer：goal set/clear、todo 全量替换、mode 三合一、compaction 每会话最新一条，全部按 sessionId 隔离", () => {
+  const sid = "s1";
+  let s = initialState();
+  // goal set：完整快照（含 maxGoalRounds 等全部字段）
+  s = reduceState(s, {
+    type: "goal-change",
+    sessionId: sid,
+    operation: "create",
+    goal: {
+      id: "g1",
+      revision: 1,
+      objective: "目标",
+      phase: "active",
+      maxGoalRounds: 3,
+    },
+    roundsStarted: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  const gSet = s.goalBySession[sid];
+  assert.ok(gSet && gSet.status === "set");
+  assert.equal(gSet.goal.phase, "active");
+  assert.equal(gSet.goal.maxGoalRounds, 3);
+  assert.equal(gSet.operation, "create");
+  // 其它会话此时无 goal
+  assert.equal(s.goalBySession["s2"], undefined);
+  // todo 全量替换（非 append）
+  s = reduceState(s, {
+    type: "todo-write",
+    sessionId: sid,
+    todos: [{ content: "a", status: "in_progress" }],
+  });
+  s = reduceState(s, {
+    type: "todo-write",
+    sessionId: sid,
+    todos: [{ content: "b", status: "completed" }],
+  });
+  assert.deepEqual(s.todoBySession[sid], [
+    { content: "b", status: "completed" },
+  ]);
+  // 会话隔离：s2 写入不影响 s1
+  s = reduceState(s, {
+    type: "todo-write",
+    sessionId: "s2",
+    todos: [{ content: "x", status: "pending" }],
+  });
+  assert.deepEqual(s.todoBySession[sid], [
+    { content: "b", status: "completed" },
+  ]);
+  assert.deepEqual(s.todoBySession["s2"], [
+    { content: "x", status: "pending" },
+  ]);
+  // goal clear：该会话清空为 cleared，其它会话不受影响
+  s = reduceState(s, {
+    type: "goal-change",
+    sessionId: sid,
+    operation: "clear",
+    cleared: { id: "g1", revision: 2 },
+    clearedAt: 9,
+  });
+  const gClear = s.goalBySession[sid];
+  assert.ok(gClear && gClear.status === "cleared");
+  assert.deepEqual(gClear.cleared, { id: "g1", revision: 2 });
+  // mode：plan/sandbox/permission 三合一 + 会话隔离
+  s = reduceState(s, {
+    type: "mode",
+    sessionId: sid,
+    kind: "plan",
+    value: "on",
+  });
+  s = reduceState(s, {
+    type: "mode",
+    sessionId: sid,
+    kind: "sandbox",
+    value: "read-only",
+  });
+  assert.deepEqual(s.modeBySession[sid], { plan: "on", sandbox: "read-only" });
+  s = reduceState(s, {
+    type: "mode",
+    sessionId: "s2",
+    kind: "permission",
+    value: "danger-full-access",
+  });
+  assert.deepEqual(s.modeBySession["s2"], { permission: "danger-full-access" });
+  assert.deepEqual(s.modeBySession[sid], { plan: "on", sandbox: "read-only" });
+  // compaction：每会话仅最新一条（raw 完整保留，不裁剪）
+  const rawA = { compactionId: "a", summary: [{ type: "text", text: "甲" }] };
+  const rawB = { compactionId: "b", summary: [{ type: "text", text: "乙" }] };
+  s = reduceState(s, {
+    type: "compaction-summary",
+    sessionId: sid,
+    text: "甲",
+    raw: rawA,
+  });
+  s = reduceState(s, {
+    type: "compaction-summary",
+    sessionId: sid,
+    text: "乙",
+    raw: rawB,
+  });
+  assert.deepEqual(s.compactionBySession[sid], { raw: rawB, text: "乙" });
+  assert.equal(s.compactionBySession["s2"], undefined);
 });

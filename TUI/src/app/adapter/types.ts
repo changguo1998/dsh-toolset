@@ -15,6 +15,87 @@ export interface ApprovalItem {
   prompt: string;
 }
 
+// ---------------------------------------------------------------------------
+// P2 领域载荷结构面（rc.2 源码核实；宽松读取，字段缺省不抛错）
+// ---------------------------------------------------------------------------
+
+/** goal/change 的操作动词（packages/goal/goal/src/domain.ts GoalOperation） */
+export type GoalOperation =
+  "create" | "edit" | "pause" | "resume" | "complete" | "block" | "clear";
+
+/** goal 引用（GoalRef：id + revision） */
+export interface GoalRefLike {
+  id: string;
+  revision?: number;
+}
+
+/** goal 全量快照（GoalSnapshot：id/revision/objective/phase/blockedReason?/maxGoalRounds） */
+export interface GoalSnapshotLike extends GoalRefLike {
+  objective: string;
+  phase: "active" | "paused" | "blocked" | "complete";
+  blockedReason?: { code: string; message: string };
+  maxGoalRounds?: number;
+}
+
+/** goal/change 载荷（判别联合：非 clear 全量快照 / clear 墓碑） */
+export type GoalChangeLike =
+  | {
+      kind: "goal/change";
+      version?: 1;
+      operation: Exclude<GoalOperation, "clear">;
+      goal: GoalSnapshotLike;
+      roundsStarted?: number;
+      createdAt?: number;
+      updatedAt?: number;
+    }
+  | {
+      kind: "goal/change";
+      version?: 1;
+      operation: "clear";
+      cleared: GoalRefLike;
+      clearedAt?: number;
+    };
+
+/** todo 条目（TodoItem：content + status；全量快照 last-write-wins，无 id） */
+export interface TodoItemLike {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+}
+
+/** subagent/descriptor 载荷（SubagentDescriptorData 结构面） */
+export interface SubagentDescriptorLike {
+  version?: number;
+  mode: "one-shot" | "continuable";
+  provider: string;
+  label?: string;
+  agentProvider?: string;
+  agentModel?: string;
+  persona?: string;
+}
+
+/** compaction/summary 的 content block（text 提取用） */
+export interface ContentBlockLike {
+  type?: string;
+  text?: string;
+}
+
+/** compaction/summary 完整原始载荷（compaction/src/types.ts 结构面；reducer 整份保留） */
+export interface CompactionSummaryPayloadLike {
+  compactionId?: string;
+  sourceCommandId?: string;
+  summary?: ContentBlockLike[];
+  shadowedSeqs?: number[];
+  shadowedTokenCount?: number;
+  provider?: string;
+  model?: string;
+  maxTokens?: number;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadTokens?: number;
+  };
+}
+
 /** notice 色调分级（turn/end finish reason 等驱动：error 红 / warn 黄 / muted 灰） */
 export type NoticeTone = "error" | "warn" | "muted";
 /** 应用层收到的归一化事件（见文件头映射表） */
@@ -45,6 +126,50 @@ export type DshEvent =
       delayMs: number;
       code: string;
       message?: string;
+    }
+  // --- P2 阶段 A 新增（按 sessionId 隔离；goal 为判别联合，compaction 摘要携完整 raw） ---
+  | {
+      type: "goal-change";
+      sessionId: string;
+      operation: Exclude<GoalOperation, "clear">;
+      goal: GoalSnapshotLike;
+      roundsStarted?: number;
+      createdAt?: number;
+      updatedAt?: number;
+    }
+  | {
+      type: "goal-change";
+      sessionId: string;
+      operation: "clear";
+      cleared: GoalRefLike;
+      clearedAt?: number;
+    }
+  | { type: "todo-write"; sessionId: string; todos: TodoItemLike[] }
+  | {
+      type: "mode";
+      sessionId: string;
+      kind: "plan" | "sandbox" | "permission";
+      /** plan 存 "on"/"off"；sandbox/permission 存原始值字符串 */
+      value: string;
+    }
+  | {
+      type: "step";
+      sessionId: string;
+      turn: number;
+      step: number;
+      phase: "start" | "end";
+    }
+  | {
+      type: "subagent";
+      sessionId: string;
+      label: string;
+      mode: "one-shot" | "continuable";
+    }
+  | {
+      type: "compaction-summary";
+      sessionId: string;
+      text: string;
+      raw: CompactionSummaryPayloadLike;
     };
 
 /** 应用层对 adapter 的唯一依赖面：事件流入 + 出站回调（消息/命令/审批/打断） */
@@ -151,7 +276,10 @@ export type SessionEventType =
   | "llm/retry"
   | "plan/mode"
   | "sandbox/mode"
+  | "permission/preset"
   | "subagent/descriptor"
+  | "todo/write"
+  | "compaction/summary"
   | "agent/preset/selected";
 
 /** StreamChunk 子集（assistant/chunk 事件的 chunk 载荷；完整变体见 stream 契约） */
@@ -258,6 +386,13 @@ export interface SessionEventDataMap {
   "approval/decided": { id: string; outcome: ApprovalOutcome };
   "approval/policy": { policy: "ask" | "never" };
   "session/title": { title: string };
+  "goal/change": GoalChangeLike;
+  "todo/write": { todos: TodoItemLike[] };
+  "plan/mode": { active: boolean };
+  "sandbox/mode": { mode: string; source?: "delegation" };
+  "permission/preset": { preset: string };
+  "subagent/descriptor": SubagentDescriptorLike;
+  "compaction/summary": CompactionSummaryPayloadLike;
   "agent/preset/selected": { preset: string };
 }
 

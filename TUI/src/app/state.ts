@@ -11,6 +11,11 @@ import type {
   SessionInfo,
   HistoryMessage,
   NoticeTone,
+  CompactionSummaryPayloadLike,
+  GoalOperation,
+  GoalRefLike,
+  GoalSnapshotLike,
+  TodoItemLike,
 } from "./adapter/dsh.ts";
 import type { ModelSelection } from "./adapter/dsh.ts";
 import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
@@ -59,6 +64,30 @@ export interface SystemStatus {
 
 /** turn 分隔线（横线占位；实际宽度由历史区换行决定） */
 export const TURN_SEPARATOR = "--------";
+
+/** P2 goal 状态（判别联合同 DshEvent：set 完整保留快照字段，clear 保留墓碑 ref） */
+export type GoalState =
+  | {
+      status: "set";
+      operation: Exclude<GoalOperation, "clear">;
+      goal: GoalSnapshotLike;
+      roundsStarted?: number;
+      createdAt?: number;
+      updatedAt?: number;
+    }
+  | {
+      status: "cleared";
+      operation: "clear";
+      cleared: GoalRefLike;
+      clearedAt?: number;
+    };
+
+/** P2 模式徽标状态（plan 用 "on"/"off"；sandbox/permission 存原始值字符串；缺省省略） */
+export interface ModeState {
+  plan?: "on" | "off";
+  sandbox?: string;
+  permission?: string;
+}
 
 /** 历史会话面板阶段：列表加载 → 列表 → 会话加载 → 浏览 → 错误（任一阶段可关闭） */
 export type HistoryPhase =
@@ -119,6 +148,17 @@ export interface AppState {
   history: HistoryPanelState | null;
   /** 当前会话标题（resume 后由 surface 首条用户消息生成；新会话为（新会话）） */
   sessionTitle: string;
+  /** P2：按 sessionId 隔离的 goal 状态（判别联合；完整保留原始载荷字段） */
+  goalBySession: Record<string, GoalState>;
+  /** P2：按 sessionId 隔离的 todo 列表（全量快照 last-write-wins） */
+  todoBySession: Record<string, TodoItemLike[]>;
+  /** P2：按 sessionId 隔离的模式徽标（plan/sandbox/permission 三合一） */
+  modeBySession: Record<string, ModeState>;
+  /** P2：按 sessionId 隔离的 compaction 摘要（每会话仅最近一条；raw 完整保留） */
+  compactionBySession: Record<
+    string,
+    { raw: CompactionSummaryPayloadLike; text: string }
+  >;
 }
 
 /** /model 交互选择面板状态：三列列表（provider/model/effort）+ 高亮索引 */
@@ -201,6 +241,10 @@ export function initialState(
     sessions: [],
     activeSessionId: null,
     sessionTitle: "（新会话）",
+    goalBySession: {},
+    todoBySession: {},
+    modeBySession: {},
+    compactionBySession: {},
     buffer: [],
     followBottom: true,
     scrollOffset: 0,
@@ -651,6 +695,73 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           cacheRead: action.cacheRead,
         },
       };
+    case "goal-change": {
+      // P2：goal 全量快照/clear 墓碑，按 sessionId 隔离存储（判别联合同事件，完整保留字段）
+      if (action.operation === "clear") {
+        return {
+          ...state,
+          goalBySession: {
+            ...state.goalBySession,
+            [action.sessionId]: {
+              status: "cleared",
+              operation: "clear",
+              cleared: action.cleared,
+              clearedAt: action.clearedAt,
+            },
+          },
+        };
+      }
+      return {
+        ...state,
+        goalBySession: {
+          ...state.goalBySession,
+          [action.sessionId]: {
+            status: "set",
+            operation: action.operation,
+            goal: action.goal,
+            roundsStarted: action.roundsStarted,
+            createdAt: action.createdAt,
+            updatedAt: action.updatedAt,
+          },
+        },
+      };
+    }
+    case "todo-write":
+      // P2：todo 全量快照 last-write-wins，按 sessionId 隔离
+      return {
+        ...state,
+        todoBySession: {
+          ...state.todoBySession,
+          [action.sessionId]: action.todos,
+        },
+      };
+    case "mode": {
+      // P2：模式徽标按 sessionId 隔离（plan/sandbox/permission 三合一，缺省省略）
+      const current = state.modeBySession[action.sessionId] ?? {};
+      const updated =
+        action.kind === "plan"
+          ? { ...current, plan: action.value as "on" | "off" }
+          : action.kind === "sandbox"
+            ? { ...current, sandbox: action.value }
+            : { ...current, permission: action.value };
+      return {
+        ...state,
+        modeBySession: { ...state.modeBySession, [action.sessionId]: updated },
+      };
+    }
+    case "step":
+    case "subagent":
+      // 阶段 A 透传：B3（step 分步）/B4（subagent 行）渲染时使用，不入状态模型
+      return state;
+    case "compaction-summary":
+      // P2：压缩摘要仅 toast（text）+ 每会话保留最近一条原始载荷（raw，不改写）
+      return {
+        ...state,
+        compactionBySession: {
+          ...state.compactionBySession,
+          [action.sessionId]: { raw: action.raw, text: action.text },
+        },
+      };
     default:
       return state;
   }
@@ -730,6 +841,49 @@ export type StateAction =
       delayMs: number;
       code: string;
       message?: string;
+    }
+  // --- P2 阶段 A 新增（goal 为判别联合，compaction 摘要携完整 raw；step/subagent 阶段 A 透传） ---
+  | {
+      type: "goal-change";
+      sessionId: string;
+      operation: Exclude<GoalOperation, "clear">;
+      goal: GoalSnapshotLike;
+      roundsStarted?: number;
+      createdAt?: number;
+      updatedAt?: number;
+    }
+  | {
+      type: "goal-change";
+      sessionId: string;
+      operation: "clear";
+      cleared: GoalRefLike;
+      clearedAt?: number;
+    }
+  | { type: "todo-write"; sessionId: string; todos: TodoItemLike[] }
+  | {
+      type: "mode";
+      sessionId: string;
+      kind: "plan" | "sandbox" | "permission";
+      value: string;
+    }
+  | {
+      type: "step";
+      sessionId: string;
+      turn: number;
+      step: number;
+      phase: "start" | "end";
+    }
+  | {
+      type: "subagent";
+      sessionId: string;
+      label: string;
+      mode: "one-shot" | "continuable";
+    }
+  | {
+      type: "compaction-summary";
+      sessionId: string;
+      text: string;
+      raw: CompactionSummaryPayloadLike;
     };
 
 function setInput(
