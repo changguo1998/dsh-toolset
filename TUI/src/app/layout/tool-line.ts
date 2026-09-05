@@ -14,3 +14,8 @@ export function toolCallLine(name: string, summary: string): string {
 export function toolResultLine(ok: boolean, detail: string): string {
   return (ok ? "✓ " : "✗ ") + (detail || "(无结果)");
 }
+
+/** step 分组头：`step N`（B3，步内首条工具行前插入；N 取事件 step 字段） */
+export function stepHeaderLine(step: number): string {
+  return "step " + step;
+}

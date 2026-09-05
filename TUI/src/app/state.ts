@@ -19,7 +19,11 @@ import type {
 } from "./adapter/dsh.ts";
 import type { ModelSelection } from "./adapter/dsh.ts";
 import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
-import { toolCallLine, toolResultLine } from "./layout/tool-line.ts";
+import {
+  stepHeaderLine,
+  toolCallLine,
+  toolResultLine,
+} from "./layout/tool-line.ts";
 
 /** scrollback 行数上限（纯物理上限；DESIGN:2000 行） */
 export const MAX_BUFFER_LINES = 2000;
@@ -166,6 +170,12 @@ export interface AppState {
     string,
     { raw: CompactionSummaryPayloadLike; text: string }
   >;
+  /** B3：step 分组（当前活动工具组；headerEmitted=分组头已插入，供步内首条工具行插头） */
+  stepGroup: {
+    sessionId: string;
+    step: number;
+    headerEmitted: boolean;
+  } | null;
 }
 
 /** /model 交互选择面板状态：三列列表（provider/model/effort）+ 高亮索引 */
@@ -252,6 +262,7 @@ export function initialState(
     todoBySession: {},
     modeBySession: {},
     compactionBySession: {},
+    stepGroup: null,
     buffer: [],
     followBottom: true,
     scrollOffset: 0,
@@ -353,6 +364,29 @@ export function appendToolLine(
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
   return { ...state, buffer };
+}
+
+/**
+ * B3：step 分组工具行——当前活动 step 组尚未插分组头时先插入 `step N`，再追加工具行。
+ * 无 step 上下文（旧会话 / mock 无 step 事件）时不插头，保持既有 append-only 行为。
+ */
+export function appendStepToolLine(
+  state: AppState,
+  sessionId: string,
+  text: string,
+  tone?: NoticeTone,
+): AppState {
+  const group = state.stepGroup;
+  if (!group || group.sessionId !== sessionId)
+    return appendToolLine(state, text, tone);
+  // 分组头先插（组内首条工具行前），随后标记已发头，避免重复插头
+  const next = group.headerEmitted
+    ? state
+    : appendToolLine(state, stepHeaderLine(group.step));
+  return {
+    ...appendToolLine(next, text, tone),
+    stepGroup: { ...group, headerEmitted: true },
+  };
 }
 
 /**
@@ -683,12 +717,18 @@ export function reduceState(state: AppState, action: StateAction): AppState {
     case "set-theme":
       return { ...state, themeId: action.themeId };
     case "tool-call":
-      // 工具调用：紧凑工具行（⚙ <name> <summary> 由 tool-line.ts 组装），不进模型历史
-      return appendToolLine(state, toolCallLine(action.name, action.summary));
-    case "tool-result":
-      // 工具结果：✓ 成功 / ✗ 失败（失败红色，tone=error）
-      return appendToolLine(
+      // 工具调用：紧凑工具行（○ <name> <summary> 由 tool-line.ts 组装），不进模型历史；
+      // B3：当前 step 组首条工具行前先插分组头 `step N`（无 step 上下文不插头）
+      return appendStepToolLine(
         state,
+        action.sessionId,
+        toolCallLine(action.name, action.summary),
+      );
+    case "tool-result":
+      // 工具结果：✓ 成功 / ✗ 失败（失败红色，tone=error）；B3：同 tool-call 参与 step 分组
+      return appendStepToolLine(
+        state,
+        action.sessionId,
         toolResultLine(action.ok, action.detail),
         action.ok ? undefined : "error",
       );
@@ -772,8 +812,19 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       };
     }
     case "step":
+      // B3：step/start 打开新工具组（append-only，旧组既有行即“flush”）；step/end 关闭分组
+      return action.phase === "start"
+        ? {
+            ...state,
+            stepGroup: {
+              sessionId: action.sessionId,
+              step: action.step,
+              headerEmitted: false,
+            },
+          }
+        : { ...state, stepGroup: null };
     case "subagent":
-      // 阶段 A 透传：B3（step 分步）/B4（subagent 行）渲染时使用，不入状态模型
+      // 阶段 A 透传：B4（subagent 行）渲染时使用，不入状态模型
       return state;
     case "compaction-summary":
       // P2：压缩摘要仅 toast（text）+ 每会话保留最近一条原始载荷（raw，不改写）

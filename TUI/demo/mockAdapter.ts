@@ -304,6 +304,14 @@ export class MockDshAdapter implements DshAdapter {
     this.timers.push(
       setTimeout(() => {
         if (this.seq === 1) {
+          // B3：step 分组——工具调用前先发 step/start，结束后 step/end（渲染出 `step 1` 分组头）
+          this.emit({
+            type: "step",
+            sessionId: this.sessionId,
+            turn: 1,
+            step: 1,
+            phase: "start",
+          });
           // 归一化事件 tool-call（对应真实适配器 raw "tool/call"，阶段 3 联调由 dsh.ts 产出）
           this.emit({
             type: "tool-call",
@@ -317,6 +325,13 @@ export class MockDshAdapter implements DshAdapter {
             ok: true,
             detail: "总用量 3 目录，代码 2.4k 行",
           });
+          this.emit({
+            type: "step",
+            sessionId: this.sessionId,
+            turn: 1,
+            step: 1,
+            phase: "end",
+          });
         } else if (this.seq === 2) {
           this.emit({
             type: "retry",
@@ -328,6 +343,14 @@ export class MockDshAdapter implements DshAdapter {
           });
           this.emit({ type: "compaction", phase: "start" });
           this.emit({ type: "compaction", phase: "end" });
+          // B3：第二个 step 组——失败工具调用也参与分组（`step 2` 分组头）
+          this.emit({
+            type: "step",
+            sessionId: this.sessionId,
+            turn: 1,
+            step: 2,
+            phase: "start",
+          });
           this.emit({
             type: "tool-call",
             sessionId: this.sessionId,
@@ -339,6 +362,13 @@ export class MockDshAdapter implements DshAdapter {
             sessionId: this.sessionId,
             ok: false,
             detail: "EACCES: 13 权限不足",
+          });
+          this.emit({
+            type: "step",
+            sessionId: this.sessionId,
+            turn: 1,
+            step: 2,
+            phase: "end",
           });
         } else if (this.seq === 3) {
           this.emit({

@@ -240,6 +240,11 @@ if (smoke) {
         badgePlain.includes("plan·ro·full"),
         "no plan·ro·full mode badge in frames",
       );
+      ok(
+        "step-header",
+        badgePlain.includes("step 1") && badgePlain.includes("step 2"),
+        "no step N group headers in frames",
+      );
       typeLine("/goal");
       await sleep(300);
       const panelPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
