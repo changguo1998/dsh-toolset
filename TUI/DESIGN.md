@@ -410,4 +410,4 @@ backlog 状态：P1 完成；P2/P3 待排期。
 
 预估总改动 ~850 行（含测试）。每阶段完成报验证结果后再进下一阶段。
 
-**阶段进度（2026-09-05）**：A0 ✅（写路径核实：`ctx.approval.setPolicy(agent, 'ask'|'never')` 存在，C 定案两态切换；结论与 9 事件载荷备注沉淀到仓库根 `DSH-CTX-API.md` 第 8 节）→ A ✅（9 事件归一化 + seq 守卫 + 4 隔离 store，344 tests 绿，已提交）。B1（/goal 面板）起待排期。
+**阶段进度（2026-09-05）**：A0 ✅（写路径核实：`ctx.approval.setPolicy(agent, 'ask'|'never')` 存在，C 定案两态切换；结论与 9 事件载荷备注沉淀到仓库根 `DSH-CTX-API.md` 第 8 节）→ A ✅（9 事件归一化 + seq 守卫 + 4 隔离 store，344 tests 绿，已提交）→ B1+B2 ✅（/goal 迷你面板 + 状态栏 goal 徽标/todo 计数 + 模式徽标三合一，356 tests 绿，demo smoke 帧断言追加，已提交）。B3（step 分步）起待排期。
