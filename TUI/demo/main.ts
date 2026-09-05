@@ -245,6 +245,11 @@ if (smoke) {
         badgePlain.includes("step 1") && badgePlain.includes("step 2"),
         "no step N group headers in frames",
       );
+      ok(
+        "subagent-line",
+        badgePlain.includes("@ researcher os"),
+        "no @ label os subagent line in frames",
+      );
       typeLine("/goal");
       await sleep(300);
       const panelPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");

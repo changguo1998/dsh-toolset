@@ -19,3 +19,14 @@ export function toolResultLine(ok: boolean, detail: string): string {
 export function stepHeaderLine(step: number): string {
   return "step " + step;
 }
+
+/**
+ * subagent 行：`@ <label> <os|ct>`（B4，append-only 不配对不折叠）。
+ * label 由 adapter 归一化时保证非空（无 label 回落 provider）；mode 缩略 one-shot→os / continuable→ct。
+ */
+export function subagentLine(
+  label: string,
+  mode: "one-shot" | "continuable",
+): string {
+  return "@ " + label + " " + (mode === "one-shot" ? "os" : "ct");
+}

@@ -21,6 +21,7 @@ import type { ModelSelection } from "./adapter/dsh.ts";
 import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
 import {
   stepHeaderLine,
+  subagentLine,
   toolCallLine,
   toolResultLine,
 } from "./layout/tool-line.ts";
@@ -824,8 +825,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           }
         : { ...state, stepGroup: null };
     case "subagent":
-      // 阶段 A 透传：B4（subagent 行）渲染时使用，不入状态模型
-      return state;
+      // B4：subagent 行（`@ <label> <os|ct>`，append-only 不配对不折叠）入 buffer，不进模型历史
+      return appendToolLine(state, subagentLine(action.label, action.mode));
     case "compaction-summary":
       // P2：压缩摘要仅 toast（text）+ 每会话保留最近一条原始载荷（raw，不改写）
       return {

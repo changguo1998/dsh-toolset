@@ -377,6 +377,13 @@ export class MockDshAdapter implements DshAdapter {
             error: true,
             tone: "error",
           });
+          // B4：subagent 行（`@ researcher os`）——append-only，与工具行同区
+          this.emit({
+            type: "subagent",
+            sessionId: this.sessionId,
+            label: "researcher",
+            mode: "one-shot",
+          });
         }
       }, sceneAt),
     );
