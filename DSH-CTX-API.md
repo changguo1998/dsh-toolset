@@ -95,3 +95,30 @@ usage{usage} / finish{reason, replayState?}
 
 - 契约对齐以本仓库源码为准；如需自动校验可跑 `grep -r "KNOWN_SESSION_EVENT_TYPES" packages/core/session` 与 `grep "approval/request" packages/interaction/user-approval`。
 - 后续升级：pull master 后重述第 1/2/3 节关键类型（`SessionEventMap`、`StreamChunk`、`ApprovalRequest/Outcome`）。
+
+## 8. P2 阶段 A0+A 备注（2026-09-05，对照 dsh-v0.1.1-rc.2 源码核实）
+
+> 说明：本文件按 AGENTS.md 原为只读研读笔记；因 P2 goal 客观要求把 A0 与 9 个 P2 事件的载荷结论沉淀于此（备注性质、不改动既有正文），故追加本节。TUI 侧落地细节见 `TUI/DESIGN.md`「P2 实现计划」。
+
+### A0 — 审批策略会话级写路径（决定 C 形态）
+
+- **结论：存在会话级写 API** `ctx.approval.setPolicy(agent, policy)`，`policy: 'ask' | 'never'`（`ApprovalPolicy`）。
+- 调用链：`user-approval/src/index.ts` L226 `setPolicy` → `setApprovalPolicy` → `session.append('approval/policy', …)` → 折叠生效 `effectiveApprovalPolicy(events)`；即写路径本身就是 `approval/policy` 事件的产生源。
+- 部署默认来自 `Config.policy`；`approval/policy` 是**既有审计对事件**（不属 P2 新增）。
+- **C 阶段 UI 形态定案：ask/never 两态切换**（TUI `/policy`）。`permissionPresets`（PresetService 配置表键 workspace-write/danger-full-access，配置可增）仅为替代的组合预设路径，本轮不做。
+
+### 9 个 P2 事件载荷备注（rc.2 → TUI DshEvent 归一化）
+
+| rc.2 事件 | 载荷 | TUI DshEvent | 存储 |
+| --- | --- | --- | --- |
+| `goal/change` | operation create/edit/pause/resume/complete/block 携带 `GoalSnapshot{id,revision,objective,phase,blockedReason?,maxGoalRounds}` + roundsStarted/createdAt/updatedAt；operation clear 携带 `cleared{id,revision}` + clearedAt | `goal-change` 判别联合（非 clear 带 goal；clear 带 cleared/clearedAt） | `state.goalBySession[sessionId]`（完整保留字段） |
+| `todo/write` | `{todos: TodoItem[]}`，`TodoItem{content, status: pending/in_progress/completed}`，全量快照 last-write-wins、无 id | `todo-write {sessionId, todos}` | `state.todoBySession[sessionId]`（每次全量替换） |
+| `plan/mode` | `{active: boolean}` | `mode {kind:'plan', value:'on'|'off'}` | `state.modeBySession[sessionId]` |
+| `sandbox/mode` | `{mode: 'read-only'|'workspace-write'|'danger-full-access', source?: 'delegation'}` | `mode {kind:'sandbox', value: mode}` | 同上 |
+| `permission/preset` | `{preset: string}`（PresetSpec.preset；CUSTOM_PRESET='custom'） | `mode {kind:'permission', value: preset}` | 同上 |
+| `step/start` / `step/end` | `{turn, step}` | `step {turn, step, phase:'start'|'end'}` | 透传（B3 渲染用） |
+| `subagent/descriptor` | `{version, mode:'one-shot'|'continuable', provider, label?, agentProvider?, agentModel?, persona?, toolFilter?}` | `subagent {label(无 label 回落 provider), mode}` | 透传（B4 渲染用） |
+| `compaction/summary` | `{compactionId, summary: ContentBlock[], shadowedSeqs[], shadowedTokenCount, provider, model, usage?}`（紧随其后 user/message 作阴影替换） | `compaction-summary {text(首个非空文本块), raw(完整载荷)}` | `state.compactionBySession[sessionId]`（每会话仅最新一条；raw 不改写、不进对话 buffer） |
+
+- seq 守卫：adapter 按 sessionId 记 lastSeq，`event.seq <= lastSeq` 丢弃（防重复/倒序重放）、间隙接受并游标前移；非当前活跃会话沿用 P1 丢弃。
+- 事件词汇表来源：`packages/core/session/src/known-event-types.ts`（rc.2 计 48 项）；本表 9 项载荷均已对照 rc.2 各包源码核实。
