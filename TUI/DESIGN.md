@@ -185,8 +185,8 @@ interface Renderer {
 
 0. **DSH adapter 接口确认**（已完成，2026-08-23）：研读官方源码并沉淀于仓库根 `DSH-CTX-API.md`，接口形状已写入 `src/app/adapter/dsh.ts` 的类型骨架（DSH 原生类型 + 归一化映射表）。不再需要一次性的 spike 脚本；阶段 2 实现 real adapter 时直接在真实 DSH profile 内验证（订阅 → 流式 → 审批应答）。adapter 保持接口化以便 mock/真实替换。
 1. 实现 renderer 最小可用（raw mode + 输入解码 + 整帧重绘），`demo/` 跑通
-1. 接入 DSH 核心（adapter/dsh.ts，含审批与流式输出）
-1. 完善交互功能并打包为 DSH Profile Bundle（bin/dsh-tui.js）
+2. 接入 DSH 核心（adapter/dsh.ts，含审批与流式输出）
+3. 完善交互功能并打包为 DSH Profile Bundle（bin/dsh-tui.js）
 
 由 advisor 审阅（2026-08-22），本版修正：
 
@@ -410,4 +410,4 @@ backlog 状态：P1 完成；P2/P3 待排期。
 
 预估总改动 ~850 行（含测试）。每阶段完成报验证结果后再进下一阶段。
 
-**阶段进度（2026-09-05）**：A0 ✅（写路径核实：`ctx.approval.setPolicy(agent, 'ask'|'never')` 存在，C 定案两态切换；结论与 9 事件载荷备注沉淀到仓库根 `DSH-CTX-API.md` 第 8 节）→ A ✅（9 事件归一化 + seq 守卫 + 4 隔离 store，344 tests 绿，已提交）→ B1+B2 ✅（/goal 迷你面板 + 状态栏 goal 徽标/todo 计数 + 模式徽标三合一，356 tests 绿，demo smoke 帧断言追加，已提交 60d5662）→ B3 ✅（step 分步：工具行分组头 `step N` + 无工具 step 静默 + step/end 关组 + 防御 flush + 跨会话隔离，363 tests 绿，demo smoke `step-header` 断言，已提交 d190d1b）。B4（subagent 行）起待排期。
+**阶段进度（2026-09-05）**：A0 ✅（写路径核实：`ctx.approval.setPolicy(agent, 'ask'|'never')` 存在，C 定案两态切换；结论与 9 事件载荷备注沉淀到仓库根 `DSH-CTX-API.md` 第 8 节）→ A ✅（9 事件归一化 + seq 守卫 + 4 隔离 store，344 tests 绿，已提交）→ B1+B2 ✅（/goal 迷你面板 + 状态栏 goal 徽标/todo 计数 + 模式徽标三合一，356 tests 绿，demo smoke 帧断言追加，已提交 60d5662）→ B3 ✅（step 分步：工具行分组头 `step N` + 无工具 step 静默 + step/end 关组 + 防御 flush + 跨会话隔离，363 tests 绿，demo smoke `step-header` 断言，已提交 d190d1b）→ B4 ✅（subagent 行：`@ <label> <os|ct>` append-only，365 tests 绿，demo smoke `subagent-line` 断言，已提交 b3cb19c）→ B5 ✅（compaction 摘要 toast：`压缩完成：<text 首行>`/空摘要占位 + 每会话最近一条 raw，368 tests 绿，demo smoke `compaction-summary-toast` 断言，已提交 e01180a）。C（审批策略 UI）起待排期。
