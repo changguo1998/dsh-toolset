@@ -9,7 +9,6 @@ import {
   buildFrame,
   metricsFor,
   renderStatusLine,
-  PLUGIN_WIDTH,
   truncateToWidth,
   displayWidth,
   THINKING_MORE,
@@ -28,10 +27,10 @@ import type { RenderLine } from "../src/renderer/screen.ts";
 /** 去 ANSI 取行文本 */
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 
-/** 顶部行历史区正文：跳过插件竖线 + 状态列（按显示宽度定位，兼容 CJK） */
+/** 顶部行历史区正文：跳过状态列（按显示宽度定位，兼容 CJK） */
 function histBody(line: string, cols: number): string {
   const m = metricsFor({ rows: 24, cols }, false);
-  const skip = m.pluginWidth + m.statusColWidth;
+  const skip = m.statusColWidth;
   const s = stripAnsi(line);
   let w = 0;
   for (let i = 0; i < s.length; i++) {
@@ -56,7 +55,7 @@ function frameWith(rows: number, cols: number) {
   return { s, frame };
 }
 
-test("metricsFor: 交互区(输入+提示)占 1/5 且至少 2 行；插件竖线固定宽，历史区 = cols - 插件宽", () => {
+test("metricsFor: 交互区(输入+提示)占 1/5 且至少 2 行；历史区 = cols - 状态列", () => {
   // rows=24 → 交互区 = floor(24/5) = 4：输入区 3 + 提示区 1
   const m = metricsFor({ rows: 24, cols: 60 }, false);
   assert.equal(m.footerHeight, 3, "输入区 = 交互区 4 - 提示区 1");
@@ -69,14 +68,10 @@ test("metricsFor: 交互区(输入+提示)占 1/5 且至少 2 行；插件竖线
   const small = metricsFor({ rows: 10, cols: 60 }, false, 1, 1);
   assert.equal(small.footerHeight, 1, "输入区最小 1 行");
   assert.equal(small.hintHeight, 1, "提示区最小 1 行");
-  assert.equal(m.pluginWidth, PLUGIN_WIDTH);
-  assert.equal(m.historyWidth, 60 - PLUGIN_WIDTH - m.statusColWidth);
+  assert.equal(m.historyWidth, 60 - m.statusColWidth);
   assert.equal(
     m.statusColWidth,
-    Math.min(
-      Math.max(1, Math.floor(60 * 0.25)),
-      Math.max(1, 60 - PLUGIN_WIDTH - 10),
-    ),
+    Math.min(Math.max(1, Math.floor(60 * 0.25)), Math.max(1, 60 - 10)),
     "状态列窄列约 25% 且历史区保底 10 列",
   );
 });
@@ -86,16 +81,18 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   assert.equal(frame.length, 24, "帧恰好铺满 24 行");
   // 主题给边框/分隔线上色后带 ANSI 前缀，先剥离再断言
   const plain = (l: RenderLine) => l.text.replace(/\x1b\[[0-9;]*m/g, "");
-  // 顶部区域：前 topHeight=17 行（24 - 状态1 - 输入3 - 提示1 - 分隔2），每行以竖线开头
+  // 顶部区域：前 topHeight=17 行（24 - 状态1 - 输入3 - 提示1 - 分隔2）。
+  // 最左侧无插件竖线；仅保留状态列右缘的中间竖线
   const top = frame.slice(0, 17);
+  assert.ok(!top.some((l) => plain(l).startsWith("|")), "最左侧无插件竖线");
   assert.ok(
-    top.every((l) => plain(l).startsWith("| ")),
-    "顶部每行含竖线分区",
+    top.every((l) => plain(l).includes("│")),
+    "中间状态列右缘竖线保留",
   );
-  assert.ok(top[0]!.text.includes("第一行"), "历史区内容在插件右侧");
+  assert.ok(top[0]!.text.includes("第一行"), "历史区内容在状态列右侧");
   // 横线分隔：17 行后是分隔行，再之后状态区（短 cwd 下动态单行：env|会话|LLM 全在一行）
   const separator1 = frame[17]!;
-  assert.ok(plain(separator1).startsWith("-"), "顶部与状态区之间横线分隔");
+  assert.ok(plain(separator1).startsWith("═"), "状态区上方用 ═ 分隔");
   const status = frame[18]!;
   assert.ok(status.text.includes("12:00:00"), "状态含时间");
   assert.ok(status.text.includes("/home/u"), "状态含当前目录");
@@ -106,7 +103,7 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   assert.ok(status.text.includes("none"), "LLM 组含模型思考后缀");
   // 第二个横线分隔行，然后输入区（3 行，多行框顶部对齐：首行占位提示）
   const separator2 = frame[19]!;
-  assert.ok(plain(separator2).startsWith("-"), "状态区与输入区之间横线分隔");
+  assert.ok(plain(separator2).startsWith("─"), "状态区与输入区之间横线分隔");
   assert.ok(
     plain(frame[20]!).includes("Type a message..."),
     "idle 显示输入占位提示（输入区首行）",
@@ -551,7 +548,7 @@ test("会话流：短用户消息块整体靠右，右缘贴历史区右缘，�
     line.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const row = plain.find((l) => l.includes("你好"))!;
-  assert.ok(row.startsWith("| "), "应在插件竖线右侧");
+  assert.ok(!row.startsWith("|"), "最左侧无插件竖线");
   assert.equal(displayWidth(row), 40, "短消息整行铺满 ⇒ 右缘贴历史区右缘");
   assert.ok(row.endsWith("你好"), "文本整体靠右");
   assert.equal(
@@ -561,7 +558,7 @@ test("会话流：短用户消息块整体靠右，右缘贴历史区右缘，�
   );
 });
 
-test("会话流：用户消息显式换行与软换行共享同一左边界", () => {
+test("会话流：用户消息软换行续行共享同一左边界；显式换行另起一个右对齐收缩块", () => {
   let s = initialState();
   s = reduceState(s, {
     type: "user-line",
@@ -574,8 +571,17 @@ test("会话流：用户消息显式换行与软换行共享同一左边界", ()
     (l) => l.includes("第一行") || l.includes("第二行") || l.includes("展示"),
   );
   assert.ok(rows.length >= 3, "应至少三行(显式换行 1 + 软换行 2)");
-  const indents = rows.map((l) => l.length - l.trimStart().length);
-  assert.equal(new Set(indents).size, 1, `所有续行共享同一左边界: ${indents}`);
+  // 左边界按历史区正文量测（跳过状态列）：appendStream 按 \n 拆出独立块，
+  // 每个块各自右对齐（左缘随块宽不同），块内软换行续行共享同一左边界
+  const indents = rows.map((l) => {
+    const b = histBody(l, 40);
+    return b.length - b.trimStart().length;
+  });
+  assert.equal(
+    new Set(indents.slice(1)).size,
+    1,
+    `软换行续行共享同一左边界: ${indents}`,
+  );
 });
 
 test("会话流：用户块与回答/思考之间恰有一行空行；无回复或紧跟分隔线时不加空行", () => {
@@ -596,7 +602,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
     "",
     "该行为空行(状态列外无内容)",
   );
-  assert.ok(between[0]!.startsWith("|"), "空行仍保留插件竖线");
+  assert.ok(!between[0]!.startsWith("|"), "空行最左侧无插件竖线");
 
   // user → thinking：思考归属活动区（分隔线之下展示），不再要求与用户消息间空行
   let t = reduceState(initialState(), { type: "user-line", text: "q" });
@@ -607,8 +613,48 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   const tt = plain.findIndex((l) => l.includes("思考中"));
   assert.ok(tt >= 0, "思考应在帧内可见");
   assert.ok(
-    plain.slice(0, tt).some((l2) => l2.includes("=")),
-    "思考应位于活动区分隔线之下",
+    plain.slice(0, tt).some((l2) => l2.includes("┈")),
+    "思考应位于活动区点线分隔之下",
+  );
+
+  // 活动区分隔线：灰色点线（ANSI 直方）；turn 分隔线灰色；状态栏上 = 下 -
+  const graySGR = "\x1b[38;2;";
+  const dt = buildFrame(
+    reduceState(initialState(), { type: "thinking", text: "x" }),
+    {
+      rows: 16,
+      cols: 40,
+    },
+  );
+  const dotRaw = dt.find((l) => /^┈+$/.test(histBody(l.text, 40)));
+  assert.ok(dotRaw, "活动区分隔线为点线");
+  assert.ok(
+    dotRaw!.text.includes(graySGR),
+    "活动区分隔线为灰色（含 truecolor SGR）",
+  );
+  let ts = reduceState(initialState(), { type: "append", text: "正文" });
+  ts = reduceState(ts, { type: "turn-begin" });
+  const turnRaw = buildFrame(ts, { rows: 10, cols: 40 }).find((l) =>
+    /^─+$/.test(histBody(l.text, 40)),
+  );
+  assert.ok(turnRaw, "turn 分隔线仍在历史区");
+  assert.ok(
+    turnRaw!.text.includes(graySGR),
+    "turn 分隔线为灰色（含 truecolor SGR）",
+  );
+  const st = buildFrame(
+    reduceState(initialState(), { type: "thinking", text: "x" }),
+    {
+      rows: 16,
+      cols: 40,
+    },
+  ).map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""));
+  const statIdx = st.findIndex((l) => l.includes("（新会话）"));
+  assert.ok(statIdx > 0, "状态行存在");
+  assert.ok(st[statIdx - 1]!.trimStart().startsWith("═"), "状态栏上方 ═ 分隔");
+  assert.ok(
+    st[statIdx + 1]!.trimStart().startsWith("─"),
+    "状态栏下方仍 ─ 分隔",
   );
 
   // user → 下回合 begin 分隔线：不加空行
@@ -620,7 +666,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   );
   const uu = plain.findIndex((l) => l.includes("孤立"));
   const nextU = plain[uu + 1] ?? "";
-  assert.ok(nextU.includes("-"), "user 后紧跟分隔线，无空行");
+  assert.ok(nextU.includes("─"), "user 后紧跟分隔线，无空行");
 });
 
 test("会话流：模型回复尾部空行不显示；正文段落间空行保留", () => {
@@ -636,9 +682,9 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const codeIdx = plain.findIndex((l) => l.includes("第三段"));
-  // 历史区内的 turn 分隔线带插件竖线前缀；底部全屏横线(┼)不在此列
+  // 历史区内的 turn 分隔线（灰色 -）；底部全屏横线不在此列
   // 分隔线行 = 历史区正文全为 `-`
-  const sepIdx = plain.findIndex((l) => /^-+$/.test(histBody(l, 40)));
+  const sepIdx = plain.findIndex((l) => /^─+$/.test(histBody(l, 40)));
   assert.ok(codeIdx >= 0 && sepIdx > codeIdx, "正文与分隔线都应存在且顺序正确");
   const gap = plain.slice(codeIdx + 1, sepIdx);
   assert.equal(gap.length, 0, "回复末尾不留空行：正文末行后直接分隔线");
@@ -722,7 +768,7 @@ test("会话流：turn 分隔线在历史区铺满宽度", () => {
     line.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   assert.ok(
-    plain.some((line) => line.length === 20 && line.includes("-".repeat(18))),
+    plain.some((line) => line.length === 20 && line.includes("─".repeat(18))),
   );
 });
 
@@ -809,7 +855,7 @@ test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代�
   assert.ok(joined.includes("> 引用内容 加粗"), "引用带竖线前缀");
   // 分隔线：灰色横线铺满
   assert.ok(
-    plain.some((l) => /^-+$/.test(histBody(l, 80))),
+    plain.some((l) => /^─+$/.test(histBody(l, 80))),
     "分隔线横线",
   );
   // 链接：文本可见、URL 不显示
@@ -988,7 +1034,8 @@ test("buildFrame: notice tone 行在帧内红/黄/灰着色", () => {
 
 test("buildFrame: 工具历史在活动区窗口内只显最近行，窗口内组间仍有空行", () => {
   let s = initialState();
-  // 6 次调用组（每次 * + +）：活动区为固定 5 行窗口，只显示最后约 2 组
+  // 6 次调用组（每次 * + +）：活动区为右上区一半（rows=20 → topHeight13 → 6 行），
+  // 只显示最后约 2 组（更早的 MORE/cmd1~4 被折叠）
   for (let i = 1; i <= 6; i++) {
     s = reduceState(s, {
       type: "tool-call",
@@ -1010,8 +1057,8 @@ test("buildFrame: 工具历史在活动区窗口内只显最近行，窗口内�
   assert.ok(plain.includes("cmd 6"), "最新调用应保留在活动区窗口");
   assert.ok(plain.includes("ok 6"), "最新结果应保留");
   assert.ok(plain.includes("cmd 5"), "倒数第二调用应保留");
-  assert.ok(!plain.includes("cmd 4"), "更早调用被 5 行窗口裁出");
-  assert.ok(!plain.includes("cmd 3"), "更早调用被裁出");
+  assert.ok(!plain.includes("cmd 4"), "更早调用被活动区窗口裁出");
+  assert.ok(!plain.includes("cmd 3"), "再更早调用被裁出");
   assert.ok(!plain.includes("cmd 1"), "最早调用不可见");
   assert.ok(!plain.includes("cmd 2"), "第二早调用不可见");
   // 窗口内 cmd5/cmd6 之间仍有空行分隔
@@ -1022,7 +1069,7 @@ test("buildFrame: 工具历史在活动区窗口内只显最近行，窗口内�
   const i6 = lines.findIndex((l) => l.includes("cmd 6"));
   assert.ok(i5 >= 0 && i6 > i5, "cmd5/cmd6 均在帧中");
   assert.equal(
-    lines.slice(i5, i6).filter((l) => l.replace(/[|\s]/g, "") === "").length,
+    lines.slice(i5, i6).filter((l) => l.replace(/[│|\s]/g, "") === "").length,
     1,
     "窗口内组间有 1 个空行",
   );
@@ -1051,7 +1098,7 @@ test("buildFrame: 两次调用组之间插空行分隔", () => {
   const i2 = lines.findIndex((l) => l.includes("run 2"));
   assert.ok(i1 >= 0 && i2 >= 0, "两次调用都应出现");
   assert.equal(
-    lines.slice(i1, i2).filter((l) => l.replace(/[|\s]/g, "") === "").length,
+    lines.slice(i1, i2).filter((l) => l.replace(/[│|\s]/g, "") === "").length,
     1,
     "两次调用之间应有 1 个空行",
   );

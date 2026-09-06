@@ -197,10 +197,10 @@ class FakeAdapter implements DshAdapter {
   }
 }
 
-/** 顶部行历史区正文：跳过插件竖线 + 状态列（按显示宽度定位，兼容 CJK） */
+/** 顶部行历史区正文：跳过状态列（按显示宽度定位，兼容 CJK） */
 function histBody(line: string, cols: number): string {
   const m = metricsFor({ rows: 24, cols }, false);
-  const skip = m.pluginWidth + m.statusColWidth;
+  const skip = m.statusColWidth;
   const s = line.replace(/\x1b\[[0-9;]*m/g, "");
   let w = 0;
   for (let i = 0; i < s.length; i++) {
@@ -1065,10 +1065,11 @@ test("App initialTheme 非法值回落 dark(外部配置健壮性)", () => {
 // ---------------------------------------------------------------------------
 
 // 全宽横线行计数：固定区域分隔(顶/状态/输入)恒为 2 行；turn 分隔线追加后为 3 行
+// 横线分隔行计数：- / = / · 三种分隔字形均为横线分隔行（状态列右缘 | 不计）
 function barRowCount(renderer: FakeRenderer): number {
   return renderer.lastRender.filter((l) => {
     const t = l.replace(/\x1b\[[0-9;]*m/g, "");
-    return t.includes("-") && t.replace(/[|-]/g, "").trim() === "";
+    return /[-=·─═┈]/.test(t) && t.replace(/[-=·─═┈|│]/g, "").trim() === "";
   }).length;
 }
 
@@ -1135,18 +1136,18 @@ test("慢速流：分隔线在回合开始画，turn-end 不再画", () => {
     app.start();
     // 回合 1：空历史，首条正文不画孤立线
     adapter.push({ type: "stream", sessionId: "s1", text: "第一回合正文" });
-    assert.equal(barRowCount(renderer), 2, "首回合空历史不画孤立线");
+    assert.equal(barRowCount(renderer), 3, "首回合空历史不画孤立线");
     adapter.push({ type: "turn-end" });
-    assert.equal(barRowCount(renderer), 2, "turn-end 不再画分隔线");
+    assert.equal(barRowCount(renderer), 3, "turn-end 不再画分隔线");
     // 回合 2：首条正文到达 → 回合开始时先画线，再进入内容
     adapter.push({ type: "stream", sessionId: "s1", text: "第二回合正文" });
     const plain = renderer.lastRender.map((l) =>
       l.replace(/\x1b\[[0-9;]*m/g, ""),
     );
-    assert.equal(barRowCount(renderer), 3, "回合开始时先画分隔线");
+    assert.equal(barRowCount(renderer), 4, "回合开始时先画分隔线");
     const joined = plain.join("\n");
     assert.ok(
-      joined.indexOf("第二回合正文") > joined.indexOf("----"),
+      joined.indexOf("第二回合正文") > joined.indexOf("────"),
       "分隔线应位于回合内容之前",
     );
     app.dispose();
@@ -1174,10 +1175,10 @@ test("slowStream=true：turn 结束后流速回落，下一轮思考重新从初
       "第一轮思考放完正文铺出",
     );
     adapter.push({ type: "turn-end" });
-    assert.equal(barRowCount(renderer), 2, "turn-end 不再画线");
+    assert.equal(barRowCount(renderer), 3, "turn-end 不再画线");
     // 第二轮：思考应从初始 20cps 重新开始(不回落到 120)
     adapter.push({ type: "thinking", sessionId: "s1", text: "bbbbbbbbbb" });
-    assert.equal(barRowCount(renderer), 3, "新一轮回合开始时先画线");
+    assert.equal(barRowCount(renderer), 4, "新一轮回合开始时先画线");
     assert.ok(
       !renderer.lastRender.join("\n").includes("b"),
       "新 turn 思考先入队",

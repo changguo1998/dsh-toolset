@@ -52,7 +52,7 @@ test("renderStatusColumn: 无 goal/todo 显示占位，每行定宽且右缘竖�
   assert.ok(rows.join("|").includes(STATUS_COL_EMPTY), "占位文案");
   for (const r of rows) {
     assert.equal(displayWidth(r), 20, "每行定宽 statusColWidth");
-    assert.ok(r.endsWith("|"), "右缘竖线分隔");
+    assert.ok(r.endsWith("│"), "右缘竖线分隔（制表符竖线）");
   }
 });
 
@@ -108,7 +108,7 @@ test("renderStatusColumn: 每条 todo 超过上限折叠到 3 行", () => {
   // 过滤纯右缘竖线的空行：行尾竖线前的部分 trim 为空才算空行
   const todoLines = body
     .split("\n")
-    .filter((r) => r.replace(/\|$/, "").trim() !== "");
+    .filter((r) => r.replace(/[│|]$/, "").trim() !== "");
   // 目标 1 + 阶段 1 + todo 计数 1 + 该条至多 3 行
   assert.ok(todoLines.length <= 6, `条目上限内: ${todoLines.length} 行`);
   assert.ok(body.includes("(+"), "todo 折叠提示");

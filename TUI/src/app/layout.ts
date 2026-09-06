@@ -146,11 +146,11 @@ export function computeViewport(vp: ViewportInput): Viewport {
 
 // ---------- 帧组装 ----------
 
-/** 顶部(插件窄条 + 对话历史)固定宽度列数 */
-export const PLUGIN_WIDTH = 2;
+/** 水平分隔线字符（turn 分隔 / 状态区下方横线；box-drawing 可与竖线连成连续线） */
+export const SEPARATOR = "─";
 
-/** 水平分隔线字符 */
-export const SEPARATOR = "-";
+/** 状态区上方分隔线字符（双线观感，沿用原 `=`；box-drawing 可与竖线连成连续线） */
+export const STATUS_TOP_SEPARATOR = "═";
 
 /** 上/中/下三区之间的横线分隔行数 */
 export const SEPARATOR_ROWS = 2;
@@ -168,11 +168,9 @@ export interface FrameMetrics {
   footerHeight: number;
   /** 按键提示区行数（独立区域，位于输入区下方、之间不画横线；输入态 1，面板打开 0） */
   hintHeight: number;
-  /** 插件窄条固定宽 */
-  pluginWidth: number;
   /** 顶部状态列宽（详细 goal/todo；窄列约 25%，含右缘竖线） */
   statusColWidth: number;
-  /** 历史区宽 = cols - pluginWidth - statusColWidth */
+  /** 历史区宽 = cols - statusColWidth */
   historyWidth: number;
 }
 
@@ -192,14 +190,12 @@ export function metricsFor(
   // 输入框固定 3 行(+按键提示 1 行 → 交互区 4 行)；矮终端按 1/5 比例收缩保底每区 ≥1 行
   const interaction = Math.min(4, Math.max(2, Math.floor(size.rows / 5)));
   const footerHeight = hasPanel ? interaction : interaction - 1;
-  // 插件窄条：固定宽，但窄终端时让出至少 1 列给历史区
-  const pluginWidth = Math.min(PLUGIN_WIDTH, Math.max(1, size.cols - 2));
   // 状态列：窄列约 25%（含右侧竖线），但历史区保底 10 列
   const statusColWidth = Math.min(
     Math.max(1, Math.floor(size.cols * 0.25)),
-    Math.max(1, size.cols - pluginWidth - 10),
+    Math.max(1, size.cols - 10),
   );
-  const historyWidth = Math.max(1, size.cols - pluginWidth - statusColWidth);
+  const historyWidth = Math.max(1, size.cols - statusColWidth);
   const topHeight = Math.max(
     0,
     size.rows - statusHeight - footerHeight - hintRows - SEPARATOR_ROWS,
@@ -209,29 +205,18 @@ export function metricsFor(
     statusHeight,
     footerHeight,
     hintHeight: hintRows,
-    pluginWidth,
     statusColWidth,
     historyWidth,
   };
 }
 
-/**
- * 顶部插件竖线单元格（0 基，rows 行为总高）。
- * 无边框无标题，仅左右分区之间的竖线（占整列 pluginWidth 宽）。
- */
-function pluginCell(_row: number, _rows: number, width: number): string {
-  // 竖线在最左，其余留白；超宽由调用方 truncate
-  return "|" + " ".repeat(Math.max(0, width - 1));
-}
-
-/** 顶部区域：每行 = 左侧插件窄条 + 右侧历史行（合并为一个 RenderLine） */
 /** 对话区仅保留最近 DIALOGUE_KEEP_REPLIES 条回复，更早以灰占位折叠 */
 export const DIALOGUE_KEEP_REPLIES = 3;
 export const DIALOGUE_MORE = "...(更早回复已折叠)";
-/** 活动区固定行高（下方思考/工具/瞬态窗口） */
-export const ACTIVITY_HEIGHT = 5;
-/** 活动区分隔线字形（与 turn/区域分隔线 `─` 区分，不参与 barRowCount 统计） */
-export const ACTIVITY_SEPARATOR = "=";
+/** 活动区行数 = 右上区（对话历史+活动区）高度的一半（固定比例，不随内容变化） */
+export const ACTIVITY_HEIGHT_RATIO = 1 / 2;
+/** 活动区分隔线字形（对话历史 ↔ 流输出边界：box-drawing 虚线，保留点感；不参与 barRowCount 统计） */
+export const ACTIVITY_SEPARATOR = "┈";
 
 /** 对话区按回复组折叠：仅保留最近 keep 组 assistant 回复，更早替换为灰色占位 */
 function foldDialogue(
@@ -379,17 +364,16 @@ export function renderStatusColumn(
     const line = idx < body.length ? body[idx] : undefined;
     const text = (line?.color ?? ((s: string) => s))(line?.text ?? "");
     const inner = truncateToWidth(text, w - 1);
-    // 右缘竖线分隔：内容后补空格到 (w-1) 再放竖线，保证每行定宽对齐
+    // 右缘竖线分隔（制表符竖线 │ 跨行连成连续线）：内容后补空格到 (w-1) 再放竖线
     const pad = " ".repeat(Math.max(0, w - 1 - displayWidth(inner)));
-    out.push(inner + pad + "|");
+    out.push(inner + pad + "│");
   }
   return out;
 }
-/** 顶部区域：左列插件竖线 + 状态列（详细 goal/todo，可独立滚动）+ 右列历史 */
+/** 顶部区域：状态列（详细 goal/todo，可独立滚动）+ 右列历史 */
 function buildTopRegion(
   state: AppState,
   topHeight: number,
-  pluginWidth: number,
   statusColWidth: number,
   historyWidth: number,
   cols: number,
@@ -409,14 +393,12 @@ function buildTopRegion(
     state.themeId,
     DIALOGUE_KEEP_REPLIES,
   );
-  // 活动区固定 ACTIVITY_HEIGHT 行 + 1 条分隔线；极窄时收缩保对话区非空
-  // 活动区固定 ACTIVITY_HEIGHT 行 + 1 条分隔线；极窄终端收缩活动区，
-  // 为对话区保留至少 DIALOGUE_MIN_ROWS 行（避免把对话完全挤出历史区）
-  const dialogueMin = Math.min(3, Math.max(0, topHeight - 1));
-  const activityH = Math.min(
-    ACTIVITY_HEIGHT,
-    Math.max(1, topHeight - 1 - dialogueMin),
-  );
+  // 活动区：固定为右上区（对话历史+活动区）高度的一半；超窗内容仅显示最近行；
+  // 对话区获得剩余高度
+  const activityH =
+    topHeight <= 0
+      ? 0
+      : Math.max(1, Math.floor(topHeight * ACTIVITY_HEIGHT_RATIO));
   const dialogueH = Math.max(
     0,
     topHeight - activityH - (activityH > 0 ? 1 : 0),
@@ -437,9 +419,8 @@ function buildTopRegion(
     statusColWidth,
     state.themeId,
   );
-  const histLine = (row: number, content: string): RenderLine => {
-    const left =
-      pluginCell(row, topHeight, pluginWidth) + (statusCells[row] ?? "");
+  const histLine = (content: string): RenderLine => {
+    const left = statusCells[rows.length] ?? "";
     const trim = truncateToWidth(left + content, cols);
     // 极限窄终端若连一个宽字符都容不下，保留该字符而不静默丢失内容。
     const visible =
@@ -457,12 +438,17 @@ function buildTopRegion(
     const w = dialogueRows[vp.start + i];
     const content =
       w && vp.start + i < vp.end ? " ".repeat(w.indent) + w.text : "";
-    rows.push(histLine(i, content));
+    rows.push(histLine(content));
   }
   if (activityH > 0) {
-    // 两区分隔线
+    // 两区分隔线（对话历史 ↔ 流输出边界：灰色点线）
     rows.push(
-      histLine(dialogueH, ACTIVITY_SEPARATOR.repeat(Math.max(1, historyWidth))),
+      histLine(
+        colorFor(
+          state.themeId,
+          "gray",
+        )(ACTIVITY_SEPARATOR.repeat(Math.max(1, historyWidth))),
+      ),
     );
     // 活动区：底部对齐显示最近 activityH 行，不足时顶部留白
     const act = activity.slice(-activityH);
@@ -470,7 +456,7 @@ function buildTopRegion(
     for (let i = 0; i < activityH; i++) {
       const a = i - topPad;
       const content = a >= 0 ? " ".repeat(act[a]!.indent) + act[a]!.text : "";
-      rows.push(histLine(dialogueH + 1 + i, content));
+      rows.push(histLine(content));
     }
   }
   return rows;
@@ -634,14 +620,20 @@ function wrapBufferLines(
         activity.push({ text: color(text), kind: "notice", indent: 0 });
       continue;
     }
-    // separator / plain → 对话区
+    // separator / plain → 对话区（turn 分隔线：先按纯文本换行，再逐行着灰，
+    // 避免 ANSI 转义进入 wrapLine 被按显示宽度误计）
     const content =
       line.kind === "separator"
         ? SEPARATOR.repeat(Math.max(1, width))
         : line.text;
     const rows = content === "" ? [""] : wrapLine(content, Math.max(1, width));
     for (const text of rows)
-      dialogue.push({ text, kind: line.kind, indent: 0 });
+      dialogue.push({
+        text:
+          line.kind === "separator" ? colorFor(themeId, "gray")(text) : text,
+        kind: line.kind,
+        indent: 0,
+      });
   }
   flushToolRun();
   // 思考折叠 → 活动区
@@ -1067,7 +1059,6 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const topRegion = buildTopRegion(
     state,
     metrics.topHeight,
-    metrics.pluginWidth,
     metrics.statusColWidth,
     metrics.historyWidth,
     fullWidth,
@@ -1153,18 +1144,19 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
       ]
     : [];
 
-  // 上/中/下三区之间各插一条横线分隔行（边框统一灰色：先纯文本截断再着色）
-  const sepLine: RenderLine = {
+  // 分隔行（边框统一灰色：先纯文本截断再着色）。状态栏上方用 `═` 强分隔，
+  // 下方沿用 `─`（当前仅要求上方）。
+  const makeSep = (ch: string): RenderLine => ({
     text: colorFor(
       state.themeId,
       "gray",
-    )(truncateToWidth(SEPARATOR.repeat(fullWidth), fullWidth)),
-  };
+    )(truncateToWidth(ch.repeat(fullWidth), fullWidth)),
+  });
   return [
     ...topRegion,
-    sepLine,
+    makeSep(STATUS_TOP_SEPARATOR),
     ...statusLines,
-    sepLine,
+    makeSep(SEPARATOR),
     ...footerLines,
     ...hintLines,
   ];

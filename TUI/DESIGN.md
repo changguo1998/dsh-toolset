@@ -60,7 +60,7 @@ src/renderer/
 ```
 src/app/
   state.ts       # 状态模型：会话列表、流式文本增量、审批项、系统状态区、turn 分隔（拆分后未动）
-  layout.ts      # 四区域帧：顶部(插件窄条+历史) / 状态区 / 输入行 / 审批弹窗；保留宽度/viewport/buildFrame
+  layout.ts      # 四区域帧：顶部(状态列+历史) / 状态区 / 输入行 / 审批弹窗；保留宽度/viewport/buildFrame
   layout/
     markdown.ts   # 宽度原语 + markdown 行内/块级纯解析（2026-08-31 从 layout.ts 拆出）
   status.ts      # 系统状态区数据源：StatusTicker 合并节流读取 cwd/git/time
@@ -113,17 +113,17 @@ interface Renderer {
 
 ## 四区域布局
 
-屏幕自上而下切分为：**顶部区域**（左侧插件窄条占位 + 右侧对话历史）、**系统状态区**（按宽度可溢出多行）、**输入区**（含审批弹窗形态）：
+屏幕自上而下切分为：**顶部区域**（左侧详细状态列 + 右侧对话历史，历史下方为活动区）、**系统状态区**（按宽度可溢出多行）、**输入区**（含审批弹窗形态）：
 
 - **高度分配**：顶部高度 = `rows - 状态区(1) - 输入区 - 提示区(1) - 分隔行(2)`。输入区+提示区为「交互区」：常规终端固定 4 行（输入框 3 + 提示 1），矮终端按 `floor(rows/5)` 收缩、至少 2 行（输入 1 + 提示 1）；提示区固定 1 行、与输入区之间不画横线，输入区取剩余（多行框）；面板态（审批/问答/模型选择/历史会话）整体占据交互区（面板自带最底行按键提示、无独立提示区），与输入态同高——面板开关不上下调整交互区高度；面板内容超出时面板内截断/滚动（问答选项按高亮行滚动窗口、选择列省略号滚动、审批正文截断）；「中间与底部满足显示需要，剩余高度全部由上方两个填充」；`buildFrame` 输出顺序为 顶部区 → 横线分隔行 → 状态区 → 横线分隔行 → 输入/审批 → 按键提示区。
 
-- **插件窄条**：固定 `PLUGIN_WIDTH=2` 列，仅最左一列竖线 `│` 区分左右分区，其余留白；无边框、无标题、本轮不读取插件数据。
+- **顶部状态列**（2026-09-13）：最左侧常驻一列「详细状态」窄列（`statusColWidth ≈ cols×25%`，含右缘制表符竖线 `│`，历史区保底 10 列），与右侧历史区在同一行：显示当前活跃会话的 **goal 详细**（目标/阶段/阻塞原因黄 tone）+ **todo 列表**（`[ ]`/`[●]`/`[x]` 着色）。**条目行数上限**：goal 目标最多 `STATUS_GOAL_MAX_LINES=5` 行、每条 todo 最多 `STATUS_TODO_MAX_LINES=3` 行，超限折叠为 `…(+N行)` 提示行；无 goal/todo 显示灰色占位「（无目标/待办）」。滚动独立于历史区：**PgUp/PgDn 滚状态列**（`status-column-scroll` reducer，`statusColumnScroll` 累加、渲染层 clamp），**↑/↓ 仍滚对话历史**（与历史会话面板 view 阶段 PgUp/PgDn ±10 不冲突：顶部状态列只在非面板输入态响应）。实现 `renderStatusColumn`（layout.ts 纯函数，输出恰 height 行、每行定宽含右缘竖线）。
 
-- **顶部状态列**（2026-09-13）：插件窄条右侧常驻一列「详细状态」窄列（`statusColWidth ≈ cols×25%`，含右缘竖线，历史区保底 10 列），与右侧历史区在同一行：显示当前活跃会话的 **goal 详细**（目标/阶段/阻塞原因黄 tone）+ **todo 列表**（`[ ]`/`[●]`/`[x]` 着色）。**条目行数上限**：goal 目标最多 `STATUS_GOAL_MAX_LINES=5` 行、每条 todo 最多 `STATUS_TODO_MAX_LINES=3` 行，超限折叠为 `…(+N行)` 提示行；无 goal/todo 显示灰色占位「（无目标/待办）」。滚动独立于历史区：**PgUp/PgDn 滚状态列**（`status-column-scroll` reducer，`statusColumnScroll` 累加、渲染层 clamp），**↑/↓ 仍滚对话历史**（与历史会话面板 view 阶段 PgUp/PgDn ±10 不冲突：顶部状态列只在非面板输入态响应）。实现 `renderStatusColumn`（layout.ts 纯函数，输出恰 height 行、每行定宽含右缘竖线）。
+- **历史区**：按 `historyWidth = cols - statusColWidth` 换行，沿用 scrollback 语义（wrapping、followBottom、scrollOffset、2000 行上限）。
 
-- **历史区**：按 `historyWidth = cols - pluginWidth - statusColWidth` 换行，沿用 scrollback 语义（wrapping、followBottom、scrollOffset、2000 行上限）。
+- **活动区**（思考/工具/notice，含 `/help` 等瞬态输出）：固定高度 = **右上区（对话历史+活动区）高度的一半**（`activityH = ⌊topHeight/2⌋`，至少 1 行，不随内容变化）；长内容（如 `/help`）超出窗口时仅显示最近行。对话历史区获得剩余高度。
 
-- **状态区**：横向单行 `12:00:00|~/proj|main|—|—|—`（六段：时间/路径/git/模型/上下文/缓存；无标题、仅值，`|` 分隔；默认前景色，路径段染蓝；推理状态段已移除）。超宽按显示宽度截断。通用配色：边框/分隔线（分离行、顶部竖线）统一灰色，输入栏为默认前景色（不切半个 CJK；不用 emoji 避免宽度模型偏差）。2026-08-28 起颜色经 `src/renderer/theme.ts`（内嵌 fff 的 fffdark/ffflight 两份 truecolor 调色板）解析，`AppState.themeId` 决定取色（/theme 切换并同步 Screen 基底色），见 IMPLEMENTATION.md「/theme 命令」。
+- **状态区**：横向单行 `12:00:00|~/proj|main|—|—|—`（六段：时间/路径/git/模型/上下文/缓存；无标题、仅值，`|` 分隔；默认前景色，路径段染蓝；推理状态段已移除）。超宽按显示宽度截断。通用配色：边框/分隔线统一灰色，输入栏为默认前景色（不切半个 CJK；不用 emoji 避免宽度模型偏差）；纵向仅保留状态列右缘一条竖线（最左侧插件竖线已移除），横向分隔线——对话历史与流输出（活动区）之间用 box-drawing 虚线 `┈`（保留点感）、状态栏上方用双线 `═` 强分隔、turn 分隔/状态栏下方等其余横线用 `─`；纵向竖线 `│`，全部 box-drawing 字形可在交叉处连成连续线。2026-08-28 起颜色经 `src/renderer/theme.ts`（内嵌 fff 的 fffdark/ffflight 两份 truecolor 调色板）解析，`AppState.themeId` 决定取色（/theme 切换并同步 Screen 基底色），见 IMPLEMENTATION.md「/theme 命令」。
 
 - **输入区提示**：提示符两个字符。左字符 = 上次提交所用模式符号（`>` / `$` / `/`，经 `MODE_SYMBOL[lastSubmitMode]` 映射），颜色随状态（绿/黄/红）；右字符 = 当前输入模式符号（`>` 普通 / `$` shell / `/` slash，默认前景色，不着色）。`inputMode`（normal/shell/slash）经右字符 `MODE_SYMBOL` 表映射；`inputStatus`（success/running/failure）决定左字符颜色（经 `STATUS_PROMPT_COLOR` 表）；`lastSubmitMode`（提交时记录、随后回退 normal 不影响）决定左字符符号（复用 `MODE_SYMBOL` 表）；`buildFrame` 组装 `colorFor(theme, STATUS_PROMPT_COLOR[inputStatus])(MODE_SYMBOL[lastSubmitMode]) + MODE_SYMBOL[inputMode] + ' '` 作预着色 prompt 传 `renderTextInput(text, cursor, placeholder, width, promptText, promptColor?, height?)`（promptColor 省略；高度 `metrics.footerHeight`；宽度按未着色文本经 `displayWidth` 计算，ANSI 序列不计宽）。多行语义：文本按 `avail = width - promptWidth` 显示列统一换行（字符不跨行、不切半个 CJK），首行带 prompt、续行缩进 `promptWidth` 列，顶部对齐，光标行（`floor(cursorFlowCol/avail)`）超出可见窗口时按 `vshift` 整体滚动跟随，仅光标行带 `caret`。模式是为瞬态临时模式：输入框为空时按 `$`/`/` 切换并吞键（同符号幂等；`!` 为普通字符、不再是模式键），**任何提交（普通/slash/shell）后自动回退 normal**，不再有 Esc 回退；**输入框为空时按 Backspace 也从 `$`/`/` 回退 normal**（切了模式不输入可反悔）。状态颜色 3 态直接映射 `inputStatus`：正常提交置 `running`，`agent-status` 的 thinking/tool 兜底置 `running`，`turn-end` 置 `success`，本地可检测的无效 slash 命令置 `failure`；**活跃守卫**——`agentStatus` 非 idle 时绿/红结果一律压回黄，仅空闲后可见。按键：Esc 打断运行（agent 非 idle 时调 `adapter.interrupt()`；idle 无操作，picker 面板 Esc 仍为关闭面板，**审批弹窗打开时仅 y/n 应答、其余按键吞掉不打断**）；Enter 排队/发送；Alt+Enter（解码层 ESC CR/LF → `meta+enter`）先 `adapter.interrupt()` 再发送。占位提示固定「Type a message…」；输入区下方为独立按键提示区（1 行灰色，与输入区之间不画横线：`[Enter]发送 · [Alt+Enter]打断并发送 · [Esc]打断 · [Ctrl+L]重绘 · [/help]更多命令`，窄终端按显示宽度截断；审批/问答/模型选择/历史会话面板自带按键提示，不显示该区）。
 
