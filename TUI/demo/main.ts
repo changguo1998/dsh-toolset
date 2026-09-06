@@ -267,6 +267,35 @@ if (smoke) {
       );
       renderer.emitKey(key("escape")); // 关闭 goal 面板，避免吞掉 /quit
       await sleep(200);
+
+      // C 阶段：/policy 审批策略。启动注入 approval/policy(ask) → 状态栏 ask 徽标；
+      // `/policy never` → notice + mock 回发 approval/policy(never) → 徽标变 auto
+      ok(
+        "policy-badge-ask",
+        badgePlain.includes("full·ask"),
+        "no ask policy badge in frames",
+      );
+      typeLine("/policy never");
+      await sleep(400);
+      const policyPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
+      ok(
+        "policy-command-call",
+        adapter.setApprovalPolicyCalls === 1 && adapter.lastPolicy === "never",
+        "setApprovalPolicyCalls=" +
+          adapter.setApprovalPolicyCalls +
+          " last=" +
+          String(adapter.lastPolicy),
+      );
+      ok(
+        "policy-notice",
+        policyPlain.includes("审批策略：never（工具调用自动放行）"),
+        "no /policy never notice in frames",
+      );
+      ok(
+        "policy-badge-auto",
+        policyPlain.includes("full·auto"),
+        "no auto policy badge in frames",
+      );
       console.error(
         "SMOKE_OK sent=" +
           JSON.stringify(sent) +

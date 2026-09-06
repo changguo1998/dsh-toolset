@@ -46,6 +46,9 @@ export class MockDshAdapter implements DshAdapter {
   sent: string[] = [];
   /** 冒烟自断言计数：interrupt 调用次数 */
   interrupts = 0;
+  /** C 阶段冒烟断言：setApprovalPolicy 调用次数与最后一次策略 */
+  setApprovalPolicyCalls = 0;
+  lastPolicy: "ask" | "never" | undefined = undefined;
   /** 冒烟驱动：向 app 推送任意事件 */
   emitEvent(e: DshEvent): void {
     this.emit(e);
@@ -122,6 +125,17 @@ export class MockDshAdapter implements DshAdapter {
   async setSessionModel(sel: ModelSelection): Promise<ModelSelection> {
     this.currentModel = { ...sel };
     return { ...sel };
+  }
+
+  async setApprovalPolicy(policy: "ask" | "never"): Promise<void> {
+    // 模拟宿主 ctx.approval.setPolicy：记录 + 回发 approval/policy 事件（状态栏经事件回读）
+    this.setApprovalPolicyCalls++;
+    this.lastPolicy = policy;
+    this.emit({
+      type: "approval-policy",
+      sessionId: this.sessionId,
+      policy,
+    });
   }
 
   async modelEfforts(
@@ -226,6 +240,18 @@ export class MockDshAdapter implements DshAdapter {
         ),
       );
     }
+    // C 阶段 demo：启动注入 approval/policy（ask）→ 状态栏 ask 徽标（切换由 /policy 命令回发）
+    this.timers.push(
+      setTimeout(
+        () =>
+          this.emit({
+            type: "approval-policy",
+            sessionId: this.sessionId,
+            policy: "ask",
+          }),
+        150,
+      ),
+    );
   }
 
   private scheduleReply(): void {

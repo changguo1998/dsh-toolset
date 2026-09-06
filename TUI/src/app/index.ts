@@ -335,6 +335,7 @@ export class App {
       case "step":
       case "subagent":
       case "compaction-summary":
+      case "approval-policy":
         // 阶段 1 pass-through：仅入 reducer（事件结构 = StateAction 同型），不渲染；
         // 阶段 2 按事件落 buffer 工具行 / toast / 状态栏槽位；P2 B 阶段渲染前同此处理
         this.apply((s) => reduceState(s, e));
@@ -807,6 +808,9 @@ export class App {
       case "goal":
         this.handleGoalCommand();
         return;
+      case "policy":
+        this.handlePolicyCommand(line);
+        return;
       case "copy":
         this.copyLastReply();
         return;
@@ -1087,6 +1091,49 @@ export class App {
       return next;
     });
     this.paint();
+  }
+
+  /**
+   * /policy：审批策略两态切换（ask/never）。
+   * 无参 → 取当前已知策略（policyBySession 事件回读）切换；未知按宿主默认 ask 为基准。
+   * `/policy ask|never` → 显式设置。宿主未挂载 ctx.approval / adapter 缺失 → notice 不可用。
+   */
+  private handlePolicyCommand(line: string): void {
+    const arg = line.slice("/policy".length).trim().toLowerCase();
+    const applySet = (policy: "ask" | "never"): void => {
+      const adapter = this.deps.adapter;
+      const setPolicy = adapter.setApprovalPolicy;
+      if (!setPolicy) {
+        this.notice("审批策略服务不可用");
+        return;
+      }
+      // SAFETY: adapter 方法体内依赖 this（approve/interrupt 等同构），必须接收者
+      // 绑定调用——setPolicy.call(adapter) 保留实例作 this，避免丢绑定恒 rejected
+      void setPolicy
+        .call(adapter, policy)
+        .then(() => {
+          this.notice(
+            policy === "ask"
+              ? "审批策略：ask（每次工具调用询问）"
+              : "审批策略：never（工具调用自动放行）",
+          );
+        })
+        .catch(() => {
+          this.notice("审批策略服务不可用");
+        });
+    };
+    if (arg === "ask" || arg === "never") {
+      applySet(arg);
+      return;
+    }
+    if (arg !== "") {
+      this.notice("用法：/policy [ask|never]");
+      return;
+    }
+    // 无参 toggle：取当前已知策略（approval/policy 事件回读）切换，未知按宿主默认 ask 为基准
+    const sid = this.state.activeSessionId;
+    const current = sid ? this.state.policyBySession[sid] : undefined;
+    applySet(current === "never" ? "ask" : "never");
   }
 
   /** 追加一条命令通知并重绘（/model 结果/错误统一入口） */

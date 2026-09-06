@@ -658,8 +658,14 @@ export function renderStatusLine(
   cols: number,
   /** 最新一次模型调用 token 用量（有且 total>0 时覆盖 contextLen/cacheHit 占位） */
   usage?: AppState["usage"],
-  /** P2 B1+B2：当前活跃会话的 goal/todo/mode（状态栏 goal 徽标 + todo 计数 + 模式徽标三合一；缺省不显示） */
-  session?: { goal?: GoalState; todos?: TodoItemLike[]; mode?: ModeState },
+  /** P2 B1+B2 + C：当前活跃会话的 goal/todo/mode/policy（状态栏 goal 徽标 + todo 计数 +
+   *  模式徽标三合一 + 审批策略徽标；缺省不显示） */
+  session?: {
+    goal?: GoalState;
+    todos?: TodoItemLike[];
+    mode?: ModeState;
+    policy?: "ask" | "never";
+  },
 ): RenderLine[] {
   const u = usage ? usageStatus(usage) : undefined;
   const ctxSeg = u?.ctx ?? status.contextLen;
@@ -727,6 +733,14 @@ export function renderStatusLine(
       out.push({ text: `todo ${n}/${session.todos.length}`, color: identity });
     }
     out.push(...modeBadge(session?.mode));
+    // C 阶段：当前审批策略（approval/policy 事件 latest-wins；无该会话事件省略）。
+    // ask 直接示 `ask`，never 示 `auto`（两态语义自明、与模式徽标区分）
+    if (session?.policy) {
+      out.push({
+        text: session.policy === "never" ? "auto" : "ask",
+        color: identity,
+      });
+    }
     return out;
   };
   const envFull: Seg[] = [
@@ -860,6 +874,10 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const mode = state.activeSessionId
     ? state.modeBySession[state.activeSessionId]
     : undefined;
+  // C 阶段：当前活跃会话审批策略（approval/policy 事件 latest-wins；无=undefined 省略徽标）
+  const policy = state.activeSessionId
+    ? state.policyBySession[state.activeSessionId]
+    : undefined;
   const fullWidth = Math.max(1, size.cols);
   // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
   // 按键提示区仅输入态存在（审批/问答/选择/历史面板自带按键提示），与输入区之间不画横线
@@ -871,7 +889,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     state.themeId,
     fullWidth,
     state.usage,
-    { goal, todos, mode },
+    { goal, todos, mode, policy },
   );
   // 面板态/输入态共用固定交互区高度（见 metricsFor）；提示区仅输入态计入
   const metrics = metricsFor(

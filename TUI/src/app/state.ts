@@ -166,6 +166,8 @@ export interface AppState {
   todoBySession: Record<string, TodoItemLike[]>;
   /** P2：按 sessionId 隔离的模式徽标（plan/sandbox/permission 三合一） */
   modeBySession: Record<string, ModeState>;
+  /** C 阶段：按 sessionId 隔离的当前审批策略（approval/policy 事件 latest-wins；无则为 undefined=未收到省略） */
+  policyBySession: Record<string, "ask" | "never">;
   /** P2：按 sessionId 隔离的 compaction 摘要（每会话仅最近一条；raw 完整保留） */
   compactionBySession: Record<
     string,
@@ -262,6 +264,7 @@ export function initialState(
     goalBySession: {},
     todoBySession: {},
     modeBySession: {},
+    policyBySession: {},
     compactionBySession: {},
     stepGroup: null,
     buffer: [],
@@ -843,6 +846,16 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         toast,
       );
     }
+    case "approval-policy":
+      // C 阶段：当前审批策略按 sessionId latest-wins（approval/policy 事件源=宿主 setPolicy）；
+      // 无对应会话事件时保留旧值（切会话读对应 policyBySession 键）
+      return {
+        ...state,
+        policyBySession: {
+          ...state.policyBySession,
+          [action.sessionId]: action.policy,
+        },
+      };
     default:
       return state;
   }
@@ -968,6 +981,11 @@ export type StateAction =
       sessionId: string;
       text: string;
       raw: CompactionSummaryPayloadLike;
+    }
+  | {
+      type: "approval-policy";
+      sessionId: string;
+      policy: "ask" | "never";
     };
 
 function setInput(

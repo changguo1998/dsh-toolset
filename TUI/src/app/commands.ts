@@ -136,7 +136,8 @@ export type SlashRoute =
   | "session"
   | "copy"
   | "registry"
-  | "goal";
+  | "goal"
+  | "policy";
 
 export function routeSlashCommand(name: string): SlashRoute {
   switch (name) {
@@ -157,6 +158,8 @@ export function routeSlashCommand(name: string): SlashRoute {
       return "copy";
     case "goal":
       return "goal";
+    case "policy":
+      return "policy";
     default:
       return "registry";
   }

@@ -42,9 +42,6 @@ import type {
   HistoryMessage,
   SessionSurfaceView,
   TokenUsage,
-  GoalOperation,
-  GoalRefLike,
-  GoalSnapshotLike,
   GoalChangeLike,
   TodoItemLike,
   SubagentDescriptorLike,
@@ -808,6 +805,14 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         });
         return;
       }
+      case "approval/policy": {
+        // C 阶段：既有审计对事件归一化为第 10 个 DshEvent（载荷 {policy: 'ask'|'never'}）；
+        // 显示当前策略（状态栏）。无效载荷整体丢弃（fail-safe）。
+        const policy = (raw.data as { policy?: unknown }).policy;
+        if (policy !== "ask" && policy !== "never") return;
+        emit({ type: "approval-policy", sessionId: sid, policy });
+        return;
+      }
       default:
         return;
     }
@@ -996,6 +1001,29 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     approve(id, allow) {
       if (disposed) return;
       settle(id, allow ? "allowed-once" : "rejected");
+    },
+    async setApprovalPolicy(policy) {
+      // C 阶段：两态切换写路径 → 宿主 ctx.approval.setPolicy(agent, policy)（A0 已核实
+      // user-approval/src/index.ts L226 → session.append('approval/policy', {policy})，
+      // 即本调用是 approval/policy 事件的产生源，状态栏经事件回读 latest-wins）。
+      // 宿主未挂载 ctx.approval 或活跃 agent 缺失 → reject，调用方 notice「审批策略服务不可用」。
+      if (disposed) return;
+      // SAFETY: DshRuntime 结构面仅声明 on()；ctx.approval 为可选宿主服务，
+      // 经 userspace 结构分类（{setPolicy(agent, policy)}）窄化，缺失则下方 reject，
+      // 绝不无保护访问成员——与既有结构面（sessionQuery/llm 等）同构。
+      const approval = (
+        runtime as unknown as {
+          approval?: { setPolicy?: (agent: unknown, p: string) => unknown };
+        }
+      ).approval;
+      if (
+        !approval ||
+        typeof approval.setPolicy !== "function" ||
+        !activeAgent
+      ) {
+        throw new Error("审批策略服务不可用");
+      }
+      await approval.setPolicy(activeAgent, policy);
     },
     answerQuestion(id, answer) {
       if (disposed) return;
