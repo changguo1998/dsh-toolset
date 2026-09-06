@@ -32,7 +32,7 @@ const fileOf = (pid) =>
 
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
 const wanted = (plain) =>
-  /\* /.test(plain) && /ctx \d/.test(plain) && /cache \d+%/.test(plain);
+  /○ /.test(plain) && /ctx \d/.test(plain) && /cache \d+%/.test(plain);
 
 /** 跑一次真实会话：喂提示词 → 轮询 → 命中返回捕获文本，否则返回 null */
 function runAttempt(attempt, file) {
