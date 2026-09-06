@@ -27,6 +27,8 @@ import {
   type QuestionItem,
   type AgentRegistryLike,
   buildUserMessage,
+  type AgentPresetsLike,
+  type JobsLike,
 } from "../src/app/adapter/dsh.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 
@@ -2461,4 +2463,284 @@ test("P2 reducer：goal set/clear、todo 全量替换、mode 三合一、compact
   });
   assert.deepEqual(s.compactionBySession[sid], { raw: rawB, text: "乙" });
   assert.equal(s.compactionBySession["s2"], undefined);
+});
+test("P3 新事件归一化：workflow/command/code-dispatch/hook/schedule/prune/feedback", () => {
+  const t = makeAdapter();
+  const fire = (type: string, data: Record<string, unknown>) =>
+    t.runtime.fire(
+      "session/event",
+      { id: "s1" },
+      { type, seq: 1, time: Date.now(), data },
+    );
+  // workflow 全流程
+  fire("tool-workflow/run-start", { runId: "r1", name: "research" });
+  fire("tool-workflow/agent-start", {
+    runId: "r1",
+    seq: 1,
+    label: "reviewer",
+    childId: "c1",
+  });
+  fire("tool-workflow/agent-end", { runId: "r1", seq: 1, outcome: "success" });
+  fire("tool-workflow/run-end", { runId: "r1", stopReason: "completed" });
+  assert.deepEqual(t.events.at(-4), {
+    type: "workflow",
+    sessionId: "s1",
+    phase: "run-start",
+    label: "research",
+  });
+  assert.deepEqual(t.events.at(-3), {
+    type: "workflow",
+    sessionId: "s1",
+    phase: "agent-start",
+    label: "reviewer",
+    detail: "1",
+  });
+  assert.deepEqual(t.events.at(-2), {
+    type: "workflow",
+    sessionId: "s1",
+    phase: "agent-end",
+    label: "",
+    detail: "1 success",
+  });
+  assert.deepEqual(t.events.at(-1), {
+    type: "workflow",
+    sessionId: "s1",
+    phase: "run-end",
+    label: "",
+    detail: "completed",
+  });
+  // command/run-done 配对（done 无 name，经 commandId 取回）
+  fire("command/run", { commandId: "cmd-1", name: "goal" });
+  fire("command/done", {
+    commandId: "cmd-1",
+    kind: "error",
+    text: "任务不存在",
+  });
+  assert.deepEqual(t.events.at(-2), {
+    type: "command",
+    sessionId: "s1",
+    phase: "run",
+    name: "goal",
+  });
+  assert.deepEqual(t.events.at(-1), {
+    type: "command",
+    sessionId: "s1",
+    phase: "done",
+    name: "goal",
+    text: "任务不存在",
+    ok: false,
+  });
+  // code-dispatch（isError 结算失败）
+  fire("tool/code-dispatch-start", {
+    subCallId: "c1:code:0",
+    name: "read",
+    arguments: '{"path":"a.ts"}',
+  });
+  fire("tool/code-dispatch", {
+    subCallId: "c1:code:0",
+    name: "read",
+    isError: true,
+    content: [],
+  });
+  assert.deepEqual(t.events.at(-2), {
+    type: "code-dispatch",
+    sessionId: "s1",
+    phase: "start",
+    name: "read",
+    summary: "a.ts",
+    ok: true,
+  });
+  assert.deepEqual(t.events.at(-1), {
+    type: "code-dispatch",
+    sessionId: "s1",
+    phase: "settle",
+    name: "read",
+    summary: "",
+    ok: false,
+  });
+  // hook（exitCode 非 0 判定失败）
+  fire("hook/invoked", { turn: 1, point: "PreToolUse", handlerId: "h1" });
+  fire("hook/result", {
+    turn: 1,
+    point: "PreToolUse",
+    handlerId: "h1",
+    decision: "stop",
+    exitCode: 1,
+    durationMs: 12,
+  });
+  assert.deepEqual(t.events.at(-2), {
+    type: "hook",
+    sessionId: "s1",
+    phase: "invoked",
+    point: "PreToolUse",
+    ok: true,
+  });
+  assert.deepEqual(t.events.at(-1), {
+    type: "hook",
+    sessionId: "s1",
+    phase: "result",
+    point: "PreToolUse",
+    decision: "stop",
+    ok: false,
+  });
+  // schedule / prune / feedback
+  fire("schedule/change", { version: 1, operation: "dispatch", id: "sched-1" });
+  fire("compaction/prune", {
+    shadowedRange: { start: 1, end: 2 },
+    shadowedSeqs: ["a", "b"],
+    shadowedTokenCount: 36000,
+  });
+  fire("feedback/record", { text: "很好用" });
+  assert.deepEqual(t.events.at(-3), {
+    type: "schedule",
+    sessionId: "s1",
+    operation: "dispatch",
+    id: "sched-1",
+  });
+  assert.deepEqual(t.events.at(-2), {
+    type: "compaction-prune",
+    sessionId: "s1",
+    nodeCount: 2,
+    tokenCount: 36000,
+  });
+  assert.deepEqual(t.events.at(-1), {
+    type: "feedback",
+    sessionId: "s1",
+    text: "很好用",
+  });
+  // retry-started：仅取第几次（retry）
+  fire("llm/retry-started", { retryId: "rt-1", turn: 1, step: 1, retry: 2 });
+  assert.deepEqual(t.events.at(-1), {
+    type: "retry-started",
+    sessionId: "s1",
+    attempt: 2,
+  });
+  // agent-preset/selected：preset 落真名（payload {agentPreset}）
+  fire("agent-preset/selected", { seq: 1, agentPreset: "research" });
+  assert.deepEqual(t.events.at(-1), {
+    type: "agent-preset",
+    sessionId: "s1",
+    preset: "research",
+  });
+});
+
+// --- P3 agent-preset / jobs 归一化补强 + 写路径参数（advisor 复查项） ---
+
+/** 带外部服务注入的完整 adapter（agentPresets / jobs 可选） */
+function makeAdapterFull(extra?: {
+  agentPresets?: AgentPresetsLike;
+  jobs?: JobsLike;
+}) {
+  const agent = new FakeAgent();
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent,
+    approvalTimeoutMs: 50,
+    ...extra,
+  });
+  const events: DshEvent[] = [];
+  adapter.onEvent((e) => events.push(e));
+  return { adapter, events, agent };
+}
+
+test("agent-preset/selected 归一化：seq 递增/重复丢弃/非法值丢弃", () => {
+  const rt = new FakeRuntime();
+  const agent = new FakeAgent();
+  const adapter = createRealDshAdapter({
+    runtime: rt,
+    sessionId: "s1",
+    agent,
+    approvalTimeoutMs: 50,
+  });
+  const events: DshEvent[] = [];
+  adapter.onEvent((e) => events.push(e));
+  // fireRaw：FakeRuntime.fire 会把 seq 规范化成单调递增（重复注入会被改写），
+  // seq 守卫用例须用 fireRaw 显式注入原始 seq。
+  const send = (sessionId: string, seq: number, agentPreset: unknown): void => {
+    rt.fireRaw(
+      "session/event",
+      { id: sessionId },
+      {
+        type: "agent-preset/selected",
+        seq,
+        time: Date.now(),
+        data: { agentPreset },
+      },
+    );
+  };
+  // 递增 seq 正常归一化
+  send("s1", 1, "research");
+  // 同 seq 重复 → 丢弃
+  send("s1", 1, "default");
+  // 递增 seq 正常 → 更新
+  send("s1", 2, "code-review");
+  // 非法（非字符串 / 空）→ 丢弃
+  send("s1", 3, "");
+  send("s1", 4, 42);
+  // 非活跃会话 → 丢弃（adapter 单活跃会话约束）
+  send("s2", 1, "research");
+  const presets = events.filter((e) => e.type === "agent-preset");
+  assert.deepEqual(presets, [
+    { type: "agent-preset", sessionId: "s1", preset: "research" },
+    { type: "agent-preset", sessionId: "s1", preset: "code-review" },
+  ]);
+});
+
+test("selectAgentPreset：recompose 收到 agentCtx 与目标预设 id", async () => {
+  const rec: Array<[unknown, string]> = [];
+  const t = makeAdapterFull({
+    agentPresets: {
+      defaultId: "default",
+      recompose: async (ctx: unknown, id: string) => {
+        rec.push([ctx, id]);
+      },
+      list: async () => [],
+    },
+  });
+  await t.adapter.selectAgentPreset!("code-review");
+  assert.equal(rec.length, 1);
+  const [ctx, id] = rec[0]!;
+  assert.equal(id, "code-review");
+  // FakeAgent 无 ctx 字段 → 宽松回退为 handle 本身（session.id=s1 可验证）
+  const agentCtx = ctx as { agent?: unknown };
+  const session = (ctx as { session?: { id?: string } }).session;
+  assert.equal(session?.id, "s1");
+  void agentCtx;
+});
+
+test("selectAgentPreset：宿主未挂载/未暴露 recompose → reject", async () => {
+  const t = makeAdapterFull(); // 无 agentPresets
+  await assert.rejects(
+    t.adapter.selectAgentPreset!("x"),
+    /agent 预设服务不可用/,
+  );
+});
+
+test("refreshJobs：宿主未挂载 ctx.jobs → reject（不假成功）", async () => {
+  const t = makeAdapterFull(); // 无 jobs
+  await assert.rejects(t.adapter.refreshJobs!(), /jobs 服务不可用/);
+});
+
+test("refreshJobs/killJob：经 list/kill 传递 caller={id: activeSessionId}", async () => {
+  const listCallers: unknown[] = [];
+  const killCalls: Array<[string, unknown]> = [];
+  const jobs: JobsLike = {
+    list: (caller) => {
+      listCallers.push(caller);
+      return [];
+    },
+    kill: (id: string, caller?: unknown) => {
+      killCalls.push([id, caller]);
+      return "requested";
+    },
+    onJobsChanged: (_cb: () => void) => {
+      return () => {};
+    },
+  };
+  const t = makeAdapterFull({ jobs });
+  await t.adapter.refreshJobs!();
+  assert.deepEqual(listCallers, [{ id: "s1" }]);
+  await t.adapter.killJob!("subprocess-1");
+  assert.deepEqual(killCalls, [["subprocess-1", { id: "s1" }]]);
 });

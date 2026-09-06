@@ -36,6 +36,9 @@ import {
   type SessionQueryLike,
   type SessionStoreLike,
   type AgentRegistryLike,
+  type PermissionPresetServiceLike,
+  type AgentPresetsLike,
+  type JobsLike,
 } from "./app/adapter/dsh.ts";
 
 /** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
@@ -332,6 +335,18 @@ export async function apply(
     // 会话存储服务（ctx.get('sessions')；live 会话读取原始事件需经它，缺失时降级 readSurface/readSession）
     sessions: (ctx as { get?: (name: string) => unknown }).get?.("sessions") as
       SessionStoreLike | undefined,
+    // 权限预设服务（ctx.get('permissionPresets')，dsh-permission-presets；
+    // 缺失时 /permission 提示不可用但适配层正常启动）
+    permissionPresets: (ctx as { get?: (name: string) => unknown }).get?.(
+      "permissionPresets",
+    ) as PermissionPresetServiceLike | undefined,
+    // agent 预设服务（ctx.get('agentPresets')，dsh-agent-presets；缺失时 /preset 提示不可用）
+    agentPresets: (ctx as { get?: (name: string) => unknown }).get?.(
+      "agentPresets",
+    ) as AgentPresetsLike | undefined,
+    // jobs 后台任务服务（ctx.get('jobs')，dsh-base 默认装配 dsh-jobs-local；缺失时 /jobs 提示不可用）
+    jobs: (ctx as { get?: (name: string) => unknown }).get?.("jobs") as
+      JobsLike | undefined,
   });
 
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）

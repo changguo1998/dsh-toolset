@@ -47,6 +47,8 @@ import type {
   SubagentDescriptorLike,
   ContentBlockLike,
   CompactionSummaryPayloadLike,
+  AgentPresetInfo,
+  JobInfo,
 } from "./types.ts";
 import {
   buildApprovalPrompt,
@@ -103,6 +105,12 @@ export type {
   SubagentDescriptorLike,
   ContentBlockLike,
   CompactionSummaryPayloadLike,
+  PermissionPresetInfo,
+  PermissionPresetServiceLike,
+  AgentPresetInfo,
+  AgentPresetsLike,
+  JobInfo,
+  JobsLike,
 } from "./types.ts";
 export {
   buildApprovalPrompt,
@@ -331,6 +339,27 @@ function turnEndNotice(
   }
 }
 /** 构造真实 DSH adapter：注册应答者 + 订阅会话事件，归一化为 DshEvent。 */
+/**
+ * 宽松读取 ctx.jobs.list() 快照 → JobInfo（rc.2 JobSnapshot 字段；缺失项降级，绝不崩）。
+ * P3：jobs 服务结构面外字段（kind/label/status/detail）仅作展示，id 缺失则该行跳过。
+ */
+function collectJobs(rows: ReadonlyArray<Record<string, unknown>>): JobInfo[] {
+  const out: JobInfo[] = [];
+  for (const r of rows) {
+    if (typeof r?.id !== "string" || r.id === "") continue;
+    out.push({
+      id: r.id,
+      kind: typeof r.kind === "string" ? r.kind : "",
+      label: typeof r.label === "string" ? r.label : r.id,
+      status: typeof r.status === "string" ? r.status : "unknown",
+      ...(typeof r.detail === "string" && r.detail !== ""
+        ? { detail: r.detail }
+        : {}),
+    });
+  }
+  return out;
+}
+
 export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   const { runtime } = opts;
   const sessionQuery = opts.sessionQuery;
@@ -361,6 +390,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   // assistant/message 是每个 step 结束必发的完整正文表面事件，据此只补发缺失后缀；
   // 非流式 provider（无任何 chunk）时累计为空 → 直接输出完整正文，保证回复可见。
   const stepEmitted = new Map<string, string>();
+  // P3 command/run-done 配对：commandId → 命令名（run 记录 / done 读取后删除；缺 run 直接 done）
+  const commandNames = new Map<string, string>();
 
   const emit = (e: DshEvent): void => {
     if (disposed) return;
@@ -813,6 +844,212 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         emit({ type: "approval-policy", sessionId: sid, policy });
         return;
       }
+      case "tool-workflow/run-start": {
+        // P3 workflow 运行打开：{runId, name}，仅显示名
+        const w = raw.data as { name?: unknown };
+        emit({
+          type: "workflow",
+          sessionId: sid,
+          phase: "run-start",
+          label: typeof w.name === "string" ? w.name : "",
+        });
+        return;
+      }
+      case "tool-workflow/agent-start": {
+        // P3 workflow 成员发布：{seq, label, phase?, childId}；无 label 回落 #seq
+        const w = raw.data as { seq?: unknown; label?: unknown };
+        emit({
+          type: "workflow",
+          sessionId: sid,
+          phase: "agent-start",
+          label: typeof w.label === "string" && w.label !== "" ? w.label : "",
+          detail: typeof w.seq === "number" ? String(w.seq) : "",
+        });
+        return;
+      }
+      case "tool-workflow/agent-end": {
+        // P3 workflow 成员结算：{seq, outcome}
+        const w = raw.data as { seq?: unknown; outcome?: unknown };
+        emit({
+          type: "workflow",
+          sessionId: sid,
+          phase: "agent-end",
+          label: "",
+          detail:
+            (typeof w.seq === "number" ? String(w.seq) : "") +
+            (typeof w.outcome === "string" && w.outcome !== ""
+              ? " " + w.outcome
+              : ""),
+        });
+        return;
+      }
+      case "tool-workflow/run-end": {
+        // P3 workflow 收尾：{stopReason}；fold 为 toast
+        const w = raw.data as { stopReason?: unknown };
+        emit({
+          type: "workflow",
+          sessionId: sid,
+          phase: "run-end",
+          label: "",
+          detail: typeof w.stopReason === "string" ? w.stopReason : "",
+        });
+        return;
+      }
+      case "command/run": {
+        // P3 命令执行开始：{commandId, name, args?, source}；记录配对供 done 取名
+        const c = raw.data as { commandId?: unknown; name?: unknown };
+        if (typeof c.commandId === "string" && typeof c.name === "string") {
+          commandNames.set(c.commandId, c.name);
+        }
+        emit({
+          type: "command",
+          sessionId: sid,
+          phase: "run",
+          name: typeof c.name === "string" && c.name !== "" ? c.name : "",
+        });
+        return;
+      }
+      case "command/done": {
+        // P3 命令执行结束：{commandId, kind, text?}；name 经配对取回（缺失回落占位）
+        const c = raw.data as {
+          commandId?: unknown;
+          kind?: unknown;
+          text?: unknown;
+        };
+        const paired =
+          typeof c.commandId === "string"
+            ? commandNames.get(c.commandId)
+            : undefined;
+        if (typeof c.commandId === "string") commandNames.delete(c.commandId);
+        emit({
+          type: "command",
+          sessionId: sid,
+          phase: "done",
+          name: paired ?? "",
+          text: typeof c.text === "string" ? c.text : "",
+          ok: c.kind === "success",
+        });
+        return;
+      }
+      case "tool/code-dispatch-start": {
+        // P3 run_code 子派发开始：{name, arguments}（dispatched 前归一化，永不失败）
+        const cd = raw.data as { name?: unknown; arguments?: unknown };
+        emit({
+          type: "code-dispatch",
+          sessionId: sid,
+          phase: "start",
+          name: typeof cd.name === "string" ? cd.name : "",
+          summary: summarizeToolArguments(
+            typeof cd.arguments === "string" ? cd.arguments : "",
+          ),
+          ok: true,
+        });
+        return;
+      }
+      case "tool/code-dispatch": {
+        // P3 run_code 子派发结算：{isError, content}；成功静默降噪，失败红行
+        const cd = raw.data as { name?: unknown; isError?: unknown };
+        emit({
+          type: "code-dispatch",
+          sessionId: sid,
+          phase: "settle",
+          name: typeof cd.name === "string" ? cd.name : "",
+          summary: "",
+          ok: cd.isError !== true,
+        });
+        return;
+      }
+      case "hook/invoked": {
+        // P3 hooks 调用开始：{point, ...}；显示 hook 点
+        const h = raw.data as { point?: unknown };
+        emit({
+          type: "hook",
+          sessionId: sid,
+          phase: "invoked",
+          point: typeof h.point === "string" && h.point !== "" ? h.point : "",
+          ok: true,
+        });
+        return;
+      }
+      case "hook/result": {
+        // P3 hooks 结算：{point, decision, exitCode?}；exitCode 0=成功，无 exitCode 按 decision
+        const h = raw.data as {
+          point?: unknown;
+          decision?: unknown;
+          exitCode?: unknown;
+        };
+        const decision = typeof h.decision === "string" ? h.decision : "";
+        const exitOk =
+          typeof h.exitCode === "number"
+            ? h.exitCode === 0
+            : decision === "allow" || decision === "pass";
+        emit({
+          type: "hook",
+          sessionId: sid,
+          phase: "result",
+          point: typeof h.point === "string" && h.point !== "" ? h.point : "",
+          decision: decision || undefined,
+          ok: exitOk,
+        });
+        return;
+      }
+      case "schedule/change": {
+        // P3 schedule 提醒：{version:1, operation: create|delete|dispatch, id?}
+        const s = raw.data as { operation?: unknown; id?: unknown };
+        const op = s.operation;
+        if (op !== "create" && op !== "delete" && op !== "dispatch") return;
+        emit({
+          type: "schedule",
+          sessionId: sid,
+          operation: op,
+          id: typeof s.id === "string" ? s.id : undefined,
+        });
+        return;
+      }
+      case "compaction/prune": {
+        // P3 压缩剪枝：{shadowedRange, shadowedSeqs, shadowedTokenCount}
+        const p = raw.data as {
+          shadowedSeqs?: unknown;
+          shadowedTokenCount?: unknown;
+        };
+        emit({
+          type: "compaction-prune",
+          sessionId: sid,
+          nodeCount: Array.isArray(p.shadowedSeqs) ? p.shadowedSeqs.length : 0,
+          tokenCount:
+            typeof p.shadowedTokenCount === "number" ? p.shadowedTokenCount : 0,
+        });
+        return;
+      }
+      case "feedback/record": {
+        // P3 反馈记录确认：{text}（/feedback 命令落库后回读）
+        const f = raw.data as { text?: unknown };
+        emit({
+          type: "feedback",
+          sessionId: sid,
+          text: typeof f.text === "string" ? f.text : "",
+        });
+        return;
+      }
+      case "llm/retry-started": {
+        // P3 重试启动：{retryId, turn, step, retry}；仅取第几次（retry）展示启动行，
+        // 与既有 llm/retry（失败原因 toast）互补。
+        const r = raw.data as { retry?: unknown };
+        emit({
+          type: "retry-started",
+          sessionId: sid,
+          attempt: typeof r.retry === "number" ? r.retry : 0,
+        });
+        return;
+      }
+      case "agent-preset/selected": {
+        // P3：agent 预设选中（rc.2 会话事件；payload {agentPreset}）→ 状态栏 preset:<id>。
+        // 经上方通用 seq 守卫 + 非活跃会话丢弃（与其它会话事件同链）。
+        const p = raw.data as { agentPreset?: unknown };
+        if (typeof p.agentPreset !== "string" || p.agentPreset === "") return;
+        emit({ type: "agent-preset", sessionId: sid, preset: p.agentPreset });
+        return;
+      }
       default:
         return;
     }
@@ -1025,6 +1262,141 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       await approval.setPolicy(activeAgent, policy);
     },
+
+    async permissionCatalog() {
+      const svc = opts.permissionPresets;
+      if (
+        !svc ||
+        typeof svc.current !== "function" ||
+        !Array.isArray(svc.names)
+      ) {
+        return undefined;
+      }
+      let current = "";
+      try {
+        // SAFETY: 服务结构面仅保证 names/current；activeAgent.session.events 宽松读取——
+        // 缺 events / 服务抛错都降级（current 置空），绝不崩。
+        const child = activeAgent as
+          { session?: { events?: readonly unknown[] } } | null | undefined;
+        const events = child?.session?.events ?? [];
+        const c = svc.current(events);
+        if (typeof c === "string") current = c;
+      } catch {
+        /* 服务读异常 → 当前值降级为空 */
+      }
+      // 展示描述宽松读取（PresetSpec.name/description，非结构面保证；缺省回落键名）。
+      // SAFETY: 结构面之外的身份 presets 表仅作展示增强——字段缺失/形状不符时
+      // 下方的 optional chaining 与 typeof 检查全部走降级（回落键名），不成立也不会崩。
+      const specTable = (
+        svc as unknown as {
+          presets?: Record<string, { name?: string; description?: string }>;
+        }
+      ).presets;
+      const entries = [...svc.names].map((key) => {
+        const spec = specTable?.[key];
+        return {
+          key,
+          name:
+            typeof spec?.name === "string" && spec.name !== ""
+              ? spec.name
+              : key,
+          ...(typeof spec?.description === "string" && spec.description !== ""
+            ? { description: spec.description }
+            : {}),
+        };
+      });
+      return { current, names: [...svc.names], entries };
+    },
+    async agentPresetCatalog() {
+      // P3：agent 预设目录——可用预设（ctx.agentPresets.list）+ 当前选中（agent-preset/selected
+      // 事件回读）+ 未来会话默认（defaultId）。宿主未挂载服务 → undefined（顶层提示不可用）。
+      const svc = opts.agentPresets;
+      if (!svc || typeof svc.list !== "function") return undefined;
+      const presets: AgentPresetInfo["presets"] = [];
+      try {
+        // SAFETY: 仅依赖 list() 元素 id；name/description 宽松读取（缺省回落 id），绝不崩。
+        for (const row of await svc.list()) {
+          const rec = row as {
+            id?: unknown;
+            name?: unknown;
+            description?: unknown;
+          };
+          if (typeof rec?.id !== "string" || rec.id === "") continue;
+          presets.push({
+            id: rec.id,
+            name:
+              typeof rec.name === "string" && rec.name !== ""
+                ? rec.name
+                : rec.id,
+            ...(typeof rec.description === "string" && rec.description !== ""
+              ? { description: rec.description }
+              : {}),
+          });
+        }
+      } catch {
+        return undefined;
+      }
+      // 当前选中回读：activeAgent.session.events 末条 agent-preset/selected（latest-wins）
+      let current = "";
+      try {
+        const child = activeAgent as
+          { session?: { events?: readonly unknown[] } } | null | undefined;
+        const events = child?.session?.events ?? [];
+        for (let i = events.length - 1; i >= 0; i--) {
+          const ev = events[i] as {
+            type?: unknown;
+            data?: { agentPreset?: unknown };
+          };
+          if (
+            ev?.type === "agent-preset/selected" &&
+            typeof ev.data?.agentPreset === "string"
+          ) {
+            current = ev.data.agentPreset;
+            break;
+          }
+        }
+      } catch {
+        /* 回读异常 → 当前值保持空 */
+      }
+      const defaultId = typeof svc.defaultId === "string" ? svc.defaultId : "";
+      return { current, defaultId, presets };
+    },
+    async selectAgentPreset(id) {
+      // P3：切换会话 agent 预设 → ctx.agentPresets.recompose(agentCtx, id)。
+      // SAFETY: recompose 为服务结构面外方法（rc.2 AgentPresets）；宿主缺失/活跃 agent
+      // 无 ctx 时 reject（调用方 notice「agent 预设服务不可用」）。agentCtx 宽松取自
+      // agent handle 的 ctx，缺省回退 handle 本身。
+      if (disposed) return;
+      const svc = opts.agentPresets;
+      if (!svc || typeof svc.recompose !== "function" || !activeAgent) {
+        throw new Error("agent 预设服务不可用");
+      }
+      const agentCtx = (activeAgent as { ctx?: unknown }).ctx ?? activeAgent;
+      await svc.recompose(agentCtx, id);
+    },
+    async refreshJobs() {
+      // P3：读 ctx.jobs.list() 全量快照（caller=当前会话，owner-relative），经 jobs-changed
+      // 推送（reducer 更新 /jobs 面板）。宿主未挂载 ctx.jobs / list 缺失 → reject
+      // （调用方 notice「jobs 服务不可用」，绝不静默假成功）。
+      const svc = opts.jobs;
+      if (!svc || typeof svc.list !== "function") {
+        throw new Error("jobs 服务不可用");
+      }
+      // SAFETY: 0.1.2-rc.1 jobs-local 的 list(caller) 只读 caller.id 与 job.owner.id 匹配；
+      // 缺 caller 仅返回 unowned（当前会话任务不可见）——显式传 {id: activeSessionId}。
+      const jobs = collectJobs(svc.list({ id: activeSessionId }));
+      emit({ type: "jobs-changed", sessionId: activeSessionId, jobs });
+    },
+    async killJob(id) {
+      // P3：取消后台任务 → ctx.jobs.kill(id, caller)。宿主未挂载 → reject（面板 notice）。
+      // caller 同上（owner-relative 权限核对）。
+      if (disposed) return;
+      const svc = opts.jobs;
+      if (!svc || typeof svc.kill !== "function") {
+        throw new Error("jobs 服务不可用");
+      }
+      svc.kill(id, { id: activeSessionId });
+    },
     answerQuestion(id, answer) {
       if (disposed) return;
       const pending = pendingQuestions.get(id);
@@ -1219,6 +1591,25 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       approvalAnswerer as (...args: unknown[]) => unknown,
     ),
   );
+
+  // P3：jobs 增量订阅——onJobsChanged 任一变化 → 推送全量快照（/jobs 面板实时刷新）。
+  // 订阅失败/宿主缺失时退化为打开面板时的 refreshJobs() 主动拉取一次。
+  const jobsSvc = opts.jobs;
+  if (jobsSvc && typeof jobsSvc.onJobsChanged === "function") {
+    try {
+      const off = jobsSvc.onJobsChanged(() => {
+        if (disposed || typeof jobsSvc.list !== "function") return;
+        emit({
+          type: "jobs-changed",
+          sessionId: activeSessionId,
+          jobs: collectJobs(jobsSvc.list({ id: activeSessionId })),
+        });
+      });
+      if (typeof off === "function") runtimeUnbinds.push(off);
+    } catch {
+      /* 订阅异常 → 打开面板时 refreshJobs() 兜底拉取 */
+    }
+  }
 
   return adapter;
 

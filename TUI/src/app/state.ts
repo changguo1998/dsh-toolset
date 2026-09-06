@@ -16,14 +16,21 @@ import type {
   GoalRefLike,
   GoalSnapshotLike,
   TodoItemLike,
+  JobInfo,
 } from "./adapter/dsh.ts";
 import type { ModelSelection } from "./adapter/dsh.ts";
 import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
 import {
+  codeDispatchLine,
+  commandErrorLine,
+  commandRunLine,
+  hookLine,
+  retryStartedLine,
   stepHeaderLine,
   subagentLine,
   toolCallLine,
   toolResultLine,
+  workflowLine,
 } from "./layout/tool-line.ts";
 
 /** scrollback 行数上限（纯物理上限；DESIGN:2000 行） */
@@ -179,6 +186,12 @@ export interface AppState {
     step: number;
     headerEmitted: boolean;
   } | null;
+  /** P3：按 sessionId 隔离的 agent 预设（agent-preset/selected 事件 latest-wins；无=未收到） */
+  presetBySession: Record<string, string>;
+  /** P3：最近一次后台任务快照（adapter 经 onJobsChanged 推送；[]=无任务） */
+  jobs: JobInfo[];
+  /** P3：/jobs 任务面板（null=未打开；index=高亮行，Enter 取消） */
+  jobsPanel: { index: number } | null;
 }
 
 /** /model 交互选择面板状态：三列列表（provider/model/effort）+ 高亮索引 */
@@ -267,6 +280,9 @@ export function initialState(
     policyBySession: {},
     compactionBySession: {},
     stepGroup: null,
+    presetBySession: {},
+    jobs: [],
+    jobsPanel: null,
     buffer: [],
     followBottom: true,
     scrollOffset: 0,
@@ -856,6 +872,100 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           [action.sessionId]: action.policy,
         },
       };
+    case "workflow":
+      // P3：workflow 运行行（run-start/agent-start/agent-end 为活动区行，append-only）；
+      // run-end 折叠为 toast（携 stopReason detail）。不参与 step 分组（独立运行大动作）。
+      if (action.phase === "run-end") {
+        return appendNotice(
+          state,
+          "workflow 结束" + (action.detail ? " (" + action.detail + ")" : ""),
+          false,
+          "muted",
+        );
+      }
+      return appendToolLine(
+        state,
+        workflowLine(action.phase, action.label, action.detail),
+        action.phase === "agent-end" ? "muted" : undefined,
+      );
+    case "command":
+      // P3：命令执行流——run 低调灰行；done 成功静默（结果由命令自身 notice 呈现，避免重复），
+      // 失败红行（✗ /name: text）。append-only 不保留历史命令状态。
+      if (action.phase === "done") {
+        if (action.ok !== false) return state;
+        return appendToolLine(
+          state,
+          commandErrorLine(action.name, action.text ?? ""),
+          "error",
+        );
+      }
+      return appendToolLine(state, commandRunLine(action.name), "muted");
+    case "code-dispatch":
+      // P3：run_code 内子派发——start 灰行；settle 成功静默降噪（子调用多，避免刷屏），
+      // 失败红行（✗ <name>）。
+      if (action.phase === "settle") {
+        if (action.ok) return state;
+        return appendToolLine(state, "✗ " + action.name, "error");
+      }
+      return appendToolLine(
+        state,
+        codeDispatchLine(action.name, action.summary),
+      );
+    case "hook":
+      // P3：hooks 协议事件——invoked 灰行；result 按是否通过着色（失败红）。
+      return appendToolLine(
+        state,
+        hookLine(action.phase, action.point, action.decision, action.ok),
+        action.phase === "result" && !action.ok ? "error" : "muted",
+      );
+    case "schedule":
+      // P3：schedule 提醒——仅 dispatch 到点提示（create/delete 降噪，无用户可见价值）。
+      if (action.operation !== "dispatch") return state;
+      return appendNotice(state, "计划提醒触发", false, "muted");
+    case "compaction-prune":
+      // P3：压缩剪枝计数 toast（co tool-result pruner 剪除的节点数/千分 token 启发值）
+      return appendNotice(
+        state,
+        "压缩：已剪除 " +
+          action.nodeCount +
+          " 个节点 (~" +
+          action.tokenCount +
+          " tok)",
+        false,
+        "muted",
+      );
+    case "feedback":
+      // P3：feedback/record 确认（/feedback 命令落库后回读）
+      return appendNotice(state, "反馈已记录", false, "muted");
+    case "retry-started":
+      // P3：llm/retry-started 启动行（↻ 灰行）——与 retry toast 互补：启动可见 + 失败原因 toast
+      return appendToolLine(state, retryStartedLine(action.attempt), "muted");
+    case "agent-preset":
+      // P3：agent-preset/selected → 当前预设 latest-wins（会话隔离）
+      return {
+        ...state,
+        presetBySession: {
+          ...state.presetBySession,
+          [action.sessionId]: action.preset,
+        },
+      };
+    case "jobs-changed":
+      // P3：jobs 快照 last-write-wins（adapter onJobsChanged + 打开时刷新推送）
+      return { ...state, jobs: action.jobs };
+    case "jobs-panel-open":
+      return { ...state, jobsPanel: { index: 0 } };
+    case "jobs-panel-move": {
+      // 上下移动高亮行（clamp 到列表范围）
+      const size = state.jobs.length;
+      if (size === 0) return state;
+      const index = Math.max(
+        0,
+        Math.min(size - 1, action.focus + action.delta),
+      );
+      return { ...state, jobsPanel: { index } };
+    }
+    case "jobs-panel-close":
+      return { ...state, jobsPanel: null };
     default:
       return state;
   }
@@ -986,7 +1096,57 @@ export type StateAction =
       type: "approval-policy";
       sessionId: string;
       policy: "ask" | "never";
-    };
+    }
+  | {
+      type: "workflow";
+      sessionId: string;
+      phase: "run-start" | "agent-start" | "agent-end" | "run-end";
+      label: string;
+      detail?: string;
+    }
+  | {
+      type: "command";
+      sessionId: string;
+      phase: "run" | "done";
+      name: string;
+      text?: string;
+      ok?: boolean;
+    }
+  | {
+      type: "code-dispatch";
+      sessionId: string;
+      phase: "start" | "settle";
+      name: string;
+      summary: string;
+      ok: boolean;
+    }
+  | {
+      type: "hook";
+      sessionId: string;
+      phase: "invoked" | "result";
+      point: string;
+      decision?: string;
+      ok: boolean;
+    }
+  | {
+      type: "schedule";
+      sessionId: string;
+      operation: "create" | "delete" | "dispatch";
+      id?: string;
+    }
+  | {
+      type: "compaction-prune";
+      sessionId: string;
+      nodeCount: number;
+      tokenCount: number;
+    }
+  | { type: "feedback"; sessionId: string; text: string }
+  | { type: "retry-started"; sessionId: string; attempt: number }
+  | { type: "agent-preset"; sessionId: string; preset: string }
+  | { type: "jobs-changed"; sessionId: string; jobs: JobInfo[] }
+  | { type: "jobs-panel-open" }
+  | { type: "jobs-panel-move"; focus: number; delta: number }
+  | { type: "jobs-panel-close" };
 
 function setInput(
   state: AppState,

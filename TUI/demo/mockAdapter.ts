@@ -49,6 +49,10 @@ export class MockDshAdapter implements DshAdapter {
   /** C 阶段冒烟断言：setApprovalPolicy 调用次数与最后一次策略 */
   setApprovalPolicyCalls = 0;
   lastPolicy: "ask" | "never" | undefined = undefined;
+  selectPresetCalls = 0;
+  lastPreset = "";
+  killJobCalls = 0;
+  lastKillId = "";
   /** 冒烟驱动：向 app 推送任意事件 */
   emitEvent(e: DshEvent): void {
     this.emit(e);
@@ -136,6 +140,87 @@ export class MockDshAdapter implements DshAdapter {
       sessionId: this.sessionId,
       policy,
     });
+  }
+
+  async permissionCatalog() {
+    // 模拟宿主 ctx.permissionPresets：rc.2 默认预设表（workspace-write / danger-full-access）
+    return {
+      current: "workspace-write",
+      names: ["workspace-write", "danger-full-access"],
+      entries: [
+        {
+          key: "workspace-write",
+          name: "workspace-write",
+          description:
+            "Write inside the workspace; wider retries require approval.",
+        },
+        {
+          key: "danger-full-access",
+          name: "danger-full-access",
+          description: "Full file access without approval prompts.",
+        },
+      ],
+    };
+  }
+
+  async agentPresetCatalog() {
+    // 模拟宿主 ctx.agentPresets：rc.2 演示目录（default + research + code-review）
+    return {
+      current: "research",
+      defaultId: "default",
+      presets: [
+        {
+          id: "default",
+          name: "default",
+          description: "General-purpose agent.",
+        },
+        {
+          id: "research",
+          name: "research",
+          description: "Read-heavy research preset.",
+        },
+        {
+          id: "code-review",
+          name: "code-review",
+          description: "Review-focused preset.",
+        },
+      ],
+    };
+  }
+
+  async selectAgentPreset(id: string): Promise<void> {
+    // 模拟宿主 ctx.agentPresets.recompose：记录 + 回发 agent-preset/selected 事件（状态栏回读）
+    this.selectPresetCalls = (this.selectPresetCalls ?? 0) + 1;
+    this.lastPreset = id;
+    this.emit({ type: "agent-preset", sessionId: this.sessionId, preset: id });
+  }
+
+  async refreshJobs(): Promise<void> {
+    // 模拟 ctx.jobs.list()：回发 jobs-changed 全量快照（/jobs 面板 + 状态栏计数）
+    this.emit({
+      type: "jobs-changed",
+      sessionId: this.sessionId,
+      jobs: [
+        {
+          id: "subprocess-1",
+          kind: "subprocess",
+          label: "run tests",
+          status: "running",
+        },
+        {
+          id: "subprocess-2",
+          kind: "subprocess",
+          label: "build demo",
+          status: "done",
+          detail: "ok",
+        },
+      ],
+    });
+  }
+
+  async killJob(id: string): Promise<void> {
+    this.killJobCalls = (this.killJobCalls ?? 0) + 1;
+    this.lastKillId = id;
   }
 
   async modelEfforts(
@@ -360,6 +445,11 @@ export class MockDshAdapter implements DshAdapter {
           });
         } else if (this.seq === 2) {
           this.emit({
+            type: "retry-started",
+            sessionId: this.sessionId,
+            attempt: 1,
+          });
+          this.emit({
             type: "retry",
             attempt: 1,
             max: 2,
@@ -411,16 +501,104 @@ export class MockDshAdapter implements DshAdapter {
             mode: "one-shot",
           });
           // B5：compaction 摘要 toast（`压缩完成：<text 首行>`；raw 携完整载荷入 state）
+          // P3 演示：workflow 运行 / command 流 / code-dispatch / hook / schedule / prune / feedback
+          this.emit({
+            type: "workflow",
+            sessionId: this.sessionId,
+            phase: "run-start",
+            label: "research-toolset",
+          });
+          this.emit({
+            type: "workflow",
+            sessionId: this.sessionId,
+            phase: "agent-start",
+            label: "reviewer",
+            detail: "1",
+          });
+          this.emit({
+            type: "workflow",
+            sessionId: this.sessionId,
+            phase: "agent-end",
+            label: "",
+            detail: "1 success",
+          });
+          this.emit({
+            type: "workflow",
+            sessionId: this.sessionId,
+            phase: "run-end",
+            label: "",
+            detail: "completed",
+          });
+          this.emit({
+            type: "command",
+            sessionId: this.sessionId,
+            phase: "run",
+            name: "goal",
+          });
+          this.emit({
+            type: "command",
+            sessionId: this.sessionId,
+            phase: "done",
+            name: "goal",
+            text: "任务不存在",
+            ok: false,
+          });
+          this.emit({
+            type: "code-dispatch",
+            sessionId: this.sessionId,
+            phase: "start",
+            name: "read",
+            summary: "src/app/index.ts",
+            ok: true,
+          });
+          this.emit({
+            type: "code-dispatch",
+            sessionId: this.sessionId,
+            phase: "settle",
+            name: "read",
+            summary: "",
+            ok: true,
+          });
+          this.emit({
+            type: "hook",
+            sessionId: this.sessionId,
+            phase: "invoked",
+            point: "PreToolUse",
+            ok: true,
+          });
+          this.emit({
+            type: "hook",
+            sessionId: this.sessionId,
+            phase: "result",
+            point: "PreToolUse",
+            decision: "allow",
+            ok: true,
+          });
+          this.emit({
+            type: "schedule",
+            sessionId: this.sessionId,
+            operation: "dispatch",
+            id: "sched-1",
+          });
+          // B5：compaction 摘要 toast（`压缩完成：<text 首行>`；raw 携完整载荷入 state）
           this.emit({
             type: "compaction-summary",
             sessionId: this.sessionId,
-            text: "已压缩 182 条历史消息，保留关键上下文",
+            text: "已压缩 182 条历史消息",
             raw: {
-              compactionId: "demo-c1",
-              shadowedTokenCount: 182000,
-              provider: "deepseek",
-              model: "deepseek-v4",
+              summary: [{ type: "text", text: "已压缩 182 条历史消息" }],
             },
+          });
+          this.emit({
+            type: "compaction-prune",
+            sessionId: this.sessionId,
+            nodeCount: 42,
+            tokenCount: 36000,
+          });
+          this.emit({
+            type: "feedback",
+            sessionId: this.sessionId,
+            text: "很好用",
           });
         }
       }, sceneAt),

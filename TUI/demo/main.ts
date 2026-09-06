@@ -296,6 +296,46 @@ if (smoke) {
         policyPlain.includes("full·auto"),
         "no auto policy badge in frames",
       );
+      // P3：/preset 命令 + /jobs 面板 + 状态栏预设/任务徽标（mock 已实现新写路径）
+      typeLine("/preset code-review");
+      await sleep(400);
+      const presetPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
+      ok(
+        "preset-select-call",
+        adapter.selectPresetCalls >= 1 && adapter.lastPreset === "code-review",
+        "selectPresetCalls=" +
+          adapter.selectPresetCalls +
+          " last=" +
+          adapter.lastPreset,
+      );
+      ok(
+        "preset-notice",
+        presetPlain.includes("已切换为 code-review"),
+        "no /preset notice in frames",
+      );
+      ok(
+        "preset-badge",
+        presetPlain.includes("preset:code-review"),
+        "no preset badge in frames",
+      );
+      // /jobs 面板：打开 → refreshJobs 拉取 → 任务状态行（标题 + label + 徽标计数）；Esc 关闭
+      typeLine("/jobs");
+      await sleep(400);
+      const jobsPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
+      ok(
+        "jobs-panel",
+        jobsPlain.includes("后台任务") &&
+          jobsPlain.includes("run tests") &&
+          jobsPlain.includes("build demo"),
+        "jobs panel rows absent from frames",
+      );
+      ok(
+        "jobs-badge",
+        jobsPlain.includes("jobs 1"),
+        "no jobs count badge in frames",
+      );
+      renderer.emitKey(key("escape"));
+      await sleep(200);
       console.error(
         "SMOKE_OK sent=" +
           JSON.stringify(sent) +

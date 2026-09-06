@@ -30,3 +30,59 @@ export function subagentLine(
 ): string {
   return "@ " + label + " " + (mode === "one-shot" ? "os" : "ct");
 }
+/** 重试启动行（llm/retry-started）：`↻ 重试中 (N)`，低调灰行（与 retry toast 互补不重复） */
+export function retryStartedLine(attempt: number): string {
+  return "↻ 重试中 (" + attempt + ")";
+}
+
+/**
+ * workflow 运行行：run-start `⚑ workflow: <name>`；agent-start `⤷ <label>`（缺 label 回落 #<detail>）；
+ * agent-end `↩ #<detail>`（muted）。run-end 走 notice（不进本文件）。
+ */
+export function workflowLine(
+  phase: "run-start" | "agent-start" | "agent-end",
+  label: string,
+  detail?: string,
+): string {
+  switch (phase) {
+    case "run-start":
+      return "⚑ workflow: " + (label || "(未命名)");
+    case "agent-start":
+      return "⤷ " + (label || "#" + (detail || "?"));
+    case "agent-end":
+      return (
+        "↩ " +
+        (detail && detail.trim() !== "" ? "#" + detail : label || "(成员)")
+      );
+  }
+}
+
+/** 命令执行行（command/run）：`/> <name>`，低调灰行 */
+export function commandRunLine(name: string): string {
+  return "/> " + name;
+}
+
+/** 命令失败行（command/done kind=error）：`✗ /<name>: <text>`（红） */
+export function commandErrorLine(name: string, text: string): string {
+  return "✗ /" + name + (text ? ": " + text : "");
+}
+
+/** code-dispatch 起始行：`⇥ <name> <summary>`（run_code 内子派发） */
+export function codeDispatchLine(name: string, summary: string): string {
+  return "⇥ " + name + (summary ? " " + summary : "");
+}
+
+/** hook 行：invoked `⌗ <point>`（muted）；result `✓|✗ <point> (<decision>)`（失败红） */
+export function hookLine(
+  phase: "invoked" | "result",
+  point: string,
+  decision?: string,
+  ok = true,
+): string {
+  if (phase === "invoked") return "⌗ " + (point || "?");
+  return (
+    (ok ? "✓ " : "✗ ") +
+    (point || "?") +
+    (decision ? " (" + decision + ")" : "")
+  );
+}

@@ -28,6 +28,7 @@ import { renderModelPicker } from "./components/ModelPicker.ts";
 import { renderHistoryPanel } from "./components/HistoryPanel.ts";
 import { renderQuestionPanel } from "./components/QuestionPrompt.ts";
 import { renderGoalPanel } from "./components/GoalPanel.ts";
+import { renderJobsPanel } from "./components/JobsPanel.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
 import { colorFor } from "../renderer/theme.ts";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
@@ -665,6 +666,9 @@ export function renderStatusLine(
     todos?: TodoItemLike[];
     mode?: ModeState;
     policy?: "ask" | "never";
+    /** P3：当前会话 agent 预设 + 运行中任务计数（状态栏短徽标；无值省略） */
+    preset?: string;
+    jobsCount?: number;
   },
 ): RenderLine[] {
   const u = usage ? usageStatus(usage) : undefined;
@@ -740,6 +744,13 @@ export function renderStatusLine(
         text: session.policy === "never" ? "auto" : "ask",
         color: identity,
       });
+    }
+    // P3：agent 预设 + 运行中任务计数（短徽标；无值省略）
+    if (session?.preset && session.preset !== "") {
+      out.push({ text: "preset:" + session.preset, color: identity });
+    }
+    if (session?.jobsCount && session.jobsCount > 0) {
+      out.push({ text: "jobs " + session.jobsCount, color: identity });
     }
     return out;
   };
@@ -864,6 +875,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const question = state.question;
   const history = state.history;
   const goalPanel = state.goalPanel;
+  const jobsPanel = state.jobsPanel;
   // B1+B2：状态栏徽标与 /goal 面板只读当前活跃会话的 goal/todo/模式
   const goal = state.activeSessionId
     ? state.goalBySession[state.activeSessionId]
@@ -878,18 +890,30 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const policy = state.activeSessionId
     ? state.policyBySession[state.activeSessionId]
     : undefined;
+  // P3：当前活跃会话 agent 预设 + 运行中任务计数（状态栏短徽标）
+  const preset = state.activeSessionId
+    ? state.presetBySession[state.activeSessionId]
+    : undefined;
+  const jobsCount = state.jobs.filter(
+    (j) => j.status === "running" || j.status === "stopping",
+  ).length;
   const fullWidth = Math.max(1, size.cols);
   // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
   // 按键提示区仅输入态存在（审批/问答/选择/历史面板自带按键提示），与输入区之间不画横线
   const normalInput =
-    !showApproval && !question && !picker && !history && !goalPanel;
+    !showApproval &&
+    !question &&
+    !picker &&
+    !history &&
+    !goalPanel &&
+    !jobsPanel;
   const statusLines = renderStatusLine(
     state.systemStatus,
     state.sessionTitle,
     state.themeId,
     fullWidth,
     state.usage,
-    { goal, todos, mode, policy },
+    { goal, todos, mode, policy, preset, jobsCount },
   );
   // 面板态/输入态共用固定交互区高度（见 metricsFor）；提示区仅输入态计入
   const metrics = metricsFor(
@@ -937,6 +961,14 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
       goal,
       todos,
       scroll: goalPanel.scroll,
+      height: metrics.footerHeight,
+      width: fullWidth,
+      themeId: state.themeId,
+    });
+  } else if (jobsPanel) {
+    footerLines = renderJobsPanel({
+      jobs: state.jobs,
+      index: jobsPanel.index,
       height: metrics.footerHeight,
       width: fullWidth,
       themeId: state.themeId,

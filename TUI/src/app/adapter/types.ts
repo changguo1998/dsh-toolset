@@ -175,7 +175,55 @@ export type DshEvent =
       sessionId: string;
       text: string;
       raw: CompactionSummaryPayloadLike;
-    };
+    }
+  | {
+      type: "workflow";
+      sessionId: string;
+      phase: "run-start" | "agent-start" | "agent-end" | "run-end";
+      /** run-start=工作流名；agent-start=成员 label；agent-end/run-end 缺省用序号 */
+      label: string;
+      detail?: string;
+    }
+  | {
+      type: "command";
+      sessionId: string;
+      phase: "run" | "done";
+      name: string;
+      text?: string;
+      ok?: boolean;
+    }
+  | {
+      type: "code-dispatch";
+      sessionId: string;
+      phase: "start" | "settle";
+      name: string;
+      summary: string;
+      ok: boolean;
+    }
+  | {
+      type: "hook";
+      sessionId: string;
+      phase: "invoked" | "result";
+      point: string;
+      decision?: string;
+      ok: boolean;
+    }
+  | {
+      type: "schedule";
+      sessionId: string;
+      operation: "create" | "delete" | "dispatch";
+      id?: string;
+    }
+  | {
+      type: "compaction-prune";
+      sessionId: string;
+      nodeCount: number;
+      tokenCount: number;
+    }
+  | { type: "feedback"; sessionId: string; text: string }
+  | { type: "retry-started"; sessionId: string; attempt: number }
+  | { type: "agent-preset"; sessionId: string; preset: string }
+  | { type: "jobs-changed"; sessionId: string; jobs: JobInfo[] };
 
 /** 应用层对 adapter 的唯一依赖面：事件流入 + 出站回调（消息/命令/审批/打断） */
 export interface DshAdapter {
@@ -222,6 +270,16 @@ export interface DshAdapter {
   /** 切换当前会话审批策略（ask=每次询问 / never=恒拒自动放行）；
    *  宿主未挂载 ctx.approval 时 reject，调用方 notice「审批策略服务不可用」。 */
   setApprovalPolicy?(policy: "ask" | "never"): Promise<void>;
+  /** 权限预设目录（rc.2 ctx.permissionPresets：当前值 + 可用名 + 描述）；宿主未挂载 → undefined */
+  permissionCatalog?(): Promise<PermissionPresetInfo | undefined>;
+  /** agent 预设目录（可用预设 + 当前选中 + 默认）；宿主未挂载 ctx.agentPresets → undefined */
+  agentPresetCatalog?(): Promise<AgentPresetInfo | undefined>;
+  /** 切换会话 agent 预设（经 ctx.agentPresets.recompose）；宿主缺失/未暴露 → reject */
+  selectAgentPreset?(id: string): Promise<void>;
+  /** 请求刷新 jobs 快照（读 ctx.jobs.list 后经 jobs-changed 事件推送） */
+  refreshJobs?(): Promise<void>;
+  /** 取消后台任务（映射 ctx.jobs.kill）；宿主缺失 → reject */
+  killJob?(id: string): Promise<void>;
 }
 
 /** 模型目录条目（/model 列表展示用） */
@@ -288,7 +346,21 @@ export type SessionEventType =
   | "subagent/descriptor"
   | "todo/write"
   | "compaction/summary"
-  | "agent/preset/selected";
+  | "agent-preset/selected"
+  | "tool-workflow/run-start"
+  | "tool-workflow/agent-start"
+  | "tool-workflow/agent-end"
+  | "tool-workflow/run-end"
+  | "command/run"
+  | "command/done"
+  | "tool/code-dispatch-start"
+  | "tool/code-dispatch"
+  | "hook/invoked"
+  | "hook/result"
+  | "schedule/change"
+  | "compaction/prune"
+  | "feedback/record"
+  | "llm/retry-started";
 
 /** StreamChunk 子集（assistant/chunk 事件的 chunk 载荷；完整变体见 stream 契约） */
 export type StreamChunk =
@@ -401,7 +473,67 @@ export interface SessionEventDataMap {
   "permission/preset": { preset: string };
   "subagent/descriptor": SubagentDescriptorLike;
   "compaction/summary": CompactionSummaryPayloadLike;
-  "agent/preset/selected": { preset: string };
+  "agent-preset/selected": { agentPreset: string };
+  "tool-workflow/run-start": { runId?: string; name?: string };
+  "tool-workflow/agent-start": {
+    runId?: string;
+    seq?: number;
+    label?: string;
+    phase?: string;
+    childId?: string;
+  };
+  "tool-workflow/agent-end": { runId?: string; seq?: number; outcome?: string };
+  "tool-workflow/run-end": { runId?: string; stopReason?: string };
+  "command/run": { commandId?: string; name?: string; args?: string };
+  "command/done": {
+    commandId?: string;
+    kind?: "success" | "error" | "cancel";
+    text?: string;
+  };
+  "tool/code-dispatch-start": {
+    subCallId?: string;
+    name?: string;
+    arguments?: string;
+  };
+  "tool/code-dispatch": {
+    subCallId?: string;
+    name?: string;
+    isError?: boolean;
+    content?: unknown[];
+  };
+  "hook/invoked": {
+    turn?: number;
+    point?: string;
+    handlerId?: string;
+    matcher?: string;
+  };
+  "hook/result": {
+    turn?: number;
+    point?: string;
+    handlerId?: string;
+    decision?: string;
+    exitCode?: number;
+    durationMs?: number;
+  };
+  "schedule/change": {
+    version?: number;
+    operation?: string;
+    id?: string;
+    schedule?: unknown;
+    acceptedAt?: number;
+  };
+  "compaction/prune": {
+    shadowedRange?: { start: number; end: number };
+    shadowedSeqs?: unknown[];
+    shadowedTokenCount?: number;
+  };
+  "feedback/record": { text?: string };
+  "llm/retry-started": {
+    retryId?: string;
+    turn?: number;
+    step?: number;
+    retry?: number;
+  };
 }
 
 /** DSH 会话事件（session/event 的 event 参数，type 与 data 联动窄化） */
@@ -595,6 +727,55 @@ export interface AgentRegistryLike {
   }): Promise<{ agent: unknown; dispose(): Promise<void> }>;
 }
 
+/** 权限预设目录信息（rc.2 ctx.permissionPresets 结构面：names + current + 展示描述） */
+export interface PermissionPresetInfo {
+  /** 当前有效预设名（不匹配表内任何预设时为 'custom'） */
+  current: string;
+  /** 可切换预设名（表声明顺序） */
+  names: string[];
+  /** 预设展示名与说明（PresetSpec.name/description；缺省回落键名） */
+  entries: { key: string; name: string; description?: string }[];
+}
+
+/** ctx.get('permissionPresets') 结构面（rc.2 PermissionPresetService：names + current） */
+export interface PermissionPresetServiceLike {
+  names: readonly string[];
+  current(events: readonly unknown[]): string;
+}
+
+/** 单后台任务快照（rc.2 JobSnapshot 结构面子集：id/kind/label/status/detail；供 UI 展示） */
+export interface JobInfo {
+  id: string;
+  kind: string;
+  label: string;
+  status: string;
+  detail?: string;
+}
+
+/** agent 预设目录信息（rc.2 ctx.agentPresets 结构面：list + defaultId + 事件回读当前） */
+export interface AgentPresetInfo {
+  /** 当前会话选中预设（agent-preset/selected 事件回读；未选中 → ""） */
+  current: string;
+  /** 未来会话默认预设（AgentPresets.defaultId） */
+  defaultId: string;
+  /** 可用预设（list() 声明序：id/name/description） */
+  presets: { id: string; name: string; description?: string }[];
+}
+
+/** ctx.get('agentPresets') 结构面（rc.2 AgentPresets：list/defaultId/recompose） */
+export interface AgentPresetsLike {
+  list(): Promise<unknown[]>;
+  readonly defaultId?: string;
+  /** 会话级切换：把 agentCtx 的组合树重组成指定预设（rc.2 recompose） */
+  recompose?(agentCtx: unknown, id: string): Promise<unknown>;
+}
+
+/** ctx.get('jobs') 结构面（rc.2 JobRegistry：list/kill/onJobsChanged） */
+export interface JobsLike {
+  list(caller?: unknown): ReadonlyArray<Record<string, unknown>>;
+  kill?(id: string, caller?: unknown, reason?: string): string;
+  onJobsChanged?(listener: (...args: unknown[]) => void): () => void;
+}
 export interface RealAdapterOptions {
   runtime: DshRuntime;
   sessionId: string;
@@ -629,4 +810,10 @@ export interface RealAdapterOptions {
   agentOptions?: Record<string, unknown>;
   /** 初始 agent handle 的释放函数（main.ts 的 handle.dispose）；resume 切换后由 adapter 负责释放 */
   handleDispose?: () => Promise<void>;
+  /** ctx.get('permissionPresets') 服务（dsh-permission-presets）；缺失时 /permission 提示不可用 */
+  permissionPresets?: PermissionPresetServiceLike;
+  /** ctx.get('agentPresets') 服务（dsh-agent-presets）；缺失时 /preset 提示不可用 */
+  agentPresets?: AgentPresetsLike;
+  /** ctx.get('jobs') 服务（dsh-jobs，dsh-base 默认装配 jobs-local）；缺失时 /jobs 提示不可用 */
+  jobs?: JobsLike;
 }

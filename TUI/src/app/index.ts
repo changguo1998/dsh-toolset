@@ -336,10 +336,31 @@ export class App {
       case "subagent":
       case "compaction-summary":
       case "approval-policy":
+      case "workflow":
+      case "command":
+      case "code-dispatch":
+      case "hook":
+      case "schedule":
+      case "compaction-prune":
+      case "feedback":
+      case "retry-started":
         // 阶段 1 pass-through：仅入 reducer（事件结构 = StateAction 同型），不渲染；
         // 阶段 2 按事件落 buffer 工具行 / toast / 状态栏槽位；P2 B 阶段渲染前同此处理
         this.apply((s) => reduceState(s, e));
         break;
+      case "agent-preset":
+      case "jobs-changed": {
+        // 单活跃会话：非当前活跃会话的 agent-preset / jobs 事件不进入状态
+        // （adapter 已按活跃会话过滤；此处 App 侧兜底，供直接 push 事件的集成断言使用）
+        if (
+          this.state.activeSessionId &&
+          e.sessionId !== this.state.activeSessionId
+        ) {
+          break;
+        }
+        this.apply((s) => reduceState(s, e));
+        break;
+      }
       default: {
         const _exhaustive: never = e;
         void _exhaustive;
@@ -502,6 +523,27 @@ export class App {
         );
       else if (name === "escape")
         this.apply((st) => reduceState(st, { type: "goal-panel-close" }));
+      this.paint();
+      return;
+    }
+
+    // /jobs 任务面板：↑/↓ 移动高亮、Enter 取消高亮任务、Esc 关闭；其余按键吞掉
+    if (this.state.jobsPanel) {
+      if (name === "up") {
+        const focus = this.state.jobsPanel.index;
+        this.apply((st) =>
+          reduceState(st, { type: "jobs-panel-move", focus, delta: -1 }),
+        );
+      } else if (name === "down") {
+        const focus = this.state.jobsPanel.index;
+        this.apply((st) =>
+          reduceState(st, { type: "jobs-panel-move", focus, delta: 1 }),
+        );
+      } else if (name === "enter") {
+        const job = this.state.jobs[this.state.jobsPanel.index];
+        if (job) void this.killJob(job.id);
+      } else if (name === "escape")
+        this.apply((st) => reduceState(st, { type: "jobs-panel-close" }));
       this.paint();
       return;
     }
@@ -810,6 +852,15 @@ export class App {
         return;
       case "policy":
         this.handlePolicyCommand(line);
+        return;
+      case "permission":
+        this.handlePermissionCommand(line);
+        return;
+      case "preset":
+        this.handlePresetCommand(line);
+        return;
+      case "jobs":
+        this.handleJobsCommand();
         return;
       case "copy":
         this.copyLastReply();
@@ -1136,6 +1187,142 @@ export class App {
     applySet(current === "never" ? "ask" : "never");
   }
 
+  /**
+   * /permission：权限预设（sandbox mode + 审批策略捆绑）。
+   * 无参 → 从 ctx.permissionPresets 读当前预设 + 可用列表（含描述）提示；
+   * 带参 <name> → 转发宿主 /permission（宿主校验预设名 + approval.setPolicy 写路径）。
+   * 宿主未挂载 ctx.permissionPresets → notice 不可用（fail-safe，不崩溃）。
+   */
+  private handlePermissionCommand(line: string): void {
+    const arg = line.slice("/permission".length).trim();
+    if (arg !== "") {
+      this.deps.adapter.runCommand(
+        "/permission " + arg,
+        this.state.activeSessionId ?? undefined,
+      );
+      return;
+    }
+    const cat = this.deps.adapter.permissionCatalog;
+    if (!cat) {
+      this.notice("权限预设服务不可用");
+      return;
+    }
+    void cat()
+      .then((info) => {
+        if (this.disposed || !info) {
+          if (!info) this.notice("权限预设服务不可用");
+          return;
+        }
+        const lines = ["当前预设：", "  " + info.current, "可用预设："];
+        for (const e of info.entries) {
+          lines.push(
+            "  " + e.name + (e.description ? " — " + e.description : ""),
+          );
+        }
+        if (info.entries.length === 0) lines.push("  (无)");
+        this.notice(lines.join("\n"));
+      })
+      .catch(() => {
+        this.notice("权限预设服务不可用");
+      });
+  }
+
+  /**
+   * /preset：agent 预设目录（可用预设 + 当前选中 + 未来默认）。
+   * 无参 → 从 ctx.agentPresets 读目录提示；带参 <id> → selectAgentPreset（宿主缺失 fail-safe）。
+   */
+  private handlePresetCommand(line: string): void {
+    const arg = line.slice("/preset".length).trim();
+    const adapter = this.deps.adapter;
+    const catalog = adapter.agentPresetCatalog;
+    if (arg === "") {
+      if (!catalog) {
+        this.notice("agent 预设服务不可用");
+        return;
+      }
+      void catalog()
+        .then((info) => {
+          if (this.disposed) return;
+          if (!info) {
+            this.notice("agent 预设服务不可用");
+            return;
+          }
+          const lines = [
+            "当前预设：" +
+              (info.current === "" ? "（未选中）" : info.current) +
+              (info.defaultId === "" ? "" : "（默认 " + info.defaultId + "）"),
+            "可用预设：",
+          ];
+          for (const p of info.presets) {
+            lines.push(
+              "  " + p.name + (p.description ? " — " + p.description : ""),
+            );
+          }
+          if (info.presets.length === 0) lines.push("  (无)");
+          this.notice(lines.join("\n"));
+        })
+        .catch(() => {
+          this.notice("agent 预设服务不可用");
+        });
+      return;
+    }
+    const select = adapter.selectAgentPreset;
+    if (!select) {
+      this.notice("agent 预设服务不可用");
+      return;
+    }
+    void select
+      .call(adapter, arg)
+      .then(() => {
+        this.notice("agent 预设：已切换为 " + arg);
+      })
+      .catch(() => {
+        this.notice("agent 预设服务不可用：" + arg);
+      });
+  }
+
+  /** /jobs：打开后台任务面板（复用既有面板模式），随后经 refreshJobs 拉取全量快照 */
+  private handleJobsCommand(): void {
+    this.apply((s) => {
+      let next = s;
+      if (next.jobsPanel) {
+        next = reduceState(next, { type: "jobs-panel-close" });
+      } else {
+        if (next.history) next = reduceState(next, { type: "history-close" });
+        if (next.picker) next = reduceState(next, { type: "picker-close" });
+        if (next.goalPanel)
+          next = reduceState(next, { type: "goal-panel-close" });
+        next = reduceState(next, { type: "jobs-panel-open" });
+      }
+      return next;
+    });
+    this.paint();
+    const refresh = this.deps.adapter.refreshJobs;
+    if (!refresh) {
+      this.notice("jobs 服务不可用");
+      return;
+    }
+    void refresh.call(this.deps.adapter).catch(() => {
+      this.notice("jobs 服务不可用");
+    });
+  }
+
+  /** 取消后台任务（/jobs 面板 Enter；宿主缺失 → notice，面板保持） */
+  private async killJob(id: string): Promise<void> {
+    const adapter = this.deps.adapter;
+    const kill = adapter.killJob;
+    if (!kill) {
+      this.notice("jobs 服务不可用");
+      return;
+    }
+    try {
+      await kill.call(adapter, id);
+      this.notice("job " + id + " 取消请求已发送");
+    } catch {
+      this.notice("jobs 服务不可用");
+    }
+  }
+
   /** 追加一条命令通知并重绘（/model 结果/错误统一入口） */
   private notice(text: string): void {
     if (this.disposed) return;
@@ -1154,6 +1341,9 @@ export class App {
       "  /goal     当前会话目标迷你面板（goal/todo 只读；↑/↓ 滚动，Esc 关闭）",
       "  /copy     复制最后一条模型回复到剪贴板(OSC52)",
       "  /model [provider/]model  switch current-session model; bare /model: interactive picker",
+      "  /permission [预设名]  权限预设（sandbox+审批捆绑；无参列当前与可用，带参切换）",
+      "  /preset [预设名]      agent 预设目录（无参列当前/可用/默认，带参切换）",
+      "  /jobs 后台任务面板（只读列表；↑/↓ 选择、Enter 取消、Esc 关闭）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }
