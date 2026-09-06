@@ -170,7 +170,9 @@ export interface FrameMetrics {
   hintHeight: number;
   /** 插件窄条固定宽 */
   pluginWidth: number;
-  /** 历史区宽 = cols - pluginWidth */
+  /** 顶部状态列宽（详细 goal/todo；窄列约 25%，含右缘竖线） */
+  statusColWidth: number;
+  /** 历史区宽 = cols - pluginWidth - statusColWidth */
   historyWidth: number;
 }
 
@@ -192,7 +194,12 @@ export function metricsFor(
   const footerHeight = hasPanel ? interaction : interaction - 1;
   // 插件窄条：固定宽，但窄终端时让出至少 1 列给历史区
   const pluginWidth = Math.min(PLUGIN_WIDTH, Math.max(1, size.cols - 2));
-  const historyWidth = Math.max(1, size.cols - pluginWidth);
+  // 状态列：窄列约 25%（含右侧竖线），但历史区保底 10 列
+  const statusColWidth = Math.min(
+    Math.max(1, Math.floor(size.cols * 0.25)),
+    Math.max(1, size.cols - pluginWidth - 10),
+  );
+  const historyWidth = Math.max(1, size.cols - pluginWidth - statusColWidth);
   const topHeight = Math.max(
     0,
     size.rows - statusHeight - footerHeight - hintRows - SEPARATOR_ROWS,
@@ -203,6 +210,7 @@ export function metricsFor(
     footerHeight,
     hintHeight: hintRows,
     pluginWidth,
+    statusColWidth,
     historyWidth,
   };
 }
@@ -258,13 +266,136 @@ function isConversationKind(kind: BufferKind): boolean {
   return kind === "user" || kind === "separator" || kind === "plain";
 }
 
-/** 顶部区域：上部对话区（视口滚动）+ 下部活动区（固定高、底部跟随） */
+/** 顶部状态列：goal 目标条目行数上限 */
+export const STATUS_GOAL_MAX_LINES = 5;
+/** 顶部状态列：每条 todo 行数上限 */
+export const STATUS_TODO_MAX_LINES = 3;
+/** 顶部状态列无内容占位 */
+export const STATUS_COL_EMPTY = "（无目标/待办）";
+
+const TODO_MARKER: Record<TodoItemLike["status"], string> = {
+  pending: "[ ]",
+  in_progress: "[●]",
+  completed: "[x]",
+};
+
+/** todo 行着色：进行中黄、完成绿、待办默认（与 GoalPanel 一致） */
+function todoLineColor(
+  themeId: ThemeId,
+  status: TodoItemLike["status"],
+): (s: string) => string {
+  if (status === "in_progress") return colorFor(themeId, "yellow");
+  if (status === "completed") return colorFor(themeId, "green");
+  return (s: string) => s;
+}
+
+/** 折叠：wrap 后超过 max 行则截到 max 行，末行追加折叠提示（统计被折叠行数） */
+function capWrap(
+  text: string,
+  width: number,
+  max: number,
+): { text: string; color?: (s: string) => string }[] {
+  const rows = wrapLine(text, Math.max(1, width));
+  const out = rows.map((text) => ({ text }));
+  if (out.length <= max) return out;
+  const hidden = out.length - max;
+  const kept = out.slice(0, max - 1);
+  // 末行改为折叠提示（保留被折叠行数）；不再在原内容上追加（避免被截掉）
+  kept.push({ text: truncateToWidth(`…(+${hidden}行)`, Math.max(1, width)) });
+  return kept;
+}
+
+/** 顶部状态列正文行（未按可视高度裁剪；供滚动窗口取窗） */
+function statusColumnBody(
+  goal: GoalState | undefined,
+  todos: TodoItemLike[] | undefined,
+  width: number,
+  themeId: ThemeId,
+): { text: string; color?: (s: string) => string }[] {
+  const out: { text: string; color?: (s: string) => string }[] = [];
+  if (!goal || goal.status === "cleared") {
+    out.push({ text: STATUS_COL_EMPTY, color: colorFor(themeId, "gray") });
+    return out;
+  }
+  const g = goal.goal;
+  // 目标（可长，上限 STATUS_GOAL_MAX_LINES 行）
+  out.push(
+    ...capWrap(
+      "目标: " + (g.objective || "（空目标）"),
+      width,
+      STATUS_GOAL_MAX_LINES,
+    ),
+  );
+  // 阶段徽标
+  out.push({ text: `阶段: ${g.phase}` });
+  // blocked → blockedReason.message 黄 tone
+  if (g.phase === "blocked" && g.blockedReason?.message) {
+    out.push({
+      text: "阻塞: " + g.blockedReason.message,
+      color: colorFor(themeId, "yellow"),
+    });
+  }
+  // todo 计数 + 列表（每条上限 STATUS_TODO_MAX_LINES 行）
+  const list = todos ?? [];
+  if (list.length > 0) {
+    const n = list.filter((t) => t.status === "in_progress").length;
+    out.push({ text: `todo ${n}/${list.length}` });
+    for (const t of list) {
+      const prefix = TODO_MARKER[t.status] + " ";
+      const body = t.content === "" ? "（空项）" : t.content;
+      const rows = capWrap(prefix + body, width, STATUS_TODO_MAX_LINES);
+      const color = todoLineColor(themeId, t.status);
+      rows.forEach((r, i) => {
+        out.push({ text: r.text, color: i === 0 ? color : undefined });
+      });
+    }
+  }
+  return out;
+}
+
+/** 顶部状态列窗口起点：偏移恒在 [0, max(0, len-rows)] 内 */
+function statusStartFor(len: number, offset: number, rows: number): number {
+  if (len <= rows || rows <= 0) return 0;
+  return Math.min(Math.max(0, offset), len - rows);
+}
+
+/** 顶部状态列：输出恰 height 行，每行宽 statusColWidth（含右缘竖线）。
+ *  滚动独立于对话区（statusColumnScroll，↑/↓ 仍滚历史，PgUp/PgDn 滚状态列）。 */
+export function renderStatusColumn(
+  goal: GoalState | undefined,
+  todos: TodoItemLike[] | undefined,
+  scroll: number,
+  height: number,
+  width: number,
+  themeId: ThemeId,
+): string[] {
+  const h = Math.max(1, height);
+  const w = Math.max(1, width);
+  const body = statusColumnBody(goal, todos, w - 1, themeId);
+  const start = statusStartFor(body.length, scroll, h);
+  const out: string[] = [];
+  for (let r = 0; r < h; r++) {
+    const idx = start + r;
+    const line = idx < body.length ? body[idx] : undefined;
+    const text = (line?.color ?? ((s: string) => s))(line?.text ?? "");
+    const inner = truncateToWidth(text, w - 1);
+    // 右缘竖线分隔：内容后补空格到 (w-1) 再放竖线，保证每行定宽对齐
+    const pad = " ".repeat(Math.max(0, w - 1 - displayWidth(inner)));
+    out.push(inner + pad + "|");
+  }
+  return out;
+}
+/** 顶部区域：左列插件竖线 + 状态列（详细 goal/todo，可独立滚动）+ 右列历史 */
 function buildTopRegion(
   state: AppState,
   topHeight: number,
   pluginWidth: number,
+  statusColWidth: number,
   historyWidth: number,
   cols: number,
+  goal: GoalState | undefined,
+  todos: TodoItemLike[] | undefined,
+  statusScroll: number,
 ): RenderLine[] {
   const { dialogue, activity } = wrapBufferLines(
     state.buffer,
@@ -297,8 +428,18 @@ function buildTopRegion(
     scrollOffset: state.scrollOffset,
   });
   const rows: RenderLine[] = [];
+  // 状态列：恰 topHeight 行，每行宽 statusColWidth（含右缘竖线），独立于历史滚动
+  const statusCells = renderStatusColumn(
+    goal,
+    todos,
+    statusScroll,
+    topHeight,
+    statusColWidth,
+    state.themeId,
+  );
   const histLine = (row: number, content: string): RenderLine => {
-    const left = pluginCell(row, topHeight, pluginWidth);
+    const left =
+      pluginCell(row, topHeight, pluginWidth) + (statusCells[row] ?? "");
     const trim = truncateToWidth(left + content, cols);
     // 极限窄终端若连一个宽字符都容不下，保留该字符而不静默丢失内容。
     const visible =
@@ -927,8 +1068,12 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     state,
     metrics.topHeight,
     metrics.pluginWidth,
+    metrics.statusColWidth,
     metrics.historyWidth,
     fullWidth,
+    goal,
+    todos,
+    state.statusColumnScroll,
   );
 
   let footerLines: RenderLine[];

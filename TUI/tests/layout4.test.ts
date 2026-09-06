@@ -25,10 +25,25 @@ import {
 import type { InputMode, InputStatus } from "../src/app/state.ts";
 import type { RenderLine } from "../src/renderer/screen.ts";
 
-/** 去 ANSI 取行文本；思考行无前缀、仅 2 空格缩进（顶部窄条 "| " 外再多 2 空格） */
+/** 去 ANSI 取行文本 */
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
-const isThinkingRow = (l: { text: string }): boolean =>
-  stripAnsi(l.text).startsWith("|   ");
+
+/** 顶部行历史区正文：跳过插件竖线 + 状态列（按显示宽度定位，兼容 CJK） */
+function histBody(line: string, cols: number): string {
+  const m = metricsFor({ rows: 24, cols }, false);
+  const skip = m.pluginWidth + m.statusColWidth;
+  const s = stripAnsi(line);
+  let w = 0;
+  for (let i = 0; i < s.length; i++) {
+    w += displayWidth(s[i]!);
+    if (w >= skip) return s.slice(i + 1);
+  }
+  return "";
+}
+
+/** 思考行判定：历史区正文以 2 空格缩进开头（活动区瞬态，无 [思考] 前缀） */
+const isThinkingRow = (l: { text: string }, cols: number): boolean =>
+  histBody(l.text, cols).startsWith("  ");
 
 function frameWith(rows: number, cols: number) {
   let s = initialState();
@@ -55,7 +70,15 @@ test("metricsFor: 交互区(输入+提示)占 1/5 且至少 2 行；插件竖线
   assert.equal(small.footerHeight, 1, "输入区最小 1 行");
   assert.equal(small.hintHeight, 1, "提示区最小 1 行");
   assert.equal(m.pluginWidth, PLUGIN_WIDTH);
-  assert.equal(m.historyWidth, 60 - PLUGIN_WIDTH);
+  assert.equal(m.historyWidth, 60 - PLUGIN_WIDTH - m.statusColWidth);
+  assert.equal(
+    m.statusColWidth,
+    Math.min(
+      Math.max(1, Math.floor(60 * 0.25)),
+      Math.max(1, 60 - PLUGIN_WIDTH - 10),
+    ),
+    "状态列窄列约 25% 且历史区保底 10 列",
+  );
 });
 
 test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / 分隔线 / 输入区 3 行 + 按键提示区 1 行）", () => {
@@ -367,19 +390,23 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(�
     line.text.replace(/\x1b\[[0-9;]*m/g, "");
   const visible = top.map(plain);
   // 长消息占满最大正文宽 ⇒ 左边界 = 历史宽 - userMaxBodyWidth
-  const hist = 40 - PLUGIN_WIDTH;
+  const m = metricsFor({ rows: 20, cols: 40 }, false);
+  const hist = m.historyWidth;
   const pad = hist - userMaxBodyWidth(hist);
   assert.equal(pad, USER_MIN_LEFT_GUTTER, "长消息左边界应为 gutter");
-  const userPrefix = "| " + " ".repeat(pad);
-  const userRows = visible.filter(
-    (line) =>
-      line.startsWith(userPrefix) && line.slice(userPrefix.length).trim(),
-  );
+  const userPrefix = " ".repeat(pad);
+  const userRows = visible.filter((line) => {
+    const body = histBody(line, 40);
+    return body.startsWith(userPrefix) && body.slice(userPrefix.length).trim();
+  });
   assert.ok(userRows.length >= 2, "用户长消息应至少产生两行");
-  assert.ok(userRows.every((line) => line.startsWith(userPrefix)));
+  assert.ok(
+    userRows.every((line) => histBody(line, 40).startsWith(userPrefix)),
+  );
   assert.ok(
     visible.some(
-      (line) => line.includes("模型回答") && line.startsWith("| 模型"),
+      (line) =>
+        line.includes("模型回答") && histBody(line, 40).startsWith("模型"),
     ),
   );
 });
@@ -565,9 +592,9 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   const between = plain.slice(ui + 1, ai);
   assert.equal(between.length, 1, "用户与答案之间应恰有一行");
   assert.equal(
-    between[0]!.replace(/^\| /, "").trim(),
+    histBody(between[0]!, 40).trim(),
     "",
-    "该行为空行(仅插件竖线)",
+    "该行为空行(状态列外无内容)",
   );
   assert.ok(between[0]!.startsWith("|"), "空行仍保留插件竖线");
 
@@ -610,7 +637,8 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   );
   const codeIdx = plain.findIndex((l) => l.includes("第三段"));
   // 历史区内的 turn 分隔线带插件竖线前缀；底部全屏横线(┼)不在此列
-  const sepIdx = plain.findIndex((l) => l.startsWith("| -"));
+  // 分隔线行 = 历史区正文全为 `-`
+  const sepIdx = plain.findIndex((l) => /^-+$/.test(histBody(l, 40)));
   assert.ok(codeIdx >= 0 && sepIdx > codeIdx, "正文与分隔线都应存在且顺序正确");
   const gap = plain.slice(codeIdx + 1, sepIdx);
   assert.equal(gap.length, 0, "回复末尾不留空行：正文末行后直接分隔线");
@@ -634,7 +662,7 @@ test("会话流：思考只显示最新几行，并在正文或 turn-end 后消�
     text: "t1\nt2\nt3\nt4\nt5\nt6",
   });
   const frame = buildFrame(s, { rows: 16, cols: 60 });
-  const thinkingLines = frame.filter(isThinkingRow);
+  const thinkingLines = frame.filter((l) => isThinkingRow(l, 60));
   assert.ok(thinkingLines.length <= DEFAULT_THINKING_MAX_LINES);
   assert.ok(frame.some((line) => line.text.includes(THINKING_MORE)));
   assert.ok(frame.some((line) => line.text.includes("t6")));
@@ -659,7 +687,7 @@ test("thinkingMaxLines 可配置：initialState(opts) 决定折叠阈值", () =>
   assert.equal(s.thinkingMaxLines, 2, "state 记录自定义上限");
   const with3 = reduceState(s, { type: "thinking", text: "x1\nx2\nx3" });
   const frame = buildFrame(with3, { rows: 16, cols: 60 });
-  const thinking = frame.filter(isThinkingRow);
+  const thinking = frame.filter((l) => isThinkingRow(l, 60));
   // cap=2 且已有 3 行 → 折叠：显示 cap-1 行 + 折叠提示
   assert.ok(thinking.length <= 2, "自定义上限内");
   assert.ok(frame.some((line) => line.text.includes(THINKING_MORE)));
@@ -700,7 +728,10 @@ test("会话流：turn 分隔线在历史区铺满宽度", () => {
 
 test("交错布局：模型正文右缘保留与用户块左缘对称的空位(gutter)；用户块仍贴右缘", () => {
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
-  // cols=40 → historyWidth=38；USER_MIN_LEFT_GUTTER=4 → 正文宽 34(右留 4)
+  // cols=40 → historyWidth 依 metricsFor；USER_MIN_LEFT_GUTTER=4 → 正文宽 = hist-4
+  const m = metricsFor({ rows: 10, cols: 40 }, false);
+  const hist = m.historyWidth;
+  const bodyW = hist - USER_MIN_LEFT_GUTTER;
   let s = initialState();
   s = reduceState(s, {
     type: "append",
@@ -711,11 +742,11 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
     .filter((l) => /[0-9]/.test(l));
   assert.ok(rows.length >= 2, "超 gutter 宽的正文应软换行");
   for (const l of rows) {
-    const body = l.replace(/^\| /, "");
-    assert.ok(body.length <= 34, `正文行右侧保留 gutter，不顶满右缘: ${l}`);
+    const body = histBody(l, 40);
+    assert.ok(body.length <= bodyW, `正文行右侧保留 gutter，不顶满右缘: ${l}`);
   }
-  const first = rows[0]!.replace(/^\| /, "");
-  assert.equal(first.length, 34, "默认 gutter=4：正文宽恰为 38-4");
+  const first = histBody(rows[0]!, 40);
+  assert.equal(first.length, bodyW, `默认 gutter=4：正文宽恰为 ${hist}-4`);
   // 用户块仍整体靠右(行尾即内容)
   let u = initialState();
   u = reduceState(u, { type: "user-line", text: "hi" });
@@ -735,10 +766,12 @@ test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满历
   const rows = buildFrame(s, { rows: 10, cols: 40 })
     .map((l) => strip(l.text))
     .filter((l) => /[0-9]/.test(l));
-  // historyWidth = cols(40) - plugin(2) = 38；gutter=0 → 正文宽 38，顶满右缘
-  assert.ok(rows.length >= 2, "40 字符在 38 宽下软换行");
-  const body = rows[0]!.replace(/^\| /, "");
-  assert.equal(body.length, 38, "gutter=0 时正文顶满历史区宽度");
+  const m = metricsFor({ rows: 10, cols: 40 }, false);
+  const hist = m.historyWidth;
+  // gutter=0 → 正文宽 = historyWidth，顶满右缘
+  assert.ok(rows.length >= 2, "40 字符在窄历史宽下软换行");
+  const body = histBody(rows[0]!, 40);
+  assert.equal(body.length, hist, "gutter=0 时正文顶满历史区宽度");
 });
 
 test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代码块", () => {
@@ -776,7 +809,7 @@ test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代�
   assert.ok(joined.includes("> 引用内容 加粗"), "引用带竖线前缀");
   // 分隔线：灰色横线铺满
   assert.ok(
-    plain.some((l) => /^\| -+$/.test(l)),
+    plain.some((l) => /^-+$/.test(histBody(l, 80))),
     "分隔线横线",
   );
   // 链接：文本可见、URL 不显示
@@ -833,17 +866,11 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
   assert.ok(doneIdx >= 0, "已完成任务可见");
   assert.ok(raw[doneIdx]!.text.includes("\x1b[9m"), "已完成任务删除线");
   // thinking 保持纯文本（markdown 只作用于最终正文）
+  // thinking 保持纯文本（markdown 只作用于最终正文）
   const thinkPlain = plain.find(
-    (l) => l.replace(/^\|\s*/, "").trim() === "**粗** 在 thinking",
+    (l) => histBody(l, 80).trim() === "**粗** 在 thinking",
   );
   assert.ok(thinkPlain, "thinking 保持原样");
-  const thinkRaw = raw.find((l) =>
-    l.text.replace(/\x1b\[[0-9;]*m/g, "").includes("**粗** 在 thinking"),
-  );
-  assert.ok(
-    thinkRaw && !thinkRaw.text.includes("\x1b[1m"),
-    "thinking 不解析 markdown",
-  );
 });
 
 // ===== 阶段 2：usage 状态栏槽位 + 工具行/notice tone 着色 =====

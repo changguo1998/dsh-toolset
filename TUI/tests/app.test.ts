@@ -15,6 +15,7 @@ import {
   surfaceToBuffer,
 } from "../src/app/commands.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
+import { metricsFor, displayWidth } from "../src/app/layout.ts";
 import type {
   DshAdapter,
   DshEvent,
@@ -196,6 +197,19 @@ class FakeAdapter implements DshAdapter {
   }
 }
 
+/** 顶部行历史区正文：跳过插件竖线 + 状态列（按显示宽度定位，兼容 CJK） */
+function histBody(line: string, cols: number): string {
+  const m = metricsFor({ rows: 24, cols }, false);
+  const skip = m.pluginWidth + m.statusColWidth;
+  const s = line.replace(/\x1b\[[0-9;]*m/g, "");
+  let w = 0;
+  for (let i = 0; i < s.length; i++) {
+    w += displayWidth(s[i]!);
+    if (w >= skip) return s.slice(i + 1);
+  }
+  return "";
+}
+
 function makeApp(): { app: App; renderer: FakeRenderer; adapter: FakeAdapter } {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
@@ -233,7 +247,8 @@ test("普通输入同时本地回显用户行且靠右，不依赖 adapter 回�
   );
   assert.ok(
     plain.some(
-      (line) => line.includes("你好") && line.startsWith("|           "),
+      (line) =>
+        line.includes("你好") && histBody(line, 80).trimEnd().endsWith("你好"),
     ),
   );
 });
@@ -241,9 +256,8 @@ test("普通输入同时本地回显用户行且靠右，不依赖 adapter 回�
 test("thinking 事件显示临时思考，正文事件到达后消失", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "thinking", sessionId: "s1", text: "正在分析" });
-  const strip = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
   assert.ok(
-    strip(renderer.lastRender.join("\n")).includes("|   正在分析"),
+    renderer.lastRender.some((l) => histBody(l, 80).startsWith("  正在分析")),
     "思考行仅缩进展示(无[思考]前缀)",
   );
   adapter.push({ type: "stream", sessionId: "s1", text: "回答正文" });

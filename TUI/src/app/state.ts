@@ -192,6 +192,8 @@ export interface AppState {
   jobs: JobInfo[];
   /** P3：/jobs 任务面板（null=未打开；index=高亮行，Enter 取消） */
   jobsPanel: { index: number } | null;
+  /** P3：顶部状态列纵向滚动偏移（详细 goal/todo；渲染层 clamp） */
+  statusColumnScroll: number;
 }
 
 /** /model 交互选择面板状态：三列列表（provider/model/effort）+ 高亮索引 */
@@ -283,6 +285,7 @@ export function initialState(
     presetBySession: {},
     jobs: [],
     jobsPanel: null,
+    statusColumnScroll: 0,
     buffer: [],
     followBottom: true,
     scrollOffset: 0,
@@ -966,6 +969,15 @@ export function reduceState(state: AppState, action: StateAction): AppState {
     }
     case "jobs-panel-close":
       return { ...state, jobsPanel: null };
+    case "status-column-scroll":
+      // 顶部状态列纵向滚动：偏移累加，渲染层按可视行数 clamp；不进入对话区滚动
+      return {
+        ...state,
+        statusColumnScroll: Math.max(
+          0,
+          state.statusColumnScroll + action.delta,
+        ),
+      };
     default:
       return state;
   }
@@ -1146,7 +1158,8 @@ export type StateAction =
   | { type: "jobs-changed"; sessionId: string; jobs: JobInfo[] }
   | { type: "jobs-panel-open" }
   | { type: "jobs-panel-move"; focus: number; delta: number }
-  | { type: "jobs-panel-close" };
+  | { type: "jobs-panel-close" }
+  | { type: "status-column-scroll"; delta: number };
 
 function setInput(
   state: AppState,

@@ -635,10 +635,16 @@ export class App {
         this.apply((s) => reduceState(s, { type: "scroll", delta: -1 }));
         break;
       case "pageup":
-        this.apply((s) => reduceState(s, { type: "scroll", delta: 10 }));
+        // PgUp：滚动顶部状态列（详细 goal/todo，看更早内容）
+        this.apply((s) =>
+          reduceState(s, { type: "status-column-scroll", delta: -10 }),
+        );
         break;
       case "pagedown":
-        this.apply((s) => reduceState(s, { type: "scroll", delta: -10 }));
+        // PgDn：滚动顶部状态列（详细 goal/todo，看更晚内容）
+        this.apply((s) =>
+          reduceState(s, { type: "status-column-scroll", delta: 10 }),
+        );
         break;
       case "home":
         this.apply((s) => ({ ...s, scrollOffset: 0, followBottom: true }));
