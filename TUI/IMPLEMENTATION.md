@@ -99,8 +99,25 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 | `compaction {phase}` | `appendNotice` | toast `正在压缩上下文…` / `压缩完成` |
 | `retry {attempt,max,delayMs,code,message?}` | `appendNotice(tone:warn)` | 黄色 toast `重试 1/2 (1.5s): TRANSPORT 连接被重置` |
 | `notice {text,error?,tone?}` | `appendNotice(…,tone)` | tone 着色：error 红 / warn 黄 / muted 灰 |
+| `goal-change {sessionId,operation,goal\|cleared,…}` | `goalBySession[sid]` 快照替换/clear 墓碑 | 状态栏 `goal:<phase>` 徽标 + `/goal` 面板（B1，按 sessionId 隔离） |
+| `todo-write {sessionId,todos}` | `todoBySession[sid]` 全量替换 | 状态栏 `todo n/m` 计数（进行中/共）（B1） |
+| `mode {sessionId,kind,value}` | `modeBySession[sid]` 三合一 | 状态栏模式徽标 `plan·ro·full`（缩略/省略规则见 DESIGN）（B2） |
+| `step {sessionId,turn,step,phase}` | `stepGroup{sessionId,step,headerEmitted}` | 工具行分组头 `step N`（无工具 step 静默；跨会话隔离）（B3） |
+| `subagent {sessionId,label,mode}` | `appendToolLine(subagentLine)` | 缓冲行 `@ <label> <os\|ct>` append-only（B4） |
+| `compaction-summary {sessionId,text,raw}` | `compactionBySession[sid]`（最近一条）+ `appendNotice` | toast `压缩完成：<text 首行>`（空摘要占位「压缩完成（无摘要）」）（B5） |
+| `approval-policy {sessionId,policy}` | `policyBySession[sid]` latest-wins | 状态栏策略徽标 `ask` / `auto`（C；源=宿主 `approval/policy` 事件） |
 
 工具行文本由 `src/app/layout/tool-line.ts` 纯函数组装；summary/detail 启发式由 adapter（dsh.ts）在归一化时产出。真实 DSH PTY 冒烟脚本 `demo/smokePty.mjs`（`npm run smoke:pty`）用 `script` 分配 PTY、喂显式 bash 提示词，断言工具行 ⚙ 与状态栏 usage（ctx/cache）同现为成功。
+
+## /policy 审批策略（P2 阶段 C，2026-09-06）
+
+- **两态切换**：`routeSlashCommand("policy")` → `handlePolicyCommand`；`/policy ask|never` 显式设置、无参取 `state.policyBySession[sid]` 已知策略翻转（未知按宿主默认 ask 为基准翻到另一态）。写路径：`DshAdapter.setApprovalPolicy?(policy)` 可选方法，真实实现 `runtime.approval.setPolicy(activeAgent, policy)`（A0 已核实 = `user-approval` 的 `setApprovalPolicy` → `session.append('approval/policy', {policy})`，即写路径即事件源）；宿主未挂载或 adapter 缺失方法 → notice「审批策略服务不可用」fail-safe。
+
+- **接收者绑定坑（2026-09-06 实测）**：`handlePolicyCommand` 最初把 `setApprovalPolicy` 提取为局部变量再 `setPolicy(policy)` 调用——方法体内 `this.xxx` 在未绑定调用下为 undefined，抛 TypeError → 异步方法变恒 rejected → 误报「服务不可用」且计数永远为 0。修复为 `setPolicy.call(adapter, policy)` 保留实例作 `this`（与 `approve`/`interrupt` 等既有接收者绑定调用一致）。
+
+- **当前策略展示**：既有 `approval/policy` 会话事件归一化为第 10 个 DshEvent `approval-policy {sessionId, policy}`（无效载荷丢弃；走 seq 守卫与非活跃会话丢弃）；reducer 写 `policyBySession[sid]`（latest-wins）；layout 状态栏 session 组第 4 槽位 `ask` / `never→auto`（无该会话事件省略）。
+
+- **验证**：`tests/policy.test.ts` 11 用例（layout 徽标三态、路由、reducer 会话隔离、adapter 归一化含 seq 守卫/非活跃丢弃、App 显式/无参/宿主缺失/非法参数）+ demo smoke `policy-badge-ask`/`policy-command-call`/`policy-notice`/`policy-badge-auto` 4 断言；379 tests 全绿。
 
 - **能力**：查询可用模型 + 切换当前会话模型（不落盘）。命令形式：
 

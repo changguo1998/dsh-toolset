@@ -109,6 +109,8 @@ npm run watch # tsc --watch 常驻：源码变更自动编译到 dist/（仍需�
   - `/quit` — 关闭 renderer 退出
   - `/session` — 会话面板：列出持久化会话（newest-first，live 会话标记 `[当前]` 不可续），Enter 切换到选中的 persisted 会话（先释放当前 agent，再经 host `agents.resume` 恢复继续对话；resume 失败进面板 error 态不崩溃）
   - `/copy` — 复制最后一条模型回复到剪贴板（OSC52 序列 `ESC ]52;c;<base64>BEL`，ANSI 剥离后写入；无回复时提示）
+  - `/goal` — 当前会话目标迷你面板（goal 状态徽标 + todo 计数只读展示；↑/↓ 滚动、Esc 关闭）
+  - `/policy [ask|never]` — 审批策略两态切换：无参取当前已知策略翻转（未知按宿主默认 ask 为基准），显式 `ask`/`never` 直接设置；经 `ctx.approval.setPolicy(agent, policy)` 写宿主，状态栏以 `ask`/`auto` 徽标展示当前策略（宿主未挂载审批服务时提示不可用）
 - **其他功能命令 → commands 注册表**（官方 `dsh-commands` 机制）：输入路由到 `adapter.runCommand` → `ctx.commands.execute(agent, line)`，结果/错误经 `notice` 事件展示在 UI 缓冲。未命中注册表 → 提示未知命令（官方 fail-close 策略，绝不把 slash 行发给模型）。
 - demo 模式无 commands 注册表，非本地 `/xxx` 回提示。
 
