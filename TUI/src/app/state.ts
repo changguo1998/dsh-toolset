@@ -33,6 +33,9 @@ import {
   workflowLine,
 } from "./layout/tool-line.ts";
 
+/** 顶部三面板 Tab 焦点循环顺序（history → activity → status → history） */
+export const PANEL_CYCLE = ["history", "activity", "status"] as const;
+
 /** scrollback 行数上限（纯物理上限；DESIGN:2000 行） */
 export const MAX_BUFFER_LINES = 2000;
 
@@ -194,6 +197,10 @@ export interface AppState {
   jobsPanel: { index: number } | null;
   /** P3：顶部状态列纵向滚动偏移（详细 goal/todo；渲染层 clamp） */
   statusColumnScroll: number;
+  /** 顶部三面板键盘选中：history=对话历史 / activity=流输出 / status=详细状态列（Tab 循环切换） */
+  focusedPanel: "history" | "activity" | "status";
+  /** 活动区（流输出）滚动偏移（距活动区底部行数；0=跟随最新，渲染层 clamp） */
+  activityScroll: number;
 }
 
 /** /model 交互选择面板状态：三列列表（provider/model/effort）+ 高亮索引 */
@@ -286,6 +293,8 @@ export function initialState(
     jobs: [],
     jobsPanel: null,
     statusColumnScroll: 0,
+    focusedPanel: "history",
+    activityScroll: 0,
     buffer: [],
     followBottom: true,
     scrollOffset: 0,
@@ -978,6 +987,21 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           state.statusColumnScroll + action.delta,
         ),
       };
+    case "focus-panel-cycle":
+      // 顶部三面板焦点循环：history → activity → status → history
+      return {
+        ...state,
+        focusedPanel:
+          PANEL_CYCLE[
+            (PANEL_CYCLE.indexOf(state.focusedPanel) + 1) % PANEL_CYCLE.length
+          ]!,
+      };
+    case "activity-scroll":
+      // 活动区（流输出）滚动：偏移累加（距底部行数），渲染层按可视行数 clamp；0=跟随最新
+      return {
+        ...state,
+        activityScroll: Math.max(0, state.activityScroll + action.delta),
+      };
     default:
       return state;
   }
@@ -1159,7 +1183,9 @@ export type StateAction =
   | { type: "jobs-panel-open" }
   | { type: "jobs-panel-move"; focus: number; delta: number }
   | { type: "jobs-panel-close" }
-  | { type: "status-column-scroll"; delta: number };
+  | { type: "status-column-scroll"; delta: number }
+  | { type: "focus-panel-cycle" }
+  | { type: "activity-scroll"; delta: number };
 
 function setInput(
   state: AppState,

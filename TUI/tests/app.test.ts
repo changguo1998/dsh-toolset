@@ -5,7 +5,13 @@
 
 import { mock, test } from "node:test";
 import assert from "node:assert/strict";
-import { App, formatModelCatalog, resolveModelSpec } from "../src/app/index.ts";
+import {
+  App,
+  focusedLineScroll,
+  focusedPageScroll,
+  formatModelCatalog,
+  resolveModelSpec,
+} from "../src/app/index.ts";
 import { main } from "../src/main.ts";
 import {
   buildOsc52,
@@ -15,7 +21,11 @@ import {
   surfaceToBuffer,
 } from "../src/app/commands.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
-import { metricsFor, displayWidth } from "../src/app/layout.ts";
+import {
+  metricsFor,
+  displayWidth,
+  inputPanelHeights,
+} from "../src/app/layout.ts";
 import type {
   DshAdapter,
   DshEvent,
@@ -2285,4 +2295,122 @@ test("/goal：slash 打开迷你面板，Esc 关闭（footer 面板态）", () =
     !closed.some((l) => l.includes("当前目标")),
     "Esc 关闭 → 回到输入态（无面板标题）",
   );
+});
+
+// ===== 顶部三面板焦点滚动（Tab 切换 / ↑↓ 行滚动 / PgUp/PgDn 整页）=====
+
+test("顶部面板焦点滚动映射：↑/↓ 只作用于各自面板；PgUp/PgDn 用面板可视行高", () => {
+  // 单行：history/activity 距底部（上=+），status 距顶部（上=-）
+  assert.deepEqual(focusedLineScroll("history", 1), {
+    type: "scroll",
+    delta: 1,
+  });
+  assert.deepEqual(focusedLineScroll("history", -1), {
+    type: "scroll",
+    delta: -1,
+  });
+  assert.deepEqual(focusedLineScroll("activity", 1), {
+    type: "activity-scroll",
+    delta: 1,
+  });
+  assert.deepEqual(focusedLineScroll("activity", -1), {
+    type: "activity-scroll",
+    delta: -1,
+  });
+  assert.deepEqual(
+    focusedLineScroll("status", 1),
+    { type: "status-column-scroll", delta: -1 },
+    "status 距顶部：上滚方向相反",
+  );
+  assert.deepEqual(focusedLineScroll("status", -1), {
+    type: "status-column-scroll",
+    delta: 1,
+  });
+  // 整页：页 = 面板可视行数
+  const page = { topHeight: 17, activityH: 8, dialogueH: 8 };
+  assert.deepEqual(focusedPageScroll("history", 1, page), {
+    type: "scroll",
+    delta: 8,
+  });
+  assert.deepEqual(focusedPageScroll("activity", 1, page), {
+    type: "activity-scroll",
+    delta: 8,
+  });
+  assert.deepEqual(focusedPageScroll("activity", -1, page), {
+    type: "activity-scroll",
+    delta: -8,
+  });
+  assert.deepEqual(focusedPageScroll("status", 1, page), {
+    type: "status-column-scroll",
+    delta: -17,
+  });
+  assert.deepEqual(focusedPageScroll("status", -1, page), {
+    type: "status-column-scroll",
+    delta: 17,
+  });
+});
+
+test("inputPanelHeights：页高口径与 buildFrame 一致（rows=24 → top 17 / 活动 8 / 对话 8）", () => {
+  const h = inputPanelHeights(initialState(), { rows: 24, cols: 80 });
+  assert.equal(h.topHeight, 17);
+  assert.equal(h.activityH, 8);
+  assert.equal(h.dialogueH, 8);
+});
+
+test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 ↑/PgUp 滚动帮助", async () => {
+  const { renderer } = makeApp();
+  const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
+  const hint = (): string => {
+    const h = renderer.lastRender
+      .map(strip)
+      .find((l) => l?.startsWith("[Enter]发送"));
+    return h ?? "";
+  };
+  // 活动区正文 = ┈ 分隔线与状态栏之间非空行，去掉左缘状态列前缀（...│正文 ...）
+  const actBody = (): string[] => {
+    const lines = renderer.lastRender.map(strip);
+    const sep = lines.findIndex((l) => l.includes("┈"));
+    const statusIdx = lines.findIndex((l) => l.includes("（新会话）"));
+    assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
+    return lines
+      .slice(sep + 1, statusIdx)
+      .map((l) => l.slice(l.lastIndexOf("│") + 1))
+      .filter((l) => l.trim() !== "");
+  };
+  const key = (name: string): KeyEvent => ({
+    name,
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+
+  // 焦点标签追加在 hint 行尾，80 列会被截断；加宽到 120 列保证可断言
+  renderer.size = { cols: 120, rows: 24 };
+  typeAndEnter(renderer, "/help");
+  await flush();
+  assert.ok(hint().includes("[面板:历史]"), "默认焦点=历史");
+  assert.ok(
+    actBody()[0]?.includes("/session"),
+    "默认（距底部=0）活动区显示帮助尾部",
+  );
+
+  // Tab → 流输出：↑ 上滚一行 → 显示更早一行
+  renderer.press(key("tab"));
+  assert.ok(hint().includes("[面板:流输出]"), "Tab→流输出");
+  renderer.press(key("up"));
+  assert.ok(actBody()[0]?.includes("/theme"), "焦点流输出时 ↑ 滚动到更早行");
+  // PgUp（整页）→ 翻到帮助首行
+  renderer.press(key("pageup"));
+  assert.equal(actBody()[0], "本地命令：", "整页上翻到首行");
+  // PgDn（整页）→ activityScroll 9-8=1，窗口起点回到 /theme 行（页向下翻）
+  renderer.press(key("pagedown"));
+  assert.ok(actBody()[0]?.includes("/theme"), "整页下翻显示 /theme 行");
+
+  // Tab 两圈回到历史，hint 标签逐项正确
+  renderer.press(key("tab"));
+  assert.ok(hint().includes("[面板:状态]"), "Tab→状态");
+  renderer.press(key("tab"));
+  assert.ok(hint().includes("[面板:历史]"), "Tab→历史（循环闭合）");
+  renderer.press(key("tab"));
+  assert.ok(hint().includes("[面板:流输出]"), "再 Tab→流输出");
 });

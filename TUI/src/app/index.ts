@@ -4,7 +4,7 @@
 // 处理按键、接收事件、重绘。
 
 import type { Renderer, KeyEvent } from "../renderer/index.ts";
-import type { AppState, InputMode } from "./state.ts";
+import type { AppState, InputMode, StateAction } from "./state.ts";
 import { initialState, reduceState } from "./state.ts";
 import type {
   DshAdapter,
@@ -36,7 +36,12 @@ import {
   planModelSwitch,
   resolvePickerSelection,
 } from "./model-transition.ts";
-import { buildFrame, modelLabel } from "./layout.ts";
+import {
+  buildFrame,
+  inputPanelHeights,
+  modelLabel,
+  type PanelHeights,
+} from "./layout.ts";
 import {
   DEFAULT_THEME,
   normalizeThemeId,
@@ -55,6 +60,40 @@ const SLOW_TICK_MS = 50;
 const SLOW_DEFAULT_CPS = 120;
 /** 收到正文回复(stream)后：剩余思考的加速流速(尽快进入正题) */
 const SLOW_STREAM_ARRIVED_CPS = 200;
+
+/**
+ * 焦点面板单行滚动 action 映射：history/activity 偏移语义=距底部（上滚=+），
+ * status 偏移语义=距顶部（上滚=-），方向不可混用。
+ */
+export function focusedLineScroll(
+  panel: AppState["focusedPanel"],
+  dir: 1 | -1, // 1=上, -1=下
+): StateAction {
+  switch (panel) {
+    case "activity":
+      return { type: "activity-scroll", delta: dir };
+    case "status":
+      return { type: "status-column-scroll", delta: -dir };
+    default:
+      return { type: "scroll", delta: dir };
+  }
+}
+
+/** 焦点面板整页滚动 action 映射（页 = 该面板当前可视行数） */
+export function focusedPageScroll(
+  panel: AppState["focusedPanel"],
+  dir: 1 | -1, // 1=上一页, -1=下一页
+  page: PanelHeights,
+): StateAction {
+  switch (panel) {
+    case "activity":
+      return { type: "activity-scroll", delta: dir * page.activityH };
+    case "status":
+      return { type: "status-column-scroll", delta: -dir * page.topHeight };
+    default:
+      return { type: "scroll", delta: dir * page.dialogueH };
+  }
+}
 
 export interface AppDeps {
   renderer: Renderer;
@@ -620,32 +659,31 @@ export class App {
         if (this.state.agentStatus !== "idle") this.deps.adapter.interrupt();
         break;
       case "tab":
-        // ponytail: 单会话占位，多会话基建落地后再实现真正的标签页切换
-        this.apply((s) =>
-          reduceState(s, {
-            type: "notice",
-            text: "标签页切换待实现（当前为单会话）",
-          }),
-        );
+        // Tab：循环切换顶部面板焦点（history → activity → status；模态面板不在此分支）
+        this.apply((s) => reduceState(s, { type: "focus-panel-cycle" }));
         break;
       case "up":
-        this.apply((s) => reduceState(s, { type: "scroll", delta: 1 }));
+      case "down": {
+        // 焦点面板单行滚动：方向内聚在 focusedLineScroll（history/activity 距底部、status 距顶部）
+        const dir: 1 | -1 = name === "up" ? 1 : -1;
+        this.apply((s) =>
+          reduceState(s, focusedLineScroll(s.focusedPanel, dir)),
+        );
         break;
-      case "down":
-        this.apply((s) => reduceState(s, { type: "scroll", delta: -1 }));
-        break;
+      }
       case "pageup":
-        // PgUp：滚动顶部状态列（详细 goal/todo，看更早内容）
+      case "pagedown": {
+        // 焦点面板整页滚动：页 = 该面板当前可视行数（history=dialogueH / activity=activityH / status=topHeight）
+        const dir: 1 | -1 = name === "pageup" ? 1 : -1;
+        const page = inputPanelHeights(
+          this.state,
+          this.deps.renderer.getSize(),
+        );
         this.apply((s) =>
-          reduceState(s, { type: "status-column-scroll", delta: -10 }),
+          reduceState(s, focusedPageScroll(s.focusedPanel, dir, page)),
         );
         break;
-      case "pagedown":
-        // PgDn：滚动顶部状态列（详细 goal/todo，看更晚内容）
-        this.apply((s) =>
-          reduceState(s, { type: "status-column-scroll", delta: 10 }),
-        );
-        break;
+      }
       case "home":
         this.apply((s) => ({ ...s, scrollOffset: 0, followBottom: true }));
         break;

@@ -217,6 +217,26 @@ export const DIALOGUE_MORE = "...(更早回复已折叠)";
 export const ACTIVITY_HEIGHT_RATIO = 1 / 2;
 /** 活动区分隔线字形（对话历史 ↔ 流输出边界：box-drawing 虚线，保留点感；不参与 barRowCount 统计） */
 export const ACTIVITY_SEPARATOR = "┈";
+/** 顶部三面板（Tab 焦点循环）中文标签（hint 行末尾提示焦点用） */
+export const PANEL_LABEL: Record<AppState["focusedPanel"], string> = {
+  history: "历史",
+  activity: "流输出",
+  status: "状态",
+};
+
+/** 活动区可视行数（= 右上区高度的一半；与 buildTopRegion 同口径） */
+export function activityHeight(topHeight: number): number {
+  return topHeight <= 0
+    ? 0
+    : Math.max(1, Math.floor(topHeight * ACTIVITY_HEIGHT_RATIO));
+}
+
+/** 普通输入态顶部三面板可视行高（P4 整页滚动用，与 buildFrame 同口径） */
+export interface PanelHeights {
+  topHeight: number;
+  activityH: number;
+  dialogueH: number;
+}
 
 /** 对话区按回复组折叠：仅保留最近 keep 组 assistant 回复，更早替换为灰色占位 */
 function foldDialogue(
@@ -395,10 +415,7 @@ function buildTopRegion(
   );
   // 活动区：固定为右上区（对话历史+活动区）高度的一半；超窗内容仅显示最近行；
   // 对话区获得剩余高度
-  const activityH =
-    topHeight <= 0
-      ? 0
-      : Math.max(1, Math.floor(topHeight * ACTIVITY_HEIGHT_RATIO));
+  const activityH = activityHeight(topHeight);
   const dialogueH = Math.max(
     0,
     topHeight - activityH - (activityH > 0 ? 1 : 0),
@@ -450,8 +467,13 @@ function buildTopRegion(
         )(ACTIVITY_SEPARATOR.repeat(Math.max(1, historyWidth))),
       ),
     );
-    // 活动区：底部对齐显示最近 activityH 行，不足时顶部留白
-    const act = activity.slice(-activityH);
+    // 活动区：按滚动偏移取窗口（0=跟随最新显示尾部；上滚看更早，渲染层 clamp）
+    const actMaxOffset = Math.max(0, activity.length - activityH);
+    const actOffset = Math.min(state.activityScroll, actMaxOffset);
+    const act = activity.slice(
+      actMaxOffset - actOffset,
+      actMaxOffset - actOffset + activityH,
+    );
     const topPad = activityH - act.length;
     for (let i = 0; i < activityH; i++) {
       const a = i - topPad;
@@ -1001,15 +1023,15 @@ const MODE_SYMBOL: Record<InputMode, string> = {
   slash: "/",
 };
 
-export function buildFrame(state: AppState, size: Size): RenderLine[] {
-  const approval = state.approval;
-  const showApproval = approval !== null;
-  const picker = state.picker;
-  const question = state.question;
-  const history = state.history;
-  const goalPanel = state.goalPanel;
-  const jobsPanel = state.jobsPanel;
-  // B1+B2：状态栏徽标与 /goal 面板只读当前活跃会话的 goal/todo/模式
+/** 当前活跃会话的目标/todo/模式/策略/预设/运行中任务数（状态栏与整页高度共用口径） */
+function activeSessionFields(state: AppState): {
+  goal?: GoalState;
+  todos?: TodoItemLike[];
+  mode?: ModeState;
+  policy?: "ask" | "never";
+  preset?: string;
+  jobsCount: number;
+} {
   const goal = state.activeSessionId
     ? state.goalBySession[state.activeSessionId]
     : undefined;
@@ -1030,6 +1052,42 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const jobsCount = state.jobs.filter(
     (j) => j.status === "running" || j.status === "stopping",
   ).length;
+  return { goal, todos, mode, policy, preset, jobsCount };
+}
+
+/** 普通输入态（无模态面板）顶部三面板可视行高；PgUp/PgDn 整页滚动页大小 */
+export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
+  const fullWidth = Math.max(1, size.cols);
+  const { goal, todos, mode, policy, preset, jobsCount } =
+    activeSessionFields(state);
+  const statusLines = renderStatusLine(
+    state.systemStatus,
+    state.sessionTitle,
+    state.themeId,
+    fullWidth,
+    state.usage,
+    { goal, todos, mode, policy, preset, jobsCount },
+  );
+  const topHeight = metricsFor(size, false, statusLines.length, 1).topHeight;
+  const activityH = activityHeight(topHeight);
+  const dialogueH = Math.max(
+    0,
+    topHeight - activityH - (activityH > 0 ? 1 : 0),
+  );
+  return { topHeight, activityH, dialogueH };
+}
+
+export function buildFrame(state: AppState, size: Size): RenderLine[] {
+  const approval = state.approval;
+  const showApproval = approval !== null;
+  const picker = state.picker;
+  const question = state.question;
+  const history = state.history;
+  const goalPanel = state.goalPanel;
+  const jobsPanel = state.jobsPanel;
+  // 状态栏徽标 / 顶部面板只读当前活跃会话字段
+  const { goal, todos, mode, policy, preset, jobsCount } =
+    activeSessionFields(state);
   const fullWidth = Math.max(1, size.cols);
   // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
   // 按键提示区仅输入态存在（审批/问答/选择/历史面板自带按键提示），与输入区之间不画横线
@@ -1132,14 +1190,20 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     );
   }
 
-  // 按键提示区（独立区域，与输入区之间不画横线；统一灰色同边框；窄终端按显示宽度截断）
+  // 按键提示区（独立区域，与输入区之间不画横线；统一灰色同边框；窄终端按显示宽度截断）。
+  // 末尾追加当前面板焦点标签（Tab 切换），标识可滚动的选中面板
   const hintLines: RenderLine[] = normalInput
     ? [
         {
           text: colorFor(
             state.themeId,
             "gray",
-          )(truncateToWidth(HINT_LINE, fullWidth)),
+          )(
+            truncateToWidth(
+              HINT_LINE + ` · [面板:${PANEL_LABEL[state.focusedPanel]}]`,
+              fullWidth,
+            ),
+          ),
         },
       ]
     : [];

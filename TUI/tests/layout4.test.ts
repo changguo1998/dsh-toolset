@@ -1304,3 +1304,77 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
       assert.ok(displayWidth(l.text) <= cols, `每行不超宽 (${l.text})`);
   });
 });
+
+// ===== 顶部三面板焦点与活动区滚动（Tab / activityScroll）=====
+
+test("顶部面板：默认焦点历史；Tab 循环 history→activity→status→history 且 hint 标签更新", () => {
+  // 100 列：HINT_LINE + 焦点标签超 80 列，须加宽避免被截断
+  const size = { rows: 12, cols: 100 } as const;
+  const hintOf = (st: ReturnType<typeof initialState>): string => {
+    const line = buildFrame(st, size)
+      .map((l) => l.text)
+      .find((l) => stripAnsi(l).startsWith("[Enter]发送"));
+    return stripAnsi(line ?? "");
+  };
+  assert.ok(hintOf(initialState()).includes("[面板:历史]"), "默认焦点=历史");
+  let s = reduceState(initialState(), { type: "focus-panel-cycle" });
+  assert.ok(hintOf(s).includes("[面板:流输出]"), "Tab→流输出");
+  s = reduceState(s, { type: "focus-panel-cycle" });
+  assert.ok(hintOf(s).includes("[面板:状态]"), "Tab→状态");
+  s = reduceState(s, { type: "focus-panel-cycle" });
+  assert.ok(hintOf(s).includes("[面板:历史]"), "Tab→历史（循环闭合）");
+});
+
+test("focus-panel-cycle / activity-scroll reducer：循环与偏移非负 clamp", () => {
+  let s = reduceState(initialState(), { type: "activity-scroll", delta: -5 });
+  assert.equal(s.activityScroll, 0, "下滚到 0 后 clamp");
+  s = reduceState(s, { type: "activity-scroll", delta: 3 });
+  assert.equal(s.activityScroll, 3);
+  assert.equal(
+    reduceState(s, { type: "focus-panel-cycle" }).focusedPanel,
+    "activity",
+  );
+  assert.equal(
+    reduceState(reduceState(s, { type: "focus-panel-cycle" }), {
+      type: "focus-panel-cycle",
+    }).focusedPanel,
+    "status",
+  );
+});
+
+test("活动区：activityScroll 滚动窗口（默认尾部；上滚看更早；clamp 到顶部）", () => {
+  // rows=30 → topHeight=23 → 活动区 11 行；notice 20 行 → maxOffset=9
+  const n = 20;
+  let s = initialState();
+  s = reduceState(s, {
+    type: "notice",
+    text: Array.from({ length: n }, (_, i) => `行${i}`).join("\n"),
+  });
+  const body = (scrollDelta: number): string[] => {
+    const st =
+      scrollDelta === 0
+        ? s
+        : reduceState(s, { type: "activity-scroll", delta: scrollDelta });
+    const plain = buildFrame(st, { rows: 30, cols: 60 }).map((l) => l.text);
+    const sep = plain.findIndex((l) => stripAnsi(l).includes("┈"));
+    const end = plain.findIndex((l, i) => i > sep && /^═+$/.test(stripAnsi(l)));
+    assert.ok(sep >= 0 && end > sep, "活动区分隔线与状态栏存在");
+    return plain
+      .slice(sep + 1, end)
+      .map((l) => histBody(l, 60))
+      .filter((l) => l.trim() !== "");
+  };
+  // 0（默认尾部）：行9..行19
+  let v = body(0);
+  assert.equal(v.length, 11);
+  assert.equal(v[0], "行9");
+  assert.equal(v[v.length - 1]!, "行19");
+  // 上滚 5 行：行4..行14
+  v = body(5);
+  assert.equal(v[0], "行4");
+  assert.equal(v[v.length - 1]!, "行14");
+  // 上滚 99（clamp 到 maxOffset=9）：行0..行10
+  v = body(99);
+  assert.equal(v[0], "行0");
+  assert.equal(v[v.length - 1]!, "行10");
+});
