@@ -240,10 +240,15 @@ interface Renderer {
 > **deferred（已评估暂缓，非缺失）**：`session/end-seed`、`session/title-llm-request`、`request/header`、`request/context` — 均为低价值调试向事件且 request/\* payload 结构复杂，接显示收益低于解析风险，待调试视图需求出现再做。
 
 - **生态事件（未接入）**：`team/*`（实验包依赖）——`agent-preset/selected` 已于 2026-09-13 接入（/preset，见上方）
-- **审计对（未接入）**：`approval/asked`|`decided`（功能由 approval/request 瀑布覆盖，仅事件流未直接读）、`web/deepseek-search-llm-request`（log-only，调试视图再做）
-- **特性级**（需产品决策，非渲染缺口）：session fork（`sessions.fork`）、多会话并行（P0 边界排除）、feedback 评价
-- **特性级**（需产品决策，非渲染缺口）：session fork（`sessions.fork`）、多会话并行（P0 边界排除）、feedback 评价
-- **TUI 自身渲染边界**：嵌套 markdown、上下标、thinking 展开/收起
+- **审计对（未接入）**：`approval/asked`|`decided`（功能由 approval/request 瀑布覆盖，仅事件流未直接读）、`web/deepseek-search-llm-request`（log-only，调试视图再做）。
+  - **角色澄清**：`approval/request` 是瀑布应答链（机制，TUI 已接——`approvalAnswerer` 弹请求、返回 ApprovalOutcome 即裁定）；`approval/asked`+`decided` 是同段写日志（log-only 审计，`user-approval/src/index.ts` L267/274 append，同 id 恰好一 asked 一 decided，decided 失败则 Promise 拒绝）。**当前 TUI 唯一审批界面 = 弹窗（approval/request 驱动）；审计对无任何界面**。
+  - **界面 vs 数据**：界面不需审计对（弹窗 + tool/result 行已覆盖）；只有「事后回溯」场景（事故复盘 / 审批问题诊断 / ask-never 策略调优）才需要审计时间线。
+  - **持久化不丢**：审计对随 `session.append` 入会话事件流，整流落 sqlite（`session-persistence-sqlite` `packChunkRuns`/`loadStored`），resume 后完整恢复——数据层不丢，丢的是展示入口。
+  - **readSurface vs readSession**：`readSurface`（persisted 会话）做 surface fold，仅保留 user/message、assistant/message、tool/result（`surface.ts` SURFACE_EVENT_TYPES）——审计对**必然不含**；`readSession` 返回全量原始事件（经 `Session.create` 全量校验，混合日志会抛校验错）。TUI 历史面板用 readSurface 是「对话视图」语义对口；审批历史必须另走 readSession。
+  - **待实现通路设计（2026-09-16，未实现，仅记录）**：`/approvals` 只读面板 + adapter 新增 `readApprovalHistory?()`（走 `readSession` 全量 → 过滤 asked/decided → 按 id 配对，无 decided 孤儿记 pending → 按 seq 升序）。实时审批不回放（弹窗已覆盖），历史静态重放不做实时订阅。坑：readSession 全量校验在混合日志/live 会话抛错 → 抓错进 error 态提示「会话日志不完整」，不崩面板。落点：types.ts ApprovalRecord + 签名、dsh.ts 归一化、index.ts /approvals 路由 + 面板态、纯渲染组件、tests（配对/孤儿/校验错分支）。
+  - **触发时机**（出现任一再做，当前 deferred）：安全事故复盘、审批问题诊断（asked 有无 / decided 超时 vs rejected）、ask/never 策略调优（批准率）、多会话事后审计。
+- **特性级（需产品决策）排期决策（2026-09-16）**：**session fork（`sessions.fork`）→ 待做（下个功能批次）**；多会话并行 → 维持 P0 边界排除（单活跃会话设计，不做）；feedback 评价 → deferred（低频）。
+- **TUI 自身渲染边界（排期决策 2026-09-16）**：**thinking 展开/收起 → 明确不做**（用户不喜欢看推理过程）；嵌套 markdown、上下标 → deferred（低频）
 - **master 前瞻（rc.2 宿主不产生；暂不升级 0.1.2，升级后再评估）**：
   - `model/selection` — 官方模型切换回放（届时可与 TUI /model 联动）
   - `subagent/model-selection-policy` — 子代理模型策略
@@ -339,7 +344,7 @@ backlog 状态：P1、P2 完成（2026-09-05）；P3 部分接入（2026-09-12 �
 | --- | --- |
 | P2 首 | `goal/change` + `todo/write` 迷你面板（复用 P1 工具行验证过的 buffer 行模式） |
 | P2 | 状态栏模式徽标（plan/sandbox/permission）、`step/start` + `step/end` 分步、审批策略切换 UI、`subagent/descriptor` |
-| P2 | tool `meta` diff 展示（+N/-M） |
+| **待做（2026-09-16 排期）** | **tool `meta` diff 展示（+N/-M）** — 用户确认做 |
 | P3 | 按上方 backlog 清单暂缓 |
 
 预估总改动 ~800 行（含测试）。每阶段完成报验证结果后再进下一阶段。
