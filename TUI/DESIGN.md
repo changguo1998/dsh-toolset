@@ -119,7 +119,9 @@ interface Renderer {
 
 - **插件窄条**：固定 `PLUGIN_WIDTH=2` 列，仅最左一列竖线 `│` 区分左右分区，其余留白；无边框、无标题、本轮不读取插件数据。
 
-- **历史区**：按 `historyWidth = cols - pluginWidth` 换行，沿用 scrollback 语义（wrapping、followBottom、scrollOffset、2000 行上限）。
+- **顶部状态列**（2026-09-13）：插件窄条右侧常驻一列「详细状态」窄列（`statusColWidth ≈ cols×25%`，含右缘竖线，历史区保底 10 列），与右侧历史区在同一行：显示当前活跃会话的 **goal 详细**（目标/阶段/阻塞原因黄 tone）+ **todo 列表**（`[ ]`/`[●]`/`[x]` 着色）。**条目行数上限**：goal 目标最多 `STATUS_GOAL_MAX_LINES=5` 行、每条 todo 最多 `STATUS_TODO_MAX_LINES=3` 行，超限折叠为 `…(+N行)` 提示行；无 goal/todo 显示灰色占位「（无目标/待办）」。滚动独立于历史区：**PgUp/PgDn 滚状态列**（`status-column-scroll` reducer，`statusColumnScroll` 累加、渲染层 clamp），**↑/↓ 仍滚对话历史**（与历史会话面板 view 阶段 PgUp/PgDn ±10 不冲突：顶部状态列只在非面板输入态响应）。实现 `renderStatusColumn`（layout.ts 纯函数，输出恰 height 行、每行定宽含右缘竖线）。
+
+- **历史区**：按 `historyWidth = cols - pluginWidth - statusColWidth` 换行，沿用 scrollback 语义（wrapping、followBottom、scrollOffset、2000 行上限）。
 
 - **状态区**：横向单行 `12:00:00|~/proj|main|—|—|—`（六段：时间/路径/git/模型/上下文/缓存；无标题、仅值，`|` 分隔；默认前景色，路径段染蓝；推理状态段已移除）。超宽按显示宽度截断。通用配色：边框/分隔线（分离行、顶部竖线）统一灰色，输入栏为默认前景色（不切半个 CJK；不用 emoji 避免宽度模型偏差）。2026-08-28 起颜色经 `src/renderer/theme.ts`（内嵌 fff 的 fffdark/ffflight 两份 truecolor 调色板）解析，`AppState.themeId` 决定取色（/theme 切换并同步 Screen 基底色），见 IMPLEMENTATION.md「/theme 命令」。
 
