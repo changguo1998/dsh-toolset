@@ -185,8 +185,8 @@ interface Renderer {
 
 0. **DSH adapter 接口确认**（已完成，2026-08-23）：研读官方源码并沉淀于仓库根 `DSH-CTX-API.md`，接口形状已写入 `src/app/adapter/dsh.ts` 的类型骨架（DSH 原生类型 + 归一化映射表）。不再需要一次性的 spike 脚本；阶段 2 实现 real adapter 时直接在真实 DSH profile 内验证（订阅 → 流式 → 审批应答）。adapter 保持接口化以便 mock/真实替换。
 1. 实现 renderer 最小可用（raw mode + 输入解码 + 整帧重绘），`demo/` 跑通
-1. 接入 DSH 核心（adapter/dsh.ts，含审批与流式输出）
-1. 完善交互功能并打包为 DSH Profile Bundle（bin/dsh-tui.js）
+2. 接入 DSH 核心（adapter/dsh.ts，含审批与流式输出）
+3. 完善交互功能并打包为 DSH Profile Bundle（bin/dsh-tui.js）
 
 由 advisor 审阅（2026-08-22），本版修正：
 
@@ -229,8 +229,17 @@ interface Renderer {
 
 ### P3 — 低频生态域与特性决策（toast 或暂缓）
 
-- **生态事件**（低频/功能仍在演进）：`team/*`、`schedule/change`、`agent-preset/selected`、`tool-workflow/*`、`tool/code-dispatch*`、`hook/*`、`command/run`|`done`、`request/context`|`header`、`feedback/record`
-- **审计对**（log-only，无渲染需求，仅调试视图）：`approval/asked`|`decided`|`policy`、`session/end-seed`、`session/title-llm-request`、`web/deepseek-search-llm-request`、`compaction/prune`
+> **已接入（2026-09-12，8 个 DshEvent 批次）**：`tool-workflow/*`（workflow 行 ⚑/⤷/↩ + 结束 toast）、`command/run`|`done`（执行流：run 灰行、成功 done 静默、失败红行 ✗）、`tool/code-dispatch*`（start 行 ⇥，settle 成功静默/失败红行）、`hook/*`（invoked 灰行 ⌗ / result 成败着色）、`schedule/change`（仅 dispatch 到点 toast，create/delete 静默）、`feedback/record`（确认 toast）、`compaction/prune`（剪除计数 toast）、`llm/retry-started`（↻ 启动灰行，与 retry toast 互补）。接入均为 append-only 活动区行/notice，不引入配对状态。
+> **权限预设 `/permission`（2026-09-12）**：实际交付为 **预设目录 + slash 写路径**（非独立选择面板）——无参列当前值 + 可用预设表（rc.2 默认 workspace-write/danger-full-access，经 `ctx.permissionPresets.names/current` 读，main.ts 已接线）；带参 `/permission <name>` 转发宿主命令（宿主校验 + `permission/preset`+`approval/policy` 写路径）。宿主未挂载服务 → notice「权限预设服务不可用」。
+> **agent 预设 `/preset`（2026-09-13）**：`agent-preset/selected`（rc.2 会话事件，拼法由 `agent/preset/selected` 修正为连字符 `agent-preset/selected`）归一化为 DshEvent → reducer `presetBySession`（按 sessionId 隔离 latest-wins）+ 状态栏徽标 `preset:<id>`；`/preset` 无参从 `ctx.agentPresets` 读目录（list + defaultId + 事件回读当前）列当前/可用/默认，带参调用 `selectAgentPreset`（rc.2 `AgentPresets.recompose(agentCtx, id)` 写路径，agentCtx 宽松取自 agent handle 的 ctx）。**DshEvent 归一化断言落位 `tests/agent-preset.test.ts`**（契约点名文件：seq 守卫同 seq/倒序丢弃 + 非法值丢弃 + 非活跃会话丢弃；`tests/adapter.dsh.test.ts` 保留同覆盖）。宿主未挂载/未暴露 → notice「agent 预设服务不可用」（fail-safe）。
+> **jobs 后台任务面板 `/jobs`（2026-09-13）**：rc.2 核实 **`JobRegistry` 有 `onJobsChanged` 观察者**（任一 commit 变化即通知，非裸轮询），dsh-base 默认装配 `dsh-jobs-local`（ctx.jobs 可用）。adapter 订阅 `onJobsChanged` → 推送全量快照 `jobs-changed`（`JobSnapshot` 子集 id/kind/label/status/detail，宽松读取）；`/jobs` 打开面板 + `refreshJobs` 主动拉取一次；面板展示任务状态行（running/stopping 黄 ●、failed/error 红 ✗、cancelled 灰 ○、其余默认）、高亮行 `>` 恒在窗口内、`Enter` 调 `killJob`（`ctx.jobs.kill`）取消高亮任务、`Esc` 关闭；状态栏 `jobs N` 徽标仅显示运行中计数。**caller 语义（0.1.2-rc.1 jobs-local 实测）**：`list(caller)`/`kill(id, caller)` 为 owner-relative——`list` 只读 `caller.id` 与 `job.owner.id` 匹配，缺 caller 仅返回 unowned（当前会话任务不可见）；故 `refreshJobs`/订阅回调/`killJob` 都显式传 `{ id: activeSessionId }`（当前会话 owner 的任务才可见/可取消，宿主未挂载 jobs 服务时 refreshJobs reject、不假成功）。**会话待机守卫（App 侧兜底）**：`agent-preset`/`jobs-changed` 在 App 事件层再按 `activeSessionId` 过滤（非活跃会话丢弃——adapter 已过滤，双重防线供直接 push 断言与切会话迟到事件防护）；面板关闭后迟到的 `jobs-changed` 只更新 jobs 状态、不重开面板。仅只读展示 + cancel，不做 job 创建/参数 UI。
+> **`/compact`、`/feedback`（2026-09-13 装配核验）**：二者均为宿主自带命令（rc.2 `dsh-command-compact`/`dsh-command-feedback`，均在 **dsh-base bundle 默认装配**——`bundle/base/cordis.patch.yml`，经 `ctx.commands.register` 注册 `/compact`、`/feedback`）。故 TUI profile 基于 dsh-base 时**命令转发即用**（TUI 无本地路由，走 registry 转发），无需额外代码；`feedback/record` toast 已接入（见上方 8 事件批次）。
+> **装配证据分级（2026-09-13）**：rc.2 bundle 证据见 `bundle/base/cordis.patch.yml`（command-compact / command-feedback / jobs-local / permission-presets 均在默认装配）；**当前 profile runtime 实测**（全局 dsh 内 `dsh-base@0.1.2-rc.1` 的 cordis.patch.yml）同样装配 jobs-local、command-feedback、command-compact、permission-presets、tool-jobs。**`agent-presets` 服务（dsh-agent-presets）在 rc.2 与当前 profile 的 dsh-base 默认装配中均未包含**——`/preset` 目录/切换在装配了该服务的环境可用；当前默认 profile 下 `/preset` 会提示「agent 预设服务不可用」（fail-safe 正常路径，TUI 接口已按 rc.2 核验、待装配该服务即生效）。
+> **deferred（已评估暂缓，非缺失）**：`session/end-seed`、`session/title-llm-request`、`request/header`、`request/context` — 均为低价值调试向事件且 request/\* payload 结构复杂，接显示收益低于解析风险，待调试视图需求出现再做。
+
+- **生态事件（未接入）**：`team/*`（实验包依赖）——`agent-preset/selected` 已于 2026-09-13 接入（/preset，见上方）
+- **审计对（未接入）**：`approval/asked`|`decided`（功能由 approval/request 瀑布覆盖，仅事件流未直接读）、`web/deepseek-search-llm-request`（log-only，调试视图再做）
+- **特性级**（需产品决策，非渲染缺口）：session fork（`sessions.fork`）、多会话并行（P0 边界排除）、feedback 评价
 - **特性级**（需产品决策，非渲染缺口）：session fork（`sessions.fork`）、多会话并行（P0 边界排除）、feedback 评价
 - **TUI 自身渲染边界**：嵌套 markdown、上下标、thinking 展开/收起
 - **master 前瞻（rc.2 宿主不产生；暂不升级 0.1.2，升级后再评估）**：
@@ -311,7 +320,7 @@ P1 三阶段全部落地并经审计通过：
 - **阶段 2**：渲染 + 状态栏（工具行 ○/✓/✗、notice tone 红/黄/灰着色、状态栏 contextLen/cacheHit、retry/compaction toast）。
 - **阶段 3**：真实 DSH PTY 冒烟 happy path（`npm run smoke:pty`：真实会话断言 ○ 工具行与状态栏 usage）+ 本文档/IMPLEMENTATION.md/README 收尾。
 
-backlog 状态：P1 完成；P2/P3 待排期。
+backlog 状态：P1、P2 完成（2026-09-05）；P3 部分接入（2026-09-12 起：8 事件批次 + `/permission`；2026-09-13：`/preset` agent 预设 + `/jobs` 后台任务面板）；**`jobs` 已落地（2026-09-13，经 `onJobsChanged` 观察者而非轮询，勿再按旧结论排期）**；`/compact`、`/feedback` 为宿主自带、dsh-base 默认装配即用（2026-09-13 核验）。其余低频/调试向项待排期。
 
 ### 风险 / 实现时需确认
 
@@ -410,4 +419,4 @@ backlog 状态：P1 完成；P2/P3 待排期。
 
 预估总改动 ~850 行（含测试）。每阶段完成报验证结果后再进下一阶段。
 
-**阶段进度（2026-09-05）**：A0 ✅（写路径核实：`ctx.approval.setPolicy(agent, 'ask'|'never')` 存在，C 定案两态切换；结论与 9 事件载荷备注沉淀到仓库根 `DSH-CTX-API.md` 第 8 节）→ A ✅（9 事件归一化 + seq 守卫 + 4 隔离 store，344 tests 绿，已提交）→ B1+B2 ✅（/goal 迷你面板 + 状态栏 goal 徽标/todo 计数 + 模式徽标三合一，356 tests 绿，demo smoke 帧断言追加，已提交 60d5662）→ B3 ✅（step 分步：工具行分组头 `step N` + 无工具 step 静默 + step/end 关组 + 防御 flush + 跨会话隔离，363 tests 绿，demo smoke `step-header` 断言，已提交 d190d1b）→ B4 ✅（subagent 行：`@ <label> <os|ct>` append-only，365 tests 绿，demo smoke `subagent-line` 断言，已提交 b3cb19c）→ B5 ✅（compaction 摘要 toast：`压缩完成：<text 首行>`/空摘要占位 + 每会话最近一条 raw，368 tests 绿，demo smoke `compaction-summary-toast` 断言，已提交 e01180a）→ **C ✅**（`/policy` 两态切换 + 当前策略展示：`approval/policy` 归一化为第 10 事件 `approval-policy`，state `policyBySession` 隔离，状态栏第 4 槽位 `ask`/`auto` 徽标；`ctx.approval.setPolicy(agent, ask|never)` 写路径，宿主缺失 notice 兜底；379 tests 绿 + 4 条 policy smoke 断言，已提交 e584a09）。P2 六项能力全部完成。
+**阶段进度（2026-09-05）**：A0 ✅（写路径核实：`ctx.approval.setPolicy(agent, 'ask'|'never')` 存在，C 定案两态切换；结论与 9 事件载荷备注沉淀到仓库根 `DSH-CTX-API.md` 第 8 节）→ A ✅（9 事件归一化 + seq 守卫 + 4 隔离 store，344 tests 绿，已提交）→ B1+B2 ✅（/goal 迷你面板 + 状态栏 goal 徽标/todo 计数 + 模式徽标三合一，356 tests 绿，demo smoke 帧断言追加，已提交 60d5662）→ B3 ✅（step 分步：工具行分组头 `step N` + 无工具 step 静默 + step/end 关组 + 防御 flush + 跨会话隔离，363 tests 绿，demo smoke `step-header` 断言，已提交 d190d1b）→ B4 ✅（subagent 行：`@ <label> <os|ct>` append-only，365 tests 绿，demo smoke `subagent-line` 断言，已提交 b3cb19c）→ B5 ✅（compaction 摘要 toast：`压缩完成：<text 首行>`/空摘要占位 + 每会话最近一条 raw，368 tests 绿，demo smoke `compaction-summary-toast` 断言，已提交 e01180a）→ **C ✅**（`/policy` 两态切换 + 当前策略展示：`approval/policy` 归一化为第 10 事件 `approval-policy`，state `policyBySession` 隔离，状态栏第 4 槽位 `ask`/`auto` 徽标；`ctx.approval.setPolicy(agent, ask|never)` 写路径，宿主缺失 notice 兜底；379 tests 绿 + 4 条 policy smoke 断言，已提交 e584a09）。P2 六项能力全部完成。 → **P3 事件显示批次**（2026-09-12）：8 个新 DshEvent（workflow/command/code-dispatch/hook/schedule/compaction-prune/feedback/retry-started），14 个 rc.2 事件归一化接入，payload 均已对照 rc.2 核实；393 tests 绿，demo mock 注入 P3 事件批次（含 ↻ 重试行）；权限预设 `/permission`（目录 + 转发写路径，main.ts 已接线 ctx.permissionPresets）；`/compact`、`/feedback` 为宿主自带命令，TUI 命令转发即可用，无需代码（依赖宿主装配 command-compact/command-feedback）。S-M 批量完成，剩余 jobs（M-L）与 deferred 项待排期。
