@@ -272,7 +272,7 @@ test("turn-begin: 新回合清空旧活动区瞬态（工具/notice），仅保�
     detail: "ok 1",
   });
   s = reduceState(s, { type: "notice", text: "theme: dark" });
-  s = reduceState(s, { type: "turn-end" }); // 回合结束：思考清空，工具/notice 保留
+  s = reduceState(s, { type: "turn-end" }); // 回合结束：思考保留(下回合 begin 才清)，工具/notice 保留
   const transient1 = s.buffer.filter(
     (l) => l.kind === "tool" || l.kind === "notice",
   );
@@ -743,7 +743,7 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   assert.equal(i2 - i1, 2, "两段正文之间的空行保留");
 });
 
-test("会话流：思考只显示最新几行，并在正文或 turn-end 后消失", () => {
+test("会话流：思考只显示最新几行；正文(输出)到达清空、turn-end 后保留至下回合", () => {
   let s = initialState();
   s = reduceState(s, {
     type: "thinking",
@@ -764,10 +764,17 @@ test("会话流：思考只显示最新几行，并在正文或 turn-end 后消�
   );
 
   s = reduceState(s, { type: "thinking", text: "残留思考" });
-  s = reduceState(s, { type: "turn-end" });
+  s = reduceState(s, { type: "turn-end" }); // 输出结束：不立即清空
+  assert.equal(
+    s.buffer.some((line) => line.kind === "thinking"),
+    true,
+    "turn-end 后思考保留显示（输出结束后不立即清空）",
+  );
+  s = reduceState(s, { type: "turn-begin" }); // 下一轮需要进行输出前：统一清空
   assert.equal(
     s.buffer.some((line) => line.kind === "thinking"),
     false,
+    "下回合 turn-begin 才清空思考（输出前清空）",
   );
 });
 

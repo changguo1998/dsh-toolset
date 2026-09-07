@@ -329,7 +329,7 @@ export function appendStream(
   text: string,
   kind: BufferKind = "assistant",
 ): AppState {
-  // 正文流先清掉遗留的思考行（思考完成后消失，不留屏外历史）。
+  // 正文流到达=输出内容开始：先把遗留思考行清掉（推理瞬态让位于输出正文）。
   const buffer = (state.buffer.length ? [...state.buffer] : []).filter(
     (l) => kind === "thinking" || l.kind !== "thinking",
   );
@@ -416,8 +416,9 @@ export function appendStepToolLine(
 }
 
 /**
- * 追加模型思考行。复用流式续写(并入末尾 thinking 行)语义；正文/turn 结束时
- * 由 appendStream / appendTurnSeparator 统一清除(思考完成后即消失)。
+ * 追加模型思考行。复用流式续写(并入末尾 thinking 行)语义；正文(输出内容)到达时
+ * 由 appendStream 清除(推理瞬态让位于输出)；turn-end 后思考保留显示，
+ * 至下回合 turn-begin 由 appendTurnSeparator 统一清空(输出结束后不立即清)。
  */
 export function appendThinking(state: AppState, text: string): AppState {
   return appendStream(state, text, "thinking");
@@ -426,15 +427,6 @@ export function appendThinking(state: AppState, text: string): AppState {
 /** 任务进行中(黄)权威：agent 活跃期间不接受绿/红结果覆盖，绿/红仅空闲时暴露 */
 function statusFor(state: AppState, fallback: InputStatus): InputStatus {
   return state.agentStatus === "idle" ? fallback : "running";
-}
-
-/** 清掉遗留 thinking 行（turn-end 兜底；正文到达时 appendStream 已清） */
-export function clearThinkingLines(state: AppState): AppState {
-  if (!state.buffer.some((l) => l.kind === "thinking")) return state;
-  return {
-    ...state,
-    buffer: state.buffer.filter((l) => l.kind !== "thinking"),
-  };
 }
 
 /**
@@ -765,8 +757,9 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容
       return appendTurnSeparator(state);
     case "turn-end":
-      // 回合结束：不再画分隔线(下个回合 begin 时画)；清遗留思考行(兜底)；置成功色(绿)
-      return { ...clearThinkingLines(state), inputStatus: "success" };
+      // 回合结束：不再画分隔线(下个回合 begin 时画)；也不清思考——思考保留显示，
+      // 至下回合 turn-begin 统一清空(输出结束后不立即清)；置成功色(绿)
+      return { ...state, inputStatus: "success" };
     case "status":
       return setSystemStatus(state, action.status);
     case "set-theme":

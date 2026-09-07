@@ -125,7 +125,7 @@ export class App {
   private thinkingPending = "";
   /** 思考放完前到达的正文段按序缓冲，思考清空后再即时显示(不限制正文流速) */
   private pendingStream: string[] = [];
-  /** 思考放完前到达的 turn-end 记下，放完后补插分隔线 */
+  /** 思考放完前到达的 turn-end 记下，放完后补执行(不分隔线；思考保留至下回合一并清) */
   private pendingTurnEnd = false;
   private slowTimer: ReturnType<typeof setInterval> | null = null;
   private slowCps = SLOW_DEFAULT_CPS;
@@ -438,7 +438,7 @@ export class App {
     }, SLOW_TICK_MS);
   }
 
-  /** thinking 放完后：按序即时显示积压正文，再补挂起的 turn-end(仅清思考，不再画线) */
+  /** thinking 放完后：按序即时显示积压正文，再补挂起的 turn-end(不再画线；思考保留显示) */
   private flushPending(): void {
     this.slowStop();
     const texts = this.pendingStream;
