@@ -805,18 +805,18 @@ export function modelLabel(sel: {
   return `${sel.provider}/${sel.model}${sel.reasoningEffort ? ":" + sel.reasoningEffort : ""}`;
 }
 
-/** provider 亮紫，模型名亮青，:后缀 灰色；无 "/" 时整体亮青（占位 "—" 保持无色）。
- *  状态栏段配色约定：相邻段不同色、不用红/黄/绿状态色。 */
+/** provider 紫，模型名青，:后缀 灰色；无 "/" 时整体青（占位 "—" 保持无色）。
+ *  状态栏段配色约定：相邻段不同色、不用红/黄/绿状态色、不用亮色系（bright*）。 */
 function colorModel(themeId: ThemeId, s: string): string {
   const slash = s.indexOf("/");
-  if (slash < 0) return s === "—" ? s : colorFor(themeId, "brightCyan")(s);
+  if (slash < 0) return s === "—" ? s : colorFor(themeId, "cyan")(s);
   const rest = s.slice(slash + 1);
   const colon = rest.indexOf(":");
   const model = colon < 0 ? rest : rest.slice(0, colon);
   const effort = colon < 0 ? "" : rest.slice(colon);
   return (
-    colorFor(themeId, "brightMagenta")(s.slice(0, slash)) +
-    colorFor(themeId, "brightCyan")("/" + model) +
+    colorFor(themeId, "magenta")(s.slice(0, slash)) +
+    colorFor(themeId, "cyan")("/" + model) +
     (effort ? colorFor(themeId, "gray")(effort) : "")
   );
 }
@@ -948,10 +948,9 @@ export function renderStatusLine(
   const groupWidth = (g: Seg[]): number =>
     g.reduce((acc, s, i) => acc + (i > 0 ? 1 : 0) + displayWidth(s.text), 0);
   // 各组完整版
-  // 段配色：time 默认 / git 洋红 / cwd 蓝 / title 青 / provider 亮紫 / model 亮青
-  //          / 后缀 灰 / ctx 亮蓝 / cache 默认——相邻段均异色，且不用红/黄/绿状态色
+  // 段配色：time 默认 / git 洋红 / cwd 蓝 / title 青 / provider 紫 / model 青
+  //          / 后缀 灰 / ctx 蓝 / cache 默认——相邻段均异色，不用红/黄/绿状态色、不用亮色系
   const magenta = (s: string) => colorFor(themeId, "magenta")(s);
-  const brightBlue = (s: string) => colorFor(themeId, "brightBlue")(s);
   // P2 B2：模式徽标三合一（plan→sandbox→permission 固定顺序，组内 · 分隔）。
   // 省略规则（DESIGN:369）：plan 仅 active 显示；sandbox 等于部署默认（workspace-write→wr）省略；
   // permission 缩略与 sandbox 相同省略；三者皆省略整槽消失。窄屏随 session 组级折行。
@@ -1011,7 +1010,7 @@ export function renderStatusLine(
     : taskBadges();
   const llmFull: Seg[] = [
     { text: modelSeg, color: (s) => colorModel(themeId, s) },
-    { text: ctxSeg, color: brightBlue },
+    { text: ctxSeg, color: blue },
     { text: cacheSeg, color: identity },
   ];
   // 各组超宽兜底（单组放不满一行时组内压缩）
@@ -1053,7 +1052,7 @@ export function renderStatusLine(
         text: fitModel(modelSeg, budget),
         color: (s) => colorModel(themeId, s),
       },
-      { text: ctxSeg, color: brightBlue },
+      { text: ctxSeg, color: blue },
       { text: cacheSeg, color: identity },
     ];
   };

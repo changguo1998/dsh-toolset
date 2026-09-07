@@ -328,7 +328,7 @@ test("truncateToWidth: 按显示宽度截断，不切半个 CJK", () => {
   assert.equal(truncateToWidth("abc", 0), "");
 });
 
-test("renderStatusLine: model 段 provider 亮紫、模型名亮青，路径段染蓝", () => {
+test("renderStatusLine: model 段 provider 紫、模型名青，路径段染蓝（无亮色系）", () => {
   const lines = renderStatusLine(
     {
       time: "10:00",
@@ -344,13 +344,10 @@ test("renderStatusLine: model 段 provider 亮紫、模型名亮青，路径段�
   );
   const text = lines.map((l) => l.text).join("\n");
   assert.ok(
-    text.includes("\x1b[38;2;199;135;239m"),
-    "应有紫色(brightMagenta #C787EF)",
+    text.includes("\x1b[38;2;169;70;231m"),
+    "应有紫色(magenta #A946E7)",
   );
-  assert.ok(
-    text.includes("\x1b[38;2;135;239;199m"),
-    "应有亮青(brightCyan #87EFC7，替代状态绿)",
-  );
+  assert.ok(text.includes("\x1b[38;2;70;231;169m"), "应有青色(cyan #46E7A9)");
   assert.ok(
     text.includes("\x1b[38;2;70;132;231m"),
     "路径段应染蓝(blue #4684E7)",
