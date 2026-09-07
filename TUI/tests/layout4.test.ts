@@ -1349,7 +1349,10 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
       mode: { sandbox: "read-only", permission: "read-only" },
     });
     assert.ok(!t2.includes("ro·ro"), "permission 与 sandbox 同缩略时省略");
-    assert.ok(t2.includes("·ro"), `sandbox ro 保留 (${t2})`);
+    assert.ok(
+      stripAnsi(t2).includes("·ro"),
+      `sandbox ro 保留（徽标已上色，剥 ANSI 后断言）(${t2})`,
+    );
     const t3 = sessionText({
       mode: {
         plan: "off",

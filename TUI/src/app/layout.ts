@@ -949,8 +949,10 @@ export function renderStatusLine(
     g.reduce((acc, s, i) => acc + (i > 0 ? 1 : 0) + displayWidth(s.text), 0);
   // 各组完整版
   // 段配色：time 默认 / git 洋红 / cwd 蓝 / title 青 / provider 紫 / model 青
-  //          / 后缀 灰 / ctx 蓝 / cache 默认——相邻段均异色，不用红/黄/绿状态色、不用亮色系
+  //          / 后缀 灰 / ctx 蓝 / cache 默认；会话徽标 mode=灰 / policy=蓝 / preset=洋红 / jobs=青——
+  //          相邻段均异色，不用红/黄/绿状态色、不用亮色系
   const magenta = (s: string) => colorFor(themeId, "magenta")(s);
+  const gray = (s: string) => colorFor(themeId, "gray")(s);
   // P2 B2：模式徽标三合一（plan→sandbox→permission 固定顺序，组内 · 分隔）。
   // 省略规则（DESIGN:369）：plan 仅 active 显示；sandbox 等于部署默认（workspace-write→wr）省略；
   // permission 缩略与 sandbox 相同省略；三者皆省略整槽消失。窄屏随 session 组级折行。
@@ -974,9 +976,7 @@ export function renderStatusLine(
         : (MODE_SHORT[m.permission] ?? m.permission);
     if (permission !== undefined && permission !== sandbox)
       parts.push(permission);
-    return parts.length === 0
-      ? []
-      : [{ text: parts.join("·"), color: identity }];
+    return parts.length === 0 ? [] : [{ text: parts.join("·"), color: gray }];
   };
   /** 会话状态徽标：goal/todo 已于 2026-09-17 移除（右侧顶部状态列已详显 goal 阶段与
    *  todo 列表，见 statusColumnBody）；此处仅保留无其它展示位的模式/策略/预设/任务徽标 */
@@ -988,15 +988,15 @@ export function renderStatusLine(
     if (session?.policy) {
       out.push({
         text: session.policy === "never" ? "auto" : "ask",
-        color: identity,
+        color: blue,
       });
     }
     // P3：agent 预设 + 运行中任务计数（短徽标；无值省略）
     if (session?.preset && session.preset !== "") {
-      out.push({ text: "preset:" + session.preset, color: identity });
+      out.push({ text: "preset:" + session.preset, color: magenta });
     }
     if (session?.jobsCount && session.jobsCount > 0) {
-      out.push({ text: "jobs " + session.jobsCount, color: identity });
+      out.push({ text: "jobs " + session.jobsCount, color: cyanTitle });
     }
     return out;
   };
