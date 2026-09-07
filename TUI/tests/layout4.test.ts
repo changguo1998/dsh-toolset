@@ -48,9 +48,13 @@ function histContent(line: string, cols: number): string {
     .trimEnd();
 }
 
-/** 思考行判定：历史区正文以 2 空格缩进开头（活动区瞬态，无 [思考] 前缀） */
-const isThinkingRow = (l: { text: string }, cols: number): boolean =>
-  histBody(l.text, cols).startsWith("  ");
+/** 思考行判定：历史区正文以 2 空格缩进开头（活动区瞬态，无 [思考] 前缀）。
+ *  内容行补齐到整屏宽后，空白对话行 = 空格 + 右缘框线 │，须排除（trim 后剩 │）。 */
+const isThinkingRow = (l: { text: string }, cols: number): boolean => {
+  const b = histBody(l.text, cols);
+  const t = b.trim();
+  return t !== "" && b.startsWith("  ") && !t.endsWith("│");
+};
 
 function frameWith(rows: number, cols: number) {
   let s = initialState();
@@ -1409,7 +1413,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     lines.find((l) => plain(l).includes("┈"))!;
   const eqRow = (lines: string[]): string =>
     lines.find(
-      (l) => /^═+/.test(plain(l)) && !plain(l).includes("（新会话）"),
+      (l) => /^[╚═]+/.test(plain(l)) && !plain(l).includes("（新会话）"),
     )!;
   // 分隔行点线段 = │ 右侧部分（排除恒亮的竖线，只看 ┈ 本体）
   const sepSegment = (raw: string): string =>
@@ -1434,7 +1438,34 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     !eqRow(rows).includes(WHITE + "═"),
     "历史焦点：═ 保持灰（仅灰段，无亮 ═）",
   );
+  // 本轮新增：中间分隔竖线只亮对话区一半、右缘框线恒对齐、最左侧留空
   const topRows = metricsFor(size, false).topHeight;
+  const countBrightBar = (raw: string): number =>
+    raw.split(WHITE + "│").length - 1;
+  const sepIdx0 = rows.findIndex((l) => plain(l).includes("┈"));
+  const dlgRow0 = rows.find((l) => plain(l).includes("（无目标/待办）"))!;
+  assert.equal(
+    countBrightBar(dlgRow0),
+    2,
+    "历史焦点：对话行分隔竖线+右缘 2 条亮 │",
+  );
+  assert.equal(
+    countBrightBar(rows[sepIdx0 + 1]!),
+    0,
+    "历史焦点：活动行分隔竖线回灰",
+  );
+  assert.ok(
+    !plain(dlgRow0).startsWith("│"),
+    "历史焦点：最左侧无竖线（状态列左边框空白占位）",
+  );
+  assert.ok(
+    rows.slice(1, topRows).every((l) => displayWidth(plain(l)) === 80),
+    "所有内容行补齐到整屏宽（右缘框线恒在固定列）",
+  );
+  assert.ok(
+    rows.slice(1, sepIdx0).every((l) => plain(l).trimEnd().endsWith("│")),
+    "历史焦点：对话区右缘竖线全部对齐到固定列",
+  );
   const sigHistory = contentSig(rows, skip, topRows);
 
   // 焦点=流输出：顶边空白、┈ 亮 + 右上角 ┐、活动区右缘 │、═ 亮且含 ╩/╝ 角
@@ -1452,6 +1483,14 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     plain(act).replace(/\s+$/, "").endsWith("│"),
     "流输出焦点：活动区右缘框列 │",
   );
+  const dlgA = rows.find((l) => plain(l).includes("（无目标/待办）"))!;
+  assert.equal(countBrightBar(dlgA), 0, "流输出焦点：对话行分隔竖线回灰");
+  assert.equal(
+    countBrightBar(act),
+    2,
+    "流输出焦点：活动行分隔竖线+右缘 2 条亮 │",
+  );
+  assert.ok(!plain(dlgA).startsWith("│"), "流输出焦点：最左侧无竖线");
   const e1 = eqRow(rows);
   assert.ok(e1.includes(WHITE + "═"), "流输出焦点：═ 亮白");
   assert.ok(plain(e1).includes("╩"), "流输出焦点：分隔列角 ╩");
@@ -1474,8 +1513,13 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     !sepSegment(sepRow(rows)).includes(WHITE + "┈"),
     "状态焦点：┈ 回灰",
   );
+  const dlgS = rows.find((l) => plain(l).includes("（无目标/待办）"))!;
+  assert.ok(plain(dlgS).startsWith("│"), "状态焦点：最左侧竖线亮出");
+  assert.equal(countBrightBar(dlgS), 2, "状态焦点：左缘框格+分隔竖线 2 条亮 │");
+  assert.ok(rows[0]!.includes(WHITE + "┌"), "状态焦点：左上角 ┌");
   const e2 = eqRow(rows);
   assert.ok(e2.includes(WHITE + "═"), "状态焦点：═ 左段亮白");
+  assert.ok(plain(e2).includes("╚"), "状态焦点：底部左角 ╚");
   assert.ok(plain(e2).includes("╩"), "状态焦点：分隔列角 ╩");
   assert.ok(!plain(e2).includes("╝"), "状态焦点：无活动区底角 ╝");
   assert.deepEqual(
@@ -1502,7 +1546,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   rows = rowsOf(st);
   const whole = rows.map(plain).join("\n");
   assert.ok(
-    !/\x1b\[38;2;216;216;216m[┈─═│┐┘└╩╝]/.test(whole),
+    !/\x1b\[38;2;216;216;216m[┈─═│┐┘└┌╚╩╝]/.test(whole),
     "面板态：无亮白框线",
   );
   assert.ok(!plain(rows[0]!).includes("─"), "面板态：顶部边框行空白占位");

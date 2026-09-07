@@ -217,8 +217,9 @@ export const DIALOGUE_MORE = "...(更早回复已折叠)";
 export const ACTIVITY_HEIGHT_RATIO = 1 / 2;
 /** 活动区分隔线字形（对话历史 ↔ 流输出边界：box-drawing 虚线，保留点感；不参与 barRowCount 统计） */
 export const ACTIVITY_SEPARATOR = "┈";
-/** 焦点面板四边框的保留格：顶部 1 行、右侧 1 列（所有状态恒定，未聚焦留空白占位，防内容重排） */
+/** 焦点面板四边框的保留格：顶部 1 行、左侧 1 列、右侧 1 列（所有状态恒定，未聚焦留空白占位，防内容重排） */
 export const FRAME_TOP_ROWS = 1;
+export const FRAME_LEFT_COLS = 1;
 export const FRAME_RIGHT_COLS = 1;
 
 /** 焦点框中性亮色：dark 用白、light 用黑（不引入彩色，仅把灰更亮/更黑） */
@@ -456,10 +457,13 @@ function buildTopRegion(
     statusColWidth,
     state.themeId,
   );
-  // 边框构图参数：分隔竖线列 D=statusColWidth-1（顶部边框行占 index 0，
-  // 活动区分隔行自然位于 dialogueH 后一行，无需单独索引）
+  // 边框构图参数：分隔竖线列 D=statusColWidth-1；左缘框格列 0 在宽度足够时预留
+  // （statusColWidth >= FRAME_LEFT_COLS+1 才画状态列左边框；0 列则退化不画）。
+  // 顶部边框行占 index 0，活动区分隔行自然位于 dialogueH 后一行，无需单独索引。
   const D = statusColWidth - 1;
+  const useLeftFrame = statusColWidth >= FRAME_LEFT_COLS + 1;
   const panel = state.focusedPanel;
+  const statusFocused = focusActive && panel === "status";
   const fc = focusFrameColor(state.themeId);
   const cf = (s: string): string => colorFor(state.themeId, fc)(s);
   const cg = (s: string): string => colorFor(state.themeId, "gray")(s);
@@ -473,24 +477,27 @@ function buildTopRegion(
       sepFocused ? fc : "gray",
     )(ACTIVITY_SEPARATOR.repeat(Math.max(1, contentW)));
   const rows: RenderLine[] = [];
-  // 竖线分隔列：输入态常亮（任一焦点面板的左/右边都含它），模态态回灰
-  const divGlyph = (g = "│"): string =>
-    colorFor(state.themeId, focusActive ? fc : "gray")(g);
   // 右侧边框列保留格：画成框线（┐/│/┘）时亮色着色，否则空白占位
   const rightGlyph = (g: string): string => (g === " " ? " " : cf(g));
-  // 顶部边框行（row 0）：status 焦点 → 左段 `─`+`┐`；history 焦点 → 右侧 `─`+`┐`；其余空白占位
-  const topStatusFocused = focusActive && panel === "status";
-  const topHistoryFocused = focusActive && panel === "history";
+  // 顶部边框行（row 0）：status 焦点 → 左侧 `┌`+`─`+分隔列 `┐`（状态列顶边）；
+  // history 焦点 → 右侧 `─`+`┐`；其余空白占位。顶部边框行的分隔竖线不常亮——
+  // 仅 status 焦点为角字 `┐`，否则灰（中间竖线随焦点面板只亮其垂直边界）。
+  const topHistory = focusActive && panel === "history";
+  const leftSlot = (g: string): string =>
+    useLeftFrame ? (statusFocused ? cf(g) : " ") : "";
   rows.push({
     text:
-      (topStatusFocused
-        ? cf(SEPARATOR.repeat(Math.max(0, D)))
-        : blank(Math.max(0, D))) +
-      divGlyph(topStatusFocused ? "┐" : "│") +
-      (topHistoryFocused ? cf(SEPARATOR.repeat(contentW)) : blank(contentW)) +
-      (useRightFrame ? rightGlyph(topHistoryFocused ? "┐" : " ") : ""),
+      leftSlot("┌") +
+      (statusFocused
+        ? cf(SEPARATOR.repeat(Math.max(0, D - (useLeftFrame ? 1 : 0))))
+        : blank(Math.max(0, D - (useLeftFrame ? 1 : 0)))) +
+      (statusFocused ? cf("┐") : cg("│")) +
+      (topHistory ? cf(SEPARATOR.repeat(contentW)) : blank(contentW)) +
+      (useRightFrame ? rightGlyph(topHistory ? "┐" : " ") : ""),
   });
-  // 内容行（1..contentTopH）：对话区 → 活动区分隔 → 活动区（各自带右侧框列）
+  // 内容行（1..contentTopH）：对话区 → 活动区分隔 → 活动区（各自带右缘框列）。
+  // 中间分隔竖线随焦点面板只亮其垂直边界：status=全行、history=仅对话区、
+  // activity=仅分隔行+活动区；模态态全灰。
   const actMaxOffset = Math.max(0, activity.length - activityH);
   const actOffset = Math.min(state.activityScroll, actMaxOffset);
   const act = activity.slice(
@@ -498,9 +505,24 @@ function buildTopRegion(
     actMaxOffset - actOffset + activityH,
   );
   const topPad = activityH - act.length;
+  const divFor = (rc: number): string => {
+    let bright = focusActive;
+    if (focusActive && panel === "history") bright = rc < dialogueH;
+    else if (focusActive && panel === "activity") bright = rc >= dialogueH;
+    return colorFor(state.themeId, bright ? fc : "gray")("│");
+  };
   for (let rc = 0; rc < contentTopH; rc++) {
     const left = statusCells[rc] ?? "";
-    const statusCol = cg(left.slice(0, -1));
+    // 状态列正文：先去掉右缘竖线（末位纯字符），再按左缘框格预留列（D-1）收窄，
+    // 用 truncateToWidth 只切字不切 ANSI 闭合序列；截断后补空白到定宽，
+    // 保证分隔竖线恒位于 D 列、不紧贴文字
+    const rawBody = useLeftFrame
+      ? truncateToWidth(left.slice(0, -1), D - 1)
+      : left.slice(0, -1);
+    const statusBody = cg(
+      rawBody +
+        blank(Math.max(0, (useLeftFrame ? D - 1 : D) - displayWidth(rawBody))),
+    );
     let content: string;
     let right: string;
     if (rc < dialogueH) {
@@ -527,10 +549,13 @@ function buildTopRegion(
       content = "";
       right = " ";
     }
+    // 正文补齐到 contentW：右缘框线恒定对齐屏幕右缘（不紧贴文字末尾）
+    content += blank(Math.max(0, contentW - displayWidth(content)));
     rows.push({
       text:
-        statusCol +
-        divGlyph() +
+        leftSlot("│") +
+        statusBody +
+        divFor(rc) +
         content +
         (useRightFrame ? rightGlyph(right) : ""),
     });
@@ -1149,11 +1174,22 @@ export function buildStatusSeparator(
     const s = ch.repeat(n);
     return bright ? colorFor(themeId, fc)(s) : colorFor(themeId, "gray")(s);
   };
-  const leftLen = Math.max(0, D);
+  const useLeftCorner = statusColWidth >= 2;
   const midCount = Math.max(0, R - D - 1);
   return {
     text:
-      seg(leftLen, STATUS_TOP_SEPARATOR, sepFocus === "status") +
+      // col0：status 焦点时为状态列底角 ╚（接左缘框格），否则延续 `═`；
+      // D=0（statusColWidth=1）时无左侧列，不加前缀、╩ 直接落 col0
+      (D > 0
+        ? useLeftCorner && sepFocus === "status"
+          ? colorFor(themeId, fc)("╚")
+          : colorFor(themeId, "gray")(STATUS_TOP_SEPARATOR)
+        : "") +
+      seg(
+        Math.max(0, D - (useLeftCorner ? 1 : 0)),
+        STATUS_TOP_SEPARATOR,
+        sepFocus === "status",
+      ) +
       (sepFocus === "none"
         ? colorFor(themeId, "gray")(STATUS_TOP_SEPARATOR)
         : colorFor(themeId, fc)("╩")) +
