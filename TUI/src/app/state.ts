@@ -454,14 +454,18 @@ export function appendTurnSeparator(state: AppState): AppState {
   buffer = buffer.filter(
     (l) => l.kind !== "thinking" && l.kind !== "tool" && l.kind !== "notice",
   );
-  if (buffer.length === 0) return { ...state, buffer };
+  // 活动区整区被清空（每回合瞬态）：滚动偏移一并归零，新回合回到跟随最新。
+  // 不归零则旧 activityScroll 超出新内容的可视上限，渲染钳制下 ↓ 需连续按到
+  // 偏移耗尽才恢复（“向下没反应”死区）。
+  const next: AppState = { ...state, buffer, activityScroll: 0 };
+  if (buffer.length === 0) return next;
   const last = buffer[buffer.length - 1];
   if (last && last.kind === "separator" && last.text === TURN_SEPARATOR)
-    return { ...state, buffer };
+    return next;
   buffer.push({ text: TURN_SEPARATOR, kind: "separator" });
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
-  return { ...state, buffer };
+  return next;
 }
 
 /** 合并更新系统状态区（StatusTicker 每 tick 调用；缺失字段保持原值） */
@@ -474,7 +478,13 @@ export function setSystemStatus(
 
 /** 清空显示缓冲(本地 /clearscreen，别名 /cls)——只清 UI，不动会话上下文。 */
 export function clearBuffer(state: AppState): AppState {
-  return { ...state, buffer: [], scrollOffset: 0, followBottom: true };
+  return {
+    ...state,
+    buffer: [],
+    scrollOffset: 0,
+    followBottom: true,
+    activityScroll: 0,
+  };
 }
 
 /** 追加 agent 状态 */
@@ -700,6 +710,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         buffer: action.rows as BufferLine[],
         followBottom: true,
         scrollOffset: 0,
+        activityScroll: 0,
       };
     case "history-close":
       return { ...state, history: null };

@@ -248,6 +248,8 @@ test("turn-begin: 空 buffer 不画孤立分隔线；重复 begin 不重复；tu
 
 test("turn-begin: 新回合清空旧活动区瞬态（工具/notice），仅保留对话与分隔线", () => {
   let s = initialState();
+  s = reduceState(s, { type: "activity-scroll", delta: 5 }); // 先上滚活动区
+  assert.equal(s.activityScroll, 5, "前置：活动区已上滚 5 行");
   s = reduceState(s, { type: "user-line", text: "问题 1" });
   s = reduceState(s, { type: "thinking", text: "思考 1" });
   s = reduceState(s, {
@@ -279,6 +281,31 @@ test("turn-begin: 新回合清空旧活动区瞬态（工具/notice），仅保�
     1,
     "新回合带一条分隔线",
   );
+  // 活动区整区被清空（每回合瞬态）：滚动偏移一并归零，新回合回到跟随最新——
+  // 不归零则旧偏移超出新内容可视上限，↓ 需连续按到偏移耗尽才恢复（“向下没反应”死区）
+  assert.equal(s.activityScroll, 0, "turn-begin 后 activityScroll 归零");
+});
+
+test("activityScroll 归零：turn-begin 空 buffer/已有分隔线路径 + clear-buffer", () => {
+  // 空 buffer 路径：仍应归零（万一旧 state 残留偏移）
+  let s = reduceState(initialState(), { type: "activity-scroll", delta: 3 });
+  s = reduceState(s, { type: "turn-begin" });
+  assert.equal(s.activityScroll, 0, "空 buffer turn-begin 也归零");
+  // 末行已是分隔线路径（上回合转场已画过线）：不重复画线但仍归零
+  s = reduceState(initialState(), { type: "activity-scroll", delta: 4 });
+  s = reduceState(s, { type: "user-line", text: "q" });
+  s = reduceState(s, { type: "turn-begin" }); // 首回合转场画分隔线
+  s = reduceState(s, { type: "activity-scroll", delta: 2 });
+  assert.equal(s.activityScroll, 2, "前置：再次上滚 2 行");
+  s = reduceState(s, { type: "turn-begin" }); // 末行已分隔线：不追加且归零
+  const separators = s.buffer.filter((l) => l.kind === "separator").length;
+  assert.equal(separators, 1, "末行已分隔线时不重复追加");
+  assert.equal(s.activityScroll, 0, "已有分隔线路径同样归零");
+  // /cls 清屏：活动区随之清空，偏移归零
+  s = reduceState(s, { type: "activity-scroll", delta: 9 });
+  s = reduceState(s, { type: "clear-buffer" });
+  assert.equal(s.buffer.length, 0, "清屏后 buffer 空");
+  assert.equal(s.activityScroll, 0, "clear-buffer 后 activityScroll 归零");
 });
 
 test("appendStream 不修改旧 state 的行对象", () => {

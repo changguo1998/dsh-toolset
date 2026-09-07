@@ -2471,3 +2471,59 @@ test("Tab 仅在输入区为空时切换焦点；有输入时不响应（编辑�
   renderer.press(key("tab"));
   assert.ok(hint().includes("[面板:状态]"), "清空输入后 Tab 恢复切换");
 });
+
+test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ 立即回到跟随最新", async () => {
+  // 回归：上滚活动区后新回合清空瞬态，若 activityScroll 不归零则旧偏移超出
+  // 新内容可视上限，↓ 需连续按到偏移耗尽才恢复（“向下没反应”死区）。
+  const { renderer, adapter } = makeApp();
+  const size = { cols: 120, rows: 24 } as const;
+  renderer.size = size;
+  const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
+  const actFirst = (): string => {
+    const lines = renderer.lastRender.map(strip);
+    const skip = metricsFor(size, false, 1, 1).statusColWidth;
+    const sep = lines.findIndex((l) => l.includes("┈"));
+    const statusIdx = lines.findIndex((l) => l.includes("（新会话）"));
+    assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
+    return (
+      lines
+        .slice(sep + 1, statusIdx)
+        .map((l) =>
+          l
+            .slice(skip)
+            .replace(/[│┐┘]$/, "")
+            .trim(),
+        )
+        .filter((l) => l !== "")[0] ?? "(空)"
+    );
+  };
+  const key = (name: string): KeyEvent => ({
+    name,
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+
+  renderer.press(key("tab")); // → 流输出焦点
+  for (let i = 0; i < 30; i++)
+    adapter.push({ type: "notice", text: `turn1 行 ${i}` } as DshEvent);
+  assert.ok(actFirst().startsWith("turn1 行"), "turn1 显示");
+  for (let i = 0; i < 25; i++) renderer.press(key("up")); // 上滚越过可视上限
+  assert.ok(actFirst().startsWith("turn1 行 0"), "上滚后钳制到最早行");
+  // 新回合：stream 触发 turn-begin 清空旧瞬态，随后 20 条新 notice（超出窗口）
+  adapter.push({ type: "stream", text: "turn2 的模型回复" } as DshEvent);
+  for (let i = 0; i < 20; i++)
+    adapter.push({ type: "notice", text: `turn2 行 ${i}` } as DshEvent);
+  // 修复前：activityScroll=25 残余，↓ 后死区仍钳在最老 turn2 行；
+  // 修复后：turn-begin 已归零，↓ 一次即回到跟随最新（显示 turn2 尾部窗口）
+  renderer.press(key("down"));
+  assert.ok(
+    actFirst().startsWith("turn2 行"),
+    `新回合 ↓ 后应为 turn2 最新窗口，实际首行: ${actFirst()}`,
+  );
+  // 尾部窗口 = 最新 8 行（20 行内容 − 8 行窗口 → 首行 turn2 行 12）
+  assert.ok(
+    actFirst().startsWith("turn2 行 12"),
+    `新回合 ↓ 后回到跟随最新（首行 turn2 行 12），实际: ${actFirst()}`,
+  );
+});
