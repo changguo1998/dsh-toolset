@@ -1180,7 +1180,7 @@ test("慢速流：分隔线在回合开始画，turn-end 不再画", () => {
     );
     const joined = plain.join("\n");
     assert.ok(
-      joined.indexOf("第二回合正文") > joined.indexOf("────"),
+      joined.indexOf("第二回合正文") > joined.indexOf("╌╌"),
       "分隔线应位于回合内容之前",
     );
     app.dispose();
@@ -2390,10 +2390,12 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
       .find((l) => l?.startsWith("[Alt+Enter]"));
     return h ?? "";
   };
-  // 活动区正文 = ╌ 分隔线与状态栏之间：取左侧历史/活动区段（右侧为状态列）
+  // 活动区正文 = 实线分隔行与状态栏之间：取左侧历史/活动区段（右侧为状态列）
   const actBody = (): string[] => {
     const lines = renderer.lastRender.map(strip);
-    const sep = lines.findIndex((l) => l.includes("╌"));
+    const sep = lines.findIndex(
+      (l) => /^─+$/.test(histBody(l, 120).trim()),
+    );
     const statusIdx = lines.findIndex((l) => l.includes("<title>"));
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
     return lines
@@ -2473,7 +2475,9 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
   const actFirst = (): string => {
     const lines = renderer.lastRender.map(strip);
-    const sep = lines.findIndex((l) => l.includes("╌"));
+    const sep = lines.findIndex(
+      (l) => /^─+$/.test(histBody(l, 120).trim()),
+    );
     const statusIdx = lines.findIndex((l) => l.includes("<title>"));
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
     return (

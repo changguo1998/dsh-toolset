@@ -144,8 +144,11 @@ export function computeViewport(vp: ViewportInput): Viewport {
 
 // ---------- 帧组装 ----------
 
-/** 水平分隔线字符（turn 分隔 / 状态区下方横线；box-drawing 可与竖线连成连续线） */
+/** 水平分隔线字符（顶边 / 状态区下方横线等窗口间分隔；box-drawing 可与竖线连成连续线） */
 export const SEPARATOR = "─";
+
+/** 对话 turn 之间的分隔线字形：用点更少的虚线（double dash），与窗口间实线区分（2026-09-07） */
+export const TURN_SEPARATOR_CHAR = "╌";
 
 /** 状态区上方分隔线字符（与其余横线一致的单线 `─`；box-drawing 可与竖线连成连续线） */
 export const STATUS_TOP_SEPARATOR = "─";
@@ -214,7 +217,10 @@ export const DIALOGUE_MORE = "...(更早回复已折叠)";
 /** 活动区行数 = 右上区（对话历史+活动区）高度的一半（固定比例，不随内容变化） */
 export const ACTIVITY_HEIGHT_RATIO = 1 / 2;
 /** 活动区分隔线字形（对话历史 ↔ 流输出边界：box-drawing 虚线，保留点感；不参与 barRowCount 统计） */
-export const ACTIVITY_SEPARATOR = "╌"; // 点更少的虚线（quadruple→triple→double dash，历史区下方/状态列块间共用）
+export const ACTIVITY_SEPARATOR = "─"; // 对话历史 ↔ 流输出（活动区）边界：实线（2026-09-07 窗口间统一实线）
+
+/** 状态列内 goal/todo/jobs 块间分隔：点更少的虚线（double dash，窗口内部板块分隔保留虚线） */
+export const STATUS_BLOCK_SEPARATOR = "╌";
 /** 焦点面板四边框的保留格：顶部 1 行、左侧 1 列、右侧 1 列（所有状态恒定，未聚焦留空白占位，防内容重排） */
 export const FRAME_TOP_ROWS = 1;
 export const FRAME_LEFT_COLS = 1;
@@ -349,8 +355,8 @@ function statusColumnBody(
   // `○ ` 待办(默认空心圆) / `● ` 进行中(黄实心圆) / `✓ ` 完成(灰+删除线)
   const list = todos ?? [];
   if (list.length > 0) {
-    // goal 块与 todo 块之间以虚线分隔（点更少的虚线，2026-09-17）
-    out.push({ text: ACTIVITY_SEPARATOR.repeat(width) });
+    // goal 块与 todo 块之间以虚线分隔（点更少的虚线，2026-09-17；窗口内板块）保留虚线
+    out.push({ text: STATUS_BLOCK_SEPARATOR.repeat(width) });
     const done = list.filter((t) => t.status === "completed").length;
     out.push({
       text: colorFor(themeId, "blue")(`Todo ${done}/${list.length}`),
@@ -405,7 +411,7 @@ function statusColumnBody(
   // jobs 块（后台任务）：只在有任务时显示；标题 `Jobs 运行中/总数`（蓝）+
   // 每任务一行 `● `(运行中黄)/`✗ `(失败红)/`○ `(取消灰)/`✓ `(已完成：正文灰+删除线) + label
   if (jobs && jobs.length > 0) {
-    out.push({ text: ACTIVITY_SEPARATOR.repeat(width) });
+    out.push({ text: STATUS_BLOCK_SEPARATOR.repeat(width) });
     const active = jobs.filter(
       (j) => j.status === "running" || j.status === "stopping",
     ).length;
@@ -856,11 +862,11 @@ function wrapBufferLines(
         activity.push({ text: color(text), kind: "notice", indent: 0 });
       continue;
     }
-    // separator / plain → 对话区（turn 分隔线：先按纯文本换行，再逐行着灰，
-    // 避免 ANSI 转义进入 wrapLine 被按显示宽度误计）
+    // separator / plain → 对话区（turn 分隔线：虚线条 ╌ 铺满，先按纯文本换行，
+    // 再逐行着灰，避免 ANSI 转义进入 wrapLine 被按显示宽度误计）
     const content =
       line.kind === "separator"
-        ? SEPARATOR.repeat(Math.max(1, width))
+        ? TURN_SEPARATOR_CHAR.repeat(Math.max(1, width))
         : line.text;
     const rows = content === "" ? [""] : wrapLine(content, Math.max(1, width));
     for (const text of rows)

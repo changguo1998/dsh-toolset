@@ -49,6 +49,15 @@ function histContent(line: string, cols: number): string {
   return histBody(line, cols).trimEnd();
 }
 
+/** 活动区分隔行索引——对话历史 ↔ 流输出边界：左半（历史区正文）全实线 ─；
+ *  turn 分隔为虚线 ╌ 不冲突；状态区上方/下方分隔是全宽 ─（更靠后，findIndex
+ *  取首个即活动区分隔，故跳过 row0 顶部边框行——history 焦点时它也是 ─ 全） */
+function activitySepIdx(lines: string[], cols: number): number {
+  return lines.findIndex(
+    (l, i) => i >= 1 && /^─+$/.test(histContent(l, cols).trim()),
+  );
+}
+
 /** 思考行判定：历史区正文以 2 空格缩进开头（活动区瞬态，无 [思考] 前缀）。
  *  内容行补齐到整屏宽后，空白对话行 = 空格 + 右缘框线 │，须排除（trim 后剩 │）。 */
 const isThinkingRow = (l: { text: string }, cols: number): boolean => {
@@ -102,7 +111,7 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     "默认无焦点：历史/活动区左缘框格空白占位（Tab 后 history 焦点才画 │）",
   );
   assert.ok(
-    top.slice(1).every((l) => /[│╌]/.test(plain(l))),
+    top.slice(1).every((l) => /[│─╌]/.test(plain(l))),
     "分隔竖线保留（对话区右缘/状态列左缘，内容行均有；活动区分隔行两端的角为 ┘/┐）",
   );
   assert.ok(
@@ -652,11 +661,11 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   const tt = plain.findIndex((l) => l.includes("思考中"));
   assert.ok(tt >= 0, "思考应在帧内可见");
   assert.ok(
-    plain.slice(0, tt).some((l2) => l2.includes("╌")),
-    "思考应位于活动区点线分隔之下",
+    plain.slice(0, tt).some((l2) => l2.includes("─")),
+    "思考应位于活动区实线分隔之下",
   );
 
-  // 活动区分隔线：灰色点线（ANSI 直方）；turn 分隔线灰色；状态栏上 = 下 -
+  // 活动区分隔线：灰色实线（ANSI 直方）；turn 分隔线灰色虚线；状态栏上 = 下 -
   const graySGR = "\x1b[38;2;";
   const dt = buildFrame(
     reduceState(initialState(), { type: "thinking", text: "x" }),
@@ -665,8 +674,8 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
       cols: 40,
     },
   );
-  const dotRaw = dt.find((l) => /^╌+$/.test(histContent(l.text, 40)));
-  assert.ok(dotRaw, "活动区分隔线为点线");
+  const dotRaw = dt.find((l) => /^─+$/.test(histContent(l.text, 40)));
+  assert.ok(dotRaw, "活动区分隔线为实线");
   assert.ok(
     dotRaw!.text.includes(graySGR),
     "活动区分隔线为灰色（含 truecolor SGR）",
@@ -674,9 +683,9 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   let ts = reduceState(initialState(), { type: "append", text: "正文" });
   ts = reduceState(ts, { type: "turn-begin" });
   const turnRaw = buildFrame(ts, { rows: 10, cols: 40 }).find((l) =>
-    /^─+$/.test(histContent(l.text, 40)),
+    /^╌+$/.test(histContent(l.text, 40)),
   );
-  assert.ok(turnRaw, "turn 分隔线仍在历史区");
+  assert.ok(turnRaw, "turn 分隔线(虚线)仍在历史区");
   assert.ok(
     turnRaw!.text.includes(graySGR),
     "turn 分隔线为灰色（含 truecolor SGR）",
@@ -706,7 +715,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   const uu = plain.findIndex((l) => l.includes("孤立"));
   assert.ok(uu >= 0, "user 行需可见（窗口高度合适）");
   const nextU = plain[uu + 1] ?? "";
-  assert.ok(nextU.includes("─"), "user 后紧跟分隔线，无空行");
+  assert.ok(nextU.includes("╌"), "user 后紧跟 turn 分隔线(虚线)，无空行");
 });
 
 test("会话流：模型回复尾部空行不显示；正文段落间空行保留", () => {
@@ -722,10 +731,10 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const codeIdx = plain.findIndex((l) => l.includes("第三段"));
-  // 历史区内的 turn 分隔线（灰色 -）；底部全屏横线不在此列
-  // 分隔线行 = 历史区正文全为 `-`（i>0 跳过顶部边框行，它也是全 ─）
+  // 历史区内的 turn 分隔线（灰色虚线 ╌）；底部全屏横线不在此列
+  // 分隔线行 = 历史区正文全为 `╌`（活动区分隔为全 ─、顶部边框行 i>0 排除，均不冲突）
   const sepIdx = plain.findIndex(
-    (l, i) => i > 0 && /^─+$/.test(histContent(l, 40)),
+    (l, i) => i > 0 && /^╌+$/.test(histContent(l, 40)),
   );
   assert.ok(codeIdx >= 0 && sepIdx > codeIdx, "正文与分隔线都应存在且顺序正确");
   const gap = plain.slice(codeIdx + 1, sepIdx);
@@ -1492,7 +1501,7 @@ test("活动区：activityScroll 滚动窗口（默认尾部；上滚看更早�
         ? s
         : reduceState(s, { type: "activity-scroll", delta: scrollDelta });
     const plain = buildFrame(st, { rows: 30, cols: 60 }).map((l) => l.text);
-    const sep = plain.findIndex((l) => stripAnsi(l).includes("╌"));
+    const sep = activitySepIdx(plain, 60);
     // 状态栏上方 ─ 分隔行：D 列交点恒为灰 ┴（无焦点不再延续活动区点线）
     const end = plain.findIndex(
       (l, i) => i > sep && /^[─┴]+$/.test(stripAnsi(l)),
@@ -1529,8 +1538,10 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   const rowsOf = (st: ReturnType<typeof initialState>): string[] =>
     buildFrame(st, size).map((l) => l.text);
   const plain = (l: string): string => stripAnsi(l);
-  const sepRow = (lines: string[]): string =>
-    lines.find((l) => plain(l).includes("╌"))!;
+  const sepRow = (lines: string[]): string => {
+    const i = activitySepIdx(lines, size.cols);
+    return i >= 0 ? lines[i]! : "";
+  };
   const eqRow = (lines: string[]): string =>
     lines.find(
       (l) => /^[└─]+/.test(plain(l)) && !plain(l).includes("（新会话）"),
@@ -1558,7 +1569,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(!plain(b0).includes("┌"), "无焦点：顶部无角");
   assert.ok(!b0.includes(WHITE), "无焦点：顶边无亮色");
   const s0 = sepRow(rows);
-  assert.ok(!s0.includes(WHITE + "╌"), "无焦点：╌ 不亮（回灰）");
+  assert.ok(!s0.includes(WHITE + "─"), "无焦点：活动区分隔 ╌ 不亮（回灰）");
   const dlg = rows.find((l) => plain(l).includes("（无目标/待办）"))!;
   assert.ok(!plain(dlg).startsWith("│"), "无焦点：左缘框格空白占位");
   assert.ok(colAt(dlg, D) === "│", "无焦点：分隔竖线恒位于 D 列（灰）");
@@ -1567,7 +1578,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     "无焦点：状态列正文在右侧（行尾）",
   );
   assert.ok(!eqRow(rows).includes(WHITE + "─"), "无焦点：状态区上方分隔无亮 ─");
-  const sepIdx0 = rows.findIndex((l) => plain(l).includes("╌"));
+  const sepIdx0 = activitySepIdx(rows, size.cols);
   assert.equal(
     countBrightBar(rows[sepIdx0 + 1]!),
     0,
@@ -1583,7 +1594,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   );
   const sigHistory = contentSig(rows, topRows);
 
-  // 焦点=历史（左列）：Tab 一次进入——顶边 ┌─┐、╌ 亮 + 两端 ┘、对话区左缘/分隔竖线亮 │
+  // 焦点=历史（左列）：Tab 一次进入——顶边 ┌─┐、活动区分隔 ─ 亮 + 两端 ┘、对话区左缘/分隔竖线亮 │
   st = reduceState(initialState(), { type: "focus-panel-cycle" }); // null → 历史
   rows = rowsOf(st);
   const bH = rows[0]!;
@@ -1599,7 +1610,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     "历史焦点：对话行左缘框格+分隔竖线 2 条亮 │",
   );
   const sH = sepRow(rows);
-  assert.ok(sH.includes(WHITE + "╌"), "历史焦点：╌ 点线亮白");
+  assert.ok(sH.includes(WHITE + "─"), "历史焦点：活动区分隔 ─ 亮白");
   assert.ok(plain(sH).includes("┘"), "历史焦点：分隔行两端 ┘");
   assert.equal(
     countBrightBar(rows[sepIdx0 + 1]!),
@@ -1607,18 +1618,18 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     "历史焦点：活动行分隔竖线回灰",
   );
 
-  // 焦点=流输出（左列）：顶边空白、╌ 亮 + 两端 ┌/┐、活动区左缘/分隔竖线亮 │、─ 亮左段含 └┴（无 ┘）
+  // 焦点=流输出（左列）：顶边空白、活动区分隔 ─ 亮 + 两端 ┌/┐、活动区左缘/分隔竖线亮 │、─ 亮左段含 └┴（无 ┘）
   st = reduceState(initialState(), { type: "focus-panel-cycle" }); // null → 历史
   st = reduceState(st, { type: "focus-panel-cycle" }); // 历史 → 流输出
   rows = rowsOf(st);
   assert.ok(!plain(rows[0]!).includes("─"), "流输出焦点：顶部不画顶边");
   assert.ok(!plain(rows[0]!).includes("┐"), "流输出焦点：顶部无角");
   const s1 = sepRow(rows);
-  assert.ok(s1.includes(WHITE + "╌"), "流输出焦点：╌ 点线亮白");
+  assert.ok(s1.includes(WHITE + "─"), "流输出焦点：活动区分隔 ─ 亮白");
   assert.ok(plain(s1).includes("┐"), "流输出焦点：分隔行右端 ┐");
   assert.ok(plain(s1).startsWith("┌"), "流输出焦点：分隔行左端 ┌");
   // 活动区首行（分隔行之后）左缘框格与分隔竖线应亮 │
-  const sepIdx1 = rows.findIndex((l) => plain(l).includes("╌"));
+  const sepIdx1 = activitySepIdx(rows, size.cols);
   const act = rows[sepIdx1 + 1]!;
   assert.ok(plain(act).startsWith("│"), "流输出焦点：活动区左缘框列 │");
   assert.ok(colAt(act, D) === "│", "流输出焦点：活动区右缘分隔竖线 │");
@@ -1637,7 +1648,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(!plain(e1).includes("┘"), "流输出焦点：无状态列右下角 ┘");
   assert.deepEqual(contentSig(rows, topRows), sigHistory, "切换焦点不重排内容");
 
-  // 焦点=状态（右列）：顶边 ┌─┐（D 起）、╌ 回灰、─ 亮右段含 ┴┘（无 └）
+  // 焦点=状态（右列）：顶边 ┌─┐（D 起）、活动区分隔回灰、─ 亮右段含 ┴┘（无 └）
   st = reduceState(initialState(), { type: "focus-panel-cycle" }); // null → 历史
   st = reduceState(st, { type: "focus-panel-cycle" }); // → 流输出
   st = reduceState(st, { type: "focus-panel-cycle" }); // → 状态
@@ -1647,7 +1658,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(colAt(b2, D) === "┌", "状态焦点：顶边收角 ┌（分隔竖线列）");
   assert.ok(colAt(b2, 79) === "┐", "状态焦点：右上角 ┐（屏幕右缘）");
   assert.ok(b2.includes(WHITE + "─"), "状态焦点：顶边/竖线亮白");
-  assert.ok(!sepRow(rows).includes(WHITE + "╌"), "状态焦点：╌ 回灰");
+  assert.ok(!sepRow(rows).includes(WHITE + "─"), "状态焦点：活动区分隔回灰");
   const dlgS = rows.find((l) => plain(l).includes("（无目标/待办）"))!;
   assert.ok(
     !plain(dlgS).startsWith("│"),
@@ -1686,7 +1697,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(!plain(rows[0]!).includes("─"), "面板态：顶部边框行空白占位");
   // 面板态：审批/问答/选择面板自 2026-09-17 起渲染在流输出（活动区）窗口
   // （分隔行之后），而非底部交互区；对话历史/状态列内容不被挤占（无缓冲仍空）
-  const sepI2 = rows.findIndex((l) => plain(l).includes("╌"));
+  const sepI2 = activitySepIdx(rows, size.cols);
   const actRows2 = rows.slice(sepI2 + 1, topRows).map(plain);
   assert.ok(
     actRows2.some((l) => l.includes("deepseek")),
