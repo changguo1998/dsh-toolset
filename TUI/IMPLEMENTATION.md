@@ -99,7 +99,7 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 | `compaction {phase}` | `appendNotice` | toast `正在压缩上下文…` / `压缩完成` |
 | `retry {attempt,max,delayMs,code,message?}` | `appendNotice(tone:warn)` | 黄色 toast `重试 1/2 (1.5s): TRANSPORT 连接被重置` |
 | `notice {text,error?,tone?}` | `appendNotice(…,tone)` | tone 着色：error 红 / warn 黄 / muted 灰 |
-| `goal-change {sessionId,operation,goal\|cleared,…}` | `goalBySession[sid]` 快照替换/clear 墓碑 | 顶部状态列详显（B1，按 sessionId 隔离；状态栏 `goal:<phase>` 徽标已于 2026-09-17 移除，由右侧状态列承接；同日 goal 块与 todo 块之间加点更少的虚线 `╌` 分隔；2026-09-07 `/goal` 面板移除、仅提示查看信息栏，状态列补 `Todo 完成数/总数` 标题与 `○`/`●`/`✓` 标记（待办空心圆/进行中实心圆、对号不划线、仅第一个进行中黄、续行缩进对齐、jobs 完成项正文灰+删除线）、新增 jobs 块、状态区上方分隔改单线 `─`） |
+| `goal-change {sessionId,operation,goal\|cleared,…}` | `goalBySession[sid]` 快照替换/clear 墓碑 | 顶部状态列详显（B1，按 sessionId 隔离；状态栏 `goal:<phase>` 徽标已于 2026-09-17 移除，由右侧状态列承接；同日 goal 块与 todo 块之间加点更少的虚线 `╌` 分隔；2026-09-07 `/goal` 面板移除、仅提示查看信息栏，状态列补 `Todo 完成数/总数` 标题与 `○`/`●`/`✓` 标记（待办空心圆/进行中实心圆、对号不划线、进行中全黄、续行缩进对齐、jobs 完成项正文灰+删除线）、新增 jobs 块、状态区上方分隔改单线 `─`） |
 | `todo-write {sessionId,todos}` | `todoBySession[sid]` 全量替换 | 状态栏 `todo n/m` 计数（进行中/共）（B1） |
 | `mode {sessionId,kind,value}` | `modeBySession[sid]` 三合一 | 状态栏模式徽标 `plan·ro·full`（缩略/省略规则见 DESIGN）（B2） |
 | `step {sessionId,turn,step,phase}` | `stepGroup{sessionId,step,headerEmitted}` | 工具行分组头 `step N`（无工具 step 静默；跨会话隔离）（B3） |

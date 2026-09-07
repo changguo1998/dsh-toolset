@@ -361,7 +361,6 @@ function statusColumnBody(
     out.push({
       text: colorFor(themeId, "blue")(`Todo ${done}/${list.length}`),
     });
-    let inProgressColored = false; // 一次仅第一个 in_progress 用黄色
     for (const t of list) {
       const body = t.content === "" ? "（空项）" : t.content;
       const mark = TODO_MARKER[t.status];
@@ -395,11 +394,8 @@ function statusColumnBody(
           }
         });
       } else if (t.status === "in_progress") {
-        // 换行后颜色不丢失：整项（含续行）同色；仅第一个 in_progress 为黄，其余默认
-        const color = inProgressColored
-          ? undefined
-          : colorFor(themeId, "yellow");
-        inProgressColored = true;
+        // 换行后颜色不丢失：整项（含续行）同色；所有进行中项均为黄色
+        const color = colorFor(themeId, "yellow");
         rows.forEach((r) => {
           out.push({ text: r.text, color });
         });
