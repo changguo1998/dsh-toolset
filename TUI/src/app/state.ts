@@ -39,8 +39,10 @@ export const PANEL_CYCLE = ["history", "activity", "status"] as const;
 /** scrollback 行数上限（纯物理上限；DESIGN:2000 行） */
 export const MAX_BUFFER_LINES = 2000;
 
-/** thinking/reasoning 最大显示行数默认值（可经 initialState 配置，超出折叠） */
-export const DEFAULT_THINKING_MAX_LINES = 4;
+/** thinking 折叠上限默认值（可经 initialState 配置）：
+ * 取大值使实际生效为 min(thinkingMaxLines, activityH)——
+ * 默认思考可占满活动区（瞬态显示区）高度，配置仅在收紧到更小值时生效 */
+export const DEFAULT_THINKING_MAX_LINES = 50;
 
 /** 用户块左缘/回复右缘对称留空默认列数（可经 initialState 配置，交错布局用） */
 export const DEFAULT_MESSAGE_GUTTER = 4;

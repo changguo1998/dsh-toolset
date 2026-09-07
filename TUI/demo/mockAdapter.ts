@@ -342,6 +342,9 @@ export class MockDshAdapter implements DshAdapter {
   private scheduleReply(): void {
     const delay = 400 + (this.seq % 4) * 180;
     this.seq++;
+    // 本回合序号在调度时固化：场景分发/审批按 mySeq 匹配，
+    // 避免定时器触发时共享 seq 已被后续回合递增导致场景错位（思考加长会推迟触发）
+    const mySeq = this.seq;
     this.timers.push(
       setTimeout(
         () =>
@@ -353,13 +356,33 @@ export class MockDshAdapter implements DshAdapter {
         delay,
       ),
     );
-    // 分片思考流：验证最新几行限高与正文到达后清除。
+    // 分片思考流：文本加长（总行数超出活动区可视高度），
+    // 验证思考折叠上限=瞬态显示区高度，以及正文到达后清除。
     const thoughts = [
-      "先理解问题…",
-      "检查现有状态…",
-      "组织回答结构…",
-      "准备输出…",
-      "完成推理。",
+      "先理解问题：用户想了解 DSH 的交互模型，需要拆解为几个子问题。",
+      "检查现有状态：面板布局、滚动语义与主题切换都是最近调整过的区域。",
+      "活动区高度由终端行数动态计算，思考内容超过可视高度时折叠到最新几行。",
+      "工具调用前后需要记录运行状态与输出摘要，避免把原始输出直接铺进活动区。",
+      "通知行标题要保留，正文过长时截断到一行并补齐宽度，保持右缘对齐。",
+      "组织回答结构：先结论后细节，把影响使用的差异点单独列出。",
+      "历史区视口跟随底部开关在回答到达时复位，避免停留在旧位置。",
+      "思考在正文首条到达或回合结束时整体清除，避免残留到下一回合。",
+      "分隔线在回合开始时先画，正文使用打字机节奏逐字符铺出。",
+      "顶部三面板用 Tab 循环，焦点面板由五行滚动键控制，状态列独立滚动。",
+      "准备输出：检查主题色板与边框色在浅色下的对比度是否满足中性要求。",
+      "对比官方会话事件词汇表，确认本轮要归一化的载荷形状与可选字段。",
+      "状态栏按类分组聚合：环境组时间分支、会话组标题、LLM 组模型与上下文。",
+      "审批弹窗由 approval/request 瀑布驱动，返回 outcome 即完成裁定。",
+      "问答面板支持单选多选与自定义文本，Enter 逐题推进、末题整体提交。",
+      "历史会话切换先切活跃引用再释放旧 handle，防止迟到异步结果误入面板。",
+      "工具结果折叠为单行摘要，失败分支整行红色便于快速定位问题。",
+      "notice 按 tone 分级着色，命令通知与压缩提示不污染对话正文。",
+      "键盘解码区分 CSI 与 SS3 序列，方向键在普通与元键组合下对称响应。",
+      "帧渲染按显示宽度切分，ANSI 转义不计宽、宽字符不在换行处被切断。",
+      "缩放窗口时四区高度重新分配，活动区与对话区共用同一套计算口径。",
+      "浅色主题下边框转为黑色中性色，正文与背景保持足够的对比度。",
+      "思考内容是瞬态展示，回合开始先画分隔线、正文到达后整体清除。",
+      "完成推理：以上问题均已在实现中落地，直接输出最终回答。",
     ];
     for (let i = 0; i < thoughts.length; i++) {
       this.timers.push(
@@ -414,7 +437,7 @@ export class MockDshAdapter implements DshAdapter {
     const sceneAt = replyStart + chunks.length * 90 + 45;
     this.timers.push(
       setTimeout(() => {
-        if (this.seq === 1) {
+        if (mySeq === 1) {
           // B3：step 分组——工具调用前先发 step/start，结束后 step/end（渲染出 `step 1` 分组头）
           this.emit({
             type: "step",
@@ -443,7 +466,7 @@ export class MockDshAdapter implements DshAdapter {
             step: 1,
             phase: "end",
           });
-        } else if (this.seq === 2) {
+        } else if (mySeq === 2) {
           this.emit({
             type: "retry-started",
             sessionId: this.sessionId,
@@ -486,7 +509,7 @@ export class MockDshAdapter implements DshAdapter {
             step: 2,
             phase: "end",
           });
-        } else if (this.seq === 3) {
+        } else if (mySeq === 3) {
           this.emit({
             type: "notice",
             text: "回合失败：E1301 mock 模拟 transport 错误",
@@ -616,7 +639,7 @@ export class MockDshAdapter implements DshAdapter {
         sceneAt + 40,
       ),
     );
-    if (this.seq === 2 && this.autoApproval) {
+    if (mySeq === 2 && this.autoApproval) {
       // 第二次回复后触发一次审批
       const apId = this.sessionId + "/" + this.seq;
       this.timers.push(

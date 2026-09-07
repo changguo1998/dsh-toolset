@@ -16,12 +16,7 @@ import {
   USER_MIN_LEFT_GUTTER,
   userMaxBodyWidth,
 } from "../src/app/layout.ts";
-import {
-  initialState,
-  reduceState,
-  TURN_SEPARATOR,
-  DEFAULT_THINKING_MAX_LINES,
-} from "../src/app/state.ts";
+import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
 import type { InputMode, InputStatus } from "../src/app/state.ts";
 import type { RenderLine } from "../src/renderer/screen.ts";
 
@@ -746,7 +741,8 @@ test("会话流：思考只显示最新几行，并在正文或 turn-end 后消�
   });
   const frame = buildFrame(s, { rows: 16, cols: 60 });
   const thinkingLines = frame.filter((l) => isThinkingRow(l, 60));
-  assert.ok(thinkingLines.length <= DEFAULT_THINKING_MAX_LINES);
+  // 折叠上限跟随活动区（瞬态显示区）高度：rows=16 → activityH=4
+  assert.ok(thinkingLines.length <= 4, "思考最多占满活动区高度");
   assert.ok(frame.some((line) => line.text.includes(THINKING_MORE)));
   assert.ok(frame.some((line) => line.text.includes("t6")));
   assert.ok(!frame.some((line) => line.text.includes("t1")));
@@ -771,11 +767,46 @@ test("thinkingMaxLines 可配置：initialState(opts) 决定折叠阈值", () =>
   const with3 = reduceState(s, { type: "thinking", text: "x1\nx2\nx3" });
   const frame = buildFrame(with3, { rows: 16, cols: 60 });
   const thinking = frame.filter((l) => isThinkingRow(l, 60));
-  // cap=2 且已有 3 行 → 折叠：显示 cap-1 行 + 折叠提示
+  // min(thinkingMaxLines=2, activityH=4)=2 且已有 3 行 → 折叠：显示 cap-1 行 + 折叠提示
   assert.ok(thinking.length <= 2, "自定义上限内");
   assert.ok(frame.some((line) => line.text.includes(THINKING_MORE)));
   assert.ok(frame.some((line) => line.text.includes("x3")));
   assert.ok(!frame.some((line) => line.text.includes("x1")));
+});
+
+test("会话流：思考折叠上限=活动区高度（默认），收紧配置仍生效", () => {
+  // rows=24 → contentTopH=16 → activityH=8：12 行思考默认折叠为 7 行+MORE，恰好占满活动区
+  let s = initialState();
+  for (let i = 1; i <= 12; i++) {
+    // 两位零填充：避免 "a1" 误匹配前缀 "a12"
+    s = reduceState(s, {
+      type: "thinking",
+      text: `a${String(i).padStart(2, "0")}\n`,
+    });
+  }
+  const frame = buildFrame(s, { rows: 24, cols: 60 });
+  const thinking = frame.filter((l) => isThinkingRow(l, 60));
+  assert.ok(
+    thinking.length <= 8,
+    "默认思考最多占满活动区高度（rows=24 → activityH=8），实际:" +
+      thinking.length,
+  );
+  assert.ok(frame.some((line) => line.text.includes(THINKING_MORE)));
+  assert.ok(frame.some((line) => line.text.includes("a12")));
+  assert.ok(!frame.some((line) => line.text.includes("a01")));
+
+  // 收紧配置 thinkingMaxLines=3 仍生效：即使活动区更高也只显示 3 行
+  let t = initialState("light", { thinkingMaxLines: 3 });
+  for (let i = 1; i <= 5; i++) {
+    t = reduceState(t, { type: "thinking", text: `b${i}\n` });
+  }
+  const frameT = buildFrame(t, { rows: 24, cols: 60 });
+  const thinkingT = frameT.filter((l) => isThinkingRow(l, 60));
+  assert.ok(
+    thinkingT.length <= 3,
+    "收紧配置生效（≤3 行），实际:" + thinkingT.length,
+  );
+  assert.ok(frameT.some((line) => line.text.includes(THINKING_MORE)));
 });
 
 test("会话流：窄终端仍保留用户与思考文本", () => {

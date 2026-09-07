@@ -423,10 +423,13 @@ function buildTopRegion(
     1,
     historyWidth - (useRightFrame ? FRAME_RIGHT_COLS : 0),
   );
+  // 活动区可视行数（瞬态显示区高度）：先于 wrapBufferLines 计算，
+  // 供思考折叠上限取 min(thinkingMaxLines, activityH)——默认思考可占满活动区
+  const activityH = activityHeight(contentTopH);
   const { dialogue, activity } = wrapBufferLines(
     state.buffer,
     contentW,
-    state.thinkingMaxLines,
+    Math.min(state.thinkingMaxLines, activityH),
     state.messageGutter,
     state.themeId,
   );
@@ -435,9 +438,7 @@ function buildTopRegion(
     state.themeId,
     DIALOGUE_KEEP_REPLIES,
   );
-  // 活动区：固定为「内容行数」（去掉顶部边框行）的一半；超窗内容仅显示最近行；
-  // 对话区获得剩余高度
-  const activityH = activityHeight(contentTopH);
+  // 对话区获得剩余高度（活动区高度见上方 activityH 定义）
   const dialogueH = Math.max(
     0,
     contentTopH - activityH - (activityH > 0 ? 1 : 0),

@@ -174,7 +174,8 @@ export function normalizeTuiDisplayConfig(
       2000,
       "streamCharsPerSecond",
     ),
-    thinkingMaxLines: num(raw?.thinkingMaxLines, 4, 1, 50, "thinkingMaxLines"),
+    // 默认不折叠（交由活动区高度截断）；仅收紧时配置才生效
+    thinkingMaxLines: num(raw?.thinkingMaxLines, 50, 1, 50, "thinkingMaxLines"),
     messageGutter: num(raw?.messageGutter, 4, 0, 20, "messageGutter"),
   };
 }

@@ -13,12 +13,12 @@ function collect(): { warns: string[]; warn: (m: string) => void } {
   return { warns, warn: (m) => warns.push(m) };
 }
 
-test("归一化默认值：streamTypewriter=true, 流速 120, thinking 4, gutter 4", () => {
+test("归一化默认值：streamTypewriter=true, 流速 120, thinking 50(默认不折叠), gutter 4", () => {
   const c = normalizeTuiDisplayConfig(undefined);
   assert.deepEqual(c, {
     streamTypewriter: true,
     streamCharsPerSecond: 120,
-    thinkingMaxLines: 4,
+    thinkingMaxLines: 50,
     messageGutter: 4,
   });
 });
@@ -48,7 +48,7 @@ test("归一化非法值回退默认并告警", () => {
     warn,
   );
   assert.equal(c.streamCharsPerSecond, 120);
-  assert.equal(c.thinkingMaxLines, 4);
+  assert.equal(c.thinkingMaxLines, 50);
   assert.ok(warns.length >= 2, "每项非法值各告警一次，实际:" + warns.length);
   assert.ok(warns.every((w) => w.includes("回退默认")));
 });
@@ -66,7 +66,7 @@ test("归一化越界/非有限数同样回退", () => {
     warn,
   );
   assert.equal(c.streamCharsPerSecond, 120);
-  assert.equal(c.thinkingMaxLines, 4);
+  assert.equal(c.thinkingMaxLines, 50);
   assert.equal(c.messageGutter, 4, "越界回退默认");
   assert.ok(warns.length >= 3);
   // streamTypewriter 不做类型校验：truthy 字符串视为开启（布尔宽松）
