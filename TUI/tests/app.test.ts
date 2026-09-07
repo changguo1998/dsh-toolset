@@ -1089,7 +1089,7 @@ function barRowCount(renderer: FakeRenderer): number {
   return renderer.lastRender.filter((l) => {
     const t = l.replace(/\x1b\[[0-9;]*m/g, "");
     return (
-      /[-=·─═┄]/.test(t) && t.replace(/[-=·─═┄|│┐┘└┌╩╝╚]/g, "").trim() === ""
+      /[-=·─┄]/.test(t) && t.replace(/[-=·─┄|│┐┘└┌┴]/g, "").trim() === ""
     );
   }).length;
 }

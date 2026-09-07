@@ -147,8 +147,8 @@ export function computeViewport(vp: ViewportInput): Viewport {
 /** 水平分隔线字符（turn 分隔 / 状态区下方横线；box-drawing 可与竖线连成连续线） */
 export const SEPARATOR = "─";
 
-/** 状态区上方分隔线字符（双线观感，沿用原 `=`；box-drawing 可与竖线连成连续线） */
-export const STATUS_TOP_SEPARATOR = "═";
+/** 状态区上方分隔线字符（与其余横线一致的单线 `─`；box-drawing 可与竖线连成连续线） */
+export const STATUS_TOP_SEPARATOR = "─";
 
 /** 上/中/下三区之间的横线分隔行数 */
 export const SEPARATOR_ROWS = 2;
@@ -340,13 +340,9 @@ function statusColumnBody(
       colorFor(themeId, "blue")("Goal ") +
       colorFor(themeId, GOAL_PHASE_COLOR[g.phase] ?? "green")(g.phase),
   });
-  // 目标（可长，上限 STATUS_GOAL_MAX_LINES 行）
+  // objective 正文（可长，上限 STATUS_GOAL_MAX_LINES 行；无「目标」前缀）
   out.push(
-    ...capWrap(
-      "目标: " + (g.objective || "（空目标）"),
-      width,
-      STATUS_GOAL_MAX_LINES,
-    ),
+    ...capWrap(g.objective || "（空目标）", width, STATUS_GOAL_MAX_LINES),
   );
   // blocked → blockedReason.message 黄 tone
   if (g.phase === "blocked" && g.blockedReason?.message) {
@@ -365,6 +361,7 @@ function statusColumnBody(
     out.push({
       text: colorFor(themeId, "blue")(`Todo ${done}/${list.length}`),
     });
+    let inProgressColored = false; // 一次仅第一个 in_progress 用黄色
     for (const t of list) {
       const body = t.content === "" ? "（空项）" : t.content;
       const rows = capWrap(
@@ -372,23 +369,45 @@ function statusColumnBody(
         width,
         STATUS_TODO_MAX_LINES,
       );
-      rows.forEach((r, i) => {
-        if (t.status === "completed") {
-          out.push({
-            text: renderSeg(
-              { text: r.text, style: { fg: "gray", strike: true } },
-              themeId,
-            ),
-          });
-        } else if (t.status === "in_progress") {
-          out.push({
-            text: r.text,
-            color: i === 0 ? colorFor(themeId, "yellow") : undefined,
-          });
-        } else {
+      if (t.status === "completed") {
+        // 对号（灰，无线）不被删除线覆盖；正文/续行灰+删除线
+        rows.forEach((r, i) => {
+          if (i === 0 && r.text.startsWith(TODO_MARKER.completed)) {
+            // 首行：对号（灰，无删除线）+ 正文（灰+删除线）
+            out.push({
+              text:
+                colorFor(themeId, "gray")(TODO_MARKER.completed) +
+                renderSeg(
+                  {
+                    text: r.text.slice(TODO_MARKER.completed.length),
+                    style: { fg: "gray", strike: true },
+                  },
+                  themeId,
+                ),
+            });
+          } else {
+            out.push({
+              text: renderSeg(
+                { text: r.text, style: { fg: "gray", strike: true } },
+                themeId,
+              ),
+            });
+          }
+        });
+      } else if (t.status === "in_progress") {
+        // 换行后颜色不丢失：整项（含续行）同色；仅第一个 in_progress 为黄，其余默认
+        const color = inProgressColored
+          ? undefined
+          : colorFor(themeId, "yellow");
+        inProgressColored = true;
+        rows.forEach((r) => {
+          out.push({ text: r.text, color });
+        });
+      } else {
+        rows.forEach((r) => {
           out.push({ text: r.text });
-        }
-      });
+        });
+      }
     }
   }
   // jobs 块（后台任务）：只在有任务时显示；标题 `Jobs 运行中/总数`（蓝）+
@@ -1232,9 +1251,9 @@ export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
   return { topHeight: contentTopH, activityH, dialogueH };
 }
 
-/** 状态栏上方分隔行（焦点四边框的底边）：按焦点面板分段着色 + 角字（╚/╩/╝）；
- * 无焦点/模态态全灰 `─═`。左侧历史/活动区底边（activity 焦点亮、col0 左下角 ╚），
- * 右侧状态列底边（status 焦点亮、R 列右下角 ╝），D 列 ╩ 为共用角。 */
+/** 状态栏上方分隔行（焦点四边框的底边）：按焦点面板分段着色 + 角字（└/┴/┘）；
+ * 无焦点/模态态全灰 `─`。左侧历史/活动区底边（activity 焦点亮、col0 左下角 └），
+ * 右侧状态列底边（status 焦点亮、R 列右下角 ┘），D 列 ┴ 为共用角。 */
 export function buildStatusSeparator(
   cols: number,
   statusColWidth: number,
@@ -1255,21 +1274,21 @@ export function buildStatusSeparator(
   const rightW = Math.max(0, R - D - 1);
   return {
     text:
-      // col0：activity 焦点时为历史/活动区底角 ╚（接左缘框格），否则延续 `═`
+      // col0：activity 焦点时为历史/活动区底角 └（接左缘框格），否则延续 `─`
       (D > 0
         ? useLeftCorner && sepFocus === "activity"
-          ? colorFor(themeId, fc)("╚")
+          ? colorFor(themeId, fc)("└")
           : colorFor(themeId, "gray")(STATUS_TOP_SEPARATOR)
         : "") +
       seg(leftW, STATUS_TOP_SEPARATOR, sepFocus === "activity") +
       (sepFocus === "none"
         ? colorFor(themeId, "gray")(ACTIVITY_SEPARATOR) // D 列无焦点时延续活动区虚线
-        : colorFor(themeId, fc)("╩")) +
+        : colorFor(themeId, fc)("┴")) +
       seg(rightW, STATUS_TOP_SEPARATOR, sepFocus === "status") +
-      // R 列（状态列右缘框列）：status 焦点右下角 ╝；无右缘框列（statusColWidth=1）时不输出
+      // R 列（状态列右缘框列）：status 焦点右下角 ┘；无右缘框列（statusColWidth=1）时不输出
       (useRightFrame
         ? sepFocus === "status"
-          ? colorFor(themeId, fc)("╝")
+          ? colorFor(themeId, fc)("┘")
           : colorFor(themeId, "gray")(STATUS_TOP_SEPARATOR)
         : ""),
   };
@@ -1380,8 +1399,8 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
       ]
     : [];
 
-  // 分隔行（边框统一灰色：先纯文本截断再着色）。状态栏上方用 `═` 强分隔，
-  // 下方沿用 `─`；焦点在底部为流输出/状态列时 `═` 用亮色框（钩到面板底边）。
+  // 分隔行（边框统一灰色：先纯文本截断再着色）。状态区上方与其余横线同为 `─`；
+  // 焦点在底部为流输出/状态列时该行用亮色框（钩到面板底边）。
   const makeSep = (ch: string, color: ColorName = "gray"): RenderLine => ({
     text: colorFor(
       state.themeId,

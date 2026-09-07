@@ -69,7 +69,7 @@ test("renderStatusColumn: goal 目标 + phase + todo 列表渲染", () => {
   );
   const t = rows.join("\n");
   assert.ok(t.includes("Goal active"), "goal 标题=Goal+phase");
-  assert.ok(t.includes("目标: 实现状态列"), "objective");
+  assert.ok(t.includes("实现状态列"), "objective 无「目标:」前缀");
   assert.ok(t.includes("Todo 0/2"), "todo 标题=完成数/总数");
   assert.ok(t.includes("> 渲染目标"), "进行中 > 标记");
   assert.ok(t.includes("· todo 列表"), "待办 · 点标记");
@@ -109,8 +109,8 @@ test("renderStatusColumn: blocked 黄 tone 显示阻塞原因", () => {
 test("renderStatusColumn: 目标超过上限折叠到 5 行并提示折叠数", () => {
   const objective = Array.from({ length: 40 }, (_, i) => `行${i}`).join(" ");
   const rows = col(setGoal("active", objective), [], { width: 10 });
-  const goalLines = rows.filter((r) => r.includes("目标") || r.includes("(+"));
-  // 目标标题 + 折叠提示至多 STATUS_GOAL_MAX_LINES 行（不含 Goal 标题行）
+  const goalLines = rows.filter((r) => /行\d/.test(r) || r.includes("(+"));
+  // objective 行 + 折叠提示至多 STATUS_GOAL_MAX_LINES 行（不含 Goal 标题行）
   assert.ok(
     goalLines.length <= STATUS_GOAL_MAX_LINES,
     `目标最多 ${STATUS_GOAL_MAX_LINES} 行: ${rows.join("|")}`,

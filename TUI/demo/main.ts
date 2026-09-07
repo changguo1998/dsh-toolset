@@ -261,7 +261,7 @@ if (smoke) {
       ok(
         "goal-panel",
         panelPlain.includes("详情见右侧信息栏") &&
-          panelPlain.includes("目标: "),
+          panelPlain.includes("P2 阶段 B1+B2"),
         "goal 提示/状态列 objective absent from frames",
       );
       await sleep(200);
