@@ -109,8 +109,8 @@ test("renderStatusColumn: 每条 todo 超过上限折叠到 3 行", () => {
   const todoLines = body
     .split("\n")
     .filter((r) => r.replace(/[│|]$/, "").trim() !== "");
-  // 目标 1 + 阶段 1 + todo 计数 1 + 该条至多 3 行
-  assert.ok(todoLines.length <= 6, `条目上限内: ${todoLines.length} 行`);
+  // 目标 1 + 阶段 1 + 块间虚线 1 + todo 计数 1 + 该条至多 3 行（2026-09-17 加块间虚线）
+  assert.ok(todoLines.length <= 7, `条目上限内: ${todoLines.length} 行`);
   assert.ok(body.includes("(+"), "todo 折叠提示");
 });
 
@@ -119,9 +119,10 @@ test("renderStatusColumn: 滚动窗口 clamp——超长内容可下滚看更晚
     content: `任务${i}`,
     status: "pending",
   }));
-  // 高 4 行：首屏只看到顶部（任务0 开头），滚动后看到任务0 消失、任务9 出现
+  // 高 5 行（目标/阶段/块间虚线/计数 + 1 条任务）：首屏看到顶部（任务0 开头），
+  // 滚动后看到任务0 消失、任务9 出现
   const top = col(setGoal("active", "目标"), todos, {
-    height: 4,
+    height: 5,
     width: 20,
     scroll: 0,
   });
