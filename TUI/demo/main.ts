@@ -16,8 +16,11 @@ import { createProcessStatusQueries } from "../src/app/status.ts";
 import { createMockDshAdapter, type MockDshAdapter } from "./mockAdapter.ts";
 
 const renderer = createRenderer();
+// demo 交互模式启用自动审批（第二次回复后弹审批窗）；smoke 由脚本显式
+// 驱动审批弹窗，避免自动触发与脚本时序互相干扰
+const smoke = process.argv.includes("--smoke") || !process.stdin.isTTY;
 const adapter: MockDshAdapter = createMockDshAdapter({
-  autoApproval: false, // 冒烟由脚本显式驱动审批弹窗，避免 timing 干扰
+  autoApproval: !smoke,
 }) as MockDshAdapter;
 
 // demo 不读 profile 配置，主题经 --theme <light|dark> 显式传入（缺省内置默认）
@@ -35,7 +38,6 @@ app.start();
 // 退出路径交 renderer：/quit 命令、SIGINT/SIGTERM 信号或进程结束即可；此处不加额外逻辑。
 
 // —— 冒烟模式（无 TTY 或显式 --smoke）：合成按键驱动 + 自断言，产出 SMOKE_* 证据 ——
-const smoke = process.argv.includes("--smoke") || !process.stdin.isTTY;
 // 捕获 renderer 写出的帧文本（ANSI 剥离后扫描提示符/审批弹窗证据）
 let smokeOut = "";
 if (smoke) {
