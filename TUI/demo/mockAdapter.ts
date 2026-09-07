@@ -316,7 +316,7 @@ export class MockDshAdapter implements DshAdapter {
         110,
       ),
     );
-    // 模式徽标：plan 开启 + sandbox read-only + permission danger-full-access → plan·ro·full
+    // 状态列 Mode 块数据：plan 开启 + sandbox read-only + permission danger-full-access（全选项列出，生效项强调）
     for (const [kind, value] of [
       ["plan", "on"],
       ["sandbox", "read-only"],
@@ -347,7 +347,7 @@ export class MockDshAdapter implements DshAdapter {
         150,
       ),
     );
-    // 启动注入 jobs 快照：状态列 jobs 块 / 状态栏 jobs 徽标默认可见；
+    // 启动注入 jobs 快照：状态列 jobs 块默认可见（水平状态栏 jobs 徽标已于 2026-09-07 移除）；
     // /jobs 打开仍走 refreshJobs 重拉（行为不变）
     this.timers.push(
       setTimeout(

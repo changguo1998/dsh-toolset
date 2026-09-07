@@ -221,6 +221,21 @@ export const ACTIVITY_SEPARATOR = "─"; // 对话历史 ↔ 流输出（活动�
 
 /** 状态列内 goal/todo/jobs 块间分隔：点更少的虚线（double dash，窗口内部板块分隔保留虚线） */
 export const STATUS_BLOCK_SEPARATOR = "╌";
+
+/** 权限/沙箱等级缩写（状态列 Mode 块与旧状态栏徽标共用） */
+const MODE_SHORT: Record<string, string> = {
+  "read-only": "ro",
+  "workspace-write": "wr",
+  "danger-full-access": "full",
+};
+
+/** 权限等级配色（红色=高危险 / 黄=可写 / 绿=只读安全）：ro 绿、wr 黄、full 红 */
+function permColor(themeId: ThemeId, code: string): (s: string) => string {
+  if (code === "ro") return colorFor(themeId, "green");
+  if (code === "wr") return colorFor(themeId, "yellow");
+  if (code === "full") return colorFor(themeId, "red");
+  return colorFor(themeId, "gray");
+}
 /** 焦点面板四边框的保留格：顶部 1 行、左侧 1 列、右侧 1 列（所有状态恒定，未聚焦留空白占位，防内容重排） */
 export const FRAME_TOP_ROWS = 1;
 export const FRAME_LEFT_COLS = 1;
@@ -319,6 +334,66 @@ function capWrap(
   return kept;
 }
 
+/** 状态列 Mode 块：列出会话运行模式/权限/审批策略的所有可选项，生效项着色强调、其余灰。
+ *  plan=青（on/off）；sandbox、permission=ro 绿 / wr 黄 / full 红；policy=ask 绿 / auto 红；
+ *  preset=洋红（动态值无可枚举，仅显示当前值）。无会话数据时整块省略。 */
+function modeBlock(
+  mode: ModeState | undefined,
+  policy: "ask" | "never" | undefined,
+  preset: string | undefined,
+  width: number,
+  themeId: ThemeId,
+): { text: string; color?: (s: string) => string }[] {
+  const out: { text: string; color?: (s: string) => string }[] = [];
+  const has =
+    mode !== undefined ||
+    policy !== undefined ||
+    (preset !== undefined && preset !== "");
+  if (!has) return out;
+  out.push({ text: colorFor(themeId, "blue")("Mode") });
+  const gray = (s: string) => colorFor(themeId, "gray")(s);
+  // 一行列出某项目的全部可选项：生效项用 act 强调色、其余灰
+  const pick = (
+    tag: string,
+    options: readonly string[],
+    current: string | undefined,
+    act: (s: string) => string,
+  ): void => {
+    out.push({
+      text:
+        tag +
+        " " +
+        options.map((o) => (o === current ? act(o) : gray(o))).join(" "),
+    });
+  };
+  if (mode) {
+    if (mode.plan)
+      pick("plan", ["off", "on"], mode.plan, (s) =>
+        colorFor(themeId, "cyan")(s),
+      );
+    if (mode.sandbox) {
+      const code = MODE_SHORT[mode.sandbox] ?? mode.sandbox;
+      pick("sandbox", ["ro", "wr", "full"], code, (s) =>
+        permColor(themeId, s)(s),
+      );
+    }
+    // permission 独立列出全部可选项（不因与 sandbox 相同而省略——用户要求逐项全列）
+    if (mode.permission) {
+      const code = MODE_SHORT[mode.permission] ?? mode.permission;
+      pick("permission", ["ro", "wr", "full"], code, (s) =>
+        permColor(themeId, s)(s),
+      );
+    }
+  }
+  if (policy)
+    pick("policy", ["ask", "auto"], policy === "never" ? "auto" : "ask", (s) =>
+      colorFor(themeId, s === "ask" ? "green" : "red")(s),
+    );
+  if (preset && preset !== "")
+    out.push({ text: "preset " + preset, color: colorFor(themeId, "magenta") });
+  return out;
+}
+
 /** 顶部状态列正文行（未按可视高度裁剪；供滚动窗口取窗） */
 function statusColumnBody(
   goal: GoalState | undefined,
@@ -329,27 +404,34 @@ function statusColumnBody(
   capGoal = STATUS_GOAL_MAX_LINES,
   capTodo = STATUS_TODO_MAX_LINES,
   omitDone = false,
+  mode?: ModeState,
+  policy?: "ask" | "never",
+  preset?: string,
 ): { text: string; color?: (s: string) => string }[] {
   const out: { text: string; color?: (s: string) => string }[] = [];
-  if (!goal || goal.status === "cleared") {
-    out.push({ text: STATUS_COL_EMPTY, color: colorFor(themeId, "gray") });
-    return out;
-  }
-  const g = goal.goal;
-  // 标题行：`Goal <phase>`（Goal 蓝 + phase 状态色：active/complete 绿、paused 黄、blocked 红）
-  out.push({
-    text:
-      colorFor(themeId, "blue")("Goal ") +
-      colorFor(themeId, GOAL_PHASE_COLOR[g.phase] ?? "green")(g.phase),
-  });
-  // objective 正文（可长，上限 capGoal 行；无「目标」前缀）
-  out.push(...capWrap(g.objective || "（空目标）", width, capGoal));
-  // blocked → blockedReason.message 黄 tone
-  if (g.phase === "blocked" && g.blockedReason?.message) {
+  // 会话运行模式/权限/策略块（水平状态栏迁来）：放在最前，独立于 goal 是否存在
+  out.push(...modeBlock(mode, policy, preset, width, themeId));
+  // goal 块非必需：无 goal（含 cleared）显示占位，但 todo/jobs 块独立展示（不早退）。
+  // Mode 块在最前已 push；todo/jobs 块在有数据时仍渲染（jobs 不再被无 goal 吞掉）
+  if (goal && goal.status !== "cleared") {
+    const g = goal.goal;
+    // 标题行：`Goal <phase>`（Goal 蓝 + phase 状态色：active/complete 绿、paused 黄、blocked 红）
     out.push({
-      text: "阻塞: " + g.blockedReason.message,
-      color: colorFor(themeId, "yellow"),
+      text:
+        colorFor(themeId, "blue")("Goal ") +
+        colorFor(themeId, GOAL_PHASE_COLOR[g.phase] ?? "green")(g.phase),
     });
+    // objective 正文（可长，上限 capGoal 行；无「目标」前缀）
+    out.push(...capWrap(g.objective || "（空目标）", width, capGoal));
+    // blocked → blockedReason.message 黄 tone
+    if (g.phase === "blocked" && g.blockedReason?.message) {
+      out.push({
+        text: "阻塞: " + g.blockedReason.message,
+        color: colorFor(themeId, "yellow"),
+      });
+    }
+  } else {
+    out.push({ text: STATUS_COL_EMPTY, color: colorFor(themeId, "gray") });
   }
   // todo 块标题（完成数/总数，蓝）+ 列表（每条上限 capTodo 行）：
   // `○ ` 待办(默认空心圆) / `● ` 进行中(黄实心圆) / `✓ ` 完成(灰+删除线)
@@ -458,13 +540,29 @@ export function renderStatusColumn(
   height: number,
   width: number,
   themeId: ThemeId,
+  /** 会话运行模式/权限/策略（缺省 undefined：Mode 块省略） */
+  mode?: ModeState,
+  policy?: "ask" | "never",
+  preset?: string,
 ): string[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);
   // 状态列折叠策略：整体高度内不折叠任何内容（完整渲染）；
   // 溢出时优先隐藏已完成任务（completed todo / done jobs），仍溢出再折叠长内容
   const inf = Number.MAX_SAFE_INTEGER;
-  let body = statusColumnBody(goal, todos, jobs, w - 1, themeId, inf, inf);
+  let body = statusColumnBody(
+    goal,
+    todos,
+    jobs,
+    w - 1,
+    themeId,
+    inf,
+    inf,
+    false,
+    mode,
+    policy,
+    preset,
+  );
   if (body.length > h) {
     const noDone = statusColumnBody(
       goal,
@@ -475,6 +573,9 @@ export function renderStatusColumn(
       inf,
       inf,
       true,
+      mode,
+      policy,
+      preset,
     );
     body =
       noDone.length <= h
@@ -488,6 +589,9 @@ export function renderStatusColumn(
             STATUS_GOAL_MAX_LINES,
             STATUS_TODO_MAX_LINES,
             true,
+            mode,
+            policy,
+            preset,
           );
   }
   const start = statusStartFor(body.length, scroll, h);
@@ -515,6 +619,9 @@ function buildTopRegion(
   todos: TodoItemLike[] | undefined,
   jobs: JobInfo[] | undefined,
   statusScroll: number,
+  mode?: ModeState,
+  policy?: "ask" | "never",
+  preset?: string,
 ): RenderLine[] {
   // 焦点框保留格（所有状态恒定，避免内容重排）：顶部边框行始终占 1 行；
   // 左侧框格列（历史/活动区左缘）与右侧框列（状态列右缘）在宽度允许时各占 1 列；
@@ -564,6 +671,9 @@ function buildTopRegion(
     contentTopH,
     statusColWidth,
     state.themeId,
+    mode,
+    policy,
+    preset,
   );
   // 边框构图参数：分隔竖线列 = historyWidth（历史区右缘/状态列左缘，
   // 为旧 statusColWidth-1 的镜像）；col0 左缘框格属历史/活动区，
@@ -1034,17 +1144,6 @@ export function renderStatusLine(
   cols: number,
   /** 最新一次模型调用 token 用量（有且 total>0 时覆盖 contextLen/cacheHit 占位） */
   usage?: AppState["usage"],
-  /** P2 B1+B2 + C：当前活跃会话的 goal/todo/mode/policy（状态栏 goal 徽标 + todo 计数 +
-   *  模式徽标三合一 + 审批策略徽标；缺省不显示） */
-  session?: {
-    goal?: GoalState;
-    todos?: TodoItemLike[];
-    mode?: ModeState;
-    policy?: "ask" | "never";
-    /** P3：当前会话 agent 预设 + 运行中任务计数（状态栏短徽标；无值省略） */
-    preset?: string;
-    jobsCount?: number;
-  },
 ): RenderLine[] {
   const u = usage ? usageStatus(usage) : undefined;
   const ctxSeg = u?.ctx ?? status.contextLen;
@@ -1073,76 +1172,17 @@ export function renderStatusLine(
     g.reduce((acc, s, i) => acc + (i > 0 ? 1 : 0) + displayWidth(s.text), 0);
   // 各组完整版
   // 段配色：time 默认 / git 洋红 / cwd 蓝 / title 青 / provider 紫 / model 青
-  //          / 后缀 灰 / ctx 蓝 / cache 默认；会话徽标 plan=灰 / permission=等级色(ro绿/wr黄/full红)
-  //          / policy=ask绿/auto红 / preset=洋红 / jobs=青——等级相关用红黄绿示危险程度
+  //          / 后缀 灰 / ctx 蓝 / cache 默认（会话模式/策略/preset/jobs 徽标已于
+  //          2026-09-07 全部移入顶部状态列 Mode 块，见 statusColumnBody/modeBlock）
   const magenta = (s: string) => colorFor(themeId, "magenta")(s);
-  const gray = (s: string) => colorFor(themeId, "gray")(s);
-  // P2 B2：模式徽标三合一（plan→sandbox→permission 固定顺序，组内 · 分隔）。
-  // 省略规则（DESIGN:369）：plan 仅 active 显示；sandbox 等于部署默认（workspace-write→wr）省略；
-  // permission 缩略与 sandbox 相同省略；三者皆省略整槽消失。窄屏随 session 组级折行。
-  const MODE_SHORT: Record<string, string> = {
-    "read-only": "ro",
-    "workspace-write": "wr",
-    "danger-full-access": "full",
-  };
-  // 权限等级配色（红色=高危险 / 黄=可写 / 绿=只读安全）：ro 绿、wr 黄、full 红
-  const permColor = (code: string): ((s: string) => string) => {
-    if (code === "ro") return colorFor(themeId, "green");
-    if (code === "wr") return colorFor(themeId, "yellow");
-    if (code === "full") return colorFor(themeId, "red");
-    return gray;
-  };
-  const modeBadge = (m: ModeState | undefined): Seg[] => {
-    if (!m) return [];
-    const segs: Seg[] = [];
-    if (m.plan === "on") segs.push({ text: "plan", color: gray });
-    const sandbox =
-      m.sandbox === undefined
-        ? undefined
-        : (MODE_SHORT[m.sandbox] ?? m.sandbox);
-    if (sandbox !== undefined && sandbox !== "wr")
-      segs.push({ text: sandbox, color: permColor(sandbox) });
-    const permission =
-      m.permission === undefined
-        ? undefined
-        : (MODE_SHORT[m.permission] ?? m.permission);
-    if (permission !== undefined && permission !== sandbox)
-      segs.push({ text: permission, color: permColor(permission) });
-    return segs;
-  };
-  /** 会话状态徽标：goal/todo 已于 2026-09-17 移除（右侧顶部状态列已详显 goal 阶段与
-   *  todo 列表，见 statusColumnBody）；此处仅保留无其它展示位的模式/策略/预设/任务徽标 */
-  const taskBadges = (): Seg[] => {
-    const out: Seg[] = [];
-    out.push(...modeBadge(session?.mode));
-    // C 阶段：当前审批策略（approval/policy 事件 latest-wins；无该会话事件省略）。
-    // ask 示 `ask`（绿=人工把关，安全）、never 示 `auto`（红=自动放行，高风险）
-    if (session?.policy) {
-      out.push({
-        text: session.policy === "never" ? "auto" : "ask",
-        color:
-          session.policy === "never"
-            ? colorFor(themeId, "red")
-            : colorFor(themeId, "green"),
-      });
-    }
-    // P3：agent 预设 + 运行中任务计数（短徽标；无值省略）
-    if (session?.preset && session.preset !== "") {
-      out.push({ text: "preset:" + session.preset, color: magenta });
-    }
-    if (session?.jobsCount && session.jobsCount > 0) {
-      out.push({ text: "jobs " + session.jobsCount, color: cyanTitle });
-    }
-    return out;
-  };
   const envFull: Seg[] = [
     { text: status.time, color: identity },
     { text: status.git, color: magenta },
     { text: status.cwd, color: blue },
   ];
   const sessionFull: Seg[] = withTitle
-    ? [{ text: titleText, color: cyanTitle }, ...taskBadges()]
-    : taskBadges();
+    ? [{ text: titleText, color: cyanTitle }]
+    : [];
   const llmFull: Seg[] = [
     { text: modelSeg, color: (s) => colorModel(themeId, s) },
     { text: ctxSeg, color: blue },
@@ -1161,22 +1201,10 @@ export function renderStatusLine(
       { text: fitTail(status.cwd, budget), color: blue },
     ];
   };
-  const sessionFit = (w: number): Seg[] => {
-    // 组内压缩仅压标题（goal/todo/模式徽标短且新，优先保留）；宽度不足时整组走折行
-    const badges = taskBadges();
-    const bw =
-      badges.reduce(
-        (acc, s, i) => acc + (i > 0 ? 1 : 0) + displayWidth(s.text),
-        0,
-      ) + (badges.length > 0 ? 1 : 0); // 标题与徽标间的 ·
-    const tw = Math.max(0, w - bw);
-    return [
-      ...(withTitle
-        ? [{ text: fitHead(titleText, Math.max(0, tw)), color: cyanTitle }]
-        : []),
-      ...badges,
-    ];
-  };
+  const sessionFit = (w: number): Seg[] =>
+    withTitle
+      ? [{ text: fitHead(titleText, Math.max(1, w)), color: cyanTitle }]
+      : [];
   const llmFit = (w: number): Seg[] => {
     const budget = Math.max(
       1,
@@ -1256,7 +1284,6 @@ function activeSessionFields(state: AppState): {
   mode?: ModeState;
   policy?: "ask" | "never";
   preset?: string;
-  jobsCount: number;
 } {
   const goal = state.activeSessionId
     ? state.goalBySession[state.activeSessionId]
@@ -1271,28 +1298,22 @@ function activeSessionFields(state: AppState): {
   const policy = state.activeSessionId
     ? state.policyBySession[state.activeSessionId]
     : undefined;
-  // P3：当前活跃会话 agent 预设 + 运行中任务计数（状态栏短徽标）
+  // P3：当前活跃会话 agent 预设（状态列 Mode 块显示当前值）
   const preset = state.activeSessionId
     ? state.presetBySession[state.activeSessionId]
     : undefined;
-  const jobsCount = state.jobs.filter(
-    (j) => j.status === "running" || j.status === "stopping",
-  ).length;
-  return { goal, todos, mode, policy, preset, jobsCount };
+  return { goal, todos, mode, policy, preset };
 }
 
 /** 普通输入态（无模态面板）顶部三面板可视行高；PgUp/PgDn 整页滚动页大小 */
 export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
   const fullWidth = Math.max(1, size.cols);
-  const { goal, todos, mode, policy, preset, jobsCount } =
-    activeSessionFields(state);
   const statusLines = renderStatusLine(
     state.systemStatus,
     state.sessionTitle,
     state.themeId,
     fullWidth,
     state.usage,
-    { goal, todos, mode, policy, preset, jobsCount },
   );
   const topHeight = metricsFor(size, false, statusLines.length, 1).topHeight;
   const contentTopH = Math.max(0, topHeight - FRAME_TOP_ROWS);
@@ -1353,9 +1374,8 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const question = state.question;
   const history = state.history;
   const jobsPanel = state.jobsPanel;
-  // 状态栏徽标 / 顶部面板只读当前活跃会话字段
-  const { goal, todos, mode, policy, preset, jobsCount } =
-    activeSessionFields(state);
+  // 顶部面板（对话/活动/状态列）只读当前活跃会话字段
+  const { goal, todos, mode, policy, preset } = activeSessionFields(state);
   const fullWidth = Math.max(1, size.cols);
   // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
   // 按键提示区仅输入态存在（审批/问答/选择/历史面板自带按键提示），与输入区之间不画横线
@@ -1367,7 +1387,6 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     state.themeId,
     fullWidth,
     state.usage,
-    { goal, todos, mode, policy, preset, jobsCount },
   );
   // 面板态/输入态共用固定交互区高度（见 metricsFor）；提示区仅输入态计入
   const metrics = metricsFor(
@@ -1387,6 +1406,9 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     todos,
     state.jobs,
     state.statusColumnScroll,
+    mode,
+    policy,
+    preset,
   );
 
   let footerLines: RenderLine[];

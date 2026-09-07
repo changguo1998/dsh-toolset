@@ -240,8 +240,9 @@ test("/jobs：面板关闭后迟到 jobs-changed 不重开面板、jobs 状态�
   renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
   assert.ok(!frames(renderer).includes("后台任务"), "前提：面板已关闭");
   // 迟到 jobs-changed（活跃会话）→ 面板保持关闭，jobs 状态仍更新
-  // （初始 refreshJobs 快照 DEMO_JOBS 为 1 个运行中 → 徽标 jobs 1；
-  //  迟到快照带 2 个运行中 → 徽标变 jobs 2，证明 state 确实被更新）
+  // （初始 refreshJobs 快照 DEMO_JOBS=1 运行中/2 总数 → 状态列 Jobs 1/2；
+  //  迟到快照带 2 个运行中 → 状态列 Jobs 2/2，证明 state 确实被更新；
+  //  水平状态栏 jobs 徽标已于 2026-09-07 移除）
   adapter.emit({
     type: "jobs-changed",
     sessionId: "s1",
@@ -263,8 +264,8 @@ test("/jobs：面板关闭后迟到 jobs-changed 不重开面板、jobs 状态�
   await tick();
   const f = frames(renderer);
   assert.ok(!f.includes("后台任务"), "迟到事件不得重开面板: " + f);
-  assert.ok(f.includes("jobs 2"), "jobs 徽标反映迟到快照（状态仍更新）: " + f);
-  assert.ok(!f.includes("jobs 1"), "徽标应已被迟到快照覆盖: " + f);
+  assert.ok(f.includes("Jobs 2/2"), "状态列 Jobs 块反映迟到快照（状态仍更新）: " + f);
+  assert.ok(!f.includes("Jobs 1/2"), "Jobs 标题应已被迟到快照覆盖: " + f);
   app.dispose();
 });
 
@@ -286,7 +287,7 @@ test("/jobs：非活跃会话 jobs-changed / agent-preset 事件被丢弃（会�
   });
   await tick();
   let f = frames(renderer);
-  assert.ok(!f.includes("jobs 1"), "非活跃会话 jobs 不得入状态: " + f);
+  assert.ok(!f.includes("Jobs"), "非活跃会话 jobs 不得入状态列: " + f);
   // 非活跃会话 s2 的 agent-preset → 丢弃（状态栏不出现 preset 徽标）
   adapter.emit({
     type: "agent-preset",
@@ -296,8 +297,8 @@ test("/jobs：非活跃会话 jobs-changed / agent-preset 事件被丢弃（会�
   await tick();
   f = frames(renderer);
   assert.ok(
-    !f.includes("preset:ghost-preset"),
-    "非活跃会话 preset 不得入状态: " + f,
+    !f.includes("ghost-preset"),
+    "非活跃会话 preset 不得入状态列 Mode 块: " + f,
   );
   // 活跃会话 s1 的事件正常进入
   adapter.emit({
@@ -314,10 +315,10 @@ test("/jobs：非活跃会话 jobs-changed / agent-preset 事件被丢弃（会�
   });
   await tick();
   f = frames(renderer);
-  assert.ok(f.includes("jobs 1"), "活跃会话 jobs 正常入状态: " + f);
+  assert.ok(f.includes("Jobs 1/1"), "活跃会话 jobs 正常入状态列: " + f);
   assert.ok(
-    f.includes("preset:own-preset"),
-    "活跃会话 preset 正常入状态: " + f,
+    f.includes("own-preset"),
+    "活跃会话 preset 正常入状态列 Mode 块: " + f,
   );
   app.dispose();
 });

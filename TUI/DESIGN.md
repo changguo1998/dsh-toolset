@@ -225,7 +225,7 @@ interface Renderer {
 ### P2 — 状态可见性与交互完整（中频，需小面板或状态栏槽位）
 
 - `goal/change`、`todo/write` — 状态区/迷你面板
-- `plan/mode`、`sandbox/mode`、`permission/preset` — 状态栏模式徽标
+- `plan/mode`、`sandbox/mode`、`permission/preset` — 状态列 Mode 块（2026-09-07 由状态栏迁入）
 - `step/start`|`end` — turn 内分步（依赖 P1 工具域先行）
 - 审批策略切换 UI（`setPolicy` ask/never）
 - `subagent/descriptor` — 子代理可见性
@@ -360,7 +360,7 @@ backlog 状态：P1、P2 完成（2026-09-05）；P3 部分接入（2026-09-12 �
 | 范围 | 6 项产品能力、9 个事件类型：①goal/todo 迷你面板（goal/change、todo/write）②状态栏模式徽标（plan/mode、sandbox/mode、permission/preset）③step 分步（step/start、step/end）④subagent 可见性（subagent/descriptor）⑤compaction 摘要（compaction/summary）⑥审批策略切换 UI。tool meta diff **移出本轮**（后续 P2/P3 再评估） | P1 后列表精选高频可落地项 |
 | 集成方式 | 全部集成 TUI（2026-09-04 确认不拆分），复用 DshEvent/reducer/notice/状态栏/面板通道 | 单一 UI 消费端；P2 皆 UI 表达类 |
 | goal/todo 形态 | 状态栏两类计数分列：**goal 状态徽标**（phase：active/paused/blocked/complete）+ **todo 活动计数**（in_progress n/共 m）；`/goal` 迷你面板复用 HistoryPanel 面板模式 | todo 全量快照（last-write-wins 无 id）、goal 全量快照 + clear 墓碑，无需增量 diff |
-| 模式徽标 | 状态栏 session 组三合一 slot，固定顺序 plan→sandbox→permission，未触发/默认省略、缩略显示（规则见「渲染语义」）；窄屏随 session 组级折行 | 复用 renderStatusLine 分组；避免状态栏膨胀 |
+| 模式/策略/预设 | 状态列 Mode 块：逐项目列出全部可选项（plan off/on、sandbox ro/wr/full、permission ro/wr/full、policy ask/auto、preset 当前值），生效项着色强调、其余灰；无数据整块省略 | 状态列 modeBlock（见渲染语义） |
 | step 分步 | 仅在该 step 出现首个工具调用时渲染分组头 `step N`；无工具 step 静默 | step/start 无载荷值，只为工具行分组服务 |
 | subagent 行 | buffer 行前缀 **候选**「`@ <label>`」+ mode 缩略（os/ct）；**符号与展示形态验收前需用户确认**，不视为已定 | 低频，行级即可；符号沿用用户符号偏好流程 |
 | compaction 摘要 | **仅 toast（复用 notice 通道，tone 默认）**：`压缩完成：<首个非空文本块首行>`；不写持久 buffer、不做折叠行；完整载荷只入 state 待查 | 压缩可高频，持久行污染对话历史；与 compaction/start/end 现有 toast 一致 |
@@ -384,7 +384,7 @@ backlog 状态：P1、P2 完成（2026-09-05）；P3 部分接入（2026-09-12 �
 
 - **goal**：DshEvent 为判别联合（见事件映射）；state 侧**按 sessionId 隔离**（`state.goalBySession[sessionId]`），同样用判别联合并**完整保留原始载荷字段**：非 clear `{status:'set', operation, goal: GoalSnapshot(含 id/revision/objective/phase/blockedReason?/maxGoalRounds), roundsStarted, createdAt, updatedAt}`；clear `{status:'cleared', operation:'clear', cleared: GoalRef, clearedAt}`（**不丢弃 operation、maxGoalRounds、时间字段与 clearedAt**，UI 只取所需）；clear → 徽标省略、面板清空；非 clear → 快照全量替换（原子，无增量）；切换活跃会话读对应 sessionId 状态，杜绝旧会话泄漏。
 - **todo**：每次 `todo/write` 全量替换**该会话**列表（`state.todoBySession[sessionId]`）；进行中计数 = todos.filter(status==='in_progress')；切换活跃会话读对应状态。
-- **模式徽标**：状态按 sessionId 隔离（`state.modeBySession[sessionId]`）；顺序固定 plan→sandbox→permission，组内 `·` 分隔；plan 仅 active 显示；sandbox 等于部署默认（注入，缺省 workspace-write）时省略；permission 缩略与 sandbox 相同则省略；三者皆省略则整 slot 消失；窄屏随 session 组级折行（组整体换行，不做槽内截断）。 **徽标等级配色（2026-09-07）**：permission/sandbox 缩略段按危险等级着色——ro 绿（只读安全）/ wr 黄（可写中危）/ full 红（全访问高危），plan 仍灰；策略徽标 `ask` 绿（人工把关安全）、`auto`(never) 红（自动放行高危）；preset 洋红、jobs 青不变——状态栏内与状态等级相关内容以红黄绿示危险程度。
+- **模式/策略/预设（状态列 Mode 块，2026-09-07 由状态栏迁入）**：状态按 sessionId 隔离（`state.modeBySession[sessionId]` / `policyBySession` / `presetBySession`）。**每个项目一行列出全部可选项**：`plan off on`、`sandbox ro wr full`、`permission ro wr full`、`policy ask auto`、`preset <值>`（preset 为动态值不可枚举，仅显示当前值）；**生效项着色强调、其余灰**——plan 生效=青；sandbox/permission 生效按危险等级 ro 绿（只读安全）/ wr 黄（可写中危）/ full 红（全访问高危）；policy 生效 ask 绿（人工把关）/ `auto`（never）红（自动放行）；preset 洋红。sandbox 与 permission 各自独立列出（不再因相同而省略）。无 mode/policy/preset 数据时 Mode 块整块省略。窄列超宽走状态列截断（与状态列其余内容一致，可滚动查看）。
 - **step**：P1 工具组按 callId 配对刷新；B3 引入 step 边界——`step/start` 到来且当前有活动工具组时先 flush 该组并另起分组头 `step N`；无工具调用的 step 不产生任何输出；`step/end` 只关闭分组状态。
 - **subagent**（候选）：append-only 不配对不折叠；不在行内展示 persona/toolFilter。
 - **compaction/summary**：只取首个非空文本块首行入 toast；空摘要（无文本块）→「压缩完成（无摘要）」；DshEvent 携带 `text` 与 `raw`（完整原始载荷），reducer 存入 `state.compactionBySession[sessionId] = {raw: CompactionSummaryPayload, text}`——**每会话仅保留最近一条，不无限累积**；raw 不改写、不裁剪、不进入对话 buffer；UI 仅消费 `text`。
@@ -402,7 +402,7 @@ backlog 状态：P1、P2 完成（2026-09-05）；P3 部分接入（2026-09-12 �
 | A0 — 宿主写路径核验 ✅ | **结论：宿主存在会话级写路径** `ctx.approval.setPolicy(agent, 'ask' | 'never')`（rc.2`user-approval/src/index.ts` L226 → `setApprovalPolicy` → `session.append('approval/policy')`）→ **C 做 ask/never 两态切换**；`permissionPresets`仅为替代的组合预设路径（PresetService 配置表键 workspace-write/danger-full-access，配置可增）。**若 C 需展示当前策略**，`approval/policy` 归一化为第 10 个新 DshEvent（既有事件源，仅 C 依 A0 结果按需引入）。调研结论记入仓库根 `DSH-CTX-API.md` 第 8 节备注（本 goal 客观要求的偏差；本段保留摘要） | 调研 | ✅ ~0 代码 |
 | A — 事件层（无 UI） ✅ | **9 个新增 DshEvent 类型**（6 项能力；不含 `approval/policy`——其为既有事件）：types.ts 加 GoalOperation/GoalRefLike/GoalSnapshotLike/GoalChangeLike/TodoItemLike/SubagentDescriptorLike/ContentBlockLike/CompactionSummaryPayloadLike 与 9 个 DshEvent（goal-change 判别联合、mode×3 合一、step×2、subagent、compaction-summary{text,raw}）+ SessionEventType/DataMap 同步；dsh.ts 归一化 case（goal 以 operation==='clear' 选判别成员；todo 数组兜底空；plan/mode active→on/off；subagent label 缺省回落 provider；compaction text 取首个非空文本块）+ reducer 入状态（**goal/todo/模式/compaction 全部按 sessionId 隔离**；compaction 每会话仅最新一条不裁剪 raw）+ index.ts 透传 + **seq 守卫**（per-session 游标 `sessionSeq`：同 seq 重复/倒序丢弃、间隙接受；缺 seq 的旧 mock 跳过；非活跃会话沿用 P1 丢弃）。测试侧：FakeRuntime.fire 自动按 sessionId 分配递增 seq（兼容历史用例固定 seq:1），新增 fireRaw 供守卫用例显式注入 | types.ts / dsh.ts / state.ts / index.ts / tests/adapter.dsh.test.ts | ~260 ✅ |
 | B1 — `/goal` 迷你面板 | 状态栏 goal 徽标 + todo 计数 slot + 面板（纯函数渲染 + footer 面板态，复用 HistoryPanel 模式）；goal clear/blocked 展示 | state.ts / 新 components/GoalPanel.ts / layout.ts / index.ts + 测试 | ~240 |
-| B2 — 状态栏模式徽标 | plan/sandbox/permission 三合一 slot（顺序/省略/缩略规则见渲染语义） | layout.ts + tests/layout4.test.ts | ~60 |
+| B2 — 状态列 Mode 块 | plan/sandbox/permission/policy/preset 逐项目全选项 + 生效强调色（2026-09-07 由状态栏徽标迁入，见渲染语义） | layout.ts + tests/status-column.test.ts | ~60 |
 | B3 — step 分步 | 工具行分组头 `step N`（新 step 先 flush 当前组）；无工具 step 静默 | layout.ts / tool-line.ts + 测试 | ~60 |
 | B4 — subagent 行（候选确认后） | buffer 行 `@ <label> <os/ct>`（append-only） | layout.ts / tool-line.ts + 测试 | ~40 |
 | B5 — compaction 摘要 | dsh.ts 提取 text + index.ts 发 notice toast（tone 默认）；原始载荷入 state | dsh.ts / index.ts + 测试 | ~40 |

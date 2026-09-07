@@ -1311,107 +1311,17 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
   assert.ok(t.includes("ctx 12.4k"), "窄列下 contextLen 段保留");
   assert.ok(!t.includes("新会话"), "窄列下标题段省略");
 
-  // --- P2 B1+B2：状态栏 goal 徽标 / todo 计数 / 模式徽标三合一 ---
+  // --- 会话徽标已整体迁出：plan/sandbox/permission/ask/preset/jobs 移入顶部状态列
+  //     Mode 块（见 statusColumnBody/modeBlock），水平状态栏不再承载任何会话徽标 ---
 
-  const sessionText = (
-    s: Parameters<typeof renderStatusLine>[5],
-    cols = 120,
-  ): string =>
-    renderStatusLine(baseStatus, "t", "dark", cols, undefined, s)
+  test("renderStatusLine: 会话徽标已全部移除（已移入顶部状态列 Mode 块；jobs 不再显示）", () => {
+    const t = renderStatusLine(baseStatus, "t", "dark", 120, undefined)
       .map((l) => l.text)
       .join("\n");
-
-  test("renderStatusLine: 模式徽标三合一（goal/todo 已移入顶部状态列，不再出现）", () => {
-    const t = sessionText({
-      goal: {
-        status: "set",
-        operation: "create",
-        goal: { id: "g1", revision: 1, objective: "x", phase: "active" },
-      } as const,
-      todos: [
-        { content: "a", status: "in_progress" },
-        { content: "b", status: "pending" },
-        { content: "c", status: "completed" },
-      ],
-      mode: {
-        plan: "on",
-        sandbox: "read-only",
-        permission: "danger-full-access",
-      },
-    });
-    assert.ok(!t.includes("goal:"), `goal 徽标已移除 (${t})`);
-    assert.ok(!t.includes("todo"), `todo 计数已移除 (${t})`);
-    assert.ok(stripAnsi(t).includes("plan·ro·full"), `模式徽标三合一 (${stripAnsi(t)})`);
-  });
-
-  test("renderStatusLine: goal/todo 徽标恒定不出现（已由右侧顶部状态列承接）", () => {
-    const t = sessionText({
-      goal: {
-        status: "set",
-        operation: "create",
-        goal: { id: "g1", revision: 1, objective: "x", phase: "paused" },
-      } as const,
-      todos: [{ content: "a", status: "in_progress" }],
-    });
-    assert.ok(!t.includes("goal:"), "goal 徽标不再显示（含阶段/clear）");
-    assert.ok(!t.includes("todo"), "todo 计数不再显示");
-    const t2 = sessionText({});
-    assert.ok(!t2.includes("todo"), "空会话无 todo 徽标");
-  });
-
-  test("renderStatusLine: 模式徽标省略规则（sandbox=wr 默认省略、permission 同缩略省略、三缺整槽消失）", () => {
-    const t1 = sessionText({
-      mode: { sandbox: "workspace-write", permission: "danger-full-access" },
-    });
-    assert.ok(!t1.includes("wr"), "sandbox 默认 workspace-write 省略");
-    assert.ok(t1.includes("full"), `permission full 保留 (${t1})`);
-    const t2 = sessionText({
-      mode: { sandbox: "read-only", permission: "read-only" },
-    });
-    assert.ok(!t2.includes("ro·ro"), "permission 与 sandbox 同缩略时省略");
-    assert.ok(
-      stripAnsi(t2).includes("·ro"),
-      `sandbox ro 保留（徽标已上色，剥 ANSI 后断言）(${t2})`,
-    );
-    const t3 = sessionText({
-      mode: {
-        plan: "off",
-        sandbox: "workspace-write",
-        permission: "workspace-write",
-      },
-    });
-    assert.ok(
-      !t3.includes("plan") &&
-        !t3.includes("ro") &&
-        !t3.includes("wr") &&
-        !t3.includes("full"),
-      `三缺整槽消失 (${t3})`,
-    );
-  });
-
-  test("renderStatusLine: 窄屏会话组（标题+徽标）组级折行、徽标完整不截断", () => {
-    const cols = 34;
-    const lines = renderStatusLine(
-      baseStatus,
-      "会话标题很长很长很长",
-      "dark",
-      cols,
-      undefined,
-      {
-        goal: {
-          status: "set",
-          operation: "create",
-          goal: { id: "g", revision: 1, objective: "x", phase: "blocked" },
-        } as const,
-        todos: [{ content: "a", status: "in_progress" }],
-        mode: { plan: "on", sandbox: "read-only" },
-      },
-    );
-    const t = lines.map((l) => l.text).join("\n");
-    assert.ok(!t.includes("goal:"), `窄屏也不再显示 goal 徽标 (${t})`);
-    assert.ok(stripAnsi(t).includes("plan·ro"), `窄屏模式徽标完整 (${stripAnsi(t)})`);
-    for (const l of lines)
-      assert.ok(displayWidth(l.text) <= cols, `每行不超宽 (${l.text})`);
+    for (const bad of ["plan", "ro·", "·full", "ask", "auto", "preset:", "jobs "]) {
+      assert.ok(!t.includes(bad), `水平栏不再含徽标「${bad}」(${t})`);
+    }
+    assert.ok(t.includes("t"), "标题段仍在");
   });
 });
 

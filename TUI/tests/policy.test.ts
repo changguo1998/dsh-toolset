@@ -8,9 +8,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { App } from "../src/app/index.ts";
-import { initialState, reduceState, type AppState } from "../src/app/state.ts";
+import { initialState, reduceState } from "../src/app/state.ts";
 import { routeSlashCommand } from "../src/app/commands.ts";
-import { renderStatusLine } from "../src/app/layout.ts";
+import { renderStatusColumn } from "../src/app/layout.ts";
 import { createRealDshAdapter } from "../src/app/adapter/dsh.ts";
 import type {
   DshAdapter,
@@ -28,33 +28,37 @@ import type { ThemeId } from "../src/renderer/theme.ts";
 
 // ---------- layout：策略徽标 ----------
 
-test("renderStatusLine: policy ask → 徽标 ask；never → auto；缺省省略", () => {
-  const status: AppState["systemStatus"] = {
-    time: "10:00",
-    cwd: "~/p",
-    git: "main",
-    model: "p/m:on",
-    contextLen: "-",
-    cacheHit: "-",
-  };
-  const strip = (lines: RenderLine[]): string =>
-    lines
-      .map((l) => l.text)
-      .join("\n")
-      .replace(/\x1b\[[0-9;]*m/g, "");
-  const ask = strip(
-    renderStatusLine(status, "t", "dark", 80, undefined, { policy: "ask" }),
-  );
-  assert.ok(ask.includes("ask"), "ask 策略应显示 ask 徽标: " + ask);
-  const auto = strip(
-    renderStatusLine(status, "t", "dark", 80, undefined, { policy: "never" }),
-  );
-  assert.ok(auto.includes("auto"), "never 策略应显示 auto 徽标: " + auto);
-  assert.ok(!auto.includes("ask"), "never 不应显示 ask: " + auto);
-  const none = strip(renderStatusLine(status, "t", "dark", 80, undefined, {}));
+test("renderStatusColumn: policy ask → 行列出 ask/auto（ask 生效）；never → auto 生效；缺省省略", () => {
+  const theme = initialState().themeId;
+  const strip = (policy: "ask" | "never" | undefined): string =>
+    renderStatusColumn(
+      undefined,
+      [],
+      undefined,
+      0,
+      6,
+      30,
+      theme,
+      undefined,
+      policy,
+      undefined,
+    )
+      .map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""))
+      .join("\n");
+  const ask = strip("ask");
   assert.ok(
-    !none.includes("ask") && !none.includes("auto"),
-    "无 policy 时应省略徽标: " + none,
+    ask.includes("policy ask auto"),
+    "ask 策略行列出 ask/auto 可选项: " + ask,
+  );
+  const auto = strip("never");
+  assert.ok(
+    auto.includes("policy ask auto"),
+    "never 策略行仍列出 ask/auto（auto 为生效项，着色在原始行）: " + auto,
+  );
+  const none = strip(undefined);
+  assert.ok(
+    !none.includes("policy") && !none.includes("Mode"),
+    "无 policy 时 Mode 块（含 policy 行）省略: " + none,
   );
 });
 
