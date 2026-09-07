@@ -1,12 +1,16 @@
 // demo/main.ts — demo 入口：mock adapter 喂数据，走通 renderer→app 全栈
 //
-// 独立入口，无 DSH 依赖。构建后运行 dist/demo/main.js。
-// 无 TTY（管道/CI 等）或带 --smoke 时自动走冒烟脚本：合成按键驱动并自断言
+// 独立入口，无 DSH 依赖（不读取 profile 的 cordis.patch.yml 配置）。
+// 构建后运行 dist/demo/main.js；可选参数：
+//   --theme dark|light  显式指定主题（幂等；非法值回退内置默认）
+//   --smoke             无 TTY（管道/CI 等）或带 --smoke 时自动走冒烟脚本：
+//                       合成按键驱动并自断言
 // 新输入交互（! 为普通字符 / $ 切模式 + shell 提交左提示符 $ / 空输入 Backspace
 // 回退 / Alt+Enter 打断并发送 / Esc idle 无操作 / 审批弹窗 Esc 不打断不关闭），
 // 产出 SMOKE_* 证据后 /quit 以退出码 0 收尾，便于无头环境演示与机械验证。
 
 import { createRenderer, type KeyEvent } from "../src/renderer/index.ts";
+import { normalizeThemeId } from "../src/renderer/theme.ts";
 import { App } from "../src/app/index.ts";
 import { createProcessStatusQueries } from "../src/app/status.ts";
 import { createMockDshAdapter, type MockDshAdapter } from "./mockAdapter.ts";
@@ -16,9 +20,14 @@ const adapter: MockDshAdapter = createMockDshAdapter({
   autoApproval: false, // 冒烟由脚本显式驱动审批弹窗，避免 timing 干扰
 }) as MockDshAdapter;
 
+// demo 不读 profile 配置，主题经 --theme <light|dark> 显式传入（缺省内置默认）
+const themeIdx = process.argv.indexOf("--theme");
+const initialTheme = themeIdx >= 0 ? process.argv[themeIdx + 1] : undefined;
+
 const app = new App({
   renderer,
   adapter,
+  initialTheme: normalizeThemeId(initialTheme),
   status: { queries: createProcessStatusQueries(), intervalMs: 5000 },
 });
 app.start();

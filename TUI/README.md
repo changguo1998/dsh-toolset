@@ -95,7 +95,7 @@ dsh --profile <p>
 npm run build # tsc → dist/（无 bundler，Node CLI）
 npm run check # tsc --noEmit 类型检查
 npm run test  # node --test 全量（renderer 解码 + adapter fake-ctx 单测）
-npm run demo  # 构建后跑 mock demo
+npm run demo  # 构建后跑 mock demo（演示主题：npm run demo -- --theme light|dark；缺省内置默认；demo 不读 profile 配置）
 npm run watch # tsc --watch 常驻：源码变更自动编译到 dist/（仍需重启 dsh 生效）
 ```
 
