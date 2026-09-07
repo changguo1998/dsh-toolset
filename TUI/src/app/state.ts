@@ -129,11 +129,6 @@ export interface HistoryPanelState {
   pendingResume?: string;
 }
 
-/** /goal 迷你面板状态（只读展示当前会话 goal/todo；scroll 供长列表滚动，渲染层 clamp） */
-export interface GoalPanelState {
-  scroll: number;
-}
-
 export interface AppState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
@@ -168,8 +163,6 @@ export interface AppState {
   question: QuestionPanelState | null;
   /** /history 历史会话面板（只读浏览 + resume 切换）；null = 未打开 */
   history: HistoryPanelState | null;
-  /** /goal 迷你面板（null = 未打开；只读当前活跃会话 goal/todo） */
-  goalPanel: GoalPanelState | null;
   /** 当前会话标题（resume 后由 surface 首条用户消息生成；新会话为空，状态栏以 <title> 占位） */
   sessionTitle: string;
   /** P2：按 sessionId 隔离的 goal 状态（判别联合；完整保留原始载荷字段） */
@@ -309,7 +302,6 @@ export function initialState(
     picker: null,
     question: null,
     history: null,
-    goalPanel: null,
     agentStatus: "idle",
     themeId,
     systemStatus: {
@@ -716,20 +708,6 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       };
     case "history-close":
       return { ...state, history: null };
-    case "goal-panel-open":
-      return { ...state, goalPanel: { scroll: 0 } };
-    case "goal-panel-scroll": {
-      // 面板已关闭则丢弃过期滚动（stale guard，对齐 P1 面板模式）
-      if (!state.goalPanel) return state;
-      return {
-        ...state,
-        goalPanel: {
-          scroll: Math.max(0, state.goalPanel.scroll + action.delta),
-        },
-      };
-    }
-    case "goal-panel-close":
-      return { ...state, goalPanel: null };
     case "session-identify":
       return {
         ...state,
@@ -1064,9 +1042,6 @@ export type StateAction =
   | { type: "history-scroll"; delta: number }
   | { type: "history-back" }
   | { type: "history-close" }
-  | { type: "goal-panel-open" }
-  | { type: "goal-panel-scroll"; delta: number }
-  | { type: "goal-panel-close" }
   | { type: "session-identify"; id: string; title: string }
   | { type: "sessions"; sessions: SessionMeta[] }
   | { type: "input"; text: string; cursor: number }

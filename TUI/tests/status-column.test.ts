@@ -1,8 +1,8 @@
 // tests/status-column.test.ts — 顶部状态列渲染单测（renderStatusColumn）
 //
-// 覆盖：goal set（objective 目标上限 5 行 + phase + blocked 黄 tone + todo 列表
-// 每条上限 3 行折叠）、无 goal/todo 占位、滚动窗口 clamp、每行定宽含右缘竖线、
-// status-column-scroll reducer（PgUp/PgDn 经 index 转发）。
+// 覆盖：goal set（`Goal <phase>` 蓝标题+phase 状态色 + objective 目标上限 5 行 +
+// blocked 黄 tone + todo 列表每条上限 3 行折叠）、无 goal/todo 占位、滚动窗口 clamp、
+// 每行定宽含右缘竖线、status-column-scroll reducer（PgUp/PgDn 经 index 转发）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -66,8 +66,8 @@ test("renderStatusColumn: goal 目标 + phase + todo 列表渲染", () => {
     { width: 24 },
   );
   const t = rows.join("\n");
+  assert.ok(t.includes("Goal active"), "goal 标题=Goal+phase");
   assert.ok(t.includes("目标: 实现状态列"), "objective");
-  assert.ok(t.includes("阶段: active"), "phase");
   assert.ok(t.includes("todo 1/2"), "todo 计数");
   assert.ok(t.includes("[●] 渲染目标"), "进行中 [●]");
   assert.ok(t.includes("[ ] todo 列表"), "待办 [ ]");
@@ -86,7 +86,7 @@ test("renderStatusColumn: 目标超过上限折叠到 5 行并提示折叠数", 
   const objective = Array.from({ length: 40 }, (_, i) => `行${i}`).join(" ");
   const rows = col(setGoal("active", objective), [], { width: 10 });
   const goalLines = rows.filter((r) => r.includes("目标") || r.includes("(+"));
-  // 目标标题 + 折叠提示至多 STATUS_GOAL_MAX_LINES 行（不含 phase）
+  // 目标标题 + 折叠提示至多 STATUS_GOAL_MAX_LINES 行（不含 Goal 标题行）
   assert.ok(
     goalLines.length <= STATUS_GOAL_MAX_LINES,
     `目标最多 ${STATUS_GOAL_MAX_LINES} 行: ${rows.join("|")}`,
@@ -109,7 +109,7 @@ test("renderStatusColumn: 每条 todo 超过上限折叠到 3 行", () => {
   const todoLines = body
     .split("\n")
     .filter((r) => r.replace(/[│|]$/, "").trim() !== "");
-  // 目标 1 + 阶段 1 + 块间虚线 1 + todo 计数 1 + 该条至多 3 行（2026-09-17 加块间虚线）
+  // Goal 标题 1 + 目标 1 + 块间虚线 1 + todo 计数 1 + 该条至多 3 行（2026-09-17 加块间虚线）
   assert.ok(todoLines.length <= 7, `条目上限内: ${todoLines.length} 行`);
   assert.ok(body.includes("(+"), "todo 折叠提示");
 });
@@ -119,7 +119,7 @@ test("renderStatusColumn: 滚动窗口 clamp——超长内容可下滚看更晚
     content: `任务${i}`,
     status: "pending",
   }));
-  // 高 5 行（目标/阶段/块间虚线/计数 + 1 条任务）：首屏看到顶部（任务0 开头），
+  // 高 5 行（Goal 标题/目标/块间虚线/计数 + 1 条任务）：首屏看到顶部（任务0 开头），
   // 滚动后看到任务0 消失、任务9 出现
   const top = col(setGoal("active", "目标"), todos, {
     height: 5,

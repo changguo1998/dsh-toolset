@@ -26,7 +26,6 @@ import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
 import { renderHistoryPanel } from "./components/HistoryPanel.ts";
 import { renderQuestionPanel } from "./components/QuestionPrompt.ts";
-import { renderGoalPanel } from "./components/GoalPanel.ts";
 import { renderJobsPanel } from "./components/JobsPanel.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
 import { colorFor } from "../renderer/theme.ts";
@@ -286,6 +285,14 @@ function isConversationKind(kind: BufferKind): boolean {
 
 /** 顶部状态列：goal 目标条目行数上限 */
 export const STATUS_GOAL_MAX_LINES = 5;
+
+/** goal 阶段 → 标题 phase 状态色：active/complete 绿、paused 黄、blocked 红 */
+const GOAL_PHASE_COLOR: Record<string, "green" | "yellow" | "red"> = {
+  active: "green",
+  paused: "yellow",
+  blocked: "red",
+  complete: "green",
+};
 /** 顶部状态列：每条 todo 行数上限 */
 export const STATUS_TODO_MAX_LINES = 3;
 /** 顶部状态列无内容占位 */
@@ -297,7 +304,7 @@ const TODO_MARKER: Record<TodoItemLike["status"], string> = {
   completed: "[x]",
 };
 
-/** todo 行着色：进行中黄、完成绿、待办默认（与 GoalPanel 一致） */
+/** todo 行着色：进行中黄、完成绿、待办默认 */
 function todoLineColor(
   themeId: ThemeId,
   status: TodoItemLike["status"],
@@ -336,6 +343,12 @@ function statusColumnBody(
     return out;
   }
   const g = goal.goal;
+  // 标题行：`Goal <phase>`（Goal 蓝 + phase 状态色：active/complete 绿、paused 黄、blocked 红）
+  out.push({
+    text:
+      colorFor(themeId, "blue")("Goal ") +
+      colorFor(themeId, GOAL_PHASE_COLOR[g.phase] ?? "green")(g.phase),
+  });
   // 目标（可长，上限 STATUS_GOAL_MAX_LINES 行）
   out.push(
     ...capWrap(
@@ -344,8 +357,6 @@ function statusColumnBody(
       STATUS_GOAL_MAX_LINES,
     ),
   );
-  // 阶段徽标
-  out.push({ text: `阶段: ${g.phase}` });
   // blocked → blockedReason.message 黄 tone
   if (g.phase === "blocked" && g.blockedReason?.message) {
     out.push({
@@ -1241,7 +1252,6 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const picker = state.picker;
   const question = state.question;
   const history = state.history;
-  const goalPanel = state.goalPanel;
   const jobsPanel = state.jobsPanel;
   // 状态栏徽标 / 顶部面板只读当前活跃会话字段
   const { goal, todos, mode, policy, preset, jobsCount } =
@@ -1250,12 +1260,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
   // 按键提示区仅输入态存在（审批/问答/选择/历史面板自带按键提示），与输入区之间不画横线
   const normalInput =
-    !showApproval &&
-    !question &&
-    !picker &&
-    !history &&
-    !goalPanel &&
-    !jobsPanel;
+    !showApproval && !question && !picker && !history && !jobsPanel;
   const statusLines = renderStatusLine(
     state.systemStatus,
     state.sessionTitle,
@@ -1285,7 +1290,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
 
   let footerLines: RenderLine[];
   // 审批/问答/模型选择面板已上移到流输出（活动区）窗口显示，底部交互区以空白
-  // 占位（保持交互区高度稳定不跳变）；历史/目标/任务等浏览面板仍在底部渲染
+  // 占位（保持交互区高度稳定不跳变）；历史/任务等浏览面板仍在底部渲染
   if (showApproval || question || picker) {
     footerLines = Array.from({ length: metrics.footerHeight }, () => ({
       text: " ".repeat(fullWidth),
@@ -1295,15 +1300,6 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
       history,
       height: metrics.footerHeight,
       width: fullWidth,
-    });
-  } else if (goalPanel) {
-    footerLines = renderGoalPanel({
-      goal,
-      todos,
-      scroll: goalPanel.scroll,
-      height: metrics.footerHeight,
-      width: fullWidth,
-      themeId: state.themeId,
     });
   } else if (jobsPanel) {
     footerLines = renderJobsPanel({

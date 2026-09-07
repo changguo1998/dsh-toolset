@@ -6,7 +6,7 @@
 //   - 状态着色：running/stopping 黄、failed/error 红、cancelled 灰、其余默认
 //   - 底部按键提示行：↑/↓ 选择 · Enter 取消 · Esc 关闭
 // 高亮行恒在可见窗口内（窗口随 index 平移），列表放不下时截断显示。
-// 无 ANSI 之外的着色；显示宽度截断（与 GoalPanel/HistoryPanel 同风格）。
+// 无 ANSI 之外的着色；显示宽度截断（与 HistoryPanel 同风格）。
 
 import type { RenderLine } from "../../renderer/index.ts";
 import type { ThemeId } from "../../renderer/theme.ts";

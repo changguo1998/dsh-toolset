@@ -550,22 +550,6 @@ export class App {
       return;
     }
 
-    // /goal 面板：↑/↓ 滚动正文、Esc 关闭；其余按键吞掉（不落入输入栏）
-    if (this.state.goalPanel) {
-      if (name === "up")
-        this.apply((st) =>
-          reduceState(st, { type: "goal-panel-scroll", delta: -1 }),
-        );
-      else if (name === "down")
-        this.apply((st) =>
-          reduceState(st, { type: "goal-panel-scroll", delta: 1 }),
-        );
-      else if (name === "escape")
-        this.apply((st) => reduceState(st, { type: "goal-panel-close" }));
-      this.paint();
-      return;
-    }
-
     // /jobs 任务面板：↑/↓ 移动高亮、Enter 取消高亮任务、Esc 关闭；其余按键吞掉
     if (this.state.jobsPanel) {
       if (name === "up") {
@@ -894,7 +878,8 @@ export class App {
         void this.openHistory();
         return;
       case "goal":
-        this.handleGoalCommand();
+        // /goal 不再打开面板：goal/todo 详情常驻右侧顶部状态列
+        this.notice("goal/todo 详情见右侧信息栏");
         return;
       case "policy":
         this.handlePolicyCommand(line);
@@ -1172,25 +1157,6 @@ export class App {
   }
 
   /**
-   * /goal：打开/关闭当前会话目标迷你面板（只读当前活跃会话 goal/todo）。
-   * 打开时关闭互斥面板（历史/模型选择）；关闭见面板按键分支（Esc）。
-   */
-  private handleGoalCommand(): void {
-    this.apply((s) => {
-      let next = s;
-      if (next.goalPanel) {
-        next = reduceState(next, { type: "goal-panel-close" });
-      } else {
-        if (next.history) next = reduceState(next, { type: "history-close" });
-        if (next.picker) next = reduceState(next, { type: "picker-close" });
-        next = reduceState(next, { type: "goal-panel-open" });
-      }
-      return next;
-    });
-    this.paint();
-  }
-
-  /**
    * /policy：审批策略两态切换（ask/never）。
    * 无参 → 取当前已知策略（policyBySession 事件回读）切换；未知按宿主默认 ask 为基准。
    * `/policy ask|never` → 显式设置。宿主未挂载 ctx.approval / adapter 缺失 → notice 不可用。
@@ -1336,8 +1302,6 @@ export class App {
       } else {
         if (next.history) next = reduceState(next, { type: "history-close" });
         if (next.picker) next = reduceState(next, { type: "picker-close" });
-        if (next.goalPanel)
-          next = reduceState(next, { type: "goal-panel-close" });
         next = reduceState(next, { type: "jobs-panel-open" });
       }
       return next;

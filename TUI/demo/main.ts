@@ -233,7 +233,7 @@ if (smoke) {
         "question Esc must not interrupt, interrupts=" + adapter.interrupts,
       );
       // 10. 状态栏会话徽标（mode/policy/preset/jobs；goal/todo 自 2026-09-17 起移入
-      //     右侧顶部状态列详显，状态栏不再显示）+ /goal 面板（mock 启动 90–130ms 已注入场景）
+      //     右侧顶部状态列详显，状态栏不再显示）；/goal 只提示查看信息栏（面板已移除）
       const badgePlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
       ok(
         "mode-badge",
@@ -260,12 +260,10 @@ if (smoke) {
       const panelPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
       ok(
         "goal-panel",
-        panelPlain.includes("Goal") &&
-          panelPlain.includes("目标: ") &&
-          panelPlain.includes("Todo 1/3"),
-        "goal panel title/objective/todo absent from frames",
+        panelPlain.includes("详情见右侧信息栏") &&
+          panelPlain.includes("目标: "),
+        "goal 提示/状态列 objective absent from frames",
       );
-      renderer.emitKey(key("escape")); // 关闭 goal 面板，避免吞掉 /quit
       await sleep(200);
 
       // C 阶段：/policy 审批策略。启动注入 approval/policy(ask) → 状态栏 ask 徽标；

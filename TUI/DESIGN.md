@@ -115,9 +115,9 @@ interface Renderer {
 
 屏幕自上而下切分为：**顶部区域**（左侧对话历史，历史下方为活动区；右侧详细状态列，2026-09-17 两列对调）、**系统状态区**（按宽度可溢出多行）、**输入区**（含审批弹窗形态）：
 
-- **高度分配**：顶部高度 = `rows - 状态区(1) - 输入区 - 提示区(1) - 分隔行(2)`。输入区+提示区为「交互区」：常规终端固定 4 行（输入框 3 + 提示 1），矮终端按 `floor(rows/5)` 收缩、至少 2 行（输入 1 + 提示 1）；提示区固定 1 行、与输入区之间不画横线，输入区取剩余（多行框）；模态交互面板（审批/问答/模型选择，2026-09-17 起）显示于顶部流输出（活动区）窗口、底部交互区以空白占位，与输入态同高——面板开关不上下调整交互区高度；历史/目标/任务等浏览面板仍占据底部交互区（面板自带最底行按键提示、无独立提示区）；面板内容超出时面板内截断/滚动（问答选项按高亮行滚动窗口、选择列省略号滚动、审批正文截断）；「中间与底部满足显示需要，剩余高度全部由上方两个填充」；`buildFrame` 输出顺序为 顶部区 → 横线分隔行 → 状态区 → 横线分隔行 → 输入区 → 按键提示区。
+- **高度分配**：顶部高度 = `rows - 状态区(1) - 输入区 - 提示区(1) - 分隔行(2)`。输入区+提示区为「交互区」：常规终端固定 4 行（输入框 3 + 提示 1），矮终端按 `floor(rows/5)` 收缩、至少 2 行（输入 1 + 提示 1）；提示区固定 1 行、与输入区之间不画横线，输入区取剩余（多行框）；模态交互面板（审批/问答/模型选择，2026-09-17 起）显示于顶部流输出（活动区）窗口、底部交互区以空白占位，与输入态同高——面板开关不上下调整交互区高度；历史/任务等浏览面板仍占据底部交互区（面板自带最底行按键提示、无独立提示区）；面板内容超出时面板内截断/滚动（问答选项按高亮行滚动窗口、选择列省略号滚动、审批正文截断）；「中间与底部满足显示需要，剩余高度全部由上方两个填充」；`buildFrame` 输出顺序为 顶部区 → 横线分隔行 → 状态区 → 横线分隔行 → 输入区 → 按键提示区。
 
-- **顶部状态列**（2026-09-13；2026-09-17 对调至最右侧）：最右侧常驻一列「详细状态」窄列（`statusColWidth ≈ cols×25%`，左缘即分隔竖线 `│`（与历史区右缘共用），历史区保底 10 列），与左侧历史区在同一行：显示当前活跃会话的 **goal 详细**（目标/阶段/阻塞原因黄 tone）+ **todo 列表**（`[ ]`/`[●]`/`[x]` 着色）。**条目行数上限**：goal 目标最多 `STATUS_GOAL_MAX_LINES=5` 行、每条 todo 最多 `STATUS_TODO_MAX_LINES=3` 行，超限折叠为 `…(+N行)` 提示行；无 goal/todo 显示灰色占位「（无目标/待办）」。滚动并入「顶部三面板统一焦点滚动」：仅当 Tab 焦点在「状态」面板时响应 ↑/↓/PgUp/PgDn（非焦点下不干扰其他面板滚动）。偏移由 `status-column-scroll` reducer 累积 `statusColumnScroll`（距顶部，上滚=-）、渲染层 clamp。实现 `renderStatusColumn`（layout.ts 纯函数，输出恰 height 行、每行定宽 statusColWidth 且末位竖线为分隔边线）；`buildTopRegion` 对调后剥去该竖线、自行构图：分隔竖线位于 `D=historyWidth` 列（历史区右缘/状态列左缘共用），状态列正文按 `statusBodyW=statusColWidth-2` 定宽截取并补空白。**（2026-09-17）不同块之间以点更少的虚线 `┄` 分隔**：goal 块（目标/阶段/阻塞）与 todo 块（计数+列表）之间插入整行虚线，视觉分层。
+- **顶部状态列**（2026-09-13；2026-09-17 对调至最右侧）：最右侧常驻一列「详细状态」窄列（`statusColWidth ≈ cols×25%`，左缘即分隔竖线 `│`（与历史区右缘共用），历史区保底 10 列），与左侧历史区在同一行：显示当前活跃会话的 **goal 详细**（goal 块首行标题 `Goal <phase>`（Goal 蓝 + phase 状态色：active/complete 绿、paused 黄、blocked 红）+ 目标 + 阻塞原因黄 tone）+ **todo 列表**（`[ ]`/`[●]`/`[x]` 着色）。**条目行数上限**：goal 目标最多 `STATUS_GOAL_MAX_LINES=5` 行、每条 todo 最多 `STATUS_TODO_MAX_LINES=3` 行，超限折叠为 `…(+N行)` 提示行；无 goal/todo 显示灰色占位「（无目标/待办）」。滚动并入「顶部三面板统一焦点滚动」：仅当 Tab 焦点在「状态」面板时响应 ↑/↓/PgUp/PgDn（非焦点下不干扰其他面板滚动）。偏移由 `status-column-scroll` reducer 累积 `statusColumnScroll`（距顶部，上滚=-）、渲染层 clamp。实现 `renderStatusColumn`（layout.ts 纯函数，输出恰 height 行、每行定宽 statusColWidth 且末位竖线为分隔边线）；`buildTopRegion` 对调后剥去该竖线、自行构图：分隔竖线位于 `D=historyWidth` 列（历史区右缘/状态列左缘共用），状态列正文按 `statusBodyW=statusColWidth-2` 定宽截取并补空白。**（2026-09-17）不同块之间以点更少的虚线 `┄` 分隔**：goal 块（标题/目标/阻塞）与 todo 块（计数+列表）之间插入整行虚线，视觉分层。
 
 - **历史区**：按 `contentW = historyWidth - FRAME_RIGHT_COLS`（右缘焦点框预留列）换行，沿用 scrollback 语义（wrapping、followBottom、scrollOffset、2000 行上限）。
 
@@ -370,8 +370,8 @@ backlog 状态：P1、P2 完成（2026-09-05）；P3 部分接入（2026-09-12 �
 
 | rc.2 事件（载荷已核实） | 新 DshEvent（判别联合） | 渲染 |
 | --- | --- | --- |
-| `goal/change`（operation: create/edit/pause/resume/complete/block 携带 GoalSnapshot{id,revision,objective,phase(active/paused/blocked/complete),blockedReason?,maxGoalRounds}+roundsStarted/createdAt/updatedAt；operation: clear 携带 cleared{id,revision}+clearedAt） | `goal-change` 判别联合：`{sessionId, operation: Exclude<…,'clear'>, goal: {id,revision,objective,phase,blockedReason?,maxGoalRounds}, roundsStarted}`；或 `{sessionId, operation:'clear', cleared: {id,revision}}` | 非 clear：状态栏 goal 徽标（phase）+ `/goal` 面板全量替换（`Goal <phase>` 蓝标题、objective、blocked 显示 blockedReason.message 黄 tone）；clear：徽标省略 + 面板清空 |
-| `todo/write`（{todos: TodoItem[]}；TodoItem {content, status: pending/in_progress/completed}，全量快照 last-write-wins） | `todo-write {sessionId, todos}` | 状态栏 todo 计数（in_progress/共 m）；`/goal` 面板 `Todo 完成数/总数` 蓝标题 + 列表 `·`待办(默认)/`>`进行中(黄)/`✓`完成(灰+删除线) + content |
+| `goal/change`（operation: create/edit/pause/resume/complete/block 携带 GoalSnapshot{id,revision,objective,phase(active/paused/blocked/complete),blockedReason?,maxGoalRounds}+roundsStarted/createdAt/updatedAt；operation: clear 携带 cleared{id,revision}+clearedAt） | `goal-change` 判别联合：`{sessionId, operation: Exclude<…,'clear'>, goal: {id,revision,objective,phase,blockedReason?,maxGoalRounds}, roundsStarted}`；或 `{sessionId, operation:'clear', cleared: {id,revision}}` | 非 clear：状态栏 goal 徽标（phase）+ 顶部状态列 goal 块详显（`Goal <phase>` 标题（Goal 蓝+phase 状态色）、objective、blocked 显示 blockedReason.message 黄 tone）；clear：徽标省略 + 状态列回到占位 |
+| `todo/write`（{todos: TodoItem[]}；TodoItem {content, status: pending/in_progress/completed}，全量快照 last-write-wins） | `todo-write {sessionId, todos}` | 状态栏 todo 计数（in_progress/共 m）；顶部状态列 todo 块（计数 + 列表 `[ ]`/`[●]`/`[x]` + content，按 status 着色） |
 | `plan/mode`（{active: boolean}） | `mode {sessionId, kind:'plan', value}` | 状态栏徽标：active → `plan`，inactive → 省略 |
 | `sandbox/mode`（{mode: read-only/workspace-write/danger-full-access, source?}） | `mode {sessionId, kind:'sandbox', value}` | 状态栏徽标缩略：read-only→ro / workspace-write→wr / danger-full-access→full；等于部署默认时省略 |
 | `permission/preset`（{preset: string}，默认表键 workspace-write/danger-full-access，配置可增） | `mode {sessionId, kind:'permission', value}` | 状态栏徽标（preset 名缩略复用 sandbox 缩写；与当前 sandbox 缩略相同则省略避免重复） |
@@ -422,7 +422,7 @@ backlog 状态：P1、P2 完成（2026-09-05）；P3 部分接入（2026-09-12 �
 | 项 | 说明 |
 | --- | --- |
 | 审批策略写路径 ✅ 已定 | A0 已核 `ctx.approval.setPolicy(agent, 'ask' | 'never')` 可用 → **C 做 ask/never 两态切换** |
-| `/goal` 面板会话范围 | 单活跃会话设计，仅展示当前会话 goal/todo；面板关闭/切会话后迟到 reducer 只更新 state（stale guard 沿用 P1 面板模式） |
+| `/goal` 面板 **已移除（2026-09-07）** | goal/todo 详显统一由顶部状态列承接（单活跃会话设计）；输入 `/goal` 仅 notice 提示「详情见右侧信息栏」，不再打开面板；GoalPanel 组件、goalPanel 面板态与其路由/测试一并删除 |
 | subagent 行符号 ✅ 已定 | `@` 前缀与 os/ct 缩略已随 B4 落地确认（`@ <label> <os|ct>`） |
 | compaction/summary 持久化 | 本轮仅 toast 不落 buffer；若后续要可读历史（/inspect 类），另立条目 |
 

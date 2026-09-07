@@ -2305,27 +2305,15 @@ test("usage 事件 → 状态栏显示 ctx/cache（替换占位 —）", () => {
   );
 });
 
-test("/goal：slash 打开迷你面板，Esc 关闭（footer 面板态）", () => {
+test("/goal：不再打开面板，通知右侧信息栏查看 goal/todo", () => {
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/goal");
   const plain = renderer.lastRender.map((l) =>
     l.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   assert.ok(
-    plain.some((l) => l.includes("Goal")),
-    "面板打开：footer 渲染 goal 面板标题",
-  );
-  assert.ok(
-    plain.some((l) => l.includes("（当前会话无 goal）")),
-    "无 goal 数据时面板占位",
-  );
-  renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
-  const closed = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
-  );
-  assert.ok(
-    !closed.some((l) => l.includes("Goal")),
-    "Esc 关闭 → 回到输入态（无面板标题）",
+    plain.some((l) => l.includes("详情见右侧信息栏")),
+    "/goal 仅提示查看右侧信息栏（不再打开面板）",
   );
 });
 
