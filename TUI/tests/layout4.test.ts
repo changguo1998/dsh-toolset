@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildFrame,
+  focusFrameColor,
   metricsFor,
   renderStatusLine,
   truncateToWidth,
@@ -38,6 +39,13 @@ function histBody(line: string, cols: number): string {
     if (w >= skip) return s.slice(i + 1);
   }
   return "";
+}
+
+/** 正文区右侧内容：去掉状态列前缀 + 最右焦点框列（│/┐/┘ 或空白占位） */
+function histContent(line: string, cols: number): string {
+  return histBody(line, cols)
+    .replace(/[│┐┘]$/, "")
+    .trimEnd();
 }
 
 /** 思考行判定：历史区正文以 2 空格缩进开头（活动区瞬态，无 [思考] 前缀） */
@@ -87,9 +95,12 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   assert.ok(!top.some((l) => plain(l).startsWith("|")), "最左侧无插件竖线");
   assert.ok(
     top.every((l) => plain(l).includes("│")),
-    "中间状态列右缘竖线保留",
+    "中间状态列右缘竖线保留（含顶部边框行分隔竖线）",
   );
-  assert.ok(top[0]!.text.includes("第一行"), "历史区内容在状态列右侧");
+  assert.ok(
+    top[1]!.text.includes("第一行"),
+    "历史区内容在状态列右侧（顶部边框行之后）",
+  );
   // 横线分隔：17 行后是分隔行，再之后状态区（短 cwd 下动态单行：env|会话|LLM 全在一行）
   const separator1 = frame[17]!;
   assert.ok(plain(separator1).startsWith("═"), "状态区上方用 ═ 分隔");
@@ -549,13 +560,10 @@ test("会话流：短用户消息块整体靠右，右缘贴历史区右缘，�
   );
   const row = plain.find((l) => l.includes("你好"))!;
   assert.ok(!row.startsWith("|"), "最左侧无插件竖线");
-  assert.equal(displayWidth(row), 40, "短消息整行铺满 ⇒ 右缘贴历史区右缘");
-  assert.ok(row.endsWith("你好"), "文本整体靠右");
-  assert.equal(
-    row.indexOf("你好") + 2,
-    row.length,
-    "块内结尾即文本(内部左对齐)",
-  );
+  assert.equal(displayWidth(row), 40, "短消息整行铺满");
+  const hc = histContent(row, 40);
+  assert.ok(hc.endsWith("你好"), "文本靠右（右缘预留焦点框列）");
+  assert.equal(hc.indexOf("你好") + 2, hc.length, "块内结尾即文本(内部左对齐)");
 });
 
 test("会话流：用户消息软换行续行共享同一左边界；显式换行另起一个右对齐收缩块", () => {
@@ -589,7 +597,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   let s = initialState();
   s = reduceState(s, { type: "user-line", text: "问题" });
   s = reduceState(s, { type: "append", text: "答案" });
-  let plain = buildFrame(s, { rows: 12, cols: 40 }).map((l) =>
+  let plain = buildFrame(s, { rows: 13, cols: 40 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const ui = plain.findIndex((l) => l.includes("问题"));
@@ -597,11 +605,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   assert.ok(ui >= 0 && ai > ui);
   const between = plain.slice(ui + 1, ai);
   assert.equal(between.length, 1, "用户与答案之间应恰有一行");
-  assert.equal(
-    histBody(between[0]!, 40).trim(),
-    "",
-    "该行为空行(状态列外无内容)",
-  );
+  assert.equal(histContent(between[0]!, 40), "", "该行为空行(状态列外无内容)");
   assert.ok(!between[0]!.startsWith("|"), "空行最左侧无插件竖线");
 
   // user → thinking：思考归属活动区（分隔线之下展示），不再要求与用户消息间空行
@@ -626,7 +630,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
       cols: 40,
     },
   );
-  const dotRaw = dt.find((l) => /^┈+$/.test(histBody(l.text, 40)));
+  const dotRaw = dt.find((l) => /^┈+$/.test(histContent(l.text, 40)));
   assert.ok(dotRaw, "活动区分隔线为点线");
   assert.ok(
     dotRaw!.text.includes(graySGR),
@@ -635,7 +639,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   let ts = reduceState(initialState(), { type: "append", text: "正文" });
   ts = reduceState(ts, { type: "turn-begin" });
   const turnRaw = buildFrame(ts, { rows: 10, cols: 40 }).find((l) =>
-    /^─+$/.test(histBody(l.text, 40)),
+    /^─+$/.test(histContent(l.text, 40)),
   );
   assert.ok(turnRaw, "turn 分隔线仍在历史区");
   assert.ok(
@@ -678,13 +682,15 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   s = reduceState(s, { type: "append", text: "第二段\n" });
   s = reduceState(s, { type: "append", text: "第三段\n" });
   s = reduceState(s, { type: "turn-begin" });
-  const plain = buildFrame(s, { rows: 12, cols: 40 }).map((l) =>
+  const plain = buildFrame(s, { rows: 13, cols: 40 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const codeIdx = plain.findIndex((l) => l.includes("第三段"));
   // 历史区内的 turn 分隔线（灰色 -）；底部全屏横线不在此列
-  // 分隔线行 = 历史区正文全为 `-`
-  const sepIdx = plain.findIndex((l) => /^─+$/.test(histBody(l, 40)));
+  // 分隔线行 = 历史区正文全为 `-`（i>0 跳过顶部边框行，它也是全 ─）
+  const sepIdx = plain.findIndex(
+    (l, i) => i > 0 && /^─+$/.test(histContent(l, 40)),
+  );
   assert.ok(codeIdx >= 0 && sepIdx > codeIdx, "正文与分隔线都应存在且顺序正确");
   const gap = plain.slice(codeIdx + 1, sepIdx);
   assert.equal(gap.length, 0, "回复末尾不留空行：正文末行后直接分隔线");
@@ -692,7 +698,7 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   // 正文段落之间的空行（一段\n\n二段）必须保留
   let p = initialState();
   p = reduceState(p, { type: "append", text: "一段\n\n二段\n" });
-  const plainP = buildFrame(p, { rows: 12, cols: 40 }).map((l) =>
+  const plainP = buildFrame(p, { rows: 13, cols: 40 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const i1 = plainP.findIndex((l) => l.includes("一段"));
@@ -777,29 +783,36 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
   // cols=40 → historyWidth 依 metricsFor；USER_MIN_LEFT_GUTTER=4 → 正文宽 = hist-4
   const m = metricsFor({ rows: 10, cols: 40 }, false);
   const hist = m.historyWidth;
-  const bodyW = hist - USER_MIN_LEFT_GUTTER;
+  const bodyW = hist - USER_MIN_LEFT_GUTTER - 1; // contentW（右缘预留框列）- gutter
   let s = initialState();
   s = reduceState(s, {
     type: "append",
     text: "0123456789012345678901234567890123456789", // 40 字符
   });
-  const rows = buildFrame(s, { rows: 10, cols: 40 })
+  const rows = buildFrame(s, { rows: 11, cols: 40 })
     .map((l) => strip(l.text))
     .filter((l) => /[0-9]/.test(l));
   assert.ok(rows.length >= 2, "超 gutter 宽的正文应软换行");
   for (const l of rows) {
-    const body = histBody(l, 40);
+    const body = histContent(l, 40);
     assert.ok(body.length <= bodyW, `正文行右侧保留 gutter，不顶满右缘: ${l}`);
   }
-  const first = histBody(rows[0]!, 40);
-  assert.equal(first.length, bodyW, `默认 gutter=4：正文宽恰为 ${hist}-4`);
-  // 用户块仍整体靠右(行尾即内容)
+  const first = histContent(rows[0]!, 40);
+  assert.equal(
+    first.length,
+    bodyW,
+    `默认 gutter=4：正文宽恰为内容区宽-4（右缘预留框列）`,
+  );
+  // 用户块整体靠右（右缘预留焦点框列）
   let u = initialState();
   u = reduceState(u, { type: "user-line", text: "hi" });
-  const uf = buildFrame(u, { rows: 10, cols: 40 })
+  const uf = buildFrame(u, { rows: 11, cols: 40 })
     .map((l) => strip(l.text))
     .find((l) => l.includes("hi"));
-  assert.ok(uf !== undefined && uf.endsWith("hi"), "用户块贴右缘");
+  assert.ok(
+    uf !== undefined && histContent(uf, 40).endsWith("hi"),
+    "用户块贴右缘",
+  );
 });
 
 test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满历史区右缘", () => {
@@ -809,15 +822,19 @@ test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满历
     type: "append",
     text: "0123456789012345678901234567890123456789", // 40 字符
   });
-  const rows = buildFrame(s, { rows: 10, cols: 40 })
+  const rows = buildFrame(s, { rows: 11, cols: 40 })
     .map((l) => strip(l.text))
     .filter((l) => /[0-9]/.test(l));
-  const m = metricsFor({ rows: 10, cols: 40 }, false);
+  const m = metricsFor({ rows: 11, cols: 40 }, false);
   const hist = m.historyWidth;
-  // gutter=0 → 正文宽 = historyWidth，顶满右缘
+  // gutter=0 → 正文宽 = historyWidth-1（内容区右侧预留焦点框列）
   assert.ok(rows.length >= 2, "40 字符在窄历史宽下软换行");
-  const body = histBody(rows[0]!, 40);
-  assert.equal(body.length, hist, "gutter=0 时正文顶满历史区宽度");
+  const body = histContent(rows[0]!, 40);
+  assert.equal(
+    body.length,
+    hist - 1,
+    "gutter=0 时正文顶满内容区宽度（右缘留框列）",
+  );
 });
 
 test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代码块", () => {
@@ -855,7 +872,7 @@ test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代�
   assert.ok(joined.includes("> 引用内容 加粗"), "引用带竖线前缀");
   // 分隔线：灰色横线铺满
   assert.ok(
-    plain.some((l) => /^─+$/.test(histBody(l, 80))),
+    plain.some((l) => /^─+$/.test(histContent(l, 80))),
     "分隔线横线",
   );
   // 链接：文本可见、URL 不显示
@@ -869,7 +886,7 @@ test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代�
   assert.ok(joined.includes("const a: number = 1;"), "代码原样保留");
   assert.ok(joined.includes("**不加粗**"), "fence 内不解析粗体");
   assert.ok(
-    plain.some((l) => l.trim().endsWith("ts")),
+    plain.some((l) => histContent(l, 80).trimEnd().endsWith("ts")),
     "语言标签显示",
   );
   assert.ok(
@@ -1361,7 +1378,7 @@ test("活动区：activityScroll 滚动窗口（默认尾部；上滚看更早�
     assert.ok(sep >= 0 && end > sep, "活动区分隔线与状态栏存在");
     return plain
       .slice(sep + 1, end)
-      .map((l) => histBody(l, 60))
+      .map((l) => histContent(l, 60))
       .filter((l) => l.trim() !== "");
   };
   // 0（默认尾部）：行9..行19
@@ -1379,46 +1396,95 @@ test("活动区：activityScroll 滚动窗口（默认尾部；上滚看更早�
   assert.equal(v[v.length - 1]!, "行10");
 });
 
-test("焦点面板亮色框：│ 常亮，┈/═ 按焦点面板着色（历史/流输出/状态/面板态）", () => {
-  // brightCyan #87EFC7（dark 主题）；grey 120;120;120 为边框默认
-  const BRIGHT = "\x1b[38;2;135;239;199m";
+test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空白占位不重排", () => {
+  // dark 主题焦点框=white #FFFFFF（灰→白）；light 主题应取黑（单独断言 focusFrameColor）
+  // dark 主题 focusFrameColor="white" → 调色板 #D8D8D8（灰→亮白）
+  const WHITE = "\x1b[38;2;216;216;216m";
   const size = { rows: 24, cols: 80 } as const;
+  const skip = metricsFor(size, false).statusColWidth;
   const rowsOf = (st: ReturnType<typeof initialState>): string[] =>
     buildFrame(st, size).map((l) => l.text);
-  // ┈ 分隔行中“│ 右侧”的点线段（┈ 本身随焦点变亮/回灰；│ 恒亮）
-  const sepSegment = (lines: string[]): string => {
-    const raw = lines.find((l) => stripAnsi(l).includes("┈"))!;
-    assert.ok(raw.includes("│"), "┈ 行含左缘竖线");
-    return raw.slice(raw.lastIndexOf("│") + 1);
-  };
-  const eqRaw = (lines: string[]): string =>
-    lines.find((l) => /^═+$/.test(stripAnsi(l)))!;
-  const barRaw = (lines: string[]): string =>
+  const plain = (l: string): string => stripAnsi(l);
+  const sepRow = (lines: string[]): string =>
+    lines.find((l) => plain(l).includes("┈"))!;
+  const eqRow = (lines: string[]): string =>
     lines.find(
-      (l) => stripAnsi(l).includes("│") && !stripAnsi(l).includes("┈"),
+      (l) => /^═+/.test(plain(l)) && !plain(l).includes("（新会话）"),
     )!;
+  // 分隔行点线段 = │ 右侧部分（排除恒亮的竖线，只看 ┈ 本体）
+  const sepSegment = (raw: string): string =>
+    raw.slice(raw.lastIndexOf("│") + 1);
 
-  // 默认焦点=历史：┈ 亮、═ 灰、│ 亮
+  // 默认焦点=历史：顶边 ─ + 右上角 ┐、┈ 亮 + 右下角 ┘、对话区右缘 │、═ 全灰
   let st = initialState();
   let rows = rowsOf(st);
-  assert.ok(sepSegment(rows).includes(BRIGHT), "历史焦点：┈ 点线亮色");
-  assert.ok(!eqRaw(rows).includes(BRIGHT), "历史焦点：═ 保持灰");
-  assert.ok(barRaw(rows).includes(BRIGHT), "历史焦点：│ 竖线亮色");
+  const b0 = rows[0]!;
+  assert.ok(plain(b0).includes("─"), "历史焦点：顶部边框行画 ─");
+  assert.ok(plain(b0).includes("┐"), "历史焦点：右上角 ┐");
+  assert.ok(b0.includes(WHITE), "历史焦点：顶边/竖线亮白");
+  const s0 = sepRow(rows);
+  assert.ok(sepSegment(s0).includes(WHITE + "┈"), "历史焦点：┈ 点线亮白");
+  assert.ok(plain(s0).includes("┘"), "历史焦点：分隔行右下角 ┘");
+  const dlg = rows.find((l) => plain(l).includes("（无目标/待办）"))!;
+  assert.ok(
+    plain(dlg).replace(/\s+$/, "").endsWith("│"),
+    "历史焦点：对话区右缘框列 │",
+  );
+  assert.ok(
+    !eqRow(rows).includes(WHITE + "═"),
+    "历史焦点：═ 保持灰（仅灰段，无亮 ═）",
+  );
+  const topRows = metricsFor(size, false).topHeight;
+  const sigHistory = contentSig(rows, skip, topRows);
 
-  // 焦点=流输出：┈ 与 ═ 均亮（活动区上下边成框）
+  // 焦点=流输出：顶边空白、┈ 亮 + 右上角 ┐、活动区右缘 │、═ 亮且含 ╩/╝ 角
+  st = reduceState(initialState(), { type: "focus-panel-cycle" });
+  rows = rowsOf(st);
+  assert.ok(!plain(rows[0]!).includes("─"), "流输出焦点：顶部不画顶边");
+  assert.ok(!plain(rows[0]!).includes("┐"), "流输出焦点：顶部无角");
+  const s1 = sepRow(rows);
+  assert.ok(sepSegment(s1).includes(WHITE + "┈"), "流输出焦点：┈ 点线亮白");
+  assert.ok(plain(s1).includes("┐"), "流输出焦点：分隔行右上角 ┐");
+  // 活动区首行（分隔行之后）右缘框列应亮 │
+  const sepIdx1 = rows.findIndex((l) => plain(l).includes("┈"));
+  const act = rows[sepIdx1 + 1]!;
+  assert.ok(
+    plain(act).replace(/\s+$/, "").endsWith("│"),
+    "流输出焦点：活动区右缘框列 │",
+  );
+  const e1 = eqRow(rows);
+  assert.ok(e1.includes(WHITE + "═"), "流输出焦点：═ 亮白");
+  assert.ok(plain(e1).includes("╩"), "流输出焦点：分隔列角 ╩");
+  assert.ok(plain(e1).includes("╝"), "流输出焦点：活动区底角 ╝");
+  assert.deepEqual(
+    contentSig(rows, skip, topRows),
+    sigHistory,
+    "切换焦点不重排内容",
+  );
+
+  // 焦点=状态：顶边左段 ─ + 分隔列收角 ┐、┈ 回灰、═ 亮且含 ╩（无 ╝）
+  st = reduceState(initialState(), { type: "focus-panel-cycle" });
   st = reduceState(st, { type: "focus-panel-cycle" });
   rows = rowsOf(st);
-  assert.ok(sepSegment(rows).includes(BRIGHT), "流输出焦点：┈ 亮色");
-  assert.ok(eqRaw(rows).includes(BRIGHT), "流输出焦点：═ 亮色");
+  const b2 = rows[0]!;
+  assert.ok(plain(b2).includes("─"), "状态焦点：顶部左边 ─");
+  assert.ok(plain(b2).includes("┐"), "状态焦点：顶边收角 ┐");
+  assert.ok(b2.includes(WHITE + "─"), "状态焦点：顶边/竖线亮白");
+  assert.ok(
+    !sepSegment(sepRow(rows)).includes(WHITE + "┈"),
+    "状态焦点：┈ 回灰",
+  );
+  const e2 = eqRow(rows);
+  assert.ok(e2.includes(WHITE + "═"), "状态焦点：═ 左段亮白");
+  assert.ok(plain(e2).includes("╩"), "状态焦点：分隔列角 ╩");
+  assert.ok(!plain(e2).includes("╝"), "状态焦点：无活动区底角 ╝");
+  assert.deepEqual(
+    contentSig(rows, skip, topRows),
+    sigHistory,
+    "状态焦点同样不重排",
+  );
 
-  // 焦点=状态：┈ 回灰、═ 亮（状态列右缘+底边成框）
-  st = reduceState(st, { type: "focus-panel-cycle" });
-  rows = rowsOf(st);
-  assert.ok(!sepSegment(rows).includes(BRIGHT), "状态焦点：┈ 回灰");
-  assert.ok(eqRaw(rows).includes(BRIGHT), "状态焦点：═ 亮色");
-  assert.ok(barRaw(rows).includes(BRIGHT), "状态焦点：│ 竖线亮色");
-
-  // 面板态（非输入态）：亮色框全部回灰
+  // 面板态（非输入态）：亮色框全回灰、顶边/右列空白占位，内容仍不重排
   st = reduceState(initialState(), {
     type: "picker-open",
     picker: {
@@ -1434,7 +1500,34 @@ test("焦点面板亮色框：│ 常亮，┈/═ 按焦点面板着色（历�
     },
   });
   rows = rowsOf(st);
-  assert.ok(!sepSegment(rows).includes(BRIGHT), "面板态：┈ 灰");
-  assert.ok(!eqRaw(rows).includes(BRIGHT), "面板态：═ 灰");
-  assert.ok(!barRaw(rows).includes(BRIGHT), "面板态：│ 灰");
+  const whole = rows.map(plain).join("\n");
+  assert.ok(
+    !/\x1b\[38;2;216;216;216m[┈─═│┐┘└╩╝]/.test(whole),
+    "面板态：无亮白框线",
+  );
+  assert.ok(!plain(rows[0]!).includes("─"), "面板态：顶部边框行空白占位");
+  // 顶部三面板在面板态同样不重排（footer 被模态面板接管属预期，不在签名内）
+  assert.deepEqual(
+    contentSig(rows, skip, topRows),
+    sigHistory,
+    "面板态同样不重排",
+  );
+
+  // focusFrameColor：dark=白、light=黑（灰不再彩色化，仅更亮/更黑）
+  assert.equal(focusFrameColor("dark"), "white");
+  assert.equal(focusFrameColor("light"), "black");
 });
+
+/** 顶部面板内容签名：去掉状态列前缀 + 框线字符 + 尾部空白，跨焦点/面板态逐行一致 */
+function contentSig(lines: string[], skip: number, topRows: number): string[] {
+  return lines
+    .slice(1, topRows) // 顶部边框行不计数；footer/状态栏被模态面板接管，不算内容
+    .map((l) =>
+      stripAnsi(l)
+        .slice(skip)
+        .replace(/[│┐┘└]/g, "")
+        // 角字形归一化为所在线段字符，焦点差异不计入内容签名
+        .replace(/[╩╝]/g, "═")
+        .replace(/\s+$/, ""),
+    );
+}

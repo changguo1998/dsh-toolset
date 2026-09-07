@@ -258,7 +258,8 @@ test("普通输入同时本地回显用户行且靠右，不依赖 adapter 回�
   assert.ok(
     plain.some(
       (line) =>
-        line.includes("你好") && histBody(line, 80).trimEnd().endsWith("你好"),
+        line.includes("你好") &&
+        histBody(line, 80).trimEnd().replace(/│$/, "").endsWith("你好"),
     ),
   );
 });
@@ -1079,7 +1080,9 @@ test("App initialTheme 非法值回落 dark(外部配置健壮性)", () => {
 function barRowCount(renderer: FakeRenderer): number {
   return renderer.lastRender.filter((l) => {
     const t = l.replace(/\x1b\[[0-9;]*m/g, "");
-    return /[-=·─═┈]/.test(t) && t.replace(/[-=·─═┈|│]/g, "").trim() === "";
+    return (
+      /[-=·─═┈]/.test(t) && t.replace(/[-=·─═┈|│┐┘└╩╝]/g, "").trim() === ""
+    );
   }).length;
 }
 
@@ -1146,15 +1149,27 @@ test("慢速流：分隔线在回合开始画，turn-end 不再画", () => {
     app.start();
     // 回合 1：空历史，首条正文不画孤立线
     adapter.push({ type: "stream", sessionId: "s1", text: "第一回合正文" });
-    assert.equal(barRowCount(renderer), 3, "首回合空历史不画孤立线");
+    assert.equal(
+      barRowCount(renderer),
+      4,
+      "首回合空历史不画孤立线（含顶部边框行 ─）",
+    );
     adapter.push({ type: "turn-end" });
-    assert.equal(barRowCount(renderer), 3, "turn-end 不再画分隔线");
+    assert.equal(
+      barRowCount(renderer),
+      4,
+      "turn-end 不再画分隔线（含顶部边框行）",
+    );
     // 回合 2：首条正文到达 → 回合开始时先画线，再进入内容
     adapter.push({ type: "stream", sessionId: "s1", text: "第二回合正文" });
     const plain = renderer.lastRender.map((l) =>
       l.replace(/\x1b\[[0-9;]*m/g, ""),
     );
-    assert.equal(barRowCount(renderer), 4, "回合开始时先画分隔线");
+    assert.equal(
+      barRowCount(renderer),
+      5,
+      "回合开始时先画分隔线（含顶部边框行）",
+    );
     const joined = plain.join("\n");
     assert.ok(
       joined.indexOf("第二回合正文") > joined.indexOf("────"),
@@ -1185,10 +1200,14 @@ test("slowStream=true：turn 结束后流速回落，下一轮思考重新从初
       "第一轮思考放完正文铺出",
     );
     adapter.push({ type: "turn-end" });
-    assert.equal(barRowCount(renderer), 3, "turn-end 不再画线");
+    assert.equal(barRowCount(renderer), 4, "turn-end 不再画线（含顶部边框行）");
     // 第二轮：思考应从初始 20cps 重新开始(不回落到 120)
     adapter.push({ type: "thinking", sessionId: "s1", text: "bbbbbbbbbb" });
-    assert.equal(barRowCount(renderer), 4, "新一轮回合开始时先画线");
+    assert.equal(
+      barRowCount(renderer),
+      5,
+      "新一轮回合开始时先画线（含顶部边框行）",
+    );
     assert.ok(
       !renderer.lastRender.join("\n").includes("b"),
       "新 turn 思考先入队",
@@ -2350,11 +2369,11 @@ test("顶部面板焦点滚动映射：↑/↓ 只作用于各自面板；PgUp/P
   });
 });
 
-test("inputPanelHeights：页高口径与 buildFrame 一致（rows=24 → top 17 / 活动 8 / 对话 8）", () => {
+test("inputPanelHeights：页高口径与 buildFrame 一致（rows=24 → 状态列内容 16 / 活动 8 / 对话 7）", () => {
   const h = inputPanelHeights(initialState(), { rows: 24, cols: 80 });
-  assert.equal(h.topHeight, 17);
+  assert.equal(h.topHeight, 16, "状态列内容高=topHeight-边框行");
   assert.equal(h.activityH, 8);
-  assert.equal(h.dialogueH, 8);
+  assert.equal(h.dialogueH, 7);
 });
 
 test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 ↑/PgUp 滚动帮助", async () => {
@@ -2366,16 +2385,22 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
       .find((l) => l?.startsWith("[Enter]发送"));
     return h ?? "";
   };
-  // 活动区正文 = ┈ 分隔线与状态栏之间非空行，去掉左缘状态列前缀（...│正文 ...）
+  // 活动区正文 = ┈ 分隔线与状态栏之间：去掉状态列前缀与最右焦点框列
   const actBody = (): string[] => {
     const lines = renderer.lastRender.map(strip);
+    const skip = metricsFor(size, false, 1, 1).statusColWidth;
     const sep = lines.findIndex((l) => l.includes("┈"));
     const statusIdx = lines.findIndex((l) => l.includes("（新会话）"));
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
     return lines
       .slice(sep + 1, statusIdx)
-      .map((l) => l.slice(l.lastIndexOf("│") + 1))
-      .filter((l) => l.trim() !== "");
+      .map((l) =>
+        l
+          .slice(skip)
+          .replace(/[│┐┘]$/, "")
+          .trim(),
+      )
+      .filter((l) => l !== "");
   };
   const key = (name: string): KeyEvent => ({
     name,
@@ -2385,7 +2410,8 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
   });
 
   // 焦点标签追加在 hint 行尾，80 列会被截断；加宽到 120 列保证可断言
-  renderer.size = { cols: 120, rows: 24 };
+  const size = { cols: 120, rows: 24 } as const;
+  renderer.size = size;
   typeAndEnter(renderer, "/help");
   await flush();
   assert.ok(hint().includes("[面板:历史]"), "默认焦点=历史");
