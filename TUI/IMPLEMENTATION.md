@@ -121,10 +121,10 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 
 - **能力**：查询可用模型 + 切换当前会话模型（不落盘）。命令形式：
 
-  - `/model`（无参）→ 进入**交互选择模式**（面板渲染在 footer 区）：↑/↓ 移动高亮（选项超出可视高度时视口跟随选中项滚动），←/→ 左右切换三列焦点区（clamp 不循环），Enter 确认切换，Esc 取消不改变；普通字符键在该模式下被忽略（不进入输入框）。
+  - `/model`（无参）→ 进入**交互选择模式**（面板渲染在流输出（活动区）窗口，2026-09-17 起）：↑/↓ 移动高亮（选项超出可视高度时视口跟随选中项滚动），←/→ 左右切换三列焦点区（clamp 不循环），Enter 确认切换，Esc 取消不改变；普通字符键在该模式下被忽略（不进入输入框）。
   - `/model <provider>/<model>` → 显式指定切换；`/model <modelId>` → 跨全部 provider 唯一匹配（未匹配或歧义给错误提示，不落盘）。
 
-- **交互选择面板**（2026-08-26 建立，2026-08-28 扩展思考等级与左右键）：`AppState.picker`（`PickerState`：options + index + phase + efforts + effortIndex）+ reducer action（`picker-open`/`picker-move`/`picker-tab`/`picker-phase`/`picker-efforts`/`picker-close`）。渲染为 `src/app/components/ModelPicker.ts` 纯函数（输出恰 footerHeight 行）：**provider/model/effort 三列独立列表同屏**，头部全小写；←/→ 左右切换焦点区（phase 0/1/2，clamp 不循环），Tab 仍循环切换，当前模型恒为首行标 `*` 附 `[current]`，焦点行标 `>` 并加粗。等级列表经 adapter 新增 `modelEfforts(provider, model)`（结构面调用宿主 `llm.resolveModelInfo` → `reasoning.efforts`；非思考模型返回 undefined，面板显示 `effort: (unsupported)`）异步按高亮模型加载，Enter 应用「模型 + 高亮等级」。`layout.ts` `metricsFor` 的 picker 高度预算取（模型列表、等级列表）较大者。demo mock 与测试（renderer 渲染/phase 切换/app 交互/适配层）同步覆盖。
+- **交互选择面板**（2026-08-26 建立，2026-08-28 扩展思考等级与左右键）：`AppState.picker`（`PickerState`：options + index + phase + efforts + effortIndex）+ reducer action（`picker-open`/`picker-move`/`picker-tab`/`picker-phase`/`picker-efforts`/`picker-close`）。渲染为 `src/app/components/ModelPicker.ts` 纯函数（输出恰活动区可视行 `activityH` 行，显示于流输出（活动区）窗口）：**provider/model/effort 三列独立列表同屏**，头部全小写；←/→ 左右切换焦点区（phase 0/1/2，clamp 不循环），Tab 仍循环切换，当前模型恒为首行标 `*` 附 `[current]`，焦点行标 `>` 并加粗。等级列表经 adapter 新增 `modelEfforts(provider, model)`（结构面调用宿主 `llm.resolveModelInfo` → `reasoning.efforts`；非思考模型返回 undefined，面板显示 `effort: (unsupported)`）异步按高亮模型加载，Enter 应用「模型 + 高亮等级」。`layout.ts` `metricsFor` 的 picker 高度预算取（模型列表、等级列表）较大者。demo mock 与测试（renderer 渲染/phase 切换/app 交互/适配层）同步覆盖。
 
 - **交互确认**：Enter 复用 `applyModelSelection()`（与 `/model <name>` 带参共用）：保留当前 `reasoningEffort`、写入会话内模型引用（不写宿主设置）；选中当前模型时提示 `already on current model`，不重复切换。Esc 仅关闭面板。
 
@@ -182,7 +182,7 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 
 - **服务接线**：`main.ts` 经 `ctx.get("userQuestions")` 取 `user-questions` 服务（结构面判定后传入 adapter）。`adapter/dsh.ts` 注册 `registerProvider({ask})`——单活动请求守卫（并发 ask 直接 reject）、`signal` abort → reject；DSH 回调提问归一化为 `DshEvent {type:'question'; id; questions[]}`。App 应答走 `answerQuestion(id, {answers})`（整批），Esc/cancel 走 `cancelQuestion(id)`（仅 reject）。注册失败（DUPLICATE_PROVIDER）不阻塞启动：stderr 告警 + notice，构造期 notice 先进 `pendingRegNotices` 缓冲、首个 `onEvent` 订阅时补发（避开构造期无监听者丢事件）。`emit_models` 等既有逻辑不受影响。
 - **状态与交互**：`AppState.question`（`QuestionPanelState`）+ 6 个 reducer action（open/move/nav/select/custom/close）。`handleQuestionKey` 路由在 approval 之后、picker 之前：Esc 仅取消；**Enter 有下一题时 `question-nav +1` 进下一题、末题 `submitQuestion()` 提交整批**（修复：原直接提交导致多问答完第一题就被收走，模型拿不到后续题目答案）。**「自定义回答」作为选项列表末位（`optionIndex === options.length`）**，与预设选项共用 `question-move`（↑/↓ 在 0..options.length 内 clamp）——不再有独立 focus 字段、**Tab 已释放**（落入默认分支吞掉）；空格/可打印字符/退格仅在自定义项高亮时编辑 custom（预设选项上键入被吞，不落入主输入栏）。单选互斥：`selectQuestionOption` 选预设清空 custom、`setQuestionCustom` 输入首字符清空 selected；多选 preset 与 custom 并存。`navQuestion` 切题重置于列表首项。
-- **渲染**：`QuestionPrompt.ts` 输出恰 footer 高度；**自定义兜底项为普通列表行，高亮在其上且列表超长时强制该行可见**（修复「自由回答不显示输入文字」，输入文本就地在行尾回显 `自定义回答：文本`）；选项标记纯 ASCII：首列光标 `>`/空格、次列选中 `*`（单选）/`+`（多选）/空格（修复复杂符号，未选中以空格对齐）。**操作提示只显示实际用到的按键**：Enter 文案区分「下一题/提交」（多题首/中题=下一题、末题与单题=提交）、多题才显示「[←/→]切题」、有预设选项才显示「[空格]选择」与「[↑/↓]选项」。`plan-review` intent 以「计划卡片」呈现 detail、标题「计划审批」。`metricsFor` footer 优先级 approval > question > picker > 输入栏。
+- **渲染**：`QuestionPrompt.ts` 输出恰活动区可视行（`buildTopRegion` 按 `activityH` 调用）；**自定义兜底项为普通列表行，高亮在其上且列表超长时强制该行可见**（修复「自由回答不显示输入文字」，输入文本就地在行尾回显 `自定义回答：文本`）；选项标记纯 ASCII：首列光标 `>`/空格、次列选中 `*`（单选）/`+`（多选）/空格（修复复杂符号，未选中以空格对齐）。**操作提示只显示实际用到的按键**：Enter 文案区分「下一题/提交」（多题首/中题=下一题、末题与单题=提交）、多题才显示「[←/→]切题」、有预设选项才显示「[空格]选择」与「[↑/↓]选项」。`plan-review` intent 以「计划卡片」呈现 detail、标题「计划审批」。`metricsFor` footer 优先级 approval > question > picker > 输入栏。
 - **测试**：`tests/adapter.dsh.test.ts` 6 例（register → question 事件 → answerQuestion resolve；cancel reject；并发 ask 拒绝；DUPLICATE_PROVIDER notice 缓冲补发且 sendMessage 不受影响；abort；dispose 注销）；`tests/app.test.ts` 9 例（渲染+动态按键提示/单选替换+末题 Enter 提交/切题+多选 toggle/↓ 到自定义项键入+空格+退格修改+单选互斥/多选预设+custom 并存/预设选项键入被吞/Tab 释放被吞/Esc 取消不打断/plan-review 卡片+单题提示）；demo 冒烟 4 断言（question-rendered/submitted/cancelled/Esc 不打断）。`npm run check && npm run test && npm run build && npm run demo -- --smoke`（233 例）全绿。
 
 ## 按键扩展（2026-08-24）
@@ -234,7 +234,7 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 
 ## 面板态共用固定交互区高度（2026-08-31）
 
-- 交互区（输入区+按键提示区）高度固定为 `max(2, floor(rows/4))`，不再随面板打开变化：普通输入态 = 提示区 1 行 + 输入区剩余；面板态（审批/问答/模型选择）整体占据交互区（面板自带最底行按键提示、无独立提示区）。此前审批 `max(4, rows*0.3)`、问答/选择 `min(所需, max(4, rows*0.4))` 会使面板开关时顶部区域上下跳动，现统一不调整。
+- 交互区（输入区+按键提示区）高度固定为 `max(2, floor(rows/4))`，不再随面板打开变化：普通输入态 = 提示区 1 行 + 输入区剩余；2026-09-17 起审批/问答/模型选择面板显示于流输出（活动区）窗口、底部交互区以空白占位（仍保持高度稳定）；历史/目标/任务浏览面板占据交互区（面板自带最底行按键提示、无独立提示区）。此前审批 `max(4, rows*0.3)`、问答/选择 `min(所需, max(4, rows*0.4))` 会使面板开关时顶部区域上下跳动，现统一不调整。
 - `metricsFor` 签名收敛为 `(size, hasPanel?, statusHeight?, hintRows?)`：面板「所需行数」估算（选择器列表长度、问答选项/detail 粗估）不再参与高度计算，`buildFrame` 中相应计算一并移除。
 - 面板适配固定高度（此前最小高度 ≥4 的隐含前提不再成立）：问答面板可截断区（题干/detail/选项/自定义兜底项）改为按**高亮行滚动窗口**——高亮项（当前选项或自定义项）恒在可视窗口内，取代旧的「自定义行强制放底部」特例（`QuestionPrompt.ts`）；审批/问答 `maxBody = max(0, height-2)`，高度 \<3 时只渲染标题+操作提示行，输出行数恒等于高度。
 - 测试：`tests/layout4.test.ts` metricsFor 断言改 4 参签名并新增面板态同高断言、审批弹窗用例改「交互区高度与输入态一致」；`tests/app.test.ts` plan-review 用例改为短 detail（固定 6 行面板下 2 行 detail + 2 选项 + 兜底项无法同屏），并新增「超长时末位选项初始不可见、↓ 滚动后可见」断言。`npm run check && npm run test` 全绿（238/238）。

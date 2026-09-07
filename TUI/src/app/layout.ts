@@ -16,13 +16,12 @@ import type {
   AppState,
   InputMode,
   InputStatus,
-  QuestionPanelState,
   GoalState,
   ModeState,
 } from "./state.ts";
 
 import type { Buffer, BufferKind, BufferLine } from "./state.ts";
-import type { ApprovalItem, NoticeTone, TodoItemLike } from "./adapter/dsh.ts";
+import type { NoticeTone, TodoItemLike } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
 import { renderHistoryPanel } from "./components/HistoryPanel.ts";
@@ -510,6 +509,20 @@ function buildTopRegion(
     actMaxOffset - actOffset + activityH,
   );
   const topPad = activityH - act.length;
+  // 「有问题交互」面板（审批/问答/模型选择）显示位置=流输出（活动区）窗口顶部：
+  // 底部交互区不再承载（footer 空白占位保持交互区高度稳定）；面板占满活动区可视
+  // 行，活动区瞬态行（thinking/tool/notice）在面板存在时本帧让位
+  const modalPanel: RenderLine[] = state.approval
+    ? renderApprovalPrompt(state.approval, activityH, contentW)
+    : state.question
+      ? renderQuestionPanel(state.question, activityH, contentW)
+      : state.picker
+        ? renderModelPicker({
+            picker: state.picker,
+            height: activityH,
+            width: contentW,
+          })
+        : [];
   const divFor = (rc: number): string => {
     // 活动区分隔行两端为面板角字：history=右下角 ┘、activity=右上角 ┐、status=竖线
     if (rc === dialogueH && activityH > 0) {
@@ -560,9 +573,15 @@ function buildTopRegion(
       // 活动区分隔行（对话历史 ↔ 流输出边界），两端角字由 col0/divFor 构图
       content = sepStr();
     } else if (activityH > 0) {
-      // 活动区行：按滚动偏移取窗口（0=跟随最新显示尾部；上滚看更早）
-      const a = rc - dialogueH - 1 - topPad;
-      content = a >= 0 ? " ".repeat(act[a]!.indent) + act[a]!.text : "";
+      // 活动区行：交互面板存在时显示面板，否则按滚动偏移取瞬态窗口
+      // （0=跟随最新显示尾部；上滚看更早）
+      const rr = rc - dialogueH - 1;
+      if (modalPanel.length > 0) {
+        content = rr < modalPanel.length ? modalPanel[rr]!.text : "";
+      } else {
+        const a = rr - topPad;
+        content = a >= 0 ? " ".repeat(act[a]!.indent) + act[a]!.text : "";
+      }
     } else {
       content = "";
     }
@@ -1263,24 +1282,12 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   );
 
   let footerLines: RenderLine[];
-  if (showApproval) {
-    footerLines = renderApprovalPrompt(
-      approval as ApprovalItem,
-      metrics.footerHeight,
-      fullWidth,
-    );
-  } else if (question) {
-    footerLines = renderQuestionPanel(
-      question as QuestionPanelState,
-      metrics.footerHeight,
-      fullWidth,
-    );
-  } else if (picker) {
-    footerLines = renderModelPicker({
-      picker,
-      height: metrics.footerHeight,
-      width: fullWidth,
-    });
+  // 审批/问答/模型选择面板已上移到流输出（活动区）窗口显示，底部交互区以空白
+  // 占位（保持交互区高度稳定不跳变）；历史/目标/任务等浏览面板仍在底部渲染
+  if (showApproval || question || picker) {
+    footerLines = Array.from({ length: metrics.footerHeight }, () => ({
+      text: " ".repeat(fullWidth),
+    }));
   } else if (history) {
     footerLines = renderHistoryPanel({
       history,

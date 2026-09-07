@@ -1626,8 +1626,18 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     "面板态：无亮白框线",
   );
   assert.ok(!plain(rows[0]!).includes("─"), "面板态：顶部边框行空白占位");
-  // 顶部三面板在面板态同样不重排（footer 被模态面板接管属预期，不在签名内）
-  assert.deepEqual(contentSig(rows, topRows), sigHistory, "面板态同样不重排");
+  // 面板态：审批/问答/选择面板自 2026-09-17 起渲染在流输出（活动区）窗口
+  // （分隔行之后），而非底部交互区；对话历史/状态列内容不被挤占（无缓冲仍空）
+  const sepI2 = rows.findIndex((l) => plain(l).includes("┈"));
+  const actRows2 = rows.slice(sepI2 + 1, topRows).map(plain);
+  assert.ok(
+    actRows2.some((l) => l.includes("deepseek")),
+    "面板态：模型选择面板显示在流输出窗口",
+  );
+  assert.ok(
+    rows.slice(1, sepI2).every((l) => plain(l).slice(1, 60).trim() === ""),
+    "面板态：对话历史区仍空（未因面板挤占重排）",
+  );
 
   // focusFrameColor：dark=白、light=黑（灰不再彩色化，仅更亮/更黑）
   assert.equal(focusFrameColor("dark"), "white");

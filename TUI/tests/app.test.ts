@@ -1336,6 +1336,9 @@ const plainFrame = (renderer: FakeRenderer): string =>
 
 test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多题动态按键提示", () => {
   const { app, renderer, adapter } = makeApp();
+  // 面板自 2026-09-17 起显示在流输出（活动区）窗口；压矮终端让活动区面板
+  // 高度回到 4 行（选项区 2 行），保持「未导航锚定顶部、窗口裁掉更后选项」语义
+  renderer.size = { cols: 80, rows: 15 };
   pushQuestion(adapter);
   const plain = plainFrame(renderer);
   assert.ok(plain.includes("请回答（第 1/2 题）"), "标题含第 n/m 导航");
@@ -1537,6 +1540,8 @@ test("问答面板：Esc 仅取消问答（cancelQuestion），不打断 turn，
 
 test("问答面板：plan-review 单题以计划卡片呈现，hints 只显示用到的按键", () => {
   const { app, renderer, adapter } = makeApp();
+  // 面板显示在流输出窗口：压矮终端让活动区面板高度=4（detail 正文被裁语义不变）
+  renderer.size = { cols: 80, rows: 15 };
   adapter.push({
     type: "question",
     id: "plan",
