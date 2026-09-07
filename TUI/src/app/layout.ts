@@ -299,8 +299,8 @@ export const STATUS_TODO_MAX_LINES = 3;
 export const STATUS_COL_EMPTY = "（无目标/待办）";
 
 const TODO_MARKER: Record<TodoItemLike["status"], string> = {
-  pending: "· ",
-  in_progress: "> ",
+  pending: "○ ", // 待办：空心圆
+  in_progress: "● ", // 进行中：实心圆（黄）
   completed: "✓ ",
 };
 
@@ -352,7 +352,7 @@ function statusColumnBody(
     });
   }
   // todo 块标题（完成数/总数，蓝）+ 列表（每条上限 STATUS_TODO_MAX_LINES 行）：
-  // `· ` 待办(默认) / `> ` 进行中(黄) / `✓ ` 完成(灰+删除线)
+  // `○ ` 待办(默认空心圆) / `● ` 进行中(黄实心圆) / `✓ ` 完成(灰+删除线)
   const list = todos ?? [];
   if (list.length > 0) {
     // goal 块与 todo 块之间以虚线分隔（点更少的虚线，2026-09-17）
@@ -364,15 +364,15 @@ function statusColumnBody(
     let inProgressColored = false; // 一次仅第一个 in_progress 用黄色
     for (const t of list) {
       const body = t.content === "" ? "（空项）" : t.content;
-      const rows = capWrap(
-        TODO_MARKER[t.status] + body,
-        width,
-        STATUS_TODO_MAX_LINES,
+      const mark = TODO_MARKER[t.status];
+      // 正文按剩余宽度（扣掉 marker 两列）折行；续行缩进 marker 宽度与首行正文对齐
+      const rows = capWrap(body, width - 2, STATUS_TODO_MAX_LINES).map(
+        (r, i) => ({ text: (i === 0 ? mark : "  ") + r.text }),
       );
       if (t.status === "completed") {
         // 对号（灰，无线）不被删除线覆盖；正文/续行灰+删除线
         rows.forEach((r, i) => {
-          if (i === 0 && r.text.startsWith(TODO_MARKER.completed)) {
+          if (i === 0) {
             // 首行：对号（灰，无删除线）+ 正文（灰+删除线）
             out.push({
               text:
@@ -411,7 +411,7 @@ function statusColumnBody(
     }
   }
   // jobs 块（后台任务）：只在有任务时显示；标题 `Jobs 运行中/总数`（蓝）+
-  // 每任务一行 `● `(运行中黄)/`✗ `(失败红)/`○ `(取消灰)/`✓ `(其余默认) + label
+  // 每任务一行 `● `(运行中黄)/`✗ `(失败红)/`○ `(取消灰)/`✓ `(已完成：正文灰+删除线) + label
   if (jobs && jobs.length > 0) {
     out.push({ text: ACTIVITY_SEPARATOR.repeat(width) });
     const active = jobs.filter(
@@ -423,7 +423,19 @@ function statusColumnBody(
     for (const job of jobs) {
       const mark = statusMark(themeId, job.status);
       const label = job.label || job.kind || job.id || "（未命名任务）";
-      out.push({ text: mark.symbol + " " + label, color: mark.color });
+      if (mark.symbol === "✓") {
+        // 已完成（默认分支，如 done）：正文灰+删除线，与 todo completed 一致
+        out.push({
+          text:
+            colorFor(themeId, "gray")("✓ ") +
+            renderSeg(
+              { text: label, style: { fg: "gray", strike: true } },
+              themeId,
+            ),
+        });
+      } else {
+        out.push({ text: mark.symbol + " " + label, color: mark.color });
+      }
     }
   }
   return out;

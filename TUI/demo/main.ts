@@ -268,9 +268,9 @@ if (smoke) {
         "status-col-elements",
         panelPlain.includes("Goal active") &&
           panelPlain.includes("Todo 1/4") &&
-          panelPlain.includes("> 状态栏 goal 徽标") &&
+          panelPlain.includes("● 状态栏 goal 徽标") &&
           panelPlain.includes("✓ 模式徽标三合一") &&
-          panelPlain.includes("· 设计评审") &&
+          panelPlain.includes("○ 设计评审") &&
           panelPlain.includes("…(+3行)") &&
           panelPlain.includes("Jobs 1/2"),
         "status column goal/todo/jobs elements absent from frames",

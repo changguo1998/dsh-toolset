@@ -71,8 +71,8 @@ test("renderStatusColumn: goal 目标 + phase + todo 列表渲染", () => {
   assert.ok(t.includes("Goal active"), "goal 标题=Goal+phase");
   assert.ok(t.includes("实现状态列"), "objective 无「目标:」前缀");
   assert.ok(t.includes("Todo 0/2"), "todo 标题=完成数/总数");
-  assert.ok(t.includes("> 渲染目标"), "进行中 > 标记");
-  assert.ok(t.includes("· todo 列表"), "待办 · 点标记");
+  assert.ok(t.includes("● 渲染目标"), "进行中 ● 实心圆标记");
+  assert.ok(t.includes("○ todo 列表"), "待办 ○ 空心圆标记");
 });
 
 test("renderStatusColumn: 完成 todo 灰+删除线，jobs 块展示", () => {
@@ -86,15 +86,38 @@ test("renderStatusColumn: 完成 todo 灰+删除线，jobs 块展示", () => {
     [
       { id: "j1", kind: "bash", label: "跑测试", status: "running" },
       { id: "j2", kind: "bash", label: "构建", status: "failed" },
+      { id: "j3", kind: "bash", label: "发布", status: "done" },
     ],
   );
   const t = rows.join("\n");
   assert.ok(t.includes("Todo 1/2"), "todo completed 计数");
   assert.ok(t.includes("✓ 已完成项"), "完成 ✓ 标记");
-  assert.ok(t.includes("· 排队项"), "待办 · 标记");
-  assert.ok(t.includes("Jobs 1/2"), "jobs 运行中/总数标题");
+  assert.ok(t.includes("○ 排队项"), "待办 ○ 空心圆标记");
+  assert.ok(t.includes("Jobs 1/3"), "jobs 运行中/总数标题");
   assert.ok(t.includes("● 跑测试"), "运行中 ● 行");
   assert.ok(t.includes("✗ 构建"), "失败 ✗ 行");
+  assert.ok(t.includes("✓ 发布"), "完成 ✓ 行");
+  // done 任务正文灰+删除线（与 todo completed 一致）：在未 strip 的原始行上断言
+  // strike(9m) 出现在对号之后（删除线不覆盖对号）
+  const rawDone = renderStatusColumn(
+    setGoal("active", "目标"),
+    [
+      { content: "已完成项", status: "completed" },
+      { content: "排队项", status: "pending" },
+    ],
+    [
+      { id: "j1", kind: "bash", label: "跑测试", status: "running" },
+      { id: "j3", kind: "bash", label: "发布", status: "done" },
+    ],
+    0,
+    12,
+    24,
+    initialState().themeId,
+  ).find((r) => r.includes("发布"))!;
+  assert.ok(
+    rawDone.includes("9m") && rawDone.indexOf("9m") > rawDone.indexOf("✓"),
+    "done 正文灰+删除线且不覆盖对号: " + rawDone,
+  );
 });
 
 test("renderStatusColumn: blocked 黄 tone 显示阻塞原因", () => {
