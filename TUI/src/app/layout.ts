@@ -320,6 +320,9 @@ function statusColumnBody(
   jobs: JobInfo[] | undefined,
   width: number,
   themeId: ThemeId,
+  capGoal = STATUS_GOAL_MAX_LINES,
+  capTodo = STATUS_TODO_MAX_LINES,
+  omitDone = false,
 ): { text: string; color?: (s: string) => string }[] {
   const out: { text: string; color?: (s: string) => string }[] = [];
   if (!goal || goal.status === "cleared") {
@@ -333,10 +336,8 @@ function statusColumnBody(
       colorFor(themeId, "blue")("Goal ") +
       colorFor(themeId, GOAL_PHASE_COLOR[g.phase] ?? "green")(g.phase),
   });
-  // objective 正文（可长，上限 STATUS_GOAL_MAX_LINES 行；无「目标」前缀）
-  out.push(
-    ...capWrap(g.objective || "（空目标）", width, STATUS_GOAL_MAX_LINES),
-  );
+  // objective 正文（可长，上限 capGoal 行；无「目标」前缀）
+  out.push(...capWrap(g.objective || "（空目标）", width, capGoal));
   // blocked → blockedReason.message 黄 tone
   if (g.phase === "blocked" && g.blockedReason?.message) {
     out.push({
@@ -344,7 +345,7 @@ function statusColumnBody(
       color: colorFor(themeId, "yellow"),
     });
   }
-  // todo 块标题（完成数/总数，蓝）+ 列表（每条上限 STATUS_TODO_MAX_LINES 行）：
+  // todo 块标题（完成数/总数，蓝）+ 列表（每条上限 capTodo 行）：
   // `○ ` 待办(默认空心圆) / `● ` 进行中(黄实心圆) / `✓ ` 完成(灰+删除线)
   const list = todos ?? [];
   if (list.length > 0) {
@@ -355,10 +356,12 @@ function statusColumnBody(
       text: colorFor(themeId, "blue")(`Todo ${done}/${list.length}`),
     });
     for (const t of list) {
+      // 折叠（溢出）时优先隐藏已完成任务：省略 completed 行（计数标题仍含全部）
+      if (omitDone && t.status === "completed") continue;
       const body = t.content === "" ? "（空项）" : t.content;
       const mark = TODO_MARKER[t.status];
       // 正文按剩余宽度（扣掉 marker 两列）折行；续行缩进 marker 宽度与首行正文对齐
-      const rows = capWrap(body, width - 2, STATUS_TODO_MAX_LINES).map(
+      const rows = capWrap(body, width - 2, capTodo).map(
         (r, i) => ({ text: (i === 0 ? mark : "  ") + r.text }),
       );
       if (t.status === "completed") {
@@ -411,6 +414,8 @@ function statusColumnBody(
     });
     for (const job of jobs) {
       const mark = statusMark(themeId, job.status);
+      // 折叠（溢出）时优先隐藏已完成任务：done 行省略（计数标题仍含全部）
+      if (omitDone && mark.symbol === "✓") continue;
       const label = job.label || job.kind || job.id || "（未命名任务）";
       if (mark.symbol === "✓") {
         // 已完成（默认分支，如 done）：正文灰+删除线，与 todo completed 一致
@@ -450,7 +455,35 @@ export function renderStatusColumn(
 ): string[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);
-  const body = statusColumnBody(goal, todos, jobs, w - 1, themeId);
+  // 状态列折叠策略：整体高度内不折叠任何内容（完整渲染）；
+  // 溢出时优先隐藏已完成任务（completed todo / done jobs），仍溢出再折叠长内容
+  const inf = Number.MAX_SAFE_INTEGER;
+  let body = statusColumnBody(goal, todos, jobs, w - 1, themeId, inf, inf);
+  if (body.length > h) {
+    const noDone = statusColumnBody(
+      goal,
+      todos,
+      jobs,
+      w - 1,
+      themeId,
+      inf,
+      inf,
+      true,
+    );
+    body =
+      noDone.length <= h
+        ? noDone
+        : statusColumnBody(
+            goal,
+            todos,
+            jobs,
+            w - 1,
+            themeId,
+            STATUS_GOAL_MAX_LINES,
+            STATUS_TODO_MAX_LINES,
+            true,
+          );
+  }
   const start = statusStartFor(body.length, scroll, h);
   const out: string[] = [];
   for (let r = 0; r < h; r++) {
@@ -592,7 +625,8 @@ function buildTopRegion(
       const g = panel === "history" ? "┘" : panel === "activity" ? "┐" : "│";
       return colorFor(state.themeId, focusActive ? fc : "gray")(g);
     }
-    let bright = focusActive;
+    // 无焦点（focusedPanel=null）时所有框线回灰：bright 仅在有焦点面板时可能为真
+    let bright = focusActive && panel !== null;
     if (focusActive && panel === "history") bright = rc < dialogueH;
     else if (focusActive && panel === "activity") bright = rc >= dialogueH;
     return colorFor(state.themeId, bright ? fc : "gray")("│");

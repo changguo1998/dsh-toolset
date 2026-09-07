@@ -1159,14 +1159,14 @@ test("慢速流：分隔线在回合开始画，turn-end 不再画", () => {
     adapter.push({ type: "stream", sessionId: "s1", text: "第一回合正文" });
     assert.equal(
       barRowCount(renderer),
-      4,
-      "首回合空历史不画孤立线（含顶部边框行 ─）",
+      3,
+      "首回合空历史不画孤立线（默认无焦点，顶部边框行空白不画线）",
     );
     adapter.push({ type: "turn-end" });
     assert.equal(
       barRowCount(renderer),
-      4,
-      "turn-end 不再画分隔线（含顶部边框行）",
+      3,
+      "turn-end 不再画分隔线（默认无焦点，顶部边框行空白）",
     );
     // 回合 2：首条正文到达 → 回合开始时先画线，再进入内容
     adapter.push({ type: "stream", sessionId: "s1", text: "第二回合正文" });
@@ -1175,8 +1175,8 @@ test("慢速流：分隔线在回合开始画，turn-end 不再画", () => {
     );
     assert.equal(
       barRowCount(renderer),
-      5,
-      "回合开始时先画分隔线（含顶部边框行）",
+      4,
+      "回合开始时先画分隔线（默认无焦点，顶部边框行空白）",
     );
     const joined = plain.join("\n");
     assert.ok(
@@ -1208,13 +1208,17 @@ test("slowStream=true：turn 结束后流速回落，下一轮思考重新从初
       "第一轮思考放完正文铺出",
     );
     adapter.push({ type: "turn-end" });
-    assert.equal(barRowCount(renderer), 4, "turn-end 不再画线（含顶部边框行）");
+    assert.equal(
+      barRowCount(renderer),
+      3,
+      "turn-end 不再画线（默认无焦点，顶部边框行空白）",
+    );
     // 第二轮：思考应从初始 20cps 重新开始(不回落到 120)
     adapter.push({ type: "thinking", sessionId: "s1", text: "bbbbbbbbbb" });
     assert.equal(
       barRowCount(renderer),
-      5,
-      "新一轮回合开始时先画线（含顶部边框行）",
+      4,
+      "新一轮回合开始时先画线（默认无焦点，顶部边框行空白）",
     );
     assert.ok(
       !renderer.lastRender.join("\n").includes("b"),
@@ -2415,8 +2419,9 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
     "默认（距底部=0）活动区显示帮助尾部",
   );
 
-  // Tab → 流输出：↑ 上滚一行 → 显示更早一行
-  renderer.press(key("tab"));
+  // 默认无焦点 → Tab 进入历史 → 再 Tab 到流输出：↑ 上滚一行 → 显示更早一行
+  renderer.press(key("tab")); // null → 历史
+  renderer.press(key("tab")); // 历史 → 流输出
   renderer.press(key("up"));
   assert.ok(actBody()[0]?.includes("/theme"), "焦点流输出时 ↑ 滚动到更早行");
   // PgUp（整页）→ 翻到帮助首行
@@ -2485,7 +2490,8 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
     shift: false,
   });
 
-  renderer.press(key("tab")); // → 流输出焦点
+  renderer.press(key("tab")); // null → 历史
+  renderer.press(key("tab")); // 历史 → 流输出焦点
   for (let i = 0; i < 30; i++)
     adapter.push({ type: "notice", text: `turn1 行 ${i}` } as DshEvent);
   assert.ok(actFirst().startsWith("turn1 行"), "turn1 显示");

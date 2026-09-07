@@ -161,6 +161,40 @@ test("renderStatusColumn: 每条 todo 超过上限折叠到 3 行", () => {
   assert.ok(body.includes("(+"), "todo 折叠提示");
 });
 
+test("renderStatusColumn: 整体高度未溢出时内容完整显示（不折叠、不隐藏完成）", () => {
+  const rows = col(
+    setGoal("active", "目标一、目标二、目标三"),
+    [
+      { content: "完成的任务 A", status: "completed" },
+      { content: "待办较长内容（演示未溢出时不截断且续行缩进）", status: "pending" },
+    ],
+    { width: 16, height: 20 },
+  );
+  const t = rows.join("\n");
+  assert.ok(t.includes("目标三"), "目标完整显示不折叠");
+  assert.ok(t.includes("完成的任务 A"), "高度充足时已完成任务不隐藏");
+  assert.ok(t.includes("行缩进"), "长内容续行完整（不截断，文本跨行也保留）");
+  assert.ok(!t.includes("(+"), "未溢出时不出现折叠提示");
+});
+
+test("renderStatusColumn: 溢出时优先隐藏已完成任务（计数标题仍含）", () => {
+  const rows = col(
+    setGoal("active", "目标"),
+    [
+      { content: "完成的任务 A", status: "completed" },
+      { content: "完成的任务 B", status: "completed" },
+      { content: "待办任务 C", status: "pending" },
+      { content: "待办任务 D", status: "pending" },
+    ],
+    { width: 16, height: 7 }, // Goal+目标+虚线+标题+2 待办=6 行；completed 被优先隐藏
+    [{ id: "j1", kind: "bash", label: "跑测试", status: "running" }],
+  );
+  const t = rows.join("\n");
+  assert.ok(t.includes("Todo 2/4"), "计数标题仍含完成数（隐藏的是行不是计数）");
+  assert.ok(!t.includes("完成的任务"), "已完成任务行被优先隐藏");
+  assert.ok(t.includes("待办任务 C") && t.includes("待办任务 D"), "未完成任务保留");
+});
+
 test("renderStatusColumn: 滚动窗口 clamp——超长内容可下滚看更晚条目", () => {
   const todos: TodoItemLike[] = Array.from({ length: 10 }, (_, i) => ({
     content: `任务${i}`,
