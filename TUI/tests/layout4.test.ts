@@ -1324,7 +1324,7 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
     });
     assert.ok(!t.includes("goal:"), `goal 徽标已移除 (${t})`);
     assert.ok(!t.includes("todo"), `todo 计数已移除 (${t})`);
-    assert.ok(t.includes("plan·ro·full"), `模式徽标三合一 (${t})`);
+    assert.ok(stripAnsi(t).includes("plan·ro·full"), `模式徽标三合一 (${stripAnsi(t)})`);
   });
 
   test("renderStatusLine: goal/todo 徽标恒定不出现（已由右侧顶部状态列承接）", () => {
@@ -1392,7 +1392,7 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
     );
     const t = lines.map((l) => l.text).join("\n");
     assert.ok(!t.includes("goal:"), `窄屏也不再显示 goal 徽标 (${t})`);
-    assert.ok(t.includes("plan·ro"), `窄屏模式徽标完整 (${t})`);
+    assert.ok(stripAnsi(t).includes("plan·ro"), `窄屏模式徽标完整 (${stripAnsi(t)})`);
     for (const l of lines)
       assert.ok(displayWidth(l.text) <= cols, `每行不超宽 (${l.text})`);
   });

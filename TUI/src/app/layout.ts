@@ -458,7 +458,8 @@ export function renderStatusColumn(
     const line = idx < body.length ? body[idx] : undefined;
     const text = (line?.color ?? ((s: string) => s))(line?.text ?? "");
     const inner = truncateToWidth(text, w - 1);
-    // 右缘竖线分隔（制表符竖线 │ 跨行连成连续线）：内容后补空格到 (w-1) 再放竖线
+    // 右缘竖线分隔（竖线 │ 跨行连成连续线）：内容后补空格到 (w-1) 再放竖线。
+    // 此竖线在 buildTopRegion 被剥去后重画（边框灰/亮由框架构图决定），故保持无色便于剥离
     const pad = " ".repeat(Math.max(0, w - 1 - displayWidth(inner)));
     out.push(inner + pad + "│");
   }
@@ -1032,8 +1033,8 @@ export function renderStatusLine(
     g.reduce((acc, s, i) => acc + (i > 0 ? 1 : 0) + displayWidth(s.text), 0);
   // 各组完整版
   // 段配色：time 默认 / git 洋红 / cwd 蓝 / title 青 / provider 紫 / model 青
-  //          / 后缀 灰 / ctx 蓝 / cache 默认；会话徽标 mode=灰 / policy=蓝 / preset=洋红 / jobs=青——
-  //          相邻段均异色，不用红/黄/绿状态色、不用亮色系
+  //          / 后缀 灰 / ctx 蓝 / cache 默认；会话徽标 plan=灰 / permission=等级色(ro绿/wr黄/full红)
+  //          / policy=ask绿/auto红 / preset=洋红 / jobs=青——等级相关用红黄绿示危险程度
   const magenta = (s: string) => colorFor(themeId, "magenta")(s);
   const gray = (s: string) => colorFor(themeId, "gray")(s);
   // P2 B2：模式徽标三合一（plan→sandbox→permission 固定顺序，组内 · 分隔）。
@@ -1044,22 +1045,30 @@ export function renderStatusLine(
     "workspace-write": "wr",
     "danger-full-access": "full",
   };
+  // 权限等级配色（红色=高危险 / 黄=可写 / 绿=只读安全）：ro 绿、wr 黄、full 红
+  const permColor = (code: string): ((s: string) => string) => {
+    if (code === "ro") return colorFor(themeId, "green");
+    if (code === "wr") return colorFor(themeId, "yellow");
+    if (code === "full") return colorFor(themeId, "red");
+    return gray;
+  };
   const modeBadge = (m: ModeState | undefined): Seg[] => {
     if (!m) return [];
-    const parts: string[] = [];
-    if (m.plan === "on") parts.push("plan");
+    const segs: Seg[] = [];
+    if (m.plan === "on") segs.push({ text: "plan", color: gray });
     const sandbox =
       m.sandbox === undefined
         ? undefined
         : (MODE_SHORT[m.sandbox] ?? m.sandbox);
-    if (sandbox !== undefined && sandbox !== "wr") parts.push(sandbox);
+    if (sandbox !== undefined && sandbox !== "wr")
+      segs.push({ text: sandbox, color: permColor(sandbox) });
     const permission =
       m.permission === undefined
         ? undefined
         : (MODE_SHORT[m.permission] ?? m.permission);
     if (permission !== undefined && permission !== sandbox)
-      parts.push(permission);
-    return parts.length === 0 ? [] : [{ text: parts.join("·"), color: gray }];
+      segs.push({ text: permission, color: permColor(permission) });
+    return segs;
   };
   /** 会话状态徽标：goal/todo 已于 2026-09-17 移除（右侧顶部状态列已详显 goal 阶段与
    *  todo 列表，见 statusColumnBody）；此处仅保留无其它展示位的模式/策略/预设/任务徽标 */
@@ -1067,11 +1076,14 @@ export function renderStatusLine(
     const out: Seg[] = [];
     out.push(...modeBadge(session?.mode));
     // C 阶段：当前审批策略（approval/policy 事件 latest-wins；无该会话事件省略）。
-    // ask 直接示 `ask`，never 示 `auto`（两态语义自明、与模式徽标区分）
+    // ask 示 `ask`（绿=人工把关，安全）、never 示 `auto`（红=自动放行，高风险）
     if (session?.policy) {
       out.push({
         text: session.policy === "never" ? "auto" : "ask",
-        color: blue,
+        color:
+          session.policy === "never"
+            ? colorFor(themeId, "red")
+            : colorFor(themeId, "green"),
       });
     }
     // P3：agent 预设 + 运行中任务计数（短徽标；无值省略）
