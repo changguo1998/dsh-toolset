@@ -217,6 +217,8 @@ export const DIALOGUE_MORE = "...(更早回复已折叠)";
 export const ACTIVITY_HEIGHT_RATIO = 1 / 2;
 /** 活动区分隔线字形（对话历史 ↔ 流输出边界：box-drawing 虚线，保留点感；不参与 barRowCount 统计） */
 export const ACTIVITY_SEPARATOR = "┈";
+/** 焦点面板亮色框颜色：brightCyan（深/浅主题均可见的 UI 强调色，替代分隔灰） */
+export const FOCUS_BORDER: ColorName = "brightCyan";
 /** 顶部三面板（Tab 焦点循环）中文标签（hint 行末尾提示焦点用） */
 export const PANEL_LABEL: Record<AppState["focusedPanel"], string> = {
   history: "历史",
@@ -397,6 +399,7 @@ function buildTopRegion(
   statusColWidth: number,
   historyWidth: number,
   cols: number,
+  focusActive: boolean,
   goal: GoalState | undefined,
   todos: TodoItemLike[] | undefined,
   statusScroll: number,
@@ -444,11 +447,15 @@ function buildTopRegion(
       content && displayWidth(trim) <= displayWidth(left)
         ? left + content
         : trim;
-    const text =
-      visible.length >= left.length
-        ? colorFor(state.themeId, "gray")(left) + visible.slice(left.length)
-        : visible;
-    return { text };
+    if (visible.length < left.length) return { text: visible };
+    // 左缘状态列：正文保持原有灰边框包裹；右缘竖线在焦点态用亮色框颜色
+    const borderColor = focusActive ? FOCUS_BORDER : "gray";
+    return {
+      text:
+        colorFor(state.themeId, "gray")(left.slice(0, -1)) +
+        colorFor(state.themeId, borderColor)("│") +
+        visible.slice(left.length),
+    };
   };
   // 对话区：视口窗口可见行（followBottom / scrollOffset 只作用于对话区）
   for (let i = 0; i < dialogueH; i++) {
@@ -458,12 +465,15 @@ function buildTopRegion(
     rows.push(histLine(content));
   }
   if (activityH > 0) {
-    // 两区分隔线（对话历史 ↔ 流输出边界：灰色点线）
+    // 两区分隔线（对话历史 ↔ 流输出边界：默认灰；焦点在历史/流输出时亮色框）
+    const sepFocused =
+      focusActive &&
+      (state.focusedPanel === "history" || state.focusedPanel === "activity");
     rows.push(
       histLine(
         colorFor(
           state.themeId,
-          "gray",
+          sepFocused ? FOCUS_BORDER : "gray",
         )(ACTIVITY_SEPARATOR.repeat(Math.max(1, historyWidth))),
       ),
     );
@@ -1120,6 +1130,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     metrics.statusColWidth,
     metrics.historyWidth,
     fullWidth,
+    normalInput,
     goal,
     todos,
     state.statusColumnScroll,
@@ -1209,16 +1220,19 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     : [];
 
   // 分隔行（边框统一灰色：先纯文本截断再着色）。状态栏上方用 `═` 强分隔，
-  // 下方沿用 `─`（当前仅要求上方）。
-  const makeSep = (ch: string): RenderLine => ({
+  // 下方沿用 `─`；焦点在底部为流输出/状态列时 `═` 用亮色框（钩到面板底边）。
+  const makeSep = (ch: string, color: ColorName = "gray"): RenderLine => ({
     text: colorFor(
       state.themeId,
-      "gray",
+      color,
     )(truncateToWidth(ch.repeat(fullWidth), fullWidth)),
   });
+  const statusSepFocused =
+    normalInput &&
+    (state.focusedPanel === "activity" || state.focusedPanel === "status");
   return [
     ...topRegion,
-    makeSep(STATUS_TOP_SEPARATOR),
+    makeSep(STATUS_TOP_SEPARATOR, statusSepFocused ? FOCUS_BORDER : "gray"),
     ...statusLines,
     makeSep(SEPARATOR),
     ...footerLines,

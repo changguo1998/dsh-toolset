@@ -2414,3 +2414,34 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
   renderer.press(key("tab"));
   assert.ok(hint().includes("[面板:流输出]"), "再 Tab→流输出");
 });
+
+test("Tab 仅在输入区为空时切换焦点；有输入时不响应（编辑不被打断）", () => {
+  const { renderer } = makeApp();
+  // 焦点标签追加在 hint 行尾，80 列会被截断；加宽到 120 列保证可断言
+  renderer.size = { cols: 120, rows: 24 };
+  const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
+  const hint = (): string => {
+    const h = renderer.lastRender
+      .map(strip)
+      .find((l) => l?.startsWith("[Enter]发送"));
+    return h ?? "";
+  };
+  const key = (name: string): KeyEvent => ({
+    name,
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+
+  // 空输入：Tab 切换
+  renderer.press(key("tab"));
+  assert.ok(hint().includes("[面板:流输出]"), "空输入时 Tab 切到流输出");
+  // 输入一个字符后：Tab 不再切换焦点
+  renderer.press(key("a"));
+  renderer.press(key("tab"));
+  assert.ok(hint().includes("[面板:流输出]"), "有输入时 Tab 不切换焦点");
+  // 清空输入（Backspace）后：Tab 恢复切换
+  renderer.press(key("backspace"));
+  renderer.press(key("tab"));
+  assert.ok(hint().includes("[面板:状态]"), "清空输入后 Tab 恢复切换");
+});

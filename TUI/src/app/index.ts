@@ -659,8 +659,10 @@ export class App {
         if (this.state.agentStatus !== "idle") this.deps.adapter.interrupt();
         break;
       case "tab":
-        // Tab：循环切换顶部面板焦点（history → activity → status；模态面板不在此分支）
-        this.apply((s) => reduceState(s, { type: "focus-panel-cycle" }));
+        // Tab：仅输入区为空时循环切换顶部面板焦点（编辑输入时保留 Tab 不打断）
+        if (this.state.inputText === "") {
+          this.apply((s) => reduceState(s, { type: "focus-panel-cycle" }));
+        }
         break;
       case "up":
       case "down": {

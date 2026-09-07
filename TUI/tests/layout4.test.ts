@@ -1378,3 +1378,63 @@ test("活动区：activityScroll 滚动窗口（默认尾部；上滚看更早�
   assert.equal(v[0], "行0");
   assert.equal(v[v.length - 1]!, "行10");
 });
+
+test("焦点面板亮色框：│ 常亮，┈/═ 按焦点面板着色（历史/流输出/状态/面板态）", () => {
+  // brightCyan #87EFC7（dark 主题）；grey 120;120;120 为边框默认
+  const BRIGHT = "\x1b[38;2;135;239;199m";
+  const size = { rows: 24, cols: 80 } as const;
+  const rowsOf = (st: ReturnType<typeof initialState>): string[] =>
+    buildFrame(st, size).map((l) => l.text);
+  // ┈ 分隔行中“│ 右侧”的点线段（┈ 本身随焦点变亮/回灰；│ 恒亮）
+  const sepSegment = (lines: string[]): string => {
+    const raw = lines.find((l) => stripAnsi(l).includes("┈"))!;
+    assert.ok(raw.includes("│"), "┈ 行含左缘竖线");
+    return raw.slice(raw.lastIndexOf("│") + 1);
+  };
+  const eqRaw = (lines: string[]): string =>
+    lines.find((l) => /^═+$/.test(stripAnsi(l)))!;
+  const barRaw = (lines: string[]): string =>
+    lines.find(
+      (l) => stripAnsi(l).includes("│") && !stripAnsi(l).includes("┈"),
+    )!;
+
+  // 默认焦点=历史：┈ 亮、═ 灰、│ 亮
+  let st = initialState();
+  let rows = rowsOf(st);
+  assert.ok(sepSegment(rows).includes(BRIGHT), "历史焦点：┈ 点线亮色");
+  assert.ok(!eqRaw(rows).includes(BRIGHT), "历史焦点：═ 保持灰");
+  assert.ok(barRaw(rows).includes(BRIGHT), "历史焦点：│ 竖线亮色");
+
+  // 焦点=流输出：┈ 与 ═ 均亮（活动区上下边成框）
+  st = reduceState(st, { type: "focus-panel-cycle" });
+  rows = rowsOf(st);
+  assert.ok(sepSegment(rows).includes(BRIGHT), "流输出焦点：┈ 亮色");
+  assert.ok(eqRaw(rows).includes(BRIGHT), "流输出焦点：═ 亮色");
+
+  // 焦点=状态：┈ 回灰、═ 亮（状态列右缘+底边成框）
+  st = reduceState(st, { type: "focus-panel-cycle" });
+  rows = rowsOf(st);
+  assert.ok(!sepSegment(rows).includes(BRIGHT), "状态焦点：┈ 回灰");
+  assert.ok(eqRaw(rows).includes(BRIGHT), "状态焦点：═ 亮色");
+  assert.ok(barRaw(rows).includes(BRIGHT), "状态焦点：│ 竖线亮色");
+
+  // 面板态（非输入态）：亮色框全部回灰
+  st = reduceState(initialState(), {
+    type: "picker-open",
+    picker: {
+      providers: ["deepseek", "ustc"],
+      providerIndex: 1,
+      providerModels: { deepseek: ["chat", "reasoner"], ustc: ["glm", "mi"] },
+      models: ["chat", "reasoner"],
+      modelIndex: 1,
+      phase: 0,
+      efforts: [],
+      effortIndex: 0,
+      current: { provider: "deepseek", model: "chat", reasoningEffort: "low" },
+    },
+  });
+  rows = rowsOf(st);
+  assert.ok(!sepSegment(rows).includes(BRIGHT), "面板态：┈ 灰");
+  assert.ok(!eqRaw(rows).includes(BRIGHT), "面板态：═ 灰");
+  assert.ok(!barRaw(rows).includes(BRIGHT), "面板态：│ 灰");
+});
