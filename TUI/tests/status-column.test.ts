@@ -504,3 +504,29 @@ test("catalog reducer: 目录写入全局 state，且更新后回无焦点（与
   f = reduceState(f, { type: "permission-catalog", names: ["a"] });
   assert.equal(f.focusedPanel, null, "权限目录更新后回无焦点");
 });
+
+test("renderStatusColumn: 目录空（未同步/降级）时目录外自定义当前值仍补入三档列表", () => {
+  const theme = initialState().themeId;
+  const strip = (l: string): string =>
+    l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd();
+  // permissionOptions=[]（空数组=目录未同步 → 降级标准三档），当前值超长自定义名
+  const rows = renderStatusColumn(
+    undefined,
+    [],
+    undefined,
+    0,
+    10,
+    80,
+    theme,
+    { sandbox: "read-only", permission: "very-long-custom-preset-name-0123" },
+    "ask",
+    "p",
+    [],
+    undefined,
+  ).map(strip);
+  const t = rows.join("\n");
+  assert.ok(
+    t.includes("permission ro wr full very-long-custom-preset-name-0123"),
+    "目录空降级时自定义当前值仍补入并显示: " + t,
+  );
+});

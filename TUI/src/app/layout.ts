@@ -469,10 +469,8 @@ function modeBlock(
           ? permissionOptions
           : ["read-only", "workspace-write", "danger-full-access"];
       const raw = mode.permission;
-      const opts =
-        base.includes(raw) || permissionOptions?.length === 0
-          ? base
-          : [...base, raw];
+      // 当前生效值始终补入（无论目录是否为空/降级）：能显示出来才谈得上高亮
+      const opts = base.includes(raw) ? base : [...base, raw];
       const curDisp = MODE_SHORT[raw] ?? raw;
       // 生效色：名在三档内按危险等级 ro/wr/full；自定义预设（目录外值）用洋红强调
       const curColor =
