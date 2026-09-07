@@ -102,7 +102,7 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     "最左侧竖线存在（历史区左缘框格，默认焦点=历史）",
   );
   assert.ok(
-    top.slice(1).every((l) => /[│┄]/.test(plain(l))),
+    top.slice(1).every((l) => /[│╌]/.test(plain(l))),
     "分隔竖线保留（对话区右缘/状态列左缘，内容行均有；活动区分隔行两端的角为 ┘/┐）",
   );
   assert.ok(
@@ -652,7 +652,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   const tt = plain.findIndex((l) => l.includes("思考中"));
   assert.ok(tt >= 0, "思考应在帧内可见");
   assert.ok(
-    plain.slice(0, tt).some((l2) => l2.includes("┄")),
+    plain.slice(0, tt).some((l2) => l2.includes("╌")),
     "思考应位于活动区点线分隔之下",
   );
 
@@ -665,7 +665,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
       cols: 40,
     },
   );
-  const dotRaw = dt.find((l) => /^┄+$/.test(histContent(l.text, 40)));
+  const dotRaw = dt.find((l) => /^╌+$/.test(histContent(l.text, 40)));
   assert.ok(dotRaw, "活动区分隔线为点线");
   assert.ok(
     dotRaw!.text.includes(graySGR),
@@ -1449,10 +1449,10 @@ test("活动区：activityScroll 滚动窗口（默认尾部；上滚看更早�
         ? s
         : reduceState(s, { type: "activity-scroll", delta: scrollDelta });
     const plain = buildFrame(st, { rows: 30, cols: 60 }).map((l) => l.text);
-    const sep = plain.findIndex((l) => stripAnsi(l).includes("┄"));
-    // 状态栏上方 ─ 分隔行（含 D 列灰 ┄ 延续）
+    const sep = plain.findIndex((l) => stripAnsi(l).includes("╌"));
+    // 状态栏上方 ─ 分隔行：D 列交点恒为灰 ┴（无焦点不再延续活动区点线）
     const end = plain.findIndex(
-      (l, i) => i > sep && /^[─┄]+$/.test(stripAnsi(l)),
+      (l, i) => i > sep && /^[─┴]+$/.test(stripAnsi(l)),
     );
     assert.ok(sep >= 0 && end > sep, "活动区分隔线与状态栏存在");
     return plain
@@ -1487,7 +1487,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     buildFrame(st, size).map((l) => l.text);
   const plain = (l: string): string => stripAnsi(l);
   const sepRow = (lines: string[]): string =>
-    lines.find((l) => plain(l).includes("┄"))!;
+    lines.find((l) => plain(l).includes("╌"))!;
   const eqRow = (lines: string[]): string =>
     lines.find(
       (l) => /^[└─]+/.test(plain(l)) && !plain(l).includes("（新会话）"),
@@ -1507,7 +1507,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   const countBrightBar = (raw: string): number =>
     raw.split(WHITE + "│").length - 1;
 
-  // 默认焦点=历史（左列）：顶边 ┌─┐、┄ 亮 + 两端 ┘、对话区左缘/分隔竖线亮 │、─ 全灰
+  // 默认焦点=历史（左列）：顶边 ┌─┐、╌ 亮 + 两端 ┘、对话区左缘/分隔竖线亮 │、─ 全灰
   let st = initialState();
   let rows = rowsOf(st);
   const b0 = rows[0]!;
@@ -1516,7 +1516,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(colAt(b0, D) === "┐", "历史焦点：右上角 ┐（分隔竖线列）");
   assert.ok(b0.includes(WHITE), "历史焦点：顶边/竖线亮白");
   const s0 = sepRow(rows);
-  assert.ok(s0.includes(WHITE + "┄"), "历史焦点：┄ 点线亮白");
+  assert.ok(s0.includes(WHITE + "╌"), "历史焦点：╌ 点线亮白");
   assert.ok(plain(s0).includes("┘"), "历史焦点：分隔行两端 ┘");
   const dlg = rows.find((l) => plain(l).includes("（无目标/待办）"))!;
   assert.ok(plain(dlg).startsWith("│"), "历史焦点：最左侧左缘框格 │");
@@ -1529,7 +1529,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     !eqRow(rows).includes(WHITE + "─"),
     "历史焦点：─ 保持灰（仅灰段，无亮 ─）",
   );
-  const sepIdx0 = rows.findIndex((l) => plain(l).includes("┄"));
+  const sepIdx0 = rows.findIndex((l) => plain(l).includes("╌"));
   const dlgRow0 = rows.find((l) => plain(l).includes("（无目标/待办）"))!;
   assert.equal(
     countBrightBar(dlgRow0),
@@ -1551,17 +1551,17 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   );
   const sigHistory = contentSig(rows, topRows);
 
-  // 焦点=流输出（左列）：顶边空白、┄ 亮 + 两端 ┌/┐、活动区左缘/分隔竖线亮 │、─ 亮左段含 └┴（无 ┘）
+  // 焦点=流输出（左列）：顶边空白、╌ 亮 + 两端 ┌/┐、活动区左缘/分隔竖线亮 │、─ 亮左段含 └┴（无 ┘）
   st = reduceState(initialState(), { type: "focus-panel-cycle" });
   rows = rowsOf(st);
   assert.ok(!plain(rows[0]!).includes("─"), "流输出焦点：顶部不画顶边");
   assert.ok(!plain(rows[0]!).includes("┐"), "流输出焦点：顶部无角");
   const s1 = sepRow(rows);
-  assert.ok(s1.includes(WHITE + "┄"), "流输出焦点：┄ 点线亮白");
+  assert.ok(s1.includes(WHITE + "╌"), "流输出焦点：╌ 点线亮白");
   assert.ok(plain(s1).includes("┐"), "流输出焦点：分隔行右端 ┐");
   assert.ok(plain(s1).startsWith("┌"), "流输出焦点：分隔行左端 ┌");
   // 活动区首行（分隔行之后）左缘框格与分隔竖线应亮 │
-  const sepIdx1 = rows.findIndex((l) => plain(l).includes("┄"));
+  const sepIdx1 = rows.findIndex((l) => plain(l).includes("╌"));
   const act = rows[sepIdx1 + 1]!;
   assert.ok(plain(act).startsWith("│"), "流输出焦点：活动区左缘框列 │");
   assert.ok(colAt(act, D) === "│", "流输出焦点：活动区右缘分隔竖线 │");
@@ -1580,7 +1580,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(!plain(e1).includes("┘"), "流输出焦点：无状态列右下角 ┘");
   assert.deepEqual(contentSig(rows, topRows), sigHistory, "切换焦点不重排内容");
 
-  // 焦点=状态（右列）：顶边 ┌─┐（D 起）、┄ 回灰、─ 亮右段含 ┴┘（无 └）
+  // 焦点=状态（右列）：顶边 ┌─┐（D 起）、╌ 回灰、─ 亮右段含 ┴┘（无 └）
   st = reduceState(initialState(), { type: "focus-panel-cycle" });
   st = reduceState(st, { type: "focus-panel-cycle" });
   rows = rowsOf(st);
@@ -1589,7 +1589,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(colAt(b2, D) === "┌", "状态焦点：顶边收角 ┌（分隔竖线列）");
   assert.ok(colAt(b2, 79) === "┐", "状态焦点：右上角 ┐（屏幕右缘）");
   assert.ok(b2.includes(WHITE + "─"), "状态焦点：顶边/竖线亮白");
-  assert.ok(!sepRow(rows).includes(WHITE + "┄"), "状态焦点：┄ 回灰");
+  assert.ok(!sepRow(rows).includes(WHITE + "╌"), "状态焦点：╌ 回灰");
   const dlgS = rows.find((l) => plain(l).includes("（无目标/待办）"))!;
   assert.ok(
     !plain(dlgS).startsWith("│"),
@@ -1622,13 +1622,13 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   rows = rowsOf(st);
   const whole = rows.map(plain).join("\n");
   assert.ok(
-    !/\x1b\[38;2;216;216;216m[┄─│┐┘└┌┴]/.test(whole),
+    !/\x1b\[38;2;216;216;216m[╌─│┐┘└┌┴]/.test(whole),
     "面板态：无亮白框线",
   );
   assert.ok(!plain(rows[0]!).includes("─"), "面板态：顶部边框行空白占位");
   // 面板态：审批/问答/选择面板自 2026-09-17 起渲染在流输出（活动区）窗口
   // （分隔行之后），而非底部交互区；对话历史/状态列内容不被挤占（无缓冲仍空）
-  const sepI2 = rows.findIndex((l) => plain(l).includes("┄"));
+  const sepI2 = rows.findIndex((l) => plain(l).includes("╌"));
   const actRows2 = rows.slice(sepI2 + 1, topRows).map(plain);
   assert.ok(
     actRows2.some((l) => l.includes("deepseek")),
@@ -1653,11 +1653,11 @@ function contentSig(lines: string[], topRows: number): string[] {
       stripAnsi(l)
         .slice(1) // 去掉 col0 左缘框格（│ 或空白占位）
         // 右缘框列 `│` 与行内焦点角（活动分隔行右端）删除以跨焦点等长；
-        // 其余角/虚线归一化为线段字符（行尾 `┘`=状态栏右下角、`┴`、`┄`→─，
+        // 其余角/虚线归一化为线段字符（行尾 `┘`=状态栏右下角、`┴`、`╌`→─，
         // 长度不变），焦点差异不计入内容签名
         .replace(/[│┐└┌]/g, "")
         .replace(/┘(?=\s)/g, "")
-        .replace(/[┘┴┄]/g, "─")
+        .replace(/[┘┴╌]/g, "─")
         .replace(/\s+$/, ""),
     );
 }

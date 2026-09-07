@@ -214,7 +214,7 @@ export const DIALOGUE_MORE = "...(更早回复已折叠)";
 /** 活动区行数 = 右上区（对话历史+活动区）高度的一半（固定比例，不随内容变化） */
 export const ACTIVITY_HEIGHT_RATIO = 1 / 2;
 /** 活动区分隔线字形（对话历史 ↔ 流输出边界：box-drawing 虚线，保留点感；不参与 barRowCount 统计） */
-export const ACTIVITY_SEPARATOR = "┄"; // 点更少的虚线（quadruple→triple dash，历史区下方/状态列块间共用）
+export const ACTIVITY_SEPARATOR = "╌"; // 点更少的虚线（quadruple→triple→double dash，历史区下方/状态列块间共用）
 /** 焦点面板四边框的保留格：顶部 1 行、左侧 1 列、右侧 1 列（所有状态恒定，未聚焦留空白占位，防内容重排） */
 export const FRAME_TOP_ROWS = 1;
 export const FRAME_LEFT_COLS = 1;
@@ -1281,9 +1281,8 @@ export function buildStatusSeparator(
           : colorFor(themeId, "gray")(STATUS_TOP_SEPARATOR)
         : "") +
       seg(leftW, STATUS_TOP_SEPARATOR, sepFocus === "activity") +
-      (sepFocus === "none"
-        ? colorFor(themeId, "gray")(ACTIVITY_SEPARATOR) // D 列无焦点时延续活动区虚线
-        : colorFor(themeId, fc)("┴")) +
+      // D 列交点恒与水平实线相交（无焦点灰 ┴ / 焦点亮 ┴），不再用点线
+      colorFor(themeId, sepFocus === "none" ? "gray" : fc)("┴") +
       seg(rightW, STATUS_TOP_SEPARATOR, sepFocus === "status") +
       // R 列（状态列右缘框列）：status 焦点右下角 ┘；无右缘框列（statusColWidth=1）时不输出
       (useRightFrame

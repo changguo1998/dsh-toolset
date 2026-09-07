@@ -195,26 +195,31 @@ export class MockDshAdapter implements DshAdapter {
     this.emit({ type: "agent-preset", sessionId: this.sessionId, preset: id });
   }
 
+  /** jobs 快照（状态列 jobs 块 / 状态栏 / /jobs 面板共用） */
+  private jobsSnapshot() {
+    return [
+      {
+        id: "subprocess-1",
+        kind: "subprocess",
+        label: "run tests",
+        status: "running",
+      },
+      {
+        id: "subprocess-2",
+        kind: "subprocess",
+        label: "build demo",
+        status: "done",
+        detail: "ok",
+      },
+    ];
+  }
+
   async refreshJobs(): Promise<void> {
     // 模拟 ctx.jobs.list()：回发 jobs-changed 全量快照（/jobs 面板 + 状态栏计数）
     this.emit({
       type: "jobs-changed",
       sessionId: this.sessionId,
-      jobs: [
-        {
-          id: "subprocess-1",
-          kind: "subprocess",
-          label: "run tests",
-          status: "running",
-        },
-        {
-          id: "subprocess-2",
-          kind: "subprocess",
-          label: "build demo",
-          status: "done",
-          detail: "ok",
-        },
-      ],
+      jobs: this.jobsSnapshot(),
     });
   }
 
@@ -301,6 +306,11 @@ export class MockDshAdapter implements DshAdapter {
               },
               { content: "/goal 迷你面板", status: "in_progress" },
               { content: "模式徽标三合一", status: "completed" },
+              {
+                content:
+                  "设计评审准备：这是一条较长的待办内容，用于演示状态列 todo 换行后的颜色保持与标记延续显示效果",
+                status: "pending",
+              },
             ],
           }),
         110,
@@ -335,6 +345,19 @@ export class MockDshAdapter implements DshAdapter {
             policy: "ask",
           }),
         150,
+      ),
+    );
+    // 启动注入 jobs 快照：状态列 jobs 块 / 状态栏 jobs 徽标默认可见；
+    // /jobs 打开仍走 refreshJobs 重拉（行为不变）
+    this.timers.push(
+      setTimeout(
+        () =>
+          this.emit({
+            type: "jobs-changed",
+            sessionId: this.sessionId,
+            jobs: this.jobsSnapshot(),
+          }),
+        170,
       ),
     );
   }

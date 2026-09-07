@@ -264,6 +264,17 @@ if (smoke) {
           panelPlain.includes("P2 阶段 B1+B2"),
         "goal 提示/状态列 objective absent from frames",
       );
+      ok(
+        "status-col-elements",
+        panelPlain.includes("Goal active") &&
+          panelPlain.includes("Todo 1/4") &&
+          panelPlain.includes("> 状态栏 goal 徽标") &&
+          panelPlain.includes("✓ 模式徽标三合一") &&
+          panelPlain.includes("· 设计评审") &&
+          panelPlain.includes("…(+3行)") &&
+          panelPlain.includes("Jobs 1/2"),
+        "status column goal/todo/jobs elements absent from frames",
+      );
       await sleep(200);
 
       // C 阶段：/policy 审批策略。启动注入 approval/policy(ask) → 状态栏 ask 徽标；
@@ -323,8 +334,8 @@ if (smoke) {
       ok(
         "jobs-panel",
         jobsPlain.includes("后台任务") &&
-          jobsPlain.includes("run tests") &&
-          jobsPlain.includes("build demo"),
+          jobsPlain.includes("● running run tests") &&
+          jobsPlain.includes("✓ done build demo"),
         "jobs panel rows absent from frames",
       );
       ok(
