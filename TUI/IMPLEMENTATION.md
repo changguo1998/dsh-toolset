@@ -101,7 +101,7 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 | `notice {text,error?,tone?}` | `appendNotice(…,tone)` | tone 着色：error 红 / warn 黄 / muted 灰 |
 | `goal-change {sessionId,operation,goal\|cleared,…}` | `goalBySession[sid]` 快照替换/clear 墓碑 | 顶部状态列详显（B1，按 sessionId 隔离；状态栏 `goal:<phase>` 徽标已于 2026-09-17 移除，由右侧状态列承接；同日 goal 块与 todo 块之间加点更少的虚线 `╌` 分隔；2026-09-07 `/goal` 面板移除、仅提示查看信息栏，状态列补 `Todo 完成数/总数` 标题与 `○`/`●`/`✓` 标记（待办空心圆/进行中实心圆、对号不划线、进行中全黄、续行缩进对齐、jobs 完成项正文灰+删除线）、新增 jobs 块、状态区上方分隔改单线 `─`；对话 turn 之间改点更少的虚线 `╌`（窗口间分隔统一实线：活动区分隔/状态区上下 2026-09-07 均 `─`，状态列块间仍 `╌`）；2026-09-07 默认焦点改 null：新输入/输出（内容推进 action：append/thinking/notice/tool/turn/compaction/jobs 等）后自动回无焦点，Tab 才进入循环；状态列折叠改「未溢出不折叠、溢出优先隐藏已完成」） |
 | `todo-write {sessionId,todos}` | `todoBySession[sid]` 全量替换 | 状态栏 `todo n/m` 计数（进行中/共）（B1） |
-| `mode {sessionId,kind,value}` | `modeBySession[sid]` 三合一 | 状态列 Mode 块 `plan off on` / `sandbox ro wr full` 等（2026-09-07 由状态栏迁入，逐项目全选项+生效色；见 DESIGN 渲染语义）（B2） |
+| `mode {sessionId,kind,value}` | `modeBySession[sid]` 三合一 | 状态列 Mode 块：各项以竖线 ` | ` 连续排布、放不下折行，逐项目全选项+生效色，Mode↔Goal 虚线分隔（2026-09-07 由状态栏迁入；见 DESIGN 渲染语义）（B2） |
 | `step {sessionId,turn,step,phase}` | `stepGroup{sessionId,step,headerEmitted}` | 工具行分组头 `step N`（无工具 step 静默；跨会话隔离）（B3） |
 | `subagent {sessionId,label,mode}` | `appendToolLine(subagentLine)` | 缓冲行 `@ <label> <os\|ct>` append-only（B4） |
 | `compaction-summary {sessionId,text,raw}` | `compactionBySession[sid]`（最近一条）+ `appendNotice` | toast `压缩完成：<text 首行>`（空摘要占位「压缩完成（无摘要）」）（B5） |

@@ -337,6 +337,40 @@ function capWrap(
 /** 状态列 Mode 块：列出会话运行模式/权限/审批策略的所有可选项，生效项着色强调、其余灰。
  *  plan=青（on/off）；sandbox、permission=ro 绿 / wr 黄 / full 红；policy=ask 绿 / auto 红；
  *  preset=洋红（动态值无可枚举，仅显示当前值）。无会话数据时整块省略。 */
+/** 带色文本片段流按显示宽度折行（片段=最小断行单位，片段间以单空格衔接；
+ *  放不下才折行、不强制换行）。片段内嵌 ANSI，宽度按剥离转义后的可见文本计。 */
+function wrapSegs(
+  segs: readonly string[],
+  width: number,
+): { text: string }[] {
+  const rows: { text: string }[] = [];
+  let row = "";
+  let rowW = 0;
+  const visW = (s: string): number => {
+    let w = 0;
+    for (const m of s.matchAll(/\x1b\[[0-9;]*m|[\s\S]/gu)) {
+      const t = m[0]!;
+      if (!t.startsWith("\x1b")) w += charWidth(t);
+    }
+    return w;
+  };
+  for (const seg of segs) {
+    const w = visW(seg);
+    if (rowW > 0 && rowW + 1 + w > Math.max(1, width)) {
+      rows.push({ text: row });
+      row = "";
+      rowW = 0;
+    }
+    row += (row === "" ? "" : " ") + seg;
+    rowW += (row === "" ? 0 : 1) + w;
+  }
+  if (row !== "") rows.push({ text: row });
+  return rows;
+}
+
+/** 状态列 Mode 块：会话运行模式/权限/审批策略。各项目（plan/sandbox/permission/
+ *  policy/preset）以竖线 ` | ` 分隔连续排布（同水平状态栏段间分隔），放不下才折行；
+ *  每项目列出全部可选项、生效项着色强调、其余灰。无会话数据时整块省略。 */
 function modeBlock(
   mode: ModeState | undefined,
   policy: "ask" | "never" | undefined,
@@ -352,45 +386,63 @@ function modeBlock(
   if (!has) return out;
   out.push({ text: colorFor(themeId, "blue")("Mode") });
   const gray = (s: string) => colorFor(themeId, "gray")(s);
-  // 一行列出某项目的全部可选项：生效项用 act 强调色、其余灰
-  const pick = (
+  const tokens: string[] = [];
+  let added = false;
+  // 追加一个项目：标签 + 全部可选项（生效项 act 强调色、其余灰）。
+  // 竖线 ` | ` 并入上一项目尾部（不单独成 token），保证折行时不会孤立成行——
+  // 前项行尾 ` | ` 表示还有后续，与水平状态栏段间分隔一致
+  const add = (
     tag: string,
     options: readonly string[],
     current: string | undefined,
     act: (s: string) => string,
   ): void => {
-    out.push({
-      text:
-        tag +
+    if (added) {
+      const last = tokens.length - 1;
+      tokens[last] = tokens[last] + gray(" |"); // 前导空格由折行拼接层补，避免双空格
+    }
+    tokens.push(
+      tag +
         " " +
         options.map((o) => (o === current ? act(o) : gray(o))).join(" "),
-    });
+    );
+    added = true;
   };
   if (mode) {
     if (mode.plan)
-      pick("plan", ["off", "on"], mode.plan, (s) =>
+      add("plan", ["off", "on"], mode.plan, (s) =>
         colorFor(themeId, "cyan")(s),
       );
     if (mode.sandbox) {
       const code = MODE_SHORT[mode.sandbox] ?? mode.sandbox;
-      pick("sandbox", ["ro", "wr", "full"], code, (s) =>
+      add("sandbox", ["ro", "wr", "full"], code, (s) =>
         permColor(themeId, s)(s),
       );
     }
     // permission 独立列出全部可选项（不因与 sandbox 相同而省略——用户要求逐项全列）
     if (mode.permission) {
       const code = MODE_SHORT[mode.permission] ?? mode.permission;
-      pick("permission", ["ro", "wr", "full"], code, (s) =>
+      add("permission", ["ro", "wr", "full"], code, (s) =>
         permColor(themeId, s)(s),
       );
     }
   }
   if (policy)
-    pick("policy", ["ask", "auto"], policy === "never" ? "auto" : "ask", (s) =>
-      colorFor(themeId, s === "ask" ? "green" : "red")(s),
+    add(
+      "policy",
+      ["ask", "auto"],
+      policy === "never" ? "auto" : "ask",
+      (s) => colorFor(themeId, s === "ask" ? "green" : "red")(s),
     );
-  if (preset && preset !== "")
-    out.push({ text: "preset " + preset, color: colorFor(themeId, "magenta") });
+  if (preset && preset !== "") {
+    if (added) {
+      const last = tokens.length - 1;
+      tokens[last] = tokens[last] + gray(" |"); // 前导空格由折行拼接层补，避免双空格
+    }
+    tokens.push("preset " + colorFor(themeId, "magenta")(preset));
+    added = true;
+  }
+  out.push(...wrapSegs(tokens, width));
   return out;
 }
 
@@ -410,7 +462,12 @@ function statusColumnBody(
 ): { text: string; color?: (s: string) => string }[] {
   const out: { text: string; color?: (s: string) => string }[] = [];
   // 会话运行模式/权限/策略块（水平状态栏迁来）：放在最前，独立于 goal 是否存在
-  out.push(...modeBlock(mode, policy, preset, width, themeId));
+  const modeRows = modeBlock(mode, policy, preset, width, themeId);
+  out.push(...modeRows);
+  // Mode 块与 Goal 块之间加虚线分隔（有 Mode 且有 goal 时）
+  if (modeRows.length > 0 && goal && goal.status !== "cleared") {
+    out.push({ text: STATUS_BLOCK_SEPARATOR.repeat(width) });
+  }
   // goal 块非必需：无 goal（含 cleared）显示占位，但 todo/jobs 块独立展示（不早退）。
   // Mode 块在最前已 push；todo/jobs 块在有数据时仍渲染（jobs 不再被无 goal 吞掉）
   if (goal && goal.status !== "cleared") {

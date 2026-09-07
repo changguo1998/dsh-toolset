@@ -262,40 +262,34 @@ test("renderStatusColumn: Mode 块在无 goal 时也展示且位于最前；各�
   );
   assert.ok(t.includes("policy ask auto"), "policy 列出 ask/auto");
   assert.ok(t.includes("preset claude"), "preset 显示当前值");
+  assert.ok(t.includes(" | "), "各项之间以竖线 | 分隔: " + t);
 });
 
-test("renderStatusColumn: Mode 生效项着色强调、其余灰（同行内不同 SGR）", () => {
+test("renderStatusColumn: Mode 生效项着色强调、其余灰（段内至少两种不同 SGR）", () => {
   const raw = renderStatusColumn(
     undefined,
     [],
     undefined,
     0,
     8,
-    34,
+    90,
     initialState().themeId,
     { plan: "on", sandbox: "read-only", permission: "read-only" },
     "never",
     undefined,
   );
-  // 忽略定宽补齐用的白色 SGR（255;255;255），只统计各选项着色
+  // 忽略定宽补齐用的白色 SGR（255;255;255）与竖线分隔灰，只核对选项段内色差
   const sgr = (l: string): string[] =>
     [...l.matchAll(/\x1b\[38;2;(?!255;255;255)[\d;]+m/g)].map((m) => m[0]);
   const sandbox = raw.find((l) => l.includes("sandbox"))!;
   const policy = raw.find((l) => l.includes("policy"))!;
-  // sandbox 行 ro(生效绿)、wr/full(灰)：三个选项各有着色，生效与灰不同色
-  assert.equal(sgr(sandbox).length, 3, "sandbox 三个选项各有着色");
-  assert.notEqual(
-    sgr(sandbox)[0],
-    sgr(sandbox)[1],
-    "sandbox ro 生效项与灰选项不同色",
-  );
+  const GRAY = "\x1b[38;2;120;120;120m";
+  // sandbox 行：ro(生效绿)、wr/full(灰) —— 生效项与未生效灰不同色，且未生效项确为灰
+  assert.ok(new Set(sgr(sandbox)).size >= 2, "sandbox 生效 ro 与灰选项颜色不同: " + raw.join("\n"));
+  assert.ok(sgr(sandbox).includes(GRAY), "sandbox wr/full 未生效项为灰");
   // policy=never → auto 生效（红）与 ask(灰) 不同色
-  assert.equal(sgr(policy).length, 2, "policy ask/auto 各有着色");
-  assert.notEqual(
-    sgr(policy)[0],
-    sgr(policy)[1],
-    "policy auto 生效项与 ask 灰不同色",
-  );
+  assert.ok(new Set(sgr(policy)).size >= 2, "policy auto 生效与 ask 灰颜色不同: " + raw.join("\n"));
+  assert.ok(sgr(policy).includes(GRAY), "policy ask 未生效项为灰");
 });
 
 test("renderStatusColumn: 无 mode/policy/preset 时 Mode 块整块省略", () => {
@@ -311,4 +305,96 @@ test("renderStatusColumn: 无 mode/policy/preset 时 Mode 块整块省略", () =
   const t = rows.join("\n");
   assert.ok(!t.includes("Mode"), "无会话配置数据不显示 Mode 块");
   assert.ok(t.includes("（无目标/待办）"), "仍显示无目标占位");
+});
+
+test("renderStatusColumn: Mode 各项以竖线分隔连续排布，宽列单行、窄列溢出折行", () => {
+  const theme = initialState().themeId;
+  const text = (w: number): string =>
+    renderStatusColumn(
+      undefined,
+      [],
+      undefined,
+      0,
+      10,
+      w,
+      theme,
+      {
+        plan: "on",
+        sandbox: "read-only",
+        permission: "danger-full-access",
+      },
+      "ask",
+      "claude",
+    )
+      .map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd())
+      .join("\n");
+  const wide = text(120);
+  assert.ok(
+    wide.includes("plan off on | sandbox ro wr full"),
+    "宽列各项以 | 分隔连续排布（不强制换行）: " + wide,
+  );
+  assert.ok(
+    wide.includes("policy ask auto | preset claude"),
+    "preset 也以 | 与上一项衔接: " + wide,
+  );
+  // 宽列下 Mode 内容不折行：Mode 标题所在行下面只应有一行内容
+  const wideBody = wide.split("\n").filter((l) => l.includes("plan"));
+  assert.equal(wideBody.length, 1, "宽列 Mode 内容单行: " + wide);
+  const narrow = text(20);
+  const bodyLines = narrow
+    .split("\n")
+    .filter((l) => /plan|sandbox|permission|policy|preset/.test(l));
+  assert.ok(
+    bodyLines.length >= 3,
+    "窄列放不下时溢出折行（多行内容）: " + narrow,
+  );
+  assert.ok(narrow.includes(" | "), "折行中竖线分隔保留: " + narrow);
+});
+
+test("renderStatusColumn: Mode 块与 Goal 块之间以虚线分隔，Goal 与 todo 之间虚线保留", () => {
+  const theme = initialState().themeId;
+  const strip = (l: string): string =>
+    l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd();
+  const noGoal = renderStatusColumn(
+    undefined,
+    [],
+    undefined,
+    0,
+    10,
+    30,
+    theme,
+    { plan: "on", sandbox: "read-only", permission: "read-only" },
+    "ask",
+    "claude",
+  ).map(strip);
+  // 无 goal：Mode 块后直接占位，无虚线
+  const ng = noGoal.join("\n");
+  const iM = ng.indexOf("Mode");
+  const iPh = ng.indexOf("（无目标/待办）");
+  assert.ok(
+    iM >= 0 && iM < iPh && !ng.slice(iM, iPh).includes("╌"),
+    "无 goal 时 Mode 后不画虚线: " + ng,
+  );
+  const withGoal = renderStatusColumn(
+    setGoal("active", "目标"),
+    [],
+    undefined,
+    0,
+    12,
+    40,
+    theme,
+    { plan: "on", sandbox: "read-only", permission: "read-only" },
+    "ask",
+    undefined,
+  ).map(strip);
+  const g = withGoal.join("\n");
+  const iMode = g.indexOf("Mode");
+  const iGoal = g.indexOf("Goal active");
+  assert.ok(iMode >= 0 && iGoal > iMode, "Mode 与 Goal 顺序正确: " + g);
+  assert.ok(
+    g.slice(iMode, iGoal).includes("╌"),
+    "Mode 与 Goal 之间含虚线分隔: " + g,
+  );
+  // 无 todo 时 Goal 后应无 todo 虚线（既有）
+  assert.ok(!g.slice(iGoal).includes("╌"), "无 todo 时 Goal 后无多余虚线: " + g);
 });
