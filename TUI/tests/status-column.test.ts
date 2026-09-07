@@ -15,7 +15,7 @@ import {
 } from "../src/app/layout.ts";
 import type { GoalState } from "../src/app/state.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
-import type { TodoItemLike } from "../src/app/adapter/dsh.ts";
+import type { JobInfo, TodoItemLike } from "../src/app/adapter/dsh.ts";
 
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 
@@ -35,10 +35,12 @@ function col(
   goal: GoalState | undefined,
   todos: TodoItemLike[] | undefined,
   opts: { height?: number; width?: number; scroll?: number } = {},
+  jobs?: JobInfo[],
 ): string[] {
   return renderStatusColumn(
     goal,
     todos,
+    jobs,
     opts.scroll ?? 0,
     opts.height ?? 8,
     opts.width ?? 20,
@@ -68,9 +70,31 @@ test("renderStatusColumn: goal 目标 + phase + todo 列表渲染", () => {
   const t = rows.join("\n");
   assert.ok(t.includes("Goal active"), "goal 标题=Goal+phase");
   assert.ok(t.includes("目标: 实现状态列"), "objective");
-  assert.ok(t.includes("todo 1/2"), "todo 计数");
-  assert.ok(t.includes("[●] 渲染目标"), "进行中 [●]");
-  assert.ok(t.includes("[ ] todo 列表"), "待办 [ ]");
+  assert.ok(t.includes("Todo 0/2"), "todo 标题=完成数/总数");
+  assert.ok(t.includes("> 渲染目标"), "进行中 > 标记");
+  assert.ok(t.includes("· todo 列表"), "待办 · 点标记");
+});
+
+test("renderStatusColumn: 完成 todo 灰+删除线，jobs 块展示", () => {
+  const rows = col(
+    setGoal("active", "目标"),
+    [
+      { content: "已完成项", status: "completed" },
+      { content: "排队项", status: "pending" },
+    ],
+    { width: 24, height: 12 },
+    [
+      { id: "j1", kind: "bash", label: "跑测试", status: "running" },
+      { id: "j2", kind: "bash", label: "构建", status: "failed" },
+    ],
+  );
+  const t = rows.join("\n");
+  assert.ok(t.includes("Todo 1/2"), "todo completed 计数");
+  assert.ok(t.includes("✓ 已完成项"), "完成 ✓ 标记");
+  assert.ok(t.includes("· 排队项"), "待办 · 标记");
+  assert.ok(t.includes("Jobs 1/2"), "jobs 运行中/总数标题");
+  assert.ok(t.includes("● 跑测试"), "运行中 ● 行");
+  assert.ok(t.includes("✗ 构建"), "失败 ✗ 行");
 });
 
 test("renderStatusColumn: blocked 黄 tone 显示阻塞原因", () => {

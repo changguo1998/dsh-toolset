@@ -21,12 +21,12 @@ import type {
 } from "./state.ts";
 
 import type { Buffer, BufferKind, BufferLine } from "./state.ts";
-import type { NoticeTone, TodoItemLike } from "./adapter/dsh.ts";
+import type { JobInfo, NoticeTone, TodoItemLike } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
 import { renderHistoryPanel } from "./components/HistoryPanel.ts";
 import { renderQuestionPanel } from "./components/QuestionPrompt.ts";
-import { renderJobsPanel } from "./components/JobsPanel.ts";
+import { renderJobsPanel, statusMark } from "./components/JobsPanel.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
 import { colorFor } from "../renderer/theme.ts";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
@@ -299,20 +299,10 @@ export const STATUS_TODO_MAX_LINES = 3;
 export const STATUS_COL_EMPTY = "（无目标/待办）";
 
 const TODO_MARKER: Record<TodoItemLike["status"], string> = {
-  pending: "[ ]",
-  in_progress: "[●]",
-  completed: "[x]",
+  pending: "· ",
+  in_progress: "> ",
+  completed: "✓ ",
 };
-
-/** todo 行着色：进行中黄、完成绿、待办默认 */
-function todoLineColor(
-  themeId: ThemeId,
-  status: TodoItemLike["status"],
-): (s: string) => string {
-  if (status === "in_progress") return colorFor(themeId, "yellow");
-  if (status === "completed") return colorFor(themeId, "green");
-  return (s: string) => s;
-}
 
 /** 折叠：wrap 后超过 max 行则截到 max 行，末行追加折叠提示（统计被折叠行数） */
 function capWrap(
@@ -334,6 +324,7 @@ function capWrap(
 function statusColumnBody(
   goal: GoalState | undefined,
   todos: TodoItemLike[] | undefined,
+  jobs: JobInfo[] | undefined,
   width: number,
   themeId: ThemeId,
 ): { text: string; color?: (s: string) => string }[] {
@@ -364,21 +355,56 @@ function statusColumnBody(
       color: colorFor(themeId, "yellow"),
     });
   }
-  // todo 计数 + 列表（每条上限 STATUS_TODO_MAX_LINES 行）
+  // todo 块标题（完成数/总数，蓝）+ 列表（每条上限 STATUS_TODO_MAX_LINES 行）：
+  // `· ` 待办(默认) / `> ` 进行中(黄) / `✓ ` 完成(灰+删除线)
   const list = todos ?? [];
   if (list.length > 0) {
     // goal 块与 todo 块之间以虚线分隔（点更少的虚线，2026-09-17）
     out.push({ text: ACTIVITY_SEPARATOR.repeat(width) });
-    const n = list.filter((t) => t.status === "in_progress").length;
-    out.push({ text: `todo ${n}/${list.length}` });
+    const done = list.filter((t) => t.status === "completed").length;
+    out.push({
+      text: colorFor(themeId, "blue")(`Todo ${done}/${list.length}`),
+    });
     for (const t of list) {
-      const prefix = TODO_MARKER[t.status] + " ";
       const body = t.content === "" ? "（空项）" : t.content;
-      const rows = capWrap(prefix + body, width, STATUS_TODO_MAX_LINES);
-      const color = todoLineColor(themeId, t.status);
+      const rows = capWrap(
+        TODO_MARKER[t.status] + body,
+        width,
+        STATUS_TODO_MAX_LINES,
+      );
       rows.forEach((r, i) => {
-        out.push({ text: r.text, color: i === 0 ? color : undefined });
+        if (t.status === "completed") {
+          out.push({
+            text: renderSeg(
+              { text: r.text, style: { fg: "gray", strike: true } },
+              themeId,
+            ),
+          });
+        } else if (t.status === "in_progress") {
+          out.push({
+            text: r.text,
+            color: i === 0 ? colorFor(themeId, "yellow") : undefined,
+          });
+        } else {
+          out.push({ text: r.text });
+        }
       });
+    }
+  }
+  // jobs 块（后台任务）：只在有任务时显示；标题 `Jobs 运行中/总数`（蓝）+
+  // 每任务一行 `● `(运行中黄)/`✗ `(失败红)/`○ `(取消灰)/`✓ `(其余默认) + label
+  if (jobs && jobs.length > 0) {
+    out.push({ text: ACTIVITY_SEPARATOR.repeat(width) });
+    const active = jobs.filter(
+      (j) => j.status === "running" || j.status === "stopping",
+    ).length;
+    out.push({
+      text: colorFor(themeId, "blue")(`Jobs ${active}/${jobs.length}`),
+    });
+    for (const job of jobs) {
+      const mark = statusMark(themeId, job.status);
+      const label = job.label || job.kind || job.id || "（未命名任务）";
+      out.push({ text: mark.symbol + " " + label, color: mark.color });
     }
   }
   return out;
@@ -396,6 +422,7 @@ function statusStartFor(len: number, offset: number, rows: number): number {
 export function renderStatusColumn(
   goal: GoalState | undefined,
   todos: TodoItemLike[] | undefined,
+  jobs: JobInfo[] | undefined,
   scroll: number,
   height: number,
   width: number,
@@ -403,7 +430,7 @@ export function renderStatusColumn(
 ): string[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);
-  const body = statusColumnBody(goal, todos, w - 1, themeId);
+  const body = statusColumnBody(goal, todos, jobs, w - 1, themeId);
   const start = statusStartFor(body.length, scroll, h);
   const out: string[] = [];
   for (let r = 0; r < h; r++) {
@@ -426,6 +453,7 @@ function buildTopRegion(
   focusActive: boolean,
   goal: GoalState | undefined,
   todos: TodoItemLike[] | undefined,
+  jobs: JobInfo[] | undefined,
   statusScroll: number,
 ): RenderLine[] {
   // 焦点框保留格（所有状态恒定，避免内容重排）：顶部边框行始终占 1 行；
@@ -471,6 +499,7 @@ function buildTopRegion(
   const statusCells = renderStatusColumn(
     goal,
     todos,
+    jobs,
     statusScroll,
     contentTopH,
     statusColWidth,
@@ -1285,6 +1314,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     normalInput,
     goal,
     todos,
+    state.jobs,
     state.statusColumnScroll,
   );
 

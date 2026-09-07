@@ -27,7 +27,7 @@ export interface JobsPanelView {
 }
 
 /** 状态 → 符号 + 着色（运行中黄 / 失败红 / 取消灰 / 其余默认） */
-function statusMark(
+export function statusMark(
   themeId: ThemeId,
   status: string,
 ): { symbol: string; color: (s: string) => string } {
