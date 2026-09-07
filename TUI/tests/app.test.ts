@@ -2495,14 +2495,20 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   for (let i = 0; i < 30; i++)
     adapter.push({ type: "notice", text: `turn1 行 ${i}` } as DshEvent);
   assert.ok(actFirst().startsWith("turn1 行"), "turn1 显示");
+  // 内容推进（notice）后自动回无焦点；滚动活动区需重新 Tab 进入流输出焦点
+  renderer.press(key("tab")); // null → 历史
+  renderer.press(key("tab")); // 历史 → 流输出
   for (let i = 0; i < 25; i++) renderer.press(key("up")); // 上滚越过可视上限
   assert.ok(actFirst().startsWith("turn1 行 0"), "上滚后钳制到最早行");
-  // 新回合：stream 触发 turn-begin 清空旧瞬态，随后 20 条新 notice（超出窗口）
+  // 新回合：stream 触发 turn-begin 清空旧瞬态（activityScroll 归零 + 自动失焦），
+  // 随后 20 条新 notice（超出窗口）
   adapter.push({ type: "stream", text: "turn2 的模型回复" } as DshEvent);
   for (let i = 0; i < 20; i++)
     adapter.push({ type: "notice", text: `turn2 行 ${i}` } as DshEvent);
   // 修复前：activityScroll=25 残余，↓ 后死区仍钳在最老 turn2 行；
   // 修复后：turn-begin 已归零，↓ 一次即回到跟随最新（显示 turn2 尾部窗口）
+  renderer.press(key("tab")); // null → 历史
+  renderer.press(key("tab")); // 历史 → 流输出
   renderer.press(key("down"));
   assert.ok(
     actFirst().startsWith("turn2 行"),

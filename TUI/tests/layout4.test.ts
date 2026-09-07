@@ -1448,6 +1448,29 @@ test("focus-panel-cycle / activity-scroll reducer：循环与偏移非负 clamp"
   assert.equal(st.focusedPanel, "status", "activity → status");
 });
 
+test("reduceState: 新输入/输出（内容推进）后焦点自动回 null；UI action 不重置", () => {
+  const s = reduceState(initialState(), { type: "focus-panel-cycle" }); // null → 历史
+  assert.equal(s.focusedPanel, "history");
+  const afterOut = reduceState(s, { type: "append", text: "模型输出" });
+  assert.equal(afterOut.focusedPanel, null, "模型输出后自动回无焦点");
+  const afterIn = reduceState(
+    reduceState(initialState(), { type: "focus-panel-cycle" }),
+    { type: "user-line", text: "用户输入" },
+  );
+  assert.equal(afterIn.focusedPanel, null, "用户输入后自动回无焦点");
+  const afterNotice = reduceState(
+    reduceState(initialState(), { type: "focus-panel-cycle" }),
+    { type: "notice", text: "通知" },
+  );
+  assert.equal(afterNotice.focusedPanel, null, "notice 后自动回无焦点");
+  // UI action（状态列滚动）不重置焦点
+  const ui = reduceState(
+    reduceState(initialState(), { type: "focus-panel-cycle" }),
+    { type: "status-column-scroll", delta: 1 },
+  );
+  assert.equal(ui.focusedPanel, "history", "UI action 不重置焦点");
+});
+
 test("活动区：activityScroll 滚动窗口（默认尾部；上滚看更早；clamp 到顶部）", () => {
   // rows=30 → topHeight=23 → 活动区 11 行；notice 20 行 → maxOffset=9
   const n = 20;

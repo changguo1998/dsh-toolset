@@ -506,7 +506,39 @@ export function setSessions(
 }
 
 /** 针对 buffer 做一次只读操作（Reducer 模式入口），返回新的不改动原对象 */
+/** 会话内容推进（新输入/输出）的 action 集合：处理完自动回到无焦点（focusedPanel=null），
+ *  直至用户再按 Tab 进入焦点循环；UI 类 action（picker/question/approval/history/jobs/
+ *  input/scroll/theme…）不重置，避免打断面板内浏览 */
+const FOCUS_RESET_ACTIONS: ReadonlySet<string> = new Set([
+  "append", // 模型正文/用户消息流
+  "user-line", // 用户消息行
+  "thinking", // 思考流
+  "notice", // 命令/系统通知
+  "turn-begin",
+  "turn-end",
+  "tool-call",
+  "tool-result",
+  "retry",
+  "retry-started",
+  "compaction",
+  "compaction-summary",
+  "compaction-prune",
+  "step",
+  "subagent",
+  "workflow",
+  "command",
+  "code-dispatch",
+  "hook",
+  "schedule",
+  "feedback",
+  "goal-change",
+  "todo-write",
+  "jobs-changed",
+]);
+
 export function reduceState(state: AppState, action: StateAction): AppState {
+  // 新输入/输出后焦点回到无焦点（null）；其它 action 原样
+  const next: AppState = (() => {
   switch (action.type) {
     case "append":
       return appendStream(state, action.text);
@@ -999,6 +1031,10 @@ export function reduceState(state: AppState, action: StateAction): AppState {
     default:
       return state;
   }
+  })();
+  return FOCUS_RESET_ACTIONS.has(action.type)
+    ? { ...next, focusedPanel: null }
+    : next;
 }
 
 export type StateAction =
