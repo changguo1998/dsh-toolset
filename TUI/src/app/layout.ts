@@ -155,7 +155,7 @@ export const SEPARATOR_ROWS = 2;
 
 /** 按键提示区内容（独立区域，位于输入区下方、之间不画横线；窄终端按显示宽度截断；审批/问答/选择面板自带按键提示，不显示该区） */
 export const HINT_LINE =
-  "[Enter]发送 · [Alt+Enter]打断并发送 · [Esc]打断 · [Ctrl+L]重绘 · [/help]更多命令";
+  "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [/help]更多命令"; // Enter/Esc 已从帮助隐藏
 
 export interface FrameMetrics {
   /** 顶部区域行数 = rows - 状态区 - 输入区 - 按键提示区 - 分隔行（剩余高度全给上方两个） */
@@ -224,13 +224,6 @@ export const FRAME_RIGHT_COLS = 1;
 export function focusFrameColor(themeId: ThemeId): ColorName {
   return themeId === "dark" ? "white" : "black";
 }
-
-/** 顶部三面板（Tab 焦点循环）中文标签（hint 行末尾提示焦点用） */
-export const PANEL_LABEL: Record<AppState["focusedPanel"], string> = {
-  history: "历史",
-  activity: "流输出",
-  status: "状态",
-};
 
 /**
  * 活动区可视行数（= 顶部区域「内容行数」= topHeight-边框行的一半；
@@ -1397,10 +1390,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
             state.themeId,
             "gray",
           )(
-            truncateToWidth(
-              HINT_LINE + ` · [面板:${PANEL_LABEL[state.focusedPanel]}]`,
-              fullWidth,
-            ),
+            truncateToWidth(HINT_LINE, fullWidth),
           ),
         },
       ]

@@ -132,7 +132,7 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   );
   assert.ok(plain(frame[22]!).trim() === "", "输入区第 3 行留空");
   // 按键提示区（独立区域，与输入区之间不画横线）
-  assert.ok(plain(frame[23]!).startsWith("[Enter]发送"), "末行为按键提示区");
+  assert.ok(plain(frame[23]!).startsWith("[Alt+Enter]打断并发送"), "末行为按键提示区");
 });
 
 test("输入栏两字符提示符：左=上次提交模式符号+状态色，右=当前模式符号（默认前景色）", () => {
@@ -1400,22 +1400,26 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
 
 // ===== 顶部三面板焦点与活动区滚动（Tab / activityScroll）=====
 
-test("顶部面板：默认焦点历史；Tab 循环 history→activity→status→history 且 hint 标签更新", () => {
-  // 100 列：HINT_LINE + 焦点标签超 80 列，须加宽避免被截断
+test("顶部面板：hint 行为隐藏 Enter/Esc 且不带面板标签；Tab 由 reducer 断言", () => {
+  // 100 列：hint 行完整展示（无面板标签后可整体断言）
   const size = { rows: 12, cols: 100 } as const;
   const hintOf = (st: ReturnType<typeof initialState>): string => {
     const line = buildFrame(st, size)
       .map((l) => l.text)
-      .find((l) => stripAnsi(l).startsWith("[Enter]发送"));
+      .find((l) => stripAnsi(l).startsWith("[Alt+Enter]"));
     return stripAnsi(line ?? "");
   };
-  assert.ok(hintOf(initialState()).includes("[面板:历史]"), "默认焦点=历史");
-  let s = reduceState(initialState(), { type: "focus-panel-cycle" });
-  assert.ok(hintOf(s).includes("[面板:流输出]"), "Tab→流输出");
-  s = reduceState(s, { type: "focus-panel-cycle" });
-  assert.ok(hintOf(s).includes("[面板:状态]"), "Tab→状态");
-  s = reduceState(s, { type: "focus-panel-cycle" });
-  assert.ok(hintOf(s).includes("[面板:历史]"), "Tab→历史（循环闭合）");
+  const h0 = hintOf(initialState());
+  assert.ok(!h0.includes("面板"), "hint 不含面板标签");
+  assert.ok(!h0.includes("[Enter]") && !h0.includes("[Esc]"), "hint 隐藏 Enter/Esc");
+  assert.ok(h0.includes("[Alt+Enter]") && h0.includes("[Ctrl+L]"), "hint 保留 Alt+Enter/Ctrl+L");
+  const hCycle = hintOf(
+    reduceState(
+      reduceState(initialState(), { type: "focus-panel-cycle" }),
+      { type: "focus-panel-cycle" },
+    ),
+  );
+  assert.equal(h0, hCycle, "切换焦点不改变 hint 行（无标签）");
 });
 
 test("focus-panel-cycle / activity-scroll reducer：循环与偏移非负 clamp", () => {
