@@ -184,6 +184,44 @@ export class App {
     // 首帧前同步 renderer 主题（基底色/词槽位随 /theme 切换）
     this.deps.renderer.setTheme(this.state.themeId);
     this.paint();
+    // 拉取权限/agent 预设目录写入 state（状态列 Mode 块可选值；缺默服务则保持降级）
+    this.refreshCatalogs();
+  }
+
+  /**
+   * 拉取权限/agent 预设目录写入 state（状态列 Mode 块 permission/preset 列出可选值；
+   * 目录变化低频，start + /permission /preset 命令时刷新已足够）。目录服务缺失或
+   * 读失败静默降级（state 保持 [] → Mode 块回退标准三档/当前值），不崩溃。
+   */
+  private refreshCatalogs(): void {
+    const a = this.deps.adapter;
+    if (a.permissionCatalog) {
+      void a
+        .permissionCatalog()
+        .then((info) => {
+          if (this.disposed || !info) return;
+          this.apply((s) =>
+            reduceState(s, { type: "permission-catalog", names: info.names }),
+          );
+          this.paint();
+        })
+        .catch(() => {});
+    }
+    if (a.agentPresetCatalog) {
+      void a
+        .agentPresetCatalog()
+        .then((info) => {
+          if (this.disposed || !info) return;
+          this.apply((s) =>
+            reduceState(s, {
+              type: "agent-preset-catalog",
+              ids: info.presets.map((pp) => pp.id),
+            }),
+          );
+          this.paint();
+        })
+        .catch(() => {});
+    }
   }
 
   /** 生效模型缓存 key；值变化才重绘（避免每 5s 空重绘） */
@@ -1225,6 +1263,11 @@ export class App {
           if (!info) this.notice("权限预设服务不可用");
           return;
         }
+        // 同步目录进 state（状态列 Mode 块 permission 列出可选值）
+        this.apply((s) =>
+          reduceState(s, { type: "permission-catalog", names: info.names }),
+        );
+        this.paint();
         const lines = ["当前预设：", "  " + info.current, "可用预设："];
         for (const e of info.entries) {
           lines.push(
@@ -1259,6 +1302,14 @@ export class App {
             this.notice("agent 预设服务不可用");
             return;
           }
+          // 同步目录进 state（状态列 Mode 块 preset 列出可选值）
+          this.apply((s) =>
+            reduceState(s, {
+              type: "agent-preset-catalog",
+              ids: info.presets.map((pp) => pp.id),
+            }),
+          );
+          this.paint();
           const lines = [
             "当前预设：" +
               (info.current === "" ? "（未选中）" : info.current) +

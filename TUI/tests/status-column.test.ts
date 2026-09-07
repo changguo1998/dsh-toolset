@@ -431,3 +431,76 @@ test("renderStatusColumn: Mode 块与 Goal 块之间以虚线分隔，Goal 与 t
   // 无 todo 时 Goal 后应无 todo 虚线（既有）
   assert.ok(!g.slice(iGoal).includes("╌"), "无 todo 时 Goal 后无多余虚线: " + g);
 });
+
+test("renderStatusColumn: permission/preset 按目录列出全部可选值", () => {
+  const theme = initialState().themeId;
+  const strip = (l: string): string =>
+    l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd();
+  const rows = renderStatusColumn(
+    undefined,
+    [],
+    undefined,
+    0,
+    10,
+    120,
+    theme,
+    { plan: "on", sandbox: "read-only", permission: "danger-full-access" },
+    "ask",
+    "claude",
+    ["read-only", "workspace-write", "danger-full-access", "custom"],
+    ["claude", "default", "research"],
+  ).map(strip);
+  const t = rows.join("\n");
+  assert.ok(
+    t.includes("permission ro wr full custom"),
+    "permission 按目录列出（custom 也在）: " + t,
+  );
+  assert.ok(
+    t.includes("preset claude default research"),
+    "preset 按目录列出全部 id: " + t,
+  );
+});
+
+test("renderStatusColumn: 目录不含当前生效值 → 补入列表并显示", () => {
+  const theme = initialState().themeId;
+  const strip = (l: string): string =>
+    l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd();
+  // permission 当前值 deploy-safe 不在目录；preset 当前值 ghost 不在目录
+  const rows = renderStatusColumn(
+    undefined,
+    [],
+    undefined,
+    0,
+    10,
+    120,
+    theme,
+    { plan: "on", sandbox: "workspace-write", permission: "deploy-safe" },
+    "ask",
+    "ghost",
+    ["read-only", "workspace-write", "danger-full-access"],
+    ["claude", "default"],
+  ).map(strip);
+  const t = rows.join("\n");
+  assert.ok(
+    t.includes("permission ro wr full deploy-safe"),
+    "三档外生效值补入权限列表: " + t,
+  );
+  assert.ok(
+    t.includes("preset claude default ghost"),
+    "目录外生效值补入 preset 列表: " + t,
+  );
+});
+
+test("catalog reducer: 目录写入全局 state，且更新后回无焦点（与 jobs-changed 一致）", () => {
+  let s = initialState();
+  s = reduceState(s, { type: "permission-catalog", names: ["a", "b"] });
+  assert.deepEqual(s.permissionOptions, ["a", "b"]);
+  s = reduceState(s, { type: "agent-preset-catalog", ids: ["x", "y"] });
+  assert.deepEqual(s.presetOptions, ["x", "y"]);
+  // 内容推进语义：catalog 更新（外部状态变化）后自动回无焦点
+  let f = initialState();
+  f = reduceState(f, { type: "focus-panel-cycle" });
+  assert.ok(f.focusedPanel !== null, "前提：焦点已进入循环");
+  f = reduceState(f, { type: "permission-catalog", names: ["a"] });
+  assert.equal(f.focusedPanel, null, "权限目录更新后回无焦点");
+});

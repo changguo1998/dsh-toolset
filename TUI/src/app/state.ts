@@ -186,6 +186,10 @@ export interface AppState {
   } | null;
   /** P3：按 sessionId 隔离的 agent 预设（agent-preset/selected 事件 latest-wins；无=未收到） */
   presetBySession: Record<string, string>;
+  /** 权限预设目录（ctx.permissionPresets.names；状态列 Mode 块 permission 可选项；[]=未同步降级三档） */
+  permissionOptions: string[];
+  /** agent 预设目录（ctx.agentPresets.list 的 id；状态列 Mode 块 preset 可选项；[]=未同步降级当前值） */
+  presetOptions: string[];
   /** P3：最近一次后台任务快照（adapter 经 onJobsChanged 推送；[]=无任务） */
   jobs: JobInfo[];
   /** P3：/jobs 任务面板（null=未打开；index=高亮行，Enter 取消） */
@@ -285,6 +289,8 @@ export function initialState(
     compactionBySession: {},
     stepGroup: null,
     presetBySession: {},
+    permissionOptions: [],
+    presetOptions: [],
     jobs: [],
     jobsPanel: null,
     statusColumnScroll: 0,
@@ -526,6 +532,8 @@ const FOCUS_RESET_ACTIONS: ReadonlySet<string> = new Set([
   "goal-change",
   "todo-write",
   "jobs-changed",
+  "permission-catalog",
+  "agent-preset-catalog",
 ]);
 
 export function reduceState(state: AppState, action: StateAction): AppState {
@@ -977,6 +985,12 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           [action.sessionId]: action.preset,
         },
       };
+    case "permission-catalog":
+      // P4：权限预设目录（ctx.permissionPresets.names）——状态列 Mode 块列出可选值
+      return { ...state, permissionOptions: action.names };
+    case "agent-preset-catalog":
+      // P4：agent 预设目录 id 列表（ctx.agentPresets.list）——状态列 Mode 块 preset 可选项
+      return { ...state, presetOptions: action.ids };
     case "jobs-changed":
       // P3：jobs 快照 last-write-wins（adapter onJobsChanged + 打开时刷新推送）
       return { ...state, jobs: action.jobs };
@@ -1199,6 +1213,8 @@ export type StateAction =
   | { type: "feedback"; sessionId: string; text: string }
   | { type: "retry-started"; sessionId: string; attempt: number }
   | { type: "agent-preset"; sessionId: string; preset: string }
+  | { type: "permission-catalog"; names: string[] }
+  | { type: "agent-preset-catalog"; ids: string[] }
   | { type: "jobs-changed"; sessionId: string; jobs: JobInfo[] }
   | { type: "jobs-panel-open" }
   | { type: "jobs-panel-move"; focus: number; delta: number }

@@ -357,23 +357,56 @@ function wrapSegs(
     }
     return w;
   };
-  for (const seg of segs) {
+  // 片段超宽时按词级在内部折行（避免整块被截断；词内嵌 ANSI，空格不在色码内）
+  const splitOverflow = (seg: string): string[] => {
+    const words = seg.split(" ");
+    const lines: string[] = [];
+    let line = "";
+    let lw = 0;
+    for (const wd of words) {
+      const ww = visW(wd);
+      const gap = line === "" ? 0 : 1;
+      if (line !== "" && lw + gap + ww > Math.max(1, width)) {
+        lines.push(line);
+        line = wd;
+        lw = ww;
+      } else {
+        line += (line === "" ? "" : " ") + wd;
+        lw += gap + ww;
+      }
+    }
+    if (line !== "") lines.push(line);
+    return lines.length > 0 ? lines : [seg];
+  };
+  const pushSeg = (seg: string): void => {
     const w = visW(seg);
     if (row === "") {
-      row = seg;
-      rowW = w;
-      continue;
+      if (w <= Math.max(1, width)) {
+        row = seg;
+        rowW = w;
+      } else {
+        for (const l of splitOverflow(seg)) rows.push({ text: l });
+      }
+      return;
     }
     const gap = visW(sep);
-    if (rowW + gap + w > Math.max(1, width)) {
-      rows.push({ text: row }); // 折行：上一项行尾不带竖线
+    if (rowW + gap + w <= Math.max(1, width)) {
+      row += sep + seg; // 同行：插入竖线分隔
+      rowW += gap + w;
+      return;
+    }
+    // 折行：上一项行尾不带竖线
+    rows.push({ text: row });
+    row = "";
+    rowW = 0;
+    if (w <= Math.max(1, width)) {
       row = seg;
       rowW = w;
     } else {
-      row += sep + seg; // 同行：插入竖线分隔
-      rowW += gap + w;
+      for (const l of splitOverflow(seg)) rows.push({ text: l });
     }
-  }
+  };
+  for (const seg of segs) pushSeg(seg);
   if (row !== "") rows.push({ text: row });
   return rows;
 }
@@ -387,6 +420,10 @@ function modeBlock(
   preset: string | undefined,
   width: number,
   themeId: ThemeId,
+  /** 权限预设目录（原始预设键；缺省/空 → 降级标准三档） */
+  permissionOptions?: readonly string[],
+  /** agent 预设目录（id 列表；缺省/空 → 只显示当前值） */
+  presetOptions?: readonly string[],
 ): { text: string; color?: (s: string) => string }[] {
   const out: { text: string; color?: (s: string) => string }[] = [];
   const has =
@@ -425,9 +462,28 @@ function modeBlock(
     }
     // permission 独立列出全部可选项（不因与 sandbox 相同而省略——用户要求逐项全列）
     if (mode.permission) {
-      const code = MODE_SHORT[mode.permission] ?? mode.permission;
-      add("permission", ["ro", "wr", "full"], code, (s) =>
-        permColor(themeId, s)(s),
+      // 可选项 = 目录（若已同步）?? 标准三档；三档外生效值（如 custom）始终
+      // 补入列表并高亮，保证「生效值必显示」
+      const base =
+        permissionOptions && permissionOptions.length > 0
+          ? permissionOptions
+          : ["read-only", "workspace-write", "danger-full-access"];
+      const raw = mode.permission;
+      const opts =
+        base.includes(raw) || permissionOptions?.length === 0
+          ? base
+          : [...base, raw];
+      const curDisp = MODE_SHORT[raw] ?? raw;
+      // 生效色：名在三档内按危险等级 ro/wr/full；自定义预设（目录外值）用洋红强调
+      const curColor =
+        raw in MODE_SHORT
+          ? (s: string) => permColor(themeId, s)(s)
+          : (s: string) => colorFor(themeId, "magenta")(s);
+      add(
+        "permission",
+        opts.map((o) => MODE_SHORT[o] ?? o),
+        curDisp,
+        curColor,
       );
     }
   }
@@ -439,7 +495,14 @@ function modeBlock(
       (s) => colorFor(themeId, s === "ask" ? "green" : "red")(s),
     );
   if (preset && preset !== "") {
-    tokens.push("preset " + colorFor(themeId, "magenta")(preset));
+    // 可选项 = agent 预设目录（若已同步）；否则只显示当前值；目录不含当前值时补入
+    const opts =
+      presetOptions && presetOptions.length > 0
+        ? presetOptions.includes(preset)
+          ? presetOptions
+          : [...presetOptions, preset]
+        : [preset];
+    add("preset", opts, preset, (s) => colorFor(themeId, "magenta")(s));
   }
   out.push(...wrapSegs(tokens, width, gray(" | ")));
   return out;
@@ -458,10 +521,20 @@ function statusColumnBody(
   mode?: ModeState,
   policy?: "ask" | "never",
   preset?: string,
+  permissionOptions?: readonly string[],
+  presetOptions?: readonly string[],
 ): { text: string; color?: (s: string) => string }[] {
   const out: { text: string; color?: (s: string) => string }[] = [];
   // 会话运行模式/权限/策略块（水平状态栏迁来）：放在最前，独立于 goal 是否存在
-  const modeRows = modeBlock(mode, policy, preset, width, themeId);
+  const modeRows = modeBlock(
+    mode,
+    policy,
+    preset,
+    width,
+    themeId,
+    permissionOptions,
+    presetOptions,
+  );
   out.push(...modeRows);
   // Mode 块与 Goal 块之间加虚线分隔（有 Mode 且有 goal 时）
   if (modeRows.length > 0 && goal && goal.status !== "cleared") {
@@ -600,6 +673,9 @@ export function renderStatusColumn(
   mode?: ModeState,
   policy?: "ask" | "never",
   preset?: string,
+  /** 权限/agent 预设目录（可选值列表；缺省 Mode 块降级） */
+  permissionOptions?: readonly string[],
+  presetOptions?: readonly string[],
 ): string[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);
@@ -618,6 +694,8 @@ export function renderStatusColumn(
     mode,
     policy,
     preset,
+    permissionOptions,
+    presetOptions,
   );
   if (body.length > h) {
     const noDone = statusColumnBody(
@@ -632,6 +710,8 @@ export function renderStatusColumn(
       mode,
       policy,
       preset,
+      permissionOptions,
+      presetOptions,
     );
     body =
       noDone.length <= h
@@ -648,6 +728,8 @@ export function renderStatusColumn(
             mode,
             policy,
             preset,
+            permissionOptions,
+            presetOptions,
           );
   }
   const start = statusStartFor(body.length, scroll, h);
@@ -678,6 +760,8 @@ function buildTopRegion(
   mode?: ModeState,
   policy?: "ask" | "never",
   preset?: string,
+  permissionOptions?: readonly string[],
+  presetOptions?: readonly string[],
 ): RenderLine[] {
   // 焦点框保留格（所有状态恒定，避免内容重排）：顶部边框行始终占 1 行；
   // 左侧框格列（历史/活动区左缘）与右侧框列（状态列右缘）在宽度允许时各占 1 列；
@@ -730,6 +814,8 @@ function buildTopRegion(
     mode,
     policy,
     preset,
+    permissionOptions,
+    presetOptions,
   );
   // 边框构图参数：分隔竖线列 = historyWidth（历史区右缘/状态列左缘，
   // 为旧 statusColWidth-1 的镜像）；col0 左缘框格属历史/活动区，
@@ -1469,6 +1555,8 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     mode,
     policy,
     preset,
+    state.permissionOptions,
+    state.presetOptions,
   );
 
   let footerLines: RenderLine[];
