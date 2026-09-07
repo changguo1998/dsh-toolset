@@ -337,11 +337,14 @@ function capWrap(
 /** 状态列 Mode 块：列出会话运行模式/权限/审批策略的所有可选项，生效项着色强调、其余灰。
  *  plan=青（on/off）；sandbox、permission=ro 绿 / wr 黄 / full 红；policy=ask 绿 / auto 红；
  *  preset=洋红（动态值无可枚举，仅显示当前值）。无会话数据时整块省略。 */
-/** 带色文本片段流按显示宽度折行（片段=最小断行单位，片段间以单空格衔接；
- *  放不下才折行、不强制换行）。片段内嵌 ANSI，宽度按剥离转义后的可见文本计。 */
+/** 带色文本片段流按显示宽度折行（片段=最小断行单位；放不下才折行、不强制换行）。
+ *  同行相邻片段之间插入分隔 sep（如竖线），片段 A 与 B 之间发生折行时不加分隔
+ *  （行尾不残留竖线）。片段内嵌 ANSI，宽度按剥离转义后的可见文本计。 */
 function wrapSegs(
   segs: readonly string[],
   width: number,
+  /** 同行相邻片段之间的分隔（默认单空格） */
+  sep = " ",
 ): { text: string }[] {
   const rows: { text: string }[] = [];
   let row = "";
@@ -356,13 +359,20 @@ function wrapSegs(
   };
   for (const seg of segs) {
     const w = visW(seg);
-    if (rowW > 0 && rowW + 1 + w > Math.max(1, width)) {
-      rows.push({ text: row });
-      row = "";
-      rowW = 0;
+    if (row === "") {
+      row = seg;
+      rowW = w;
+      continue;
     }
-    row += (row === "" ? "" : " ") + seg;
-    rowW += (row === "" ? 0 : 1) + w;
+    const gap = visW(sep);
+    if (rowW + gap + w > Math.max(1, width)) {
+      rows.push({ text: row }); // 折行：上一项行尾不带竖线
+      row = seg;
+      rowW = w;
+    } else {
+      row += sep + seg; // 同行：插入竖线分隔
+      rowW += gap + w;
+    }
   }
   if (row !== "") rows.push({ text: row });
   return rows;
@@ -386,27 +396,21 @@ function modeBlock(
   if (!has) return out;
   out.push({ text: colorFor(themeId, "blue")("Mode") });
   const gray = (s: string) => colorFor(themeId, "gray")(s);
+  // 各项目 token（标签默认前景 + 全部可选项，生效项 act 强调色、未生效值灰）。
+  // 项目之间的竖线 ` | ` 由 wrapSegs 在「同行的相邻项目」之间插入（灰色），
+  // 折行处不加竖线——属性名恒默认前景、只有未生效的属性值才灰
   const tokens: string[] = [];
-  let added = false;
-  // 追加一个项目：标签 + 全部可选项（生效项 act 强调色、其余灰）。
-  // 竖线 ` | ` 并入上一项目尾部（不单独成 token），保证折行时不会孤立成行——
-  // 前项行尾 ` | ` 表示还有后续，与水平状态栏段间分隔一致
   const add = (
     tag: string,
     options: readonly string[],
     current: string | undefined,
     act: (s: string) => string,
   ): void => {
-    if (added) {
-      const last = tokens.length - 1;
-      tokens[last] = tokens[last] + gray(" |"); // 前导空格由折行拼接层补，避免双空格
-    }
     tokens.push(
       tag +
         " " +
         options.map((o) => (o === current ? act(o) : gray(o))).join(" "),
     );
-    added = true;
   };
   if (mode) {
     if (mode.plan)
@@ -435,14 +439,9 @@ function modeBlock(
       (s) => colorFor(themeId, s === "ask" ? "green" : "red")(s),
     );
   if (preset && preset !== "") {
-    if (added) {
-      const last = tokens.length - 1;
-      tokens[last] = tokens[last] + gray(" |"); // 前导空格由折行拼接层补，避免双空格
-    }
     tokens.push("preset " + colorFor(themeId, "magenta")(preset));
-    added = true;
   }
-  out.push(...wrapSegs(tokens, width));
+  out.push(...wrapSegs(tokens, width, gray(" | ")));
   return out;
 }
 
@@ -832,7 +831,11 @@ function buildTopRegion(
       statusCells[rc]?.slice(0, -1) ?? "",
       statusBodyW,
     );
-    const statusBody = cg(rawBody + blank(statusBodyW - displayWidth(rawBody)));
+    // 已含内嵌色（Mode 块/todo 标题/进行中项等自带 ANSI）的行不再整行外包灰，
+    // 否则无色片段（如 Mode 属性名）会被 cg 蒙灰；无 ANSI 的纯内容行仍按约定上灰
+    const statusBody = rawBody.includes("\x1b")
+      ? rawBody + blank(statusBodyW - displayWidth(rawBody))
+      : cg(rawBody + blank(statusBodyW - displayWidth(rawBody)));
     let content: string;
     if (rc < dialogueH) {
       // 对话区行：followBottom / scrollOffset 只作用于对话区

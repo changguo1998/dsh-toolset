@@ -262,7 +262,6 @@ test("renderStatusColumn: Mode 块在无 goal 时也展示且位于最前；各�
   );
   assert.ok(t.includes("policy ask auto"), "policy 列出 ask/auto");
   assert.ok(t.includes("preset claude"), "preset 显示当前值");
-  assert.ok(t.includes(" | "), "各项之间以竖线 | 分隔: " + t);
 });
 
 test("renderStatusColumn: Mode 生效项着色强调、其余灰（段内至少两种不同 SGR）", () => {
@@ -307,7 +306,7 @@ test("renderStatusColumn: 无 mode/policy/preset 时 Mode 块整块省略", () =
   assert.ok(t.includes("（无目标/待办）"), "仍显示无目标占位");
 });
 
-test("renderStatusColumn: Mode 各项以竖线分隔连续排布，宽列单行、窄列溢出折行", () => {
+test("renderStatusColumn: Mode 各项以竖线分隔连续排布；宽列单行、窄列折行且断行行尾无竖线", () => {
   const theme = initialState().themeId;
   const text = (w: number): string =>
     renderStatusColumn(
@@ -328,6 +327,7 @@ test("renderStatusColumn: Mode 各项以竖线分隔连续排布，宽列单行�
     )
       .map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd())
       .join("\n");
+  // 宽列：各项单行连续排布（不强制换行），竖线分隔
   const wide = text(120);
   assert.ok(
     wide.includes("plan off on | sandbox ro wr full"),
@@ -337,9 +337,18 @@ test("renderStatusColumn: Mode 各项以竖线分隔连续排布，宽列单行�
     wide.includes("policy ask auto | preset claude"),
     "preset 也以 | 与上一项衔接: " + wide,
   );
-  // 宽列下 Mode 内容不折行：Mode 标题所在行下面只应有一行内容
   const wideBody = wide.split("\n").filter((l) => l.includes("plan"));
   assert.equal(wideBody.length, 1, "宽列 Mode 内容单行: " + wide);
+  // 中等宽度：同行项目间有竖线，但折行处的行尾不残留竖线
+  const mid = text(36);
+  assert.ok(mid.includes(" | "), "中等宽度同行项目以竖线分隔: " + mid);
+  const midLines = mid
+    .split("\n")
+    .filter((l) => /plan|sandbox|permission|policy|preset/.test(l));
+  assert.ok(midLines.length >= 3, "中等宽度放不下时折行: " + mid);
+  for (const l of midLines)
+    assert.ok(!l.trimEnd().endsWith("|"), "折行行尾不残留竖线: " + l);
+  // 窄列：全部折行，且断行处均无竖线
   const narrow = text(20);
   const bodyLines = narrow
     .split("\n")
@@ -348,7 +357,31 @@ test("renderStatusColumn: Mode 各项以竖线分隔连续排布，宽列单行�
     bodyLines.length >= 3,
     "窄列放不下时溢出折行（多行内容）: " + narrow,
   );
-  assert.ok(narrow.includes(" | "), "折行中竖线分隔保留: " + narrow);
+  for (const l of bodyLines)
+    assert.ok(!l.trimEnd().endsWith("|"), "窄列断行处无竖线: " + l);
+});
+
+test("renderStatusColumn: Mode 属性名用默认前景色（不被外层灰二次包裹），只有未生效值灰", () => {
+  const theme = initialState().themeId;
+  const raw = renderStatusColumn(
+    undefined,
+    [],
+    undefined,
+    0,
+    8,
+    120,
+    theme,
+    { plan: "on", sandbox: "read-only", permission: "danger-full-access" },
+    "ask",
+    "claude",
+  );
+  const permRow = raw.find((l) => l.includes("permission"))!;
+  // 行首首个 ANSI 前的片段：若被外层灰二次包裹则为空（灰码在行首）；未包裹则直接是文本
+  const head = permRow.split(/\x1b\[/)[0] ?? "";
+  assert.ok(
+    head.trim() !== "" && head.includes("plan"),
+    "属性名默认前景、未被外层灰包裹（行首片段非空）: " + JSON.stringify(head),
+  );
 });
 
 test("renderStatusColumn: Mode 块与 Goal 块之间以虚线分隔，Goal 与 todo 之间虚线保留", () => {
