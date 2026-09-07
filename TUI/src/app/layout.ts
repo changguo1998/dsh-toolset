@@ -979,16 +979,10 @@ export function renderStatusLine(
       ? []
       : [{ text: parts.join("·"), color: identity }];
   };
-  /** P2 B1：goal 状态徽标（phase）+ todo 活动计数（in_progress n/共 m），缺省省略 */
+  /** 会话状态徽标：goal/todo 已于 2026-09-17 移除（右侧顶部状态列已详显 goal 阶段与
+   *  todo 列表，见 statusColumnBody）；此处仅保留无其它展示位的模式/策略/预设/任务徽标 */
   const taskBadges = (): Seg[] => {
     const out: Seg[] = [];
-    // goal clear → 徽标省略（DESIGN:355）
-    if (session?.goal && session.goal.status === "set")
-      out.push({ text: `goal:${session.goal.goal.phase}`, color: identity });
-    if (session?.todos && session.todos.length > 0) {
-      const n = session.todos.filter((t) => t.status === "in_progress").length;
-      out.push({ text: `todo ${n}/${session.todos.length}`, color: identity });
-    }
     out.push(...modeBadge(session?.mode));
     // C 阶段：当前审批策略（approval/policy 事件 latest-wins；无该会话事件省略）。
     // ask 直接示 `ask`，never 示 `auto`（两态语义自明、与模式徽标区分）

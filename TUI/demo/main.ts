@@ -232,18 +232,9 @@ if (smoke) {
         adapter.interrupts === 1,
         "question Esc must not interrupt, interrupts=" + adapter.interrupts,
       );
-      // 10. P2 B1+B2：状态栏 goal/todo/模式徽标 + /goal 面板（mock 启动 90–130ms 已注入场景）
+      // 10. 状态栏会话徽标（mode/policy/preset/jobs；goal/todo 自 2026-09-17 起移入
+      //     右侧顶部状态列详显，状态栏不再显示）+ /goal 面板（mock 启动 90–130ms 已注入场景）
       const badgePlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
-      ok(
-        "goal-badge",
-        badgePlain.includes("goal:active"),
-        "no goal:active badge in frames",
-      );
-      ok(
-        "todo-count",
-        badgePlain.includes("todo 2/3"),
-        "no todo 2/3 count in frames",
-      );
       ok(
         "mode-badge",
         badgePlain.includes("plan·ro·full"),

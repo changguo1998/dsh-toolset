@@ -1304,7 +1304,7 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
       .map((l) => l.text)
       .join("\n");
 
-  test("renderStatusLine: goal 徽标 + todo 计数 + 模式徽标三合一", () => {
+  test("renderStatusLine: 模式徽标三合一（goal/todo 已移入顶部状态列，不再出现）", () => {
     const t = sessionText({
       goal: {
         status: "set",
@@ -1322,22 +1322,24 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
         permission: "danger-full-access",
       },
     });
-    assert.ok(t.includes("goal:active"), `goal 徽标 phase (${t})`);
-    assert.ok(t.includes("todo 1/3"), `todo in_progress 1/共3 (${t})`);
+    assert.ok(!t.includes("goal:"), `goal 徽标已移除 (${t})`);
+    assert.ok(!t.includes("todo"), `todo 计数已移除 (${t})`);
     assert.ok(t.includes("plan·ro·full"), `模式徽标三合一 (${t})`);
   });
 
-  test("renderStatusLine: goal clear → 徽标省略；无 todo/mode → 缺省省略", () => {
+  test("renderStatusLine: goal/todo 徽标恒定不出现（已由右侧顶部状态列承接）", () => {
     const t = sessionText({
       goal: {
-        status: "cleared",
-        operation: "clear",
-        cleared: { id: "g1" },
+        status: "set",
+        operation: "create",
+        goal: { id: "g1", revision: 1, objective: "x", phase: "paused" },
       } as const,
+      todos: [{ content: "a", status: "in_progress" }],
     });
-    assert.ok(!t.includes("goal:"), "clear 后不显示 goal 徽标");
+    assert.ok(!t.includes("goal:"), "goal 徽标不再显示（含阶段/clear）");
+    assert.ok(!t.includes("todo"), "todo 计数不再显示");
     const t2 = sessionText({});
-    assert.ok(!t2.includes("todo"), "无 todo 不显示计数");
+    assert.ok(!t2.includes("todo"), "空会话无 todo 徽标");
   });
 
   test("renderStatusLine: 模式徽标省略规则（sandbox=wr 默认省略、permission 同缩略省略、三缺整槽消失）", () => {
@@ -1386,7 +1388,7 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
       },
     );
     const t = lines.map((l) => l.text).join("\n");
-    assert.ok(t.includes("goal:blocked"), `窄屏徽标完整 (${t})`);
+    assert.ok(!t.includes("goal:"), `窄屏也不再显示 goal 徽标 (${t})`);
     assert.ok(t.includes("plan·ro"), `窄屏模式徽标完整 (${t})`);
     for (const l of lines)
       assert.ok(displayWidth(l.text) <= cols, `每行不超宽 (${l.text})`);
