@@ -448,10 +448,19 @@ export class MockDshAdapter implements DshAdapter {
         replyStart + chunks.length * 90 + 40,
       ),
     );
-    // 流式结束后补发 turn-end：演示 turn 分隔线与状态区
+    // 流式结束后补发 turn-end：演示 turn 分隔线与状态区；
+    // 回合结束 agent 回 idle（对齐真实 DSH 行为——否则交互模式下输入过
+    // 消息后 agentStatus 永久停在非 idle，Ctrl+D 退出条件永远不满足）
     this.timers.push(
       setTimeout(
-        () => this.emit({ type: "turn-end" }),
+        () => {
+          this.emit({ type: "turn-end" });
+          this.emit({
+            type: "agent-status",
+            sessionId: this.sessionId,
+            status: "idle" as AgentStatus,
+          });
+        },
         replyStart + chunks.length * 90 + 60,
       ),
     );
