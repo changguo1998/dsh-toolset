@@ -191,9 +191,9 @@ export function metricsFor(
   // 输入框固定 3 行(+按键提示 1 行 → 交互区 4 行)；矮终端按 1/5 比例收缩保底每区 ≥1 行
   const interaction = Math.min(4, Math.max(2, Math.floor(size.rows / 5)));
   const footerHeight = hasPanel ? interaction : interaction - 1;
-  // 状态列：窄列约 25%（含右侧竖线），但历史区保底 10 列
+  // 状态列：窄列约 1/3（含右侧竖线，2026-09-07 由 25% 改 1/3），但历史区保底 10 列
   const statusColWidth = Math.min(
-    Math.max(1, Math.floor(size.cols * 0.25)),
+    Math.max(1, Math.floor(size.cols / 3)),
     Math.max(1, size.cols - 10),
   );
   const historyWidth = Math.max(1, size.cols - statusColWidth);

@@ -93,8 +93,8 @@ test("metricsFor: 交互区(输入+提示)占 1/5 且至少 2 行；历史区 = 
   assert.equal(m.historyWidth, 60 - m.statusColWidth);
   assert.equal(
     m.statusColWidth,
-    Math.min(Math.max(1, Math.floor(60 * 0.25)), Math.max(1, 60 - 10)),
-    "状态列窄列约 25% 且历史区保底 10 列",
+    Math.min(Math.max(1, Math.floor(60 / 3)), Math.max(1, 60 - 10)),
+    "状态列窄列约 1/3 且历史区保底 10 列",
   );
 });
 
@@ -1614,7 +1614,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     "面板态：模型选择面板显示在流输出窗口",
   );
   assert.ok(
-    rows.slice(1, sepI2).every((l) => plain(l).slice(1, 60).trim() === ""),
+    rows.slice(1, sepI2).every((l) => plain(l).slice(1, m.historyWidth).trim() === ""),
     "面板态：对话历史区仍空（未因面板挤占重排）",
   );
 

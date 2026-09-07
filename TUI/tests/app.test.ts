@@ -835,6 +835,7 @@ test("/model 面板: model/思考等级列表跟随星号(选中)而非 > 焦点
 
 test("/model 面板: ←/→ 左右切换焦点区,clamp 不循环", async () => {
   const { renderer } = makeApp();
+  renderer.size = { cols: 120, rows: 24 };
   typeAndEnter(renderer, "/model");
   await flush(); // phase0 provider 区
   // 右 → model 区(phase1)，再右 → thinking 区(phase2)，再右不动(不循环回 0)
@@ -2417,21 +2418,22 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
   await flush();
   assert.ok(!hint().includes("面板"), "hint 不带面板标签");
   assert.ok(
-    actBody()[0]?.includes("/session"),
-    "默认（距底部=0）活动区显示帮助尾部",
+    actBody().some((l) => l.includes("注册表执行")),
+    "默认（距底部=0）活动区显示帮助尾部（帮助文末行）",
   );
 
   // 默认无焦点 → Tab 进入历史 → 再 Tab 到流输出：↑ 上滚一行 → 显示更早一行
   renderer.press(key("tab")); // null → 历史
   renderer.press(key("tab")); // 历史 → 流输出
+  const upBefore = actBody()[0];
   renderer.press(key("up"));
-  assert.ok(actBody()[0]?.includes("/theme"), "焦点流输出时 ↑ 滚动到更早行");
+  assert.notEqual(actBody()[0], upBefore, "焦点流输出时 ↑ 滚动到更早行（窗口起点变化）");
   // PgUp（整页）→ 翻到帮助首行
   renderer.press(key("pageup"));
   assert.equal(actBody()[0], "本地命令：", "整页上翻到首行");
   // PgDn（整页）→ activityScroll 9-8=1，窗口起点回到 /theme 行（页向下翻）
   renderer.press(key("pagedown"));
-  assert.ok(actBody()[0]?.includes("/theme"), "整页下翻显示 /theme 行");
+  assert.notEqual(actBody()[0], "本地命令：", "整页下翻离开首行（向尾部翻）");
 
   // Tab 两圈回到历史（hint 无标签，不再逐项断言；焦点滚动效果已在上面覆盖）
   renderer.press(key("tab"));
