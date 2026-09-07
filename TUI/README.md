@@ -113,7 +113,7 @@ npm run watch # tsc --watch 常驻：源码变更自动编译到 dist/（仍需�
   - `/quit` — 关闭 renderer 退出
   - `/session` — 会话面板：列出持久化会话（newest-first，live 会话标记 `[当前]` 不可续），Enter 切换到选中的 persisted 会话（先释放当前 agent，再经 host `agents.resume` 恢复继续对话；resume 失败进面板 error 态不崩溃）
   - `/copy` — 复制最后一条模型回复到剪贴板（OSC52 序列 `ESC ]52;c;<base64>BEL`，ANSI 剥离后写入；无回复时提示）
-  - `/goal` — 当前会话目标迷你面板（goal 目标/阶段 + todo 列表只读展示；↑/↓ 滚动、Esc 关闭）。目标/待办**详细内容常驻顶部状态列**（右半窄列，PgUp/PgDn 滚动；状态栏不再重复显示 goal/todo 徽标）；/goal 面板为全宽大视图
+  - `/goal` — 当前会话目标迷你面板（goal 目标/阶段 + todo 列表只读展示：面板标题 `Goal <phase>`/`Todo 完成数/总数`（蓝），todo 标记 `·`待办 / `>`进行中(黄) / `✓`完成(灰+删除线)；↑/↓ 滚动、Esc 关闭）。目标/待办**详细内容常驻顶部状态列**（右半窄列，PgUp/PgDn 滚动；状态栏不再重复显示 goal/todo 徽标）；/goal 面板为全宽大视图
   - `/policy [ask|never]` — 审批策略两态切换：无参取当前已知策略翻转（未知按宿主默认 ask 为基准），显式 `ask`/`never` 直接设置；经 `ctx.approval.setPolicy(agent, policy)` 写宿主，状态栏以 `ask`/`auto` 徽标展示当前策略（宿主未挂载审批服务时提示不可用）
   - `/permission [预设名]` — 权限预设（sandbox mode + 审批策略捆绑）：无参从 `ctx.permissionPresets` 读当前值 + 可用列表（含说明）；带参转发宿主 `/permission <name>`（宿主校验并写 `permission/preset` + `approval/policy`）。宿主未挂载权限预设服务时提示不可用
   - `/preset [预设名]` — agent 预设目录：无参从 `ctx.agentPresets` 列可用/当前/默认；带参经 `selectAgentPreset`（`recompose` 写路径）切换当前会话预设，宿主未挂载时提示不可用（**当前默认 profile 未装配 `dsh-agent-presets`，/preset 提示不可用；接口已按 rc.2 核验，装配该服务的环境即生效**）

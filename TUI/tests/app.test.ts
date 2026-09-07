@@ -2312,7 +2312,7 @@ test("/goal：slash 打开迷你面板，Esc 关闭（footer 面板态）", () =
     l.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   assert.ok(
-    plain.some((l) => l.includes("当前目标")),
+    plain.some((l) => l.includes("Goal")),
     "面板打开：footer 渲染 goal 面板标题",
   );
   assert.ok(
@@ -2324,7 +2324,7 @@ test("/goal：slash 打开迷你面板，Esc 关闭（footer 面板态）", () =
     l.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   assert.ok(
-    !closed.some((l) => l.includes("当前目标")),
+    !closed.some((l) => l.includes("Goal")),
     "Esc 关闭 → 回到输入态（无面板标题）",
   );
 });

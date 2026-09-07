@@ -260,9 +260,9 @@ if (smoke) {
       const panelPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
       ok(
         "goal-panel",
-        panelPlain.includes("当前目标") &&
+        panelPlain.includes("Goal") &&
           panelPlain.includes("目标: ") &&
-          panelPlain.includes("todo 2/3"),
+          panelPlain.includes("Todo 1/3"),
         "goal panel title/objective/todo absent from frames",
       );
       renderer.emitKey(key("escape")); // 关闭 goal 面板，避免吞掉 /quit

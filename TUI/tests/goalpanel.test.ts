@@ -51,7 +51,7 @@ const setGoal = (
 test("renderGoalPanel: 输出恰 height 行，首行为标题", () => {
   const rows = panel(setGoal("active"), []);
   assert.equal(rows.length, 8, "恰 height 行");
-  assert.ok(rows[0]!.includes("当前目标"), "首行标题");
+  assert.ok(rows[0]!.includes("Goal"), "首行标题");
   assert.ok(rows[0]!.includes("[Esc]关闭"), "标题含按键提示");
 });
 
@@ -62,12 +62,12 @@ test("renderGoalPanel: objective 与 phase 徽标 + todo 计数/标记着色", (
     { content: "模式徽标", status: "completed" },
   ]);
   const t = rows.join("\n");
+  assert.ok(t.includes("Goal active"), "goal 标题=Goal+阶段(phase)");
   assert.ok(t.includes("目标: 实现 P2 阶段 B1+B2"), "objective 标题");
-  assert.ok(t.includes("阶段: active"), "phase 徽标");
-  assert.ok(t.includes("todo 1/3"), "todo in_progress 1/共3");
-  assert.ok(t.includes("[●] 状态栏徽标"), "进行中 [●]");
-  assert.ok(t.includes("[ ] 面板"), "待办 [ ]");
-  assert.ok(t.includes("[x] 模式徽标"), "完成 [x]");
+  assert.ok(t.includes("Todo 1/3"), "todo 标题=完成数/总数");
+  assert.ok(t.includes("> 状态栏徽标"), "进行中 > 标记");
+  assert.ok(t.includes("· 面板"), "待办 · 点标记");
+  assert.ok(t.includes("✓ 模式徽标"), "完成 ✓ 对勾标记");
 });
 
 test("renderGoalPanel: blocked 黄 tone 显示 blockedReason.message", () => {
