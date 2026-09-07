@@ -207,17 +207,25 @@ class FakeAdapter implements DshAdapter {
   }
 }
 
-/** 顶部行历史区正文：跳过状态列（按显示宽度定位，兼容 CJK） */
+/** 顶部行历史/活动区正文：取左侧历史区段（跳过 col0 左缘框格，
+ *  到 historyWidth-1 宽为止，右侧为详细状态列；按显示宽度定位，兼容 CJK） */
 function histBody(line: string, cols: number): string {
   const m = metricsFor({ rows: 24, cols }, false);
-  const skip = m.statusColWidth;
+  const contentW = m.historyWidth - 1; // 历史正文宽（col0 左缘框格外）
   const s = line.replace(/\x1b\[[0-9;]*m/g, "");
-  let w = 0;
+  let out = "";
+  let w = 0; // 累计显示列（含 col0）
   for (let i = 0; i < s.length; i++) {
-    w += displayWidth(s[i]!);
-    if (w >= skip) return s.slice(i + 1);
+    const cw = displayWidth(s[i]!);
+    if (w + cw <= 1) {
+      w += cw;
+      continue;
+    } // 仍在 col0 框格内
+    if (w >= 1 + contentW) break; // 已到正文段末尾（右侧状态列前）
+    out += s[i]!;
+    w += cw;
   }
-  return "";
+  return out;
 }
 
 function makeApp(): { app: App; renderer: FakeRenderer; adapter: FakeAdapter } {
@@ -1081,7 +1089,7 @@ function barRowCount(renderer: FakeRenderer): number {
   return renderer.lastRender.filter((l) => {
     const t = l.replace(/\x1b\[[0-9;]*m/g, "");
     return (
-      /[-=·─═┈]/.test(t) && t.replace(/[-=·─═┈|│┐┘└╩╝]/g, "").trim() === ""
+      /[-=·─═┈]/.test(t) && t.replace(/[-=·─═┈|│┐┘└┌╩╝╚]/g, "").trim() === ""
     );
   }).length;
 }
@@ -2385,21 +2393,15 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
       .find((l) => l?.startsWith("[Enter]发送"));
     return h ?? "";
   };
-  // 活动区正文 = ┈ 分隔线与状态栏之间：去掉状态列前缀与最右焦点框列
+  // 活动区正文 = ┈ 分隔线与状态栏之间：取左侧历史/活动区段（右侧为状态列）
   const actBody = (): string[] => {
     const lines = renderer.lastRender.map(strip);
-    const skip = metricsFor(size, false, 1, 1).statusColWidth;
     const sep = lines.findIndex((l) => l.includes("┈"));
     const statusIdx = lines.findIndex((l) => l.includes("（新会话）"));
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
     return lines
       .slice(sep + 1, statusIdx)
-      .map((l) =>
-        l
-          .slice(skip)
-          .replace(/[│┐┘]$/, "")
-          .trim(),
-      )
+      .map((l) => histBody(l, size.cols).trim())
       .filter((l) => l !== "");
   };
   const key = (name: string): KeyEvent => ({
@@ -2481,19 +2483,13 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
   const actFirst = (): string => {
     const lines = renderer.lastRender.map(strip);
-    const skip = metricsFor(size, false, 1, 1).statusColWidth;
     const sep = lines.findIndex((l) => l.includes("┈"));
     const statusIdx = lines.findIndex((l) => l.includes("（新会话）"));
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
     return (
       lines
         .slice(sep + 1, statusIdx)
-        .map((l) =>
-          l
-            .slice(skip)
-            .replace(/[│┐┘]$/, "")
-            .trim(),
-        )
+        .map((l) => histBody(l, size.cols).trim())
         .filter((l) => l !== "")[0] ?? "(空)"
     );
   };

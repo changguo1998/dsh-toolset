@@ -168,7 +168,7 @@ export interface FrameMetrics {
   footerHeight: number;
   /** 按键提示区行数（独立区域，位于输入区下方、之间不画横线；输入态 1，面板打开 0） */
   hintHeight: number;
-  /** 顶部状态列宽（详细 goal/todo；窄列约 25%，含右缘竖线） */
+  /** 顶部状态列宽（详细 goal/todo；窄列约 25%，含左缘分隔竖线，状态列位于右侧列） */
   statusColWidth: number;
   /** 历史区宽 = cols - statusColWidth */
   historyWidth: number;
@@ -378,7 +378,8 @@ function statusStartFor(len: number, offset: number, rows: number): number {
   return Math.min(Math.max(0, offset), len - rows);
 }
 
-/** 顶部状态列：输出恰 height 行，每行宽 statusColWidth（含右缘竖线）。
+/** 顶部状态列（右侧列）：输出恰 height 行，每行宽 statusColWidth（末位竖线为分隔竖线边线，
+ *  右侧布局下由 buildTopRegion 剥去后重新构图左缘分隔竖线/右缘框列）。
  *  滚动独立于对话区（statusColumnScroll，↑/↓ 仍滚历史，PgUp/PgDn 滚状态列）。 */
 export function renderStatusColumn(
   goal: GoalState | undefined,
@@ -404,7 +405,7 @@ export function renderStatusColumn(
   }
   return out;
 }
-/** 顶部区域：状态列（详细 goal/todo，可独立滚动）+ 右列历史；焦点面板四边框亮色 */
+/** 顶部区域：左列对话历史+活动区（可独立滚动）、右侧详细状态列；焦点面板四边框亮色 */
 function buildTopRegion(
   state: AppState,
   topHeight: number,
@@ -416,12 +417,16 @@ function buildTopRegion(
   statusScroll: number,
 ): RenderLine[] {
   // 焦点框保留格（所有状态恒定，避免内容重排）：顶部边框行始终占 1 行；
-  // 右侧边框列在宽度允许时占 1 列；未聚焦/模态态该格留空白占位。
+  // 左侧框格列（历史/活动区左缘）与右侧框列（状态列右缘）在宽度允许时各占 1 列；
+  // 未聚焦/模态态该格留空白占位。
   const contentTopH = Math.max(0, topHeight - FRAME_TOP_ROWS);
-  const useRightFrame = historyWidth >= FRAME_RIGHT_COLS + 1;
+  // 历史/活动区在左、详细状态列在右（2026-09-17 对调）：
+  // 左缘框格 = 历史/活动区左缘（historyWidth≥2 时预留）；右缘框列 = 状态列右缘（statusColWidth≥2 时预留）
+  const useLeftFrame = historyWidth >= FRAME_LEFT_COLS + 1;
+  const useRightFrame = statusColWidth >= FRAME_RIGHT_COLS + 1;
   const contentW = Math.max(
     1,
-    historyWidth - (useRightFrame ? FRAME_RIGHT_COLS : 0),
+    historyWidth - (useLeftFrame ? FRAME_LEFT_COLS : 0),
   );
   // 活动区可视行数（瞬态显示区高度）：先于 wrapBufferLines 计算，
   // 供思考折叠上限取 min(thinkingMaxLines, activityH)——默认思考可占满活动区
@@ -449,7 +454,8 @@ function buildTopRegion(
     followBottom: state.followBottom,
     scrollOffset: state.scrollOffset,
   });
-  // 状态列：恰「内容行数」行（顶部边框行不显示状态正文），每行宽 statusColWidth（含右缘竖线）
+  // 状态列（右侧）：恰「内容行数」行，每行宽 statusColWidth。
+  // renderStatusColumn 自带右缘竖线，对调后剥去不用，分隔竖线左缘/右缘框列由本函数构图
   const statusCells = renderStatusColumn(
     goal,
     todos,
@@ -458,47 +464,45 @@ function buildTopRegion(
     statusColWidth,
     state.themeId,
   );
-  // 边框构图参数：分隔竖线列 D=statusColWidth-1；左缘框格列 0 在宽度足够时预留
-  // （statusColWidth >= FRAME_LEFT_COLS+1 才画状态列左边框；0 列则退化不画）。
-  // 顶部边框行占 index 0，活动区分隔行自然位于 dialogueH 后一行，无需单独索引。
-  const D = statusColWidth - 1;
-  const useLeftFrame = statusColWidth >= FRAME_LEFT_COLS + 1;
+  // 边框构图参数：分隔竖线列 = historyWidth（历史区右缘/状态列左缘，
+  // 为旧 statusColWidth-1 的镜像）；col0 左缘框格属历史/活动区，
+  // 右缘框列 R 属状态列。顶部边框行占 index 0，活动区分隔行自然位于 dialogueH 后一行。
+  const statusBodyW = Math.max(
+    0,
+    statusColWidth - 1 - (useRightFrame ? FRAME_RIGHT_COLS : 0),
+  );
   const panel = state.focusedPanel;
   const statusFocused = focusActive && panel === "status";
+  const topHistory = focusActive && panel === "history";
+  const activityFocused = focusActive && panel === "activity";
   const fc = focusFrameColor(state.themeId);
   const cf = (s: string): string => colorFor(state.themeId, fc)(s);
   const cg = (s: string): string => colorFor(state.themeId, "gray")(s);
   const blank = (n: number): string => " ".repeat(Math.max(0, n));
   // 活动区分隔线：焦点为历史/流输出时亮色框，状态焦点/模态回灰
-  const sepFocused =
-    focusActive && (panel === "history" || panel === "activity");
+  const sepFocused = topHistory || activityFocused;
   const sepStr = (): string =>
     colorFor(
       state.themeId,
       sepFocused ? fc : "gray",
     )(ACTIVITY_SEPARATOR.repeat(Math.max(1, contentW)));
   const rows: RenderLine[] = [];
-  // 右侧边框列保留格：画成框线（┐/│/┘）时亮色着色，否则空白占位
+  // 右侧边框列保留格（状态列右缘）：画成框线（┐/│/╝）时亮色着色，否则空白占位
   const rightGlyph = (g: string): string => (g === " " ? " " : cf(g));
-  // 顶部边框行（row 0）：status 焦点 → 左侧 `┌`+`─`+分隔列 `┐`（状态列顶边）；
-  // history 焦点 → 右侧 `─`+`┐`；其余空白占位。顶部边框行的分隔竖线不常亮——
-  // 仅 status 焦点为角字 `┐`，否则灰（中间竖线随焦点面板只亮其垂直边界）。
-  const topHistory = focusActive && panel === "history";
-  const leftSlot = (g: string): string =>
-    useLeftFrame ? (statusFocused ? cf(g) : " ") : "";
+  // 顶部边框行（row 0）：history 焦点 → 左侧 `┌`+`─`+分隔列角 `┐`（历史/活动区顶边）；
+  // status 焦点 → 分隔列 `┌`+`─`+`┐`（状态列顶边，状态列在右）；其余空白占位、分隔列灰 `│`
+  const historyTop = useLeftFrame && topHistory;
   rows.push({
     text:
-      leftSlot("┌") +
-      (statusFocused
-        ? cf(SEPARATOR.repeat(Math.max(0, D - (useLeftFrame ? 1 : 0))))
-        : blank(Math.max(0, D - (useLeftFrame ? 1 : 0)))) +
-      (statusFocused ? cf("┐") : cg("│")) +
+      (historyTop ? cf("┌") : useLeftFrame ? " " : "") +
       (topHistory ? cf(SEPARATOR.repeat(contentW)) : blank(contentW)) +
-      (useRightFrame ? rightGlyph(topHistory ? "┐" : " ") : ""),
+      (topHistory ? cf("┐") : statusFocused ? cf("┌") : cg("│")) +
+      (statusFocused ? cf(SEPARATOR.repeat(statusBodyW)) : blank(statusBodyW)) +
+      (useRightFrame ? rightGlyph(statusFocused ? "┐" : " ") : ""),
   });
-  // 内容行（1..contentTopH）：对话区 → 活动区分隔 → 活动区（各自带右缘框列）。
-  // 中间分隔竖线随焦点面板只亮其垂直边界：status=全行、history=仅对话区、
-  // activity=仅分隔行+活动区；模态态全灰。
+  // 内容行（1..contentTopH）：对话区 → 活动区分隔 → 活动区。
+  // 中间分隔竖线（历史区右缘/状态列左缘）随焦点面板只亮其垂直边界：
+  // status=全行、history=仅对话区、activity=仅分隔行+活动区；模态态全灰。
   const actMaxOffset = Math.max(0, activity.length - activityH);
   const actOffset = Math.min(state.activityScroll, actMaxOffset);
   const act = activity.slice(
@@ -507,57 +511,71 @@ function buildTopRegion(
   );
   const topPad = activityH - act.length;
   const divFor = (rc: number): string => {
+    // 活动区分隔行两端为面板角字：history=右下角 ┘、activity=右上角 ┐、status=竖线
+    if (rc === dialogueH && activityH > 0) {
+      const g = panel === "history" ? "┘" : panel === "activity" ? "┐" : "│";
+      return colorFor(state.themeId, focusActive ? fc : "gray")(g);
+    }
     let bright = focusActive;
     if (focusActive && panel === "history") bright = rc < dialogueH;
     else if (focusActive && panel === "activity") bright = rc >= dialogueH;
     return colorFor(state.themeId, bright ? fc : "gray")("│");
   };
   for (let rc = 0; rc < contentTopH; rc++) {
-    const left = statusCells[rc] ?? "";
-    // 状态列正文：先去掉右缘竖线（末位纯字符），再按左缘框格预留列（D-1）收窄，
-    // 用 truncateToWidth 只切字不切 ANSI 闭合序列；截断后补空白到定宽，
-    // 保证分隔竖线恒位于 D 列、不紧贴文字
-    const rawBody = useLeftFrame
-      ? truncateToWidth(left.slice(0, -1), D - 1)
-      : left.slice(0, -1);
-    const statusBody = cg(
-      rawBody +
-        blank(Math.max(0, (useLeftFrame ? D - 1 : D) - displayWidth(rawBody))),
+    // col0：历史/活动区左缘框格——history 焦点亮对话区行+分隔行左下角 `┘`；
+    // activity 焦点亮活动区行+分隔行左上角 `┌`；status 焦点空白占位（状态列在右）
+    let left = "";
+    if (useLeftFrame) {
+      if (rc === dialogueH && activityH > 0) {
+        left =
+          panel === "history"
+            ? topHistory
+              ? cf("┘")
+              : " "
+            : panel === "activity"
+              ? activityFocused
+                ? cf("┌")
+                : " "
+              : " ";
+      } else if (rc < dialogueH) {
+        left = topHistory ? cf("│") : " ";
+      } else {
+        left = activityFocused ? cf("│") : " ";
+      }
+    }
+    // 状态列正文（右侧）：剥去 renderStatusColumn 自带右缘竖线，正文截到 statusBodyW 定宽，
+    // 保证右缘框列恒位于 R 列、不紧贴文字末尾
+    const rawBody = truncateToWidth(
+      statusCells[rc]?.slice(0, -1) ?? "",
+      statusBodyW,
     );
+    const statusBody = cg(rawBody + blank(statusBodyW - displayWidth(rawBody)));
     let content: string;
-    let right: string;
     if (rc < dialogueH) {
       // 对话区行：followBottom / scrollOffset 只作用于对话区
       const w = dialogueRows[vp.start + rc];
       content =
         w && vp.start + rc < vp.end ? " ".repeat(w.indent) + w.text : "";
-      right = focusActive && panel === "history" ? "│" : " ";
     } else if (rc === dialogueH && activityH > 0) {
-      // 活动区分隔行（对话历史 ↔ 流输出边界），右下/右上角随焦点
+      // 活动区分隔行（对话历史 ↔ 流输出边界），两端角字由 col0/divFor 构图
       content = sepStr();
-      right =
-        focusActive && panel === "history"
-          ? "┘"
-          : focusActive && panel === "activity"
-            ? "┐"
-            : " ";
     } else if (activityH > 0) {
       // 活动区行：按滚动偏移取窗口（0=跟随最新显示尾部；上滚看更早）
       const a = rc - dialogueH - 1 - topPad;
       content = a >= 0 ? " ".repeat(act[a]!.indent) + act[a]!.text : "";
-      right = focusActive && panel === "activity" ? "│" : " ";
     } else {
       content = "";
-      right = " ";
     }
-    // 正文补齐到 contentW：右缘框线恒定对齐屏幕右缘（不紧贴文字末尾）
+    // 历史/活动区正文补齐到 contentW：分隔竖线恒位于 D 列（不紧贴文字末尾）
     content += blank(Math.max(0, contentW - displayWidth(content)));
+    // 右缘框列（状态列右缘）：status 焦点亮；其余空白占位
+    const right = statusFocused ? "│" : " ";
     rows.push({
       text:
-        leftSlot("│") +
-        statusBody +
-        divFor(rc) +
+        left +
         content +
+        divFor(rc) +
+        statusBody +
         (useRightFrame ? rightGlyph(right) : ""),
     });
   }
@@ -1158,46 +1176,46 @@ export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
   return { topHeight: contentTopH, activityH, dialogueH };
 }
 
-/** 状态栏上方分隔行（焦点四边框的底边）：按焦点面板分段着色 + 角字（╩/╝）；
- * 无焦点/模态态全灰 `─═`；右侧边框列作活动区底边角（窄终端不保留右列时不画角）。 */
+/** 状态栏上方分隔行（焦点四边框的底边）：按焦点面板分段着色 + 角字（╚/╩/╝）；
+ * 无焦点/模态态全灰 `─═`。左侧历史/活动区底边（activity 焦点亮、col0 左下角 ╚），
+ * 右侧状态列底边（status 焦点亮、R 列右下角 ╝），D 列 ╩ 为共用角。 */
 export function buildStatusSeparator(
   cols: number,
   statusColWidth: number,
   themeId: ThemeId,
   sepFocus: "none" | "status" | "activity",
 ): RenderLine {
-  const D = statusColWidth - 1;
+  const D = cols - statusColWidth; // 分隔竖线列（历史区右缘/状态列左缘，旧 statusColWidth-1 的镜像）
   const R = cols - 1;
-  const useRightFrame = Math.max(1, cols - statusColWidth) >= 2;
+  const useLeftCorner = cols - statusColWidth >= 2; // 历史/活动区左缘框格存在
+  const useRightFrame = statusColWidth >= 2; // 状态列右缘框列存在
   const fc = focusFrameColor(themeId);
   const seg = (n: number, ch: string, bright: boolean): string => {
     if (n <= 0) return "";
     const s = ch.repeat(n);
     return bright ? colorFor(themeId, fc)(s) : colorFor(themeId, "gray")(s);
   };
-  const useLeftCorner = statusColWidth >= 2;
-  const midCount = Math.max(0, R - D - 1);
+  const leftW = Math.max(0, D - (useLeftCorner ? 1 : 0));
+  const rightW = Math.max(0, R - D - 1);
   return {
     text:
-      // col0：status 焦点时为状态列底角 ╚（接左缘框格），否则延续 `═`；
-      // D=0（statusColWidth=1）时无左侧列，不加前缀、╩ 直接落 col0
+      // col0：activity 焦点时为历史/活动区底角 ╚（接左缘框格），否则延续 `═`
       (D > 0
-        ? useLeftCorner && sepFocus === "status"
+        ? useLeftCorner && sepFocus === "activity"
           ? colorFor(themeId, fc)("╚")
           : colorFor(themeId, "gray")(STATUS_TOP_SEPARATOR)
         : "") +
-      seg(
-        Math.max(0, D - (useLeftCorner ? 1 : 0)),
-        STATUS_TOP_SEPARATOR,
-        sepFocus === "status",
-      ) +
+      seg(leftW, STATUS_TOP_SEPARATOR, sepFocus === "activity") +
       (sepFocus === "none"
-        ? colorFor(themeId, "gray")(STATUS_TOP_SEPARATOR)
+        ? colorFor(themeId, "gray")(ACTIVITY_SEPARATOR) // D 列无焦点时延续活动区虚线
         : colorFor(themeId, fc)("╩")) +
-      seg(midCount, STATUS_TOP_SEPARATOR, sepFocus === "activity") +
-      (useRightFrame && sepFocus === "activity"
-        ? colorFor(themeId, fc)("╝")
-        : colorFor(themeId, "gray")(STATUS_TOP_SEPARATOR)),
+      seg(rightW, STATUS_TOP_SEPARATOR, sepFocus === "status") +
+      // R 列（状态列右缘框列）：status 焦点右下角 ╝；无右缘框列（statusColWidth=1）时不输出
+      (useRightFrame
+        ? sepFocus === "status"
+          ? colorFor(themeId, fc)("╝")
+          : colorFor(themeId, "gray")(STATUS_TOP_SEPARATOR)
+        : ""),
   };
 }
 
