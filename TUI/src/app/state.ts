@@ -170,7 +170,7 @@ export interface AppState {
   history: HistoryPanelState | null;
   /** /goal 迷你面板（null = 未打开；只读当前活跃会话 goal/todo） */
   goalPanel: GoalPanelState | null;
-  /** 当前会话标题（resume 后由 surface 首条用户消息生成；新会话为（新会话）） */
+  /** 当前会话标题（resume 后由 surface 首条用户消息生成；新会话为空，状态栏以 <title> 占位） */
   sessionTitle: string;
   /** P2：按 sessionId 隔离的 goal 状态（判别联合；完整保留原始载荷字段） */
   goalBySession: Record<string, GoalState>;
@@ -284,7 +284,7 @@ export function initialState(
   return {
     sessions: [],
     activeSessionId: null,
-    sessionTitle: "（新会话）",
+    sessionTitle: "", // 默认标题为空，渲染层（renderStatusLine）用 <title> 占位
     goalBySession: {},
     todoBySession: {},
     modeBySession: {},

@@ -116,7 +116,10 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   assert.ok(status.text.includes("12:00:00"), "状态含时间");
   assert.ok(status.text.includes("/home/u"), "状态含当前目录");
   assert.ok(status.text.includes("main"), "状态含 git(branch)");
-  assert.ok(status.text.includes("（新会话）"), "状态含会话标题");
+  assert.ok(
+    status.text.includes("<title>"),
+    "状态含会话标题（默认空标题 <title> 占位）",
+  );
   assert.ok(status.text.includes("·"), "组内段用 · 分隔");
   assert.ok(status.text.includes("|"), "组间用 | 分隔");
   assert.ok(status.text.includes("none"), "LLM 组含模型思考后缀");
@@ -685,7 +688,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
       cols: 40,
     },
   ).map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""));
-  const statIdx = st.findIndex((l) => l.includes("（新会话）"));
+  const statIdx = st.findIndex((l) => l.includes("<title>"));
   assert.ok(statIdx > 0, "状态行存在");
   assert.ok(st[statIdx - 1]!.trimStart().startsWith("═"), "状态栏上方 ═ 分隔");
   assert.ok(

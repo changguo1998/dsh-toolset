@@ -2031,8 +2031,8 @@ test("session-title 事件：官方折叠标题实时流入状态栏（仅当前
     l.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   assert.ok(
-    before.some((l) => l.includes("（新会话）")),
-    "初始标题为（新会话）",
+    before.some((l) => l.includes("<title>")),
+    "初始标题为空，以 <title> 占位",
   );
   // 官方 session/title 事件到达 → 状态栏更新为官方标题
   adapter.push({
@@ -2397,7 +2397,7 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
   const actBody = (): string[] => {
     const lines = renderer.lastRender.map(strip);
     const sep = lines.findIndex((l) => l.includes("┈"));
-    const statusIdx = lines.findIndex((l) => l.includes("（新会话）"));
+    const statusIdx = lines.findIndex((l) => l.includes("<title>"));
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
     return lines
       .slice(sep + 1, statusIdx)
@@ -2484,7 +2484,7 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   const actFirst = (): string => {
     const lines = renderer.lastRender.map(strip);
     const sep = lines.findIndex((l) => l.includes("┈"));
-    const statusIdx = lines.findIndex((l) => l.includes("（新会话）"));
+    const statusIdx = lines.findIndex((l) => l.includes("<title>"));
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
     return (
       lines

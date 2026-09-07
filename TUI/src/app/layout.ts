@@ -942,6 +942,8 @@ export function renderStatusLine(
   // 宽度足够 → 单行完整显示；放不下 → 按组折行（标题与模型各自成组、组间可折行），单组超宽才组内截断。
   const maxSegW = Math.max(1, cols - 2); // 留首尾各 1 列
   const withTitle = cols >= 24;
+  // 默认标题为空（新会话），用 <title> 占位保持段与布局稳定
+  const titleText = title.trim() === "" ? "<title>" : title;
   const blue = (s: string) => colorFor(themeId, "blue")(s);
   const cyanTitle = (s: string) => colorFor(themeId, "cyan")(s);
   type Seg = { text: string; color: (s: string) => string };
@@ -1006,7 +1008,7 @@ export function renderStatusLine(
     { text: status.cwd, color: blue },
   ];
   const sessionFull: Seg[] = withTitle
-    ? [{ text: title, color: cyanTitle }, ...taskBadges()]
+    ? [{ text: titleText, color: cyanTitle }, ...taskBadges()]
     : taskBadges();
   const llmFull: Seg[] = [
     { text: modelSeg, color: (s) => colorModel(themeId, s) },
@@ -1037,7 +1039,7 @@ export function renderStatusLine(
     const tw = Math.max(0, w - bw);
     return [
       ...(withTitle
-        ? [{ text: fitHead(title, Math.max(0, tw)), color: cyanTitle }]
+        ? [{ text: fitHead(titleText, Math.max(0, tw)), color: cyanTitle }]
         : []),
       ...badges,
     ];
