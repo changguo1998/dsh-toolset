@@ -34,7 +34,7 @@ test("normalizeConfig：合法整数保留，非法/越界回落缺省（undefin
 
 test("loadTuiConfig：缺省路径读取真实文件；缺失路径回落默认不崩溃", () => {
   const c = loadTuiConfig();
-  assert.equal(c.layout?.activityHeightDivisor, 2, "默认文件 1/2");
+  assert.equal(c.layout?.activityHeightDivisor, 3, "默认文件 1/3");
   assert.equal(c.layout?.statusColumnDivisor, 3, "默认文件 1/3");
   const missing = loadTuiConfig("/nonexistent/tui.config.json");
   assert.deepEqual(missing, { layout: {} }, "缺失文件回落默认");
