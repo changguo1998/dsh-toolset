@@ -84,6 +84,26 @@ dark 下基底前景=#D8D8D8 与次要文字（gray=ansi[7]）同色——这是
 | --- | --- | --- |
 | TUI 基底前景 THEMES.foreground | 灰度框架推导曾把 dark 基底前景改为 #787878，并要求方案源文件同步——违背「源文件为权威，TUI 内嵌跟随源文件」 | 撤销推导：TUI dark 基底前景恢复为源文件值 #D8D8D8（=ansi[7]）、light 保持 #555555（=bright[0]）；不再触碰 `~/fff` 源文件；断言随之适配（dark 允许基底/次要同色对 #D8D8D8） |
 
+## 全文件全元素核对（src/ 全部 .ts，含此前未覆盖文件）
+
+对 `TUI/src/` 全部 27 个 .ts 逐一扫描颜色出口（`colorFor` / `hexSgr` / `style.fg|bg` / SGR 字面量）：
+
+| 文件 | 出口数 | 核对结论 |
+| --- | --- | --- |
+| src/app/layout.ts | 71 | 三语义逐点核过：gray×13=次要、brightBlack×9=边框、fc×N=强调；彩色（blue/yellow/magenta/cyan/green/brightMagenta/brightRed/brightBlue/red）为生效/状态语义，均走槽位 |
+| src/app/layout/markdown.ts | 25 | gray=次要（语言标签/checkbox/引用/前缀）、brightBlack=水平线、blue=链接、brightCyan=标题强调（HEADING_FG 为槽位非硬编码）、CODE_BG=背景 hex（已知项）；hexSgr 收尾机制与 screen 一致 |
+| src/renderer/screen.ts | 13 | 基底前景/背景铺设 + style→SGR（38;2/48;2），每段收尾复位主题基底；hexSgr 硬编码仅注释说明 |
+| src/renderer/theme.ts | 8 | 定义层（THEMES/ansiNameToHex/colorFor/hexSgr） |
+| src/app/components/JobsPanel.ts | 6 | gray=次要描述、yellow/red/cyan/green=任务状态 |
+| src/app/components/StatusPanel.ts | 3 | yellow/green/blue=面板交互彩色 |
+| src/app/components/ApprovalPrompt.ts | 3 | yellow=标题、red/green=y/n 批准拒绝（用户指定） |
+| src/app/components/QuestionPrompt.ts | 2 | yellow=光标、green=选中 |
+| src/app/components/ModelPicker.ts | 2 | yellow=焦点、green=选中 |
+| src/app/commands.ts | 1 | 非颜色出口：仅 ANSI 剥离（stripAnsi）与 OSC 52 剪贴板编码 |
+| 其余 17 个（renderer/terminal,input,index、main、app/status,state,index,config,question-transition,model-transition|layout/tool-line、components/TextInput,HistoryPanel、adapter/\*） | 0 | 无颜色出口 |
+
+结论：所有渲染颜色均经 ColorName → ansiNameToHex 槽位映射，无散落硬编码；SGR/hex 字面量全量仅 markdown.ts CODE_BG（背景，已知项，记录不改）。
+
 ## 已知项目（非三语义，记录不改）
 
 - `markdown.ts` CODE_BG（行内代码背景）：硬编码 hex `dark #434343 / light #E8E8E8`，属背景色、不属三语义；如需纳入配色方案管理另行讨论。
