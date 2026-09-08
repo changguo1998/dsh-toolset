@@ -98,6 +98,17 @@ export interface CompactionSummaryPayloadLike {
   };
 }
 
+/**
+ * tool/result.meta 的宽容视口（0.1.2-rc.1 起工具可回附任意 JsonValue meta，官方形状
+ * 未文档化；dsh-tool-fs 现以 {before, after} 存 LF 规范化全文）。渲染方命中
+ * before/after 均为 string 时自行计算行级摘要（(+N/-M)），其他形状忽略——保持降级。
+ */
+export interface ToolResultMetaLike {
+  [key: string]: unknown;
+  before?: unknown;
+  after?: unknown;
+}
+
 /** notice 色调分级（turn/end finish reason 等驱动：error 红 / warn 黄 / muted 灰） */
 export type NoticeTone = "error" | "warn" | "muted";
 /** 应用层收到的归一化事件（见文件头映射表） */
@@ -112,7 +123,20 @@ export type DshEvent =
   | { type: "notice"; text: string; error?: boolean; tone?: NoticeTone }
   | { type: "turn-end" }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }
-  | { type: "tool-result"; sessionId: string; ok: boolean; detail: string }
+  | {
+      type: "tool-result";
+      sessionId: string;
+      ok: boolean;
+      detail: string;
+      meta?: unknown;
+    }
+  | {
+      type: "model-selection";
+      sessionId: string;
+      provider?: string;
+      model?: string;
+      reasoningEffort?: unknown;
+    }
   | {
       type: "usage";
       sessionId: string;
@@ -349,6 +373,7 @@ export type SessionEventType =
   | "todo/write"
   | "compaction/summary"
   | "agent-preset/selected"
+  | "model/selection"
   | "tool-workflow/run-start"
   | "tool-workflow/agent-start"
   | "tool-workflow/agent-end"
@@ -449,6 +474,13 @@ export interface UserQuestionRequestLike {
 }
 
 /** 各 type 的 data 载荷（阶段 2 用到的子集） */
+/** model/selection 事件载荷宽容视口（ModelSelection{provider,model,reasoningEffort?} 渲染所需字段） */
+export interface ModelSelectionLike {
+  provider?: string;
+  model?: string;
+  reasoningEffort?: unknown;
+}
+
 export interface SessionEventDataMap {
   "turn/start": { turn: number };
   "turn/end": { turn: number; reason: string };
@@ -456,9 +488,14 @@ export interface SessionEventDataMap {
   "step/end": { turn: number; step: number };
   "assistant/chunk": { turn: number; step: number; chunk: StreamChunk };
   "user/message": { id?: string };
-  "assistant/message": { turn: number; step: number };
+  "assistant/message": {
+    turn: number;
+    step: number;
+    interrupted?: boolean;
+    message?: { content?: unknown[] };
+  };
   "tool/call": { callId: string; name: string; arguments: string };
-  "tool/result": { callId: string };
+  "tool/result": { callId: string; meta?: unknown };
   "approval/asked": {
     id: string;
     toolName: string;
@@ -476,6 +513,7 @@ export interface SessionEventDataMap {
   "subagent/descriptor": SubagentDescriptorLike;
   "compaction/summary": CompactionSummaryPayloadLike;
   "agent-preset/selected": { agentPreset: string };
+  "model/selection": ModelSelectionLike;
   "tool-workflow/run-start": { runId?: string; name?: string };
   "tool-workflow/agent-start": {
     runId?: string;

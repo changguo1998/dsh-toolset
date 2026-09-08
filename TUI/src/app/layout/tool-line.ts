@@ -10,9 +10,29 @@ export function toolCallLine(name: string, summary: string): string {
   return "○ " + name + (summary ? " " + summary : "");
 }
 
-/** 工具结果行：成功 ✓ <detail> / 失败 ✗ <detail>（detail 为空给占位） */
-export function toolResultLine(ok: boolean, detail: string): string {
-  return (ok ? "✓ " : "✗ ") + (detail || "(无结果)");
+/** 工具结果行：成功 ✓ <detail> / 失败 ✗ <detail>（detail 为空给占位）。
+ * meta 命中 {before, after} 字符串对时追加行级 diff 摘要 `(+N/-M)`，其他形状降级不显示。
+ *  ponytail: 行集差近似（非 LCS）；展示级足够，编辑类工具精确 diff 由其消费者自算。 */
+export function toolResultLine(
+  ok: boolean,
+  detail: string,
+  meta?: unknown,
+): string {
+  const base = (ok ? "✓ " : "✗ ") + (detail || "(无结果)");
+  const d = diffSummary(meta);
+  return d ? `${base} ${d}` : base;
+}
+
+/** 行级 diff 摘要：before/after 行集差计 added/removed；非字符串对或零变化返回 undefined */
+function diffSummary(meta: unknown): string | undefined {
+  if (!meta || typeof meta !== "object") return undefined;
+  const { before, after } = meta as { before?: unknown; after?: unknown };
+  if (typeof before !== "string" || typeof after !== "string") return undefined;
+  const b = before.split("\n");
+  const a = after.split("\n");
+  const added = a.filter((l) => !b.includes(l)).length;
+  const removed = b.filter((l) => !a.includes(l)).length;
+  return added + removed === 0 ? undefined : `(+${added}/-${removed})`;
 }
 
 /** step 分组头：`step N`（B3，步内首条工具行前插入；N 取事件 step 字段） */

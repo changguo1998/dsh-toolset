@@ -402,6 +402,7 @@ export class App {
         }
         break;
       case "tool-call":
+      case "model-selection":
       case "tool-result":
       case "usage":
       case "compaction":

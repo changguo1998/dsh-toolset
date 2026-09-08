@@ -67,6 +67,7 @@ export type {
   DshAdapter,
   ModelInfo,
   ModelSelection,
+  ModelSelectionLike,
   SessionModelSelectionRef,
   ModelCatalog,
   SessionEventType,
@@ -521,6 +522,12 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       arguments?: string;
       error?: { name?: string; code?: string };
       reason?: unknown;
+      // 0.1.2-rc.1 扩展字段（宽容读，缺省降级）
+      interrupted?: boolean;
+      meta?: unknown;
+      provider?: string;
+      model?: string;
+      reasoningEffort?: unknown;
     };
     switch (raw.type) {
       case "assistant/chunk": {
@@ -641,6 +648,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           }
         }
         // delta 与 message 文本不一致时不再输出（append-only UI 无法安全重写）
+        // 0.1.2-rc.1：输出被打断标记（assistant/message.interrupted）→ muted notice
+        if (data?.interrupted === true) {
+          emit({ type: "notice", text: "（模型输出已中断）", tone: "muted" });
+        }
         return;
       }
 
@@ -686,13 +697,27 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         // 工具结果：成功/失败一行；error 分支（结构化错误 {name, code}）标记失败
         const err = data.error;
         const detail = toolResultDetail(data.message);
+        const meta = data.meta;
         emit({
           type: "tool-result",
           sessionId: sid,
           ok: !err,
+          ...(meta === undefined ? {} : { meta }),
           detail: err
             ? (err.name ? err.name + ": " : "") + (detail || err.code || "")
             : detail,
+        });
+        return;
+      }
+      case "model/selection": {
+        // 0.1.2-rc.1：会话内生效模型选择（ModelSelection{provider,model,reasoningEffort?}）
+        // → 归一化事件消费（state.modelBySession）
+        emit({
+          type: "model-selection",
+          sessionId: sid,
+          provider: data.provider,
+          model: data.model,
+          reasoningEffort: data.reasoningEffort,
         });
         return;
       }

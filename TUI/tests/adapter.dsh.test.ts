@@ -1788,7 +1788,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
 
   test("tool/call → tool-call：arguments 关键字段摘要（path 优先，读取真实路径）", () => {
     const t = makeAdapter();
-    fireEvent(t, "tool/call", {
+    fire(t, "tool/call", {
       turn: 1,
       step: 1,
       callId: "c1",
@@ -1807,7 +1807,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
 
   test("tool/call：arguments 解析失败 → 摘要兜底原始串（不抛错）", () => {
     const t = makeAdapter();
-    fireEvent(t, "tool/call", {
+    fire(t, "tool/call", {
       turn: 1,
       step: 1,
       callId: "c2",
@@ -1826,12 +1826,12 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
 
   test("tool/call：无关键字段 → 紧凑键值回显；空 arguments → (无参数)", () => {
     const t = makeAdapter();
-    fireEvent(t, "tool/call", {
+    fire(t, "tool/call", {
       callId: "c3",
       name: "grep",
       arguments: '{"a":"b","n":1}',
     });
-    fireEvent(t, "tool/call", { callId: "c4", name: "x", arguments: "" });
+    fire(t, "tool/call", { callId: "c4", name: "x", arguments: "" });
     assert.deepEqual(t.events, [
       {
         type: "tool-call",
@@ -1845,7 +1845,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
 
   test("tool/result → tool-result：成功取 message 内层 text 块首行", () => {
     const t = makeAdapter();
-    fireEvent(t, "tool/result", {
+    fire(t, "tool/result", {
       turn: 1,
       step: 1,
       message: {
@@ -1866,7 +1866,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
 
   test("tool/result：error 分支 → ok:false 且 detail 带错误名/码", () => {
     const t = makeAdapter();
-    fireEvent(t, "tool/result", {
+    fire(t, "tool/result", {
       turn: 1,
       step: 1,
       message: {
@@ -1893,11 +1893,11 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
 
   test("compaction/start + compaction/end → compaction {phase}", () => {
     const t = makeAdapter();
-    fireEvent(t, "compaction/start", {
+    fire(t, "compaction/start", {
       compactionId: "cp1",
       sourceCommandId: "fx-cmd-1",
     });
-    fireEvent(t, "compaction/end", {
+    fire(t, "compaction/end", {
       compactionId: "cp1",
       sourceCommandId: "fx-cmd-1",
     });
@@ -1909,7 +1909,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
 
   test("llm/retry → retry（attempt/max/delayMs/code/message）", () => {
     const t = makeAdapter();
-    fireEvent(t, "llm/retry", {
+    fire(t, "llm/retry", {
       turn: 1,
       step: 2,
       provider: "pi",
@@ -1934,7 +1934,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
 
   test("assistant/message：usage 补发 usage 事件（input/output/cacheRead）", () => {
     const t = makeAdapter();
-    fireEvent(t, "assistant/message", {
+    fire(t, "assistant/message", {
       turn: 1,
       step: 1,
       message: {
@@ -1962,7 +1962,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
 
   test("turn/end reason：error → 带 tone 的错误 notice（code/消息）", () => {
     const t = makeAdapter();
-    fireEvent(t, "turn/end", {
+    fire(t, "turn/end", {
       turn: 1,
       reason: {
         kind: "error",
@@ -1982,8 +1982,8 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
 
   test("turn/end reason：max-tokens/aborted → 带 tone 的提示", () => {
     const t = makeAdapter();
-    fireEvent(t, "turn/end", { turn: 2, reason: { kind: "max-tokens" } });
-    fireEvent(t, "turn/end", {
+    fire(t, "turn/end", { turn: 2, reason: { kind: "max-tokens" } });
+    fire(t, "turn/end", {
       turn: 3,
       reason: { kind: "aborted", reason: { kind: "user" } },
     });
@@ -1997,7 +1997,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
 
   test("turn/end reason：completed 静默（仅 turn-end，无 notice）", () => {
     const t = makeAdapter();
-    fireEvent(t, "turn/end", { turn: 1, reason: { kind: "completed" } });
+    fire(t, "turn/end", { turn: 1, reason: { kind: "completed" } });
     assert.deepEqual(t.events, [{ type: "turn-end" }]);
   });
 
@@ -2009,7 +2009,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
       { callId: "c9", name: "read", arguments: "{}" },
       "other",
     );
-    fireEvent(t, "compaction/start", { compactionId: "x" }, "other");
+    fire(t, "compaction/start", { compactionId: "x" }, "other");
     fireEvent(
       t,
       "llm/retry",
@@ -2743,4 +2743,108 @@ test("refreshJobs/killJob：经 list/kill 传递 caller={id: activeSessionId}", 
   assert.deepEqual(listCallers, [{ id: "s1" }]);
   await t.adapter.killJob!("subprocess-1");
   assert.deepEqual(killCalls, [["subprocess-1", { id: "s1" }]]);
+});
+
+// ---------------------------------------------------------------------------
+// P2 · 0.1.2-rc.1 新事件/字段消费
+// ---------------------------------------------------------------------------
+
+/** 顶层 fire helper（既有 fireEvent 为父 test 回调内的局部函数，顶层不可见） */
+function fire(
+  t: TestHarness,
+  type: string,
+  data: Record<string, unknown>,
+  sid = "s1",
+): void {
+  t.runtime.fire("session/event", { id: sid }, {
+    type,
+    seq: 1,
+    time: Date.now(),
+    data,
+  } as unknown as SessionEvent);
+}
+
+test("P2-0.1.2 tool/result 带 meta → tool-result 透传 meta（无 meta 时不带该键）", () => {
+  const t = makeAdapter();
+  const meta = { before: "a\nb", after: "a\nb\nc" };
+  fire(t, "tool/result", {
+    turn: 1,
+    step: 1,
+    message: {
+      role: "user",
+      content: [
+        { type: "tool-result", content: [{ type: "text", text: "ok" }] },
+      ],
+    },
+    meta,
+  });
+  assert.deepEqual(t.events, [
+    { type: "tool-result", sessionId: "s1", ok: true, detail: "ok", meta },
+  ]);
+  const t2 = makeAdapter();
+  fire(t2, "tool/result", {
+    turn: 1,
+    step: 1,
+    message: {
+      role: "user",
+      content: [
+        { type: "tool-result", content: [{ type: "text", text: "ok" }] },
+      ],
+    },
+  });
+  assert.deepEqual(t2.events, [
+    { type: "tool-result", sessionId: "s1", ok: true, detail: "ok" },
+  ]);
+});
+
+test("P2-0.1.2 assistant/message interrupted:true → 追加 muted notice", () => {
+  const t = makeAdapter();
+  fire(t, "assistant/message", {
+    turn: 1,
+    step: 1,
+    interrupted: true,
+    message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
+  });
+  const notices = t.events.filter((e) => e.type === "notice");
+  assert.deepEqual(notices, [
+    { type: "notice", text: "（模型输出已中断）", tone: "muted" },
+  ]);
+  // 未被打断的普通 assistant/message 不产出该 notice
+  const t2 = makeAdapter();
+  fire(t2, "assistant/message", {
+    turn: 1,
+    step: 1,
+    message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
+  });
+  assert.equal(
+    t2.events.some((e) => e.type === "notice"),
+    false,
+  );
+});
+
+test("P2-0.1.2 model/selection → model-selection 事件（provider/model/reasoningEffort）", () => {
+  const t = makeAdapter();
+  fire(t, "model/selection", {
+    provider: "ustc",
+    model: "deepseek-v4-flash",
+    reasoningEffort: "high",
+  });
+  assert.deepEqual(t.events, [
+    {
+      type: "model-selection",
+      sessionId: "s1",
+      provider: "ustc",
+      model: "deepseek-v4-flash",
+      reasoningEffort: "high",
+    },
+  ]);
+  // 缺省字段（无 reasoningEffort）宽容降级
+  const t2 = makeAdapter();
+  fire(t2, "model/selection", { provider: "p", model: "m" });
+  const e = t2.events[0] as { type: string };
+  assert.equal(e.type, "model-selection");
+  assert.equal(
+    (t2.events[0] as { reasoningEffort?: unknown }).reasoningEffort,
+    undefined,
+  );
 });

@@ -18,7 +18,7 @@ import type {
   TodoItemLike,
   JobInfo,
 } from "./adapter/dsh.ts";
-import type { ModelSelection } from "./adapter/dsh.ts";
+import type { ModelSelection, ModelSelectionLike } from "./adapter/dsh.ts";
 import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
 import {
   codeDispatchLine,
@@ -186,6 +186,8 @@ export interface AppState {
   } | null;
   /** P3：按 sessionId 隔离的 agent 预设（agent-preset/selected 事件 latest-wins；无=未收到） */
   presetBySession: Record<string, string>;
+  /** 事件回读的生效模型（model/selection）；状态栏模型徽标 fallback 来源 */
+  modelBySession: Record<string, ModelSelectionLike | undefined>;
   /** 权限预设目录（ctx.permissionPresets.names；状态列 Mode 块 permission 可选项；[]=未同步降级三档） */
   permissionOptions: string[];
   /** agent 预设目录（ctx.agentPresets.list 的 id；状态列 Mode 块 preset 可选项；[]=未同步降级当前值） */
@@ -289,6 +291,7 @@ export function initialState(
     compactionBySession: {},
     stepGroup: null,
     presetBySession: {},
+    modelBySession: {},
     permissionOptions: [],
     presetOptions: [],
     jobs: [],
@@ -539,505 +542,521 @@ const FOCUS_RESET_ACTIONS: ReadonlySet<string> = new Set([
 export function reduceState(state: AppState, action: StateAction): AppState {
   // 新输入/输出后焦点回到无焦点（null）；其它 action 原样
   const next: AppState = (() => {
-  switch (action.type) {
-    case "append":
-      return appendStream(state, action.text);
-    case "user-line":
-      return appendStream(state, action.text, "user");
-    case "thinking":
-      return appendThinking(state, action.text);
-    case "notice":
-      return appendNotice(state, action.text, action.error, action.tone);
-    case "clear-buffer":
-      return clearBuffer(state);
-    case "agent-status":
-      // 外部活动兜底：thinking/tool 视为进行中(黄)；idle 不改状态色
-      return {
-        ...setAgentStatus(state, action.status),
-        inputStatus:
-          action.status === "thinking" || action.status === "tool"
-            ? "running"
-            : state.inputStatus,
-      };
-    case "approval":
-      return setApproval(state, action.approval);
-    case "sessions":
-      return setSessions(state, action.sessions);
-    case "picker-open":
-      // 面板打开保留输入模式；仅真实 Esc（主输入态或关闭面板）才重置为 normal
-      return { ...state, picker: action.picker };
-    case "picker-move":
-      return movePicker(state, action);
-    case "picker-tab":
-      return tabPicker(state);
-    case "picker-phase":
-      return phasePicker(state, action);
-    case "picker-select":
-      return selectPicker(state);
-    case "picker-efforts":
-      return setPickerEfforts(
-        state,
-        action as {
-          type: "picker-efforts";
-          efforts: { id: string; name: string }[];
-          effortIndex?: number;
-        },
-      );
-    case "picker-close":
-      return { ...state, picker: null };
-    case "question-open":
-      return openQuestion(state, action);
-    case "question-move":
-      return moveQuestion(state, action);
-    case "question-nav":
-      return navQuestion(state, action);
-    case "question-select":
-      return selectQuestionOption(state);
-    case "question-custom":
-      return setQuestionCustom(state, action.text);
-    case "question-close":
-      return { ...state, question: null };
-    case "history-open":
-      return {
-        ...state,
-        history: {
-          phase: "loading-list",
-          records: [],
-          index: 0,
-          messages: [],
-          scroll: 0,
-        },
-      };
-    case "history-list":
-      // 面板已关闭则丢弃过期结果（异步竞态守卫）
-      if (!state.history) return state;
-      return {
-        ...state,
-        history: {
-          ...state.history,
-          phase: "list",
-          records: action.records,
-          index: 0,
-          error: undefined,
-        },
-      };
-    case "history-list-error":
-      if (!state.history) return state;
-      return {
-        ...state,
-        history: { ...state.history, phase: "error", error: action.error },
-      };
-    case "history-move": {
-      if (!state.history || state.history.phase !== "list") return state;
-      const hmv = state.history;
-      const next = Math.max(
-        0,
-        Math.min(hmv.records.length - 1, hmv.index + action.delta),
-      );
-      return { ...state, history: { ...hmv, index: next } };
-    }
-    case "history-open-view": {
-      if (!state.history || state.history.phase !== "list") return state;
-      const hov = state.history;
-      const rec = hov.records[hov.index];
-      if (!rec) return state;
-      return {
-        ...state,
-        history: { ...hov, phase: "loading-view", currentId: rec.id },
-      };
-    }
-    case "history-view":
-      if (!state.history || state.history.phase !== "loading-view")
-        return state;
-      return {
-        ...state,
-        history: {
-          ...state.history,
-          phase: "view",
-          currentId: action.id,
-          messages: action.messages,
-          scroll: 0,
-          error: undefined,
-        },
-      };
-    case "history-view-error":
-      if (!state.history || state.history.phase !== "loading-view")
-        return state;
-      return {
-        ...state,
-        history: { ...state.history, phase: "error", error: action.error },
-      };
-    case "history-scroll": {
-      if (!state.history || state.history.phase !== "view") return state;
-      const hsc = state.history;
-      return {
-        ...state,
-        history: { ...hsc, scroll: Math.max(0, hsc.scroll + action.delta) },
-      };
-    }
-    case "history-back": {
-      if (!state.history || state.history.phase !== "view") return state;
-      const hbk = state.history;
-      return {
-        ...state,
-        history: {
-          ...hbk,
-          phase: "list",
-          currentId: undefined,
-          messages: [],
-          scroll: 0,
-        },
-      };
-    }
-    case "history-resume":
-      return state.history
-        ? {
+    switch (action.type) {
+      case "append":
+        return appendStream(state, action.text);
+      case "user-line":
+        return appendStream(state, action.text, "user");
+      case "thinking":
+        return appendThinking(state, action.text);
+      case "notice":
+        return appendNotice(state, action.text, action.error, action.tone);
+      case "clear-buffer":
+        return clearBuffer(state);
+      case "agent-status":
+        // 外部活动兜底：thinking/tool 视为进行中(黄)；idle 不改状态色
+        return {
+          ...setAgentStatus(state, action.status),
+          inputStatus:
+            action.status === "thinking" || action.status === "tool"
+              ? "running"
+              : state.inputStatus,
+        };
+      case "approval":
+        return setApproval(state, action.approval);
+      case "sessions":
+        return setSessions(state, action.sessions);
+      case "picker-open":
+        // 面板打开保留输入模式；仅真实 Esc（主输入态或关闭面板）才重置为 normal
+        return { ...state, picker: action.picker };
+      case "picker-move":
+        return movePicker(state, action);
+      case "picker-tab":
+        return tabPicker(state);
+      case "picker-phase":
+        return phasePicker(state, action);
+      case "picker-select":
+        return selectPicker(state);
+      case "picker-efforts":
+        return setPickerEfforts(
+          state,
+          action as {
+            type: "picker-efforts";
+            efforts: { id: string; name: string }[];
+            effortIndex?: number;
+          },
+        );
+      case "picker-close":
+        return { ...state, picker: null };
+      case "question-open":
+        return openQuestion(state, action);
+      case "question-move":
+        return moveQuestion(state, action);
+      case "question-nav":
+        return navQuestion(state, action);
+      case "question-select":
+        return selectQuestionOption(state);
+      case "question-custom":
+        return setQuestionCustom(state, action.text);
+      case "question-close":
+        return { ...state, question: null };
+      case "history-open":
+        return {
+          ...state,
+          history: {
+            phase: "loading-list",
+            records: [],
+            index: 0,
+            messages: [],
+            scroll: 0,
+          },
+        };
+      case "history-list":
+        // 面板已关闭则丢弃过期结果（异步竞态守卫）
+        if (!state.history) return state;
+        return {
+          ...state,
+          history: {
+            ...state.history,
+            phase: "list",
+            records: action.records,
+            index: 0,
+            error: undefined,
+          },
+        };
+      case "history-list-error":
+        if (!state.history) return state;
+        return {
+          ...state,
+          history: { ...state.history, phase: "error", error: action.error },
+        };
+      case "history-move": {
+        if (!state.history || state.history.phase !== "list") return state;
+        const hmv = state.history;
+        const next = Math.max(
+          0,
+          Math.min(hmv.records.length - 1, hmv.index + action.delta),
+        );
+        return { ...state, history: { ...hmv, index: next } };
+      }
+      case "history-open-view": {
+        if (!state.history || state.history.phase !== "list") return state;
+        const hov = state.history;
+        const rec = hov.records[hov.index];
+        if (!rec) return state;
+        return {
+          ...state,
+          history: { ...hov, phase: "loading-view", currentId: rec.id },
+        };
+      }
+      case "history-view":
+        if (!state.history || state.history.phase !== "loading-view")
+          return state;
+        return {
+          ...state,
+          history: {
+            ...state.history,
+            phase: "view",
+            currentId: action.id,
+            messages: action.messages,
+            scroll: 0,
+            error: undefined,
+          },
+        };
+      case "history-view-error":
+        if (!state.history || state.history.phase !== "loading-view")
+          return state;
+        return {
+          ...state,
+          history: { ...state.history, phase: "error", error: action.error },
+        };
+      case "history-scroll": {
+        if (!state.history || state.history.phase !== "view") return state;
+        const hsc = state.history;
+        return {
+          ...state,
+          history: { ...hsc, scroll: Math.max(0, hsc.scroll + action.delta) },
+        };
+      }
+      case "history-back": {
+        if (!state.history || state.history.phase !== "view") return state;
+        const hbk = state.history;
+        return {
+          ...state,
+          history: {
+            ...hbk,
+            phase: "list",
+            currentId: undefined,
+            messages: [],
+            scroll: 0,
+          },
+        };
+      }
+      case "history-resume":
+        return state.history
+          ? {
+              ...state,
+              history: {
+                ...state.history,
+                phase: "resuming",
+                pendingResume: action.id,
+                error: undefined,
+              },
+            }
+          : state;
+      case "history-resume-error":
+        // 会话陈旧则丢弃（面板已关闭/已切换目标）
+        if (
+          !state.history ||
+          state.history.phase !== "resuming" ||
+          state.history.pendingResume !== action.id
+        ) {
+          return state;
+        }
+        return {
+          ...state,
+          history: {
+            ...state.history,
+            phase: "error",
+            error: action.error,
+            pendingResume: undefined,
+          },
+        };
+      case "history-resume-ok":
+        // 会话陈旧则丢弃（面板已关闭/已切换目标）
+        if (
+          !state.history ||
+          state.history.phase !== "resuming" ||
+          state.history.pendingResume !== action.id
+        ) {
+          return state;
+        }
+        return {
+          ...state,
+          activeSessionId: action.id,
+          sessionTitle: action.title,
+          history: null,
+          buffer: action.rows as BufferLine[],
+          followBottom: true,
+          scrollOffset: 0,
+          activityScroll: 0,
+        };
+      case "history-close":
+        return { ...state, history: null };
+      case "session-identify":
+        return {
+          ...state,
+          activeSessionId: action.id,
+          sessionTitle: action.title,
+        };
+      case "input":
+        return setInput(state, action);
+      case "input-mode":
+        return { ...state, inputMode: action.mode };
+      case "last-submit-mode":
+        return { ...state, lastSubmitMode: action.mode };
+      case "input-status":
+        // 活跃守卫：agent 非 idle 时绿/红结果不暴露（压回黄），空闲后才显示结果色
+        return { ...state, inputStatus: statusFor(state, action.status) };
+      case "move-cursor":
+        return moveCursor(state, action);
+      case "scroll":
+        return scrollBy(state, action.delta);
+      case "scroll-to-bottom":
+        return { ...state, followBottom: true, scrollOffset: 0 };
+      case "turn-begin":
+        // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容
+        return appendTurnSeparator(state);
+      case "turn-end":
+        // 回合结束：不再画分隔线(下个回合 begin 时画)；也不清思考——思考保留显示，
+        // 至下回合 turn-begin 统一清空(输出结束后不立即清)；置成功色(绿)
+        return { ...state, inputStatus: "success" };
+      case "status":
+        return setSystemStatus(state, action.status);
+      case "set-theme":
+        return { ...state, themeId: action.themeId };
+      case "tool-call":
+        // 工具调用：紧凑工具行（○ <name> <summary> 由 tool-line.ts 组装），不进模型历史；
+        // B3：当前 step 组首条工具行前先插分组头 `step N`（无 step 上下文不插头）
+        return appendStepToolLine(
+          state,
+          action.sessionId,
+          toolCallLine(action.name, action.summary),
+        );
+      case "tool-result":
+        // 工具结果：✓ 成功 / ✗ 失败（失败红色，tone=error）；B3：同 tool-call 参与 step 分组
+        return appendStepToolLine(
+          state,
+          action.sessionId,
+          toolResultLine(action.ok, action.detail, action.meta),
+          action.ok ? undefined : "error",
+        );
+      case "compaction":
+        // 长会话压缩 toast：start/end 提示
+        return appendNotice(
+          state,
+          action.phase === "start" ? "正在压缩上下文..." : "压缩完成",
+        );
+      case "retry":
+        // 模型重试 toast：第 attempt/max 次 + 退避 + 失败码（黄色，表进行中）
+        return appendNotice(
+          state,
+          `重试 ${action.attempt}/${action.max} (${(action.delayMs / 1000).toFixed(1)}s): ${action.code}` +
+            (action.message ? " " + action.message : ""),
+          false,
+          "warn",
+        );
+      case "usage":
+        // 阶段 1：仅入状态（阶段 2 状态栏 contextLen/cacheHit 从 state.usage 读取）
+        return {
+          ...state,
+          usage: {
+            input: action.input,
+            output: action.output,
+            cacheRead: action.cacheRead,
+          },
+        };
+      case "goal-change": {
+        // P2：goal 全量快照/clear 墓碑，按 sessionId 隔离存储（判别联合同事件，完整保留字段）
+        if (action.operation === "clear") {
+          return {
             ...state,
-            history: {
-              ...state.history,
-              phase: "resuming",
-              pendingResume: action.id,
-              error: undefined,
+            goalBySession: {
+              ...state.goalBySession,
+              [action.sessionId]: {
+                status: "cleared",
+                operation: "clear",
+                cleared: action.cleared,
+                clearedAt: action.clearedAt,
+              },
             },
-          }
-        : state;
-    case "history-resume-error":
-      // 会话陈旧则丢弃（面板已关闭/已切换目标）
-      if (
-        !state.history ||
-        state.history.phase !== "resuming" ||
-        state.history.pendingResume !== action.id
-      ) {
-        return state;
-      }
-      return {
-        ...state,
-        history: {
-          ...state.history,
-          phase: "error",
-          error: action.error,
-          pendingResume: undefined,
-        },
-      };
-    case "history-resume-ok":
-      // 会话陈旧则丢弃（面板已关闭/已切换目标）
-      if (
-        !state.history ||
-        state.history.phase !== "resuming" ||
-        state.history.pendingResume !== action.id
-      ) {
-        return state;
-      }
-      return {
-        ...state,
-        activeSessionId: action.id,
-        sessionTitle: action.title,
-        history: null,
-        buffer: action.rows as BufferLine[],
-        followBottom: true,
-        scrollOffset: 0,
-        activityScroll: 0,
-      };
-    case "history-close":
-      return { ...state, history: null };
-    case "session-identify":
-      return {
-        ...state,
-        activeSessionId: action.id,
-        sessionTitle: action.title,
-      };
-    case "input":
-      return setInput(state, action);
-    case "input-mode":
-      return { ...state, inputMode: action.mode };
-    case "last-submit-mode":
-      return { ...state, lastSubmitMode: action.mode };
-    case "input-status":
-      // 活跃守卫：agent 非 idle 时绿/红结果不暴露（压回黄），空闲后才显示结果色
-      return { ...state, inputStatus: statusFor(state, action.status) };
-    case "move-cursor":
-      return moveCursor(state, action);
-    case "scroll":
-      return scrollBy(state, action.delta);
-    case "scroll-to-bottom":
-      return { ...state, followBottom: true, scrollOffset: 0 };
-    case "turn-begin":
-      // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容
-      return appendTurnSeparator(state);
-    case "turn-end":
-      // 回合结束：不再画分隔线(下个回合 begin 时画)；也不清思考——思考保留显示，
-      // 至下回合 turn-begin 统一清空(输出结束后不立即清)；置成功色(绿)
-      return { ...state, inputStatus: "success" };
-    case "status":
-      return setSystemStatus(state, action.status);
-    case "set-theme":
-      return { ...state, themeId: action.themeId };
-    case "tool-call":
-      // 工具调用：紧凑工具行（○ <name> <summary> 由 tool-line.ts 组装），不进模型历史；
-      // B3：当前 step 组首条工具行前先插分组头 `step N`（无 step 上下文不插头）
-      return appendStepToolLine(
-        state,
-        action.sessionId,
-        toolCallLine(action.name, action.summary),
-      );
-    case "tool-result":
-      // 工具结果：✓ 成功 / ✗ 失败（失败红色，tone=error）；B3：同 tool-call 参与 step 分组
-      return appendStepToolLine(
-        state,
-        action.sessionId,
-        toolResultLine(action.ok, action.detail),
-        action.ok ? undefined : "error",
-      );
-    case "compaction":
-      // 长会话压缩 toast：start/end 提示
-      return appendNotice(
-        state,
-        action.phase === "start" ? "正在压缩上下文..." : "压缩完成",
-      );
-    case "retry":
-      // 模型重试 toast：第 attempt/max 次 + 退避 + 失败码（黄色，表进行中）
-      return appendNotice(
-        state,
-        `重试 ${action.attempt}/${action.max} (${(action.delayMs / 1000).toFixed(1)}s): ${action.code}` +
-          (action.message ? " " + action.message : ""),
-        false,
-        "warn",
-      );
-    case "usage":
-      // 阶段 1：仅入状态（阶段 2 状态栏 contextLen/cacheHit 从 state.usage 读取）
-      return {
-        ...state,
-        usage: {
-          input: action.input,
-          output: action.output,
-          cacheRead: action.cacheRead,
-        },
-      };
-    case "goal-change": {
-      // P2：goal 全量快照/clear 墓碑，按 sessionId 隔离存储（判别联合同事件，完整保留字段）
-      if (action.operation === "clear") {
+          };
+        }
         return {
           ...state,
           goalBySession: {
             ...state.goalBySession,
             [action.sessionId]: {
-              status: "cleared",
-              operation: "clear",
-              cleared: action.cleared,
-              clearedAt: action.clearedAt,
+              status: "set",
+              operation: action.operation,
+              goal: action.goal,
+              roundsStarted: action.roundsStarted,
+              createdAt: action.createdAt,
+              updatedAt: action.updatedAt,
             },
           },
         };
       }
-      return {
-        ...state,
-        goalBySession: {
-          ...state.goalBySession,
-          [action.sessionId]: {
-            status: "set",
-            operation: action.operation,
-            goal: action.goal,
-            roundsStarted: action.roundsStarted,
-            createdAt: action.createdAt,
-            updatedAt: action.updatedAt,
-          },
-        },
-      };
-    }
-    case "todo-write":
-      // P2：todo 全量快照 last-write-wins，按 sessionId 隔离
-      return {
-        ...state,
-        todoBySession: {
-          ...state.todoBySession,
-          [action.sessionId]: action.todos,
-        },
-      };
-    case "mode": {
-      // P2：模式徽标按 sessionId 隔离（plan/sandbox/permission 三合一，缺省省略）
-      const current = state.modeBySession[action.sessionId] ?? {};
-      const updated =
-        action.kind === "plan"
-          ? { ...current, plan: action.value as "on" | "off" }
-          : action.kind === "sandbox"
-            ? { ...current, sandbox: action.value }
-            : { ...current, permission: action.value };
-      return {
-        ...state,
-        modeBySession: { ...state.modeBySession, [action.sessionId]: updated },
-      };
-    }
-    case "step":
-      // B3：step/start 打开新工具组（append-only，旧组既有行即“flush”）；step/end 关闭分组
-      return action.phase === "start"
-        ? {
-            ...state,
-            stepGroup: {
-              sessionId: action.sessionId,
-              step: action.step,
-              headerEmitted: false,
-            },
-          }
-        : { ...state, stepGroup: null };
-    case "subagent":
-      // B4：subagent 行（`@ <label> <os|ct>`，append-only 不配对不折叠）入 buffer，不进模型历史
-      return appendToolLine(state, subagentLine(action.label, action.mode));
-    case "compaction-summary": {
-      // B5：压缩摘要仅 toast（`压缩完成：<text 首行>`；空摘要给占位）+ 每会话保留最近一条原始载荷（raw，不改写）
-      const toast = action.text
-        ? "压缩完成：" + action.text.split("\n")[0]
-        : "压缩完成（无摘要）";
-      return appendNotice(
-        {
+      case "todo-write":
+        // P2：todo 全量快照 last-write-wins，按 sessionId 隔离
+        return {
           ...state,
-          compactionBySession: {
-            ...state.compactionBySession,
-            [action.sessionId]: { raw: action.raw, text: action.text },
+          todoBySession: {
+            ...state.todoBySession,
+            [action.sessionId]: action.todos,
           },
-        },
-        toast,
-      );
-    }
-    case "approval-policy":
-      // C 阶段：当前审批策略按 sessionId latest-wins（approval/policy 事件源=宿主 setPolicy）；
-      // 无对应会话事件时保留旧值（切会话读对应 policyBySession 键）
-      return {
-        ...state,
-        policyBySession: {
-          ...state.policyBySession,
-          [action.sessionId]: action.policy,
-        },
-      };
-    case "workflow":
-      // P3：workflow 运行行（run-start/agent-start/agent-end 为活动区行，append-only）；
-      // run-end 折叠为 toast（携 stopReason detail）。不参与 step 分组（独立运行大动作）。
-      if (action.phase === "run-end") {
+        };
+      case "mode": {
+        // P2：模式徽标按 sessionId 隔离（plan/sandbox/permission 三合一，缺省省略）
+        const current = state.modeBySession[action.sessionId] ?? {};
+        const updated =
+          action.kind === "plan"
+            ? { ...current, plan: action.value as "on" | "off" }
+            : action.kind === "sandbox"
+              ? { ...current, sandbox: action.value }
+              : { ...current, permission: action.value };
+        return {
+          ...state,
+          modeBySession: {
+            ...state.modeBySession,
+            [action.sessionId]: updated,
+          },
+        };
+      }
+      case "step":
+        // B3：step/start 打开新工具组（append-only，旧组既有行即“flush”）；step/end 关闭分组
+        return action.phase === "start"
+          ? {
+              ...state,
+              stepGroup: {
+                sessionId: action.sessionId,
+                step: action.step,
+                headerEmitted: false,
+              },
+            }
+          : { ...state, stepGroup: null };
+      case "subagent":
+        // B4：subagent 行（`@ <label> <os|ct>`，append-only 不配对不折叠）入 buffer，不进模型历史
+        return appendToolLine(state, subagentLine(action.label, action.mode));
+      case "compaction-summary": {
+        // B5：压缩摘要仅 toast（`压缩完成：<text 首行>`；空摘要给占位）+ 每会话保留最近一条原始载荷（raw，不改写）
+        const toast = action.text
+          ? "压缩完成：" + action.text.split("\n")[0]
+          : "压缩完成（无摘要）";
+        return appendNotice(
+          {
+            ...state,
+            compactionBySession: {
+              ...state.compactionBySession,
+              [action.sessionId]: { raw: action.raw, text: action.text },
+            },
+          },
+          toast,
+        );
+      }
+      case "approval-policy":
+        // C 阶段：当前审批策略按 sessionId latest-wins（approval/policy 事件源=宿主 setPolicy）；
+        // 无对应会话事件时保留旧值（切会话读对应 policyBySession 键）
+        return {
+          ...state,
+          policyBySession: {
+            ...state.policyBySession,
+            [action.sessionId]: action.policy,
+          },
+        };
+      case "workflow":
+        // P3：workflow 运行行（run-start/agent-start/agent-end 为活动区行，append-only）；
+        // run-end 折叠为 toast（携 stopReason detail）。不参与 step 分组（独立运行大动作）。
+        if (action.phase === "run-end") {
+          return appendNotice(
+            state,
+            "workflow 结束" + (action.detail ? " (" + action.detail + ")" : ""),
+            false,
+            "muted",
+          );
+        }
+        return appendToolLine(
+          state,
+          workflowLine(action.phase, action.label, action.detail),
+          action.phase === "agent-end" ? "muted" : undefined,
+        );
+      case "command":
+        // P3：命令执行流——run 低调灰行；done 成功静默（结果由命令自身 notice 呈现，避免重复），
+        // 失败红行（✗ /name: text）。append-only 不保留历史命令状态。
+        if (action.phase === "done") {
+          if (action.ok !== false) return state;
+          return appendToolLine(
+            state,
+            commandErrorLine(action.name, action.text ?? ""),
+            "error",
+          );
+        }
+        return appendToolLine(state, commandRunLine(action.name), "muted");
+      case "code-dispatch":
+        // P3：run_code 内子派发——start 灰行；settle 成功静默降噪（子调用多，避免刷屏），
+        // 失败红行（✗ <name>）。
+        if (action.phase === "settle") {
+          if (action.ok) return state;
+          return appendToolLine(state, "✗ " + action.name, "error");
+        }
+        return appendToolLine(
+          state,
+          codeDispatchLine(action.name, action.summary),
+        );
+      case "hook":
+        // P3：hooks 协议事件——invoked 灰行；result 按是否通过着色（失败红）。
+        return appendToolLine(
+          state,
+          hookLine(action.phase, action.point, action.decision, action.ok),
+          action.phase === "result" && !action.ok ? "error" : "muted",
+        );
+      case "schedule":
+        // P3：schedule 提醒——仅 dispatch 到点提示（create/delete 降噪，无用户可见价值）。
+        if (action.operation !== "dispatch") return state;
+        return appendNotice(state, "计划提醒触发", false, "muted");
+      case "compaction-prune":
+        // P3：压缩剪枝计数 toast（co tool-result pruner 剪除的节点数/千分 token 启发值）
         return appendNotice(
           state,
-          "workflow 结束" + (action.detail ? " (" + action.detail + ")" : ""),
+          "压缩：已剪除 " +
+            action.nodeCount +
+            " 个节点 (~" +
+            action.tokenCount +
+            " tok)",
           false,
           "muted",
         );
-      }
-      return appendToolLine(
-        state,
-        workflowLine(action.phase, action.label, action.detail),
-        action.phase === "agent-end" ? "muted" : undefined,
-      );
-    case "command":
-      // P3：命令执行流——run 低调灰行；done 成功静默（结果由命令自身 notice 呈现，避免重复），
-      // 失败红行（✗ /name: text）。append-only 不保留历史命令状态。
-      if (action.phase === "done") {
-        if (action.ok !== false) return state;
-        return appendToolLine(
-          state,
-          commandErrorLine(action.name, action.text ?? ""),
-          "error",
-        );
-      }
-      return appendToolLine(state, commandRunLine(action.name), "muted");
-    case "code-dispatch":
-      // P3：run_code 内子派发——start 灰行；settle 成功静默降噪（子调用多，避免刷屏），
-      // 失败红行（✗ <name>）。
-      if (action.phase === "settle") {
-        if (action.ok) return state;
-        return appendToolLine(state, "✗ " + action.name, "error");
-      }
-      return appendToolLine(
-        state,
-        codeDispatchLine(action.name, action.summary),
-      );
-    case "hook":
-      // P3：hooks 协议事件——invoked 灰行；result 按是否通过着色（失败红）。
-      return appendToolLine(
-        state,
-        hookLine(action.phase, action.point, action.decision, action.ok),
-        action.phase === "result" && !action.ok ? "error" : "muted",
-      );
-    case "schedule":
-      // P3：schedule 提醒——仅 dispatch 到点提示（create/delete 降噪，无用户可见价值）。
-      if (action.operation !== "dispatch") return state;
-      return appendNotice(state, "计划提醒触发", false, "muted");
-    case "compaction-prune":
-      // P3：压缩剪枝计数 toast（co tool-result pruner 剪除的节点数/千分 token 启发值）
-      return appendNotice(
-        state,
-        "压缩：已剪除 " +
-          action.nodeCount +
-          " 个节点 (~" +
-          action.tokenCount +
-          " tok)",
-        false,
-        "muted",
-      );
-    case "feedback":
-      // P3：feedback/record 确认（/feedback 命令落库后回读）
-      return appendNotice(state, "反馈已记录", false, "muted");
-    case "retry-started":
-      // P3：llm/retry-started 启动行（↻ 灰行）——与 retry toast 互补：启动可见 + 失败原因 toast
-      return appendToolLine(state, retryStartedLine(action.attempt), "muted");
-    case "agent-preset":
-      // P3：agent-preset/selected → 当前预设 latest-wins（会话隔离）
-      return {
-        ...state,
-        presetBySession: {
-          ...state.presetBySession,
-          [action.sessionId]: action.preset,
-        },
-      };
-    case "permission-catalog":
-      // P4：权限预设目录（ctx.permissionPresets.names）——状态列 Mode 块列出可选值
-      return { ...state, permissionOptions: action.names };
-    case "agent-preset-catalog":
-      // P4：agent 预设目录 id 列表（ctx.agentPresets.list）——状态列 Mode 块 preset 可选项
-      return { ...state, presetOptions: action.ids };
-    case "jobs-changed":
-      // P3：jobs 快照 last-write-wins（adapter onJobsChanged + 打开时刷新推送）
-      return { ...state, jobs: action.jobs };
-    case "jobs-panel-open":
-      return { ...state, jobsPanel: { index: 0 } };
-    case "jobs-panel-move": {
-      // 上下移动高亮行（clamp 到列表范围）
-      const size = state.jobs.length;
-      if (size === 0) return state;
-      const index = Math.max(
-        0,
-        Math.min(size - 1, action.focus + action.delta),
-      );
-      return { ...state, jobsPanel: { index } };
-    }
-    case "jobs-panel-close":
-      return { ...state, jobsPanel: null };
-    case "status-column-scroll":
-      // 顶部状态列纵向滚动：偏移累加，渲染层按可视行数 clamp；不进入对话区滚动
-      return {
-        ...state,
-        statusColumnScroll: Math.max(
+      case "feedback":
+        // P3：feedback/record 确认（/feedback 命令落库后回读）
+        return appendNotice(state, "反馈已记录", false, "muted");
+      case "retry-started":
+        // P3：llm/retry-started 启动行（↻ 灰行）——与 retry toast 互补：启动可见 + 失败原因 toast
+        return appendToolLine(state, retryStartedLine(action.attempt), "muted");
+      case "model-selection":
+        // 0.1.2-rc.1：会话内生效模型选择事件 → 落 state（状态栏模型徽标可选读取）
+        return {
+          ...state,
+          modelBySession: {
+            ...state.modelBySession,
+            [action.sessionId]: {
+              provider: action.provider,
+              model: action.model,
+              reasoningEffort: action.reasoningEffort,
+            },
+          },
+        };
+      case "agent-preset":
+        // P3：agent-preset/selected → 当前预设 latest-wins（会话隔离）
+        return {
+          ...state,
+          presetBySession: {
+            ...state.presetBySession,
+            [action.sessionId]: action.preset,
+          },
+        };
+      case "permission-catalog":
+        // P4：权限预设目录（ctx.permissionPresets.names）——状态列 Mode 块列出可选值
+        return { ...state, permissionOptions: action.names };
+      case "agent-preset-catalog":
+        // P4：agent 预设目录 id 列表（ctx.agentPresets.list）——状态列 Mode 块 preset 可选项
+        return { ...state, presetOptions: action.ids };
+      case "jobs-changed":
+        // P3：jobs 快照 last-write-wins（adapter onJobsChanged + 打开时刷新推送）
+        return { ...state, jobs: action.jobs };
+      case "jobs-panel-open":
+        return { ...state, jobsPanel: { index: 0 } };
+      case "jobs-panel-move": {
+        // 上下移动高亮行（clamp 到列表范围）
+        const size = state.jobs.length;
+        if (size === 0) return state;
+        const index = Math.max(
           0,
-          state.statusColumnScroll + action.delta,
-        ),
-      };
-    case "focus-panel-cycle":
-      // 顶部三面板焦点循环：无焦点(null) → history → activity → status → history
-      return {
-        ...state,
-        focusedPanel:
-          state.focusedPanel === null
-            ? "history"
-            : PANEL_CYCLE[
-                (PANEL_CYCLE.indexOf(state.focusedPanel) + 1) %
-                  PANEL_CYCLE.length
-              ]!,
-      };
-    case "activity-scroll":
-      // 活动区（流输出）滚动：偏移累加（距底部行数），渲染层按可视行数 clamp；0=跟随最新
-      return {
-        ...state,
-        activityScroll: Math.max(0, state.activityScroll + action.delta),
-      };
-    default:
-      return state;
-  }
+          Math.min(size - 1, action.focus + action.delta),
+        );
+        return { ...state, jobsPanel: { index } };
+      }
+      case "jobs-panel-close":
+        return { ...state, jobsPanel: null };
+      case "status-column-scroll":
+        // 顶部状态列纵向滚动：偏移累加，渲染层按可视行数 clamp；不进入对话区滚动
+        return {
+          ...state,
+          statusColumnScroll: Math.max(
+            0,
+            state.statusColumnScroll + action.delta,
+          ),
+        };
+      case "focus-panel-cycle":
+        // 顶部三面板焦点循环：无焦点(null) → history → activity → status → history
+        return {
+          ...state,
+          focusedPanel:
+            state.focusedPanel === null
+              ? "history"
+              : PANEL_CYCLE[
+                  (PANEL_CYCLE.indexOf(state.focusedPanel) + 1) %
+                    PANEL_CYCLE.length
+                ]!,
+        };
+      case "activity-scroll":
+        // 活动区（流输出）滚动：偏移累加（距底部行数），渲染层按可视行数 clamp；0=跟随最新
+        return {
+          ...state,
+          activityScroll: Math.max(0, state.activityScroll + action.delta),
+        };
+      default:
+        return state;
+    }
   })();
   return FOCUS_RESET_ACTIONS.has(action.type)
     ? { ...next, focusedPanel: null }
@@ -1102,7 +1121,27 @@ export type StateAction =
   | { type: "status"; status: Partial<SystemStatus> }
   | { type: "set-theme"; themeId: ThemeId }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }
-  | { type: "tool-result"; sessionId: string; ok: boolean; detail: string }
+  | {
+      type: "model-selection";
+      sessionId: string;
+      provider?: string;
+      model?: string;
+      reasoningEffort?: unknown;
+    }
+  | {
+      type: "tool-result";
+      sessionId: string;
+      ok: boolean;
+      detail: string;
+      meta?: unknown;
+    }
+  | {
+      type: "model-selection";
+      sessionId: string;
+      provider?: string;
+      model?: string;
+      reasoningEffort?: unknown;
+    }
   | {
       type: "usage";
       sessionId: string;
