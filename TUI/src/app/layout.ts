@@ -883,7 +883,7 @@ function buildTopRegion(
   const cf = (s: string): string => colorFor(state.themeId, fc)(s);
   const cg = (s: string): string => colorFor(state.themeId, "gray")(s);
   const blank = (n: number): string => " ".repeat(Math.max(0, n));
-  // 活动区分隔线：焦点为历史/流输出时亮色框，状态焦点/模态回灰
+  // 活动区分隔线：焦点为历史/流输出时亮色框，状态焦点/模态回边框色（bright[0]）
   const sepFocused = topHistory || activityFocused;
   const sepStr = (): string =>
     colorFor(
@@ -894,7 +894,7 @@ function buildTopRegion(
   // 右侧边框列保留格（状态列右缘）：画成框线（┐/│/╝）时亮色着色，否则空白占位
   const rightGlyph = (g: string): string => (g === " " ? " " : cf(g));
   // 顶部边框行（row 0）：history 焦点 → 左侧 `┌`+`─`+分隔列角 `┐`（历史/活动区顶边）；
-  // status 焦点 → 分隔列 `┌`+`─`+`┐`（状态列顶边，状态列在右）；其余空白占位、分隔列灰 `│`
+  // status 焦点 → 分隔列 `┌`+`─`+`┐`（状态列顶边，状态列在右）；其余空白占位、分隔列前景色 `│`
   const historyTop = useLeftFrame && topHistory;
   rows.push({
     text:
@@ -910,7 +910,7 @@ function buildTopRegion(
   });
   // 内容行（1..contentTopH）：对话区 → 活动区分隔 → 活动区。
   // 中间分隔竖线（历史区右缘/状态列左缘）随焦点面板只亮其垂直边界：
-  // status=全行、history=仅对话区、activity=仅分隔行+活动区；模态态全灰。
+  // status=全行、history=仅对话区、activity=仅分隔行+活动区；模态态全回流边框色。
   const actMaxOffset = Math.max(0, activity.length - activityH);
   const actOffset = Math.min(state.activityScroll, actMaxOffset);
   const act = activity.slice(
@@ -958,7 +958,7 @@ function buildTopRegion(
       const g = panel === "history" ? "┘" : panel === "activity" ? "┐" : "┤";
       return colorFor(state.themeId, focusActive ? fc : "brightBlack")(g);
     }
-    // 无焦点（focusedPanel=null）时所有框线回灰：bright 仅在有焦点面板时可能为真
+    // 无焦点（focusedPanel=null）时所有框线回边框色（bright[0]）：bright 仅在有焦点时可能为真
     let bright = focusActive && panel !== null;
     if (focusActive && panel === "history") bright = rc < dialogueH;
     else if (focusActive && panel === "activity") bright = rc >= dialogueH;
@@ -1607,7 +1607,7 @@ export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
 }
 
 /** 状态栏上方分隔行（焦点四边框的底边）：按焦点面板分段着色 + 角字（└/┴/┘）；
- * 无焦点/模态态全灰 `─`。左侧历史/活动区底边（activity 焦点亮、col0 左下角 └），
+ * 无焦点/模态态全边框色 `─`。左侧历史/活动区底边（activity 焦点亮、col0 左下角 └），
  * 右侧状态列底边（status 焦点亮、R 列右下角 ┘），D 列 ┴ 为共用角。 */
 export function buildStatusSeparator(
   cols: number,
@@ -1638,7 +1638,7 @@ export function buildStatusSeparator(
           : colorFor(themeId, "brightBlack")(STATUS_TOP_SEPARATOR)
         : "") +
       seg(leftW, STATUS_TOP_SEPARATOR, sepFocus === "activity") +
-      // D 列交点恒与水平实线相交（无焦点灰 ┴ / 焦点亮 ┴），不再用点线
+      // D 列交点恒与水平实线相交（无焦点前景色 ┴ / 焦点亮 ┴），不再用点线
       colorFor(themeId, sepFocus === "none" ? "brightBlack" : fc)("┴") +
       seg(rightW, STATUS_TOP_SEPARATOR, sepFocus === "status") +
       // R 列（状态列右缘框列）：status 焦点右下角 ┘；无右缘框列（statusColWidth=1）时不输出
@@ -1739,7 +1739,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     );
   }
 
-  // 按键提示区（独立区域，与输入区之间不画横线；统一灰色同边框；窄终端按显示宽度截断）。
+  // 按键提示区（独立区域，与输入区之间不画横线；统一边框色 bright[0]；窄终端按显示宽度截断）。
   // 末尾追加当前面板焦点标签（Tab 切换），标识可滚动的选中面板
   const hintLines: RenderLine[] = normalInput
     ? [
@@ -1752,7 +1752,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
       ]
     : [];
 
-  // 分隔行（边框统一灰色：先纯文本截断再着色）。状态区上方与其余横线同为 `─`；
+  // 分隔行（边框统一边框色 bright[0]：先纯文本截断再着色）。状态区上方与其余横线同为 `─`；
   // 焦点在底部为流输出/状态列时该行用亮色框（钩到面板底边）。
   const makeSep = (
     ch: string,
