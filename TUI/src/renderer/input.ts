@@ -221,9 +221,10 @@ function decodeControl(b: number): KeyEvent | null {
   switch (b) {
     case 0x09:
       return { name: "tab", ctrl: false, meta: false, shift: false };
-    case 0x0d: // CR
-    case 0x0a: // LF
+    case 0x0d: // CR（Enter）
       return { name: "enter", ctrl: false, meta: false, shift: false };
+    case 0x0a: // LF = Ctrl+J：与 Enter(CR) 区分，作为输入区换行键的原始字节
+      return { name: "j", ctrl: true, meta: false, shift: false };
     case 0x7f: // DEL
     case 0x08: // backspace
       return { name: "backspace", ctrl: false, meta: false, shift: false };

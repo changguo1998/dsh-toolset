@@ -86,9 +86,11 @@ test("Alt+Enter = ESC CR / ESC LF 合并为单个 meta+enter", () => {
   assert.deepEqual(dec([0x1b, 0x0d]), [altEnter]);
   // ESC LF（0x1b 0x0a）→ 单个 meta+enter
   assert.deepEqual(dec([0x1b, 0x0a]), [altEnter]);
-  // 不影响既有序列：单 ESC 仍是 escape；CR/LF 独立仍为普通 enter（防误判）
+  // 不影响既有序列：单 ESC 仍是 escape；CR=enter、裸 LF=Ctrl+J（输入区换行键）、CRLF 合并 enter
   assert.deepEqual(names([0x0d]), ["enter"]);
-  assert.deepEqual(names([0x0a]), ["enter"]);
+  assert.deepEqual(dec([0x0a]), [
+    { name: "j", ctrl: true, meta: false, shift: false },
+  ]);
   assert.deepEqual(names([0x0d, 0x0a]), ["enter"]); // CRLF 合并不受影响
   assert.deepEqual(names([0x1b]), ["escape"]);
 });
@@ -109,10 +111,10 @@ test("SS3 应用模式光标键 ESC O A", () => {
   assert.deepEqual(names([0x1b, 0x4f, 0x44]), ["left"]);
 });
 
-test("Tab / Enter / Backspace", () => {
+test("Tab / Enter / Ctrl+J(LF) / Backspace", () => {
   assert.deepEqual(names([0x09]), ["tab"]);
   assert.deepEqual(names([0x0d]), ["enter"]);
-  assert.deepEqual(names([0x0a]), ["enter"]);
+  assert.deepEqual(names([0x0a]), ["j"]);
   assert.deepEqual(names([0x7f]), ["backspace"]);
   assert.deepEqual(names([0x08]), ["backspace"]);
 });

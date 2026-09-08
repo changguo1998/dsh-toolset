@@ -256,6 +256,23 @@ test("普通输入(不以 / 开头) → sendMessage", () => {
   assert.deepEqual(adapter.commands, []);
 });
 
+test("Ctrl+J 输入区插入换行（Enter 仍发送，CR/LF 区分）", () => {
+  const { renderer, adapter } = makeApp();
+  for (const ch of Array.from("第一行")) {
+    renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
+  }
+  renderer.press({ name: "j", ctrl: true, meta: false, shift: false }); // Ctrl+J
+  for (const ch of Array.from("第二行")) {
+    renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
+  }
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(
+    adapter.sent,
+    ["第一行\n第二行"],
+    "Ctrl+J 插入 \n；普通 Enter 发送多行文本",
+  );
+});
+
 test("普通输入同时本地回显用户行且靠右，不依赖 adapter 回显", () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "你好");
@@ -267,7 +284,10 @@ test("普通输入同时本地回显用户行且靠右，不依赖 adapter 回�
     plain.some(
       (line) =>
         line.includes("你好") &&
-        histBody(line, 80).trimEnd().replace(/│$/, "").endsWith("你好"),
+        histBody(line, 80)
+          .trimEnd()
+          .replace(/\s*[│║┃]$/, "")
+          .endsWith("你好"),
     ),
   );
 });
@@ -1088,10 +1108,9 @@ test("App initialTheme 非法值回落 dark(外部配置健壮性)", () => {
 // 横线分隔行计数：- / = / · 三种分隔字形均为横线分隔行（状态列右缘 | 不计）
 function barRowCount(renderer: FakeRenderer): number {
   return renderer.lastRender.filter((l) => {
-    const t = l.replace(/\x1b\[[0-9;]*m/g, "");
-    return (
-      /[-=·─╌]/.test(t) && t.replace(/[-=·─╌|│┐┘└┌┴]/g, "").trim() === ""
-    );
+    // 只看历史区（右侧状态列可能把占位/标题混进同一行，误伤分隔判定）
+    const t = histBody(l, renderer.size.cols);
+    return /[-=·─╌]/.test(t) && t.replace(/[-=·─╌|│┐┘└┌┴]/g, "").trim() === "";
   }).length;
 }
 
@@ -2394,10 +2413,9 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
   // 活动区正文 = 实线分隔行与状态栏之间：取左侧历史/活动区段（右侧为状态列）
   const actBody = (): string[] => {
     const lines = renderer.lastRender.map(strip);
-    const sep = lines.findIndex(
-      (l) => /^─+$/.test(histBody(l, 120).trim()),
-    );
-    const statusIdx = lines.findIndex((l) => l.includes("<title>"));
+    const sep = lines.findIndex((l) => /^─+$/.test(histBody(l, 120).trim()));
+    // 标题已移入状态列，水平栏定位改用组间管道符 `|`
+    const statusIdx = lines.findIndex((l) => l.includes("|"));
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
     return lines
       .slice(sep + 1, statusIdx)
@@ -2427,7 +2445,11 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
   renderer.press(key("tab")); // 历史 → 流输出
   const upBefore = actBody()[0];
   renderer.press(key("up"));
-  assert.notEqual(actBody()[0], upBefore, "焦点流输出时 ↑ 滚动到更早行（窗口起点变化）");
+  assert.notEqual(
+    actBody()[0],
+    upBefore,
+    "焦点流输出时 ↑ 滚动到更早行（窗口起点变化）",
+  );
   // PgUp（整页）→ 翻到帮助首行
   renderer.press(key("pageup"));
   assert.equal(actBody()[0], "本地命令：", "整页上翻到首行");
@@ -2477,10 +2499,9 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
   const actFirst = (): string => {
     const lines = renderer.lastRender.map(strip);
-    const sep = lines.findIndex(
-      (l) => /^─+$/.test(histBody(l, 120).trim()),
-    );
-    const statusIdx = lines.findIndex((l) => l.includes("<title>"));
+    const sep = lines.findIndex((l) => /^─+$/.test(histBody(l, 120).trim()));
+    // 标题已移入状态列，水平栏定位改用组间管道符 `|`
+    const statusIdx = lines.findIndex((l) => l.includes("|"));
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
     return (
       lines

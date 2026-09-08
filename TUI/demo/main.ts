@@ -265,9 +265,9 @@ if (smoke) {
         "no tool/result.meta diff summary in frames",
       );
       ok(
-        "session-title-banner",
+        "session-title-status-col",
         badgePlain.includes("升级适配 · 0.1.2-rc.1"),
-        "no session-title in status bar frames",
+        "no session-title at status column top in frames",
       );
       ok(
         "interrupted-notice",

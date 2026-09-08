@@ -158,7 +158,7 @@ export const SEPARATOR_ROWS = 2;
 
 /** 按键提示区内容（独立区域，位于输入区下方、之间不画横线；窄终端按显示宽度截断；审批/问答/选择面板自带按键提示，不显示该区） */
 export const HINT_LINE =
-  "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [/help]更多命令"; // Enter/Esc 已从帮助隐藏
+  "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [Ctrl+J]输入换行 · [/help]更多命令";
 
 export interface FrameMetrics {
   /** 顶部区域行数 = rows - 状态区 - 输入区 - 按键提示区 - 分隔行（剩余高度全给上方两个） */
@@ -486,11 +486,8 @@ function modeBlock(
     }
   }
   if (policy)
-    add(
-      "policy",
-      ["ask", "auto"],
-      policy === "never" ? "auto" : "ask",
-      (s) => colorFor(themeId, s === "ask" ? "green" : "red")(s),
+    add("policy", ["ask", "auto"], policy === "never" ? "auto" : "ask", (s) =>
+      colorFor(themeId, s === "ask" ? "green" : "red")(s),
     );
   if (preset && preset !== "") {
     // 可选项 = agent 预设目录（若已同步）；否则只显示当前值；目录不含当前值时补入
@@ -521,6 +518,8 @@ function statusColumnBody(
   preset?: string,
   permissionOptions?: readonly string[],
   presetOptions?: readonly string[],
+  /** 会话标题（水平状态栏摘除后唯一展示位；空标题灰 <title> 占位保持行稳定） */
+  title = "",
 ): { text: string; color?: (s: string) => string }[] {
   const out: { text: string; color?: (s: string) => string }[] = [];
   // 会话运行模式/权限/策略块（水平状态栏迁来）：放在最前，独立于 goal 是否存在
@@ -576,9 +575,9 @@ function statusColumnBody(
       const body = t.content === "" ? "（空项）" : t.content;
       const mark = TODO_MARKER[t.status];
       // 正文按剩余宽度（扣掉 marker 两列）折行；续行缩进 marker 宽度与首行正文对齐
-      const rows = capWrap(body, width - 2, capTodo).map(
-        (r, i) => ({ text: (i === 0 ? mark : "  ") + r.text }),
-      );
+      const rows = capWrap(body, width - 2, capTodo).map((r, i) => ({
+        text: (i === 0 ? mark : "  ") + r.text,
+      }));
       if (t.status === "completed") {
         // 对号（灰，无线）不被删除线覆盖；正文/续行灰+删除线
         rows.forEach((r, i) => {
@@ -647,6 +646,19 @@ function statusColumnBody(
       }
     }
   }
+  // 会话标题置顶：独立最上一行（固定存在；空标题灰 <title> 占位与水平栏原语义一致）
+  const rawTitle = (title ?? "").trim();
+  // 非空标题原样置顶（窄列下不加“标题 ”前缀省宽）；空标题灰 <title> 占位
+  out.unshift({
+    text:
+      rawTitle === ""
+        ? colorFor(themeId, "gray")("<title>")
+        : colorFor(themeId, "blue")(rawTitle),
+  });
+  if (out.length > 1) {
+    // 标题栏下恒用实线下划分隔（与其他块间虚线区分；标题=栏 header）
+    out.splice(1, 0, { text: SEPARATOR.repeat(width) });
+  }
   return out;
 }
 
@@ -674,6 +686,8 @@ export function renderStatusColumn(
   /** 权限/agent 预设目录（可选值列表；缺省 Mode 块降级） */
   permissionOptions?: readonly string[],
   presetOptions?: readonly string[],
+  /** 会话标题（状态列最上一行；缺省 "" 灰 <title> 占位） */
+  title = "",
 ): string[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);
@@ -694,6 +708,7 @@ export function renderStatusColumn(
     preset,
     permissionOptions,
     presetOptions,
+    title,
   );
   if (body.length > h) {
     const noDone = statusColumnBody(
@@ -710,6 +725,7 @@ export function renderStatusColumn(
       preset,
       permissionOptions,
       presetOptions,
+      title,
     );
     body =
       noDone.length <= h
@@ -728,6 +744,7 @@ export function renderStatusColumn(
             preset,
             permissionOptions,
             presetOptions,
+            title,
           );
   }
   const start = statusStartFor(body.length, scroll, h);
@@ -760,6 +777,8 @@ function buildTopRegion(
   preset?: string,
   permissionOptions?: readonly string[],
   presetOptions?: readonly string[],
+  /** 会话标题（状态列最上一行；水平状态栏已摘除） */
+  title = "",
 ): RenderLine[] {
   // 焦点框保留格（所有状态恒定，避免内容重排）：顶部边框行始终占 1 行；
   // 左侧框格列（历史/活动区左缘）与右侧框列（状态列右缘）在宽度允许时各占 1 列；
@@ -814,6 +833,7 @@ function buildTopRegion(
     preset,
     permissionOptions,
     presetOptions,
+    title,
   );
   // 边框构图参数：分隔竖线列 = historyWidth（历史区右缘/状态列左缘，
   // 为旧 statusColWidth-1 的镜像）；col0 左缘框格属历史/活动区，
@@ -878,7 +898,9 @@ function buildTopRegion(
   const divFor = (rc: number): string => {
     // 活动区分隔行两端为面板角字：history=右下角 ┘、activity=右上角 ┐、status=竖线
     if (rc === dialogueH && activityH > 0) {
-      const g = panel === "history" ? "┘" : panel === "activity" ? "┐" : "│";
+      // 分隔行 无焦点/状态焦点：D 列交点用连接字形 `┤`（竖线贯穿+横线从左接入），
+      // 与水平状态栏顶线的 `┴` 统一“连接”风格；焦点态用面板角字 ┘/┐（同为连接）
+      const g = panel === "history" ? "┘" : panel === "activity" ? "┐" : "┤";
       return colorFor(state.themeId, focusActive ? fc : "gray")(g);
     }
     // 无焦点（focusedPanel=null）时所有框线回灰：bright 仅在有焦点面板时可能为真
@@ -1063,9 +1085,17 @@ function wrapBufferLines(
       continue;
     }
     if (line.kind === "user") {
-      // 用户消息块：按内容收缩宽度并整体靠右（统一 leftPad），块内保持左对齐
+      // 用户消息块：按内容收缩宽度并整体靠右（统一 leftPad），块内保持左对齐；
+      // 右侧附加浅红竖线用于区分（窄列降级不加，以免正文被挤出）
+      // ponytail: width<6 时省略竖线；有富裕再去掉阈值
+      const bar =
+        width >= USER_MIN_LEFT_GUTTER + 2
+          ? colorFor(themeId, "brightRed")("┃")
+          : "";
       const maxBody = userMaxBodyWidth(width, gutter);
-      const rows = wrapLines(line.text.split("\n"), maxBody);
+      const rows = wrapLines(line.text.split("\n"), maxBody).map((r) =>
+        r === "" ? "" : r + bar,
+      );
       const bodyWidth = Math.max(1, ...rows.map((r) => displayWidth(r)));
       const pad = Math.max(0, width - bodyWidth);
       for (const text of rows)
@@ -1100,8 +1130,18 @@ function wrapBufferLines(
       const rows = inFence
         ? wrapCodeLine(line.text, bodyWidth, themeId)
         : wrapAssistantLine(line.text, bodyWidth, themeId);
+      // 回复正文左侧附加浅蓝竖线用于区分（窄列降级不加，以免正文被挤出）
+      // ponytail: width<6 时省略竖线；有富裕再去掉阈值
+      const bar =
+        width >= USER_MIN_LEFT_GUTTER + 2
+          ? colorFor(themeId, "brightBlue")("┃")
+          : "";
       for (const text of rows)
-        dialogue.push({ text, kind: line.kind, indent: 0 });
+        dialogue.push({
+          text: text === "" ? "" : bar + text,
+          kind: line.kind,
+          indent: 0,
+        });
       continue;
     }
     if (line.kind === "notice") {
@@ -1166,6 +1206,34 @@ function wrapBufferLines(
     if (row.kind === "assistant" && row.text !== "") hasBodyAfter = true;
     else if (row.kind === "assistant" && row.text === "" && !hasBodyAfter)
       spaced.splice(i, 1);
+  }
+  // 对话区着色竖线块内连续：仅剩的块内空行（段落空行/显式换行空行）也挂竖线，
+  // 使回复/输入块侧边连成整条竖线；末尾空行已被上方删除，此处只补空块的空行
+  if (width >= USER_MIN_LEFT_GUTTER + 2) {
+    const barR = colorFor(themeId, "brightRed")("┃");
+    const barL = colorFor(themeId, "brightBlue")("┃");
+    for (let i = 0; i < spaced.length; i++) {
+      const row = spaced[i]!;
+      if (row.text !== "" || (row.kind !== "user" && row.kind !== "assistant"))
+        continue;
+      // 其后还有同 kind 内容才算块内空行（跨 plain/分隔就停）
+      let sameAfter = false;
+      for (let j = i + 1; j < spaced.length; j++) {
+        const nx = spaced[j]!;
+        if (nx.kind === row.kind) {
+          sameAfter = true;
+          break;
+        }
+        if (nx.kind === "plain" || nx.kind === "separator") break;
+      }
+      if (!sameAfter) continue;
+      if (row.kind === "user") {
+        row.text = barR;
+        row.indent = Math.max(0, width - 1); // 空用户行右缘对齐块右缘
+      } else {
+        row.text = barL;
+      }
+    }
   }
   return { dialogue: spaced, activity };
 }
@@ -1283,7 +1351,6 @@ function fitModel(s: string, w: number): string {
 
 export function renderStatusLine(
   status: AppState["systemStatus"],
-  title: string,
   themeId: ThemeId,
   cols: number,
   /** 最新一次模型调用 token 用量（有且 total>0 时覆盖 contextLen/cacheHit 占位） */
@@ -1306,11 +1373,7 @@ export function renderStatusLine(
   //   LLM 组：model:{后缀} · ctx · cache  （最近一次模型调用指标）
   // 宽度足够 → 单行完整显示；放不下 → 按组折行（标题与模型各自成组、组间可折行），单组超宽才组内截断。
   const maxSegW = Math.max(1, cols - 2); // 留首尾各 1 列
-  const withTitle = cols >= 24;
-  // 默认标题为空（新会话），用 <title> 占位保持段与布局稳定
-  const titleText = title.trim() === "" ? "<title>" : title;
   const blue = (s: string) => colorFor(themeId, "blue")(s);
-  const cyanTitle = (s: string) => colorFor(themeId, "cyan")(s);
   type Seg = { text: string; color: (s: string) => string };
   const groupWidth = (g: Seg[]): number =>
     g.reduce((acc, s, i) => acc + (i > 0 ? 1 : 0) + displayWidth(s.text), 0);
@@ -1324,9 +1387,7 @@ export function renderStatusLine(
     { text: status.git, color: magenta },
     { text: status.cwd, color: blue },
   ];
-  const sessionFull: Seg[] = withTitle
-    ? [{ text: titleText, color: cyanTitle }]
-    : [];
+
   const llmFull: Seg[] = [
     { text: modelSeg, color: (s) => colorModel(themeId, s) },
     { text: ctxSeg, color: blue },
@@ -1345,10 +1406,6 @@ export function renderStatusLine(
       { text: fitTail(status.cwd, budget), color: blue },
     ];
   };
-  const sessionFit = (w: number): Seg[] =>
-    withTitle
-      ? [{ text: fitHead(titleText, Math.max(1, w)), color: cyanTitle }]
-      : [];
   const llmFit = (w: number): Seg[] => {
     const budget = Math.max(
       1,
@@ -1368,7 +1425,6 @@ export function renderStatusLine(
     fit: (w: number) => Seg[];
   }> = [
     { full: envFull, fit: envFit },
-    ...(sessionFull.length > 0 ? [{ full: sessionFull, fit: sessionFit }] : []),
     { full: llmFull, fit: llmFit },
   ];
 
@@ -1387,8 +1443,7 @@ export function renderStatusLine(
   if (fullW <= maxSegW) return [renderRow(groups.map((g) => g.full))];
 
   // 折行（尽量少行）：以组为单位依次放入，放不下整组换行。
-  // 标题=会话组、模型=LLM 组首段，二者是不同组（组间 `|`），自然允许在它们之间折行。
-  // 单组超行宽时才组内压缩（cwd 保尾 / model 保后缀）。
+  // 模型=LLM 组首段，独立成组（组间 `|`）；单组超行宽时才组内压缩（cwd 保尾 / model 保后缀）。
   const lines: Seg[][][] = [[]];
   let used = 0;
   for (const g of groups) {
@@ -1454,7 +1509,6 @@ export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
   const fullWidth = Math.max(1, size.cols);
   const statusLines = renderStatusLine(
     state.systemStatus,
-    state.sessionTitle,
     state.themeId,
     fullWidth,
     state.usage,
@@ -1527,7 +1581,6 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     !showApproval && !question && !picker && !history && !jobsPanel;
   const statusLines = renderStatusLine(
     state.systemStatus,
-    state.sessionTitle,
     state.themeId,
     fullWidth,
     state.usage,
@@ -1555,6 +1608,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     preset,
     state.permissionOptions,
     state.presetOptions,
+    state.sessionTitle,
   );
 
   let footerLines: RenderLine[];
@@ -1609,9 +1663,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
           text: colorFor(
             state.themeId,
             "gray",
-          )(
-            truncateToWidth(HINT_LINE, fullWidth),
-          ),
+          )(truncateToWidth(HINT_LINE, fullWidth)),
         },
       ]
     : [];

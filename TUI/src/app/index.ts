@@ -676,6 +676,13 @@ export class App {
       return;
     }
 
+    // Ctrl+J：输入区插入换行符（Enter 仍为发送；renderer 将裸 LF 0x0a 解码为 ctrl+j）
+    if (ctrl && name === "j") {
+      this.insertChar("\n");
+      this.paint();
+      return;
+    }
+
     switch (name) {
       case "escape":
         // Esc：打断运行（agent 非 idle 时 interrupt；idle 无操作；picker 面板已在上方分支关闭）

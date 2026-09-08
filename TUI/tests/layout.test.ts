@@ -199,6 +199,35 @@ test("renderTextInput: 宽度不足时按 avail 换行，单行区域跟随光�
   assert.equal(first.caret, 2 + 5);
 });
 
+test("renderTextInput: 显式 \\n 强制换行，光标落对应行", () => {
+  // avail=40-2=38，容纳得下单行；"第一行\\n第一行" 因显式换行分两行
+  const lines = renderTextInput(
+    "第一行\n第二行",
+    3,
+    "...",
+    40,
+    "> ",
+    undefined,
+    3,
+  );
+  assert.equal(lines.length, 3, "输出恰好 height 行");
+  assert.equal(lines[0]!.text, "> 第一行", "首行带 prompt");
+  assert.equal(lines[1]!.text, "  第二行", "显式换行后的续行缩进对齐");
+  assert.equal(lines[2]!.text, "", "文本之外的行留空");
+  assert.equal(
+    lines[0]!.caret,
+    2 + 6,
+    "光标在 index3(\\n) 前=第一行末(6 列)，caret=prompt+6",
+  );
+  assert.equal(lines[1]!.caret, undefined, "非光标行无 caret");
+});
+
+test("renderTextInput: 文本显式 \\n 结尾时光标落新空行", () => {
+  // "a\n" → row0="a"、row1 空行；光标在末尾 → 滚动窗口显示空行、caret 对齐 prompt
+  const line = renderTextInput("a\n", 2, "...", 40)[0]!;
+  assert.equal(line.caret, 2, "光标在空行行首（prompt 宽对齐）");
+});
+
 test("renderTextInput: 多行输入区文本换行、顶部对齐、仅光标行有 caret", () => {
   const lines = renderTextInput("abcdefghij", 9, "...", 10, "> ", undefined, 3);
   assert.equal(lines.length, 3, "输出恰好 height 行");

@@ -118,17 +118,15 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     top[1]!.text.includes("第一行"),
     "历史区内容在左侧（顶部边框行之后）",
   );
-  // 横线分隔：17 行后是分隔行，再之后状态区（短 cwd 下动态单行：env|会话|LLM 全在一行）
+  // 横线分隔：17 行后是分隔行，再之后状态区（短 cwd 下动态单行：env|LLM 全在一行）
   const separator1 = frame[17]!;
   assert.ok(plain(separator1).startsWith("─"), "状态区上方用 ─ 分隔");
   const status = frame[18]!;
   assert.ok(status.text.includes("12:00:00"), "状态含时间");
   assert.ok(status.text.includes("/home/u"), "状态含当前目录");
   assert.ok(status.text.includes("main"), "状态含 git(branch)");
-  assert.ok(
-    status.text.includes("<title>"),
-    "状态含会话标题（默认空标题 <title> 占位）",
-  );
+  // 标题已移入纵向状态列顶部（水平栏不再承载；此处验证水平栏不含标签行）
+  assert.ok(!status.text.includes("标题"), "水平状态栏不含标题段");
   assert.ok(status.text.includes("·"), "组内段用 · 分隔");
   assert.ok(status.text.includes("|"), "组间用 | 分隔");
   assert.ok(status.text.includes("none"), "LLM 组含模型思考后缀");
@@ -141,7 +139,10 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   );
   assert.ok(plain(frame[22]!).trim() === "", "输入区第 3 行留空");
   // 按键提示区（独立区域，与输入区之间不画横线）
-  assert.ok(plain(frame[23]!).startsWith("[Alt+Enter]打断并发送"), "末行为按键提示区");
+  assert.ok(
+    plain(frame[23]!).startsWith("[Alt+Enter]打断并发送"),
+    "末行为按键提示区",
+  );
 });
 
 test("输入栏两字符提示符：左=上次提交模式符号+状态色，右=当前模式符号（默认前景色）", () => {
@@ -350,7 +351,6 @@ test("renderStatusLine: model 段 provider 紫、模型名青，路径段染蓝�
       contextLen: "123",
       cacheHit: "87%",
     },
-    "（新会话）",
     "dark",
     80,
   );
@@ -380,7 +380,6 @@ test("renderStatusLine: 相邻段颜色不同且不含红/黄/绿状态色", () 
       contextLen: "123",
       cacheHit: "87%",
     },
-    "会话标题标题标题",
     "dark",
     160,
   );
@@ -414,7 +413,6 @@ test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", ()
       contextLen: "12345",
       cacheHit: "87%",
     },
-    "（新会话）",
     "dark",
     20,
   );
@@ -446,7 +444,8 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(�
   const hist = m.historyWidth;
   const pad = hist - userMaxBodyWidth(hist);
   assert.equal(pad, USER_MIN_LEFT_GUTTER, "长消息左边界应为 gutter");
-  const userPrefix = " ".repeat(pad);
+  // 右侧竖线占 2 列、块整体右对齐 → 左侧可见空位 = gutter - 2
+  const userPrefix = " ".repeat(USER_MIN_LEFT_GUTTER - 1);
   const userRows = visible.filter((line) => {
     const body = histBody(line, 40);
     return body.startsWith(userPrefix) && body.slice(userPrefix.length).trim();
@@ -458,7 +457,7 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(�
   assert.ok(
     visible.some(
       (line) =>
-        line.includes("模型回答") && histBody(line, 40).startsWith("模型"),
+        line.includes("模型回答") && histBody(line, 40).startsWith("┃模型"),
     ),
   );
 });
@@ -474,7 +473,6 @@ test("renderStatusLine: 长 cwd 按余宽保尾截断，行1 预算内单行容�
       contextLen: "123",
       cacheHit: "87%",
     },
-    "t",
     "dark",
     24,
   );
@@ -497,7 +495,7 @@ test("renderStatusLine: 长 cwd 按余宽保尾截断，行1 预算内单行容�
   }
 });
 
-test("renderStatusLine: 超长标题/git 折行完整保留（不截断）", () => {
+test("renderStatusLine: 超长 git 折行完整保留（不截断）", () => {
   const lines = renderStatusLine(
     {
       time: "10:00",
@@ -507,11 +505,10 @@ test("renderStatusLine: 超长标题/git 折行完整保留（不截断）", () 
       contextLen: "123",
       cacheHit: "87%",
     },
-    "一个非常长的会话标题标题标题标题标题标题标题",
     "dark",
-    68,
+    44,
   );
-  // 完整优先：单组放得下就完整显示并折行，不截断内容
+  // 完整优先：单组放得下就完整显示并折行，不截断内容（标题已移入状态列，不再占水平栏宽度）
   assert.ok(lines.length >= 2, `应折行为多行 (got ${lines.length} lines)`);
   const visible = lines
     .map((l) => l.text)
@@ -521,20 +518,16 @@ test("renderStatusLine: 超长标题/git 折行完整保留（不截断）", () 
     visible.includes("feature/very-long-branch-name"),
     "超长分支名完整保留",
   );
-  assert.ok(
-    visible.includes("一个非常长的会话标题标题标题标题标题标题标题"),
-    "超长标题完整保留",
-  );
   for (const l of lines) {
     assert.ok(
-      l.text.replace(/\x1b\[[0-9;]*m/g, "").length <= 68,
+      l.text.replace(/\x1b\[[0-9;]*m/g, "").length <= 44,
       `行不应超宽: ${l.text}`,
     );
   }
 });
 
 test("renderStatusLine: 宽度足够时各段完整显示不省略号", () => {
-  // 回归：宽屏不应因固定预算把 model/标题/git/cwd 截断隐藏
+  // 回归：宽屏不应因固定预算把 model/git/cwd 截断隐藏
   const cwd = "/home/user/projects/very/long/path/component";
   const lines = renderStatusLine(
     {
@@ -546,11 +539,10 @@ test("renderStatusLine: 宽度足够时各段完整显示不省略号", () => {
       contextLen: "123",
       cacheHit: "87%",
     },
-    "一个非常长的会话标题标题标题",
     "dark",
     160,
   );
-  assert.equal(lines.length, 1, "宽屏完整单行(env|会话|LLM 分组)");
+  assert.equal(lines.length, 1, "宽屏完整单行(env|LLM 分组)");
   const visible = lines
     .map((l) => l.text)
     .join("\n")
@@ -558,7 +550,6 @@ test("renderStatusLine: 宽度足够时各段完整显示不省略号", () => {
   assert.ok(visible.includes("ustc/deepseek-v4-pro:high"), "model 全名完整");
   assert.ok(visible.includes(cwd), "cwd 完整");
   assert.ok(visible.includes("feature/very-long-branch"), "git 完整");
-  assert.ok(visible.includes("一个非常长的会话标题"), "标题完整");
   assert.ok(!visible.includes("…"), "宽度足够时不应出现省略号");
 });
 
@@ -581,7 +572,6 @@ test("renderStatusLine: 思考后缀 none/off/on/实际等级名", () => {
         contextLen: "123",
         cacheHit: "87%",
       },
-      "t",
       "dark",
       80,
     );
@@ -606,8 +596,15 @@ test("会话流：短用户消息块整体靠右，右缘贴历史区右缘，�
   assert.ok(!row.startsWith("|"), "最左侧无插件竖线");
   assert.equal(displayWidth(row), 40, "短消息整行铺满");
   const hc = histContent(row, 40);
-  assert.ok(hc.endsWith("你好"), "文本靠右（右缘预留焦点框列）");
-  assert.equal(hc.indexOf("你好") + 2, hc.length, "块内结尾即文本(内部左对齐)");
+  assert.ok(
+    hc.trimEnd().endsWith("你好┃"),
+    "文本靠右（右缘预留焦点框列；末尾青色竖线）",
+  );
+  assert.equal(
+    hc.trimEnd().indexOf("你好") + 3,
+    hc.trimEnd().length,
+    "块内结尾即 文本+竖线（内部左对齐、右缘竖线）",
+  );
 });
 
 test("会话流：用户消息软换行续行共享同一左边界；显式换行另起一个右对齐收缩块", () => {
@@ -697,7 +694,8 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
       cols: 40,
     },
   ).map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""));
-  const statIdx = st.findIndex((l) => l.includes("<title>"));
+  // 标题已移入状态列，水平栏定位改用组间管道符（标题段不再承载）
+  const statIdx = st.findIndex((l) => l.includes("|"));
   assert.ok(statIdx > 0, "状态行存在");
   assert.ok(st[statIdx - 1]!.trimStart().startsWith("─"), "状态栏上方 ─ 分隔");
   assert.ok(
@@ -883,13 +881,17 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
   assert.ok(rows.length >= 2, "超 gutter 宽的正文应软换行");
   for (const l of rows) {
     const body = histContent(l, 40);
-    assert.ok(body.length <= bodyW, `正文行右侧保留 gutter，不顶满右缘: ${l}`);
+    // 助手行含左侧绿色竖线前缀（"│ " 2 列），正文本身仍 ≤ bodyW
+    assert.ok(
+      body.length <= bodyW + 1,
+      `正文行右侧保留 gutter，不顶满右缘: ${l}`,
+    );
   }
   const first = histContent(rows[0]!, 40);
   assert.equal(
     first.length,
-    bodyW,
-    `默认 gutter=4：正文宽恰为内容区宽-4（右缘预留框列）`,
+    bodyW + 1,
+    `默认 gutter=4：正文(含左侧竖线)恰为内容区宽-4+2（右缘预留框列）`,
   );
   // 用户块整体靠右（右缘预留焦点框列）
   let u = initialState();
@@ -898,8 +900,8 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
     .map((l) => strip(l.text))
     .find((l) => l.includes("hi"));
   assert.ok(
-    uf !== undefined && histContent(uf, 40).endsWith("hi"),
-    "用户块贴右缘",
+    uf !== undefined && histContent(uf, 40).endsWith("hi┃"),
+    "用户块贴右缘（右缘为青色竖线）",
   );
 });
 
@@ -1036,7 +1038,7 @@ const baseStatus = {
 };
 
 test("renderStatusLine: 有 usage 显示 ctx/cache，无 usage 保留占位 —", () => {
-  const noUsage = renderStatusLine(baseStatus, "（新会话）", "dark", 80);
+  const noUsage = renderStatusLine(baseStatus, "dark", 80);
   assert.ok(
     noUsage
       .map((l) => l.text)
@@ -1044,7 +1046,7 @@ test("renderStatusLine: 有 usage 显示 ctx/cache，无 usage 保留占位 —"
       .includes("—"),
     "无 usage 保留占位 —",
   );
-  const withUsage = renderStatusLine(baseStatus, "（新会话）", "dark", 80, {
+  const withUsage = renderStatusLine(baseStatus, "dark", 80, {
     input: 12000,
     output: 900,
     cacheRead: 24000,
@@ -1055,7 +1057,7 @@ test("renderStatusLine: 有 usage 显示 ctx/cache，无 usage 保留占位 —"
 });
 
 test("renderStatusLine: token 缩写 k/M（12.4k / 1.5M），零总量回占位", () => {
-  const mid = renderStatusLine(baseStatus, "t", "dark", 120, {
+  const mid = renderStatusLine(baseStatus, "dark", 120, {
     input: 12400,
     output: 0,
     cacheRead: 0,
@@ -1066,7 +1068,7 @@ test("renderStatusLine: token 缩写 k/M（12.4k / 1.5M），零总量回占位"
       .join("\n")
       .includes("ctx 12.4k"),
   );
-  const big = renderStatusLine(baseStatus, "t", "dark", 120, {
+  const big = renderStatusLine(baseStatus, "dark", 120, {
     input: 1500000,
     output: 0,
     cacheRead: 0,
@@ -1077,7 +1079,7 @@ test("renderStatusLine: token 缩写 k/M（12.4k / 1.5M），零总量回占位"
       .join("\n")
       .includes("ctx 1.5M"),
   );
-  const zero = renderStatusLine(baseStatus, "t", "dark", 120, {
+  const zero = renderStatusLine(baseStatus, "dark", 120, {
     input: 0,
     output: 0,
     cacheRead: 0,
@@ -1281,7 +1283,7 @@ test("buildFrame: compaction/retry toast 文案入帧", () => {
 });
 
 test("renderStatusLine: cache 命中率取整（全命中 → cache 100%）", () => {
-  const t = renderStatusLine(baseStatus, "t", "dark", 120, {
+  const t = renderStatusLine(baseStatus, "dark", 120, {
     input: 500,
     output: 500,
     cacheRead: 9500,
@@ -1290,7 +1292,7 @@ test("renderStatusLine: cache 命中率取整（全命中 → cache 100%）", ()
     .join("\n");
   assert.ok(t.includes("ctx 10k"), "total=10000 → ctx 10k");
   assert.ok(t.includes("cache 95%"), "9500/10000 → cache 95%");
-  const full = renderStatusLine(baseStatus, "t", "dark", 120, {
+  const full = renderStatusLine(baseStatus, "dark", 120, {
     input: 0,
     output: 100,
     cacheRead: 20000,
@@ -1301,7 +1303,7 @@ test("renderStatusLine: cache 命中率取整（全命中 → cache 100%）", ()
 });
 
 test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段仍保留", () => {
-  const t = renderStatusLine(baseStatus, "（新会话）", "dark", 20, {
+  const t = renderStatusLine(baseStatus, "dark", 20, {
     input: 12400,
     output: 0,
     cacheRead: 0,
@@ -1315,13 +1317,22 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
   //     Mode 块（见 statusColumnBody/modeBlock），水平状态栏不再承载任何会话徽标 ---
 
   test("renderStatusLine: 会话徽标已全部移除（已移入顶部状态列 Mode 块；jobs 不再显示）", () => {
-    const t = renderStatusLine(baseStatus, "t", "dark", 120, undefined)
+    const t = renderStatusLine(baseStatus, "dark", 120, undefined)
       .map((l) => l.text)
       .join("\n");
-    for (const bad of ["plan", "ro·", "·full", "ask", "auto", "preset:", "jobs "]) {
+    for (const bad of [
+      "plan",
+      "ro·",
+      "·full",
+      "ask",
+      "auto",
+      "preset:",
+      "jobs ",
+    ]) {
       assert.ok(!t.includes(bad), `水平栏不再含徽标「${bad}」(${t})`);
     }
-    assert.ok(t.includes("t"), "标题段仍在");
+    // 标题段已摘除（移入纵向状态列顶部），水平栏不承载会话标题
+    assert.ok(!t.includes("一个非常长的会话"), "水平栏不再含标题");
   });
 });
 
@@ -1338,13 +1349,18 @@ test("顶部面板：hint 行为隐藏 Enter/Esc 且不带面板标签；Tab 由
   };
   const h0 = hintOf(initialState());
   assert.ok(!h0.includes("面板"), "hint 不含面板标签");
-  assert.ok(!h0.includes("[Enter]") && !h0.includes("[Esc]"), "hint 隐藏 Enter/Esc");
-  assert.ok(h0.includes("[Alt+Enter]") && h0.includes("[Ctrl+L]"), "hint 保留 Alt+Enter/Ctrl+L");
+  assert.ok(
+    !h0.includes("[Enter]") && !h0.includes("[Esc]"),
+    "hint 隐藏 Enter/Esc",
+  );
+  assert.ok(
+    h0.includes("[Alt+Enter]") && h0.includes("[Ctrl+L]"),
+    "hint 保留 Alt+Enter/Ctrl+L",
+  );
   const hCycle = hintOf(
-    reduceState(
-      reduceState(initialState(), { type: "focus-panel-cycle" }),
-      { type: "focus-panel-cycle" },
-    ),
+    reduceState(reduceState(initialState(), { type: "focus-panel-cycle" }), {
+      type: "focus-panel-cycle",
+    }),
   );
   assert.equal(h0, hCycle, "切换焦点不改变 hint 行（无标签）");
 });
@@ -1360,10 +1376,9 @@ test("focus-panel-cycle / activity-scroll reducer：循环与偏移非负 clamp"
     "history",
     "无焦点 → Tab 进入历史",
   );
-  const a = reduceState(
-    reduceState(s, { type: "focus-panel-cycle" }),
-    { type: "focus-panel-cycle" },
-  );
+  const a = reduceState(reduceState(s, { type: "focus-panel-cycle" }), {
+    type: "focus-panel-cycle",
+  });
   assert.equal(a.focusedPanel, "activity", "history → activity");
   const st = reduceState(
     reduceState(reduceState(s, { type: "focus-panel-cycle" }), {
@@ -1489,11 +1504,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   );
   assert.ok(!eqRow(rows).includes(WHITE + "─"), "无焦点：状态区上方分隔无亮 ─");
   const sepIdx0 = activitySepIdx(rows, size.cols);
-  assert.equal(
-    countBrightBar(rows[sepIdx0 + 1]!),
-    0,
-    "无焦点：活动行无亮 │",
-  );
+  assert.equal(countBrightBar(rows[sepIdx0 + 1]!), 0, "无焦点：活动行无亮 │");
   assert.ok(
     rows.slice(1, topRows).every((l) => displayWidth(plain(l)) === 80),
     "所有内容行补齐到整屏宽（右缘框线恒在固定列）",
@@ -1614,7 +1625,9 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     "面板态：模型选择面板显示在流输出窗口",
   );
   assert.ok(
-    rows.slice(1, sepI2).every((l) => plain(l).slice(1, m.historyWidth).trim() === ""),
+    rows
+      .slice(1, sepI2)
+      .every((l) => plain(l).slice(1, m.historyWidth).trim() === ""),
     "面板态：对话历史区仍空（未因面板挤占重排）",
   );
 
@@ -1634,7 +1647,8 @@ function contentSig(lines: string[], topRows: number): string[] {
         // 右缘框列 `│` 与行内焦点角（活动分隔行右端）删除以跨焦点等长；
         // 其余角/虚线归一化为线段字符（行尾 `┘`=状态栏右下角、`┴`、`╌`→─，
         // 长度不变），焦点差异不计入内容签名
-        .replace(/[│┐└┌]/g, "")
+        // ┤ 为活动区分隔行在分隔竖线的连接交点（非线段内容），与 ┐/│ 同理移除
+        .replace(/[│┐└┌┤]/g, "")
         .replace(/┘(?=\s)/g, "")
         .replace(/[┘┴╌]/g, "─")
         .replace(/\s+$/, ""),

@@ -83,7 +83,7 @@ test("renderStatusColumn: 完成 todo 灰+删除线，jobs 块展示", () => {
       { content: "已完成项", status: "completed" },
       { content: "排队项", status: "pending" },
     ],
-    { width: 24, height: 12 },
+    { width: 24, height: 14 },
     [
       { id: "j1", kind: "bash", label: "跑测试", status: "running" },
       { id: "j2", kind: "bash", label: "构建", status: "failed" },
@@ -111,7 +111,7 @@ test("renderStatusColumn: 完成 todo 灰+删除线，jobs 块展示", () => {
       { id: "j3", kind: "bash", label: "发布", status: "done" },
     ],
     0,
-    12,
+    14,
     24,
     initialState().themeId,
   ).find((r) => r.includes("发布"))!;
@@ -150,15 +150,15 @@ test("renderStatusColumn: 每条 todo 超过上限折叠到 3 行", () => {
   const rows = col(
     setGoal("active", "x"),
     [{ content: long, status: "pending" }],
-    { width: 12 },
+    { width: 12, height: 11 }, // 标题行+分隔后仍须露出折叠提示
   );
   const body = rows.join("\n");
   // 过滤纯右缘竖线的空行：行尾竖线前的部分 trim 为空才算空行
   const todoLines = body
     .split("\n")
     .filter((r) => r.replace(/[│|]$/, "").trim() !== "");
-  // Goal 标题 1 + 目标 1 + 块间虚线 1 + todo 计数 1 + 该条至多 3 行（2026-09-17 加块间虚线）
-  assert.ok(todoLines.length <= 7, `条目上限内: ${todoLines.length} 行`);
+  // 标题行 1 + 标题分隔 1 + Goal 标题 1 + 目标 1 + 块间虚线 1 + todo 计数 1 + 该条至多 3 行
+  assert.ok(todoLines.length <= 9, `条目上限内: ${todoLines.length} 行`);
   assert.ok(body.includes("(+"), "todo 折叠提示");
 });
 
@@ -167,7 +167,10 @@ test("renderStatusColumn: 整体高度未溢出时内容完整显示（不折叠
     setGoal("active", "目标一、目标二、目标三"),
     [
       { content: "完成的任务 A", status: "completed" },
-      { content: "待办较长内容（演示未溢出时不截断且续行缩进）", status: "pending" },
+      {
+        content: "待办较长内容（演示未溢出时不截断且续行缩进）",
+        status: "pending",
+      },
     ],
     { width: 16, height: 20 },
   );
@@ -187,13 +190,16 @@ test("renderStatusColumn: 溢出时优先隐藏已完成任务（计数标题仍
       { content: "待办任务 C", status: "pending" },
       { content: "待办任务 D", status: "pending" },
     ],
-    { width: 16, height: 7 }, // Goal+目标+虚线+标题+2 待办=6 行；completed 被优先隐藏
+    { width: 16, height: 9 }, // 标题+虚线+Goal+目标+虚线+计数+2 待办=8 行；completed 被优先隐藏
     [{ id: "j1", kind: "bash", label: "跑测试", status: "running" }],
   );
   const t = rows.join("\n");
   assert.ok(t.includes("Todo 2/4"), "计数标题仍含完成数（隐藏的是行不是计数）");
   assert.ok(!t.includes("完成的任务"), "已完成任务行被优先隐藏");
-  assert.ok(t.includes("待办任务 C") && t.includes("待办任务 D"), "未完成任务保留");
+  assert.ok(
+    t.includes("待办任务 C") && t.includes("待办任务 D"),
+    "未完成任务保留",
+  );
 });
 
 test("renderStatusColumn: 滚动窗口 clamp——超长内容可下滚看更晚条目", () => {
@@ -204,13 +210,13 @@ test("renderStatusColumn: 滚动窗口 clamp——超长内容可下滚看更晚
   // 高 5 行（Goal 标题/目标/块间虚线/计数 + 1 条任务）：首屏看到顶部（任务0 开头），
   // 滚动后看到任务0 消失、任务9 出现
   const top = col(setGoal("active", "目标"), todos, {
-    height: 5,
+    height: 7,
     width: 20,
     scroll: 0,
   });
   assert.ok(top.join("|").includes("任务0"), "首屏含最早任务");
   const scrolled = col(setGoal("active", "目标"), todos, {
-    height: 4,
+    height: 5,
     width: 20,
     scroll: 99,
   });
@@ -230,7 +236,7 @@ test("status-column-scroll reducer: delta 累加且 clamp 非负", () => {
 
 // ===== Mode 块：会话运行模式/权限/策略（原水平状态栏徽标迁入，2026-09-07）=====
 
-test("renderStatusColumn: Mode 块在无 goal 时也展示且位于最前；各项目列出全部可选项", () => {
+test("renderStatusColumn: 标题行置顶、Mode 块随后展示（无 goal 也显示）；各项目列出全部可选项", () => {
   const mode: ModeState = {
     plan: "on",
     sandbox: "read-only",
@@ -241,7 +247,7 @@ test("renderStatusColumn: Mode 块在无 goal 时也展示且位于最前；各�
     [],
     undefined,
     0,
-    8,
+    12,
     30,
     initialState().themeId,
     mode,
@@ -284,10 +290,16 @@ test("renderStatusColumn: Mode 生效项着色强调、其余灰（段内至少�
   const policy = raw.find((l) => l.includes("policy"))!;
   const GRAY = "\x1b[38;2;120;120;120m";
   // sandbox 行：ro(生效绿)、wr/full(灰) —— 生效项与未生效灰不同色，且未生效项确为灰
-  assert.ok(new Set(sgr(sandbox)).size >= 2, "sandbox 生效 ro 与灰选项颜色不同: " + raw.join("\n"));
+  assert.ok(
+    new Set(sgr(sandbox)).size >= 2,
+    "sandbox 生效 ro 与灰选项颜色不同: " + raw.join("\n"),
+  );
   assert.ok(sgr(sandbox).includes(GRAY), "sandbox wr/full 未生效项为灰");
   // policy=never → auto 生效（红）与 ask(灰) 不同色
-  assert.ok(new Set(sgr(policy)).size >= 2, "policy auto 生效与 ask 灰颜色不同: " + raw.join("\n"));
+  assert.ok(
+    new Set(sgr(policy)).size >= 2,
+    "policy auto 生效与 ask 灰颜色不同: " + raw.join("\n"),
+  );
   assert.ok(sgr(policy).includes(GRAY), "policy ask 未生效项为灰");
 });
 
@@ -429,7 +441,10 @@ test("renderStatusColumn: Mode 块与 Goal 块之间以虚线分隔，Goal 与 t
     "Mode 与 Goal 之间含虚线分隔: " + g,
   );
   // 无 todo 时 Goal 后应无 todo 虚线（既有）
-  assert.ok(!g.slice(iGoal).includes("╌"), "无 todo 时 Goal 后无多余虚线: " + g);
+  assert.ok(
+    !g.slice(iGoal).includes("╌"),
+    "无 todo 时 Goal 后无多余虚线: " + g,
+  );
 });
 
 test("renderStatusColumn: permission/preset 按目录列出全部可选值", () => {

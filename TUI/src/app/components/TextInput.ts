@@ -38,17 +38,26 @@ export function renderTextInput(
   const chars = Array.from(text);
   const widths = chars.map((c) => charWidth(c));
   const pos = Math.max(0, Math.min(cursor, chars.length));
-  // 光标之前各字的显示宽度和 = 光标在文本流中的绝对列
-  let cursorFlowCol = 0;
-  for (let i = 0; i < pos; i++) cursorFlowCol += widths[i] ?? 0;
-
-  // 换行：每行至多 avail 显示列，字符将跨行末时先断行（不切半个 CJK）
+  // 断行：显式 "\n" 强制换行，超 avail 显示列也折行（不切半个 CJK）。
+  // 单趟同时记录光标插入点（位于 chars[pos] 之前）所在行/列
   const rows: string[][] = [];
   let cur: string[] = [];
   let col = 0;
+  let cursorRow = 0;
+  let colInRow = 0;
   for (let i = 0; i < chars.length; i++) {
     const ch = chars[i]!;
     const w = widths[i]!;
+    if (i === pos) {
+      cursorRow = rows.length;
+      colInRow = col;
+    }
+    if (ch === "\n") {
+      rows.push(cur);
+      cur = [];
+      col = 0;
+      continue;
+    }
     if (cur.length > 0 && col + w > avail) {
       rows.push(cur);
       cur = [];
@@ -57,12 +66,20 @@ export function renderTextInput(
     cur.push(ch);
     col += w;
   }
+  if (pos === chars.length) {
+    // 光标在文本末尾：落在当前行末；恰满 avail 时落在下一（虚拟）空行——不真实落行，
+    // 保持渲染走“空行”分支（文本以 \n 结尾时 newline 空行是真实行，走续行分支）
+    if (col === avail) {
+      cursorRow = rows.length + 1;
+      colInRow = 0;
+    } else {
+      cursorRow = rows.length;
+      colInRow = col;
+    }
+  }
   rows.push(cur);
 
-  // 光标行/列：第 k 行覆盖流列 [k*avail, (k+1)*avail)；
-  // 光标可能落在文本结束后的空行（恰在换行边界/文本末尾）
-  const cursorRow = Math.floor(cursorFlowCol / avail);
-  const colInRow = cursorFlowCol - cursorRow * avail;
+  // 光标行/列（光标可能落在文本结束后的空行）
   const contentRows = Math.max(rows.length, cursorRow + 1);
 
   // 垂直滚动：保持光标行在可见窗口 [vshift, vshift+boxHeight) 内
