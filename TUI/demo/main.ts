@@ -11,7 +11,12 @@
 
 import { createRenderer, type KeyEvent } from "../src/renderer/index.ts";
 import { loadTuiConfig } from "../src/app/config.ts";
-import { normalizeThemeId } from "../src/renderer/theme.ts";
+import {
+  THEMES,
+  ansiNameToHex,
+  hexSgr,
+  normalizeThemeId,
+} from "../src/renderer/theme.ts";
 import { App } from "../src/app/index.ts";
 import { createProcessStatusQueries } from "../src/app/status.ts";
 import { createMockDshAdapter, type MockDshAdapter } from "./mockAdapter.ts";
@@ -27,6 +32,11 @@ const adapter: MockDshAdapter = createMockDshAdapter({
 // demo 不读 profile 配置，主题经 --theme <light|dark> 显式传入（缺省内置默认）
 const themeIdx = process.argv.indexOf("--theme");
 const initialTheme = themeIdx >= 0 ? process.argv[themeIdx + 1] : undefined;
+
+// 冒烟断言用主题实际槽位色（不硬编码 dark 色值）：red/green/yellow 随主题变化
+const smokeTheme = THEMES[normalizeThemeId(initialTheme)];
+const smokeSgr = (name: "red" | "green" | "yellow"): string =>
+  hexSgr(ansiNameToHex(smokeTheme, name)!, true);
 
 const app = new App({
   renderer,
@@ -211,12 +221,12 @@ if (smoke) {
       // 面板按钮提示着色（raw 帧含 ANSI）：y 批准红、n 拒绝绿
       ok(
         "approval-y-red",
-        smokeOut.includes("\x1b[38;2;231;70;132m[y]批准"),
+        smokeOut.includes(smokeSgr("red") + "[y]批准"),
         "approval [y] should be red",
       );
       ok(
         "approval-n-green",
-        smokeOut.includes("\x1b[38;2;132;231;70m[n]拒绝"),
+        smokeOut.includes(smokeSgr("green") + "[n]拒绝"),
         "approval [n] should be green",
       );
       // /model 选择面板选项着色：打开时当前模型选中行绿、down 后焦点行黄
@@ -224,7 +234,7 @@ if (smoke) {
       // mock 仅一个 provider 恒为选中，> 焦点行不会在冒烟中出现）
       ok(
         "model-selected-green",
-        smokeOut.includes("\x1b[38;2;132;231;70m* "),
+        smokeOut.includes(smokeSgr("green") + "* "),
         "model picker selected row should be green",
       );
 
@@ -237,7 +247,7 @@ if (smoke) {
       // 问答面板选项着色：初始光标行（生产）黄
       ok(
         "question-option-focus-yellow",
-        smokeOut.includes("\x1b[38;2;231;169;70m >  生产"),
+        smokeOut.includes(smokeSgr("yellow") + " >  生产"),
         "question option focus row should be yellow",
       );
       ok(
@@ -356,7 +366,7 @@ if (smoke) {
       ok(
         "policy-badge-ask",
         badgePlain.includes("policy ask auto") &&
-          smokeOut.includes("\x1b[38;2;132;231;70mask"),
+          smokeOut.includes(smokeSgr("green") + "ask"),
         "no ask policy row (green ask) in frames",
       );
       typeLine("/policy never");
@@ -377,7 +387,7 @@ if (smoke) {
       );
       ok(
         "policy-badge-auto",
-        smokeOut.includes("\x1b[38;2;231;70;132mauto"),
+        smokeOut.includes(smokeSgr("red") + "auto"),
         "no auto policy row (red auto) after /policy never in frames",
       );
       // P3：/preset 命令 + /jobs 面板 + 状态栏预设/任务徽标（mock 已实现新写路径）
