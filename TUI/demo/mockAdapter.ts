@@ -360,6 +360,31 @@ export class MockDshAdapter implements DshAdapter {
         170,
       ),
     );
+    // 0.1.2-rc.1：会话内生效模型选择事件（state.modelBySession 消费；状态栏 model 显示仍走服务）
+    this.timers.push(
+      setTimeout(
+        () =>
+          this.emit({
+            type: "model-selection",
+            sessionId: this.sessionId,
+            provider: "deepseek",
+            model: "deepseek-chat",
+          }),
+        175,
+      ),
+    );
+    // 官方会话标题事件（状态栏 <title> 占位 → 实际标题）
+    this.timers.push(
+      setTimeout(
+        () =>
+          this.emit({
+            type: "session-title",
+            sessionId: this.sessionId,
+            title: "升级适配 · 0.1.2-rc.1",
+          }),
+        200,
+      ),
+    );
   }
 
   private scheduleReply(): void {
@@ -490,6 +515,12 @@ export class MockDshAdapter implements DshAdapter {
             sessionId: this.sessionId,
             ok: true,
             detail: "总用量 3 目录，代码 2.4k 行",
+            // 0.1.2-rc.1：工具回附 before/after 全文 meta → 行尾追加 diff 摘要 (+N/-M)
+            meta: {
+              before: "src/app/index.ts\nsrc/app/state.ts",
+              after:
+                "src/app/index.ts\nsrc/app/state.ts\nsrc/app/layout/tool-line.ts",
+            },
           });
           this.emit({
             type: "step",
@@ -642,6 +673,8 @@ export class MockDshAdapter implements DshAdapter {
             text: "已压缩 182 条历史消息",
             raw: {
               summary: [{ type: "text", text: "已压缩 182 条历史消息" }],
+              // P1：0.1.2-rc.1 compaction/summary.shadowedRange（SessionSeq 区间，透传展示）
+              shadowedRange: { start: 40, end: 220 },
             },
           });
           this.emit({
@@ -654,6 +687,13 @@ export class MockDshAdapter implements DshAdapter {
             type: "feedback",
             sessionId: this.sessionId,
             text: "很好用",
+          });
+          // 0.1.2-rc.1：assistant/message.interrupted 归一化 → muted notice
+          // （mock 无真实 adapter，直接模拟 dsh.ts 的输出结果以覆盖渲染）
+          this.emit({
+            type: "notice",
+            text: "（模型输出已中断）",
+            tone: "muted",
           });
         }
       }, sceneAt),

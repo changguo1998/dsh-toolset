@@ -239,8 +239,10 @@ if (smoke) {
       const badgePlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
       ok(
         "mode-badge",
-        badgePlain.includes("plan·ro·full"),
-        "no plan·ro·full mode badge in frames",
+        badgePlain.includes("plan off on") &&
+          badgePlain.includes("sandbox ro wr full") &&
+          badgePlain.includes("permission wr full"),
+        "no Mode block (plan/sandbox/permission) in status column frames",
       );
       ok(
         "step-header",
@@ -256,6 +258,21 @@ if (smoke) {
         "compaction-summary-toast",
         badgePlain.includes("压缩完成：已压缩 182 条历史消息"),
         "no compaction-summary toast in frames",
+      );
+      ok(
+        "tool-meta-diff",
+        badgePlain.includes("(+1/-0)"),
+        "no tool/result.meta diff summary in frames",
+      );
+      ok(
+        "session-title-banner",
+        badgePlain.includes("升级适配 · 0.1.2-rc.1"),
+        "no session-title in status bar frames",
+      );
+      ok(
+        "interrupted-notice",
+        badgePlain.includes("模型输出已中断"),
+        "no interrupted muted notice in frames",
       );
       typeLine("/goal");
       await sleep(300);
@@ -273,18 +290,43 @@ if (smoke) {
           panelPlain.includes("● 状态栏 goal 徽标") &&
           panelPlain.includes("✓ 模式徽标三合一") &&
           panelPlain.includes("○ 设计评审") &&
-          panelPlain.includes("…(+3行)") &&
-          panelPlain.includes("Jobs 1/2"),
-        "status column goal/todo/jobs elements absent from frames",
+          panelPlain.includes("…(+2行)"),
+        "status column goal/todo elements absent from frames",
       );
       await sleep(200);
 
+      // /permission 无参：目录 notice + 状态列 Mode 块列出可选值（宽容降级路径已由单测覆盖）
+      typeLine("/permission");
+      await sleep(400);
+      const permPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
+      ok(
+        "permission-catalog",
+        permPlain.includes("当前预设：") &&
+          permPlain.includes("可用预设：") &&
+          permPlain.includes("danger-full-access"),
+        "no /permission catalog notice in frames",
+      );
+      // /preset 无参：目录 notice（当前 research（默认 default）+ 可用列表）
+      typeLine("/preset");
+      await sleep(400);
+      const presNoArgPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
+      ok(
+        "preset-catalog",
+        presNoArgPlain.includes("当前预设：research（默认 default）") &&
+          presNoArgPlain.includes("可用预设：") &&
+          presNoArgPlain.includes("code-review"),
+        "no /preset catalog notice in frames",
+      );
+
       // C 阶段：/policy 审批策略。启动注入 approval/policy(ask) → 状态栏 ask 徽标；
       // `/policy never` → notice + mock 回发 approval/policy(never) → 徽标变 auto
+      // ask 生效时 policy 行文本恒为 "policy ask auto"，当前项以绿色高亮——
+      // 用 raw 帧的绿色 SGR（dark #84E746）断言 ask 为生效项（区分色而非文本）
       ok(
         "policy-badge-ask",
-        badgePlain.includes("full·ask"),
-        "no ask policy badge in frames",
+        badgePlain.includes("policy ask auto") &&
+          smokeOut.includes("\x1b[38;2;132;231;70mask"),
+        "no ask policy row (green ask) in frames",
       );
       typeLine("/policy never");
       await sleep(400);
@@ -304,8 +346,8 @@ if (smoke) {
       );
       ok(
         "policy-badge-auto",
-        policyPlain.includes("full·auto"),
-        "no auto policy badge in frames",
+        smokeOut.includes("\x1b[38;2;231;70;132mauto"),
+        "no auto policy row (red auto) after /policy never in frames",
       );
       // P3：/preset 命令 + /jobs 面板 + 状态栏预设/任务徽标（mock 已实现新写路径）
       typeLine("/preset code-review");
@@ -326,8 +368,10 @@ if (smoke) {
       );
       ok(
         "preset-badge",
-        presetPlain.includes("preset:code-review"),
-        "no preset badge in frames",
+        presetPlain.includes("preset") &&
+          presetPlain.includes("default research") &&
+          presetPlain.includes("code-review"),
+        "no preset catalog row in status column frames",
       );
       // /jobs 面板：打开 → refreshJobs 拉取 → 任务状态行（标题 + label + 徽标计数）；Esc 关闭
       typeLine("/jobs");
@@ -340,10 +384,13 @@ if (smoke) {
           jobsPlain.includes("✓ done build demo"),
         "jobs panel rows absent from frames",
       );
+      // 面板默认高亮 index0（subprocess-1 running）→ Enter 走 killJob 取消该任务
+      renderer.emitKey(key("enter"));
+      await sleep(300);
       ok(
-        "jobs-badge",
-        jobsPlain.includes("jobs 1"),
-        "no jobs count badge in frames",
+        "jobs-kill",
+        adapter.killJobCalls >= 1 && adapter.lastKillId === "subprocess-1",
+        "killJobCalls=" + adapter.killJobCalls + " last=" + adapter.lastKillId,
       );
       renderer.emitKey(key("escape"));
       await sleep(200);
