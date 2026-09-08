@@ -84,6 +84,8 @@ export interface CompactionSummaryPayloadLike {
   compactionId?: string;
   sourceCommandId?: string;
   summary?: ContentBlockLike[];
+  /** 0.1.2-rc.1 新增：本次摘要阴影替换的 log 区间（SessionSeq[start,end] 含端点） */
+  shadowedRange?: { start: number; end: number };
   shadowedSeqs?: number[];
   shadowedTokenCount?: number;
   provider?: string;
