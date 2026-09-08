@@ -342,13 +342,16 @@ test("/policy 无参：打开状态选项面板——空格预选、Enter 提交
   await tick();
   const f0 = frames(renderer);
   assert.ok(f0.includes("/policy 审批策略"), "面板标题: " + f0);
-  assert.ok(f0.includes("ask") && f0.includes("never"), "两项选项: " + f0);
+  assert.ok(
+    f0.includes("ask") && f0.includes("auto"),
+    "两项选项（ask/auto，与状态栏一致）: " + f0,
+  );
   assert.deepEqual(adapter.policies, [], "打开面板不直接生效（防误改）");
   // ↓ 到 never → 空格预选 → Enter 提交并关闭
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
   const f1 = frames(renderer);
-  assert.ok(f1.includes("* never"), "预选星号落在 never: " + f1);
+  assert.ok(f1.includes("* auto"), "预选星号落在 auto（提交值 never）: " + f1);
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await tick();
   assert.deepEqual(adapter.policies, ["never"], "Enter 提交预选");

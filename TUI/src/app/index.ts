@@ -1310,9 +1310,10 @@ export class App {
     this.openStatusPanel({
       kind: "policy",
       title: "/policy 审批策略",
+      // 展示名与状态列 Mode 块一致（ask/auto；never 提交值不变，展示用 auto）
       options: [
         { id: "ask", label: "ask", desc: "（每次工具调用询问）" },
-        { id: "never", label: "never", desc: "（工具调用自动放行）" },
+        { id: "never", label: "auto", desc: "（工具调用自动放行）" },
       ],
       index: 0,
       selected: current ?? null,
