@@ -206,12 +206,37 @@ if (smoke) {
         plain.includes("允许执行?"),
         "approval text absent from frames",
       );
+      // 面板按钮提示着色（raw 帧含 ANSI）：y 批准红、n 拒绝绿
+      ok(
+        "approval-y-red",
+        smokeOut.includes("\x1b[38;2;231;70;132m[y]批准"),
+        "approval [y] should be red",
+      );
+      ok(
+        "approval-n-green",
+        smokeOut.includes("\x1b[38;2;132;231;70m[n]拒绝"),
+        "approval [n] should be green",
+      );
+      // /model 选择面板选项着色：打开时当前模型选中行绿、down 后焦点行黄
+      // /model 选择面板选项着色：打开时当前模型选中行绿（焦点行黄见单测：
+      // mock 仅一个 provider 恒为选中，> 焦点行不会在冒烟中出现）
+      ok(
+        "model-selected-green",
+        smokeOut.includes("\x1b[38;2;132;231;70m* "),
+        "model picker selected row should be green",
+      );
 
       // 问答面板断言：提交整批（含第 2 题自定义 note）、取消走 cancelQuestion、Esc 不打断
       ok(
         "question-rendered",
         plain.includes("请回答（第"),
         "question panel title absent from frames",
+      );
+      // 问答面板选项着色：初始光标行（生产）黄
+      ok(
+        "question-option-focus-yellow",
+        smokeOut.includes("\x1b[38;2;231;169;70m >  生产"),
+        "question option focus row should be yellow",
       );
       ok(
         "question-submitted",
@@ -295,28 +320,32 @@ if (smoke) {
       );
       await sleep(200);
 
-      // /permission 无参：目录 notice + 状态列 Mode 块列出可选值（宽容降级路径已由单测覆盖）
+      // /permission 无参：读目录 → 打开状态选项面板（标题 + 可用预设选项）
       typeLine("/permission");
       await sleep(400);
       const permPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
       ok(
         "permission-catalog",
-        permPlain.includes("当前预设：") &&
-          permPlain.includes("可用预设：") &&
-          permPlain.includes("danger-full-access"),
-        "no /permission catalog notice in frames",
+        permPlain.includes("/permission 权限预设") &&
+          permPlain.includes("danger-full-access") &&
+          permPlain.includes("[Enter]提交"),
+        "no /permission status panel in frames",
       );
-      // /preset 无参：目录 notice（当前 research（默认 default）+ 可用列表）
+      renderer.emitKey(key("escape")); // 关闭面板
+      await sleep(100);
+      // /preset 无参：读目录 → 打开状态选项面板（标题 + agent 预设选项）
       typeLine("/preset");
       await sleep(400);
       const presNoArgPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
       ok(
         "preset-catalog",
-        presNoArgPlain.includes("当前预设：research（默认 default）") &&
-          presNoArgPlain.includes("可用预设：") &&
-          presNoArgPlain.includes("code-review"),
-        "no /preset catalog notice in frames",
+        presNoArgPlain.includes("/preset agent 预设") &&
+          presNoArgPlain.includes("code-review") &&
+          presNoArgPlain.includes("[Enter]提交"),
+        "no /preset status panel in frames",
       );
+      renderer.emitKey(key("escape")); // 关闭面板
+      await sleep(100);
 
       // C 阶段：/policy 审批策略。启动注入 approval/policy(ask) → 状态栏 ask 徽标；
       // `/policy never` → notice + mock 回发 approval/policy(never) → 徽标变 auto

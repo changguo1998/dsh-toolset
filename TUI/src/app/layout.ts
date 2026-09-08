@@ -27,6 +27,7 @@ import { renderModelPicker } from "./components/ModelPicker.ts";
 import { renderHistoryPanel } from "./components/HistoryPanel.ts";
 import { renderQuestionPanel } from "./components/QuestionPrompt.ts";
 import { renderJobsPanel, statusMark } from "./components/JobsPanel.ts";
+import { renderStatusPanel } from "./components/StatusPanel.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
 import { colorFor } from "../renderer/theme.ts";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
@@ -285,7 +286,7 @@ function foldDialogue(
   let cut = starts[starts.length - keep]!;
   while (cut > 0 && isConversationKind(rows[cut - 1]!.kind)) cut--;
   const marker: WrappedRow = {
-    text: colorFor(themeId, NOTICE_TONE_COLOR.muted)(DIALOGUE_MORE),
+    text: colorFor(themeId, NOTICE_TONE_COLOR.log)(DIALOGUE_MORE),
     kind: "plain",
     indent: 0,
   };
@@ -802,11 +803,13 @@ function buildTopRegion(
     state.messageGutter,
     state.themeId,
   );
-  const dialogueRows = foldDialogue(
-    dialogue,
-    state.themeId,
-    DIALOGUE_KEEP_REPLIES,
-  );
+  // 对话区折叠：跟随底部（未上滚）时仅保留最近 N 组回复（更早以灰占位）；
+  // 用户上滚查看历史时展开全量——否则被折叠丢弃的更早回复无法滚动到（翻页失效）。
+  // 折叠在窗口计算前统一进行，保证 scrollOffset 基于同一 rows 数组。
+  const dialogueRows =
+    state.scrollOffset > 0
+      ? dialogue
+      : foldDialogue(dialogue, state.themeId, DIALOGUE_KEEP_REPLIES);
   // 对话区获得剩余高度（活动区高度见上方 activityH 定义）
   const dialogueH = Math.max(
     0,
@@ -885,16 +888,34 @@ function buildTopRegion(
   // 底部交互区不再承载（footer 空白占位保持交互区高度稳定）；面板占满活动区可视
   // 行，活动区瞬态行（thinking/tool/notice）在面板存在时本帧让位
   const modalPanel: RenderLine[] = state.approval
-    ? renderApprovalPrompt(state.approval, activityH, contentW)
+    ? renderApprovalPrompt(state.approval, activityH, contentW, state.themeId)
     : state.question
-      ? renderQuestionPanel(state.question, activityH, contentW)
+      ? renderQuestionPanel(state.question, activityH, contentW, state.themeId)
       : state.picker
-        ? renderModelPicker({
-            picker: state.picker,
+        ? renderModelPicker(
+            {
+              picker: state.picker,
+              height: activityH,
+              width: contentW,
+            },
+            state.themeId,
+          )
+        : state.statusPanel
+        ? renderStatusPanel({
+            panel: state.statusPanel,
             height: activityH,
             width: contentW,
+            themeId: state.themeId,
           })
-        : [];
+        : state.jobsPanel
+          ? renderJobsPanel({
+              jobs: state.jobs,
+              index: state.jobsPanel.index,
+              height: activityH,
+              width: contentW,
+              themeId: state.themeId,
+            })
+          : [];
   const divFor = (rc: number): string => {
     // 活动区分隔行两端为面板角字：history=右下角 ┘、activity=右上角 ┐、status=竖线
     if (rc === dialogueH && activityH > 0) {
@@ -981,7 +1002,6 @@ function buildTopRegion(
 }
 
 export const USER_MIN_LEFT_GUTTER = 4;
-export const THINKING_INDENT = 2;
 export const THINKING_MORE = "...(更多思考已折叠)";
 /** 工具调用历史：仅展示最近 TOOL_MAX_GROUPS 个调用组，更早隐藏（折叠标记） */
 export const TOOL_MAX_GROUPS = 4;
@@ -1003,11 +1023,6 @@ export function assistantMaxBodyWidth(
   gutter: number = USER_MIN_LEFT_GUTTER,
 ): number {
   return Math.max(1, width - Math.min(gutter, Math.max(0, width - 1)));
-}
-
-/** 思考行缩进列数：顶部窄条 "│ " 之外再缩进 THINKING_INDENT（足够窄时收敛到 0） */
-function thinkingIndentOf(width: number): number {
-  return Math.min(THINKING_INDENT, Math.max(0, width - 2));
 }
 
 interface WrappedRow {
@@ -1038,10 +1053,10 @@ function wrapBufferLines(
   const toolRun: BufferLine[] = [];
   const flushToolRun = (): void => {
     if (toolRun.length === 0) return;
-    // 按调用分组：⚙ 起新组，后续 ✓/✗ 结果归入当前组
+    // 按调用分组：无符号前缀的行=工具调用行（起新组），后续 ✓/✗ 等结果归入当前组
     const groups: BufferLine[][] = [[]];
     for (const l of toolRun) {
-      if (l.text.startsWith("○") && groups[groups.length - 1]!.length > 0)
+      if (isToolCall(l.text) && groups[groups.length - 1]!.length > 0)
         groups.push([]);
       groups[groups.length - 1]!.push(l);
     }
@@ -1050,21 +1065,25 @@ function wrapBufferLines(
     const hasMore = groups.length > TOOL_MAX_GROUPS;
     if (hasMore) {
       activity.push({
-        text: colorFor(themeId, NOTICE_TONE_COLOR.muted)(TOOL_MORE),
+        text: colorFor(themeId, NOTICE_TONE_COLOR.log)(TOOL_MORE),
         kind: "tool",
         indent: 0,
       });
     }
     for (let gi = 0; gi < visible.length; gi++) {
       if (gi > 0) activity.push({ text: "", kind: "tool", indent: 0 }); // 组间空行
-      for (const l of visible[gi]!) {
+      for (let li = 0; li < visible[gi]!.length; li++) {
+        const l = visible[gi]![li]!;
         const rows =
           l.text === "" ? [""] : wrapLine(l.text, Math.max(1, width));
-        // ✗ 由 tone 整体着红；⚙/✓ 前缀+工具名特殊着色（见 renderToolText）
+        // ✗ 由 tone 整体着红；组首调用行工具名染黄（renderToolNameLine），
+        // ✓ 结果行走 renderToolText，其余辅助行（⚑/↻/@…）保持默认
         for (const t of rows) {
           const text = l.tone
             ? colorFor(themeId, NOTICE_TONE_COLOR[l.tone])(t)
-            : renderToolText(t, themeId);
+            : li === 0 && isToolCall(l.text)
+              ? renderToolNameLine(t, themeId)
+              : renderToolText(t, themeId);
           activity.push({ text, kind: "tool", indent: 0 });
         }
       }
@@ -1078,10 +1097,15 @@ function wrapBufferLines(
       continue;
     }
     if (line.kind === "thinking") {
-      const indent = thinkingIndentOf(width);
-      const rows = wrapLine(line.text, Math.max(1, width - indent));
+      // 思考行左侧紫粗竖线（同正文左侧竖线风格，色区于已用的浅蓝回复/浅红输入）
+      const bar = colorFor(themeId, "brightMagenta")("┃");
+      const rows = wrapLine(line.text, Math.max(1, width - 1));
       for (const text of rows)
-        thinking.push({ text, kind: "thinking", indent });
+        thinking.push({
+          text: text === "" ? "" : bar + text,
+          kind: "thinking",
+          indent: 0,
+        });
       continue;
     }
     if (line.kind === "user") {
@@ -1172,21 +1196,21 @@ function wrapBufferLines(
       });
   }
   flushToolRun();
-  // 思考折叠 → 活动区
+  // 思考折叠 → 活动区。thinking 插到活动区头部（时序上早于工具/通知，见下注）：
+  // 工具/通知行 append 在循环中已先落 activity，兜底 flush 也先于此处；
+  // viewport 从尾部取最新可见行——保留思考后工具/通知（更新）仍优先显示，不被思考挤掉。
   if (thinking.length > 0) {
     const cap = Math.max(1, thinkingMaxLines);
     const hasMore = thinking.length > cap;
     const visible = thinking.slice(-(hasMore ? cap - 1 : cap));
     if (hasMore) {
       visible.unshift({
-        text: THINKING_MORE,
+        text: colorFor(themeId, "brightMagenta")("┃") + THINKING_MORE,
         kind: "thinking",
-        indent: thinkingIndentOf(width),
+        indent: 0,
       });
     }
-    for (const row of visible) {
-      activity.push({ text: row.text, kind: "thinking", indent: row.indent });
-    }
+    activity.unshift(...visible);
   }
   // 对话区：用户消息块与随后的答案之间空一行（纯布局展示，不写状态）
   const spaced: WrappedRow[] = [];
@@ -1264,31 +1288,48 @@ function colorModel(themeId: ThemeId, s: string): string {
     (effort ? colorFor(themeId, "gray")(effort) : "")
   );
 }
-/** notice/tool 行 tone → 着色名（error 红 / warn 黄 / muted 灰） */
+/** notice/tool 行 tone → 着色名（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿） */
 const NOTICE_TONE_COLOR: Record<NoticeTone, ColorName> = {
-  error: "red",
+  log: "gray",
+  info: "blue",
   warn: "yellow",
-  muted: "gray",
+  error: "red",
+  success: "green",
 };
 
 /** 工具行前缀着色：○ 前缀黄（运行中）、工具名黄；✓ 前缀绿；✗/续行原样（✗ 由 tone 整体着红） */
 function renderToolText(text: string, themeId: ThemeId): string {
-  if (text.startsWith("○ ")) {
-    const rest = text.slice(2);
-    const sp = rest.indexOf(" ");
-    const name = sp < 0 ? rest : rest.slice(0, sp);
-    const summary = sp < 0 ? "" : rest.slice(sp); // 含前导空格
-    return (
-      colorFor(themeId, "yellow")("○") +
-      " " +
-      colorFor(themeId, "yellow")(name) +
-      summary
-    );
-  }
   if (text.startsWith("✓ ")) {
     return colorFor(themeId, "green")("✓") + " " + text.slice(2);
   }
   return text;
+}
+
+/** 工具行分组判定：无状态符号前缀的行=工具调用（新组起点）。
+ * 前缀集与 tool-line.ts 各辅助行对齐（✓/✗/↻/⚑/⤷/↩//>/⇥/⌗/@/step） */
+const TOOL_STATUS_PREFIXES = [
+  "✓ ",
+  "✗ ",
+  "↻ ",
+  "⚑ ",
+  "⤷ ",
+  "↩ ",
+  "/> ",
+  "⇥ ",
+  "⌗ ",
+  "@ ",
+  "step ",
+];
+
+function isToolCall(text: string): boolean {
+  return !TOOL_STATUS_PREFIXES.some((p) => text.startsWith(p));
+}
+
+/** 工具调用行渲染：首词（工具名）染黄，其余原色（无前缀图标） */
+function renderToolNameLine(text: string, themeId: ThemeId): string {
+  const sp = text.indexOf(" ");
+  if (sp < 0) return colorFor(themeId, "yellow")(text);
+  return colorFor(themeId, "yellow")(text.slice(0, sp)) + text.slice(sp);
 }
 
 /** token 数 → 紧凑缩写（k 千 / M 百万，1 位小数，如 12.4k / 1.5M） */
@@ -1572,13 +1613,19 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const question = state.question;
   const history = state.history;
   const jobsPanel = state.jobsPanel;
+  const statusPanel = state.statusPanel;
   // 顶部面板（对话/活动/状态列）只读当前活跃会话字段
   const { goal, todos, mode, policy, preset } = activeSessionFields(state);
   const fullWidth = Math.max(1, size.cols);
   // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
   // 按键提示区仅输入态存在（审批/问答/选择/历史面板自带按键提示），与输入区之间不画横线
   const normalInput =
-    !showApproval && !question && !picker && !history && !jobsPanel;
+    !showApproval &&
+    !question &&
+    !picker &&
+    !statusPanel &&
+    !history &&
+    !jobsPanel;
   const statusLines = renderStatusLine(
     state.systemStatus,
     state.themeId,
@@ -1612,9 +1659,9 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   );
 
   let footerLines: RenderLine[];
-  // 审批/问答/模型选择面板已上移到流输出（活动区）窗口显示，底部交互区以空白
-  // 占位（保持交互区高度稳定不跳变）；历史/任务等浏览面板仍在底部渲染
-  if (showApproval || question || picker) {
+  // 审批/问答/模型选择/状态选项/任务面板已上移到流输出（活动区）窗口显示，
+  // 底部交互区以空白占位（保持交互区高度稳定不跳变）；历史面板仍在底部渲染
+  if (showApproval || question || picker || statusPanel || jobsPanel) {
     footerLines = Array.from({ length: metrics.footerHeight }, () => ({
       text: " ".repeat(fullWidth),
     }));
@@ -1623,14 +1670,6 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
       history,
       height: metrics.footerHeight,
       width: fullWidth,
-    });
-  } else if (jobsPanel) {
-    footerLines = renderJobsPanel({
-      jobs: state.jobs,
-      index: jobsPanel.index,
-      height: metrics.footerHeight,
-      width: fullWidth,
-      themeId: state.themeId,
     });
   } else {
     // 两字符提示符：左字符 = 上次提交所用模式符号（MODE_SYMBOL[lastSubmitMode]，

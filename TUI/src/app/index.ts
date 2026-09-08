@@ -4,7 +4,12 @@
 // 处理按键、接收事件、重绘。
 
 import type { Renderer, KeyEvent } from "../renderer/index.ts";
-import type { AppState, InputMode, StateAction } from "./state.ts";
+import type {
+  AppState,
+  InputMode,
+  StateAction,
+  StatusPanelState,
+} from "./state.ts";
 import { initialState, reduceState } from "./state.ts";
 import type {
   DshAdapter,
@@ -14,6 +19,7 @@ import type {
   HistoryMessage,
   SessionSurfaceView,
 } from "./adapter/dsh.ts";
+import type { NoticeTone } from "./adapter/types.ts";
 import { parseSlashCommand } from "./adapter/dsh.ts";
 import {
   buildOsc52,
@@ -58,6 +64,8 @@ import { StatusTicker, type StatusQueries } from "./status.ts";
 const SLOW_TICK_MS = 50;
 /** streamCharsPerSecond 缺省/非法时的兜底流速(字符/秒) */
 const SLOW_DEFAULT_CPS = 120;
+/** Ctrl+C 双击退出窗口(毫秒)：窗口内第二次 Ctrl+C 退出程序 */
+const CTRL_C_DOUBLE_MS = 750;
 /** 收到正文回复(stream)后：剩余思考的加速流速(尽快进入正题) */
 const SLOW_STREAM_ARRIVED_CPS = 200;
 
@@ -131,6 +139,8 @@ export class App {
   private slowCps = SLOW_DEFAULT_CPS;
   /** 每 turn 思考的初始流速（配置值或默认）；正文加速后在下个 turn 回落 */
   private slowCpsBase = SLOW_DEFAULT_CPS;
+  /** 上次 Ctrl+C 时间戳；双击窗口内再次按下则退出（含输入为空时计数） */
+  private lastCtrlCAt = 0;
   /** turn-end 后置位：下一条 thinking 视为新 turn，先把流速回落到 slowCpsBase */
   private slowNewTurn = false;
   /** 当前 turn 是否已画分隔线(回合开始画；turn-end 清) */
@@ -589,6 +599,36 @@ export class App {
       return;
     }
 
+    // 通用状态选项面板（/policy /permission /preset）：↑/↓ 移动焦点、空格预选
+    // （星号，再按取消）、Enter 提交预选（无预选回退焦点）并关闭、Esc 取消
+    if (this.state.statusPanel) {
+      if (name === "up" || name === "down") {
+        this.apply((s) =>
+          reduceState(s, {
+            type: "status-panel-move",
+            delta: name === "down" ? 1 : -1,
+          }),
+        );
+        this.paint();
+        return;
+      }
+      if (name === " " || name === "space") {
+        this.apply((s) => reduceState(s, { type: "status-panel-select" }));
+        this.paint();
+        return;
+      }
+      if (name === "enter") {
+        void this.commitStatusPanel();
+        return;
+      }
+      if (name === "escape") {
+        this.apply((s) => reduceState(s, { type: "status-panel-close" }));
+        this.paint();
+        return;
+      }
+      return;
+    }
+
     // /jobs 任务面板：↑/↓ 移动高亮、Enter 取消高亮任务、Esc 关闭；其余按键吞掉
     if (this.state.jobsPanel) {
       if (name === "up") {
@@ -627,7 +667,7 @@ export class App {
           const rec = h.records[h.index];
           if (!rec) return;
           if (rec.live) {
-            this.notice("live 会话不可续（仅 persisted 会话可切换）");
+            this.notice("live 会话不可续（仅 persisted 会话可切换）", "warn");
             return;
           }
           void this.resumeToSession(rec.id);
@@ -683,10 +723,33 @@ export class App {
       return;
     }
 
+    // Ctrl+C：清空输入区（不发送）；750ms 双击窗口内再次 Ctrl+C 退出程序
+    // （输入为空时首次只计数不退出，第二次退出；输入非空时首次清空并计入）
+    if (ctrl && name === "c") {
+      const now = Date.now();
+      if (now - this.lastCtrlCAt <= CTRL_C_DOUBLE_MS) {
+        this.dispose();
+        return;
+      }
+      this.lastCtrlCAt = now;
+      if (this.state.inputText !== "") {
+        this.apply((s) =>
+          reduceState(s, { type: "input", text: "", cursor: 0 }),
+        );
+        this.paint();
+      }
+      return;
+    }
+
     switch (name) {
       case "escape":
-        // Esc：打断运行（agent 非 idle 时 interrupt；idle 无操作；picker 面板已在上方分支关闭）
-        if (this.state.agentStatus !== "idle") this.deps.adapter.interrupt();
+        // Esc：打断运行（agent 非 idle 时 interrupt；picker 面板已在上方分支关闭）。
+        // idle + 空输入：退出顶部面板焦点循环（有焦点 → 回到无焦点）
+        if (this.state.agentStatus !== "idle") {
+          this.deps.adapter.interrupt();
+        } else if (this.state.inputText === "" && this.state.focusedPanel) {
+          this.apply((s) => ({ ...s, focusedPanel: null }));
+        }
         break;
       case "tab":
         // Tab：仅输入区为空时循环切换顶部面板焦点（编辑输入时保留 Tab 不打断）
@@ -775,7 +838,7 @@ export class App {
           }
           break;
         }
-        // 可打印字符：插入输入框（Esc/Ctrl+C 不再触发退出；退出请用 /quit 或系统信号）
+        // 可打印字符：插入输入框（Esc/Ctrl+C 已在上方 Ctrl 分支处理，不落入此处）
         if (name.length === 1 && !ctrl) this.insertChar(name);
         break;
     }
@@ -925,7 +988,7 @@ export class App {
         return;
       case "goal":
         // /goal 不再打开面板：goal/todo 详情常驻右侧顶部状态列
-        this.notice("goal/todo 详情见右侧信息栏");
+        this.notice("goal/todo 详情见右侧信息栏", "info");
         return;
       case "policy":
         this.handlePolicyCommand(line);
@@ -963,12 +1026,12 @@ export class App {
       const catalog = await this.deps.adapter.modelCatalog();
       const resolved = resolveModelSpec(catalog, spec);
       if ("error" in resolved) {
-        this.notice(resolved.error);
+        this.notice(resolved.error, "error");
         return;
       }
       await this.applyModelSelection(resolved.selection);
     } catch (err) {
-      this.notice("model command failed: " + String(err));
+      this.notice("model command failed: " + String(err), "error");
     }
   }
 
@@ -977,7 +1040,7 @@ export class App {
     const cur = this.state.themeId;
     const decision = themeCommandDecision(line, cur);
     if (decision.kind === "usage") {
-      this.notice("usage: /theme [light|dark|toggle]");
+      this.notice("usage: /theme [light|dark|toggle]", "info");
       return;
     }
     const next = decision.theme;
@@ -986,14 +1049,14 @@ export class App {
       this.deps.renderer.setTheme(next);
       this.paint();
     }
-    this.notice(`theme: ${next} (${THEMES[next].name})`);
+    this.notice(`theme: ${next} (${THEMES[next].name})`, "success");
   }
 
   /** /session：打开历史会话面板（宿主未挂载会话查询服务时提示不可用） */
   private async openHistory(): Promise<void> {
     const list = this.deps.adapter.listSessions;
     if (!list) {
-      this.notice("历史会话服务不可用（宿主未挂载 sessionQuery）");
+      this.notice("历史会话服务不可用（宿主未挂载 sessionQuery）", "warn");
       return;
     }
     this.apply((s) => reduceState(s, { type: "history-open" }));
@@ -1040,7 +1103,7 @@ export class App {
     void this.openHistoryView; // 保留只读查看方法引用（list Enter 现走切换，需要时可恢复引出）
     const resumeTo = this.deps.adapter.resumeTo;
     if (!resumeTo) {
-      this.notice("会话切换不可用（宿主未配置会话持久化）");
+      this.notice("会话切换不可用（宿主未配置会话持久化）", "warn");
       return;
     }
     this.apply((s) => reduceState(s, { type: "history-resume", id }));
@@ -1083,7 +1146,7 @@ export class App {
           rows: surfaceToBuffer(view.messages),
         }),
       );
-      this.notice(`已切换到会话「${title}」`);
+      this.notice(`已切换到会话「${title}」`, "success");
     } catch (err) {
       if (this.disposed) return;
       this.apply((s) =>
@@ -1101,11 +1164,11 @@ export class App {
   private copyLastReply(): void {
     const text = lastAssistantText(this.state.buffer);
     if (!text) {
-      this.notice("没有可复制的模型回复");
+      this.notice("没有可复制的模型回复", "warn");
       return;
     }
     process.stdout.write(buildOsc52(text));
-    this.notice("已复制最后一条回复到剪贴板");
+    this.notice("已复制最后一条回复到剪贴板", "success");
   }
 
   /** 无参 /model：进入交互选择模式（当前模型行始终显示，不在候选目录中也补行） */
@@ -1114,6 +1177,7 @@ export class App {
     if (!init.ok) {
       this.notice(
         "no available models (llm service missing or no adapter registered)",
+        "warn",
       );
       return;
     }
@@ -1172,7 +1236,7 @@ export class App {
     try {
       await this.applyModelSelection(selection);
     } catch (err) {
-      this.notice("model command failed: " + String(err));
+      this.notice("model command failed: " + String(err), "error");
     }
   }
 
@@ -1182,7 +1246,7 @@ export class App {
     const plan = planModelSwitch(selection, catalog.current);
     if (plan.same) {
       const label = modelLabel(selection);
-      this.notice(`already on current model ${label}`);
+      this.notice(`already on current model ${label}`, "info");
       return;
     }
     const saved = await this.deps.adapter.setSessionModel(plan.selection);
@@ -1199,7 +1263,7 @@ export class App {
         status: { model: label, modelThinking: thinking },
       }),
     );
-    this.notice(`current model -> ${label}`);
+    this.notice(`current model -> ${label}`, "success");
   }
 
   /**
@@ -1213,7 +1277,7 @@ export class App {
       const adapter = this.deps.adapter;
       const setPolicy = adapter.setApprovalPolicy;
       if (!setPolicy) {
-        this.notice("审批策略服务不可用");
+        this.notice("审批策略服务不可用", "warn");
         return;
       }
       // SAFETY: adapter 方法体内依赖 this（approve/interrupt 等同构），必须接收者
@@ -1225,10 +1289,11 @@ export class App {
             policy === "ask"
               ? "审批策略：ask（每次工具调用询问）"
               : "审批策略：never（工具调用自动放行）",
+            "success",
           );
         })
         .catch(() => {
-          this.notice("审批策略服务不可用");
+          this.notice("审批策略服务不可用", "warn");
         });
     };
     if (arg === "ask" || arg === "never") {
@@ -1236,13 +1301,22 @@ export class App {
       return;
     }
     if (arg !== "") {
-      this.notice("用法：/policy [ask|never]");
+      this.notice("用法：/policy [ask|never]", "info");
       return;
     }
-    // 无参 toggle：取当前已知策略（approval/policy 事件回读）切换，未知按宿主默认 ask 为基准
+    // 无参 → 打开状态选项面板（空格预选、Enter 提交并关闭）；当前策略来自事件回读
     const sid = this.state.activeSessionId;
     const current = sid ? this.state.policyBySession[sid] : undefined;
-    applySet(current === "never" ? "ask" : "never");
+    this.openStatusPanel({
+      kind: "policy",
+      title: "/policy 审批策略",
+      options: [
+        { id: "ask", label: "ask", desc: "（每次工具调用询问）" },
+        { id: "never", label: "never", desc: "（工具调用自动放行）" },
+      ],
+      index: 0,
+      selected: current ?? null,
+    });
   }
 
   /**
@@ -1262,13 +1336,13 @@ export class App {
     }
     const cat = this.deps.adapter.permissionCatalog;
     if (!cat) {
-      this.notice("权限预设服务不可用");
+      this.notice("权限预设服务不可用", "warn");
       return;
     }
     void cat()
       .then((info) => {
         if (this.disposed || !info) {
-          if (!info) this.notice("权限预设服务不可用");
+          if (!info) this.notice("权限预设服务不可用", "warn");
           return;
         }
         // 同步目录进 state（状态列 Mode 块 permission 列出可选值）
@@ -1276,17 +1350,21 @@ export class App {
           reduceState(s, { type: "permission-catalog", names: info.names }),
         );
         this.paint();
-        const lines = ["当前预设：", "  " + info.current, "可用预设："];
-        for (const e of info.entries) {
-          lines.push(
-            "  " + e.name + (e.description ? " — " + e.description : ""),
-          );
-        }
-        if (info.entries.length === 0) lines.push("  (无)");
-        this.notice(lines.join("\n"));
+        // 打开状态选项面板：选项 = 可用预设（空格预选、Enter 提交转发宿主）
+        this.openStatusPanel({
+          kind: "permission",
+          title: "/permission 权限预设",
+          options: info.entries.map((e) => ({
+            id: e.name,
+            label: e.name,
+            ...(e.description ? { desc: e.description } : {}),
+          })),
+          index: 0,
+          selected: info.current === "" ? null : info.current,
+        });
       })
       .catch(() => {
-        this.notice("权限预设服务不可用");
+        this.notice("权限预设服务不可用", "warn");
       });
   }
 
@@ -1300,14 +1378,14 @@ export class App {
     const catalog = adapter.agentPresetCatalog;
     if (arg === "") {
       if (!catalog) {
-        this.notice("agent 预设服务不可用");
+        this.notice("agent 预设服务不可用", "warn");
         return;
       }
       void catalog()
         .then((info) => {
           if (this.disposed) return;
           if (!info) {
-            this.notice("agent 预设服务不可用");
+            this.notice("agent 预设服务不可用", "warn");
             return;
           }
           // 同步目录进 state（状态列 Mode 块 preset 列出可选值）
@@ -1318,42 +1396,106 @@ export class App {
             }),
           );
           this.paint();
-          const lines = [
-            "当前预设：" +
-              (info.current === "" ? "（未选中）" : info.current) +
-              (info.defaultId === "" ? "" : "（默认 " + info.defaultId + "）"),
-            "可用预设：",
-          ];
-          for (const p of info.presets) {
-            lines.push(
-              "  " + p.name + (p.description ? " — " + p.description : ""),
-            );
-          }
-          if (info.presets.length === 0) lines.push("  (无)");
-          this.notice(lines.join("\n"));
+          // 打开状态选项面板：选项 = agent 预设（空格预选、Enter 提交 selectAgentPreset）
+          this.openStatusPanel({
+            kind: "preset",
+            title: "/preset agent 预设",
+            options: info.presets.map((pp) => ({
+              id: pp.id,
+              label: pp.name,
+              ...(pp.description ? { desc: pp.description } : {}),
+            })),
+            index: 0,
+            selected: info.current === "" ? null : info.current,
+          });
         })
         .catch(() => {
-          this.notice("agent 预设服务不可用");
+          this.notice("agent 预设服务不可用", "warn");
         });
       return;
     }
     const select = adapter.selectAgentPreset;
     if (!select) {
-      this.notice("agent 预设服务不可用");
+      this.notice("agent 预设服务不可用", "warn");
       return;
     }
     void select
       .call(adapter, arg)
       .then(() => {
-        this.notice("agent 预设：已切换为 " + arg);
+        this.notice("agent 预设：已切换为 " + arg, "success");
       })
       .catch(() => {
-        this.notice("agent 预设服务不可用：" + arg);
+        this.notice("agent 预设服务不可用：" + arg, "warn");
       });
+  }
+
+  /** 打开通用状态选项面板（/policy /permission /preset 无参路径） */
+  private openStatusPanel(panel: StatusPanelState): void {
+    if (this.disposed) return;
+    this.apply((s) => reduceState(s, { type: "status-panel-open", panel }));
+    this.paint();
+  }
+
+  /** 提交状态面板：取预选（无预选回退焦点行）→ 按命令写路径应用 → 关闭面板 */
+  private async commitStatusPanel(): Promise<void> {
+    const panel = this.state.statusPanel;
+    if (!panel) return;
+    const id = panel.selected ?? panel.options[panel.index]?.id ?? null;
+    // 先关面板再应用（“提交修改后直接关闭”）
+    this.apply((s) => reduceState(s, { type: "status-panel-close" }));
+    this.paint();
+    if (!id) return;
+    const adapter = this.deps.adapter;
+    if (panel.kind === "policy") {
+      const setPolicy = adapter.setApprovalPolicy;
+      if (!setPolicy) {
+        this.notice("审批策略服务不可用", "warn");
+        return;
+      }
+      // SAFETY: 接收者绑定调用（见 handlePolicyCommand 注释）
+      try {
+        await setPolicy.call(adapter, id as "ask" | "never");
+        this.notice(
+          id === "ask"
+            ? "审批策略：ask（每次工具调用询问）"
+            : "审批策略：never（工具调用自动放行）",
+          "success",
+        );
+      } catch {
+        this.notice("审批策略服务不可用", "warn");
+      }
+      return;
+    }
+    if (panel.kind === "permission") {
+      // 权限预设：转发宿主 /permission（宿主校验预设名 + 写路径）
+      adapter.runCommand(
+        "/permission " + id,
+        this.state.activeSessionId ?? undefined,
+      );
+      return;
+    }
+    // preset：selectAgentPreset（宿主缺失 fail-safe）
+    const select = adapter.selectAgentPreset;
+    if (!select) {
+      this.notice("agent 预设服务不可用", "warn");
+      return;
+    }
+    try {
+      await select.call(adapter, id);
+      this.notice("agent 预设：已切换为 " + id, "success");
+    } catch {
+      this.notice("agent 预设服务不可用：" + id, "warn");
+    }
   }
 
   /** /jobs：打开后台任务面板（复用既有面板模式），随后经 refreshJobs 拉取全量快照 */
   private handleJobsCommand(): void {
+    const refresh = this.deps.adapter.refreshJobs;
+    if (!refresh) {
+      // 宿主未挂载 ctx.jobs：不开空面板（面板后置活动区、会盖住 hint），仅提示
+      this.notice("jobs 服务不可用", "warn");
+      return;
+    }
     this.apply((s) => {
       let next = s;
       if (next.jobsPanel) {
@@ -1366,13 +1508,8 @@ export class App {
       return next;
     });
     this.paint();
-    const refresh = this.deps.adapter.refreshJobs;
-    if (!refresh) {
-      this.notice("jobs 服务不可用");
-      return;
-    }
     void refresh.call(this.deps.adapter).catch(() => {
-      this.notice("jobs 服务不可用");
+      this.notice("jobs 服务不可用", "warn");
     });
   }
 
@@ -1381,21 +1518,23 @@ export class App {
     const adapter = this.deps.adapter;
     const kill = adapter.killJob;
     if (!kill) {
-      this.notice("jobs 服务不可用");
+      this.notice("jobs 服务不可用", "warn");
       return;
     }
     try {
       await kill.call(adapter, id);
-      this.notice("job " + id + " 取消请求已发送");
+      this.notice("job " + id + " 取消请求已发送", "success");
     } catch {
-      this.notice("jobs 服务不可用");
+      this.notice("jobs 服务不可用", "warn");
     }
   }
 
   /** 追加一条命令通知并重绘（/model 结果/错误统一入口） */
-  private notice(text: string): void {
+  private notice(text: string, tone?: NoticeTone): void {
     if (this.disposed) return;
-    this.apply((s) => reduceState(s, { type: "notice", text }));
+    this.apply((s) =>
+      reduceState(s, { type: "notice", text, ...(tone ? { tone } : {}) }),
+    );
     this.paint();
   }
 

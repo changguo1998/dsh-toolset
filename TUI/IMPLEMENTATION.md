@@ -93,26 +93,27 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 
 | DshEvent | reducer | 渲染 |
 | --- | --- | --- |
-| `tool-call {sessionId,name,summary}` | `appendToolLine(toolCallLine)` | 缓冲工具行 `⚙ <name> <summary>`（不进思考打字机队列） |
+| `tool-call {sessionId,name,summary}` | `appendToolLine(toolCallLine)` | 缓冲工具行 `<name> <summary>`（无图标前缀；不进思考打字机队列） |
 | `tool-result {sessionId,ok,detail}` | `appendToolLine(toolResultLine, ok?无:error)` | 缓冲工具行 `✓ <detail>`，失败红色 `✗ <detail>` |
 | `usage {input,output,cacheRead}` | 写入 `state.usage` | 状态栏 contextLen `ctx 12.4k` / cacheHit `cache 92%`（k/M 缩写，无用量保持 `—`） |
 | `compaction {phase}` | `appendNotice` | toast `正在压缩上下文…` / `压缩完成` |
 | `retry {attempt,max,delayMs,code,message?}` | `appendNotice(tone:warn)` | 黄色 toast `重试 1/2 (1.5s): TRANSPORT 连接被重置` |
-| `notice {text,error?,tone?}` | `appendNotice(…,tone)` | tone 着色：error 红 / warn 黄 / muted 灰 |
+| `notice {text,error?,tone?}` | `appendNotice(…,tone)` | tone 五级着色：log 灰 / info 蓝 / warn 黄 / error 红 / success 绿 |
 | `goal-change {sessionId,operation,goal\|cleared,…}` | `goalBySession[sid]` 快照替换/clear 墓碑 | 顶部状态列详显（B1，按 sessionId 隔离；状态栏 `goal:<phase>` 徽标已于 2026-09-17 移除，由右侧状态列承接；同日 goal 块与 todo 块之间加点更少的虚线 `╌` 分隔；2026-09-07 `/goal` 面板移除、仅提示查看信息栏，状态列补 `Todo 完成数/总数` 标题与 `○`/`●`/`✓` 标记（待办空心圆/进行中实心圆、对号不划线、进行中全黄、续行缩进对齐、jobs 完成项正文灰+删除线）、新增 jobs 块、状态区上方分隔改单线 `─`；对话 turn 之间改点更少的虚线 `╌`（窗口间分隔统一实线：活动区分隔/状态区上下 2026-09-07 均 `─`，状态列块间仍 `╌`）；2026-09-07 默认焦点改 null：新输入/输出（内容推进 action：append/thinking/notice/tool/turn/compaction/jobs 等）后自动回无焦点，Tab 才进入循环；状态列折叠改「未溢出不折叠、溢出优先隐藏已完成」） |
 | `todo-write {sessionId,todos}` | `todoBySession[sid]` 全量替换 | 状态栏 `todo n/m` 计数（进行中/共）（B1） |
-| `mode {sessionId,kind,value}` | `modeBySession[sid]` 三合一 | 状态列 Mode 块：各项以竖线 ` | ` 连续排布、放不下折行（折行处不加竖线），属性名默认前景、未生效值灰、生效项强调色（三档 ro/wr/full、目录外自定义洋红），Mode↔Goal 虚线分隔（2026-09-07 由状态栏迁入；见 DESIGN 渲染语义）（B2） |
+| `mode {sessionId,kind,value}` | `modeBySession[sid]` 三合一 | 状态列 Mode 块：各项以竖线 `|` 连续排布、放不下折行（折行处不加竖线），属性名默认前景、未生效值灰、生效项强调色（三档 ro/wr/full、目录外自定义洋红），Mode↔Goal 虚线分隔（2026-09-07 由状态栏迁入；见 DESIGN 渲染语义）（B2） |
 | `step {sessionId,turn,step,phase}` | `stepGroup{sessionId,step,headerEmitted}` | 工具行分组头 `step N`（无工具 step 静默；跨会话隔离）（B3） |
 | `subagent {sessionId,label,mode}` | `appendToolLine(subagentLine)` | 缓冲行 `@ <label> <os\|ct>` append-only（B4） |
 | `compaction-summary {sessionId,text,raw}` | `compactionBySession[sid]`（最近一条）+ `appendNotice` | toast `压缩完成：<text 首行>`（空摘要占位「压缩完成（无摘要）」）（B5） |
 | `approval-policy {sessionId,policy}` | `policyBySession[sid]` latest-wins | 状态列 Mode 块 `policy ask auto` 行，生效项 ask 绿 / auto 红（2026-09-07 由状态栏迁入；源=宿主 `approval/policy` 事件）（C） |
 | `permission-catalog {names}` / `agent-preset-catalog {ids}` | `permissionOptions[]` / `presetOptions[]`（全局） | 权限/agent 预设目录可选项进 state：Mode 块 permission/preset 按目录列出（start 与 /permission /preset 命令刷新；目录外当前值补入高亮）（P4） |
 
-工具行文本由 `src/app/layout/tool-line.ts` 纯函数组装；summary/detail 启发式由 adapter（dsh.ts）在归一化时产出。真实 DSH PTY 冒烟脚本 `demo/smokePty.mjs`（`npm run smoke:pty`）用 `script` 分配 PTY、喂显式 bash 提示词，断言工具行 ⚙ 与状态栏 usage（ctx/cache）同现为成功。
+工具行文本由 `src/app/layout/tool-line.ts` 纯函数组装；summary/detail 启发式由 adapter（dsh.ts）在归一化时产出。真实 DSH PTY 冒烟脚本 `demo/smokePty.mjs`（`npm run smoke:pty`）用 `script` 分配 PTY、喂显式 bash 提示词，断言工具行与状态栏 usage（ctx/cache）同现为成功。
 
 ## /policy 审批策略（P2 阶段 C，2026-09-06）
 
-- **两态切换**：`routeSlashCommand("policy")` → `handlePolicyCommand`；`/policy ask|never` 显式设置、无参取 `state.policyBySession[sid]` 已知策略翻转（未知按宿主默认 ask 为基准翻到另一态）。写路径：`DshAdapter.setApprovalPolicy?(policy)` 可选方法，真实实现 `runtime.approval.setPolicy(activeAgent, policy)`（A0 已核实 = `user-approval` 的 `setApprovalPolicy` → `session.append('approval/policy', {policy})`，即写路径即事件源）；宿主未挂载或 adapter 缺失方法 → notice「审批策略服务不可用」fail-safe。
+- **两态切换**：`routeSlashCommand("policy")` → `handlePolicyCommand`；`/policy ask|never` 显式设置、**无参打开通用状态选项面板**（活动区窗口，↑/↓ 移动焦点、空格预选星号再按取消、Enter 提交预选（无预选回退焦点行）并关闭、Esc 取消；当前策略来自 `state.policyBySession[sid]` 事件回读）。写路径：`DshAdapter.setApprovalPolicy?(policy)` 可选方法，真实实现 `runtime.approval.setPolicy(activeAgent, policy)`（A0 已核实 = `user-approval` 的 `setApprovalPolicy` → `session.append('approval/policy', {policy})`，即写路径即事件源）；宿主未挂载或 adapter 缺失方法 → notice「审批策略服务不可用」fail-safe。
+- **通用状态选项面板（2026-09-24）**：`/policy`、`/permission`、`/preset` 无参统一打开 `statusPanel`（`src/app/components/StatusPanel.ts`，活动区窗口，与审批/问答/模型选择同区域）。状态：`StatusPanelState{kind,title,options[],index,selected}`（`state.statusPanel`）；reducer `status-panel-open/move/select/close`。提交路径：policy→`setApprovalPolicy`；permission→`runCommand("/permission <name>")` 转发宿主；preset→`selectAgentPreset`。goal/todo 保持只读右侧栏；plan/sandbox 无宿主写接口暂不开放面板。
 
 - **接收者绑定坑（2026-09-06 实测）**：`handlePolicyCommand` 最初把 `setApprovalPolicy` 提取为局部变量再 `setPolicy(policy)` 调用——方法体内 `this.xxx` 在未绑定调用下为 undefined，抛 TypeError → 异步方法变恒 rejected → 误报「服务不可用」且计数永远为 0。修复为 `setPolicy.call(adapter, policy)` 保留实例作 `this`（与 `approve`/`interrupt` 等既有接收者绑定调用一致）。
 

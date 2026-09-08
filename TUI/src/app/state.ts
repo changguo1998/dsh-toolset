@@ -163,6 +163,8 @@ export interface AppState {
   question: QuestionPanelState | null;
   /** /history 历史会话面板（只读浏览 + resume 切换）；null = 未打开 */
   history: HistoryPanelState | null;
+  /** 通用状态选项面板（/policy /permission /preset 无参打开；↑/↓ 选、空格预选、Enter 提交关闭） */
+  statusPanel: StatusPanelState | null;
   /** 当前会话标题（resume 后由 surface 首条用户消息生成；新会话为空，状态栏以 <title> 占位） */
   sessionTitle: string;
   /** P2：按 sessionId 隔离的 goal 状态（判别联合；完整保留原始载荷字段） */
@@ -205,6 +207,20 @@ export interface AppState {
 }
 
 /** /model 交互选择面板状态：三列列表（provider/model/effort）+ 高亮索引 */
+
+/** 通用状态选项面板（/policy /permission /preset）：单列选项 + 预选星号。
+ *  index=焦点行（>）；selected=预选值（空格写入/同值取消；Enter 提交它，回退焦点行）。 */
+export interface StatusPanelState {
+  kind: "policy" | "permission" | "preset";
+  /** 标题（命令名 + 说明） */
+  title: string;
+  /** 选项列表（id=提交值；label 显示名；desc 后缀说明） */
+  options: { id: string; label?: string; desc?: string }[];
+  /** 焦点行 */
+  index: number;
+  /** 预选（星号所指）；Enter 提交它，无预选回退焦点行 */
+  selected: string | null;
+}
 export interface PickerState {
   /** 去重后的 provider 列表 */
   providers: string[];
@@ -310,6 +326,7 @@ export function initialState(
     approval: null,
     picker: null,
     question: null,
+    statusPanel: null,
     history: null,
     agentStatus: "idle",
     themeId,
@@ -338,10 +355,10 @@ export function appendStream(
   text: string,
   kind: BufferKind = "assistant",
 ): AppState {
-  // 正文流到达=输出内容开始：先把遗留思考行清掉（推理瞬态让位于输出正文）。
-  const buffer = (state.buffer.length ? [...state.buffer] : []).filter(
-    (l) => kind === "thinking" || l.kind !== "thinking",
-  );
+  // 思考/正文已分属活动区与历史区两个窗口：正文 arrival 不再清思考——
+  // 遗留的「推理让位」清理已移除，思考保留显示到本 turn 结束，
+  // 由下回 turn-begin 统一清空（活动区瞬态整轮重置）。
+  const buffer = state.buffer.length ? [...state.buffer] : [];
   const parts = text.split("\n");
   const lastIndex = buffer.length - 1;
   const last = buffer[lastIndex];
@@ -425,9 +442,9 @@ export function appendStepToolLine(
 }
 
 /**
- * 追加模型思考行。复用流式续写(并入末尾 thinking 行)语义；正文(输出内容)到达时
- * 由 appendStream 清除(推理瞬态让位于输出)；turn-end 后思考保留显示，
- * 至下回合 turn-begin 由 appendTurnSeparator 统一清空(输出结束后不立即清)。
+ * 追加模型思考行。复用流式续写(并入末尾 thinking 行)语义；思考显示于活动区，
+ * 正文(历史区)到达不再清除——保留至 turn-end 后、下回合 turn-begin
+ * 由 appendTurnSeparator 统一清空(活动区瞬态整轮重置)。
  */
 export function appendThinking(state: AppState, text: string): AppState {
   return appendStream(state, text, "thinking");
@@ -588,6 +605,14 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         );
       case "picker-close":
         return { ...state, picker: null };
+      case "status-panel-open":
+        return { ...state, statusPanel: action.panel };
+      case "status-panel-move":
+        return moveStatusPanel(state, action);
+      case "status-panel-select":
+        return selectStatusPanel(state);
+      case "status-panel-close":
+        return { ...state, statusPanel: null };
       case "question-open":
         return openQuestion(state, action);
       case "question-move":
@@ -796,6 +821,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return appendNotice(
           state,
           action.phase === "start" ? "正在压缩上下文..." : "压缩完成",
+          false,
+          action.phase === "start" ? "info" : "success",
         );
       case "retry":
         // 模型重试 toast：第 attempt/max 次 + 退避 + 失败码（黄色，表进行中）
@@ -887,7 +914,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           : { ...state, stepGroup: null };
       case "subagent":
         // B4：subagent 行（`@ <label> <os|ct>`，append-only 不配对不折叠）入 buffer，不进模型历史
-        return appendToolLine(state, subagentLine(action.label, action.mode));
+        return appendToolLine(state, subagentLine(action.label, action.mode), "info");
       case "compaction-summary": {
         // B5：压缩摘要仅 toast（`压缩完成：<text 首行>`；空摘要给占位）+ 每会话保留最近一条原始载荷（raw，不改写）
         const toast = action.text
@@ -902,6 +929,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
             },
           },
           toast,
+          false,
+          "success",
         );
       }
       case "approval-policy":
@@ -922,13 +951,13 @@ export function reduceState(state: AppState, action: StateAction): AppState {
             state,
             "workflow 结束" + (action.detail ? " (" + action.detail + ")" : ""),
             false,
-            "muted",
+            "success",
           );
         }
         return appendToolLine(
           state,
           workflowLine(action.phase, action.label, action.detail),
-          action.phase === "agent-end" ? "muted" : undefined,
+          action.phase === "agent-end" ? "success" : "info",
         );
       case "command":
         // P3：命令执行流——run 低调灰行；done 成功静默（结果由命令自身 notice 呈现，避免重复），
@@ -941,7 +970,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
             "error",
           );
         }
-        return appendToolLine(state, commandRunLine(action.name), "muted");
+        return appendToolLine(state, commandRunLine(action.name), "log");
       case "code-dispatch":
         // P3：run_code 内子派发——start 灰行；settle 成功静默降噪（子调用多，避免刷屏），
         // 失败红行（✗ <name>）。
@@ -952,18 +981,19 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return appendToolLine(
           state,
           codeDispatchLine(action.name, action.summary),
+          "log",
         );
       case "hook":
         // P3：hooks 协议事件——invoked 灰行；result 按是否通过着色（失败红）。
         return appendToolLine(
           state,
           hookLine(action.phase, action.point, action.decision, action.ok),
-          action.phase === "result" && !action.ok ? "error" : "muted",
+          action.phase === "result" && !action.ok ? "error" : "log",
         );
       case "schedule":
         // P3：schedule 提醒——仅 dispatch 到点提示（create/delete 降噪，无用户可见价值）。
         if (action.operation !== "dispatch") return state;
-        return appendNotice(state, "计划提醒触发", false, "muted");
+        return appendNotice(state, "计划提醒触发", false, "log");
       case "compaction-prune":
         // P3：压缩剪枝计数 toast（co tool-result pruner 剪除的节点数/千分 token 启发值）
         return appendNotice(
@@ -974,14 +1004,14 @@ export function reduceState(state: AppState, action: StateAction): AppState {
             action.tokenCount +
             " tok)",
           false,
-          "muted",
+          "log",
         );
       case "feedback":
         // P3：feedback/record 确认（/feedback 命令落库后回读）
-        return appendNotice(state, "反馈已记录", false, "muted");
+        return appendNotice(state, "反馈已记录", false, "success");
       case "retry-started":
         // P3：llm/retry-started 启动行（↻ 灰行）——与 retry toast 互补：启动可见 + 失败原因 toast
-        return appendToolLine(state, retryStartedLine(action.attempt), "muted");
+        return appendToolLine(state, retryStartedLine(action.attempt), "log");
       case "model-selection":
         // 0.1.2-rc.1：会话内生效模型选择事件 → 落 state（状态栏模型徽标可选读取）
         return {
@@ -1255,6 +1285,10 @@ export type StateAction =
   | { type: "permission-catalog"; names: string[] }
   | { type: "agent-preset-catalog"; ids: string[] }
   | { type: "jobs-changed"; sessionId: string; jobs: JobInfo[] }
+  | { type: "status-panel-open"; panel: StatusPanelState }
+  | { type: "status-panel-move"; delta: number }
+  | { type: "status-panel-select" }
+  | { type: "status-panel-close" }
   | { type: "jobs-panel-open" }
   | { type: "jobs-panel-move"; focus: number; delta: number }
   | { type: "jobs-panel-close" }
@@ -1279,6 +1313,27 @@ function moveCursor(
     Math.min(state.inputCursor + action.delta, state.inputText.length),
   );
   return { ...state, inputCursor: cursor };
+}
+
+/** statusPanel 焦点移动：在选项内 clamp（↑/↓）。 */
+function moveStatusPanel(
+  state: AppState,
+  action: Extract<StateAction, { type: "status-panel-move" }>,
+): AppState {
+  const p = state.statusPanel;
+  if (!p || p.options.length === 0) return state;
+  const index = Math.max(0, Math.min(p.options.length - 1, p.index + action.delta));
+  if (index === p.index) return state;
+  return { ...state, statusPanel: { ...p, index } };
+}
+
+/** statusPanel 空格预选：焦点行 id 写入 selected（同值再按取消）；避免误提交。 */
+function selectStatusPanel(state: AppState): AppState {
+  const p = state.statusPanel;
+  if (!p || p.options.length === 0) return state;
+  const id = p.options[p.index]!.id;
+  const selected = p.selected === id ? null : id;
+  return { ...state, statusPanel: { ...p, selected } };
 }
 
 /**

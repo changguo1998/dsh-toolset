@@ -292,17 +292,22 @@ test("普通输入同时本地回显用户行且靠右，不依赖 adapter 回�
   );
 });
 
-test("thinking 事件显示临时思考，正文事件到达后消失", () => {
+test("thinking 事件显示思考，正文事件到达后保留(活动区)", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "thinking", sessionId: "s1", text: "正在分析" });
+  const thinkRow = renderer.lastRender.find((l) => l.includes("正在分析"));
+  assert.ok(thinkRow, "思考行可见");
   assert.ok(
-    renderer.lastRender.some((l) => histBody(l, 80).startsWith("  正在分析")),
-    "思考行仅缩进展示(无[思考]前缀)",
+    (thinkRow ?? "").includes("\x1b[38;2;199;135;239m┃"),
+    "思考行左缘紫色粗竖线(brightMagenta)",
   );
   adapter.push({ type: "stream", sessionId: "s1", text: "回答正文" });
   const joined = renderer.lastRender.join("\n");
   assert.ok(joined.includes("回答正文"));
-  assert.ok(!joined.includes("正在分析"));
+  assert.ok(
+    joined.includes("正在分析"),
+    "正文到达后思考保留（分属活动区/历史区）",
+  );
 });
 
 test("/help → 本地表(不经 sendMessage/runCommand)", () => {
@@ -391,6 +396,33 @@ test("审批弹窗打开时 Esc 不打断不关闭：仅 y/n 应答（审批模�
   assert.equal(adapter.interrupts, 0);
   const frame2 = renderer.lastRender.join("\n");
   assert.ok(!frame2.includes("允许执行?"), "y 后审批弹窗关闭");
+});
+
+test("审批弹窗标题 ⚠ 等待审批 着黄（warn/等待进行中）", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({ type: "approval", id: "a1", prompt: "允许执行?" });
+  assert.ok(
+    renderer.lastRender
+      .join("\n")
+      .includes("\x1b[38;2;231;169;70m ⚠ 等待审批 "),
+    "等待审批标题应着 warn 黄",
+  );
+});
+
+test("subagent 行 @ label os 按 info 蓝着色", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({
+    type: "subagent",
+    sessionId: "s1",
+    label: "researcher",
+    mode: "one-shot",
+  });
+  assert.ok(
+    renderer.lastRender
+      .join("\n")
+      .includes("\x1b[38;2;70;132;231m@ researcher os"),
+    "subagent 行应着 info 蓝",
+  );
 });
 
 test("模式键：空输入按 $ / / 切换模式且吞键，! 为普通字符；提交后回退 normal", () => {
@@ -597,13 +629,42 @@ test("Tab 占位提示进 UI 缓冲(不影响 sendMessage)", () => {
   assert.equal(renderer.renders > 1, true);
 });
 
-test("Ctrl+C 不再触发退出(close 不被调用)", () => {
+test("空输入时单次 Ctrl+C 不触发退出(close 不被调用)，后续仍可输入", () => {
   const { renderer, adapter } = makeApp();
   renderer.press({ name: "c", ctrl: true, meta: false, shift: false });
   assert.equal(renderer.closed, 0);
   assert.deepEqual(adapter.sent, []);
+  // 单次 Ctrl+C 未破坏输入：后续仍可正常输入发送
+  renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.sent, ["x"]);
 });
 
+test("Ctrl+C 清空输入区（不发送）；紧接再按一次退出", () => {
+  const { renderer, adapter } = makeApp();
+  for (const ch of "hi") {
+    renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
+  }
+  const inputRow = () =>
+    (renderer.lastRender.at(-4) ?? "").replace(/\x1b\[[0-9;]*m/g, "");
+  assert.ok(inputRow().includes("hi"), "输入区应显示 hi");
+  renderer.press({ name: "c", ctrl: true, meta: false, shift: false });
+  assert.ok(!inputRow().includes("hi"), "Ctrl+C 应清空输入区");
+  assert.equal(renderer.closed, 0);
+  assert.deepEqual(adapter.sent, []);
+  // 750ms 双击窗口内第二次 Ctrl+C → 退出
+  renderer.press({ name: "c", ctrl: true, meta: false, shift: false });
+  assert.equal(renderer.closed, 1);
+  assert.deepEqual(adapter.sent, []);
+});
+
+test("空输入双击 Ctrl+C 退出", () => {
+  const { renderer, adapter } = makeApp();
+  renderer.press({ name: "c", ctrl: true, meta: false, shift: false });
+  renderer.press({ name: "c", ctrl: true, meta: false, shift: false });
+  assert.equal(renderer.closed, 1);
+  assert.deepEqual(adapter.sent, []);
+});
 test("未知 /xxx → adapter.runCommand(fail-close 不经 sendMessage)", () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/plan 明天");
@@ -1086,6 +1147,24 @@ test("/theme 非法参数 → notice usage,不调用 renderer.setTheme", () => {
     renderer.lastRender.join("\n").includes("usage: /theme"),
     "应有 usage 提示，实际:\n" + renderer.lastRender.join("\n"),
   );
+  // usage 提示按 info tone → 正常蓝
+  assert.ok(
+    renderer.lastRender
+      .join("\n")
+      .includes("\x1b[38;2;70;132;231musage: /theme"),
+    "usage notice 应着 info 蓝",
+  );
+});
+
+test("App 本地 notice 按语义 tone 着色（/theme 成功 → success 绿）", () => {
+  const { renderer } = makeApp();
+  typeAndEnter(renderer, "/theme light");
+  assert.ok(
+    renderer.lastRender
+      .join("\n")
+      .includes("\x1b[38;2;80;167;78mtheme: light"),
+    "切换成功 notice 应着 success 绿（light 主题色板）",
+  );
 });
 
 test("App initialTheme 非法值回落 dark(外部配置健壮性)", () => {
@@ -1164,7 +1243,7 @@ test("slowStream=true：thinking 渐进、正文到后剩余思考加速放完�
     mock.timers.tick(100);
     frame = renderer.lastRender.join("\n");
     assert.ok(frame.includes("正文回复"), "思考放完后正文即时显示");
-    assert.ok(!frame.includes(think), "正文接管后 thinking 行被清除");
+    assert.ok(frame.includes(think), "正文接管后 thinking 行保留（活动区）");
     app.dispose();
   });
 });
@@ -1603,6 +1682,30 @@ test("问答面板：plan-review 单题以计划卡片呈现，hints 只显示�
   assert.deepEqual(adapter.answeredQuestions[0]!.answer.answers, [
     { id: "p1", selected: ["批准"] },
   ]);
+  app.dispose();
+});
+
+test("问答面板：选项按状态着色——光标行黄、已选行绿", () => {
+  const { app, renderer, adapter } = makeApp();
+  pushQuestion(adapter);
+  const frame = (): string => renderer.lastRender.join("\n");
+  // 光标默认在选项 0（生产）→ warn 黄
+  assert.ok(
+    frame().includes("\x1b[38;2;231;169;70m >  生产"),
+    "光标行应着 warn 黄",
+  );
+  // 空格选中「生产」→ 光标+已选仍黄（光标优先）
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  assert.ok(
+    frame().includes("\x1b[38;2;231;169;70m >* 生产"),
+    "光标+已选行着黄",
+  );
+  // 下移光标到「测试」→「生产」变已选非光标行 → success 绿
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  assert.ok(
+    frame().includes("\x1b[38;2;132;231;70m  * 生产"),
+    "已选非光标行应着 success 绿",
+  );
   app.dispose();
 });
 
@@ -2228,7 +2331,7 @@ test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC5
 // ===== 阶段 2：工具行 / usage 状态栏 / retry+compaction toast / notice tone 渲染 =====
 
 // 颜色断言用 dark 主题 24bit 前景码：红 #E74684 / 黄 #E7A946 / 灰 #434343
-test("tool-call → 缓冲出现工具行 ○ <name> <summary>", () => {
+test("tool-call → 缓冲出现工具行 <name> <summary>（无图标前缀）", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({
     type: "tool-call",
@@ -2240,8 +2343,8 @@ test("tool-call → 缓冲出现工具行 ○ <name> <summary>", () => {
     l.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   assert.ok(
-    plain.some((l) => l.includes("○ bash ls -la src/app")),
-    "工具调用行含 ○ <name> <summary>",
+    plain.some((l) => l.includes("bash ls -la src/app")),
+    "工具调用行含 <name> <summary>",
   );
 });
 
@@ -2269,15 +2372,19 @@ test("tool-result 成功 → ✓ <detail>；失败 → 红色 ✗ <detail>", () 
   );
 });
 
-test("notice tone → 红/黄/灰对应前景着色", () => {
+test("notice tone → 灰/蓝/黄/红/绿五级着色", () => {
   const { renderer, adapter } = makeApp();
-  adapter.push({ type: "notice", text: "出错", error: true, tone: "error" });
+  adapter.push({ type: "notice", text: "日志", tone: "log" });
+  adapter.push({ type: "notice", text: "提示", tone: "info" });
   adapter.push({ type: "notice", text: "重试提示", tone: "warn" });
-  adapter.push({ type: "notice", text: "已删除", tone: "muted" });
+  adapter.push({ type: "notice", text: "出错", error: true, tone: "error" });
+  adapter.push({ type: "notice", text: "完成", tone: "success" });
   const joined = renderer.lastRender.join("\n");
-  assert.ok(joined.includes("\x1b[38;2;231;70;132m出错"), "error tone → 红");
+  assert.ok(joined.includes("\x1b[38;2;120;120;120m日志"), "log tone → 灰");
+  assert.ok(joined.includes("\x1b[38;2;70;132;231m提示"), "info tone → 蓝");
   assert.ok(joined.includes("\x1b[38;2;231;169;70m重试提示"), "warn tone → 黄");
-  assert.ok(joined.includes("\x1b[38;2;120;120;120m已删除"), "muted tone → 灰");
+  assert.ok(joined.includes("\x1b[38;2;231;70;132m出错"), "error tone → 红");
+  assert.ok(joined.includes("\x1b[38;2;132;231;70m完成"), "success tone → 绿");
 });
 
 test("compaction/retry → toast notice 文本（retry warn 黄）", () => {
@@ -2461,6 +2568,47 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
   renderer.press(key("tab"));
   renderer.press(key("tab"));
   renderer.press(key("tab"));
+});
+
+test("无焦点空输入：↑ 上滚对话区，展开折叠的更早回复", () => {
+  const { app, renderer, adapter } = makeApp();
+  // 5 组回复（> DIALOGUE_KEEP_REPLIES=3）：stream（assistant）+ turn-end 分隔
+  for (let i = 1; i <= 5; i++) {
+    adapter.push({ type: "stream", sessionId: "s1", text: "回复正文行" + i });
+    adapter.push({ type: "turn-end" });
+  }
+  const joined = (): string => renderer.lastRender.join("\n");
+  // 跟随底部：折叠占位可见、最早回复不可见
+  assert.ok(joined().includes("更早回复已折叠"), "跟底显示折叠占位");
+  assert.ok(!joined().includes("回复正文行1"), "最早回复初始不可见");
+  // 无焦点（默认）空输入：↑ 上滚 → 展开全量（滚到顶后最早回复可见）
+  for (let i = 0; i < 12 && !joined().includes("回复正文行1"); i++) {
+    renderer.press({ name: "up", ctrl: false, meta: false, shift: false });
+  }
+  assert.ok(joined().includes("回复正文行1"), "无焦点 ↑ 应上滚展开更早回复");
+  assert.ok(!joined().includes("更早回复已折叠"), "上滚中不显示折叠占位");
+  app.dispose();
+});
+
+test("Esc（idle+空输入）退出顶部焦点循环：有焦点 → 无焦点", () => {
+  const { app, renderer } = makeApp();
+  const key = (name: string): KeyEvent => ({
+    name,
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+  // dark 主题 history 焦点：对话区左缘框格亮白（focusFrameColor=white 255;255;255）
+  // history 焦点：对话区左缘框格用 focusFrameColor（dark=白 #D8D8D8=216;216;216）；
+  // 无焦点：框格灰（120;120;120）
+  const hasFocusVBar = (): boolean =>
+    renderer.lastRender.some((l) => l.includes("\x1b[38;2;216;216;216m│"));
+  assert.ok(!hasFocusVBar(), "初始无焦点：框格灰");
+  renderer.press(key("tab")); // null → history
+  assert.ok(hasFocusVBar(), "Tab 后 history 焦点（左缘框格亮白）");
+  renderer.press(key("escape")); // idle + 空输入 → 无焦点
+  assert.ok(!hasFocusVBar(), "Esc 后回无焦点（框格灰）");
+  app.dispose();
 });
 
 test("Tab 仅在输入区为空时切换焦点；有输入时不响应（编辑不被打断）", () => {
