@@ -50,7 +50,7 @@ test("内嵌两套配色与 fff terminal-colortheme JSON 一致", () => {
       "#FFFFFF",
     ],
     background: "#030327",
-    foreground: "#787878", // L3 前景（bright[0]）
+    foreground: "#D8D8D8", // 正文基底=源文件值（=ansi[7]）
   });
   assert.deepEqual(THEMES.light, {
     name: "ffflight",
@@ -75,7 +75,7 @@ test("内嵌两套配色与 fff terminal-colortheme JSON 一致", () => {
       "#FFFFFF",
     ],
     background: "#DFE3F8",
-    foreground: "#555555", // L3 前景（bright[0]，仅次于纯黑）
+    foreground: "#555555", // 正文基底=源文件值（=bright[0]）
   });
   assert.equal(DEFAULT_THEME, "dark");
   assert.equal(normalizeThemeId("dark"), "dark");
@@ -106,9 +106,9 @@ test("ANSI 槽位映射:基础色 → ansi[],bright* → bright[],gray = ansi[7]
 });
 
 test("themeSgr 输出 truecolor SGR(前景/背景)", () => {
-  assert.equal(themeSgr(THEMES.dark, true), "\x1b[38;2;120;120;120m"); // L3 前景 #787878
+  assert.equal(themeSgr(THEMES.dark, true), "\x1b[38;2;216;216;216m"); // 基底前景 #D8D8D8
   assert.equal(themeSgr(THEMES.dark, false), "\x1b[48;2;3;3;39m");
-  assert.equal(themeSgr(THEMES.light, true), "\x1b[38;2;85;85;85m"); // L3 前景 #555555
+  assert.equal(themeSgr(THEMES.light, true), "\x1b[38;2;85;85;85m"); // 基底前景 #555555
   assert.equal(themeSgr(THEMES.light, false), "\x1b[48;2;223;227;248m");
 });
 
@@ -143,8 +143,8 @@ test("Screen.renderDelta 同样带主题基底色(ESC[K 以主题 bg 填充)", (
   screen.renderDelta(3, [{ text: "tail", style: { fg: "green" } }]);
   const out = w.out;
   assert.ok(
-    out.includes("\x1b[38;2;120;120;120m"),
-    "delta 应有 dark 基底前景 #787878",
+    out.includes("\x1b[38;2;216;216;216m"),
+    "delta 应有 dark 基底前景 #D8D8D8",
   );
   assert.ok(out.includes("\x1b[38;2;132;231;70m"), "delta 样式色按主题解析");
   assert.ok(out.includes("tail"));

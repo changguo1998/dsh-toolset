@@ -9,9 +9,9 @@
 | 语义 | ColorName | 槽位 | dark | light |
 | --- | --- | --- | --- | --- |
 | 强调（焦点窗口） | `focusFrameColor()` | 端头 | bright[7] `#FFFFFF` | ansi[0] `#000000` |
-| 前景（正文/边框） | `brightBlack` | bright[0] | `#787878` | `#555555` |
+| 边框 | `brightBlack` | bright[0] | `#787878` | `#555555` |
 | 次要（辅助文字） | `gray` | ansi[7] | `#D8D8D8` | `#F4F4F4` |
-| 基底前景（正文默认） | `theme.foreground` | bright[0] | `#787878` | `#555555` |
+| 基底前景（正文默认） | `theme.foreground` | 方案源文件值 | `#D8D8D8`（=ansi[7]） | `#555555`（=bright[0]） |
 
 ## 元素 → 语义
 
@@ -32,7 +32,7 @@
 | markdown：checkbox `[x]/[ ]`、blockquote `>`、未知行前缀、链接旁的说明 | markdown.ts |
 | 会话标题后缀（model 名 `/后缀`） | layout.ts |
 
-### 前景/边框（brightBlack = bright[0]）— 全部正确
+### 边框（brightBlack = bright[0]）— 全部正确
 
 | 元素 | 位置 |
 | --- | --- |
@@ -58,6 +58,7 @@
 ### 基底前景（正文默认，theme.foreground = bright[0]）— 正确
 
 对话/活动区普通文本、输入区 prompt、cache 徽标等未显式着色文字走 Screen 帧首铺设的基底前景。
+dark 下基底前景=#D8D8D8 与次要文字（gray=ansi[7]）同色——这是方案源文件的既有语义（dark 底上正文偏亮），TUI 内嵌跟随源文件取值，不作推导覆盖。
 
 ## 帧层实测（rows=24, cols=80）
 
@@ -74,10 +75,14 @@
 ## 修正记录
 
 | 处 | 问题 | 修正 |
-|---|---|---|
+| --- | --- | --- |
 | demo/main.ts 冒烟断言 | 硬编码 dark 主题彩色 SGR（red/green/yellow w 值 231;70;132 / 132;231;70 / 231;169;70），light 主题下 6 项断言误判 FAIL | 断言改按当前主题槽位动态取色（smokeSgr("red/green/yellow") → hexSgr(ansiNameToHex(theme, name))），dark/light 双主题冒烟均 35 PASS |
 
 > 该处属于冒烟脚本断言层面的颜色硬编码（产品 light 渲染本身正确），一并修复保证双主题机械验证可用。
+
+| 处 | 问题 | 修正 |
+| --- | --- | --- |
+| TUI 基底前景 THEMES.foreground | 灰度框架推导曾把 dark 基底前景改为 #787878，并要求方案源文件同步——违背「源文件为权威，TUI 内嵌跟随源文件」 | 撤销推导：TUI dark 基底前景恢复为源文件值 #D8D8D8（=ansi[7]）、light 保持 #555555（=bright[0]）；不再触碰 `~/fff` 源文件；断言随之适配（dark 允许基底/次要同色对 #D8D8D8） |
 
 ## 已知项目（非三语义，记录不改）
 

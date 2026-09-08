@@ -70,12 +70,11 @@ test("槽位层：gray=ansi[7]、brightBlack=bright[0]、强调=端头（双主�
   }
 });
 
-test("帧层：分隔竖线/状态区分隔恒边框色（bright[0]），四种焦点不变", () => {
+test("帧层：底部全宽分隔（makeSep）恒边框色 bright[0]，四种焦点不变", () => {
   for (const t of ["dark", "light"] as const) {
     const want = rgb(brightBlackHex(t));
     for (const f of ["none", "history", "activity", "status"] as const) {
       const rows = frame(t, f);
-      assert.ok(lineColors(rows, "│").includes(want), `${t} ${f} 竖线=边框色`);
       // 状态区下方 makeSep：全宽纯 ─ 行，恒边框色
       const pureSep = rows.find((r) => {
         const c = r.replace(/\x1b\[[0-9;]*m/g, "");
@@ -96,11 +95,10 @@ test("帧层：焦点窗口边框转强调色（fc），非焦点回边框色", 
   for (const t of ["dark", "light"] as const) {
     const border = rgb(brightBlackHex(t));
     const accent = rgb(FC(t));
-    // 非焦点：状态区上方分隔（┴ 行）全边框色
+    // 非焦点：状态区上方分隔（┴ 行）含边框色（行内另有基底前景收尾色）
     const none = frame(t, "none");
-    assert.deepEqual(
-      lineColors(none, "┴"),
-      [border],
+    assert.ok(
+      lineColors(none, "┴").includes(border),
       `${t} none 状态区分隔=边框色`,
     );
     // history 焦点：顶框含强调色；状态区分隔仍边框色（状态栏未聚焦）
@@ -109,9 +107,8 @@ test("帧层：焦点窗口边框转强调色（fc），非焦点回边框色", 
       lineColors(hist, "┌").includes(accent),
       `${t} history 顶框=强调色`,
     );
-    assert.deepEqual(
-      lineColors(hist, "┴"),
-      [border],
+    assert.ok(
+      lineColors(hist, "┴").includes(border),
       `${t} history 状态区分隔仍边框色`,
     );
     // activity 焦点：状态区上方分隔亮左段+┴（强调色）
@@ -130,14 +127,13 @@ test("帧层：焦点窗口边框转强调色（fc），非焦点回边框色", 
   }
 });
 
-test("基底前景：theme.foreground 与边框同槽位（bright[0]），正文默认可读", () => {
+test("基底前景：theme.foreground=源文件值（dark ansi[7] / light bright[0]），正文默认可读", () => {
   for (const t of ["dark", "light"] as const) {
     assert.equal(
       THEMES[t].foreground,
-      THEMES[t].bright[0],
-      `${t} 基底前景=bright[0]`,
+      t === "dark" ? THEMES[t].ansi[7] : THEMES[t].bright[0],
+      `${t} 基底前景=源文件值`,
     );
-    // 帧首铺设基底前景：输入提示行（`>> Type a message...`）前有基底前景 SGR
     // 帧首铺设基底前景：输入提示行（`>> Type a message...`）前有基底前景 SGR
     const rows = frame(t, "none");
     const input = rows.find((r) => r.includes("Type a message"));

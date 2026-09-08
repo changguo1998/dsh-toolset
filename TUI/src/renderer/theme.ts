@@ -5,7 +5,8 @@
 // 4 级灰度（dark 从黑往白数 / light 从白往黑数，计数起点相反；
 // 两主题同语义槽位色值不同，表述必须带槽位+双主题值）：
 //   次要文字 = ansi[7]（dark #D8D8D8 / light #F4F4F4）
-//   正文/边框 = bright[0]（dark #787878 / light #555555）
+//   边框 = bright[0]（dark #787878 / light #555555）
+//   正文基底 foreground = 方案源文件值：dark #D8D8D8（=ansi[7]）/ light #555555（=bright[0]）
 //   两端级：dark 黑端 ansi[0]=#434343、白端 bright[7]=#FFFFFF；
 //   light 白端 bright[7]=#FFFFFF、黑端 ansi[0]=#000000
 // 保证切换浅色主题后常规文本仍可读。
@@ -56,7 +57,7 @@ export const THEMES: Record<ThemeId, ColorTheme> = {
       "#FFFFFF",
     ],
     background: "#030327",
-    foreground: "#787878", // L3 前景色（bright[0]）
+    foreground: "#D8D8D8", // 正文基底=源文件值（dark；=ansi[7]）
   },
   light: {
     name: "ffflight",
@@ -81,7 +82,7 @@ export const THEMES: Record<ThemeId, ColorTheme> = {
       "#FFFFFF",
     ],
     background: "#DFE3F8",
-    foreground: "#555555", // L3 前景色（bright[0]，仅次于纯黑）
+    foreground: "#555555", // 正文基底=源文件值（light；=bright[0]）
   },
 };
 

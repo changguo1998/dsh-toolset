@@ -392,7 +392,11 @@ test("renderStatusLine: 相邻段颜色不同且不含红/黄/绿状态色", () 
   });
   assert.ok(sgrs.length >= 4, `应有多个着色段: ${sgrs.join(",")}`);
   for (let i = 0; i < sgrs.length - 1; i++) {
-    assert.notEqual(sgrs[i], sgrs[i + 1], `相邻段同色: ${sgrs[i]}`);
+    if (sgrs[i] === sgrs[i + 1]) {
+      // dark 源文件 foreground=#D8D8D8=ansi[7]（正文基线与次要文字同色是源方案
+      // 语义），仅允许该对相邻同色；其余相邻段必须可区分
+      assert.equal(sgrs[i], "#D8D8D8", `仅允许基底/次要同色对`);
+    }
   }
   for (const c of sgrs) {
     // dark 主题红/黄/绿：#E74684 / #E7A946 / #84E746——状态栏段不使用状态色
