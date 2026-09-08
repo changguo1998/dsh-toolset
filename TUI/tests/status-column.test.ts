@@ -314,7 +314,7 @@ test("renderStatusColumn: Mode 生效项着色强调、其余灰（段内至少�
     [...l.matchAll(/\x1b\[38;2;(?!255;255;255)[\d;]+m/g)].map((m) => m[0]);
   const sandbox = raw.find((l) => l.includes("sandbox"))!;
   const policy = raw.find((l) => l.includes("policy"))!;
-  const GRAY = "\x1b[38;2;216;216;216m"; // L2 灰色 #D8D8D8
+  const GRAY = "\x1b[38;2;120;120;120m"; // 次要灰 bright[0] #787878
   // sandbox 行：ro(生效绿)、wr/full(灰) —— 生效项与未生效灰不同色，且未生效项确为灰
   assert.ok(
     new Set(sgr(sandbox)).size >= 2,

@@ -1,11 +1,11 @@
 // tests/color-semantics.test.ts — 灰度三语义集中断言
 //
-// 语义契约（theme.ts 头注释）：
-//   次要文字  = gray        = ansi[7]   dark #D8D8D8 / light #F4F4F4
-//   前景/边框 = brightBlack = bright[0] dark #787878 / light #555555
-//   强调(焦点) = focusFrameColor()       dark bright[7] #FFFFFF / light ansi[0] #000000
+// 语义契约（theme.ts 头注释，用户手动指定 2026-09-17）：
+//   次要文字 = gray   = dark bright[0] #787878 / light ansi[7] #F4F4F4
+//   正文/边框 = border = dark ansi[7] #D8D8D8 / light bright[0] #555555
+//   强调(焦点) = focusFrameColor() dark bright[7] #FFFFFF / light ansi[0] #000000
 //
-// 层1：槽位映射；层2：buildFrame 双主题 × 四焦点帧层实测（边框恒前景、
+// 层1：槽位映射；层2：buildFrame 双主题 × 四焦点帧层实测（边框恒 L3、
 // 焦点窗口边框转强调色）。
 
 import { test } from "node:test";
@@ -41,8 +41,7 @@ function frame(
 const FC = (t: ThemeId): string =>
   // focusFrameColor(ColorName) → hex
   ansiNameToHex(THEMES[t], focusFrameColor(t))!;
-const brightBlackHex = (t: ThemeId): string =>
-  ansiNameToHex(THEMES[t], "brightBlack")!;
+const borderHex = (t: ThemeId): string => ansiNameToHex(THEMES[t], "border")!;
 const grayHex = (t: ThemeId): string => ansiNameToHex(THEMES[t], "gray")!;
 /** hex → "r;g;b" */
 const rgb = (hex: string): string => {
@@ -50,17 +49,17 @@ const rgb = (hex: string): string => {
   return [n >> 16, (n >> 8) & 0xff, n & 0xff].join(";");
 };
 
-test("槽位层：gray=ansi[7]、brightBlack=bright[0]、强调=端头（双主题）", () => {
+test("槽位层：gray=次要、border=正文/边框、强调=端头（双主题，用户指定）", () => {
   for (const t of ["dark", "light"] as const) {
     assert.equal(
       ansiNameToHex(THEMES[t], "gray"),
-      THEMES[t].ansi[7],
-      `${t} gray=ansi[7]`,
+      t === "dark" ? THEMES[t].bright[0] : THEMES[t].ansi[7],
+      `${t} gray=次要`,
     );
     assert.equal(
-      ansiNameToHex(THEMES[t], "brightBlack"),
-      THEMES[t].bright[0],
-      `${t} brightBlack=bright[0]`,
+      ansiNameToHex(THEMES[t], "border"),
+      t === "dark" ? THEMES[t].ansi[7] : THEMES[t].bright[0],
+      `${t} border=正文/边框`,
     );
     assert.equal(
       ansiNameToHex(THEMES[t], focusFrameColor(t)),
@@ -70,9 +69,9 @@ test("槽位层：gray=ansi[7]、brightBlack=bright[0]、强调=端头（双主�
   }
 });
 
-test("帧层：底部全宽分隔（makeSep）恒边框色 bright[0]，四种焦点不变", () => {
+test("帧层：底部全宽分隔（makeSep）恒边框色（border），四种焦点不变", () => {
   for (const t of ["dark", "light"] as const) {
-    const want = rgb(brightBlackHex(t));
+    const want = rgb(borderHex(t));
     for (const f of ["none", "history", "activity", "status"] as const) {
       const rows = frame(t, f);
       // 状态区下方 makeSep：全宽纯 ─ 行，恒边框色
@@ -93,7 +92,7 @@ test("帧层：底部全宽分隔（makeSep）恒边框色 bright[0]，四种焦
 
 test("帧层：焦点窗口边框转强调色（fc），非焦点回边框色", () => {
   for (const t of ["dark", "light"] as const) {
-    const border = rgb(brightBlackHex(t));
+    const border = rgb(borderHex(t));
     const accent = rgb(FC(t));
     // 非焦点：状态区上方分隔（┴ 行）含边框色（行内另有基底前景收尾色）
     const none = frame(t, "none");
@@ -145,13 +144,17 @@ test("基底前景：theme.foreground=源文件值（dark ansi[7] / light bright
   }
 });
 
-test("次要文字==ansi[7]：折叠/占位类走 gray 槽位（源码引用的 log tone）", () => {
-  // 折叠占位/状态空占位等全部经由 colorFor(..., "gray")(=ansi[7])，
+test("次要文字=gray 槽位：折叠/占位类走 gray（源码引用的 log tone），不等于边框/强调", () => {
+  // 折叠占位/状态空占位等全部经由 colorFor(..., "gray")，
   // 槽位断言已覆盖；此处再锚定「NOTICE_TONE_COLOR.log 指向 gray」防漂移。
   for (const t of ["dark", "light"] as const) {
-    assert.equal(grayHex(t), THEMES[t].ansi[7], `${t} 次要=ansi[7]`);
-    assert.notEqual(grayHex(t), brightBlackHex(t), `${t} 次要≠边框`);
+    assert.equal(
+      grayHex(t),
+      t === "dark" ? THEMES[t].bright[0] : THEMES[t].ansi[7],
+      `${t} 次要=gray`,
+    );
+    assert.notEqual(grayHex(t), borderHex(t), `${t} 次要≠边框`);
     assert.notEqual(grayHex(t), rgb(FC(t)), `${t} 次要≠强调`);
-    assert.notEqual(brightBlackHex(t), rgb(FC(t)), `${t} 边框≠强调`);
+    assert.notEqual(borderHex(t), rgb(FC(t)), `${t} 边框≠强调`);
   }
 });

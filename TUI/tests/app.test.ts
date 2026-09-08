@@ -2379,8 +2379,8 @@ test("notice tone → 灰/蓝/黄/红/绿五级着色", () => {
   adapter.push({ type: "notice", text: "完成", tone: "success" });
   const joined = renderer.lastRender.join("\n");
   assert.ok(
-    joined.includes("\x1b[38;2;216;216;216m日志"),
-    "log tone → 灰(L2 #D8D8D8)",
+    joined.includes("\x1b[38;2;120;120;120m日志"),
+    "log tone → 次要灰(L2 #787878)",
   );
   assert.ok(joined.includes("\x1b[38;2;70;132;231m提示"), "info tone → 蓝");
   assert.ok(joined.includes("\x1b[38;2;231;169;70m重试提示"), "warn tone → 黄");
@@ -2600,7 +2600,7 @@ test("Esc（idle+空输入）退出顶部焦点循环：有焦点 → 无焦点"
     shift: false,
   });
   // dark 主题 history 焦点：对话区左缘框格亮白（focusFrameColor=brightWhite #FFFFFF=255;255;255）；
-  // 无焦点：框格灰（L2 #D8D8D8=216;216;216）
+  // 无焦点：框格灰（L3 边框=dark ansi[7] #D8D8D8=216;216;216）
   const hasFocusVBar = (): boolean =>
     renderer.lastRender.some((l) => l.includes("\x1b[38;2;255;255;255m│"));
   assert.ok(!hasFocusVBar(), "初始无焦点：框格灰");

@@ -393,9 +393,9 @@ test("renderStatusLine: 相邻段颜色不同且不含红/黄/绿状态色", () 
   assert.ok(sgrs.length >= 4, `应有多个着色段: ${sgrs.join(",")}`);
   for (let i = 0; i < sgrs.length - 1; i++) {
     if (sgrs[i] === sgrs[i + 1]) {
-      // dark 源文件 foreground=#D8D8D8=ansi[7]（正文基线与次要文字同色是源方案
-      // 语义），仅允许该对相邻同色；其余相邻段必须可区分
-      assert.equal(sgrs[i], "#D8D8D8", `仅允许基底/次要同色对`);
+      // dark 基底 foreground=#D8D8D8=ansi[7]，边框 border 同取 ansi[7]
+      // （用户指定正文/边框同色），仅允许该对相邻同色；其余相邻段必须可区分
+      assert.equal(sgrs[i], "#D8D8D8", `仅允许基底/边框同色对`);
     }
   }
   for (const c of sgrs) {
@@ -1142,8 +1142,8 @@ test("buildFrame: notice tone 行在帧内灰/蓝/黄/红/绿着色", () => {
     .map((l) => l.text)
     .join("\n");
   assert.ok(
-    joined.includes("\x1b[38;2;216;216;216m日志"),
-    "log → 灰(L2 #D8D8D8)",
+    joined.includes("\x1b[38;2;120;120;120m日志"),
+    "log → 次要灰(L2 #787878)",
   );
   assert.ok(joined.includes("\x1b[38;2;70;132;231m提示"), "info → 蓝");
   assert.ok(joined.includes("\x1b[38;2;231;169;70m黄"), "warn → 黄");

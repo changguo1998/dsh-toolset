@@ -85,7 +85,7 @@ test("内嵌两套配色与 fff terminal-colortheme JSON 一致", () => {
   assert.equal(normalizeThemeId(undefined), "dark");
 });
 
-test("ANSI 槽位映射:基础色 → ansi[],bright* → bright[],gray = ansi[7]", () => {
+test("ANSI 槽位映射:基础色 → ansi[],bright* → bright[],gray/border 语义（用户手动指定）", () => {
   const d = THEMES.dark;
   assert.equal(ansiNameToHex(d, "black"), d.ansi[0]);
   assert.equal(ansiNameToHex(d, "green"), d.ansi[2]);
@@ -93,12 +93,19 @@ test("ANSI 槽位映射:基础色 → ansi[],bright* → bright[],gray = ansi[7]
   assert.equal(ansiNameToHex(d, "brightBlack"), d.bright[0]);
   assert.equal(ansiNameToHex(d, "brightMagenta"), d.bright[5]);
   assert.equal(ansiNameToHex(d, "brightWhite"), d.bright[7]);
-  // 灰色=ansi[7]（dark/light 同槽位：dark #D8D8D8 / light #F4F4F4）
-  assert.equal(ansiNameToHex(d, "gray"), d.ansi[7], "dark 灰色=ansi[7]");
+  // 次要 gray（用户手动指定）：dark=bright[0] #787878 / light=ansi[7] #F4F4F4
+  assert.equal(ansiNameToHex(d, "gray"), d.bright[0], "dark gray=bright[0]");
   assert.equal(
     ansiNameToHex(THEMES.light, "gray"),
     THEMES.light.ansi[7],
-    "light 灰色=ansi[7]",
+    "light gray=ansi[7]",
+  );
+  // 正文/边框 border（用户手动指定）：dark=ansi[7] #D8D8D8 / light=bright[0] #555555
+  assert.equal(ansiNameToHex(d, "border"), d.ansi[7], "dark border=ansi[7]");
+  assert.equal(
+    ansiNameToHex(THEMES.light, "border"),
+    THEMES.light.bright[0],
+    "light border=bright[0]",
   );
   assert.equal(ansiNameToHex(d, "notacolor"), null);
   // 浅色主题同槽位取 ffflight 调色板

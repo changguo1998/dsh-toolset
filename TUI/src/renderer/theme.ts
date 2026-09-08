@@ -2,13 +2,12 @@
 // (fffdark=dark / ffflight=light) 作默认浅深色模式。
 //
 // 终端 16 色槽位映射：black..white → ansi[]，brightBlack..brightWhite → bright[]。
-// 4 级灰度（dark 从黑往白数 / light 从白往黑数，计数起点相反；
-// 两主题同语义槽位色值不同，表述必须带槽位+双主题值）：
-//   次要文字 = ansi[7]（dark #D8D8D8 / light #F4F4F4）
-//   边框 = bright[0]（dark #787878 / light #555555）
-//   正文基底 foreground = 方案源文件值：dark #D8D8D8（=ansi[7]）/ light #555555（=bright[0]）
-//   两端级：dark 黑端 ansi[0]=#434343、白端 bright[7]=#FFFFFF；
-//   light 白端 bright[7]=#FFFFFF、黑端 ansi[0]=#000000
+// 三语义色值（用户手动指定，2026-09-17）：
+//   次要文字 gray    = dark bright[0] #787878 / light ansi[7] #F4F4F4
+//   正文/边框 border = dark ansi[7]  #D8D8D8 / light bright[0] #555555（= 正文前景 foreground）
+//   强调(焦点框)     = dark bright[7] #FFFFFF / light ansi[0] #000000
+//   正文基底 foreground = 方案源文件值：dark #D8D8D8 / light #555555（源文件为权威，不改）
+//   两主题同语义槽位色值不同，表述必须带槽位+双主题值
 // 保证切换浅色主题后常规文本仍可读。
 // 刻意不做模块级可变主题：主题经 Screen.setTheme 持有，避免全局状态。
 // 颜色一律 manual ANSI truecolor（不用 chalk）：chalk 单色段以 `39m` 收尾
@@ -97,6 +96,7 @@ export type ColorName =
   | "cyan"
   | "white"
   | "gray"
+  | "border"
   | "brightBlack"
   | "brightRed"
   | "brightGreen"
@@ -119,8 +119,16 @@ const BASE_SLOTS: Record<string, number> = {
 
 /** 颜色名 → 主题调色板十六进制；不认识返回 null */
 export function ansiNameToHex(theme: ColorTheme, name: string): string | null {
-  // 次要文字=ansi[7]（dark #D8D8D8 / light #F4F4F4；两端级由 foreground/强调各取槽位）
-  if (name === "gray") return theme.ansi[7];
+  // 语义色名（用户手动指定槽位，非字面槽位）：
+  //   次要文字 gray = dark bright[0] #787878 / light ansi[7] #F4F4F4
+  //   边框 border   = dark ansi[7] #D8D8D8 / light bright[0] #555555（=正文前景 foreground）
+  if (theme.name === "fffdark") {
+    if (name === "gray") return theme.bright[0];
+    if (name === "border") return theme.ansi[7];
+  } else {
+    if (name === "gray") return theme.ansi[7];
+    if (name === "border") return theme.bright[0];
+  }
   const bright = name.startsWith("bright");
   const base = (bright ? name.slice("bright".length) : name).toLowerCase();
   const idx = BASE_SLOTS[base];

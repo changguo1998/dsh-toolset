@@ -515,7 +515,7 @@ function modeBlock(
     add("preset", opts, preset, (s) => colorFor(themeId, "magenta")(s));
   }
   // 项目竖线属边框：前景色（bright[0]）；未生效值仍 gray
-  out.push(...wrapSegs(tokens, width, colorFor(themeId, "brightBlack")(" | ")));
+  out.push(...wrapSegs(tokens, width, colorFor(themeId, "border")(" | ")));
   return out;
 }
 
@@ -552,10 +552,7 @@ function statusColumnBody(
   // Mode 块与 Goal 块之间加虚线分隔（有 Mode 且有 goal 时）
   if (modeRows.length > 0 && goal && goal.status !== "cleared") {
     out.push({
-      text: colorFor(
-        themeId,
-        "brightBlack",
-      )(STATUS_BLOCK_SEPARATOR.repeat(width)),
+      text: colorFor(themeId, "border")(STATUS_BLOCK_SEPARATOR.repeat(width)),
     });
   }
   // goal 块非必需：无 goal（含 cleared）显示占位，但 todo/jobs 块独立展示（不早退）。
@@ -586,10 +583,7 @@ function statusColumnBody(
   if (list.length > 0) {
     // goal 块与 todo 块之间以虚线分隔（点更少的虚线，2026-09-17；窗口内板块）保留虚线
     out.push({
-      text: colorFor(
-        themeId,
-        "brightBlack",
-      )(STATUS_BLOCK_SEPARATOR.repeat(width)),
+      text: colorFor(themeId, "border")(STATUS_BLOCK_SEPARATOR.repeat(width)),
     });
     const done = list.filter((t) => t.status === "completed").length;
     out.push({
@@ -646,10 +640,7 @@ function statusColumnBody(
   // 每任务一行 `● `(运行中黄)/`✗ `(失败红)/`○ `(取消灰)/`✓ `(已完成：正文灰+删除线) + label
   if (jobs && jobs.length > 0) {
     out.push({
-      text: colorFor(
-        themeId,
-        "brightBlack",
-      )(STATUS_BLOCK_SEPARATOR.repeat(width)),
+      text: colorFor(themeId, "border")(STATUS_BLOCK_SEPARATOR.repeat(width)),
     });
     const active = jobs.filter(
       (j) => j.status === "running" || j.status === "stopping",
@@ -888,7 +879,7 @@ function buildTopRegion(
   const sepStr = (): string =>
     colorFor(
       state.themeId,
-      sepFocused ? fc : "brightBlack", // 边框=前景色，焦点=强调色
+      sepFocused ? fc : "border", // 边框=前景色，焦点=强调色
     )(ACTIVITY_SEPARATOR.repeat(Math.max(1, contentW)));
   const rows: RenderLine[] = [];
   // 右侧边框列保留格（状态列右缘）：画成框线（┐/│/╝）时亮色着色，否则空白占位
@@ -904,7 +895,7 @@ function buildTopRegion(
         ? cf("┐")
         : statusFocused
           ? cf("┌")
-          : colorFor(state.themeId, "brightBlack")("│")) +
+          : colorFor(state.themeId, "border")("│")) +
       (statusFocused ? cf(SEPARATOR.repeat(statusBodyW)) : blank(statusBodyW)) +
       (useRightFrame ? rightGlyph(statusFocused ? "┐" : " ") : ""),
   });
@@ -956,13 +947,13 @@ function buildTopRegion(
       // 分隔行 无焦点/状态焦点：D 列交点用连接字形 `┤`（竖线贯穿+横线从左接入），
       // 与水平状态栏顶线的 `┴` 统一“连接”风格；焦点态用面板角字 ┘/┐（同为连接）
       const g = panel === "history" ? "┘" : panel === "activity" ? "┐" : "┤";
-      return colorFor(state.themeId, focusActive ? fc : "brightBlack")(g);
+      return colorFor(state.themeId, focusActive ? fc : "border")(g);
     }
     // 无焦点（focusedPanel=null）时所有框线回边框色（bright[0]）：bright 仅在有焦点时可能为真
     let bright = focusActive && panel !== null;
     if (focusActive && panel === "history") bright = rc < dialogueH;
     else if (focusActive && panel === "activity") bright = rc >= dialogueH;
-    return colorFor(state.themeId, bright ? fc : "brightBlack")("│");
+    return colorFor(state.themeId, bright ? fc : "border")("│");
   };
   for (let rc = 0; rc < contentTopH; rc++) {
     // col0：历史/活动区左缘框格——history 焦点亮对话区行+分隔行左下角 `┘`；
@@ -1224,9 +1215,7 @@ function wrapBufferLines(
     for (const text of rows)
       dialogue.push({
         text:
-          line.kind === "separator"
-            ? colorFor(themeId, "brightBlack")(text)
-            : text,
+          line.kind === "separator" ? colorFor(themeId, "border")(text) : text,
         kind: line.kind,
         indent: 0,
       });
@@ -1623,9 +1612,7 @@ export function buildStatusSeparator(
   const seg = (n: number, ch: string, bright: boolean): string => {
     if (n <= 0) return "";
     const s = ch.repeat(n);
-    return bright
-      ? colorFor(themeId, fc)(s)
-      : colorFor(themeId, "brightBlack")(s);
+    return bright ? colorFor(themeId, fc)(s) : colorFor(themeId, "border")(s);
   };
   const leftW = Math.max(0, D - (useLeftCorner ? 1 : 0));
   const rightW = Math.max(0, R - D - 1);
@@ -1635,17 +1622,17 @@ export function buildStatusSeparator(
       (D > 0
         ? useLeftCorner && sepFocus === "activity"
           ? colorFor(themeId, fc)("└")
-          : colorFor(themeId, "brightBlack")(STATUS_TOP_SEPARATOR)
+          : colorFor(themeId, "border")(STATUS_TOP_SEPARATOR)
         : "") +
       seg(leftW, STATUS_TOP_SEPARATOR, sepFocus === "activity") +
       // D 列交点恒与水平实线相交（无焦点前景色 ┴ / 焦点亮 ┴），不再用点线
-      colorFor(themeId, sepFocus === "none" ? "brightBlack" : fc)("┴") +
+      colorFor(themeId, sepFocus === "none" ? "border" : fc)("┴") +
       seg(rightW, STATUS_TOP_SEPARATOR, sepFocus === "status") +
       // R 列（状态列右缘框列）：status 焦点右下角 ┘；无右缘框列（statusColWidth=1）时不输出
       (useRightFrame
         ? sepFocus === "status"
           ? colorFor(themeId, fc)("┘")
-          : colorFor(themeId, "brightBlack")(STATUS_TOP_SEPARATOR)
+          : colorFor(themeId, "border")(STATUS_TOP_SEPARATOR)
         : ""),
   };
 }
@@ -1754,10 +1741,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
 
   // 分隔行（边框统一边框色 bright[0]：先纯文本截断再着色）。状态区上方与其余横线同为 `─`；
   // 焦点在底部为流输出/状态列时该行用亮色框（钩到面板底边）。
-  const makeSep = (
-    ch: string,
-    color: ColorName = "brightBlack",
-  ): RenderLine => ({
+  const makeSep = (ch: string, color: ColorName = "border"): RenderLine => ({
     text: colorFor(
       state.themeId,
       color,
