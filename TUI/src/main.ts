@@ -13,6 +13,7 @@
 import { createRenderer, type Renderer } from "./renderer/index.ts";
 import { normalizeThemeId, type ThemeId } from "./renderer/theme.ts";
 import { App } from "./app/index.ts";
+import { loadTuiConfig } from "./app/config.ts";
 import {
   createProcessStatusQueries,
   type StatusQueries,
@@ -68,6 +69,7 @@ export function main(opts: {
       queries: opts.statusQueries ?? createProcessStatusQueries(),
       intervalMs: 5000,
     },
+    ...loadTuiConfig().layout,
     initialTheme: opts.initialTheme,
     slowStream: opts.slowStream,
     streamCharsPerSecond: opts.streamCharsPerSecond,

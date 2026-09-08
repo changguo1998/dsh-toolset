@@ -157,6 +157,12 @@ export interface AppState {
   thinkingMaxLines: number;
   /** 用户块左缘/回复右缘对称留空列数（交错布局，默认 4，可配置） */
   messageGutter: number;
+  /** 布局配置（false 语义：footerHeight/divisor undefined=默认） */
+  footerHeight: number | undefined;
+  /** 活动区高分母（contentTopH / divisor；默认 2 ≈ 1/2） */
+  activityDivisor: number | undefined;
+  /** 状态列宽分母（cols / divisor；默认 3 ≈ 1/3） */
+  statusDivisor: number | undefined;
   /** 模型交互选择模式（/model 无参进入；null = 未激活） */
   picker: PickerState | null;
   /** 问答面板（userQuestions 提问；null = 未激活） */
@@ -286,7 +292,13 @@ export interface QuestionPanelState {
 
 export function initialState(
   themeId: ThemeId = DEFAULT_THEME,
-  opts?: { thinkingMaxLines?: number; messageGutter?: number },
+  opts?: {
+    thinkingMaxLines?: number;
+    messageGutter?: number;
+    footerHeight?: number;
+    activityDivisor?: number;
+    statusDivisor?: number;
+  },
 ): AppState {
   const thinkingMaxLines =
     opts?.thinkingMaxLines === undefined
@@ -296,6 +308,18 @@ export function initialState(
     opts?.messageGutter === undefined
       ? DEFAULT_MESSAGE_GUTTER
       : Math.max(0, Math.floor(opts.messageGutter));
+  const footerHeight =
+    opts?.footerHeight === undefined
+      ? undefined
+      : Math.max(1, Math.floor(opts.footerHeight));
+  const activityDivisor =
+    opts?.activityDivisor === undefined
+      ? undefined
+      : Math.max(1, Math.floor(opts.activityDivisor));
+  const statusDivisor =
+    opts?.statusDivisor === undefined
+      ? undefined
+      : Math.max(1, Math.floor(opts.statusDivisor));
   return {
     sessions: [],
     activeSessionId: null,
@@ -340,6 +364,9 @@ export function initialState(
     },
     thinkingMaxLines,
     messageGutter,
+    footerHeight,
+    activityDivisor,
+    statusDivisor,
   };
 }
 

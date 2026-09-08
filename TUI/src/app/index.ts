@@ -121,6 +121,12 @@ export interface AppDeps {
   thinkingMaxLines?: number;
   /** 用户块左缘/回复右缘对称留空(列数，默认 4，经 initialState 落到 state) */
   messageGutter?: number;
+  /** 交互区绝对行数（tui.config.json layout.footerHeight；缺省自动 1/5 上限 4） */
+  footerHeight?: number;
+  /** 活动区高分母（tui.config.json layout.activityHeightDivisor；1/2 → 2） */
+  activityHeightDivisor?: number;
+  /** 状态列宽分母（tui.config.json layout.statusColumnDivisor；1/3 → 3） */
+  statusColumnDivisor?: number;
 }
 
 export class App {
@@ -161,6 +167,9 @@ export class App {
       {
         thinkingMaxLines: this.deps.thinkingMaxLines,
         messageGutter: this.deps.messageGutter,
+        footerHeight: this.deps.footerHeight,
+        activityDivisor: this.deps.activityHeightDivisor,
+        statusDivisor: this.deps.statusColumnDivisor,
       },
     );
   }

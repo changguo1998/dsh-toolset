@@ -184,17 +184,22 @@ export function metricsFor(
   statusHeight = 1,
   /** 按键提示区行数（独立区域，与输入区共同构成交互区；输入态 1） */
   hintRows = 0,
+  /** 布局配置（tui.config.json；缺省某字段 → 原默认公式） */
+  layout?: { footerHeight?: number; statusDivisor?: number },
 ): FrameMetrics {
   // 「交互区」（输入框 3 行 + 按键提示区 1 行）固定为 4 行；
   // 不足时至少 2 行（输入 1 + 提示 1）。面板态（审批/问答/选择）整体占据
   // 交互区（面板自带最底行按键提示、无独立提示区），与输入态同高——
   // 面板开关不改变交互区高度，避免顶部区域上下跳动
   // 输入框固定 3 行(+按键提示 1 行 → 交互区 4 行)；矮终端按 1/5 比例收缩保底每区 ≥1 行
-  const interaction = Math.min(4, Math.max(2, Math.floor(size.rows / 5)));
+  // 交互区：tui.config.json footerHeight 绝对行数优先；缺省自动 1/5 上限 4
+  const interaction =
+    layout?.footerHeight ??
+    Math.min(4, Math.max(2, Math.floor(size.rows / 5)));
   const footerHeight = hasPanel ? interaction : interaction - 1;
   // 状态列：窄列约 1/3（含右侧竖线，2026-09-07 由 25% 改 1/3），但历史区保底 10 列
   const statusColWidth = Math.min(
-    Math.max(1, Math.floor(size.cols / 3)),
+    Math.max(1, Math.floor(size.cols / (layout?.statusDivisor ?? 3))),
     Math.max(1, size.cols - 10),
   );
   const historyWidth = Math.max(1, size.cols - statusColWidth);
@@ -216,6 +221,7 @@ export function metricsFor(
 export const DIALOGUE_KEEP_REPLIES = 3;
 export const DIALOGUE_MORE = "...(更早回复已折叠)";
 /** 活动区行数 = 右上区（对话历史+活动区）高度的一半（固定比例，不随内容变化） */
+/** @deprecated 由 activityHeight(contentTopH, divisor) 的 divisor=2 取代（配置 tui.config.json layout.activityHeightDivisor） */
 export const ACTIVITY_HEIGHT_RATIO = 1 / 2;
 /** 活动区分隔线字形（对话历史 ↔ 流输出边界：box-drawing 虚线，保留点感；不参与 barRowCount 统计） */
 export const ACTIVITY_SEPARATOR = "─"; // 对话历史 ↔ 流输出（活动区）边界：实线（2026-09-07 窗口间统一实线）
@@ -251,10 +257,14 @@ export function focusFrameColor(themeId: ThemeId): ColorName {
  * 活动区可视行数（= 顶部区域「内容行数」= topHeight-边框行的一半；
  * 与 buildTopRegion/inputPanelHeights 同口径）
  */
-export function activityHeight(contentTopH: number): number {
+export function activityHeight(
+  contentTopH: number,
+  divisor?: number,
+): number {
+  // 活动区高 = contentTopH / divisor（tui.config.json；默认 2 ≈ 原 1/2 比例）
   return contentTopH <= 0
     ? 0
-    : Math.max(1, Math.floor(contentTopH * ACTIVITY_HEIGHT_RATIO));
+    : Math.max(1, Math.floor(contentTopH / (divisor ?? 2)));
 }
 
 /** 普通输入态顶部三面板可视行高（P4 整页滚动用，与 buildFrame 同口径） */
@@ -803,7 +813,7 @@ function buildTopRegion(
   );
   // 活动区可视行数（瞬态显示区高度）：先于 wrapBufferLines 计算，
   // 供思考折叠上限取 min(thinkingMaxLines, activityH)——默认思考可占满活动区
-  const activityH = activityHeight(contentTopH);
+  const activityH = activityHeight(contentTopH, state.activityDivisor);
   const { dialogue, activity } = wrapBufferLines(
     state.buffer,
     contentW,
@@ -1562,9 +1572,9 @@ export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
     fullWidth,
     state.usage,
   );
-  const topHeight = metricsFor(size, false, statusLines.length, 1).topHeight;
+  const topHeight = metricsFor(size, false, statusLines.length, 1, state).topHeight;
   const contentTopH = Math.max(0, topHeight - FRAME_TOP_ROWS);
-  const activityH = activityHeight(contentTopH);
+  const activityH = activityHeight(contentTopH, state.activityDivisor);
   const dialogueH = Math.max(
     0,
     contentTopH - activityH - (activityH > 0 ? 1 : 0),
@@ -1646,6 +1656,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     !normalInput,
     statusLines.length,
     normalInput ? 1 : 0,
+    state,
   );
 
   const topRegion = buildTopRegion(

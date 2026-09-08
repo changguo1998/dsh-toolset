@@ -119,6 +119,7 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 
 - **当前策略展示**：既有 `approval/policy` 会话事件归一化为第 10 个 DshEvent `approval-policy {sessionId, policy}`（无效载荷丢弃；走 seq 守卫与非活跃会话丢弃）；reducer 写 `policyBySession[sid]`（latest-wins）；layout 状态栏 session 组第 4 槽位 `ask` / `never→auto`（无该会话事件省略）。
 
+- **布局配置（2026-09-24）**：`TUI/tui.config.json` 三项（`layout.footerHeight` 交互区绝对行数；`layout.activityHeightDivisor` 活动区高分母；`layout.statusColumnDivisor` 状态列宽分母）。`src/app/config.ts` 归一化/载入（缺失/非法回落默认）；经 `AppDeps` → `initialState` → `state.{footerHeight,activityDivisor,statusDivisor}` → `metricsFor`/`activityHeight` 生效。缺省全等于原常量（自动交互区 1/5、活动区 1/2、状态列 1/3）。
 - **验证**：`tests/policy.test.ts` 11 用例（layout 徽标三态、路由、reducer 会话隔离、adapter 归一化含 seq 守卫/非活跃丢弃、App 显式/无参/宿主缺失/非法参数）+ demo smoke `policy-badge-ask`/`policy-command-call`/`policy-notice`/`policy-badge-auto` 4 断言；379 tests 全绿。
 
 - **能力**：查询可用模型 + 切换当前会话模型（不落盘）。命令形式：

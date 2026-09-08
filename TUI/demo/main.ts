@@ -10,6 +10,7 @@
 // 产出 SMOKE_* 证据后 /quit 以退出码 0 收尾，便于无头环境演示与机械验证。
 
 import { createRenderer, type KeyEvent } from "../src/renderer/index.ts";
+import { loadTuiConfig } from "../src/app/config.ts";
 import { normalizeThemeId } from "../src/renderer/theme.ts";
 import { App } from "../src/app/index.ts";
 import { createProcessStatusQueries } from "../src/app/status.ts";
@@ -30,6 +31,7 @@ const initialTheme = themeIdx >= 0 ? process.argv[themeIdx + 1] : undefined;
 const app = new App({
   renderer,
   adapter,
+  ...loadTuiConfig().layout,
   initialTheme: normalizeThemeId(initialTheme),
   status: { queries: createProcessStatusQueries(), intervalMs: 5000 },
 });

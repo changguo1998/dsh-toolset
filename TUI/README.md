@@ -90,6 +90,23 @@ dsh --profile <p>
 
 **锚定工具引导（`toolBootstrap`，默认 true）**：完整移植 [dsh-anchored-standard](https://github.com/Jungod1121/dsh-anchored-standard) 的两阶段工具锁定-释放——按会话首个真实用户消息分类（spec/react/weak），首请求仅暴露 `bash`+`read`（spec 加 `edit`、react 加 `write`，`glob`/`grep` 永不进入）并把 persona 作为唯一 prompt section、清空 contexts；会话记录首次 `tool/call` 后解锁全量工具目录并恢复完整 sections（persona 恒定）。**仅对 `deepseek-v4-pro` 模型生效**；flash、其他模型及 `toolBootstrap: false` 时原样透传（零改动）。promotion 状态按会话记忆（进程内 + 会话事件派生，resume 保留）；任何异常降级为全量目录（fail-open），绝不阻塞会话。
 
+## 布局配置（窗口尺寸，tui.config.json）
+
+`TUI/tui.config.json` 控制三处窗口尺寸（语义「总：目标」——比例项为分母，目标 = 总数 / 值；缺省/非法回落默认）：
+
+```json
+{
+  "layout": {
+    "footerHeight": 4,               // 交互区绝对行数（可选；缺省自动 min(4, max(2, rows/5))）
+    "activityHeightDivisor": 2,      // 活动区高 = 顶部内容高 / 此值（1/2 → 2）
+    "statusColumnDivisor": 3         // 状态列宽 = 终端列数 / 此值（1/3 → 3，历史区保底 10 列）
+  }
+}
+```
+
+- `footerHeight` 省略时保持自适应（不小终端撑坏）；显式给出即固定绝对行数。
+- 修改后重启 `dsh --profile <p>`（或 `npm run demo`）生效；缺失/非法文件不崩溃，回落默认。
+
 ## 构建 / 测试
 
 ```sh
