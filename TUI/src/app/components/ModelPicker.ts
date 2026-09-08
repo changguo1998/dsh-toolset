@@ -12,6 +12,7 @@
 // Esc=取消。
 
 import type { RenderLine } from "../../renderer/index.ts";
+import { colorFor, type ThemeId } from "../../renderer/theme.ts";
 import type { PickerState } from "../state.ts";
 import { truncateToWidth } from "../layout.ts";
 
@@ -56,27 +57,33 @@ function renderColumnCell(
   thisPhase: number,
   focus: number,
   selectedOf: string | undefined,
-): string {
-  if (rowIdx === 0 && topO) return " ...";
+): { text: string; focus: boolean; sel: boolean } {
+  if (rowIdx === 0 && topO)
+    return { text: " ...", focus: false, sel: false };
   // 底部省略号占末数据行；仅当该行不在内容区内（空间不足时让位给内容）
   if (
     rowIdx === listRows - 1 &&
     bottomO &&
     rowIdx - (topO ? 1 : 0) - (contentRows - 1) > 0
   )
-    return " ...";
+    return { text: " ...", focus: false, sel: false };
   const contentRow = rowIdx - (topO ? 1 : 0); // 顶部省略号后内容区起点
-  if (contentRow < 0 || contentRow >= contentRows) return "";
+  if (contentRow < 0 || contentRow >= contentRows)
+    return { text: "", focus: false, sel: false };
   const idx = start + contentRow;
-  if (idx < 0 || idx >= items.len) return "";
+  if (idx < 0 || idx >= items.len)
+    return { text: "", focus: false, sel: false };
   const v = items.at(idx);
   const f = phase === thisPhase && idx === focus;
   // 选中按匹配键比较：effort 列显示 name 但选中键为 id，需显式 matchAt
   const sel = (items.matchAt ?? items.at)(idx) === selectedOf;
-  return markCell(sel, f) + v;
+  return { text: markCell(sel, f) + v, focus: f, sel: sel };
 }
 
-export function renderModelPicker(view: ModelPickerView): RenderLine[] {
+export function renderModelPicker(
+  view: ModelPickerView,
+  themeId: ThemeId,
+): RenderLine[] {
   const {
     providers,
     providerIndex,
@@ -115,17 +122,23 @@ export function renderModelPicker(view: ModelPickerView): RenderLine[] {
   const bottomO = (len: number, rows: number, start: number) =>
     start + rows < len;
   const rows: RenderLine[] = [];
+  const focusColor = colorFor(themeId, "yellow");
+  const selColor = colorFor(themeId, "green");
   for (let r = 0; r < height; r++) {
-    let cells = ["", "", ""];
+    let cells: { text: string; focus: boolean; sel: boolean }[] = [
+      { text: "", focus: false, sel: false },
+      { text: "", focus: false, sel: false },
+      { text: "", focus: false, sel: false },
+    ];
     if (r === 0) {
       // 焦点列标题用 [ ] 包裹；effort 无等级时标注 unsupported
       const hdr = (t: string, isF: boolean) => (isF ? `[ ${t} ]` : ` ${t}`);
       cells = [
-        hdr("provider", phase === 0),
-        hdr("model", phase === 1),
+        { text: hdr("provider", phase === 0), focus: false, sel: false },
+        { text: hdr("model", phase === 1), focus: false, sel: false },
         unsupported
-          ? hdr("effort (unsupported)", phase === 2)
-          : hdr("effort", phase === 2),
+          ? { text: hdr("effort (unsupported)", phase === 2), focus: false, sel: false }
+          : { text: hdr("effort", phase === 2), focus: false, sel: false },
       ];
     } else if (r === height - 1) {
       // 最底行按键帮助：整行满宽单行（ASCII，避免面板出现汉字；
@@ -186,10 +199,13 @@ export function renderModelPicker(view: ModelPickerView): RenderLine[] {
       }
     }
 
-    // 按列宽截断、补空格对齐（无 ANSI：星号/箭头即全部标记）
-    const cols = cells.map((c, i) =>
-      truncateToWidth(c, widths[i]!).padEnd(widths[i]!),
-    );
+    // 按列宽截断、补空格对齐后再着色（ANSI 会打乱截断宽度，故截断先行）
+    const cols = cells.map((c, i) => {
+      const t = truncateToWidth(c.text, widths[i]!).padEnd(widths[i]!);
+      if (c.focus) return focusColor(t); // 焦点行黄
+      if (c.sel) return selColor(t); // 已选（待提交）行绿
+      return t;
+    });
     rows.push({ text: cols.join(" ".repeat(sep)) });
   }
   return rows;

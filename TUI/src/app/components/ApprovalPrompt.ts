@@ -4,12 +4,14 @@
 // 输出恰好 height 行。
 
 import type { RenderLine } from "../../renderer/index.ts";
+import { colorFor, type ThemeId } from "../../renderer/theme.ts";
 import type { ApprovalItem } from "../adapter/dsh.ts";
 
 export function renderApprovalPrompt(
   approval: ApprovalItem,
   height: number,
   width: number,
+  themeId: ThemeId,
 ): RenderLine[] {
   const avail = Math.max(4, width - 4);
   const maxBody = Math.max(0, height - 2); // 去掉标题行和操作提示行后的可装行数（高度 <3 时可为 0）
@@ -20,11 +22,19 @@ export function renderApprovalPrompt(
     lines.push(...wrapByWidth(seg, avail));
   }
   const out: RenderLine[] = [];
-  out.push({ text: " ⚠ 等待审批 " });
+  out.push({ text: colorFor(themeId, "yellow")(" ⚠ 等待审批 ") }); // 等待审批标题：黄（warn/进行中）
   // 主体内容（可能截断）
   const body = lines.slice(0, maxBody);
   for (let i = 0; i < maxBody; i++) out.push({ text: " " + (body[i] ?? "") });
-  out.push({ text: " [y]批准 · [n]拒绝 · [Esc]退出 " });
+  out.push({
+    // y=批准 红、n=拒绝 绿（用户指定；其它部分不着色）
+    text:
+      " " +
+      colorFor(themeId, "red")("[y]批准") +
+      " · " +
+      colorFor(themeId, "green")("[n]拒绝") +
+      " · [Esc]退出 ",
+  });
   return out;
 }
 

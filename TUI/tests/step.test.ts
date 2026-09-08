@@ -62,9 +62,9 @@ test("B3 分组头插入：step 内首条工具行前插 `step N`，同组不重
   ]);
   assert.deepEqual(lines, [
     "step 1",
-    "○ bash ls -la src/app",
+    "bash ls -la src/app",
     "✓ 总用量 3 目录",
-    "○ bash pwd",
+    "bash pwd",
   ]);
 });
 
@@ -80,7 +80,7 @@ test("B3 分组头跟随 step/end 关闭：结束后工具行不再插头", () =
     stepEnd(1),
     toolErr("EACCES: 13"),
   ]);
-  assert.deepEqual(lines, ["step 1", "○ bash ls", "✗ EACCES: 13"]);
+  assert.deepEqual(lines, ["step 1", "bash ls", "✗ EACCES: 13"]);
 });
 
 test("B3 防御 flush：活动组未关又到 step/start 时新组另起分组头", () => {
@@ -92,15 +92,15 @@ test("B3 防御 flush：活动组未关又到 step/start 时新组另起分组�
   ]);
   assert.deepEqual(lines, [
     "step 1",
-    "○ bash ls",
+    "bash ls",
     "step 2",
-    "○ bash rm -rf /tmp/tui-demo",
+    "bash rm -rf /tmp/tui-demo",
   ]);
 });
 
 test("B3 向后兼容：无 step 上下文（旧会话/mock）工具行不插头", () => {
   const lines = run([toolCall("ls"), toolOk("d")]);
-  assert.deepEqual(lines, ["○ bash ls", "✓ d"]);
+  assert.deepEqual(lines, ["bash ls", "✓ d"]);
 });
 
 test("B3 失败工具结果也参与分组：分组头先行", () => {
@@ -114,14 +114,14 @@ test("B3 会话隔离：旧会话 step 组不误插当前会话工具行分组�
     stepStart(1), // s1 组
     { type: "tool-call", sessionId: "s2", name: "bash", summary: "whoami" },
   ]);
-  assert.deepEqual(lines, ["○ bash whoami"]);
+  assert.deepEqual(lines, ["bash whoami"]);
   // s2 自己有 step 上下文时才正常分组
   const lines2 = run([
     stepStart(1), // s1 组
     { type: "step", sessionId: "s2", turn: 1, step: 3, phase: "start" },
     { type: "tool-call", sessionId: "s2", name: "bash", summary: "pwd" },
   ]);
-  assert.deepEqual(lines2, ["step 3", "○ bash pwd"]);
+  assert.deepEqual(lines2, ["step 3", "bash pwd"]);
   // s1 的 step/end 只关 s1 组，不影响 s2
   const lines3 = run([
     stepStart(1),
@@ -129,5 +129,5 @@ test("B3 会话隔离：旧会话 step 组不误插当前会话工具行分组�
     stepStart(2), // s1 新组
     { type: "tool-call", sessionId: "s1", name: "bash", summary: "env" },
   ]);
-  assert.deepEqual(lines3, ["step 2", "○ bash env"]);
+  assert.deepEqual(lines3, ["step 2", "bash env"]);
 });

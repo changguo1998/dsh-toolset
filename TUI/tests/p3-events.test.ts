@@ -48,7 +48,7 @@ test("workflow：run-start/agent-start/agent-end 活动区行 + run-end toast", 
     detail: "1 success",
   });
   assert.equal(lastLine(s, "tool")?.text, "↩ #1 success");
-  assert.equal(lastLine(s, "tool")?.tone, "muted");
+  assert.equal(lastLine(s, "tool")?.tone, "success");
   s = reduceState(s, {
     type: "workflow",
     sessionId: sid,
@@ -57,7 +57,7 @@ test("workflow：run-start/agent-start/agent-end 活动区行 + run-end toast", 
     detail: "completed",
   });
   assert.equal(lastLine(s, "notice")?.text, "workflow 结束 (completed)");
-  assert.equal(lastLine(s, "notice")?.tone, "muted");
+  assert.equal(lastLine(s, "notice")?.tone, "success");
 });
 
 test("workflow agent-start 无 label 回落 #seq", () => {
@@ -146,7 +146,7 @@ test("hook：invoked 行 + result 失败红行", () => {
     ok: true,
   });
   assert.equal(lastLine(s, "tool")?.text, "⌗ PreToolUse");
-  assert.equal(lastLine(s, "tool")?.tone, "muted");
+  assert.equal(lastLine(s, "tool")?.tone, "log");
   s = reduceState(s, {
     type: "hook",
     sessionId: sid,
@@ -205,5 +205,5 @@ test("retry-started：↻ 启动灰行（attempt）", () => {
     attempt: 1,
   });
   assert.equal(lastLine(s, "tool")?.text, "↻ 重试中 (1)");
-  assert.equal(lastLine(s, "tool")?.tone, "muted");
+  assert.equal(lastLine(s, "tool")?.tone, "log");
 });

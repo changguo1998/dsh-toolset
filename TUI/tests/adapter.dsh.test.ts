@@ -1991,7 +1991,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
       { type: "turn-end" },
       { type: "notice", text: "输出达 token 上限", tone: "warn" },
       { type: "turn-end" },
-      { type: "notice", text: "已取消", tone: "muted" },
+      { type: "notice", text: "已取消", tone: "info" },
     ]);
   });
 
@@ -2038,7 +2038,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
     });
     assert.notEqual(s2, s1, "tool-call 应产生新状态");
     assert.ok(
-      s2.buffer.some((l) => l.kind === "tool" && l.text === "○ bash ls"),
+      s2.buffer.some((l) => l.kind === "tool" && l.text === "bash ls"),
       "工具调用行入 buffer",
     );
     // compaction → notice toast
@@ -2807,7 +2807,7 @@ test("P2-0.1.2 assistant/message interrupted:true → 追加 muted notice", () =
   });
   const notices = t.events.filter((e) => e.type === "notice");
   assert.deepEqual(notices, [
-    { type: "notice", text: "（模型输出已中断）", tone: "muted" },
+    { type: "notice", text: "（模型输出已中断）", tone: "info" },
   ]);
   // 未被打断的普通 assistant/message 不产出该 notice
   const t2 = makeAdapter();

@@ -109,8 +109,8 @@ export interface ToolResultMetaLike {
   after?: unknown;
 }
 
-/** notice 色调分级（turn/end finish reason 等驱动：error 红 / warn 黄 / muted 灰） */
-export type NoticeTone = "error" | "warn" | "muted";
+/** notice 色调分级：log 灰 / info 蓝 / warn 黄 / error 红 / success 绿 */
+export type NoticeTone = "log" | "info" | "warn" | "error" | "success";
 /** 应用层收到的归一化事件（见文件头映射表） */
 export type DshEvent =
   | { type: "session-list"; sessions: SessionMeta[] }

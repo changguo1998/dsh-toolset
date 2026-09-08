@@ -67,6 +67,7 @@ export class MockDshAdapter implements DshAdapter {
       type: "notice",
       text: `[demo] slash 命令 "${line}" 在 demo 模式下不可用（无 commands 注册表）。`,
       error: true,
+      tone: "error",
     });
   }
 
@@ -102,6 +103,7 @@ export class MockDshAdapter implements DshAdapter {
     this.emit({
       type: "notice",
       text: "[demo] 打断请求（demo 无真实 agent，已忽略）",
+      tone: "log",
     });
   }
 
@@ -693,7 +695,7 @@ export class MockDshAdapter implements DshAdapter {
           this.emit({
             type: "notice",
             text: "（模型输出已中断）",
-            tone: "muted",
+            tone: "info",
           });
         }
       }, sceneAt),

@@ -327,9 +327,9 @@ function turnEndNotice(
     case "max-tokens":
       return { type: "notice", text: "输出达 token 上限", tone: "warn" };
     case "aborted":
-      return { type: "notice", text: "已取消", tone: "muted" };
+      return { type: "notice", text: "已取消", tone: "info" };
     case "interrupted":
-      return { type: "notice", text: "已中断", tone: "muted" };
+      return { type: "notice", text: "已中断", tone: "info" };
     case "blocked":
       return { type: "notice", text: "已阻塞（等待审批）", tone: "warn" };
     case "completed":
@@ -650,7 +650,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         // delta 与 message 文本不一致时不再输出（append-only UI 无法安全重写）
         // 0.1.2-rc.1：输出被打断标记（assistant/message.interrupted）→ muted notice
         if (data?.interrupted === true) {
-          emit({ type: "notice", text: "（模型输出已中断）", tone: "muted" });
+          emit({ type: "notice", text: "（模型输出已中断）", tone: "info" });
         }
         return;
       }
@@ -1653,7 +1653,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   function dispatchCommand(line: string): void {
     const name = parseSlashCommand(line);
     if (!name) {
-      emit({ type: "notice", text: "invalid slash command: " + line });
+      emit({ type: "notice", text: "invalid slash command: " + line, tone: "error" });
       return;
     }
     const { commands } = opts;
@@ -1662,6 +1662,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         type: "notice",
         text: "commands 未就绪，无法执行 /" + name,
         error: true,
+        tone: "warn",
       });
       return;
     }
@@ -1673,7 +1674,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       res = commands.execute(execAgent, line, [], controller.signal);
     } catch (err) {
       activeCommands.delete(controller);
-      emit({ type: "notice", text: formatCommandError(name, err) });
+      emit({ type: "notice", text: formatCommandError(name, err), tone: "error" });
       return;
     }
     if (res && typeof (res as { then?: unknown }).then === "function") {
@@ -1681,7 +1682,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         .then((r) => finish(r, controller))
         .catch((err) => {
           activeCommands.delete(controller);
-          emit({ type: "notice", text: formatCommandError(name, err) });
+          emit({ type: "notice", text: formatCommandError(name, err), tone: "error" });
         });
     } else {
       finish(res, controller);

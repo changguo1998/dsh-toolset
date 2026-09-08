@@ -5,9 +5,9 @@
 // adapter（dsh.ts）在归一化时产出（tool/call → summary、tool/result → detail），
 // 本文件只负责展示行组装，避免重复解析。零运行时依赖。
 
-/** 工具调用行：○ <name> <summary>（summary 为空时省略） */
+/** 工具调用行：<name> <summary>（summary 为空时省略；无前导图标前缀） */
 export function toolCallLine(name: string, summary: string): string {
-  return "○ " + name + (summary ? " " + summary : "");
+  return name + (summary ? " " + summary : "");
 }
 
 /** 工具结果行：成功 ✓ <detail> / 失败 ✗ <detail>（detail 为空给占位）。
