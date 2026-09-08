@@ -456,10 +456,18 @@ function modeBlock(
         colorFor(themeId, "cyan")(s),
       );
     if (mode.sandbox) {
-      const code = MODE_SHORT[mode.sandbox] ?? mode.sandbox;
-      add("sandbox", ["ro", "wr", "full"], code, (s) =>
-        permColor(themeId, s)(s),
-      );
+      // 可选项 = 静态三档；目录（宿主）暂无 sandbox 可选项源，三档外生效值
+      // （如 custom）始终补入列表并高亮（洋红），保证「生效值必显示」
+      const raw = mode.sandbox;
+      const code = MODE_SHORT[raw] ?? raw;
+      const opts = ["ro", "wr", "full"].includes(code)
+        ? ["ro", "wr", "full"]
+        : [...["ro", "wr", "full"], code];
+      const curColor =
+        raw in MODE_SHORT
+          ? (s: string) => permColor(themeId, s)(s)
+          : (s: string) => colorFor(themeId, "magenta")(s);
+      add("sandbox", opts, code, curColor);
     }
     // permission 独立列出全部可选项（不因与 sandbox 相同而省略——用户要求逐项全列）
     if (mode.permission) {
@@ -901,21 +909,21 @@ function buildTopRegion(
             state.themeId,
           )
         : state.statusPanel
-        ? renderStatusPanel({
-            panel: state.statusPanel,
-            height: activityH,
-            width: contentW,
-            themeId: state.themeId,
-          })
-        : state.jobsPanel
-          ? renderJobsPanel({
-              jobs: state.jobs,
-              index: state.jobsPanel.index,
+          ? renderStatusPanel({
+              panel: state.statusPanel,
               height: activityH,
               width: contentW,
               themeId: state.themeId,
             })
-          : [];
+          : state.jobsPanel
+            ? renderJobsPanel({
+                jobs: state.jobs,
+                index: state.jobsPanel.index,
+                height: activityH,
+                width: contentW,
+                themeId: state.themeId,
+              })
+            : [];
   const divFor = (rc: number): string => {
     // 活动区分隔行两端为面板角字：history=右下角 ┘、activity=右上角 ┐、status=竖线
     if (rc === dialogueH && activityH > 0) {

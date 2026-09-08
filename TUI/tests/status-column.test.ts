@@ -270,6 +270,32 @@ test("renderStatusColumn: 标题行置顶、Mode 块随后展示（无 goal 也�
   assert.ok(t.includes("preset claude"), "preset 显示当前值");
 });
 
+test("renderStatusColumn: sandbox 三档外生效值（custom）补入列表并高亮", () => {
+  const raw = renderStatusColumn(
+    undefined,
+    [],
+    undefined,
+    0,
+    8,
+    90,
+    initialState().themeId,
+    { plan: "on", sandbox: "danger-custom", permission: "read-only" },
+    "ask",
+    undefined,
+  );
+  const t = raw.map((l) => stripAnsi(l)).join("\n");
+  assert.ok(
+    t.includes("sandbox ro wr full danger-custom"),
+    "custom 生效值应补入 sandbox 列表: " + t,
+  );
+  // 洋红高亮（custom 目录外值，与三档 permColor 区分）
+  const row = raw.find((l) => l.includes("danger-custom"))!;
+  assert.ok(
+    row.includes("\x1b[38;2;169;70;231m"),
+    "custom sandbox 应以洋红强调: " + row,
+  );
+});
+
 test("renderStatusColumn: Mode 生效项着色强调、其余灰（段内至少两种不同 SGR）", () => {
   const raw = renderStatusColumn(
     undefined,
