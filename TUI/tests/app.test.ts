@@ -2370,7 +2370,7 @@ test("tool-result 成功 → ✓ <detail>；失败 → 红色 ✗ <detail>", () 
   );
 });
 
-test("notice tone → 灰/蓝/黄/红/绿五级着色", () => {
+test("notice tone → 4 级语义着色（log 灰 / info 蓝 / warn 黄 / result 级 error 红·success 绿）", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "notice", text: "日志", tone: "log" });
   adapter.push({ type: "notice", text: "提示", tone: "info" });

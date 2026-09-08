@@ -98,7 +98,7 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 | `usage {input,output,cacheRead}` | 写入 `state.usage` | 状态栏 contextLen `ctx 12.4k` / cacheHit `cache 92%`（k/M 缩写，无用量保持 `—`） |
 | `compaction {phase}` | `appendNotice` | toast `正在压缩上下文…` / `压缩完成` |
 | `retry {attempt,max,delayMs,code,message?}` | `appendNotice(tone:warn)` | 黄色 toast `重试 1/2 (1.5s): TRANSPORT 连接被重置` |
-| `notice {text,error?,tone?}` | `appendNotice(…,tone)` | tone 五级着色：log 灰 / info 蓝 / warn 黄 / error 红 / success 绿 |
+| `notice {text,error?,tone?}` | `appendNotice(…,tone)` | tone 4 级语义 5 色值：log 灰(进度/状态) / info 蓝(需用户了解) / warn 黄(可绕开运行错误/副作用危险警示) / result 级 error 红·success 绿(互斥，用户输入命令的结果一律 result 级) |
 | `goal-change {sessionId,operation,goal\|cleared,…}` | `goalBySession[sid]` 快照替换/clear 墓碑 | 顶部状态列详显（B1，按 sessionId 隔离；状态栏 `goal:<phase>` 徽标已于 2026-09-17 移除，由右侧状态列承接；同日 goal 块与 todo 块之间加点更少的虚线 `╌` 分隔；2026-09-07 `/goal` 面板移除、仅提示查看信息栏，状态列补 `Todo 完成数/总数` 标题与 `○`/`●`/`✓` 标记（待办空心圆/进行中实心圆、对号不划线、进行中全黄、续行缩进对齐、jobs 完成项正文灰+删除线）、新增 jobs 块、状态区上方分隔改单线 `─`；对话 turn 之间改点更少的虚线 `╌`（窗口间分隔统一实线：活动区分隔/状态区上下 2026-09-07 均 `─`，状态列块间仍 `╌`）；2026-09-07 默认焦点改 null：新输入/输出（内容推进 action：append/thinking/notice/tool/turn/compaction/jobs 等）后自动回无焦点，Tab 才进入循环；状态列折叠改「未溢出不折叠、溢出优先隐藏已完成」） |
 | `todo-write {sessionId,todos}` | `todoBySession[sid]` 全量替换 | 状态栏 `todo n/m` 计数（进行中/共）（B1） |
 | `mode {sessionId,kind,value}` | `modeBySession[sid]` 三合一 | 状态列 Mode 块：各项以竖线 `|` 连续排布、放不下折行（折行处不加竖线），属性名默认前景、未生效值灰、生效项强调色（三档 ro/wr/full、目录外自定义洋红），Mode↔Goal 虚线分隔（2026-09-07 由状态栏迁入；见 DESIGN 渲染语义）（B2） |
@@ -113,6 +113,7 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 ## /policy 审批策略（P2 阶段 C，2026-09-06）
 
 - **两态切换**：`routeSlashCommand("policy")` → `handlePolicyCommand`；`/policy ask|never` 显式设置、**无参打开通用状态选项面板**（活动区窗口，↑/↓ 移动焦点、空格预选星号再按取消、Enter 提交预选（无预选回退焦点行）并关闭、Esc 取消；当前策略来自 `state.policyBySession[sid]` 事件回读）。写路径：`DshAdapter.setApprovalPolicy?(policy)` 可选方法，真实实现 `runtime.approval.setPolicy(activeAgent, policy)`（A0 已核实 = `user-approval` 的 `setApprovalPolicy` → `session.append('approval/policy', {policy})`，即写路径即事件源）；宿主未挂载或 adapter 缺失方法 → notice「审批策略服务不可用」fail-safe。
+
 - **通用状态选项面板（2026-09-24）**：`/policy`、`/permission`、`/preset` 无参统一打开 `statusPanel`（`src/app/components/StatusPanel.ts`，活动区窗口，与审批/问答/模型选择同区域）。状态：`StatusPanelState{kind,title,options[],index,selected}`（`state.statusPanel`）；reducer `status-panel-open/move/select/close`。提交路径：policy→`setApprovalPolicy`；permission→`runCommand("/permission <name>")` 转发宿主；preset→`selectAgentPreset`。goal/todo 保持只读右侧栏；plan/sandbox 无宿主写接口暂不开放面板。
 
 - **接收者绑定坑（2026-09-06 实测）**：`handlePolicyCommand` 最初把 `setApprovalPolicy` 提取为局部变量再 `setPolicy(policy)` 调用——方法体内 `this.xxx` 在未绑定调用下为 undefined，抛 TypeError → 异步方法变恒 rejected → 误报「服务不可用」且计数永远为 0。修复为 `setPolicy.call(adapter, policy)` 保留实例作 `this`（与 `approve`/`interrupt` 等既有接收者绑定调用一致）。
@@ -120,6 +121,7 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 - **当前策略展示**：既有 `approval/policy` 会话事件归一化为第 10 个 DshEvent `approval-policy {sessionId, policy}`（无效载荷丢弃；走 seq 守卫与非活跃会话丢弃）；reducer 写 `policyBySession[sid]`（latest-wins）；layout 状态栏 session 组第 4 槽位 `ask` / `never→auto`（无该会话事件省略）。
 
 - **布局配置（2026-09-24）**：`TUI/tui.config.json` 三项（`layout.footerHeight` 交互区绝对行数；`layout.activityHeightDivisor` 活动区高分母；`layout.statusColumnDivisor` 状态列宽分母）。`src/app/config.ts` 归一化/载入（缺失/非法回落默认）；经 `AppDeps` → `initialState` → `state.{footerHeight,activityDivisor,statusDivisor}` → `metricsFor`/`activityHeight` 生效。缺省全等于原常量（自动交互区 1/5、活动区 1/2、状态列 1/3）。
+
 - **验证**：`tests/policy.test.ts` 11 用例（layout 徽标三态、路由、reducer 会话隔离、adapter 归一化含 seq 守卫/非活跃丢弃、App 显式/无参/宿主缺失/非法参数）+ demo smoke `policy-badge-ask`/`policy-command-call`/`policy-notice`/`policy-badge-auto` 4 断言；379 tests 全绿。
 
 - **能力**：查询可用模型 + 切换当前会话模型（不落盘）。命令形式：

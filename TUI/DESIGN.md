@@ -276,7 +276,7 @@ interface Renderer {
 | `tool/call` `{turn, step, callId, name, arguments: string}` | `tool-call` `{sessionId, name, summary}` | buffer 行 `<name> <summary>`（无图标前缀；summary = arguments JSON 关键字段启发式提取，截断一行） |
 | `tool/result` `{message, error?: {name, code}, meta?}` | `tool-result` `{sessionId, ok, detail}` | buffer 行 `✓ <detail 首行截断>`；错误 `✗ <error.name>: <message>`（红色） |
 | `assistant/message` 的 `usage?: TokenUsage`（现已解析即丢） | `usage` `{sessionId, input, output, cacheRead}` | 状态栏槽位 `ctx 12.4k` + `cache 92%`（最新一次请求为准，不累计） |
-| `turn/end` 的 `reason`（completed/aborted/blocked/error/max-tokens/interrupted） | 现有 `notice` 增加可选 `tone` 字段 | error → 红 `✗ <code>: <message>`；max-tokens → 黄"输出达 token 上限"；aborted → 灰"已取消"；completed 静默 |
+| `turn/end` 的 `reason`（completed/aborted/blocked/error/max-tokens/interrupted） | 现有 `notice` 增加可选 `tone` 字段 | error → 红 `✗ <code>: <message>`；max-tokens → 黄「输出达 token 上限」；blocked → 黄「已阻塞（等待审批）」；aborted → 蓝「已取消」；interrupted → 蓝「已中断」；completed 静默 |
 | `compaction/start` + `compaction/end` `{compactionId, sourceCommandId?}` | `compaction` `{phase}` | notice toast："正在压缩上下文…" / "压缩完成" |
 | `llm/retry` `{retry, maxRetries, delayMs, failure: {code, message}, provider}` | `retry` `{attempt, max, delayMs, code}` | notice toast："重试 1/2 (1.5s): TRANSPORT 连接被重置"；`llm/retry-started` 先不处理，形状实现时再核 |
 
@@ -326,7 +326,7 @@ interface Renderer {
 P1 三阶段全部落地并经审计通过：
 
 - **阶段 1**：adapter 归一化 + 事件类型（tool-call/tool-result/usage/compaction/retry、notice `tone?`、finish reason 分级 notice）。
-- **阶段 2**：渲染 + 状态栏（工具行 ○/✓/✗、notice tone 红/黄/灰着色、状态栏 contextLen/cacheHit、retry/compaction toast）。
+- **阶段 2**：渲染 + 状态栏（工具行 ○/✓/✗、notice tone 按 4 级语义着色、状态栏 contextLen/cacheHit、retry/compaction toast）。
 - **阶段 3**：真实 DSH PTY 冒烟 happy path（`npm run smoke:pty`：真实会话断言 工具行与状态栏 usage）+ 本文档/IMPLEMENTATION.md/README 收尾。
 
 backlog 状态：P1、P2 完成（2026-09-05）；P3 部分接入（2026-09-12 起：8 事件批次 + `/permission`；2026-09-13：`/preset` agent 预设 + `/jobs` 后台任务面板）；**`jobs` 已落地（2026-09-13，经 `onJobsChanged` 观察者而非轮询，勿再按旧结论排期）**；`/compact`、`/feedback` 为宿主自带、dsh-base 默认装配即用（2026-09-13 核验）。其余低频/调试向项待排期。

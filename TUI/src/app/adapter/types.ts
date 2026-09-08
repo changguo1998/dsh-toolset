@@ -109,7 +109,7 @@ export interface ToolResultMetaLike {
   after?: unknown;
 }
 
-/** notice 色调分级：log 灰 / info 蓝 / warn 黄 / error 红 / success 绿 */
+/** notice/tool 行 tone——4 级语义 5 色值：log 灰=进度/状态无需关注；info 蓝=需用户了解；warn 黄=可绕开的运行错误/副作用危险警示；result 级互斥：error 红=操作失败（用户输入命令的结果一律 error、须修复继续）、success 绿=重要操作成功 */
 export type NoticeTone = "log" | "info" | "warn" | "error" | "success";
 /** 应用层收到的归一化事件（见文件头映射表） */
 export type DshEvent =
