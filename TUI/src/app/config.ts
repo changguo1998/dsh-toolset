@@ -6,7 +6,7 @@
 //   - statusColumnDivisor:   状态列宽 = floor(cols / divisor)（缺省 3 ≈ 1/3，历史区仍保底 10 列）
 // 配置文件缺失/非法 → 全部回落默认（fail-safe，不崩溃）。
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -24,13 +24,18 @@ export interface TuiConfig {
 }
 
 const CFG_FILE = "tui.config.json";
-/** 默认配置文件位置：包根（config.ts 位于 src|dist 二级子目录 app/ 下，两层 .. 即 TUI 根） */
-const DEFAULT_CFG_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  CFG_FILE,
-);
+
+/** 从当前模块目录向上逐级定位 tui.config.json（src/app 与 dist/src/app 层级不同，逐级兜底） */
+function resolveConfigPath(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 6 && dir !== dirname(dir); i++) {
+    const candidate = join(dir, CFG_FILE);
+    if (existsSync(candidate)) return candidate;
+    dir = dirname(dir);
+  }
+  return join(dir, CFG_FILE);
+}
+const DEFAULT_CFG_PATH = resolveConfigPath();
 
 const intGe = (v: unknown, min: number): number | undefined =>
   typeof v === "number" && Number.isFinite(v)
