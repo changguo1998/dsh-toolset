@@ -325,7 +325,7 @@ export function wrapAssistantLine(
   // 1. 分隔线：灰色横线铺满内容区（与 turn 分隔线视觉区分）
   if (RULE_RE.test(text)) {
     return wrapSegments(
-      [{ text: "─".repeat(Math.max(0, width)), style: { fg: "gray" } }],
+      [{ text: "─".repeat(Math.max(0, width)), style: { fg: "brightBlack" } }],
       width,
       themeId,
     );
