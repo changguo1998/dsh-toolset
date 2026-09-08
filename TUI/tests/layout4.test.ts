@@ -750,7 +750,7 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   assert.equal(i2 - i1, 2, "两段正文之间的空行保留");
 });
 
-test("会话流：思考只显示最新几行；正文(输出)到达清空、turn-end 后保留至下回合", () => {
+test("会话流：思考只显示最新几行；正文(输出)到达保留、turn-end 后保留至下回合", () => {
   let s = initialState();
   s = reduceState(s, {
     type: "thinking",
@@ -767,7 +767,8 @@ test("会话流：思考只显示最新几行；正文(输出)到达清空、tur
   s = reduceState(s, { type: "append", text: "正文" });
   assert.equal(
     s.buffer.some((line) => line.kind === "thinking"),
-    false,
+    true,
+    "正文到达后思考仍保留（思考属活动区，正文属历史区）",
   );
 
   s = reduceState(s, { type: "thinking", text: "残留思考" });
@@ -1020,10 +1021,10 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
   assert.ok(raw[doneIdx]!.text.includes("\x1b[9m"), "已完成任务删除线");
   // thinking 保持纯文本（markdown 只作用于最终正文）
   // thinking 保持纯文本（markdown 只作用于最终正文）
-  const thinkPlain = plain.find(
-    (l) => histBody(l, 80).trim() === "**粗** 在 thinking",
+  assert.ok(
+    plain.some((l) => l.includes("**粗** 在 thinking")),
+    "thinking 保持原样",
   );
-  assert.ok(thinkPlain, "thinking 保持原样");
 });
 
 // ===== 阶段 2：usage 状态栏槽位 + 工具行/notice tone 着色 =====
@@ -1117,7 +1118,7 @@ test("buildFrame: 工具调用/结果行（*/+/x，失败着红）", () => {
     .map((l) => l.text)
     .join("\n");
   const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
-  assert.ok(plain.includes("○ bash ls"), "工具调用行 ○ name summary");
+  assert.ok(plain.includes("bash ls"), "工具调用行 ○ name summary");
   assert.ok(plain.includes("✓ 总用量 0"), "成功结果行 ✓ detail");
   assert.ok(plain.includes("✗ EACCES: 13"), "失败结果行 ✗ detail");
   assert.ok(
@@ -1126,17 +1127,21 @@ test("buildFrame: 工具调用/结果行（*/+/x，失败着红）", () => {
   );
 });
 
-test("buildFrame: notice tone 行在帧内红/黄/灰着色", () => {
+test("buildFrame: notice tone 行在帧内灰/蓝/黄/红/绿着色", () => {
   let s = initialState();
-  s = reduceState(s, { type: "notice", text: "红", tone: "error" });
+  s = reduceState(s, { type: "notice", text: "日志", tone: "log" });
+  s = reduceState(s, { type: "notice", text: "提示", tone: "info" });
   s = reduceState(s, { type: "notice", text: "黄", tone: "warn" });
-  s = reduceState(s, { type: "notice", text: "灰", tone: "muted" });
-  const joined = buildFrame(s, { rows: 16, cols: 40 })
+  s = reduceState(s, { type: "notice", text: "红", tone: "error" });
+  s = reduceState(s, { type: "notice", text: "绿", tone: "success" });
+  const joined = buildFrame(s, { rows: 24, cols: 40 })
     .map((l) => l.text)
     .join("\n");
-  assert.ok(joined.includes("\x1b[38;2;231;70;132m红"), "error → 红");
+  assert.ok(joined.includes("\x1b[38;2;120;120;120m日志"), "log → 灰");
+  assert.ok(joined.includes("\x1b[38;2;70;132;231m提示"), "info → 蓝");
   assert.ok(joined.includes("\x1b[38;2;231;169;70m黄"), "warn → 黄");
-  assert.ok(joined.includes("\x1b[38;2;120;120;120m灰"), "muted → 灰");
+  assert.ok(joined.includes("\x1b[38;2;231;70;132m红"), "error → 红");
+  assert.ok(joined.includes("\x1b[38;2;132;231;70m绿"), "success → 绿");
 });
 
 test("buildFrame: 工具历史在活动区窗口内只显最近行，窗口内组间仍有空行", () => {
@@ -1211,7 +1216,7 @@ test("buildFrame: 两次调用组之间插空行分隔", () => {
   );
 });
 
-test("buildFrame: 工具行前缀（○ 黄·运行中）/工具名（黄）独立着色（✓ 绿；✗ 整行红）", () => {
+test("buildFrame: 工具名（黄）独立着色，结果 ✓ 绿 / ✗ 整行红", () => {
   let s = initialState();
   s = reduceState(s, {
     type: "tool-call",
@@ -1234,9 +1239,11 @@ test("buildFrame: 工具行前缀（○ 黄·运行中）/工具名（黄）独�
   const joined = buildFrame(s, { rows: 16, cols: 40 })
     .map((l) => l.text)
     .join("\n");
-  // dark 主题 24bit 码：青 #46E7A9 / 黄 #E7A946 / 绿 #84E746 / 红 #E74684
-  assert.ok(joined.includes("\x1b[38;2;231;169;70m○"), "○ 前缀着黄（运行中）");
-  assert.ok(joined.includes("\x1b[38;2;231;169;70mbash"), "工具名着黄");
+  // dark 主题 24bit 码：黄 #E7A946 / 绿 #84E746 / 红 #E74684
+  assert.ok(
+    joined.includes("\x1b[38;2;231;169;70mbash"),
+    "工具名着黄（无前缀图标）",
+  );
   assert.ok(joined.includes("\x1b[38;2;132;231;70m✓"), "✓ 前缀着绿");
   assert.ok(joined.includes("\x1b[38;2;231;70;132m✗ EACCES"), "✗ 失败整行着红");
 });
@@ -1654,3 +1661,25 @@ function contentSig(lines: string[], topRows: number): string[] {
         .replace(/\s+$/, ""),
     );
 }
+
+test("对话区：上滚展开折叠历史（offset>0 更早回复可见，跟底时灰占位折叠）", () => {
+  let s = initialState();
+  // 5 组回复（> DIALOGUE_KEEP_REPLIES=3）：user+assistant交替
+  for (let i = 1; i <= 5; i++) {
+    s = reduceState(s, { type: "user-line", text: `Q${i}` });
+    s = reduceState(s, { type: "append", text: `A${i} 的回复正文` });
+  }
+  const frame = (st: typeof s): string =>
+    buildFrame(st, { rows: 60, cols: 80 })
+      .map((l) => l.text)
+      .join("\n");
+  // 跟随底部：更早回复折叠为灰占位，最早回复不可见
+  const joined0 = frame(s);
+  assert.ok(joined0.includes("更早回复已折叠"), "跟底时应显示折叠占位");
+  assert.ok(!joined0.includes("A1 的回复正文"), "折叠后最早回复不可见");
+  // 上滚 1 行：展开全量——更早回复可见、折叠占位消失
+  s = reduceState(s, { type: "scroll", delta: 1 });
+  const joined1 = frame(s);
+  assert.ok(joined1.includes("A1 的回复正文"), "上滚后更早回复可见");
+  assert.ok(!joined1.includes("更早回复已折叠"), "上滚中不显示折叠占位");
+});
