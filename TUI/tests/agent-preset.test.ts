@@ -149,20 +149,20 @@ test("agent-preset 事件 → reducer 按 sessionId 隔离（latest-wins）", ()
   assert.equal(s.presetBySession["s2"], "code-review");
 });
 
-test("/preset 无参：读目录 → notice 列当前/可用/默认", async () => {
+test("/preset 无参：读目录 → 打开状态选项面板列出 agent 预设", async () => {
   const renderer = new FakeRenderer();
   const app = new App({ renderer, adapter: new FakePresetAdapter() });
   app.start();
   typeAndEnter(renderer, "/preset");
   await tick();
   const f = frames(renderer);
-  assert.ok(f.includes("可用预设"), "应显示可用预设段: " + f);
-  assert.ok(f.includes("research"), "应显示当前预设: " + f);
-  assert.ok(f.includes("default"), "应列出/标注默认预设: " + f);
+  assert.ok(f.includes("/preset agent 预设"), "面板标题: " + f);
+  assert.ok(f.includes("research"), "应列出当前预设: " + f);
   assert.ok(
     f.includes("code-review") || f.includes("General-purpose"),
-    "应列出预设描述: " + f,
+    "应列出预设: " + f,
   );
+  assert.ok(f.includes("[Enter]提交"), "操作提示: " + f);
   app.dispose();
 });
 

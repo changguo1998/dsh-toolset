@@ -128,16 +128,17 @@ test("routeSlashCommand: /permission → permission；未知仍回 registry", ()
   assert.equal(routeSlashCommand("bogus"), "registry");
 });
 
-test("/permission 无参：读目录 → notice 列当前与可用预设", async () => {
+test("/permission 无参：读目录 → 打开状态选项面板列出可用预设", async () => {
   const renderer = new FakeRenderer();
   const app = new App({ renderer, adapter: new FakePermissionAdapter() });
   app.start();
   typeAndEnter(renderer, "/permission");
   await tick();
   const f = frames(renderer);
-  assert.ok(f.includes("可用预设"), "应显示可用预设段: " + f);
+  assert.ok(f.includes("/permission 权限预设"), "面板标题: " + f);
   assert.ok(f.includes("workspace-write"), "应列出可用预设: " + f);
   assert.ok(f.includes("danger-full-access"), "应列出两个预设: " + f);
+  assert.ok(f.includes("[Enter]提交"), "操作提示: " + f);
   app.dispose();
 });
 

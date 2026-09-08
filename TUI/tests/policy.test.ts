@@ -333,14 +333,27 @@ test("/policy never：显式设置 → adapter.setApprovalPolicy('never') + noti
   );
 });
 
-test("/policy 无参：未收到事件时按宿主默认 ask 为基准 toggle 到 never", async () => {
+test("/policy 无参：打开状态选项面板——空格预选、Enter 提交并关闭", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakePolicyAdapter();
   const app = new App({ renderer, adapter });
   app.start();
   typeAndEnter(renderer, "/policy");
   await tick();
-  assert.deepEqual(adapter.policies, ["never"], "无参 toggle → never");
+  const f0 = frames(renderer);
+  assert.ok(f0.includes("/policy 审批策略"), "面板标题: " + f0);
+  assert.ok(f0.includes("ask") && f0.includes("never"), "两项选项: " + f0);
+  assert.deepEqual(adapter.policies, [], "打开面板不直接生效（防误改）");
+  // ↓ 到 never → 空格预选 → Enter 提交并关闭
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
+  const f1 = frames(renderer);
+  assert.ok(f1.includes("* never"), "预选星号落在 never: " + f1);
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await tick();
+  assert.deepEqual(adapter.policies, ["never"], "Enter 提交预选");
+  assert.ok(!frames(renderer).includes("/policy 审批策略"), "提交后关闭面板");
+  app.dispose();
 });
 
 test("/policy 显式 ask 覆盖：adapter 收到 ask", async () => {
