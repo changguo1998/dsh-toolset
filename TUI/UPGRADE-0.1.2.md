@@ -104,7 +104,6 @@
 
 **当前状态：等待审阅，未开始实现。**
 
-
 ## 附录 A. P0 冒烟记录（2026-09-08，dsh 全局 0.1.2-rc.1）
 
 真机：`dsh --profile dsh-toolset-tui`（全局 CLI 0.1.2-rc.1，profile 无独立锁版本；TUI bundle 经 `link:` 挂载）+ `scripts/verify-p0.py` + PTY 命令面驱动。
