@@ -1137,7 +1137,10 @@ test("buildFrame: notice tone 行在帧内灰/蓝/黄/红/绿着色", () => {
   const joined = buildFrame(s, { rows: 24, cols: 40 })
     .map((l) => l.text)
     .join("\n");
-  assert.ok(joined.includes("\x1b[38;2;120;120;120m日志"), "log → 灰");
+  assert.ok(
+    joined.includes("\x1b[38;2;216;216;216m日志"),
+    "log → 灰(L2 #D8D8D8)",
+  );
   assert.ok(joined.includes("\x1b[38;2;70;132;231m提示"), "info → 蓝");
   assert.ok(joined.includes("\x1b[38;2;231;169;70m黄"), "warn → 黄");
   assert.ok(joined.includes("\x1b[38;2;231;70;132m红"), "error → 红");
@@ -1460,9 +1463,8 @@ test("活动区：activityScroll 滚动窗口（默认尾部；上滚看更早�
 });
 
 test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空白占位不重排", () => {
-  // dark 主题焦点框=white #FFFFFF（灰→白）；light 主题应取黑（单独断言 focusFrameColor）
-  // dark 主题 focusFrameColor="white" → 调色板 #D8D8D8（灰→亮白）
-  const WHITE = "\x1b[38;2;216;216;216m";
+  // dark 主题焦点框=L4 强调 brightWhite #FFFFFF；light 主题应取黑（单独断言 focusFrameColor）
+  const WHITE = "\x1b[38;2;255;255;255m";
   const size = { rows: 24, cols: 80 } as const;
   // 对调后：历史/活动区在左（宽 historyWidth=60），详细状态列在右（宽 statusColWidth=20）
   const m = metricsFor(size, false);
@@ -1619,7 +1621,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   rows = rowsOf(st);
   const whole = rows.map(plain).join("\n");
   assert.ok(
-    !/\x1b\[38;2;216;216;216m[╌─│┐┘└┌┴]/.test(whole),
+    !/\x1b\[38;2;255;255;255m[╌─│┐┘└┌┴]/.test(whole),
     "面板态：无亮白框线",
   );
   assert.ok(!plain(rows[0]!).includes("─"), "面板态：顶部边框行空白占位");
@@ -1638,8 +1640,8 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     "面板态：对话历史区仍空（未因面板挤占重排）",
   );
 
-  // focusFrameColor：dark=白、light=黑（灰不再彩色化，仅更亮/更黑）
-  assert.equal(focusFrameColor("dark"), "white");
+  // focusFrameColor：dark=L4 强调 brightWhite、light=L4 强调 black（灰度第4级）
+  assert.equal(focusFrameColor("dark"), "brightWhite");
   assert.equal(focusFrameColor("light"), "black");
 });
 

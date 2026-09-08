@@ -1160,9 +1160,7 @@ test("App 本地 notice 按语义 tone 着色（/theme 成功 → success 绿）
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/theme light");
   assert.ok(
-    renderer.lastRender
-      .join("\n")
-      .includes("\x1b[38;2;80;167;78mtheme: light"),
+    renderer.lastRender.join("\n").includes("\x1b[38;2;80;167;78mtheme: light"),
     "切换成功 notice 应着 success 绿（light 主题色板）",
   );
 });
@@ -2380,7 +2378,10 @@ test("notice tone → 灰/蓝/黄/红/绿五级着色", () => {
   adapter.push({ type: "notice", text: "出错", error: true, tone: "error" });
   adapter.push({ type: "notice", text: "完成", tone: "success" });
   const joined = renderer.lastRender.join("\n");
-  assert.ok(joined.includes("\x1b[38;2;120;120;120m日志"), "log tone → 灰");
+  assert.ok(
+    joined.includes("\x1b[38;2;216;216;216m日志"),
+    "log tone → 灰(L2 #D8D8D8)",
+  );
   assert.ok(joined.includes("\x1b[38;2;70;132;231m提示"), "info tone → 蓝");
   assert.ok(joined.includes("\x1b[38;2;231;169;70m重试提示"), "warn tone → 黄");
   assert.ok(joined.includes("\x1b[38;2;231;70;132m出错"), "error tone → 红");
@@ -2598,11 +2599,10 @@ test("Esc（idle+空输入）退出顶部焦点循环：有焦点 → 无焦点"
     meta: false,
     shift: false,
   });
-  // dark 主题 history 焦点：对话区左缘框格亮白（focusFrameColor=white 255;255;255）
-  // history 焦点：对话区左缘框格用 focusFrameColor（dark=白 #D8D8D8=216;216;216）；
-  // 无焦点：框格灰（120;120;120）
+  // dark 主题 history 焦点：对话区左缘框格亮白（focusFrameColor=brightWhite #FFFFFF=255;255;255）；
+  // 无焦点：框格灰（L2 #D8D8D8=216;216;216）
   const hasFocusVBar = (): boolean =>
-    renderer.lastRender.some((l) => l.includes("\x1b[38;2;216;216;216m│"));
+    renderer.lastRender.some((l) => l.includes("\x1b[38;2;255;255;255m│"));
   assert.ok(!hasFocusVBar(), "初始无焦点：框格灰");
   renderer.press(key("tab")); // null → history
   assert.ok(hasFocusVBar(), "Tab 后 history 焦点（左缘框格亮白）");

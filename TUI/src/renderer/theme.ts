@@ -1,9 +1,14 @@
 // renderer/theme.ts — TUI 主题：内嵌 ~/fff/config/terminal-colortheme 的两份配色
 // (fffdark=dark / ffflight=light) 作默认浅深色模式。
 //
-// 终端 16 色槽位映射：black..white → ansi[]，brightBlack..brightWhite → bright[]，
-// gray 语义 = brightBlack(bright[0])。background/foreground 为终端基底色，
-// 由 Screen 在帧首设置，保证切换浅色主题后常规文本仍可读。
+// 终端 16 色槽位映射：black..white → ansi[]，brightBlack..brightWhite → bright[]。
+// 灰度 4 级框架（dark 从黑往白数 / light 从白往黑数，计数起点相反）：
+//   gray(次要)=ansi[7]（dark #D8D8D8 / light #F4F4F4）
+//   foreground(正文)=bright[0]（dark #787878 / light #555555）
+//   L1 不用与 L4 强调取两端：dark 黑端 ansi[0]/白端 bright[7]；
+//   light 白端 bright[7]/黑端 ansi[0]
+// background/foreground 为终端基底色，由 Screen 在帧首设置，
+// 保证切换浅色主题后常规文本仍可读。
 // 刻意不做模块级可变主题：主题经 Screen.setTheme 持有，避免全局状态。
 // 颜色一律 manual ANSI truecolor（不用 chalk）：chalk 单色段以 `39m` 收尾
 // 会复位到终端默认前景而非当前主题基底前景，浅色主题下不可读。
@@ -51,7 +56,7 @@ export const THEMES: Record<ThemeId, ColorTheme> = {
       "#FFFFFF",
     ],
     background: "#030327",
-    foreground: "#FFFFFF",
+    foreground: "#787878", // L3 前景色（bright[0]）
   },
   light: {
     name: "ffflight",
@@ -76,7 +81,7 @@ export const THEMES: Record<ThemeId, ColorTheme> = {
       "#FFFFFF",
     ],
     background: "#DFE3F8",
-    foreground: "#555555",
+    foreground: "#555555", // L3 前景色（bright[0]，仅次于纯黑）
   },
 };
 
@@ -113,7 +118,8 @@ const BASE_SLOTS: Record<string, number> = {
 
 /** 颜色名 → 主题调色板十六进制；不认识返回 null */
 export function ansiNameToHex(theme: ColorTheme, name: string): string | null {
-  if (name === "gray") return theme.bright[0];
+  // 灰色=ansi[7]（dark/light 同槽位；两端级差异由 foreground/强调各取槽位）
+  if (name === "gray") return theme.ansi[7];
   const bright = name.startsWith("bright");
   const base = (bright ? name.slice("bright".length) : name).toLowerCase();
   const idx = BASE_SLOTS[base];

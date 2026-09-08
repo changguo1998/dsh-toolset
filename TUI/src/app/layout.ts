@@ -194,8 +194,7 @@ export function metricsFor(
   // 输入框固定 3 行(+按键提示 1 行 → 交互区 4 行)；矮终端按 1/5 比例收缩保底每区 ≥1 行
   // 交互区：tui.config.json footerHeight 绝对行数优先；缺省自动 1/5 上限 4
   const interaction =
-    layout?.footerHeight ??
-    Math.min(4, Math.max(2, Math.floor(size.rows / 5)));
+    layout?.footerHeight ?? Math.min(4, Math.max(2, Math.floor(size.rows / 5)));
   const footerHeight = hasPanel ? interaction : interaction - 1;
   // 状态列：窄列约 1/3（含右侧竖线，2026-09-07 由 25% 改 1/3），但历史区保底 10 列
   const statusColWidth = Math.min(
@@ -248,19 +247,16 @@ export const FRAME_TOP_ROWS = 1;
 export const FRAME_LEFT_COLS = 1;
 export const FRAME_RIGHT_COLS = 1;
 
-/** 焦点框中性亮色：dark 用白、light 用黑（不引入彩色，仅把灰更亮/更黑） */
+/** 焦点框（L4 强调级，不引入彩色）：dark=bright[7] 白、light=ansi[0] 黑 */
 export function focusFrameColor(themeId: ThemeId): ColorName {
-  return themeId === "dark" ? "white" : "black";
+  return themeId === "dark" ? "brightWhite" : "black";
 }
 
 /**
  * 活动区可视行数（= 顶部区域「内容行数」= topHeight-边框行的一半；
  * 与 buildTopRegion/inputPanelHeights 同口径）
  */
-export function activityHeight(
-  contentTopH: number,
-  divisor?: number,
-): number {
+export function activityHeight(contentTopH: number, divisor?: number): number {
   // 活动区高 = contentTopH / divisor（tui.config.json；默认 2 ≈ 原 1/2 比例）
   return contentTopH <= 0
     ? 0
@@ -1572,7 +1568,13 @@ export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
     fullWidth,
     state.usage,
   );
-  const topHeight = metricsFor(size, false, statusLines.length, 1, state).topHeight;
+  const topHeight = metricsFor(
+    size,
+    false,
+    statusLines.length,
+    1,
+    state,
+  ).topHeight;
   const contentTopH = Math.max(0, topHeight - FRAME_TOP_ROWS);
   const activityH = activityHeight(contentTopH, state.activityDivisor);
   const dialogueH = Math.max(
