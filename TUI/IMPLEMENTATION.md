@@ -77,7 +77,7 @@ Done when：`dsh plugin --profile <p> add dsh-tui` 安装后，`dsh-tui.js` 可�
   - 其他 `/name` → `adapter.runCommand(line)` → `ctx.commands.execute(agent, line, [], signal)`（官方注册表）。
   - 未命中注册表（execute 返回 `undefined`）→ `notice` 提示未知命令（**官方 fail-close**：绝不 sendMessage 给模型）。
 - **事件面**：`DshEvent` 新增 `{ type: "notice"; text }`——命令结果/错误/提示只进 UI 缓冲（`appendNotice`，独立成行，不入流式末行），经 `notice` reducer 落地。
-- **思考打字机（配置化）**：真实链路由 `main()` 传 `slowStream: streamTypewriter`（默认 true）。打字机只作用于 thinking（reasoning）——它是输出结束会被隐藏的瞬态内容；初始流速 `streamCharsPerSecond`（默认 120，分数累计配额、按码点切分）随 tick（50ms）逐段 append；收到正文 `stream` 事件后 `slowCps` 自动切到 `SLOW_STREAM_ARRIVED_CPS`（200，固定）加速放完剩余思考。`turn-end` 置 `slowNewTurn`，下一条 thinking 把 `slowCps` 回落到 `slowCpsBase`（配置值或默认）——**每个 turn 的思考都从初始速度重新开始**。正文 `stream` 为最终保留的回复，**即时显示**：思考队列运行期间到达的正文段按序缓冲（`pendingStream`），`turn-end` 记 `pendingTurnEnd`，思考放完后一次性铺出正文、再执行 turn-end（不画分隔线；思考也不再被 turn-end 清除，保留显示至下个回合 `turn-begin` 统一清空；分隔线改由下个回合 `turn-begin` 时画；dispose 才丢弃缓冲与队列）。`thinkingMaxLines`（默认 50=不折叠）经 `initialState` 落到 `AppState`，`buildTopRegion` 以 `min(thinkingMaxLines, activityH)` 作思考折叠上限——默认思考可占满活动区（瞬态显示区）高度，仅收紧配置时更小值生效。以上均由 `normalizeTuiDisplayConfig` 在 `apply()` 归一化。
+- **思考打字机（配置化）**：真实链路由 `main()` 传 `slowStream: streamTypewriter`（默认 true）。打字机只作用于 thinking（reasoning）——它是输出结束会被隐藏的瞬态内容；初始流速 `streamCharsPerSecond`（默认 120，分数累计配额、按码点切分）随 tick（50ms）逐段 append；收到正文 `stream` 事件后 `slowCps` 自动切到 `SLOW_STREAM_ARRIVED_CPS`（200，固定）加速放完剩余思考。`turn-end` 置 `slowNewTurn`，下一条 thinking 把 `slowCps` 回落到 `slowCpsBase`（配置值或默认）——**每个 turn 的思考都从初始速度重新开始**。正文 `stream` 为最终保留的回复，**即时显示**：思考队列运行期间到达的正文段按序缓冲（`pendingStream`），`turn-end` 记 `pendingTurnEnd`，思考放完后一次性铺出正文、再执行 turn-end（不画分隔线；思考也不再被 turn-end 清除，保留显示至下个回合 `turn-begin` 统一清空；分隔线改由下个回合 `turn-begin` 时画；dispose 才丢弃缓冲与队列）。**2026-09-27 变更：`thinkingMaxLines` 配置已移除**（思考不再单独折叠，与工具/notice/中间输出按时间混合显示在活动区，由活动区高度 `activityH` 统一截断）。以上均由 `normalizeTuiDisplayConfig` 在 `apply()` 归一化。
 - **非流式回复补发（assistant/message）**：`assistant/message` 是每个 step 结束必发的完整正文 surface 事件（官方 agent-loop 在 stream 结束后 append）。adapter 按 (session:turn:step) 累计已流式输出的正文（reasoning 不计），`assistant/message` 只补发缺失后缀；非流式/无思考 provider（无任何 chunk）累计为空 → 直接输出完整正文，保证不支持流式输出的模型回复也可见。`surfaceOp: replace` 的影子覆盖事件跳过（append-only 无法安全重写）；`turn/end` 与 dispose 清空累计。效用：既有块级去重 + step 级去重，流式模型不重复输出、非流式模型不丢回复。
 - **命令名语法**：`parseSlashCommand` 与官方 client 一致——`/^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/`。
 - **服务解析**：`main.ts` 经 `ctx.get("commands")` 取注册表（cordis 严格模式不允许未注入服务直接属性访问），`commandAgent` 传真实 Agent（注册表作用域查找需要完整 agent，而非 app 的瘦 `DshAgentLike`）。
@@ -101,7 +101,7 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 | `notice {text,error?,tone?}` | `appendNotice(…,tone)` | tone 4 级语义 5 色值：log 灰(进度/状态) / info 蓝(需用户了解) / warn 黄(可绕开运行错误/副作用危险警示) / result 级 error 红·success 绿(互斥，用户输入命令的结果一律 result 级) |
 | `goal-change {sessionId,operation,goal\|cleared,…}` | `goalBySession[sid]` 快照替换/clear 墓碑 | 顶部状态列详显（B1，按 sessionId 隔离；状态栏 `goal:<phase>` 徽标已于 2026-09-17 移除，由右侧状态列承接；同日 goal 块与 todo 块之间加点更少的虚线 `╌` 分隔；2026-09-07 `/goal` 面板移除、仅提示查看信息栏，状态列补 `Todo 完成数/总数` 标题与 `○`/`●`/`✓` 标记（待办空心圆/进行中实心圆、对号不划线、进行中全黄、续行缩进对齐、jobs 完成项正文灰+删除线）、新增 jobs 块、状态区上方分隔改单线 `─`；对话 turn 之间改点更少的虚线 `╌`（窗口间分隔统一实线：活动区分隔/状态区上下 2026-09-07 均 `─`，状态列块间仍 `╌`）；2026-09-07 默认焦点改 null：新输入/输出（内容推进 action：append/thinking/notice/tool/turn/compaction/jobs 等）后自动回无焦点，Tab 才进入循环；状态列折叠改「未溢出不折叠、溢出优先隐藏已完成」） |
 | `todo-write {sessionId,todos}` | `todoBySession[sid]` 全量替换 | 状态栏 `todo n/m` 计数（进行中/共）（B1） |
-| `mode {sessionId,kind,value}` | `modeBySession[sid]` 三合一 | 状态列 Mode 块：各项以竖线 `|` 连续排布、放不下折行（折行处不加竖线），属性名默认前景、未生效值灰、生效项强调色（三档 ro/wr/full、目录外自定义洋红），Mode↔Goal 虚线分隔（2026-09-07 由状态栏迁入；见 DESIGN 渲染语义）（B2） |
+| `mode {sessionId,kind,value}` | `modeBySession[sid]` 三合一 | 状态列 Mode 块：各项以竖线 `|` 连续排布、放不下折行（折行处不加竖线），属性名默认前景、未生效值灰、生效项强调色（三档 ro/wr/full、目录外自定义洋红），Mode↔Goal 虚线分隔（2026-09-07 由状态栏迁入；见 DESIGN 渲染语义）。**2026-09-27 初始值折叠**：官方 plan/mode、sandbox/mode、permission/preset、approval/policy 均为 log-only 事件（仅切换时落盘，会话启动无初始事件）→ `DshAdapter.refreshSessionModes?()`（`emitSessionModeSnapshot`：从 live 内存事件或`readSession`折叠各事件最后一条并 emit mode/approval-policy；`App.start`/`resumeToSession` 成功后调用）（B2） |
 | `step {sessionId,turn,step,phase}` | `stepGroup{sessionId,step,headerEmitted}` | 工具行分组头 `step N`（无工具 step 静默；跨会话隔离）（B3） |
 | `subagent {sessionId,label,mode}` | `appendToolLine(subagentLine)` | 缓冲行 `@ <label> <os\|ct>` append-only（B4） |
 | `compaction-summary {sessionId,text,raw}` | `compactionBySession[sid]`（最近一条）+ `appendNotice` | toast `压缩完成：<text 首行>`（空摘要占位「压缩完成（无摘要）」）（B5） |
@@ -160,7 +160,7 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 
 - 输入栏「两字符提示符」：提示符 = 左字符（上次提交模式符号 `MODE_SYMBOL[lastSubmitMode]`，颜色 `STATUS_PROMPT_COLOR[inputStatus]` 绿/黄/红）+ 右字符（当前输入模式 `MODE_SYMBOL[inputMode]`：normal `>` / shell `$` / slash `/`，默认前景色）。`inputMode`（normal/shell/slash，默认 normal、提交后自动回退；picker-open 保留、Picker Esc 关闭面板时重置 normal）不再含 interrupt；`lastSubmitMode` 在 `submit()` 开头按当前 inputMode 记录（`last-submit-mode` 动作），随后模式回退不影响左字符符号；`buildFrame` 组装 `colorFor(theme, STATUS_PROMPT_COLOR[inputStatus])(MODE_SYMBOL[lastSubmitMode] ?? ">") + (MODE_SYMBOL[inputMode] ?? ">") + " "` 作预着色 prompt 传 `renderTextInput(text, cursor, placeholder, width, promptText, promptColor?)`（promptColor 省略；宽度按未着色文本经 `displayWidth` 计算）。模式键处理：输入框为空时按 `$`/`/` 切模式并吞键（同符号幂等），`!` 为普通字符、不再是模式键，非空时也都当普通字符。提交：`Enter` 排队/发送，`Alt+Enter`（`submit(interrupt=true)`）先 `adapter.interrupt()` 再发送；`/` 自动补 `/` 前缀走 `handleSlash`（不经 sendMessage）；`$` 仅符号展示（原样 sendMessage）；**任何提交后 input-mode 重置 normal（提示符回 `>`）**。状态转移：正常提交置 running；`agent-status` 的 thinking/tool 兜底置 running；`turn-end` 置 success；本地可检测的无效 slash 命令置 failure；adapter 对未命中注册表/执行失败的命令回带 `error` 标记的 notice → 也置 failure（fail-close 落地为红）。**活跃守卫**：`agentStatus !== "idle"` 时绿/红一律压回黄（reducer `statusFor`），绿/红仅在空闲后可见。
 
-- adapter 将 `reasoning-delta` 与 reasoning `block-end` 映射为 `thinking` 事件。思考区只以 2 空格缩进展示（无 `[思考]` 前缀文字），折叠上限为 `min(thinkingMaxLines, activityH)`（默认 50=不主动折叠、思考可占满活动区高度；配置更小值仅收紧），超出显示折叠提示，不提供展开/收起；首条正文（输出内容）到达时清除思考行，turn-end 后思考保留显示至下回合 turn-begin 才清空。
+- adapter 将 `reasoning-delta` 与 reasoning `block-end` 映射为 `thinking` 事件。思考以紫色粗竖线 `┃` 展示（无 `[思考]` 前缀文字）。**2026-09-27 变更：思考不再单独折叠，与工具/notice/中间输出按时间顺序混合显示在活动区**（`wrapBufferLines` 中 thinking 直接 push 到活动区行列表，活动区按可视高度 `activityH` 截断、可上滚回看，`THINKING_MORE`/折叠块逻辑已删除）；首条正文（输出内容）到达不清思考，turn-end 后思考保留显示至下回合 turn-begin 才清空。**历史区只收每回合最终总结**：`turn-end` 调 `markFinalSummary` 把当前回合最后一段连续 assistant 行标 `BufferLine.final`，`wrapBufferLines` 按 `final` 分流（final→历史区交错留白渲染；非 final→活动区全宽渲染），`appendTurnSeparator` 与 `turn-begin` 清空非 final assistant；`surfaceToBuffer` 恢复的历史 assistant 行标 final:true。
 
 - mock demo 同样发送思考分片，用于无 DSH 环境验证对话流与思考限高。
 
@@ -320,10 +320,28 @@ P0 会话生命周期落地时已恢复：`commands.ts` 与 `index.ts` 的 `sess
 ## 标题栏迁入左列顶部（2026-09-27）
 
 - **背景**：会话标题此前位于右侧状态列最上方（`statusColumnBody` 置顶的标题行 + 实线下划线）。按用户要求「标题栏改到左侧，会话历史区上方」，标题栏移至左列历史区顶部（标题行 + 实线下划线），状态列首行直接是 Mode 块。
+
 - **layout.ts**：新增 `TITLE_BAR_ROWS=2`（标题行 + 实线下划线）与 `topPaneHeights(contentTopH, divisor)`（返回 `{titleRows, activityH, dialogueH}`，`buildTopRegion`/`inputPanelHeights` 同口径）。活动区高度沿用原公式（基于顶部内容行数，不随标题栏收缩）；标题栏行数由对话区承担。极矮终端自适应：对话区将不足 1 行时标题栏先收掉下划线（1 行）、再整栏省略（0 行），保证对话区/活动区不溢出。`statusColumnBody`/`renderStatusColumn` 删除 `title` 参数与置顶逻辑。`buildTopRegion` 内容行划分改为 `diaStart=titleRows` / `diaEnd=diaStart+dialogueH`：标题行（rc=0，`<title>` 占位 + `truncateToWidth`）、标题栏下划线行（`─` 铺满左列，D 列交点 `┤`）、对话区、活动区分隔、活动区；col0 左缘框格与 D 列竖线随焦点：标题栏归历史面板（history 焦点亮框）。移除 `divFor` 中针对状态列旧标题下划线的 `├` 分支（状态列不再含全 `─` 行）。
+
 - **高度口径示例**：rows=24 → contentTopH=16、activityH=8、titleRows=2、dialogueH=5（此前 dialogueH=7，标题栏 2 行由对话区承担）；rows=10 → contentTopH=4、titleRows=1、dialogueH=1。
+
 - **测试**：`status-column.test.ts` 标题行相关注释更新；`layout4.test.ts` `activitySepIdx`/`eqRow` 跳过标题栏分隔行（`i > TITLE_BAR_ROWS`、状态分隔含 `┴` 判别），`<title>` 断言改为「标题在分隔竖线左侧标题栏」；`app.test.ts` `barRowCount` 期望 +1（标题栏下划线）、`inputPanelHeights` 对话 7→5、活动区分隔定位跳过标题栏、问答/流式等小终端用例按对话区新口径加高终端。468 tests 全绿。
+
+- **焦点窗格重构（2026-09-27 追加）**：按用户要求「标题上方不再留空白、焦点窗口不含标题」，删除独立顶部边框行（`rows[0]` 边框行移除，`contentTopH=topHeight` 不再 `-FRAME_TOP_ROWS`，`FRAME_TOP_ROWS` export 一并删除），标题行直达屏幕最顶 rc0。焦点窗格改为：**history 顶边用标题栏下划线行兼作**（左角 `┌`、D 列 `┐` 亮框）——`divFor` history 分支亮行域收紧为 `rc ∈ [diaStart, diaEnd)`，但 titleRows>1 时下划线行（`rc=diaStart-1`）单独亮 `┐`（history）/`┤`（其余）；标题行 rc0 左缘/ D 列恒留空白或边框色（不在焦点窗口）；**status 顶边从 rc0（标题行并排位置）D 列起**：`divFor` 新增 `rc===0 && statusFocused` 返回亮白 `┌`，`statusBody` rc0 分支改为只画 `SEPARATOR×statusBodyW`（不再自带 `┌`，避免与 divFor 重复），`statusCells` 在 status 焦点时整体下移一行（`statusCells[rc-1]`、末行截弃），右缘框列 rc0 为 `┐`；activity 焦点仅分隔行+活动区行亮（`rc ≥ diaEnd`）。测试：`layout4.test.ts`「焦点面板四边框」更新为无独立顶部边框行的新行映射（top[0]=标题行/top[1]=下划线/top[2]=对话区首行，history/status 焦点块重写、标题行非焦点窗格断言），`app.test.ts` `inputPanelHeights` 期望同步（topHeight 16→17、dialogueH 5→6）。
+
 - **文档**：README（顶部区域 + 系统状态区去掉陈旧的「会话组 标题」）、DESIGN（顶部状态列/历史区）、IMPLEMENTATION 同步。
+
+## 活动区重构与 Mode 初始值（2026-09-27）
+
+- **背景**：用户实测 4 个问题——① Mode 不显示（官方 mode 事件 log-only、会话启动无初始事件）；② 中间输出误进历史区（应只在活动区）；③ 活动区按类型分组不符合预期（应时间混合）；④ 活动区高度应提到 1/2。
+- **config**：`tui.config.json` `activityHeightDivisor` 3→2（活动区 = 顶部内容高 1/2）。
+- **state.ts**：`BufferLine` 增 `final?: boolean`；新增 `markFinalSummary()`（turn-end 把当前回合最后一段连续 assistant 行标 final；无 assistant 不标；重复 turn-end 幂等）；turn-end case 调用；`appendTurnSeparator` 过滤时额外清非 final assistant；`surfaceToBuffer` 历史 assistant 行标 final:true。
+- **layout.ts**：`wrapBufferLines` 重写分流——assistant 按 `line.final`（final→历史区交错留白；非 final→活动区全宽）；thinking 直接 push 活动区（不再单独收集/折叠），删除 THINKING_MORE 与折叠块；函数签名去掉 `thinkingMaxLines` 参数；`activityH` 为活动区整体截断窗口。
+- **main.ts**：`thinkingMaxLines` 配置全部移除（DshTuiOptions/DshTuiConfig/TuiDisplayConfig/normalize/state 字段）。
+- **adapter（dsh.ts/types.ts）**：`DshAdapter.refreshSessionModes?(id)`——`emitSessionModeSnapshot` 从 live 内存事件（`ctx.sessions.get`）或 `readSession` 折叠 plan/mode、sandbox/mode、permission/preset、approval/policy 各最后一条并 emit mode/approval-policy；**不能用 readSurface**（log-only 事件被 surface fold 滤掉）。
+- **index.ts**：`App.refreshSessionModes()` 在 `start()` 与 `resumeToSession` 成功后调用。
+- **测试**：`layout4.test.ts` thinking 折叠测试替换为活动区视口截断；turn-begin 旧测试改用 user-line 构造历史内容；补 markFinalSummary 边界测试；`adapter.dsh.test.ts` 补 refreshSessionModes 折叠/静默测试；`main.config.test.ts`/`config.test.ts` 随配置更新。471 tests 全绿。
+- **文档**：README/DESIGN/IMPLEMENTATION 同步（活动区 1/2、时间混合、final 分流、thinkingMaxLines 移除、Mode 初始值折叠）。
 
 ## 依赖顺序
 

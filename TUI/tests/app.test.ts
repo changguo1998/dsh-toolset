@@ -1914,16 +1914,16 @@ test("lastAssistantText：收集完整最后回复（连续 assistant 行），�
   );
 });
 
-test("surfaceToBuffer：仅保留 user/assistant 正文行", () => {
+test("surfaceToBuffer：仅保留 user/assistant 正文行，历史 assistant 标 final", () => {
   const rows = surfaceToBuffer([
     { role: "user", text: "q1" },
     { role: "assistant", text: "a1" },
     { role: "user", text: "q2" },
   ]);
   assert.deepEqual(rows, [
-    { text: "q1", kind: "user" },
-    { text: "a1", kind: "assistant" },
-    { text: "q2", kind: "user" },
+    { text: "q1", kind: "user", final: undefined },
+    { text: "a1", kind: "assistant", final: true },
+    { text: "q2", kind: "user", final: undefined },
   ]);
 });
 
@@ -2529,12 +2529,16 @@ test("顶部面板焦点滚动映射：↑/↓ 只作用于各自面板；PgUp/P
   });
 });
 
-test("inputPanelHeights：页高口径与 buildFrame 一致（rows=24 → 状态列内容 16 / 活动 8 / 对话 5）", () => {
+test("inputPanelHeights：页高口径与 buildFrame 一致（rows=24 → 状态列内容 17 / 活动 8 / 对话 6）", () => {
   const h = inputPanelHeights(initialState(), { rows: 24, cols: 80 });
-  assert.equal(h.topHeight, 16, "状态列内容高=topHeight-边框行");
+  assert.equal(
+    h.topHeight,
+    17,
+    "状态列内容高=topHeight（2026-09-27 无顶部边框行）",
+  );
   assert.equal(h.activityH, 8);
-  // 标题栏（标题行 + 下划线，2 行）由对话区承担：对话 7 → 5
-  assert.equal(h.dialogueH, 5);
+  // 标题栏（标题行 + 下划线，2 行）由对话区承担：对话 8 → 6
+  assert.equal(h.dialogueH, 6);
 });
 
 test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 ↑/PgUp 滚动帮助", async () => {

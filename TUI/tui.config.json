@@ -1,6 +1,6 @@
 {
   "layout": {
-    "activityHeightDivisor": 3,
+    "activityHeightDivisor": 2,
     "statusColumnDivisor": 3
   }
 }

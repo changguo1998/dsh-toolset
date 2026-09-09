@@ -2866,3 +2866,55 @@ test("P2-0.1.2 model/selection → model-selection 事件（provider/model/reaso
     undefined,
   );
 });
+
+test("refreshSessionModes：从会话日志折叠 plan/sandbox/permission/policy 初始值", async () => {
+  const sq = new FakeSessionQuery();
+  sq.events = [
+    { type: "plan/mode", seq: 1, data: { active: false } },
+    { type: "plan/mode", seq: 2, data: { active: true } }, // 最后一条生效
+    { type: "sandbox/mode", seq: 3, data: { mode: "danger-full-access" } },
+    {
+      type: "permission/preset",
+      seq: 4,
+      data: { preset: "danger-full-access" },
+    },
+    { type: "approval/policy", seq: 5, data: { policy: "never" } },
+    { type: "user/message", seq: 6, data: {} }, // 非 mode 事件忽略
+  ];
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const events: DshEvent[] = [];
+  const unbind = adapter.onEvent((e) => events.push(e));
+  await adapter.refreshSessionModes!("s1");
+  unbind();
+  assert.deepEqual(events, [
+    { type: "mode", sessionId: "s1", kind: "plan", value: "on" },
+    {
+      type: "mode",
+      sessionId: "s1",
+      kind: "sandbox",
+      value: "danger-full-access",
+    },
+    {
+      type: "mode",
+      sessionId: "s1",
+      kind: "permission",
+      value: "danger-full-access",
+    },
+    { type: "approval-policy", sessionId: "s1", policy: "never" },
+  ]);
+});
+
+test("refreshSessionModes：无 mode 事件/缺字段/宿主无读取面 → 静默（不 emit）", async () => {
+  const sq = new FakeSessionQuery();
+  sq.events = [{ type: "user/message", seq: 1, data: {} }];
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const events: DshEvent[] = [];
+  const unbind = adapter.onEvent((e) => events.push(e));
+  await adapter.refreshSessionModes!("s1");
+  unbind();
+  assert.equal(events.length, 0, "无 mode 事件不 emit");
+
+  // 宿主无 sessionQuery：静默跳过
+  const t = makeAdapter();
+  assert.equal(t.adapter.refreshSessionModes, undefined, "无读取面不暴露方法");
+});

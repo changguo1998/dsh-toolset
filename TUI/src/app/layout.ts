@@ -242,8 +242,8 @@ function permColor(themeId: ThemeId, code: string): (s: string) => string {
   if (code === "full") return colorFor(themeId, "red");
   return colorFor(themeId, "gray");
 }
-/** 焦点面板四边框的保留格：顶部 1 行、左侧 1 列、右侧 1 列（所有状态恒定，未聚焦留空白占位，防内容重排） */
-export const FRAME_TOP_ROWS = 1;
+/** 焦点面板四边框的保留格：左侧 1 列、右侧 1 列（所有状态恒定，未聚焦留空白占位，防内容重排）。
+ *  2026-09-27：不再保留顶部边框行（标题栏即顶部，焦点顶边用标题栏下划线/状态列顶行兼作）。 */
 export const FRAME_LEFT_COLS = 1;
 export const FRAME_RIGHT_COLS = 1;
 
@@ -830,10 +830,11 @@ function buildTopRegion(
   /** 会话标题（左侧历史区顶部标题栏；空标题 <title> 灰占位保持行稳定） */
   title = "",
 ): RenderLine[] {
-  // 焦点框保留格（所有状态恒定，避免内容重排）：顶部边框行始终占 1 行；
-  // 左侧框格列（历史/活动区左缘）与右侧框列（状态列右缘）在宽度允许时各占 1 列；
-  // 未聚焦/模态态该格留空白占位。
-  const contentTopH = Math.max(0, topHeight - FRAME_TOP_ROWS);
+  // 焦点框保留格（所有状态恒定，避免内容重排）：左侧框格列（历史/活动区左缘）
+  // 与右侧框列（状态列右缘）在宽度允许时各占 1 列；未聚焦/模态态该格留空白占位。
+  // 2026-09-27：不再保留独立顶部边框行——标题栏即顶部（标题行在 rc0），焦点框从
+  // 对话区开始（history 顶边用标题栏下划线行兼作），状态列从 rc0 起即有内容。
+  const contentTopH = Math.max(0, topHeight);
   // 历史/活动区在左、详细状态列在右（2026-09-17 对调）：
   // 左缘框格 = 历史/活动区左缘（historyWidth≥2 时预留）；右缘框列 = 状态列右缘（statusColWidth≥2 时预留）
   const useLeftFrame = historyWidth >= FRAME_LEFT_COLS + 1;
@@ -845,8 +846,8 @@ function buildTopRegion(
   // 左列顶部为独立标题栏（会话标题行 + 实线下划线，2026-09-27 由右侧状态列迁入）。
   // 活动区高度沿用原公式（基于顶部内容行数，不随标题栏收缩），标题栏行数由对话区
   // 承担（topPaneHeights 与 inputPanelHeights 同口径）；活动区可视行数先于
-  // wrapBufferLines 计算，供思考折叠上限取 min(thinkingMaxLines, activityH)——
-  // 默认思考可占满活动区
+  // 活动区可视行数先于 wrapBufferLines 计算，作为活动区整体截断窗口（思考/工具/
+  // notice/中间输出统一按可视行截断（不再单独折叠思考）
   const { titleRows, activityH, dialogueH } = topPaneHeights(
     contentTopH,
     state.activityDivisor,
@@ -856,7 +857,6 @@ function buildTopRegion(
   const { dialogue, activity } = wrapBufferLines(
     state.buffer,
     contentW,
-    Math.min(state.thinkingMaxLines, activityH),
     state.messageGutter,
     state.themeId,
   );
@@ -915,21 +915,7 @@ function buildTopRegion(
   const rows: RenderLine[] = [];
   // 右侧边框列保留格（状态列右缘）：画成框线（┐/│/╝）时亮色着色，否则空白占位
   const rightGlyph = (g: string): string => (g === " " ? " " : cf(g));
-  // 顶部边框行（row 0）：history 焦点 → 左侧 `┌`+`─`+分隔列角 `┐`（历史/活动区顶边）；
-  // status 焦点 → 分隔列 `┌`+`─`+`┐`（状态列顶边，状态列在右）；其余空白占位、分隔列前景色 `│`
-  const historyTop = useLeftFrame && topHistory;
-  rows.push({
-    text:
-      (historyTop ? cf("┌") : useLeftFrame ? " " : "") +
-      (topHistory ? cf(SEPARATOR.repeat(contentW)) : blank(contentW)) +
-      (topHistory
-        ? cf("┐")
-        : statusFocused
-          ? cf("┌")
-          : colorFor(state.themeId, "border")("│")) +
-      (statusFocused ? cf(SEPARATOR.repeat(statusBodyW)) : blank(statusBodyW)) +
-      (useRightFrame ? rightGlyph(statusFocused ? "┐" : " ") : ""),
-  });
+  // 内容行（0..contentTopH-1）：标题栏 → 对话区 → 活动区分隔 → 活动区。
   // 内容行（1..contentTopH）：对话区 → 活动区分隔 → 活动区。
   // 中间分隔竖线（历史区右缘/状态列左缘）随焦点面板只亮其垂直边界：
   // status=全行、history=仅对话区、activity=仅分隔行+活动区；模态态全回流边框色。
@@ -980,15 +966,23 @@ function buildTopRegion(
       const g = panel === "history" ? "┘" : panel === "activity" ? "┐" : "┤";
       return colorFor(state.themeId, focusActive ? fc : "border")(g);
     }
+    // 状态列顶边（rc0 标题行并排位置）：D 列起 ┌（status 焦点时亮白）
+    if (rc === 0 && statusFocused) return colorFor(state.themeId, fc)("┌");
     // 标题栏分隔行（标题栏第 2 行，横线铺满左列）：D 列交点用 `┤`
     //（竖线贯穿 + 横线从左侧接入，与活动区分隔行中性态一致）；归历史面板
     if (titleRows > 1 && rc === diaStart - 1) {
       const bright = focusActive && panel === "history";
-      return colorFor(state.themeId, bright ? fc : "border")("┤");
+      return colorFor(
+        state.themeId,
+        bright ? fc : "border",
+      )(topHistory ? "┐" : "┤");
     }
     // 无焦点（focusedPanel=null）时所有框线回边框色（bright[0]）：bright 仅在有焦点时可能为真
     let bright = focusActive && panel !== null;
-    if (focusActive && panel === "history") bright = rc < diaEnd;
+    // 焦点窗口不含标题栏：history 只亮对话区行（rc ∈ [diaStart, diaEnd)），
+    // 标题行/下划线行 D 列竖线保持边框色
+    if (focusActive && panel === "history")
+      bright = rc >= diaStart && rc < diaEnd;
     else if (focusActive && panel === "activity") bright = rc >= diaEnd;
     return colorFor(state.themeId, bright ? fc : "border")("│");
   };
@@ -1008,6 +1002,11 @@ function buildTopRegion(
                 ? cf("┌")
                 : " "
               : " ";
+      } else if (rc < diaStart) {
+        // 标题栏不在焦点窗口：仅下划线行在 history 焦点时作顶边左角 `┌`；
+        // 其余左缘空白占位（保持 col0 恒定 1 列，防内容重排）
+        if (titleRows > 1 && rc === diaStart - 1 && topHistory) left = cf("┌");
+        else left = " ";
       } else if (rc < diaEnd) {
         left = topHistory ? cf("│") : " ";
       } else {
@@ -1015,16 +1014,21 @@ function buildTopRegion(
       }
     }
     // 状态列正文（右侧）：剥去 renderStatusColumn 自带右缘竖线，正文截到 statusBodyW 定宽，
-    // 保证右缘框列恒位于 R 列、不紧贴文字末尾
-    const rawBody = truncateToWidth(
-      statusCells[rc]?.slice(0, -1) ?? "",
-      statusBodyW,
-    );
-    // 已含内嵌色（Mode 块/todo 标题/进行中项等自带 ANSI）的行不再整行外包灰，
-    // 否则无色片段（如 Mode 属性名）会被 cg 蒙灰；无 ANSI 的纯内容行仍按约定上灰
-    const statusBody = rawBody.includes("\x1b")
-      ? rawBody + blank(statusBodyW - displayWidth(rawBody))
-      : cg(rawBody + blank(statusBodyW - displayWidth(rawBody)));
+    // 保证右缘框列恒位于 R 列、不紧贴文字末尾。status 焦点时 rc0 让位为状态列顶边
+    //（┌─），状态列内容整体下移一行（statusCells[rc-1]，末行随之截弃）。
+    let statusBody: string;
+    if (statusFocused && rc === 0) {
+      // D 列 ┌ 由 divFor 提供，此处只画状态列横线部分
+      statusBody = statusBodyW > 0 ? cf(SEPARATOR.repeat(statusBodyW)) : "";
+    } else {
+      const cell = statusCells[statusFocused ? rc - 1 : rc];
+      const rawBody = truncateToWidth(cell?.slice(0, -1) ?? "", statusBodyW);
+      // 已含内嵌色（Mode 块/todo 标题/进行中项等自带 ANSI）的行不再整行外包灰，
+      // 否则无色片段（如 Mode 属性名）会被 cg 蒙灰；无 ANSI 的纯内容行仍按约定上灰
+      statusBody = rawBody.includes("\x1b")
+        ? rawBody + blank(statusBodyW - displayWidth(rawBody))
+        : cg(rawBody + blank(statusBodyW - displayWidth(rawBody)));
+    }
     let content: string;
     if (rc < diaStart) {
       // 标题栏：首行标题（空标题 <title> 灰占位保持行稳定）、次行实线下划线
@@ -1065,8 +1069,8 @@ function buildTopRegion(
     }
     // 历史/活动区正文补齐到 contentW：分隔竖线恒位于 D 列（不紧贴文字末尾）
     content += blank(Math.max(0, contentW - displayWidth(content)));
-    // 右缘框列（状态列右缘）：status 焦点亮；其余空白占位
-    const right = statusFocused ? "│" : " ";
+    // 右缘框列（状态列右缘）：status 焦点亮（rc0 为顶边右角 ┐）；其余空白占位
+    const right = statusFocused ? (rc === 0 ? "┐" : "│") : " ";
     rows.push({
       text:
         left +
@@ -1080,7 +1084,6 @@ function buildTopRegion(
 }
 
 export const USER_MIN_LEFT_GUTTER = 4;
-export const THINKING_MORE = "...(更多思考已折叠)";
 /** 工具调用历史：仅展示最近 TOOL_MAX_GROUPS 个调用组，更早隐藏（折叠标记） */
 export const TOOL_MAX_GROUPS = 4;
 export const TOOL_MORE = "...(更早工具调用已隐藏)";
@@ -1119,13 +1122,11 @@ interface PaneRows {
 function wrapBufferLines(
   buffer: Buffer,
   width: number,
-  thinkingMaxLines: number,
   gutter: number,
   themeId: ThemeId,
 ): PaneRows {
   const dialogue: WrappedRow[] = [];
   const activity: WrappedRow[] = [];
-  const thinking: WrappedRow[] = [];
   let inFence = false;
   // 工具行按连续 run 收集，flush 时做折叠/分组渲染；遇到非工具行先落盘
   const toolRun: BufferLine[] = [];
@@ -1175,11 +1176,11 @@ function wrapBufferLines(
       continue;
     }
     if (line.kind === "thinking") {
-      // 思考行左侧紫粗竖线（同正文左侧竖线风格，色区于已用的浅蓝回复/浅红输入）
+      // 思考行 → 活动区（与工具/notice/中间输出按时间顺序混合；不再单独分组折叠）
       const bar = colorFor(themeId, "brightMagenta")("┃");
       const rows = wrapLine(line.text, Math.max(1, width - 1));
       for (const text of rows)
-        thinking.push({
+        activity.push({
           text: text === "" ? "" : bar + text,
           kind: "thinking",
           indent: 0,
@@ -1205,8 +1206,10 @@ function wrapBufferLines(
       continue;
     }
     if (line.kind === "assistant") {
-      // 模型正文：右缘保留交错留白；fence 代码块内原样展示（块背景不解析），
-      // 块外按块级/行内 markdown 子集渲染（标题/引用/列表/任务/分隔线/粗斜/行内代码/链接/图片）
+      // 模型正文分流：final（回合最终总结）→ 历史区（交错留白布局）；
+      // 非 final（中间输出）→ 活动区（全宽渲染，与思考/工具/notice 按时间混合）。
+      // fence 代码块内原样展示（块背景不解析），块外按块级/行内 markdown 子集渲染
+      const target = line.final ? dialogue : activity;
       const fence = FENCE_RE.exec(line.text);
       if (fence && fence[1]!.length >= 3) {
         if (inFence) {
@@ -1216,7 +1219,7 @@ function wrapBufferLines(
           const lang = fence[2] ?? "";
           if (lang) {
             // 代码块语言标签行：灰斜体（fence 开关行本身不显示）
-            dialogue.push({
+            target.push({
               text: renderSeg(
                 { text: lang, style: { fg: "gray", italic: true } },
                 themeId,
@@ -1228,18 +1231,20 @@ function wrapBufferLines(
         }
         continue;
       }
-      const bodyWidth = assistantMaxBodyWidth(width, gutter);
+      // 回复正文左侧附加浅蓝竖线用于区分（窄列降级不加，以免正文被挤出）
+      // ponytail: width<6 时省略竖线；有富裕再去掉阈值
+      const hasBar = width >= USER_MIN_LEFT_GUTTER + 2;
+      const bodyWidth = line.final
+        ? assistantMaxBodyWidth(width, gutter)
+        : hasBar
+          ? width - 1 // 活动区全宽渲染 + 左竖线 → 留 1 列，避免溢出到 D 列
+          : width;
+      const bar = hasBar ? colorFor(themeId, "brightBlue")("┃") : "";
       const rows = inFence
         ? wrapCodeLine(line.text, bodyWidth, themeId)
         : wrapAssistantLine(line.text, bodyWidth, themeId);
-      // 回复正文左侧附加浅蓝竖线用于区分（窄列降级不加，以免正文被挤出）
-      // ponytail: width<6 时省略竖线；有富裕再去掉阈值
-      const bar =
-        width >= USER_MIN_LEFT_GUTTER + 2
-          ? colorFor(themeId, "brightBlue")("┃")
-          : "";
       for (const text of rows)
-        dialogue.push({
+        target.push({
           text: text === "" ? "" : bar + text,
           kind: line.kind,
           indent: 0,
@@ -1274,22 +1279,7 @@ function wrapBufferLines(
       });
   }
   flushToolRun();
-  // 思考折叠 → 活动区。thinking 插到活动区头部（时序上早于工具/通知，见下注）：
-  // 工具/通知行 append 在循环中已先落 activity，兜底 flush 也先于此处；
-  // viewport 从尾部取最新可见行——保留思考后工具/通知（更新）仍优先显示，不被思考挤掉。
-  if (thinking.length > 0) {
-    const cap = Math.max(1, thinkingMaxLines);
-    const hasMore = thinking.length > cap;
-    const visible = thinking.slice(-(hasMore ? cap - 1 : cap));
-    if (hasMore) {
-      visible.unshift({
-        text: colorFor(themeId, "brightMagenta")("┃") + THINKING_MORE,
-        kind: "thinking",
-        indent: 0,
-      });
-    }
-    activity.unshift(...visible);
-  }
+  // 对话区：用户消息块与随后的答案之间空一行（纯布局展示，不写状态）
   // 对话区：用户消息块与随后的答案之间空一行（纯布局展示，不写状态）
   const spaced: WrappedRow[] = [];
   for (const row of dialogue) {
@@ -1639,7 +1629,8 @@ export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
     1,
     state,
   ).topHeight;
-  const contentTopH = Math.max(0, topHeight - FRAME_TOP_ROWS);
+  // 2026-09-27：无独立顶部边框行，内容行数 = topHeight（与 buildTopRegion 同口径）
+  const contentTopH = Math.max(0, topHeight);
   const { activityH, dialogueH } = topPaneHeights(
     contentTopH,
     state.activityDivisor,

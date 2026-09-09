@@ -12,7 +12,6 @@ import {
   renderStatusLine,
   truncateToWidth,
   displayWidth,
-  THINKING_MORE,
   USER_MIN_LEFT_GUTTER,
   userMaxBodyWidth,
   TITLE_BAR_ROWS,
@@ -76,6 +75,8 @@ function frameWith(rows: number, cols: number) {
     status: { time: "12:00:00", cwd: "/home/u", git: "main" },
   });
   s = reduceState(s, { type: "append", text: "第一行\n第二行内容" });
+  // 回合结束标记最终总结 → 历史区展示（流式中 assistant 在活动区）
+  s = reduceState(s, { type: "turn-end" });
   const frame = buildFrame(s, { rows, cols });
   return { s, frame };
 }
@@ -117,13 +118,13 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     top.slice(1).every((l) => /[│─╌]/.test(plain(l))),
     "分隔竖线保留（对话区右缘/状态列左缘，内容行均有；活动区分隔行两端的角为 ┘/┐）",
   );
-  // 标题栏迁入左列顶部：title 占位 + 实线下划线，历史区内容在其后
+  // 标题栏即顶部（2026-09-27 无独立顶部边框行）：title 占位 + 实线下划线，历史区内容在其后
   assert.ok(
-    top[1]!.text.includes("<title>"),
+    top[0]!.text.includes("<title>"),
     "顶部首行为标题栏（会话标题占位）",
   );
-  assert.ok(/^─+$/.test(histContent(top[2]!.text, 60)), "标题栏下为实线下划线");
-  assert.ok(top[3]!.text.includes("第一行"), "历史区内容在左侧（标题栏之后）");
+  assert.ok(/^─+$/.test(histContent(top[1]!.text, 60)), "标题栏下为实线下划线");
+  assert.ok(top[2]!.text.includes("第一行"), "历史区内容在左侧（标题栏之后）");
   // 横线分隔：17 行后是分隔行，再之后状态区（短 cwd 下动态单行：env|LLM 全在一行）
   const separator1 = frame[17]!;
   assert.ok(plain(separator1).startsWith("─"), "状态区上方用 ─ 分隔");
@@ -244,12 +245,19 @@ test("buildFrame: 审批弹窗时交互区高度与输入态一致（不上下�
 
 test("turn-begin: 回合开始时在历史末尾追加分隔线；流式内容仍实时合入 buffer", () => {
   let s = initialState();
-  s = reduceState(s, { type: "append", text: "hi" });
+  // 历史内容（用户行保留）；过程 assistant（非 final）在 turn-begin 时被清空
+  s = reduceState(s, { type: "user-line", text: "q" });
+  s = reduceState(s, { type: "append", text: "中间输出" });
   s = reduceState(s, { type: "turn-begin" });
   assert.deepEqual(s.buffer[s.buffer.length - 1], {
     text: TURN_SEPARATOR,
     kind: "separator",
   });
+  assert.equal(
+    s.buffer.some((l) => l.kind === "assistant"),
+    false,
+    "turn-begin 清空非 final 中间输出（仅历史 user + 分隔线保留）",
+  );
   // 流式仍实时合入
   s = reduceState(s, { type: "append", text: " more" });
   assert.equal(s.buffer[s.buffer.length - 1]?.text, " more");
@@ -259,9 +267,15 @@ test("turn-begin: 空 buffer 不画孤立分隔线；重复 begin 不重复；tu
   let s = initialState();
   s = reduceState(s, { type: "turn-begin" });
   assert.equal(s.buffer.length, 0);
+  s = reduceState(s, { type: "user-line", text: "q" });
   s = reduceState(s, { type: "append", text: "a" });
-  s = reduceState(s, { type: "turn-begin" });
   s = reduceState(s, { type: "turn-end" });
+  assert.equal(
+    s.buffer.filter((l) => l.kind === "assistant" && l.final).length,
+    1,
+    "turn-end 把最后一段 assistant 标为 final 总结",
+  );
+  s = reduceState(s, { type: "turn-begin" });
   let seps = s.buffer.filter((l) => l.kind === "separator").length;
   assert.equal(seps, 1, "turn-end 不增线，仅 turn-begin 画一条");
   s = reduceState(s, { type: "turn-begin" });
@@ -329,6 +343,68 @@ test("activityScroll 归零：turn-begin 空 buffer/已有分隔线路径 + clea
   s = reduceState(s, { type: "clear-buffer" });
   assert.equal(s.buffer.length, 0, "清屏后 buffer 空");
   assert.equal(s.activityScroll, 0, "clear-buffer 后 activityScroll 归零");
+});
+
+test("turn-end 标 final：中间输出留在活动区、总结进历史区；幂等与跨回合", () => {
+  // 回合内：思考 → 中间输出 → 工具 → 总结
+  let s = initialState();
+  s = reduceState(s, { type: "user-line", text: "q" });
+  s = reduceState(s, { type: "thinking", text: "思考" });
+  s = reduceState(s, { type: "append", text: "中间回复 1" });
+  s = reduceState(s, { type: "append", text: "中间回复 2" });
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s",
+    name: "bash",
+    summary: "ls",
+  });
+  s = reduceState(s, { type: "append", text: "最终总结" });
+  // turn-end 前：所有 assistant 均非 final
+  assert.equal(
+    s.buffer.filter((l) => l.kind === "assistant" && l.final).length,
+    0,
+    "回合进行中无 final 行（中间输出在活动区）",
+  );
+  s = reduceState(s, { type: "turn-end" });
+  const finals = s.buffer.filter((l) => l.final);
+  assert.equal(finals.length, 1, "仅最后一段 assistant 标 final");
+  assert.equal(finals[0]!.text, "最终总结");
+  // 幂等：再次 turn-end 不新增 final
+  s = reduceState(s, { type: "turn-end" });
+  assert.equal(s.buffer.filter((l) => l.final).length, 1, "重复 turn-end 幂等");
+  // 新回合 turn-begin：清掉非 final 中间输出/思考/工具，保留 user + final 总结
+  s = reduceState(s, { type: "turn-begin" });
+  const kinds = s.buffer.map((l) => l.kind);
+  assert.ok(!kinds.includes("thinking"), "思考被清");
+  assert.ok(!kinds.includes("tool"), "工具被清");
+  assert.equal(
+    s.buffer.filter((l) => l.kind === "assistant" && !l.final).length,
+    0,
+    "非 final 中间输出被清",
+  );
+  assert.ok(
+    s.buffer.some(
+      (l) => l.kind === "assistant" && l.final && l.text === "最终总结",
+    ),
+    "final 总结保留在历史区",
+  );
+});
+
+test("turn-end 无模型正文：不标 final（纯工具/思考回合）", () => {
+  let s = initialState();
+  s = reduceState(s, { type: "user-line", text: "q" });
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s",
+    name: "bash",
+    summary: "ls",
+  });
+  s = reduceState(s, { type: "turn-end" });
+  assert.equal(
+    s.buffer.filter((l) => l.final).length,
+    0,
+    "无 assistant 输出时不产生 final 行",
+  );
 });
 
 test("appendStream 不修改旧 state 的行对象", () => {
@@ -445,6 +521,8 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(�
     text: "用户消息很长用于验证历史区的右侧缩进和续行换行行为这是一段更长的内容",
   });
   s = reduceState(s, { type: "append", text: "模型回答" });
+  // 回合结束：最后一段 assistant 标为 final 总结 → 历史区展示
+  s = reduceState(s, { type: "turn-end" });
   // 标题栏占左列顶部 2 行：加高终端（rows=24 → dialogueH=5）保证用户块全部可见
   const top = buildFrame(s, { rows: 24, cols: 40 }).slice(0, 10);
   const plain = (line: RenderLine): string =>
@@ -650,6 +728,8 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   let s = initialState();
   s = reduceState(s, { type: "user-line", text: "问题" });
   s = reduceState(s, { type: "append", text: "答案" });
+  // 回合结束：答案标 final → 历史区展示
+  s = reduceState(s, { type: "turn-end" });
   // 标题栏占左列顶部 2 行：加高终端（rows=19 → dialogueH=3）保证问题+空行+答案可见
   let plain = buildFrame(s, { rows: 19, cols: 40 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
@@ -694,6 +774,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
     "活动区分隔线为灰色（含 truecolor SGR）",
   );
   let ts = reduceState(initialState(), { type: "append", text: "正文" });
+  ts = reduceState(ts, { type: "turn-end" }); // 正文标 final 进历史区
   ts = reduceState(ts, { type: "turn-begin" });
   const turnRaw = buildFrame(ts, { rows: 10, cols: 40 }).find((l) =>
     /^╌+$/.test(histContent(l.text, 40)),
@@ -738,11 +819,11 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   let s = initialState();
   s = reduceState(s, { type: "user-line", text: "问题" });
   s = reduceState(s, { type: "append", text: "第一段\n" });
-  s = reduceState(s, { type: "append", text: "第二段\n" });
   s = reduceState(s, { type: "append", text: "第三段\n" });
+  s = reduceState(s, { type: "turn-end" }); // 正文标 final → 历史区
   s = reduceState(s, { type: "turn-begin" });
-  // 标题栏占左列顶部 2 行：加高终端（rows=19 → dialogueH=3）保证正文尾段可见
-  const plain = buildFrame(s, { rows: 19, cols: 40 }).map((l) =>
+  // 标题栏占左列顶部 2 行：活动区 1/2 后加高终端（rows=24 → dialogueH=6）保证正文尾段可见
+  const plain = buildFrame(s, { rows: 24, cols: 40 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const codeIdx = plain.findIndex((l) => l.includes("第三段"));
@@ -758,7 +839,8 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   // 正文段落之间的空行（一段\n\n二段）必须保留
   let p = initialState();
   p = reduceState(p, { type: "append", text: "一段\n\n二段\n" });
-  const plainP = buildFrame(p, { rows: 19, cols: 40 }).map((l) =>
+  p = reduceState(p, { type: "turn-end" }); // 正文标 final → 历史区
+  const plainP = buildFrame(p, { rows: 24, cols: 40 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const i1 = plainP.findIndex((l) => l.includes("一段"));
@@ -767,7 +849,7 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   assert.equal(i2 - i1, 2, "两段正文之间的空行保留");
 });
 
-test("会话流：思考只显示最新几行；正文(输出)到达保留、turn-end 后保留至下回合", () => {
+test("会话流：思考在活动区按视口截断；正文(输出)到达保留、turn-end 后保留至下回合", () => {
   let s = initialState();
   s = reduceState(s, {
     type: "thinking",
@@ -775,9 +857,8 @@ test("会话流：思考只显示最新几行；正文(输出)到达保留、tur
   });
   const frame = buildFrame(s, { rows: 16, cols: 60 });
   const thinkingLines = frame.filter((l) => isThinkingRow(l, 60));
-  // 折叠上限跟随活动区（瞬态显示区）高度：rows=16 → activityH=4
-  assert.ok(thinkingLines.length <= 4, "思考最多占满活动区高度");
-  assert.ok(frame.some((line) => line.text.includes(THINKING_MORE)));
+  // 活动区视口 = activityH 行（rows=16 → activityH=4）：只显示最近 4 行，可滚动回看
+  assert.ok(thinkingLines.length <= 4, "思考最多占满活动区视口");
   assert.ok(frame.some((line) => line.text.includes("t6")));
   assert.ok(!frame.some((line) => line.text.includes("t1")));
 
@@ -785,7 +866,7 @@ test("会话流：思考只显示最新几行；正文(输出)到达保留、tur
   assert.equal(
     s.buffer.some((line) => line.kind === "thinking"),
     true,
-    "正文到达后思考仍保留（思考属活动区，正文属历史区）",
+    "正文到达后思考仍保留（思考/中间输出属活动区，总结属历史区）",
   );
 
   s = reduceState(s, { type: "thinking", text: "残留思考" });
@@ -803,21 +884,8 @@ test("会话流：思考只显示最新几行；正文(输出)到达保留、tur
   );
 });
 
-test("thinkingMaxLines 可配置：initialState(opts) 决定折叠阈值", () => {
-  const s = initialState("light", { thinkingMaxLines: 2 });
-  assert.equal(s.thinkingMaxLines, 2, "state 记录自定义上限");
-  const with3 = reduceState(s, { type: "thinking", text: "x1\nx2\nx3" });
-  const frame = buildFrame(with3, { rows: 16, cols: 60 });
-  const thinking = frame.filter((l) => isThinkingRow(l, 60));
-  // min(thinkingMaxLines=2, activityH=4)=2 且已有 3 行 → 折叠：显示 cap-1 行 + 折叠提示
-  assert.ok(thinking.length <= 2, "自定义上限内");
-  assert.ok(frame.some((line) => line.text.includes(THINKING_MORE)));
-  assert.ok(frame.some((line) => line.text.includes("x3")));
-  assert.ok(!frame.some((line) => line.text.includes("x1")));
-});
-
-test("会话流：思考折叠上限=活动区高度（默认），收紧配置仍生效", () => {
-  // rows=24 → contentTopH=16 → activityH=8：12 行思考默认折叠为 7 行+MORE，恰好占满活动区
+test("会话流：思考不再单独折叠，活动区整体按视口高度截断（可滚动回看）", () => {
+  // rows=24 → contentTopH=16 → activityH=8：12 行思考 → 视口显示最近 8 行，无折叠提示
   let s = initialState();
   for (let i = 1; i <= 12; i++) {
     // 两位零填充：避免 "a1" 误匹配前缀 "a12"
@@ -830,27 +898,11 @@ test("会话流：思考折叠上限=活动区高度（默认），收紧配置�
   const thinking = frame.filter((l) => isThinkingRow(l, 60));
   assert.ok(
     thinking.length <= 8,
-    "默认思考最多占满活动区高度（rows=24 → activityH=8），实际:" +
-      thinking.length,
+    "活动区视口=activityH（rows=24 → activityH=8），实际:" + thinking.length,
   );
-  assert.ok(frame.some((line) => line.text.includes(THINKING_MORE)));
   assert.ok(frame.some((line) => line.text.includes("a12")));
   assert.ok(!frame.some((line) => line.text.includes("a01")));
-
-  // 收紧配置 thinkingMaxLines=3 仍生效：即使活动区更高也只显示 3 行
-  let t = initialState("light", { thinkingMaxLines: 3 });
-  for (let i = 1; i <= 5; i++) {
-    t = reduceState(t, { type: "thinking", text: `b${i}\n` });
-  }
-  const frameT = buildFrame(t, { rows: 24, cols: 60 });
-  const thinkingT = frameT.filter((l) => isThinkingRow(l, 60));
-  assert.ok(
-    thinkingT.length <= 3,
-    "收紧配置生效（≤3 行），实际:" + thinkingT.length,
-  );
-  assert.ok(frameT.some((line) => line.text.includes(THINKING_MORE)));
 });
-
 test("会话流：窄终端仍保留用户与思考文本", () => {
   let s = initialState();
   s = reduceState(s, { type: "user-line", text: "用户" });
@@ -895,6 +947,7 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
     type: "append",
     text: "0123456789012345678901234567890123456789", // 40 字符
   });
+  s = reduceState(s, { type: "turn-end" }); // 正文标 final → 历史区
   // 标题栏占左列顶部 2 行：加高终端（rows=16 → dialogueH=2）保证两行正文可见
   const rows = buildFrame(s, { rows: 16, cols: 40 })
     .map((l) => strip(l.text))
@@ -1518,13 +1571,15 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   const countBrightBar = (raw: string): number =>
     raw.split(WHITE + "│").length - 1;
 
-  // 默认无焦点（null）：三面板全不高亮——顶边/两侧框列空白占位、无亮角
+  // 默认无焦点（null）：三面板全不高亮——标题栏即顶部（无独立顶部边框行），
+  // 两侧框列空白占位、无亮角
   let st = initialState();
   let rows = rowsOf(st);
   const b0 = rows[0]!;
-  assert.ok(!plain(b0).includes("─"), "无焦点：顶部边框行空白（不画 ─）");
+  assert.ok(plain(b0).includes("<title>"), "无焦点：顶部首行为标题栏");
+  assert.ok(!plain(b0).includes("─"), "无焦点：标题行不画 ─");
   assert.ok(!plain(b0).includes("┌"), "无焦点：顶部无角");
-  assert.ok(!b0.includes(WHITE), "无焦点：顶边无亮色");
+  assert.ok(!b0.includes(WHITE), "无焦点：标题行无亮色");
   const s0 = sepRow(rows);
   assert.ok(!s0.includes(WHITE + "─"), "无焦点：活动区分隔 ╌ 不亮（回灰）");
   const dlg = rows.find((l) => plain(l).includes("<title>"))!;
@@ -1538,7 +1593,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   const sepIdx0 = activitySepIdx(rows, size.cols);
   assert.equal(countBrightBar(rows[sepIdx0 + 1]!), 0, "无焦点：活动行无亮 │");
   assert.ok(
-    rows.slice(1, topRows).every((l) => displayWidth(plain(l)) === 80),
+    rows.slice(0, topRows).every((l) => displayWidth(plain(l)) === 80),
     "所有内容行补齐到整屏宽（右缘框线恒在固定列）",
   );
   assert.ok(
@@ -1558,20 +1613,24 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   );
   const sigHistory = contentSig(rows, topRows);
 
-  // 焦点=历史（左列）：Tab 一次进入——顶边 ┌─┐、活动区分隔 ─ 亮 + 两端 ┘、对话区左缘/分隔竖线亮 │
+  // 焦点=历史（左列）：Tab 一次进入——标题栏下划线行兼作顶边 ┌─┐（标题行不在焦点
+  // 窗口：左缘空白、D 列竖线灰）、活动区分隔 ─ 亮 + 两端 ┘、对话区左缘/分隔竖线亮 │
   st = reduceState(initialState(), { type: "focus-panel-cycle" }); // null → 历史
   rows = rowsOf(st);
-  const bH = rows[0]!;
-  assert.ok(plain(bH).includes("─"), "历史焦点：顶部边框行画 ─");
+  const bH = rows[1]!; // 下划线行（顶边）
+  assert.ok(plain(bH).includes("─"), "历史焦点：下划线行兼作顶边画 ─");
   assert.ok(plain(bH).includes("┌"), "历史焦点：左上角 ┌");
   assert.ok(colAt(bH, D) === "┐", "历史焦点：右上角 ┐（分隔竖线列）");
   assert.ok(bH.includes(WHITE), "历史焦点：顶边/竖线亮白");
-  const dlgH = rows.find((l) => plain(l).includes("<title>"))!;
-  assert.ok(plain(dlgH).startsWith("│"), "历史焦点：最左侧左缘框格 │");
+  const titleH = rows.find((l) => plain(l).includes("<title>"))!;
+  assert.ok(
+    !plain(titleH).startsWith("│"),
+    "历史焦点：标题行左缘空白（标题不在焦点窗口）",
+  );
   assert.equal(
-    countBrightBar(dlgH),
-    2,
-    "历史焦点：对话行左缘框格+分隔竖线 2 条亮 │",
+    countBrightBar(titleH),
+    0,
+    "历史焦点：标题行无亮框线（D 列竖线也保持灰）",
   );
   const sH = sepRow(rows);
   assert.ok(sH.includes(WHITE + "─"), "历史焦点：活动区分隔 ─ 亮白");
@@ -1628,7 +1687,10 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     !plain(dlgS).startsWith("│"),
     "状态焦点：左缘空白占位（状态列在右）",
   );
-  assert.equal(countBrightBar(dlgS), 2, "状态焦点：分隔竖线+右缘框列 2 条亮 │");
+  assert.ok(
+    dlgS.includes(WHITE + "┌") && colAt(dlgS, 79) === "┐",
+    "状态焦点：标题行状态列顶边角 ┌/┐ 亮白（顶边从 D 列起）",
+  );
   assert.ok(rows[0]!.includes(WHITE + "┌"), "状态焦点：左上角 ┌");
   const e2 = eqRow(rows);
   assert.ok(e2.includes(WHITE + "─"), "状态焦点：─ 右段亮白");
@@ -1705,6 +1767,7 @@ test("对话区：上滚展开折叠历史（offset>0 更早回复可见，跟�
   for (let i = 1; i <= 5; i++) {
     s = reduceState(s, { type: "user-line", text: `Q${i}` });
     s = reduceState(s, { type: "append", text: `A${i} 的回复正文` });
+    s = reduceState(s, { type: "turn-end" }); // 每回合回复标 final 进历史区
   }
   const frame = (st: typeof s): string =>
     buildFrame(st, { rows: 60, cols: 80 })

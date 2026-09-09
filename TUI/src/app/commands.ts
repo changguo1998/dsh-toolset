@@ -57,14 +57,20 @@ export function buildOsc52(text: string): string {
   return `\x1b]52;c;${b64}\x07`;
 }
 
-/** 历史会话表面消息 → buffer 行（仅 user/assistant，供 resume 后展示上下文） */
+/** 历史会话表面消息 → buffer 行（仅 user/assistant，供 resume 后展示上下文）；
+ *  历史 assistant 均为已完成回合的最终总结 → final: true（历史区展示） */
 export function surfaceToBuffer(
   messages: readonly { role: "user" | "assistant"; text: string }[],
-): { text: string; kind: "user" | "assistant" }[] {
-  const out: { text: string; kind: "user" | "assistant" }[] = [];
+): { text: string; kind: "user" | "assistant"; final?: boolean }[] {
+  const out: { text: string; kind: "user" | "assistant"; final?: boolean }[] =
+    [];
   for (const m of messages) {
     if (m.role === "user" || m.role === "assistant") {
-      out.push({ text: m.text, kind: m.role });
+      out.push({
+        text: m.text,
+        kind: m.role,
+        final: m.role === "assistant" ? true : undefined,
+      });
     }
   }
   return out;

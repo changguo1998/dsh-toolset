@@ -466,6 +466,65 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     return out;
   };
 
+  /**
+   * Mode 初始值折叠：plan/mode、sandbox/mode、permission/preset、approval/policy
+   * 均为 log-only 事件（只在切换时落盘，会话启动不产生初始事件），故启动/恢复
+   * 会话时主动从会话日志取各事件最后一条，emit 为对应 DshEvent 补 Mode 块初始值。
+   * 读取源与 doReadSessionSurface 同源：live 读内存 events（全量原始）；persisted
+   * 必须走 readSession（readSurface 做 surface fold 会滤掉 log-only 事件）。
+   * 宿主未挂载 sessionQuery/仅 readSurface 时静默跳过（Mode 块保持事件驱动）。
+   */
+  const emitSessionModeSnapshot = async (id: string): Promise<void> => {
+    if (!sessionQuery) return;
+    let events: readonly { type?: string; data?: unknown }[] | undefined;
+    const live = opts.sessions?.get(id);
+    if (live && Array.isArray(live.events) && live.events.length > 0) {
+      events = live.events as readonly { type?: string; data?: unknown }[];
+    } else if (sessionQuery.readSession) {
+      const snap = await sessionQuery.readSession(id);
+      events = snap.events as readonly { type?: string; data?: unknown }[];
+    }
+    if (!events || events.length === 0) return;
+    const lastOf = <T>(type: string): T | undefined => {
+      for (let i = events!.length - 1; i >= 0; i--) {
+        if (events![i]?.type === type) return events![i]?.data as T;
+      }
+      return undefined;
+    };
+    const plan = lastOf("plan/mode") as { active?: unknown } | undefined;
+    if (plan) {
+      emit({
+        type: "mode",
+        sessionId: id,
+        kind: "plan",
+        value: plan.active === true ? "on" : "off",
+      });
+    }
+    const sandbox = lastOf("sandbox/mode") as { mode?: unknown } | undefined;
+    if (sandbox && typeof sandbox.mode === "string") {
+      emit({
+        type: "mode",
+        sessionId: id,
+        kind: "sandbox",
+        value: sandbox.mode,
+      });
+    }
+    const perm = lastOf("permission/preset") as
+      { preset?: unknown } | undefined;
+    if (perm && typeof perm.preset === "string") {
+      emit({
+        type: "mode",
+        sessionId: id,
+        kind: "permission",
+        value: perm.preset,
+      });
+    }
+    const pol = lastOf("approval/policy") as { policy?: unknown } | undefined;
+    if (pol && (pol.policy === "ask" || pol.policy === "never")) {
+      emit({ type: "approval-policy", sessionId: id, policy: pol.policy });
+    }
+  };
+
   /** 官方标题：批量折叠 session/title 事件（readTitleSnapshots 优先；缺失逐条 readTitle） */
   const officialTitles = async (
     ids: string[],
@@ -1478,6 +1537,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           // 读取顺序（按 live/persisted 判定，避免走错接口）见 doReadSessionSurface
           return doReadSessionSurface(id);
         }
+      : undefined,
+    refreshSessionModes: sessionQuery
+      ? (id) => emitSessionModeSnapshot(id)
       : undefined,
     async sessionTitle(id) {
       if (!sessionQuery || typeof sessionQuery.readTitle !== "function") {

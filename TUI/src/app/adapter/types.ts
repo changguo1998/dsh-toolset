@@ -293,6 +293,9 @@ export interface DshAdapter {
   /** 运行时切换到持久化会话（agents.resume）：dispose 旧 agent → resume 新 agent，
    *  成功后本 adapter 的活跃会话变为该 id。宿主未挂载 agents.resume 时 reject 提示。 */
   resumeTo?(id: string): Promise<void>;
+  /** 刷新会话 Mode 初始值：从会话日志折叠 plan/sandbox/permission/policy 最后一条
+   *  并 emit 对应事件（log-only 事件启动不产生，主动补快照）；宿主无读取面时静默 */
+  refreshSessionModes?(sessionId: string): Promise<void>;
   /** 切换当前会话审批策略（ask=每次询问 / never=恒拒自动放行）；
    *  宿主未挂载 ctx.approval 时 reject，调用方 notice「审批策略服务不可用」。 */
   setApprovalPolicy?(policy: "ask" | "never"): Promise<void>;

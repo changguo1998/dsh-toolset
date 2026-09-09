@@ -345,6 +345,71 @@ if (smoke) {
       );
       renderer.emitKey(key("escape")); // 关闭面板
       await sleep(100);
+
+      // —— 活动区混合断言（2026-09-27）：思考/中间输出/工具/notice 按时间顺序混合 ——
+      // 先 /cls 清掉旧活动区瞬态（turn-begin 是内部 reducer 动作，adapter 事件面不可
+      // 发），再注入一个混合回合：thinking → stream(中间，非 final) → 工具调用/结果
+      // → notice → stream(最终总结)；turn-end 后中间输出/工具/notice 留在活动区（按
+      // 时间同屏），最终总结标 final 进历史区。
+      typeLine("/cls");
+      await sleep(300);
+      adapter.emitEvent({
+        type: "thinking",
+        sessionId: "mock-1",
+        text: "混合思考行",
+      });
+      adapter.emitEvent({
+        type: "stream",
+        sessionId: "mock-1",
+        text: "混合中间输出",
+      });
+      adapter.emitEvent({
+        type: "tool-call",
+        sessionId: "mock-1",
+        name: "bash",
+        summary: "mixed-check",
+      });
+      adapter.emitEvent({
+        type: "tool-result",
+        sessionId: "mock-1",
+        ok: true,
+        detail: "mixed ok",
+      });
+      adapter.emitEvent({ type: "notice", text: "混合 notice 提示" });
+      adapter.emitEvent({
+        type: "stream",
+        sessionId: "mock-1",
+        text: "混合最终总结",
+      });
+      adapter.emitEvent({ type: "turn-end" });
+      await sleep(400);
+      const mixedLines = (smokeOut.split("\x1b[2J\x1b[H").at(-1) ?? "")
+        .split("\r\n")
+        .map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""));
+      const lineIdx = (sub: string): number =>
+        mixedLines.findIndex((l) => l.includes(sub));
+      const aT = lineIdx("混合思考行");
+      const aM = lineIdx("混合中间输出");
+      const aTool = lineIdx("mixed-check");
+      const aN = lineIdx("混合 notice 提示");
+      const aSum = lineIdx("混合最终总结");
+      // 活动区分隔行（左列全 ─）：混合内容在分隔行后按时间顺序同屏
+      const mixedSepIdx = mixedLines.findIndex(
+        (l, i) => i > 1 && /^─+$/.test(l.slice(0, 40).trim()),
+      );
+      const sepBefore = (i: number): boolean => i >= 0 && i > mixedSepIdx;
+      ok(
+        "activity-mixed-ordered",
+        aT >= 0 &&
+          aM > aT &&
+          aTool > aM &&
+          aN > aTool &&
+          sepBefore(aT) &&
+          sepBefore(aN) &&
+          aSum >= 0 &&
+          aSum < mixedSepIdx,
+        "idx=" + [aT, aM, aTool, aN, aSum, mixedSepIdx].join(","),
+      );
       // /preset 无参：读目录 → 打开状态选项面板（标题 + agent 预设选项）
       typeLine("/preset");
       await sleep(400);

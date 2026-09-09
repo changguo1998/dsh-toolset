@@ -51,8 +51,7 @@ export function main(opts: {
   slowStream?: boolean;
   /** 思考打字机流速(字符/秒，默认 120；收到正文后自动加速到 200；由 apply 归一化) */
   streamCharsPerSecond?: number;
-  /** thinking 最大显示行数(默认 4；由 apply 归一化) */
-  thinkingMaxLines?: number;
+  /** 用户块左缘/回复右缘对称留空(列数，默认 4；由 apply 归一化，域 0..20) */
   /** 用户块左缘/回复右缘对称留空(列数，默认 4；由 apply 归一化，域 0..20) */
   messageGutter?: number;
   /** 测试注入：替代真实终端 renderer（缺省 createRenderer()） */
@@ -72,7 +71,6 @@ export function main(opts: {
     initialTheme: opts.initialTheme,
     slowStream: opts.slowStream,
     streamCharsPerSecond: opts.streamCharsPerSecond,
-    thinkingMaxLines: opts.thinkingMaxLines,
     messageGutter: opts.messageGutter,
   });
   app.setLogger(opts.logger ?? ((msg) => void msg));
@@ -106,8 +104,6 @@ export interface DshTuiConfig {
   streamTypewriter?: boolean;
   /** 思考打字机流速（字符/秒，默认 120；收到正文后自动加速到 200；合法域 1..2000，非法回退默认） */
   streamCharsPerSecond?: number;
-  /** thinking/reasoning 最大显示行数（默认 4；合法域 1..50，非法回退默认） */
-  thinkingMaxLines?: number;
   /** 用户块左缘/回复右缘对称留空（列数，默认 4；合法域 0..20，非法回退默认） */
   messageGutter?: number;
   /** 锚定工具引导（两阶段工具锁定-释放，移植自 dsh-anchored-standard）。
@@ -120,8 +116,6 @@ export interface TuiDisplayConfig {
   streamTypewriter: boolean;
   /** streamCharsPerSecond 归一化结果（1..2000） */
   streamCharsPerSecond: number;
-  /** thinkingMaxLines 归一化结果（1..50） */
-  thinkingMaxLines: number;
   /** messageGutter 归一化结果（0..20，默认 4） */
   messageGutter: number;
 }
@@ -135,10 +129,7 @@ export function normalizeTuiDisplayConfig(
     | Partial<
         Pick<
           DshTuiConfig,
-          | "streamTypewriter"
-          | "streamCharsPerSecond"
-          | "thinkingMaxLines"
-          | "messageGutter"
+          "streamTypewriter" | "streamCharsPerSecond" | "messageGutter"
         >
       >
     | undefined,
@@ -175,8 +166,6 @@ export function normalizeTuiDisplayConfig(
       2000,
       "streamCharsPerSecond",
     ),
-    // 默认不折叠（交由活动区高度截断）；仅收紧时配置才生效
-    thinkingMaxLines: num(raw?.thinkingMaxLines, 50, 1, 50, "thinkingMaxLines"),
     messageGutter: num(raw?.messageGutter, 4, 0, 20, "messageGutter"),
   };
 }
@@ -356,7 +345,6 @@ export async function apply(
     // 真实接入链路：打字机放缓默认开启，streamTypewriter: false 可关闭
     slowStream: display.streamTypewriter,
     streamCharsPerSecond: display.streamCharsPerSecond,
-    thinkingMaxLines: display.thinkingMaxLines,
     messageGutter: display.messageGutter,
   });
   // Cordis 插件生命周期：pause/unload 时释放 App/adapter——

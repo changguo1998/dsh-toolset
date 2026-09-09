@@ -39,10 +39,7 @@ export const PANEL_CYCLE = ["history", "activity", "status"] as const;
 /** scrollback 行数上限（纯物理上限；DESIGN:2000 行） */
 export const MAX_BUFFER_LINES = 2000;
 
-/** thinking 折叠上限默认值（可经 initialState 配置）：
- * 取大值使实际生效为 min(thinkingMaxLines, activityH)——
- * 默认思考可占满活动区（瞬态显示区）高度，配置仅在收紧到更小值时生效 */
-export const DEFAULT_THINKING_MAX_LINES = 50;
+/** 用户块左缘/回复右缘对称留空默认列数（可经 initialState 配置，交错布局用） */
 
 /** 用户块左缘/回复右缘对称留空默认列数（可经 initialState 配置，交错布局用） */
 export const DEFAULT_MESSAGE_GUTTER = 4;
@@ -57,11 +54,14 @@ export type InputStatus = "success" | "running" | "failure";
 export type BufferKind =
   "user" | "assistant" | "thinking" | "notice" | "tool" | "separator" | "plain";
 
-/** 缓冲行:纯文本 + 类型标记(展示时决定缩进/配色) + 可选 tone（notice/tool 行着色分级） */
+/** 缓冲行:纯文本 + 类型标记(展示时决定缩进/配色) + 可选 tone（notice/tool 行着色分级）
+ *  final: true = 该回合最终总结（历史区展示）；false/缺省 = 过程行（活动区展示） */
 export interface BufferLine {
   text: string;
   kind: BufferKind;
   tone?: NoticeTone;
+  /** 回合最终总结标记：turn-end 时由 markFinalSummary 打标；历史恢复行恒为 true */
+  final?: boolean;
 }
 
 export type Buffer = BufferLine[];
@@ -153,10 +153,9 @@ export interface AppState {
   systemStatus: SystemStatus;
   /** 主题（默认 dark=fffdark；/theme 运行时切换，仅当前会话） */
   themeId: ThemeId;
-  /** thinking/reasoning 最大显示行数（渲染折叠用，默认 4） */
-  thinkingMaxLines: number;
   /** 用户块左缘/回复右缘对称留空列数（交错布局，默认 4，可配置） */
   messageGutter: number;
+  /** 用户块左缘/回复右缘对称留空列数（交错布局，默认 4，可配置） */
   /** 布局配置（false 语义：footerHeight/divisor undefined=默认） */
   footerHeight: number | undefined;
   /** 活动区高分母（contentTopH / divisor；默认 2 ≈ 1/2） */
@@ -293,17 +292,12 @@ export interface QuestionPanelState {
 export function initialState(
   themeId: ThemeId = DEFAULT_THEME,
   opts?: {
-    thinkingMaxLines?: number;
     messageGutter?: number;
     footerHeight?: number;
     activityDivisor?: number;
     statusDivisor?: number;
   },
 ): AppState {
-  const thinkingMaxLines =
-    opts?.thinkingMaxLines === undefined
-      ? DEFAULT_THINKING_MAX_LINES
-      : Math.max(1, Math.floor(opts.thinkingMaxLines));
   const messageGutter =
     opts?.messageGutter === undefined
       ? DEFAULT_MESSAGE_GUTTER
@@ -362,7 +356,6 @@ export function initialState(
       contextLen: "—",
       cacheHit: "—",
     },
-    thinkingMaxLines,
     messageGutter,
     footerHeight,
     activityDivisor,
@@ -483,15 +476,48 @@ function statusFor(state: AppState, fallback: InputStatus): InputStatus {
 }
 
 /**
- * turn 开始：清掉上一轮遗留瞬态活动行（思考/工具调用/notice，即活动区内容），
- * 再在历史末尾追加分隔线，让每个新回合从干净的活动区开始（新结果冲掉旧命令活动）。
+ * 回合结束：把当前回合（最后一个分隔线之后）最后一段连续 assistant 行标记为
+ * final（最终总结，历史区展示）。无分隔线（首回合）则从 buffer 开头起算。
+ * 幂等：已 final 的行不再重复标记。
+ */
+export function markFinalSummary(state: AppState): AppState {
+  const buffer = state.buffer;
+  if (buffer.length === 0) return state;
+  // 当前回合起点 = 最后一个 separator 之后
+  let start = 0;
+  for (let i = buffer.length - 1; i >= 0; i--) {
+    if (buffer[i]!.kind === "separator") {
+      start = i + 1;
+      break;
+    }
+  }
+  // 回合内最后一段连续 assistant 行（从尾部向前找最近的 assistant 块）
+  let end = buffer.length;
+  while (end > start && buffer[end - 1]!.kind !== "assistant") end--;
+  if (end === start) return state; // 本回合无模型正文
+  let begin = end;
+  while (begin > start && buffer[begin - 1]!.kind === "assistant") begin--;
+  if (buffer.slice(begin, end).every((l) => l.final)) return state;
+  const next = [...buffer];
+  for (let i = begin; i < end; i++) next[i] = { ...next[i]!, final: true };
+  return { ...state, buffer: next };
+}
+
+/**
+ * turn 开始：清掉上一轮遗留瞬态活动行（思考/工具调用/notice/非 final 中间输出，
+ * 即活动区内容），再在历史末尾追加分隔线，让每个新回合从干净的活动区开始。
  * 空 buffer 或末尾已是分隔线时不追加（避免孤立/重复分隔）。由 `turn-begin` 触发。
  */
 export function appendTurnSeparator(state: AppState): AppState {
   let buffer = state.buffer.length ? [...state.buffer] : [];
-  // 瞬态活动行仅当前回合可见：清思考 + 工具/notice（新回合冲掉旧命令的活动结果）
+  // 瞬态活动行仅当前回合可见：清思考 + 工具/notice + 非 final 中间输出
+  // （新回合冲掉旧命令的活动结果；final 总结留在历史区）
   buffer = buffer.filter(
-    (l) => l.kind !== "thinking" && l.kind !== "tool" && l.kind !== "notice",
+    (l) =>
+      l.kind !== "thinking" &&
+      l.kind !== "tool" &&
+      l.kind !== "notice" &&
+      !(l.kind === "assistant" && !l.final),
   );
   // 活动区整区被清空（每回合瞬态）：滚动偏移一并归零，新回合回到跟随最新。
   // 不归零则旧 activityScroll 超出新内容的可视上限，渲染钳制下 ↓ 需连续按到
@@ -820,9 +846,10 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容
         return appendTurnSeparator(state);
       case "turn-end":
-        // 回合结束：不再画分隔线(下个回合 begin 时画)；也不清思考——思考保留显示，
-        // 至下回合 turn-begin 统一清空(输出结束后不立即清)；置成功色(绿)
-        return { ...state, inputStatus: "success" };
+        // 回合结束：不再画分隔线(下个回合 begin 时画)；也不清思考/中间输出——
+        // 保留显示，至下回合 turn-begin 统一清空(输出结束后不立即清)；
+        // 本回合最后一段模型正文打 final 标记进历史区（最终总结）；置成功色(绿)
+        return markFinalSummary({ ...state, inputStatus: "success" });
       case "status":
         return setSystemStatus(state, action.status);
       case "set-theme":
@@ -941,7 +968,11 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           : { ...state, stepGroup: null };
       case "subagent":
         // B4：subagent 行（`@ <label> <os|ct>`，append-only 不配对不折叠）入 buffer，不进模型历史
-        return appendToolLine(state, subagentLine(action.label, action.mode), "info");
+        return appendToolLine(
+          state,
+          subagentLine(action.label, action.mode),
+          "info",
+        );
       case "compaction-summary": {
         // B5：压缩摘要仅 toast（`压缩完成：<text 首行>`；空摘要给占位）+ 每会话保留最近一条原始载荷（raw，不改写）
         const toast = action.text
@@ -1349,7 +1380,10 @@ function moveStatusPanel(
 ): AppState {
   const p = state.statusPanel;
   if (!p || p.options.length === 0) return state;
-  const index = Math.max(0, Math.min(p.options.length - 1, p.index + action.delta));
+  const index = Math.max(
+    0,
+    Math.min(p.options.length - 1, p.index + action.delta),
+  );
   if (index === p.index) return state;
   return { ...state, statusPanel: { ...p, index } };
 }

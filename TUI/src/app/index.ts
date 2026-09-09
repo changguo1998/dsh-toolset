@@ -117,10 +117,9 @@ export interface AppDeps {
   slowStream?: boolean;
   /** 打字机流速(字符/秒，合法性由 main 归一化；兜底 SLOW_DEFAULT_CPS) */
   streamCharsPerSecond?: number;
-  /** thinking/reasoning 最大显示行数（默认 4，经 initialState 落到 state） */
-  thinkingMaxLines?: number;
   /** 用户块左缘/回复右缘对称留空(列数，默认 4，经 initialState 落到 state) */
   messageGutter?: number;
+  /** 交互区绝对行数（tui.config.json layout.footerHeight；缺省自动 1/5 上限 4） */
   /** 交互区绝对行数（tui.config.json layout.footerHeight；缺省自动 1/5 上限 4） */
   footerHeight?: number;
   /** 活动区高分母（tui.config.json layout.activityHeightDivisor；1/2 → 2） */
@@ -165,7 +164,6 @@ export class App {
     this.state = initialState(
       normalizeThemeId(this.deps.initialTheme ?? DEFAULT_THEME),
       {
-        thinkingMaxLines: this.deps.thinkingMaxLines,
         messageGutter: this.deps.messageGutter,
         footerHeight: this.deps.footerHeight,
         activityDivisor: this.deps.activityHeightDivisor,
@@ -205,6 +203,8 @@ export class App {
     this.paint();
     // 拉取权限/agent 预设目录写入 state（状态列 Mode 块可选值；缺默服务则保持降级）
     this.refreshCatalogs();
+    // 补 Mode 块初始值（log-only 事件启动不产生，从会话日志折叠一次）
+    this.refreshSessionModes();
   }
 
   /**
@@ -241,6 +241,22 @@ export class App {
         })
         .catch(() => {});
     }
+  }
+
+  /**
+   * 刷新当前会话 Mode 初始值（plan/sandbox/permission/policy）：log-only 事件
+   * 启动不产生，主动从会话日志折叠一次补 Mode 块快照；宿主无读取面时静默。
+   */
+  private refreshSessionModes(): void {
+    const a = this.deps.adapter;
+    const sid = this.state.activeSessionId;
+    if (!a.refreshSessionModes || !sid) return;
+    void a
+      .refreshSessionModes(sid)
+      .then(() => {
+        if (!this.disposed) this.paint();
+      })
+      .catch(() => {});
   }
 
   /** 生效模型缓存 key；值变化才重绘（避免每 5s 空重绘） */
@@ -1161,6 +1177,8 @@ export class App {
         }),
       );
       this.notice(`已切换到会话「${title}」`, "success");
+      // 新会话 Mode 初始值（log-only 事件不随 resume 回放，主动折叠一次）
+      this.refreshSessionModes();
     } catch (err) {
       if (this.disposed) return;
       this.apply((s) =>
