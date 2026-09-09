@@ -59,13 +59,35 @@ export class MockDshAdapter implements DshAdapter {
   }
 
   /**
-   * mock 无 commands 注册表：本地渲染命令由 app 层直接处理，此处仅对非本地命令
-   * 回 notice 提示(demo 模式下 slash 命令不可用)。
+  /**
+   * mock 无 commands 注册表：本地渲染命令由 app 层直接处理，此处仅对分发到适配层的
+   * 命令按 dsh.ts 的归一化分级回 notice——未知命令→error、执行出错→error、成功输出→success。
    */
   runCommand(line: string): void {
+    const cmd = line.trim();
+    if (cmd === "/demo-ping") {
+      // 模拟注册表命中且执行成功（与 dsh.ts 命令成功输出→success 一致）
+      this.emit({
+        type: "notice",
+        text: "[demo-ping] pong",
+        tone: "success",
+      });
+      return;
+    }
+    if (cmd === "/demo-fail") {
+      // 模拟注册表命中但执行出错（与 dsh.ts 命令执行出错→error 一致）
+      this.emit({
+        type: "notice",
+        text: "[demo-fail] 执行出错：mock 模拟失败",
+        error: true,
+        tone: "error",
+      });
+      return;
+    }
+    // 未命中注册表 → 与 dsh.ts fail-close 一致：提示(失败色)，绝不经 sendMessage
     this.emit({
       type: "notice",
-      text: `[demo] slash 命令 "${line}" 在 demo 模式下不可用（无 commands 注册表）。`,
+      text: "未知命令，输入 /help 查看可用命令。",
       error: true,
       tone: "error",
     });
