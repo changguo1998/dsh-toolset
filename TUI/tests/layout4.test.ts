@@ -1508,11 +1508,11 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(!b0.includes(WHITE), "无焦点：顶边无亮色");
   const s0 = sepRow(rows);
   assert.ok(!s0.includes(WHITE + "─"), "无焦点：活动区分隔 ╌ 不亮（回灰）");
-  const dlg = rows.find((l) => plain(l).includes("（无目标/待办）"))!;
+  const dlg = rows.find((l) => plain(l).includes("<title>"))!;
   assert.ok(!plain(dlg).startsWith("│"), "无焦点：左缘框格空白占位");
   assert.ok(colAt(dlg, D) === "│", "无焦点：分隔竖线恒位于 D 列（灰）");
   assert.ok(
-    plain(dlg).replace(/\s+$/, "").endsWith("（无目标/待办）"),
+    plain(dlg).replace(/\s+$/, "").endsWith("<title>"),
     "无焦点：状态列正文在右侧（行尾）",
   );
   assert.ok(!eqRow(rows).includes(WHITE + "─"), "无焦点：状态区上方分隔无亮 ─");
@@ -1523,8 +1523,18 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     "所有内容行补齐到整屏宽（右缘框线恒在固定列）",
   );
   assert.ok(
-    rows.slice(1, sepIdx0).every((l) => colAt(l, D) === "│"),
-    "无焦点：对话区各行分隔竖线仍恒位于 D 列（灰）",
+    rows
+      .slice(1, sepIdx0)
+      .filter(
+        (l) =>
+          !/^─+$/.test(
+            plain(l)
+              .slice(D + 1)
+              .replace(/\s+$/, ""),
+          ),
+      )
+      .every((l) => colAt(l, D) === "│"),
+    "无焦点：对话区各行分隔竖线仍恒位于 D 列（灰；标题下横线行 D 列 ├ 除外）",
   );
   const sigHistory = contentSig(rows, topRows);
 
@@ -1536,7 +1546,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(plain(bH).includes("┌"), "历史焦点：左上角 ┌");
   assert.ok(colAt(bH, D) === "┐", "历史焦点：右上角 ┐（分隔竖线列）");
   assert.ok(bH.includes(WHITE), "历史焦点：顶边/竖线亮白");
-  const dlgH = rows.find((l) => plain(l).includes("（无目标/待办）"))!;
+  const dlgH = rows.find((l) => plain(l).includes("<title>"))!;
   assert.ok(plain(dlgH).startsWith("│"), "历史焦点：最左侧左缘框格 │");
   assert.equal(
     countBrightBar(dlgH),
@@ -1567,7 +1577,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   const act = rows[sepIdx1 + 1]!;
   assert.ok(plain(act).startsWith("│"), "流输出焦点：活动区左缘框列 │");
   assert.ok(colAt(act, D) === "│", "流输出焦点：活动区右缘分隔竖线 │");
-  const dlgA = rows.find((l) => plain(l).includes("（无目标/待办）"))!;
+  const dlgA = rows.find((l) => plain(l).includes("<title>"))!;
   assert.equal(countBrightBar(dlgA), 0, "流输出焦点：对话行分隔竖线回灰");
   assert.equal(
     countBrightBar(act),
@@ -1593,7 +1603,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(colAt(b2, 79) === "┐", "状态焦点：右上角 ┐（屏幕右缘）");
   assert.ok(b2.includes(WHITE + "─"), "状态焦点：顶边/竖线亮白");
   assert.ok(!sepRow(rows).includes(WHITE + "─"), "状态焦点：活动区分隔回灰");
-  const dlgS = rows.find((l) => plain(l).includes("（无目标/待办）"))!;
+  const dlgS = rows.find((l) => plain(l).includes("<title>"))!;
   assert.ok(
     !plain(dlgS).startsWith("│"),
     "状态焦点：左缘空白占位（状态列在右）",

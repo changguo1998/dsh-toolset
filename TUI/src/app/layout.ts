@@ -575,7 +575,8 @@ function statusColumnBody(
       });
     }
   } else {
-    out.push({ text: STATUS_COL_EMPTY, color: colorFor(themeId, "gray") });
+    // 无 goal/todo 时直接留空（不显示占位文字，保持行稳定）
+    out.push({ text: "" });
   }
   // todo 块标题（完成数/总数，蓝）+ 列表（每条上限 capTodo 行）：
   // `○ ` 待办(默认空心圆) / `● ` 进行中(黄实心圆) / `✓ ` 完成(灰+删除线)
@@ -668,18 +669,17 @@ function statusColumnBody(
       }
     }
   }
-  // 会话标题置顶：独立最上一行（固定存在；空标题灰 <title> 占位与水平栏原语义一致）
+  // 会话标题置顶：独立最上一行（固定存在；空标题 <title> 占位保持行稳定）
   const rawTitle = (title ?? "").trim();
-  // 非空标题原样置顶（窄列下不加“标题 ”前缀省宽）；空标题灰 <title> 占位
+  // 标题原样置顶（窄列下不加「标题」前缀省宽）；前景色（border=theme foreground）
   out.unshift({
-    text:
-      rawTitle === ""
-        ? colorFor(themeId, "gray")("<title>")
-        : colorFor(themeId, "blue")(rawTitle),
+    text: colorFor(themeId, "border")(rawTitle === "" ? "<title>" : rawTitle),
   });
   if (out.length > 1) {
-    // 标题栏下恒用实线下划分隔（与其他块间虚线区分；标题=栏 header）
-    out.splice(1, 0, { text: SEPARATOR.repeat(width) });
+    // 标题栏下恒用实线下划分隔（与其他块间虚线区分；标题=栏 header）；前景色
+    out.splice(1, 0, {
+      text: colorFor(themeId, "border")(SEPARATOR.repeat(width)),
+    });
   }
   return out;
 }
@@ -953,6 +953,14 @@ function buildTopRegion(
     let bright = focusActive && panel !== null;
     if (focusActive && panel === "history") bright = rc < dialogueH;
     else if (focusActive && panel === "activity") bright = rc >= dialogueH;
+    // 标题下方横线行：D 列画 `├`（竖线贯穿上下 + 横线从交点向右接标题下横线）
+    const cell = (statusCells[rc] ?? "")
+      .replace(/\x1b\[[0-9;]*m/g, "")
+      .slice(0, -1)
+      .trimEnd();
+    if (/^─+$/.test(cell)) {
+      return colorFor(state.themeId, bright ? fc : "border")("├");
+    }
     return colorFor(state.themeId, bright ? fc : "border")("│");
   };
   for (let rc = 0; rc < contentTopH; rc++) {
@@ -1298,7 +1306,7 @@ export function modelLabel(sel: {
   return `${sel.provider}/${sel.model}${sel.reasoningEffort ? ":" + sel.reasoningEffort : ""}`;
 }
 
-/** provider 紫，模型名青，:后缀 灰色；无 "/" 时整体青（占位 "—" 保持无色）。
+/** provider 紫，模型名青，:后缀 前景色；无 "/" 时整体青（占位 "—" 保持无色）。
  *  状态栏段配色约定：相邻段不同色、不用红/黄/绿状态色、不用亮色系（bright*）。 */
 function colorModel(themeId: ThemeId, s: string): string {
   const slash = s.indexOf("/");
@@ -1310,7 +1318,7 @@ function colorModel(themeId: ThemeId, s: string): string {
   return (
     colorFor(themeId, "magenta")(s.slice(0, slash)) +
     colorFor(themeId, "cyan")("/" + model) +
-    (effort ? colorFor(themeId, "gray")(effort) : "")
+    (effort ? colorFor(themeId, "border")(effort) : "")
   );
 }
 /** notice/tool 行 tone → 着色名（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿） */
@@ -1726,14 +1734,14 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     );
   }
 
-  // 按键提示区（独立区域，与输入区之间不画横线；统一边框色 bright[0]；窄终端按显示宽度截断）。
+  // 按键提示区（独立区域，与输入区之间不画横线；前景色；窄终端按显示宽度截断）。
   // 末尾追加当前面板焦点标签（Tab 切换），标识可滚动的选中面板
   const hintLines: RenderLine[] = normalInput
     ? [
         {
           text: colorFor(
             state.themeId,
-            "gray",
+            "border",
           )(truncateToWidth(HINT_LINE, fullWidth)),
         },
       ]

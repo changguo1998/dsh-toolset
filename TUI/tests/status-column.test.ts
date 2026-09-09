@@ -49,10 +49,13 @@ function col(
   ).map((l) => stripAnsi(l));
 }
 
-test("renderStatusColumn: 无 goal/todo 显示占位，每行定宽且右缘竖线", () => {
+test("renderStatusColumn: 无 goal/todo 直接留空，每行定宽且右缘竖线", () => {
   const rows = col(undefined, undefined, { height: 3, width: 20 });
   assert.equal(rows.length, 3, "恰 height 行");
-  assert.ok(rows.join("|").includes(STATUS_COL_EMPTY), "占位文案");
+  assert.ok(
+    !rows.join("|").includes(STATUS_COL_EMPTY),
+    "无目标/待办直接留空，不显示占位文字",
+  );
   for (const r of rows) {
     assert.equal(displayWidth(r), 20, "每行定宽 statusColWidth");
     assert.ok(r.endsWith("│"), "右缘竖线分隔（制表符竖线）");
@@ -256,10 +259,7 @@ test("renderStatusColumn: 标题行置顶、Mode 块随后展示（无 goal 也�
   ).map((l) => stripAnsi(l));
   const t = rows.join("\n");
   assert.ok(t.includes("Mode"), "Mode 块标题存在（无 goal 也显示）");
-  assert.ok(
-    t.indexOf("Mode") < t.indexOf("（无目标/待办）"),
-    "Mode 块位于占位/Goal 之前",
-  );
+  assert.ok(!t.includes("（无目标/待办）"), "无 goal 时不留占位文字");
   assert.ok(t.includes("plan off on"), "plan 列出 off/on 全部可选项");
   assert.ok(t.includes("sandbox ro wr full"), "sandbox 列出 ro/wr/full");
   assert.ok(
@@ -341,7 +341,7 @@ test("renderStatusColumn: 无 mode/policy/preset 时 Mode 块整块省略", () =
   ).map((l) => stripAnsi(l));
   const t = rows.join("\n");
   assert.ok(!t.includes("Mode"), "无会话配置数据不显示 Mode 块");
-  assert.ok(t.includes("（无目标/待办）"), "仍显示无目标占位");
+  assert.ok(!t.includes("（无目标/待办）"), "无 goal/todo 直接留空");
 });
 
 test("renderStatusColumn: Mode 各项以竖线分隔连续排布；宽列单行、窄列折行且断行行尾无竖线", () => {
@@ -438,14 +438,11 @@ test("renderStatusColumn: Mode 块与 Goal 块之间以虚线分隔，Goal 与 t
     "ask",
     "claude",
   ).map(strip);
-  // 无 goal：Mode 块后直接占位，无虚线
+  // 无 goal：Mode 块后直接留空，无虚线
   const ng = noGoal.join("\n");
   const iM = ng.indexOf("Mode");
-  const iPh = ng.indexOf("（无目标/待办）");
-  assert.ok(
-    iM >= 0 && iM < iPh && !ng.slice(iM, iPh).includes("╌"),
-    "无 goal 时 Mode 后不画虚线: " + ng,
-  );
+  assert.ok(iM >= 0, "无 goal：Mode 块仍显示: " + ng);
+  assert.ok(!ng.includes("╌"), "无 goal 时 Mode 后不画虚线: " + ng);
   const withGoal = renderStatusColumn(
     setGoal("active", "目标"),
     [],
