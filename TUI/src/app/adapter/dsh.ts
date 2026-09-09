@@ -22,6 +22,11 @@
 // request 须在 open turn 内发起。adapter 注册应答者，并把 app 的 approve(id, allow)
 // 映射为 allow ? 'allowed-once' : 'rejected'；signal 中断/超时 → 'cancelled'：
 // request 携带的 signal 中断立即取消，另有可配置的 approvalTimeoutMs 超时兜底。
+// 问答应答契约：DSH 侧是 waterfall 链事件 'user-questions/request'(req, next)，监听者返回
+// QuestionAnswer 即占用该请求；调用 next() 放行给后续监听者，最终无应答 NO_PROVIDER。
+// adapter 经 runtime.on 注册应答者（与 approval/request 同构），并把 app 的
+// answerQuestion(id, {answers}) 映射为整批回答 resolve；Esc/cancel → reject；
+// signal 中断 → reject。单活动请求守卫：已有待答提问时直接 reject（单面板约束）。
 
 import type {
   DshEvent,
@@ -79,7 +84,6 @@ export type {
   QuestionItem,
   QuestionAnswerItem,
   QuestionAnswer,
-  UserQuestionsLike,
   UserQuestionRequestLike,
   SessionEventDataMap,
   SessionEvent,
@@ -1115,7 +1119,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     });
   };
 
-  // --- user-questions provider 接线（0.1.1 单 provider；每次最多一个活动请求） ---
+  // --- user-questions/request waterfall 应答者（每次最多一个活动请求） ---
   let questionSeq = 0;
   const pendingQuestions = new Map<
     string,
@@ -1125,87 +1129,58 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       cleanup: () => void;
     }
   >();
-  const questionDisposers: (() => void)[] = [];
-  // 构造期注册失败先缓冲，待首个监听者订阅后补发（构造时无人订阅，直接 emit 会丢）
-  let pendingRegNotices: DshEvent[] = [];
-
-  const questionProvider = {
-    ask(req: UserQuestionRequestLike): Promise<QuestionAnswer> {
-      // 单面板约束：已有活动请求时拒绝新请求（绝不覆盖旧 Promise），让 agent 自行处理
-      if (pendingQuestions.size > 0) {
-        return Promise.reject(
-          new Error("已有待回答的提问，请先完成当前问答面板"),
+  const questionAnswerer = (
+    req: UserQuestionRequestLike,
+    next: () => Promise<QuestionAnswer>,
+  ): Promise<QuestionAnswer> => {
+    // 无监听者/已释放 → 放行给后续 waterfall 监听者（最终无应答 NO_PROVIDER）
+    if (disposed || listeners.size === 0) return next();
+    // 单面板约束：已有活动请求时拒绝新请求（绝不覆盖旧 Promise），让 agent 自行处理
+    if (pendingQuestions.size > 0) {
+      return Promise.reject(
+        new Error("已有待回答的提问，请先完成当前问答面板"),
+      );
+    }
+    const id = "question-" + questionSeq++;
+    return new Promise<QuestionAnswer>((resolve, reject) => {
+      const entry = {
+        resolve,
+        reject,
+        cleanup: () => {},
+      };
+      const onAbort = () => {
+        entry.cleanup();
+        reject(
+          new Error("ask_user_question was aborted before the user answered"),
         );
+      };
+      entry.cleanup = () => {
+        if (pendingQuestions.get(id) !== entry) return;
+        pendingQuestions.delete(id);
+        req.signal?.removeEventListener("abort", onAbort);
+      };
+      pendingQuestions.set(id, entry);
+      if (req.signal?.aborted) {
+        onAbort();
+        return;
       }
-      const id = "question-" + questionSeq++;
-      return new Promise<QuestionAnswer>((resolve, reject) => {
-        const entry = {
-          resolve,
-          reject,
-          cleanup: () => {},
-        };
-        const onAbort = () => {
-          entry.cleanup();
-          reject(
-            new Error("ask_user_question was aborted before the user answered"),
-          );
-        };
-        entry.cleanup = () => {
-          if (pendingQuestions.get(id) !== entry) return;
-          pendingQuestions.delete(id);
-          req.signal?.removeEventListener("abort", onAbort);
-        };
-        pendingQuestions.set(id, entry);
-        if (req.signal?.aborted) {
-          onAbort();
-          return;
-        }
-        req.signal?.addEventListener("abort", onAbort, { once: true });
-        emit({ type: "question", id, questions: req.questions });
-      });
-    },
+      req.signal?.addEventListener("abort", onAbort, { once: true });
+      emit({ type: "question", id, questions: req.questions });
+    });
   };
 
-  // 注册问题 provider。0.1.1 是单 provider：已有 provider（如官方 client UI）时
-  // 宿主抛 DUPLICATE_PROVIDER —— 不覆盖、不阻塞 TUI 启动，仅报告并 fail-safe。
-  try {
-    const disposer = opts.userQuestions?.registerProvider(questionProvider);
-    if (disposer) questionDisposers.push(disposer);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      "[dsh adapter] userQuestions provider 注册失败: " + detail + "\n",
-    );
-    const notice: DshEvent = {
-      type: "notice",
-      text: "问答面板不可用（provider 注册失败）：" + detail,
-      error: true,
-      tone: "warn",
-    };
-    if (listeners.size > 0) {
-      emit(notice);
-    } else {
-      // 构造期无订阅者：缓冲，onEvent 首次订阅时补发（真实链路 App 紧随订阅）
-      pendingRegNotices.push(notice);
-    }
-  }
+  // 经 runtime.on 注册 waterfall 应答者（与 approval/request 同构；unscoped ctx 全局放行）
+  collectUnbind(
+    runtime.on(
+      "user-questions/request",
+      questionAnswerer as (...args: unknown[]) => unknown,
+    ),
+  );
 
   const adapter: DshAdapter = {
     onEvent(cb) {
       if (disposed) return () => {};
       listeners.add(cb);
-      // 补发构造期缓冲的注册失败 notice（一次性，触碰即清）
-      if (pendingRegNotices.length > 0) {
-        const flush = pendingRegNotices;
-        pendingRegNotices = [];
-        for (const n of flush) {
-          try {
-            cb(n);
-          } catch {
-            /* 订阅者异常不影响其他事件 */
-          }
-        }
-      }
       return () => listeners.delete(cb);
     },
     sendMessage(text, targetSessionId) {
@@ -1239,20 +1214,12 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       activeCommands.clear();
       for (const u of runtimeUnbinds) u();
       runtimeUnbinds.length = 0;
-      // 拒绝所有悬挂问答（绝不留下悬浮 Promise），并注销 provider
+      // 拒绝所有悬挂问答（绝不留下悬浮 Promise）；监听者经 runtimeUnbinds 注销
       for (const p of pendingQuestions.values()) {
         p.cleanup();
         p.reject(new Error("adapter disposed"));
       }
       pendingQuestions.clear();
-      for (const d of questionDisposers) {
-        try {
-          d();
-        } catch {
-          /* 注销失败不影响退出 */
-        }
-      }
-      questionDisposers.length = 0;
       emittedByBlock.clear();
       stepEmitted.clear();
       listeners.clear();

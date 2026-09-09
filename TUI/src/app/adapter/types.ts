@@ -459,13 +459,6 @@ export interface QuestionAnswer {
   answers: QuestionAnswerItem[];
 }
 
-/** ctx.get('userQuestions') 结构面（dsh-user-questions 0.1.1：单 provider registerProvider） */
-export interface UserQuestionsLike {
-  registerProvider(provider: {
-    ask(req: UserQuestionRequestLike): Promise<QuestionAnswer>;
-  }): () => void;
-}
-
 /** AskUserQuestionRequest 结构面（agent 存活/委托校验由宿主 ask() 完成） */
 export interface UserQuestionRequestLike {
   questions: QuestionItem[];
@@ -835,8 +828,6 @@ export interface RealAdapterOptions {
   sessionModel?: SessionModelSelectionRef;
   /** ctx.get('agentDefaultModel') 服务（只读兜底：会话未切换时作为目录/状态显示与组装默认） */
   defaultModel?: AgentDefaultModelLike;
-  /** ctx.get('userQuestions') 服务（dsh-user-questions 0.1.1 单 provider）；缺失时提问功能不可用但 adapter 正常启动 */
-  userQuestions?: UserQuestionsLike;
   /** ctx.get('sessionQuery') 服务（dsh-session-query）；缺失时历史会话浏览不可用但 adapter 正常启动 */
   sessionQuery?: SessionQueryLike;
   /** ctx.get('sessions') 会话存储服务（读 live 会话原始事件；缺失时仅 live 会话内容读取降级走 readSurface/readSession） */

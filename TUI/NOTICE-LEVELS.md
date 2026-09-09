@@ -57,7 +57,6 @@
 | 已阻塞（等待审批） | turnEndNotice（blocked） | warn | 一致（等待中） |
 | completed / 未知 reason | turnEndNotice | — | 静默（有意） |
 | （模型输出已中断） | assistant/message.interrupted | info | 一致（需用户了解） |
-| 问答面板不可用（provider 注册失败）：\<detail> | userQuestions 注册失败 | warn | **修正**（原无 tone → 黄；保留 error:true 驱动输入色） |
 | invalid slash command: \<line> | runCommand（parse 失败） | error | 一致（命令结果） |
 | commands 未就绪，无法执行 /\<name> | runCommand（无注册表） | warn | 一致（服务不可用） |
 | /\<name> 执行出错：\<err>（×2 处：同步抛错/异步 reject） | runCommand（execute 失败） | error | 一致（命令结果） |
@@ -100,12 +99,11 @@
 | --- | --- | --- | --- | --- |
 | 1 | index.ts handleSlash（无效命令） | 无 tone（默认） | error 红 | 用户输入命令结果一律 error |
 | 2 | index.ts handleSlash（/help） | 无 tone（默认） | info 蓝 | 主动索取的信息展示 = 需用户了解 |
-| 3 | dsh.ts userQuestions 注册失败 | 无 tone（仅 error:true） | warn 黄 | 服务不可用可绕开（与「X 服务不可用→warn」一致） |
-| 4 | dsh.ts finish（注册表未命中） | 无 tone（仅 error:true） | error 红 | 用户命令失败结果 |
-| 5 | dsh.ts finish（kind=error） | 无 tone（仅 error:true） | error 红 | 用户命令失败结果 |
-| 6 | dsh.ts finish（kind=success） | 无 tone | success 绿 | 用户输入命令的成功结果落 result 级 |
+| 3 | dsh.ts finish（注册表未命中） | 无 tone（仅 error:true） | error 红 | 用户命令失败结果 |
+| 4 | dsh.ts finish（kind=error） | 无 tone（仅 error:true） | error 红 | 用户命令失败结果 |
+| 5 | dsh.ts finish（kind=success） | 无 tone | success 绿 | 用户输入命令的成功结果落 result 级 |
 
-配套断言：`tests/app.test.ts`（「本地 slash 分级：/help 内容 info 蓝、无效命令 error 红」）+ `tests/adapter.dsh.test.ts`（未知命令/执行出错→error、commands 未就绪→warn、命令成功输出→success、问答面板不可用→warn）。
+配套断言：`tests/app.test.ts`（「本地 slash 分级：/help 内容 info 蓝、无效命令 error 红」）+ `tests/adapter.dsh.test.ts`（未知命令/执行出错→error、commands 未就绪→warn、命令成功输出→success）。
 
 ## 边界说明
 

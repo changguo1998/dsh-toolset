@@ -19,7 +19,6 @@ import {
   type ModelSelection,
   type LlmLike,
   type AgentDefaultModelLike,
-  type UserQuestionsLike,
   type UserQuestionRequestLike,
   type SessionQueryLike,
   type SessionStoreLike,
@@ -1117,43 +1116,56 @@ test("modelCatalog: 会话未切换时 current 兜底宿主播放值(defaultMode
 });
 
 // ---------------------------------------------------------------------------
-// userQuestions provider 接线（0.1.1 单 provider，见 RealAdapterOptions.userQuestions）
+// userQuestions waterfall 接线（'user-questions/request'，dsh-user-questions 契约）
 // ---------------------------------------------------------------------------
 
-/** 记录型 fake userQuestions 服务（0.1.1 单 provider registerProvider） */
-class FakeUserQuestions implements UserQuestionsLike {
-  provider: {
-    ask(req: UserQuestionRequestLike): Promise<QuestionAnswer>;
-  } | null = null;
-  registerCount = 0;
-  registerProvider(p: {
-    ask(req: UserQuestionRequestLike): Promise<QuestionAnswer>;
-  }): () => void {
-    this.provider = p;
-    this.registerCount++;
-    return () => {
-      this.provider = null;
-    };
-  }
+type QuestionListener = (
+  req: UserQuestionRequestLike,
+  next: () => Promise<QuestionAnswer>,
+) => Promise<QuestionAnswer>;
+
+/** 取 adapter 经 runtime.on 注册的问答 waterfall 监听者（即问题应答者）。 */
+function questionListener(runtime: FakeRuntime): QuestionListener {
+  const listeners = [
+    ...(runtime.listeners.get("user-questions/request") ?? []),
+  ];
+  assert.equal(
+    listeners.length,
+    1,
+    "构造时注册一个 user-questions/request 监听者",
+  );
+  return listeners[0] as QuestionListener;
 }
 
-test("userQuestions: 注册 provider 后 ask() → question 事件；answerQuestion 整批回答 resolve", async () => {
+/** 转发一次 user-questions/request 到应答者；next 记录委托调用并落定哨兵。 */
+function fireQuestion(
+  runtime: FakeRuntime,
+  req: UserQuestionRequestLike,
+): { promise: Promise<QuestionAnswer>; delegated: { count: number } } {
+  const delegated = { count: 0 };
+  const next = (): Promise<QuestionAnswer> => {
+    delegated.count++;
+    return Promise.resolve({ answers: [] });
+  };
+  const promise = questionListener(runtime)(req, next);
+  return { promise, delegated };
+}
+
+test("userQuestions: user-questions/request → question 事件；answerQuestion 整批回答 resolve", async () => {
   const runtime = new FakeRuntime();
-  const uq = new FakeUserQuestions();
   const adapter = createRealDshAdapter({
     runtime,
     sessionId: "s1",
     agent: new FakeAgent(),
-    userQuestions: uq,
   });
   const events: DshEvent[] = [];
   adapter.onEvent((e) => events.push(e));
-  assert.equal(uq.registerCount, 1, "构造时注册 provider");
+  questionListener(runtime);
 
   const questions: QuestionItem[] = [
     { id: "qa", question: "继续?", options: [{ label: "A" }, { label: "B" }] },
   ];
-  const askPromise = uq.provider!.ask({ questions });
+  const { promise } = fireQuestion(runtime, { questions });
   // 微任务落定，确保 question 事件已发出
   await new Promise((r) => setTimeout(r, 0));
   const qEvt = events.find(
@@ -1168,7 +1180,7 @@ test("userQuestions: 注册 provider 后 ask() → question 事件；answerQuest
   };
   adapter.answerQuestion(qEvt!.id, answer);
   assert.deepEqual(
-    await askPromise,
+    await promise,
     answer,
     "answerQuestion 使 ask resolve 整批回答",
   );
@@ -1176,125 +1188,106 @@ test("userQuestions: 注册 provider 后 ask() → question 事件；answerQuest
 
 test("userQuestions: cancelQuestion → reject ask（取消不 resolve，不打断 turn）", async () => {
   const runtime = new FakeRuntime();
-  const uq = new FakeUserQuestions();
   const adapter = createRealDshAdapter({
     runtime,
     sessionId: "s1",
     agent: new FakeAgent(),
-    userQuestions: uq,
   });
   const events: DshEvent[] = [];
   adapter.onEvent((e) => events.push(e));
-  const askPromise = uq.provider!.ask({
+  const { promise } = fireQuestion(runtime, {
     questions: [{ id: "qa", question: "取消?" }],
   });
   await new Promise((r) => setTimeout(r, 0));
   const qEvt = events.find((e) => e.type === "question") as
     Extract<DshEvent, { type: "question" }> | undefined;
   adapter.cancelQuestion(qEvt!.id);
-  await assert.rejects(
-    askPromise,
-    /用户取消了提问/,
-    "cancelQuestion reject ask",
-  );
+  await assert.rejects(promise, /用户取消了提问/, "cancelQuestion reject ask");
 });
 
-test("userQuestions: 已有活动请求时第二个 ask() 直接拒绝（单面板约束）", async () => {
+test("userQuestions: 已有活动请求时第二个请求直接拒绝（单面板约束）", async () => {
   const runtime = new FakeRuntime();
-  const uq = new FakeUserQuestions();
   const adapter = createRealDshAdapter({
     runtime,
     sessionId: "s1",
     agent: new FakeAgent(),
-    userQuestions: uq,
   });
   adapter.onEvent(() => {});
-  void uq.provider!.ask({ questions: [{ id: "qa", question: "第一问" }] });
+  void fireQuestion(runtime, { questions: [{ id: "qa", question: "第一问" }] });
   await assert.rejects(
-    uq.provider!.ask({ questions: [{ id: "qb", question: "第二问" }] }),
+    fireQuestion(runtime, { questions: [{ id: "qb", question: "第二问" }] })
+      .promise,
     /已有待回答的提问/,
-    "单面板：并发 ask 拒绝",
+    "单面板：并发请求拒绝",
   );
 });
 
-test("userQuestions: 注册失败(重复 provider) → notice 错误事件且不阻塞构造", () => {
+test("userQuestions: 无 UI 监听者 → next() 委托（不 emit，不 hang）", async () => {
   const runtime = new FakeRuntime();
-  const agent = new FakeAgent();
-  const uq: UserQuestionsLike = {
-    registerProvider() {
-      throw new Error("DUPLICATE_PROVIDER");
-    },
-  };
-  const adapter = createRealDshAdapter({
+  createRealDshAdapter({
     runtime,
     sessionId: "s1",
-    agent,
-    userQuestions: uq,
+    agent: new FakeAgent(),
   });
+  // 不调用 adapter.onEvent（无 UI 订阅）
   const events: DshEvent[] = [];
-  adapter.onEvent((e) => events.push(e));
-  const notice = events.find((e) => e.type === "notice");
-  assert.ok(notice && notice.type === "notice" && notice.error === true);
-  assert.match((notice as { text: string }).text, /问答面板不可用/);
+  const { promise, delegated } = fireQuestion(runtime, {
+    questions: [{ id: "qa", question: "无人应答" }],
+  });
+  assert.equal(delegated.count, 1, "无监听者时放行 next()");
+  assert.deepEqual(await promise, { answers: [] }, "next() 落定哨兵回答");
   assert.equal(
-    (notice as { text: string; tone?: string }).tone,
-    "warn",
-    "问答面板不可用(服务未就绪) → warn 黄",
+    events.find((e) => e.type === "question"),
+    undefined,
+    "委托时不 emit question 事件",
   );
-  // 失败不影响 sendMessage 等既有能力
-  adapter.sendMessage("hi");
-  assert.equal(agent.followups.length, 1, "注册失败后 sendMessage 仍可用");
 });
 
 test("userQuestions: 请求 signal 中断 → reject ask（agent 主动放弃）", async () => {
   const runtime = new FakeRuntime();
-  const uq = new FakeUserQuestions();
   const adapter = createRealDshAdapter({
     runtime,
     sessionId: "s1",
     agent: new FakeAgent(),
-    userQuestions: uq,
   });
   adapter.onEvent(() => {});
   const ctrl = new AbortController();
-  const askPromise = uq.provider!.ask({
+  const { promise } = fireQuestion(runtime, {
     questions: [{ id: "qa", question: "中断?" }],
     signal: ctrl.signal,
   });
   await new Promise((r) => setTimeout(r, 0));
   ctrl.abort();
-  await assert.rejects(askPromise, /aborted/, "signal 中断 reject ask");
-  // 中断后 map 清空，可再次 ask
-  const again = uq.provider!.ask({
+  await assert.rejects(promise, /aborted/, "signal 中断 reject ask");
+  // 中断后 map 清空，可再次提问
+  const again = fireQuestion(runtime, {
     questions: [{ id: "qb", question: "再来" }],
   });
   adapter.answerQuestion("question-1", {
     answers: [{ id: "qb", selected: ["再来"] }],
   });
-  await assert.doesNotReject(again);
+  await assert.doesNotReject(again.promise);
 });
 
-test("userQuestions: dispose 拒绝悬挂 ask 并注销 provider", async () => {
+test("userQuestions: dispose 拒绝悬挂 ask 并注销监听者", async () => {
   const runtime = new FakeRuntime();
-  const uq = new FakeUserQuestions();
   const adapter = createRealDshAdapter({
     runtime,
     sessionId: "s1",
     agent: new FakeAgent(),
-    userQuestions: uq,
   });
   adapter.onEvent(() => {});
-  const askPromise = uq.provider!.ask({
+  const { promise } = fireQuestion(runtime, {
     questions: [{ id: "qa", question: "挂起" }],
   });
   adapter.dispose?.();
-  await assert.rejects(
-    askPromise,
-    /adapter disposed/,
-    "dispose reject 悬挂 ask",
+  await assert.rejects(promise, /adapter disposed/, "dispose reject 悬挂 ask");
+  // 注销：runtime.on 返回的 unbind 已释放 → 监听者集合为空
+  assert.equal(
+    runtime.listeners.get("user-questions/request")?.size,
+    0,
+    "dispose 注销 user-questions/request 监听者",
   );
-  // 注销：dispose 后 provider 引用被清理（FakeUserQuestions 的 disposer 置空）
-  assert.equal(uq.provider, null, "dispose 调用 provider disposer");
 });
 
 // --- 历史会话（sessionQuery）归一化 ---

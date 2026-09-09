@@ -22,7 +22,6 @@ import type {
   DshAdapter,
   AgentDefaultModelLike,
   LlmLike,
-  UserQuestionsLike,
 } from "./app/adapter/dsh.ts";
 import {
   createRealDshAdapter,
@@ -327,10 +326,6 @@ export async function apply(
     // 只读兜底：会话未切换时 /model 目录/状态显示与组装默认取宿主实时值(settings 热更新生效)
     defaultModel: defaultModelSvc,
     approvalTimeoutMs: config?.approvalTimeoutMs ?? 60_000,
-    // DSH 提问服务（ctx.get('userQuestions')，0.1.1 单 provider；缺失时提问不可用但适配层正常启动）
-    userQuestions: (ctx as { get?: (name: string) => unknown }).get?.(
-      "userQuestions",
-    ) as UserQuestionsLike | undefined,
     // 历史会话查询服务（ctx.get('sessionQuery')；缺失时 /session 提示不可用）
     sessionQuery: (ctx as { get?: (name: string) => unknown }).get?.(
       "sessionQuery",
