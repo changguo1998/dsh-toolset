@@ -409,6 +409,30 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     }
   };
 
+  // 上下文窗口缓存：provider:model → 模型上下文容量（LlmResolvedModelInfo.context.contextWindow，
+  // 供状态栏 ctx 占用百分比作分母）。undefined=已解析但模型未披露（不再重试）；缺失/异常视为未知。
+  const ctxWindowCache = new Map<string, number | undefined>();
+  const resolveContextWindow = async (
+    key: string,
+  ): Promise<number | undefined> => {
+    if (ctxWindowCache.has(key)) return ctxWindowCache.get(key);
+    const i = key.indexOf(":");
+    const provider = i < 0 ? key : key.slice(0, i);
+    const model = i < 0 ? key : key.slice(i + 1);
+    const llm = opts.llm;
+    let w: number | undefined;
+    if (llm && typeof llm.resolveModelInfo === "function") {
+      try {
+        const info = await llm.resolveModelInfo(provider, model);
+        w = info?.context?.contextWindow;
+      } catch {
+        /* 解析失败视为未披露 */
+      }
+    }
+    ctxWindowCache.set(key, w);
+    return w;
+  };
+
   /** 只读会话表面（live 直接读内存事件；persisted 走 readSurface；兜底 readSession） */
   const doReadSessionSurface = async (
     id: string,
@@ -675,15 +699,46 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         // surfaceOp 为 replace 的影子覆盖事件跳过（append-only 无法安全重写）。
         const op = (raw as { surfaceOp?: string }).surfaceOp;
         if (op === "replace") return;
-        // 单次模型调用 token 用量：与正文同行送达（阶段 2 依 state.usage 落状态栏槽位）
+        // 单次模型调用 token 用量：与正文同行送达（阶段 2 依 state.usage 落状态栏槽位）。
+        // 占用百分比分母 = 所选模型窗口（resolveModelInfo.context.contextWindow）；
+        // 未知/未披露时省略（状态栏仅显绝对大小），懒解析命中后补发一次同载荷 usage。
         if (data.usage) {
+          const input = data.usage.inputTokens ?? 0;
+          const output = data.usage.outputTokens ?? 0;
+          const cacheRead = data.usage.cacheReadTokens ?? 0;
+          const sel =
+            opts.sessionModel?.current ??
+            readDefaultSelection(opts.defaultModel);
+          const provider = data.provider ?? sel?.provider;
+          const model = data.model ?? sel?.model;
+          const winKey = provider && model ? provider + ":" + model : undefined;
+          const knownWindow = winKey
+            ? (ctxWindowCache.get(winKey) ?? undefined)
+            : undefined;
           emit({
             type: "usage",
             sessionId: sid,
-            input: data.usage.inputTokens ?? 0,
-            output: data.usage.outputTokens ?? 0,
-            cacheRead: data.usage.cacheReadTokens ?? 0,
+            input,
+            output,
+            cacheRead,
+            ...(knownWindow === undefined
+              ? {}
+              : { contextWindow: knownWindow }),
           });
+          if (winKey && !ctxWindowCache.has(winKey)) {
+            void resolveContextWindow(winKey).then((w) => {
+              if (w !== undefined) {
+                emit({
+                  type: "usage",
+                  sessionId: sid,
+                  input,
+                  output,
+                  cacheRead,
+                  contextWindow: w,
+                });
+              }
+            });
+          }
         }
         const content = data.message?.content;
         const text = Array.isArray(content)

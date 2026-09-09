@@ -95,7 +95,7 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 | --- | --- | --- |
 | `tool-call {sessionId,name,summary}` | `appendToolLine(toolCallLine)` | 缓冲工具行 `<name> <summary>`（无图标前缀；不进思考打字机队列） |
 | `tool-result {sessionId,ok,detail}` | `appendToolLine(toolResultLine, ok?无:error)` | 缓冲工具行 `✓ <detail>`，失败红色 `✗ <detail>` |
-| `usage {input,output,cacheRead}` | 写入 `state.usage` | 状态栏 contextLen `ctx 12.4k` / cacheHit `cache 92%`（k/M 缩写，无用量保持 `—`） |
+| `usage {input,output,cacheRead,contextWindow?}` | 写入 `state.usage` | 状态栏 contextLen `ctx 12.4k` / cacheHit `cache 92%`（k/M 缩写；`contextWindow?`=模型窗口，由 real adapter 经 `llm.resolveModelInfo` 懒解析，提供时 ctx 追加占用百分比 `ctx 12.4k(11%)`，无用量保持 `—`） |
 | `compaction {phase}` | `appendNotice` | toast `正在压缩上下文…` / `压缩完成` |
 | `retry {attempt,max,delayMs,code,message?}` | `appendNotice(tone:warn)` | 黄色 toast `重试 1/2 (1.5s): TRANSPORT 连接被重置` |
 | `notice {text,error?,tone?}` | `appendNotice(…,tone)` | tone 4 级语义 5 色值：log 灰(进度/状态) / info 蓝(需用户了解) / warn 黄(可绕开运行错误/副作用危险警示) / result 级 error 红·success 绿(互斥，用户输入命令的结果一律 result 级) |

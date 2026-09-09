@@ -143,6 +143,7 @@ export type DshEvent =
       input: number;
       output: number;
       cacheRead: number;
+      contextWindow?: number;
     }
   | { type: "compaction"; phase: "start" | "end" }
   | {
@@ -654,6 +655,7 @@ export interface LlmLike {
               efforts?: readonly { id?: string; name?: string }[];
               defaultEffort?: string;
             };
+            context?: { contextWindow?: number };
           }
         | undefined
       >
@@ -662,6 +664,7 @@ export interface LlmLike {
           efforts?: readonly { id?: string; name?: string }[];
           defaultEffort?: string;
         };
+        context?: { contextWindow?: number };
       }
     | undefined;
 }

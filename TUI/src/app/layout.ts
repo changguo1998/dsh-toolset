@@ -1413,11 +1413,21 @@ function usageStatus(u: {
   input: number;
   output: number;
   cacheRead: number;
+  contextWindow?: number;
 }): { ctx: string; cache: string } | undefined {
   const total = u.input + u.cacheRead;
   if (total <= 0) return undefined;
   const pct = Math.round((u.cacheRead / total) * 100);
-  return { ctx: "ctx " + formatTokens(total), cache: "cache " + pct + "%" };
+  // 上下文占用百分比 = total / 模型上下文窗口（窗口未知/未披露时省略，保持仅绝对大小）
+  const win = u.contextWindow;
+  const ctxPct =
+    win && win > 0
+      ? `(${Math.min(100, Math.round((total / win) * 100))}%)`
+      : "";
+  return {
+    ctx: "ctx " + formatTokens(total) + ctxPct,
+    cache: "cache " + pct + "%",
+  };
 }
 
 /** 段文本按预算截断：过长保留开头 + 省略号（w<=3 视作不截断，交给换行兜底） */

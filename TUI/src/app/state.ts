@@ -149,7 +149,12 @@ export interface AppState {
   approval: ApprovalItem | null;
   agentStatus: AgentStatus;
   /** 最新一次模型调用的 token 用量（assistant/message.usage 归一化；阶段 2 状态栏 contextLen/cacheHit 读取） */
-  usage?: { input: number; output: number; cacheRead: number };
+  usage?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    contextWindow?: number;
+  };
   systemStatus: SystemStatus;
   /** 主题（默认 dark=fffdark；/theme 运行时切换，仅当前会话） */
   themeId: ThemeId;
@@ -895,6 +900,9 @@ export function reduceState(state: AppState, action: StateAction): AppState {
             input: action.input,
             output: action.output,
             cacheRead: action.cacheRead,
+            ...(action.contextWindow === undefined
+              ? {}
+              : { contextWindow: action.contextWindow }),
           },
         };
       case "goal-change": {
@@ -1236,6 +1244,7 @@ export type StateAction =
       input: number;
       output: number;
       cacheRead: number;
+      contextWindow?: number;
     }
   | { type: "compaction"; phase: "start" | "end" }
   | {

@@ -731,6 +731,7 @@ export class MockDshAdapter implements DshAdapter {
             input: 4000 + this.seq * 2000,
             output: 900 + this.seq * 120,
             cacheRead: this.seq * 8000,
+            contextWindow: 131072,
           }),
         sceneAt + 40,
       ),
