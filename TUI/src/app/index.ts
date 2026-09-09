@@ -956,7 +956,11 @@ export class App {
     const name = parseSlashCommand(line);
     if (!name) {
       this.apply((s) =>
-        reduceState(s, { type: "notice", text: "无效命令: " + line }),
+        reduceState(s, {
+          type: "notice",
+          text: "无效命令: " + line,
+          tone: "error",
+        }),
       );
       // 本地可检测的无效 slash 命令 → 失败色(红)
       this.apply((s) =>
@@ -974,6 +978,7 @@ export class App {
           reduceState(s, {
             type: "notice",
             text: this.helpText(),
+            tone: "info",
           }),
         );
         return;

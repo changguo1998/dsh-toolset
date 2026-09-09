@@ -2388,6 +2388,31 @@ test("notice tone → 4 级语义着色（log 灰 / info 蓝 / warn 黄 / result
   assert.ok(joined.includes("\x1b[38;2;132;231;70m完成"), "success tone → 绿");
 });
 
+test("本地 slash 分级：/help 内容 info 蓝、无效命令 error 红", () => {
+  const { renderer } = makeApp();
+  // /help → info 蓝（主动索取的信息展示）
+  typeAndEnter(renderer, "/help");
+  // 活动区 8 行窗口只显示帮助列表尾部行（最后一行必可见）
+  const helpLine = renderer.lastRender.find((l) =>
+    l.includes("其他 /name 通过 commands 注册表执行"),
+  );
+  assert.ok(helpLine, "/help 内容出现在帧中");
+  assert.ok(
+    helpLine!.includes("\x1b[38;2;70;132;231m"),
+    "帮助行按 info 蓝着色",
+  );
+  // 无效 slash → error 红
+  renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  const badLine = renderer.lastRender.find((l) => l.includes("无效命令"));
+  assert.ok(badLine, "无效命令行出现在帧中");
+  assert.ok(
+    badLine!.includes("\x1b[38;2;231;70;132m"),
+    "无效命令按 error 红着色",
+  );
+});
+
 test("compaction/retry → toast notice 文本（retry warn 黄）", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "compaction", phase: "start" });

@@ -1180,6 +1180,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       type: "notice",
       text: "问答面板不可用（provider 注册失败）：" + detail,
       error: true,
+      tone: "warn",
     };
     if (listeners.size > 0) {
       emit(notice);
@@ -1653,7 +1654,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   function dispatchCommand(line: string): void {
     const name = parseSlashCommand(line);
     if (!name) {
-      emit({ type: "notice", text: "invalid slash command: " + line, tone: "error" });
+      emit({
+        type: "notice",
+        text: "invalid slash command: " + line,
+        tone: "error",
+      });
       return;
     }
     const { commands } = opts;
@@ -1674,7 +1679,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       res = commands.execute(execAgent, line, [], controller.signal);
     } catch (err) {
       activeCommands.delete(controller);
-      emit({ type: "notice", text: formatCommandError(name, err), tone: "error" });
+      emit({
+        type: "notice",
+        text: formatCommandError(name, err),
+        tone: "error",
+      });
       return;
     }
     if (res && typeof (res as { then?: unknown }).then === "function") {
@@ -1682,7 +1691,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         .then((r) => finish(r, controller))
         .catch((err) => {
           activeCommands.delete(controller);
-          emit({ type: "notice", text: formatCommandError(name, err), tone: "error" });
+          emit({
+            type: "notice",
+            text: formatCommandError(name, err),
+            tone: "error",
+          });
         });
     } else {
       finish(res, controller);
@@ -1701,6 +1714,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         type: "notice",
         text: "未知命令，输入 /help 查看可用命令。",
         error: true,
+        tone: "error",
       });
       return;
     }
@@ -1711,12 +1725,14 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         type: "notice",
         text: "命令 " + (exec.commandId ?? "") + " 执行出错：" + (text ?? ""),
         error: true,
+        tone: "error",
       });
       return;
     }
     emit({
       type: "notice",
       text: (exec.commandId ? "[" + exec.commandId + "] " : "") + (text ?? ""),
+      tone: "success",
     });
   }
 

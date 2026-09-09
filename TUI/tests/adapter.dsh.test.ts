@@ -732,6 +732,11 @@ test("runCommand: 注册表命中成功 → notice 展示结果文本", async ()
   const notices = t.events.filter((e) => e.type === "notice");
   assert.equal(notices.length, 1);
   assert.equal((notices[0] as { text: string }).text, "[c1] 已压缩会话。");
+  assert.equal(
+    (notices[0] as { text: string; tone?: string }).tone,
+    "success",
+    "命令成功输出 → success 绿",
+  );
   assert.equal(commands.calls.length, 1);
   assert.equal(commands.calls[0]!.line, "/compact 现在");
 });
@@ -745,6 +750,11 @@ test("runCommand: 注册表未命中(undefined) → notice 未知命令(fail-clo
   const notices = t.events.filter((e) => e.type === "notice");
   assert.equal(notices.length, 1);
   assert.match((notices[0] as { text: string }).text, /未知命令/);
+  assert.equal(
+    (notices[0] as { text: string; tone?: string }).tone,
+    "error",
+    "未知命令(fail-close) → error 红",
+  );
   // fail-close：绝不产生 followup 用户消息
   assert.equal(t.agent.followups.length, 0);
 });
@@ -758,6 +768,11 @@ test("runCommand: 注册表错误 → notice 错误文本", async () => {
   const notices = t.events.filter((e) => e.type === "notice");
   assert.equal(notices.length, 1);
   assert.match((notices[0] as { text: string }).text, /执行出错/);
+  assert.equal(
+    (notices[0] as { text: string; tone?: string }).tone,
+    "error",
+    "命令执行出错 → error 红",
+  );
   assert.equal(t.agent.followups.length, 0);
 });
 
@@ -767,6 +782,11 @@ test("runCommand: 无注册表(未注入) → notice 提示 commands 未就绪",
   const notices = t.events.filter((e) => e.type === "notice");
   assert.equal(notices.length, 1);
   assert.match((notices[0] as { text: string }).text, /未就绪/);
+  assert.equal(
+    (notices[0] as { text: string; tone?: string }).tone,
+    "warn",
+    "commands 未就绪 → warn 黄",
+  );
   assert.equal(t.agent.followups.length, 0);
 });
 
@@ -1216,6 +1236,11 @@ test("userQuestions: 注册失败(重复 provider) → notice 错误事件且不
   const notice = events.find((e) => e.type === "notice");
   assert.ok(notice && notice.type === "notice" && notice.error === true);
   assert.match((notice as { text: string }).text, /问答面板不可用/);
+  assert.equal(
+    (notice as { text: string; tone?: string }).tone,
+    "warn",
+    "问答面板不可用(服务未就绪) → warn 黄",
+  );
   // 失败不影响 sendMessage 等既有能力
   adapter.sendMessage("hi");
   assert.equal(agent.followups.length, 1, "注册失败后 sendMessage 仍可用");
