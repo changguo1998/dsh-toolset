@@ -15,6 +15,7 @@ import {
   THINKING_MORE,
   USER_MIN_LEFT_GUTTER,
   userMaxBodyWidth,
+  TITLE_BAR_ROWS,
 } from "../src/app/layout.ts";
 import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
 import type { InputMode, InputStatus } from "../src/app/state.ts";
@@ -51,10 +52,12 @@ function histContent(line: string, cols: number): string {
 
 /** 活动区分隔行索引——对话历史 ↔ 流输出边界：左半（历史区正文）全实线 ─；
  *  turn 分隔为虚线 ╌ 不冲突；状态区上方/下方分隔是全宽 ─（更靠后，findIndex
- *  取首个即活动区分隔，故跳过 row0 顶部边框行——history 焦点时它也是 ─ 全） */
+ *  取首个即活动区分隔，故跳过 row0 顶部边框行与标题栏分隔行（history 焦点时
+ *  顶部边框行也是 ─ 全；标题栏下划线在 index TITLE_BAR_ROWS=2，24/30 行终端
+ *  标题栏恒为 2 行，下划线行亦为全 ─） */
 function activitySepIdx(lines: string[], cols: number): number {
   return lines.findIndex(
-    (l, i) => i >= 1 && /^─+$/.test(histContent(l, cols).trim()),
+    (l, i) => i > TITLE_BAR_ROWS && /^─+$/.test(histContent(l, cols).trim()),
   );
 }
 
@@ -114,10 +117,13 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     top.slice(1).every((l) => /[│─╌]/.test(plain(l))),
     "分隔竖线保留（对话区右缘/状态列左缘，内容行均有；活动区分隔行两端的角为 ┘/┐）",
   );
+  // 标题栏迁入左列顶部：title 占位 + 实线下划线，历史区内容在其后
   assert.ok(
-    top[1]!.text.includes("第一行"),
-    "历史区内容在左侧（顶部边框行之后）",
+    top[1]!.text.includes("<title>"),
+    "顶部首行为标题栏（会话标题占位）",
   );
+  assert.ok(/^─+$/.test(histContent(top[2]!.text, 60)), "标题栏下为实线下划线");
+  assert.ok(top[3]!.text.includes("第一行"), "历史区内容在左侧（标题栏之后）");
   // 横线分隔：17 行后是分隔行，再之后状态区（短 cwd 下动态单行：env|LLM 全在一行）
   const separator1 = frame[17]!;
   assert.ok(plain(separator1).startsWith("─"), "状态区上方用 ─ 分隔");
@@ -439,12 +445,13 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(�
     text: "用户消息很长用于验证历史区的右侧缩进和续行换行行为这是一段更长的内容",
   });
   s = reduceState(s, { type: "append", text: "模型回答" });
-  const top = buildFrame(s, { rows: 20, cols: 40 }).slice(0, 7);
+  // 标题栏占左列顶部 2 行：加高终端（rows=24 → dialogueH=5）保证用户块全部可见
+  const top = buildFrame(s, { rows: 24, cols: 40 }).slice(0, 10);
   const plain = (line: RenderLine): string =>
     line.text.replace(/\x1b\[[0-9;]*m/g, "");
   const visible = top.map(plain);
   // 长消息占满最大正文宽 ⇒ 左边界 = 历史宽 - userMaxBodyWidth
-  const m = metricsFor({ rows: 20, cols: 40 }, false);
+  const m = metricsFor({ rows: 24, cols: 40 }, false);
   const hist = m.historyWidth;
   const pad = hist - userMaxBodyWidth(hist);
   assert.equal(pad, USER_MIN_LEFT_GUTTER, "长消息左边界应为 gutter");
@@ -617,7 +624,8 @@ test("会话流：用户消息软换行续行共享同一左边界；显式换�
     type: "user-line",
     text: "第一行内容\n第二行更长的内容会触发软换行继续向下一行展示直到超出三十六列宽度限制为止",
   });
-  const plain = buildFrame(s, { rows: 20, cols: 40 }).map((line) =>
+  // 标题栏占左列顶部 2 行：加高终端（rows=24 → dialogueH=5）保证首行块可见
+  const plain = buildFrame(s, { rows: 24, cols: 40 }).map((line) =>
     line.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const rows = plain.filter(
@@ -642,7 +650,8 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   let s = initialState();
   s = reduceState(s, { type: "user-line", text: "问题" });
   s = reduceState(s, { type: "append", text: "答案" });
-  let plain = buildFrame(s, { rows: 13, cols: 40 }).map((l) =>
+  // 标题栏占左列顶部 2 行：加高终端（rows=19 → dialogueH=3）保证问题+空行+答案可见
+  let plain = buildFrame(s, { rows: 19, cols: 40 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const ui = plain.findIndex((l) => l.includes("问题"));
@@ -667,6 +676,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   );
 
   // 活动区分隔线：灰色实线（ANSI 直方）；turn 分隔线灰色虚线；状态栏上 = 下 -
+  // 标题栏下划线行也是全 ─（index 2），须跳过以定位真正的活动区分隔行
   const graySGR = "\x1b[38;2;";
   const dt = buildFrame(
     reduceState(initialState(), { type: "thinking", text: "x" }),
@@ -675,7 +685,9 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
       cols: 40,
     },
   );
-  const dotRaw = dt.find((l) => /^─+$/.test(histContent(l.text, 40)));
+  const dotRaw = dt.find(
+    (l, i) => i > TITLE_BAR_ROWS && /^─+$/.test(histContent(l.text, 40)),
+  );
   assert.ok(dotRaw, "活动区分隔线为实线");
   assert.ok(
     dotRaw!.text.includes(graySGR),
@@ -729,7 +741,8 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   s = reduceState(s, { type: "append", text: "第二段\n" });
   s = reduceState(s, { type: "append", text: "第三段\n" });
   s = reduceState(s, { type: "turn-begin" });
-  const plain = buildFrame(s, { rows: 13, cols: 40 }).map((l) =>
+  // 标题栏占左列顶部 2 行：加高终端（rows=19 → dialogueH=3）保证正文尾段可见
+  const plain = buildFrame(s, { rows: 19, cols: 40 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const codeIdx = plain.findIndex((l) => l.includes("第三段"));
@@ -745,7 +758,7 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   // 正文段落之间的空行（一段\n\n二段）必须保留
   let p = initialState();
   p = reduceState(p, { type: "append", text: "一段\n\n二段\n" });
-  const plainP = buildFrame(p, { rows: 13, cols: 40 }).map((l) =>
+  const plainP = buildFrame(p, { rows: 19, cols: 40 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const i1 = plainP.findIndex((l) => l.includes("一段"));
@@ -842,7 +855,9 @@ test("会话流：窄终端仍保留用户与思考文本", () => {
   let s = initialState();
   s = reduceState(s, { type: "user-line", text: "用户" });
   s = reduceState(s, { type: "thinking", text: "思考" });
-  const plain = buildFrame(s, { rows: 12, cols: 8 }).map((line) =>
+  // 标题栏占左列顶部：加高到 rows=17（cols=8 时状态栏折 2 行，dialogueH=2）
+  // 保证用户块两行（窄列换行）可见
+  const plain = buildFrame(s, { rows: 17, cols: 8 }).map((line) =>
     line.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const narrowJoined = plain.join("");
@@ -872,7 +887,7 @@ test("会话流：turn 分隔线在历史区铺满宽度", () => {
 test("交错布局：模型正文右缘保留与用户块左缘对称的空位(gutter)；用户块仍贴右缘", () => {
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
   // cols=40 → historyWidth 依 metricsFor；USER_MIN_LEFT_GUTTER=4 → 正文宽 = hist-4
-  const m = metricsFor({ rows: 10, cols: 40 }, false);
+  const m = metricsFor({ rows: 16, cols: 40 }, false);
   const hist = m.historyWidth;
   const bodyW = hist - USER_MIN_LEFT_GUTTER - 1; // contentW（右缘预留框列）- gutter
   let s = initialState();
@@ -880,7 +895,8 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
     type: "append",
     text: "0123456789012345678901234567890123456789", // 40 字符
   });
-  const rows = buildFrame(s, { rows: 11, cols: 40 })
+  // 标题栏占左列顶部 2 行：加高终端（rows=16 → dialogueH=2）保证两行正文可见
+  const rows = buildFrame(s, { rows: 16, cols: 40 })
     .map((l) => strip(l.text))
     .filter((l) => /[0-9]/.test(l));
   assert.ok(rows.length >= 2, "超 gutter 宽的正文应软换行");
@@ -917,10 +933,10 @@ test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满历
     type: "append",
     text: "0123456789012345678901234567890123456789", // 40 字符
   });
-  const rows = buildFrame(s, { rows: 11, cols: 40 })
+  const rows = buildFrame(s, { rows: 16, cols: 40 })
     .map((l) => strip(l.text))
     .filter((l) => /[0-9]/.test(l));
-  const m = metricsFor({ rows: 11, cols: 40 }, false);
+  const m = metricsFor({ rows: 16, cols: 40 }, false);
   const hist = m.historyWidth;
   // gutter=0 → 正文宽 = historyWidth-1（内容区右侧预留焦点框列）
   assert.ok(rows.length >= 2, "40 字符在窄历史宽下软换行");
@@ -1482,7 +1498,10 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   };
   const eqRow = (lines: string[]): string =>
     lines.find(
-      (l) => /^[└─]+/.test(plain(l)) && !plain(l).includes("（新会话）"),
+      (l) =>
+        /^[└─]+/.test(plain(l)) &&
+        plain(l).includes("┴") && // 标题栏下划线行无 ┴，仅状态区上方分隔行含 ┴
+        !plain(l).includes("（新会话）"),
     )!;
   // 指定显示列字符（按显示宽度定位，兼容 CJK）；越界返回 ""
   const colAt = (line: string, col: number): string => {
@@ -1512,8 +1531,8 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(!plain(dlg).startsWith("│"), "无焦点：左缘框格空白占位");
   assert.ok(colAt(dlg, D) === "│", "无焦点：分隔竖线恒位于 D 列（灰）");
   assert.ok(
-    plain(dlg).replace(/\s+$/, "").endsWith("<title>"),
-    "无焦点：状态列正文在右侧（行尾）",
+    plain(dlg).slice(0, D).includes("<title>"),
+    "无焦点：会话标题在左侧标题栏（历史区上方、分隔竖线左侧）",
   );
   assert.ok(!eqRow(rows).includes(WHITE + "─"), "无焦点：状态区上方分隔无亮 ─");
   const sepIdx0 = activitySepIdx(rows, size.cols);
@@ -1527,6 +1546,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
       .slice(1, sepIdx0)
       .filter(
         (l) =>
+          !/^─+$/.test(plain(l).slice(0, D).trim()) &&
           !/^─+$/.test(
             plain(l)
               .slice(D + 1)
@@ -1534,7 +1554,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
           ),
       )
       .every((l) => colAt(l, D) === "│"),
-    "无焦点：对话区各行分隔竖线仍恒位于 D 列（灰；标题下横线行 D 列 ├ 除外）",
+    "无焦点：对话区各行分隔竖线仍恒位于 D 列（灰；标题栏下划线行 D 列 ┤ 除外）",
   );
   const sigHistory = contentSig(rows, topRows);
 
@@ -1649,7 +1669,8 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   );
   assert.ok(
     rows
-      .slice(1, sepI2)
+      // 跳过标题栏（标题行 + 下划线），只查对话历史区正文
+      .slice(1 + TITLE_BAR_ROWS, sepI2)
       .every((l) => plain(l).slice(1, m.historyWidth).trim() === ""),
     "面板态：对话历史区仍空（未因面板挤占重排）",
   );

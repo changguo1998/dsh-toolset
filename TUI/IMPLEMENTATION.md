@@ -317,6 +317,14 @@ P0 会话生命周期落地时已恢复：`commands.ts` 与 `index.ts` 的 `sess
 - **配置**：`DshTuiConfig.toolBootstrap?: boolean`（默认 true；README/DESIGN 同步）。
 - **真机线缆验证**：deepseek-v4-pro 新会话 `request/header` 首 header 仅锁定目录（2-3 工具）且 sections 仅 anchored-persona、首次 tool/call 后下一 header 全量目录（≥20 工具）——证据见完成汇报；flash/非 v4 不裁剪（透传）。
 
+## 标题栏迁入左列顶部（2026-09-27）
+
+- **背景**：会话标题此前位于右侧状态列最上方（`statusColumnBody` 置顶的标题行 + 实线下划线）。按用户要求「标题栏改到左侧，会话历史区上方」，标题栏移至左列历史区顶部（标题行 + 实线下划线），状态列首行直接是 Mode 块。
+- **layout.ts**：新增 `TITLE_BAR_ROWS=2`（标题行 + 实线下划线）与 `topPaneHeights(contentTopH, divisor)`（返回 `{titleRows, activityH, dialogueH}`，`buildTopRegion`/`inputPanelHeights` 同口径）。活动区高度沿用原公式（基于顶部内容行数，不随标题栏收缩）；标题栏行数由对话区承担。极矮终端自适应：对话区将不足 1 行时标题栏先收掉下划线（1 行）、再整栏省略（0 行），保证对话区/活动区不溢出。`statusColumnBody`/`renderStatusColumn` 删除 `title` 参数与置顶逻辑。`buildTopRegion` 内容行划分改为 `diaStart=titleRows` / `diaEnd=diaStart+dialogueH`：标题行（rc=0，`<title>` 占位 + `truncateToWidth`）、标题栏下划线行（`─` 铺满左列，D 列交点 `┤`）、对话区、活动区分隔、活动区；col0 左缘框格与 D 列竖线随焦点：标题栏归历史面板（history 焦点亮框）。移除 `divFor` 中针对状态列旧标题下划线的 `├` 分支（状态列不再含全 `─` 行）。
+- **高度口径示例**：rows=24 → contentTopH=16、activityH=8、titleRows=2、dialogueH=5（此前 dialogueH=7，标题栏 2 行由对话区承担）；rows=10 → contentTopH=4、titleRows=1、dialogueH=1。
+- **测试**：`status-column.test.ts` 标题行相关注释更新；`layout4.test.ts` `activitySepIdx`/`eqRow` 跳过标题栏分隔行（`i > TITLE_BAR_ROWS`、状态分隔含 `┴` 判别），`<title>` 断言改为「标题在分隔竖线左侧标题栏」；`app.test.ts` `barRowCount` 期望 +1（标题栏下划线）、`inputPanelHeights` 对话 7→5、活动区分隔定位跳过标题栏、问答/流式等小终端用例按对话区新口径加高终端。468 tests 全绿。
+- **文档**：README（顶部区域 + 系统状态区去掉陈旧的「会话组 标题」）、DESIGN（顶部状态列/历史区）、IMPLEMENTATION 同步。
+
 ## 依赖顺序
 
 ```

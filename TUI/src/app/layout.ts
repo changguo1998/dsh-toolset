@@ -247,6 +247,10 @@ export const FRAME_TOP_ROWS = 1;
 export const FRAME_LEFT_COLS = 1;
 export const FRAME_RIGHT_COLS = 1;
 
+/** 左列顶部标题栏行数：标题行 + 实线下划线（2026-09-27 由右侧状态列迁入，
+ *  置于会话历史区上方；极矮终端由 topPaneHeights 自适应收缩到 1/0 行） */
+export const TITLE_BAR_ROWS = 2;
+
 /** 焦点框（L4 强调级，不引入彩色）：dark=bright[7] 白、light=ansi[0] 黑 */
 export function focusFrameColor(themeId: ThemeId): ColorName {
   return themeId === "dark" ? "brightWhite" : "black";
@@ -254,13 +258,54 @@ export function focusFrameColor(themeId: ThemeId): ColorName {
 
 /**
  * 活动区可视行数（= 顶部区域「内容行数」= topHeight-边框行的一半；
- * 与 buildTopRegion/inputPanelHeights 同口径）
+ * 在 buildTopRegion/inputPanelHeights 中经 topPaneHeights 先扣标题栏行数后应用）
  */
 export function activityHeight(contentTopH: number, divisor?: number): number {
   // 活动区高 = contentTopH / divisor（tui.config.json；默认 2 ≈ 原 1/2 比例）
   return contentTopH <= 0
     ? 0
     : Math.max(1, Math.floor(contentTopH / (divisor ?? 2)));
+}
+
+/** 顶部左列面板行数划分（标题栏 + 对话区 + 活动区；buildTopRegion/inputPanelHeights 同口径） */
+export interface TopPaneHeights {
+  /** 标题栏行数（标题行 + 实线下划线；极矮终端自适应收缩到 1/0 行） */
+  titleRows: number;
+  /** 活动区可视行数 */
+  activityH: number;
+  /** 对话区可视行数 */
+  dialogueH: number;
+}
+
+/**
+ * 顶部左列行数划分：标题栏优先 TITLE_BAR_ROWS=2 行（标题行 + 实线下划线）；
+ * 若对话区将不足 1 行（矮终端）则降级为 1 行（仅标题行），仍不足则省略标题栏
+ * （0 行）——保证对话区/活动区至少可展开不溢出。
+ * 活动区 = 顶部内容行数的一半（沿用原公式、不因标题栏收缩），对话区取剩余
+ * （标题栏行数由对话区承担，与 2026-09-27 标题栏自状态列迁入左侧前的状态列
+ * 各行占比语义一致：活动区高度不随标题栏位置变化）。
+ */
+export function topPaneHeights(
+  contentTopH: number,
+  divisor?: number,
+): TopPaneHeights {
+  const activityH = activityHeight(contentTopH, divisor);
+  let titleRows = 0;
+  for (const t of [TITLE_BAR_ROWS, 1, 0]) {
+    const dialogueH = Math.max(
+      0,
+      contentTopH - t - activityH - (activityH > 0 ? 1 : 0),
+    );
+    if (t === 0 || dialogueH >= 1) {
+      titleRows = t;
+      break;
+    }
+  }
+  const dialogueH = Math.max(
+    0,
+    contentTopH - titleRows - activityH - (activityH > 0 ? 1 : 0),
+  );
+  return { titleRows, activityH, dialogueH };
 }
 
 /** 普通输入态顶部三面板可视行高（P4 整页滚动用，与 buildFrame 同口径） */
@@ -534,8 +579,6 @@ function statusColumnBody(
   preset?: string,
   permissionOptions?: readonly string[],
   presetOptions?: readonly string[],
-  /** 会话标题（水平状态栏摘除后唯一展示位；空标题灰 <title> 占位保持行稳定） */
-  title = "",
 ): { text: string; color?: (s: string) => string }[] {
   const out: { text: string; color?: (s: string) => string }[] = [];
   // 会话运行模式/权限/策略块（水平状态栏迁来）：放在最前，独立于 goal 是否存在
@@ -669,18 +712,8 @@ function statusColumnBody(
       }
     }
   }
-  // 会话标题置顶：独立最上一行（固定存在；空标题 <title> 占位保持行稳定）
-  const rawTitle = (title ?? "").trim();
-  // 标题原样置顶（窄列下不加「标题」前缀省宽）；前景色（border=theme foreground）
-  out.unshift({
-    text: colorFor(themeId, "border")(rawTitle === "" ? "<title>" : rawTitle),
-  });
-  if (out.length > 1) {
-    // 标题栏下恒用实线下划分隔（与其他块间虚线区分；标题=栏 header）；前景色
-    out.splice(1, 0, {
-      text: colorFor(themeId, "border")(SEPARATOR.repeat(width)),
-    });
-  }
+  // 会话标题已随 2026-09-27 迁入左侧历史区顶部标题栏（见 buildTopRegion），
+  // 状态列不再承载标题（首行直接是 Mode 块）
   return out;
 }
 
@@ -708,8 +741,6 @@ export function renderStatusColumn(
   /** 权限/agent 预设目录（可选值列表；缺省 Mode 块降级） */
   permissionOptions?: readonly string[],
   presetOptions?: readonly string[],
-  /** 会话标题（状态列最上一行；缺省 "" 灰 <title> 占位） */
-  title = "",
 ): string[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);
@@ -730,7 +761,6 @@ export function renderStatusColumn(
     preset,
     permissionOptions,
     presetOptions,
-    title,
   );
   if (body.length > h) {
     const noDone = statusColumnBody(
@@ -747,7 +777,6 @@ export function renderStatusColumn(
       preset,
       permissionOptions,
       presetOptions,
-      title,
     );
     body =
       noDone.length <= h
@@ -766,7 +795,6 @@ export function renderStatusColumn(
             preset,
             permissionOptions,
             presetOptions,
-            title,
           );
   }
   const start = statusStartFor(body.length, scroll, h);
@@ -799,7 +827,7 @@ function buildTopRegion(
   preset?: string,
   permissionOptions?: readonly string[],
   presetOptions?: readonly string[],
-  /** 会话标题（状态列最上一行；水平状态栏已摘除） */
+  /** 会话标题（左侧历史区顶部标题栏；空标题 <title> 灰占位保持行稳定） */
   title = "",
 ): RenderLine[] {
   // 焦点框保留格（所有状态恒定，避免内容重排）：顶部边框行始终占 1 行；
@@ -814,9 +842,17 @@ function buildTopRegion(
     1,
     historyWidth - (useLeftFrame ? FRAME_LEFT_COLS : 0),
   );
-  // 活动区可视行数（瞬态显示区高度）：先于 wrapBufferLines 计算，
-  // 供思考折叠上限取 min(thinkingMaxLines, activityH)——默认思考可占满活动区
-  const activityH = activityHeight(contentTopH, state.activityDivisor);
+  // 左列顶部为独立标题栏（会话标题行 + 实线下划线，2026-09-27 由右侧状态列迁入）。
+  // 活动区高度沿用原公式（基于顶部内容行数，不随标题栏收缩），标题栏行数由对话区
+  // 承担（topPaneHeights 与 inputPanelHeights 同口径）；活动区可视行数先于
+  // wrapBufferLines 计算，供思考折叠上限取 min(thinkingMaxLines, activityH)——
+  // 默认思考可占满活动区
+  const { titleRows, activityH, dialogueH } = topPaneHeights(
+    contentTopH,
+    state.activityDivisor,
+  );
+  const diaStart = titleRows; // 内容行中对话区起点（标题栏之后）
+  const diaEnd = diaStart + dialogueH; // 对话区结束（= 活动区分隔行位置）
   const { dialogue, activity } = wrapBufferLines(
     state.buffer,
     contentW,
@@ -831,11 +867,6 @@ function buildTopRegion(
     state.scrollOffset > 0
       ? dialogue
       : foldDialogue(dialogue, state.themeId, DIALOGUE_KEEP_REPLIES);
-  // 对话区获得剩余高度（活动区高度见上方 activityH 定义）
-  const dialogueH = Math.max(
-    0,
-    contentTopH - activityH - (activityH > 0 ? 1 : 0),
-  );
   const vp = computeViewport({
     totalRows: dialogueRows.length,
     height: dialogueH,
@@ -857,11 +888,11 @@ function buildTopRegion(
     preset,
     permissionOptions,
     presetOptions,
-    title,
   );
   // 边框构图参数：分隔竖线列 = historyWidth（历史区右缘/状态列左缘，
   // 为旧 statusColWidth-1 的镜像）；col0 左缘框格属历史/活动区，
-  // 右缘框列 R 属状态列。顶部边框行占 index 0，活动区分隔行自然位于 dialogueH 后一行。
+  // 右缘框列 R 属状态列。顶部边框行占 index 0，标题栏紧随其后，
+  // 活动区分隔行自然位于 diaEnd 后一行。
   const statusBodyW = Math.max(
     0,
     statusColWidth - 1 - (useRightFrame ? FRAME_RIGHT_COLS : 0),
@@ -942,33 +973,31 @@ function buildTopRegion(
               })
             : [];
   const divFor = (rc: number): string => {
-    // 活动区分隔行两端为面板角字：history=右下角 ┘、activity=右上角 ┐、status=竖线
-    if (rc === dialogueH && activityH > 0) {
+    // 活动区分隔行两端为面板角字：history=右下角 ┘、activity=右上角 ┐、其余=竖线
+    if (rc === diaEnd && activityH > 0) {
       // 分隔行 无焦点/状态焦点：D 列交点用连接字形 `┤`（竖线贯穿+横线从左接入），
       // 与水平状态栏顶线的 `┴` 统一“连接”风格；焦点态用面板角字 ┘/┐（同为连接）
       const g = panel === "history" ? "┘" : panel === "activity" ? "┐" : "┤";
       return colorFor(state.themeId, focusActive ? fc : "border")(g);
     }
+    // 标题栏分隔行（标题栏第 2 行，横线铺满左列）：D 列交点用 `┤`
+    //（竖线贯穿 + 横线从左侧接入，与活动区分隔行中性态一致）；归历史面板
+    if (titleRows > 1 && rc === diaStart - 1) {
+      const bright = focusActive && panel === "history";
+      return colorFor(state.themeId, bright ? fc : "border")("┤");
+    }
     // 无焦点（focusedPanel=null）时所有框线回边框色（bright[0]）：bright 仅在有焦点时可能为真
     let bright = focusActive && panel !== null;
-    if (focusActive && panel === "history") bright = rc < dialogueH;
-    else if (focusActive && panel === "activity") bright = rc >= dialogueH;
-    // 标题下方横线行：D 列画 `├`（竖线贯穿上下 + 横线从交点向右接标题下横线）
-    const cell = (statusCells[rc] ?? "")
-      .replace(/\x1b\[[0-9;]*m/g, "")
-      .slice(0, -1)
-      .trimEnd();
-    if (/^─+$/.test(cell)) {
-      return colorFor(state.themeId, bright ? fc : "border")("├");
-    }
+    if (focusActive && panel === "history") bright = rc < diaEnd;
+    else if (focusActive && panel === "activity") bright = rc >= diaEnd;
     return colorFor(state.themeId, bright ? fc : "border")("│");
   };
   for (let rc = 0; rc < contentTopH; rc++) {
-    // col0：历史/活动区左缘框格——history 焦点亮对话区行+分隔行左下角 `┘`；
+    // col0：历史/活动区左缘框格——history 焦点亮标题栏+对话区行+分隔行左下角 `┘`；
     // activity 焦点亮活动区行+分隔行左上角 `┌`；status 焦点空白占位（状态列在右）
     let left = "";
     if (useLeftFrame) {
-      if (rc === dialogueH && activityH > 0) {
+      if (rc === diaEnd && activityH > 0) {
         left =
           panel === "history"
             ? topHistory
@@ -979,7 +1008,7 @@ function buildTopRegion(
                 ? cf("┌")
                 : " "
               : " ";
-      } else if (rc < dialogueH) {
+      } else if (rc < diaEnd) {
         left = topHistory ? cf("│") : " ";
       } else {
         left = activityFocused ? cf("│") : " ";
@@ -997,18 +1026,34 @@ function buildTopRegion(
       ? rawBody + blank(statusBodyW - displayWidth(rawBody))
       : cg(rawBody + blank(statusBodyW - displayWidth(rawBody)));
     let content: string;
-    if (rc < dialogueH) {
+    if (rc < diaStart) {
+      // 标题栏：首行标题（空标题 <title> 灰占位保持行稳定）、次行实线下划线
+      //（极矮终端 titleRows=1 时仅标题行；titleRows=0 时整栏省略）
+      if (rc === 0) {
+        const rawTitle = (title ?? "").trim();
+        content = colorFor(
+          state.themeId,
+          "border",
+        )(truncateToWidth(rawTitle === "" ? "<title>" : rawTitle, contentW));
+      } else {
+        content = colorFor(
+          state.themeId,
+          "border",
+        )(SEPARATOR.repeat(Math.max(1, contentW)));
+      }
+    } else if (rc < diaEnd) {
       // 对话区行：followBottom / scrollOffset 只作用于对话区
-      const w = dialogueRows[vp.start + rc];
+      const rr = rc - diaStart;
+      const w = dialogueRows[vp.start + rr];
       content =
-        w && vp.start + rc < vp.end ? " ".repeat(w.indent) + w.text : "";
-    } else if (rc === dialogueH && activityH > 0) {
+        w && vp.start + rr < vp.end ? " ".repeat(w.indent) + w.text : "";
+    } else if (rc === diaEnd && activityH > 0) {
       // 活动区分隔行（对话历史 ↔ 流输出边界），两端角字由 col0/divFor 构图
       content = sepStr();
     } else if (activityH > 0) {
       // 活动区行：交互面板存在时显示面板，否则按滚动偏移取瞬态窗口
       // （0=跟随最新显示尾部；上滚看更早）
-      const rr = rc - dialogueH - 1;
+      const rr = rc - diaEnd - 1;
       if (modalPanel.length > 0) {
         content = rr < modalPanel.length ? modalPanel[rr]!.text : "";
       } else {
@@ -1595,10 +1640,9 @@ export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
     state,
   ).topHeight;
   const contentTopH = Math.max(0, topHeight - FRAME_TOP_ROWS);
-  const activityH = activityHeight(contentTopH, state.activityDivisor);
-  const dialogueH = Math.max(
-    0,
-    contentTopH - activityH - (activityH > 0 ? 1 : 0),
+  const { activityH, dialogueH } = topPaneHeights(
+    contentTopH,
+    state.activityDivisor,
   );
   return { topHeight: contentTopH, activityH, dialogueH };
 }

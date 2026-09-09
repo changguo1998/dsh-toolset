@@ -25,6 +25,7 @@ import {
   metricsFor,
   displayWidth,
   inputPanelHeights,
+  TITLE_BAR_ROWS,
 } from "../src/app/layout.ts";
 import type {
   DshAdapter,
@@ -1181,7 +1182,8 @@ test("App initialTheme 非法值回落 dark(外部配置健壮性)", () => {
 // 慢速流式（仅真实链路 slowStream=true，mock 默认关闭保持原速）
 // ---------------------------------------------------------------------------
 
-// 全宽横线行计数：固定区域分隔(顶/状态/输入)恒为 2 行；turn 分隔线追加后为 3 行
+// 全宽横线行计数：固定区域分隔(顶/状态/输入)恒为 2 行 + 左列标题栏下划线 1 行；
+// turn 分隔线追加后再 +1
 // 横线分隔行计数：- / = / · 三种分隔字形均为横线分隔行（状态列右缘 | 不计）
 function barRowCount(renderer: FakeRenderer): number {
   return renderer.lastRender.filter((l) => {
@@ -1256,13 +1258,13 @@ test("慢速流：分隔线在回合开始画，turn-end 不再画", () => {
     adapter.push({ type: "stream", sessionId: "s1", text: "第一回合正文" });
     assert.equal(
       barRowCount(renderer),
-      3,
-      "首回合空历史不画孤立线（默认无焦点，顶部边框行空白不画线）",
+      4,
+      "首回合空历史不画孤立线（固定分隔 2 + 标题栏下划线 1；顶部边框行空白不画线）",
     );
     adapter.push({ type: "turn-end" });
     assert.equal(
       barRowCount(renderer),
-      3,
+      4,
       "turn-end 不再画分隔线（默认无焦点，顶部边框行空白）",
     );
     // 回合 2：首条正文到达 → 回合开始时先画线，再进入内容
@@ -1272,8 +1274,8 @@ test("慢速流：分隔线在回合开始画，turn-end 不再画", () => {
     );
     assert.equal(
       barRowCount(renderer),
-      4,
-      "回合开始时先画分隔线（默认无焦点，顶部边框行空白）",
+      5,
+      "回合开始时先画分隔线（固定 2 + 标题栏 1 + turn 分隔 1）",
     );
     const joined = plain.join("\n");
     assert.ok(
@@ -1307,15 +1309,15 @@ test("slowStream=true：turn 结束后流速回落，下一轮思考重新从初
     adapter.push({ type: "turn-end" });
     assert.equal(
       barRowCount(renderer),
-      3,
-      "turn-end 不再画线（默认无焦点，顶部边框行空白）",
+      4,
+      "turn-end 不再画线（固定分隔 2 + 标题栏下划线 1）",
     );
     // 第二轮：思考应从初始 20cps 重新开始(不回落到 120)
     adapter.push({ type: "thinking", sessionId: "s1", text: "bbbbbbbbbb" });
     assert.equal(
       barRowCount(renderer),
-      4,
-      "新一轮回合开始时先画线（默认无焦点，顶部边框行空白）",
+      5,
+      "新一轮回合开始时先画线（固定 2 + 标题栏 1 + turn 分隔 1）",
     );
     assert.ok(
       !renderer.lastRender.join("\n").includes("b"),
@@ -2527,11 +2529,12 @@ test("顶部面板焦点滚动映射：↑/↓ 只作用于各自面板；PgUp/P
   });
 });
 
-test("inputPanelHeights：页高口径与 buildFrame 一致（rows=24 → 状态列内容 16 / 活动 8 / 对话 7）", () => {
+test("inputPanelHeights：页高口径与 buildFrame 一致（rows=24 → 状态列内容 16 / 活动 8 / 对话 5）", () => {
   const h = inputPanelHeights(initialState(), { rows: 24, cols: 80 });
   assert.equal(h.topHeight, 16, "状态列内容高=topHeight-边框行");
   assert.equal(h.activityH, 8);
-  assert.equal(h.dialogueH, 7);
+  // 标题栏（标题行 + 下划线，2 行）由对话区承担：对话 7 → 5
+  assert.equal(h.dialogueH, 5);
 });
 
 test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 ↑/PgUp 滚动帮助", async () => {
@@ -2546,7 +2549,10 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
   // 活动区正文 = 实线分隔行与状态栏之间：取左侧历史/活动区段（右侧为状态列）
   const actBody = (): string[] => {
     const lines = renderer.lastRender.map(strip);
-    const sep = lines.findIndex((l) => /^─+$/.test(histBody(l, 120).trim()));
+    // 跳过标题栏分隔行（rows=24 时标题栏 2 行、下划线在 index 2）
+    const sep = lines.findIndex(
+      (l, i) => i > TITLE_BAR_ROWS && /^─+$/.test(histBody(l, 120).trim()),
+    );
     // 标题已移入状态列，水平栏定位改用组间管道符 `|`
     const statusIdx = lines.findIndex((l) => l.includes("|"));
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
@@ -2598,6 +2604,9 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
 
 test("无焦点空输入：↑ 上滚对话区，展开折叠的更早回复", () => {
   const { app, renderer, adapter } = makeApp();
+  // 标题栏迁入左列后对话区减少 2 行（rows=24 → dialogueH=5），折叠占位 + 最近
+  // 3 组回复（7 行）需加高终端才完整可见：rows=28 → dialogueH=7
+  renderer.size = { cols: 80, rows: 28 };
   // 5 组回复（> DIALOGUE_KEEP_REPLIES=3）：stream（assistant）+ turn-end 分隔
   for (let i = 1; i <= 5; i++) {
     adapter.push({ type: "stream", sessionId: "s1", text: "回复正文行" + i });
@@ -2672,7 +2681,10 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
   const actFirst = (): string => {
     const lines = renderer.lastRender.map(strip);
-    const sep = lines.findIndex((l) => /^─+$/.test(histBody(l, 120).trim()));
+    // 跳过标题栏分隔行（rows=24 时标题栏 2 行、下划线在 index 2）
+    const sep = lines.findIndex(
+      (l, i) => i > TITLE_BAR_ROWS && /^─+$/.test(histBody(l, 120).trim()),
+    );
     // 标题已移入状态列，水平栏定位改用组间管道符 `|`
     const statusIdx = lines.findIndex((l) => l.includes("|"));
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
