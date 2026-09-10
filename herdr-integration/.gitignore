@@ -1,0 +1,4 @@
+# 本地开发产物与依赖（对齐仓库根 .gitignore 的忽略习惯）
+node_modules/
+dist/
+tmp/

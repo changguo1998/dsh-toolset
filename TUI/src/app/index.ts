@@ -434,6 +434,7 @@ export class App {
           this.pendingTurnEnd = true;
         } else {
           this.apply((s) => reduceState(s, { type: "turn-end" }));
+          this.warnStrippedChars();
         }
         break;
       case "tool-call":
@@ -527,6 +528,7 @@ export class App {
       this.pendingTurnEnd = false;
       this.dropThinking();
       this.apply((s) => reduceState(s, { type: "turn-end" }));
+      this.warnStrippedChars();
       this.paint();
     }
   }
@@ -542,6 +544,21 @@ export class App {
   private dropThinking(): void {
     this.slowStop();
     this.thinkingPending = "";
+  }
+
+  /** turn 结束后警告：本回合剔除的非打印控制字符（渲染保护兜底） */
+  private warnStrippedChars(): void {
+    const n = this.state.strippedChars;
+    if (n <= 0) return;
+    this.apply((s) =>
+      reduceState(s, {
+        type: "notice",
+        text: `已过滤 ${n} 个非打印控制字符（渲染保护）`,
+        tone: "warn",
+      }),
+    );
+    this.apply((s) => reduceState(s, { type: "clear-stripped" }));
+    this.paint();
   }
 
   private handleKey(k: KeyEvent): void {
