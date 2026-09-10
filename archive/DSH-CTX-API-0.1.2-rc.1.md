@@ -1,9 +1,9 @@
 # DSH 核心 ctx API — 研读笔记（跨插件共享参考）
 
-> 来源：官方 `deepseek-harness` clone（`~/GithubRepos/deepseek-harness`，**`dsh-v0.1.5-rc.2`** = commit `fb2c4b9e69`）。
-> 上一版：`dsh-v0.1.2-rc.1`（commit `a66e470204`，已归档至 `archive/DSH-CTX-API-0.1.2-rc.1.md`）。
+> 来源：官方 `deepseek-harness` clone（`~/GithubRepos/deepseek-harness`，**`dsh-v0.1.2-rc.1`** = commit `a66e470204`）。
+> 上一版：`dsh-v0.1.1-rc.2`（commit `b150a551b8`，已归档至 `archive/DSH-CTX-API-0.1.1-rc.2.md`）。
 > 用途：供 dsh-toolset 各插件（TUI、web、CLI、扩展……）在与 DSH 宿主集成时对齐契约；本文件为研读沉淀，只读参考，非实现。
-> 状态：2026-09-10 对照 0.1.5-rc.2 更新（含破坏性变更，见 §10）。源码若演进，以仓库为准（版本号标注于每次更新）。
+> 状态：2026-09-08 首次对照 0.1.2-rc.1 更新。源码若演进，以仓库为准（版本号标注于每次更新）。
 
 ## 0. 运行时总览
 
@@ -47,29 +47,17 @@ type SessionEvent = {
 ```
 
 - **`ignorable?: true`（新增兼容机制）**：写方只在纯信息记录上置 true；缺省=必需——读取方遇到不认识且未标记可忽略的类型**必须拒绝重建**（防止静默丢失语义）。这是词汇增长的不依赖注册表的兼容机制。
-- surface 语义保持：`SurfaceOp = 'append' | { op: 'replace', start: SessionSeq, end: SessionSeq }`；`sourceEventSeqs` 引用来源事件（如 `assistant/attempt` seqs；`assistant/message` 可用空数组表已知空流）。
+- surface 语义保持：`SurfaceOp = 'append' | { op: 'replace', start: SessionSeq, end: SessionSeq }`；`sourceEventSeqs` 引用来源事件（如 `assistant/chunk` seqs；`assistant/message` 可用空数组表已知空流）。
 
 **事件词汇表**（`KNOWN_SESSION_EVENT_TYPES`，`packages/core/session/src/known-event-types.ts`，generated）：
 
-- 相对 0.1.2-rc.1（0.1.5-rc.2）**破坏性变更**：
-
-  - `assistant/chunk` → **`assistant/attempt`**：流式事件更名，载荷 `{turn, step, stream: AssistantStreamRecord[]}`（单 chunk → 流记录数组）
-  - `tool/code-dispatch` / `tool/code-dispatch-start` → **`tool/ptc-dispatch` / `tool/ptc-dispatch-start`**（PTC，原 code-mode 更名）
-  - **新增**：`deliverables/presented`、`feedback/message-delete`、`feedback/message-put`、`subagent/catalog`、`system/message`（system role 消息，requireOpenStep）
-  - `SESSION_FORMAT_VERSION` **0 → 3**（新增 `session-format-v0-to-v1` / `v1-to-v2` / `v2-to-v3` 迁移器；`assistant/chunk` 仅作为 v0 历史类型存在于迁移器）
-  - scope 事件表（agent 作用域，非 session 日志）新增 `agent/assistant-stream`；remotes 新增 `goal/activation-changed`
-
 - 0.1.1-rc.2 共 **48** 项 → 0.1.2-rc.1 共 **52** 项；**新增 3 项**：
-
   - `model/selection`
   - `session-log-deepseek/delivery-accepted`
   - `subagent/model-selection-policy`
   - （即 0.1.1-rc.2 文档「master 前瞻」所列 3 项，现已进词汇表）
-
-- 其余命名延续，注意：\*\*`agent-preset/selected`（连字符）\*\*是正确事件名（0.1.1-rc.2 旧文档 §1 笔误写成 `agent/preset/selected`），载荷 `{ agentPreset: string }`。
-
+- 其余命名延续，注意：**`agent-preset/selected`（连字符）**是正确事件名（0.1.1-rc.2 旧文档 §1 笔误写成 `agent/preset/selected`），载荷 `{ agentPreset: string }`。
 - 事件载荷新增字段（0.1.2-rc.1）：
-
   - `assistant/message`：新增 `interrupted?: true`（取消流中途已交付文本/reasoning 前缀的标记）
   - `tool/result`：新增 `meta?: JsonValue`（工具私有展示载荷，如 `dsh-tool-fs` 的结果时上下文 diff；必须是 JSON-serializable，`Session.append` 运行时校验）
   - `turn/end` reason 扩展：`completed | aborted{reason} | blocked | error{error} | max-tokens | interrupted`（`interrupted` 是持久化后端重开 crash-orphan turn 时由加载方补记）
@@ -83,16 +71,8 @@ tool-call-delta{index,id,name?,argumentsDelta} / block-end{index,block}
 usage{usage} / finish{reason, replayState?}
 ```
 
-- 7 变体与 0.1.1-rc.2 完全一致（0.1.5 中对应流式会话事件为 `assistant/attempt`，载荷 `{turn, step, stream: AssistantStreamRecord[]}`）。
-
-- ContentBlock **新增 `FileBlock`**（`type: 'file'`，`attachment: FileAttachmentRef`）：文件以确定性句柄文本投递（名称/字节数/只读保存路径），持久化日志保留结构化引用；7 种 chunk 变体不变。
-
-- 新增 `SystemPromptUpdate = 'in-history'` 与 `LlmCallConfig.systemPromptUpdate?`；`system` prompt 语义区分 one-shot（直接映射 system slot）与 loop-built（leading system-role message）。
-
-- **LLM 默认模型**：Chat Completions 默认 **DeepSeek V41 Flash**（V4 / V4 Flash Vision Exp 目录项保留并存）。
-
+- 7 变体与 0.1.1-rc.2 完全一致；`assistant/chunk` 会话事件载荷 `{turn, step, chunk}` 不变。
 - LLM 后端在 0.1.2-rc.1 拆出插件集：`llm-deepseek`、`llm-pi-ai`、`llm-replay`、`deepseek-llm-api-extensions`、`token-meter`；model discovery 复用 profile headers、provider headers 校验。
-
 - 消费端折叠范例仍参考 web client `PartialAccumulator`（`packages/client/runtime/src/client/sessions/partial.ts`）。
 
 ## 3. 审批 `@deepseek-ai/dsh-user-approval`（`packages/interaction/user-approval`）
@@ -108,20 +88,10 @@ usage{usage} / finish{reason, replayState?}
 ## 4. Agent（`packages/core/agent` + `dsh-agent-loop`）
 
 - `ctx.agents: AgentRegistry`（inject `'agents'`）；创建由 loop 插件注册的 `AgentFactory` 提供（`setFactory`）。
-
 - `AgentFactory.createAgent(ownerCtx, options): Promise<AgentHandle>` / `resume(ownerCtx, options)`；`AgentHandle = { agent, dispose() }`。
-
-- 发送消息：`agent.followup(message)` → loop 端 `session.append('user/message', …, {surfaceOp:'append'})` → `turn/start` → `assistant/attempt`\* → `turn/end`。
-
+- 发送消息：`agent.followup(message)` → loop 端 `session.append('user/message', …, {surfaceOp:'append'})` → `turn/start` → `assistant/chunk*` → `turn/end`。
 - `agents.create` 支持 `{ sessionId, meta: { cwd, … }, agentOptions: { provider, model, reasoningEffort?, maxTokens? } }`。
-
 - 事件 `agent/status({agent, status})` — **agent 层事件，不在 session 日志词汇表**。
-
-- **inbox 模块化（0.1.5 重构，本项目使用面不变）**：`agent/inbox/inserted`、`agent/request`、`agent/pre-step` 事件名与载荷不变（`runtime-types.ts`）；inbox 实现从 `agent-loop/src/agent.ts` 拆到独立 `agent-loop/src/inbox.ts`，引入持久化投影 `inbox = {next-turn, next-step}`（wire 层 `InboxWireState` JSON 安全形）。时序：projection registry 提交事件先于 `Session.append()` 返回。
-
-- **model-selection 模型切换通知（0.1.5 新增）**：provider/model 变化时经 `agent/pre-step`（`{prepend: true}` 监听者）向下一 request 注入 user-role `[model changed: A → B]` 通知消息；effort 级变化、空决策不注入。`agent/pre-step` 出现官方 prepend 监听者，监听顺序语义注意。
-
-- **scope 事件表新增 `agent/assistant-stream`**（agent 作用域事件，args 取 `agent`，与 `assistant/attempt` 分属两条线）。
 
 ## 5. 官方外部桥（进程外对接，`packages/sdk/{client,protocol,server}`）
 
@@ -133,34 +103,19 @@ usage{usage} / finish{reason, replayState?}
 ## 6. 对 dsh-toolset（特别是 TUI）插件的落点
 
 - Adapter 契约同 0.1.1-rc.2：`onEvent`（订阅 `session/event` 转 `{sessionId, event}`）+ `sendMessage`（`session/prompt` / `agent.followup`）+ `approve(allow)`（`approval/request` 应答）。
-
 - **seq 守卫更新**：改用事件内 `seq: SessionSeq` 做会话内单调去重/防倒序；日志偏移（offset）不参与。
-
 - **未知事件处理**：TUI 只消费已知子集，识别的词典外事件若 `ignorable` 缺省时「上游负责拒重建」，TUI 可安全忽略并旁路展示。
-
 - **tool/result.meta**：TUI tool 行可借用 `meta` 展示 `+N/-M` 类工具私有 diff（0.1.2-rc.1 起可用）。
-
 - **assistant/message.interrupted**：TUI 流式区对取消流中途前缀做中断标记展示。
-
 - **agent-preset/selected {agentPreset}**：per-session 预设选择事件（连字符名）；TUI preset 目录/当前值数据源（`agentPresetCatalog`）对应 `agent-preset/selected` 与 preset 配置树。
-
 - Mode 块相关载荷稳定：`plan/mode {active}`、`sandbox/mode {mode, source?}`、`permission/preset {preset}`（0.1.2-rc.1 不变）。
-
 - 状态标注：`session.status`(idle/running) 与 `agent/status` 用于 header。
-
-- **破坏性适配点（0.1.5）**：`assistant/chunk` → `assistant/attempt`（载荷 `{turn, step, stream: AssistantStreamRecord[]}`），流式归一化须改消费 attempt 的 stream 数组；`tool/code-dispatch*` → `tool/ptc-dispatch*`。`assistant/message` / `turn/start` / `turn/end` / `agent/status` 未变。
-
-- **FileBlock**：ContentBlock 新增 `type:'file'` 块（句柄文本投递），消息渲染按块类型分发时需覆盖。
-
-- **模型切换 notice**：0.1.5 起切模型注入 user-role notice 消息块，消息列表/流式区需容忍展示；当前模型经 `session.requestHeader()` 读取。
-
-- **format v3**：resume 历史经 v0→v1→v2→v3 迁移后方可读；TUI 只展示不重建，P2 载荷口径以 0.1.5 为准（§8 表格所列仍以 0.1.2-rc.1 核实，未逐项复查 0.1.5）。
 
 ## 7. 验证口径
 
-- 词汇表：`grep -r "KNOWN_SESSION_EVENT_TYPES" packages/core/session/src/known-event-types.ts`（0.1.5 相对 0.1.2：删 `assistant/chunk`、`tool/code-dispatch*`；增 `assistant/attempt`、`tool/ptc-dispatch*`、`deliverables/presented`、`feedback/message-delete`、`feedback/message-put`、`subagent/catalog`、`system/message`；绝对数以 generated 文件为准）。
+- 词汇表：`grep -r "KNOWN_SESSION_EVENT_TYPES" packages/core/session/src/known-event-types.ts`（计数断言 52）。
 - 审批：`grep "approval/request" packages/interaction/user-approval/src`。
-- 格式版本：`SESSION_FORMAT_VERSION`（`packages/core/session/src/types.ts`，0.1.5 当前 3；含 v0→v1→v2→v3 迁移器）。
+- 格式版本：`SESSION_FORMAT_VERSION`（`packages/core/session/src/types.ts`，当前 0）。
 - seq/offset 品牌：`SessionSeq` / `SessionLogOffset`（同文件）。
 
 ## 8. P2 事件载荷备注（2026-09-08，对照 dsh-v0.1.2-rc.1 源码核实）
@@ -187,29 +142,12 @@ usage{usage} / finish{reason, replayState?}
 接口/契约面：
 
 1. **session 序号模型拆分为 SessionSeq / SessionLogOffset**（破坏性），并新增 `SESSION_FORMAT_VERSION`（当前 0）与 `session/end-seed`。
-1. **SessionEvent 新增 `ignorable?: true`** 兼容机制（词汇外事件可安全跳过）。
-1. **事件载荷新字段**：`assistant/message.interrupted`、`tool/result.meta`、`turn/end` reason 扩展、`compaction/summary.shadowedRange`/`sourceCommandId`。
-1. 词汇表 48 → 52（新增 `model/selection`、`session-log-deepseek/delivery-accepted`、`subagent/model-selection-policy`）。
-1. **agent-presets 交付改配置树（`dsh.configTrees`）+ 会话级预设**（`SessionHeader.agentPreset`、`agent-preset/selected`）。
-1. 会话持久化 JSONL-only（移除 SQLite 后端，0.1.2-rc.1 有 `session-persistence-jsonl` / `session-checkpoint-policy`）。
-1. host 面：`dsh-host-apiproxy` 移除，unary RPC 迁 `dsh-api` Remote controllers + connection 持 RPC transport；`dsh-llm-*` 后端插件化；新增 webhook / hooks-claude-code / hooks-codex / sdk-app / sdk-minimal / acp / attachment-local / credentials-local / sandbox 系 / user-approval 等插件。
-1. CLI：移除 demo；code-mode 更名 **PTC**。
+2. **SessionEvent 新增 `ignorable?: true`** 兼容机制（词汇外事件可安全跳过）。
+3. **事件载荷新字段**：`assistant/message.interrupted`、`tool/result.meta`、`turn/end` reason 扩展、`compaction/summary.shadowedRange`/`sourceCommandId`。
+4. 词汇表 48 → 52（新增 `model/selection`、`session-log-deepseek/delivery-accepted`、`subagent/model-selection-policy`）。
+5. **agent-presets 交付改配置树（`dsh.configTrees`）+ 会话级预设**（`SessionHeader.agentPreset`、`agent-preset/selected`）。
+6. 会话持久化 JSONL-only（移除 SQLite 后端，0.1.2-rc.1 有 `session-persistence-jsonl` / `session-checkpoint-policy`）。
+7. host 面：`dsh-host-apiproxy` 移除，unary RPC 迁 `dsh-api` Remote controllers + connection 持 RPC transport；`dsh-llm-*` 后端插件化；新增 webhook / hooks-claude-code / hooks-codex / sdk-app / sdk-minimal / acp / attachment-local / credentials-local / sandbox 系 / user-approval 等插件。
+8. CLI：移除 demo；code-mode 更名 **PTC**。
 
 > 完整源码对照：`git diff dsh-v0.1.1-rc.2 dsh-v0.1.2-rc.1`（1735 提交）。
-
-## 10. 版本差异速览（0.1.2-rc.1 → 0.1.5-rc.2）
-
-接口/契约面（对本项目影响最大的在前）：
-
-1. **破坏性：`assistant/chunk` → `assistant/attempt`**（流式事件更名，载荷 `{turn, step, stream: AssistantStreamRecord[]}`）；**`tool/code-dispatch*` → `tool/ptc-dispatch*`**（PTC）。
-1. **SESSION_FORMAT_VERSION 0 → 3**：新增 `session-format-v0-to-v1` / `v1-to-v2` / `v2-to-v3` 迁移器。
-1. 词汇表净 +5：新增 `deliverables/presented`、`feedback/message-delete`、`feedback/message-put`、`subagent/catalog`、`system/message`。
-1. **agent 层重构（本项目使用面签名不变）**：`agent/inbox/inserted`、`agent/request`、`agent/pre-step` 不变；inbox 模块化 + 持久化投影；model-selection 新增模型切换 notice（pre-step prepend 监听者）。
-1. **StreamChunk 增量**：ContentBlock 新增 `FileBlock`；`SystemPromptUpdate 'in-history'` + `systemPromptUpdate?`；`system` prompt one-shot/loop-built 语义区分。
-1. **LLM 默认模型 → DeepSeek V41 Flash**（V4/V41 并存；V4 Flash Vision Exp 回归）。
-1. scope 事件表新增 `agent/assistant-stream`；remotes 新增 `goal/activation-changed`。
-1. web/client 前端为主（sidebar、交付卡、图预览、webworker 文件句柄 chmod/bigint 身份、workspace-files 子代理根解析）——与进程集成面无关。
-
-对本项目（TUI / herdr-integration / knowledge-base / task-engine）：**唯一必须适配的是 1**（TUI 流式归一化按 `assistant/chunk` 匹配的路径，及任何 `code-dispatch` 匹配）；其余为增量/可选。
-
-> 完整源码对照：`git diff dsh-v0.1.2-rc.1 dsh-v0.1.5-rc.2`（1490 提交；契约字符串命中文件集合两版一致）。
