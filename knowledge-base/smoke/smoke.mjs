@@ -17,12 +17,22 @@
 
 import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync, rmSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const PKG_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 const PROFILE = "dsh-toolset-kb";
 const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
 const PKG_NAME = "@dsh-toolset/knowledge-base";
@@ -104,7 +114,12 @@ function checkVersion() {
     fail(`dsh 不可用：${String(error.message).split("\n")[0]}`);
     return;
   }
-  if (assert(version.includes(REQUIRED_VERSION), `dsh 版本 ${version}，要求 ${REQUIRED_VERSION}`)) {
+  if (
+    assert(
+      version.includes(REQUIRED_VERSION),
+      `dsh 版本 ${version}，要求 ${REQUIRED_VERSION}`,
+    )
+  ) {
     ok(version);
   }
 }
@@ -137,18 +152,30 @@ function ensureProfile() {
     dep = pkg.dependencies?.[PKG_NAME];
     bundles = pkg.dsh?.profile?.bundles ?? [];
   } catch (error) {
-    fail(`profile package.json 解析失败：${String(error.message).split("\n")[0]}`);
+    fail(
+      `profile package.json 解析失败：${String(error.message).split("\n")[0]}`,
+    );
     return;
   }
   if (dep !== `link:${PKG_ROOT}` || !bundles.includes(PKG_NAME)) {
     try {
-      run("dsh", ["plugin", "--profile", PROFILE, "add", `${PKG_NAME}@link:${PKG_ROOT}`]);
+      run("dsh", [
+        "plugin",
+        "--profile",
+        PROFILE,
+        "add",
+        `${PKG_NAME}@link:${PKG_ROOT}`,
+      ]);
     } catch (error) {
       fail(`插件挂载失败：${String(error.message).split("\n")[0]}`);
       return;
     }
   }
-  writeFileSync(path.join(PROFILE_DIR, "cordis.patch.yml"), CORDIS_PATCH, "utf8");
+  writeFileSync(
+    path.join(PROFILE_DIR, "cordis.patch.yml"),
+    CORDIS_PATCH,
+    "utf8",
+  );
   ok(PROFILE_DIR);
 }
 
@@ -192,7 +219,13 @@ function runSession(dbPath, taskDir, overlayPath) {
 // --- 4. SQLite 断言（注册指纹 + 0.1.5-rc.2 新字段摄取） ---
 function assertIngestion(dbPath) {
   step("断言注册与摄取");
-  if (!assert(existsSync(dbPath), `知识库文件未创建（bundle 未 apply）：${dbPath}`)) return false;
+  if (
+    !assert(
+      existsSync(dbPath),
+      `知识库文件未创建（bundle 未 apply）：${dbPath}`,
+    )
+  )
+    return false;
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
     // 注册证据：库文件由 bundle apply 创建，schema 指纹匹配。
@@ -209,8 +242,10 @@ function assertIngestion(dbPath) {
     const metaRows = queryCount(db, META_SQL);
     const compRows = queryCount(db, COMP_SQL);
     const rangeRows = queryCount(db, RANGE_SQL);
-    if (!assert(metaRows >= 1, "未摄取 tool/result meta（[tool/meta] 段缺失）")) return false;
-    if (!assert(compRows >= 1, "未摄取 compaction/summary 影子范围字段")) return false;
+    if (!assert(metaRows >= 1, "未摄取 tool/result meta（[tool/meta] 段缺失）"))
+      return false;
+    if (!assert(compRows >= 1, "未摄取 compaction/summary 影子范围字段"))
+      return false;
     ok(
       `注册指纹 OK；[tool/meta] ${metaRows} 条；shadowedRange ${rangeRows} 条${rangeRows < compRows ? "（含旧载荷回落）" : ""}`,
     );
@@ -225,13 +260,18 @@ async function syntheticBackstop(dbPath, { needMeta, needCompaction }) {
   if (!needMeta && !needCompaction) return;
   step("合成事件兜底注入");
   const schema = await import(path.join(PKG_ROOT, "dist", "src", "schema.js"));
-  const knowledge = await import(path.join(PKG_ROOT, "dist", "src", "knowledge.js"));
+  const knowledge = await import(
+    path.join(PKG_ROOT, "dist", "src", "knowledge.js")
+  );
   const hooks = await import(path.join(PKG_ROOT, "dist", "src", "hooks.js"));
   const db = await schema.openKnowledgeDatabase(dbPath);
   try {
-    const sessionHooks = new hooks.SessionHooks(new knowledge.KnowledgeService(db), {
-      project: "dsh-toolset-kb",
-    });
+    const sessionHooks = new hooks.SessionHooks(
+      new knowledge.KnowledgeService(db),
+      {
+        project: "dsh-toolset-kb",
+      },
+    );
     if (needMeta) {
       sessionHooks.handle("smoke-synthetic", {
         type: "tool/result",
@@ -245,7 +285,11 @@ async function syntheticBackstop(dbPath, { needMeta, needCompaction }) {
               },
             ],
           },
-          meta: { diffs: [{ path: "/tmp/synthetic.txt", oldText: null, newText: "x" }] },
+          meta: {
+            diffs: [
+              { path: "/tmp/synthetic.txt", oldText: null, newText: "x" },
+            ],
+          },
         },
       });
     }
@@ -275,7 +319,9 @@ async function syntheticBackstop(dbPath, { needMeta, needCompaction }) {
 async function roundtrip(dbPath) {
   step("dist 往返 put/search/touch/evict");
   const schema = await import(path.join(PKG_ROOT, "dist", "src", "schema.js"));
-  const knowledge = await import(path.join(PKG_ROOT, "dist", "src", "knowledge.js"));
+  const knowledge = await import(
+    path.join(PKG_ROOT, "dist", "src", "knowledge.js")
+  );
   const db = await schema.openKnowledgeDatabase(dbPath);
   try {
     const kb = new knowledge.KnowledgeService(db);
@@ -285,17 +331,28 @@ async function roundtrip(dbPath) {
     kb.put({ project, target, content, importance: 3, sessionId: "smoke" });
     const byEn = kb.search({ query: "roundtrip marker", project });
     const enHit = byEn[0];
-    if (!assert(byEn.length === 1 && enHit?.content.includes("marker"), "porter 词干检索未命中"))
+    if (
+      !assert(
+        byEn.length === 1 && enHit?.content.includes("marker"),
+        "porter 词干检索未命中",
+      )
+    )
       return;
     const byCjk = kb.search({ query: "烟雾弹", project, fuzzy: true });
     if (!assert(byCjk.length === 1, "CJK LIKE 兜底检索未命中")) return;
     const id = byCjk[0].id;
-    const before = db.prepare("SELECT last_referenced AS lr FROM chunks WHERE id = ?").get(id).lr;
+    const before = db
+      .prepare("SELECT last_referenced AS lr FROM chunks WHERE id = ?")
+      .get(id).lr;
     kb.touch(id);
-    const after = db.prepare("SELECT last_referenced AS lr FROM chunks WHERE id = ?").get(id).lr;
+    const after = db
+      .prepare("SELECT last_referenced AS lr FROM chunks WHERE id = ?")
+      .get(id).lr;
     if (!assert(after >= before, "touch 未刷新 last_referenced")) return;
     kb.evict([id]);
-    const remaining = db.prepare("SELECT COUNT(*) AS n FROM chunks WHERE target = ?").get(target).n;
+    const remaining = db
+      .prepare("SELECT COUNT(*) AS n FROM chunks WHERE target = ?")
+      .get(target).n;
     if (!assert(remaining === 0, "evict 后仍有残留")) return;
     ok("put/search(EN+CJK)/touch/evict 全通过");
   } finally {
