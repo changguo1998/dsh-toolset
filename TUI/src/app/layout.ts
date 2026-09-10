@@ -349,9 +349,6 @@ function isConversationKind(kind: BufferKind): boolean {
   return kind === "user" || kind === "separator" || kind === "plain";
 }
 
-/** 顶部状态列：goal 目标条目行数上限 */
-export const STATUS_GOAL_MAX_LINES = 5;
-
 /** goal 阶段 → 标题 phase 状态色：active/complete 绿、paused 黄、blocked 红 */
 const GOAL_PHASE_COLOR: Record<string, "green" | "yellow" | "red"> = {
   active: "green",
@@ -359,10 +356,6 @@ const GOAL_PHASE_COLOR: Record<string, "green" | "yellow" | "red"> = {
   blocked: "red",
   complete: "green",
 };
-/** 顶部状态列：每条 todo 行数上限 */
-export const STATUS_TODO_MAX_LINES = 3;
-/** 顶部状态列无内容占位 */
-export const STATUS_COL_EMPTY = "（无目标/待办）";
 
 const TODO_MARKER: Record<TodoItemLike["status"], string> = {
   pending: "○ ", // 待办：空心圆
@@ -370,20 +363,134 @@ const TODO_MARKER: Record<TodoItemLike["status"], string> = {
   completed: "✓ ",
 };
 
-/** 折叠：wrap 后超过 max 行则截到 max 行，末行追加折叠提示（统计被折叠行数） */
-function capWrap(
-  text: string,
-  width: number,
-  max: number,
-): { text: string; color?: (s: string) => string }[] {
-  const rows = wrapLine(text, Math.max(1, width));
-  const out = rows.map((text) => ({ text }));
-  if (out.length <= max) return out;
-  const hidden = out.length - max;
-  const kept = out.slice(0, max - 1);
-  // 末行改为折叠提示（保留被折叠行数）；不再在原内容上追加（避免被截掉）
-  kept.push({ text: truncateToWidth(`…(+${hidden}行)`, Math.max(1, width)) });
+/** 状态列行（未着色文本 + 可选整体色） */
+interface StatusRow {
+  text: string;
+  color?: (s: string) => string;
+}
+
+/** 状态列块：head=分隔线/标题等必保行；items=可按优先级折叠的条目（todo/jobs） */
+interface StatusBlock {
+  id: "mode" | "goal" | "todo" | "jobs";
+  head: StatusRow[];
+  items: { rows: StatusRow[]; done: boolean; active: boolean }[];
+}
+
+/** 状态列折叠等级（全局统一递增尝试）：
+ *  L0 不折叠；L1 隐藏已完成条目；L2 仅保留进行中条目（goal 压成标题行）；
+ *  L3 进行中条目也压为 1 行。 */
+type FoldLevel = 0 | 1 | 2 | 3;
+
+/** 按折叠等级折叠块：goal 无条目概念（L2 起压成标题行「Goal <phase>」）；
+ *  todo/jobs 按 done/active 过滤并带隐藏计数提示；mode 恒完整。 */
+function foldAt(
+  block: StatusBlock,
+  level: FoldLevel,
+  themeId: ThemeId,
+): StatusRow[] {
+  if (block.id === "goal" && level >= 2) {
+    // head 末行恒为标题（首块无 sep），L2 起只留标题，删除分隔线与 objective
+    return [block.head[block.head.length - 1]!];
+  }
+  if (block.id === "todo" || block.id === "jobs") {
+    let kept = block.items;
+    let hidden = 0;
+    if (level >= 1) {
+      const rest = kept.filter((it) => !it.done);
+      hidden += kept.length - rest.length;
+      kept = rest;
+    }
+    if (level >= 2) {
+      const rest = kept.filter((it) => it.active);
+      hidden += kept.length - rest.length;
+      kept = rest;
+    }
+    const rows =
+      level >= 3
+        ? kept.map((it) => it.rows[0]!)
+        : kept.flatMap((it) => it.rows);
+    if (hidden > 0) {
+      rows.push({
+        text: `…(+${hidden}项已隐藏)`,
+        color: colorFor(themeId, NOTICE_TONE_COLOR.log),
+      });
+    }
+    return [...block.head, ...rows];
+  }
+  // mode：无折叠语义，恒完整
+  return [...block.head, ...block.items.flatMap((it) => it.rows)];
+}
+
+/** 行级兑底截断：超出预算时保留前 budget-1 行、末行换折叠提示（统计被折叠行数） */
+function capRows(rows: StatusRow[], budget: number): StatusRow[] {
+  if (rows.length <= budget) return rows;
+  if (budget <= 0) return [];
+  if (budget === 1) return [rows[0]!]; // 仅 1 行：内容优先，折叠标记让位
+  const hidden = rows.length - budget;
+  const kept = rows.slice(0, budget - 1);
+  kept.push({ text: `…(+${hidden}行)` });
   return kept;
+}
+
+/** todo 条目渲染行（首行带标记，续行缩进对齐） */
+function todoItemRows(
+  t: TodoItemLike,
+  width: number,
+  themeId: ThemeId,
+): StatusRow[] {
+  const body = t.content === "" ? "（空项）" : t.content;
+  const mark = TODO_MARKER[t.status];
+  const rows = wrapLine(body, Math.max(1, width - 2)).map((r, i) => ({
+    text: (i === 0 ? mark : "  ") + r,
+  }));
+  if (t.status === "completed") {
+    // 对号（灰，无线）不被删除线覆盖；正文/续行灰+删除线
+    return rows.map((r, i) =>
+      i === 0
+        ? {
+            text:
+              colorFor(themeId, "gray")(TODO_MARKER.completed) +
+              renderSeg(
+                {
+                  text: r.text.slice(TODO_MARKER.completed.length),
+                  style: { fg: "gray", strike: true },
+                },
+                themeId,
+              ),
+          }
+        : {
+            text: renderSeg(
+              { text: r.text, style: { fg: "gray", strike: true } },
+              themeId,
+            ),
+          },
+    );
+  }
+  if (t.status === "in_progress") {
+    // 换行后颜色不丢失：整项（含续行）同色；所有进行中项均为黄色
+    const color = colorFor(themeId, "yellow");
+    return rows.map((r) => ({ text: r.text, color }));
+  }
+  return rows;
+}
+
+/** job 条目渲染行（✓ 完成灰+删除线，其余按状态色） */
+function jobItemRows(job: JobInfo, themeId: ThemeId): StatusRow[] {
+  const mark = statusMark(themeId, job.status);
+  const label = job.label || job.kind || job.id || "（未命名任务）";
+  if (mark.symbol === "✓") {
+    return [
+      {
+        text:
+          colorFor(themeId, "gray")("✓ ") +
+          renderSeg(
+            { text: label, style: { fg: "gray", strike: true } },
+            themeId,
+          ),
+      },
+    ];
+  }
+  return [{ text: mark.symbol + " " + label, color: mark.color }];
 }
 
 /** 状态列 Mode 块：列出会话运行模式/权限/审批策略的所有可选项，生效项着色强调、其余灰。
@@ -565,23 +672,24 @@ function modeBlock(
 }
 
 /** 顶部状态列正文行（未按可视高度裁剪；供滚动窗口取窗） */
-function statusColumnBody(
+/** 状态列各块（完整自然高度，无强制行数上限；是否折叠由 renderStatusColumn 按窗口总高决定） */
+function statusBlocks(
   goal: GoalState | undefined,
   todos: TodoItemLike[] | undefined,
   jobs: JobInfo[] | undefined,
   width: number,
   themeId: ThemeId,
-  capGoal = STATUS_GOAL_MAX_LINES,
-  capTodo = STATUS_TODO_MAX_LINES,
-  omitDone = false,
   mode?: ModeState,
   policy?: "ask" | "never",
   preset?: string,
   permissionOptions?: readonly string[],
   presetOptions?: readonly string[],
-): { text: string; color?: (s: string) => string }[] {
-  const out: { text: string; color?: (s: string) => string }[] = [];
-  // 会话运行模式/权限/策略块（水平状态栏迁来）：放在最前，独立于 goal 是否存在
+): StatusBlock[] {
+  const blocks: StatusBlock[] = [];
+  const sep = (): StatusRow => ({
+    text: colorFor(themeId, "border")(STATUS_BLOCK_SEPARATOR.repeat(width)),
+  });
+  // Mode 块（水平状态栏迁来）：放在最前，独立于 goal 是否存在
   const modeRows = modeBlock(
     mode,
     policy,
@@ -591,130 +699,82 @@ function statusColumnBody(
     permissionOptions,
     presetOptions,
   );
-  out.push(...modeRows);
-  // Mode 块与 Goal 块之间加虚线分隔（有 Mode 且有 goal 时）
-  if (modeRows.length > 0 && goal && goal.status !== "cleared") {
-    out.push({
-      text: colorFor(themeId, "border")(STATUS_BLOCK_SEPARATOR.repeat(width)),
-    });
-  }
-  // goal 块非必需：无 goal（含 cleared）显示占位，但 todo/jobs 块独立展示（不早退）。
-  // Mode 块在最前已 push；todo/jobs 块在有数据时仍渲染（jobs 不再被无 goal 吞掉）
+  if (modeRows.length > 0)
+    blocks.push({ id: "mode", head: modeRows, items: [] });
+  // goal 块非必需；todo/jobs 块独立展示（不早退）
   if (goal && goal.status !== "cleared") {
     const g = goal.goal;
-    // 标题行：`Goal <phase>`（Goal 蓝 + phase 状态色：active/complete 绿、paused 黄、blocked 红）
-    out.push({
+    const head: StatusRow[] = [];
+    if (blocks.length > 0) head.push(sep());
+    head.push({
       text:
         colorFor(themeId, "blue")("Goal ") +
         colorFor(themeId, GOAL_PHASE_COLOR[g.phase] ?? "green")(g.phase),
     });
-    // objective 正文（可长，上限 capGoal 行；无「目标」前缀）
-    out.push(...capWrap(g.objective || "（空目标）", width, capGoal));
+    const items: StatusBlock["items"] = [
+      {
+        rows: wrapLine(g.objective || "（空目标）", Math.max(1, width)).map(
+          (text) => ({ text }),
+        ),
+        done: false,
+        active: false,
+      },
+    ];
     // blocked → blockedReason.message 黄 tone
     if (g.phase === "blocked" && g.blockedReason?.message) {
-      out.push({
-        text: "阻塞: " + g.blockedReason.message,
-        color: colorFor(themeId, "yellow"),
+      items.push({
+        rows: [
+          {
+            text: "阻塞: " + g.blockedReason.message,
+            color: colorFor(themeId, "yellow"),
+          },
+        ],
+        done: false,
+        active: false,
       });
     }
-  } else {
-    // 无 goal/todo 时直接留空（不显示占位文字，保持行稳定）
-    out.push({ text: "" });
+    blocks.push({ id: "goal", head, items });
   }
-  // todo 块标题（完成数/总数，蓝）+ 列表（每条上限 capTodo 行）：
-  // `○ ` 待办(默认空心圆) / `● ` 进行中(黄实心圆) / `✓ ` 完成(灰+删除线)
+  // todo 块：标题（完成数/总数，蓝）+ 列表（每条完整折行，不设强制行数上限）
   const list = todos ?? [];
   if (list.length > 0) {
-    // goal 块与 todo 块之间以虚线分隔（点更少的虚线，2026-09-17；窗口内板块）保留虚线
-    out.push({
-      text: colorFor(themeId, "border")(STATUS_BLOCK_SEPARATOR.repeat(width)),
-    });
+    const head: StatusRow[] = [];
+    if (blocks.length > 0) head.push(sep());
     const done = list.filter((t) => t.status === "completed").length;
-    out.push({
+    head.push({
       text: colorFor(themeId, "blue")(`Todo ${done}/${list.length}`),
     });
-    for (const t of list) {
-      // 折叠（溢出）时优先隐藏已完成任务：省略 completed 行（计数标题仍含全部）
-      if (omitDone && t.status === "completed") continue;
-      const body = t.content === "" ? "（空项）" : t.content;
-      const mark = TODO_MARKER[t.status];
-      // 正文按剩余宽度（扣掉 marker 两列）折行；续行缩进 marker 宽度与首行正文对齐
-      const rows = capWrap(body, width - 2, capTodo).map((r, i) => ({
-        text: (i === 0 ? mark : "  ") + r.text,
-      }));
-      if (t.status === "completed") {
-        // 对号（灰，无线）不被删除线覆盖；正文/续行灰+删除线
-        rows.forEach((r, i) => {
-          if (i === 0) {
-            // 首行：对号（灰，无删除线）+ 正文（灰+删除线）
-            out.push({
-              text:
-                colorFor(themeId, "gray")(TODO_MARKER.completed) +
-                renderSeg(
-                  {
-                    text: r.text.slice(TODO_MARKER.completed.length),
-                    style: { fg: "gray", strike: true },
-                  },
-                  themeId,
-                ),
-            });
-          } else {
-            out.push({
-              text: renderSeg(
-                { text: r.text, style: { fg: "gray", strike: true } },
-                themeId,
-              ),
-            });
-          }
-        });
-      } else if (t.status === "in_progress") {
-        // 换行后颜色不丢失：整项（含续行）同色；所有进行中项均为黄色
-        const color = colorFor(themeId, "yellow");
-        rows.forEach((r) => {
-          out.push({ text: r.text, color });
-        });
-      } else {
-        rows.forEach((r) => {
-          out.push({ text: r.text });
-        });
-      }
-    }
-  }
-  // jobs 块（后台任务）：只在有任务时显示；标题 `Jobs 运行中/总数`（蓝）+
-  // 每任务一行 `● `(运行中黄)/`✗ `(失败红)/`○ `(取消灰)/`✓ `(已完成：正文灰+删除线) + label
-  if (jobs && jobs.length > 0) {
-    out.push({
-      text: colorFor(themeId, "border")(STATUS_BLOCK_SEPARATOR.repeat(width)),
+    blocks.push({
+      id: "todo",
+      head,
+      items: list.map((t) => ({
+        rows: todoItemRows(t, width, themeId),
+        done: t.status === "completed",
+        active: t.status === "in_progress",
+      })),
     });
+  }
+  // jobs 块：只在有任务时显示；标题 `Jobs 运行中/总数`（蓝）+ 每任务一行
+  if (jobs && jobs.length > 0) {
+    const head: StatusRow[] = [];
+    if (blocks.length > 0) head.push(sep());
     const active = jobs.filter(
       (j) => j.status === "running" || j.status === "stopping",
     ).length;
-    out.push({
+    head.push({
       text: colorFor(themeId, "blue")(`Jobs ${active}/${jobs.length}`),
     });
-    for (const job of jobs) {
-      const mark = statusMark(themeId, job.status);
-      // 折叠（溢出）时优先隐藏已完成任务：done 行省略（计数标题仍含全部）
-      if (omitDone && mark.symbol === "✓") continue;
-      const label = job.label || job.kind || job.id || "（未命名任务）";
-      if (mark.symbol === "✓") {
-        // 已完成（默认分支，如 done）：正文灰+删除线，与 todo completed 一致
-        out.push({
-          text:
-            colorFor(themeId, "gray")("✓ ") +
-            renderSeg(
-              { text: label, style: { fg: "gray", strike: true } },
-              themeId,
-            ),
-        });
-      } else {
-        out.push({ text: mark.symbol + " " + label, color: mark.color });
-      }
-    }
+    blocks.push({
+      id: "jobs",
+      head,
+      items: jobs.map((j) => ({
+        rows: jobItemRows(j, themeId),
+        done: statusMark(themeId, j.status).symbol === "✓",
+        active: j.status === "running" || j.status === "stopping",
+      })),
+    });
   }
-  // 会话标题已随 2026-09-27 迁入左侧历史区顶部标题栏（见 buildTopRegion），
-  // 状态列不再承载标题（首行直接是 Mode 块）
-  return out;
+  return blocks;
 }
 
 /** 顶部状态列窗口起点：偏移恒在 [0, max(0, len-rows)] 内 */
@@ -744,59 +804,28 @@ export function renderStatusColumn(
 ): string[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);
-  // 状态列折叠策略：整体高度内不折叠任何内容（完整渲染）；
-  // 溢出时优先隐藏已完成任务（completed todo / done jobs），仍溢出再折叠长内容
-  const inf = Number.MAX_SAFE_INTEGER;
-  let body = statusColumnBody(
+  // 状态列折叠策略：无强制行数上限——各块完整渲染，仅当总高度超过窗口高度时
+  // 才折叠：高度按块尽量平均分配，块内按「已完成 → 靠后的未完成」优先级隐藏条目
+  const blocks = statusBlocks(
     goal,
     todos,
     jobs,
     w - 1,
     themeId,
-    inf,
-    inf,
-    false,
     mode,
     policy,
     preset,
     permissionOptions,
     presetOptions,
   );
-  if (body.length > h) {
-    const noDone = statusColumnBody(
-      goal,
-      todos,
-      jobs,
-      w - 1,
-      themeId,
-      inf,
-      inf,
-      true,
-      mode,
-      policy,
-      preset,
-      permissionOptions,
-      presetOptions,
-    );
-    body =
-      noDone.length <= h
-        ? noDone
-        : statusColumnBody(
-            goal,
-            todos,
-            jobs,
-            w - 1,
-            themeId,
-            STATUS_GOAL_MAX_LINES,
-            STATUS_TODO_MAX_LINES,
-            true,
-            mode,
-            policy,
-            preset,
-            permissionOptions,
-            presetOptions,
-          );
+  // 状态列折叠策略：无强制行数上限——从 L0 到 L3 依次尝试折叠等级，
+  // 首次放下即采用；全部等级用尽仍放不下（mode/goal 大头）→ 整列行级截断兜底
+  let body: StatusRow[] = [];
+  for (const level of [0, 1, 2, 3] as const) {
+    body = blocks.flatMap((b) => foldAt(b, level, themeId));
+    if (body.length <= h) break;
   }
+  if (body.length > h) body = capRows(body, h);
   const start = statusStartFor(body.length, scroll, h);
   const out: string[] = [];
   for (let r = 0; r < h; r++) {

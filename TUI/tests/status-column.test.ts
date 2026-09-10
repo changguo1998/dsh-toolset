@@ -1,19 +1,16 @@
 // tests/status-column.test.ts — 顶部状态列渲染单测（renderStatusColumn）
 //
-// 覆盖：goal set（`Goal <phase>` 蓝标题+phase 状态色 + objective 目标上限 5 行 +
-// blocked 黄 tone + todo 列表每条上限 3 行折叠）、无 goal/todo 占位、滚动窗口 clamp、
-// 每行定宽含右缘竖线、status-column-scroll reducer（PgUp/PgDn 经 index 转发）。
+// 覆盖：goal set（`Goal <phase>` 蓝标题+phase 状态色 + objective + blocked 黄 tone）、
+// todo/jobs 列表（无强制行数上限）、无 goal/todo 占位、总高超窗口时「折叠等级从低到高
+// 依次尝试（L0 全显 / L1 隐藏已完成 / L2 仅进行中、goal 压标题行 / L3 进行中压 1 行）」、
+// 每行定宽含右缘竖线、status-column-scroll
+// reducer（PgUp/PgDn 经 index 转发）。
 // 2026-09-07 追加 Mode 块：会话运行模式/权限/策略（原水平状态栏徽标迁入，列出全部
 // 可选项、生效项着色、其余灰）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  renderStatusColumn,
-  STATUS_GOAL_MAX_LINES,
-  STATUS_COL_EMPTY,
-  displayWidth,
-} from "../src/app/layout.ts";
+import { renderStatusColumn, displayWidth } from "../src/app/layout.ts";
 import type { GoalState, ModeState } from "../src/app/state.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import type { JobInfo, TodoItemLike } from "../src/app/adapter/dsh.ts";
@@ -53,7 +50,7 @@ test("renderStatusColumn: 无 goal/todo 直接留空，每行定宽且右缘竖�
   const rows = col(undefined, undefined, { height: 3, width: 20 });
   assert.equal(rows.length, 3, "恰 height 行");
   assert.ok(
-    !rows.join("|").includes(STATUS_COL_EMPTY),
+    rows.every((r) => r.replace(/[│|]$/, "").trim() === ""),
     "无目标/待办直接留空，不显示占位文字",
   );
   for (const r of rows) {
@@ -133,36 +130,57 @@ test("renderStatusColumn: blocked 黄 tone 显示阻塞原因", () => {
   assert.ok(rows.join("\n").includes("阻塞: 用户拒绝"), "阻塞原因");
 });
 
-test("renderStatusColumn: 目标超过上限折叠到 5 行并提示折叠数", () => {
+test("renderStatusColumn: goal 块超窗口高时按等级折叠（L2 压成标题行）", () => {
   const objective = Array.from({ length: 40 }, (_, i) => `行${i}`).join(" ");
-  const rows = col(setGoal("active", objective), [], { width: 10 });
-  const goalLines = rows.filter((r) => /行\d/.test(r) || r.includes("(+"));
-  // objective 行 + 折叠提示至多 STATUS_GOAL_MAX_LINES 行（不含 Goal 标题行）
-  assert.ok(
-    goalLines.length <= STATUS_GOAL_MAX_LINES,
-    `目标最多 ${STATUS_GOAL_MAX_LINES} 行: ${rows.join("|")}`,
-  );
-  assert.ok(
-    rows.some((r) => r.includes("(+")),
-    "折叠提示含被折叠行数",
-  );
+  // 高 8 且仅 goal 一块：L0 放不下，goal 无条目级折叠 → L2 起压成标题行（无 objective）
+  const rows = col(setGoal("active", objective), [], { width: 10, height: 8 });
+  const t = rows.join("\n");
+  assert.ok(t.includes("Goal act"), "标题保留（窄列被截断到列宽）");
+  assert.ok(!t.includes("行0"), "objective 在 L2 压标题行时隐藏");
+  // 高度充足时目标完整显示（无固定上限截断）
+  const full = col(setGoal("active", objective), [], {
+    width: 120,
+    height: 30,
+  });
+  assert.ok(full.join("|").includes("行39"), "高度充足时目标完整显示");
 });
 
-test("renderStatusColumn: 每条 todo 超过上限折叠到 3 行", () => {
+test("renderStatusColumn: todo 无固定行数上限——高度充足完整显示，溢出保首部提示", () => {
   const long = Array.from({ length: 20 }, (_, i) => `待办${i}`).join(" ");
+  // 高度充足：旧行为按 3 行截断；新实现完整显示（不设强制上限）
+  const full = col(
+    setGoal("active", "x"),
+    [{ content: long, status: "pending" }],
+    {
+      width: 12,
+      height: 20,
+    },
+  );
+  const fb = full.join("\n");
+  assert.ok(
+    fb.includes("待办19"),
+    "高度充足时单条长 todo 完整显示（无固定 3 行截断）",
+  );
+  assert.ok(!fb.includes("(+"), "高度充足时无折叠提示");
+  // 高度不足（goal 2 + todo 8 > 6）：L1 无已完成不动 → L2 仅进行中 → 待办(pending) 全折叠
   const rows = col(
     setGoal("active", "x"),
     [{ content: long, status: "pending" }],
-    { width: 12, height: 11 }, // 标题行+分隔后仍须露出折叠提示
+    {
+      width: 12,
+      height: 6,
+    },
   );
   const body = rows.join("\n");
-  // 过滤纯右缘竖线的空行：行尾竖线前的部分 trim 为空才算空行
-  const todoLines = body
-    .split("\n")
-    .filter((r) => r.replace(/[│|]$/, "").trim() !== "");
-  // 标题行 1 + 标题分隔 1 + Goal 标题 1 + 目标 1 + 块间虚线 1 + todo 计数 1 + 该条至多 3 行
-  assert.ok(todoLines.length <= 9, `条目上限内: ${todoLines.length} 行`);
-  assert.ok(body.includes("(+"), "todo 折叠提示");
+  assert.ok(
+    body.includes("项已隐"),
+    "溢出出现折叠提示（窄列下标记被列宽截断）",
+  );
+  assert.ok(body.includes("Todo 0/1"), "todo 计数标题保留");
+  assert.ok(
+    !body.includes("待办0"),
+    "L2 仅进行中：pending 待办被折叠（计数标题仍含）",
+  );
 });
 
 test("renderStatusColumn: 整体高度未溢出时内容完整显示（不折叠、不隐藏完成）", () => {
@@ -184,7 +202,7 @@ test("renderStatusColumn: 整体高度未溢出时内容完整显示（不折叠
   assert.ok(!t.includes("(+"), "未溢出时不出现折叠提示");
 });
 
-test("renderStatusColumn: 溢出时优先隐藏已完成任务（计数标题仍含）", () => {
+test("renderStatusColumn: 溢出时按折叠等级递减内容（L1 隐藏完成 → L2 仅进行中）", () => {
   const rows = col(
     setGoal("active", "目标"),
     [
@@ -193,38 +211,51 @@ test("renderStatusColumn: 溢出时优先隐藏已完成任务（计数标题仍
       { content: "待办任务 C", status: "pending" },
       { content: "待办任务 D", status: "pending" },
     ],
-    { width: 16, height: 9 }, // 标题+虚线+Goal+目标+虚线+计数+2 待办=8 行；completed 被优先隐藏
+    // L0=12>9，L1 隐藏完成=11>9 → L2 仅进行中（无 in_progress → todo 折叠）+ goal 压标题
+    // 输出：Goal active / Todo 2/4 / …(+4项已隐藏) / Jobs 块 = 7 行
+    { width: 16, height: 9 },
     [{ id: "j1", kind: "bash", label: "跑测试", status: "running" }],
   );
   const t = rows.join("\n");
-  assert.ok(t.includes("Todo 2/4"), "计数标题仍含完成数（隐藏的是行不是计数）");
-  assert.ok(!t.includes("完成的任务"), "已完成任务行被优先隐藏");
   assert.ok(
-    t.includes("待办任务 C") && t.includes("待办任务 D"),
-    "未完成任务保留",
+    t.includes("Todo 2/4"),
+    "计数标题仍含完成数（隐藏的是条目不是计数）",
   );
+  assert.ok(!t.includes("完成的任务"), "L1 已隐藏已完成任务");
+  assert.ok(!t.includes("待办任务 C"), "L2 仅进行中：pending 待办也被折叠");
+  assert.ok(t.includes("项已隐藏"), "隐藏条目有提示");
+  assert.ok(t.includes("跑测试"), "jobs 块保留（无折叠语义）");
+  assert.ok(t.includes("Goal active"), "goal 压成标题行");
+  assert.ok(!t.includes("目标"), "goal objective 随 L2 标题行折叠");
 });
 
-test("renderStatusColumn: 滚动窗口 clamp——超长内容可下滚看更晚条目", () => {
+test("renderStatusColumn: 总高超窗口时折叠而非滚动——隐藏条目滚动不可找回", () => {
   const todos: TodoItemLike[] = Array.from({ length: 10 }, (_, i) => ({
     content: `任务${i}`,
     status: "pending",
   }));
-  // 高 5 行（Goal 标题/目标/块间虚线/计数 + 1 条任务）：首屏看到顶部（任务0 开头），
-  // 滚动后看到任务0 消失、任务9 出现
-  const top = col(setGoal("active", "目标"), todos, {
-    height: 7,
+  // 高度充足（goal 2 + todo 12 = 14）：全部显示
+  const full = col(setGoal("active", "目标"), todos, {
+    height: 14,
     width: 20,
     scroll: 0,
   });
-  assert.ok(top.join("|").includes("任务0"), "首屏含最早任务");
-  const scrolled = col(setGoal("active", "目标"), todos, {
-    height: 5,
+  const f = full.join("|");
+  assert.ok(f.includes("任务0") && f.includes("任务9"), "高度充足全部显示");
+  // 高度不足（6）：折叠到窗口高，靠后条目隐藏；滚动 99 也找不回
+  const collapsed = col(setGoal("active", "目标"), todos, {
+    height: 6,
     width: 20,
     scroll: 99,
   });
-  assert.ok(!scrolled.join("|").includes("任务0"), "下滚后最早任务移出");
-  assert.ok(scrolled.join("|").includes("任务9"), "下滚后显示最晚任务");
+  const c = collapsed.join("\n");
+  assert.ok(c.includes("项已隐藏"), "折叠提示出现");
+  assert.ok(
+    !c.includes("任务0"),
+    "L2 仅进行中：pending 待办全折叠（计数标题仍含）",
+  );
+  assert.ok(!c.includes("任务9"), "折叠条目滚动不可找回");
+  assert.ok(c.includes("Todo 0/10"), "计数标题保留 0/10");
 });
 
 test("status-column-scroll reducer: delta 累加且 clamp 非负", () => {
