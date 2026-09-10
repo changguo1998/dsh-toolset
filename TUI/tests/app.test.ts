@@ -2464,6 +2464,26 @@ test("usage 事件 → 状态栏显示 ctx/cache（替换占位 —）", () => {
   );
 });
 
+test("usage 事件带 contextWindow → 状态栏 ctx 追加占用百分比", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({
+    type: "usage",
+    sessionId: "s1",
+    input: 12000,
+    output: 900,
+    cacheRead: 24000,
+    contextWindow: 120000,
+  });
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  // total=36000，窗口 120000 → 36k(30%)；无窗口用例保持仅绝对大小（既有 ctx 36k 断言）
+  assert.ok(
+    plain.some((l) => l.includes("ctx 36k(30%)")),
+    "状态栏显示 ctx 36k(30%)",
+  );
+});
+
 test("/goal：不再打开面板，通知右侧信息栏查看 goal/todo", () => {
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/goal");

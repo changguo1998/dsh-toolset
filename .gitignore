@@ -1,3 +1,4 @@
 .pi-glla
 node_modules
 TUI/dist/
+.worktree

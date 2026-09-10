@@ -903,7 +903,6 @@ function buildTopRegion(
   const activityFocused = focusActive && panel === "activity";
   const fc = focusFrameColor(state.themeId);
   const cf = (s: string): string => colorFor(state.themeId, fc)(s);
-  const cg = (s: string): string => colorFor(state.themeId, "gray")(s);
   const blank = (n: number): string => " ".repeat(Math.max(0, n));
   // 活动区分隔线：焦点为历史/流输出时亮色框，状态焦点/模态回边框色（bright[0]）
   const sepFocused = topHistory || activityFocused;
@@ -1023,11 +1022,9 @@ function buildTopRegion(
     } else {
       const cell = statusCells[statusFocused ? rc - 1 : rc];
       const rawBody = truncateToWidth(cell?.slice(0, -1) ?? "", statusBodyW);
-      // 已含内嵌色（Mode 块/todo 标题/进行中项等自带 ANSI）的行不再整行外包灰，
-      // 否则无色片段（如 Mode 属性名）会被 cg 蒙灰；无 ANSI 的纯内容行仍按约定上灰
-      statusBody = rawBody.includes("\x1b")
-        ? rawBody + blank(statusBodyW - displayWidth(rawBody))
-        : cg(rawBody + blank(statusBodyW - displayWidth(rawBody)));
+      // 已含内嵌色（Mode 块/todo 标题/进行中项等自带 ANSI）的行保持原色；
+      // 无 ANSI 的纯内容行用正常前景色（不再上灰）
+      statusBody = rawBody + blank(statusBodyW - displayWidth(rawBody));
     }
     let content: string;
     if (rc < diaStart) {
@@ -1035,10 +1032,15 @@ function buildTopRegion(
       //（极矮终端 titleRows=1 时仅标题行；titleRows=0 时整栏省略）
       if (rc === 0) {
         const rawTitle = (title ?? "").trim();
-        content = colorFor(
-          state.themeId,
-          "border",
-        )(truncateToWidth(rawTitle === "" ? "<title>" : rawTitle, contentW));
+        // 会话标题用正常前景色；空标题 <title> 占位保持边框色
+        const titleText = truncateToWidth(
+          rawTitle === "" ? "<title>" : rawTitle,
+          contentW,
+        );
+        content =
+          rawTitle === ""
+            ? colorFor(state.themeId, "border")(titleText)
+            : titleText;
       } else {
         content = colorFor(
           state.themeId,
@@ -1196,13 +1198,22 @@ function wrapBufferLines(
           ? colorFor(themeId, "brightRed")("┃")
           : "";
       const maxBody = userMaxBodyWidth(width, gutter);
-      const rows = wrapLines(line.text.split("\n"), maxBody).map((r) =>
-        r === "" ? "" : r + bar,
-      );
-      const bodyWidth = Math.max(1, ...rows.map((r) => displayWidth(r)));
+      const wrapped = wrapLines(line.text.split("\n"), maxBody);
+      // 竖线固定在块右缘（紧挨右缘边框），不随行尾：正文先按最长行宽补齐再挂竖线
+      const contentWidth = Math.max(1, ...wrapped.map((r) => displayWidth(r)));
+      const bodyWidth = contentWidth + (bar ? 1 : 0);
       const pad = Math.max(0, width - bodyWidth);
-      for (const text of rows)
-        dialogue.push({ text, kind: "user", indent: pad });
+      for (const r of wrapped)
+        dialogue.push({
+          text:
+            r === ""
+              ? ""
+              : r +
+                " ".repeat(Math.max(0, contentWidth - displayWidth(r))) +
+                bar,
+          kind: "user",
+          indent: pad,
+        });
       continue;
     }
     if (line.kind === "assistant") {
@@ -1218,12 +1229,9 @@ function wrapBufferLines(
           inFence = true;
           const lang = fence[2] ?? "";
           if (lang) {
-            // 代码块语言标签行：灰斜体（fence 开关行本身不显示）
+            // 代码块语言标签行：斜体（正常前景色；fence 开关行本身不显示）
             target.push({
-              text: renderSeg(
-                { text: lang, style: { fg: "gray", italic: true } },
-                themeId,
-              ),
+              text: renderSeg({ text: lang, style: { italic: true } }, themeId),
               kind: line.kind,
               indent: 0,
             });
@@ -1341,7 +1349,7 @@ export function modelLabel(sel: {
   return `${sel.provider}/${sel.model}${sel.reasoningEffort ? ":" + sel.reasoningEffort : ""}`;
 }
 
-/** provider 紫，模型名青，:后缀 前景色；无 "/" 时整体青（占位 "—" 保持无色）。
+/** provider 紫，模型名青，:后缀 正常前景色；无 "/" 时整体青（占位 "—" 保持无色）。
  *  状态栏段配色约定：相邻段不同色、不用红/黄/绿状态色、不用亮色系（bright*）。 */
 function colorModel(themeId: ThemeId, s: string): string {
   const slash = s.indexOf("/");
@@ -1353,7 +1361,7 @@ function colorModel(themeId: ThemeId, s: string): string {
   return (
     colorFor(themeId, "magenta")(s.slice(0, slash)) +
     colorFor(themeId, "cyan")("/" + model) +
-    (effort ? colorFor(themeId, "border")(effort) : "")
+    (effort ? effort : "")
   );
 }
 /** notice/tool 行 tone → 着色名（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿） */
@@ -1413,11 +1421,21 @@ function usageStatus(u: {
   input: number;
   output: number;
   cacheRead: number;
+  contextWindow?: number;
 }): { ctx: string; cache: string } | undefined {
   const total = u.input + u.cacheRead;
   if (total <= 0) return undefined;
   const pct = Math.round((u.cacheRead / total) * 100);
-  return { ctx: "ctx " + formatTokens(total), cache: "cache " + pct + "%" };
+  // 上下文占用百分比 = total / 模型上下文窗口（窗口未知/未披露时省略，保持仅绝对大小）
+  const win = u.contextWindow;
+  const ctxPct =
+    win && win > 0
+      ? `(${Math.min(100, Math.round((total / win) * 100))}%)`
+      : "";
+  return {
+    ctx: "ctx " + formatTokens(total) + ctxPct,
+    cache: "cache " + pct + "%",
+  };
 }
 
 /** 段文本按预算截断：过长保留开头 + 省略号（w<=3 视作不截断，交给换行兜底） */
@@ -1488,7 +1506,7 @@ export function renderStatusLine(
     g.reduce((acc, s, i) => acc + (i > 0 ? 1 : 0) + displayWidth(s.text), 0);
   // 各组完整版
   // 段配色：time 默认 / git 洋红 / cwd 蓝 / title 青 / provider 紫 / model 青
-  //          / 后缀 灰 / ctx 蓝 / cache 默认（会话模式/策略/preset/jobs 徽标已于
+  //          / 后缀 正常前景 / ctx 蓝 / cache 默认（会话模式/策略/preset/jobs 徽标已于
   //          2026-09-07 全部移入顶部状态列 Mode 块，见 statusColumnBody/modeBlock）
   const magenta = (s: string) => colorFor(themeId, "magenta")(s);
   const envFull: Seg[] = [
@@ -1769,17 +1787,10 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     );
   }
 
-  // 按键提示区（独立区域，与输入区之间不画横线；前景色；窄终端按显示宽度截断）。
+  // 按键提示区（独立区域，与输入区之间不画横线；正常前景色；窄终端按显示宽度截断）。
   // 末尾追加当前面板焦点标签（Tab 切换），标识可滚动的选中面板
   const hintLines: RenderLine[] = normalInput
-    ? [
-        {
-          text: colorFor(
-            state.themeId,
-            "border",
-          )(truncateToWidth(HINT_LINE, fullWidth)),
-        },
-      ]
+    ? [{ text: truncateToWidth(HINT_LINE, fullWidth) }]
     : [];
 
   // 分隔行（边框统一边框色 bright[0]：先纯文本截断再着色）。状态区上方与其余横线同为 `─`；

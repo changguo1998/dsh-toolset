@@ -22,15 +22,9 @@
 | 对话折叠占位 `… 共 N 组更早内容`（DIALOGUE_MORE/TOOL_MORE，走 NOTICE_TONE_COLOR.log） | layout.ts |
 | todo/goal 完成 `✓` 与删除线正文 | layout.ts（TODO_MARKER/goal ✓） |
 | 空标题 `<title>` 占位 | layout.ts |
-| 状态列空占位 STATUS_COL_EMPTY | layout.ts |
 | Mode 块未生效的属性值 | layout.ts |
-| 代码块语言标签（灰斜体） | layout.ts / markdown.ts |
-| effort 显示 | layout.ts |
-| 按键提示区 HINT_LINE | layout.ts |
-| 状态列正文纯内容行（cg 整行上灰；含内嵌色标题行跳过） | layout.ts |
 | JobsPanel 次要描述：（无后台任务）/ 操作提示行 | components/JobsPanel.ts |
-| markdown：checkbox `[x]/[ ]`、blockquote `>`、未知行前缀、链接旁的说明 | markdown.ts |
-| 会话标题后缀（model 名 `/后缀`） | layout.ts |
+| notice `log` tone（进度/状态） | layout.ts NOTICE_TONE_COLOR |
 
 ### 边框（border = dark ansi[7] / light bright[0]，= 正文前景）— 全部正确
 
@@ -59,6 +53,8 @@
 
 对话/活动区普通文本、输入区 prompt、cache 徽标等未显式着色文字走 Screen 帧首铺设的基底前景。
 dark 下基底前景=#D8D8D8 与边框（border=ansi[7]）同色——用户指定正文/边框同取 ansi[7]，方案源文件 foreground 亦为此值；TUI 内嵌跟随源文件取值，不作推导覆盖。
+
+**2026-09-28 迁移（gray → 正常前景色）**：以下此前标注为次要（gray）的内容改为正常前景色（走基底前景，不带灰色 SGR）——effort 后缀（model 段 `:effort`）、按键提示区 HINT_LINE、状态列正文纯内容行（goal objective / todo 待办等无内嵌色行，去掉 `cg` 整行灰包裹；含内嵌色的行本就保持原色）、会话标题（非 `<title>` 占位，占位保持边框色）、markdown 渲染（图片占位、任务列表 `[x]/[ ]` 前缀与正文、引用 `>` 前缀与正文、列表前缀、代码块语言标签——均去 `fg:gray`，保留斜体/删除线等其余样式）。todo/jobs 已完成项、Mode 未生效值、notice log、折叠占位等语义灰保持不变。
 
 ## 帧层实测（rows=24, cols=80）
 
@@ -94,8 +90,8 @@ dark 下基底前景=#D8D8D8 与边框（border=ansi[7]）同色——用户指�
 
 | 文件 | 出口数 | 核对结论 |
 | --- | --- | --- |
-| src/app/layout.ts | 71 | 三语义逐点核过：gray×13=次要、border×14=边框、fc×N=强调；彩色（blue/yellow/magenta/cyan/green/brightMagenta/brightRed/brightBlue/red）为生效/状态语义，均走槽位 |
-| src/app/layout/markdown.ts | 25 | gray=次要（语言标签/checkbox/引用/前缀）、border=水平线、blue=链接、brightCyan=标题强调（HEADING_FG 为槽位非硬编码）、CODE_BG=背景 hex（已知项）；hexSgr 收尾机制与 screen 一致 |
+| src/app/layout.ts | 71 | 三语义逐点核过：gray×8=次要（折叠占位/todo完成/jobs完成/`<title>`占位/Mode未生效值/notice log/JobsPanel）、border×14=边框、fc×N=强调；effort/HINT/状态列纯内容行/会话标题/代码语言标签已迁正常前景色；彩色（blue/yellow/magenta/cyan/green/brightMagenta/brightRed/brightBlue/red）为生效/状态语义，均走槽位 |
+| src/app/layout/markdown.ts | 25 | 已无 gray（语言标签/checkbox/引用/图片占位/列表前缀均迁正常前景色，保留斜体/删除线）、border=水平线、blue=链接、brightCyan=标题强调（HEADING_FG 为槽位非硬编码）、CODE_BG=背景 hex（已知项）；hexSgr 收尾机制与 screen 一致 |
 | src/renderer/screen.ts | 13 | 基底前景/背景铺设 + style→SGR（38;2/48;2），每段收尾复位主题基底；hexSgr 硬编码仅注释说明 |
 | src/renderer/theme.ts | 8 | 定义层（THEMES/ansiNameToHex/colorFor/hexSgr） |
 | src/app/components/JobsPanel.ts | 6 | gray=次要描述、yellow/red/cyan/green=任务状态 |

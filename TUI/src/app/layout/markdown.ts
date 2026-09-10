@@ -131,11 +131,11 @@ export function parseInlineMarkdown(
     } else if (underline) {
       segs.push({ text: fullText.slice(2, -2), style: { underline: true } });
     } else if (img) {
-      // 图片占位：终端不显示图片，显示 [alt] 与 URL（灰斜体）
+      // 图片占位：终端不显示图片，显示 [alt] 与 URL（斜体，正常前景色）
       const url = /\(([^)]*)\)/.exec(fullText)?.[1] ?? "";
       segs.push({
         text: `[${bracketText(fullText)}] ${url}`,
-        style: { fg: "gray", italic: true },
+        style: { italic: true },
       });
     } else if (link) {
       // 链接：只显示可见文本，蓝色下划线（无点击交互）
@@ -330,21 +330,21 @@ export function wrapAssistantLine(
       themeId,
     );
   }
-  // 2. 任务列表：ASCII [x]/[ ]，已完成绿色加粗、未完成灰色
+  // 2. 任务列表：ASCII [x]/[ ]，已完成正文删除线、未完成普通（均正常前景色）
   const task = TASK_RE.exec(text);
   if (task) {
     const checked = task[1]!.toLowerCase() === "x";
     const body = parseInlineMarkdown(task[2]!, themeId);
     const segs: InlineSegment[] = checked
       ? [
-          // 已完成：勾选前缀灰色可辨识，正文灰色删除线
-          { text: "[x] ", style: { fg: "gray" } },
+          // 已完成：勾选前缀 + 正文删除线（正常前景色）
+          { text: "[x] " },
           ...body.map((s) => ({
             text: s.text,
-            style: mergeStyle({ fg: "gray", strike: true }, s.style ?? {}),
+            style: mergeStyle({ strike: true }, s.style ?? {}),
           })),
         ]
-      : [{ text: "[ ] ", style: { fg: "gray" } }, ...body];
+      : [{ text: "[ ] " }, ...body];
     return wrapSegments(segs, width, themeId);
   }
   // 3. 标题：去掉 #，整行 bold + 醒目青；行内 token（如 **粗**）叠加保留
@@ -356,29 +356,29 @@ export function wrapAssistantLine(
     }));
     return wrapSegments(segs, width, themeId);
   }
-  // 4. 引用：竖线前缀 + 整体灰斜体
+  // 4. 引用：竖线前缀 + 整体斜体（正常前景色）
   const quote = QUOTE_RE.exec(text);
   if (quote) {
     // 单层引用：隐藏正文开头残留的 >（本次不做嵌套格式）
     const body = quote[1]!.replace(/^[>\s]+/, "").trim();
     if (body === "") return [""];
     const segs: InlineSegment[] = [
-      { text: "> ", style: { fg: "gray" } },
+      { text: "> " },
       ...parseInlineMarkdown(body, themeId).map((s) => ({
         text: s.text,
-        style: mergeStyle({ fg: "gray" }, s.style ?? {}),
+        style: s.style ?? {},
       })),
     ];
     return wrapSegments(segs, width, themeId);
   }
-  // 5. 普通列表项：前缀灰色，内容走行内解析
+  // 5. 普通列表项：前缀正常前景色，内容走行内解析
   const list = LIST_RE.exec(text);
   if (list) {
     // 无序列表 (-/*/+) 统一显示为明显的 •；有序列表保留数字前缀
     const bullet = /^[ \t]*[-*+][ \t]+/.test(text);
     const prefix = bullet ? "• " : text.slice(0, text.length - list[1]!.length);
     const segs: InlineSegment[] = [
-      { text: prefix, style: { fg: "gray" } },
+      { text: prefix },
       ...parseInlineMarkdown(list[1]!, themeId),
     ];
     return wrapSegments(segs, width, themeId);
