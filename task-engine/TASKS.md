@@ -10,11 +10,13 @@
 - [ ] step 级 `accepted`/`next` 裁决字段（#5）
 - [ ] 语义蕴含校验（门禁第二道，设计文档 §17.2；当前遇 semantic 即 fail-closed 打回）
 
-## 待办：接口对齐（DSH-CTX-API 0.1.2-rc.1）
+## 待办：接口对齐（DSH-CTX-API 0.1.5-rc.2）
 
-- [ ] 切 SessionSeq/SessionLogOffset 双序模型（0.1.1-rc.2 的 seq = log length 契约为破坏性变更）
-- [ ] turn/end reason 扩展（aborted/blocked/error）对齐门禁与中止路径
-- [ ] tool/result.meta 透传
+> 已核实：本插件不订阅 session 事件（无 `ctx.on` 消费；事件更名/词汇增量不适用），交互面仅 `ctx.approval`（turn-enclosed）+ `session.append` + `ctx.subagents`。
+
+- [ ] turn/end reason 扩展（aborted/blocked/error）：核对 approval 链 fail-closed 与中止路径在宿主新 reason 下的行为
+- [ ] tool/result.meta：仅当需要透传/渲染工具私有展示载荷时处理（当前不消费 session 事件则 N/A）
+- [ ] SessionSeq/SessionLogOffset：仅当 `session.append` 偏移语义影响续体恢复时对齐（当前内部自管事件溯源，N/A）
 
 ## 验收
 

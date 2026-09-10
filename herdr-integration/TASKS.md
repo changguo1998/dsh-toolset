@@ -9,9 +9,11 @@
 - [ ] profile 挂载验证（`link:` 依赖，勿用 `file:`）
 - [ ] 端到端人工接入 herdr 面板复核（`scripts/verify-herdr.mjs`：状态上报 + blocked 桥）
 
-## 待办：接口对齐（DSH-CTX-API 0.1.2-rc.1）
+## 待办：接口对齐（DSH-CTX-API 0.1.5-rc.2）
 
-- [ ] 补充 turn/end blocked（blocked reason）作为 blocked 桥信号源（现仅 ask-user 阻塞）
+> 已核实：订阅面为 agent/status + approval/request + user-questions/request，不订阅 session 事件；0.1.5 事件更名/词汇增量不适用。
+
+- [ ] 补充 turn/end blocked（blocked reason）作为 blocked 桥信号源——需新增 `session/event` 订阅（现仅 approval/ask-user 阻塞）
 
 ## 验收
 

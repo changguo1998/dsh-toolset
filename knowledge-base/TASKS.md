@@ -8,13 +8,14 @@
 - [ ] 真实 DSH profile 挂载（`dsh.bundle` + `cordis.patch.yml`，`link:` 依赖，勿用 `file:`）
 - [ ] `ctx_knowledge` 服务注册到宿主 + 人工确认（search/put/touch/evict 在真实会话验证）
 
-## 待办：接口对齐（DSH-CTX-API 0.1.2-rc.1）
+## 待办：接口对齐（DSH-CTX-API 0.1.5-rc.2）
 
-- [ ] SessionSeq/SessionLogOffset 拆分（事件摄取偏移）
-- [ ] SessionEvent.ignorable 跳过未知事件类型
-- [ ] compaction/summary.shadowedRange 摄取
-- [ ] 事件词汇表 48→52 同步（新增 model/selection、session-log-deepseek/delivery-accepted、subagent/model-selection-policy；agent-preset/selected 连字符名修正）
-- [ ] tool/result.meta 入库
+> 已核实：唯一真实摄入 session 事件的插件（`ctx.on('session/event')` + 白名单过滤）。白名单（tool/result、feedback/record、plan/mode、goal/change、todo/write、approval/decided、compaction/summary）不含任何 0.1.5 更名事件，事件更名/词汇增量不适用。
+
+- [ ] tool/result.meta：白名单含 tool/result，摄取时保留/抽取 meta 载荷
+- [ ] compaction/summary 新字段：shadowedRange{start,end} 与 sourceCommandId 摄取（白名单含 compaction/summary）
+- [ ] SessionEvent.ignorable：确认未知类型可安全跳过（当前白名单已过滤，仅需验证不丢数据）
+- [ ] SessionSeq/SessionLogOffset：仅当按日志偏移持久化/去重时对齐（当前按 session id 键控，N/A）
 
 ## 验收
 
