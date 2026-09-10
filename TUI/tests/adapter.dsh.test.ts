@@ -30,6 +30,10 @@ import {
   type JobsLike,
 } from "../src/app/adapter/dsh.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
+import type {
+  StreamChunk,
+  AssistantStreamRecord,
+} from "../src/app/adapter/types.ts";
 
 /** 可编程 fake 宿主 */
 class FakeRuntime implements DshRuntime {
@@ -135,16 +139,21 @@ function chunkEvent(
   type: "text-delta" | "reasoning-delta",
   text: string,
   index = 0,
-): SessionEvent<"assistant/chunk"> {
+): SessionEvent<"assistant/attempt"> {
+  const time = Date.now();
   return {
-    type: "assistant/chunk",
+    type: "assistant/attempt",
     seq: 1,
-    time: Date.now(),
-    data: { turn: 1, step: 1, chunk: { type, index, text } },
+    time,
+    data: {
+      turn: 1,
+      step: 1,
+      stream: [{ type: "chunk", time, chunk: { type, index, text } }],
+    },
   };
 }
 
-test("assistant/chunk text-delta 与 reasoning-delta 分别归一化为 stream/thinking 事件", () => {
+test("assistant/attempt text-delta 与 reasoning-delta 分别归一化为 stream/thinking 事件", () => {
   const t = makeAdapter();
   t.runtime.fire(
     "session/event",
@@ -168,20 +177,26 @@ test("assistant/chunk text-delta 与 reasoning-delta 分别归一化为 stream/t
   assert.equal((t.events[2] as { text: string }).text, "世界");
 });
 
-test("assistant/chunk block-end(携带完整 text)→ thinking/stream 事件(真机型)", () => {
+test("assistant/attempt block-end(携带完整 text)→ thinking/stream 事件(真机型)", () => {
   const t = makeAdapter();
   // 真机实测 payload：deepseek adapter 以 block-end 的 block.text 携带完整块文本送达
   t.runtime.fire(
     "session/event",
     { id: "s1" },
     {
-      type: "assistant/chunk",
+      type: "assistant/attempt",
       seq: 1,
       time: Date.now(),
       data: {
         turn: 1,
         step: 1,
-        chunk: { type: "block-start", index: 0, blockType: "reasoning" },
+        stream: [
+          {
+            type: "chunk",
+            time: Date.now(),
+            chunk: { type: "block-start", index: 0, blockType: "reasoning" },
+          },
+        ],
       },
     },
   );
@@ -189,18 +204,24 @@ test("assistant/chunk block-end(携带完整 text)→ thinking/stream 事件(真
     "session/event",
     { id: "s1" },
     {
-      type: "assistant/chunk",
+      type: "assistant/attempt",
       seq: 2,
       time: Date.now(),
       data: {
         turn: 1,
         step: 1,
-        chunk: {
-          type: "block-end",
-          index: 0,
-          blockType: "reasoning",
-          block: { type: "reasoning", text: "The user asks 1+1?" },
-        },
+        stream: [
+          {
+            type: "chunk",
+            time: Date.now(),
+            chunk: {
+              type: "block-end",
+              index: 0,
+              blockType: "reasoning",
+              block: { type: "reasoning", text: "The user asks 1+1?" },
+            },
+          },
+        ],
       },
     },
   );
@@ -208,18 +229,24 @@ test("assistant/chunk block-end(携带完整 text)→ thinking/stream 事件(真
     "session/event",
     { id: "s1" },
     {
-      type: "assistant/chunk",
+      type: "assistant/attempt",
       seq: 3,
       time: Date.now(),
       data: {
         turn: 1,
         step: 1,
-        chunk: {
-          type: "block-end",
-          index: 1,
-          blockType: "text",
-          block: { type: "text", text: "1+1=2。" },
-        },
+        stream: [
+          {
+            type: "chunk",
+            time: Date.now(),
+            chunk: {
+              type: "block-end",
+              index: 1,
+              blockType: "text",
+              block: { type: "text", text: "1+1=2。" },
+            },
+          },
+        ],
       },
     },
   );
@@ -245,45 +272,67 @@ function joinThinking(events: DshEvent[]): string {
 }
 
 function rawChunk(
-  chunk: SessionEvent<"assistant/chunk">["data"]["chunk"],
+  chunk: StreamChunk,
   turn = 1,
   step = 1,
-): SessionEvent<"assistant/chunk"> {
+): SessionEvent<"assistant/attempt"> {
+  const time = Date.now();
   return {
-    type: "assistant/chunk",
+    type: "assistant/attempt",
     seq: 1,
-    time: Date.now(),
-    data: { turn, step, chunk },
+    time,
+    data: { turn, step, stream: [{ type: "chunk", time, chunk }] },
   };
 }
 
-test("assistant/chunk delta+block-end 去重：完整正文不重复输出(真机同时送达两种载荷)", () => {
+/** 构造单事件 attempt（真实 v0.1.5 载荷：一个事件携带整个流记录数组） */
+function attempt(
+  stream: AssistantStreamRecord[],
+  turn = 1,
+  step = 1,
+): SessionEvent<"assistant/attempt"> {
+  return {
+    type: "assistant/attempt",
+    seq: 1,
+    time: Date.now(),
+    data: { turn, step, stream },
+  };
+}
+
+test("assistant/attempt delta+block-end 去重：单事件数组内完整正文不重复输出(真机新载荷)", () => {
   const t = makeAdapter();
+  // 真实 v0.1.5 载荷：一个 attempt 事件携带整个 stream 数组（delta 与 block-end 同批）
   t.runtime.fire(
     "session/event",
     { id: "s1" },
-    rawChunk({ type: "text-delta", index: 0, text: "Hel" }),
-  );
-  t.runtime.fire(
-    "session/event",
-    { id: "s1" },
-    rawChunk({ type: "text-delta", index: 0, text: "lo" }),
-  );
-  t.runtime.fire(
-    "session/event",
-    { id: "s1" },
-    rawChunk({
-      type: "block-end",
-      index: 0,
-      blockType: "text",
-      block: { type: "text", text: "Hello" },
-    }),
+    attempt([
+      {
+        type: "chunk",
+        time: 1,
+        chunk: { type: "text-delta", index: 0, text: "Hel" },
+      },
+      {
+        type: "chunk",
+        time: 2,
+        chunk: { type: "text-delta", index: 0, text: "lo" },
+      },
+      {
+        type: "chunk",
+        time: 3,
+        chunk: {
+          type: "block-end",
+          index: 0,
+          blockType: "text",
+          block: { type: "text", text: "Hello" },
+        },
+      },
+    ]),
   );
   // 总输出恰为 "Hello"，而非 delta 累计 + block-end 完整文本两遍
   assert.equal(joinStreams(t.events), "Hello");
 });
 
-test("assistant/chunk 部分 delta + 更长的 block-end → 仅补发缺失后缀", () => {
+test("assistant/attempt 部分 delta + 更长的 block-end → 仅补发缺失后缀", () => {
   const t = makeAdapter();
   t.runtime.fire(
     "session/event",
@@ -309,7 +358,7 @@ test("assistant/chunk 部分 delta + 更长的 block-end → 仅补发缺失后�
   );
 });
 
-test("assistant/chunk 纯 block-end(无 delta)→ 输出完整文本", () => {
+test("assistant/attempt 纯 block-end(无 delta)→ 输出完整文本", () => {
   const t = makeAdapter();
   t.runtime.fire(
     "session/event",
@@ -322,6 +371,60 @@ test("assistant/chunk 纯 block-end(无 delta)→ 输出完整文本", () => {
     }),
   );
   assert.equal(joinStreams(t.events), "完整文本");
+});
+
+test("assistant/attempt 展开：text/reasoning/tool-call-chunks 打包与 chunk 原始共置", () => {
+  const t = makeAdapter();
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    attempt([
+      {
+        type: "reasoning-chunks",
+        time0: 0,
+        index: 0,
+        dt: [0, 1],
+        texts: ["思", "考"],
+      },
+      {
+        type: "text-chunks",
+        time0: 0,
+        index: 0,
+        dt: [0, 1],
+        texts: ["Hel", "lo"],
+      },
+      {
+        type: "tool-call-chunks",
+        time0: 0,
+        index: 0,
+        dt: [0, 1],
+        id: "c1",
+        name: "read",
+        args: ['{"path":', '"a.ts"}'],
+      },
+      {
+        type: "chunk",
+        time: 5,
+        chunk: {
+          type: "block-end",
+          index: 0,
+          blockType: "text",
+          block: { type: "text", text: "Hello" },
+        },
+      },
+    ]),
+  );
+  // reasoning-chunks → 逐成员 thinking；text-chunks → 逐成员 stream
+  assert.deepEqual(
+    t.events
+      .filter((e) => e.type === "thinking" || e.type === "stream")
+      .map((e) => (e as { text: string }).text),
+    ["思", "考", "Hel", "lo"],
+  );
+  // tool-call-chunks 旧链路无消费分支（工具走 tool/call 事件），容忍而不报错
+  assert.equal(t.events.filter((e) => e.type === "tool-call").length, 0);
+  // text-chunks 已铺满正文 → 尾部原始 block-end 补发为空（不重复）
+  assert.equal(joinStreams(t.events), "Hello");
 });
 
 // --- assistant/message：非流式 provider 的完整回复补发（含去重） ---
@@ -446,7 +549,7 @@ test("assistant/message 不跨 turn 复用：同 turn/step 键在 turn-end 后�
   assert.equal(joinStreams(t.events), "AB");
 });
 
-test("assistant/chunk reasoning delta+block-end 去重：思考流同样不重复", () => {
+test("assistant/attempt reasoning delta+block-end 去重：思考流同样不重复", () => {
   const t = makeAdapter();
   t.runtime.fire(
     "session/event",
@@ -466,7 +569,7 @@ test("assistant/chunk reasoning delta+block-end 去重：思考流同样不重�
   assert.equal(joinThinking(t.events), "thinkingx");
 });
 
-test("assistant/chunk 复用 index 的 block 不继承上轮累计", () => {
+test("assistant/attempt 复用 index 的 block 不继承上轮累计", () => {
   const t = makeAdapter();
   // turn 1：delta + block-end 完整文本
   t.runtime.fire(
@@ -2130,13 +2233,23 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
 // P2 阶段 A：seq 守卫 + 9 事件归一化 + reducer 按 sessionId 隔离
 // ---------------------------------------------------------------------------
 
-/** 构造带显式 seq 的 assistant/chunk 事件（seq 守卫用例用 fireRaw 注入） */
-function chunkAt(seq: number, text: string): SessionEvent<"assistant/chunk"> {
+/** 构造带显式 seq 的 assistant/attempt 事件（seq 守卫用例用 fireRaw 注入） */
+function chunkAt(seq: number, text: string): SessionEvent<"assistant/attempt"> {
   return {
-    type: "assistant/chunk",
+    type: "assistant/attempt",
     seq,
     time: 1,
-    data: { turn: 1, step: 1, chunk: { type: "text-delta", index: 0, text } },
+    data: {
+      turn: 1,
+      step: 1,
+      stream: [
+        {
+          type: "chunk",
+          time: 1,
+          chunk: { type: "text-delta", index: 0, text },
+        },
+      ],
+    },
   };
 }
 
@@ -2566,13 +2679,13 @@ test("P3 新事件归一化：workflow/command/code-dispatch/hook/schedule/prune
     text: "任务不存在",
     ok: false,
   });
-  // code-dispatch（isError 结算失败）
-  fire("tool/code-dispatch-start", {
+  // ptc-dispatch（isError 结算失败）
+  fire("tool/ptc-dispatch-start", {
     subCallId: "c1:code:0",
     name: "read",
     arguments: '{"path":"a.ts"}',
   });
-  fire("tool/code-dispatch", {
+  fire("tool/ptc-dispatch", {
     subCallId: "c1:code:0",
     name: "read",
     isError: true,

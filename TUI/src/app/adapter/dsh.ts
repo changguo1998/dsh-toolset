@@ -11,7 +11,8 @@
 //
 // DSH 原生信号 → app 归一化事件的映射（阶段 2 已在 createRealDshAdapter 内实现）：
 //   runtime.on('session/event', (session, e))  → 按 e.type 归一化：
-//     - 'assistant/chunk' text-delta → { type: 'stream' }；reasoning-delta / reasoning block → { type: 'thinking' }
+//     - 'assistant/attempt'（一次性 stream 数组）展开 text-delta → { type: 'stream' }；
+//       reasoning-delta / reasoning block → { type: 'thinking' }
 //       （正文与思考分别归一化，思考仅作为临时 UI 流展示）
 //     - 'turn/start' 忽略；'turn/end' → { type: 'turn-end' }
 //   runtime.on('agent/status', ({agent, status})) → { type: 'agent-status' }
@@ -36,6 +37,7 @@ import type {
   SessionModelSelectionRef,
   ModelCatalog,
   StreamChunk,
+  AssistantStreamRecord,
   ApprovalRequest,
   ApprovalOutcome,
   QuestionAnswer,
@@ -595,6 +597,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     }
     const data = raw.data as {
       chunk?: StreamChunk;
+      stream?: AssistantStreamRecord[];
       text?: string;
       turn?: number;
       step?: number;
@@ -612,77 +615,110 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       reasoningEffort?: unknown;
     };
     switch (raw.type) {
-      case "assistant/chunk": {
-        const chunk = data.chunk as StreamChunk | undefined;
-        if (!chunk) return;
+      case "assistant/attempt": {
+        // v0.1.5 起会话流式事件由逐 chunk 的旧流式事件改为一次性 assistant/attempt，
+        // 载荷 { turn, step, stream: AssistantStreamRecord[] }（压缩流记录数组）：
+        // text-chunks / reasoning-chunks / tool-call-chunks 为打包的 delta 运行（逐成员
+        // 等价 text-delta / reasoning-delta / tool-call-delta），`chunk` 记录为原始
+        // StreamChunk（block/usage/finish 恒为 raw chunk 记录）。
+        const stream = data.stream as AssistantStreamRecord[] | undefined;
+        if (!Array.isArray(stream) || stream.length === 0) return;
         // 真实 DSH 同时送达增量 delta 与 block-end 完整块文本（DSH-CTX-API.md §2
         // PartialAccumulator 折叠语义）。按 (session, turn, step, index) 累计已流式
         // 输出的 delta，block-end 只补发未输出部分，避免完整正文被重复显示。
         // 同一 index 跨 turn/step 不复用累计（key 含 turn/step；turn/end 亦清空）。
         // finish/usage 等载荷可能无 index；仅带 index 的块类型参与累计
-        const index = (chunk as { index?: number }).index ?? 0;
-        const blockKey =
-          sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0) + ":" + index;
-        const isReasoning =
-          chunk.type === "reasoning-delta" ||
-          (chunk.type === "block-end" &&
-            (chunk.block?.type === "reasoning" ||
-              chunk.blockType === "reasoning"));
-        if (chunk.type === "block-start") {
-          emittedByBlock.delete(blockKey);
-        } else if (
-          chunk.type === "reasoning-delta" ||
-          chunk.type === "text-delta"
-        ) {
-          emittedByBlock.set(
-            blockKey,
-            (emittedByBlock.get(blockKey) ?? "") + chunk.text,
-          );
-          emit({
-            type: isReasoning ? "thinking" : "stream",
-            sessionId: sid,
-            text: chunk.text,
-          });
-          // 仅正文进 step 累计（reasoning 为瞬态展示，不进 assistant/message）
-          if (!isReasoning) {
-            const sk = sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0);
-            stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + chunk.text);
-          }
-        } else if (chunk.type === "block-end") {
-          const full =
-            chunk.block?.text ??
-            (chunk as StreamChunk & { text?: string }).text;
-          if (full === undefined) return;
-          const done = emittedByBlock.get(blockKey) ?? "";
-          emittedByBlock.delete(blockKey);
-          if (done === "") {
-            // 无 delta 的 provider：block-end 即完整文本
+        const applyChunk = (chunk: StreamChunk): void => {
+          const index = (chunk as { index?: number }).index ?? 0;
+          const blockKey =
+            sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0) + ":" + index;
+          const isReasoning =
+            chunk.type === "reasoning-delta" ||
+            (chunk.type === "block-end" &&
+              (chunk.block?.type === "reasoning" ||
+                chunk.blockType === "reasoning"));
+          if (chunk.type === "block-start") {
+            emittedByBlock.delete(blockKey);
+          } else if (
+            chunk.type === "reasoning-delta" ||
+            chunk.type === "text-delta"
+          ) {
+            emittedByBlock.set(
+              blockKey,
+              (emittedByBlock.get(blockKey) ?? "") + chunk.text,
+            );
             emit({
               type: isReasoning ? "thinking" : "stream",
               sessionId: sid,
-              text: full,
+              text: chunk.text,
             });
+            // 仅正文进 step 累计（reasoning 为瞬态展示，不进 assistant/message）
             if (!isReasoning) {
               const sk = sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0);
-              stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + full);
+              stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + chunk.text);
             }
-          } else if (full.startsWith(done)) {
-            // 已流式输出 delta，仅补发缺失后缀
-            const rest = full.slice(done.length);
-            if (rest.length > 0) {
+          } else if (chunk.type === "block-end") {
+            const full =
+              chunk.block?.text ??
+              (chunk as StreamChunk & { text?: string }).text;
+            if (full === undefined) return;
+            const done = emittedByBlock.get(blockKey) ?? "";
+            emittedByBlock.delete(blockKey);
+            if (done === "") {
+              // 无 delta 的 provider：block-end 即完整文本
               emit({
                 type: isReasoning ? "thinking" : "stream",
                 sessionId: sid,
-                text: rest,
+                text: full,
               });
               if (!isReasoning) {
                 const sk =
                   sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0);
-                stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + rest);
+                stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + full);
+              }
+            } else if (full.startsWith(done)) {
+              // 已流式输出 delta，仅补发缺失后缀
+              const rest = full.slice(done.length);
+              if (rest.length > 0) {
+                emit({
+                  type: isReasoning ? "thinking" : "stream",
+                  sessionId: sid,
+                  text: rest,
+                });
+                if (!isReasoning) {
+                  const sk =
+                    sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0);
+                  stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + rest);
+                }
               }
             }
+            // delta 与 block-end 文本不一致时不再输出（append-only UI 无法安全重写）
           }
-          // delta 与 block-end 文本不一致时不再输出（append-only UI 无法安全重写）
+        };
+        // 遍历流记录展开为逐 chunk 处理：text/reasoning-chunks 逐成员等价对应 delta；
+        // tool-call-chunks 逐成员等价 tool-call-delta（id/name 随块声明带上）
+        for (const rec of stream) {
+          if (rec.type === "chunk") {
+            applyChunk(rec.chunk);
+          } else if (rec.type === "text-chunks") {
+            for (const text of rec.texts) {
+              applyChunk({ type: "text-delta", index: rec.index, text });
+            }
+          } else if (rec.type === "reasoning-chunks") {
+            for (const text of rec.texts) {
+              applyChunk({ type: "reasoning-delta", index: rec.index, text });
+            }
+          } else {
+            for (const argsDelta of rec.args) {
+              applyChunk({
+                type: "tool-call-delta",
+                index: rec.index,
+                ...(rec.id === undefined ? {} : { id: rec.id }),
+                ...(rec.name === undefined ? {} : { name: rec.name }),
+                argumentsDelta: argsDelta,
+              });
+            }
+          }
         }
         return;
       }
@@ -1069,7 +1105,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         });
         return;
       }
-      case "tool/code-dispatch-start": {
+      case "tool/ptc-dispatch-start": {
         // P3 run_code 子派发开始：{name, arguments}（dispatched 前归一化，永不失败）
         const cd = raw.data as { name?: unknown; arguments?: unknown };
         emit({
@@ -1084,7 +1120,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         });
         return;
       }
-      case "tool/code-dispatch": {
+      case "tool/ptc-dispatch": {
         // P3 run_code 子派发结算：{isError, content}；成功静默降噪，失败红行
         const cd = raw.data as { name?: unknown; isError?: unknown };
         emit({

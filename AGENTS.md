@@ -16,6 +16,7 @@ npm run check   # 全部子包类型检查（tsc --noEmit）
 npm run build   # 全部子包编译到 dist/
 npm run test    # 全部子包运行 tests/*.test.ts（node --test）
 npm run demo    # TUI 构建并运行 mock demo（无 DSH 依赖）
+npm run demo -- --smoke  # TUI 冒烟检查（帧断言 SMOKE_PASS，根脚本已带 -- 转发）
 ```
 
 单个子包内直接运行各自的 `npm run check / build / test / demo`。

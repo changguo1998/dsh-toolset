@@ -14,7 +14,7 @@
 
 目标：确认 DSH 插件运行时（cordis `ctx`）的会话订阅 API，产出 state 模型形状与 adapter 接口。
 
-依据（2026-08-23 更新）：早期社区观测 `wa_dsh_doc.md`（事件名 turn/start、assistant/chunk、tool/call、tool/result、turn/end)已由官方源码研读核实并修订（agent/status 属 agent 层事件，不在 session 词汇表；见仓库根 `DSH-CTX-API.md`）。
+依据（2026-08-23 更新）：早期社区观测 `wa_dsh_doc.md`（事件名 turn/start、assistant/chunk、tool/call、tool/result、turn/end)已由官方源码研读核实并修订；v0.1.5 起 `assistant/chunk`→`assistant/attempt`（payload 改为 stream 数组）、`tool/code-dispatch*`→`tool/ptc-dispatch*`（纯更名），见仓库根 `DSH-CTX-API.md` §10（agent/status 属 agent 层事件，不在 session 词汇表；见仓库根 `DSH-CTX-API.md`）。
 
 任务：
 
@@ -44,14 +44,14 @@ Done when：`npm run demo` 启动后可见流式滚动、可上滚回翻、审�
 
 ## 阶段 2：adapter 接入 DSH（已完成 2026-08-23）
 
-- [x] T2.1 `src/app/adapter/dsh.ts`：实现 `createRealDshAdapter`——`ctx.on('session/event')` 归一化（assistant/chunk、turn/start|turn/end、agent/status）→ `DshEvent` 写 state；注册 `approval/request` waterfall 应答者（approve→'allowed-once'/'rejected'，signal 中断/超时→'cancelled'，无订阅者→next() fail-closed 'unavailable'）。
+- [x] T2.1 `src/app/adapter/dsh.ts`：实现 `createRealDshAdapter`——`ctx.on('session/event')` 归一化（assistant/attempt、turn/start|turn/end、agent/status）→ `DshEvent` 写 state；注册 `approval/request` waterfall 应答者（approve→'allowed-once'/'rejected'，signal 中断/超时→'cancelled'，无订阅者→next() fail-closed 'unavailable'）。
 - [x] T2.2 `main.ts`：双角色——导出 cordis 插件入口 `{ name, inject, apply }`（apply 内解析模型 route→`agents.create`→组装 renderer+app+real adapter，**无顶层副作用**）；`main()` 供 bin 显式调用。
 - [x] T2.3 mock/真实切换：`createMockDshAdapter` 仅 demo/`bin` 使用（构造注入），app 层零改动。
 
 真机结论（2026-08-23，profile `dsh-toolset-tui` + DEEPSEEK_API_KEY）：
 
 - 「实测载荷」：deepseek adapter 的 `assistant/chunk` 以 `block-start`/`block-end`（`block-end` 携带完整 `text`：含 reasoning 块与 text 块）送达，而非 T0.2 假设的 `text-delta`/`reasoning-delta`——adapter 已兼容两种形态（两种不会在同一 provider 并存）。
-- 链路：`user/message`（followup 送达）→ `request/header`（route deepseek-official/deepseek-v4-flash 生效）→ `assistant/chunk`×N（真实 token）→ `turn/end completed`；状态栏 `>`→`?`→`>`（idle/thinking 提示符）；Ctrl+C 退出码 0。
+- 链路：`user/message`（followup 送达）→ `request/header`（route deepseek-official/deepseek-v4-flash 生效）→ `assistant/attempt`×N（真实 token，v0.1.5 单事件携带 stream 数组）→ `turn/end completed`；状态栏 `>`→`?`→`>`（idle/thinking 提示符）；Ctrl+C 退出码 0。
 - 插件 `Config` 需为 schemastery Schema 才导出（cordis `resolveConfig` 要求 `Config['~standard'].validate`）；本项目零依赖故不导出，loader 透传 config。
 - 未注入服务（如 `agentDefaultModel`）只能经 `ctx.get()` 访问，不能直接属性读取（cordis 严格模式）。
 
@@ -270,7 +270,7 @@ adapter 归一化后的 DshEvent → App 事件 switch → state reducer → bui
 - **根因（运行时 probe 逐层定位）**：
   - readSurface 的 surface fold 要求事件带 `surfaceOp` 标记（`isSurfaceEvent`），而 `ctx.sessions` 内存事件（`permission/preset`/`agent/inbox/spliced`/`turn/start` 等）不含该标记 → live 会话 readSurface 恒返回空；
   - readSystem 走完整日志但内部 `Session.create` 全量校验，live 混合日志（`agent/inbox/spliced` 中 `inserted` 消息未 identified）抛 `seed user/message ... lacks an identified message`；
-  - 当前 dsh live 会话的消息形态是 **`agent/inbox/spliced`**（`data.inserted[].role/content[].text` 提取 user 消息），**assistant 输出不落 session store 事件**（模型已回复但 store 45s 后仍无 assistant 记录，实时「收到」经 `assistant/chunk` 流式到 UI），persisted 会话才有完整 `assistant/message`。
+  - 当前 dsh live 会话的消息形态是 **`agent/inbox/spliced`**（`data.inserted[].role/content[].text` 提取 user 消息），**assistant 输出不落 session store 事件**（模型已回复但 store 45s 后仍无 assistant 记录，实时「收到」经 `assistant/attempt`（stream 数组展开）流式到 UI），persisted 会话才有完整 `assistant/message`。
 - **修复**：`readSessionSurface` 读取顺序 = ① live（`opts.sessions.get(id).events` 直接读原始事件，不触 fold/校验）→ ② persisted `readSurface` → ③ 兜底 `readSession` → ④ 皆缺结构化错误。`types.ts` 新增 `SessionStoreLike`（`SessionQueryLike.readSession?`/`readSurface?` 改造为可选）；`normalizeHistoryMessages` 兼容 `agent/inbox/spliced`；`main.ts` 注入 `sessions: ctx.get("sessions")`；`HistoryPanel.ts` view 无可提取文本时显示占位提示（区分空会话与 live 未落 assistant）。
 - 测试：`tests/adapter.dsh.test.ts` 重写读取链路（persisted→readSurface / live→sessions store / 瘦服务回退 readSession / 无读取面抛错）；`tests/app.test.ts` 命令字符串 `/session`。`npm run check && npm test && npm run build` 全绿（251/251）。
 - 实测（PTY）：live 会话 view 显示 `问: 请回复两个字：收到`（agent/inbox/spliced 提取）；空会话显示「（该会话暂无文本消息…）」占位；`/session` 打开 158 会话列表、Enter 查看/Esc 返回/Esc 关闭全部正常。

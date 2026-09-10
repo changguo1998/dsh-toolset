@@ -206,7 +206,7 @@ run（一次运行/执行实例）      ← 最外层：跑一个任务/程序
 | 要素 | dsh 事件流 | 状态 |
 |------|-----------|------|
 | 定位 | step/start {turn,step} + 事件自带 seq | ✅ |
-| 决策 type | 由 assistant/chunk 块类型推断（reasoning-delta/tool-call-delta/text-delta） | ⚠ 无显式字段 |
+| 决策 type | 由 assistant/attempt 的 stream 记录推断（text-chunks/reasoning-chunks/tool-call-chunks） | ⚠ 无显式字段 |
 | 裁决 accepted | 无对应 | ❌ 需补 step 级 validator |
 | 执行 result | tool/result（+meta），纯推理步无 | ✅ |
 | 写回 | 事件 append 进日志 | ✅ |

@@ -358,7 +358,7 @@ export type SessionEventType =
   | "step/end"
   | "user/message"
   | "assistant/message"
-  | "assistant/chunk"
+  | "assistant/attempt"
   | "tool/call"
   | "tool/result"
   | "approval/asked"
@@ -384,16 +384,21 @@ export type SessionEventType =
   | "tool-workflow/run-end"
   | "command/run"
   | "command/done"
-  | "tool/code-dispatch-start"
-  | "tool/code-dispatch"
+  | "tool/ptc-dispatch-start"
+  | "tool/ptc-dispatch"
   | "hook/invoked"
   | "hook/result"
   | "schedule/change"
   | "compaction/prune"
   | "feedback/record"
-  | "llm/retry-started";
+  | "feedback/message-delete"
+  | "feedback/message-put"
+  | "llm/retry-started"
+  | "deliverables/presented"
+  | "subagent/catalog"
+  | "system/message";
 
-/** StreamChunk 子集（assistant/chunk 事件的 chunk 载荷；完整变体见 stream 契约） */
+/** StreamChunk 子集（assistant/attempt 中 `chunk` 记录的 chunk 载荷；完整变体见 stream 契约） */
 export type StreamChunk =
   | { type: "block-start"; index: number; blockType: string }
   | { type: "text-delta"; index: number; text: string }
@@ -414,6 +419,36 @@ export type StreamChunk =
     }
   | { type: "usage"; index?: number; usage: Record<string, unknown> }
   | { type: "finish"; reason: string; replayState?: unknown };
+
+/** AssistantStreamRecord（assistant/attempt 的 stream 数组元素，见 DSH-CTX-API.md §10）：
+ *  text/reasoning/tool-call-chunks 为打包的 delta 运行（逐成员等价 text-delta /
+ *  reasoning-delta / tool-call-delta）；`chunk` 为原始 StreamChunk（block/usage/finish
+ *  恒为 raw chunk 记录）。 */
+export type AssistantStreamRecord =
+  | {
+      type: "text-chunks";
+      time0: number;
+      index: number;
+      dt: readonly number[];
+      texts: readonly string[];
+    }
+  | {
+      type: "reasoning-chunks";
+      time0: number;
+      index: number;
+      dt: readonly number[];
+      texts: readonly string[];
+    }
+  | {
+      type: "tool-call-chunks";
+      time0: number;
+      index: number;
+      dt: readonly number[];
+      id?: string;
+      name?: string;
+      args: readonly string[];
+    }
+  | { type: "chunk"; time: number; chunk: StreamChunk };
 
 /** DSH 审批请求（approval/request 载荷） */
 export interface ApprovalRequest {
@@ -483,7 +518,11 @@ export interface SessionEventDataMap {
   "turn/end": { turn: number; reason: string };
   "step/start": { turn: number; step: number };
   "step/end": { turn: number; step: number };
-  "assistant/chunk": { turn: number; step: number; chunk: StreamChunk };
+  "assistant/attempt": {
+    turn: number;
+    step: number;
+    stream: AssistantStreamRecord[];
+  };
   "user/message": { id?: string };
   "assistant/message": {
     turn: number;
@@ -527,12 +566,12 @@ export interface SessionEventDataMap {
     kind?: "success" | "error" | "cancel";
     text?: string;
   };
-  "tool/code-dispatch-start": {
+  "tool/ptc-dispatch-start": {
     subCallId?: string;
     name?: string;
     arguments?: string;
   };
-  "tool/code-dispatch": {
+  "tool/ptc-dispatch": {
     subCallId?: string;
     name?: string;
     isError?: boolean;
@@ -565,12 +604,17 @@ export interface SessionEventDataMap {
     shadowedTokenCount?: number;
   };
   "feedback/record": { text?: string };
+  "feedback/message-delete": Record<string, unknown>;
+  "feedback/message-put": Record<string, unknown>;
   "llm/retry-started": {
     retryId?: string;
     turn?: number;
     step?: number;
     retry?: number;
   };
+  "deliverables/presented": Record<string, unknown>;
+  "subagent/catalog": Record<string, unknown>;
+  "system/message": Record<string, unknown>;
 }
 
 /** DSH 会话事件（session/event 的 event 参数，type 与 data 联动窄化） */
