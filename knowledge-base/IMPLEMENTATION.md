@@ -25,26 +25,26 @@ npm run build   # 编译到 dist/
 npm run demo    # mock demo，退出码 0 视为流程通过
 ```
 
-验证契约机械项（单命令、在包目录内执行）：
+验证契约机械项（单命令、以仓库根目录为工作目录，不含管道/重定向/逻辑连接）：
 
 ```
-npm run check
-npm run test
-npm run build
-npm run demo
-grep -c "CREATE VIRTUAL TABLE chunks_fts" src/schema.ts
-grep -c "CREATE VIRTUAL TABLE chunks_trigram_fts" src/schema.ts
-git log --oneline -- .
+npm --prefix knowledge-base run check
+npm --prefix knowledge-base run test
+npm --prefix knowledge-base run build
+npm --prefix knowledge-base run demo
+grep -c "CREATE VIRTUAL TABLE chunks_fts" knowledge-base/src/schema.ts
+grep -c "CREATE VIRTUAL TABLE chunks_trigram_fts" knowledge-base/src/schema.ts
+git log --oneline -- knowledge-base
 ```
 
-## 3. 测试覆盖（3+6+8+5+6=31）
+## 3. 测试覆盖（schema 3 + knowledge 8 + hooks 6 + writepolicy 8 + memory 6 = 31）
 
 - `schema.test.ts`（3）：insert/update/delete 双 FTS 索引一致、索引建立、文件库幂等 reopen；
-- `knowledge.test.ts`（11）：put/search 词干命中、命中更新 last_referenced、去重、touch、
+- `knowledge.test.ts`（8）：put/search 词干命中、命中更新 last_referenced、去重、touch、
   evict source 联动、分块、project/target/category 过滤、trigram 子串召回；
 - `hooks.test.ts`（6）：extractText、summarizeEvent（失败/成功 importance）、白名单过滤、
   重复事件去重、detach、project 按事件求值；
-- `writepolicy.test.ts`（6）：writeBack、writeBack+backfill 失败兜底、锁串行化、
+- `writepolicy.test.ts`（8）：writeBack、writeBack+backfill 失败兜底、锁串行化、
   staleCandidates 阈值、compress、promote 排序、evictStale、tokenBudgetUsage；
 - `memory.test.ts`（6）：add 去重、target/category/project 过滤、replace、remove 联动清理、
   token-aware 截断、命中提升 last_referenced。
