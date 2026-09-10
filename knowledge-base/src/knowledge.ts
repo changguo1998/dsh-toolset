@@ -173,19 +173,41 @@ export class KnowledgeService {
       }));
     };
 
-    const porter = runQuery("chunks_fts");
+    // FTS5 对自由输入语法错误（如 '-' 排除符）容错：失败退回 LIKE 兜底。
+    let porter: Array<{ row: SearchHit; score: number }>;
+    let ftsFailed = false;
+    try {
+      porter = runQuery("chunks_fts");
+    } catch {
+      ftsFailed = true;
+      porter = [];
+    }
     const hits = new Map<number, SearchHit>();
     for (const { row } of porter) hits.set(row.id, row);
     if (opts.fuzzy) {
-      for (const { row } of runQuery("chunks_trigram_fts")) {
+      let trigram: Array<{ row: SearchHit; score: number }> = [];
+      try {
+        trigram = runQuery("chunks_trigram_fts");
+      } catch {
+        ftsFailed = true;
+        trigram = [];
+      }
+      for (const { row } of trigram) {
         if (!hits.has(row.id) && hits.size < limit) hits.set(row.id, row);
       }
     }
 
     const now = Date.now();
-    // CJK 短词（≤2 字符）porter/trigram 均无法召回，用 LIKE 子串兜底
-    if (hits.size < limit && /[\u4e00-\u9fff]/u.test(opts.query)) {
-      const like = `%${opts.query.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+    // LIKE 子串兜底：仅在 FTS 语法错误或 CJK 短词（≤2 字符 porter/trigram 无法召回）时启用，
+    // 保持 fuzzy 语义（fuzzy=false 不额外子串召回）。
+    if (
+      hits.size < limit &&
+      (ftsFailed || /[\u4e00-\u9fff]/u.test(opts.query))
+    ) {
+      const like = `%${opts.query
+        .replaceAll("\\", "\\\\")
+        .replaceAll("%", "\\%")
+        .replaceAll("_", "\\_")}%`;
       const likeRows = this.#db
         .prepare(
           `SELECT c.${SOURCE_COLUMNS.replaceAll(", ", ", c.")} FROM chunks c
