@@ -240,12 +240,12 @@ function normalizeHistoryMessages(
 }
 
 /** 单行摘要最大长度（超出截断，避免工具行撑爆窄终端） */
-const SUMMARY_MAX = 80;
-
 /**
  * tool/call.arguments（原始 JSON 字符串）→ 单行摘要：优先关键字段启发式
  * （path/file/url/command/pattern/query/dir——read/write/edit→路径、bash→命令等），
- * 无关键字段回落原始紧凑串；JSON 解析失败兜底原样。阶段 2 按工具名再细化渲染。
+ * 无关键字段回落原始紧凑串；JSON 解析失败兜底原样。
+ * 2026-09-28：不再做固定字符数截断（旧 SUMMARY_MAX=80 与窗口宽度无关，窄/宽终端
+ * 都不匹配），完整摘要交给渲染层按窗口宽度换行。
  */
 function summarizeToolArguments(args: string): string {
   const raw = args.trim();
@@ -263,25 +263,20 @@ function summarizeToolArguments(args: string): string {
       ];
       for (const key of preferred) {
         const v = obj[key];
-        if (typeof v === "string" && v !== "") return truncateSummary(v);
+        if (typeof v === "string" && v !== "") return v;
       }
       const flat = Object.entries(obj)
         .map(
           ([k, v]) => k + "=" + (typeof v === "string" ? v : JSON.stringify(v)),
         )
         .join(" ");
-      if (flat !== "") return truncateSummary(flat);
+      if (flat !== "") return flat;
     } catch {
       /* 非 JSON：回落原始串 */
     }
   }
-  return truncateSummary(raw === "" ? "(无参数)" : raw);
+  return raw === "" ? "(无参数)" : raw;
 }
-
-function truncateSummary(s: string): string {
-  return s.length > SUMMARY_MAX ? s.slice(0, SUMMARY_MAX - 1) + "…" : s;
-}
-
 /**
  * tool/result.message（ToolResultMessage.content=[ToolResultBlock]）→ 首段文本：
  * 取内层第一个 text 块首行（v1 足够）；形状不符/空 → ""。
@@ -298,7 +293,7 @@ function toolResultDetail(message: unknown): string {
         typeof part.text === "string" &&
         part.text !== ""
       ) {
-        return truncateSummary(part.text.split("\n")[0] ?? "");
+        return part.text.split("\n")[0] ?? "";
       }
     }
   }
