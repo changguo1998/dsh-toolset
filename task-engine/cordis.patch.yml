@@ -1,0 +1,8 @@
+# dsh-task-engine bundle 的插件声明。dsh-base bundle 已提供会话/代理/审批服务，
+# 本插件只声明自身的 bundle 行（名称按 project 包名解析）。
+# 注：LSP 将本文件误按 JSON Patch schema 校验，而 `insert` 是 dsh 官方 patch DSL
+# (dsh-app-boot applyEntryPatches 明确支持)，此处由 YAML 注释内联抑制该误报。
+# pi-lens-ignore: yaml-schema: JSONPatch:0, yaml-schema: JSONPatch:513
+- insert:
+    - id: dsh-task-engine
+      name: '@dsh-toolset/dsh-task-engine'

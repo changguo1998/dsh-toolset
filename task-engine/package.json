@@ -1,0 +1,31 @@
+{
+    "name": "@dsh-toolset/dsh-task-engine",
+    "version": "0.1.0",
+    "description": "DSH\uff08DeepSeek Harness\uff09\u4efb\u52a1\u6811\u5f15\u64ce\uff1aFrame \u72b6\u6001\u673a\u3001decompose/implement/stop/status \u5de5\u5177\u65cf\u3001\u673a\u68b0\u95e8\u7981\u4e0e RET \u9a8c\u6536\u8def\u7531",
+    "type": "module",
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "check": "tsc -p tsconfig.json --noEmit",
+        "demo": "npm run build && node dist/demo/main.js",
+        "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+    },
+    "devDependencies": {
+        "@types/node": "^24.13.3",
+        "typescript": "^5.9.3"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml"
+    ],
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    }
+}
