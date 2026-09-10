@@ -2408,6 +2408,22 @@ test("tool-call → 缓冲出现工具行 <name> <summary>（无图标前缀）"
   );
 });
 
+test("tool-call：summary 含 \\r/\\n/控制符 → 折叠成单行（不破坏帧布局）", () => {
+  const s = reduceState(initialState(), {
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "ls -l\r\n/tmp/a\r第二行\tx\x00",
+  });
+  assert.equal(s.buffer.length, 1);
+  assert.equal(s.buffer[0]!.kind, "tool");
+  assert.ok(
+    !s.buffer[0]!.text.includes("\n") && !s.buffer[0]!.text.includes("\r"),
+  );
+  // \r\n/\r→\n→空格折叠；\t/NUL 剔除
+  assert.equal(s.buffer[0]!.text, "bash ls -l /tmp/a 第二行x");
+});
+
 test("tool-result 成功 → ✓ <detail>；失败 → 红色 ✗ <detail>", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({

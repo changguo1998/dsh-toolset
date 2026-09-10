@@ -28,6 +28,33 @@ test("displayWidth 累加", () => {
   assert.equal(displayWidth("中文a"), 5);
 });
 
+test("charWidth：组合附加符/ZWJ/变体选择符/肤色修饰符=0（零宽不占列）", () => {
+  assert.equal(charWidth("\u0301"), 0); // 组合重音
+  assert.equal(charWidth("\u200b"), 0); // ZWSP
+  assert.equal(charWidth("\u200c"), 0); // ZWNJ
+  assert.equal(charWidth("\u200d"), 0); // ZWJ
+  assert.equal(charWidth("\u2060"), 0); // 词连接符
+  assert.equal(charWidth("\ufe0f"), 0); // VS16（emoji 文本/呈现切换）
+  assert.equal(charWidth("\ufe00"), 0); // VS1
+  assert.equal(charWidth("\ufeff"), 0); // BOM/ZWNBSP
+  assert.equal(charWidth("\u{1f3fb}"), 0); // emoji 肤色修饰符
+});
+
+test("displayWidth：零宽字符不计宽（总宽度不虚高）", () => {
+  assert.equal(displayWidth("a\u0301中"), 3); // a(1)+组合(0)+中(2)
+  assert.equal(displayWidth("👍\ufe0f"), 2); // emoji(2)+VS16(0)
+  assert.equal(displayWidth("中\u200b中"), 4); // ZWSP 不计宽
+});
+
+test("wrapLine：零宽字符不导致提前换行", () => {
+  assert.deepEqual(wrapLine("a\u0301b\u200dc", 4), ["a\u0301b\u200dc"]); // 视宽 3
+  // 旧行为把 ZWSP 计 1 列 → 中(2)+ZWSP(1)=3>... 提前换行；现按视宽 4 整段放下
+  assert.deepEqual(wrapLine("中\u200b中\u200b中", 4), [
+    "中\u200b中\u200b",
+    "中",
+  ]);
+});
+
 // ---- wrapLine ----
 
 test("wrapLine：短行不换行", () => {
