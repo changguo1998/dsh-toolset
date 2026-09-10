@@ -7,14 +7,18 @@
 - 文档、注释、commit message：**中文**（跟随现有代码与文档的既有风格）。
 - 代码：`src/` 为 TypeScript，遵循 `tsconfig.json`（strict + noUncheckedIndexedAccess）。
 
-## 命令（在 `TUI/` 目录下执行）
+## 命令
+
+仓库根 `package.json` 委托各插件子包（TUI / herdr-integration / knowledge-base / task-engine）：
 
 ```sh
-npm run check   # 类型检查（tsc --noEmit）
-npm run build   # 编译到 dist/
-npm run test    # 运行 tests/*.test.ts（node --test）
-npm run demo    # 构建并运行 mock demo（无 DSH 依赖）
+npm run check   # 全部子包类型检查（tsc --noEmit）
+npm run build   # 全部子包编译到 dist/
+npm run test    # 全部子包运行 tests/*.test.ts（node --test）
+npm run demo    # TUI 构建并运行 mock demo（无 DSH 依赖）
 ```
+
+单个子包内直接运行各自的 `npm run check / build / test / demo`。
 
 修改后至少跑 `npm run check`；涉及逻辑改动跑 `npm run test`。
 

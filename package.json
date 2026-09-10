@@ -1,12 +1,12 @@
 {
-  "name": "dsh-toolset",
-  "version": "0.1.0",
-  "private": true,
-  "description": "DSH（DeepSeek Harness）进程内集成插件工具集",
-  "scripts": {
-    "check": "npm --prefix TUI run check",
-    "build": "npm --prefix TUI run build",
-    "test": "npm --prefix TUI run test",
-    "demo": "npm --prefix TUI run demo"
-  }
+    "name": "dsh-toolset",
+    "version": "0.1.0",
+    "private": true,
+    "description": "DSH（DeepSeek Harness）进程内集成插件工具集",
+    "scripts": {
+        "check": "npm --prefix TUI run check && npm --prefix herdr-integration run check && npm --prefix knowledge-base run check && npm --prefix task-engine run check",
+        "build": "npm --prefix TUI run build && npm --prefix herdr-integration run build && npm --prefix knowledge-base run build && npm --prefix task-engine run build",
+        "test": "npm --prefix TUI run test && npm --prefix herdr-integration run test && npm --prefix knowledge-base run test && npm --prefix task-engine run test",
+        "demo": "npm --prefix TUI run demo"
+    }
 }
