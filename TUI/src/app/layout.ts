@@ -1196,13 +1196,22 @@ function wrapBufferLines(
           ? colorFor(themeId, "brightRed")("┃")
           : "";
       const maxBody = userMaxBodyWidth(width, gutter);
-      const rows = wrapLines(line.text.split("\n"), maxBody).map((r) =>
-        r === "" ? "" : r + bar,
-      );
-      const bodyWidth = Math.max(1, ...rows.map((r) => displayWidth(r)));
+      const wrapped = wrapLines(line.text.split("\n"), maxBody);
+      // 竖线固定在块右缘（紧挨右缘边框），不随行尾：正文先按最长行宽补齐再挂竖线
+      const contentWidth = Math.max(1, ...wrapped.map((r) => displayWidth(r)));
+      const bodyWidth = contentWidth + (bar ? 1 : 0);
       const pad = Math.max(0, width - bodyWidth);
-      for (const text of rows)
-        dialogue.push({ text, kind: "user", indent: pad });
+      for (const r of wrapped)
+        dialogue.push({
+          text:
+            r === ""
+              ? ""
+              : r +
+                " ".repeat(Math.max(0, contentWidth - displayWidth(r))) +
+                bar,
+          kind: "user",
+          indent: pad,
+        });
       continue;
     }
     if (line.kind === "assistant") {

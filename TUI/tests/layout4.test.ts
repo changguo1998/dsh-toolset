@@ -722,7 +722,25 @@ test("会话流：用户消息软换行续行共享同一左边界；显式换�
     `软换行续行共享同一左边界: ${indents}`,
   );
 });
-
+test("会话流：用户消息软换行竖线固定在块右缘（不随行尾）", () => {
+  let s = initialState();
+  // 单条消息软换行成不等宽两行：续行内容短，竖线应补空格对齐到块右缘
+  s = reduceState(s, {
+    type: "user-line",
+    text: "a".repeat(40),
+  });
+  const plain = buildFrame(s, { rows: 24, cols: 40 }).map((line) =>
+    line.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const rows = plain.filter((l) => l.includes("aaaa"));
+  assert.ok(rows.length >= 2, "应软换行成至少两行");
+  const cols = rows.map((l) => histBody(l, 40).lastIndexOf("┃"));
+  assert.equal(
+    new Set(cols).size,
+    1,
+    `换行后竖线应在同一列(块右缘)而非跟随行尾: ${cols}`,
+  );
+});
 test("会话流：用户块与回答/思考之间恰有一行空行；无回复或紧跟分隔线时不加空行", () => {
   // user → assistant：恰有一行空白
   let s = initialState();
