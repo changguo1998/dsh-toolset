@@ -8,7 +8,7 @@
 |------|------|------|------|------|
 | herdr-integration | P1 | — | 完成 | 已合入本分支与 main；分支已清理；脚手架已验证 |
 | task-engine | P0 | — | 完成 | 首版最小闭环已合入本分支与 main；分支已清理 |
-| knowledge-base | P0 | feat/knowledge-base | 未开始 | 并行线，与 task-engine 零依赖；worktree 已建 |
+| knowledge-base | P0 | — | 完成 | 四表双 FTS5 + ctx_knowledge + 记忆 CRUD 已合入；分支已清理 |
 | goal-contract | P1 | — | 未开始 | 待 task-engine 契约稳定 |
 | metric-loop | P1 | — | 未开始 | |
 | output-compress | P1 | — | 未开始 | 依赖 knowledge-base |
