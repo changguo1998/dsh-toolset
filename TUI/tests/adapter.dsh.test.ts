@@ -1861,6 +1861,24 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
     ]);
   });
 
+  test("tool/call：超长摘要不再固定 80 字符截断（宽度交给渲染层按窗口处理）", () => {
+    const t = makeAdapter();
+    const longPath = "p/" + "a".repeat(200);
+    fire(t, "tool/call", {
+      callId: "c5",
+      name: "read",
+      arguments: JSON.stringify({ path: longPath }),
+    });
+    assert.deepEqual(t.events, [
+      {
+        type: "tool-call",
+        sessionId: "s1",
+        name: "read",
+        summary: longPath,
+      },
+    ]);
+  });
+
   test("tool/result → tool-result：成功取 message 内层 text 块首行", () => {
     const t = makeAdapter();
     fire(t, "tool/result", {

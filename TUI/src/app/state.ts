@@ -490,8 +490,11 @@ export function appendToolLine(
   text: string,
   tone?: NoticeTone,
 ): AppState {
+  // 工具内容可能夹带 \r/\n/控制符（参数/结果原文），折叠成单行并剔除其余非打印
+  // 字符，避免行内嵌换行破坏帧布局、控制符干扰终端（宽度限制由渲染层按窗口宽度处理）
+  const clean = sanitizeText(text).text.replace(/\n/g, " ");
   const buffer = state.buffer.length ? [...state.buffer] : [];
-  buffer.push({ text, kind: "tool", ...(tone ? { tone } : {}) });
+  buffer.push({ text: clean, kind: "tool", ...(tone ? { tone } : {}) });
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
   return { ...state, buffer };

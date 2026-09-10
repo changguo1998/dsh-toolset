@@ -325,9 +325,9 @@ if (smoke) {
         panelPlain.includes("Goal active") &&
           panelPlain.includes("Todo 1/4") &&
           panelPlain.includes("● 状态栏 goal 徽标") &&
-          panelPlain.includes("✓ 模式徽标三合一") &&
-          panelPlain.includes("○ 设计评审") &&
-          panelPlain.includes("…(+2行)"),
+          // 列总高 > 窗口 17：折叠等级 L2（仅进行中）隐藏三合一+长待办 2 项
+          // 并压 goal 为标题行（…(+2项已隐藏)）
+          panelPlain.includes("…(+2项已隐藏)"),
         "status column goal/todo elements absent from frames",
       );
       await sleep(200);
