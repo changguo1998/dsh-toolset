@@ -96,7 +96,14 @@ defender 迁移（对比文档 §3.5）。
 1. **里程碑一（P0）**：#1-#4 + #8 —— 引擎三块 + 知识库底座（设计文档 §16.3 结论：其余核心能力 dsh 已有现成服务）；
 1. **里程碑二（P1）**：#5-#7、#9-#11、#13、#19-#20、#27、#36 —— 契约/循环/记忆/压缩/锚点/结构搜索/安全策略/herdr 集成；
 1. **里程碑三（P2）**：其余长尾，按需排期；#35 流量控制已列入计划、暂缓实现；
-1. 不迁移：pi-dsh-minimal（反向桥）、herdr 集成、pi 内部补丁（对比文档 §4.4）。
+1. 不迁移：pi-dsh-minimal（反向桥）、pi 原生 herdr 扩展文件、pi 内部补丁（对比文档 §4.4）；herdr 面板集成以 `herdr-integration` 仿写实现（#36）。
+
+**起步顺序（实施建议）**：先打通流程、再上大件、双线并行：
+
+1. **热身 `herdr-integration`（#36）**：最小、零依赖、协议可对照 pi 原生扩展仿写；用它打通新插件脚手架（`cordis.patch.yml` + `dsh.bundle`、构建部署、profile 挂载），为后续所有插件铺路；
+1. **主线 `task-engine` 最小闭环（#1-#4）**：架构核心，goal-contract / metric-loop / workflow-ext 都挂其面。首版只做——栈引擎（Frame 状态机 + 就绪池，先单执行器）＋ decompose/implement/stop 工具族与嵌套 todo ＋ 门禁机械部分（粒度四规则 + coverage 映射）＋ RET 路由先上 mechanical / human 两级（semantic 级复用子代理 audit run 后补）；fan-out（#13）留第二迭代；
+1. **并行线 `knowledge-base`（#8）**：与 task-engine 零依赖，可完全并行；也是 #9-#11（写回/记忆/压缩入库）的底座，越早落库积累越多；
+1. **P1 小件穿插**：hash-edit、ast-tools 独立无依赖，可在主线卡壳时穿插；goal-contract 待 task-engine 契约 schema 稳定后做。
 
 ## 插件规划（实现载体）
 
