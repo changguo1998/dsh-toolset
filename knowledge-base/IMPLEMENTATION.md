@@ -58,8 +58,15 @@ git log --oneline -- knowledge-base
 1. `feat(knowledge-base): #9 两级写策略与淘汰提升` — 批量写回/锁/backfill、LRU 淘汰、top-K 提升 + 测试；
 1. `feat(knowledge-base): #10 持久记忆 CRUD 与过滤检索` — 记忆 CURD + token-aware + 测试；
 1. `docs(knowledge-base): demo 与设计文档` — mock demo + DESIGN/IMPLEMENTATION + TASKS 勾选。
+1. `docs(knowledge-base): 修正 IMPLEMENTATION 测试覆盖计数与验证契约形` — 订正 §3 计数（schema3/knowledge8/hooks6/writepolicy8/memory6=31）与 §2 契约改为根目录可执行版。
 
-## 5. 待人工确认
+## 5. 进度状态（2026-09-10 验收）
 
-- `npm run demo` 输出检索/记忆/写回示例，人工确认流程通过；
-- 真实 DSH profile 挂载（`dsh.bundle` + `cordis.patch.yml`）联调，`ctx_knowledge` 服务注册到宿主。
+- 功能实现完成：8 条提交（见 §4）；`npm run check/test/build/demo` 全部退出 0，node:test 31/31 通过，demo 输出 `demo OK`；
+- glla 验收目标经独立审计通过（auditor approved，存档 `.pi-glla/archive/20260910132849-yaf437.md`）；
+- 验证契约采用根目录可执行单命令版（见 §2），与自动化审计在仓库根执行命令保持一致。
+
+## 6. 待人工确认
+
+- mock demo 已确认（`npm run demo` 输出检索/记忆/写回示例与 `demo OK`，退出码 0）；
+- （未完成）真实 DSH profile 挂载（`dsh.bundle` + `cordis.patch.yml`）联调：`ctx_knowledge` 服务注册到宿主、session/event 事件接入实跑；本机暂无 dsh profile，待有环境后执行。

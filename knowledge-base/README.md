@@ -23,3 +23,7 @@ npm run demo    # 运行 mock demo（无 DSH 依赖）
 - `src/writepolicy.ts` — 两级写策略、LRU+importance 淘汰、resume top-K 提升
 - `src/memory.ts` — 持久记忆 CRUD 与过滤检索
 - `demo/main.ts` — mock demo（无 DSH 宿主依赖）
+
+## 状态
+
+- 2026-09-10：#8+#9+#10 实现完成（8 条提交）、31/31 测试通过、`check/build/demo` 退出 0，glla 验收审计通过；待真实 DSH profile 挂载联调（人工确认）。

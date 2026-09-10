@@ -3,6 +3,11 @@
 > 来源：`docs/DEVELOPMENT-BACKLOG.md` #8-#10（P0→P1）；分支 `feat/knowledge-base`（基线 c1ad2ae）。
 > 定位：与 task-engine **零依赖的并行线**；也是 #9-#11（写回/淘汰/记忆/压缩入库）的底座。
 
+## 进度状态（2026-09-10）
+
+- 已完成：#8+#9+#10 全部实现并分阶段提交（8 条，见 `IMPLEMENTATION.md` §4）；`npm run check/test/build/demo` 退出 0，31/31 测试通过；glla 验收审计通过。
+- 未完成：真实 DSH profile 挂载（`dsh.bundle` + `cordis.patch.yml`）联调 + `ctx_knowledge` 服务注册到宿主并人工确认（本机暂无 dsh profile）。
+
 ## 目标
 
 **首版（#8）跨会话知识库**：
