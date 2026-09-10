@@ -214,6 +214,8 @@ export interface AppState {
   focusedPanel: "history" | "activity" | "status" | null;
   /** 活动区（流输出）滚动偏移（距活动区底部行数；0=跟随最新，渲染层 clamp） */
   activityScroll: number;
+  /** 本回合剔除的非打印控制字符计数（appendStream 累计；turn-begin 清零、turn-end 警告） */
+  strippedChars: number;
 }
 
 /** /model 交互选择面板状态：三列列表（provider/model/effort）+ 高亮索引 */
@@ -338,6 +340,7 @@ export function initialState(
     statusColumnScroll: 0,
     focusedPanel: null, // 无焦点；Tab 进入焦点循环
     activityScroll: 0,
+    strippedChars: 0, // 本回合剔除的非打印控制字符计数（turn-begin 清零）
     buffer: [],
     followBottom: true,
     scrollOffset: 0,
@@ -368,6 +371,54 @@ export function initialState(
   };
 }
 
+/** 清理文本中的非打印控制字符（渲染保护）：CRLF/孤立 CR 归一为 LF，
+ *  其余 C0/C1 控制字符（含 \t）剔除；返回清理后文本与被剔除字符数。
+ *  ponytail: 按码点扫描，不处理组合符/零宽字符（宽度原语同样不处理）。 */
+export function sanitizeText(text: string): { text: string; stripped: number } {
+  // 1) 换行符归一：CRLF/孤立 CR → LF（\r 属换行语义，不计入 stripped）
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  // 2) 剔除其余 C0/C1 控制字符（\n 保留；终端遇 \r 回行首抹内容、遇其他控制符
+  //    会乱码或破坏帧布局，统一移除）。完整 ANSI 转义序列（CSI ESC[…、OSC ESC]…BEL/ST）
+  //    是样式/光标控制，属已有功能（渲染着色、/copy 剥离），保留不剔；孤立/残缺序列剔除。
+  let out = "";
+  let stripped = 0;
+  let i = 0;
+  while (i < normalized.length) {
+    const ch = normalized[i]!;
+    if (ch === "\n") {
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === "\x1b") {
+      const rest = normalized.slice(i);
+      const csi = /^\x1b\[[0-9;?]*[ -/]*[@-~]/.exec(rest);
+      if (csi) {
+        out += csi[0];
+        i += csi[0].length;
+        continue;
+      }
+      const osc = /^\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/.exec(rest);
+      if (osc) {
+        out += osc[0];
+        i += osc[0].length;
+        continue;
+      }
+      stripped++; // 孤立/残缺 ESC
+      i++;
+      continue;
+    }
+    const cp = ch.codePointAt(0)!;
+    if (cp < 0x20 || (cp >= 0x7f && cp <= 0x9f)) {
+      stripped++;
+      i++;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return { text: out, stripped };
+}
 /**
  * 追加流式文本。语义：
  *  - 文本中的第一个段落（不含换行符）合并到 buffer 末行（流式续写）
@@ -384,7 +435,10 @@ export function appendStream(
   // 遗留的「推理让位」清理已移除，思考保留显示到本 turn 结束，
   // 由下回 turn-begin 统一清空（活动区瞬态整轮重置）。
   const buffer = state.buffer.length ? [...state.buffer] : [];
-  const parts = text.split("\n");
+  // 渲染保护：剔除非打印控制字符（CRLF/孤立 CR 归一为 LF、其余 C0/C1 移除），
+  // 剔除计数累计入 state.strippedChars，turn-end 时统一警告
+  const { text: clean, stripped } = sanitizeText(text);
+  const parts = clean.split("\n");
   const lastIndex = buffer.length - 1;
   const last = buffer[lastIndex];
   for (let i = 0; i < parts.length; i++) {
@@ -398,7 +452,7 @@ export function appendStream(
   }
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
-  return { ...state, buffer };
+  return { ...state, buffer, strippedChars: state.strippedChars + stripped };
 }
 
 /**
@@ -414,7 +468,7 @@ export function appendNotice(
   // 多行 notice 拆成多行 buffer，否则 wrapLine 把 \n 当普通字符(宽1)会让列宽对不齐，
   // 字词在中间被截断(例如 /quit 在 i 与 t 之间换行)。
   const buffer = state.buffer.length ? [...state.buffer] : [];
-  for (const line of text.split("\n"))
+  for (const line of sanitizeText(text).text.split("\n"))
     buffer.push({ text: line, kind: "notice", ...(tone ? { tone } : {}) });
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
@@ -848,6 +902,11 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "scroll-to-bottom":
         return { ...state, followBottom: true, scrollOffset: 0 };
       case "turn-begin":
+        // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容；
+        // 非打印字符剔除计数按回合清零（turn-end 时警告后不复用旧值）
+        return appendTurnSeparator({ ...state, strippedChars: 0 });
+      case "clear-stripped":
+        return { ...state, strippedChars: 0 };
         // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容
         return appendTurnSeparator(state);
       case "turn-end":
@@ -1214,6 +1273,7 @@ export type StateAction =
   | { type: "scroll-to-bottom" }
   | { type: "turn-begin" }
   | { type: "turn-end" }
+  | { type: "clear-stripped" }
   | { type: "status"; status: Partial<SystemStatus> }
   | { type: "set-theme"; themeId: ThemeId }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }

@@ -20,7 +20,7 @@ import {
   stripAnsi,
   surfaceToBuffer,
 } from "../src/app/commands.ts";
-import { initialState, reduceState } from "../src/app/state.ts";
+import { initialState, reduceState, sanitizeText } from "../src/app/state.ts";
 import {
   metricsFor,
   displayWidth,
@@ -1925,6 +1925,66 @@ test("surfaceToBuffer：仅保留 user/assistant 正文行，历史 assistant �
     { text: "a1", kind: "assistant", final: true },
     { text: "q2", kind: "user", final: undefined },
   ]);
+});
+
+test("append：CRLF/孤立 CR 归一为 LF 再切分，buffer 行不残留 \\r（防终端回车抹掉行内容）", () => {
+  let s = reduceState(initialState(), {
+    type: "append",
+    text: "a\r\nb\rc\nd",
+  });
+  assert.deepEqual(
+    s.buffer.map((l) => l.text),
+    ["a", "b", "c", "d"],
+  );
+  // \r\n 与空段落保留空行语义（段落分隔）
+  s = reduceState(initialState(), { type: "append", text: "p1\r\n\r\np2" });
+  assert.deepEqual(
+    s.buffer.map((l) => l.text),
+    ["p1", "", "p2"],
+  );
+});
+
+test("surfaceToBuffer：多段消息拆成独立 buffer 行，不残留 \\n/\\r", () => {
+  const rows = surfaceToBuffer([
+    { role: "assistant", text: "第一段\r\n第二段\r第三段\n\n第四段" },
+    { role: "user", text: "单行问题" },
+  ]);
+  assert.deepEqual(
+    rows.map((r) => r.text),
+    ["第一段", "第二段", "第三段", "", "第四段", "单行问题"],
+  );
+  assert.ok(
+    rows.every((r) => !r.text.includes("\n") && !r.text.includes("\r")),
+  );
+  // 每段都带 kind/final（assistant 段标 final，user 段不带）
+  assert.equal(rows[0]!.kind, "assistant");
+  assert.equal(rows[0]!.final, true);
+  assert.equal(rows[5]!.kind, "user");
+  assert.equal(rows[5]!.final, undefined);
+});
+
+test("sanitizeText：剔除非打印控制符但保留换行/ANSI 序列，计数正确", () => {
+  // CRLF/孤立 CR → LF；\t/孤立 ESC/其余 C0 剔除并计数
+  const r1 = sanitizeText("a\r\nb\tc\x1b\x00d");
+  assert.equal(r1.text, "a\nbcd");
+  assert.equal(r1.stripped, 3); // \t + 孤立 ESC + \x00
+  // 完整 ANSI CSI/OSC 序列保留（渲染着色功能，/copy 时再剥）
+  const r2 = sanitizeText("\x1b[31m红\x1b[0m字\x1b]52;c;abc\x07");
+  assert.equal(r2.text, "\x1b[31m红\x1b[0m字\x1b]52;c;abc\x07");
+  assert.equal(r2.stripped, 0);
+});
+
+test("append：剔除计数累计入 strippedChars，turn-begin 清零", () => {
+  let s = reduceState(initialState(), {
+    type: "append",
+    text: "a\tb\x00c",
+  });
+  assert.equal(s.strippedChars, 2); // \t 与 \x00
+  s = reduceState(s, { type: "append", text: "正常文本\x1b" });
+  assert.equal(s.strippedChars, 3); // 追加的孤立 ESC
+  // 回合开始清零（计数仅对当前回合有效）
+  s = reduceState(s, { type: "turn-begin" });
+  assert.equal(s.strippedChars, 0);
 });
 
 // --- P0 reducer：history-resume 状态机 ---

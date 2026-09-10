@@ -4,6 +4,7 @@
 // （adapter 调用、paint、notice）留在 App 执行。
 
 import { localTitleFromText } from "./adapter/normalize.ts";
+import { sanitizeText } from "./state.ts";
 import type { ModelCatalog, ModelSelection } from "./adapter/dsh.ts";
 import type { ThemeId } from "../renderer/theme.ts";
 
@@ -66,11 +67,14 @@ export function surfaceToBuffer(
     [];
   for (const m of messages) {
     if (m.role === "user" || m.role === "assistant") {
-      out.push({
-        text: m.text,
-        kind: m.role,
-        final: m.role === "assistant" ? true : undefined,
-      });
+      // 消息可能含多段文本（extractTextBlocks 以 \n join）：拆成独立 buffer 行，
+      // 避免行内残留 \n/\r 被当作普通字符渲染，导致终端中途换行/回车破坏帧布局
+      for (const line of sanitizeText(m.text).text.split("\n"))
+        out.push({
+          text: line,
+          kind: m.role,
+          final: m.role === "assistant" ? true : undefined,
+        });
     }
   }
   return out;
