@@ -6,7 +6,7 @@
 
 | 插件 | 阶段 | 分支 | 状态 | 备注 |
 |------|------|------|------|------|
-| herdr-integration | P1 | feat/herdr-integration | 完成 | 已合入本分支与 main；脚手架已验证 |
+| herdr-integration | P1 | — | 完成 | 已合入本分支与 main；分支已清理；脚手架已验证 |
 | task-engine | P0 | feat/task-engine | 未开始 | 主线最小闭环；worktree 已建 |
 | knowledge-base | P0 | feat/knowledge-base | 未开始 | 并行线，与 task-engine 零依赖；worktree 已建 |
 | goal-contract | P1 | — | 未开始 | 待 task-engine 契约稳定 |
