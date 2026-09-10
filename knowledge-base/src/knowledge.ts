@@ -183,6 +183,24 @@ export class KnowledgeService {
     }
 
     const now = Date.now();
+    // CJK 短词（≤2 字符）porter/trigram 均无法召回，用 LIKE 子串兜底
+    if (hits.size < limit && /[\u4e00-\u9fff]/u.test(opts.query)) {
+      const like = `%${opts.query.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+      const likeRows = this.#db
+        .prepare(
+          `SELECT c.${SOURCE_COLUMNS.replaceAll(", ", ", c.")} FROM chunks c
+           WHERE (c.content LIKE ? ESCAPE '\\' OR c.title LIKE ? ESCAPE '\\')${where}
+           LIMIT ?`,
+        )
+        .all(like, like, ...params, limit - hits.size) as Array<
+        Record<string, unknown>
+      >;
+      for (const row of likeRows) {
+        if (hits.size >= limit) break;
+        const id = Number(row.id);
+        if (!hits.has(id)) hits.set(id, mapHit(row, 0));
+      }
+    }
     const touch = this.#db.prepare(
       "UPDATE chunks SET last_referenced = ? WHERE id = ?",
     );
