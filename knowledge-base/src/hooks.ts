@@ -7,6 +7,16 @@
  * 决策计划（plan/mode、goal/change、todo/write、approval/decided）、会话压缩摘要
  * （compaction/summary）。纯逻辑为可测函数；挂接采用结构化 ctx 形态，便于 mock 与 demo。
  * 事件数据量大时由 put 内部按 ~2K token 分块；重复事件经 content_hash 去重。
+ *
+ * 0.1.5-rc.2 对齐（DSH-CTX-API.md §1/§10）：
+ * - tool/result：摄取 `meta` 私有展示载荷（宿主契约要求 JSON-serializable），
+ *   以 [tool/meta] 段追加进内容；
+ * - compaction/summary：摄取新字段 `shadowedRange{start,end}` 与 `sourceCommandId?`，
+ *   输出 [compaction] 结构化段（旧载荷回落 shadowedSeqs）；
+ * - SessionEvent.ignorable：白名单外类型一律安全跳过（过滤先于写入、无半写）；
+ *   ignorable 仅为词汇外事件的兼容标记，白名单类型带该标记仍正常摄取（不丢数据）；
+ * - SessionSeq/SessionLogOffset：本层按 content_hash 去重、session_id 仅作溯源列，
+ *   不消费事件 seq / 日志偏移 → N/A（0.1.5-rc.2 序号模型拆分对本插件无影响）。
  */
 
 import type { KnowledgeService } from "./knowledge.ts";
@@ -66,8 +76,67 @@ function probeTitle(value: unknown): string | undefined {
 }
 
 /**
+ * 序列化工具私有 meta 载荷（0.1.5-rc.2 `tool/result.meta`，宿主契约要求 JSON-serializable）。
+ * 空对象/空数组视为无载荷；不可序列化（循环引用等）安全丢弃，均返回 null。
+ */
+function serializeToolMeta(meta: unknown): string | null {
+  if (meta === null || meta === undefined) return null;
+  let json: string;
+  try {
+    json = JSON.stringify(meta);
+  } catch {
+    return null;
+  }
+  if (json === undefined || json === "{}" || json === "[]") return null;
+  return json;
+}
+
+/**
+ * compaction/summary 摄取（0.1.5-rc.2）：正文取 summary 文本，追加 [compaction]
+ * 结构化段——compactionId、shadowedRange{start,end}（旧载荷回落 shadowedSeqs）、
+ * sourceCommandId（可选）、shadowedTokenCount、provider/model。
+ * 摘要文本缺失时回落原始 JSON（不丢数据）。
+ */
+function summarizeCompaction(data: unknown): SummarizedEvent | null {
+  if (data === null || typeof data !== "object") {
+    const content = JSON.stringify(data, null, 2);
+    if (content === undefined || content.length === 0) return null;
+    return { content, importance: 3, category: "compaction/summary" };
+  }
+  const record = data as Record<string, unknown>;
+  const text = extractText(record.summary);
+  const lines: string[] = ["[compaction]"];
+  const field = (key: string, value: unknown): void => {
+    if (value !== undefined && value !== null)
+      lines.push(`${key}: ${JSON.stringify(value)}`);
+  };
+  field("compactionId", record.compactionId);
+  // 新字段 shadowedRange{start,end}（0.1.5-rc.2）；旧版本载荷回落 shadowedSeqs。
+  if (record.shadowedRange !== undefined && record.shadowedRange !== null) {
+    field("shadowedRange", record.shadowedRange);
+  } else {
+    field("shadowedSeqs", record.shadowedSeqs);
+  }
+  field("sourceCommandId", record.sourceCommandId);
+  field("shadowedTokenCount", record.shadowedTokenCount);
+  field("provider", record.provider);
+  field("model", record.model);
+  const footer = lines.join("\n");
+  const content =
+    text.length > 0 ? `${text}\n\n${footer}` : JSON.stringify(data, null, 2);
+  return {
+    title: probeTitle(data),
+    content,
+    importance: 3,
+    category: "compaction/summary",
+  };
+}
+
+/**
  * 将一条事件摘要化为可写入知识库的记录；不属于白名单或无可沉淀文本时返回 null。
- * tool/result：失败（isError/error）importance=4，成功=2；其余白名单类型 importance=3。
+ * tool/result：失败（isError/error）importance=4，成功=2，meta 私有载荷以
+ * [tool/meta] 段追加；compaction/summary 走专用分支（shadowedRange 等，0.1.5-rc.2）；
+ * 其余白名单类型 importance=3。
  */
 export function summarizeEvent(
   type: string,
@@ -78,26 +147,42 @@ export function summarizeEvent(
     const text = extractText(data);
     if (text.length === 0) return null;
     const isError = findIsError(data);
+    // 0.1.5-rc.2：meta 私有展示载荷（如 FsDiffMeta{diffs}）追加为 [tool/meta] 段。
+    const meta = serializeToolMeta(
+      data !== null && typeof data === "object"
+        ? (data as Record<string, unknown>).meta
+        : undefined,
+    );
     return {
       title: probeTitle(data),
-      content: text,
+      content: meta !== null ? `${text}\n\n[tool/meta]\n${meta}` : text,
       importance: isError ? 4 : 2,
       category: type,
     };
   }
+  if (type === "compaction/summary") return summarizeCompaction(data);
   const content = JSON.stringify(data, null, 2);
   if (content === undefined || content.length === 0) return null;
   return { title: probeTitle(data), content, importance: 3, category: type };
+}
+
+/** 会话事件最小形态（宿主信封含 type/seq/time/data；本层仅消费 type/data）。 */
+export interface SessionEventLike {
+  type: string;
+  data?: unknown;
+  /**
+   * 0.1.5-rc.2 兼容标记：宿主对词汇外纯信息事件置 true。
+   * 本层白名单判定不受该标记影响——非白名单类型一律安全跳过，
+   * 白名单类型带标记仍正常摄取（保守，不丢数据）。
+   */
+  ignorable?: true;
 }
 
 /** 结构化宿主 ctx（DSH cordis 的最小形态）：仅 session/event 事件。 */
 export interface HookHost {
   on(
     event: "session/event",
-    callback: (
-      session: { id: string },
-      event: { type: string; data?: unknown },
-    ) => void,
+    callback: (session: { id: string }, event: SessionEventLike) => void,
   ): void | (() => void);
 }
 
@@ -131,8 +216,8 @@ export class SessionHooks {
     return typeof disposer === "function" ? disposer : () => {};
   }
 
-  /** 处理单条事件：过滤 → 摘要 → put。 */
-  handle(sessionId: string, event: { type: string; data?: unknown }): void {
+  /** 处理单条事件：过滤 → 摘要 → put。非白名单/畸形事件安全跳过（过滤先于写入，put 事务化不半写）。 */
+  handle(sessionId: string, event: SessionEventLike): void {
     if (event === undefined || event === null || typeof event.type !== "string")
       return;
     if (this.#types !== null && !this.#types.has(event.type)) return;
