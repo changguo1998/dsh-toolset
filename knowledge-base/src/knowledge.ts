@@ -321,4 +321,79 @@ export class KnowledgeService {
       throw error;
     }
   }
+
+  /** 淘汰候选：last_referenced 早于 ttl 且 importance 不高于上限（§12.3 LRU+importance）。 */
+  staleCandidates(opts: {
+    project: string;
+    ttlMs: number;
+    maxImportance?: number;
+    limit?: number;
+    now?: number;
+  }): number[] {
+    const now = opts.now ?? Date.now();
+    const maxImportance = opts.maxImportance ?? 2;
+    const limit = Math.max(1, Math.min(opts.limit ?? 100, 1000));
+    const rows = this.#db
+      .prepare(
+        `SELECT id FROM chunks
+         WHERE project = ? AND last_referenced > 0 AND last_referenced < ? AND importance <= ?
+         ORDER BY last_referenced ASC LIMIT ?`,
+      )
+      .all(opts.project, now - opts.ttlMs, maxImportance, limit) as Array<{
+      id: number;
+    }>;
+    return rows.map((row) => Number(row.id));
+  }
+
+  /** 压缩为单行摘要（内容降为摘要行，保留可检索足迹，供淘汰前降级 §12.3）。 */
+  compress(ids: number[]): number {
+    if (ids.length === 0) return 0;
+    const update = this.#db.prepare(
+      "UPDATE chunks SET content = ?, summary = ? WHERE id = ?",
+    );
+    let changed = 0;
+    for (const id of ids) {
+      const row = this.#db
+        .prepare("SELECT content FROM chunks WHERE id = ?")
+        .get(id) as { content: string } | undefined;
+      if (row === undefined) continue;
+      const line = (
+        row.content.split("\n").find((l) => l.trim().length > 0) ?? ""
+      ).trim();
+      const summaryLine = line.slice(0, 300);
+      changed += Number(update.run(summaryLine, summaryLine, id).changes);
+    }
+    return changed;
+  }
+
+  /** project 级内容体积估算（token，供超预算淘汰触发判断 §12.3）。 */
+  tokenBudgetUsage(project: string): number {
+    const row = this.#db
+      .prepare(
+        "SELECT COALESCE(SUM(LENGTH(content) / 3), 0) AS tokens FROM chunks WHERE project = ?",
+      )
+      .get(project) as { tokens: number };
+    return Number(row.tokens);
+  }
+
+  /** resume top-K 提升：last_referenced 倒序 × importance 加权（§12.4），供注入 L0/回填。 */
+  promote(opts: {
+    project: string;
+    limit?: number;
+    now?: number;
+  }): SearchHit[] {
+    const limit = Math.max(1, Math.min(opts.limit ?? 10, 100));
+    const now = opts.now ?? Date.now();
+    const rows = this.#db
+      .prepare(
+        `SELECT c.${SOURCE_COLUMNS.replaceAll(", ", ", c.")},
+           c.importance * (1.0 / (1.0 + ((? - c.last_referenced) / 86400000.0))) AS score
+         FROM chunks c
+         WHERE c.project = ? AND c.last_referenced > 0
+         ORDER BY score DESC, c.last_referenced DESC
+         LIMIT ?`,
+      )
+      .all(now, opts.project, limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => mapHit(row, Number(row.score)));
+  }
 }
