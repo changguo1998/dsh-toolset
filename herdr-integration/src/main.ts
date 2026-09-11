@@ -3,8 +3,9 @@
 // 职责：
 //   1. 环境变量握手（HERDR_ENV / HERDR_SOCKET_PATH / HERDR_PANE_ID），未启用即空转。
 //   2. 订阅 agent/status：根 agent 的 idle/running 转移 → herdr 的 idle/working。
-//   3. blocked 事件桥：观察型 waterfall 监听 approval/request、user-questions/request——
-//      pending 期间上报 blocked（等待审批 / 等待用户），next() 沉降后解除；监听者
+//   3. blocked 事件桥：观察型 waterfall 监听 approval/request、user-questions/request，
+//      并以 session/event 订阅 turn/end{reason:'blocked'} 作为第三阻塞源（turn/start 解除）——
+//      pending 期间上报 blocked（等待审批 / 等待用户 / 等待输入），沉降后解除；监听者
 //      不认领请求，不影响真实答案者（如 dsh-tui）。注意：观察者必须先于答案者注册，
 //      profile bundles 顺序应将本 bundle 排在 dsh-tui 之前（见 cordis.patch.yml 注释）。
 //   4. 根 agent 出现/会话切换时上报 pane.report_agent_session。
@@ -177,6 +178,36 @@ export function createHerdrPlugin(
    * 观察型 waterfall 阻塞桥：begin → next() → end。
    * await 保证 finally 在请求沉降（answer/reject）后才解除阻塞。
    */
+  /** turn/end.reason 取值（字符串或 {kind} 结构化联合，向后兼容；与 TUI 归一化一致）。 */
+  const reasonKind = (reason: unknown): string | undefined => {
+    if (typeof reason === "string") return reason;
+    if (typeof reason === "object" && reason !== null) {
+      return (reason as { kind?: unknown }).kind as string | undefined;
+    }
+    return undefined;
+  };
+
+  /**
+   * session/event：turn 生命周期 → turn-blocked 阻塞源（第三阻塞源，与 approval/ask-user 共用
+   * 全局 BlockTracker 计数，任一来源 pending 都上报 blocked）。
+   *   - turn/end.data.reason === 'blocked'：进入阻塞（该 turn 被阻塞等待回复）；
+   *   - turn/start：解除上一回合的 turn-blocked（turn 生命周期闭环）。
+   * 生命周期假设：被阻塞的 turn 必然随一个后续 turn/start 重新开始；会话中途放弃不主动解除
+   * （与 pi 原生 approval 长时间 pending 不解除的语义一致）。
+   */
+  const handleSessionEvent = (_session: unknown, event: unknown): void => {
+    const e = event as
+      { type?: unknown; data?: { reason?: unknown } | null } | undefined;
+    if (!e || typeof e.type !== "string") return;
+    if (e.type === "turn/end" && reasonKind(e.data?.reason) === "blocked") {
+      blocks.begin("turn-blocked", "waiting for input");
+      publish(false);
+    } else if (e.type === "turn/start") {
+      blocks.end("turn-blocked");
+      publish(false);
+    }
+  };
+
   const observeBlocked =
     (key: string, label: string) =>
     async (
@@ -211,6 +242,8 @@ export function createHerdrPlugin(
       ) => unknown,
     ),
   );
+
+  unbinds.push(ctx.on("session/event", handleSessionEvent));
 
   // ---- 启动期同步：已存在的根 agent（可能先于本插件创建） ----
   const startupRoots = readRoots();

@@ -1,6 +1,6 @@
 # @dsh-toolset/herdr-integration
 
-DSH（DeepSeek Harness）与 [herdr](https://github.com/Jungod1121/herdr) 面板集成插件（热身插件，零运行时依赖）：agent 状态经 unix socket 上报 herdr 面板，并桥接 blocked 事件（包含 ask-user 提问等待与 approval 审批等待两类阻塞）。
+DSH（DeepSeek Harness）与 [herdr](https://github.com/Jungod1121/herdr) 面板集成插件（热身插件，零运行时依赖）：agent 状态经 unix socket 上报 herdr 面板，并桥接 blocked 事件（包含 ask-user 提问等待、approval 审批等待、turn 阻塞等待三类信号源）。
 
 协议仿 pi 原生扩展（`~/.pi/agent/extensions/herdr-agent-state.ts` / `herdr-ask-user-question.ts`，仅协议对齐、代码重写）：
 
@@ -16,9 +16,10 @@ DSH（DeepSeek Harness）与 [herdr](https://github.com/Jungod1121/herdr) 面板
 - **状态上报**：订阅 `agent/status`（`AgentStatus = 'idle' | 'running'`），根 agent（`ctx.agents.roots()`）转移时上报：
   - `running` → `working`；`idle` → `idle`；无根 agent → `idle`；
   - 启动时同步既有根 agent 并上报 `pane.report_agent_session`（首次 `session_start_source: startup`；会话切换如 resume 再次上报）。
-- **blocked 事件桥（所有阻塞都上报 blocked）**：观察型 waterfall 监听，pending 期间上报 `blocked`、沉降（answer/reject/cancel）后解除：
+- **blocked 事件桥（所有阻塞都上报 blocked）**：观察型 waterfall 监听 + `session/event` 订阅，pending 期间上报 `blocked`、沉降后解除：
   - `approval/request` → `blocked`（message `waiting for approval`）；
   - `user-questions/request`（ask_user_question 工具）→ `blocked`（message `waiting for user`）；
+  - `session/event` → `turn/end`（`reason` 为 `blocked`，字符串或 `{kind:'blocked'}` 联合形）→ `blocked`（message `waiting for input`），由下一次 `turn/start` 解除（turn 生命周期闭环）；
   - 多来源并发阻塞各自计数，全部解除才释放；blocked 优先于 working（与 pi 原生 `desiredState` 语义一致）。
 
 ## 作为 bundle 挂载
