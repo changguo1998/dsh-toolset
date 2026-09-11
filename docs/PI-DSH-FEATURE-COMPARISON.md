@@ -1,14 +1,14 @@
 # pi 已安装功能 → dsh 迁移调研与对比（细粒度）
 
 > 用途：为「把 pi-coding-agent 中已安装的功能迁移到 dsh-toolset」提供基线。**对比单位 = 功能（子功能）而非包**；含拆分建议与 dsh 落点。不含实现方案。
-> 调研日期：2026-09-09
+> 调研日期：2026-09-09（基线再核：2026-09-11 更新至 dsh-v0.1.5-rc.2）
 >
 > 对比基线：
 >
 > - **pi 侧**：`~/.pi/agent/npm/package.json`（依赖）+ `~/.pi/agent/settings.json`（启用）+ 本会话实际暴露的工具面
-> - **dsh 侧**：`deepseek-harness` **`dsh-v0.1.2-rc.1`**（commit `a66e470204`，256 包，包存在性经 `git ls-tree a66e470204` 核实）+ 本仓库 `TUI/` 自研实现
+> - **dsh 侧**：`deepseek-harness` **`dsh-v0.1.5-rc.2`**（commit `fb2c4b9e69`，274 包，包存在性经 `git ls-tree fb2c4b9e69` 核实）+ 本仓库 `TUI/` 自研实现
 >
-> 注：本地 clone 现为 `0.1.5-alpha.1`，按约定以 **0.1.2-rc.1** 为参考。子功能拆分依据：包描述 + skills 目录 + 工具注册；`描述为空`的包（如 secure-extension）标注「源码待核对」。
+> 子功能拆分依据：包描述 + skills 目录 + 工具注册；`描述为空`的包（如 secure-extension）标注「源码待核对」。
 
 ## §1 pi 已安装功能清单（包级）
 
@@ -41,11 +41,13 @@
 | 原生扩展（非 npm） | — | percent-compact / rate-guard / notify-sound / lock-default-model / herdr-\*（见 3.7） | ✅ |
 | skills ×9 / themes / Designer / model-tiers | — | 内容型资产（见 3.6） | ✅ |
 
-## §2 dsh 0.1.2-rc.1 已实现功能基线
+## §2 dsh 0.1.5-rc.2 已实现功能基线
 
-> 能力域均已经 git 核实存在；细节契约见 `DSH-CTX-API.md`。0.1.2 确认**没有**的：`str-replace-editor`、`session-format-*`、`http-proxy`、`timeout-policy`、ast-grep、代码索引、记忆库、auditor、跨会话 broker。
+> 能力域均已经 git 核实存在；细节契约见 `DSH-CTX-API.md`（基线 dsh-v0.1.5-rc.2）。0.1.5 确认**没有**的：ast-grep、代码索引、记忆库、auditor、跨会话 broker。
+>
+> **0.1.5-rc.2 相对 0.1.2-rc.1 新增**（256→274 包）：`tool-str-replace-editor`（模型侧读/建/字面替换/行插入工具，**无 LINE:HASH 锚定**）、`session-format` + catalog + v0→v1/v1→v2/v2→v3 迁移器（`SESSION_FORMAT_VERSION` 0→3）、`http-proxy`（进程级出站代理）、`timeout-policy`（按工具 deadline，`TOOL_TIMEOUT`）、`resources`/`file-upload`/`workspace-files`/`tool-present`/`chunked-list`（浏览器端资源模型、文件上传、工作区文件）、`ui-dockkit`/`ui-sidebar-*`/`ui-open-in-app`/`ui-workflow-run`/`ui-goal`（浏览器端 UI 面板）；会话事件 `assistant/chunk`→`assistant/attempt`、`tool/code-dispatch*`→`tool/ptc-dispatch*`，默认模型 DeepSeek V41 Flash（详见 `DSH-CTX-API.md` §10）。
 
-| 能力域 | 0.1.2-rc.1 代表包 | 说明 |
+| 能力域 | 0.1.5-rc.2 代表包 | 说明 |
 |--------|------------------|------|
 | 会话与持久化 | session、session-persistence(jsonl)、session-checkpoint-policy、session-snapshot | 事件源、JSONL、checkpoint |
 | 会话检索/标题 | session-query(+sqlite)、session-title(+llm)、session-stats | FTS5 历史检索；LLM 命名 |
@@ -71,13 +73,13 @@
 
 状态图例：✅ 已有等效｜🔶 部分覆盖（有基础，缺关键面）｜❌ 缺口（迁移候选）｜➖ 不适用。
 
-> 迁移策略建议：dsh 侧以「0.1.2-rc.1 已有插件 + 新插件」组合实现；**glla 建议拆 4 项并与 dynamic-workflow 结合、分开实现**（见 3.1 与 §4）。
+> 迁移策略建议：dsh 侧以「0.1.5-rc.2 已有插件 + 新插件」组合实现；**glla 建议拆 4 项并与 dynamic-workflow 结合、分开实现**（见 3.1 与 §4）。
 
 ### 3.1 任务控制类（glla、dynamic-workflows）
 
 **pi-goal-list-loop-audit → 拆 4 项**（用户示例）：
 
-| 子功能 | pi 载体 | dsh 0.1.2-rc.1 对应 / 差距 | 状态 |
+| 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
 | 1) **goal** 目标起草与契约 | propose_goal_draft / propose_task_list（objective、verificationContract、interview 起草、确认对话框） | goal + command-goal + tool-goal + goal-round-driver（事件源目标已具备）；**缺「interview 起草/验证契约条款」形态** | 🔶 |
 | 2) **list** 审计任务队列 | list_add / list_activate / list_status（pool 非 FIFO、逐项激活、每项独立可审计） | 无任务队列插件；近似 goal + jobs/todo（均非「队列+逐项激活」语义） | ❌ |
@@ -88,12 +90,12 @@
 
 **pi-dynamic-workflows → 拆 7 项**：
 
-| 子功能 | pi 载体 | dsh 0.1.2-rc.1 对应 / 差距 | 状态 |
+| 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
 | 1) fan-out 大规模编排 | workflow 工具扇出到数百子代理 | workflow + workflow-worker-thread + tool-workflow + experimental-agent-team（implicit-root DAG） | 🔶 |
 | 2) 真实模型路由 | 按子代理/流程路由模型 | agent-default-model + llm 面 + model/selection 事件；**缺「工作流内 per-step 路由」** | 🔶 |
 | 3) token/成本核算 | token/cost accounting | token-meter 计量；**无成本核算** | 🔶 |
-| 4) resume 断点续跑 | 工作流可恢复 | session 事件源可续 + workflow-run 节点（0.1.2 client 侧需核对） | 🔶 |
+| 4) resume 断点续跑 | 工作流可恢复 | session 事件源可续；0.1.5 有 client/ui-workflow-run（浏览器端面板，进程内工作流仍以 workflow + workflow-worker-thread 承载） | 🔶 |
 | 5) git-worktree 隔离 | 每 fan-out 独立 worktree | `~/.dsh/plugins/dsh-git-worktree`（dsh-toolset 自研，**仅有 disabled-git-hooks，需补完整隔离**） | 🔶 |
 | 6) /workflows 交互 TUI | /workflows 面板、成员披露 | 无（TUI 无 workflows 面板） | ❌ |
 | 7) 模板化 pattern（deep-research/adversarial-review/code-review/multi-perspective/codebase-audit） | workflow-patterns skill | 无现成模板；可做成 workflow 脚本内容 | ❌ |
@@ -102,7 +104,7 @@
 
 **context-mode → 拆 6 项**：
 
-| 子功能 | pi 载体 | dsh 0.1.2-rc.1 对应 / 差距 | 状态 |
+| 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
 | 1) 沙箱代码执行 | ctx_execute / ctx_execute_file | code-runtime + code-runtime-worker-thread | ✅ |
 | 2) FTS5 知识库（索引+检索） | ctx_index / ctx_search | storage-sqlite + session-query-sqlite；**目标是「跨会话统一知识库」，session-query 仅会话内** | 🔶 |
@@ -113,7 +115,7 @@
 
 **pi-hermes-memory → 拆 6 项**：
 
-| 子功能 | pi 载体 | dsh 0.1.2-rc.1 对应 / 差距 | 状态 |
+| 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
 | 1) 持久记忆 CRUD（token-aware policy-only） | memory_add/replace/remove | storage（KV 域）；**无记忆策略语义** | 🔶 |
 | 2) 记忆检索（target/category/项目过滤） | memory_search | 无「记忆库」检索（session-query 是会话历史） | ❌ |
@@ -124,7 +126,7 @@
 
 **@hypabolic/pi-hypa → 拆 4 项**：
 
-| 子功能 | pi 载体 | dsh 0.1.2-rc.1 对应 / 差距 | 状态 |
+| 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
 | 1) shell 输出确定性压缩 | hypa_shell（改写命令、本地压缩、可恢复证据） | output-retention + spill（保留/落盘 ≠ 压缩编码） | 🔶 |
 | 2) 上下文感知文件读取 | hypa_read（smart/full/outline/signatures/pruned） | tool-fs + tool-lsp（**无文件大纲/签名模式**） | 🔶 |
@@ -135,7 +137,7 @@
 
 ### 3.3 交互类（ask-user-question、todo、autoname、intercom）
 
-| 子功能 | pi 载体 | dsh 0.1.2-rc.1 对应 / 差距 | 状态 |
+| 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
 | 结构化问卷（2-4 选项/preview/multiSelect） | ask_user_question | user-questions + tool-ask-user（协议细节需对齐） | ✅ |
 | todo 列表（事件源快照 + live 覆盖层） | todo | tool-todo（事件源会话日志） | ✅ |
@@ -148,16 +150,16 @@
 
 **pi-readseek → 拆 4 项**：
 
-| 子功能 | pi 载体 | dsh 0.1.2-rc.1 对应 / 差距 | 状态 |
+| 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
-| 1) LINE:HASH 锚定读写/编辑 | readSeek_digest/edit（行:哈希锚点） | tool-fs + fs-observation-policy（version-guarded，**无哈希锚）**；0.1.2 无 str-replace-editor | 🔶 |
+| 1) LINE:HASH 锚定读写/编辑 | readSeek_digest/edit（行:哈希锚点） | 0.1.5 有 tool-str-replace-editor（字面替换/行插入，**无 LINE:HASH 锚定**）+ tool-fs + fs-observation-policy（version-guarded） | 🔶 |
 | 2) AST 结构搜索 | readSeek_search（ast-grep 风格） | tool-fs-search（ripgrep 文本）；**无 AST 搜索** | ❌ |
 | 3) 符号定义/引用/重命名 | readSeek_def/refs/rename | tool-lsp（goToDefinition/findReferences） | ✅ |
 | 4) 文档结构视图（PDF 等） | readSeek_view | 无 | ❌ |
 
 **pi-lens → 拆 4 项**：
 
-| 子功能 | pi 载体 | dsh 0.1.2-rc.1 对应 / 差距 | 状态 |
+| 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
 | 1) LSP 诊断/导航 | lsp_diagnostics / lsp_navigation | lsp + lsp-stdio + tool-lsp | ✅ |
 | 2) 实时 lint/格式化/类型反馈（inlay/mark） | lens_diagnostics / lens_diagnostic_mark | lsp 诊断面（无独立 lint 插件，可经 LSP 语义） | 🔶 |
@@ -166,7 +168,7 @@
 
 **pi-web-access → 拆 5 项**：
 
-| 子功能 | pi 载体 | dsh 0.1.2-rc.1 对应 / 差距 | 状态 |
+| 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
 | 1) 联网搜索（多 provider 20+） | web_search | web-search-deepseek/exa/perplexity（provider 少） | 🔶 |
 | 2) URL 抓取/内容提取 | fetch_content / get_search_content | web-fetch-http | ✅/🔶 |
@@ -176,7 +178,7 @@
 
 **其余工具类**：
 
-| 子功能 | pi 载体 | dsh 0.1.2-rc.1 对应 / 差距 | 状态 |
+| 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
 | MCP 客户端连接/工具注册 | mcp | mcp-client | ✅ |
 | MCP 脚本化 | mcpScript（mcp-scripting skill） | mcp-client 无脚本界面 | 🔶 |
@@ -186,7 +188,7 @@
 
 ### 3.5 代理与安全类（subagents、advisor、defender、secure-extension）
 
-| 子功能 | pi 载体 | dsh 0.1.2-rc.1 对应 / 差距 | 状态 |
+| 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
 | 单 agent 委派 | subagent | tool-subagent（多后端） | ✅ |
 | 并行/监督多 agent 工作流 | subagent_supervisor / subagent_wait | workflow + tool-subagent-control | ✅/🔶 |
@@ -199,7 +201,7 @@
 
 ### 3.6 UI、模式与内容资产类（powerline、ponytail、simplify、notify-sound、skills、themes、Designer）
 
-| 子功能 | pi 载体 | dsh 0.1.2-rc.1 对应 / 差距 | 状态 |
+| 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
 | 状态栏分段（model/thinking/path/git/queue/token/cost/context%/time） | pi-powerline-footer | **TUI 状态区已实现**（环境/LLM 组） | ✅ |
 | 可配置 layout/placement/separator | 同包 | TUI 自有配置 | ✅ |
@@ -213,7 +215,7 @@
 
 ### 3.7 原生扩展与工程类
 
-| 子功能 | pi 载体 | dsh 0.1.2-rc.1 对应 / 差距 | 状态 |
+| 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
 | 自动压缩触发策略（30%×窗口/128K） | percent-compact.ts | compaction + compaction-basic + tool-result-pruner + command-compact（阈值可参数化） | ✅ |
 | provider 速率退避/守卫 | rate-guard.ts | llm-retry | 🔶 |
@@ -260,4 +262,4 @@ ask-user-question、todo、会话命名、subagents 委派、MCP 客户端、沙
 
 pi-dsh-minimal（反向桥）、herdr 集成、pi 内部补丁、配置数据。
 
-> 后续建议：按 §4.3 优先级立项；**glla 按 goal/list/loop/audit 拆 4 项并复用 dynamic-workflow 机制分开实现**（复用 dsh-goal / workflow / schedule / agent-team，新插件只做 gap 面）。所有新增实现以 `DSH-CTX-API.md`（0.1.2-rc.1 契约）对齐宿主接口。
+> 后续建议：按 §4.3 优先级立项；**glla 按 goal/list/loop/audit 拆 4 项并复用 dynamic-workflow 机制分开实现**（复用 dsh-goal / workflow / schedule / agent-team，新插件只做 gap 面）。所有新增实现以 `DSH-CTX-API.md`（0.1.5-rc.2 契约）对齐宿主接口。

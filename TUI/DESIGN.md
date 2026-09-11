@@ -203,11 +203,11 @@ interface Renderer {
 - components 清单落实为 TextInput / ScrollView / ApprovalPrompt / ModelPicker / QuestionPrompt
 - adapter 接口化，ctx API 未确认前可 mock 替换
 
-## 能力缺口 Backlog（2026-09-03 首版；2026-09-04 复核：基准仍为 v0.1.1-rc.2 = 48 项，暂不升级 0.1.2）
+## 能力缺口 Backlog（2026-09-03 首版；2026-09-04 复核；基线更新：dsh-v0.1.5-rc.2 = 53 项）
 
-对照官方 `deepseek-harness` v0.1.1-rc.2（= 本机安装宿主）的接口与功能盘点。8 个插件可消费服务（sessions / agents / approval / userQuestions / llm / commands / sessionQuery / agentDefaultModel）已全部接入；缺口集中在**事件可视化与交互能力**（rc.2 事件词汇表 48 项，以该 tag 的 `packages/core/session/src/known-event-types.ts` 为准）。优先级依据：用户感知频率 × 实现成本（现有 DshEvent / reducer / notice / 状态栏通道可复用程度）。
+对照官方 `deepseek-harness` dsh-v0.1.5-rc.2（= 本机安装宿主）的接口与功能盘点。8 个插件可消费服务（sessions / agents / approval / userQuestions / llm / commands / sessionQuery / agentDefaultModel）已全部接入；缺口集中在**事件可视化与交互能力**（事件词汇表 53 项，以该 tag 的 `packages/core/session/src/known-event-types.ts` 为准）。优先级依据：用户感知频率 × 实现成本（现有 DshEvent / reducer / notice / 状态栏通道可复用程度）。
 
-- 事件词汇表以 rc.2 的 48 项为准；2026-09-04 与最新 master（52 项）核对，差异仅 3 项（`model/selection`、`subagent/model-selection-policy`、`session-log-deepseek/delivery-accepted`）——**因暂不升级 0.1.2，标为「master 前瞻」不入当前分级**（见下方 P3 末尾）。
+- 事件词汇表以 dsh-v0.1.5-rc.2 的 53 项为准（0.1.1-rc.2=48 → 0.1.2-rc.1=52 → 0.1.5-rc.2=53；`model/selection`、`subagent/model-selection-policy`、`session-log-deepseek/delivery-accepted` 三项早期文档称「master 前瞻」，0.1.2-rc.1 起已进正式词汇表，见下方 P3 末尾）。
 - `compaction/summary` / `compaction/prune` / `agent/inbox/spliced` / `team/*` 等在 rc.2 已存在，此前分级未单列，本次补齐；其中 `agent/inbox/spliced` **已用于历史重建**（`normalizeHistoryMessages`，当前 dsh 内存会话承载消息的形态）。
 - 优先级依据：用户感知频率 × 实现成本（现有 DshEvent / reducer / notice / 状态栏通道可复用程度）。
 
@@ -250,10 +250,10 @@ interface Renderer {
   - **触发时机**（出现任一再做，当前 deferred）：安全事故复盘、审批问题诊断（asked 有无 / decided 超时 vs rejected）、ask/never 策略调优（批准率）、多会话事后审计。
 - **特性级（需产品决策）排期决策（2026-09-16）**：**session fork（`sessions.fork`）→ 待做（下个功能批次）**；多会话并行 → 维持 P0 边界排除（单活跃会话设计，不做）；feedback 评价 → deferred（低频）。
 - **TUI 自身渲染边界（排期决策 2026-09-16）**：**thinking 展开/收起 → 明确不做**（用户不喜欢看推理过程）；嵌套 markdown、上下标 → deferred（低频）
-- **master 前瞻（rc.2 宿主不产生；暂不升级 0.1.2，升级后再评估）**：
-  - `model/selection` — 官方模型切换回放（届时可与 TUI /model 联动）
-  - `subagent/model-selection-policy` — 子代理模型策略
-  - `session-log-deepseek/delivery-accepted` — 内部日志交付确认
+- **0.1.2 起新增事件（已进 0.1.5-rc.2 词汇表；TUI 未接入渲染，评估后决定）**：
+  - `model/selection` — 官方模型切换回放（排期：下个功能批次与 TUI /model 联动）
+  - `subagent/model-selection-policy` — 子代理模型策略（低频）
+  - `session-log-deepseek/delivery-accepted` — 内部日志交付确认（log-only，无需界面）
 
 ## P1 实现计划（2026-09-03，三阶段，每阶段一个可审计 goal）
 

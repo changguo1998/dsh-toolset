@@ -111,4 +111,4 @@
 - `error: true`（旧失败标记）仍驱动的输入栏红色属输入状态子系统，不在本条 notice 行分级内，本次保留未动。
 - demo/mock（`demo/mockAdapter.ts`）为演示夹具，随真实通道同步，不单独列入本表。
 - 对账口径：以 **tone 调用点**（notice()/appendToolLine/appendNotice/带 tone 的 emit）为粒度全部入表；command/help 等通知的**正文内容**（如 /help 各条、命令错误包装文本）属已列 notice 的内容，不单列；历史面板 error 态、stderr 诊断、面板标题、工具参数摘要非 notice 通道，不在表内。
-- DSH 宿主版本仍锚定 `dsh-v0.1.2-rc.1`，未升级。
+- DSH 宿主版本已随 `DSH-CTX-API.md` 基线更新至 `dsh-v0.1.5-rc.2`（tone 分级语义不变，本表 2026-09-09 核对结论仍适用；0.1.5 起 `code-dispatch*` → `ptc-dispatch*` 更名）。
