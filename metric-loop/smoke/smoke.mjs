@@ -212,8 +212,9 @@ async function ensureBuild() {
 // --- 3. 一次 headless 会话（一轮） ---
 async function runSession(stateDir, task, tag) {
   step(`headless ${tag}`);
+  let result;
   try {
-    await run("dsh", ["--profile", PROFILE, task], {
+    result = await run("dsh", ["--profile", PROFILE, task], {
       cwd: path.join(tmp, "task"),
       env: {
         ...process.env,
@@ -227,8 +228,17 @@ async function runSession(stateDir, task, tag) {
     );
     return null;
   }
-  ok("exit 0");
-  return { stdout: "", stderr: "" };
+  // 断言宿主 stderr 含注册行（bundle apply 真实执行证据，每次启动均须出现）
+  if (
+    !assert(
+      result.stderr.includes("[dsh-metric-loop] 已注册 metric_loop 工具"),
+      `stderr 缺少注册行（bundle apply 未执行？）stderr 尾部：${result.stderr.slice(-300)}`,
+    )
+  ) {
+    return null;
+  }
+  ok("exit 0 + 注册行");
+  return result;
 }
 
 // --- 4. 状态文件断言 ---
