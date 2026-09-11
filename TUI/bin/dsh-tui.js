@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const PROFILE = process.env.DSH_TUI_PROFILE ?? "dsh-toolset-tui";
+const PROFILE = process.env.DSH_TUI_PROFILE ?? "fff";
 const PACKAGE = "@dsh-toolset/dsh-tui";
 const OWN_NAME = "@dsh-toolset/dsh-tui";
 

@@ -67,9 +67,9 @@ task-engine/
 - **审批 turn-enclosed**：human 级验收只在工具 `execute`（open turn 内）发起 `ctx.approval.request`，满足 DSH 审计对约束；失败/无人应答/抛错一律 fail-closed。
 - **abort 语义**（turn/end reason=aborted）：宿主中止 turn 后进程可终止；重启后 `resumeFromSnapshot` 为每个在途 active 帧补记 `plan/frame-interrupted`，回收为 pending、不增 `retryCount`，执行器可无缝继续（依赖宿主配置 `snapshotPath` 持久化事件流，未配置时纯内存运行）。
 
-## profile 挂载（部署到 dsh-toolset-tui）
+## profile 挂载（部署到 fff）
 
-在 `~/.dsh/profiles/dsh-toolset-tui/`：
+在 `~/.dsh/profiles/fff/`：
 
 1. `package.json` 的 `dependencies` 增加 `"@dsh-toolset/dsh-task-engine": "link:<本包绝对路径>"`，
    `dsh.profile.bundles` 增加 `"@dsh-toolset/dsh-task-engine"`；
@@ -80,7 +80,7 @@ task-engine/
   name: '@dsh-toolset/dsh-task-engine'
 ```
 
-1. 构建产物经 symlink 实时可见，直接 `dsh --profile dsh-toolset-tui` 加载（无需 `pnpm install`；勿用 `file:` 依赖）。
+1. 构建产物经 symlink 实时可见，直接 `dsh --profile fff` 加载（无需 `pnpm install`；勿用 `file:` 依赖）。
 
 ## 已知边界（v2）
 

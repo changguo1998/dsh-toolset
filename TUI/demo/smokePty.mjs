@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // demo/smokePty.mjs — 阶段 3 真实 DSH PTY 冒烟（happy path）
 //
-// 用真实 `dsh --profile dsh-toolset-tui`（PTY 由 `script` 分配）建一个真机会话，
+// 用真实 `dsh --profile fff`（PTY 由 `script` 分配）建一个真机会话，
 // 自动喂一条要求跑 bash 的提示词，限时轮询会话输出并断言：
 //   - 工具结果行「✓ <detail>」出现（工具行已去前缀图标，以结果行为证）→ 阶段 2 工具行渲染经真实链路生效
 //   - 状态栏 usage「ctx <…> / cache <…%>」出现 → turn 结束状态栏 usage 生效
@@ -19,7 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const PROFILE = process.env.DSH_PROFILE ?? "dsh-toolset-tui";
+const PROFILE = process.env.DSH_PROFILE ?? "fff";
 const PROMPT =
   process.env.SMOKE_PROMPT ??
   "请调用 bash 工具运行 pwd 并展示输出结果（本回合必须真实调用一次 bash 工具），然后结束回复。";

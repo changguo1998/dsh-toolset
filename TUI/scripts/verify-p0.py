@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P0 会话生命周期真机验证（两阶段 PTY 驱动真实 dsh + dsh-toolset-tui profile）。
+"""P0 会话生命周期真机验证（两阶段 PTY 驱动真实 dsh + fff profile）。
 
 覆盖：
 - RESUME_PASS：阶段 A 先创建 identified 目标会话（消息带 id、优雅退出落盘）；
@@ -12,6 +12,7 @@
 用法：python3 TUI/scripts/verify-p0.py
 退出码：0 = 全部 PASS；1 = 任一 FAIL；2 = 环境/脚本错误。
 """
+
 from __future__ import annotations
 
 import base64
@@ -24,17 +25,17 @@ import subprocess
 import sys
 import time
 
-PROFILE = os.environ.get("DSH_TUI_PROFILE", "dsh-toolset-tui")
+PROFILE = os.environ.get("DSH_TUI_PROFILE", "fff")
 CWDDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # TUI/
 SESSIONS_ROOT = os.path.expanduser("~/.dsh/sessions")
 MODEL_ROUND = 20.0  # 阶段 A：消息发出后等模型消费一轮的预算
-START_TIMEOUT = 180.0  # 阶段 B 等待 resume + 模型回复正文落到 buffer 的预算（/copy 期间周期重试）
+START_TIMEOUT = (
+    180.0  # 阶段 B 等待 resume + 模型回复正文落到 buffer 的预算（/copy 期间周期重试）
+)
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[@-Z\\-_]")
 OSC52_RE = re.compile(rb"\x1b]52;c;[A-Za-z0-9+/=]*\x07")
-LIST_LINE_RE = re.compile(
-    r">?\s*\d{2}-\d{2} \d{2}:\d{2}\s+((?:tui-)?[0-9a-f]{4,12})\b"
-)
+LIST_LINE_RE = re.compile(r">?\s*\d{2}-\d{2} \d{2}:\d{2}\s+((?:tui-)?[0-9a-f]{4,12})\b")
 TITLE_RE = re.compile(r"历史会话（\d+）")
 
 
@@ -125,7 +126,7 @@ def panel_rows(s: str) -> list[str]:
     marks = list(TITLE_RE.finditer(s))
     if not marks:
         return []
-    tail = s[marks[-1].end():]
+    tail = s[marks[-1].end() :]
     rows: list[str] = []
     # 列表行之间可能存在空行（面板 body 交替帧），仅非空且非列表行才是面板结束
     for line in tail.splitlines():
@@ -192,7 +193,9 @@ def run_tui_phase(
                 p.send("\r")
                 if not p.want("已切换到会话", 25):
                     return target_used, diag + [
-                        "FAIL: resume 未出现「已切换到会话」（尾部：\n" + p.s[-400:] + "\n)"
+                        "FAIL: resume 未出现「已切换到会话」（尾部：\n"
+                        + p.s[-400:]
+                        + "\n)"
                     ]
             # resume 为原会话语义（resumeSessionId == 返回 agent.session.id），
             # 断言落盘目标即选中目标；不再依赖 adapter 诊断行
@@ -218,9 +221,9 @@ def run_tui_phase(
                     got_osc = True
                     # 载荷校验：base64 解码后须为非空纯文本（无 ANSI 控制序列）
                     try:
-                        payload = base64.b64decode(m.group(0).split(b";c;")[1][:-1]).decode(
-                            "utf-8", "replace"
-                        )
+                        payload = base64.b64decode(
+                            m.group(0).split(b";c;")[1][:-1]
+                        ).decode("utf-8", "replace")
                     except Exception:
                         payload = ""
                     if payload.strip() and "\x1b" not in payload:
@@ -235,7 +238,9 @@ def run_tui_phase(
             with open(dump, "w") as f:
                 f.write(p.s[-4000:])
             return target_used, diag + [
-                f"FAIL: 未捕获 /copy 的 OSC52（PTY 尾部已存 {dump}：\n" + p.s[-500:] + "\n)"
+                f"FAIL: 未捕获 /copy 的 OSC52（PTY 尾部已存 {dump}：\n"
+                + p.s[-500:]
+                + "\n)"
             ]
         osc = "COPY_OSC_PASS" if got_osc else "COPY_OSC_FAIL"
 
@@ -320,9 +325,7 @@ def main() -> int:
         resume_pass = True
         print(f"RESUME_OK：探测文本落入续写会话 {probe_sid}（目标 {target_sid}）")
     else:
-        print(
-            f"FAIL: 探测文本落入 {probe_sid}，adapter 声明的续写会话为 {real_sid}"
-        )
+        print(f"FAIL: 探测文本落入 {probe_sid}，adapter 声明的续写会话为 {real_sid}")
 
     copy_pass = False
     for line in diag_b:
