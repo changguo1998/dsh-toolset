@@ -5,9 +5,9 @@
 //   （mechanical 命令退出码 + human 审批链【先拒后批，证明打回重试】），
 //   join 续体逐级向上合取复核，最终整树 done。非交互、自断言、退出码收尾。
 
-import { TaskEngine } from "../src/engine.ts";
+import { TaskEngine, resumeFromSnapshot } from "../src/engine.ts";
 import { createTools } from "../src/tools.ts";
-import type { NestedTaskItem } from "../src/types.ts";
+import type { ChildSpec, NestedTaskItem } from "../src/types.ts";
 
 const log = (s: string): void => {
   process.stdout.write(`[demo] ${s}\n`);
@@ -186,6 +186,264 @@ log("最终嵌套任务树：");
 renderTree(engine);
 const snap = engine.snapshotText();
 check("快照可序列化且含 root-created 事件", snap.includes("plan/root-created"));
+
+// —— 第二迭代演示（BACKLOG #5/#13、§17.2、turn/end abort）——
+
+// 演示 8：fan-out 有界并发（maxConcurrent=2，两个 worker 并发，第三个等位）
+log("[演示 8] fan-out 有界并发：maxConcurrent=2");
+const fan = new TaskEngine({
+  root: {
+    id: "root",
+    title: "并行构建",
+    spec: "三个独立模块并行构建",
+    acceptance: [
+      {
+        id: "f-mech",
+        check: "三模块均产出",
+        level: "mechanical",
+        command: "true",
+      },
+    ],
+  },
+  gate: { maxConcurrent: 2 },
+  runCommand,
+});
+{
+  const r = await fan.decompose("root", [
+    {
+      id: "w1",
+      title: "模块 A",
+      spec: "构建模块 A",
+      acceptance: [
+        { id: "w1-a", check: "A 产出", level: "mechanical", command: "true" },
+      ],
+      needDecompose: false,
+      coverage: { "f-mech": ["w1"] },
+    },
+    {
+      id: "w2",
+      title: "模块 B",
+      spec: "构建模块 B",
+      acceptance: [
+        { id: "w2-a", check: "B 产出", level: "mechanical", command: "true" },
+      ],
+      needDecompose: false,
+      coverage: { "f-mech": ["w2"] },
+    },
+    {
+      id: "w3",
+      title: "模块 C",
+      spec: "构建模块 C",
+      acceptance: [
+        { id: "w3-a", check: "C 产出", level: "mechanical", command: "true" },
+      ],
+      needDecompose: false,
+      coverage: { "f-mech": ["w3"] },
+    },
+  ]);
+  check("fan-out decompose 挂树", r.ok === true);
+  const t1 = fan.nextReady();
+  const t2 = fan.nextReady();
+  check("前两个 worker 可并发 claim", t1 === "w1" && t2 === "w2");
+  check("第三 worker 被并发上限挡住", fan.nextReady() === undefined);
+  check("active 帧数 = 2", fan.activeCount() === 2);
+  // worker 1 完成，释放容量
+  fan.implement("w1", "A 产出");
+  await fan.stop("w1");
+  check("worker 1 完成后释放容量", fan.activeCount() === 1);
+  const t3 = fan.nextReady();
+  check("worker 3 获得空位", t3 === "w3");
+  fan.implement("w2", "B 产出");
+  fan.implement("w3", "C 产出");
+  // 两个 worker 并发 stop
+  const [s2, s3] = await Promise.all([fan.stop("w2"), fan.stop("w3")]);
+  check("两个 worker 并发 stop 均通过", s2.ok === true && s3.ok === true);
+  check("fan-out 整树完成", fan.isComplete() === true);
+  log("  fan-out 完成：w1/w2/w3 并行，join 根帧");
+}
+
+// 演示 9：语义级验收（独立 audit run + outputSchema → structured 裁决）
+log("[演示 9] 语义验收：audit hook + outputSchema");
+const aud = new TaskEngine({
+  root: {
+    id: "root",
+    title: "研究报告",
+    spec: "产出一份研究报告",
+    acceptance: [],
+  },
+  runCommand,
+  audit: async (req) => {
+    // 模拟独立 audit run：检查结论与产出一致性
+    const consistent = (req.result ?? "").includes("结论一致");
+    return {
+      pass: consistent,
+      feedback: consistent ? undefined : "结论与产出不一致",
+      structured: {
+        verdict: consistent ? "pass" : "fail",
+        score: consistent ? 0.9 : 0.2,
+      },
+    };
+  },
+});
+{
+  const r = await aud.decompose("root", [
+    {
+      id: "s1",
+      title: "撰写报告",
+      spec: "撰写研究报告",
+      acceptance: [
+        {
+          id: "s1-a",
+          check: "语义审查：结论与产出一致",
+          level: "semantic",
+          outputSchema: {
+            type: "object",
+            properties: { verdict: { type: "string" } },
+          },
+        },
+      ],
+      needDecompose: false,
+      coverage: {},
+    },
+  ]);
+  check("audit 场景 decompose 挂树", r.ok === true);
+  aud.nextReady();
+  // 首次：产出不一致 → audit 不通过
+  aud.implement("s1", "初稿");
+  const failStop = await aud.stop("s1");
+  check("audit 不通过 → 带反馈打回", failStop.ok === false);
+  log(`  audit 反馈：${String(failStop.feedback)}`);
+  // 修正后重做
+  aud.implement("s1", "修订稿，结论一致");
+  const passStop = await aud.stop("s1");
+  check("audit 通过 → stop 完成", passStop.ok === true);
+  const verdicts = aud.log.filter(
+    (ev) => ev.type === "plan/acceptance-verdict" && ev.acceptance === "s1-a",
+  );
+  check("audit 两轮裁决均入事件流（证据链）", verdicts.length === 2);
+}
+
+// 演示 10：step 级裁决（accepted/next）
+log("[演示 10] step 级裁决：stop 返回 accepted/next");
+{
+  const sv = new TaskEngine({
+    root: {
+      id: "root",
+      title: "R",
+      spec: "s",
+      acceptance: [
+        { id: "r-q", check: "q", level: "mechanical", command: "true" },
+      ],
+    },
+    runCommand,
+  });
+  await sv.decompose("root", [
+    {
+      id: "c1",
+      title: "c1",
+      spec: "做 C1",
+      acceptance: [],
+      needDecompose: false,
+      coverage: { "r-q": ["c1"] },
+    },
+    {
+      id: "c2",
+      title: "c2",
+      spec: "做 C2",
+      acceptance: [],
+      needDecompose: false,
+      coverage: { "r-q": ["c2"] },
+    },
+  ]);
+  sv.nextReady();
+  sv.implement("c1", "产物");
+  const stop1 = await sv.stop("c1");
+  check("stop 通过 → accepted=true", stop1.accepted === true);
+  check("stop 通过 → next 指向下一候选 c2", stop1.next === "c2");
+  log(`  step 裁决：accepted=${stop1.accepted} next=${stop1.next}`);
+}
+
+// 演示 11：语义蕴含第二道门（§17.2 entail hook）
+log("[演示 11] 语义蕴含门：entail hook");
+{
+  let entailCalls = 0;
+  const et = new TaskEngine({
+    root: {
+      id: "root",
+      title: "R",
+      spec: "s",
+      acceptance: [
+        { id: "r-q", check: "q", level: "mechanical", command: "true" },
+      ],
+    },
+    runCommand,
+    entail: async (_parent, _children) => {
+      entailCalls += 1;
+      // 模拟独立语义运行：第一轮不蕴含，第二轮蕴含
+      if (entailCalls === 1) {
+        return { ok: false, feedback: "子任务合取不蕴含父验收 r-q" };
+      }
+      return { ok: true, feedback: "" };
+    },
+  });
+  const etChild = {
+    id: "c1",
+    title: "c1",
+    spec: "做 C1",
+    acceptance: [] as ChildSpec["acceptance"],
+    needDecompose: false,
+    coverage: { "r-q": ["c1"] },
+  };
+  const fail = await et.decompose("root", [etChild]);
+  check("entail 第一轮拒绝 → decompose 打回", fail.ok === false);
+  if (!fail.ok) log(`  entail 反馈：${String(fail.feedback)}`);
+  const pass = await et.decompose("root", [etChild]);
+  check("entail 第二轮通过 → decompose 挂树", pass.ok === true);
+  check("entail hook 被调用两次", entailCalls === 2);
+}
+
+// 演示 12：turn/end abort 路径与恢复
+log("[演示 12] abort 恢复：在途帧回收为 pending");
+{
+  const ar = new TaskEngine({
+    root: {
+      id: "root",
+      title: "R",
+      spec: "s",
+      acceptance: [
+        { id: "r-q", check: "q", level: "mechanical", command: "true" },
+      ],
+    },
+    runCommand,
+  });
+  await ar.decompose("root", [
+    {
+      id: "c1",
+      title: "c1",
+      spec: "做 C1",
+      acceptance: [],
+      needDecompose: false,
+      coverage: { "r-q": ["c1"] },
+    },
+  ]);
+  ar.nextReady(); // c1 → active（模拟 turn 中止时的在途帧）
+  check("中止前 c1 为 active", ar.frames().get("c1")?.status === "active");
+  // 进程终止后从快照恢复（resumeFromSnapshot）
+  const ar2 = resumeFromSnapshot(ar.snapshotText(), { runCommand });
+  check(
+    "恢复后 c1 回收为 pending",
+    ar2.frames().get("c1")?.status === "pending",
+  );
+  check("恢复不增重试计数", ar2.frames().get("c1")?.retryCount === 0);
+  check("恢复后可重新 claim", ar2.nextReady() === "c1");
+  ar2.implement("c1", "产物");
+  await ar2.stop("c1");
+  check("恢复后全链路可继续完成", ar2.isComplete() === true);
+  const interrupted = ar2.log.filter(
+    (ev) => ev.type === "plan/frame-interrupted",
+  );
+  check("abort 事件入流（审计证据链）", interrupted.length === 1);
+}
 
 log(failures === 0 ? "DEMO_OK" : `DEMO_FAIL failures=${failures}`);
 if (failures > 0) process.exitCode = 1;

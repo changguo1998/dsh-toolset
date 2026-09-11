@@ -34,6 +34,8 @@ export interface Config {
   snapshotPath?: string;
   /** mechanical 验收命令超时（ms，默认 30s） */
   commandTimeoutMs?: number;
+  /** fan-out 并发上限（BACKLOG #13，默认 4）：active 帧数达上限时不再弹栈 */
+  maxConcurrent?: number;
 }
 
 const LEVELS: readonly AcceptanceLevel[] = ["mechanical", "semantic", "human"];
@@ -160,6 +162,11 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     engine = new TaskEngine({
       root: normalizeRoot(config?.root),
       runCommand: makeRunCommand(config?.commandTimeoutMs ?? 30_000),
+      gate: {
+        ...(config?.maxConcurrent === undefined
+          ? {}
+          : { maxConcurrent: config.maxConcurrent }),
+      },
       snapshotPath: config?.snapshotPath,
     });
   } catch (err) {

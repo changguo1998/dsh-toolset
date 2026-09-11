@@ -1,8 +1,8 @@
 // src/gate.ts — 分解双重校验门禁：粒度四规则 + coverage 映射（机械部分）
 //
 // 对齐 AGENT-ARCHITECTURE-ANALOGY.md §10 与 §17.2 第一道门：
-// 越级 / 过粗 / 过细 / 数量 四规则，加 coverage 完备性（机械拒绝，带反馈打回）。
-// 语义蕴含（合取是否真蕴含父 Q）属第二迭代，本文件不做。
+// 越级 / 过粗 / 过细 / 数量 四规则，加 coverage 完备性 + 前置传递（机械拒绝，带反馈打回）。
+// 语义蕴含（合取是否真蕴含父 Q）属第二道门，在 engine.decompose 内经 entail hook 裁决。
 
 import type { Acceptance, ChildSpec, Frame, FrameId } from "./types.ts";
 
@@ -11,12 +11,18 @@ export interface GateConfig {
   maxChildren: number;
   /** 打回重试上限（默认 3，§15.2 bounded retry） */
   maxRetries: number;
+  /** fan-out 并发上限：active 帧数 >= 此数时不再弹栈（BACKLOG #13，默认 4） */
+  maxConcurrent: number;
 }
 
-export const DEFAULT_GATE: GateConfig = { maxChildren: 7, maxRetries: 3 };
+export const DEFAULT_GATE: GateConfig = {
+  maxChildren: 7,
+  maxRetries: 3,
+  maxConcurrent: 4,
+};
 
 export type GateRule =
-  "overshoot" | "too-coarse" | "too-fine" | "too-many" | "coverage";
+  "overshoot" | "too-coarse" | "too-fine" | "too-many" | "coverage" | "deps";
 
 export interface GateResult {
   ok: boolean;
@@ -81,7 +87,7 @@ export function hasStepMarkers(spec: string): boolean {
 }
 
 /**
- * 粒度四规则 + coverage 完备性。只检验 decompose 提议，不改状态。
+ * 粒度四规则 + coverage 完备性 + 前置传递。只检验 decompose 提议，不改状态。
  * 拒绝时返回 rule + feedback（带反馈打回）。
  */
 export function checkDecomposition(
@@ -140,6 +146,10 @@ export function checkDecomposition(
   const coverageError = checkCoverage(parent.acceptance, children);
   if (coverageError) return coverageError;
 
+  // 前置传递：deps 只允许引用前序兄弟（§17.2 顺序依赖显式化）
+  const depsError = checkDeps(children);
+  if (depsError) return depsError;
+
   return { ok: true, feedback: "decompose 通过门禁" };
 }
 
@@ -167,6 +177,31 @@ export function checkCoverage(
         };
       }
     }
+  }
+  return null;
+}
+
+/** 前置传递校验：deps 只允许引用前序兄弟（自引用/后引用/未知一律拒绝） */
+export function checkDeps(children: ChildSpec[]): GateResult | null {
+  const seen = new Set<FrameId>();
+  for (const c of children) {
+    for (const dep of c.deps ?? []) {
+      if (dep === c.id) {
+        return {
+          ok: false,
+          rule: "deps",
+          feedback: `子任务「${c.id}」deps 引用自身：前置依赖不允许自引用。`,
+        };
+      }
+      if (!seen.has(dep)) {
+        return {
+          ok: false,
+          rule: "deps",
+          feedback: `子任务「${c.id}」deps「${dep}」必须引用前序兄弟（当前尚未出现）。`,
+        };
+      }
+    }
+    seen.add(c.id);
   }
   return null;
 }
