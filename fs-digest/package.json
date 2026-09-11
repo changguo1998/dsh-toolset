@@ -1,0 +1,31 @@
+{
+    "name": "@dsh-toolset/fs-digest",
+    "version": "0.1.0",
+    "description": "DSH (DeepSeek Harness) 进程内集成插件：上下文感知文件读取（outline/signatures/pruned 三模式）",
+    "type": "module",
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "check": "tsc -p tsconfig.json --noEmit",
+        "demo": "node --experimental-transform-types demo/main.ts",
+        "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+    },
+    "devDependencies": {
+        "@types/node": "^24.13.3",
+        "typescript": "^5.9.3"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml"
+    ],
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    }
+}

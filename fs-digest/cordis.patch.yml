@@ -1,0 +1,3 @@
+- insert:
+    - id: fs-digest
+      name: '@dsh-toolset/fs-digest'
