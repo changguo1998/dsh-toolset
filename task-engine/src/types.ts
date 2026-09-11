@@ -13,6 +13,8 @@ export interface Acceptance {
   level: AcceptanceLevel;
   /** mechanical 级验收命令（退出码 0 = 通过） */
   command?: string;
+  /** semantic 级：audit run 结构化裁决的 outputSchema（JSON Schema，宿主校验，§16.2） */
+  outputSchema?: unknown;
 }
 
 export type FrameStatus = "pending" | "active" | "done" | "failed";
@@ -27,6 +29,8 @@ export interface ChildSpec {
   needDecompose: boolean;
   /** coverage 映射：父验收条目 id → 覆盖它的子任务 id 列表（§17.2 覆盖完备） */
   coverage: Record<string, FrameId[]>;
+  /** 前置传递（§17.2 顺序依赖显式化）：只允许引用前序兄弟 id */
+  deps?: FrameId[];
 }
 
 /** 树上的帧（物化视图节点） */
@@ -48,6 +52,15 @@ export interface Frame {
   feedback?: string;
 }
 
+/** step 级裁决（BACKLOG #5）：本步是否通过 + 建议下一步帧 + 打回反馈 */
+export interface StepVerdict {
+  accepted: boolean;
+  /** 建议下一步（就绪池首个候选帧 id）；null = 树完成或无就绪 */
+  next: FrameId | null;
+  /** 打回反馈（accepted=false 时） */
+  feedback?: string;
+}
+
 /** 帧事件载荷（事件溯源，§15.1） */
 export type PlanEvent =
   | {
@@ -64,6 +77,8 @@ export type PlanEvent =
       level: AcceptanceLevel;
       pass: boolean;
       evidence?: string;
+      /** semantic 级：audit run 的 outputSchema 结构化裁决（宿主校验） */
+      structured?: unknown;
     }
   | {
       type: "plan/frame-rejected";
@@ -72,6 +87,20 @@ export type PlanEvent =
       feedback: string;
     }
   | { type: "plan/frame-completed"; frame: FrameId }
+  | {
+      /** step 级裁决（BACKLOG #5）：事件流携带 accepted/next，供宿主/审计消费 */
+      type: "plan/step-verdict";
+      frame: FrameId;
+      accepted: boolean;
+      next: FrameId | null;
+      feedback?: string;
+    }
+  | {
+      /** abort 路径（turn/end reason=aborted）：在途帧回收为 pending，不增重试计数 */
+      type: "plan/frame-interrupted";
+      frame: FrameId;
+      reason?: string;
+    }
   | { type: "plan/frame-failed"; frame: FrameId };
 
 /** 带序号的持久化事件 */

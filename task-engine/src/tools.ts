@@ -3,6 +3,8 @@
 //
 // 零 DSH 依赖的纯数据 + 处理器：工具定义供 cordis 适配层结构注册（main.ts），
 // 也供 demo/tests 直接调用。JSON 参数在此做最小校验，拒绝时返回带反馈结果。
+// 第二迭代（BACKLOG #5/#13）：decompose 解析 deps/output_schema；
+// stop 输出 step 级 accepted/next 裁决（打回 next 指向本帧，终态 null）。
 
 import type { TaskEngine } from "./engine.ts";
 import type {
@@ -53,11 +55,13 @@ function parseAcceptance(raw: unknown): Acceptance[] | undefined {
       return undefined;
     }
     const command = asString(o.command);
+    const outputSchema = o.output_schema;
     out.push({
       id,
       check,
       level: level as AcceptanceLevel,
       ...(command === undefined ? {} : { command }),
+      ...(outputSchema === undefined ? {} : { outputSchema }),
     });
   }
   return out;
@@ -92,7 +96,23 @@ function parseChildren(raw: unknown): ChildSpec[] | undefined {
         coverage[k] = v as FrameId[];
       }
     }
-    out.push({ id, title, spec, acceptance, needDecompose, coverage });
+    // 前置传递 deps（§17.2）：字符串数组，合法性由门禁裁决（只允许前序兄弟）
+    const depsRaw = o.deps;
+    let deps: FrameId[] | undefined;
+    if (depsRaw !== undefined) {
+      if (!Array.isArray(depsRaw) || depsRaw.some((x) => typeof x !== "string"))
+        return undefined;
+      deps = depsRaw as FrameId[];
+    }
+    out.push({
+      id,
+      title,
+      spec,
+      acceptance,
+      needDecompose,
+      coverage,
+      ...(deps === undefined ? {} : { deps }),
+    });
   }
   return out;
 }
@@ -131,7 +151,7 @@ export function createTools(
                 type: "array",
                 required: true,
                 description:
-                  "子任务列表：{id, title, spec, acceptance, need_decompose, coverage}",
+                  "子任务列表：{id, title, spec, acceptance, need_decompose, coverage, deps}",
               },
             }
           : name === "implement"
@@ -165,7 +185,16 @@ export function createTools(
               "task_decompose 参数非法：需 parent_id 与合法 children（含 id/title/spec/acceptance）。",
             );
           }
-          return engine.decompose(parentId, children);
+          const r = await engine.decompose(parentId, children);
+          // step 级裁决（#5）：accepted/next 原样透出给模型（打回时 next 指向重做目标）
+          return r.ok
+            ? ok({ accepted: r.accepted, next: r.next })
+            : {
+                ok: false,
+                accepted: r.accepted,
+                next: r.next,
+                feedback: r.feedback ?? "",
+              };
         }
         case "implement": {
           const taskId = asString(args.task_id);
@@ -182,7 +211,15 @@ export function createTools(
           const r = await engine.stop(taskId, {
             approve: approveFor(undefined),
           });
-          return r.ok ? ok() : fail(r.feedback);
+          // step 级裁决（#5）：accepted/next 透出；打回 next 指向本帧（重做）
+          return r.ok
+            ? ok({ accepted: r.accepted, next: r.next })
+            : {
+                ok: false,
+                accepted: r.accepted,
+                next: r.next,
+                feedback: r.feedback ?? "",
+              };
         }
         default:
           return { ok: true, tree: engine.nested() };
@@ -193,12 +230,12 @@ export function createTools(
   return [
     decompose(
       "decompose",
-      "把一个待细化任务拆成子任务（每次只细化一层；过门禁才挂树）",
+      "把一个待细化任务拆成子任务（每次只细化一层；机械+语义蕴含双门禁通过才挂树）",
     ),
     decompose("implement", "完成一个叶子任务并写入产出"),
     decompose(
       "stop",
-      "对任务执行 RET 验收（mechanical/human），通过则完成并向上 join",
+      "对任务执行 RET 验收（mechanical/human/semantic），通过则完成并向上 join，返回 accepted/next",
     ),
     decompose("status", "查看当前嵌套任务树（parent_id + order，先序）"),
   ];
