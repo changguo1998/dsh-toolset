@@ -269,6 +269,154 @@ describe("createHerdrPlugin", () => {
     plugin!.dispose();
   });
 
+  test("turn/end{reason:'blocked'} → blocked，下一次 turn/start 解除", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "running" }]);
+    const { plugin, sender } = startPlugin(ctx);
+    assert.deepEqual(sender.states.at(-1), { state: "working" });
+
+    // turn 被阻塞 → blocked（blocked 优先于 working）
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      {
+        type: "turn/end",
+        data: { turn: 1, reason: "blocked" },
+      },
+    );
+    assert.deepEqual(sender.states.at(-1), {
+      state: "blocked",
+      message: "waiting for input",
+    });
+
+    // 新回合开始 → turn-blocked 解除 → 回到 working
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "turn/start", data: { turn: 2 } },
+    );
+    assert.deepEqual(sender.states.at(-1), { state: "working" });
+    plugin!.dispose();
+  });
+
+  test("turn/end reason 联合兼容（字符串 / {kind} 结构化形均生效）", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "idle" }]);
+    const { plugin, sender } = startPlugin(ctx);
+
+    // 结构化 {kind:'blocked'} 形
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      {
+        type: "turn/end",
+        data: { turn: 1, reason: { kind: "blocked" } },
+      },
+    );
+    assert.deepEqual(sender.states.at(-1), {
+      state: "blocked",
+      message: "waiting for input",
+    });
+
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "turn/start", data: { turn: 2 } },
+    );
+    assert.deepEqual(sender.states.at(-1), { state: "idle" });
+    plugin!.dispose();
+  });
+
+  test("turn/end 非 blocked reason / 畸形载荷 → 不改变状态", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "running" }]);
+    const { plugin, sender } = startPlugin(ctx);
+    const before = sender.states.length;
+
+    // completed / 结构化 error → 忽略
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      {
+        type: "turn/end",
+        data: { turn: 1, reason: "completed" },
+      },
+    );
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      {
+        type: "turn/end",
+        data: {
+          turn: 1,
+          reason: { kind: "error", error: { code: "E", message: "m" } },
+        },
+      },
+    );
+    // 畸形载荷 → 忽略
+    ctx.fire("session/event", { id: "s1" }, null);
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "assistant/attempt", data: {} },
+    );
+    assert.equal(sender.states.length, before);
+
+    // 无前置 blocked 的 turn/start → 无操作
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "turn/start", data: { turn: 2 } },
+    );
+    assert.equal(sender.states.length, before);
+    plugin!.dispose();
+  });
+
+  test("并发阻塞：approval + turn-blocked，全部解除才释放", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "running" }]);
+    const { plugin, sender } = startPlugin(ctx);
+    let resolveApproval!: (v: unknown) => void;
+    ctx.fire(
+      "approval/request",
+      {},
+      () =>
+        new Promise<unknown>((resolve) => {
+          resolveApproval = resolve;
+        }),
+    );
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      {
+        type: "turn/end",
+        data: { turn: 1, reason: "blocked" },
+      },
+    );
+    // 两个来源都 begin → blocked（message 取最近一次 begin）
+    assert.deepEqual(sender.states.at(-1), {
+      state: "blocked",
+      message: "waiting for input",
+    });
+
+    // 先解除 approval → 仍 blocked（turn-blocked 还在）
+    resolveApproval("allowed-once");
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(sender.states.at(-1), {
+      state: "blocked",
+      message: "waiting for input",
+    });
+
+    // turn/start → turn-blocked 解除 → working
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "turn/start", data: { turn: 2 } },
+    );
+    assert.deepEqual(sender.states.at(-1), { state: "working" });
+    plugin!.dispose();
+  });
+
   test("blocked 优先于 working 的状态推导", async () => {
     const ctx = fakeCtx();
     ctx.setRoots([{ session: { id: "s1" }, status: "running" }]);
