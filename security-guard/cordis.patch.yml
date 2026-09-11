@@ -1,0 +1,3 @@
+- insert:
+    - id: security-guard
+      name: '@dsh-toolset/security-guard'
