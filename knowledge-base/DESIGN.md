@@ -58,6 +58,14 @@ trigram 需 ≥3 字符子串。≤2 字符中文词须经 LIKE 兜底命中。�
   递归抽取文本（string / `{text}` / `{content}` / `{message.content}`）；
 - 重复事件经 content_hash 去重；`attach` 返回解绑函数。
 - project 作用域：静态字符串或按事件求值函数（多项目路由）。
+- **0.1.5-rc.2 载荷决策**（dsh 0.1.5-rc.2 实测）：
+  - `tool/result.meta`（FsDiffMeta 等结构化元数据）：`serializeToolMeta` 紧凑序列化，
+    非空才在 chunk 尾部追加 `[tool/meta]` 段（`{}`/`[]`/null 不追加，避免噪声）；
+  - `compaction/summary`：摘要文本后追加 `[compaction]` 尾注块（shadowedRange/shadowedSeqs/
+    shadowedTokenCount/provider/model；sourceCommandId 仅命令触发时存在才输出）；
+    summary 文本缺失时回落整体 JSON，不丢数据；
+  - `ignorable`（宿主"可安全丢弃"语义）：白名单类型事件仍摄取（保守，不丢数据），
+    非白名单类型本就安全跳过。
 
 ## 5. 两级写策略与淘汰提升（`src/writepolicy.ts`，#9）
 
@@ -85,7 +93,9 @@ trigram 需 ≥3 字符子串。≤2 字符中文词须经 LIKE 兜底命中。�
 `BundleHost`（`session/event` + `logger`）。`createKnowledgeBundle` 为核心工厂（开库→建服务→挂事件→
 dispose），`apply` 为宿主挂载入口；`cordis.patch.yml` 声明 bundle 插入。
 
-**真实宿主联调**（dsh profile 部署、`ctx_knowledge` 服务注册到宿主 service 域）留待部署时人工确认。
+**真实宿主联调**（dsh profile 部署、`ctx_knowledge` 服务注册到宿主 service 域）已由
+`npm run smoke` 自动化覆盖（见 IMPLEMENTATION.md §6）；真实会话中人工使用 put/search
+作为收尾确认门。
 
 ## 8. 约束与已知边界
 

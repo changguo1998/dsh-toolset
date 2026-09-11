@@ -97,3 +97,40 @@ describe("gate coverage", () => {
     assert.equal(r.ok, true);
   });
 });
+
+describe("gate deps（前置传递）", () => {
+  it("deps 自引用 → 拒绝", () => {
+    const r = checkDecomposition(parent, [
+      { ...leaf("c1", "做 C1", { q1: ["c1"] }), deps: ["c1"] },
+    ]);
+    assert.equal(r.ok, false);
+    assert.equal(r.rule, "deps");
+    assert.match(r.feedback, /自引用/);
+  });
+
+  it("deps 前向引用（指向后续兄弟）→ 拒绝", () => {
+    const r = checkDecomposition(parent, [
+      { ...leaf("c1", "做 C1", { q1: ["c1", "c2"] }), deps: ["c2"] },
+      leaf("c2", "做 C2"),
+    ]);
+    assert.equal(r.ok, false);
+    assert.equal(r.rule, "deps");
+    assert.match(r.feedback, /前序兄弟/);
+  });
+
+  it("deps 引用未知 id → 拒绝", () => {
+    const r = checkDecomposition(parent, [
+      { ...leaf("c1", "做 C1", { q1: ["c1"] }), deps: ["ghost"] },
+    ]);
+    assert.equal(r.ok, false);
+    assert.equal(r.rule, "deps");
+  });
+
+  it("deps 指向已出现的前序兄弟 → 通过", () => {
+    const r = checkDecomposition(parent, [
+      leaf("c1", "做 C1", { q1: ["c1", "c2"] }),
+      { ...leaf("c2", "做 C2"), deps: ["c1"] },
+    ]);
+    assert.equal(r.ok, true);
+  });
+});

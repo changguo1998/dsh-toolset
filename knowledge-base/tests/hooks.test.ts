@@ -9,6 +9,7 @@ import { KnowledgeService } from "../src/knowledge.ts";
 import {
   SessionHooks,
   type HookHost,
+  type SessionEventLike,
   summarizeEvent,
   extractText,
 } from "../src/hooks.ts";
@@ -185,4 +186,143 @@ test("SessionHooks：project 函数按事件求值", async () => {
   } finally {
     db.close();
   }
+});
+
+// --- 0.1.5-rc.2 接口对齐 ---
+
+test("summarizeEvent：tool/result 摄取 meta 私有载荷（0.1.5-rc.2）", () => {
+  const ev = summarizeEvent("tool/result", {
+    message: { content: [{ content: [{ text: "Created file" }] }] },
+    meta: { diffs: [{ path: "/tmp/a.txt", oldText: null, newText: "x" }] },
+  });
+  assert.ok(ev);
+  assert.ok(ev.content.startsWith("Created file"));
+  assert.ok(ev.content.includes("[tool/meta]"));
+  assert.ok(ev.content.includes("/tmp/a.txt"));
+  // 无 meta → 不追加段
+  const plain = summarizeEvent("tool/result", {
+    message: { content: [{ content: [{ text: "ok" }] }] },
+  });
+  assert.ok(plain);
+  assert.ok(!plain.content.includes("[tool/meta]"));
+  // 空对象 meta → 视为无载荷
+  const empty = summarizeEvent("tool/result", {
+    message: { content: [{ content: [{ text: "ok" }] }] },
+    meta: {},
+  });
+  assert.ok(empty);
+  assert.ok(!empty.content.includes("[tool/meta]"));
+  // 真实宿主形态：空 diffs 数组仍带键，照常追加
+  const realShape = summarizeEvent("tool/result", {
+    message: { content: [{ content: [{ text: "Created file" }] }] },
+    meta: { diffs: [] },
+  });
+  assert.ok(realShape);
+  assert.ok(realShape.content.includes('"diffs":[]'));
+});
+
+test("summarizeEvent：compaction/summary 摄取 shadowedRange 与 sourceCommandId（0.1.5-rc.2）", () => {
+  const ev = summarizeEvent("compaction/summary", {
+    compactionId: "c-1",
+    summary: [{ type: "text", text: "压缩后的摘要正文" }],
+    shadowedRange: { start: 8, end: 10 },
+    sourceCommandId: "cmd-77",
+    shadowedTokenCount: 523,
+    provider: "ustc",
+    model: "deepseek-v4-flash",
+  });
+  assert.ok(ev);
+  assert.ok(ev.content.startsWith("压缩后的摘要正文"));
+  assert.ok(ev.content.includes("[compaction]"));
+  assert.ok(ev.content.includes('compactionId: "c-1"'));
+  assert.ok(ev.content.includes('shadowedRange: {"start":8,"end":10}'));
+  assert.ok(ev.content.includes('sourceCommandId: "cmd-77"'));
+  assert.ok(ev.content.includes("shadowedTokenCount: 523"));
+  assert.equal(ev.importance, 3);
+});
+
+test("summarizeEvent：compaction/summary 旧载荷回落 shadowedSeqs / 无摘要文本回落原始 JSON", () => {
+  const legacy = summarizeEvent("compaction/summary", {
+    compactionId: "c-2",
+    summary: [{ type: "text", text: "旧版摘要" }],
+    shadowedSeqs: [5, 6],
+  });
+  assert.ok(legacy);
+  assert.ok(legacy.content.includes("shadowedSeqs: [5,6]"));
+  assert.ok(!legacy.content.includes("shadowedRange"));
+  const noText = summarizeEvent("compaction/summary", {
+    compactionId: "c-3",
+    shadowedRange: { start: 1, end: 2 },
+  });
+  assert.ok(noText);
+  assert.ok(noText.content.includes("shadowedRange"));
+  assert.ok(!noText.content.includes("[compaction]"));
+});
+
+test("SessionHooks：未知/畸形事件（含 ignorable 与否）安全跳过、不写库", async () => {
+  const { db, hooks } = await makeHarness();
+  hooks.handle("s1", { type: "future/event", ignorable: true, data: { x: 1 } });
+  hooks.handle("s1", { type: "another/unknown", data: { y: 2 } });
+  hooks.handle("s1", { type: "tool/result", data: undefined });
+  hooks.handle("s1", {} as unknown as SessionEventLike);
+  hooks.handle("s1", null as unknown as SessionEventLike);
+  const count = (
+    db.prepare("SELECT COUNT(*) AS n FROM chunks").get() as { n: number }
+  ).n;
+  assert.equal(count, 0, "未知/畸形事件不产生任何写入");
+});
+
+test("SessionHooks：端到端 compaction/summary 写入（shadowedRange/sourceCommandId 可检索）", async () => {
+  const { db, hooks } = await makeHarness();
+  hooks.handle("s1", {
+    type: "compaction/summary",
+    data: {
+      compactionId: "c-e2e",
+      summary: [{ type: "text", text: "端到端压缩摘要" }],
+      shadowedRange: { start: 3, end: 9 },
+      sourceCommandId: "cmd-e2e",
+      shadowedTokenCount: 1200,
+      provider: "ustc",
+      model: "deepseek-v4-flash",
+    },
+  });
+  const kb = new KnowledgeService(db);
+  const hits = kb.search({
+    query: "端到端压缩摘要",
+    fuzzy: true,
+    project: "p1",
+  });
+  assert.equal(hits.length, 1);
+  const hit = hits[0];
+  assert.ok(hit);
+  assert.ok(hit.content.includes("shadowedRange"));
+  assert.ok(hit.content.includes("cmd-e2e"));
+});
+
+test("SessionHooks：端到端 tool/result 带 meta 写入（diff 路径可检索）", async () => {
+  const { db, hooks } = await makeHarness();
+  hooks.handle("s1", {
+    type: "tool/result",
+    data: {
+      message: {
+        content: [
+          {
+            type: "tool-result",
+            content: [
+              { type: "text", text: "<content>Created file</content>" },
+            ],
+            isError: false,
+          },
+        ],
+      },
+      meta: { diffs: [{ path: "/tmp/kb-a.txt", oldText: null, newText: "x" }] },
+    },
+  });
+  const kb = new KnowledgeService(db);
+  const hits = kb.search({ query: "kb-a.txt", fuzzy: true, project: "p1" });
+  assert.equal(hits.length, 1);
+  const hit = hits[0];
+  assert.ok(hit);
+  assert.ok(hit.content.includes("[tool/meta]"));
+  assert.equal(hit.importance, 2);
 });

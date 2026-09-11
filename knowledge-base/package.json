@@ -8,7 +8,8 @@
         "build": "tsc -p tsconfig.json",
         "check": "tsc -p tsconfig.json --noEmit",
         "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
-        "demo": "node --experimental-transform-types demo/main.ts"
+        "demo": "node --experimental-transform-types demo/main.ts",
+        "smoke": "node smoke/smoke.mjs"
     },
     "devDependencies": {
         "@types/node": "^24.13.3",

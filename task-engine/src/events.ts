@@ -96,6 +96,17 @@ export function materialize(log: LoggedPlanEvent[]): TaskTree {
         void ev;
         break;
       }
+      case "plan/step-verdict": {
+        // step 级裁决（#5）：事件流携带 accepted/next 供宿主/审计消费；物化树不落字段
+        void ev;
+        break;
+      }
+      case "plan/frame-interrupted": {
+        // abort 路径（turn/end reason=aborted）：在途帧回收为 pending，不增重试计数
+        const f = frames.get(ev.frame);
+        if (f) f.status = "pending";
+        break;
+      }
       case "plan/frame-completed": {
         const f = frames.get(ev.frame);
         if (f) f.status = "done";
