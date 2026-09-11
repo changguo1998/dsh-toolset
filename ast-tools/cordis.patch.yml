@@ -1,0 +1,3 @@
+- insert:
+    - id: ast-tools
+      name: '@dsh-toolset/ast-tools'
