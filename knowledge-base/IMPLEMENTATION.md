@@ -1,20 +1,20 @@
 # knowledge-base 实现记录
 
-> 与 `DESIGN.md`（设计决策）配套；本文件记录文件职责、运行/验证方式与阶段演进。
+> 与 `DESIGN.md`（设计决策）配套；本文件记录文件职责、运行/验证方式与宿主接口对齐。
 
 ## 1. 文件职责
 
 | 路径 | 职责 |
 |---|---|
 | `src/schema.ts` | 四表 + 双 FTS5 影子表 + TRIGGER 写直达 + open 守护（application_id/user_version） |
-| `src/knowledge.ts` | `ctx_knowledge` 四接口：search/put/touch/evict + 分块/去重/联动 + promote/compress/staleCandidates/tokenBudgetUsage（#9 查询） |
-| `src/hooks.ts` | session/event 写直达：白名单过滤、事件摘要化（0.1.5-rc.2：meta/[compaction] 尾注）、SessionHooks 挂接 |
-| `src/writepolicy.ts` | #9 编排：批量写回 + consolidation 锁 + backfill + evictStale |
-| `src/memory.ts` | #10 记忆 CRUD + target/category/project 过滤 + token-aware 截断 |
+| `src/knowledge.ts` | `ctx_knowledge` 四接口：search/put/touch/evict + 分块/去重/联动 + promote/compress/staleCandidates/tokenBudgetUsage |
+| `src/hooks.ts` | session/event 写直达：白名单过滤、事件摘要化（tool/result meta、compaction 尾注）、SessionHooks 挂接 |
+| `src/writepolicy.ts` | 写回编排：批量写回 + consolidation 锁 + backfill + evictStale |
+| `src/memory.ts` | 记忆 CRUD + target/category/project 过滤 + token-aware 截断 |
 | `src/index.ts` | DSH bundle 接入面：createKnowledgeBundle 工厂 + apply |
 | `demo/main.ts` | mock demo（无 DSH 依赖，人工确认用） |
 | `smoke/smoke.mjs` | 宿主联调 smoke（profile 引导 + 真实会话摄取断言 + dist 往返） |
-| `tests/*.test.ts` | 37 项 node:test 单测 |
+| `tests/*.test.ts` | node:test 单测 |
 | `cordis.patch.yml` | dsh bundle 插件声明 |
 
 ## 2. 运行与验证
@@ -27,7 +27,7 @@ npm run demo    # mock demo，退出码 0 视为流程通过
 npm run smoke   # 宿主联调：真实 dsh headless 会话 + 摄取断言 + dist 往返（约 1-2 分钟）
 ```
 
-验证契约机械项（当前目标 20260910155804-flxkbx，单命令、以仓库根目录为工作目录，不含管道/重定向/逻辑连接）：
+验证契约机械项（单命令、以仓库根目录为工作目录，不含管道/重定向/逻辑连接）：
 
 ```
 dsh --version
@@ -54,36 +54,21 @@ git log --oneline -- knowledge-base
 - `memory.test.ts`（6）：add 去重、target/category/project 过滤、replace、remove 联动清理、
   token-aware 截断、命中提升 last_referenced。
 
-## 4. 阶段演进（小阶段分开提交）
+## 4. 宿主接口对齐（0.1.5-rc.2）
 
-1. `feat(knowledge-base): 脚手架包结构` — package.json/tsconfig/cordis.patch.yml/index/demo/README；
-1. `feat(knowledge-base): schema 四表双 FTS5` — 表/影子表/TRIGGER/open 守护 + 测试；
-1. `feat(knowledge-base): ctx_knowledge 四接口` — search/put/touch/evict + 分块/去重 + 测试；
-1. `feat(knowledge-base): session/event 事件 hooks 数据源接入` — 白名单过滤器 + 摘要化 + 测试；
-1. `feat(knowledge-base): #9 两级写策略与淘汰提升` — 批量写回/锁/backfill、LRU 淘汰、top-K 提升 + 测试；
-1. `feat(knowledge-base): #10 持久记忆 CRUD 与过滤检索` — 记忆 CURD + token-aware + 测试；
-1. `docs(knowledge-base): demo 与设计文档` — mock demo + DESIGN/IMPLEMENTATION + TASKS 勾选；
-1. `docs(knowledge-base): 修正 IMPLEMENTATION 测试覆盖计数与验证契约形` — 订正 §3 计数与 §2 契约；
-1. `feat: hooks 接口对齐 DSH-CTX-API 0.1.5-rc.2` — tool/result.meta 摄取、compaction/summary 新字段尾注、ignorable 安全跳过确认 + 单测 +6；
-1. `feat: 宿主联调 smoke 脚本` — profile 幂等引导、真实 dsh headless 会话摄取断言、合成事件兜底、dist 往返。
-
-## 5. 0.1.5-rc.2 接口对齐（2026-09-10）
-
-宿主 dsh 已升级 0.1.5-rc.1 → 0.1.5-rc.2（全局 npm，机器级操作）。与 0.1.5-rc.1 的逐项差异：
-
-| 项 | 0.1.5-rc.2 变化 | 插件处理 |
+| 项 | 0.1.5-rc.2 契约 | 插件处理 |
 |---|---|---|
 | `tool/result` | `data.meta` 新增（FsDiffMeta 等结构化 diff 元数据，fs 工具产生） | `serializeToolMeta` 非空时在 chunk 尾部追加 `[tool/meta]\n<compact JSON>`；`{}`/`[]`/null 不追加 |
-| `compaction/summary` | `data` 新增 `shadowedRange:{start,end}`、`shadowedSeqs`、`shadowedTokenCount`、`provider`、`model`；`sourceCommandId` 仅命令触发压缩时出现 | 摘要文本后追加 `[compaction]` 尾注块（逐字段 `key: <json>`）；无 summary 文本时回落整体 JSON 不丢数据；旧宿主缺字段时仅输出存在的字段（向后兼容） |
-| `SessionEvent.ignorable` | 新增可选安全标记（宿主"可丢弃"语义） | 白名单类型仍摄取（保守，不丢数据）；非白名单类型本就安全跳过（单测确认） |
-| `SessionSeq`/`SessionLogOffset` | — | 结论记录 **N/A**：插件以 content_hash 全局去重，seq/log offset 不消费；session_id 仅作簿记，不参与唯一性（DESIGN.md §8 已论证） |
+| `compaction/summary` | `data` 含 `shadowedRange:{start,end}`、`shadowedSeqs`、`shadowedTokenCount`、`provider`、`model`；`sourceCommandId` 仅命令触发压缩时出现 | 摘要文本后追加 `[compaction]` 尾注块（逐字段 `key: <json>`）；无 summary 文本时回落整体 JSON 不丢数据；宿主缺字段时仅输出存在的字段（向后兼容） |
+| `SessionEvent.ignorable` | 可选安全标记（宿主「可丢弃」语义） | 白名单类型仍摄取（保守，不丢数据）；非白名单类型本就安全跳过 |
+| `SessionSeq`/`SessionLogOffset` | — | **N/A**：插件以 content_hash 全局去重，seq/log offset 不消费；session_id 仅作簿记，不参与唯一性（DESIGN.md §8 已论证） |
 
 实测真实载荷（0.1.5-rc.2 会话 JSONL）：`tool/result.data.meta = { diffs: [...] }`；
 `compaction/summary.data` 含 `shadowedRange:{start:8,end:10}`、`shadowedTokenCount:523`、
 `provider:"ustc"`、`model:"deepseek-v4-flash"`；auto-compact 无 `sourceCommandId`（命令触发才有，
 由合成路径单测覆盖）。
 
-## 6. 宿主联调（2026-09-10）
+## 5. 宿主联调（smoke）
 
 - 独立 profile `dsh-toolset-kb`（headless 模板，~/.dsh/profiles/dsh-toolset-kb，机器级、不入库）：
   `dsh plugin add "@dsh-toolset/knowledge-base@link:<worktree>/knowledge-base"` 挂载；
@@ -105,10 +90,8 @@ git log --oneline -- knowledge-base
   注册判定口径：真实会话后知识库文件由 bundle apply 创建且 schema 指纹匹配（确定性证据，
   不依赖宿主 logger 输出）。
 
-## 7. 历史与人工确认
+## 6. 人工确认口径
 
-- 2026-09-10 首轮验收：#8+#9+#10 实现完成（8 条提交），`npm run check/test/build/demo` 全部
-  退出 0，31/31 通过，demo 输出 `demo OK`；glla 验收目标经独立审计通过（存档
-  `.pi-glla/archive/20260910132849-yaf437.md`）。
-- 人工确认：mock demo 已确认；真实 profile 挂载与 `ctx_knowledge` 注册已由 smoke 自动化覆盖
-  （§6），最终人工确认（真实会话中人工使用 put/search）作为收尾门，不阻塞验收。
+- mock demo 已确认（`demo OK`）。
+- 真实 profile 挂载与 `ctx_knowledge` 注册已由 smoke 自动化覆盖（§5）；真实会话中人工使用
+  put/search 的最终确认作为收尾门，不阻塞验收。

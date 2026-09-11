@@ -33,7 +33,7 @@ npm run demo -- --smoke  # TUI 冒烟检查（帧断言 SMOKE_PASS，根脚本�
 1. `npm run build` 编译到 `dist/`（产物性改动后按下方「变更流程」同步构建）。
 1. profile（`~/.dsh/profiles/fff`，参见 `TUI/README.md` 挂载示例）以 `link:` 依赖指向本 TUI 包，构建产物经 symlink 实时可见，**无需** `pnpm install`——直接 `dsh --profile fff` 即生效。
 1. 迭代回合：改代码 → `npm run build` → 重启 `dsh --profile fff`。
-1. 勿用 `file:` 依赖：install 时复制快照且 pnpm v11 不跟踪目录内容变化，源码变更后 profile 报 `ERR_MODULE_NOT_FOUND`（2026-08-26 实测踩坑）。
+1. 勿用 `file:` 依赖：install 时复制快照且 pnpm v11 不跟踪目录内容变化，源码变更后 profile 报 `ERR_MODULE_NOT_FOUND`（已实测踩坑）。
 
 ## 变更流程
 

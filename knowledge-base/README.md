@@ -44,8 +44,8 @@ profile 属机器级配置（`~/.dsh/profiles/`），不入库；smoke 会幂等
 
 ## 状态
 
-- 2026-09-10：#8+#9+#10 实现完成（首轮验收审计通过）；接口对齐 DSH-CTX-API 0.1.5-rc.2
-  （`tool/result.meta`、`compaction/summary` 新字段、`ignorable` 安全跳过、`SessionSeq`/
-  `SessionLogOffset` N/A）；宿主联调完成（profile `dsh-toolset-kb` + `npm run smoke` 全链路
-  PASS）。37/37 测试通过，`check/build/demo/smoke` 退出 0。收尾门：真实会话中人工使用
-  put/search 的最终确认（不阻塞验收）。
+> 状态：核心三件（#8 知识库查询 / #9 两级写策略 / #10 持久记忆）已实现并合入 main；接口对齐
+> DSH-CTX-API 0.1.5-rc.2（`tool/result.meta`、`compaction/summary` 新字段、`ignorable` 安全跳过、
+> `SessionSeq`/`SessionLogOffset` N/A）；宿主联调完成（profile `dsh-toolset-kb` + `npm run smoke` 全链路
+> PASS）。37/37 测试通过，`check/build/demo/smoke` 退出 0。收尾门：真实会话中人工使用
+> put/search 的最终确认（不阻塞验收）。
