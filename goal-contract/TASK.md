@@ -35,10 +35,10 @@
 ## 完成门槛
 
 1. `npm --prefix goal-contract run check`（tsc --noEmit 严格）通过
-2. `npm --prefix goal-contract run test` 全绿（node --test）
-3. `npm --prefix goal-contract run build` 产出 `dist/`
-4. 改动文件执行 `format <文件...>`
-5. 独立 profile `~/.dsh/profiles/dsh-goal-contract`（`link:` 指向本 worktree，**需同挂 task-engine bundle**）+ smoke 通过 + 人工确认
+1. `npm --prefix goal-contract run test` 全绿（node --test）
+1. `npm --prefix goal-contract run build` 产出 `dist/`
+1. 改动文件执行 `format <文件...>`
+1. 独立 profile `~/.dsh/profiles/dsh-goal-contract`（`link:` 指向本 worktree，**需同挂 task-engine bundle**）+ smoke 通过 + 人工确认
 
 ## 硬约束
 
