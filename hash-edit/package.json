@@ -1,0 +1,31 @@
+{
+    "name": "@dsh-toolset/hash-edit",
+    "version": "0.1.0",
+    "description": "DSH (DeepSeek Harness) 进程内集成 LINE:HASH 锚定编辑插件（行:内容哈希校验，stale 整体拒绝，防脏写）",
+    "type": "module",
+    "main": "dist/src/main.js",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "check": "tsc -p tsconfig.json --noEmit",
+        "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+        "demo": "node --experimental-transform-types demo/main.ts"
+    },
+    "devDependencies": {
+        "@types/node": "^24.13.3",
+        "typescript": "^5.9.3"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml"
+    ],
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    }
+}
