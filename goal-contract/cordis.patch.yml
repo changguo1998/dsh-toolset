@@ -1,0 +1,3 @@
+- insert:
+    - id: goal-contract
+      name: '@dsh-toolset/dsh-goal-contract'

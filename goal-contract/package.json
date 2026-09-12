@@ -1,0 +1,31 @@
+{
+    "name": "@dsh-toolset/dsh-goal-contract",
+    "version": "0.1.0",
+    "description": "DSH (DeepSeek Harness) goal 会话契约起草：interview 式提问（tool-ask-user 面）+ 可验证 Done-when 契约条款（schema 对齐 task-engine），落 dsh-goal 事件源",
+    "type": "module",
+    "main": "dist/src/index.js",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "check": "tsc -p tsconfig.json --noEmit",
+        "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+        "smoke": "node smoke/smoke.mjs"
+    },
+    "devDependencies": {
+        "@types/node": "^24.13.3",
+        "typescript": "^5.9.3"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml"
+    ],
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    }
+}
