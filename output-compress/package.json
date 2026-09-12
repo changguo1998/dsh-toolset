@@ -1,0 +1,31 @@
+{
+    "name": "@dsh-toolset/output-compress",
+    "version": "0.1.0",
+    "description": "DSH (DeepSeek Harness) 进程内集成大输出压缩入库（确定性摘要+切片索引，经宿主共享面写入 knowledge-base 库）",
+    "type": "module",
+    "main": "dist/src/index.js",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "check": "tsc -p tsconfig.json --noEmit",
+        "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+        "smoke": "node smoke/smoke.mjs"
+    },
+    "devDependencies": {
+        "@types/node": "^24.13.3",
+        "typescript": "^5.9.3"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml"
+    ],
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    }
+}
