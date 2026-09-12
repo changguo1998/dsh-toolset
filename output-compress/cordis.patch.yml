@@ -1,7 +1,3 @@
-# output-compress 插件的 dsh bundle 声明。
-# dsh 宿主按 package.json 的 dsh.bundle.patch 加载本文件，把大输出压缩插件挂进进程内。
-# 本文件是 cordis bundle patch（insert 语义），不是 RFC6902 JSON Patch：
-# pi-lens-ignore: yaml-schema: JSONPatch:0, yaml-schema: JSONPatch:513
 - insert:
     - id: output-compress
       name: '@dsh-toolset/output-compress'

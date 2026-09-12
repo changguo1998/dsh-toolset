@@ -18,6 +18,17 @@ knowledge-base 共享 SQLite 库，使原始大输出不进模型上下文、又
 - 把摘要渲染为小体积 Markdown 记录，经**共享库写入器**写进 knowledge-base 的
   **同一个** SQLite 文件（`category='output-compress'`），复用其 FTS5 触发器自动建索引。
 
+## 挂载声明文件
+
+`cordis.patch.yml` 是 cordis bundle patch（`insert` 语义），不是 RFC6902 JSON Patch。
+该文件刻意不含注释：仓库统一的 `format` 对 YAML 走 `yq -y -i .`（python yq，无法保留注释），
+保留注释会让格式化永不收敛（每次 format 都产生工作树改动）。
+
+正因为它是 bundle patch 方言而非 JSON Patch，pi-lens 的 `yaml-schema: JSONPatch` 会对其误报
+（缺 op/path/value、insert 不允许）。本目录的 `.pi-lens.json` 用 `ignore` 把该文件排除出
+检查输出（仅在 `output-compress/` 作用域生效），避免假阳性阻断；文件作用与挂载方式见
+`package.json` 的 `dsh.bundle.patch` 与本文件上文说明。
+
 **边界**：原始字节由宿主 retention/spill 负责保留，本插件不存原文全文、不让原文进模型上下文；
 本插件与 knowledge-base 之间无 npm 依赖，只通过共享库文件这一宿主共享面通信。
 
