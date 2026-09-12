@@ -4,7 +4,7 @@
  *
  * 事件处理绝不向宿主抛错：任何失败记录告警并跳过本次写入（下次事件重试打开）。
  */
-import { readFile } from "node:fs/promises";
+import { open, stat } from "node:fs/promises";
 
 import {
   KbNotMountedError,
@@ -412,12 +412,20 @@ export class OutputCompressHooks {
     const now = Date.now();
     if (now < this.openBackoffUntil) return null;
     try {
-      const buf = await readFile(locator);
-      const totalBytes = buf.length;
-      const cap = this.options.maxSourceBytes;
-      // 超上限：截断前 cap 字节（派生只覆盖截断部分，摘要内显式标注 truncated）
-      const scanned = totalBytes > cap ? buf.subarray(0, cap) : buf;
-      return { text: scanned.toString("utf8"), bytes: totalBytes };
+      // 有界读取：先取文件大小，再只读前 maxSourceBytes 字节
+      // （原始字节永不整文件入内存；派生只覆盖截断部分，摘要内显式标注 truncated）
+      const totalBytes = (await stat(locator)).size;
+      const readBytes = Math.min(totalBytes, this.options.maxSourceBytes);
+      const handle = await open(locator, "r");
+      let text: string;
+      try {
+        const buf = Buffer.alloc(readBytes);
+        const { bytesRead } = await handle.read(buf, 0, readBytes, 0);
+        text = buf.subarray(0, bytesRead).toString("utf8");
+      } finally {
+        await handle.close();
+      }
+      return { text, bytes: totalBytes };
     } catch {
       // 退避 10s 后允许再次尝试（spill 文件可能稍后才出现，属罕见竞态）
       this.openBackoffUntil = now + 10_000;
