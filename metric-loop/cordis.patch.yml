@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-metric-loop
+      name: '@dsh-toolset/dsh-metric-loop'

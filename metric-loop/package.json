@@ -1,0 +1,31 @@
+{
+    "name": "@dsh-toolset/dsh-metric-loop",
+    "version": "0.1.0",
+    "description": "DSH (DeepSeek Harness) 指标驱动自动循环：测量命令单数字输出、plateau 停止、轮数/时间/token 边界、cadence 唤醒",
+    "type": "module",
+    "main": "dist/src/index.js",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "check": "tsc -p tsconfig.json --noEmit",
+        "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+        "smoke": "node smoke/smoke.mjs"
+    },
+    "devDependencies": {
+        "@types/node": "^24.13.3",
+        "typescript": "^5.9.3"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml"
+    ],
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    }
+}
