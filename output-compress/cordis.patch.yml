@@ -1,0 +1,3 @@
+- insert:
+    - id: output-compress
+      name: '@dsh-toolset/output-compress'
