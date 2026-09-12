@@ -35,10 +35,10 @@
 ## 完成门槛
 
 1. `npm --prefix output-compress run check`（tsc --noEmit 严格）通过
-2. `npm --prefix output-compress run test` 全绿（node --test）
-3. `npm --prefix output-compress run build` 产出 `dist/`
-4. 改动文件执行 `format <文件...>`
-5. 独立 profile `~/.dsh/profiles/dsh-output-compress`（`link:` 指向本 worktree，**需同挂 knowledge-base bundle**）+ smoke 通过 + 人工确认
+1. `npm --prefix output-compress run test` 全绿（node --test）
+1. `npm --prefix output-compress run build` 产出 `dist/`
+1. 改动文件执行 `format <文件...>`
+1. 独立 profile `~/.dsh/profiles/dsh-output-compress`（`link:` 指向本 worktree，**需同挂 knowledge-base bundle**）+ smoke 通过 + 人工确认
 
 ## 硬约束
 
