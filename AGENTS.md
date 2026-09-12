@@ -1,6 +1,6 @@
 # AGENTS.md — dsh-toolset
 
-本项目为 DSH（DeepSeek Harness）进程内集成插件工具集，目前包含 `TUI/` 终端界面包。
+本项目为 DSH（DeepSeek Harness）进程内集成插件工具集，包含 `TUI/` 终端界面包与 10 个进程内集成插件（herdr-integration / task-engine / knowledge-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard）。
 
 ## 语言约定
 
@@ -9,7 +9,7 @@
 
 ## 命令
 
-仓库根 `package.json` 委托各插件子包（TUI / herdr-integration / knowledge-base / task-engine）：
+仓库根 `package.json` 委托全部子包（TUI / herdr-integration / knowledge-base / task-engine / ast-tools / fs-digest / goal-contract / hash-edit / metric-loop / output-compress / security-guard）：
 
 ```sh
 npm run check   # 全部子包类型检查（tsc --noEmit）
@@ -42,6 +42,7 @@ npm run demo -- --smoke  # TUI 冒烟检查（帧断言 SMOKE_PASS，根脚本�
 ## 结构与约定
 
 - `TUI/src/app/` 状态与纯函数层（state/layout），`TUI/src/renderer/` 终端渲染层，`TUI/src/app/adapter/` 插拔适配层，`TUI/demo/` mock demo。
+- 插件子包：`task-engine/`（任务执行引擎）、`knowledge-base/`（知识库与记忆）、`herdr-integration/`（herdr 面板桥）、`goal-contract/`（Done-when 契约起草）、`metric-loop/`（指标循环）、`output-compress/`（大输出摘要入库）、`fs-digest/`（文件摘要）、`hash-edit/`（LINE:HASH 锚定编辑）、`ast-tools/`（AST 搜索/替换/大纲）、`security-guard/`（危险命令与敏感文件防护）；各包的 `package.json` 带 `dsh.bundle` 集成契约与 `cordis.patch.yml`。
 - 核心契约对齐官方 deepseek-harness：根目录 `DSH-CTX-API.md` 为跨插件共享研读笔记（只读参考，勿改动）。
 - DSH 集成契约以 `TUI/cordis.patch.yml` + `package.json` 的 `dsh.bundle` 为准。
 - 设计/实现讨论沉淀在 `TUI/DESIGN.md` 与 `TUI/IMPLEMENTATION.md`，改动行为时同步更新。
