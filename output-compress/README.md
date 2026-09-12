@@ -9,7 +9,7 @@ knowledge-base 共享 SQLite 库，使原始大输出不进模型上下文、又
 - 触发条件（满足其一）：
   1. **spill 通知**：宿主 spill-policy 已把大输出落盘并在事件文本尾部追加
      `(Omitted N bytes. Full formatted result stored at: <locator>. ...)` 通知；
-  1. **阈值**：事件文本长度 ≥ `minChars`（默认 16384）；
+  1. **阈值**：事件文本的 UTF-8 字节数 ≥ `minBytes`（默认 16384，即 16KB）；
 - 取回完整输出（spill 文件，`maxSourceBytes` 上限，默认 512KB）；
 - 在宿主 `ctx.codeRuntime` 沙箱里运行**单一确定性派生程序**（非 LLM 抽取；该服务经
   `ctx.reflect.get('codeRuntime', false)` 可选读取，未挂载时回落 `node:vm` 执行同一程序源），产出：
@@ -47,7 +47,7 @@ npm run smoke   # 真实 dsh headless 会话冒烟（需 dsh CLI + 模型凭据�
 | --- | --- | --- |
 | `dbPath` | `OUTPUT_COMPRESS_DB_PATH` → `KNOWLEDGE_DB_PATH` → `~/.dsh/knowledge-base/knowledge.db` | 共享库路径，必须与 knowledge-base 一致 |
 | `project` | `'default'` | 摘要记录的 project 过滤维度 |
-| `minChars` | `16384` | 无通知时触发摘要的最小文本长度（字符） |
+| `minBytes` | `16384` | 无通知时触发摘要的最小文本 UTF-8 字节数 |
 | `maxSourceBytes` | `524288` | 读取 spill 文件的字节上限（超出截断并标注 `truncated`） |
 
 写前校验库指纹（`PRAGMA application_id = 'KNOW'`、`user_version = 1`）与 `sources`/`chunks`

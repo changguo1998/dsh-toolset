@@ -54,24 +54,35 @@ test("通知不在文末（其后还有文本）返回 null", () => {
 test("shouldCompress：spill 通知优先于阈值", () => {
   const { reason, notice } = shouldCompress(
     noticeText("Omitted 10 bytes", "/tmp/spill/d.txt"),
-    { minChars: 16384 },
+    { minBytes: 16384 },
   );
   assert.equal(reason, "spill-notice");
   assert.ok(notice !== null && notice.locator === "/tmp/spill/d.txt");
 });
 
 test("shouldCompress：无通知按阈值判定（≥ 触发）", () => {
-  const below = shouldCompress("x".repeat(16383), { minChars: 16384 });
+  const below = shouldCompress("x".repeat(16383), { minBytes: 16384 });
   assert.equal(below.reason, "none");
-  const at = shouldCompress("x".repeat(16384), { minChars: 16384 });
+  const at = shouldCompress("x".repeat(16384), { minBytes: 16384 });
   assert.equal(at.reason, "threshold");
   assert.equal(at.notice, null);
+});
+
+test("shouldCompress：阈值按 UTF-8 字节计（多字节文本边界）", () => {
+  // 多字节文本：字符数远小于字节数。6000 汉字 = 18000 字节 ≥ 16384 → 触发
+  // （按字符口径 6000 < 16384 会漏判，这正是本用例守住的回归）
+  const over = shouldCompress("汉".repeat(6000), { minBytes: 16384 });
+  assert.equal(over.reason, "threshold");
+  // 边界下方：5000 汉字 = 15000 字节 < 16384 → 不触发
+  const under = shouldCompress("汉".repeat(5000), { minBytes: 16384 });
+  assert.equal(under.reason, "none");
+  assert.equal(Buffer.byteLength("汉".repeat(5000), "utf8"), 15000);
 });
 
 test("shouldCompress：空 locator 的通知不触发 spill-notice，回落阈值", () => {
   // 手工构造：locator 为空（通知畸形）
   const text = `preview\n\n(Omitted 10 bytes. Full formatted result stored at: . ${HINT})`;
   // 严格正则要求 locator 至少 1 字符，此处 locator 组捕获空串 → notice.locator === ""
-  const { reason } = shouldCompress(text, { minChars: 999999 });
+  const { reason } = shouldCompress(text, { minBytes: 999999 });
   assert.equal(reason, "none");
 });

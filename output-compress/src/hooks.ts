@@ -43,8 +43,8 @@ export type CompressOutcome =
     };
 
 export interface CompressOptions {
-  /** 无 spill 通知时触发压缩的最小文本长度（字符）。 */
-  minChars: number;
+  /** 无 spill 通知时触发压缩的最小文本字节数（UTF-8）。 */
+  minBytes: number;
   /** 从 spill 文件读取完整输出的字节上限。 */
   maxSourceBytes: number;
   /** 入库 project（字符串或动态获取，如按 cwd 解析）。 */
@@ -301,7 +301,7 @@ export class OutputCompressHooks {
     const text = extractText(data);
     if (text.length === 0) return { status: "none" };
     const { reason, notice } = shouldCompress(text, {
-      minChars: this.options.minChars,
+      minBytes: this.options.minBytes,
     });
     if (reason === "none") return { status: "none" };
 

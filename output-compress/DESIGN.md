@@ -15,7 +15,7 @@
   `(Omitted N bytes. Full formatted result stored at: <locator>. <retrievalHint>)`；
   解析到非空 locator 即触发（`spill-notice`），这是**权威信号**——宿主已裁定超阈值并
   给出落盘位置。
-- 无通知时按 `minChars`（默认 16KB）兜底（`threshold`）：宿主未 spill（read 工具豁免
+- 无通知时按 `minBytes`（UTF-8 字节，默认 16384 = 16KB）兜底（`threshold`）：宿主未 spill（read 工具豁免
   spill 以防循环）但输出仍值得摘要。
 - 严格正则锚定 retrievalHint 字面量做唯一切分（locator 含 `. ` 也不误切）；宽松正则为
   宿主文案演进兜底，并剥除被贪婪捕获吞入的 hint 后缀。

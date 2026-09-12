@@ -1,5 +1,5 @@
 /**
- * 超阈值输出触发判定：spill 通知解析 + 文本长度阈值。
+ * 超阈值输出触发判定：spill 通知解析 + 文本字节阈值。
  *
  * 对齐宿主 spill-policy（dsh 0.1.5-rc.2，packages/spill/spill-policy）的持久化文案：
  * 工具结果超过 maxInlineBytes 时，事件内文本被替换为
@@ -65,13 +65,14 @@ export function parseSpillNotice(text: string): SpillNotice | null {
 export type TriggerReason = "spill-notice" | "threshold" | "none";
 
 export interface TriggerOptions {
-  /** 无通知时触发压缩的最小文本长度（字符）。 */
-  minChars: number;
+  /** 无通知时触发压缩的最小文本字节数（UTF-8 编码后的字节数，与 TASK 契约的 minBytes 一致）。 */
+  minBytes: number;
 }
 
 /**
  * 触发判定：spill 通知优先（宿主已裁定超阈值且给出落盘位置），
- * 否则按文本长度阈值兜底（宿主未 spill 但本插件认为值得摘要的大输出）。
+ * 否则按文本 UTF-8 字节数阈值兜底（宿主未 spill 但本插件认为值得摘要的大输出）。
+ * 字节口径与宿主 spill 阈值同尺度：多字节文本不会因「字符数少」而被漏判。
  */
 export function shouldCompress(
   text: string,
@@ -81,7 +82,7 @@ export function shouldCompress(
   if (notice !== null && notice.locator.trim().length > 0) {
     return { reason: "spill-notice", notice };
   }
-  if (text.length >= opts.minChars)
+  if (Buffer.byteLength(text, "utf8") >= opts.minBytes)
     return { reason: "threshold", notice: null };
   return { reason: "none", notice: null };
 }

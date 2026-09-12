@@ -186,7 +186,7 @@ async function mount(
   return { dbPath, host, emit, bundle };
 }
 
-test("阈值触发：≥minChars 文本入库，category/output-compress 且 FTS 可召回", async () => {
+test("阈值触发：≥minBytes 文本入库，category/output-compress 且 FTS 可召回", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "oc-hooks-"));
   try {
     makeKbDb(path.join(dir, "kb.db"));
@@ -207,6 +207,24 @@ test("阈值触发：≥minChars 文本入库，category/output-compress 且 FTS
       .get() as { n: number };
     db.close();
     assert.ok(row.n >= 1);
+    bundle.dispose();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("阈值按 UTF-8 字节计：6000 汉字（18000 字节）入库且统计口径为字节", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "oc-hooks-"));
+  try {
+    makeKbDb(path.join(dir, "kb.db"));
+    const { dbPath, emit, bundle } = await mount(dir);
+    // 6000 汉字 = 18000 字节 ≥ 默认 16384 字节：按字符口径（6000 < 16384）不会触发
+    emit(toolResultEvent(85, "汉".repeat(6000)));
+    await settle(() => countOcChunks(dbPath) >= 1);
+    assert.ok(
+      ocChunksText(dbPath).includes("bytes=18000"),
+      "摘要统计应为 UTF-8 字节数",
+    );
     bundle.dispose();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -406,7 +424,7 @@ test("reflect 宿主：reflect.get 返回 code-runtime 时经该运行时入库�
     const bundle = await createOutputCompressBundle(host, {
       dbPath,
       project: "oc-test",
-      minChars: 16384,
+      minBytes: 16384,
     });
     emit(toolResultEvent(70, "r".repeat(20_000)));
     await settle(() => countOcChunks(dbPath) >= 1);

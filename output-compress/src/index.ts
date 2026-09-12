@@ -21,8 +21,8 @@ export const name = "output-compress";
 export interface OutputCompressConfig {
   /** 共享库路径；缺省走 resolveDbPath 的 env/默认链。 */
   dbPath?: string;
-  /** 无 spill 通知时触发压缩的最小文本长度（字符），默认 16384。 */
-  minChars?: number;
+  /** 无 spill 通知时触发压缩的最小文本字节数（UTF-8），默认 16384（16KB）。 */
+  minBytes?: number;
   /** 从 spill 文件读取完整输出的字节上限，默认 524288（512KB）。 */
   maxSourceBytes?: number;
   /** 库未挂载重试的退避延迟（ms）；缺省 [1000, 2500, 5000, 10000]。 */
@@ -37,7 +37,7 @@ export interface OutputCompressBundle {
 }
 
 /** 默认阈值（与 TASK 契约一致：16KB / 512KB）。 */
-export const DEFAULT_MIN_CHARS = 16384;
+export const DEFAULT_MIN_BYTES = 16384;
 export const DEFAULT_MAX_SOURCE_BYTES = 524_288;
 
 /** reflect 层可选读取的服务值类型（本插件仅读 codeRuntime，未挂载时为 undefined）。 */
@@ -90,7 +90,7 @@ export async function createOutputCompressBundle(
   const sandbox: SandboxRunner =
     runtime !== undefined ? new CodeRuntimeSandbox(runtime) : new VmSandbox();
   const hooks = new OutputCompressHooks({
-    minChars: config.minChars ?? DEFAULT_MIN_CHARS,
+    minBytes: config.minBytes ?? DEFAULT_MIN_BYTES,
     maxSourceBytes: config.maxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES,
     project: config.project ?? "default",
     writer,
