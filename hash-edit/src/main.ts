@@ -17,7 +17,6 @@
 export * from "./hashline.ts";
 export * from "./edit.ts";
 export * from "./fs.ts";
-export * from "./fs.ts";
 
 // 本地引用（export * 只产生 re-export，不产生本模块绑定）
 import { AnchoredEditError, type EditOp } from "./edit.ts";

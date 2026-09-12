@@ -37,6 +37,7 @@ export class FileEditError extends Error {
 
 /** 读取结果：文件哈希（全量核对用）+ 指定窗口内的行锚点列表。 */
 export interface ReadResult {
+  ok: true;
   path: string;
   file_hash: string;
   line_count: number;
@@ -85,6 +86,7 @@ export async function readHashlines(
   const all = hashlines(content);
   const start = Math.max(0, offset - 1);
   return {
+    ok: true,
     path: p,
     file_hash: fileHash(content),
     line_count: all.length,
