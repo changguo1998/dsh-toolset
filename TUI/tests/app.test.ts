@@ -787,8 +787,7 @@ test("/model 面板: 三列独立, 切 model 区选模型 + thinking 区选等�
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/model");
   await flush();
-  // Tab -> model 区(phase1), ↓ 移动到 deepseek-reasoner，space 写入选中
-  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  // 初始焦点在 model 区：↓ 移动到 deepseek-reasoner，space 写入选中
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "space", ctrl: false, meta: false, shift: false });
   await flush(); // 触发 reload efforts(low/high/max)
@@ -807,6 +806,44 @@ test("/model 面板: 三列独立, 切 model 区选模型 + thinking 区选等�
   });
 });
 
+test("/model 无参: 面板初始焦点在 model 列", async () => {
+  const { renderer } = makeApp();
+  typeAndEnter(renderer, "/model");
+  await flush();
+  const frame = plainFrame(renderer);
+  assert.ok(frame.includes("[ model"), "初始焦点应在 model 列: " + frame);
+  assert.ok(
+    !frame.includes("[ provider"),
+    "provider 列不应带焦点边框: " + frame,
+  );
+});
+
+test("/provider、/effort、/thinking 别名: 无参直达面板并定位焦点列, 带参提示 usage", async () => {
+  const { renderer } = makeApp();
+  // 三条别名 → 焦点列（/thinking 与 /effort 同义，都指向思考等级列）
+  for (const [cmd, focus] of [
+    // 面板列宽受限时表头可能被截断（无 `]`），故只匹配焦点标记 `[ provider`
+    ["/provider", "[ provider"],
+    ["/effort", "[ effort"],
+    ["/thinking", "[ effort"],
+  ] as const) {
+    typeAndEnter(renderer, cmd);
+    await flush(); // 等 modelCatalog + modelEfforts 异步链路
+    const frame = plainFrame(renderer);
+    assert.ok(
+      frame.includes(focus),
+      `${cmd} 应把焦点预置到 ${focus}: ` + frame,
+    );
+    renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+  }
+  // 带参 → usage 提示，不开面板（不把参数当模型名切换）
+  typeAndEnter(renderer, "/effort high");
+  await flush();
+  const f = plainFrame(renderer);
+  assert.ok(f.includes("usage: /effort"), "带参应提示 usage: " + f);
+  assert.ok(!f.includes("[ effort"), "带参不应打开面板: " + f);
+});
+
 test("/model 面板: 空格(真实字符)记录选中不提交, 方向键移动焦点, Enter 提交", async () => {
   const { renderer, adapter } = makeApp();
   // 单 provider + 两模型：便于验证 model 列「移动箭头 → 空格确认选中」
@@ -819,13 +856,9 @@ test("/model 面板: 空格(真实字符)记录选中不提交, 方向键移动�
     current: { provider: "deepseek", model: "deepseek-chat" },
   };
   typeAndEnter(renderer, "/model");
-  await flush(); // phase0 provider 区, providerIndex0=deepseek
-  // 空格 = 把当前焦点行写入选中（星号），不应提交
-  renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
-  await flush(); // selectedProvider=当前行，无提交
-  assert.equal(adapter.savedSelections.length, 0, "空格不应提交");
-  // Tab 到 model 区, ↓ 移动焦点箭头（位置指示）到 reasoner（选中仍 chat）
-  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  await flush(); // 初始焦点在 model 区, modelIndex0=chat(当前模型)
+  // ↓ 移动焦点箭头（位置指示）到 reasoner：星号仍 chat，不提交
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   await flush(); // modelIndex=1=reasoner
   assert.equal(adapter.savedSelections.length, 0, "方向键不提交");
@@ -864,7 +897,9 @@ test("/model 面板: model/思考等级列表跟随星号(选中)而非 > 焦点
   await flush();
   assert.ok(plainFrame(renderer).includes("m1a"), "model 列随选中 provider p1");
   const calls0 = adapter.modelEffortsCalls.length;
-  // ↓ 把 > 焦点移到 p2：model 列与思考等级列表不变
+  // ← 切到 provider 列（初始焦点在 model 列），↓ 把 > 焦点移到 p2：
+  // model 列与思考等级列表不变
+  renderer.press({ name: "left", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   await flush();
   const plain1 = plainFrame(renderer);
@@ -877,7 +912,8 @@ test("/model 面板: model/思考等级列表跟随星号(选中)而非 > 焦点
     calls0,
     "焦点移动不重载思考等级",
   );
-  // 空格选中 p2（星号移动）：model 列切换为 p2 的模型列表，思考等级重载
+  // 空格选中 p2（星号移动）：model 列切换为 p2 的模型列表，思考等级重载；
+  // Tab → model 列（provider → model）
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
   await flush();
   const plain2 = plainFrame(renderer);
@@ -919,7 +955,7 @@ test("/model 面板: ←/→ 左右切换焦点区,clamp 不循环", async () =>
   const { renderer } = makeApp();
   renderer.size = { cols: 120, rows: 24 };
   typeAndEnter(renderer, "/model");
-  await flush(); // phase0 provider 区
+  await flush(); // 初始焦点 model 区(phase1)
   // 右 → model 区(phase1)，再右 → thinking 区(phase2)，再右不动(不循环回 0)
   renderer.press({ name: "right", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "right", ctrl: false, meta: false, shift: false });
@@ -944,8 +980,7 @@ test("/model 面板: 同模型改等级不触发 already-on, 应用 max", async 
   typeAndEnter(renderer, "/model");
   await flush(); // 模型焦点区 index0 = current 行(deepseek-chat)
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
-  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
-  await flush(); // thinking 区焦点
+  await flush(); // Tab 一次 → thinking 区焦点
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   await flush();
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
@@ -1052,9 +1087,8 @@ test("交互选择：↑/↓ 移动，Enter 确认持久切换并保留当前 re
   };
   typeAndEnter(renderer, "/model");
   await flush();
-  // Tab -> model 区, ↓ 移动焦点到 deepseek-reasoner, space 记录选中
+  // 初始焦点在 model 区：↓ 移动焦点到 deepseek-reasoner, space 记录选中
   // （effort 列初始选中 = 当前 high，未动则保持；验证选中与焦点分离）
-  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "space", ctrl: false, meta: false, shift: false });
   await flush();

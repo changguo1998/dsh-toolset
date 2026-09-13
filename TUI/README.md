@@ -136,6 +136,8 @@ npm run watch # tsc --watch 常驻：源码变更自动编译到 dist/（仍需�
   - `/permission [预设名]` — 权限预设（sandbox mode + 审批策略捆绑）：无参从 `ctx.permissionPresets` 读目录并打开**状态选项面板**（空格预选、Enter 提交转发宿主后关闭）；带参转发宿主 `/permission <name>`（宿主校验并写 `permission/preset` + `approval/policy`）。宿主未挂载权限预设服务时提示不可用
   - `/preset [预设名]` — agent 预设目录：无参从 `ctx.agentPresets` 读目录并打开**状态选项面板**（空格预选、Enter 提交 `selectAgentPreset` 后关闭）；带参经 `selectAgentPreset`（`recompose` 写路径）切换当前会话预设，宿主未挂载时提示不可用（**当前默认 profile 未装配 `dsh-agent-presets`，/preset 提示不可用；接口已按 rc.2 核验，装配该服务的环境即生效**）
   - `/jobs` — 后台任务面板（只读列表 + Enter 取消）：adapter 订阅 `ctx.jobs.onJobsChanged` 增量刷新 + 打开时全量拉取；↑/↓ 选择、`Enter` 取消、`Esc` 关闭；状态栏 `jobs N` 徽标计运行中任务，宿主未挂载 jobs 服务时提示不可用
+  - `/model [provider/]model` — 会话内切换模型（不落盘）：无参打开**模型选择面板**（三列 provider/model/effort 同屏，初始焦点在 model 列，←/→ 换列、空格选中、Enter 提交、Esc 取消）；带参直接切换（`provider/model` 或跨 provider 唯一的 model id）
+  - `/provider`、`/effort`（`/thinking` 同义） — 无需参数打开同一个模型选择面板，并预先把焦点列放到 provider / effort 列；带参提示 usage（不做隐式切换）
 - **宿主自带命令（dsh-base 默认装配，转发即用）**：`/compact`、`/feedback`（rc.2 `dsh-command-compact`/`dsh-command-feedback` 经 `ctx.commands.register` 注册），TUI 无本地路由走 registry 转发。
 - **其他功能命令 → commands 注册表**（官方 `dsh-commands` 机制）：输入路由到 `adapter.runCommand` → `ctx.commands.execute(agent, line)`，结果/错误经 `notice` 事件展示在 UI 缓冲。未命中注册表 → 提示未知命令（官方 fail-close 策略，绝不把 slash 行发给模型）。
 - demo 模式无 commands 注册表，非本地 `/xxx` 回提示。

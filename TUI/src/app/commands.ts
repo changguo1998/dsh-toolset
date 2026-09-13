@@ -142,6 +142,8 @@ export type SlashRoute =
   | "clearscreen"
   | "quit"
   | "model"
+  | "provider"
+  | "effort"
   | "theme"
   | "session"
   | "copy"
@@ -163,6 +165,11 @@ export function routeSlashCommand(name: string): SlashRoute {
       return "quit";
     case "model":
       return "model";
+    case "provider":
+      return "provider";
+    case "effort":
+    case "thinking": // /thinking 与 /effort 同义（同一列：思考等级）
+      return "effort";
     case "theme":
       return "theme";
     case "session":
@@ -187,6 +194,11 @@ export function routeSlashCommand(name: string): SlashRoute {
 /** /model 参数（命令名之后的文本，去首尾空白）；空串 = 无参（进入交互选择） */
 export function modelCommandSpec(line: string): string {
   return line.slice("/model".length).trim();
+}
+
+/** slash 命令参数（命令名之后的文本，去首尾空白）；`/effort` → ""，`/effort high` → "high" */
+export function slashCommandArg(line: string): string {
+  return line.replace(/^\/[a-z][a-z0-9_-]*/, "").trim();
 }
 
 /** /theme 参数决策：""/toggle → dark|light 互切；显式 light/dark → 取之；其余参数 → usage 错误 */

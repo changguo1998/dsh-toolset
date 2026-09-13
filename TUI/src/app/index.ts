@@ -28,6 +28,7 @@ import {
   modelCommandSpec,
   resolveModelSpec,
   routeSlashCommand,
+  slashCommandArg,
   surfaceToBuffer,
   themeCommandDecision,
 } from "./commands.ts";
@@ -1026,6 +1027,11 @@ export class App {
       case "model":
         void this.handleModelCommand(line);
         return;
+      case "provider":
+      case "effort":
+        // 直达别名：打开 /model 面板并把焦点列预置到 provider / effort
+        void this.handleModelFocus(name, line);
+        return;
       case "theme":
         this.handleThemeCommand(line);
         return;
@@ -1077,6 +1083,22 @@ export class App {
         return;
       }
       await this.applyModelSelection(resolved.selection);
+    } catch (err) {
+      this.notice("model command failed: " + String(err), "error");
+    }
+  }
+
+  /** /provider | /effort | /thinking：无参打开 /model 面板并预置焦点列
+   *  （0=provider、2=effort），不做隐式切换；带参提示 usage，避免把
+   *  `/effort high` 误当模型名去切模型。 */
+  private async handleModelFocus(name: string, line: string): Promise<void> {
+    if (slashCommandArg(line) !== "") {
+      this.notice(`usage: /${name} (no argument; opens the picker)`, "info");
+      return;
+    }
+    try {
+      const catalog = await this.deps.adapter.modelCatalog();
+      this.openModelPicker(catalog, name === "provider" ? 0 : 2);
     } catch (err) {
       this.notice("model command failed: " + String(err), "error");
     }
@@ -1220,8 +1242,9 @@ export class App {
     this.notice("已复制最后一条回复到剪贴板", "success");
   }
 
-  /** 无参 /model：进入交互选择模式（当前模型行始终显示，不在候选目录中也补行） */
-  private openModelPicker(catalog: ModelCatalog): void {
+  /** 无参 /model：进入交互选择模式（当前模型行始终显示，不在候选目录中也补行）；
+   *  phase 为焦点列（/model 缺省 model 列；/provider、/effort 别名显式传入） */
+  private openModelPicker(catalog: ModelCatalog, phase: 0 | 1 | 2 = 1): void {
     const init = buildPickerInit(catalog);
     if (!init.ok) {
       this.notice(
@@ -1231,7 +1254,10 @@ export class App {
       return;
     }
     this.apply((s) =>
-      reduceState(s, { type: "picker-open", picker: init.picker }),
+      reduceState(s, {
+        type: "picker-open",
+        picker: { ...init.picker, phase },
+      }),
     );
     this.paint();
     void this.reloadPickerEfforts();
@@ -1599,6 +1625,7 @@ export class App {
       "  /goal     当前会话目标迷你面板（goal/todo 只读；↑/↓ 滚动，Esc 关闭）",
       "  /copy     复制最后一条模型回复到剪贴板(OSC52)",
       "  /model [provider/]model  switch current-session model; bare /model: interactive picker",
+      "  /provider、/effort (/thinking)  无参直达 /model 面板并定位到 provider / effort 列",
       "  /permission [预设名]  权限预设（sandbox+审批捆绑；无参列当前与可用，带参切换）",
       "  /preset [预设名]      agent 预设目录（无参列当前/可用/默认，带参切换）",
       "  /jobs 后台任务面板（只读列表；↑/↓ 选择、Enter 取消、Esc 关闭）",
