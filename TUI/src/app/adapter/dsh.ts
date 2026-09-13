@@ -1580,6 +1580,28 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       return { providers, models, current };
     },
+    // 命令注册表目录（ctx.commands.list(agent)：CommandDescriptor[]）：仅取 name/description
+    // 供输入补全；服务未暴露 list 或读取异常 → undefined（调用方降级为仅本地命令）
+    commandList() {
+      const svc = opts.commands;
+      if (!svc || typeof svc.list !== "function") return undefined;
+      const agent = activeCommandAgent ?? activeAgent;
+      if (!agent) return undefined;
+      try {
+        const out: { name: string; desc: string }[] = [];
+        for (const d of svc.list(agent) ?? []) {
+          const name = typeof d?.name === "string" ? d.name : "";
+          if (!name) continue;
+          out.push({
+            name,
+            desc: typeof d.description === "string" ? d.description : "",
+          });
+        }
+        return out;
+      } catch {
+        return undefined;
+      }
+    },
     // 历史会话列表（宿主挂载 sessionQuery 时可用）：newest-first；
     // 标题优先官方 session/title 事件（批量折叠），缺失时本地兜底首条用户消息
     listSessions: sessionQuery

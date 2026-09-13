@@ -28,6 +28,7 @@ import { renderHistoryPanel } from "./components/HistoryPanel.ts";
 import { renderQuestionPanel } from "./components/QuestionPrompt.ts";
 import { renderJobsPanel, statusMark } from "./components/JobsPanel.ts";
 import { renderStatusPanel } from "./components/StatusPanel.ts";
+import { renderCommandCompletion } from "./components/CommandCompletion.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
 import { colorFor } from "../renderer/theme.ts";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
@@ -160,6 +161,9 @@ export const SEPARATOR_ROWS = 2;
 /** 按键提示区内容（独立区域，位于输入区下方、之间不画横线；窄终端按显示宽度截断；审批/问答/选择面板自带按键提示，不显示该区） */
 export const HINT_LINE =
   "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [Ctrl+J]输入换行 · [/help]更多命令";
+
+/** 补全候选打开时的按键提示（替换 HINT_LINE；候选面板本身不再占用活动区行放提示） */
+export const COMPLETION_HINT_LINE = "[tab]补全 · [↑/↓]选择 · [esc]收起";
 
 export interface FrameMetrics {
   /** 顶部区域行数 = rows - 状态区 - 输入区 - 按键提示区 - 分隔行（剩余高度全给上方两个） */
@@ -985,7 +989,14 @@ function buildTopRegion(
                 width: contentW,
                 themeId: state.themeId,
               })
-            : [];
+            : state.completion
+              ? renderCommandCompletion({
+                  completion: state.completion,
+                  height: activityH,
+                  width: contentW,
+                  themeId: state.themeId,
+                })
+              : [];
   const divFor = (rc: number): string => {
     // 活动区分隔行两端为面板角字：history=右下角 ┘、activity=右上角 ┐、其余=竖线
     if (rc === diaEnd && activityH > 0) {
@@ -1782,7 +1793,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
 
   let footerLines: RenderLine[];
   // 审批/问答/模型选择/状态选项/任务面板已上移到流输出（活动区）窗口显示，
-  // 底部交互区以空白占位（保持交互区高度稳定不跳变）；历史面板仍在底部渲染
+  // 审批/问答/模型选择/状态选项/任务面板/输入补全已上移到流输出（活动区）窗口显示，
   if (showApproval || question || picker || statusPanel || jobsPanel) {
     footerLines = Array.from({ length: metrics.footerHeight }, () => ({
       text: " ".repeat(fullWidth),
@@ -1817,9 +1828,16 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   }
 
   // 按键提示区（独立区域，与输入区之间不画横线；正常前景色；窄终端按显示宽度截断）。
-  // 末尾追加当前面板焦点标签（Tab 切换），标识可滚动的选中面板
+  // 补全候选打开时改为补全键位（面板本身不再占活动区行放提示）。
   const hintLines: RenderLine[] = normalInput
-    ? [{ text: truncateToWidth(HINT_LINE, fullWidth) }]
+    ? [
+        {
+          text: truncateToWidth(
+            state.completion ? COMPLETION_HINT_LINE : HINT_LINE,
+            fullWidth,
+          ),
+        },
+      ]
     : [];
 
   // 分隔行（边框统一边框色 bright[0]：先纯文本截断再着色）。状态区上方与其余横线同为 `─`；

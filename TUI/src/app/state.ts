@@ -19,6 +19,7 @@ import type {
   JobInfo,
 } from "./adapter/dsh.ts";
 import type { ModelSelection, ModelSelectionLike } from "./adapter/dsh.ts";
+import { completeCommandInput, type CommandCandidate } from "./commands.ts";
 import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
 import {
   codeDispatchLine,
@@ -208,6 +209,10 @@ export interface AppState {
   jobs: JobInfo[];
   /** P3：/jobs 任务面板（null=未打开；index=高亮行，Enter 取消） */
   jobsPanel: { index: number } | null;
+  /** 输入命令补全候选（输入仍处于首个命令 token 时存在；index 0 = 最匹配默认项；null=无候选/未激活） */
+  completion: { items: readonly CommandCandidate[]; index: number } | null;
+  /** 宿主命令注册表目录（ctx.commands.list，启动同步一次；补全候选并入，同名以本地目录优先） */
+  registryCommands: readonly CommandCandidate[];
   /** P3：顶部状态列纵向滚动偏移（详细 goal/todo；渲染层 clamp） */
   statusColumnScroll: number;
   /** 顶部三面板键盘选中：null=无焦点（新输入/输出后回到无焦点，Tab 才进入）；history=对话历史 / activity=流输出 / status=详细状态列 */
@@ -353,6 +358,8 @@ export function initialState(
     picker: null,
     question: null,
     statusPanel: null,
+    completion: null,
+    registryCommands: [],
     history: null,
     agentStatus: "idle",
     themeId,
@@ -728,6 +735,20 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return selectStatusPanel(state);
       case "status-panel-close":
         return { ...state, statusPanel: null };
+      case "completion-move":
+        return moveCompletion(state, action);
+      case "completion-close":
+        return { ...state, completion: null };
+      case "command-catalog":
+        return {
+          ...state,
+          registryCommands: action.commands,
+          completion: completeCommandInput(
+            state.inputText,
+            action.commands,
+            state.inputMode,
+          ),
+        };
       case "question-open":
         return openQuestion(state, action);
       case "question-move":
@@ -892,7 +913,16 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "input":
         return setInput(state, action);
       case "input-mode":
-        return { ...state, inputMode: action.mode };
+        // 模式决定命令 token 语义（slash 模式文本无前导 `/`）：切换即重算候选
+        return {
+          ...state,
+          inputMode: action.mode,
+          completion: completeCommandInput(
+            state.inputText,
+            state.registryCommands,
+            action.mode,
+          ),
+        };
       case "last-submit-mode":
         return { ...state, lastSubmitMode: action.mode };
       case "input-status":
@@ -1424,14 +1454,28 @@ export type StateAction =
   | { type: "jobs-panel-close" }
   | { type: "status-column-scroll"; delta: number }
   | { type: "focus-panel-cycle" }
-  | { type: "activity-scroll"; delta: number };
+  | { type: "activity-scroll"; delta: number }
+  /** max = 可视候选数上界（App 按活动区行数给；超出可视区的候选不参与焦点导航） */
+  | { type: "completion-move"; delta: number; max?: number }
+  | { type: "completion-close" }
+  | { type: "command-catalog"; commands: readonly CommandCandidate[] };
 
 function setInput(
   state: AppState,
   action: Extract<StateAction, { type: "input" }>,
 ): AppState {
   const cursor = Math.max(0, Math.min(action.cursor, action.text.length));
-  return { ...state, inputText: action.text, inputCursor: cursor };
+  // 输入变更的单一漏斗点：候选随文本同步重算（非命令 token 输入自动得到 null → 面板收起）
+  return {
+    ...state,
+    inputText: action.text,
+    inputCursor: cursor,
+    completion: completeCommandInput(
+      action.text,
+      state.registryCommands,
+      state.inputMode,
+    ),
+  };
 }
 
 function moveCursor(
@@ -1458,6 +1502,21 @@ function moveStatusPanel(
   );
   if (index === p.index) return state;
   return { ...state, statusPanel: { ...p, index } };
+}
+
+/** 命令补全面板焦点移动：在可视候选数内 clamp（↑/↓，不循环；max=活动区可容纳的候选数） */
+function moveCompletion(
+  state: AppState,
+  action: Extract<StateAction, { type: "completion-move" }>,
+): AppState {
+  const c = state.completion;
+  if (!c || c.items.length === 0) return state;
+  const visible = Math.max(
+    1,
+    Math.min(c.items.length, action.max ?? c.items.length),
+  );
+  const index = Math.max(0, Math.min(c.index + action.delta, visible - 1));
+  return { ...state, completion: { ...c, index } };
 }
 
 /** statusPanel 空格预选：焦点行 id 写入 selected（同值再按取消）；避免误提交。 */

@@ -204,6 +204,8 @@ export class App {
     this.paint();
     // 拉取权限/agent 预设目录写入 state（状态列 Mode 块可选值；缺默服务则保持降级）
     this.refreshCatalogs();
+    // 拉取宿主命令注册表目录（输入补全候选；服务缺失时仅本地目录）
+    this.refreshCommandCatalog();
     // 补 Mode 块初始值（log-only 事件启动不产生，从会话日志折叠一次）
     this.refreshSessionModes();
   }
@@ -242,6 +244,16 @@ export class App {
         })
         .catch(() => {});
     }
+  }
+
+  /** 拉取宿主命令注册表目录（ctx.commands.list）写入 state：补全候选并入本地目录。
+   *  服务缺失/未暴露 list → 静默跳过（仅本地命令可补全）。 */
+  private refreshCommandCatalog(): void {
+    const list = this.deps.adapter.commandList?.();
+    if (!list || list.length === 0) return;
+    this.apply((s) =>
+      reduceState(s, { type: "command-catalog", commands: list }),
+    );
   }
 
   /**
@@ -786,6 +798,12 @@ export class App {
 
     switch (name) {
       case "escape":
+        // 补全候选打开时 Esc 只收起候选（不打断运行、不动焦点）
+        if (this.state.completion) {
+          this.apply((s) => reduceState(s, { type: "completion-close" }));
+          this.paint();
+          break;
+        }
         // Esc：打断运行（agent 非 idle 时 interrupt；picker 面板已在上方分支关闭）。
         // idle + 空输入：退出顶部面板焦点循环（有焦点 → 回到无焦点）
         if (this.state.agentStatus !== "idle") {
@@ -795,6 +813,11 @@ export class App {
         }
         break;
       case "tab":
+        // 补全候选打开时 Tab 接受默认选中的候选（补全不提交）
+        if (this.state.completion) {
+          this.acceptCompletion();
+          break;
+        }
         // Tab：仅输入区为空时循环切换顶部面板焦点（编辑输入时保留 Tab 不打断）
         if (this.state.inputText === "") {
           this.apply((s) => reduceState(s, { type: "focus-panel-cycle" }));
@@ -802,6 +825,19 @@ export class App {
         break;
       case "up":
       case "down": {
+        // 补全候选打开时 ↑/↓ 只在候选间移动（不滚动面板）
+        if (this.state.completion) {
+          this.apply((s) =>
+            reduceState(s, {
+              type: "completion-move",
+              delta: name === "down" ? 1 : -1,
+              // 超出活动区可视行的候选已丢弃：焦点导航同样不超出可视范围
+              max: this.completionVisibleRows(),
+            }),
+          );
+          this.paint();
+          break;
+        }
         // 焦点面板单行滚动：方向内聚在 focusedLineScroll（history/activity 距底部、status 距顶部）
         const dir: 1 | -1 = name === "up" ? 1 : -1;
         this.apply((s) =>
@@ -1631,6 +1667,33 @@ export class App {
       "  /jobs 后台任务面板（只读列表；↑/↓ 选择、Enter 取消、Esc 关闭）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
+  }
+
+  /** 接受补全候选（Tab）：候选名写入输入框并补尾随空格（便于接参数），
+   *  列表随输入重算自动收起（`/name ` 已非命令 token）。 */
+  /** 补全面板可显示的候选行数（活动区可视行 - 标题行；与 CommandCompletion 渲染同口径） */
+  private completionVisibleRows(): number {
+    const activityH = inputPanelHeights(
+      this.state,
+      this.deps.renderer.getSize(),
+    ).activityH;
+    return Math.max(1, activityH - 1);
+  }
+  private acceptCompletion(): void {
+    const c = this.state.completion;
+    // 可见候选内取焦点项（可视行之外的候选已被渲染丢弃，不需也不应被接受）
+    const visible = Math.min(
+      c?.items.length ?? 0,
+      this.completionVisibleRows(),
+    );
+    const item = c?.items[Math.min(c.index, Math.max(0, visible - 1))];
+    if (!item) return;
+    const text =
+      (this.state.inputMode === "slash" ? "" : "/") + item.name + " ";
+    this.apply((s) =>
+      reduceState(s, { type: "input", text, cursor: text.length }),
+    );
+    this.paint();
   }
 
   private insertChar(c: string): void {

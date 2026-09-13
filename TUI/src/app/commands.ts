@@ -154,41 +154,105 @@ export type SlashRoute =
   | "preset"
   | "jobs";
 
+/** 本地命令目录：路由与输入补全的**单一来源**（含别名，别名也是独立可补全项）。
+ *  desc 供补全候选展示；/help 的逐行说明仍在 App.helpText（历史格式）。 */
+export const LOCAL_COMMANDS: readonly {
+  name: string;
+  route: SlashRoute;
+  desc: string;
+}[] = [
+  { name: "help", route: "help", desc: "本帮助（命令与快捷键）" },
+  { name: "clearscreen", route: "clearscreen", desc: "清屏" },
+  { name: "cls", route: "clearscreen", desc: "清屏（同 /clearscreen）" },
+  { name: "quit", route: "quit", desc: "退出 TUI" },
+  { name: "model", route: "model", desc: "切换模型：无参打开选择面板" },
+  {
+    name: "provider",
+    route: "provider",
+    desc: "打开模型面板的 provider 列",
+  },
+  { name: "effort", route: "effort", desc: "打开模型面板的 effort 列" },
+  {
+    name: "thinking",
+    route: "effort",
+    desc: "打开模型面板的 effort 列（同 /effort）",
+  },
+  { name: "theme", route: "theme", desc: "主题切换 dark/light" },
+  { name: "session", route: "session", desc: "历史会话浏览/恢复" },
+  { name: "copy", route: "copy", desc: "复制最后一条回复（OSC52）" },
+  { name: "goal", route: "goal", desc: "当前会话目标迷你面板" },
+  { name: "policy", route: "policy", desc: "审批策略 ask/never" },
+  {
+    name: "permission",
+    route: "permission",
+    desc: "权限预设（sandbox+审批捆绑）",
+  },
+  { name: "preset", route: "preset", desc: "agent 预设目录" },
+  { name: "jobs", route: "jobs", desc: "后台任务面板（Enter 取消）" },
+];
+
+/** 命令名 → 路由（模块加载时构建一次；不在目录中的名字落 registry 转发） */
+const LOCAL_ROUTES = new Map<string, SlashRoute>(
+  LOCAL_COMMANDS.map((c) => [c.name, c.route]),
+);
+
 export function routeSlashCommand(name: string): SlashRoute {
-  switch (name) {
-    case "help":
-      return "help";
-    case "clearscreen":
-    case "cls":
-      return "clearscreen";
-    case "quit":
-      return "quit";
-    case "model":
-      return "model";
-    case "provider":
-      return "provider";
-    case "effort":
-    case "thinking": // /thinking 与 /effort 同义（同一列：思考等级）
-      return "effort";
-    case "theme":
-      return "theme";
-    case "session":
-      return "session";
-    case "copy":
-      return "copy";
-    case "goal":
-      return "goal";
-    case "policy":
-      return "policy";
-    case "permission":
-      return "permission";
-    case "preset":
-      return "preset";
-    case "jobs":
-      return "jobs";
-    default:
-      return "registry";
+  return LOCAL_ROUTES.get(name) ?? "registry";
+}
+
+/** 补全候选（命令名 + 一句话说明） */
+export interface CommandCandidate {
+  name: string;
+  desc: string;
+}
+
+/** 补全候选上限（按最优排序截断；够高活动区铺满，超出由面板跟随焦点滚动） */
+const COMPLETION_LIMIT = 16;
+
+/** 输入是否仍处于「首个命令 token」（字面 `/` 开头 + 仅命令名字符，无空白与参数） */
+export function isCommandTokenInput(text: string): boolean {
+  return /^\/[a-z0-9_-]*$/i.test(text);
+}
+
+/** 输入模式（与 state.InputMode 结构一致；只关心 slash 与否，避免 commands→state 依赖） */
+type InputModeLike = "normal" | "shell" | "slash";
+
+/**
+ * 取「命令 token」纯文本（不含前导 `/`）：slash 模式下输入框不含前导 `/`
+ * （提交时才补，见 App.submit），故先归一为字面 `/name` 形式再判定；
+ * 非 token 输入（含参数、非命令首字符、换行）返回 null。
+ */
+function commandToken(text: string, mode: InputModeLike): string | null {
+  const literal = mode === "slash" && !text.startsWith("/") ? "/" + text : text;
+  return isCommandTokenInput(literal) ? literal.slice(1).toLowerCase() : null;
+}
+
+/**
+ * 输入补全候选（纯函数）：仅当 text 是首个命令 token 时给候选，否则 null。
+ * 匹配=名称前缀命中（大小写不敏感）；排序=前缀更短（更贴近输入）优先、同长字典序，
+ * 故 items[0] 恒为「最匹配」的默认候选（面板默认高亮它）。
+ * extra 为宿主注册表命令（ctx.commands.list），同名不与本地目录重复；
+ * mode=slash 时输入框文本无前导 `/`（归一后匹配）。
+ */
+export function completeCommandInput(
+  text: string,
+  extra: readonly CommandCandidate[] = [],
+  mode: InputModeLike = "normal",
+): { items: CommandCandidate[]; index: number } | null {
+  const token = commandToken(text, mode);
+  if (token === null) return null;
+  const seen = new Set<string>();
+  const items: CommandCandidate[] = [];
+  for (const c of [...LOCAL_COMMANDS, ...extra]) {
+    if (seen.has(c.name) || !c.name.toLowerCase().startsWith(token)) continue;
+    seen.add(c.name);
+    items.push({ name: c.name, desc: c.desc });
   }
+  if (items.length === 0) return null;
+  items.sort(
+    (a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name),
+  );
+  return { items: items.slice(0, COMPLETION_LIMIT), index: 0 };
 }
 
 /** /model 参数（命令名之后的文本，去首尾空白）；空串 = 无参（进入交互选择） */

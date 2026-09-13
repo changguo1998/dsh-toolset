@@ -277,6 +277,8 @@ export interface DshAdapter {
   interrupt(): void;
   /** 查询可用模型目录（provider + 各 provider 可用模型 + 当前默认选择） */
   modelCatalog(): Promise<ModelCatalog>;
+  /** 宿主命令注册表目录（name+desc，输入补全候选人；服务未挂载/未暴露 list → undefined） */
+  commandList?(): readonly { name: string; desc: string }[] | undefined;
   /** 切换当前会话模型（只改会话内 ref，绝不落盘）；返回应用后的选择 */
   setSessionModel(sel: ModelSelection): Promise<ModelSelection>;
   /** 查询指定 provider/model 的可选思考等级；非思考模型或服务缺失返回 undefined */
@@ -667,6 +669,9 @@ export interface DshCommandLike {
     images?: unknown[],
     signal?: AbortSignal,
   ): Promise<unknown> | unknown;
+  /** 注册表目录（官方 commands.list(agent) → CommandDescriptor[]）；宿主未暴露时省略。
+   *  仅取 name/description，调用方按宽松字段读取（unknown 收窄）。 */
+  list?(agent: unknown): readonly { name?: unknown; description?: unknown }[];
 }
 
 /** ctx.get('llm') 服务（dsh-llm LlmRuntime）结构面，零运行时依赖 */

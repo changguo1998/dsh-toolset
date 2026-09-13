@@ -15,6 +15,7 @@ import {
 import { main } from "../src/main.ts";
 import {
   buildOsc52,
+  completeCommandInput,
   deriveTitle,
   lastAssistantText,
   stripAnsi,
@@ -170,6 +171,15 @@ class FakeAdapter implements DshAdapter {
       { id: "high", name: "high" },
       { id: "max", name: "max" },
     ];
+  }
+  // --- 输入补全：宿主命令注册表目录（undefined = 模拟服务未暴露 list） ---
+  commandListData: { name: string; desc: string }[] | undefined = [
+    { name: "compact", desc: "压缩会话上下文" },
+    { name: "feedback", desc: "提交反馈" },
+    { name: "model", desc: "宿主同名命令（应被本地目录去重屏蔽）" },
+  ];
+  commandList(): { name: string; desc: string }[] | undefined {
+    return this.commandListData;
   }
   // --- /history 历史会话（置 undefined 模拟宿主未挂载 sessionQuery） ---
   sessionRecords: SessionInfo[] = [];
@@ -806,6 +816,185 @@ test("/model 面板: 三列独立, 切 model 区选模型 + thinking 区选等�
   });
 });
 
+test("输入补全：/ 前缀出候选面板, 最匹配默认高亮, Tab 接受补尾随空格", async () => {
+  const { renderer } = makeApp();
+  for (const ch of Array.from("/mo")) {
+    renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
+  }
+  let frame = plainFrame(renderer);
+  assert.ok(frame.includes("/命令补全"), "斜杠输入应出候选面板: " + frame);
+  assert.ok(frame.includes("/model"), "候选应含 /model: " + frame);
+  // 候选面板不占用输入区：输入行（slash 提示符 + 已输入文本）必须同时可见。
+  // plainFrame 保留 ANSI 着色，故只匹配提示符之后的纯文本段 "/ mo"
+  assert.ok(frame.includes("/ mo"), "候选打开时输入行仍可见: " + frame);
+  // 最匹配默认高亮（焦点行黄；lastRender 保留 ANSI）
+  const focusRow = renderer.lastRender.find((l) => l.includes("/model")) ?? "";
+  assert.ok(
+    focusRow.includes("\x1b[38;2;231;169;70m"),
+    "默认焦点应在最匹配项(黄): " + focusRow,
+  );
+  // Tab 接受 → 输入变 "/model "（尾随空格便于接参数），面板随输入重算收起
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  await flush();
+  frame = plainFrame(renderer);
+  assert.ok(!frame.includes("/命令补全"), "接受后面板收起: " + frame);
+  // slash 模式提示符自带 `/`：接受后输入框文本为 `model `（提交时才补前导 /）
+  assert.ok(
+    frame.includes("model ") && !frame.includes("/model"),
+    "接受后输入应为 model : " + frame,
+  );
+});
+
+test("输入补全：↑/↓ 只在候选间移动, Tab 接受焦点项", async () => {
+  const { renderer } = makeApp();
+  // "/" = 全量候选，按名称短→长排序：cls 最短为默认焦点，↓ 后为 copy
+  renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
+  let frame = plainFrame(renderer);
+  assert.ok(frame.includes("/cls"), "全量候选应含 /cls: " + frame);
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  await flush();
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  await flush();
+  frame = plainFrame(renderer);
+  assert.ok(
+    frame.includes("copy ") && !frame.includes("/copy"),
+    "↓ 后 Tab 应接受 copy: " + frame,
+  );
+});
+
+test("输入补全：Esc 收起候选（输入保留，继续输入重新打开）+ 宿主命令并入", async () => {
+  const { renderer } = makeApp();
+  for (const ch of Array.from("/comp")) {
+    renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
+  }
+  let frame = plainFrame(renderer);
+  assert.ok(frame.includes("/compact"), "宿主命令应并入候选: " + frame);
+  assert.ok(frame.includes("压缩会话上下文"), "候选应带 desc: " + frame);
+  renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+  await flush();
+  frame = plainFrame(renderer);
+  assert.ok(!frame.includes("/命令补全"), "Esc 应收起候选: " + frame);
+  assert.ok(frame.includes("comp"), "Esc 不动输入内容: " + frame);
+  assert.ok(
+    !frame.includes("/comp"),
+    "Esc 后输入框仍为 slash 模式文本: " + frame,
+  );
+  // 继续输入 → 重新打开候选（Esc 只收起当前候选，不锁死补全）
+  renderer.press({ name: "a", ctrl: false, meta: false, shift: false });
+  frame = plainFrame(renderer);
+  assert.ok(frame.includes("/命令补全"), "继续输入应重新出候选: " + frame);
+});
+
+test("输入补全：键位提示在输入区下方提示区, 活动区只放候选", async () => {
+  const { renderer } = makeApp();
+  renderer.size = { cols: 100, rows: 30 };
+  renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
+  const rows = renderer.lastRender;
+  // 提示行唯一且落在最后一行（输入区下方的按键提示区）
+  const hintRows = rows
+    .map((l, i) => [i, l] as const)
+    .filter(([, l]) => l.includes("[tab]补全"));
+  assert.equal(
+    hintRows.length,
+    1,
+    "[tab]补全 提示应恰好一行: " + plainFrame(renderer),
+  );
+  assert.equal(
+    hintRows[0]![0],
+    rows.length - 1,
+    "提示应在输入区下方的提示区（帧末行）",
+  );
+  // 活动区（候选面板）只有标题+候选：不出现默认提示行，也不出现面板内提示
+  assert.ok(
+    plainFrame(renderer).includes("> /cls"),
+    "默认焦点候选应显示: " + plainFrame(renderer),
+  );
+  assert.ok(
+    !plainFrame(renderer).includes("[Alt+Enter]打断并发送"),
+    "补全打开时底部提示区不再显示默认提示",
+  );
+});
+test("输入补全：面板行不超终端宽（帧行宽回归：挤偏边框/折行）", async () => {
+  // 回归：曾在提示行用 CJK+padEnd（按码元补齐），显示宽超列 → 折行、边框错位
+  for (const cols of [100, 80, 60, 40]) {
+    const { renderer } = makeApp();
+    renderer.size = { cols, rows: 30 };
+    for (const ch of Array.from("/")) {
+      renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
+    }
+    assert.ok(
+      plainFrame(renderer).includes("/命令补全"),
+      `cols=${cols} 应出候选面板`,
+    );
+    for (const line of renderer.lastRender) {
+      assert.ok(
+        displayWidth(line) <= cols,
+        `cols=${cols} 帧行超宽(${displayWidth(line)}): ` + JSON.stringify(line),
+      );
+    }
+  }
+});
+
+test("输入补全：候选超出活动区可视行时丢弃（不滚动，焦点不越界）", async () => {
+  const { renderer } = makeApp();
+  renderer.size = { cols: 100, rows: 12 }; // 矮终端：活动区只能放下少数候选
+  renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
+  const nameOf = (line: string): string =>
+    line.match(/\/([a-z][a-z0-9_-]*)/)?.[1] ?? "";
+  const shown = (): string[] =>
+    renderer.lastRender
+      .filter((l) => /\s\/[a-z]/.test(l) && !l.includes("/命令补全"))
+      .map(nameOf);
+  const all = completeCommandInput("/", [], "slash")!.items.map((i) => i.name);
+  assert.ok(
+    shown().length < all.length,
+    "矮终端应丢弃部分候选: " + plainFrame(renderer),
+  );
+  assert.ok(
+    !shown().includes(all[all.length - 1]!),
+    "尾部候选（必然超出可视行）不应显示",
+  );
+  // 连续 ↓ 到底：焦点必须停在最后一个「可视」候选行上（不越界到被丢弃项）
+  for (let i = 0; i < 20; i++) {
+    renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  }
+  const candRows = renderer.lastRender.filter(
+    (l) => /\s\/[a-z]/.test(l) && !l.includes("/命令补全"),
+  );
+  // 可视候选恒为最前面若干项（旧滚动实现会把窗口移到尾部，此处可判据）
+  assert.deepEqual(
+    shown(),
+    all.slice(0, shown().length),
+    "可视候选应恒为最前面若干项（不滚动窗口）",
+  );
+  const focused = candRows.find((l) => l.includes("\x1b[38;2;231;169;70m"));
+  assert.ok(focused, "应有一行焦点候选: " + plainFrame(renderer));
+  assert.equal(
+    nameOf(focused),
+    nameOf(candRows[candRows.length - 1]!),
+    "焦点应停在最后一个可视候选（被丢弃的候选不可选中）",
+  );
+});
+
+test("输入补全：普通文本与命令带参数时不出候选面板", async () => {
+  const { renderer } = makeApp();
+  for (const ch of Array.from("hello")) {
+    renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
+  }
+  assert.ok(
+    !plainFrame(renderer).includes("/命令补全"),
+    "普通文本不出候选面板",
+  );
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await flush();
+  for (const ch of Array.from("/model de")) {
+    renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
+  }
+  assert.ok(
+    !plainFrame(renderer).includes("/命令补全"),
+    "命令后带参数不出面板: " + plainFrame(renderer),
+  );
+});
 test("/model 无参: 面板初始焦点在 model 列", async () => {
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/model");
