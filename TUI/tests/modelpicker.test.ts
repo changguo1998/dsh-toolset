@@ -34,6 +34,26 @@ test("渲染：选项行着色——选中行 success 绿、焦点行 warn 黄�
   );
 });
 
+test("渲染：空格选中后选中项着绿——焦点行同时是选中行时绿优先于黄", () => {
+  // providerIndex=0 且 selectedProvider=deepseek：row0 既焦点又选中（空格刚写入）
+  // → 标记 `*`，绿色优先（选中才有视觉反馈），不再停留在黄
+  const rows = renderModelPicker(
+    {
+      picker: picker({ selectedProvider: "deepseek", providerIndex: 0 }),
+      height: 6,
+      width: 80,
+    },
+    "dark",
+  );
+  assert.ok(
+    rows[1]!.text.includes("\x1b[38;2;132;231;70m* deepseek"),
+    "选中且焦点行应着 success 绿: " + stripAnsi(rows[1]!.text),
+  );
+  assert.ok(
+    !rows[1]!.text.includes("\x1b[38;2;231;169;70m"),
+    "选中行不应着 warn 黄: " + stripAnsi(rows[1]!.text),
+  );
+});
 
 function picker(partial: Partial<PickerState> = {}): PickerState {
   return {

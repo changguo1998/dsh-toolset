@@ -5,7 +5,8 @@
 // 1=model，2=effort），Tab 循环切换。
 // 条目有两种标记：星号 `*` = 待提交选中（Enter 提交它，
 // 按 space 把焦点行写入）、大于号 `>` = 当前位置指示（焦点行，临时态，
-// 需按 space 确认选中）。焦点列标题用 `[ ]` 方括号包裹（如
+// 需按 space 确认选中）。着色：选中行绿、焦点行黄，两者同一行时绿优先（按
+// space 选中后立即变色可见）。焦点列标题用 `[ ]` 方括号包裹（如
 // `[ provider ]`），列表行不加边框。某列上方/下方有未显示项时，可视区
 // 顶部/底部对应行显示 `...` 省略号（焦点所在行不显示省略号，保证焦点
 // 恒可见）。最底行打印按键帮助：空格=选中，←/→=切换列，Tab=下一列，Enter=提交，
@@ -202,8 +203,9 @@ export function renderModelPicker(
     // 按列宽截断、补空格对齐后再着色（ANSI 会打乱截断宽度，故截断先行）
     const cols = cells.map((c, i) => {
       const t = truncateToWidth(c.text, widths[i]!).padEnd(widths[i]!);
+      // 已选（待提交）行绿：空格选中后绿色优先于焦点黄，选中才有视觉反馈
+      if (c.sel) return selColor(t);
       if (c.focus) return focusColor(t); // 焦点行黄
-      if (c.sel) return selColor(t); // 已选（待提交）行绿
       return t;
     });
     rows.push({ text: cols.join(" ".repeat(sep)) });
