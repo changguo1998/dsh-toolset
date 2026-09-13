@@ -1709,7 +1709,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       const efforts = info?.reasoning?.efforts ?? [];
       const list = efforts
-        .map((e) => (e.id ? { id: e.id, name: e.name ?? e.id } : null))
+        // 宿主等级名首字母大写（Off/Low/High/Max），TUI 展示统一全小写
+        .map((e) =>
+          e.id ? { id: e.id, name: (e.name ?? e.id).toLowerCase() } : null,
+        )
         .filter((e): e is { id: string; name: string } => e !== null);
       // 非思考模型(无 efforts)按 undefined 处理，面板显示"不支持"
       return list.length > 0 ? list : undefined;

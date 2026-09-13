@@ -1067,8 +1067,8 @@ test("modelEfforts: 经 llm.resolveModelInfo 读取思考等级", async () => {
     resolveModelInfo: async () => ({
       reasoning: {
         efforts: [
-          { id: "low", name: "low" },
-          { id: "max", name: "max" },
+          { id: "low", name: "Low" }, // 宿主契约首字母大写，TUI 归一为小写
+          { id: "max", name: "Max" },
         ],
         defaultEffort: "low",
       },
