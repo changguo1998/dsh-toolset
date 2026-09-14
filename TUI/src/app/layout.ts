@@ -1194,10 +1194,16 @@ function wrapBufferLines(
     for (let gi = 0; gi < visible.length; gi++) {
       for (let li = 0; li < visible[gi]!.length; li++) {
         const l = visible[gi]![li]!;
-        // step 分组头 → 与 turn 分隔一致的历史虚线整行 `-- step N ╌╌╌`（到行尾；取代空行分隔）
+        // step 分组头 → 与 turn 分隔一致的历史虚线整行 `╌╌ step N ╌╌╌`（到行尾；取代空行分隔）。
+        // 前文结束即接分割行：若其前积了视觉空活动行（思考/notice 拖尾空段等）直接吸收
         const stepM = /^step (\d+)$/.exec(l.text);
         if (stepM) {
-          const head = "-- step " + stepM[1] + " ";
+          while (
+            activity.length > 0 &&
+            isBlankRow(activity[activity.length - 1]!)
+          )
+            activity.pop();
+          const head = "╌╌ step " + stepM[1] + " ";
           const fill = Math.max(0, width - displayWidth(head));
           activity.push({
             text: colorFor(
@@ -1236,15 +1242,15 @@ function wrapBufferLines(
       continue;
     }
     if (line.kind === "thinking") {
-      // 思考行 → 活动区（与工具/notice/中间输出按时间顺序混合；不再单独分组折叠）
+      // 思考行 → 活动区（与工具/notice/中间输出按时间顺序混合；不再单独分组折叠）。
+      // 空思考行跳过：流式增量以 \n 结尾会留下「换行锚点」空段（供下一增量续行合并），
+      // 渲染成空白行即游离空行（如紧贴 step 分割行上方），直接不显示。
       const bar = colorFor(themeId, "brightMagenta")("┃");
       const rows = wrapLine(line.text, Math.max(1, width - 1));
-      for (const text of rows)
-        activity.push({
-          text: text === "" ? "" : bar + text,
-          kind: "thinking",
-          indent: 0,
-        });
+      for (const text of rows) {
+        if (text === "") continue;
+        activity.push({ text: bar + text, kind: "thinking", indent: 0 });
+      }
       continue;
     }
     if (line.kind === "user") {
@@ -1457,6 +1463,11 @@ const TOOL_STATUS_PREFIXES = [
 
 function isToolCall(text: string): boolean {
   return !TOOL_STATUS_PREFIXES.some((p) => text.startsWith(p));
+}
+
+/** 活动行是否为视觉空白：剥离 ANSI 着色后无可见字符（空思考/notice 拖尾行） */
+function isBlankRow(row: WrappedRow): boolean {
+  return row.text.replace(/\x1b\[[0-9;]*m/g, "") === "";
 }
 
 /** 工具调用行渲染：首词（工具名）染黄，其余原色（无前缀图标） */

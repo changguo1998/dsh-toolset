@@ -131,3 +131,27 @@ test("B3 会话隔离：旧会话 step 组不误插当前会话工具行分组�
   ]);
   assert.deepEqual(lines3, ["step 2", "bash env"]);
 });
+
+test("B3 思考拖尾换行保留下一个「换行锚点」空段（渲染层跳过空思考行）", () => {
+  // 流式增量以 \n 结尾：appendStream 在 buffer 留下空 thinking 段作下一增量的续行锚点
+  // （否则下一小段会错误拼接进本行）；该空段在渲染层（layout）被跳过，不显示为空行。
+  const lines = run([
+    stepStart(1),
+    toolCall("ls"),
+    toolOk("ok"),
+    { type: "thinking", text: "好的，下一步执行\n" },
+  ]);
+  assert.deepEqual(lines, [
+    "step 1",
+    "bash ls",
+    "✓ ok",
+    "好的，下一步执行",
+    "",
+  ]);
+  // 下一思考增量合并进锚点空段 → 独立成行而非拼接
+  const lines2 = run([
+    { type: "thinking", text: "第一段\n" },
+    { type: "thinking", text: "第二段\n" },
+  ]);
+  assert.deepEqual(lines2, ["第一段", "第二段", ""]);
+});

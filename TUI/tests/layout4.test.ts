@@ -1278,7 +1278,7 @@ test("buildFrame: 工具历史只显最近 TOOL_MAX_GROUPS 组，窗口内组间
   );
 });
 
-test("buildFrame: step 分组头渲染为 `-- step N ╌╌╌` 历史虚线整行（与 turn 分隔一致），后无空行", () => {
+test("buildFrame: step 分组头渲染为 `╌╌ step N ╌╌╌` 历史虚线整行（与 turn 分隔一致），后无空行", () => {
   let s = initialState();
   s = reduceState(s, {
     type: "step",
@@ -1302,12 +1302,11 @@ test("buildFrame: step 分组头渲染为 `-- step N ╌╌╌` 历史虚线整�
   const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
-  const sep = lines.findIndex((l) => l.includes("-- step 123"));
+  const sep = lines.findIndex((l) => l.includes("╌╌ step 123"));
   assert.ok(sep >= 0, "虚线 step 分隔行存在: " + lines.join("|"));
-  // 活动区行带左缩进 + 右缘竖线：段头 `-- step 123 ` 后为满列宽的历史虚线段（╌，到竖线前）
-  const after = lines[sep]!.slice(
-    lines[sep]!.indexOf("-- step 123 ") + "-- step 123 ".length,
-  );
+  // 活动区行带左缩进 + 右缘竖线：段头前后均为与 turn 一致的历史虚线段（╌，到竖线前）
+  const head = "╌╌ step 123 ";
+  const after = lines[sep]!.slice(lines[sep]!.indexOf(head) + head.length);
   assert.ok(
     /^ *╌+│? *$/.test(after) && after.includes("╌"),
     "step 段头后为与 turn 分隔一致的历史虚线段（╌）直至行尾/竖线: " +
@@ -1317,6 +1316,125 @@ test("buildFrame: step 分组头渲染为 `-- step N ╌╌╌` 历史虚线整�
     (lines[sep + 1] ?? "").includes("bash ls"),
     "step 虚线后紧跟工具行，不再插入空行: " + JSON.stringify(lines[sep + 1]),
   );
+});
+
+test("buildFrame: step 分割行前吸收空活动行（前文结束即接分割行）", () => {
+  let s = initialState();
+  s = reduceState(s, {
+    type: "step",
+    sessionId: "s1",
+    turn: 1,
+    step: 1,
+    phase: "start",
+  });
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "ls",
+  });
+  s = reduceState(s, {
+    type: "tool-result",
+    sessionId: "s1",
+    ok: true,
+    detail: "ok 1",
+  });
+  // 前文之后积一空 notice 行（空段拖尾，如多行 notice 的末尾换行）——分割行须吸收
+  s = reduceState(s, {
+    type: "notice",
+    tone: "info",
+    text: "中间提示\n",
+    error: false,
+  });
+  s = reduceState(s, {
+    type: "step",
+    sessionId: "s1",
+    turn: 1,
+    step: 2,
+    phase: "start",
+  });
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "pwd",
+  });
+  s = reduceState(s, {
+    type: "tool-result",
+    sessionId: "s1",
+    ok: true,
+    detail: "ok 2",
+  });
+  const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
+    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const blank = (l: string): boolean => l.replace(/[│|\s]/g, "") === "";
+  const sep = lines.findIndex((l) => l.includes("╌╌ step 2"));
+  assert.ok(sep >= 0, "step 2 分割行存在: " + lines.join("|"));
+  assert.ok(
+    !blank(lines[sep - 1]!),
+    "分割行上一行非空: " + JSON.stringify(lines[sep - 1]),
+  );
+  assert.ok(
+    (lines[sep + 1] ?? "").includes("bash pwd"),
+    "分割行后紧跟工具行: " + JSON.stringify(lines[sep + 1]),
+  );
+});
+
+test("buildFrame: 思考以换行结尾时 step 分割行前不显示空行（真实流式场景）", () => {
+  let s = initialState();
+  s = reduceState(s, {
+    type: "step",
+    sessionId: "s1",
+    turn: 1,
+    step: 1,
+    phase: "start",
+  });
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "ls",
+  });
+  s = reduceState(s, {
+    type: "tool-result",
+    sessionId: "s1",
+    ok: true,
+    detail: "ok 1",
+  });
+  // step 之间模型输出以 \n 结尾的思考增量（buffer 留空 thinking 锚点段）
+  s = reduceState(s, { type: "thinking", text: "好的，下一步执行\n" });
+  s = reduceState(s, {
+    type: "step",
+    sessionId: "s1",
+    turn: 1,
+    step: 2,
+    phase: "start",
+  });
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "pwd",
+  });
+  s = reduceState(s, {
+    type: "tool-result",
+    sessionId: "s1",
+    ok: true,
+    detail: "ok 2",
+  });
+  const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
+    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const blank = (l: string): boolean => l.replace(/[│|\s]/g, "") === "";
+  const sep = lines.findIndex((l) => l.includes("╌╌ step 2"));
+  assert.ok(sep >= 0, "step 2 分割行存在: " + lines.join("|"));
+  assert.ok(
+    (lines[sep - 1] ?? "").includes("┃好的，下一步执行") ||
+      (lines[sep - 1] ?? "").includes("好的，下一步执行"),
+    "分割行上一行即思考行（无空行）: " + JSON.stringify(lines[sep - 1]),
+  );
+  assert.ok(!blank(lines[sep - 1]!), "思考行与分割行之间无空行");
 });
 
 test("buildFrame: 两次调用组之间不再插空行（紧凑拼接，虚线 step 才分隔）", () => {
