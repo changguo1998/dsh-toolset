@@ -1237,11 +1237,13 @@ function wrapBufferLines(
         const rows =
           l.text === "" ? [""] : wrapLine(l.text, Math.max(1, width));
         // ✗ 由 tone 整体着红；组首调用行工具名染黄（renderToolNameLine），
-        // ✓ 结果行走 renderToolText，其余辅助行（⚑/↻/@…）保持默认
-        for (const t of rows) {
+        // ✓ 结果行走 renderToolText，其余辅助行（⚑/↻/@…）保持默认。
+        // 工具名染色只作用于调用行的首换行行（ri===0）：续行是参数换行，
+        // 不再按「首个空格」染色，否则每个续行行首段都会被染成黄色
+        for (const [ri, t] of rows.entries()) {
           const text = l.tone
             ? colorFor(themeId, NOTICE_TONE_COLOR[l.tone])(t)
-            : li === 0 && isToolCall(l.text)
+            : li === 0 && ri === 0 && isToolCall(l.text)
               ? renderToolNameLine(t, themeId)
               : renderToolText(t, themeId);
           activity.push({ text, kind: "tool", indent: 0 });
@@ -1738,6 +1740,109 @@ export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
     state.activityDivisor,
   );
   return { topHeight: contentTopH, activityH, dialogueH };
+}
+
+/** 对话区（历史区）滚动导航所需的同口径尺寸（与 buildFrame 一致）：正文宽 + 可视行高 */
+export interface DialogueScrollMetrics {
+  /** 对话区正文宽（历史区宽 − 左缘框列；↑/↓ 半屏与 PgUp/PgDn 跳转共用） */
+  contentW: number;
+  /** 对话区可视行高（↑/↓ 半屏的页基准、跳转的屏幕高） */
+  dialogueH: number;
+}
+
+/** 对话区滚动导航尺寸：与 buildFrame 同源（metricsFor + topPaneHeights） */
+export function dialogueScrollMetrics(
+  state: AppState,
+  size: Size,
+): DialogueScrollMetrics {
+  const fullWidth = Math.max(1, size.cols);
+  const statusLines = renderStatusLine(
+    state.systemStatus,
+    state.themeId,
+    fullWidth,
+    state.usage,
+  );
+  const metrics = metricsFor(size, false, statusLines.length, 1, state);
+  const contentTopH = Math.max(0, metrics.topHeight);
+  const { dialogueH } = topPaneHeights(contentTopH, state.activityDivisor);
+  const useLeftFrame = metrics.historyWidth >= FRAME_LEFT_COLS + 1;
+  return {
+    contentW: Math.max(
+      1,
+      metrics.historyWidth - (useLeftFrame ? FRAME_LEFT_COLS : 0),
+    ),
+    dialogueH,
+  };
+}
+
+/** 对话区 ↑/↓ 半屏翻页的行数（至少 1 行；向下取整保证上/下对称） */
+export function dialogueHalfPage(rows: number): number {
+  return Math.max(1, Math.floor(rows / 2));
+}
+
+/** PgUp/PgDn 用户输入跳转结果（目标视口距底部行数 + 跟随底部标记） */
+export interface UserInputJump {
+  scrollOffset: number;
+  followBottom: boolean;
+}
+
+/**
+ * 对话区用户输入跳转（PgUp/PgDn）：把上一条/下一条用户消息块首行翻到视口顶行。
+ * dir=1 上一条（PgUp）、-1 下一条（PgDn）；锚点 = 当前视口首行（全量未折叠坐标）。
+ * 目标消息块后文本不足 dialogueH 一屏时回退「底对齐」——以更早历史填充满屏，
+ * 目标消息块出现在顶行之下（后续文本高度不够时填充前面的历史）。
+ * 无可跳转返回 null（视口不动）；PgDn 无下一条 → 回到跟随底部。
+ */
+export function userInputJump(
+  buffer: Buffer,
+  width: number,
+  gutter: number,
+  themeId: ThemeId,
+  dialogueH: number,
+  followBottom: boolean,
+  scrollOffset: number,
+  dir: 1 | -1,
+): UserInputJump | null {
+  if (dialogueH <= 0) return null;
+  const { dialogue } = wrapBufferLines(buffer, width, gutter, themeId);
+  const total = dialogue.length;
+  if (total === 0) return null;
+  const start = computeViewport({
+    totalRows: total,
+    height: dialogueH,
+    followBottom,
+    scrollOffset,
+  }).start;
+  const maxStart = Math.max(0, total - dialogueH);
+  // 用户消息块 = 连续 kind==="user" 的 wrapped 行；只记块首行
+  const blockStarts: number[] = [];
+  for (let i = 0; i < total; i++) {
+    if (
+      dialogue[i]!.kind === "user" &&
+      (i === 0 || dialogue[i - 1]!.kind !== "user")
+    )
+      blockStarts.push(i);
+  }
+  if (blockStarts.length === 0) return null;
+  const aligned = (first: number): UserInputJump => ({
+    // 顶对齐；后文不足一屏时收敛到底对齐（多出的空屏由更早历史填充）
+    scrollOffset: Math.max(0, total - dialogueH - Math.min(first, maxStart)),
+    followBottom: false,
+  });
+  if (dir === 1) {
+    // 上一条：最后一个位于当前视口首行之上的用户块
+    let target = -1;
+    for (const s of blockStarts) {
+      if (s < start) target = s;
+      else break;
+    }
+    if (target < 0) return null;
+    return aligned(target);
+  }
+  // 下一条：第一个位于当前视口首行之下的用户块；无则回到底部跟随最新
+  const next = blockStarts.find((s) => s > start);
+  if (next === undefined) return { scrollOffset: 0, followBottom: true };
+  return aligned(next);
 }
 
 /** 状态栏上方分隔行（焦点四边框的底边）：按焦点面板分段着色 + 角字（└/┴/┘）；

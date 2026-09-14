@@ -934,6 +934,13 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return scrollBy(state, action.delta);
       case "scroll-to-bottom":
         return { ...state, followBottom: true, scrollOffset: 0 };
+      case "user-jump":
+        // PgUp/PgDn 用户输入跳转：绝对值设置视口偏移（渲染层按可视上限 clamp）
+        return {
+          ...state,
+          scrollOffset: Math.max(0, Math.floor(action.scrollOffset)),
+          followBottom: action.followBottom,
+        };
       case "turn-begin":
         // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容；
         // 非打印字符剔除计数按回合清零（turn-end 时警告后不复用旧值）
@@ -1304,6 +1311,7 @@ export type StateAction =
   | { type: "move-cursor"; delta: number }
   | { type: "scroll"; delta: number }
   | { type: "scroll-to-bottom" }
+  | { type: "user-jump"; scrollOffset: number; followBottom: boolean }
   | { type: "turn-begin" }
   | { type: "turn-end" }
   | { type: "clear-stripped" }

@@ -46,8 +46,11 @@ import {
 } from "./model-transition.ts";
 import {
   buildFrame,
+  dialogueHalfPage,
+  dialogueScrollMetrics,
   inputPanelHeights,
   modelLabel,
+  userInputJump,
   type PanelHeights,
 } from "./layout.ts";
 import {
@@ -842,24 +845,58 @@ export class App {
           this.paint();
           break;
         }
-        // 焦点面板单行滚动：方向内聚在 focusedLineScroll（history/activity 距底部、status 距顶部）
+        // 焦点面板滚动：活动区/状态列保持现状（单行），对话区（history 焦点/
+        // 无焦点默认）↑/↓ 每次半屏（方向内聚在 focusedLineScroll）
         const dir: 1 | -1 = name === "up" ? 1 : -1;
-        this.apply((s) =>
-          reduceState(s, focusedLineScroll(s.focusedPanel, dir)),
-        );
+        const panel = this.state.focusedPanel;
+        if (panel === "activity" || panel === "status") {
+          this.apply((s) => reduceState(s, focusedLineScroll(panel, dir)));
+        } else {
+          const { dialogueH } = dialogueScrollMetrics(
+            this.state,
+            this.deps.renderer.getSize(),
+          );
+          this.apply((s) =>
+            reduceState(s, {
+              type: "scroll",
+              delta: dir * dialogueHalfPage(dialogueH),
+            }),
+          );
+        }
         break;
       }
       case "pageup":
       case "pagedown": {
-        // 焦点面板整页滚动：页 = 该面板当前可视行数（history=dialogueH / activity=activityH / status=topHeight）
+        // 焦点面板翻页：活动区/状态列保持整页滚动（页 = 面板当前可视行数）；
+        // 对话区（history 焦点/无焦点默认）PgUp/PgDn 跳上/下一条用户输入
         const dir: 1 | -1 = name === "pageup" ? 1 : -1;
-        const page = inputPanelHeights(
-          this.state,
-          this.deps.renderer.getSize(),
-        );
-        this.apply((s) =>
-          reduceState(s, focusedPageScroll(s.focusedPanel, dir, page)),
-        );
+        const panel = this.state.focusedPanel;
+        if (panel === "activity" || panel === "status") {
+          const page = inputPanelHeights(
+            this.state,
+            this.deps.renderer.getSize(),
+          );
+          this.apply((s) =>
+            reduceState(s, focusedPageScroll(panel, dir, page)),
+          );
+        } else {
+          const m = dialogueScrollMetrics(
+            this.state,
+            this.deps.renderer.getSize(),
+          );
+          const jump = userInputJump(
+            this.state.buffer,
+            m.contentW,
+            this.state.messageGutter,
+            this.state.themeId,
+            m.dialogueH,
+            this.state.followBottom,
+            this.state.scrollOffset,
+            dir,
+          );
+          if (jump)
+            this.apply((s) => reduceState(s, { type: "user-jump", ...jump }));
+        }
         break;
       }
       case "home":

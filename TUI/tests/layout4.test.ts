@@ -15,9 +15,12 @@ import {
   USER_MIN_LEFT_GUTTER,
   userMaxBodyWidth,
   TITLE_BAR_ROWS,
+  dialogueHalfPage,
+  dialogueScrollMetrics,
+  userInputJump,
 } from "../src/app/layout.ts";
 import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
-import type { InputMode, InputStatus } from "../src/app/state.ts";
+import type { InputMode, InputStatus, Buffer } from "../src/app/state.ts";
 import type { RenderLine } from "../src/renderer/screen.ts";
 
 /** 去 ANSI 取行文本 */
@@ -1498,6 +1501,52 @@ test("buildFrame: 工具名（黄）独立着色，结果 ✓ 绿 / ✗ 整行�
   assert.ok(joined.includes("\x1b[38;2;231;70;132m✗ EACCES"), "✗ 失败整行着红");
 });
 
+test("buildFrame: 工具调用长参数换行——仅首行工具名着黄，续行不再按首个空格染黄", () => {
+  // 回归：活动区工具行超宽换行时，旧实现按 buffer 行号 li===0 染黄，
+  // 续行（参数被截断的中段）也会把「第一个空格前的内容」染黄。
+  // 修复后仅调用行的首换行行（ri===0）染工具名，续行为普通前景色。
+  const LONG =
+    "-c 'echo this-is-a-very-long-argument-string-that-exceeds-width'";
+  let s = initialState();
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: LONG,
+  });
+  const plain = buildFrame(s, { rows: 24, cols: 60 }).map((l) =>
+    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  // 工具调用行按列宽换行为多行：定位首行（含 bash + 参数头），连读后续非空活动行
+  const start = plain.findIndex((l) => l.includes("bash"));
+  assert.ok(start >= 0 && start + 1 < plain.length, "工具调用行应存在");
+  const block: string[] = [plain[start]!];
+  for (let i = start + 1; i < plain.length && plain[i]!.trim() !== ""; i++)
+    block.push(plain[i]!);
+  // 整行宽 60、参数超宽 → 至少拆成 2 行
+  assert.ok(block.length >= 2, "工具调用行应发生换行: " + block);
+  const YELLOW = "\x1b[38;2;231;169;70m";
+  const colored = buildFrame(s, { rows: 24, cols: 60 }).map((l) => l.text);
+  const firstRow = colored[start]!;
+  const restRows = colored
+    .slice(start + 1, start + block.length)
+    .filter((l) => l.replace(/\x1b\[[0-9;]*m/g, "") !== "");
+  assert.ok(
+    firstRow
+      .replace(/\x1b\[[0-9;]*m/g, "")
+      .trimStart()
+      .startsWith("bash "),
+    "首行为工具调用原始行",
+  );
+  assert.ok(firstRow.includes(YELLOW), "首行工具名着黄");
+  for (let i = 0; i < restRows.length; i++) {
+    assert.ok(
+      !restRows[i]!.includes(YELLOW),
+      `续行 ${i + 1} 不应染黄（参数续行保持文本前景色）`,
+    );
+  }
+});
+
 test("buildFrame: usage 入帧 → 状态栏显示 ctx/cache（取代占位 —）", () => {
   let s = initialState();
   s = reduceState(s, {
@@ -2045,4 +2094,98 @@ test("/session 历史面板 error 阶段：标题短、提示区显示 [Esc]关�
   assert.ok(!titleRow!.includes("[Esc]"), "标题行不内嵌 [Esc]关闭");
   const last = plain[plain.length - 1]!;
   assert.ok(last.includes("[Esc]关闭"), "提示区显示关闭键位: " + last);
+});
+
+// ===== 对话区翻页：↑/↓ 半屏 + PgUp/PgDn 用户输入跳转 =====
+
+test("dialogueHalfPage：半屏取整且至少 1 行", () => {
+  assert.equal(dialogueHalfPage(6), 3);
+  assert.equal(dialogueHalfPage(7), 3);
+  assert.equal(dialogueHalfPage(1), 1);
+  assert.equal(dialogueHalfPage(0), 1);
+});
+
+test("dialogueScrollMetrics：正文宽/可视高与 buildFrame 同口径（rows=24/cols=80）", () => {
+  const m = dialogueScrollMetrics(initialState(), { rows: 24, cols: 80 });
+  assert.equal(m.dialogueH, 6, "对话区可视行（标题栏 2 行由对话区承担后）");
+  // historyWidth = 80 - floor(80/3) = 54，col0 左缘框格占 1 → contentW=53
+  assert.equal(m.contentW, 53, "对话区正文宽 = historyWidth - 左缘框列");
+});
+
+test("userInputJump：PgUp/PgDn 把用户消息首行翻到顶行，后文不足一屏时填充前面历史", () => {
+  const themeId = initialState().themeId;
+  // 每行 1 条 wrapped 行（短文本 + 宽列不换行），块间空行由布局层插入：
+  // 0=u1 1=<空> 2=a1 3=u2 4=<空> 5=a2 6=u3 7=<空> 8=a3，共 9 行，用户块首行 [0,3,6]
+  const buffer: Buffer = [
+    { text: "u1", kind: "user" },
+    { text: "a1", kind: "assistant", final: true },
+    { text: "u2", kind: "user" },
+    { text: "a2", kind: "assistant", final: true },
+    { text: "u3", kind: "user" },
+    { text: "a3", kind: "assistant", final: true },
+  ];
+  const H = 4;
+  // 跟随底部（start=5）：PgUp 跳上一条用户消息 u2（block=3）顶对齐 → offset 9-4-3=2
+  assert.deepEqual(
+    userInputJump(buffer, 60, 4, themeId, H, true, 0, 1),
+    { scrollOffset: 2, followBottom: false },
+    "跟随底部 PgUp：跳到上一条用户输入并顶对齐",
+  );
+  // 继续 PgUp：当前视口首行=3（u2）→ 上一条 u1（block=0）→ offset 5
+  assert.deepEqual(
+    userInputJump(buffer, 60, 4, themeId, H, false, 2, 1),
+    { scrollOffset: 5, followBottom: false },
+    "再次 PgUp：跳到更早一条用户输入",
+  );
+  // 已到最早用户消息（start=0）：无更早 → null（视口不动）
+  assert.equal(userInputJump(buffer, 60, 4, themeId, H, false, 5, 1), null);
+  // PgDn：从 start=0 跳下一条 u2 → offset 2
+  assert.deepEqual(
+    userInputJump(buffer, 60, 4, themeId, H, false, 5, -1),
+    { scrollOffset: 2, followBottom: false },
+    "PgDn：跳到下一条用户输入并顶对齐",
+  );
+  // 下一条 u3（block=6）：u3 后文本不足一屏（6+4>9）→ 收敛到底对齐（offset 0），
+  // 以更早历史（a2 等）填充，u3 出现在顶行之下
+  assert.deepEqual(
+    userInputJump(buffer, 60, 4, themeId, H, false, 2, -1),
+    { scrollOffset: 0, followBottom: false },
+    "最后一条用户消息后文不足一屏：填充前面历史（底对齐）",
+  );
+  // 已在底对齐位再 PgDn：仍指向最后一条 → 稳定无位移（不回跳）
+  assert.deepEqual(
+    userInputJump(buffer, 60, 4, themeId, H, false, 0, -1),
+    { scrollOffset: 0, followBottom: false },
+  );
+});
+
+test("userInputJump：PgDn 无下一条用户消息 → 回到跟随底部；边界返回 null", () => {
+  const themeId = initialState().themeId;
+  const single: Buffer = [
+    { text: "u1", kind: "user" },
+    { text: "a1", kind: "assistant", final: true },
+  ];
+  // 视口首行已是唯一用户块之上（start=0）：无下一条 → 回到底部跟随最新
+  assert.deepEqual(userInputJump(single, 60, 4, themeId, 4, false, 5, -1), {
+    scrollOffset: 0,
+    followBottom: true,
+  });
+  // 无任何用户块 → null
+  assert.equal(
+    userInputJump(
+      [{ text: "a1", kind: "assistant", final: true }],
+      60,
+      4,
+      themeId,
+      4,
+      true,
+      0,
+      1,
+    ),
+    null,
+  );
+  // 空 buffer → null
+  assert.equal(userInputJump([], 60, 4, themeId, 4, true, 0, 1), null);
+  // 对话区不可见（dialogueH<=0）→ null
+  assert.equal(userInputJump(single, 60, 4, themeId, 0, true, 0, 1), null);
 });
