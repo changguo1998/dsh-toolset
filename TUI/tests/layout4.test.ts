@@ -1238,10 +1238,9 @@ test("buildFrame: notice tone 行在帧内灰/蓝/黄/红/绿着色", () => {
   assert.ok(joined.includes("\x1b[38;2;132;231;70m绿"), "success → 绿");
 });
 
-test("buildFrame: 工具历史在活动区窗口内只显最近行，窗口内组间仍有空行", () => {
+test("buildFrame: 工具历史只显最近 TOOL_MAX_GROUPS 组，窗口内组间无空行", () => {
   let s = initialState();
-  // 6 次调用组（每次 * + +）：活动区为右上区一半（rows=20 → topHeight13 → 6 行），
-  // 只显示最后约 2 组（更早的 MORE/cmd1~4 被折叠）
+  // 6 次调用组（每次 * + +）：超过 TOOL_MAX_GROUPS=4，更早的 cmd1/2 被折叠标记隐藏
   for (let i = 1; i <= 6; i++) {
     s = reduceState(s, {
       type: "tool-call",
@@ -1263,11 +1262,9 @@ test("buildFrame: 工具历史在活动区窗口内只显最近行，窗口内�
   assert.ok(plain.includes("cmd 6"), "最新调用应保留在活动区窗口");
   assert.ok(plain.includes("ok 6"), "最新结果应保留");
   assert.ok(plain.includes("cmd 5"), "倒数第二调用应保留");
-  assert.ok(!plain.includes("cmd 4"), "更早调用被活动区窗口裁出");
-  assert.ok(!plain.includes("cmd 3"), "再更早调用被裁出");
-  assert.ok(!plain.includes("cmd 1"), "最早调用不可见");
-  assert.ok(!plain.includes("cmd 2"), "第二早调用不可见");
-  // 窗口内 cmd5/cmd6 之间仍有空行分隔
+  assert.ok(!plain.includes("cmd 2"), "第二早调用被 TOOL_MAX_GROUPS 折叠隐藏");
+  assert.ok(!plain.includes("cmd 1"), "最早调用被折叠隐藏");
+  // 组间不再插空行：cmd5 组与 cmd6 组之间的区域不含空行（旧行为有 1 个）
   const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
     l.text.replace(/\x1b\[[0-9;]*m/g, ""),
   );
@@ -1276,12 +1273,53 @@ test("buildFrame: 工具历史在活动区窗口内只显最近行，窗口内�
   assert.ok(i5 >= 0 && i6 > i5, "cmd5/cmd6 均在帧中");
   assert.equal(
     lines.slice(i5, i6).filter((l) => l.replace(/[│|\s]/g, "") === "").length,
-    1,
-    "窗口内组间有 1 个空行",
+    0,
+    "窗口内组间不再有空行（紧凑拼接）",
   );
 });
 
-test("buildFrame: 两次调用组之间插空行分隔", () => {
+test("buildFrame: step 分组头渲染为 `-- step N ╌╌╌` 历史虚线整行（与 turn 分隔一致），后无空行", () => {
+  let s = initialState();
+  s = reduceState(s, {
+    type: "step",
+    sessionId: "s1",
+    turn: 1,
+    step: 123,
+    phase: "start",
+  });
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "ls",
+  });
+  s = reduceState(s, {
+    type: "tool-result",
+    sessionId: "s1",
+    ok: true,
+    detail: "ok",
+  });
+  const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
+    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const sep = lines.findIndex((l) => l.includes("-- step 123"));
+  assert.ok(sep >= 0, "虚线 step 分隔行存在: " + lines.join("|"));
+  // 活动区行带左缩进 + 右缘竖线：段头 `-- step 123 ` 后为满列宽的历史虚线段（╌，到竖线前）
+  const after = lines[sep]!.slice(
+    lines[sep]!.indexOf("-- step 123 ") + "-- step 123 ".length,
+  );
+  assert.ok(
+    /^ *╌+│? *$/.test(after) && after.includes("╌"),
+    "step 段头后为与 turn 分隔一致的历史虚线段（╌）直至行尾/竖线: " +
+      JSON.stringify(lines[sep]),
+  );
+  assert.ok(
+    (lines[sep + 1] ?? "").includes("bash ls"),
+    "step 虚线后紧跟工具行，不再插入空行: " + JSON.stringify(lines[sep + 1]),
+  );
+});
+
+test("buildFrame: 两次调用组之间不再插空行（紧凑拼接，虚线 step 才分隔）", () => {
   let s = initialState();
   for (const n of [1, 2]) {
     s = reduceState(s, {
@@ -1305,8 +1343,8 @@ test("buildFrame: 两次调用组之间插空行分隔", () => {
   assert.ok(i1 >= 0 && i2 >= 0, "两次调用都应出现");
   assert.equal(
     lines.slice(i1, i2).filter((l) => l.replace(/[│|\s]/g, "") === "").length,
-    1,
-    "两次调用之间应有 1 个空行",
+    0,
+    "两次调用之间不再有空行（紧凑拼接）",
   );
 });
 

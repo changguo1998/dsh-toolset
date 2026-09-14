@@ -1192,9 +1192,27 @@ function wrapBufferLines(
       });
     }
     for (let gi = 0; gi < visible.length; gi++) {
-      if (gi > 0) activity.push({ text: "", kind: "tool", indent: 0 }); // 组间空行
       for (let li = 0; li < visible[gi]!.length; li++) {
         const l = visible[gi]![li]!;
+        // step 分组头 → 与 turn 分隔一致的历史虚线整行 `-- step N ╌╌╌`（到行尾；取代空行分隔）
+        const stepM = /^step (\d+)$/.exec(l.text);
+        if (stepM) {
+          const head = "-- step " + stepM[1] + " ";
+          const fill = Math.max(0, width - displayWidth(head));
+          activity.push({
+            text: colorFor(
+              themeId,
+              "border",
+            )(
+              fill > 0
+                ? head + TURN_SEPARATOR_CHAR.repeat(fill)
+                : truncateToWidth(head, width),
+            ),
+            kind: "tool",
+            indent: 0,
+          });
+          continue;
+        }
         const rows =
           l.text === "" ? [""] : wrapLine(l.text, Math.max(1, width));
         // ✗ 由 tone 整体着红；组首调用行工具名染黄（renderToolNameLine），
