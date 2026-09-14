@@ -496,12 +496,15 @@ export function appendToolLine(
   state: AppState,
   text: string,
   tone?: NoticeTone,
+  params?: { keepLineBreaks?: boolean },
 ): AppState {
-  // 工具内容可能夹带 \r/\n/控制符（参数/结果原文），折叠成单行并剔除其余非打印
-  // 字符，避免行内嵌换行破坏帧布局、控制符干扰终端（宽度限制由渲染层按窗口宽度处理）
-  const clean = sanitizeText(text).text.replace(/\n/g, " ");
+  // 工具内容可能夹带 \r/\n/控制符（参数/结果原文）。剔除其余非打印字符、避免控制符
+  // 干扰终端（宽度限制由渲染层按窗口宽度处理）；\n 默认折叠成单行（结果/辅助行），
+  // 工具调用参数行保留换行（keepLineBreaks，渲染层 split + 续行 4 空格缩进）
+  const clean = sanitizeText(text).text;
+  const text2 = params?.keepLineBreaks ? clean : clean.replace(/\n/g, " ");
   const buffer = state.buffer.length ? [...state.buffer] : [];
-  buffer.push({ text: clean, kind: "tool", ...(tone ? { tone } : {}) });
+  buffer.push({ text: text2, kind: "tool", ...(tone ? { tone } : {}) });
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
   return { ...state, buffer };
@@ -516,16 +519,17 @@ export function appendStepToolLine(
   sessionId: string,
   text: string,
   tone?: NoticeTone,
+  params?: { keepLineBreaks?: boolean },
 ): AppState {
   const group = state.stepGroup;
   if (!group || group.sessionId !== sessionId)
-    return appendToolLine(state, text, tone);
+    return appendToolLine(state, text, tone, params);
   // 分组头先插（组内首条工具行前），随后标记已发头，避免重复插头
   const next = group.headerEmitted
     ? state
     : appendToolLine(state, stepHeaderLine(group.step));
   return {
-    ...appendToolLine(next, text, tone),
+    ...appendToolLine(next, text, tone, params),
     stepGroup: { ...group, headerEmitted: true },
   };
 }
@@ -965,6 +969,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           state,
           action.sessionId,
           toolCallLine(action.name, action.summary),
+          undefined,
+          { keepLineBreaks: true },
         );
       case "tool-result":
         // 工具结果：✓ 成功 / ✗ 失败（失败红色，tone=error）；B3：同 tool-call 参与 step 分组

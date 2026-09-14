@@ -1144,6 +1144,8 @@ export const USER_MIN_LEFT_GUTTER = 4;
 /** 工具调用历史：仅展示最近 TOOL_MAX_GROUPS 个调用组，更早隐藏（折叠标记） */
 export const TOOL_MAX_GROUPS = 4;
 export const TOOL_MORE = "...(更早工具调用已隐藏)";
+/** 工具调用参数续行缩进：软换行/参数内显式换行后的续行统一 4 空格对齐 */
+export const TOOL_CONT_INDENT = 4;
 /** THINKING_MAX 兼容导出（state.DEFAULT_THINKING_MAX_LINES 为权威默认） */
 export const THINKING_MAX: number = 4;
 
@@ -1234,16 +1236,32 @@ function wrapBufferLines(
           });
           continue;
         }
-        const rows =
-          l.text === "" ? [""] : wrapLine(l.text, Math.max(1, width));
+        const isCall = li === 0 && isToolCall(l.text);
+        // 工具调用行：参数可能含显式换行（状态层保留），先按行分拆再逐行软换行；
+        // 除首行外的续行（含参数内换行后的续行）统一 4 空格缩进（TOOL_CONT_INDENT），
+        // 续行按 width-4 折行使缩进后总宽不超窗口
+        let rows: string[];
+        if (isCall) {
+          rows = [];
+          let first = true;
+          for (const seg of l.text === "" ? [""] : l.text.split("\n")) {
+            const avail = Math.max(1, width - (first ? 0 : TOOL_CONT_INDENT));
+            for (const t of seg === "" ? [""] : wrapLine(seg, avail)) {
+              rows.push(first ? t : " ".repeat(TOOL_CONT_INDENT) + t);
+              first = false;
+            }
+          }
+        } else {
+          rows = l.text === "" ? [""] : wrapLine(l.text, Math.max(1, width));
+        }
         // ✗ 由 tone 整体着红；组首调用行工具名染黄（renderToolNameLine），
         // ✓ 结果行走 renderToolText，其余辅助行（⚑/↻/@…）保持默认。
-        // 工具名染色只作用于调用行的首换行行（ri===0）：续行是参数换行，
+        // 工具名染色只作用于调用行的首行（ri===0）：续行是参数换行/续行，
         // 不再按「首个空格」染色，否则每个续行行首段都会被染成黄色
         for (const [ri, t] of rows.entries()) {
           const text = l.tone
             ? colorFor(themeId, NOTICE_TONE_COLOR[l.tone])(t)
-            : li === 0 && ri === 0 && isToolCall(l.text)
+            : isCall && ri === 0
               ? renderToolNameLine(t, themeId)
               : renderToolText(t, themeId);
           activity.push({ text, kind: "tool", indent: 0 });

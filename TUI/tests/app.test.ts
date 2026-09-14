@@ -2689,7 +2689,7 @@ test("tool-call → 缓冲出现工具行 <name> <summary>（无图标前缀）"
   );
 });
 
-test("tool-call：summary 含 \\r/\\n/控制符 → 折叠成单行（不破坏帧布局）", () => {
+test("tool-call：summary 含 \\r/\\n/控制符 → 换行保留、\\r/\\t/控制符归一剔除", () => {
   const s = reduceState(initialState(), {
     type: "tool-call",
     sessionId: "s1",
@@ -2698,11 +2698,49 @@ test("tool-call：summary 含 \\r/\\n/控制符 → 折叠成单行（不破坏�
   });
   assert.equal(s.buffer.length, 1);
   assert.equal(s.buffer[0]!.kind, "tool");
-  assert.ok(
-    !s.buffer[0]!.text.includes("\n") && !s.buffer[0]!.text.includes("\r"),
+  // 工具调用参数行保留换行（渲染层续行缩进）；\r\n/\r→\n、\t/NUL 剔除
+  assert.equal(s.buffer[0]!.text, "bash ls -l\n/tmp/a\n第二行x");
+});
+
+test("tool-call：参数显式换行/软折行 → 续行统一 4 空格缩进", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "echo a\ncd /tmp/x\nlong=" + "x".repeat(120),
+  });
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
   );
-  // \r\n/\r→\n→空格折叠；\t/NUL 剔除
-  assert.equal(s.buffer[0]!.text, "bash ls -l /tmp/a 第二行x");
+  // 首行无缩进（工具名行起点）
+  assert.ok(
+    plain.some((l) => l.includes("bash echo a")),
+    "首行含 <name> <summary>",
+  );
+  // 参数内显式换行 → 新行且 4 空格缩进
+  assert.ok(
+    plain.some((l) => l.includes("    cd /tmp/x")),
+    "显式换行后的续行带 4 空格缩进",
+  );
+  // 超宽参数软折行 → 每段续行均 4 空格缩进（窗口宽 80，contentW≈53，续行按 49 折）
+  const cont = plain.filter((l) => l.includes("    " + "x".repeat(10)));
+  assert.ok(
+    cont.length >= 2,
+    "软折行续行 ≥2 段且均 4 空格缩进，实际=" + cont.length,
+  );
+  // 首行不含 4 空格前缀（紧贴左缘框列后直接是工具名）
+  const first = plain.find((l) => l.includes("bash echo a"))!;
+  assert.ok(first.replace(/^.*?(bash echo a)/, "$1").indexOf("bash") >= 0);
+  // 结果行不保留换行（非参数）；此处确认 tone 行仍走既有折叠逻辑
+  adapter.push({
+    type: "tool-result",
+    sessionId: "s1",
+    ok: true,
+    detail: "ok\nline2",
+  });
+  const plain2 = renderer.lastRender.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+  assert.ok(plain2.includes("✓ ok line2"), "结果行 \n 折叠为空格");
 });
 
 test("tool-result 成功 → ✓ <detail>；失败 → 红色 ✗ <detail>", () => {
