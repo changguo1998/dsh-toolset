@@ -2,7 +2,7 @@
 //
 // 语义契约（theme.ts 头注释，用户手动指定 2026-09-17）：
 //   次要文字 = gray   = dark bright[0] #787878 / light ansi[7] #F4F4F4
-//   正文/边框 = border = dark ansi[7] #D8D8D8 / light bright[0] #555555
+//   边框 = border = dark ansi[4] #4684E7 / light ansi[4] #4032D3（语义蓝）
 //   强调(焦点) = focusFrameColor() dark bright[7] #FFFFFF / light ansi[0] #000000
 //
 // 层1：槽位映射；层2：buildFrame 双主题 × 四焦点帧层实测（边框恒 L3、
@@ -58,8 +58,8 @@ test("槽位层：gray=次要、border=正文/边框、强调=端头（双主题
     );
     assert.equal(
       ansiNameToHex(THEMES[t], "border"),
-      t === "dark" ? THEMES[t].ansi[7] : THEMES[t].bright[0],
-      `${t} border=正文/边框`,
+      THEMES[t].ansi[4],
+      `${t} border=边框（语义蓝）`,
     );
     assert.equal(
       ansiNameToHex(THEMES[t], focusFrameColor(t)),

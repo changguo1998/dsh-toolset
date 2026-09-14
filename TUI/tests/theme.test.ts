@@ -100,12 +100,12 @@ test("ANSI 槽位映射:基础色 → ansi[],bright* → bright[],gray/border �
     THEMES.light.ansi[7],
     "light gray=ansi[7]",
   );
-  // 正文/边框 border（用户手动指定）：dark=ansi[7] #D8D8D8 / light=bright[0] #555555
-  assert.equal(ansiNameToHex(d, "border"), d.ansi[7], "dark border=ansi[7]");
+  // 边框 border（用户手动指定）：dark=ansi[4] #4684E7 / light=ansi[4] #4032D3（语义蓝）
+  assert.equal(ansiNameToHex(d, "border"), d.ansi[4], "dark border=ansi[4]");
   assert.equal(
     ansiNameToHex(THEMES.light, "border"),
-    THEMES.light.bright[0],
-    "light border=bright[0]",
+    THEMES.light.ansi[4],
+    "light border=ansi[4]",
   );
   assert.equal(ansiNameToHex(d, "notacolor"), null);
   // 浅色主题同槽位取 ffflight 调色板

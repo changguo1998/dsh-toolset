@@ -4,7 +4,7 @@
 // 终端 16 色槽位映射：black..white → ansi[]，brightBlack..brightWhite → bright[]。
 // 三语义色值（用户手动指定，2026-09-17）：
 //   次要文字 gray    = dark bright[0] #787878 / light ansi[7] #F4F4F4
-//   正文/边框 border = dark ansi[7]  #D8D8D8 / light bright[0] #555555（= 正文前景 foreground）
+//   边框 border     = dark ansi[4] #4684E7 / light ansi[4] #4032D3（语义蓝，用户指定）
 //   强调(焦点框)     = dark bright[7] #FFFFFF / light ansi[0] #000000
 //   正文基底 foreground = 方案源文件值：dark #D8D8D8 / light #555555（源文件为权威，不改）
 //   两主题同语义槽位色值不同，表述必须带槽位+双主题值
@@ -121,13 +121,13 @@ const BASE_SLOTS: Record<string, number> = {
 export function ansiNameToHex(theme: ColorTheme, name: string): string | null {
   // 语义色名（用户手动指定槽位，非字面槽位）：
   //   次要文字 gray = dark bright[0] #787878 / light ansi[7] #F4F4F4
-  //   边框 border   = dark ansi[7] #D8D8D8 / light bright[0] #555555（=正文前景 foreground）
+  //   边框 border   = dark ansi[4] #4684E7 / light ansi[4] #4032D3（语义蓝，用户指定）
   if (theme.name === "fffdark") {
     if (name === "gray") return theme.bright[0];
-    if (name === "border") return theme.ansi[7];
+    if (name === "border") return theme.ansi[4];
   } else {
     if (name === "gray") return theme.ansi[7];
-    if (name === "border") return theme.bright[0];
+    if (name === "border") return theme.ansi[4];
   }
   const bright = name.startsWith("bright");
   const base = (bright ? name.slice("bright".length) : name).toLowerCase();
