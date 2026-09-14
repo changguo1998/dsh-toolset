@@ -1149,6 +1149,38 @@ export const TOOL_CONT_INDENT = 4;
 /** THINKING_MAX 兼容导出（state.DEFAULT_THINKING_MAX_LINES 为权威默认） */
 export const THINKING_MAX: number = 4;
 
+/**
+ * 工具调用行折行（含续行缩进）：整体首行不缩进、可用全宽；其余行——同段软换行的
+ * 续行、参数内显式换行后的各行——统一缩进 TOOL_CONT_INDENT 列，且折行宽度扣掉缩进，
+ * 保证缩进后每行总宽不超 width（行首超宽字符仍强制放下，不丢字符）。
+ * 参数内空行保留（与 split("\n") 语义一致）；窄窗口（width ≤ 缩进）降级不缩进，
+ * 避免缩进本身溢出。
+ */
+export function wrapToolCallText(text: string, width: number): string[] {
+  const indent = width > TOOL_CONT_INDENT ? TOOL_CONT_INDENT : 0;
+  const rows: string[] = [];
+  let cur = "";
+  let curW = 0;
+  // 当前行落盘：整体首行原样，其余行加续行缩进
+  const flush = (): void => {
+    rows.push(rows.length === 0 ? cur : " ".repeat(indent) + cur);
+    cur = "";
+    curW = 0;
+  };
+  for (const seg of text === "" ? [""] : text.split("\n")) {
+    for (const ch of seg) {
+      const w = charWidth(ch);
+      // 可用宽度：首行全宽，续行扣掉缩进
+      const avail = Math.max(1, width - (rows.length === 0 ? 0 : indent));
+      if (curW > 0 && curW + w > avail) flush();
+      cur += ch;
+      curW += w;
+    }
+    flush(); // 段末（参数内显式换行 / 末段收尾）
+  }
+  return rows;
+}
+
 /** 用户消息块最大正文宽：块整体靠右，左侧至少保留 gutter(默认 USER_MIN_LEFT_GUTTER) */
 export function userMaxBodyWidth(
   width: number,
@@ -1237,20 +1269,14 @@ function wrapBufferLines(
           continue;
         }
         const isCall = li === 0 && isToolCall(l.text);
-        // 工具调用行：参数可能含显式换行（状态层保留），先按行分拆再逐行软换行；
-        // 除首行外的续行（含参数内换行后的续行）统一 4 空格缩进（TOOL_CONT_INDENT），
-        // 续行按 width-4 折行使缩进后总宽不超窗口
+        const isResult = isToolResult(l.text);
+        // 工具调用行 / 结果行：长文本折行时首行不缩进、其余行（软换行续行 /
+        // 参数内换行后的各行）统一 4 空格缩进，折行宽度按缩进扣除
+        // （wrapToolCallText），保证缩进后总宽不超窗口；
+        // 其余辅助行（↻/⚑/⤷/@…）保持全宽折行
         let rows: string[];
-        if (isCall) {
-          rows = [];
-          let first = true;
-          for (const seg of l.text === "" ? [""] : l.text.split("\n")) {
-            const avail = Math.max(1, width - (first ? 0 : TOOL_CONT_INDENT));
-            for (const t of seg === "" ? [""] : wrapLine(seg, avail)) {
-              rows.push(first ? t : " ".repeat(TOOL_CONT_INDENT) + t);
-              first = false;
-            }
-          }
+        if (isCall || isResult) {
+          rows = wrapToolCallText(l.text, width);
         } else {
           rows = l.text === "" ? [""] : wrapLine(l.text, Math.max(1, width));
         }
@@ -1498,6 +1524,11 @@ const TOOL_STATUS_PREFIXES = [
 
 function isToolCall(text: string): boolean {
   return !TOOL_STATUS_PREFIXES.some((p) => text.startsWith(p));
+}
+
+/** 工具结果行判定（✓ 成功 / ✗ 失败前缀）：结果行与调用行同规格折行缩进 */
+function isToolResult(text: string): boolean {
+  return text.startsWith("✓ ") || text.startsWith("✗ ");
 }
 
 /** 活动行是否为视觉空白：剥离 ANSI 着色后无可见字符（空思考/notice 拖尾行） */
