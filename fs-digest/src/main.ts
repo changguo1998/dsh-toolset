@@ -119,7 +119,7 @@ function parseArgs(
  * 文件读取走 node:fs（tool-fs 底座职责的进程内复用），
  * 符号数据走 ctx 结构面 LSP（tool-lsp 底座职责的进程内复用），不可用时降级。
  */
-export function apply(ctx: PluginCtx, config: Config): void {
+export function apply(ctx: PluginCtx, config: Config = {}): void {
   const tools = ctx.tools;
   if (tools === undefined) return; // inject 未满足时静默跳过（对齐 dsh 插件惯例）
   const deps: DigestDeps = {

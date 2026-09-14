@@ -217,6 +217,15 @@ describe("工具注册（mock ctx）", () => {
     apply({ cwd: "/tmp" } as never, {});
   });
 
+  it("config 缺省（profile 未声明 config → undefined）时 apply 不抛错且注册工具", () => {
+    // 回归：曾因 config.maxBytes 直读 undefined 属性导致 apply 抛错，
+    // 触发 cordis 回滚整棵插件树（dsh 启动后立即退出）。
+    const { ctx, registered } = mockCtx();
+    apply(ctx as never, undefined as never);
+    assert.equal(registered.length, 1);
+    assert.equal(registered[0]?.name, "fs_digest");
+  });
+
   it("execute：pruned 大文件 + render 摘要", async () => {
     const { ctx, registered } = mockCtx();
     apply(ctx as never, {});
