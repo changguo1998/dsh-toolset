@@ -2,3 +2,6 @@
 node_modules
 TUI/dist/
 .worktree
+
+# 各插件启动时生成的构建哈希产物（构建即生成，随 build 一并落盘）
+.fff-build-hash
