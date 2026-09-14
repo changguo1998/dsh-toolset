@@ -8,8 +8,9 @@
 // 与普通选项一样用 ↑/↓ 高亮；高亮在其上时键入字符即输入自定义文本。
 // 操作提示只列出当前实际用到的按键（Enter 文案区分“下一题/提交”，多题才显示
 // “切题”，有预设选项才显示“空格 选择”与“↑/↓ 选项”）。
-// 输出恰好 height 行；题干/detail/选项超出时截断，但高亮在自定义项时
-// 优先保证该行可见（输入文字即时回显）。
+// 输出恰好 height 行；题干/detail/选项超出面板可用宽均按行 soft-wrap（题干/选项
+// 续行按正文起点缩进、选项续行无光标/选中标记）、高度超出时滚动，高亮在
+// 自定义项时优先保证该行可见（输入文字即时回显）。
 
 import type { RenderLine } from "../../renderer/index.ts";
 import { colorFor, type ThemeId } from "../../renderer/theme.ts";
@@ -34,8 +35,14 @@ export function renderQuestionPanel(
   // 可截断区：题干/detail/选项（含“自定义回答”兜底项）
   const pool: string[] = [];
   if (item) {
-    // 题干（header 前缀）
-    pool.push(" " + (item.header ? item.header + "：" : "") + item.question);
+    // 题干（header 前缀）：超宽折行，续行缩进 1 空格与正文起点对齐
+    pool.push(
+      ...wrapPrefixed(
+        " " + (item.header ? item.header + "：" : "") + item.question,
+        avail,
+        " ",
+      ),
+    );
     // detail：plan-review 以计划卡片呈现，普通题作为说明正文
     if (item.detail) {
       if (isPlan) pool.push(" -- 待审计划 --");
@@ -45,29 +52,43 @@ export function renderQuestionPanel(
       }
       if (isPlan) pool.push(" --------------");
     }
-    // 预设选项（记录选项区起点，供高亮行滚动窗口定位）
-    const optStart = pool.length;
+    // 预设选项（记录每项 pool 起始行，供高亮行滚动窗口定位）
+    const optRows: number[] = [];
     for (let i = 0; i < item.options.length; i++) {
       const opt = item.options[i]!;
       const selected = item.selected.includes(opt.label);
       const cursor = item.optionIndex === i ? ">" : " ";
       const mark = selected ? (multi ? "+" : "*") : " ";
       const desc = opt.description ? " " + opt.description : "";
-      pool.push(" " + cursor + mark + " " + opt.label + desc);
+      // 选项文本超出面板可用宽时折行（soft-wrap，续行缩进与选项文本起点对齐，
+      // 无光标/选中标记），记录该选项 pool 起始行供滚动定位
+      optRows[i] = pool.length;
+      pool.push(
+        ...wrapPrefixed(
+          " " + cursor + mark + " " + opt.label + desc,
+          avail,
+          "    ",
+        ),
+      );
     }
     // 自定义回答兜底项（列表末位，含已输入文本）
     const ci = item.options.length;
     const cursor = item.optionIndex === ci ? ">" : " ";
     const mark = item.custom === "" ? " " : multi ? "+" : "*";
+    optRows[ci] = pool.length;
     pool.push(
-      " " +
-        cursor +
-        mark +
-        " 自定义回答" +
-        (item.custom === "" ? "" : "：" + item.custom),
+      ...wrapPrefixed(
+        " " +
+          cursor +
+          mark +
+          " 自定义回答" +
+          (item.custom === "" ? "" : "：" + item.custom),
+        avail,
+        "    ",
+      ),
     );
-    // 自定义项下标 = optStart + options.length，与 optionIndex 取值域一致
-    hl = optStart + item.optionIndex;
+    // 自定义项下标与 optionIndex 取值域一致
+    hl = optRows[item.optionIndex] ?? -1;
   }
 
   // 高亮行（当前选项/自定义兜底项）恒在可视窗口内：可截断区超出时按
@@ -98,10 +119,7 @@ export function renderQuestionPanel(
     const t = body[i] ?? "";
     // 选项行按状态着色：光标行（> 即当前位置）黄、已选行（* 或 +）绿，其余原样
     if (t.length > 1 && t[1] === ">") out.push({ text: curColor(t) });
-    else if (
-      t.length > 2 &&
-      (t[2] === "*" || t[2] === "+")
-    )
+    else if (t.length > 2 && (t[2] === "*" || t[2] === "+"))
       out.push({ text: selColor(t) });
     else out.push({ text: t });
   }
@@ -137,6 +155,16 @@ function wrapByWidth(text: string, width: number): string[] {
   }
   rows.push(cur);
   return rows;
+}
+
+/** 首行保留原前缀，续行按 indent 对齐缩进折行（选项/题干等带前缀行通用） */
+function wrapPrefixed(text: string, width: number, indent: string): string[] {
+  const rows = wrapByWidth(text, width);
+  if (rows.length <= 1) return rows;
+  return [
+    rows[0]!,
+    ...rows.slice(1).flatMap((r) => wrapByWidth(indent + r, width)),
+  ];
 }
 
 function chrW(ch: string): number {
