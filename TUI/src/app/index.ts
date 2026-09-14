@@ -16,6 +16,7 @@ import type {
   DshEvent,
   ModelCatalog,
   ModelSelection,
+  ModelReasoning,
   HistoryMessage,
   SessionSurfaceView,
 } from "./adapter/dsh.ts";
@@ -300,20 +301,23 @@ export class App {
   }
 
   /** 解析思考后缀（写状态栏 model 段）：none=不支持、off=未开启、on=单等级开启、
-   *  多等级开启时返回实际等级名（如 high/low/max） */
+   *  多等级开启时返回实际等级名（如 high/low/max）。
+   *  未显式选择等级时返回 provider 默认等级（defaultEffort），保证状态栏显示的
+   *  与实际请求生效的 effort 一致（后台按 provider 级 reasoning 配置兜底，如 max）。 */
   private async resolveThinking(
     provider: string,
     model: string,
     effort?: string,
   ): Promise<string> {
-    let efforts: Array<{ id: string; name: string }> | undefined;
+    let info: ModelReasoning | undefined;
     try {
-      efforts = await this.deps.adapter.modelEfforts(provider, model);
+      info = await this.deps.adapter.modelReasoning?.(provider, model);
     } catch {
       return "none";
     }
+    const efforts = info?.efforts;
     if (!efforts || efforts.length === 0) return "none";
-    if (!effort) return "off";
+    if (!effort) return info?.defaultEffort ?? "off";
     if (efforts.length > 1) {
       const picked = efforts.find((e) => e.id === effort);
       return picked ? picked.name : effort;
@@ -1311,7 +1315,7 @@ export class App {
       picker.selectedProvider ?? picker.providers[picker.providerIndex];
     if (!model) return;
     try {
-      const efforts = await this.deps.adapter.modelEfforts(
+      const meta = await this.deps.adapter.modelReasoning?.(
         provider ?? "",
         model,
       );
@@ -1324,12 +1328,19 @@ export class App {
       if (prevModel !== model || prevProvider !== provider) {
         return; // 已切换选中模型/provider 或面板关闭，丢弃旧结果
       }
-      // 当前生效模型自带等级时，预设为列表中同一等级（其余默认第一项）
-      const expectedIndex = pickerEffortIndex(cur, model, provider, efforts);
+      // 当前生效模型自带等级时，预设为列表中同一等级；未显式选择时按 provider
+      // 默认等级（defaultEffort）预设，保证面板高亮与实际生效 effort 一致
+      const expectedIndex = pickerEffortIndex(
+        cur,
+        model,
+        provider,
+        meta?.efforts,
+        meta?.defaultEffort,
+      );
       this.apply((s) =>
         reduceState(s, {
           type: "picker-efforts",
-          efforts: efforts ?? [],
+          efforts: meta?.efforts ?? [],
           effortIndex: expectedIndex,
         }),
       );

@@ -68,24 +68,27 @@ export function buildPickerInit(catalog: ModelCatalog): PickerInit {
 
 /**
  * 思考等级加载完成后的预设高亮索引：当前生效模型自带等级时，
- * 预设为列表中同一等级（未命中回退第一项）；否则默认第一项。
+ * 预设为列表中同一等级（未命中回退第一项）；未显式选择等级时按 provider
+ * 默认等级（defaultEffort）预设——面板高亮与实际生效 effort 保持一致；
+ * 两者皆无时默认第一项。
  */
 export function pickerEffortIndex(
   picker: PickerState,
   model: string,
   provider: string | undefined,
   efforts: { id: string; name: string }[] | undefined,
+  defaultEffort?: string,
 ): number {
-  // 当前生效模型自带等级时，预设为列表中同一等级（其余默认第一项）
+  // 当前生效模型自带等级时预设同等级；否则回退 provider 默认等级
   const onCurrent =
     picker.current &&
     picker.current.model === model &&
     picker.current.provider === (provider ?? "");
-  const wantIdx =
+  const want =
     onCurrent && picker.current?.reasoningEffort
-      ? (efforts?.findIndex((e) => e.id === picker.current!.reasoningEffort) ??
-        -1)
-      : -1;
+      ? picker.current.reasoningEffort
+      : defaultEffort;
+  const wantIdx = want ? (efforts?.findIndex((e) => e.id === want) ?? -1) : -1;
   return wantIdx >= 0 ? wantIdx : 0;
 }
 

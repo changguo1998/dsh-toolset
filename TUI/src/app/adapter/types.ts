@@ -286,6 +286,13 @@ export interface DshAdapter {
     provider: string,
     model: string,
   ): Promise<{ id: string; name: string }[] | undefined>;
+  /** 查询指定 provider/model 的推理元数据（可选思考等级 + provider 默认等级）；
+   *  defaultEffort 即请求未显式指定时实际生效的等级（provider 级 reasoning 配置，如 max）；
+   *  非思考模型或服务缺失返回 undefined */
+  modelReasoning?(
+    provider: string,
+    model: string,
+  ): Promise<ModelReasoning | undefined>;
   /** 历史会话列表（newest-first，含当前 live 会话）；宿主未挂载会话查询服务时为 undefined */
   listSessions?(): Promise<SessionInfo[]>;
   /** 会话标题（官方 session/title 事件折叠，dsh-session-title 落盘日志优先）；
@@ -326,6 +333,13 @@ export interface ModelSelection {
   provider: string;
   model: string;
   reasoningEffort?: string;
+}
+
+/** 模型推理元数据（状态栏/面板展示用，不触发请求）：
+ *  efforts = 可选思考等级；defaultEffort = provider 配置的默认等级（请求未显式指定时实际生效值） */
+export interface ModelReasoning {
+  efforts?: { id: string; name: string }[] | undefined;
+  defaultEffort?: string | undefined;
 }
 
 /** 会话级模型选择引用：current 应用于下一 step；assembled 为当前 step 组装时的快照 */

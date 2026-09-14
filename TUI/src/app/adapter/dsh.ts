@@ -36,6 +36,7 @@ import type {
   ModelSelection,
   SessionModelSelectionRef,
   ModelCatalog,
+  ModelReasoning,
   StreamChunk,
   AssistantStreamRecord,
   ApprovalRequest,
@@ -74,6 +75,7 @@ export type {
   DshAdapter,
   ModelInfo,
   ModelSelection,
+  ModelReasoning,
   ModelSelectionLike,
   SessionModelSelectionRef,
   ModelCatalog,
@@ -359,6 +361,40 @@ function collectJobs(rows: ReadonlyArray<Record<string, unknown>>): JobInfo[] {
         : {}),
     });
   }
+  return out;
+}
+
+/**
+ * 经宿主 llm.resolveModelInfo 读取指定 provider/model 的推理元数据
+ * （可选思考等级 + provider 默认等级）。defaultEffort 即请求未显式指定时
+ * 实际生效的等级（provider 级 reasoning 配置，如 max），与 TUI 状态栏
+ * 显示的「当前生效 effort」保持一致。非思考模型/服务缺失/解析失败 → undefined。
+ * 宿主等级名首字母大写（Off/Low/High/Max），归一为全小写再展示。
+ */
+async function resolveModelReasoning(
+  opts: Pick<RealAdapterOptions, "llm">,
+  provider: string,
+  model: string,
+): Promise<ModelReasoning | undefined> {
+  const llm = opts.llm;
+  if (!llm || typeof llm.resolveModelInfo !== "function") return undefined;
+  let info;
+  try {
+    info = await llm.resolveModelInfo(provider, model);
+  } catch {
+    return undefined;
+  }
+  const efforts = (info?.reasoning?.efforts ?? [])
+    .map((e) =>
+      e.id ? { id: e.id, name: (e.name ?? e.id).toLowerCase() } : null,
+    )
+    .filter((e): e is { id: string; name: string } => e !== null);
+  const defaultEffort = info?.reasoning?.defaultEffort;
+  // 无任何推理元数据（非思考模型）→ undefined，与“服务缺失”语义一致
+  if (efforts.length === 0 && !defaultEffort) return undefined;
+  const out: ModelReasoning = {};
+  if (efforts.length > 0) out.efforts = efforts;
+  if (defaultEffort) out.defaultEffort = String(defaultEffort).toLowerCase();
   return out;
 }
 
@@ -1721,23 +1757,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       return sel;
     },
     async modelEfforts(provider, model) {
-      const llm = opts.llm;
-      if (!llm || typeof llm.resolveModelInfo !== "function") return undefined;
-      let info;
-      try {
-        info = await llm.resolveModelInfo(provider, model);
-      } catch {
-        return undefined;
-      }
-      const efforts = info?.reasoning?.efforts ?? [];
-      const list = efforts
-        // 宿主等级名首字母大写（Off/Low/High/Max），TUI 展示统一全小写
-        .map((e) =>
-          e.id ? { id: e.id, name: (e.name ?? e.id).toLowerCase() } : null,
-        )
-        .filter((e): e is { id: string; name: string } => e !== null);
-      // 非思考模型(无 efforts)按 undefined 处理，面板显示"不支持"
-      return list.length > 0 ? list : undefined;
+      return (await resolveModelReasoning(opts, provider, model))?.efforts;
+    },
+    // 推理元数据（efforts + provider 默认等级）：状态栏/面板按实际生效值展示
+    modelReasoning(provider, model) {
+      return resolveModelReasoning(opts, provider, model);
     },
   };
 

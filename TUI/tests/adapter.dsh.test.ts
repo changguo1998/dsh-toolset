@@ -1105,6 +1105,52 @@ test("modelEfforts: 非思考模型/服务缺失返回 undefined", async () => {
   assert.equal(await adapter2.modelEfforts("ustc", "x"), undefined);
 });
 
+test("modelReasoning: 返回可选等级 + provider 默认等级(defaultEffort)", async () => {
+  const llm: LlmLike = {
+    resolveModelInfo: async () => ({
+      reasoning: {
+        efforts: [
+          { id: "low", name: "Low" },
+          { id: "high", name: "High" },
+          { id: "max", name: "Max" },
+        ],
+        // provider 级 reasoning 配置兜底为有效默认（如 ustc 的 reasoning: max）
+        defaultEffort: "max",
+      },
+    }),
+  };
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    llm,
+  });
+  const meta = await adapter.modelReasoning?.("ustc", "deepseek-v4-flash");
+  assert.deepEqual(meta, {
+    efforts: [
+      { id: "low", name: "low" },
+      { id: "high", name: "high" },
+      { id: "max", name: "max" },
+    ],
+    defaultEffort: "max",
+  });
+  // 服务缺失/无 reasoning → undefined
+  const adapter2 = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+  });
+  assert.equal(await adapter2.modelReasoning?.("ustc", "x"), undefined);
+  const llmNoReasoning: LlmLike = { resolveModelInfo: async () => ({}) };
+  const adapter3 = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    llm: llmNoReasoning,
+  });
+  assert.equal(await adapter3.modelReasoning?.("ustc", "x"), undefined);
+});
+
 test("setSessionModel: 无 sessionModel 引用时抛错", async () => {
   const adapter = createRealDshAdapter({
     runtime: new FakeRuntime(),

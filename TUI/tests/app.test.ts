@@ -32,6 +32,7 @@ import type {
   DshAdapter,
   DshEvent,
   ModelCatalog,
+  ModelReasoning,
   ModelSelection,
   QuestionAnswer,
   SessionInfo,
@@ -171,6 +172,22 @@ class FakeAdapter implements DshAdapter {
       { id: "high", name: "high" },
       { id: "max", name: "max" },
     ];
+  }
+  /** 模拟 provider 默认等级（未显式选择时状态栏/面板按它显示）；缺省 undefined=无默认 */
+  modelReasoningData: ModelReasoning | undefined = undefined;
+  async modelReasoning(
+    provider: string,
+    model: string,
+  ): Promise<ModelReasoning | undefined> {
+    this.modelEffortsCalls.push({ provider, model });
+    if (this.modelReasoningData) return this.modelReasoningData;
+    return {
+      efforts: [
+        { id: "low", name: "low" },
+        { id: "high", name: "high" },
+        { id: "max", name: "max" },
+      ],
+    };
   }
   // --- 输入补全：宿主命令注册表目录（undefined = 模拟服务未暴露 list） ---
   commandListData: { name: string; desc: string }[] | undefined = [
@@ -1298,6 +1315,47 @@ test("交互选择：↑/↓ 移动，Enter 确认持久切换并保留当前 re
   assert.ok(
     statusJoined.includes(":high"),
     "多等级开启应按实际等级名显示 (deepseek-reasoner:high)",
+  );
+});
+
+test("状态栏：未显式选择等级时按 provider 默认等级(defaultEffort)显示，与后台一致", async () => {
+  const { renderer, adapter } = makeApp();
+  // provider 级 reasoning 配置兜底（如 ustc 的 reasoning: max）：后台请求实际生效 max
+  adapter.modelReasoningData = {
+    efforts: [
+      { id: "low", name: "low" },
+      { id: "high", name: "high" },
+      { id: "max", name: "max" },
+    ],
+    defaultEffort: "max",
+  };
+  typeAndEnter(renderer, "/model deepseek-reasoner");
+  await flush();
+  const statusJoined = renderer.lastRender
+    .map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""))
+    .join("\n");
+  assert.ok(
+    statusJoined.includes("deepseek-reasoner:max"),
+    "未显式选择等级应按 provider 默认等级显示 (deepseek-reasoner:max): " +
+      statusJoined,
+  );
+  assert.ok(
+    !statusJoined.includes("deepseek-reasoner:off"),
+    "不应再以 off 显示（后台实际生效 max）: " + statusJoined,
+  );
+});
+
+test("状态栏：无 provider 默认等级且未显式选择时显示 off", async () => {
+  const { renderer, adapter } = makeApp();
+  // modelReasoningData 缺省：有等级但无 defaultEffort → 保持 off 语义
+  typeAndEnter(renderer, "/model deepseek-reasoner");
+  await flush();
+  const statusJoined = renderer.lastRender
+    .map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""))
+    .join("\n");
+  assert.ok(
+    statusJoined.includes("deepseek-reasoner:off"),
+    "无默认等级且未显式选择应显示 off: " + statusJoined,
   );
 });
 
