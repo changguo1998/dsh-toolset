@@ -62,6 +62,11 @@ interface DshTool {
   parameters: unknown;
   execute: (args: ToolArgs) => Promise<ToolArgs>;
   output: {
+    schema: {
+      type: "object";
+      additionalProperties: boolean;
+      properties: Record<string, never>;
+    };
     render: (value: unknown) => ContentBlock[];
   };
 }
@@ -74,6 +79,8 @@ function toDshTool(def: ToolDef): DshTool {
     parameters: def.parameters,
     execute: (args: ToolArgs) => def.execute(args),
     output: {
+      // dsh ToolOutputDefinition 强制 output.schema（对照 task-engine/metric-loop 对齐形态）
+      schema: { type: "object", additionalProperties: true, properties: {} },
       render: (value: unknown): ContentBlock[] => [
         { type: "text", text: JSON.stringify(value, null, 2) },
       ],
@@ -89,24 +96,22 @@ function asInt(v: unknown): number | undefined {
   return typeof v === "number" && Number.isSafeInteger(v) ? v : undefined;
 }
 
+// dsh 工具 parameters 契约：根为隐式 open object 的扁平属性表
+// （每个属性自带 required: true；不支持根级 required 数组 / additionalProperties）。
 const HASH_READ_PARAMS = {
-  type: "object",
-  properties: {
-    path: {
-      type: "string",
-      description: "目标文件路径（绝对路径，或相对 config.root / 宿主 cwd）",
-    },
-    offset: {
-      type: "number",
-      description: "起始行号（1 基，缺省 1）",
-    },
-    limit: {
-      type: "number",
-      description: "返回行数上限（缺省 200）",
-    },
+  path: {
+    type: "string",
+    required: true,
+    description: "目标文件路径（绝对路径，或相对 config.root / 宿主 cwd）",
   },
-  required: ["path"],
-  additionalProperties: false,
+  offset: {
+    type: "number",
+    description: "起始行号（1 基，缺省 1）",
+  },
+  limit: {
+    type: "number",
+    description: "返回行数上限（缺省 200）",
+  },
 } as const;
 
 const EDIT_ITEM_PARAMS = {
@@ -169,23 +174,20 @@ const EDIT_ITEM_PARAMS = {
   },
 } as const;
 
+// 编辑指令数组的 items 为对象 value schema（subset 支持 items + object properties）。
 const HASH_EDIT_PARAMS = {
-  type: "object",
-  properties: {
-    path: {
-      type: "string",
-      description: "目标文件路径（绝对路径，或相对 config.root / 宿主 cwd）",
-    },
-    edits: {
-      type: "array",
-      description:
-        "编辑指令列表（每条恰好一个变体键；行号均锚定 hash_read 读取时的原始内容，可一次提交多条）",
-      minItems: 1,
-      items: EDIT_ITEM_PARAMS,
-    },
+  path: {
+    type: "string",
+    required: true,
+    description: "目标文件路径（绝对路径，或相对 config.root / 宿主 cwd）",
   },
-  required: ["path", "edits"],
-  additionalProperties: false,
+  edits: {
+    type: "array",
+    required: true,
+    description:
+      "编辑指令列表（每条恰好一个变体键；行号均锚定 hash_read 读取时的原始内容，可一次提交多条）",
+    items: EDIT_ITEM_PARAMS,
+  },
 } as const;
 
 /** 校验 edits 数组形状（供模型侧错误定位；核心校验仍在 edit.ts 纯函数内）。 */
