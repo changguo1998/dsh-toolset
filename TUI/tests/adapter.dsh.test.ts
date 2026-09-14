@@ -3081,7 +3081,12 @@ test("refreshSessionModes：从会话日志折叠 plan/sandbox/permission/policy
   ]);
 });
 
-test("refreshSessionModes：无 mode 事件/缺字段/宿主无读取面 → 静默（不 emit）", async () => {
+test("adapter.sessionId：实时返回当前活跃会话 id（App 启动期 Mode 快照兜底用）", () => {
+  const t = makeAdapter();
+  assert.equal(t.adapter.sessionId, "s1", "初始活跃会话 id");
+});
+
+test("refreshSessionModes：无 mode 事件且宿主无默认预设 → 仅 emit plan off", async () => {
   const sq = new FakeSessionQuery();
   sq.events = [{ type: "user/message", seq: 1, data: {} }];
   const { adapter } = makeAdapterWithSessionQuery(sq);
@@ -3089,9 +3094,87 @@ test("refreshSessionModes：无 mode 事件/缺字段/宿主无读取面 → 静
   const unbind = adapter.onEvent((e) => events.push(e));
   await adapter.refreshSessionModes!("s1");
   unbind();
-  assert.equal(events.length, 0, "无 mode 事件不 emit");
+  // plan 是 opt-in、无记录即 off；沙箱/权限/策略无宿主默认数据源时不臆造
+  assert.deepEqual(events, [
+    { type: "mode", sessionId: "s1", kind: "plan", value: "off" },
+  ]);
 
-  // 宿主无 sessionQuery：静默跳过
+  // 宿主既无 sessionQuery 也无 permissionPresets：不暴露方法（静默跳过）
   const t = makeAdapter();
-  assert.equal(t.adapter.refreshSessionModes, undefined, "无读取面不暴露方法");
+  assert.equal(
+    t.adapter.refreshSessionModes,
+    undefined,
+    "无读取面无默认数据源不暴露方法",
+  );
+});
+
+test("refreshSessionModes：全新会话无 mode 事件 → 以宿主 defaultPreset 兜底（与当前模式一致）", async () => {
+  const sq = new FakeSessionQuery();
+  sq.events = [{ type: "user/message", seq: 1, data: {} }];
+  const presets = {
+    names: ["workspace-write", "danger-full-access"],
+    current: () => "custom",
+    defaultPreset: "workspace-write",
+    presets: {
+      "workspace-write": { sandbox: "workspace-write", approval: "ask" },
+      "danger-full-access": {
+        sandbox: "danger-full-access",
+        approval: "never",
+      },
+    },
+  };
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    sessionQuery: sq,
+    permissionPresets: presets,
+  });
+  const events: DshEvent[] = [];
+  const unbind = adapter.onEvent((e) => events.push(e));
+  await adapter.refreshSessionModes!("s1");
+  unbind();
+  assert.deepEqual(events, [
+    { type: "mode", sessionId: "s1", kind: "plan", value: "off" },
+    {
+      type: "mode",
+      sessionId: "s1",
+      kind: "sandbox",
+      value: "workspace-write",
+    },
+    {
+      type: "mode",
+      sessionId: "s1",
+      kind: "permission",
+      value: "workspace-write",
+    },
+    { type: "approval-policy", sessionId: "s1", policy: "ask" },
+  ]);
+
+  // 会话日志已有记录时覆盖兜底：缺省值不覆盖事件回读（latest-wins）
+  sq.events = [
+    { type: "user/message", seq: 1, data: {} },
+    { type: "sandbox/mode", seq: 2, data: { mode: "danger-full-access" } },
+    { type: "approval/policy", seq: 3, data: { policy: "never" } },
+  ];
+  const events2: DshEvent[] = [];
+  const unbind2 = adapter.onEvent((e) => events2.push(e));
+  await adapter.refreshSessionModes!("s1");
+  unbind2();
+  assert.deepEqual(events2, [
+    { type: "mode", sessionId: "s1", kind: "plan", value: "off" },
+    {
+      type: "mode",
+      sessionId: "s1",
+      kind: "sandbox",
+      value: "danger-full-access",
+    },
+    {
+      type: "mode",
+      sessionId: "s1",
+      kind: "permission",
+      value: "workspace-write",
+    },
+    { type: "approval-policy", sessionId: "s1", policy: "never" },
+  ]);
 });

@@ -266,7 +266,9 @@ export class App {
    */
   private refreshSessionModes(): void {
     const a = this.deps.adapter;
-    const sid = this.state.activeSessionId;
+    // 启动初期 state.activeSessionId 尚为 null（真实 adapter 不发 session-list、
+    // 全新会话 title 要等首条消息）→ 按 adapter 视角的活跃会话 id 兜底
+    const sid = this.state.activeSessionId ?? a.sessionId;
     if (!a.refreshSessionModes || !sid) return;
     void a
       .refreshSessionModes(sid)
@@ -341,6 +343,17 @@ export class App {
   }
 
   private handleEvent(e: DshEvent): void {
+    // 启动初期 activeSessionId 尚未建立（真实 adapter 不发 session-list，全新会话
+    // 的 title 要等首条用户消息）：首个带 sessionId 的事件到达即确立活跃会话，
+    // 使 Mode 快照等按会话槽位的内容在未输入前即可展示（随后真实 title 覆盖）
+    if (!this.state.activeSessionId) {
+      const sid = (e as { sessionId?: unknown }).sessionId;
+      if (typeof sid === "string" && sid !== "") {
+        this.apply((s) =>
+          reduceState(s, { type: "session-identify", id: sid, title: "" }),
+        );
+      }
+    }
     switch (e.type) {
       case "session-list":
         this.apply((s) =>
@@ -354,6 +367,7 @@ export class App {
           !this.state.activeSessionId ||
           e.sessionId === this.state.activeSessionId
         ) {
+          const wasUnidentified = !this.state.activeSessionId;
           this.apply((s) =>
             reduceState(s, {
               type: "session-identify",
@@ -361,6 +375,10 @@ export class App {
               title: e.title,
             }),
           );
+          // 启动初期 activeSessionId 尚为 null，start() 的 Mode 快照被跳过；
+          // 首个 title 事件建立会话后补拉一次（全新会话日志无 mode 事件时，
+          // adapter 以宿主默认预设兜底，见 emitSessionModeSnapshot）
+          if (wasUnidentified) this.refreshSessionModes();
         }
         break;
       case "stream":

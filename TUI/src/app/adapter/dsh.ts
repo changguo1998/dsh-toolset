@@ -56,6 +56,7 @@ import type {
   ContentBlockLike,
   CompactionSummaryPayloadLike,
   AgentPresetInfo,
+  PermissionPresetServiceLike,
   JobInfo,
 } from "./types.ts";
 import {
@@ -525,38 +526,57 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
 
   /**
    * Mode 初始值折叠：plan/mode、sandbox/mode、permission/preset、approval/policy
-   * 均为 log-only 事件（只在切换时落盘，会话启动不产生初始事件），故启动/恢复
-   * 会话时主动从会话日志取各事件最后一条，emit 为对应 DshEvent 补 Mode 块初始值。
+   * 均为 log-only 事件（只在切换时落盘），故启动/恢复会话时主动从会话日志取各事件
+   * 最后一条，emit 为对应 DshEvent 补 Mode 块初始值。
    * 读取源与 doReadSessionSurface 同源：live 读内存 events（全量原始）；persisted
    * 必须走 readSession（readSurface 做 surface fold 会滤掉 log-only 事件）。
-   * 宿主未挂载 sessionQuery/仅 readSurface 时静默跳过（Mode 块保持事件驱动）。
+   * 全新会话日志可能没有这些事件（pinInitialPermission 的钉值未进读取面时）：此时
+   * 以宿主 permissionPresets.defaultPreset 捆绑兜底（= pinInitialPermission 会给
+   * 全新会话钉上的组合），plan 无记录即 off——与宿主当前模式一致。宿主既无
+   * sessionQuery 也无 permissionPresets 时静默（Mode 块保持事件驱动）。
    */
   const emitSessionModeSnapshot = async (id: string): Promise<void> => {
-    if (!sessionQuery) return;
     let events: readonly { type?: string; data?: unknown }[] | undefined;
-    const live = opts.sessions?.get(id);
-    if (live && Array.isArray(live.events) && live.events.length > 0) {
-      events = live.events as readonly { type?: string; data?: unknown }[];
-    } else if (sessionQuery.readSession) {
-      const snap = await sessionQuery.readSession(id);
-      events = snap.events as readonly { type?: string; data?: unknown }[];
+    if (sessionQuery) {
+      const live = opts.sessions?.get(id);
+      if (live && Array.isArray(live.events) && live.events.length > 0) {
+        events = live.events as readonly { type?: string; data?: unknown }[];
+      } else if (sessionQuery.readSession) {
+        const snap = await sessionQuery.readSession(id);
+        events = snap.events as readonly { type?: string; data?: unknown }[];
+      }
     }
-    if (!events || events.length === 0) return;
     const lastOf = <T>(type: string): T | undefined => {
-      for (let i = events!.length - 1; i >= 0; i--) {
-        if (events![i]?.type === type) return events![i]?.data as T;
+      if (!events) return undefined;
+      for (let i = events.length - 1; i >= 0; i--) {
+        if (events[i]?.type === type) return events[i]?.data as T;
       }
       return undefined;
     };
+    // 宿主默认预设（全新会话会被 pin 的值）：presets 表属结构面之外，宽松读取，
+    // 缺 defaultPreset/presets 条目时降级跳过对应旋钮（不发默认值、不臆造模式）。
+    const svc = opts.permissionPresets as
+      | (PermissionPresetServiceLike & {
+          presets?: Record<string, { sandbox?: unknown; approval?: unknown }>;
+        })
+      | undefined;
+    const defName = svc?.defaultPreset;
+    const defSpec = defName ? svc?.presets?.[defName] : undefined;
+    const defSandbox =
+      typeof defSpec?.sandbox === "string" ? defSpec.sandbox : undefined;
+    const defPolicy =
+      defSpec?.approval === "ask" || defSpec?.approval === "never"
+        ? defSpec.approval
+        : undefined;
+
     const plan = lastOf("plan/mode") as { active?: unknown } | undefined;
-    if (plan) {
-      emit({
-        type: "mode",
-        sessionId: id,
-        kind: "plan",
-        value: plan.active === true ? "on" : "off",
-      });
-    }
+    emit({
+      type: "mode",
+      sessionId: id,
+      kind: "plan",
+      // plan 是 opt-in：无记录即未开启（off）
+      value: plan?.active === true ? "on" : "off",
+    });
     const sandbox = lastOf("sandbox/mode") as { mode?: unknown } | undefined;
     if (sandbox && typeof sandbox.mode === "string") {
       emit({
@@ -565,6 +585,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         kind: "sandbox",
         value: sandbox.mode,
       });
+    } else if (defSandbox) {
+      emit({ type: "mode", sessionId: id, kind: "sandbox", value: defSandbox });
     }
     const perm = lastOf("permission/preset") as
       { preset?: unknown } | undefined;
@@ -575,10 +597,14 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         kind: "permission",
         value: perm.preset,
       });
+    } else if (defName) {
+      emit({ type: "mode", sessionId: id, kind: "permission", value: defName });
     }
     const pol = lastOf("approval/policy") as { policy?: unknown } | undefined;
     if (pol && (pol.policy === "ask" || pol.policy === "never")) {
       emit({ type: "approval-policy", sessionId: id, policy: pol.policy });
+    } else if (defPolicy) {
+      emit({ type: "approval-policy", sessionId: id, policy: defPolicy });
     }
   };
 
@@ -1359,6 +1385,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   );
 
   const adapter: DshAdapter = {
+    // 实时取当前活跃会话（resume 切换后仍正确）；App 启动初期 state 未建立时兜底用
+    get sessionId() {
+      return activeSessionId;
+    },
     onEvent(cb) {
       if (disposed) return () => {};
       listeners.add(cb);
@@ -1682,9 +1712,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           return doReadSessionSurface(id);
         }
       : undefined,
-    refreshSessionModes: sessionQuery
-      ? (id) => emitSessionModeSnapshot(id)
-      : undefined,
+    refreshSessionModes:
+      sessionQuery || opts.permissionPresets
+        ? (id) => emitSessionModeSnapshot(id)
+        : undefined,
     async sessionTitle(id) {
       if (!sessionQuery || typeof sessionQuery.readTitle !== "function") {
         return undefined;

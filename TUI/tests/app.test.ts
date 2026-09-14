@@ -89,11 +89,18 @@ class FakeRenderer implements Renderer {
 
 /** 记录行为的 fake adapter */
 class FakeAdapter implements DshAdapter {
+  sessionId = "s1";
   sent: string[] = [];
   commands: string[] = [];
   events: DshEvent[] = [];
   disposed = 0;
   private cbs: ((e: DshEvent) => void)[] = [];
+  /** 非空时 refreshSessionModes 会把这些事件推给 app（模拟宿主 Mode 快照回读） */
+  modeSnapshotEvents: DshEvent[] | null = null;
+  async refreshSessionModes(): Promise<void> {
+    if (!this.modeSnapshotEvents) return;
+    for (const e of this.modeSnapshotEvents) this.push(e);
+  }
 
   onEvent(cb: (e: DshEvent) => void): () => void {
     this.cbs.push(cb);
@@ -1346,7 +1353,7 @@ test("状态栏：未显式选择等级时按 provider 默认等级(defaultEffor
 });
 
 test("状态栏：无 provider 默认等级且未显式选择时显示 off", async () => {
-  const { renderer, adapter } = makeApp();
+  const { renderer } = makeApp();
   // modelReasoningData 缺省：有等级但无 defaultEffort → 保持 off 语义
   typeAndEnter(renderer, "/model deepseek-reasoner");
   await flush();
@@ -2528,6 +2535,40 @@ test("session-title 事件：官方折叠标题实时流入状态栏（仅当前
   assert.ok(
     !after2.some((l) => l.includes("无关")),
     "非活跃会话标题不流入状态栏",
+  );
+});
+
+test("启动即刷 Mode 快照：state 未建立会话时按 adapter.sessionId 兜底（无需先输入）", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  adapter.sessionId = "s1";
+  adapter.modeSnapshotEvents = [
+    { type: "mode", sessionId: "s1", kind: "plan", value: "off" },
+    { type: "mode", sessionId: "s1", kind: "sandbox", value: "read-only" },
+    {
+      type: "mode",
+      sessionId: "s1",
+      kind: "permission",
+      value: "danger-full-access",
+    },
+  ];
+  const app = new App({ renderer, adapter });
+  app.start();
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  // 未推 session-list / session-title（未输入任何内容）即显示 Mode 块；
+  // 生效值按 MODE_SHORT 缩写展示（sandbox read-only→ro、permission danger-full-access→full）
+  const joined = plain.join("\n");
+  assert.ok(joined.includes("Mode"), "无需输入即显示 Mode 块");
+  assert.ok(joined.includes("plan") && joined.includes("off"), "plan off");
+  assert.ok(
+    joined.includes("sandbox") && joined.includes("ro"),
+    "sandbox ro 生效",
+  );
+  assert.ok(
+    joined.includes("permission") && joined.includes("full"),
+    "permission full 生效",
   );
 });
 

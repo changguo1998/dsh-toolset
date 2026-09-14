@@ -22,7 +22,7 @@ export class MockDshAdapter implements DshAdapter {
   private seq = 0;
   /** 第二次回复后是否自动触发审批（冒烟用 false，由脚本显式驱动审批弹窗） */
   private autoApproval: boolean;
-  private sessionId = "mock-1";
+  sessionId = "mock-1";
 
   constructor(autoApproval: boolean = true) {
     this.autoApproval = autoApproval;

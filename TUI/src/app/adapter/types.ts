@@ -254,6 +254,8 @@ export type DshEvent =
 
 /** 应用层对 adapter 的唯一依赖面：事件流入 + 出站回调（消息/命令/审批/打断） */
 export interface DshAdapter {
+  /** 当前活跃会话 id（App 启动初期 state 未建立时，Mode 快照等按 adapter 视角取用） */
+  readonly sessionId?: string;
   /** 订阅 DSH 会话事件；返回解绑函数 */
   onEvent(cb: (e: DshEvent) => void): () => void;
   /** 发送用户消息 */
@@ -843,6 +845,8 @@ export interface PermissionPresetInfo {
 export interface PermissionPresetServiceLike {
   names: readonly string[];
   current(events: readonly unknown[]): string;
+  /** 新会话默认预设（dsh-permission-presets defaultPreset；缺失时 Mode 快照跳过兜底） */
+  readonly defaultPreset?: string;
 }
 
 /** 单后台任务快照（rc.2 JobSnapshot 结构面子集：id/kind/label/status/detail；供 UI 展示） */
