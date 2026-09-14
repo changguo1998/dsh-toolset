@@ -177,6 +177,28 @@ describe("HerdrClient unix socket 协议", () => {
     await close();
   });
 
+  test("release 发送 pane.release_agent（pane/source/agent/seq，作退出清理）", async () => {
+    const socketPath = tmpSocketPath();
+    const { lines, listen, close } = createSocketServer(socketPath);
+    await listen();
+    const client = clientFor(socketPath);
+    await client.release();
+
+    assert.equal(lines.length, 1);
+    const msg = JSON.parse(lines[0]!) as {
+      method: string;
+      params: Record<string, unknown>;
+    };
+    assert.equal(msg.method, "pane.release_agent");
+    assert.equal(msg.params.pane_id, "p1");
+    assert.equal(msg.params.source, "herdr:dsh");
+    assert.equal(msg.params.agent, "dsh");
+    assert.ok(typeof msg.params.seq === "number");
+    assert.equal(msg.params.agent_session_id, undefined);
+
+    await close();
+  });
+
   test("无会话引用时状态消息不带会话字段", async () => {
     const socketPath = tmpSocketPath();
     const { lines, listen, close } = createSocketServer(socketPath);

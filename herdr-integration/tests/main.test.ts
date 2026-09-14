@@ -43,6 +43,11 @@ class RecordingSender implements HerdrSender {
   async reportState(state: AgentState, message?: string): Promise<void> {
     this.states.push(message === undefined ? { state } : { state, message });
   }
+
+  releases = 0;
+  async release(): Promise<void> {
+    this.releases++;
+  }
 }
 
 interface FakeCtx extends PluginCtxLike {
@@ -68,7 +73,7 @@ function fakeCtx(): FakeCtx {
         return true;
       };
     },
-    get(name: string): unknown {
+    get(name: string): object | undefined {
       if (name === "agents") {
         return { roots: () => ctx.roots };
       }
@@ -473,5 +478,14 @@ describe("createHerdrPlugin", () => {
       status: "running",
     });
     assert.equal(sender.states.length, before);
+  });
+
+  test("dispose 上报 release（退出时释放 herdr pane 的 agent authority）", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "idle" }]);
+    const { plugin, sender } = startPlugin(ctx);
+    assert.equal(sender.releases, 0);
+    plugin!.dispose();
+    assert.equal(sender.releases, 1);
   });
 });

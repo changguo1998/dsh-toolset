@@ -10,6 +10,16 @@
 //   - 状态队列：sendInFlight 串行 drain，发送期间到达的新状态覆盖待发项（合并去抖）。
 
 import net from "node:net";
+import { spawnSync } from "node:child_process";
+
+/**
+ * 同步发送的内联子进程脚本（process 退出回调里已无异步事件循环，需 fork 子进程
+ * 完成 unix socket connect+write；argv[1]=socket 路径，argv[2]=报文）。
+ */
+const SYNC_SEND_SCRIPT = `const net=require("net");
+const s=net.createConnection(process.argv[1],()=>{s.write(process.argv[2],()=>setTimeout(()=>process.exit(0),300))});
+s.on("error",()=>process.exit(0));
+setTimeout(()=>process.exit(0),3000);`;
 
 /** herdr 面板认识的 agent 状态。 */
 export type AgentState = "working" | "blocked" | "idle";
@@ -44,6 +54,10 @@ export interface HerdrSender {
   reportSession(ref: SessionRef, sessionStartSource?: string): Promise<void>;
   /** 上报 agent 状态（并入串行队列，同刻多条只发最新） */
   reportState(state: AgentState, message?: string): Promise<void>;
+  /** 释放本源在本 pane 的 agent authority（退出/卸载时调用，清掉面板残留显示） */
+  release(): Promise<void>;
+  /** 同步尽力发送 release（进程退出回调内使用；异步 net 在 exit 后无法送达） */
+  releaseSync?(): void;
 }
 
 interface QueuedState {
@@ -139,6 +153,44 @@ export class HerdrClient implements HerdrSender {
       void this.drainStateQueue();
     }
     return Promise.resolve();
+  }
+
+  /** 释放本源在本 pane 的 agent authority（dsh 退出时清除 herdr 面板的 agent 归属）。 */
+  release(): Promise<void> {
+    return this.sendRequest(this.releaseRequest());
+  }
+
+  /** 同步尽力发送 release（process exit 回调里用；异步 net 在退出后无法送达）。 */
+  releaseSync(): void {
+    try {
+      // 退出路径的同步发送本就是尽力而为：失败不影响进程退出
+      spawnSync(
+        process.execPath,
+        [
+          "-e",
+          SYNC_SEND_SCRIPT,
+          this.socketEndpoint,
+          JSON.stringify(this.releaseRequest()) + "\n",
+        ],
+        { stdio: "ignore", timeout: 3000 },
+      );
+    } catch (err) {
+      void err;
+    }
+  }
+
+  /** release_agent 请求（异步 release 与同步 releaseSync 共用报文与 seq） */
+  private releaseRequest(): Record<string, unknown> {
+    return {
+      id: messageId(`${this.source}:release`),
+      method: "pane.release_agent",
+      params: {
+        pane_id: this.paneId,
+        source: this.source,
+        agent: this.agent,
+        seq: this.nextSeq(),
+      },
+    };
   }
 
   /** 当前会话引用参数（id 优先、path 兜底，与 pi withSessionRef 语义一致）。 */

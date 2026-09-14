@@ -37,8 +37,10 @@ export interface PluginCtxLike {
     event: string,
     listener: (...args: unknown[]) => unknown,
   ): (() => boolean) | void;
-  get?(name: string): unknown;
-  effect?(fn: () => unknown): unknown;
+  // 结构面窄化：get 只取宿主服务对象（运行时未注册则 undefined），由调用方按名断言
+  get?(name: string): object | undefined;
+  // effect 注册副作用函数，fn 返回 disposer；调用时不消费返回值
+  effect?(fn: () => () => void): void;
 }
 
 /** 插件配置（可选覆盖，缺省对齐 pi 原生行为）。 */
@@ -115,9 +117,12 @@ export function createHerdrPlugin(
   const readRoots: () => RootAgentLike[] =
     deps.readRoots ??
     (() => {
-      const agents = ctx.get?.("agents") as { roots?(): unknown } | undefined;
+      // SAFETY: 结构面窄化——roots 经 Array.isArray 收窄，运行时元素含 session/status，
+      // RootAgentLike 全字段可选，缺省按空安全处理（读取失败等同无根 agent）
+      const agents = ctx.get?.("agents") as
+        { roots?: () => RootAgentLike[] } | undefined;
       const roots = agents?.roots?.();
-      return Array.isArray(roots) ? (roots as unknown as RootAgentLike[]) : [];
+      return Array.isArray(roots) ? (roots as RootAgentLike[]) : [];
     });
 
   // ---- 状态跟踪（内存态） ----
@@ -253,6 +258,14 @@ export function createHerdrPlugin(
   agentActive = startupRoots.some((agent) => agent.status === "running");
   publish(true);
 
+  // 进程退出兜底：dsh 的 TUI 退出路径（/quit → process.exit）不会触发 cordis
+  // 插件 dispose，且 exit 回调内异步 socket 无法送达——用同步子进程写 release，
+  // 保证 dsh 退出后 herdr 面板不留本 agent 残留。
+  const onExit = (): void => {
+    sender.releaseSync?.();
+  };
+  process.once("exit", onExit);
+
   return {
     dispose(): void {
       for (const unbind of unbinds) {
@@ -260,6 +273,11 @@ export function createHerdrPlugin(
           unbind();
         }
       }
+      process.removeListener("exit", onExit);
+      // 退出/卸载时释放 herdr pane 的 agent authority，避免 dsh 退出后
+      // herdr 面板仍显示本 agent（release 带递增 seq，覆盖宿主 seq 门控）
+      void sender.release();
+      sender.releaseSync?.();
     },
   };
 }
