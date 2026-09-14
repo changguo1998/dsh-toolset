@@ -1208,6 +1208,8 @@ export class App {
     void this.openHistoryView; // 保留只读查看方法引用（list Enter 现走切换，需要时可恢复引出）
     const resumeTo = this.deps.adapter.resumeTo;
     if (!resumeTo) {
+      // 无持久化能力：面板已上移到活动区（占满该区），关面板让 notice 可见
+      this.apply((s) => reduceState(s, { type: "history-close" }));
       this.notice("会话切换不可用（宿主未配置会话持久化）", "warn");
       return;
     }

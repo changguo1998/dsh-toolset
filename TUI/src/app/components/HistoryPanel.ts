@@ -1,9 +1,12 @@
 // src/app/components/HistoryPanel.ts — /history 历史会话面板渲染（纯函数）
 //
-// 输出恰 height 行（占满固定交互区，与输入/审批/问答/模型选择面板同一区域）。
+// 输出恰 height 行（占满活动区可视行，与审批/问答/模型选择/任务面板同一渲染链，
+// 显示于流输出窗口；底部输入区以空白占位）。
 // 五阶段：loading-list（加载中）、list（会话列表）、loading-view（内容加载）、
 // view（只读消息浏览，↑/↓ 滚动窗口）、error（错误消息）。
 // 列表行格式：`> MM-DD HH:mm  <8位短id>  .../cwd  [当前]`（live 会话标记 [当前]）。
+// 按键提示不放面板内（位于输入区下方提示区，见 layout.ts HISTORY_*_HINT_LINE）；
+// 标题按显示宽补齐，避免 CJK 顶开活动区右缘框线。
 // 无 ANSI 着色（与模型选择面板同风格），中文界面文本按显示宽度截断。
 
 import type { RenderLine } from "../../renderer/index.ts";
@@ -109,10 +112,8 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
       body = ["加载中..."];
       break;
     case "list":
-      title = truncateToWidth(
-        `历史会话（${h.records.length}） [↑/↓]移动 · [Enter]切换 · [Esc]关闭`,
-        width,
-      );
+      // 按键提示不在面板内（改在输入区下方提示区显示，见 layout.ts HISTORY_*_HINT_LINE）
+      title = truncateToWidth(`历史会话（${h.records.length}）`, width);
       if (h.records.length === 0) body = ["（无历史会话）"];
       else {
         const start = startFor(h.records.length, h.index, bodyRows);
@@ -132,10 +133,7 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
       body = ["切换到该会话..."];
       break;
     case "view": {
-      title = truncateToWidth(
-        `会话 ${h.currentId ?? ""}  [↑/↓]滚动 · [PgUp/PgDn]翻页 · [Esc]返回列表`,
-        width,
-      );
+      title = truncateToWidth(`会话 ${h.currentId ?? ""}`, width);
       // 无文本消息（空会话 / live 会话 store 暂未落 assistant 事件）→ 占位提示
       const lines =
         h.messages.length === 0
@@ -151,12 +149,14 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
       break;
     }
     case "error":
-      title = "加载失败 [Esc]关闭";
+      title = "加载失败";
       body = wrapLine(h.error ?? "未知错误", width).slice(0, bodyRows);
       break;
   }
 
-  rows.push({ text: title.padEnd(width) });
+  rows.push({
+    text: title + " ".repeat(Math.max(0, width - displayWidth(title))),
+  });
   for (let r = 0; r < bodyRows; r++) rows.push({ text: body[r] ?? "" });
   return rows;
 }

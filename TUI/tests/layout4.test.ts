@@ -1957,3 +1957,92 @@ test("对话区：上滚展开折叠历史（offset>0 更早回复可见，跟�
   assert.ok(joined1.includes("A1 的回复正文"), "上滚后更早回复可见");
   assert.ok(!joined1.includes("更早回复已折叠"), "上滚中不显示折叠占位");
 });
+
+// --- /session 历史面板在活动区（modalPanel）的回归：标题对齐 + 按键提示位置 ---
+
+/** 历史面板帧：打开 + 可选 records（list 阶段）/ view/error */
+function historyFrame(
+  kind: "loading" | "list" | "error",
+  rows = 24,
+  cols = 80,
+): string[] {
+  let s = initialState();
+  s = reduceState(s, { type: "history-open" });
+  if (kind === "list" || kind === "error") {
+    s = reduceState(s, {
+      type: "history-list",
+      records: [
+        {
+          id: "s42",
+          createdAt: 1,
+          live: false,
+          persisted: true,
+          title: "历史标题",
+        },
+      ],
+    });
+  }
+  if (kind === "error")
+    s = reduceState(s, { type: "history-list-error", error: "boom" });
+  return buildFrame(s, { rows, cols }).map((l) =>
+    stripAnsi(typeof l === "string" ? l : l.text),
+  );
+}
+
+test("/session 历史面板：标题按显示宽补齐，活动区右缘框线不错位（CJK 标题顶不开）", () => {
+  // 旧实现 title.padEnd(width) 按 JS 字符串长度补齐：CJK 显示宽 2 → 标题行
+  // 显示宽超 contentW，右缘框线 │ 被顶开。面板上移到活动区后此问题暴露。
+  // 比较须用「│ 的显示列」（lastIndexOf 是字符索引，CJK 会偏移）。
+  const borderDispCol = (row: string): number => {
+    const i = row.lastIndexOf("│");
+    return i < 0 ? -1 : displayWidth(row.slice(0, i));
+  };
+  for (const kind of ["loading", "list", "error"] as const) {
+    const plain = historyFrame(kind);
+    // 各阶段面板标题行：loading=历史会话、list=历史会话（N）、error=加载失败
+    const titleMark = kind === "error" ? "加载失败" : "历史会话";
+    const titleIdx = plain.findIndex((l) => l.includes(titleMark));
+    assert.ok(titleIdx >= 0, `${kind}: 面板标题行存在（${titleMark}）`);
+    const expect = borderDispCol(plain[titleIdx]!);
+    assert.ok(expect > 0, `${kind}: 标题行有右缘框线`);
+    // 后续行（面板正文/空行）右缘框线显示列必须与标题行一致
+    let checked = 0;
+    for (let i = titleIdx + 1; i < plain.length && checked < 4; i++) {
+      if (!plain[i]!.includes("│")) continue;
+      assert.equal(
+        borderDispCol(plain[i]!),
+        expect,
+        `${kind}: row ${i} 右缘框线对齐（标题行 ${expect}）`,
+      );
+      checked++;
+    }
+  }
+});
+
+test("/session 历史面板：按键提示在输入区下方提示区，不内嵌面板标题行", () => {
+  const plain = historyFrame("list");
+  const titleRow = plain.find((l) => l.includes("历史会话（"));
+  assert.ok(titleRow, "list 阶段标题行存在");
+  assert.ok(
+    !titleRow!.includes("[↑/↓]") && !titleRow!.includes("[Enter]"),
+    "标题行不再内嵌按键提示",
+  );
+  // 末行 = 输入区下方提示区，显示历史面板键位
+  const last = plain[plain.length - 1]!;
+  assert.ok(
+    last.includes("[↑/↓]移动") && last.includes("[Enter]切换"),
+    "提示区显示历史面板按键提示: " + last,
+  );
+  // 提示行之上为空白占位（输入区）
+  const footerRow = plain[plain.length - 2]!;
+  assert.equal(footerRow.trim(), "", "输入区空白占位");
+});
+
+test("/session 历史面板 error 阶段：标题短、提示区显示 [Esc]关闭", () => {
+  const plain = historyFrame("error");
+  const titleRow = plain.find((l) => l.includes("加载失败"));
+  assert.ok(titleRow, "error 标题行存在");
+  assert.ok(!titleRow!.includes("[Esc]"), "标题行不内嵌 [Esc]关闭");
+  const last = plain[plain.length - 1]!;
+  assert.ok(last.includes("[Esc]关闭"), "提示区显示关闭键位: " + last);
+});

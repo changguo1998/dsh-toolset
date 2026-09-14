@@ -165,6 +165,15 @@ export const HINT_LINE =
 /** 补全候选打开时的按键提示（替换 HINT_LINE；候选面板本身不再占用活动区行放提示） */
 export const COMPLETION_HINT_LINE = "[tab]补全 · [↑/↓]选择 · [esc]收起";
 
+/** 历史会话面板各阶段的按键提示（显示于输入区下方提示区；面板标题行不再内嵌键位）。
+ *  list=列表移动/切换/关闭、view=内容滚动/翻页/返回列表、error=错误关闭；
+ *  加载类阶段（loading-list/loading-view/resuming）无可用键位 → 空白提示行保持高度稳定 */
+export const HISTORY_LIST_HINT_LINE = "[↑/↓]移动 · [Enter]切换 · [Esc]关闭";
+export const HISTORY_VIEW_HINT_LINE =
+  "[↑/↓]滚动 · [PgUp/PgDn]翻页 · [Esc]返回列表";
+export const HISTORY_ERROR_HINT_LINE = "[Esc]关闭";
+export const HISTORY_LOADING_HINT_LINE = "";
+
 export interface FrameMetrics {
   /** 顶部区域行数 = rows - 状态区 - 输入区 - 按键提示区 - 分隔行（剩余高度全给上方两个） */
   topHeight: number;
@@ -989,14 +998,20 @@ function buildTopRegion(
                 width: contentW,
                 themeId: state.themeId,
               })
-            : state.completion
-              ? renderCommandCompletion({
-                  completion: state.completion,
+            : state.history
+              ? renderHistoryPanel({
+                  history: state.history,
                   height: activityH,
                   width: contentW,
-                  themeId: state.themeId,
                 })
-              : [];
+              : state.completion
+                ? renderCommandCompletion({
+                    completion: state.completion,
+                    height: activityH,
+                    width: contentW,
+                    themeId: state.themeId,
+                  })
+                : [];
   const divFor = (rc: number): string => {
     // 活动区分隔行两端为面板角字：history=右下角 ┘、activity=右上角 ┐、其余=竖线
     if (rc === diaEnd && activityH > 0) {
@@ -1779,7 +1794,8 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   const { goal, todos, mode, policy, preset } = activeSessionFields(state);
   const fullWidth = Math.max(1, size.cols);
   // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
-  // 按键提示区仅输入态存在（审批/问答/选择/历史面板自带按键提示），与输入区之间不画横线
+  // 按键提示区：输入态/历史会话面板显示（历史面板不再自带按键提示，改放提示区；
+  // 其余审批/问答/选择面板自带按键提示），与输入区之间不画横线
   const normalInput =
     !showApproval &&
     !question &&
@@ -1787,18 +1803,21 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
     !statusPanel &&
     !history &&
     !jobsPanel;
+  // 历史面板占满活动区、footer 空白占位——交互区拆成「footer 空白 + 提示区 1 行」，
+  // 与输入态同高（footer=交互相-1 + 提示 1），面板开关不改变交互区总高度
+  const showHint = normalInput || history !== null;
   const statusLines = renderStatusLine(
     state.systemStatus,
     state.themeId,
     fullWidth,
     state.usage,
   );
-  // 面板态/输入态共用固定交互区高度（见 metricsFor）；提示区仅输入态计入
+  // 面板态/输入态共用固定交互区高度（见 metricsFor）；提示区仅输入态/历史面板计入
   const metrics = metricsFor(
     size,
-    !normalInput,
+    !showHint,
     statusLines.length,
-    normalInput ? 1 : 0,
+    showHint ? 1 : 0,
     state,
   );
 
@@ -1821,18 +1840,19 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   );
 
   let footerLines: RenderLine[];
-  // 审批/问答/模型选择/状态选项/任务面板已上移到流输出（活动区）窗口显示，
-  // 审批/问答/模型选择/状态选项/任务面板/输入补全已上移到流输出（活动区）窗口显示，
-  if (showApproval || question || picker || statusPanel || jobsPanel) {
+  // 审批/问答/模型选择/状态选项/任务/历史会话面板 + 输入补全均上移到流输出（活动区）窗口显示；
+  // 输入补全不占输入区（输入行与光标必须可见），其余面板打开时 footer 以空白占位（交互区高度稳定）。
+  if (
+    showApproval ||
+    question ||
+    picker ||
+    statusPanel ||
+    jobsPanel ||
+    history
+  ) {
     footerLines = Array.from({ length: metrics.footerHeight }, () => ({
       text: " ".repeat(fullWidth),
     }));
-  } else if (history) {
-    footerLines = renderHistoryPanel({
-      history,
-      height: metrics.footerHeight,
-      width: fullWidth,
-    });
   } else {
     // 两字符提示符：左字符 = 上次提交所用模式符号（MODE_SYMBOL[lastSubmitMode]，
     // 颜色随状态绿/黄/红），右字符 = 当前输入模式符号（MODE_SYMBOL[inputMode]，
@@ -1857,12 +1877,24 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   }
 
   // 按键提示区（独立区域，与输入区之间不画横线；正常前景色；窄终端按显示宽度截断）。
-  // 补全候选打开时改为补全键位（面板本身不再占活动区行放提示）。
-  const hintLines: RenderLine[] = normalInput
+  // 补全候选打开时改为补全键位（面板本身不再占活动区行放提示）；
+  // 历史会话面板的按键提示也在此显示（面板标题行不再内嵌键位，避免活动区顶部堆提示）。
+  const historyHint =
+    history !== null
+      ? history.phase === "list"
+        ? HISTORY_LIST_HINT_LINE
+        : history.phase === "view"
+          ? HISTORY_VIEW_HINT_LINE
+          : history.phase === "error"
+            ? HISTORY_ERROR_HINT_LINE
+            : HISTORY_LOADING_HINT_LINE
+      : null;
+  const hintLines: RenderLine[] = showHint
     ? [
         {
           text: truncateToWidth(
-            state.completion ? COMPLETION_HINT_LINE : HINT_LINE,
+            historyHint ??
+              (state.completion ? COMPLETION_HINT_LINE : HINT_LINE),
             fullWidth,
           ),
         },
