@@ -1,0 +1,604 @@
+// tests/session-delete.test.ts — 历史会话清理（删除单条 + 清理当前项目空会话）
+//
+// 三层覆盖：
+// 1) 文件级安全（真实临时目录）：只删目标会话目录、符号链接逃逸被拒、非法 id / 未找到无副作用
+// 2) 纯状态机与选择器：二次确认迁移、删除后记录与索引收敛、空会话范围（当前项目 + persisted + 无用户消息）
+// 3) 面板交互流（App + 最小 fake adapter）：d→y 删除、x→y 清理范围、护栏提示、/session clean 直达确认
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import {
+  deleteSessionDir,
+  isSafeSessionId,
+  sessionRoots,
+} from "../src/app/adapter/dsh.ts";
+import {
+  cleanableSessionIds,
+  currentProjectCwd,
+  initialState,
+  reduceState,
+} from "../src/app/state.ts";
+import type { AppState } from "../src/app/state.ts";
+import { App } from "../src/app/index.ts";
+import type {
+  DshAdapter,
+  DshEvent,
+  SessionDeleteResult,
+  SessionInfo,
+} from "../src/app/adapter/dsh.ts";
+import type { KeyEvent, Renderer } from "../src/renderer/index.ts";
+import type { RenderLine, Size } from "../src/renderer/screen.ts";
+import type { ThemeId } from "../src/renderer/theme.ts";
+
+// ---------------------------------------------------------------------------
+// 1) 文件级删除安全（真实临时目录）
+// ---------------------------------------------------------------------------
+
+function makeRoot(): string {
+  return mkdtempSync(join(tmpdir(), "dsh-tui-session-"));
+}
+
+/** 在 root/<slug>/<id> 造一个会话目录（含一个落盘文件），返回目录路径 */
+function makeSession(root: string, slug: string, id: string): string {
+  const dir = join(root, slug, id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "session.v3.jsonl.zstd"), `payload:${id}`);
+  return dir;
+}
+
+test("deleteSessionDir：只删除目标会话目录（同 slug 其他会话、其他 slug 都不动）", () => {
+  const root = makeRoot();
+  try {
+    const target = makeSession(root, "proj-a", "tui-aaaa1111");
+    const sibling = makeSession(root, "proj-a", "tui-bbbb2222");
+    const res = deleteSessionDir("tui-aaaa1111", [root]);
+    assert.equal(res.ok, true, "命中目标会话目录");
+    assert.equal(existsSync(target), false, "目标目录已删除");
+    assert.equal(existsSync(sibling), true, "同 slug 其他会话保留");
+    assert.equal(
+      readFileSync(join(sibling, "session.v3.jsonl.zstd"), "utf8"),
+      "payload:tui-bbbb2222",
+      "保留会话内容未被触碰",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("deleteSessionDir：符号链接逃逸被拒绝（根外内容不被删除）", () => {
+  const base = makeRoot();
+  const root = join(base, "sessions");
+  const outside = join(base, "outside");
+  try {
+    mkdirSync(join(outside, "real-session"), { recursive: true });
+    writeFileSync(join(outside, "real-session", "keep.txt"), "keep");
+    mkdirSync(join(root, "proj-a"), { recursive: true });
+    // 会话目录是指向根外的符号链接：realpath 解析后越界 → 必须拒绝
+    symlinkSync(
+      join(outside, "real-session"),
+      join(root, "proj-a", "tui-esc0001"),
+    );
+    const res = deleteSessionDir("tui-esc0001", [root]);
+    assert.equal(res.ok, false, "越界目标被拒绝");
+    assert.equal(existsSync(join(outside, "real-session", "keep.txt")), true);
+    assert.equal(
+      readFileSync(join(outside, "real-session", "keep.txt"), "utf8"),
+      "keep",
+      "根外文件完好",
+    );
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("deleteSessionDir：非法 id 与未找到均失败且无副作用", () => {
+  const root = makeRoot();
+  try {
+    const keep = makeSession(root, "proj-a", "tui-keep0001");
+    for (const bad of [
+      "",
+      ".",
+      "..",
+      "../escape",
+      "a/b",
+      "a\\b",
+      "a.b",
+      "x".repeat(129),
+    ]) {
+      assert.equal(isSafeSessionId(bad), false, `id 白名单拒绝：${bad}`);
+      const res = deleteSessionDir(bad, [root]);
+      assert.equal(res.ok, false, `拒绝删除：${bad}`);
+    }
+    const missing = deleteSessionDir("tui-none9999", [root]);
+    assert.equal(missing.ok, false, "未找到 → 失败");
+    assert.equal(existsSync(keep), true, "无副作用：既有会话目录保留");
+    assert.equal(
+      readFileSync(join(keep, "session.v3.jsonl.zstd"), "utf8"),
+      "payload:tui-keep0001",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("deleteSessionDir：按根顺序查找（首个命中根生效）", () => {
+  const rootA = makeRoot();
+  const rootB = makeRoot();
+  try {
+    const inB = makeSession(rootB, "proj-b", "tui-inrootb1");
+    const res = deleteSessionDir("tui-inrootb1", [rootA, rootB]);
+    assert.equal(res.ok, true);
+    assert.equal(existsSync(inB), false, "第二个根命中并删除");
+  } finally {
+    rmSync(rootA, { recursive: true, force: true });
+    rmSync(rootB, { recursive: true, force: true });
+  }
+});
+
+test("sessionRoots：顺序同官方（override → DSH_HOME/sessions → ~/.dsh-tui/sessions）并去重", () => {
+  const env = (v: Record<string, string>) => v as NodeJS.ProcessEnv;
+  assert.deepEqual(
+    sessionRoots(
+      env({ DSH_TUI_SESSION_ROOT: "/tmp/sr", DSH_HOME: "/h/.dsh" }),
+      "/h",
+    ),
+    ["/tmp/sr", "/h/.dsh/sessions", "/h/.dsh-tui/sessions"],
+  );
+  assert.deepEqual(sessionRoots(env({}), "/h"), [
+    "/h/.dsh/sessions",
+    "/h/.dsh-tui/sessions",
+  ]);
+  // 空白 override 视为未设置；与默认根重复时去重
+  assert.deepEqual(
+    sessionRoots(env({ DSH_TUI_SESSION_ROOT: "   ", DSH_HOME: " " }), "/h"),
+    ["/h/.dsh/sessions", "/h/.dsh-tui/sessions"],
+  );
+  assert.deepEqual(
+    sessionRoots(
+      env({ DSH_TUI_SESSION_ROOT: "/h/.dsh/sessions", DSH_HOME: "/h/.dsh" }),
+      "/h",
+    ),
+    ["/h/.dsh/sessions", "/h/.dsh-tui/sessions"],
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 2) 纯状态机与选择器
+// ---------------------------------------------------------------------------
+
+function rec(over: Partial<SessionInfo> & { id: string }): SessionInfo {
+  return {
+    createdAt: 1_700_000_000_000,
+    live: false,
+    persisted: true,
+    ...over,
+  };
+}
+
+function panelState(records: SessionInfo[]): AppState {
+  let s = reduceState(initialState(), { type: "history-open" });
+  s = reduceState(s, { type: "history-list", records });
+  return s;
+}
+
+test("面板：list → confirm-delete（记住目标）→ cancel 回 list；不可删项不进入确认", () => {
+  const records = [rec({ id: "s1" }), rec({ id: "s2" })];
+  let s = panelState(records);
+  s = reduceState(s, { type: "history-confirm-delete" });
+  assert.equal(s.history?.phase, "confirm-delete");
+  assert.equal(s.history?.pendingDelete, "s1");
+  s = reduceState(s, { type: "history-confirm-cancel" });
+  assert.equal(s.history?.phase, "list");
+  assert.equal(s.history?.pendingDelete, undefined);
+
+  // 当前活跃 / live / 未持久化 → 不入确认（由调用方 notice 说明）
+  const blocked: SessionInfo[][] = [
+    [rec({ id: "cur", live: true, current: true, cwd: "/proj" })],
+    [rec({ id: "liv", live: true, cwd: "/proj" })],
+    [rec({ id: "mem", persisted: false, cwd: "/proj" })],
+  ];
+  for (const rs of blocked) {
+    const st = reduceState(panelState(rs), { type: "history-confirm-delete" });
+    assert.equal(st.history?.phase, "list", `不入确认：${rs[0]!.id}`);
+    assert.equal(st.history?.pendingDelete, undefined);
+  }
+});
+
+test("面板：deleting → delete-done 移除记录并收敛高亮索引", () => {
+  const records = [rec({ id: "s1" }), rec({ id: "s2" }), rec({ id: "s3" })];
+  let s = panelState(records);
+  s = reduceState(s, { type: "history-move", delta: 2 });
+  assert.equal(s.history?.index, 2);
+  s = reduceState(s, { type: "history-confirm-delete" });
+  s = reduceState(s, { type: "history-delete" });
+  assert.equal(s.history?.phase, "deleting");
+  s = reduceState(s, { type: "history-delete-done", id: "s3", removed: true });
+  assert.equal(s.history?.phase, "list");
+  assert.deepEqual(
+    s.history?.records.map((r) => r.id),
+    ["s1", "s2"],
+  );
+  assert.equal(s.history?.index, 1, "索引收敛到末行");
+  assert.equal(s.history?.pendingDelete, undefined);
+
+  // removed=false（adapter 拒绝/异常）→ 记录保留，仍回列表
+  let f = panelState(records);
+  f = reduceState(f, { type: "history-confirm-delete" });
+  f = reduceState(f, { type: "history-delete" });
+  f = reduceState(f, { type: "history-delete-done", id: "s1", removed: false });
+  assert.equal(f.history?.records.length, 3, "失败不动列表");
+  assert.equal(f.history?.phase, "list");
+});
+
+test("面板：clean-done 仅移除已删除记录；阶段不符时忽略", () => {
+  const records = [
+    rec({ id: "cur", live: true, current: true, cwd: "/proj" }),
+    rec({ id: "a", isEmpty: true, cwd: "/proj" }),
+    rec({ id: "b", isEmpty: true, cwd: "/proj" }),
+    rec({ id: "c", isEmpty: true, cwd: "/proj" }),
+  ];
+  const idle = panelState(records);
+  const ignored = reduceState(idle, { type: "history-clean-done", ids: ["a"] });
+  assert.equal(ignored.history?.records.length, 4, "非 cleaning 阶段忽略");
+
+  // 无可清理项（空会话属于其他项目）→ 不进入确认
+  const foreign = reduceState(
+    panelState([
+      rec({ id: "cur", live: true, current: true, cwd: "/proj" }),
+      rec({ id: "x", isEmpty: true, cwd: "/other" }),
+    ]),
+    { type: "history-confirm-clean" },
+  );
+  assert.equal(foreign.history?.phase, "list", "无可清理项不进入确认");
+
+  let s = reduceState(idle, { type: "history-confirm-clean" });
+  assert.equal(s.history?.phase, "confirm-clean");
+  assert.deepEqual(s.history?.pendingClean, ["a", "b", "c"]);
+  assert.equal(s.history?.cleanCwd, "/proj", "确认态记住项目路径");
+  s = reduceState(s, { type: "history-clean" });
+  assert.equal(s.history?.phase, "cleaning");
+  s = reduceState(s, { type: "history-clean-done", ids: ["a", "c"] });
+  assert.deepEqual(
+    s.history?.records.map((r) => r.id),
+    ["cur", "b"],
+  );
+  assert.equal(s.history?.phase, "list");
+  assert.equal(s.history?.cleanCwd, undefined);
+});
+
+test("cleanableSessionIds：仅当前项目 + 已持久化 + 非 live + 无用户消息", () => {
+  const records = [
+    rec({ id: "cur", live: true, current: true, cwd: "/proj" }),
+    rec({ id: "empty-a", isEmpty: true, cwd: "/proj" }),
+    rec({ id: "chat-b", cwd: "/proj" }),
+    rec({ id: "empty-other", isEmpty: true, cwd: "/other" }),
+    rec({ id: "empty-mem", isEmpty: true, cwd: "/proj", persisted: false }),
+  ];
+  const s = panelState(records);
+  assert.deepEqual(cleanableSessionIds(s), ["empty-a"]);
+  assert.equal(currentProjectCwd(s), "/proj");
+
+  // 项目未知（无 current 记录且状态区仍是占位）→ 不清理任何会话
+  const orphan = panelState([
+    rec({ id: "empty-a", isEmpty: true, cwd: "/proj" }),
+  ]);
+  assert.equal(currentProjectCwd(orphan), undefined);
+  assert.deepEqual(cleanableSessionIds(orphan), []);
+
+  // 状态区 cwd 兜底（无 current 记录时仍能定位当前项目）
+  const viaStatus = reduceState(
+    panelState([rec({ id: "empty-a", isEmpty: true, cwd: "/proj" })]),
+    {
+      type: "status",
+      status: { cwd: "/proj" },
+    },
+  );
+  assert.equal(currentProjectCwd(viaStatus), "/proj");
+  assert.deepEqual(cleanableSessionIds(viaStatus), ["empty-a"]);
+});
+
+// ---------------------------------------------------------------------------
+// 3) 面板交互流（App + 最小 fake adapter）
+// ---------------------------------------------------------------------------
+
+/** ANSI SGR 序列（帧着色）：ESC 由码点构造，避免正则字面量里的控制字符告警 */
+const ANSI_SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
+class FakeRenderer implements Renderer {
+  lastRender: string[] = [];
+  renders = 0;
+  closes = 0;
+  size: Size = { cols: 100, rows: 30 };
+  press!: (k: KeyEvent) => void;
+
+  render(lines: RenderLine[]): void {
+    this.lastRender = lines.map((l) => l.text);
+    this.renders++;
+  }
+  refresh(lines: RenderLine[]): void {
+    this.render(lines);
+  }
+  onKey(cb: (k: KeyEvent) => void): void {
+    this.press = cb;
+  }
+  emitKey(k: KeyEvent): void {
+    this.press(k);
+  }
+  onResize(_cb: (cols: number, rows: number) => void): void {}
+  getSize(): Size {
+    return this.size;
+  }
+  setTheme(_id: ThemeId): void {}
+  close(): void {
+    this.closes++;
+  }
+}
+
+/**
+ * 只实现历史会话路径所需的 adapter 面（其余成员不参与测试，故不声明）。
+ * 方法用**原型方法**定义（刻意不解绑安全）：App 侧按接收者调用（`.call(adapter)`），
+ * 若退回解绑调用会丢 this → 测试失败。
+ * 另：删除只标记服务端状态、不改本地可见列表——列表只能靠重新 listSessions 更新，
+ * 这样「删除后是否真的重拉列表」可被证伪（本地移除不会被误判为已刷新）。
+ */
+class FakeSessionsAdapter {
+  sessionId = "s1";
+  /** 服务端会话列表（listSessions 的唯一数据源） */
+  serverRecords: SessionInfo[] = [];
+  deleteCalls: string[] = [];
+  listSessionsCalls = 0;
+  failOn = new Set<string>();
+  /** 非空时删除会等它 resolve：便于确定性观测 deleting/cleaning 阶段帧 */
+  deleteGate: Promise<void> | null = null;
+  private deleted = new Set<string>();
+  private cbs: ((e: DshEvent) => void)[] = [];
+
+  onEvent(cb: (e: DshEvent) => void): () => void {
+    this.cbs.push(cb);
+    return () => {};
+  }
+  sendMessage(): void {}
+  runCommand(): void {}
+  approve(): void {}
+  answerQuestion(): void {}
+  cancelQuestion(): void {}
+  interrupt(): void {}
+  dispose(): void {}
+  async listSessions(): Promise<SessionInfo[]> {
+    this.listSessionsCalls++;
+    return this.serverRecords.filter((r) => !this.deleted.has(r.id));
+  }
+  async deleteSession(id: string): Promise<SessionDeleteResult> {
+    this.deleteCalls.push(id);
+    if (this.deleteGate) await this.deleteGate;
+    if (this.failOn.has(id)) return { ok: false, reason: "删除失败：EPERM" };
+    this.deleted.add(id);
+    return { ok: true };
+  }
+}
+
+function makeApp(): {
+  renderer: FakeRenderer;
+  adapter: FakeSessionsAdapter;
+  frame: () => string;
+} {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeSessionsAdapter();
+  const app = new App({
+    renderer,
+    adapter: adapter as unknown as DshAdapter,
+  });
+  app.start();
+  return {
+    renderer,
+    adapter,
+    frame: () =>
+      renderer.lastRender.map((l) => l.replace(ANSI_SGR, "")).join("\n"),
+  };
+}
+
+const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+function press(renderer: FakeRenderer, name: string): void {
+  renderer.press({ name, ctrl: false, meta: false, shift: false });
+}
+
+function typeAndEnter(renderer: FakeRenderer, text: string): void {
+  for (const ch of Array.from(text)) press(renderer, ch);
+  press(renderer, "enter");
+}
+
+test("面板 d → 二次确认 → y：只删高亮会话并刷新列表", async () => {
+  const { renderer, adapter, frame } = makeApp();
+  adapter.serverRecords = [
+    rec({ id: "tui-first001", title: "第一条", cwd: "/proj" }),
+    rec({ id: "tui-second02", title: "第二条", cwd: "/proj" }),
+  ];
+  typeAndEnter(renderer, "/session");
+  await flush();
+  await flush();
+  assert.ok(frame().includes("历史会话（2）"), "列表打开且计数正确");
+  assert.equal(adapter.listSessionsCalls, 1, "打开面板拉取一次列表");
+  assert.ok(frame().includes("[空]") === false, "非空会话无 [空] 标记");
+
+  press(renderer, "d");
+  assert.ok(frame().includes("删除确认"), "进入删除二次确认");
+  assert.ok(frame().includes("第一条"), "确认文案含目标标题");
+  assert.deepEqual(adapter.deleteCalls, [], "确认前不调用 adapter");
+
+  press(renderer, "y");
+  await flush();
+  await flush();
+  assert.deepEqual(adapter.deleteCalls, ["tui-first001"], "仅删除高亮会话");
+  assert.equal(adapter.listSessionsCalls, 2, "删除成功后重拉一次列表");
+  assert.ok(
+    frame().includes("历史会话（1）"),
+    "重拉后列表收敛（fake 不自改可见列表）",
+  );
+  assert.ok(frame().includes("已删除会话「第一条」"), "成功提示保留原会话标题");
+});
+
+test("面板 x → 二次确认 → y：只清理当前项目空会话（其他项目/有对话/未持久化不动）", async () => {
+  const { renderer, adapter, frame } = makeApp();
+  adapter.serverRecords = [
+    rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
+    rec({ id: "tui-empty001", isEmpty: true, cwd: "/proj", title: "空会话" }),
+    rec({ id: "tui-chat0001", cwd: "/proj", title: "有对话" }),
+    rec({
+      id: "tui-empty002",
+      isEmpty: true,
+      cwd: "/other",
+      title: "他项目空会话",
+    }),
+    rec({ id: "tui-sym00001", isEmpty: true, cwd: "/proj", persisted: false }),
+  ];
+  typeAndEnter(renderer, "/session");
+  await flush();
+  await flush();
+  assert.ok(frame().includes("[空]"), "空会话列表标记 [空]");
+
+  press(renderer, "x");
+  assert.ok(frame().includes("清理空会话"), "进入清理确认");
+  assert.ok(frame().includes("空会话 1 个"), "确认文案给出当前项目待清理数量");
+  assert.ok(frame().includes("/proj"), "确认文案给出当前项目路径");
+  assert.deepEqual(adapter.deleteCalls, [], "确认前不调用 adapter");
+
+  press(renderer, "y");
+  await flush();
+  await flush();
+  assert.deepEqual(
+    adapter.deleteCalls,
+    ["tui-empty001"],
+    "只清理当前项目空会话",
+  );
+  assert.equal(adapter.listSessionsCalls, 2, "批量清理只重拉一次列表");
+  assert.ok(frame().includes("已清理 1 个空会话"), "清理成功提示");
+  assert.ok(!frame().includes("tui-empty001"), "重拉后空会话行消失");
+});
+
+test("面板护栏：当前活跃会话不可删、x 无可清理项给提示且不调用 adapter", async () => {
+  const { renderer, adapter, frame } = makeApp();
+  adapter.serverRecords = [
+    rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
+  ];
+  typeAndEnter(renderer, "/session");
+  await flush();
+  await flush();
+
+  press(renderer, "d");
+  assert.ok(frame().includes("当前活跃会话不可删除"), "d 给不可删提示");
+  assert.ok(!frame().includes("删除确认"), "不进入删除确认");
+  assert.deepEqual(adapter.deleteCalls, []);
+
+  press(renderer, "x");
+  assert.ok(frame().includes("没有可清理的空会话"), "x 给空结果提示");
+  assert.ok(!frame().includes("确认清理"), "不进入清理确认");
+  assert.deepEqual(adapter.deleteCalls, []);
+});
+
+test("面板护栏：adapter 拒绝删除（失败）→ 列表保留并提示失败原因", async () => {
+  const { renderer, adapter, frame } = makeApp();
+  adapter.serverRecords = [
+    rec({ id: "tui-boom0001", title: "删不掉的", cwd: "/proj" }),
+  ];
+  adapter.failOn.add("tui-boom0001");
+  typeAndEnter(renderer, "/session");
+  await flush();
+  await flush();
+  press(renderer, "d");
+  press(renderer, "y");
+  await flush();
+  await flush();
+  assert.deepEqual(adapter.deleteCalls, ["tui-boom0001"]);
+  assert.equal(adapter.listSessionsCalls, 1, "失败不重拉列表");
+  assert.ok(frame().includes("删除失败"), "失败提示可见");
+  assert.ok(frame().includes("历史会话（1）"), "记录保留");
+});
+
+test("/session clean 直达清理确认（无可清理项则提示且不开确认）", async () => {
+  const { renderer, adapter, frame } = makeApp();
+  adapter.serverRecords = [
+    rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
+    rec({ id: "tui-empty001", isEmpty: true, cwd: "/proj" }),
+  ];
+  typeAndEnter(renderer, "/session clean");
+  await flush();
+  await flush();
+  assert.ok(frame().includes("确认清理"), "直达清理确认");
+  press(renderer, "y");
+  await flush();
+  await flush();
+  assert.deepEqual(adapter.deleteCalls, ["tui-empty001"]);
+  assert.equal(adapter.listSessionsCalls, 2, "清理成功后重拉一次列表");
+
+  // 再执行一次：已无空会话 → 提示，不进入确认
+  const again = makeApp();
+  again.adapter.serverRecords = [
+    rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
+  ];
+  typeAndEnter(again.renderer, "/session clean");
+  await flush();
+  await flush();
+  assert.ok(again.frame().includes("没有可清理的空会话"));
+  assert.deepEqual(again.adapter.deleteCalls, []);
+});
+
+test("面板提示行：确认阶段给 y/n 提示，进行中阶段留空（不穿透默认提示）", async () => {
+  const { renderer, adapter, frame } = makeApp();
+  adapter.serverRecords = [
+    rec({ id: "tui-victim001", cwd: "/proj", title: "待删会话" }),
+    rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
+    rec({ id: "tui-empty001", isEmpty: true, cwd: "/proj", title: "空会话" }),
+  ];
+  /** 提示区 = 帧末行 */
+  const hintLine = (): string => {
+    const lines = frame().split("\n");
+    return lines[lines.length - 1] ?? "";
+  };
+  typeAndEnter(renderer, "/session");
+  await flush();
+  await flush();
+  assert.ok(hintLine().includes("[d]删除"), "list 阶段提示含删除键");
+
+  press(renderer, "d");
+  assert.ok(hintLine().includes("[y/Enter]确认 · [n/Esc]取消"), "删除确认提示");
+  assert.ok(!frame().includes("打断并发送"), "确认阶段不显示默认提示");
+
+  // 挂住 deleting：进行中阶段提示行必须留空（且不透传默认提示）
+  let release!: () => void;
+  adapter.deleteGate = new Promise<void>((r) => (release = r));
+  press(renderer, "y");
+  await flush();
+  assert.ok(frame().includes("删除中"), "面板显示删除中");
+  assert.equal(hintLine().trim(), "", "deleting 阶段提示行留空");
+  assert.ok(!frame().includes("打断并发送"), "进行中不显示默认提示");
+  release();
+  await flush();
+  await flush();
+  assert.equal(adapter.listSessionsCalls, 2, "释放后完成并重拉列表");
+
+  // 清理确认 + cleaning 阶段
+  adapter.deleteGate = new Promise<void>((r) => (release = r));
+  press(renderer, "x");
+  assert.ok(hintLine().includes("[y/Enter]确认 · [n/Esc]取消"), "清理确认提示");
+  press(renderer, "y");
+  await flush();
+  assert.ok(frame().includes("清理中"), "面板显示清理中");
+  assert.equal(hintLine().trim(), "", "cleaning 阶段提示行留空");
+  release();
+  await flush();
+  await flush();
+  assert.equal(adapter.listSessionsCalls, 3, "清理完成后再重拉一次");
+});

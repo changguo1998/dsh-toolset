@@ -2,9 +2,10 @@
 //
 // 输出恰 height 行（占满活动区可视行，与审批/问答/模型选择/任务面板同一渲染链，
 // 显示于流输出窗口；底部输入区以空白占位）。
-// 五阶段：loading-list（加载中）、list（会话列表）、loading-view（内容加载）、
-// view（只读消息浏览，↑/↓ 滚动窗口）、error（错误消息）。
-// 列表行格式：`> MM-DD HH:mm  <8位短id>  .../cwd  [当前]`（live 会话标记 [当前]）。
+// 十阶段：loading-list（加载中）、list（会话列表）、loading-view（内容加载）、
+// view（只读消息浏览，↑/↓ 滚动窗口）、resuming（切换中）、confirm-delete（删除二次确认）、
+// deleting（删除中）、confirm-clean（清理空会话二次确认）、cleaning（清理中）、error（错误消息）。
+// 列表行格式：`> MM-DD HH:mm  <8位短id>  <标题>  .../cwd  [当前]|[不可续]|[空]`。
 // 按键提示不放面板内（位于输入区下方提示区，见 layout.ts HISTORY_*_HINT_LINE）；
 // 标题按显示宽补齐，避免 CJK 顶开活动区右缘框线。
 // 无 ANSI 着色（与模型选择面板同风格），中文界面文本按显示宽度截断。
@@ -46,18 +47,17 @@ function tailCwd(cwd: string, w: number): string {
 /**
  * 列表行：`> MM-DD HH:mm  <短id>  <标题>  .../cwd  [当前]|[不可续]`。
  * 标题优先官方 session/title 事件，缺失本地兜底；两者皆无显示（新会话）。
- * live 会话：当前活跃标 [当前]，其余 live 标 [不可续]（不可选中）。
+ * live 会话：当前活跃标 [当前]，其余 live 标 [不可续]（不可选中）；
+ * 空会话（persisted 且无用户消息）标 [空]（可被 /session clean 清理）。
  */
 function listLine(rec: SessionInfo, isFocus: boolean, width: number): string {
   const marker = isFocus ? "> " : "  ";
   const time = fmtTime(rec.createdAt);
   const id = rec.id.slice(0, 8);
-  // 当前活跃 live 行双标（[当前] 活跃 + [不可续] 不可选中）；其余 live 仅 [不可续]
-  const tag = rec.live
-    ? rec.current === true
-      ? " [当前] [不可续]"
-      : " [不可续]"
-    : "";
+  // 当前活跃 live 行双标（[当前] 活跃 + [不可续] 不可选中）；其余 live 仅 [不可续]；空会话 [空]
+  let tag = "";
+  if (rec.live) tag = rec.current === true ? " [当前] [不可续]" : " [不可续]";
+  else if (rec.isEmpty === true) tag = " [空]";
   const fixed =
     displayWidth(marker) + displayWidth(time) + 2 + 8 + 2 + displayWidth(tag);
   const avail = Math.max(0, width - fixed);
@@ -69,6 +69,15 @@ function listLine(rec: SessionInfo, isFocus: boolean, width: number): string {
     marker + time + "  " + id + "  " + title + (cwd ? "  " + cwd : "") + tag,
     width,
   );
+}
+
+/** 确认/进行中文案 → 逐行按宽度折行截断，取前 max 行（面板正文区填充用） */
+function wrapBody(lines: string[], width: number, max: number): string[] {
+  const out: string[] = [];
+  for (const line of lines) {
+    for (const l of wrapLine(line, width)) out.push(truncateToWidth(l, width));
+  }
+  return out.slice(0, Math.max(0, max));
 }
 
 /** 视口起点：让偏移恒在 [0, max(0, len-rows)] 内 */
@@ -111,19 +120,26 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
       title = "历史会话";
       body = ["加载中..."];
       break;
-    case "list":
+    case "list": {
       // 按键提示不在面板内（改在输入区下方提示区显示，见 layout.ts HISTORY_*_HINT_LINE）
       title = truncateToWidth(`历史会话（${h.records.length}）`, width);
+      // 结果提示（删除/清理结果与护栏文案）占首行：面板占满活动区时 notice 不可见，
+      // 故结果需在面板内呈现（notice 仍在缓冲留痕，关闭面板后可见）
+      const head =
+        h.result === undefined ? null : truncateToWidth(h.result, width);
+      const listRows = Math.max(0, bodyRows - (head === null ? 0 : 1));
       if (h.records.length === 0) body = ["（无历史会话）"];
       else {
-        const start = startFor(h.records.length, h.index, bodyRows);
-        for (let r = 0; r < bodyRows; r++) {
+        const start = startFor(h.records.length, h.index, listRows);
+        for (let r = 0; r < listRows; r++) {
           const idx = start + r;
           const rec = h.records[idx];
           body.push(rec ? listLine(rec, idx === h.index, width) : "");
         }
       }
+      if (head !== null) body = [head, ...body];
       break;
+    }
     case "loading-view":
       title = "历史会话 · " + (h.currentId ?? "").slice(0, 8);
       body = ["加载内容..."];
@@ -131,6 +147,43 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
     case "resuming":
       title = "历史会话 · " + (h.pendingResume ?? "").slice(0, 8);
       body = ["切换到该会话..."];
+      break;
+    case "confirm-delete": {
+      const rec = h.records.find((r) => r.id === h.pendingDelete);
+      const label = rec?.title?.trim() ? rec.title : "（新会话）";
+      title = "历史会话 · 删除确认";
+      body = wrapBody(
+        [
+          `删除会话「${label}」（${(h.pendingDelete ?? "").slice(0, 8)}）？`,
+          "不可恢复：该会话的持久化文件将被永久删除。",
+          "[y/Enter] 确认删除    [n/Esc] 取消",
+        ],
+        width,
+        bodyRows,
+      );
+      break;
+    }
+    case "deleting":
+      title = "历史会话 · 删除中";
+      body = ["删除中..."];
+      break;
+    case "confirm-clean": {
+      const n = h.pendingClean?.length ?? 0;
+      title = "历史会话 · 清理空会话";
+      body = wrapBody(
+        [
+          `清理当前项目（${h.cleanCwd ?? "未知路径"}）的空会话 ${n} 个？`,
+          "不可恢复：仅删除已持久化且从未有用户消息的会话；当前与 live 会话不受影响。",
+          "[y/Enter] 确认清理    [n/Esc] 取消",
+        ],
+        width,
+        bodyRows,
+      );
+      break;
+    }
+    case "cleaning":
+      title = "历史会话 · 清理中";
+      body = ["清理中..."];
       break;
     case "view": {
       title = truncateToWidth(`会话 ${h.currentId ?? ""}`, width);

@@ -109,7 +109,16 @@ export interface ModeState {
 
 /** 历史会话面板阶段：列表加载 → 列表 → 会话加载 → 浏览 → 错误（任一阶段可关闭） */
 export type HistoryPhase =
-  "loading-list" | "list" | "loading-view" | "view" | "resuming" | "error";
+  | "loading-list"
+  | "list"
+  | "loading-view"
+  | "view"
+  | "resuming"
+  | "confirm-delete"
+  | "deleting"
+  | "confirm-clean"
+  | "cleaning"
+  | "error";
 
 /** /history 历史会话面板状态（只读浏览；list 与 view 两阶段） */
 export interface HistoryPanelState {
@@ -128,6 +137,68 @@ export interface HistoryPanelState {
   error?: string;
   /** resume 切换的目标会话 id（resuming 阶段）；成功后清空 */
   pendingResume?: string;
+  /** confirm-delete/deleting 阶段的目标会话 id（确认后由调用方经 adapter 删除） */
+  pendingDelete?: string;
+  /** confirm-clean/cleaning 阶段待清理的空会话 id 列表（范围=当前项目） */
+  pendingClean?: string[];
+  /** confirm-clean/cleaning 阶段的当前项目路径（确认文案展示） */
+  cleanCwd?: string;
+  /** 面板内结果提示（删除/清理结果与护栏文案；首行展示，下次操作时清除）。
+   *  面板占满活动区时 notice 不可见（notice 归活动区），故结果需面板内呈现 */
+  result?: string;
+}
+
+/** 当前项目路径：活跃会话记录的 cwd 优先，回退状态区 cwd（占位符不算）；未知 → undefined */
+export function currentProjectCwd(state: AppState): string | undefined {
+  const rec = state.history?.records.find((r) => r.current === true);
+  if (rec?.cwd !== undefined) return rec.cwd;
+  const cwd = state.systemStatus.cwd;
+  return cwd !== "" && cwd !== "—" ? cwd : undefined;
+}
+
+/**
+ * 当前项目可清理的空会话 id：与活跃会话同 cwd（对齐官方 TUI「破坏性范围=列表范围」），
+ * 且已持久化、非 live、无用户消息（SessionInfo.isEmpty）。无法确定当前项目 → 空数组。
+ */
+export function cleanableSessionIds(state: AppState): string[] {
+  const h = state.history;
+  const cwd = currentProjectCwd(state);
+  if (!h || cwd === undefined) return [];
+  const ids: string[] = [];
+  for (const r of h.records) {
+    // 可清理：已持久化、非 live、非当前、同项目、无用户消息
+    if (
+      r.isEmpty === true &&
+      r.persisted === true &&
+      !r.live &&
+      r.current !== true &&
+      r.cwd === cwd
+    ) {
+      ids.push(r.id);
+    }
+  }
+  return ids;
+}
+
+/** 从列表移除若干会话 id：收敛高亮索引、清空 pending/查看态字段并回到 list 阶段 */
+function dropHistoryRecords(
+  h: HistoryPanelState,
+  ids: readonly string[],
+): HistoryPanelState {
+  const drop = new Set(ids);
+  const records = h.records.filter((r) => !drop.has(r.id));
+  return {
+    ...h,
+    phase: "list",
+    records,
+    index: Math.max(0, Math.min(records.length - 1, h.index)),
+    pendingDelete: undefined,
+    pendingClean: undefined,
+    cleanCwd: undefined,
+    currentId: undefined,
+    messages: [],
+    scroll: 0,
+  };
 }
 
 export interface AppState {
@@ -765,6 +836,26 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return setQuestionCustom(state, action.text);
       case "question-close":
         return { ...state, question: null };
+      case "history-refresh": {
+        // 删除/清理后重拉列表：保留面板结果提示与高亮位置（按新长度 clamp）
+        const hrf = state.history;
+        if (!hrf || hrf.phase !== "list") return state;
+        return {
+          ...state,
+          history: {
+            ...hrf,
+            records: action.records,
+            index: Math.max(0, Math.min(action.records.length - 1, hrf.index)),
+            error: undefined,
+          },
+        };
+      }
+      case "history-result": {
+        // 面板内结果提示：面板已关则忽略（调用方另有 buffer notice 留痕）
+        const hrs = state.history;
+        if (!hrs) return state;
+        return { ...state, history: { ...hrs, result: action.text } };
+      }
       case "history-open":
         return {
           ...state,
@@ -906,6 +997,88 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           scrollOffset: 0,
           activityScroll: 0,
         };
+      case "history-confirm-delete": {
+        const hcd = state.history;
+        if (!hcd || hcd.phase !== "list") return state;
+        const rec = hcd.records[hcd.index];
+        // 当前活跃 / live / 未持久化 → 不进入确认（调用方以 notice 说明原因）
+        if (!rec || rec.current === true || rec.live || !rec.persisted) {
+          return state;
+        }
+        return {
+          ...state,
+          history: {
+            ...hcd,
+            phase: "confirm-delete",
+            pendingDelete: rec.id,
+            result: undefined,
+          },
+        };
+      }
+      case "history-confirm-clean": {
+        const hcc = state.history;
+        if (!hcc || hcc.phase !== "list") return state;
+        const ids = cleanableSessionIds(state);
+        if (ids.length === 0) return state;
+        return {
+          ...state,
+          history: {
+            ...hcc,
+            phase: "confirm-clean",
+            pendingClean: ids,
+            cleanCwd: currentProjectCwd(state),
+            result: undefined,
+          },
+        };
+      }
+      case "history-confirm-cancel": {
+        const hcx = state.history;
+        if (
+          !hcx ||
+          (hcx.phase !== "confirm-delete" && hcx.phase !== "confirm-clean")
+        ) {
+          return state;
+        }
+        return {
+          ...state,
+          history: {
+            ...hcx,
+            phase: "list",
+            pendingDelete: undefined,
+            pendingClean: undefined,
+            cleanCwd: undefined,
+          },
+        };
+      }
+      case "history-delete":
+        return state.history?.phase === "confirm-delete"
+          ? { ...state, history: { ...state.history, phase: "deleting" } }
+          : state;
+      case "history-delete-done": {
+        const hdd = state.history;
+        if (
+          !hdd ||
+          hdd.phase !== "deleting" ||
+          hdd.pendingDelete !== action.id
+        ) {
+          return state;
+        }
+        return {
+          ...state,
+          history: action.removed
+            ? dropHistoryRecords(hdd, [action.id])
+            : { ...hdd, phase: "list", pendingDelete: undefined },
+        };
+      }
+      case "history-clean":
+        return state.history?.phase === "confirm-clean"
+          ? { ...state, history: { ...state.history, phase: "cleaning" } }
+          : state;
+      case "history-clean-done": {
+        const hcd2 = state.history;
+        if (!hcd2 || hcd2.phase !== "cleaning") return state;
+        return { ...state, history: dropHistoryRecords(hcd2, action.ids) };
+      }
       case "history-close":
         return { ...state, history: null };
       case "session-identify":
@@ -1307,6 +1480,15 @@ export type StateAction =
     }
   | { type: "history-scroll"; delta: number }
   | { type: "history-back" }
+  | { type: "history-result"; text: string }
+  | { type: "history-refresh"; records: SessionInfo[] }
+  | { type: "history-confirm-delete" }
+  | { type: "history-confirm-clean" }
+  | { type: "history-confirm-cancel" }
+  | { type: "history-delete" }
+  | { type: "history-delete-done"; id: string; removed: boolean }
+  | { type: "history-clean" }
+  | { type: "history-clean-done"; ids: string[] }
   | { type: "history-close" }
   | { type: "session-identify"; id: string; title: string }
   | { type: "sessions"; sessions: SessionMeta[] }

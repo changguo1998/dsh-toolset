@@ -166,13 +166,25 @@ export const HINT_LINE =
 export const COMPLETION_HINT_LINE = "[tab]补全 · [↑/↓]选择 · [esc]收起";
 
 /** 历史会话面板各阶段的按键提示（显示于输入区下方提示区；面板标题行不再内嵌键位）。
- *  list=列表移动/切换/关闭、view=内容滚动/翻页/返回列表、error=错误关闭；
- *  加载类阶段（loading-list/loading-view/resuming）无可用键位 → 空白提示行保持高度稳定 */
-export const HISTORY_LIST_HINT_LINE = "[↑/↓]移动 · [Enter]切换 · [Esc]关闭";
+ *  list=列表移动/切换/删除/清理/关闭、view=内容滚动/翻页/返回列表、error=错误关闭；
+ *  confirm-*=二次确认（y/n）、进行中阶段（deleting/cleaning）与加载类阶段无可用键位
+ *  → 空白提示行保持高度稳定 */
+export const HISTORY_LIST_HINT_LINE =
+  "[↑/↓]移动 · [Enter]切换 · [d]删除 · [x]清理空会话 · [Esc]关闭";
 export const HISTORY_VIEW_HINT_LINE =
   "[↑/↓]滚动 · [PgUp/PgDn]翻页 · [Esc]返回列表";
 export const HISTORY_ERROR_HINT_LINE = "[Esc]关闭";
+export const HISTORY_CONFIRM_HINT_LINE = "[y/Enter]确认 · [n/Esc]取消";
 export const HISTORY_LOADING_HINT_LINE = "";
+
+/** 历史面板阶段 → 提示区文案（未列出的阶段按加载类处理：空白） */
+export const HISTORY_HINTS: Record<string, string> = {
+  list: HISTORY_LIST_HINT_LINE,
+  view: HISTORY_VIEW_HINT_LINE,
+  error: HISTORY_ERROR_HINT_LINE,
+  "confirm-delete": HISTORY_CONFIRM_HINT_LINE,
+  "confirm-clean": HISTORY_CONFIRM_HINT_LINE,
+};
 
 export interface FrameMetrics {
   /** 顶部区域行数 = rows - 状态区 - 输入区 - 按键提示区 - 分隔行（剩余高度全给上方两个） */
@@ -2035,13 +2047,7 @@ export function buildFrame(state: AppState, size: Size): RenderLine[] {
   // 历史会话面板的按键提示也在此显示（面板标题行不再内嵌键位，避免活动区顶部堆提示）。
   const historyHint =
     history !== null
-      ? history.phase === "list"
-        ? HISTORY_LIST_HINT_LINE
-        : history.phase === "view"
-          ? HISTORY_VIEW_HINT_LINE
-          : history.phase === "error"
-            ? HISTORY_ERROR_HINT_LINE
-            : HISTORY_LOADING_HINT_LINE
+      ? (HISTORY_HINTS[history.phase] ?? HISTORY_LOADING_HINT_LINE)
       : null;
   const hintLines: RenderLine[] = showHint
     ? [

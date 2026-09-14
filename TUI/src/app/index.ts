@@ -10,7 +10,7 @@ import type {
   StateAction,
   StatusPanelState,
 } from "./state.ts";
-import { initialState, reduceState } from "./state.ts";
+import { cleanableSessionIds, initialState, reduceState } from "./state.ts";
 import type {
   DshAdapter,
   DshEvent,
@@ -752,6 +752,12 @@ export class App {
           }
           void this.resumeToSession(rec.id);
           return;
+        } else if (name === "d" || name === "delete" || name === "backspace") {
+          this.confirmDeleteRecord();
+          return;
+        } else if (name === "x") {
+          this.confirmClean();
+          return;
         } else if (name === "escape")
           this.apply((st) => reduceState(st, { type: "history-close" }));
       } else if (h.phase === "view") {
@@ -774,6 +780,15 @@ export class App {
         else if (name === "escape")
           // 返回列表（列表数据仍在内存）
           this.apply((st) => reduceState(st, { type: "history-back" }));
+      } else if (h.phase === "confirm-delete" || h.phase === "confirm-clean") {
+        // 二次确认：y/Enter 执行、n/Esc 取消（其余键吞掉，避免误触）
+        if (name === "y" || name === "enter") void this.runPendingHistoryOp();
+        else if (name === "n" || name === "escape")
+          this.apply((st) =>
+            reduceState(st, { type: "history-confirm-cancel" }),
+          );
+      } else if (h.phase === "deleting" || h.phase === "cleaning") {
+        // 进行中：吞键；完成后由 history-delete-done / history-clean-done 回列表
       } else if (h.phase === "error" && name === "escape") {
         this.apply((st) => reduceState(st, { type: "history-close" }));
       }
@@ -1131,8 +1146,13 @@ export class App {
         this.handleThemeCommand(line);
         return;
       case "session":
-        // 会话列表 + 切换：见 openHistory / resumeToSession
-        void this.openHistory();
+        // 会话列表 + 切换：见 openHistory / resumeToSession；
+        // 子命令 clean：打开面板并直达「清理当前项目空会话」二次确认
+        if (line.slice("/session".length).trim().toLowerCase() === "clean") {
+          void this.openHistoryClean();
+        } else {
+          void this.openHistory();
+        }
         return;
       case "goal":
         // /goal 不再打开面板：goal/todo 详情常驻右侧顶部状态列
@@ -1216,6 +1236,156 @@ export class App {
     this.notice(`theme: ${next} (${THEMES[next].name})`, "success");
   }
 
+  /** 面板 d/Delete：进入删除二次确认（不可删时以 notice 说明原因，不改列表） */
+  private confirmDeleteRecord(): void {
+    const h = this.state.history;
+    const rec = h ? h.records[h.index] : undefined;
+    if (!h || !rec) return;
+    if (rec.current === true) {
+      this.historyNotice("当前活跃会话不可删除", "warn");
+      return;
+    }
+    if (rec.live) {
+      this.historyNotice(
+        "live 会话不可删除（仅可删除已持久化的非活跃会话）",
+        "warn",
+      );
+      return;
+    }
+    if (!rec.persisted) {
+      this.historyNotice("该会话未持久化，没有可删除的文件", "warn");
+      return;
+    }
+    if (!this.deps.adapter.deleteSession) {
+      this.historyNotice("会话删除不可用（宿主未挂载 sessionQuery）", "warn");
+      return;
+    }
+    this.apply((st) => reduceState(st, { type: "history-confirm-delete" }));
+    this.paint();
+  }
+
+  /** 面板 x：进入清理空会话二次确认（范围=当前项目；无可清理项时以 notice 说明） */
+  private confirmClean(): void {
+    if (!this.deps.adapter.deleteSession) {
+      this.historyNotice("会话删除不可用（宿主未挂载 sessionQuery）", "warn");
+      return;
+    }
+    const ids = cleanableSessionIds(this.state);
+    if (ids.length === 0) {
+      this.historyNotice("当前项目没有可清理的空会话", "info");
+      return;
+    }
+    this.apply((st) => reduceState(st, { type: "history-confirm-clean" }));
+    this.paint();
+  }
+
+  /** 确认后执行删除/清理（y/Enter）：调 adapter.deleteSession，成功后重拉列表并提示 */
+  private async runPendingHistoryOp(): Promise<void> {
+    const h = this.state.history;
+    const adapter = this.deps.adapter;
+    const del = adapter.deleteSession;
+    if (!h || !del) return;
+    if (h.phase === "confirm-delete") {
+      const id = h.pendingDelete;
+      if (!id) return;
+      // 先取标题再删记录：historyRecordLabel 依赖面板记录，删后只剩短 id
+      const label = this.historyRecordLabel(id);
+      this.apply((st) => reduceState(st, { type: "history-delete" }));
+      this.paint();
+      let removed = false;
+      let reason: string | undefined;
+      try {
+        // SAFETY: adapter 方法未约定自带绑定（实现可为原型方法），
+        // 按接收者调用保留 this（同 setApprovalPolicy 的 .call(adapter) 约定）
+        const res = await del.call(adapter, id);
+        removed = res.ok;
+        if (!res.ok) reason = res.reason;
+      } catch (err) {
+        reason = String(err);
+      }
+      this.apply((st) =>
+        reduceState(st, { type: "history-delete-done", id, removed }),
+      );
+      this.paint();
+      if (!removed) {
+        this.historyNotice(`删除失败：${reason ?? "未知原因"}`, "error");
+        return;
+      }
+      this.historyNotice(`已删除会话「${label}」`, "success");
+      await this.refreshHistoryList();
+      return;
+    }
+    if (h.phase === "confirm-clean") {
+      const ids = h.pendingClean ?? [];
+      if (ids.length === 0) return;
+      this.apply((st) => reduceState(st, { type: "history-clean" }));
+      this.paint();
+      const removed: string[] = [];
+      let failed = 0;
+      // 串行删除：会话数通常个位数，避免并发 IO 与错误归属混乱
+      for (const id of ids) {
+        try {
+          const res = await del.call(adapter, id);
+          if (res.ok) removed.push(id);
+          else failed += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      this.apply((st) =>
+        reduceState(st, { type: "history-clean-done", ids: removed }),
+      );
+      this.paint();
+      if (removed.length === 0) {
+        this.historyNotice("清理失败：没有会话被删除", "error");
+        return;
+      }
+      this.historyNotice(
+        failed > 0
+          ? `已清理 ${removed.length} 个空会话（${failed} 个失败）`
+          : `已清理 ${removed.length} 个空会话`,
+        failed > 0 ? "warn" : "success",
+      );
+      // 批量清理只重拉一次（无论删了几条）
+      await this.refreshHistoryList();
+    }
+  }
+
+  /** 删除/清理成功后重拉会话列表刷新面板（保留高亮位置并 clamp；失败保留本地结果） */
+  private async refreshHistoryList(): Promise<void> {
+    const adapter = this.deps.adapter;
+    const list = adapter.listSessions;
+    if (!list) return;
+    try {
+      const records = await list.call(adapter);
+      this.apply((st) => reduceState(st, { type: "history-refresh", records }));
+      this.paint();
+    } catch {
+      // 拉取失败不报错：删除已生效、本地列表已收敛，保持面板可用
+    }
+  }
+
+  /** /session clean：打开面板并直接进入空会话清理确认 */
+  private async openHistoryClean(): Promise<void> {
+    await this.openHistory();
+    if (this.state.history?.phase !== "list") return;
+    this.confirmClean();
+  }
+
+  /** 面板内提示 + 缓冲 notice：面板占满活动区时 notice 不可见（notice 归活动区），
+   *  故删除/清理结果与护栏文案需在面板内呈现；notice 仍留痕于对话区（关面板后可见） */
+  private historyNotice(text: string, tone?: NoticeTone): void {
+    this.apply((st) => reduceState(st, { type: "history-result", text }));
+    this.notice(text, tone);
+  }
+
+  /** 会话展示名：列表标题优先，缺失用短 id（notice 文案用） */
+  private historyRecordLabel(id: string): string {
+    const rec = this.state.history?.records.find((r) => r.id === id);
+    const title = rec?.title?.trim();
+    return title ? title : id.slice(0, 8);
+  }
+
   /** /session：打开历史会话面板（宿主未挂载会话查询服务时提示不可用） */
   private async openHistory(): Promise<void> {
     const list = this.deps.adapter.listSessions;
@@ -1226,7 +1396,7 @@ export class App {
     this.apply((s) => reduceState(s, { type: "history-open" }));
     this.paint();
     try {
-      const records = await list();
+      const records = await list.call(this.deps.adapter);
       this.apply((s) => reduceState(s, { type: "history-list", records }));
     } catch (err) {
       this.apply((s) =>
@@ -1246,7 +1416,7 @@ export class App {
     const rec = panel ? panel.records[panel.index] : undefined;
     if (!panel || !rec) return;
     try {
-      const view = await read(rec.id);
+      const view = await read.call(this.deps.adapter, rec.id);
       this.apply((s) =>
         reduceState(s, {
           type: "history-view",
@@ -1275,12 +1445,12 @@ export class App {
     this.apply((s) => reduceState(s, { type: "history-resume", id }));
     this.paint();
     try {
-      await resumeTo(id);
+      await resumeTo.call(this.deps.adapter, id);
       const read = this.deps.adapter.readSessionSurface;
       let view: SessionSurfaceView;
       if (read) {
         // 切换后刚 resume 的会话在内存 store 可能尚未完全入列：读空则轻量轮询
-        view = await read(id);
+        view = await read.call(this.deps.adapter, id);
         for (
           let i = 0;
           i < 4 && view.messages.length === 0 && !this.disposed;
@@ -1288,7 +1458,7 @@ export class App {
         ) {
           await new Promise((r) => setTimeout(r, 250));
           if (this.disposed) return;
-          view = await read(id);
+          view = await read.call(this.deps.adapter, id);
         }
       } else {
         view = { sessionId: id, messages: [] as HistoryMessage[] };

@@ -3,6 +3,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
   createRealDshAdapter,
   parseSlashCommand,
   type DshRuntime,
@@ -3177,4 +3186,96 @@ test("refreshSessionModes：全新会话无 mode 事件 → 以宿主 defaultPre
     },
     { type: "approval-policy", sessionId: "s1", policy: "never" },
   ]);
+});
+
+// --- 会话清理：isEmpty 回填 + deleteSession 守卫（真机 adapter） ---
+
+test("历史会话：listSessions 回填 isEmpty（persisted + 非 live + 无用户消息）；读取失败不判空", async () => {
+  const userMsg = {
+    type: "user/message",
+    seq: 1,
+    data: { content: [{ type: "text", text: "你好" }], role: "user" },
+  };
+  const eventsById: Record<string, Record<string, unknown>[]> = {
+    "empty-1": [],
+    "chat-2": [userMsg],
+  };
+  const sq: SessionQueryLike = {
+    listSessions: async () => [
+      {
+        header: { id: "empty-1", createdAt: 3, cwd: "/x" },
+        live: false,
+        persisted: true,
+      },
+      {
+        header: { id: "chat-2", createdAt: 2, cwd: "/x" },
+        live: false,
+        persisted: true,
+      },
+      {
+        header: { id: "live-3", createdAt: 1, cwd: "/x" },
+        live: true,
+        persisted: false,
+      },
+      {
+        header: { id: "bad-4", createdAt: 0, cwd: "/x" },
+        live: false,
+        persisted: true,
+      },
+    ],
+    readSurface: async (id: string) => {
+      if (id === "bad-4") throw new Error("corrupt");
+      return { session: { id }, events: eventsById[id] ?? [] };
+    },
+  };
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const records = await adapter.listSessions!();
+  const byId = new Map(records.map((r) => [r.id, r]));
+  assert.equal(byId.get("empty-1")!.isEmpty, true, "无用户消息 → 空会话");
+  assert.equal("isEmpty" in byId.get("chat-2")!, false, "有用户消息 → 非空");
+  assert.equal("isEmpty" in byId.get("live-3")!, false, "live 会话不判空");
+  assert.equal(
+    "isEmpty" in byId.get("bad-4")!,
+    false,
+    "读取失败 → 不判空（宁可不删）",
+  );
+});
+
+test("会话删除：deleteSession 拒绝当前活跃与内存 live 会话；persisted 非活跃会话文件级删除", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dsh-adapter-del-"));
+  const prevRoot = process.env.DSH_TUI_SESSION_ROOT;
+  process.env.DSH_TUI_SESSION_ROOT = root;
+  try {
+    const dir = join(root, "proj", "old-2");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "session.v3.jsonl.zstd"), "payload");
+
+    const sq = new FakeSessionQuery();
+    const store: SessionStoreLike = {
+      get: (id) => (id === "live-1" ? { id, events: [] } : undefined),
+    };
+    // adapter 的活跃会话 id = "s1"（见 makeAdapterWithSessionQuery）
+    const { adapter } = makeAdapterWithSessionQuery(sq, store);
+
+    assert.deepEqual(
+      await adapter.deleteSession!("s1"),
+      { ok: false, reason: "当前活跃会话不可删除" },
+      "当前活跃会话被拒",
+    );
+    assert.equal(
+      (await adapter.deleteSession!("live-1")).ok,
+      false,
+      "内存 live 会话被拒",
+    );
+    assert.deepEqual(
+      await adapter.deleteSession!("old-2"),
+      { ok: true },
+      "persisted 非活跃会话删除成功",
+    );
+    assert.equal(existsSync(dir), false, "会话目录已删除");
+  } finally {
+    if (prevRoot === undefined) delete process.env.DSH_TUI_SESSION_ROOT;
+    else process.env.DSH_TUI_SESSION_ROOT = prevRoot;
+    rmSync(root, { recursive: true, force: true });
+  }
 });

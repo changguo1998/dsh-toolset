@@ -305,6 +305,9 @@ export interface DshAdapter {
   /** 运行时切换到持久化会话（agents.resume）：dispose 旧 agent → resume 新 agent，
    *  成功后本 adapter 的活跃会话变为该 id。宿主未挂载 agents.resume 时 reject 提示。 */
   resumeTo?(id: string): Promise<void>;
+  /** 删除持久化会话（文件级：单段安全 id + realpath 包含性校验后删除会话目录）；
+   *  当前活跃会话一律拒绝；live 会话由调用方（面板）先拒绝。宿主无会话查询服务时为 undefined。 */
+  deleteSession?(id: string): Promise<SessionDeleteResult>;
   /** 刷新会话 Mode 初始值：从会话日志折叠 plan/sandbox/permission/policy 最后一条
    *  并 emit 对应事件（log-only 事件启动不产生，主动补快照）；宿主无读取面时静默 */
   refreshSessionModes?(sessionId: string): Promise<void>;
@@ -753,10 +756,16 @@ export interface SessionInfo {
   current?: boolean;
   /** 是否已持久化到磁盘 */
   persisted: boolean;
+  /** 空会话（persisted 且从未有用户消息）：供列表标注与“清理空会话”的计数与范围判定；
+   *  读取面不可用或未判定时省略（不臆断为空） */
+  isEmpty?: boolean;
   /** 会话标题：官方 session/title 事件标题，缺失时本地兜底（首条用户消息前 30 字符）；
    *  两者皆无 → 省略（列表渲染占位（新会话）） */
   title?: string;
 }
+
+/** 删除会话结果：ok=false 时 reason 为可见失败原因（不可删 / 未找到 / 越界 / IO 失败） */
+export type SessionDeleteResult = { ok: true } | { ok: false; reason: string };
 
 /** 历史会话只读表面的归一化消息（v1 仅保留 user/assistant 正文，tool/result 省略） */
 export interface HistoryMessage {

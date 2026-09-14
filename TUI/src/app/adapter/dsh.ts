@@ -67,6 +67,9 @@ import {
   parseSlashCommand,
   readDefaultSelection,
 } from "./normalize.ts";
+import { existsSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, sep } from "node:path";
 
 export type {
   AgentStatus,
@@ -100,6 +103,7 @@ export type {
   AgentDefaultModelLike,
   RealAdapterOptions,
   SessionInfo,
+  SessionDeleteResult,
   HistoryMessage,
   SessionSurfaceView,
   SessionQueryLike,
@@ -397,6 +401,95 @@ async function resolveModelReasoning(
   if (efforts.length > 0) out.efforts = efforts;
   if (defaultEffort) out.defaultEffort = String(defaultEffort).toLowerCase();
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// 历史会话清理（文件级）：安全语义对齐官方 dsh-tui 的 compat/sessionLog
+// ---------------------------------------------------------------------------
+
+/** surface 探针：一次读取同时给出标题兜底、是否有用户消息、是否可读 */
+interface SessionSurfaceProbe {
+  title: string | undefined;
+  hasPrompt: boolean;
+  readable: boolean;
+}
+
+/** 会话 id 必须是单段安全路径段（UUID / tui-<uuid> / session-<uuid>）：
+ *  白名单与官方 dsh-tui 一致（仅字母数字与 `_`/`-`），分隔符与点段自然被拒 */
+export function isSafeSessionId(id: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id);
+}
+
+/**
+ * 会话存储根目录（顺序与官方 dsh-tui sessionsRoots 一致）：
+ * DSH_TUI_SESSION_ROOT → $DSH_HOME（缺省 ~/.dsh）/sessions → ~/.dsh-tui/sessions。
+ */
+export function sessionRoots(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir(),
+): string[] {
+  const roots: string[] = [];
+  const override = env.DSH_TUI_SESSION_ROOT?.trim();
+  if (override) roots.push(override);
+  const dshHome = env.DSH_HOME?.trim();
+  roots.push(join(dshHome ? dshHome : join(home, ".dsh"), "sessions"));
+  roots.push(join(home, ".dsh-tui", "sessions"));
+  return [...new Set(roots)];
+}
+
+/** 会话目录删除结果：ok=true 时 path 为实际删除的目录（realpath 解析后） */
+export type SessionDeleteOutcome =
+  { ok: true; path: string } | { ok: false; reason: string };
+
+/**
+ * 文件级删除一个持久化会话目录。
+ * 安全线：单段 id 校验 → 各根下按 <project-slug>/<id> 定位 → realpath 包含性校验
+ * （slug 或会话目录为指向根外的符号链接 → 跳过，不删）→ rmSync(recursive)。
+ * 未找到 → 返回失败且无副作用。
+ */
+export function deleteSessionDir(
+  id: string,
+  roots: readonly string[] = sessionRoots(),
+): SessionDeleteOutcome {
+  if (!isSafeSessionId(id)) {
+    return { ok: false, reason: "会话 id 非法，拒绝删除" };
+  }
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    let realRoot: string;
+    try {
+      realRoot = realpathSync(root);
+    } catch {
+      continue;
+    }
+    let entries: string[];
+    try {
+      entries = readdirSync(realRoot);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      let real: string;
+      try {
+        real = realpathSync(join(realRoot, entry, id));
+      } catch {
+        continue; // 该 slug 下无此会话目录
+      }
+      // 包含性校验：解析后必须仍在根内（防符号链接越界）
+      if (!real.startsWith(realRoot + sep)) continue;
+      try {
+        rmSync(real, { recursive: true, force: true });
+        return { ok: true, path: real };
+      } catch (err) {
+        // 前缀由调用方（面板提示）统一补「删除失败：」，此处只给底层原因
+        return { ok: false, reason: String(err) };
+      }
+    }
+  }
+  return {
+    ok: false,
+    reason: "未找到该会话的持久化文件（可能仅存在于内存或已删除）",
+  };
 }
 
 export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
@@ -1669,41 +1762,83 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
     },
     // 历史会话列表（宿主挂载 sessionQuery 时可用）：newest-first；
-    // 标题优先官方 session/title 事件（批量折叠），缺失时本地兜底首条用户消息
+    // 标题优先官方 session/title 事件（批量折叠），缺失时本地兜底首条用户消息；
+    // 同一趟 surface 读取顺带判定 isEmpty（持久化且从未有用户消息 → 可清理）
     listSessions: sessionQuery
       ? async () => {
           const rs = await sessionQuery.listSessions();
           const ids = rs.map((r) => r.header.id);
           const official = await officialTitles(ids);
-          // 无官方标题的会话：本地兜底（surface 首条用户消息）；损坏/不可读取 → 省略
-          const fallback = await mapLimit(
+          // 无官方标题的会话：本地兜底标题 + 空会话判定；
+          // 读取失败 → readable:false（不臆断为空，清理时跳过）
+          const probes = await mapLimit(
             ids.filter((id) => !official.has(id)),
             8,
             async (id) => {
               try {
                 const view = await doReadSessionSurface(id);
                 const first = view.messages.find((m) => m.role === "user");
-                return [id, localTitleFromText(first?.text)] as const;
+                return [
+                  id,
+                  {
+                    title: localTitleFromText(first?.text),
+                    hasPrompt: first !== undefined,
+                    readable: true,
+                  },
+                ] as [string, SessionSurfaceProbe];
               } catch {
-                return [id, undefined] as const;
+                return [
+                  id,
+                  { title: undefined, hasPrompt: true, readable: false },
+                ] as [string, SessionSurfaceProbe];
               }
             },
           );
-          const byId = new Map(fallback.filter(([, t]) => t !== undefined));
-          return rs.map((r) => ({
-            id: r.header.id,
-            createdAt: r.header.createdAt,
-            cwd: r.header.cwd,
-            live: r.live,
-            persisted: r.persisted,
-            // 当前活跃判定以 adapter 视角为准（活跃会话在内存 store 中必为 live）
-            ...(r.live && r.header.id === activeSessionId
-              ? { current: true }
-              : {}),
-            ...((official.get(r.header.id) ?? byId.get(r.header.id))
-              ? { title: official.get(r.header.id) ?? byId.get(r.header.id) }
-              : {}),
-          }));
+          const probeById = new Map(probes);
+          return rs.map((r) => {
+            const probe = probeById.get(r.header.id);
+            const title = official.get(r.header.id) ?? probe?.title;
+            // 空会话：持久化 + 非 live + surface 确认无用户消息
+            // （有官方标题即视为有对话；读取面缺失 → 不判空）
+            const isEmpty =
+              r.persisted &&
+              !r.live &&
+              probe !== undefined &&
+              probe.readable &&
+              !probe.hasPrompt;
+            return {
+              id: r.header.id,
+              createdAt: r.header.createdAt,
+              cwd: r.header.cwd,
+              live: r.live,
+              persisted: r.persisted,
+              // 当前活跃判定以 adapter 视角为准（活跃会话在内存 store 中必为 live）
+              ...(r.live && r.header.id === activeSessionId
+                ? { current: true }
+                : {}),
+              ...(isEmpty ? { isEmpty: true } : {}),
+              ...(title === undefined ? {} : { title }),
+            };
+          });
+        }
+      : undefined,
+    // 删除持久化会话（文件级）：安全 id + realpath 包含性校验后删除会话目录；
+    // 当前活跃会话与内存中的 live 会话一律拒绝（面板侧另有前置守卫）
+    deleteSession: sessionQuery
+      ? async (id) => {
+          if (activeSessionId !== undefined && id === activeSessionId) {
+            return { ok: false as const, reason: "当前活跃会话不可删除" };
+          }
+          if (opts.sessions?.get(id) !== undefined) {
+            return {
+              ok: false as const,
+              reason: "live 会话不可删除（仅可删除已持久化且不在内存中的会话）",
+            };
+          }
+          const outcome = deleteSessionDir(id);
+          return outcome.ok
+            ? { ok: true as const }
+            : { ok: false as const, reason: outcome.reason };
         }
       : undefined,
     readSessionSurface: sessionQuery
