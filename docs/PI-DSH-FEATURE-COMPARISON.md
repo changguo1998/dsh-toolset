@@ -216,7 +216,7 @@
 
 | 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
-| 自动压缩触发策略（30%×窗口/128K） | percent-compact.ts | compaction + compaction-basic + tool-result-pruner + command-compact（阈值可参数化） | ✅ |
+| 自动压缩触发策略 | percent-compact.ts（pi 载体；本机 50%/256K，源码兜底常量 30%/128K） | compaction + compaction-basic + tool-result-pruner + command-compact + spill（官方内置；**无需新插件，profile 配官方参数即可**，见 §5.5） | ✅ |
 | provider 速率退避/守卫 | ~~rate-guard.ts~~（已移除）→ pi 核心 `@earendil-works/pi-ai` provider-retry/retry 内建 **+** 新增扩展 provider-guard（见本表下两行与 §5.4） | llm-retry | ✅/🔶 |
 | 错误等待下限 + quota 救助（长时间等待后恢复） | provider-guard.ts（2025-09-11 新增） | 仅 llm-retry 普通退避；缺 quota 长等待/恢复通知/溯源条目 | 🔶 |
 | 默认模型锁定 | lock-default-model.ts | agent-default-model | ✅ |
@@ -311,3 +311,9 @@ pi-dsh-minimal（反向桥）、herdr 集成、pi 内部补丁、配置数据。
   1. **一般重试/退避** → pi 核心内建：`@earendil-works/pi-ai` 的 `utils/retry.js` / `provider-retry.js`——可重试错误分类（429/408/409/5xx + 网络/超时/流中断；不可重试：quota/billing 用尽），尊重 `x-should-retry` 与 `retry-after`，指数退避 `0.5·2ⁿ` 封顶 8s + 抖动，默认 60s 上限（`maxRetryDelayMs`）；429 另触发自动压缩（pi issue #1038）。
   1. **「长时间等待后恢复」+ quota 救助** → 新增扩展 **provider-guard**（`provider-guard.ts`，2025-09-11）：按错误类强制等待下限（quota 300s / overloaded·rate-limit·server 30s，单次上限 600s），quota 经错误文本改写（`[provider-guard] 500`）接入 pi 自身重试管线并长等待，恢复后 notify + 写 `quota-recovered` 溯源条目（见 §3.7 新增行）。
 - **结论**：dsh 侧**取消 rate-guard 迁移**（backlog #35）；dsh `llm-retry` 覆盖「一般重试/退避」面；若复刻「等待后恢复」语义，参照 provider-guard（而非已消失的 rate-guard.ts），主要缺口是 quota 长等待、恢复通知与溯源记录。
+
+### 5.5 自动压缩：官方已内置，无需 dsh-toolset 插件（2025-09-15 核对）
+
+- **官方已实现**（dsh 0.1.5-rc.2，随 dsh-base 装配，本机 `~/.dsh/profiles/node_modules/@deepseek-ai/` 已存在）：`dsh-compaction`（`ctx.compaction` 服务缝：自动阈值 + 强制压缩）、`dsh-compaction-basic`（触发策略 + LLM 摘要后端）、`dsh-compaction-tool-result-pruner`（工具结果修剪）、`dsh-command-compact`（/compact）、`dsh-spill` 系列（溢出落盘）。
+- **默认参数**（dsh-compaction-basic）：`thresholdRatio = 0.8`（占用窗口 80% 触发）、摘要 `maxTokens = 8192`、`retention` 保留比例、`modelPolicies` 按模型覆盖。
+- **结论**：自动压缩**不需要本项目再实现插件**——直接用官方功能，需要调整时在自己的 `cordis.patch.yml` 给 `dsh-compaction-basic` 配置官方参数即可（如对齐 50% 触发设 `thresholdRatio: 0.5`）。注：官方无 pi percent-compact 的 `min_tokens` 绝对下限语义，`max(50%, 256K)` 中的 256K 下限需自行扩展才有等价项。
