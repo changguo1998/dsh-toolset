@@ -73,7 +73,8 @@ class FakeRuntime implements DshRuntime {
       const key = session?.id ?? "?";
       const next = (this.seqCounter.get(key) ?? 0) + 1;
       this.seqCounter.set(key, next);
-      args = [args[0], { ...(args[1] as object), seq: next }];
+      const forwarded = [args[0], { ...(args[1] as object), seq: next }];
+      return this.dispatch(event, forwarded);
     }
     return this.dispatch(event, args);
   }
@@ -1560,7 +1561,7 @@ class FakeSessionQuery implements SessionQueryLike {
   readSession(
     id: string,
   ): Promise<{ session: { id: string }; events: Record<string, unknown>[] }> {
-    this.readCalls.push("session:" + id);
+    this.readCalls.push(`session:${id}`);
     if (id === "corrupt-9") {
       return Promise.reject(new Error('stored session "corrupt-9" is corrupt'));
     }
@@ -1575,7 +1576,7 @@ class FakeSessionQuery implements SessionQueryLike {
   readSurface(
     id: string,
   ): Promise<{ session: { id: string }; events: Record<string, unknown>[] }> {
-    this.readCalls.push("surface:" + id);
+    this.readCalls.push(`surface:${id}`);
     if (id === "corrupt-9") {
       return Promise.reject(new Error('stored session "corrupt-9" is corrupt'));
     }
@@ -1815,7 +1816,7 @@ test("resumeTo：切换成功 → 旧 handle 释放 → 后续 sendMessage/cance
   const agent2 = new FakeAgent();
   agent2.session = { id: "s2" };
   const resume = async (o: { resumeSessionId: string }) => {
-    log.push("resume:" + o.resumeSessionId);
+    log.push(`resume:${o.resumeSessionId}`);
     return {
       agent: agent2,
       dispose: async (): Promise<void> => {
@@ -1844,7 +1845,7 @@ test("resumeTo：resume 未返回有效 agent → 释放新 handle 并抛错", a
   const runtime = new FakeRuntime();
   const log: string[] = [];
   const resume = async (o: { resumeSessionId: string }) => {
-    log.push("resume:" + o.resumeSessionId);
+    log.push(`resume:${o.resumeSessionId}`);
     return {
       agent: { session: undefined },
       dispose: async (): Promise<void> => {
@@ -1872,7 +1873,7 @@ test("resumeTo 后 dispose → 释放当前（新）活跃 handle（auditor：�
   const agent2 = new FakeAgent();
   agent2.session = { id: "s2" };
   const resume = async (o: { resumeSessionId: string }) => {
-    log.push("resume:" + o.resumeSessionId);
+    log.push(`resume:${o.resumeSessionId}`);
     return {
       agent: agent2,
       dispose: async (): Promise<void> => {
@@ -2021,7 +2022,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
 
   test("tool/call：超长摘要不再固定 80 字符截断（宽度交给渲染层按窗口处理）", () => {
     const t = makeAdapter();
-    const longPath = "p/" + "a".repeat(200);
+    const longPath = `p/${"a".repeat(200)}`;
     fire(t, "tool/call", {
       callId: "c5",
       name: "read",
