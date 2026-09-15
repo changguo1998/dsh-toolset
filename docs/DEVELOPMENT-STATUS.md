@@ -3,7 +3,7 @@
 > 依据 `DEVELOPMENT-BACKLOG.md` 插件规划；各插件待办任务见其插件目录下 `TASKS.md`，本表只记状态、不记细节。
 > 状态：未开始 / 进行中 / 阻塞 / 完成（另有：暂缓）。
 > 更新约定：状态变化时更新本表；任务完成并合入本分支后清理对应 `TASKS.md`。
-> **里程碑进度**：三插件首版 + r2、P1 七插件（goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard）均已完成并合入 main；剩余 P2 插件未开始，rate-guard 暂缓。
+> **里程碑进度**：三插件首版 + r2、P1 七插件（goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard）均已完成并合入 main；剩余 P2 插件未开始，rate-guard 已取消（不迁移，见对比文档 §5.4）。
 
 | 插件 | 阶段 | 分支 | 状态 | 备注 |
 |------|------|------|------|------|
@@ -17,7 +17,7 @@
 | hash-edit | P1 | — | 完成 | LINE:HASH 锚定读写编辑，43 单测；已合入 main |
 | ast-tools | P1 | — | 完成 | ast-grep 搜索/替换/大纲，27 单测；已合入 main |
 | security-guard | P1-P2 | — | 完成 | 危险命令黑名单 + 敏感文件保护，32 单测；已合入 main |
-| rate-guard | P2 | — | 暂缓 | 已入计划，先不实现 |
+| rate-guard | P2 | — | 已取消 | pi 侧已移除（能力由 pi 核心 provider-retry 内建 + 扩展 provider-guard 承接），不迁移（对比文档 §5.4） |
 | workflow-ext | P2 | — | 未开始 | |
 | code-intel | P2 | — | 未开始 | |
 | web-ext | P2 | — | 未开始 | |

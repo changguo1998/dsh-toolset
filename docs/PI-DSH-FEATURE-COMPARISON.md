@@ -37,7 +37,7 @@
 | @dietrichgebert/ponytail | 4.9.0 | 懒人编码模式 | ✅ |
 | pi-simplify | 0.2.3 | 改动代码审查 | ✅ |
 | pi-dsh-minimal | 0.4.2 | pi↔DSH 反向适配（➖） | ✅ |
-| 原生扩展（非 npm） | — | percent-compact / rate-guard / notify-sound / lock-default-model / herdr-\*（见 3.7） | ✅ |
+| 原生扩展（非 npm） | — | percent-compact / notify-sound / lock-default-model / herdr-\* / B2-session-should-compact / hermes-async-shutdown / provider-guard（见 3.7；~~rate-guard~~ 已移除，见 §5.4） | ✅ |
 | skills ×9 / themes / Designer / model-tiers | — | 内容型资产（见 3.6） | ✅ |
 
 ## §2 dsh 0.1.5-rc.2 已实现功能基线
@@ -217,7 +217,8 @@
 | 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
 | 自动压缩触发策略（30%×窗口/128K） | percent-compact.ts | compaction + compaction-basic + tool-result-pruner + command-compact（阈值可参数化） | ✅ |
-| provider 速率退避/守卫 | rate-guard.ts | llm-retry | 🔶 |
+| provider 速率退避/守卫 | ~~rate-guard.ts~~（已移除）→ pi 核心 `@earendil-works/pi-ai` provider-retry/retry 内建 **+** 新增扩展 provider-guard（见本表下两行与 §5.4） | llm-retry | ✅/🔶 |
+| 错误等待下限 + quota 救助（长时间等待后恢复） | provider-guard.ts（2025-09-11 新增） | 仅 llm-retry 普通退避；缺 quota 长等待/恢复通知/溯源条目 | 🔶 |
 | 默认模型锁定 | lock-default-model.ts | agent-default-model | ✅ |
 | 模型分层配置 | workflows/model-tiers.json | workflow 模型路由面需对齐 | 🔶 |
 | pi↔DSH 反向适配 | pi-dsh-minimal | 方向相反 | ➖ |
@@ -262,3 +263,51 @@ ask-user-question、todo、会话命名、subagents 委派、MCP 客户端、沙
 pi-dsh-minimal（反向桥）、herdr 集成、pi 内部补丁、配置数据。
 
 > 后续建议：按 §4.3 优先级立项；**glla 按 goal/list/loop/audit 拆 4 项并复用 dynamic-workflow 机制分开实现**（复用 dsh-goal / workflow / schedule / agent-team，新插件只做 gap 面）。所有新增实现以 `DSH-CTX-API.md`（0.1.5-rc.2 契约）对齐宿主接口。
+
+## §5 现状核对（截至 2025-09-15，dsh-toolset 已覆盖 vs 仍缺口）
+
+> 上述 §3/§4 全部基于 **dsh 0.1.5-rc.2 裸基线** 撰写；以下用 dsh-toolset 已合入 main 的插件（见 `DEVELOPMENT-STATUS.md`）复核现状，供后续立项时不必重读整表。
+
+### 5.1 原 🔶/❌ 现已被 dsh-toolset 插件覆盖
+
+| 原缺口（§） | pi 功能 | 落地插件（backlog #） |
+|-------------|---------|----------------------|
+| 3.1-1 goal 起草/契约（🔶） | propose_goal_draft 等 | goal-contract（#6） |
+| 3.1-2 list 任务队列（❌） | list_add / activate / status | task-engine（#1-#4，Frame 树 + 机械/语义门禁 + RET 路由） |
+| 3.1-4 audit 分离审计（❌） | complete_goal 复核 | task-engine semantic 验收（audit run，#4） |
+| 3.1-3 loop 指标循环（🔶） | propose_loop_draft | metric-loop（#7） |
+| 3.2-2 跨会话知识库（🔶/❌） | ctx_index / ctx_search | knowledge-base（#8，四表 + 双 FTS5） |
+| 3.2-4 大输出压缩入库（🔶） | ctx 摘要 + auto-index | output-compress（#11） |
+| 3.2-2 hypa 文件读取（🔶） | hypa_read smart/outline/signatures/pruned | fs-digest（#12） |
+| 3.4-1 LINE:HASH 锚定（🔶） | readSeek_digest/edit | hash-edit（#19） |
+| 3.4-2/3-3 ast-grep（❌） | readSeek_search / ast_grep\_\* | ast-tools（#20，搜索/替换/大纲/规则） |
+| 3.5 危险命令/敏感文件（🔶） | pi-defender | security-guard（#27，pre-execute 黑名单 + 敏感文件策略层） |
+| 3.7/4.4 herdr 桥（➖→已仿写） | herdr-\* 原生扩展 | herdr-integration（#36，unix socket + 环境变量握手） |
+| 3.6 状态栏/主题/技能机制（✅→TUI 内化） | powerline / themes / skills | TUI（状态区、fffdark/ffflight、技能加载机制） |
+
+### 5.2 仍未实现（P2 未开始 / 暂缓）
+
+| 缺口 | 计划插件（backlog #） | 备注 |
+|------|----------------------|------|
+| 代码索引/符号图（callers）、项目/模块报告、PDF 视图 | code-intel（#21-#23） | 未开始 |
+| 搜索 provider 扩充、GitHub 克隆、PDF 提取、视频理解 | web-ext（#24-#26） | 未开始 |
+| 跨会话 broker（消息/委托/状态同步） | session-broker（#30） | 未开始，无等效底座 |
+| slash 命令模板 + 模板级模型选择 | command-template（#31） | 未开始 |
+| 上下文压力/token 报告 | context-report（#34） | 未开始 |
+| 工作流内模型路由、token/成本核算、resume、git-worktree 完整隔离、/workflows TUI、deep-research 等模板族 | workflow-ext（#14-#18） | 未开始 |
+| 密文扫描、安全 issue 上报 | security-guard 扩展（#28-#29） | 未开始（守卫策略 #27 已实现） |
+| 近期改动审查（pi-simplify）、通知声音、ponytail 审查/债务/收益工具族、9 个 skill 内容搬运 | 内容资产 / TUI 扩展（#32-#33、#17） | 未开始 |
+
+### 5.3 有基础、仍缺关键面（🔶 未完全对齐）
+
+- 意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）；
+- 记忆 auto-consolidation（knowledge-base 已有两级写回与淘汰提升，语义接近）；
+- MCP 脚本化（mcpScript）、活动工具交互管理（extension-tools）、会话事件自动入知识库。
+
+### 5.4 rate-guard 去向（2025-09-15 核对）
+
+- **pi 侧已移除**：`~/.pi/agent/npm/package.json`（依赖清单）无 rate-guard；`~/.pi/agent/settings.json` 启用列表无；`~/.pi/agent/extensions/` 中 `rate-guard.ts` 已不存。
+- **能力拆为两部分承接**：
+  1. **一般重试/退避** → pi 核心内建：`@earendil-works/pi-ai` 的 `utils/retry.js` / `provider-retry.js`——可重试错误分类（429/408/409/5xx + 网络/超时/流中断；不可重试：quota/billing 用尽），尊重 `x-should-retry` 与 `retry-after`，指数退避 `0.5·2ⁿ` 封顶 8s + 抖动，默认 60s 上限（`maxRetryDelayMs`）；429 另触发自动压缩（pi issue #1038）。
+  1. **「长时间等待后恢复」+ quota 救助** → 新增扩展 **provider-guard**（`provider-guard.ts`，2025-09-11）：按错误类强制等待下限（quota 300s / overloaded·rate-limit·server 30s，单次上限 600s），quota 经错误文本改写（`[provider-guard] 500`）接入 pi 自身重试管线并长等待，恢复后 notify + 写 `quota-recovered` 溯源条目（见 §3.7 新增行）。
+- **结论**：dsh 侧**取消 rate-guard 迁移**（backlog #35）；dsh `llm-retry` 覆盖「一般重试/退避」面；若复刻「等待后恢复」语义，参照 provider-guard（而非已消失的 rate-guard.ts），主要缺口是 quota 长等待、恢复通知与溯源记录。

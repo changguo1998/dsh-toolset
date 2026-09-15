@@ -88,14 +88,14 @@ defender 迁移（对比文档 §3.5）。
 | 32 | 近期改动代码审查 | pi-simplify | 可并入 #17 模板族 | P2 |
 | 33 | 完成/等待声音提醒 | notify-sound（原生） | TUI 扩展 | P2 |
 | 34 | 上下文压力/token 报告 | supi-context | token-meter + session-stats 形态对齐 | P2 |
-| 35 | provider 流量控制：限流遥测 + AIMD 咨询守卫（退避等待转 advisory、令牌桶、rate_check 工具） | rate-guard（pi 原生扩展） | llm-retry 上扩展遥测与 AIMD | P2（暂缓，先不实现） |
+| 35 | provider 流量控制：限流遥测 + AIMD 咨询守卫（退避等待转 advisory、令牌桶、rate_check 工具） | ~~rate-guard（pi 原生扩展）~~（已移除；「等待后恢复」由新增扩展 provider-guard 承接，见对比文档 §5.4） | llm-retry 已覆盖一般退避；不迁移（quota 长等待/恢复溯源如需要可参照 provider-guard） | P2（已取消，不实现） |
 | 36 | herdr 面板集成：agent 状态 socket 上报、blocked 事件桥（含 ask-user blocked → herdr blocked） | herdr-agent-state / herdr-ask-user-question（pi 原生扩展） | 新建；协议仿 pi 原生（HERDR_ENV / HERDR_SOCKET_PATH / HERDR_PANE_ID + unix socket） | P1 |
 
 ## 排序原则与里程碑
 
 1. **里程碑一（P0）**：#1-#4 + #8 —— 引擎三块 + 知识库底座（设计文档 §16.3 结论：其余核心能力 dsh 已有现成服务）；
 1. **里程碑二（P1）**：#5-#7、#9-#11、#13、#19-#20、#27、#36 —— 契约/循环/记忆/压缩/锚点/结构搜索/安全策略/herdr 集成；
-1. **里程碑三（P2）**：其余长尾，按需排期；#35 流量控制已列入计划、暂缓实现；
+1. **里程碑三（P2）**：其余长尾，按需排期；#35 rate-guard 已取消（pi 侧已移除，能力由 pi 核心 provider-retry 内建 + 新增扩展 provider-guard 承接；dsh 对应 llm-retry，见对比文档 §5.4）；
 1. 不迁移：pi-dsh-minimal（反向桥）、pi 原生 herdr 扩展文件、pi 内部补丁（对比文档 §4.4）；herdr 面板集成以 `herdr-integration` 仿写实现（#36）。
 
 **起步顺序（实施建议）**：先打通流程、再上大件、双线并行：
@@ -126,7 +126,7 @@ defender 迁移（对比文档 §3.5）。
 | `session-broker` | P2 | #30 | 无等效底座（webhook/acp/sdk 均非），新建 unix socket 通道 |
 | `command-template` | P2 | #31 | commands、workflow |
 | `context-report` | P2 | #34 | token-meter、session-stats |
-| `rate-guard` | P2（暂缓） | #35 | llm-retry；已入计划，暂不实现 |
+| ~~rate-guard~~ | P2（已取消） | #35 | 无（pi 侧已移除，能力由 pi 核心 provider-retry 内建 + 扩展 provider-guard 承接；dsh 对应 llm-retry，见对比文档 §5.4） |
 | `herdr-integration` | P1 | #36 | 无底座，仿 pi 原生扩展协议（unix socket + 环境变量握手） |
 | TUI 包扩展 | P2 | #16、#33 | dsh-toolset TUI（新增 /workflows 面板、声音提醒） |
 | 内容资产（非插件） | P2 | #17-#18、#32 | workflow 脚本 + skill 内容 |
