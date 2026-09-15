@@ -714,7 +714,8 @@ function statusBlocks(
 ): StatusBlock[] {
   const blocks: StatusBlock[] = [];
   const sep = (): StatusRow => ({
-    text: colorFor(themeId, "border")(STATUS_BLOCK_SEPARATOR.repeat(width)),
+    // 虚线分隔与字体同色（不染边框蓝）
+    text: STATUS_BLOCK_SEPARATOR.repeat(width),
   });
   // Mode 块（水平状态栏迁来）：放在最前，独立于 goal 是否存在
   const modeRows = modeBlock(
@@ -1272,14 +1273,11 @@ function wrapBufferLines(
           const head = "╌╌ step " + stepM[1] + " ";
           const fill = Math.max(0, width - displayWidth(head));
           activity.push({
-            text: colorFor(
-              themeId,
-              "border",
-            )(
+            // 虚线 step 头与字体同色（不染边框蓝）
+            text:
               fill > 0
                 ? head + TURN_SEPARATOR_CHAR.repeat(fill)
                 : truncateToWidth(head, width),
-            ),
             kind: "tool",
             indent: 0,
           });
@@ -1423,7 +1421,8 @@ function wrapBufferLines(
     for (const text of rows)
       dialogue.push({
         text:
-          line.kind === "separator" ? colorFor(themeId, "border")(text) : text,
+          // 虚线 turn 分隔与字体同色（不染边框蓝）
+          text,
         kind: line.kind,
         indent: 0,
       });
