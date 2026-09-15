@@ -9,14 +9,16 @@
 
 ## 当前文件归属
 
-| 文件 | 内容 |
-|---|---|
-| `src/app/commands.ts` | `formatModelCatalog`/`resolveModelSpec` + slash 路由/决策纯函数（`routeSlashCommand`/`modelCommandSpec`/`themeCommandDecision` + `SlashRoute`/`ThemeCommandDecision`） |
-| `src/app/adapter/types.ts` | 纯类型（29 个，adapter 归一化域） |
-| `src/app/adapter/normalize.ts` | `parseSlashCommand`/`buildApprovalPrompt`/`buildUserMessage`/`normalizeAgentStatus`/`readDefaultSelection` |
-| `src/app/layout/markdown.ts` | 宽度原语 + markdown 行内/块级解析（`parseInlineMarkdown`/`wrapInlineMarkdown`/`wrapAssistantLine` 等）；**只导外部真正需要的函数，内部正则与 helper 不做公共 API** |
-| `src/app/question-transition.ts` | 问答纯状态转换（`QuestionKeyDecision`/`questionKeyDecision`/`buildQuestionAnswers`） |
-| `src/app/model-transition.ts` | 模型选择纯状态转换（`PickerInit`/`buildPickerInit`/`pickerEffortIndex`/`resolvePickerSelection`/`ModelSwitchPlan`/`planModelSwitch`） |
+域命名遵循 `DESIGN.md`「术语：渲染 vs 排版」：**逻辑** = 纯状态/决策；**排版** = 状态 → 带语义样式的行；**外部边界** = DSH 归一化；渲染 = `renderer/` 层（拆分禁区）。
+
+| 文件 | 域 | 内容 |
+|---|---|---|
+| `src/app/commands.ts` | 逻辑 | `formatModelCatalog`/`resolveModelSpec` + slash 路由/决策纯函数（`routeSlashCommand`/`modelCommandSpec`/`themeCommandDecision` + `SlashRoute`/`ThemeCommandDecision`） |
+| `src/app/adapter/types.ts` | 外部边界 | 纯类型（29 个，adapter 归一化域） |
+| `src/app/adapter/normalize.ts` | 外部边界 | `parseSlashCommand`/`buildApprovalPrompt`/`buildUserMessage`/`normalizeAgentStatus`/`readDefaultSelection` |
+| `src/app/layout/markdown.ts` | 排版 | 宽度原语 + markdown 行内/块级解析（`parseInlineMarkdown`/`wrapInlineMarkdown`/`wrapAssistantLine` 等）；**只导外部真正需要的函数，内部正则与 helper 不做公共 API** |
+| `src/app/question-transition.ts` | 逻辑 | 问答纯状态转换（`QuestionKeyDecision`/`questionKeyDecision`/`buildQuestionAnswers`） |
+| `src/app/model-transition.ts` | 逻辑 | 模型选择纯状态转换（`PickerInit`/`buildPickerInit`/`pickerEffortIndex`/`resolvePickerSelection`/`ModelSwitchPlan`/`planModelSwitch`） |
 
 - `state.ts`、`renderer/` 为拆分禁区（reducer/渲染层保持整体）。
 - 兼容策略：原有文件重导公共符号（`index.ts` 重导 `formatModelCatalog`/`resolveModelSpec`；`layout.ts` 重导 markdown 纯函数；`adapter/dsh.ts` 显式类型/函数重导，**不用 `export *`**，避免 verbatimModuleSyntax 与循环依赖），外部 import 路径不变。

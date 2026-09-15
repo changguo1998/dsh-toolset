@@ -28,6 +28,33 @@ DSH 适配层接口以**官方源码研读**为准（`~/GithubRepos/deepseek-har
 - 发消息：进程内 `agent.followup(...)`；进程外官方桥为 JSON-RPC `session/prompt`；
 - agent 状态是 agent 层事件 `agent/status`，不在 session 事件词汇表内。
 
+## 术语：渲染 vs 排版（职责划分）
+
+本项目两个高频词含义精确如下，讨论与代码归属一律以此为准：
+
+- **渲染（rendering）**：把「已成型的画面」写到终端的过程——帧重绘（delta/整帧）、光标定位、主题色序列化、终端控制（raw mode/resize/退出恢复）、键盘解码。**不理解内容与布局**，不感知 DSH。归属于 `src/renderer/`。
+- **排版（presentation，即 layout）**：把「状态/内容」组织成「带语义样式的行」的过程——分区、换行、宽度计算、markdown 解析、面板构图、焦点框线。决定画面长什么样，产出渲染层的输入。归属于 `src/app/layout.ts`、`src/app/layout/`、`src/app/components/`。
+
+> 名词纪律：layout 系代码不称「渲染」，只称「排版/布局」；「渲染」专指 renderer 的字节上屏。
+
+画面生产链（单向）：
+
+```
+逻辑(state) --AppState--> 排版(layout/components) --行+语义样式--> 渲染(renderer) --字节--> 终端
+```
+
+职责分域对照（「排版」≠ app 全部：app 内含逻辑/控制/外部边界四个角色）：
+
+| 域 | 职责 | 文件 |
+| --- | --- | --- |
+| 逻辑 | 状态模型与纯状态转换 | `state.ts`、`*-transition.ts`、`commands.ts` |
+| 排版 | 状态 → 带语义样式的行 | `layout.ts`、`layout/*`、`components/*` |
+| 渲染 | 行 → 字节上屏 | `renderer/*` |
+| 控制 | 副作用编排（adapter/notice/paint/异步） | `index.ts`（App） |
+| 外部边界 | DSH 事件归一化与回调 | `adapter/*` |
+
+**现状偏差（样式链路漂移）**：接口契约原定由渲染层负责「颜色名 → ANSI」序列化（`RenderLine.style` + `styleLine`），但排版层的富内联文本（`InlineSegment`/`renderSeg`）与整行着色（`colorFor` 直包 ANSI）绕过了该契约、在 app 侧手拼转义序列，渲染层 `style` 接口事实上闲置。以「渲染/排版」术语衡量：**排版职责越权承担了部分渲染职责（样式序列化）**，是后续契约收敛的目标点（见 REFACTOR.md 与下方「核心接口契约」）。
+
 ## 文件结构（单包分目录）
 
 ```
