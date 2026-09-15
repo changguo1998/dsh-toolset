@@ -19,6 +19,7 @@ import type {
   GoalState,
   ModeState,
 } from "./state.ts";
+import { currentProjectCwd, historyVisibleRecords } from "./state.ts";
 
 import type { Buffer, BufferKind, BufferLine } from "./state.ts";
 import type { JobInfo, NoticeTone, TodoItemLike } from "./adapter/dsh.ts";
@@ -166,11 +167,12 @@ export const HINT_LINE =
 export const COMPLETION_HINT_LINE = "[tab]补全 · [↑/↓]选择 · [esc]收起";
 
 /** 历史会话面板各阶段的按键提示（显示于输入区下方提示区；面板标题行不再内嵌键位）。
- *  list=列表移动/切换/删除/清理/关闭、view=内容滚动/翻页/返回列表、error=错误关闭；
+ *  list=列表移动/范围切换（当前目录⇄全部）/会话切换/删除/清理/关闭、
+ *  view=内容滚动/翻页/返回列表、error=错误关闭；
  *  confirm-*=二次确认（y/n）、进行中阶段（deleting/cleaning）与加载类阶段无可用键位
  *  → 空白提示行保持高度稳定 */
 export const HISTORY_LIST_HINT_LINE =
-  "[↑/↓]移动 · [Enter]切换 · [d]删除 · [x]清理空会话 · [Esc]关闭";
+  "[↑/↓]移动 · [Tab]范围 · [Enter]切换 · [d]删除 · [x]清理空会话 · [Esc]关闭";
 export const HISTORY_VIEW_HINT_LINE =
   "[↑/↓]滚动 · [PgUp/PgDn]翻页 · [Esc]返回列表";
 export const HISTORY_ERROR_HINT_LINE = "[Esc]关闭";
@@ -1013,6 +1015,9 @@ function buildTopRegion(
             : state.history
               ? renderHistoryPanel({
                   history: state.history,
+                  records: historyVisibleRecords(state),
+                  totalCount: state.history.records.length,
+                  projectCwd: currentProjectCwd(state),
                   height: activityH,
                   width: contentW,
                 })

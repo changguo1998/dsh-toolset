@@ -146,6 +146,8 @@ export interface HistoryPanelState {
   /** 面板内结果提示（删除/清理结果与护栏文案；首行展示，下次操作时清除）。
    *  面板占满活动区时 notice 不可见（notice 归活动区），故结果需面板内呈现 */
   result?: string;
+  /** 列表范围：project=仅当前目录（默认）/ all=全部目录；list 阶段 [Tab] 切换 */
+  scope?: "project" | "all";
 }
 
 /** 当前项目路径：活跃会话记录的 cwd 优先，回退状态区 cwd（占位符不算）；未知 → undefined */
@@ -180,18 +182,34 @@ export function cleanableSessionIds(state: AppState): string[] {
   return ids;
 }
 
-/** 从列表移除若干会话 id：收敛高亮索引、清空 pending/查看态字段并回到 list 阶段 */
+/**
+ * 面板当前范围下的可见会话：project（默认）只保留与当前目录同 cwd 的会话，
+ * all 返回全量。当前目录无法识别（无活跃记录且状态区为占位）→ 空列表：
+ * 由渲染层给出明确空态，不静默把全量当作「当前目录」展示。
+ */
+export function historyVisibleRecords(state: AppState): SessionInfo[] {
+  const h = state.history;
+  if (!h) return [];
+  if (h.scope === "all") return h.records;
+  const cwd = currentProjectCwd(state);
+  if (cwd === undefined) return [];
+  return h.records.filter((r) => r.cwd === cwd);
+}
+
+/** 从列表移除若干会话 id：按新范围可见数收敛高亮索引、清空 pending/查看态字段并回到 list */
 function dropHistoryRecords(
   h: HistoryPanelState,
   ids: readonly string[],
+  visibleIds: readonly string[],
 ): HistoryPanelState {
   const drop = new Set(ids);
   const records = h.records.filter((r) => !drop.has(r.id));
+  const visibleCount = visibleIds.filter((id) => !drop.has(id)).length;
   return {
     ...h,
     phase: "list",
     records,
-    index: Math.max(0, Math.min(records.length - 1, h.index)),
+    index: Math.max(0, Math.min(visibleCount - 1, h.index)),
     pendingDelete: undefined,
     pendingClean: undefined,
     cleanCwd: undefined,
@@ -837,16 +855,20 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "question-close":
         return { ...state, question: null };
       case "history-refresh": {
-        // 删除/清理后重拉列表：保留面板结果提示与高亮位置（按新长度 clamp）
+        // 删除/清理后重拉列表：保留面板结果提示与高亮位置（按**可见**长度 clamp）
         const hrf = state.history;
         if (!hrf || hrf.phase !== "list") return state;
+        const refreshed: HistoryPanelState = {
+          ...hrf,
+          records: action.records,
+          error: undefined,
+        };
+        const visible = historyVisibleRecords({ ...state, history: refreshed });
         return {
           ...state,
           history: {
-            ...hrf,
-            records: action.records,
-            index: Math.max(0, Math.min(action.records.length - 1, hrf.index)),
-            error: undefined,
+            ...refreshed,
+            index: Math.max(0, Math.min(visible.length - 1, hrf.index)),
           },
         };
       }
@@ -856,11 +878,28 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         if (!hrs) return state;
         return { ...state, history: { ...hrs, result: action.text } };
       }
+      case "history-scope-toggle": {
+        // 切换列表范围（当前目录 ⇄ 全部）：尽量按 id 保留选中项，不可见则回首项
+        const hst = state.history;
+        if (!hst || hst.phase !== "list") return state;
+        const scope: "project" | "all" =
+          hst.scope === "all" ? "project" : "all";
+        const prevId = historyVisibleRecords(state)[hst.index]?.id;
+        const next: HistoryPanelState = { ...hst, scope };
+        const visible = historyVisibleRecords({ ...state, history: next });
+        const found =
+          prevId === undefined ? -1 : visible.findIndex((r) => r.id === prevId);
+        return {
+          ...state,
+          history: { ...next, index: found < 0 ? 0 : found },
+        };
+      }
       case "history-open":
         return {
           ...state,
           history: {
             phase: "loading-list",
+            scope: "project",
             records: [],
             index: 0,
             messages: [],
@@ -891,14 +930,17 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         const hmv = state.history;
         const next = Math.max(
           0,
-          Math.min(hmv.records.length - 1, hmv.index + action.delta),
+          Math.min(
+            historyVisibleRecords(state).length - 1,
+            hmv.index + action.delta,
+          ),
         );
         return { ...state, history: { ...hmv, index: next } };
       }
       case "history-open-view": {
         if (!state.history || state.history.phase !== "list") return state;
         const hov = state.history;
-        const rec = hov.records[hov.index];
+        const rec = historyVisibleRecords(state)[hov.index];
         if (!rec) return state;
         return {
           ...state,
@@ -1000,7 +1042,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "history-confirm-delete": {
         const hcd = state.history;
         if (!hcd || hcd.phase !== "list") return state;
-        const rec = hcd.records[hcd.index];
+        const rec = historyVisibleRecords(state)[hcd.index];
         // 当前活跃 / live / 未持久化 → 不进入确认（调用方以 notice 说明原因）
         if (!rec || rec.current === true || rec.live || !rec.persisted) {
           return state;
@@ -1066,7 +1108,11 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return {
           ...state,
           history: action.removed
-            ? dropHistoryRecords(hdd, [action.id])
+            ? dropHistoryRecords(
+                hdd,
+                [action.id],
+                historyVisibleRecords(state).map((r) => r.id),
+              )
             : { ...hdd, phase: "list", pendingDelete: undefined },
         };
       }
@@ -1077,7 +1123,14 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "history-clean-done": {
         const hcd2 = state.history;
         if (!hcd2 || hcd2.phase !== "cleaning") return state;
-        return { ...state, history: dropHistoryRecords(hcd2, action.ids) };
+        return {
+          ...state,
+          history: dropHistoryRecords(
+            hcd2,
+            action.ids,
+            historyVisibleRecords(state).map((r) => r.id),
+          ),
+        };
       }
       case "history-close":
         return { ...state, history: null };
@@ -1467,6 +1520,7 @@ export type StateAction =
   | { type: "history-list"; records: SessionInfo[] }
   | { type: "history-list-error"; error: string }
   | { type: "history-move"; delta: number }
+  | { type: "history-scope-toggle" }
   | { type: "history-open-view" }
   | { type: "history-view"; id: string; messages: HistoryMessage[] }
   | { type: "history-view-error"; error: string }

@@ -17,6 +17,12 @@ import { truncateToWidth, wrapLine, displayWidth } from "../layout.ts";
 
 export interface HistoryPanelView {
   history: HistoryPanelState;
+  /** 当前范围（project/all）下的可见会话（由 layout 注入 historyVisibleRecords） */
+  records: SessionInfo[];
+  /** 全量会话数：当前目录范围用于「可见/全量」计数与空态提示 */
+  totalCount: number;
+  /** 当前目录路径（undefined=无法识别：空态文案据此区分） */
+  projectCwd: string | undefined;
   /** 面板可用行数（footer 高度） */
   height: number;
   /** 面板可用列宽 */
@@ -80,6 +86,15 @@ function wrapBody(lines: string[], width: number, max: number): string[] {
   return out.slice(0, Math.max(0, max));
 }
 
+/** 当前目录范围的空态文案：区分「目录识别失败」与「该目录暂无会话」，均提示可切到全部 */
+function emptyScopeText(view: HistoryPanelView, allScope: boolean): string {
+  if (allScope) return "（无历史会话）";
+  const tail = `[Tab] 查看全部 ${view.totalCount} 条`;
+  return view.projectCwd === undefined
+    ? `（无法识别当前目录；${tail}）`
+    : `（当前目录暂无会话；${tail}）`;
+}
+
 /** 视口起点：让偏移恒在 [0, max(0, len-rows)] 内 */
 function startFor(len: number, offset: number, rows: number): number {
   if (len <= rows || rows <= 0) return 0;
@@ -122,18 +137,30 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
       break;
     case "list": {
       // 按键提示不在面板内（改在输入区下方提示区显示，见 layout.ts HISTORY_*_HINT_LINE）
-      title = truncateToWidth(`历史会话（${h.records.length}）`, width);
+      const allScope = h.scope === "all";
+      // 标题标明当前范围；当前目录范围同时给出「可见/全量」，全部范围即全量
+      const scopeLabel = allScope ? "全部" : "当前目录";
+      const count = allScope
+        ? `${view.records.length}`
+        : `${view.records.length}/${view.totalCount}`;
+      title = truncateToWidth(`历史会话 [${scopeLabel}]（${count}）`, width);
       // 结果提示（删除/清理结果与护栏文案）占首行：面板占满活动区时 notice 不可见，
       // 故结果需在面板内呈现（notice 仍在缓冲留痕，关闭面板后可见）
       const head =
         h.result === undefined ? null : truncateToWidth(h.result, width);
       const listRows = Math.max(0, bodyRows - (head === null ? 0 : 1));
-      if (h.records.length === 0) body = ["（无历史会话）"];
-      else {
-        const start = startFor(h.records.length, h.index, listRows);
+      if (view.records.length === 0) {
+        // 空态三态：全局无会话 / 当前目录识别失败 / 当前目录暂无会话（后两者提示切范围）
+        body = [
+          view.totalCount === 0
+            ? "（无历史会话）"
+            : emptyScopeText(view, allScope),
+        ];
+      } else {
+        const start = startFor(view.records.length, h.index, listRows);
         for (let r = 0; r < listRows; r++) {
           const idx = start + r;
-          const rec = h.records[idx];
+          const rec = view.records[idx];
           body.push(rec ? listLine(rec, idx === h.index, width) : "");
         }
       }
@@ -172,8 +199,11 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
       title = "历史会话 · 清理空会话";
       body = wrapBody(
         [
-          `清理当前项目（${h.cleanCwd ?? "未知路径"}）的空会话 ${n} 个？`,
+          `清理当前目录（${h.cleanCwd ?? "未知路径"}）的空会话 ${n} 个？`,
           "不可恢复：仅删除已持久化且从未有用户消息的会话；当前与 live 会话不受影响。",
+          ...(h.scope === "all"
+            ? ["清理范围固定为当前目录：列表切到「全部」不影响清理范围。"]
+            : []),
           "[y/Enter] 确认清理    [n/Esc] 取消",
         ],
         width,

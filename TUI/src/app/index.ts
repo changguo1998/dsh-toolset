@@ -10,7 +10,12 @@ import type {
   StateAction,
   StatusPanelState,
 } from "./state.ts";
-import { cleanableSessionIds, initialState, reduceState } from "./state.ts";
+import {
+  cleanableSessionIds,
+  historyVisibleRecords,
+  initialState,
+  reduceState,
+} from "./state.ts";
 import type {
   DshAdapter,
   DshEvent,
@@ -744,7 +749,7 @@ export class App {
             reduceState(st, { type: "history-move", delta: 1 }),
           );
         else if (name === "enter") {
-          const rec = h.records[h.index];
+          const rec = historyVisibleRecords(this.state)[h.index];
           if (!rec) return;
           if (rec.live) {
             this.notice("live 会话不可续（仅 persisted 会话可切换）", "warn");
@@ -752,6 +757,9 @@ export class App {
           }
           void this.resumeToSession(rec.id);
           return;
+        } else if (name === "tab") {
+          // [Tab]：切换列表范围（当前目录 ⇄ 全部目录），默认当前目录
+          this.apply((st) => reduceState(st, { type: "history-scope-toggle" }));
         } else if (name === "d" || name === "delete" || name === "backspace") {
           this.confirmDeleteRecord();
           return;
@@ -1239,7 +1247,7 @@ export class App {
   /** 面板 d/Delete：进入删除二次确认（不可删时以 notice 说明原因，不改列表） */
   private confirmDeleteRecord(): void {
     const h = this.state.history;
-    const rec = h ? h.records[h.index] : undefined;
+    const rec = h ? historyVisibleRecords(this.state)[h.index] : undefined;
     if (!h || !rec) return;
     if (rec.current === true) {
       this.historyNotice("当前活跃会话不可删除", "warn");
@@ -1413,7 +1421,9 @@ export class App {
     this.apply((s) => reduceState(s, { type: "history-open-view" }));
     this.paint();
     const panel = this.state.history;
-    const rec = panel ? panel.records[panel.index] : undefined;
+    const rec = panel
+      ? historyVisibleRecords(this.state)[panel.index]
+      : undefined;
     if (!panel || !rec) return;
     try {
       const view = await read.call(this.deps.adapter, rec.id);

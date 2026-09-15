@@ -2009,13 +2009,16 @@ test("对话区：上滚展开折叠历史（offset>0 更早回复可见，跟�
 
 // --- /session 历史面板在活动区（modalPanel）的回归：标题对齐 + 按键提示位置 ---
 
-/** 历史面板帧：打开 + 可选 records（list 阶段）/ view/error */
+/** 历史面板帧：打开（all=true 切到「全部」范围）+ list/error 阶段记录（两个目录） */
 function historyFrame(
   kind: "loading" | "list" | "error",
   rows = 24,
   cols = 80,
+  all = false,
 ): string[] {
   let s = initialState();
+  // 状态区 cwd 已知：默认「当前目录」范围可解析
+  s = reduceState(s, { type: "status", status: { cwd: "/proj" } });
   s = reduceState(s, { type: "history-open" });
   if (kind === "list" || kind === "error") {
     s = reduceState(s, {
@@ -2027,12 +2030,22 @@ function historyFrame(
           live: false,
           persisted: true,
           title: "历史标题",
+          cwd: "/proj",
+        },
+        {
+          id: "s43",
+          createdAt: 2,
+          live: false,
+          persisted: true,
+          title: "他目录标题",
+          cwd: "/other",
         },
       ],
     });
   }
   if (kind === "error")
     s = reduceState(s, { type: "history-list-error", error: "boom" });
+  if (all) s = reduceState(s, { type: "history-scope-toggle" });
   return buildFrame(s, { rows, cols }).map((l) =>
     stripAnsi(typeof l === "string" ? l : l.text),
   );
@@ -2070,7 +2083,7 @@ test("/session 历史面板：标题按显示宽补齐，活动区右缘框线�
 
 test("/session 历史面板：按键提示在输入区下方提示区，不内嵌面板标题行", () => {
   const plain = historyFrame("list");
-  const titleRow = plain.find((l) => l.includes("历史会话（"));
+  const titleRow = plain.find((l) => l.includes("历史会话 ["));
   assert.ok(titleRow, "list 阶段标题行存在");
   assert.ok(
     !titleRow!.includes("[↑/↓]") && !titleRow!.includes("[Enter]"),
@@ -2153,10 +2166,10 @@ test("userInputJump：PgUp/PgDn 把用户消息首行翻到顶行，后文不足
     "最后一条用户消息后文不足一屏：填充前面历史（底对齐）",
   );
   // 已在底对齐位再 PgDn：仍指向最后一条 → 稳定无位移（不回跳）
-  assert.deepEqual(
-    userInputJump(buffer, 60, 4, themeId, H, false, 0, -1),
-    { scrollOffset: 0, followBottom: false },
-  );
+  assert.deepEqual(userInputJump(buffer, 60, 4, themeId, H, false, 0, -1), {
+    scrollOffset: 0,
+    followBottom: false,
+  });
 });
 
 test("userInputJump：PgDn 无下一条用户消息 → 回到跟随底部；边界返回 null", () => {
@@ -2188,4 +2201,35 @@ test("userInputJump：PgDn 无下一条用户消息 → 回到跟随底部；边
   assert.equal(userInputJump([], 60, 4, themeId, 4, true, 0, 1), null);
   // 对话区不可见（dialogueH<=0）→ null
   assert.equal(userInputJump(single, 60, 4, themeId, 0, true, 0, 1), null);
+});
+
+test("/session 历史面板：标题标明列表范围（当前目录 可见/全量 ⇄ 全部），提示含 [Tab]范围", () => {
+  const project = historyFrame("list");
+  const projectTitle = project.find((l) => l.includes("历史会话 ["));
+  assert.ok(projectTitle, "标题行存在");
+  assert.ok(
+    projectTitle!.includes("历史会话 [当前目录]（1/2）"),
+    "当前目录范围标题含可见/全量: " + projectTitle,
+  );
+  assert.ok(
+    project.some((l) => l.includes("历史标题")),
+    "当前目录会话可见",
+  );
+  assert.ok(
+    !project.some((l) => l.includes("他目录标题")),
+    "他目录会话默认隐藏",
+  );
+  const hint = project[project.length - 1]!;
+  assert.ok(hint.includes("[Tab]范围"), "提示区含 [Tab]范围: " + hint);
+
+  const all = historyFrame("list", 24, 80, true);
+  const allTitle = all.find((l) => l.includes("历史会话 ["));
+  assert.ok(
+    allTitle!.includes("历史会话 [全部]（2）"),
+    "全部范围标题: " + allTitle,
+  );
+  assert.ok(
+    all.some((l) => l.includes("他目录标题")),
+    "全部范围显示他目录会话",
+  );
 });

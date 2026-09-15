@@ -27,6 +27,7 @@ import {
 import {
   cleanableSessionIds,
   currentProjectCwd,
+  historyVisibleRecords,
   initialState,
   reduceState,
 } from "../src/app/state.ts";
@@ -194,8 +195,15 @@ function panelState(records: SessionInfo[]): AppState {
 }
 
 test("面板：list → confirm-delete（记住目标）→ cancel 回 list；不可删项不进入确认", () => {
-  const records = [rec({ id: "s1" }), rec({ id: "s2" })];
+  // 当前目录范围：需有 current 记录（否则项目不可解析 → 可见列表为空）
+  const cur = rec({ id: "cur", live: true, current: true, cwd: "/proj" });
+  const records = [
+    cur,
+    rec({ id: "s1", cwd: "/proj" }),
+    rec({ id: "s2", cwd: "/proj" }),
+  ];
   let s = panelState(records);
+  s = reduceState(s, { type: "history-move", delta: 1 }); // 高亮 s1（cur 不可删）
   s = reduceState(s, { type: "history-confirm-delete" });
   assert.equal(s.history?.phase, "confirm-delete");
   assert.equal(s.history?.pendingDelete, "s1");
@@ -205,22 +213,31 @@ test("面板：list → confirm-delete（记住目标）→ cancel 回 list；�
 
   // 当前活跃 / live / 未持久化 → 不入确认（由调用方 notice 说明）
   const blocked: SessionInfo[][] = [
-    [rec({ id: "cur", live: true, current: true, cwd: "/proj" })],
-    [rec({ id: "liv", live: true, cwd: "/proj" })],
-    [rec({ id: "mem", persisted: false, cwd: "/proj" })],
+    [cur], // 高亮即当前活跃
+    [cur, rec({ id: "liv", live: true, cwd: "/proj" })],
+    [cur, rec({ id: "mem", persisted: false, cwd: "/proj" })],
   ];
-  for (const rs of blocked) {
-    const st = reduceState(panelState(rs), { type: "history-confirm-delete" });
-    assert.equal(st.history?.phase, "list", `不入确认：${rs[0]!.id}`);
+  const targets = ["cur", "liv", "mem"];
+  blocked.forEach((rs, i) => {
+    let st = panelState(rs);
+    if (i > 0) st = reduceState(st, { type: "history-move", delta: 1 });
+    st = reduceState(st, { type: "history-confirm-delete" });
+    assert.equal(st.history?.phase, "list", `不入确认：${targets[i]}`);
     assert.equal(st.history?.pendingDelete, undefined);
-  }
+  });
 });
 
 test("面板：deleting → delete-done 移除记录并收敛高亮索引", () => {
-  const records = [rec({ id: "s1" }), rec({ id: "s2" }), rec({ id: "s3" })];
+  const cur = rec({ id: "cur", live: true, current: true, cwd: "/proj" });
+  const records = [
+    cur,
+    rec({ id: "s1", cwd: "/proj" }),
+    rec({ id: "s2", cwd: "/proj" }),
+    rec({ id: "s3", cwd: "/proj" }),
+  ];
   let s = panelState(records);
-  s = reduceState(s, { type: "history-move", delta: 2 });
-  assert.equal(s.history?.index, 2);
+  s = reduceState(s, { type: "history-move", delta: 3 }); // 高亮末行 s3
+  assert.equal(s.history?.index, 3);
   s = reduceState(s, { type: "history-confirm-delete" });
   s = reduceState(s, { type: "history-delete" });
   assert.equal(s.history?.phase, "deleting");
@@ -228,17 +245,18 @@ test("面板：deleting → delete-done 移除记录并收敛高亮索引", () =
   assert.equal(s.history?.phase, "list");
   assert.deepEqual(
     s.history?.records.map((r) => r.id),
-    ["s1", "s2"],
+    ["cur", "s1", "s2"],
   );
-  assert.equal(s.history?.index, 1, "索引收敛到末行");
+  assert.equal(s.history?.index, 2, "索引收敛到末行");
   assert.equal(s.history?.pendingDelete, undefined);
 
   // removed=false（adapter 拒绝/异常）→ 记录保留，仍回列表
   let f = panelState(records);
+  f = reduceState(f, { type: "history-move", delta: 1 });
   f = reduceState(f, { type: "history-confirm-delete" });
   f = reduceState(f, { type: "history-delete" });
   f = reduceState(f, { type: "history-delete-done", id: "s1", removed: false });
-  assert.equal(f.history?.records.length, 3, "失败不动列表");
+  assert.equal(f.history?.records.length, 4, "失败不动列表");
   assert.equal(f.history?.phase, "list");
 });
 
@@ -423,16 +441,22 @@ function typeAndEnter(renderer: FakeRenderer, text: string): void {
 test("面板 d → 二次确认 → y：只删高亮会话并刷新列表", async () => {
   const { renderer, adapter, frame } = makeApp();
   adapter.serverRecords = [
+    rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
     rec({ id: "tui-first001", title: "第一条", cwd: "/proj" }),
     rec({ id: "tui-second02", title: "第二条", cwd: "/proj" }),
   ];
   typeAndEnter(renderer, "/session");
   await flush();
   await flush();
-  assert.ok(frame().includes("历史会话（2）"), "列表打开且计数正确");
+  // 默认范围=当前目录：三条同 cwd 全可见（标题给出「可见/全量」）
+  assert.ok(
+    frame().includes("历史会话 [当前目录]（3/3）"),
+    "列表打开且计数正确",
+  );
   assert.equal(adapter.listSessionsCalls, 1, "打开面板拉取一次列表");
   assert.ok(frame().includes("[空]") === false, "非空会话无 [空] 标记");
 
+  press(renderer, "down"); // 首行是当前活跃会话（不可删）→ 下移到「第一条」
   press(renderer, "d");
   assert.ok(frame().includes("删除确认"), "进入删除二次确认");
   assert.ok(frame().includes("第一条"), "确认文案含目标标题");
@@ -444,7 +468,7 @@ test("面板 d → 二次确认 → y：只删高亮会话并刷新列表", asyn
   assert.deepEqual(adapter.deleteCalls, ["tui-first001"], "仅删除高亮会话");
   assert.equal(adapter.listSessionsCalls, 2, "删除成功后重拉一次列表");
   assert.ok(
-    frame().includes("历史会话（1）"),
+    frame().includes("历史会话 [当前目录]（2/2）"),
     "重拉后列表收敛（fake 不自改可见列表）",
   );
   assert.ok(frame().includes("已删除会话「第一条」"), "成功提示保留原会话标题");
@@ -467,12 +491,26 @@ test("面板 x → 二次确认 → y：只清理当前项目空会话（其他�
   typeAndEnter(renderer, "/session");
   await flush();
   await flush();
+  // 默认当前目录：4 条同 cwd 可见（他目录 1 条隐藏），标题给出 可见/全量
+  assert.ok(
+    frame().includes("历史会话 [当前目录]（4/5）"),
+    "默认范围=当前目录",
+  );
+  assert.ok(!frame().includes("他项目空会话"), "默认隐藏他目录会话");
   assert.ok(frame().includes("[空]"), "空会话列表标记 [空]");
+
+  press(renderer, "tab");
+  assert.ok(frame().includes("历史会话 [全部]（5）"), "Tab 切到全部范围");
+  assert.ok(frame().includes("他项目空会话"), "全部范围显示他目录会话");
 
   press(renderer, "x");
   assert.ok(frame().includes("清理空会话"), "进入清理确认");
-  assert.ok(frame().includes("空会话 1 个"), "确认文案给出当前项目待清理数量");
-  assert.ok(frame().includes("/proj"), "确认文案给出当前项目路径");
+  assert.ok(frame().includes("空会话 1 个"), "确认文案给出当前目录待清理数量");
+  assert.ok(frame().includes("/proj"), "确认文案给出当前目录路径");
+  assert.ok(
+    frame().includes("清理范围固定为当前目录"),
+    "全部范围下明示清理范围不随列表变化",
+  );
   assert.deepEqual(adapter.deleteCalls, [], "确认前不调用 adapter");
 
   press(renderer, "y");
@@ -485,7 +523,10 @@ test("面板 x → 二次确认 → y：只清理当前项目空会话（其他�
   );
   assert.equal(adapter.listSessionsCalls, 2, "批量清理只重拉一次列表");
   assert.ok(frame().includes("已清理 1 个空会话"), "清理成功提示");
-  assert.ok(!frame().includes("tui-empty001"), "重拉后空会话行消失");
+  assert.ok(
+    frame().includes("历史会话 [全部]（4）"),
+    "重拉后列表收敛（切范围不被重置）",
+  );
 });
 
 test("面板护栏：当前活跃会话不可删、x 无可清理项给提示且不调用 adapter", async () => {
@@ -511,12 +552,14 @@ test("面板护栏：当前活跃会话不可删、x 无可清理项给提示且
 test("面板护栏：adapter 拒绝删除（失败）→ 列表保留并提示失败原因", async () => {
   const { renderer, adapter, frame } = makeApp();
   adapter.serverRecords = [
+    rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
     rec({ id: "tui-boom0001", title: "删不掉的", cwd: "/proj" }),
   ];
   adapter.failOn.add("tui-boom0001");
   typeAndEnter(renderer, "/session");
   await flush();
   await flush();
+  press(renderer, "down");
   press(renderer, "d");
   press(renderer, "y");
   await flush();
@@ -524,7 +567,7 @@ test("面板护栏：adapter 拒绝删除（失败）→ 列表保留并提示�
   assert.deepEqual(adapter.deleteCalls, ["tui-boom0001"]);
   assert.equal(adapter.listSessionsCalls, 1, "失败不重拉列表");
   assert.ok(frame().includes("删除失败"), "失败提示可见");
-  assert.ok(frame().includes("历史会话（1）"), "记录保留");
+  assert.ok(frame().includes("历史会话 [当前目录]（2/2）"), "记录保留");
 });
 
 test("/session clean 直达清理确认（无可清理项则提示且不开确认）", async () => {
@@ -601,4 +644,106 @@ test("面板提示行：确认阶段给 y/n 提示，进行中阶段留空（不
   await flush();
   await flush();
   assert.equal(adapter.listSessionsCalls, 3, "清理完成后再重拉一次");
+});
+
+// ---------------------------------------------------------------------------
+// 4) 列表范围：当前目录（默认）/ 全部目录
+// ---------------------------------------------------------------------------
+
+test("面板范围：默认当前目录、Tab 切换全部、按 id 保留选中、不可见回首项", () => {
+  const records = [
+    rec({ id: "cur", live: true, current: true, cwd: "/proj" }),
+    rec({ id: "p1", cwd: "/proj" }),
+    rec({ id: "o1", cwd: "/other" }),
+  ];
+  let s = panelState(records);
+  assert.equal(s.history?.scope, "project", "history-open 默认当前目录");
+  assert.deepEqual(
+    historyVisibleRecords(s).map((r) => r.id),
+    ["cur", "p1"],
+    "当前目录只保留同 cwd 会话",
+  );
+
+  // 高亮 p1 → 切到全部：按 id 保留选中
+  s = reduceState(s, { type: "history-move", delta: 1 });
+  s = reduceState(s, { type: "history-scope-toggle" });
+  assert.equal(s.history?.scope, "all");
+  assert.deepEqual(
+    historyVisibleRecords(s).map((r) => r.id),
+    ["cur", "p1", "o1"],
+  );
+  assert.equal(
+    historyVisibleRecords(s)[s.history!.index]?.id,
+    "p1",
+    "切范围按 id 保留选中项",
+  );
+
+  // 选到仅全部范围可见的 o1 → 切回当前目录：不可见 → 回首项
+  s = reduceState(s, { type: "history-move", delta: 1 });
+  assert.equal(historyVisibleRecords(s)[s.history!.index]?.id, "o1");
+  s = reduceState(s, { type: "history-scope-toggle" });
+  assert.equal(s.history?.scope, "project");
+  assert.equal(s.history?.index, 0, "选中项不可见 → 回首项");
+
+  // move 以可见长度为界（当前目录 2 条 → 下移到底为 1，而非全量 3 条）
+  s = reduceState(s, { type: "history-move", delta: 99 });
+  assert.equal(s.history?.index, 1, "move 按可见长度 clamp");
+});
+
+test("historyVisibleRecords：当前目录不可识别 → 空列表（不把全量当当前目录）", () => {
+  const s = panelState([rec({ id: "o1", cwd: "/other" })]);
+  assert.equal(
+    currentProjectCwd(s),
+    undefined,
+    "无 current 记录且状态区为占位",
+  );
+  assert.deepEqual(historyVisibleRecords(s), [], "识别失败不展示全量");
+  const all = reduceState(s, { type: "history-scope-toggle" });
+  assert.equal(historyVisibleRecords(all).length, 1, "全部范围仍可见");
+});
+
+test("面板范围：默认只显示当前目录会话，Tab 切全部再切回（不重拉数据）", async () => {
+  const { renderer, adapter, frame } = makeApp();
+  adapter.serverRecords = [
+    rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
+    rec({ id: "tui-here0001", cwd: "/proj", title: "本目录会话" }),
+    rec({ id: "tui-away0001", cwd: "/other", title: "他目录会话" }),
+  ];
+  typeAndEnter(renderer, "/session");
+  await flush();
+  await flush();
+  assert.ok(
+    frame().includes("历史会话 [当前目录]（2/3）"),
+    "默认范围=当前目录",
+  );
+  assert.ok(frame().includes("本目录会话"), "本目录会话可见");
+  assert.ok(!frame().includes("他目录会话"), "他目录会话默认隐藏");
+
+  press(renderer, "tab");
+  assert.ok(frame().includes("历史会话 [全部]（3）"), "Tab → 全部");
+  assert.ok(frame().includes("他目录会话"), "全部范围显示他目录会话");
+
+  press(renderer, "tab");
+  assert.ok(
+    frame().includes("历史会话 [当前目录]（2/3）"),
+    "再 Tab → 回当前目录",
+  );
+  assert.ok(!frame().includes("他目录会话"), "他目录会话再次隐藏");
+  assert.equal(adapter.listSessionsCalls, 1, "切范围不重拉（同一份数据）");
+});
+
+test("面板范围：当前目录不可识别 → 明确空态并提示按 Tab 看全部", async () => {
+  const { renderer, adapter, frame } = makeApp();
+  adapter.serverRecords = [
+    rec({ id: "tui-away0001", cwd: "/other", title: "他目录会话" }),
+  ];
+  typeAndEnter(renderer, "/session");
+  await flush();
+  await flush();
+  assert.ok(frame().includes("无法识别当前目录"), "识别失败给明确空态");
+  assert.ok(frame().includes("[Tab] 查看全部 1 条"), "空态提示可切范围");
+  assert.ok(!frame().includes("他目录会话"), "不把全量当作当前目录展示");
+
+  press(renderer, "tab");
+  assert.ok(frame().includes("他目录会话"), "Tab 后他目录会话可见");
 });

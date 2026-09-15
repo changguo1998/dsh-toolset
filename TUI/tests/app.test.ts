@@ -384,6 +384,8 @@ test("/quit after resume → 释放 adapter（resume 后的活跃 handle 归 ada
   adapter.sessionSurfaces["s42"] = [{ role: "user", text: "q" }];
   typeAndEnter(renderer, "/session");
   await flush();
+  // 该记录无 cwd（属他目录）→ 切到「全部」范围后可见
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await flush();
   await flush();
@@ -2355,8 +2357,15 @@ test("history-resume-ok：替换 buffer、关面板、更新 activeSessionId/标
 test("/session：persisted 会话 Enter → resume 并展示其表面+标题", async () => {
   const { renderer, adapter } = makeApp();
   adapter.sessionRecords = [
-    { id: "s99", createdAt: Date.now(), live: true, persisted: false },
-    { id: "s42", createdAt: 1, live: false, persisted: true },
+    {
+      id: "s99",
+      createdAt: Date.now(),
+      live: true,
+      persisted: false,
+      current: true,
+      cwd: "/proj",
+    },
+    { id: "s42", createdAt: 1, live: false, persisted: true, cwd: "/proj" },
   ];
   adapter.sessionSurfaces["s42"] = [
     { role: "user", text: "回顾上轮结论" },
@@ -2399,6 +2408,8 @@ test("/session：resume 失败 → 面板 error 态不崩溃", async () => {
   adapter.resumeReject = "宿主 resume 失败";
   typeAndEnter(renderer, "/session");
   await flush();
+  // 该记录无 cwd（属他目录）→ 切到「全部」范围后可见
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await flush();
   await flush();
@@ -2420,14 +2431,16 @@ test("/session：列表渲染——当前 live 行 [当前] [不可续]，其他
       live: true,
       persisted: false,
       current: true,
+      cwd: "/proj",
     },
-    { id: "s98", createdAt: 2, live: true, persisted: false },
+    { id: "s98", createdAt: 2, live: true, persisted: false, cwd: "/proj" },
     {
       id: "s42",
       createdAt: 1,
       live: false,
       persisted: true,
       title: "历史标题",
+      cwd: "/proj",
     },
   ];
   typeAndEnter(renderer, "/session");
@@ -2465,6 +2478,8 @@ test("/session：resume 后标题——官方 sessionTitle 优先于本地兜底
   adapter.sessionTitleValues["s42"] = "官方标题";
   typeAndEnter(renderer, "/session");
   await flush();
+  // 该记录无 cwd（属他目录）→ 切到「全部」范围后可见
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await flush();
   await flush();
@@ -2487,6 +2502,8 @@ test("/session：resume 后标题——无官方 sessionTitle → deriveTitle �
   // sessionTitle 缺省返回 undefined → 兜底 = surface 首条用户消息前 30 字符
   typeAndEnter(renderer, "/session");
   await flush();
+  // 该记录无 cwd（属他目录）→ 切到「全部」范围后可见
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await flush();
   await flush();
@@ -2621,6 +2638,8 @@ test("/session：resume 不可用（无 adapter.resumeTo）→ 提示不可切�
   adapter.resumeTo = undefined;
   typeAndEnter(renderer, "/session");
   await flush();
+  // 该记录无 cwd（属他目录）→ 切到「全部」范围后可见
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await flush();
   const plain = renderer.lastRender.map((l) =>
