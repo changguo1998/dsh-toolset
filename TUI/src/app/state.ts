@@ -1974,7 +1974,7 @@ function navQuestion(
   return { ...state, question: { ...panel, itemIndex: next, items } };
 }
 
-/** 选中/取消选中高亮选项：单选替换（同时清掉自定义文本，二选一互斥）、多选 toggle */
+/** 标记/取消标记高亮选项（空格）：单选替换（同时清掉自定义文本，二选一互斥）、多选 toggle */
 function selectQuestionOption(state: AppState): AppState {
   const panel = state.question;
   if (!panel) return state;

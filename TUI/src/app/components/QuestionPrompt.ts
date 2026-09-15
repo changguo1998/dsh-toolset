@@ -7,9 +7,9 @@
 // “自定义回答”是固定在选项列表末尾的兜底项（无预设选项时列表仅此一项），
 // 与普通选项一样用 ↑/↓ 高亮；高亮在其上时键入字符即输入自定义文本。
 // 操作提示只列出当前实际用到的按键（Enter 文案区分“下一题/提交”，多题才显示
-// “切题”，有预设选项才显示“空格 选择”与“↑/↓ 选项”）。
+// “切题”，有预设选项才显示“空格 标记”与“↑/↓ 选项”）。
 // 输出恰好 height 行；题干/detail/选项超出面板可用宽均按行 soft-wrap（题干/选项
-// 续行按正文起点缩进、选项续行无光标/选中标记）、高度超出时滚动，高亮在
+// 续行按正文起点缩进、选项续行无光标/标记）、高度超出时滚动，高亮在
 // 自定义项时优先保证该行可见（输入文字即时回显）。
 
 import type { RenderLine } from "../../renderer/index.ts";
@@ -61,7 +61,7 @@ export function renderQuestionPanel(
       const mark = selected ? (multi ? "+" : "*") : " ";
       const desc = opt.description ? " " + opt.description : "";
       // 选项文本超出面板可用宽时折行（soft-wrap，续行缩进与选项文本起点对齐，
-      // 无光标/选中标记），记录该选项 pool 起始行供滚动定位
+      // 无光标/标记），记录该选项 pool 起始行供滚动定位
       optRows[i] = pool.length;
       pool.push(
         ...wrapPrefixed(
@@ -129,7 +129,7 @@ export function renderQuestionPanel(
     "[Enter]" + (total > 1 && panel.itemIndex < total - 1 ? "下一题" : "提交"),
   );
   parts.push("[Esc]取消");
-  if (hasPreset) parts.push("[空格]选择");
+  if (hasPreset) parts.push("[空格]标记");
   if (hasPreset) parts.push("[↑/↓]选项");
   if (total > 1) parts.push("[←/→]切题");
   out.push({ text: " " + parts.join(" · ") + " " });

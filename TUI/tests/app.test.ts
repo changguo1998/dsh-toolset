@@ -1750,7 +1750,7 @@ test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多�
   // 动态按键提示：多题首题 Enter=下一题；有预设显示空格/上下；多题显示切题；无 Tab
   assert.ok(plain.includes("[Enter]下一题"), "非末题 Enter 显示下一题");
   assert.ok(!plain.includes("提交"), "非末题不显示提交");
-  assert.ok(plain.includes("[空格]选择"), "有预设选项显示空格选择");
+  assert.ok(plain.includes("[空格]标记"), "有预设选项显示空格标记");
   assert.ok(plain.includes("[↑/↓]选项"), "有预设选项显示上下导航");
   assert.ok(plain.includes("[←/→]切题"), "多题显示切题");
   assert.ok(!plain.includes("Tab"), "不显示 Tab");
@@ -1762,7 +1762,7 @@ test("问答面板：↑/↓ 移动高亮，空格单选并替换，末题 Enter
   pushQuestion(adapter);
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
-  assert.ok(plainFrame(renderer).includes(">* 测试"), "单选选中标记 *");
+  assert.ok(plainFrame(renderer).includes(">* 测试"), "单选标记 *");
   renderer.press({ name: "up", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
   assert.ok(plainFrame(renderer).includes(">* 生产"), "改选替换为生产");
@@ -1783,10 +1783,10 @@ test("问答面板：↑/↓ 移动高亮，空格单选并替换，末题 Enter
   assert.equal(adapter.answeredQuestions.length, 1, "提交一次");
   const { id, answer } = adapter.answeredQuestions[0]!;
   assert.equal(id, "q1");
-  // 单选：先选“测试”再改选“生产”→ 最终 selected 只有“生产”；第二题未动为空
+  // 单选：先选“测试”再改选“生产”→ 最终 selected 只有“生产”；第二题未标记 → 回退提交其高亮首项
   assert.deepEqual(answer.answers, [
     { id: "qa", selected: ["生产"] },
-    { id: "qb", selected: [] },
+    { id: "qb", selected: ["日志"] },
   ]);
   app.dispose();
 });
@@ -1803,12 +1803,12 @@ test("问答面板：←/→ 切题（第 n/m），多选 toggle，提交含多�
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
-  assert.ok(plainFrame(renderer).includes("+ 日志"), "多选选中标记 +");
+  assert.ok(plainFrame(renderer).includes("+ 日志"), "多选标记 +");
   assert.ok(!plainFrame(renderer).includes("+ 快照"), "重选取消多选标记");
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   const { answer } = adapter.answeredQuestions[0]!;
   assert.deepEqual(answer.answers, [
-    { id: "qa", selected: [] },
+    { id: "qa", selected: ["生产"] }, // 第一题未标记 → 回退其高亮首项
     { id: "qb", selected: ["日志"] },
   ]);
   app.dispose();
@@ -1850,7 +1850,7 @@ test("问答面板：↓ 到自定义兜底项键入，可追加/空格/退格�
   const { answer } = adapter.answeredQuestions[0]!;
   assert.deepEqual(answer.answers, [
     { id: "qa", selected: ["测试"] },
-    { id: "qb", selected: [] },
+    { id: "qb", selected: ["日志"] }, // 第二题未标记 → 回退其高亮首项
   ]);
   app.dispose();
 });
@@ -1871,7 +1871,7 @@ test("问答面板：多选预设 + 自定义并存，提交同时含 selected �
   );
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(adapter.answeredQuestions[0]!.answer.answers, [
-    { id: "qa", selected: [] },
+    { id: "qa", selected: ["生产"] }, // 第一题未标记 → 回退其高亮首项
     { id: "qb", selected: ["日志"], custom: "ne" },
   ]);
   app.dispose();
@@ -1891,8 +1891,8 @@ test("问答面板：预设选项上键入被吞（不落入主输入栏、不�
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(adapter.answeredQuestions[0]!.answer.answers, [
-    { id: "qa", selected: [] },
-    { id: "qb", selected: [] },
+    { id: "qa", selected: ["生产"] }, // 未标记 → 回退各题高亮首项
+    { id: "qb", selected: ["日志"] },
   ]);
   app.dispose();
 });
@@ -1910,8 +1910,8 @@ test("问答面板：Tab 已释放（吞掉），不再切焦点、不落入主�
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(adapter.answeredQuestions[0]!.answer.answers, [
-    { id: "qa", selected: [] },
-    { id: "qb", selected: [] },
+    { id: "qa", selected: ["生产"] }, // 未标记 → 回退各题高亮首项
+    { id: "qb", selected: ["日志"] },
   ]);
   app.dispose();
 });

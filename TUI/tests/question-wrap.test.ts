@@ -1,7 +1,7 @@
 // tests/question-wrap.test.ts — 问答面板选项在活动窗内折行（纯函数级）
 //
 // 回归：选项文本超出面板可用宽时不得截断/溢出活动窗口，应 soft-wrap 为多行，
-// 光标/选中标记只挂在选项首行，续行缩进与选项文本起点对齐、为普通文本。
+// 光标/标记只挂在选项首行，续行缩进与选项文本起点对齐、为普通文本。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

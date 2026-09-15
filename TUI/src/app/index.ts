@@ -622,7 +622,7 @@ export class App {
     }
 
     // 问答面板：↑/↓ 移动选项高亮，←/→ 切换题目（第 n/m 题），Tab 选项<->自定义切换，
-    // 空格选中/取消选项，Enter 提交整批答案，Esc 仅取消问答（reject ask，不打断 turn）；
+    // 空格标记/取消标记选项，Enter 提交整批答案，Esc 仅取消问答（reject ask，不打断 turn）；
     // 自定义输入焦点时可打印字符/退格编辑文本；其余按键吞掉不落入输入栏。
     if (this.state.question) {
       this.handleQuestionKey(k);

@@ -14,7 +14,7 @@ export type QuestionKeyDecision =
   | { kind: "nav"; delta: 1 | -1 } // left/right / Enter(还有下一题)：question-nav
   | { kind: "move"; delta: 1 | -1 } // up/down：question-move
   | { kind: "custom"; text: string } // 自定义项文本编辑：question-custom
-  | { kind: "select" } // 预设选项选中/取消（空格 / Ctrl+Space）：question-select
+  | { kind: "select" } // 预设选项标记/取消标记（空格 / Ctrl+Space）：question-select
   | { kind: "none" }; // 吞掉按键（无状态变化、无重绘）
 
 /** 高亮是否在“自定义回答”兑底项（列表末位，optionIndex = options.length） */
@@ -29,7 +29,7 @@ function isOnCustom(panel: QuestionPanelState): boolean {
  * - Esc → cancel（仅取消问答，绝不 interrupt）
  * - Enter → 还有下一题：nav +1；最后一题：submit 整批答案
  * - 退格 → 仅自定义项高亮时删除末字符；其余位置吞掉
- * - 空格 → 自定义项：输入空格；预设选项：选中/取消
+ * - 空格 → 自定义项：输入空格；预设选项：标记/取消标记
  * - 其他可打印字符（无 Ctrl）→ 仅自定义项追加；预设选项上吞掉
  * - up/down → move；left/right → nav
  * - 其余（Tab 等）→ 吞掉（不落入主输入栏，也不再切焦点）
@@ -72,14 +72,23 @@ export function questionKeyDecision(
   return { kind: "none" };
 }
 
-/** 聚合整批答案为交给 adapter.answerQuestion 的 QuestionAnswer（提交前计算，不含副作用） */
+/** 聚合整批答案为交给 adapter.answerQuestion 的 QuestionAnswer（提交前计算，不含副作用）。
+ *  未标记任何选项（selected 为空）且无自定义输入时，默认提交当前选中的（高亮）选项；
+ *  与 StatusPanel 的「无预选回退焦点行」语义一致。高亮在自定义兜底项时无选项可回退。 */
 export function buildQuestionAnswers(
   panel: QuestionPanelState,
 ): QuestionAnswer {
-  const answers = panel.items.map((it) => ({
-    id: it.id,
-    selected: it.selected,
-    ...(it.custom ? { custom: it.custom } : {}),
-  }));
+  const answers = panel.items.map((it) => {
+    let selected = it.selected;
+    if (selected.length === 0 && !it.custom) {
+      const label = it.options[it.optionIndex]?.label;
+      if (label) selected = [label];
+    }
+    return {
+      id: it.id,
+      selected,
+      ...(it.custom ? { custom: it.custom } : {}),
+    };
+  });
   return { answers };
 }
