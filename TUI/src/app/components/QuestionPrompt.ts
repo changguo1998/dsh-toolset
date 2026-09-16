@@ -12,16 +12,14 @@
 // 续行按正文起点缩进、选项续行无光标/标记）、高度超出时滚动，高亮在
 // 自定义项时优先保证该行可见（输入文字即时回显）。
 
-import type { RenderLine } from "../../renderer/index.ts";
-import { colorFor, type ThemeId } from "../../renderer/theme.ts";
+import type { FrameRow } from "../../renderer/index.ts";
 import type { QuestionPanelState } from "../state.ts";
 
 export function renderQuestionPanel(
   panel: QuestionPanelState,
   height: number,
   width: number,
-  themeId: ThemeId,
-): RenderLine[] {
+): FrameRow[] {
   const avail = Math.max(4, width - 4);
   const maxBody = Math.max(0, height - 2); // 去掉标题行和操作提示行后的可装行数（高度 <3 时可为 0）
   const item = panel.items[panel.itemIndex];
@@ -107,21 +105,24 @@ export function renderQuestionPanel(
         : 0;
   const body = pool.slice(start, start + maxBody);
 
-  const out: RenderLine[] = [];
+  const out: FrameRow[] = [];
   out.push({
-    text: isPlan
-      ? " ⚠ 计划审批（第 " + (panel.itemIndex + 1) + "/" + total + " 题）"
-      : " ⚠ 请回答（第 " + (panel.itemIndex + 1) + "/" + total + " 题）",
+    segments: [
+      {
+        text: isPlan
+          ? " ⚠ 计划审批（第 " + (panel.itemIndex + 1) + "/" + total + " 题）"
+          : " ⚠ 请回答（第 " + (panel.itemIndex + 1) + "/" + total + " 题）",
+      },
+    ],
   });
-  const curColor = colorFor(themeId, "yellow");
-  const selColor = colorFor(themeId, "green");
   for (let i = 0; i < maxBody; i++) {
     const t = body[i] ?? "";
     // 选项行按状态着色：光标行（> 即当前位置）黄、已选行（* 或 +）绿，其余原样
-    if (t.length > 1 && t[1] === ">") out.push({ text: curColor(t) });
+    if (t.length > 1 && t[1] === ">")
+      out.push({ segments: [{ text: t, style: { fg: "yellow" } }] });
     else if (t.length > 2 && (t[2] === "*" || t[2] === "+"))
-      out.push({ text: selColor(t) });
-    else out.push({ text: t });
+      out.push({ segments: [{ text: t, style: { fg: "green" } }] });
+    else out.push({ segments: [{ text: t }] });
   }
   // 操作提示：只显示当前实际用到的按键
   const parts: string[] = [];
@@ -132,7 +133,7 @@ export function renderQuestionPanel(
   if (hasPreset) parts.push("[空格]标记");
   if (hasPreset) parts.push("[↑/↓]选项");
   if (total > 1) parts.push("[←/→]切题");
-  out.push({ text: " " + parts.join(" · ") + " " });
+  out.push({ segments: [{ text: " " + parts.join(" · ") + " " }] });
   return out;
 }
 

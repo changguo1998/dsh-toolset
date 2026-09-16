@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderQuestionPanel } from "../src/app/components/QuestionPrompt.ts";
+import { rowText } from "./helpers/rowText.ts";
 import type { QuestionPanelState } from "../src/app/state.ts";
 
 function panel(
@@ -55,10 +56,9 @@ test("问答面板：长选项按面板宽折行，续行对齐缩进且仅首�
   const rows = renderQuestionPanel(
     panel([{ label: longLabel }]),
     12,
-    width,
-    "dark",
-  );
-  const plain = rows.map((r) => r.text.replace(/\x1b\[[0-9;]*m/g, ""));
+    width
+    );
+  const plain = rows.map((r) => rowText(r).replace(/\x1b\[[0-9;]*m/g, ""));
   // 选项首行带光标标记，续行紧跟其后（同一选项跨多行）
   const first = plain.findIndex((l) =>
     l.includes(">  " + longLabel.slice(0, 8)),
@@ -93,8 +93,8 @@ test("问答面板：长选项按面板宽折行，续行对齐缩进且仅首�
 });
 
 test("问答面板：短选项保持单行不折行", () => {
-  const rows = renderQuestionPanel(panel([{ label: "生产" }]), 8, 60, "dark");
-  const plain = rows.map((r) => r.text.replace(/\x1b\[[0-9;]*m/g, ""));
+  const rows = renderQuestionPanel(panel([{ label: "生产" }]), 8, 60);
+  const plain = rows.map((r) => rowText(r).replace(/\x1b\[[0-9;]*m/g, ""));
   assert.ok(
     plain.some((l) => l.includes(">  生产")),
     "短选项单行: " + JSON.stringify(plain),
@@ -105,10 +105,9 @@ test("问答面板：带 description 的长选项折行后 desc 也完整呈现"
   const rows = renderQuestionPanel(
     panel([{ label: "aaa", description: "bbbb" + "仓".repeat(40) }]),
     14,
-    60,
-    "dark",
-  );
-  const plain = rows.map((r) => r.text.replace(/\x1b\[[0-9;]*m/g, ""));
+    60
+    );
+  const plain = rows.map((r) => rowText(r).replace(/\x1b\[[0-9;]*m/g, ""));
   assert.ok(
     plain.some((l) => l.includes("仓".repeat(4))),
     "description 折行后仍完整呈现: " + JSON.stringify(plain.slice(0, 6)),
@@ -132,10 +131,9 @@ test("问答面板：长题干按面板宽折行，续行 1 空格缩进与正�
   const rows = renderQuestionPanel(
     { id: "q", items: [item], itemIndex: 0 },
     12,
-    width,
-    "dark",
+    width
   );
-  const plain = rows.map((r) => r.text.replace(/\x1b\[[0-9;]*m/g, ""));
+  const plain = rows.map((r) => rowText(r).replace(/\x1b\[[0-9;]*m/g, ""));
   // 题干尾部内容出现在面板内（未截断）
   assert.ok(
     plain.some((l) => l.includes(longQ.slice(-10))),

@@ -10,7 +10,7 @@
 // 标题按显示宽补齐，避免 CJK 顶开活动区右缘框线。
 // 无 ANSI 着色（与模型选择面板同风格），中文界面文本按显示宽度截断。
 
-import type { RenderLine } from "../../renderer/index.ts";
+import type { FrameRow } from "../../renderer/index.ts";
 import type { HistoryPanelState } from "../state.ts";
 import type { SessionInfo } from "../adapter/dsh.ts";
 import { truncateToWidth, wrapLine, displayWidth } from "../layout.ts";
@@ -121,12 +121,12 @@ function messageLines(
   return out;
 }
 
-export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
+export function renderHistoryPanel(view: HistoryPanelView): FrameRow[] {
   const h = view.history;
   const height = Math.max(1, view.height);
   const width = Math.max(1, view.width);
   const bodyRows = Math.max(0, height - 1); // 首行标题 + 正文区
-  const rows: RenderLine[] = [];
+  const rows: FrameRow[] = [];
 
   let title = "";
   let body: string[] = [];
@@ -238,8 +238,9 @@ export function renderHistoryPanel(view: HistoryPanelView): RenderLine[] {
   }
 
   rows.push({
-    text: title + " ".repeat(Math.max(0, width - displayWidth(title))),
+    segments: [{ text: title + " ".repeat(Math.max(0, width - displayWidth(title))) }],
   });
-  for (let r = 0; r < bodyRows; r++) rows.push({ text: body[r] ?? "" });
+  for (let r = 0; r < bodyRows; r++)
+    rows.push({ segments: [{ text: body[r] ?? "" }] });
   return rows;
 }

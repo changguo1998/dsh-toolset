@@ -11,6 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderStatusColumn, displayWidth } from "../src/app/layout.ts";
+import { rowAnsi, rowText } from "./helpers/rowText.ts";
 import type { GoalState, ModeState } from "../src/app/state.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import type { JobInfo, TodoItemLike } from "../src/app/adapter/dsh.ts";
@@ -42,8 +43,7 @@ function col(
     opts.scroll ?? 0,
     opts.height ?? 8,
     opts.width ?? 20,
-    initialState().themeId,
-  ).map((l) => stripAnsi(l));
+  ).map((l) => rowText(l));
 }
 
 test("renderStatusColumn: 无 goal/todo 直接留空，每行定宽且右缘竖线", () => {
@@ -113,10 +113,9 @@ test("renderStatusColumn: 完成 todo 灰+删除线，jobs 块展示", () => {
     0,
     14,
     24,
-    initialState().themeId,
-  ).find((r) => r.includes("发布"))!;
+  ).find((r) => rowText(r).includes("发布"))!;
   assert.ok(
-    rawDone.includes("9m") && rawDone.indexOf("9m") > rawDone.indexOf("✓"),
+    rowAnsi(rawDone).includes("9m") && rowAnsi(rawDone).indexOf("9m") > rowAnsi(rawDone).indexOf("✓"),
     "done 正文灰+删除线且不覆盖对号: " + rawDone,
   );
 });
@@ -283,11 +282,10 @@ test("renderStatusColumn: 标题行置顶、Mode 块随后展示（无 goal 也�
     0,
     12,
     30,
-    initialState().themeId,
     mode,
     "ask",
     "claude",
-  ).map((l) => stripAnsi(l));
+  ).map((l) => rowText(l));
   const t = rows.join("\n");
   assert.ok(t.includes("Mode"), "Mode 块标题存在（无 goal 也显示）");
   assert.ok(!t.includes("（无目标/待办）"), "无 goal 时不留占位文字");
@@ -309,20 +307,19 @@ test("renderStatusColumn: sandbox 三档外生效值（custom）补入列表并�
     0,
     8,
     90,
-    initialState().themeId,
     { plan: "on", sandbox: "danger-custom", permission: "read-only" },
     "ask",
     undefined,
   );
-  const t = raw.map((l) => stripAnsi(l)).join("\n");
+  const t = raw.map((l) => rowText(l)).join("\n");
   assert.ok(
     t.includes("sandbox ro wr full danger-custom"),
     "custom 生效值应补入 sandbox 列表: " + t,
   );
   // 洋红高亮（custom 目录外值，与三档 permColor 区分）
-  const row = raw.find((l) => l.includes("danger-custom"))!;
+  const row = raw.find((l) => rowAnsi(l).includes("danger-custom"))!;
   assert.ok(
-    row.includes("\x1b[38;2;169;70;231m"),
+    rowAnsi(row).includes("\x1b[38;2;169;70;231m"),
     "custom sandbox 应以洋红强调: " + row,
   );
 });
@@ -335,7 +332,6 @@ test("renderStatusColumn: Mode 生效项着色强调、其余灰（段内至少�
     0,
     8,
     90,
-    initialState().themeId,
     { plan: "on", sandbox: "read-only", permission: "read-only" },
     "never",
     undefined,
@@ -343,21 +339,21 @@ test("renderStatusColumn: Mode 生效项着色强调、其余灰（段内至少�
   // 忽略定宽补齐 SGR 与竖线分隔灰，只核对选项段内色差
   const sgr = (l: string): string[] =>
     [...l.matchAll(/\x1b\[38;2;(?!255;255;255)[\d;]+m/g)].map((m) => m[0]);
-  const sandbox = raw.find((l) => l.includes("sandbox"))!;
-  const policy = raw.find((l) => l.includes("policy"))!;
+  const sandbox = raw.find((l) => rowAnsi(l).includes("sandbox"))!;
+  const policy = raw.find((l) => rowAnsi(l).includes("policy"))!;
   const GRAY = "\x1b[38;2;120;120;120m"; // 次要灰 bright[0] #787878
   // sandbox 行：ro(生效绿)、wr/full(灰) —— 生效项与未生效灰不同色，且未生效项确为灰
   assert.ok(
-    new Set(sgr(sandbox)).size >= 2,
+    new Set(sgr(rowAnsi(sandbox))).size >= 2,
     "sandbox 生效 ro 与灰选项颜色不同: " + raw.join("\n"),
   );
-  assert.ok(sgr(sandbox).includes(GRAY), "sandbox wr/full 未生效项为灰");
+  assert.ok(sgr(rowAnsi(sandbox)).includes(GRAY), "sandbox wr/full 未生效项为灰");
   // policy=never → auto 生效（红）与 ask(灰) 不同色
   assert.ok(
-    new Set(sgr(policy)).size >= 2,
+    new Set(sgr(rowAnsi(policy))).size >= 2,
     "policy auto 生效与 ask 灰颜色不同: " + raw.join("\n"),
   );
-  assert.ok(sgr(policy).includes(GRAY), "policy ask 未生效项为灰");
+  assert.ok(sgr(rowAnsi(policy)).includes(GRAY), "policy ask 未生效项为灰");
 });
 
 test("renderStatusColumn: 无 mode/policy/preset 时 Mode 块整块省略", () => {
@@ -368,15 +364,13 @@ test("renderStatusColumn: 无 mode/policy/preset 时 Mode 块整块省略", () =
     0,
     5,
     20,
-    initialState().themeId,
-  ).map((l) => stripAnsi(l));
+  ).map((l) => rowText(l));
   const t = rows.join("\n");
   assert.ok(!t.includes("Mode"), "无会话配置数据不显示 Mode 块");
   assert.ok(!t.includes("（无目标/待办）"), "无 goal/todo 直接留空");
 });
 
 test("renderStatusColumn: Mode 各项以竖线分隔连续排布；宽列单行、窄列折行且断行行尾无竖线", () => {
-  const theme = initialState().themeId;
   const text = (w: number): string =>
     renderStatusColumn(
       undefined,
@@ -385,7 +379,6 @@ test("renderStatusColumn: Mode 各项以竖线分隔连续排布；宽列单行�
       0,
       10,
       w,
-      theme,
       {
         plan: "on",
         sandbox: "read-only",
@@ -394,7 +387,7 @@ test("renderStatusColumn: Mode 各项以竖线分隔连续排布；宽列单行�
       "ask",
       "claude",
     )
-      .map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd())
+      .map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "").trimEnd())
       .join("\n");
   // 宽列：各项单行连续排布（不强制换行），竖线分隔
   const wide = text(120);
@@ -431,7 +424,6 @@ test("renderStatusColumn: Mode 各项以竖线分隔连续排布；宽列单行�
 });
 
 test("renderStatusColumn: Mode 属性名用默认前景色（不被外层灰二次包裹），只有未生效值灰", () => {
-  const theme = initialState().themeId;
   const raw = renderStatusColumn(
     undefined,
     [],
@@ -439,14 +431,13 @@ test("renderStatusColumn: Mode 属性名用默认前景色（不被外层灰二�
     0,
     8,
     120,
-    theme,
     { plan: "on", sandbox: "read-only", permission: "danger-full-access" },
     "ask",
     "claude",
   );
-  const permRow = raw.find((l) => l.includes("permission"))!;
+  const permRow = raw.find((l) => rowAnsi(l).includes("permission"))!;
   // 行首首个 ANSI 前的片段：若被外层灰二次包裹则为空（灰码在行首）；未包裹则直接是文本
-  const head = permRow.split(/\x1b\[/)[0] ?? "";
+  const head = rowAnsi(permRow).split(/\x1b\[/)[0] ?? "";
   assert.ok(
     head.trim() !== "" && head.includes("plan"),
     "属性名默认前景、未被外层灰包裹（行首片段非空）: " + JSON.stringify(head),
@@ -454,7 +445,6 @@ test("renderStatusColumn: Mode 属性名用默认前景色（不被外层灰二�
 });
 
 test("renderStatusColumn: Mode 块与 Goal 块之间以虚线分隔，Goal 与 todo 之间虚线保留", () => {
-  const theme = initialState().themeId;
   const strip = (l: string): string =>
     l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd();
   const noGoal = renderStatusColumn(
@@ -464,11 +454,10 @@ test("renderStatusColumn: Mode 块与 Goal 块之间以虚线分隔，Goal 与 t
     0,
     10,
     30,
-    theme,
     { plan: "on", sandbox: "read-only", permission: "read-only" },
     "ask",
     "claude",
-  ).map(strip);
+  ).map((l) => strip(rowAnsi(l)));
   // 无 goal：Mode 块后直接留空，无虚线
   const ng = noGoal.join("\n");
   const iM = ng.indexOf("Mode");
@@ -481,11 +470,10 @@ test("renderStatusColumn: Mode 块与 Goal 块之间以虚线分隔，Goal 与 t
     0,
     12,
     40,
-    theme,
     { plan: "on", sandbox: "read-only", permission: "read-only" },
     "ask",
     undefined,
-  ).map(strip);
+  ).map((l) => strip(rowAnsi(l)));
   const g = withGoal.join("\n");
   const iMode = g.indexOf("Mode");
   const iGoal = g.indexOf("Goal active");
@@ -502,7 +490,6 @@ test("renderStatusColumn: Mode 块与 Goal 块之间以虚线分隔，Goal 与 t
 });
 
 test("renderStatusColumn: permission/preset 按目录列出全部可选值", () => {
-  const theme = initialState().themeId;
   const strip = (l: string): string =>
     l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd();
   const rows = renderStatusColumn(
@@ -512,13 +499,12 @@ test("renderStatusColumn: permission/preset 按目录列出全部可选值", () 
     0,
     10,
     120,
-    theme,
     { plan: "on", sandbox: "read-only", permission: "danger-full-access" },
     "ask",
     "claude",
     ["read-only", "workspace-write", "danger-full-access", "custom"],
     ["claude", "default", "research"],
-  ).map(strip);
+  ).map((l) => strip(rowAnsi(l)));
   const t = rows.join("\n");
   assert.ok(
     t.includes("permission ro wr full custom"),
@@ -531,7 +517,6 @@ test("renderStatusColumn: permission/preset 按目录列出全部可选值", () 
 });
 
 test("renderStatusColumn: 目录不含当前生效值 → 补入列表并显示", () => {
-  const theme = initialState().themeId;
   const strip = (l: string): string =>
     l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd();
   // permission 当前值 deploy-safe 不在目录；preset 当前值 ghost 不在目录
@@ -542,13 +527,12 @@ test("renderStatusColumn: 目录不含当前生效值 → 补入列表并显示"
     0,
     10,
     120,
-    theme,
     { plan: "on", sandbox: "workspace-write", permission: "deploy-safe" },
     "ask",
     "ghost",
     ["read-only", "workspace-write", "danger-full-access"],
     ["claude", "default"],
-  ).map(strip);
+  ).map((l) => strip(rowAnsi(l)));
   const t = rows.join("\n");
   assert.ok(
     t.includes("permission ro wr full deploy-safe"),
@@ -575,7 +559,6 @@ test("catalog reducer: 目录写入全局 state，且更新后回无焦点（与
 });
 
 test("renderStatusColumn: 目录空（未同步/降级）时目录外自定义当前值仍补入三档列表", () => {
-  const theme = initialState().themeId;
   const strip = (l: string): string =>
     l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd();
   // permissionOptions=[]（空数组=目录未同步 → 降级标准三档），当前值超长自定义名
@@ -586,13 +569,12 @@ test("renderStatusColumn: 目录空（未同步/降级）时目录外自定义�
     0,
     10,
     80,
-    theme,
     { sandbox: "read-only", permission: "very-long-custom-preset-name-0123" },
     "ask",
     "p",
     [],
     undefined,
-  ).map(strip);
+  ).map((l) => strip(rowAnsi(l)));
   const t = rows.join("\n");
   assert.ok(
     t.includes("permission ro wr full very-long-custom-preset-name-0123"),

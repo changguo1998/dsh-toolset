@@ -130,7 +130,7 @@ test("Screen.render 每行前缀主题基底前景/背景;setTheme 切换", () =
   const w = new FakeWrite();
   const screen = new Screen({ write: (s) => w.call(s) });
   screen.setTheme("light");
-  screen.render([{ text: "hi" }]);
+  screen.render([{ segments: [{ text: "hi" }] }]);
   const out = w.out;
   // 基底 = ffflight foreground #555555 + background #DFE3F8
   assert.ok(out.includes("\x1b[38;2;85;85;85m"), "应有浅色基底前景");
@@ -147,7 +147,7 @@ test("Screen.renderDelta 同样带主题基底色(ESC[K 以主题 bg 填充)", (
   const w = new FakeWrite();
   const screen = new Screen({ write: (s) => w.call(s) });
   screen.setTheme("dark");
-  screen.renderDelta(3, [{ text: "tail", style: { fg: "green" } }]);
+  screen.renderDelta(3, [{ segments: [{ text: "tail", style: { fg: "green" } }] }]);
   const out = w.out;
   assert.ok(
     out.includes("\x1b[38;2;216;216;216m"),
@@ -162,9 +162,9 @@ test("styleLine: fg/bg 分别 38;2/48;2，并以主题基底色收尾", () => {
   const screen = new Screen({ write: (s) => w.call(s) });
   screen.setTheme("dark");
   screen.render([
-    { text: "A", style: { fg: "green" } },
-    { text: "B", style: { bg: "yellow" } },
-    { text: "C", style: { fg: "blue", bg: "magenta", bold: true } },
+    { segments: [{ text: "A", style: { fg: "green" } }] },
+    { segments: [{ text: "B", style: { bg: "yellow" } }] },
+    { segments: [{ text: "C", style: { fg: "blue", bg: "magenta", bold: true } }] },
   ]);
   const out = w.out;
   // fg green #84E746 → 38;2;132;231;70 ; 恢复前景 #FFFFFF
@@ -183,16 +183,16 @@ test("createRenderer.close 输出 SGR 复位;setTheme 使 delta 缓存失效全�
     exitOnClose: false,
   });
   // 首帧 dark 清屏含 dark 背景
-  r.render([{ text: "x" }]);
+  r.render([{ segments: [{ text: "x" }] }]);
   assert.ok(w.out.includes("\x1b[48;2;3;3;39m"), "dark 背景应先于清屏");
   w.out = "";
   // 相同的行再次 render → delta 优化,不应重新清屏
-  r.render([{ text: "x" }]);
+  r.render([{ segments: [{ text: "x" }] }]);
   assert.ok(!w.out.includes("2J"), "同帧走 delta 无清屏");
   // setTheme 后相同行 → 必须全帧重绘(清屏含新背景)
   r.setTheme("light");
   w.out = "";
-  r.render([{ text: "x" }]);
+  r.render([{ segments: [{ text: "x" }] }]);
   assert.ok(w.out.includes("2J"), "setTheme 后应全帧清屏重绘");
   assert.ok(w.out.includes("\x1b[48;2;223;227;248m"), "清屏含新浅背景");
 

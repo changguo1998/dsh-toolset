@@ -15,7 +15,7 @@ import type {
   ModelSelection,
 } from "../src/app/adapter/dsh.ts";
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
-import type { RenderLine, Size } from "../src/renderer/screen.ts";
+import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
 
 class FakeRenderer implements Renderer {
@@ -25,11 +25,11 @@ class FakeRenderer implements Renderer {
   closed = 0;
   size: Size = { cols: 80, rows: 24 };
   lastRender: string[] = [];
-  render(lines: RenderLine[]): void {
-    this.lastRender = lines.map((l) => l.text);
+  render(rows: FrameRow[]): void {
+    this.lastRender = rows.map((r) => r.segments.map((s) => s.text).join(""));
     this.renders++;
   }
-  refresh(_lines: RenderLine[]): void {
+  refresh(_rows: FrameRow[]): void {
     this.refreshes++;
   }
   onKey(cb: (k: KeyEvent) => void): void {

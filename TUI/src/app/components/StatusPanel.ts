@@ -5,8 +5,8 @@
 // Enter 提交预选（无预选回退焦点行）并关闭，Esc 取消。
 // 输出恰 height 行：标题 + 最多 (height-2) 行选项（超出时窗口跟随焦点滚动）+ 操作提示。
 
-import type { RenderLine } from "../../renderer/index.ts";
-import { colorFor, type ThemeId } from "../../renderer/theme.ts";
+import type { FrameRow } from "../../renderer/index.ts";
+import type { ThemeId } from "../../renderer/theme.ts";
 import type { StatusPanelState } from "../state.ts";
 
 export interface StatusPanelView {
@@ -16,23 +16,24 @@ export interface StatusPanelView {
   themeId: ThemeId;
 }
 
-export function renderStatusPanel(view: StatusPanelView): RenderLine[] {
-  const { panel, height, themeId } = view;
-  const out: RenderLine[] = [];
-  const curColor = colorFor(themeId, "yellow");
-  const selColor = colorFor(themeId, "green");
+export function renderStatusPanel(view: StatusPanelView): FrameRow[] {
+  const { panel, height } = view;
+  const out: FrameRow[] = [];
 
   // 标题行：命令名（蓝）+ 当前生效值
   const current = panel.selected ?? panel.options[panel.index]?.id ?? "";
   out.push({
-    text:
-      " " +
-      colorFor(themeId, "blue")(panel.title.replace("（当前：", "")) +
-      (current === "" ? "" : "  ·  当前：" + current),
+    segments: [
+      { text: " " },
+      { text: panel.title.replace("（当前：", ""), style: { fg: "blue" } },
+      ...(current === ""
+        ? []
+        : [{ text: "  ·  当前：" + current }]),
+    ],
   });
 
   // 选项行（焦点行 > 黄，预选行 * 绿，未选默认）
-  const rows: RenderLine[] = [];
+  const rows: FrameRow[] = [];
   for (let i = 0; i < panel.options.length; i++) {
     const opt = panel.options[i]!;
     const f = i === panel.index;
@@ -40,9 +41,9 @@ export function renderStatusPanel(view: StatusPanelView): RenderLine[] {
     const mark = sel ? "*" : " ";
     const cursor = f ? ">" : " ";
     const text = " " + cursor + mark + " " + (opt.label ?? opt.id) + (opt.desc ? " " + opt.desc : "");
-    if (f) rows.push({ text: curColor(text) });
-    else if (sel) rows.push({ text: selColor(text) });
-    else rows.push({ text });
+    if (f) rows.push({ segments: [{ text, style: { fg: "yellow" } }] });
+    else if (sel) rows.push({ segments: [{ text, style: { fg: "green" } }] });
+    else rows.push({ segments: [{ text }] });
   }
 
   // 操作提示行（末行）
@@ -55,7 +56,7 @@ export function renderStatusPanel(view: StatusPanelView): RenderLine[] {
   const maxBody = Math.max(0, height - 2);
   if (rows.length <= maxBody) {
     out.push(...rows);
-    while (out.length < height - 1) out.push({ text: "" });
+    while (out.length < height - 1) out.push({ segments: [{ text: "" }] });
   } else {
     // 滚动窗口：焦点行尽量居中，超出 clamp
     let start = panel.index - Math.floor(maxBody / 2);
@@ -63,7 +64,12 @@ export function renderStatusPanel(view: StatusPanelView): RenderLine[] {
     out.push(...rows.slice(start, start + maxBody));
   }
   out.push({
-    text: (" " + hint + " ").padEnd(Math.max(1, view.width)),
+    segments: [{ text: (" " + hint + " ").padEnd(Math.max(1, view.width)) }],
   });
-  return out.map((r) => ({ text: r.text.slice(0, Math.max(1, view.width)) }));
+  return out.map((r) => ({
+    segments: r.segments.map((s) => ({
+      ...s,
+      text: s.text.slice(0, Math.max(1, view.width)),
+    })),
+  }));
 }

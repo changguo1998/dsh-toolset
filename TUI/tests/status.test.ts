@@ -12,6 +12,7 @@ import {
   type StatusQueries,
 } from "../src/app/status.ts";
 import { renderStatusLine } from "../src/app/layout.ts";
+import { rowAnsi } from "./helpers/rowText.ts";
 
 /** 计数假查询器：断言一次 tick 内每个查询各执行一次 */
 function countingQueries() {
@@ -113,10 +114,9 @@ test("renderStatusLine: 缺失数据源项以占位渲染，不抛错；行含�
       contextLen: "—",
       cacheHit: "—",
     },
-    "dark",
     80,
   );
-  const joined = lines.map((l) => l.text).join("\n");
+  const joined = lines.map((l) => rowAnsi(l)).join("\n");
   assert.equal(joined.includes("—"), true);
   assert.ok(
     !joined.includes(">") && !joined.includes("?"),

@@ -21,7 +21,8 @@ import {
 } from "../src/app/layout.ts";
 import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
 import type { InputMode, InputStatus, Buffer } from "../src/app/state.ts";
-import type { RenderLine } from "../src/renderer/screen.ts";
+import type { FrameRow } from "../src/renderer/screen.ts";
+import { rowAnsi, rowText } from "./helpers/rowText.ts";
 
 /** 去 ANSI 取行文本 */
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
@@ -65,8 +66,8 @@ function activitySepIdx(lines: string[], cols: number): number {
 
 /** 思考行判定：历史区正文以 2 空格缩进开头（活动区瞬态，无 [思考] 前缀）。
  *  内容行补齐到整屏宽后，空白对话行 = 空格 + 右缘框线 │，须排除（trim 后剩 │）。 */
-const isThinkingRow = (l: { text: string }, cols: number): boolean => {
-  const b = histBody(l.text, cols);
+const isThinkingRow = (l: FrameRow, cols: number): boolean => {
+  const b = histBody(rowText(l), cols);
   const t = b.trim();
   return t !== "" && b.startsWith("  ") && !t.endsWith("│");
 };
@@ -109,7 +110,7 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   const { frame } = frameWith(24, 60);
   assert.equal(frame.length, 24, "帧恰好铺满 24 行");
   // 主题给边框/分隔线上色后带 ANSI 前缀，先剥离再断言
-  const plain = (l: RenderLine) => l.text.replace(/\x1b\[[0-9;]*m/g, "");
+  const plain = (l: FrameRow) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "");
   // 顶部区域：前 topHeight=17 行（24 - 状态1 - 输入3 - 提示1 - 分隔2）。
   // 对调后：历史/活动区在左（左缘框格 │）、详细状态列在右（分隔竖线在 D 列）
   const top = frame.slice(0, 17);
@@ -123,23 +124,23 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   );
   // 标题栏即顶部（2026-09-27 无独立顶部边框行）：title 占位 + 实线下划线，历史区内容在其后
   assert.ok(
-    top[0]!.text.includes("<title>"),
+    rowAnsi(top[0]!).includes("<title>"),
     "顶部首行为标题栏（会话标题占位）",
   );
-  assert.ok(/^─+$/.test(histContent(top[1]!.text, 60)), "标题栏下为实线下划线");
-  assert.ok(top[2]!.text.includes("第一行"), "历史区内容在左侧（标题栏之后）");
+  assert.ok(/^─+$/.test(histContent(rowAnsi(top[1]!), 60)), "标题栏下为实线下划线");
+  assert.ok(rowAnsi(top[2]!).includes("第一行"), "历史区内容在左侧（标题栏之后）");
   // 横线分隔：17 行后是分隔行，再之后状态区（短 cwd 下动态单行：env|LLM 全在一行）
   const separator1 = frame[17]!;
   assert.ok(plain(separator1).startsWith("─"), "状态区上方用 ─ 分隔");
   const status = frame[18]!;
-  assert.ok(status.text.includes("12:00:00"), "状态含时间");
-  assert.ok(status.text.includes("/home/u"), "状态含当前目录");
-  assert.ok(status.text.includes("main"), "状态含 git(branch)");
+  assert.ok(rowAnsi(status).includes("12:00:00"), "状态含时间");
+  assert.ok(rowAnsi(status).includes("/home/u"), "状态含当前目录");
+  assert.ok(rowAnsi(status).includes("main"), "状态含 git(branch)");
   // 标题已移入纵向状态列顶部（水平栏不再承载；此处验证水平栏不含标签行）
-  assert.ok(!status.text.includes("标题"), "水平状态栏不含标题段");
-  assert.ok(status.text.includes("·"), "组内段用 · 分隔");
-  assert.ok(status.text.includes("|"), "组间用 | 分隔");
-  assert.ok(status.text.includes("none"), "LLM 组含模型思考后缀");
+  assert.ok(!rowAnsi(status).includes("标题"), "水平状态栏不含标题段");
+  assert.ok(rowAnsi(status).includes("·"), "组内段用 · 分隔");
+  assert.ok(rowAnsi(status).includes("|"), "组间用 | 分隔");
+  assert.ok(rowAnsi(status).includes("none"), "LLM 组含模型思考后缀");
   // 第二个横线分隔行，然后输入区（3 行，多行框顶部对齐：首行占位提示）
   const separator2 = frame[19]!;
   assert.ok(plain(separator2).startsWith("─"), "状态区与输入区之间横线分隔");
@@ -156,11 +157,11 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
 });
 
 test("输入栏两字符提示符：左=上次提交模式符号+状态色，右=当前模式符号（默认前景色）", () => {
-  const strip = (l: RenderLine): string =>
-    l.text.replace(/\x1b\[[0-9;]*m/g, "");
-  const sgr = (l: RenderLine): string =>
-    /^\x1b\[38;2;\d+;\d+;\d+m/.exec(l.text)?.[0] ?? "";
-  const last = (s: ReturnType<typeof initialState>): RenderLine =>
+  const strip = (l: FrameRow): string =>
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "");
+  const sgr = (l: FrameRow): string =>
+    /^\x1b\[38;2;\d+;\d+;\d+m/.exec(rowAnsi(l))?.[0] ?? "";
+  const last = (s: ReturnType<typeof initialState>): FrameRow =>
     buildFrame(s, { rows: 10, cols: 40 }).at(-2)!; // 输入行（末行是按键提示区，之间不画横线）
   const mk = (
     lastMode: InputMode,
@@ -211,7 +212,7 @@ test("输入栏两字符提示符：左=上次提交模式符号+状态色，右
   assert.notEqual(green, yellow);
   assert.notEqual(yellow, red);
   // 结构：SGR + 左符号 + 恢复 SGR + 右符号（右符号前无新 SGR，默认前景色）
-  const t = last(mk("shell", "success")).text;
+  const t = rowAnsi(last(mk("shell", "success")));
   assert.ok(
     /^(\x1b\[38;2;\d+;\d+;\d+m)(\$)(\x1b\[38;2;\d+;\d+;\d+m)(>)/.test(t),
     "两字符提示符结构：着色 $ + 恢复 + 默认色 >",
@@ -436,10 +437,9 @@ test("renderStatusLine: model 段 provider 紫、模型名青，路径段染蓝�
       contextLen: "123",
       cacheHit: "87%",
     },
-    "dark",
     80,
   );
-  const text = lines.map((l) => l.text).join("\n");
+  const text = lines.map((l) => rowAnsi(l)).join("\n");
   assert.ok(
     text.includes("\x1b[38;2;169;70;231m"),
     "应有紫色(magenta #A946E7)",
@@ -465,12 +465,11 @@ test("renderStatusLine: 相邻段颜色不同且不含红/黄/绿状态色", () 
       contextLen: "123",
       cacheHit: "87%",
     },
-    "dark",
     160,
   );
   assert.equal(lines.length, 1, "宽屏应单行");
   const sgrs = [
-    ...lines[0]!.text.matchAll(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g),
+    ...rowAnsi(lines[0]!).matchAll(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g),
   ].map((m) => {
     const h = (n: string): string => Number(n).toString(16).padStart(2, "0");
     return `#${h(m[1]!)}${h(m[2]!)}${h(m[3]!)}`.toUpperCase();
@@ -502,17 +501,16 @@ test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", ()
       contextLen: "12345",
       cacheHit: "87%",
     },
-    "dark",
     20,
   );
   // 极端窄屏：分组折行 + 单组超宽组内压缩（cwd 保尾 / model 保后缀），行不超宽
   assert.ok(lines.length >= 2, "窄屏应折行为多行");
-  const joined = lines.map((l) => l.text).join("\n");
+  const joined = lines.map((l) => rowAnsi(l)).join("\n");
   assert.ok(joined.includes("12:00:00"), "时间保留");
   assert.ok(joined.includes("87%"), "缓存命中保留");
   assert.ok(joined.includes(":none"), "model 段思考后缀保尾保留");
   for (const l of lines) {
-    const visible = l.text.replace(/\x1b\[[0-9;]*m/g, "");
+    const visible = rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "");
     assert.ok(visible.length <= 20, `行超宽: ${visible}`);
   }
 });
@@ -528,8 +526,8 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(�
   s = reduceState(s, { type: "turn-end" });
   // 标题栏占左列顶部 2 行：加高终端（rows=24 → dialogueH=5）保证用户块全部可见
   const top = buildFrame(s, { rows: 24, cols: 40 }).slice(0, 10);
-  const plain = (line: RenderLine): string =>
-    line.text.replace(/\x1b\[[0-9;]*m/g, "");
+  const plain = (line: FrameRow): string =>
+    rowAnsi(line).replace(/\x1b\[[0-9;]*m/g, "");
   const visible = top.map(plain);
   // 长消息占满最大正文宽 ⇒ 左边界 = 历史宽 - userMaxBodyWidth
   const m = metricsFor({ rows: 24, cols: 40 }, false);
@@ -565,12 +563,11 @@ test("renderStatusLine: 长 cwd 按余宽保尾截断，行1 预算内单行容�
       contextLen: "123",
       cacheHit: "87%",
     },
-    "dark",
     24,
   );
   // 窄屏单组(环境)超行宽 → 组内压缩，cwd 保尾截断；LLM 组折行
   assert.ok(lines.length >= 2, `窄屏应折为多行 (got ${lines.length} lines)`);
-  const joined = lines.map((l) => l.text).join("\n");
+  const joined = lines.map((l) => rowAnsi(l)).join("\n");
   const visible = joined.replace(/\x1b\[[0-9;]*m/g, "");
   assert.ok(
     visible.includes("deepseek:off"),
@@ -581,8 +578,8 @@ test("renderStatusLine: 长 cwd 按余宽保尾截断，行1 预算内单行容�
   assert.ok(visible.includes("9ABCDEF"), "cwd 截断应保留路径尾部");
   for (const l of lines) {
     assert.ok(
-      l.text.replace(/\x1b\[[0-9;]*m/g, "").length <= 24,
-      `行不应超宽: ${l.text}`,
+      rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "").length <= 24,
+      `行不应超宽: ${rowAnsi(l)}`,
     );
   }
 });
@@ -597,13 +594,12 @@ test("renderStatusLine: 超长 git 折行完整保留（不截断）", () => {
       contextLen: "123",
       cacheHit: "87%",
     },
-    "dark",
     44,
   );
   // 完整优先：单组放得下就完整显示并折行，不截断内容（标题已移入状态列，不再占水平栏宽度）
   assert.ok(lines.length >= 2, `应折行为多行 (got ${lines.length} lines)`);
   const visible = lines
-    .map((l) => l.text)
+    .map((l) => rowAnsi(l))
     .join("\n")
     .replace(/\x1b\[[0-9;]*m/g, "");
   assert.ok(
@@ -612,8 +608,8 @@ test("renderStatusLine: 超长 git 折行完整保留（不截断）", () => {
   );
   for (const l of lines) {
     assert.ok(
-      l.text.replace(/\x1b\[[0-9;]*m/g, "").length <= 44,
-      `行不应超宽: ${l.text}`,
+      rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "").length <= 44,
+      `行不应超宽: ${rowAnsi(l)}`,
     );
   }
 });
@@ -631,12 +627,11 @@ test("renderStatusLine: 宽度足够时各段完整显示不省略号", () => {
       contextLen: "123",
       cacheHit: "87%",
     },
-    "dark",
     160,
   );
   assert.equal(lines.length, 1, "宽屏完整单行(env|LLM 分组)");
   const visible = lines
-    .map((l) => l.text)
+    .map((l) => rowAnsi(l))
     .join("\n")
     .replace(/\x1b\[[0-9;]*m/g, "");
   assert.ok(visible.includes("ustc/deepseek-v4-pro:high"), "model 全名完整");
@@ -664,11 +659,10 @@ test("renderStatusLine: 思考后缀 none/off/on/实际等级名", () => {
         contextLen: "123",
         cacheHit: "87%",
       },
-      "dark",
       80,
     );
     const visible = lines
-      .map((l) => l.text)
+      .map((l) => rowAnsi(l))
       .join("")
       .replace(/\x1b\[[0-9;]*m/g, "");
     assert.ok(
@@ -682,7 +676,7 @@ test("会话流：短用户消息块整体靠右，右缘贴历史区右缘，�
   let s = initialState();
   s = reduceState(s, { type: "user-line", text: "你好" });
   const plain = buildFrame(s, { rows: 10, cols: 40 }).map((line) =>
-    line.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(line).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const row = plain.find((l) => l.includes("你好"))!;
   assert.ok(!row.startsWith("|"), "最左侧无插件竖线");
@@ -707,7 +701,7 @@ test("会话流：用户消息软换行续行共享同一左边界；显式换�
   });
   // 标题栏占左列顶部 2 行：加高终端（rows=24 → dialogueH=5）保证首行块可见
   const plain = buildFrame(s, { rows: 24, cols: 40 }).map((line) =>
-    line.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(line).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const rows = plain.filter(
     (l) => l.includes("第一行") || l.includes("第二行") || l.includes("展示"),
@@ -733,7 +727,7 @@ test("会话流：用户消息软换行竖线固定在块右缘（不随行尾�
     text: "a".repeat(40),
   });
   const plain = buildFrame(s, { rows: 24, cols: 40 }).map((line) =>
-    line.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(line).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const rows = plain.filter((l) => l.includes("aaaa"));
   assert.ok(rows.length >= 2, "应软换行成至少两行");
@@ -753,7 +747,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   s = reduceState(s, { type: "turn-end" });
   // 标题栏占左列顶部 2 行：加高终端（rows=19 → dialogueH=3）保证问题+空行+答案可见
   let plain = buildFrame(s, { rows: 19, cols: 40 }).map((l) =>
-    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const ui = plain.findIndex((l) => l.includes("问题"));
   const ai = plain.findIndex((l) => l.includes("答案"));
@@ -767,7 +761,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   let t = reduceState(initialState(), { type: "user-line", text: "q" });
   t = reduceState(t, { type: "thinking", text: "思考中" });
   plain = buildFrame(t, { rows: 16, cols: 40 }).map((l) =>
-    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const tt = plain.findIndex((l) => l.includes("思考中"));
   assert.ok(tt >= 0, "思考应在帧内可见");
@@ -787,22 +781,22 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
     },
   );
   const dotRaw = dt.find(
-    (l, i) => i > TITLE_BAR_ROWS && /^─+$/.test(histContent(l.text, 40)),
+    (l, i) => i > TITLE_BAR_ROWS && /^─+$/.test(histContent(rowAnsi(l), 40)),
   );
   assert.ok(dotRaw, "活动区分隔线为实线");
   assert.ok(
-    dotRaw!.text.includes(graySGR),
+    rowAnsi(dotRaw!).includes(graySGR),
     "活动区分隔线为灰色（含 truecolor SGR）",
   );
   let ts = reduceState(initialState(), { type: "append", text: "正文" });
   ts = reduceState(ts, { type: "turn-end" }); // 正文标 final 进历史区
   ts = reduceState(ts, { type: "turn-begin" });
   const turnRaw = buildFrame(ts, { rows: 10, cols: 40 }).find((l) =>
-    /^╌+$/.test(histContent(l.text, 40)),
+    /^╌+$/.test(histContent(rowAnsi(l), 40)),
   );
   assert.ok(turnRaw, "turn 分隔线(虚线)仍在历史区");
   assert.ok(
-    turnRaw!.text.includes(graySGR),
+    rowAnsi(turnRaw!).includes(graySGR),
     "turn 分隔线为灰色（含 truecolor SGR）",
   );
   const st = buildFrame(
@@ -811,7 +805,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
       rows: 16,
       cols: 40,
     },
-  ).map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""));
+  ).map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""));
   // 标题已移入状态列，水平栏定位改用组间管道符（标题段不再承载）
   const statIdx = st.findIndex((l) => l.includes("|"));
   assert.ok(statIdx > 0, "状态行存在");
@@ -826,7 +820,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   u = reduceState(u, { type: "turn-end" });
   u = reduceState(u, { type: "turn-begin" });
   plain = buildFrame(u, { rows: 20, cols: 30 }).map((l) =>
-    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const uu = plain.findIndex((l) => l.includes("孤立"));
   assert.ok(uu >= 0, "user 行需可见（窗口高度合适）");
@@ -845,7 +839,7 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   s = reduceState(s, { type: "turn-begin" });
   // 标题栏占左列顶部 2 行：活动区 1/2 后加高终端（rows=24 → dialogueH=6）保证正文尾段可见
   const plain = buildFrame(s, { rows: 24, cols: 40 }).map((l) =>
-    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const codeIdx = plain.findIndex((l) => l.includes("第三段"));
   // 历史区内的 turn 分隔线（灰色虚线 ╌）；底部全屏横线不在此列
@@ -862,7 +856,7 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   p = reduceState(p, { type: "append", text: "一段\n\n二段\n" });
   p = reduceState(p, { type: "turn-end" }); // 正文标 final → 历史区
   const plainP = buildFrame(p, { rows: 24, cols: 40 }).map((l) =>
-    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const i1 = plainP.findIndex((l) => l.includes("一段"));
   const i2 = plainP.findIndex((l) => l.includes("二段"));
@@ -880,8 +874,8 @@ test("会话流：思考在活动区按视口截断；正文(输出)到达保留
   const thinkingLines = frame.filter((l) => isThinkingRow(l, 60));
   // 活动区视口 = activityH 行（rows=16 → activityH=4）：只显示最近 4 行，可滚动回看
   assert.ok(thinkingLines.length <= 4, "思考最多占满活动区视口");
-  assert.ok(frame.some((line) => line.text.includes("t6")));
-  assert.ok(!frame.some((line) => line.text.includes("t1")));
+  assert.ok(frame.some((line) => rowAnsi(line).includes("t6")));
+  assert.ok(!frame.some((line) => rowAnsi(line).includes("t1")));
 
   s = reduceState(s, { type: "append", text: "正文" });
   assert.equal(
@@ -921,8 +915,8 @@ test("会话流：思考不再单独折叠，活动区整体按视口高度截�
     thinking.length <= 8,
     "活动区视口=activityH（rows=24 → activityH=8），实际:" + thinking.length,
   );
-  assert.ok(frame.some((line) => line.text.includes("a12")));
-  assert.ok(!frame.some((line) => line.text.includes("a01")));
+  assert.ok(frame.some((line) => rowAnsi(line).includes("a12")));
+  assert.ok(!frame.some((line) => rowAnsi(line).includes("a01")));
 });
 test("会话流：窄终端仍保留用户与思考文本", () => {
   let s = initialState();
@@ -931,7 +925,7 @@ test("会话流：窄终端仍保留用户与思考文本", () => {
   // 标题栏占左列顶部：加高到 rows=17（cols=8 时状态栏折 2 行，dialogueH=2）
   // 保证用户块两行（窄列换行）可见
   const plain = buildFrame(s, { rows: 17, cols: 8 }).map((line) =>
-    line.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(line).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const narrowJoined = plain.join("");
   assert.ok(narrowJoined.includes("用") && narrowJoined.includes("户"));
@@ -941,7 +935,7 @@ test("会话流：窄终端仍保留用户与思考文本", () => {
 test("会话流：cols=2 极限宽度不丢失宽字符", () => {
   const s = reduceState(initialState(), { type: "user-line", text: "中" });
   const plain = buildFrame(s, { rows: 20, cols: 2 }).map((line) =>
-    line.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(line).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   assert.ok(plain.some((line) => line.includes("中")));
 });
@@ -950,7 +944,7 @@ test("会话流：turn 分隔线在历史区铺满宽度", () => {
   let s = reduceState(initialState(), { type: "user-line", text: "x" });
   s = reduceState(s, { type: "turn-end" });
   const plain = buildFrame(s, { rows: 10, cols: 20 }).map((line) =>
-    line.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(line).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     plain.some((line) => line.length === 20 && line.includes("─".repeat(18))),
@@ -971,7 +965,7 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
   s = reduceState(s, { type: "turn-end" }); // 正文标 final → 历史区
   // 标题栏占左列顶部 2 行：加高终端（rows=16 → dialogueH=2）保证两行正文可见
   const rows = buildFrame(s, { rows: 16, cols: 40 })
-    .map((l) => strip(l.text))
+    .map((l) => strip(rowAnsi(l)))
     .filter((l) => /[0-9]/.test(l));
   assert.ok(rows.length >= 2, "超 gutter 宽的正文应软换行");
   for (const l of rows) {
@@ -992,7 +986,7 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
   let u = initialState();
   u = reduceState(u, { type: "user-line", text: "hi" });
   const uf = buildFrame(u, { rows: 11, cols: 40 })
-    .map((l) => strip(l.text))
+    .map((l) => strip(rowAnsi(l)))
     .find((l) => l.includes("hi"));
   assert.ok(
     uf !== undefined && histContent(uf, 40).endsWith("hi┃"),
@@ -1008,7 +1002,7 @@ test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满历
     text: "0123456789012345678901234567890123456789", // 40 字符
   });
   const rows = buildFrame(s, { rows: 16, cols: 40 })
-    .map((l) => strip(l.text))
+    .map((l) => strip(rowAnsi(l)))
     .filter((l) => /[0-9]/.test(l));
   const m = metricsFor({ rows: 16, cols: 40 }, false);
   const hist = m.historyWidth;
@@ -1039,14 +1033,14 @@ test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代�
   let s = initialState();
   s = reduceState(s, { type: "append", text: lines.join("\n") + "\n" });
   const raw = buildFrame(s, { rows: 40, cols: 80 });
-  const plain = raw.map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""));
+  const plain = raw.map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""));
   const joined = plain.join("\n");
   // 标题：内容保留、# 前缀消费、行内粗体叠加且有 bold SGR
   assert.ok(joined.includes("一级标题"), "标题内容");
   assert.ok(!joined.includes("# 一级标题"), "# 前缀被消费");
   assert.ok(joined.includes("二级 粗 标题"), "标题内行内粗体");
   assert.ok(
-    raw.some((l) => l.text.includes("一级标题") && l.text.includes("\x1b[1m")),
+    raw.some((l) => rowAnsi(l).includes("一级标题") && rowAnsi(l).includes("\x1b[1m")),
     "标题 bold 强调",
   );
   // 任务列表：ASCII [x]/[ ]，前缀 - 被消费
@@ -1075,7 +1069,7 @@ test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代�
     "语言标签显示",
   );
   assert.ok(
-    raw.some((l) => /\x1b\[48;2;\d+;\d+;\d+m/.test(l.text)),
+    raw.some((l) => /\x1b\[48;2;\d+;\d+;\d+m/.test(rowAnsi(l))),
     "代码行有背景",
   );
 });
@@ -1098,7 +1092,7 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
   });
   s = reduceState(s, { type: "thinking", text: lines[6]! });
   const raw = buildFrame(s, { rows: 40, cols: 80 });
-  const plain = raw.map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""));
+  const plain = raw.map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""));
   const joined = plain.join("\n");
   // 无序列表：-/*/ + 统一 •；有序列表保留数字
   assert.ok(
@@ -1112,7 +1106,7 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
   // 已完成任务：灰色删除线 SGR（前缀带 ANSI，先用 strip 后的 plain 定位）
   const doneIdx = plain.findIndex((l) => l.includes("[x] 完成了"));
   assert.ok(doneIdx >= 0, "已完成任务可见");
-  assert.ok(raw[doneIdx]!.text.includes("\x1b[9m"), "已完成任务删除线");
+  assert.ok(rowAnsi(raw[doneIdx]!).includes("\x1b[9m"), "已完成任务删除线");
   // thinking 保持纯文本（markdown 只作用于最终正文）
   // thinking 保持纯文本（markdown 只作用于最终正文）
   assert.ok(
@@ -1133,55 +1127,55 @@ const baseStatus = {
 };
 
 test("renderStatusLine: 有 usage 显示 ctx/cache，无 usage 保留占位 —", () => {
-  const noUsage = renderStatusLine(baseStatus, "dark", 80);
+  const noUsage = renderStatusLine(baseStatus, 80);
   assert.ok(
     noUsage
-      .map((l) => l.text)
+      .map((l) => rowAnsi(l))
       .join("\n")
       .includes("—"),
     "无 usage 保留占位 —",
   );
-  const withUsage = renderStatusLine(baseStatus, "dark", 80, {
+  const withUsage = renderStatusLine(baseStatus, 80, {
     input: 12000,
     output: 900,
     cacheRead: 24000,
   });
-  const t = withUsage.map((l) => l.text).join("\n");
+  const t = withUsage.map((l) => rowAnsi(l)).join("\n");
   assert.ok(t.includes("ctx 36k"), `contextLen 段应显示 ctx 36k (got ${t})`);
   assert.ok(t.includes("cache 67%"), "cacheHit 段应显示 cache 67%");
 });
 
 test("renderStatusLine: token 缩写 k/M（12.4k / 1.5M），零总量回占位", () => {
-  const mid = renderStatusLine(baseStatus, "dark", 120, {
+  const mid = renderStatusLine(baseStatus, 120, {
     input: 12400,
     output: 0,
     cacheRead: 0,
   });
   assert.ok(
     mid
-      .map((l) => l.text)
+      .map((l) => rowAnsi(l))
       .join("\n")
       .includes("ctx 12.4k"),
   );
-  const big = renderStatusLine(baseStatus, "dark", 120, {
+  const big = renderStatusLine(baseStatus, 120, {
     input: 1500000,
     output: 0,
     cacheRead: 0,
   });
   assert.ok(
     big
-      .map((l) => l.text)
+      .map((l) => rowAnsi(l))
       .join("\n")
       .includes("ctx 1.5M"),
   );
-  const zero = renderStatusLine(baseStatus, "dark", 120, {
+  const zero = renderStatusLine(baseStatus, 120, {
     input: 0,
     output: 0,
     cacheRead: 0,
   });
   assert.ok(
     zero
-      .map((l) => l.text)
+      .map((l) => rowAnsi(l))
       .join("\n")
       .includes("—"),
     "总量为 0 回占位",
@@ -1209,7 +1203,7 @@ test("buildFrame: 工具调用/结果行（*/+/x，失败着红）", () => {
     detail: "EACCES: 13",
   });
   const joined = buildFrame(s, { rows: 16, cols: 40 })
-    .map((l) => l.text)
+    .map((l) => rowAnsi(l))
     .join("\n");
   const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
   assert.ok(plain.includes("bash ls"), "工具调用行 ○ name summary");
@@ -1229,7 +1223,7 @@ test("buildFrame: notice tone 行在帧内灰/蓝/黄/红/绿着色", () => {
   s = reduceState(s, { type: "notice", text: "红", tone: "error" });
   s = reduceState(s, { type: "notice", text: "绿", tone: "success" });
   const joined = buildFrame(s, { rows: 24, cols: 40 })
-    .map((l) => l.text)
+    .map((l) => rowAnsi(l))
     .join("\n");
   assert.ok(
     joined.includes("\x1b[38;2;120;120;120m日志"),
@@ -1259,7 +1253,7 @@ test("buildFrame: 工具历史只显最近 TOOL_MAX_GROUPS 组，窗口内组间
     });
   }
   const joined = buildFrame(s, { rows: 20, cols: 50 })
-    .map((l) => l.text)
+    .map((l) => rowAnsi(l))
     .join("\n");
   const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
   assert.ok(plain.includes("cmd 6"), "最新调用应保留在活动区窗口");
@@ -1269,7 +1263,7 @@ test("buildFrame: 工具历史只显最近 TOOL_MAX_GROUPS 组，窗口内组间
   assert.ok(!plain.includes("cmd 1"), "最早调用被折叠隐藏");
   // 组间不再插空行：cmd5 组与 cmd6 组之间的区域不含空行（旧行为有 1 个）
   const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
-    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const i5 = lines.findIndex((l) => l.includes("cmd 5"));
   const i6 = lines.findIndex((l) => l.includes("cmd 6"));
@@ -1303,7 +1297,7 @@ test("buildFrame: step 分组头渲染为 `╌╌ step N ╌╌╌` 历史虚线
     detail: "ok",
   });
   const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
-    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const sep = lines.findIndex((l) => l.includes("╌╌ step 123"));
   assert.ok(sep >= 0, "虚线 step 分隔行存在: " + lines.join("|"));
@@ -1369,7 +1363,7 @@ test("buildFrame: step 分割行前吸收空活动行（前文结束即接分割
     detail: "ok 2",
   });
   const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
-    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const blank = (l: string): boolean => l.replace(/[│|\s]/g, "") === "";
   const sep = lines.findIndex((l) => l.includes("╌╌ step 2"));
@@ -1427,7 +1421,7 @@ test("buildFrame: 思考以换行结尾时 step 分割行前不显示空行（�
     detail: "ok 2",
   });
   const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
-    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const blank = (l: string): boolean => l.replace(/[│|\s]/g, "") === "";
   const sep = lines.findIndex((l) => l.includes("╌╌ step 2"));
@@ -1457,7 +1451,7 @@ test("buildFrame: 两次调用组之间不再插空行（紧凑拼接，虚线 s
     });
   }
   const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
-    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const i1 = lines.findIndex((l) => l.includes("run 1"));
   const i2 = lines.findIndex((l) => l.includes("run 2"));
@@ -1490,7 +1484,7 @@ test("buildFrame: 工具名（黄）独立着色，结果 ✓ 绿 / ✗ 整行�
     detail: "EACCES",
   });
   const joined = buildFrame(s, { rows: 16, cols: 40 })
-    .map((l) => l.text)
+    .map((l) => rowAnsi(l))
     .join("\n");
   // dark 主题 24bit 码：黄 #E7A946 / 绿 #84E746 / 红 #E74684
   assert.ok(
@@ -1515,7 +1509,7 @@ test("buildFrame: 工具调用长参数换行——仅首行工具名着黄，�
     summary: LONG,
   });
   const plain = buildFrame(s, { rows: 24, cols: 60 }).map((l) =>
-    l.text.replace(/\x1b\[[0-9;]*m/g, ""),
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   // 工具调用行按列宽换行为多行：定位首行（含 bash + 参数头），连读后续非空活动行
   const start = plain.findIndex((l) => l.includes("bash"));
@@ -1526,7 +1520,7 @@ test("buildFrame: 工具调用长参数换行——仅首行工具名着黄，�
   // 整行宽 60、参数超宽 → 至少拆成 2 行
   assert.ok(block.length >= 2, "工具调用行应发生换行: " + block);
   const YELLOW = "\x1b[38;2;231;169;70m";
-  const colored = buildFrame(s, { rows: 24, cols: 60 }).map((l) => l.text);
+  const colored = buildFrame(s, { rows: 24, cols: 60 }).map((l) => rowAnsi(l));
   const firstRow = colored[start]!;
   const restRows = colored
     .slice(start + 1, start + block.length)
@@ -1557,7 +1551,7 @@ test("buildFrame: usage 入帧 → 状态栏显示 ctx/cache（取代占位 —�
     cacheRead: 4000,
   });
   const plain = buildFrame(s, { rows: 6, cols: 60 })
-    .map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""))
+    .map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""))
     .join("\n");
   // total=12000 → ctx 12k；cache=4000/12000≈33%
   assert.ok(plain.includes("ctx 12k"), "帧内状态栏应有 ctx 12k");
@@ -1578,7 +1572,7 @@ test("buildFrame: compaction/retry toast 文案入帧", () => {
     message: "连接被重置",
   });
   const plain = buildFrame(s, { rows: 16, cols: 60 })
-    .map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ""))
+    .map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""))
     .join("\n");
   assert.ok(plain.includes("正在压缩上下文..."), "start toast");
   assert.ok(plain.includes("压缩完成"), "end toast");
@@ -1589,32 +1583,32 @@ test("buildFrame: compaction/retry toast 文案入帧", () => {
 });
 
 test("renderStatusLine: cache 命中率取整（全命中 → cache 100%）", () => {
-  const t = renderStatusLine(baseStatus, "dark", 120, {
+  const t = renderStatusLine(baseStatus, 120, {
     input: 500,
     output: 500,
     cacheRead: 9500,
   })
-    .map((l) => l.text)
+    .map((l) => rowAnsi(l))
     .join("\n");
   assert.ok(t.includes("ctx 10k"), "total=10000 → ctx 10k");
   assert.ok(t.includes("cache 95%"), "9500/10000 → cache 95%");
-  const full = renderStatusLine(baseStatus, "dark", 120, {
+  const full = renderStatusLine(baseStatus, 120, {
     input: 0,
     output: 100,
     cacheRead: 20000,
   })
-    .map((l) => l.text)
+    .map((l) => rowAnsi(l))
     .join("\n");
   assert.ok(full.includes("cache 100%"), "cacheRead 全命中 → cache 100%");
 });
 
 test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段仍保留", () => {
-  const t = renderStatusLine(baseStatus, "dark", 20, {
+  const t = renderStatusLine(baseStatus, 20, {
     input: 12400,
     output: 0,
     cacheRead: 0,
   })
-    .map((l) => l.text)
+    .map((l) => rowAnsi(l))
     .join("\n");
   assert.ok(t.includes("ctx 12.4k"), "窄列下 contextLen 段保留");
   assert.ok(!t.includes("新会话"), "窄列下标题段省略");
@@ -1623,8 +1617,8 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
   //     Mode 块（见 statusColumnBody/modeBlock），水平状态栏不再承载任何会话徽标 ---
 
   test("renderStatusLine: 会话徽标已全部移除（已移入顶部状态列 Mode 块；jobs 不再显示）", () => {
-    const t = renderStatusLine(baseStatus, "dark", 120, undefined)
-      .map((l) => l.text)
+    const t = renderStatusLine(baseStatus, 120, undefined)
+      .map((l) => rowAnsi(l))
       .join("\n");
     for (const bad of [
       "plan",
@@ -1649,7 +1643,7 @@ test("顶部面板：hint 行为隐藏 Enter/Esc 且不带面板标签；Tab 由
   const size = { rows: 12, cols: 100 } as const;
   const hintOf = (st: ReturnType<typeof initialState>): string => {
     const line = buildFrame(st, size)
-      .map((l) => l.text)
+      .map((l) => rowAnsi(l))
       .find((l) => stripAnsi(l).startsWith("[Alt+Enter]"));
     return stripAnsi(line ?? "");
   };
@@ -1731,7 +1725,7 @@ test("活动区：activityScroll 滚动窗口（默认尾部；上滚看更早�
       scrollDelta === 0
         ? s
         : reduceState(s, { type: "activity-scroll", delta: scrollDelta });
-    const plain = buildFrame(st, { rows: 30, cols: 60 }).map((l) => l.text);
+    const plain = buildFrame(st, { rows: 30, cols: 60 }).map((l) => rowAnsi(l));
     const sep = activitySepIdx(plain, 60);
     // 状态栏上方 ─ 分隔行：D 列交点恒为灰 ┴（无焦点不再延续活动区点线）
     const end = plain.findIndex(
@@ -1766,7 +1760,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   const m = metricsFor(size, false);
   const D = m.historyWidth; // 60：分隔竖线列（历史区右缘/状态列左缘）
   const rowsOf = (st: ReturnType<typeof initialState>): string[] =>
-    buildFrame(st, size).map((l) => l.text);
+    buildFrame(st, size).map((l) => rowAnsi(l));
   const plain = (l: string): string => stripAnsi(l);
   const sepRow = (lines: string[]): string => {
     const i = activitySepIdx(lines, size.cols);
@@ -1994,7 +1988,7 @@ test("对话区：上滚展开折叠历史（offset>0 更早回复可见，跟�
   }
   const frame = (st: typeof s): string =>
     buildFrame(st, { rows: 60, cols: 80 })
-      .map((l) => l.text)
+      .map((l) => rowAnsi(l))
       .join("\n");
   // 跟随底部：更早回复折叠为灰占位，最早回复不可见
   const joined0 = frame(s);
@@ -2047,7 +2041,7 @@ function historyFrame(
     s = reduceState(s, { type: "history-list-error", error: "boom" });
   if (all) s = reduceState(s, { type: "history-scope-toggle" });
   return buildFrame(s, { rows, cols }).map((l) =>
-    stripAnsi(typeof l === "string" ? l : l.text),
+    stripAnsi(typeof l === "string" ? l : rowAnsi(l)),
   );
 }
 

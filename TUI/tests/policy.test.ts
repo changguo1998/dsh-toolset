@@ -12,6 +12,7 @@ import { initialState, reduceState } from "../src/app/state.ts";
 import { routeSlashCommand } from "../src/app/commands.ts";
 import { renderStatusColumn } from "../src/app/layout.ts";
 import { createRealDshAdapter } from "../src/app/adapter/dsh.ts";
+import { rowAnsi } from "./helpers/rowText.ts";
 import type {
   DshAdapter,
   DshEvent,
@@ -23,13 +24,12 @@ import type {
   DshUserMessageLike,
 } from "../src/app/adapter/types.ts";
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
-import type { RenderLine, Size } from "../src/renderer/screen.ts";
+import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
 
 // ---------- layout：策略徽标 ----------
 
 test("renderStatusColumn: policy ask → 行列出 ask/auto（ask 生效）；never → auto 生效；缺省省略", () => {
-  const theme = initialState().themeId;
   const strip = (policy: "ask" | "never" | undefined): string =>
     renderStatusColumn(
       undefined,
@@ -38,27 +38,26 @@ test("renderStatusColumn: policy ask → 行列出 ask/auto（ask 生效）；ne
       0,
       6,
       30,
-      theme,
       undefined,
       policy,
       undefined,
     )
-      .map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""))
+      .map((l) => rowAnsi(l).replace(/\u001b\[[0-9;]*m/g, ""))
       .join("\n");
   const ask = strip("ask");
   assert.ok(
     ask.includes("policy ask auto"),
-    "ask 策略行列出 ask/auto 可选项: " + ask,
+    `ask 策略行列出 ask/auto 可选项: ${ask}`,
   );
   const auto = strip("never");
   assert.ok(
     auto.includes("policy ask auto"),
-    "never 策略行仍列出 ask/auto（auto 为生效项，着色在原始行）: " + auto,
+    `never 策略行仍列出 ask/auto（auto 为生效项，着色在原始行）: ${auto}`,
   );
   const none = strip(undefined);
   assert.ok(
     !none.includes("policy") && !none.includes("Mode"),
-    "无 policy 时 Mode 块（含 policy 行）省略: " + none,
+    `无 policy 时 Mode 块（含 policy 行）省略: ${none}`,
   );
 });
 
@@ -133,7 +132,7 @@ class FakeRuntime implements DshRuntime {
     const set = this.listeners.get(event);
     if (!set) return undefined;
     let last: unknown;
-    for (const cb of [...set]) {
+    for (const cb of set) {
       const r = cb(...args);
       if (r !== undefined) last = r;
     }
@@ -237,11 +236,11 @@ class FakeRenderer implements Renderer {
   closed = 0;
   size: Size = { cols: 80, rows: 24 };
   lastRender: string[] = [];
-  render(lines: RenderLine[]): void {
-    this.lastRender = lines.map((l) => l.text);
+  render(rows: FrameRow[]): void {
+    this.lastRender = rows.map((r) => r.segments.map((s) => s.text).join(""));
     this.renders++;
   }
-  refresh(_lines: RenderLine[]): void {
+  refresh(_rows: FrameRow[]): void {
     this.refreshes++;
   }
   onKey(cb: (k: KeyEvent) => void): void {
@@ -316,7 +315,7 @@ function typeAndEnter(renderer: FakeRenderer, text: string): void {
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 function frames(renderer: FakeRenderer): string {
-  return renderer.lastRender.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+  return renderer.lastRender.join("\n").replace(/\u001b\[[0-9;]*m/g, "");
 }
 
 test("/policy never：显式设置 → adapter.setApprovalPolicy('never') + notice", async () => {
@@ -329,7 +328,7 @@ test("/policy never：显式设置 → adapter.setApprovalPolicy('never') + noti
   assert.deepEqual(adapter.policies, ["never"], "adapter 收到显式设置");
   assert.ok(
     frames(renderer).includes("审批策略：never（工具调用自动放行）"),
-    "notice 入帧: " + frames(renderer),
+    `notice 入帧: ${frames(renderer)}`,
   );
 });
 
@@ -344,7 +343,7 @@ test("/policy 无参：打开状态选项面板——空格预选、Enter 提交
   assert.ok(f0.includes("/policy 审批策略"), "面板标题: " + f0);
   assert.ok(
     f0.includes("ask") && f0.includes("auto"),
-    "两项选项（ask/auto，与状态栏一致）: " + f0,
+    `两项选项（ask/auto，与状态栏一致）: ${f0}`,
   );
   assert.deepEqual(adapter.policies, [], "打开面板不直接生效（防误改）");
   // ↓ 到 never → 空格预选 → Enter 提交并关闭
@@ -381,7 +380,7 @@ test("/policy：宿主未挂载 ctx.approval（adapter 缺失方法）→ notice
   assert.deepEqual(adapter.policies, []);
   assert.ok(
     frames(renderer).includes("审批策略服务不可用"),
-    "缺失宿主应提示不可用: " + frames(renderer),
+    `缺失宿主应提示不可用: ${frames(renderer)}`,
   );
 });
 

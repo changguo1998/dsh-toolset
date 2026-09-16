@@ -12,8 +12,8 @@
 // 恒可见）。最底行打印按键帮助：空格=选中，←/→=切换列，Tab=下一列，Enter=提交，
 // Esc=取消。
 
-import type { RenderLine } from "../../renderer/index.ts";
-import { colorFor, type ThemeId } from "../../renderer/theme.ts";
+import type { FrameRow, FrameSegment } from "../../renderer/index.ts";
+import type { ThemeId } from "../../renderer/theme.ts";
 import type { PickerState } from "../state.ts";
 import { truncateToWidth } from "../layout.ts";
 
@@ -81,10 +81,15 @@ function renderColumnCell(
   return { text: markCell(sel, f) + v, focus: f, sel: sel };
 }
 
+/** 按列宽截断并右补对齐（纯文本），再段化着色 */
+function padCell(text: string, w: number): FrameSegment[] {
+  return [{ text: truncateToWidth(text, w).padEnd(w) }];
+}
+
 export function renderModelPicker(
   view: ModelPickerView,
   themeId: ThemeId,
-): RenderLine[] {
+): FrameRow[] {
   const {
     providers,
     providerIndex,
@@ -122,9 +127,7 @@ export function renderModelPicker(
   const topO = (start: number) => start > 0;
   const bottomO = (len: number, rows: number, start: number) =>
     start + rows < len;
-  const rows: RenderLine[] = [];
-  const focusColor = colorFor(themeId, "yellow");
-  const selColor = colorFor(themeId, "green");
+  const rows: FrameRow[] = [];
   for (let r = 0; r < height; r++) {
     let cells: { text: string; focus: boolean; sel: boolean }[] = [
       { text: "", focus: false, sel: false },
@@ -145,10 +148,12 @@ export function renderModelPicker(
       // 最底行按键帮助：整行满宽单行（ASCII，避免面板出现汉字；
       // 旧实现放入第一列单元、被截断到列宽，实际仅前 ~16 字符可见）
       rows.push({
-        text: truncateToWidth(
-          "[space]select · [left/right]col · [tab]next col · [enter]commit · [esc]cancel",
-          width,
-        ).padEnd(width),
+        segments: [
+          { text: truncateToWidth(
+            "[space]select · [left/right]col · [tab]next col · [enter]commit · [esc]cancel",
+            width,
+          ).padEnd(width) },
+        ],
       });
       continue;
     } else {
@@ -201,14 +206,14 @@ export function renderModelPicker(
     }
 
     // 按列宽截断、补空格对齐后再着色（ANSI 会打乱截断宽度，故截断先行）
-    const cols = cells.map((c, i) => {
+    const cols: FrameSegment[][] = cells.map((c, i) => {
       const t = truncateToWidth(c.text, widths[i]!).padEnd(widths[i]!);
       // 已选（待提交）行绿：空格选中后绿色优先于焦点黄，选中才有视觉反馈
-      if (c.sel) return selColor(t);
-      if (c.focus) return focusColor(t); // 焦点行黄
-      return t;
+      if (c.sel) return [{ text: t, style: { fg: "green" } }];
+      if (c.focus) return [{ text: t, style: { fg: "yellow" } }]; // 焦点行黄
+      return [{ text: t }];
     });
-    rows.push({ text: cols.join(" ".repeat(sep)) });
+    rows.push({ segments: cols.flatMap((c, i) => (i > 0 ? [{ text: " ".repeat(sep) }, ...c] : c)) });
   }
   return rows;
 }

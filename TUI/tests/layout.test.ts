@@ -13,6 +13,7 @@ import {
 } from "../src/app/layout.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { renderTextInput } from "../src/app/components/TextInput.ts";
+import { rowText, segsAnsi } from "./helpers/rowText.ts";
 
 // ---- charWidth / displayWidth ----
 
@@ -194,7 +195,7 @@ test("renderTextInput: 光标列按显示宽度计算（ASCII）", () => {
   const line = renderTextInput("hello", 3, "...", 40)[0]!;
   // prompt="> "(2 列) + "hel"(3 列) = caret 列 5(0 基)
   assert.equal(line.caret, 2 + 3);
-  assert.equal(line.text, "> hello");
+  assert.equal(rowText(line), "> hello");
 });
 
 test("renderTextInput: 光标列按显示宽度计算（CJK 占 2 列）", () => {
@@ -210,7 +211,7 @@ test("renderTextInput: 光标在行尾也能给出列（不在文本中间画块
 
 test("renderTextInput: 空文本按 placeholder 渲染且光标在 prompt 之后", () => {
   const line = renderTextInput("", 0, "Type a message...", 40)[0]!;
-  assert.equal(line.text, "> Type a message...");
+  assert.equal(rowText(line), "> Type a message...");
   assert.equal(line.caret, 2);
 });
 
@@ -218,11 +219,11 @@ test("renderTextInput: 宽度不足时按 avail 换行，单行区域跟随光�
   const text = "abcdefghij";
   // avail = 10-2 = 8：row0=abcdefgh row1=ij；光标在末尾(cursor=10)→ 滚动到 row1
   const line = renderTextInput(text, 10, "...", 10)[0]!;
-  assert.equal(line.text, "  ij", "光标行(续行)缩进对齐，无 prompt");
+  assert.equal(rowText(line), "  ij", "光标行(续行)缩进对齐，无 prompt");
   assert.equal(line.caret, 2 + 2, "caret = prompt 宽 + 行内列");
   // 光标在 row0 内时不滚动
   const first = renderTextInput(text, 5, "...", 10)[0]!;
-  assert.equal(first.text, "> abcdefgh");
+  assert.equal(rowText(first), "> abcdefgh");
   assert.equal(first.caret, 2 + 5);
 });
 
@@ -233,14 +234,13 @@ test("renderTextInput: 显式 \\n 强制换行，光标落对应行", () => {
     3,
     "...",
     40,
-    "> ",
-    undefined,
+    [{ text: "> " }],
     3,
   );
   assert.equal(lines.length, 3, "输出恰好 height 行");
-  assert.equal(lines[0]!.text, "> 第一行", "首行带 prompt");
-  assert.equal(lines[1]!.text, "  第二行", "显式换行后的续行缩进对齐");
-  assert.equal(lines[2]!.text, "", "文本之外的行留空");
+  assert.equal(rowText(lines[0]!), "> 第一行", "首行带 prompt");
+  assert.equal(rowText(lines[1]!), "  第二行", "显式换行后的续行缩进对齐");
+  assert.equal(rowText(lines[2]!), "", "文本之外的行留空");
   assert.equal(
     lines[0]!.caret,
     2 + 6,
@@ -256,20 +256,20 @@ test("renderTextInput: 文本显式 \\n 结尾时光标落新空行", () => {
 });
 
 test("renderTextInput: 多行输入区文本换行、顶部对齐、仅光标行有 caret", () => {
-  const lines = renderTextInput("abcdefghij", 9, "...", 10, "> ", undefined, 3);
+  const lines = renderTextInput("abcdefghij", 9, "...", 10, [{ text: "> " }], 3);
   assert.equal(lines.length, 3, "输出恰好 height 行");
-  assert.equal(lines[0]!.text, "> abcdefgh", "首行带 prompt");
-  assert.equal(lines[1]!.text, "  ij", "续行缩进对齐");
-  assert.equal(lines[2]!.text, "", "文本之外的行留空");
+  assert.equal(rowText(lines[0]!), "> abcdefgh", "首行带 prompt");
+  assert.equal(rowText(lines[1]!), "  ij", "续行缩进对齐");
+  assert.equal(rowText(lines[2]!), "", "文本之外的行留空");
   assert.equal(lines[0]!.caret, undefined, "非光标行无 caret");
   assert.equal(lines[1]!.caret, 2 + 1, "光标行 caret = prompt 宽 + 行内列");
 });
 
 test("renderTextInput: 光标在换行边界/文本末尾时落在空行且 caret 正确", () => {
   // 文本恰好 8 列 = 一个 avail；光标在末尾 → row1 空行
-  const line = renderTextInput("abcdefgh", 8, "...", 10, "> ", undefined, 2);
+  const line = renderTextInput("abcdefgh", 8, "...", 10, [{ text: "> " }], 2);
   assert.equal(line.length, 2);
-  assert.equal(line[1]!.text, "");
+  assert.equal(rowText(line[1]!), "");
   assert.equal(line[1]!.caret, 2, "空行光标在 prompt 宽度处");
 });
 
@@ -278,16 +278,16 @@ test("renderTextInput: 光标在换行边界/文本末尾时落在空行且 care
 const strip = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 test("行内 markdown：单独粗体 / 斜体 / 行内 code 均渲染且带样式", () => {
-  const bold = wrapInlineMarkdown("**加粗**", 60, "dark")[0]!;
+  const bold = segsAnsi(wrapInlineMarkdown("**加粗**", 60, "dark")[0]!);
   assert.ok(bold.includes("\x1b[1m") && bold.includes("\x1b[22m"), "bold SGR");
   assert.equal(strip(bold), "加粗");
-  const italic = wrapInlineMarkdown("*斜体*", 60, "dark")[0]!;
+  const italic = segsAnsi(wrapInlineMarkdown("*斜体*", 60, "dark")[0]!);
   assert.ok(
     italic.includes("\x1b[3m") && italic.includes("\x1b[23m"),
     "italic SGR",
   );
   assert.equal(strip(italic), "斜体");
-  const code = wrapInlineMarkdown("`代码`", 60, "dark")[0]!;
+  const code = segsAnsi(wrapInlineMarkdown("`代码`", 60, "dark")[0]!);
   assert.ok(
     (code.match(/\x1b\[48;2;/g) ?? []).length >= 2,
     "code 用主题背景色打开/关闭(48;2)",
@@ -296,7 +296,7 @@ test("行内 markdown：单独粗体 / 斜体 / 行内 code 均渲染且带样�
 });
 
 test("行内 markdown：三种样式混排顺序保留", () => {
-  const out = wrapInlineMarkdown("前**粗**中`码`后*斜*尾", 60, "dark")[0]!;
+  const out = segsAnsi(wrapInlineMarkdown("前**粗**中`码`后*斜*尾", 60, "dark")[0]!);
   assert.equal(strip(out), "前粗中码后斜尾");
   assert.ok(out.includes("\x1b[1m") && out.includes("\x1b[3m"));
 });
@@ -309,20 +309,21 @@ test("行内 markdown：样式跨软换行后每行 ANSI 成对且不超宽", ()
   );
   assert.ok(rows.length >= 2, "宽 10 内应软换行");
   for (const row of rows) {
-    const on = (row.match(/\x1b\[1m/g) ?? []).length;
-    const off = (row.match(/\x1b\[22m/g) ?? []).length;
-    assert.equal(on, off, `每行 1m/22m 成对: ${JSON.stringify(row)}`);
+    const ansi = segsAnsi(row);
+    const on = (ansi.match(/\x1b\[1m/g) ?? []).length;
+    const off = (ansi.match(/\x1b\[22m/g) ?? []).length;
+    assert.equal(on, off, `每行 1m/22m 成对: ${JSON.stringify(ansi)}`);
     assert.ok(
-      displayWidth(strip(row)) <= 10,
-      `行不超宽: ${JSON.stringify(row)}`,
+      displayWidth(strip(ansi)) <= 10,
+      `行不超宽: ${JSON.stringify(ansi)}`,
     );
   }
 });
 
 test("行内 markdown：CJK 按 2 列精确换行，粗体跨行不丢字", () => {
   const rows = wrapInlineMarkdown("一二**三四五六**七八", 6, "dark");
-  assert.deepEqual(rows.map(strip), ["一二三", "四五六", "七八"]);
-  for (const r of rows) assert.ok(displayWidth(strip(r)) <= 6);
+  assert.deepEqual(rows.map((r) => strip(segsAnsi(r))), ["一二三", "四五六", "七八"]);
+  for (const r of rows) assert.ok(displayWidth(strip(segsAnsi(r))) <= 6);
 });
 
 test("行内 markdown：未闭合或嵌套时字符不丢失且约定输出稳定", () => {
@@ -334,7 +335,7 @@ test("行内 markdown：未闭合或嵌套时字符不丢失且约定输出稳�
     ["**外*内*外**", "**外内外**"],
   ];
   for (const [src, expect] of cases) {
-    const out = wrapInlineMarkdown(src, 60, "dark")[0]!;
+    const out = segsAnsi(wrapInlineMarkdown(src, 60, "dark")[0]!);
     assert.equal(strip(out), expect, `输入: ${src}`);
   }
 });
@@ -354,15 +355,15 @@ test("ANSI 感知：displayWidth 不计转义；truncateToWidth 透传转义不�
 test("行内 code 颜色随主题：dark / light 使用各自 gray 背景色板", () => {
   const bgSgr = (s: string): string =>
     /\x1b\[48;2;\d+;\d+;\d+m/.exec(s)?.[0] ?? "";
-  const d = wrapInlineMarkdown("`x`", 60, "dark")[0]!;
-  const l = wrapInlineMarkdown("`x`", 60, "light")[0]!;
+  const d = segsAnsi(wrapInlineMarkdown("`x`", 60, "dark")[0]!);
+  const l = segsAnsi(wrapInlineMarkdown("`x`", 60, "light")[0]!, "light");
   assert.ok(bgSgr(d) && bgSgr(l), "两主题代码均有背景色");
   assert.notEqual(bgSgr(d), bgSgr(l), "深浅主题 code 背景色不同");
 });
 
 test("无 markdown 标记时 wrapInlineMarkdown 与 wrapLine 输出一致", () => {
   const text = "一二三四五六七八九十";
-  assert.deepEqual(wrapInlineMarkdown(text, 10, "dark"), wrapLine(text, 10));
+  assert.deepEqual(wrapInlineMarkdown(text, 10, "dark").map((r) => r.map((s) => s.text).join("")), wrapLine(text, 10));
   assert.equal(parseInlineMarkdown("纯文本").length, 1);
 });
 
@@ -379,16 +380,16 @@ test("行内 markdown：粗斜/删除线/下划线/转义/自动链接/图片（
     ["![a](https://x/i.png)", "[a] https://x/i.png"],
   ];
   for (const [src, expect] of cases) {
-    assert.equal(strip(wrapInlineMarkdown(src, 60, "dark")[0]!), expect, src);
+    assert.equal(strip(segsAnsi(wrapInlineMarkdown(src, 60, "dark")[0]!)), expect, src);
   }
-  const bi = wrapInlineMarkdown("***粗斜***", 60, "dark")[0]!;
+  const bi = segsAnsi(wrapInlineMarkdown("***粗斜***", 60, "dark")[0]!);
   assert.ok(bi.includes("\x1b[1m") && bi.includes("\x1b[3m"), "*** 同段粗斜");
-  const st = wrapInlineMarkdown("~~删除~~", 60, "dark")[0]!;
+  const st = segsAnsi(wrapInlineMarkdown("~~删除~~", 60, "dark")[0]!);
   assert.ok(st.includes("\x1b[9m") && st.includes("\x1b[29m"), "删除线 SGR");
-  const ul = wrapInlineMarkdown("__下划线__", 60, "dark")[0]!;
+  const ul = segsAnsi(wrapInlineMarkdown("__下划线__", 60, "dark")[0]!);
   assert.ok(ul.includes("\x1b[4m") && ul.includes("\x1b[24m"), "下划线 SGR");
-  const esc = wrapInlineMarkdown("\\*不斜*", 60, "dark")[0]!;
+  const esc = segsAnsi(wrapInlineMarkdown("\\*不斜*", 60, "dark")[0]!);
   assert.ok(!esc.includes("\x1b[3m"), "\\* 不触发斜体");
-  const al = wrapInlineMarkdown("<https://a.b>", 60, "dark")[0]!;
+  const al = segsAnsi(wrapInlineMarkdown("<https://a.b>", 60, "dark")[0]!);
   assert.ok(al.includes("\x1b[4m"), "自动链接下划线");
 });

@@ -12,8 +12,8 @@
 // 会剥 ANSI 计宽、不切半个 CJK），再着色——着色后宽度计算会被转义序列打乱，
 // 一旦超宽会把活动区右缘框线挤偏并让终端折行。
 
-import type { RenderLine } from "../../renderer/index.ts";
-import { colorFor, type ThemeId } from "../../renderer/theme.ts";
+import type { FrameRow } from "../../renderer/index.ts";
+import type { ThemeId } from "../../renderer/theme.ts";
 import { truncateToWidth } from "../layout.ts";
 import type { CommandCandidate } from "../commands.ts";
 
@@ -27,19 +27,18 @@ export interface CommandCompletionView {
 
 export function renderCommandCompletion(
   view: CommandCompletionView,
-): RenderLine[] {
-  const { completion, height, themeId } = view;
+): FrameRow[] {
+  const { completion, height } = view;
   const width = Math.max(1, view.width);
-  const out: RenderLine[] = [];
-  const focusColor = colorFor(themeId, "yellow");
+  const out: FrameRow[] = [];
 
   // 标题行（命令名蓝；先截断到列宽再着色）
   out.push({
-    text: colorFor(themeId, "blue")(truncateToWidth(" /命令补全", width)),
+    segments: [{ text: truncateToWidth(" /命令补全", width), style: { fg: "blue" } }],
   });
 
   // 候选行：焦点行 `> /name  desc` 黄；其余默认色（默认焦点 = 最匹配项）
-  const rows: RenderLine[] = [];
+  const rows: FrameRow[] = [];
   for (let i = 0; i < completion.items.length; i++) {
     const item = completion.items[i]!;
     const focused = i === completion.index;
@@ -51,12 +50,14 @@ export function renderCommandCompletion(
         (item.desc ? "  " + item.desc : ""),
       width,
     );
-    rows.push(focused ? { text: focusColor(text) } : { text });
+    rows.push(
+      focused ? { segments: [{ text, style: { fg: "yellow" } }] } : { segments: [{ text }] },
+    );
   }
 
   // 组装：标题 + 候选（铺满可视行；超出可视行的候选丢弃不显示；不足补空行）
   const maxBody = Math.max(0, height - 1);
   out.push(...rows.slice(0, maxBody));
-  while (out.length < height) out.push({ text: "" });
+  while (out.length < height) out.push({ segments: [{ text: "" }] });
   return out;
 }

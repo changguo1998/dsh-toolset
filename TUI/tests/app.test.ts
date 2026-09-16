@@ -40,8 +40,9 @@ import type {
   SessionSurfaceView,
 } from "../src/app/adapter/dsh.ts";
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
-import type { RenderLine, Size } from "../src/renderer/screen.ts";
+import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
+import { rowAnsi } from "./helpers/rowText.ts";
 
 /** 记录行为的 fake renderer */
 class FakeRenderer implements Renderer {
@@ -50,14 +51,16 @@ class FakeRenderer implements Renderer {
   refreshes = 0;
   closed = 0;
   size: Size = { cols: 80, rows: 24 };
-  /** 最近一次 render 的文本行（仅文本，无 ANSI） */
+  /** 最近一次 render 的文本行（含 ANSI SGR，等价旧 RenderLine.text） */
   lastRender: string[] = [];
+  /** 当前主题（初始 dark；/theme 切换经 setTheme 更新） */
+  themeId: ThemeId = "dark";
 
-  render(lines: RenderLine[]): void {
-    this.lastRender = lines.map((l) => l.text);
+  render(rows: FrameRow[]): void {
+    this.lastRender = rows.map((r) => rowAnsi(r, this.themeId));
     this.renders++;
   }
-  refresh(_lines: RenderLine[]): void {
+  refresh(_rows: FrameRow[]): void {
     this.refreshes++;
   }
   onKey(cb: (k: KeyEvent) => void): void {
@@ -75,10 +78,11 @@ class FakeRenderer implements Renderer {
   getSize(): Size {
     return this.size;
   }
-  /** 记录 setTheme 调用（断言初始主题与 /theme 切换用） */
+  /** 记录 setTheme 调用（断言初始主题与 /theme 切换用）；同时用于行序列化主题 */
   themeCalls: ThemeId[] = [];
   setTheme(id: ThemeId): void {
     this.themeCalls.push(id);
+    this.themeId = id;
   }
   close(): void {
     this.closed++;

@@ -1,4 +1,4 @@
-// renderer/screen.ts — RenderLine 定义 + 帧缓冲 + 整帧重绘
+// renderer/screen.ts — FrameRow 定义 + 帧缓冲 + 整帧重绘
 //
 // 写入一次性 ANSI 报文（清屏 + 光标回到原点 + 逐行带样式写出）。
 // 无 diff：每次 render 整帧重绘。`ponytail:` 无 diff，行数大若有闪烁
@@ -17,14 +17,7 @@ import {
   hexSgr,
 } from "./theme.ts";
 
-export interface RenderLine {
-  text: string;
-  style?: { fg?: string; bg?: string; bold?: boolean };
-  /** 渲染后硬件光标停留的显示列(0 基)；仅输入行设置(TextInput 计算) */
-  caret?: number;
-}
-
-// ---------- 段级渲染契约（主线 A 目标态；RenderLine 迁移完成后删除） ----------
+// ---------- 段级渲染契约（旧行类型已迁移完成，FrameRow 为唯一行类型） ----------
 
 /** 段级样式：语义色名 + 字型开关。排版层唯一样式类型（规范见 SPEC.md §11.1） */
 export interface FrameStyle {
@@ -42,7 +35,7 @@ export interface FrameSegment {
   style?: FrameStyle;
 }
 
-/** 一行：排版输出最小单位（取代 RenderLine） */
+/** 一行：排版输出最小单位（段级结构与序列化契约） */
 export interface FrameRow {
   segments: FrameSegment[];
   /** 输入行硬件光标停留列（0 基显示列）；仅输入行设置 */
@@ -87,26 +80,26 @@ export class Screen {
   }
 
   /** 整帧重绘：清屏 → 原点 → 每行(基底色+样式)输出（末行不写 CRLF，防满高帧触底上滚）→ 末尾光标回到输入行 */
-  render(lines: RenderLine[]): void {
+  render(rows: FrameRow[]): void {
     const base = baseSgr(this.theme); // 主题基底前景+背景
     // 基底色先于清屏写出：ESC[2J 以当前(主题)背景填充整屏；后续每行再补
     // 基底色以覆盖行内样式段收尾后恢复到主题基底（不依赖 chalk 复位）
     const out: string[] = [base + "\x1b[2J\x1b[H"]; // 基底色 + 清屏 + 光标回原点
     let caret: { row: number; col: number } | null = null; // 输入行光标(0 基列)
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]!;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]!;
       // 每行前缀主题基底色：行内样式段只改前景/背景并恢复到主题基底，
       // 但 bold 用 22m 收尾可能留下中间态，统一每行重设基底最稳妥
-      out.push(base + styleLine(line, this.theme));
-      if (line.caret !== undefined) {
+      out.push(base + serializeFrameRow(row, this.theme));
+      if (row.caret !== undefined) {
         // 输入行仅记录硬件光标停留列；换行统一由「末行不写 CRLF」规则管理
-        caret = { row: i + 1, col: line.caret };
+        caret = { row: i + 1, col: row.caret };
       }
       // 仅末行不写尾部 CRLF：满高帧时末行 CRLF 触发触底上滚，下方多出一整行、
       // 硬件光标落在显示内容下方一行；光标由末尾转义精确定位。
       // （按键提示区加入后输入行不再占末行、须 CRLF 换行；此前无 caret 行的
       // 面板帧末行会写 CRLF 同样触底上滚 1 行，此处一并修正）
-      if (i < lines.length - 1) {
+      if (i < rows.length - 1) {
         out.push("\r\n");
       }
     }
@@ -116,20 +109,20 @@ export class Screen {
   }
 
   /** 只重绘末尾追加的 delta 行：移动到 delta 起始行后、以主题基底色写出行 */
-  renderDelta(startLine: number, lines: RenderLine[]): void {
+  renderDelta(startLine: number, rows: FrameRow[]): void {
     const out: string[] = [];
     // 光标移动到 startLine（1 基数）
     out.push(`\x1b[${startLine};1H`);
     let caret: { row: number; col: number } | null = null;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]!;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]!;
       // ESC[K 擦除以当前 bg 填充，故每个 delta 行都要带主题基底色
-      out.push(baseSgr(this.theme) + styleLine(line, this.theme));
-      if (line.caret !== undefined) {
-        caret = { row: startLine + i, col: line.caret };
+      out.push(baseSgr(this.theme) + serializeFrameRow(row, this.theme));
+      if (row.caret !== undefined) {
+        caret = { row: startLine + i, col: row.caret };
       }
       // 非末行 CRLF 换行、末行省略 CRLF（防满高帧触底上滚）；ESC[K 擦除行尾残留旧字符
-      out.push(i < lines.length - 1 ? "\r\n\x1b[K" : "\x1b[K");
+      out.push(i < rows.length - 1 ? "\r\n\x1b[K" : "\x1b[K");
     }
     if (caret) out.push(`\x1b[${caret.row};${caret.col + 1}H`);
     this.write(out.join(""));
@@ -146,39 +139,7 @@ function baseSgr(theme: ColorTheme): string {
   return themeSgr(theme, true) + themeSgr(theme, false);
 }
 
-/**
- * 按每个字符应用样式：manual ANSI，前景/背景分别以 38;2 / 48;2 设置，
- * bold 以 `1m` 开头 `22m` 收尾；无样式则原样返回。
- */
-export function styleLine(line: RenderLine, theme: ColorTheme): string {
-  const { text } = line;
-  const st = line.style;
-  if (!st) return text;
-  const open: string[] = [];
-  const close: string[] = [];
-  if (st.bold) {
-    open.push("\x1b[1m");
-    close.push("\x1b[22m");
-  }
-  if (st.fg) {
-    const hex = ansiNameToHex(theme, st.fg);
-    if (hex) {
-      open.push(hexSgr(hex, true));
-      close.push(hexSgr(theme.foreground, true));
-    }
-  }
-  if (st.bg) {
-    const hex = ansiNameToHex(theme, st.bg);
-    if (hex) {
-      open.push(hexSgr(hex, false));
-      close.push(hexSgr(theme.background, false));
-    }
-  }
-  if (open.length === 0 && close.length === 0) return text;
-  return open.join("") + text + close.reverse().join("");
-}
-
-// ---------- 段级序列化（主线 A；旧 RenderLine API 迁移完成后 styleLine 删除） ----------
+// ---------- 段级序列化 ----------
 
 /** 两段样式是否全字段相等（相邻合并判定） */
 function sameFrameStyle(

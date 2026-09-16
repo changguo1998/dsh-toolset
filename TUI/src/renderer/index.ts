@@ -3,9 +3,9 @@
 // 契约见 DESIGN.md「核心接口契约」。退出生命周期归 renderer：
 // close()/SIGINT/SIGTERM/uncaught 一律先恢复终端。
 
-import { Screen, type RenderLine } from "./screen.ts";
+import { Screen, type FrameRow, serializeFrameRow } from "./screen.ts";
 import type { Size } from "./screen.ts";
-import type { ThemeId } from "./theme.ts";
+import { DEFAULT_THEME, THEMES, type ColorTheme, type ThemeId } from "./theme.ts";
 import type { KeyEvent } from "./input.ts";
 import { KeyDecoder } from "./input.ts";
 import {
@@ -14,14 +14,15 @@ import {
   type ExitResult,
 } from "./terminal.ts";
 
-export type { RenderLine, KeyEvent };
+export type { FrameRow, KeyEvent };
+export type { FrameSegment, FrameStyle } from "./screen.ts";
 export type { Size };
 
 export interface Renderer {
   /** 整帧重绘；render 内含末尾追加的 delta 优化 */
-  render(lines: RenderLine[]): void;
+  render(rows: FrameRow[]): void;
   /** 强制整帧重绘（绕过 delta 优化，Ctrl+L 用） */
-  refresh(lines: RenderLine[]): void;
+  refresh(rows: FrameRow[]): void;
   onKey(cb: (k: KeyEvent) => void): void;
   /** 合成按键注入（无 TTY / 测试 / 脚本驱动用；不经 stdin 解码） */
   emitKey(k: KeyEvent): void;
@@ -52,7 +53,9 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
   const resizeCbs = new Set<(cols: number, rows: number) => void>();
   const delta = opts.delta ?? true;
   const exitOnClose = opts.exitOnClose ?? true;
-  let prevLines: RenderLine[] | null = null;
+  // 当前主题（序列化文本比较用；随 setTheme 同步，screen.theme 为私有）
+  let theme: ColorTheme = THEMES[DEFAULT_THEME];
+  let prevRows: FrameRow[] | null = null;
   let closed = false;
 
   const passToRenderSizes = (): void => {
@@ -95,24 +98,24 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
   passToRenderSizes();
 
   const renderer: Renderer = {
-    render(lines: RenderLine[]): void {
+    render(rows: FrameRow[]): void {
       if (closed) return;
       // delta 优化：与上一帧共用前缀，仅末尾变化/追加 → 只写 delta
-      if (delta && prevLines) {
-        const prefix = commonPrefix(prevLines, lines);
-        if (prefix >= prevLines.length) {
-          screen.renderDelta(prefix + 1, lines.slice(prefix));
-          prevLines = lines;
+      if (delta && prevRows) {
+        const prefix = commonPrefix(prevRows, rows, theme);
+        if (prefix >= prevRows.length) {
+          screen.renderDelta(prefix + 1, rows.slice(prefix));
+          prevRows = rows;
           return;
         }
       }
-      screen.render(lines);
-      prevLines = lines;
+      screen.render(rows);
+      prevRows = rows;
     },
-    refresh(lines: RenderLine[]): void {
+    refresh(rows: FrameRow[]): void {
       if (closed) return;
-      prevLines = null; // 强制走全帧 screen.render(清屏+重绘)
-      this.render(lines);
+      prevRows = null; // 强制走全帧 screen.render(清屏+重绘)
+      this.render(rows);
     },
     onKey(cb: (k: KeyEvent) => void): void {
       keyCbs.add(cb);
@@ -127,8 +130,9 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       return screen.getSize();
     },
     setTheme(id: ThemeId): void {
+      theme = THEMES[id];
       screen.setTheme(id);
-      prevLines = null; // 使下一帧走全帧重绘，把新背景/调色板画满屏幕
+      prevRows = null; // 使下一帧走全帧重绘，把新背景/调色板画满屏幕
     },
     close(): void {
       if (closed) return;
@@ -147,22 +151,18 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
   return renderer;
 }
 
-/** 两帧 RenderLine 从头部起相同前缀的行数 */
-function commonPrefix(a: RenderLine[], b: RenderLine[]): number {
+/** 两帧 FrameRow 从头部起相同前缀的行数 */
+function commonPrefix(a: FrameRow[], b: FrameRow[], theme: ColorTheme): number {
   let n = 0;
-  while (n < a.length && n < b.length && sameLine(a[n]!, b[n]!)) n++;
+  while (n < a.length && n < b.length && sameRow(a[n]!, b[n]!, theme)) n++;
   return n;
 }
 
-function sameLine(x: RenderLine, y: RenderLine): boolean {
-  if (x.text !== y.text) return false;
-  // caret 变化(纯光标移动)也阻止 delta 合并，否则硬件光标不更新
+/**
+ * 两行是否相等：按「当前主题下序列化后的行文本」比较（序列化文本即最终上屏字节，
+ * 内部实现不对外——SPEC.md §14）。caret 变化(纯光标移动)也阻止 delta 合并。
+ */
+function sameRow(x: FrameRow, y: FrameRow, theme: ColorTheme): boolean {
   if (x.caret !== y.caret) return false;
-  const sx = x.style !== undefined;
-  const sy = y.style !== undefined;
-  if (sx !== sy) return false;
-  if (!sx) return true;
-  const s = x.style! as NonNullable<RenderLine["style"]>;
-  const t = y.style! as NonNullable<RenderLine["style"]>;
-  return s.fg === t.fg && s.bg === t.bg && s.bold === t.bold;
+  return serializeFrameRow(x, theme) === serializeFrameRow(y, theme);
 }

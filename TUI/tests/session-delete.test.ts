@@ -40,7 +40,7 @@ import type {
   SessionInfo,
 } from "../src/app/adapter/dsh.ts";
 import type { KeyEvent, Renderer } from "../src/renderer/index.ts";
-import type { RenderLine, Size } from "../src/renderer/screen.ts";
+import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
 
 // ---------------------------------------------------------------------------
@@ -341,12 +341,12 @@ class FakeRenderer implements Renderer {
   size: Size = { cols: 100, rows: 30 };
   press!: (k: KeyEvent) => void;
 
-  render(lines: RenderLine[]): void {
-    this.lastRender = lines.map((l) => l.text);
+  render(rows: FrameRow[]): void {
+    this.lastRender = rows.map((r) => r.segments.map((s) => s.text).join(""));
     this.renders++;
   }
-  refresh(lines: RenderLine[]): void {
-    this.render(lines);
+  refresh(rows: FrameRow[]): void {
+    this.render(rows);
   }
   onKey(cb: (k: KeyEvent) => void): void {
     this.press = cb;

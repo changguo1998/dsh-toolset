@@ -1,13 +1,13 @@
 // src/app/layout/markdown.ts — markdown 子集渲染（行内 + 块级，纯函数，可单测）
 //
 // 自 layout.ts 拆出：行内 markdown 解析（parseInlineMarkdown）、块级分类渲染
-// （wrapAssistantLine/wrapCodeLine）与样式 ANSI 序列化（renderSeg）。宽度原语
+// （wrapAssistantLine/wrapCodeLine）。段级样式合成在此完成，ANSI 序列化移交渲染层
+// （segStyle/serializeFrameRow，见 SPEC.md §14）。宽度原语
 // （ANSI_RE/stripAnsi/charWidth/displayWidth）一并迁至此供换行/padding 计算；
 // layout.ts 重导 charWidth/displayWidth，公共导出不变，且不引入 layout↔markdown 循环依赖。
 
-import type { ColorName, ColorTheme, ThemeId } from "../../renderer/theme.ts";
+import type { ColorName, ThemeId } from "../../renderer/theme.ts";
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
-import { THEMES, ansiNameToHex, hexSgr } from "../../renderer/theme.ts";
 
 // ---------- 宽度原语（自 layout.ts 迁入；layout.ts 重导 charWidth/displayWidth） ----------
 
@@ -496,74 +496,23 @@ function sameStyle(a?: FrameStyle, b?: FrameStyle): boolean {
   );
 }
 
-/** 颜色解析：主题色名，或 "#hex" 直接使用；未知返回 null */
-function hexOf(theme: ColorTheme, v?: ColorName | string): string | null {
-  if (v === undefined) return null;
-  if (v.startsWith("#")) return v;
-  return ansiNameToHex(theme, v);
-}
-
-/** 单段序列化为 manual ANSI：open + text + close（恢复主题基底前景/背景） */
-export function renderSeg(seg: FrameSegment, themeId: ThemeId): string {
-  const st = seg.style;
-  if (!st) return seg.text;
-  const theme = THEMES[themeId];
-  const open: string[] = [];
-  const close: string[] = [];
-  if (st.bold) {
-    open.push("\x1b[1m");
-    close.push("\x1b[22m");
-  }
-  if (st.italic) {
-    open.push("\x1b[3m");
-    close.push("\x1b[23m");
-  }
-  if (st.underline) {
-    open.push("\x1b[4m");
-    close.push("\x1b[24m");
-  }
-  if (st.strike) {
-    open.push("\x1b[9m");
-    close.push("\x1b[29m");
-  }
-  if (st.fg) {
-    const hex = hexOf(theme, st.fg);
-    if (hex) {
-      open.push(hexSgr(hex, true));
-      close.push(hexSgr(theme.foreground, true));
-    }
-  }
-  if (st.bg) {
-    const hex = hexOf(theme, st.bg);
-    if (hex) {
-      open.push(hexSgr(hex, false));
-      close.push(hexSgr(theme.background, false));
-    }
-  }
-  if (open.length === 0) return seg.text;
-  return open.join("") + seg.text + close.reverse().join("");
-}
-
 /**
  * 行内 markdown 正文按显示宽度软换行：逐字符计宽（CJK 2 列），样式跨行时
- * 每行独立打开/关闭样式，相邻同样式段合并后序列化为 ANSI。空串保持 [""]
- * 语义，行首超宽字符强制放下（与 wrapLine 一致）。
+ * 每行独立开/闭（跨行段每行重声明），合并相邻同样式段。返回行段数组
+ * （未序列化，ANSI 移交渲染层）。空串保持空行语义，首超宽字符强制放下。
  */
 export function wrapInlineMarkdown(
   text: string,
   width: number,
   themeId: ThemeId,
-): string[] {
-  return wrapSegments(parseInlineMarkdown(text, themeId), width, themeId);
+): FrameSegment[][] {
+  return wrapSegments(parseInlineMarkdown(text, themeId), width);
 }
 
-/** 段集按显示宽度软换行：样式跨行每行独立开/闭，合并相邻同样式后序列化 */
-function wrapSegments(
-  segs: FrameSegment[],
-  width: number,
-  themeId: ThemeId,
-): string[] {
-  if (width <= 0) return [segs.map((s) => renderSeg(s, themeId)).join("")];
+/** 段集按显示宽度软换行：样式跨行每行独立开/闭（跨行段每行重声明），合并相邻
+ * 同样式段。返回行段数组（未序列化，ANSI 移交渲染层）。空串保持空行语义。 */
+function wrapSegments(segs: FrameSegment[], width: number): FrameSegment[][] {
+  if (width <= 0) return [segs];
   const rows: FrameSegment[][] = [];
   let cur: FrameSegment[] = [];
   let curW = 0;
@@ -582,7 +531,7 @@ function wrapSegments(
     }
   }
   flush();
-  if (rows.length === 0) return [""];
+  if (rows.length === 0) return [[]];
   return rows.map((line) => {
     const merged: FrameSegment[] = [];
     for (const s of line) {
@@ -590,7 +539,7 @@ function wrapSegments(
       if (lastSeg && sameStyle(lastSeg.style, s.style)) lastSeg.text += s.text;
       else merged.push({ text: s.text, style: s.style });
     }
-    return merged.map((s) => renderSeg(s, themeId)).join("");
+    return merged;
   });
 }
 
@@ -621,16 +570,13 @@ const HEADING_FG: ColorName = "brightCyan";
 export function wrapCodeLine(
   text: string,
   width: number,
-  themeId: ThemeId,
-): string[] {
-  if (text === "") return [""];
+): FrameSegment[][] {
+  if (text === "") return [[]];
   const segs: FrameSegment[] = [{ text, style: { bg: "code" } }];
-  return wrapSegments(segs, width, themeId).map((row) => {
-    const pad = Math.max(0, width - displayWidth(stripAnsi(row)));
-    return pad > 0
-      ? row +
-          renderSeg({ text: " ".repeat(pad), style: { bg: "code" } }, themeId)
-      : row;
+  return wrapSegments(segs, width).map((row) => {
+    const rowText = row.map((s) => s.text).join("");
+    const pad = Math.max(0, width - displayWidth(rowText));
+    return pad > 0 ? [...row, { text: " ".repeat(pad), style: { bg: "code" } }] : row;
   });
 }
 
@@ -642,13 +588,12 @@ export function wrapAssistantLine(
   text: string,
   width: number,
   themeId: ThemeId,
-): string[] {
+): FrameSegment[][] {
   // 1. 分隔线：灰色横线铺满内容区（与 turn 分隔线视觉区分）
   if (RULE_RE.test(text)) {
     return wrapSegments(
       [{ text: "─".repeat(Math.max(0, width)), style: { fg: "border" } }],
       width,
-      themeId,
     );
   }
   // 2. 任务列表：ASCII [x]/[ ]，已完成正文删除线、未完成普通（均正常前景色）
@@ -666,7 +611,7 @@ export function wrapAssistantLine(
           })),
         ]
       : [{ text: "[ ] " }, ...body];
-    return wrapSegments(segs, width, themeId);
+    return wrapSegments(segs, width);
   }
   // 3. 标题：去掉 #，整行 bold + 醒目青；行内 token（如 **粗**）叠加保留
   const heading = HEADING_RE.exec(text);
@@ -675,14 +620,14 @@ export function wrapAssistantLine(
       text: s.text,
       style: mergeStyle({ bold: true, fg: HEADING_FG }, s.style ?? {}),
     }));
-    return wrapSegments(segs, width, themeId);
+    return wrapSegments(segs, width);
   }
   // 4. 引用：竖线前缀 + 整体斜体（正常前景色）
   const quote = QUOTE_RE.exec(text);
   if (quote) {
     // 单层引用：隐藏正文开头残留的 >（本次不做嵌套格式）
     const body = quote[1]!.replace(/^[>\s]+/, "").trim();
-    if (body === "") return [""];
+    if (body === "") return [[]];
     const segs: FrameSegment[] = [
       { text: "> " },
       ...parseInlineMarkdown(body, themeId).map((s) => ({
@@ -690,7 +635,7 @@ export function wrapAssistantLine(
         style: s.style ?? {},
       })),
     ];
-    return wrapSegments(segs, width, themeId);
+    return wrapSegments(segs, width);
   }
   // 5. 普通列表项：前缀正常前景色，内容走行内解析
   const list = LIST_RE.exec(text);
@@ -702,8 +647,8 @@ export function wrapAssistantLine(
       { text: prefix },
       ...parseInlineMarkdown(list[1]!, themeId),
     ];
-    return wrapSegments(segs, width, themeId);
+    return wrapSegments(segs, width);
   }
   // 6. 普通行内 markdown
-  return wrapSegments(parseInlineMarkdown(text, themeId), width, themeId);
+  return wrapSegments(parseInlineMarkdown(text, themeId), width);
 }

@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { THEMES, ansiNameToHex } from "../src/renderer/theme.ts";
 import { buildFrame, focusFrameColor } from "../src/app/layout.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
+import { rowAnsi } from "./helpers/rowText.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
 
 /** 帧内某符号所在行的全部 38;2 RGB（去重） */
@@ -35,7 +36,7 @@ function frame(
   s = reduceState(s, { type: "turn-begin" });
   for (let i = 0; i < CY[focus]; i++)
     s = reduceState(s, { type: "focus-panel-cycle" });
-  return buildFrame(s, { rows: 24, cols: 80 }).map((r) => r.text);
+  return buildFrame(s, { rows: 24, cols: 80 }).map((r) => rowAnsi(r, themeId));
 }
 
 const FC = (t: ThemeId): string =>

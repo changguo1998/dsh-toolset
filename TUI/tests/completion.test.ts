@@ -12,6 +12,7 @@ import {
 } from "../src/app/commands.ts";
 import { renderCommandCompletion } from "../src/app/components/CommandCompletion.ts";
 import { displayWidth } from "../src/app/layout.ts";
+import { rowAnsi } from "./helpers/rowText.ts";
 
 const names = (items: { name: string }[] | undefined): string[] =>
   (items ?? []).map((i) => i.name);
@@ -98,25 +99,25 @@ test("renderCommandCompletion：标题 + 默认高亮首项 + 恰 height 行", (
     themeId: "dark",
   });
   assert.equal(rows.length, 10, "输出行数 = height");
-  assert.ok(rows[0]!.text.includes("/命令补全"), "标题行");
+  assert.ok(rowAnsi(rows[0]!).includes("/命令补全"), "标题行");
   // 默认焦点行 = items[0]（黄，含 `> /cls`）
-  const focused = rows.find((r) => r.text.includes("> /cls"))!;
+  const focused = rows.find((r) => rowAnsi(r).includes("> /cls"))!;
   assert.ok(
-    focused.text.includes("\x1b[38;2;231;169;70m"),
-    `默认高亮最匹配项(黄): ${focused.text}`,
+    rowAnsi(focused).includes("\x1b[38;2;231;169;70m"),
+    `默认高亮最匹配项(黄): ${rowAnsi(focused)}`,
   );
   // 末行是候选行（面板不放提示行：键位统一在输入区下方的按键提示区）
   // height=10 → 标题 1 行 + 9 行候选，候选数（16）足够铺满
   assert.ok(
-    rows[9]!.text.includes("/"),
-    `末行应为候选行（铺满活动区）: ${JSON.stringify(rows[9]!.text)}`,
+    rowAnsi(rows[9]!).includes("/"),
+    `末行应为候选行（铺满活动区）: ${JSON.stringify(rowAnsi(rows[9]!))}`,
   );
   assert.ok(
-    !rows.some((r) => r.text.includes("[tab]")),
+    !rows.some((r) => rowAnsi(r).includes("[tab]")),
     "面板内不应出现按键提示行",
   );
   assert.equal(
-    rows.filter((r) => r.text.trim() !== "").length,
+    rows.filter((r) => rowAnsi(r).trim() !== "").length,
     10,
     "标题 + 9 行候选（无空行）",
   );
@@ -135,8 +136,8 @@ test("renderCommandCompletion：行宽不得超列宽（否则挤偏边框 + 终
     assert.equal(rows.length, 12, "输出行数 = height");
     for (const r of rows) {
       assert.ok(
-        displayWidth(r.text) <= width,
-        `width=${width} 行超宽(${displayWidth(r.text)}): ${JSON.stringify(r.text)}`,
+        displayWidth(rowAnsi(r)) <= width,
+        `width=${width} 行超宽(${displayWidth(rowAnsi(r))}): ${JSON.stringify(rowAnsi(r))}`,
       );
     }
   }
@@ -154,7 +155,7 @@ test("renderCommandCompletion：候选超出可视行时丢弃多余项（不滚
   assert.equal(rows.length, height, "输出行数 = height");
   const body = rows.slice(1);
   const names = body.map(
-    (r) => r.text.match(/\/([a-z][a-z0-9_-]*)/)?.[1] ?? "",
+    (r) => rowAnsi(r).match(/\/([a-z][a-z0-9_-]*)/)?.[1] ?? "",
   );
   assert.deepEqual(
     names,
@@ -173,7 +174,7 @@ test("renderCommandCompletion：候选超出可视行时丢弃多余项（不滚
     themeId: "dark",
   });
   assert.deepEqual(
-    tail.slice(1).map((r) => r.text.match(/\/([a-z][a-z0-9_-]*)/)?.[1] ?? ""),
+    tail.slice(1).map((r) => rowAnsi(r).match(/\/([a-z][a-z0-9_-]*)/)?.[1] ?? ""),
     completion.items.slice(0, 3).map((i) => i.name),
     "焦点在末尾时仍显示最前面 3 项（不滚动）",
   );

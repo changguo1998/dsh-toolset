@@ -5,14 +5,13 @@
 // 多行：文本按 avail 显示列换行（续行与首行文本起点对齐，缩进 promptWidth），
 // 顶部对齐，光标行超出区域高度时整体下移跟随（vshift），文本之外的行留空。
 
-import type { RenderLine } from "../../renderer/index.ts";
+import type { FrameRow, FrameSegment } from "../../renderer/index.ts";
 import { displayWidth, charWidth } from "../layout.ts";
 
 /**
  * 生成输入区（height 行）。cursor 为文本内光标位置(0..text.length，按 code point)。
- * width 为终端列宽；promptText 为显示前缀（如两字符提示 "✓> "，可携带分段 ANSI
- * 着色，默认 "> "）；promptColor 可选对整体着色；宽度始终按未着色纯文本经
- * displayWidth 计算（ANSI 序列不占列）。
+ * width 为终端列宽；prompt 为显示前缀段数组（如两字符提示 "✓> "，可携带样式；
+ * 默认 ["> "]）；宽度始终按未着色纯文本经 displayWidth 计算（style 不占列）。
  *
  * 文本按 avail = width - promptWidth 列统一换行（字符不跨行，不切半个 CJK）：
  * 首行带 prompt，续行缩进 promptWidth 列；光标所在行超出可见范围时按 vshift
@@ -24,12 +23,11 @@ export function renderTextInput(
   cursor: number,
   placeholder: string,
   width: number,
-  promptText = "> ",
-  promptColor?: (s: string) => string,
+  prompt: FrameSegment[] = [{ text: "> " }],
   height = 1,
-): RenderLine[] {
-  // prompt 可带 ANSI 着色，宽度按未着色纯文本算，避免把转义序列计进显示宽度
-  const prompt = promptColor ? promptColor(promptText) : promptText;
+): FrameRow[] {
+  // prompt 宽度按未着色纯文本算，避免把 style 计进显示宽度
+  const promptText = prompt.map((s) => s.text).join("");
   const promptWidth = displayWidth(promptText);
   const avail = Math.max(1, width - promptWidth);
   const boxHeight = Math.max(1, height);
@@ -88,28 +86,34 @@ export function renderTextInput(
   vshift = Math.max(0, Math.min(vshift, Math.max(0, contentRows - 1)));
 
   // 组装可见行：首行带 prompt，续行缩进对齐，文本之外的行留空
-  const out: RenderLine[] = [];
+  const out: FrameRow[] = [];
   for (let i = 0; i < boxHeight; i++) {
     const r = vshift + i;
     const isCursorRow = r === cursorRow;
     if (r === 0) {
       if (chars.length === 0) {
-        out.push({ text: prompt + placeholder, caret: promptWidth });
+        out.push({
+          segments: [...prompt, { text: placeholder }],
+          caret: promptWidth,
+        });
       } else {
         out.push({
-          text: prompt + rows[0]!.join(""),
+          segments: [...prompt, { text: rows[0]!.join("") }],
           caret: isCursorRow ? promptWidth + colInRow : undefined,
         });
       }
     } else if (r < rows.length) {
       out.push({
-        text: " ".repeat(promptWidth) + rows[r]!.join(""),
+        segments: [
+          { text: " ".repeat(promptWidth) },
+          { text: rows[r]!.join("") },
+        ],
         caret: isCursorRow ? promptWidth + colInRow : undefined,
       });
     } else {
       // 留空行（含文本恰在换行边界时光标所在的空行）
       out.push({
-        text: "",
+        segments: [{ text: "" }],
         caret: isCursorRow ? promptWidth + colInRow : undefined,
       });
     }

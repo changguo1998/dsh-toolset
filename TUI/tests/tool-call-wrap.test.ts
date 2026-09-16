@@ -12,6 +12,7 @@ import {
   TOOL_CONT_INDENT,
 } from "../src/app/layout.ts";
 import { appendToolLine, initialState } from "../src/app/state.ts";
+import { rowText } from "./helpers/rowText.ts";
 
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 const pad = " ".repeat(TOOL_CONT_INDENT);
@@ -62,8 +63,8 @@ test("buildFrame：活动区工具调用长参数折行后不溢出边框", () =
     });
     const frame = buildFrame(state, { rows: 24, cols });
     for (const line of frame) {
-      const w = displayWidth(line.text);
-      assert.ok(w <= cols, `行宽 ${w} > ${cols}: ${stripAnsi(line.text)}`);
+      const w = displayWidth(rowText(line));
+      assert.ok(w <= cols, `行宽 ${w} > ${cols}: ${stripAnsi(rowText(line))}`);
     }
   }
 });
@@ -75,10 +76,10 @@ test("buildFrame：工具结果行长 detail 折行后续行同样缩进且不�
     const state = appendToolLine(initialState(), text);
     const frame = buildFrame(state, { rows: 24, cols });
     for (const line of frame) {
-      const w = displayWidth(line.text);
-      assert.ok(w <= cols, `行宽 ${w} > ${cols}: ${stripAnsi(line.text)}`);
+      const w = displayWidth(rowText(line));
+      assert.ok(w <= cols, `行宽 ${w} > ${cols}: ${stripAnsi(rowText(line))}`);
     }
-    const grid = frame.map((l) => stripAnsi(l.text));
+    const grid = frame.map((l) => stripAnsi(rowText(l)));
     // 长 detail 必然折行：结果行首行之后应存在缩进 ≥4 列的续行
     // （行首可能有左框格/占位空格，故 `/^[│ ]* {4,}\S/` 兼容）
     const headIdx = grid.findIndex((l) => /^[│ ]*[✓✗] /.test(l));
