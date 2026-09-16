@@ -13,6 +13,9 @@
 
 ## 1. 主线 A · 契约迁移（RenderLine → FrameRow）
 
+> **状态：已完成**（3 提交：98e9efd 契约类型 / d0d28d6 markdown 收敛 / b35826d 原子翻转；
+> 回归标准：570 单测 + 36 smoke 帧断言全绿）。以下条目为实施清单留档。
+
 **A1 渲染层**
 
 - `screen.ts`：`render/renderDelta` 接受 `FrameRow[]`，新增段级序列化 `segStyle(seg, theme)`（名→hex→SGR、相邻同 style 合并、未知名回退；规格见 `SPEC.md` §14）；delta 比较改按序列化文本（内部实现，不对外）。

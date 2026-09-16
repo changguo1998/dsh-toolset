@@ -69,7 +69,7 @@
 - 真机：`npm run smoke:pty`（真实 DSH PTY 冒烟：真实会话断言工具行与状态栏 usage）+ `TUI/scripts/verify-p0.py`（会话切换/标题/OSC52 复制，可重复执行）
 - 打包：`pnpm pack` + 全新空目录 `pnpm add <tarball>` 验证 files/bundle patch；当前开发脚本使用 `npm run`
 
-## 渲染管线重构·实现记录（Box + RenderLine）
+## 渲染管线重构·实现记录（FrameRow 段级契约 + Box）
 
 > 实现细节（机制决策、具体写法、踩坑）统一记录在本文档；`SPEC.md` 只保留规范性接口/规则。重构期间
 > （主线 A 契约迁移 + 主线 B Box 模型，见 `TASKS.md`）在此追加实现注意点：
@@ -77,5 +77,32 @@
 > - **段序列化**：`segStyle` 实现要点（相邻合并判定、未知名回退、行尾 SGR 重置）——规范见 `SPEC.md` §14
 > - **Box 摊平**：`fill` 实现注意点（Paragraph 折行/行内解析/补白、Box 递归、`setCell` 边界安全）——规范见 `SPEC.md` §6.7
 > - **尺寸计算**：`measure`/`allocate` 实现注意点（优先宽分割→高生长→视口裁剪，无迭代回环）——规范见 `SPEC.md` §6.1-§6.4
->
+
+### 主线 A：RenderLine → FrameRow 契约迁移（已完成）
+
+3 个独立可回归提交（行为不变：570 单测 + 36 smoke 帧断言为回归标准）：
+
+- **契约类型**（98e9efd）：`theme.ts` ColorName 增 `"code"` 槽位（dark #434343 / light #E8E8E8）；
+  `screen.ts` 并存新增 `FrameStyle`/`FrameSegment`/`FrameRow` + `segStyle`/`serializeFrameRow` 纯函数
+  （相邻同 style 合并、异 style 先 close 前段再 open 新段、open 顺序 bold→italic→underline→strike→fg→bg、
+  行尾 SGR 复位回主题基底、未知名色名回退基底、`#hex` 直用、close 逆序）。
+- **markdown 收敛**（d0d28d6）：`InlineSegment`→公共 `FrameSegment`，`style.bg:"code"`（hex 常量迁 theme）；
+  C2 决策：不整体重排 markdown.ts，仅定向契约收敛（零宽表/块识别顺序不动）。
+- **原子翻转**（b35826d）：`screen.ts` render/renderDelta 收 `FrameRow[]`（内部 `serializeFrameRow`）；
+  `renderer/index.ts` delta 按序列化文本 + caret 比较、主题切换清空 previous frame（全帧重绘）；
+  `layout.ts` 排版层全面段化（`wrapSegs` 返回 `FrameRow[]`、modeBlock/statusBlocks/renderStatusLine/
+  buildFrame 全改段数组、`colorFor` 烘焙 → style 字段）；components 8 文件同步；`markdown.ts`
+  wrap* 系列去序列化返回 `FrameSegment[][]`；删 `RenderLine`/`renderSeg`/`CODE_BG`。
+
+迁移踩坑（已修复）：
+
+- **选项级着色语义**：状态列 `add()` 各选项按自身语义色高亮（policy ask 绿 / auto 红），段化时误改为
+  整行单色且逻辑取反；且选项间分隔空格应独立无色段（BASE `join(" ")` 语义），否则 SGR 后带前导空格
+  破坏 `[..mauto` 断言。以 smoke policy-badge-ask/auto 帧断言回归兜住。
+- **delta 主题**：FakeRenderer/renderer 需随 `setTheme` 切换序列化主题，否则 `/theme light` 后颜色断言用 dark 色板。
+- **测试迁移（C3）**：按测试意图迁移而非统一 ANSI 序列化掩盖——布局断言用 `rowText(row)`/segments/style；
+  颜色语义断言检查 `segments[].style`；仅 renderer/screen 回归用 `serializeFrameRow` 的 ANSI；
+  FakeRenderer 的 `lastRender` 用 `rowAnsi(row, themeId)`（保留 ANSI 供 SGR 断言，纯文本断言再 strip）；
+  新增「所有 FrameSegment.text 不含 `[`」不变量（`tests/helpers/rowText.ts`）。
+
 > 具体条目随实施推进补充（含单测断言写法与性能观测）。

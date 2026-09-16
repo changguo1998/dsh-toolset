@@ -117,11 +117,11 @@ class FakeAdapter implements DshAdapter {
   log: string[] = [];
   sendMessage(text: string): void {
     this.sent.push(text);
-    this.log.push("send:" + text);
+    this.log.push(`send:${text}`);
   }
   runCommand(line: string): void {
     this.commands.push(line);
-    this.log.push("cmd:" + line);
+    this.log.push(`cmd:${line}`);
     // 真实适配器对未命中注册表的命令回 error notice（fail-close）
     this.push({
       type: "notice",
@@ -138,11 +138,11 @@ class FakeAdapter implements DshAdapter {
   cancelledQuestions: string[] = [];
   answerQuestion(id: string, answer: QuestionAnswer): void {
     this.answeredQuestions.push({ id, answer });
-    this.log.push("answer:" + id);
+    this.log.push(`answer:${id}`);
   }
   cancelQuestion(id: string): void {
     this.cancelledQuestions.push(id);
-    this.log.push("cancel:" + id);
+    this.log.push(`cancel:${id}`);
   }
   interrupts = 0;
   interrupt(): void {
@@ -251,7 +251,7 @@ class FakeAdapter implements DshAdapter {
 function histBody(line: string, cols: number): string {
   const m = metricsFor({ rows: 24, cols }, false);
   const contentW = m.historyWidth - 1; // 历史正文宽（col0 左缘框格外）
-  const s = line.replace(/\x1b\[[0-9;]*m/g, "");
+  const s = line.replace(/\u001b\[[0-9;]*m/g, "");
   let out = "";
   let w = 0; // 累计显示列（含 col0）
   for (let i = 0; i < s.length; i++) {
@@ -317,7 +317,7 @@ test("普通输入同时本地回显用户行且靠右，不依赖 adapter 回�
   typeAndEnter(renderer, "你好");
   assert.deepEqual(adapter.sent, ["你好"]);
   const plain = renderer.lastRender.map((line) =>
-    line.replace(/\x1b\[[0-9;]*m/g, ""),
+    line.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     plain.some(
@@ -576,7 +576,7 @@ test("shell 模式提交：仅展示层，文本原样走 sendMessage（不加 $
   assert.deepEqual(adapter.log, ["send:ls"]);
   // 左提示符 = 上次提交模式 $，右提示符 = 当前模式 normal >（24 行终端输入区 3 行+提示区 1 行，输入行为倒数第 4 行）
   const lastLine = renderer.lastRender.at(-4) ?? "";
-  const plain = lastLine.replace(/\x1b\[[0-9;]*m/g, "");
+  const plain = lastLine.replace(/\u001b\[[0-9;]*m/g, "");
   assert.ok(
     plain.startsWith("$> "),
     "shell 提交后左字符 $（上次模式）右字符 >（已回退 normal）",
@@ -687,7 +687,7 @@ test("Ctrl+C 清空输入区（不发送）；紧接再按一次退出", () => {
     renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
   }
   const inputRow = () =>
-    (renderer.lastRender.at(-4) ?? "").replace(/\x1b\[[0-9;]*m/g, "");
+    (renderer.lastRender.at(-4) ?? "").replace(/\u001b\[[0-9;]*m/g, "");
   assert.ok(inputRow().includes("hi"), "输入区应显示 hi");
   renderer.press({ name: "c", ctrl: true, meta: false, shift: false });
   assert.ok(!inputRow().includes("hi"), "Ctrl+C 应清空输入区");
@@ -783,7 +783,7 @@ test("formatModelCatalog ASCII 紧凑格式: -> 标记当前, 空格缩进其他
   assert.match(text, /^ {2}-> deepseek\/deepseek-chat$/m);
   assert.match(text, /^ {5}deepseek\/deepseek-reasoner$/m);
   // 无中文（纯 ASCII）
-  assert.ok(!/[\u4e00-\u9fff]/.test(text), "不应含汉字: " + text);
+  assert.ok(!/[一-鿿]/.test(text), `不应含汉字: ${text}`);
 });
 
 test("formatModelCatalog 当前模型不在列表中也以 -> 显示", () => {
@@ -852,26 +852,26 @@ test("输入补全：/ 前缀出候选面板, 最匹配默认高亮, Tab 接受�
     renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
   }
   let frame = plainFrame(renderer);
-  assert.ok(frame.includes("/命令补全"), "斜杠输入应出候选面板: " + frame);
-  assert.ok(frame.includes("/model"), "候选应含 /model: " + frame);
+  assert.ok(frame.includes("/命令补全"), `斜杠输入应出候选面板: ${frame}`);
+  assert.ok(frame.includes("/model"), `候选应含 /model: ${frame}`);
   // 候选面板不占用输入区：输入行（slash 提示符 + 已输入文本）必须同时可见。
   // plainFrame 保留 ANSI 着色，故只匹配提示符之后的纯文本段 "/ mo"
-  assert.ok(frame.includes("/ mo"), "候选打开时输入行仍可见: " + frame);
+  assert.ok(frame.includes("/ mo"), `候选打开时输入行仍可见: ${frame}`);
   // 最匹配默认高亮（焦点行黄；lastRender 保留 ANSI）
   const focusRow = renderer.lastRender.find((l) => l.includes("/model")) ?? "";
   assert.ok(
     focusRow.includes("\x1b[38;2;231;169;70m"),
-    "默认焦点应在最匹配项(黄): " + focusRow,
+    `默认焦点应在最匹配项(黄): ${focusRow}`,
   );
   // Tab 接受 → 输入变 "/model "（尾随空格便于接参数），面板随输入重算收起
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   await flush();
   frame = plainFrame(renderer);
-  assert.ok(!frame.includes("/命令补全"), "接受后面板收起: " + frame);
+  assert.ok(!frame.includes("/命令补全"), `接受后面板收起: ${frame}`);
   // slash 模式提示符自带 `/`：接受后输入框文本为 `model `（提交时才补前导 /）
   assert.ok(
     frame.includes("model ") && !frame.includes("/model"),
-    "接受后输入应为 model : " + frame,
+    `接受后输入应为 model : ${frame}`,
   );
 });
 
@@ -880,7 +880,7 @@ test("输入补全：↑/↓ 只在候选间移动, Tab 接受焦点项", async 
   // "/" = 全量候选，按名称短→长排序：cls 最短为默认焦点，↓ 后为 copy
   renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
   let frame = plainFrame(renderer);
-  assert.ok(frame.includes("/cls"), "全量候选应含 /cls: " + frame);
+  assert.ok(frame.includes("/cls"), `全量候选应含 /cls: ${frame}`);
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   await flush();
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
@@ -888,7 +888,7 @@ test("输入补全：↑/↓ 只在候选间移动, Tab 接受焦点项", async 
   frame = plainFrame(renderer);
   assert.ok(
     frame.includes("copy ") && !frame.includes("/copy"),
-    "↓ 后 Tab 应接受 copy: " + frame,
+    `↓ 后 Tab 应接受 copy: ${frame}`,
   );
 });
 
@@ -898,21 +898,21 @@ test("输入补全：Esc 收起候选（输入保留，继续输入重新打开�
     renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
   }
   let frame = plainFrame(renderer);
-  assert.ok(frame.includes("/compact"), "宿主命令应并入候选: " + frame);
-  assert.ok(frame.includes("压缩会话上下文"), "候选应带 desc: " + frame);
+  assert.ok(frame.includes("/compact"), `宿主命令应并入候选: ${frame}`);
+  assert.ok(frame.includes("压缩会话上下文"), `候选应带 desc: ${frame}`);
   renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
   await flush();
   frame = plainFrame(renderer);
-  assert.ok(!frame.includes("/命令补全"), "Esc 应收起候选: " + frame);
-  assert.ok(frame.includes("comp"), "Esc 不动输入内容: " + frame);
+  assert.ok(!frame.includes("/命令补全"), `Esc 应收起候选: ${frame}`);
+  assert.ok(frame.includes("comp"), `Esc 不动输入内容: ${frame}`);
   assert.ok(
     !frame.includes("/comp"),
-    "Esc 后输入框仍为 slash 模式文本: " + frame,
+    `Esc 后输入框仍为 slash 模式文本: ${frame}`,
   );
   // 继续输入 → 重新打开候选（Esc 只收起当前候选，不锁死补全）
   renderer.press({ name: "a", ctrl: false, meta: false, shift: false });
   frame = plainFrame(renderer);
-  assert.ok(frame.includes("/命令补全"), "继续输入应重新出候选: " + frame);
+  assert.ok(frame.includes("/命令补全"), `继续输入应重新出候选: ${frame}`);
 });
 
 test("输入补全：键位提示在输入区下方提示区, 活动区只放候选", async () => {
@@ -927,7 +927,7 @@ test("输入补全：键位提示在输入区下方提示区, 活动区只放候
   assert.equal(
     hintRows.length,
     1,
-    "[tab]补全 提示应恰好一行: " + plainFrame(renderer),
+    `[tab]补全 提示应恰好一行: ${plainFrame(renderer)}`,
   );
   assert.equal(
     hintRows[0]![0],
@@ -937,7 +937,7 @@ test("输入补全：键位提示在输入区下方提示区, 活动区只放候
   // 活动区（候选面板）只有标题+候选：不出现默认提示行，也不出现面板内提示
   assert.ok(
     plainFrame(renderer).includes("> /cls"),
-    "默认焦点候选应显示: " + plainFrame(renderer),
+    `默认焦点候选应显示: ${plainFrame(renderer)}`,
   );
   assert.ok(
     !plainFrame(renderer).includes("[Alt+Enter]打断并发送"),
@@ -978,7 +978,7 @@ test("输入补全：候选超出活动区可视行时丢弃（不滚动，焦�
   const all = completeCommandInput("/", [], "slash")!.items.map((i) => i.name);
   assert.ok(
     shown().length < all.length,
-    "矮终端应丢弃部分候选: " + plainFrame(renderer),
+    `矮终端应丢弃部分候选: ${plainFrame(renderer)}`,
   );
   assert.ok(
     !shown().includes(all[all.length - 1]!),
@@ -998,7 +998,7 @@ test("输入补全：候选超出活动区可视行时丢弃（不滚动，焦�
     "可视候选应恒为最前面若干项（不滚动窗口）",
   );
   const focused = candRows.find((l) => l.includes("\x1b[38;2;231;169;70m"));
-  assert.ok(focused, "应有一行焦点候选: " + plainFrame(renderer));
+  assert.ok(focused, `应有一行焦点候选: ${plainFrame(renderer)}`);
   assert.equal(
     nameOf(focused),
     nameOf(candRows[candRows.length - 1]!),
@@ -1022,7 +1022,7 @@ test("输入补全：普通文本与命令带参数时不出候选面板", async
   }
   assert.ok(
     !plainFrame(renderer).includes("/命令补全"),
-    "命令后带参数不出面板: " + plainFrame(renderer),
+    `命令后带参数不出面板: ${plainFrame(renderer)}`,
   );
 });
 test("/model 无参: 面板初始焦点在 model 列", async () => {
@@ -1030,10 +1030,10 @@ test("/model 无参: 面板初始焦点在 model 列", async () => {
   typeAndEnter(renderer, "/model");
   await flush();
   const frame = plainFrame(renderer);
-  assert.ok(frame.includes("[ model"), "初始焦点应在 model 列: " + frame);
+  assert.ok(frame.includes("[ model"), `初始焦点应在 model 列: ${frame}`);
   assert.ok(
     !frame.includes("[ provider"),
-    "provider 列不应带焦点边框: " + frame,
+    `provider 列不应带焦点边框: ${frame}`,
   );
 });
 
@@ -1059,8 +1059,8 @@ test("/provider、/effort、/thinking 别名: 无参直达面板并定位焦点�
   typeAndEnter(renderer, "/effort high");
   await flush();
   const f = plainFrame(renderer);
-  assert.ok(f.includes("usage: /effort"), "带参应提示 usage: " + f);
-  assert.ok(!f.includes("[ effort"), "带参不应打开面板: " + f);
+  assert.ok(f.includes("usage: /effort"), `带参应提示 usage: ${f}`);
+  assert.ok(!f.includes("[ effort"), `带参不应打开面板: ${f}`);
 });
 
 test("/model 面板: 空格(真实字符)记录选中不提交, 方向键移动焦点, Enter 提交", async () => {
@@ -1183,7 +1183,7 @@ test("/model 面板: ←/→ 左右切换焦点区,clamp 不循环", async () =>
   // 焦点区变化不可直接读 state，用标题方括号断言：thinking 列应带 [ ]
   const after = renderer.lastRender;
   const hdr = after.find((t) => t.includes("effort")) ?? "";
-  assert.ok(hdr.includes("[ effort ]"), "当前焦点区应标 [ effort ]: " + hdr);
+  assert.ok(hdr.includes("[ effort ]"), `当前焦点区应标 [ effort ]: ${hdr}`);
   // 左 → model 区，再左 → provider 区，再左不动(不循环回 2)
   renderer.press({ name: "left", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "left", ctrl: false, meta: false, shift: false });
@@ -1191,7 +1191,7 @@ test("/model 面板: ←/→ 左右切换焦点区,clamp 不循环", async () =>
   await flush();
   const after2 = renderer.lastRender;
   const hdr2 = after2.find((t) => t.includes("provider")) ?? "";
-  assert.ok(hdr2.includes("[ provider ]"), "焦点应回到 [ provider ]: " + hdr2);
+  assert.ok(hdr2.includes("[ provider ]"), `焦点应回到 [ provider ]: ${hdr2}`);
 });
 
 test("/model 面板: 同模型改等级不触发 already-on, 应用 max", async () => {
@@ -1249,7 +1249,7 @@ test("/model <id> → setSessionModel + 更新", async () => {
     const joined = renderer.lastRender.join("\n");
     assert.ok(
       joined.includes("deepseek-reasoner"),
-      "状态栏应含新模型，实际:\n" + joined,
+      `状态栏应含新模型，实际:\n${joined}`,
     );
     assert.ok(adapter.savedSelections.length === 1); // 确认确实切换了
   });
@@ -1323,7 +1323,7 @@ test("交互选择：↑/↓ 移动，Enter 确认持久切换并保留当前 re
   assert.deepEqual(adapter.sent, []);
   // 状态栏 model 段：多等级模型开启思考 → 按实际等级名显示（而非笼统 on）
   const statusJoined = renderer.lastRender
-    .map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""))
+    .map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""))
     .join("\n");
   assert.ok(
     statusJoined.includes(":high"),
@@ -1345,16 +1345,15 @@ test("状态栏：未显式选择等级时按 provider 默认等级(defaultEffor
   typeAndEnter(renderer, "/model deepseek-reasoner");
   await flush();
   const statusJoined = renderer.lastRender
-    .map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""))
+    .map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""))
     .join("\n");
   assert.ok(
     statusJoined.includes("deepseek-reasoner:max"),
-    "未显式选择等级应按 provider 默认等级显示 (deepseek-reasoner:max): " +
-      statusJoined,
+    `未显式选择等级应按 provider 默认等级显示 (deepseek-reasoner:max): ${statusJoined}`,
   );
   assert.ok(
     !statusJoined.includes("deepseek-reasoner:off"),
-    "不应再以 off 显示（后台实际生效 max）: " + statusJoined,
+    `不应再以 off 显示（后台实际生效 max）: ${statusJoined}`,
   );
 });
 
@@ -1364,11 +1363,11 @@ test("状态栏：无 provider 默认等级且未显式选择时显示 off", asy
   typeAndEnter(renderer, "/model deepseek-reasoner");
   await flush();
   const statusJoined = renderer.lastRender
-    .map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""))
+    .map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""))
     .join("\n");
   assert.ok(
     statusJoined.includes("deepseek-reasoner:off"),
-    "无默认等级且未显式选择应显示 off: " + statusJoined,
+    `无默认等级且未显式选择应显示 off: ${statusJoined}`,
   );
 });
 
@@ -1440,7 +1439,7 @@ test("/theme 非法参数 → notice usage,不调用 renderer.setTheme", () => {
   // notice 内容进入 UI 缓冲
   assert.ok(
     renderer.lastRender.join("\n").includes("usage: /theme"),
-    "应有 usage 提示，实际:\n" + renderer.lastRender.join("\n"),
+    `应有 usage 提示，实际:\n${renderer.lastRender.join("\n")}`,
   );
   // usage 提示按 info tone → 正常蓝
   assert.ok(
@@ -1564,7 +1563,7 @@ test("慢速流：分隔线在回合开始画，turn-end 不再画", () => {
     // 回合 2：首条正文到达 → 回合开始时先画线，再进入内容
     adapter.push({ type: "stream", sessionId: "s1", text: "第二回合正文" });
     const plain = renderer.lastRender.map((l) =>
-      l.replace(/\x1b\[[0-9;]*m/g, ""),
+      l.replace(/\u001b\[[0-9;]*m/g, ""),
     );
     assert.equal(
       barRowCount(renderer),
@@ -2039,7 +2038,7 @@ test("问答面板：选项按状态着色——光标行黄、已选行绿", ()
 // }
 
 // function stripAnsi(s: string): string {
-//   return s.replace(/\x1b\[[0-9;]*m/g, "");
+//   return s.replace(/\u001b\[[0-9;]*m/g, "");
 // }
 
 // --- /history 会话面板集成测试（入口已注释，命令暂不可用 → 测试禁用；保留 adapter 层单测） ---
@@ -2148,14 +2147,14 @@ test("deriveTitle：空/空白 →（新会话）；>30 字符截断加省略号
 test("buildOsc52：ESC ]52;c;<base64 utf8> BEL，编码前剥离 ANSI", () => {
   assert.equal(
     buildOsc52("你好"),
-    "\x1b]52;c;" + Buffer.from("你好").toString("base64") + "\x07",
+    `\x1b]52;c;${Buffer.from("你好").toString("base64")}\x07`,
   );
   assert.equal(buildOsc52(""), "\x1b]52;c;\x07");
   // ANSI 控制序列在 base64 编码前剥离（剪贴板内容为纯文本）
   const ansi = "\x1b[31mred\x1b[0m";
   assert.equal(
     buildOsc52(ansi),
-    "\x1b]52;c;" + Buffer.from("red").toString("base64") + "\x07",
+    `\x1b]52;c;${Buffer.from("red").toString("base64")}\x07`,
   );
 });
 
@@ -2382,7 +2381,7 @@ test("/session：persisted 会话 Enter → resume 并展示其表面+标题", a
   await flush();
   assert.deepEqual(adapter.resumeCalls, [], "live 会话不触发 resume");
   const plain = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     plain.some((l) => l.includes("不可续")),
@@ -2395,7 +2394,7 @@ test("/session：persisted 会话 Enter → resume 并展示其表面+标题", a
   await flush();
   assert.deepEqual(adapter.resumeCalls, ["s42"]);
   const plain2 = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     plain2.some((l) => l.includes("回顾上轮结论")),
@@ -2418,7 +2417,7 @@ test("/session：resume 失败 → 面板 error 态不崩溃", async () => {
   await flush();
   await flush();
   const plain = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     plain.some((l) => l.includes("宿主 resume 失败")),
@@ -2450,26 +2449,26 @@ test("/session：列表渲染——当前 live 行 [当前] [不可续]，其他
   typeAndEnter(renderer, "/session");
   await flush();
   const plain = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   const line99 = plain.find((l) => l.includes("s99"));
   const line98 = plain.find((l) => l.includes("s98"));
   const line42 = plain.find((l) => l.includes("s42"));
   assert.ok(
     line99 && line99.includes("[当前] [不可续]"),
-    "当前 live 行双标: " + line99,
+    `当前 live 行双标: ${line99}`,
   );
   assert.ok(
     line98 && line98.includes("[不可续]") && !line98.includes("[当前]"),
-    "其他 live 行仅 [不可续]: " + line98,
+    `其他 live 行仅 [不可续]: ${line98}`,
   );
   assert.ok(
     line42 && line42.includes("历史标题"),
-    "persisted 行显示标题: " + line42,
+    `persisted 行显示标题: ${line42}`,
   );
   assert.ok(
     line42 && !line42.includes("不可续"),
-    "persisted 行无不可续标记: " + line42,
+    `persisted 行无不可续标记: ${line42}`,
   );
 });
 
@@ -2489,7 +2488,7 @@ test("/session：resume 后标题——官方 sessionTitle 优先于本地兜底
   await flush();
   assert.deepEqual(adapter.sessionTitleCalls, ["s42"], "resume 后读取官方标题");
   const plain = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     plain.some((l) => l.includes("官方标题")),
@@ -2513,7 +2512,7 @@ test("/session：resume 后标题——无官方 sessionTitle → deriveTitle �
   await flush();
   assert.deepEqual(adapter.sessionTitleCalls, ["s42"]);
   const plain = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     plain.some((l) => l.includes("回顾上轮结论")),
@@ -2529,7 +2528,7 @@ test("session-title 事件：官方折叠标题实时流入状态栏（仅当前
     sessions: [{ id: "live-1", title: "" }],
   });
   const before = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     before.some((l) => l.includes("<title>")),
@@ -2542,7 +2541,7 @@ test("session-title 事件：官方折叠标题实时流入状态栏（仅当前
     title: "官方折叠标题",
   });
   const after = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     after.some((l) => l.includes("官方折叠标题")),
@@ -2551,7 +2550,7 @@ test("session-title 事件：官方折叠标题实时流入状态栏（仅当前
   // 非活跃会话的标题事件被忽略
   adapter.push({ type: "session-title", sessionId: "other", title: "无关" });
   const after2 = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     !after2.some((l) => l.includes("无关")),
@@ -2576,7 +2575,7 @@ test("启动即刷 Mode 快照：state 未建立会话时按 adapter.sessionId �
   const app = new App({ renderer, adapter });
   app.start();
   const plain = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   // 未推 session-list / session-title（未输入任何内容）即显示 Mode 块；
   // 生效值按 MODE_SHORT 缩写展示（sandbox read-only→ro、permission danger-full-access→full）
@@ -2601,7 +2600,7 @@ test("非活跃会话事件不污染活跃 buffer 与状态（App 侧兜底过�
     sessions: [{ id: "live-1", title: "" }],
   });
   const before = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   // 非活跃会话的流式/思考/状态事件 → 一律忽略
   adapter.push({ type: "stream", sessionId: "other", text: "OTHER_OUTPUT" });
@@ -2612,7 +2611,7 @@ test("非活跃会话事件不污染活跃 buffer 与状态（App 侧兜底过�
     status: "thinking",
   });
   const after = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     !after.some((l) => l.includes("OTHER_OUTPUT")),
@@ -2625,7 +2624,7 @@ test("非活跃会话事件不污染活跃 buffer 与状态（App 侧兜底过�
   // 活跃会话事件照常生效
   adapter.push({ type: "stream", sessionId: "live-1", text: "ACTIVE_OUTPUT" });
   const active = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     active.some((l) => l.includes("ACTIVE_OUTPUT")),
@@ -2647,7 +2646,7 @@ test("/session：resume 不可用（无 adapter.resumeTo）→ 提示不可切�
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await flush();
   const plain = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     plain.some((l) => l.includes("不可用")),
@@ -2662,7 +2661,7 @@ test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC5
   typeAndEnter(renderer, "/copy");
   await flush();
   const plain = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(plain.some((l) => l.includes("没有可复制的模型回复")));
 
@@ -2678,7 +2677,7 @@ test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC5
     );
     assert.equal(
       first,
-      "\x1b]52;c;" + Buffer.from("最终答复").toString("base64") + "\x07",
+      `\x1b]52;c;${Buffer.from("最终答复").toString("base64")}\x07`,
     );
   } finally {
     w.mock.restore();
@@ -2725,7 +2724,7 @@ test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC5
 
   // 复制成功 notice（最后一次 /copy 触发）
   const plainN = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     plainN.some((l) => l.includes("已复制")),
@@ -2745,7 +2744,7 @@ test("tool-call → 缓冲出现工具行 <name> <summary>（无图标前缀）"
     summary: "ls -la src/app",
   });
   const plain = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     plain.some((l) => l.includes("bash ls -la src/app")),
@@ -2772,10 +2771,10 @@ test("tool-call：参数显式换行/软折行 → 续行统一 4 空格缩进",
     type: "tool-call",
     sessionId: "s1",
     name: "bash",
-    summary: "echo a\ncd /tmp/x\nlong=" + "x".repeat(120),
+    summary: `echo a\ncd /tmp/x\nlong=${"x".repeat(120)}`,
   });
   const plain = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   // 首行无缩进（工具名行起点）
   assert.ok(
@@ -2788,10 +2787,10 @@ test("tool-call：参数显式换行/软折行 → 续行统一 4 空格缩进",
     "显式换行后的续行带 4 空格缩进",
   );
   // 超宽参数软折行 → 每段续行均 4 空格缩进（窗口宽 80，contentW≈53，续行按 49 折）
-  const cont = plain.filter((l) => l.includes("    " + "x".repeat(10)));
+  const cont = plain.filter((l) => l.includes(`    ${"x".repeat(10)}`));
   assert.ok(
     cont.length >= 2,
-    "软折行续行 ≥2 段且均 4 空格缩进，实际=" + cont.length,
+    `软折行续行 ≥2 段且均 4 空格缩进，实际=${cont.length}`,
   );
   // 首行不含 4 空格前缀（紧贴左缘框列后直接是工具名）
   const first = plain.find((l) => l.includes("bash echo a"))!;
@@ -2803,7 +2802,9 @@ test("tool-call：参数显式换行/软折行 → 续行统一 4 空格缩进",
     ok: true,
     detail: "ok\nline2",
   });
-  const plain2 = renderer.lastRender.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+  const plain2 = renderer.lastRender
+    .join("\n")
+    .replace(/\u001b\[[0-9;]*m/g, "");
   assert.ok(plain2.includes("✓ ok line2"), "结果行 \n 折叠为空格");
 });
 
@@ -2822,7 +2823,7 @@ test("tool-result 成功 → ✓ <detail>；失败 → 红色 ✗ <detail>", () 
     detail: "EACCES: 13",
   });
   const joined = renderer.lastRender.join("\n");
-  const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
+  const plain = joined.replace(/\u001b\[[0-9;]*m/g, "");
   assert.ok(plain.includes("✓ done: 0"), "成功结果行 ✓ <detail>");
   assert.ok(plain.includes("✗ EACCES: 13"), "失败结果行 ✗ <detail>");
   assert.ok(
@@ -2887,7 +2888,7 @@ test("compaction/retry → toast notice 文本（retry warn 黄）", () => {
     message: "连接被重置",
   });
   const joined = renderer.lastRender.join("\n");
-  const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
+  const plain = joined.replace(/\u001b\[[0-9;]*m/g, "");
   assert.ok(plain.includes("正在压缩上下文..."), "compaction start toast");
   assert.ok(plain.includes("压缩完成"), "compaction end toast");
   assert.ok(
@@ -2910,7 +2911,7 @@ test("usage 事件 → 状态栏显示 ctx/cache（替换占位 —）", () => {
     cacheRead: 24000,
   });
   const plain = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   // total=36000 → ctx 36k；cache=24000/36000≈67%
   assert.ok(
@@ -2934,7 +2935,7 @@ test("usage 事件带 contextWindow → 状态栏 ctx 追加占用百分比", ()
     contextWindow: 120000,
   });
   const plain = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   // total=36000，窗口 120000 → 36k(30%)；无窗口用例保持仅绝对大小（既有 ctx 36k 断言）
   assert.ok(
@@ -2947,7 +2948,7 @@ test("/goal：不再打开面板，通知右侧信息栏查看 goal/todo", () =>
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/goal");
   const plain = renderer.lastRender.map((l) =>
-    l.replace(/\x1b\[[0-9;]*m/g, ""),
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
     plain.some((l) => l.includes("详情见右侧信息栏")),
@@ -3022,7 +3023,7 @@ test("inputPanelHeights：页高口径与 buildFrame 一致（rows=24 → 状态
 
 test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 ↑/PgUp 滚动帮助", async () => {
   const { renderer } = makeApp();
-  const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
+  const strip = (l: string): string => l.replace(/\u001b\[[0-9;]*m/g, "");
   const hint = (): string => {
     const h = renderer.lastRender
       .map(strip)
@@ -3092,7 +3093,7 @@ test("无焦点空输入：↑ 上滚对话区，展开折叠的更早回复", (
   renderer.size = { cols: 80, rows: 28 };
   // 5 组回复（> DIALOGUE_KEEP_REPLIES=3）：stream（assistant）+ turn-end 分隔
   for (let i = 1; i <= 5; i++) {
-    adapter.push({ type: "stream", sessionId: "s1", text: "回复正文行" + i });
+    adapter.push({ type: "stream", sessionId: "s1", text: `回复正文行${i}` });
     adapter.push({ type: "turn-end" });
   }
   const joined = (): string => renderer.lastRender.join("\n");
@@ -3132,7 +3133,7 @@ test("Tab 仅在输入区为空时切换焦点；有输入时不响应（编辑�
   const { renderer } = makeApp();
   // 焦点标签追加在 hint 行尾，80 列会被截断；加宽到 120 列保证可断言
   renderer.size = { cols: 120, rows: 24 };
-  const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
+  const strip = (l: string): string => l.replace(/\u001b\[[0-9;]*m/g, "");
   const hint = (): string => {
     const h = renderer.lastRender
       .map(strip)
@@ -3161,7 +3162,7 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   const { renderer, adapter } = makeApp();
   const size = { cols: 120, rows: 24 } as const;
   renderer.size = size;
-  const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
+  const strip = (l: string): string => l.replace(/\u001b\[[0-9;]*m/g, "");
   const actFirst = (): string => {
     const lines = renderer.lastRender.map(strip);
     // 跳过标题栏分隔行（rows=24 时标题栏 2 行、下划线在 index 2）
