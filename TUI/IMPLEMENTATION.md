@@ -1,6 +1,7 @@
-# DSH TUI 实现要点
+# DSH TUI 实现要点（Implementation）
 
-> 配套文档：`DESIGN.md`（架构与渲染语义）。本文档记录实现层的关键机制、命令路由与文本管线细节。
+> 类型：**[implementation]** 实现细节记录。
+> 配套文档：`DESIGN.md`（架构/设计）、`SPEC.md`（规格）、`TASKS.md`（任务）。本文档记录实现层的关键机制（现状方案），命令路由与文本管线细节；算法/接口规格见 `SPEC.md`，开发任务见 `TASKS.md`。
 
 ## Slash 命令路由
 

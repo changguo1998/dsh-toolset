@@ -17,6 +17,7 @@
 | `src/app/adapter/types.ts` | 外部边界 | 纯类型（29 个，adapter 归一化域） |
 | `src/app/adapter/normalize.ts` | 外部边界 | `parseSlashCommand`/`buildApprovalPrompt`/`buildUserMessage`/`normalizeAgentStatus`/`readDefaultSelection` |
 | `src/app/layout/markdown.ts` | 排版 | 宽度原语 + markdown 行内/块级解析（`parseInlineMarkdown`/`wrapInlineMarkdown`/`wrapAssistantLine` 等）；**只导外部真正需要的函数，内部正则与 helper 不做公共 API** |
+| `src/app/layout.ts`（Box 重构后拆分） | 排版 | 目标拆分为：`layout/box.ts`（类型）、`measure.ts`（measure/allocate）、`fill.ts`（fill 摊平 + `setCell`）、`build-box.ts`（buildBox 分区树+内容映射）、`focus-frame.ts`（FocusFrame 覆写）、`adapt.ts`（折叠适配）、`table.ts`（表格构建器）、`panel.ts`（面板场景原语）——逐文件职责见 `DESIGN.md` Part II §6 |
 | `src/app/question-transition.ts` | 逻辑 | 问答纯状态转换（`QuestionKeyDecision`/`questionKeyDecision`/`buildQuestionAnswers`） |
 | `src/app/model-transition.ts` | 逻辑 | 模型选择纯状态转换（`PickerInit`/`buildPickerInit`/`pickerEffortIndex`/`resolvePickerSelection`/`ModelSwitchPlan`/`planModelSwitch`） |
 
@@ -26,6 +27,8 @@
 ## 触发标准
 
 满足其一再启动拆分：新增 2+ 个交互面板；DSH API 大版本变更导致 `dsh.ts` 扩散；单文件反复改动使某测试文件难维护；出现跨层或循环依赖。否则保持现状（YAGNI）。
+
+**已触发的拆分**：Box 排版重构（`DESIGN.md` Part II §6）——`layout.ts`（2096 行）因结构改造拆为排版层纯函数文件，触发标准「单文件反复改动/难维护」满足后执行拆分。
 
 ## 边界（明确不做）
 

@@ -1,5 +1,16 @@
 # @dsh-toolset/dsh-tui
 
+本目录文档导航（等级 = design/spec/task/implementation/meta）：
+
+| 文档 | 等级 | 内容 |
+|---|---|---|
+| `DESIGN.md` | design | 架构设计：现状（Part I）+ Box 重构目标态（Part II） |
+| `SPEC.md` | spec | 渲染管线规格：Box 排版模型（Part I）+ RenderLine→FrameRow 渲染契约（Part II） |
+| `TASKS.md` | task | 重构实施任务：契约迁移主线 A + Box 主线 B + 验收/提交拆分/待决 |
+| `IMPLEMENTATION.md` | implementation | 实现细节：命令路由、文本管线、机制实现记录 |
+| `REFACTOR.md` | task/约定 | 模块拆分原则、文件归属、触发标准 |
+| `AUDIT-colors.md` / `NOTICE-LEVELS.md` | 参考 | 颜色审计 / notice 级别约定 |
+
 DSH（DeepSeek Harness）进程内集成的终端 UI 插件。复用 DSH 核心服务（会话、Agent 驱动、审批链等），提供 Web UI / CLI 之外的第三种交互方式，由自研极简渲染层驱动（不依赖 Ink / Solid-TUI / node-pty，运行时唯一依赖 `chalk`）。
 
 ```

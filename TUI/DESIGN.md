@@ -1,5 +1,7 @@
 # DSH TUI 插件设计
 
+> 类型：**[design]** 架构设计——Part I 现状实现（结构/取舍/事件映射）+ Part II Box 排版重构目标态（已并入本文末）；实现与验收见 `SPEC.md`（规格）、`TASKS.md`（任务）、`IMPLEMENTATION.md`（实现要点）。
+
 ## 项目目标
 
 为 DeepSeek Harness（DSH）开发一个轻量级、高性能的终端用户界面插件，作为进程内集成的交互前端，通过复用 DSH 核心服务（会话管理、Agent 驱动、工具调用等），提供 Web UI 和 CLI 之外的另一种交互方式。
@@ -53,7 +55,7 @@ DSH 适配层接口以**官方源码研读**为准（`~/GithubRepos/deepseek-har
 | 控制 | 副作用编排（adapter/notice/paint/异步） | `index.ts`（App） |
 | 外部边界 | DSH 事件归一化与回调 | `adapter/*` |
 
-以「渲染/排版」术语衡量：**排版职责越权承担了部分渲染职责（样式序列化）**，是后续契约收敛的目标点（见 REFACTOR.md 与下方「核心接口契约」）。收敛方案草案见 `CONTRACT.md`（排版→渲染契约）与 `LAYOUT-BOX.md`（Box 排版模型）——实施完成后再将本节「现状偏差」更新为「已收敛」。
+以「渲染/排版」术语衡量：**排版职责越权承担了部分渲染职责（样式序列化）**，是后续契约收敛的目标点（见 REFACTOR.md 与下方「核心接口契约」）。收敛方案见 `SPEC.md`（排版/渲染契约与规格）与本文 Part II（Box 重构设计）——实施完成后再将本节「现状偏差」更新为「已收敛」。
 
 ## 文件结构（单包分目录）
 
@@ -285,3 +287,116 @@ interface Renderer {
   - `model/selection` — 官方模型切换回放（排期：下个功能批次与 TUI /model 联动）
   - `subagent/model-selection-policy` — 子代理模型策略（低频）
   - `session-log-deepseek/delivery-accepted` — 内部日志交付确认（log-only，无需界面）
+
+______________________________________________________________________
+
+# Part II · Box 排版重构设计（目标态）
+
+## 1. 定位：Box 是排版的基本元素 [design]
+
+Box 统一承担两件事——**屏幕分区**与**内容元素**：
+
+- **分区**：屏幕 = 顶区（历史 ‖ 活动 ‖ 状态列）/ 状态区 / 输入区 / 提示区的 Box 嵌套。
+- **内容**：每一条用户输入、每一条 LLM 回复、一个段落、一个 markdown 表格、一条工具调用记录，**各自也是一棵 Box 子树**。
+
+两者是同一个模型、同一套布局算法，只是层级不同：pane 树的叶子挂内容树，内容树的叶子是**缩进段落**。
+
+**核心不变量（叶子语义）**：**一个叶子的文字属于同一个缩进段落**——叶子内部的所有文字（含软换行后的续行）共享同一缩进基准；缩进不同就是不同叶子。
+
+**它不是组件树**：Box 是纯数据结构（可穷举的代数类型），无生命周期、无样式继承、无测量回环、无回调。与 DESIGN「砍组件树/布局引擎」不冲突——砍的是带行为与继承的引擎，Box 只是"布局代数"。
+
+## 4. 层级：pane 树挂内容树 [design]
+
+```
+screen = v([
+  h([
+    v([ titleBar, h([ history, activity ]) ]),   // 左列
+    statusColumn,                                // 右侧状态列（width: ratio 1/3）
+  ]),
+  statusBar, input, hint,
+])
+
+history 的内容 = v( 消息 Box … )      // 由 state.buffer 派生
+activity 的内容 = v( 瞬态行 Box … )    // 思考/工具/notice；面板打开时整体替换
+
+> 上例中的区域名（`titleBar`/`history`/`statusColumn`/...）即**带 `id` 的 Box**（分区，类型见 `SPEC.md` §2 的 `Box`/`PaneId`）；尺寸意图写在对应 Box 的 `width`/`height` 上（如历史区 `fill+min:10`、状态列 `ratio 1/3`）。
+```
+
+- **pane 树**：结构固定（四区域），尺寸由 `metricsFor` 预算 → `Width/Height` 意图
+  - **分区层硬编码**于 `buildBox`：四区域 Box 嵌套是固定字面量（区域固定、面板不新增分区）；
+  - **内容层用清单**：每个 pane 内走「内容元素类型 → Box 构建函数」映射表，新增内容类型 = 加一条映射、不改布局主体（`SPEC.md` §3）；不引入 `planRegions` 分区清单
+- **内容树**：每帧从 state 派生（纯函数），挂在 pane 的叶子上
+- 内容树在 pane 的 **fill 阶段摊平为 `FrameRow[]`**；pane 的滚动/裁剪在**行级**进行（= 现状 `computeViewport` 语义，滚动语义零变化）
+
+## 7. 现状特殊场景逐条落法 [design]
+
+| 场景 | 落法 |
+|---|---|
+| 浮动面板（审批/问答占活动区） | activity 的**内容树整体替换**为面板 Box，非叠加层——无需 Overlay 构造子；面板组件是 Box 生成器（**场景原语** `title`/`question`/`explanation`/`options`，便捷构造），内部排版同样走 Box，fill 统一摊平；`RenderLine[]` 输出退出 |
+| 滚动裁剪（历史/活动区 viewport） | fill 拿矩形高后按行裁剪（现状语义） |
+| 非等分左右（历史 vs 状态列） | `Width.ratio`（状态列 1/3）+ `fixed`（历史区保底 10 列） |
+| 横线/虚线区域分隔（`─`/`╌`） | `v({ separator })` 自动生成（`SPEC.md` §2）；特殊横线（如页面级 `---`）用显式 `Paragraph` |
+| **焦点四边框 / 标题栏兼作顶边 / 跨区角字** | 见 §8 全局 FocusFrame |
+
+## 8. 焦点框线方案（border 的核心设计） [design]
+
+> **边框归属（先钉死）**：Box 模型**不引入 `box.border` 属性**。三类视觉边界各有机制——兄弟项分隔线 = `v.separator`（`SPEC.md` §2）；行端竖线 = 摊平时按行附加；**焦点高亮框 = 本节全局 `FocusFrame` 覆写**。现状无"盒子四边描边"需求，不为假想买单。
+
+**现状事实**（`buildStatusSeparator` / `buildTopRegion`）：
+
+- 角字/边线**按焦点在本帧选择性亮相**：`─ │ └ ┘ ┌ ┐ ┴` 依 `sepFocus`（none/activity/status）与 `focusedPanel` 逐段决定，未聚焦回灰
+- **共享边**：标题栏下划线行兼作 history 顶边；D 列竖线兼作历史区右缘/状态列左缘——两区 border 落同一条线，**不能双画**
+
+**方案：焦点框线 = `FocusFrame` 全局覆写（唯一机制，无 box.border）**
+
+布局后得到 `Map<PaneId, Rect>`（仅带 `id` 的可寻址分区），顶层 `FocusFrame(ctx, rects)` 纯函数——已知 `focusedPanel` 与各区域矩形，在指定行列**重写角字与边线**（未聚焦的灰线由正常内容机制产出：行端竖线 / `v.separator`，与本层无关）。与现状中心化构图一一对应：
+
+**实现载体**：不引入字符网格——`FrameRow` 保持段数组，`FocusFrame` 对整帧做**一次循环扫描**：凡满足焦点框线坐标谓词（行列落在焦点分区 `Map<PaneId, Rect>` 的边界、且该位置当前为灰框/占位/内容）的位置，以 `setCell(row, col, ch, style)` 切段替换为亮角字/边线。防双画由**扫描 + 覆盖顺序**天然保证（FocusFrame 亮边 > 内容 > 占位），每处只替换一次。覆写按**字符**定位（不切半个 CJK），宽度不进入覆写计算。
+
+| 焦点 | 现状构图 | FocusFrame 覆写 |
+|---|---|---|
+| history | 标题栏下划线行兼作顶边（┌─┐）、左缘/分隔竖线 │ | titleBar/history 共享行亮边 + 左角 |
+| activity | 活动区分隔两端 ┌┐、活动区左缘/分隔竖线 │ | activity 矩形左缘、底部分隔行亮 |
+| status | 状态列 rc0 起 ┌─┐、右缘框列、┴ ┘ | statusColumn 矩形左/上/下/右亮边 |
+| 无焦点 | 全灰/空白占位（布局不重排） | 不覆写 |
+
+- **防双画规则**：共享行/列上优先级 = FocusFrame 亮边 > 正常内容行 > 空白占位；每条边只写一次。
+- 状态区上下横线的 `└/┴/┘` 角字同样由 FocusFrame 按焦点状态产出（对应现状 `buildStatusSeparator`）。
+
+**为什么焦点框不做成"每个 box 自带 border"**：焦点框是**全局状态驱动的跨区构图**，放叶子上会让每个区域重复判断焦点，且无法处理共享边；中心化为 FocusFrame 一层，正好对应现状的集中构图。
+
+## 10. 与既有文档的关系 [meta]
+
+- **SPEC.md（原 CONTRACT）**：Box 树是排版层内部中间表示；`FrameRow`/`FrameSegment`/`FrameContext` 定义于 `SPEC.md` §11（渲染契约），正文与之互相引用。
+- **REFACTOR.md**：拆文件不拆架构、只拆纯逻辑；Box 是数据不是类，**不违背"不抽象通用 Panel"**；副作用仍留 App。
+- **DESIGN.md**：不引入 flex/测量回环/样式继承；"布局代数"≠组件树。
+
+## 6. 模块归属（目标文件结构）[design]
+
+Box 重构把 2096 行 `layout.ts` 拆为排版层若干纯函数文件（遵守 REFACTOR.md：拆纯逻辑、副作用留 App、不抽象 Panel、不换框架）。目标结构：
+
+| 文件 | 职责 | 说明 |
+|---|---|---|
+| `layout/box.ts` | 类型：`NodeBase`/`Box`/`Paragraph`/`Width`/`Height`/`Separator`/`PaneId` | 纯类型，无行为 |
+| `layout/measure.ts` | `measure(box, constraint) -> SizeTable` + `allocate(SizeTable, rect) -> Map<Box,Rect>` | 尺寸计算（分配优先级/宽先于高，`SPEC.md` §6） |
+| `layout/fill.ts` | `fill(ctx, rect)` 摊平：Paragraph 折行→行内解析→补白/valign；Box 递归 + separator；`setCell` 切段 | 产出 `FrameRow[]`（契约不变量 #1-4 的承担方） |
+| `layout/build-box.ts` | `buildBox(state) -> Box`：四分区 pane 树（硬编码）+ 内容映射清单 | 每帧纯函数重建（§4） |
+| `layout/focus-frame.ts` | `FocusFrame(ctx, rects)` 段级覆写 | 整帧一次扫描（§8） |
+| `layout/adapt.ts` | 折叠适配纯函数：`foldAt`/`foldDialogue`/活动区两态 | fill 阶段调用（`SPEC.md` §6） |
+| `layout/table.ts` | 表格构建器（窄终端压缩/列分隔/单元格对齐） | 产出 Box 子树（`SPEC.md` §3.2） |
+| `layout/panel.ts` | 面板场景原语 `title`/`question`/`explanation`/`options` | 便捷构造，返回 Box（§7） |
+| `layout/markdown.ts` | 保留：块识别 + 行内解析，产出 `FrameSegment[]`（渲染契约收敛） | 现 727 行，重排范围见 `TASKS.md` §6 C2 |
+| `layout/tool-line.ts` | 保留 | |
+
+**渲染层（静态归属，不新增文件）**：`renderer/screen.ts` 改收 `FrameRow[]`、新增 `segStyle` 段级序列化，delta 按**序列化文本**比较（内部不对外——相邻同 style 合并后结构 diff 不稳，序列化文本即最终上屏字节，比较它既正确又直接）；`renderer/theme.ts` 的 `ColorName` 增 `"code"` 槽位（`SPEC.md` §12 主题契约）。
+
+**组件层 `components/*`**：7 个面板改为 Box 生成器（用 `layout/panel.ts` 原语，§7）。
+
+> 与 REFACTOR.md 的关系：本节定义的目标结构即对 REFACTOR「当前文件归属」的扩展——`layout.ts` 由“未拆分”变为拆分（box/measure/fill/build-box/focus-frame/adapt/table/panel），拆分触发标准（单文件反复改动/难维护）已满足；REFACTOR 归属表相应更新。
+
+## 13. 明确不做 [design]
+
+- flex/grid/自动布局引擎/样式继承/响应式重排/嵌套滚动
+- 可复用 Panel 基类 / 带行为的组件节点
+- Overlay 覆盖层构造子（面板走"内容替换"，必要时再评估）
+- renderer 侧任何改动（Box 不出排版层）
