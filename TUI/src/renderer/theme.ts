@@ -123,7 +123,7 @@ export function ansiNameToHex(theme: ColorTheme, name: string): string | null {
   // 语义色名（用户手动指定槽位，非字面槽位）：
   //   次要文字 gray = dark bright[0] #787878 / light ansi[7] #F4F4F4
   //   边框 border   = dark ansi[4] #4684E7 / light ansi[4] #4032D3（语义蓝，用户指定）
-  //   行内代码背景 code = dark #434343 / light #E8E8E8（自 markdown.ts CODE_BG 迁入）
+  //   行内代码背景 code = dark #434343 / light #E8E8E8（自 markdown 排版层迁入）
   if (name === "code") return theme.name === "fffdark" ? "#434343" : "#E8E8E8";
   if (theme.name === "fffdark") {
     if (name === "gray") return theme.bright[0];
