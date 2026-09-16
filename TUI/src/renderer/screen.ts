@@ -11,6 +11,7 @@ import {
   DEFAULT_THEME,
   THEMES,
   themeSgr,
+  type ColorName,
   type ColorTheme,
   type ThemeId,
   hexSgr,
@@ -20,6 +21,31 @@ export interface RenderLine {
   text: string;
   style?: { fg?: string; bg?: string; bold?: boolean };
   /** 渲染后硬件光标停留的显示列(0 基)；仅输入行设置(TextInput 计算) */
+  caret?: number;
+}
+
+// ---------- 段级渲染契约（主线 A 目标态；RenderLine 迁移完成后删除） ----------
+
+/** 段级样式：语义色名 + 字型开关。排版层唯一样式类型（规范见 SPEC.md §11.1） */
+export interface FrameStyle {
+  fg?: ColorName | `#${string}`;
+  bg?: ColorName | `#${string}`;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+}
+
+/** 行内一段：纯文本 + 段级样式（text 绝不含 ANSI，不变量 #1） */
+export interface FrameSegment {
+  text: string;
+  style?: FrameStyle;
+}
+
+/** 一行：排版输出最小单位（取代 RenderLine） */
+export interface FrameRow {
+  segments: FrameSegment[];
+  /** 输入行硬件光标停留列（0 基显示列）；仅输入行设置 */
   caret?: number;
 }
 
@@ -150,4 +176,103 @@ export function styleLine(line: RenderLine, theme: ColorTheme): string {
   }
   if (open.length === 0 && close.length === 0) return text;
   return open.join("") + text + close.reverse().join("");
+}
+
+// ---------- 段级序列化（主线 A；旧 RenderLine API 迁移完成后 styleLine 删除） ----------
+
+/** 两段样式是否全字段相等（相邻合并判定） */
+function sameFrameStyle(
+  a: FrameStyle | undefined,
+  b: FrameStyle | undefined,
+): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return (
+    a.fg === b.fg &&
+    a.bg === b.bg &&
+    a.bold === b.bold &&
+    a.italic === b.italic &&
+    a.underline === b.underline &&
+    a.strike === b.strike
+  );
+}
+
+/** 单段样式 → manual ANSI open/close（未知名色名回退基底；#hex 直接使用） */
+function segSgr(
+  seg: FrameSegment,
+  theme: ColorTheme,
+): { open: string; close: string } {
+  const st = seg.style;
+  const open: string[] = [];
+  const close: string[] = [];
+  if (st?.bold) {
+    open.push("\x1b[1m");
+    close.push("\x1b[22m");
+  }
+  if (st?.italic) {
+    open.push("\x1b[3m");
+    close.push("\x1b[23m");
+  }
+  if (st?.underline) {
+    open.push("\x1b[4m");
+    close.push("\x1b[24m");
+  }
+  if (st?.strike) {
+    open.push("\x1b[9m");
+    close.push("\x1b[29m");
+  }
+  if (st?.fg) {
+    const hex = st.fg.startsWith("#") ? st.fg : ansiNameToHex(theme, st.fg);
+    if (hex) {
+      open.push(hexSgr(hex, true));
+      close.push(hexSgr(theme.foreground, true));
+    }
+  }
+  if (st?.bg) {
+    const hex = st.bg.startsWith("#") ? st.bg : ansiNameToHex(theme, st.bg);
+    if (hex) {
+      open.push(hexSgr(hex, false));
+      close.push(hexSgr(theme.background, false));
+    }
+  }
+  return { open: open.join(""), close: close.reverse().join("") };
+}
+
+/**
+ * 单段序列化为 manual ANSI（open + text + close；无样式仅返回文本）。
+ * 相邻同 style 合并由 serializeFrameRow 负责（SPEC.md §14）。
+ */
+export function segStyle(seg: FrameSegment, theme: ColorTheme): string {
+  const st = seg.style;
+  if (!st) return seg.text;
+  const { open, close } = segSgr(seg, theme);
+  if (!open && !close) return seg.text;
+  return open + seg.text + close;
+}
+
+/** 整行序列化：相邻同 style 合并（只输出一次前缀）、异 style 时关闭前段再开新段、
+ * 行尾 SGR 重置（样式关闭）。等价于逐段 styleLine，但相邻同 style 不重复 open/close。 */
+export function serializeFrameRow(row: FrameRow, theme: ColorTheme): string {
+  let out = "";
+  let lastStyle: FrameStyle | undefined;
+  const close = (): void => {
+    if (lastStyle !== undefined)
+      out += segSgr({ text: "", style: lastStyle }, theme).close;
+  };
+  for (const seg of row.segments) {
+    const st = seg.style;
+    if (st !== undefined && sameFrameStyle(st, lastStyle)) {
+      // 与上一段同 style：合并，不再开前缀
+    } else {
+      if (st !== undefined) {
+        close(); // 关闭前一段样式
+        out += segSgr(seg, theme).open;
+      } else {
+        close(); // 转普通文本：关闭前一段样式
+      }
+    }
+    out += seg.text;
+    lastStyle = st;
+  }
+  close(); // 行尾 SGR 重置
+  return out;
 }
