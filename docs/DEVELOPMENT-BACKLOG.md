@@ -132,3 +132,11 @@ defender 迁移（对比文档 §3.5）。
 | 内容资产（非插件） | P2 | #17-#18、#32 | workflow 脚本 + skill 内容 |
 
 依赖：goal-contract、metric-loop、workflow-ext 依赖 task-engine（契约/执行器面）；output-compress 依赖 knowledge-base；其余独立可并行。
+
+## TUI 排版重构（Box 模型，架构级）
+
+> 与上表功能迁移无关的 TUI 本体架构重构。**设计已定案**（`TUI/LAYOUT-BOX.md` + `TUI/CONTRACT.md`，2026-09），待实施；独立于各插件包，按自身节奏排期。
+
+- 范围：排版层引入 Box 树（Box/Paragraph 两类节点）替代 `wrapBufferLines` 分类处理；样式序列化收口 renderer（消灭 app 侧手拼 ANSI）；面板改为 Box 生成器（场景原语）；焦点框线归 FocusFrame 全局覆写
+- 实施：接口冻结 → 五路并行（契约迁移 / measure-allocate / 内容映射 / 测试序列化辅助 / 拆文件）→ 接线汇合 → 全量回归；拆多个可独立回归的提交
+- 未决：C2 markdown 解析器重排范围、C3 测试迁移策略、活动区两态触发方式（见 `LAYOUT-BOX.md` §14）

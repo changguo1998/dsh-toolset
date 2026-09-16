@@ -1,7 +1,7 @@
 # TUI 排版↔渲染契约
 
 > 状态：**设计草案，待实施**（2026-09）。实施完成后再将 `DESIGN.md`「现状偏差」更新为「已收敛」。
-> 配套：`DESIGN.md`「术语：渲染 vs 排版」、`REFACTOR.md`「当前文件归属」。术语与本文件一致：**渲染** = renderer 字节上屏；**排版** = 状态 → 带语义样式的行。
+> 配套：`DESIGN.md`「术语：渲染 vs 排版」、`REFACTOR.md`「当前文件归属」、`LAYOUT-BOX.md`（Box 树内部中间表示，本契约的两个跨度类型 `FrameStyle`/`FrameContext` 供其引用）。术语与本文件一致：**渲染** = renderer 字节上屏；**排版** = 状态 → 带语义样式的行。
 
 ## 1. 动机与目标
 
@@ -24,18 +24,24 @@ export type ColorName =
   | (string & {}); // 逃生通道：任意名渲染层回退基底色（fail-safe），不用即弃
 
 // 行内一段：纯文本 + 语义样式（原型 = markdown.ts InlineSegment，字段已对齐）
+// 段级样式描述：语义色名（渲染层按当前主题解析为 hex + SGR）；
+// 排版层唯一样式类型——FrameSegment / Box.NodeBase.style / prefix.style 共用
+// （样式漂移消除后，现 RenderLine.style 由本类型替代；renderer 无独立行级样式）
+export interface FrameStyle {
+  /** 原则上取 ColorName；"#hex" 逃生保留但新代码禁用（存量待清理） */
+  fg?: ColorName | `#${string}`;
+  bg?: ColorName | `#${string}`;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+}
+
+// 行内一段：纯文本 + 段级样式（原型 = markdown.ts InlineSegment，字段已对齐）
 export interface FrameSegment {
   /** 纯文本，绝不含 ANSI/控制序列（不变量 #1） */
   text: string;
-  style?: {
-    /** 原则上取 ColorName；"#hex" 逃生保留但新代码禁用（存量待清理） */
-    fg?: ColorName | `#${string}`;
-    bg?: ColorName | `#${string}`;
-    bold?: boolean;
-    italic?: boolean;
-    underline?: boolean;
-    strike?: boolean;
-  };
+  style?: FrameStyle;
 }
 
 // 一行：排版输出最小单位
@@ -65,6 +71,20 @@ interface Renderer {
 ### 2.3 排版输入（已有契约，立字据）
 
 - 输入 = `AppState`（只读）；`buildFrame(state, size): FrameRow[]` 保持**纯函数**：不改 state、无副作用、无 adapter/paint 调用（REFACTOR.md 原则）。
+
+- **排版上下文（fill 阶段只读输入；不跨层，供 `LAYOUT-BOX.md` §9 管线引用）**：
+
+```ts
+// buildFrame 内部：state --buildBox--> Box 树 --measure/allocate--> rects --fill(ctx, rect)--> FrameRow[]
+// ctx 承载构建/填板的只读事实；各区域 fill 不再背一长串位置参数（现 buildTopRegion 的痛）
+interface FrameContext {
+  state: AppState;                          // 只读，无副作用（REFACTOR 原则）
+  size: Size;                               // 终端尺寸（cols×rows）
+  themeId: ThemeId;                         // 主题选择（取色由渲染层）
+  metrics: FrameMetrics;                    // 分区尺寸预算（statusColWidth/historyWidth/topHeight/footerHeight…）
+  focusedPanel: "history" | "activity" | "status" | null;  // 焦点分区（FocusFrame 覆写用）
+}
+```
 
 ## 3. 主题契约
 
@@ -103,7 +123,7 @@ state 事实("status=failure")             -- 逻辑层，不碰颜色
 
 **B. 排版层**
 
-- `layout/markdown.ts`：`InlineSegment`/`InlineStyle` 收敛为 `FrameSegment`（字段已对齐）；删除 `renderSeg`（序列化移交渲染层）；删除 `CODE_BG`（改 `style.bg: "code"`）；`wrapSegments`/`wrapInlineMarkdown` 改产出 `FrameSegment[]`（跨行段每行重声明 — 不变量 #4）。
+- `layout/markdown.ts`：`InlineSegment`/`InlineStyle` 收敛为 `FrameSegment`/`FrameStyle`（字段已对齐）；删除 `renderSeg`（序列化移交渲染层）；删除 `CODE_BG`（改 `style.bg: "code"`）；`wrapSegments`/`wrapInlineMarkdown` 改产出 `FrameSegment[]`（跨行段每行重声明 — 不变量 #4）。
 - `layout.ts`：54 处 ANSI 直写 / `colorFor(...)` 直包改 `style` 字段（如 `makeSep` → `{ fg: "border" }`）；`renderStatusLine` 等纯函数改返回 `FrameRow[]`。
 - `components/*`：8 处同理；`TextInput` 保持 `caret` 语义。
 - `app/index.ts`（控制层）：仅随 `buildFrame` 返回类型顺延，不涉行为。
