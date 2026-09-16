@@ -6,6 +6,7 @@
 // layout.ts 重导 charWidth/displayWidth，公共导出不变，且不引入 layout↔markdown 循环依赖。
 
 import type { ColorName, ColorTheme, ThemeId } from "../../renderer/theme.ts";
+import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
 import { THEMES, ansiNameToHex, hexSgr } from "../../renderer/theme.ts";
 
 // ---------- 宽度原语（自 layout.ts 迁入；layout.ts 重导 charWidth/displayWidth） ----------
@@ -383,27 +384,8 @@ export function displayWidth(text: string): number {
 
 // ---------- markdown 子集（粗体 / 斜体 / 行内代码 / 链接 / 图片 / 块级） ----------
 
-/** 语义化行内样式：fg/bg 可为主题色名或 "#hex"；渲染时始终恢复主题基底前景/背景（不用 39m/0m） */
-interface InlineStyle {
-  bold?: boolean;
-  italic?: boolean;
-  underline?: boolean;
-  strike?: boolean;
-  fg?: ColorName | string;
-  bg?: ColorName | string;
-}
-
-/** 行内代码/代码块背景：按主题取与基底对比足够的灰（dark 深灰、light 浅灰） */
-const CODE_BG: Record<ThemeId, string> = {
-  dark: "#434343",
-  light: "#E8E8E8",
-};
-
-/** 带样式的文本段：先保持纯文本，按显示宽度换行完成后再序列化为 ANSI */
-interface InlineSegment {
-  text: string;
-  style?: InlineStyle;
-}
+// FrameStyle/FrameSegment 使用 renderer/screen.ts 的公共契约类型（SPEC.md §11.1）。
+// 行内代码背景改语义色名 "code"（原为本地 hex 常量，现由 theme.ts ansiNameToHex 解析）。
 
 /**
  * 行内 token：`` `code` ``、`**bold**`、`*italic*`、`[文字](url)` 链接、
@@ -428,8 +410,8 @@ function bracketText(full: string): string {
 export function parseInlineMarkdown(
   text: string,
   themeId: ThemeId = "dark",
-): InlineSegment[] {
-  const segs: InlineSegment[] = [];
+): FrameSegment[] {
+  const segs: FrameSegment[] = [];
   let last = 0;
   for (const m of text.matchAll(INLINE_RE)) {
     const idx = m.index!;
@@ -455,7 +437,7 @@ export function parseInlineMarkdown(
       // 行内代码：主题专用灰底（dark 深灰 / light 浅灰）+ 基底前景
       segs.push({
         text: fullText.slice(1, -1),
-        style: { bg: CODE_BG[themeId] },
+        style: { bg: "code" },
       });
     } else if (boldIt) {
       // ***bold+italic***：同一段粗体+斜体
@@ -498,12 +480,12 @@ export function parseInlineMarkdown(
 }
 
 /** 样式叠加（块级前缀样式 + 行内 token 样式），冲突时后者（b）胜 */
-function mergeStyle(a: InlineStyle, b: InlineStyle): InlineStyle {
+function mergeStyle(a: FrameStyle, b: FrameStyle): FrameStyle {
   return { ...a, ...b };
 }
 
 /** 相邻段样式是否相同（换行后合并用） */
-function sameStyle(a?: InlineStyle, b?: InlineStyle): boolean {
+function sameStyle(a?: FrameStyle, b?: FrameStyle): boolean {
   return (
     a?.bold === b?.bold &&
     a?.italic === b?.italic &&
@@ -522,7 +504,7 @@ function hexOf(theme: ColorTheme, v?: ColorName | string): string | null {
 }
 
 /** 单段序列化为 manual ANSI：open + text + close（恢复主题基底前景/背景） */
-export function renderSeg(seg: InlineSegment, themeId: ThemeId): string {
+export function renderSeg(seg: FrameSegment, themeId: ThemeId): string {
   const st = seg.style;
   if (!st) return seg.text;
   const theme = THEMES[themeId];
@@ -577,13 +559,13 @@ export function wrapInlineMarkdown(
 
 /** 段集按显示宽度软换行：样式跨行每行独立开/闭，合并相邻同样式后序列化 */
 function wrapSegments(
-  segs: InlineSegment[],
+  segs: FrameSegment[],
   width: number,
   themeId: ThemeId,
 ): string[] {
   if (width <= 0) return [segs.map((s) => renderSeg(s, themeId)).join("")];
-  const rows: InlineSegment[][] = [];
-  let cur: InlineSegment[] = [];
+  const rows: FrameSegment[][] = [];
+  let cur: FrameSegment[] = [];
   let curW = 0;
   const flush = (): void => {
     if (cur.length > 0) rows.push(cur);
@@ -602,7 +584,7 @@ function wrapSegments(
   flush();
   if (rows.length === 0) return [""];
   return rows.map((line) => {
-    const merged: InlineSegment[] = [];
+    const merged: FrameSegment[] = [];
     for (const s of line) {
       const lastSeg = merged[merged.length - 1];
       if (lastSeg && sameStyle(lastSeg.style, s.style)) lastSeg.text += s.text;
@@ -642,12 +624,12 @@ export function wrapCodeLine(
   themeId: ThemeId,
 ): string[] {
   if (text === "") return [""];
-  const bg = CODE_BG[themeId];
-  const segs: InlineSegment[] = [{ text, style: { bg } }];
+  const segs: FrameSegment[] = [{ text, style: { bg: "code" } }];
   return wrapSegments(segs, width, themeId).map((row) => {
     const pad = Math.max(0, width - displayWidth(stripAnsi(row)));
     return pad > 0
-      ? row + renderSeg({ text: " ".repeat(pad), style: { bg } }, themeId)
+      ? row +
+          renderSeg({ text: " ".repeat(pad), style: { bg: "code" } }, themeId)
       : row;
   });
 }
@@ -674,7 +656,7 @@ export function wrapAssistantLine(
   if (task) {
     const checked = task[1]!.toLowerCase() === "x";
     const body = parseInlineMarkdown(task[2]!, themeId);
-    const segs: InlineSegment[] = checked
+    const segs: FrameSegment[] = checked
       ? [
           // 已完成：勾选前缀 + 正文删除线（正常前景色）
           { text: "[x] " },
@@ -701,7 +683,7 @@ export function wrapAssistantLine(
     // 单层引用：隐藏正文开头残留的 >（本次不做嵌套格式）
     const body = quote[1]!.replace(/^[>\s]+/, "").trim();
     if (body === "") return [""];
-    const segs: InlineSegment[] = [
+    const segs: FrameSegment[] = [
       { text: "> " },
       ...parseInlineMarkdown(body, themeId).map((s) => ({
         text: s.text,
@@ -716,7 +698,7 @@ export function wrapAssistantLine(
     // 无序列表 (-/*/+) 统一显示为明显的 •；有序列表保留数字前缀
     const bullet = /^[ \t]*[-*+][ \t]+/.test(text);
     const prefix = bullet ? "• " : text.slice(0, text.length - list[1]!.length);
-    const segs: InlineSegment[] = [
+    const segs: FrameSegment[] = [
       { text: prefix },
       ...parseInlineMarkdown(list[1]!, themeId),
     ];
