@@ -68,3 +68,14 @@
 - 集成：`npm run demo`（mock 全栈）+ `npm run demo -- --smoke`（帧断言 SMOKE_PASS；无 TTY/CI 下自动合成按键驱动并自断言、失败置非零退出码）
 - 真机：`npm run smoke:pty`（真实 DSH PTY 冒烟：真实会话断言工具行与状态栏 usage）+ `TUI/scripts/verify-p0.py`（会话切换/标题/OSC52 复制，可重复执行）
 - 打包：`pnpm pack` + 全新空目录 `pnpm add <tarball>` 验证 files/bundle patch；当前开发脚本使用 `npm run`
+
+## 渲染管线重构·实现记录（Box + RenderLine）
+
+> 实现细节（机制决策、具体写法、踩坑）统一记录在本文档；`SPEC.md` 只保留规范性接口/规则。重构期间
+> （主线 A 契约迁移 + 主线 B Box 模型，见 `TASKS.md`）在此追加实现注意点：
+>
+> - **段序列化**：`segStyle` 实现要点（相邻合并判定、未知名回退、行尾 SGR 重置）——规范见 `SPEC.md` §14
+> - **Box 摊平**：`fill` 实现注意点（Paragraph 折行/行内解析/补白、Box 递归、`setCell` 边界安全）——规范见 `SPEC.md` §6.7
+> - **尺寸计算**：`measure`/`allocate` 实现注意点（优先宽分割→高生长→视口裁剪，无迭代回环）——规范见 `SPEC.md` §6.1-§6.4
+>
+> 具体条目随实施推进补充（含单测断言写法与性能观测）。

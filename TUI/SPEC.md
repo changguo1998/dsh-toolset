@@ -160,7 +160,7 @@ markdown 解析因此分两级：**先切块、再块内做行内解析**。
 tableBox(cells: Cell[][], width: number): Box   // 产出 v([ h([cellBox, …]), … ]) 的 Box 子树
 ```
 
-- **`minW` 默认值**：`ceil(colW_natural / 4)`（≥ 3 列），文本列可配更小；压缩后仍 < minW → 格内省略号截断（`…`）。
+- **`minW` 下限**：每列一个最小宽下限；压缩后仍 < minW → 格内省略号截断（`…`）。具体 `minW` 取值策略待定（候选：`ceil(colW_natural / 4)`，见 `TASKS.md` §6）。
 - **分隔符**：`│` 前景色实线（`ColorName: "border"`），固定 1 列，末列不画；表头下 `═`（双横线，`ColorName: "border"`）。
 - **对齐**：`:---:` 映射 `align`（左/右/居中），数字列右对齐。
 - **格内多段**：cell 内按正常 markdown 解析（`Paragraph`），矮格补行高用 `valign: "center"`。
@@ -207,63 +207,87 @@ tableBox(cells: Cell[][], width: number): Box   // 产出 v([ h([cellBox, …]),
    - 归属：**叶子级几何属性**（叶内一致，符合规则 7）；表格构建器把 `:---:` 映射为单元格 `align`。
    - 现状用户块**不需要** `align`：它要的是"块贴右 + 块内左对齐"（块级）；`align: right` 会得到"每行贴右、左缘参差"，是另一种效果。
 
-## 6. 布局算法（纯递归，~100 行） [spec]
+## 6. 布局算法（纯递归） [spec]
+
+### 6.1 尺寸计算次序：宽先于高（交替细化）
+
+布局不是两个相互独立的阶段，而是**交替细化**，宽度永远先于高度确定（与设计不变量一致）：
+
+1. **宽轴 = 自顶向下（分割）**：根矩形（终端尺寸）→ 逐层按 `Width` 意图切分宽度。该链与内容无关，纯分割（`metricsFor`/`contentW` 的活）。
+1. **高轴 = 自底向上（生长）**：**必须在宽度确定后才能计算**——段落折行必须知道可用宽（来自父链分配），折行行数即高度（`wrapBufferLines` 的活）。
+1. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 滚动偏移（`topPaneHeights` + `computeViewport` 的活）。
+
+**次序不变量（长宽不可能同时自由）**：宽度分割先于高度测量；高度永远在宽度确定后计算。`measure(node, constraint)` 的 `constraint` 即「宽度来自父链」的入口——measure 并非无约束累加：宽锁（父分配）→ 高自由（内容生长）。至少一个轴被父链锁死，内容才在另一轴自由生长。
+
+### 6.2 数据结构
 
 ```ts
-// measure 产物：每个节点测量后的自然宽高（宽=分配结果，高=折行后的行数或子项和）
+// 节点联合：Box（组合）与 Paragraph（叶子）
+type Node = Box | Paragraph;
+
+// measure 产物：每个节点测量后的自然宽高（宽=分配结果，高=折行行数或子项和）
 interface SizeTable {
-  w: number;                    // 该节点获得的可用宽（容器分配后的最终宽）
-  h: number;                    // 自然高（内容决定：v 子项和 / h 最大子高 / Paragraph 折行行数）
-  size: Map<Box, { w: number; h: number }>;   // 子树实测（含自身），供 allocate 精确切分
+  w: number;                       // 该节点最终可用宽（父链分配后）
+  h: number;                       // 自然高（内容决定：v 子项和 / h 最大子高 / Paragraph 折行行数）
+  size: Map<Node, { w: number; h: number }>;   // 子树实测（含自身），供 allocate 精确切分
 }
 
 // constraint：来自父链的可用宽上界（宽锁）。根：终端 cols。measure 时"宽锁 → 高自由生长"
 interface MeasureConstraint { maxW: number; }
 ```
 
-**measure 递归体**（自底向上）：对每个节点，先给子项测出尺寸，再聚合成自己：
+### 6.3 measure 递归体（自底向上）
+
+对每个节点，先给子项测出尺寸，再聚合成自己；约束只承载父链已分配的宽度：
 
 ```text
-measure(box, c: MeasureConstraint) -> SizeTable:
-  若 box 是 Paragraph:
+measure(node, c: MeasureConstraint) -> SizeTable:
+  若 node 是 Paragraph:
     有效内容宽 W = c.maxW − indent − prefix.width          # 规则 3
-    rows = wrap(text, W) | wrap && wrap=false 时单行截断     # 折行/截断按显示宽度
+    rows = wrap(text, W)，wrap=false 时单行截断             # 折行/截断按显示宽度
     h = rows 数                                            # 内容自然高
-    w = (width 声明显式决定?) 按声明型意图(见 allocate) : W   # 未声明时测出的内容宽
+    w = W                                                  # 未声明宽时取测出的内容宽
     返回 { w, h }
-  若 box 是 Box(direction: v):
-    子项依次 measure(sub, { maxW: c.maxW })                 # v 不占宽，各子 maxW 同宽
-    h = Σ child.h + 各子间隔(separator 1 行)                 # 分隔线占 1 行
-    w = max(child.w)                                        # v 宽取最宽子项（内容宽）
+  若 node 是 Box(direction: v):                            # 上下排布：不额外占宽
+    对每个 child: measure(child, { maxW: c.maxW })          # 各子同宽约束
+    h = Σ child.h + separator 行数                          # 各子项间 1 行，首尾不画
+    w = max(child.w)                                       # v 宽取最宽子项
     返回父 SizeTable（含子 size）
-  若 box 是 Box(direction: h):
-    固定/比例子项先行：fixed 用自身 cols；ratio 按 c.maxW × value      # 见 allocate 同逻辑
-    随后 auto/fill 子项 measure(sub, { maxW: 余下可分配宽 })
-    h = max(child.h)                                        # h 高取最高子项
-    w = Σ child.w + 分隔(竖线固定 1 列)
+  若 node 是 Box(direction: h):                            # 左右排布：横向分摊
+    先按「分配优先级」（§6.5）把 c.maxW 切给每个 child：fixed/min/max/ratio 直接定宽，
+    auto 先以 max 为折行上界再量内容宽，fill 吃剩余
+    对 auto/fill 的 child 再次 measure(child, { maxW: 分配宽 })
+    h = max(child.h)                                       # h 高取最高子项
+    w = Σ child.w + 竖线分隔 1 列（若有）
     返回父 SizeTable（含子 size）
 ```
 
-**allocate 递归体**（自顶向下）：按 `Width`/`Height` 意图逐层切分，先宽轴后高轴（见「尺寸计算次序」）：
+- `auto` 的自指（块宽依赖内容、内容依赖块宽折行）由 `max: M` 折行上界**一次消解**：先以 `M = min(容器可用宽, max)` 为折行上界量出内容宽，再按内容宽定块宽（见 §6.5「auto 宽度测量」）。不需要分配器与测量器之间的迭代回环。
+- `max` 是「折行上界」而非「最终宽度硬上限」：遇无法断行的超宽内容按现状强制放下、不丢字符，该行可 > M；块宽取实际最大行宽（由父 pane 裁剪），夹到 M 会丢内容。
+
+### 6.4 allocate 递归体（自顶向下）
+
+按 `Width`/`Height` 意图逐层切分矩形，输出每个节点的最终矩形：
 
 ```text
-allocate(st: SizeTable, rect: Rect) -> Map<Box, Rect>:
+allocate(st: SizeTable, rect: Rect) -> Map<Node, Rect>:
   若是 Paragraph（叶子）: 记录 rect；结束
-  若是 Box(direction: h):                                        # 横向切宽
-    依「分配优先级」给每个子项定宽：fixed → min/max → ratio → auto(用 st.child.w 夹 max) → fill(吃剩余)
-    相邻子项间插竖线分隔 1 列（行端字符）；遇过度约束按让路顺序压缩（fill→auto→ratio→max→min→fixed）
-    每个子项递归 allocate(sub, { x: 当前游标, y: rect.y, w: 分配宽, h: rect.h })
-  若是 Box(direction: v):                                        # 纵向切高
-    child 用的宽 = rect.w（同宽）；先整列测出每个子项高（已含在 st.child）
-    高度分配：高度声明 fixed/fill；内容子项取测量高、遇不足可变（squeeze 合并 separator?）
+  若是 Box(direction: h):                                     # 横向切宽
+    依「分配优先级」（§6.5）给每个子项定宽：fixed → min/max → ratio → auto（用 st.size[child].w 夹 max）→ fill(吃剩余)
+    相邻子项间插竖线分隔 1 列（行端字符，末列不画）；遇过度约束按让路顺序压缩（fill→auto→ratio→max→min→fixed）
+    每个子项递归 allocate(child, { x: 当前游标, y: rect.y, w: 分配宽, h: rect.h })
+  若是 Box(direction: v):                                     # 纵向切高
+    每个子项宽 = rect.w（同宽）
+    子项高：声明 fixed/fill 者按意图；无声明者取 st.size[child].h（测量高）
+    剩余/不足按「无声明的默认分布」（§6.6）处理：无 fill 时余量留白；不足时按让路顺序压缩，底线高 ≥ 0
     separator 在两子项间占 1 行（首尾不画）
-    每个子项递归 allocate(sub, { x: rect.x, y: 当前游标, w: rect.w, h: 分配高 })
+    每个子项递归 allocate(child, { x: rect.x, y: 当前游标, w: rect.w, h: 分配高 })
 ```
 
-- 根矩形 = 终端尺寸（cols×rows）；`allocate` 产出的 `Map<Box,Rect>` 供 fill 阶段与 FocusFrame 使用（design §8）
-- 单轮两阶段（measure 全量 → allocate 全量），无迭代；`auto` 测量的自指由 maxW 上界一次消解（见「`auto` 宽度测量」）
+- 根矩形 = 终端尺寸（cols×rows）；`allocate` 产出的 `Map<Node, Rect>` 供 fill 阶段与 FocusFrame 使用（`DESIGN.md` Part II §8）。
+- 全局流程 = 宽分割（自顶向下）→ 高生长（自底向上，用已分配宽）→ 视口裁剪（自顶向下），**无迭代回环**（见 §6.1）。
 
-### 分配优先级：越精确的指定优先级越高
+### 6.5 分配优先级：越精确的指定优先级越高
 
 单一判据：**声明的精确度决定主张强度**——越精确越不让路（任意两个声明都可比较，不需要额外的"硬/软"分类）。
 
@@ -275,7 +299,7 @@ allocate(st: SizeTable, rect: Rect) -> Map<Box, Rect>:
 | 4 | `auto` | 依赖内容，需先测量 |
 | 5（最低） | `fill` | 无自身主张，只吃剩余 |
 
-**算法（单轮，两阶段）**
+**算法（单轮）**
 
 1. **按精度逐层满足**：`fixed` 定值 → `min`/`max` 边界 → `ratio` 目标（基数取**容器总宽**，实际受可分配宽封顶）→ `auto` 内容宽（夹 `max`）→ 剩余给 `fill`。
 1. **回流（单轮）**：某盒被 `max` 截断而释放的空间，回流给**更低精度者**（`fill` → `auto` → 受限更小的 `ratio`），最后均分。
@@ -296,27 +320,13 @@ allocate(st: SizeTable, rect: Rect) -> Map<Box, Rect>:
   - **显式换行**参与取最大（`好的` → 2 列窄块，与现状一致）
   - `min` 对 `auto` 是可选"最小块宽"（现状无此需求，留空）
 
-- **滚动裁剪**在 fill 阶段按矩形高度执行（= 现状 `wrapBufferLines` + `activityH` 的活）
-
-### 尺寸计算次序：宽先于高（交替细化）
-
-布局不是两个相互独立的阶段（先 measure 后 allocate），而是**交替细化**，宽度永远先于高度确定：
-
-1. **宽轴 = 自顶向下（分割）**：根矩形（终端尺寸）→ 逐层按 Width 意图切分宽度。该链与内容无关，纯分割（`metricsFor`/`contentW` 的活）。
-1. **高轴 = 自底向上（生长）**：**必须在宽度确定后才能计算**——段落折行必须知道可用宽（来自父链分配），折行行数即高度（`wrapBufferLines` 的活）。
-1. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 滚动偏移（`topPaneHeights` + `computeViewport` 的活）。
-
-**次序不变量（长宽不可能同时自由）**：宽度分割先于高度测量；高度永远在宽度确定后计算。`measure(box, constraint)` 的 `constraint` 即「宽度来自父链」的入口——measure 并非无约束累加：宽锁（父分配）→ 高自由（内容生长）。至少一个轴被父链锁死，内容才在另一轴自由生长。
-
-### 无声明的默认分布（父 → 子）
+### 6.6 无声明的默认分布（父 → 子）
 
 - 无声明子项 ≡ `auto`：按 measure 自然尺寸参与分配，属低精度，让位于 `fixed`/`min`/`max`/`ratio`。
 - **剩余归属（无任何 fill 时）**：父矩形余量**留白**，不摊开——显式 `spacer(fill)` 才吃剩余（§5 规则 6/8 由此成立；若默认均分/摊开，`spacer(fill)` 失去意义）。
 - **空间不足（过度约束）**：按让路顺序 `fill → auto → ratio → max → min → fixed` 压缩；无声明项（auto）最先被压——可折行则折行，折不了溢出由 pane 裁剪，底线宽 ≥ 1 列。
 
-### fill 阶段的适配（折叠/裁剪全放 fill）
-
-### fill 步骤（叶子摊平 / Box 递归 / setCell）
+### 6.7 fill 步骤（叶子摊平 / Box 递归 / setCell）
 
 `fill(ctx, rect)` 把一棵已 `allocate` 出 `rect` 的 Box 树摊平为 `FrameRow[]`（纯函数；逐行追加到输出行数组）。
 
@@ -330,28 +340,30 @@ fill(ctx: FrameContext, box: Box | Paragraph, rect: Rect, append: (row: FrameRow
 - **`Box(direction: v)`**：按 `rect` 纵向遍历子项，子项行接续 append；`separator` 在两子项之间产出 1 行横线（字符/颜色按 `Separator`，缺省 `╌` + border）。
 - **`Box(direction: h)`**：按 `rect` 的子项 `x`/`w` 依次 append；相邻子项间无竖线（`│` 是叶子文本自带的行端字符，见 §5 规则 8）——`h` 自身不画分隔。
 
-**迭代 / 裁剪**：`fill` 只负责“把行追加进 append 的回调”，**滚动画布/裁剪由上层在拿到行数组后按 pane `rect.h` 做行级处理**（见「fill 阶段的适配」）。
+**迭代 / 裁剪**：`fill` 只负责“把行追加进 append 的回调”，**滚动画布/裁剪由上层在拿到行数组后按 pane `rect.h` 做行级处理**（见 §6.8）。
 
 **`setCell`（FocusFrame 用；段数组上的定点改写）**：
 
 ```ts
-// 在 row.segments 上把 (col, col+width) 区间的内容替换为 ch（切段、不切半个 CJK）
+// 在 row.segments 上把 col 显示列处替换为 ch（边界安全：col 必须是段边界列）
 setCell(row: FrameRow, col: number, ch: string, style?: FrameStyle): void
-// 算法：
-//   1. 在 segments 中定位 col 所在的段（按各段 charWidth 累计）——col 必须落在段边界（CJK 对齐；实现 guarantee 在 fallback）
-//   2. 若 col 落在某段内部（非边界，CJK 半字符），从该位置切段：把段 text 拆成 head/text 尾，样式复制
-//   3. 用新段替换原段区间：若新段 style === 前段 style，则合并（相邻同 style 合并，不变量（§13））
-//   4. 若替换后出现空段（text==""），丢弃
+// 规则（单一确定性行为）：
+//   a. 前置：col 必须是某两个相邻段之间（或行首/行尾）的段边界列；段边界 = 前段末尾显示列。
+//      若 col 落在某段内部（会切成半个 CJK 宽字符），调用方不得传入——spec 不定义段内切分，
+//      由 FocusFrame 保证只对边界列落笔（见 §8 不变式）。
+//   b. 宽字符保护：ch 必须与目标位置同宽（均为 1 列或均为 2 列）；不满足则不替换（保持行宽不变量 #2）。
+//   c. 替换：拆除旧内容并按需插入新段；若新段 style 与相邻段全字段相等则合并（不变量：相邻同 style 合并）。
+//   d. 替换后丢弃空段（text==""）。
+//   e. setCell 不改变行宽（只替换既有宽度；col 超出行末时不操作）。
 ```
 
-- `setCell` 只改内容与样式，**不改变行宽**（坐落在已有段内/边界；若 col 超出本行末，Fallback 追加空格段到 col，保证不变量 #2 满足）。
-- CJK 半字符防护：col 只允许落在**段边界**（`setCell` 调用方承诺不传半字符列；实测列按 `charWidth` 对齐）。
+### 6.8 fill 阶段的适配（折叠/裁剪全放 fill）
 
 折叠决策依赖**可用高度**，因此全部落在 `fill`（拿 rect 之后）执行——内容树本身与尺寸无关，避免“建树要先知高度”的鸡生蛋：
 
 - **状态列分级折叠**（L0–L3）：按 rect 高逐级尝试、首次放下即采用；必保行与可折叠条目及其优先级由现状块结构（`head`/`items`）自然携带，**不发明“可折叠标注”**（现 `foldAt`）
 - **历史区组折叠**：仅保最近 N 回复组，更早替换为灰占位（现 `foldDialogue`）
-- **活动区两态**：状态 1 每条完全显示、溢出按行截断 + 可滚动；状态 2（紧凑）每条目压为 1 行、行尾省略号；**触发方式待定**（`TASKS.md` §14）
+- **活动区两态**：状态 1 每条完全显示、溢出按行截断 + 可滚动；状态 2（紧凑）每条目压为 1 行、行尾省略号；**触发方式待定**（`TASKS.md` §6）
 - 滚动 viewport：按矩形高裁行 + 行级滚动偏移（= 现状 `computeViewport` 语义）
 
 **adapt.ts 签名**（落实 design §6 模块归属）：
@@ -380,7 +392,7 @@ panelOptions(options: PanelOption[]): Box       // 选项列表（每项一行�
 ```
 
 - 面板组件 = 这些原语的组合函数（design §7），输出整棵 activity 内容树替换（无需 Overlay）。
-- 选项行：`●`/`○` 光标标记 + 文本；`PanelOption { label: string; selected: boolean; focused?: boolean }`。
+- 选项行：高亮标记 + 文本；`PanelOption { label: string; selected: boolean; focused?: boolean }`——渲染字符沿用现状面板（高亮游标 `>`、单选选中 `*`、多选 `+`，见 `IMPLEMENTATION.md`「/model 命令」ModelPicker）。
 - 面板原语跟普通 `Paragraph` 一样可配 `indent`/`style`/`wrap`，无新属性——纯组装糖，不改布局语义。
 
 ## 8. FocusFrame 覆写规格 [spec]

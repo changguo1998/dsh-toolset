@@ -328,6 +328,29 @@ activity 的内容 = v( 瞬态行 Box … )    // 思考/工具/notice；面板�
 - **内容树**：每帧从 state 派生（纯函数），挂在 pane 的叶子上
 - 内容树在 pane 的 **fill 阶段摊平为 `FrameRow[]`**；pane 的滚动/裁剪在**行级**进行（= 现状 `computeViewport` 语义，滚动语义零变化）
 
+## 6. 模块归属（目标文件结构）[design]
+
+Box 重构把 2096 行 `layout.ts` 拆为排版层若干纯函数文件（遵守 REFACTOR.md：拆纯逻辑、副作用留 App、不抽象 Panel、不换框架）。目标结构：
+
+| 文件 | 职责 | 说明 |
+|---|---|---|
+| `layout/box.ts` | 类型：`NodeBase`/`Box`/`Paragraph`/`Width`/`Height`/`Separator`/`PaneId` | 纯类型，无行为 |
+| `layout/measure.ts` | `measure(node, constraint) -> SizeTable` + `allocate(SizeTable, rect) -> Map<Node, Rect>` | 尺寸计算（分配优先级/宽先于高，`SPEC.md` §6） |
+| `layout/fill.ts` | `fill(ctx, rect)` 摊平：Paragraph 折行→行内解析→补白/valign；Box 递归 + separator；`setCell` 切段 | 产出 `FrameRow[]`（契约不变量 #1-4 的承担方） |
+| `layout/build-box.ts` | `buildBox(state) -> Box`：四分区 pane 树（硬编码）+ 内容映射清单 | 每帧纯函数重建（§4） |
+| `layout/focus-frame.ts` | `FocusFrame(ctx, rects)` 段级覆写 | 整帧一次扫描（§8） |
+| `layout/adapt.ts` | 折叠适配纯函数：`foldAt`/`foldDialogue`/活动区两态 | fill 阶段调用（`SPEC.md` §6） |
+| `layout/table.ts` | 表格构建器（窄终端压缩/列分隔/单元格对齐） | 产出 Box 子树（`SPEC.md` §3.2） |
+| `layout/panel.ts` | 面板场景原语 `title`/`question`/`explanation`/`options` | 便捷构造，返回 Box（§7） |
+| `layout/markdown.ts` | 保留：块识别 + 行内解析，产出 `FrameSegment[]`（渲染契约收敛） | 现 727 行，重排范围见 `TASKS.md` §6 C2 |
+| `layout/tool-line.ts` | 保留 | |
+
+**渲染层（静态归属，不新增文件）**：`renderer/screen.ts` 改收 `FrameRow[]`、新增 `segStyle` 段级序列化，delta 按**序列化文本**比较（内部不对外——相邻同 style 合并后结构 diff 不稳，序列化文本即最终上屏字节，比较它既正确又直接）；`renderer/theme.ts` 的 `ColorName` 增 `"code"` 槽位（`SPEC.md` §12 主题契约）。
+
+**组件层 `components/*`**：7 个面板改为 Box 生成器（用 `layout/panel.ts` 原语，§7）。
+
+> 与 REFACTOR.md 的关系：本节定义的目标结构即对 REFACTOR「当前文件归属」的扩展——`layout.ts` 由“未拆分”变为拆分（box/measure/fill/build-box/focus-frame/adapt/table/panel），拆分触发标准（单文件反复改动/难维护）已满足；REFACTOR 归属表相应更新。
+
 ## 7. 现状特殊场景逐条落法 [design]
 
 | 场景 | 落法 |
@@ -370,29 +393,6 @@ activity 的内容 = v( 瞬态行 Box … )    // 思考/工具/notice；面板�
 - **SPEC.md（原 CONTRACT）**：Box 树是排版层内部中间表示；`FrameRow`/`FrameSegment`/`FrameContext` 定义于 `SPEC.md` §11（渲染契约），正文与之互相引用。
 - **REFACTOR.md**：拆文件不拆架构、只拆纯逻辑；Box 是数据不是类，**不违背"不抽象通用 Panel"**；副作用仍留 App。
 - **DESIGN.md**：不引入 flex/测量回环/样式继承；"布局代数"≠组件树。
-
-## 6. 模块归属（目标文件结构）[design]
-
-Box 重构把 2096 行 `layout.ts` 拆为排版层若干纯函数文件（遵守 REFACTOR.md：拆纯逻辑、副作用留 App、不抽象 Panel、不换框架）。目标结构：
-
-| 文件 | 职责 | 说明 |
-|---|---|---|
-| `layout/box.ts` | 类型：`NodeBase`/`Box`/`Paragraph`/`Width`/`Height`/`Separator`/`PaneId` | 纯类型，无行为 |
-| `layout/measure.ts` | `measure(box, constraint) -> SizeTable` + `allocate(SizeTable, rect) -> Map<Box,Rect>` | 尺寸计算（分配优先级/宽先于高，`SPEC.md` §6） |
-| `layout/fill.ts` | `fill(ctx, rect)` 摊平：Paragraph 折行→行内解析→补白/valign；Box 递归 + separator；`setCell` 切段 | 产出 `FrameRow[]`（契约不变量 #1-4 的承担方） |
-| `layout/build-box.ts` | `buildBox(state) -> Box`：四分区 pane 树（硬编码）+ 内容映射清单 | 每帧纯函数重建（§4） |
-| `layout/focus-frame.ts` | `FocusFrame(ctx, rects)` 段级覆写 | 整帧一次扫描（§8） |
-| `layout/adapt.ts` | 折叠适配纯函数：`foldAt`/`foldDialogue`/活动区两态 | fill 阶段调用（`SPEC.md` §6） |
-| `layout/table.ts` | 表格构建器（窄终端压缩/列分隔/单元格对齐） | 产出 Box 子树（`SPEC.md` §3.2） |
-| `layout/panel.ts` | 面板场景原语 `title`/`question`/`explanation`/`options` | 便捷构造，返回 Box（§7） |
-| `layout/markdown.ts` | 保留：块识别 + 行内解析，产出 `FrameSegment[]`（渲染契约收敛） | 现 727 行，重排范围见 `TASKS.md` §6 C2 |
-| `layout/tool-line.ts` | 保留 | |
-
-**渲染层（静态归属，不新增文件）**：`renderer/screen.ts` 改收 `FrameRow[]`、新增 `segStyle` 段级序列化，delta 按**序列化文本**比较（内部不对外——相邻同 style 合并后结构 diff 不稳，序列化文本即最终上屏字节，比较它既正确又直接）；`renderer/theme.ts` 的 `ColorName` 增 `"code"` 槽位（`SPEC.md` §12 主题契约）。
-
-**组件层 `components/*`**：7 个面板改为 Box 生成器（用 `layout/panel.ts` 原语，§7）。
-
-> 与 REFACTOR.md 的关系：本节定义的目标结构即对 REFACTOR「当前文件归属」的扩展——`layout.ts` 由“未拆分”变为拆分（box/measure/fill/build-box/focus-frame/adapt/table/panel），拆分触发标准（单文件反复改动/难维护）已满足；REFACTOR 归属表相应更新。
 
 ## 13. 明确不做 [design]
 
