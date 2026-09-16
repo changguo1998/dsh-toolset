@@ -127,8 +127,14 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     rowAnsi(top[0]!).includes("<title>"),
     "顶部首行为标题栏（会话标题占位）",
   );
-  assert.ok(/^─+$/.test(histContent(rowAnsi(top[1]!), 60)), "标题栏下为实线下划线");
-  assert.ok(rowAnsi(top[2]!).includes("第一行"), "历史区内容在左侧（标题栏之后）");
+  assert.ok(
+    /^─+$/.test(histContent(rowAnsi(top[1]!), 60)),
+    "标题栏下为实线下划线",
+  );
+  assert.ok(
+    rowAnsi(top[2]!).includes("第一行"),
+    "历史区内容在左侧（标题栏之后）",
+  );
   // 横线分隔：17 行后是分隔行，再之后状态区（短 cwd 下动态单行：env|LLM 全在一行）
   const separator1 = frame[17]!;
   assert.ok(plain(separator1).startsWith("─"), "状态区上方用 ─ 分隔");
@@ -1040,7 +1046,9 @@ test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代�
   assert.ok(!joined.includes("# 一级标题"), "# 前缀被消费");
   assert.ok(joined.includes("二级 粗 标题"), "标题内行内粗体");
   assert.ok(
-    raw.some((l) => rowAnsi(l).includes("一级标题") && rowAnsi(l).includes("\x1b[1m")),
+    raw.some(
+      (l) => rowAnsi(l).includes("一级标题") && rowAnsi(l).includes("\x1b[1m"),
+    ),
     "标题 bold 强调",
   );
   // 任务列表：ASCII [x]/[ ]，前缀 - 被消费
@@ -2226,4 +2234,26 @@ test("/session 历史面板：标题标明列表范围（当前目录 可见/全
     all.some((l) => l.includes("他目录标题")),
     "全部范围显示他目录会话",
   );
+});
+
+test("不变量：所有 FrameSegment.text 不含 ANSI 转义（C3 段级契约）", () => {
+  // C3 契约不变量 #1：排版层产出段文本绝不含 ANSI（样式在 style 字段），
+  // 渲染层 serial 才生成 SGR。对代表性帧（含 markdown/状态列/焦点框内容）全量断言。
+  let s = initialState();
+  s = reduceState(s, {
+    type: "append",
+    text: "**加粗** 与 `code` 与 [链接](http://x)",
+  });
+  s = reduceState(s, { type: "append", text: "第二行含宽字符—测试" });
+  s = reduceState(s, { type: "turn-begin" });
+  s = reduceState(s, { type: "append", text: "1. 有序列表项" });
+  s = reduceState(s, { type: "append", text: "- 无序项" });
+  const frame = buildFrame(s, { rows: 24, cols: 80 });
+  assert.ok(frame.length > 10, "代表性帧行数充足");
+  for (const row of frame) {
+    assert.ok(
+      row.segments.every((seg) => !seg.text.includes("\x1b[")),
+      `段文本不得含 ANSI: ${JSON.stringify(row.segments.map((x) => x.text))}`,
+    );
+  }
 });

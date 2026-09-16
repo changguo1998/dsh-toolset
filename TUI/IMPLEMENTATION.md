@@ -92,7 +92,7 @@
   `renderer/index.ts` delta 按序列化文本 + caret 比较、主题切换清空 previous frame（全帧重绘）；
   `layout.ts` 排版层全面段化（`wrapSegs` 返回 `FrameRow[]`、modeBlock/statusBlocks/renderStatusLine/
   buildFrame 全改段数组、`colorFor` 烘焙 → style 字段）；components 8 文件同步；`markdown.ts`
-  wrap* 系列去序列化返回 `FrameSegment[][]`；删 `RenderLine`/`renderSeg`/`CODE_BG`。
+  wrap\* 系列去序列化返回 `FrameSegment[][]`；删 `RenderLine`/`renderSeg`/`CODE_BG`。
 
 迁移踩坑（已修复）：
 
@@ -103,6 +103,7 @@
 - **测试迁移（C3）**：按测试意图迁移而非统一 ANSI 序列化掩盖——布局断言用 `rowText(row)`/segments/style；
   颜色语义断言检查 `segments[].style`；仅 renderer/screen 回归用 `serializeFrameRow` 的 ANSI；
   FakeRenderer 的 `lastRender` 用 `rowAnsi(row, themeId)`（保留 ANSI 供 SGR 断言，纯文本断言再 strip）；
-  新增「所有 FrameSegment.text 不含 `[`」不变量（`tests/helpers/rowText.ts`）。
+  新增「所有 FrameSegment.text 不含 `[`」不变量断言（`tests/layout4.test.ts` 尾部，对含
+  markdown/状态列的代表性 `buildFrame` 帧全量检查；`tests/helpers/rowText.ts` 仅提供序列化辅助）。
 
 > 具体条目随实施推进补充（含单测断言写法与性能观测）。
