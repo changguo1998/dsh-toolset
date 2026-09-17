@@ -27,7 +27,7 @@ import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
 import { renderHistoryPanel } from "./components/HistoryPanel.ts";
 import { buildQuestionPanelBox } from "./components/QuestionPrompt.ts";
-import { renderJobsPanel, statusMark } from "./components/JobsPanel.ts";
+import { buildJobsPanelBox, statusMark } from "./components/JobsPanel.ts";
 import { buildStatusPanelBox } from "./components/StatusPanel.ts";
 import { renderCommandCompletion } from "./components/CommandCompletion.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
@@ -989,12 +989,17 @@ function buildTopRegion(
               state.themeId,
             )
           : state.jobsPanel
-            ? renderJobsPanel({
-                jobs: state.jobs,
-                index: state.jobsPanel.index,
-                height: activityH,
-                width: contentW,
-              })
+            ? fillPanelBox(
+                buildJobsPanelBox(
+                  state.jobs,
+                  state.jobsPanel.index,
+                  activityH,
+                  contentW,
+                ),
+                activityH,
+                contentW,
+                state.themeId,
+              )
             : state.history
               ? renderHistoryPanel({
                   history: state.history,
