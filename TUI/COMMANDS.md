@@ -65,7 +65,6 @@
 | `/task` | task-engine：任务树（decompose / implement / stop / status） | 现只注册工具，需暴露任务树状态面 | P2 |
 | `/contract` | goal-contract：Done-when 契约起草 | 现只注册工具 | P2 |
 | `/guard` | security-guard：危险命令黑名单 + 敏感文件保护 | 现仅 `createSecurityGuard(ctx)`，需暴露策略/拦截审计面 | P2 |
-| `/herdr` | herdr-integration：面板状态/blocked 桥 | 现为 socket 上报，需暴露连接与状态 | P2 |
 
 - 工具性质、命令入口价值低（模型直接用即可）：fs-digest、hash-edit、ast-tools、output-compress。
 - TUI 包内实现（非插件）：`/diff`（跑 git 出变更面板）、`/doctor`（自检 TUI / 宿主 / 插件装配）。
