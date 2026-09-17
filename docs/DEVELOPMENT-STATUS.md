@@ -3,7 +3,7 @@
 > 依据 `DEVELOPMENT-BACKLOG.md` 插件规划；各插件待办任务见其插件目录下 `TASKS.md`，本表只记状态、不记细节。
 > 状态：未开始 / 进行中 / 阻塞 / 完成（另有：暂缓）。
 > 更新约定：状态变化时更新本表；任务完成并合入本分支后清理对应 `TASKS.md`。
-> **里程碑进度**：三插件首版 + r2、P1 七插件（goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard）均已完成并合入 main；剩余 P2 插件未开始，rate-guard 已取消（不迁移，见对比文档 §5.4）。
+> **里程碑进度**：三插件首版 + r2、P1 七插件（goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard）均已完成并合入 main；**TUI 排版重构（主线 A 契约迁移 + 主线 B Box 模型）已完成并合入 main**（见 `TUI/TASKS.md`，2026-09）；剩余 P2 插件未开始，rate-guard 已取消（不迁移，见对比文档 §5.4）。
 
 | 插件 | 阶段 | 分支 | 状态 | 备注 |
 |------|------|------|------|------|

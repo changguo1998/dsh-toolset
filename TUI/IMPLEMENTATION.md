@@ -107,3 +107,22 @@
   markdown/状态列的代表性 `buildFrame` 帧全量检查；`tests/helpers/rowText.ts` 仅提供序列化辅助）。
 
 > 具体条目随实施推进补充（含单测断言写法与性能观测）。
+
+### 主线 B：Box 排版模型（已完成）
+
+三波推进（`TASKS.md` §2），行为不变基线：TUI 686 单测 + 36 smoke 帧断言 + 冻结 fixture。
+
+- **接口冻结**（cc743d7）：`box.ts` 定义 `Box`/`Paragraph`/`NodeBase`/`Width` 类型与
+  `measure/allocate` 签名；同步修订 `SPEC.md` §6 契约歧义（SizeTable.root / separator 仅纵向 Box /
+  Paragraph 总宽含 indent+prefix）。
+- **measure/allocate**（eea8196）：`measure.ts` 纯函数；advisor 两轮修复——spacer 轴显式互斥、
+  多 ratio 归一、min>max、fill max 截断回流、v 过度约束压缩顺序。
+- **内容映射**（b84d4b5）：`build-box.ts`+`fill.ts`+`content-rules.ts` 取代 `wrapBufferLines`；
+  双轨对照冻结 fixture + cutover，`wrapBufferLines` 已删、两处调用点走 `buildContentRows`。
+- **依赖基元迁移**（fd96d27）：抽 `layout/primitives.ts`（seg/rowWidth2/truncateSegs/
+  truncateToWidth/wrapLine/wrapLines），measure/layout.ts 共用，避免双向依赖。
+- **接线汇合**（19ca9bb 及后续）：`focus-frame.ts` 焦点框全局覆写（setCell 不切 CJK/code-point、
+  styleEqual 全字段、focusedPanel 空不覆写）+ `panel.ts` 场景原语 + 7 面板改 `buildXxxBox`；
+  buildFrame 末尾单次 `focusFrame`；冻结 fixture 对照 16 场景逐行等价。
+- **advisor 复核修正**（d74e8ec）：7 面板 render 薄包装（`buildXxxBox` → `fillBoxTree` 单一数据源）；
+  panel 原语 styled 基础（wrap:false 默认、bold 可选）；layout 清理 17 个未用 import（632a476）。
