@@ -26,10 +26,10 @@
 | # | 待核实 | 影响命令 | 结论（待填） |
 |---|--------|---------|-------------|
 | 1 | `subagents.interrupt(targetSessionId, authority)` 的 **`authority` 从何而来**；`list()` 条目是否带可中断 id | `/agents` | ✅ **过门**。`authority` 为联合类型：`{kind:'user', parentSessionId}` 或 `{kind:'ancestor', agent}`（`dsh-subagent/lib/types/types.d.ts:57-63`）——TUI 用前者，`parentSessionId` 取 `state.activeSessionId`（TUI `src/app/state.ts:227`）。条目列表须用 **`listChildren(parentSessionId, signal?)` → `SubagentListEntry[]`**（`lib/types/index.d.ts:201`），条目含 `id`/`activity`/`mode`/`label?`/`hasChildren` 或 `kind:'diagnostic'`+`reason`（`lib/types/control-types.d.ts:30-70`）。**`list(): string[]`（`index.d.ts:283`）返回 provider 名，不是 agent 列表**。备选同步 API `interruptByParent(childSessionId, parentSessionId, 'continuable')`（`index.d.ts:264`） |
-| 2 | `tools.schemas(scope)` 的 **`scope` 来源**；返回结构 | `/tools` | ✅ **过门**。签名 `schemas(scope?: ScopeKey): ToolSchema[]`（`dsh-tools/lib/types/index.d.ts:676`）——**scope 可省略**（`ScopeKey = object`，`dsh-scope/lib/types/index.d.ts:11`）；省略即全局视图：`peek(undefined)→undefined`、`chainLayers(undefined)→[]`（`dsh-scope/lib/index.js:151-167`），`view()` 走 `this.layers.global.tools` 全量可见（`dsh-tools/lib/index.js:2854-2880`）。返回 `{name, description, parameters}`（`index.js:2934-2943`）。`get(name, scope?)` 同可省略（`index.d.ts:655`） |
-| 3 | `skills.get(candidate)` 的 **`candidate` 形态**；`skills.list()` 条目结构 | `/skills` | ✅ **过门（服务层不接触 candidate）**。`ctx.skills.get(name: string, options?)` → `SkillDefinition \| undefined`（`dsh-skill/lib/types/index.d.ts:286`），`list(options?)` → `SkillSummary[]`（`index.d.ts:268`）——服务层用 **skill 名字符串**。`SkillCandidate`（含 `rank`/`locator`）仅存在于 provider 层（`index.d.ts:61-70`、`:182-187`）。`SkillSummary` = `name`/`description`/`whenToUse?`/`invocation`/`source`/`provider`/`resourceBase?`（`index.d.ts:43-60`）；`SkillDefinition` 另含 `content` 正文 |
-| 4 | `settings.get(ns)` 的 **`ns` 枚举方式**；`options` 形态 | `/settings` | ✅ **过门**。服务面 `ctx.settings: SettingsProvider`（`dsh-settings/lib/types/index.d.ts:111-114`）。**枚举方式 = `describe(options?)` → `SettingsDescriptor[]`**（`index.d.ts:236`），描述符含 `ns`/`schema`/`value`/`revision`/`base?`/`user?`/`applies`/`secrets?`（`:50-74`）——一次调用即得 ns + 当前值。单读 `get(ns)` → `unknown`（`:250` 附近）。注意 `describe` 的 `redactSecrets` 选项（`:75+`）：同进程 UI 可省略，但 `role('secret')` 字段不应明文展示 |
-| 5 | `sessions.fork(source, boundary, childSessionId)` 的 **`boundary` / `childSessionId` 可省性与语义**；返回结构 | `/fork` | ✅ **过门**。签名 `fork(source: Session \| SessionId, boundary?: SessionSeq, childSessionId?: SessionId): Session`（`dsh-session/lib/types/index.d.ts:439`）——**后两参皆可省略**：省略 `boundary` = 源会话**当前最后事件**（`:431-433`），省略 `childSessionId` = `SessionStore` 的 id 策略；`source` 可为 id 字符串（`SessionForkSource = Session \| SessionId`，`:294-295`）。**同步返回 live Session 对象**。约束：切片可止于 turn 间事件，**不可落在未闭合 turn 内**；错误码 `SESSION_NOT_FOUND`/`SESSION_NOT_LIVE`/`SESSION_ALREADY_EXISTS`（`:297-305`） |
+| 2 | `tools.schemas(scope)` 的 **`scope` 来源**；返回结构 | `/tools` | ✅ **过门**。签名 `schemas(scope?: ScopeKey): ToolSchema[]`（`dsh-tools/lib/types/index.d.ts:676`）——**scope 可省略**（`ScopeKey = object`，`dsh-scope/lib/types/index.d.ts:11`）；省略即全局视图：`peek(undefined)→undefined`、`chainLayers(undefined)→[]`（`dsh-scope/lib/index.js:151-167`），`view()` 走 `this.layers.global.tools` 全量可见（`dsh-tools/lib/index.js:2854-2880`）。返回 `{name, description, parameters}`（`index.js:2934` 起）。`get(name, scope?)` 同可省略（`index.d.ts:655`） |
+| 3 | `skills.get(candidate)` 的 **`candidate` 形态**；`skills.list()` 条目结构 | `/skills` | ✅ **过门（服务层不接触 candidate）**。`ctx.skills.get(name: string, options?)` → `SkillDefinition \| undefined`（`dsh-skill/lib/types/index.d.ts:286`），`list(options?)` → `SkillSummary[]`（`index.d.ts:268`）——服务层用 **skill 名字符串**。`SkillCandidate`（含 `rank`/`locator`）仅存在于 provider 层（`index.d.ts:61-70`、provider 声明 `:187`）。`SkillSummary` = `name`/`description`/`whenToUse?`/`invocation`/`source`/`provider`/`resourceBase?`（`index.d.ts:44-59`）；`SkillDefinition` 另含 `content` 正文 |
+| 4 | `settings.get(ns)` 的 **`ns` 枚举方式**；`options` 形态 | `/settings` | ✅ **过门**。服务面 `ctx.settings: SettingsProvider`（`dsh-settings/lib/types/index.d.ts:111-114`）。**枚举方式 = `describe(options?)` → `SettingsDescriptor[]`**（`index.d.ts:236`），描述符含 `ns`/`schema`/`value`/`revision`/`base?`/`user?`/`applies`/`secrets?`（`:50-74`）——一次调用即得 ns + 当前值。单读 `get(ns)` → `unknown`（`:243`）。注意 `describe` 的 `redactSecrets` 选项（`:75+`）：同进程 UI 可省略，但 `role('secret')` 字段不应明文展示 |
+| 5 | `sessions.fork(source, boundary, childSessionId)` 的 **`boundary` / `childSessionId` 可省性与语义**；返回结构 | `/fork` | ✅ **过门**。签名 `fork(source: Session \| SessionId, boundary?: SessionSeq, childSessionId?: SessionId): Session`（`dsh-session/lib/types/index.d.ts:439`）——**后两参皆可省略**：省略 `boundary` = 源会话**当前最后事件**（`:431-433`），省略 `childSessionId` = `SessionStore` 的 id 策略；`source` 可为 id 字符串（`SessionForkSource = Session \| SessionId`，`:294-295`）。**同步返回 live Session 对象**。约束：切片可止于 turn 间事件，**不可落在未闭合 turn 内**；错误码全量 `SessionForkErrorCode`（`:304`）：`SESSION_NOT_FOUND`/`SESSION_NOT_LIVE`/`SESSION_ALREADY_EXISTS`/`INVALID_BOUNDARY`/`OPEN_TURN`（`:296-305`） |
 
 **未过门的处置**：任何一项若核实结果为「必须提供 TUI 侧无法获得的参数」或「需宿主侧改动」，则该命令移入 §7 不在范围，不进入实现批次。
 
@@ -68,7 +68,7 @@
 - `NOTICE-LEVELS.md` A 表补上述调用点（共 5 条）。
 - 测试：`/stats`（有 usage / 无 usage / `contextWindow` 缺失）；`/rename`（成功 / 缺参 / 空标题拒绝 / 服务缺失 warn）。
 - 基线：`helpText` 加两行 → 重跑 `node --experimental-transform-types scripts/freeze-focus-frame.mts`（diff 审查）+ smoke（先例：`/init` 加行曾挤掉候选可视窗口并触发脆弱断言）。
-- **本批验证后停下，等用户明确说「提交」**（见 §8）。
+- **本批验证全绿后自动提交**（见 §8；用户已授权，无需停下等确认）。
 
 ## 3. 批次 2 · 共享列表面板 + `/skills`
 
@@ -90,7 +90,7 @@
 - 测试：面板渲染单测（行数恒等 `height`、空态、超宽截断、窗口平移）+ 路由/降级/过滤/键位。
 - `helpText` 加行 → freeze + smoke。
 - 文档：`README.md`、`IMPLEMENTATION.md`（`commandPanel` 机制）、`NOTICE-LEVELS.md` A 表（2 条）。
-- **验证后停下等确认**。
+- **验证全绿后自动提交**（见 §8）。
 
 ## 4. 批次 3 · 面板 kind 复制（`/agents`、`/tools`）
 
@@ -111,7 +111,7 @@
 
 - 测试：路由 / 降级 / Enter 调用与入参 / 缺 id 分支 / 翻页键位。
 - `helpText` 加两行 → freeze + smoke；`NOTICE-LEVELS.md` A 表（6 条）同步。
-- **验证后停下等确认**。
+- **验证全绿后自动提交**（见 §8）。
 
 ## 5. 批次 4 · 收尾（`/settings`、`/fork`）
 
@@ -130,7 +130,7 @@
 ### 5.3 批次 4 收尾
 
 - `helpText` 加两行 → freeze + smoke；`NOTICE-LEVELS.md` A 表（5 条：`/settings` 2 + `/fork` 3）+ `README.md` / `IMPLEMENTATION.md` / `COMMANDS.md` 状态列同步。
-- **验证后停下等确认**。
+- **验证全绿后自动提交**（见 §8）。
 
 ## 6. 验收
 
@@ -145,7 +145,7 @@ npm --prefix TUI run demo -- --smoke   # 帧断言 SMOKE_PASS 36/36
 
 批次间（每批完成）：上面前四条全绿；改动 `helpText` 的批次另需重跑 freeze 脚本并 diff 审查基线。
 全批完成后（最终门）：根级 `npm run build`（TUI + 10 个插件包全部 tsc 通过）+ `dsh --profile fff` 真机试用已实现的全部命令（含服务缺失降级场景）。
-人工确认通过后才允许提交（`AGENTS.md` 变更流程）。
+每批自测通过即自动提交（用户已授权本清单范围的自动化提交，见 §8）；项目 `AGENTS.md` 的「人工确认后才允许提交」要求由该授权覆盖。
 
 ## 7. 不在范围
 

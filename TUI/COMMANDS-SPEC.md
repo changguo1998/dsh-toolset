@@ -207,8 +207,8 @@ commandPanel:
 | 项 | 规格 |
 |----|------|
 | 参数 | 无 |
-| 服务 | `sessions.fork(source, boundary?, childSessionId?)\` → live `Session`（**后两参可省**：省 `boundary` = 源会话当前最后事件；省 `childSessionId` = store 的 id 策略；`source` 可用 id 字符串） |
-| 语义（已核实） | 切片可止于 turn 间事件，**不可落在未闭合 turn 内**；错误码 `SESSION_NOT_FOUND` / `SESSION_NOT_LIVE` / `SESSION_ALREADY_EXISTS` → 映射为 warn notice（不抛穿） |
+| 服务 | `sessions.fork(source, boundary?, childSessionId?)` → live `Session`（**后两参可省**：省 `boundary` = 源会话当前最后事件；省 `childSessionId` = store 的 id 策略；`source` 可用 id 字符串） |
+| 语义（已核实） | 切片可止于 turn 间事件，**不可落在未闭合 turn 内**；错误码全量 5 个（`SessionForkErrorCode`）：`SESSION_NOT_FOUND` / `SESSION_NOT_LIVE` / `SESSION_ALREADY_EXISTS` / `INVALID_BOUNDARY` / `OPEN_TURN` → 映射为 warn notice（不抛穿） |
 | 输出 | success notice（新会话 id/标题）+ 必要时提示用 `/session` 切换 |
 | 降级 | 服务缺失 → warn |
 
