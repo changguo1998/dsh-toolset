@@ -16,8 +16,12 @@ import {
 } from "../src/app/state.ts";
 import { routeSlashCommand } from "../src/app/commands.ts";
 import { renderCommandListPanel } from "../src/app/components/CommandListPanel.ts";
-import { inputPanelHeights, displayWidth } from "../src/app/layout.ts";
-import { rowText } from "./helpers/rowText.ts";
+import {
+  buildFrame,
+  inputPanelHeights,
+  displayWidth,
+} from "../src/app/layout.ts";
+import { rowAnsi, rowText } from "./helpers/rowText.ts";
 import type {
   CommandPanelRow,
   DshAdapter,
@@ -452,7 +456,7 @@ test("/skills：Esc 关闭面板", async () => {
 
 // ---------- 键位：翻页与移动（App 接线） ----------
 
-test("键位：PgDn 整页前进、PgUp 回到首行（活动区页高）", async () => {
+test("键位：PgDn 页高 = 活动区可视行数、PgUp 回退（钉死接线点 ⑤）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSkillsAdapter();
   adapter.skills = Array.from({ length: 40 }, (_, i) => ({
@@ -463,18 +467,26 @@ test("键位：PgDn 整页前进、PgUp 回到首行（活动区页高）", asyn
   app.start();
   typeAndEnter(renderer, "/skills");
   await tick();
+  // 页高 = 活动区可视行数（80×24 基线 = 8）：若接线点 ⑤ 退化为 page=1，下面的断言必失败
+  const page = inputPanelHeights(initialState(), renderer.size).activityH;
+  assert.equal(page, 8, "80×24 基线：活动区可视行数 = 8");
   press(renderer, "pagedown");
   await tick();
-  const afterPageDown = frames(renderer);
   assert.ok(
-    afterPageDown.includes("> skill-") && !afterPageDown.includes("> skill-00"),
-    "PgDn 后高亮已前进（首页行不再高亮）: " + afterPageDown,
+    frames(renderer).includes(`> skill-${String(page).padStart(2, "0")}`),
+    `PgDn 后高亮 = skill-0${page}（页高 ${page}，非 1）: ` + frames(renderer),
+  );
+  press(renderer, "pagedown");
+  await tick();
+  assert.ok(
+    frames(renderer).includes(`> skill-${String(page * 2).padStart(2, "0")}`),
+    "再次 PgDn 前进一页: " + frames(renderer),
   );
   press(renderer, "pageup");
   await tick();
   assert.ok(
-    frames(renderer).includes("> skill-00"),
-    "PgUp 回到首行: " + frames(renderer),
+    frames(renderer).includes(`> skill-${String(page).padStart(2, "0")}`),
+    "PgUp 回退一页: " + frames(renderer),
   );
   app.dispose();
 });
@@ -521,13 +533,54 @@ test("接线：面板态按键提示行让位（提示区消失，面板提示�
   app.dispose();
 });
 
-test("接线：交互区高度不随面板开关变化（footer/focus 不抖动）", () => {
+test("接线：面板态交互区几何不变（底线位置一致、提示行让位，接线点 ②④）", () => {
+  const size: Size = { cols: 80, rows: 24 };
+  const base = initialState();
+  const open = reduceState(base, {
+    type: "command-panel-open",
+    kind: "skills",
+  });
+  const baseRows = buildFrame(base, size).map(rowText);
+  const openRows = buildFrame(open, size).map(rowText);
+  // 帧总行数 + 活动区底边（含 ┴ 的行）位置一致 → 面板开关不改变交互区几何
+  assert.equal(openRows.length, baseRows.length, "总行数一致");
+  const baseBottom = baseRows.findIndex((l) => l.includes("┴"));
+  const openBottom = openRows.findIndex((l) => l.includes("┴"));
+  assert.ok(baseBottom > 0, "找到活动区底边: " + JSON.stringify(baseRows));
+  assert.equal(
+    openBottom,
+    baseBottom,
+    "底线位置一致（footerHeight 与提示行让位）",
+  );
+  assert.ok(
+    baseRows.some((l) => l.includes("[Alt+Enter]打断并发送")),
+    "输入态有按键提示行",
+  );
+  assert.ok(
+    !openRows.some((l) => l.includes("[Alt+Enter]打断并发送")),
+    "面板态提示行让位（提示区 1 行让给输入框，交互区总高不变）",
+  );
+});
+
+test("接线：面板态焦点置空（modalOpen，接线点 ③）", () => {
   const size: Size = { cols: 80, rows: 24 };
   const open = reduceState(initialState(), {
     type: "command-panel-open",
     kind: "skills",
   });
-  const base = inputPanelHeights(initialState(), size);
-  const withPanel = inputPanelHeights(open, size);
-  assert.deepEqual(withPanel, base, "面板态与输入态交互区/活动区划分一致");
+  const ansiOf = (s: typeof open): string[] =>
+    buildFrame(s, size).map((r) => rowAnsi(r));
+  // 面板态：focusedPanel=activity 与 null 渲染完全一致（模态态焦点被置空）
+  assert.deepEqual(
+    ansiOf({ ...open, focusedPanel: "activity" }),
+    ansiOf({ ...open, focusedPanel: null }),
+    "面板态焦点置空：两种 focusedPanel 渲染一致",
+  );
+  // 对照：输入态（无面板）下两者必须不同 —— 证明上面的断言是可失败的
+  const base = initialState();
+  assert.notDeepEqual(
+    ansiOf({ ...base, focusedPanel: "activity" }),
+    ansiOf({ ...base, focusedPanel: null }),
+    "对照：输入态焦点可见（渲染不同）",
+  );
 });
