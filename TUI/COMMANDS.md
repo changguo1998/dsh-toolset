@@ -47,14 +47,14 @@
 
 | 命令 | 宿主服务 · 方法 | 出现于 | 优先级 |
 |------|----------------|--------|--------|
-| `/stats`（别名 `/usage` `/context`） | `state.usage`（已接，零新服务）；可选增强 `tokenMeter.measure(session, requestHeader)` | Claude、Codex、Gemini、pi（4/4） | P1 |
-| `/skills` | `skills.list()`（无参） / `get(candidate)` | Claude、Codex、Gemini | P1 |
-| `/agents` | `subagents.list()` / `interrupt(targetSessionId, authority)` | Claude、Codex、Gemini | P1 |
-| `/tools` | `tools.schemas(scope)` / `get(name, scope)` | Gemini | P2 |
-| `/rename` | `sessionTitle.rename(session, title)`（首参为 session 对象） | Claude、Codex、pi | P2 |
-| `/settings`（`/config`） | `settings.get(ns)` / `describe(options)`（第一版只读） | Claude、Gemini、pi | P2 |
+| `/stats`（别名 `/usage` `/context`） | `state.usage`（已接，零新服务）；可选增强 `tokenMeter.measure(session, requestHeader)` | Claude、Codex、Gemini、pi（4/4） | P1 ✅ 本轮已实现（批次 1） |
+| `/skills` | `skills.list()` → `SkillSummary[]` / `get(name)` → `SkillDefinition` | Claude、Codex、Gemini | P1 |
+| `/agents` | `subagents.listChildren(parentSessionId)` / `interrupt(childId, { kind: 'user', parentSessionId })` | Claude、Codex、Gemini | P1 |
+| `/tools` | `tools.schemas()`（scope 省略 = 全局视图） / `get(name)` | Gemini | P2 |
+| `/rename` | `sessionTitle.rename(session, title)`（首参为 live Session 对象） | Claude、Codex、pi | P2 ✅ 本轮已实现（批次 1） |
+| `/settings`（`/config`） | `settings.describe()`（枚举 ns + 当前值） / `get(ns)`（第一版只读） | Claude、Gemini、pi | P2 |
 | `/clear` | ~~`sessions.clear`~~ **暂缓（宿主无对应能力）**：`dsh-session` 类型面无 clear（SPEC §3 索引） | Claude、Codex、Gemini | 暂缓 |
-| `/fork` | `sessions.fork(source, boundary, childSessionId)`（三参语义待确认） | Claude、Codex、pi | P2 |
+| `/fork` | `sessions.fork(source, boundary?, childSessionId?)`（后两参可省；返回 live Session） | Claude、Codex、pi | P2 |
 | `/login` `/logout` | ~~`credentials.*`~~ **暂缓（语义不匹配）**：`ctx.credentials` 仅为凭据引用 seam（`resolve`/`describe`/`set`/`unset`），无交互登录流程 API（SPEC §3 索引） | Claude、Codex、pi | 暂缓 |
 | `/review`（`/code-review`） | ~~`workflowEngine.start`~~ **暂缓（需工作流资产）**：`start` 存在，但需 review 工作流 `script`/`meta`/`parent: Agent`（SPEC §3 索引） | Claude、Codex | 暂缓 |
 

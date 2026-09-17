@@ -47,6 +47,7 @@ import type {
   DshRuntime,
   DshAgentLike,
   RealAdapterOptions,
+  LiveSessionHandle,
   HistoryMessage,
   SessionSurfaceView,
   TokenUsage,
@@ -108,6 +109,7 @@ export type {
   SessionSurfaceView,
   SessionQueryLike,
   SessionStoreLike,
+  SessionTitleLike,
   AgentRegistryLike,
   NoticeTone,
   TokenUsage,
@@ -1861,6 +1863,22 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       } catch {
         return undefined;
       }
+    },
+    /** 重命名当前会话标题：宿主 sessionTitle.rename(live Session, title)。
+     *  live Session 对象随 resume 变化，故始终取当前活跃 agent 的 session
+     *  （DshAgentLike.session 运行时即 Session 实例，见 main.ts 的 agentLike 组装）。 */
+    async renameSession(title) {
+      const svc = opts.sessionTitle;
+      if (!svc || typeof svc.rename !== "function") {
+        throw new Error("sessionTitle 未挂载（宿主无会话标题服务）");
+      }
+      const session = (
+        activeAgent as { session?: LiveSessionHandle } | undefined
+      )?.session;
+      if (!session) {
+        throw new Error("活跃会话不可用，无法重命名");
+      }
+      svc.rename(session, title);
     },
     async resumeTo(id) {
       if (disposed) {

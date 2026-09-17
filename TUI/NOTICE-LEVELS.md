@@ -44,6 +44,11 @@
 | agent 预设：已切换为 \<id>（×2 处） | handlePreset（/preset） | success |
 | jobs 服务不可用（×4 处） | handleJobs（/jobs） | warn（服务不可用） |
 | job \<id> 取消请求已发送 | handleJobs（/jobs） | success |
+| 暂无 token 用量数据（本回合尚未发生模型调用） | handleStatsCommand（/stats） | info |
+| 用法：/rename \<标题> | handleRenameCommand（/rename） | info |
+| 已重命名为「\<title>」 | handleRenameCommand（/rename） | success |
+| 标题不能为空 / 标题不能包含换行 | handleRenameCommand（/rename） | error（非法参数，本地拒绝不发服务调用） |
+| sessionTitle 服务不可用 | handleRenameCommand（/rename） | warn（服务不可用） |
 
 ## B. 适配层 notice 归一化（src/app/adapter/dsh.ts）
 

@@ -153,7 +153,9 @@ export type SlashRoute =
   | "permission"
   | "preset"
   | "jobs"
-  | "init";
+  | "init"
+  | "stats"
+  | "rename";
 
 /** 本地命令目录：路由与输入补全的**单一来源**（含别名，别名也是独立可补全项）。
  *  desc 供补全候选展示；/help 的逐行说明仍在 App.helpText（历史格式）。 */
@@ -195,6 +197,14 @@ export const LOCAL_COMMANDS: readonly {
     route: "init",
     desc: "初始化 AGENTS.md（缺失时由模型阅读目录生成）",
   },
+  {
+    name: "stats",
+    route: "stats",
+    desc: "本回合 token 用量与上下文占比（/usage、/context 同）",
+  },
+  { name: "usage", route: "stats", desc: "同上（同 /stats）" },
+  { name: "context", route: "stats", desc: "同上（同 /stats）" },
+  { name: "rename", route: "rename", desc: "重命名当前会话标题" },
 ];
 
 /** 命令名 → 路由（模块加载时构建一次；不在目录中的名字落 registry 转发） */
@@ -295,4 +305,27 @@ export function themeCommandDecision(
     return { kind: "apply", theme: arg };
   }
   return { kind: "usage" };
+}
+
+/** /rename 参数决策：无参 → usage（用法提示）；参数为空或含换行 → invalid（本地拒绝，
+ *  不发服务调用）；其余 → apply。决策为纯函数以便单测覆盖非法分支（App 提交路径已 trim
+ *  整行，「仅空白参数」只能经此函数直接构造验证）。 */
+export type RenameCommandDecision =
+  | { kind: "usage" }
+  | { kind: "invalid"; reason: string }
+  | { kind: "apply"; title: string };
+
+export function renameCommandDecision(line: string): RenameCommandDecision {
+  // 保留未 trim 的原始参数：区分「完全无参」与「有空白参数但内容为空」
+  const raw = line.replace(/^\/[a-z][a-z0-9_-]*/i, "");
+  const title = raw.trim();
+  if (title === "") {
+    return raw === ""
+      ? { kind: "usage" }
+      : { kind: "invalid", reason: "标题不能为空" };
+  }
+  if (title.includes("\n") || title.includes("\r")) {
+    return { kind: "invalid", reason: "标题不能包含换行" };
+  }
+  return { kind: "apply", title };
 }

@@ -35,6 +35,7 @@ import {
   deriveTitle,
   lastAssistantText,
   modelCommandSpec,
+  renameCommandDecision,
   resolveModelSpec,
   routeSlashCommand,
   slashCommandArg,
@@ -1202,6 +1203,12 @@ export class App {
       case "init":
         this.runInit();
         return;
+      case "stats":
+        this.handleStatsCommand();
+        return;
+      case "rename":
+        this.handleRenameCommand(line);
+        return;
       case "copy":
         this.copyLastReply();
         return;
@@ -1877,6 +1884,53 @@ export class App {
     }
   }
 
+  /** /stats（别名 /usage、`/context`）：显示最近一次模型调用的 token 用量。
+   *  usage 语义为「最近一次模型调用」（非会话累计，见 state.usage 注释）；
+   *  contextWindow 缺失或为 0 → 只显绝对量（不除零）。 */
+  private handleStatsCommand(): void {
+    const usage = this.state.usage;
+    if (!usage) {
+      this.notice("暂无 token 用量数据（本回合尚未发生模型调用）", "info");
+      return;
+    }
+    const { input, output, cacheRead, contextWindow } = usage;
+    // 上下文口径与状态栏 ctx 段一致：input + cacheRead
+    const context = input + cacheRead;
+    const lines = [
+      `本回合 tokens：输入 ${input} · 输出 ${output} · 缓存读 ${cacheRead}`,
+      contextWindow !== undefined && contextWindow > 0
+        ? `上下文：${context} / ${contextWindow}（${Math.round((context / contextWindow) * 100)}%）`
+        : `上下文：${context}`,
+      `缓存命中率：${context > 0 ? `${Math.round((cacheRead / context) * 100)}%` : "n/a"}`,
+    ];
+    this.notice(lines.join("\n"), "info");
+  }
+
+  /** /rename <title>：经 adapter 调宿主 sessionTitle.rename(live Session, title)。
+   *  非法标题本地拒绝（不发服务调用）；服务缺失/失败 → warn；
+   *  标题栏由既有 session/title 事件链路刷新，不手工改 state。 */
+  private handleRenameCommand(line: string): void {
+    const decision = renameCommandDecision(line);
+    if (decision.kind === "usage") {
+      this.notice("用法：/rename <标题>", "info");
+      return;
+    }
+    if (decision.kind === "invalid") {
+      this.notice(decision.reason, "error");
+      return;
+    }
+    const adapter = this.deps.adapter;
+    const rename = adapter.renameSession;
+    if (!rename) {
+      this.notice("sessionTitle 服务不可用", "warn");
+      return;
+    }
+    void rename.call(adapter, decision.title).then(
+      () => this.notice(`已重命名为「${decision.title}」`, "success"),
+      () => this.notice("sessionTitle 服务不可用", "warn"),
+    );
+  }
+
   /** /jobs：打开后台任务面板（复用既有面板模式），随后经 refreshJobs 拉取全量快照 */
   private handleJobsCommand(): void {
     const refresh = this.deps.adapter.refreshJobs;
@@ -1943,6 +1997,8 @@ export class App {
       "  /preset [预设名]      agent 预设目录（无参列当前/可用/默认，带参切换）",
       "  /jobs 后台任务面板（只读列表；↑/↓ 选择、Enter 取消、Esc 关闭）",
       "  /init    初始化 AGENTS.md（当前目录缺失时由模型阅读目录生成；已存在则提示退出）",
+      "  /stats (/usage /context)  本回合 token 用量与上下文占比（最近一次模型调用）",
+      "  /rename <标题>  重命名当前会话标题",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }

@@ -300,6 +300,9 @@ export interface DshAdapter {
   /** 会话标题（官方 session/title 事件折叠，dsh-session-title 落盘日志优先）；
    *  无官方标题事件 → undefined（调用方以本地兜底 deriveTitle 补）。 */
   sessionTitle?(sessionId: string): Promise<string | undefined>;
+  /** 重命名当前会话标题（宿主 sessionTitle.rename(live Session, title)，首参为 Session 对象）；
+   *  服务未挂载或活跃会话不可用 → reject，调用方 notice「sessionTitle 服务不可用」。 */
+  renameSession?(title: string): Promise<void>;
   /** 读取指定历史会话的只读消息列表（损坏会话 reject 结构化错误） */
   readSessionSurface?(id: string): Promise<SessionSurfaceView>;
   /** 运行时切换到持久化会话（agents.resume）：dispose 旧 agent → resume 新 agent，
@@ -779,6 +782,21 @@ export interface SessionSurfaceView {
   messages: HistoryMessage[];
 }
 
+/** 宿主会话标题服务结构面（ctx.get('sessionTitle')，@deepseek-ai/dsh-session-title）；
+ *  rename 首参为 **live Session 对象**（非 id 字符串），返回快照；服务缺失时 /rename 提示不可用。 */
+/** 宿主会话标题快照结构面（`sessionTitle.rename` 返回；TUI 不解释内部结构，只看调用是否抛错） */
+export interface SessionTitleSnapshotLike {
+  title?: string;
+}
+
+/** live Session 句柄：对 TUI 不透明（不读任何字段），仅原样透传给宿主服务。 */
+export type LiveSessionHandle = Record<string, unknown>;
+
+export interface SessionTitleLike {
+  /** 首参为 live Session 对象（见 LiveSessionHandle） */
+  rename?(session: LiveSessionHandle, title: string): SessionTitleSnapshotLike;
+}
+
 /** 宿主会话存储服务结构面（ctx.get('sessions')，dsh-session SessionStore；读 live 会话原始事件用） */
 export interface SessionStoreLike {
   get(sessionId: string):
@@ -929,4 +947,6 @@ export interface RealAdapterOptions {
   agentPresets?: AgentPresetsLike;
   /** ctx.get('jobs') 服务（dsh-jobs，dsh-base 默认装配 jobs-local）；缺失时 /jobs 提示不可用 */
   jobs?: JobsLike;
+  /** ctx.get('sessionTitle') 服务（dsh-session-title）；缺失时 /rename 提示不可用 */
+  sessionTitle?: SessionTitleLike;
 }

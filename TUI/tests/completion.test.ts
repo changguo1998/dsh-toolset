@@ -70,7 +70,8 @@ test("completeCommandInput：宿主命令并入 + 同名以本地目录优先（
     { name: "model", desc: "宿主同名命令" },
   ];
   const r = completeCommandInput("/co", host, "slash");
-  assert.deepEqual(names(r?.items), ["copy", "compact"]);
+  // 本地目录含 /stats 的别名 context（批次 1 新增）：排序=名称长度优先、同长按字典序
+  assert.deepEqual(names(r?.items), ["copy", "compact", "context"]);
   assert.equal(
     r?.items.find((i) => i.name === "compact")?.desc,
     "压缩会话上下文",
@@ -174,7 +175,9 @@ test("renderCommandCompletion：候选超出可视行时丢弃多余项（不滚
     themeId: "dark",
   });
   assert.deepEqual(
-    tail.slice(1).map((r) => rowAnsi(r).match(/\/([a-z][a-z0-9_-]*)/)?.[1] ?? ""),
+    tail
+      .slice(1)
+      .map((r) => rowAnsi(r).match(/\/([a-z][a-z0-9_-]*)/)?.[1] ?? ""),
     completion.items.slice(0, 3).map((i) => i.name),
     "焦点在末尾时仍显示最前面 3 项（不滚动）",
   );
