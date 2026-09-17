@@ -36,6 +36,14 @@ export function userMaxBodyWidth(
   return Math.max(1, width - Math.min(gutter, Math.max(0, width - 1)));
 }
 
+/** 模型正文块最大宽：右缘与用户块左缘对称留白(gutter)，与用户输入形成左右交错 */
+export function assistantMaxBodyWidth(
+  width: number,
+  gutter: number = USER_MIN_LEFT_GUTTER,
+): number {
+  return Math.max(1, width - Math.min(gutter, Math.max(0, width - 1)));
+}
+
 // ---------------- 工具历史折叠 ----------------
 
 /** 工具调用历史：仅展示最近 TOOL_MAX_GROUPS 个调用组，更早隐藏（折叠标记） */

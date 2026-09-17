@@ -349,14 +349,21 @@ function measureNode(
   }
   // h 排布
   let childMaxH = 0;
-  // 第一遍：fixed/ratio/auto 先按自然宽测量（auto 以 max 为上界）
+  // fill 项的 min 预留：auto 折宽上界先扣除（右侧留白如用户块 gutter）
+  let fillReserve = 0;
+  for (let i = 0; i < box.children.length; i++) {
+    const wd = widthOf(box.children[i]!);
+    if (wd.mode === "fill" && wd.min !== undefined) fillReserve += wd.min;
+  }
+  // 第一遍：fixed/ratio/auto 先按自然宽测量（auto 以 max/扣 fill.min 为上界）
   for (let i = 0; i < box.children.length; i++) {
     const child = box.children[i]!;
     const wd = widthOf(child);
+    const reserve = wd.mode === "fill" ? 0 : fillReserve;
     const upper =
       wd.mode === "auto" && wd.max !== undefined
         ? Math.min(c.maxW, wd.max)
-        : c.maxW;
+        : Math.max(1, c.maxW - reserve);
     measureNode(child, { maxW: Math.max(1, upper) }, st); // 副作用：写入 st.size 供第二遍取高
   }
   // 第二遍：按优先级分配宽度

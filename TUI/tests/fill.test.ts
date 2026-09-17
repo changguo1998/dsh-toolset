@@ -36,18 +36,29 @@ test("fill Paragraph：长文本 token 折行（wrapAssistantLine 语义）", ()
   assert.deepEqual(rowsText(rows), ["aaa bb", "b ccc"]);
 });
 
-test("fill Paragraph：显式换行保留空行语义", () => {
-  const rows = fillFixed(text("a\n\nb"), 10, 3);
-  assert.deepEqual(rowsText(rows), ["a", "", "b"]);
+test("fill Paragraph：assistant 正文 \n 为普通字符（对齐旧 wrapAssistantLine 语义）", () => {
+  // 旧 wrapBufferLines：assistant 整串交 wrapAssistantLine，\n 非零宽字符，
+  // 不预拆物理行（与 plain 走 wrapLine 一致）；StyledText（user）才拆 \n
+  const rows = fillFixed(text("a\n\nb"), 10, 1);
+  assert.deepEqual(rowsText(rows), ["a\n\nb"]);
 });
 
-test("fill Paragraph：valign center 在 rect.h 内上下补白", () => {
-  const rows = fillFixed(text("x", { valign: "center" }), 5, 3);
+test("fill Paragraph：valign center 显式声明高度时上下补白", () => {
+  // valign 仅在声明 height（矮格）时补白；纯内容自然高不补（SPECH §6.5）
+  const rows = fillFixed(
+    text("x", { valign: "center", height: { mode: "fill" } }),
+    5,
+    3,
+  );
   assert.deepEqual(rowsText(rows), ["", "x", ""]);
 });
 
-test("fill Paragraph：valign bottom 补白在上", () => {
-  const rows = fillFixed(text("x", { valign: "bottom" }), 5, 3);
+test("fill Paragraph：valign bottom 显式声明高度时补白在上", () => {
+  const rows = fillFixed(
+    text("x", { valign: "bottom", height: { mode: "fill" } }),
+    5,
+    3,
+  );
   assert.deepEqual(rowsText(rows), ["", "", "x"]);
 });
 

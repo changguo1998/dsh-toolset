@@ -46,9 +46,10 @@ export function fillToList(
   node: Node,
   rect: Rect,
   rects?: Map<Node, Rect>,
+  meta?: Map<Node, RowMeta>,
 ): ContentRow[] {
   const out: ContentRow[] = [];
-  fill(ctx, node, rect, (row) => out.push(row), rects);
+  fill(ctx, node, rect, (row) => out.push(row), rects, meta);
   return out;
 }
 
@@ -59,12 +60,13 @@ export function fill(
   rect: Rect,
   append: (row: ContentRow) => void,
   rects: Map<Node, Rect> = new Map(),
+  meta?: Map<Node, RowMeta>,
 ): void {
   const r = rects.get(node) ?? rect;
   if (r.w <= 0 || r.h <= 0) return;
-  if (node.kind === "text") return fillParagraph(ctx, node, r, append);
-  if (node.kind === "styled") return fillStyled(ctx, node, r, append);
-  fillBox(ctx, node, r, append, rects);
+  if (node.kind === "text") return fillParagraph(ctx, node, r, append, meta);
+  if (node.kind === "styled") return fillStyled(ctx, node, r, append, meta);
+  fillBox(ctx, node, r, append, rects, meta);
 }
 
 // ---------------- Box ----------------
@@ -75,22 +77,32 @@ function fillBox(
   rect: Rect,
   append: (row: ContentRow) => void,
   rects: Map<Node, Rect>,
+  meta?: Map<Node, RowMeta>,
 ): void {
   if (box.direction === "h") {
     // 横向：子项按各自 allocate 出的 x/w 绘制，逐行横向拼接（同 y 对齐）。
     // h 不画竖向分隔（竖线是叶子文本自带；SPEC §6.5）。
+    // spacer（空文本 + 尺寸声明）只占横向容量，不产独立语义行。
+    const isSpacer = (c: Node): boolean =>
+      c.kind === "text" &&
+      c.text === "" &&
+      (c.width !== undefined || c.height !== undefined);
     const subs: ContentRow[][] = [];
     for (const child of box.children) {
       const r = rects.get(child) ?? rect;
       const buf: ContentRow[] = [];
-      fill(ctx, child, r, (row) => buf.push(row), rects);
+      if (!isSpacer(child))
+        fill(ctx, child, r, (row) => buf.push(row), rects, meta);
       subs.push(buf);
     }
-    const maxRows = Math.max(1, ...subs.map((s) => s.length));
-    // 内容子项（非 spacer：spacer 是空文本无语义）——合并行继承其元数据
-    const contentChildIdx = box.children.findIndex(
-      (c) => c.kind !== "text" || (c as { text?: string }).text !== "",
+    const maxRows = Math.max(
+      1,
+      ...box.children
+        .map((c, i) => (isSpacer(c) ? 0 : subs[i]!.length))
+        .concat(0),
     );
+    // 内容子项（显式 spacer = 空文本 + 尺寸声明，无语义；空 body 仍算内容）
+    const contentChildIdx = box.children.findIndex((c) => !isSpacer(c));
     for (let ri = 0; ri < maxRows; ri++) {
       let segs: FrameSegment[] = [];
       for (let ci = 0; ci < box.children.length; ci++) {
@@ -127,7 +139,7 @@ function fillBox(
   for (let i = 0; i < box.children.length; i++) {
     const child = box.children[i]!;
     const r = rects.get(child) ?? { ...rect, h: rect.h };
-    fill(ctx, child, r, append, rects);
+    fill(ctx, child, r, append, rects, meta);
     if (box.separator && i < box.children.length - 1) {
       append(separatorRow(box.separator.char, box.separator.color, rect.w));
     }
@@ -167,6 +179,8 @@ function suffixVisible(p: LeafLike, vw?: number): boolean {
 interface LeafLike {
   indent?: number;
   hanging?: number;
+  /** 有无显式 height 声明（fill 补白仅在声明高度时生效；内容自然高不补） */
+  hasHeight?: boolean;
   align?: "left" | "right" | "center";
   valign?: "top" | "center" | "bottom";
   prefix?: { text: string; style?: FrameStyle; minWidth?: number };
@@ -180,6 +194,8 @@ function decorateRows(
   rows: FrameSegment[][],
   rect: Rect,
   vw: number | undefined,
+  rowMeta?: RowMeta,
+  hasHeight = false,
 ): ContentRow[] {
   const prefixSegs: FrameSegment[] = prefixVisible(p, vw)
     ? [seg(p.prefix!.text, p.prefix!.style)]
@@ -187,13 +203,32 @@ function decorateRows(
   const suffixSegs: FrameSegment[] = suffixVisible(p, vw)
     ? [seg(p.suffix!.text, p.suffix!.style)]
     : [];
-  let content: ContentRow[] = rows.map((line) => {
-    const rowSegs: FrameSegment[] = [...prefixSegs, ...line, ...suffixSegs];
-    const indent = p.indent ?? 0;
+  // suffix 块：正文按块最大行宽对齐（用户收缩块行尾竖线同列；SPEC §6.5）
+  const maxBodyW =
+    suffixSegs.length > 0 ? Math.max(...rows.map((r) => rowWidth2(r)), 0) : 0;
+  const indent = p.indent ?? 0;
+  const hanging = p.hanging ?? indent;
+  let content: ContentRow[] = rows.map((line, ri) => {
+    const padBody =
+      suffixSegs.length > 0
+        ? " ".repeat(Math.max(0, maxBodyW - rowWidth2(line)))
+        : "";
+    const rowSegs: FrameSegment[] = [
+      ...prefixSegs,
+      ...line,
+      ...(padBody !== "" ? [seg(padBody)] : []),
+      ...suffixSegs,
+    ];
     // 悬挂续行缩进：首行缩进 indent，续行缩进 hanging（对齐正文起列）
+    const lead = ri === 0 ? indent : hanging;
     const full: FrameSegment[] =
-      indent > 0 ? [seg(" ".repeat(indent)), ...rowSegs] : rowSegs;
-    return { segments: full, indent };
+      lead > 0 ? [seg(" ".repeat(lead)), ...rowSegs] : rowSegs;
+    return {
+      segments: full,
+      indent: ri === 0 ? indent : hanging,
+      kind: rowMeta?.kind,
+      blockId: rowMeta?.blockId,
+    };
   });
   // tail：非空正文时行尾补 char 到 rect.w
   if (p.tail) {
@@ -220,8 +255,9 @@ function decorateRows(
       return { ...row, segments: [seg(" ".repeat(leading)), ...row.segments] };
     });
   }
-  // valign：自身行数 < rect.h 时补空白行
-  const fillRows = content.length < rect.h ? rect.h - content.length : 0;
+  // valign：仅显式声明高度时按 rect.h 补空白行（未声明 = 内容自然高，不补白）
+  const fillRows =
+    hasHeight && content.length < rect.h ? rect.h - content.length : 0;
   if (fillRows > 0) {
     if (p.valign === "bottom") {
       content = [...Array(fillRows).fill(emptyRow()), ...content];
@@ -239,6 +275,11 @@ function decorateRows(
   return content;
 }
 
+/** 节点是否声明了显式高度（valign 补白仅在声明高度时生效） */
+function hasHeightDecl(p: { height?: unknown }): boolean {
+  return p.height !== undefined;
+}
+
 // ---------------- Paragraph ----------------
 
 function fillParagraph(
@@ -246,6 +287,7 @@ function fillParagraph(
   p: Paragraph,
   rect: Rect,
   append: (row: ContentRow) => void,
+  meta?: Map<Node, RowMeta>,
 ): void {
   const prefixW = p.prefix ? displayWidth(p.prefix.text) : 0;
   const suffixW = p.suffix ? displayWidth(p.suffix.text) : 0;
@@ -253,21 +295,28 @@ function fillParagraph(
   // tail 铺满行（空正文）：直接整行铺满
   if (p.tail && p.text === "") {
     const n = Math.max(1, rect.w);
+    const m = meta?.get(p);
     append({
       segments: [seg(p.tail.char.repeat(n), p.tail.style ?? { fg: "border" })],
       indent: 0,
+      kind: m?.kind,
+      blockId: m?.blockId,
     });
     return;
   }
-  // 显式换行先分行（每段独立解析；空行保留为空段）
-  const paragraphs = p.text.split("\n");
-  // 解析：fillBg → 代码块灰底补齐；否则普通（含块级分类 + 行内 markdown）
-  const rows: FrameSegment[][] = paragraphs.flatMap((para) =>
-    p.fillBg
-      ? wrapCodeLine(para, bodyW)
-      : wrapAssistantLine(para, bodyW, ctx.themeId),
+  // 与旧 wrapBufferLines 一致：assistant 正文整串交给解析器（跨 \n 不预拆，
+  // 与 wrapAssistantLine/wrapCodeLine 的逐字符折行行为对齐）；plain 类走 StyledText。
+  const rows: FrameSegment[][] = p.fillBg
+    ? wrapCodeLine(p.text, bodyW)
+    : wrapAssistantLine(p.text, bodyW, ctx.themeId);
+  const content = decorateRows(
+    p,
+    rows,
+    rect,
+    ctx.viewportWidth,
+    meta?.get(p),
+    hasHeightDecl(p),
   );
-  const content = decorateRows(p, rows, rect, ctx.viewportWidth);
   for (const row of content) append(row);
 }
 
@@ -278,28 +327,46 @@ function fillStyled(
   p: StyledText,
   rect: Rect,
   append: (row: ContentRow) => void,
+  meta?: Map<Node, RowMeta>,
 ): void {
   const prefixW = p.prefix ? displayWidth(p.prefix.text) : 0;
   const suffixW = p.suffix ? displayWidth(p.suffix.text) : 0;
   const bodyW = Math.max(1, rect.w - prefixW - suffixW);
   if (p.tail && p.segments.length === 0) {
     const n = Math.max(1, rect.w);
+    const m = meta?.get(p);
     append({
       segments: [seg(p.tail.char.repeat(n), p.tail.style ?? { fg: "border" })],
       indent: 0,
+      kind: m?.kind,
+      blockId: m?.blockId,
     });
     return;
   }
   // 显式换行先在段内切分（每段独立折行；空行保留）
-  const rows: FrameSegment[][] = splitAndWrapSegments(p.segments, bodyW);
-  const content = decorateRows(p, rows, rect, ctx.viewportWidth);
+  const indent = p.indent ?? 0;
+  const hanging = p.hanging ?? indent;
+  const rows: FrameSegment[][] = splitAndWrapSegments(
+    p.segments,
+    bodyW,
+    hanging,
+  );
+  const content = decorateRows(
+    p,
+    rows,
+    rect,
+    ctx.viewportWidth,
+    meta?.get(p),
+    hasHeightDecl(p),
+  );
   for (const row of content) append(row);
 }
 
-/** 预样式段按 \n 切物理行，再逐段显示宽度折行 */
+/** 预样式段按 \n 切物理行，再逐段显示宽度折行（首行全宽/续行减 hanging） */
 function splitAndWrapSegments(
   segs: FrameSegment[],
   width: number,
+  hanging: number,
 ): FrameSegment[][] {
   const out: FrameSegment[][] = [];
   // 先按 \n 把段切成一串「物理行段」
@@ -313,12 +380,14 @@ function splitAndWrapSegments(
         lines[lines.length - 1]!.push({ text: part, style: s.style });
     }
   }
-  for (const line of lines) {
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li]!;
     if (line.length === 0) {
       out.push([]); // 空物理行
       continue;
     }
-    out.push(...wrapFrameSegments(line, width));
+    const w = out.length === 0 ? width : Math.max(1, width - hanging);
+    out.push(...wrapFrameSegments(line, w));
   }
   return out;
 }

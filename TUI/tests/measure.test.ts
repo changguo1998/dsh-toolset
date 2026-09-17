@@ -371,8 +371,8 @@ test("h 过度约束：fixed + auto + fill 按 fill→auto→fixed 让路", () =
 });
 
 test("spacer 类型契约：空/双轴、h 传 separator 均在编译期拒绝", () => {
-  // 非法构造放在 if(false) 死代码内：仅做编译期拒绝验证、永不执行
-  if (false) {
+  // 非法构造放在未调用函数体内：仅做编译期拒绝验证、永不执行
+  const typeguard = (): void => {
     // @ts-expect-error spacer 必须至少给一个轴
     const bad1 = spacer({});
     // @ts-expect-error width/height 互斥
@@ -382,7 +382,8 @@ test("spacer 类型契约：空/双轴、h 传 separator 均在编译期拒绝",
     void bad1;
     void bad2;
     void bad3;
-  }
+  };
+  void typeguard;
   assert.ok(spacer({ width: { mode: "fill" } }).kind === "text");
 });
 
@@ -434,4 +435,20 @@ test("Paragraph tail：不占测量宽、不增加行数；铺满由 fill 决定
   const st = measure(p, { maxW: 12 });
   assert.equal(st.h, 1);
   assert.equal(st.w, 0); // tail 不占测量宽
+});
+
+test("h 排布：fill.min 预留约束 auto 折宽上界（用户块右缘留白）", () => {
+  // h([spacer(fill,min:4), text(...)]) 宽 10：auto 折宽 6 → 2 行（6+4）
+  const box = h([
+    spacer({ width: { mode: "fill", min: 4 } }),
+    text("user message", {}),
+  ]);
+  const st = measure(box, { maxW: 10 });
+  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 400 });
+  // spacer 至少 4 列，text 折宽 6 → 块宽 10（fill 吃剩余 0）
+  const spacerR = rects.get(box.children[0]!)!;
+  const textR = rects.get(box.children[1]!)!;
+  assert.equal(spacerR.w, 4); // min 保底
+  assert.equal(textR.w, 6); // 折宽 6（10−4）
+  assert.equal(st.size.get(box.children[1]!)!.h, 2); // "user message" 折 6 列 = 2 行
 });

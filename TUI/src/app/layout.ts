@@ -41,10 +41,10 @@ import {
 } from "./layout/markdown.ts";
 import {
   ACTIVITY_SEPARATOR,
+  assistantMaxBodyWidth,
   isToolCall,
   isToolResult,
   NOTICE_TONE_COLOR,
-  TOOL_CONT_INDENT,
   TOOL_MAX_GROUPS,
   TOOL_MORE,
   renderToolNameLine,
@@ -60,6 +60,7 @@ export {
   SEPARATOR,
   STATUS_TOP_SEPARATOR,
   TURN_SEPARATOR_CHAR,
+  assistantMaxBodyWidth,
   TOOL_CONT_INDENT,
   TOOL_MAX_GROUPS,
   TOOL_MORE,
@@ -1109,13 +1110,6 @@ export const THINKING_MAX: number = 4;
  * 避免缩进本身溢出。
  */
 
-/** 模型正文块最大宽：右缘与用户块左缘对称留白(gutter)，与用户输入形成左右交错 */
-export function assistantMaxBodyWidth(
-  width: number,
-  gutter: number = USER_MIN_LEFT_GUTTER,
-): number {
-  return Math.max(1, width - Math.min(gutter, Math.max(0, width - 1)));
-}
 
 interface WrappedRow {
   /** 段数组（text 纯文本；样式内联各段）。indent 是行级缩进（非样式，渲染时前置空格） */
@@ -1131,7 +1125,7 @@ interface PaneRows {
   activity: WrappedRow[];
 }
 
-function wrapBufferLines(
+export function wrapBufferLines(
   buffer: Buffer,
   width: number,
   gutter: number,
