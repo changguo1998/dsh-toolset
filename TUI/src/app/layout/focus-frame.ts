@@ -18,6 +18,10 @@ import { displayWidth } from "./markdown.ts";
 export interface FocusFrameContext {
   themeId: ThemeId;
   focusedPanel: PaneId | null;
+  /** 标题栏下划线行（=diaStart-1；无下划线时 0/-1）——该行 D 列在 status 焦点保持灰 ┤ */
+  titleUnderlineRow?: number;
+  /** 活动区分隔行（=diaEnd）——该行 D 列为连接字形 `┤`，status 焦点覆写亮 ┤ */
+  activitySepRow?: number;
 }
 
 /** 焦点框亮色（与 layout.ts focusFrameColor 保持同一映射，防循环内联） */
@@ -111,6 +115,78 @@ export function cover(
   setCell(rows[rowIndex]!, col, ch, style);
 }
 
+/** 合并一行中相邻同样式段（serializeFrameRow 前统一，消除逐字符分段） */
+export function mergeRow(row: FrameRow): void {
+  const out: FrameSegment[] = [];
+  for (const s of row.segments) {
+    const last = out[out.length - 1];
+    if (last && last.style?.fg === s.style?.fg && last.style?.bg === s.style?.bg) {
+      last.text += s.text;
+    } else {
+      out.push({ ...s });
+    }
+  }
+  row.segments = out;
+}
+
+/** 覆写一行 [c0, c1) 显示列区间（含 c0 不含 c1）：统一替换为 ch。
+ * 只重建与区间相交的段；未相交段原样保留（不与其邻段合并）——
+ * 保留冻结基线（旧 divFor/segN 独立产出）的段边界。 */
+export function coverH(
+  rows: FrameRow[],
+  rowIndex: number,
+  c0: number,
+  c1: number,
+  ch: string,
+  style?: FrameStyle,
+): void {
+  if (rowIndex < 0 || rowIndex >= rows.length || c1 <= c0) return;
+  if (displayWidth(ch) !== 1) return;
+  const row = rows[rowIndex]!;
+  const segs = row.segments;
+  const out: FrameSegment[] = [];
+  let w = 0;
+  for (const s of segs) {
+    const tw = displayWidth(s.text);
+    const segStart = w;
+    const segEnd = w + tw;
+    if (segEnd > c0 && segStart < c1) {
+      // 与区间相交：段内逐字形重建（跨界处替换为 ch；区间内相邻同 style 合并）
+      let segW = segStart;
+      const touched: { ch: string; style?: FrameStyle }[] = [];
+      for (const segCh of s.text) {
+        const cw = displayWidth(segCh);
+        const segCol = segW;
+        segW += cw;
+        if (segCol >= c0 && segCol < c1 && cw === 1) {
+          touched.push({ ch, style });
+        } else {
+          touched.push({ ch: segCh, style: s.style });
+        }
+      }
+      let cur: { text: string; style?: FrameStyle } | null = null;
+      for (const tch of touched) {
+        if (
+          cur &&
+          cur.style?.fg === tch.style?.fg &&
+          cur.style?.bg === tch.style?.bg
+        ) {
+          cur.text += tch.ch;
+        } else {
+          if (cur) out.push(cur);
+          cur = { text: tch.ch, style: tch.style };
+        }
+      }
+      if (cur) out.push(cur);
+    } else {
+      // 未相交段：原样保留（独立段，不并入相邻）
+      out.push({ ...s });
+    }
+    w = segEnd;
+  }
+  row.segments = out;
+}
+
 /**
  * 焦点框覆写入口：整帧一次扫描，把焦点分区边界网格点亮。
  * rects 由布局层构造（帧坐标，right=x+w-1、bottom=y+h-1）：
@@ -137,48 +213,58 @@ export function focusFrame(
 
   switch (panel) {
     case "history": {
-      // 顶边 = 标题栏下划线行（rect.top）：
+      // 顶边 = 标题栏下划线行（rect.top）：角字亮、body 灰（基线 ─ 灰保留，
+      // 对齐现状下划线行仅角亮——body 不覆写）
       cover(rows, top, left, "┌", style);
       cover(rows, top, dCol, "┐", style);
-      for (let c = left + 1; c < dCol && c < right; c++) cover(rows, top, c, "─", style);
       // 左缘 + D 列竖线（对话区行）
       for (let r = top + 1; r < bottom; r++) {
         cover(rows, r, left, "│", style);
         cover(rows, r, dCol, "│", style);
       }
-      // 底边 = 活动区分隔行：两端 ┘、正文 ─
+      // 底边 = 活动区分隔行：正文 ─ 亮后两端 ┘（coverH 先 body、cover 后角，
+      // 保留 body 与角字独立段，对齐旧 divFor/sepSegments 分段）
+      coverH(rows, bottom, left + 1, dCol, "─", style);
       cover(rows, bottom, left, "┘", style);
       cover(rows, bottom, dCol, "┘", style);
-      for (let c = left + 1; c < dCol && c < right; c++) cover(rows, bottom, c, "─", style);
       break;
     }
     case "activity": {
-      // 顶边 = 活动区分隔行：左下 ┌、D 列 ┐、正文 ─
+      // 顶边 = 活动区分隔行：正文 ─ 亮后左下 ┌、D 列 ┐
+      coverH(rows, top, left + 1, dCol, "─", style);
       cover(rows, top, left, "┌", style);
       cover(rows, top, dCol, "┐", style);
-      for (let c = left + 1; c < dCol && c < right; c++) cover(rows, top, c, "─", style);
       // 左缘 + D 列竖线（活动区行）
       for (let r = top + 1; r < bottom; r++) {
         cover(rows, r, left, "│", style);
         cover(rows, r, dCol, "│", style);
       }
-      // 底边 = 状态区上方分隔行：左下 └、D 列 ┴、正文 ─（左列段）
+      // 底边 = 状态区上方分隔行：正文 ─ 亮后左下 └、D 列 ┴（左列段）
+      coverH(rows, bottom, left + 1, dCol, "─", style);
       cover(rows, bottom, left, "└", style);
       cover(rows, bottom, dCol, "┴", style);
-      for (let c = left + 1; c < dCol && c < right; c++) cover(rows, bottom, c, "─", style);
       break;
     }
     case "status": {
-      // 顶边 = 状态列顶行（rc0）：D 列 ┌、右缘 ┐、正文 ─
+      // 顶边 = 状态列顶行（rc0）：正文 ─ 亮后 D 列 ┌、右缘 ┐
+      coverH(rows, top, dCol + 1, right, "─", style);
       cover(rows, top, dCol, "┌", style);
       cover(rows, top, right, "┐", style);
-      for (let c = dCol + 1; c < right; c++) cover(rows, top, c, "─", style);
+      // D 列竖线（历史/活动区右缘=状态列左缘，status 焦点全列亮；下划线行
+      // diaStart-1 保持灰 ┤——标题栏顶边归属 history，不归 status）
+      for (let r = top + 1; r <= bottom; r++) {
+        if (ctx.titleUnderlineRow !== undefined && r === ctx.titleUnderlineRow)
+          continue;
+        if (ctx.activitySepRow !== undefined && r === ctx.activitySepRow)
+          cover(rows, r, dCol, "┤", style);
+        else cover(rows, r, dCol, "│", style);
+      }
       // 右缘竖线（状态区行）
       for (let r = top + 1; r <= bottom; r++) cover(rows, r, right, "│", style);
-      // 底边 = 状态区上方分隔行：D 列 ┴、右缘 ┘、正文 ─（右列段）
-      cover(rows, bottom, right, "┘", style);
+      // 底边 = 状态区上方分隔行：正文 ─ 亮后 D 列 ┴、右缘 ┘（右列段）
+      coverH(rows, bottom, dCol + 1, right, "─", style);
       cover(rows, bottom, dCol, "┴", style);
-      for (let c = dCol + 1; c < right; c++) cover(rows, bottom, c, "─", style);
+      cover(rows, bottom, right, "┘", style);
       break;
     }
   }

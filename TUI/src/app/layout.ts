@@ -33,6 +33,8 @@ import { renderCommandCompletion } from "./components/CommandCompletion.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
 import { buildContentRows } from "./layout/build-box.ts";
+import { focusFrame } from "./layout/focus-frame.ts";
+import type { PaneId, Rect } from "./layout/box.ts";
 import type { ContentRow } from "./layout/fill.ts";
 import {
   charWidth,
@@ -902,22 +904,23 @@ function buildTopRegion(
     statusColWidth - 1 - (useRightFrame ? FRAME_RIGHT_COLS : 0),
   );
   const panel = state.focusedPanel;
+  // 仅 statusFocused 保留（状态列内容偏移 statusCells[rc-1] 与 rc0 顶边占位）；
+  // history/activity 焦点态不再影响顶部构图（框线由 focusFrame 统一覆写）
   const statusFocused = focusActive && panel === "status";
-  const topHistory = focusActive && panel === "history";
-  const activityFocused = focusActive && panel === "activity";
+  // 焦点中性基线：活动区分隔线 / 分隔竖线 / 左缘框格 / 右缘框列全部以灰
+  // 边框色或空白占位产出；亮角字/亮边由 buildFrame 末尾的 focusFrame
+  // 按焦点态覆写（DESIGN.md §8，唯一焦点框机制）。
   const fc = focusFrameColor(state.themeId);
-  // 活动区分隔线：焦点为历史/流输出时亮色框，状态焦点/模态回边框色
-  const sepFocused = topHistory || activityFocused;
   const sepSegments = (): FrameSegment[] => [
     {
       text: ACTIVITY_SEPARATOR.repeat(Math.max(1, contentW)),
-      style: { fg: sepFocused ? fc : "border" },
+      style: { fg: "border" },
     },
   ];
   const rows: FrameRow[] = [];
-  // 右侧边框列保留格（状态列右缘）：画成框线（┐/│/╝）时亮色着色，否则空白占位
+  // 右侧边框列保留格（状态列右缘）：无焦点为空白占位（focusFrame status 焦点时覆写）
   const rightGlyph = (g: string): FrameSegment[] =>
-    g === " " ? [seg(" ")] : [seg(g, { fg: fc })];
+    g === " " ? [seg(" ")] : [seg(g, { fg: "border" })];
   // 内容行（0..contentTopH-1）：标题栏 → 对话区 → 活动区分隔 → 活动区。
   // 中间分隔竖线（历史区右缘/状态列左缘）随焦点面板只亮其垂直边界：
   // status=全行、history=仅对话区、activity=仅分隔行+活动区；模态态全回流边框色。
@@ -976,58 +979,30 @@ function buildTopRegion(
                   })
                 : [];
   const divFor = (rc: number): FrameSegment[] => {
-    // 活动区分隔行两端为面板角字：history=右下角 ┘、activity=右上角 ┐、其余=竖线
-    if (rc === diaEnd && activityH > 0) {
-      // 分隔行 无焦点/状态焦点：D 列交点用连接字形 `┤`（竖线贯穿+横线从左接入），
-      const g = panel === "history" ? "┘" : panel === "activity" ? "┐" : "┤";
-      return [seg(g, { fg: focusActive ? fc : "border" })];
-    }
-    // 状态列顶边（rc0 标题行并排位置）：D 列起 ┌（status 焦点时亮白）
-    if (rc === 0 && statusFocused) return [seg("┌", { fg: fc })];
-    // 标题栏分隔行（标题栏第 2 行，横线铺满左列）：D 列交点用 `┤`
-    if (titleRows > 1 && rc === diaStart - 1) {
-      const bright = focusActive && panel === "history";
-      return [seg(topHistory ? "┐" : "┤", { fg: bright ? fc : "border" })];
-    }
-    // 无焦点（focusedPanel=null）时所有框线回边框色：bright 仅在有焦点时可能为真
-    let bright = focusActive && panel !== null;
-    if (focusActive && panel === "history")
-      bright = rc >= diaStart && rc < diaEnd;
-    else if (focusActive && panel === "activity") bright = rc >= diaEnd;
-    return [seg("│", { fg: bright ? fc : "border" })];
+    // 焦点中性基线：活动区分隔行 D 列=连接 `┤`（竖线贯穿+横线左接入），
+    // normalInput（无面板）下常亮白（活动区分隔存在的设计常亮，与焦点无关；
+    // 面板态回灰）；titleRows 下划线行 D 列= `┤` 灰、其余内容行 D 列= `│`
+    // 灰线；status 焦点顶边由 focusFrame 覆写 ┌（此处 rc0 给空白占位）。
+    if (rc === diaEnd && activityH > 0)
+      return [seg("┤", { fg: focusActive ? fc : "border" })];
+    if (rc === 0 && statusFocused) return [seg(" ")];
+    if (titleRows > 1 && rc === diaStart - 1)
+      return [seg("┤", { fg: "border" })];
+    return [seg("│", { fg: "border" })];
   };
   for (let rc = 0; rc < contentTopH; rc++) {
-    // col0：历史/活动区左缘框格（段数组）
+    // col0：历史/活动区左缘框格（段数组）——焦点中性基线恒空白占位，
+    // 竖线/角字由 buildFrame 末尾 focusFrame 按焦点态覆写（DESIGN §8）。
     let left: FrameSegment[] = [];
-    if (useLeftFrame) {
-      if (rc === diaEnd && activityH > 0) {
-        left =
-          panel === "history"
-            ? topHistory
-              ? [seg("┘", { fg: fc })]
-              : [seg(" ")]
-            : panel === "activity"
-              ? activityFocused
-                ? [seg("┌", { fg: fc })]
-                : [seg(" ")]
-              : [seg(" ")];
-      } else if (rc < diaStart) {
-        if (titleRows > 1 && rc === diaStart - 1 && topHistory)
-          left = [seg("┌", { fg: fc })];
-        else left = [seg(" ")];
-      } else if (rc < diaEnd) {
-        left = topHistory ? [seg("│", { fg: fc })] : [seg(" ")];
-      } else {
-        left = activityFocused ? [seg("│", { fg: fc })] : [seg(" ")];
-      }
-    }
+    if (useLeftFrame) left = [seg(" ")];
     // 状态列正文（右侧）：剥去 renderStatusColumn 自带右缘竖线（末段），
     // 正文截到 statusBodyW 定宽、右补空格，保证右缘框列恒位于 R 列。
     const statusBody: FrameSegment[] = (() => {
       if (statusFocused && rc === 0) {
-        // D 列 ┌ 由 divFor 提供，此处只画状态列横线部分
+        // 状态列顶边：焦点中性基线以灰 `─` 铺占位（亮色由 focusFrame 覆写）；
+        // D 列交点 ┌ 由 focusFrame 覆写，此处 rc0 顶边只画状态列横线部分
         return statusBodyW > 0
-          ? [seg(SEPARATOR.repeat(statusBodyW), { fg: fc })]
+          ? [seg(SEPARATOR.repeat(statusBodyW), { fg: "border" })]
           : [];
       }
       const cell = statusCells[statusFocused ? rc - 1 : rc];
@@ -1085,8 +1060,9 @@ function buildTopRegion(
     const contentW2 = rowWidth2(contentSegs);
     const padSegs: FrameSegment[] =
       contentW2 < contentW ? [seg(" ".repeat(contentW - contentW2))] : [];
-    // 右缘框列（状态列右缘）：status 焦点亮（rc0 为顶边右角 ┐）；其余空白占位
-    const right = statusFocused ? (rc === 0 ? "┐" : "│") : " ";
+    // 右缘框列（状态列右缘）：焦点中性基线恒空白占位（status 焦点由
+    // focusFrame 覆写 ┐/│/┘）
+    const right = " ";
     const rowSegments: FrameSegment[] = [
       ...left,
       ...contentSegs,
@@ -1496,48 +1472,28 @@ export function buildStatusSeparator(
   themeId: ThemeId,
   sepFocus: "none" | "status" | "activity",
 ): FrameRow {
-  const D = cols - statusColWidth; // 分隔竖线列（历史区右缘/状态列左缘，旧 statusColWidth-1 的镜像）
+  // 焦点中性基线：状态区上方分隔行恒灰 `─`（col0 非 activity 底角 └、D 列 ┴
+  // border、右缘非 status 右下角 ┘）；亮角字/亮边由 buildFrame 末尾 focusFrame
+  // 按焦点态覆写（status 顶/底边、activity 底边 └┴、history 底边 ┘ 等）。
+  // sepFocus / themeId 参数保留（契约兼容），焦点绘图不再在此进行。
+  void sepFocus;
+  void themeId;
+  const D = cols - statusColWidth; // 分隔竖线列（历史区右缘/状态列左缘）
   const R = cols - 1;
-  const useLeftCorner = cols - statusColWidth >= 2; // 历史/活动区左缘框格存在
   const useRightFrame = statusColWidth >= 2; // 状态列右缘框列存在
-  const fc = focusFrameColor(themeId);
-  const segN = (n: number, ch: string, bright: boolean): FrameSegment[] => {
-    if (n <= 0) return [];
-    return [{ text: ch.repeat(n), style: { fg: bright ? fc : "border" } }];
-  };
   const out: FrameSegment[] = [];
-  // col0：activity 焦点时为历史/活动区底角 └（接左缘框格），否则延续 `─`
-  if (D > 0) {
-    out.push(
-      useLeftCorner && sepFocus === "activity"
-        ? { text: "└", style: { fg: fc } }
-        : { text: STATUS_TOP_SEPARATOR, style: { fg: "border" } },
-    );
-  }
-  out.push(
-    ...segN(
-      Math.max(0, D - (useLeftCorner ? 1 : 0)),
-      STATUS_TOP_SEPARATOR,
-      sepFocus === "activity",
-    ),
-  );
-  // D 列交点恒与水平实线相交（无焦点前景色 ┴ / 焦点亮 ┴），不再用点线
-  out.push({ text: "┴", style: { fg: sepFocus === "none" ? "border" : fc } });
-  out.push(
-    ...segN(
-      Math.max(0, R - D - 1),
-      STATUS_TOP_SEPARATOR,
-      sepFocus === "status",
-    ),
-  );
-  // R 列（状态列右缘框列）：status 焦点右下角 ┘；无右缘框列（statusColWidth=1）时不输出
-  if (useRightFrame) {
-    out.push(
-      sepFocus === "status"
-        ? { text: "┘", style: { fg: fc } }
-        : { text: STATUS_TOP_SEPARATOR, style: { fg: "border" } },
-    );
-  }
+  const segN = (n: number): FrameSegment[] => {
+    if (n <= 0) return [];
+    return [{ text: STATUS_TOP_SEPARATOR.repeat(n), style: { fg: "border" } }];
+  };
+  if (D > 0) out.push({ text: STATUS_TOP_SEPARATOR, style: { fg: "border" } });
+  out.push(...segN(Math.max(0, D - 1)));
+  // D 列交点恒与水平实线相交（灰 ┴；status/activity 焦点由 focusFrame 覆写亮 ┴）
+  out.push({ text: "┴", style: { fg: "border" } });
+  out.push(...segN(Math.max(0, R - D - 1)));
+  // R 列（状态列右缘框列）：灰 `─`（status 焦点由 focusFrame 覆写 ┘）
+  if (useRightFrame)
+    out.push({ text: STATUS_TOP_SEPARATOR, style: { fg: "border" } });
   return { segments: out };
 }
 export function buildFrame(state: AppState, size: Size): FrameRow[] {
@@ -1669,7 +1625,7 @@ export function buildFrame(state: AppState, size: Size): FrameRow[] {
         ? "activity"
         : "none"
     : "none";
-  return [
+  const rows: FrameRow[] = [
     ...topRegion,
     buildStatusSeparator(
       fullWidth,
@@ -1682,4 +1638,69 @@ export function buildFrame(state: AppState, size: Size): FrameRow[] {
     ...footerLines,
     ...hintLines,
   ];
+  // 焦点框全局覆写：buildTopRegion/buildStatusSeparator 已产出焦点中性基线，
+  // 末帧一次扫描按焦点分区矩形（帧坐标，right=x+w-1/bottom=y+h-1）覆写亮
+  // 角字/边线（DESIGN.md §8 / SPEC.md §8 唯一焦点框机制）。模态态（面板打开）
+  // 焦点用 null 传入：面板占活动区时无焦点框高亮。
+  const contentTopH = Math.max(0, metrics.topHeight);
+  const { titleRows, activityH, dialogueH } = topPaneHeights(
+    contentTopH,
+    state.activityDivisor,
+  );
+  void activityH;
+  const diaStart = titleRows;
+  const diaEnd = diaStart + dialogueH; // 活动区分隔行（历史底边 = activity 顶边）
+  const D = metrics.historyWidth; // 分隔竖线列（历史区右缘/状态列左缘）
+  const rects: Map<PaneId, Rect> = new Map();
+  // history 矩形：顶=标题栏下划线行（titleRows>=2 才有下划线；否则顶=首对话行）、
+  // 底=活动区分隔行 diaEnd；覆盖左缘框列 + 正文 + D 列
+  rects.set("history", {
+    x: 0,
+    y: Math.max(0, diaStart - 1),
+    w: metrics.historyWidth,
+    h: Math.max(1, diaEnd - Math.max(0, diaStart - 1) + 1),
+  });
+  // activity 矩形：顶=活动区分隔行 diaEnd、底=状态区上方分隔行 contentTopH
+  rects.set("activity", {
+    x: 0,
+    y: DiaEndFor(contentTopH, titleRows, dialogueH, activityH) ,
+    w: metrics.historyWidth,
+    h: Math.max(1, contentTopH - DiaEndFor(contentTopH, titleRows, dialogueH, activityH) + 1),
+  });
+  void diaEnd;
+  // status 矩形：x=D（分隔竖线列）、顶=帧顶 rc0、底=状态区上方分隔行 contentTopH
+  rects.set("status", {
+    x: D,
+    y: 0,
+    w: metrics.statusColWidth,
+    h: Math.max(1, contentTopH + 1),
+  });
+  // 模态态（approval/question/picker/statusPanel/jobsPanel/history/open 面板）
+  // 焦点置空——与现状一致（模态态 statusSepFocus=none、buildTopRegion 框线全灰）
+  const modalOpen =
+    showApproval || question || picker || statusPanel || jobsPanel || history;
+  focusFrame(
+    {
+      themeId: state.themeId,
+      focusedPanel: modalOpen ? null : state.focusedPanel,
+      // 结构行号：status 焦点 D 列竖线区分下划线行（灰）与活动分隔行（亮 ┤）
+      titleUnderlineRow: Math.max(0, diaStart - 1),
+      activitySepRow: diaEnd,
+    },
+    rects,
+    rows,
+  );
+  return rows;
+}
+
+/** activity 矩形顶行（=活动区分隔行 diaEnd；含标题栏下划线场景的坐标重算） */
+function DiaEndFor(
+  contentTopH: number,
+  titleRows: number,
+  dialogueH: number,
+  activityH: number,
+): number {
+  void contentTopH;
+  void activityH;
+  return titleRows + dialogueH;
 }
