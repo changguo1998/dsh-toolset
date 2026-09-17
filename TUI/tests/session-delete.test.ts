@@ -325,6 +325,18 @@ test("cleanableSessionIds：仅当前项目 + 已持久化 + 非 live + 无用�
   );
   assert.equal(currentProjectCwd(viaStatus), "/proj");
   assert.deepEqual(cleanableSessionIds(viaStatus), ["empty-a"]);
+
+  // all 范围：清理范围跟随列表范围（含其他目录空会话；仍排除 live/当前/未持久化/非空）
+  const allScope = reduceState(s, { type: "history-scope-toggle" });
+  assert.deepEqual(cleanableSessionIds(allScope), ["empty-a", "empty-other"]);
+
+  // all 范围下当前项目未知仍可清理（列表即全量）
+  const orphanAll = reduceState(orphan, { type: "history-scope-toggle" });
+  assert.deepEqual(cleanableSessionIds(orphanAll), ["empty-a"]);
+
+  // all → project 切回：范围恢复同 cwd 限定
+  const backToProject = reduceState(allScope, { type: "history-scope-toggle" });
+  assert.deepEqual(cleanableSessionIds(backToProject), ["empty-a"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -474,7 +486,7 @@ test("面板 d → 二次确认 → y：只删高亮会话并刷新列表", asyn
   assert.ok(frame().includes("已删除会话「第一条」"), "成功提示保留原会话标题");
 });
 
-test("面板 x → 二次确认 → y：只清理当前项目空会话（其他项目/有对话/未持久化不动）", async () => {
+test("面板 x → 二次确认 → y：清理范围跟随列表范围（当前目录 / 全部）", async () => {
   const { renderer, adapter, frame } = makeApp();
   adapter.serverRecords = [
     rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
@@ -499,17 +511,26 @@ test("面板 x → 二次确认 → y：只清理当前项目空会话（其他�
   assert.ok(!frame().includes("他项目空会话"), "默认隐藏他目录会话");
   assert.ok(frame().includes("[空]"), "空会话列表标记 [空]");
 
+  // 当前目录范围：只清理本目录空会话（他目录不计、未持久化不算）
+  press(renderer, "x");
+  assert.ok(frame().includes("清理空会话"), "进入清理确认");
+  assert.ok(
+    frame().includes("清理当前目录（/proj）的空会话 1 个？"),
+    "当前目录范围文案与数量",
+  );
+  press(renderer, "n");
+  assert.ok(frame().includes("历史会话 [当前目录]（4/5）"), "取消回列表");
+
   press(renderer, "tab");
   assert.ok(frame().includes("历史会话 [全部]（5）"), "Tab 切到全部范围");
   assert.ok(frame().includes("他项目空会话"), "全部范围显示他目录会话");
 
+  // 全部范围：清理范围跟随列表（含他目录空会话）
   press(renderer, "x");
   assert.ok(frame().includes("清理空会话"), "进入清理确认");
-  assert.ok(frame().includes("空会话 1 个"), "确认文案给出当前目录待清理数量");
-  assert.ok(frame().includes("/proj"), "确认文案给出当前目录路径");
   assert.ok(
-    frame().includes("清理范围固定为当前目录"),
-    "全部范围下明示清理范围不随列表变化",
+    frame().includes("清理全部目录的空会话 2 个？"),
+    "全部范围文案与数量（跟随列表范围）",
   );
   assert.deepEqual(adapter.deleteCalls, [], "确认前不调用 adapter");
 
@@ -518,13 +539,13 @@ test("面板 x → 二次确认 → y：只清理当前项目空会话（其他�
   await flush();
   assert.deepEqual(
     adapter.deleteCalls,
-    ["tui-empty001"],
-    "只清理当前项目空会话",
+    ["tui-empty001", "tui-empty002"],
+    "全部范围清理全部目录空会话（串行按列表顺序）",
   );
   assert.equal(adapter.listSessionsCalls, 2, "批量清理只重拉一次列表");
-  assert.ok(frame().includes("已清理 1 个空会话"), "清理成功提示");
+  assert.ok(frame().includes("已清理 2 个空会话"), "清理成功提示");
   assert.ok(
-    frame().includes("历史会话 [全部]（4）"),
+    frame().includes("历史会话 [全部]（3）"),
     "重拉后列表收敛（切范围不被重置）",
   );
 });

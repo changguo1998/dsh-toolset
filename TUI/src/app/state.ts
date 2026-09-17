@@ -139,7 +139,7 @@ export interface HistoryPanelState {
   pendingResume?: string;
   /** confirm-delete/deleting 阶段的目标会话 id（确认后由调用方经 adapter 删除） */
   pendingDelete?: string;
-  /** confirm-clean/cleaning 阶段待清理的空会话 id 列表（范围=当前项目） */
+  /** confirm-clean/cleaning 阶段待清理的空会话 id 列表（范围=当前列表范围） */
   pendingClean?: string[];
   /** confirm-clean/cleaning 阶段的当前项目路径（确认文案展示） */
   cleanCwd?: string;
@@ -159,22 +159,25 @@ export function currentProjectCwd(state: AppState): string | undefined {
 }
 
 /**
- * 当前项目可清理的空会话 id：与活跃会话同 cwd（对齐官方 TUI「破坏性范围=列表范围」），
- * 且已持久化、非 live、无用户消息（SessionInfo.isEmpty）。无法确定当前项目 → 空数组。
+ * 当前列表范围下可清理的空会话 id：范围跟随可见列表（scope=all → 全部目录；
+ * project（默认）→ 与活跃会话同 cwd），且已持久化、非 live、无用户消息
+ * （SessionInfo.isEmpty）。project 范围下无法确定当前项目 → 空数组。
  */
 export function cleanableSessionIds(state: AppState): string[] {
   const h = state.history;
+  if (!h) return [];
+  const all = h.scope === "all";
   const cwd = currentProjectCwd(state);
-  if (!h || cwd === undefined) return [];
+  if (!all && cwd === undefined) return [];
   const ids: string[] = [];
   for (const r of h.records) {
-    // 可清理：已持久化、非 live、非当前、同项目、无用户消息
+    // 可清理：已持久化、非 live、非当前、范围内（全部或同项目）、无用户消息
     if (
       r.isEmpty === true &&
       r.persisted === true &&
       !r.live &&
       r.current !== true &&
-      r.cwd === cwd
+      (all || r.cwd === cwd)
     ) {
       ids.push(r.id);
     }

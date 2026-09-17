@@ -202,11 +202,10 @@ export function buildHistoryPanelBox(view: HistoryPanelView): Box {
       title = "历史会话 · 清理空会话";
       body = wrapBody(
         [
-          `清理当前目录（${h.cleanCwd ?? "未知路径"}）的空会话 ${n} 个？`,
+          h.scope === "all"
+            ? `清理全部目录的空会话 ${n} 个？`
+            : `清理当前目录（${h.cleanCwd ?? "未知路径"}）的空会话 ${n} 个？`,
           "不可恢复：仅删除已持久化且从未有用户消息的会话；当前与 live 会话不受影响。",
-          ...(h.scope === "all"
-            ? ["清理范围固定为当前目录：列表切到「全部」不影响清理范围。"]
-            : []),
           "[y/Enter] 确认清理    [n/Esc] 取消",
         ],
         width,

@@ -1272,7 +1272,7 @@ export class App {
     this.paint();
   }
 
-  /** 面板 x：进入清理空会话二次确认（范围=当前项目；无可清理项时以 notice 说明） */
+  /** 面板 x：进入清理空会话二次确认（范围=当前列表范围；无可清理项时以 notice 说明） */
   private confirmClean(): void {
     if (!this.deps.adapter.deleteSession) {
       this.historyNotice("会话删除不可用（宿主未挂载 sessionQuery）", "warn");
@@ -1280,7 +1280,12 @@ export class App {
     }
     const ids = cleanableSessionIds(this.state);
     if (ids.length === 0) {
-      this.historyNotice("当前项目没有可清理的空会话", "info");
+      this.historyNotice(
+        this.state.history?.scope === "all"
+          ? "全部目录没有可清理的空会话"
+          : "当前项目没有可清理的空会话",
+        "info",
+      );
       return;
     }
     this.apply((st) => reduceState(st, { type: "history-confirm-clean" }));
