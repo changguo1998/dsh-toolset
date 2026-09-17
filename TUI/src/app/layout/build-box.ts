@@ -17,7 +17,6 @@ import {
   TOOL_CONT_INDENT,
   USER_MIN_LEFT_GUTTER,
   isToolCall,
-  isToolResult,
   NOTICE_TONE_COLOR,
   renderToolText,
   renderToolNameLine,
@@ -121,17 +120,12 @@ export function buildBox(
           });
         } else {
           const isCall = li === 0 && isToolCall(l.text);
-          const isResult = isToolResult(l.text);
-          // 调用/结果行：wrapToolCallText 折行语义（首行全宽、续行 hanging 缩进）
-          node = styled(
-            isCall || isResult
-              ? toolCallSegs(l.text)
-              : toolLineSegs(l.text, l.tone),
-            {
-              // 折行缩进语义由 fill 处理；这里声明悬挂缩进让测量/折宽一致
-              ...(isCall || isResult ? { hanging: TOOL_CONT_INDENT } : {}),
-            },
-          );
+          // 调用行：首词染黄（renderToolNameLine）；结果行：✓绿/✗tone；其余辅助行原色。
+          // 折行统一悬挂缩进（首行全宽、续行 TOOL_CONT_INDENT，与 wrapToolCallText 一致）
+          const segs2 = isCall
+            ? toolCallSegs(l.text)
+            : toolLineSegs(l.text, l.tone);
+          node = styled(segs2, { hanging: TOOL_CONT_INDENT });
         }
         meta.set(node, { kind: "tool", blockId: bid });
         activityLeaves.push(node);
@@ -253,7 +247,7 @@ export function buildBox(
     // separator / plain → 对话区
     if (line.kind === "separator") {
       const node = styled([], {
-        tail: { char: "╌", style: { fg: "border" } },
+        tail: { char: "╌" }, // 旧 wrapBufferLines：turn 分隔线无样式（默认前景）
       });
       meta.set(node, rowMeta);
       dialogueLeaves.push(node);

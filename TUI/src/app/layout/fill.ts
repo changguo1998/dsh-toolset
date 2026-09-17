@@ -240,7 +240,7 @@ function decorateRows(
         ...row,
         segments: [
           ...row.segments,
-          seg(p.tail!.char.repeat(pad), p.tail!.style ?? { fg: "border" }),
+          seg(p.tail!.char.repeat(pad), p.tail!.style),
         ],
       };
     });
@@ -297,7 +297,7 @@ function fillParagraph(
     const n = Math.max(1, rect.w);
     const m = meta?.get(p);
     append({
-      segments: [seg(p.tail.char.repeat(n), p.tail.style ?? { fg: "border" })],
+      segments: [seg(p.tail.char.repeat(n), p.tail.style)],
       indent: 0,
       kind: m?.kind,
       blockId: m?.blockId,
@@ -336,21 +336,25 @@ function fillStyled(
     const n = Math.max(1, rect.w);
     const m = meta?.get(p);
     append({
-      segments: [seg(p.tail.char.repeat(n), p.tail.style ?? { fg: "border" })],
+      segments: [seg(p.tail.char.repeat(n), p.tail.style)],
       indent: 0,
       kind: m?.kind,
       blockId: m?.blockId,
     });
     return;
   }
+  // StyledText 节点级 style（notice tone / tool 默认色）merge 到每段
+  const segs = p.style
+    ? p.segments.map((s) =>
+        s.style === undefined
+          ? { text: s.text, style: p.style }
+          : { text: s.text, style: mergeStyleLike(p.style!, s.style) },
+      )
+    : p.segments;
   // 显式换行先在段内切分（每段独立折行；空行保留）
   const indent = p.indent ?? 0;
   const hanging = p.hanging ?? indent;
-  const rows: FrameSegment[][] = splitAndWrapSegments(
-    p.segments,
-    bodyW,
-    hanging,
-  );
+  const rows: FrameSegment[][] = splitAndWrapSegments(segs, bodyW, hanging);
   const content = decorateRows(
     p,
     rows,
@@ -390,6 +394,14 @@ function splitAndWrapSegments(
     out.push(...wrapFrameSegments(line, w));
   }
   return out;
+}
+
+/** 浅合并两个样式（后者覆盖前者非缺省字段） */
+function mergeStyleLike(
+  base: NonNullable<FrameStyle>,
+  over: NonNullable<FrameStyle>,
+): NonNullable<FrameStyle> {
+  return { ...base, ...over };
 }
 
 function emptyRow(): ContentRow {

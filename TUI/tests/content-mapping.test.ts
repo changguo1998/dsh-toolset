@@ -10,14 +10,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Buffer, BufferKind } from "../src/app/state.ts";
+import type { FrameStyle } from "../src/renderer/index.ts";
 import { wrapBufferLines } from "../src/app/layout.ts";
 import { buildBox } from "../src/app/layout/build-box.ts";
 import { measure, allocate } from "../src/app/layout/measure.ts";
 import { fillToList, type ContentRow } from "../src/app/layout/fill.ts";
-import { rowText } from "./helpers/rowText.ts";
+import { rowText, rowAnsi } from "./helpers/rowText.ts";
 
 interface LegacyRow {
-  segments: { text: string; style?: unknown }[];
+  segments: { text: string; style?: FrameStyle }[];
   kind: BufferKind;
   indent: number;
 }
@@ -41,6 +42,10 @@ function legacyRows(buffer: Buffer, width: number, gutter: number) {
         .map((s) => s.text)
         .join("")
         .trim(),
+      ansi: rowAnsi(
+        { segments: r.segments.map((s) => ({ text: s.text, style: s.style })) },
+        themeId,
+      ).trim(),
       kind: r.kind,
       indent: 0,
     }));
@@ -56,7 +61,7 @@ function newRows(buffer: Buffer, width: number) {
   const fillPane = (
     pane: typeof built.dialogue,
     hgt: number,
-  ): { text: string; kind?: string; indent?: number }[] => {
+  ): { text: string; ansi: string; kind?: string; indent?: number }[] => {
     const st = measure(pane, { maxW: width });
     const rects = allocate(st, { x: 0, y: 0, w: width, h: hgt });
     return fillToList(
@@ -67,6 +72,7 @@ function newRows(buffer: Buffer, width: number) {
       built.meta,
     ).map((r: ContentRow) => ({
       text: rowText(r).trim(),
+      ansi: rowAnsi(r, themeId).trim(),
       kind: r.kind,
       indent: 0,
     }));
