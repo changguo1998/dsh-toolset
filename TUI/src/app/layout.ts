@@ -29,7 +29,7 @@ import { buildHistoryPanelBox } from "./components/HistoryPanel.ts";
 import { buildQuestionPanelBox } from "./components/QuestionPrompt.ts";
 import { buildJobsPanelBox, statusMark } from "./components/JobsPanel.ts";
 import { buildStatusPanelBox } from "./components/StatusPanel.ts";
-import { renderCommandCompletion } from "./components/CommandCompletion.ts";
+import { buildCommandCompletionBox } from "./components/CommandCompletion.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
 import { buildApprovalBox } from "./components/ApprovalPrompt.ts";
 import { buildContentRows } from "./layout/build-box.ts";
@@ -1015,12 +1015,17 @@ function buildTopRegion(
                   state.themeId,
                 )
               : state.completion
-                ? renderCommandCompletion({
-                    completion: state.completion,
-                    height: activityH,
-                    width: contentW,
-                    themeId: state.themeId,
-                  })
+                ? fillPanelBox(
+                    buildCommandCompletionBox({
+                      completion: state.completion,
+                      height: activityH,
+                      width: contentW,
+                      themeId: state.themeId,
+                    }),
+                    activityH,
+                    contentW,
+                    state.themeId,
+                  )
                 : [];
   const divFor = (rc: number): FrameSegment[] => {
     // 焦点中性基线：活动区分隔行 D 列=连接 `┤`（竖线贯穿+横线左接入），

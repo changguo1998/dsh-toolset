@@ -16,6 +16,9 @@ import type { FrameRow } from "../../renderer/index.ts";
 import type { ThemeId } from "../../renderer/theme.ts";
 import { truncateToWidth } from "../layout.ts";
 import type { CommandCandidate } from "../commands.ts";
+import type { Box } from "../layout/box.ts";
+import { v, styled } from "../layout/box.ts";
+import { seg } from "../layout/primitives.ts";
 
 export interface CommandCompletionView {
   /** 候选项 + 焦点索引（0 = 最匹配默认项） */
@@ -23,6 +26,42 @@ export interface CommandCompletionView {
   height: number;
   width: number;
   themeId: ThemeId;
+}
+
+/**
+ * 输入补全候选面板 Box 生成器（DESIGN.md §7 / SPEC.md §7）：标题行（命令名
+ * 蓝）+ 候选行（焦点`>`黄，超宽截断后着色）；超出的候选丢弃、不足补空行。
+ * 叶子 styled wrap:false。
+ */
+export function buildCommandCompletionBox(view: CommandCompletionView): Box {
+  const { completion, height } = view;
+  const width = Math.max(1, view.width);
+
+  const title = styled(
+    [seg(truncateToWidth(" /命令补全", width), { fg: "blue" as const })],
+    { wrap: false },
+  );
+  const leaves = [title];
+  const maxBody = Math.max(0, height - 1);
+  for (let i = 0; i < completion.items.length && leaves.length < height; i++) {
+    const item = completion.items[i]!;
+    const focused = i === completion.index;
+    const text = truncateToWidth(
+      " " +
+        (focused ? ">" : " ") +
+        " /" +
+        item.name +
+        (item.desc ? "  " + item.desc : ""),
+      width,
+    );
+    leaves.push(
+      focused
+        ? styled([seg(text, { fg: "yellow" as const })], { wrap: false })
+        : styled([seg(text)], { wrap: false }),
+    );
+  }
+  while (leaves.length < height) leaves.push(styled([seg("")]));
+  return v(leaves.map((l) => l));
 }
 
 export function renderCommandCompletion(
