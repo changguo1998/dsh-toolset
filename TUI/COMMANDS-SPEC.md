@@ -2,7 +2,7 @@
 
 > 依据：`COMMANDS.md`（命令来源归口与落点决策）、`DESIGN.md`（四区域布局、面板/焦点约定）、`NOTICE-LEVELS.md`（提示分级）、`SPEC.md`（Box 渲染与排版契约）。
 > 口径：**只覆盖纯 TUI 侧可实现的命令**——宿主服务现成、不需要改动本项目任何插件。**方法签名**已读源码核实（§0.7）；**可调用契约**（参数语义与来源）由 `COMMANDS-TASKS.md` §1「批次 0 · API 合同门」把关，未过门的命令不进入实现。
-> 状态：**7 项候选全部通过批次 0 API 合同门**（`/skills` `/agents` `/tools` `/settings` `/fork` 的前置结论见 `COMMANDS-TASKS.md` §1，附源码文件:行），可直接进入实现批次。需插件改造的 5 项（含 `/contract`）与宿主 API 未证实的 4 项列入 §3 索引，不写规格。
+> 状态：**7 项候选全部通过批次 0 API 合同门**（`/skills` `/agents` `/tools` `/settings` `/fork` 的前置结论见 `COMMANDS-TASKS.md` §1，附源码文件:行），可直接进入实现批次。需插件改造的 5 项（含 `/contract`）与宿主能力缺口／语义不匹配的 4 项列入 §3 索引，不写规格。
 
 ## 0. 通用规格
 
@@ -60,7 +60,7 @@
 
 | # | 位置 | 改动 |
 |---|------|------|
-| 1 | `layout.ts` `buildActivePanelBox`（L804+） | 加 `commandPanel` 分支（插在 `jobsPanel` 之后、`history` 之前） |
+| 1 | `layout.ts` `buildActivePanelBox`（L807） | 加 `commandPanel` 分支（插在 `jobsPanel` 之后、`history` 之前） |
 | 2 | `layout.ts` `normalInput`（L1515–1521） | 加 `&& !commandPanel` |
 | 3 | `layout.ts` `modalOpen`（L1679） | 加 `\|\| commandPanel`（模态态焦点置空） |
 | 4 | `layout.ts` `showHint` → `metricsFor(size, hasPanel, …)`（L1524 / L1534） | 由 ②③ 自动跟随；验证面板态 `footerHeight = interaction`（提示行让位） |
@@ -121,7 +121,7 @@ commandPanel:
 | `tools` | `schemas(scope?)` → `ToolSchema[]`、`get(name, scope?)`、`view(scope?)`（**scope 省略 = 全局视图**，已核实）、`register` / `restrict` | `dsh-tools` |
 | `sessionTitle` | `get(session)`、`rename(session, title)`（**首参为 session 对象**） | `dsh-session-title` |
 | `sessions` | `list()`、`get(id)`、`create(id, options)`、`fork(source, boundary?, childSessionId?)` → `Session`（**后两参可省**：省 boundary = 尾事件、省 id = store 策略） | `dsh-session` |
-| `settings` | `describe(options?)` → `SettingsDescriptor[]`（**枚举 ns 的方式**，含 `ns`/`value`/`revision`）、`get(ns)` → unknown、`write(ns, input, mode, expectedRevision)`、`register` | `dsh-settings` |
+| `settings` | `describe(options?)` → `SettingsDescriptor[]`（**枚举 ns 的方式**，含 `ns`/`value`/`revision`）、`get(ns)` → unknown、写入 **`update(ns, patch, expectedRevision?)` / `replace(ns, section, expectedRevision?)` / `mutate(ns, ops, expectedRevision?)`**（`write` 为 private，不可调用）、`register` | `dsh-settings` |
 | `tokenMeter` | `measure(session, requestHeader)`、`estimateMessage(message)` | `dsh-token-meter` |
 
 其他已核实事实：cordis 服务挂载 API 为 `ctx.provide(name, value)`（宿主 23 处用法）；输入预填 action `{ type: "input", text, cursor }`；`state.usage = { input, output, cacheRead, contextWindow? }`（**最近一次模型调用**，非会话累计）；面板渲染位置与优先级见 §0.4。
@@ -200,7 +200,7 @@ commandPanel:
 | 服务 | `settings.describe()` → `SettingsDescriptor[]`（**枚举 ns 且直接带当前值**：`ns`/`value`/`revision`/`base?`/`user?`/`applies`）、`settings.get(ns)`（单读） |
 | 输出 | notice 多行（`ns：key = value`，超长截断） |
 | 降级 | 服务缺失 → warn |
-| 范围 | **第一版只读**。写回（`settings.write(ns, input, mode, expectedRevision)`）涉及真实配置与乐观锁（`expectedRevision`），需独立设计与确认契约，不在本命令范围 |
+| 范围 | **第一版只读**。写回涉及真实配置与乐观锁（`expectedRevision`），公开路径为 `settings.update(ns, patch, expectedRevision?)` / `replace` / `mutate`（`write` 为 private），需独立设计与确认契约，不在本命令范围 |
 
 ### 2.4 `/fork`（前置：批次 0 第 5 项 ✅ 已过门）
 
@@ -221,9 +221,9 @@ commandPanel:
 | `/task` | 需插件改造 | task-engine 的 `TaskEngine` 为 apply 内局部变量 → 需 provide 只读子集（`snapshotText`/`frames`/`activeCount`/`isComplete` 均已存在） |
 | `/guard` | 需插件新增能力 | security-guard 仅有 `GuardEngine.inspect(toolName, args)`，无策略/拦截记录查询 → 需先加记录缓冲与 `recent()`/`policy()` |
 | `/contract` | 需插件包改动 | `goal-contract` 包入口未 re-export `buildObjective` / `parseContract`（已核实：`index.ts` 仅导出 `name`/`inject`/`apply`，包无 `exports` 字段）→ 公开依赖需加 re-export；深路径 import 内部文件不稳、内联复制会漂移 |
-| `/clear` | 宿主 API 未证实 | `dsh-session` 无 `clear` 方法（只有 `create`/`get`/`list`/`fork`） |
-| `/login` `/logout` | 宿主 API 未证实 | `dsh-credentials` 中 `set`/`describe`/`resolve`/`unset` 均未证实；且「仅查看状态」与命令名不符 |
-| `/review` | 宿主 API 未证实 | `dsh-workflow` 无 `start`（仅 `emitWorkflowEvent`），触发契约未知 |
+| `/clear` | 宿主无对应能力 | `dsh-session` 类型面无 `clear`（仅 `create`/`get`/`list`/`fork`）；会话清理无宿主入口 |
+| `/login` `/logout` | 语义不匹配（无交互登录流程） | 宿主仅有凭据**引用** seam `ctx.credentials`（`resolve`/`describe`/`set`/`unset`，`dsh-credentials/lib/types/index.d.ts:129/136/145/152`）——提供引用解析与写入原语，**无**交互式登录流程（供应商选择 / OAuth / 设备码）；由 TUI 自造属凭据录入与安全边界设计，超出本轮命令范围 |
+| `/review` | 需工作流资产 | `ctx.workflowEngine.start(WorkflowStartRequest)` **存在**（`dsh-workflow/lib/types/index.d.ts:119`），但请求要求 `script` + `meta` + `parent: Agent`（`runtime-types.d.ts:15-29`）；宿主未内置 review 工作流资产，由 TUI 内联定义属编排层设计 |
 
 > 这 9 项不进入本轮实现；待插件改造完成或 API 证实后另立规格。
 

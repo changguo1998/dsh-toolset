@@ -41,7 +41,7 @@
 
 **落点决策**：本轮命令**一律走 TUI 本地命令**（`LOCAL_COMMANDS` + `index.ts` case），不新建宿主命令插件包。理由：可复用面板骨架（ModelPicker / JobsPanel / HistoryPanel）、与既有 `/session` `/preset` `/permission` `/jobs` 同路径、FakeAdapter 测试基建成熟；代价是命令仅在 TUI 可用（其它客户端不可见）。宿主命令插件路线（`dsh-command-toolset`）仅在需要跨客户端时启用。
 
-> 可实现级规格见 `COMMANDS-SPEC.md`——**本轮只覆盖纯 TUI 侧**（宿主服务现成、不需改动任何插件）：候选 `/stats` `/skills` `/agents` `/tools` `/rename` `/settings` `/fork`（**7 项，已全部通过批次 0 API 合同门**）；需插件改造与宿主 API 未证实者在 `COMMANDS-SPEC.md` §3 索引。实施清单见 `COMMANDS-TASKS.md`（批次 0 API 合同门 + 四批实现）。
+> 可实现级规格见 `COMMANDS-SPEC.md`——**本轮只覆盖纯 TUI 侧**（宿主服务现成、不需改动任何插件）：候选 `/stats` `/skills` `/agents` `/tools` `/rename` `/settings` `/fork`（**7 项，已全部通过批次 0 API 合同门**）；需插件改造与宿主能力缺口／语义不匹配者在 `COMMANDS-SPEC.md` §3 索引。实施清单见 `COMMANDS-TASKS.md`（批次 0 API 合同门 + 四批实现）。
 
 ### 2.1 用 dsh 官方 API（服务已挂载，落点：TUI 本地命令）
 
@@ -53,10 +53,10 @@
 | `/tools` | `tools.schemas(scope)` / `get(name, scope)` | Gemini | P2 |
 | `/rename` | `sessionTitle.rename(session, title)`（首参为 session 对象） | Claude、Codex、pi | P2 |
 | `/settings`（`/config`） | `settings.get(ns)` / `describe(options)`（第一版只读） | Claude、Gemini、pi | P2 |
-| `/clear` | ~~`sessions.clear`~~ **暂缓（宿主 API 未证实）**：`dsh-session` 无 clear 方法（SPEC §3 索引） | Claude、Codex、Gemini | 暂缓 |
+| `/clear` | ~~`sessions.clear`~~ **暂缓（宿主无对应能力）**：`dsh-session` 类型面无 clear（SPEC §3 索引） | Claude、Codex、Gemini | 暂缓 |
 | `/fork` | `sessions.fork(source, boundary, childSessionId)`（三参语义待确认） | Claude、Codex、pi | P2 |
-| `/login` `/logout` | ~~`credentials.*`~~ **暂缓（宿主 API 未证实）**：方法名不存在（SPEC §3 索引） | Claude、Codex、pi | 暂缓 |
-| `/review`（`/code-review`） | ~~`workflowEngine.start`~~ **暂缓（宿主 API 未证实）**：服务无 start 方法（SPEC §3 索引） | Claude、Codex | 暂缓 |
+| `/login` `/logout` | ~~`credentials.*`~~ **暂缓（语义不匹配）**：`ctx.credentials` 仅为凭据引用 seam（`resolve`/`describe`/`set`/`unset`），无交互登录流程 API（SPEC §3 索引） | Claude、Codex、pi | 暂缓 |
+| `/review`（`/code-review`） | ~~`workflowEngine.start`~~ **暂缓（需工作流资产）**：`start` 存在，但需 review 工作流 `script`/`meta`/`parent: Agent`（SPEC §3 索引） | Claude、Codex | 暂缓 |
 
 **实现落点（逐命令矩阵见 `COMMANDS-SPEC.md` §0.1；最多 6 类，按命令取子集）**：
 
@@ -68,7 +68,7 @@
 
 - **服务缺失必须降级**：沿用既有 `XxxLike | undefined` + 「服务不可用」提示模式（fail-close），照抄即可。
 - **已可用、无需实现**：`/plan`（`dsh-plan-mode`）、`/export`（`dsh-session-log-export`）——转发宿主注册命令即可。
-- 表内方法名已按 dsh 0.1.5-rc.2 **源码核实为精确签名**（含参数形态）；`/clear` `/login` `/logout` `/review` 因宿主 API 未证实移入**暂缓**，索引见 `COMMANDS-SPEC.md` §3（不写规格）。
+- 表内方法名已按 dsh 0.1.5-rc.2 **源码核实为精确签名**（含参数形态）；`/clear` `/login` `/logout` `/review` 因宿主能力缺口／语义不匹配移入**暂缓**（`/clear` 无对应方法；`/login` 无交互流程 API；`/review` 缺工作流资产），索引见 `COMMANDS-SPEC.md` §3（不写规格）。
 
 ### 2.2 用本项目插件（仅「无需改造」者可能纳入；本轮全部不纳入）
 
