@@ -38,9 +38,9 @@
 ## 权威源
 
 - 配色权威 = `~/fff/config/terminal-colortheme/` 方案源文件；`src/renderer/theme.ts` 的 `THEMES` 内嵌**跟随源文件**，改源文件需手动同步副本。
-- 颜色引用一律经 ColorName → `ansiNameToHex(theme, name)` 槽位映射，不得散落硬编码 SGR/hex（渲染层仅 markdown CODE_BG 为已知硬编码背景，见下）。
+- 颜色引用一律经 ColorName → `ansiNameToHex(theme, name)` 槽位映射，不得散落硬编码 SGR/hex（原 markdown 行内代码背景硬编码已收编为 `code` 槽位，见下）。
 
 ## 已知项（记录不改）
 
-- `markdown.ts` CODE_BG（行内代码背景）：硬编码 hex `dark #434343 / light #E8E8E8`，属背景色、不属三语义；如需纳入配色方案管理另行讨论。
+- 行内代码背景 `code` 槽位（原 `markdown.ts` CODE_BG 硬编码，主线 A 收编）：dark `#434343` / light `#E8E8E8`；属背景色、不属三语义，仍非方案源文件槽位。
 - 彩色 tone（info/warn/success/error/log 蓝黄绿红）与面板生效色（ro/wr/full、思考紫）不在灰度三语义范围内。

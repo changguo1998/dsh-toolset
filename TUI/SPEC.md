@@ -444,7 +444,7 @@ ______________________________________________________________________
 ```ts
 // 语义色名：排版层唯一颜色词汇；渲染层按当前主题解析为实际 hex + SGR。
 // "code" 为新增语义（行内代码/代码块背景：dark 深灰 / light 浅灰），
-// 取代排版层现 CODE_BG 手拼 hex（#434343 / #E8E8E8）。
+// 取代排版层旧 CODE_BG 手拼 hex（已删；值迁入本槽位）。
 export type ColorName =
   | "black" | "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "white" | "gray"
   | "border"
@@ -453,10 +453,10 @@ export type ColorName =
   | "code"
   | (string & {}); // 逃生通道：任意名渲染层回退基底色（fail-safe），不用即弃
 
-// 行内一段：纯文本 + 语义样式（原型 = markdown.ts InlineSegment，字段已对齐）
+// 行内一段：纯文本 + 语义样式（原型 = 原 markdown.ts InlineSegment，已并入本类型；字段已对齐）
 // 段级样式描述：语义色名（渲染层按当前主题解析为 hex + SGR）；
 // 排版层唯一样式类型——FrameSegment / Box.NodeBase.style / prefix.style 共用
-// （样式漂移消除后，现 RenderLine.style 由本类型替代；renderer 无独立行级样式）
+// （样式漂移已消除：原 RenderLine.style 由本类型替代，renderer 无独立行级样式）
 export interface FrameStyle {
   /** 原则上取 ColorName；"#hex" 逃生保留但新代码禁用（存量待清理） */
   fg?: ColorName | `#${string}`;
@@ -467,7 +467,7 @@ export interface FrameStyle {
   strike?: boolean;
 }
 
-// 行内一段：纯文本 + 段级样式（原型 = markdown.ts InlineSegment，字段已对齐）
+// 行内一段：纯文本 + 段级样式（原型 = 原 markdown.ts InlineSegment，已并入本类型；字段已对齐）
 export interface FrameSegment {
   /** 纯文本，绝不含 ANSI/控制序列（不变量 #1） */
   text: string;

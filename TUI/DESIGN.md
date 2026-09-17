@@ -112,10 +112,10 @@ adapter → app（喂状态）
 ## 核心接口契约（renderer 公共 API）
 
 ```ts
-// 应用调用渲染：每一行携带样式（帧缓冲输入）
-interface RenderLine {
-  text: string;
-  style?: { fg?: string; bg?: string; bold?: boolean };
+// 应用调用渲染：每行 = 段序列（帧缓冲输入）；段携带语义样式名
+// 完整契约（ColorName / FrameStyle / FrameSegment / serializeFrameRow）见 SPEC.md Part II §11
+interface FrameRow {
+  segments: FrameSegment[];
   caret?: number; // 渲染后硬件光标停留列(0 基)，仅输入行设置
 }
 
@@ -129,7 +129,7 @@ interface KeyEvent {
 
 // renderer 对 app 暴露的公共 API
 interface Renderer {
-  render(lines: RenderLine[]): void; // 整帧重绘
+  render(rows: FrameRow[]): void; // 整帧重绘
   onKey(cb: (k: KeyEvent) => void): void;
   onResize(cb: (cols: number, rows: number) => void): void;
   getSize(): { cols: number; rows: number };
@@ -158,7 +158,7 @@ interface Renderer {
 
 - **turn 分隔**：`turn-begin`（回合开始：App 在提交用户消息前或首条思考/正文到达时触发）→ `appendTurnSeparator` 清掉上一轮瞬态活动行并在 buffer 追加 `TURN_SEPARATOR` 横线行；`turn-end` 不画线、也不清思考——思考保留显示，至下回合 `turn-begin` 才统一清空（输出结束后不立即清空，下一轮输出前才清）。`appendStream` 遇到末行为分隔线时不合并（硬边界，下个 turn 另起一行）。
 
-- **会话流对话式展示**：历史 buffer 使用结构化行类型。模型正文靠历史区左侧，右缘按 `assistantMaxBodyWidth`（= 宽度 - `messageGutter`）保留与用户块左缘对称的空位，与右对齐的用户输入形成左右交错的视觉（`messageGutter` 默认 4，可配置）；用户消息由 App 本地回显，渲染为**整体靠右的收缩块**——先按 `userMaxBodyWidth`（= 宽度 - `USER_MIN_LEFT_GUTTER`）换行（含显式换行），取最大行宽作块宽，整块统一 leftPad、右缘贴历史区右缘，块内文本左对齐，续行共享同一左边界。用户块与随后回答/思考之间空一行（`wrapBufferLines` 后处理，纯布局不改 state）。reasoning 流作为临时 thinking 行显示，左侧紫色粗竖线 `┃` 区分（无 [思考] 前缀文字，色区于浅蓝回复/浅红输入）；**思考不再单独折叠/保留最新几行，与工具/notice/中间输出一起按时间混合显示在活动区**，活动区按可视高度 `activityH` 截断、可上滚回看（`thinkingMaxLines` 配置已移除）；正文（历史区）到达不清思考（思考/正文分属活动区/历史区两窗口）；turn-end 后思考保留显示，至下回合 turn-begin 才清空（非 final 中间输出同被清空），不提供展开/收起交互。**每回合只有最后一段连续 assistant 输出（final 总结）进入历史区**：turn-end 调 `markFinalSummary` 标 `BufferLine.final`，历史区/活动区渲染据此分流；`surfaceToBuffer` 恢复的历史 assistant 行同样标 final。模型正文支持终端 markdown 子集（只作用于最终回答，思考不经 markdown）：行内粗体/斜体/`***粗斜***`（同段粗+斜）/删除线(`~~`)/下划线(`__`)/代码（主题专用灰底 `CODE_BG`：暗色深灰、浅色浅灰）/链接与自动链接（蓝下划线）/图片（`[alt]`+URL 占位）/反斜杠转义（标点按普通文本，不触发样式）。块级 fenced 代码块（`wrapBufferLines` 维护 `inFence` 跨行状态，块内原样不解析，整行灰底补齐到内容区宽、语言标签斜体（正常前景色））、标题（青粗体）、引用（单层竖线前缀、正文正常前景不加斜、正文开头残留 `>` 隐藏，不做嵌套）、任务列表（`[ ]`/`[x]` 均正常前景色、已完成 `[x]` 正文删除线）、无序列表统一 `•`、有序列表保留数字、分隔线（灰横线）。解析全部在布局层（`parseInlineMarkdown(text, themeId)` → `wrapSegments` 按显示宽度换行 → 序列化 manual ANSI），buffer 只存纯文本；样式段跨软换行每行独立开关，ANSI 转义不参与宽度计算、截断透传不切断。上标/下标（`^`/`~`）与嵌套格式暂不实现。
+- **会话流对话式展示**：历史 buffer 使用结构化行类型。模型正文靠历史区左侧，右缘按 `assistantMaxBodyWidth`（= 宽度 - `messageGutter`）保留与用户块左缘对称的空位，与右对齐的用户输入形成左右交错的视觉（`messageGutter` 默认 4，可配置）；用户消息由 App 本地回显，渲染为**整体靠右的收缩块**——先按 `userMaxBodyWidth`（= 宽度 - `USER_MIN_LEFT_GUTTER`）换行（含显式换行），取最大行宽作块宽，整块统一 leftPad、右缘贴历史区右缘，块内文本左对齐，续行共享同一左边界。用户块与随后回答/思考之间空一行（`wrapBufferLines` 后处理，纯布局不改 state）。reasoning 流作为临时 thinking 行显示，左侧紫色粗竖线 `┃` 区分（无 [思考] 前缀文字，色区于浅蓝回复/浅红输入）；**思考不再单独折叠/保留最新几行，与工具/notice/中间输出一起按时间混合显示在活动区**，活动区按可视高度 `activityH` 截断、可上滚回看（`thinkingMaxLines` 配置已移除）；正文（历史区）到达不清思考（思考/正文分属活动区/历史区两窗口）；turn-end 后思考保留显示，至下回合 turn-begin 才清空（非 final 中间输出同被清空），不提供展开/收起交互。**每回合只有最后一段连续 assistant 输出（final 总结）进入历史区**：turn-end 调 `markFinalSummary` 标 `BufferLine.final`，历史区/活动区渲染据此分流；`surfaceToBuffer` 恢复的历史 assistant 行同样标 final。模型正文支持终端 markdown 子集（只作用于最终回答，思考不经 markdown）：行内粗体/斜体/`***粗斜***`（同段粗+斜）/删除线(`~~`)/下划线(`__`)/代码（主题专用灰底 `code` 槽位：暗色深灰、浅色浅灰）/链接与自动链接（蓝下划线）/图片（`[alt]`+URL 占位）/反斜杠转义（标点按普通文本，不触发样式）。块级 fenced 代码块（`wrapBufferLines` 维护 `inFence` 跨行状态，块内原样不解析，整行灰底补齐到内容区宽、语言标签斜体（正常前景色））、标题（青粗体）、引用（单层竖线前缀、正文正常前景不加斜、正文开头残留 `>` 隐藏，不做嵌套）、任务列表（`[ ]`/`[x]` 均正常前景色、已完成 `[x]` 正文删除线）、无序列表统一 `•`、有序列表保留数字、分隔线（灰横线）。解析全部在布局层（`parseInlineMarkdown(text, themeId)` → `wrapSegments` 按显示宽度换行 → 序列化 manual ANSI），buffer 只存纯文本；样式段跨软换行每行独立开关，ANSI 转义不参与宽度计算、截断透传不切断。上标/下标（`^`/`~`）与嵌套格式暂不实现。
 
 - **用户提问面板**：模型调用 `ask_user_question` 时，DSH 经 `user-questions` 服务询问用户——TUI 经 `runtime.on("user-questions/request", answerer)` 注册 waterfall 应答者接收，归一化为 `DshEvent {type:'question'; id; questions[]}`，于顶部流输出（活动区）窗口弹「第 n/m 题」问答面板（`QuestionPrompt.ts` 纯函数；不占底部交互区，见高度分配段）。数据模型对齐官方 `AskUserQuestionItem`（id/question/header/detail/options/multiSelect/intent.kind='plan-review'）。多题一次 ask 整批回答（`{answers:[{id, selected[], custom?}]}`，**未标记任何选项且无自定义输入时回退提交当前选中的高亮选项**，高亮在「自定义回答」兜底项上且无输入才为空）：单题视图 + 第 n/m 导航，**Enter 非末题进下一题、末题提交**。**「自定义回答」是固定在选项列表末位的兜底项**（无预设选项时列表仅此一项），与普通选项一样用 ↑/↓ 高亮，高亮在其上时键入字符即输入自由文本（空格输入空格、退格删末字、可即时回显修改）；单选时预设与自定义互斥（选预设清空已输入文本），多选二者并存。**底部操作提示只显示实际用到的按键**：Enter 文案区分「下一题/提交」、多题才显示「[←/→]切题」、有预设选项才显示「[空格]标记」与「[↑/↓]选项」。选项标记纯 ASCII：光标列 `>` = 当前选中（高亮）/空格 + 标记列 `*`（单选）/`+`（多选）（Enter 提交）；未标记为空格对齐。`plan-review` intent 以「计划卡片」呈现 detail、标题「计划审批」。Esc 仅 `cancelQuestion()`（reject ask，绝不 interrupt）。
 
@@ -355,7 +355,7 @@ Box 重构把 2096 行 `layout.ts` 拆为排版层若干纯函数文件（遵守
 
 | 场景 | 落法 |
 |---|---|
-| 浮动面板（审批/问答占活动区） | activity 的**内容树整体替换**为面板 Box，非叠加层——无需 Overlay 构造子；面板组件是 Box 生成器（**场景原语** `title`/`question`/`explanation`/`options`，便捷构造），内部排版同样走 Box，fill 统一摊平；`RenderLine[]` 输出退出 |
+| 浮动面板（审批/问答占活动区） | activity 的**内容树整体替换**为面板 Box，非叠加层——无需 Overlay 构造子；面板组件是 Box 生成器（**场景原语** `title`/`question`/`explanation`/`options`，便捷构造），内部排版同样走 Box，fill 统一摊平；输出统一为段级 `FrameRow[]`（旧 `RenderLine[]` 形态退出） |
 | 滚动裁剪（历史/活动区 viewport） | fill 拿矩形高后按行裁剪（现状语义） |
 | 非等分左右（历史 vs 状态列） | `Width.ratio`（状态列 1/3）+ `fixed`（历史区保底 10 列） |
 | 横线/虚线区域分隔（`─`/`╌`） | `v({ separator })` 自动生成（`SPEC.md` §2）；特殊横线（如页面级 `---`）用显式 `Paragraph` |
