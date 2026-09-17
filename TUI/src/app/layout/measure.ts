@@ -68,34 +68,47 @@ function styledText(node: StyledText): string {
 }
 
 /** 测量单个预样式叶子：按拼接文本折行（StyledText） */
+/** 按物理行（\n 切分）折行，产出显示行列表——StyledText/Paragraph 测量共用，
+ * 与 fill 的 splitAndWrapSegments 语义一致（显式换行 = 行边界，非零宽字符）。 */
+function paragraphRows(
+  text: string,
+  firstW: number,
+  contW: number,
+  wrap: boolean,
+): string[] {
+  const rows: string[] = [];
+  const physical = text.split("\n");
+  for (let pi = 0; pi < physical.length; pi++) {
+    const line = physical[pi]!;
+    if (line === "") {
+      rows.push("");
+      continue;
+    }
+    if (rows.length === 0) {
+      // 首个物理行：首行用全宽，续行用 hanging 减宽（悬挂语义）
+      rows.push(...wrapParagraph(line, Math.max(1, firstW), wrap));
+    } else {
+      rows.push(...wrapParagraph(line, Math.max(1, contW), wrap));
+    }
+  }
+  if (rows.length === 0) rows.push("");
+  return rows;
+}
+
+/** 测量单个预样式叶子：按拼接文本折行（StyledText） */
 function measureStyledText(node: StyledText, maxW: number): MeasuredSize {
   const { prefixW, suffixW, indent, hanging } = paraWidthCtx(node);
   const firstW = maxW - indent - prefixW - suffixW; // 首行可用正文宽
   const contW = maxW - hanging - suffixW;
   const wrap = node.wrap !== false;
   const text = styledText(node);
-  const rows: string[] = [];
-  let remaining = text;
-  const firstRows = wrapParagraph(
-    remaining,
-    Math.max(1, firstW),
-    wrap && firstW > 0,
-  );
-  if (firstRows.length > 0) {
-    rows.push(firstRows[0]!);
-    remaining = firstRows.slice(1).join("");
-  }
-  if (remaining !== "" || firstRows.length === 0) {
-    rows.push(...wrapParagraph(remaining, Math.max(1, contW), wrap));
-  }
-  if (rows.length === 0) rows.push("");
+  const rows = paragraphRows(text, firstW, contW, wrap);
+  // 总宽 = max(首行 overhead+首行宽, 续行 overhead(hanging)+续行最宽) + suffix
   const firstTotal = indent + prefixW + displayWidth(rows[0]!);
   const contTotal =
     hanging + Math.max(...rows.slice(1).map((r) => displayWidth(r)), 0);
   return { w: Math.max(firstTotal, contTotal) + suffixW, h: rows.length };
 }
-
-/** 测量单个 Paragraph（返回总宽与折行行数） */
 function measureParagraph(node: Paragraph, maxW: number): MeasuredSize {
   const { prefixW, suffixW, indent, hanging } = paraWidthCtx(node);
   const firstW = maxW - indent - prefixW - suffixW; // 首行可用正文宽

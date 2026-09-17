@@ -230,7 +230,7 @@ export function buildBox(
         continue;
       }
       const body = text(line.text, {
-        ...(inFence ? { fillBg: true } : {}),
+        ...(inFence ? { fillBg: true, width: { mode: "fill" } } : {}),
         prefix: {
           text: "┃",
           style: { fg: "brightBlue" },
