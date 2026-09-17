@@ -25,7 +25,7 @@ import type { Buffer, BufferKind, BufferLine } from "./state.ts";
 import type { JobInfo, TodoItemLike } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
-import { renderHistoryPanel } from "./components/HistoryPanel.ts";
+import { buildHistoryPanelBox } from "./components/HistoryPanel.ts";
 import { buildQuestionPanelBox } from "./components/QuestionPrompt.ts";
 import { buildJobsPanelBox, statusMark } from "./components/JobsPanel.ts";
 import { buildStatusPanelBox } from "./components/StatusPanel.ts";
@@ -1001,14 +1001,19 @@ function buildTopRegion(
                 state.themeId,
               )
             : state.history
-              ? renderHistoryPanel({
-                  history: state.history,
-                  records: historyVisibleRecords(state),
-                  totalCount: state.history.records.length,
-                  projectCwd: currentProjectCwd(state),
-                  height: activityH,
-                  width: contentW,
-                })
+              ? fillPanelBox(
+                  buildHistoryPanelBox({
+                    history: state.history,
+                    records: historyVisibleRecords(state),
+                    totalCount: state.history.records.length,
+                    projectCwd: currentProjectCwd(state),
+                    height: activityH,
+                    width: contentW,
+                  }),
+                  activityH,
+                  contentW,
+                  state.themeId,
+                )
               : state.completion
                 ? renderCommandCompletion({
                     completion: state.completion,

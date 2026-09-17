@@ -14,6 +14,9 @@ import type { FrameRow } from "../../renderer/index.ts";
 import type { HistoryPanelState } from "../state.ts";
 import type { SessionInfo } from "../adapter/dsh.ts";
 import { truncateToWidth, wrapLine, displayWidth } from "../layout.ts";
+import type { Box } from "../layout/box.ts";
+import { v, styled } from "../layout/box.ts";
+import { seg } from "../layout/primitives.ts";
 
 export interface HistoryPanelView {
   history: HistoryPanelState;
@@ -119,6 +122,130 @@ function messageLines(
   // 去掉末尾空行（末行由调用方补空行填满）
   while (out.length > 0 && out[out.length - 1] === "") out.pop();
   return out;
+}
+
+/**
+ * 历史会话面板 Box 生成器（DESIGN.md §7 / SPEC.md §7）：复用 renderHistoryPanel
+ * 的标题/正文算法（多 phase switch + 列表滚动 + 消息视图），产 styled 叶子
+ * （wrap:false 精确行长；title 行 pad 保留、body 行原样）。
+ */
+export function buildHistoryPanelBox(view: HistoryPanelView): Box {
+  const h = view.history;
+  const height = Math.max(1, view.height);
+  const width = Math.max(1, view.width);
+  const bodyRows = Math.max(0, height - 1);
+
+  let title = "";
+  let body: string[] = [];
+  switch (h.phase) {
+    case "loading-list":
+      title = "历史会话";
+      body = ["加载中..."];
+      break;
+    case "list": {
+      const allScope = h.scope === "all";
+      const scopeLabel = allScope ? "全部" : "当前目录";
+      const count = allScope
+        ? `${view.records.length}`
+        : `${view.records.length}/${view.totalCount}`;
+      title = truncateToWidth(`历史会话 [${scopeLabel}]（${count}）`, width);
+      const head =
+        h.result === undefined ? null : truncateToWidth(h.result, width);
+      const listRows = Math.max(0, bodyRows - (head === null ? 0 : 1));
+      if (view.records.length === 0) {
+        body = [
+          view.totalCount === 0
+            ? "（无历史会话）"
+            : emptyScopeText(view, allScope),
+        ];
+      } else {
+        const start = startFor(view.records.length, h.index, listRows);
+        for (let r = 0; r < listRows; r++) {
+          const idx = start + r;
+          const rec = view.records[idx];
+          body.push(rec ? listLine(rec, idx === h.index, width) : "");
+        }
+      }
+      if (head !== null) body = [head, ...body];
+      break;
+    }
+    case "loading-view":
+      title = "历史会话 · " + (h.currentId ?? "").slice(0, 8);
+      body = ["加载内容..."];
+      break;
+    case "resuming":
+      title = "历史会话 · " + (h.pendingResume ?? "").slice(0, 8);
+      body = ["切换到该会话..."];
+      break;
+    case "confirm-delete": {
+      const rec = h.records.find((r) => r.id === h.pendingDelete);
+      const label = rec?.title?.trim() ? rec.title : "（新会话）";
+      title = "历史会话 · 删除确认";
+      body = wrapBody(
+        [
+          `删除会话「${label}」（${(h.pendingDelete ?? "").slice(0, 8)}）？`,
+          "不可恢复：该会话的持久化文件将被永久删除。",
+          "[y/Enter] 确认删除    [n/Esc] 取消",
+        ],
+        width,
+        bodyRows,
+      );
+      break;
+    }
+    case "deleting":
+      title = "历史会话 · 删除中";
+      body = ["删除中..."];
+      break;
+    case "confirm-clean": {
+      const n = h.pendingClean?.length ?? 0;
+      title = "历史会话 · 清理空会话";
+      body = wrapBody(
+        [
+          `清理当前目录（${h.cleanCwd ?? "未知路径"}）的空会话 ${n} 个？`,
+          "不可恢复：仅删除已持久化且从未有用户消息的会话；当前与 live 会话不受影响。",
+          ...(h.scope === "all"
+            ? ["清理范围固定为当前目录：列表切到「全部」不影响清理范围。"]
+            : []),
+          "[y/Enter] 确认清理    [n/Esc] 取消",
+        ],
+        width,
+        bodyRows,
+      );
+      break;
+    }
+    case "cleaning":
+      title = "历史会话 · 清理中";
+      body = ["清理中..."];
+      break;
+    case "view": {
+      title = truncateToWidth(`会话 ${h.currentId ?? ""}`, width);
+      const lines =
+        h.messages.length === 0
+          ? [
+              "（该会话暂无文本消息：会话为空，或 live 会话的模型回复尚未持久化）",
+            ]
+          : messageLines(h.messages, width);
+      const start = startFor(lines.length, h.scroll, bodyRows);
+      for (let r = 0; r < bodyRows; r++) {
+        const idx = start + r;
+        body.push(idx < lines.length ? lines[idx]! : "");
+      }
+      break;
+    }
+    case "error":
+      title = "加载失败";
+      body = wrapLine(h.error ?? "未知错误", width).slice(0, bodyRows);
+      break;
+  }
+
+  const titleRow = styled(
+    [seg(title + " ".repeat(Math.max(0, width - displayWidth(title))))],
+    { wrap: false },
+  );
+  const bodyLeaves = Array.from({ length: bodyRows }, (_, r) =>
+    styled([seg(body[r] ?? "")], { wrap: false }),
+  );
+  return v([titleRow, ...bodyLeaves]);
 }
 
 export function renderHistoryPanel(view: HistoryPanelView): FrameRow[] {
