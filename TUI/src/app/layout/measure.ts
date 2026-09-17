@@ -83,52 +83,35 @@ function measureParagraph(node: Paragraph, maxW: number): MeasuredSize {
   return { w: Math.max(firstTotal, contTotal), h: rows.length };
 }
 
-/** 分配优先级：越精确越高（fixed > min/max > ratio > auto > fill） */
-function priorityOf(w: Width): number {
-  switch (w.mode) {
-    case "fixed":
-      return 1;
-    case "auto":
-      return 4;
-    case "fill":
-      return 5;
-    case "ratio":
-      return 3;
-  }
-  // max/min 通过 min/max 字段表达，归 2
-  return 2;
-}
-
 /** 子项声明宽度（无声明 → auto） */
 function widthOf(node: Node): Width {
   return node.width ?? { mode: "auto" };
 }
 
-/**
- * 给 h 排布的子项按分配优先级切宽（返回每个 child 的分配宽）。
- * 规则（SPEC §6.5）：fixed 定值 → min/max 边界 → ratio 比例 → auto 内容宽（夹 max）→ fill 吃剩余；
- * 过度约束按 fill→auto→ratio→max→min→fixed 让路；宽底线 ≥ 1。
- */
+/** 给 h 排布的子项按分配优先级切宽（SPEC §6.5）。
+ * 返回每个 child 的分配宽。优先级：fixed 定值 → min/max 边界 → ratio
+ * 分数 → auto 内容宽（夹 max）→ fill 吃剩余；过度约束按
+ * fill→auto→ratio→min-max→fixed 让路；宽底线 ≥1（fill 可 0）。 */
 function allocateWidths(
   children: Node[],
   totalW: number,
   natural: Map<Node, MeasuredSize>,
 ): { w: number; constrain: Width }[] {
-  const result: { used: boolean; w: number; width: Width }[] = [];
+  const result: { w: number; width: Width }[] = [];
   const widths = children.map(widthOf);
   let remaining = totalW;
 
-  // 1. fixed：直接定值
+  // 1. fixed：直接定值，不可让
   for (let i = 0; i < children.length; i++) {
     const w = widths[i]!;
     if (w.mode === "fixed") {
       const kw = Math.max(1, w.cols);
-      result[i] = { used: true, w: kw, width: w };
+      result[i] = { w: kw, width: w };
       remaining -= kw;
     }
   }
-  // 2. min/max-only 声明（含 auto/fill/ratio 携带的夹取界）：先标记，分配时应用
-  // 3. ratio：基数取剩余（可分配宽），受 min/max 封顶
+  // 2. ratio：value 为容器分数（1/3=三分之一），基数取容器总宽、
+  //    受可分配剩余封顶；仅 Σvalue>1 时归一（SPEC §6.5 冻结语义）
   {
     let ratioSum = 0;
     let ratioCount = 0;
@@ -140,84 +123,144 @@ function allocateWidths(
       }
     }
     if (ratioCount > 0 && remaining > 0) {
-      // value 是分数（状态列 1/3 = value 1/3）；多个 ratio 按 value 和归一（通常 Σ=1）
-      // 基数取容器总宽（SPEC §6.5），实际受可分配剩余封顶
-      const base = totalW;
-      const denom = ratioSum > 1 ? ratioSum : 1; // 单 ratio 时 value 即分数本身
+      const denom = ratioSum > 1 ? ratioSum : 1; // 单 ratio value 即分数
       for (let i = 0; i < children.length; i++) {
         const w = widths[i]!;
         if (w.mode === "ratio" && !result[i]) {
-          let kw = Math.floor((base * w.value) / denom);
+          let kw = Math.floor((totalW * w.value) / denom);
           if (w.max !== undefined) kw = Math.min(kw, w.max); // 先上限
           if (w.min !== undefined) kw = Math.max(kw, w.min); // 再保底（min>max 时 min 赢）
           kw = Math.max(1, kw);
           if (kw > remaining) kw = Math.max(1, remaining); // 受可分配宽封顶
-          result[i] = { used: true, w: kw, width: w };
+          result[i] = { w: kw, width: w };
           remaining -= kw;
         }
       }
     }
   }
-  // 4. auto：以 maxW = min(剩余, max) 为折行上界量内容宽；min 保底
-  const autoIdx: number[] = [];
+  // 3. auto：以内容自然宽为宽，夹 max/min；min>max 时 min 赢
   for (let i = 0; i < children.length; i++) {
     const w = widths[i]!;
-    if (w.mode === "auto" && !result[i]) autoIdx.push(i);
-  }
-  for (const i of autoIdx) {
-    const wd = widths[i]! as Extract<Width, { mode: "auto" }>;
+    if (w.mode !== "auto" || result[i]) continue;
     const nat = natural.get(children[i]!)!;
-    const upper =
-      wd.max !== undefined ? Math.min(remaining, wd.max) : remaining;
-    let kw = Math.min(nat.w, Math.max(1, upper));
-    if (wd.min !== undefined) kw = Math.max(kw, wd.min);
-    result[i] = { used: true, w: kw, width: wd };
+    let kw = nat.w;
+    const mx = "max" in w ? w.max : undefined;
+    const mn = "min" in w ? w.min : undefined;
+    if (mx !== undefined) kw = Math.min(kw, mx); // 先上限
+    if (mn !== undefined) kw = Math.max(kw, mn); // 再保底（min>max 时 min 赢）
+    kw = Math.max(1, Math.min(kw, Math.max(1, remaining))); // 可分配封顶
+    result[i] = { w: kw, width: w };
     remaining -= kw;
   }
-  const fillIdx: number[] = [];
+  // 4. 无声明子项 ≡ auto：按内容自然宽（余量留白）——仅处理 width 为 undefined 者；
+  //    显式 auto/fill 由第 3/5 段处理，此处不得吞掉 fill
   for (let i = 0; i < children.length; i++) {
-    const w = widths[i]!;
-    if (w.mode === "fill" && !result[i]) fillIdx.push(i);
+    if (result[i] || children[i]!.width !== undefined) continue;
+    const nat = natural.get(children[i]!)!;
+    const kw = Math.max(1, Math.min(nat.w, Math.max(1, remaining)));
+    result[i] = { w: kw, width: { mode: "auto" } };
+    remaining -= kw;
   }
-  const pool = Math.max(0, remaining);
-  if (fillIdx.length > 0) {
-    const share = Math.floor(pool / fillIdx.length);
-    let carry = pool - share * fillIdx.length;
-    for (let k = 0; k < fillIdx.length; k++) {
-      const i = fillIdx[k]!;
-      const wd = widths[i]! as Extract<Width, { mode: "fill" }>;
-      let kw = share + (carry > 0 ? 1 : 0);
-      carry -= carry > 0 ? 1 : 0;
-      if (wd.max !== undefined) kw = Math.min(kw, wd.max); // 先上限
-      if (wd.min !== undefined) kw = Math.max(kw, wd.min); // 再保底（min>max 时 min 赢）
-      result[i] = { used: true, w: kw, width: wd }; // 吃剩余者无剩余得 0（不主张底线）
+  // 5. fill：平分剩余；逐个应用 min/max，被 max 截断的空间回流给未封顶的 fill
+  {
+    const fillIdx: number[] = [];
+    for (let i = 0; i < children.length; i++) {
+      const w = widths[i]!;
+      if (w.mode === "fill" && !result[i]) fillIdx.push(i);
     }
-  }
-  // 无声明（无 width）的默认 auto：也按 auto 处理
-  for (let i = 0; i < children.length; i++) {
-    if (!result[i]) {
-      const nat = natural.get(children[i]!)!;
-      const kw = Math.max(1, Math.min(nat.w, Math.max(1, remaining)));
-      result[i] = { used: true, w: kw, width: { mode: "auto" } };
-      remaining -= kw;
-    }
-  }
-  // 过度约束：若 remaining < 0，按让路顺序压缩（fill→auto→ratio→max→min→fixed）
-  if (remaining < 0) {
-    const order = [5, 4, 3, 2, 2, 1]; // fill, auto, ratio, max, min, fixed
-    for (const p of order) {
-      if (remaining >= 0) break;
-      for (let i = 0; i < children.length; i++) {
-        if (remaining >= 0) break;
-        const w = widths[i]!;
-        if (priorityOf(w) !== p || result[i]!.w <= 1) continue;
-        const cut = Math.min(result[i]!.w - 1, -remaining);
-        result[i]!.w -= cut;
-        remaining += cut;
+    if (fillIdx.length > 0) {
+      // 初始平分（含余数从左到右）
+      const init: number[] = [];
+      let pool = Math.max(0, remaining);
+      const share = Math.floor(pool / fillIdx.length);
+      let carry = pool - share * fillIdx.length;
+      for (let k = 0; k < fillIdx.length; k++) {
+        let v = share + (carry > 0 ? 1 : 0);
+        carry -= carry > 0 ? 1 : 0;
+        init[k] = v;
+      }
+      // 应用 min/max 并回流：先给 min 抬升（若有），再 clamp max，
+      // max 截断量累计共享，匀给尚未封顶（未达 max）的 fill
+      const grants: number[] = init.slice();
+      // 先处理 min 抬升（从 fill 池借，超池则不动——强制项优先）
+      let poolAfter = remaining - grants.reduce((a, b) => a + b, 0);
+      for (let k = 0; k < fillIdx.length; k++) {
+        const wd = widths[fillIdx[k]!]!;
+        const mn = "min" in wd ? wd.min : undefined;
+        if (mn !== undefined && grants[k]! < mn) {
+          const need = mn - grants[k]!;
+          const take = Math.min(need, poolAfter);
+          grants[k]! += take;
+          poolAfter -= take;
+        }
+      }
+      // max 截断 + 回流
+      let freed = 0;
+      for (let k = 0; k < fillIdx.length; k++) {
+        const wd = widths[fillIdx[k]!]!;
+        const mx = "max" in wd ? wd.max : undefined;
+        if (mx !== undefined && grants[k]! > mx) {
+          freed += grants[k]! - mx;
+          grants[k]! = Math.max(0, mx);
+        }
+      }
+      // 回流：给未封顶（无 max 或未达 max）的 fill 匀分
+      for (let k = 0; k < fillIdx.length && freed > 0; k++) {
+        const wd = widths[fillIdx[k]!]!;
+        const mx = "max" in wd ? wd.max : undefined;
+        const cap =
+          mx !== undefined
+            ? Math.min(
+                mx,
+                remaining - (grants.reduce((a, b) => a + b, 0) - grants[k]!),
+              )
+            : remaining;
+        const room = Math.max(0, cap - grants[k]!);
+        const give = Math.min(room, freed);
+        grants[k]! += give;
+        freed -= give;
+        if (freed <= 0) break;
+      }
+      for (let k = 0; k < fillIdx.length; k++) {
+        const i = fillIdx[k]!;
+        result[i] = { w: Math.max(0, grants[k]!), width: widths[i]! };
+        remaining -= grants[k]!;
       }
     }
   }
-  // 底线强于一切：非 fill 子项保 ≥1（fill 是「吃剩余者」，无剩余时得 0 合法）
+  // 6. 过度约束：remaining < 0（fixed/min/ratio/auto 已溢出）按让路顺序压缩
+  if (remaining < 0) {
+    const shrink = [...Array(children.length).keys()].sort((a, b) => {
+      // 让路序：fill(5) → auto(4) → ratio(3) → fixed(1)；min/max 随载体
+      const pa =
+        widths[a]!.mode === "fill"
+          ? 5
+          : widths[a]!.mode === "auto"
+            ? 4
+            : widths[a]!.mode === "ratio"
+              ? 3
+              : 1;
+      const pb =
+        widths[b]!.mode === "fill"
+          ? 5
+          : widths[b]!.mode === "auto"
+            ? 4
+            : widths[b]!.mode === "ratio"
+              ? 3
+              : 1;
+      return pb - pa;
+    });
+    for (const i of shrink) {
+      if (remaining >= 0) break;
+      const w = widths[i]!;
+      const minFloor = w.mode === "fill" ? 0 : 1;
+      if (result[i]!.w <= minFloor) continue;
+      const cut = Math.min(result[i]!.w - minFloor, -remaining);
+      result[i]!.w -= cut;
+      remaining += cut;
+    }
+  }
+  // 底线强于一切：非 fill 子项保 ≥1（fill 无剩余得 0 合法）
   for (let i = 0; i < children.length; i++) {
     const w = widths[i]!;
     if (w.mode !== "fill" && result[i]!.w < 1) result[i]!.w = 1;
@@ -247,7 +290,8 @@ function measureNode(
       // 若子项声明了高度固定，其宽度仍受容器同宽约束
       const m = measureNode(box.children[i]!, { maxW: base }, st);
       w = Math.max(w, m.w);
-      h += m.h;
+      // height:fill 是剩余吸收者：不主张测量高（allocate 时才分给剩余）
+      h += box.children[i]!.height?.mode === "fill" ? 0 : m.h;
       if (i < box.children.length - 1 && box.separator) h += 1;
     }
     const m = applyDeclaredHeight(box, { w: Math.max(0, w), h });
@@ -358,15 +402,19 @@ function allocateNode(
       }
     }
   }
-  // fill 平分剩余（无剩余得 0）
-  let fillPool = Math.max(
-    0,
-    avail - heights.filter((_, i) => prio[i] !== 5).reduce((a, b) => a + b, 0),
-  );
-  for (let i = 0; i < box.children.length; i++) {
-    if (heights[i] === -1) {
-      heights[i] = fillCount > 0 ? Math.floor(fillPool / fillCount) : 0;
-      fillPool -= heights[i]!;
+  // fill 平分剩余（无剩余得 0；余数从左到右：share=floor(pool/count)，carry 逐项 +1）
+  const nonFillTotal = heights
+    .filter((_, i) => prio[i] !== 5)
+    .reduce((a, b) => a + b, 0);
+  const fillPool = Math.max(0, avail - nonFillTotal);
+  if (fillCount > 0) {
+    const share = Math.floor(fillPool / fillCount);
+    let carry = fillPool - share * fillCount;
+    for (let i = 0; i < box.children.length; i++) {
+      if (heights[i] !== -1) continue;
+      const extra = carry > 0 ? 1 : 0;
+      carry -= extra;
+      heights[i] = share + extra;
       fillCount--;
     }
   }

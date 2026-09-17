@@ -45,6 +45,10 @@ export interface Separator {
 /** 可寻址分区 id（与 state.focusedPanel 收口一处）；仅可寻址区域挂 */
 export type PaneId = "history" | "activity" | "status";
 
+/** spacer 轴：width（h 占列）与 height（v 占行）互斥，且至少一个 */
+export type SpacerAxis =
+  { width: Width; height?: never } | { height: Height; width?: never };
+
 /** 宽度意图（对齐现状：状态列 1/3、历史区保底 10 列） */
 export type Width =
   | { mode: "auto"; min?: number; max?: number } // 按内容宽度（用户块的"收缩块"用）
@@ -120,11 +124,8 @@ export function text(
  * auto/ratio 对空内容无意义，不接受（YAGNI，SPEC §2）。
  * 占位字段由调用方按所在容器取向选写（二者至少写一个）。
  */
-export function spacer(opts: { width?: Width; height?: Height }): Paragraph {
+export function spacer(opts: SpacerAxis): Paragraph {
   if (opts.width !== undefined)
     return { kind: "text", text: "", width: opts.width };
-  if (opts.height !== undefined)
-    return { kind: "text", text: "", height: opts.height };
-  // 二者皆未给：视为占 0 宽的普通空段（退化兜底，不抛错）
-  return { kind: "text", text: "" };
+  return { kind: "text", text: "", height: opts.height };
 }

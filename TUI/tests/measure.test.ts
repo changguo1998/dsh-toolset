@@ -230,25 +230,44 @@ test("v 排布：无 separator 时紧挨", () => {
   assert.equal(rectOf(rects, "b").y, 1);
 });
 
-test("v 排布：过度约束按让路顺序压缩（fill→auto→fixed）", () => {
+test("v 过度约束：预算 4 时 auto 先压、fixed 不压、fill=0", () => {
   const fixed = text("F", { height: { mode: "fixed", rows: 3 } });
-  const auto = text("A".repeat(20), { width: { mode: "fill" } }); // 高 2（折10+10）
+  const auto = text("A".repeat(20)); // 自然高 2（折10+10）
   const root = v([fixed, auto, text("f2", { height: { mode: "fill" } })]);
-  // 总高 6、预算 5：先压 auto（2→1），再压 fixed（3→3 不够 → 2），fill 得 0 兜底
   const st = measure(root, { maxW: 10 });
-  // auto 占 2 行（每行 10）
-  assert.equal(st.size.get(auto)!.h, 2);
-  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 5 });
-  const ys = [
-    rectOf(rects, "F").h,
-    rectOf(rects, "A".repeat(20)).h,
-    rectOf(rects, "f2").h,
-  ];
-  assert.equal(
-    ys.reduce((a, b) => a + b, 0),
-    5,
-  ); // 总高 = 预算 5
-  assert.ok(rectOf(rects, "f2").h === 0, "fill 最让");
+  assert.equal(st.size.get(auto)!.h, 2); // auto 自然高 2
+  // 预算 4：claim=5 > 4 → 压 auto(2→1)，fixed 保持 3，fill=0
+  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 4 });
+  assert.equal(rectOf(rects, "F").h, 3, "fixed 不先让");
+  assert.equal(rectOf(rects, "A".repeat(20)).h, 1, "auto 先压");
+  assert.equal(rectOf(rects, "f2").h, 0, "fill 最让");
+});
+
+test("v 过度约束：预算 2 时 auto 压到 0、fixed 最后压到 2", () => {
+  const fixed = text("F", { height: { mode: "fixed", rows: 3 } });
+  const auto = text("A".repeat(20));
+  const root = v([fixed, auto, text("f2", { height: { mode: "fill" } })]);
+  const st = measure(root, { maxW: 10 });
+  // 预算 2：claim=5 → auto 先压至 0，fixed 再压到 2，fill=0
+  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 2 });
+  assert.equal(rectOf(rects, "A".repeat(20)).h, 0, "auto 先压到 0");
+  assert.equal(rectOf(rects, "F").h, 2, "fixed 最后被压");
+  assert.equal(rectOf(rects, "f2").h, 0);
+});
+
+test("v 排布：多 fill 平分纵向剩余，余数从左到右", () => {
+  const root = v([
+    text("a"), // 自然高 1
+    text("b", { height: { mode: "fill" } }),
+    text("c", { height: { mode: "fill" } }),
+  ]);
+  const st = measure(root, { maxW: 10 });
+  assert.equal(st.h, 1); // 只计固定部分；fill 不吃测量高
+  // 预算 6：1 + (5/2=2 余 1) → b=3, c=2
+  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 6 });
+  assert.equal(rectOf(rects, "a").h, 1);
+  assert.equal(rectOf(rects, "b").h, 3);
+  assert.equal(rectOf(rects, "c").h, 2);
 });
 
 // ---- allocate 矩形映射与节点对象身份 ----
@@ -317,4 +336,49 @@ test("h 排布：高度取最高子项（固定宽长段落）", () => {
   const st = measure(root, { maxW: 12 });
   // 第二子 contentW=12 → "bbbbbbbbbbbbbb"(14) 折成 12+2 → 高 2
   assert.equal(st.h, 2);
+});
+
+// ---- advisor 复核补充：fill max 回流 / h 过度约束 / 类型契约 ----
+
+test("h 排布：fill 被 max 截断后空间回流给未封顶 fill → 2+8", () => {
+  const root = h([
+    text("a", { width: { mode: "fill", max: 2 } }),
+    text("b", { width: { mode: "fill" } }),
+  ]);
+  const st = measure(root, { maxW: 10 });
+  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 1 });
+  // 平分 5/5 → a 被 max 截到 2，释放 3 回流给 b → 2+8
+  assert.equal(rectOf(rects, "a").w, 2);
+  assert.equal(rectOf(rects, "b").w, 8);
+});
+
+test("h 过度约束：fixed + auto + fill 按 fill→auto→fixed 让路", () => {
+  const root = h([
+    text("FF", { width: { mode: "fixed", cols: 5 } }),
+    text("AAAAA", { width: { mode: "auto", min: 3 } }),
+    text("B", { width: { mode: "fill" } }),
+  ]);
+  const st = measure(root, { maxW: 6 });
+  const rects = allocate(st, { x: 0, y: 0, w: 6, h: 1 });
+  // 声明：fixed 5 + auto(自然5,min3) + fill。容器 6：fixed 5 → 剩1 → auto 取 1(被压到剩1)，
+  // fill 得 0。仍溢出则 auto 再让步。断言总和=6 且 fill=0, fixed 不减。
+  const total =
+    rectOf(rects, "FF").w + rectOf(rects, "AAAAA").w + rectOf(rects, "B").w;
+  assert.equal(total, 6);
+  assert.equal(rectOf(rects, "FF").w, 5, "fixed 不先让");
+  assert.equal(rectOf(rects, "B").w, 0, "fill 最让");
+  assert.ok(rectOf(rects, "AAAAA").w >= 1, "auto 让到 1");
+});
+
+test("spacer 类型契约：空/双轴、h 传 separator 均在编译期拒绝", () => {
+  // @ts-expect-error spacer 必须至少给一个轴
+  const bad1 = spacer({});
+  void bad1;
+  // @ts-expect-error width/height 互斥
+  const bad2 = spacer({ width: { mode: "fill" }, height: { mode: "fill" } });
+  void bad2;
+  // @ts-expect-error h 排布不接受 separator（仅 v）
+  const bad3 = h([], { separator: { char: "-" } });
+  void bad3;
+  assert.ok(spacer({ width: { mode: "fill" } }).kind === "text");
 });
