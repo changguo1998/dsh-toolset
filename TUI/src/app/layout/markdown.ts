@@ -514,6 +514,7 @@ export function wrapInlineMarkdown(
 export function wrapFrameSegments(
   segs: FrameSegment[],
   width: number,
+  hanging = 0,
 ): FrameSegment[][] {
   if (width <= 0) return [segs];
   const rows: FrameSegment[][] = [];
@@ -528,7 +529,10 @@ export function wrapFrameSegments(
     const style = seg.style;
     for (const ch of seg.text) {
       const w = charWidth(ch);
-      if (curW > 0 && curW + w > width) flush();
+      // 悬挂续行：首行用全宽，续行折宽扣 hanging（配合外部 hanging 前缀，
+      // 保证缩进后总宽不超 width——对齐旧 wrapToolCallText 的折行语义）
+      const limit = rows.length === 0 ? width : Math.max(1, width - hanging);
+      if (curW > 0 && curW + w > limit) flush();
       cur.push({ text: ch, style });
       curW += w;
     }

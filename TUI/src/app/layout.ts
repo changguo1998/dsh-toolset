@@ -32,6 +32,8 @@ import { renderStatusPanel } from "./components/StatusPanel.ts";
 import { renderCommandCompletion } from "./components/CommandCompletion.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
 import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
+import { buildContentRows } from "./layout/build-box.ts";
+import type { ContentRow } from "./layout/fill.ts";
 import {
   charWidth,
   displayWidth,
@@ -321,7 +323,7 @@ export interface PanelHeights {
 }
 
 /** 对话区按回复组折叠：仅保留最近 keep 组 assistant 回复，更早替换为灰色占位 */
-function foldDialogue(rows: WrappedRow[], keep: number): WrappedRow[] {
+function foldDialogue(rows: ContentRow[], keep: number): ContentRow[] {
   // 回复组 = 连续 assistant 行（同一回复的流式/多行）
   const starts: number[] = [];
   for (let i = 0; i < rows.length; i++) {
@@ -336,7 +338,7 @@ function foldDialogue(rows: WrappedRow[], keep: number): WrappedRow[] {
   // 使可见区从“最后 keep 组对话”的用户消息开始，读起来完整。
   let cut = starts[starts.length - keep]!;
   while (cut > 0 && isConversationKind(rows[cut - 1]!.kind)) cut--;
-  const marker: WrappedRow = {
+  const marker: ContentRow = {
     segments: [seg(DIALOGUE_MORE, { fg: NOTICE_TONE_COLOR.log })],
     kind: "plain",
     indent: 0,
@@ -345,7 +347,7 @@ function foldDialogue(rows: WrappedRow[], keep: number): WrappedRow[] {
 }
 
 /** 对话区前置段类型（剪切点外推）：用户/分隔线/空行属于回复的陪衬 */
-function isConversationKind(kind: BufferKind): boolean {
+function isConversationKind(kind: string | undefined): boolean {
   return kind === "user" || kind === "separator" || kind === "plain";
 }
 
@@ -847,7 +849,7 @@ function buildTopRegion(
   // 左列顶部为独立标题栏（会话标题行 + 实线下划线，2026-09-27 由右侧状态列迁入）。
   // 活动区高度沿用原公式（基于顶部内容行数，不随标题栏收缩），标题栏行数由对话区
   // 承担（topPaneHeights 与 inputPanelHeights 同口径）；活动区可视行数先于
-  // 活动区可视行数先于 wrapBufferLines 计算，作为活动区整体截断窗口（思考/工具/
+  // 活动区可视行数先于 buildContentRows 计算，作为活动区整体截断窗口（思考/工具/
   // notice/中间输出统一按可视行截断（不再单独折叠思考）
   const { titleRows, activityH, dialogueH } = topPaneHeights(
     contentTopH,
@@ -855,11 +857,13 @@ function buildTopRegion(
   );
   const diaStart = titleRows; // 内容行中对话区起点（标题栏之后）
   const diaEnd = diaStart + dialogueH; // 对话区结束（= 活动区分隔行位置）
-  const { dialogue, activity } = wrapBufferLines(
+  const { dialogue, activity } = buildContentRows(
     state.buffer,
+    {
+      themeId: state.themeId,
+      gutter: state.messageGutter,
+    },
     contentW,
-    state.messageGutter,
-    state.themeId,
   );
   // 对话区折叠：跟随底部（未上滚）时仅保留最近 N 组回复（更早以灰占位）；
   // 用户上滚查看历史时展开全量——否则被折叠丢弃的更早回复无法滚动到（翻页失效）。
@@ -1057,11 +1061,8 @@ function buildTopRegion(
         const rr = rc - diaStart;
         const w = dialogueRows[vp.start + rr];
         if (!w || vp.start + rr >= vp.end) return [];
-        // 行级缩进 + 内容段
-        return [
-          ...(w.indent > 0 ? [seg(" ".repeat(w.indent))] : []),
-          ...w.segments,
-        ];
+        // 内容段（行前缩进已由新管线并入 segments，勿重复加 indent）
+        return [...w.segments];
       }
       if (rc === diaEnd && activityH > 0) {
         // 活动区分隔行
@@ -1075,10 +1076,8 @@ function buildTopRegion(
         }
         const a = rr - topPad;
         if (a < 0) return [];
-        return [
-          ...(act[a]!.indent > 0 ? [seg(" ".repeat(act[a]!.indent))] : []),
-          ...act[a]!.segments,
-        ];
+        // 内容段（行前缩进已由新管线并入 segments）
+        return [...act[a]!.segments];
       }
       return [];
     })();
@@ -1110,296 +1109,6 @@ export const THINKING_MAX: number = 4;
  * 避免缩进本身溢出。
  */
 
-
-interface WrappedRow {
-  /** 段数组（text 纯文本；样式内联各段）。indent 是行级缩进（非样式，渲染时前置空格） */
-  segments: FrameSegment[];
-  kind: BufferKind;
-  indent: number;
-}
-
-interface PaneRows {
-  /** 对话区行：user/assistant/separator/plain（可滚动视口） */
-  dialogue: WrappedRow[];
-  /** 活动区行：thinking/tool/notice（瞬态，底部固定窗口） */
-  activity: WrappedRow[];
-}
-
-export function wrapBufferLines(
-  buffer: Buffer,
-  width: number,
-  gutter: number,
-  themeId: ThemeId,
-): PaneRows {
-  const dialogue: WrappedRow[] = [];
-  const activity: WrappedRow[] = [];
-  let inFence = false;
-  // 工具行按连续 run 收集，flush 时做折叠/分组渲染；遇到非工具行先落盘
-  const toolRun: BufferLine[] = [];
-  const flushToolRun = (): void => {
-    if (toolRun.length === 0) return;
-    // 按调用分组：无符号前缀的行=工具调用行（起新组），后续 ✓/✗ 等结果归入当前组
-    const groups: BufferLine[][] = [[]];
-    for (const l of toolRun) {
-      if (isToolCall(l.text) && groups[groups.length - 1]!.length > 0)
-        groups.push([]);
-      groups[groups.length - 1]!.push(l);
-    }
-    // 折叠：仅保留最近 TOOL_MAX_GROUPS 组，更早以灰色折叠标记隐藏
-    const visible = groups.slice(-TOOL_MAX_GROUPS);
-    const hasMore = groups.length > TOOL_MAX_GROUPS;
-    if (hasMore) {
-      activity.push({
-        segments: [seg(TOOL_MORE, { fg: NOTICE_TONE_COLOR.log })],
-        kind: "tool",
-        indent: 0,
-      });
-    }
-    for (let gi = 0; gi < visible.length; gi++) {
-      for (let li = 0; li < visible[gi]!.length; li++) {
-        const l = visible[gi]![li]!;
-        // step 分组头 → 与 turn 分隔一致的历史虚线整行 `╌╌ step N ╌╌╌`（到行尾；取代空行分隔）。
-        // 前文结束即接分割行：若其前积了视觉空活动行（思考/notice 拖尾空段等）直接吸收
-        const stepM = /^step (\d+)$/.exec(l.text);
-        if (stepM) {
-          while (
-            activity.length > 0 &&
-            isBlankRow(activity[activity.length - 1]!)
-          )
-            activity.pop();
-          const head = "╌╌ step " + stepM[1] + " ";
-          const fill = Math.max(0, width - displayWidth(head));
-          activity.push({
-            // 虚线 step 头与字体同色（不染边框蓝）
-            segments: [
-              seg(
-                fill > 0
-                  ? head + TURN_SEPARATOR_CHAR.repeat(fill)
-                  : truncateToWidth(head, width),
-              ),
-            ],
-            kind: "tool",
-            indent: 0,
-          });
-          continue;
-        }
-        const isCall = li === 0 && isToolCall(l.text);
-        const isResult = isToolResult(l.text);
-        // 工具调用行 / 结果行：长文本折行时首行不缩进、其余行（软换行续行 /
-        // 参数内换行后的各行）统一 4 空格缩进，折行宽度按缩进扣除
-        // （wrapToolCallText），保证缩进后总宽不超窗口；
-        // 其余辅助行（↻/⚑/⤷/@…）保持全宽折行
-        let rows: string[];
-        if (isCall || isResult) {
-          rows = wrapToolCallText(l.text, width);
-        } else {
-          rows = l.text === "" ? [""] : wrapLine(l.text, Math.max(1, width));
-        }
-        // ✗ 由 tone 整体着红；组首调用行工具名染黄（renderToolNameLine），
-        // ✓ 结果行走 renderToolText，其余辅助行（⚑/↻/@…）保持默认。
-        // 工具名染色只作用于调用行的首行（ri===0）：续行是参数换行/续行，
-        // 不再按「首个空格」染色，否则每个续行行首段都会被染成黄色
-        for (const [ri, t] of rows.entries()) {
-          const segments = l.tone
-            ? [seg(t, { fg: NOTICE_TONE_COLOR[l.tone] })]
-            : isCall && ri === 0
-              ? renderToolNameLine(t)
-              : renderToolText(t);
-          activity.push({ segments, kind: "tool", indent: 0 });
-        }
-      }
-    }
-    toolRun.length = 0;
-  };
-  for (const line of buffer) {
-    if (line.kind !== "tool" && toolRun.length > 0) flushToolRun();
-    if (line.kind === "tool") {
-      toolRun.push(line);
-      continue;
-    }
-    if (line.kind === "thinking") {
-      // 思考行 → 活动区（与工具/notice/中间输出按时间顺序混合；不再单独分组折叠）。
-      // 空思考行跳过：流式增量以 \n 结尾会留下「换行锚点」空段（供下一增量续行合并），
-      // 渲染成空白行即游离空行（如紧贴 step 分割行上方），直接不显示。
-      const bar = seg("┃", { fg: "brightMagenta" });
-      const rows = wrapLine(line.text, Math.max(1, width - 1));
-      for (const text of rows) {
-        if (text === "") continue;
-        activity.push({
-          segments: [bar, seg(text)],
-          kind: "thinking",
-          indent: 0,
-        });
-      }
-      continue;
-    }
-    if (line.kind === "user") {
-      // 用户消息块：按内容收缩宽度并整体靠右（统一 leftPad），块内保持左对齐；
-      // 右侧附加浅红竖线用于区分（窄列降级不加，以免正文被挤出）
-      // ponytail: width<6 时省略竖线；有富裕再去掉阈值
-      const useBar = width >= USER_MIN_LEFT_GUTTER + 2;
-      const bar = useBar ? seg("┃", { fg: "brightRed" }) : undefined;
-      const maxBody = userMaxBodyWidth(width, gutter);
-      const wrapped = wrapLines(line.text.split("\n"), maxBody);
-      // 竖线固定在块右缘（紧挨右缘边框），不随行尾：正文先按最长行宽补齐再挂竖线
-      const contentWidth = Math.max(1, ...wrapped.map((r) => displayWidth(r)));
-      const bodyWidth = contentWidth + (useBar ? 1 : 0);
-      const pad = Math.max(0, width - bodyWidth);
-      for (const r of wrapped)
-        dialogue.push({
-          segments:
-            r === ""
-              ? [seg("")]
-              : (() => {
-                  const out: FrameSegment[] = [
-                    seg(
-                      r +
-                        " ".repeat(Math.max(0, contentWidth - displayWidth(r))),
-                    ),
-                  ];
-                  if (bar) out.push(bar);
-                  return out;
-                })(),
-          kind: "user",
-          indent: pad,
-        });
-      continue;
-    }
-    if (line.kind === "assistant") {
-      // 模型正文分流：final（回合最终总结）→ 历史区（交错留白布局）；
-      // 非 final（中间输出）→ 活动区（全宽渲染，与思考/工具/notice 按时间混合）。
-      // fence 代码块内原样展示（块背景不解析），块外按块级/行内 markdown 子集渲染
-      const target = line.final ? dialogue : activity;
-      const fence = FENCE_RE.exec(line.text);
-      if (fence && fence[1]!.length >= 3) {
-        if (inFence) {
-          inFence = false;
-        } else {
-          inFence = true;
-          const lang = fence[2] ?? "";
-          if (lang) {
-            // 代码块语言标签行：斜体（正常前景色；fence 开关行本身不显示）
-            target.push({
-              segments: [seg(lang, { italic: true })],
-              kind: line.kind,
-              indent: 0,
-            });
-          }
-        }
-        continue;
-      }
-      // 回复正文左侧附加浅蓝竖线用于区分（窄列降级不加，以免正文被挤出）
-      // ponytail: width<6 时省略竖线；有富裕再去掉阈值
-      const hasBar = width >= USER_MIN_LEFT_GUTTER + 2;
-      const bodyWidth = line.final
-        ? assistantMaxBodyWidth(width, gutter)
-        : hasBar
-          ? width - 1 // 活动区全宽渲染 + 左竖线 → 留 1 列，避免溢出到 D 列
-          : width;
-      const bar = hasBar ? seg("┃", { fg: "brightBlue" }) : undefined;
-      const segRows = inFence
-        ? wrapCodeLine(line.text, bodyWidth)
-        : wrapAssistantLine(line.text, bodyWidth, themeId);
-      for (const rowSegs of segRows)
-        target.push({
-          segments:
-            rowSegs.length === 0
-              ? [seg("")]
-              : bar
-                ? [bar, ...rowSegs]
-                : rowSegs,
-          kind: line.kind,
-          indent: 0,
-        });
-      continue;
-    }
-    if (line.kind === "notice") {
-      // notice → 活动区（瞬态提示）
-      const rows =
-        line.text === "" ? [""] : wrapLine(line.text, Math.max(1, width));
-      const tone = line.tone;
-      for (const text of rows)
-        activity.push({
-          segments: tone
-            ? [seg(text, { fg: NOTICE_TONE_COLOR[tone] })]
-            : [seg(text)],
-          kind: "notice",
-          indent: 0,
-        });
-      continue;
-    }
-    // separator / plain → 对话区（turn 分隔线：虚线条 ╌ 铺满，先按纯文本换行）
-    const content =
-      line.kind === "separator"
-        ? TURN_SEPARATOR_CHAR.repeat(Math.max(1, width))
-        : line.text;
-    const rows = content === "" ? [""] : wrapLine(content, Math.max(1, width));
-    for (const text of rows)
-      dialogue.push({
-        segments: [seg(text)],
-        kind: line.kind,
-        indent: 0,
-      });
-  }
-  flushToolRun();
-  // 对话区：用户消息块与随后的答案之间空一行（纯布局展示，不写状态）
-  const spaced: WrappedRow[] = [];
-  for (const row of dialogue) {
-    const last = spaced[spaced.length - 1];
-    if (last && last.kind === "user" && row.kind === "assistant") {
-      spaced.push({ segments: [seg("")], kind: "plain", indent: 0 });
-    }
-    spaced.push(row);
-  }
-  // 模型回复尾部空行不显示：流式块以换行结尾时 appendStream 会留下末尾空
-  // assistant 行；仅两个正文段之间的空行才有段落意义(保留)，其后不再有正文
-  // 的空行（分隔线/下条用户消息/缓冲尾部之前）视为多余。
-  let hasBodyAfter = false;
-  for (let i = spaced.length - 1; i >= 0; i--) {
-    const row = spaced[i]!;
-    if (row.kind === "assistant" && rowText({ segments: row.segments }) !== "")
-      hasBodyAfter = true;
-    else if (
-      row.kind === "assistant" &&
-      rowText({ segments: row.segments }) === "" &&
-      !hasBodyAfter
-    )
-      spaced.splice(i, 1);
-  }
-  // 对话区着色竖线块内连续：仅剩的块内空行（段落空行/显式换行空行）也挂竖线，
-  // 使回复/输入块侧边连成整条竖线；末尾空行已被上方删除，此处只补空块的空行
-  if (width >= USER_MIN_LEFT_GUTTER + 2) {
-    const barR = seg("┃", { fg: "brightRed" });
-    const barL = seg("┃", { fg: "brightBlue" });
-    for (let i = 0; i < spaced.length; i++) {
-      const row = spaced[i]!;
-      if (
-        rowText({ segments: row.segments }) !== "" ||
-        (row.kind !== "user" && row.kind !== "assistant")
-      )
-        continue;
-      // 其后还有同 kind 内容才算块内空行（跨 plain/分隔就停）
-      let sameAfter = false;
-      for (let j = i + 1; j < spaced.length; j++) {
-        const nx = spaced[j]!;
-        if (nx.kind === row.kind) {
-          sameAfter = true;
-          break;
-        }
-        if (nx.kind === "plain" || nx.kind === "separator") break;
-      }
-      if (!sameAfter) continue;
-      if (row.kind === "user") {
-        row.segments = [barR];
-        row.indent = Math.max(0, width - 1); // 空用户行右缘对齐块右缘
-      } else {
-        row.segments = [barL];
-      }
-    }
-  }
-  return { dialogue: spaced, activity };
-}
-
 /** 模型段标签：provider/model[:reasoningEffort]，无 effort 时不带冒号后缀 */
 export function modelLabel(sel: {
   provider: string;
@@ -1428,10 +1137,6 @@ function colorModel(s: string): FrameSegment[] {
 /** notice/tool 行 tone → 着色名（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿） */
 
 /** 活动行是否为视觉空白：纯文本无可见字符（空思考/notice 拖尾行） */
-function isBlankRow(row: WrappedRow): boolean {
-  return row.segments.every((s) => s.text === "");
-}
-
 function formatTokens(n: number): string {
   if (n >= 1_000_000)
     return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
@@ -1741,7 +1446,7 @@ export function userInputJump(
   dir: 1 | -1,
 ): UserInputJump | null {
   if (dialogueH <= 0) return null;
-  const { dialogue } = wrapBufferLines(buffer, width, gutter, themeId);
+  const { dialogue } = buildContentRows(buffer, { themeId, gutter }, width);
   const total = dialogue.length;
   if (total === 0) return null;
   const start = computeViewport({

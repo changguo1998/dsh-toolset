@@ -304,7 +304,7 @@ function fillParagraph(
     });
     return;
   }
-  // 与旧 wrapBufferLines 一致：assistant 正文整串交给解析器（跨 \n 不预拆，
+  // 与旧管线一致：assistant 正文整串交给解析器（跨 \n 不预拆，
   // 与 wrapAssistantLine/wrapCodeLine 的逐字符折行行为对齐）；plain 类走 StyledText。
   const rows: FrameSegment[][] = p.fillBg
     ? wrapCodeLine(p.text, bodyW)
@@ -391,7 +391,7 @@ function splitAndWrapSegments(
       continue;
     }
     const w = out.length === 0 ? width : Math.max(1, width - hanging);
-    out.push(...wrapFrameSegments(line, w));
+    out.push(...wrapFrameSegments(line, w, hanging));
   }
   return out;
 }

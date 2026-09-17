@@ -11,6 +11,7 @@ import type { Box, Node } from "./box.ts";
 import { v, h, text, styled, spacer } from "./box.ts";
 import type { Buffer, BufferKind } from "../state.ts";
 import type { ColorName, ThemeId } from "../../renderer/theme.ts";
+import type { FrameStyle } from "../../renderer/index.ts";
 import {
   TOOL_MAX_GROUPS,
   TOOL_MORE,
@@ -73,7 +74,7 @@ function toolLineSegs(line: string, tone?: string) {
 /**
  * 把 buffer 分类为对话/活动两棵内容树。
  *
- * 分类逻辑 = 现 wrapBufferLines 的结构平移：
+ * 分类逻辑 = 旧管线迁出前的结构平移：
  *  - assistant：final → dialogue、非 final → activity；fence 跨行状态注解
  *  - tool：连续 run 分组 + TOOL_MAX_GROUPS 折叠 + step 头
  *  - user：整块右对齐（h[spacer(fill), styled]）+ 右缘竖线（suffix, minWidth）
@@ -124,6 +125,11 @@ export function buildBox(
         const l = group[li]!;
         // step 头：虚线整行（tail 铺满）
         const stepM = /^step (\d+)$/.exec(l.text);
+        if (stepM) {
+          // step 分割行吸收前文拖尾空活动行（notice/thinking 换行锚点等）——
+          // 对齐旧 wrapBufferLines：分割行前积的视觉空行直接吞掉，不渲染
+          absorbActivityBlank(activityLeaves);
+        }
         let node: Node;
         if (stepM) {
           node = styled([{ text: `╌╌ step ${stepM[1]} ` }], {
@@ -191,7 +197,7 @@ export function buildBox(
     }
     if (line.kind === "assistant") {
       const target = line.final ? dialogueLeaves : activityLeaves;
-      // 含显式换行的单条行：旧 wrapBufferLines 的 FENCE_RE 对整串不匹配（^…$ 需整行），
+      // 含显式换行的单条行：旧 FENCE_RE 对整串不匹配（^…$ 需整行），
       // 整段交 wrapAssistantLine 解析；fill 的 Paragraph 按 \n 拆物理行。直接产单节点。
       if (line.text.includes("\n")) {
         const body = text(line.text, {
@@ -258,7 +264,7 @@ export function buildBox(
     // separator / plain → 对话区
     if (line.kind === "separator") {
       const node = styled([], {
-        tail: { char: "╌" }, // 旧 wrapBufferLines：turn 分隔线无样式（默认前景）
+        tail: { char: "╌" }, // legacy：turn 分隔线无样式（默认前景）
       });
       meta.set(node, rowMeta);
       dialogueLeaves.push(node);
@@ -276,7 +282,7 @@ export function buildBox(
   dialogue = trimTrailingAssistantBlanks(dialogue, meta);
   // 2) user → assistant 之间插空行
   dialogue = spaceUserAssistant(dialogue, meta);
-  // 3) 块内空行竖线连排（旧 wrapBufferLines：同 kind 块内空行补左右竖线）
+  // 3) 块内空行竖线连排（legacy 行为：同 kind 块内空行补左右竖线）
   dialogue = lineUpBlockBars(dialogue, meta, opts);
 
   const dialogueBox = v(dialogue);
@@ -308,6 +314,48 @@ function finalSpace(
   return block;
 }
 
+/** step 分割行前吸收前文拖尾空行（对齐旧 isBlankRow 吸收语义）：
+ *  仅当活动区末尾是「纯空文本节点」（fill 后必单空行）或「文本以换行结尾的
+ *  节点」（fill 拆物理行后末行必空，如 notice/thinking 拖尾换行锚点）时，
+ *  剥掉其尾部换行（正文保留，仅尾空行不渲染——旧实现在折行后精确 pop 的
+ *  正是该空行，宽度无关的结构层等价于"移除拖尾换行"）。 */
+function absorbActivityBlank(leaves: Node[]): void {
+  while (leaves.length > 0) {
+    const last = leaves[leaves.length - 1]!;
+    if (nodePlainText(last) === "") {
+      leaves.pop();
+      continue;
+    }
+    // 剥掉尾随换行：仅修改节点文本（不重建节点，保持 meta 引用有效）
+    const sepRemoved = stripTrailingNewline(last);
+    if (sepRemoved) return;
+    break;
+  }
+}
+
+/** 剥掉节点文本尾部的一个（或连续的）换行；无拖尾换行返回 false */
+function stripTrailingNewline(n: Node): boolean {
+  if (n.kind === "text") {
+    const t0 = (n as { text: string }).text;
+    const t1 = t0.replace(/\n+$/, "");
+    if (t1 === t0) return false;
+    (n as { text: string }).text = t1;
+    return true;
+  }
+  if (n.kind === "styled") {
+    const segs = (n as { segments: { text: string; style?: FrameStyle }[] })
+      .segments;
+    const last = segs.at(-1);
+    if (!last) return false;
+    const t1 = last.text.replace(/\n+$/, "");
+    if (t1 === last.text) return false;
+    last.text = t1;
+    if (segs.length > 1 && last.text === "") segs.pop(); // 空尾段收起
+    return true;
+  }
+  return false;
+}
+
 /** 节点叶文本（text 原样；styled 段拼接；box 取首递归） */
 function nodePlainText(n: Node): string {
   if (n.kind === "text") return (n as { text: string }).text;
@@ -323,7 +371,7 @@ function nodePlainText(n: Node): string {
   return "";
 }
 
-/** 模型回复尾部空行删除（wrapBufferLines 后处理 → buildBox 结构层） */
+/** 模型回复尾部空行删除（旧后处理 → buildBox 结构层） */
 function trimTrailingAssistantBlanks(
   nodes: Node[],
   meta: Map<Node, RowMeta>,
@@ -345,7 +393,7 @@ function trimTrailingAssistantBlanks(
 }
 
 /** 块内空行竖线连排：空 user/assistant 行若「块内」（其后有同 kind，且中间
- * 无 plain/separator）则补竖线（旧 wrapBufferLines 的 last-pass loop）。
+ * 无 plain/separator）则补竖线（legacy last-pass loop）。
  * 竖线通过给空行段挂 prefix/suffix 表达（fill 时 render）；窄列降级同步竖线阈值。 */
 function lineUpBlockBars(
   nodes: Node[],
@@ -421,7 +469,7 @@ export interface ContentPanes {
  * 管线 = buildBox（宽度无关结构分类）→ measure/allocate（宽先于高）→
  * fill（折行/装饰，元数据经 metadata 传播）。高度取极大值摊平（不补白行），
  * 行数裁剪/滚动由消费方（buildTopRegion / userInputJump）负责；cutover 时
- * 调用点只换这里（legacy wrapBufferLines 曾承担同一职责）。
+ * 调用点只换这里（legacy 旧函数曾承担同一职责）。
  */
 export function buildContentRows(
   buffer: Buffer,

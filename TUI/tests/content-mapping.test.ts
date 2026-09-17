@@ -1,7 +1,8 @@
 // tests/content-mapping.test.ts — 双轨对照：BuildBox+fill 管线 vs 冻结基线
 //
-// 内容映射里程碑：新 Box 管线产出与旧 wrapBufferLines 逐行等价。flip
-// cutover 前用 scripts/freeze-content-mapping.mts 调用旧实现并归一化，
+// 内容映射里程碑：新 Box 管线产出与旧 wrapBufferLines 逐行等价。切换
+// 调用点（cutover）前曾用 scripts/freeze-content-mapping.mts（git 历史保存）
+// 调用旧实现并归一化，
 // 输出固化为 fixtures/content-mapping-legacy.json（「冻结基线」）。此后
 // 测试从 fixture 读取 legacy 基线，不再 import wrapBufferLines（旧实现
 // 已删除），对照测试因此独立且可持续回归。
@@ -36,11 +37,7 @@ interface FixtureRow {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const fixturePath = join(
-  __dirname,
-  "fixtures",
-  "content-mapping-legacy.json",
-);
+const fixturePath = join(__dirname, "fixtures", "content-mapping-legacy.json");
 const FIXTURE: Record<string, FixtureEntry> = JSON.parse(
   readFileSync(fixturePath, "utf-8"),
 );
@@ -53,7 +50,10 @@ function rowTextOf(r: { segments: { text: string }[] }): string {
 const themeId = "dark" as const;
 
 /** 基线行 = 场景 fixture 中指定 pane 的行数组 */
-function baselineRows(key: string, pane: "dialogue" | "activity"): FixtureRow[] {
+function baselineRows(
+  key: string,
+  pane: "dialogue" | "activity",
+): FixtureRow[] {
   const e = FIXTURE[key];
   assert.ok(e, `fixture 缺场景 ${key}`);
   return e[pane];
@@ -104,11 +104,7 @@ function assertEquivalent(
 }
 
 /** 窄窗语义等价（w≤5 竖线关闭边界未知退化：仅比语义文本 + kind） */
-function assertSemantic(
-  key: string,
-  buffer: Buffer,
-  width: number,
-): void {
+function assertSemantic(key: string, buffer: Buffer, width: number): void {
   const fresh = newRows(buffer, width);
   const sem = (rows: FixtureRow[]) =>
     rows
@@ -248,8 +244,7 @@ test("双轨：CJK 宽字符折行", () => {
     { text: "中文消息内容测试", kind: "user" },
     { text: "这是模型回答", kind: "assistant", final: true },
   ];
-  for (const w of [20, 12, 9])
-    assertEquivalent(`cjk@w${w}g4`, buf, w, 4);
+  for (const w of [20, 12, 9]) assertEquivalent(`cjk@w${w}g4`, buf, w, 4);
 });
 
 test("双轨：gutter 变体（0 / 默认4 / 较大）", () => {
