@@ -93,7 +93,7 @@ defender 迁移（对比文档 §3.5）。
 
 ## TUI 命令扩展（对比其他 agent 的共识命令）
 
-> 命令面清单与「值得添加的命令」建议已独立成文：见 `TUI/COMMANDS.md`（依据 2026-09-18 对比 Claude Code / Codex CLI / Gemini CLI / pi 的共识命令与本项目现状）。
+> 命令面清单与「值得添加的命令」建议已独立成文：见 `TUI/COMMANDS.md`（依据 2026-09-18 对比 Claude Code / Codex CLI / Gemini CLI / pi 的共识命令与本项目现状）；可实现级规格见 `TUI/COMMANDS-SPEC.md`（本轮纯 TUI 侧 7 项候选，其中 5 项合同门未决；需插件改造与宿主 API 未证实者在 §3 索引）；实施清单见 `TUI/COMMANDS-TASKS.md`（批次 0 API 合同门 + 四批实现）。
 
 ## 排序原则与里程碑
 

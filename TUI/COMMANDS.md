@@ -41,44 +41,46 @@
 
 **落点决策**：本轮命令**一律走 TUI 本地命令**（`LOCAL_COMMANDS` + `index.ts` case），不新建宿主命令插件包。理由：可复用面板骨架（ModelPicker / JobsPanel / HistoryPanel）、与既有 `/session` `/preset` `/permission` `/jobs` 同路径、FakeAdapter 测试基建成熟；代价是命令仅在 TUI 可用（其它客户端不可见）。宿主命令插件路线（`dsh-command-toolset`）仅在需要跨客户端时启用。
 
+> 可实现级规格见 `COMMANDS-SPEC.md`——**本轮只覆盖纯 TUI 侧**（宿主服务现成、不需改动任何插件）：候选 `/stats` `/skills` `/agents` `/tools` `/rename` `/settings` `/fork`（**最多 7 项，其中 5 项合同门未决**）；需插件改造与宿主 API 未证实者在 `COMMANDS-SPEC.md` §3 索引。实施清单见 `COMMANDS-TASKS.md`（批次 0 API 合同门 + 四批实现）。
+
 ### 2.1 用 dsh 官方 API（服务已挂载，落点：TUI 本地命令）
 
 | 命令 | 宿主服务 · 方法 | 出现于 | 优先级 |
 |------|----------------|--------|--------|
-| `/stats`（别名 `/usage` `/cost` `/context`） | `tokenMeter.measure` / `estimateMessage` + `sessionQuery.listSessions` / `readSurface` | Claude、Codex、Gemini、pi（4/4） | P1 |
-| `/skills` | `skills.list` / `snapshot` / `registerProvider` | Claude、Codex、Gemini | P1 |
-| `/agents` | `subagents.list` / `interrupt` / `sendMessage` | Claude、Codex、Gemini | P1 |
-| `/tools` | `tools.entries` / `schemas` / `get` | Gemini | P2 |
-| `/rename` | `sessionTitle.rename` | Claude、Codex、pi | P2 |
-| `/settings`（`/config`） | `settings.open` / `mutate` / `describe` / `documentPath` | Claude、Gemini、pi | P2 |
-| `/clear` | `sessions.clear`（同服务另有 `create` / `delete`） | Claude、Codex、Gemini | P2 |
-| `/fork` | `sessions.fork` | Claude、Codex、pi | P2 |
-| `/login` `/logout` | `credentials.describe` / `set` / `unset` / `resolve` | Claude、Codex、pi | P2 |
-| `/review`（`/code-review`） | `workflowEngine.start` | Claude、Codex | P2 |
+| `/stats`（别名 `/usage` `/context`） | `state.usage`（已接，零新服务）；可选增强 `tokenMeter.measure(session, requestHeader)` | Claude、Codex、Gemini、pi（4/4） | P1 |
+| `/skills` | `skills.list()`（无参） / `get(candidate)` | Claude、Codex、Gemini | P1 |
+| `/agents` | `subagents.list()` / `interrupt(targetSessionId, authority)` | Claude、Codex、Gemini | P1 |
+| `/tools` | `tools.schemas(scope)` / `get(name, scope)` | Gemini | P2 |
+| `/rename` | `sessionTitle.rename(session, title)`（首参为 session 对象） | Claude、Codex、pi | P2 |
+| `/settings`（`/config`） | `settings.get(ns)` / `describe(options)`（第一版只读） | Claude、Gemini、pi | P2 |
+| `/clear` | ~~`sessions.clear`~~ **暂缓（宿主 API 未证实）**：`dsh-session` 无 clear 方法（SPEC §3 索引） | Claude、Codex、Gemini | 暂缓 |
+| `/fork` | `sessions.fork(source, boundary, childSessionId)`（三参语义待确认） | Claude、Codex、pi | P2 |
+| `/login` `/logout` | ~~`credentials.*`~~ **暂缓（宿主 API 未证实）**：方法名不存在（SPEC §3 索引） | Claude、Codex、pi | 暂缓 |
+| `/review`（`/code-review`） | ~~`workflowEngine.start`~~ **暂缓（宿主 API 未证实）**：服务无 start 方法（SPEC §3 索引） | Claude、Codex | 暂缓 |
 
-**实现落点（每条命令 5 处）**：
+**实现落点（逐命令矩阵见 `COMMANDS-SPEC.md` §0.1；最多 6 类，按命令取子集）**：
 
 1. `TUI/src/main.ts` — `ctx.get?.("<svc>") as <Svc>Like | undefined` 取服务，加进 `createRealDshAdapter({...})` 参数（与既有 `sessionQuery` / `sessions` / `agentPresets` / `permissionPresets` / `jobs` 同模式）
-1. `TUI/src/app/adapter/dsh.ts` — 加结构化 `<Svc>Like` 类型（不 import 宿主类型，保持解耦）+ `DshAdapter` 上的可选方法（如 `sessionStats?(): Promise<...>`）
-1. `TUI/src/app/commands.ts` — `LOCAL_COMMANDS` 加条目（补全与路由的单一来源，自动进候选）
+1. `TUI/src/app/adapter/types.ts` — 加结构化 `<Svc>Like` 类型（不 import 宿主类型，保持解耦）+ `DshAdapter` 上的可选方法；`adapter/dsh.ts` 实现该方法
+1. `TUI/src/app/commands.ts` — **两处**：`SlashRoute` 联合类型加 `"<name>"` **和** `LOCAL_COMMANDS` 加条目（`/init` 实现已证明缺一不可）
 1. `TUI/src/app/index.ts` — `case "<name>"` + `run<Name>()`（notice 或面板）+ `helpText` 行
-1. 测试（`FakeAdapter` 注入）+ 文档（本文件、`README.md`）
+1. 测试与基线 — `tests/app.test.ts` 用例（`FakeAdapter` 注入）+ 文档（本文件、`README.md`）；`helpText` 行变化须重跑 `scripts/freeze-focus-frame.mts` 与 smoke
 
 - **服务缺失必须降级**：沿用既有 `XxxLike | undefined` + 「服务不可用」提示模式（fail-close），照抄即可。
 - **已可用、无需实现**：`/plan`（`dsh-plan-mode`）、`/export`（`dsh-session-log-export`）——转发宿主注册命令即可。
-- 表内方法名 grep 自 dsh 0.1.5-rc.2 源码；个别语义实现时实测确认（`sessions.clear` 清上下文还是清会话、`/clear` 与现有 `/clearscreen` 的区分、`workflowEngine.start` 入参形态）。
+- 表内方法名已按 dsh 0.1.5-rc.2 **源码核实为精确签名**（含参数形态）；`/clear` `/login` `/logout` `/review` 因宿主 API 未证实移入**暂缓**，索引见 `COMMANDS-SPEC.md` §3（不写规格）。
 
-### 2.2 用本项目插件（需先暴露服务，再写命令）
+### 2.2 用本项目插件（仅「无需改造」者可能纳入；本轮全部不纳入）
 
-现状：本项目 10 个插件**均只注册模型工具或 hook，未把服务挂到宿主 ctx** —— 任何命令入口都要先补「服务暴露」这一步。
+现状：本项目 10 个插件**均只注册模型工具或 hook，未把服务挂到宿主 ctx** —— 这些命令都要先改插件；本轮实现范围不含它们（`/contract` 除外，它只需复用纯函数）。
 
 | 命令 | 本项目插件 · 可支撑能力 | 需补的暴露 | 优先级 |
 |------|----------------------|-----------|--------|
-| `/memory` | knowledge-base：`search` / `put` / `touch` / `evict` + Memory CRUD（已实现） | `apply` 现为 `void createKnowledgeBundle(...)`（服务对象建完即丢），需把 `kb` / `memory` 挂到 ctx | P1 |
-| `/loop` | metric-loop：循环引擎（start / tick / status / plateau / 边界） | 现只注册 `metric_loop` 工具，controller 未挂 ctx | P1 |
-| `/task` | task-engine：任务树（decompose / implement / stop / status） | 现只注册工具，需暴露任务树状态面 | P2 |
-| `/contract` | goal-contract：Done-when 契约起草 | 现只注册工具 | P2 |
-| `/guard` | security-guard：危险命令黑名单 + 敏感文件保护 | 现仅 `createSecurityGuard(ctx)`，需暴露策略/拦截审计面 | P2 |
+| `/memory` | knowledge-base：`kb.search(opts)` / `touch` / `evict` / `compress` / `promote` + Memory `add`/`replace`/`remove`/`search`（均已实现；**无 list/get**） | `apply` 改为 async 后 `ctx.provide("knowledge", bundle)` | P1（本轮不纳入，SPEC §3） |
+| `/loop` | metric-loop：`start(spec)` / `tick` / `status(id)` / `stop(id)`（**无 list**，需新增） | provide `metricLoop` controller + 新增 `list()` | P1（本轮不纳入，SPEC §3） |
+| `/task` | task-engine：`snapshotText()` / `frames()` / `activeCount()` / `isComplete()`（方法均已存在） | provide 只读子集 | P2（本轮不纳入，SPEC §3） |
+| `/contract` | goal-contract：纯函数**未从包入口导出**（`index.ts` 仅 `name`/`inject`/`apply`） | 需给该包加 re-export（属插件包改动） | P2（本轮不纳入） |
+| `/guard` | security-guard：仅 `GuardEngine.inspect()`，无策略/记录查询 | 需**新增**拦截记录缓冲 + `recent()` / `policy()` | P2（本轮不纳入，SPEC §3） |
 
 - 工具性质、命令入口价值低（模型直接用即可）：fs-digest、hash-edit、ast-tools、output-compress。
 - 落点与 §2.1 相同：插件侧补齐「服务暴露」后，命令仍在 TUI 侧实现（`ctx.get("<svc>")` → adapter → 本地命令）。
