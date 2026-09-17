@@ -1,6 +1,6 @@
 # TUI 命令清单与扩展建议
 
-> 依据：2026-09-18 横向对比 **Claude Code（108 条）/ Codex CLI（55）/ Gemini CLI（38）/ pi（23 内置）** 与本项目现状（本地 17 条含别名 + 宿主注册 6 条）。
+> 依据：2026-09-18 横向对比 **Claude Code（108 条）/ Codex CLI（55）/ Gemini CLI（38）/ pi（23 内置）** 与本项目现状（本地 17 条含别名 + 宿主注册 7 条）。
 > 用途：记录命令面现状与「值得添加的命令」建议，供排期参考；功能级待办以 `docs/DEVELOPMENT-BACKLOG.md` 为准，命令实现细节见 `DESIGN.md` / `IMPLEMENTATION.md`。
 
 ## 1. 现状
@@ -27,15 +27,21 @@
 
 ### 1.2 宿主注册命令（`ctx.commands.register`，转发即用）
 
-`/compact`、`/feedback`、`/record`、`/goal`、`/plan`、`/export`。
+`/compact`、`/feedback`、`/record`、`/goal`、`/permission`、`/plan`、`/export`（7 条，grep 自 dsh 0.1.5-rc.2 装配包核实）。
 
 补全候选由 `ctx.commands.list(agent)` 自动拉取，本地表与宿主表合并展示。
+
+注：`/goal`、`/permission` 与 §1.1 同名——本地路由优先（面板/提示），带参形态转发宿主命令。
 
 ## 2. 扩展建议
 
 > 归口口径：命令只用两类来源实现——① **dsh 官方 API/插件**（当前 profile 已挂载的服务）；② **本项目插件**（dsh-toolset）。不引入第三方插件；需额外装配官方可选 bundle（当前未挂载）的项不在本轮范围。
 
-### 2.1 用 dsh 官方 API（服务已挂载；写命令插件即可，TUI 零改动）
+**机制前提（已核实）**：dsh 的「服务」与「slash 命令」是两套独立注册面——服务（cordis Service，当前装配树约 95 个）只提供编程 API（`ctx.<svc>`），**不会自动变成命令**；命令必须显式 `ctx.commands.register({ name, description, input, handler })`，官方当前仅注册 7 条（§1.2）。TUI 只在 `start()` 时拉一次 `ctx.commands.list(agent)` 合并进补全候选，无周期性刷新。
+
+**落点决策**：本轮命令**一律走 TUI 本地命令**（`LOCAL_COMMANDS` + `index.ts` case），不新建宿主命令插件包。理由：可复用面板骨架（ModelPicker / JobsPanel / HistoryPanel）、与既有 `/session` `/preset` `/permission` `/jobs` 同路径、FakeAdapter 测试基建成熟；代价是命令仅在 TUI 可用（其它客户端不可见）。宿主命令插件路线（`dsh-command-toolset`）仅在需要跨客户端时启用。
+
+### 2.1 用 dsh 官方 API（服务已挂载，落点：TUI 本地命令）
 
 | 命令 | 宿主服务 · 方法 | 出现于 | 优先级 |
 |------|----------------|--------|--------|
@@ -50,9 +56,17 @@
 | `/login` `/logout` | `credentials.describe` / `set` / `unset` / `resolve` | Claude、Codex、pi | P2 |
 | `/review`（`/code-review`） | `workflowEngine.start` | Claude、Codex | P2 |
 
-- 实现模板：`dsh-command-goal`（185 行 JS，`ctx.commands.register` + `inject`）；建议合为**一个** `dsh-command-toolset` 包注册多条命令，而非每命令一个包。
-- **已可用、无需实现**：`/plan`（`dsh-plan-mode` 注册）、`/export`（`dsh-session-log-export` 注册）。
-- 注：`sessions.clear` 的语义（清上下文 or 清会话）实现时需确认；`/clear` 与现有 `/clearscreen`（仅清显示）语义区分。
+**实现落点（每条命令 5 处）**：
+
+1. `TUI/src/main.ts` — `ctx.get?.("<svc>") as <Svc>Like | undefined` 取服务，加进 `createRealDshAdapter({...})` 参数（与既有 `sessionQuery` / `sessions` / `agentPresets` / `permissionPresets` / `jobs` 同模式）
+1. `TUI/src/app/adapter/dsh.ts` — 加结构化 `<Svc>Like` 类型（不 import 宿主类型，保持解耦）+ `DshAdapter` 上的可选方法（如 `sessionStats?(): Promise<...>`）
+1. `TUI/src/app/commands.ts` — `LOCAL_COMMANDS` 加条目（补全与路由的单一来源，自动进候选）
+1. `TUI/src/app/index.ts` — `case "<name>"` + `run<Name>()`（notice 或面板）+ `helpText` 行
+1. 测试（`FakeAdapter` 注入）+ 文档（本文件、`README.md`）
+
+- **服务缺失必须降级**：沿用既有 `XxxLike | undefined` + 「服务不可用」提示模式（fail-close），照抄即可。
+- **已可用、无需实现**：`/plan`（`dsh-plan-mode`）、`/export`（`dsh-session-log-export`）——转发宿主注册命令即可。
+- 表内方法名 grep 自 dsh 0.1.5-rc.2 源码；个别语义实现时实测确认（`sessions.clear` 清上下文还是清会话、`/clear` 与现有 `/clearscreen` 的区分、`workflowEngine.start` 入参形态）。
 
 ### 2.2 用本项目插件（需先暴露服务，再写命令）
 
@@ -67,7 +81,8 @@
 | `/guard` | security-guard：危险命令黑名单 + 敏感文件保护 | 现仅 `createSecurityGuard(ctx)`，需暴露策略/拦截审计面 | P2 |
 
 - 工具性质、命令入口价值低（模型直接用即可）：fs-digest、hash-edit、ast-tools、output-compress。
-- TUI 包内实现（非插件）：`/diff`（跑 git 出变更面板）、`/doctor`（自检 TUI / 宿主 / 插件装配）。
+- 落点与 §2.1 相同：插件侧补齐「服务暴露」后，命令仍在 TUI 侧实现（`ctx.get("<svc>")` → adapter → 本地命令）。
+- `/diff`、`/doctor` 无宿主服务依赖，同为 TUI 包内实现（跑 git / 自检 TUI、宿主、插件装配）。
 
 ### 2.3 已剔除（按当前口径不考虑）
 
