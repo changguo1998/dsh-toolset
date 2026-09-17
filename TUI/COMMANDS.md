@@ -41,7 +41,7 @@
 
 **落点决策**：本轮命令**一律走 TUI 本地命令**（`LOCAL_COMMANDS` + `index.ts` case），不新建宿主命令插件包。理由：可复用面板骨架（ModelPicker / JobsPanel / HistoryPanel）、与既有 `/session` `/preset` `/permission` `/jobs` 同路径、FakeAdapter 测试基建成熟；代价是命令仅在 TUI 可用（其它客户端不可见）。宿主命令插件路线（`dsh-command-toolset`）仅在需要跨客户端时启用。
 
-> 可实现级规格见 `COMMANDS-SPEC.md`——**本轮只覆盖纯 TUI 侧**（宿主服务现成、不需改动任何插件）：候选 `/stats` `/skills` `/agents` `/tools` `/rename` `/settings` `/fork`（**最多 7 项，其中 5 项合同门未决**）；需插件改造与宿主 API 未证实者在 `COMMANDS-SPEC.md` §3 索引。实施清单见 `COMMANDS-TASKS.md`（批次 0 API 合同门 + 四批实现）。
+> 可实现级规格见 `COMMANDS-SPEC.md`——**本轮只覆盖纯 TUI 侧**（宿主服务现成、不需改动任何插件）：候选 `/stats` `/skills` `/agents` `/tools` `/rename` `/settings` `/fork`（**7 项，已全部通过批次 0 API 合同门**）；需插件改造与宿主 API 未证实者在 `COMMANDS-SPEC.md` §3 索引。实施清单见 `COMMANDS-TASKS.md`（批次 0 API 合同门 + 四批实现）。
 
 ### 2.1 用 dsh 官方 API（服务已挂载，落点：TUI 本地命令）
 

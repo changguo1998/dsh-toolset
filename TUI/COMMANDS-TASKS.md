@@ -1,37 +1,39 @@
 # TUI 命令扩展任务（Commands Tasks）
 
-> 状态：**待实施**（2026-09）。
-> 类型：**[task]**——实施与验收清单；范围 = `COMMANDS-SPEC.md` §1/§2 的**纯 TUI 侧命令**（最多 7 项候选，其中 5 项合同门未决；宿主服务现成，不改动任何本项目插件）。
+> 状态：**批次 0 已完成**（5 项 API 合同门全部过门，结论见 §1，含源码文件:行）；四批实现待实施。
+> 类型：**[task]**——实施与验收清单；范围 = `COMMANDS-SPEC.md` §1/§2 的**纯 TUI 侧命令**（7 项候选，均已过合同门；宿主服务现成，不改动任何本项目插件）。
 > 配套：`COMMANDS-SPEC.md`（规格与 API 签名核实表）、`COMMANDS.md`（命令来源归口）、`NOTICE-LEVELS.md`（提示分级）、`DESIGN.md` / `SPEC.md`（面板与渲染契约）。
 
 ## 0. 全景
 
 - **逐命令落点矩阵见 `COMMANDS-SPEC.md` §0.1**：`/stats` 仅 4 类；`/rename` `/settings` 加 `main.ts` 与 adapter 两类；`/fork` 因 `sessions` 已接只需 adapter + 命令两类（无 `main.ts`）；面板型额外追加 `layout.ts` 接线 5 处（§1）。
-- **批次 0（API 合同门）是前置**：`/agents` `/tools` `/settings` `/skills` `/fork` 尚有多项「参数语义/来源」未确定（§1）；**未过门的命令不得进入实现批次**。
+- **批次 0（API 合同门）已完成**：`/agents` `/tools` `/settings` `/skills` `/fork` 的参数语义与来源均已核实并过门（§1）；四批实现无剩余前置。
 - 唯一新基础设施是共享列表面板（`commandPanel` 判别联合 + 单一 Box 生成器）——面板命令共用一套 state/reducer/渲染。
 
 | 批次 | 内容 | 建立的闭环 | 前置 |
 |------|------|-----------|------|
-| **0** | API 合同门（5 项核实 + 面板接线点普查） | 实现前的确定性 | 无 |
+| **0** | API 合同门（5 项核实 + 面板接线点普查）✅ 已完成 | 实现前的确定性 | 无 |
 | 1 | `/stats`、`/rename` | 命令 + notice（零面板；`/rename` 打通宿主服务调用） | 批次 0 中与二者相关的项（无） |
-| 2 | 共享列表面板 + `/skills` | 面板基础设施 + 首个面板命令 | 批次 0 第 3 项（`candidate` 形态） |
-| 3 | `/agents`、`/tools` | 面板 kind 复制 | 批次 0 第 1、2 项（`authority` / `scope`） |
-| 4 | `/settings`、`/fork` | 只读展示 / 待确认签名收尾 | 批次 0 第 4、5 项（`ns` / `boundary`） |
+| 2 | 共享列表面板 + `/skills` | 面板基础设施 + 首个面板命令 | —（批次 0 第 3 项已过门） |
+| 3 | `/agents`、`/tools` | 面板 kind 复制 | —（批次 0 第 1、2 项已过门） |
+| 4 | `/settings`、`/fork` | 只读展示 / 签名收尾 | —（批次 0 第 4、5 项已过门） |
 
 ## 1. 批次 0 · API 合同门
 
 > 目的：把「方法名已核实」推进到「可调用契约已确定」。每条结论写回本表后，对应命令才允许进入实现批次。
-> 核实手段：读宿主源码（`$DSH/node_modules/@deepseek-ai/<pkg>/lib`）或临时探针（`tmp/probe.mts`，先例见既有诊断手法）。
+> 核实手段：读宿主源码——本机 `@deepseek-ai/dsh/node_modules/@deepseek-ai/<pkg>/lib`（dsh 0.1.5-rc.2）。全部结论已核实并过门。
 
 | # | 待核实 | 影响命令 | 结论（待填） |
 |---|--------|---------|-------------|
-| 1 | `subagents.interrupt(targetSessionId, authority)` 的 **`authority` 从何而来**（parent session？权限对象？可否省略）；`subagents.list()` 返回条目是否携带可中断的会话 id | `/agents` | ☐ |
-| 2 | `tools.schemas(scope)` 的 **`scope` 来源**（agent scope 对象？可否省略/传 undefined）；返回结构（是否含 name/description） | `/tools` | ☐ |
-| 3 | `skills.get(candidate)` 的 **`candidate` 形态**（skill 名称字符串？条目对象？）；`skills.list()` 返回条目结构 | `/skills` | ☐ |
-| 4 | `settings.get(ns)` 的 **`ns` 枚举方式**（先调 `describe(options)`？返回结构如何）；`options` 形态 | `/settings` | ☐ |
-| 5 | `sessions.fork(source, boundary, childSessionId)` 的 **`boundary` / `childSessionId` 可省性与语义**；返回结构（新会话对象？id？） | `/fork` | ☐ |
+| 1 | `subagents.interrupt(targetSessionId, authority)` 的 **`authority` 从何而来**；`list()` 条目是否带可中断 id | `/agents` | ✅ **过门**。`authority` 为联合类型：`{kind:'user', parentSessionId}` 或 `{kind:'ancestor', agent}`（`dsh-subagent/lib/types/types.d.ts:57-63`）——TUI 用前者，`parentSessionId` 取 `state.activeSessionId`（TUI `src/app/state.ts:227`）。条目列表须用 **`listChildren(parentSessionId, signal?)` → `SubagentListEntry[]`**（`lib/types/index.d.ts:201`），条目含 `id`/`activity`/`mode`/`label?`/`hasChildren` 或 `kind:'diagnostic'`+`reason`（`lib/types/control-types.d.ts:30-70`）。**`list(): string[]`（`index.d.ts:283`）返回 provider 名，不是 agent 列表**。备选同步 API `interruptByParent(childSessionId, parentSessionId, 'continuable')`（`index.d.ts:264`） |
+| 2 | `tools.schemas(scope)` 的 **`scope` 来源**；返回结构 | `/tools` | ✅ **过门**。签名 `schemas(scope?: ScopeKey): ToolSchema[]`（`dsh-tools/lib/types/index.d.ts:676`）——**scope 可省略**（`ScopeKey = object`，`dsh-scope/lib/types/index.d.ts:11`）；省略即全局视图：`peek(undefined)→undefined`、`chainLayers(undefined)→[]`（`dsh-scope/lib/index.js:151-167`），`view()` 走 `this.layers.global.tools` 全量可见（`dsh-tools/lib/index.js:2854-2880`）。返回 `{name, description, parameters}`（`index.js:2934-2943`）。`get(name, scope?)` 同可省略（`index.d.ts:655`） |
+| 3 | `skills.get(candidate)` 的 **`candidate` 形态**；`skills.list()` 条目结构 | `/skills` | ✅ **过门（服务层不接触 candidate）**。`ctx.skills.get(name: string, options?)` → `SkillDefinition \| undefined`（`dsh-skill/lib/types/index.d.ts:286`），`list(options?)` → `SkillSummary[]`（`index.d.ts:268`）——服务层用 **skill 名字符串**。`SkillCandidate`（含 `rank`/`locator`）仅存在于 provider 层（`index.d.ts:61-70`、`:182-187`）。`SkillSummary` = `name`/`description`/`whenToUse?`/`invocation`/`source`/`provider`/`resourceBase?`（`index.d.ts:43-60`）；`SkillDefinition` 另含 `content` 正文 |
+| 4 | `settings.get(ns)` 的 **`ns` 枚举方式**；`options` 形态 | `/settings` | ✅ **过门**。服务面 `ctx.settings: SettingsProvider`（`dsh-settings/lib/types/index.d.ts:111-114`）。**枚举方式 = `describe(options?)` → `SettingsDescriptor[]`**（`index.d.ts:236`），描述符含 `ns`/`schema`/`value`/`revision`/`base?`/`user?`/`applies`/`secrets?`（`:50-74`）——一次调用即得 ns + 当前值。单读 `get(ns)` → `unknown`（`:250` 附近）。注意 `describe` 的 `redactSecrets` 选项（`:75+`）：同进程 UI 可省略，但 `role('secret')` 字段不应明文展示 |
+| 5 | `sessions.fork(source, boundary, childSessionId)` 的 **`boundary` / `childSessionId` 可省性与语义**；返回结构 | `/fork` | ✅ **过门**。签名 `fork(source: Session \| SessionId, boundary?: SessionSeq, childSessionId?: SessionId): Session`（`dsh-session/lib/types/index.d.ts:439`）——**后两参皆可省略**：省略 `boundary` = 源会话**当前最后事件**（`:431-433`），省略 `childSessionId` = `SessionStore` 的 id 策略；`source` 可为 id 字符串（`SessionForkSource = Session \| SessionId`，`:294-295`）。**同步返回 live Session 对象**。约束：切片可止于 turn 间事件，**不可落在未闭合 turn 内**；错误码 `SESSION_NOT_FOUND`/`SESSION_NOT_LIVE`/`SESSION_ALREADY_EXISTS`（`:297-305`） |
 
 **未过门的处置**：任何一项若核实结果为「必须提供 TUI 侧无法获得的参数」或「需宿主侧改动」，则该命令移入 §7 不在范围，不进入实现批次。
+
+**本轮结果**：5 项**全部过门**，7 项候选无一移出；实现批次无剩余前置（第 1 项副产品：`/agents` 条目列表须用 `listChildren`，SPEC 表述已同步修正）。
 
 **面板接线点普查（已完成）**：新增 `commandPanel` 必须同时改下列 5 处，缺一处即出现「面板显示了但 footer/focus 行为错」：
 
@@ -165,13 +167,13 @@ npm --prefix TUI run demo -- --smoke   # 帧断言 SMOKE_PASS 36/36
 1. `feat(tui): 新增 /agents 与 /tools 面板命令`
 1. `feat(tui): 新增 /settings 与 /fork 命令`
 
-**协议（硬性）**：每批实现 → 自测通过 → 报告用户 → **停下等用户明确说「提交」** → 再提交该批 → 进入下一批。不得五批做完后一次确认连续提交（`AGENTS.md` 要求人工确认变更效果后才允许提交）。
+**协议（硬性）**：每批实现 → 自测通过（§6 验收命令全绿）→ **自动提交该批** → 直接进入下一批。用户已显式授权本清单范围的自动化提交（2026-09），无需逐批停下等人工确认；提交前仍须自查 diff、跑 `/home/guochang/fff/scripts/format` 格式化改动文件。
 
 ## 9. 待决清单
 
 | # | 问题 | 备注 |
 |---|------|------|
-| 1 | 批次 0 五项结论 | 见 §1 表；未过门者移出范围 |
+| 1 | 批次 0 五项结论 | ✅ 已核实、全部过门（§1 表，附源码文件:行）；无命令移出范围 |
 | 2 | PgUp/PgDn 是否回头补给既有 `/jobs` 面板 | 共享面板新增能力，统一体验则后续补 |
 | 3 | `commandPanel` 的 kind 扩张 | 插件改造完成后 `/memory` `/task` 等是否并入同一判别联合（倾向并入） |
 | 4 | `/agents` 是否需要事件驱动刷新 | 本轮打开时拉取；若状态变化频繁再接 `subagent/*` 事件（事件面已接） |

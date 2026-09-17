@@ -11,8 +11,8 @@
 | `REFACTOR.md` | task/约定 | 模块拆分原则、文件归属、触发标准 |
 | `AUDIT-colors.md` / `NOTICE-LEVELS.md` | 参考 | 颜色审计 / notice 级别约定 |
 | `COMMANDS.md` | 参考 | 命令面清单（本地 + 宿主注册）+ 对比其他 agent 的扩展建议 |
-| `COMMANDS-SPEC.md` | spec | 命令扩展规格（纯 TUI 侧 7 项候选，5 项合同门未决）：落点/降级/共享面板与接线点/API 核实表 + 逐条规格 + 未纳入索引 |
-| `COMMANDS-TASKS.md` | task | 命令扩展实施清单：批次 0 API 合同门 + 四批实现、验收命令、提交协议与待决清单 |
+| `COMMANDS-SPEC.md` | spec | 命令扩展规格（纯 TUI 侧 7 项，已过 API 合同门）：落点/降级/共享面板与接线点/API 核实表 + 逐条规格 + 未纳入索引 |
+| `COMMANDS-TASKS.md` | task | 命令扩展实施清单：批次 0 合同门（已完成）+ 四批实现、验收命令、提交协议与待决清单 |
 
 DSH（DeepSeek Harness）进程内集成的终端 UI 插件。复用 DSH 核心服务（会话、Agent 驱动、审批链等），提供 Web UI / CLI 之外的第三种交互方式，由自研极简渲染层驱动（不依赖 Ink / Solid-TUI / node-pty，运行时唯一依赖 `chalk`）。
 

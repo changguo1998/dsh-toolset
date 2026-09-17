@@ -2,7 +2,7 @@
 
 > 依据：`COMMANDS.md`（命令来源归口与落点决策）、`DESIGN.md`（四区域布局、面板/焦点约定）、`NOTICE-LEVELS.md`（提示分级）、`SPEC.md`（Box 渲染与排版契约）。
 > 口径：**只覆盖纯 TUI 侧可实现的命令**——宿主服务现成、不需要改动本项目任何插件。**方法签名**已读源码核实（§0.7）；**可调用契约**（参数语义与来源）由 `COMMANDS-TASKS.md` §1「批次 0 · API 合同门」把关，未过门的命令不进入实现。
-> 状态：**最多 7 项候选**（P1 三项 + P2 四项），其中 **5 项合同门未决**（`/skills` `/agents` `/tools` `/settings` `/fork`，见 `COMMANDS-TASKS.md` §1）；过门后方为可实施。需插件改造的 5 项（含 `/contract`）与宿主 API 未证实的 4 项列入 §3 索引，不写规格。
+> 状态：**7 项候选全部通过批次 0 API 合同门**（`/skills` `/agents` `/tools` `/settings` `/fork` 的前置结论见 `COMMANDS-TASKS.md` §1，附源码文件:行），可直接进入实现批次。需插件改造的 5 项（含 `/contract`）与宿主 API 未证实的 4 项列入 §3 索引，不写规格。
 
 ## 0. 通用规格
 
@@ -116,12 +116,12 @@ commandPanel:
 
 | 服务 | 精确签名 | 提供包 |
 |------|---------|--------|
-| `skills` | `list()`（**无参**）、`get(candidate)` | `dsh-skill` |
-| `subagents` | `list()`、`interrupt(targetSessionId, authority)`（**参数为会话 id**）、`start(name, request)`、`sendMessage(sender, targetId, content, options)`、`listChildren(parentSessionId, signal)` | `dsh-subagent` |
-| `tools` | `schemas(scope)`、`get(name, scope)`、`view(scope)`、`register(definition)`、`restrict(filter)` | `dsh-tools` |
+| `skills` | `list(options?)` → `SkillSummary[]`、`get(name, options?)` → `SkillDefinition`（**服务层用名字符串**；`candidate` 只在 provider 层） | `dsh-skill` |
+| `subagents` | `listChildren(parentSessionId, signal?)` → `SubagentListEntry[]`（**列 agent 用这个**，条目含 `id`）、`interrupt(targetSessionId, authority)`（`authority` = `{kind:'user',parentSessionId}`）、`interruptByParent(child, parent, 'continuable')`、`start` / `sendMessage`；`list()` 返回 provider 名 | `dsh-subagent` |
+| `tools` | `schemas(scope?)` → `ToolSchema[]`、`get(name, scope?)`、`view(scope?)`（**scope 省略 = 全局视图**，已核实）、`register` / `restrict` | `dsh-tools` |
 | `sessionTitle` | `get(session)`、`rename(session, title)`（**首参为 session 对象**） | `dsh-session-title` |
-| `sessions` | `list()`、`get(id)`、`create(id, options)`、`fork(source, boundary, childSessionId)`（**三参**） | `dsh-session` |
-| `settings` | `get(ns)`、`describe(options)`、`write(ns, input, mode, expectedRevision)`、`register(ns, schema, options)` | `dsh-settings` |
+| `sessions` | `list()`、`get(id)`、`create(id, options)`、`fork(source, boundary?, childSessionId?)` → `Session`（**后两参可省**：省 boundary = 尾事件、省 id = store 策略） | `dsh-session` |
+| `settings` | `describe(options?)` → `SettingsDescriptor[]`（**枚举 ns 的方式**，含 `ns`/`value`/`revision`）、`get(ns)` → unknown、`write(ns, input, mode, expectedRevision)`、`register` | `dsh-settings` |
 | `tokenMeter` | `measure(session, requestHeader)`、`estimateMessage(message)` | `dsh-token-meter` |
 
 其他已核实事实：cordis 服务挂载 API 为 `ctx.provide(name, value)`（宿主 23 处用法）；输入预填 action `{ type: "input", text, cursor }`；`state.usage = { input, output, cacheRead, contextWindow? }`（**最近一次模型调用**，非会话累计）；面板渲染位置与优先级见 §0.4。
@@ -142,41 +142,41 @@ commandPanel:
 | 落点 | 只需 `index.ts`（`case` + `handleStatsCommand()`）；不新增服务 |
 | 测试 | 注入 usage → 文本含分解数与百分比；无 usage → info 提示；`contextWindow` 缺失/为 0 → 不除零、只显绝对量 |
 
-### 1.2 `/skills`（前置：批次 0 第 3 项）
+### 1.2 `/skills`（前置：批次 0 第 3 项 ✅ 已过门）
 
 | 项 | 规格 |
 |----|------|
 | 参数 | 可选 `<filter>`（对名称/描述不区分大小写子串过滤） |
-| 服务 | `skills.list()`（无参，已核实）、`skills.get(candidate)`（Enter 详情用） |
+| 服务 | `skills.list()` → `SkillSummary[]`（`name`/`description`/`provider`）、`skills.get(name)` → `SkillDefinition`（含 `content` 正文；Enter 详情用） |
 | 输出 | 面板（kind `skills`，支持 PgUp/PgDn） |
 | 行内容 | `名称 — 描述首行`；来源 provider 作后缀（若条目含） |
 | 键位 | ↑/↓/PgUp/PgDn、Enter 显示详情（notice 多行）、Esc |
 | 降级 | `skills` 服务缺失 → warn「skills 服务不可用」 |
-| 落点 | `types.ts` 加 `SkillsLike { list?(): ReadonlyArray<Record<string, unknown>>; get?(candidate: unknown): unknown }`；`main.ts` 接 `ctx.get("skills")` |
+| 落点 | `types.ts` 加 `SkillsLike { list?(): ReadonlyArray<Record<string, unknown>>; get?(name: string): unknown }`；`main.ts` 接 `ctx.get("skills")` |
 | 测试 | stub 返回 2 条 → 面板行含名称；filter 生效；服务缺失 → warn；空列表 → 占位行 |
 
-### 1.3 `/agents`（前置：批次 0 第 1 项）
+### 1.3 `/agents`（前置：批次 0 第 1 项 ✅ 已过门）
 
 | 项 | 规格 |
 |----|------|
 | 参数 | 无（面板内操作） |
-| 服务 | `subagents.list()`（已核实）、`subagents.interrupt(targetSessionId, authority)`（**首参为会话 id**） |
+| 服务 | `subagents.listChildren(parentSessionId, signal?)` → `SubagentListEntry[]`（**列 agent 用这个**；`parentSessionId` 取 `state.activeSessionId`）、`subagents.interrupt(childId, { kind: 'user', parentSessionId })` |
 | 输出 | 面板（kind `agents`） |
-| 行内容 | `label · mode · provider/model · 状态`（字段以 `subagents/list` 的实际条目为准，实现时按 `Record<string, unknown>` 宽松读取） |
+| 行内容 | `label · mode · activity · hasChildren`（`SubagentListEntry` 已核实字段：`id`/`activity`/`mode`/`label?`/`hasChildren`；`kind:'diagnostic'` 条目显示 `reason`） |
 | 键位 | ↑/↓ 移动、Enter 中断选中项、Esc 关闭 |
-| 破坏性动作 | **定死为「直接执行 + 结果 notice」**（照 `/jobs` 面板 Enter 取消任务的既有先例；面板内高亮即选择，不再引入二次确认，避免同一 UI 两套交互）。中断目标为条目携带的会话 id；条目无会话 id 时该行不可中断（灰显 + notice 说明） |
+| 破坏性动作 | **定死为「直接执行 + 结果 notice」**（照 `/jobs` 面板 Enter 取消任务的既有先例；面板内高亮即选择，不再引入二次确认，避免同一 UI 两套交互）。中断目标为条目携带的 `id`，`authority` 用 `{ kind: 'user', parentSessionId: state.activeSessionId }`；条目为 `kind:'diagnostic'`（无可中断 id）时该行不可中断（灰显 + notice 说明） |
 | 降级 | 服务缺失 → warn |
 | 与 `/preset` 的区别 | `/preset` 是 `agentPresets`（持久化预设目录，可切换）；本命令是实际存在的子代理（运行中/可续接），**不能互相替代** |
 | 测试 | stub 返回 2 条 → 面板行含 label；Enter → 断言 `interrupt` 收到会话 id；条目缺 id → 不调服务并提示；缺失 → warn |
 
 ## 2. P2 命令（4 项候选，纯 TUI 侧）
 
-### 2.1 `/tools`（前置：批次 0 第 2 项）
+### 2.1 `/tools`（前置：批次 0 第 2 项 ✅ 已过门）
 
 | 项 | 规格 |
 |----|------|
 | 参数 | 可选 `<filter>`（工具名子串） |
-| 服务 | `tools.schemas(scope)`（返回全部 schema，用于列出）、`tools.get(name, scope)`（Enter 详情） |
+| 服务 | `tools.schemas()`（**scope 省略 = 全局视图**，返回 `ToolSchema[]`：`name`/`description`/`parameters`）、`tools.get(name)`（Enter 详情） |
 | 输出 | 面板（kind `tools`，必须支持 PgUp/PgDn——工具数量通常数十条） |
 | 行内容 | `名称 — 描述首行` |
 | 降级 | 服务缺失 → warn |
@@ -192,23 +192,23 @@ commandPanel:
 | 降级 | 服务缺失 → warn；空标题/含换行 → error（拒绝，不发服务调用） |
 | 注 | 无需面板、无需新 reducer——最轻的一条，可提前实现 |
 
-### 2.3 `/settings`（前置：批次 0 第 4 项）
+### 2.3 `/settings`（前置：批次 0 第 4 项 ✅ 已过门）
 
 | 项 | 规格 |
 |----|------|
 | 参数 | 无（只读展示） |
-| 服务 | `settings.get(ns)`（按命名空间读）、`settings.describe(options)`（发现可用命名空间） |
+| 服务 | `settings.describe()` → `SettingsDescriptor[]`（**枚举 ns 且直接带当前值**：`ns`/`value`/`revision`/`base?`/`user?`/`applies`）、`settings.get(ns)`（单读） |
 | 输出 | notice 多行（`ns：key = value`，超长截断） |
 | 降级 | 服务缺失 → warn |
 | 范围 | **第一版只读**。写回（`settings.write(ns, input, mode, expectedRevision)`）涉及真实配置与乐观锁（`expectedRevision`），需独立设计与确认契约，不在本命令范围 |
 
-### 2.4 `/fork`（前置：批次 0 第 5 项）
+### 2.4 `/fork`（前置：批次 0 第 5 项 ✅ 已过门）
 
 | 项 | 规格 |
 |----|------|
 | 参数 | 无 |
-| 服务 | `sessions.fork(source, boundary, childSessionId)`（**三参已核实**） |
-| 待确认 | `boundary` / `childSessionId` 的可选性与语义未定 → **实现前用探针确认**；若三参必填且语义需用户输入，则改为带参形态（`/fork <boundary>`）或并入 `/session` 面板，不擅自造默认值 |
+| 服务 | `sessions.fork(source, boundary?, childSessionId?)\` → live `Session`（**后两参可省**：省 `boundary` = 源会话当前最后事件；省 `childSessionId` = store 的 id 策略；`source` 可用 id 字符串） |
+| 语义（已核实） | 切片可止于 turn 间事件，**不可落在未闭合 turn 内**；错误码 `SESSION_NOT_FOUND` / `SESSION_NOT_LIVE` / `SESSION_ALREADY_EXISTS` → 映射为 warn notice（不抛穿） |
 | 输出 | success notice（新会话 id/标题）+ 必要时提示用 `/session` 切换 |
 | 降级 | 服务缺失 → warn |
 
@@ -231,7 +231,7 @@ commandPanel:
 
 | 批次 | 命令 | 验证的闭环 |
 |------|------|-----------|
-| 0 | （前置）API 合同门 | 见 `COMMANDS-TASKS.md` §1；未过门者移出 §3 |
+| 0 | （前置）API 合同门 ✅ 已完成 | 5 项全部过门，见 `COMMANDS-TASKS.md` §1；无命令移出 §3 |
 | 1 | `/stats`、`/rename` | 「命令 + notice」最小闭环（`/stats` 零新服务只读 `state.usage`；`/rename` 打通首个宿主服务调用） |
 | 2 | 共享列表面板 + `/skills` | 「共享面板 + 新服务接线」闭环（建立 `commandPanel` 模型） |
 | 3 | `/agents`、`/tools` | 面板 kind 复制（新增 kind 即可，不再写 reducer/渲染器） |
