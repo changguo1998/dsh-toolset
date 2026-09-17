@@ -19,6 +19,7 @@ import {
   displayWidth,
 } from "./markdown.ts";
 import { seg, rowWidth2 } from "./primitives.ts";
+import { measure, allocate } from "./measure.ts";
 
 /** fill 上下文：主题（行内 markdown 着色调色板）+ 视口宽（装饰降级判定） */
 export interface FillContext {
@@ -35,6 +36,22 @@ export interface ContentRow extends FrameRow {
   blockId?: number;
   /** 行级缩进（已并入 segments；冗余供快速读取） */
   indent?: number;
+}
+
+/** 便捷：Box 树摊平到 ContentRow[]（面板 Box 生成器统一入口；矩形恒从
+ * (0,0) 起）。组件 render 薄包装与 layout.ts fillPanelBox 共用此实现
+ * （单一数据源，避免 render/build 双算法漂移）。 */
+export function fillBoxTree(
+  box: Box,
+  height: number,
+  width: number,
+  themeId: ThemeId,
+): ContentRow[] {
+  const w = Math.max(1, width);
+  const rect = { x: 0, y: 0, w, h: Math.max(1, height) };
+  const st = measure(box, { maxW: w });
+  const rects = allocate(st, rect);
+  return fillToList({ themeId, viewportWidth: w }, box, rect, rects);
 }
 
 /** 节点 → 行元数据（buildBox 产出；fill 传播到每行） */
@@ -64,8 +81,14 @@ export function fill(
 ): void {
   const r = rects.get(node) ?? rect;
   if (r.w <= 0 || r.h <= 0) return;
-  if (node.kind === "text") return fillParagraph(ctx, node, r, append, meta);
-  if (node.kind === "styled") return fillStyled(ctx, node, r, append, meta);
+  if (node.kind === "text") {
+    fillParagraph(ctx, node, r, append, meta);
+    return;
+  }
+  if (node.kind === "styled") {
+    fillStyled(ctx, node, r, append, meta);
+    return;
+  }
   fillBox(ctx, node, r, append, rects, meta);
 }
 
@@ -104,7 +127,7 @@ function fillBox(
     // 内容子项（显式 spacer = 空文本 + 尺寸声明，无语义；空 body 仍算内容）
     const contentChildIdx = box.children.findIndex((c) => !isSpacer(c));
     for (let ri = 0; ri < maxRows; ri++) {
-      let segs: FrameSegment[] = [];
+      const segs: FrameSegment[] = [];
       for (let ci = 0; ci < box.children.length; ci++) {
         const child = box.children[ci]!;
         const r = rects.get(child) ?? rect;
@@ -216,7 +239,7 @@ function decorateRows(
     const rowSegs: FrameSegment[] = [
       ...prefixSegs,
       ...line,
-      ...(padBody !== "" ? [seg(padBody)] : []),
+      ...(padBody ? [seg(padBody)] : []),
       ...suffixSegs,
     ];
     // 悬挂续行缩进：首行缩进 indent，续行缩进 hanging（对齐正文起列）
@@ -311,9 +334,7 @@ function fillParagraph(
   // wrap:false：仅按 \n 切物理行，不软折行（面板行精确行长）
   let rows: FrameSegment[][];
   if (p.wrap === false) {
-    rows = p.text
-      .split("\n")
-      .map((l) => (l === "" ? [seg("")] : [seg(l)]));
+    rows = p.text.split("\n").map((l) => (l === "" ? [seg("")] : [seg(l)]));
   } else if (p.fillBg) {
     rows = wrapCodeLine(p.text, bodyW);
   } else {

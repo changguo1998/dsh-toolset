@@ -8,6 +8,8 @@ import type { ApprovalItem } from "../adapter/dsh.ts";
 import type { Box } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
+import { panelTitle, panelExplanation } from "../layout/panel.ts";
+import { fillBoxTree } from "../layout/fill.ts";
 
 /**
  * 审批面板 Box 生成器（DESIGN.md §7 / SPEC.md §7）：输出整棵 activity
@@ -29,11 +31,14 @@ export function buildApprovalBox(
     lines.push(...wrapByWidth(part, avail));
   }
   const body = lines.slice(0, maxBody);
-  // 标题行 + body 叶子（已预折行，wrap:false 保序；不足 maxBody 补空行，
-  // 对齐现状 render 逐行产 `" " + (body[i] ?? "")`——body 区恒 maxBody 行）
-  const title = styled([seg(" ⚠ 等待审批 ", { fg: "yellow" as const })]);
+  // 标题行（panelTitle 原语，非 bold 黄）+ body 叶子（panelExplanation，
+  // 已预折行 wrap:false 保序；不足 maxBody 补空行对齐现状恒 maxBody 行）
+  const title = panelTitle(" ⚠ 等待审批 ", {
+    style: { fg: "yellow" },
+    bold: false,
+  });
   const bodyLeaves = Array.from({ length: maxBody }, (_, i) =>
-    styled([seg(` ${body[i] ?? ""}`)]),
+    panelExplanation(` ${body[i] ?? ""}`),
   );
   // 末行：多色 styled 段（y=红 / n=绿）
   const hint = styled([
@@ -53,31 +58,13 @@ export function renderApprovalPrompt(
   height: number,
   width: number,
 ): FrameRow[] {
-  const avail = Math.max(4, width - 4);
-  const maxBody = Math.max(0, height - 2); // 去掉标题行和操作提示行后的可装行数（高度 <3 时可为 0）
-
-  const lines: string[] = [];
-  for (const seg of approval.prompt.split("\n")) {
-    if (seg === "") continue;
-    lines.push(...wrapByWidth(seg, avail));
-  }
-  const out: FrameRow[] = [];
-  out.push({ segments: [{ text: " ⚠ 等待审批 ", style: { fg: "yellow" } }] }); // 等待审批标题：黄（warn/进行中）
-  // 主体内容（可能截断）
-  const body = lines.slice(0, maxBody);
-  for (let i = 0; i < maxBody; i++)
-    out.push({ segments: [{ text: ` ${body[i] ?? ""}` }] });
-  out.push({
-    // y=批准 红、n=拒绝 绿（用户指定；其它部分不着色）
-    segments: [
-      { text: " " },
-      { text: "[y]批准", style: { fg: "red" } },
-      { text: " · " },
-      { text: "[n]拒绝", style: { fg: "green" } },
-      { text: " · [Esc]退出 " },
-    ],
-  });
-  return out;
+  // 薄包装：单一数据源 buildApprovalBox → fillBoxTree
+  return fillBoxTree(
+    buildApprovalBox(approval, height, width),
+    height,
+    width,
+    "dark" as never,
+  );
 }
 
 /** 按列适配宽度做简单换行（与 layout.wrapLine 语义一致，避免循环依赖） */

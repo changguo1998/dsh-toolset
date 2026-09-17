@@ -17,6 +17,7 @@ import type { QuestionPanelState } from "../state.ts";
 import type { Box } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
+import { fillBoxTree } from "../layout/fill.ts";
 
 /**
  * 问答面板 Box 生成器（DESIGN.md §7 / SPEC.md §7）：整棵 activity 内容树
@@ -42,7 +43,7 @@ export function buildQuestionPanelBox(
   if (item) {
     pool.push(
       ...wrapPrefixed(
-        " " + (item.header ? item.header + "：" : "") + item.question,
+        ` ${item.header ? item.header + "：" : ""}${item.question}`,
         avail,
         " ",
       ),
@@ -51,7 +52,7 @@ export function buildQuestionPanelBox(
       if (isPlan) pool.push(" -- 待审计划 --");
       for (const part of item.detail.split("\n")) {
         if (part === "") continue;
-        pool.push(...wrapByWidth(" " + part, avail));
+        pool.push(...wrapByWidth(` ${part}`, avail));
       }
       if (isPlan) pool.push(" --------------");
     }
@@ -61,15 +62,11 @@ export function buildQuestionPanelBox(
       if (opt === undefined) break;
       const selected = item.selected.includes(opt.label);
       const cursor = item.optionIndex === i ? ">" : " ";
-      const mark = selected ? (multi ? "+" : "*") : " ";
-      const desc = opt.description ? " " + opt.description : "";
+      const mark = selected ? markFor(multi) : " ";
+      const desc = opt.description ? ` ${opt.description}` : "";
       optRows[i] = pool.length;
       pool.push(
-        ...wrapPrefixed(
-          " " + cursor + mark + " " + opt.label + desc,
-          avail,
-          "    ",
-        ),
+        ...wrapPrefixed(` ${cursor}${mark} ${opt.label}${desc}`, avail, "    "),
       );
     }
     const ci = item.options.length;
@@ -78,7 +75,7 @@ export function buildQuestionPanelBox(
     optRows[ci] = pool.length;
     pool.push(
       ...wrapPrefixed(
-        " " + cursor + mark + " 自定义回答" + (item.custom === "" ? "" : "：" + item.custom),
+        ` ${cursor}${mark} 自定义回答${item.custom === "" ? "" : "：" + item.custom}`,
         avail,
         "    ",
       ),
@@ -127,133 +124,29 @@ export function buildQuestionPanelBox(
   if (hasPreset) parts.push("[空格]标记");
   if (hasPreset) parts.push("[↑/↓]选项");
   if (total > 1) parts.push("[←/→]切题");
-  const hint = styled([seg(" " + parts.join(" · ") + " ")], {
+  const hint = styled([seg(` ${parts.join(" · ")} `)], {
     wrap: false,
   });
   return v([title, ...bodyLeaves, hint]);
 }
-
 
 export function renderQuestionPanel(
   panel: QuestionPanelState,
   height: number,
   width: number,
 ): FrameRow[] {
-  const avail = Math.max(4, width - 4);
-  const maxBody = Math.max(0, height - 2); // 去掉标题行和操作提示行后的可装行数（高度 <3 时可为 0）
-  const item = panel.items[panel.itemIndex];
-  // 高亮行号（pool 内）：当前选项/自定义兜底项，供滚动窗口定位
-  let hl = -1;
-  const total = panel.items.length;
-  const isPlan = item?.intent?.kind === "plan-review";
-  const multi = item?.multiSelect ?? false;
-  const hasPreset = (item?.options.length ?? 0) > 0;
-
-  // 可截断区：题干/detail/选项（含“自定义回答”兜底项）
-  const pool: string[] = [];
-  if (item) {
-    // 题干（header 前缀）：超宽折行，续行缩进 1 空格与正文起点对齐
-    pool.push(
-      ...wrapPrefixed(
-        " " + (item.header ? item.header + "：" : "") + item.question,
-        avail,
-        " ",
-      ),
-    );
-    // detail：plan-review 以计划卡片呈现，普通题作为说明正文
-    if (item.detail) {
-      if (isPlan) pool.push(" -- 待审计划 --");
-      for (const seg of item.detail.split("\n")) {
-        if (seg === "") continue;
-        pool.push(...wrapByWidth(" " + seg, avail));
-      }
-      if (isPlan) pool.push(" --------------");
-    }
-    // 预设选项（记录每项 pool 起始行，供高亮行滚动窗口定位）
-    const optRows: number[] = [];
-    for (let i = 0; i < item.options.length; i++) {
-      const opt = item.options[i]!;
-      const selected = item.selected.includes(opt.label);
-      const cursor = item.optionIndex === i ? ">" : " ";
-      const mark = selected ? (multi ? "+" : "*") : " ";
-      const desc = opt.description ? " " + opt.description : "";
-      // 选项文本超出面板可用宽时折行（soft-wrap，续行缩进与选项文本起点对齐，
-      // 无光标/标记），记录该选项 pool 起始行供滚动定位
-      optRows[i] = pool.length;
-      pool.push(
-        ...wrapPrefixed(
-          " " + cursor + mark + " " + opt.label + desc,
-          avail,
-          "    ",
-        ),
-      );
-    }
-    // 自定义回答兜底项（列表末位，含已输入文本）
-    const ci = item.options.length;
-    const cursor = item.optionIndex === ci ? ">" : " ";
-    const mark = item.custom === "" ? " " : multi ? "+" : "*";
-    optRows[ci] = pool.length;
-    pool.push(
-      ...wrapPrefixed(
-        " " +
-          cursor +
-          mark +
-          " 自定义回答" +
-          (item.custom === "" ? "" : "：" + item.custom),
-        avail,
-        "    ",
-      ),
-    );
-    // 自定义项下标与 optionIndex 取值域一致
-    hl = optRows[item.optionIndex] ?? -1;
-  }
-
-  // 高亮行（当前选项/自定义兜底项）恒在可视窗口内：可截断区超出时按
-  // 高亮行整体滚动（取代旧的「自定义行强制放底部」特例）。
-  // 未导航（optionIndex==0）时窗口锚定内容顶部——默认展示题干/计划卡片头
-  // （如 plan-review 的长 detail），用户下移导航后才跟随高亮行滚动。
-  const following = (item?.optionIndex ?? 0) > 0;
-  const start =
-    hl < 0 || pool.length <= maxBody
-      ? 0
-      : following
-        ? Math.min(
-            Math.max(0, hl - (maxBody - 1)),
-            Math.max(0, pool.length - maxBody),
-          )
-        : 0;
-  const body = pool.slice(start, start + maxBody);
-
-  const out: FrameRow[] = [];
-  out.push({
-    segments: [
-      {
-        text: isPlan
-          ? " ⚠ 计划审批（第 " + (panel.itemIndex + 1) + "/" + total + " 题）"
-          : " ⚠ 请回答（第 " + (panel.itemIndex + 1) + "/" + total + " 题）",
-      },
-    ],
-  });
-  for (let i = 0; i < maxBody; i++) {
-    const t = body[i] ?? "";
-    // 选项行按状态着色：光标行（> 即当前位置）黄、已选行（* 或 +）绿，其余原样
-    if (t.length > 1 && t[1] === ">")
-      out.push({ segments: [{ text: t, style: { fg: "yellow" } }] });
-    else if (t.length > 2 && (t[2] === "*" || t[2] === "+"))
-      out.push({ segments: [{ text: t, style: { fg: "green" } }] });
-    else out.push({ segments: [{ text: t }] });
-  }
-  // 操作提示：只显示当前实际用到的按键
-  const parts: string[] = [];
-  parts.push(
-    "[Enter]" + (total > 1 && panel.itemIndex < total - 1 ? "下一题" : "提交"),
+  // 薄包装：单一数据源 buildQuestionPanelBox → fillBoxTree
+  return fillBoxTree(
+    buildQuestionPanelBox(panel, height, width),
+    height,
+    width,
+    "dark" as never,
   );
-  parts.push("[Esc]取消");
-  if (hasPreset) parts.push("[空格]标记");
-  if (hasPreset) parts.push("[↑/↓]选项");
-  if (total > 1) parts.push("[←/→]切题");
-  out.push({ segments: [{ text: " " + parts.join(" · ") + " " }] });
-  return out;
+}
+
+/** 选项标记：多选 `+`，单选 `*`（嵌套已收敛为单一布尔） */
+function markFor(multi: boolean): string {
+  return multi ? "+" : "*";
 }
 
 /** 按列适配宽度做简单换行（与 layout.wrapLine 语义一致，避免循环依赖） */

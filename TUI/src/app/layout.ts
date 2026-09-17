@@ -36,7 +36,7 @@ import { buildContentRows } from "./layout/build-box.ts";
 import { measure } from "./layout/measure.ts";
 import { allocate } from "./layout/measure.ts";
 import { fillToList } from "./layout/fill.ts";
-import { focusFrame } from "./layout/focus-frame.ts";
+import { focusFrame, focusColor } from "./layout/focus-frame.ts";
 import type { PaneId, Rect } from "./layout/box.ts";
 import type { ContentRow } from "./layout/fill.ts";
 import {
@@ -262,10 +262,9 @@ export const FRAME_RIGHT_COLS = 1;
  *  置于会话历史区上方；极矮终端由 topPaneHeights 自适应收缩到 1/0 行） */
 export const TITLE_BAR_ROWS = 2;
 
-/** 焦点框（L4 强调级，不引入彩色）：dark=bright[7] 白、light=ansi[0] 黑 */
-export function focusFrameColor(themeId: ThemeId): ColorName {
-  return themeId === "dark" ? "brightWhite" : "black";
-}
+/** 焦点框色（L4 强调级）：dark=bright[7] 白、light=ansi[0] 黑。
+ * re-export focus-frame.focusColor（单一实现，避免焦点色映射双源）。 */
+export const focusFrameColor = focusColor;
 
 /**
  * 活动区可视行数（= 顶部区域「内容行数」= topHeight-边框行的一半；
@@ -820,6 +819,52 @@ export function renderStatusColumn(
   return out;
 }
 /** 顶部区域：左列对话历史+活动区（可独立滚动）、右侧详细状态列；焦点面板四边框亮色 */
+/** 当前激活的活动区面板 Box（approval/question/picker/statusPanel/jobs/
+ * history/completion 多分支选型；无面板返回 null——活动区显示瞬态行）。
+ * 各面板组件导出 buildXxxBox（Box 生成器），这里统一选型。 */
+function buildActivePanelBox(
+  state: AppState,
+  activityH: number,
+  contentW: number,
+): import("./layout/box.ts").Box | null {
+  if (state.approval)
+    return buildApprovalBox(state.approval, activityH, contentW);
+  if (state.question)
+    return buildQuestionPanelBox(state.question, activityH, contentW);
+  if (state.picker)
+    return buildModelPickerBox({
+      picker: state.picker,
+      height: activityH,
+      width: contentW,
+    });
+  if (state.statusPanel)
+    return buildStatusPanelBox(state.statusPanel, activityH, contentW);
+  if (state.jobsPanel)
+    return buildJobsPanelBox(
+      state.jobs,
+      state.jobsPanel.index,
+      activityH,
+      contentW,
+    );
+  if (state.history)
+    return buildHistoryPanelBox({
+      history: state.history,
+      records: historyVisibleRecords(state),
+      totalCount: state.history.records.length,
+      projectCwd: currentProjectCwd(state),
+      height: activityH,
+      width: contentW,
+    });
+  if (state.completion)
+    return buildCommandCompletionBox({
+      completion: state.completion,
+      height: activityH,
+      width: contentW,
+      themeId: state.themeId,
+    });
+  return null;
+}
+
 /** 面板 Box 生成器 → 活动区 ContentRow[]（measure/allocate/fill 统一摊平） */
 function fillPanelBox(
   box: import("./layout/box.ts").Box,
@@ -831,12 +876,7 @@ function fillPanelBox(
   const rect = { x: 0, y: 0, w, h: Math.max(1, height) };
   const st = measure(box, { maxW: w });
   const rects = allocate(st, rect);
-  return fillToList(
-    { themeId, viewportWidth: w },
-    box,
-    rect,
-    rects,
-  );
+  return fillToList({ themeId, viewportWidth: w }, box, rect, rects);
 }
 
 function buildTopRegion(
@@ -956,79 +996,11 @@ function buildTopRegion(
   // 「有问题交互」面板（审批/问答/模型选择）显示位置=流输出（活动区）窗口顶部：
   // 底部交互区不再承载（footer 空白占位保持交互区高度稳定）；面板占满活动区可视
   // 行，活动区瞬态行（thinking/tool/notice）在面板存在时本帧让位
-  // 面板 Box 生成器：审批面板已迁移为 buildApprovalBox（Box 树 → fill）；
-  // 其余面板暂居 renderXxx（FrameRow[] 旧路径），逐个迁移中。
-  const modalPanel: ContentRow[] = state.approval
-    ? fillPanelBox(
-        buildApprovalBox(state.approval, activityH, contentW),
-        activityH,
-        contentW,
-        state.themeId,
-      )
-    : state.question
-      ? fillPanelBox(
-          buildQuestionPanelBox(state.question, activityH, contentW),
-          activityH,
-          contentW,
-          state.themeId,
-        )
-      : state.picker
-        ? fillPanelBox(
-            buildModelPickerBox({
-              picker: state.picker,
-              height: activityH,
-              width: contentW,
-            }),
-            activityH,
-            contentW,
-            state.themeId,
-          )
-        : state.statusPanel
-          ? fillPanelBox(
-              buildStatusPanelBox(state.statusPanel, activityH, contentW),
-              activityH,
-              contentW,
-              state.themeId,
-            )
-          : state.jobsPanel
-            ? fillPanelBox(
-                buildJobsPanelBox(
-                  state.jobs,
-                  state.jobsPanel.index,
-                  activityH,
-                  contentW,
-                ),
-                activityH,
-                contentW,
-                state.themeId,
-              )
-            : state.history
-              ? fillPanelBox(
-                  buildHistoryPanelBox({
-                    history: state.history,
-                    records: historyVisibleRecords(state),
-                    totalCount: state.history.records.length,
-                    projectCwd: currentProjectCwd(state),
-                    height: activityH,
-                    width: contentW,
-                  }),
-                  activityH,
-                  contentW,
-                  state.themeId,
-                )
-              : state.completion
-                ? fillPanelBox(
-                    buildCommandCompletionBox({
-                      completion: state.completion,
-                      height: activityH,
-                      width: contentW,
-                      themeId: state.themeId,
-                    }),
-                    activityH,
-                    contentW,
-                    state.themeId,
-                  )
-                : [];
+  // 活动区面板 Box 生成器统一入口（buildActivePanelBox 多分支选型）
+  const activeBox = buildActivePanelBox(state, activityH, contentW);
+  const modalPanel: ContentRow[] = activeBox
+    ? fillPanelBox(activeBox, activityH, contentW, state.themeId)
+    : [];
   const divFor = (rc: number): FrameSegment[] => {
     // 焦点中性基线：活动区分隔行 D 列=连接 `┤`（竖线贯穿+横线左接入），
     // normalInput（无面板）下常亮白（活动区分隔存在的设计常亮，与焦点无关；
@@ -1156,7 +1128,7 @@ function colorModel(s: string): FrameSegment[] {
   const effort = colon < 0 ? "" : rest.slice(colon);
   const out: FrameSegment[] = [
     seg(s.slice(0, slash), { fg: "magenta" }),
-    seg("/" + model, { fg: "cyan" }),
+    seg(`/${model}`, { fg: "cyan" }),
   ];
   if (effort) out.push(seg(effort));
   return out;
@@ -1166,8 +1138,8 @@ function colorModel(s: string): FrameSegment[] {
 /** 活动行是否为视觉空白：纯文本无可见字符（空思考/notice 拖尾行） */
 function formatTokens(n: number): string {
   if (n >= 1_000_000)
-    return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, "") + "k";
+    return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
   return String(n);
 }
 
@@ -1188,8 +1160,8 @@ function usageStatus(u: {
       ? `(${Math.min(100, Math.round((total / win) * 100))}%)`
       : "";
   return {
-    ctx: "ctx " + formatTokens(total) + ctxPct,
-    cache: "cache " + pct + "%",
+    ctx: `ctx ${formatTokens(total)}${ctxPct}`,
+    cache: `cache ${pct}%`,
   };
 }
 
@@ -1197,7 +1169,7 @@ function usageStatus(u: {
 function fitHead(s: string, w: number): string {
   if (displayWidth(s) <= w) return s;
   if (w <= 1) return "…";
-  return truncateToWidth(s, w - 1) + "…";
+  return `${truncateToWidth(s, w - 1)}…`;
 }
 
 /** 路径段按预算截断：保留末尾 + 省略号（路径尾部更有辨识度） */
@@ -1213,7 +1185,7 @@ function fitTail(s: string, w: number): string {
     kept = ch + kept;
     used += cw;
   }
-  return "…" + kept;
+  return `…${kept}`;
 }
 
 /**
@@ -1228,7 +1200,7 @@ function fitModel(s: string, w: number): string {
   if (displayWidth(s) <= w) return s;
   if (w <= 1) return "…";
   const bodyW = Math.max(1, w - 1 - displayWidth(effort)); // 留 1 列省略号
-  return truncateToWidth(body, bodyW) + "…" + effort;
+  return `${truncateToWidth(body, bodyW)}…${effort}`;
 }
 
 export function renderStatusLine(
@@ -1712,11 +1684,10 @@ export function buildFrame(state: AppState, size: Size): FrameRow[] {
   // activity 矩形：顶=活动区分隔行 diaEnd、底=状态区上方分隔行 contentTopH
   rects.set("activity", {
     x: 0,
-    y: DiaEndFor(contentTopH, titleRows, dialogueH, activityH) ,
+    y: diaEnd,
     w: metrics.historyWidth,
-    h: Math.max(1, contentTopH - DiaEndFor(contentTopH, titleRows, dialogueH, activityH) + 1),
+    h: Math.max(1, contentTopH - diaEnd + 1),
   });
-  void diaEnd;
   // status 矩形：x=D（分隔竖线列）、顶=帧顶 rc0、底=状态区上方分隔行 contentTopH
   rects.set("status", {
     x: D,
@@ -1740,16 +1711,4 @@ export function buildFrame(state: AppState, size: Size): FrameRow[] {
     rows,
   );
   return rows;
-}
-
-/** activity 矩形顶行（=活动区分隔行 diaEnd；含标题栏下划线场景的坐标重算） */
-function DiaEndFor(
-  contentTopH: number,
-  titleRows: number,
-  dialogueH: number,
-  activityH: number,
-): number {
-  void contentTopH;
-  void activityH;
-  return titleRows + dialogueH;
 }

@@ -12,11 +12,12 @@
 // 恒可见）。最底行打印按键帮助：空格=选中，←/→=切换列，Tab=下一列，Enter=提交，
 // Esc=取消。
 
-import type { FrameRow, FrameSegment } from "../../renderer/index.ts";
+import type { FrameRow } from "../../renderer/index.ts";
 import type { ThemeId } from "../../renderer/theme.ts";
 import type { PickerState } from "../state.ts";
 import { truncateToWidth } from "../layout.ts";
-import type { Box, Node } from "../layout/box.ts";
+import type { Box } from "../layout/box.ts";
+import { fillBoxTree } from "../layout/fill.ts";
 import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
 
@@ -62,8 +63,7 @@ function renderColumnCell(
   focus: number,
   selectedOf: string | undefined,
 ): { text: string; focus: boolean; sel: boolean } {
-  if (rowIdx === 0 && topO)
-    return { text: " ...", focus: false, sel: false };
+  if (rowIdx === 0 && topO) return { text: " ...", focus: false, sel: false };
   // 底部省略号占末数据行；仅当该行不在内容区内（空间不足时让位给内容）
   if (
     rowIdx === listRows - 1 &&
@@ -82,11 +82,6 @@ function renderColumnCell(
   // 选中按匹配键比较：effort 列显示 name 但选中键为 id，需显式 matchAt
   const sel = (items.matchAt ?? items.at)(idx) === selectedOf;
   return { text: markCell(sel, f) + v, focus: f, sel: sel };
-}
-
-/** 按列宽截断并右补对齐（纯文本），再段化着色 */
-function padCell(text: string, w: number): FrameSegment[] {
-  return [{ text: truncateToWidth(text, w).padEnd(w) }];
 }
 
 /**
@@ -220,7 +215,8 @@ export function buildModelPickerBox(view: ModelPickerView): Box {
       const t = truncateToWidth(c.text, widths[i]!).padEnd(widths[i]!);
       if (i > 0) segs.push({ text: " ".repeat(sep) });
       if (c.sel) segs.push({ text: t, style: { fg: "green" as const } });
-      else if (c.focus) segs.push({ text: t, style: { fg: "yellow" as const } });
+      else if (c.focus)
+        segs.push({ text: t, style: { fg: "yellow" as const } });
       else segs.push({ text: t });
     }
     leaves.push(styled(segs, { wrap: false }));
@@ -232,130 +228,11 @@ export function renderModelPicker(
   view: ModelPickerView,
   themeId: ThemeId,
 ): FrameRow[] {
-  const {
-    providers,
-    providerIndex,
-    models,
-    modelIndex,
-    efforts,
-    effortIndex,
-    phase,
-    selectedProvider,
-    selectedModel,
-    selectedEffort,
-  } = view.picker;
-  const height = Math.max(1, view.height);
-  const width = Math.max(1, view.width);
-  // 三列宽分配（列间各 1 空格分隔）
-  const sep = width >= 32 ? 2 : 1; // 宽屏用双空格分隔，窄屏单空格
-  const provW = Math.min(16, Math.max(6, Math.floor(width * 0.22)));
-  const remain = Math.max(1, width - provW - sep * 2);
-  const thinkW = Math.max(10, Math.floor(remain * 0.4));
-  const modelW = Math.max(1, remain - thinkW);
-  const widths = [provW, modelW, thinkW];
-
-  const listRows = Math.max(1, height - 2); // 首行头部 + 末行按键帮助
-  const unsupported = efforts.length === 0;
-  // 每列内容行数：列表没超出可视区时全显示（不预留省略号空间），超出时
-  // 预留给顶/底省略号各 1 行，焦点恒落在内容区内
-  const colContent = (len: number) =>
-    len <= listRows ? listRows : Math.max(1, listRows - 2);
-  const provRows = colContent(providers.length);
-  const modelRows = colContent(models.length);
-  const effRows = colContent(efforts.length);
-  const provStart = scrollStart(providers.length, providerIndex, provRows);
-  const modelStart = scrollStart(models.length, modelIndex, modelRows);
-  const effStart = scrollStart(efforts.length, effortIndex, effRows);
-  const topO = (start: number) => start > 0;
-  const bottomO = (len: number, rows: number, start: number) =>
-    start + rows < len;
-  const rows: FrameRow[] = [];
-  for (let r = 0; r < height; r++) {
-    let cells: { text: string; focus: boolean; sel: boolean }[] = [
-      { text: "", focus: false, sel: false },
-      { text: "", focus: false, sel: false },
-      { text: "", focus: false, sel: false },
-    ];
-    if (r === 0) {
-      // 焦点列标题用 [ ] 包裹；effort 无等级时标注 unsupported
-      const hdr = (t: string, isF: boolean) => (isF ? `[ ${t} ]` : ` ${t}`);
-      cells = [
-        { text: hdr("provider", phase === 0), focus: false, sel: false },
-        { text: hdr("model", phase === 1), focus: false, sel: false },
-        unsupported
-          ? { text: hdr("effort (unsupported)", phase === 2), focus: false, sel: false }
-          : { text: hdr("effort", phase === 2), focus: false, sel: false },
-      ];
-    } else if (r === height - 1) {
-      // 最底行按键帮助：整行满宽单行（ASCII，避免面板出现汉字；
-      // 旧实现放入第一列单元、被截断到列宽，实际仅前 ~16 字符可见）
-      rows.push({
-        segments: [
-          { text: truncateToWidth(
-            "[space]select · [left/right]col · [tab]next col · [enter]commit · [esc]cancel",
-            width,
-          ).padEnd(width) },
-        ],
-      });
-      continue;
-    } else {
-      const rowIdx = r - 1;
-      cells[0] = renderColumnCell(
-        { len: providers.length, at: (i) => providers[i]! },
-        provStart,
-        provRows,
-        topO(provStart),
-        bottomO(providers.length, provRows, provStart),
-        rowIdx,
-        listRows,
-        phase,
-        0,
-        providerIndex,
-        selectedProvider,
-      );
-      cells[1] = renderColumnCell(
-        { len: models.length, at: (i) => models[i]! },
-        modelStart,
-        modelRows,
-        topO(modelStart),
-        bottomO(models.length, modelRows, modelStart),
-        rowIdx,
-        listRows,
-        phase,
-        1,
-        modelIndex,
-        selectedModel,
-      );
-      if (!unsupported) {
-        cells[2] = renderColumnCell(
-          {
-            len: efforts.length,
-            at: (i) => efforts[i]!.name,
-            matchAt: (i) => efforts[i]!.id,
-          },
-          effStart,
-          effRows,
-          topO(effStart),
-          bottomO(efforts.length, effRows, effStart),
-          rowIdx,
-          listRows,
-          phase,
-          2,
-          effortIndex,
-          selectedEffort,
-        );
-      }
-    }
-
-    // 按列宽截断、补空格对齐后再着色（ANSI 会打乱截断宽度，故截断先行）
-    const cols: FrameSegment[][] = cells.map((c, i) => {
-      const t = truncateToWidth(c.text, widths[i]!).padEnd(widths[i]!);
-      // 已选（待提交）行绿：空格选中后绿色优先于焦点黄，选中才有视觉反馈
-      if (c.sel) return [{ text: t, style: { fg: "green" } }];
-      if (c.focus) return [{ text: t, style: { fg: "yellow" } }]; // 焦点行黄
-      return [{ text: t }];
-    });
-    rows.push({ segments: cols.flatMap((c, i) => (i > 0 ? [{ text: " ".repeat(sep) }, ...c] : c)) });
-  }
-  return rows;
+  // 薄包装：单一数据源 buildModelPickerBox → fillBoxTree
+  return fillBoxTree(
+    buildModelPickerBox(view),
+    view.height,
+    view.width,
+    themeId,
+  );
 }

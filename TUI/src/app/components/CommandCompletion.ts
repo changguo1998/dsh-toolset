@@ -19,6 +19,7 @@ import type { CommandCandidate } from "../commands.ts";
 import type { Box } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
+import { fillBoxTree } from "../layout/fill.ts";
 
 export interface CommandCompletionView {
   /** 候选项 + 焦点索引（0 = 最匹配默认项） */
@@ -42,16 +43,11 @@ export function buildCommandCompletionBox(view: CommandCompletionView): Box {
     { wrap: false },
   );
   const leaves = [title];
-  const maxBody = Math.max(0, height - 1);
   for (let i = 0; i < completion.items.length && leaves.length < height; i++) {
     const item = completion.items[i]!;
     const focused = i === completion.index;
     const text = truncateToWidth(
-      " " +
-        (focused ? ">" : " ") +
-        " /" +
-        item.name +
-        (item.desc ? "  " + item.desc : ""),
+      ` ${focused ? ">" : " "} /${item.name}${item.desc ? `  ${item.desc}` : ""}`,
       width,
     );
     leaves.push(
@@ -67,36 +63,11 @@ export function buildCommandCompletionBox(view: CommandCompletionView): Box {
 export function renderCommandCompletion(
   view: CommandCompletionView,
 ): FrameRow[] {
-  const { completion, height } = view;
-  const width = Math.max(1, view.width);
-  const out: FrameRow[] = [];
-
-  // 标题行（命令名蓝；先截断到列宽再着色）
-  out.push({
-    segments: [{ text: truncateToWidth(" /命令补全", width), style: { fg: "blue" } }],
-  });
-
-  // 候选行：焦点行 `> /name  desc` 黄；其余默认色（默认焦点 = 最匹配项）
-  const rows: FrameRow[] = [];
-  for (let i = 0; i < completion.items.length; i++) {
-    const item = completion.items[i]!;
-    const focused = i === completion.index;
-    const text = truncateToWidth(
-      " " +
-        (focused ? ">" : " ") +
-        " /" +
-        item.name +
-        (item.desc ? "  " + item.desc : ""),
-      width,
-    );
-    rows.push(
-      focused ? { segments: [{ text, style: { fg: "yellow" } }] } : { segments: [{ text }] },
-    );
-  }
-
-  // 组装：标题 + 候选（铺满可视行；超出可视行的候选丢弃不显示；不足补空行）
-  const maxBody = Math.max(0, height - 1);
-  out.push(...rows.slice(0, maxBody));
-  while (out.length < height) out.push({ segments: [{ text: "" }] });
-  return out;
+  // 薄包装：单一数据源 buildCommandCompletionBox → fillBoxTree
+  return fillBoxTree(
+    buildCommandCompletionBox(view),
+    view.height,
+    view.width,
+    view.themeId,
+  );
 }

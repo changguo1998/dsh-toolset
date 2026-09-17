@@ -10,6 +10,7 @@ import type { ThemeId } from "../../renderer/theme.ts";
 import type { StatusPanelState } from "../state.ts";
 import type { Box } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
+import { fillBoxTree } from "../layout/fill.ts";
 import { seg } from "../layout/primitives.ts";
 
 /**
@@ -24,16 +25,22 @@ export function buildStatusPanelBox(
 ): Box {
   const current = panel.selected ?? panel.options[panel.index]?.id ?? "";
   // 标题行：命令名（蓝）+ 当前生效值（保留现状 replace 行为）
-  const titleSegs: { text: string; style?: import("../../renderer/screen.ts").FrameStyle }[] = [
+  const titleSegs: {
+    text: string;
+    style?: import("../../renderer/screen.ts").FrameStyle;
+  }[] = [
     { text: " " },
-    { text: panel.title.replace("（当前：", ""), style: { fg: "blue" as const } },
-    ...(current === ""
-      ? []
-      : [{ text: `  ·  当前：${current}` }]),
+    {
+      text: panel.title.replace("（当前：", ""),
+      style: { fg: "blue" as const },
+    },
+    ...(current === "" ? [] : [{ text: `  ·  当前：${current}` }]),
   ];
   const titleRow = styled(titleSegs, { wrap: false });
 
-  // 选项行：焦点 > 黄、预选 * 绿、未选默认
+  // 选项行：焦点 > 黄、预选 * 绿、未选默认（整行单段着色，对齐冻结基线；
+  // 复杂面板组合 styled 直接组装见 ModelPicker——panelOptions 两段形态与
+  // StatusPanel 单段基线不符，不强行套用）
   const rows = [];
   for (let i = 0; i < panel.options.length; i++) {
     const opt = panel.options[i]!;
@@ -42,9 +49,11 @@ export function buildStatusPanelBox(
     const sel = panel.selected === opt.id;
     const mark = sel ? "*" : " ";
     const cursor = f ? ">" : " ";
-    const line =
-      " " + cursor + mark + " " + (opt.label ?? opt.id) + (opt.desc ? " " + opt.desc : "");
-    if (f) rows.push(styled([seg(line, { fg: "yellow" as const })], { wrap: false }));
+    const line = ` ${cursor}${mark} ${opt.label ?? opt.id}${opt.desc ? ` ${opt.desc}` : ""}`;
+    if (f)
+      rows.push(
+        styled([seg(line, { fg: "yellow" as const })], { wrap: false }),
+      );
     else if (sel)
       rows.push(styled([seg(line, { fg: "green" as const })], { wrap: false }));
     else rows.push(styled([seg(line)], { wrap: false }));
@@ -64,9 +73,12 @@ export function buildStatusPanelBox(
     start = Math.max(0, Math.min(start, rows.length - maxBody));
     window = rows.slice(start, start + maxBody);
   }
-  const body = Array.from({ length: maxBody }, (_, i) => window[i] ?? styled([seg("")]));
+  const body = Array.from(
+    { length: maxBody },
+    (_, i) => window[i] ?? styled([seg("")]),
+  );
   // 提示行与现状一致：首尾空格后按 width 截断（一字符串一行，右缘装饰补齐）
-  const hintRow = styled([seg((" " + hint + " ").slice(0, Math.max(1, width)))], {
+  const hintRow = styled([seg(` ${hint} `.slice(0, Math.max(1, width)))], {
     wrap: false,
   });
   return v([titleRow, ...body, hintRow]);
@@ -80,59 +92,11 @@ export interface StatusPanelView {
 }
 
 export function renderStatusPanel(view: StatusPanelView): FrameRow[] {
-  const { panel, height } = view;
-  const out: FrameRow[] = [];
-
-  // 标题行：命令名（蓝）+ 当前生效值
-  const current = panel.selected ?? panel.options[panel.index]?.id ?? "";
-  out.push({
-    segments: [
-      { text: " " },
-      { text: panel.title.replace("（当前：", ""), style: { fg: "blue" } },
-      ...(current === ""
-        ? []
-        : [{ text: "  ·  当前：" + current }]),
-    ],
-  });
-
-  // 选项行（焦点行 > 黄，预选行 * 绿，未选默认）
-  const rows: FrameRow[] = [];
-  for (let i = 0; i < panel.options.length; i++) {
-    const opt = panel.options[i]!;
-    const f = i === panel.index;
-    const sel = panel.selected === opt.id;
-    const mark = sel ? "*" : " ";
-    const cursor = f ? ">" : " ";
-    const text = " " + cursor + mark + " " + (opt.label ?? opt.id) + (opt.desc ? " " + opt.desc : "");
-    if (f) rows.push({ segments: [{ text, style: { fg: "yellow" } }] });
-    else if (sel) rows.push({ segments: [{ text, style: { fg: "green" } }] });
-    else rows.push({ segments: [{ text }] });
-  }
-
-  // 操作提示行（末行）
-  const hint =
-    "[Enter]提交 · [空格]预选" +
-    (panel.options.length > 1 ? " · [↑/↓]选项" : "") +
-    " · [Esc]取消";
-
-  // 组装：标题 + 窗口内选项（跟随焦点滚动；不足补空行）+ 操作提示
-  const maxBody = Math.max(0, height - 2);
-  if (rows.length <= maxBody) {
-    out.push(...rows);
-    while (out.length < height - 1) out.push({ segments: [{ text: "" }] });
-  } else {
-    // 滚动窗口：焦点行尽量居中，超出 clamp
-    let start = panel.index - Math.floor(maxBody / 2);
-    start = Math.max(0, Math.min(start, rows.length - maxBody));
-    out.push(...rows.slice(start, start + maxBody));
-  }
-  out.push({
-    segments: [{ text: (" " + hint + " ").padEnd(Math.max(1, view.width)) }],
-  });
-  return out.map((r) => ({
-    segments: r.segments.map((s) => ({
-      ...s,
-      text: s.text.slice(0, Math.max(1, view.width)),
-    })),
-  }));
+  // 薄包装：单一数据源 buildStatusPanelBox（Box 生成器）→ fill 摊平
+  return fillBoxTree(
+    buildStatusPanelBox(view.panel, view.height, view.width),
+    view.height,
+    view.width,
+    view.themeId,
+  );
 }

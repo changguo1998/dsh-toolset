@@ -9,7 +9,11 @@
 // （覆写字符与目标字形同列宽）。矩形边界统一 right = x + w - 1、
 // bottom = y + h - 1（advisor 定案）。
 
-import type { FrameRow, FrameSegment, FrameStyle } from "../../renderer/screen.ts";
+import type {
+  FrameRow,
+  FrameSegment,
+  FrameStyle,
+} from "../../renderer/screen.ts";
 import type { ColorName, ThemeId } from "../../renderer/theme.ts";
 import type { PaneId, Rect } from "./box.ts";
 import { displayWidth } from "./markdown.ts";
@@ -36,9 +40,10 @@ export const FRAME_DSEP = "│";
 /**
  * 在指定显示列覆写一枚字形（就地改写 segments）。
  * - col 为显示列（0 基；跨段累加 displayWidth 定位）
- * - 目标字形为宽度 2（CJK）且覆写起点落在其内部 → no-op（不切）
+ * - 目标字形为宽度 2（CJK/宽 emoji）且覆写起点落在其内部 → no-op（不切）
  * - 覆写字形宽度须为 1（现状角字/线均为单列）
- * - 若原字形已是目标字形且样式一致 → 保持（幂等）
+ * - 若原字形已是目标字形且样式全字段一致 → 保持（幂等）
+ * - 段按 code point 切分（surrogate pair emoji 不切两半）
  */
 export function setCell(
   row: FrameRow,
@@ -51,51 +56,73 @@ export function setCell(
   // 定位 col 所在段与段内字形偏移（按显示宽度）
   let w = 0;
   let si = -1;
-  let gi = 0; // 段内字形起始显示列
+  let gi = 0; // 段起始显示列
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i]!;
     const tw = displayWidth(s.text);
     if (col < w + tw) {
       si = i;
-      gi = w; // 段起始显示列
+      gi = w;
       break;
     }
     w += tw;
   }
   if (si < 0) return; // col 超出该行宽度 → no-op
   const s = segs[si]!;
-  // 段内逐字形定位：找到覆盖 col 的字形及其起始显示列
+  // 段内逐 code point 定位（isHighSurrogate 前导合并，防切 surrogate pair）
   let cw = gi;
-  let cidx = 0; // 段内字形索引（代码点）
+  let cidx = 0; // 段内字形起始（UTF-16 索引）
   let found = false;
-  for (let i = 0; i < s.text.length; i++) {
-    const chW = displayWidth(s.text[i]!);
+  for (let i = 0; i < s.text.length;) {
+    const cp = s.text.codePointAt(i)!;
+    const cpLen = cp > 0xffff ? 2 : 1;
+    const chW = displayWidth(String.fromCodePoint(cp));
     if (col < cw + chW) {
       cidx = i;
       found = true;
       break;
     }
     cw += chW;
-    cidx = i + 1;
+    i += cpLen;
+    cidx = i;
   }
   if (!found) return;
-  const target = s.text[cidx]!;
-  if (displayWidth(target) !== 1) return; // CJK 字形不覆写（仅 1 列字形，或整字节点）
-  if (target === ch && (s.style === style || (s.style?.fg === style?.fg && s.style?.bg === style?.bg))) {
-    return; // 幂等
-  }
-  // 构造替换后的段序列：段首..targetCol 保持 + 单字形替换 + 段尾
+  const target = s.text.codePointAt(cidx);
+  if (target === undefined) return;
+  const targetCh = String.fromCodePoint(target);
+  if (displayWidth(targetCh) !== 1) return; // 宽字形不覆写（仅 1 列字形可被角/线替换）
+  // 幂等：目标字形与 ch 相同且样式全字段一致（fg/bg/bold/italic/underline/strike）
+  if (targetCh === ch && styleEqual(s.style, style)) return;
+  // 按 code point 边界拆段：head + 单字形替换 + tail（段无样式时不带 style 键）
   const head = s.text.slice(0, cidx);
-  const tail = s.text.slice(cidx + 1);
+  const cpLen = target > 0xffff ? 2 : 1;
+  const tail = s.text.slice(cidx + cpLen);
   const newSegs: FrameSegment[] = [];
-  if (head !== "") newSegs.push({ text: head, style: s.style });
-  newSegs.push({ text: ch, style });
-  if (tail !== "") newSegs.push({ text: tail, style: s.style });
-  row.segments = [
-    ...segs.slice(0, si),
-    ...newSegs,
-    ...segs.slice(si + 1),
-  ];
+  if (head !== "")
+    newSegs.push(s.style ? { text: head, style: s.style } : { text: head });
+  if (style !== undefined && style !== null) newSegs.push({ text: ch, style });
+  else newSegs.push({ text: ch });
+  if (tail !== "")
+    newSegs.push(s.style ? { text: tail, style: s.style } : { text: tail });
+  row.segments = [...segs.slice(0, si), ...newSegs, ...segs.slice(si + 1)];
+}
+
+/** 样样式全字段相等比较（fg/bg/bold/italic/underline/strike；含 undefined 等价） */
+function styleEqual(
+  a: FrameStyle | undefined,
+  b: FrameStyle | undefined,
+): boolean {
+  if (a === b) return true;
+  const A = a ?? {};
+  const B = b ?? {};
+  return (
+    A.fg === B.fg &&
+    A.bg === B.bg &&
+    (A.bold ?? false) === (B.bold ?? false) &&
+    (A.italic ?? false) === (B.italic ?? false) &&
+    (A.underline ?? false) === (B.underline ?? false) &&
+    (A.strike ?? false) === (B.strike ?? false)
+  );
 }
 
 /** 帧中某行的纯文本（用于焦点规则判定：角字/线是否本就存在） */
@@ -116,18 +143,6 @@ export function cover(
 }
 
 /** 合并一行中相邻同样式段（serializeFrameRow 前统一，消除逐字符分段） */
-export function mergeRow(row: FrameRow): void {
-  const out: FrameSegment[] = [];
-  for (const s of row.segments) {
-    const last = out[out.length - 1];
-    if (last && last.style?.fg === s.style?.fg && last.style?.bg === s.style?.bg) {
-      last.text += s.text;
-    } else {
-      out.push({ ...s });
-    }
-  }
-  row.segments = out;
-}
 
 /** 覆写一行 [c0, c1) 显示列区间（含 c0 不含 c1）：统一替换为 ch。
  * 只重建与区间相交的段；未相交段原样保留（不与其邻段合并）——

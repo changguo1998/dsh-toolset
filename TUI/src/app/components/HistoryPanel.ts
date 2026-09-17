@@ -17,6 +17,7 @@ import { truncateToWidth, wrapLine, displayWidth } from "../layout.ts";
 import type { Box } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
+import { fillBoxTree } from "../layout/fill.ts";
 
 export interface HistoryPanelView {
   history: HistoryPanelState;
@@ -50,7 +51,7 @@ function tailCwd(cwd: string, w: number): string {
     used += c === "\t" ? 1 : displayWidth(c);
     out = c + out;
   }
-  return "..." + out;
+  return `...${out}`;
 }
 
 /**
@@ -75,7 +76,7 @@ function listLine(rec: SessionInfo, isFocus: boolean, width: number): string {
   const left = Math.max(0, avail - displayWidth(title));
   const cwd = rec.cwd && left > 1 ? tailCwd(rec.cwd, left) : "";
   return truncateToWidth(
-    marker + time + "  " + id + "  " + title + (cwd ? "  " + cwd : "") + tag,
+    `${marker}${time}  ${id}  ${title}${cwd ? `  ${cwd}` : ""}${tag}`,
     width,
   );
 }
@@ -170,11 +171,11 @@ export function buildHistoryPanelBox(view: HistoryPanelView): Box {
       break;
     }
     case "loading-view":
-      title = "历史会话 · " + (h.currentId ?? "").slice(0, 8);
+      title = `历史会话 · ${(h.currentId ?? "").slice(0, 8)}`;
       body = ["加载内容..."];
       break;
     case "resuming":
-      title = "历史会话 · " + (h.pendingResume ?? "").slice(0, 8);
+      title = `历史会话 · ${(h.pendingResume ?? "").slice(0, 8)}`;
       body = ["切换到该会话..."];
       break;
     case "confirm-delete": {
@@ -249,125 +250,11 @@ export function buildHistoryPanelBox(view: HistoryPanelView): Box {
 }
 
 export function renderHistoryPanel(view: HistoryPanelView): FrameRow[] {
-  const h = view.history;
-  const height = Math.max(1, view.height);
-  const width = Math.max(1, view.width);
-  const bodyRows = Math.max(0, height - 1); // 首行标题 + 正文区
-  const rows: FrameRow[] = [];
-
-  let title = "";
-  let body: string[] = [];
-  switch (h.phase) {
-    case "loading-list":
-      title = "历史会话";
-      body = ["加载中..."];
-      break;
-    case "list": {
-      // 按键提示不在面板内（改在输入区下方提示区显示，见 layout.ts HISTORY_*_HINT_LINE）
-      const allScope = h.scope === "all";
-      // 标题标明当前范围；当前目录范围同时给出「可见/全量」，全部范围即全量
-      const scopeLabel = allScope ? "全部" : "当前目录";
-      const count = allScope
-        ? `${view.records.length}`
-        : `${view.records.length}/${view.totalCount}`;
-      title = truncateToWidth(`历史会话 [${scopeLabel}]（${count}）`, width);
-      // 结果提示（删除/清理结果与护栏文案）占首行：面板占满活动区时 notice 不可见，
-      // 故结果需在面板内呈现（notice 仍在缓冲留痕，关闭面板后可见）
-      const head =
-        h.result === undefined ? null : truncateToWidth(h.result, width);
-      const listRows = Math.max(0, bodyRows - (head === null ? 0 : 1));
-      if (view.records.length === 0) {
-        // 空态三态：全局无会话 / 当前目录识别失败 / 当前目录暂无会话（后两者提示切范围）
-        body = [
-          view.totalCount === 0
-            ? "（无历史会话）"
-            : emptyScopeText(view, allScope),
-        ];
-      } else {
-        const start = startFor(view.records.length, h.index, listRows);
-        for (let r = 0; r < listRows; r++) {
-          const idx = start + r;
-          const rec = view.records[idx];
-          body.push(rec ? listLine(rec, idx === h.index, width) : "");
-        }
-      }
-      if (head !== null) body = [head, ...body];
-      break;
-    }
-    case "loading-view":
-      title = "历史会话 · " + (h.currentId ?? "").slice(0, 8);
-      body = ["加载内容..."];
-      break;
-    case "resuming":
-      title = "历史会话 · " + (h.pendingResume ?? "").slice(0, 8);
-      body = ["切换到该会话..."];
-      break;
-    case "confirm-delete": {
-      const rec = h.records.find((r) => r.id === h.pendingDelete);
-      const label = rec?.title?.trim() ? rec.title : "（新会话）";
-      title = "历史会话 · 删除确认";
-      body = wrapBody(
-        [
-          `删除会话「${label}」（${(h.pendingDelete ?? "").slice(0, 8)}）？`,
-          "不可恢复：该会话的持久化文件将被永久删除。",
-          "[y/Enter] 确认删除    [n/Esc] 取消",
-        ],
-        width,
-        bodyRows,
-      );
-      break;
-    }
-    case "deleting":
-      title = "历史会话 · 删除中";
-      body = ["删除中..."];
-      break;
-    case "confirm-clean": {
-      const n = h.pendingClean?.length ?? 0;
-      title = "历史会话 · 清理空会话";
-      body = wrapBody(
-        [
-          `清理当前目录（${h.cleanCwd ?? "未知路径"}）的空会话 ${n} 个？`,
-          "不可恢复：仅删除已持久化且从未有用户消息的会话；当前与 live 会话不受影响。",
-          ...(h.scope === "all"
-            ? ["清理范围固定为当前目录：列表切到「全部」不影响清理范围。"]
-            : []),
-          "[y/Enter] 确认清理    [n/Esc] 取消",
-        ],
-        width,
-        bodyRows,
-      );
-      break;
-    }
-    case "cleaning":
-      title = "历史会话 · 清理中";
-      body = ["清理中..."];
-      break;
-    case "view": {
-      title = truncateToWidth(`会话 ${h.currentId ?? ""}`, width);
-      // 无文本消息（空会话 / live 会话 store 暂未落 assistant 事件）→ 占位提示
-      const lines =
-        h.messages.length === 0
-          ? [
-              "（该会话暂无文本消息：会话为空，或 live 会话的模型回复尚未持久化）",
-            ]
-          : messageLines(h.messages, width);
-      const start = startFor(lines.length, h.scroll, bodyRows);
-      for (let r = 0; r < bodyRows; r++) {
-        const idx = start + r;
-        body.push(idx < lines.length ? lines[idx]! : "");
-      }
-      break;
-    }
-    case "error":
-      title = "加载失败";
-      body = wrapLine(h.error ?? "未知错误", width).slice(0, bodyRows);
-      break;
-  }
-
-  rows.push({
-    segments: [{ text: title + " ".repeat(Math.max(0, width - displayWidth(title))) }],
-  });
-  for (let r = 0; r < bodyRows; r++)
-    rows.push({ segments: [{ text: body[r] ?? "" }] });
-  return rows;
+  // 薄包装：单一数据源 buildHistoryPanelBox → fillBoxTree
+  return fillBoxTree(
+    buildHistoryPanelBox(view),
+    view.height,
+    view.width,
+    "dark" as never,
+  );
 }

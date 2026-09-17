@@ -6,12 +6,15 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { setCell, focusFrame, rowPlain } from "../src/app/layout/focus-frame.ts";
+import {
+  setCell,
+  focusFrame,
+  rowPlain,
+} from "../src/app/layout/focus-frame.ts";
 import type { FrameRow } from "../src/renderer/screen.ts";
 import type { PaneId, Rect } from "../src/app/layout/box.ts";
 
 const row = (text: string): FrameRow => ({ segments: [{ text }] });
-const bright = "brightWhite";
 
 /** 构造 N 行 × cols 纯文本帧 */
 function frameOf(rows: number, cols: number): FrameRow[] {
@@ -24,12 +27,17 @@ function stdRects(
   sepRow: number, // 活动区分隔行（history 底边 = activity 顶边）
   statusRow: number, // 状态区上方分隔行（activity/status 底边）
 ): Map<PaneId, Rect> {
-  const historyW = Math.floor(cols * 2 / 3);
+  const historyW = Math.floor((cols * 2) / 3);
   const statusW = cols - historyW;
   const m = new Map<PaneId, Rect>();
   // h 含边界行：bottom = y + h - 1（history 底=分隔行、activity 底=状态分隔、status 底=状态分隔）
   m.set("history", { x: 0, y: 1, w: historyW, h: sepRow }); // bottom = 1+h-1 = sepRow
-  m.set("activity", { x: 0, y: sepRow, w: historyW, h: statusRow - sepRow + 1 }); // bottom = statusRow
+  m.set("activity", {
+    x: 0,
+    y: sepRow,
+    w: historyW,
+    h: statusRow - sepRow + 1,
+  }); // bottom = statusRow
   m.set("status", { x: historyW, y: 0, w: statusW, h: statusRow + 1 }); // bottom = statusRow
   void m;
   return m;
@@ -91,11 +99,7 @@ test("setCell：越界 col no-op", () => {
 test("focusFrame：null 不覆写", () => {
   const rows = frameOf(5, 10);
   const before = rows.map(rowPlain);
-  focusFrame(
-    { themeId: "dark", focusedPanel: null },
-    stdRects(10, 3, 4),
-    rows,
-  );
+  focusFrame({ themeId: "dark", focusedPanel: null }, stdRects(10, 3, 4), rows);
   assert.deepEqual(rows.map(rowPlain), before);
 });
 
@@ -149,4 +153,36 @@ test("focusFrame：status 焦点覆写（顶边 ┐、右缘竖线、底边 ┘/
   assert.equal(top[cols - 1], "┐", "状态列顶边右缘 ┐");
   const bot = rowPlain(rows[5]!); // 状态区上方分隔行（status 底边）
   assert.equal(bot[cols - 1], "┘", "状态列底边右缘 ┘");
+});
+
+test("setCell：surrogate pair emoji 不切两半（code point 安全）", () => {
+  // 1F600 = 高位 + 低位代理对，占 2 UTF-16 单元 / 2 显示列（col0-1）
+  const r: FrameRow = { segments: [{ text: "😀x" }] };
+  // col0 = emoji 起点（宽 2 字形）→ 不覆写
+  setCell(r, 0, "│");
+  assert.equal(rowPlain(r), "😀x");
+  // col1 = emoji 内部第 2 显示列 → no-op（我的循环以「col < cw+chW」定位到
+  // 宽字形段内但不越过其 code point 边界，故 col1 命中 emoji 内部 no-op）
+  setCell(r, 1, "│");
+  assert.equal(rowPlain(r), "😀x", "emoji 内部列 no-op");
+  // col2 = x（code point 边界）→ 覆写；x 与 emoji 同为 1/2 列交错
+  setCell(r, 2, "Y");
+  assert.equal(rowPlain(r), "😀Y");
+});
+
+test("setCell：非颜色样式差异不算幂等（bold/italic/underline/strike 参与比较）", () => {
+  const r: FrameRow = { segments: [{ text: "ab" }] };
+  // 同字形不同 bold → 替换为带 bold 样式（head 空不产段 → [bold a, b] 两段）
+  setCell(r, 0, "a", { bold: true });
+  assert.deepEqual(r.segments, [
+    { text: "a", style: { bold: true } },
+    { text: "b" },
+  ]);
+  // 再同字形同样式 → 幂等不拆
+  const n = r.segments.length;
+  setCell(r, 0, "a", { bold: true });
+  assert.equal(r.segments.length, n);
+  // 同字形仅 fg 不同 → 替换（新字符段在替换后的首段位置）
+  setCell(r, 0, "a", { fg: "red" });
+  assert.deepEqual(r.segments[0]!.style, { fg: "red" });
 });
