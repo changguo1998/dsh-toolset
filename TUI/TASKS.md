@@ -38,11 +38,12 @@
 
 ## 2. 主线 B · Box 排版模型重构
 
-推进分三波（并行路线）：
+推进分三波（顺序推进为主，勾选并行仅在文件边界清晰的任务间开 worktree——一任务一 worktree，且「内容映射替换 `wrapBufferLines`」与「`layout.ts` 拆文件」绝不同时开）：
 
-1. **接口冻结**：定义 `Box`/`Paragraph`/`NodeBase` 类型 + `measure/allocate` 签名（纯函数）。
-1. **五路并行**：① 契约迁移（并入主线 A）；② measure/allocate 实现 + 单测（宽度规则/保底/比例/悬挂缩进）；③ 内容映射（`state.buffer` → 内容 Box 树，替换 `wrapBufferLines` 的分类处理）；④ 测试序列化辅助（`FrameRow[]` ↔ 字符串，复用旧断言）；⑤ 拆文件（按 `DESIGN.md` Part II §6 目标结构拆 `layout.ts`，行为不变）。
+1. **接口冻结（已完成 cc743d7）**：定义 `Box`/`Paragraph`/`NodeBase` 类型 + `measure/allocate` 签名（纯函数）；同步修订 `SPEC.md` §6 契约歧义（SizeTable.root / separator 仅纵向 Box / Paragraph 总宽含 indent+prefix）。
+1. **接口冻结后的有限并行**：① 契约迁移（已并入主线 A）；② measure/allocate 实现 + 单测（宽度规则/保底/比例/悬挂缩进）——**已完成 eea8196**（`layout/measure.ts` + `tests/measure.test.ts`，23 项契约断言）；③ 内容映射（`state.buffer` → 内容 Box 树，替换 `wrapBufferLines` 的分类处理）；④ 测试序列化辅助（`FrameRow[]` ↔ 字符串，复用旧断言）；⑤ 随子系统实现**逐步抽文件**（不再单设大规模拆文件并行道：`layout.ts` 按 DESIGN Part II §6 目标结构边做边拆，行为不变）。
 1. **接线汇合**：各区域改造为 `fill(ctx, rect)`；`FocusFrame` 实现与测试（对照现有焦点框线各焦点态的帧断言）；面板改造为 Box 生成器（`DESIGN.md` Part II §7；场景原语 `SPEC.md` §7）。
+1. **依赖基元迁移（防循环依赖，接线前必做）**：`measure.ts` 目前从 `layout.ts` import `wrapLine/truncateToWidth`、从 `layout/markdown.ts` import `displayWidth`。接线里程碑必须先把这些共享宽/折行原语迁到中立模块（如 `layout/width.ts`），再让 `layout.ts` import `measure.ts`，避免双向依赖。
 1. 全量回归：`npm run check/test/build` + `demo -- --smoke` + `smoke:pty`。
 1. 文档同步：`SPEC.md` 引用、`DESIGN.md`「四区域布局」改为「由 Box 树声明」、`REFACTOR.md` 归属登记。
 
