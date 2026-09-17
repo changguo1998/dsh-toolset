@@ -49,12 +49,13 @@ interface Paragraph extends NodeBase {
 }
 
 // Spacer = 内容为空的 Paragraph（便捷构造）：只声明尺寸意图，不产出内容
-//   spacer(w) := Paragraph({ text:"", width: w })；h 中读 width、v 中读 height
+//   spacer({ width }) := Paragraph({ text:"", width })（h 容器占列）
+//   spacer({ height }) := Paragraph({ text:"", height })（v 容器占行）——轴显式
 ```
 
 **简写与说明**：示例中 `v([...])` / `h([...])` 是 `Box(direction:"v"/"h")` 的简写，`text(...)` 是 `Paragraph(...)` 简写。`v.separator` 是**唯一**的"边框"机制——只做兄弟项之间横线分隔，**不做盒子四边描边**（现状无此需求）、**不做** `h` 竖分隔（列间 `│` 仍是行端字符）；焦点框线仍归 `FocusFrame` 全局覆写（`DESIGN.md` Part II §8）。
 
-**`Spacer` 用法**：块级对齐/间距的占位项——横向在 `h` 里 `spacer(fill)` 吃剩余推位（用户块右对齐）、`spacer(fixed n)` 留白（回复右缘 `messageGutter`）；纵向在 `v` 里 `spacer(fill)` 吃剩余、让内容不足时落在容器底边、`spacer(fixed n)` 为固定空行。占用轴由所在容器决定（h 读 width / v 读 height）；允许 `fill` 与 `fixed`（±夹取界）两种形态，`auto`/`ratio` 对空内容无意义、不做（YAGNI）。
+**`Spacer` 用法**：块级对齐/间距的占位项——横向 `spacer({ width: fill })` 吃剩余推位（用户块右对齐）、`spacer({ width: fixed n })` 留白（回复右缘 `messageGutter`）；纵向 `spacer({ height: fill })` 吃剩余、让内容不足时落在容器底边、`spacer({ height: fixed n })` 为固定空行。**轴必须显式给出**（`width`→h 占列、`height`→v 占行，杜绝 `{mode:"fill"}` 歧义）；允许 `fill` 与 `fixed`（±夹取界）两种形态，`auto`/`ratio` 对空内容无意义、不做（YAGNI）。
 
 **宽度/高度意图**（对齐现状：状态列 1/3、历史区保底 10 列、交互区固定行数）：
 
@@ -63,7 +64,7 @@ type Width =
   | { mode: "auto"; min?: number; max?: number }   // 按内容宽度（用户块的"收缩块"用）
   | { mode: "fill"; min?: number; max?: number }   // 占满剩余
   | { mode: "fixed"; cols: number }
-  | { mode: "ratio"; value: number; min?: number; max?: number }; // 按剩余比例（状态列 1/3）
+  | { mode: "ratio"; value: number; min?: number; max?: number }; // value=容器分数（状态列 1/3）；Σ>1 才按 value 和归一
 type Height =
   | { mode: "fixed"; rows: number }     // 交互区/输入区固定行数
   | { mode: "fill" };
@@ -304,6 +305,7 @@ allocate(st: SizeTable, rect: Rect) -> Map<Node, Rect>:
 **算法（单轮）**
 
 1. **按精度逐层满足**：`fixed` 定值 → `min`/`max` 边界 → `ratio` 目标（基数取**容器总宽**，实际受可分配宽封顶）→ `auto` 内容宽（夹 `max`）→ 剩余给 `fill`。
+1. **`ratio` 语义（冻结）**：`value` 是**容器总宽的分数**（`1/3`=三分之一），基数取容器总宽、实际受可分配剩余封顶；**仅当所有 `ratio` 的 `value` 之和 > 1 时按 `value` 和归一**（否则各自按分数直接取，不归一）。`min`/`max` 执行顺序：**先夹 `max` 上限、再抬 `min` 保底**——`min > max` 时 `min` 赢（保底优先，与性质列一致）。
 1. **回流（单轮）**：某盒被 `max` 截断而释放的空间，回流给**更低精度者**（`fill` → `auto` → 受限更小的 `ratio`），最后均分。
 
 **性质**

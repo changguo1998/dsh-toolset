@@ -115,15 +115,16 @@ export function text(
 }
 
 /**
- * spacer 便捷构造：只声明尺寸意图，不产出内容。
- * 占用轴由所在容器决定（h 读 width / v 读 height）；
+ * spacer 便捷构造：只声明尺寸意图，不产出内容。轴须显式给出：
+ * `spacer({ width })` 在 h 容器中占列；`spacer({ height })` 在 v 容器中占行。
  * auto/ratio 对空内容无意义，不接受（YAGNI，SPEC §2）。
+ * 占位字段由调用方按所在容器取向选写（二者至少写一个）。
  */
-export function spacer(w: Width | Height): Paragraph {
-  if ("cols" in w) return { kind: "text", text: "", width: w };
-  if ("value" in w) return { kind: "text", text: "", width: w };
-  if ("rows" in w) return { kind: "text", text: "", height: w };
-  if (w.mode === "fill") return { kind: "text", text: "", height: w };
-  // auto：宽度方向才有效；高度无意义
-  return { kind: "text", text: "", width: w };
+export function spacer(opts: { width?: Width; height?: Height }): Paragraph {
+  if (opts.width !== undefined)
+    return { kind: "text", text: "", width: opts.width };
+  if (opts.height !== undefined)
+    return { kind: "text", text: "", height: opts.height };
+  // 二者皆未给：视为占 0 宽的普通空段（退化兜底，不抛错）
+  return { kind: "text", text: "" };
 }

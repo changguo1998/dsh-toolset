@@ -47,17 +47,21 @@ function paraWidthCtx(node: Paragraph) {
   return { prefixW, indent, hanging };
 }
 
-/** 测量单个 Paragraph（返回含 indent+prefix 的总宽与折行行数） */
+/** height.fixed 声明覆盖测量高（v 排布 spacer/固定行高区用） */
+function applyDeclaredHeight(node: Node, m: MeasuredSize): MeasuredSize {
+  if (node.height?.mode === "fixed") return { w: m.w, h: node.height.rows };
+  return m;
+}
+
+/** 测量单个 Paragraph（返回总宽与折行行数） */
 function measureParagraph(node: Paragraph, maxW: number): MeasuredSize {
   const { prefixW, indent, hanging } = paraWidthCtx(node);
   const firstW = maxW - indent - prefixW; // 首行可用正文宽
   const contW = maxW - hanging; // 续行可用正文宽
   const wrap = node.wrap !== false;
-  // 首行按 firstW 折，续行按 contW 折：拆成两段分别折行后拼续行列数
-  // （简化：先按首行款折出首行，对其余文本按续行款折，模拟悬挂缩进）
+  // 首行按 firstW 折、续行按 contW 折：拆首行，其余文本按续行宽重折（悬挂缩进）
   const rows: string[] = [];
   let remaining = node.text;
-  // 用 wrapLine 折首行，取第一行，其余文本并入续行重折
   const firstRows = wrapParagraph(
     remaining,
     Math.max(1, firstW),
@@ -65,20 +69,18 @@ function measureParagraph(node: Paragraph, maxW: number): MeasuredSize {
   );
   if (firstRows.length > 0) {
     rows.push(firstRows[0]!);
-    remaining = firstRows.slice(1).join(""); // 首行放不下的折到续行（视为同一行内容续排）
+    remaining = firstRows.slice(1).join(""); // 首行放不下的并入续行续排
   }
   if (remaining !== "" || firstRows.length === 0) {
-    if (contW > 0 && contW !== firstW) {
-      rows.push(...wrapParagraph(remaining, Math.max(1, contW), wrap));
-    } else if (remaining !== "") {
-      rows.push(...wrapParagraph(remaining, Math.max(1, contW), wrap));
-    }
+    rows.push(...wrapParagraph(remaining, Math.max(1, contW), wrap));
   }
   // 空文本：至少 1 行（空段落占行）
-  const bodyW = Math.max(...rows.map((r) => displayWidth(r)), 0);
-  // 续行缩进 online：正文宽含缩进
-  const w = indent + prefixW + bodyW;
-  return { w, h: rows.length || 1 };
+  if (rows.length === 0) rows.push("");
+  // 总宽 = max(首行 overhead+首行宽, 续行 overhead(hanging)+续行最宽)
+  const firstTotal = indent + prefixW + displayWidth(rows[0]!);
+  const contTotal =
+    hanging + Math.max(...rows.slice(1).map((r) => displayWidth(r)), 0);
+  return { w: Math.max(firstTotal, contTotal), h: rows.length };
 }
 
 /** 分配优先级：越精确越高（fixed > min/max > ratio > auto > fill） */
@@ -146,8 +148,8 @@ function allocateWidths(
         const w = widths[i]!;
         if (w.mode === "ratio" && !result[i]) {
           let kw = Math.floor((base * w.value) / denom);
-          if (w.min !== undefined) kw = Math.max(kw, w.min);
-          if (w.max !== undefined) kw = Math.min(kw, w.max);
+          if (w.max !== undefined) kw = Math.min(kw, w.max); // 先上限
+          if (w.min !== undefined) kw = Math.max(kw, w.min); // 再保底（min>max 时 min 赢）
           kw = Math.max(1, kw);
           if (kw > remaining) kw = Math.max(1, remaining); // 受可分配宽封顶
           result[i] = { used: true, w: kw, width: w };
@@ -186,8 +188,8 @@ function allocateWidths(
       const wd = widths[i]! as Extract<Width, { mode: "fill" }>;
       let kw = share + (carry > 0 ? 1 : 0);
       carry -= carry > 0 ? 1 : 0;
-      if (wd.min !== undefined) kw = Math.max(kw, wd.min);
-      if (wd.max !== undefined) kw = Math.min(kw, wd.max);
+      if (wd.max !== undefined) kw = Math.min(kw, wd.max); // 先上限
+      if (wd.min !== undefined) kw = Math.max(kw, wd.min); // 再保底（min>max 时 min 赢）
       result[i] = { used: true, w: kw, width: wd }; // 吃剩余者无剩余得 0（不主张底线）
     }
   }
@@ -232,7 +234,7 @@ function measureNode(
   st: { size: Map<Node, MeasuredSize> },
 ): MeasuredSize {
   if (node.kind === "text") {
-    const m = measureParagraph(node, c.maxW);
+    const m = applyDeclaredHeight(node, measureParagraph(node, c.maxW));
     st.size.set(node, m);
     return m;
   }
@@ -248,7 +250,7 @@ function measureNode(
       h += m.h;
       if (i < box.children.length - 1 && box.separator) h += 1;
     }
-    const m = { w: Math.max(0, w), h };
+    const m = applyDeclaredHeight(box, { w: Math.max(0, w), h });
     st.size.set(box, m);
     return m;
   }
@@ -269,18 +271,13 @@ function measureNode(
   let filledW = 0;
   for (let i = 0; i < box.children.length; i++) {
     const child = box.children[i]!;
-    const wd = widthOf(child);
     const aw = allocated[i]!.w;
-    // 重测高度：用分配宽（仅 auto/fill 需要；fixed/ratio 高度已在第一遍量过）
-    if (wd.mode === "auto" || wd.mode === "fill") {
-      const m = measureNode(child, { maxW: Math.max(1, aw) }, st);
-      childMaxH = Math.max(childMaxH, m.h);
-    } else {
-      childMaxH = Math.max(childMaxH, st.size.get(child)!.h);
-    }
+    // 全部子项以分配宽重测高度（fixed/ratio 段落折行也受分配宽影响）
+    const m = measureNode(child, { maxW: Math.max(1, aw) }, st);
+    childMaxH = Math.max(childMaxH, m.h);
     filledW += aw;
   }
-  const m = { w: filledW, h: childMaxH };
+  const m = applyDeclaredHeight(box, { w: filledW, h: childMaxH });
   st.size.set(box, m);
   return m;
 }
@@ -320,30 +317,52 @@ function allocateNode(
   // v 排布：同宽，逐个切高；separator 占 1 行
   let y = rect.y;
   let remainingH = rect.h;
-  // 声明了 height 的固定/填充优先；其余按测量高
+  // 各子项高度主张：fixed 按声明行数；fill 吃剩余；无声明取测量高（auto）
   const heights: number[] = [];
-  let fixedSum = 0;
+  const prio: number[] = []; // 让路优先级：fill=5, auto=4, fixed=1
+  let claim = 0; // 非 fill 主张和
   let fillCount = 0;
   for (let i = 0; i < box.children.length; i++) {
     const child = box.children[i]!;
     const hg = child.height;
     if (hg?.mode === "fixed") {
       heights[i] = hg.rows;
-      fixedSum += hg.rows;
+      prio[i] = 1;
+      claim += hg.rows;
     } else if (hg?.mode === "fill") {
-      heights[i] = -1; // fill 占位
+      heights[i] = -1; // fill 占位，稍后分配
+      prio[i] = 5;
       fillCount++;
     } else {
       const h = st.size.get(child)?.h ?? 0;
       heights[i] = h;
-      fixedSum += h;
+      prio[i] = 4;
+      claim += h;
     }
   }
-  // separator 行计入高度预算
+  // 预算 = rect.h - separator 行数；不足时按让路顺序压缩（auto → fixed）
   const sepWide =
     box.children.length > 1 && box.separator ? box.children.length - 1 : 0;
   const avail = Math.max(0, remainingH - sepWide);
-  let fillPool = Math.max(0, avail - fixedSum);
+  if (claim > avail) {
+    let deficit = claim - avail;
+    const shrinkOrder = [4, 1]; // auto（测量）先让，fixed 最后
+    for (const p of shrinkOrder) {
+      if (deficit <= 0) break;
+      for (let i = 0; i < box.children.length; i++) {
+        if (deficit <= 0) break;
+        if (prio[i] !== p) continue;
+        const cut = Math.min(heights[i]!, deficit);
+        heights[i]! -= cut;
+        deficit -= cut;
+      }
+    }
+  }
+  // fill 平分剩余（无剩余得 0）
+  let fillPool = Math.max(
+    0,
+    avail - heights.filter((_, i) => prio[i] !== 5).reduce((a, b) => a + b, 0),
+  );
   for (let i = 0; i < box.children.length; i++) {
     if (heights[i] === -1) {
       heights[i] = fillCount > 0 ? Math.floor(fillPool / fillCount) : 0;
@@ -353,7 +372,7 @@ function allocateNode(
   }
   for (let i = 0; i < box.children.length; i++) {
     const child = box.children[i]!;
-    const h = Math.max(0, Math.min(heights[i] ?? 0, remainingH));
+    const h = Math.max(0, heights[i] ?? 0);
     allocateNode(child, { x: rect.x, y, w: rect.w, h }, st, out);
     y += h;
     remainingH -= h;
