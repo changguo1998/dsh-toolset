@@ -33,33 +33,49 @@
 
 ## 2. 扩展建议
 
-### A 档：共识高 + 底座现成（建议优先）
+> 归口口径：命令只用两类来源实现——① **dsh 官方 API/插件**（当前 profile 已挂载的服务）；② **本项目插件**（dsh-toolset）。不引入第三方插件；需额外装配官方可选 bundle（当前未挂载）的项不在本轮范围。
 
-| 命令 | 出现于 | 本项目底座 | 落点 | 优先级 |
-|------|--------|-----------|------|--------|
-| `/stats`（别名 `/usage` `/cost` `/context`） | Claude Code、Codex、Gemini、pi（4/4） | `ctx.tokenMeter`（token-meter）+ session-query-sqlite | TUI 本地命令 → notice 或信息面板：token 用量、成本、上下文占比 | P1 |
-| `/memory` | Claude Code、Codex、Gemini | **knowledge-base 插件**（跨会话知识库 + 记忆 CRUD 工具已实现） | 缺命令入口：TUI 本地命令直连服务，或新建宿主命令插件（仿 dsh-command-goal） | P1 |
-| `/skills` | Claude Code、Codex、Gemini | skill + skill-filesystem + tool-skill | TUI 面板（复用 ModelPicker 骨架） | P1 |
-| `/agents` | Claude Code、Codex、Gemini | subagent + tool-subagent-control/list-agents | TUI 面板（复用 JobsPanel 骨架） | P1 |
-| `/rename` | Claude Code、Codex、pi | session-title（+ first-prompt-llm 自动命名） | 输入行 → 写会话标题 | P2 |
-| `/clear` | Claude Code、Codex、Gemini | 待确认 dsh 是否支持同会话清上下文 | TUI 本地命令；与 `/clearscreen`（仅清显示）语义区分 | P2 |
+### 2.1 用 dsh 官方 API（服务已挂载；写命令插件即可，TUI 零改动）
 
-### B 档：有价值，成本中等
+| 命令 | 宿主服务 · 方法 | 出现于 | 优先级 |
+|------|----------------|--------|--------|
+| `/stats`（别名 `/usage` `/cost` `/context`） | `tokenMeter.measure` / `estimateMessage` + `sessionQuery.listSessions` / `readSurface` | Claude、Codex、Gemini、pi（4/4） | P1 |
+| `/skills` | `skills.list` / `snapshot` / `registerProvider` | Claude、Codex、Gemini | P1 |
+| `/agents` | `subagents.list` / `interrupt` / `sendMessage` | Claude、Codex、Gemini | P1 |
+| `/tools` | `tools.entries` / `schemas` / `get` | Gemini | P2 |
+| `/rename` | `sessionTitle.rename` | Claude、Codex、pi | P2 |
+| `/settings`（`/config`） | `settings.open` / `mutate` / `describe` / `documentPath` | Claude、Gemini、pi | P2 |
+| `/clear` | `sessions.clear`（同服务另有 `create` / `delete`） | Claude、Codex、Gemini | P2 |
+| `/fork` | `sessions.fork` | Claude、Codex、pi | P2 |
+| `/login` `/logout` | `credentials.describe` / `set` / `unset` / `resolve` | Claude、Codex、pi | P2 |
+| `/review`（`/code-review`） | `workflowEngine.start` | Claude、Codex | P2 |
 
-| 命令 | 出现于 | 底座 | 落点 | 优先级 |
-|------|--------|------|------|--------|
-| `/diff` | Claude Code、Codex | git（TUI StatusTicker 已查询 git 状态） | TUI 面板：工作区变更概览（`git diff --stat`） | P1 |
-| `/loop` | Claude Code | **metric-loop 插件**（指标循环引擎已实现） | 宿主命令插件（仿 dsh-command-goal） | P1 |
-| `/review`（`/code-review`） | Claude Code、Codex | workflow + subagent（本项目已有 code-review 工作流模板） | 宿主命令转发 workflow | P2 |
-| `/settings`（`/config`） | Claude Code、Gemini、pi | settings-file + `tui.config.json` | TUI 面板：编辑布局/主题配置 | P2 |
-| `/tools` | Gemini CLI | dsh-tools 注册表 | TUI 列表（只读） | P2 |
-| `/mcp` | Claude Code、Codex、Gemini | 需先装配 `dsh-mcp-client`（当前 profile 未挂载） | 先加宿主 bundle，再做 TUI 面板 | P2 |
-| `/hooks` | Claude Code、Codex、Gemini | 需先装配 `dsh-hooks-claude-code` / `dsh-hooks-codex` | 同上 | P2 |
-| `/fork` | Claude Code、Codex、pi | session 服务（分叉能力待确认） | 宿主命令插件 | P2 |
-| `/login` `/logout` | Claude Code、Codex、pi | credentials-local | provider 凭据管理入口 | P2 |
-| `/doctor` | Claude Code | 自检：TUI / 宿主 / 插件装配状态 | TUI 本地命令 | P2 |
+- 实现模板：`dsh-command-goal`（185 行 JS，`ctx.commands.register` + `inject`）；建议合为**一个** `dsh-command-toolset` 包注册多条命令，而非每命令一个包。
+- **已可用、无需实现**：`/plan`（`dsh-plan-mode` 注册）、`/export`（`dsh-session-log-export` 注册）。
+- 注：`sessions.clear` 的语义（清上下文 or 清会话）实现时需确认；`/clear` 与现有 `/clearscreen`（仅清显示）语义区分。
 
-### C 档：不建议（记录理由，避免重复调研）
+### 2.2 用本项目插件（需先暴露服务，再写命令）
+
+现状：本项目 10 个插件**均只注册模型工具或 hook，未把服务挂到宿主 ctx** —— 任何命令入口都要先补「服务暴露」这一步。
+
+| 命令 | 本项目插件 · 可支撑能力 | 需补的暴露 | 优先级 |
+|------|----------------------|-----------|--------|
+| `/memory` | knowledge-base：`search` / `put` / `touch` / `evict` + Memory CRUD（已实现） | `apply` 现为 `void createKnowledgeBundle(...)`（服务对象建完即丢），需把 `kb` / `memory` 挂到 ctx | P1 |
+| `/loop` | metric-loop：循环引擎（start / tick / status / plateau / 边界） | 现只注册 `metric_loop` 工具，controller 未挂 ctx | P1 |
+| `/task` | task-engine：任务树（decompose / implement / stop / status） | 现只注册工具，需暴露任务树状态面 | P2 |
+| `/contract` | goal-contract：Done-when 契约起草 | 现只注册工具 | P2 |
+| `/guard` | security-guard：危险命令黑名单 + 敏感文件保护 | 现仅 `createSecurityGuard(ctx)`，需暴露策略/拦截审计面 | P2 |
+| `/herdr` | herdr-integration：面板状态/blocked 桥 | 现为 socket 上报，需暴露连接与状态 | P2 |
+
+- 工具性质、命令入口价值低（模型直接用即可）：fs-digest、hash-edit、ast-tools、output-compress。
+- TUI 包内实现（非插件）：`/diff`（跑 git 出变更面板）、`/doctor`（自检 TUI / 宿主 / 插件装配）。
+
+### 2.3 已剔除（按当前口径不考虑）
+
+- **需额外装配官方可选 bundle**（当前 profile 未挂载）：`/mcp`（`dsh-mcp-client`）、`/hooks`（`dsh-hooks-claude-code` / `dsh-hooks-codex`）。
+- **第三方 / 其他 agent 生态命令**：见 §2.4。
+
+### 2.4 不建议（记录理由，避免重复调研）
 
 - **平台/服务专属，不迁移**：`/stickers` `/radio` `/pets` `/pet` `/passes` `/upgrade` `/mobile` `/chrome` `/desktop` `/teleport` `/remote-control` `/share` `/schedule` `/artifacts` `/design*` `/dataviz` `/deep-research` `/insights` `/recap` `/voice` `/web-setup` `/install-*` `/privacy` `/about` `/powerup` `/team-onboarding` `/run` `/verify` `/batch` `/autofix-pr` `/ultrareview` `/security-review` `/focus` `/color` `/scroll-speed` `/tui` `/plugin` `/plugins` `/extensions` `/apps` `/ide` `/editor` `/docs` `/shells` `/ps` `/archive` `/delete` `/experimental` `/debug` `/debug-config` `/heapdump` `/raw` `/mention` `/pr-comments` `/changelog` `/statusline` `/keybindings` `/keymap`
 - **上游已移除**：`/vim`（Claude Code 改由 `/config`）、`/ultraplan`
