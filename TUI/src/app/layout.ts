@@ -954,7 +954,6 @@ function buildTopRegion(
   // 焦点中性基线：活动区分隔线 / 分隔竖线 / 左缘框格 / 右缘框列全部以灰
   // 边框色或空白占位产出；亮角字/亮边由 buildFrame 末尾的 focusFrame
   // 按焦点态覆写（DESIGN.md §8，唯一焦点框机制）。
-  const fc = focusFrameColor(state.themeId);
   const sepSegments = (): FrameSegment[] => [
     {
       text: ACTIVITY_SEPARATOR.repeat(Math.max(1, contentW)),
@@ -984,12 +983,10 @@ function buildTopRegion(
     ? fillPanelBox(activeBox, activityH, contentW, state.themeId)
     : [];
   const divFor = (rc: number): FrameSegment[] => {
-    // 焦点中性基线：活动区分隔行 D 列=连接 `┤`（竖线贯穿+横线左接入），
-    // normalInput（无面板）下常亮白（活动区分隔存在的设计常亮，与焦点无关；
-    // 面板态回灰）；titleRows 下划线行 D 列= `┤` 灰、其余内容行 D 列= `│`
-    // 灰线；status 焦点顶边由 focusFrame 覆写 ┌（此处 rc0 给空白占位）。
-    if (rc === diaEnd && activityH > 0)
-      return [seg("┤", { fg: focusActive ? fc : "border" })];
+    // 焦点中性基线：活动区分隔行 D 列=连接 `┤`（竖线贯穿+横线左接入，
+    // 与其他框线同为边框色）；titleRows 下划线行 D 列= `┤`、其余内容行 D 列= `│`
+    // 同为边框色；亮角字/亮边由 focusFrame 按焦点态覆写（status 焦点顶边此处 rc0 给空白占位）。
+    if (rc === diaEnd && activityH > 0) return [seg("┤", { fg: "border" })];
     if (rc === 0 && statusFocused) return [seg(" ")];
     if (titleRows > 1 && rc === diaStart - 1)
       return [seg("┤", { fg: "border" })];
