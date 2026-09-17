@@ -1442,6 +1442,96 @@ test("buildFrame: 思考以换行结尾时 step 分割行前不显示空行（�
   assert.ok(!blank(lines[sep - 1]!), "思考行与分割行之间无空行");
 });
 
+test("buildFrame: notice 纯换行紧贴 step 头被吸收（无视觉空行）", () => {
+  let s = initialState();
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "ls",
+  });
+  s = reduceState(s, {
+    type: "tool-result",
+    sessionId: "s1",
+    ok: true,
+    detail: "ok 1",
+  });
+  // notice 文本恰为单个换行：剥离尾部换行后节点变空 → 连续吸收（不留空行）
+  s = reduceState(s, {
+    type: "notice",
+    tone: "warn",
+    text: "\n",
+    error: false,
+  });
+  s = reduceState(s, {
+    type: "step",
+    sessionId: "s1",
+    turn: 1,
+    step: 2,
+    phase: "start",
+  });
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "pwd",
+  });
+  const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const blank = (l: string): boolean => l.replace(/[│|\s]/g, "") === "";
+  const sep = lines.findIndex((l) => l.includes("╌╌ step 2"));
+  assert.ok(sep >= 0, "step 2 分割行存在: " + lines.join("|"));
+  assert.ok(!blank(lines[sep - 1]!), "纯换行 notice 被吸收，分割行前无空行");
+  assert.ok((lines[sep + 1] ?? "").includes("bash pwd"), "分割行后紧跟工具行");
+});
+
+test("buildFrame: notice 尾换行被吸收但正文保留（中间提示场景）", () => {
+  let s = initialState();
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "ls",
+  });
+  s = reduceState(s, {
+    type: "tool-result",
+    sessionId: "s1",
+    ok: true,
+    detail: "ok 1",
+  });
+  s = reduceState(s, {
+    type: "notice",
+    tone: "info",
+    text: "中间提示\n",
+    error: false,
+  });
+  s = reduceState(s, {
+    type: "step",
+    sessionId: "s1",
+    turn: 1,
+    step: 2,
+    phase: "start",
+  });
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "pwd",
+  });
+  const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const blank = (l: string): boolean => l.replace(/[│|\s]/g, "") === "";
+  const sep = lines.findIndex((l) => l.includes("╌╌ step 2"));
+  assert.ok(sep >= 0, "step 2 分割行存在: " + lines.join("|"));
+  assert.ok(
+    (lines[sep - 1] ?? "").includes("中间提示"),
+    "分割行上一行保留 notice 正文: " + JSON.stringify(lines[sep - 1]),
+  );
+  assert.ok(!blank(lines[sep - 1]!), "notice 正文行与分割行之间无空行");
+});
+
 test("buildFrame: 两次调用组之间不再插空行（紧凑拼接，虚线 step 才分隔）", () => {
   let s = initialState();
   for (const n of [1, 2]) {

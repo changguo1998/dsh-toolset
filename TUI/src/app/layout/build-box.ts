@@ -127,7 +127,7 @@ export function buildBox(
         const stepM = /^step (\d+)$/.exec(l.text);
         if (stepM) {
           // step 分割行吸收前文拖尾空活动行（notice/thinking 换行锚点等）——
-          // 对齐旧 wrapBufferLines：分割行前积的视觉空行直接吞掉，不渲染
+          // 对齐 legacy：分割行前积的视觉空行直接吞掉，不渲染
           absorbActivityBlank(activityLeaves);
         }
         let node: Node;
@@ -326,9 +326,16 @@ function absorbActivityBlank(leaves: Node[]): void {
       leaves.pop();
       continue;
     }
-    // 剥掉尾随换行：仅修改节点文本（不重建节点，保持 meta 引用有效）
-    const sepRemoved = stripTrailingNewline(last);
-    if (sepRemoved) return;
+    // 剥掉尾随换行：仅修改节点文本（不重建节点，保持 meta 引用有效）。
+    // 若剥离后节点只剩空文本（如 notice 文本恰为单个换行），继续向上吸收，
+    // 否则该节点仍产视觉空行——对齐旧实现连续 pop isBlankRow 的循环语义。
+    if (stripTrailingNewline(last)) {
+      if (nodePlainText(last) === "") {
+        leaves.pop();
+        continue;
+      }
+      return;
+    }
     break;
   }
 }

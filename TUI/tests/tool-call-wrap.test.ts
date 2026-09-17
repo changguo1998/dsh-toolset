@@ -12,6 +12,7 @@ import {
   TOOL_CONT_INDENT,
 } from "../src/app/layout.ts";
 import { appendToolLine, initialState } from "../src/app/state.ts";
+import { buildContentRows } from "../src/app/layout/build-box.ts";
 import { rowText } from "./helpers/rowText.ts";
 
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
@@ -87,4 +88,23 @@ test("buildFrame：工具结果行长 detail 折行后续行同样缩进且不�
     const cont = grid.slice(headIdx + 1).find((l) => /^[│ ]* {4,}\S/.test(l));
     assert.ok(cont, "结果行续行应以 ≥4 空格缩进");
   }
+});
+
+test("新增管线与 wrapToolCallText 逐行一致：显式换行 + 第二物理行也软折行", () => {
+  // 回归 advisor 复核 Bug 1：splitAndWrapSegments 曾对首/续物理行双重减宽
+  // （width - 2*hanging）。此处对照 buildContentRows 与旧 wrapToolCallText
+  // 的逐行文本，确保持平语义一致（首物理行全宽折、续行/软续行均 4 空格
+  // 悬挂缩进且宽度扣除缩进）。
+  const width = 40;
+  const text =
+    "bash command=longarg-" + "x".repeat(80) + "\nline2-" + "y".repeat(80);
+  const built = buildContentRows(
+    [{ text, kind: "tool" }],
+    { themeId: "dark" as const, gutter: 4 },
+    width,
+  );
+  const newText = built.activity.map((r) =>
+    r.segments.map((s) => s.text).join(""),
+  );
+  assert.deepEqual(newText, wrapToolCallText(text, width));
 });

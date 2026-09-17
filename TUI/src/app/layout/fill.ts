@@ -391,7 +391,9 @@ function splitAndWrapSegments(
       continue;
     }
     const w = out.length === 0 ? width : Math.max(1, width - hanging);
-    out.push(...wrapFrameSegments(line, w, hanging));
+    // 首物理行传 hanging（软折行续行减 hanging）；后续物理行基宽已含
+    // hanging 减法，再传 0 避免双重减宽（width - 2*hanging）
+    out.push(...wrapFrameSegments(line, w, out.length === 0 ? hanging : 0));
   }
   return out;
 }
