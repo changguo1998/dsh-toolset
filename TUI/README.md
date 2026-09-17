@@ -10,6 +10,7 @@
 | `IMPLEMENTATION.md` | implementation | 实现细节：命令路由、文本管线、机制实现记录 |
 | `REFACTOR.md` | task/约定 | 模块拆分原则、文件归属、触发标准 |
 | `AUDIT-colors.md` / `NOTICE-LEVELS.md` | 参考 | 颜色审计 / notice 级别约定 |
+| `COMMANDS.md` | 参考 | 命令面清单（本地 + 宿主注册）+ 对比其他 agent 的扩展建议 |
 
 DSH（DeepSeek Harness）进程内集成的终端 UI 插件。复用 DSH 核心服务（会话、Agent 驱动、审批链等），提供 Web UI / CLI 之外的第三种交互方式，由自研极简渲染层驱动（不依赖 Ink / Solid-TUI / node-pty，运行时唯一依赖 `chalk`）。
 
@@ -54,7 +55,7 @@ dsh-tui --help
 - **事件化渲染**：工具调用与结果显示为独立工具行（`bash <摘要>`，无前缀图标，结果 `✓ <首行>` / 失败红色 `✗ <详情>`，独立成行、不走思考打字机）；模型回合结束后面板状态栏显示本次 token 用量（`ctx 13.3k(11%)|cache 98%`，k/M 缩写；ctx 占用百分比=(input+cacheRead)/模型上下文窗口，窗口由 llm.resolveModelInfo 披露、未披露时省略仅显绝对大小；cacheHit=cacheRead/(input+cacheRead)；无用量保持 `—`）；命令通知（notice）按 tone 4 级语义着色（log 灰=进度/状态 / info 蓝=需了解 / warn 黄=可绕开运行错误·副作用危险警示 / result 级互斥：error 红·success 绿，用户输入命令的结果一律 result 级）；长会话压缩（compaction）与模型重试（retry，如 `重试 1/2 (1.5s): TRANSPORT 连接被重置`）以 toast 提示。真实 DSH happy path 由 `npm run smoke:pty` 冒烟验证（真实会话出工具行与状态栏 usage）。状态栏按类分组（组间 `|`、组内 `·`，行数动态尽量少）：**环境组** time·git·cwd、**LLM 组** model:后缀·ctx·cache（标题在左列顶部标题栏）；宽度足够单行完整，不足按段折行、单组超宽才组内压缩（cwd 保尾、model 保后缀）。**思考状态并入 model 段（格式 `provider/model:{后缀}`，后缀前景色）：`none`=模型不支持思考 / `off`=支持思考但未开启（无显式等级且 provider 未配默认等级）/ `on`=单等级开启 / 多等级开启时按实际等级名显示（如 `high`/`low`/`max`）；未显式选择等级时按 **provider 默认等级（`reasoning` 配置）** 显示——状态栏与实际请求生效的 effort 一致（map：`llm.resolveModelInfo().reasoning.defaultEffort`）**。工具调用历史仅展示最近 4 个调用组（更早已灰色 `…(更早工具调用已隐藏)` 折叠），连续两次调用之间不再空行分隔（紧凑拼接）；每步（step）以 `╌╌ step N ╌╌╌…` 整行虚线分隔（与历史区分隔回合的 `╌` 虚线一致，铺满活动区列宽），step 分隔行紧跟前文——其前的空白活动行（思考/notice 拖尾空段）被吸收，后续行也不再额外空行；工具行无前缀图标、工具名着黄，成功 ✓ 绿、失败 ✗ 整行红。
 - **事件显示（P3 批次）**：workflow 运行（`⚑ workflow: <名>`、`⤷ 成员`、结束 toast）、命令执行流（`/> <名>`，失败红行）、run_code 子派发（`⇥`，成功静默）、hooks 调用（`⌗`）、schedule 到点（toast）、compaction 剪除（toast）、feedback 确认（toast）与重试启动（`↻ 重试中 (N)`）均已接入；全部走活动区行/notice，append-only。
 - **agent 预设与 /jobs 后台任务**：`agent-preset/selected` 事件接入 → 状态栏 `preset:<id>` 徽标 + `/preset` 命令（无参列可用/当前/默认，带参经 `ctx.agentPresets.recompose` 切换，宿主缺失提示不可用）；`/jobs` 后台任务面板（adapter 订阅 `ctx.jobs.onJobsChanged` 增量推送 + 打开时 `refreshJobs` 全量拉取；面板显示任务状态行，↑/↓ 选择、`Enter` 取消高亮任务（`ctx.jobs.kill`）、`Esc` 关闭；状态栏 `jobs N` 徽标仅计运行中；顶部状态列含 jobs 块（`Jobs 运行中/总数` + 任务状态行））。
-- **`/compact`、`/feedback`（宿主自带命令）**：宿主自带命令（`dsh-command-compact`/`dsh-command-feedback`，dsh-base 默认装配），TUI 无需额外代码，命令转发即用；`feedback/record` 确认 toast 已接入。
+- **宿主自带命令（`/compact` `/feedback` `/record` `/goal` `/plan` `/export`）**：dsh-base 默认装配（经 `ctx.commands.register` 注册），TUI 无需额外代码、命令转发即用；`feedback/record` 确认 toast 已接入。命令面全貌与扩展建议见 `COMMANDS.md`。
 - **turn 分隔**：每个回合开始时先插入横线分隔行（上一轮内容 → 分隔线 → 新回合内容），流式输出实时合入历史；turn 结束不再画线。
 
 ## 作为 bundle 挂载（在 DSH profile 中使用）
@@ -152,7 +153,7 @@ npm run watch # tsc --watch 常驻：源码变更自动编译到 dist/（仍需�
   - `/init` — 初始化项目 `AGENTS.md`：检查当前目录（会话 cwd，回退进程 cwd）下是否已存在 `AGENTS.md`；已存在则提示并直接结束（不发送任何消息），缺失则以一条初始化指令（`INIT_PROMPT`）注入当前会话，由模型阅读目录内容、总结后生成 `AGENTS.md`（本地回显用户行 `/init`）
   - `/model [provider/]model` — 会话内切换模型（不落盘）：无参打开**模型选择面板**（三列 provider/model/effort 同屏，初始焦点在 model 列，←/→ 换列、空格选中、Enter 提交、Esc 取消；effort 列初始高亮 = 当前显式等级，未显式选择时按 provider 默认等级）；带参直接切换（`provider/model` 或跨 provider 唯一的 model id）
   - `/provider`、`/effort`（`/thinking` 同义） — 无需参数打开同一个模型选择面板，并预先把焦点列放到 provider / effort 列；带参提示 usage（不做隐式切换）
-- **宿主自带命令（dsh-base 默认装配，转发即用）**：`/compact`、`/feedback`（rc.2 `dsh-command-compact`/`dsh-command-feedback` 经 `ctx.commands.register` 注册），TUI 无本地路由走 registry 转发。
+- **宿主自带命令（dsh-base 默认装配，转发即用）**：`/compact`（`dsh-command-compact`）、`/feedback` `/record`（`dsh-command-feedback`）、`/goal`（`dsh-command-goal`）、`/plan`（`dsh-plan-mode`）、`/export`（`dsh-session-log-export`）——均经 `ctx.commands.register` 注册，TUI 无本地路由走 registry 转发；完整命令面与「值得添加的命令」建议见 `COMMANDS.md`。
 - **其他功能命令 → commands 注册表**（官方 `dsh-commands` 机制）：输入路由到 `adapter.runCommand` → `ctx.commands.execute(agent, line)`，结果/错误经 `notice` 事件展示在 UI 缓冲。未命中注册表 → 提示未知命令（官方 fail-close 策略，绝不把 slash 行发给模型）。
 - demo 模式无 commands 注册表，非本地 `/xxx` 回提示。
 

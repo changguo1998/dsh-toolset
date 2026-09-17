@@ -91,6 +91,10 @@ defender 迁移（对比文档 §3.5）。
 | 35 | provider 流量控制：限流遥测 + AIMD 咨询守卫（退避等待转 advisory、令牌桶、rate_check 工具） | ~~rate-guard（pi 原生扩展）~~（已移除；「等待后恢复」由新增扩展 provider-guard 承接，见对比文档 §5.4） | llm-retry 已覆盖一般退避；不迁移（quota 长等待/恢复溯源如需要可参照 provider-guard） | P2（已取消，不实现） |
 | 36 | herdr 面板集成：agent 状态 socket 上报、blocked 事件桥（含 ask-user blocked → herdr blocked） | herdr-agent-state / herdr-ask-user-question（pi 原生扩展） | 新建；协议仿 pi 原生（HERDR_ENV / HERDR_SOCKET_PATH / HERDR_PANE_ID + unix socket） | P1 |
 
+## TUI 命令扩展（对比其他 agent 的共识命令）
+
+> 命令面清单与「值得添加的命令」建议已独立成文：见 `TUI/COMMANDS.md`（依据 2026-09-18 对比 Claude Code / Codex CLI / Gemini CLI / pi 的共识命令与本项目现状）。
+
 ## 排序原则与里程碑
 
 1. **里程碑一（P0）**：#1-#4 + #8 —— 引擎三块 + 知识库底座（设计文档 §16.3 结论：其余核心能力 dsh 已有现成服务）；
