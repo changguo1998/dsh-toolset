@@ -21,7 +21,7 @@ import type {
 } from "./state.ts";
 import { currentProjectCwd, historyVisibleRecords } from "./state.ts";
 
-import type { Buffer, BufferKind, BufferLine } from "./state.ts";
+import type { Buffer } from "./state.ts";
 import type { JobInfo, TodoItemLike } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { buildModelPickerBox } from "./components/ModelPicker.ts";
@@ -39,29 +39,12 @@ import { fillToList } from "./layout/fill.ts";
 import { focusFrame, focusColor } from "./layout/focus-frame.ts";
 import type { PaneId, Rect } from "./layout/box.ts";
 import type { ContentRow } from "./layout/fill.ts";
-import {
-  charWidth,
-  displayWidth,
-  FENCE_RE,
-  wrapAssistantLine,
-  wrapCodeLine,
-} from "./layout/markdown.ts";
+import { charWidth, displayWidth } from "./layout/markdown.ts";
 import {
   ACTIVITY_SEPARATOR,
-  assistantMaxBodyWidth,
-  isToolCall,
-  isToolResult,
   NOTICE_TONE_COLOR,
-  TOOL_MAX_GROUPS,
-  TOOL_MORE,
-  renderToolNameLine,
-  renderToolText,
   SEPARATOR,
   STATUS_TOP_SEPARATOR,
-  TURN_SEPARATOR_CHAR,
-  USER_MIN_LEFT_GUTTER,
-  userMaxBodyWidth,
-  wrapToolCallText,
 } from "./layout/content-rules.ts";
 export {
   SEPARATOR,
@@ -101,7 +84,6 @@ import {
   truncateSegs,
   truncateToWidth,
   wrapLine,
-  wrapLines,
 } from "./layout/primitives.ts";
 
 // ---------- 视口纯函数 ----------
