@@ -26,15 +26,12 @@ import type { JobInfo, TodoItemLike } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
 import { renderHistoryPanel } from "./components/HistoryPanel.ts";
-import {
-  renderQuestionPanel,
-  buildQuestionPanelBox,
-} from "./components/QuestionPrompt.ts";
+import { buildQuestionPanelBox } from "./components/QuestionPrompt.ts";
 import { renderJobsPanel, statusMark } from "./components/JobsPanel.ts";
-import { renderStatusPanel } from "./components/StatusPanel.ts";
+import { buildStatusPanelBox } from "./components/StatusPanel.ts";
 import { renderCommandCompletion } from "./components/CommandCompletion.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
-import { buildApprovalBox, renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
+import { buildApprovalBox } from "./components/ApprovalPrompt.ts";
 import { buildContentRows } from "./layout/build-box.ts";
 import { measure } from "./layout/measure.ts";
 import { allocate } from "./layout/measure.ts";
@@ -985,12 +982,12 @@ function buildTopRegion(
             state.themeId,
           )
         : state.statusPanel
-          ? renderStatusPanel({
-              panel: state.statusPanel,
-              height: activityH,
-              width: contentW,
-              themeId: state.themeId,
-            })
+          ? fillPanelBox(
+              buildStatusPanelBox(state.statusPanel, activityH, contentW),
+              activityH,
+              contentW,
+              state.themeId,
+            )
           : state.jobsPanel
             ? renderJobsPanel({
                 jobs: state.jobs,
