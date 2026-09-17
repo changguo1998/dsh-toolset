@@ -24,7 +24,7 @@ import { currentProjectCwd, historyVisibleRecords } from "./state.ts";
 import type { Buffer, BufferKind, BufferLine } from "./state.ts";
 import type { JobInfo, TodoItemLike } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
-import { renderModelPicker } from "./components/ModelPicker.ts";
+import { buildModelPickerBox } from "./components/ModelPicker.ts";
 import { buildHistoryPanelBox } from "./components/HistoryPanel.ts";
 import { buildQuestionPanelBox } from "./components/QuestionPrompt.ts";
 import { buildJobsPanelBox, statusMark } from "./components/JobsPanel.ts";
@@ -973,12 +973,14 @@ function buildTopRegion(
           state.themeId,
         )
       : state.picker
-        ? renderModelPicker(
-            {
+        ? fillPanelBox(
+            buildModelPickerBox({
               picker: state.picker,
               height: activityH,
               width: contentW,
-            },
+            }),
+            activityH,
+            contentW,
             state.themeId,
           )
         : state.statusPanel

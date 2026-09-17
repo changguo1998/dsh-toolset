@@ -16,6 +16,9 @@ import type { FrameRow, FrameSegment } from "../../renderer/index.ts";
 import type { ThemeId } from "../../renderer/theme.ts";
 import type { PickerState } from "../state.ts";
 import { truncateToWidth } from "../layout.ts";
+import type { Box, Node } from "../layout/box.ts";
+import { v, styled } from "../layout/box.ts";
+import { seg } from "../layout/primitives.ts";
 
 export interface ModelPickerView {
   picker: PickerState;
@@ -84,6 +87,145 @@ function renderColumnCell(
 /** 按列宽截断并右补对齐（纯文本），再段化着色 */
 function padCell(text: string, w: number): FrameSegment[] {
   return [{ text: truncateToWidth(text, w).padEnd(w) }];
+}
+
+/**
+ * 模型选择面板 Box 生成器（DESIGN.md §7 / SPEC.md §7）：三列独立列表（provider/
+ * model/effort）滚动窗口 + 列宽截断补空 + 选择性着色（绿优先于黄）+ 底行按键帮助。
+ * 每行产 styled 多段叶子（列段 + 间隔段），叶子 wrap:false 精确行长。
+ */
+export function buildModelPickerBox(view: ModelPickerView): Box {
+  const {
+    providers,
+    providerIndex,
+    models,
+    modelIndex,
+    efforts,
+    effortIndex,
+    phase,
+    selectedProvider,
+    selectedModel,
+    selectedEffort,
+  } = view.picker;
+  const height = Math.max(1, view.height);
+  const width = Math.max(1, view.width);
+  const sep = width >= 32 ? 2 : 1;
+  const provW = Math.min(16, Math.max(6, Math.floor(width * 0.22)));
+  const remain = Math.max(1, width - provW - sep * 2);
+  const thinkW = Math.max(10, Math.floor(remain * 0.4));
+  const modelW = Math.max(1, remain - thinkW);
+  const widths = [provW, modelW, thinkW];
+
+  const listRows = Math.max(1, height - 2);
+  const unsupported = efforts.length === 0;
+  const colContent = (len: number) =>
+    len <= listRows ? listRows : Math.max(1, listRows - 2);
+  const provRows = colContent(providers.length);
+  const modelRows = colContent(models.length);
+  const effRows = colContent(efforts.length);
+  const provStart = scrollStart(providers.length, providerIndex, provRows);
+  const modelStart = scrollStart(models.length, modelIndex, modelRows);
+  const effStart = scrollStart(efforts.length, effortIndex, effRows);
+  const topO = (start: number) => start > 0;
+  const bottomO = (len: number, rows: number, start: number) =>
+    start + rows < len;
+
+  const leaves: import("../layout/box.ts").Node[] = [];
+  for (let r = 0; r < height; r++) {
+    let cells: { text: string; focus: boolean; sel: boolean }[] = [
+      { text: "", focus: false, sel: false },
+      { text: "", focus: false, sel: false },
+      { text: "", focus: false, sel: false },
+    ];
+    if (r === 0) {
+      const hdr = (t: string, isF: boolean) => (isF ? `[ ${t} ]` : ` ${t}`);
+      cells = [
+        { text: hdr("provider", phase === 0), focus: false, sel: false },
+        { text: hdr("model", phase === 1), focus: false, sel: false },
+        unsupported
+          ? {
+              text: hdr("effort (unsupported)", phase === 2),
+              focus: false,
+              sel: false,
+            }
+          : { text: hdr("effort", phase === 2), focus: false, sel: false },
+      ];
+    } else if (r === height - 1) {
+      leaves.push(
+        styled(
+          [
+            seg(
+              truncateToWidth(
+                "[space]select · [left/right]col · [tab]next col · [enter]commit · [esc]cancel",
+                width,
+              ).padEnd(width),
+            ),
+          ],
+          { wrap: false },
+        ),
+      );
+      continue;
+    } else {
+      const rowIdx = r - 1;
+      cells[0] = renderColumnCell(
+        { len: providers.length, at: (i) => providers[i]! },
+        provStart,
+        provRows,
+        topO(provStart),
+        bottomO(providers.length, provRows, provStart),
+        rowIdx,
+        listRows,
+        phase,
+        0,
+        providerIndex,
+        selectedProvider,
+      );
+      cells[1] = renderColumnCell(
+        { len: models.length, at: (i) => models[i]! },
+        modelStart,
+        modelRows,
+        topO(modelStart),
+        bottomO(models.length, modelRows, modelStart),
+        rowIdx,
+        listRows,
+        phase,
+        1,
+        modelIndex,
+        selectedModel,
+      );
+      if (!unsupported) {
+        cells[2] = renderColumnCell(
+          {
+            len: efforts.length,
+            at: (i) => efforts[i]!.name,
+            matchAt: (i) => efforts[i]!.id,
+          },
+          effStart,
+          effRows,
+          topO(effStart),
+          bottomO(efforts.length, effRows, effStart),
+          rowIdx,
+          listRows,
+          phase,
+          2,
+          effortIndex,
+          selectedEffort,
+        );
+      }
+    }
+
+    const segs: import("../../renderer/screen.ts").FrameSegment[] = [];
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i]!;
+      const t = truncateToWidth(c.text, widths[i]!).padEnd(widths[i]!);
+      if (i > 0) segs.push({ text: " ".repeat(sep) });
+      if (c.sel) segs.push({ text: t, style: { fg: "green" as const } });
+      else if (c.focus) segs.push({ text: t, style: { fg: "yellow" as const } });
+      else segs.push({ text: t });
+    }
+    leaves.push(styled(segs, { wrap: false }));
+  }
+  return v(leaves);
 }
 
 export function renderModelPicker(
