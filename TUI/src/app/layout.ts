@@ -31,8 +31,11 @@ import { renderJobsPanel, statusMark } from "./components/JobsPanel.ts";
 import { renderStatusPanel } from "./components/StatusPanel.ts";
 import { renderCommandCompletion } from "./components/CommandCompletion.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
-import { renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
+import { buildApprovalBox, renderApprovalPrompt } from "./components/ApprovalPrompt.ts";
 import { buildContentRows } from "./layout/build-box.ts";
+import { measure } from "./layout/measure.ts";
+import { allocate } from "./layout/measure.ts";
+import { fillToList } from "./layout/fill.ts";
 import { focusFrame } from "./layout/focus-frame.ts";
 import type { PaneId, Rect } from "./layout/box.ts";
 import type { ContentRow } from "./layout/fill.ts";
@@ -817,6 +820,25 @@ export function renderStatusColumn(
   return out;
 }
 /** 顶部区域：左列对话历史+活动区（可独立滚动）、右侧详细状态列；焦点面板四边框亮色 */
+/** 面板 Box 生成器 → 活动区 ContentRow[]（measure/allocate/fill 统一摊平） */
+function fillPanelBox(
+  box: import("./layout/box.ts").Box,
+  height: number,
+  width: number,
+  themeId: ThemeId,
+): ContentRow[] {
+  const w = Math.max(1, width);
+  const rect = { x: 0, y: 0, w, h: Math.max(1, height) };
+  const st = measure(box, { maxW: w });
+  const rects = allocate(st, rect);
+  return fillToList(
+    { themeId, viewportWidth: w },
+    box,
+    rect,
+    rects,
+  );
+}
+
 function buildTopRegion(
   state: AppState,
   topHeight: number,
@@ -934,8 +956,15 @@ function buildTopRegion(
   // 「有问题交互」面板（审批/问答/模型选择）显示位置=流输出（活动区）窗口顶部：
   // 底部交互区不再承载（footer 空白占位保持交互区高度稳定）；面板占满活动区可视
   // 行，活动区瞬态行（thinking/tool/notice）在面板存在时本帧让位
-  const modalPanel: FrameRow[] = state.approval
-    ? renderApprovalPrompt(state.approval, activityH, contentW)
+  // 面板 Box 生成器：审批面板已迁移为 buildApprovalBox（Box 树 → fill）；
+  // 其余面板暂居 renderXxx（FrameRow[] 旧路径），逐个迁移中。
+  const modalPanel: ContentRow[] = state.approval
+    ? fillPanelBox(
+        buildApprovalBox(state.approval, activityH, contentW),
+        activityH,
+        contentW,
+        state.themeId,
+      )
     : state.question
       ? renderQuestionPanel(state.question, activityH, contentW)
       : state.picker
@@ -1591,10 +1620,9 @@ export function buildFrame(state: AppState, size: Size): FrameRow[] {
   // 按键提示区（独立区域，与输入区之间不画横线；正常前景色；窄终端按显示宽度截断）。
   // 补全候选打开时改为补全键位（面板本身不再占活动区行放提示）；
   // 历史会话面板的按键提示也在此显示（面板标题行不再内嵌键位，避免活动区顶部堆提示）。
-  const historyHint =
-    history !== null
-      ? (HISTORY_HINTS[history.phase] ?? HISTORY_LOADING_HINT_LINE)
-      : null;
+  const historyHint = history
+    ? (HISTORY_HINTS[history.phase] ?? HISTORY_LOADING_HINT_LINE)
+    : null;
   const hintLines: FrameRow[] = showHint
     ? [
         {
@@ -1618,13 +1646,12 @@ export function buildFrame(state: AppState, size: Size): FrameRow[] {
       seg(truncateToWidth(ch.repeat(fullWidth), fullWidth), { fg: color }),
     ],
   });
-  const statusSepFocus: "none" | "status" | "activity" = normalInput
-    ? state.focusedPanel === "status"
-      ? "status"
-      : state.focusedPanel === "activity"
-        ? "activity"
-        : "none"
-    : "none";
+  // 状态区上方分隔行的焦点语义（modal 态无焦点回 none）
+  let statusSepFocus: "none" | "status" | "activity" = "none";
+  if (normalInput) {
+    if (state.focusedPanel === "status") statusSepFocus = "status";
+    else if (state.focusedPanel === "activity") statusSepFocus = "activity";
+  }
   const rows: FrameRow[] = [
     ...topRegion,
     buildStatusSeparator(
