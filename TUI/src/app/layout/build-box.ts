@@ -30,12 +30,21 @@ export interface RowMeta {
 
 /** buildBox 产物：内容树 + 行元数据映射 */
 export interface BuildBoxResult {
+  /** 内容树根（对话区 v 容器；确定性引用） */
+  root: Box;
+  /** 两 pane 内容树（dialogue 对话区 / activity 活动区） */
+  panes: {
+    dialogue: Box;
+    activity: Box;
+  };
   /** 对话区内容树（v 容器；user/assistant/separator/plain） */
   dialogue: Box;
   /** 活动区内容树（v 容器；thinking/tool/notice/非 final assistant） */
   activity: Box;
   /** 节点 → 行元数据（buildBox 标注；fill 传播） */
   meta: Map<Node, RowMeta>;
+  /** 同 meta（advisor 定名；二者引用一致） */
+  metadata: Map<Node, RowMeta>;
 }
 
 /** buildBox 输入上下文（width 无关） */
@@ -43,12 +52,6 @@ export interface BuildBoxOptions {
   themeId: ThemeId;
   /** 用户/助手右缘留白（assistantMaxBodyWidth 的 gutter；固定配置非 width 相关） */
   gutter?: number;
-}
-
-let nextBlockId = 0;
-function freshBlockId(): number {
-  nextBlockId += 1;
-  return nextBlockId;
 }
 
 /** 工具调用行样式段（首词黄 + 其余原色；折行由 fill 做） */
@@ -80,6 +83,12 @@ export function buildBox(
   buffer: Buffer,
   opts: BuildBoxOptions,
 ): BuildBoxResult {
+  // 块 id 计数器：每次 buildBox 调用内局部，保证纯函数/确定性
+  let nextBlockId = 0;
+  const freshBlockId = (): number => {
+    nextBlockId += 1;
+    return nextBlockId;
+  };
   const meta = new Map<Node, RowMeta>();
   const dialogueLeaves: Node[] = [];
   const activityLeaves: Node[] = [];
@@ -268,10 +277,15 @@ export function buildBox(
   // 3) 块内空行竖线连排（旧 wrapBufferLines：同 kind 块内空行补左右竖线）
   dialogue = lineUpBlockBars(dialogue, meta, opts);
 
+  const dialogueBox = v(dialogue);
+  const activityBox = v(activityLeaves);
   return {
-    dialogue: v(dialogue),
-    activity: v(activityLeaves),
+    root: dialogueBox,
+    panes: { dialogue: dialogueBox, activity: activityBox },
+    dialogue: dialogueBox,
+    activity: activityBox,
     meta,
+    metadata: meta,
   };
 }
 

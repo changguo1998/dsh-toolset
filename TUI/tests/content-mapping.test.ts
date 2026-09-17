@@ -173,3 +173,23 @@ test("双轨：assistant 尾部空行清理 + user-assistant 块间空行", () =
   ];
   assertEquivalent(buf, 40, 4);
 });
+
+test("buildBox 确定性：重复调用元数据/结构一致（blockId 局部计数）", () => {
+  const buf: Buffer = [
+    { text: "q", kind: "user" },
+    { text: "a", kind: "assistant", final: true },
+  ];
+  const a = buildBox(buf, { themeId });
+  const b = buildBox(buf, { themeId });
+  // 结构等价 + 元数据等价（不含全局副作用）
+  const snapA = a.panes.dialogue.children.map((c) => JSON.stringify(c));
+  const snapB = b.panes.dialogue.children.map((c) => JSON.stringify(c));
+  assert.deepEqual(snapB, snapA);
+  for (const [node, meta] of a.meta) {
+    const other = [...b.meta.entries()].find(
+      ([n]) => JSON.stringify(n) === JSON.stringify(node),
+    );
+    assert.ok(other, "重复调用应产出等价节点");
+    assert.deepEqual(other![1], meta);
+  }
+});
