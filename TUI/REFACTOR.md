@@ -17,7 +17,7 @@
 | `src/app/adapter/types.ts` | 外部边界 | 纯类型（29 个，adapter 归一化域） |
 | `src/app/adapter/normalize.ts` | 外部边界 | `parseSlashCommand`/`buildApprovalPrompt`/`buildUserMessage`/`normalizeAgentStatus`/`readDefaultSelection` |
 | `src/app/layout/markdown.ts` | 排版 | 宽度原语 + markdown 行内/块级解析（`parseInlineMarkdown`/`wrapInlineMarkdown`/`wrapAssistantLine` 等）；**只导外部真正需要的函数，内部正则与 helper 不做公共 API** |
-| `src/app/layout.ts`（Box 重构后拆分） | 排版 | 目标拆分为：`layout/box.ts`（类型）、`measure.ts`（measure/allocate）、`fill.ts`（fill 摊平 + `setCell`）、`build-box.ts`（buildBox 分区树+内容映射）、`focus-frame.ts`（FocusFrame 覆写）、`adapt.ts`（折叠适配）、`table.ts`（表格构建器）、`panel.ts`（面板场景原语）——逐文件职责见 `DESIGN.md` Part II §6 |
+| `src/app/layout.ts`（Box 重构拆分中） | 排版 | 已落地：`layout/box.ts`（类型）、`measure.ts`（measure/allocate）、`fill.ts`（fill 摊平 + wrap:false）、`build-box.ts`（buildBox 分区树+内容映射+`buildContentRows` 适配）、`focus-frame.ts`（FocusFrame 覆写 + setCell）、`panel.ts`（面板场景原语）；接线汇合后活动区面板统一走 buildXxxBox → fillPanelBox。待拆：`adapt.ts`（折叠适配）、`table.ts`（表格构建器）——逐文件职责见 `DESIGN.md` Part II §6 |
 | `src/app/question-transition.ts` | 逻辑 | 问答纯状态转换（`QuestionKeyDecision`/`questionKeyDecision`/`buildQuestionAnswers`） |
 | `src/app/model-transition.ts` | 逻辑 | 模型选择纯状态转换（`PickerInit`/`buildPickerInit`/`pickerEffortIndex`/`resolvePickerSelection`/`ModelSwitchPlan`/`planModelSwitch`） |
 

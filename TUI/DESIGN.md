@@ -55,7 +55,7 @@ DSH 适配层接口以**官方源码研读**为准（`~/GithubRepos/deepseek-har
 | 控制 | 副作用编排（adapter/notice/paint/异步） | `index.ts`（App） |
 | 外部边界 | DSH 事件归一化与回调 | `adapter/*` |
 
-以「渲染/排版」术语衡量：**排版职责越权承担了部分渲染职责（样式序列化）**，是后续契约收敛的目标点（见 REFACTOR.md 与下方「核心接口契约」）。收敛方案见 `SPEC.md`（排版/渲染契约与规格）与本文 Part II（Box 重构设计）——实施完成后再将本节「现状偏差」更新为「已收敛」。
+以「渲染/排版」术语衡量：**已收敛**——样式序列化由渲染层 `renderer/theme.ts` 独占收口（主线 A），排版层仅持有 `ColorName` 语义；Box 排版管线落地（`layout/box|measure|fill|build-box|focus-frame|panel`），面板组件改为 Box 生成器、焦点框线为全局 `focusFrame` 覆写。收敛方案沿 `SPEC.md`（排版/渲染契约与规格）与本文 Part II（Box 重构设计）实施完成。
 
 ## 文件结构（单包分目录）
 
