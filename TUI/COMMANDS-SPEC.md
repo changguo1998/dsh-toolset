@@ -124,9 +124,9 @@ commandPanel:
 | `settings` | `describe(options?)` → `SettingsDescriptor[]`（**枚举 ns 的方式**，含 `ns`/`value`/`revision`）、`get(ns)` → unknown、写入 **`update(ns, patch, expectedRevision?)` / `replace(ns, section, expectedRevision?)` / `mutate(ns, ops, expectedRevision?)`**（`write` 为 private，不可调用）、`register` | `dsh-settings` |
 | `tokenMeter` | `measure(session, requestHeader)`、`estimateMessage(message)` | `dsh-token-meter` |
 
-其他已核实事实：cordis 服务挂载 API 为 `ctx.provide(name, value)`（宿主 23 处用法）；输入预填 action `{ type: "input", text, cursor }`；`state.usage = { input, output, cacheRead, contextWindow? }`（**最近一次模型调用**，非会话累计）；面板渲染位置与优先级见 §0.4。
+其他已核实事实：cordis 服务挂载 API 为 `ctx.provide(name, value)`（宿主多处用法）；输入预填 action `{ type: "input", text, cursor }`；`state.usage = { input, output, cacheRead, contextWindow? }`（**最近一次模型调用**，非会话累计）；面板渲染位置与优先级见 §0.4。
 
-**未证实（对应命令见 §3）**：`sessions.clear`（`dsh-session` 无此方法）；`credentials.set/unset/describe/resolve`（`dsh-credentials/lib` 未找到）；`workflowEngine.start`（`dsh-workflow/lib` 未找到，仅 `emitWorkflowEvent`）。
+**§3 排除项的源码核实**：`/clear` —— `dsh-session` 类型面确无 `clear`；`/login` `/logout` —— `ctx.credentials` **存在**（`resolve`/`describe`/`set`/`unset`，`dsh-credentials/lib/types/index.d.ts:129/136/145/152`）但仅为凭据**引用** seam，无交互登录流程；`/review` —— `workflowEngine.start` **存在**（`dsh-workflow/lib/types/index.d.ts:119`）但需自备 `script`/`meta`/`parent: Agent` 工作流资产（`runtime-types.d.ts:15-29`）。三者均按能力／语义缺口排除，**非**「API 未找到」。
 
 ## 1. P1 命令（3 项候选，纯 TUI 侧）
 
