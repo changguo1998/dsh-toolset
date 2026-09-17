@@ -3,7 +3,7 @@
 // 接口冻结：类型面在后续 measure/allocate/fill/buildBox 各阶段共享，
 // 不含任何行为（纯类型 + 便捷构造器）。字段语义严格对齐 SPEC §2。
 
-import type { FrameStyle } from "../../renderer/screen.ts";
+import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
 import type { ColorName } from "../../renderer/theme.ts";
 
 /** 节点公共属性（Box 与 Paragraph 共享；除 children/direction/text 外） */
@@ -27,11 +27,15 @@ export interface NodeBase {
     /** 如思考 ┃ / 引用 │ / 列表 • / 任务 [x] */
     text: string;
     style?: FrameStyle;
+    /** 装饰可见度：视口宽低于此列数时不挂（窄列降级，如竖线） */
+    minWidth?: number;
   };
   /** 段尾固定后缀（占列，正文补白后挂；每行重复，如用户块右缘竖线） */
   suffix?: {
     text: string;
     style?: FrameStyle;
+    /** 装饰可见度：视口宽低于此列数时不挂（窄列降级，如竖线） */
+    minWidth?: number;
   };
   /** 行尾铺满字符（不占测量宽；fill 补到分配宽，如 step 虚线 / turn 分隔） */
   tail?: {
@@ -93,8 +97,17 @@ export interface Paragraph extends NodeBase {
   // 无 children、无 direction、无 separator
 }
 
-/** 节点联合：Box（组合）与 Paragraph（叶子） */
-export type Node = Box | Paragraph;
+/** 预样式叶子：携带未折行的样式段（tool 行/思考/notice 等 plain 直渲染）。
+ * fill 阶段折行（wrapFrameSegments），不做 markdown 解析；样式在构建时定。 */
+export interface StyledText extends NodeBase {
+  kind: "styled";
+  /** 未折行样式段（text 纯文本；跨行段每行重声明由折行器负责） */
+  segments: FrameSegment[];
+  // 无 text（段在 segments）；无 children/direction/separator
+}
+
+/** 节点联合：Box（组合）、Paragraph（叶子）、StyledText（预样式叶子） */
+export type Node = Box | Paragraph | StyledText;
 
 /** 分配后的矩形（allocate 输出；fill/FocusFrame 消费） */
 export interface Rect {
@@ -138,4 +151,12 @@ export function spacer(opts: SpacerAxis): Paragraph {
   if (opts.width !== undefined)
     return { kind: "text", text: "", width: opts.width };
   return { kind: "text", text: "", height: opts.height };
+}
+
+/** 预样式叶子便捷构造：styled(segments, opts?) */
+export function styled(
+  segments: FrameSegment[],
+  opts: Omit<StyledText, "kind" | "segments"> = {},
+): StyledText {
+  return { kind: "styled", segments, ...opts };
 }

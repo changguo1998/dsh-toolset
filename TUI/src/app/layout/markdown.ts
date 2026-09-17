@@ -506,12 +506,15 @@ export function wrapInlineMarkdown(
   width: number,
   themeId: ThemeId,
 ): FrameSegment[][] {
-  return wrapSegments(parseInlineMarkdown(text, themeId), width);
+  return wrapFrameSegments(parseInlineMarkdown(text, themeId), width);
 }
 
 /** 段集按显示宽度软换行：样式跨行每行独立开/闭（跨行段每行重声明），合并相邻
  * 同样式段。返回行段数组（未序列化，ANSI 移交渲染层）。空串保持空行语义。 */
-function wrapSegments(segs: FrameSegment[], width: number): FrameSegment[][] {
+export function wrapFrameSegments(
+  segs: FrameSegment[],
+  width: number,
+): FrameSegment[][] {
   if (width <= 0) return [segs];
   const rows: FrameSegment[][] = [];
   let cur: FrameSegment[] = [];
@@ -567,16 +570,15 @@ const RULE_RE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$/;
 const HEADING_FG: ColorName = "brightCyan";
 
 /** 代码块行：整行主题灰底并补齐到内容区宽度；fence 内不解析 markdown */
-export function wrapCodeLine(
-  text: string,
-  width: number,
-): FrameSegment[][] {
+export function wrapCodeLine(text: string, width: number): FrameSegment[][] {
   if (text === "") return [[]];
   const segs: FrameSegment[] = [{ text, style: { bg: "code" } }];
-  return wrapSegments(segs, width).map((row) => {
+  return wrapFrameSegments(segs, width).map((row) => {
     const rowText = row.map((s) => s.text).join("");
     const pad = Math.max(0, width - displayWidth(rowText));
-    return pad > 0 ? [...row, { text: " ".repeat(pad), style: { bg: "code" } }] : row;
+    return pad > 0
+      ? [...row, { text: " ".repeat(pad), style: { bg: "code" } }]
+      : row;
   });
 }
 
@@ -591,7 +593,7 @@ export function wrapAssistantLine(
 ): FrameSegment[][] {
   // 1. 分隔线：灰色横线铺满内容区（与 turn 分隔线视觉区分）
   if (RULE_RE.test(text)) {
-    return wrapSegments(
+    return wrapFrameSegments(
       [{ text: "─".repeat(Math.max(0, width)), style: { fg: "border" } }],
       width,
     );
@@ -611,7 +613,7 @@ export function wrapAssistantLine(
           })),
         ]
       : [{ text: "[ ] " }, ...body];
-    return wrapSegments(segs, width);
+    return wrapFrameSegments(segs, width);
   }
   // 3. 标题：去掉 #，整行 bold + 醒目青；行内 token（如 **粗**）叠加保留
   const heading = HEADING_RE.exec(text);
@@ -620,7 +622,7 @@ export function wrapAssistantLine(
       text: s.text,
       style: mergeStyle({ bold: true, fg: HEADING_FG }, s.style ?? {}),
     }));
-    return wrapSegments(segs, width);
+    return wrapFrameSegments(segs, width);
   }
   // 4. 引用：竖线前缀 + 整体斜体（正常前景色）
   const quote = QUOTE_RE.exec(text);
@@ -635,7 +637,7 @@ export function wrapAssistantLine(
         style: s.style ?? {},
       })),
     ];
-    return wrapSegments(segs, width);
+    return wrapFrameSegments(segs, width);
   }
   // 5. 普通列表项：前缀正常前景色，内容走行内解析
   const list = LIST_RE.exec(text);
@@ -647,8 +649,8 @@ export function wrapAssistantLine(
       { text: prefix },
       ...parseInlineMarkdown(list[1]!, themeId),
     ];
-    return wrapSegments(segs, width);
+    return wrapFrameSegments(segs, width);
   }
   // 6. 普通行内 markdown
-  return wrapSegments(parseInlineMarkdown(text, themeId), width);
+  return wrapFrameSegments(parseInlineMarkdown(text, themeId), width);
 }

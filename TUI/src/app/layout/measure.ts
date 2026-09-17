@@ -6,7 +6,15 @@
 
 import { wrapLine, truncateToWidth } from "./primitives.ts";
 import { displayWidth } from "./markdown.ts";
-import type { Node, Box, Paragraph, Rect, Width, Height } from "./box.ts";
+import type {
+  Node,
+  Box,
+  Paragraph,
+  StyledText,
+  Rect,
+  Width,
+  Height,
+} from "./box.ts";
 
 /** measure 约束：来自父链的可用宽上界（宽锁）。根：终端 cols */
 export interface MeasureConstraint {
@@ -39,8 +47,8 @@ function wrapParagraph(text: string, width: number, wrap: boolean): string[] {
   return wrapLine(text, width);
 }
 
-/** 首行/续行可用宽与缩进（prefix/suffix 先占列） */
-function paraWidthCtx(node: Paragraph) {
+/** 首行/续行可用宽与缩进（prefix/suffix 先占列）；Paragraph 与 StyledText 共享 */
+function paraWidthCtx(node: Paragraph | StyledText) {
   const prefixW = node.prefix ? displayWidth(node.prefix.text) : 0;
   const suffixW = node.suffix ? displayWidth(node.suffix.text) : 0;
   const indent = node.indent ?? 0;
@@ -52,6 +60,39 @@ function paraWidthCtx(node: Paragraph) {
 function applyDeclaredHeight(node: Node, m: MeasuredSize): MeasuredSize {
   if (node.height?.mode === "fixed") return { w: m.w, h: node.height.rows };
   return m;
+}
+
+/** 预样式中段的拼接文本（显示宽度测量用；样式忽略） */
+function styledText(node: StyledText): string {
+  return node.segments.map((s) => s.text).join("");
+}
+
+/** 测量单个预样式叶子：按拼接文本折行（StyledText） */
+function measureStyledText(node: StyledText, maxW: number): MeasuredSize {
+  const { prefixW, suffixW, indent, hanging } = paraWidthCtx(node);
+  const firstW = maxW - indent - prefixW - suffixW; // 首行可用正文宽
+  const contW = maxW - hanging - suffixW;
+  const wrap = node.wrap !== false;
+  const text = styledText(node);
+  const rows: string[] = [];
+  let remaining = text;
+  const firstRows = wrapParagraph(
+    remaining,
+    Math.max(1, firstW),
+    wrap && firstW > 0,
+  );
+  if (firstRows.length > 0) {
+    rows.push(firstRows[0]!);
+    remaining = firstRows.slice(1).join("");
+  }
+  if (remaining !== "" || firstRows.length === 0) {
+    rows.push(...wrapParagraph(remaining, Math.max(1, contW), wrap));
+  }
+  if (rows.length === 0) rows.push("");
+  const firstTotal = indent + prefixW + displayWidth(rows[0]!);
+  const contTotal =
+    hanging + Math.max(...rows.slice(1).map((r) => displayWidth(r)), 0);
+  return { w: Math.max(firstTotal, contTotal) + suffixW, h: rows.length };
 }
 
 /** 测量单个 Paragraph（返回总宽与折行行数） */
@@ -284,6 +325,11 @@ function measureNode(
     st.size.set(node, m);
     return m;
   }
+  if (node.kind === "styled") {
+    const m = applyDeclaredHeight(node, measureStyledText(node, c.maxW));
+    st.size.set(node, m);
+    return m;
+  }
   const box = node as Box;
   if (box.direction === "v") {
     let h = 0;
@@ -348,7 +394,7 @@ function allocateNode(
   out: Map<Node, Rect>,
 ): void {
   out.set(node, rect);
-  if (node.kind === "text") return;
+  if (node.kind === "text" || node.kind === "styled") return;
   const box = node as Box;
   if (box.direction === "h") {
     const widths = allocateWidths(box.children, rect.w, st.size);
