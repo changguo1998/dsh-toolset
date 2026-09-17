@@ -1,27 +1,49 @@
-// tests/content-mapping.test.ts — 双轨对照：BuildBox+fill 管线 vs 旧 wrapBufferLines
+// tests/content-mapping.test.ts — 双轨对照：BuildBox+fill 管线 vs 冻结基线
 //
-// advisor 定案：内容映射期间双轨并存（wrapBufferLines 暂存于 layout.ts），
-// 测试对同一 buffer + width 逐行比较新旧两管线的产出（pane 归属 / kind /
-// 行文本 / 行级 indent），等值后才切换调用点并删除旧实现。
+// 内容映射里程碑：新 Box 管线产出与旧 wrapBufferLines 逐行等价。flip
+// cutover 前用 scripts/freeze-content-mapping.mts 调用旧实现并归一化，
+// 输出固化为 fixtures/content-mapping-legacy.json（「冻结基线」）。此后
+// 测试从 fixture 读取 legacy 基线，不再 import wrapBufferLines（旧实现
+// 已删除），对照测试因此独立且可持续回归。
 //
-// 比较口径：对话区（dialogue）与活动区（activity）分别比较行数组。
-// 行文本 = 各段 text 拼接（rowText）；kind/indent 直接比较。
+// 比较口径：对话区（dialogue）与活动区（activity）分别比较行数组，每行
+// 归一化为「最终 content-width 行」{text, ansi, kind}：
+//   text = 布局 indent（行前导空格）+ 内容段 text 拼接 + 尾 pad 到内容区宽
+//   ansi = 同序列化经行样式渲染（段样式差异也能捕获）
+//   kind = 归一化行归属分类
+// 窄窗（w≤5 竖线关闭边界）为已知退化边界，仅比「语义文本 + kind」。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { Buffer, BufferKind } from "../src/app/state.ts";
-import type { FrameStyle } from "../src/renderer/index.ts";
-import { wrapBufferLines } from "../src/app/layout.ts";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import type { Buffer } from "../src/app/state.ts";
 import { buildBox, buildContentRows } from "../src/app/layout/build-box.ts";
 import type { ContentRow } from "../src/app/layout/fill.ts";
 import { displayWidth } from "../src/app/layout/markdown.ts";
 import { rowAnsi } from "./helpers/rowText.ts";
 
-interface LegacyRow {
-  segments: { text: string; style?: FrameStyle }[];
-  kind: BufferKind;
-  indent: number;
+/** 冻结基线（fixture）：`场景@w宽g从` → { dialogue, activity } 归一化行 */
+interface FixtureEntry {
+  dialogue: FixtureRow[];
+  activity: FixtureRow[];
 }
+interface FixtureRow {
+  text: string;
+  ansi: string;
+  kind?: string;
+}
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const fixturePath = join(
+  __dirname,
+  "fixtures",
+  "content-mapping-legacy.json",
+);
+const FIXTURE: Record<string, FixtureEntry> = JSON.parse(
+  readFileSync(fixturePath, "utf-8"),
+);
 
 /** 行纯文本 = 各段 text 拼接 */
 function rowTextOf(r: { segments: { text: string }[] }): string {
@@ -30,40 +52,11 @@ function rowTextOf(r: { segments: { text: string }[] }): string {
 
 const themeId = "dark" as const;
 
-/** 旧管线：wrapBufferLines → 归一化行 */
-function legacyRows(buffer: Buffer, width: number, gutter: number) {
-  const { dialogue, activity } = wrapBufferLines(
-    buffer,
-    width,
-    gutter,
-    themeId,
-  );
-  // 归一：行宽/缩进是布局层补齐（buildTopRegion indent/pad），非内容语义。
-  // 两侧统一为「去首尾纯空格的语义文本 + kind」（user 右对齐 pad、assistant
-  // 右缘留白 pad、tool 续行缩进均由布局层负责，双轨只保内容/归属等价）。
-  // 规范化到「最终 content-width 行」：应用的布局 indent（前导空格）+ 尾
-  // 补齐到分配宽度——与 buildTopRegion 渲染路径一致（seg(" ".repeat(indent))
-  // + segments + 补齐），不 trim、不丢弃缩进/留白信息。
-  // 对齐 buildTopRegion 渲染口径：行前导 indent + segments，再补尾到内容区
-  // 宽（真实显示宽，CJK 占 2 列）。两管线最终上屏行 = content-width 行。
-  const norm = (rows: LegacyRow[]) =>
-    rows.map((r) => {
-      const lead: { text: string; style?: FrameStyle }[] =
-        r.indent > 0 ? [{ text: " ".repeat(r.indent) }] : [];
-      const full = [...lead, ...r.segments];
-      const own = displayWidth(full.map((s) => s.text).join(""));
-      const tail = width - own;
-      const padded = tail > 0 ? [...full, { text: " ".repeat(tail) }] : full;
-      return {
-        text: padded.map((s) => s.text).join(""),
-        ansi: rowAnsi({ segments: padded }, themeId),
-        kind: r.kind,
-      };
-    });
-  return {
-    dialogue: norm(dialogue),
-    activity: norm(activity),
-  };
+/** 基线行 = 场景 fixture 中指定 pane 的行数组 */
+function baselineRows(key: string, pane: "dialogue" | "activity"): FixtureRow[] {
+  const e = FIXTURE[key];
+  assert.ok(e, `fixture 缺场景 ${key}`);
+  return e[pane];
 }
 
 /** 新管线：统一入口 buildContentRows（buildBox → measure/allocate → fill） */
@@ -73,9 +66,7 @@ function newRows(buffer: Buffer, width: number, gutter = 4) {
     { themeId, gutter },
     width,
   );
-  const normRow = (
-    r: ContentRow,
-  ): { text: string; ansi: string; kind?: string } => {
+  const normRow = (r: ContentRow): FixtureRow => {
     const own = displayWidth(rowTextOf(r));
     const tail = width - own;
     const padded =
@@ -92,16 +83,51 @@ function newRows(buffer: Buffer, width: number, gutter = 4) {
   };
 }
 
-/** 对照断言：对话区+活动区逐行等价 */
-function assertEquivalent(buffer: Buffer, width: number, gutter: number): void {
-  const old = legacyRows(buffer, width, gutter);
+/** 对照断言：对话区+活动区逐行等价（新管线 vs 冻结基线） */
+function assertEquivalent(
+  key: string,
+  buffer: Buffer,
+  width: number,
+  gutter: number,
+): void {
   const fresh = newRows(buffer, width, gutter);
-  assert.deepEqual(fresh.dialogue, old.dialogue, `dialogue 不等 @w=${width}`);
-  assert.deepEqual(fresh.activity, old.activity, `activity 不等 @w=${width}`);
+  assert.deepEqual(
+    fresh.dialogue,
+    baselineRows(key, "dialogue"),
+    `dialogue 不等 @${key}`,
+  );
+  assert.deepEqual(
+    fresh.activity,
+    baselineRows(key, "activity"),
+    `activity 不等 @${key}`,
+  );
+}
+
+/** 窄窗语义等价（w≤5 竖线关闭边界未知退化：仅比语义文本 + kind） */
+function assertSemantic(
+  key: string,
+  buffer: Buffer,
+  width: number,
+): void {
+  const fresh = newRows(buffer, width);
+  const sem = (rows: FixtureRow[]) =>
+    rows
+      .filter((r) => r.text.trim() !== "" || r.kind !== undefined)
+      .map((r) => ({ t: r.text.trim(), k: r.kind }));
+  assert.deepEqual(
+    sem(fresh.dialogue),
+    sem(baselineRows(key, "dialogue")),
+    `窄窗 dialogue 不等 @${key}`,
+  );
+  assert.deepEqual(
+    sem(fresh.activity),
+    sem(baselineRows(key, "activity")),
+    `窄窗 activity 不等 @${key}`,
+  );
 }
 
 test("双轨：空 buffer", () => {
-  assertEquivalent([], 40, 4);
+  assertEquivalent("empty@w40g4", [], 40, 4);
 });
 
 test("双轨：plain + separator", () => {
@@ -109,7 +135,7 @@ test("双轨：plain + separator", () => {
     { text: "hello world", kind: "plain" },
     { text: "", kind: "separator" },
   ];
-  assertEquivalent(buf, 40, 4);
+  assertEquivalent("plain-sep@w40g4", buf, 40, 4);
 });
 
 test("双轨：user + assistant final（收缩块右对齐 + 竖线）", () => {
@@ -117,7 +143,8 @@ test("双轨：user + assistant final（收缩块右对齐 + 竖线）", () => {
     { text: "user message", kind: "user" },
     { text: "assistant reply text", kind: "assistant", final: true },
   ];
-  for (const w of [40, 20, 10]) assertEquivalent(buf, w, 4);
+  for (const w of [40, 20, 10])
+    assertEquivalent(`user-assistant-final@w${w}g4`, buf, w, 4);
 });
 
 test("双轨：user 多行 + 竖线阈值边界（w=6 开启竖线）", () => {
@@ -125,7 +152,8 @@ test("双轨：user 多行 + 竖线阈值边界（w=6 开启竖线）", () => {
     { text: "line1\nline2", kind: "user" },
     { text: "ok", kind: "assistant", final: true },
   ];
-  for (const w of [6, 12, 40]) assertEquivalent(buf, w, 4);
+  for (const w of [6, 12, 40])
+    assertEquivalent(`user-multiline@w${w}g4`, buf, w, 4);
 });
 
 // 窄窗（w≤5）竖线关闭边界：旧 userMaxBodyWidth(w,4) 折宽 = w−min(4,w−1)，
@@ -136,30 +164,14 @@ test("双轨：窄窗（宽 1/4/5）user 语义等价（非严格 pad 序列）"
     { text: "line1\nline2", kind: "user" },
     { text: "ok", kind: "assistant", final: true },
   ];
-  for (const w of [1, 4, 5]) {
-    const old = legacyRows(buf, w, 4);
-    const fresh = newRows(buf, w);
-    const sem = (rows: { text: string; kind?: string }[]) =>
-      rows
-        .filter((r) => r.text.trim() !== "" || r.kind !== undefined)
-        .map((r) => ({ t: r.text.trim(), k: r.kind }));
-    assert.deepEqual(
-      sem(fresh.dialogue),
-      sem(old.dialogue),
-      `窄窗 dialogue 不等 @w=${w}`,
-    );
-    assert.deepEqual(
-      sem(fresh.activity),
-      sem(old.activity),
-      `窄窗 activity 不等 @w=${w}`,
-    );
-  }
+  for (const w of [1, 4, 5]) assertSemantic(`narrow-user@w${w}g4`, buf, w);
 });
 
 test("双轨：assistant 折行 + 宽边界", () => {
   const long = "assistant ".repeat(10);
   const buf: Buffer = [{ text: long, kind: "assistant", final: true }];
-  for (const w of [30, 15, 8]) assertEquivalent(buf, w, 4);
+  for (const w of [30, 15, 8])
+    assertEquivalent(`assistant-wrap@w${w}g4`, buf, w, 4);
 });
 
 test("双轨：thinking + notice + 非 final assistant（活动区）", () => {
@@ -169,7 +181,7 @@ test("双轨：thinking + notice + 非 final assistant（活动区）", () => {
     { text: "tool notice", kind: "notice", tone: "log" },
     { text: "streaming partial", kind: "assistant", final: false },
   ];
-  assertEquivalent(buf, 40, 4);
+  assertEquivalent("thinking-notice@w40g4", buf, 40, 4);
 });
 
 test("双轨：tool 行分组折叠 + step + 结果", () => {
@@ -180,7 +192,7 @@ test("双轨：tool 行分组折叠 + step + 结果", () => {
     { text: "bash run next", kind: "tool" },
     { text: "✗ fail", kind: "tool", tone: "error" },
   ];
-  assertEquivalent(buf, 40, 4);
+  assertEquivalent("tool-group@w40g4", buf, 40, 4);
 });
 
 test("双轨：tool 超出 TOOL_MAX_GROUPS 折叠占位", () => {
@@ -189,7 +201,7 @@ test("双轨：tool 超出 TOOL_MAX_GROUPS 折叠占位", () => {
     buf.push({ text: `bash run ${i}`, kind: "tool" });
     buf.push({ text: `✓ ok${i}`, kind: "tool" });
   }
-  assertEquivalent(buf as Buffer, 40, 4);
+  assertEquivalent("tool-overflow@w40g4", buf as Buffer, 40, 4);
 });
 
 test("双轨：fence 代码块跨行", () => {
@@ -198,7 +210,7 @@ test("双轨：fence 代码块跨行", () => {
     { text: "```ts\nconst x = 1;\n```", kind: "assistant", final: true },
     { text: "after fence", kind: "assistant", final: true },
   ];
-  assertEquivalent(buf, 30, 4);
+  assertEquivalent("fence-multiline@w30g4", buf, 30, 4);
 });
 
 test("双轨：assistant 尾部空行清理 + user-assistant 块间空行", () => {
@@ -208,7 +220,7 @@ test("双轨：assistant 尾部空行清理 + user-assistant 块间空行", () =
     { text: "user", kind: "user" },
     { text: "answer\n", kind: "assistant", final: true },
   ];
-  assertEquivalent(buf, 40, 4);
+  assertEquivalent("trailing-blank@w40g4", buf, 40, 4);
 });
 
 test("buildBox 确定性：重复调用元数据/结构一致（blockId 局部计数）", () => {
@@ -231,23 +243,13 @@ test("buildBox 确定性：重复调用元数据/结构一致（blockId 局部�
   }
 });
 
-/** gutter 变体对照断言（同 assertEquivalent；gutter 决定 user/assistant 留白） */
-function assertEquivalentGutter(
-  buffer: Buffer,
-  width: number,
-  gutter: number,
-): void {
-  assertEquivalent(buffer, width, gutter);
-}
-
-// ---- advisor 强化：全用例矩阵 ----
-
 test("双轨：CJK 宽字符折行", () => {
   const buf: Buffer = [
     { text: "中文消息内容测试", kind: "user" },
     { text: "这是模型回答", kind: "assistant", final: true },
   ];
-  for (const w of [20, 12, 9]) assertEquivalent(buf, w, 4);
+  for (const w of [20, 12, 9])
+    assertEquivalent(`cjk@w${w}g4`, buf, w, 4);
 });
 
 test("双轨：gutter 变体（0 / 默认4 / 较大）", () => {
@@ -255,10 +257,10 @@ test("双轨：gutter 变体（0 / 默认4 / 较大）", () => {
     { text: "hi", kind: "user" },
     { text: "answer long text", kind: "assistant", final: true },
   ];
-  // 内侧 gutter=0：确保持平铺行为两侧一致
-  assertEquivalentGutter(buf, 30, 0);
-  assertEquivalentGutter(buf, 30, 4);
-  assertEquivalentGutter(buf, 30, 14); // gutter < width 的较大值
+  // 内侧 gutter=0/14：确保持平铺/较大留白行为两侧一致（基线已冻结）
+  assertEquivalent("gutter-variants-0@w30g0", buf, 30, 0);
+  assertEquivalent("gutter-variants-default@w30g4", buf, 30, 4);
+  assertEquivalent("gutter-variants-large@w30g14", buf, 30, 14);
   // 注：gutter ≥ width（病态配置）时旧管线收缩正文到 1 列、新管线 fill.min
   // 超限分配器行为不同，列为已知退化边界（TASKS 记录），不做严格对照。
 });
@@ -271,7 +273,7 @@ test("双轨：全部 notice tone 着色", () => {
     { text: "err msg", kind: "notice", tone: "error" },
     { text: "ok msg", kind: "notice", tone: "success" },
   ];
-  assertEquivalent(buf, 40, 4);
+  assertEquivalent("notice-tones@w40g4", buf, 40, 4);
 });
 
 test("双轨：真实多 BufferLine fence 开/内容/关", () => {
@@ -282,7 +284,8 @@ test("双轨：真实多 BufferLine fence 开/内容/关", () => {
     { text: "```", kind: "assistant", final: true },
     { text: "after", kind: "assistant", final: true },
   ];
-  for (const w of [30, 18, 10]) assertEquivalent(buf, w, 4);
+  for (const w of [30, 18, 10])
+    assertEquivalent(`fence-lines@w${w}g4`, buf, w, 4);
 });
 
 test("双轨：内部空格与续行（wrap 折行空白保留）", () => {
@@ -290,7 +293,8 @@ test("双轨：内部空格与续行（wrap 折行空白保留）", () => {
     { text: "minecraft survival guide", kind: "assistant", final: true },
     { text: "  indented line", kind: "assistant", final: true },
   ];
-  for (const w of [16, 12, 8]) assertEquivalent(buf, w, 4);
+  for (const w of [16, 12, 8])
+    assertEquivalent(`internal-space@w${w}g4`, buf, w, 4);
 });
 
 test("双轨：tool step 头 + 多组折叠", () => {
@@ -300,5 +304,5 @@ test("双轨：tool step 头 + 多组折叠", () => {
     buf.push({ text: `tool call ${i}`, kind: "tool" });
     buf.push({ text: `✓ result ${i}`, kind: "tool" });
   }
-  assertEquivalent(buf as Buffer, 30, 4);
+  assertEquivalent("tool-step@w30g4", buf as Buffer, 30, 4);
 });

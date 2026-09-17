@@ -1,0 +1,1216 @@
+{
+  "empty@w40g4": {
+    "dialogue": [],
+    "activity": []
+  },
+  "plain-sep@w40g4": {
+    "dialogue": [
+      {
+        "text": "hello world                             ",
+        "ansi": "hello world                             ",
+        "kind": "plain"
+      },
+      {
+        "text": "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+        "ansi": "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+        "kind": "separator"
+      }
+    ],
+    "activity": []
+  },
+  "user-assistant-final@w40g4": {
+    "dialogue": [
+      {
+        "text": "                           user message┃",
+        "ansi": "                           user message\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "                                        ",
+        "ansi": "                                        ",
+        "kind": "plain"
+      },
+      {
+        "text": "┃assistant reply text                   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216massistant reply text                   ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "user-assistant-final@w20g4": {
+    "dialogue": [
+      {
+        "text": "       user message┃",
+        "ansi": "       user message\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "                    ",
+        "ansi": "                    ",
+        "kind": "plain"
+      },
+      {
+        "text": "┃assistant reply    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216massistant reply    ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃text               ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mtext               ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "user-assistant-final@w10g4": {
+    "dialogue": [
+      {
+        "text": "   user m┃",
+        "ansi": "   user m\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "   essage┃",
+        "ansi": "   essage\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "          ",
+        "ansi": "          ",
+        "kind": "plain"
+      },
+      {
+        "text": "┃assist   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216massist   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ant re   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mant re   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ply te   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mply te   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃xt       ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mxt       ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "user-multiline@w6g4": {
+    "dialogue": [
+      {
+        "text": "   li┃",
+        "ansi": "   li\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "   ne┃",
+        "ansi": "   ne\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "   1 ┃",
+        "ansi": "   1 \u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "   li┃",
+        "ansi": "   li\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "   ne┃",
+        "ansi": "   ne\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "   2 ┃",
+        "ansi": "   2 \u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "      ",
+        "ansi": "      ",
+        "kind": "plain"
+      },
+      {
+        "text": "┃ok   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mok   ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "user-multiline@w12g4": {
+    "dialogue": [
+      {
+        "text": "      line1┃",
+        "ansi": "      line1\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "      line2┃",
+        "ansi": "      line2\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "            ",
+        "ansi": "            ",
+        "kind": "plain"
+      },
+      {
+        "text": "┃ok         ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mok         ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "user-multiline@w40g4": {
+    "dialogue": [
+      {
+        "text": "                                  line1┃",
+        "ansi": "                                  line1\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "                                  line2┃",
+        "ansi": "                                  line2\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "                                        ",
+        "ansi": "                                        ",
+        "kind": "plain"
+      },
+      {
+        "text": "┃ok                                     ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mok                                     ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "narrow-user@w1g4": {
+    "dialogue": [
+      {
+        "text": "l",
+        "ansi": "l",
+        "kind": "user"
+      },
+      {
+        "text": "i",
+        "ansi": "i",
+        "kind": "user"
+      },
+      {
+        "text": "n",
+        "ansi": "n",
+        "kind": "user"
+      },
+      {
+        "text": "e",
+        "ansi": "e",
+        "kind": "user"
+      },
+      {
+        "text": "1",
+        "ansi": "1",
+        "kind": "user"
+      },
+      {
+        "text": "l",
+        "ansi": "l",
+        "kind": "user"
+      },
+      {
+        "text": "i",
+        "ansi": "i",
+        "kind": "user"
+      },
+      {
+        "text": "n",
+        "ansi": "n",
+        "kind": "user"
+      },
+      {
+        "text": "e",
+        "ansi": "e",
+        "kind": "user"
+      },
+      {
+        "text": "2",
+        "ansi": "2",
+        "kind": "user"
+      },
+      {
+        "text": " ",
+        "ansi": " ",
+        "kind": "plain"
+      },
+      {
+        "text": "o",
+        "ansi": "o",
+        "kind": "assistant"
+      },
+      {
+        "text": "k",
+        "ansi": "k",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "narrow-user@w4g4": {
+    "dialogue": [
+      {
+        "text": "   l",
+        "ansi": "   l",
+        "kind": "user"
+      },
+      {
+        "text": "   i",
+        "ansi": "   i",
+        "kind": "user"
+      },
+      {
+        "text": "   n",
+        "ansi": "   n",
+        "kind": "user"
+      },
+      {
+        "text": "   e",
+        "ansi": "   e",
+        "kind": "user"
+      },
+      {
+        "text": "   1",
+        "ansi": "   1",
+        "kind": "user"
+      },
+      {
+        "text": "   l",
+        "ansi": "   l",
+        "kind": "user"
+      },
+      {
+        "text": "   i",
+        "ansi": "   i",
+        "kind": "user"
+      },
+      {
+        "text": "   n",
+        "ansi": "   n",
+        "kind": "user"
+      },
+      {
+        "text": "   e",
+        "ansi": "   e",
+        "kind": "user"
+      },
+      {
+        "text": "   2",
+        "ansi": "   2",
+        "kind": "user"
+      },
+      {
+        "text": "    ",
+        "ansi": "    ",
+        "kind": "plain"
+      },
+      {
+        "text": "o   ",
+        "ansi": "o   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "k   ",
+        "ansi": "k   ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "narrow-user@w5g4": {
+    "dialogue": [
+      {
+        "text": "    l",
+        "ansi": "    l",
+        "kind": "user"
+      },
+      {
+        "text": "    i",
+        "ansi": "    i",
+        "kind": "user"
+      },
+      {
+        "text": "    n",
+        "ansi": "    n",
+        "kind": "user"
+      },
+      {
+        "text": "    e",
+        "ansi": "    e",
+        "kind": "user"
+      },
+      {
+        "text": "    1",
+        "ansi": "    1",
+        "kind": "user"
+      },
+      {
+        "text": "    l",
+        "ansi": "    l",
+        "kind": "user"
+      },
+      {
+        "text": "    i",
+        "ansi": "    i",
+        "kind": "user"
+      },
+      {
+        "text": "    n",
+        "ansi": "    n",
+        "kind": "user"
+      },
+      {
+        "text": "    e",
+        "ansi": "    e",
+        "kind": "user"
+      },
+      {
+        "text": "    2",
+        "ansi": "    2",
+        "kind": "user"
+      },
+      {
+        "text": "     ",
+        "ansi": "     ",
+        "kind": "plain"
+      },
+      {
+        "text": "o    ",
+        "ansi": "o    ",
+        "kind": "assistant"
+      },
+      {
+        "text": "k    ",
+        "ansi": "k    ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "assistant-wrap@w30g4": {
+    "dialogue": [
+      {
+        "text": "┃assistant assistant assist   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216massistant assistant assist   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ant assistant assistant as   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mant assistant assistant as   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃sistant assistant assistan   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216msistant assistant assistan   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃t assistant assistant        ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mt assistant assistant        ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "assistant-wrap@w15g4": {
+    "dialogue": [
+      {
+        "text": "┃assistant a   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216massistant a   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ssistant as   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mssistant as   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃sistant ass   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216msistant ass   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃istant assi   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mistant assi   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃stant assis   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mstant assis   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃tant assist   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mtant assist   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ant assista   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mant assista   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃nt assistan   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mnt assistan   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃t assistant   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mt assistant   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃              ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m              ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "assistant-wrap@w8g4": {
+    "dialogue": [
+      {
+        "text": "┃assi   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216massi   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃stan   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mstan   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃t as   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mt as   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃sist   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216msist   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ant    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mant    ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃assi   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216massi   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃stan   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mstan   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃t as   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mt as   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃sist   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216msist   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ant    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mant    ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃assi   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216massi   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃stan   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mstan   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃t as   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mt as   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃sist   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216msist   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ant    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mant    ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃assi   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216massi   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃stan   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mstan   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃t as   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mt as   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃sist   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216msist   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ant    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mant    ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃assi   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216massi   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃stan   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mstan   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃t as   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mt as   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃sist   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216msist   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ant    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mant    ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "thinking-notice@w40g4": {
+    "dialogue": [],
+    "activity": [
+      {
+        "text": "┃reasoning...                           ",
+        "ansi": "\u001b[38;2;199;135;239m┃\u001b[38;2;216;216;216mreasoning...                           ",
+        "kind": "thinking"
+      },
+      {
+        "text": "tool notice                             ",
+        "ansi": "\u001b[38;2;120;120;120mtool notice\u001b[38;2;216;216;216m                             ",
+        "kind": "notice"
+      },
+      {
+        "text": "┃streaming partial                      ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mstreaming partial                      ",
+        "kind": "assistant"
+      }
+    ]
+  },
+  "tool-group@w40g4": {
+    "dialogue": [],
+    "activity": [
+      {
+        "text": "bash run cmd                            ",
+        "ansi": "\u001b[38;2;231;169;70mbash\u001b[38;2;216;216;216m run cmd                            ",
+        "kind": "tool"
+      },
+      {
+        "text": "✓ done                                  ",
+        "ansi": "\u001b[38;2;132;231;70m✓\u001b[38;2;216;216;216m done                                  ",
+        "kind": "tool"
+      },
+      {
+        "text": "╌╌ step 2 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+        "ansi": "╌╌ step 2 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+        "kind": "tool"
+      },
+      {
+        "text": "bash run next                           ",
+        "ansi": "\u001b[38;2;231;169;70mbash\u001b[38;2;216;216;216m run next                           ",
+        "kind": "tool"
+      },
+      {
+        "text": "✗ fail                                  ",
+        "ansi": "\u001b[38;2;231;70;132m✗ fail\u001b[38;2;216;216;216m                                  ",
+        "kind": "tool"
+      }
+    ]
+  },
+  "tool-overflow@w40g4": {
+    "dialogue": [],
+    "activity": [
+      {
+        "text": "...(更早工具调用已隐藏)                 ",
+        "ansi": "\u001b[38;2;120;120;120m...(更早工具调用已隐藏)\u001b[38;2;216;216;216m                 ",
+        "kind": "tool"
+      },
+      {
+        "text": "bash run 2                              ",
+        "ansi": "\u001b[38;2;231;169;70mbash\u001b[38;2;216;216;216m run 2                              ",
+        "kind": "tool"
+      },
+      {
+        "text": "✓ ok2                                   ",
+        "ansi": "\u001b[38;2;132;231;70m✓\u001b[38;2;216;216;216m ok2                                   ",
+        "kind": "tool"
+      },
+      {
+        "text": "bash run 3                              ",
+        "ansi": "\u001b[38;2;231;169;70mbash\u001b[38;2;216;216;216m run 3                              ",
+        "kind": "tool"
+      },
+      {
+        "text": "✓ ok3                                   ",
+        "ansi": "\u001b[38;2;132;231;70m✓\u001b[38;2;216;216;216m ok3                                   ",
+        "kind": "tool"
+      },
+      {
+        "text": "bash run 4                              ",
+        "ansi": "\u001b[38;2;231;169;70mbash\u001b[38;2;216;216;216m run 4                              ",
+        "kind": "tool"
+      },
+      {
+        "text": "✓ ok4                                   ",
+        "ansi": "\u001b[38;2;132;231;70m✓\u001b[38;2;216;216;216m ok4                                   ",
+        "kind": "tool"
+      },
+      {
+        "text": "bash run 5                              ",
+        "ansi": "\u001b[38;2;231;169;70mbash\u001b[38;2;216;216;216m run 5                              ",
+        "kind": "tool"
+      },
+      {
+        "text": "✓ ok5                                   ",
+        "ansi": "\u001b[38;2;132;231;70m✓\u001b[38;2;216;216;216m ok5                                   ",
+        "kind": "tool"
+      }
+    ]
+  },
+  "fence-multiline@w30g4": {
+    "dialogue": [
+      {
+        "text": "┃                             ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m                             ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃```ts\nconst x = 1;\n```       ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m```ts\nconst x = 1;\n```       ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃after fence                  ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mafter fence                  ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "trailing-blank@w40g4": {
+    "dialogue": [
+      {
+        "text": "┃space                                  ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mspace                                  ",
+        "kind": "assistant"
+      },
+      {
+        "text": "                                        ",
+        "ansi": "                                        ",
+        "kind": "assistant"
+      },
+      {
+        "text": "                                   user┃",
+        "ansi": "                                   user\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "                                        ",
+        "ansi": "                                        ",
+        "kind": "plain"
+      },
+      {
+        "text": "┃answer\n                                ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216manswer\n                                ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "cjk@w20g4": {
+    "dialogue": [
+      {
+        "text": "   中文消息内容测试┃",
+        "ansi": "   中文消息内容测试\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "                    ",
+        "ansi": "                    ",
+        "kind": "plain"
+      },
+      {
+        "text": "┃这是模型回答       ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m这是模型回答       ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "cjk@w12g4": {
+    "dialogue": [
+      {
+        "text": "   中文消息┃",
+        "ansi": "   中文消息\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "   内容测试┃",
+        "ansi": "   内容测试\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "            ",
+        "ansi": "            ",
+        "kind": "plain"
+      },
+      {
+        "text": "┃这是模型   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m这是模型   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃回答       ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m回答       ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "cjk@w9g4": {
+    "dialogue": [
+      {
+        "text": "    中文┃",
+        "ansi": "    中文\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "    消息┃",
+        "ansi": "    消息\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "    内容┃",
+        "ansi": "    内容\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "    测试┃",
+        "ansi": "    测试\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "         ",
+        "ansi": "         ",
+        "kind": "plain"
+      },
+      {
+        "text": "┃这是    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m这是    ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃模型    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m模型    ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃回答    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m回答    ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "gutter-variants-0@w30g0": {
+    "dialogue": [
+      {
+        "text": "                           hi┃",
+        "ansi": "                           hi\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "                              ",
+        "ansi": "                              ",
+        "kind": "plain"
+      },
+      {
+        "text": "┃answer long text             ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216manswer long text             ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "gutter-variants-default@w30g4": {
+    "dialogue": [
+      {
+        "text": "                           hi┃",
+        "ansi": "                           hi\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "                              ",
+        "ansi": "                              ",
+        "kind": "plain"
+      },
+      {
+        "text": "┃answer long text             ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216manswer long text             ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "gutter-variants-large@w30g14": {
+    "dialogue": [
+      {
+        "text": "                           hi┃",
+        "ansi": "                           hi\u001b[38;2;239;135;175m┃\u001b[38;2;216;216;216m",
+        "kind": "user"
+      },
+      {
+        "text": "                              ",
+        "ansi": "                              ",
+        "kind": "plain"
+      },
+      {
+        "text": "┃answer long text             ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216manswer long text             ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "notice-tones@w40g4": {
+    "dialogue": [],
+    "activity": [
+      {
+        "text": "log msg                                 ",
+        "ansi": "\u001b[38;2;120;120;120mlog msg\u001b[38;2;216;216;216m                                 ",
+        "kind": "notice"
+      },
+      {
+        "text": "info msg                                ",
+        "ansi": "\u001b[38;2;70;132;231minfo msg\u001b[38;2;216;216;216m                                ",
+        "kind": "notice"
+      },
+      {
+        "text": "warn msg                                ",
+        "ansi": "\u001b[38;2;231;169;70mwarn msg\u001b[38;2;216;216;216m                                ",
+        "kind": "notice"
+      },
+      {
+        "text": "err msg                                 ",
+        "ansi": "\u001b[38;2;231;70;132merr msg\u001b[38;2;216;216;216m                                 ",
+        "kind": "notice"
+      },
+      {
+        "text": "ok msg                                  ",
+        "ansi": "\u001b[38;2;132;231;70mok msg\u001b[38;2;216;216;216m                                  ",
+        "kind": "notice"
+      }
+    ]
+  },
+  "fence-lines@w30g4": {
+    "dialogue": [
+      {
+        "text": "ts                            ",
+        "ansi": "\u001b[3mts\u001b[23m                            ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃const x = 1;                 ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m\u001b[48;2;67;67;67mconst x = 1;\u001b[48;2;3;3;39m\u001b[48;2;67;67;67m              \u001b[48;2;3;3;39m   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃const y = 2;                 ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m\u001b[48;2;67;67;67mconst y = 2;\u001b[48;2;3;3;39m\u001b[48;2;67;67;67m              \u001b[48;2;3;3;39m   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃after                        ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mafter                        ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "fence-lines@w18g4": {
+    "dialogue": [
+      {
+        "text": "ts                ",
+        "ansi": "\u001b[3mts\u001b[23m                ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃const x = 1;     ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m\u001b[48;2;67;67;67mconst x = 1;\u001b[48;2;3;3;39m\u001b[48;2;67;67;67m  \u001b[48;2;3;3;39m   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃const y = 2;     ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m\u001b[48;2;67;67;67mconst y = 2;\u001b[48;2;3;3;39m\u001b[48;2;67;67;67m  \u001b[48;2;3;3;39m   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃after            ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mafter            ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "fence-lines@w10g4": {
+    "dialogue": [
+      {
+        "text": "ts        ",
+        "ansi": "\u001b[3mts\u001b[23m        ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃const    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m\u001b[48;2;67;67;67mconst \u001b[48;2;3;3;39m   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃x = 1;   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m\u001b[48;2;67;67;67mx = 1;\u001b[48;2;3;3;39m   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃const    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m\u001b[48;2;67;67;67mconst \u001b[48;2;3;3;39m   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃y = 2;   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m\u001b[48;2;67;67;67my = 2;\u001b[48;2;3;3;39m   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃after    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mafter    ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "internal-space@w16g4": {
+    "dialogue": [
+      {
+        "text": "┃minecraft su   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mminecraft su   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃rvival guide   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mrvival guide   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃  indented l   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m  indented l   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ine            ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mine            ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "internal-space@w12g4": {
+    "dialogue": [
+      {
+        "text": "┃minecraf   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mminecraf   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃t surviv   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mt surviv   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃al guide   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mal guide   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃  indent   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m  indent   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ed line    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216med line    ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "internal-space@w8g4": {
+    "dialogue": [
+      {
+        "text": "┃mine   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mmine   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃craf   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mcraf   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃t su   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mt su   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃rviv   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mrviv   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃al g   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mal g   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃uide   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216muide   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃  in   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216m  in   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃dent   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mdent   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ed l   ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216med l   ",
+        "kind": "assistant"
+      },
+      {
+        "text": "┃ine    ",
+        "ansi": "\u001b[38;2;135;175;239m┃\u001b[38;2;216;216;216mine    ",
+        "kind": "assistant"
+      }
+    ],
+    "activity": []
+  },
+  "tool-step@w30g4": {
+    "dialogue": [],
+    "activity": [
+      {
+        "text": "...(更早工具调用已隐藏)       ",
+        "ansi": "\u001b[38;2;120;120;120m...(更早工具调用已隐藏)\u001b[38;2;216;216;216m       ",
+        "kind": "tool"
+      },
+      {
+        "text": "tool call 4                   ",
+        "ansi": "\u001b[38;2;231;169;70mtool\u001b[38;2;216;216;216m call 4                   ",
+        "kind": "tool"
+      },
+      {
+        "text": "✓ result 4                    ",
+        "ansi": "\u001b[38;2;132;231;70m✓\u001b[38;2;216;216;216m result 4                    ",
+        "kind": "tool"
+      },
+      {
+        "text": "╌╌ step 5 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+        "ansi": "╌╌ step 5 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+        "kind": "tool"
+      },
+      {
+        "text": "tool call 5                   ",
+        "ansi": "\u001b[38;2;231;169;70mtool\u001b[38;2;216;216;216m call 5                   ",
+        "kind": "tool"
+      },
+      {
+        "text": "✓ result 5                    ",
+        "ansi": "\u001b[38;2;132;231;70m✓\u001b[38;2;216;216;216m result 5                    ",
+        "kind": "tool"
+      },
+      {
+        "text": "╌╌ step 6 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+        "ansi": "╌╌ step 6 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+        "kind": "tool"
+      },
+      {
+        "text": "tool call 6                   ",
+        "ansi": "\u001b[38;2;231;169;70mtool\u001b[38;2;216;216;216m call 6                   ",
+        "kind": "tool"
+      },
+      {
+        "text": "✓ result 6                    ",
+        "ansi": "\u001b[38;2;132;231;70m✓\u001b[38;2;216;216;216m result 6                    ",
+        "kind": "tool"
+      },
+      {
+        "text": "╌╌ step 7 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+        "ansi": "╌╌ step 7 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+        "kind": "tool"
+      },
+      {
+        "text": "tool call 7                   ",
+        "ansi": "\u001b[38;2;231;169;70mtool\u001b[38;2;216;216;216m call 7                   ",
+        "kind": "tool"
+      },
+      {
+        "text": "✓ result 7                    ",
+        "ansi": "\u001b[38;2;132;231;70m✓\u001b[38;2;216;216;216m result 7                    ",
+        "kind": "tool"
+      }
+    ]
+  }
+}
