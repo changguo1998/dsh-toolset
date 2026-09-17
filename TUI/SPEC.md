@@ -227,7 +227,8 @@ type Node = Box | Paragraph;
 
 // measure 产物：每个节点测量后的自然宽高（宽=分配结果，高=折行行数或子项和）
 interface SizeTable {
-  w: number;                       // 该节点最终可用宽（父链分配后）
+  root: Node;                      // 根节点引用，allocate 由它出发递归（避免重复解析文本）
+  w: number;                       // 该节点总宽（含 indent + prefix，父链分配后）
   h: number;                       // 自然高（内容决定：v 子项和 / h 最大子高 / Paragraph 折行行数）
   size: Map<Node, { w: number; h: number }>;   // 子树实测（含自身），供 allocate 精确切分
 }
@@ -243,22 +244,23 @@ interface MeasureConstraint { maxW: number; }
 ```text
 measure(node, c: MeasureConstraint) -> SizeTable:
   若 node 是 Paragraph:
-    有效内容宽 W = c.maxW − indent − prefix.width          # 规则 3
-    rows = wrap(text, W)，wrap=false 时单行截断             # 折行/截断按显示宽度
-    h = rows 数                                            # 内容自然高
-    w = W                                                  # 未声明宽时取测出的内容宽
+    首行可排正文宽 W1 = c.maxW − indent − prefix.width   # 前缀 + 首行缩进先占列（规则 3）
+    续行可排正文宽 Wk = c.maxW − hanging                  # hanging 缺省 = indent（悬挂缩进）
+    rows = wrap(text, W1 首行 / Wk 续行)，wrap=false 时单行截断
+    h = rows 数                                          # 内容自然高
+    w = indent + prefix.width + 最宽正文行宽              # 节点总宽（含 indent + prefix；供横向父盒精确分摊）
     返回 { w, h }
-  若 node 是 Box(direction: v):                            # 上下排布：不额外占宽
-    对每个 child: measure(child, { maxW: c.maxW })          # 各子同宽约束
-    h = Σ child.h + separator 行数                          # 各子项间 1 行，首尾不画
-    w = max(child.w)                                       # v 宽取最宽子项
+  若 node 是 Box(direction: v):                          # 上下排布：不额外占宽
+    对每个 child: measure(child, { maxW: c.maxW })        # 各子同宽约束
+    h = Σ child.h + separator 行数                        # 仅纵向 Box 有 separator：各子项间 1 行，首尾不画
+    w = max(child.w)                                     # v 宽取最宽子项
     返回父 SizeTable（含子 size）
-  若 node 是 Box(direction: h):                            # 左右排布：横向分摊
+  若 node 是 Box(direction: h):                          # 左右排布：横向分摊
     先按「分配优先级」（§6.5）把 c.maxW 切给每个 child：fixed/min/max/ratio 直接定宽，
     auto 先以 max 为折行上界再量内容宽，fill 吃剩余
     对 auto/fill 的 child 再次 measure(child, { maxW: 分配宽 })
-    h = max(child.h)                                       # h 高取最高子项
-    w = Σ child.w + 竖线分隔 1 列（若有）
+    h = max(child.h)                                     # h 高取最高子项
+    w = Σ child.w                                        # 列间 │ 为行端字符、不占分配宽（末列不画）
     返回父 SizeTable（含子 size）
 ```
 
@@ -274,7 +276,7 @@ allocate(st: SizeTable, rect: Rect) -> Map<Node, Rect>:
   若是 Paragraph（叶子）: 记录 rect；结束
   若是 Box(direction: h):                                     # 横向切宽
     依「分配优先级」（§6.5）给每个子项定宽：fixed → min/max → ratio → auto（用 st.size[child].w 夹 max）→ fill(吃剩余)
-    相邻子项间插竖线分隔 1 列（行端字符，末列不画）；遇过度约束按让路顺序压缩（fill→auto→ratio→max→min→fixed）
+    列间 │ 为行端字符、不占分配宽（fill 阶段在段边界补画，末列不画）；遇过度约束按让路顺序压缩（fill→auto→ratio→max→min→fixed）
     每个子项递归 allocate(child, { x: 当前游标, y: rect.y, w: 分配宽, h: rect.h })
   若是 Box(direction: v):                                     # 纵向切高
     每个子项宽 = rect.w（同宽）
