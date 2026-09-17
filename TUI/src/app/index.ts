@@ -505,6 +505,7 @@ export class App {
       case "compaction-prune":
       case "feedback":
       case "retry-started":
+      case "command-panel-data":
         // 阶段 1 pass-through：仅入 reducer（事件结构 = StateAction 同型），不渲染；
         // 阶段 2 按事件落 buffer 工具行 / toast / 状态栏槽位；P2 B 阶段渲染前同此处理
         this.apply((s) => reduceState(s, e));
@@ -735,6 +736,40 @@ export class App {
         if (job) void this.killJob(job.id);
       } else if (name === "escape")
         this.apply((st) => reduceState(st, { type: "jobs-panel-close" }));
+      this.paint();
+      return;
+    }
+
+    // 共享列表面板（/skills 等）：↑/↓ 移动、PgUp/PgDn 整页、Enter 主操作、Esc 关闭；其余吞掉
+    if (this.state.commandPanel) {
+      const panel = this.state.commandPanel;
+      // 翻页页高 = 活动区可视行数（与面板窗口同口径，见 COMMANDS-SPEC.md §0.4 接线点 5）
+      const page = inputPanelHeights(
+        this.state,
+        this.deps.renderer.getSize(),
+      ).activityH;
+      if (name === "up") {
+        this.apply((st) =>
+          reduceState(st, { type: "command-panel-move", delta: -1 }),
+        );
+      } else if (name === "down") {
+        this.apply((st) =>
+          reduceState(st, { type: "command-panel-move", delta: 1 }),
+        );
+      } else if (name === "pageup") {
+        this.apply((st) =>
+          reduceState(st, { type: "command-panel-page", delta: -1, page }),
+        );
+      } else if (name === "pagedown") {
+        this.apply((st) =>
+          reduceState(st, { type: "command-panel-page", delta: 1, page }),
+        );
+      } else if (name === "enter") {
+        const row = panel.rows[panel.index];
+        if (row?.payload) void this.showSkillDetail(row.payload);
+      } else if (name === "escape") {
+        this.apply((st) => reduceState(st, { type: "command-panel-close" }));
+      }
       this.paint();
       return;
     }
@@ -1208,6 +1243,9 @@ export class App {
         return;
       case "rename":
         this.handleRenameCommand(line);
+        return;
+      case "skills":
+        this.handleSkillsCommand(line);
         return;
       case "copy":
         this.copyLastReply();
@@ -1931,6 +1969,58 @@ export class App {
     );
   }
 
+  /** /skills [filter]：打开共享列表面板（kind=skills）并经 adapter.refreshSkills 拉取；
+   *  无参重复调用同 kind = 关闭（照 /jobs 切换语义）；服务缺失 → warn 且不开面板。 */
+  private handleSkillsCommand(line: string): void {
+    const refresh = this.deps.adapter.refreshSkills;
+    if (!refresh) {
+      // 宿主未挂载 ctx.skills：不开空面板（面板占活动区、会盖住瞬态输出），仅提示
+      this.notice("skills 服务不可用", "warn");
+      return;
+    }
+    const filter = slashCommandArg(line);
+    if (this.state.commandPanel?.kind === "skills" && filter === "") {
+      this.apply((s) => reduceState(s, { type: "command-panel-close" }));
+      this.paint();
+      return;
+    }
+    // 互斥：打开时关闭 history / picker / jobsPanel（其余 kind 由 open 覆盖）
+    this.apply((s) => {
+      let next = s;
+      if (next.history) next = reduceState(next, { type: "history-close" });
+      if (next.picker) next = reduceState(next, { type: "picker-close" });
+      if (next.jobsPanel)
+        next = reduceState(next, { type: "jobs-panel-close" });
+      return reduceState(next, { type: "command-panel-open", kind: "skills" });
+    });
+    this.paint();
+    // filter 在 adapter 归一化阶段生效（名称/描述/适用场景子串匹配）
+    void refresh
+      .call(this.deps.adapter, filter === "" ? undefined : filter)
+      .catch(() => this.notice("skills 服务不可用", "warn"));
+  }
+
+  /** 共享面板 Enter：读取 skill 正文并以 info notice 展示；服务缺失/失败 → warn。
+   *  面板占满活动区会遮住瞬态 notice（与 /jobs 一致），故先关面板再提示详情。 */
+  private async showSkillDetail(name: string): Promise<void> {
+    const adapter = this.deps.adapter;
+    const detail = adapter.skillDetail;
+    if (!detail) {
+      this.notice("skills 服务不可用", "warn");
+      return;
+    }
+    this.apply((s) => reduceState(s, { type: "command-panel-close" }));
+    try {
+      const text = await detail.call(adapter, name);
+      this.notice(
+        text && text.trim() !== "" ? text : `${name}（无正文）`,
+        "info",
+      );
+    } catch {
+      this.notice("skills 服务不可用", "warn");
+    }
+  }
+
   /** /jobs：打开后台任务面板（复用既有面板模式），随后经 refreshJobs 拉取全量快照 */
   private handleJobsCommand(): void {
     const refresh = this.deps.adapter.refreshJobs;
@@ -1999,6 +2089,7 @@ export class App {
       "  /init    初始化 AGENTS.md（当前目录缺失时由模型阅读目录生成；已存在则提示退出）",
       "  /stats (/usage /context)  本回合 token 用量与上下文占比（最近一次模型调用）",
       "  /rename <标题>  重命名当前会话标题",
+      "  /skills [过滤]  技能目录面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }

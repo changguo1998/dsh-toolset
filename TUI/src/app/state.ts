@@ -17,6 +17,8 @@ import type {
   GoalSnapshotLike,
   TodoItemLike,
   JobInfo,
+  CommandPanelRow,
+  CommandPanelKind,
 } from "./adapter/dsh.ts";
 import type { ModelSelection, ModelSelectionLike } from "./adapter/dsh.ts";
 import { completeCommandInput, type CommandCandidate } from "./commands.ts";
@@ -222,6 +224,19 @@ function dropHistoryRecords(
   };
 }
 
+/** 共享列表面板状态（/skills、/agents、/tools 共用一套 reducer 与渲染；契约见 COMMANDS-SPEC.md §0.4） */
+export interface CommandPanelState {
+  kind: CommandPanelKind;
+  /** 高亮行索引（clamp 到 rows 范围；可见窗口随 index 平移） */
+  index: number;
+  /** 归一化行（打开后经 command-panel-data 到达） */
+  rows: CommandPanelRow[];
+  /** 数据尚未到达（open 置 true；data 写入后清除） */
+  loading?: boolean;
+  /** 数据侧错误（渲染为红行） */
+  error?: string;
+}
+
 export interface AppState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
@@ -301,6 +316,8 @@ export interface AppState {
   jobs: JobInfo[];
   /** P3：/jobs 任务面板（null=未打开；index=高亮行，Enter 取消） */
   jobsPanel: { index: number } | null;
+  /** 共享列表面板（/skills、/agents、/tools 共用；null = 未打开） */
+  commandPanel: CommandPanelState | null;
   /** 输入命令补全候选（输入仍处于首个命令 token 时存在；index 0 = 最匹配默认项；null=无候选/未激活） */
   completion: { items: readonly CommandCandidate[]; index: number } | null;
   /** 宿主命令注册表目录（ctx.commands.list，启动同步一次；补全候选并入，同名以本地目录优先） */
@@ -434,6 +451,7 @@ export function initialState(
     presetOptions: [],
     jobs: [],
     jobsPanel: null,
+    commandPanel: null,
     statusColumnScroll: 0,
     focusedPanel: null, // 无焦点；Tab 进入焦点循环
     activityScroll: 0,
@@ -1457,6 +1475,56 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       }
       case "jobs-panel-close":
         return { ...state, jobsPanel: null };
+      case "command-panel-open":
+        // 打开共享列表面板：先置 loading，数据经 command-panel-data 到达后填充
+        return {
+          ...state,
+          commandPanel: {
+            kind: action.kind,
+            index: 0,
+            rows: [],
+            loading: true,
+          },
+        };
+      case "command-panel-move": {
+        const panel = state.commandPanel;
+        if (!panel || panel.rows.length === 0) return state;
+        const index = Math.max(
+          0,
+          Math.min(panel.rows.length - 1, panel.index + action.delta),
+        );
+        return { ...state, commandPanel: { ...panel, index } };
+      }
+      case "command-panel-page": {
+        // PgUp/PgDn 整页移动（页高由调用方按活动区可视行数给出）
+        const panel = state.commandPanel;
+        if (!panel || panel.rows.length === 0) return state;
+        const step = Math.max(1, action.page) * action.delta;
+        const index = Math.max(
+          0,
+          Math.min(panel.rows.length - 1, panel.index + step),
+        );
+        return { ...state, commandPanel: { ...panel, index } };
+      }
+      case "command-panel-close":
+        return { ...state, commandPanel: null };
+      case "command-panel-data": {
+        // 数据 last-write-wins：仅当前面板 kind 一致时写入（挡迟到数据覆盖新面板）
+        const panel = state.commandPanel;
+        if (!panel || panel.kind !== action.kind) return state;
+        return {
+          ...state,
+          commandPanel: {
+            kind: panel.kind,
+            index: Math.max(
+              0,
+              Math.min(panel.index, Math.max(0, action.rows.length - 1)),
+            ),
+            rows: action.rows,
+            ...(action.error === undefined ? {} : { error: action.error }),
+          },
+        };
+      }
       case "status-column-scroll":
         // 顶部状态列纵向滚动：偏移累加，渲染层按可视行数 clamp；不进入对话区滚动
         return {
@@ -1705,6 +1773,16 @@ export type StateAction =
   | { type: "jobs-panel-open" }
   | { type: "jobs-panel-move"; focus: number; delta: number }
   | { type: "jobs-panel-close" }
+  | { type: "command-panel-open"; kind: CommandPanelKind }
+  | { type: "command-panel-move"; delta: number }
+  | { type: "command-panel-page"; delta: number; page: number }
+  | { type: "command-panel-close" }
+  | {
+      type: "command-panel-data";
+      kind: CommandPanelKind;
+      rows: CommandPanelRow[];
+      error?: string;
+    }
   | { type: "status-column-scroll"; delta: number }
   | { type: "focus-panel-cycle" }
   | { type: "activity-scroll"; delta: number }

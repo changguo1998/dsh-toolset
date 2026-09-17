@@ -48,7 +48,7 @@
 | 命令 | 宿主服务 · 方法 | 出现于 | 优先级 |
 |------|----------------|--------|--------|
 | `/stats`（别名 `/usage` `/context`） | `state.usage`（已接，零新服务）；可选增强 `tokenMeter.measure(session, requestHeader)` | Claude、Codex、Gemini、pi（4/4） | P1 ✅ 本轮已实现（批次 1） |
-| `/skills` | `skills.list()` → `SkillSummary[]` / `get(name)` → `SkillDefinition` | Claude、Codex、Gemini | P1 |
+| `/skills` | `skills.list()` → `SkillSummary[]` / `get(name)` → `SkillDefinition` | Claude、Codex、Gemini | P1 ✅ 本轮已实现（批次 2） |
 | `/agents` | `subagents.listChildren(parentSessionId)` / `interrupt(childId, { kind: 'user', parentSessionId })` | Claude、Codex、Gemini | P1 |
 | `/tools` | `tools.schemas()`（scope 省略 = 全局视图） / `get(name)` | Gemini | P2 |
 | `/rename` | `sessionTitle.rename(session, title)`（首参为 live Session 对象） | Claude、Codex、pi | P2 ✅ 本轮已实现（批次 1） |

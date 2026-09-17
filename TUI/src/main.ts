@@ -40,6 +40,7 @@ import {
   type AgentPresetsLike,
   type JobsLike,
   type SessionTitleLike,
+  type SkillsLike,
 } from "./app/adapter/dsh.ts";
 
 /** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
@@ -339,6 +340,9 @@ export async function apply(
     sessionTitle: (ctx as { get?: (name: string) => unknown }).get?.(
       "sessionTitle",
     ) as SessionTitleLike | undefined,
+    // 技能目录服务（ctx.get('skills')，dsh-skill；缺失时 /skills 提示不可用）
+    skills: (ctx as { get?: (name: string) => unknown }).get?.("skills") as
+      SkillsLike | undefined,
   });
 
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）

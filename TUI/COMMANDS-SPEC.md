@@ -148,9 +148,9 @@ commandPanel:
 |----|------|
 | 参数 | 可选 `<filter>`（对名称/描述不区分大小写子串过滤） |
 | 服务 | `skills.list()` → `SkillSummary[]`（`name`/`description`/`provider`）、`skills.get(name)` → `SkillDefinition`（含 `content` 正文；Enter 详情用） |
-| 输出 | 面板（kind `skills`，支持 PgUp/PgDn） |
+| 输出 | 面板（kind `skills`，共享 `commandPanel`；PgUp/PgDn 页高 = 活动区可视行数） |
 | 行内容 | `名称 — 描述首行`；来源 provider 作后缀（若条目含） |
-| 键位 | ↑/↓/PgUp/PgDn、Enter 显示详情（notice 多行）、Esc |
+| 键位 | ↑/↓/PgUp/PgDn、Enter 显示详情（notice 多行；**先关面板再提示**——面板占满活动区会遮住瞬态 notice，与 `/jobs` 一致）、Esc |
 | 降级 | `skills` 服务缺失 → warn「skills 服务不可用」 |
 | 落点 | `types.ts` 加 `SkillsLike { list?(): ReadonlyArray<Record<string, unknown>>; get?(name: string): unknown }`；`main.ts` 接 `ctx.get("skills")` |
 | 测试 | stub 返回 2 条 → 面板行含名称；filter 生效；服务缺失 → warn；空列表 → 占位行 |

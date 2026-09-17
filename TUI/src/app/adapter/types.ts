@@ -250,7 +250,13 @@ export type DshEvent =
   | { type: "feedback"; sessionId: string; text: string }
   | { type: "retry-started"; sessionId: string; attempt: number }
   | { type: "agent-preset"; sessionId: string; preset: string }
-  | { type: "jobs-changed"; sessionId: string; jobs: JobInfo[] };
+  | { type: "jobs-changed"; sessionId: string; jobs: JobInfo[] }
+  | {
+      type: "command-panel-data";
+      kind: CommandPanelKind;
+      rows: CommandPanelRow[];
+      error?: string;
+    };
 
 /** 应用层对 adapter 的唯一依赖面：事件流入 + 出站回调（消息/命令/审批/打断） */
 export interface DshAdapter {
@@ -325,6 +331,11 @@ export interface DshAdapter {
   selectAgentPreset?(id: string): Promise<void>;
   /** 请求刷新 jobs 快照（读 ctx.jobs.list 后经 jobs-changed 事件推送） */
   refreshJobs?(): Promise<void>;
+  /** 拉取 skills 列表并按 `filter`（名称/描述/适用场景子串，不区分大小写）过滤后
+   *  经 command-panel-data 事件推送；宿主未挂载 → reject */
+  refreshSkills?(filter?: string): Promise<void>;
+  /** 读取单个 skill 正文（Enter 详情）；服务缺失或读取失败 → undefined */
+  skillDetail?(name: string): Promise<string | undefined>;
   /** 取消后台任务（映射 ctx.jobs.kill）；宿主缺失 → reject */
   killJob?(id: string): Promise<void>;
 }
@@ -885,6 +896,45 @@ export interface JobInfo {
   detail?: string;
 }
 
+// ---------- 共享列表面板（/skills、/agents、/tools；契约见 COMMANDS-SPEC.md §0.4） ----------
+
+/** 共享列表面板 kind（批次 2 仅 skills；agents/tools 由批次 3 接入） */
+export type CommandPanelKind = "skills" | "agents" | "tools";
+
+/** 共享列表面板行（kind 无关的归一化渲染输入） */
+export interface CommandPanelRow {
+  /** 主文本（skill 名 / agent label / 工具名） */
+  title: string;
+  /** 副文本（描述 / detail；可空） */
+  detail?: string;
+  /** 状态符号（可选；着色口径同 JobsPanel.statusMark） */
+  symbol?: string;
+  /** 主操作载荷（Enter 时回传，如 skill 名称） */
+  payload?: string;
+}
+
+/** 宿主 skills 服务条目结构面（dsh-skill SkillSummary 子集） */
+export interface SkillSummaryLike {
+  name: string;
+  description?: string;
+  whenToUse?: string;
+  provider?: string;
+}
+
+/** 宿主 skills 服务完整定义结构面（SkillDefinition 子集，含正文） */
+export interface SkillDefinitionLike extends SkillSummaryLike {
+  content?: string;
+}
+
+/** 宿主 skills 服务结构面（ctx.get('skills')，@deepseek-ai/dsh-skill）；
+ *  服务层 `list()` / `get(name)` 均为同名/skill 名字符串（provider 层 candidate 不出现）。 */
+export interface SkillsLike {
+  /** 可用 skill 元数据（无参调用；options 省略 = 全局层） */
+  list?(): Promise<readonly SkillSummaryLike[]>;
+  /** 单个 skill 定义（含 content 正文；Enter 详情用） */
+  get?(name: string): Promise<SkillDefinitionLike | undefined>;
+}
+
 /** agent 预设目录信息（rc.2 ctx.agentPresets 结构面：list + defaultId + 事件回读当前） */
 export interface AgentPresetInfo {
   /** 当前会话选中预设（agent-preset/selected 事件回读；未选中 → ""） */
@@ -949,4 +999,6 @@ export interface RealAdapterOptions {
   jobs?: JobsLike;
   /** ctx.get('sessionTitle') 服务（dsh-session-title）；缺失时 /rename 提示不可用 */
   sessionTitle?: SessionTitleLike;
+  /** ctx.get('skills') 服务（dsh-skill）；缺失时 /skills 提示不可用 */
+  skills?: SkillsLike;
 }

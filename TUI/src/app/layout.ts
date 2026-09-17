@@ -28,6 +28,7 @@ import { buildModelPickerBox } from "./components/ModelPicker.ts";
 import { buildHistoryPanelBox } from "./components/HistoryPanel.ts";
 import { buildQuestionPanelBox } from "./components/QuestionPrompt.ts";
 import { buildJobsPanelBox, statusMark } from "./components/JobsPanel.ts";
+import { buildCommandListPanelBox } from "./components/CommandListPanel.ts";
 import { buildStatusPanelBox } from "./components/StatusPanel.ts";
 import { buildCommandCompletionBox } from "./components/CommandCompletion.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
@@ -828,6 +829,8 @@ function buildActivePanelBox(
       activityH,
       contentW,
     );
+  if (state.commandPanel)
+    return buildCommandListPanelBox(state.commandPanel, activityH, contentW);
   if (state.history)
     return buildHistoryPanelBox({
       history: state.history,
@@ -1505,6 +1508,7 @@ export function buildFrame(state: AppState, size: Size): FrameRow[] {
   const question = state.question;
   const history = state.history;
   const jobsPanel = state.jobsPanel;
+  const commandPanel = state.commandPanel;
   const statusPanel = state.statusPanel;
   // 顶部面板（对话/活动/状态列）只读当前活跃会话字段
   const { goal, todos, mode, policy, preset } = activeSessionFields(state);
@@ -1518,7 +1522,8 @@ export function buildFrame(state: AppState, size: Size): FrameRow[] {
     !picker &&
     !statusPanel &&
     !history &&
-    !jobsPanel;
+    !jobsPanel &&
+    !commandPanel;
   // 历史面板占满活动区、footer 空白占位——交互区拆成「footer 空白 + 提示区 1 行」，
   // 与输入态同高（footer=交互相-1 + 提示 1），面板开关不改变交互区总高度
   const showHint = normalInput || history !== null;
@@ -1674,10 +1679,16 @@ export function buildFrame(state: AppState, size: Size): FrameRow[] {
     w: metrics.statusColWidth,
     h: Math.max(1, contentTopH + 1),
   });
-  // 模态态（approval/question/picker/statusPanel/jobsPanel/history/open 面板）
+  // 模态态（approval/question/picker/statusPanel/jobsPanel/commandPanel/history/open 面板）
   // 焦点置空——与现状一致（模态态 statusSepFocus=none、buildTopRegion 框线全灰）
   const modalOpen =
-    showApproval || question || picker || statusPanel || jobsPanel || history;
+    showApproval ||
+    question ||
+    picker ||
+    statusPanel ||
+    jobsPanel ||
+    commandPanel !== null ||
+    history;
   focusFrame(
     {
       themeId: state.themeId,

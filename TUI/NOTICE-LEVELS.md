@@ -49,6 +49,8 @@
 | 已重命名为「\<title>」 | handleRenameCommand（/rename） | success |
 | 标题不能为空 / 标题不能包含换行 | handleRenameCommand（/rename） | error（非法参数，本地拒绝不发服务调用） |
 | sessionTitle 服务不可用 | handleRenameCommand（/rename） | warn（服务不可用） |
+| skills 服务不可用 | handleSkillsCommand / showSkillDetail（/skills） | warn（服务不可用） |
+| \<skill 正文多行> | showSkillDetail（/skills Enter 详情） | info（主动索取的信息展示） |
 
 ## B. 适配层 notice 归一化（src/app/adapter/dsh.ts）
 

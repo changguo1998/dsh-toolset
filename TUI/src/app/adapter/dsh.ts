@@ -110,6 +110,9 @@ export type {
   SessionQueryLike,
   SessionStoreLike,
   SessionTitleLike,
+  SkillsLike,
+  CommandPanelRow,
+  CommandPanelKind,
   AgentRegistryLike,
   NoticeTone,
   TokenUsage,
@@ -1867,7 +1870,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     /** 重命名当前会话标题：宿主 sessionTitle.rename(live Session, title)。
      *  live Session 对象随 resume 变化，故始终取当前活跃 agent 的 session
      *  （DshAgentLike.session 运行时即 Session 实例，见 main.ts 的 agentLike 组装）。 */
-    async renameSession(title) {
+    async renameSession(title: string): Promise<void> {
       const svc = opts.sessionTitle;
       if (!svc || typeof svc.rename !== "function") {
         throw new Error("sessionTitle 未挂载（宿主无会话标题服务）");
@@ -1879,6 +1882,54 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         throw new Error("活跃会话不可用，无法重命名");
       }
       svc.rename(session, title);
+    },
+    /** 拉取 skills 列表并归一化后经 command-panel-data 推送（服务缺失 → reject；
+     *  读取失败 → 事件带 error，面板显示红行）。描述取首行以适配单行渲染。 */
+    async refreshSkills(filter?: string): Promise<void> {
+      const svc = opts.skills;
+      if (!svc || typeof svc.list !== "function") {
+        throw new Error("skills 未挂载（宿主无技能服务）");
+      }
+      try {
+        const list = (await svc.list()) ?? [];
+        const needle = (filter ?? "").toLowerCase();
+        const matched =
+          needle === ""
+            ? list
+            : list.filter((skill) =>
+                `${skill.name} ${skill.description ?? ""} ${skill.whenToUse ?? ""}`
+                  .toLowerCase()
+                  .includes(needle),
+              );
+        emit({
+          type: "command-panel-data",
+          kind: "skills",
+          rows: matched.map((skill) => ({
+            title: skill.name,
+            detail:
+              (skill.description ?? skill.whenToUse ?? "").split("\n")[0] ?? "",
+            payload: skill.name,
+          })),
+        });
+      } catch (err) {
+        emit({
+          type: "command-panel-data",
+          kind: "skills",
+          rows: [],
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    /** 读取单个 skill 正文（Enter 详情）；服务缺失或读取失败 → undefined */
+    async skillDetail(name: string): Promise<string | undefined> {
+      const svc = opts.skills;
+      if (!svc || typeof svc.get !== "function") return undefined;
+      try {
+        const def = await svc.get(name);
+        return def?.content;
+      } catch {
+        return undefined;
+      }
     },
     async resumeTo(id) {
       if (disposed) {
