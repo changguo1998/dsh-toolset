@@ -22,7 +22,7 @@ import type {
 import { currentProjectCwd, historyVisibleRecords } from "./state.ts";
 
 import type { Buffer, BufferKind, BufferLine } from "./state.ts";
-import type { JobInfo, NoticeTone, TodoItemLike } from "./adapter/dsh.ts";
+import type { JobInfo, TodoItemLike } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
 import { renderHistoryPanel } from "./components/HistoryPanel.ts";
@@ -39,6 +39,34 @@ import {
   wrapAssistantLine,
   wrapCodeLine,
 } from "./layout/markdown.ts";
+import {
+  ACTIVITY_SEPARATOR,
+  isToolCall,
+  isToolResult,
+  NOTICE_TONE_COLOR,
+  TOOL_CONT_INDENT,
+  TOOL_MAX_GROUPS,
+  TOOL_MORE,
+  renderToolNameLine,
+  renderToolText,
+  SEPARATOR,
+  STATUS_TOP_SEPARATOR,
+  TURN_SEPARATOR_CHAR,
+  USER_MIN_LEFT_GUTTER,
+  userMaxBodyWidth,
+  wrapToolCallText,
+} from "./layout/content-rules.ts";
+export {
+  SEPARATOR,
+  STATUS_TOP_SEPARATOR,
+  TURN_SEPARATOR_CHAR,
+  TOOL_CONT_INDENT,
+  TOOL_MAX_GROUPS,
+  TOOL_MORE,
+  USER_MIN_LEFT_GUTTER,
+  userMaxBodyWidth,
+  wrapToolCallText,
+} from "./layout/content-rules.ts";
 export {
   charWidth,
   displayWidth,
@@ -67,7 +95,6 @@ import {
   wrapLine,
   wrapLines,
 } from "./layout/primitives.ts";
-
 
 // ---------- 视口纯函数 ----------
 
@@ -106,15 +133,6 @@ export function computeViewport(vp: ViewportInput): Viewport {
 }
 
 // ---------- 帧组装 ----------
-
-/** 水平分隔线字符（顶边 / 状态区下方横线等窗口间分隔；box-drawing 可与竖线连成连续线） */
-export const SEPARATOR = "─";
-
-/** 对话 turn 之间的分隔线字形：用点更少的虚线（double dash），与窗口间实线区分（2026-09-07） */
-export const TURN_SEPARATOR_CHAR = "╌";
-
-/** 状态区上方分隔线字符（与其余横线一致的单线 `─`；box-drawing 可与竖线连成连续线） */
-export const STATUS_TOP_SEPARATOR = "─";
 
 /** 上/中/下三区之间的横线分隔行数 */
 export const SEPARATOR_ROWS = 2;
@@ -209,8 +227,6 @@ export const DIALOGUE_MORE = "...(更早回复已折叠)";
 /** 活动区行数 = 右上区（对话历史+活动区）高度的一半（固定比例，不随内容变化） */
 /** @deprecated 由 activityHeight(contentTopH, divisor) 的 divisor=2 取代（配置 tui.config.json layout.activityHeightDivisor） */
 export const ACTIVITY_HEIGHT_RATIO = 1 / 2;
-/** 活动区分隔线字形（对话历史 ↔ 流输出边界：box-drawing 虚线，保留点感；不参与 barRowCount 统计） */
-export const ACTIVITY_SEPARATOR = "─"; // 对话历史 ↔ 流输出（活动区）边界：实线（2026-09-07 窗口间统一实线）
 
 /** 状态列内 goal/todo/jobs 块间分隔：点更少的虚线（double dash，窗口内部板块分隔保留虚线） */
 export const STATUS_BLOCK_SEPARATOR = "╌";
@@ -410,10 +426,7 @@ function capRows(rows: StatusRow[], budget: number): StatusRow[] {
 }
 
 /** todo 条目渲染行（首行带标记，续行缩进对齐） */
-function todoItemRows(
-  t: TodoItemLike,
-  width: number,
-): StatusRow[] {
+function todoItemRows(t: TodoItemLike, width: number): StatusRow[] {
   const body = t.content === "" ? "（空项）" : t.content;
   const mark = TODO_MARKER[t.status];
   const rows = wrapLine(body, Math.max(1, width - 2));
@@ -479,7 +492,9 @@ function wrapSegs(
     segs.reduce((acc, s) => acc + displayWidth(s.text), 0);
   // token 超宽时按词级在内部折行（保留各段样式；空格拆分后同词段合并）
   const splitOverflow = (segs: FrameSegment[]): FrameSegment[][] => {
-    const words = segs.flatMap((s) => s.text.split(" ")).filter((w) => w !== "");
+    const words = segs
+      .flatMap((s) => s.text.split(" "))
+      .filter((w) => w !== "");
     const lines: FrameSegment[][] = [];
     let line: FrameSegment[] = [];
     let lw = 0;
@@ -579,7 +594,9 @@ function modeBlock(
       const opts = ["ro", "wr", "full"].includes(code)
         ? ["ro", "wr", "full"]
         : [...["ro", "wr", "full"], code];
-      add("sandbox", opts, code, () => (raw in MODE_SHORT ? permColor(code) : "magenta"));
+      add("sandbox", opts, code, () =>
+        raw in MODE_SHORT ? permColor(code) : "magenta",
+      );
     }
     // permission 独立列出全部可选项（不因与 sandbox 相同而省略——用户要求逐项全列）
     if (mode.permission) {
@@ -603,11 +620,8 @@ function modeBlock(
     }
   }
   if (policy)
-    add(
-      "policy",
-      ["ask", "auto"],
-      policy === "never" ? "auto" : "ask",
-      (o) => (o === "ask" ? "green" : "red"),
+    add("policy", ["ask", "auto"], policy === "never" ? "auto" : "ask", (o) =>
+      o === "ask" ? "green" : "red",
     );
   if (preset && preset !== "") {
     // 可选项 = agent 预设目录（若已同步）；否则只显示当前值；目录不含当前值时补入
@@ -620,7 +634,9 @@ function modeBlock(
     add("preset", opts, preset, () => "magenta");
   }
   // 项目竖线属边框：前景色；未生效值仍 gray
-  out.push(...wrapSegs(tokens, width, { text: " | ", style: { fg: "border" } }));
+  out.push(
+    ...wrapSegs(tokens, width, { text: " | ", style: { fg: "border" } }),
+  );
   return out;
 }
 
@@ -678,7 +694,9 @@ function statusBlocks(
       items.push({
         rows: [
           {
-            segments: [seg("阻塞: " + g.blockedReason.message, { fg: "yellow" })],
+            segments: [
+              seg("阻塞: " + g.blockedReason.message, { fg: "yellow" }),
+            ],
           },
         ],
         done: false,
@@ -787,7 +805,7 @@ export function renderStatusColumn(
     // 右缘竖线分隔（竖线 │ 跨行连成连续线）：内容后补空格到 (w-1) 再放竖线。
     // 此竖线在 buildTopRegion 被剥去后重画（边框灰/亮由框架构图决定），故保持无色便于剥离
     const innerW = rowWidth2(inner);
-    if (innerW < w - 1) inner.push(seg(" ".repeat((w - 1) - innerW)));
+    if (innerW < w - 1) inner.push(seg(" ".repeat(w - 1 - innerW)));
     inner.push(seg("│"));
     out.push({ segments: inner });
   }
@@ -1012,7 +1030,8 @@ function buildTopRegion(
       // 剥末段竖线 → 截断到 statusBodyW → 右补空格
       const inner = truncateSegs(cell.segments.slice(0, -1), statusBodyW);
       const innerW = rowWidth2(inner);
-      if (innerW < statusBodyW) inner.push(seg(" ".repeat(statusBodyW - innerW)));
+      if (innerW < statusBodyW)
+        inner.push(seg(" ".repeat(statusBodyW - innerW)));
       return inner;
     })();
     // 左区内容（标题栏 / 对话区行 / 活动区分隔 / 活动区行）→ 段数组
@@ -1026,7 +1045,9 @@ function buildTopRegion(
             contentW,
           );
           // 会话标题用正常前景色；空标题 <title> 占位保持边框色
-          return [rawTitle === "" ? seg(titleText, { fg: "border" }) : seg(titleText)];
+          return [
+            rawTitle === "" ? seg(titleText, { fg: "border" }) : seg(titleText),
+          ];
         }
         return [seg(SEPARATOR.repeat(Math.max(1, contentW)), { fg: "border" })];
       }
@@ -1078,14 +1099,6 @@ function buildTopRegion(
   }
   return rows;
 }
-
-export const USER_MIN_LEFT_GUTTER = 4;
-/** 工具调用历史：仅展示最近 TOOL_MAX_GROUPS 个调用组，更早隐藏（折叠标记） */
-export const TOOL_MAX_GROUPS = 4;
-export const TOOL_MORE = "...(更早工具调用已隐藏)";
-/** 工具调用参数续行缩进：软换行/参数内显式换行后的续行统一 4 空格对齐 */
-export const TOOL_CONT_INDENT = 4;
-/** THINKING_MAX 兼容导出（state.DEFAULT_THINKING_MAX_LINES 为权威默认） */
 export const THINKING_MAX: number = 4;
 
 /**
@@ -1095,38 +1108,6 @@ export const THINKING_MAX: number = 4;
  * 参数内空行保留（与 split("\n") 语义一致）；窄窗口（width ≤ 缩进）降级不缩进，
  * 避免缩进本身溢出。
  */
-export function wrapToolCallText(text: string, width: number): string[] {
-  const indent = width > TOOL_CONT_INDENT ? TOOL_CONT_INDENT : 0;
-  const rows: string[] = [];
-  let cur = "";
-  let curW = 0;
-  // 当前行落盘：整体首行原样，其余行加续行缩进
-  const flush = (): void => {
-    rows.push(rows.length === 0 ? cur : " ".repeat(indent) + cur);
-    cur = "";
-    curW = 0;
-  };
-  for (const seg of text === "" ? [""] : text.split("\n")) {
-    for (const ch of seg) {
-      const w = charWidth(ch);
-      // 可用宽度：首行全宽，续行扣掉缩进
-      const avail = Math.max(1, width - (rows.length === 0 ? 0 : indent));
-      if (curW > 0 && curW + w > avail) flush();
-      cur += ch;
-      curW += w;
-    }
-    flush(); // 段末（参数内显式换行 / 末段收尾）
-  }
-  return rows;
-}
-
-/** 用户消息块最大正文宽：块整体靠右，左侧至少保留 gutter(默认 USER_MIN_LEFT_GUTTER) */
-export function userMaxBodyWidth(
-  width: number,
-  gutter: number = USER_MIN_LEFT_GUTTER,
-): number {
-  return Math.max(1, width - Math.min(gutter, Math.max(0, width - 1)));
-}
 
 /** 模型正文块最大宽：右缘与用户块左缘对称留白(gutter)，与用户输入形成左右交错 */
 export function assistantMaxBodyWidth(
@@ -1197,7 +1178,11 @@ function wrapBufferLines(
           activity.push({
             // 虚线 step 头与字体同色（不染边框蓝）
             segments: [
-              seg(fill > 0 ? head + TURN_SEPARATOR_CHAR.repeat(fill) : truncateToWidth(head, width)),
+              seg(
+                fill > 0
+                  ? head + TURN_SEPARATOR_CHAR.repeat(fill)
+                  : truncateToWidth(head, width),
+              ),
             ],
             kind: "tool",
             indent: 0,
@@ -1246,7 +1231,11 @@ function wrapBufferLines(
       const rows = wrapLine(line.text, Math.max(1, width - 1));
       for (const text of rows) {
         if (text === "") continue;
-        activity.push({ segments: [bar, seg(text)], kind: "thinking", indent: 0 });
+        activity.push({
+          segments: [bar, seg(text)],
+          kind: "thinking",
+          indent: 0,
+        });
       }
       continue;
     }
@@ -1269,7 +1258,10 @@ function wrapBufferLines(
               ? [seg("")]
               : (() => {
                   const out: FrameSegment[] = [
-                    seg(r + " ".repeat(Math.max(0, contentWidth - displayWidth(r)))),
+                    seg(
+                      r +
+                        " ".repeat(Math.max(0, contentWidth - displayWidth(r))),
+                    ),
                   ];
                   if (bar) out.push(bar);
                   return out;
@@ -1334,7 +1326,9 @@ function wrapBufferLines(
       const tone = line.tone;
       for (const text of rows)
         activity.push({
-          segments: tone ? [seg(text, { fg: NOTICE_TONE_COLOR[tone] })] : [seg(text)],
+          segments: tone
+            ? [seg(text, { fg: NOTICE_TONE_COLOR[tone] })]
+            : [seg(text)],
           kind: "notice",
           indent: 0,
         });
@@ -1425,8 +1419,7 @@ export function modelLabel(sel: {
  *  状态栏段配色约定：相邻段不同色、不用红/黄/绿状态色、不用亮色系（bright*）。 */
 function colorModel(s: string): FrameSegment[] {
   const slash = s.indexOf("/");
-  if (slash < 0)
-    return s === "—" ? [seg(s)] : [seg(s, { fg: "cyan" })];
+  if (slash < 0) return s === "—" ? [seg(s)] : [seg(s, { fg: "cyan" })];
   const rest = s.slice(slash + 1);
   const colon = rest.indexOf(":");
   const model = colon < 0 ? rest : rest.slice(0, colon);
@@ -1439,60 +1432,12 @@ function colorModel(s: string): FrameSegment[] {
   return out;
 }
 /** notice/tool 行 tone → 着色名（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿） */
-const NOTICE_TONE_COLOR: Record<NoticeTone, ColorName> = {
-  log: "gray",
-  info: "blue",
-  warn: "yellow",
-  error: "red",
-  success: "green",
-};
-
-/** 工具行前缀着色：✓ 前缀绿；其余原样（✗ 由 tone 整体着红） */
-function renderToolText(text: string): FrameSegment[] {
-  if (text.startsWith("✓ ")) {
-    return [seg("✓", { fg: "green" }), seg(" " + text.slice(2))];
-  }
-  return [seg(text)];
-}
-
-/** 工具行分组判定：无状态符号前缀的行=工具调用（新组起点）。
- * 前缀集与 tool-line.ts 各辅助行对齐（✓/✗/↻/⚑/⤷/↩//>/⇥/⌗/@/step） */
-const TOOL_STATUS_PREFIXES = [
-  "✓ ",
-  "✗ ",
-  "↻ ",
-  "⚑ ",
-  "⤷ ",
-  "↩ ",
-  "/> ",
-  "⇥ ",
-  "⌗ ",
-  "@ ",
-  "step ",
-];
-
-function isToolCall(text: string): boolean {
-  return !TOOL_STATUS_PREFIXES.some((p) => text.startsWith(p));
-}
-
-/** 工具结果行判定（✓ 成功 / ✗ 失败前缀）：结果行与调用行同规格折行缩进 */
-function isToolResult(text: string): boolean {
-  return text.startsWith("✓ ") || text.startsWith("✗ ");
-}
 
 /** 活动行是否为视觉空白：纯文本无可见字符（空思考/notice 拖尾行） */
 function isBlankRow(row: WrappedRow): boolean {
   return row.segments.every((s) => s.text === "");
 }
 
-/** 工具调用行渲染：首词（工具名）染黄，其余原色（无前缀图标） */
-function renderToolNameLine(text: string): FrameSegment[] {
-  const sp = text.indexOf(" ");
-  if (sp < 0) return [seg(text, { fg: "yellow" })];
-  return [seg(text.slice(0, sp), { fg: "yellow" }), seg(text.slice(sp))];
-}
-
-/** token 数 → 紧凑缩写（k 千 / M 百万，1 位小数，如 12.4k / 1.5M） */
 function formatTokens(n: number): string {
   if (n >= 1_000_000)
     return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
@@ -1628,7 +1573,8 @@ export function renderStatusLine(
 
   const groupWidth = (g: FrameSegment[][]): number =>
     g.reduce(
-      (acc, s, i) => acc + (i > 0 ? 1 : 0) + s.reduce((a, x) => a + displayWidth(x.text), 0),
+      (acc, s, i) =>
+        acc + (i > 0 ? 1 : 0) + s.reduce((a, x) => a + displayWidth(x.text), 0),
       0,
     );
 
@@ -1869,10 +1815,22 @@ export function buildStatusSeparator(
         : { text: STATUS_TOP_SEPARATOR, style: { fg: "border" } },
     );
   }
-  out.push(...segN(Math.max(0, D - (useLeftCorner ? 1 : 0)), STATUS_TOP_SEPARATOR, sepFocus === "activity"));
+  out.push(
+    ...segN(
+      Math.max(0, D - (useLeftCorner ? 1 : 0)),
+      STATUS_TOP_SEPARATOR,
+      sepFocus === "activity",
+    ),
+  );
   // D 列交点恒与水平实线相交（无焦点前景色 ┴ / 焦点亮 ┴），不再用点线
   out.push({ text: "┴", style: { fg: sepFocus === "none" ? "border" : fc } });
-  out.push(...segN(Math.max(0, R - D - 1), STATUS_TOP_SEPARATOR, sepFocus === "status"));
+  out.push(
+    ...segN(
+      Math.max(0, R - D - 1),
+      STATUS_TOP_SEPARATOR,
+      sepFocus === "status",
+    ),
+  );
   // R 列（状态列右缘框列）：status 焦点右下角 ┘；无右缘框列（statusColWidth=1）时不输出
   if (useRightFrame) {
     out.push(
