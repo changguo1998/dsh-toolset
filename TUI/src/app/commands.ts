@@ -152,7 +152,8 @@ export type SlashRoute =
   | "policy"
   | "permission"
   | "preset"
-  | "jobs";
+  | "jobs"
+  | "init";
 
 /** 本地命令目录：路由与输入补全的**单一来源**（含别名，别名也是独立可补全项）。
  *  desc 供补全候选展示；/help 的逐行说明仍在 App.helpText（历史格式）。 */
@@ -189,6 +190,11 @@ export const LOCAL_COMMANDS: readonly {
   },
   { name: "preset", route: "preset", desc: "agent 预设目录" },
   { name: "jobs", route: "jobs", desc: "后台任务面板（Enter 取消）" },
+  {
+    name: "init",
+    route: "init",
+    desc: "初始化 AGENTS.md（缺失时由模型阅读目录生成）",
+  },
 ];
 
 /** 命令名 → 路由（模块加载时构建一次；不在目录中的名字落 registry 转发） */
@@ -199,6 +205,14 @@ const LOCAL_ROUTES = new Map<string, SlashRoute>(
 export function routeSlashCommand(name: string): SlashRoute {
   return LOCAL_ROUTES.get(name) ?? "registry";
 }
+
+/** /init 初始化指令（当前目录无 AGENTS.md 时注入会话）：模型据此阅读目录、总结并写 AGENTS.md */
+export const INIT_PROMPT = [
+  "请为当前项目初始化 AGENTS.md（面向 agent 的项目协作说明）：",
+  "1. 阅读当前目录下的文件与结构（如 package.json、README、配置文件与主要源码目录）；",
+  "2. 总结项目用途与技术栈、常用命令（构建/测试/格式化）、代码与提交约定、目录结构与关键模块；",
+  "3. 将结果写入当前目录根部的 AGENTS.md（若已存在则不要覆盖，改为报告已存在）。",
+].join("\n");
 
 /** 补全候选（命令名 + 一句话说明） */
 export interface CommandCandidate {

@@ -7,11 +7,12 @@
 
 - 涉及其他功能的命令走注册-调用方式（`dsh-commands` 注册表），只与渲染相关的命令作为本地小命令表。
 - `App.submit()` 对以 `/` 开头的输入走 `handleSlash()`，不进 `agent.followup`、不占模型 token/历史：
-  - 本地小命令表（app 层）：`/help`、`/clearscreen`（`/cls`，清空显示缓冲）、`/quit`（关闭 renderer）、`/theme`、`/goal`（仅 notice 提示查看右侧信息栏）、`/session`、`/copy`、`/model`、`/policy`、`/permission`、`/preset`、`/jobs`。
+  - 本地小命令表（app 层）：`/help`、`/clearscreen`（`/cls`，清空显示缓冲）、`/quit`（关闭 renderer）、`/theme`、`/goal`（仅 notice 提示查看右侧信息栏）、`/session`、`/copy`、`/model`、`/policy`、`/permission`、`/preset`、`/jobs`、`/init`。
   - 其他 `/name` → `adapter.runCommand(line)` → `ctx.commands.execute(agent, line, [], signal)`（官方注册表）。
   - 未命中注册表（execute 返回 `undefined`）→ `notice` 提示未知命令（**官方 fail-close**：绝不 sendMessage 给模型）。
 - 事件面：`DshEvent` 的 `{ type: "notice"; text }`——命令结果/错误/提示只进 UI 缓冲（`appendNotice`，独立成行，不入流式末行），经 `notice` reducer 落地。
 - 命令名语法：`parseSlashCommand` 与官方 client 一致——`/^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/`。
+- `/init`（初始化 AGENTS.md）：本地检查会话语义 cwd（`state.systemStatus.cwd`，占位/空时回退 `process.cwd()`）下 `AGENTS.md` 是否存在——已存在则 `notice` 提示并结束（不发消息）；缺失则经共用发送路径 `sendUserText(INIT_PROMPT, "/init")` 注入初始化指令（状态置运行 + 本地回显 `/init` + `adapter.sendMessage`），由模型阅读目录、总结并写 `AGENTS.md`。指令常量 `INIT_PROMPT` 在 `commands.ts`（与本地命令目录同处，便于测试导入）。
 - 服务解析：`main.ts` 经 `ctx.get("commands")` 取注册表（cordis 严格模式不允许未注入服务直接属性访问），`commandAgent` 传真实 Agent（注册表作用域查找需要完整 agent，而非 app 的瘦 `DshAgentLike`）。
 - dispose：`App.dispose()` 透传 `adapter.dispose?.()`；adapter 实现中止在途命令的 AbortController、解绑 runtime 监听（collectUnbind）、清空监听集。
 

@@ -5,6 +5,9 @@
 
 import { mock, test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   App,
   focusedLineScroll,
@@ -368,6 +371,57 @@ test("/cls 别名 → 与 /clearscreen 同一功能", () => {
   typeAndEnter(renderer, "/cls");
   assert.deepEqual(adapter.sent, []);
   assert.deepEqual(adapter.commands, []);
+});
+
+/** 带 cwd 注入的 App（/init 用例）：status ticker 立即 tick 一次写入 cwd，无重复定时器 */
+function makeAppAtCwd(cwd: string): {
+  app: App;
+  renderer: FakeRenderer;
+  adapter: FakeAdapter;
+} {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const app = new App({
+    renderer,
+    adapter,
+    status: {
+      queries: { time: () => "12:00", cwd: () => cwd, git: () => "main" },
+      intervalMs: 60_000,
+    },
+  });
+  app.start();
+  return { app, renderer, adapter };
+}
+
+test("/init：AGENTS.md 已存在 → 仅提示、不发送消息", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-init-"));
+  writeFileSync(join(dir, "AGENTS.md"), "# 已存在\n");
+  const { app, renderer, adapter } = makeAppAtCwd(dir);
+  await flush();
+  typeAndEnter(renderer, "/init");
+  assert.deepEqual(adapter.sent, [], "不发送任何消息");
+  assert.deepEqual(adapter.commands, [], "不走宿主注册表");
+  assert.ok(
+    renderer.lastRender.join("\n").includes("AGENTS.md 已存在"),
+    "提示已存在并结束",
+  );
+  app.dispose();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("/init：AGENTS.md 缺失 → 注入初始化指令（用户行回显 /init）", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-init-"));
+  const { app, renderer, adapter } = makeAppAtCwd(dir);
+  await flush();
+  typeAndEnter(renderer, "/init");
+  assert.equal(adapter.sent.length, 1, "发送一条初始化指令");
+  assert.ok(adapter.sent[0]!.includes("AGENTS.md"), "指令提到 AGENTS.md");
+  assert.ok(
+    renderer.lastRender.join("\n").includes("/init"),
+    "用户行回显 /init",
+  );
+  app.dispose();
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test("/quit → 走 App.dispose：关闭 renderer 且释放 adapter", () => {
@@ -3073,7 +3127,8 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
     upBefore,
     "焦点流输出时 ↑ 滚动到更早行（窗口起点变化）",
   );
-  // PgUp（整页）→ 翻到帮助首行
+  // PgUp（整页）→ 翻到帮助首行（帮助文本超一页，再翻一页确保到顶；已到顶时幂等）
+  renderer.press(key("pageup"));
   renderer.press(key("pageup"));
   assert.equal(actBody()[0], "本地命令：", "整页上翻到首行");
   // PgDn（整页）→ activityScroll 9-8=1，窗口起点回到 /theme 行（页向下翻）

@@ -142,13 +142,14 @@ npm run watch # tsc --watch 常驻：源码变更自动编译到 dist/（仍需�
   - `/help` — 显示本地命令帮助
   - `/clearscreen`（简写 `/cls`）— 清空显示缓冲（只清 UI，不动会话上下文）
   - `/quit` — 关闭 renderer 退出
-  - `/session` — 会话面板：列出持久化会话（newest-first，live 会话标记 `[当前]` 不可续），Enter 切换到选中的 persisted 会话（先释放当前 agent，再经 host `agents.resume` 恢复继续对话；resume 失败进面板 error 态不崩溃）；`Tab` 切换列表范围（默认当前目录 / 全部）、`d`/Delete 删除选中会话（二次确认）、`x` 清理当前目录空会话（二次确认）、`/session clean` 直达清理确认（文件级删除：安全 id + realpath 包含性校验；清理范围跟随列表范围（当前目录 / 全部））
+  - `/session` — 会话面板：列出持久化会话（newest-first，live 会话标记 `[当前]` 不可续），Enter 切换到选中的 persisted 会话（先释放当前 agent，再经 host `agents.resume` 恢复继续对话；resume 失败进面板 error 态不崩溃）；`Tab` 切换列表范围（默认当前目录 / 全部）、`d`/Delete 删除选中会话（二次确认）、`x` 清理空会话（范围跟随列表范围，二次确认）、`/session clean` 直达清理确认（文件级删除：安全 id + realpath 包含性校验；清理范围跟随列表范围（当前目录 / 全部））
   - `/copy` — 复制最后一条模型回复到剪贴板（OSC52 序列 `ESC ]52;c;<base64>BEL`，ANSI 剥离后写入；无回复时提示）
   - `/goal` — goal/todo 查看提示：goal、todo、jobs 详情**常驻右侧顶部状态列**（goal 块标题 `Goal <phase>`（Goal 蓝、phase 状态色：active/complete 绿、paused 黄、blocked 红）+ objective/阻塞原因、todo 块 `Todo 完成数/总数`（`○`/`●`黄/`✓`对号灰+正文灰删线，超高时优先隐藏已完成项）、jobs 块 `Jobs 运行中/总数`，PgUp/PgDn 滚动；状态栏不显示 goal/todo 徽标）。输入 `/goal` 仅提示「详情见右侧信息栏」，不再打开面板
   - `/policy [ask|never]` — 审批策略两态切换：无参打开**状态选项面板**（↑/↓ 选、空格预选、Enter 提交并关闭、Esc 取消），显式 `ask`/`never` 直接设置；经 `ctx.approval.setPolicy(agent, policy)` 写宿主，状态栏以 `ask`/`auto` 徽标展示当前策略（宿主未挂载审批服务时提示不可用）
   - `/permission [预设名]` — 权限预设（sandbox mode + 审批策略捆绑）：无参从 `ctx.permissionPresets` 读目录并打开**状态选项面板**（空格预选、Enter 提交转发宿主后关闭）；带参转发宿主 `/permission <name>`（宿主校验并写 `permission/preset` + `approval/policy`）。宿主未挂载权限预设服务时提示不可用
   - `/preset [预设名]` — agent 预设目录：无参从 `ctx.agentPresets` 读目录并打开**状态选项面板**（空格预选、Enter 提交 `selectAgentPreset` 后关闭）；带参经 `selectAgentPreset`（`recompose` 写路径）切换当前会话预设，宿主未挂载时提示不可用（**当前默认 profile 未装配 `dsh-agent-presets`，/preset 提示不可用；接口已按 rc.2 核验，装配该服务的环境即生效**）
   - `/jobs` — 后台任务面板（只读列表 + Enter 取消）：adapter 订阅 `ctx.jobs.onJobsChanged` 增量刷新 + 打开时全量拉取；↑/↓ 选择、`Enter` 取消、`Esc` 关闭；状态栏 `jobs N` 徽标计运行中任务，宿主未挂载 jobs 服务时提示不可用
+  - `/init` — 初始化项目 `AGENTS.md`：检查当前目录（会话 cwd，回退进程 cwd）下是否已存在 `AGENTS.md`；已存在则提示并直接结束（不发送任何消息），缺失则以一条初始化指令（`INIT_PROMPT`）注入当前会话，由模型阅读目录内容、总结后生成 `AGENTS.md`（本地回显用户行 `/init`）
   - `/model [provider/]model` — 会话内切换模型（不落盘）：无参打开**模型选择面板**（三列 provider/model/effort 同屏，初始焦点在 model 列，←/→ 换列、空格选中、Enter 提交、Esc 取消；effort 列初始高亮 = 当前显式等级，未显式选择时按 provider 默认等级）；带参直接切换（`provider/model` 或跨 provider 唯一的 model id）
   - `/provider`、`/effort`（`/thinking` 同义） — 无需参数打开同一个模型选择面板，并预先把焦点列放到 provider / effort 列；带参提示 usage（不做隐式切换）
 - **宿主自带命令（dsh-base 默认装配，转发即用）**：`/compact`、`/feedback`（rc.2 `dsh-command-compact`/`dsh-command-feedback` 经 `ctx.commands.register` 注册），TUI 无本地路由走 registry 转发。

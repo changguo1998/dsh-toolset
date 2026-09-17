@@ -4,6 +4,8 @@
 // 处理按键、接收事件、重绘。
 
 import type { Renderer, KeyEvent } from "../renderer/index.ts";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type {
   AppState,
   InputMode,
@@ -28,6 +30,7 @@ import type {
 import type { NoticeTone } from "./adapter/types.ts";
 import { parseSlashCommand } from "./adapter/dsh.ts";
 import {
+  INIT_PROMPT,
   buildOsc52,
   deriveTitle,
   lastAssistantText,
@@ -1065,6 +1068,34 @@ export class App {
     this.paint();
   }
 
+  /** 发送用户文本（状态置运行 + 本地回显 + adapter 分发）：普通提交与 /init 注入共用。
+   *  echoText 为缓冲回显文本（默认同发送文本）；/init 回显命令名、发送初始化指令。 */
+  private sendUserText(sendText: string, echoText: string = sendText): void {
+    this.apply((s) =>
+      reduceState(s, { type: "input-status", status: "running" }),
+    );
+    // 真实 DSH 不回显 user/message,由 app 在发送前本地追加用户行。
+    // 回合开始时先画分隔线(上一轮内容 → 新回合内容)
+    this.beginTurnIfNeeded();
+    this.apply((s) => reduceState(s, { type: "user-line", text: echoText }));
+    this.deps.adapter.sendMessage(
+      sendText,
+      this.state.activeSessionId ?? undefined,
+    );
+  }
+
+  /** /init：当前目录无 AGENTS.md 时注入初始化指令（模型阅读目录并生成）；
+   *  已存在则提示并直接结束（不发送任何消息） */
+  private runInit(): void {
+    const cwd = this.state.systemStatus.cwd;
+    const dir = cwd !== "" && cwd !== "—" ? cwd : process.cwd();
+    if (existsSync(join(dir, "AGENTS.md"))) {
+      this.notice("AGENTS.md 已存在，跳过初始化", "info");
+      return;
+    }
+    this.sendUserText(INIT_PROMPT, "/init");
+  }
+
   private submit(interrupt = false): void {
     const text = this.state.inputText.trim();
     if (!text) return;
@@ -1082,17 +1113,7 @@ export class App {
       this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
       return;
     }
-    this.apply((s) =>
-      reduceState(s, { type: "input-status", status: "running" }),
-    );
-    // 真实 DSH 不回显 user/message,由 app 在发送前本地追加用户行。
-    // 回合开始时先画分隔线(上一轮内容 → 分隔线 → 新用户消息)
-    this.beginTurnIfNeeded();
-    this.apply((s) => reduceState(s, { type: "user-line", text }));
-    this.deps.adapter.sendMessage(
-      text,
-      this.state.activeSessionId ?? undefined,
-    );
+    this.sendUserText(text);
     this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
     // 任何提交后自动回退普通模式（提示符回 >）
     this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
@@ -1177,6 +1198,9 @@ export class App {
         return;
       case "jobs":
         this.handleJobsCommand();
+        return;
+      case "init":
+        this.runInit();
         return;
       case "copy":
         this.copyLastReply();
@@ -1918,6 +1942,7 @@ export class App {
       "  /permission [预设名]  权限预设（sandbox+审批捆绑；无参列当前与可用，带参切换）",
       "  /preset [预设名]      agent 预设目录（无参列当前/可用/默认，带参切换）",
       "  /jobs 后台任务面板（只读列表；↑/↓ 选择、Enter 取消、Esc 关闭）",
+      "  /init    初始化 AGENTS.md（当前目录缺失时由模型阅读目录生成；已存在则提示退出）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }
