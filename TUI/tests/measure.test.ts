@@ -411,3 +411,27 @@ test("ratio 0.8 + fill min:4，宽 10 → ratio 6、fill 4（fill 让但 min 保
   assert.equal(rectOf(rects, "a").w, 6);
   assert.equal(rectOf(rects, "b").w, 4);
 });
+
+// ---- 通用契约扩展：suffix / tail（SPEC §2/§6.5）----
+
+test("Paragraph suffix：占列并入总宽、正文折行扣 suffix 宽", () => {
+  // maxW=8，suffix ┃（1 列）→ 正文可用 7。文本 8×A → 折 7+1（续行再扣 1 后 1 宽）
+  const p = text("AAAAAAAA", { suffix: { text: "┃" } });
+  const st = measure(p, { maxW: 8 });
+  assert.equal(st.h, 2); // 正文折 7 列 + 续 1 列
+  assert.equal(st.w, 8); // 最长行 7 + suffix 1
+});
+
+test("Paragraph suffix：suffix 纳总宽（空文本 = prefix/suffix 宽）", () => {
+  const p = text("", { suffix: { text: "┃" } });
+  const st = measure(p, { maxW: 10 });
+  assert.equal(st.h, 1);
+  assert.equal(st.w, 1); // 空文本总宽 = suffix 占列
+});
+
+test("Paragraph tail：不占测量宽、不增加行数；铺满由 fill 决定", () => {
+  const p = text("", { tail: { char: "╌" } });
+  const st = measure(p, { maxW: 12 });
+  assert.equal(st.h, 1);
+  assert.equal(st.w, 0); // tail 不占测量宽
+});

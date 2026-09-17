@@ -18,6 +18,14 @@ interface NodeBase {
     text: string;                   //   如思考 ┃ / 引用 │ / 列表 • / 任务 [x]
     style?: FrameStyle;
   };
+  suffix?: {                        // 段尾固定后缀（占列，正文补白后挂；每行重复）
+    text: string;                   //   如用户块右缘 ┃ 竖线（不随行尾移动）
+    style?: FrameStyle;
+  };
+  tail?: {                          // 行尾铺满字符（不占测量宽；fill 补到分配宽）
+    char: string;                   //   如 step 虚线 ╌ / turn 分隔 ╌
+    style?: FrameStyle;             //   缺省 border（灰）
+  };
   fillBg?: boolean;                 // 底色铺满分配宽度（代码块用；行内代码只在文字上着色）
   wrap?: boolean;                   // 默认 true；false = 单行截断不换行
 }
@@ -87,6 +95,8 @@ type Height =
 - **`align`（行级）**：仅当该叶子被分配了确定的 available 宽（`width: fixed/fill`）时生效；`auto` 宽叶子无从对齐（§5 规则 8）。
 - **`valign`（垂直）**：仅当该叶子所在 `h` 行的高度 = 子高 max、且本叶子实际内容行数 < 行高时生效——补白分上下两侧：`top` 补在下、`center` 上下平摊、`bottom` 补在上（§6 fill 步骤）。
 - **`prefix` 测量**：前缀按显示宽度占列；`prefix.width = charWidth(prefix.text)`；正文可用宽 = 分配宽 − `indent` − `prefix.width`（§5 规则 3）。
+- **`suffix` 测量**：后缀占列并入总宽（`w = max(首行 overhead, 续行 overhead) + suffix.width`，挂在最右）；正文可用宽 = 分配宽 − `indent` − `prefix.width` − `suffix.width`（保证正文折行不溢出越过后缀列）。
+- **`tail` 测量**：不占测量宽（flex 填充，fill 阶段补到分配宽；measure 不因 tail 增加行数与宽度）。
 - **`wrap: false`**：不换行、单行截断加省略号；截断按显示宽度不切半个 CJK。
 
 ## 3. 内容元素映射（Box 组合示例） [spec]
@@ -340,7 +350,7 @@ fill(ctx: FrameContext, box: Box | Paragraph, rect: Rect, append: (row: FrameRow
 
 按节点类型分派：
 
-- **`Paragraph`（叶子）**：沉淀行 → 每行 `FrameSegment[]`（见下）→ 组装 `FrameRow`。折行宽度 = `rect.w − indent − prefix.width`；行内 markdown 在此解析（`parseInlineMarkdown` → 段式 `FrameSegment[]`）；`prefix` 先占列、逐行重复（引用/列表/思考）。`valign`：若自身行数 < `rect.h`，按 `top/center/bottom` 在行组前后补空白行（空白行 = 空 `FrameRow`）。`align ≠ left` 时右/中对齐按 `rect.w` 计算行内偏移。
+- **`Paragraph`（叶子）**：沉淀行 → 每行 `FrameSegment[]`（见下）→ 组装 `FrameRow`。折行宽度 = `rect.w − indent − prefix.width`（有 `suffix` 再 − `suffix.width`）；行内 markdown 在此解析（`parseInlineMarkdown` → 段式 `FrameSegment[]`）；`prefix` 先占列、逐行重复（引用/列表/思考）；`suffix` 末占列、逐行重复（如用户块右缘竖线，正文补白到 `rect.w − suffix.width` 后挂，竖线列恒定）；`tail` 在行尾把 `char` 重复补到 `rect.w`（铺满行，如 step 虚线 / turn 分隔），与正文不相干、只在文本空时整行铺满。`valign`：若自身行数 < `rect.h`，按 `top/center/bottom` 在行组前后补空白行（空白行 = 空 `FrameRow`）。`align ≠ left` 时右/中对齐按 `rect.w` 计算行内偏移。
 - **`Box(direction: v)`**：按 `rect` 纵向遍历子项，子项行接续 append；`separator` 在两子项之间产出 1 行横线（字符/颜色按 `Separator`，缺省 `╌` + border）。
 - **`Box(direction: h)`**：按 `rect` 的子项 `x`/`w` 依次 append；相邻子项间无竖线（`│` 是叶子文本自带的行端字符，见 §5 规则 8）——`h` 自身不画分隔。
 

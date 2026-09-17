@@ -28,6 +28,16 @@ export interface NodeBase {
     text: string;
     style?: FrameStyle;
   };
+  /** 段尾固定后缀（占列，正文补白后挂；每行重复，如用户块右缘竖线） */
+  suffix?: {
+    text: string;
+    style?: FrameStyle;
+  };
+  /** 行尾铺满字符（不占测量宽；fill 补到分配宽，如 step 虚线 / turn 分隔） */
+  tail?: {
+    char: string;
+    style?: FrameStyle;
+  };
   /** 底色铺满分配宽度（代码块用；行内代码只在文字上着色） */
   fillBg?: boolean;
   /** 默认 true；false = 单行截断不换行 */

@@ -39,12 +39,13 @@ function wrapParagraph(text: string, width: number, wrap: boolean): string[] {
   return wrapLine(text, width);
 }
 
-/** 首行/续行可用宽与缩进（prefix 先占列） */
+/** 首行/续行可用宽与缩进（prefix/suffix 先占列） */
 function paraWidthCtx(node: Paragraph) {
   const prefixW = node.prefix ? displayWidth(node.prefix.text) : 0;
+  const suffixW = node.suffix ? displayWidth(node.suffix.text) : 0;
   const indent = node.indent ?? 0;
   const hanging = node.hanging ?? indent;
-  return { prefixW, indent, hanging };
+  return { prefixW, suffixW, indent, hanging };
 }
 
 /** height.fixed 声明覆盖测量高（v 排布 spacer/固定行高区用） */
@@ -55,9 +56,9 @@ function applyDeclaredHeight(node: Node, m: MeasuredSize): MeasuredSize {
 
 /** 测量单个 Paragraph（返回总宽与折行行数） */
 function measureParagraph(node: Paragraph, maxW: number): MeasuredSize {
-  const { prefixW, indent, hanging } = paraWidthCtx(node);
-  const firstW = maxW - indent - prefixW; // 首行可用正文宽
-  const contW = maxW - hanging; // 续行可用正文宽
+  const { prefixW, suffixW, indent, hanging } = paraWidthCtx(node);
+  const firstW = maxW - indent - prefixW - suffixW; // 首行可用正文宽
+  const contW = maxW - hanging - suffixW; // 续行可用正文宽（suffix 逐行重复占列）
   const wrap = node.wrap !== false;
   // 首行按 firstW 折、续行按 contW 折：拆首行，其余文本按续行宽重折（悬挂缩进）
   const rows: string[] = [];
@@ -76,11 +77,11 @@ function measureParagraph(node: Paragraph, maxW: number): MeasuredSize {
   }
   // 空文本：至少 1 行（空段落占行）
   if (rows.length === 0) rows.push("");
-  // 总宽 = max(首行 overhead+首行宽, 续行 overhead(hanging)+续行最宽)
+  // 总宽 = max(首行 overhead+首行宽, 续行 overhead(hanging)+续行最宽) + suffix
   const firstTotal = indent + prefixW + displayWidth(rows[0]!);
   const contTotal =
     hanging + Math.max(...rows.slice(1).map((r) => displayWidth(r)), 0);
-  return { w: Math.max(firstTotal, contTotal), h: rows.length };
+  return { w: Math.max(firstTotal, contTotal) + suffixW, h: rows.length };
 }
 
 /** 子项声明宽度（无声明 → auto） */
