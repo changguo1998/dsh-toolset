@@ -40,6 +40,7 @@ export interface NodeBase {
   /** 行尾铺满字符（不占测量宽；fill 补到分配宽，如 step 虚线 / turn 分隔） */
   tail?: {
     char: string;
+    /** 缺省无样式（默认前景；对齐旧 turn 分隔线） */
     style?: FrameStyle;
   };
   /** 底色铺满分配宽度（代码块用；行内代码只在文字上着色） */

@@ -24,7 +24,7 @@ interface NodeBase {
   };
   tail?: {                          // 行尾铺满字符（不占测量宽；fill 补到分配宽）
     char: string;                   //   如 step 虚线 ╌ / turn 分隔 ╌
-    style?: FrameStyle;             //   缺省 border（灰）
+    style?: FrameStyle;             //   缺省无样式（默认前景；对齐旧 turn 分隔线）
   };
   fillBg?: boolean;                 // 底色铺满分配宽度（代码块用；行内代码只在文字上着色）
   wrap?: boolean;                   // 默认 true；false = 单行截断不换行
