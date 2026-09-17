@@ -4,7 +4,7 @@
 // allocate 自顶向下切矩形。不解析 markdown（fill 阶段的事），只按 displayWidth
 // 折行/截断。复用既有 wrapLine/truncateToWidth/displayWidth 宽度原语。
 
-import { wrapLine, truncateToWidth } from "../layout.ts";
+import { wrapLine, truncateToWidth } from "./primitives.ts";
 import { displayWidth } from "./markdown.ts";
 import type { Node, Box, Paragraph, Rect, Width, Height } from "./box.ts";
 
