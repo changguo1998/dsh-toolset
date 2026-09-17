@@ -26,7 +26,10 @@ import type { JobInfo, TodoItemLike } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { renderModelPicker } from "./components/ModelPicker.ts";
 import { renderHistoryPanel } from "./components/HistoryPanel.ts";
-import { renderQuestionPanel } from "./components/QuestionPrompt.ts";
+import {
+  renderQuestionPanel,
+  buildQuestionPanelBox,
+} from "./components/QuestionPrompt.ts";
 import { renderJobsPanel, statusMark } from "./components/JobsPanel.ts";
 import { renderStatusPanel } from "./components/StatusPanel.ts";
 import { renderCommandCompletion } from "./components/CommandCompletion.ts";
@@ -966,7 +969,12 @@ function buildTopRegion(
         state.themeId,
       )
     : state.question
-      ? renderQuestionPanel(state.question, activityH, contentW)
+      ? fillPanelBox(
+          buildQuestionPanelBox(state.question, activityH, contentW),
+          activityH,
+          contentW,
+          state.themeId,
+        )
       : state.picker
         ? renderModelPicker(
             {

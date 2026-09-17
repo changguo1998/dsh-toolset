@@ -306,9 +306,19 @@ function fillParagraph(
   }
   // 与旧管线一致：assistant 正文整串交给解析器（跨 \n 不预拆，
   // 与 wrapAssistantLine/wrapCodeLine 的逐字符折行行为对齐）；plain 类走 StyledText。
-  const rows: FrameSegment[][] = p.fillBg
-    ? wrapCodeLine(p.text, bodyW)
-    : wrapAssistantLine(p.text, bodyW, ctx.themeId);
+  // wrap:false（面板行等精确行长）：仅按 \n 切物理行，不软折行——
+  // 超宽整行保留（与旧 render 面板「一字符串一行」语义一致，右缘由装饰补齐）
+  // wrap:false：仅按 \n 切物理行，不软折行（面板行精确行长）
+  let rows: FrameSegment[][];
+  if (p.wrap === false) {
+    rows = p.text
+      .split("\n")
+      .map((l) => (l === "" ? [seg("")] : [seg(l)]));
+  } else if (p.fillBg) {
+    rows = wrapCodeLine(p.text, bodyW);
+  } else {
+    rows = wrapAssistantLine(p.text, bodyW, ctx.themeId);
+  }
   const content = decorateRows(
     p,
     rows,
@@ -354,7 +364,10 @@ function fillStyled(
   // 显式换行先在段内切分（每段独立折行；空行保留）
   const indent = p.indent ?? 0;
   const hanging = p.hanging ?? indent;
-  const rows: FrameSegment[][] = splitAndWrapSegments(segs, bodyW, hanging);
+  const rows: FrameSegment[][] =
+    p.wrap === false
+      ? splitPhysical(segs)
+      : splitAndWrapSegments(segs, bodyW, hanging);
   const content = decorateRows(
     p,
     rows,
@@ -364,6 +377,20 @@ function fillStyled(
     hasHeightDecl(p),
   );
   for (const row of content) append(row);
+}
+
+/** wrap:false：段按 \n 切物理行，不按列宽软折行（面板行精确行长场景） */
+function splitPhysical(segs: FrameSegment[]): FrameSegment[][] {
+  const out: FrameSegment[][] = [[]];
+  for (const s of segs) {
+    const parts = s.text.split("\n");
+    for (let i = 0; i < parts.length; i++) {
+      if (i > 0) out.push([]);
+      if (parts[i] !== "")
+        out[out.length - 1]!.push({ text: parts[i]!, style: s.style });
+    }
+  }
+  return out;
 }
 
 /** 预样式段按 \n 切物理行，再逐段显示宽度折行（首行全宽/续行减 hanging） */
