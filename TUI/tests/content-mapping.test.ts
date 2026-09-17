@@ -12,9 +12,8 @@ import assert from "node:assert/strict";
 import type { Buffer, BufferKind } from "../src/app/state.ts";
 import type { FrameStyle } from "../src/renderer/index.ts";
 import { wrapBufferLines } from "../src/app/layout.ts";
-import { buildBox } from "../src/app/layout/build-box.ts";
-import { measure, allocate } from "../src/app/layout/measure.ts";
-import { fillToList, type ContentRow } from "../src/app/layout/fill.ts";
+import { buildBox, buildContentRows } from "../src/app/layout/build-box.ts";
+import type { ContentRow } from "../src/app/layout/fill.ts";
 import { displayWidth } from "../src/app/layout/markdown.ts";
 import { rowAnsi } from "./helpers/rowText.ts";
 
@@ -67,36 +66,29 @@ function legacyRows(buffer: Buffer, width: number, gutter: number) {
   };
 }
 
-/** 新管线：buildBox → measure/allocate → fill（对话/活动分别摊平） */
+/** 新管线：统一入口 buildContentRows（buildBox → measure/allocate → fill） */
 function newRows(buffer: Buffer, width: number, gutter = 4) {
-  const built = buildBox(buffer, { themeId, gutter }); // buildBox width 无关
-  const fillPane = (
-    pane: typeof built.dialogue,
-    hgt: number,
-  ): { text: string; ansi: string; kind?: string }[] => {
-    const st = measure(pane, { maxW: width });
-    const rects = allocate(st, { x: 0, y: 0, w: width, h: hgt });
-    return fillToList(
-      { themeId, viewportWidth: width },
-      pane,
-      { x: 0, y: 0, w: width, h: hgt },
-      rects,
-      built.meta,
-    ).map((r: ContentRow) => {
-      const own = displayWidth(rowTextOf(r));
-      const tail = width - own;
-      const padded =
-        tail > 0 ? [...r.segments, { text: " ".repeat(tail) }] : r.segments;
-      return {
-        text: padded.map((s) => s.text).join(""),
-        ansi: rowAnsi({ segments: padded }, themeId),
-        kind: r.kind,
-      };
-    });
+  const { dialogue, activity } = buildContentRows(
+    buffer,
+    { themeId, gutter },
+    width,
+  );
+  const normRow = (
+    r: ContentRow,
+  ): { text: string; ansi: string; kind?: string } => {
+    const own = displayWidth(rowTextOf(r));
+    const tail = width - own;
+    const padded =
+      tail > 0 ? [...r.segments, { text: " ".repeat(tail) }] : r.segments;
+    return {
+      text: padded.map((s) => s.text).join(""),
+      ansi: rowAnsi({ segments: padded }, themeId),
+      kind: r.kind,
+    };
   };
   return {
-    dialogue: fillPane(built.dialogue, 400),
-    activity: fillPane(built.activity, 400),
+    dialogue: dialogue.map(normRow),
+    activity: activity.map(normRow),
   };
 }
 

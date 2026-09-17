@@ -21,6 +21,8 @@ import {
   renderToolText,
   renderToolNameLine,
 } from "./content-rules.ts";
+import { measure, allocate } from "./measure.ts";
+import { fillToList, type ContentRow } from "./fill.ts";
 
 /** 行元数据（fill 传播到 ContentRow） */
 export interface RowMeta {
@@ -405,4 +407,43 @@ function spaceUserAssistant(nodes: Node[], meta: Map<Node, RowMeta>): Node[] {
     out.push(n);
   }
   return out;
+}
+
+/** 内容行分组（排版层对外输出；上层做视口裁剪/滚动） */
+export interface ContentPanes {
+  dialogue: ContentRow[];
+  activity: ContentRow[];
+}
+
+/**
+ * 排版层统一入口（共享适配器）：buffer → 对话/活动两 pane 摊平行。
+ *
+ * 管线 = buildBox（宽度无关结构分类）→ measure/allocate（宽先于高）→
+ * fill（折行/装饰，元数据经 metadata 传播）。高度取极大值摊平（不补白行），
+ * 行数裁剪/滚动由消费方（buildTopRegion / userInputJump）负责；cutover 时
+ * 调用点只换这里（legacy wrapBufferLines 曾承担同一职责）。
+ */
+export function buildContentRows(
+  buffer: Buffer,
+  opts: BuildBoxOptions,
+  width: number,
+): ContentPanes {
+  const built = buildBox(buffer, opts);
+  const w = Math.max(1, width);
+  const rect = { x: 0, y: 0, w, h: 1_000_000 };
+  const fillPane = (pane: Box): ContentRow[] => {
+    const st = measure(pane, { maxW: w });
+    const rects = allocate(st, rect);
+    return fillToList(
+      { themeId: opts.themeId, viewportWidth: w },
+      pane,
+      rect,
+      rects,
+      built.metadata,
+    );
+  };
+  return {
+    dialogue: fillPane(built.panes.dialogue),
+    activity: fillPane(built.panes.activity),
+  };
 }
