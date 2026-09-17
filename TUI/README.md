@@ -12,7 +12,7 @@
 | `AUDIT-colors.md` / `NOTICE-LEVELS.md` | 参考 | 颜色审计 / notice 级别约定 |
 | `COMMANDS.md` | 参考 | 命令面清单（本地 + 宿主注册）+ 对比其他 agent 的扩展建议 |
 | `COMMANDS-SPEC.md` | spec | 命令扩展规格（纯 TUI 侧 7 项，已过 API 合同门）：落点/降级/共享面板与接线点/API 核实表 + 逐条规格 + 未纳入索引 |
-| `COMMANDS-TASKS.md` | task | 命令扩展实施清单：批次 0 合同门（已完成）+ 四批实现、验收命令、提交协议与待决清单 |
+| `COMMANDS-TASKS.md` | task | 命令扩展实施清单：批次 0 合同门与批次 1（`/stats`、`/rename`）已完成 + 余下三批实现、验收命令、提交协议与待决清单 |
 
 DSH（DeepSeek Harness）进程内集成的终端 UI 插件。复用 DSH 核心服务（会话、Agent 驱动、审批链等），提供 Web UI / CLI 之外的第三种交互方式，由自研极简渲染层驱动（不依赖 Ink / Solid-TUI / node-pty，运行时唯一依赖 `chalk`）。
 
@@ -153,6 +153,8 @@ npm run watch # tsc --watch 常驻：源码变更自动编译到 dist/（仍需�
   - `/preset [预设名]` — agent 预设目录：无参从 `ctx.agentPresets` 读目录并打开**状态选项面板**（空格预选、Enter 提交 `selectAgentPreset` 后关闭）；带参经 `selectAgentPreset`（`recompose` 写路径）切换当前会话预设，宿主未挂载时提示不可用（**当前默认 profile 未装配 `dsh-agent-presets`，/preset 提示不可用；接口已按 rc.2 核验，装配该服务的环境即生效**）
   - `/jobs` — 后台任务面板（只读列表 + Enter 取消）：adapter 订阅 `ctx.jobs.onJobsChanged` 增量刷新 + 打开时全量拉取；↑/↓ 选择、`Enter` 取消、`Esc` 关闭；状态栏 `jobs N` 徽标计运行中任务，宿主未挂载 jobs 服务时提示不可用
   - `/init` — 初始化项目 `AGENTS.md`：检查当前目录（会话 cwd，回退进程 cwd）下是否已存在 `AGENTS.md`；已存在则提示并直接结束（不发送任何消息），缺失则以一条初始化指令（`INIT_PROMPT`）注入当前会话，由模型阅读目录内容、总结后生成 `AGENTS.md`（本地回显用户行 `/init`）
+  - `/stats`（别名 `/usage` `/context`） — 显示**最近一次模型调用**的 token 用量（非会话累计）：info 三行——分解（输入/输出/缓存读）、上下文 `input+cacheRead`（占窗口百分比；`contextWindow` 缺失或为 0 时只显绝对量、不除零）、缓存命中率 `cacheRead/(input+cacheRead)`（分母为 0 显 `n/a`）；本回合尚未发生模型调用时提示暂无数据。读 `state.usage`，零新服务、不改 adapter
+  - `/rename <标题>` — 重命名当前会话标题：经 `sessionTitle.rename(live Session, title)`（`ctx.sessionTitle`）写宿主，成功提示「已重命名为「\<标题>」」；无参 → 用法提示，标题为空/含换行本地拒绝（不发服务调用），宿主未挂载标题服务 → 提示不可用；标题栏由既有 `session/title` 事件链路刷新（不手工改 state）
   - `/model [provider/]model` — 会话内切换模型（不落盘）：无参打开**模型选择面板**（三列 provider/model/effort 同屏，初始焦点在 model 列，←/→ 换列、空格选中、Enter 提交、Esc 取消；effort 列初始高亮 = 当前显式等级，未显式选择时按 provider 默认等级）；带参直接切换（`provider/model` 或跨 provider 唯一的 model id）
   - `/provider`、`/effort`（`/thinking` 同义） — 无需参数打开同一个模型选择面板，并预先把焦点列放到 provider / effort 列；带参提示 usage（不做隐式切换）
 - **宿主自带命令（dsh-base 默认装配，转发即用）**：`/compact`（`dsh-command-compact`）、`/feedback` `/record`（`dsh-command-feedback`）、`/goal`（`dsh-command-goal`）、`/permission`（`dsh-permission-presets`）、`/plan`（`dsh-plan-mode`）、`/export`（`dsh-session-log-export`）——均经 `ctx.commands.register` 注册（其中 `/goal` `/permission` 本地有路由：无参走提示/面板，带参形态转发宿主），其余命令 TUI 无本地路由、走 registry 转发；完整命令面与扩展建议见 `COMMANDS.md`，可实现级规格见 `COMMANDS-SPEC.md`。
