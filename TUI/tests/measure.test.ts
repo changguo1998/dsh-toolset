@@ -371,14 +371,43 @@ test("h 过度约束：fixed + auto + fill 按 fill→auto→fixed 让路", () =
 });
 
 test("spacer 类型契约：空/双轴、h 传 separator 均在编译期拒绝", () => {
-  // @ts-expect-error spacer 必须至少给一个轴
-  const bad1 = spacer({});
-  void bad1;
-  // @ts-expect-error width/height 互斥
-  const bad2 = spacer({ width: { mode: "fill" }, height: { mode: "fill" } });
-  void bad2;
-  // @ts-expect-error h 排布不接受 separator（仅 v）
-  const bad3 = h([], { separator: { char: "-" } });
-  void bad3;
+  // 非法构造放在 if(false) 死代码内：仅做编译期拒绝验证、永不执行
+  if (false) {
+    // @ts-expect-error spacer 必须至少给一个轴
+    const bad1 = spacer({});
+    // @ts-expect-error width/height 互斥
+    const bad2 = spacer({ width: { mode: "fill" }, height: { mode: "fill" } });
+    // @ts-expect-error h 排布不接受 separator（仅 v）
+    const bad3 = h([], { separator: { char: "-" } });
+    void bad1;
+    void bad2;
+    void bad3;
+  }
   assert.ok(spacer({ width: { mode: "fill" } }).kind === "text");
+});
+
+// ---- advisor 第三轮：优先级契约暴露测试 ----
+
+test("ratio 0.8 + auto min:4，宽 10 → ratio 6、auto 4（min 从 fill 不足处保底）", () => {
+  const root = h([
+    text("a", { width: { mode: "ratio", value: 0.8 } }),
+    text("bbbbb", { width: { mode: "auto", min: 4 } }),
+  ]);
+  const st = measure(root, { maxW: 10 });
+  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 1 });
+  // ratio 0.8×10=8，auto 自然 5 → 需求 13>10：auto 让到 min4、ratio 保 6
+  assert.equal(rectOf(rects, "a").w, 6);
+  assert.equal(rectOf(rects, "bbbbb").w, 4);
+});
+
+test("ratio 0.8 + fill min:4，宽 10 → ratio 6、fill 4（fill 让但 min 保）", () => {
+  const root = h([
+    text("a", { width: { mode: "ratio", value: 0.8 } }),
+    text("b", { width: { mode: "fill", min: 4 } }),
+  ]);
+  const st = measure(root, { maxW: 10 });
+  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 1 });
+  // ratio 8、fill 吃 2 → 不足 10；ratio 先让到 6（fill min4 保底）
+  assert.equal(rectOf(rects, "a").w, 6);
+  assert.equal(rectOf(rects, "b").w, 4);
 });
