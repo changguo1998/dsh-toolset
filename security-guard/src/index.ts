@@ -136,6 +136,38 @@ interface ResolvedConfig {
   };
 }
 
+/** 一次判定的审计记录（recent() 返回，新在前）。 */
+export interface GuardRecord {
+  /** 被检查的工具名。 */
+  toolName: string;
+  /** 判定结果：放行 / 拦截。 */
+  verdict: "allow" | "deny";
+  /** deny 时的完整回执（含原因 + 放行方式）。 */
+  reason?: string;
+  /** 判定时刻（epoch 毫秒）。 */
+  time: number;
+}
+
+/** 当前策略/规则快照（policy() 返回，供 TUI /guard 展示）。 */
+export interface PolicySnapshot {
+  enabled: boolean;
+  commandBlacklist: {
+    enabled: boolean;
+    /** 规则 id + 人话原因（不含正则/谓词实现细节）。 */
+    rules: readonly { id: string; reason: string }[];
+    /** 放行正则源（按配置顺序）。 */
+    allowPatterns: readonly string[];
+  };
+  sensitiveFiles: {
+    enabled: boolean;
+    rules: readonly { id: string; reason: string }[];
+    allowedPaths: readonly { id: string; reason: string }[];
+  };
+}
+
+/** 记录缓冲上限（有界，超出丢弃最旧）。 */
+const MAX_RECORDS = 200;
+
 function asStringRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object"
     ? (value as Record<string, unknown>)
@@ -216,6 +248,7 @@ export function resolveGuardConfig(
 /** 核心引擎：纯判定，不做任何宿主 I/O（可独立单测）。 */
 export class GuardEngine {
   #cfg: ResolvedConfig;
+  #records: GuardRecord[] = [];
 
   constructor(config: SecurityGuardConfig = {}) {
     this.#cfg = resolveGuardConfig(config);
@@ -225,8 +258,60 @@ export class GuardEngine {
    * 检查一次工具调用。
    * 返回 null = 放行；返回字符串 = deny 回执（含原因 + 放行方式）。
    * 检查顺序：命令黑名单层 → 敏感文件层（两层独立、独立放行）。
+   * 每次判定都会记入缓冲（recent() 可查），不改变判定逻辑与返回值。
    */
   inspect(toolName: string, rawArguments: unknown): string | null {
+    const receipt = this.#decide(toolName, rawArguments);
+    this.#record(toolName, receipt);
+    return receipt;
+  }
+
+  /** 最近判定记录（新→旧），返回副本，外部修改不影响内部缓冲。 */
+  recent(): readonly GuardRecord[] {
+    return [...this.#records].reverse();
+  }
+
+  /** 当前策略/规则快照（enabled、规则 id+原因、放行正则源）。 */
+  policy(): PolicySnapshot {
+    const cfg = this.#cfg;
+    return {
+      enabled: cfg.enabled,
+      commandBlacklist: {
+        enabled: cfg.commandBlacklist.enabled,
+        rules: cfg.commandBlacklist.rules.map((r) => ({
+          id: r.id,
+          reason: r.reason,
+        })),
+        allowPatterns: cfg.commandBlacklist.allowPatterns.map(
+          (re) => re.source,
+        ),
+      },
+      sensitiveFiles: {
+        enabled: cfg.sensitiveFiles.enabled,
+        rules: cfg.sensitiveFiles.rules.map((r) => ({
+          id: r.id,
+          reason: r.reason,
+        })),
+        allowedPaths: cfg.sensitiveFiles.allowedPaths.map((r) => ({
+          id: r.id,
+          reason: r.reason,
+        })),
+      },
+    };
+  }
+
+  #record(toolName: string, receipt: string | null): void {
+    this.#records.push({
+      toolName,
+      verdict: receipt === null ? "allow" : "deny",
+      ...(receipt !== null ? { reason: receipt } : {}),
+      time: Date.now(),
+    });
+    // ponytail: 单数组先进先出上限缓冲；需要按工具/时间筛选时再升级
+    if (this.#records.length > MAX_RECORDS) this.#records.shift();
+  }
+
+  #decide(toolName: string, rawArguments: unknown): string | null {
     const cfg = this.#cfg;
     if (!cfg.enabled) return null;
     const args = asStringRecord(rawArguments);
