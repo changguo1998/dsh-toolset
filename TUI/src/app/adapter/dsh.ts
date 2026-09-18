@@ -51,6 +51,7 @@ import type {
   HistoryMessage,
   SessionSurfaceView,
   TokenUsage,
+  TaskEngineTaskLike,
   GoalChangeLike,
   TodoItemLike,
   SubagentDescriptorLike,
@@ -118,6 +119,9 @@ export type {
   ScopeKeyLike,
   SettingsLike,
   SettingsDescriptorLike,
+  TaskEngineLike,
+  TaskEngineQueryLike,
+  TaskEngineTaskLike,
   CommandPanelRow,
   CommandPanelKind,
   AgentRegistryLike,
@@ -540,6 +544,41 @@ function forkErrorMessage(err: unknown): string {
         ? err.message
         : "未知错误";
   }
+}
+
+/** task 树先序展平（行归一化用；children 自左向右，与 engine.nested() 同序） */
+type FlatTask = {
+  id: string;
+  title: string;
+  status: string;
+  needDecompose: boolean;
+  depth: number;
+};
+
+function flattenTasks(tasks: readonly TaskEngineTaskLike[]): FlatTask[] {
+  const out: FlatTask[] = [];
+  const walk = (items: readonly TaskEngineTaskLike[], depth: number): void => {
+    for (const it of items) {
+      out.push({
+        id: it.id,
+        title: it.title,
+        status: it.status,
+        needDecompose: it.needDecompose,
+        depth,
+      });
+      if (it.children !== undefined) walk(it.children, depth + 1);
+    }
+  };
+  walk(tasks, 0);
+  return out;
+}
+
+/** task 树按 id 定位（先序） */
+function findTask(
+  tasks: readonly TaskEngineTaskLike[],
+  id: string,
+): FlatTask | undefined {
+  return flattenTasks(tasks).find((t) => t.id === id);
 }
 
 export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
@@ -2124,6 +2163,56 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         throw new Error(forkErrorMessage({ code: "SESSION_NOT_FOUND" }));
       }
       return { id: child.id, title: child.title };
+    },
+    /** 任务面板：经 task-engine `query()` 只读面先序展平为行（标题 + 状态）推送；未挂载 reject */
+    async refreshTasks(): Promise<void> {
+      const svc = opts.taskEngine;
+      if (!svc || typeof svc.query !== "function") {
+        throw new Error("taskEngine 未挂载（宿主无任务引擎查询面）");
+      }
+      try {
+        const snap = svc.query();
+        const rows = flattenTasks(snap.tasks).map((t) => ({
+          title: t.depth > 0 ? `${"  ".repeat(t.depth)}${t.title}` : t.title,
+          detail: `${t.status}${t.needDecompose ? " · 待拆分" : ""}`,
+          status: t.status,
+          payload: t.id,
+        }));
+        emit({
+          type: "command-panel-data",
+          kind: "task",
+          rows,
+        });
+      } catch (err) {
+        emit({
+          type: "command-panel-data",
+          kind: "task",
+          rows: [],
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    /** 任务详情（Enter）：在 query().tasks 先序中定位该 id，输出标题/状态/层级/需拆分 */
+    async taskDetail(id: string): Promise<string | undefined> {
+      const svc = opts.taskEngine;
+      const snap = svc?.query?.();
+      if (!snap) {
+        return undefined;
+      }
+      try {
+        const found = findTask(snap.tasks, id);
+        if (!found) {
+          return undefined;
+        }
+        return [
+          `任务：${found.title}`,
+          `状态：${found.status}`,
+          `id：${found.id}`,
+          `需拆分：${found.needDecompose ? "是" : "否"}`,
+        ].join("\n");
+      } catch {
+        return undefined;
+      }
     },
     async resumeTo(id) {
       if (disposed) {

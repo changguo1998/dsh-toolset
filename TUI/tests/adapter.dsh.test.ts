@@ -20,6 +20,7 @@ import {
   type SubagentsLike,
   type ToolsLike,
   type SettingsLike,
+  type TaskEngineLike,
   type DshEvent,
   type DshUserMessageLike,
   type SessionEvent,
@@ -107,11 +108,14 @@ class FakeAgent implements DshAgentLike {
 
 /** 批次 3/4：可注入宿主服务（ctx.get('subagents'|'tools'|'settings'|'sessions')）
  *  AdapterServices 是 test 私有结构面，跨批次扩展。 */
+/** 批次 3/4/A1：可注入宿主服务（ctx.get('subagents'|'tools'|'settings'|'sessions'|'taskEngine')）
+ *  AdapterServices 是 test 私有结构面，跨批次扩展。 */
 interface AdapterServices {
   subagents?: SubagentsLike;
   tools?: ToolsLike;
   settings?: SettingsLike;
   sessions?: SessionStoreLike;
+  taskEngine?: TaskEngineLike;
 }
 
 interface TestHarness {
@@ -3370,7 +3374,7 @@ function makeAgentsToolsServices(): {
   };
 }
 
-function panelRows(events: DshEvent[], kind: "agents" | "tools") {
+function panelRows(events: DshEvent[], kind: "agents" | "tools" | "task") {
   const rows = [];
   for (const e of events) {
     if (e.type === "command-panel-data" && e.kind === kind)
@@ -3557,5 +3561,103 @@ test("真实 adapter /fork：错误码映射中文文案（OPEN_TURN / SESSION_N
   );
   const call = adapter.forkCurrentSession!();
   await assert.rejects(call, /上一回合未闭合，无法分叉/);
+  unbind();
+});
+
+// ---------- A1：/task 的真实 adapter 接线契约 ----------
+// 断言：refreshTasks 经 query() 先序展平（嵌套缩进 + status + payload=id）；详情按 id 定位；
+// 服务缺失 → reject。
+
+test("真实 adapter /task：refreshTasks 归一化（嵌套缩进/状态/payload）", async () => {
+  const snap = {
+    tasks: [
+      {
+        id: "root",
+        parentId: null,
+        order: 0,
+        title: "根任务",
+        status: "active",
+        needDecompose: false,
+        children: [
+          {
+            id: "leaf",
+            parentId: "root",
+            order: 0,
+            title: "子任务",
+            status: "todo",
+            needDecompose: true,
+          },
+        ],
+      },
+    ],
+    frameStack: ["root"],
+    activeCount: 1,
+    isComplete: false,
+  };
+  const services: AdapterServices = { taskEngine: { query: () => snap } };
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  await adapter.refreshTasks?.();
+  const rows = panelRows(events, "task");
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0]?.title, "根任务");
+  assert.equal(rows[0]?.status, "active");
+  assert.equal(rows[0]?.payload, "root");
+  assert.ok(
+    String(rows[1]?.title).startsWith("  "),
+    "子任务缩进: " + String(rows[1]?.title),
+  );
+  assert.equal(rows[1]?.detail, "todo · 待拆分");
+  assert.equal(rows[1]?.payload, "leaf");
+  unbind();
+});
+
+test("真实 adapter /task：taskDetail 按 id 定位输出详情；未找到 → undefined", async () => {
+  const services: AdapterServices = {
+    taskEngine: {
+      query: () => ({
+        tasks: [
+          {
+            id: "root",
+            parentId: null,
+            order: 0,
+            title: "根任务",
+            status: "active",
+            needDecompose: false,
+          },
+        ],
+        frameStack: ["root"],
+        activeCount: 0,
+        isComplete: false,
+      }),
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  const text = await adapter.taskDetail?.("root");
+  assert.ok(
+    text?.includes("任务：根任务") && text?.includes("id：root"),
+    String(text),
+  );
+  assert.equal(await adapter.taskDetail?.("nope"), undefined);
+  unbind();
+});
+
+test("真实 adapter /task：taskEngine 缺失 → refreshTasks reject", async () => {
+  const { adapter, unbind } = makeAdapter();
+  const call = adapter.refreshTasks!();
+  await assert.rejects(call, /taskEngine 未挂载/);
   unbind();
 });

@@ -160,7 +160,8 @@ export type SlashRoute =
   | "agents"
   | "tools"
   | "settings"
-  | "fork";
+  | "fork"
+  | "task";
 
 /** 本地命令目录：路由与输入补全的**单一来源**（含别名，别名也是独立可补全项）。
  *  desc 供补全候选展示；/help 的逐行说明仍在 App.helpText（历史格式）。 */
@@ -227,6 +228,11 @@ export const LOCAL_COMMANDS: readonly {
     desc: "只读展示配置（ns：value，secret 脱敏）",
   },
   { name: "fork", route: "fork", desc: "分叉当前会话为新会话" },
+  {
+    name: "task",
+    route: "task",
+    desc: "任务面板（TaskEngine 只读：标题/状态）",
+  },
 ];
 
 /** 命令名 → 路由（模块加载时构建一次；不在目录中的名字落 registry 转发） */

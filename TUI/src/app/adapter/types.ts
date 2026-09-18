@@ -352,6 +352,11 @@ export interface DshAdapter {
   /** 分叉当前会话为新会话（`sessions.fork(activeSessionId)`，后两参省略）；
    *  错误码 5 个映射为中文文案后 reject；服务缺失 → reject（提示 sessions 未挂载） */
   forkCurrentSession?(): Promise<{ id: string; title?: string }>;
+  /** 请求刷新任务面板（经 task-engine `query()` 只读面归一化为行后推送）；
+   *  宿主未挂载 → reject（提示 taskEngine 未挂载） */
+  refreshTasks?(): Promise<void>;
+  /** 读取单个任务详情（Enter 详情；在 query().tasks 中定位）；服务缺失或未找到 → undefined */
+  taskDetail?(id: string): Promise<string | undefined>;
   /** 取消后台任务（映射 ctx.jobs.kill）；宿主缺失 → reject */
   killJob?(id: string): Promise<void>;
 }
@@ -924,7 +929,7 @@ export interface JobInfo {
 // ---------- 共享列表面板（/skills、/agents、/tools；契约见 COMMANDS-SPEC.md §0.4） ----------
 
 /** 共享列表面板 kind（批次 2 仅 skills；agents/tools 由批次 3 接入） */
-export type CommandPanelKind = "skills" | "agents" | "tools";
+export type CommandPanelKind = "skills" | "agents" | "tools" | "task";
 
 /** 共享列表面板行（kind 无关的归一化渲染输入） */
 export interface CommandPanelRow {
@@ -1032,6 +1037,30 @@ export interface SettingsLike {
   }): readonly SettingsDescriptorLike[];
 }
 
+/** task-engine 只读查询面快照（C1 前置；host `TaskEngine.query()` 返回形态的 TUI 侧宽松子集） */
+export interface TaskEngineTaskLike {
+  id: string;
+  parentId: string | null;
+  order: number;
+  title: string;
+  status: string;
+  needDecompose: boolean;
+  children?: readonly TaskEngineTaskLike[];
+}
+
+export interface TaskEngineQueryLike {
+  tasks: readonly TaskEngineTaskLike[];
+  frameStack: readonly string[];
+  activeCount: number;
+  isComplete: boolean;
+}
+
+/** ctx.get('taskEngine') 只读查询面（dsh-task-engine cordis provide；缺失时 /task 提示不可用） */
+export interface TaskEngineLike {
+  query?(): TaskEngineQueryLike;
+  frameStack?(): readonly string[];
+}
+
 /** agent 预设目录信息（rc.2 ctx.agentPresets 结构面：list + defaultId + 事件回读当前） */
 export interface AgentPresetInfo {
   /** 当前会话选中预设（agent-preset/selected 事件回读；未选中 → ""） */
@@ -1104,4 +1133,6 @@ export interface RealAdapterOptions {
   tools?: ToolsLike;
   /** ctx.get('settings') 服务（dsh-settings）；缺失时 /settings 提示不可用 */
   settings?: SettingsLike;
+  /** ctx.get('taskEngine') 只读查询面（dsh-task-engine cordis provide）；缺失时 /task 提示不可用 */
+  taskEngine?: TaskEngineLike;
 }

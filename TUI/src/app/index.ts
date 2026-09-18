@@ -1281,6 +1281,9 @@ export class App {
       case "fork":
         this.handleForkCommand();
         return;
+      case "task":
+        this.handleTaskCommand();
+        return;
       case "copy":
         this.copyLastReply();
         return;
@@ -2065,6 +2068,17 @@ export class App {
     );
   }
 
+  /** /task：共享列表面板（kind=task），经 adapter.refreshTasks 拉取任务树；
+   *  前置：task-engine 只读查询面已挂 ctx（C1 补全）。 */
+  private handleTaskCommand(): void {
+    this.openListPanel({
+      kind: "task",
+      label: "taskEngine",
+      refresh: this.deps.adapter.refreshTasks,
+      filter: "",
+    });
+  }
+
   /** 通用列表面板命令（/skills、/agents、/tools）：服务缺失 → warn 且不空开面板
    *  （面板占活动区、会盖住瞬态输出）；无参重复调用同 kind = 关闭（交互路径需先 Esc，
    *  面板态按键被吞、与 /jobs 一致）；打开时互斥关闭 history / picker / jobsPanel；
@@ -2106,12 +2120,17 @@ export class App {
    *  服务缺失/失败 → warn。面板占满活动区会遮住瞬态 notice（与 /jobs 一致），
    *  故先关面板再提示详情。 */
   private async showPanelDetail(
-    kind: "skills" | "tools",
+    kind: "skills" | "tools" | "task",
     name: string,
   ): Promise<void> {
     const adapter = this.deps.adapter;
-    const label = kind === "skills" ? "skills" : "tools";
-    const detail = kind === "skills" ? adapter.skillDetail : adapter.toolDetail;
+    const label = kind === "task" ? "taskEngine" : kind;
+    const detail =
+      kind === "skills"
+        ? adapter.skillDetail
+        : kind === "tools"
+          ? adapter.toolDetail
+          : adapter.taskDetail;
     if (!detail) {
       this.notice(`${label} 服务不可用`, "warn");
       return;
@@ -2219,6 +2238,7 @@ export class App {
       "  /tools [过滤]  工具目录面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
       "  /settings  只读展示配置（ns：value，secret 脱敏）",
       "  /fork  分叉当前会话为新会话（success 提示 + 必要时提示用 /session 查看）",
+      "  /task  任务面板（TaskEngine 只读：↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }

@@ -44,6 +44,7 @@ import {
   type SubagentsLike,
   type ToolsLike,
   type SettingsLike,
+  type TaskEngineLike,
 } from "./app/adapter/dsh.ts";
 
 /** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
@@ -356,6 +357,10 @@ export async function apply(
     // 设置服务（ctx.get('settings')，dsh-settings；缺失时 /settings 提示不可用）
     settings: (ctx as { get?: (name: string) => unknown }).get?.("settings") as
       SettingsLike | undefined,
+    // 任务引擎只读查询面（ctx.get('taskEngine')，dsh-task-engine provide；缺失时 /task 提示不可用）
+    taskEngine: (ctx as { get?: (name: string) => unknown }).get?.(
+      "taskEngine",
+    ) as TaskEngineLike | undefined,
   });
 
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）

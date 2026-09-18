@@ -78,7 +78,7 @@
 |------|----------------------|-----------|--------|
 | `/memory` | knowledge-base：`kb.search(opts)` / `touch` / `evict` / `compress` / `promote` + Memory `add`/`replace`/`remove`/`search`（均已实现；**无 list/get**） | `apply` 改为 async 后 `ctx.provide("knowledge", bundle)` | P1（本轮不纳入，SPEC §3） |
 | `/loop` | metric-loop：`start(spec)` / `tick` / `status(id)` / `stop(id)`（**无 list**，需新增） | provide `metricLoop` controller + 新增 `list()` | P1（本轮不纳入，SPEC §3） |
-| `/task` | task-engine：`snapshotText()` / `frames()` / `activeCount()` / `isComplete()`（方法均已存在） | provide 只读子集 | P2（本轮不纳入，SPEC §3） |
+| `/task` | task-engine：`query()` / `frameStack()`（C1 已实现并挂 `ctx.provide("taskEngine")`） | provide 只读子集 ✅ 已完成 | P2 ✅ A1 已实现（TUI 接线） |
 | `/contract` | goal-contract：纯函数**未从包入口导出**（`index.ts` 仅 `name`/`inject`/`apply`） | 需给该包加 re-export（属插件包改动） | P2（本轮不纳入） |
 | `/guard` | security-guard：仅 `GuardEngine.inspect()`，无策略/记录查询 | 需**新增**拦截记录缓冲 + `recent()` / `policy()` | P2（本轮不纳入，SPEC §3） |
 

@@ -16,6 +16,8 @@ import type { Acceptance, AcceptanceLevel } from "./types.ts";
 
 export const name = "@dsh-toolset/dsh-task-engine";
 export const inject = ["tools"];
+/** 只读查询面挂载声明（BACKLOG C1 补全：TUI /task 经 ctx.get('taskEngine') 接线） */
+export const provide = ["taskEngine"];
 
 export interface Config {
   /** 根任务契约（缺省提供示例根） */
@@ -183,6 +185,17 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
         warn(`工具 ${t.name} 注册失败：${String(err)}`);
       }
     }
+  }
+
+  // 只读查询面挂到 ctx（防御降级，与 metric-loop/C5 同款）：供 TUI /task 接线
+  const provideSvc = (
+    ctx as { provide?: (name: string, value: unknown) => unknown }
+  ).provide;
+  if (typeof provideSvc === "function") {
+    provideSvc("taskEngine", {
+      query: () => engine.query(),
+      frameStack: () => engine.frameStack(),
+    });
   }
 
   // cordis 生命周期：unload 时写最终快照
