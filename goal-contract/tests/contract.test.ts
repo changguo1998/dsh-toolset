@@ -10,6 +10,12 @@ import {
 } from "../src/contract.ts";
 import type { ContractClause } from "../src/types.ts";
 
+// 公开入口 re-export 验证（TUI /contract 依赖 buildObjective/parseContract）
+import {
+  buildObjective as buildObjectivePublic,
+  parseContract as parseContractPublic,
+} from "../src/index.ts";
+
 const CLAUSES: ContractClause[] = [
   { id: "c1", check: "测试全绿", level: "mechanical", command: "npm test" },
   { id: "c2", check: "代码审查通过", level: "semantic" },
@@ -83,4 +89,11 @@ test("clausesEqual: 顺序与字段敏感", () => {
     ),
     true,
   );
+});
+
+test("公开入口：index.ts re-export buildObjective/parseContract 可用", () => {
+  const embedded = buildObjectivePublic("公开入口目标", CLAUSES);
+  const parsed = parseContractPublic(embedded);
+  assert.equal(parsed.objective, "公开入口目标");
+  assert.equal(clausesEqual(CLAUSES, parsed.clauses), true);
 });
