@@ -70,6 +70,11 @@ npm run smoke:pty      # 真机冒烟（工具行/状态栏 usage）
 
 拆成多个可独立回归的提交：契约层 / Box 类型+单测 / 测量算法 / 内容映射 / 接线+FocusFrame+面板 / 测试迁移——每批独立可验证，天然支持并行。
 
+## 5b. 命令扩展（A 组接线，独立于渲染主线）
+
+> **进度**：批次 0 合同门 + 批次 1-4（`/stats` `/rename` `/skills` `/agents` `/tools` `/settings` `/fork`）完成并审计通过；A 组 A1（`/task`）A2（`/guard`）A3（`/memory`）A4（`/loop`）A5（`/contract`）已实现并提交（详见 `README.md` 命令清单与 `COMMANDS-SPEC.md` §3）。
+> 命令扩展属独立演进面，与本节渲染管线无耦合；实施记录见 `COMMANDS-TASKS.md`。
+
 ## 6. 待决清单
 
 | # | 问题 | 备注 |

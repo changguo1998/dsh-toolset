@@ -12,7 +12,7 @@
 | `AUDIT-colors.md` / `NOTICE-LEVELS.md` | 参考 | 颜色审计 / notice 级别约定 |
 | `COMMANDS.md` | 参考 | 命令面清单（本地 + 宿主注册）+ 对比其他 agent 的扩展建议 |
 | `COMMANDS-SPEC.md` | spec | 命令扩展规格（纯 TUI 侧 7 项，已过 API 合同门）：落点/降级/共享面板与接线点/API 核实表 + 逐条规格 + 未纳入索引 |
-| `COMMANDS-TASKS.md` | task | 命令扩展实施清单：批次 0 合同门与批次 1-4 四批实现全部完成，A 组 A1（`/task`）A2（`/guard`）A3（`/memory`）A4（`/loop`）已实现 + 验收命令、提交协议与待决清单 |
+| `COMMANDS-TASKS.md` | task | 命令扩展实施清单：批次 0 合同门与批次 1-4 四批实现全部完成，A 组 A1（`/task`）A2（`/guard`）A3（`/memory`）A4（`/loop`）A5（`/contract`）已实现 + 验收命令、提交协议与待决清单 |
 
 DSH（DeepSeek Harness）进程内集成的终端 UI 插件。复用 DSH 核心服务（会话、Agent 驱动、审批链等），提供 Web UI / CLI 之外的第三种交互方式，由自研极简渲染层驱动（不依赖 Ink / Solid-TUI / node-pty，运行时唯一依赖 `chalk`）。
 
@@ -164,6 +164,7 @@ npm run watch # tsc --watch 常驻：源码变更自动编译到 dist/（仍需�
   - `/guard` — 守卫面板（A2，挂 security-guard 只读查询面）：adapter 经 `ctx.guard.recent()` 归一化拦截/放行记录（工具名 + 放行/拦截·原因摘要，拦截行红、放行行绿）为共享面板行，`Enter` 经 `guardPolicy()` 查看策略快照（启用/黑名单/敏感文件/拦截计数，4 行）后关面板、`Esc` 关闭；宿主未挂载 guard 服务 → 提示不可用且不空开面板
   - `/memory` — 知识库概要（A3，挂 knowledge-base 只读查询面）：adapter 经 `ctx.knowledge.getSummary()`（同步优先，否则 `whenReady()` 等待）展示概要 notice——就绪 → info（路径 + chunk·source 计数，3 行），未就绪 → info 说明；宿主未挂载 knowledge 服务 → 提示不可用
   - `/loop` — 循环面板（A4，挂 metric-loop 只读查询面）：adapter 经 `ctx.metricLoop.list()` 归一化活动/历史循环（目标命令或 id + 状态·方向·轮数·best·更新时间，运行中黄/已停止灰）为共享面板行，`Enter` 经 `loopDetail(id)` 查看详情（id/状态·停止原因/方向·目标/轮数·窗口·best，4 行）后关面板、`Esc` 关闭；宿主未挂载 metricLoop 服务 → 提示不可用且不空开面板
+  - `/contract` — 契约概览（A5，notice 型）：取当前会话 goal 快照的 `objective`（state.goalBySession），经 `adapter.contractSummary` 解析 `Done-when:` 段为条款摘要（目标 + 条款数 + 前 3 条 check，≤4 行）以 info 展示；goal-contract 当前不 expose ctx 服务，TUI 以内置同构回读兜底（包入口直读不可行：TUI 无跨包依赖、根无 workspaces、`file:` 依赖被项目约定禁止）；无目标或解析失败 → warn
   - `/model [provider/]model` — 会话内切换模型（不落盘）：无参打开**模型选择面板**（三列 provider/model/effort 同屏，初始焦点在 model 列，←/→ 换列、空格选中、Enter 提交、Esc 取消；effort 列初始高亮 = 当前显式等级，未显式选择时按 provider 默认等级）；带参直接切换（`provider/model` 或跨 provider 唯一的 model id）
   - `/provider`、`/effort`（`/thinking` 同义） — 无需参数打开同一个模型选择面板，并预先把焦点列放到 provider / effort 列；带参提示 usage（不做隐式切换）
 - **宿主自带命令（dsh-base 默认装配，转发即用）**：`/compact`（`dsh-command-compact`）、`/feedback` `/record`（`dsh-command-feedback`）、`/goal`（`dsh-command-goal`）、`/permission`（`dsh-permission-presets`）、`/plan`（`dsh-plan-mode`）、`/export`（`dsh-session-log-export`）——均经 `ctx.commands.register` 注册（其中 `/goal` `/permission` 本地有路由：无参走提示/面板，带参形态转发宿主），其余命令 TUI 无本地路由、走 registry 转发；完整命令面与扩展建议见 `COMMANDS.md`，可实现级规格见 `COMMANDS-SPEC.md`。

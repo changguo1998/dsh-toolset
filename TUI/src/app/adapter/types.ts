@@ -368,6 +368,10 @@ export interface DshAdapter {
   refreshLoops?(): Promise<void>;
   /** 读取单个循环详情（Enter 详情；list() 中定位）；服务缺失或未找到 → undefined */
   loopDetail?(id: string): Promise<string | undefined>;
+  /** 契约回读：解析 objective 文本中的 Done-when 段为条款并归一行摘要文本
+   *  （健康/缺失判定在调用方）。目标文本来自 state.goalBySession 的
+   *  GoalSnapshot.objective；内置回读实现，不依赖跨包 import。 */
+  contractSummary?(objectiveText: string): ContractParseResult;
   /** 取消后台任务（映射 ctx.jobs.kill）；宿主缺失 → reject */
   killJob?(id: string): Promise<void>;
 }
@@ -1137,6 +1141,34 @@ export interface MetricLoopLike {
   list?(): readonly LoopSummaryLike[];
 }
 
+/** goal-contract 契约条款（`Done-when:` 段 JSON 数组元素；TUI 侧只读子集） */
+export interface ContractClauseLike {
+  id?: string;
+  check: string;
+  level?: string;
+  command?: string;
+}
+
+/** 契约回读结果（TUI 内置与 goal-contract `parseContract` 同构：定位 `Done-when:`
+ *  独占标记行，段后 JSON 解析为条款；无标记行 → 空条款。返回 error 而非 throw，
+ *  方便 notice 层直接呈现解析失败原因。） */
+export interface ContractParseResult {
+  ok: boolean;
+  /** objective 文本（去掉 Done-when 段） */
+  objective: string;
+  /** 条款（ok=false 时为 []） */
+  clauses: ContractClauseLike[];
+  /** 解析失败原因（ok=false 时存在） */
+  error?: string;
+}
+
+/** goal-contract 只读查询面（goal-contract cordis provide）。若宿主未挂载
+ *  （当前 goal-contract 无 provide），TUI 走包入口不可行的内置回读支路。 */
+export interface GoalContractServiceLike {
+  /** 契约回读：解析 objective 文本中的 Done-when 段为条款；失败 → error */
+  parseContract?(objectiveText: string): ContractParseResult;
+}
+
 /** agent 预设目录信息（rc.2 ctx.agentPresets 结构面：list + defaultId + 事件回读当前） */
 export interface AgentPresetInfo {
   /** 当前会话选中预设（agent-preset/selected 事件回读；未选中 → ""） */
@@ -1217,4 +1249,7 @@ export interface RealAdapterOptions {
   knowledge?: KnowledgeServiceLike;
   /** ctx.get('metricLoop') 只读查询面（metric-loop cordis provide）；缺失时 /loop 提示不可用 */
   metricLoop?: MetricLoopLike;
+  /** ctx.get('goalContract') 只读查询面（goal-contract cordis provide）。当前 goal-contract
+   *  不 expose 服务，TUI 以内置回读兜底（/contract）。 */
+  goalContract?: GoalContractServiceLike;
 }

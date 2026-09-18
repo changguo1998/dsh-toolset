@@ -219,6 +219,7 @@ commandPanel:
 |------|------|------|
 | `/memory` ✅ 已实现（A3） | 需插件改造 | knowledge-base 已暴露服务（模块级持有 bundle + `ctx.provide("knowledge", { getSummary, whenReady })`，C4 补全）并由 TUI `/memory` 概要展示 |
 | `/loop` ✅ 已实现（A4） | 需插件改造 | metric-loop 已新增 `list()` 并把 controller 只读面挂 ctx（C5 完成：`provide=["metricLoop"]` + `ctx.provide("metricLoop", { list, status })`），由 TUI `/loop` 面板接线 |
+| `/contract` ✅ 已实现（A5） | 需插件改造 | goal-contract 仅 re-export `buildObjective`/`parseContract`（C2），不 expose ctx 服务；包入口直读评估不可行（TUI 无跨包依赖/根无 workspaces/禁 file:）→ TUI 内置同构回读 + service 优先钩子，notice 型展示当前目标 + Done-when 条款 |
 | `/task` ✅ 已实现（A1） | 需插件改造 | task-engine 已 provide 只读查询面（`query()`/`frameStack()`，C1 补全 + ctx 挂载）并由 TUI `/task` 面板接线 |
 | `/guard` ✅ 已实现（A2） | 需插件新增能力 | security-guard 已加记录缓冲与 `recent()`/`policy()`（C3 补全 + ctx 挂载）并由 TUI `/guard` 面板接线 |
 | `/contract` | 需插件包改动 | `goal-contract` 包入口未 re-export `buildObjective` / `parseContract`（已核实：`index.ts` 仅导出 `name`/`inject`/`apply`，包无 `exports` 字段）→ 公开依赖需加 re-export；深路径 import 内部文件不稳、内联复制会漂移 |

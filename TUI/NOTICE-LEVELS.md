@@ -70,6 +70,8 @@
 | 知识库尚未就绪（说明） | handleMemoryCommand（/memory 未就绪） | info（条件不满足） |
 | metricLoop 服务不可用 | openListPanel / showPanelDetail（/loop） | warn（服务不可用） |
 | 循环详情多行（id/状态/方向·目标/轮数·窗口·best） | showPanelDetail（/loop Enter 详情） | info（主动索取的信息展示） |
+| 契约概览多行（目标 + Done-when 条款数 + 前 3 条 check） | handleContractCommand（/contract） | info（主动索取的信息展示） |
+| 当前无活动目标/契约 / 契约解析失败 | handleContractCommand（/contract） | warn（数据缺失/解析失败） |
 
 ## B. 适配层 notice 归一化（src/app/adapter/dsh.ts）
 

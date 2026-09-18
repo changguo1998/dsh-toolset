@@ -24,11 +24,14 @@ import {
   type SecurityGuardLike,
   type KnowledgeServiceLike,
   type MetricLoopLike,
+  type GoalContractServiceLike,
   type DshEvent,
   type DshUserMessageLike,
   type SessionEvent,
   type ApprovalOutcome,
   normalizeAgentStatus,
+  parseContractObjective,
+  contractSummaryText,
   installSessionModelSelection,
   type SessionModelSelectionRef,
   type ModelCatalog,
@@ -124,6 +127,7 @@ interface AdapterServices {
   guard?: SecurityGuardLike;
   knowledge?: KnowledgeServiceLike;
   metricLoop?: MetricLoopLike;
+  goalContract?: GoalContractServiceLike;
 }
 
 interface TestHarness {
@@ -4017,4 +4021,75 @@ test("真实 adapter /loop：metricLoop 缺失 → refreshLoops reject", async (
   const call = adapter.refreshLoops!();
   await assert.rejects(call, /metricLoop 未挂载/);
   unbind();
+});
+
+// ---------- A5：/contract 的真实 adapter 接线契约 ----------
+// 断言：内置回读 parseContractObjective 与 goal-contract 同构（定位 Done-when 独占行 +
+// JSON 段）；contractSummary 在 service（opts.goalContract）缺失时回落内置回读；
+// contractSummaryText 输出 4 行内摘要；service 优先时以其结果为准。
+
+test("真实 adapter /contract：内置回读 无标记 → 普通目标空条款", () => {
+  const r = parseContractObjective("完成 A5\n第二行");
+  assert.equal(r.ok, true);
+  assert.equal(r.objective, "完成 A5\n第二行");
+  assert.equal(r.clauses.length, 0);
+});
+
+test("真实 adapter /contract：内置回读 Done-when 段 → objective+条款", () => {
+  const r = parseContractObjective(
+    '目标\n\nDone-when:\n[{"check":"A","level":"mechanical"}]',
+  );
+  assert.equal(r.ok, true);
+  assert.equal(r.objective, "目标");
+  assert.equal(r.clauses.length, 1);
+  assert.equal(r.clauses[0]?.check, "A");
+  assert.equal(r.clauses[0]?.level, "mechanical");
+});
+
+test("真实 adapter /contract：内置回读 非法 JSON / 空 objective → error", () => {
+  const bad = parseContractObjective("目标\n\nDone-when:\n{not-json");
+  assert.equal(bad.ok, false);
+  assert.match(bad.error ?? "", /不是合法 JSON/);
+  const empty = parseContractObjective("Done-when:\n[]");
+  assert.equal(empty.ok, false);
+  assert.match(empty.error ?? "", /objective 为空/);
+});
+
+test("真实 adapter /contract：contractSummary service 优先 / 缺失回落内置", () => {
+  const { adapter, unbind } = makeAdapter();
+  const r = adapter.contractSummary?.("目标\n\nDone-when:\n[]");
+  assert.equal(r?.ok, true);
+  assert.equal(r?.objective, "目标");
+  unbind();
+
+  const svc: GoalContractServiceLike = {
+    parseContract: (text) => ({
+      ok: true,
+      objective: "[service] " + text.trim(),
+      clauses: [],
+    }),
+  };
+  const { adapter: a2, unbind: u2 } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { goalContract: svc },
+  );
+  const r2 = a2.contractSummary?.("x");
+  assert.equal(r2?.objective, "[service] x");
+  u2();
+});
+
+test("真实 adapter /contract：contractSummaryText 摘要 ≤4 行", () => {
+  const r = parseContractObjective(
+    '目标\n\nDone-when:\n[{"check":"check-1","level":"mechanical"},{"check":"check-2","level":"semantic"}]',
+  );
+  const text = contractSummaryText(r, 40);
+  const lines = text.split("\n");
+  assert.ok(lines.length <= 4, String(lines));
+  assert.ok(text.includes("Done-when 契约：2 条"), text);
+  const plain = parseContractObjective("无契约");
+  assert.ok(contractSummaryText(plain, 40).includes("未附契约条款"));
 });

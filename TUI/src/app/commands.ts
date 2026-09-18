@@ -164,7 +164,8 @@ export type SlashRoute =
   | "task"
   | "guard"
   | "memory"
-  | "loop";
+  | "loop"
+  | "contract";
 
 /** 本地命令目录：路由与输入补全的**单一来源**（含别名，别名也是独立可补全项）。
  *  desc 供补全候选展示；/help 的逐行说明仍在 App.helpText（历史格式）。 */
@@ -250,6 +251,11 @@ export const LOCAL_COMMANDS: readonly {
     name: "loop",
     route: "loop",
     desc: "循环面板（metric-loop：活动/历史循环，Enter 详情）",
+  },
+  {
+    name: "contract",
+    route: "contract",
+    desc: "契约概览（goal-contract：当前目标 + Done-when 条款，notice 型）",
   },
 ];
 

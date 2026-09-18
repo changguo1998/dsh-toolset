@@ -102,6 +102,17 @@ export type GoalState =
       clearedAt?: number;
     };
 
+/** P2 selector：取当前会话 set 态 goal 快照（含 objective/phase）；无/清除 → undefined */
+export function activeGoalSnapshot(
+  state: AppState,
+  sessionId: string | undefined,
+): GoalSnapshotLike | undefined {
+  if (!sessionId) return undefined;
+  const g = state.goalBySession[sessionId];
+  if (!g || g.status !== "set") return undefined;
+  return g.goal;
+}
+
 /** P2 模式徽标状态（plan 用 "on"/"off"；sandbox/permission 存原始值字符串；缺省省略） */
 export interface ModeState {
   plan?: "on" | "off";

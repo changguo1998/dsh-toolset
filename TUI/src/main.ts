@@ -48,6 +48,7 @@ import {
   type SecurityGuardLike,
   type KnowledgeServiceLike,
   type MetricLoopLike,
+  type GoalContractServiceLike,
 } from "./app/adapter/dsh.ts";
 
 /** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
@@ -375,6 +376,11 @@ export async function apply(
     metricLoop: (ctx as { get?: (name: string) => unknown }).get?.(
       "metricLoop",
     ) as MetricLoopLike | undefined,
+    // 契约只读查询面（ctx.get('goalContract')；goal-contract 当前不 expose，
+    // 缺失时 /contract 以内置同构回读兜底）
+    goalContract: (ctx as { get?: (name: string) => unknown }).get?.(
+      "goalContract",
+    ) as GoalContractServiceLike | undefined,
   });
 
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）

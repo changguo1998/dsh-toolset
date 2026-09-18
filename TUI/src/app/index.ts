@@ -28,7 +28,12 @@ import type {
   SessionSurfaceView,
 } from "./adapter/dsh.ts";
 import type { NoticeTone } from "./adapter/types.ts";
-import { parseSlashCommand, type CommandPanelKind } from "./adapter/dsh.ts";
+import {
+  parseSlashCommand,
+  type CommandPanelKind,
+  contractSummaryText,
+} from "./adapter/dsh.ts";
+import { activeGoalSnapshot } from "./state.ts";
 import {
   INIT_PROMPT,
   buildOsc52,
@@ -1296,6 +1301,9 @@ export class App {
       case "loop":
         this.handleLoopCommand();
         return;
+      case "contract":
+        this.handleContractCommand();
+        return;
       case "copy":
         this.copyLastReply();
         return;
@@ -2080,6 +2088,27 @@ export class App {
     );
   }
 
+  /** /contract：契约概览（notice 型）——取当前会话 goal 快照的 objective，经
+   *  adapter.contractSummary（goal-contract 只读面优先、内置同构回读兜底）解析
+   *  Done-when 段为条款摘要；无目标或解析失败 → warn。 */
+  private handleContractCommand(): void {
+    const snapshot = activeGoalSnapshot(
+      this.state,
+      this.state.activeSessionId ?? undefined,
+    );
+    if (!snapshot) {
+      this.notice("当前无活动目标/契约（无 goal 快照）", "warn");
+      return;
+    }
+    const summary = this.deps.adapter.contractSummary;
+    if (!summary) {
+      this.notice("契约解析不可用", "warn");
+      return;
+    }
+    const result = summary.call(this.deps.adapter, snapshot.objective);
+    this.notice(contractSummaryText(result, 40), result.ok ? "info" : "warn");
+  }
+
   /** /loop：共享列表面板（kind=loop），经 adapter.refreshLoops 拉取活动/历史循环。
    *  前置：metric-loop 只读查询面已挂 ctx（C5 完成）。 */
   private handleLoopCommand(): void {
@@ -2316,6 +2345,7 @@ export class App {
       "  /guard  守卫面板（拦截/放行记录：↑/↓ 选择、PgUp/PgDn 翻页、Enter 看策略、Esc 关闭）",
       "  /memory  知识库概要（就绪/路径/chunk·source 计数；未就绪给说明）",
       "  /loop  循环面板（活动/历史循环：↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
+      "  /contract  契约概览（当前目标 + Done-when 条款摘要；无 goal 给出提示）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }

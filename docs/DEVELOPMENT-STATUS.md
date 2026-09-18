@@ -11,7 +11,7 @@
 | task-engine | P0 | — | 完成 | 首版 + r2（第二迭代：fan-out/语义验收/step 裁决/蕴含门，0.1.5 对齐）已合入 main |
 | knowledge-base | P0 | — | 完成 | 首版 + r2（0.1.5 对齐 + 宿主联调 smoke）已合入 main |
 | goal-contract | P1 | — | 完成 | 访谈式 Done-when 契约起草 + 落 dsh-goal 事件源，33 单测；已合入 main |
-| metric-loop | P1 | — | 完成 | 指标循环引擎与计划续排，31 单测；已合入 main |
+| metric-loop | P1 | — | 完成 | 指标循环引擎与计划续排，31 单测；已合入 main | /loop 接线（A4）✅ · /contract 接线（A5）✅ |
 | output-compress | P1 | — | 完成 | 大输出摘要与切片索引入库（knowledge-base 共享库），42 单测；已合入 main |
 | fs-digest | P1-P2 | — | 完成 | outline/signatures/pruned 三模式文件摘要，41 单测；已合入 main |
 | hash-edit | P1 | — | 完成 | LINE:HASH 锚定读写编辑，43 单测；已合入 main |

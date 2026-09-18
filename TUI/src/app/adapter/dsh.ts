@@ -55,6 +55,9 @@ import type {
   CommandPanelRow,
   KnowledgeBundleSummaryLike,
   LoopSummaryLike,
+  ContractParseResult,
+  ContractClauseLike,
+  GoalContractServiceLike,
   GoalChangeLike,
   TodoItemLike,
   SubagentDescriptorLike,
@@ -132,6 +135,9 @@ export type {
   KnowledgeBundleSummaryLike,
   MetricLoopLike,
   LoopSummaryLike,
+  ContractParseResult,
+  ContractClauseLike,
+  GoalContractServiceLike,
   CommandPanelRow,
   CommandPanelKind,
   AgentRegistryLike,
@@ -589,6 +595,108 @@ function findTask(
   id: string,
 ): FlatTask | undefined {
   return flattenTasks(tasks).find((t) => t.id === id);
+}
+
+/** goal-contract 契约标记行（契约嵌入格式：<objective>\n\nDone-when:\n<JSON 条款>）。 */
+const DONE_WHEN_MARKER = "Done-when:";
+
+/** 契约回读（纯函数，与 goal-contract `parseContract` 同构）：
+ *  定位第一个独占一行的 `Done-when:` 标记 → 之前为 objective（trim）→ 之后为
+ *  JSON 条款数组（宽松校验 id/check/level/command）。无标记 → 普通目标（空条款）；
+ *  objective 为空 / JSON 非法 → error（供 notice 直接呈现）。 */
+export function parseContractObjective(text: string): ContractParseResult {
+  const lines = text.split("\n");
+  let marker = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if ((lines[i] ?? "").trim() === DONE_WHEN_MARKER) {
+      marker = i;
+      break;
+    }
+  }
+  if (marker === -1) {
+    return { ok: true, objective: text.trim(), clauses: [] };
+  }
+  const objective = lines.slice(0, marker).join("\n").trim();
+  if (objective.length === 0) {
+    return {
+      ok: false,
+      objective,
+      clauses: [],
+      error: "Done-when 段之前的 objective 为空",
+    };
+  }
+  const jsonText = lines
+    .slice(marker + 1)
+    .join("\n")
+    .trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (err) {
+    return {
+      ok: false,
+      objective,
+      clauses: [],
+      error: `Done-when 段不是合法 JSON：${String(err)}`,
+    };
+  }
+  if (!Array.isArray(parsed)) {
+    return {
+      ok: false,
+      objective,
+      clauses: [],
+      error: "Done-when 段应为条款 JSON 数组",
+    };
+  }
+  const clauses: ContractClauseLike[] = [];
+  for (const raw of parsed) {
+    if (
+      raw &&
+      typeof raw === "object" &&
+      typeof (raw as { check?: unknown }).check === "string"
+    ) {
+      const c = raw as Record<string, unknown>;
+      clauses.push({
+        id: typeof c.id === "string" ? c.id : undefined,
+        check: c.check as string,
+        level: typeof c.level === "string" ? c.level : undefined,
+        command: typeof c.command === "string" ? c.command : undefined,
+      });
+    } else {
+      return {
+        ok: false,
+        objective,
+        clauses: [],
+        error: "Done-when 段含非法条款条目",
+      };
+    }
+  }
+  return { ok: true, objective, clauses };
+}
+
+/** 契约摘要文本（notice 展示，≤4 行）：无标记 → 单行「目标」；有条款 → 目标 + 计数 + 前 3
+ *  条 check（等级标注）。行数受 notice 多行视口前 4 行约束。 */
+export function contractSummaryText(
+  r: ContractParseResult,
+  objectiveLimit: number,
+): string {
+  const obj =
+    r.objective.length > objectiveLimit
+      ? r.objective.slice(0, objectiveLimit) + "…"
+      : r.objective;
+  if (!r.ok) {
+    return `契约解析失败：${r.error ?? "未知原因"}`;
+  }
+  if (r.clauses.length === 0) {
+    return `当前目标：${obj}（未附契约条款）`;
+  }
+  const lines = [`当前目标：${obj}`, `Done-when 契约：${r.clauses.length} 条`];
+  for (const c of r.clauses.slice(0, 3)) {
+    const tag = c.level ? `[${c.level}]` : "";
+    const check = c.check.length > 48 ? c.check.slice(0, 48) + "…" : c.check;
+    lines.push(`  ${tag}${check}`);
+  }
+  return lines.join("\n");
 }
 
 /** 循环 updatedAt → HH:MM（本地时区，行 detail 展示用） */
@@ -2245,6 +2353,22 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+    },
+    /** 契约回读：优先 goal-contract 只读面（opts.goalContract.parseContract），宿主未挂载
+     *  （当前 goal-contract 不 expose 服务）→ 内置同构回读兜底（不依赖跨包 import） */
+    contractSummary(objectiveText: string): ContractParseResult {
+      const svc = opts.goalContract;
+      if (svc && typeof svc.parseContract === "function") {
+        try {
+          const r = svc.parseContract(objectiveText);
+          if (r && typeof r === "object") {
+            return r;
+          }
+        } catch {
+          // service 实现异常 → 回落内置回读
+        }
+      }
+      return parseContractObjective(objectiveText);
     },
     /** 循环详情（Enter）：list() 中定位该 id，输出 4 行（id/状态·停止原因/配置/进度·最优） */
     async loopDetail(id: string): Promise<string | undefined> {
