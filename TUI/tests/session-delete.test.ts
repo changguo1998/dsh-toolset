@@ -43,6 +43,7 @@ import type { KeyEvent, Renderer } from "../src/renderer/index.ts";
 import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
 
+import { flushApp, registerApp } from "./helpers/paintFlush.ts";
 // ---------------------------------------------------------------------------
 // 1) 文件级删除安全（真实临时目录）
 // ---------------------------------------------------------------------------
@@ -347,15 +348,26 @@ test("cleanableSessionIds：仅当前项目 + 已持久化 + 非 live + 无用�
 const ANSI_SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 class FakeRenderer implements Renderer {
-  lastRender: string[] = [];
-  renders = 0;
+  private lastRenderRows: string[] = [];
+  get lastRender(): string[] {
+    flushApp();
+    return this.lastRenderRows;
+  }
+  private renderCount = 0;
+  /** 读帧前同步冲刷合帧（生产语义：同 tick 多次标脏只画一次） */
+  get renders(): number {
+    flushApp();
+    return this.renderCount;
+  }
   closes = 0;
   size: Size = { cols: 100, rows: 30 };
   press!: (k: KeyEvent) => void;
 
   render(rows: FrameRow[]): void {
-    this.lastRender = rows.map((r) => r.segments.map((s) => s.text).join(""));
-    this.renders++;
+    this.lastRenderRows = rows.map((r) =>
+      r.segments.map((s) => s.text).join(""),
+    );
+    this.renderCount++;
   }
   refresh(rows: FrameRow[]): void {
     this.render(rows);
@@ -426,7 +438,7 @@ function makeApp(): {
 } {
   const renderer = new FakeRenderer();
   const adapter = new FakeSessionsAdapter();
-  const app = new App({
+  const app = new TrackedApp({
     renderer,
     adapter: adapter as unknown as DshAdapter,
   });
@@ -768,3 +780,11 @@ test("面板范围：当前目录不可识别 → 明确空态并提示按 Tab �
   press(renderer, "tab");
   assert.ok(frame().includes("他目录会话"), "Tab 后他目录会话可见");
 });
+
+/** 构造即登记到合帧冲刷钩子：FakeRenderer 读帧前 flushApp() 同步冲刷待绘制帧 */
+class TrackedApp extends App {
+  constructor(deps: ConstructorParameters<typeof App>[0]) {
+    super(deps);
+    registerApp(this);
+  }
+}

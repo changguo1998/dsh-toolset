@@ -14,7 +14,7 @@
 ## 1. 主线 A · 契约迁移（RenderLine → FrameRow）
 
 > **状态：已完成**（3 提交：98e9efd 契约类型 / d0d28d6 markdown 收敛 / b35826d 原子翻转；
-> 回归标准：570 单测 + 36 smoke 帧断言全绿）。以下条目为实施清单留档。
+> 回归标准：570 单测（当时值；现 844）+ 36 smoke 帧断言全绿）。以下条目为实施清单留档。
 
 **A1 渲染层**
 
@@ -88,12 +88,12 @@ npm run smoke:pty      # 真机冒烟（工具行/状态栏 usage）
 | P2#18 | /council 二次意见 | ✅ 已实现（核实 ctx.subagents.start（dsh-subagent one-shot）可达 → adapter 并行 N 个 allSettled 汇总 + 失败降级；notice 展示；宿主缺失 warn 不假启动） |
 | P2#16 | /workflows 面板（只读运行列表） | ✅ 已实现（tool-workflow 事件按 runId 维护集合 + workflowEngine 挂载探测 + 面板定时刷新；dsh-workflow 无查询面走事件面，B3 裁定衔接） |
 | C2 | /agents 面板事件驱动刷新 | ✅ 已实现（评估：宿主无 subagent 状态事件面 → 打开期间每 2s 定时 + 手动 `r` 刷新，tick 自检停表；`agentsRefreshIntervalMs` 可注入） |
-| C2 | markdown 解析器重构范围 | 块解析自 `wrapBufferLines` 抽出后，`markdown.ts`（727 行）是否整体重排——动工那一步按实际 diff 形态评估 |
-| C3 | 测试迁移策略 | 560 个测试断言由「带 ANSI 文本」改为 `segments` 结构：改动面、是否提供序列化辅助——动工那一步按实际 diff 形态评估 |
+| C2 | markdown 解析器重构范围 | ✅ 已随 Box 重构收口（`wrapBufferLines` 已删、块解析抽出完成，见 `IMPLEMENTATION.md`「渲染管线重构」；`markdown.ts` 现 723 行，未做整体重排——当年判据保留为历史） |
+| C3 | 测试迁移策略 | ✅ 已随 Box 重构收口（主线 A：断言改用 `segments` 结构 + `tests/helpers/rowText.ts` 序列化辅助；当前 TUI 844 单测） |
 | — | 活动区两态触发方式 | 状态 2（紧凑）：由「fill 按高度预算自动降级」 vs「用户显式配置」决定（`SPEC.md` §6.8） |
 | — | 表格 `minW` 取值策略 | 候选：`ceil(colW_natural / 4)`（≥ 3 列）；SPEC 只定了「有 minW 下限 + 省略号截断」机制，具体值待定（`SPEC.md` §3.2） |
 | — | 面板选中/高亮字符 | 候选沿用现状：`>` 高亮、单选 `*`、多选 `+`；SPEC 面板原语只定结构字段，字符待定（`SPEC.md` §7） |
 
 ## 7. 开放点
 
-- **内容树的测量代价**：消息多时每帧全量 measure；若成为瓶颈，再评估「内容行缓存」（现状本来也是每帧 wrap 全量，预期无回归）。
+- **内容树的测量代价**：✅ 已缓解（折行/宽度纯函数有界缓存 + `charWidth` 码点表，开关 `TUI_LAYOUT_CACHE=0`，见 `IMPLEMENTATION.md`「排版缓存与绘制合帧」；`npm --prefix TUI run bench` 三档报告 off/on 中位耗时与倍数，cold 33×、warm 72×、incremental 70× 量级）。**剩余未做**（本次明确不纳入）：区域级帧输出 memo（状态列/状态栏/footer，实测仅占单帧 1-4%）与「只测量可见窗口」的懒排版（需块高度前缀和 + 折叠/滚动边界处理）。

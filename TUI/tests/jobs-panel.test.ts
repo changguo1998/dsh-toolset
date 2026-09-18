@@ -20,19 +20,35 @@ import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
 import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
 
+import { flushApp, registerApp } from "./helpers/paintFlush.ts";
 class FakeRenderer implements Renderer {
   keys: KeyEvent[] = [];
-  renders = 0;
-  refreshes = 0;
+  private renderCount = 0;
+  /** 读帧前同步冲刷合帧（生产语义：同 tick 多次标脏只画一次） */
+  get renders(): number {
+    flushApp();
+    return this.renderCount;
+  }
+  private refreshCount = 0;
+  get refreshes(): number {
+    flushApp();
+    return this.refreshCount;
+  }
   closed = 0;
   size: Size = { cols: 80, rows: 24 };
-  lastRender: string[] = [];
+  private lastRenderRows: string[] = [];
+  get lastRender(): string[] {
+    flushApp();
+    return this.lastRenderRows;
+  }
   render(rows: FrameRow[]): void {
-    this.lastRender = rows.map((r) => r.segments.map((s) => s.text).join(""));
-    this.renders++;
+    this.lastRenderRows = rows.map((r) =>
+      r.segments.map((s) => s.text).join(""),
+    );
+    this.renderCount++;
   }
   refresh(_rows: FrameRow[]): void {
-    this.refreshes++;
+    this.refreshCount++;
   }
   onKey(cb: (k: KeyEvent) => void): void {
     this.press = cb;
@@ -175,7 +191,7 @@ test("jobs-panel reducer：open/move(clamp)/close", () => {
 test("/jobs：打开面板 → refreshJobs 拉取 → 面板渲染任务状态行", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeJobsAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   typeAndEnter(renderer, "/jobs");
   await tick();
@@ -196,7 +212,7 @@ test("/jobs：打开面板 → refreshJobs 拉取 → 面板渲染任务状态�
 test("/jobs 面板：↑/↓ 移动高亮、Enter 取消高亮任务、Esc 关闭", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeJobsAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   typeAndEnter(renderer, "/jobs");
   await tick();
@@ -218,7 +234,7 @@ test("/jobs：宿主未挂载 ctx.jobs → notice 不可用不崩溃", async () 
   const adapter = new FakeJobsAdapter();
   adapter.refreshJobs = undefined;
   adapter.killJob = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   typeAndEnter(renderer, "/jobs");
   await tick();
@@ -230,7 +246,7 @@ test("/jobs：宿主未挂载 ctx.jobs → notice 不可用不崩溃", async () 
 test("/jobs：面板关闭后迟到 jobs-changed 不重开面板、jobs 状态仍更新", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeJobsAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   // 打开面板并建立首帧快照
   typeAndEnter(renderer, "/jobs");
@@ -275,7 +291,7 @@ test("/jobs：面板关闭后迟到 jobs-changed 不重开面板、jobs 状态�
 test("/jobs：非活跃会话 jobs-changed / agent-preset 事件被丢弃（会话待机）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeJobsAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   // 建立活跃会话 s1（其余事件按活跃会话过滤；adapter 已过滤，此处 App 侧兜底断言）
   adapter.emit({ type: "session-list", sessions: [{ id: "s1", title: "" }] });
@@ -370,7 +386,7 @@ test("/jobs 面板：PgDn 整页翻动高亮（高亮恒在可见窗口）", asy
     label: `task-${i}`,
     status: "done",
   }));
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   typeAndEnter(renderer, "/jobs");
   await tick();
@@ -394,3 +410,11 @@ test("/jobs 面板：PgDn 整页翻动高亮（高亮恒在可见窗口）", asy
   assert.ok(afterPageUp.includes("task-0"), "PgUp 回退到首项: " + afterPageUp);
   app.dispose();
 });
+
+/** 构造即登记到合帧冲刷钩子：FakeRenderer 读帧前 flushApp() 同步冲刷待绘制帧 */
+class TrackedApp extends App {
+  constructor(deps: ConstructorParameters<typeof App>[0]) {
+    super(deps);
+    registerApp(this);
+  }
+}

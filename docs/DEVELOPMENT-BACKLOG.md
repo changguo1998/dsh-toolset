@@ -160,5 +160,5 @@ defender 迁移（对比文档 §3.5）。
 
 - 范围：排版层引入 Box 树（Box/Paragraph 两类节点）替代 `wrapBufferLines` 分类处理；样式序列化收口 renderer（消灭 app 侧手拼 ANSI）；面板改为 Box 生成器（场景原语）；焦点框线归 FocusFrame 全局覆写
 - 实施：接口冻结 → 契约迁移 / measure-allocate / 内容映射 / 测试序列化辅助 / 拆文件 → 接线汇合 → 全量回归；已拆多个可独立回归的提交合入 main
-- 结果：`TUI/SPEC.md` §6-§8 契约落地（measure/allocate/fill/focus-frame/panel）；7 面板组件改 `buildXxxBox` Box 生成器 + render 薄包装单一数据源；`wrapBufferLines` 已删、两处调用点走 `buildContentRows`；冻结 fixture 对照 16 场景逐帧等价；tsc 0 / 686 单测 / smoke 36 帧 / `smoke:pty` 真机冒烟全绿
+- 结果：`TUI/SPEC.md` §6-§8 契约落地（measure/allocate/fill/focus-frame/panel）；7 面板组件改 `buildXxxBox` Box 生成器 + render 薄包装单一数据源；`wrapBufferLines` 已删、两处调用点走 `buildContentRows`；冻结 fixture 对照 16 场景逐帧等价；tsc 0 / 686 单测（当时值；现 844）/ smoke 36 帧 / `smoke:pty` 真机冒烟全绿
 - 已决：C2 markdown 解析器不整体重排（定向契约收敛）；C3 测试按意图迁移（布局断言用 rowText/segments、颜色断言检查 style）；活动区两态触发方式（见 `TUI/TASKS.md` §6）

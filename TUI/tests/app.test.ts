@@ -47,24 +47,38 @@ import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
 import { rowAnsi } from "./helpers/rowText.ts";
 
+import { flushApp, registerApp } from "./helpers/paintFlush.ts";
 /** 记录行为的 fake renderer */
 class FakeRenderer implements Renderer {
   keys: KeyEvent[] = [];
-  renders = 0;
-  refreshes = 0;
+  private renderCount = 0;
+  /** 读帧前同步冲刷合帧（生产语义：同 tick 多次标脏只画一次） */
+  get renders(): number {
+    flushApp();
+    return this.renderCount;
+  }
+  private refreshCount = 0;
+  get refreshes(): number {
+    flushApp();
+    return this.refreshCount;
+  }
   closed = 0;
   size: Size = { cols: 80, rows: 24 };
   /** 最近一次 render 的文本行（含 ANSI SGR，等价旧 RenderLine.text） */
-  lastRender: string[] = [];
+  private lastRenderRows: string[] = [];
+  get lastRender(): string[] {
+    flushApp();
+    return this.lastRenderRows;
+  }
   /** 当前主题（初始 dark；/theme 切换经 setTheme 更新） */
   themeId: ThemeId = "dark";
 
   render(rows: FrameRow[]): void {
-    this.lastRender = rows.map((r) => rowAnsi(r, this.themeId));
-    this.renders++;
+    this.lastRenderRows = rows.map((r) => rowAnsi(r, this.themeId));
+    this.renderCount++;
   }
   refresh(_rows: FrameRow[]): void {
-    this.refreshes++;
+    this.refreshCount++;
   }
   onKey(cb: (k: KeyEvent) => void): void {
     this.keys.length = 0;
@@ -273,7 +287,7 @@ function histBody(line: string, cols: number): string {
 function makeApp(): { app: App; renderer: FakeRenderer; adapter: FakeAdapter } {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   return { app, renderer, adapter };
 }
@@ -381,7 +395,7 @@ function makeAppAtCwd(cwd: string): {
 } {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
-  const app = new App({
+  const app = new TrackedApp({
     renderer,
     adapter,
     status: {
@@ -1516,7 +1530,7 @@ test("App 本地 notice 按语义 tone 着色（/theme 成功 → success 绿）
 test("App initialTheme 非法值回落 dark(外部配置健壮性)", () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
-  new App({
+  new TrackedApp({
     renderer,
     adapter,
     initialTheme: "invalid" as ThemeId,
@@ -1556,7 +1570,7 @@ test("slowStream=true：thinking 渐进、正文到后剩余思考加速放完�
   withFakeTimers(() => {
     const renderer = new FakeRenderer();
     const adapter = new FakeAdapter();
-    const app = new App({
+    const app = new TrackedApp({
       renderer,
       adapter,
       slowStream: true,
@@ -1599,7 +1613,7 @@ test("慢速流：分隔线在回合开始画，turn-end 不再画", () => {
   withFakeTimers(() => {
     const renderer = new FakeRenderer();
     const adapter = new FakeAdapter();
-    const app = new App({ renderer, adapter, slowStream: true });
+    const app = new TrackedApp({ renderer, adapter, slowStream: true });
     app.start();
     // 回合 1：空历史，首条正文不画孤立线
     adapter.push({ type: "stream", sessionId: "s1", text: "第一回合正文" });
@@ -1637,7 +1651,7 @@ test("slowStream=true：turn 结束后流速回落，下一轮思考重新从初
   withFakeTimers(() => {
     const renderer = new FakeRenderer();
     const adapter = new FakeAdapter();
-    const app = new App({
+    const app = new TrackedApp({
       renderer,
       adapter,
       slowStream: true,
@@ -1682,7 +1696,7 @@ test("slowStream=true：低速(streamCharsPerSecond=10)分数累计逐字输出�
   withFakeTimers(() => {
     const renderer = new FakeRenderer();
     const adapter = new FakeAdapter();
-    const app = new App({
+    const app = new TrackedApp({
       renderer,
       adapter,
       slowStream: true,
@@ -1712,7 +1726,7 @@ test("slowStream=true：思考按码点切分，emoji/代理对不被拆断", ()
   withFakeTimers(() => {
     const renderer = new FakeRenderer();
     const adapter = new FakeAdapter();
-    const app = new App({
+    const app = new TrackedApp({
       renderer,
       adapter,
       slowStream: true,
@@ -1740,7 +1754,7 @@ test("slowStream=true：思考按码点切分，emoji/代理对不被拆断", ()
 test("slowStream 默认关闭：stream 即时显示(mock/demo 原速)", () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   adapter.push({ type: "stream", sessionId: "s1", text: "即时文本" });
   assert.ok(
@@ -2626,7 +2640,7 @@ test("启动即刷 Mode 快照：state 未建立会话时按 adapter.sessionId �
       value: "danger-full-access",
     },
   ];
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   const plain = renderer.lastRender.map((l) =>
     l.replace(/\u001b\[[0-9;]*m/g, ""),
@@ -3272,3 +3286,11 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
     `新回合 ↓ 后回到跟随最新（首行 turn2 行 12），实际: ${actFirst()}`,
   );
 });
+
+/** 构造即登记到合帧冲刷钩子：FakeRenderer 读帧前 flushApp() 同步冲刷待绘制帧 */
+class TrackedApp extends App {
+  constructor(deps: ConstructorParameters<typeof App>[0]) {
+    super(deps);
+    registerApp(this);
+  }
+}

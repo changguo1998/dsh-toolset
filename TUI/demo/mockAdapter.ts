@@ -610,119 +610,123 @@ export class MockDshAdapter implements DshAdapter {
             label: "researcher",
             mode: "one-shot",
           });
-          // B5：compaction 摘要 toast（`压缩完成：<text 首行>`；raw 携完整载荷入 state）
-          // P3 演示：workflow 运行 / command 流 / code-dispatch / hook / schedule / prune / feedback
-          this.emit({
-            type: "workflow",
-            sessionId: this.sessionId,
-            phase: "run-start",
-            label: "research-toolset",
-            runId: "wf-1",
-          });
-          this.emit({
-            type: "workflow",
-            sessionId: this.sessionId,
-            phase: "agent-start",
-            label: "reviewer",
-            detail: "1",
-            runId: "wf-1",
-          });
-          this.emit({
-            type: "workflow",
-            sessionId: this.sessionId,
-            phase: "agent-end",
-            label: "",
-            detail: "1 success",
-            runId: "wf-1",
-          });
-          this.emit({
-            type: "workflow",
-            sessionId: this.sessionId,
-            phase: "run-end",
-            label: "",
-            detail: "completed",
-            runId: "wf-1",
-          });
-          this.emit({
-            type: "command",
-            sessionId: this.sessionId,
-            phase: "run",
-            name: "goal",
-          });
-          this.emit({
-            type: "command",
-            sessionId: this.sessionId,
-            phase: "done",
-            name: "goal",
-            text: "任务不存在",
-            ok: false,
-          });
-          this.emit({
-            type: "code-dispatch",
-            sessionId: this.sessionId,
-            phase: "start",
-            name: "read",
-            summary: "src/app/index.ts",
-            ok: true,
-          });
-          this.emit({
-            type: "code-dispatch",
-            sessionId: this.sessionId,
-            phase: "settle",
-            name: "read",
-            summary: "",
-            ok: true,
-          });
-          this.emit({
-            type: "hook",
-            sessionId: this.sessionId,
-            phase: "invoked",
-            point: "PreToolUse",
-            ok: true,
-          });
-          this.emit({
-            type: "hook",
-            sessionId: this.sessionId,
-            phase: "result",
-            point: "PreToolUse",
-            decision: "allow",
-            ok: true,
-          });
-          this.emit({
-            type: "schedule",
-            sessionId: this.sessionId,
-            operation: "dispatch",
-            id: "sched-1",
-          });
-          // B5：compaction 摘要 toast（`压缩完成：<text 首行>`；raw 携完整载荷入 state）
-          this.emit({
-            type: "compaction-summary",
-            sessionId: this.sessionId,
-            text: "已压缩 182 条历史消息",
-            raw: {
-              summary: [{ type: "text", text: "已压缩 182 条历史消息" }],
-              // P1：0.1.2-rc.1 compaction/summary.shadowedRange（SessionSeq 区间，透传展示）
-              shadowedRange: { start: 40, end: 220 },
-            },
-          });
-          this.emit({
-            type: "compaction-prune",
-            sessionId: this.sessionId,
-            nodeCount: 42,
-            tokenCount: 36000,
-          });
-          this.emit({
-            type: "feedback",
-            sessionId: this.sessionId,
-            text: "很好用",
-          });
-          // 0.1.2-rc.1：assistant/message.interrupted 归一化 → muted notice
-          // （mock 无真实 adapter，直接模拟 dsh.ts 的输出结果以覆盖渲染）
-          this.emit({
-            type: "notice",
-            text: "（模型输出已中断）",
-            tone: "info",
-          });
+          // 合帧语义：App.paint() 同 tick 合并（一 tick 一帧）。同一 tick 内多次标脏只画
+          // 最后一帧，故把 B5 及之后的事件移到下一 tick 发出，保证 B4 subagent 行自成可见帧。
+          setTimeout(() => {
+            // B5：compaction 摘要 toast（`压缩完成：<text 首行>`；raw 携完整载荷入 state）
+            // P3 演示：workflow 运行 / command 流 / code-dispatch / hook / schedule / prune / feedback
+            this.emit({
+              type: "workflow",
+              sessionId: this.sessionId,
+              phase: "run-start",
+              label: "research-toolset",
+              runId: "wf-1",
+            });
+            this.emit({
+              type: "workflow",
+              sessionId: this.sessionId,
+              phase: "agent-start",
+              label: "reviewer",
+              detail: "1",
+              runId: "wf-1",
+            });
+            this.emit({
+              type: "workflow",
+              sessionId: this.sessionId,
+              phase: "agent-end",
+              label: "",
+              detail: "1 success",
+              runId: "wf-1",
+            });
+            this.emit({
+              type: "workflow",
+              sessionId: this.sessionId,
+              phase: "run-end",
+              label: "",
+              detail: "completed",
+              runId: "wf-1",
+            });
+            this.emit({
+              type: "command",
+              sessionId: this.sessionId,
+              phase: "run",
+              name: "goal",
+            });
+            this.emit({
+              type: "command",
+              sessionId: this.sessionId,
+              phase: "done",
+              name: "goal",
+              text: "任务不存在",
+              ok: false,
+            });
+            this.emit({
+              type: "code-dispatch",
+              sessionId: this.sessionId,
+              phase: "start",
+              name: "read",
+              summary: "src/app/index.ts",
+              ok: true,
+            });
+            this.emit({
+              type: "code-dispatch",
+              sessionId: this.sessionId,
+              phase: "settle",
+              name: "read",
+              summary: "",
+              ok: true,
+            });
+            this.emit({
+              type: "hook",
+              sessionId: this.sessionId,
+              phase: "invoked",
+              point: "PreToolUse",
+              ok: true,
+            });
+            this.emit({
+              type: "hook",
+              sessionId: this.sessionId,
+              phase: "result",
+              point: "PreToolUse",
+              decision: "allow",
+              ok: true,
+            });
+            this.emit({
+              type: "schedule",
+              sessionId: this.sessionId,
+              operation: "dispatch",
+              id: "sched-1",
+            });
+            // B5：compaction 摘要 toast（`压缩完成：<text 首行>`；raw 携完整载荷入 state）
+            this.emit({
+              type: "compaction-summary",
+              sessionId: this.sessionId,
+              text: "已压缩 182 条历史消息",
+              raw: {
+                summary: [{ type: "text", text: "已压缩 182 条历史消息" }],
+                // P1：0.1.2-rc.1 compaction/summary.shadowedRange（SessionSeq 区间，透传展示）
+                shadowedRange: { start: 40, end: 220 },
+              },
+            });
+            this.emit({
+              type: "compaction-prune",
+              sessionId: this.sessionId,
+              nodeCount: 42,
+              tokenCount: 36000,
+            });
+            this.emit({
+              type: "feedback",
+              sessionId: this.sessionId,
+              text: "很好用",
+            });
+            // 0.1.2-rc.1：assistant/message.interrupted 归一化 → muted notice
+            // （mock 无真实 adapter，直接模拟 dsh.ts 的输出结果以覆盖渲染）
+            this.emit({
+              type: "notice",
+              text: "（模型输出已中断）",
+              tone: "info",
+            });
+          }, 0);
         }
       }, sceneAt),
     );

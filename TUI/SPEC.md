@@ -512,6 +512,8 @@ interface Renderer {
 }
 ```
 
+- `App.paint()` 为**标脏 + 同 tick 合帧**：同一 tick 内多次标脏只调用一次 `render(rows)`；`flushPaint()` 同步冲刷、`paintNow()` 立即出帧（启动首帧与测试用）；`refresh()`（Ctrl+L）绕过 delta 立即整帧重绘。
+
 ### 11.3 排版输入（已有契约，立字据）
 
 - 输入 = `AppState`（只读）；`buildFrame(state, size): FrameRow[]` 保持**纯函数**：不改 state、无副作用、无 adapter/paint 调用（REFACTOR.md 原则）。

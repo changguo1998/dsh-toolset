@@ -162,6 +162,10 @@ export class App {
   private state: AppState;
   private unbindEvents: (() => void)[] = [];
   private disposed = false;
+  /** 待绘制脏标记：同一 tick 内多次标脏合并为一次 render（见 paint/flushPaint） */
+  private paintDirty = false;
+  /** 已排队待冲刷的合帧标志（与 paintDirty 成对；dispose 时清零使排队帧变 no-op） */
+  private paintScheduled = false;
   private statusTicker: StatusTicker | null = null;
   // 打字机队列：仅作用于 thinking(reasoning)——正文是最终保留的回复，须即时显示；
   // 思考是“输出结束会被隐藏”的瞬态内容，按 tick 逐段放出便于阅读（slowStream 开启时使用）。
@@ -252,7 +256,7 @@ export class App {
     }
     // 首帧前同步 renderer 主题（基底色/词槽位随 /theme 切换）
     this.deps.renderer.setTheme(this.state.themeId);
-    this.paint();
+    this.paintNow();
     // 拉取权限/agent 预设目录写入 state（状态列 Mode 块可选值；缺默服务则保持降级）
     this.refreshCatalogs();
     // 拉取宿主命令注册表目录（输入补全候选；服务缺失时仅本地目录）
@@ -380,6 +384,9 @@ export class App {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    // 待处理合帧作废：已排队的 microtask 见 disposed 直接返回，不再写终端
+    this.paintDirty = false;
+    this.paintScheduled = false;
     this.dropThinking();
     this.pendingStream = [];
     this.pendingTurnEnd = false;
@@ -2621,8 +2628,44 @@ export class App {
     this.deps.renderer.refresh(frame);
   }
 
+  /**
+   * 标脏 + 同 tick 合帧：同一 tick 内多次调用只产生一次 renderer.render。
+   *
+   * 事件 burst（如 assistant/attempt 展开出的逐 delta 流式事件）与定时器
+   * （状态栏 ticker / 思考打字机 / 面板刷新）都走这里：标脏后排队一个 microtask，
+   * 本 tick 内后续标脏复用同一次冲刷。microtask 仍在同一事件循环 tick 内执行，
+   * 用户可见时序不变（按键回显、审批弹窗不会跨 tick 延迟）。
+   * 需要「立即拿到帧」的路径（启动首帧、测试断言）用 paintNow()。
+   */
   private paint(): void {
     if (this.disposed) return;
+    this.paintDirty = true;
+    if (this.paintScheduled) return;
+    this.paintScheduled = true;
+    queueMicrotask(() => this.flushPaint());
+  }
+
+  /** 冲刷待绘制帧（microtask 与显式调用共用）；无脏帧时不动，绘制中再次标脏则排下一帧 */
+  flushPaint(): void {
+    this.paintScheduled = false;
+    if (this.disposed || !this.paintDirty) return;
+    this.paintDirty = false;
+    this.renderFrame();
+    if (this.paintDirty && !this.paintScheduled) {
+      this.paintScheduled = true;
+      queueMicrotask(() => this.flushPaint());
+    }
+  }
+
+  /** 同步出帧（丢弃待处理合帧，立即渲染当前状态）；供启动首帧、测试与需立即出帧的路径 */
+  paintNow(): void {
+    if (this.disposed) return;
+    this.paintDirty = false;
+    this.renderFrame();
+  }
+
+  /** 实际出帧：取当前终端尺寸 → 全量排版 → 渲染（delta 写出在渲染层） */
+  private renderFrame(): void {
     const size = this.deps.renderer.getSize();
     const frame = buildFrame(this.state, size);
     this.deps.renderer.render(frame);

@@ -5,6 +5,7 @@
 
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
 import { charWidth, displayWidth } from "./markdown.ts";
+import { createTextCache, memo, sizedKey } from "./cache.ts";
 
 // ---------------- 段构造 ----------------
 
@@ -47,7 +48,16 @@ export function truncateSegs(
  * 按显示宽度截断：超出 cols 的尾部丢弃（不切半个 CJK 字符）。
  * ANSI 转义不计宽并原样透传（不切断转义序列，避免破坏着色）。
  */
+const truncateCache = createTextCache<string>();
+
 export function truncateToWidth(text: string, cols: number): string {
+  return memo(truncateCache, sizedKey(text, cols), () =>
+    computeTruncateToWidth(text, cols),
+  );
+}
+
+/** truncateToWidth 直算路径（无缓存） */
+function computeTruncateToWidth(text: string, cols: number): string {
   if (cols <= 0) return "";
   let w = 0;
   let out = "";
@@ -69,7 +79,17 @@ export function truncateToWidth(text: string, cols: number): string {
  * 按列宽软换行：返回不超过 width 列的各行（width<=0 视为无穷）。
  * 行首字符比宽度还宽时强制放下（不丢字符）；空行不产出多余的空白行。
  */
+const wrapLineCache = createTextCache<string[]>();
+
+/** 命中缓存的字符串数组按只读消费（调用方均以展开/拼接使用，不就地改写） */
 export function wrapLine(text: string, width: number): string[] {
+  return memo(wrapLineCache, sizedKey(text, width), () =>
+    computeWrapLine(text, width),
+  );
+}
+
+/** wrapLine 直算路径（无缓存） */
+function computeWrapLine(text: string, width: number): string[] {
   if (width <= 0) return text === "" ? [""] : [text];
   const rows: string[] = [];
   let cur = "";

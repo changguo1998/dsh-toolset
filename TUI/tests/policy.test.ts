@@ -27,6 +27,7 @@ import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
 import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
 
+import { flushApp, registerApp } from "./helpers/paintFlush.ts";
 // ---------- layout：策略徽标 ----------
 
 test("renderStatusColumn: policy ask → 行列出 ask/auto（ask 生效）；never → auto 生效；缺省省略", () => {
@@ -231,17 +232,32 @@ test("approval/policy 非当前活跃会话事件丢弃", () => {
 
 class FakeRenderer implements Renderer {
   keys: KeyEvent[] = [];
-  renders = 0;
-  refreshes = 0;
+  private renderCount = 0;
+  /** 读帧前同步冲刷合帧（生产语义：同 tick 多次标脏只画一次） */
+  get renders(): number {
+    flushApp();
+    return this.renderCount;
+  }
+  private refreshCount = 0;
+  get refreshes(): number {
+    flushApp();
+    return this.refreshCount;
+  }
   closed = 0;
   size: Size = { cols: 80, rows: 24 };
-  lastRender: string[] = [];
+  private lastRenderRows: string[] = [];
+  get lastRender(): string[] {
+    flushApp();
+    return this.lastRenderRows;
+  }
   render(rows: FrameRow[]): void {
-    this.lastRender = rows.map((r) => r.segments.map((s) => s.text).join(""));
-    this.renders++;
+    this.lastRenderRows = rows.map((r) =>
+      r.segments.map((s) => s.text).join(""),
+    );
+    this.renderCount++;
   }
   refresh(_rows: FrameRow[]): void {
-    this.refreshes++;
+    this.refreshCount++;
   }
   onKey(cb: (k: KeyEvent) => void): void {
     this.press = cb;
@@ -321,7 +337,7 @@ function frames(renderer: FakeRenderer): string {
 test("/policy never：显式设置 → adapter.setApprovalPolicy('never') + notice", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakePolicyAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   typeAndEnter(renderer, "/policy never");
   await tick();
@@ -335,7 +351,7 @@ test("/policy never：显式设置 → adapter.setApprovalPolicy('never') + noti
 test("/policy 无参：打开状态选项面板——空格预选、Enter 提交并关闭", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakePolicyAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   typeAndEnter(renderer, "/policy");
   await tick();
@@ -361,7 +377,7 @@ test("/policy 无参：打开状态选项面板——空格预选、Enter 提交
 test("/policy 显式 ask 覆盖：adapter 收到 ask", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakePolicyAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   typeAndEnter(renderer, "/policy ask");
   await tick();
@@ -373,7 +389,7 @@ test("/policy：宿主未挂载 ctx.approval（adapter 缺失方法）→ notice
   const renderer = new FakeRenderer();
   const adapter = new FakePolicyAdapter();
   adapter.setApprovalPolicy = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   typeAndEnter(renderer, "/policy never");
   await tick();
@@ -387,10 +403,18 @@ test("/policy：宿主未挂载 ctx.approval（adapter 缺失方法）→ notice
 test("/policy 非法参数 → 用法提示（不调 adapter）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakePolicyAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter });
   app.start();
   typeAndEnter(renderer, "/policy wat");
   await tick();
   assert.deepEqual(adapter.policies, []);
   assert.ok(frames(renderer).includes("用法：/policy [ask|never]"));
 });
+
+/** 构造即登记到合帧冲刷钩子：FakeRenderer 读帧前 flushApp() 同步冲刷待绘制帧 */
+class TrackedApp extends App {
+  constructor(deps: ConstructorParameters<typeof App>[0]) {
+    super(deps);
+    registerApp(this);
+  }
+}

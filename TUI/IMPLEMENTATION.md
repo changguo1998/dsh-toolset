@@ -48,6 +48,25 @@
 - raw 事件由 adapter 归一化为 DshEvent → App 事件 switch → state reducer → buildFrame；`DshEvent` 为封闭联合，新增成员需同步 index.ts 穷尽登记（否则 `npm run check` 失败）。
 - **seq 守卫**（per-session 游标）：`event.seq <= lastSeq` 丢弃；间隙接受不补缺；非活跃会话丢弃。
 
+## 排版缓存与绘制合帧（性能）
+
+排版成本集中在折行/宽度计算的**逐字符工作**（`wrapLine`/`displayWidth`/`wrapInlineMarkdown` 等，`measure` 与 `fill` 两阶段都调）。优化分两层，二者互不耦合：
+
+- **折行/宽度有界缓存**（`src/app/layout/cache.ts` + `primitives.ts`/`markdown.ts`）：
+  - 缓存目标：`wrapLine`、`truncateToWidth`、`displayWidth`、`parseInlineMarkdown`、`wrapInlineMarkdown`、`wrapAssistantLine`、`wrapCodeLine`，以及 `charWidth` 的码点宽度表（`Uint8Array`，0=未算）。
+  - 键：文本 + 列宽（主题相关出口再并入 `themeId`）；命中值按**只读**使用（`fill.decorateRows` 已用 spread 复制，不就地改写缓存行）。
+  - 有界：每表 FIFO 上限 `TEXT_CACHE_LIMIT`（2048），超限淘汰最旧插入项；不引入依赖。
+  - 开关：`TUI_LAYOUT_CACHE=0`（初始值）或运行期 `setLayoutCacheEnabled(false)`；`clearLayoutCaches()` 清空全部表并重置码点宽度表。关缓存即回到优化前直算路径，用于等价断言与基准对比。
+  - 根因备注：`isZeroWidthChar` 原实现把 326 条零宽区间表声明在函数体内，**每次调用都重建并线性扫描**——这是逐字符宽度计算的主要常数因子；现提升为模块级常量 + 码点宽度表 memo。
+- **App 层 tick 内合帧**（`src/app/index.ts`）：`paint()` 只标脏并排队一个 microtask，同一 tick 内多次标脏只调用一次 `renderer.render`；`flushPaint()` 同步冲刷、`paintNow()` 立即出帧（启动首帧、测试与需即时可见路径用）；绘制期间再次标脏会补画一帧并收敛（不自旋）；`dispose()` 清掉待处理帧（已排队 microtask 变 no-op）。定时路径（状态栏 ticker / 思考打字机 / 面板刷新）与按键回显各自 tick 内仍出帧，不跨 tick 延迟。
+  - 语义提醒：同一 tick 内的**中间态**不再逐帧写终端（这正是合帧的目的）。demo mock 的复合场景因此拆成两个 tick 发出，保证 `subagent` 行等中间态能被帧断言看到。
+
+### 测试与基准
+
+- 等价回归：`tests/layout-cache.test.ts`——固定语料（markdown 分支/CJK/emoji/组合符/ANSI/零宽/非法列宽）× 主题 × 列宽，逐项断言 cache 冷/热 与 off 一致；再用固定动作序列逐步比对整帧输出（固定状态 + 增量追加）；合帧侧断言「同 tick 200 事件只画一帧」「flushPaint/paintNow」「混排只一帧」「绘制期间标脏收敛」「打字机每 tick 出帧」「dispose 丢弃待处理帧」。
+- 测试侧冲刷辅助：`tests/helpers/paintFlush.ts`（`TrackedApp` 构造即登记，`FakeRenderer` 的 `renders`/`refreshes`/`lastRender` 读前 `flushApp()`）——同步测试体读帧前先冲刷，用例写法不变。
+- 基准：`npm --prefix TUI run bench`（`bench/layout-bench.mts`，手动运行、不设阈值）——同一进程内对同一合成语料跑 cache off/on 三档（cold 每帧清缓存 / warm 同状态重复排版 / incremental 增量追尾），打印中位耗时与提速倍数。
+
 ## Mode 初始值折叠
 
 - 官方 `plan/mode`、`sandbox/mode`、`permission/preset`、`approval/policy` 均为 log-only 事件（仅切换时落盘，会话启动无初始事件）→ `DshAdapter.refreshSessionModes?(id)`（`emitSessionModeSnapshot`：从 live 内存事件或 `readSession` 折叠各事件最后一条并 emit mode/approval-policy；**不能用 readSurface**——log-only 事件被 surface fold 滤掉）；`App.start` / `resumeToSession` 成功后调用。
@@ -92,6 +111,7 @@
 - 单元：`node --test`（input 解码、layout 视口等）
 - 集成：`npm run demo`（mock 全栈）+ `npm run demo -- --smoke`（帧断言 SMOKE_PASS；无 TTY/CI 下自动合成按键驱动并自断言、失败置非零退出码）
 - 真机：`npm run smoke:pty`（真实 DSH PTY 冒烟：真实会话断言工具行与状态栏 usage）+ `TUI/scripts/verify-p0.py`（会话切换/标题/OSC52 复制，可重复执行）
+- 性能：`npm --prefix TUI run bench`（`bench/layout-bench.mts`：cold/warm/incremental 三档 cache off/on 中位耗时与倍数，报告式、不设阈值）
 - 打包：`pnpm pack` + 全新空目录 `pnpm add <tarball>` 验证 files/bundle patch；当前开发脚本使用 `npm run`
 
 ## 渲染管线重构·实现记录（FrameRow 段级契约 + Box）
@@ -105,7 +125,7 @@
 
 ### 主线 A：RenderLine → FrameRow 契约迁移（已完成）
 
-3 个独立可回归提交（行为不变：570 单测 + 36 smoke 帧断言为回归标准）：
+3 个独立可回归提交（行为不变：570 单测（当时值；现 844）+ 36 smoke 帧断言为回归标准）：
 
 - **契约类型**（98e9efd）：`theme.ts` ColorName 增 `"code"` 槽位（dark #434343 / light #E8E8E8）；
   `screen.ts` 并存新增 `FrameStyle`/`FrameSegment`/`FrameRow` + `segStyle`/`serializeFrameRow` 纯函数
@@ -135,7 +155,7 @@
 
 ### 主线 B：Box 排版模型（已完成）
 
-三波推进（`TASKS.md` §2），行为不变基线：TUI 686 单测 + 36 smoke 帧断言 + 冻结 fixture。
+三波推进（`TASKS.md` §2），行为不变基线：TUI 686 单测（当时值；现 844）+ 36 smoke 帧断言 + 冻结 fixture。
 
 - **接口冻结**（cc743d7）：`box.ts` 定义 `Box`/`Paragraph`/`NodeBase`/`Width` 类型与
   `measure/allocate` 签名；同步修订 `SPEC.md` §6 契约歧义（SizeTable.root / separator 仅纵向 Box /

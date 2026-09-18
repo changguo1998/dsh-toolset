@@ -18,6 +18,7 @@
 理由与代价：
 
 - 流式输出本质是「增量文本追加 + 偶尔整帧重绘」，human-speed 交互下整帧重绘足够。
+- **绘制节律**：`paint()` 标脏 + 同 tick 合帧（一 tick 一帧，microtask 冲刷）——事件 burst 不再逐事件重绘，定时/交互路径各自 tick 内出帧（`flushPaint()` 同步冲刷、`paintNow()` 立即出帧）。排版侧折行/宽度走有界缓存（`TUI_LAYOUT_CACHE=0` 可关）。机制与基准见 `IMPLEMENTATION.md`「排版缓存与绘制合帧」。
 - 砍掉：帧 diff、组件树、布局引擎。渲染核心约 150 行，验证可行。
 - 输入解码是隐藏大头：需手写 ANSI 转义序列解析（方向键、Home/End、Ctrl 组合、bracketed paste）。node 无 stdlib 键盘解析，这是自研 vs 用 Ink 的真正代价。
 - 针对 DSH 特定交互模式（流式输出、工具审批）优化；对渲染和输入事件拥有完全控制力。
@@ -342,7 +343,7 @@ Box 重构把 2096 行 `layout.ts` 拆为排版层若干纯函数文件（遵守
 | `layout/adapt.ts` | 折叠适配纯函数：`foldAt`/`foldDialogue`/活动区两态 | fill 阶段调用（`SPEC.md` §6） |
 | `layout/table.ts` | 表格构建器（窄终端压缩/列分隔/单元格对齐） | 产出 Box 子树（`SPEC.md` §3.2） |
 | `layout/panel.ts` | 面板场景原语 `title`/`question`/`explanation`/`options` | 便捷构造，返回 Box（§7） |
-| `layout/markdown.ts` | 保留：块识别 + 行内解析，产出 `FrameSegment[]`（渲染契约收敛） | 现 727 行，重排范围见 `TASKS.md` §6 C2 |
+| `layout/markdown.ts` | 保留：块识别 + 行内解析，产出 `FrameSegment[]`（渲染契约收敛） | 现 723 行；Box 重构已收口，整体重排未做（判据见 `TASKS.md` §6 C2） |
 | `layout/tool-line.ts` | 保留 | |
 
 **渲染层（静态归属，不新增文件）**：`renderer/screen.ts` 改收 `FrameRow[]`、新增 `segStyle` 段级序列化，delta 按**序列化文本**比较（内部不对外——相邻同 style 合并后结构 diff 不稳，序列化文本即最终上屏字节，比较它既正确又直接）；`renderer/theme.ts` 的 `ColorName` 增 `"code"` 槽位（`SPEC.md` §12 主题契约）。

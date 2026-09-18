@@ -55,7 +55,7 @@ npm run demo    # TUI 构建并运行 mock demo（无 DSH 依赖）
 npm run demo -- --smoke   # TUI 冒烟检查（帧断言 SMOKE_PASS）
 ```
 
-单个子包内直接运行各自的 `npm run check / build / test / demo`。
+单个子包内直接运行各自的 `npm run check / build / test / demo`（TUI 另有 `npm run bench` 排版性能基准、`npm run smoke:pty` 真机冒烟）。
 
 ## 接入 DSH profile 使用
 

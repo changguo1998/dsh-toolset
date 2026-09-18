@@ -8,6 +8,7 @@
     },
     "main": "dist/src/main.js",
     "scripts": {
+        "bench": "node --experimental-transform-types bench/layout-bench.mts",
         "build": "tsc -p tsconfig.json",
         "check": "tsc -p tsconfig.json --noEmit",
         "demo": "npm run build && node dist/demo/main.js",
