@@ -12,6 +12,7 @@ import { routeSlashCommand } from "../src/app/commands.ts";
 import { renderCommandListPanel } from "../src/app/components/CommandListPanel.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
 import type {
+  CommandPanelKind,
   CommandPanelRow,
   DshAdapter,
   DshEvent,
@@ -397,4 +398,18 @@ test("渲染：agents 的 running 黄、inactive/diagnostic 灰（statusMark 口
     text.some((l) => l.includes("○ diag")),
     "diagnostic 符号 ○: " + JSON.stringify(text),
   );
+});
+
+test("面板提示按 kind 区分：agents = Enter 中断，skills/tools = Enter 详情", () => {
+  const hintOf = (kind: CommandPanelKind): string =>
+    renderCommandListPanel(
+      { kind, index: 0, rows: [{ title: "x", payload: "y" }] },
+      4,
+      80,
+    )
+      .map(rowText)
+      .join("\n");
+  assert.ok(hintOf("agents").includes("Enter 中断"), hintOf("agents"));
+  assert.ok(hintOf("skills").includes("Enter 详情"), hintOf("skills"));
+  assert.ok(hintOf("tools").includes("Enter 详情"), hintOf("tools"));
 });

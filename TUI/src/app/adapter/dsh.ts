@@ -1998,14 +1998,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       try {
         const schemas = svc.schemas() ?? [];
         const needle = (filter ?? "").toLowerCase();
+        // SPEC §2.1：filter 只匹配工具名子串（描述不参与，避免描述误命中）
         const matched =
           needle === ""
             ? schemas
-            : schemas.filter((s) =>
-                `${s.name} ${s.description ?? ""}`
-                  .toLowerCase()
-                  .includes(needle),
-              );
+            : schemas.filter((s) => s.name.toLowerCase().includes(needle));
         emit({
           type: "command-panel-data",
           kind: "tools",

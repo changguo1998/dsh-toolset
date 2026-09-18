@@ -33,9 +33,12 @@ const EMPTY_TEXTS: Record<CommandPanelKind, string> = {
   tools: "（无工具）",
 };
 
-/** 共享面板按键提示（宽度不足时由首行右侧截断） */
-export const COMMAND_PANEL_HINT =
-  "↑/↓ 选择 · PgUp/PgDn 翻页 · Enter 详情 · Esc 关闭";
+/** 共享面板按键提示（宽度不足时由首行右侧截断）；Enter 行为按 kind 区分：
+ *  agents = 直接中断选中子代理，skills/tools = 查看详情。 */
+export function commandPanelHint(kind: CommandPanelKind): string {
+  const enter = kind === "agents" ? "Enter 中断" : "Enter 详情";
+  return `↑/↓ 选择 · PgUp/PgDn 翻页 · ${enter} · Esc 关闭`;
+}
 
 /**
  * 共享列表面板 Box 生成器：标题 + 计数（青）+ 按键提示（灰）头部行、
@@ -54,7 +57,7 @@ export function buildCommandListPanelBox(
   const header = `${PANEL_TITLES[panel.kind]}（${panel.rows.length}）`;
   const headerVisible = truncateToWidth(header, width);
   const hintVisible = truncateToWidth(
-    COMMAND_PANEL_HINT,
+    commandPanelHint(panel.kind),
     Math.max(0, width - displayWidth(headerVisible) - 2),
   );
   leaves.push(

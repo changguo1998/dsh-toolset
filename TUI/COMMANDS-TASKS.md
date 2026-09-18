@@ -97,7 +97,7 @@
 ### 4.1 `/agents`（前置：批次 0 第 1 项）
 
 - `types.ts` 加 `SubagentsLike { list?(); interrupt?(targetSessionId, authority) }`；`adapter/dsh.ts` 加 `refreshAgents?()` / `interruptAgent?()`。
-- 面板 kind `agents`；行含 label / mode / provider-model / 状态（`Record<string, unknown>` 宽松读取）。
+- 面板 kind `agents`；行含 label / mode / activity / hasChildren（诊断条目显示原因并灰显；`Record<string, unknown>` 宽松读取）。
 - Enter = **直接中断 + 结果 notice**（照 `/jobs` 先例）；条目无会话 id 或 `authority` 无法获得 → **该行不可中断**（灰显 + 说明 notice），不发调用。
 - **新增 notice 调用点**：`subagents 服务不可用` → warn；中断成功 → success；中断失败 → error；条目不可中断 → info。
 

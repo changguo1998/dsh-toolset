@@ -17,6 +17,8 @@ import {
   type DshRuntime,
   type DshAgentLike,
   type DshCommandLike,
+  type SubagentsLike,
+  type ToolsLike,
   type DshEvent,
   type DshUserMessageLike,
   type SessionEvent,
@@ -102,6 +104,12 @@ class FakeAgent implements DshAgentLike {
   }
 }
 
+/** 批次 3：可注入宿主服务（ctx.get('subagents') / ctx.get('tools')） */
+interface AdapterServices {
+  subagents?: SubagentsLike;
+  tools?: ToolsLike;
+}
+
 interface TestHarness {
   adapter: ReturnType<typeof createRealDshAdapter>;
   runtime: FakeRuntime;
@@ -115,12 +123,16 @@ function makeAdapter(
   agent = new FakeAgent(),
   approvalTimeoutMs = 50,
   commands?: DshCommandLike,
+  interrupt?: () => void,
+  services?: AdapterServices,
 ): TestHarness {
   const adapter = createRealAdapter(
     runtime,
     agent,
     approvalTimeoutMs,
     commands,
+    interrupt,
+    services,
   );
   const events: DshEvent[] = [];
   const unbind = adapter.onEvent((e) => events.push(e));
@@ -134,6 +146,7 @@ function createRealAdapter(
   approvalTimeoutMs = 50,
   commands?: DshCommandLike,
   interrupt?: () => void,
+  services?: AdapterServices,
 ) {
   return createRealDshAdapter({
     runtime,
@@ -142,6 +155,7 @@ function createRealAdapter(
     commands,
     approvalTimeoutMs,
     interrupt,
+    ...(services ?? {}),
   });
 }
 
@@ -3279,4 +3293,166 @@ test("会话删除：deleteSession 拒绝当前活跃与内存 live 会话；per
     else process.env.DSH_TUI_SESSION_ROOT = prevRoot;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// ---------- 批次 3：/agents 与 /tools 的真实 adapter 接线契约 ----------
+// 断言落地契约面：listChildren 收到 parentSessionId、diagnostic 行无 payload 且 status=diagnostic、
+// interrupt 的 authority = {kind:'user', parentSessionId}、schemas() 不带 scope 参数（全局视图）、
+// Enter 详情走 get(name)、filter 只匹配工具名子串。
+
+function makeAgentsToolsServices(): {
+  services: AdapterServices;
+  calls: {
+    listChildren: string[];
+    interrupts: {
+      id: string;
+      authority: { kind: "user"; parentSessionId: string };
+    }[];
+    schemasArgs: unknown[][];
+    getCalls: string[];
+  };
+} {
+  const calls = {
+    listChildren: [] as string[],
+    interrupts: [] as {
+      id: string;
+      authority: { kind: "user"; parentSessionId: string };
+    }[],
+    schemasArgs: [] as unknown[][],
+    getCalls: [] as string[],
+  };
+  return {
+    calls,
+    services: {
+      subagents: {
+        listChildren(parentSessionId: string) {
+          calls.listChildren.push(parentSessionId);
+          return Promise.resolve([
+            {
+              kind: "child",
+              id: "child-1",
+              mode: "continuable",
+              label: "scout",
+              activity: "running",
+              hasChildren: false,
+            },
+            { kind: "diagnostic", id: "child-2", reason: "corrupt" },
+          ]);
+        },
+        interrupt(
+          targetSessionId: string,
+          authority: { kind: "user"; parentSessionId: string },
+        ) {
+          calls.interrupts.push({ id: targetSessionId, authority });
+        },
+      },
+      tools: {
+        schemas(...args: unknown[]) {
+          calls.schemasArgs.push(args);
+          return [
+            { name: "read", description: "读文件" },
+            { name: "bash", description: "执行命令" },
+          ];
+        },
+        get(name: string) {
+          calls.getCalls.push(name);
+          return {
+            description: `desc-${name}`,
+            parameters: { type: "object" },
+          };
+        },
+      },
+    },
+  };
+}
+
+function panelRows(events: DshEvent[], kind: "agents" | "tools") {
+  const rows = [];
+  for (const e of events) {
+    if (e.type === "command-panel-data" && e.kind === kind)
+      rows.push(...e.rows);
+  }
+  return rows;
+}
+
+test("真实 adapter /agents：listChildren(当前会话) + diagnostic 行无 payload", async () => {
+  const { services, calls } = makeAgentsToolsServices();
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  await adapter.refreshAgents?.();
+  assert.deepEqual(calls.listChildren, ["s1"], "parentSessionId = 当前会话 id");
+  const rows = panelRows(events, "agents");
+  assert.deepEqual(rows[0], {
+    title: "scout",
+    detail: "continuable · running",
+    status: "running",
+    payload: "child-1",
+  });
+  const diag = rows[1];
+  assert.equal(diag?.title, "（诊断：corrupt）");
+  assert.equal(diag?.status, "diagnostic");
+  assert.equal(diag?.payload, undefined, "diagnostic 行无 payload → 不可中断");
+  unbind();
+});
+
+test("真实 adapter /agents：interrupt 的 authority 契约（user + parentSessionId）", async () => {
+  const { services, calls } = makeAgentsToolsServices();
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  await adapter.interruptAgent?.("child-1");
+  assert.deepEqual(calls.interrupts, [
+    { id: "child-1", authority: { kind: "user", parentSessionId: "s1" } },
+  ]);
+  unbind();
+});
+
+test("真实 adapter /tools：schemas() 不带 scope（全局视图）+ filter 只匹配工具名 + get(name) 详情", async () => {
+  const { services, calls } = makeAgentsToolsServices();
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  await adapter.refreshTools?.();
+  assert.equal(calls.schemasArgs.length, 1);
+  assert.deepEqual(calls.schemasArgs[0], [], "schemas() 省略 scope 参数");
+  assert.deepEqual(
+    panelRows(events, "tools").map((r) => r.title),
+    ["read", "bash"],
+  );
+  // SPEC §2.1：filter 只匹配工具名子串——描述命中不算
+  await adapter.refreshTools?.("执行命令");
+  assert.equal(panelRows(events, "tools").length, 2, "描述不参与过滤");
+  await adapter.refreshTools?.("BA");
+  assert.deepEqual(
+    panelRows(events, "tools")
+      .slice(2)
+      .map((r) => r.title),
+    ["bash"],
+    "名称子串匹配（大小写不敏感）",
+  );
+  const text = await adapter.toolDetail?.("read");
+  assert.deepEqual(calls.getCalls, ["read"], "详情走 tools.get(name)");
+  assert.ok(
+    text?.includes("read") &&
+      text.includes("desc-read") &&
+      text.includes("参数"),
+    "详情含名称/描述/参数: " + String(text),
+  );
+  unbind();
 });
