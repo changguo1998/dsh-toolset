@@ -50,6 +50,7 @@ import {
   type MetricLoopLike,
   type GoalContractServiceLike,
   type WorkflowEngineLike,
+  type WebSearchLike,
 } from "./app/adapter/dsh.ts";
 
 /** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
@@ -386,6 +387,9 @@ export async function apply(
     workflowEngine: (ctx as { get?: (name: string) => unknown }).get?.(
       "workflowEngine",
     ) as WorkflowEngineLike | undefined,
+    // 搜索面（ctx.get('web')，dsh-web 统一多 provider 搜索 seam；缺失时 /search 提示不可用）
+    web: (ctx as { get?: (name: string) => unknown }).get?.("web") as
+      WebSearchLike | undefined,
   });
 
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）

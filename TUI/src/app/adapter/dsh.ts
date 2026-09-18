@@ -141,6 +141,7 @@ export type {
   GoalContractServiceLike,
   WorkflowRunLike,
   WorkflowEngineLike,
+  WebSearchLike,
   CommandPanelRow,
   CommandPanelKind,
   AgentRegistryLike,
@@ -700,6 +701,15 @@ export function contractSummaryText(
     lines.push(`  ${tag}${check}`);
   }
   return lines.join("\n");
+}
+
+/** URL → host（搜索行 title 回落：无标题用域名展示；解析失败原样返回） */
+function urlHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 /** 循环 updatedAt → HH:MM（本地时区，行 detail 展示用） */
@@ -2427,6 +2437,50 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         emit({
           type: "command-panel-data",
           kind: "loop",
+          rows: [],
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    /** /search：经 ctx.web.search（统一多 provider 搜索 seam）拉取并归一化行推
+     *  command-panel-data(kind=search)。title 缺省回落 URL host（与 dsh-tool-web 一致）；
+     *  detail = url + snippet 首段、payload = url（Enter 打开详情）。宿主未挂载 web.search
+     *  → reject（调用方 warn 不空开面板）。 */
+    async search(query: string, maxResults = 10): Promise<void> {
+      const svc = opts.web;
+      if (!svc || typeof svc.search !== "function") {
+        throw new Error("web 未挂载（宿主无搜索面）");
+      }
+      try {
+        const result = await svc.search({ query, maxResults });
+        const sources = Array.isArray(result?.sources) ? result.sources : [];
+        emit({
+          type: "command-panel-data",
+          kind: "search",
+          rows: sources.map((s) => ({
+            title:
+              (typeof s.title === "string" && s.title !== "" ? s.title : "") ||
+              urlHost(s.url),
+            detail: [
+              typeof s.snippet === "string" && s.snippet !== ""
+                ? s.snippet
+                : "",
+              typeof s.publishedAt === "string" && s.publishedAt !== ""
+                ? s.publishedAt
+                : "",
+            ]
+              .filter((p) => p !== "")
+              .join(" · "),
+            payload: s.url,
+          })),
+          ...(typeof result?.content === "string" && result.content !== ""
+            ? { summary: result.content }
+            : {}),
+        });
+      } catch (err) {
+        emit({
+          type: "command-panel-data",
+          kind: "search",
           rows: [],
           error: err instanceof Error ? err.message : String(err),
         });

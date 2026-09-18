@@ -167,7 +167,8 @@ export type SlashRoute =
   | "loop"
   | "contract"
   | "workflows"
-  | "council";
+  | "council"
+  | "search";
 
 /** 本地命令目录：路由与输入补全的**单一来源**（含别名，别名也是独立可补全项）。
  *  desc 供补全候选展示；/help 的逐行说明仍在 App.helpText（历史格式）。 */
@@ -268,6 +269,11 @@ export const LOCAL_COMMANDS: readonly {
     name: "council",
     route: "council",
     desc: "二次意见（并行 N 个评审子代理对当前目标给独立意见；notice 展示）",
+  },
+  {
+    name: "search",
+    route: "search",
+    desc: "网页搜索（dsh-web 多 provider 聚合；列表展示，Enter 看来源）",
   },
 ];
 

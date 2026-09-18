@@ -75,6 +75,8 @@
 | workflowEngine 服务不可用 | openListPanel（/workflows） | warn（服务不可用） |
 | council 不可用（宿主无子代理启动面） | handleCouncilCommand（/council） | warn（服务不可用） |
 | 二次意见汇总多行（council 计数 + 每行评审意见首行） | handleCouncilCommand（/council） | info（主动索取的信息展示） |
+| web 服务不可用 / /search 缺 query | handleSearchCommand（/search） | warn（服务不可用/用法错误） |
+| 搜索结果来源 URL（Enter 查看） | showPanelDetail（/search Enter） | info（主动索取的信息展示） |
 
 ## B. 适配层 notice 归一化（src/app/adapter/dsh.ts）
 

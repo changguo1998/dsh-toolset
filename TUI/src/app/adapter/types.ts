@@ -386,6 +386,10 @@ export interface DshAdapter {
    *  给独立意见，任一失败降级保留其余；返回汇总文本（notice 展示，≤4 行）。宿主未挂载
    *  subagents.start → reject（调用方 warn 不假启动）。 */
   council?(target: string, count?: number): Promise<string>;
+  /** /search：经 ctx.web.search（统一多 provider 搜索 seam）拉取并归一化行推
+   *  command-panel-data(kind=search)（title ?? hostname(url)、detail=url、payload=url）。
+   *  宿主未挂载 web.search → reject（调用方 warn 不空开面板）。 */
+  search?(query: string, maxResults?: number): Promise<void>;
 }
 
 /** 模型目录条目（/model 列表展示用） */
@@ -957,7 +961,14 @@ export interface JobInfo {
 
 /** 共享列表面板 kind（批次 2 仅 skills；agents/tools 由批次 3 接入） */
 export type CommandPanelKind =
-  "skills" | "agents" | "tools" | "task" | "guard" | "loop" | "workflows";
+  | "skills"
+  | "agents"
+  | "tools"
+  | "task"
+  | "guard"
+  | "loop"
+  | "workflows"
+  | "search";
 
 /** 共享列表面板行（kind 无关的归一化渲染输入） */
 export interface CommandPanelRow {
@@ -1205,6 +1216,24 @@ export interface WorkflowEngineLike {
   readonly present?: true;
 }
 
+/** ctx.get('web') 宿主搜索面（dsh-web WebRuntime 结构化子集）；可注册多 provider
+ *  （DeepSeek/Exa/Perplexity 等）经统一 search 聚合——多引擎语义由 seam 承载。 */
+export interface WebSearchLike {
+  search?(
+    request: { query: string; maxResults?: number },
+    signal?: AbortSignal,
+  ): Promise<{
+    content?: string;
+    sources: readonly {
+      url: string;
+      title?: string;
+      snippet?: string;
+      publishedAt?: string;
+    }[];
+    truncated?: boolean;
+  }>;
+}
+
 /** goal-contract 契约条款（`Done-when:` 段 JSON 数组元素；TUI 侧只读子集） */
 export interface ContractClauseLike {
   id?: string;
@@ -1318,4 +1347,6 @@ export interface RealAdapterOptions {
   goalContract?: GoalContractServiceLike;
   /** ctx.get('workflowEngine') 服务（dsh-workflow）；缺失时 /workflows 提示不可用 */
   workflowEngine?: WorkflowEngineLike;
+  /** ctx.get('web') 服务（dsh-web）；缺失时 /search 提示不可用 */
+  web?: WebSearchLike;
 }

@@ -1382,6 +1382,9 @@ export class App {
       case "council":
         this.handleCouncilCommand(line);
         return;
+      case "search":
+        this.handleSearchCommand(line);
+        return;
       case "copy":
         this.copyLastReply();
         return;
@@ -2166,6 +2169,32 @@ export class App {
     );
   }
 
+  /** /search：网页搜索面板（kind=search，列表）。经 adapter.search（ctx.web 统一多
+   *  provider 搜索 seam）拉取并归一化行（title ?? host、detail=url·snippet、payload=url，
+   *  Enter 展示来源地址）；宿主未挂载 web.search → warn 不空开面板。 */
+  private handleSearchCommand(line: string): void {
+    const query = slashCommandArg(line).trim();
+    if (query === "") {
+      this.notice("usage: /search <query>", "warn");
+      return;
+    }
+    const search = this.deps.adapter.search;
+    if (!search) {
+      this.notice("web 服务不可用", "warn");
+      return;
+    }
+    this.openListPanel({
+      kind: "search",
+      label: "web",
+      refresh: (q?: string) => {
+        const fn = this.deps.adapter.search;
+        if (!fn) return Promise.reject(new Error("web 未挂载"));
+        return fn.call(this.deps.adapter, q ?? "", 10);
+      },
+      filter: query,
+    });
+  }
+
   /** /council：二次意见（notice 型）——并行拉起 N（默认 2，可带参）个评审子代理对
    *  当前对话目标各自给独立意见，adapter.council 汇总后 info 展示；宿主未暴露
    *  subagents.start → warn 不假启动。 */
@@ -2326,12 +2355,18 @@ export class App {
    *  服务缺失/失败 → warn。面板占满活动区会遮住瞬态 notice（与 /jobs 一致），
    *  故先关面板再提示详情。 */
   private async showPanelDetail(
-    kind: "skills" | "tools" | "task" | "loop",
+    kind: "skills" | "tools" | "task" | "loop" | "search",
     name: string,
   ): Promise<void> {
     const adapter = this.deps.adapter;
     const label =
       kind === "task" ? "taskEngine" : kind === "loop" ? "metricLoop" : kind;
+    if (kind === "search") {
+      // 搜索行 payload = url：Enter 展示来源地址（无详情服务调用）
+      this.apply((s) => reduceState(s, { type: "command-panel-close" }));
+      this.notice(name, "info");
+      return;
+    }
     const detail =
       kind === "skills"
         ? adapter.skillDetail
@@ -2472,6 +2507,7 @@ export class App {
       "  /contract  契约概览（当前目标 + Done-when 条款摘要；无 goal 给出提示）",
       "  /workflows  工作流运行面板（只读：↑/↓ 选择、PgUp/PgDn 翻页、Esc 关闭）",
       "  /council [N]  二次意见（并行 N 个评审子代理，对当前目标独立评审；默认 2）",
+      "  /search <query>  网页搜索（多 provider 聚合；Enter 查看来源 URL、Esc 关闭）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }

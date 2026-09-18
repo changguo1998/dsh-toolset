@@ -25,6 +25,7 @@ import {
   type KnowledgeServiceLike,
   type MetricLoopLike,
   type GoalContractServiceLike,
+  type WebSearchLike,
   type DshEvent,
   type DshUserMessageLike,
   type SessionEvent,
@@ -129,6 +130,7 @@ interface AdapterServices {
   metricLoop?: MetricLoopLike;
   goalContract?: GoalContractServiceLike;
   workflowEngine?: { present?: true };
+  web?: WebSearchLike;
 }
 
 interface TestHarness {
@@ -3393,7 +3395,7 @@ function makeAgentsToolsServices(): {
 
 function panelRows(
   events: DshEvent[],
-  kind: "agents" | "tools" | "task" | "guard" | "loop" | "workflows",
+  kind: "agents" | "tools" | "task" | "guard" | "loop" | "workflows" | "search",
 ) {
   const rows = [];
   for (const e of events) {
@@ -4296,4 +4298,63 @@ test("真实 adapter /council：部分失败降级、全部失败 → 失败文�
   const f = await a2.council!("t", 2);
   assert.ok(f.includes("均未返回意见"), f);
   u2();
+});
+
+// ---------- P2#24：/search 的真实 adapter 接线契约 ----------
+// 断言：search 经 opts.web.search（统一多 provider seam）拉取归一化行（title ?? host、
+// url·snippet）；web 缺失 → reject；sources 为空 → 推空列表不抛（App 占位）。
+
+test("真实 adapter /search：web.search 归一化行（title ?? host / payload=url）", async () => {
+  const svc: WebSearchLike = {
+    search: async (_req) => ({
+      content: "综合摘要",
+      sources: [
+        { url: "https://ex.com/a", title: "标题 A", snippet: "摘要 A" },
+        { url: "https://ex.org/b", snippet: "无标题 B" },
+      ],
+    }),
+  };
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { web: svc },
+  );
+  await adapter.search?.("rust async");
+  const rows = panelRows(events, "search");
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0]?.title, "标题 A");
+  assert.ok(
+    String(rows[0]?.detail).includes("摘要 A"),
+    String(rows[0]?.detail),
+  );
+  assert.equal(rows[0]?.payload, "https://ex.com/a");
+  assert.equal(rows[1]?.title, "ex.org", "无标题回落 host");
+  unbind();
+});
+
+test("真实 adapter /search：web 缺失 → reject（不假成功）", async () => {
+  const { adapter, unbind } = makeAdapter();
+  await assert.rejects(adapter.search!("q"), /web 未挂载/);
+  unbind();
+});
+
+test("真实 adapter /search：sources 为空 → 推空列表不抛（App 占位）；content 带 summary", async () => {
+  const svc: WebSearchLike = {
+    search: async () => ({ content: "无结果说明", sources: [] }),
+  };
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { web: svc },
+  );
+  await adapter.search?.("q");
+  const rows = panelRows(events, "search");
+  assert.equal(rows.length, 0);
+  unbind();
 });
