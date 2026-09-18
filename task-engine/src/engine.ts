@@ -78,6 +78,18 @@ export interface StopResult {
   feedback?: string;
 }
 
+/** 只读查询面快照（TUI /task 面板接线；纯读取，无副作用） */
+export interface TaskEngineSnapshot {
+  /** 嵌套任务清单（标题/状态，先序） */
+  tasks: NestedTaskItem[];
+  /** 当前帧栈（DFS 就绪池；数组末位 = 下一待处理帧） */
+  frameStack: FrameId[];
+  /** 在途（active）帧数 */
+  activeCount: number;
+  /** 是否已完成（根帧 done） */
+  isComplete: boolean;
+}
+
 export class TaskEngine {
   readonly log: LoggedPlanEvent[] = [];
   readonly config: GateConfig;
@@ -487,6 +499,21 @@ export class TaskEngine {
 
   isComplete(): boolean {
     return this.root().status === "done";
+  }
+
+  /** 当前帧栈（就绪池 DFS 栈的只读副本；数组末位 = 下一待处理帧） */
+  frameStack(): FrameId[] {
+    return [...this.pool];
+  }
+
+  /** 只读查询面快照：任务清单/当前帧栈/active 计数/是否完成（复用既有视图，零副作用） */
+  query(): TaskEngineSnapshot {
+    return {
+      tasks: this.nested(),
+      frameStack: this.frameStack(),
+      activeCount: this.activeCount(),
+      isComplete: this.isComplete(),
+    };
   }
 
   /** 事件流快照（JSON，用于恢复/审计） */

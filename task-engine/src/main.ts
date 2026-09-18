@@ -191,3 +191,6 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     void engine.writeSnapshot();
   });
 }
+
+// 只读查询面 re-export（BACKLOG C1）：供 TUI /task 等接线方从包入口消费引擎只读子集
+export { TaskEngine, type TaskEngineSnapshot } from "./engine.ts";
