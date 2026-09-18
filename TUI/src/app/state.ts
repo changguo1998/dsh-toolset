@@ -1484,6 +1484,17 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         );
         return { ...state, jobsPanel: { index } };
       }
+      case "jobs-panel-page": {
+        // PgUp/PgDn 整页移动（页高由调用方按活动区可视行数给出；与 command-panel-page 同口径）
+        const size = state.jobs.length;
+        if (size === 0 || !state.jobsPanel) return state;
+        const step = Math.max(1, action.page) * action.delta;
+        const index = Math.max(
+          0,
+          Math.min(size - 1, state.jobsPanel.index + step),
+        );
+        return { ...state, jobsPanel: { index } };
+      }
       case "jobs-panel-close":
         return { ...state, jobsPanel: null };
       case "command-panel-open":
@@ -1783,6 +1794,7 @@ export type StateAction =
   | { type: "status-panel-close" }
   | { type: "jobs-panel-open" }
   | { type: "jobs-panel-move"; focus: number; delta: number }
+  | { type: "jobs-panel-page"; delta: number; page: number }
   | { type: "jobs-panel-close" }
   | { type: "command-panel-open"; kind: CommandPanelKind }
   | { type: "command-panel-move"; delta: number }

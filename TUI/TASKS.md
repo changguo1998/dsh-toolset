@@ -79,6 +79,7 @@ npm run smoke:pty      # 真机冒烟（工具行/状态栏 usage）
 
 | # | 问题 | 备注 |
 |---|---|---|
+| C1 | /jobs 面板 PgUp/PgDn 回补 | ✅ 已实现（jobs-panel-page reducer + index 按键 + footer/helpText 同步，页高=activityH 与共享面板同口径） |
 | C2 | markdown 解析器重构范围 | 块解析自 `wrapBufferLines` 抽出后，`markdown.ts`（727 行）是否整体重排——动工那一步按实际 diff 形态评估 |
 | C3 | 测试迁移策略 | 560 个测试断言由「带 ANSI 文本」改为 `segments` 结构：改动面、是否提供序列化辅助——动工那一步按实际 diff 形态评估 |
 | — | 活动区两态触发方式 | 状态 2（紧凑）：由「fill 按高度预算自动降级」 vs「用户显式配置」决定（`SPEC.md` §6.8） |

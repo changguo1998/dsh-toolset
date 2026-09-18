@@ -4,7 +4,7 @@
 // 数据源为 ctx.jobs 快照（adapter 经 onJobsChanged 增量推送 + 打开时 refreshJobs 拉全量）：
 //   - 首行标题 + 任务计数；每任务一行：`>` 高亮标记 + 状态符号 + label（detail 作后缀）
 //   - 状态着色：running/stopping 黄、failed/error 红、cancelled 灰、其余默认
-//   - 底部按键提示行：↑/↓ 选择 · Enter 取消 · Esc 关闭
+//   - 底部按键提示行：↑/↓ 选择 · PgUp/PgDn 翻页 · Enter 取消 · Esc 关闭
 // 高亮行恒在可见窗口内（窗口随 index 平移），列表放不下时截断显示。
 // 无 ANSI 之外的着色；显示宽度截断（与 HistoryPanel 同风格）。
 
@@ -40,7 +40,7 @@ export function buildJobsPanelBox(
       ? `后台任务 (${jobs.length}，运行中 ${activeCount}）`
       : `后台任务 (${jobs.length}）`;
   const headerVisible = truncateToWidth(header, width);
-  const hintText = "↑/↓ 选择 · Enter 取消 · Esc 关闭";
+  const hintText = "↑/↓ 选择 · PgUp/PgDn 翻页 · Enter 取消 · Esc 关闭";
   const hintVisible = truncateToWidth(
     hintText,
     Math.max(0, width - displayWidth(headerVisible) - 2),

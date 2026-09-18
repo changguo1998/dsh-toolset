@@ -724,7 +724,8 @@ export class App {
       return;
     }
 
-    // /jobs 任务面板：↑/↓ 移动高亮、Enter 取消高亮任务、Esc 关闭；其余按键吞掉
+    // /jobs 任务面板：↑/↓ 移动高亮、PgUp/PgDn 整页（页高=活动区可视行数，与共享面板
+    // 同 inputPanelHeights 口径）、Enter 取消高亮任务、Esc 关闭；其余按键吞掉
     if (this.state.jobsPanel) {
       if (name === "up") {
         const focus = this.state.jobsPanel.index;
@@ -735,6 +736,16 @@ export class App {
         const focus = this.state.jobsPanel.index;
         this.apply((st) =>
           reduceState(st, { type: "jobs-panel-move", focus, delta: 1 }),
+        );
+      } else if (name === "pageup" || name === "pagedown") {
+        // 翻页页高 = 活动区可视行数（与 shared commandPanel 同一 inputPanelHeights 口径）
+        const page = inputPanelHeights(
+          this.state,
+          this.deps.renderer.getSize(),
+        ).activityH;
+        const delta = name === "pageup" ? -1 : 1;
+        this.apply((st) =>
+          reduceState(st, { type: "jobs-panel-page", delta, page }),
         );
       } else if (name === "enter") {
         const job = this.state.jobs[this.state.jobsPanel.index];
@@ -2332,7 +2343,7 @@ export class App {
       "  /provider、/effort (/thinking)  无参直达 /model 面板并定位到 provider / effort 列",
       "  /permission [预设名]  权限预设（sandbox+审批捆绑；无参列当前与可用，带参切换）",
       "  /preset [预设名]      agent 预设目录（无参列当前/可用/默认，带参切换）",
-      "  /jobs 后台任务面板（只读列表；↑/↓ 选择、Enter 取消、Esc 关闭）",
+      "  /jobs 后台任务面板（只读列表；↑/↓ 选择、PgUp/PgDn 翻页、Enter 取消、Esc 关闭）",
       "  /init    初始化 AGENTS.md（当前目录缺失时由模型阅读目录生成；已存在则提示退出）",
       "  /stats (/usage /context)  本回合 token 用量与上下文占比（最近一次模型调用）",
       "  /rename <标题>  重命名当前会话标题",

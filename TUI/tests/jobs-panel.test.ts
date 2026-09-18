@@ -264,7 +264,10 @@ test("/jobs：面板关闭后迟到 jobs-changed 不重开面板、jobs 状态�
   await tick();
   const f = frames(renderer);
   assert.ok(!f.includes("后台任务"), "迟到事件不得重开面板: " + f);
-  assert.ok(f.includes("Jobs 2/2"), "状态列 Jobs 块反映迟到快照（状态仍更新）: " + f);
+  assert.ok(
+    f.includes("Jobs 2/2"),
+    "状态列 Jobs 块反映迟到快照（状态仍更新）: " + f,
+  );
   assert.ok(!f.includes("Jobs 1/2"), "Jobs 标题应已被迟到快照覆盖: " + f);
   app.dispose();
 });
@@ -320,5 +323,74 @@ test("/jobs：非活跃会话 jobs-changed / agent-preset 事件被丢弃（会�
     f.includes("own-preset"),
     "活跃会话 preset 正常入状态列 Mode 块: " + f,
   );
+  app.dispose();
+});
+
+test("jobs-panel reducer：page（PgUp/PgDn 整页，clamp）", () => {
+  const many = Array.from({ length: 40 }, (_, i) => ({
+    id: `job-${i}`,
+    kind: "subprocess",
+    label: `task-${i}`,
+    status: "done",
+  }));
+  let s = initialState();
+  s = reduceState(s, { type: "jobs-changed", sessionId: "s1", jobs: many });
+  s = reduceState(s, { type: "jobs-panel-open" });
+  assert.deepEqual(s.jobsPanel, { index: 0 });
+  // 一页 = 8（调用方给 activityH），从 0 → 8
+  s = reduceState(s, { type: "jobs-panel-page", delta: 1, page: 8 });
+  assert.deepEqual(s.jobsPanel, { index: 8 });
+  // 再翻至 40 项上界 → clamp 到 39
+  s = reduceState(s, { type: "jobs-panel-page", delta: 1, page: 8 });
+  s = reduceState(s, { type: "jobs-panel-page", delta: 1, page: 8 });
+  s = reduceState(s, { type: "jobs-panel-page", delta: 1, page: 8 });
+  s = reduceState(s, { type: "jobs-panel-page", delta: 1, page: 8 });
+  assert.deepEqual(s.jobsPanel, { index: 39 }, "clamp 到末项");
+  // PgUp 回退一页
+  s = reduceState(s, { type: "jobs-panel-page", delta: -1, page: 8 });
+  assert.deepEqual(s.jobsPanel, { index: 31 });
+  // 空列表不崩
+  let e = initialState();
+  e = reduceState(e, {
+    type: "jobs-changed",
+    sessionId: "s1",
+    jobs: [],
+  });
+  e = reduceState(e, { type: "jobs-panel-open" });
+  e = reduceState(e, { type: "jobs-panel-page", delta: 1, page: 8 });
+  assert.deepEqual(e.jobsPanel, { index: 0 });
+});
+
+test("/jobs 面板：PgDn 整页翻动高亮（高亮恒在可见窗口）", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeJobsAdapter();
+  adapter.lastJobs = Array.from({ length: 40 }, (_, i) => ({
+    id: `job-${i}`,
+    kind: "subprocess",
+    label: `task-${i}`,
+    status: "done",
+  }));
+  const app = new App({ renderer, adapter });
+  app.start();
+  typeAndEnter(renderer, "/jobs");
+  await tick();
+  const before = frames(renderer);
+  assert.ok(before.includes("task-0"), "首屏含第一项: " + before);
+  assert.ok(!before.includes("task-8"), "首屏不含翻页后首项: " + before);
+  // PgDn 一页：高亮回到 activityH 的下一行（> task-0 == 0）
+  renderer.press({ name: "pagedown", ctrl: false, meta: false, shift: false });
+  await tick();
+  const afterPaged = frames(renderer);
+  assert.ok(afterPaged.includes("task-8"), "PgDn 后含翻页首项: " + afterPaged);
+  assert.ok(!afterPaged.includes("task-0"), "PgDn 后首项滚出: " + afterPaged);
+  assert.ok(
+    afterPaged.includes("> ✓ done task-8"),
+    "高亮在 task-8: " + afterPaged,
+  );
+  // PgUp 回退
+  renderer.press({ name: "pageup", ctrl: false, meta: false, shift: false });
+  await tick();
+  const afterPageUp = frames(renderer);
+  assert.ok(afterPageUp.includes("task-0"), "PgUp 回退到首项: " + afterPageUp);
   app.dispose();
 });

@@ -88,7 +88,7 @@ commandPanel:
 ```
 
 - 渲染：单一 `buildCommandListPanelBox(panel, height, width): Box` + `renderCommandListPanel(panel, ...)` 薄包装 `fillBoxTree`。
-- 键位：↑/↓ 移动、Enter 主操作（各 kind 自己的语义）、Esc 关闭、其余按键吞掉；长列表 kind（`tools` / `skills`）新增 PgUp/PgDn 翻页——既有 `/jobs` 面板只有 ↑/↓，本次作为共享面板的新增能力。
+- 键位：↑/↓ 移动、Enter 主操作（各 kind 自己的语义）、Esc 关闭、其余按键吞掉；长列表 kind（`tools` / `skills` / `loop`）与 `/jobs` 面板均有 PgUp/PgDn 整页翻页（页高 = 活动区可视行数，`inputPanelHeights().activityH` 统一口径；C1 为 `/jobs` 回补，与共享面板能力对齐）。
 - 行样式：首行标题（青）+ 计数，右侧按键提示（灰，`truncateToWidth` 按剩余宽截断）；行 = `> ` 高亮前缀 + 状态符号 + 主文本；符号着色沿用 `JobsPanel.statusMark` 口径（● 黄 / ✗ 红 / ○ 灰 / ✓ 默认前景）。
 - 空态：灰占位 `（无 <对象>）`，仍输出恰 `height` 行；超宽 `truncateToWidth`，不切半个 CJK。
 - 互斥：打开时关闭 `history` / `picker` / `jobsPanel` / 其他 `commandPanel`（照 `handleJobsCommand` 的切换逻辑；重复调用同 kind = 关闭）。

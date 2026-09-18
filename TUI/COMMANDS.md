@@ -19,7 +19,7 @@
 | `/policy` | 审批策略 ask/never |
 | `/permission` | 权限预设（sandbox mode + 审批策略捆绑） |
 | `/preset` | agent 预设目录 |
-| `/jobs` | 后台任务面板（Enter 取消） |
+| `/jobs` | 后台任务面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 取消、Esc 关闭） |
 | `/init` | 初始化 `AGENTS.md`（缺失时由模型阅读目录生成） |
 | `/model` | 模型选择面板（provider/model/effort 三列） |
 | `/provider` | 同面板，焦点预置 provider 列 |
