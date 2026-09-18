@@ -164,7 +164,7 @@ commandPanel:
 | 输出 | 面板（kind `agents`） |
 | 行内容 | `label · mode · activity · hasChildren`（`SubagentListEntry` 已核实字段：`id`/`activity`/`mode`/`label?`/`hasChildren`；`kind:'diagnostic'` 条目显示 `reason`） |
 | 键位 | ↑/↓ 移动、Enter 中断选中项、Esc 关闭 |
-| 破坏性动作 | **定死为「直接执行 + 结果 notice」**（照 `/jobs` 面板 Enter 取消任务的既有先例；面板内高亮即选择，不再引入二次确认，避免同一 UI 两套交互）。中断目标为条目携带的 `id`，`authority` 用 `{ kind: 'user', parentSessionId: state.activeSessionId }`；条目为 `kind:'diagnostic'`（无可中断 id）时该行不可中断（灰显 + notice 说明） |
+| 破坏性动作 | **定死为「直接执行 + 结果 notice」**（照 `/jobs` 面板 Enter 取消任务的既有先例；面板内高亮即选择，不再引入二次确认，避免同一 UI 两套交互）。中断目标为条目携带的 `id`，`authority` 用 `{ kind: 'user', parentSessionId: state.activeSessionId }`；条目为 `kind:'diagnostic'`（无可中断 id）时该行不可中断（灰显 + notice 说明）；**中断与不可中断两种 Enter 都先关面板再 notice**——面板占满活动区会遮住瞬态 notice（与 `/jobs` 一致） |
 | 降级 | 服务缺失 → warn |
 | 与 `/preset` 的区别 | `/preset` 是 `agentPresets`（持久化预设目录，可切换）；本命令是实际存在的子代理（运行中/可续接），**不能互相替代** |
 | 测试 | stub 返回 2 条 → 面板行含 label；Enter → 断言 `interrupt` 收到会话 id；条目缺 id → 不调服务并提示；缺失 → warn |
@@ -179,6 +179,7 @@ commandPanel:
 | 服务 | `tools.schemas()`（**scope 省略 = 全局视图**，返回 `ToolSchema[]`：`name`/`description`/`parameters`）、`tools.get(name)`（Enter 详情） |
 | 输出 | 面板（kind `tools`，必须支持 PgUp/PgDn——工具数量通常数十条） |
 | 行内容 | `名称 — 描述首行` |
+| 键位 | ↑/↓/PgUp/PgDn、Enter 详情（**先关面板再 notice**，同上）、Esc |
 | 降级 | 服务缺失 → warn |
 
 ### 2.2 `/rename`

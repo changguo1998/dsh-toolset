@@ -41,6 +41,8 @@ import {
   type JobsLike,
   type SessionTitleLike,
   type SkillsLike,
+  type SubagentsLike,
+  type ToolsLike,
 } from "./app/adapter/dsh.ts";
 
 /** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
@@ -343,6 +345,13 @@ export async function apply(
     // 技能目录服务（ctx.get('skills')，dsh-skill；缺失时 /skills 提示不可用）
     skills: (ctx as { get?: (name: string) => unknown }).get?.("skills") as
       SkillsLike | undefined,
+    // 子代理服务（ctx.get('subagents')，dsh-subagent；缺失时 /agents 提示不可用）
+    subagents: (ctx as { get?: (name: string) => unknown }).get?.(
+      "subagents",
+    ) as SubagentsLike | undefined,
+    // 工具服务（ctx.get('tools')，dsh-tools；缺失时 /tools 提示不可用）
+    tools: (ctx as { get?: (name: string) => unknown }).get?.("tools") as
+      ToolsLike | undefined,
   });
 
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）

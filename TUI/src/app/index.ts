@@ -28,7 +28,7 @@ import type {
   SessionSurfaceView,
 } from "./adapter/dsh.ts";
 import type { NoticeTone } from "./adapter/types.ts";
-import { parseSlashCommand } from "./adapter/dsh.ts";
+import { parseSlashCommand, type CommandPanelKind } from "./adapter/dsh.ts";
 import {
   INIT_PROMPT,
   buildOsc52,
@@ -766,7 +766,23 @@ export class App {
         );
       } else if (name === "enter") {
         const row = panel.rows[panel.index];
-        if (row?.payload) void this.showSkillDetail(row.payload);
+        if (row === undefined) {
+          // 空态/占位：无行可操作，吞掉
+        } else if (!row.payload) {
+          // 无可中断 id 的条目（如 agents 的 diagnostic）：灰显 + 说明，不发服务调用；
+          // 与其它 Enter 行为一致先关面板——否则说明 notice 会被面板占用的活动区遮住
+          this.apply((s) => reduceState(s, { type: "command-panel-close" }));
+          this.notice(
+            panel.kind === "agents"
+              ? "该条目不可中断（无可用会话 id）"
+              : "该条目无详情载荷",
+            "info",
+          );
+        } else if (panel.kind === "agents") {
+          void this.interruptAgent(row.payload);
+        } else {
+          void this.showPanelDetail(panel.kind, row.payload);
+        }
       } else if (name === "escape") {
         this.apply((st) => reduceState(st, { type: "command-panel-close" }));
       }
@@ -1246,6 +1262,18 @@ export class App {
         return;
       case "skills":
         this.handleSkillsCommand(line);
+        return;
+      case "agents":
+        // agents 无 filter：直接开面板并拉列表
+        this.openListPanel({
+          kind: "agents",
+          label: "subagents",
+          refresh: this.deps.adapter.refreshAgents,
+          filter: "",
+        });
+        return;
+      case "tools":
+        this.handleToolsCommand(line);
         return;
       case "copy":
         this.copyLastReply();
@@ -1969,17 +1997,44 @@ export class App {
     );
   }
 
-  /** /skills [filter]：打开共享列表面板（kind=skills）并经 adapter.refreshSkills 拉取；
-   *  无参重复调用同 kind = 关闭（照 /jobs 切换语义）；服务缺失 → warn 且不开面板。 */
+  /** /skills [filter]：共享列表面板（kind=skills），filter 在归一化阶段过滤 */
   private handleSkillsCommand(line: string): void {
-    const refresh = this.deps.adapter.refreshSkills;
+    this.openListPanel({
+      kind: "skills",
+      label: "skills",
+      refresh: this.deps.adapter.refreshSkills,
+      filter: slashCommandArg(line),
+    });
+  }
+
+  /** /tools [filter]：共享列表面板（kind=tools），filter 在归一化阶段过滤 */
+  private handleToolsCommand(line: string): void {
+    this.openListPanel({
+      kind: "tools",
+      label: "tools",
+      refresh: this.deps.adapter.refreshTools,
+      filter: slashCommandArg(line),
+    });
+  }
+
+  /** 通用列表面板命令（/skills、/agents、/tools）：服务缺失 → warn 且不空开面板
+   *  （面板占活动区、会盖住瞬态输出）；无参重复调用同 kind = 关闭（交互路径需先 Esc，
+   *  面板态按键被吞、与 /jobs 一致）；打开时互斥关闭 history / picker / jobsPanel；
+   *  随后经 refresh 拉数据（filter 为空时传 undefined）。 */
+  private openListPanel(opts: {
+    kind: CommandPanelKind;
+    /** 服务名（notice 文案：`<label> 服务不可用`） */
+    label: string;
+    refresh?: (filter?: string) => Promise<void>;
+    /** 命令参数（skills/tools 作 filter；agents 传 ""） */
+    filter: string;
+  }): void {
+    const { kind, label, refresh, filter } = opts;
     if (!refresh) {
-      // 宿主未挂载 ctx.skills：不开空面板（面板占活动区、会盖住瞬态输出），仅提示
-      this.notice("skills 服务不可用", "warn");
+      this.notice(`${label} 服务不可用`, "warn");
       return;
     }
-    const filter = slashCommandArg(line);
-    if (this.state.commandPanel?.kind === "skills" && filter === "") {
+    if (this.state.commandPanel?.kind === kind && filter === "") {
       this.apply((s) => reduceState(s, { type: "command-panel-close" }));
       this.paint();
       return;
@@ -1991,33 +2046,55 @@ export class App {
       if (next.picker) next = reduceState(next, { type: "picker-close" });
       if (next.jobsPanel)
         next = reduceState(next, { type: "jobs-panel-close" });
-      return reduceState(next, { type: "command-panel-open", kind: "skills" });
+      return reduceState(next, { type: "command-panel-open", kind });
     });
     this.paint();
-    // filter 在 adapter 归一化阶段生效（名称/描述/适用场景子串匹配）
     void refresh
       .call(this.deps.adapter, filter === "" ? undefined : filter)
-      .catch(() => this.notice("skills 服务不可用", "warn"));
+      .catch(() => this.notice(`${label} 服务不可用`, "warn"));
   }
 
-  /** 共享面板 Enter：读取 skill 正文并以 info notice 展示；服务缺失/失败 → warn。
-   *  面板占满活动区会遮住瞬态 notice（与 /jobs 一致），故先关面板再提示详情。 */
-  private async showSkillDetail(name: string): Promise<void> {
+  /** 面板 Enter（详情型 kind：skills / tools）：读取正文并以 info notice 展示；
+   *  服务缺失/失败 → warn。面板占满活动区会遮住瞬态 notice（与 /jobs 一致），
+   *  故先关面板再提示详情。 */
+  private async showPanelDetail(
+    kind: "skills" | "tools",
+    name: string,
+  ): Promise<void> {
     const adapter = this.deps.adapter;
-    const detail = adapter.skillDetail;
+    const label = kind === "skills" ? "skills" : "tools";
+    const detail = kind === "skills" ? adapter.skillDetail : adapter.toolDetail;
     if (!detail) {
-      this.notice("skills 服务不可用", "warn");
+      this.notice(`${label} 服务不可用`, "warn");
       return;
     }
     this.apply((s) => reduceState(s, { type: "command-panel-close" }));
     try {
       const text = await detail.call(adapter, name);
       this.notice(
-        text && text.trim() !== "" ? text : `${name}（无正文）`,
+        text && text.trim() !== "" ? text : `${name}（无详情）`,
         "info",
       );
     } catch {
-      this.notice("skills 服务不可用", "warn");
+      this.notice(`${label} 服务不可用`, "warn");
+    }
+  }
+
+  /** 面板 Enter（kind=agents）：直接中断选中子代理（面板内高亮即选择，照 /jobs 先例，
+   *  不引入二次确认）；服务缺失 → warn，调用失败 → error。 */
+  private async interruptAgent(childSessionId: string): Promise<void> {
+    const adapter = this.deps.adapter;
+    const interrupt = adapter.interruptAgent;
+    if (!interrupt) {
+      this.notice("subagents 服务不可用", "warn");
+      return;
+    }
+    this.apply((s) => reduceState(s, { type: "command-panel-close" }));
+    try {
+      await interrupt.call(adapter, childSessionId);
+      this.notice(`已请求中断子代理 ${childSessionId}`, "success");
+    } catch {
+      this.notice("中断失败（子代理可能已结束或不可中断）", "error");
     }
   }
 
@@ -2090,6 +2167,8 @@ export class App {
       "  /stats (/usage /context)  本回合 token 用量与上下文占比（最近一次模型调用）",
       "  /rename <标题>  重命名当前会话标题",
       "  /skills [过滤]  技能目录面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
+      "  /agents  子代理面板（↑/↓ 选择、Enter 直接中断选中项、Esc 关闭）",
+      "  /tools [过滤]  工具目录面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }

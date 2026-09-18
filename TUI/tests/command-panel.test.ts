@@ -437,7 +437,10 @@ test("/skills：Enter 读取详情（skillDetail）→ 关面板 + notice 展示
   const f = frames(renderer);
   // 面板占活动区会遮住瞬态 notice → Enter 先关面板再提示详情（与 /jobs 面板体验一致）
   assert.ok(!f.includes("技能（"), "Enter 后关闭面板: " + f);
-  assert.ok(f.includes("ponytail（无正文）"), "无正文时给占位提示: " + f);
+  assert.ok(
+    f.includes("ponytail（无详情）"),
+    "无详情时给占位提示（文案批次 3 统一为「无详情」）: " + f,
+  );
   app.dispose();
 });
 

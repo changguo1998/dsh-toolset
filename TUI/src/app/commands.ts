@@ -156,7 +156,9 @@ export type SlashRoute =
   | "init"
   | "stats"
   | "rename"
-  | "skills";
+  | "skills"
+  | "agents"
+  | "tools";
 
 /** 本地命令目录：路由与输入补全的**单一来源**（含别名，别名也是独立可补全项）。
  *  desc 供补全候选展示；/help 的逐行说明仍在 App.helpText（历史格式）。 */
@@ -211,6 +213,12 @@ export const LOCAL_COMMANDS: readonly {
     route: "skills",
     desc: "技能目录面板（Enter 详情、PgUp/PgDn 翻页）",
   },
+  {
+    name: "agents",
+    route: "agents",
+    desc: "子代理面板（Enter 直接中断选中项）",
+  },
+  { name: "tools", route: "tools", desc: "工具目录面板（Enter 详情）" },
 ];
 
 /** 命令名 → 路由（模块加载时构建一次；不在目录中的名字落 registry 转发） */

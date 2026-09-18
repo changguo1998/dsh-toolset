@@ -336,6 +336,16 @@ export interface DshAdapter {
   refreshSkills?(filter?: string): Promise<void>;
   /** 读取单个 skill 正文（Enter 详情）；服务缺失或读取失败 → undefined */
   skillDetail?(name: string): Promise<string | undefined>;
+  /** 拉取子代理列表（`listChildren(activeSessionId)`）并归一化后经 command-panel-data 推送；
+   *  宿主未挂载 → reject */
+  refreshAgents?(): Promise<void>;
+  /** 中断一个子代理（`interrupt(id, {kind:'user', parentSessionId: activeSessionId})`）；
+   *  服务缺失或调用失败 → reject */
+  interruptAgent?(childSessionId: string): Promise<void>;
+  /** 拉取工具 schema（`schemas()` 全局视图）按 `filter` 过滤后经 command-panel-data 推送 */
+  refreshTools?(filter?: string): Promise<void>;
+  /** 读取单个工具的详情文本（Enter 详情）；服务缺失或读取失败 → undefined */
+  toolDetail?(name: string): Promise<string | undefined>;
   /** 取消后台任务（映射 ctx.jobs.kill）；宿主缺失 → reject */
   killJob?(id: string): Promise<void>;
 }
@@ -907,8 +917,8 @@ export interface CommandPanelRow {
   title: string;
   /** 副文本（描述 / detail；可空） */
   detail?: string;
-  /** 状态符号（可选；着色口径同 JobsPanel.statusMark） */
-  symbol?: string;
+  /** 状态语义（可选；渲染层经 JobsPanel.statusMark 映射符号与颜色，无则默认前景） */
+  status?: string;
   /** 主操作载荷（Enter 时回传，如 skill 名称） */
   payload?: string;
 }
@@ -933,6 +943,56 @@ export interface SkillsLike {
   list?(): Promise<readonly SkillSummaryLike[]>;
   /** 单个 skill 定义（含 content 正文；Enter 详情用） */
   get?(name: string): Promise<SkillDefinitionLike | undefined>;
+}
+
+// ---------- subagents / tools 服务结构面（批次 3：/agents、/tools） ----------
+
+/** 宿主 subagents 服务条目结构面（dsh-subagent SubagentListEntry 结构化子集） */
+export interface SubagentEntryLike {
+  /** 判别：child = 可用条目；diagnostic = 投影失败条目（只读展示，不可中断） */
+  kind?: string;
+  /** 子会话 id（可中断目标；diagnostic 条目即使带 id 也不可中断） */
+  id?: string;
+  /** 子代理类型：one-shot / continuable */
+  mode?: string;
+  /** 创建标签 */
+  label?: string;
+  /** 存活态：running / inactive */
+  activity?: string;
+  /** 是否有子代 */
+  hasChildren?: boolean;
+  /** diagnostic 条目的原因：corrupt / unsupported / unavailable */
+  reason?: string;
+}
+
+/** 宿主 subagents 服务结构面（ctx.get('subagents')，@deepseek-ai/dsh-subagent）；
+ *  列条目须用 `listChildren(parentSessionId)`（`list()` 返回 provider 名，不是 agent）。 */
+export interface SubagentsLike {
+  listChildren?(
+    parentSessionId: string,
+    signal?: AbortSignal,
+  ): Promise<readonly SubagentEntryLike[]>;
+  /** 中断一个 live 子代理的当前 turn（authority = {kind:'user', parentSessionId}） */
+  interrupt?(
+    targetSessionId: string,
+    authority: { kind: "user"; parentSessionId: string },
+  ): void;
+}
+
+/** 宿主工具 schema 结构面（dsh-llm ToolSchema 子集） */
+export interface ToolSchemaLike {
+  name: string;
+  description?: string;
+}
+
+/** 宿主 ScopeKey 的 TUI 侧形态：对 TUI 不透明（不读任何字段），默认省略即全局视图。 */
+export type ScopeKeyLike = Record<string, unknown>;
+
+/** 宿主 tools 服务结构面（ctx.get('tools')，@deepseek-ai/dsh-tools）；
+ *  `schemas()` 省略 scope = 全局视图（已核实：peek/chainLayers 对 undefined 返回空叠加）。 */
+export interface ToolsLike {
+  schemas?(scope?: ScopeKeyLike): readonly ToolSchemaLike[];
+  get?(name: string, scope?: ScopeKeyLike): Record<string, unknown> | undefined;
 }
 
 /** agent 预设目录信息（rc.2 ctx.agentPresets 结构面：list + defaultId + 事件回读当前） */
@@ -1001,4 +1061,8 @@ export interface RealAdapterOptions {
   sessionTitle?: SessionTitleLike;
   /** ctx.get('skills') 服务（dsh-skill）；缺失时 /skills 提示不可用 */
   skills?: SkillsLike;
+  /** ctx.get('subagents') 服务（dsh-subagent）；缺失时 /agents 提示不可用 */
+  subagents?: SubagentsLike;
+  /** ctx.get('tools') 服务（dsh-tools）；缺失时 /tools 提示不可用 */
+  tools?: ToolsLike;
 }

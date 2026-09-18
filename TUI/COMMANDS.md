@@ -49,8 +49,8 @@
 |------|----------------|--------|--------|
 | `/stats`（别名 `/usage` `/context`） | `state.usage`（已接，零新服务）；可选增强 `tokenMeter.measure(session, requestHeader)` | Claude、Codex、Gemini、pi（4/4） | P1 ✅ 本轮已实现（批次 1） |
 | `/skills` | `skills.list()` → `SkillSummary[]` / `get(name)` → `SkillDefinition` | Claude、Codex、Gemini | P1 ✅ 本轮已实现（批次 2） |
-| `/agents` | `subagents.listChildren(parentSessionId)` / `interrupt(childId, { kind: 'user', parentSessionId })` | Claude、Codex、Gemini | P1 |
-| `/tools` | `tools.schemas()`（scope 省略 = 全局视图） / `get(name)` | Gemini | P2 |
+| `/agents` | `subagents.listChildren(parentSessionId)` / `interrupt(childId, { kind: 'user', parentSessionId })` | Claude、Codex、Gemini | P1 ✅ 本轮已实现（批次 3） |
+| `/tools` | `tools.schemas()`（scope 省略 = 全局视图） / `get(name)` | Gemini | P2 ✅ 本轮已实现（批次 3） |
 | `/rename` | `sessionTitle.rename(session, title)`（首参为 live Session 对象） | Claude、Codex、pi | P2 ✅ 本轮已实现（批次 1） |
 | `/settings`（`/config`） | `settings.describe()`（枚举 ns + 当前值） / `get(ns)`（第一版只读） | Claude、Gemini、pi | P2 |
 | `/clear` | ~~`sessions.clear`~~ **暂缓（宿主无对应能力）**：`dsh-session` 类型面无 clear（SPEC §3 索引） | Claude、Codex、Gemini | 暂缓 |

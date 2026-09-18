@@ -50,7 +50,12 @@
 | 标题不能为空 / 标题不能包含换行 | handleRenameCommand（/rename） | error（非法参数，本地拒绝不发服务调用） |
 | sessionTitle 服务不可用 | handleRenameCommand（/rename） | warn（服务不可用） |
 | skills 服务不可用 | handleSkillsCommand / showSkillDetail（/skills） | warn（服务不可用） |
-| \<skill 正文多行> | showSkillDetail（/skills Enter 详情） | info（主动索取的信息展示） |
+| \<skill / 工具详情多行> | showPanelDetail（/skills、/tools Enter 详情） | info（主动索取的信息展示） |
+| subagents 服务不可用 | openListPanel / interruptAgent（/agents） | warn（服务不可用） |
+| 已请求中断子代理 \<id> | interruptAgent（/agents Enter） | success（重要操作成功） |
+| 中断失败（子代理可能已结束或不可中断） | interruptAgent（/agents Enter） | error（命令结果） |
+| 该条目不可中断（无可用会话 id） | handleKey Enter（/agents diagnostic 条目） | info（条件不满足） |
+| tools 服务不可用 | openListPanel / showPanelDetail（/tools） | warn（服务不可用） |
 
 ## B. 适配层 notice 归一化（src/app/adapter/dsh.ts）
 

@@ -16,6 +16,7 @@ import type { Box } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
 import type { CommandPanelKind } from "../adapter/dsh.ts";
+import { statusMark } from "./JobsPanel.ts";
 import type { CommandPanelState } from "../state.ts";
 
 /** kind → 面板标题（中文名词） */
@@ -101,10 +102,17 @@ export function buildCommandListPanelBox(
     i++
   ) {
     const row = panel.rows[i]!;
-    const mark = row.symbol ? `${row.symbol} ` : "";
+    // 状态语义 → 符号与颜色（口径同 JobsPanel.statusMark）；无 status 时整行默认前景
+    const mark = row.status ? statusMark(row.status) : undefined;
+    const sym = mark ? `${mark.symbol} ` : "";
     const detail = row.detail && row.detail !== "" ? ` — ${row.detail}` : "";
-    const line = `${i === clamped ? "> " : "  "}${mark}${row.title}${detail}`;
-    leaves.push(styled([seg(truncateToWidth(line, width))], { wrap: false }));
+    const line = `${i === clamped ? "> " : "  "}${sym}${row.title}${detail}`;
+    const text = truncateToWidth(line, width);
+    leaves.push(
+      mark?.color
+        ? styled([seg(text, { fg: mark.color })], { wrap: false })
+        : styled([seg(text)], { wrap: false }),
+    );
   }
   while (leaves.length < rows) leaves.push(styled([seg("")]));
   return v(leaves);

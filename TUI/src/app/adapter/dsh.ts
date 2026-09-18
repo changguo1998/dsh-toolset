@@ -111,6 +111,11 @@ export type {
   SessionStoreLike,
   SessionTitleLike,
   SkillsLike,
+  SubagentsLike,
+  SubagentEntryLike,
+  ToolsLike,
+  ToolSchemaLike,
+  ScopeKeyLike,
   CommandPanelRow,
   CommandPanelKind,
   AgentRegistryLike,
@@ -1927,6 +1932,115 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       try {
         const def = await svc.get(name);
         return def?.content;
+      } catch {
+        return undefined;
+      }
+    },
+    /** 拉取子代理列表（`listChildren(activeSessionId)`）并归一化后经 command-panel-data 推送；
+     *  diagnostic 条目灰显且 payload 置空（无可中断 id）。 */
+    async refreshAgents(): Promise<void> {
+      const svc = opts.subagents;
+      if (!svc || typeof svc.listChildren !== "function") {
+        throw new Error("subagents 未挂载（宿主无子代理服务）");
+      }
+      try {
+        const entries = (await svc.listChildren(activeSessionId)) ?? [];
+        emit({
+          type: "command-panel-data",
+          kind: "agents",
+          rows: entries.map((entry) => {
+            const diagnostic = entry.kind === "diagnostic";
+            const title = diagnostic
+              ? `（诊断：${entry.reason ?? "unknown"}）`
+              : (entry.label ?? "(未命名)");
+            const detail = [
+              entry.mode ?? "",
+              entry.activity ?? "",
+              entry.hasChildren === true ? "has-children" : "",
+            ]
+              .filter((p) => p !== "")
+              .join(" · ");
+            return {
+              title,
+              detail,
+              status: diagnostic ? "diagnostic" : (entry.activity ?? ""),
+              payload: diagnostic ? undefined : entry.id,
+            };
+          }),
+        });
+      } catch (err) {
+        emit({
+          type: "command-panel-data",
+          kind: "agents",
+          rows: [],
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    /** 中断一个子代理（`interrupt(id, {kind:'user', parentSessionId: activeSessionId})`）；
+     *  服务缺失或调用失败 → reject（调用方 notice）。 */
+    async interruptAgent(childSessionId: string): Promise<void> {
+      const svc = opts.subagents;
+      if (!svc || typeof svc.interrupt !== "function") {
+        throw new Error("subagents 未挂载（宿主无子代理服务）");
+      }
+      svc.interrupt(childSessionId, {
+        kind: "user",
+        parentSessionId: activeSessionId,
+      });
+    },
+    /** 拉取工具 schema（`schemas()` 全局视图）按 `filter` 过滤后推送；描述取首行 */
+    async refreshTools(filter?: string): Promise<void> {
+      const svc = opts.tools;
+      if (!svc || typeof svc.schemas !== "function") {
+        throw new Error("tools 未挂载（宿主无工具服务）");
+      }
+      try {
+        const schemas = svc.schemas() ?? [];
+        const needle = (filter ?? "").toLowerCase();
+        const matched =
+          needle === ""
+            ? schemas
+            : schemas.filter((s) =>
+                `${s.name} ${s.description ?? ""}`
+                  .toLowerCase()
+                  .includes(needle),
+              );
+        emit({
+          type: "command-panel-data",
+          kind: "tools",
+          rows: matched.map((s) => ({
+            title: s.name,
+            detail: (s.description ?? "").split("\n")[0] ?? "",
+            payload: s.name,
+          })),
+        });
+      } catch (err) {
+        emit({
+          type: "command-panel-data",
+          kind: "tools",
+          rows: [],
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    /** 读取单个工具详情（名称 + 描述 + 参数 schema JSON）；服务缺失或读取失败 → undefined */
+    async toolDetail(name: string): Promise<string | undefined> {
+      const svc = opts.tools;
+      if (!svc || typeof svc.get !== "function") return undefined;
+      try {
+        const def = svc.get(name);
+        if (!def) return undefined;
+        const lines = [name];
+        const description = def["description"];
+        if (typeof description === "string" && description !== "") {
+          lines.push("", description);
+        }
+        const parameters = def["parameters"];
+        if (parameters !== undefined) {
+          lines.push("", "参数：", JSON.stringify(parameters, null, 2) ?? "");
+        }
+        return lines.join("\n");
       } catch {
         return undefined;
       }

@@ -112,6 +112,10 @@ export function statusMark(status: string): {
   if (status === "cancelled" || status === "canceled") {
     return { symbol: "○", color: "gray" };
   }
+  // 共享面板（/agents）的冷条目与诊断条目：统一灰显（jobs 无此状态值，向后兼容）
+  if (status === "inactive" || status === "diagnostic") {
+    return { symbol: "○", color: "gray" };
+  }
   return { symbol: "✓", color: undefined };
 }
 
