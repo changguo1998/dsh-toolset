@@ -220,7 +220,7 @@ commandPanel:
 | `/memory` | 需插件改造 | knowledge-base 的 `apply` 为同步且 `void createKnowledgeBundle(...)`（服务建完即丢；该工厂是 async）→ 需改插件暴露服务 |
 | `/loop` | 需插件改造 | metric-loop 的 controller 未挂 ctx；且需新增 `list()`（现仅有 `start/tick/status(id)/stop(id)`） |
 | `/task` ✅ 已实现（A1） | 需插件改造 | task-engine 已 provide 只读查询面（`query()`/`frameStack()`，C1 补全 + ctx 挂载）并由 TUI `/task` 面板接线 |
-| `/guard` | 需插件新增能力 | security-guard 仅有 `GuardEngine.inspect(toolName, args)`，无策略/拦截记录查询 → 需先加记录缓冲与 `recent()`/`policy()` |
+| `/guard` ✅ 已实现（A2） | 需插件新增能力 | security-guard 已加记录缓冲与 `recent()`/`policy()`（C3 补全 + ctx 挂载）并由 TUI `/guard` 面板接线 |
 | `/contract` | 需插件包改动 | `goal-contract` 包入口未 re-export `buildObjective` / `parseContract`（已核实：`index.ts` 仅导出 `name`/`inject`/`apply`，包无 `exports` 字段）→ 公开依赖需加 re-export；深路径 import 内部文件不稳、内联复制会漂移 |
 | `/clear` | 宿主无对应能力 | `dsh-session` 类型面无 `clear`（仅 `create`/`get`/`list`/`fork`）；会话清理无宿主入口 |
 | `/login` `/logout` | 语义不匹配（无交互登录流程） | 宿主仅有凭据**引用** seam `ctx.credentials`（`resolve`/`describe`/`set`/`unset`，`dsh-credentials/lib/types/index.d.ts:129/136/145/152`）——提供引用解析与写入原语，**无**交互式登录流程（供应商选择 / OAuth / 设备码）；由 TUI 自造属凭据录入与安全边界设计，超出本轮命令范围 |

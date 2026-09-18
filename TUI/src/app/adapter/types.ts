@@ -357,6 +357,10 @@ export interface DshAdapter {
   refreshTasks?(): Promise<void>;
   /** 读取单个任务详情（Enter 详情；在 query().tasks 中定位）；服务缺失或未找到 → undefined */
   taskDetail?(id: string): Promise<string | undefined>;
+  /** 请求刷新守卫面板（经 security-guard `recent()` 归一化为行后推送）；未挂载 → reject */
+  refreshGuard?(): Promise<void>;
+  /** 读取策略快照（`policy()` → 4 行摘要）；服务缺失 → undefined */
+  guardPolicy?(): Promise<string | undefined>;
   /** 取消后台任务（映射 ctx.jobs.kill）；宿主缺失 → reject */
   killJob?(id: string): Promise<void>;
 }
@@ -929,7 +933,7 @@ export interface JobInfo {
 // ---------- 共享列表面板（/skills、/agents、/tools；契约见 COMMANDS-SPEC.md §0.4） ----------
 
 /** 共享列表面板 kind（批次 2 仅 skills；agents/tools 由批次 3 接入） */
-export type CommandPanelKind = "skills" | "agents" | "tools" | "task";
+export type CommandPanelKind = "skills" | "agents" | "tools" | "task" | "guard";
 
 /** 共享列表面板行（kind 无关的归一化渲染输入） */
 export interface CommandPanelRow {
@@ -1061,6 +1065,35 @@ export interface TaskEngineLike {
   frameStack?(): readonly string[];
 }
 
+/** security-guard 判定记录（C3 前置；`GuardRecord` 的 TUI 侧宽松子集） */
+export interface GuardRecordLike {
+  toolName: string;
+  verdict: "allow" | "deny";
+  reason?: string;
+  time: number;
+}
+
+/** security-guard 策略快照（C3 前置；`PolicySnapshot` 的 TUI 侧宽松子集） */
+export interface PolicySnapshotLike {
+  enabled: boolean;
+  commandBlacklist?: {
+    enabled?: boolean;
+    rules?: readonly { id: string; reason: string }[];
+    allowPatterns?: readonly string[];
+  };
+  sensitiveFiles?: {
+    enabled?: boolean;
+    rules?: readonly { id: string; reason: string }[];
+    allowedPaths?: readonly { id: string; reason: string }[];
+  };
+}
+
+/** ctx.get('guard') 只读查询面（security-guard cordis provide；缺失时 /guard 提示不可用） */
+export interface SecurityGuardLike {
+  recent?(): readonly GuardRecordLike[];
+  policy?(): PolicySnapshotLike;
+}
+
 /** agent 预设目录信息（rc.2 ctx.agentPresets 结构面：list + defaultId + 事件回读当前） */
 export interface AgentPresetInfo {
   /** 当前会话选中预设（agent-preset/selected 事件回读；未选中 → ""） */
@@ -1135,4 +1168,6 @@ export interface RealAdapterOptions {
   settings?: SettingsLike;
   /** ctx.get('taskEngine') 只读查询面（dsh-task-engine cordis provide）；缺失时 /task 提示不可用 */
   taskEngine?: TaskEngineLike;
+  /** ctx.get('guard') 只读查询面（security-guard cordis provide）；缺失时 /guard 提示不可用 */
+  guard?: SecurityGuardLike;
 }

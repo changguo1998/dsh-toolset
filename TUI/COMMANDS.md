@@ -80,7 +80,7 @@
 | `/loop` | metric-loop：`start(spec)` / `tick` / `status(id)` / `stop(id)`（**无 list**，需新增） | provide `metricLoop` controller + 新增 `list()` | P1（本轮不纳入，SPEC §3） |
 | `/task` | task-engine：`query()` / `frameStack()`（C1 已实现并挂 `ctx.provide("taskEngine")`） | provide 只读子集 ✅ 已完成 | P2 ✅ A1 已实现（TUI 接线） |
 | `/contract` | goal-contract：纯函数**未从包入口导出**（`index.ts` 仅 `name`/`inject`/`apply`） | 需给该包加 re-export（属插件包改动） | P2（本轮不纳入） |
-| `/guard` | security-guard：仅 `GuardEngine.inspect()`，无策略/记录查询 | 需**新增**拦截记录缓冲 + `recent()` / `policy()` | P2（本轮不纳入，SPEC §3） |
+| `/guard` | security-guard：`recent()` / `policy()`（C3 已实现并挂 `ctx.provide("guard")`） | provide 只读查询面 ✅ 已完成 | P2 ✅ A2 已实现（TUI 接线） |
 
 - 工具性质、命令入口价值低（模型直接用即可）：fs-digest、hash-edit、ast-tools、output-compress。
 - 落点与 §2.1 相同：插件侧补齐「服务暴露」后，命令仍在 TUI 侧实现（`ctx.get("<svc>")` → adapter → 本地命令）。

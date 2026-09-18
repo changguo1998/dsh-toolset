@@ -52,6 +52,7 @@ import type {
   SessionSurfaceView,
   TokenUsage,
   TaskEngineTaskLike,
+  CommandPanelRow,
   GoalChangeLike,
   TodoItemLike,
   SubagentDescriptorLike,
@@ -122,6 +123,9 @@ export type {
   TaskEngineLike,
   TaskEngineQueryLike,
   TaskEngineTaskLike,
+  SecurityGuardLike,
+  GuardRecordLike,
+  PolicySnapshotLike,
   CommandPanelRow,
   CommandPanelKind,
   AgentRegistryLike,
@@ -2190,6 +2194,57 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           rows: [],
           error: err instanceof Error ? err.message : String(err),
         });
+      }
+    },
+    /** 守卫面板：经 security-guard `recent()` 归一化为行（工具名 + 放行/拦截 + 原因首行）；
+     *  deny → status failed（红）、allow → success（绿）；未挂载 reject */
+    async refreshGuard(): Promise<void> {
+      const svc = opts.guard;
+      if (!svc || typeof svc.recent !== "function") {
+        throw new Error("guard 未挂载（宿主无安全守卫查询面）");
+      }
+      try {
+        const recs = svc.recent() ?? [];
+        const rows: CommandPanelRow[] = recs.map((r) => ({
+          title: r.toolName,
+          detail:
+            r.verdict === "deny"
+              ? `拦截${typeof r.reason === "string" && r.reason !== "" ? ` · ${(r.reason.split("\n")[0] ?? "").slice(0, 60)}` : ""}`
+              : "放行",
+          status: r.verdict === "deny" ? "failed" : "success",
+          payload: undefined,
+        }));
+        emit({ type: "command-panel-data", kind: "guard", rows });
+      } catch (err) {
+        emit({
+          type: "command-panel-data",
+          kind: "guard",
+          rows: [],
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    /** 策略快照（Enter 详情）：`policy()` → 4 行摘要（启用/黑名单/敏感文件/拦截计数），适配 notice 视口 */
+    async guardPolicy(): Promise<string | undefined> {
+      const svc = opts.guard;
+      const snap = svc?.policy?.();
+      if (!snap) {
+        return undefined;
+      }
+      try {
+        const cb = snap.commandBlacklist;
+        const sf = snap.sensitiveFiles;
+        const denyCount = (svc?.recent?.() ?? []).filter(
+          (r) => r.verdict === "deny",
+        ).length;
+        return [
+          `守卫：${snap.enabled ? "启用" : "停用"}`,
+          `命令黑名单：${cb?.rules?.length ?? 0} 条规则 · 放行 ${cb?.allowPatterns?.length ?? 0} 条`,
+          `敏感文件：${sf?.rules?.length ?? 0} 条规则 · 放行 ${sf?.allowedPaths?.length ?? 0} 条`,
+          `拦截记录：最近 ${denyCount} 条`,
+        ].join("\n");
+      } catch {
+        return undefined;
       }
     },
     /** 任务详情（Enter）：在 query().tasks 先序中定位该 id，输出标题/状态/id/需拆分，

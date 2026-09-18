@@ -21,6 +21,7 @@ import {
   type ToolsLike,
   type SettingsLike,
   type TaskEngineLike,
+  type SecurityGuardLike,
   type DshEvent,
   type DshUserMessageLike,
   type SessionEvent,
@@ -110,12 +111,15 @@ class FakeAgent implements DshAgentLike {
  *  AdapterServices 是 test 私有结构面，跨批次扩展。 */
 /** 批次 3/4/A1：可注入宿主服务（ctx.get('subagents'|'tools'|'settings'|'sessions'|'taskEngine')）
  *  AdapterServices 是 test 私有结构面，跨批次扩展。 */
+/** 批次 3/4/A1/A2：可注入宿主服务（ctx.get('subagents'|'tools'|'settings'|'sessions'|'taskEngine'|'guard')）
+ *  AdapterServices 是 test 私有结构面，跨批次扩展。 */
 interface AdapterServices {
   subagents?: SubagentsLike;
   tools?: ToolsLike;
   settings?: SettingsLike;
   sessions?: SessionStoreLike;
   taskEngine?: TaskEngineLike;
+  guard?: SecurityGuardLike;
 }
 
 interface TestHarness {
@@ -3374,7 +3378,10 @@ function makeAgentsToolsServices(): {
   };
 }
 
-function panelRows(events: DshEvent[], kind: "agents" | "tools" | "task") {
+function panelRows(
+  events: DshEvent[],
+  kind: "agents" | "tools" | "task" | "guard",
+) {
   const rows = [];
   for (const e of events) {
     if (e.type === "command-panel-data" && e.kind === kind)
@@ -3716,5 +3723,97 @@ test("真实 adapter /task：taskEngine 缺失 → refreshTasks reject", async (
   const { adapter, unbind } = makeAdapter();
   const call = adapter.refreshTasks!();
   await assert.rejects(call, /taskEngine 未挂载/);
+  unbind();
+});
+
+// ---------- A2：/guard 的真实 adapter 接线契约 ----------
+// 断言：refreshGuard 经 recent() 归一化（deny→failed/拦截、allow→success/放行、原因首行）；
+// guardPolicy 输出 4 行策略摘要；服务缺失 → reject。
+
+test("真实 adapter /guard：refreshGuard 归一化（deny/allow + 原因）", async () => {
+  const services: AdapterServices = {
+    guard: {
+      recent: () => [
+        {
+          toolName: "bash",
+          verdict: "deny",
+          reason: "命中黑名单 rm -rf",
+          time: 1,
+        },
+        { toolName: "read", verdict: "allow", time: 2 },
+      ],
+      policy: () => ({
+        enabled: true,
+        commandBlacklist: { enabled: true, rules: [], allowPatterns: [] },
+        sensitiveFiles: { enabled: true, rules: [], allowedPaths: [] },
+      }),
+    },
+  };
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  await adapter.refreshGuard?.();
+  const rows = panelRows(events, "guard");
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0]?.title, "bash");
+  assert.equal(rows[0]?.status, "failed");
+  assert.ok(String(rows[0]?.detail).includes("拦截"), String(rows[0]?.detail));
+  assert.ok(
+    String(rows[0]?.detail).includes("命中黑名单"),
+    String(rows[0]?.detail),
+  );
+  assert.equal(rows[1]?.status, "success");
+  assert.equal(rows[1]?.detail, "放行");
+  unbind();
+});
+
+test("真实 adapter /guard：guardPolicy 输出 4 行策略摘要 + 拦截计数", async () => {
+  const services: AdapterServices = {
+    guard: {
+      recent: () => [
+        { toolName: "bash", verdict: "deny", time: 1 },
+        { toolName: "read", verdict: "allow", time: 2 },
+        { toolName: "rm", verdict: "deny", time: 3 },
+      ],
+      policy: () => ({
+        enabled: true,
+        commandBlacklist: {
+          enabled: true,
+          rules: [{ id: "r1", reason: "黑名单" }],
+          allowPatterns: ["^git "],
+        },
+        sensitiveFiles: {
+          enabled: true,
+          rules: [{ id: "r2", reason: "敏感" }],
+          allowedPaths: [{ id: "p1", reason: "允许" }],
+        },
+      }),
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  const text = await adapter.guardPolicy?.();
+  assert.ok(text?.includes("守卫：启用"), String(text));
+  assert.ok(text?.includes("命令黑名单：1 条规则 · 放行 1 条"), String(text));
+  assert.ok(text?.includes("敏感文件：1 条规则 · 放行 1 条"), String(text));
+  assert.ok(text?.includes("拦截记录：最近 2 条"), String(text));
+  unbind();
+});
+
+test("真实 adapter /guard：guard 缺失 → refreshGuard reject", async () => {
+  const { adapter, unbind } = makeAdapter();
+  const call = adapter.refreshGuard!();
+  await assert.rejects(call, /guard 未挂载/);
   unbind();
 });

@@ -58,6 +58,8 @@ export type {
 
 /** bundle 条目 id（与 cordis.patch.yml / profile 层一致）。 */
 export const name = "security-guard";
+/** 只读查询面挂载声明（BACKLOG C3 补全：TUI /guard 经 ctx.get('guard') 接线） */
+export const provide = ["guard"];
 
 /** 依赖 services：仅工具运行时存在时挂载（对齐官方 guard/timeout-policy）。 */
 export const inject = ["tools"];
@@ -390,5 +392,15 @@ export function createSecurityGuard(
 
 /** bundle 入口：宿主加载后调用一次（监听器随宿主 fiber 生命周期回收）。 */
 export function apply(ctx: GuardHost, config: SecurityGuardConfig = {}): void {
-  createSecurityGuard(ctx, config);
+  const { guard } = createSecurityGuard(ctx, config);
+  // 只读查询面挂到 ctx（防御式，与 task-engine/metric-loop 同款）：供 TUI /guard 接线
+  const provideSvc = (
+    ctx as { provide?: (name: string, value: unknown) => unknown }
+  ).provide;
+  if (typeof provideSvc === "function") {
+    provideSvc("guard", {
+      recent: () => guard.recent(),
+      policy: () => guard.policy(),
+    });
+  }
 }

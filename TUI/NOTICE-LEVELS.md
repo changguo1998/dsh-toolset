@@ -62,7 +62,9 @@
 | 已分叉新会话 `<id>`（新会话与当前不同时附加 /session 查看提示） | handleForkCommand（/fork） | success（重要操作成功） |
 | 分叉失败：`<原因>` | handleForkCommand（/fork 错误码映射） | warn（命令结果） |
 | taskEngine 服务不可用 | openListPanel / showPanelDetail（/task） | warn（服务不可用） |
-| 任务详情多行（标题/状态/id/需拆分） | showPanelDetail（/task Enter 详情） | info（主动索取的信息展示） |
+| 任务详情多行（标题/状态·帧栈/id/需拆分） | showPanelDetail（/task Enter 详情） | info（主动索取的信息展示） |
+| guard 服务不可用 | openListPanel / showGuardPolicy（/guard） | warn（服务不可用） |
+| 策略快照多行（启用/黑名单/敏感文件/拦截计数） | showGuardPolicy（/guard Enter） | info（主动索取的信息展示） |
 
 ## B. 适配层 notice 归一化（src/app/adapter/dsh.ts）
 

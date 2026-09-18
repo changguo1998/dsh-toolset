@@ -768,6 +768,9 @@ export class App {
         const row = panel.rows[panel.index];
         if (row === undefined) {
           // 空态/占位：无行可操作，吞掉
+        } else if (panel.kind === "guard") {
+          // 守卫行恒无 payload：Enter 统一展示策略快照（policy()）
+          void this.showGuardPolicy();
         } else if (!row.payload) {
           // 无可中断 id 的条目（如 agents 的 diagnostic）：灰显 + 说明，不发服务调用；
           // 与其它 Enter 行为一致先关面板——否则说明 notice 会被面板占用的活动区遮住
@@ -1283,6 +1286,9 @@ export class App {
         return;
       case "task":
         this.handleTaskCommand();
+        return;
+      case "guard":
+        this.handleGuardCommand();
         return;
       case "copy":
         this.copyLastReply();
@@ -2068,6 +2074,17 @@ export class App {
     );
   }
 
+  /** /guard：共享列表面板（kind=guard），经 adapter.refreshGuard 拉取拦截/放行记录；
+   *  前置：security-guard 只读查询面已挂 ctx（C3 补全）。 */
+  private handleGuardCommand(): void {
+    this.openListPanel({
+      kind: "guard",
+      label: "guard",
+      refresh: this.deps.adapter.refreshGuard,
+      filter: "",
+    });
+  }
+
   /** /task：共享列表面板（kind=task），经 adapter.refreshTasks 拉取任务树；
    *  前置：task-engine 只读查询面已挂 ctx（C1 补全）。 */
   private handleTaskCommand(): void {
@@ -2144,6 +2161,24 @@ export class App {
       );
     } catch {
       this.notice(`${label} 服务不可用`, "warn");
+    }
+  }
+
+  /** 面板 Enter（kind=guard）：展示策略快照（policy() → 4 行摘要）；先关面板再 notice
+   *  （面板占满活动区会遮住瞬态输出）；服务缺失 → warn。 */
+  private async showGuardPolicy(): Promise<void> {
+    const adapter = this.deps.adapter;
+    const policy = adapter.guardPolicy;
+    if (!policy) {
+      this.notice("guard 服务不可用", "warn");
+      return;
+    }
+    this.apply((s) => reduceState(s, { type: "command-panel-close" }));
+    try {
+      const text = await policy.call(adapter);
+      this.notice(text && text.trim() !== "" ? text : "（无策略快照）", "info");
+    } catch {
+      this.notice("guard 服务不可用", "warn");
     }
   }
 
@@ -2239,6 +2274,7 @@ export class App {
       "  /settings  只读展示配置（ns：value，secret 脱敏）",
       "  /fork  分叉当前会话为新会话（success 提示 + 必要时提示用 /session 查看）",
       "  /task  任务面板（TaskEngine 只读：↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
+      "  /guard  守卫面板（拦截/放行记录：↑/↓ 选择、PgUp/PgDn 翻页、Enter 看策略、Esc 关闭）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }
