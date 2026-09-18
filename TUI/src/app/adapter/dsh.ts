@@ -54,6 +54,7 @@ import type {
   TaskEngineTaskLike,
   CommandPanelRow,
   KnowledgeBundleSummaryLike,
+  LoopSummaryLike,
   GoalChangeLike,
   TodoItemLike,
   SubagentDescriptorLike,
@@ -129,6 +130,8 @@ export type {
   PolicySnapshotLike,
   KnowledgeServiceLike,
   KnowledgeBundleSummaryLike,
+  MetricLoopLike,
+  LoopSummaryLike,
   CommandPanelRow,
   CommandPanelKind,
   AgentRegistryLike,
@@ -586,6 +589,25 @@ function findTask(
   id: string,
 ): FlatTask | undefined {
   return flattenTasks(tasks).find((t) => t.id === id);
+}
+
+/** 循环 updatedAt → HH:MM（本地时区，行 detail 展示用） */
+function loopTime(ms: number | undefined): string {
+  if (typeof ms !== "number" || Number.isNaN(ms)) return "?";
+  return new Date(ms).toTimeString().slice(0, 5);
+}
+
+/** 循环行 detail：状态 · 方向 · 轮数 · 历史最优 · 更新时间 */
+function loopRowDetail(s: LoopSummaryLike): string {
+  const parts = [
+    s.status === "running" ? "运行中" : "已停止",
+    s.direction === "min" ? "最小化" : s.direction === "max" ? "最大化" : "",
+    s.measureCmd ?? "",
+    `轮 ${s.rounds ?? 0}/${s.maxRounds ?? "?"}`,
+    typeof s.best === "number" ? `best ${s.best}` : "",
+    `更新 ${loopTime(s.updatedAt)}`,
+  ].filter((p) => p !== "");
+  return parts.join(" · ");
 }
 
 export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
@@ -2198,6 +2220,55 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+    },
+    /** 循环面板：经 metric-loop `list()` 归一化为行（measureCmd/id + 状态·方向·轮数
+     *  ·best·更新时间）；running → status active（黄）、stopped → inactive（灰）；未挂载 reject */
+    async refreshLoops(): Promise<void> {
+      const svc = opts.metricLoop;
+      if (!svc || typeof svc.list !== "function") {
+        throw new Error("metricLoop 未挂载（宿主无循环查询面）");
+      }
+      try {
+        const loops = svc.list() ?? [];
+        const rows: CommandPanelRow[] = loops.map((s) => ({
+          title: s.measureCmd && s.measureCmd !== "" ? s.measureCmd : s.id,
+          detail: loopRowDetail(s),
+          status: s.status === "running" ? "running" : "inactive",
+          payload: s.id,
+        }));
+        emit({ type: "command-panel-data", kind: "loop", rows });
+      } catch (err) {
+        emit({
+          type: "command-panel-data",
+          kind: "loop",
+          rows: [],
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    /** 循环详情（Enter）：list() 中定位该 id，输出 4 行（id/状态·停止原因/配置/进度·最优） */
+    async loopDetail(id: string): Promise<string | undefined> {
+      const svc = opts.metricLoop;
+      const found = svc?.list?.()?.find((s) => s.id === id);
+      if (!found) {
+        return undefined;
+      }
+      const statusLine =
+        found.status === "running"
+          ? `状态：运行中`
+          : `状态：已停止${found.stopReason ? `（${found.stopReason}）` : ""}`;
+      const cfg = [
+        `方向：${found.direction === "min" ? "最小化" : "最大化"}`,
+        found.measureCmd
+          ? `目标：${found.measureCmd}`
+          : "目标：无（metricless）",
+      ].join(" · ");
+      return [
+        `循环：${found.id}`,
+        statusLine,
+        cfg,
+        `轮 ${found.rounds ?? 0}/${found.maxRounds ?? "?"} · 窗口 ${found.window ?? 0} · best ${found.best ?? "n/a"}`,
+      ].join("\n");
     },
     /** 知识库概要：`getSummary()` 同步优先，否则 `whenReady()` 等待就绪；未就绪 →
      *  返回说明文本（调用方以 info 呈现）；服务缺失 → reject（调用方 warn）。 */

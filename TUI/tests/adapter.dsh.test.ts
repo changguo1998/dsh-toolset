@@ -23,6 +23,7 @@ import {
   type TaskEngineLike,
   type SecurityGuardLike,
   type KnowledgeServiceLike,
+  type MetricLoopLike,
   type DshEvent,
   type DshUserMessageLike,
   type SessionEvent,
@@ -122,6 +123,7 @@ interface AdapterServices {
   taskEngine?: TaskEngineLike;
   guard?: SecurityGuardLike;
   knowledge?: KnowledgeServiceLike;
+  metricLoop?: MetricLoopLike;
 }
 
 interface TestHarness {
@@ -3382,7 +3384,7 @@ function makeAgentsToolsServices(): {
 
 function panelRows(
   events: DshEvent[],
-  kind: "agents" | "tools" | "task" | "guard",
+  kind: "agents" | "tools" | "task" | "guard" | "loop",
 ) {
   const rows = [];
   for (const e of events) {
@@ -3903,4 +3905,116 @@ test("真实 adapter /memory：whenReady 就绪路径；knowledge 缺失 → rej
   const call = a2.memorySummary!();
   await assert.rejects(call, /knowledge 未挂载/);
   u2();
+});
+
+// ---------- A4：/loop 的真实 adapter 接线契约 ----------
+// 断言：refreshLoops 经 list() 归一化（measureCmd/状态/rounds/best/更新时间，running→running、
+// stopped→inactive）；loopDetail list() 定位 4 行；服务缺失 reject。
+
+test("真实 adapter /loop：refreshLoops 归一化（明细/状态映射/detail）", async () => {
+  const svc = {
+    list: () => [
+      {
+        id: "l1",
+        status: "running",
+        stopReason: null,
+        measureCmd: "npm test",
+        direction: "max" as const,
+        window: 5,
+        maxRounds: 10,
+        rounds: 3,
+        best: 88,
+        streak: 1,
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      {
+        id: "l2",
+        status: "stopped",
+        stopReason: "maxRounds",
+        measureCmd: null,
+        direction: "min" as const,
+        window: 3,
+        maxRounds: 5,
+        rounds: 5,
+        best: null,
+        streak: 5,
+        createdAt: 1,
+        updatedAt: 3,
+      },
+    ],
+    status: () => undefined,
+  };
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { metricLoop: svc },
+  );
+  await adapter.refreshLoops?.();
+  const rows = panelRows(events, "loop");
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0]?.title, "npm test");
+  assert.equal(rows[0]?.status, "running");
+  assert.ok(
+    String(rows[0]?.detail).includes("运行中"),
+    String(rows[0]?.detail),
+  );
+  assert.ok(
+    String(rows[0]?.detail).includes("轮 3/10"),
+    String(rows[0]?.detail),
+  );
+  assert.ok(
+    String(rows[0]?.detail).includes("best 88"),
+    String(rows[0]?.detail),
+  );
+  assert.ok(
+    /更新 \d{2}:\d{2}/.test(String(rows[0]?.detail)),
+    String(rows[0]?.detail),
+  );
+  assert.equal(rows[1]?.status, "inactive");
+  assert.equal(rows[1]?.title, "l2", "无 measureCmd → 用 id");
+  unbind();
+});
+
+test("真实 adapter /loop：loopDetail 定位 4 行详情；未找到 → undefined", async () => {
+  const svc = {
+    list: () => [
+      {
+        id: "l1",
+        status: "running",
+        stopReason: null,
+        measureCmd: "npm test",
+        direction: "max" as const,
+        window: 5,
+        maxRounds: 10,
+        rounds: 3,
+        best: 88,
+        updatedAt: 2,
+      },
+    ],
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { metricLoop: svc },
+  );
+  const text = await adapter.loopDetail?.("l1");
+  assert.ok(text?.includes("循环：l1"), String(text));
+  assert.ok(text?.includes("状态：运行中"), String(text));
+  assert.ok(text?.includes("方向：最大化 · 目标：npm test"), String(text));
+  assert.equal(await adapter.loopDetail?.("nope"), undefined);
+  unbind();
+});
+
+test("真实 adapter /loop：metricLoop 缺失 → refreshLoops reject", async () => {
+  const { adapter, unbind } = makeAdapter();
+  const call = adapter.refreshLoops!();
+  await assert.rejects(call, /metricLoop 未挂载/);
+  unbind();
 });

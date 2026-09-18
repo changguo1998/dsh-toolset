@@ -364,6 +364,10 @@ export interface DshAdapter {
   /** 读取知识库概要（就绪/路径/chunk·source 计数）；服务缺失 → reject，
    *  未就绪 → resolve 说明文本（调用方 info） */
   memorySummary?(): Promise<string>;
+  /** 请求刷新循环面板（经 metric-loop `list()` 归一化为行后推送）；未挂载 → reject */
+  refreshLoops?(): Promise<void>;
+  /** 读取单个循环详情（Enter 详情；list() 中定位）；服务缺失或未找到 → undefined */
+  loopDetail?(id: string): Promise<string | undefined>;
   /** 取消后台任务（映射 ctx.jobs.kill）；宿主缺失 → reject */
   killJob?(id: string): Promise<void>;
 }
@@ -936,7 +940,8 @@ export interface JobInfo {
 // ---------- 共享列表面板（/skills、/agents、/tools；契约见 COMMANDS-SPEC.md §0.4） ----------
 
 /** 共享列表面板 kind（批次 2 仅 skills；agents/tools 由批次 3 接入） */
-export type CommandPanelKind = "skills" | "agents" | "tools" | "task" | "guard";
+export type CommandPanelKind =
+  "skills" | "agents" | "tools" | "task" | "guard" | "loop";
 
 /** 共享列表面板行（kind 无关的归一化渲染输入） */
 export interface CommandPanelRow {
@@ -1111,6 +1116,27 @@ export interface KnowledgeServiceLike {
   whenReady?(): Promise<{ summary?(): KnowledgeBundleSummaryLike | undefined }>;
 }
 
+/** metric-loop 循环概要素（C5 前置；`LoopSummary` 的 TUI 侧宽松子集） */
+export interface LoopSummaryLike {
+  id: string;
+  status?: string;
+  stopReason?: string | null;
+  measureCmd?: string | null;
+  direction?: "min" | "max";
+  window?: number;
+  maxRounds?: number;
+  rounds?: number;
+  best?: number | null;
+  streak?: number;
+  updatedAt?: number;
+}
+
+/** ctx.get('metricLoop') 只读查询面（metric-loop cordis provide，C5 已挂载；缺失时 /loop 提示不可用）。
+ *  首版输出仅用 list()；status(id) 单查未被 TUI 消费，接入时定义域类型后再暴露。 */
+export interface MetricLoopLike {
+  list?(): readonly LoopSummaryLike[];
+}
+
 /** agent 预设目录信息（rc.2 ctx.agentPresets 结构面：list + defaultId + 事件回读当前） */
 export interface AgentPresetInfo {
   /** 当前会话选中预设（agent-preset/selected 事件回读；未选中 → ""） */
@@ -1189,4 +1215,6 @@ export interface RealAdapterOptions {
   guard?: SecurityGuardLike;
   /** ctx.get('knowledge') 只读查询面（knowledge-base cordis provide）；缺失时 /memory 提示不可用 */
   knowledge?: KnowledgeServiceLike;
+  /** ctx.get('metricLoop') 只读查询面（metric-loop cordis provide）；缺失时 /loop 提示不可用 */
+  metricLoop?: MetricLoopLike;
 }

@@ -47,6 +47,7 @@ import {
   type TaskEngineLike,
   type SecurityGuardLike,
   type KnowledgeServiceLike,
+  type MetricLoopLike,
 } from "./app/adapter/dsh.ts";
 
 /** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
@@ -370,6 +371,10 @@ export async function apply(
     knowledge: (ctx as { get?: (name: string) => unknown }).get?.(
       "knowledge",
     ) as KnowledgeServiceLike | undefined,
+    // 循环只读查询面（ctx.get('metricLoop')，metric-loop provide；缺失时 /loop 提示不可用）
+    metricLoop: (ctx as { get?: (name: string) => unknown }).get?.(
+      "metricLoop",
+    ) as MetricLoopLike | undefined,
   });
 
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）

@@ -1293,6 +1293,9 @@ export class App {
       case "memory":
         this.handleMemoryCommand();
         return;
+      case "loop":
+        this.handleLoopCommand();
+        return;
       case "copy":
         this.copyLastReply();
         return;
@@ -2077,6 +2080,17 @@ export class App {
     );
   }
 
+  /** /loop：共享列表面板（kind=loop），经 adapter.refreshLoops 拉取活动/历史循环。
+   *  前置：metric-loop 只读查询面已挂 ctx（C5 完成）。 */
+  private handleLoopCommand(): void {
+    this.openListPanel({
+      kind: "loop",
+      label: "metricLoop",
+      refresh: this.deps.adapter.refreshLoops,
+      filter: "",
+    });
+  }
+
   /** /memory：知识库概要（notice 型）——就绪 → info 展示（路径/chunk·source 计数）；
    *  未就绪 → info 说明；服务缺失/失败 → warn。 */
   private handleMemoryCommand(): void {
@@ -2159,17 +2173,20 @@ export class App {
    *  服务缺失/失败 → warn。面板占满活动区会遮住瞬态 notice（与 /jobs 一致），
    *  故先关面板再提示详情。 */
   private async showPanelDetail(
-    kind: "skills" | "tools" | "task",
+    kind: "skills" | "tools" | "task" | "loop",
     name: string,
   ): Promise<void> {
     const adapter = this.deps.adapter;
-    const label = kind === "task" ? "taskEngine" : kind;
+    const label =
+      kind === "task" ? "taskEngine" : kind === "loop" ? "metricLoop" : kind;
     const detail =
       kind === "skills"
         ? adapter.skillDetail
         : kind === "tools"
           ? adapter.toolDetail
-          : adapter.taskDetail;
+          : kind === "task"
+            ? adapter.taskDetail
+            : adapter.loopDetail;
     if (!detail) {
       this.notice(`${label} 服务不可用`, "warn");
       return;
@@ -2298,6 +2315,7 @@ export class App {
       "  /task  任务面板（TaskEngine 只读：↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
       "  /guard  守卫面板（拦截/放行记录：↑/↓ 选择、PgUp/PgDn 翻页、Enter 看策略、Esc 关闭）",
       "  /memory  知识库概要（就绪/路径/chunk·source 计数；未就绪给说明）",
+      "  /loop  循环面板（活动/历史循环：↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }

@@ -68,6 +68,8 @@
 | knowledge 服务不可用 | handleMemoryCommand（/memory） | warn（服务不可用） |
 | 知识库概要多行（就绪/路径/chunk·source） | handleMemoryCommand（/memory） | info（主动索取的信息展示） |
 | 知识库尚未就绪（说明） | handleMemoryCommand（/memory 未就绪） | info（条件不满足） |
+| metricLoop 服务不可用 | openListPanel / showPanelDetail（/loop） | warn（服务不可用） |
+| 循环详情多行（id/状态/方向·目标/轮数·窗口·best） | showPanelDetail（/loop Enter 详情） | info（主动索取的信息展示） |
 
 ## B. 适配层 notice 归一化（src/app/adapter/dsh.ts）
 

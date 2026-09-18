@@ -163,7 +163,8 @@ export type SlashRoute =
   | "fork"
   | "task"
   | "guard"
-  | "memory";
+  | "memory"
+  | "loop";
 
 /** 本地命令目录：路由与输入补全的**单一来源**（含别名，别名也是独立可补全项）。
  *  desc 供补全候选展示；/help 的逐行说明仍在 App.helpText（历史格式）。 */
@@ -244,6 +245,11 @@ export const LOCAL_COMMANDS: readonly {
     name: "memory",
     route: "memory",
     desc: "知识库概要（knowledge-base：就绪/路径/chunk·source 计数）",
+  },
+  {
+    name: "loop",
+    route: "loop",
+    desc: "循环面板（metric-loop：活动/历史循环，Enter 详情）",
   },
 ];
 
