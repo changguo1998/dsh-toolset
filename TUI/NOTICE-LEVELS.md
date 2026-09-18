@@ -73,6 +73,8 @@
 | 契约概览多行（目标 + Done-when 条款数 + 前 3 条 check） | handleContractCommand（/contract） | info（主动索取的信息展示） |
 | 当前无活动目标/契约 / 契约解析失败 | handleContractCommand（/contract） | warn（数据缺失/解析失败） |
 | workflowEngine 服务不可用 | openListPanel（/workflows） | warn（服务不可用） |
+| council 不可用（宿主无子代理启动面） | handleCouncilCommand（/council） | warn（服务不可用） |
+| 二次意见汇总多行（council 计数 + 每行评审意见首行） | handleCouncilCommand（/council） | info（主动索取的信息展示） |
 
 ## B. 适配层 notice 归一化（src/app/adapter/dsh.ts）
 

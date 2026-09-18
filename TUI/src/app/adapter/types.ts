@@ -382,6 +382,10 @@ export interface DshAdapter {
   refreshWorkflows?(): Promise<void>;
   /** /workflows 只读运行集合（测试/契约用；无则空） */
   workflowRuns?: readonly WorkflowRunLike[];
+  /** /council 二次意见：并行拉起 count 个评审子代理（ctx.subagents.start）对 target 各自
+   *  给独立意见，任一失败降级保留其余；返回汇总文本（notice 展示，≤4 行）。宿主未挂载
+   *  subagents.start → reject（调用方 warn 不假启动）。 */
+  council?(target: string, count?: number): Promise<string>;
 }
 
 /** 模型目录条目（/model 列表展示用） */
@@ -1009,6 +1013,19 @@ export interface SubagentEntryLike {
   reason?: string;
 }
 
+/** 子代理一次 one-shot run 的返回（dsh-subagent SubagentRun 结构化子集） */
+export interface SubagentRunLike {
+  /** parent 作用域 run id（本地即子会话 id） */
+  id?: string;
+  /** 结算结果：run 不 reject 于子级失败（stopReason:'error' 消费方映射） */
+  result?: Promise<{
+    output?: readonly ContentBlockLike[];
+    text?: string;
+    stopReason?: string;
+    error?: string;
+  }>;
+}
+
 /** 宿主 subagents 服务结构面（ctx.get('subagents')，@deepseek-ai/dsh-subagent）；
  *  列条目须用 `listChildren(parentSessionId)`（`list()` 返回 provider 名，不是 agent）。 */
 export interface SubagentsLike {
@@ -1021,6 +1038,20 @@ export interface SubagentsLike {
     targetSessionId: string,
     authority: { kind: "user"; parentSessionId: string },
   ): void;
+  /** 拉起一个 one-shot 子代理（dsh-subagent `start(name, request)`；/council 评审用）。
+   *  request: { label?, prompt: ContentBlock[], parent, signal?, agentOptions? }。
+   *  宿主未提供 → /council 提示不可用不假启动。 */
+  start?(
+    name: string,
+    request: {
+      label?: string;
+      prompt: readonly ContentBlockLike[];
+      parent: unknown;
+      signal?: AbortSignal;
+      /** 高规格评审模型偏好（宿主暴露 agentOptions 能力时透传，否则默认） */
+      agentOptions?: Record<string, unknown>;
+    },
+  ): Promise<SubagentRunLike> | SubagentRunLike;
 }
 
 /** 宿主工具 schema 结构面（dsh-llm ToolSchema 子集） */

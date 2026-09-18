@@ -1379,6 +1379,9 @@ export class App {
       case "workflows":
         this.handleWorkflowsCommand();
         return;
+      case "council":
+        this.handleCouncilCommand(line);
+        return;
       case "copy":
         this.copyLastReply();
         return;
@@ -2163,6 +2166,36 @@ export class App {
     );
   }
 
+  /** /council：二次意见（notice 型）——并行拉起 N（默认 2，可带参）个评审子代理对
+   *  当前对话目标各自给独立意见，adapter.council 汇总后 info 展示；宿主未暴露
+   *  subagents.start → warn 不假启动。 */
+  private handleCouncilCommand(line: string): void {
+    const adapter = this.deps.adapter;
+    const council = adapter.council;
+    if (!council) {
+      this.notice("council 不可用（宿主无子代理启动面）", "warn");
+      return;
+    }
+    // 带参数 count（1-4），无参默认 2
+    const arg = slashCommandArg(line);
+    const count = /^[1-4]$/.test(arg) ? Number(arg) : 2;
+    // 当前目标：有 goal 快照取 objective，否则回落到最近用户输入（无则空串占位）
+    const snapshot = activeGoalSnapshot(
+      this.state,
+      this.state.activeSessionId ?? undefined,
+    );
+    const lastUser = [...this.state.buffer]
+      .reverse()
+      .find((l) => l.kind === "user");
+    const target = snapshot
+      ? snapshot.objective
+      : (lastUser?.text ?? "（无具体目标，请评审当前任务）");
+    void council
+      .call(adapter, target, count)
+      .then((text) => this.notice(text, "info"))
+      .catch(() => this.notice("council 不可用（宿主无子代理启动面）", "warn"));
+  }
+
   /** /workflows：工作流运行面板（kind=workflows，只读列表）。adapter 维护的
    *  tool-workflow 运行集合为数据源（事件增量推送）；宿主未挂载 workflowEngine → warn。 */
   private handleWorkflowsCommand(): void {
@@ -2438,6 +2471,7 @@ export class App {
       "  /loop  循环面板（活动/历史循环：↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
       "  /contract  契约概览（当前目标 + Done-when 条款摘要；无 goal 给出提示）",
       "  /workflows  工作流运行面板（只读：↑/↓ 选择、PgUp/PgDn 翻页、Esc 关闭）",
+      "  /council [N]  二次意见（并行 N 个评审子代理，对当前目标独立评审；默认 2）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }

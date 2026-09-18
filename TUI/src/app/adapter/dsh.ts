@@ -2432,6 +2432,73 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         });
       }
     },
+    /** /council：并行拉起 count（默认 2）个评审子代理（ctx.subagents.start，one-shot）
+     *  对 target 各自给独立意见。任一 run 失败降级保留其余（idea 行列失败注明）；
+     *  run 自身不 reject（stopReason:'error'），基础设施异常 reject → 调用方 warn。
+     *  汇总 ≤4 行：各行 = `评审 N：<output 首行>`；全部失败 text = 失败说明。 */
+    async council(target: string, count = 2): Promise<string> {
+      const svc = opts.subagents;
+      if (!svc || typeof svc.start !== "function") {
+        throw new Error("subagents 未暴露 start（宿主无子代理启动面）");
+      }
+      const n = Math.max(1, Math.min(4, Math.floor(count)));
+      const startFn = svc.start;
+      if (typeof startFn !== "function") {
+        throw new Error("subagents 未暴露 start（宿主无子代理启动面）");
+      }
+      const results = await Promise.allSettled(
+        Array.from({ length: n }, (_, i) =>
+          Promise.resolve(
+            startFn("one-shot", {
+              label: `council-${i + 1}`,
+              prompt: [
+                {
+                  type: "text",
+                  text:
+                    `请对以下目标/问题给出独立的评审意见（指出风险、遗漏与改进建议，` +
+                    `简明扼要，3 行以内）：\n\n${target}`,
+                },
+              ],
+              parent: activeAgent as unknown,
+            }),
+          ).then(async (run): Promise<{ ok: boolean; text: string }> => {
+            const result = run ? await run.result : undefined;
+            // run 无 result / 无输出 且 stopReason=error → 该评审判定失败（降级保留序号）
+            if (!result) return { ok: false, text: "（无结果）" };
+            const output = Array.isArray(result.output)
+              ? result.output
+                  .filter((b): b is ContentBlockLike & { text?: string } => !!b)
+                  .map((b) => b.text ?? "")
+                  .filter((t) => t !== "")
+                  .join(" ")
+              : typeof result.text === "string"
+                ? result.text
+                : "";
+            const trimmed = output.trim();
+            if (trimmed !== "") return { ok: true, text: trimmed };
+            const reason =
+              typeof result.error === "string" && result.error !== ""
+                ? result.error
+                : (result.stopReason ?? "无输出");
+            return { ok: result.stopReason !== "error", text: reason };
+          }),
+        ),
+      );
+      const lines = results.map((r, i) => {
+        const body =
+          r.status === "fulfilled"
+            ? (r.value.text.trim().split("\n")[0] ?? "（无意见）")
+            : `失败：${String(r.reason)}`;
+        return `评审 ${i + 1}：${body}`;
+      });
+      const okCount = results.filter(
+        (r) => r.status === "fulfilled" && r.value.ok,
+      ).length;
+      if (okCount === 0) {
+        return `council 失败：${count} 个评审均未返回意见`;
+      }
+      return [`council（${okCount}/${n} 成功）`, ...lines].join("\n");
+    },
     /** /workflows 面板：读 adapter 维护的 tool-workflow 运行集合推 command-panel-data；
      *  宿主未挂载 workflowEngine → reject（调用方 warn 不空开面板）。 */
     async refreshWorkflows(): Promise<void> {

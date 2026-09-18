@@ -4191,3 +4191,109 @@ test("真实 adapter /workflows：refreshWorkflows 推 command-panel-data(workfl
   assert.equal(rows[0]?.status, "active");
   t.unbind();
 });
+
+// ---------- P2#18：/council 的真实 adapter 接线契约 ----------
+// 断言：council 缺 subagents.start → reject；有 start → 并行拉起 count 个并汇总（output 首行
+// 逐行）；单个 run 失败（stopReason error / 无输出）降级保留序号；全部失败 → 失败文本。
+
+test("真实 adapter /council：subagents 无 start → reject", async () => {
+  const { adapter, unbind } = makeAdapter();
+  await assert.rejects(adapter.council!("目标", 2), /未暴露 start/);
+  unbind();
+});
+
+test("真实 adapter /council：并行 start 汇总 output（默认 2）", async () => {
+  const started: string[] = [];
+  const prompts: string[] = [];
+  const svc: SubagentsLike = {
+    start: async (_name, req) => {
+      started.push(String((req.label as string) ?? ""));
+      prompts.push(
+        (req.prompt as { text?: string }[]).map((b) => b.text ?? "").join(""),
+      );
+      const opinion = `意见-${started.length}`;
+      return {
+        id: `run-${started.length}`,
+        result: Promise.resolve({
+          output: [{ type: "text", text: opinion }],
+          stopReason: "completed",
+        }),
+      };
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { subagents: svc },
+  );
+  const text = await adapter.council!("目标", 2);
+  assert.equal(started.length, 2, "拉起 2 个");
+  assert.ok(started[0]?.includes("council-1"), String(started));
+  assert.ok(text.includes("council（2/2 成功）"), text);
+  assert.ok(text.includes("评审 1：意见-1"), text);
+  assert.ok(text.includes("评审 2：意见-2"), text);
+  assert.ok(
+    prompts.every((p) => p.includes("目标")),
+    "prompt 含目标: " + prompts.join("|"),
+  );
+  unbind();
+});
+
+test("真实 adapter /council：部分失败降级、全部失败 → 失败文本", async () => {
+  const svc: SubagentsLike = {
+    start: async (_name, req) => {
+      const i = Number(
+        String((req.label as string) ?? "")
+          .split("-")
+          .at(-1),
+      );
+      if (i === 1) {
+        return {
+          id: "run-1",
+          result: Promise.resolve({ stopReason: "error", error: "模型错误" }),
+        };
+      }
+      return {
+        id: "run-2",
+        result: Promise.resolve({
+          output: [{ type: "text", text: "ok" }],
+          stopReason: "completed",
+        }),
+      };
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { subagents: svc },
+  );
+  const text = await adapter.council!("t", 2);
+  assert.ok(text.includes("council（1/2 成功）"), text);
+  assert.ok(text.includes("评审 1：模型错误"), "失败注明: " + text);
+  assert.ok(text.includes("评审 2：ok"), text);
+  unbind();
+
+  const failSvc: SubagentsLike = {
+    start: async (_name, _req) => ({
+      id: "r",
+      result: Promise.resolve({ stopReason: "error" }),
+    }),
+  };
+  const { adapter: a2, unbind: u2 } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { subagents: failSvc },
+  );
+  const f = await a2.council!("t", 2);
+  assert.ok(f.includes("均未返回意见"), f);
+  u2();
+});
