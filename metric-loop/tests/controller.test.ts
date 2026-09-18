@@ -12,7 +12,9 @@ import { test } from "node:test";
 import {
   apply,
   createController,
+  provide,
   type MetricLoopController,
+  type MetricLoopService,
 } from "../src/index.ts";
 
 interface Harness {
@@ -238,6 +240,144 @@ test("apply(无 tools 的 ctx)：不抛错、静默降级", async () => {
   try {
     await assert.doesNotReject(() => apply({}, { stateDir: dir }));
     await assert.doesNotReject(() => apply(null));
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("list()：无循环返回空数组；活动/已停循环均入清单（只读子集、updatedAt 倒序）", async () => {
+  const h = makeHarness();
+  try {
+    // 目录存在但无循环 → 空
+    assert.deepEqual(h.controller.list(), []);
+
+    // 一个 running + 一个已停（plateau）
+    h.values.push(5, 5, 5, 9);
+    await h.controller.start({
+      id: "l-running",
+      measureCmd: "echo 5",
+      direction: "min",
+      window: 2,
+      cadenceSec: 30,
+    }); // r1，仅 1 轮不停止 → running
+    const running = h.controller.list();
+    assert.equal(running.length, 1);
+    assert.equal(running[0]?.id, "l-running");
+    assert.equal(running[0]?.status, "running");
+    assert.equal(running[0]?.rounds, 1);
+    assert.equal(running[0]?.best, 5);
+    assert.equal(running[0]?.measureCmd, "echo 5");
+    assert.equal(running[0]?.direction, "min");
+    assert.equal(running[0]?.cadenceSec, 30);
+
+    h.setT(2_000);
+    await h.controller.tick("l-running", "explicit"); // r2 无改进 streak=1
+    h.setT(3_000);
+    const stopped = await h.controller.tick("l-running", "explicit"); // plateau 停
+    assert.equal(stopped.state.status, "stopped");
+    assert.equal(stopped.state.stopReason, "plateau");
+
+    // 再启动一个 metricless 循环（updatedAt 最新）
+    await h.controller.start({ id: "l-metricless", maxRounds: 3 });
+    const all = h.controller.list();
+    assert.equal(all.length, 2);
+    // 倒序：最新更新的 metricless 在前
+    assert.equal(all[0]?.id, "l-metricless");
+    assert.equal(all[1]?.id, "l-running");
+    const stoppedEntry = all.find((e) => e.id === "l-running");
+    assert.equal(stoppedEntry?.status, "stopped");
+    assert.equal(stoppedEntry?.stopReason, "plateau");
+    assert.equal(stoppedEntry?.rounds, 3);
+    assert.equal(stoppedEntry?.streak, 2);
+    assert.equal(stoppedEntry?.measureCmd, "echo 5");
+    const metricless = all.find((e) => e.id === "l-metricless");
+    assert.equal(metricless?.measureCmd, null);
+    assert.equal(metricless?.best, null);
+  } finally {
+    cleanup(h.dir);
+  }
+});
+
+test("list()：状态目录缺失返回空数组；损坏/版本不符的单文件被跳过", async () => {
+  const h = makeHarness();
+  try {
+    await h.controller.start({ id: "good", measureCmd: "echo 1" });
+    assert.equal(h.controller.list().length, 1);
+
+    // 伪造损坏文件与版本不符文件（同前缀）→ 清单不受拖累
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(
+      path.join(h.dir, "metric-loop-broken.json"),
+      "{not json",
+      "utf8",
+    );
+    writeFileSync(
+      path.join(h.dir, "metric-loop-oldver.json"),
+      JSON.stringify({ version: 99, state: null }),
+      "utf8",
+    );
+    const list = h.controller.list();
+    assert.equal(list.length, 1);
+    assert.equal(list[0]?.id, "good");
+  } finally {
+    cleanup(h.dir);
+  }
+});
+
+test("提供方：metricLoop 服务挂到 ctx（provide + list/status 只读面）", async () => {
+  // 插件声明 provide，宿主命令可注入/ctx.get 访问
+  assert.deepEqual(provide, ["metricLoop"]);
+
+  const dir = mkdtempSync(path.join(tmpdir(), "metric-loop-provide-"));
+  const registered: Array<Record<string, unknown>> = [];
+  const provided = new Map<string, unknown>();
+  const ctx = {
+    tools: {
+      register: (def: unknown) =>
+        registered.push(def as Record<string, unknown>),
+    },
+    provide: (name: string, value: unknown) => {
+      provided.set(name, value);
+      return () => {};
+    },
+  };
+  try {
+    await apply(ctx, { stateDir: dir });
+    assert.equal(registered.length, 1);
+    assert.ok(provided.has("metricLoop"), "metricLoop 应被提供");
+
+    const svc = provided.get("metricLoop") as MetricLoopService;
+    assert.equal(typeof svc?.list, "function");
+    assert.equal(typeof svc?.status, "function");
+    assert.deepEqual(svc.list(), []);
+
+    // 经另一控制器（或后续宿主命令同一目录）写状态后，服务可见
+    const writer = createController({ stateDir: dir });
+    await writer.start({ id: "svc1", measureCmd: "echo 7", window: 2 });
+    assert.equal(svc.status("svc1")?.status, "running");
+    const items = svc.list();
+    assert.equal(items.length, 1);
+    assert.equal(items[0]?.id, "svc1");
+    assert.equal(items[0]?.rounds, 1);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("apply(无 provide 的 ctx)：不抛错、仍注册工具", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "metric-loop-noprovide-"));
+  const registered: Array<Record<string, unknown>> = [];
+  try {
+    await apply(
+      {
+        tools: {
+          register: (d: unknown) =>
+            void registered.push(d as Record<string, unknown>),
+        },
+      },
+      { stateDir: dir },
+    );
+    assert.equal(registered.length, 1);
   } finally {
     cleanup(dir);
   }

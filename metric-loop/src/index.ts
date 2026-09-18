@@ -17,6 +17,7 @@
  *   stop    手动停止
  */
 
+import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -31,7 +32,13 @@ import {
 } from "./engine.ts";
 import { runMeasureCommand } from "./measure.ts";
 import { loadState, saveState } from "./persist.ts";
-import type { LoopSpec, TickResult, WakeKind } from "./types.ts";
+import type {
+  LoopState,
+  LoopSpec,
+  LoopSummary,
+  TickResult,
+  WakeKind,
+} from "./types.ts";
 
 export {
   advance,
@@ -59,6 +66,9 @@ export type * from "./types.ts";
 
 export const name = "@dsh-toolset/dsh-metric-loop";
 export const inject = ["tools"];
+
+/** 提供的服务名（cordis：宿主命令经 ctx.get('metricLoop') 访问只读查询面）。 */
+export const provide = ["metricLoop"];
 
 /** bundle 配置（profile cordis.patch.yml 的 config 段）。 */
 export interface Config {
@@ -96,7 +106,7 @@ interface ToolArgs {
 }
 
 /**
- * 循环控制器：持有状态目录，编排 start/tick/status/stop。
+ * 循环控制器：持有状态目录，编排 start/tick/status/stop，并提供 list 只读清单。
  * clock 与 measure 可注入（测试缝）；真实实现用 Date.now 与 /bin/sh -c。
  */
 export class MetricLoopController {
@@ -146,6 +156,36 @@ export class MetricLoopController {
   /** 只读状态；不存在返回 null。 */
   status(id: string) {
     return loadState(this.stateDir, id);
+  }
+
+  /**
+   * 活动/历史循环清单（只读子集，按 updatedAt 倒序）。
+   * 状态目录缺失返回空清单；单个状态文件损坏/版本不符跳过，不拖垮整体。
+   */
+  list(): LoopSummary[] {
+    let names: string[];
+    try {
+      names = readdirSync(this.stateDir).filter(
+        (f) =>
+          f.startsWith("metric-loop-") &&
+          f.endsWith(".json") &&
+          !f.endsWith(".tmp"),
+      );
+    } catch {
+      return []; // 状态目录不存在 → 无循环
+    }
+    const items: LoopSummary[] = [];
+    for (const name of names) {
+      const id = name.slice("metric-loop-".length, -".json".length);
+      try {
+        const state = loadState(this.stateDir, id);
+        if (state !== null) items.push(toSummary(state));
+      } catch {
+        // 单个状态文件损坏/版本不符：跳过，不拖垮整体清单
+      }
+    }
+    items.sort((a, b) => b.updatedAt - a.updatedAt);
+    return items;
   }
 
   /** 手动停止（已停止则幂等）。 */
@@ -215,6 +255,35 @@ export class MetricLoopController {
       summary: summarize(result),
     };
   }
+}
+
+/** metricLoop ctx 服务：只读查询面（list/status），供宿主命令访问（如 TUI /loop 面板）。 */
+export interface MetricLoopService {
+  /** 活动/历史循环只读清单。 */
+  list(): LoopSummary[];
+  /** 只读状态；不存在返回 null。 */
+  status(id: string): LoopState | null;
+}
+
+/** 状态 → 只读清单条目（仅取已有字段的子集）。 */
+function toSummary(state: LoopState): LoopSummary {
+  return {
+    id: state.id,
+    status: state.status,
+    stopReason: state.stopReason,
+    measureCmd: state.spec.measureCmd ?? null,
+    direction: state.spec.direction,
+    window: state.spec.window,
+    maxRounds: state.spec.maxRounds,
+    timeBoundMs: state.spec.timeBoundMs ?? null,
+    tokenBound: state.spec.tokenBound ?? null,
+    cadenceSec: state.spec.cadenceSec ?? null,
+    rounds: state.rounds,
+    best: state.best,
+    streak: state.streak,
+    createdAt: state.createdAt,
+    updatedAt: state.updatedAt,
+  };
 }
 
 /** 从工具参数构造 LoopSpec（start 用；缺省字段走引擎默认）。 */
@@ -374,6 +443,22 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     );
   } catch (err) {
     warn(`工具注册失败：${String(err)}`);
+  }
+
+  // 挂只读查询面到 ctx：后续宿主命令（如 TUI /loop 面板）经 ctx.get('metricLoop') 访问
+  const queryService: MetricLoopService = {
+    list: () => controller.list(),
+    status: (id: string) => controller.status(id),
+  };
+  const provideFn = (
+    ctx as { provide?: (name: string, value: unknown) => unknown }
+  ).provide;
+  if (typeof provideFn === "function") {
+    try {
+      provideFn("metricLoop", queryService);
+    } catch (err) {
+      warn(`提供 metricLoop 服务失败：${String(err)}`);
+    }
   }
 }
 
