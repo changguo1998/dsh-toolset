@@ -124,6 +124,23 @@ dsh --profile <p>
 - `footerHeight` 省略时保持自适应（不小终端撑坏）；显式给出即固定绝对行数。
 - 修改后重启 `dsh --profile <p>`（或 `npm run demo`）生效；缺失/非法文件不崩溃，回落默认。
 
+## 声音提醒配置（notify，tui.config.json）
+
+**P2#33**：任务运行结束、以及等待用户输入超过阈值时触发终端 bell（BEL `\x07`）。默认即可用（开启 + 8s 阈值）；经 `tui.config.json` 的 `notify` 段配置：
+
+```json
+{
+  "notify": {
+    "enabled": true,           // bell 总开关（可选；缺省 true）
+    "idleThresholdMs": 8000    // 等待用户输入超过该阈值(ms)补响一次（可选；缺省 8000，最小 1000）
+  }
+}
+```
+
+- 触发点：`turn-end`（任务运行结束）响一次；随后等待用户输入，超过 `idleThresholdMs` 未输入再响一次（任意输入即取消本次等待）。
+- 仅终端 bell（终端响铃/视觉闪烁），不做桌面通知（notify-send 等）；无外部依赖。
+- 非法/越界字段回落默认；不新增依赖。
+
 ## 构建 / 测试
 
 ```sh

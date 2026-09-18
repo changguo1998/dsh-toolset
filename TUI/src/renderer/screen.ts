@@ -66,6 +66,12 @@ export class Screen {
     this.rows = process.stdout.rows || 24;
   }
 
+  /** 终端 bell：向输出流写 BEL（\x07）。声音提醒事件（任务结束/等待超时）经此输出。
+   *  保持与画面渲染同一输出出口（可注入 write 捕获/转发）。 */
+  beep(): void {
+    this.write("\x07");
+  }
+
   resize(cols: number, rows: number): void {
     this.cols = cols;
     this.rows = rows;

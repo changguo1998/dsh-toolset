@@ -80,6 +80,7 @@ export function main(opts: {
       intervalMs: 5000,
     },
     ...loadTuiConfig().layout,
+    notify: loadTuiConfig().notify,
     initialTheme: opts.initialTheme,
     slowStream: opts.slowStream,
     streamCharsPerSecond: opts.streamCharsPerSecond,

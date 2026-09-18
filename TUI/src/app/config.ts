@@ -19,8 +19,16 @@ export interface TuiLayoutConfig {
   statusColumnDivisor?: number;
 }
 
+export interface TuiNotifyConfig {
+  /** 声音提醒总开关（任务结束 / 等待输入超阈值 → 终端 BEL）；缺省 true（即可用） */
+  enabled?: boolean;
+  /** 等待用户输入超过该阈值(ms)触发 bell；缺省 8000（8s） */
+  idleThresholdMs?: number;
+}
+
 export interface TuiConfig {
   layout?: TuiLayoutConfig;
+  notify?: TuiNotifyConfig;
 }
 
 const CFG_FILE = "tui.config.json";
@@ -42,10 +50,17 @@ const intGe = (v: unknown, min: number): number | undefined =>
     ? Math.max(min, Math.floor(v))
     : undefined;
 
+const boolOr = (v: unknown): boolean | undefined =>
+  typeof v === "boolean" ? v : undefined;
+
 /** 归一化用户配置：非法/越界字段回落默认（undefined=未配置） */
 export function normalizeConfig(raw: unknown): TuiConfig {
-  const r = (raw ?? {}) as { layout?: Record<string, unknown> };
+  const r = (raw ?? {}) as {
+    layout?: Record<string, unknown>;
+    notify?: Record<string, unknown>;
+  };
   const l = r.layout ?? {};
+  const n = r.notify ?? {};
   return {
     layout: {
       ...(intGe(l.footerHeight, 1) === undefined
@@ -57,6 +72,15 @@ export function normalizeConfig(raw: unknown): TuiConfig {
       ...(intGe(l.statusColumnDivisor, 1) === undefined
         ? {}
         : { statusColumnDivisor: intGe(l.statusColumnDivisor, 1) }),
+    },
+    // notify：非法值回落 undefined（各自回落默认行为）；idleThresholdMs 最小 1000
+    notify: {
+      ...(boolOr(n.enabled) === undefined
+        ? {}
+        : { enabled: boolOr(n.enabled) }),
+      ...(intGe(n.idleThresholdMs, 1_000) === undefined
+        ? {}
+        : { idleThresholdMs: intGe(n.idleThresholdMs, 1_000) }),
     },
   };
 }

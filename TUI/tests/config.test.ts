@@ -34,6 +34,26 @@ test("normalizeConfig：合法整数保留，非法/越界回落缺省（undefin
   assert.equal(bad.layout?.statusColumnDivisor, undefined);
 });
 
+test("normalizeConfig：notify 声音提醒——enabled 布尔、idleThresholdMs 合法保留/非法回落", () => {
+  const c = normalizeConfig({
+    notify: {
+      enabled: false,
+      idleThresholdMs: 3000,
+    },
+  })!;
+  assert.equal(c.notify?.enabled, false);
+  assert.equal(c.notify?.idleThresholdMs, 3000);
+  // 缺省：不配置 notify → 字段 undefined（App 层默认开启 + 8s）
+  const def = normalizeConfig({})!;
+  assert.deepEqual(def.notify, {});
+  // 非法：字符串/NaN/过小 → 回落 undefined（App 用默认）
+  const bad = normalizeConfig({
+    notify: { enabled: "yes", idleThresholdMs: NaN },
+  })!;
+  assert.equal(bad.notify?.enabled, undefined);
+  assert.equal(bad.notify?.idleThresholdMs, undefined);
+});
+
 test("loadTuiConfig：缺省路径读取真实文件；缺失路径回落默认不崩溃", () => {
   const c = loadTuiConfig();
   assert.equal(c.layout?.activityHeightDivisor, 2, "默认文件 1/2");

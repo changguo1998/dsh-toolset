@@ -148,6 +148,14 @@ export interface AppDeps {
   /** /agents 面板定时刷新间隔(ms)；缺省 2000。宿主无 subagent 状态事件面，由
    *  打开期间定时 + 手动 `r` 双路保鲜（C2；评估结论见 IMPLEMENTATION.md） */
   agentsRefreshIntervalMs?: number;
+  /** 声音提醒（P2#33）：任务运行结束 / 等待用户输入超阈值 → 终端 BEL（\x07）。
+   *  可选；不传=默认开启。配置源 tui.config.json `notify`（见 config.ts）。 */
+  notify?: {
+    /** bell 总开关；缺省 true */
+    enabled?: boolean;
+    /** 等待用户输入超时(ms)；缺省 8000。最小 1000（由 config 归一化兜底） */
+    idleThresholdMs?: number;
+  };
 }
 
 export class App {
@@ -172,6 +180,12 @@ export class App {
     label: string;
   } | null = null;
   private slowCps = SLOW_DEFAULT_CPS;
+  /** 声音提醒：待用户输入超阈值计时器（turn-end 启动，任意键输入清除） */
+  private idleBellTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 声音提醒：bell 总开关（deps.notify?.enabled ?? true） */
+  private bellEnabled = true;
+  /** 声音提醒：等待输入阈值(ms)（deps.notify?.idleThresholdMs ?? 8000） */
+  private idleBellMs = 8000;
   /** 每 turn 思考的初始流速（配置值或默认）；正文加速后在下个 turn 回落 */
   private slowCpsBase = SLOW_DEFAULT_CPS;
   /** 上次 Ctrl+C 时间戳；双击窗口内再次按下则退出（含输入为空时计数） */
@@ -184,6 +198,14 @@ export class App {
   private slowCredit = 0;
 
   constructor(private deps: AppDeps) {
+    // 声音提醒配置（P2#33）：不传 notify = 默认开启 + 8s 阈值
+    this.bellEnabled = deps.notify?.enabled ?? true;
+    // 阈值合法性：>0 有限数即可（1000ms 下限是 tui.config.json 用户配置层的职责，
+    // 见 config.normalizeConfig；AppDeps 直接注入面（测试等）允许更小值便于可控验证）
+    const th = deps.notify?.idleThresholdMs;
+    if (typeof th === "number" && Number.isFinite(th) && th > 0) {
+      this.idleBellMs = Math.max(1, Math.floor(th));
+    }
     // 初始思考流速来自配置(默认 120)；收到正文后由 SLOW_STREAM_ARRIVED_CPS 加速，
     // turn 结束后回落到 slowCpsBase（下个 turn 重新从慢速开始）
     const cps = this.deps.streamCharsPerSecond;
@@ -364,8 +386,32 @@ export class App {
     for (const f of this.unbindEvents) f();
     this.unbindEvents = [];
     this.stopPanelRefresh();
+    this.clearIdleBellTimer();
     this.deps.adapter.dispose?.();
     this.deps.renderer.close();
+  }
+
+  // ---------- 声音提醒（P2#33） ----------
+
+  /** turn-end 钩子：任务运行结束 → bell；随后启动「等待用户输入超阈值」计时（默认 8s）。
+   *  计时期间任意用户输入(handleKey)即取消；仅本次等待响一次。 */
+  private onTurnEnded(): void {
+    if (!this.bellEnabled || this.disposed) return;
+    this.deps.renderer.bell?.();
+    this.clearIdleBellTimer();
+    this.idleBellTimer = setTimeout(() => {
+      this.idleBellTimer = null;
+      if (!this.bellEnabled || this.disposed) return;
+      this.deps.renderer.bell?.();
+    }, this.idleBellMs);
+  }
+
+  /** 清除「等待输入超阈值」计时（用户输入 / dispose / 新 turn 均取消） */
+  private clearIdleBellTimer(): void {
+    if (this.idleBellTimer) {
+      clearTimeout(this.idleBellTimer);
+      this.idleBellTimer = null;
+    }
   }
 
   /** 面板打开期间定时刷新（/agents、/workflows 共用；间隔 agentsRefreshIntervalMs 默认 2s）。
@@ -534,6 +580,8 @@ export class App {
       case "turn-end":
         // turn 结束：不再画分隔线(下个回合开始时画)；登记下轮流速回落。
         // 思考打字机进行中则等其放完再清思考(不打断思考读取)
+        // P2#33 声音提醒：任务结束 bell + 启动「等待用户输入超阈值」计时（输入即清）
+        this.onTurnEnded();
         this.slowNewTurn = true;
         this.turnOpen = false;
         if (this.deps.slowStream && this.slowTimer) {
@@ -669,6 +717,8 @@ export class App {
   }
 
   private handleKey(k: KeyEvent): void {
+    // P2#33：任意用户输入即取消「等待输入超阈值」计时（仅在本等待内响一次）
+    this.clearIdleBellTimer();
     if (this.disposed) return;
     const { name, ctrl } = k;
 

@@ -30,6 +30,9 @@ export interface Renderer {
   getSize(): Size;
   /** 切换主题（改变基底前景/背景与 16 色槽位映射） */
   setTheme(id: ThemeId): void;
+  /** 终端 bell（BEL ；声音提醒事件钩子的输出口）。可选：注入型 renderer
+   *  可不实现，App 侧经 `bell?.()` 调用。 */
+  bell?(): void;
   /** 恢复终端并退出事件循环 */
   close(): void;
 }
@@ -133,6 +136,9 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       theme = THEMES[id];
       screen.setTheme(id);
       prevRows = null; // 使下一帧走全帧重绘，把新背景/调色板画满屏幕
+    },
+    bell(): void {
+      screen.beep();
     },
     close(): void {
       if (closed) return;

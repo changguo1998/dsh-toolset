@@ -52,6 +52,14 @@
 
 - 官方 `plan/mode`、`sandbox/mode`、`permission/preset`、`approval/policy` 均为 log-only 事件（仅切换时落盘，会话启动无初始事件）→ `DshAdapter.refreshSessionModes?(id)`（`emitSessionModeSnapshot`：从 live 内存事件或 `readSession` 折叠各事件最后一条并 emit mode/approval-policy；**不能用 readSurface**——log-only 事件被 surface fold 滤掉）；`App.start` / `resumeToSession` 成功后调用。
 
+## 声音提醒事件钩子（P2#33）
+
+- **输出口**：`Renderer.bell?()`（可选接口方法；真实 renderer 实现 → `Screen.beep()` 向输出流写 BEL `\x07`；注入型 renderer 可不实现，App 经 `bell?.()` 调用）。
+- **config**：`tui.config.json` `notify.enabled`（缺省 true）、`notify.idleThresholdMs`（缺省 8000、最小 1000，`config.normalizeConfig` 归一化）；AppDeps.notify 注入（main.ts `loadTuiConfig().notify`）。App 构造只保阈值 >0 合法性；1000 下限属用户配置层职责（AppDeps 直传如测试可用小值）。
+- **触发**：`App.onTurnEnded()`（turn-end case 钩子）——任务结束响一次；随后 `setTimeout(idleBellMs)` 等待输入，超时补响一次。`handleKey` 任意键 → `clearIdleBellTimer()` 取消本次等待；`dispose()` 清理计时器。`bellEnabled`/`disposed` 双检查防关闭后误响。
+- **测试**：`tests/notify-bell.test.ts` 5 例（turn-end 响一次 / enabled=false 不响 / 超阈值补响 / 输入取消 / 真实 renderer 输出 BEL）+ `config.test.ts` notify 归一化 1 例。
+- 边界：仅 TUI 事件触发 + bell，不动插件、不做桌面通知。
+
 ## /model 命令
 
 - 能力：查询可用模型 + 切换当前会话模型（不落盘）。
