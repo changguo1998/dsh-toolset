@@ -617,6 +617,7 @@ export class MockDshAdapter implements DshAdapter {
             sessionId: this.sessionId,
             phase: "run-start",
             label: "research-toolset",
+            runId: "wf-1",
           });
           this.emit({
             type: "workflow",
@@ -624,6 +625,7 @@ export class MockDshAdapter implements DshAdapter {
             phase: "agent-start",
             label: "reviewer",
             detail: "1",
+            runId: "wf-1",
           });
           this.emit({
             type: "workflow",
@@ -631,6 +633,7 @@ export class MockDshAdapter implements DshAdapter {
             phase: "agent-end",
             label: "",
             detail: "1 success",
+            runId: "wf-1",
           });
           this.emit({
             type: "workflow",
@@ -638,6 +641,7 @@ export class MockDshAdapter implements DshAdapter {
             phase: "run-end",
             label: "",
             detail: "completed",
+            runId: "wf-1",
           });
           this.emit({
             type: "command",

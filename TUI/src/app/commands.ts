@@ -165,7 +165,8 @@ export type SlashRoute =
   | "guard"
   | "memory"
   | "loop"
-  | "contract";
+  | "contract"
+  | "workflows";
 
 /** 本地命令目录：路由与输入补全的**单一来源**（含别名，别名也是独立可补全项）。
  *  desc 供补全候选展示；/help 的逐行说明仍在 App.helpText（历史格式）。 */
@@ -256,6 +257,11 @@ export const LOCAL_COMMANDS: readonly {
     name: "contract",
     route: "contract",
     desc: "契约概览（goal-contract：当前目标 + Done-when 条款，notice 型）",
+  },
+  {
+    name: "workflows",
+    route: "workflows",
+    desc: "工作流运行面板（tool-workflow：只读运行列表，Enter 无操作）",
   },
 ];
 

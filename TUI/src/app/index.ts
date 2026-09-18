@@ -163,8 +163,14 @@ export class App {
   /** 思考放完前到达的 turn-end 记下，放完后补执行(不分隔线；思考保留至下回合一并清) */
   private pendingTurnEnd = false;
   private slowTimer: ReturnType<typeof setInterval> | null = null;
-  /** /agents 面板定时刷新 timer（仅面板打开期间存活；tick 自检面板仍为 agents） */
-  private agentsRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  /** 面板定时刷新 timer（/agents、/workflows 共用；仅面板打开期间存活，tick 自检 kind） */
+  private panelRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  /** 当前定时刷新面板 kind 对应的 refresh + 服务名（stop 前检查） */
+  private panelRefreshCtx: {
+    kind: CommandPanelKind;
+    refresh: (() => Promise<void>) | undefined;
+    label: string;
+  } | null = null;
   private slowCps = SLOW_DEFAULT_CPS;
   /** 每 turn 思考的初始流速（配置值或默认）；正文加速后在下个 turn 回落 */
   private slowCpsBase = SLOW_DEFAULT_CPS;
@@ -357,44 +363,51 @@ export class App {
     this.pendingTurnEnd = false;
     for (const f of this.unbindEvents) f();
     this.unbindEvents = [];
-    this.stopAgentsRefresh();
+    this.stopPanelRefresh();
     this.deps.adapter.dispose?.();
     this.deps.renderer.close();
   }
 
-  /** /agents 面板定时刷新：宿主无 subagent 状态事件面（评估见 IMPLEMENTATION），
-   *  面板打开期间每 agentsRefreshIntervalMs 重拉一次全量；tick 自检面板仍为 agents，
-   *  否则停表（覆盖 Esc/Enter/重复 kind 关闭等所有关闭路径）。 */
-  private startAgentsRefresh(): void {
-    if (this.agentsRefreshTimer || this.disposed) return;
+  /** 面板打开期间定时刷新（/agents、/workflows 共用；间隔 agentsRefreshIntervalMs 默认 2s）。
+   *  增量事件面不实时推全量（/agents 无事件面、/workflows 增量仅维护内部集合），由本定时器
+   *  tick 自检面板 kind 仍匹配时重拉；否则停表（覆盖 Esc/Enter/重复 kind 关闭等全部关闭路径）。 */
+  private startPanelRefresh(opts: {
+    kind: CommandPanelKind;
+    refresh: (() => Promise<void>) | undefined;
+    label: string;
+  }): void {
+    if (this.panelRefreshTimer || this.disposed) return;
+    this.panelRefreshCtx = opts;
     const intervalMs = this.deps.agentsRefreshIntervalMs ?? 2000;
-    this.agentsRefreshTimer = setInterval(
-      () => this.agentsRefreshTick(),
+    this.panelRefreshTimer = setInterval(
+      () => this.panelRefreshTick(),
       intervalMs,
     );
   }
 
-  private stopAgentsRefresh(): void {
-    if (this.agentsRefreshTimer) {
-      clearInterval(this.agentsRefreshTimer);
-      this.agentsRefreshTimer = null;
+  private stopPanelRefresh(): void {
+    if (this.panelRefreshTimer) {
+      clearInterval(this.panelRefreshTimer);
+      this.panelRefreshTimer = null;
     }
+    this.panelRefreshCtx = null;
   }
 
-  private agentsRefreshTick(): void {
+  private panelRefreshTick(): void {
     if (this.disposed) {
-      this.stopAgentsRefresh();
+      this.stopPanelRefresh();
       return;
     }
     const panel = this.state.commandPanel;
-    if (!panel || panel.kind !== "agents") {
+    const ctx = this.panelRefreshCtx;
+    if (!panel || !ctx || panel.kind !== ctx.kind) {
       // 面板已关或切到别的 kind：停表（不空刷）
-      this.stopAgentsRefresh();
+      this.stopPanelRefresh();
       return;
     }
-    void this.deps.adapter
-      .refreshAgents?.()
-      .catch(() => this.notice("subagents 服务不可用", "warn"));
+    void ctx.refresh
+      ?.call(this.deps.adapter)
+      .catch(() => this.notice(`${ctx.label} 服务不可用`, "warn"));
   }
 
   private handleEvent(e: DshEvent): void {
@@ -840,6 +853,8 @@ export class App {
           );
         } else if (panel.kind === "agents") {
           void this.interruptAgent(row.payload);
+        } else if (panel.kind === "workflows") {
+          // 只读运行列表：Enter 无操作（吞键，面板保持）
         } else {
           void this.showPanelDetail(panel.kind, row.payload);
         }
@@ -1360,6 +1375,9 @@ export class App {
         return;
       case "contract":
         this.handleContractCommand();
+        return;
+      case "workflows":
+        this.handleWorkflowsCommand();
         return;
       case "copy":
         this.copyLastReply();
@@ -2145,6 +2163,17 @@ export class App {
     );
   }
 
+  /** /workflows：工作流运行面板（kind=workflows，只读列表）。adapter 维护的
+   *  tool-workflow 运行集合为数据源（事件增量推送）；宿主未挂载 workflowEngine → warn。 */
+  private handleWorkflowsCommand(): void {
+    this.openListPanel({
+      kind: "workflows",
+      label: "workflowEngine",
+      refresh: this.deps.adapter.refreshWorkflows,
+      filter: "",
+    });
+  }
+
   /** /contract：契约概览（notice 型）——取当前会话 goal 快照的 objective，经
    *  adapter.contractSummary（goal-contract 只读面优先、内置同构回读兜底）解析
    *  Done-when 段为条款摘要；无目标或解析失败 → warn。 */
@@ -2253,9 +2282,11 @@ export class App {
     void refresh
       .call(this.deps.adapter, filter === "" ? undefined : filter)
       .catch(() => this.notice(`${label} 服务不可用`, "warn"));
-    // C2：/agents 面板打开期间定时刷新（宿主无 subagent 事件面；Esc/Enter/重复
-    // kind 关闭时 tick 自检停表）
-    if (kind === "agents") this.startAgentsRefresh();
+    // C2/#16：面板打开期间定时刷新（/agents 无事件面、/workflows 增量仅维护集合；
+    // Esc/Enter/重复 kind 关闭时 tick 自检停表）
+    if (kind === "agents" || kind === "workflows") {
+      this.startPanelRefresh({ kind, refresh, label });
+    }
   }
 
   /** 面板 Enter（详情型 kind：skills / tools）：读取正文并以 info notice 展示；
@@ -2406,6 +2437,7 @@ export class App {
       "  /memory  知识库概要（就绪/路径/chunk·source 计数；未就绪给说明）",
       "  /loop  循环面板（活动/历史循环：↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
       "  /contract  契约概览（当前目标 + Done-when 条款摘要；无 goal 给出提示）",
+      "  /workflows  工作流运行面板（只读：↑/↓ 选择、PgUp/PgDn 翻页、Esc 关闭）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }

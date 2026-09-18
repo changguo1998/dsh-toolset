@@ -49,6 +49,7 @@ import {
   type KnowledgeServiceLike,
   type MetricLoopLike,
   type GoalContractServiceLike,
+  type WorkflowEngineLike,
 } from "./app/adapter/dsh.ts";
 
 /** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
@@ -381,6 +382,10 @@ export async function apply(
     goalContract: (ctx as { get?: (name: string) => unknown }).get?.(
       "goalContract",
     ) as GoalContractServiceLike | undefined,
+    // 工作流引擎挂载探测（/workflows 面板数据源为 tool-workflow 事件流，引擎缺失 → 提示不可用）
+    workflowEngine: (ctx as { get?: (name: string) => unknown }).get?.(
+      "workflowEngine",
+    ) as WorkflowEngineLike | undefined,
   });
 
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）

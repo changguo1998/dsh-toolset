@@ -79,6 +79,7 @@
 | `/memory` | knowledge-base：`getSummary()` / `whenReady()`（C4 已实现并挂 `ctx.provide("knowledge")`；概要=就绪/路径/chunk·source） | provide 只读查询面 ✅ 已完成 | P1 ✅ A3 已实现（TUI 接线） |
 | `/loop` | metric-loop：`list()`（C5 已实现并挂 `ctx.provide("metricLoop")`；LoopSummary=id/状态/目标/指标/updatedAt） | provide 只读查询面 ✅ 已完成 | P1 ✅ A4 已实现（TUI 接线） |
 | `/contract` | goal-contract：入口 re-export `buildObjective`/`parseContract`（C2 前置）；**不 expose ctx 服务** → TUI 内置同构回读兜底（service 优先钩子预留） | 包入口直读评估：TUI 无跨包依赖/根无 workspaces → 不可行；改内置回读支路 ✅ | P1 ✅ A5 已实现（TUI 接线） |
+| `/workflows` | tool-workflow 会话事件流（runId 分组）+ `ctx.workflowEngine` 挂载探测；dsh-workflow 无只读查询面 | adapter 维护 runs 集合 + refreshWorkflows；TUI 面板打开定时刷新 | P2 ✅ #16 已实现（只读运行列表） |
 | `/task` | task-engine：`query()` / `frameStack()`（C1 已实现并挂 `ctx.provide("taskEngine")`） | provide 只读子集 ✅ 已完成 | P2 ✅ A1 已实现（TUI 接线） |
 | `/contract` | goal-contract：纯函数**未从包入口导出**（`index.ts` 仅 `name`/`inject`/`apply`） | 需给该包加 re-export（属插件包改动） | P2（本轮不纳入） |
 | `/guard` | security-guard：`recent()` / `policy()`（C3 已实现并挂 `ctx.provide("guard")`） | provide 只读查询面 ✅ 已完成 | P2 ✅ A2 已实现（TUI 接线） |

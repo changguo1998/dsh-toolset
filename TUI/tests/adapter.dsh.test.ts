@@ -128,6 +128,7 @@ interface AdapterServices {
   knowledge?: KnowledgeServiceLike;
   metricLoop?: MetricLoopLike;
   goalContract?: GoalContractServiceLike;
+  workflowEngine?: { present?: true };
 }
 
 interface TestHarness {
@@ -2726,6 +2727,7 @@ test("P3 新事件归一化：workflow/command/code-dispatch/hook/schedule/prune
     sessionId: "s1",
     phase: "run-start",
     label: "research",
+    runId: "r1",
   });
   assert.deepEqual(t.events.at(-3), {
     type: "workflow",
@@ -2733,6 +2735,7 @@ test("P3 新事件归一化：workflow/command/code-dispatch/hook/schedule/prune
     phase: "agent-start",
     label: "reviewer",
     detail: "1",
+    runId: "r1",
   });
   assert.deepEqual(t.events.at(-2), {
     type: "workflow",
@@ -2740,6 +2743,7 @@ test("P3 新事件归一化：workflow/command/code-dispatch/hook/schedule/prune
     phase: "agent-end",
     label: "",
     detail: "1 success",
+    runId: "r1",
   });
   assert.deepEqual(t.events.at(-1), {
     type: "workflow",
@@ -2747,6 +2751,7 @@ test("P3 新事件归一化：workflow/command/code-dispatch/hook/schedule/prune
     phase: "run-end",
     label: "",
     detail: "completed",
+    runId: "r1",
   });
   // command/run-done 配对（done 无 name，经 commandId 取回）
   fire("command/run", { commandId: "cmd-1", name: "goal" });
@@ -3388,7 +3393,7 @@ function makeAgentsToolsServices(): {
 
 function panelRows(
   events: DshEvent[],
-  kind: "agents" | "tools" | "task" | "guard" | "loop",
+  kind: "agents" | "tools" | "task" | "guard" | "loop" | "workflows",
 ) {
   const rows = [];
   for (const e of events) {
@@ -4092,4 +4097,97 @@ test("真实 adapter /contract：contractSummaryText 摘要 ≤4 行", () => {
   assert.ok(text.includes("Done-when 契约：2 条"), text);
   const plain = parseContractObjective("无契约");
   assert.ok(contractSummaryText(plain, 40).includes("未附契约条款"));
+});
+
+// ---------- #16：/workflows 的真实 adapter 接线契约 ----------
+// 断言：tool-workflow/* 会话事件被 adapter 增量维护为 workflowRuns（runId 分组：
+// run-start 建 + agent-start ++members + agent-end ++membersDone + run-end done）；
+// refreshWorkflows 依赖 workflowEngine 挂载（缺失 reject），有则把 runs 推 command-panel-data。
+
+/** tool-workflow 会话事件（模拟 session/event 原始载荷） */
+function workflowEv(type: string, data: Record<string, unknown>): unknown {
+  return { type, seq: 1, time: Date.now(), data };
+}
+
+test("真实 adapter /workflows：tool-workflow 事件 → runId 分组维护 runs", () => {
+  const t = makeAdapter();
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    workflowEv("tool-workflow/run-start", { runId: "r1", name: "audit" }),
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    workflowEv("tool-workflow/agent-start", {
+      runId: "r1",
+      seq: 1,
+      label: "a",
+    }),
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    workflowEv("tool-workflow/agent-end", {
+      runId: "r1",
+      seq: 1,
+      outcome: "success",
+    }),
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    workflowEv("tool-workflow/run-end", {
+      runId: "r1",
+      stopReason: "completed",
+    }),
+  );
+  const runs = t.adapter.workflowRuns ?? [];
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0]?.id, "r1");
+  assert.equal(runs[0]?.name, "audit");
+  assert.equal(runs[0]?.members, 1);
+  assert.equal(runs[0]?.membersDone, 1);
+  assert.equal(runs[0]?.status, "done");
+  assert.equal(runs[0]?.phase, "run-end");
+  t.unbind();
+});
+
+test("真实 adapter /workflows：workflowEngine 缺失 → refreshWorkflows reject；挂载 → 不抛", async () => {
+  const t1 = makeAdapter();
+  await assert.rejects(t1.adapter.refreshWorkflows!(), /workflowEngine 未挂载/);
+  t1.unbind();
+
+  const t2 = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { workflowEngine: { present: true } },
+  );
+  await t2.adapter.refreshWorkflows?.();
+  t2.unbind();
+});
+
+test("真实 adapter /workflows：refreshWorkflows 推 command-panel-data(workflows)，running → active", async () => {
+  const t = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { workflowEngine: { present: true } },
+  );
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    workflowEv("tool-workflow/run-start", { runId: "r2", name: "review" }),
+  );
+  await t.adapter.refreshWorkflows?.();
+  const rows = panelRows(t.events, "workflows");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.title, "review");
+  assert.equal(rows[0]?.status, "active");
+  t.unbind();
 });

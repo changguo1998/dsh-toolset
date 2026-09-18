@@ -27,6 +27,7 @@ const PANEL_TITLES: Record<CommandPanelKind, string> = {
   task: "任务",
   guard: "守卫",
   loop: "循环",
+  workflows: "工作流",
 };
 
 /** kind → 空态占位文本 */
@@ -37,6 +38,7 @@ const EMPTY_TEXTS: Record<CommandPanelKind, string> = {
   task: "（无任务）",
   guard: "（无记录）",
   loop: "（无循环）",
+  workflows: "（无运行中工作流）",
 };
 
 /** 共享面板按键提示（宽度不足时由首行右侧截断）；Enter 行为按 kind 区分：

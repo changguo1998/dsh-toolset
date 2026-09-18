@@ -58,6 +58,7 @@ import type {
   ContractParseResult,
   ContractClauseLike,
   GoalContractServiceLike,
+  WorkflowRunLike,
   GoalChangeLike,
   TodoItemLike,
   SubagentDescriptorLike,
@@ -138,6 +139,8 @@ export type {
   ContractParseResult,
   ContractClauseLike,
   GoalContractServiceLike,
+  WorkflowRunLike,
+  WorkflowEngineLike,
   CommandPanelRow,
   CommandPanelKind,
   AgentRegistryLike,
@@ -750,6 +753,22 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   const stepEmitted = new Map<string, string>();
   // P3 command/run-done 配对：commandId → 命令名（run 记录 / done 读取后删除；缺 run 直接 done）
   const commandNames = new Map<string, string>();
+  // P2/16：tool-workflow 运行集合（/workflows 面板数据源；按 runId 分组，增量维护）
+  const workflowRuns = new Map<string, WorkflowRunLike>();
+  // /workflows 面板行：runs 集合 → CommandPanelRow[]（running → active 黄 / done → inactive 灰）。
+  // 行归一只在 refreshWorkflows 主动调用时 emit（面板打开）；tool-workflow 增量事件仅更新
+  // 内部 Map、不 emit 额外事件（避免污染既有事件流尾索引断言），面板实时性由 App 打开期间
+  // 定时刷新承担（C2 同款 inputPanelHeights/interval 基建）。
+  const workflowRows = (): {
+    title: string;
+    detail: string;
+    status: string;
+  }[] =>
+    Array.from(workflowRuns.values()).map((r) => ({
+      title: r.name,
+      detail: `${r.phase} · 成员 ${r.membersDone}/${r.members}`,
+      status: r.status === "running" ? "active" : "inactive",
+    }));
 
   const emit = (e: DshEvent): void => {
     if (disposed) return;
@@ -1400,31 +1419,66 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         return;
       }
       case "tool-workflow/run-start": {
-        // P3 workflow 运行打开：{runId, name}，仅显示名
-        const w = raw.data as { name?: unknown };
+        // P3 workflow 运行打开：{runId, name}，仅显示名；/workflows 运行集合建条目
+        const w = raw.data as { runId?: unknown; name?: unknown };
+        const runId = typeof w.runId === "string" ? w.runId : "";
+        const name = typeof w.name === "string" ? w.name : "";
         emit({
           type: "workflow",
           sessionId: sid,
           phase: "run-start",
-          label: typeof w.name === "string" ? w.name : "",
+          label: name,
+          runId,
         });
+        if (runId !== "") {
+          workflowRuns.set(runId, {
+            id: runId,
+            name,
+            phase: "run-start",
+            status: "running",
+            members: 0,
+            membersDone: 0,
+            updatedAt: Date.now(),
+          });
+        }
         return;
       }
       case "tool-workflow/agent-start": {
-        // P3 workflow 成员发布：{seq, label, phase?, childId}；无 label 回落 #seq
-        const w = raw.data as { seq?: unknown; label?: unknown };
+        // P3 workflow 成员发布：{runId, seq, label, phase?, childId}；无 label 回落 #seq
+        const w = raw.data as {
+          runId?: unknown;
+          seq?: unknown;
+          label?: unknown;
+        };
+        const runId = typeof w.runId === "string" ? w.runId : "";
         emit({
           type: "workflow",
           sessionId: sid,
           phase: "agent-start",
           label: typeof w.label === "string" && w.label !== "" ? w.label : "",
           detail: typeof w.seq === "number" ? String(w.seq) : "",
+          runId,
         });
+        const run = runId !== "" ? workflowRuns.get(runId) : undefined;
+        if (run) {
+          const next = {
+            ...run,
+            phase: "agent-start",
+            members: run.members + 1,
+            updatedAt: Date.now(),
+          };
+          workflowRuns.set(runId, next);
+        }
         return;
       }
       case "tool-workflow/agent-end": {
-        // P3 workflow 成员结算：{seq, outcome}
-        const w = raw.data as { seq?: unknown; outcome?: unknown };
+        // P3 workflow 成员结算：{runId, seq, outcome}
+        const w = raw.data as {
+          runId?: unknown;
+          seq?: unknown;
+          outcome?: unknown;
+        };
+        const runId = typeof w.runId === "string" ? w.runId : "";
         emit({
           type: "workflow",
           sessionId: sid,
@@ -1435,19 +1489,43 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
             (typeof w.outcome === "string" && w.outcome !== ""
               ? " " + w.outcome
               : ""),
+          runId,
         });
+        const run = runId !== "" ? workflowRuns.get(runId) : undefined;
+        if (run) {
+          const next = {
+            ...run,
+            phase: "agent-end",
+            membersDone: run.membersDone + 1,
+            updatedAt: Date.now(),
+          };
+          workflowRuns.set(runId, next);
+        }
         return;
       }
       case "tool-workflow/run-end": {
-        // P3 workflow 收尾：{stopReason}；fold 为 toast
-        const w = raw.data as { stopReason?: unknown };
+        // P3 workflow 收尾：{runId, stopReason}；fold 为 toast；/workflows 标记 done
+        const w = raw.data as { runId?: unknown; stopReason?: unknown };
+        const runId = typeof w.runId === "string" ? w.runId : "";
         emit({
           type: "workflow",
           sessionId: sid,
           phase: "run-end",
           label: "",
           detail: typeof w.stopReason === "string" ? w.stopReason : "",
+          runId,
         });
+        if (runId !== "") {
+          const run = workflowRuns.get(runId);
+          if (run) {
+            workflowRuns.set(runId, {
+              ...run,
+              phase: "run-end",
+              status: "done",
+              updatedAt: Date.now(),
+            });
+          }
+        }
         return;
       }
       case "command/run": {
@@ -2354,8 +2432,24 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         });
       }
     },
+    /** /workflows 面板：读 adapter 维护的 tool-workflow 运行集合推 command-panel-data；
+     *  宿主未挂载 workflowEngine → reject（调用方 warn 不空开面板）。 */
+    async refreshWorkflows(): Promise<void> {
+      const eng = opts.workflowEngine;
+      if (!eng) {
+        throw new Error("workflowEngine 未挂载（宿主无工作流引擎）");
+      }
+      emit({
+        type: "command-panel-data",
+        kind: "workflows",
+        rows: workflowRows(),
+      });
+    },
     /** 契约回读：优先 goal-contract 只读面（opts.goalContract.parseContract），宿主未挂载
      *  （当前 goal-contract 不 expose 服务）→ 内置同构回读兜底（不依赖跨包 import） */
+    get workflowRuns(): readonly WorkflowRunLike[] {
+      return Array.from(workflowRuns.values());
+    },
     contractSummary(objectiveText: string): ContractParseResult {
       const svc = opts.goalContract;
       if (svc && typeof svc.parseContract === "function") {

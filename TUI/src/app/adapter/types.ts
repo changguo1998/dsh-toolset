@@ -210,6 +210,8 @@ export type DshEvent =
       /** run-start=工作流名；agent-start=成员 label；agent-end/run-end 缺省用序号 */
       label: string;
       detail?: string;
+      /** tool-workflow run id（/workflows 运行集合分组用） */
+      runId: string;
     }
   | {
       type: "command";
@@ -374,6 +376,12 @@ export interface DshAdapter {
   contractSummary?(objectiveText: string): ContractParseResult;
   /** 取消后台任务（映射 ctx.jobs.kill）；宿主缺失 → reject */
   killJob?(id: string): Promise<void>;
+  /** 请求刷新 /workflows 面板：读 adapter 维护的 workflow runs 集合 → command-panel-data
+   *  推送（行：name + 阶段/成员数·done；running → status active（黄）、done → inactive）。
+   *  宿主未挂载 workflowEngine → reject（调用方 warn 不空开面板）。 */
+  refreshWorkflows?(): Promise<void>;
+  /** /workflows 只读运行集合（测试/契约用；无则空） */
+  workflowRuns?: readonly WorkflowRunLike[];
 }
 
 /** 模型目录条目（/model 列表展示用） */
@@ -945,7 +953,7 @@ export interface JobInfo {
 
 /** 共享列表面板 kind（批次 2 仅 skills；agents/tools 由批次 3 接入） */
 export type CommandPanelKind =
-  "skills" | "agents" | "tools" | "task" | "guard" | "loop";
+  "skills" | "agents" | "tools" | "task" | "guard" | "loop" | "workflows";
 
 /** 共享列表面板行（kind 无关的归一化渲染输入） */
 export interface CommandPanelRow {
@@ -1141,6 +1149,31 @@ export interface MetricLoopLike {
   list?(): readonly LoopSummaryLike[];
 }
 
+/** tool-workflow 运行视图（/workflows 只读面板行数据源；runId 分组，增量事件维护） */
+export interface WorkflowRunLike {
+  /** tool-workflow run id */
+  id: string;
+  /** 工作流名（run-start 载荷 name） */
+  name: string;
+  /** 最近阶段：agent-start（有成员在跑）/ agent-end / run-end */
+  phase: string;
+  /** running = 运行中；done = run-end 已收尾 */
+  status: "running" | "done";
+  /** 已发布成员数（agent-start 计数） */
+  members: number;
+  /** 已结算成员数（agent-end 计数） */
+  membersDone: number;
+  /** 更新时间戳（事件到达时刻） */
+  updatedAt: number;
+}
+
+/** ctx.get('workflowEngine') 宿主面（dsh-workflow）；仅作 /workflows 挂载探测，
+ *  面板数据源为 tool-workflow/* 会话事件流（经 adapter 维护 runs 集合）。 */
+export interface WorkflowEngineLike {
+  /** 引擎是否可用（宿主面存在即视为可用；TUI 不做引擎操作） */
+  readonly present?: true;
+}
+
 /** goal-contract 契约条款（`Done-when:` 段 JSON 数组元素；TUI 侧只读子集） */
 export interface ContractClauseLike {
   id?: string;
@@ -1252,4 +1285,6 @@ export interface RealAdapterOptions {
   /** ctx.get('goalContract') 只读查询面（goal-contract cordis provide）。当前 goal-contract
    *  不 expose 服务，TUI 以内置回读兜底（/contract）。 */
   goalContract?: GoalContractServiceLike;
+  /** ctx.get('workflowEngine') 服务（dsh-workflow）；缺失时 /workflows 提示不可用 */
+  workflowEngine?: WorkflowEngineLike;
 }
