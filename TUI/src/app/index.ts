@@ -2343,7 +2343,16 @@ export class App {
     this.paint();
     void refresh
       .call(this.deps.adapter, filter === "" ? undefined : filter)
-      .catch(() => this.notice(`${label} 服务不可用`, "warn"));
+      .catch(() => {
+        // 拉取失败（如 /search 全部 provider 失败、服务缺失返回 reject）：
+        // 先关面板再 notice——面板占满活动区会遮住瞬态 notice；也不留空面板。
+        this.stopPanelRefresh();
+        this.apply((s) =>
+          s.commandPanel ? reduceState(s, { type: "command-panel-close" }) : s,
+        );
+        this.paint();
+        this.notice(`${label} 服务不可用`, "warn");
+      });
     // C2/#16：面板打开期间定时刷新（/agents 无事件面、/workflows 增量仅维护集合；
     // Esc/Enter/重复 kind 关闭时 tick 自检停表）
     if (kind === "agents" || kind === "workflows") {

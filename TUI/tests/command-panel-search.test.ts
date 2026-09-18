@@ -241,3 +241,45 @@ test("/search：多结果 PgDn/PgUp 整页翻页", async () => {
   );
   app.dispose();
 });
+
+test("/search：聚合 detail 含 provider 标注 + 全失败 warn 不空开", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeSearchAdapter();
+  // 模拟真实聚合管线：detail 带 [provider]
+  adapter.search = async (query: string): Promise<void> => {
+    adapter.queries.push(query);
+    adapter.emit({
+      type: "command-panel-data",
+      kind: "search",
+      rows: [
+        {
+          title: "结果 A",
+          detail: "[web] · 摘要 A",
+          payload: "https://example.com/a",
+        },
+      ],
+    });
+  };
+  const app = new App({ renderer, adapter });
+  app.start();
+  typeAndEnter(renderer, "/search foo");
+  await tick();
+  const f = frames(renderer);
+  assert.ok(f.includes("[web] · 摘要 A"), "detail 含 provider 标注: " + f);
+  app.dispose();
+
+  // 全部失败 → adapter.search reject → warn 不空开
+  const renderer2 = new FakeRenderer();
+  const adapter2 = new FakeSearchAdapter();
+  adapter2.search = async (): Promise<void> => {
+    throw new Error("所有搜索 provider 均失败");
+  };
+  const app2 = new App({ renderer: renderer2, adapter: adapter2 });
+  app2.start();
+  typeAndEnter(renderer2, "/search foo");
+  await tick();
+  await tick();
+  const f2 = frames(renderer2);
+  assert.ok(f2.includes("web 服务不可用"), "全败 warn: " + f2);
+  app2.dispose();
+});

@@ -81,7 +81,7 @@
 | `/contract` | goal-contract：入口 re-export `buildObjective`/`parseContract`（C2 前置）；**不 expose ctx 服务** → TUI 内置同构回读兜底（service 优先钩子预留） | 包入口直读评估：TUI 无跨包依赖/根无 workspaces → 不可行；改内置回读支路 ✅ | P1 ✅ A5 已实现（TUI 接线） |
 | `/workflows` | tool-workflow 会话事件流（runId 分组）+ `ctx.workflowEngine` 挂载探测；dsh-workflow 无只读查询面 | adapter 维护 runs 集合 + refreshWorkflows；TUI 面板打开定时刷新 | P2 ✅ #16 已实现（只读运行列表） |
 | `/council [N]` | `ctx.subagents.start`（dsh-subagent one-shot 启动面）+ 当前目标源 | adapter.council 并行 allSettled + 失败降级；notice 展示 | P2 ✅ #18 已实现（二次意见） |
-| `/search <query>` | `ctx.web.search`（dsh-web 统一多 provider 搜索 seam） | adapter.search 归一化行 + Enter 来源 URL；listPanel 展示 | P2 ✅ #24 已实现（网页搜索聚合） |
+| `/search <query>` | `ctx.web.search`（dsh-web provider-selecting seam，非聚合）+ `options.searchProviders` | adapter 并行多 provider 合并/去重/排序；Enter 来源 URL；listPanel | P2 ✅ #24 已实现（网页搜索聚合） |
 | `/task` | task-engine：`query()` / `frameStack()`（C1 已实现并挂 `ctx.provide("taskEngine")`） | provide 只读子集 ✅ 已完成 | P2 ✅ A1 已实现（TUI 接线） |
 | `/contract` | goal-contract：纯函数**未从包入口导出**（`index.ts` 仅 `name`/`inject`/`apply`） | 需给该包加 re-export（属插件包改动） | P2（本轮不纳入） |
 | `/guard` | security-guard：`recent()` / `policy()`（C3 已实现并挂 `ctx.provide("guard")`） | provide 只读查询面 ✅ 已完成 | P2 ✅ A2 已实现（TUI 接线） |

@@ -26,6 +26,7 @@ import {
   type MetricLoopLike,
   type GoalContractServiceLike,
   type WebSearchLike,
+  type SearchProviderLike,
   type DshEvent,
   type DshUserMessageLike,
   type SessionEvent,
@@ -131,6 +132,7 @@ interface AdapterServices {
   goalContract?: GoalContractServiceLike;
   workflowEngine?: { present?: true };
   web?: WebSearchLike;
+  searchProviders?: readonly SearchProviderLike[];
 }
 
 interface TestHarness {
@@ -4300,18 +4302,64 @@ test("真实 adapter /council：部分失败降级、全部失败 → 失败文�
   u2();
 });
 
-// ---------- P2#24：/search 的真实 adapter 接线契约 ----------
-// 断言：search 经 opts.web.search（统一多 provider seam）拉取归一化行（title ?? host、
-// url·snippet）；web 缺失 → reject；sources 为空 → 推空列表不抛（App 占位）。
+// ---------- P2#24：/search 多引擎聚合的真实 adapter 接线契约 ----------
+// seam 是 provider-selecting（非聚合），聚合为 TUI 侧职责：host web 派生 + options.searchProviders
+// 注入多 provider → 并行遍历 → 合并/URL 去重/query-token 关联度排序 → 单 provider 失败降级、
+// 全部失败 reject（App warn）。
 
-test("真实 adapter /search：web.search 归一化行（title ?? host / payload=url）", async () => {
-  const svc: WebSearchLike = {
-    search: async (_req) => ({
-      content: "综合摘要",
-      sources: [
-        { url: "https://ex.com/a", title: "标题 A", snippet: "摘要 A" },
-        { url: "https://ex.org/b", snippet: "无标题 B" },
-      ],
+function searchProvider(
+  id: string,
+  sources: { url: string; title?: string; snippet?: string }[],
+  fail = false,
+): {
+  id: string;
+  search(): Promise<{
+    sources: { url: string; title?: string; snippet?: string }[];
+  }>;
+} {
+  return {
+    id,
+    search: () =>
+      fail
+        ? Promise.reject(new Error(`${id} 失败`))
+        : Promise.resolve({ sources }),
+  };
+}
+
+test("真实 adapter /search：多 provider 并行合并（web + searchProviders 各贡献）", async () => {
+  const webSvc: WebSearchLike = {
+    search: async () => ({
+      sources: [{ url: "https://ex.com/a", title: "标题 A" }],
+    }),
+  };
+  const extra = searchProvider("exa", [
+    { url: "https://ex.org/b", title: "标题 B" },
+  ]);
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { web: webSvc, searchProviders: [extra] },
+  );
+  await adapter.search?.("query x");
+  const rows = panelRows(events, "search");
+  assert.equal(rows.length, 2, "web + exa 合并");
+  assert.equal(rows[0]?.title, "标题 A");
+  assert.equal(rows[1]?.title, "标题 B");
+  assert.ok(String(rows[0]?.detail).includes("[web]"), String(rows[0]?.detail));
+  assert.ok(String(rows[1]?.detail).includes("[exa]"), String(rows[1]?.detail));
+  unbind();
+});
+
+test("真实 adapter /search：URL 去重（同 URL 跨 provider 首现保留）", async () => {
+  const extra = searchProvider("exa", [
+    { url: "https://ex.com/a", title: "exa 版" },
+  ]);
+  const webSvc: WebSearchLike = {
+    search: async () => ({
+      sources: [{ url: "https://ex.com/a", title: "web 版" }],
     }),
   };
   const { adapter, events, unbind } = makeAdapter(
@@ -4320,41 +4368,82 @@ test("真实 adapter /search：web.search 归一化行（title ?? host / payload
     50,
     undefined,
     undefined,
-    { web: svc },
+    { web: webSvc, searchProviders: [extra] },
   );
-  await adapter.search?.("rust async");
+  await adapter.search?.("q");
   const rows = panelRows(events, "search");
-  assert.equal(rows.length, 2);
-  assert.equal(rows[0]?.title, "标题 A");
-  assert.ok(
-    String(rows[0]?.detail).includes("摘要 A"),
-    String(rows[0]?.detail),
-  );
-  assert.equal(rows[0]?.payload, "https://ex.com/a");
-  assert.equal(rows[1]?.title, "ex.org", "无标题回落 host");
+  assert.equal(rows.length, 1, "同 URL 去重");
   unbind();
 });
 
-test("真实 adapter /search：web 缺失 → reject（不假成功）", async () => {
-  const { adapter, unbind } = makeAdapter();
-  await assert.rejects(adapter.search!("q"), /web 未挂载/);
-  unbind();
-});
-
-test("真实 adapter /search：sources 为空 → 推空列表不抛（App 占位）；content 带 summary", async () => {
-  const svc: WebSearchLike = {
-    search: async () => ({ content: "无结果说明", sources: [] }),
-  };
+test("真实 adapter /search：query-token 关联度排序（标题命中者优先）", async () => {
+  // 单 provider 两条：第一条 snippet 命中 query token，第二条 title 命中 → 应排前
+  const extra = searchProvider("exa", [
+    {
+      url: "https://ex.com/lo",
+      title: "lo-title",
+      snippet: "关于 rust 的无关摘要",
+    },
+    { url: "https://ex.com/rust", title: "rust async 权威指南", snippet: "…" },
+  ]);
   const { adapter, events, unbind } = makeAdapter(
     new FakeRuntime(),
     new FakeAgent(),
     50,
     undefined,
     undefined,
-    { web: svc },
+    { searchProviders: [extra] },
+  );
+  await adapter.search?.("rust async");
+  const rows = panelRows(events, "search");
+  assert.equal(
+    rows[0]?.title,
+    "rust async 权威指南",
+    "title 双 token 命中排前",
+  );
+  assert.equal(rows[1]?.title, "lo-title");
+  unbind();
+});
+
+test("真实 adapter /search：单 provider 失败降级保留其余", async () => {
+  const webSvc: WebSearchLike = {
+    search: async () => ({
+      sources: [{ url: "https://ex.com/a", title: "web 结果" }],
+    }),
+  };
+  const bad = searchProvider("exa", [], true);
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { web: webSvc, searchProviders: [bad] },
   );
   await adapter.search?.("q");
   const rows = panelRows(events, "search");
-  assert.equal(rows.length, 0);
+  assert.equal(rows.length, 1, "失败 provider 数据丢弃、成功保留");
+  assert.equal(rows[0]?.title, "web 结果");
+  unbind();
+});
+
+test("真实 adapter /search：全部失败 → reject（App warn 不空开）", async () => {
+  const bad1 = searchProvider("a", [], true);
+  const bad2 = searchProvider("b", [], true);
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { searchProviders: [bad1, bad2] },
+  );
+  await assert.rejects(adapter.search!("q"), /所有搜索 provider 均失败/);
+  unbind();
+});
+
+test("真实 adapter /search：无任何 provider → reject", async () => {
+  const { adapter, unbind } = makeAdapter();
+  await assert.rejects(adapter.search!("q"), /web 未挂载/);
   unbind();
 });

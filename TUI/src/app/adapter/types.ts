@@ -386,9 +386,9 @@ export interface DshAdapter {
    *  给独立意见，任一失败降级保留其余；返回汇总文本（notice 展示，≤4 行）。宿主未挂载
    *  subagents.start → reject（调用方 warn 不假启动）。 */
   council?(target: string, count?: number): Promise<string>;
-  /** /search：经 ctx.web.search（统一多 provider 搜索 seam）拉取并归一化行推
-   *  command-panel-data(kind=search)（title ?? hostname(url)、detail=url、payload=url）。
-   *  宿主未挂载 web.search → reject（调用方 warn 不空开面板）。 */
+  /** /search：并行调用多 provider（host web 派生 + options.searchProviders），合并→URL 去重
+   *  →query-token 关联度排序后归一化行推 command-panel-data(kind=search)；单 provider 失败
+   *  降级保留其余、全部失败 → reject（调用方 warn）。宿主无任何 provider → reject。 */
   search?(query: string, maxResults?: number): Promise<void>;
 }
 
@@ -1216,22 +1216,38 @@ export interface WorkflowEngineLike {
   readonly present?: true;
 }
 
-/** ctx.get('web') 宿主搜索面（dsh-web WebRuntime 结构化子集）；可注册多 provider
- *  （DeepSeek/Exa/Perplexity 等）经统一 search 聚合——多引擎语义由 seam 承载。 */
+/** 单一搜索结果来源（dsh-web WebSearchSource 结构化子集；TUI 聚合管线单位） */
+export interface SearchSourceLike {
+  url: string;
+  title?: string;
+  snippet?: string;
+  publishedAt?: string;
+}
+
+/** ctx.get('web') 宿主搜索面（dsh-web WebRuntime 结构化子集）。注意 seam 是
+ *  **provider-selecting**（`search()` 运行单个所选 provider；多 provider 无显式 id 时
+ *  抛 WEB_PROVIDER_AMBIGUOUS）——**不**替 TUI 做多引擎聚合；聚合是消费方职责。 */
 export interface WebSearchLike {
   search?(
     request: { query: string; maxResults?: number },
     signal?: AbortSignal,
   ): Promise<{
     content?: string;
-    sources: readonly {
-      url: string;
-      title?: string;
-      snippet?: string;
-      publishedAt?: string;
-    }[];
+    sources: readonly SearchSourceLike[];
     truncated?: boolean;
   }>;
+}
+
+/** TUI 侧搜索 provider 抽象：多引擎聚合管线的单位（host web 派生一个 + options.searchProviders
+ *  注入更多；每个 provider 独立 search，并行调用）。 */
+export interface SearchProviderLike {
+  /** provider 稳定 id（行 detail 中来源标注用） */
+  id: string;
+  /** 跑一次搜索（消费方负责并行与容错） */
+  search(
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<{ sources: readonly SearchSourceLike[] }>;
 }
 
 /** goal-contract 契约条款（`Done-when:` 段 JSON 数组元素；TUI 侧只读子集） */
@@ -1349,4 +1365,6 @@ export interface RealAdapterOptions {
   workflowEngine?: WorkflowEngineLike;
   /** ctx.get('web') 服务（dsh-web）；缺失时 /search 提示不可用 */
   web?: WebSearchLike;
+  /** TUI 本地可配置搜索 provider 集合（多引擎聚合管线 inputs；可与 web 派生 provider 并存） */
+  searchProviders?: readonly SearchProviderLike[];
 }

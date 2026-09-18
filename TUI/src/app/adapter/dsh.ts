@@ -59,6 +59,7 @@ import type {
   ContractClauseLike,
   GoalContractServiceLike,
   WorkflowRunLike,
+  SearchSourceLike,
   GoalChangeLike,
   TodoItemLike,
   SubagentDescriptorLike,
@@ -142,6 +143,8 @@ export type {
   WorkflowRunLike,
   WorkflowEngineLike,
   WebSearchLike,
+  SearchProviderLike,
+  SearchSourceLike,
   CommandPanelRow,
   CommandPanelKind,
   AgentRegistryLike,
@@ -710,6 +713,101 @@ function urlHost(url: string): string {
   } catch {
     return url;
   }
+}
+
+/** query → 归一化 token（小写、去空白、切词）；关联度排序用 */
+function queryTokens(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9一-鿿]+/)
+    .filter((t) => t !== "");
+}
+
+/** 单一来源的关联度评分：token 在 title（2 倍权重）与 snippet 的命中数。
+ *  皆为 0 时按合并顺序保住（provider 顺序稳定）。 */
+function relevanceScore(hit: {
+  title: string;
+  snippet: string;
+  tokens: string[];
+}): number {
+  let score = 0;
+  const title = hit.title.toLowerCase();
+  const snippet = hit.snippet.toLowerCase();
+  for (const token of hit.tokens) {
+    if (title.includes(token)) score += 2;
+    if (snippet.includes(token)) score += 1;
+  }
+  return score;
+}
+
+/** 多 provider 搜索结果聚合（/search 核心，纯函数）：
+ *  并行 allSettled → 成功 sources 逐个合并（记 provider id）→ 按 URL 去重（首现保留）→
+ *  query-token 关联度降序（分数一致保 provider/来源顺序稳定）。返回行 + 成败统计；
+ *  单个 provider 失败仅丢其数据（其余保留），全部失败由调用方据 failed===total 判 reject。 */
+export function aggregateSearchSources(params: {
+  providers: { id: string; search(): Promise<{ sources: readonly SearchSourceLike[] }> }[];
+  query: string;
+  maxResults: number;
+}): Promise<{
+  rows: { title: string; detail: string; payload: string }[];
+  success: number;
+  failed: number;
+  total: number;
+}> {
+  const tokens = queryTokens(params.query);
+  const results = params.providers.map((p) =>
+    Promise.resolve()
+      .then(() => p.search())
+      .then(
+        (r) =>
+          ({ status: "fulfilled" as const, provider: p.id, r }),
+        (err) => ({ status: "rejected" as const, provider: p.id, err }),
+      ),
+  );
+  return Promise.all(results).then((settled) => {
+    const seen = new Set<string>();
+    const hits: { title: string; snippet: string; tokens: string[]; source: SearchSourceLike; provider: string }[] = [];
+    let success = 0;
+    let failed = 0;
+    for (const s of settled) {
+      if (s.status === "rejected") {
+        failed++;
+        continue;
+      }
+      success++;
+      const sources = Array.isArray(s.r.sources) ? s.r.sources : [];
+      for (const src of sources) {
+        if (!src || typeof src.url !== "string" || src.url === "") continue;
+        const key = src.url.toLowerCase();
+        if (seen.has(key)) continue; // URL 去重：首现保留
+        seen.add(key);
+        hits.push({
+          title: typeof src.title === "string" ? src.title : "",
+          snippet: typeof src.snippet === "string" ? src.snippet : "",
+          tokens,
+          source: src,
+          provider: s.provider,
+        });
+      }
+    }
+    const ordered = hits
+      .map((h) => ({ h, score: relevanceScore(h) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.max(0, params.maxResults));
+    const rows = ordered.map(({ h }) => ({
+      title:
+        (h.title !== "" ? h.title : "") || urlHost(h.source.url),
+      detail: [
+        `[${h.provider}]`,
+        h.source.snippet ?? "",
+        h.source.publishedAt ?? "",
+      ]
+        .filter((p) => p !== "")
+        .join(" · "),
+      payload: h.source.url,
+    }));
+    return { rows, success, failed, total: params.providers.length };
+  });
 }
 
 /** 循环 updatedAt → HH:MM（本地时区，行 detail 展示用） */
@@ -2447,44 +2545,37 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
      *  detail = url + snippet 首段、payload = url（Enter 打开详情）。宿主未挂载 web.search
      *  → reject（调用方 warn 不空开面板）。 */
     async search(query: string, maxResults = 10): Promise<void> {
+      // provider 集合：opts.web（host 派生）+ options.searchProviders（TUI 本地可配置）
+      // —— seam 是 provider-selecting 非聚合，TUI 侧负责并行遍历与合并/去重/排序。
+      const providers: { id: string; search(): Promise<{ sources: readonly SearchSourceLike[] }> }[] = [];
       const svc = opts.web;
-      if (!svc || typeof svc.search !== "function") {
+      const webSearch = svc && typeof svc.search === "function" ? svc.search : undefined;
+      if (webSearch) {
+        providers.push({
+          id: "web",
+          search: () => webSearch({ query, maxResults }),
+        });
+      }
+      if (Array.isArray(opts.searchProviders)) {
+        for (const p of opts.searchProviders) {
+          if (p && typeof p.search === "function") {
+            providers.push({ id: p.id, search: () => p.search(query) });
+          }
+        }
+      }
+      if (providers.length === 0) {
         throw new Error("web 未挂载（宿主无搜索面）");
       }
-      try {
-        const result = await svc.search({ query, maxResults });
-        const sources = Array.isArray(result?.sources) ? result.sources : [];
-        emit({
-          type: "command-panel-data",
-          kind: "search",
-          rows: sources.map((s) => ({
-            title:
-              (typeof s.title === "string" && s.title !== "" ? s.title : "") ||
-              urlHost(s.url),
-            detail: [
-              typeof s.snippet === "string" && s.snippet !== ""
-                ? s.snippet
-                : "",
-              typeof s.publishedAt === "string" && s.publishedAt !== ""
-                ? s.publishedAt
-                : "",
-            ]
-              .filter((p) => p !== "")
-              .join(" · "),
-            payload: s.url,
-          })),
-          ...(typeof result?.content === "string" && result.content !== ""
-            ? { summary: result.content }
-            : {}),
-        });
-      } catch (err) {
-        emit({
-          type: "command-panel-data",
-          kind: "search",
-          rows: [],
-          error: err instanceof Error ? err.message : String(err),
-        });
+      const agg = await aggregateSearchSources({
+        providers,
+        query,
+        maxResults,
+      });
+      if (agg.failed > 0 && agg.success === 0) {
+        // 全部失败 → 调用方 notice warn（不空开面板数据）
+        throw new Error("所有搜索 provider 均失败");
       }
+      emit({ type: "command-panel-data", kind: "search", rows: agg.rows });
     },
     /** /council：并行拉起 count（默认 2）个评审子代理（ctx.subagents.start，one-shot）
      *  对 target 各自给独立意见。任一 run 失败降级保留其余（idea 行列失败注明）；

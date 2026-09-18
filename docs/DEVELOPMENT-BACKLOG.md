@@ -66,7 +66,7 @@ web-access 迁移（对比文档 §3.4）。
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
-| 24 | ✅ 搜索 provider 聚合（`/search` 命令） | web-access 拆项 1；TUI P2#24 | dsh-web `ctx.web.search` 统一 seam（DeepSeek/Exa/Perplexity 可注册）承载多引擎 | P2 ✅ |
+| 24 | ✅ 搜索 provider 聚合（`/search` 命令） | web-access 拆项 1；TUI P2#24 | dsh-web seam 为 provider-selecting 非聚合 → **TUI 侧并行多 provider**（web 派生 + `options.searchProviders`）合并/去重/关联度排序 | P2 ✅ |
 | 25 | GitHub 仓库克隆 | 拆项 3 | 可先经 shell | P2 |
 | 26 | PDF 提取、视频理解 | 拆项 4/5 | 无底座，新工具 | P2 |
 
