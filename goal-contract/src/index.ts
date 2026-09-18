@@ -15,6 +15,9 @@ import process from "node:process";
 import { createGoalContractTool } from "./tool.ts";
 import type { GoalsLike, UserQuestionsLike } from "./types.ts";
 
+/** 契约构建/解析公开导出（TUI /contract 与外部宿主依赖）。 */
+export { buildObjective, parseContract } from "./contract.ts";
+
 /** bundle 名（与 cordis.patch.yml 插件 id 一致）。 */
 export const name = "goal-contract";
 
