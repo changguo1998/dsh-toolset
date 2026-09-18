@@ -198,7 +198,7 @@ commandPanel:
 | 项 | 规格 |
 |----|------|
 | 参数 | 无（只读展示） |
-| 服务 | `settings.describe()` → `SettingsDescriptor[]`（**枚举 ns 且直接带当前值**：`ns`/`value`/`revision`/`base?`/`user?`/`applies`）、`settings.get(ns)`（单读） |
+| 服务 | `settings.describe()` → `SettingsDescriptor[]`（**枚举 ns 且直接带当前值**：`ns`/`value`/`revision`/`base?`/`user?`/`applies`）。首版输出仅用 `describe()`；`get(ns)`（单读，宿主返回 unknown）未接入，留作后续 |
 | 输出 | notice 多行（`ns：key = value`，超长截断） |
 | 降级 | 服务缺失 → warn |
 | 范围 | **第一版只读**。写回涉及真实配置与乐观锁（`expectedRevision`），公开路径为 `settings.update(ns, patch, expectedRevision?)` / `replace` / `mutate`（`write` 为 private），需独立设计与确认契约，不在本命令范围 |

@@ -19,6 +19,7 @@ import {
   type DshCommandLike,
   type SubagentsLike,
   type ToolsLike,
+  type SettingsLike,
   type DshEvent,
   type DshUserMessageLike,
   type SessionEvent,
@@ -104,10 +105,13 @@ class FakeAgent implements DshAgentLike {
   }
 }
 
-/** 批次 3：可注入宿主服务（ctx.get('subagents') / ctx.get('tools')） */
+/** 批次 3/4：可注入宿主服务（ctx.get('subagents'|'tools'|'settings'|'sessions')）
+ *  AdapterServices 是 test 私有结构面，跨批次扩展。 */
 interface AdapterServices {
   subagents?: SubagentsLike;
   tools?: ToolsLike;
+  settings?: SettingsLike;
+  sessions?: SessionStoreLike;
 }
 
 interface TestHarness {
@@ -3454,5 +3458,104 @@ test("真实 adapter /tools：schemas() 不带 scope（全局视图）+ filter �
       text.includes("参数"),
     "详情含名称/描述/参数: " + String(text),
   );
+  unbind();
+});
+
+// ---------- 批次 4：/settings 与 /fork 的真实 adapter 接线契约 ----------
+// 断言：describe() 归一化（ns：value 多行、secret 脱敏、服务缺失 → undefined）；
+// fork(activeSessionId) 后两参省略、错误码 5 个映射中文不抛穿。
+
+test("真实 adapter /settings：describe 归一化（ns：value + secret 脱敏）", async () => {
+  const calls = { describes: 0 };
+  const services: AdapterServices = {
+    settings: {
+      describe() {
+        calls.describes++;
+        return [
+          { ns: "theme", value: { dark: true }, revision: 3 },
+          { ns: "fork.policy", value: "ask" },
+          { ns: "secrets", value: "x", secrets: ["pw"] },
+        ];
+      },
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  const text = await adapter.readSettings?.();
+  assert.equal(calls.describes, 1, "只调一次 describe");
+  assert.ok(text?.includes('theme：{"dark":true}'), String(text));
+  assert.ok(text?.includes("fork.policy：ask"), String(text));
+  assert.ok(
+    text?.includes("secrets：<redacted>"),
+    "secret 脱敏: " + String(text),
+  );
+  unbind();
+});
+
+test("真实 adapter /settings：describe 缺失 → undefined", async () => {
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { settings: {} },
+  );
+  assert.equal(await adapter.readSettings?.(), undefined);
+  unbind();
+});
+
+test("真实 adapter /fork：fork(activeSessionId) 后两参省略 + 返回新会话 id", async () => {
+  const calls = { forks: [] as unknown[][] };
+  const services: AdapterServices = {
+    sessions: {
+      get: () => undefined,
+      fork(source: string, boundary?: unknown, childSessionId?: string) {
+        calls.forks.push([source, boundary, childSessionId]);
+        return { id: "child-s9", title: "分叉会话" };
+      },
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  const child = await adapter.forkCurrentSession?.();
+  assert.deepEqual(calls.forks, [["s1", undefined, undefined]], "后两参省略");
+  assert.equal(child?.id, "child-s9");
+  unbind();
+});
+
+test("真实 adapter /fork：错误码映射中文文案（OPEN_TURN / SESSION_NOT_FOUND）", async () => {
+  const services: AdapterServices = {
+    sessions: {
+      get: () => undefined,
+      fork() {
+        const err = new Error("host detail");
+        (err as { code?: string }).code = "OPEN_TURN";
+        throw err;
+      },
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  const call = adapter.forkCurrentSession!();
+  await assert.rejects(call, /上一回合未闭合，无法分叉/);
   unbind();
 });

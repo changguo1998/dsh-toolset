@@ -346,6 +346,12 @@ export interface DshAdapter {
   refreshTools?(filter?: string): Promise<void>;
   /** 读取单个工具的详情文本（Enter 详情）；服务缺失或读取失败 → undefined */
   toolDetail?(name: string): Promise<string | undefined>;
+  /** 读取全部设置（`settings.describe()` → `ns：value` 多行，secret 脱敏）；
+   *  服务缺失或读取失败 → undefined（调用方 notice「settings 服务不可用」或空态） */
+  readSettings?(): Promise<string | undefined>;
+  /** 分叉当前会话为新会话（`sessions.fork(activeSessionId)`，后两参省略）；
+   *  错误码 5 个映射为中文文案后 reject；服务缺失 → reject（提示 sessions 未挂载） */
+  forkCurrentSession?(): Promise<{ id: string; title?: string }>;
   /** 取消后台任务（映射 ctx.jobs.kill）；宿主缺失 → reject */
   killJob?(id: string): Promise<void>;
 }
@@ -826,6 +832,15 @@ export interface SessionStoreLike {
         events: readonly Record<string, unknown>[];
       }
     | undefined;
+  /** 分叉源会话为新会话（dsh-session SessionStore.fork；后两参可省：省略 boundary =
+   *  源会话当前最后事件、省略 childSessionId = store 的 id 策略）。返回 live Session；
+   *  错误码 5 个（SESSION_NOT_FOUND/SESSION_NOT_LIVE/SESSION_ALREADY_EXISTS/
+   *  INVALID_BOUNDARY/OPEN_TURN）以宿主错误（code 字段）抛出。 */
+  fork?(
+    source: string,
+    boundary?: unknown,
+    childSessionId?: string,
+  ): { id: string; title?: string } | undefined;
 }
 
 /** 宿主会话查询服务结构面（ctx.get('sessionQuery')，@deepseek-ai/dsh-session-query；契约见仓库根 DSH-CTX-API.md） */
@@ -995,6 +1010,28 @@ export interface ToolsLike {
   get?(name: string, scope?: ScopeKeyLike): Record<string, unknown> | undefined;
 }
 
+/** 宿主设置描述符结构面（dsh-settings SettingsDescriptor 子集：:50-73，含 ns/value/revision） */
+export interface SettingsDescriptorLike {
+  ns: string;
+  value?: unknown;
+  revision?: number | string;
+  base?: unknown;
+  user?: unknown;
+  applies?: unknown;
+  /** role('secret') 字段名列表；非空时该 ns 的 value 不应明文展示 */
+  secrets?: readonly string[];
+}
+
+/** 宿主设置服务结构面（ctx.get('settings')，dsh-settings SettingsProvider；
+ *  /settings 为只读展示：describe() 一次枚举 ns + 当前值，不做写回。
+ *  首版输出仅用 describe()；get(ns) 单读未接入（宿主返回 unknown，
+ *  需在接入时定义域类型后再暴露）。 */
+export interface SettingsLike {
+  describe?(options?: {
+    redactSecrets?: boolean;
+  }): readonly SettingsDescriptorLike[];
+}
+
 /** agent 预设目录信息（rc.2 ctx.agentPresets 结构面：list + defaultId + 事件回读当前） */
 export interface AgentPresetInfo {
   /** 当前会话选中预设（agent-preset/selected 事件回读；未选中 → ""） */
@@ -1065,4 +1102,6 @@ export interface RealAdapterOptions {
   subagents?: SubagentsLike;
   /** ctx.get('tools') 服务（dsh-tools）；缺失时 /tools 提示不可用 */
   tools?: ToolsLike;
+  /** ctx.get('settings') 服务（dsh-settings）；缺失时 /settings 提示不可用 */
+  settings?: SettingsLike;
 }

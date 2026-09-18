@@ -56,6 +56,11 @@
 | 中断失败（子代理可能已结束或不可中断） | interruptAgent（/agents Enter） | error（命令结果） |
 | 该条目不可中断（无可用会话 id） | handleKey Enter（/agents diagnostic 条目） | info（条件不满足） |
 | tools 服务不可用 | openListPanel / showPanelDetail（/tools） | warn（服务不可用） |
+| settings 服务不可用 | openListPanel / handleSettingsCommand（/settings） | warn（服务不可用） |
+| 设置读取结果（ns：value 多行，secret 脱敏） | handleSettingsCommand（/settings） | info（主动索取的信息展示） |
+| sessions 服务不可用 | handleForkCommand（/fork） | warn（服务不可用） |
+| 已分叉新会话 `<id>`（新会话与当前不同时附加 /session 查看提示） | handleForkCommand（/fork） | success（重要操作成功） |
+| 分叉失败：`<原因>` | handleForkCommand（/fork 错误码映射） | warn（命令结果） |
 
 ## B. 适配层 notice 归一化（src/app/adapter/dsh.ts）
 

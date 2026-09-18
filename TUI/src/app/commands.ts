@@ -158,7 +158,9 @@ export type SlashRoute =
   | "rename"
   | "skills"
   | "agents"
-  | "tools";
+  | "tools"
+  | "settings"
+  | "fork";
 
 /** 本地命令目录：路由与输入补全的**单一来源**（含别名，别名也是独立可补全项）。
  *  desc 供补全候选展示；/help 的逐行说明仍在 App.helpText（历史格式）。 */
@@ -219,6 +221,12 @@ export const LOCAL_COMMANDS: readonly {
     desc: "子代理面板（Enter 直接中断选中项）",
   },
   { name: "tools", route: "tools", desc: "工具目录面板（Enter 详情）" },
+  {
+    name: "settings",
+    route: "settings",
+    desc: "只读展示配置（ns：value，secret 脱敏）",
+  },
+  { name: "fork", route: "fork", desc: "分叉当前会话为新会话" },
 ];
 
 /** 命令名 → 路由（模块加载时构建一次；不在目录中的名字落 registry 转发） */

@@ -12,7 +12,7 @@
 | `AUDIT-colors.md` / `NOTICE-LEVELS.md` | 参考 | 颜色审计 / notice 级别约定 |
 | `COMMANDS.md` | 参考 | 命令面清单（本地 + 宿主注册）+ 对比其他 agent 的扩展建议 |
 | `COMMANDS-SPEC.md` | spec | 命令扩展规格（纯 TUI 侧 7 项，已过 API 合同门）：落点/降级/共享面板与接线点/API 核实表 + 逐条规格 + 未纳入索引 |
-| `COMMANDS-TASKS.md` | task | 命令扩展实施清单：批次 0 合同门与批次 1（`/stats`、`/rename`）、批次 2（共享 `commandPanel` + `/skills`）、批次 3（`/agents`、`/tools`）已完成 + 批次 4 实现、验收命令、提交协议与待决清单 |
+| `COMMANDS-TASKS.md` | task | 命令扩展实施清单：批次 0 合同门与批次 1（`/stats`、`/rename`）、批次 2（共享 `commandPanel` + `/skills`）、批次 3（`/agents`、`/tools`）、批次 4（`/settings`、`/fork`）四批实现全部完成 + 验收命令、提交协议与待决清单 |
 
 DSH（DeepSeek Harness）进程内集成的终端 UI 插件。复用 DSH 核心服务（会话、Agent 驱动、审批链等），提供 Web UI / CLI 之外的第三种交互方式，由自研极简渲染层驱动（不依赖 Ink / Solid-TUI / node-pty，运行时唯一依赖 `chalk`）。
 
@@ -158,6 +158,8 @@ npm run watch # tsc --watch 常驻：源码变更自动编译到 dist/（仍需�
   - `/skills [过滤]` — 技能目录**共享列表面板**（活动区窗口）：adapter 经 `ctx.skills.list()` 拉取并归一化为行（`名称 — 描述首行`），可选过滤参数在归一化阶段按名称/描述/适用场景子串匹配；`↑/↓` 移动、`PgUp/PgDn` 整页翻页（页高 = 活动区可视行数）、`Enter` 读取正文（`ctx.skills.get(name)`）并**关闭面板后**以 notice 展示（面板占活动区会遮住瞬态 notice，与 `/jobs` 一致）、`Esc` 关闭；宿主未挂载 skills 服务 → 提示不可用且**不空开面板**
   - `/agents` — 子代理**共享列表面板**（活动区）：adapter 经 `ctx.subagents.listChildren(当前会话 id)` 拉取并归一化为行（`label · mode · activity`，诊断条目显示原因并**灰显**）；`↑/↓` 移动、`Enter` **直接中断**选中项（`ctx.subagents.interrupt(id, { kind: 'user', parentSessionId })`，面板内高亮即选择，照 `/jobs` 先例不引入二次确认）、`Esc` 关闭；无可中断 id 的条目 → 说明提示且不发调用；两者都先关面板再提示（面板占活动区会遮住瞬态 notice）
   - `/tools [过滤]` — 工具目录**共享列表面板**（活动区）：adapter 经 `ctx.tools.schemas()`（省略 scope = 全局视图）拉取并按 filter 过滤（工具名子串，SPEC §2.1）；`↑/↓`、`PgUp/PgDn` 翻页（工具数量通常数十条）、`Enter` 经 `ctx.tools.get(name)` 取详情（名称 + 描述 + 参数 schema）并关面板后以 notice 展示、`Esc` 关闭；宿主未挂载 tools 服务 → 提示不可用且不空开面板
+  - `/settings` — 只读展示全部配置：adapter 经 `ctx.settings.describe()`（枚举 ns + 当前值，`SettingsDescriptor[]`）归一化为 `ns：value` 多行 info notice（secret 项脱敏为 `<redacted>`）；宿主未挂载 settings 服务 → 提示不可用；**只读不写**（写回涉及真实配置与 `expectedRevision` 乐观锁，另立规格）
+  - `/fork` — 分叉当前会话为新会话：adapter 经 `ctx.sessions.fork(activeSessionId)`（后两参省略 = 源会话最后事件 + store id 策略），成功 → success 提示新会话 id（与当前不同时提示用 `/session` 查看/切换），5 个错误码（`SESSION_NOT_FOUND`/`SESSION_NOT_LIVE`/`SESSION_ALREADY_EXISTS`/`INVALID_BOUNDARY`/`OPEN_TURN`）映射中文 → warn；宿主未挂载 sessions 服务 → 提示不可用
   - `/model [provider/]model` — 会话内切换模型（不落盘）：无参打开**模型选择面板**（三列 provider/model/effort 同屏，初始焦点在 model 列，←/→ 换列、空格选中、Enter 提交、Esc 取消；effort 列初始高亮 = 当前显式等级，未显式选择时按 provider 默认等级）；带参直接切换（`provider/model` 或跨 provider 唯一的 model id）
   - `/provider`、`/effort`（`/thinking` 同义） — 无需参数打开同一个模型选择面板，并预先把焦点列放到 provider / effort 列；带参提示 usage（不做隐式切换）
 - **宿主自带命令（dsh-base 默认装配，转发即用）**：`/compact`（`dsh-command-compact`）、`/feedback` `/record`（`dsh-command-feedback`）、`/goal`（`dsh-command-goal`）、`/permission`（`dsh-permission-presets`）、`/plan`（`dsh-plan-mode`）、`/export`（`dsh-session-log-export`）——均经 `ctx.commands.register` 注册（其中 `/goal` `/permission` 本地有路由：无参走提示/面板，带参形态转发宿主），其余命令 TUI 无本地路由、走 registry 转发；完整命令面与扩展建议见 `COMMANDS.md`，可实现级规格见 `COMMANDS-SPEC.md`。

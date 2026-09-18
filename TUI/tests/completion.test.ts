@@ -37,7 +37,7 @@ test("completeCommandInput：前缀匹配 + 最匹配（名称最短）排首", 
   assert.equal(r?.index, 0, "默认选中项为 items[0]（最匹配）");
   // 多命中时按名称短→长：cls(3) 最短 → 首位
   const all = completeCommandInput("/");
-  assert.deepEqual(names(all?.items)?.slice(0, 3), ["cls", "copy", "goal"]);
+  assert.deepEqual(names(all?.items)?.slice(0, 3), ["cls", "copy", "fork"]);
   assert.equal(all?.items.length, Math.min(LOCAL_COMMANDS.length, 16));
 });
 

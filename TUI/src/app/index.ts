@@ -1275,6 +1275,12 @@ export class App {
       case "tools":
         this.handleToolsCommand(line);
         return;
+      case "settings":
+        this.handleSettingsCommand();
+        return;
+      case "fork":
+        this.handleForkCommand();
+        return;
       case "copy":
         this.copyLastReply();
         return;
@@ -2017,6 +2023,48 @@ export class App {
     });
   }
 
+  /** /settings：只读展示全部设置（settings.describe() → `ns：value` 多行，secret 脱敏）；
+   *  服务缺失/读取失败 → warn；本命令不做写回（真实配置 + 乐观锁另立规格）。 */
+  private handleSettingsCommand(): void {
+    const adapter = this.deps.adapter;
+    const read = adapter.readSettings;
+    if (!read) {
+      this.notice("settings 服务不可用", "warn");
+      return;
+    }
+    void read.call(adapter).then(
+      (text) =>
+        this.notice(text && text.trim() !== "" ? text : "（无设置项）", "info"),
+      () => this.notice("settings 服务不可用", "warn"),
+    );
+  }
+
+  /** /fork：`sessions.fork(当前会话)` 分叉新会话（后两参省略 = 源会话最后事件 + store id 策略）。
+   *  成功 → success（新会话 id）；新会话与当前不同 → 提示用 /session 查看；
+   *  错误码 5 个（adapter 已映射中文）→ warn；服务缺失 → warn。 */
+  private handleForkCommand(): void {
+    const adapter = this.deps.adapter;
+    const fork = adapter.forkCurrentSession;
+    if (!fork) {
+      this.notice("sessions 服务不可用", "warn");
+      return;
+    }
+    void fork.call(adapter).then(
+      (child) => {
+        const tip =
+          child.id !== this.state.activeSessionId
+            ? "，可用 /session 查看或切换"
+            : "";
+        this.notice(`已分叉新会话 ${child.id}${tip}`, "success");
+      },
+      (err: unknown) =>
+        this.notice(
+          `分叉失败：${err instanceof Error ? err.message : "未知错误"}`,
+          "warn",
+        ),
+    );
+  }
+
   /** 通用列表面板命令（/skills、/agents、/tools）：服务缺失 → warn 且不空开面板
    *  （面板占活动区、会盖住瞬态输出）；无参重复调用同 kind = 关闭（交互路径需先 Esc，
    *  面板态按键被吞、与 /jobs 一致）；打开时互斥关闭 history / picker / jobsPanel；
@@ -2169,6 +2217,8 @@ export class App {
       "  /skills [过滤]  技能目录面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
       "  /agents  子代理面板（↑/↓ 选择、Enter 直接中断选中项、Esc 关闭）",
       "  /tools [过滤]  工具目录面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
+      "  /settings  只读展示配置（ns：value，secret 脱敏）",
+      "  /fork  分叉当前会话为新会话（success 提示 + 必要时提示用 /session 查看）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }

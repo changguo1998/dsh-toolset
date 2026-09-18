@@ -116,6 +116,8 @@ export type {
   ToolsLike,
   ToolSchemaLike,
   ScopeKeyLike,
+  SettingsLike,
+  SettingsDescriptorLike,
   CommandPanelRow,
   CommandPanelKind,
   AgentRegistryLike,
@@ -500,6 +502,44 @@ export function deleteSessionDir(
     ok: false,
     reason: "未找到该会话的持久化文件（可能仅存在于内存或已删除）",
   };
+}
+
+/** 展示用设置值：对象/数组 → 单行 JSON；超长值截断（notice 每行再按面板宽截断） */
+function formatSettingValue(v: unknown): string {
+  if (v === undefined || v === null) return "∅";
+  if (typeof v === "string") {
+    const s = v.replace(/\s+/g, " ").trim();
+    return s.length > 120 ? `${s.slice(0, 120)}…` : s;
+  }
+  if (typeof v === "object") {
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return String(v);
+    }
+  }
+  return String(v);
+}
+
+/** SessionForkErrorCode（dsh-session lib/types/index.d.ts:296-305）→ 中文提示，不抛穿宿主错误对象 */
+function forkErrorMessage(err: unknown): string {
+  const code = (err as { code?: string } | null)?.code;
+  switch (code) {
+    case "SESSION_NOT_FOUND":
+      return "源会话不存在";
+    case "SESSION_NOT_LIVE":
+      return "源会话不可用";
+    case "SESSION_ALREADY_EXISTS":
+      return "目标会话已存在";
+    case "INVALID_BOUNDARY":
+      return "分叉边界无效";
+    case "OPEN_TURN":
+      return "上一回合未闭合，无法分叉";
+    default:
+      return err instanceof Error && err.message !== ""
+        ? err.message
+        : "未知错误";
+  }
 }
 
 export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
@@ -2041,6 +2081,49 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       } catch {
         return undefined;
       }
+    },
+    /** 读取全部设置（`settings.describe()` 枚举 ns + 当前值，`ns：value` 每行一行；
+     *  secret 项脱敏为 `<redacted>`）；服务缺失或读取失败 → undefined。 */
+    async readSettings(): Promise<string | undefined> {
+      const svc = opts.settings;
+      if (!svc || typeof svc.describe !== "function") return undefined;
+      try {
+        const descs = svc.describe() ?? [];
+        if (descs.length === 0) return "（无设置项）";
+        return descs
+          .map((d) => {
+            const ns = d["ns"];
+            const hasSecret =
+              Array.isArray(d["secrets"]) && d["secrets"].length > 0;
+            const valueText = hasSecret
+              ? "<redacted>"
+              : formatSettingValue(d["value"]);
+            return ns !== undefined && ns !== ""
+              ? `${String(ns)}：${valueText}`
+              : valueText;
+          })
+          .join("\n");
+      } catch {
+        return undefined;
+      }
+    },
+    /** /fork：`sessions.fork(activeSessionId)`（省略 boundary/childSessionId =
+     *  源会话当前最后事件 + store id 策略）；错误码 5 个映射中文后 reject（不抛穿）。 */
+    async forkCurrentSession(): Promise<{ id: string; title?: string }> {
+      const svc = opts.sessions;
+      if (!svc || typeof svc.fork !== "function") {
+        throw new Error("sessions 未挂载（宿主无会话 fork 服务）");
+      }
+      let child: { id: string; title?: string } | undefined;
+      try {
+        child = svc.fork(activeSessionId);
+      } catch (err) {
+        throw new Error(forkErrorMessage(err));
+      }
+      if (!child || typeof child.id !== "string" || child.id === "") {
+        throw new Error(forkErrorMessage({ code: "SESSION_NOT_FOUND" }));
+      }
+      return { id: child.id, title: child.title };
     },
     async resumeTo(id) {
       if (disposed) {

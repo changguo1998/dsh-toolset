@@ -3127,10 +3127,11 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
     upBefore,
     "焦点流输出时 ↑ 滚动到更早行（窗口起点变化）",
   );
-  // PgUp（整页）→ 翻到帮助首行（帮助文本超一页，再翻一页确保到顶；已到顶时幂等）
-  renderer.press(key("pageup"));
-  renderer.press(key("pageup"));
-  assert.equal(actBody()[0], "本地命令：", "整页上翻到首行");
+  // PgUp（整页）→ 翻到帮助首行；到顶为幂等——多按几次直到首行（帮助加行不破坏断言）
+  for (let i = 0; i < 8 && actBody()[0] !== "本地命令："; i++) {
+    renderer.press(key("pageup"));
+  }
+  assert.equal(actBody()[0], "本地命令：", "整页上翻到首行（幂等到顶）");
   // PgDn（整页）→ activityScroll 9-8=1，窗口起点回到 /theme 行（页向下翻）
   renderer.press(key("pagedown"));
   assert.notEqual(actBody()[0], "本地命令：", "整页下翻离开首行（向尾部翻）");

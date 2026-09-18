@@ -7,13 +7,15 @@
 
 - 涉及其他功能的命令走注册-调用方式（`dsh-commands` 注册表），只与渲染相关的命令作为本地小命令表。
 - `App.submit()` 对以 `/` 开头的输入走 `handleSlash()`，不进 `agent.followup`、不占模型 token/历史：
-  - 本地小命令表（app 层）：`/help`、`/clearscreen`（`/cls`，清空显示缓冲）、`/quit`（关闭 renderer）、`/theme`、`/goal`（仅 notice 提示查看右侧信息栏）、`/session`、`/copy`、`/model`、`/policy`、`/permission`、`/preset`、`/jobs`、`/init`、`/stats`（`/usage` `/context`）、`/rename <标题>`、`/skills [过滤]`、`/agents`、`/tools [过滤]`。
+  - 本地小命令表（app 层）：`/help`、`/clearscreen`（`/cls`，清空显示缓冲）、`/quit`（关闭 renderer）、`/theme`、`/goal`（仅 notice 提示查看右侧信息栏）、`/session`、`/copy`、`/model`、`/policy`、`/permission`、`/preset`、`/jobs`、`/init`、`/stats`（`/usage` `/context`）、`/rename <标题>`、`/skills [过滤]`、`/agents`、`/tools [过滤]`、`/settings`、`/fork`。
   - 其他 `/name` → `adapter.runCommand(line)` → `ctx.commands.execute(agent, line, [], signal)`（官方注册表）。
   - 未命中注册表（execute 返回 `undefined`）→ `notice` 提示未知命令（**官方 fail-close**：绝不 sendMessage 给模型）。
 - 事件面：`DshEvent` 的 `{ type: "notice"; text }`——命令结果/错误/提示只进 UI 缓冲（`appendNotice`，独立成行，不入流式末行），经 `notice` reducer 落地。
 - 命令名语法：`parseSlashCommand` 与官方 client 一致——`/^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/`。
 - `/init`（初始化 AGENTS.md）：本地检查会话语义 cwd（`state.systemStatus.cwd`，占位/空时回退 `process.cwd()`）下 `AGENTS.md` 是否存在——已存在则 `notice` 提示并结束（不发消息）；缺失则经共用发送路径 `sendUserText(INIT_PROMPT, "/init")` 注入初始化指令（状态置运行 + 本地回显 `/init` + `adapter.sendMessage`），由模型阅读目录、总结并写 `AGENTS.md`。指令常量 `INIT_PROMPT` 在 `commands.ts`（与本地命令目录同处，便于测试导入）。
 - `/agents`：经 `adapter.refreshAgents()`（`ctx.subagents.listChildren(activeSessionId)` → `CommandPanelRow[]`，`status` 取 `activity`；`kind:'diagnostic'` 条目 `status="diagnostic"` 灰显且 payload 置空）拉取并打开共享面板；`Enter` 直接中断（`adapter.interruptAgent(id)` → `ctx.subagents.interrupt(id, {kind:'user', parentSessionId: activeSessionId})`），无可中断 id 的条目 → info 说明不发调用；两者均先关面板再 notice。共享面板行按 `row.status` 经 `JobsPanel.statusMark` 着色（● 黄运行、○ 灰冷/诊断、✗ 红失败）。
+- `/settings`：经 `adapter.readSettings()`（`ctx.settings.describe()` → `SettingsDescriptor[]`，`ns：value` 每行一行、secret 项脱敏为 `<redacted>`）多行 info notice 展示；服务缺失/读取失败 → warn。**只读不写**（`settings.update/replace/mutate` + `expectedRevision` 乐观锁另立规格）。`SettingsLike` 首版仅暴露 `describe()`（`get(ns)` 宿主返回 unknown 未接入）。
+- `/fork`：经 `adapter.forkCurrentSession()`（`ctx.sessions.fork(activeSessionId)`，后两参省略 = 源会话最后事件 + store id 策略，同步返回 live Session）分叉当前会话；成功 → success（新会话 id，与当前不同时提示用 `/session` 查看/切换）；5 个 `SessionForkErrorCode` 在 adapter 侧映射中文文案后 reject → warn（不抛穿宿主错误对象）。sessions 服务已有注入（复用既有 `ctx.get('sessions')`，无 `main.ts` 增量）。
 - `/tools [过滤]`：经 `adapter.refreshTools(filter?)`（`ctx.tools.schemas()` 全局视图 + filter 过滤）拉取并打开共享面板；`Enter` 经 `adapter.toolDetail(name)`（`ctx.tools.get(name)` 的 name/description/parameters）取详情，先关面板再以 info notice 展示。
 - `/skills [过滤]`：经 `adapter.refreshSkills(filter?)`（`ctx.skills.list()` → 归一化为 `CommandPanelRow[]`，filter 在归一化阶段按名称/描述/适用场景子串过滤）拉取并打开共享面板；`Enter` 经 `adapter.skillDetail(name)`（`ctx.skills.get(name).content`）取正文，先关面板再以 info notice 展示；服务未挂载 → warn 且不空开面板。
 - `/stats`（别名 `/usage` `/context`）：读 `state.usage`（**最近一次模型调用**的 token 用量，非会话累计）→ 单条 info notice 三行：分解（输入/输出/缓存读）、上下文（`input + cacheRead`，与状态栏 ctx 段同口径；`contextWindow` 缺失或为 0 时只显绝对量、不除零）、缓存命中率（`cacheRead / (input + cacheRead)`，分母为 0 → `n/a`）。无 usage（本回合尚未发生模型调用）→ info 提示。零新服务、不改 adapter。
