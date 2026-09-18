@@ -93,7 +93,23 @@ defender 迁移（对比文档 §3.5）。
 
 ## TUI 命令扩展（对比其他 agent 的共识命令）
 
-> 命令面清单与「值得添加的命令」建议已独立成文：见 `TUI/COMMANDS.md`（依据 2026-09-18 对比 Claude Code / Codex CLI / Gemini CLI / pi 的共识命令与本项目现状）；可实现级规格见 `TUI/COMMANDS-SPEC.md`（本轮纯 TUI 侧 7 项，批次 0 API 合同门已全部过门；需插件改造与宿主能力缺口／语义不匹配者在 §3 索引）；实施清单见 `TUI/COMMANDS-TASKS.md`（批次 0 已完成 + 四批实现）。
+> 命令面清单与「值得添加的命令」建议已独立成文：见 `TUI/COMMANDS.md`（依据 2026-09-18 对比 Claude Code / Codex CLI / Gemini CLI / pi 的共识命令与本项目现状）；可实现级规格见 `TUI/COMMANDS-SPEC.md`；实施清单见 `TUI/COMMANDS-TASKS.md`（批次 0 API 合同门 + 四批实现）。
+
+> **实施进度（2026-09-18）：批次 0 + 批次 1-4 全部完成并审计通过归档**——7 项纯 TUI 侧命令已实现：`/stats` `/rename` `/skills` `/agents` `/tools` `/settings` `/fork`（提交链 `5f4723e` → `619bffa` → `d11bd47`）。**本轮未做的 9 项「推荐但未实现」命令**见下表（明细与源码依据在 `TUI/COMMANDS-SPEC.md` §3、`TUI/COMMANDS-TASKS.md` §7）。
+
+### 9 项「推荐但未实现」命令（后续候选）
+
+| # | 命令 | 类别 | 阻塞点 / 前置 | 落点 |
+| C1 | `/task` | 需插件改造 | task-engine 的 `TaskEngine` 为 apply 内局部变量 → provide 只读子集（`snapshotText`/`frames`/`activeCount`/`isComplete` 已存在） | task-engine 插件 |
+| C2 | `/contract` | 需插件包改动 | goal-contract 包入口未 re-export `buildObjective`/`parseContract`（包无 exports 字段）→ 加 re-export | goal-contract 插件 |
+| C3 | `/guard` | 需插件新增能力 | security-guard 仅 `GuardEngine.inspect(toolName, args)`，无策略/拦截记录查询 → 加记录缓冲 + `recent()`/`policy()` | security-guard 插件 |
+| C4 | `/memory` | 需插件改造 | knowledge-base 的 `apply` 同步且 `void createKnowledgeBundle(...)`（async 工厂建完即丢）→ 改插件暴露服务 | knowledge-base 插件 |
+| C5 | `/loop` | 需插件改造 | metric-loop 的 controller 未挂 ctx；需新增 `list()`（现有仅 start/tick/status/stop） | metric-loop 插件 |
+| C6 | `/clear` | 宿主能力缺口 | `dsh-session` 类型面无 `clear`（仅 create/get/list/fork）；会话清理无宿主入口 | 无（宿主不支持） |
+| C7 | `/login` `/logout` | 语义不匹配 | 宿主仅有凭据**引用** seam `ctx.credentials`（resolve/describe/set/unset），无交互登录流程（OAuth/设备码） | 无（安全边界设计） |
+| C8 | `/review` | 需工作流资产 | `ctx.workflowEngine.start` 存在但请求要求 `script`+`meta`+`parent: Agent`，宿主无内置 review 工作流资产 | workflow 资产 |
+
+> 排期建议：实现成本最低、最可能先做的是 **C1 `/task`**（只读子集现成）、**C2 `/contract`**（只差 re-export）、**C3 `/guard`**（需加记录缓冲）；C4/C5 依赖对应插件改造；C6-C8 无宿主前置或属资产/安全设计，需先行设计再排。另见 `TUI/COMMANDS-TASKS.md` §9 两个面板增量待决（/jobs 翻页回补、/agents 事件驱动刷新）。
 
 ## 排序原则与里程碑
 
