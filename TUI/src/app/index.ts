@@ -145,6 +145,9 @@ export interface AppDeps {
   activityHeightDivisor?: number;
   /** 状态列宽分母（tui.config.json layout.statusColumnDivisor；1/3 → 3） */
   statusColumnDivisor?: number;
+  /** /agents 面板定时刷新间隔(ms)；缺省 2000。宿主无 subagent 状态事件面，由
+   *  打开期间定时 + 手动 `r` 双路保鲜（C2；评估结论见 IMPLEMENTATION.md） */
+  agentsRefreshIntervalMs?: number;
 }
 
 export class App {
@@ -160,6 +163,8 @@ export class App {
   /** 思考放完前到达的 turn-end 记下，放完后补执行(不分隔线；思考保留至下回合一并清) */
   private pendingTurnEnd = false;
   private slowTimer: ReturnType<typeof setInterval> | null = null;
+  /** /agents 面板定时刷新 timer（仅面板打开期间存活；tick 自检面板仍为 agents） */
+  private agentsRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private slowCps = SLOW_DEFAULT_CPS;
   /** 每 turn 思考的初始流速（配置值或默认）；正文加速后在下个 turn 回落 */
   private slowCpsBase = SLOW_DEFAULT_CPS;
@@ -352,8 +357,44 @@ export class App {
     this.pendingTurnEnd = false;
     for (const f of this.unbindEvents) f();
     this.unbindEvents = [];
+    this.stopAgentsRefresh();
     this.deps.adapter.dispose?.();
     this.deps.renderer.close();
+  }
+
+  /** /agents 面板定时刷新：宿主无 subagent 状态事件面（评估见 IMPLEMENTATION），
+   *  面板打开期间每 agentsRefreshIntervalMs 重拉一次全量；tick 自检面板仍为 agents，
+   *  否则停表（覆盖 Esc/Enter/重复 kind 关闭等所有关闭路径）。 */
+  private startAgentsRefresh(): void {
+    if (this.agentsRefreshTimer || this.disposed) return;
+    const intervalMs = this.deps.agentsRefreshIntervalMs ?? 2000;
+    this.agentsRefreshTimer = setInterval(
+      () => this.agentsRefreshTick(),
+      intervalMs,
+    );
+  }
+
+  private stopAgentsRefresh(): void {
+    if (this.agentsRefreshTimer) {
+      clearInterval(this.agentsRefreshTimer);
+      this.agentsRefreshTimer = null;
+    }
+  }
+
+  private agentsRefreshTick(): void {
+    if (this.disposed) {
+      this.stopAgentsRefresh();
+      return;
+    }
+    const panel = this.state.commandPanel;
+    if (!panel || panel.kind !== "agents") {
+      // 面板已关或切到别的 kind：停表（不空刷）
+      this.stopAgentsRefresh();
+      return;
+    }
+    void this.deps.adapter
+      .refreshAgents?.()
+      .catch(() => this.notice("subagents 服务不可用", "warn"));
   }
 
   private handleEvent(e: DshEvent): void {
@@ -802,6 +843,11 @@ export class App {
         } else {
           void this.showPanelDetail(panel.kind, row.payload);
         }
+      } else if (name === "r" && panel.kind === "agents") {
+        // C2：/agents 手动刷新（无宿主事件面时的手动保鲜路径）
+        void this.deps.adapter
+          .refreshAgents?.()
+          .catch(() => this.notice("subagents 服务不可用", "warn"));
       } else if (name === "escape") {
         this.apply((st) => reduceState(st, { type: "command-panel-close" }));
       }
@@ -2207,6 +2253,9 @@ export class App {
     void refresh
       .call(this.deps.adapter, filter === "" ? undefined : filter)
       .catch(() => this.notice(`${label} 服务不可用`, "warn"));
+    // C2：/agents 面板打开期间定时刷新（宿主无 subagent 事件面；Esc/Enter/重复
+    // kind 关闭时 tick 自检停表）
+    if (kind === "agents") this.startAgentsRefresh();
   }
 
   /** 面板 Enter（详情型 kind：skills / tools）：读取正文并以 info notice 展示；
@@ -2348,7 +2397,7 @@ export class App {
       "  /stats (/usage /context)  本回合 token 用量与上下文占比（最近一次模型调用）",
       "  /rename <标题>  重命名当前会话标题",
       "  /skills [过滤]  技能目录面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
-      "  /agents  子代理面板（↑/↓ 选择、Enter 直接中断选中项、Esc 关闭）",
+      "  /agents  子代理面板（↑/↓ 选择、PgUp/PgDn 翻页、r 刷新、Enter 直接中断选中项、Esc 关闭）",
       "  /tools [过滤]  工具目录面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
       "  /settings  只读展示配置（ns：value，secret 脱敏）",
       "  /fork  分叉当前会话为新会话（success 提示 + 必要时提示用 /session 查看）",

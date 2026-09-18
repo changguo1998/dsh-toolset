@@ -43,6 +43,9 @@ const EMPTY_TEXTS: Record<CommandPanelKind, string> = {
  *  agents = 直接中断选中子代理，skills/tools = 查看详情。 */
 export function commandPanelHint(kind: CommandPanelKind): string {
   const enter = kind === "agents" ? "Enter 中断" : "Enter 详情";
+  if (kind === "agents") {
+    return `↑/↓ 选择 · PgUp/PgDn 翻页 · ${enter} · r 刷新 · Esc 关闭`;
+  }
   return `↑/↓ 选择 · PgUp/PgDn 翻页 · ${enter} · Esc 关闭`;
 }
 

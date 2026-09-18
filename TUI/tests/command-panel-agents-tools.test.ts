@@ -82,8 +82,11 @@ class FakeAgentsToolsAdapter implements DshAdapter {
   interruptCalls: string[] = [];
   detailCalls: string[] = [];
   filters: (string | undefined)[] = [];
+  /** C2：refreshAgents 调用计数（打开时一次 + 定时/手动刷新各计一次） */
+  refreshAgentsCalls = 0;
   refreshAgents: (() => Promise<void>) | undefined =
     async (): Promise<void> => {
+      this.refreshAgentsCalls++;
       // 与 adapter/dsh.ts 相同的归一化：diagnostic 灰显且 payload 置空（不可中断）
       this.emit({
         type: "command-panel-data",
@@ -412,4 +415,68 @@ test("面板提示按 kind 区分：agents = Enter 中断，skills/tools = Enter
   assert.ok(hintOf("agents").includes("Enter 中断"), hintOf("agents"));
   assert.ok(hintOf("skills").includes("Enter 详情"), hintOf("skills"));
   assert.ok(hintOf("tools").includes("Enter 详情"), hintOf("tools"));
+});
+
+// ---- C2：/agents 事件驱动刷新（宿主无 subagent 状态事件面 → 定时 + 手动 r） ----
+
+test("/agents：打开期间定时刷新（interval 注入短间隔；关闭后停表）", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAgentsToolsAdapter();
+  const app = new App({
+    renderer,
+    adapter,
+    agentsRefreshIntervalMs: 10,
+  });
+  app.start();
+  typeAndEnter(renderer, "/agents");
+  await tick();
+  const openCalls = adapter.refreshAgentsCalls;
+  assert.ok(openCalls >= 1, "打开至少拉一次: " + openCalls);
+  // 等待定时器触发 1-2 次
+  await new Promise((r) => setTimeout(r, 45));
+  assert.ok(
+    adapter.refreshAgentsCalls > openCalls,
+    `打开期间定时刷新: open=${openCalls} after=${adapter.refreshAgentsCalls}`,
+  );
+  // 关闭面板 → 停表（再等一段不增长）
+  renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+  await tick();
+  const afterClose = adapter.refreshAgentsCalls;
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(adapter.refreshAgentsCalls, afterClose, "关闭后不再刷新");
+  app.dispose();
+});
+
+test("/agents：手动 r 立即刷新（面板打开时）", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAgentsToolsAdapter();
+  const app = new App({ renderer, adapter });
+  app.start();
+  typeAndEnter(renderer, "/agents");
+  await tick();
+  const base = adapter.refreshAgentsCalls;
+  renderer.press({ name: "r", ctrl: false, meta: false, shift: false });
+  await tick();
+  assert.ok(
+    adapter.refreshAgentsCalls === base + 1,
+    `r 触发一次刷新: ${base} → ${adapter.refreshAgentsCalls}`,
+  );
+  app.dispose();
+});
+
+test("/agents：面板提示含 r 刷新（agents 专属）；skills/tools 不含", () => {
+  const hintOf = (kind: CommandPanelKind): string =>
+    renderCommandListPanel(
+      { kind, index: 0, rows: [{ title: "x", payload: "y" }] },
+      4,
+      80,
+    )
+      .map(rowText)
+      .join("\n");
+  assert.ok(
+    hintOf("agents").includes("r 刷新"),
+    "agents 含 r 刷新: " + hintOf("agents"),
+  );
+  assert.ok(!hintOf("tools").includes("r 刷新"), "tools 不含 r 刷新");
+  assert.ok(!hintOf("skills").includes("r 刷新"), "skills 不含 r 刷新");
 });

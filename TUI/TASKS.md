@@ -72,7 +72,7 @@ npm run smoke:pty      # 真机冒烟（工具行/状态栏 usage）
 
 ## 5b. 命令扩展（A 组接线，独立于渲染主线）
 
-> **进度**：批次 0 合同门 + 批次 1-4（`/stats` `/rename` `/skills` `/agents` `/tools` `/settings` `/fork`）完成并审计通过；A 组 A1（`/task`）A2（`/guard`）A3（`/memory`）A4（`/loop`）A5（`/contract`）已实现并提交（详见 `README.md` 命令清单与 `COMMANDS-SPEC.md` §3）。
+> **进度**：批次 0 合同门 + 批次 1-4（`/stats` `/rename` `/skills` `/agents` `/tools` `/settings` `/fork`）完成并审计通过；A 组 A1（`/task`）A2（`/guard`）A3（`/memory`）A4（`/loop`）A5（`/contract`）、C1（`/jobs` PgUp/PgDn 回补）、C2（`/agents` 事件驱动刷新）已实现并提交（详见 `README.md` 命令清单与 `COMMANDS-SPEC.md` §3）。
 > 命令扩展属独立演进面，与本节渲染管线无耦合；实施记录见 `COMMANDS-TASKS.md`。
 
 ## 6. 待决清单
@@ -80,6 +80,7 @@ npm run smoke:pty      # 真机冒烟（工具行/状态栏 usage）
 | # | 问题 | 备注 |
 |---|---|---|
 | C1 | /jobs 面板 PgUp/PgDn 回补 | ✅ 已实现（jobs-panel-page reducer + index 按键 + footer/helpText 同步，页高=activityH 与共享面板同口径） |
+| C2 | /agents 面板事件驱动刷新 | ✅ 已实现（评估：宿主无 subagent 状态事件面 → 打开期间每 2s 定时 + 手动 `r` 刷新，tick 自检停表；`agentsRefreshIntervalMs` 可注入） |
 | C2 | markdown 解析器重构范围 | 块解析自 `wrapBufferLines` 抽出后，`markdown.ts`（727 行）是否整体重排——动工那一步按实际 diff 形态评估 |
 | C3 | 测试迁移策略 | 560 个测试断言由「带 ANSI 文本」改为 `segments` 结构：改动面、是否提供序列化辅助——动工那一步按实际 diff 形态评估 |
 | — | 活动区两态触发方式 | 状态 2（紧凑）：由「fill 按高度预算自动降级」 vs「用户显式配置」决定（`SPEC.md` §6.8） |

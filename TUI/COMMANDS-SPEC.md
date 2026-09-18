@@ -43,7 +43,7 @@
 | 型 | 形态 | 命令 | 实现 |
 |----|------|------|------|
 | notice | 活动区瞬态行（info / log / warn / error） | `/stats` `/rename` `/settings` | `this.notice(text, tone)` |
-| 面板 | 活动区窗口内的列表面板（见 §0.4） | `/skills` `/agents` `/tools` | 共享 `buildCommandListPanelBox`（§0.4） |
+| 面板 | 活动区窗口内的列表面板（见 §0.4） | `/skills` `/agents` `/tools` `/loop` | 共享 `buildCommandListPanelBox`（§0.4） |
 
 > 预填型（`reduceState(s, { type: "input", … })`）本轮无命令使用，为后续命令预留。**各命令的实际落点见下方逐命令矩阵**（口头数量表述一律以矩阵为准）。
 
@@ -68,7 +68,7 @@
 
 （`fillPanelBox` / `modalPanel`（L982）与活动区渲染（L1051）由 `buildActivePanelBox` 返回值驱动，无需额外改动。）
 
-**共享面板模型（不复制 N 套 state/reducer）**：三个列表面板（`/skills` `/agents` `/tools`）共用一个判别联合与一套实现：
+**共享面板模型（不复制 N 套 state/reducer）**：四个列表面板（`/skills` `/agents` `/tools` `/loop`）共用一个判别联合与一套实现：
 
 ```ts
 // state.ts
