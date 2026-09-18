@@ -19,16 +19,24 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机、decompose/implement
 - **fan-out 多执行器**（BACKLOG #13）：就绪池增加 `maxConcurrent`（默认 4）有界并发——`nextReady()`
   在 active 帧数达上限时不弹栈；`activeCount()` 统计在途帧；join 续体语义不变（全部子任务 done 后父帧才完成）。
   宿主多 worker 编排可用 `ctx.subagents.start()` / agent-team DAG，引擎侧只提供有界 claim 语义；
+
 - **semantic 级验收**：独立 audit run（注入式 `audit` hook，零 DSH 依赖）+ `outputSchema` →
   `structured` 裁决；缺 hook 或声明了 `outputSchema` 但无 `structured` 一律 fail-closed；裁决进 `plan/acceptance-verdict` 事件流（审计证据链）；
+
 - **step 级裁决**（BACKLOG #5）：`decompose`/`stop` 结果新增 `accepted` / `next` 字段
   （打回 `next` 指向本帧重做；终态 `next=null`），并落 `plan/step-verdict` 事件（§11.2）；
+
 - **语义蕴含第二道门**（§17.2）：decompose 在机械门禁通过后再跑注入式 `entail` hook
   （`∧Qᵢ ⟹ Q_parent` 的独立语义运行）；缺 hook 时只做机械门禁（结构蕴含跳过）；
   子任务 `deps` 前置传递（只允许引用前序兄弟，自引用/前向引用/未知 id 打回）；
+
 - **turn/end reason 对齐**：approval 失败/无应答/抛错一律 fail-closed（拒绝）；
   中止路径新增 `plan/frame-interrupted` 事件——恢复时在途 active 帧回收为 pending
   （**不**增重试计数，区别于打回），可重新 claim 继续执行。
+
+- **只读查询面**（BACKLOG C1）：`TaskEngine` 新增 `query()`/`frameStack()`（纯读取，零副作用）——
+  暴露任务清单（标题/状态）、当前帧栈（DFS 就绪池）、active 计数、是否完成，供 TUI `/task` 等接线方
+  从包入口消费（`src/main.ts` re-export `TaskEngine`/`TaskEngineSnapshot`）。
 
 ## 命令（在 `task-engine/` 目录下执行）
 
