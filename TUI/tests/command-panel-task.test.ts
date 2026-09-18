@@ -80,7 +80,7 @@ class FakeTaskAdapter implements DshAdapter {
       if (id === "root-1") {
         return [
           "任务：根任务",
-          "状态：active",
+          "状态：active · 帧栈：栈顶（下一待处理）",
           "id：root-1",
           "需拆分：否",
         ].join("\n");
@@ -201,6 +201,7 @@ test("/task：Enter 读取详情（taskDetail）→ 关面板 + notice", async (
   assert.ok(!f.includes("任务（"), "详情后面板关闭: " + f);
   assert.ok(f.includes("根任务"), "详情含标题: " + f);
   assert.ok(f.includes("id：root-1"), "详情含 id: " + f);
+  assert.ok(f.includes("帧栈：栈顶（下一待处理）"), "详情含帧栈位置: " + f);
   app.dispose();
 });
 

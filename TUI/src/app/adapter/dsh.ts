@@ -2192,7 +2192,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         });
       }
     },
-    /** 任务详情（Enter）：在 query().tasks 先序中定位该 id，输出标题/状态/层级/需拆分 */
+    /** 任务详情（Enter）：在 query().tasks 先序中定位该 id，输出标题/状态/id/需拆分，
+     *  并按 query().frameStack 标注该任务在帧栈中的位置（objective「帧栈详情供 Enter 详情」）。 */
     async taskDetail(id: string): Promise<string | undefined> {
       const svc = opts.taskEngine;
       const snap = svc?.query?.();
@@ -2204,9 +2205,18 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         if (!found) {
           return undefined;
         }
+        const stack = snap.frameStack ?? [];
+        const idx = stack.indexOf(id);
+        const stackLine =
+          idx === -1
+            ? "不在帧栈"
+            : idx === stack.length - 1
+              ? "栈顶（下一待处理）"
+              : `第 ${idx + 1}/${stack.length} 帧`;
+        // 帧栈并入状态行：notice 多行在 activity 视口只显前 4 行，独立第 5 行会被裁掉
         return [
           `任务：${found.title}`,
-          `状态：${found.status}`,
+          `状态：${found.status} · 帧栈：${stackLine}`,
           `id：${found.id}`,
           `需拆分：${found.needDecompose ? "是" : "否"}`,
         ].join("\n");

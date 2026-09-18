@@ -3651,7 +3651,64 @@ test("真实 adapter /task：taskDetail 按 id 定位输出详情；未找到 �
     text?.includes("任务：根任务") && text?.includes("id：root"),
     String(text),
   );
+  // frameStack = ["root"] → root 是栈顶（下一待处理）
+  assert.ok(text?.includes("帧栈：栈顶（下一待处理）"), String(text));
   assert.equal(await adapter.taskDetail?.("nope"), undefined);
+  unbind();
+});
+
+test("真实 adapter /task：taskDetail 输出帧栈位置（多帧：非栈顶按序、末位栈顶、缺位不在栈）", async () => {
+  const services: AdapterServices = {
+    taskEngine: {
+      query: () => ({
+        tasks: [
+          {
+            id: "root",
+            parentId: null,
+            order: 0,
+            title: "根任务",
+            status: "active",
+            needDecompose: false,
+          },
+          {
+            id: "mid",
+            parentId: null,
+            order: 1,
+            title: "中间任务",
+            status: "todo",
+            needDecompose: false,
+          },
+          {
+            id: "next",
+            parentId: null,
+            order: 2,
+            title: "下一任务",
+            status: "todo",
+            needDecompose: false,
+          },
+        ],
+        frameStack: ["root", "mid", "next"],
+        activeCount: 3,
+        isComplete: false,
+      }),
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  const root = await adapter.taskDetail?.("root");
+  const mid = await adapter.taskDetail?.("mid");
+  const next = await adapter.taskDetail?.("next");
+  const absent = await adapter.taskDetail?.("ghost");
+  assert.ok(root?.includes("帧栈：第 1/3 帧"), String(root));
+  assert.ok(mid?.includes("帧栈：第 2/3 帧"), String(mid));
+  assert.ok(next?.includes("帧栈：栈顶（下一待处理）"), String(next));
+  assert.equal(absent, undefined, "不在任务树 → undefined");
   unbind();
 });
 
