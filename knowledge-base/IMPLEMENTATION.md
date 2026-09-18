@@ -11,7 +11,7 @@
 | `src/hooks.ts` | session/event 写直达：白名单过滤、事件摘要化（tool/result meta、compaction 尾注）、SessionHooks 挂接 |
 | `src/writepolicy.ts` | 写回编排：批量写回 + consolidation 锁 + backfill + evictStale |
 | `src/memory.ts` | 记忆 CRUD + target/category/project 过滤 + token-aware 截断 |
-| `src/index.ts` | DSH bundle 接入面：createKnowledgeBundle 工厂 + apply |
+| `src/index.ts` | DSH bundle 接入面：createKnowledgeBundle 工厂 + apply（持有已建 bundle，暴露 getKnowledgeBundle / getKnowledgeBundleSummary / whenKnowledgeReady） |
 | `demo/main.ts` | mock demo（无 DSH 依赖，人工确认用） |
 | `smoke/smoke.mjs` | 宿主联调 smoke（profile 引导 + 真实会话摄取断言 + dist 往返） |
 | `tests/*.test.ts` | node:test 单测 |
@@ -40,7 +40,7 @@ grep -c "sourceCommandId" knowledge-base/src/hooks.ts
 git log --oneline -- knowledge-base
 ```
 
-## 3. 测试覆盖（schema 3 + knowledge 8 + hooks 12 + writepolicy 8 + memory 6 = 37）
+## 3. 测试覆盖（schema 3 + knowledge 8 + hooks 12 + writepolicy 8 + memory 6 + exposure 2 = 39）
 
 - `schema.test.ts`（3）：insert/update/delete 双 FTS 索引一致、索引建立、文件库幂等 reopen；
 - `knowledge.test.ts`（8）：put/search 词干命中、命中更新 last_referenced、去重、touch、
@@ -52,7 +52,8 @@ git log --oneline -- knowledge-base
 - `writepolicy.test.ts`（8）：writeBack、writeBack+backfill 失败兜底、锁串行化、
   staleCandidates 阈值、compress、promote 排序、evictStale、tokenBudgetUsage；
 - `memory.test.ts`（6）：add 去重、target/category/project 过滤、replace、remove 联动清理、
-  token-aware 截断、命中提升 last_referenced。
+  token-aware 截断、命中提升 last_referenced；
+- `exposure.test.ts`（2）：apply 前暴露面未就绪、apply 后 bundle 被持有且概要/写入/检索可用。
 
 ## 4. 宿主接口对齐（0.1.5-rc.2）
 

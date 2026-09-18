@@ -93,6 +93,12 @@ trigram 需 ≥3 字符子串。≤2 字符中文词须经 LIKE 兜底命中。�
 `BundleHost`（`session/event` + `logger`）。`createKnowledgeBundle` 为核心工厂（开库→建服务→挂事件→
 dispose），`apply` 为宿主挂载入口；`cordis.patch.yml` 声明 bundle 插入。
 
+**服务暴露（BRIEF-C4）**：`apply` 不再「async 建完即丢」——创建结果由模块级持有，
+命令侧可通过 `getKnowledgeBundle()`（同步）、`whenKnowledgeReady()`（等待就绪，避免竞态）、
+`getKnowledgeBundleSummary()`（概要：ready/dbPath/chunkCount/sourceCount）访问；
+bundle 亦直接暴露 `dbPath` 与 `summary()`。保持 `apply` 原调用语义（void、fire-and-forget、
+失败仅日志），未引入 cordis 依赖。
+
 **真实宿主联调**（dsh profile 部署、`ctx_knowledge` 服务注册到宿主 service 域）已由
 `npm run smoke` 自动化覆盖（见 IMPLEMENTATION.md §6）；真实会话中人工使用 put/search
 作为收尾确认门。

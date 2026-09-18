@@ -50,8 +50,23 @@ export interface KnowledgeBundle {
   memory: MemoryService;
   policy: WritePolicy;
   hooks: SessionHooks;
+  /** 实际数据库路径（:memory: 或文件路径）。 */
+  dbPath: string;
+  /** 概要：就绪状态 + 库路径 + 条目统计（当前活跃实例）。 */
+  summary(): KnowledgeBundleSummary;
   /** 解绑事件订阅并关闭数据库连接。 */
   dispose(): void;
+}
+
+export interface KnowledgeBundleSummary {
+  /** 是否就绪（bundle 已创建且可用）。 */
+  ready: boolean;
+  /** 实际数据库路径（:memory: 或文件路径）。 */
+  dbPath: string;
+  /** chunks 条数。 */
+  chunkCount: number;
+  /** sources 条数。 */
+  sourceCount: number;
 }
 
 /** 核心工厂：开库 → 建服务 → 挂事件 → 返回可释放的 bundle。 */
@@ -74,11 +89,27 @@ export async function createKnowledgeBundle(
     .info(
       `knowledge-base 已就绪（db=${dbPath === ":memory:" ? ":memory:" : dbPath}）`,
     );
+  const summary = (): KnowledgeBundleSummary => {
+    const chunks = db.prepare("SELECT COUNT(*) AS n FROM chunks").get() as {
+      n: number;
+    };
+    const sources = db.prepare("SELECT COUNT(*) AS n FROM sources").get() as {
+      n: number;
+    };
+    return {
+      ready: true,
+      dbPath,
+      chunkCount: Number(chunks.n),
+      sourceCount: Number(sources.n),
+    };
+  };
   return {
     kb,
     memory,
     policy,
     hooks,
+    dbPath,
+    summary,
     dispose: () => {
       detach();
       db.close();
@@ -86,9 +117,46 @@ export async function createKnowledgeBundle(
   };
 }
 
+/** 最近一次成功创建的知识库 bundle（apply 持有，供命令侧查询/调用）。 */
+let activeBundle: KnowledgeBundle | undefined;
+/** 最近一次 apply 的创建 Promise（供 whenKnowledgeReady 等待）。 */
+let readyPromise: Promise<KnowledgeBundle> | undefined;
+
+/** 同步查询当前已建 bundle；未就绪（未 apply 或启动失败）时返回 undefined。 */
+export function getKnowledgeBundle(): KnowledgeBundle | undefined {
+  return activeBundle;
+}
+
+/** 查询已建 bundle 概要；未就绪时返回 undefined。 */
+export function getKnowledgeBundleSummary():
+  KnowledgeBundleSummary | undefined {
+  return activeBundle?.summary();
+}
+
+/**
+ * 等待知识库就绪（apply 已调用后 resolve 已建 bundle）。
+ * 调用时机不确定时用此入口，避免竞态；启动失败时 reject。
+ */
+export function whenKnowledgeReady(): Promise<KnowledgeBundle> {
+  const pending = readyPromise;
+  if (pending === undefined) {
+    return Promise.reject(
+      new Error("knowledge-base 尚未初始化（apply 未调用）"),
+    );
+  }
+  return pending;
+}
+
 /** DSH 宿主按 bundle 契约调用（结构化 ctx；真实宿主联调在部署时人工确认）。 */
 export function apply(ctx: BundleHost, config: KnowledgeConfig = {}): void {
-  void createKnowledgeBundle(ctx, config).catch((error: unknown) => {
-    ctx.logger?.(name).info(`knowledge-base 启动失败：${String(error)}`);
-  });
+  const pending = createKnowledgeBundle(ctx, config);
+  readyPromise = pending;
+  pending.then(
+    (bundle) => {
+      activeBundle = bundle;
+    },
+    (error: unknown) => {
+      ctx.logger?.(name).info(`knowledge-base 启动失败：${String(error)}`);
+    },
+  );
 }
