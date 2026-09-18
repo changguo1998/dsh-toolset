@@ -154,7 +154,8 @@ npm --prefix TUI run demo -- --smoke   # 帧断言 SMOKE_PASS 36/36
 | `/memory` `/loop` `/task` `/guard` | 需先改动本项目插件（服务暴露 / 新增能力） |
 | `/contract` | `goal-contract` 包入口（`dist/src/index.js`）**未 re-export** `buildObjective` / `parseContract`（已核实：`index.ts` 仅导出 `name`/`inject`/`apply`；包无 `exports` 字段）→ 公开依赖需给该包加 re-export（属插件包改动）；深路径 import 内部实现文件不稳；内联复制会漂移。**故本轮不做** |
 | `/clear` ⏸ 裁定维持不可实现（B1） | **dsh-session 0.1.5-rc.2 复核**：store 公开面无删除/清理 API（`detachEntered`/`store.delete` 为 private teardown）、`dsh-session-query` 仅查询、无 `session/delete` 事件 → 宿主入口仍缺；会话清理诉求已由 TUI 自建文件级删除覆盖（`/session` 面板 `d`/`x` + `/session clean`）→ 维持排除，理由见 `COMMANDS-SPEC.md` §3 |
-| `/login` `/logout` | 宿主能力缺口／语义不匹配（`ctx.credentials` 仅为凭据引用 seam，无交互登录流程；`workflowEngine.start` 存在但 `/review` 缺工作流资产）——逐条理由见 `COMMANDS-SPEC.md` §3 |
+| `/login` `/logout` ⏸ 裁定维持不可实现（B2） | **dsh-credentials 0.1.5-rc.2 复核**：`ctx.credentials` 为凭据存取/管理 seam（reference 空间 resolve/describe/set/unset + record 空间 listRecords/describeRecord/modifyRecord/deleteRecord + reference-updated 事件），仍无交互登录流程；`/logout` 无宿主「登出」概念 → 维持排除，理由见 `COMMANDS-SPEC.md` §3 |
+| `/review` | 宿主能力缺口／语义不匹配（`workflowEngine.start` 存在但缺 review 工作流资产）——逐条理由见 `COMMANDS-SPEC.md` §3 |
 | 批次 0 未过门者 | 见 §1 处置规则 |
 
 其他不做：`/settings` 写回、宿主命令插件包（`dsh-command-toolset`）、正则/高级过滤、面板增量事件订阅（本轮为打开时拉取）。
