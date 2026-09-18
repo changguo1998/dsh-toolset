@@ -10,7 +10,9 @@ import {
   name,
   inject,
   apply,
+  DEFAULT_COMMAND_RULES,
   type GuardHost,
+  type GuardRecord,
   type PreExecuteExecution,
   type PreToolDecision,
 } from "../src/index.ts";
@@ -233,4 +235,88 @@ test("回执：写类文件工具标注「写入」", () => {
   assert.match(readHit ?? "", /读取/);
   const shellHit = guard.inspect("bash", { command: "cat ./.env" });
   assert.match(shellHit ?? "", /读写/);
+});
+
+test("记录缓冲：inspect 判定记入 recent()（拦截 + 放行，新在前）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  guard.inspect("bash", { command: "sudo ls /" });
+  guard.inspect("bash", { command: "echo ok" });
+  guard.inspect("read", { file_path: "~/.ssh/id_rsa" });
+  const records = guard.recent();
+  assert.equal(records.length, 3);
+  assert.equal(records[0]!.toolName, "read");
+  assert.equal(records[0]!.verdict, "deny");
+  assert.match(records[0]!.reason ?? "", /ssh-directory/);
+  assert.equal(records[1]!.toolName, "bash");
+  assert.equal(records[1]!.verdict, "allow");
+  assert.equal(records[1]!.reason, undefined);
+  assert.equal(records[2]!.toolName, "bash");
+  assert.equal(records[2]!.verdict, "deny");
+  assert.match(records[2]!.reason ?? "", /sudo/);
+  for (const r of records) {
+    assert.equal(typeof r.time, "number");
+    assert.ok(r.time > 0);
+  }
+});
+
+test("记录缓冲：有界，超过上限丢弃最旧（上限 200）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  for (let i = 0; i < 210; i++) {
+    guard.inspect("bash", { command: i % 2 === 0 ? "sudo ls /" : "echo ok" });
+  }
+  assert.equal(guard.recent().length, 200);
+  // 最新的两条是最后两次判定（210 为 allow、209 为 deny）
+  const last2 = guard.recent().slice(0, 2);
+  assert.equal(last2[0]!.verdict, "allow");
+  assert.equal(last2[1]!.verdict, "deny");
+});
+
+test("记录缓冲：recent() 返回副本，外部修改不影响内部", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  guard.inspect("bash", { command: "echo ok" });
+  const recs = guard.recent();
+  (recs as GuardRecord[]).length = 0;
+  assert.equal(guard.recent().length, 1);
+});
+
+test("policy()：返回当前策略/规则快照", () => {
+  const guard = new GuardEngine({
+    homeDir: HOME,
+    commandBlacklist: {
+      allowPatterns: ["^echo ok$"],
+      rules: ["^git push --force$"],
+    },
+    sensitiveFiles: { rules: ["~/.vault"], allowedPaths: ["~/.ssh"] },
+  });
+  const p = guard.policy();
+  assert.equal(p.enabled, true);
+  assert.equal(p.commandBlacklist.enabled, true);
+  assert.equal(p.sensitiveFiles.enabled, true);
+  // 默认规则 + 用户追加规则都在快照中
+  assert.ok(p.commandBlacklist.rules.length > DEFAULT_COMMAND_RULES.length);
+  assert.ok(p.commandBlacklist.rules.some((r) => r.id === "sudo"));
+  assert.ok(p.commandBlacklist.rules.some((r) => r.id === "user-rule-1"));
+  assert.deepEqual(p.commandBlacklist.allowPatterns, ["^echo ok$"]);
+  // 敏感文件层：默认 + 用户追加 + 放行清单
+  assert.ok(p.sensitiveFiles.rules.some((r) => r.id === "ssh-directory"));
+  assert.ok(p.sensitiveFiles.rules.some((r) => r.id === "user-path-1"));
+  assert.ok(p.sensitiveFiles.allowedPaths.some((r) => r.id === "allowed-1"));
+  // 快照字段可序列化（无 RegExp / 谓词函数）
+  for (const r of p.commandBlacklist.rules) {
+    assert.equal(typeof r.id, "string");
+    assert.equal(typeof r.reason, "string");
+  }
+});
+
+test("policy()：enabled=false 与层级开关如实反映", () => {
+  const guard = new GuardEngine({
+    homeDir: HOME,
+    enabled: false,
+    commandBlacklist: { enabled: false },
+    sensitiveFiles: { enabled: false },
+  });
+  const p = guard.policy();
+  assert.equal(p.enabled, false);
+  assert.equal(p.commandBlacklist.enabled, false);
+  assert.equal(p.sensitiveFiles.enabled, false);
 });
