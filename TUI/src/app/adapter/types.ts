@@ -361,6 +361,9 @@ export interface DshAdapter {
   refreshGuard?(): Promise<void>;
   /** 读取策略快照（`policy()` → 4 行摘要）；服务缺失 → undefined */
   guardPolicy?(): Promise<string | undefined>;
+  /** 读取知识库概要（就绪/路径/chunk·source 计数）；服务缺失 → reject，
+   *  未就绪 → resolve 说明文本（调用方 info） */
+  memorySummary?(): Promise<string>;
   /** 取消后台任务（映射 ctx.jobs.kill）；宿主缺失 → reject */
   killJob?(id: string): Promise<void>;
 }
@@ -1094,6 +1097,20 @@ export interface SecurityGuardLike {
   policy?(): PolicySnapshotLike;
 }
 
+/** knowledge-base 概要（C4 前置；`KnowledgeBundleSummary` 的 TUI 侧宽松子集） */
+export interface KnowledgeBundleSummaryLike {
+  ready: boolean;
+  dbPath: string;
+  chunkCount: number;
+  sourceCount: number;
+}
+
+/** ctx.get('knowledge') 只读查询面（knowledge-base cordis provide；缺失时 /memory 提示不可用） */
+export interface KnowledgeServiceLike {
+  getSummary?(): KnowledgeBundleSummaryLike | undefined;
+  whenReady?(): Promise<{ summary?(): KnowledgeBundleSummaryLike | undefined }>;
+}
+
 /** agent 预设目录信息（rc.2 ctx.agentPresets 结构面：list + defaultId + 事件回读当前） */
 export interface AgentPresetInfo {
   /** 当前会话选中预设（agent-preset/selected 事件回读；未选中 → ""） */
@@ -1170,4 +1187,6 @@ export interface RealAdapterOptions {
   taskEngine?: TaskEngineLike;
   /** ctx.get('guard') 只读查询面（security-guard cordis provide）；缺失时 /guard 提示不可用 */
   guard?: SecurityGuardLike;
+  /** ctx.get('knowledge') 只读查询面（knowledge-base cordis provide）；缺失时 /memory 提示不可用 */
+  knowledge?: KnowledgeServiceLike;
 }

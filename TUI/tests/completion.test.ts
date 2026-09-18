@@ -31,9 +31,9 @@ test("isCommandTokenInput：仅字面 `/` 开头的单个命令 token", () => {
 });
 
 test("completeCommandInput：前缀匹配 + 最匹配（名称最短）排首", () => {
-  // "/m" → model(5)；provider/thinking 等不含 m 前缀的都不进候选
+  // "/m" → model(5)、memory(6) 都带 m 前缀（短在前）；provider/thinking 等不含 m 前缀的都不进候选
   const r = completeCommandInput("/m");
-  assert.deepEqual(names(r?.items), ["model"]);
+  assert.deepEqual(names(r?.items), ["model", "memory"]);
   assert.equal(r?.index, 0, "默认选中项为 items[0]（最匹配）");
   // 多命中时按名称短→长：cls(3) 最短 → 首位
   const all = completeCommandInput("/");

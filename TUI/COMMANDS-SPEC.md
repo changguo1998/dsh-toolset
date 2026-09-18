@@ -217,7 +217,7 @@ commandPanel:
 
 | 命令 | 类别 | 原因 |
 |------|------|------|
-| `/memory` | 需插件改造 | knowledge-base 的 `apply` 为同步且 `void createKnowledgeBundle(...)`（服务建完即丢；该工厂是 async）→ 需改插件暴露服务 |
+| `/memory` ✅ 已实现（A3） | 需插件改造 | knowledge-base 已暴露服务（模块级持有 bundle + `ctx.provide("knowledge", { getSummary, whenReady })`，C4 补全）并由 TUI `/memory` 概要展示 |
 | `/loop` | 需插件改造 | metric-loop 的 controller 未挂 ctx；且需新增 `list()`（现仅有 `start/tick/status(id)/stop(id)`） |
 | `/task` ✅ 已实现（A1） | 需插件改造 | task-engine 已 provide 只读查询面（`query()`/`frameStack()`，C1 补全 + ctx 挂载）并由 TUI `/task` 面板接线 |
 | `/guard` ✅ 已实现（A2） | 需插件新增能力 | security-guard 已加记录缓冲与 `recent()`/`policy()`（C3 补全 + ctx 挂载）并由 TUI `/guard` 面板接线 |

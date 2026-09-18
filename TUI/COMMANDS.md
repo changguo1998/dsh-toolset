@@ -76,7 +76,7 @@
 
 | 命令 | 本项目插件 · 可支撑能力 | 需补的暴露 | 优先级 |
 |------|----------------------|-----------|--------|
-| `/memory` | knowledge-base：`kb.search(opts)` / `touch` / `evict` / `compress` / `promote` + Memory `add`/`replace`/`remove`/`search`（均已实现；**无 list/get**） | `apply` 改为 async 后 `ctx.provide("knowledge", bundle)` | P1（本轮不纳入，SPEC §3） |
+| `/memory` | knowledge-base：`getSummary()` / `whenReady()`（C4 已实现并挂 `ctx.provide("knowledge")`；概要=就绪/路径/chunk·source） | provide 只读查询面 ✅ 已完成 | P1 ✅ A3 已实现（TUI 接线） |
 | `/loop` | metric-loop：`start(spec)` / `tick` / `status(id)` / `stop(id)`（**无 list**，需新增） | provide `metricLoop` controller + 新增 `list()` | P1（本轮不纳入，SPEC §3） |
 | `/task` | task-engine：`query()` / `frameStack()`（C1 已实现并挂 `ctx.provide("taskEngine")`） | provide 只读子集 ✅ 已完成 | P2 ✅ A1 已实现（TUI 接线） |
 | `/contract` | goal-contract：纯函数**未从包入口导出**（`index.ts` 仅 `name`/`inject`/`apply`） | 需给该包加 re-export（属插件包改动） | P2（本轮不纳入） |

@@ -46,6 +46,7 @@ import {
   type SettingsLike,
   type TaskEngineLike,
   type SecurityGuardLike,
+  type KnowledgeServiceLike,
 } from "./app/adapter/dsh.ts";
 
 /** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
@@ -365,6 +366,10 @@ export async function apply(
     // 安全守卫只读查询面（ctx.get('guard')，security-guard provide；缺失时 /guard 提示不可用）
     guard: (ctx as { get?: (name: string) => unknown }).get?.("guard") as
       SecurityGuardLike | undefined,
+    // 知识库只读查询面（ctx.get('knowledge')，knowledge-base provide；缺失时 /memory 提示不可用）
+    knowledge: (ctx as { get?: (name: string) => unknown }).get?.(
+      "knowledge",
+    ) as KnowledgeServiceLike | undefined,
   });
 
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）

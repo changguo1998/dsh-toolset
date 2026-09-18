@@ -30,6 +30,8 @@ export type { MemoryHit, MemorySearchResult, MemoryTarget } from "./memory.ts";
 export type { WriteBackResult, EvictResult } from "./writepolicy.ts";
 
 export const name = "knowledge-base";
+/** 只读查询面挂载声明（BACKLOG C4 补全：TUI /memory 经 ctx.get('knowledge') 接线） */
+export const provide = ["knowledge"];
 
 /** 结构化宿主 ctx（DSH cordis 最小形态）：session/event 事件 + 可选 logger。 */
 export interface BundleHost extends HookHost {
@@ -159,4 +161,15 @@ export function apply(ctx: BundleHost, config: KnowledgeConfig = {}): void {
       ctx.logger?.(name).info(`knowledge-base 启动失败：${String(error)}`);
     },
   );
+  // 只读查询面挂到 ctx（防御式，与 task-engine/metric-loop/security-guard 同款）：
+  // 供 TUI /memory 接线（查询概要 / 等待就绪）
+  const provideSvc = (
+    ctx as { provide?: (name: string, value: unknown) => unknown }
+  ).provide;
+  if (typeof provideSvc === "function") {
+    provideSvc("knowledge", {
+      getSummary: () => getKnowledgeBundleSummary(),
+      whenReady: () => whenKnowledgeReady(),
+    });
+  }
 }

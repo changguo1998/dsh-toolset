@@ -53,6 +53,7 @@ import type {
   TokenUsage,
   TaskEngineTaskLike,
   CommandPanelRow,
+  KnowledgeBundleSummaryLike,
   GoalChangeLike,
   TodoItemLike,
   SubagentDescriptorLike,
@@ -126,6 +127,8 @@ export type {
   SecurityGuardLike,
   GuardRecordLike,
   PolicySnapshotLike,
+  KnowledgeServiceLike,
+  KnowledgeBundleSummaryLike,
   CommandPanelRow,
   CommandPanelKind,
   AgentRegistryLike,
@@ -2194,6 +2197,46 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           rows: [],
           error: err instanceof Error ? err.message : String(err),
         });
+      }
+    },
+    /** 知识库概要：`getSummary()` 同步优先，否则 `whenReady()` 等待就绪；未就绪 →
+     *  返回说明文本（调用方以 info 呈现）；服务缺失 → reject（调用方 warn）。 */
+    async memorySummary(): Promise<string> {
+      const svc = opts.knowledge;
+      if (
+        !svc ||
+        (typeof svc.getSummary !== "function" &&
+          typeof svc.whenReady !== "function")
+      ) {
+        throw new Error("knowledge 未挂载（宿主无知识库查询面）");
+      }
+      // 就绪概要行（helper）
+      const linesOf = (
+        s: KnowledgeBundleSummaryLike | undefined,
+      ): string | undefined => {
+        if (!s) return undefined;
+        if (!s.ready) return "知识库尚未就绪（异步建库中）";
+        return [
+          "知识库：就绪",
+          `路径：${s.dbPath}`,
+          `chunks：${s.chunkCount} · sources：${s.sourceCount}`,
+        ].join("\n");
+      };
+      try {
+        if (typeof svc.getSummary === "function") {
+          const direct = linesOf(svc.getSummary());
+          if (direct !== undefined) return direct;
+        }
+        if (typeof svc.whenReady === "function") {
+          const awaited = await svc
+            .whenReady()
+            .then((b) => linesOf(b?.summary?.()))
+            .catch(() => undefined);
+          if (awaited !== undefined) return awaited;
+        }
+        return "知识库尚未就绪（apply 尚未创建库或启动失败）";
+      } catch {
+        return "知识库尚未就绪（读取失败）";
       }
     },
     /** 守卫面板：经 security-guard `recent()` 归一化为行（工具名 + 放行/拦截 + 原因首行）；

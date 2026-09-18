@@ -162,7 +162,8 @@ export type SlashRoute =
   | "settings"
   | "fork"
   | "task"
-  | "guard";
+  | "guard"
+  | "memory";
 
 /** 本地命令目录：路由与输入补全的**单一来源**（含别名，别名也是独立可补全项）。
  *  desc 供补全候选展示；/help 的逐行说明仍在 App.helpText（历史格式）。 */
@@ -238,6 +239,11 @@ export const LOCAL_COMMANDS: readonly {
     name: "guard",
     route: "guard",
     desc: "守卫面板（security-guard：拦截/放行记录，Enter 看策略）",
+  },
+  {
+    name: "memory",
+    route: "memory",
+    desc: "知识库概要（knowledge-base：就绪/路径/chunk·source 计数）",
   },
 ];
 

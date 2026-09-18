@@ -65,6 +65,9 @@
 | 任务详情多行（标题/状态·帧栈/id/需拆分） | showPanelDetail（/task Enter 详情） | info（主动索取的信息展示） |
 | guard 服务不可用 | openListPanel / showGuardPolicy（/guard） | warn（服务不可用） |
 | 策略快照多行（启用/黑名单/敏感文件/拦截计数） | showGuardPolicy（/guard Enter） | info（主动索取的信息展示） |
+| knowledge 服务不可用 | handleMemoryCommand（/memory） | warn（服务不可用） |
+| 知识库概要多行（就绪/路径/chunk·source） | handleMemoryCommand（/memory） | info（主动索取的信息展示） |
+| 知识库尚未就绪（说明） | handleMemoryCommand（/memory 未就绪） | info（条件不满足） |
 
 ## B. 适配层 notice 归一化（src/app/adapter/dsh.ts）
 

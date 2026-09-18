@@ -1290,6 +1290,9 @@ export class App {
       case "guard":
         this.handleGuardCommand();
         return;
+      case "memory":
+        this.handleMemoryCommand();
+        return;
       case "copy":
         this.copyLastReply();
         return;
@@ -2074,6 +2077,25 @@ export class App {
     );
   }
 
+  /** /memory：知识库概要（notice 型）——就绪 → info 展示（路径/chunk·source 计数）；
+   *  未就绪 → info 说明；服务缺失/失败 → warn。 */
+  private handleMemoryCommand(): void {
+    const adapter = this.deps.adapter;
+    const summary = adapter.memorySummary;
+    if (!summary) {
+      this.notice("knowledge 服务不可用", "warn");
+      return;
+    }
+    void summary.call(adapter).then(
+      (text) =>
+        this.notice(
+          text && text.trim() !== "" ? text : "知识库尚未就绪",
+          "info",
+        ),
+      () => this.notice("knowledge 服务不可用", "warn"),
+    );
+  }
+
   /** /guard：共享列表面板（kind=guard），经 adapter.refreshGuard 拉取拦截/放行记录；
    *  前置：security-guard 只读查询面已挂 ctx（C3 补全）。 */
   private handleGuardCommand(): void {
@@ -2275,6 +2297,7 @@ export class App {
       "  /fork  分叉当前会话为新会话（success 提示 + 必要时提示用 /session 查看）",
       "  /task  任务面板（TaskEngine 只读：↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
       "  /guard  守卫面板（拦截/放行记录：↑/↓ 选择、PgUp/PgDn 翻页、Enter 看策略、Esc 关闭）",
+      "  /memory  知识库概要（就绪/路径/chunk·source 计数；未就绪给说明）",
       "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
     ].join("\n");
   }

@@ -22,6 +22,7 @@ import {
   type SettingsLike,
   type TaskEngineLike,
   type SecurityGuardLike,
+  type KnowledgeServiceLike,
   type DshEvent,
   type DshUserMessageLike,
   type SessionEvent,
@@ -120,6 +121,7 @@ interface AdapterServices {
   sessions?: SessionStoreLike;
   taskEngine?: TaskEngineLike;
   guard?: SecurityGuardLike;
+  knowledge?: KnowledgeServiceLike;
 }
 
 interface TestHarness {
@@ -3816,4 +3818,89 @@ test("真实 adapter /guard：guard 缺失 → refreshGuard reject", async () =>
   const call = adapter.refreshGuard!();
   await assert.rejects(call, /guard 未挂载/);
   unbind();
+});
+
+// ---------- A3：/memory 的真实 adapter 接线契约 ----------
+// 断言：getSummary 同步 就绪概要；未就绪 resolve 说明文本；whenReady 就绪路径；服务缺失 reject。
+
+test("真实 adapter /memory：getSummary 就绪 → 3 行概要", async () => {
+  const services: AdapterServices = {
+    knowledge: {
+      getSummary: () => ({
+        ready: true,
+        dbPath: "/tmp/kb.sqlite",
+        chunkCount: 42,
+        sourceCount: 7,
+      }),
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  const text = await adapter.memorySummary?.();
+  assert.ok(text?.includes("知识库：就绪"), String(text));
+  assert.ok(text?.includes("路径：/tmp/kb.sqlite"), String(text));
+  assert.ok(text?.includes("chunks：42 · sources：7"), String(text));
+  unbind();
+});
+
+test("真实 adapter /memory：getSummary 未就绪 → 说明文本", async () => {
+  const services: AdapterServices = {
+    knowledge: {
+      getSummary: () => ({
+        ready: false,
+        dbPath: ":memory:",
+        chunkCount: 0,
+        sourceCount: 0,
+      }),
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  const text = await adapter.memorySummary?.();
+  assert.ok(text?.includes("知识库尚未就绪"), String(text));
+  unbind();
+});
+
+test("真实 adapter /memory：whenReady 就绪路径；knowledge 缺失 → reject", async () => {
+  const services: AdapterServices = {
+    knowledge: {
+      whenReady: () =>
+        Promise.resolve({
+          summary: () => ({
+            ready: true,
+            dbPath: "/tmp/kb2.sqlite",
+            chunkCount: 1,
+            sourceCount: 1,
+          }),
+        }),
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  const text = await adapter.memorySummary?.();
+  assert.ok(text?.includes("chunks：1 · sources：1"), String(text));
+  unbind();
+
+  const { adapter: a2, unbind: u2 } = makeAdapter();
+  const call = a2.memorySummary!();
+  await assert.rejects(call, /knowledge 未挂载/);
+  u2();
 });
