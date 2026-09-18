@@ -86,6 +86,39 @@ export interface LoopState {
   history: RoundRecord[];
 }
 
+/** 循环清单条目（只读子集，供 list()/宿主面板展示）。 */
+export interface LoopSummary {
+  /** 循环标识。 */
+  id: string;
+  /** 状态。 */
+  status: LoopStatus;
+  /** 停止原因（running 时 null）。 */
+  stopReason: StopReason | null;
+  /** 测量命令；metricless 为 null。 */
+  measureCmd: string | null;
+  /** 指标方向。 */
+  direction: Direction;
+  /** plateau 窗口。 */
+  window: number;
+  /** 轮数上限。 */
+  maxRounds: number;
+  /** 时间边界（毫秒），未设 null。 */
+  timeBoundMs: number | null;
+  /** token 边界，未设 null。 */
+  tokenBound: number | null;
+  /** 自动唤醒最小间隔（秒），未设 null。 */
+  cadenceSec: number | null;
+  /** 已完成轮数。 */
+  rounds: number;
+  /** 历史最优值（metricless 恒 null）。 */
+  best: number | null;
+  /** 连续无改进轮数。 */
+  streak: number;
+  /** 创建时刻。 */
+  createdAt: number;
+  /** 最近更新时刻。 */
+  updatedAt: number;
+}
 /** 推进单轮的输入。 */
 export interface AdvanceInput {
   state: LoopState;
