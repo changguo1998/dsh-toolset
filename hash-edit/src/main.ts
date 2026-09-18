@@ -76,7 +76,7 @@ function toDshTool(def: ToolDef): DshTool {
   return {
     name: def.name,
     description: def.description,
-    parameters: def.parameters,
+    parameters: compileParameters(def.parameters),
     execute: (args: ToolArgs) => def.execute(args),
     output: {
       // dsh ToolOutputDefinition 强制 output.schema（对照 task-engine/metric-loop 对齐形态）
@@ -96,8 +96,44 @@ function asInt(v: unknown): number | undefined {
   return typeof v === "number" && Number.isSafeInteger(v) ? v : undefined;
 }
 
-// dsh 工具 parameters 契约：根为隐式 open object 的扁平属性表
-// （每个属性自带 required: true；不支持根级 required 数组 / additionalProperties）。
+/**
+ * 将作者友好的参数 property-map 编译成网关接受的 JSON Schema。
+ * dsh 官方工具经 defineTool→parameterSchemaSpecToJsonSchema 产出
+ * {type:"object", properties, required}；本 bundle 独立注册需自补这一层，
+ * 否则 Ark/OpenAI 兼容网关收到顶层无 type 的裸 map，报
+ * "schema must be a JSON Schema of 'type: \"object\"', got 'type: null'"。
+ * 对本身已是 JSON Schema（顶层带 type:"object"）的输入保持幂等原样返回。
+ */
+/** 编译后的工具参数 JSON Schema（网关/宿主接收的顶层 object schema）。 */
+interface ToolParametersSchema {
+  type: "object";
+  properties: Record<string, unknown>;
+  required?: string[];
+}
+
+function compileParameters(spec: unknown): ToolParametersSchema {
+  if (
+    typeof spec === "object" &&
+    spec !== null &&
+    "type" in (spec as Record<string, unknown>)
+  ) {
+    return spec as ToolParametersSchema;
+  }
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const [key, value] of Object.entries(
+    spec as Record<string, { required?: boolean; [k: string]: unknown }>,
+  )) {
+    const { required: isRequired, ...rest } = value;
+    properties[key] = rest;
+    if (isRequired === true) required.push(key);
+  }
+  return {
+    type: "object",
+    properties,
+    ...(required.length > 0 ? { required } : {}),
+  };
+}
 const HASH_READ_PARAMS = {
   path: {
     type: "string",

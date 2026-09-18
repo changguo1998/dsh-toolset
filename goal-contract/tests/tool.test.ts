@@ -267,3 +267,38 @@ test("参数校验：max_goal_rounds 非正整数 / clauses 预填非法 → ok=
   assert.equal(badClauses.ok, false);
   assert.ok((badClauses.error as string).includes("command"));
 });
+
+test("parameters 编译为标准 JSON Schema（网关 type:null 回归）", () => {
+  const tool = createGoalContractTool({});
+  const params = tool.parameters as {
+    type?: string;
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
+  // 顶层必须有 type:"object"（此前裸 property-map 被网关拒为 type:null）
+  assert.equal(params.type, "object");
+  assert.ok(params.properties !== undefined);
+  // 四个字段都在 properties 中
+  for (const field of [
+    "objective",
+    "clauses",
+    "clauses_text",
+    "max_goal_rounds",
+  ]) {
+    assert.ok(
+      field in (params.properties as Record<string, unknown>),
+      `缺 ${field}`,
+    );
+  }
+  // 内联 required 标志被移除（不再残留于 property 上）
+  for (const prop of Object.values(
+    params.properties as Record<string, unknown>,
+  )) {
+    assert.ok(
+      !("required" in (prop as Record<string, unknown>)),
+      "property 上不应残留 required",
+    );
+  }
+  // 全可选字段 → 不生成顶层 required 数组
+  assert.equal(params.required, undefined);
+});

@@ -86,12 +86,50 @@ function normalizeRoot(raw: Config["root"]): RootSpec {
   };
 }
 
+/**
+ * 将作者友好的参数 property-map 编译成网关接受的 JSON Schema。
+ * dsh 官方工具经 defineTool→parameterSchemaSpecToJsonSchema 产出
+ * {type:"object", properties, required}；本 bundle 独立注册需自补这一层，
+ * 否则 Ark/OpenAI 兼容网关收到顶层无 type 的裸 map，报
+ * "schema must be a JSON Schema of 'type: \"object\"', got 'type: null'"。
+ * 对本身已是 JSON Schema（顶层带 type:"object"）的输入保持幂等原样返回。
+ */
+interface TaskToolParametersSchema {
+  type: "object";
+  properties: Record<string, unknown>;
+  required?: string[];
+}
+
+function compileParameters(spec: unknown): TaskToolParametersSchema {
+  if (
+    typeof spec === "object" &&
+    spec !== null &&
+    "type" in (spec as Record<string, unknown>)
+  ) {
+    return spec as TaskToolParametersSchema;
+  }
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const [key, value] of Object.entries(
+    spec as Record<string, { required?: boolean; [k: string]: unknown }>,
+  )) {
+    const { required: isRequired, ...rest } = value;
+    properties[key] = rest;
+    if (isRequired === true) required.push(key);
+  }
+  return {
+    type: "object",
+    properties,
+    ...(required.length > 0 ? { required } : {}),
+  };
+}
+
 /** 结构面适配：把纯工具定义转成 dsh tools.register 接受的形态 */
 function toDshTool(def: TaskToolDef) {
   return {
     name: def.name,
     description: def.description,
-    parameters: def.parameters,
+    parameters: compileParameters(def.parameters),
     async execute(args: Record<string, unknown>, exec: unknown) {
       return def.execute(args, exec);
     },

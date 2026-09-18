@@ -20,6 +20,39 @@ import type {
   UserQuestionsLike,
 } from "./types.ts";
 
+/** 工具参数作者格式：字段名 → 类型/必填/描述（与 dsh parameterSchemaSpec 同形）。 */
+type ParamSpec = Record<
+  string,
+  {
+    required?: boolean;
+    type: string;
+    description?: string;
+    items?: unknown;
+  } & Record<string, unknown>
+>;
+
+/**
+ * 将作者友好的参数 property-map 编译成网关接受的 JSON Schema。
+ * dsh 官方工具经 defineTool→parameterSchemaSpecToJsonSchema 产出
+ * {type:"object", properties, required}；本 bundle 独立注册需自补这一层，
+ * 否则 Ark/OpenAI 兼容网关收到顶层无 type 的裸 map，报
+ * "schema must be a JSON Schema of 'type: \"object\"', got 'type: null'"。
+ */
+function compileParameters(spec: ParamSpec): Record<string, unknown> {
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const [key, value] of Object.entries(spec)) {
+    const { required: isRequired, ...rest } = value;
+    properties[key] = rest;
+    if (isRequired === true) required.push(key);
+  }
+  return {
+    type: "object",
+    properties,
+    ...(required.length > 0 ? { required } : {}),
+  };
+}
+
 /** 工具名（注册进宿主工具注册表）。 */
 export const TOOL_NAME = "goal_contract_draft";
 
@@ -61,7 +94,7 @@ export function createGoalContractTool(deps: GoalContractDeps) {
   return {
     name: TOOL_NAME,
     description: TOOL_DESCRIPTION,
-    parameters: {
+    parameters: compileParameters({
       objective: {
         type: "string",
         required: false,
@@ -86,7 +119,7 @@ export function createGoalContractTool(deps: GoalContractDeps) {
         required: false,
         description: "goal 回合上限（缺省宿主 256；自动化场景建议小值）",
       },
-    },
+    }),
     async execute(
       args: Record<string, unknown>,
       exec: ToolExecLike | undefined,
