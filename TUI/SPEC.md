@@ -65,7 +65,7 @@ interface Paragraph extends NodeBase {
 
 **`Spacer` 用法**：块级对齐/间距的占位项——横向 `spacer({ width: fill })` 吃剩余推位（用户块右对齐）、`spacer({ width: fixed n })` 留白（回复右缘 `messageGutter`）；纵向 `spacer({ height: fill })` 吃剩余、让内容不足时落在容器底边、`spacer({ height: fixed n })` 为固定空行。**轴必须显式给出**（`width`→h 占列、`height`→v 占行，杜绝 `{mode:"fill"}` 歧义）；允许 `fill` 与 `fixed`（±夹取界）两种形态，`auto`/`ratio` 对空内容无意义、不做（YAGNI）。
 
-**宽度/高度意图**（对齐现状：状态列 1/3、历史区保底 10 列、交互区固定行数）：
+**宽度/高度意图**（对齐现状：状态列 1/3 且最低 20 列、历史区保底 10 列、交互区固定行数）：
 
 ```ts
 type Width =
@@ -84,7 +84,7 @@ type Height =
 |---|---|---|
 | 用户消息块 | `userMaxBodyWidth = width − gutter`（layout.ts:1203） | `{ mode:"auto", max: 可用宽 − gutter }` |
 | 历史区保底 | 与下一条共同决定状态列上限 | `{ mode:"fill", min: 10 }` |
-| 状态列宽 | `Math.min(⌊cols/3⌋, cols−10)` | `{ mode:"ratio", value:1/3 }`——**上限由历史区的 `min` 自动产生**，无需再写 `max`（见 §6「一侧声明即够」） |
+| 状态列宽 | `Math.min(max(20, ⌊cols/3⌋), cols−10)` | `{ mode:"ratio", value:1/3, min:20 }`——**上限由历史区的 `min` 自动产生**，无需再写 `max`（见 §6「一侧声明即够」） |
 
 **为什么需要尺寸意图**：`measure` 只回答「内容自然有多大」（内容说了算），`allocate` 才回答「容器分配给你多少」——而**填满剩余（fill）、按比例（ratio）、固定行数（fixed rows）、保底（min）这些布局需求都与内容无关**，必须作为额外声明带给分配器，否则这些数字只能写死在布局函数里。因此：**尺寸意图 = 布局的需求侧声明，归属对象是分区（带 `id` 的 Box / 覆盖型的叶子）而非普通内容节点**。挂载点：`width`/`height` 在 `NodeBase`（Box 与 Paragraph 共享），内容节点**缺省不声明**（高度由折行决定），仅两类场景显式声明——分区（带 `id` 的 Box，如状态列 `ratio 1/3`、历史区 `fill+min:10`）与覆盖型叶子（§3.2 表格每格 `width:fixed`、`Spacer`）。
 

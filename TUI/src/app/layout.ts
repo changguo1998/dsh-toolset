@@ -192,9 +192,11 @@ export function metricsFor(
   const interaction =
     layout?.footerHeight ?? Math.min(4, Math.max(2, Math.floor(size.rows / 5)));
   const footerHeight = hasPanel ? interaction : interaction - 1;
-  // 状态列：窄列约 1/3（含右侧竖线，2026-09-07 由 25% 改 1/3），但历史区保底 10 列
+  // 状态列：窄列约 1/3（含右侧竖线，2026-09-07 由 25% 改 1/3），**最低 20 列**
+  // （2026-09-21 由底限 1 提升；内容列宽 = cols/divisor，不足 20 时提到 20），
+  // 但仍受「历史区保底 10 列」上限约束（cols < 30 时历史区优先，状态列让位）
   const statusColWidth = Math.min(
-    Math.max(1, Math.floor(size.cols / (layout?.statusDivisor ?? 3))),
+    Math.max(20, Math.floor(size.cols / (layout?.statusDivisor ?? 3))),
     Math.max(1, size.cols - 10),
   );
   const historyWidth = Math.max(1, size.cols - statusColWidth);

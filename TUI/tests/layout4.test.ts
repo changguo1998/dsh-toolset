@@ -101,8 +101,8 @@ test("metricsFor: 交互区(输入+提示)占 1/5 且至少 2 行；历史区 = 
   assert.equal(m.historyWidth, 60 - m.statusColWidth);
   assert.equal(
     m.statusColWidth,
-    Math.min(Math.max(1, Math.floor(60 / 3)), Math.max(1, 60 - 10)),
-    "状态列窄列约 1/3 且历史区保底 10 列",
+    Math.min(Math.max(20, Math.floor(60 / 3)), Math.max(1, 60 - 10)),
+    "状态列窄列约 1/3 且最低 20 列、历史区保底 10 列",
   );
 });
 
@@ -705,8 +705,9 @@ test("会话流：用户消息软换行续行共享同一左边界；显式换�
     type: "user-line",
     text: "第一行内容\n第二行更长的内容会触发软换行继续向下一行展示直到超出三十六列宽度限制为止",
   });
-  // 标题栏占左列顶部 2 行：加高终端（rows=24 → dialogueH=5）保证首行块可见
-  const plain = buildFrame(s, { rows: 24, cols: 40 }).map((line) =>
+  // 标题栏占左列顶部 2 行：加高终端（rows=24 → dialogueH=5）保证首行块可见；
+  // cols=50（状态列最低 20 → 历史区 30）确保两个用户块都在可视窗口内
+  const plain = buildFrame(s, { rows: 24, cols: 50 }).map((line) =>
     rowAnsi(line).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const rows = plain.filter(
@@ -716,7 +717,7 @@ test("会话流：用户消息软换行续行共享同一左边界；显式换�
   // 左边界按历史区正文量测（跳过状态列）：appendStream 按 \n 拆出独立块，
   // 每个块各自右对齐（左缘随块宽不同），块内软换行续行共享同一左边界
   const indents = rows.map((l) => {
-    const b = histBody(l, 40);
+    const b = histBody(l, 50);
     return b.length - b.trimStart().length;
   });
   assert.equal(

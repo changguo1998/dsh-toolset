@@ -118,7 +118,7 @@ dsh --profile <p>
     "footerHeight": 4,                 // 交互区绝对行数（可选；缺省自动 min(4, max(2, rows/5))）
     "activityHeightDivisor": 2,        // 活动区高 = 顶部内容高 / 此值（1/2 → 2）
     "activityTopRow": null,            // 活动区分隔行锚定（可选；"half"= 屏幕中线行，或绝对行号；缺省 null = 走 divisor 比例）
-    "statusColumnDivisor": 3           // 状态列宽 = 终端列数 / 此值（1/3 → 3，历史区保底 10 列）
+    "statusColumnDivisor": 3           // 状态列宽 = 终端列数 / 此值（1/3 → 3；状态列最低 20 列，历史区保底 10 列）
   }
 }
 ```
