@@ -2,7 +2,7 @@
     "layout": {
         "activityHeightDivisor": 2,
         "activityTopRow": "half",
-        "statusColumnDivisor": 3
+        "statusColumnDivisor": 4
     },
     "notify": {},
     "session": {
