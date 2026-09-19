@@ -225,12 +225,11 @@ commandPanel:
 | `/search <query>` ✅ 已实现（P2#24） | 需插件改造 | 核实 `dsh-web` 0.1.5-rc.2 为 provider-**selecting**（module doc「provider-selecting execution」；`search()` 运行单个所选 provider；多 provider 无显式 id → `WEB_PROVIDER_AMBIGUOUS`；`WebSearchRequest` doc「a consumer may issue several requests」）→ **多引擎聚合为 TUI 侧职责**：adapter 并行遍历 provider 集合（web 派生 + `options.searchProviders`）→ 合并/URL 去重/query-token 关联度排序 → 行（title ?? host、detail=`[provider] · snippet`、payload=url）推 listPanel；单 provider 失败降级、全部失败 reject（warn） |
 | `/task` ✅ 已实现（A1） | 需插件改造 | task-engine 已 provide 只读查询面（`query()`/`frameStack()`，C1 补全 + ctx 挂载）并由 TUI `/task` 面板接线 |
 | `/guard` ✅ 已实现（A2） | 需插件新增能力 | security-guard 已加记录缓冲与 `recent()`/`policy()`（C3 补全 + ctx 挂载）并由 TUI `/guard` 面板接线 |
-| `/contract` | 需插件包改动 | `goal-contract` 包入口未 re-export `buildObjective` / `parseContract`（已核实：`index.ts` 仅导出 `name`/`inject`/`apply`，包无 `exports` 字段）→ 公开依赖需加 re-export；深路径 import 内部文件不稳、内联复制会漂移 |
 | `/clear` ⏸ 裁定仍不可实现（B1） | 宿主无对应能力 | **dsh-session 0.1.5-rc.2 复核**：store 公开面无删除/清理（`detachEntered`/`store.delete` 为 private teardown）、`dsh-session-query` 仅查询、无 `session/delete` 事件；会话清理已由 TUI 自建 `/session` 面板 `d`/`x` + `/session clean` 覆盖（文件级删除），`/clear` 上下文清理语义与宿主上下文管理无关 → 维持排除；若日后宿主提供对外删除 API 再另立规格 |
 | `/login` `/logout` ⏸ 裁定仍不可实现（B2） | 语义不匹配（无交互登录流程） | **dsh-credentials 0.1.5-rc.2 复核**：reference 空间（`resolve`/`describe`/`set`/`unset`，index.d.ts:129/136/145/152）+ record 空间（`listRecords`/`describeRecord`/`modifyRecord`/`deleteRecord`，index.d.ts:174/165/186/191）+ `credentials/reference-updated` 事件——仍**无交互式登录流程**（供应商选择 / OAuth / 设备码）；`/logout` 无宿主「登出」概念（`unset`/`deleteRecord` 属凭据运维非登出）；TUI 自造属凭据录入与安全边界设计，超命令范围 → 维持排除；若日后宿主提供登录流程桥（如登录事件/命令）再另立规格 |
 | `/review` ⏸ 裁定仍不可实现（B3） | 需先建编排资产 | **dsh-workflow 0.1.5-rc.2 复核**：`workflowEngine.start` 为通用脚本引擎，须自备 `script`/`meta`（WorkflowMeta 身份块，types.d.ts:39-48）/`parent: Agent`（runtime-types.d.ts:15-29）；包内无 review 资产、无内置命名工作流 → `/review` 需先建 review 编排资产（reviews 相位/reviewer 数/验收口径）并授权当前 Agent → 属编排层资产设计，搁置；资产建成后可另立规格 |
 
-> 这 9 项不进入本轮实现；待插件改造完成或 API 证实后另立规格。
+> 状态（2026-09-20）：上表中 6 项已标 ✅ 已实现（A1-A5 + 三条 P2 功能命令）——批次 0-4 之后经插件只读查询面改造与命令扩展实现落地（见 `COMMANDS-TASKS.md` §7 状态说明）；仅 ⏸ 标记的 `/clear`、`/login`·`/logout`、`/review` 维持排除/搁置，待 API 证实或资产建成后另立规格。
 
 ## 4. 实现顺序（批次 0 + 四批，编号与 `COMMANDS-TASKS.md` §0 一致）
 

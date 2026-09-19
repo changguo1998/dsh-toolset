@@ -149,6 +149,8 @@ npm --prefix TUI run demo -- --smoke   # 帧断言 SMOKE_PASS 36/36
 
 ## 7. 不在范围
 
+> 状态说明（2026-09-20）：本表为**批次 0-4 实现期快照**。其后原列「需插件改造 / 包改动」的 5 项已完成插件改造并落地：`/task` `/guard` `/memory` `/loop` `/contract`（A1-A5，提交链 `c31f4ec`→`ec94879`→`1bd761b`→`3ccd8f0`→`b17f13c`→`c39359a`）——最新状态以 `COMMANDS-SPEC.md` §3 为准（均已标 ✅ 已实现）。本表下方 `/clear`、`/login`·`/logout`、`/review` 三条裁定维持排除/搁置不变；`/settings` 写回与宿主命令插件包等其他不做项不变。
+
 | 命令 | 原因 |
 |------|------|
 | `/memory` `/loop` `/task` `/guard` | 需先改动本项目插件（服务暴露 / 新增能力） |

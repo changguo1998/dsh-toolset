@@ -3,7 +3,7 @@
 > 依据 `DEVELOPMENT-BACKLOG.md` 插件规划；各插件待办任务见其插件目录下 `TASKS.md`，本表只记状态、不记细节。
 > 状态：未开始 / 进行中 / 阻塞 / 完成（另有：暂缓）。
 > 更新约定：状态变化时更新本表；任务完成并合入本分支后清理对应 `TASKS.md`。
-> **里程碑进度**：三插件首版 + r2、P1 七插件（goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard）均已完成并合入 main；**TUI 排版重构（主线 A 契约迁移 + 主线 B Box 模型）已完成并合入 main**（见 `TUI/TASKS.md`，2026-09）；**TUI 排版性能（折行/宽度有界缓存 + `charWidth` 码点表 + paint 同 tick 合帧，`TUI_LAYOUT_CACHE=0` 可关）已完成**（机制与基准见 `TUI/IMPLEMENTATION.md`「排版缓存与绘制合帧」）；**TUI 主题调色板可配置化已完成**（`tui.config.json` theme 段：内联 > `paletteDir` 上游文件 > 内置兜底；语义槽位 `gray/border/code/focus` 数据化，随上游 fff 配色更新不再内嵌漂移；`/theme` 协议不变）；剩余 P2 插件未开始，rate-guard 已取消（不迁移，见对比文档 §5.4）。
+> **里程碑进度**：三插件首版 + r2、P1 七插件（goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard）均已完成并合入 main；**TUI 排版重构（主线 A 契约迁移 + 主线 B Box 模型）已完成并合入 main**（见 `TUI/TASKS.md`，2026-09）；**TUI 排版性能（折行/宽度有界缓存 + `charWidth` 码点表 + paint 同 tick 合帧，`TUI_LAYOUT_CACHE=0` 可关）已完成**（机制与基准见 `TUI/IMPLEMENTATION.md`「排版缓存与绘制合帧」）；**TUI 主题调色板可配置化已完成**（`tui.config.json` theme 段：内联 > `paletteDir` 上游文件 > 内置兜底；语义槽位 `gray/border/code/focus` 数据化，随上游 fff 配色更新不再内嵌漂移；`/theme` 协议不变）；**P2 部分功能与命令扩展已完成并合入 main**：`/workflows` 面板（P2#16，`343a3f2`）、`/council` 二次意见（P2#18，`083ca77`）、`/search` 多 provider 聚合（P2#24，`8ebe163` + 审计整改 `e44a8a5`）、声音提醒（P2#33，`87935ae`），以及 A1-A5 命令 `/task` `/guard` `/memory` `/loop` `/contract`（对应插件只读查询面已落地，`c31f4ec`→`ec94879` 等）；剩余 P2 插件未开始，rate-guard 已取消（不迁移，见对比文档 §5.4）。
 
 | 插件 | 阶段 | 分支 | 状态 | 备注 |
 |------|------|------|------|------|
@@ -24,5 +24,5 @@
 | session-broker | P2 | — | 未开始 | |
 | command-template | P2 | — | 未开始 | |
 | context-report | P2 | — | 未开始 | |
-| TUI 扩展 | P2 | — | 未开始 | /workflows 面板、声音提醒 |
+| TUI 扩展 | P2 | — | 完成（P2 部分） | /workflows 面板（P2#16）、/council（P2#18）、/search（P2#24）、声音提醒（P2#33）与 A1-A5 命令（/task /guard /memory /loop /contract，C1-C5）均已合入 main；C6/C7 裁定维持排除、C8 /review 裁定搁置 |
 | 内容资产 | P2 | — | 未开始 | workflow 模板 + skill 内容 |

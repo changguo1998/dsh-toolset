@@ -3,7 +3,7 @@
 > 依据：`AGENT-ARCHITECTURE-ANALOGY.md`（架构设计与接口对照 §16）+ `PI-DSH-FEATURE-COMPARISON.md`（迁移基线 §3/§4）。
 > 基线：dsh `dsh-v0.1.5-rc.2`（`fb2c4b9e69`）；两文档中重叠项已合并（list↔任务树序列化、audit↔RET 验收路由、glla goal↔契约起草）。实现时以根目录 `DSH-CTX-API.md`（0.1.5-rc.2 契约）对齐宿主接口。
 > 优先级：**P0** 架构主线（设计文档 §16"自建三块"+ 对比文档 §4.3 前两位）；**P1** 核心体验补齐；**P2** 长尾。
-> **实现状态图例（2026-09 对照代码核实）**：`✅` 已实现——落点为本仓库独立插件，见各插件目录源码与 `DEVELOPMENT-STATUS.md` 状态表；`◐` 部分实现（括号注明已含/未含部分）；无标注 = 未实现，仍为待办。
+> **实现状态图例（2026-09-20 对照 git 历史 + 代码目录核实）**：`✅` 已实现——落点为本仓库独立插件或 TUI 包，见各插件目录源码与 `DEVELOPMENT-STATUS.md` 状态表；`◐` 部分实现（括号注明已含/未含部分）；无标注 = 未实现，仍为待办。
 
 ## 1. 任务控制与执行引擎（P0 主线）
 
@@ -44,9 +44,9 @@ dynamic-workflows 迁移（对比文档 §3.1）；核心并发能力 dsh 已满
 | 13 | ✅ fan-out 编排：shared task DAG 承载并行分支 | dynamic-workflows 拆项 1；设计 §14.2/§15.2 | experimental-agent-team（DAG）、`ctx.subagents.start()` 多 run | P1 |
 | 14 | 工作流内模型路由与成本核算 | dynamic-workflows 拆项 2/3 | agent-default-model、token-meter | P2 |
 | 15 | ◐ resume 断点续跑、git-worktree 完整隔离：resume ✅（task-engine `resumeFromSnapshot`）；git-worktree 完整隔离未实现 | 拆项 4/5 | session 事件源续跑；自研 dsh-git-worktree 插件补隔离 | P2 |
-| 16 | /workflows 交互面板（TUI） | 拆项 6 | dsh-toolset TUI 新面板 | P2 |
+| 16 | ✅ **/workflows 交互面板**（TUI `/workflows` 命令 + 只读运行列表，`343a3f2`） | 拆项 6 | dsh-toolset TUI 新面板（`tool-workflow/*` 桥接事件面维护运行集合，不 emit 增量防污染） | P2 |
 | 17 | 模板化 pattern（deep-research / code-review 等五族） | 拆项 7；pi-simplify/ponytail 工具族可并入 | workflow 脚本内容 + skill 内容资产 | P2 |
-| 18 | advisor / council 二次意见 | 对比 §3.5 | tool-ralph / tool-subagent + 模型路由 | P2 |
+| 18 | ✅ **advisor / council 二次意见**（TUI `/council [N]`，并行 N 个评审子代理对当前目标给独立意见，notice 展示，`083ca77`） | 对比 §3.5 | tool-subagent（并行 `start` + allSettled 汇总，stopReason=error 降级）；目标源 = goal 快照或最近用户输入 | P2 |
 
 ## 4. 代码与文件（P1-P2）
 
@@ -66,7 +66,7 @@ web-access 迁移（对比文档 §3.4）。
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
-| 24 | ✅ 搜索 provider 聚合（`/search` 命令） | web-access 拆项 1；TUI P2#24 | dsh-web seam 为 provider-selecting 非聚合 → **TUI 侧并行多 provider**（web 派生 + `options.searchProviders`）合并/去重/关联度排序 | P2 ✅ |
+| 24 | ✅ 搜索 provider 聚合（TUI `/search` 命令已实现：`8ebe163`；真实多 provider 聚合审计整改 `e44a8a5`） | web-access 拆项 1；TUI P2#24 | dsh-web seam 为 provider-selecting 非聚合 → **TUI 侧并行多 provider**（web 派生 + `options.searchProviders`）合并/URL 去重/query-token 关联度排序；listPanel 展示、Enter 看来源 | P2 ✅ |
 | 25 | GitHub 仓库克隆 | 拆项 3 | 可先经 shell | P2 |
 | 26 | PDF 提取、视频理解 | 拆项 4/5 | 无底座，新工具 | P2 |
 
@@ -87,8 +87,8 @@ defender 迁移（对比文档 §3.5）。
 | 30 | 跨会话 broker（消息/委托/状态同步） | pi-intercom | 无底座；webhook/acp/sdk 均非等效 | P2 |
 | 31 | slash 命令模板（pre-steps/chain/best-of-N）+ 模板级模型选择 | pi-prompt-template-model | commands + workflow | P2 |
 | 32 | 近期改动代码审查 | pi-simplify | 可并入 #17 模板族 | P2 |
-| 33 | 完成/等待声音提醒 | notify-sound（原生） | TUI 扩展 | P2 |
-| 34 | 上下文压力/token 报告 | supi-context | token-meter + session-stats 形态对齐 | P2 |
+| 33 | ✅ **完成/等待声音提醒**（事件钩子，`87935ae`） | notify-sound（原生） | TUI 扩展（完成/等待事件钩子） | P2 |
+| 34 | ◐ 上下文压力/token 报告：单回合 token 用量与上下文占比已由 TUI `/stats`（别名 `/usage` `/context`）覆盖；token-meter/session-stats 会话累计形态未做 | supi-context | token-meter + session-stats 形态对齐 | P2 |
 | 35 | provider 流量控制：限流遥测 + AIMD 咨询守卫（退避等待转 advisory、令牌桶、rate_check 工具） | ~~rate-guard（pi 原生扩展）~~（已移除；「等待后恢复」由新增扩展 provider-guard 承接，见对比文档 §5.4） | llm-retry 已覆盖一般退避；不迁移（quota 长等待/恢复溯源如需要可参照 provider-guard） | P2（已取消，不实现） |
 | 36 | ✅ herdr 面板集成：agent 状态 socket 上报、blocked 事件桥（含 ask-user blocked → herdr blocked） | herdr-agent-state / herdr-ask-user-question（pi 原生扩展） | 新建；协议仿 pi 原生（HERDR_ENV / HERDR_SOCKET_PATH / HERDR_PANE_ID + unix socket） | P1 |
 
@@ -96,27 +96,28 @@ defender 迁移（对比文档 §3.5）。
 
 > 命令面清单与「值得添加的命令」建议已独立成文：见 `TUI/COMMANDS.md`（依据 2026-09-18 对比 Claude Code / Codex CLI / Gemini CLI / pi 的共识命令与本项目现状）；可实现级规格见 `TUI/COMMANDS-SPEC.md`；实施清单见 `TUI/COMMANDS-TASKS.md`（批次 0 API 合同门 + 四批实现）。
 
-> **实施进度（2026-09-18）：批次 0 + 批次 1-4 全部完成并审计通过归档**——7 项纯 TUI 侧命令已实现：`/stats` `/rename` `/skills` `/agents` `/tools` `/settings` `/fork`（提交链 `5f4723e` → `619bffa` → `d11bd47`）。**本轮未做的 9 项「推荐但未实现」命令**见下表（明细与源码依据在 `TUI/COMMANDS-SPEC.md` §3、`TUI/COMMANDS-TASKS.md` §7）。
+> **实施进度（2026-09-20）：批次 0 + 批次 1-4 全部完成并审计通过归档**——7 项纯 TUI 侧命令已实现：`/stats` `/rename` `/skills` `/agents` `/tools` `/settings` `/fork`（提交链 `5f4723e` → `619bffa` → `d11bd47`）。**其后原「9 项推荐但未实现」中的 C1-C5 五条命令已随插件改造完成全部落地合入 main**：`/task`（A1，`ec94879`）、`/guard`（A2，`1bd761b`）、`/memory`（A3，`3ccd8f0`）、`/loop`（A4，`b17f13c`）、`/contract`（A5，`c39359a`）；C6-C8 已设计裁定（维持排除/搁置）。9 项候选当前状态见下表（明细与源码依据在 `TUI/COMMANDS-SPEC.md` §3、`TUI/COMMANDS-TASKS.md` §7）。
 
-### 9 项「推荐但未实现」命令（后续候选）
+### 9 项「推荐但未实现」命令（当前状态）
 
-| # | 命令 | 类别 | 阻塞点 / 前置 | 落点 |
-| C1 | `/task` | 需插件改造 | task-engine 的 `TaskEngine` 为 apply 内局部变量 → provide 只读子集（`snapshotText`/`frames`/`activeCount`/`isComplete` 已存在） | task-engine 插件 |
-| C2 | `/contract` | 需插件包改动 | goal-contract 包入口未 re-export `buildObjective`/`parseContract`（包无 exports 字段）→ 加 re-export | goal-contract 插件 |
-| C3 | `/guard` | 需插件新增能力 | security-guard 仅 `GuardEngine.inspect(toolName, args)`，无策略/拦截记录查询 → 加记录缓冲 + `recent()`/`policy()` | security-guard 插件 |
-| C4 | `/memory` | 需插件改造 | knowledge-base 的 `apply` 同步且 `void createKnowledgeBundle(...)`（async 工厂建完即丢）→ 改插件暴露服务 | knowledge-base 插件 |
-| C5 | `/loop` | 需插件改造 | metric-loop 的 controller 未挂 ctx；需新增 `list()`（现有仅 start/tick/status/stop） | metric-loop 插件 |
-| C6 | `/clear` | 宿主能力缺口 | `dsh-session` 类型面无 `clear`（仅 create/get/list/fork）；会话清理无宿主入口 | 无（宿主不支持） |
-| C7 | `/login` `/logout` | 语义不匹配 | 宿主仅有凭据**引用** seam `ctx.credentials`（resolve/describe/set/unset），无交互登录流程（OAuth/设备码） | 无（安全边界设计） |
-| C8 | `/review` | 需工作流资产 | `ctx.workflowEngine.start` 存在但请求要求 `script`+`meta`+`parent: Agent`，宿主无内置 review 工作流资产 | workflow 资产 |
+| # | 命令 | 类别 | 状态 |
+|---|------|------|------|
+| C1 | `/task` | 需插件改造 | ✅ 已实现（task-engine 只读查询面 `query()/frameStack()`，`ec94879`） |
+| C2 | `/contract` | 需插件包改动 | ✅ 已实现（goal-contract 加 re-export；TUI 内置同构回读 + service 优先钩子，`c39359a`） |
+| C3 | `/guard` | 需插件新增能力 | ✅ 已实现（security-guard 加记录缓冲 `recent()/policy()`，`1bd761b`） |
+| C4 | `/memory` | 需插件改造 | ✅ 已实现（knowledge-base 暴露服务并持有 bundle，`3ccd8f0`） |
+| C5 | `/loop` | 需插件改造 | ✅ 已实现（metric-loop 新增 `list()` 并挂 ctx，`b17f13c`） |
+| C6 | `/clear` | 宿主能力缺口 | ⏸ 裁定维持排除（B1：`dsh-session` 无清理 API；文件级删除已由 `/session` 面板 `d`/`x` + `/session clean` 覆盖，`08f0e3f`） |
+| C7 | `/login` `/logout` | 语义不匹配 | ⏸ 裁定维持排除（B2：宿主无交互登录流程，`0eca5d6`） |
+| C8 | `/review` | 需工作流资产 | ⏸ 裁定搁置（B3：需先建 review 编排资产，`4dfcd16`） |
 
-> 排期建议：实现成本最低、最可能先做的是 **C1 `/task`**（只读子集现成）、**C2 `/contract`**（只差 re-export）、**C3 `/guard`**（需加记录缓冲）；C4/C5 依赖对应插件改造；C6-C8 无宿主前置或属资产/安全设计，需先行设计再排。另见 `TUI/COMMANDS-TASKS.md` §9 两个面板增量待决（/jobs 翻页回补、/agents 事件驱动刷新）。
+> 排期建议：C1-C5 已实现合入 main，C6/C7 已裁定维持排除、C8 已裁定搁置，**9 项候选当前无待办**；若日后宿主补齐会话清理/登录流程或建成 review 编排资产，再按 `TUI/COMMANDS-SPEC.md` §3 另立规格。`TUI/COMMANDS-TASKS.md` §9 两个面板增量待决也已闭环：/jobs PgUp/PgDn 整页翻页（`1b34bc5`）、/agents 事件驱动刷新（`7aad5ef`）。
 
 ## 排序原则与里程碑
 
 1. **里程碑一（P0）**：#1-#4 + #8 —— 引擎三块 + 知识库底座（设计文档 §16.3 结论：其余核心能力 dsh 已有现成服务）；
 1. **里程碑二（P1）**：#5-#7、#9-#11、#13、#19-#20、#27、#36 —— 契约/循环/记忆/压缩/锚点/结构搜索/安全策略/herdr 集成；
-1. **里程碑三（P2）**：其余长尾，按需排期；#35 rate-guard 已取消（pi 侧已移除，能力由 pi 核心 provider-retry 内建 + 新增扩展 provider-guard 承接；dsh 对应 llm-retry，见对比文档 §5.4）；
+1. **里程碑三（P2）**：其余长尾，按需排期（其中 #16/#18/#24/#33 与 A1-A5 命令已先行完成并合入 main）；#35 rate-guard 已取消（pi 侧已移除，能力由 pi 核心 provider-retry 内建 + 新增扩展 provider-guard 承接；dsh 对应 llm-retry，见对比文档 §5.4）；
 1. 不迁移：pi-dsh-minimal（反向桥）、pi 原生 herdr 扩展文件、pi 内部补丁（对比文档 §4.4）；herdr 面板集成以 `herdr-integration` 仿写实现（#36）。
 
 **起步顺序（实施建议）**：先打通流程、再上大件、双线并行：
@@ -149,7 +150,7 @@ defender 迁移（对比文档 §3.5）。
 | `context-report` | P2 | #34 | token-meter、session-stats |
 | ~~rate-guard~~ | P2（已取消） | #35 | 无（pi 侧已移除，能力由 pi 核心 provider-retry 内建 + 扩展 provider-guard 承接；dsh 对应 llm-retry，见对比文档 §5.4） |
 | `herdr-integration` | P1 | #36 | 无底座，仿 pi 原生扩展协议（unix socket + 环境变量握手） |
-| TUI 包扩展 | P2 | #16、#33 | dsh-toolset TUI（新增 /workflows 面板、声音提醒） |
+| TUI 包扩展 ✅（#16/#33 已完成） | P2 | #16、#33 | dsh-toolset TUI（/workflows 面板、声音提醒，均已合入 main）；另含 /council（#18）、/search（#24）与 A1-A5 命令 |
 | 内容资产（非插件） | P2 | #17-#18、#32 | workflow 脚本 + skill 内容 |
 
 依赖：goal-contract、metric-loop、workflow-ext 依赖 task-engine（契约/执行器面）；output-compress 依赖 knowledge-base；其余独立可并行。
