@@ -77,7 +77,7 @@ test("normalizeConfig：session 会话维护——autoCleanEmpty 布尔合法保
 test("loadTuiConfig：缺省路径读取真实文件；缺失路径回落默认不崩溃", () => {
   const c = loadTuiConfig();
   assert.equal(c.layout?.activityHeightDivisor, 2, "默认文件 1/2");
-  assert.equal(c.layout?.statusColumnDivisor, 3, "默认文件 1/3");
+  assert.equal(c.layout?.statusColumnDivisor, 4, "默认文件 1/4");
   const missing = loadTuiConfig("/nonexistent/tui.config.json");
   assert.deepEqual(missing, { layout: {} }, "缺失文件回落默认");
 });
