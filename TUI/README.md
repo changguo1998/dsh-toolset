@@ -115,14 +115,16 @@ dsh --profile <p>
 ```json
 {
   "layout": {
-    "footerHeight": 4,               // 交互区绝对行数（可选；缺省自动 min(4, max(2, rows/5))）
-    "activityHeightDivisor": 2,      // 活动区高 = 顶部内容高 / 此值（1/2 → 2）
-    "statusColumnDivisor": 3         // 状态列宽 = 终端列数 / 此值（1/3 → 3，历史区保底 10 列）
+    "footerHeight": 4,                 // 交互区绝对行数（可选；缺省自动 min(4, max(2, rows/5))）
+    "activityHeightDivisor": 2,        // 活动区高 = 顶部内容高 / 此值（1/2 → 2）
+    "activityTopRow": null,            // 活动区分隔行锚定（可选；"half"= 屏幕中线行，或绝对行号；缺省 null = 走 divisor 比例）
+    "statusColumnDivisor": 3           // 状态列宽 = 终端列数 / 此值（1/3 → 3，历史区保底 10 列）
   }
 }
 ```
 
 - `footerHeight` 省略时保持自适应（不小终端撑坏）；显式给出即固定绝对行数。
+- `activityTopRow` 配置后**替代** `activityHeightDivisor` 的比例分配：历史区与活动区之间的分隔行恰好落在指定行（`"half"` = `floor(rows/2)` 屏幕中线；数字 = 绝对行号，0 基）；剩余不足容纳活动区时自动让位（活动区 0 行、对话区吃满），不越界。
 - 修改后重启 `dsh --profile <p>`（或 `npm run demo`）生效；缺失/非法文件不崩溃，回落默认。
 
 ## 声音提醒配置（notify，tui.config.json）

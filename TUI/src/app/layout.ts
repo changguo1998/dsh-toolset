@@ -260,6 +260,22 @@ export function activityHeight(contentTopH: number, divisor?: number): number {
     : Math.max(1, Math.floor(contentTopH / (divisor ?? 2)));
 }
 
+/**
+ * 活动区分隔行锚定 → 目标行号（0 基，屏幕行）：
+ * "half" = 屏幕中线行 floor(rows/2)；number = 绝对行号（非负截断）；未配置 → undefined。
+ * 返回 undefined 表示走 activityHeightDivisor 比例分配（锚定未开启）。
+ */
+export function activityTopRowToLine(
+  config: "half" | number | undefined,
+  rows: number,
+): number | undefined {
+  if (config === "half") return Math.max(0, Math.floor(rows / 2));
+  if (typeof config === "number" && Number.isFinite(config) && config >= 0) {
+    return Math.floor(config);
+  }
+  return undefined;
+}
+
 /** 顶部左列面板行数划分（标题栏 + 对话区 + 活动区；buildTopRegion/inputPanelHeights 同口径） */
 export interface TopPaneHeights {
   /** 标题栏行数（标题行 + 实线下划线；极矮终端自适应收缩到 1/0 行） */
@@ -277,11 +293,47 @@ export interface TopPaneHeights {
  * 活动区 = 顶部内容行数的一半（沿用原公式、不因标题栏收缩），对话区取剩余
  * （标题栏行数由对话区承担，与 2026-09-27 标题栏自状态列迁入左侧前的状态列
  * 各行占比语义一致：活动区高度不随标题栏位置变化）。
+ *
+ * topRow 参数（非 undefined）：活动区分隔行锚定——历史区与活动区之间的分隔行
+ * 恰好落在 topRow 行（0 基，屏幕行；"half"/绝对行号经 activityTopRowToLine 换算）。
+ * 有剩余空间时 activityH = contentTopH - topRow - 1（对话区止于 topRow）；
+ * 剩余不足（contentTopH <= topRow + 1）则活动区 0 行、对话区吃满剩余，
+ * 与 divisor 模式共用降级与保底语义。
  */
 export function topPaneHeights(
   contentTopH: number,
   divisor?: number,
+  topRow?: number,
 ): TopPaneHeights {
+  // 锚定模式：活动区分隔行固定在 topRow；先判剩余能否容纳活动区（>0 才有分隔行）
+  if (topRow !== undefined) {
+    const activityH = contentTopH - topRow - 1;
+    if (activityH > 0) {
+      // 有活动区：标题栏降级逻辑同 divisor 模式，对话区止于 topRow（活动区分隔行）
+      let titleRows = 0;
+      for (const t of [TITLE_BAR_ROWS, 1, 0]) {
+        if (t === 0 || topRow - t >= 1) {
+          titleRows = t;
+          break;
+        }
+      }
+      const dialogueH = Math.max(0, topRow - titleRows);
+      return { titleRows, activityH, dialogueH };
+    }
+    // 无活动区空间：对话区吃满剩余（活动区分隔行不存在）
+    let titleRows = 0;
+    for (const t of [TITLE_BAR_ROWS, 1, 0]) {
+      if (t === 0 || contentTopH - t >= 1) {
+        titleRows = t;
+        break;
+      }
+    }
+    return {
+      titleRows,
+      activityH: 0,
+      dialogueH: Math.max(0, contentTopH - titleRows),
+    };
+  }
   const activityH = activityHeight(contentTopH, divisor);
   let titleRows = 0;
   for (const t of [TITLE_BAR_ROWS, 1, 0]) {
@@ -881,6 +933,8 @@ function buildTopRegion(
   presetOptions?: readonly string[],
   /** 会话标题（左侧历史区顶部标题栏；空标题 <title> 灰占位保持行稳定） */
   title = "",
+  /** 活动区分隔行锚定行号（0 基屏幕行；活动区分隔行落在该行；undefined = divisor 比例） */
+  topRow?: number,
 ): FrameRow[] {
   // 焦点框保留格（所有状态恒定，避免内容重排）：左侧框格列（历史/活动区左缘）
   // 与右侧框列（状态列右缘）在宽度允许时各占 1 列；未聚焦/模态态该格留空白占位。
@@ -903,6 +957,7 @@ function buildTopRegion(
   const { titleRows, activityH, dialogueH } = topPaneHeights(
     contentTopH,
     state.activityDivisor,
+    topRow,
   );
   const diaStart = titleRows; // 内容行中对话区起点（标题栏之后）
   const diaEnd = diaStart + dialogueH; // 对话区结束（= 活动区分隔行位置）
@@ -1362,6 +1417,7 @@ export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
   const { activityH, dialogueH } = topPaneHeights(
     contentTopH,
     state.activityDivisor,
+    activityTopRowToLine(state.activityTopRow, size.rows),
   );
   return { topHeight: contentTopH, activityH, dialogueH };
 }
@@ -1387,7 +1443,11 @@ export function dialogueScrollMetrics(
   );
   const metrics = metricsFor(size, false, statusLines.length, 1, state);
   const contentTopH = Math.max(0, metrics.topHeight);
-  const { dialogueH } = topPaneHeights(contentTopH, state.activityDivisor);
+  const { dialogueH } = topPaneHeights(
+    contentTopH,
+    state.activityDivisor,
+    activityTopRowToLine(state.activityTopRow, size.rows),
+  );
   const useLeftFrame = metrics.historyWidth >= FRAME_LEFT_COLS + 1;
   return {
     contentW: Math.max(
@@ -1541,6 +1601,10 @@ export function buildFrame(state: AppState, size: Size): FrameRow[] {
     state,
   );
 
+  // 活动区分隔行锚定（tui.config.json layout.activityTopRow；"half" = 屏幕中线行）
+  // 行号换算基于整屏 size.rows，buildTopRegion 与 focusFrame 段同源。
+  const topRow = activityTopRowToLine(state.activityTopRow, size.rows);
+
   const topRegion = buildTopRegion(
     state,
     metrics.topHeight,
@@ -1557,6 +1621,7 @@ export function buildFrame(state: AppState, size: Size): FrameRow[] {
     state.permissionOptions,
     state.presetOptions,
     state.sessionTitle,
+    topRow,
   );
 
   let footerLines: FrameRow[];
@@ -1651,6 +1716,7 @@ export function buildFrame(state: AppState, size: Size): FrameRow[] {
   const { titleRows, activityH, dialogueH } = topPaneHeights(
     contentTopH,
     state.activityDivisor,
+    topRow,
   );
   void activityH;
   const diaStart = titleRows;

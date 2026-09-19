@@ -142,6 +142,9 @@ export interface AppDeps {
   footerHeight?: number;
   /** 活动区高分母（tui.config.json layout.activityHeightDivisor；1/2 → 2） */
   activityHeightDivisor?: number;
+  /** 活动区分隔行锚定（tui.config.json layout.activityTopRow；"half" = floor(rows/2) 或绝对行号；
+   *  配置后替代 activityHeightDivisor 的比例分配，缺省走 divisor） */
+  activityTopRow?: "half" | number;
   /** 状态列宽分母（tui.config.json layout.statusColumnDivisor；1/3 → 3） */
   statusColumnDivisor?: number;
   /** /agents 面板定时刷新间隔(ms)；缺省 2000。宿主无 subagent 状态事件面，由
@@ -222,6 +225,7 @@ export class App {
         messageGutter: this.deps.messageGutter,
         footerHeight: this.deps.footerHeight,
         activityDivisor: this.deps.activityHeightDivisor,
+        activityTopRow: this.deps.activityTopRow,
         statusDivisor: this.deps.statusColumnDivisor,
       },
     );

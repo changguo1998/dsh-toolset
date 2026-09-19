@@ -284,6 +284,8 @@ export interface AppState {
   footerHeight: number | undefined;
   /** 活动区高分母（contentTopH / divisor；默认 2 ≈ 1/2） */
   activityDivisor: number | undefined;
+  /** 活动区分隔行锚定（"half" = floor(rows/2)，或绝对行号；配置后替代 divisor 比例；undefined = 走 divisor） */
+  activityTopRow: "half" | number | undefined;
   /** 状态列宽分母（cols / divisor；默认 3 ≈ 1/3） */
   statusDivisor: number | undefined;
   /** 模型交互选择模式（/model 无参进入；null = 未激活） */
@@ -427,6 +429,7 @@ export function initialState(
     messageGutter?: number;
     footerHeight?: number;
     activityDivisor?: number;
+    activityTopRow?: "half" | number;
     statusDivisor?: number;
   },
 ): AppState {
@@ -442,6 +445,13 @@ export function initialState(
     opts?.activityDivisor === undefined
       ? undefined
       : Math.max(1, Math.floor(opts.activityDivisor));
+  const activityTopRow =
+    opts?.activityTopRow === "half"
+      ? "half"
+      : typeof opts?.activityTopRow === "number" &&
+          Number.isFinite(opts.activityTopRow)
+        ? Math.max(0, Math.floor(opts.activityTopRow))
+        : undefined;
   const statusDivisor =
     opts?.statusDivisor === undefined
       ? undefined
@@ -495,6 +505,7 @@ export function initialState(
     messageGutter,
     footerHeight,
     activityDivisor,
+    activityTopRow,
     statusDivisor,
   };
 }

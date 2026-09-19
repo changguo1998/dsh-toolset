@@ -3,6 +3,8 @@
 // 布局尺寸配置（语义「总：目标」——比例类配置项为分母 divisor，目标=总数/divisor）：
 //   - footerHeight:          交互区（输入框+按键提示）绝对行数（缺省自动：min(4,max(2,rows/5))）
 //   - activityHeightDivisor: 活动区高 = floor(contentTopH / divisor)（缺省 2 ≈ 1/2）
+//   - activityTopRow:        活动区分隔行锚定（"half" = 屏幕中线行 floor(rows/2)，或绝对行号；
+//                            配置后替代 activityHeightDivisor 的比例分配，缺省 null = 走 divisor）
 //   - statusColumnDivisor:   状态列宽 = floor(cols / divisor)（缺省 3 ≈ 1/3，历史区仍保底 10 列）
 // 配置文件缺失/非法 → 全部回落默认（fail-safe，不崩溃）。
 
@@ -15,6 +17,8 @@ export interface TuiLayoutConfig {
   footerHeight?: number;
   /** 活动区高分母（contentTopH / divisor；1/2 → 2） */
   activityHeightDivisor?: number;
+  /** 活动区分隔行锚定（"half" = floor(rows/2)，或绝对行号；配置后替代 divisor 比例，缺省走 divisor） */
+  activityTopRow?: "half" | number;
   /** 状态列宽分母（cols / divisor；1/3 → 3） */
   statusColumnDivisor?: number;
 }
@@ -80,6 +84,15 @@ const boolOr = (v: unknown): boolean | undefined =>
 const isNonEmptyStr = (v: unknown): v is string =>
   typeof v === "string" && v !== "";
 
+/** activityTopRow 归一化："half" 字面量 → "half"；非负有限数向下取整；其余（负数/非法）→ undefined */
+const normalizeTopRow = (v: unknown): "half" | number | undefined => {
+  if (v === "half") return "half";
+  if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
+    return Math.floor(v);
+  }
+  return undefined;
+};
+
 /** theme 段形状归一化（色值合法性校验由 renderer/theme-config.ts 承担） */
 function normalizeThemeSection(raw: unknown): TuiThemeConfig {
   const r = (raw ?? {}) as {
@@ -143,6 +156,9 @@ export function normalizeConfig(raw: unknown): TuiConfig {
       ...(intGe(l.activityHeightDivisor, 1) === undefined
         ? {}
         : { activityHeightDivisor: intGe(l.activityHeightDivisor, 1) }),
+      ...(normalizeTopRow(l.activityTopRow) === undefined
+        ? {}
+        : { activityTopRow: normalizeTopRow(l.activityTopRow) }),
       ...(intGe(l.statusColumnDivisor, 1) === undefined
         ? {}
         : { statusColumnDivisor: intGe(l.statusColumnDivisor, 1) }),

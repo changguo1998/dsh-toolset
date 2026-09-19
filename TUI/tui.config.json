@@ -1,6 +1,7 @@
 {
     "layout": {
         "activityHeightDivisor": 2,
+        "activityTopRow": "half",
         "statusColumnDivisor": 3
     },
     "notify": {},

@@ -7,7 +7,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeConfig, loadTuiConfig } from "../src/app/config.ts";
-import { metricsFor, activityHeight } from "../src/app/layout.ts";
+import {
+  metricsFor,
+  activityHeight,
+  activityTopRowToLine,
+  topPaneHeights,
+} from "../src/app/layout.ts";
 
 test("normalizeConfig：合法整数保留，非法/越界回落缺省（undefined）", () => {
   const c = normalizeConfig({
@@ -82,4 +87,64 @@ test("activityHeight：divisor 控制活动区高（contentTopH / divisor）", (
   assert.equal(activityHeight(20), 10, "默认 divisor=2（1/2 比例）");
   assert.equal(activityHeight(20, 4), 5, "divisor=4 → 1/4");
   assert.equal(activityHeight(0, 2), 0, "无顶部空间时 0");
+});
+
+test("normalizeConfig：activityTopRow——half 字面量/非负整数保留，非法回落缺省", () => {
+  const c = normalizeConfig({
+    layout: { activityTopRow: "half" as unknown },
+  })!;
+  assert.equal(c.layout?.activityTopRow, "half");
+  const n = normalizeConfig({ layout: { activityTopRow: 9 } })!;
+  assert.equal(n.layout?.activityTopRow, 9);
+  const zero = normalizeConfig({ layout: { activityTopRow: 0 } })!;
+  assert.equal(zero.layout?.activityTopRow, 0, "0 行合法");
+  // 非法/负数/字符串回落 undefined（走 divisor 比例）
+  const bad = normalizeConfig({
+    layout: { activityTopRow: -1 as unknown },
+  })!;
+  assert.equal(bad.layout?.activityTopRow, undefined);
+  const def = normalizeConfig({})!;
+  assert.equal(
+    def.layout?.activityTopRow,
+    undefined,
+    "缺省 undefined=走 divisor",
+  );
+});
+
+test("activityTopRowToLine：half → floor(rows/2)；数字按行号；未配置/非法 → undefined", () => {
+  assert.equal(activityTopRowToLine(undefined, 24), undefined);
+  assert.equal(activityTopRowToLine("half", 24), 12, "24 行 → 中线 12");
+  assert.equal(activityTopRowToLine("half", 25), 12, "25 行 → floor(12.5)=12");
+  assert.equal(activityTopRowToLine(11, 24), 11, "绝对行号直通");
+  assert.equal(activityTopRowToLine(11.9, 24), 11, "小数向下取整");
+  assert.equal(activityTopRowToLine(-1, 24), undefined, "负数非法 → undefined");
+});
+
+test("topPaneHeights：topRow 锚定——活动区分隔行落在指定行（优先于 divisor）", () => {
+  // rows=24 → topRow=12：titleRows=2，dialogueH=12-2=10，activityH=20-12-1=7
+  // diaEnd（分隔行）= titleRows+dialogueH = 12 = topRow
+  const anchored = topPaneHeights(20, undefined, 12);
+  assert.equal(anchored.titleRows, 2);
+  assert.equal(anchored.dialogueH, 10);
+  assert.equal(anchored.activityH, 7);
+  assert.equal(
+    anchored.titleRows + anchored.dialogueH,
+    12,
+    "活动区分隔行恰在 topRow",
+  );
+  // divisor 被忽略：同样 contentTopH=20、topRow=12，不因 divisor=4 改变
+  const withDiv = topPaneHeights(20, 4, 12);
+  assert.equal(withDiv.activityH, 7, "锚定优先于 divisor");
+  // 小 topRow（3）：对话区 1 行、活动区 = contentTopH-3-1
+  const small = topPaneHeights(20, undefined, 3);
+  assert.equal(small.dialogueH, 1);
+  assert.equal(small.activityH, 16);
+  // 剩余不足（topRow 太靠底 / contentTopH 太小）：活动区 0 行、对话区吃满，无分隔行
+  const noActivity = topPaneHeights(10, undefined, 9);
+  assert.equal(noActivity.activityH, 0);
+  assert.equal(noActivity.dialogueH, 8, "回退：对话区吃满剩余（10-2）");
+  // 未锚定：维持 divisor 比例行为（回归）
+  const legacy = topPaneHeights(20, undefined);
+  assert.equal(legacy.activityH, 10, "未锚定默认 divisor=2");
+  assert.equal(legacy.dialogueH, 7, "20-2-10-1");
 });
