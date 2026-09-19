@@ -354,7 +354,7 @@ test("thinking 事件显示思考，正文事件到达后保留(活动区)", () 
   const thinkRow = renderer.lastRender.find((l) => l.includes("正在分析"));
   assert.ok(thinkRow, "思考行可见");
   assert.ok(
-    (thinkRow ?? "").includes("\x1b[38;2;199;135;239m┃"),
+    (thinkRow ?? "").includes("\x1b[38;2;228;188;255m┃"),
     "思考行左缘紫色粗竖线(brightMagenta)",
   );
   adapter.push({ type: "stream", sessionId: "s1", text: "回答正文" });
@@ -513,7 +513,7 @@ test("审批弹窗标题 ⚠ 等待审批 着黄（warn/等待进行中）", () 
   assert.ok(
     renderer.lastRender
       .join("\n")
-      .includes("\x1b[38;2;231;169;70m ⚠ 等待审批 "),
+      .includes("\x1b[38;2;233;201;68m ⚠ 等待审批 "),
     "等待审批标题应着 warn 黄",
   );
 });
@@ -529,7 +529,7 @@ test("subagent 行 @ label os 按 info 蓝着色", () => {
   assert.ok(
     renderer.lastRender
       .join("\n")
-      .includes("\x1b[38;2;70;132;231m@ researcher os"),
+      .includes("\x1b[38;2;90;152;243m@ researcher os"),
     "subagent 行应着 info 蓝",
   );
 });
@@ -928,7 +928,7 @@ test("输入补全：/ 前缀出候选面板, 最匹配默认高亮, Tab 接受�
   // 最匹配默认高亮（焦点行黄；lastRender 保留 ANSI）
   const focusRow = renderer.lastRender.find((l) => l.includes("/model")) ?? "";
   assert.ok(
-    focusRow.includes("\x1b[38;2;231;169;70m"),
+    focusRow.includes("\x1b[38;2;233;201;68m"),
     `默认焦点应在最匹配项(黄): ${focusRow}`,
   );
   // Tab 接受 → 输入变 "/model "（尾随空格便于接参数），面板随输入重算收起
@@ -1065,7 +1065,7 @@ test("输入补全：候选超出活动区可视行时丢弃（不滚动，焦�
     all.slice(0, shown().length),
     "可视候选应恒为最前面若干项（不滚动窗口）",
   );
-  const focused = candRows.find((l) => l.includes("\x1b[38;2;231;169;70m"));
+  const focused = candRows.find((l) => l.includes("\x1b[38;2;233;201;68m"));
   assert.ok(focused, `应有一行焦点候选: ${plainFrame(renderer)}`);
   assert.equal(
     nameOf(focused),
@@ -1513,7 +1513,7 @@ test("/theme 非法参数 → notice usage,不调用 renderer.setTheme", () => {
   assert.ok(
     renderer.lastRender
       .join("\n")
-      .includes("\x1b[38;2;70;132;231musage: /theme"),
+      .includes("\x1b[38;2;90;152;243musage: /theme"),
     "usage notice 应着 info 蓝",
   );
 });
@@ -1522,7 +1522,7 @@ test("App 本地 notice 按语义 tone 着色（/theme 成功 → success 绿）
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/theme light");
   assert.ok(
-    renderer.lastRender.join("\n").includes("\x1b[38;2;80;167;78mtheme: light"),
+    renderer.lastRender.join("\n").includes("\x1b[38;2;0;123;58mtheme: light"),
     "切换成功 notice 应着 success 绿（light 主题色板）",
   );
 });
@@ -1707,17 +1707,23 @@ test("slowStream=true：低速(streamCharsPerSecond=10)分数累计逐字输出�
     adapter.push({ type: "thinking", sessionId: "s1", text });
     // 3 ticks：credit 累计 1.5 → 只发出 1 字符
     mock.timers.tick(150);
-    let frame = renderer.lastRender.join("\n");
+    // 先剥离 ANSI 再查子串：新前景色码 38;2;201;220;222 含 "01"，直接查会误命中
+    const strip = (joined: string): string =>
+      joined.replace(/\u001b\[[0-9;]*m/g, "");
+    let frame = strip(renderer.lastRender.join("\n"));
     assert.ok(frame.includes("0"), "低速下先显示开头");
     assert.ok(!frame.includes("01"), "3 ticks 不应已输出第 2 个字符");
     // 再 5 ticks(共 8 ticks→4 字符)
     mock.timers.tick(250);
-    frame = renderer.lastRender.join("\n");
+    frame = strip(renderer.lastRender.join("\n"));
     assert.ok(frame.includes("0123"), "8 ticks 应输出 4 个字符");
     assert.ok(!frame.includes("01234"), "8 ticks 不应输出第 5 个字符");
     // 20 ticks 全量（无正文/turn-end → thinking 行保留显示）
     mock.timers.tick(600);
-    assert.ok(renderer.lastRender.join("\n").includes(text), "低速最终排空");
+    assert.ok(
+      strip(renderer.lastRender.join("\n")).includes(text),
+      "低速最终排空",
+    );
     app.dispose();
   });
 });
@@ -2052,19 +2058,19 @@ test("问答面板：选项按状态着色——光标行黄、已选行绿", ()
   const frame = (): string => renderer.lastRender.join("\n");
   // 光标默认在选项 0（生产）→ warn 黄
   assert.ok(
-    frame().includes("\x1b[38;2;231;169;70m >  生产"),
+    frame().includes("\x1b[38;2;233;201;68m >  生产"),
     "光标行应着 warn 黄",
   );
   // 空格选中「生产」→ 光标+已选仍黄（光标优先）
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
   assert.ok(
-    frame().includes("\x1b[38;2;231;169;70m >* 生产"),
+    frame().includes("\x1b[38;2;233;201;68m >* 生产"),
     "光标+已选行着黄",
   );
   // 下移光标到「测试」→「生产」变已选非光标行 → success 绿
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(
-    frame().includes("\x1b[38;2;132;231;70m  * 生产"),
+    frame().includes("\x1b[38;2;97;211;131m  * 生产"),
     "已选非光标行应着 success 绿",
   );
   app.dispose();
@@ -2802,7 +2808,7 @@ test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC5
 
 // ===== 阶段 2：工具行 / usage 状态栏 / retry+compaction toast / notice tone 渲染 =====
 
-// 颜色断言用 dark 主题 24bit 前景码：红 #E74684 / 黄 #E7A946 / 灰 #434343
+// 颜色断言用 dark 主题 24bit 前景码：红 #FD0013 / 黄 #E9C944 / 灰 #272336
 test("tool-call → 缓冲出现工具行 <name> <summary>（无图标前缀）", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({
@@ -2895,8 +2901,8 @@ test("tool-result 成功 → ✓ <detail>；失败 → 红色 ✗ <detail>", () 
   assert.ok(plain.includes("✓ done: 0"), "成功结果行 ✓ <detail>");
   assert.ok(plain.includes("✗ EACCES: 13"), "失败结果行 ✗ <detail>");
   assert.ok(
-    joined.includes("\x1b[38;2;231;70;132m✗ EACCES: 13"),
-    "失败工具行着红(231;70;132)",
+    joined.includes("\x1b[38;2;253;0;19m✗ EACCES: 13"),
+    "失败工具行着红(253;0;19)",
   );
 });
 
@@ -2909,13 +2915,13 @@ test("notice tone → 4 级语义着色（log 灰 / info 蓝 / warn 黄 / result
   adapter.push({ type: "notice", text: "完成", tone: "success" });
   const joined = renderer.lastRender.join("\n");
   assert.ok(
-    joined.includes("\x1b[38;2;120;120;120m日志"),
-    "log tone → 次要灰(L2 #787878)",
+    joined.includes("\x1b[38;2;128;135;142m日志"),
+    "log tone → 次要灰(L2 #80878E)",
   );
-  assert.ok(joined.includes("\x1b[38;2;70;132;231m提示"), "info tone → 蓝");
-  assert.ok(joined.includes("\x1b[38;2;231;169;70m重试提示"), "warn tone → 黄");
-  assert.ok(joined.includes("\x1b[38;2;231;70;132m出错"), "error tone → 红");
-  assert.ok(joined.includes("\x1b[38;2;132;231;70m完成"), "success tone → 绿");
+  assert.ok(joined.includes("\x1b[38;2;90;152;243m提示"), "info tone → 蓝");
+  assert.ok(joined.includes("\x1b[38;2;233;201;68m重试提示"), "warn tone → 黄");
+  assert.ok(joined.includes("\x1b[38;2;253;0;19m出错"), "error tone → 红");
+  assert.ok(joined.includes("\x1b[38;2;97;211;131m完成"), "success tone → 绿");
 });
 
 test("本地 slash 分级：/help 内容 info 蓝、无效命令 error 红", () => {
@@ -2928,7 +2934,7 @@ test("本地 slash 分级：/help 内容 info 蓝、无效命令 error 红", () 
   );
   assert.ok(helpLine, "/help 内容出现在帧中");
   assert.ok(
-    helpLine!.includes("\x1b[38;2;70;132;231m"),
+    helpLine!.includes("\x1b[38;2;90;152;243m"),
     "帮助行按 info 蓝着色",
   );
   // 无效 slash → error 红
@@ -2938,7 +2944,7 @@ test("本地 slash 分级：/help 内容 info 蓝、无效命令 error 红", () 
   const badLine = renderer.lastRender.find((l) => l.includes("无效命令"));
   assert.ok(badLine, "无效命令行出现在帧中");
   assert.ok(
-    badLine!.includes("\x1b[38;2;231;70;132m"),
+    badLine!.includes("\x1b[38;2;253;0;19m"),
     "无效命令按 error 红着色",
   );
 });
@@ -2964,7 +2970,7 @@ test("compaction/retry → toast notice 文本（retry warn 黄）", () => {
     "retry toast 文案",
   );
   assert.ok(
-    joined.includes("\x1b[38;2;231;169;70m重试 1/2"),
+    joined.includes("\x1b[38;2;233;201;68m重试 1/2"),
     "retry toast warn 黄",
   );
 });
@@ -3188,7 +3194,7 @@ test("Esc（idle+空输入）退出顶部焦点循环：有焦点 → 无焦点"
     shift: false,
   });
   // dark 主题 history 焦点：对话区左缘框格亮白（focusFrameColor=brightWhite #FFFFFF=255;255;255）；
-  // 无焦点：框格灰（L3 边框=dark ansi[7] #D8D8D8=216;216;216）
+  // 无焦点：框格灰（L3 边框=dark ansi[7] #C9DCDE=201;220;222）
   const hasFocusVBar = (): boolean =>
     renderer.lastRender.some((l) => l.includes("\x1b[38;2;255;255;255m│"));
   assert.ok(!hasFocusVBar(), "初始无焦点：框格灰");

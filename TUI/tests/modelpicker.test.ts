@@ -26,11 +26,11 @@ test("渲染：选项行着色——选中行 success 绿、焦点行 warn 黄�
     "dark",
   );
   assert.ok(
-    rowAnsi(rows[1]!).includes("\x1b[38;2;132;231;70m* deepseek"),
+    rowAnsi(rows[1]!).includes("\x1b[38;2;97;211;131m* deepseek"),
     "选中行应着 success 绿: " + stripAnsi(rowAnsi(rows[1]!)),
   );
   assert.ok(
-    rowAnsi(rows[2]!).includes("\x1b[38;2;231;169;70m> ustc"),
+    rowAnsi(rows[2]!).includes("\x1b[38;2;233;201;68m> ustc"),
     "焦点行应着 warn 黄: " + stripAnsi(rowAnsi(rows[2]!)),
   );
 });
@@ -47,11 +47,11 @@ test("渲染：空格选中后选中项着绿——焦点行同时是选中行�
     "dark",
   );
   assert.ok(
-    rowAnsi(rows[1]!).includes("\x1b[38;2;132;231;70m* deepseek"),
+    rowAnsi(rows[1]!).includes("\x1b[38;2;97;211;131m* deepseek"),
     "选中且焦点行应着 success 绿: " + stripAnsi(rowAnsi(rows[1]!)),
   );
   assert.ok(
-    !rowAnsi(rows[1]!).includes("\x1b[38;2;231;169;70m"),
+    !rowAnsi(rows[1]!).includes("\x1b[38;2;233;201;68m"),
     "选中行不应着 warn 黄: " + stripAnsi(rowAnsi(rows[1]!)),
   );
 });
@@ -79,7 +79,10 @@ function stripAnsi(s: string): string {
 }
 
 test("最底行按键帮助：整行满宽 [按键]文字 格式，不按列宽截断", () => {
-  const rows = renderModelPicker({ picker: picker(), height: 6, width: 80 }, "dark");
+  const rows = renderModelPicker(
+    { picker: picker(), height: 6, width: 80 },
+    "dark",
+  );
   const last = stripAnsi(rowAnsi(rows.at(-1)!).trim());
   assert.equal(
     last,
@@ -202,7 +205,10 @@ test("渲染：焦点在 model 列时 model 标题加边框, model 焦点行 > �
 });
 
 test("渲染：模型无等级时 effort 列显示 (unsupported)", () => {
-  const rows = renderModelPicker({ picker: picker(), height: 5, width: 80 }, "dark");
+  const rows = renderModelPicker(
+    { picker: picker(), height: 5, width: 80 },
+    "dark",
+  );
   assert.ok(
     stripAnsi(rowAnsi(rows[0]!)).includes("effort (unsupported)"),
     stripAnsi(rowAnsi(rows[0]!)),

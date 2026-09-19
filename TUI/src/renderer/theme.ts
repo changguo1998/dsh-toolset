@@ -1,27 +1,37 @@
-// renderer/theme.ts — TUI 主题：内嵌 ~/fff/config/terminal-colortheme 的两份配色
-// (fffdark=dark / ffflight=light) 作默认浅深色模式。
+// renderer/theme.ts — TUI 主题：内置兜底调色板 + 语义色槽位
+//
+// 调色板配置化（tui.config.json theme 段，见 theme-config.ts）：
+//   解析优先级 = 内联 palettes.<id> → paletteDir/<file>.json（上游单一源，
+//   默认 ~/fff/config/terminal-colortheme）→ 本文件的 THEMES 内置兜底。
+// 本文件只承载「内置兜底快照」；启动时由 theme-config.ts 按配置解析后，
+// 把解析结果注入 renderer（createRenderer({ themes })）。
 //
 // 终端 16 色槽位映射：black..white → ansi[]，brightBlack..brightWhite → bright[]。
-// 三语义色值（用户手动指定，2026-09-17）：
-//   次要文字 gray    = dark bright[0] #787878 / light ansi[7] #F4F4F4
-//   边框 border     = dark ansi[4] #4684E7 / light ansi[4] #4032D3（语义蓝，用户指定）
-//   强调(焦点框)     = dark bright[7] #FFFFFF / light ansi[0] #000000
-//   正文基底 foreground = 方案源文件值：dark #D8D8D8 / light #555555（源文件为权威，不改）
-//   两主题同语义槽位色值不同，表述必须带槽位+双主题值
-// 保证切换浅色主题后常规文本仍可读。
-// 刻意不做模块级可变主题：主题经 Screen.setTheme 持有，避免全局状态。
+// 语义色槽位（gray/border/code/focus）一律从 ColorTheme.semantics 取 hex，
+// 不再按主题 name 或 themeId 推断（旧实现按 theme.name==="fffdark" 分支，
+// 自定义配色会静默走错分支）。三语义色槽位定位：
+//   次要文字 gray   = dark bright[0] #80878E / light bright[0] #475863
+//   边框 border     = ansi[4]（dark #5A98F3 / light #1256B2）
+//   行内代码 code   = ansi[0]（dark #272336）/ ansi[7]（light #E9EBEE，米色底可读）
+//   焦点框 focus    = dark bright[7] #FFFFFF / light ansi[0] #121418
+// 两主题同语义槽位色值不同，表述必须带槽位+双主题值。
 // 颜色一律 manual ANSI truecolor（不用 chalk）：chalk 单色段以 `39m` 收尾
 // 会复位到终端默认前景而非当前主题基底前景，浅色主题下不可读。
 
 export type ThemeId = "dark" | "light";
 
-/** 与 fff terminal-colortheme JSON 同构（[ansi[8], bright[8]] 元组） */
+/** 语义色槽位名（排版层只携带这些名字，取色由渲染层经 semantics 解析） */
+export type SemanticColorName = "gray" | "border" | "code" | "focus";
+
+/** 与 fff terminal-colortheme JSON 同构（[ansi[8], bright[8]] 元组 + 语义槽位） */
 export interface ColorTheme {
   name: string;
   ansi: [string, string, string, string, string, string, string, string];
   bright: [string, string, string, string, string, string, string, string];
   background: string;
   foreground: string;
+  /** 语义色槽位 → 已解析 hex（theme-config 解析 "ansi.N"/"bright.N" 引用） */
+  semantics: Record<SemanticColorName, string>;
 }
 
 export const DEFAULT_THEME: ThemeId = "dark";
@@ -31,61 +41,73 @@ export function normalizeThemeId(value: unknown): ThemeId {
   return value === "light" ? "light" : "dark"; // dark 兜底（含非法值）
 }
 
-/** 内嵌 ~/fff/config/terminal-colortheme/fffdark.json / ffflight.json */
+/** 内置兜底调色板（= 当前 ~/fff/config/terminal-colortheme 快照；可被配置整体替换） */
 export const THEMES: Record<ThemeId, ColorTheme> = {
   dark: {
     name: "fffdark",
     ansi: [
-      "#434343",
-      "#E74684",
-      "#84E746",
-      "#E7A946",
-      "#4684E7",
-      "#A946E7",
-      "#46E7A9",
-      "#D8D8D8",
+      "#272336",
+      "#FD0013",
+      "#61D383",
+      "#E9C944",
+      "#5A98F3",
+      "#C582ED",
+      "#64D6E6",
+      "#FFFBF0",
     ],
     bright: [
-      "#787878",
-      "#EF87AF",
-      "#AFEF87",
-      "#EFC787",
-      "#87AFEF",
-      "#C787EF",
-      "#87EFC7",
+      "#80878E",
+      "#FFA1AD",
+      "#9EEFB2",
+      "#FAE289",
+      "#A7CBFF",
+      "#E4BCFF",
+      "#9FEEFA",
       "#FFFFFF",
     ],
-    background: "#030327",
-    foreground: "#D8D8D8", // 正文基底=源文件值（dark；=ansi[7]）
+    background: "#0A1127",
+    foreground: "#C9DCDE",
+    semantics: {
+      gray: "#80878E", // bright.0
+      border: "#5A98F3", // ansi.4
+      code: "#272336", // ansi.0（旧硬编码 #434343 已随新配色改为槽位引用）
+      focus: "#FFFFFF", // bright.7
+    },
   },
   light: {
     name: "ffflight",
     ansi: [
-      "#000000",
-      "#C5225E",
-      "#50A74E",
-      "#C5984E",
-      "#4032D3",
-      "#B622D3",
-      "#40A7C3",
-      "#F4F4F4",
+      "#121418",
+      "#D8000F",
+      "#007B3A",
+      "#8F7700",
+      "#1256B2",
+      "#813CA6",
+      "#007784",
+      "#E9EBEE",
     ],
     bright: [
-      "#555555",
-      "#EE6DA4",
-      "#96D099",
-      "#EEC499",
-      "#8B78FC",
-      "#E26DFC",
-      "#8BD0F0",
+      "#475863",
+      "#FFB6C5",
+      "#9EDAAC",
+      "#DFCF96",
+      "#A2C7FF",
+      "#DFB3FC",
+      "#9ED5DE",
       "#FFFFFF",
     ],
-    background: "#DFE3F8",
-    foreground: "#555555", // 正文基底=源文件值（light；=bright[0]）
+    background: "#FFF6E1",
+    foreground: "#3D3B4F",
+    semantics: {
+      gray: "#475863", // bright.0（旧按 ansi[7] #F4F4F4，新配色下与米色底近同色）
+      border: "#1256B2", // ansi.4
+      code: "#E9EBEE", // ansi.7（旧 #E8E8E8；ansi.0 是近黑会成刺眼黑块）
+      focus: "#121418", // ansi.0
+    },
   },
 };
 
-/** 可主题化的颜色名（chalk 常用子集，gray = brightBlack） */
+/** 可主题化的颜色名（chalk 常用子集 + 语义槽位；gray/border/code/focus 由 semantics 解析） */
 export type ColorName =
   | "black"
   | "red"
@@ -98,6 +120,7 @@ export type ColorName =
   | "gray"
   | "border"
   | "code"
+  | "focus"
   | "brightBlack"
   | "brightRed"
   | "brightGreen"
@@ -120,18 +143,9 @@ const BASE_SLOTS: Record<string, number> = {
 
 /** 颜色名 → 主题调色板十六进制；不认识返回 null */
 export function ansiNameToHex(theme: ColorTheme, name: string): string | null {
-  // 语义色名（用户手动指定槽位，非字面槽位）：
-  //   次要文字 gray = dark bright[0] #787878 / light ansi[7] #F4F4F4
-  //   边框 border   = dark ansi[4] #4684E7 / light ansi[4] #4032D3（语义蓝，用户指定）
-  //   行内代码背景 code = dark #434343 / light #E8E8E8（自 markdown 排版层迁入）
-  if (name === "code") return theme.name === "fffdark" ? "#434343" : "#E8E8E8";
-  if (theme.name === "fffdark") {
-    if (name === "gray") return theme.bright[0];
-    if (name === "border") return theme.ansi[4];
-  } else {
-    if (name === "gray") return theme.ansi[7];
-    if (name === "border") return theme.ansi[4];
-  }
+  // 语义色槽位（数据驱动：不再按主题 name 分支）
+  const semantic = theme.semantics[name as SemanticColorName];
+  if (semantic !== undefined) return semantic;
   const bright = name.startsWith("bright");
   const base = (bright ? name.slice("bright".length) : name).toLowerCase();
   const idx = BASE_SLOTS[base];
@@ -148,19 +162,6 @@ export function hexSgr(hex: string, fg: boolean): string {
   const g = (n >> 8) & 0xff;
   const b = n & 0xff;
   return `\x1b[${fg ? 38 : 48};2;${r};${g};${b}m`;
-}
-
-/** 主题化上色函数：前景 SGR + 文本 + 恢复主题基底前景（manual ANSI，不用 chalk） */
-export function colorFor(
-  themeId: ThemeId,
-  name: ColorName,
-): (s: string) => string {
-  const t = THEMES[themeId];
-  const hex = ansiNameToHex(t, name);
-  if (!hex) return (s) => s;
-  const open = hexSgr(hex, true);
-  const close = hexSgr(t.foreground, true);
-  return (s) => open + s + close;
 }
 
 /** 主题基底前景/背景转 SGR（Screen 帧首设置用） */

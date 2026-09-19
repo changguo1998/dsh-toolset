@@ -256,7 +256,14 @@ test("renderTextInput: 文本显式 \\n 结尾时光标落新空行", () => {
 });
 
 test("renderTextInput: 多行输入区文本换行、顶部对齐、仅光标行有 caret", () => {
-  const lines = renderTextInput("abcdefghij", 9, "...", 10, [{ text: "> " }], 3);
+  const lines = renderTextInput(
+    "abcdefghij",
+    9,
+    "...",
+    10,
+    [{ text: "> " }],
+    3,
+  );
   assert.equal(lines.length, 3, "输出恰好 height 行");
   assert.equal(rowText(lines[0]!), "> abcdefgh", "首行带 prompt");
   assert.equal(rowText(lines[1]!), "  ij", "续行缩进对齐");
@@ -296,7 +303,9 @@ test("行内 markdown：单独粗体 / 斜体 / 行内 code 均渲染且带样�
 });
 
 test("行内 markdown：三种样式混排顺序保留", () => {
-  const out = segsAnsi(wrapInlineMarkdown("前**粗**中`码`后*斜*尾", 60, "dark")[0]!);
+  const out = segsAnsi(
+    wrapInlineMarkdown("前**粗**中`码`后*斜*尾", 60, "dark")[0]!,
+  );
   assert.equal(strip(out), "前粗中码后斜尾");
   assert.ok(out.includes("\x1b[1m") && out.includes("\x1b[3m"));
 });
@@ -322,7 +331,10 @@ test("行内 markdown：样式跨软换行后每行 ANSI 成对且不超宽", ()
 
 test("行内 markdown：CJK 按 2 列精确换行，粗体跨行不丢字", () => {
   const rows = wrapInlineMarkdown("一二**三四五六**七八", 6, "dark");
-  assert.deepEqual(rows.map((r) => strip(segsAnsi(r))), ["一二三", "四五六", "七八"]);
+  assert.deepEqual(
+    rows.map((r) => strip(segsAnsi(r))),
+    ["一二三", "四五六", "七八"],
+  );
   for (const r of rows) assert.ok(displayWidth(strip(segsAnsi(r))) <= 6);
 });
 
@@ -341,7 +353,7 @@ test("行内 markdown：未闭合或嵌套时字符不丢失且约定输出稳�
 });
 
 test("ANSI 感知：displayWidth 不计转义；truncateToWidth 透传转义不切断", () => {
-  const colored = "\x1b[38;2;216;216;216mhello\x1b[38;2;237;237;237m";
+  const colored = "\x1b[38;2;201;220;222mhello\x1b[38;2;237;237;237m";
   assert.equal(displayWidth(colored), 5);
   assert.equal(displayWidth("\x1b[1mabc\x1b[22m"), 3);
   const cut = truncateToWidth("\x1b[1mabcdef\x1b[22m", 3);
@@ -363,7 +375,12 @@ test("行内 code 颜色随主题：dark / light 使用各自 gray 背景色板"
 
 test("无 markdown 标记时 wrapInlineMarkdown 与 wrapLine 输出一致", () => {
   const text = "一二三四五六七八九十";
-  assert.deepEqual(wrapInlineMarkdown(text, 10, "dark").map((r) => r.map((s) => s.text).join("")), wrapLine(text, 10));
+  assert.deepEqual(
+    wrapInlineMarkdown(text, 10, "dark").map((r) =>
+      r.map((s) => s.text).join(""),
+    ),
+    wrapLine(text, 10),
+  );
   assert.equal(parseInlineMarkdown("纯文本").length, 1);
 });
 
@@ -380,7 +397,11 @@ test("行内 markdown：粗斜/删除线/下划线/转义/自动链接/图片（
     ["![a](https://x/i.png)", "[a] https://x/i.png"],
   ];
   for (const [src, expect] of cases) {
-    assert.equal(strip(segsAnsi(wrapInlineMarkdown(src, 60, "dark")[0]!)), expect, src);
+    assert.equal(
+      strip(segsAnsi(wrapInlineMarkdown(src, 60, "dark")[0]!)),
+      expect,
+      src,
+    );
   }
   const bi = segsAnsi(wrapInlineMarkdown("***粗斜***", 60, "dark")[0]!);
   assert.ok(bi.includes("\x1b[1m") && bi.includes("\x1b[3m"), "*** 同段粗斜");

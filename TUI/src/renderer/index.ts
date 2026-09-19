@@ -5,7 +5,12 @@
 
 import { Screen, type FrameRow, serializeFrameRow } from "./screen.ts";
 import type { Size } from "./screen.ts";
-import { DEFAULT_THEME, THEMES, type ColorTheme, type ThemeId } from "./theme.ts";
+import {
+  DEFAULT_THEME,
+  THEMES,
+  type ColorTheme,
+  type ThemeId,
+} from "./theme.ts";
 import type { KeyEvent } from "./input.ts";
 import { KeyDecoder } from "./input.ts";
 import {
@@ -30,6 +35,8 @@ export interface Renderer {
   getSize(): Size;
   /** 切换主题（改变基底前景/背景与 16 色槽位映射） */
   setTheme(id: ThemeId): void;
+  /** 取当前注册表某主题（id 不存在回落默认主题） */
+  getTheme?(id: ThemeId): ColorTheme;
   /** 终端 bell（BEL ；声音提醒事件钩子的输出口）。可选：注入型 renderer
    *  可不实现，App 侧经 `bell?.()` 调用。 */
   bell?(): void;
@@ -40,6 +47,8 @@ export interface Renderer {
 export interface CreateRendererOptions {
   /** 输出注入（测试用） */
   write?: (s: string) => void;
+  /** 主题注册表（main 注入配置解析结果；缺省内置 THEMES） */
+  themes?: Record<ThemeId, ColorTheme>;
   /** raw mode 开关：默认 true；测试/非 TTY 可关闭 */
   rawMode?: boolean;
   /** 追加层级渲染优化开关（默认 true） */
@@ -50,14 +59,15 @@ export interface CreateRendererOptions {
 
 export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
   const terminal = createTerminal();
-  const screen = new Screen({ write: opts.write });
+  const themes = opts.themes ?? THEMES;
+  const screen = new Screen({ write: opts.write, themes });
   const decoder = new KeyDecoder();
   const keyCbs = new Set<(k: KeyEvent) => void>();
   const resizeCbs = new Set<(cols: number, rows: number) => void>();
   const delta = opts.delta ?? true;
   const exitOnClose = opts.exitOnClose ?? true;
   // 当前主题（序列化文本比较用；随 setTheme 同步，screen.theme 为私有）
-  let theme: ColorTheme = THEMES[DEFAULT_THEME];
+  let theme: ColorTheme = themes[DEFAULT_THEME];
   let prevRows: FrameRow[] | null = null;
   let closed = false;
 
@@ -133,9 +143,12 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       return screen.getSize();
     },
     setTheme(id: ThemeId): void {
-      theme = THEMES[id];
+      theme = themes[id] ?? themes[DEFAULT_THEME];
       screen.setTheme(id);
       prevRows = null; // 使下一帧走全帧重绘，把新背景/调色板画满屏幕
+    },
+    getTheme(id: ThemeId): ColorTheme {
+      return themes[id] ?? themes[DEFAULT_THEME];
     },
     bell(): void {
       screen.beep();

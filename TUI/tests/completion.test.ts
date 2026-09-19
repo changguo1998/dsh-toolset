@@ -111,7 +111,7 @@ test("renderCommandCompletion：标题 + 默认高亮首项 + 恰 height 行", (
   // 默认焦点行 = items[0]（黄，含 `> /cls`）
   const focused = rows.find((r) => rowAnsi(r).includes("> /cls"))!;
   assert.ok(
-    rowAnsi(focused).includes("\x1b[38;2;231;169;70m"),
+    rowAnsi(focused).includes("\x1b[38;2;233;201;68m"),
     `默认高亮最匹配项(黄): ${rowAnsi(focused)}`,
   );
   // 末行是候选行（面板不放提示行：键位统一在输入区下方的按键提示区）

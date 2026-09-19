@@ -31,7 +31,7 @@ test("segStyle：bold 段 open 1m + text + close 22m", () => {
 test("segStyle：fg 色名 → hex SGR，恢复主题基底前景", () => {
   assert.equal(
     segStyle({ text: "x", style: { fg: "blue" } }, dark),
-    `\x1b[38;2;70;132;231mx\x1b[38;2;216;216;216m`,
+    `\x1b[38;2;90;152;243mx\x1b[38;2;201;220;222m`,
   );
 });
 
@@ -43,14 +43,14 @@ test("segStyle：未知名色名回退基底（不输出 SGR，仅文本）", ()
 test("segStyle：'#hex' 直接使用", () => {
   assert.equal(
     segStyle({ text: "x", style: { fg: "#112233" } }, dark),
-    "\x1b[38;2;17;34;51mx\x1b[38;2;216;216;216m",
+    "\x1b[38;2;17;34;51mx\x1b[38;2;201;220;222m",
   );
 });
 
-test("segStyle：code 槽位背景映射（dark=#434343）", () => {
+test("segStyle：code 槽位背景映射（dark=ansi[0] #272336）", () => {
   assert.equal(
     segStyle({ text: "c", style: { bg: "code" } }, dark),
-    "\x1b[48;2;67;67;67mc\x1b[48;2;3;3;39m",
+    "\x1b[48;2;39;35;54mc\x1b[48;2;10;17;39m",
   );
 });
 
@@ -63,7 +63,7 @@ test("serializeFrameRow：相邻同 style 合并（只输出一次前缀）", ()
   };
   const out = serializeFrameRow(row, dark);
   // 仅一次 open，文本拼接，行尾一次 close
-  assert.equal(out, `\x1b[38;2;231;70;132mabcd\x1b[38;2;216;216;216m`);
+  assert.equal(out, `\x1b[38;2;253;0;19mabcd\x1b[38;2;201;220;222m`);
 });
 
 test("serializeFrameRow：不同 style 段各自开/闭", () => {
@@ -79,10 +79,10 @@ test("serializeFrameRow：不同 style 段各自开/闭", () => {
   assert.ok(out.includes("b"), "无样式段原样");
   assert.equal(
     segStyle({ text: "c", style: { fg: "blue", underline: true } }, dark),
-    "\x1b[4m\x1b[38;2;70;132;231mc\x1b[38;2;216;216;216m\x1b[24m",
+    "\x1b[4m\x1b[38;2;90;152;243mc\x1b[38;2;201;220;222m\x1b[24m",
   );
   assert.ok(
-    out.endsWith("\x1b[38;2;216;216;216m\x1b[24m"),
+    out.endsWith("\x1b[38;2;201;220;222m\x1b[24m"),
     "行尾关闭最后一个 styled 段（close 逆序）",
   );
 });

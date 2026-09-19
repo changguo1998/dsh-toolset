@@ -70,7 +70,6 @@ import {
 import {
   DEFAULT_THEME,
   normalizeThemeId,
-  THEMES,
   type ThemeId,
 } from "../renderer/theme.ts";
 import { StatusTicker, type StatusQueries } from "./status.ts";
@@ -1505,7 +1504,10 @@ export class App {
       this.deps.renderer.setTheme(next);
       this.paint();
     }
-    this.notice(`theme: ${next} (${THEMES[next].name})`, "success");
+    this.notice(
+      `theme: ${next} (${this.deps.renderer.getTheme?.(next)?.name ?? next})`,
+      "success",
+    );
   }
 
   /** 面板 d/Delete：进入删除二次确认（不可删时以 notice 说明原因，不改列表） */

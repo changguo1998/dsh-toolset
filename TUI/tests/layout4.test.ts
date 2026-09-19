@@ -447,13 +447,13 @@ test("renderStatusLine: model 段 provider 紫、模型名青，路径段染蓝�
   );
   const text = lines.map((l) => rowAnsi(l)).join("\n");
   assert.ok(
-    text.includes("\x1b[38;2;169;70;231m"),
-    "应有紫色(magenta #A946E7)",
+    text.includes("\x1b[38;2;197;130;237m"),
+    "应有紫色(magenta #C582ED)",
   );
-  assert.ok(text.includes("\x1b[38;2;70;231;169m"), "应有青色(cyan #46E7A9)");
+  assert.ok(text.includes("\x1b[38;2;100;214;230m"), "应有青色(cyan #64D6E6)");
   assert.ok(
-    text.includes("\x1b[38;2;70;132;231m"),
-    "路径段应染蓝(blue #4684E7)",
+    text.includes("\x1b[38;2;90;152;243m"),
+    "路径段应染蓝(blue #5A98F3)",
   );
   const visible = text.replace(/\x1b\[[0-9;]*m/g, "");
   assert.ok(visible.includes(":on"), "开启思考并入 model 段（:on 后缀保尾）");
@@ -483,15 +483,15 @@ test("renderStatusLine: 相邻段颜色不同且不含红/黄/绿状态色", () 
   assert.ok(sgrs.length >= 4, `应有多个着色段: ${sgrs.join(",")}`);
   for (let i = 0; i < sgrs.length - 1; i++) {
     if (sgrs[i] === sgrs[i + 1]) {
-      // dark 基底 foreground=#D8D8D8=ansi[7]，边框 border 同取 ansi[7]
+      // dark 基底 foreground=#C9DCDE=ansi[7]，边框 border 同取 ansi[7]
       // （用户指定正文/边框同色），仅允许该对相邻同色；其余相邻段必须可区分
-      assert.equal(sgrs[i], "#D8D8D8", `仅允许基底/边框同色对`);
+      assert.equal(sgrs[i], "#C9DCDE", `仅允许基底/边框同色对`);
     }
   }
   for (const c of sgrs) {
-    // dark 主题红/黄/绿：#E74684 / #E7A946 / #84E746——状态栏段不使用状态色
+    // dark 主题红/黄/绿：#FD0013 / #E9C944 / #61D383——状态栏段不使用状态色
     assert.ok(
-      !/#E74684|#E7A946|#84E746/.test(c),
+      !/#FD0013|#E9C944|#61D383/.test(c),
       `不应使用状态色(红/黄/绿): ${c}`,
     );
   }
@@ -1218,8 +1218,8 @@ test("buildFrame: 工具调用/结果行（*/+/x，失败着红）", () => {
   assert.ok(plain.includes("✓ 总用量 0"), "成功结果行 ✓ detail");
   assert.ok(plain.includes("✗ EACCES: 13"), "失败结果行 ✗ detail");
   assert.ok(
-    joined.includes("\x1b[38;2;231;70;132m✗ EACCES: 13"),
-    "失败工具行着红(231;70;132)",
+    joined.includes("\x1b[38;2;253;0;19m✗ EACCES: 13"),
+    "失败工具行着红(253;0;19)",
   );
 });
 
@@ -1234,13 +1234,13 @@ test("buildFrame: notice tone 行在帧内灰/蓝/黄/红/绿着色", () => {
     .map((l) => rowAnsi(l))
     .join("\n");
   assert.ok(
-    joined.includes("\x1b[38;2;120;120;120m日志"),
-    "log → 次要灰(L2 #787878)",
+    joined.includes("\x1b[38;2;128;135;142m日志"),
+    "log → 次要灰(L2 #80878E)",
   );
-  assert.ok(joined.includes("\x1b[38;2;70;132;231m提示"), "info → 蓝");
-  assert.ok(joined.includes("\x1b[38;2;231;169;70m黄"), "warn → 黄");
-  assert.ok(joined.includes("\x1b[38;2;231;70;132m红"), "error → 红");
-  assert.ok(joined.includes("\x1b[38;2;132;231;70m绿"), "success → 绿");
+  assert.ok(joined.includes("\x1b[38;2;90;152;243m提示"), "info → 蓝");
+  assert.ok(joined.includes("\x1b[38;2;233;201;68m黄"), "warn → 黄");
+  assert.ok(joined.includes("\x1b[38;2;253;0;19m红"), "error → 红");
+  assert.ok(joined.includes("\x1b[38;2;97;211;131m绿"), "success → 绿");
 });
 
 test("buildFrame: 工具历史只显最近 TOOL_MAX_GROUPS 组，窗口内组间无空行", () => {
@@ -1584,13 +1584,13 @@ test("buildFrame: 工具名（黄）独立着色，结果 ✓ 绿 / ✗ 整行�
   const joined = buildFrame(s, { rows: 16, cols: 40 })
     .map((l) => rowAnsi(l))
     .join("\n");
-  // dark 主题 24bit 码：黄 #E7A946 / 绿 #84E746 / 红 #E74684
+  // dark 主题 24bit 码：黄 #E9C944 / 绿 #61D383 / 红 #FD0013
   assert.ok(
-    joined.includes("\x1b[38;2;231;169;70mbash"),
+    joined.includes("\x1b[38;2;233;201;68mbash"),
     "工具名着黄（无前缀图标）",
   );
-  assert.ok(joined.includes("\x1b[38;2;132;231;70m✓"), "✓ 前缀着绿");
-  assert.ok(joined.includes("\x1b[38;2;231;70;132m✗ EACCES"), "✗ 失败整行着红");
+  assert.ok(joined.includes("\x1b[38;2;97;211;131m✓"), "✓ 前缀着绿");
+  assert.ok(joined.includes("\x1b[38;2;253;0;19m✗ EACCES"), "✗ 失败整行着红");
 });
 
 test("buildFrame: 工具调用长参数换行——仅首行工具名着黄，续行不再按首个空格染黄", () => {
@@ -1617,7 +1617,7 @@ test("buildFrame: 工具调用长参数换行——仅首行工具名着黄，�
     block.push(plain[i]!);
   // 整行宽 60、参数超宽 → 至少拆成 2 行
   assert.ok(block.length >= 2, "工具调用行应发生换行: " + block);
-  const YELLOW = "\x1b[38;2;231;169;70m";
+  const YELLOW = "\x1b[38;2;233;201;68m";
   const colored = buildFrame(s, { rows: 24, cols: 60 }).map((l) => rowAnsi(l));
   const firstRow = colored[start]!;
   const restRows = colored
@@ -2052,9 +2052,9 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     "面板态：对话历史区仍空（未因面板挤占重排）",
   );
 
-  // focusFrameColor：dark=L4 强调 brightWhite、light=L4 强调 black（灰度第4级）
-  assert.equal(focusFrameColor("dark"), "brightWhite");
-  assert.equal(focusFrameColor("light"), "black");
+  // focusFrameColor：语义色名 "focus"，取色由各主题 semantics 解析
+  //（dark=bright[7] #FFFFFF、light=ansi[0] #121418——即旧 L4 强调 slot）
+  assert.equal(focusFrameColor(), "focus");
 });
 
 /** 顶部面板内容签名：去掉 col0 左缘框格（右侧状态列正文跨焦点/面板态恒定，

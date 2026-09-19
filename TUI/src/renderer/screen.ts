@@ -45,6 +45,8 @@ export interface FrameRow {
 export interface ScreenOptions {
   /** 输出流（默认 process.stdout），可注入以测试 */
   write?: (s: string) => void;
+  /** 主题注册表（启动时由 main 注入配置解析结果；缺省内置 THEMES） */
+  themes?: Record<ThemeId, ColorTheme>;
 }
 
 /** 屏幕尺寸 */
@@ -57,9 +59,12 @@ export class Screen {
   private write: (s: string) => void;
   private cols: number;
   private rows: number;
-  private theme: ColorTheme = THEMES[DEFAULT_THEME];
+  private theme: ColorTheme;
+  private themes: Record<ThemeId, ColorTheme>;
 
   constructor(opts: ScreenOptions = {}) {
+    this.themes = opts.themes ?? THEMES;
+    this.theme = this.themes[DEFAULT_THEME];
     this.write = opts.write ?? ((s) => process.stdout.write(s));
     // 通过 ioctl 探测终端尺寸；不可用时退回 80x24
     this.cols = process.stdout.columns || 80;
@@ -82,7 +87,7 @@ export class Screen {
   }
 
   setTheme(id: ThemeId): void {
-    this.theme = THEMES[id];
+    this.theme = this.themes[id] ?? this.themes[DEFAULT_THEME];
   }
 
   /** 整帧重绘：清屏 → 原点 → 每行(基底色+样式)输出（末行不写 CRLF，防满高帧触底上滚）→ 末尾光标回到输入行 */

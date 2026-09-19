@@ -28,9 +28,9 @@ export interface FocusFrameContext {
   activitySepRow?: number;
 }
 
-/** 焦点框亮色（与 layout.ts focusFrameColor 保持同一映射，防循环内联） */
-export function focusColor(themeId: ThemeId): ColorName {
-  return themeId === "dark" ? "brightWhite" : "black";
+/** 焦点框亮色（语义色名 "focus"，取色由渲染层经主题 semantics 解析）；不再按主题 ID 推断（旧 dark=brightWhite / light=black） */
+export function focusColor(): ColorName {
+  return "focus";
 }
 
 /** 分隔线默认字符（与现状 buildTopRegion/buildStatusSeparator 一致） */
@@ -218,7 +218,7 @@ export function focusFrame(
   if (panel === null) return;
   const rect = rects.get(panel);
   if (!rect) return;
-  const style = { fg: focusColor(ctx.themeId) };
+  const style = { fg: focusColor() };
   const left = rect.x;
   const right = rect.x + rect.w - 1;
   const top = rect.y;

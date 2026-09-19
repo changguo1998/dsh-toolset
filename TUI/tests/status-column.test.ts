@@ -115,7 +115,8 @@ test("renderStatusColumn: 完成 todo 灰+删除线，jobs 块展示", () => {
     24,
   ).find((r) => rowText(r).includes("发布"))!;
   assert.ok(
-    rowAnsi(rawDone).includes("9m") && rowAnsi(rawDone).indexOf("9m") > rowAnsi(rawDone).indexOf("✓"),
+    rowAnsi(rawDone).includes("9m") &&
+      rowAnsi(rawDone).indexOf("9m") > rowAnsi(rawDone).indexOf("✓"),
     "done 正文灰+删除线且不覆盖对号: " + rawDone,
   );
 });
@@ -319,7 +320,7 @@ test("renderStatusColumn: sandbox 三档外生效值（custom）补入列表并�
   // 洋红高亮（custom 目录外值，与三档 permColor 区分）
   const row = raw.find((l) => rowAnsi(l).includes("danger-custom"))!;
   assert.ok(
-    rowAnsi(row).includes("\x1b[38;2;169;70;231m"),
+    rowAnsi(row).includes("\x1b[38;2;197;130;237m"),
     "custom sandbox 应以洋红强调: " + row,
   );
 });
@@ -341,13 +342,16 @@ test("renderStatusColumn: Mode 生效项着色强调、其余灰（段内至少�
     [...l.matchAll(/\x1b\[38;2;(?!255;255;255)[\d;]+m/g)].map((m) => m[0]);
   const sandbox = raw.find((l) => rowAnsi(l).includes("sandbox"))!;
   const policy = raw.find((l) => rowAnsi(l).includes("policy"))!;
-  const GRAY = "\x1b[38;2;120;120;120m"; // 次要灰 bright[0] #787878
+  const GRAY = "\x1b[38;2;128;135;142m"; // 次要灰 bright[0] #80878E
   // sandbox 行：ro(生效绿)、wr/full(灰) —— 生效项与未生效灰不同色，且未生效项确为灰
   assert.ok(
     new Set(sgr(rowAnsi(sandbox))).size >= 2,
     "sandbox 生效 ro 与灰选项颜色不同: " + raw.join("\n"),
   );
-  assert.ok(sgr(rowAnsi(sandbox)).includes(GRAY), "sandbox wr/full 未生效项为灰");
+  assert.ok(
+    sgr(rowAnsi(sandbox)).includes(GRAY),
+    "sandbox wr/full 未生效项为灰",
+  );
   // policy=never → auto 生效（红）与 ask(灰) 不同色
   assert.ok(
     new Set(sgr(rowAnsi(policy))).size >= 2,
@@ -357,14 +361,9 @@ test("renderStatusColumn: Mode 生效项着色强调、其余灰（段内至少�
 });
 
 test("renderStatusColumn: 无 mode/policy/preset 时 Mode 块整块省略", () => {
-  const rows = renderStatusColumn(
-    undefined,
-    [],
-    undefined,
-    0,
-    5,
-    20,
-  ).map((l) => rowText(l));
+  const rows = renderStatusColumn(undefined, [], undefined, 0, 5, 20).map((l) =>
+    rowText(l),
+  );
   const t = rows.join("\n");
   assert.ok(!t.includes("Mode"), "无会话配置数据不显示 Mode 块");
   assert.ok(!t.includes("（无目标/待办）"), "无 goal/todo 直接留空");
@@ -387,7 +386,11 @@ test("renderStatusColumn: Mode 各项以竖线分隔连续排布；宽列单行�
       "ask",
       "claude",
     )
-      .map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "").trimEnd())
+      .map((l) =>
+        rowAnsi(l)
+          .replace(/\x1b\[[0-9;]*m/g, "")
+          .trimEnd(),
+      )
       .join("\n");
   // 宽列：各项单行连续排布（不强制换行），竖线分隔
   const wide = text(120);
