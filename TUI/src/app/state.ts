@@ -199,6 +199,26 @@ export function cleanableSessionIds(state: AppState): string[] {
 }
 
 /**
+ * 启动自动清理的空会话 id（全目录范围）：
+ * 已持久化 + 非 live + 非当前 + 无用户消息（SessionInfo.isEmpty）。
+ * 与面板 cleanableSessionIds 同判据，仅不依赖 history 面板状态（启动时未必打开）。
+ */
+export function startupCleanableIds(records: readonly SessionInfo[]): string[] {
+  const ids: string[] = [];
+  for (const r of records) {
+    if (
+      r.isEmpty === true &&
+      r.persisted === true &&
+      !r.live &&
+      r.current !== true
+    ) {
+      ids.push(r.id);
+    }
+  }
+  return ids;
+}
+
+/**
  * 面板当前范围下的可见会话：project（默认）只保留与当前目录同 cwd 的会话，
  * all 返回全量。当前目录无法识别（无活跃记录且状态区为占位）→ 空列表：
  * 由渲染层给出明确空态，不静默把全量当作「当前目录」展示。

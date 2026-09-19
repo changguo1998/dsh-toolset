@@ -79,6 +79,14 @@
 - **测试**：`tests/notify-bell.test.ts` 5 例（turn-end 响一次 / enabled=false 不响 / 超阈值补响 / 输入取消 / 真实 renderer 输出 BEL）+ `config.test.ts` notify 归一化 1 例。
 - 边界：仅 TUI 事件触发 + bell，不动插件、不做桌面通知。
 
+## 启动自动清理空会话（session.autoCleanEmpty）
+
+- **config**：`tui.config.json` `session.autoCleanEmpty`（缺省 false，删除类操作默认保守）；`config.normalizeConfig` 归一化（非法回落关闭）；main.ts `loadTuiConfig().session?.autoCleanEmpty` → AppDeps.autoCleanEmpty（`deps.autoCleanEmpty === true` 才生效）。
+- **判据**：`startupCleanableIds(records)`（state.ts 纯函数）——已持久化 + 非 live + 非当前 + `isEmpty`（无用户消息），全目录范围，与面板 `cleanableSessionIds` 同语义但不依赖 history 面板状态（启动时未必打开）。
+- **执行**：`App.start()` 末尾 `if (this.autoCleanEmpty) void this.runStartupCleanEmptySessions()`（后台异步，不阻塞首帧）——`adapter.listSessions()` 列全量 → 过滤 → 逐个 `adapter.deleteSession()` 串行删除（复用 `/session` 面板同一守卫：安全 id + realpath 包含性校验 + 活会话拒绝）→ notice 汇报「已自动清理 N 个（M 个失败）」。
+- **降级**：宿主未挂 `sessionQuery`（listSessions/deleteSession 缺失）、列表读取失败或无可清理项 → 静默跳过；删除失败计入失败数一并提示，不让启动失败。
+- **测试**：`tests/session-delete.test.ts` +3 例（正常清理含提示 / 部分失败计数 / 缺省关闭与无服务跳过）+ `startupCleanableIds` 纯函数 1 例 + `config.test.ts` session 归一化 1 例。
+
 ## /model 命令
 
 - 能力：查询可用模型 + 切换当前会话模型（不落盘）。

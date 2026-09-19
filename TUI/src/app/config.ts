@@ -6,6 +6,9 @@
 //   - activityTopRow:        活动区分隔行锚定（"half" = 屏幕中线行 floor(rows/2)，或绝对行号；
 //                            配置后替代 activityHeightDivisor 的比例分配，缺省 null = 走 divisor）
 //   - statusColumnDivisor:   状态列宽 = floor(cols / divisor)（缺省 3 ≈ 1/3，历史区仍保底 10 列）
+// 会话维护段：
+//   - session.autoCleanEmpty: 启动时自动清理空会话（持久化+非 live+非当前+无用户消息），
+//                             缺省 false（关闭）；开启后 start() 后台删除并 notice 汇报
 // 配置文件缺失/非法 → 全部回落默认（fail-safe，不崩溃）。
 
 import { existsSync, readFileSync } from "node:fs";
@@ -52,11 +55,18 @@ export interface TuiThemeConfig {
   palettes?: Partial<Record<"dark" | "light", TuiThemePaletteConfig>>;
 }
 
+export interface TuiSessionConfig {
+  /** 启动时自动清理空会话（持久化 + 非 live + 非当前 + 无用户消息）；缺省 false（关闭） */
+  autoCleanEmpty?: boolean;
+}
+
 export interface TuiConfig {
   layout?: TuiLayoutConfig;
   notify?: TuiNotifyConfig;
   /** 主题段（调色板解析见 renderer/theme-config.ts） */
   theme?: TuiThemeConfig;
+  /** 会话维护段（启动自动清理空会话等） */
+  session?: TuiSessionConfig;
 }
 
 const CFG_FILE = "tui.config.json";
@@ -145,9 +155,11 @@ export function normalizeConfig(raw: unknown): TuiConfig {
     layout?: Record<string, unknown>;
     notify?: Record<string, unknown>;
     theme?: unknown;
+    session?: Record<string, unknown>;
   };
   const l = r.layout ?? {};
   const n = r.notify ?? {};
+  const s = r.session ?? {};
   return {
     layout: {
       ...(intGe(l.footerHeight, 1) === undefined
@@ -173,6 +185,12 @@ export function normalizeConfig(raw: unknown): TuiConfig {
         : { idleThresholdMs: intGe(n.idleThresholdMs, 1_000) }),
     },
     theme: normalizeThemeSection(r.theme),
+    // session：非法值回落 undefined（各自回落默认；autoCleanEmpty 非法 → 关闭）
+    session: {
+      ...(boolOr(s.autoCleanEmpty) === undefined
+        ? {}
+        : { autoCleanEmpty: boolOr(s.autoCleanEmpty) }),
+    },
   };
 }
 

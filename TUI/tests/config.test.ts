@@ -59,6 +59,21 @@ test("normalizeConfig：notify 声音提醒——enabled 布尔、idleThresholdM
   assert.equal(bad.notify?.idleThresholdMs, undefined);
 });
 
+test("normalizeConfig：session 会话维护——autoCleanEmpty 布尔合法保留/非法回落", () => {
+  const c = normalizeConfig({
+    session: { autoCleanEmpty: true },
+  })!;
+  assert.equal(c.session?.autoCleanEmpty, true);
+  // 缺省：不配置 session → 字段 undefined（App 层默认关闭自动清理）
+  const def = normalizeConfig({})!;
+  assert.deepEqual(def.session, {});
+  // 非法：字符串 → 回落 undefined（关闭）
+  const bad = normalizeConfig({
+    session: { autoCleanEmpty: "yes" },
+  })!;
+  assert.equal(bad.session?.autoCleanEmpty, undefined);
+});
+
 test("loadTuiConfig：缺省路径读取真实文件；缺失路径回落默认不崩溃", () => {
   const c = loadTuiConfig();
   assert.equal(c.layout?.activityHeightDivisor, 2, "默认文件 1/2");

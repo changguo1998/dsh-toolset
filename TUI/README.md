@@ -144,6 +144,22 @@ dsh --profile <p>
 - 仅终端 bell（终端响铃/视觉闪烁），不做桌面通知（notify-send 等）；无外部依赖。
 - 非法/越界字段回落默认；不新增依赖。
 
+## 会话维护配置（session，tui.config.json）
+
+启动时自动清理空会话（默认关闭；开启后每次启动 TUI 后台异步删除"空会话"——已持久化 + 非 live + 非当前 + 无用户消息，全目录范围）：
+
+```json
+{
+  "session": {
+    "autoCleanEmpty": true   // 启动自动清理空会话（可选；缺省 false）
+  }
+}
+```
+
+- 清理判据与 `/session` 面板 `x` 清理一致（同 `cleanableSessionIds` 语义），范围固定"全部目录"；当前活跃/live 会话天然排除。
+- 删除走 `deleteSession`（文件级，安全 id + realpath 包含性校验）；结果经活动区 notice 汇报（清理 N 个、部分失败时附失败数）；宿主未挂载会话服务、列表不可用或无需清理时静默跳过，不阻塞启动。
+- 缺省关闭：删除类操作默认保守，显式开启才生效。
+
 ## 主题配置（theme，tui.config.json）
 
 调色板外置为可配置项（启动时读取一次，改后重启 `dsh --profile <p>` 生效）：

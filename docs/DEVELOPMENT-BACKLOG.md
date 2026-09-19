@@ -150,7 +150,7 @@ defender 迁移（对比文档 §3.5）。
 | `context-report` | P2 | #34 | token-meter、session-stats |
 | ~~rate-guard~~ | P2（已取消） | #35 | 无（pi 侧已移除，能力由 pi 核心 provider-retry 内建 + 扩展 provider-guard 承接；dsh 对应 llm-retry，见对比文档 §5.4） |
 | `herdr-integration` | P1 | #36 | 无底座，仿 pi 原生扩展协议（unix socket + 环境变量握手） |
-| TUI 包扩展 ✅（#16/#33 已完成） | P2 | #16、#33 | dsh-toolset TUI（/workflows 面板、声音提醒，均已合入 main）；另含 /council（#18）、/search（#24）与 A1-A5 命令 |
+| TUI 包扩展 ✅（#16/#33 已完成） | P2 | #16、#33 | dsh-toolset TUI（/workflows 面板、声音提醒，均已合入 main）；另含 /council（#18）、/search（#24）、A1-A5 命令与启动自动清理空会话（`session.autoCleanEmpty`，默认关） |
 | 内容资产（非插件） | P2 | #17-#18、#32 | workflow 脚本 + skill 内容 |
 
 依赖：goal-contract、metric-loop、workflow-ext 依赖 task-engine（契约/执行器面）；output-compress 依赖 knowledge-base；其余独立可并行。

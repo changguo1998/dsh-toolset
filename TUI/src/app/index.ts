@@ -17,6 +17,7 @@ import {
   historyVisibleRecords,
   initialState,
   reduceState,
+  startupCleanableIds,
 } from "./state.ts";
 import type {
   DshAdapter,
@@ -25,6 +26,7 @@ import type {
   ModelSelection,
   ModelReasoning,
   HistoryMessage,
+  SessionInfo,
   SessionSurfaceView,
 } from "./adapter/dsh.ts";
 import type { NoticeTone } from "./adapter/types.ts";
@@ -158,6 +160,9 @@ export interface AppDeps {
     /** 等待用户输入超时(ms)；缺省 8000。最小 1000（由 config 归一化兜底） */
     idleThresholdMs?: number;
   };
+  /** 启动时自动清理空会话（tui.config.json `session.autoCleanEmpty`）。
+   *  true 时 start() 异步扫描全部目录，删除已持久化 + 非 live + 无用户消息的会话。 */
+  autoCleanEmpty?: boolean;
 }
 
 export class App {
@@ -192,6 +197,8 @@ export class App {
   private bellEnabled = true;
   /** 声音提醒：等待输入阈值(ms)（deps.notify?.idleThresholdMs ?? 8000） */
   private idleBellMs = 8000;
+  /** 启动自动清理空会话开关（deps.autoCleanEmpty ?? false） */
+  private autoCleanEmpty = false;
   /** 每 turn 思考的初始流速（配置值或默认）；正文加速后在下个 turn 回落 */
   private slowCpsBase = SLOW_DEFAULT_CPS;
   /** 上次 Ctrl+C 时间戳；双击窗口内再次按下则退出（含输入为空时计数） */
@@ -212,6 +219,8 @@ export class App {
     if (typeof th === "number" && Number.isFinite(th) && th > 0) {
       this.idleBellMs = Math.max(1, Math.floor(th));
     }
+    // 启动自动清理空会话（tui.config.json session.autoCleanEmpty；缺省关闭）
+    this.autoCleanEmpty = deps.autoCleanEmpty === true;
     // 初始思考流速来自配置(默认 120)；收到正文后由 SLOW_STREAM_ARRIVED_CPS 加速，
     // turn 结束后回落到 slowCpsBase（下个 turn 重新从慢速开始）
     const cps = this.deps.streamCharsPerSecond;
@@ -266,6 +275,56 @@ export class App {
     this.refreshCommandCatalog();
     // 补 Mode 块初始值（log-only 事件启动不产生，从会话日志折叠一次）
     this.refreshSessionModes();
+    // 启动自动清理空会话（session.autoCleanEmpty=true 时后台执行，不阻塞 UI）
+    if (this.autoCleanEmpty) {
+      void this.runStartupCleanEmptySessions();
+    }
+  }
+
+  /**
+   * 启动时自动清理空会话：列出全部会话 → 过滤可清理（持久化 + 非 live + 非当前 +
+   * 无用户消息）→ 逐个文件级删除 → 结果经 notice 汇报。
+   * 依赖宿主 sessionQuery（listSessions/deleteSession）已挂载；缺失或执行失败静默跳过
+   * （清理属于维护性功能，不让启动失败）。当前活跃/live 会话由判据天然排除。
+   */
+  private async runStartupCleanEmptySessions(): Promise<void> {
+    const adapter = this.deps.adapter;
+    const list = adapter.listSessions;
+    const del = adapter.deleteSession;
+    if (!list || !del) return;
+    let records: SessionInfo[];
+    try {
+      records = await list.call(adapter);
+    } catch {
+      return; // 列表不可用 → 不清理
+    }
+    const ids = startupCleanableIds(records);
+    if (ids.length === 0) return;
+    // 逐个删除（串行避免并发 IO 与错误归属混乱），记录失败数
+    let removed = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        const res = await del.call(adapter, id);
+        if (res.ok) removed += 1;
+        else failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    if (removed === 0) {
+      // 全部失败才提示（避免静默）；部分成功走下方成功文案
+      if (failed > 0) {
+        this.notice(`自动清理空会话失败：${failed} 个删除未生效`, "warn");
+      }
+      return;
+    }
+    this.notice(
+      failed > 0
+        ? `已自动清理 ${removed} 个空会话（${failed} 个失败）`
+        : `已自动清理 ${removed} 个空会话`,
+      failed > 0 ? "warn" : "success",
+    );
   }
 
   /**

@@ -88,6 +88,7 @@ export function main(opts: {
     },
     ...tuiConfig.layout,
     notify: tuiConfig.notify,
+    autoCleanEmpty: tuiConfig.session?.autoCleanEmpty,
     initialTheme: opts.initialTheme ?? resolvedThemes.active,
     slowStream: opts.slowStream,
     streamCharsPerSecond: opts.streamCharsPerSecond,

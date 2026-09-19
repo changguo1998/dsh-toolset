@@ -93,6 +93,7 @@ npm run smoke:pty      # 真机冒烟（工具行/状态栏 usage）
 | — | 活动区两态触发方式 | 状态 2（紧凑）：由「fill 按高度预算自动降级」 vs「用户显式配置」决定（`SPEC.md` §6.8） |
 | — | 表格 `minW` 取值策略 | 候选：`ceil(colW_natural / 4)`（≥ 3 列）；SPEC 只定了「有 minW 下限 + 省略号截断」机制，具体值待定（`SPEC.md` §3.2） |
 | — | 面板选中/高亮字符 | 候选沿用现状：`>` 高亮、单选 `*`、多选 `+`；SPEC 面板原语只定结构字段，字符待定（`SPEC.md` §7） |
+| — | 启动自动清理空会话 | ✅ 已实现（session.autoCleanEmpty 开关，缺省关；start() 后台全目录扫描空会话复用 /session 判据，deleteSession 串行删除 + notice 汇报；startupCleanableIds 纯函数 + App 集成 3 例） |
 
 ## 7. 开放点
 

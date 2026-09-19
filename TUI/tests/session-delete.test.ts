@@ -30,6 +30,7 @@ import {
   historyVisibleRecords,
   initialState,
   reduceState,
+  startupCleanableIds,
 } from "../src/app/state.ts";
 import type { AppState } from "../src/app/state.ts";
 import { App } from "../src/app/index.ts";
@@ -340,6 +341,28 @@ test("cleanableSessionIds：仅当前项目 + 已持久化 + 非 live + 无用�
   assert.deepEqual(cleanableSessionIds(backToProject), ["empty-a"]);
 });
 
+test("startupCleanableIds：全目录空会话（持久化 + 非 live + 非当前 + 无用户消息），不依赖面板状态", () => {
+  const records: SessionInfo[] = [
+    rec({ id: "cur", live: true, current: true, cwd: "/proj" }),
+    rec({ id: "live-other", live: true, cwd: "/other" }),
+    rec({ id: "empty-a", isEmpty: true, cwd: "/proj" }),
+    rec({ id: "empty-b", isEmpty: true, cwd: "/other" }),
+    rec({ id: "chat-c", cwd: "/proj" }),
+    rec({ id: "mem-d", isEmpty: true, cwd: "/proj", persisted: false }),
+    rec({ id: "noflag-e", isEmpty: true, cwd: "/x", persisted: true }),
+  ];
+  // cur/live 排除：live 会话、当前会话不算可清理；mem-d 未持久化排除；
+  // noflag-e：isEmpty=true + persisted=true → 可清理
+  assert.deepEqual(startupCleanableIds(records), [
+    "empty-a",
+    "empty-b",
+    "noflag-e",
+  ]);
+  // 空列表 / 无可清理项 → 空数组
+  assert.deepEqual(startupCleanableIds([]), []);
+  assert.deepEqual(startupCleanableIds([rec({ id: "chat", cwd: "/" })]), []);
+});
+
 // ---------------------------------------------------------------------------
 // 3) 面板交互流（App + 最小 fake adapter）
 // ---------------------------------------------------------------------------
@@ -431,7 +454,7 @@ class FakeSessionsAdapter {
   }
 }
 
-function makeApp(): {
+function makeApp(opts?: { autoCleanEmpty?: boolean }): {
   renderer: FakeRenderer;
   adapter: FakeSessionsAdapter;
   frame: () => string;
@@ -441,6 +464,7 @@ function makeApp(): {
   const app = new TrackedApp({
     renderer,
     adapter: adapter as unknown as DshAdapter,
+    autoCleanEmpty: opts?.autoCleanEmpty,
   });
   app.start();
   return {
@@ -788,3 +812,97 @@ class TrackedApp extends App {
     registerApp(this);
   }
 }
+
+test("启动自动清理（autoCleanEmpty=true）：start 异步删除全目录空会话并提示", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeSessionsAdapter();
+  adapter.serverRecords = [
+    rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
+    rec({ id: "tui-empty001", isEmpty: true, cwd: "/proj" }),
+    rec({ id: "tui-empty002", isEmpty: true, cwd: "/other" }),
+    rec({ id: "tui-chat0001", cwd: "/proj" }),
+    rec({ id: "tui-mem00001", isEmpty: true, cwd: "/proj", persisted: false }),
+  ];
+  const app = new TrackedApp({
+    renderer,
+    adapter: adapter as unknown as DshAdapter,
+    autoCleanEmpty: true,
+  });
+  app.start();
+  await flush();
+  await flush();
+  // 全目录空会话（持久化+非 live+非当前+无用户消息）：empty001/empty002；
+  // 当前活跃、带对话、未持久化均不动。删除走 adapter.deleteSession（串行）。
+  assert.deepEqual(adapter.deleteCalls, ["tui-empty001", "tui-empty002"]);
+  assert.ok(
+    renderer.lastRender.join("\n").includes("已自动清理 2 个空会话"),
+    "启动清理成功提示可见",
+  );
+  app.dispose();
+});
+
+test("启动自动清理（autoCleanEmpty=true）：删除失败按个计数并提示失败数", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeSessionsAdapter();
+  adapter.serverRecords = [
+    rec({ id: "tui-empty001", isEmpty: true, cwd: "/proj" }),
+    rec({ id: "tui-boom0001", isEmpty: true, cwd: "/proj" }),
+  ];
+  adapter.failOn.add("tui-boom0001");
+  const app = new TrackedApp({
+    renderer,
+    adapter: adapter as unknown as DshAdapter,
+    autoCleanEmpty: true,
+  });
+  app.start();
+  await flush();
+  await flush();
+  assert.deepEqual(adapter.deleteCalls, ["tui-empty001", "tui-boom0001"]);
+  assert.ok(
+    renderer.lastRender
+      .join("\n")
+      .includes("已自动清理 1 个空会话（1 个失败）"),
+    "部分失败提示含失败数",
+  );
+  app.dispose();
+});
+
+test("启动自动清理：关闭（缺省/autoCleanEmpty=false）或不挂会话服务时不调用删除", async () => {
+  // 缺省关闭：不传 autoCleanEmpty → 即使有可清理项也不删
+  const renderer = new FakeRenderer();
+  const adapter = new FakeSessionsAdapter();
+  adapter.serverRecords = [
+    rec({ id: "tui-empty001", isEmpty: true, cwd: "/x" }),
+  ];
+  const app = new TrackedApp({
+    renderer,
+    adapter: adapter as unknown as DshAdapter,
+  });
+  app.start();
+  await flush();
+  await flush();
+  assert.deepEqual(adapter.deleteCalls, [], "缺省关闭不自动清理");
+  app.dispose();
+
+  // 开启但宿主未挂载会话服务（listSessions/deleteSession undefined）→ 静默跳过
+  const r2 = new FakeRenderer();
+  const bare = {
+    onEvent: () => () => {},
+    sendMessage: () => {},
+    runCommand: () => {},
+    approve: () => {},
+    answerQuestion: () => {},
+    cancelQuestion: () => {},
+    interrupt: () => {},
+    dispose: () => {},
+  } as unknown as DshAdapter;
+  const a2 = new TrackedApp({
+    renderer: r2,
+    adapter: bare,
+    autoCleanEmpty: true,
+  });
+  a2.start();
+  await flush();
+  assert.ok(true, "无会话服务时启动清理静默跳过（不抛错）");
+  a2.dispose();
+});
