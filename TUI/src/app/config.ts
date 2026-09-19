@@ -26,9 +26,33 @@ export interface TuiNotifyConfig {
   idleThresholdMs?: number;
 }
 
+export interface TuiThemePaletteConfig {
+  /** 调色板 JSON 文件名（paletteDir 目录内；缺省 fffdark.json/ffflight.json） */
+  file?: string;
+  /** 内联 8 槽位 ANSI 色（#RRGGBB；覆盖/替代文件读取） */
+  ansi?: string[];
+  /** 内联 8 槽位亮色（#RRGGBB） */
+  bright?: string[];
+  background?: string;
+  foreground?: string;
+  /** 语义色槽位覆盖：字面 #RRGGBB 或 "ansi.N"/"bright.N" 引用（合法性由 theme-config 校验） */
+  semantics?: Record<string, string>;
+}
+
+export interface TuiThemeConfig {
+  /** 启动默认主题（dark/light，非法回落 dark） */
+  active: "dark" | "light";
+  /** 调色板目录；"" 禁用文件查找；缺省走 $FFF_HOME → ~/fff 默认链 */
+  paletteDir?: string;
+  /** 各主题的调色板覆盖（内联 > paletteDir 文件 > 内置兜底） */
+  palettes?: Partial<Record<"dark" | "light", TuiThemePaletteConfig>>;
+}
+
 export interface TuiConfig {
   layout?: TuiLayoutConfig;
   notify?: TuiNotifyConfig;
+  /** 主题段（调色板解析见 renderer/theme-config.ts） */
+  theme?: TuiThemeConfig;
 }
 
 const CFG_FILE = "tui.config.json";
@@ -53,11 +77,61 @@ const intGe = (v: unknown, min: number): number | undefined =>
 const boolOr = (v: unknown): boolean | undefined =>
   typeof v === "boolean" ? v : undefined;
 
+const isNonEmptyStr = (v: unknown): v is string =>
+  typeof v === "string" && v !== "";
+
+/** theme 段形状归一化（色值合法性校验由 renderer/theme-config.ts 承担） */
+function normalizeThemeSection(raw: unknown): TuiThemeConfig {
+  const r = (raw ?? {}) as {
+    active?: unknown;
+    paletteDir?: unknown;
+    palettes?: unknown;
+  };
+  const out: TuiThemeConfig = {
+    active: r.active === "light" ? "light" : "dark",
+    palettes: {},
+  };
+  if (typeof r.paletteDir === "string") out.paletteDir = r.paletteDir;
+  const pals = (r.palettes ?? {}) as Record<string, unknown>;
+  for (const id of ["dark", "light"] as const) {
+    const p = pals[id];
+    if (p === null || typeof p !== "object" || Array.isArray(p)) continue;
+    const po = p as Record<string, unknown>;
+    const entry: TuiThemePaletteConfig = {};
+    if (isNonEmptyStr(po.file)) entry.file = po.file;
+    if (Array.isArray(po.ansi) && po.ansi.every((x) => typeof x === "string"))
+      entry.ansi = po.ansi as string[];
+    if (
+      Array.isArray(po.bright) &&
+      po.bright.every((x) => typeof x === "string")
+    )
+      entry.bright = po.bright as string[];
+    if (isNonEmptyStr(po.background)) entry.background = po.background;
+    if (isNonEmptyStr(po.foreground)) entry.foreground = po.foreground;
+    if (
+      po.semantics !== null &&
+      typeof po.semantics === "object" &&
+      !Array.isArray(po.semantics)
+    ) {
+      const sem: Record<string, string> = {};
+      for (const [k, v] of Object.entries(
+        po.semantics as Record<string, unknown>,
+      )) {
+        if (isNonEmptyStr(v)) sem[k] = v;
+      }
+      entry.semantics = sem;
+    }
+    out.palettes![id] = entry;
+  }
+  return out;
+}
+
 /** 归一化用户配置：非法/越界字段回落默认（undefined=未配置） */
 export function normalizeConfig(raw: unknown): TuiConfig {
   const r = (raw ?? {}) as {
     layout?: Record<string, unknown>;
     notify?: Record<string, unknown>;
+    theme?: unknown;
   };
   const l = r.layout ?? {};
   const n = r.notify ?? {};
@@ -82,6 +156,7 @@ export function normalizeConfig(raw: unknown): TuiConfig {
         ? {}
         : { idleThresholdMs: intGe(n.idleThresholdMs, 1_000) }),
     },
+    theme: normalizeThemeSection(r.theme),
   };
 }
 

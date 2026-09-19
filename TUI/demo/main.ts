@@ -11,8 +11,8 @@
 
 import { createRenderer, type KeyEvent } from "../src/renderer/index.ts";
 import { loadTuiConfig } from "../src/app/config.ts";
+import { resolveThemes } from "../src/renderer/theme-config.ts";
 import {
-  THEMES,
   ansiNameToHex,
   hexSgr,
   normalizeThemeId,
@@ -21,7 +21,9 @@ import { App } from "../src/app/index.ts";
 import { createProcessStatusQueries } from "../src/app/status.ts";
 import { createMockDshAdapter, type MockDshAdapter } from "./mockAdapter.ts";
 
-const renderer = createRenderer();
+const tuiConfig = loadTuiConfig();
+const resolvedThemes = resolveThemes(tuiConfig.theme);
+const renderer = createRenderer({ themes: resolvedThemes.themes });
 // demo 交互模式启用自动审批（第二次回复后弹审批窗）；smoke 由脚本显式
 // 驱动审批弹窗，避免自动触发与脚本时序互相干扰
 const smoke = process.argv.includes("--smoke") || !process.stdin.isTTY;
@@ -29,20 +31,20 @@ const adapter: MockDshAdapter = createMockDshAdapter({
   autoApproval: !smoke,
 }) as MockDshAdapter;
 
-// demo 不读 profile 配置，主题经 --theme <light|dark> 显式传入（缺省内置默认）
+// demo 主题：--theme <light|dark> 显式传入（缺省回落配置文件 theme.active）
 const themeIdx = process.argv.indexOf("--theme");
 const initialTheme = themeIdx >= 0 ? process.argv[themeIdx + 1] : undefined;
 
 // 冒烟断言用主题实际槽位色（不硬编码 dark 色值）：red/green/yellow 随主题变化
-const smokeTheme = THEMES[normalizeThemeId(initialTheme)];
+const smokeTheme = resolvedThemes.themes[normalizeThemeId(initialTheme)];
 const smokeSgr = (name: "red" | "green" | "yellow"): string =>
   hexSgr(ansiNameToHex(smokeTheme, name)!, true);
 
 const app = new App({
   renderer,
   adapter,
-  ...loadTuiConfig().layout,
-  initialTheme: normalizeThemeId(initialTheme),
+  ...tuiConfig.layout,
+  initialTheme: normalizeThemeId(initialTheme ?? resolvedThemes.active),
   status: { queries: createProcessStatusQueries(), intervalMs: 5000 },
 });
 app.start();
@@ -427,7 +429,7 @@ if (smoke) {
       // C 阶段：/policy 审批策略。启动注入 approval/policy(ask) → 状态栏 ask 徽标；
       // `/policy never` → notice + mock 回发 approval/policy(never) → 徽标变 auto
       // ask 生效时 policy 行文本恒为 "policy ask auto"，当前项以绿色高亮——
-      // 用 raw 帧的绿色 SGR（dark #84E746）断言 ask 为生效项（区分色而非文本）
+      // 用 raw 帧的绿色 SGR（dark #61D383）断言 ask 为生效项（区分色而非文本）
       ok(
         "policy-badge-ask",
         badgePlain.includes("policy ask auto") &&

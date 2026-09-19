@@ -3,5 +3,17 @@
         "activityHeightDivisor": 2,
         "statusColumnDivisor": 3
     },
-    "notify": {}
+    "notify": {},
+    "theme": {
+        "active": "dark",
+        "paletteDir": "~/fff/config/terminal-colortheme",
+        "palettes": {
+            "dark": {
+                "file": "fffdark.json"
+            },
+            "light": {
+                "file": "ffflight.json"
+            }
+        }
+    }
 }

@@ -12,6 +12,7 @@
 
 import { createRenderer, type Renderer } from "./renderer/index.ts";
 import { normalizeThemeId, type ThemeId } from "./renderer/theme.ts";
+import { resolveThemes } from "./renderer/theme-config.ts";
 import { App } from "./app/index.ts";
 import { loadTuiConfig } from "./app/config.ts";
 import {
@@ -71,7 +72,13 @@ export function main(opts: {
   /** 测试注入：替代真实状态查询（缺省 createProcessStatusQueries()） */
   statusQueries?: StatusQueries;
 }): () => void {
-  const renderer: Renderer = opts.renderer ?? createRenderer();
+  // 主题调色板配置解析（tui.config.json theme 段；告警经 logger 输出，避免"改了未生效"）
+  const tuiConfig = loadTuiConfig();
+  const resolvedThemes = resolveThemes(tuiConfig.theme);
+  const configLogger = opts.logger ?? ((msg: string) => void msg);
+  for (const warning of resolvedThemes.warnings) configLogger(warning);
+  const renderer: Renderer =
+    opts.renderer ?? createRenderer({ themes: resolvedThemes.themes });
   const app = new App({
     renderer,
     adapter: opts.adapter,
@@ -79,9 +86,9 @@ export function main(opts: {
       queries: opts.statusQueries ?? createProcessStatusQueries(),
       intervalMs: 5000,
     },
-    ...loadTuiConfig().layout,
-    notify: loadTuiConfig().notify,
-    initialTheme: opts.initialTheme,
+    ...tuiConfig.layout,
+    notify: tuiConfig.notify,
+    initialTheme: opts.initialTheme ?? resolvedThemes.active,
     slowStream: opts.slowStream,
     streamCharsPerSecond: opts.streamCharsPerSecond,
     messageGutter: opts.messageGutter,
@@ -397,7 +404,8 @@ export async function apply(
   const display = normalizeTuiDisplayConfig(config);
   const disposeApp = main({
     adapter,
-    initialTheme: normalizeThemeId(config?.theme ?? undefined),
+    initialTheme:
+      config?.theme === undefined ? undefined : normalizeThemeId(config.theme),
     logger: (msg) => process.stderr.write("[dsh-tui] " + msg + "\n"),
     // 真实接入链路：打字机放缓默认开启，streamTypewriter: false 可关闭
     slowStream: display.streamTypewriter,
