@@ -558,9 +558,10 @@ state 事实("status=failure")             -- 逻辑层，不碰颜色
 ```
 
 - **语义 → 色名（排版层）**：映射表为**排版层常量**——不入 `AppState`、不进 renderer。现有实例：`STATUS_PROMPT_COLOR[inputStatus]`（success 绿 / running 黄 / failure 红）、`permColor`（sandbox 危险等级 ro 绿 / wr 黄 / full 红）、notice tone（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿）。markdown 语义同为此类（`**`→bold、`` ` ``→bg:code）：解析器在排版层，调"强调样式"只改排版层映射，state / renderer 均不动。
-- **色名 → 色值（渲染层独占）**：`ColorName → hex → SGR`（`colorFor` / `ansiNameToHex` / `hexSgr` 不得再被排版层 import，`theme.ts` 收口）。
+- **色名 → 色值（渲染层独占）**：`ColorName → hex → SGR`（`ansiNameToHex` / `hexSgr` 不得再被排版层 import，`theme.ts` 收口取色、`screen.ts` 的 `segStyle`/`serializeFrameRow` 收口序列化）。
 - **排版层仅持有**：`ThemeId` + 语义 `ColorName`；state 保持与呈现无关（不存颜色）。
 - 未知色名回退基底色（fail-safe，不抛异常，与现状 `ansiNameToHex` 返回 null 语义一致）。
+- **调色板可配置**（tui.config.json `theme` 段，启动读取一次；`renderer/theme-config.ts` 解析）：优先 = 内联 `palettes.<id>` 字段 → `paletteDir/<file>.json`（上游单一源）→ 内置兜底快照（`theme.ts` 的 `THEMES`）。语义槽位 `gray/border/code/focus` 从各主题 `semantics` 数据解析（不再按主题名/ID 推断）；解析结果经 `createRenderer({ themes })` 注入 renderer，`setTheme(id)` 按注册表取调色板并 `prevRows = null` 全帧重绘。
 
 ______________________________________________________________________
 

@@ -142,6 +142,30 @@ dsh --profile <p>
 - 仅终端 bell（终端响铃/视觉闪烁），不做桌面通知（notify-send 等）；无外部依赖。
 - 非法/越界字段回落默认；不新增依赖。
 
+## 主题配置（theme，tui.config.json）
+
+调色板外置为可配置项（启动时读取一次，改后重启 `dsh --profile <p>` 生效）：
+
+```json
+{
+  "theme": {
+    "active": "dark",   // 启动默认主题 dark|light（可选；缺省 dark；
+    //                      另有插件参数 config.theme 更高优先）
+    "paletteDir": "~/fff/config/terminal-colortheme", // 调色板目录（可选）
+    "palettes": {
+      "dark":  { "file": "fffdark.json" },
+      "light": { "file": "ffflight.json" }
+    }
+  }
+}
+```
+
+- **解析优先级**：内联 `palettes.<id>` 字段 → `paletteDir/<file>.json`（上游单一源）→ 内置兜底快照。内联可覆盖 `ansi`（8 项 #RRGGBB）/`bright`/`background`/`foreground`；`file` 缺省 `fffdark.json`/`ffflight.json`。
+- **paletteDir 解析链**：配置值 → `$FFF_HOME/config/terminal-colortheme` → `~/fff/config/terminal-colortheme`；`"paletteDir": ""` 显式禁用文件查找（只用内联/内置）。`~/fff` 是选配环境（fff 配色单一源），缺目录时静默回落内置兜底。
+- **语义色槽位**：`gray`/`border`/`code`/`focus` 从各主题 `semantics` 解析（不再按主题名/ID 推断），可经 `palettes.<id>.semantics` 覆盖：值可为字面 `#RRGGBB` 或槽位引用 `ansi.N`/`bright.N`。内置默认 = 当前上游配色快照（dark：gray=bright.0、border=ansi.4、code=ansi.0、focus=bright.7；light：gray=bright.0、border=ansi.4、code=ansi.7、focus=ansi.0）。
+- 生效时机：启动读取一次，不做热重载；`/theme dark|light|toggle` 仅当前会话切换调色板，不写回配置。
+- 非法/缺失字段逐级回落并记告警（`[dsh-tui]` 输出），不崩溃。
+
 ## 构建 / 测试
 
 ```sh
@@ -149,7 +173,7 @@ npm run build # tsc → dist/（无 bundler，Node CLI）
 npm run check # tsc --noEmit 类型检查
 npm run test  # node --test 全量（renderer 解码 + adapter fake-ctx 单测）
 npm run bench # 排版性能基准（cache off/on 三档中位耗时与倍数，报告式不设阈值）
-npm run demo  # 构建后跑 mock demo（演示主题：npm run demo -- --theme light|dark；缺省内置默认；demo 不读 profile 配置）
+npm run demo  # 构建后跑 mock demo（演示主题：npm run demo -- --theme light|dark；缺省回落 tui.config.json theme.active；demo 不读 profile 配置）
 npm run watch # tsc --watch 常驻：源码变更自动编译到 dist/（仍需重启 dsh 生效）
 ```
 

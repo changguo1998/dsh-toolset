@@ -102,8 +102,8 @@
 
 ## /theme 命令
 
-- 配色方案：内嵌 `~/fff/config/terminal-colortheme/` 的两份 JSON（`fffdark` = dark、`ffflight` = light）作默认浅深模式，定义 16 个 ANSI 槽位 + 基底前景/背景，全部换成 truecolor ANSI。来源为副本——`src/renderer/theme.ts` 的 `THEMES`，改动需手动同步 fff 配置（运行时读取留作后续）。
-- 槽位映射：`black..white` → `ansi[]`，`brightBlack..brightWhite` → `bright[]`，`gray` = `brightBlack`。`ansiNameToHex(theme, name)` 解析（颜色名转小写后查表）。`colorFor(themeId, name)` 手工拼接 truecolor ANSI 前景并**以主题基底前景收尾**（不用 chalk：chalk 以 `39m`/`49m` 收尾会复位到终端默认，浅色主题下不可读）。段级 `style` 由 `segStyle` / `serializeFrameRow`（screen.ts）按 Manual-ANSI 处理（fg/bg 分别 `38;2`/`48;2`，bold 用 `1m`/`22m`，各自恢复主题基底）。
+- 配色方案：启动时解析 `tui.config.json` theme 段（`renderer/theme-config.ts`：解析优先级 = 内联 `palettes.<id>` → `paletteDir/<file>.json`（上游单一源，默认 `~/fff/config/terminal-colortheme/`）→ 内置兜底快照）。`theme.ts` 的 `THEMES` 仅是兜底快照（= 当前上游配色），不再靠内嵌拷贝同步；语义色槽位 `gray`/`border`/`code`/`focus` 从各主题 `semantics` 数据解析（不再按主题名/ID 分支）。定义 16 个 ANSI 槽位 + 基底前景/背景，全部换成 truecolor ANSI。
+- 槽位映射：`black..white` → `ansi[]`，`brightBlack..brightWhite` → `bright[]`；语义槽位 `gray`/`border`/`code`/`focus` → 各主题 `semantics`（默认 dark：gray=bright.0、border=ansi.4、code=ansi.0、focus=bright.7；light：gray=bright.0、border=ansi.4、code=ansi.7、focus=ansi.0）。`ansiNameToHex(theme, name)` 解析（颜色名转小写后查表）。段级 `style` 由 `segStyle` / `serializeFrameRow`（screen.ts）按 Manual-ANSI 处理（fg/bg 分别 `38;2`/`48;2`，bold 用 `1m`/`22m`），着色一律**以主题基底前景/背景收尾**（不用 chalk：chalk 以 `39m`/`49m` 收尾会复位到终端默认，浅色主题下不可读）。
 - 基底色：`Screen` 持有当前主题（`setTheme(id)`），整帧渲染在 `ESC[2J` 清屏**之前**写出基底前景/背景（truecolor 背景 → 清屏即填充主题色）；每个 delta 行也带基底，保证 `ESC[K` 擦除以主题背景填充。`setTheme` 同时清掉渲染器 delta 缓存（`prevLines = null`），切换后必然全帧重绘。`close()` 前 `Screen.reset()` 输出 `ESC[0m` 恢复终端默认。
 
 ## 验证方式
@@ -127,7 +127,7 @@
 
 3 个独立可回归提交（行为不变：570 单测（当时值；现 844）+ 36 smoke 帧断言为回归标准）：
 
-- **契约类型**（98e9efd）：`theme.ts` ColorName 增 `"code"` 槽位（dark #434343 / light #E8E8E8）；
+- **契约类型**（98e9efd）：`theme.ts` ColorName 增 `"code"` 槽位（dark #434343 / light #E8E8E8，历史值；现 dark=ansi[0] #272336 / light=ansi[7] #E9EBEE）；
   `screen.ts` 并存新增 `FrameStyle`/`FrameSegment`/`FrameRow` + `segStyle`/`serializeFrameRow` 纯函数
   （相邻同 style 合并、异 style 先 close 前段再 open 新段、open 顺序 bold→italic→underline→strike→fg→bg、
   行尾 SGR 复位回主题基底、未知名色名回退基底、`#hex` 直用、close 逆序）。
