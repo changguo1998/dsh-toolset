@@ -1038,16 +1038,16 @@
         "ansi": " \u001b[38;2;90;152;243m───────────────────────────────────────\u001b[38;2;201;220;222m\u001b[38;2;90;152;243m┤\u001b[38;2;201;220;222m                   "
       },
       {
-        "text": " [ provid   model              effort (u│                   ",
-        "ansi": " [ provid   model              effort (u\u001b[38;2;90;152;243m│\u001b[38;2;201;220;222m                   "
+        "text": " [ prov   model        effort (unsupport│                   ",
+        "ansi": " [ prov   model        effort (unsupport\u001b[38;2;90;152;243m│\u001b[38;2;201;220;222m                   "
       },
       {
-        "text": " * doubao  * doubao-pro                 │                   ",
-        "ansi": " \u001b[38;2;97;211;131m* doubao\u001b[38;2;201;220;222m  \u001b[38;2;97;211;131m* doubao-pro     \u001b[38;2;201;220;222m            \u001b[38;2;90;152;243m│\u001b[38;2;201;220;222m                   "
+        "text": " * doub  * doubao-pr                    │                   ",
+        "ansi": " \u001b[38;2;97;211;131m* doub\u001b[38;2;201;220;222m  \u001b[38;2;97;211;131m* doubao-pr\u001b[38;2;201;220;222m                    \u001b[38;2;90;152;243m│\u001b[38;2;201;220;222m                   "
       },
       {
-        "text": "             doubao-lite                │                   ",
-        "ansi": "             doubao-lite                \u001b[38;2;90;152;243m│\u001b[38;2;201;220;222m                   "
+        "text": "           doubao-li                    │                   ",
+        "ansi": "           doubao-li                    \u001b[38;2;90;152;243m│\u001b[38;2;201;220;222m                   "
       },
       {
         "text": "                                        │                   ",

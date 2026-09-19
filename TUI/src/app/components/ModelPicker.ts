@@ -11,11 +11,14 @@
 // 顶部/底部对应行显示 `...` 省略号（焦点所在行不显示省略号，保证焦点
 // 恒可见）。最底行打印按键帮助：空格=选中，←/→=切换列，Tab=下一列，Enter=提交，
 // Esc=取消。
+// 列宽：按三列各自「最长选项显示宽（含行前标记）」的比例分配总可用宽度
+// （pickerColumnWidths），长 provider 名自然得宽列不截断、短 effort 列不多占；
+// effort 无选项（unsupported）时按标题宽兜底保证列可见。
 
 import type { FrameRow } from "../../renderer/index.ts";
 import type { ThemeId } from "../../renderer/theme.ts";
 import type { PickerState } from "../state.ts";
-import { truncateToWidth } from "../layout.ts";
+import { truncateToWidth, displayWidth } from "../layout.ts";
 import type { Box } from "../layout/box.ts";
 import { fillBoxTree } from "../layout/fill.ts";
 import { v, styled } from "../layout/box.ts";
@@ -33,6 +36,35 @@ export interface ModelPickerView {
 function scrollStart(len: number, focus: number, rows: number): number {
   if (len <= rows || rows <= 0) return 0;
   return Math.min(Math.max(0, focus - (rows - 1)), len - rows);
+}
+
+/** 单列内容最长显示宽：最长选项宽 + 2（行前标记 `> `/`* `/空两位） */
+function longestCellWidth(items: readonly string[]): number {
+  let max = 0;
+  for (const t of items) max = Math.max(max, displayWidth(t) + 2);
+  return max;
+}
+
+/**
+ * 三列宽度按「各列最长选项显示宽」的比例分配总可用宽度（available）。
+ * 大数优先取余数（floor 后余数按最长列依次补 1），避免尾部残留空白集中在
+ * 某一列；每列至少 1（防 0 宽导致分隔错位），不加人为上限（长列自然得宽）。
+ */
+export function pickerColumnWidths(
+  longest: readonly [number, number, number],
+  available: number,
+): [number, number, number] {
+  const total = longest[0] + longest[1] + longest[2];
+  if (total <= 0) return [Math.max(1, available), 1, 1];
+  const floors = longest.map((l) => Math.floor((available * l) / total));
+  let rem = available - (floors[0]! + floors[1]! + floors[2]!);
+  const order = [0, 1, 2].sort((a, b) => longest[b]! - longest[a]!);
+  for (let i = 0; rem > 0; i = (i + 1) % 3) {
+    floors[order[i]!]! += 1;
+    rem -= 1;
+  }
+  const out = floors.map((w) => Math.max(1, w)) as [number, number, number];
+  return out;
 }
 
 /**
@@ -105,14 +137,21 @@ export function buildModelPickerBox(view: ModelPickerView): Box {
   const height = Math.max(1, view.height);
   const width = Math.max(1, view.width);
   const sep = width >= 32 ? 2 : 1;
-  const provW = Math.min(16, Math.max(6, Math.floor(width * 0.22)));
-  const remain = Math.max(1, width - provW - sep * 2);
-  const thinkW = Math.max(10, Math.floor(remain * 0.4));
-  const modelW = Math.max(1, remain - thinkW);
-  const widths = [provW, modelW, thinkW];
+  const available = Math.max(1, width - sep * 2);
+  const unsupported = efforts.length === 0;
+  // 各列内容最长显示宽（含行前标记 2 列）；effort 无选项时按标题宽兜底，
+  // 保证 unsupported 场景下列宽可见（有选项时严格按最长选项比例）
+  const provLong = longestCellWidth(providers);
+  const modelLong = longestCellWidth(models);
+  const effLong = unsupported
+    ? displayWidth("effort (unsupported)") + 2
+    : longestCellWidth(efforts.map((e) => e.name));
+  const widths = pickerColumnWidths([provLong, modelLong, effLong], available);
+  const provW = widths[0]!;
+  const modelW = widths[1]!;
+  const thinkW = widths[2]!;
 
   const listRows = Math.max(1, height - 2);
-  const unsupported = efforts.length === 0;
   const colContent = (len: number) =>
     len <= listRows ? listRows : Math.max(1, listRows - 2);
   const provRows = colContent(providers.length);

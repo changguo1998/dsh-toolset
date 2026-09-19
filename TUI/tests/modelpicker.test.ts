@@ -6,7 +6,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderModelPicker } from "../src/app/components/ModelPicker.ts";
+import {
+  pickerColumnWidths,
+  renderModelPicker,
+} from "../src/app/components/ModelPicker.ts";
 import {
   initialState,
   reduceState,
@@ -77,6 +80,64 @@ function picker(partial: Partial<PickerState> = {}): PickerState {
 function stripAnsi(s: string): string {
   return s.replace(/\u001b\[[0-9;]*m/g, "");
 }
+
+test("pickerColumnWidths：按各列最长选项比例分配总可用宽，余数补最长列", () => {
+  // longest=[30,10,5]，available=76：比例 30:10:5 → floor(50,16,8) 余 2 补 prov/model
+  assert.deepEqual(pickerColumnWidths([30, 10, 5], 76), [51, 17, 8]);
+  // 和恰为 available
+  const w = pickerColumnWidths([30, 10, 5], 76);
+  assert.equal(w[0] + w[1] + w[2], 76);
+});
+
+test("pickerColumnWidths：长 provider 不受 16 字符上限（按比例得宽列，不截断）", () => {
+  // 长 provider（40）远大于 model(8)/effort(6)：prov 得 >16 且占比最大
+  const w = pickerColumnWidths([40, 8, 6], 76);
+  assert.ok(w[0] > 16, `prov 宽 ${w[0]} 应突破旧 16 上限`);
+  assert.ok(w[0] > w[1] && w[0] > w[2], "最长列占比最大");
+  assert.equal(w[0] + w[1] + w[2], 76);
+});
+
+test("pickerColumnWidths：无内容/空列表保底——不崩且每列至少 1", () => {
+  assert.deepEqual(pickerColumnWidths([0, 0, 0], 76), [76, 1, 1]);
+  // 单列超窄场景 available=1
+  assert.deepEqual(pickerColumnWidths([10, 10, 10], 1), [1, 1, 1]);
+});
+
+test("pickerColumnWidths：effort 无选项（unsupported）按标题宽兜底，列宽可见", () => {
+  // unsupported 时 effLong=displayWidth("effort (unsupported)")+2=22
+  // 比例 10:10:22 → floor(18,18,39) 余 1 补 effort → [18,18,40]
+  const w = pickerColumnWidths([10, 10, 22], 76);
+  assert.deepEqual(w, [18, 18, 40]);
+  assert.ok(w[2] >= 15, `effort 列宽 ${w[2]} 应能容纳标题`);
+});
+
+test("渲染：长 provider 名完整显示不截断（列宽按最长选项比例分配）", () => {
+  const longName = "deepseek-official-very-long-name";
+  const p = picker({
+    providers: [longName, "ustc", "aliyun"],
+    providerIndex: 1,
+    phase: 0,
+    efforts: [
+      { id: "low", name: "low" },
+      { id: "max", name: "max" },
+    ],
+  });
+  const rows = renderModelPicker({ picker: p, height: 6, width: 90 }, "dark");
+  // provider 列应完整容纳最长名（旧实现 16 字符上限会截断）
+  const r1 = stripAnsi(rowAnsi(rows[1]!));
+  assert.ok(
+    r1.includes(longName),
+    `长 provider 名应完整显示: ${r1.slice(0, 50)}`,
+  );
+  // model 与 effort 列仍同屏且内容可见（无整列消失）
+  const r2 = stripAnsi(rowAnsi(rows[2]!));
+  assert.ok(r2.includes("reasoner"), "model 列内容可见: " + r2);
+  assert.ok(
+    stripAnsi(rowAnsi(rows[1]!)).includes("low") ||
+      stripAnsi(rowAnsi(rows[2]!)).includes("max"),
+    "effort 列内容可见",
+  );
+});
 
 test("最底行按键帮助：整行满宽 [按键]文字 格式，不按列宽截断", () => {
   const rows = renderModelPicker(
