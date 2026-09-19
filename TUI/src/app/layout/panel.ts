@@ -21,9 +21,9 @@ export interface PanelOption {
   selected?: boolean;
   /** 是否焦点行（高亮游标 `>` + 焦点样式） */
   focused?: boolean;
-  /** 焦点行样式（缺省黄） */
+  /** 焦点行样式（缺省黄；该行同时被选中时由选中样式绿覆盖） */
   focusStyle?: FrameStyle;
-  /** 选中行样式（缺省绿） */
+  /** 选中行样式（缺省绿，优先于焦点样式） */
   selectedStyle?: FrameStyle;
 }
 
@@ -87,12 +87,13 @@ export function panelOptions(
     const lead = o.focused ? cursor : " ";
     const sel = o.selected ? mark : " ";
     // 对齐现状面板：前导空格 + 游标 + 选中标记 + 空格；焦点行/选中行
-    // 整行着色（标记列位恒定、label 同色——对齐 StatusPanel 整行黄/绿）
+    // 整行着色（标记列位恒定、label 同色——对齐 StatusPanel 整行黄/绿），
+    // 两者同一行时选中绿优先（选中即绿，与 ModelPicker 一致）
     const prefixText = ` ${lead}${sel} `;
-    const rowStyle = o.focused
-      ? (o.focusStyle ?? { fg: "yellow" as const })
-      : o.selected
-        ? (o.selectedStyle ?? { fg: "green" as const })
+    const rowStyle = o.selected
+      ? (o.selectedStyle ?? { fg: "green" as const })
+      : o.focused
+        ? (o.focusStyle ?? { fg: "yellow" as const })
         : undefined;
     return styled(
       [

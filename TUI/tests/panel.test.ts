@@ -79,6 +79,15 @@ test("panelOptions：单选标记（焦点>黄 / 选中*绿 / 普通）", () => 
   ]);
 });
 
+test("panelOptions：焦点行同时选中时绿优先（选中即绿，与 ModelPicker 一致）", () => {
+  const box = panelOptions([{ label: "是", focused: true, selected: true }]);
+  const row = box.children[0] as StyledText;
+  assert.deepEqual(row.segments, [
+    { text: " >* ", style: { fg: "green" } },
+    { text: "是", style: { fg: "green" } },
+  ]);
+});
+
 test("panelOptions：多选标记 + 与游标关闭", () => {
   const m = rowsOf(
     panelOptions([{ label: "a", selected: true }, { label: "b" }], {

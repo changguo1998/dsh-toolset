@@ -2052,26 +2052,31 @@ test("问答面板：plan-review 单题以计划卡片呈现，hints 只显示�
   app.dispose();
 });
 
-test("问答面板：选项按状态着色——光标行黄、已选行绿", () => {
+test("问答面板：选项按状态着色——已选行绿（光标同在此行也绿）、未选光标行黄", () => {
   const { app, renderer, adapter } = makeApp();
   pushQuestion(adapter);
   const frame = (): string => renderer.lastRender.join("\n");
-  // 光标默认在选项 0（生产）→ warn 黄
+  // 光标默认在选项 0（生产）且未标记 → warn 黄
   assert.ok(
     frame().includes("\x1b[38;2;233;201;68m >  生产"),
-    "光标行应着 warn 黄",
+    "未选中的光标行应着 warn 黄",
   );
-  // 空格选中「生产」→ 光标+已选仍黄（光标优先）
+  // 空格标记「生产」→ 光标行同时为已选行 → success 绿（选中优先于光标）
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
   assert.ok(
-    frame().includes("\x1b[38;2;233;201;68m >* 生产"),
-    "光标+已选行着黄",
+    frame().includes("\x1b[38;2;97;211;131m >* 生产"),
+    "光标+已选行应着 success 绿",
   );
   // 下移光标到「测试」→「生产」变已选非光标行 → success 绿
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(
     frame().includes("\x1b[38;2;97;211;131m  * 生产"),
     "已选非光标行应着 success 绿",
+  );
+  // 移开后「测试」为未选中的光标行 → warn 黄
+  assert.ok(
+    frame().includes("\x1b[38;2;233;201;68m >  测试"),
+    "未选中的光标行应着 warn 黄",
   );
   app.dispose();
 });

@@ -15,7 +15,7 @@ import { seg } from "../layout/primitives.ts";
 
 /**
  * 状态选项面板 Box 生成器（DESIGN.md §7 / SPEC.md §7）：标题行（命令名蓝
- * + 当前生效值）+ 选项列表（焦点`>`黄 / 预选`*`绿）+ 操作提示。选项滚动
+ * + 当前生效值）+ 选项列表（预选`*`绿优先 / 未预选焦点`>`黄）+ 操作提示。选项滚动
  * 窗口算法保留在 build 内（跟随焦点滚动）；叶子 styled wrap:false 精确行长。
  */
 export function buildStatusPanelBox(
@@ -38,9 +38,9 @@ export function buildStatusPanelBox(
   ];
   const titleRow = styled(titleSegs, { wrap: false });
 
-  // 选项行：焦点 > 黄、预选 * 绿、未选默认（整行单段着色，对齐冻结基线；
-  // 复杂面板组合 styled 直接组装见 ModelPicker——panelOptions 两段形态与
-  // StatusPanel 单段基线不符，不强行套用）
+  // 选项行：预选 * 绿优先（选中即绿）、未预选的光标 > 黄、其余默认（整行单段
+  // 着色，对齐冻结基线；复杂面板组合 styled 直接组装见 ModelPicker——
+  // panelOptions 两段形态与 StatusPanel 单段基线不符，不强行套用）
   const rows = [];
   for (let i = 0; i < panel.options.length; i++) {
     const opt = panel.options[i]!;
@@ -50,12 +50,12 @@ export function buildStatusPanelBox(
     const mark = sel ? "*" : " ";
     const cursor = f ? ">" : " ";
     const line = ` ${cursor}${mark} ${opt.label ?? opt.id}${opt.desc ? ` ${opt.desc}` : ""}`;
-    if (f)
+    if (sel)
+      rows.push(styled([seg(line, { fg: "green" as const })], { wrap: false }));
+    else if (f)
       rows.push(
         styled([seg(line, { fg: "yellow" as const })], { wrap: false }),
       );
-    else if (sel)
-      rows.push(styled([seg(line, { fg: "green" as const })], { wrap: false }));
     else rows.push(styled([seg(line)], { wrap: false }));
   }
 

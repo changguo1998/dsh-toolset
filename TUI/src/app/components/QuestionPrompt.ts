@@ -22,7 +22,7 @@ import { fillBoxTree } from "../layout/fill.ts";
 /**
  * 问答面板 Box 生成器（DESIGN.md §7 / SPEC.md §7）：整棵 activity 内容树
  * 替换。文本池（题干/detail/选项/自定义兜底 + 滚动窗口）在 build 内按现状
- * 算法计算，逐行产 styled 叶子（选项行黄/绿着色、无 markdown 解析）。
+ * 算法计算，逐行产 styled 叶子（选项行选中绿/光标黄着色，无 markdown 解析）。
  * 操作提示仅列实际用到的按键（Enter 文案区分下一题/提交等）。
  */
 export function buildQuestionPanelBox(
@@ -106,13 +106,13 @@ export function buildQuestionPanelBox(
     ],
     { wrap: false },
   );
-  // body 行（选项行着色：光标黄/选中绿）
+  // body 行（选项行着色：已标记选中绿优先，未标记的光标行黄——对齐 ModelPicker）
   const bodyLeaves = Array.from({ length: maxBody }, (_, i) => {
     const line = body[i] ?? "";
-    if (line.length > 1 && line[1] === ">")
-      return styled([seg(line, { fg: "yellow" as const })], { wrap: false });
     if (line.length > 2 && (line[2] === "*" || line[2] === "+"))
       return styled([seg(line, { fg: "green" as const })], { wrap: false });
+    if (line.length > 1 && line[1] === ">")
+      return styled([seg(line, { fg: "yellow" as const })], { wrap: false });
     return styled([seg(line)], { wrap: false });
   });
   // 操作提示：仅列实际用到的按键

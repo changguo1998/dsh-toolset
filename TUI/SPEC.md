@@ -406,7 +406,7 @@ panelOptions(options: PanelOption[]): Box       // 选项列表（每项一行�
 ```
 
 - 面板组件 = 这些原语的组合函数（design §7），输出整棵 activity 内容树替换（无需 Overlay）。
-- 选项行：高亮标记 + 文本；`PanelOption { label: string; selected: boolean; focused?: boolean }`——渲染字符沿用现状面板（高亮游标 `>`、单选选中 `*`、多选 `+`，见 `IMPLEMENTATION.md`「/model 命令」ModelPicker）。
+- 选项行：高亮标记 + 文本；`PanelOption { label: string; selected: boolean; focused?: boolean }`——渲染字符沿用现状面板（高亮游标 `>`、单选选中 `*`、多选 `+`，见 `IMPLEMENTATION.md`「/model 命令」ModelPicker）。着色沿用现状面板：**选中行绿、未选中的焦点行黄；两者同一行时绿优先**（`selectedStyle` 覆盖 `focusStyle`）。
 - 面板原语跟普通 `Paragraph` 一样可配 `indent`/`style`/`wrap`，无新属性——纯组装糖，不改布局语义。
 
 ## 8. FocusFrame 覆写规格 [spec]

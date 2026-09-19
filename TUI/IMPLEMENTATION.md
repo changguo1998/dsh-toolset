@@ -105,7 +105,7 @@
 
 - 写路径与 fail-safe 见 DESIGN「命令域」。
 - `/policy`、`/permission`、`/preset` 无参统一打开 `statusPanel`（`src/app/components/StatusPanel.ts`，活动区窗口，与审批/问答/模型选择同区域）。状态：`StatusPanelState{kind,title,options[],index,selected}`（`state.statusPanel`）；reducer `status-panel-open/move/select/close`。提交路径：policy→`setApprovalPolicy`；permission→`runCommand("/permission <name>")` 转发宿主；preset→`selectAgentPreset`。goal/todo 保持只读右侧栏；plan/sandbox 无宿主写接口暂不开放面板。
-- 交互：↑/↓ 移动焦点、空格预选星号（再按取消）、Enter 提交预选（无预选回退焦点行）并关闭、Esc 取消；当前策略来自 `state.policyBySession[sid]` 事件回读。
+- 交互：↑/↓ 移动焦点、空格预选星号（再按取消）、Enter 提交预选（无预选回退焦点行）并关闭、Esc 取消；当前策略来自 `state.policyBySession[sid]` 事件回读。着色：预选行绿、未预选的焦点行黄，同一行两者兼具时绿优先。
 - **接收者绑定**：caller 侧对 adapter 方法一律以 `method.call(adapter, …)` 保留实例作 `this`（与 `approve`/`interrupt` 等一致）——提取为局部变量再调用会导致方法体内 `this.xxx` 为 undefined、异步方法恒 rejected、误报「服务不可用」。
 
 ## /theme 命令
