@@ -37,6 +37,7 @@ dsh-toolset/
 ├── hash-edit/            # LINE:HASH 锚定编辑
 ├── ast-tools/            # AST 搜索/替换/大纲/规则
 ├── security-guard/       # 危险命令与敏感文件防护
+├── presets/              # agent preset 资产（fff：官方 standard 组合克隆；部署见 presets/README.md）
 ├── docs/                 # 架构类比、开发 backlog 与状态、功能对比等设计文档
 ├── AGENTS.md             # 面向 agent 的协作规范（语言/命令/格式化/构建部署/变更流程）
 ├── DSH-CTX-API.md        # 跨插件共享研读笔记（只读）
@@ -70,6 +71,10 @@ npm run demo -- --smoke   # TUI 冒烟检查（帧断言 SMOKE_PASS）
 ```
 
 本地开发期使用 `link:` 依赖，构建产物经 symlink 实时可见，无需重新安装；正式发布形态为 `dsh plugin --profile <p> add <包名>`。核对组合树用 `dsh --profile <p> --dump-config`，启动用 `dsh --profile <p>`。
+
+### agent preset（会话 agent 组合）
+
+`presets/` 随仓库分发 agent preset 资产（`fff` = 官方 `standard` 组合克隆，与本项目插件正交叠加：插件工具由 profile 全局注册，preset 只承载官方 agent 面）。部署三步（复制到 `~/.dsh/.agent-presets/`、设 `agent-presets.default`、重启）见 `presets/README.md`，不依赖个人配置仓库 `~/fff`。
 
 ## 文档
 
