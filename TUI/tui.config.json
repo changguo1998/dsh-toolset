@@ -6,7 +6,7 @@
     },
     "notify": {},
     "session": {
-        "autoCleanEmpty": false
+        "autoCleanEmpty": true
     },
     "theme": {
         "active": "dark",
