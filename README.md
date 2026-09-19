@@ -74,7 +74,7 @@ npm run demo -- --smoke   # TUI 冒烟检查（帧断言 SMOKE_PASS）
 
 ### agent preset（会话 agent 组合）
 
-`presets/` 随仓库分发 agent preset 资产（`fff` = 官方 `standard` 组合克隆，与本项目插件正交叠加：插件工具由 profile 全局注册，preset 只承载官方 agent 面）。部署三步（复制到 `~/.dsh/.agent-presets/`、设 `agent-presets.default`、重启）见 `presets/README.md`，不依赖个人配置仓库 `~/fff`。
+`presets/` 随仓库分发 agent preset 资产（`fff` = 官方 `standard` 组合克隆，与本项目插件正交叠加：插件工具由 profile 全局注册，preset 只承载官方 agent 面）。部署（软链接三步：真实目录 + 文件软链接指向本仓库 `presets/fff/`、设 `agent-presets.default`、重启）见 `presets/README.md`，不依赖个人配置仓库 `~/fff`。
 
 ## 文档
 
