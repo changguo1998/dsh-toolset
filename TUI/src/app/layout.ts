@@ -1653,6 +1653,31 @@ function fitHead(s: string, w: number): string {
   return `${truncateToWidth(s, w - 1)}…`;
 }
 
+/** git 段在 env 组超宽时的预算列数（分支 + 尾部统计符号；比 cwd 更需要完整） */
+const GIT_FIT_WIDTH = 20;
+
+/**
+ * git 段按预算截断：分支名开头 + 尾部统计符号簇（`↑N ↓N +N ~N -N`）都要保。
+ * 符号在尾部（`main ↑1 +2 ~3`），整体截头会把新信息全砍掉——故分支名中段省略、
+ * 符号簇整体保留；符号簇本身就放不下时才退回按头截断。
+ */
+function fitGit(s: string, w: number): string {
+  if (displayWidth(s) <= w) return s;
+  if (w <= 1) return "…";
+  // 分支名不含空格，统计符号以空格分隔 → 第一个空格起是符号簇
+  const sp = s.indexOf(" ");
+  const branch = sp >= 0 ? s.slice(0, sp) : s;
+  const tail = sp >= 0 ? s.slice(sp) : "";
+  if (tail !== "") {
+    const tailW = displayWidth(tail);
+    if (tailW + 2 <= w) {
+      const branchW = Math.max(1, w - 1 - tailW); // 留 1 列省略号
+      return `${truncateToWidth(branch, branchW)}…${tail}`;
+    }
+  }
+  return fitHead(s, w);
+}
+
 /** 路径段按预算截断：保留末尾 + 省略号（路径尾部更有辨识度） */
 function fitTail(s: string, w: number): string {
   if (displayWidth(s) <= w) return s;
@@ -1720,7 +1745,7 @@ export function renderStatusLine(
   ];
   // 各组超宽兜底（单组放不满一行时组内压缩）
   const envFit = (w: number): FrameSegment[][] => {
-    const gitS = fitHead(status.git, 12);
+    const gitS = fitGit(status.git, GIT_FIT_WIDTH);
     const budget = Math.max(
       1,
       w - displayWidth(status.time) - displayWidth(gitS) - 2 - 1,

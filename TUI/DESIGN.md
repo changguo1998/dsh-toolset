@@ -177,7 +177,7 @@ interface Renderer {
 
 ### 状态区数据流
 
-`StatusTicker`（`status.ts`）以固定间隔 tick，**一次 tick 内合并查询 cwd/git/time**（不重复 fork 子进程），聚合为单个 `Partial<SystemStatus>` 经 `{type:"status"}` reducer 更新。模型/上下文长度/缓存命中率无数据源，保持占位 `—`。queries 与 schedule 均可注入（测试断言调用次数）；真实实现：`process.cwd()` + `git status --porcelain --branch`（execFile，1.5s 超时，失败回 `—`）。
+`StatusTicker`（`status.ts`）以固定间隔 tick，**一次 tick 内合并查询 cwd/git/time**（不重复 fork 子进程），聚合为单个 `Partial<SystemStatus>` 经 `{type:"status"}` reducer 更新。模型/上下文长度/缓存命中率无数据源，保持占位 `—`。queries 与 schedule 均可注入（测试断言调用次数）；真实实现：`process.cwd()` + `git status --porcelain --branch`（execFile，1.5s 超时，失败回 `—`）。git 输出经纯函数 **`parseGitStatus` 解析**（`## 分支...上游 [ahead N, behind M]` + 逐行工作区列 Y）再 **`formatGitStatus` 摘要为 `分支 ↑N ↓N +N ~N -N`**：`↑/↓`=领先/落后上游提交数，`+`=未跟踪（未暂存新增）、`~`=未暂存修改（含 T/R/C）、`-`=未暂存删除；**只统计工作区一侧**（仅 `git add` 暂存、工作区一致的改动不计入），计数为 0 省略、干净仓库只显示分支名。
 
 ## DSH 集成配置（主题与流式显示）
 
