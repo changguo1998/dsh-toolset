@@ -20,6 +20,7 @@ import type {
   ModeState,
 } from "./state.ts";
 import { currentProjectCwd, historyVisibleRecords } from "./state.ts";
+import type { ActivityPlacement } from "./config.ts";
 
 import type { Buffer } from "./state.ts";
 import type { JobInfo, TodoItemLike } from "./adapter/dsh.ts";
@@ -243,6 +244,12 @@ function permColor(code: string): ColorName {
 export const FRAME_LEFT_COLS = 1;
 export const FRAME_RIGHT_COLS = 1;
 
+/** 左列（历史/活动区）正文宽：historyWidth 扣左缘框格（buildTopRegion 与滚动口径同源） */
+export function leftColumnWidth(historyWidth: number): number {
+  const useLeftFrame = historyWidth >= FRAME_LEFT_COLS + 1;
+  return Math.max(1, historyWidth - (useLeftFrame ? FRAME_LEFT_COLS : 0));
+}
+
 /** 左列顶部标题栏行数：标题行 + 实线下划线（2026-09-27 由右侧状态列迁入，
  *  置于会话历史区上方；极矮终端由 topPaneHeights 自适应收缩到 1/0 行） */
 export const TITLE_BAR_ROWS = 2;
@@ -353,6 +360,109 @@ export function topPaneHeights(
     contentTopH - titleRows - activityH - (activityH > 0 ? 1 : 0),
   );
   return { titleRows, activityH, dialogueH };
+}
+
+/** 黄金分割比 φ：历史区/活动区排列方式的判定基准（分割后各 pane 宽高比尽量贴近 φ） */
+export const GOLDEN_RATIO = (1 + Math.sqrt(5)) / 2;
+
+/** 左右排列（横向）时单个 pane 的最小列数：低于此宽度退化回上下排列 */
+export const MIN_HORIZONTAL_PANE_COLS = 20;
+
+/** 左右排列（横向）时两 pane 的最小行数：顶部区域过矮时退化回上下排列 */
+export const MIN_HORIZONTAL_PANE_ROWS = 2;
+
+/** 顶部左列划分结果（含排列方式与两 pane 的宽高；宽度仅横向排列有意义） */
+export interface TopPaneSplit {
+  /** 排列方式：vertical = 历史区在上/活动区在下；horizontal = 左右并排 */
+  mode: "vertical" | "horizontal";
+  /** 标题栏行数（两种排列共用；标题栏恒横跨左列全域） */
+  titleRows: number;
+  /** 对话区可视行数（横向模式下 = 可用行数，两 pane 等高） */
+  dialogueH: number;
+  /** 活动区可视行数（横向模式下 = dialogueH） */
+  activityH: number;
+  /** 对话区正文宽（纵向模式 = 左列正文宽；横向模式 = 去掉内部分隔列后的左 pane 宽） */
+  dialogueW: number;
+  /** 活动区正文宽（纵向模式 = 左列正文宽；横向模式 = 右 pane 宽） */
+  activityW: number;
+}
+
+/** 标题栏行数：TITLE_BAR_ROWS 起逐级降级（1 行 / 0 行），保证下方至少 minRows 行内容 */
+function topTitleRows(contentTopH: number, minRows: number): number {
+  for (const t of [TITLE_BAR_ROWS, 1, 0]) {
+    if (t === 0 || contentTopH - t >= minRows) return t;
+  }
+  return 0;
+}
+
+/** pane 宽高比与 φ 的对数偏差（高或宽 ≤ 0 视为无此 pane，不参与比较） */
+function aspectDeviation(w: number, h: number): number {
+  if (w <= 0 || h <= 0) return 0;
+  return Math.abs(Math.log(w / h / GOLDEN_RATIO));
+}
+
+/**
+ * 顶部左列划分（排列方式 + 两 pane 宽高），buildTopRegion / inputPanelHeights /
+ * dialogueScrollMetrics 与 focusFrame 矩形同源调用（口径必须一致）。
+ *
+ * - vertical：沿用 topPaneHeights（activityHeightDivisor 比例或 activityTopRow 锚定），
+ *   两 pane 共占左列正文宽。
+ * - horizontal：两 pane 左右并排、等高（contentTopH − 标题栏）；活动区宽 =
+ *   floor(正文宽 / divisor)（与高度同一「总:目标」语义，缺省 1/2），
+ *   对话区取剩余，中间保留 1 列内部分隔竖线。
+ * - "auto"：比较两种排列下各 pane 宽高比与 φ 的对数偏差（取较差 pane），
+ *   小者胜出。等分时判据等价于「左列正文宽/可用行数 > φ → 左右排列」——
+ *   区域比 φ 更扁（宽而矮）时左右排列更接近黄金矩形。
+ * - 不可行时（横向 pane 宽不足 MIN_HORIZONTAL_PANE_COLS、或没有可用行）回落 vertical。
+ */
+export function topPaneSplit(
+  contentTopH: number,
+  contentW: number,
+  divisor?: number,
+  topRow?: number,
+  placement: ActivityPlacement = "vertical",
+): TopPaneSplit {
+  const w = Math.max(1, Math.floor(contentW));
+  const v = topPaneHeights(contentTopH, divisor, topRow);
+  const vertical: TopPaneSplit = {
+    mode: "vertical",
+    titleRows: v.titleRows,
+    dialogueH: v.dialogueH,
+    activityH: v.activityH,
+    dialogueW: w,
+    activityW: w,
+  };
+  if (placement === "vertical" || contentTopH <= 0) return vertical;
+  // 横向尺寸：活动区宽沿用同一 divisor（缺省 1/2），两侧各保底最小宽度
+  const titleRows = topTitleRows(contentTopH, 1);
+  const availH = Math.max(0, contentTopH - titleRows);
+  const maxActW = w - 1 - MIN_HORIZONTAL_PANE_COLS;
+  if (availH < MIN_HORIZONTAL_PANE_ROWS || maxActW < MIN_HORIZONTAL_PANE_COLS)
+    return vertical;
+  const activityW = Math.min(
+    Math.max(Math.floor(w / (divisor ?? 2)), MIN_HORIZONTAL_PANE_COLS),
+    maxActW,
+  );
+  const dialogueW = w - activityW - 1;
+  const horizontal: TopPaneSplit = {
+    mode: "horizontal",
+    titleRows,
+    dialogueH: availH,
+    activityH: availH,
+    dialogueW,
+    activityW,
+  };
+  if (placement === "horizontal") return horizontal;
+  // auto：宽高比偏离 φ 更小者胜（活动区 0 行时不参与比较）
+  const vDev = Math.max(
+    aspectDeviation(w, v.dialogueH),
+    v.activityH > 0 ? aspectDeviation(w, v.activityH) : 0,
+  );
+  const hDev = Math.max(
+    aspectDeviation(dialogueW, availH),
+    aspectDeviation(activityW, availH),
+  );
+  return hDev < vDev ? horizontal : vertical;
 }
 
 /** 普通输入态顶部三面板可视行高（P4 整页滚动用，与 buildFrame 同口径） */
@@ -949,30 +1059,34 @@ function buildTopRegion(
   // 左缘框格 = 历史/活动区左缘（historyWidth≥2 时预留）；右缘框列 = 状态列右缘（statusColWidth≥2 时预留）
   const useLeftFrame = historyWidth >= FRAME_LEFT_COLS + 1;
   const useRightFrame = statusColWidth >= FRAME_RIGHT_COLS + 1;
-  const contentW = Math.max(
-    1,
-    historyWidth - (useLeftFrame ? FRAME_LEFT_COLS : 0),
-  );
+  const contentW = leftColumnWidth(historyWidth);
   // 左列顶部为独立标题栏（会话标题行 + 实线下划线，2026-09-27 由右侧状态列迁入）。
-  // 活动区高度沿用原公式（基于顶部内容行数，不随标题栏收缩），标题栏行数由对话区
-  // 承担（topPaneHeights 与 inputPanelHeights 同口径）；活动区可视行数先于
-  // 活动区可视行数先于 buildContentRows 计算，作为活动区整体截断窗口（思考/工具/
-  // notice/中间输出统一按可视行截断（不再单独折叠思考）
-  const { titleRows, activityH, dialogueH } = topPaneHeights(
+  // 排列方式（上下/左右）与两 pane 宽高同源于 topPaneSplit：activityPlacement 缺省
+  // 恒上下（沿用 activityHeightDivisor / activityTopRow），"auto" 按黄金比自动选择，
+  // 选择只在帧布局内做（启动与 resize 重排自然生效，无需状态记忆）。
+  // 纵向：标题栏行数由对话区承担（topPaneHeights 与 inputPanelHeights 同口径）；
+  // 横向：两 pane 等高（contentTopH − 标题栏），中间 1 列内部分隔竖线。
+  const split = topPaneSplit(
     contentTopH,
+    contentW,
     state.activityDivisor,
     topRow,
+    state.activityPlacement,
   );
+  const horizontal = split.mode === "horizontal";
+  const { titleRows, activityH, dialogueH, dialogueW, activityW } = split;
   const diaStart = titleRows; // 内容行中对话区起点（标题栏之后）
-  const diaEnd = diaStart + dialogueH; // 对话区结束（= 活动区分隔行位置）
+  const diaEnd = diaStart + dialogueH; // 对话区结束（= 活动区分隔行位置；横向模式无分隔行）
   const { dialogue, activity } = buildContentRows(
     state.buffer,
     {
       themeId: state.themeId,
       gutter: state.messageGutter,
+      activityWidth: horizontal ? activityW : undefined,
     },
-    contentW,
+    horizontal ? dialogueW : contentW,
   );
+
   // 对话区折叠：跟随底部（未上滚）时仅保留最近 N 组回复（更早以灰占位）；
   // 用户上滚查看历史时展开全量——否则被折叠丢弃的更早回复无法滚动到（翻页失效）。
   // 折叠在窗口计算前统一进行，保证 scrollOffset 基于同一 rows 数组。
@@ -1044,9 +1158,9 @@ function buildTopRegion(
   // 底部交互区不再承载（footer 空白占位保持交互区高度稳定）；面板占满活动区可视
   // 行，活动区瞬态行（thinking/tool/notice）在面板存在时本帧让位
   // 活动区面板 Box 生成器统一入口（buildActivePanelBox 多分支选型）
-  const activeBox = buildActivePanelBox(state, activityH, contentW);
+  const activeBox = buildActivePanelBox(state, activityH, activityW);
   const modalPanel: ContentRow[] = activeBox
-    ? fillPanelBox(activeBox, activityH, contentW, state.themeId)
+    ? fillPanelBox(activeBox, activityH, activityW, state.themeId)
     : [];
   const divFor = (rc: number): FrameSegment[] => {
     // 焦点中性基线：活动区分隔行 D 列=连接 `┤`（竖线贯穿+横线左接入，
@@ -1057,6 +1171,26 @@ function buildTopRegion(
     if (titleRows > 1 && rc === diaStart - 1)
       return [seg("┤", { fg: "border" })];
     return [seg("│", { fg: "border" })];
+  };
+  // 段数组补齐到定宽（横向两 pane 各自补齐，分隔竖线恒落在各自右边界）
+  const padTo = (segs: FrameSegment[], w: number): FrameSegment[] => {
+    const used = rowWidth2(segs);
+    return used < w ? [...segs, seg(" ".repeat(w - used))] : [...segs];
+  };
+  // 对话 pane 行（纵向：对话区窗口；横向：满高窗口）：行前缩进已并入 segments
+  const dialoguePaneSegs = (rr: number): FrameSegment[] => {
+    if (rr < 0 || rr >= dialogueH) return [];
+    const w = dialogueRows[vp.start + rr];
+    if (!w || vp.start + rr >= vp.end) return [];
+    return [...w.segments];
+  };
+  // 活动 pane 行：交互面板存在时显示面板（顶部对齐），否则按滚动偏移取瞬态窗口（底部对齐）
+  const activityPaneSegs = (rr: number): FrameSegment[] => {
+    if (rr < 0 || rr >= activityH) return [];
+    if (modalPanel.length > 0)
+      return rr < modalPanel.length ? [...modalPanel[rr]!.segments] : [];
+    const a = rr - topPad;
+    return a < 0 ? [] : [...act[a]!.segments];
   };
   for (let rc = 0; rc < contentTopH; rc++) {
     // col0：历史/活动区左缘框格（段数组）——焦点中性基线恒空白占位，
@@ -1097,15 +1231,27 @@ function buildTopRegion(
             rawTitle === "" ? seg(titleText, { fg: "border" }) : seg(titleText),
           ];
         }
+        // 下划线行：横向排列时内部竖线自此下行 → 该列让位 `┬`
+        if (horizontal) {
+          return [
+            seg(SEPARATOR.repeat(Math.max(1, activityW)), { fg: "border" }),
+            seg("┬", { fg: "border" }),
+            seg(SEPARATOR.repeat(Math.max(1, dialogueW)), { fg: "border" }),
+          ];
+        }
         return [seg(SEPARATOR.repeat(Math.max(1, contentW)), { fg: "border" })];
+      }
+      if (horizontal) {
+        // 横向：活动 pane（左）| 内部分隔竖线 | 对话 pane（右）——两 pane 同高、各自补齐定宽
+        return [
+          ...padTo(activityPaneSegs(rc - diaStart), activityW),
+          seg("│", { fg: "border" }),
+          ...padTo(dialoguePaneSegs(rc - diaStart), dialogueW),
+        ];
       }
       if (rc < diaEnd) {
         // 对话区行：followBottom / scrollOffset 只作用于对话区
-        const rr = rc - diaStart;
-        const w = dialogueRows[vp.start + rr];
-        if (!w || vp.start + rr >= vp.end) return [];
-        // 内容段（行前缩进已由新管线并入 segments，勿重复加 indent）
-        return [...w.segments];
+        return dialoguePaneSegs(rc - diaStart);
       }
       if (rc === diaEnd && activityH > 0) {
         // 活动区分隔行
@@ -1113,14 +1259,7 @@ function buildTopRegion(
       }
       if (activityH > 0) {
         // 活动区行：交互面板存在时显示面板，否则按滚动偏移取瞬态窗口
-        const rr = rc - diaEnd - 1;
-        if (modalPanel.length > 0) {
-          return rr < modalPanel.length ? [...modalPanel[rr]!.segments] : [];
-        }
-        const a = rr - topPad;
-        if (a < 0) return [];
-        // 内容段（行前缩进已由新管线并入 segments）
-        return [...act[a]!.segments];
+        return activityPaneSegs(rc - diaEnd - 1);
       }
       return [];
     })();
@@ -1413,21 +1552,22 @@ export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
     fullWidth,
     state.usage,
   );
-  const topHeight = metricsFor(
-    size,
-    false,
-    statusLines.length,
-    1,
-    state,
-  ).topHeight;
+  const metrics = metricsFor(size, false, statusLines.length, 1, state);
   // 2026-09-27：无独立顶部边框行，内容行数 = topHeight（与 buildTopRegion 同口径）
-  const contentTopH = Math.max(0, topHeight);
-  const { activityH, dialogueH } = topPaneHeights(
+  const contentTopH = Math.max(0, metrics.topHeight);
+  // 排列方式与 buildTopRegion 同源：黄金比自动选择时翻页页高随排列切换
+  const split = topPaneSplit(
     contentTopH,
+    leftColumnWidth(metrics.historyWidth),
     state.activityDivisor,
     activityTopRowToLine(state.activityTopRow, size.rows),
+    state.activityPlacement,
   );
-  return { topHeight: contentTopH, activityH, dialogueH };
+  return {
+    topHeight: contentTopH,
+    activityH: split.activityH,
+    dialogueH: split.dialogueH,
+  };
 }
 
 /** 对话区（历史区）滚动导航所需的同口径尺寸（与 buildFrame 一致）：正文宽 + 可视行高 */
@@ -1451,18 +1591,17 @@ export function dialogueScrollMetrics(
   );
   const metrics = metricsFor(size, false, statusLines.length, 1, state);
   const contentTopH = Math.max(0, metrics.topHeight);
-  const { dialogueH } = topPaneHeights(
+  const split = topPaneSplit(
     contentTopH,
+    leftColumnWidth(metrics.historyWidth),
     state.activityDivisor,
     activityTopRowToLine(state.activityTopRow, size.rows),
+    state.activityPlacement,
   );
-  const useLeftFrame = metrics.historyWidth >= FRAME_LEFT_COLS + 1;
   return {
-    contentW: Math.max(
-      1,
-      metrics.historyWidth - (useLeftFrame ? FRAME_LEFT_COLS : 0),
-    ),
-    dialogueH,
+    // 跳转坐标（userInputJump）必须与帧内对话 pane 的换行宽度一致
+    contentW: split.dialogueW,
+    dialogueH: split.dialogueH,
   };
 }
 
@@ -1544,6 +1683,8 @@ export function buildStatusSeparator(
   statusColWidth: number,
   themeId: ThemeId,
   sepFocus: "none" | "status" | "activity",
+  /** 横向排列时的内部分隔竖线列（帧列；该列画 `┴` 收束上方竖线，缺省不画） */
+  innerDividerCol?: number,
 ): FrameRow {
   // 焦点中性基线：状态区上方分隔行恒灰 `─`（col0 非 activity 底角 └、D 列 ┴
   // border、右缘非 status 右下角 ┘）；亮角字/亮边由 buildFrame 末尾 focusFrame
@@ -1559,8 +1700,15 @@ export function buildStatusSeparator(
     if (n <= 0) return [];
     return [{ text: STATUS_TOP_SEPARATOR.repeat(n), style: { fg: "border" } }];
   };
+  const inner =
+    innerDividerCol !== undefined && innerDividerCol > 0 && innerDividerCol < D
+      ? innerDividerCol
+      : undefined;
   if (D > 0) out.push({ text: STATUS_TOP_SEPARATOR, style: { fg: "border" } });
-  out.push(...segN(Math.max(0, D - 1)));
+  out.push(...segN(Math.max(0, (inner ?? D) - 1)));
+  // 内部分隔竖线（横向排列）：与水平实线交汇 → 灰 ┴
+  if (inner !== undefined) out.push({ text: "┴", style: { fg: "border" } });
+  out.push(...segN(Math.max(0, D - (inner ?? D) - 1)));
   // D 列交点恒与水平实线相交（灰 ┴；status/activity 焦点由 focusFrame 覆写亮 ┴）
   out.push({ text: "┴", style: { fg: "border" } });
   out.push(...segN(Math.max(0, R - D - 1)));
@@ -1718,6 +1866,26 @@ export function buildFrame(
     if (state.focusedPanel === "status") statusSepFocus = "status";
     else if (state.focusedPanel === "activity") statusSepFocus = "activity";
   }
+  // 排列方式与 buildTopRegion 同源（两 pane 矩形 / 焦点框 / 分隔行交点必须同口径）
+  const contentTopH = Math.max(0, metrics.topHeight);
+  const split = topPaneSplit(
+    contentTopH,
+    leftColumnWidth(metrics.historyWidth),
+    state.activityDivisor,
+    topRow,
+    state.activityPlacement,
+  );
+  const horizontal = split.mode === "horizontal";
+  const diaStart = split.titleRows;
+  const diaEnd = diaStart + split.dialogueH; // 活动区分隔行（历史底边 = activity 顶边）
+  const D = metrics.historyWidth; // 分隔竖线列（历史区右缘/状态列左缘）
+  // 横向排列：两 pane 之间的内部分隔竖线（帧列；与状态区分隔行交汇处画 ┴）
+  const innerDividerCol = horizontal
+    ? metrics.historyWidth -
+      leftColumnWidth(metrics.historyWidth) +
+      split.dialogueW
+    : undefined;
+  const rects: Map<PaneId, Rect> = new Map();
   const rows: FrameRow[] = [
     ...topRegion,
     buildStatusSeparator(
@@ -1725,6 +1893,7 @@ export function buildFrame(
       metrics.statusColWidth,
       state.themeId,
       statusSepFocus,
+      innerDividerCol,
     ),
     ...statusLines,
     makeSep(SEPARATOR),
@@ -1735,32 +1904,31 @@ export function buildFrame(
   // 末帧一次扫描按焦点分区矩形（帧坐标，right=x+w-1/bottom=y+h-1）覆写亮
   // 角字/边线（DESIGN.md §8 / SPEC.md §8 唯一焦点框机制）。模态态（面板打开）
   // 焦点用 null 传入：面板占活动区时无焦点框高亮。
-  const contentTopH = Math.max(0, metrics.topHeight);
-  const { titleRows, activityH, dialogueH } = topPaneHeights(
-    contentTopH,
-    state.activityDivisor,
-    topRow,
-  );
-  void activityH;
-  const diaStart = titleRows;
-  const diaEnd = diaStart + dialogueH; // 活动区分隔行（历史底边 = activity 顶边）
-  const D = metrics.historyWidth; // 分隔竖线列（历史区右缘/状态列左缘）
-  const rects: Map<PaneId, Rect> = new Map();
-  // history 矩形：顶=标题栏下划线行（titleRows>=2 才有下划线；否则顶=首对话行）、
-  // 底=活动区分隔行 diaEnd；覆盖左缘框列 + 正文 + D 列
-  rects.set("history", {
-    x: 0,
-    y: Math.max(0, diaStart - 1),
-    w: metrics.historyWidth,
-    h: Math.max(1, diaEnd - Math.max(0, diaStart - 1) + 1),
-  });
-  // activity 矩形：顶=活动区分隔行 diaEnd、底=状态区上方分隔行 contentTopH
-  rects.set("activity", {
-    x: 0,
-    y: diaEnd,
-    w: metrics.historyWidth,
-    h: Math.max(1, contentTopH - diaEnd + 1),
-  });
+  const underlineRow = Math.max(0, diaStart - 1);
+  if (horizontal) {
+    // 横向排列：活动 pane 在左、对话 pane 在右、两 pane 等高——顶=标题栏下划线行，
+    // 底=状态区上方分隔行 contentTopH；内部分隔列 = activity 右缘 / history 左缘
+    const h = Math.max(1, contentTopH - underlineRow + 1);
+    const divCol = innerDividerCol ?? 0;
+    rects.set("activity", { x: 0, y: underlineRow, w: divCol + 1, h });
+    rects.set("history", { x: divCol, y: underlineRow, w: D - divCol + 1, h });
+  } else {
+    // history 矩形：顶=标题栏下划线行（titleRows>=2 才有下划线；否则顶=首对话行）、
+    // 底=活动区分隔行 diaEnd；覆盖左缘框列 + 正文 + D 列
+    rects.set("history", {
+      x: 0,
+      y: underlineRow,
+      w: metrics.historyWidth,
+      h: Math.max(1, diaEnd - underlineRow + 1),
+    });
+    // activity 矩形：顶=活动区分隔行 diaEnd、底=状态区上方分隔行 contentTopH
+    rects.set("activity", {
+      x: 0,
+      y: diaEnd,
+      w: metrics.historyWidth,
+      h: Math.max(1, contentTopH - diaEnd + 1),
+    });
+  }
   // status 矩形：x=D（分隔竖线列）、顶=帧顶 rc0、底=状态区上方分隔行 contentTopH
   rects.set("status", {
     x: D,
@@ -1783,8 +1951,10 @@ export function buildFrame(
       themeId: state.themeId,
       focusedPanel: modalOpen ? null : state.focusedPanel,
       // 结构行号：status 焦点 D 列竖线区分下划线行（灰）与活动分隔行（亮 ┤）
-      titleUnderlineRow: Math.max(0, diaStart - 1),
+      titleUnderlineRow: underlineRow,
       activitySepRow: diaEnd,
+      // 横向排列：history 右缘/activity 左缘 = 内部分隔列（缺省走 D 列）
+      innerDividerCol,
     },
     rects,
     rows,

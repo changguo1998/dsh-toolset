@@ -2,6 +2,7 @@
     "layout": {
         "activityHeightDivisor": 2,
         "activityTopRow": "half",
+        "activityPlacement": "auto",
         "statusColumnDivisor": 4
     },
     "notify": {},

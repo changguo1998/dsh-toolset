@@ -76,6 +76,7 @@ import {
   type ThemeId,
 } from "../renderer/theme.ts";
 import { StatusTicker, type StatusQueries } from "./status.ts";
+import type { ActivityPlacement } from "./config.ts";
 
 // 仅真实链路生效的思考打字机节奏：tick 固定 50ms，每 tick 放出的字符数
 // 由 streamCharsPerSecond(字符/秒)折算并按分数累计，低速下也能正确逐字输出；
@@ -172,6 +173,9 @@ export interface AppDeps {
   /** 活动区分隔行锚定（tui.config.json layout.activityTopRow；"half" = floor(rows/2) 或绝对行号；
    *  配置后替代 activityHeightDivisor 的比例分配，缺省走 divisor） */
   activityTopRow?: "half" | number;
+  /** 活动区排列方式（tui.config.json layout.activityPlacement；"auto" 按黄金分割比
+   *  自动在上下/左右间选择，缺省恒上下排列。见 layout.ts topPaneSplit） */
+  activityPlacement?: ActivityPlacement;
   /** 状态列宽分母（tui.config.json layout.statusColumnDivisor；1/3 → 3） */
   statusColumnDivisor?: number;
   /** /agents 面板定时刷新间隔(ms)；缺省 2000。宿主无 subagent 状态事件面，由
@@ -285,6 +289,7 @@ export class App {
         footerHeight: this.deps.footerHeight,
         activityDivisor: this.deps.activityHeightDivisor,
         activityTopRow: this.deps.activityTopRow,
+        activityPlacement: this.deps.activityPlacement,
         statusDivisor: this.deps.statusColumnDivisor,
       },
     );

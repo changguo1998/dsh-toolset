@@ -24,8 +24,11 @@ export interface FocusFrameContext {
   focusedPanel: PaneId | null;
   /** 标题栏下划线行（=diaStart-1；无下划线时 0/-1）——该行 D 列在 status 焦点保持灰 ┤ */
   titleUnderlineRow?: number;
-  /** 活动区分隔行（=diaEnd）——该行 D 列为连接字形 `┤`，status 焦点覆写亮 ┤ */
+  /** 活动区分隔行（=diaEnd；横向排列无此行）——该行 D 列为连接字形 `┤`，status 焦点覆写亮 ┤ */
   activitySepRow?: number;
+  /** 横向排列（活动区在左、历史区在右）时的内部分隔竖线列：
+   *  activity 右缘 / history 左缘改为此列，底边不再有纵向分隔行（缺省 = 纵向排列） */
+  innerDividerCol?: number;
 }
 
 /** 焦点框亮色（语义色名 "focus"，取色由渲染层经主题 semantics 解析）；不再按主题 ID 推断（旧 dark=brightWhite / light=black） */
@@ -223,41 +226,46 @@ export function focusFrame(
   const right = rect.x + rect.w - 1;
   const top = rect.y;
   const bottom = rect.y + rect.h - 1;
-  // 分隔竖线列（历史/活动区右缘 = status 矩形左缘）
+  // 分隔竖线列（历史区右缘/状态列左缘）
   const dCol = rects.get("status")?.x ?? left + rect.w;
+  // 内部分隔列（横向排列：activity 右缘 / history 左缘；缺省 undefined = 纵向）
+  const divCol = ctx.innerDividerCol;
 
   switch (panel) {
     case "history": {
       // 顶边 = 标题栏下划线行（rect.top）：角字亮、body 灰（基线 ─ 灰保留，
-      // 对齐现状下划线行仅角亮——body 不覆写）
-      cover(rows, top, left, "┌", style);
+      // 对齐现状下划线行仅角亮——body 不覆写）。横向排列历史在右：左缘 =
+      // 内部分隔列（该列竖线自此下行 → `┬`）、右缘恒为 D 列。
+      cover(rows, top, left, divCol !== undefined ? "┬" : "┌", style);
       cover(rows, top, dCol, "┐", style);
-      // 左缘 + D 列竖线（对话区行）
+      // 左缘 + 右缘竖线（对话区行）
       for (let r = top + 1; r < bottom; r++) {
         cover(rows, r, left, "│", style);
         cover(rows, r, dCol, "│", style);
       }
-      // 底边 = 活动区分隔行：正文 ─ 亮后两端 ┘（coverH 先 body、cover 后角，
-      // 保留 body 与角字独立段，对齐旧 divFor/sepSegments 分段）
+      // 底边：纵向 = 活动区分隔行、横向 = 状态区分隔行；正文 ─ 亮后两端角字
+      // （coverH 先 body、cover 后角，保留 body 与角字独立段）
       coverH(rows, bottom, left + 1, dCol, "─", style);
-      cover(rows, bottom, left, "┘", style);
+      cover(rows, bottom, left, divCol !== undefined ? "┴" : "┘", style);
       cover(rows, bottom, dCol, "┘", style);
       break;
     }
     case "activity": {
-      // 顶边 = 活动区分隔行：正文 ─ 亮后左下 ┌、D 列 ┐
-      coverH(rows, top, left + 1, dCol, "─", style);
+      // 顶边 = 纵向：活动区分隔行；横向：标题栏下划线行（活动在左，右缘 =
+      // 内部分隔列 → `┬`）。左缘恒为左缘框格列。
+      const rEdge = divCol !== undefined ? divCol : dCol;
+      coverH(rows, top, left + 1, rEdge, "─", style);
       cover(rows, top, left, "┌", style);
-      cover(rows, top, dCol, "┐", style);
-      // 左缘 + D 列竖线（活动区行）
+      cover(rows, top, rEdge, divCol !== undefined ? "┬" : "┐", style);
+      // 左缘 + 右缘竖线（活动区行）
       for (let r = top + 1; r < bottom; r++) {
         cover(rows, r, left, "│", style);
-        cover(rows, r, dCol, "│", style);
+        cover(rows, r, rEdge, "│", style);
       }
-      // 底边 = 状态区上方分隔行：正文 ─ 亮后左下 └、D 列 ┴（左列段）
-      coverH(rows, bottom, left + 1, dCol, "─", style);
+      // 底边 = 状态区上方分隔行：正文 ─ 亮后左下 └、右缘 ┴
+      coverH(rows, bottom, left + 1, rEdge, "─", style);
       cover(rows, bottom, left, "└", style);
-      cover(rows, bottom, dCol, "┴", style);
+      cover(rows, bottom, rEdge, "┴", style);
       break;
     }
     case "status": {

@@ -59,6 +59,9 @@ export interface BuildBoxOptions {
   /** 内容区可用宽：仅 markdown 表格需要（列宽是跨行约束，须构建期算死）；
    *  缺省则表格按普通文本行渲染（宽未知，见 buildContentRows 调用点） */
   width?: number;
+  /** 活动 pane 可用宽（横向排列两 pane 不同宽；缺省 = width）。
+   *  仅影响活动区（非 final assistant）markdown 表格的构建期列宽 */
+  activityWidth?: number;
 }
 
 /** 工具调用行样式段（首词黄 + 其余原色；折行由 fill 做） */
@@ -260,8 +263,10 @@ export function buildBox(
             texts.push(l.text);
           }
           const parsed = parseTableAt(texts, 0);
-          // 宽度预算：final 行让出右缘 gutter（与正文同口径；表格自带左缘竖线列）
-          const budget = width - (line.final ? gutter - 1 : 0);
+          // 宽度预算：final 行让出右缘 gutter（与正文同口径；表格自带左缘竖线列）；
+          // 非 final（活动 pane）在横向排列下用活动 pane 自身宽度
+          const paneWidth = line.final ? width : (opts.activityWidth ?? width);
+          const budget = paneWidth - (line.final ? gutter - 1 : 0);
           const box = parsed
             ? tableBox(parsed.table, budget, opts.themeId)
             : null;
@@ -526,16 +531,19 @@ export function buildContentRows(
   buffer: Buffer,
   opts: BuildBoxOptions,
   width: number,
+  /** 活动 pane 可用宽（横向排列时与对话 pane 不同宽；缺省与 width 相同） */
+  activityWidth?: number,
 ): ContentPanes {
   const w = Math.max(1, width);
+  const aw = Math.max(1, activityWidth ?? width);
   // 可用宽随上下文交给 buildBox：markdown 表格列宽是跨行约束，须构建期算死
-  const built = buildBox(buffer, { ...opts, width: w });
-  const rect = { x: 0, y: 0, w, h: 1_000_000 };
-  const fillPane = (pane: Box): ContentRow[] => {
-    const st = measure(pane, { maxW: w });
+  const built = buildBox(buffer, { ...opts, width: w, activityWidth: aw });
+  const fillPane = (pane: Box, paneW: number): ContentRow[] => {
+    const rect = { x: 0, y: 0, w: paneW, h: 1_000_000 };
+    const st = measure(pane, { maxW: paneW });
     const rects = allocate(st, rect);
     return fillToList(
-      { themeId: opts.themeId, viewportWidth: w },
+      { themeId: opts.themeId, viewportWidth: paneW },
       pane,
       rect,
       rects,
@@ -543,7 +551,7 @@ export function buildContentRows(
     );
   };
   return {
-    dialogue: fillPane(built.panes.dialogue),
-    activity: fillPane(built.panes.activity),
+    dialogue: fillPane(built.panes.dialogue, w),
+    activity: fillPane(built.panes.activity, aw),
   };
 }

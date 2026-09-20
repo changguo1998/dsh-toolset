@@ -140,6 +140,17 @@
 - **元数据**：表格子树整棵挂同一 `rowMeta`（`markSubtree`）——`fill` 后各行 `kind`/`blockId` 必须与所在回复一致，否则回复组折叠（`foldDialogue` 按连续 `assistant` 行分组）与块内空行判定会把表格当成新块；表格节点自身即对话区叶子（不再外套缩进 spacer，左竖线列已含在表内）。
 - **回归**：`tests/table.test.ts`（21 例：解析/转义/列宽/压缩/截断/对齐/加粗/网格与交叉字/左竖线连续/行高/fence 保护/窄宽回退/元数据传播）；全量 894 单测。
 
+## 活动区排列：黄金分割比自动选上下/左右（layout.activityPlacement）
+
+- **位置**：`src/app/layout.ts` 的 `topPaneSplit`（纯函数）+ 三个既有同口径调用点（`buildTopRegion` / `inputPanelHeights` / `dialogueScrollMetrics`）与 `buildFrame` 的焦点矩形。
+- **判定**：pane 宽高比与 φ≈1.618 的对数偏差（`|ln(w/h/φ)|`，取两 pane 较差者）小者胜。等分（divisor=2、纵向两 pane 等高）时该判据等价于「左列正文宽 / 可用行数 > φ → 左右排列」：区域比 φ 更扁时把宽度对半分反而更接近黄金矩形（上下排列会给出一块比 φ 更扁的横条）。判据只吃左列正文宽 + 顶部内容高，**不含**右侧状态列宽。
+- **为什么不放在 state**：判定是尺寸的纯函数，启动与 resize 各自重算即可；不做滞回（阈值处反复拖动终端时最多一次翻转，且翻转点本身就是重排点）。缺省 `"vertical"` 保持既有上下语义（含 `activityTopRow` 锚定与 `activityHeightDivisor` 比例）。
+- **两 pane 独立宽度**：横向时**活动 pane 在左、历史（对话）pane 在右**；活动 pane 宽 = `floor(正文宽 / divisor)`，对话 pane 宽 = 正文宽 − 活动 pane 宽 − 1（两侧各保底 20 列 → 正文宽 < 41 或可用行 < 2 时回落上下）。`BuildBoxOptions` 新增 `activityWidth`，`buildContentRows(buffer, opts, w, aw)` 两 pane 各自 measure/fill；**不做两次 buildBox**（流式下 markdown/表格构建会翻倍），只在构建期给活动 pane 的表格用 `activityWidth` 算预算。
+- **拼行**：横向行 = 左缘框格 + 活动行（补空格到 `activityW`）+ 内部分隔 `│` + 对话行（补到 `dialogueW`）+ D 列 + 状态列 + 右缘框列；活动区分隔行消失，标题栏下划线行在内部分隔列让位 `┬`，状态区分隔行该列收束 `┴`（`buildStatusSeparator` 新增 `innerDividerCol`）。活动 pane 仍底部对齐、面板仍顶部对齐且按 `activityW` 排版。
+- **滚动**：`scrollOffset`/`activityScroll` 语义不变（距各自 pane 底部行数），但**换行宽度变了**——所有跳转/半屏/翻页坐标必须走 `dialogueScrollMetrics`/`inputPanelHeights`（它们内部改用 `topPaneSplit`，与帧同源）；`FrameScrollReport` 上限随 pane 高变化自动收敛。
+- **焦点框**：`FocusFrameContext.innerDividerCol` 非 undefined 即横向——activity 右缘/history 左缘改为此列（activity 顶边右端用 `┬`、history 顶边左端用 `┬`；底边两端 `┴`），history 右缘仍是 D 列；rects 按左右并排构造（activity 在左、history 在右，等高，底边 = 状态区分隔行）。
+- **回归**：`tests/layout-horizontal.test.ts`（5 例：内部分隔列与 `┬`/`┴`、两 pane 定宽、滚动口径一致、焦点框角字、独立宽度换行）+ `tests/config.test.ts` 的 `topPaneSplit` 判定表；全量 906 单测。
+
 ## 验证方式
 
 - 单元：`node --test`（input 解码、layout 视口等）

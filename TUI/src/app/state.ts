@@ -21,6 +21,7 @@ import type {
   CommandPanelKind,
 } from "./adapter/dsh.ts";
 import type { ModelSelection, ModelSelectionLike } from "./adapter/dsh.ts";
+import type { ActivityPlacement } from "./config.ts";
 import { completeCommandInput, type CommandCandidate } from "./commands.ts";
 import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
 import {
@@ -306,6 +307,9 @@ export interface AppState {
   activityDivisor: number | undefined;
   /** 活动区分隔行锚定（"half" = floor(rows/2)，或绝对行号；配置后替代 divisor 比例；undefined = 走 divisor） */
   activityTopRow: "half" | number | undefined;
+  /** 活动区排列方式（tui.config.json layout.activityPlacement；undefined = 恒上下排列，
+   *  "auto" = 按黄金比自动在上下/左右间选择，见 topPaneSplit） */
+  activityPlacement: ActivityPlacement | undefined;
   /** 状态列宽分母（cols / divisor；默认 3 ≈ 1/3） */
   statusDivisor: number | undefined;
   /** 模型交互选择模式（/model 无参进入；null = 未激活） */
@@ -450,6 +454,7 @@ export function initialState(
     footerHeight?: number;
     activityDivisor?: number;
     activityTopRow?: "half" | number;
+    activityPlacement?: ActivityPlacement;
     statusDivisor?: number;
   },
 ): AppState {
@@ -476,6 +481,12 @@ export function initialState(
     opts?.statusDivisor === undefined
       ? undefined
       : Math.max(1, Math.floor(opts.statusDivisor));
+  const activityPlacement: ActivityPlacement | undefined =
+    opts?.activityPlacement === "auto" ||
+    opts?.activityPlacement === "vertical" ||
+    opts?.activityPlacement === "horizontal"
+      ? opts.activityPlacement
+      : undefined;
   return {
     sessions: [],
     activeSessionId: null,
@@ -526,6 +537,7 @@ export function initialState(
     footerHeight,
     activityDivisor,
     activityTopRow,
+    activityPlacement,
     statusDivisor,
   };
 }

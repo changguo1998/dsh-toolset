@@ -12,6 +12,8 @@ import {
   activityHeight,
   activityTopRowToLine,
   topPaneHeights,
+  topPaneSplit,
+  GOLDEN_RATIO,
 } from "../src/app/layout.ts";
 
 test("normalizeConfig：合法整数保留，非法/越界回落缺省（undefined）", () => {
@@ -78,6 +80,11 @@ test("loadTuiConfig：缺省路径读取真实文件；缺失路径回落默认�
   const c = loadTuiConfig();
   assert.equal(c.layout?.activityHeightDivisor, 2, "默认文件 1/2");
   assert.equal(c.layout?.statusColumnDivisor, 4, "默认文件 1/4");
+  assert.equal(
+    c.layout?.activityPlacement,
+    "auto",
+    "默认文件开启黄金比自动排列",
+  );
   const missing = loadTuiConfig("/nonexistent/tui.config.json");
   assert.deepEqual(missing, { layout: {} }, "缺失文件回落默认");
 });
@@ -170,4 +177,62 @@ test("topPaneHeights：topRow 锚定——活动区分隔行落在指定行（�
   const legacy = topPaneHeights(20, undefined);
   assert.equal(legacy.activityH, 10, "未锚定默认 divisor=2");
   assert.equal(legacy.dialogueH, 7, "20-2-10-1");
+});
+
+test("topPaneSplit：缺省 vertical = 原 topPaneHeights 口径；两 pane 同宽", () => {
+  const def = topPaneSplit(20, 60, undefined, undefined, undefined);
+  const legacy = topPaneHeights(20, undefined);
+  assert.equal(def.mode, "vertical");
+  assert.equal(def.dialogueH, legacy.dialogueH);
+  assert.equal(def.activityH, legacy.activityH);
+  assert.equal(def.dialogueW, 60, "纵向：两 pane 共用左列正文宽");
+  assert.equal(def.activityW, 60);
+});
+
+test("topPaneSplit：auto 以 φ 为界——区域比 φ 扁 → 左右；比 φ 瘦长 → 上下", () => {
+  // 可用行数 = contentTopH - 2（标题栏）；R = 正文宽/可用行
+  // R = 48/10 = 4.8 > φ → 左右（等分后 pane 宽高比 ≈ 2.3，比纵向的 16 更贴近 φ）
+  const wide = topPaneSplit(12, 48, 2, undefined, "auto");
+  assert.equal(wide.mode, "horizontal");
+  assert.equal(wide.dialogueH, 10, "横向两 pane 等高 = 可用行数");
+  assert.equal(wide.activityH, 10);
+  assert.equal(wide.activityW, 24, "活动区宽 = floor(48/2)");
+  assert.equal(wide.dialogueW, 23, "48 - 活动区 24 - 1 列内部分隔");
+  // R = 60/58 ≈ 1.03 < φ → 上下（纵向 pane 宽高比 ≈ 2.2，比横向的 0.5 更贴近 φ）
+  const tall = topPaneSplit(60, 60, 2, undefined, "auto");
+  assert.equal(tall.mode, "vertical");
+  // 黄金分割比常量自身检查
+  assert.ok(Math.abs(GOLDEN_RATIO - 1.618) < 0.001);
+});
+
+test("topPaneSplit：固定 placement 直通；横向不可行（太窄/无行）回落上下", () => {
+  assert.equal(topPaneSplit(12, 48, 2, undefined, "vertical").mode, "vertical");
+  assert.equal(
+    topPaneSplit(12, 48, 2, undefined, "horizontal").mode,
+    "horizontal",
+  );
+  // 左列正文宽 < 2*20+1：横向两侧都放不下 → 回落上下
+  assert.equal(
+    topPaneSplit(12, 40, 2, undefined, "horizontal").mode,
+    "vertical",
+    "正文宽不足两个 pane",
+  );
+  // 正文宽 41 = 恰好放下两个 20 列 pane（divisor=2 时活动区被抬到保底宽）
+  const tight = topPaneSplit(12, 41, 2, undefined, "horizontal");
+  assert.equal(tight.mode, "horizontal");
+  assert.equal(tight.activityW, 20, "活动区保底 20 列");
+  assert.equal(tight.dialogueW, 20);
+  // 无可用行（contentTopH <= 标题栏）
+  assert.equal(
+    topPaneSplit(2, 100, 2, undefined, "horizontal").mode,
+    "vertical",
+  );
+});
+
+test("topPaneSplit：divisor 同时决定纵向高与横向宽（语义一致）", () => {
+  const h = topPaneSplit(20, 80, 4, undefined, "horizontal");
+  assert.equal(h.activityW, 20, "活动 pane 宽 = floor(80/4)");
+  assert.equal(h.dialogueW, 59, "80 - 20 - 1");
+  const v = topPaneSplit(20, 60, 4, undefined, "vertical");
+  assert.equal(v.activityH, 5, "活动 pane 高 = floor(20/4)");
 });

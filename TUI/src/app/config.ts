@@ -6,6 +6,11 @@
 //   - activityTopRow:        活动区分隔行锚定（"half" = 屏幕中线行 floor(rows/2)，或绝对行号；
 //                            配置后替代 activityHeightDivisor 的比例分配，缺省 null = 走 divisor）
 //   - statusColumnDivisor:   状态列宽 = floor(cols / divisor)（缺省 3 ≈ 1/3，历史区仍保底 10 列）
+//   - activityPlacement:     活动区排列方式（缺省 "vertical" 恒上下）：
+//                             "auto" = 按黄金分割比自动在上下/左右间选择，使分割后各 pane
+//                             的宽高比尽量接近 φ；"horizontal" = 固定左右并排。
+//                             左右排列时活动区宽 = floor(左列正文宽 / activityHeightDivisor)，
+//                             两侧各保底 20 列（不足则回落上下），activityTopRow 不再生效。
 // 会话维护段：
 //   - session.autoCleanEmpty: 启动时自动清理空会话（持久化+非 live+非当前+无用户消息），
 //                             缺省 false（关闭）；开启后 start() 后台删除并 notice 汇报
@@ -22,9 +27,14 @@ export interface TuiLayoutConfig {
   activityHeightDivisor?: number;
   /** 活动区分隔行锚定（"half" = floor(rows/2)，或绝对行号；配置后替代 divisor 比例，缺省走 divisor） */
   activityTopRow?: "half" | number;
+  /** 活动区排列方式（缺省 "vertical"）："auto" 按黄金分割比自动选上下/左右，"horizontal" 固定左右 */
+  activityPlacement?: ActivityPlacement;
   /** 状态列宽分母（cols / divisor；1/3 → 3） */
   statusColumnDivisor?: number;
 }
+
+/** 活动区排列方式（layout.activityPlacement）：auto = 按黄金比自动选；其余固定 */
+export type ActivityPlacement = "auto" | "vertical" | "horizontal";
 
 export interface TuiNotifyConfig {
   /** 声音提醒总开关（任务结束 / 等待输入超阈值 → 终端 BEL）；缺省 true（即可用） */
@@ -103,6 +113,10 @@ const normalizeTopRow = (v: unknown): "half" | number | undefined => {
   return undefined;
 };
 
+/** activityPlacement 归一化：仅接受三个字面量；其余（非法）→ undefined（回落 vertical） */
+const normalizePlacement = (v: unknown): ActivityPlacement | undefined =>
+  v === "auto" || v === "vertical" || v === "horizontal" ? v : undefined;
+
 /** theme 段形状归一化（色值合法性校验由 renderer/theme-config.ts 承担） */
 function normalizeThemeSection(raw: unknown): TuiThemeConfig {
   const r = (raw ?? {}) as {
@@ -171,6 +185,9 @@ export function normalizeConfig(raw: unknown): TuiConfig {
       ...(normalizeTopRow(l.activityTopRow) === undefined
         ? {}
         : { activityTopRow: normalizeTopRow(l.activityTopRow) }),
+      ...(normalizePlacement(l.activityPlacement) === undefined
+        ? {}
+        : { activityPlacement: normalizePlacement(l.activityPlacement) }),
       ...(intGe(l.statusColumnDivisor, 1) === undefined
         ? {}
         : { statusColumnDivisor: intGe(l.statusColumnDivisor, 1) }),
