@@ -285,11 +285,11 @@ interface Renderer {
 - **待做**：
   - **session fork（`sessions.fork`）→ 下个功能批次**。
   - **tool `meta` diff 展示（+N/-M）**——用户确认做（复用 `tool/result.meta` 工具私有展示载荷）。
-  - **`model/selection` 模型切换回放与 TUI `/model` 联动**——下个功能批次（0.1.2 起进正式词汇表，见下）。
+  - **`model/selection` 模型切换回放与 TUI `/model` 联动**——下个功能批次（0.1.2 起进正式词汇表，见下）。**2026-10 核实**：TUI 切换的模型不落盘，会话仅按次记录 `request/header`（`header.config` 带 provider/model/effort），无 `model/selection` 事件、折叠状态无模型行 → resume 不还原该会话最后模型且可能串味；修复需 TUI 侧自存「会话→模型」映射（核心无 per-session 持久化 API）。详见 `IMPLEMENTATION.md`「/model 命令 · 已知限制」。
 - **明确不做**：多会话并行（维持单活跃会话设计边界）；thinking 展开/收起（用户偏好）。
 - **deferred（已评估暂缓，非缺失）**：feedback 评价（低频）；嵌套 markdown、上下标（低频）；`compaction/summary` 持久化（若后续要可读历史 /inspect 类，另立条目）；`session/end-seed`、`session/title-llm-request`、`request/header`、`request/context`（低价值调试向事件且 request/\* payload 结构复杂，接显示收益低于解析风险，待调试视图需求出现再做）；`team/*`（实验包依赖）；`web/deepseek-search-llm-request`（log-only，调试视图再做）；审批审计对（见上「触发时机」）。
 - **0.1.2 起新增事件（已进 0.1.5-rc.2 词汇表；TUI 未接入渲染，评估后决定）**：
-  - `model/selection` — 官方模型切换回放（排期：下个功能批次与 TUI /model 联动）
+  - `model/selection` — 官方模型切换回放（排期：下个功能批次与 TUI /model 联动；2026-10 核实现状与缺口见上「待做」与 `IMPLEMENTATION.md`「/model 命令 · 已知限制」）
   - `subagent/model-selection-policy` — 子代理模型策略（低频）
   - `session-log-deepseek/delivery-accepted` — 内部日志交付确认（log-only，无需界面）
 
