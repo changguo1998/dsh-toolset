@@ -341,7 +341,7 @@ Box 重构把 2096 行 `layout.ts` 拆为排版层若干纯函数文件（遵守
 | `layout/build-box.ts` | `buildBox(state) -> Box`：四分区 pane 树（硬编码）+ 内容映射清单 | 每帧纯函数重建（§4） |
 | `layout/focus-frame.ts` | `FocusFrame(ctx, rects)` 段级覆写 | 整帧一次扫描（§8） |
 | `layout/adapt.ts` | 折叠适配纯函数：`foldAt`/`foldDialogue`/活动区两态 | fill 阶段调用（`SPEC.md` §6） |
-| `layout/table.ts` | 表格构建器（窄终端压缩/列分隔/单元格对齐） | 产出 Box 子树（`SPEC.md` §3.2） |
+| `layout/table.ts` | 表格构建器（解析 + 列宽求解 + 窄终端压缩/列分隔/单元格对齐） | 产出 Box 子树（`SPEC.md` §3.2；已落地） |
 | `layout/panel.ts` | 面板场景原语 `title`/`question`/`explanation`/`options` | 便捷构造，返回 Box（§7） |
 | `layout/markdown.ts` | 保留：块识别 + 行内解析，产出 `FrameSegment[]`（渲染契约收敛） | 现 723 行；Box 重构已收口，整体重排未做（判据见 `TASKS.md` §6 C2） |
 | `layout/tool-line.ts` | 保留 | |

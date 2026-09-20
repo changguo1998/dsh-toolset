@@ -91,7 +91,7 @@ npm run smoke:pty      # 真机冒烟（工具行/状态栏 usage）
 | C2 | markdown 解析器重构范围 | ✅ 已随 Box 重构收口（`wrapBufferLines` 已删、块解析抽出完成，见 `IMPLEMENTATION.md`「渲染管线重构」；`markdown.ts` 现 723 行，未做整体重排——当年判据保留为历史） |
 | C3 | 测试迁移策略 | ✅ 已随 Box 重构收口（主线 A：断言改用 `segments` 结构 + `tests/helpers/rowText.ts` 序列化辅助；当前 TUI 844 单测） |
 | — | 活动区两态触发方式 | 状态 2（紧凑）：由「fill 按高度预算自动降级」 vs「用户显式配置」决定（`SPEC.md` §6.8） |
-| — | 表格 `minW` 取值策略 | 候选：`ceil(colW_natural / 4)`（≥ 3 列）；SPEC 只定了「有 minW 下限 + 省略号截断」机制，具体值待定（`SPEC.md` §3.2） |
+| — | 表格 `minW` 取值策略 | ✅ 已定并实现：`max(3, ⌈自然宽/4⌉)`；压缩改**水位法**（窄列保自然宽、超宽列压到共同水位线），ΣminW 仍放不下才按 minW 比例 + 格内 `…` 截断（`SPEC.md` §3.2、`layout/table.ts`） |
 | — | 面板选中/高亮字符 | 候选沿用现状：`>` 高亮、单选 `*`、多选 `+`；SPEC 面板原语只定结构字段，字符待定（`SPEC.md` §7） |
 | — | 启动自动清理空会话 | ✅ 已实现（session.autoCleanEmpty 开关，缺省关；start() 后台全目录扫描空会话复用 /session 判据，deleteSession 串行删除 + notice 汇报；startupCleanableIds 纯函数 + App 集成 3 例） |
 

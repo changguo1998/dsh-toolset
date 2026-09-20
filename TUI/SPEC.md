@@ -110,7 +110,7 @@ type Height =
 | 引用块 | `text(prefix:{│})` | 单层竖线前缀、正文不加斜 |
 | 列表 / 任务列表 | `text(prefix:{"• "}/{"[x] "}, hanging:2)` | 统一 `•`、`[x]` 删除线 |
 | 代码块 | `v([ Paragraph(lang, style:{italic}), Paragraph(code, style:{bg:"code"}, width:fill, fillBg:true) ])` | 标签单独一行（斜体、无底色）；代码体超长行折行、底色补齐到内容区宽 |
-| markdown 表格 | 构建期降级为 `v([ h([cell,cell…]), … ])`（见 §3.2） | 现状未实现，模型预留 |
+| markdown 表格 | 构建期降级为 `v([ h([cell,cell…]), … ])`（见 §3.2） | `layout/table.ts`（已实现） |
 | 每回合分隔线 | `text("╌"×w)` | `TURN_SEPARATOR` |
 
 **结论（已落地）**：原 `wrapBufferLines`（已删除）里那一大坨"按类型分别处理缩进/前缀/对齐"的逻辑，被"内容元素 → Box 子树"的映射（`buildBox`/`buildContentRows`）统一替代；新增内容类型 = 新增一个映射函数，不改布局。
@@ -141,7 +141,7 @@ markdown 解析因此分两级：**先切块、再块内做行内解析**。
 
 原实现（`wrapBufferLines`，已删除）的块判定是**隐式**的（混在 `inFence` 状态机等处）；Box 模型将其显式化为"块列表 → 子树"。
 
-### 3.2 表格：构建期降级（不新增 `table` 构造子）
+### 3.2 表格：构建期降级（不新增 `table` 构造子）[已实现]
 
 **关键约束**：表格列宽是**跨行约束**——同列第 3 行单元格的宽度取决于第 1 行的单元格（位于另一棵子树）。纯 `v/h` 只能表达嵌套，表达不了跨兄弟约束（HTML 为此专门有 `<table>`，CSS 有 grid）。
 
@@ -149,32 +149,49 @@ markdown 解析因此分两级：**先切块、再块内做行内解析**。
 
 ```
 表格构建器（已知可用宽 width）：
-  1. 量各格自然宽 → colW[j] = max(该列各格)
-  2. ΣcolW + 分隔 > width → 按比例压缩（下限 minW），格内换行
-  3. 产出 v([ h([ Paragraph(cell, width:fixed colW[0]), sep, Paragraph(cell, width:fixed colW[1]) ]), … ])
-     # sep = 前景色实线 `│` 的固定 1 列（行端字符，见 §2“列间 │ 仍是行端字符”）
+  1. 量各格自然宽（按行内解析后的渲染文本计宽）→ colW[j] = max(该列各格)
+  2. ΣcolW + 固定开销 > width → 压缩（水位法，下限 minW），格内换行
+  3. 产出 v([ 表头行, ╢═╪═ 表头横线, 数据行（行间 ├─┼─ 横线）, … ])
+     # 行 = h([ 左竖线 ┃, pad, StyledText(cell, width:fixed colW[j]), pad, │, … ])
+     # 左竖线 1 列 + pad（每格左右各 1 列）+ `│`（固定 1 列，末列不画）
 ```
 
 - **列对齐**：宽度构建期算好写成 `fixed`，各行自然对齐
-- **每格独立成块**：cell 是独立 box（可含多段文字、可再嵌套）
-- **行高自动补齐**：`h` 的 measure 取子高 max，fill 时矮格补白到行高
-- **构建器需要可用宽度**：`ctx` 中已有（历史区宽度由 metrics 确定）
-- **窄终端压缩**（可用宽不足时）：按**比例压缩**（下限 `minW`）+ 格内换行；`minW` 也放不下 → 截断加省略号；不做降级为列表
-- **列分隔 / 表头**：列间画**前景色实线** `│`（末列不画）；表头下**双横线** `═`（区别于 turn 分隔的 `╌`）
-- **单元格内容 / 纵向对齐**：cell 内**按正常 markdown 解析**（多段/行内格式）；矮格补行高时**垂直居中**——`valign: "center"`（§2 NodeBase；默认 top）
+- **每格独立成块**：cell 是独立叶子（列宽内自行折行）
+- **行高 = 该行各格折行行数的最大值**：由构建器用 `measure` 在同一列宽下算得后**显式声明** `height:fixed`，矮格 `valign:"center"` 补白（`fill` 的补白仅在显式高度下生效，§2）
+- **构建器需要可用宽度**：`buildBox` 经 `BuildBoxOptions.width` 取得（`buildContentRows` 透传内容区宽）；**宽度未知时不识别表格**（按普通文本行渲染）
+- **窄终端压缩**：水位法（`waterLevel`）——窄列保持自然宽、只有超宽列被压到共同水位线，并尽量不低于 `minW = max(3, ⌈自然宽/4⌉)`；若抬到 `minW` 后超预算则退回纯水位线（不牺牲窄列）；**ΣminW 也放不下** → 按 `minW` 比例分配 + **格内省略号截断**（不折行、不溢出）；不做降级为列表
+- **网格**（内容整体位于竖线右侧，与其它内容行同构）：
+  - **左缘竖线**：整表最左 1 列 `┃`（`brightBlue`，与 assistant 正文左竖线同列同色）——`┃` 概念上属父级 box，故**逐行重复**（含折行续行、横线行），整条回答左缘竖线连续不断
+  - **列分隔**：列间 `│`（末列不画；折行续行逐行重复）
+  - **表头下双横线** `═`（铺满各列含留白），交叉字：左竖线处 `╢`、列分隔处 `╪`
+  - **数据行之间单横线** `─`（内容折行时用于区分「哪一行」），交叉字：左竖线处 `├`、列分隔处 `┼`；首尾不画（表头之上、末行之下无横线）
+  - **网格线一律不着色**：`│`/`═`/`─`/交叉字用主题默认前景色（只有左竖线取 `brightBlue` 与正文竖线一致）
+  - 表头格加粗
+- **单元格内容 / 纵向对齐**：cell 内**按行内 markdown 解析**（块级不解析——格源是单行）；矮格补行高时**垂直居中**——`valign: "center"`
+- **右缘留白**：`final` 行让出 `gutter − 1` 列（与正文同口径）
+- **可用宽过窄**（连“左竖线 + 每列 1 列 + 固定开销”都放不下）→ 构建器返回 `null`，调用方退回普通文本行渲染（窄终端降级）
 - 何时才需要真正的 `table` 构造子：出现 colspan / rowspan / 冻结表头这类**不可降级**能力时
 
-**构建器签名**（落实 design §6 模块 `layout/table.ts`）：
+**接口**（`layout/table.ts`）：
 
 ```ts
-// cells: 二维，rows[col] 已含 markdown 行内解析需要的信息；width: 可用宽（历史区由 metrics 给出）
-tableBox(cells: Cell[][], width: number): Box   // 产出 v([ h([cellBox, …]), … ]) 的 Box 子树
+type TableAlign = "left" | "center" | "right";
+interface TableSpec { header: string[]; aligns: TableAlign[]; rows: string[][] }
+
+// 表头 + 分隔行成对判定（O(1) 预筛：表头须含未转义 `|`，分隔行格全为 `:?-+:?` 且列数一致）
+isTableStart(header: string, delimiter: string): boolean
+// 自 lines[start] 起解析：表头 + 分隔行 + 连续数据行（行须含 `|`，否则表格结束）；
+// 缺格补空、多格忽略（列数取表头）；end = 首个未消费行下标
+parseTableAt(lines: readonly string[], start: number): { table: TableSpec; end: number } | null
+// 构建期降级：width 含左缘竖线 + 每格左右留白 + 列间分隔；过窄返回 null
+tableBox(table: TableSpec, width: number, themeId: ThemeId): Box | null
 ```
 
-- **`minW` 下限**：每列一个最小宽下限；压缩后仍 < minW → 格内省略号截断（`…`）。具体 `minW` 取值策略待定（候选：`ceil(colW_natural / 4)`，见 `TASKS.md` §6）。
-- **分隔符**：`│` 前景色实线（`ColorName: "border"`），固定 1 列，末列不画；表头下 `═`（双横线，`ColorName: "border"`）。
-- **对齐**：`:---:` 映射 `align`（左/右/居中），数字列右对齐。
-- **格内多段**：cell 内按正常 markdown 解析（`Paragraph`），矮格补行高用 `valign: "center"`。
+- **`minW` 下限**：`max(3, ⌈自然宽/4⌉)`（`TASKS.md` §6 候选值已定）
+- **对齐**：`:---` 左 / `:--:` 中 / `---:` 右；**未显式标注且该列（表体）非空格全为数字 → 右对齐**（数字列自动右对齐）
+- **转义**：`\|` 为单元格内的字面竖线（不切格），由行内解析还原
+- **`|` 的其它语义不变**：表格行之外的普通文本里 `|` 仍是普通字符（不误判为表格）
 
 ## 5. 缩进段落语义（叶子规则） [spec]
 

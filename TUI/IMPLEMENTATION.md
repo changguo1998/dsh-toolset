@@ -114,6 +114,21 @@
 - 槽位映射：`black..white` → `ansi[]`，`brightBlack..brightWhite` → `bright[]`；语义槽位 `gray`/`border`/`code`/`focus` → 各主题 `semantics`（默认 dark：gray=bright.0、border=ansi.4、code=ansi.0、focus=bright.7；light：gray=bright.0、border=ansi.4、code=ansi.7、focus=ansi.0）。`ansiNameToHex(theme, name)` 解析（颜色名转小写后查表）。段级 `style` 由 `segStyle` / `serializeFrameRow`（screen.ts）按 Manual-ANSI 处理（fg/bg 分别 `38;2`/`48;2`，bold 用 `1m`/`22m`），着色一律**以主题基底前景/背景收尾**（不用 chalk：chalk 以 `39m`/`49m` 收尾会复位到终端默认，浅色主题下不可读）。
 - 基底色：`Screen` 持有当前主题（`setTheme(id)`），整帧渲染在 `ESC[2J` 清屏**之前**写出基底前景/背景（truecolor 背景 → 清屏即填充主题色）；每个 delta 行也带基底，保证 `ESC[K` 擦除以主题背景填充。`setTheme` 同时清掉渲染器 delta 缓存（`prevLines = null`），切换后必然全帧重绘。`close()` 前 `Screen.reset()` 输出 `ESC[0m` 恢复终端默认。
 
+## markdown 表格（SPEC §3.2）
+
+- **位置**：`src/app/layout/table.ts`（解析 + 构建期降级构建器）；识别与接线在 `layout/build-box.ts` 的 assistant 分支（`for` 改为索引循环以做逐行前瞻）。
+- **为什么构建期算宽**：列宽是跨行约束（同列各行必须等宽），纯 `v/h` 表达不了跨兄弟约束；构建期把 2D 数学算完，产出「每格 `width:fixed`」的 `v([h([…])])` 子树，引擎保持两类节点。因此 `buildBox` 新增 `BuildBoxOptions.width`（`buildContentRows` 透传内容区宽）；**宽度未知时不识别表格**（按普通文本行渲染，保持 `buildBox` 直调语义不变）。
+- **识别**：`isTableStart`（表头须含未转义 `|` + 分隔行格全为 `:?-+:?` 且列数一致）做 O(1) 预筛，仅命中时才向前收集连续表格行（收集在首个非 `|` 行停止），避免长回复下全量扫描；`fence` 内不识别。数据行缺格补空、多格忽略。
+- **单元格叶子用 `StyledText` 而非 `Paragraph`**：构建期就做行内解析，否则 `measureParagraph` 按原文（含 `**` 等标记）算行数，与 `fill` 的渲染文本口径不一致，会多出空行。行高由 `measure(leaf, {maxW: colW})` 用引擎同口径算得后**显式声明** `height:fixed`，`fill` 的 `valign:"center"` 补白才生效。
+- **网格与左竖线连续**：整表最左 1 列为 `┃`（`brightBlue`，与 assistant 正文左竖线同列同色）——竖线概念上属父级 box、内容整体在其右侧，故**逐行重复**（`"┃\n┃"` + 显式高度），折行续行与横线行也在；横线行首列用交叉字 `╢`（表头下 `═`）/`├`（数据行间 `─`），列分隔处用 `╪`/`┼`，保证横竖线交叉处不断开。数据行之间画单横线（首尾不画），用于内容折行时区分「哪一行」。
+- **网格线不着色**：`│`/`═`/`─`/交叉字一律用主题默认前景色（`seg` 不带 style），只有左竖线取 `brightBlue`（与正文竖线同色）；表头格加粗与格内行内样式照旧。
+- **横线行的横线须铺满整个列区域**（列宽 + 左右留白），故不经 `gridRow` 的 pad 装配（否则每列多出 2 列、总宽超出预算导致折行错位）。
+- **列宽求解**：自然宽按**渲染文本**计（CJK 2 列）；超预算用**水位法**（`waterLevel` 二分）——窄列保持自然宽、只有超宽列被压到共同水位线，避免「按自然宽比例缩放」把窄列压到 `minW` 以下（表头难看换行）；抬到 `minW` 后若超预算则退回纯水位线。`ΣminW` 仍放不下 → 按 `minW` 比例分配 + 格内 `…` 截断（`truncateSegs` 段感知，不切半个 CJK）。
+- **数字列自动右对齐**：分隔行未显式标注（无 `:`）且表体非空格全为数字 → 右对齐（显式 `:---` 优先）。
+- **窄终端回退**：可用宽 < 左竖线 + 每列 1 列 + 固定开销（每格左右留白 + 列间分隔）→ `tableBox` 返回 `null`，调用方退回普通文本行。
+- **元数据**：表格子树整棵挂同一 `rowMeta`（`markSubtree`）——`fill` 后各行 `kind`/`blockId` 必须与所在回复一致，否则回复组折叠（`foldDialogue` 按连续 `assistant` 行分组）与块内空行判定会把表格当成新块；表格节点自身即对话区叶子（不再外套缩进 spacer，左竖线列已含在表内）。
+- **回归**：`tests/table.test.ts`（21 例：解析/转义/列宽/压缩/截断/对齐/加粗/网格与交叉字/左竖线连续/行高/fence 保护/窄宽回退/元数据传播）；全量 894 单测。
+
 ## 验证方式
 
 - 单元：`node --test`（input 解码、layout 视口等）
