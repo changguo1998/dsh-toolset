@@ -3298,6 +3298,86 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   );
 });
 
+test("对话区滚动：上滚越顶 / End 之后 ↓ 立即响应（偏移收敛到真实上限）", () => {
+  // 回归：scrollOffset 无上限时，连续上滚越顶或按 End（旧实现置 MAX_SAFE_INTEGER）
+  // 会把偏移顶到远超可滚范围；渲染层只做显示侧 clamp，于是每次 ↓ 都只是"还债"，
+  // 画面纹丝不动——看起来整块历史卡死。修复：滚键按上一帧回填的真实上限收敛偏移。
+  const { app, renderer, adapter } = makeApp();
+  const key = (name: string): KeyEvent => ({
+    name,
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+  renderer.size = { cols: 100, rows: 30 };
+  for (let i = 1; i <= 20; i++) {
+    adapter.push({
+      type: "stream",
+      sessionId: "s1",
+      text: `回复 ${i} 正文\n`.repeat(3),
+    } as DshEvent);
+    adapter.push({ type: "turn-end" } as DshEvent);
+  }
+  const scrollOffset = (): number =>
+    (app as unknown as { state: { scrollOffset: number } }).state.scrollOffset;
+  /** 历史区顶部若干行的可见文本（画面是否变化看它） */
+  const view = (): string =>
+    renderer.lastRender
+      .slice(0, 8)
+      .map((l) => histBody(l.replace(/\u001b\[[0-9;]*m/g, ""), 100))
+      .join("\n");
+
+  // 连续上滚 40 次（远超可滚范围）：偏移收敛到上限，画面钳在最早一行
+  for (let i = 0; i < 40; i++) renderer.press(key("up"));
+  const atTop = scrollOffset();
+  const topView = view();
+  assert.ok(atTop > 0, "上滚后偏移 > 0");
+  renderer.press(key("down")); // 对话区 ↓ = 半屏，偏移必须立即下降
+  assert.ok(
+    scrollOffset() < atTop,
+    `↓ 应使偏移下降（不再累积越界债）：${atTop} → ${scrollOffset()}`,
+  );
+  assert.notEqual(view(), topView, "↓ 画面立即变化（修复前纹丝不动）");
+
+  // End（跳到顶部）：偏移取真实上限，不是 MAX_SAFE_INTEGER
+  renderer.press(key("end"));
+  const endOffset = scrollOffset();
+  const endView = view();
+  assert.ok(
+    endOffset > 0 && endOffset < 1_000_000,
+    `End 后偏移应为真实上限，实际 ${endOffset}`,
+  );
+  renderer.press(key("down"));
+  assert.notEqual(view(), endView, "End 之后 ↓ 立即响应");
+  app.dispose();
+});
+
+test("活动区滚动：上滚越顶之后 ↓ 立即响应（activityScroll 收敛到真实上限）", () => {
+  // 与对话区同源缺陷：活动区偏移同样只在渲染侧 clamp（turn-begin 归零只覆盖
+  // "新回合"一条路径，回合内连续上滚越顶仍会积债）。
+  const { app, renderer, adapter } = makeApp();
+  const key = (name: string): KeyEvent => ({
+    name,
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+  renderer.size = { cols: 120, rows: 24 };
+  for (let i = 0; i < 30; i++)
+    adapter.push({ type: "notice", text: `活动区行 ${i}` } as DshEvent);
+  renderer.press(key("tab")); // null → 历史
+  renderer.press(key("tab")); // 历史 → 活动区焦点
+  const activityScroll = (): number =>
+    (app as unknown as { state: { activityScroll: number } }).state
+      .activityScroll;
+  for (let i = 0; i < 40; i++) renderer.press(key("up"));
+  const atTop = activityScroll();
+  assert.ok(atTop > 0, "上滚后活动区偏移 > 0");
+  renderer.press(key("down"));
+  assert.equal(activityScroll(), atTop - 1, "↓ 使活动区偏移立即下降");
+  app.dispose();
+});
+
 /** 构造即登记到合帧冲刷钩子：FakeRenderer 读帧前 flushApp() 同步冲刷待绘制帧 */
 class TrackedApp extends App {
   constructor(deps: ConstructorParameters<typeof App>[0]) {

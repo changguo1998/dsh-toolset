@@ -62,6 +62,7 @@ import {
 } from "./model-transition.ts";
 import {
   buildFrame,
+  type FrameScrollReport,
   dialogueHalfPage,
   dialogueScrollMetrics,
   inputPanelHeights,
@@ -96,14 +97,23 @@ const SLOW_STREAM_ARRIVED_CPS = 200;
 export function focusedLineScroll(
   panel: AppState["focusedPanel"],
   dir: 1 | -1, // 1=上, -1=下
+  max?: PaneScrollMax,
 ): StateAction {
   switch (panel) {
     case "activity":
-      return { type: "activity-scroll", delta: dir };
+      return {
+        type: "activity-scroll",
+        delta: dir,
+        ...(max ? { max: max.activity } : {}),
+      };
     case "status":
       return { type: "status-column-scroll", delta: -dir };
     default:
-      return { type: "scroll", delta: dir };
+      return {
+        type: "scroll",
+        delta: dir,
+        ...(max ? { max: max.dialogue } : {}),
+      };
   }
 }
 
@@ -112,15 +122,30 @@ export function focusedPageScroll(
   panel: AppState["focusedPanel"],
   dir: 1 | -1, // 1=上一页, -1=下一页
   page: PanelHeights,
+  max?: PaneScrollMax,
 ): StateAction {
   switch (panel) {
     case "activity":
-      return { type: "activity-scroll", delta: dir * page.activityH };
+      return {
+        type: "activity-scroll",
+        delta: dir * page.activityH,
+        ...(max ? { max: max.activity } : {}),
+      };
     case "status":
       return { type: "status-column-scroll", delta: -dir * page.topHeight };
     default:
-      return { type: "scroll", delta: dir * page.dialogueH };
+      return {
+        type: "scroll",
+        delta: dir * page.dialogueH,
+        ...(max ? { max: max.dialogue } : {}),
+      };
   }
+}
+
+/** 两 pane 的可滚动上限（行单位；App 经 paneMaxes() 取得，见 FrameScrollReport） */
+export interface PaneScrollMax {
+  dialogue: number;
+  activity: number;
 }
 
 export interface AppDeps {
@@ -209,6 +234,31 @@ export class App {
   private turnOpen = false;
   /** 每 tick 累积的字符配额余数（低速时不足 1 字符的跨 tick 累计） */
   private slowCredit = 0;
+  /** 两 pane 可滚动上限（renderFrame 出帧时回填；滚键据此收敛偏移，防越界假死） */
+  private paneScrollMax: FrameScrollReport = {
+    dialogueMaxScroll: 0,
+    activityMaxScroll: 0,
+  };
+  /** paneScrollMax 对应的 state 引用（同一 state 不重复补算） */
+  private paneScrollMaxState: AppState | null = null;
+
+  /** 当前 state 的可滚动上限：出帧回填过就直接用，否则就地补算一次（同一帧口径） */
+  private paneMaxes(): FrameScrollReport {
+    if (this.paneScrollMaxState !== this.state) {
+      buildFrame(this.state, this.deps.renderer.getSize(), this.paneScrollMax);
+      this.paneScrollMaxState = this.state;
+    }
+    return this.paneScrollMax;
+  }
+
+  /** 按面板取可滚动上限（status 列不按行滚动，返回 undefined = 不设上限） */
+  private paneScrollMaxOf(
+    panel: AppState["focusedPanel"],
+  ): PaneScrollMax | undefined {
+    if (panel === "status") return undefined;
+    const m = this.paneMaxes();
+    return { dialogue: m.dialogueMaxScroll, activity: m.activityMaxScroll };
+  }
 
   constructor(private deps: AppDeps) {
     // 声音提醒配置（P2#33）：不传 notify = 默认开启 + 8s 阈值
@@ -1144,8 +1194,11 @@ export class App {
         // 无焦点默认）↑/↓ 每次半屏（方向内聚在 focusedLineScroll）
         const dir: 1 | -1 = name === "up" ? 1 : -1;
         const panel = this.state.focusedPanel;
+        // 可滚动上限由渲染层按内容/窗口算好（上一帧回填或就地补算）：滚键据此收敛
+        // 偏移，否则越界偏移（连续上滚越顶、End）会累积成"按了没反应"的假死
+        const max = this.paneScrollMaxOf(panel);
         if (panel === "activity" || panel === "status") {
-          this.apply((s) => reduceState(s, focusedLineScroll(panel, dir)));
+          this.apply((s) => reduceState(s, focusedLineScroll(panel, dir, max)));
         } else {
           const { dialogueH } = dialogueScrollMetrics(
             this.state,
@@ -1155,6 +1208,7 @@ export class App {
             reduceState(s, {
               type: "scroll",
               delta: dir * dialogueHalfPage(dialogueH),
+              ...(max ? { max: max.dialogue } : {}),
             }),
           );
         }
@@ -1172,7 +1226,10 @@ export class App {
             this.deps.renderer.getSize(),
           );
           this.apply((s) =>
-            reduceState(s, focusedPageScroll(panel, dir, page)),
+            reduceState(
+              s,
+              focusedPageScroll(panel, dir, page, this.paneScrollMaxOf(panel)),
+            ),
           );
         } else {
           const m = dialogueScrollMetrics(
@@ -1198,9 +1255,11 @@ export class App {
         this.apply((s) => ({ ...s, scrollOffset: 0, followBottom: true }));
         break;
       case "end":
+        // 跳到顶部（最早历史）：偏移取"未折叠全量行数 − 可视行数"的真实上限，
+        // 不能用 MAX_SAFE_INTEGER——那样偏移永远还不完，下滚会假死
         this.apply((s) => ({
           ...s,
-          scrollOffset: Number.MAX_SAFE_INTEGER,
+          scrollOffset: this.paneMaxes().dialogueMaxScroll,
           followBottom: false,
         }));
         break;
@@ -2689,7 +2748,8 @@ export class App {
   private refresh(): void {
     if (this.disposed) return;
     const size = this.deps.renderer.getSize();
-    const frame = buildFrame(this.state, size);
+    const frame = buildFrame(this.state, size, this.paneScrollMax);
+    this.paneScrollMaxState = this.state;
     this.deps.renderer.refresh(frame);
   }
 
@@ -2732,7 +2792,9 @@ export class App {
   /** 实际出帧：取当前终端尺寸 → 全量排版 → 渲染（delta 写出在渲染层） */
   private renderFrame(): void {
     const size = this.deps.renderer.getSize();
-    const frame = buildFrame(this.state, size);
+    // 出帧顺带回填两 pane 的可滚动上限（零额外排版开销），滚键处理据此收敛偏移
+    const frame = buildFrame(this.state, size, this.paneScrollMax);
+    this.paneScrollMaxState = this.state;
     this.deps.renderer.render(frame);
   }
 

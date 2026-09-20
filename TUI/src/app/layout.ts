@@ -937,6 +937,8 @@ function buildTopRegion(
   title = "",
   /** 活动区分隔行锚定行号（0 基屏幕行；活动区分隔行落在该行；undefined = divisor 比例） */
   topRow?: number,
+  /** 回填两 pane 的可滚动上限（App 用于收敛偏移；见 FrameScrollReport） */
+  report?: FrameScrollReport,
 ): FrameRow[] {
   // 焦点框保留格（所有状态恒定，避免内容重排）：左侧框格列（历史/活动区左缘）
   // 与右侧框列（状态列右缘）在宽度允许时各占 1 列；未聚焦/模态态该格留空白占位。
@@ -978,6 +980,9 @@ function buildTopRegion(
     state.scrollOffset > 0
       ? dialogue
       : foldDialogue(dialogue, DIALOGUE_KEEP_REPLIES);
+  // 回填可滚动上限：对话区取**未折叠**全量（上滚会解除折叠，折叠态上限偏小不可作上界）
+  if (report)
+    report.dialogueMaxScroll = Math.max(0, dialogue.length - dialogueH);
   const vp = computeViewport({
     totalRows: dialogueRows.length,
     height: dialogueH,
@@ -1028,6 +1033,7 @@ function buildTopRegion(
   // 中间分隔竖线（历史区右缘/状态列左缘）随焦点面板只亮其垂直边界：
   // status=全行、history=仅对话区、activity=仅分隔行+活动区；模态态全回流边框色。
   const actMaxOffset = Math.max(0, activity.length - activityH);
+  if (report) report.activityMaxScroll = actMaxOffset;
   const actOffset = Math.min(state.activityScroll, actMaxOffset);
   const act = activity.slice(
     actMaxOffset - actOffset,
@@ -1563,7 +1569,21 @@ export function buildStatusSeparator(
     out.push({ text: STATUS_TOP_SEPARATOR, style: { fg: "border" } });
   return { segments: out };
 }
-export function buildFrame(state: AppState, size: Size): FrameRow[] {
+/**
+ * 帧构建回填的可滚动上限（行单位，均 ≥ 0）：对话区按**未折叠**全量行数计，
+ * 活动区按可视行数计。App 用它把 scrollOffset/activityScroll 收敛到真实范围
+ * （否则越界偏移会累积成"按了没反应"的假死，见 state.ts scrollBy 注释）。
+ */
+export interface FrameScrollReport {
+  dialogueMaxScroll: number;
+  activityMaxScroll: number;
+}
+
+export function buildFrame(
+  state: AppState,
+  size: Size,
+  report?: FrameScrollReport,
+): FrameRow[] {
   const approval = state.approval;
   const showApproval = approval !== null;
   const picker = state.picker;
@@ -1624,6 +1644,7 @@ export function buildFrame(state: AppState, size: Size): FrameRow[] {
     state.presetOptions,
     state.sessionTitle,
     topRow,
+    report,
   );
 
   let footerLines: FrameRow[];

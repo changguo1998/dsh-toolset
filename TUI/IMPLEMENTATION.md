@@ -71,6 +71,16 @@
 
 - 官方 `plan/mode`、`sandbox/mode`、`permission/preset`、`approval/policy` 均为 log-only 事件（仅切换时落盘，会话启动无初始事件）→ `DshAdapter.refreshSessionModes?(id)`（`emitSessionModeSnapshot`：从 live 内存事件或 `readSession` 折叠各事件最后一条并 emit mode/approval-policy；**不能用 readSurface**——log-only 事件被 surface fold 滤掉）；`App.start` / `resumeToSession` 成功后调用。
 
+## 滚动偏移收敛（越界假死）
+
+- **现象**：上滚历史（或按 `Home`/`End`）后按 `↓` 画面纹丝不动，像是整块历史卡死；输入命令并发送后更容易撞上（发送前后的重绘/内容变化把偏移顶出范围）。
+- **根因**：`scrollOffset`（对话区）/ `activityScroll`（活动区）此前**无上限**——连续上滚越顶会一直累加，`End` 曾直接置 `Number.MAX_SAFE_INTEGER`；渲染层只在显示侧 `computeViewport` 里 clamp，状态里留着越界值。于是此后的下滚每按一次只是"还债"一格，画面在债务还完前完全不动（差额大时等于永久卡住）。活动区此前只靠 "turn-begin 归零"（`state.ts` 注释里的「向下没反应」死区）覆盖了"新回合"这一条路径，回合内越顶同样会卡。
+- **修复**：让状态里的偏移恒在真实范围内。
+  - `buildFrame(state, size, report?)` 出帧时**顺带回填** `FrameScrollReport{dialogueMaxScroll, activityMaxScroll}`（零额外排版开销）。对话区上限取**未折叠**全量行数 − 可视行数（上滚会解除折叠，折叠态上限偏小不能作上界），活动区上限取 `activity.length − activityH`。
+  - App 侧 `paneMaxes()` 取上限：出帧回填过就直接用（记 `paneScrollMaxState` 引用判新旧），未出帧则就地补算一次同一口径的帧——不依赖"按键前一定刚出过帧"，单元测试同步按也不失稳。
+  - `scrollBy(state, delta, maxOffset?)` 与 `activity-scroll` action 先**收敛当前偏移**再叠加 delta、且结果不超上限；`End` 由 `MAX_SAFE_INTEGER` 改为真实上限。上限缺省时行为不变（纯函数测试可直接调）。
+- **回归**：`tests/app.test.ts`（上滚越顶后 `↓` 立即响应 / `End` 后 `↓` 立即响应 / 活动区同理）+ `tests/layout4.test.ts`（回填值在折叠态下仍为未折叠全量）。
+
 ## 声音提醒事件钩子（P2#33）
 
 - **输出口**：`Renderer.bell?()`（可选接口方法；真实 renderer 实现 → `Screen.beep()` 向输出流写 BEL `\x07`；注入型 renderer 可不实现，App 经 `bell?.()` 调用）。

@@ -1224,7 +1224,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "move-cursor":
         return moveCursor(state, action);
       case "scroll":
-        return scrollBy(state, action.delta);
+        return scrollBy(state, action.delta, action.max);
       case "scroll-to-bottom":
         return { ...state, followBottom: true, scrollOffset: 0 };
       case "user-jump":
@@ -1599,12 +1599,17 @@ export function reduceState(state: AppState, action: StateAction): AppState {
                     PANEL_CYCLE.length
                 ]!,
         };
-      case "activity-scroll":
-        // 活动区（流输出）滚动：偏移累加（距底部行数），渲染层按可视行数 clamp；0=跟随最新
+      case "activity-scroll": {
+        // 活动区（流输出）滚动：偏移累加（距底部行数）；0=跟随最新。
+        // max = 上一帧回填的可滚动上限：先收敛越界偏移再叠加、结果不超上限，
+        // 避免越界累积后"按了没反应"（与对话区 scrollBy 同口径）
+        const max = Math.max(0, action.max ?? Number.MAX_SAFE_INTEGER);
+        const cur = Math.min(state.activityScroll, max);
         return {
           ...state,
-          activityScroll: Math.max(0, state.activityScroll + action.delta),
+          activityScroll: Math.min(max, Math.max(0, cur + action.delta)),
         };
+      }
       default:
         return state;
     }
@@ -1675,7 +1680,7 @@ export type StateAction =
   | { type: "last-submit-mode"; mode: InputMode }
   | { type: "input-status"; status: InputStatus }
   | { type: "move-cursor"; delta: number }
-  | { type: "scroll"; delta: number }
+  | { type: "scroll"; delta: number; max?: number }
   | { type: "scroll-to-bottom" }
   | { type: "user-jump"; scrollOffset: number; followBottom: boolean }
   | { type: "turn-begin" }
@@ -1839,7 +1844,7 @@ export type StateAction =
     }
   | { type: "status-column-scroll"; delta: number }
   | { type: "focus-panel-cycle" }
-  | { type: "activity-scroll"; delta: number }
+  | { type: "activity-scroll"; delta: number; max?: number }
   /** max = 可视候选数上界（App 按活动区行数给；超出可视区的候选不参与焦点导航） */
   | { type: "completion-move"; delta: number; max?: number }
   | { type: "completion-close" }
@@ -2145,16 +2150,26 @@ function setQuestionCustom(state: AppState, text: string): AppState {
 /**
  * 按 delta 滚动：正数上滚（delta>0 暂停跟随），负数下滚；滚回底部恢复跟随。
  * scrollOffset 语义 = 距底部多少行。
+ *
+ * `maxOffset` 为当前内容/窗口下真正可滚动的上限（App 从上一帧 FrameScrollReport 取）。
+ * 偏移必须收敛到它：渲染层只做显示侧 clamp，状态里若留着越界偏移（连续上滚越顶、
+ * `End` 跳到顶部、窗口变高/内容变短），此后下滚要先"还债"——按了没反应，看起来假死。
+ * 因此这里先收敛当前偏移再叠加 delta；缺省无上限（调用方未提供时行为不变）。
  */
-export function scrollBy(state: AppState, delta: number): AppState {
+export function scrollBy(
+  state: AppState,
+  delta: number,
+  maxOffset: number = Number.MAX_SAFE_INTEGER,
+): AppState {
+  const cur = Math.min(state.scrollOffset, Math.max(0, maxOffset));
   if (delta > 0) {
     return {
       ...state,
       followBottom: false,
-      scrollOffset: state.scrollOffset + delta,
+      scrollOffset: Math.min(cur + delta, Math.max(0, maxOffset)),
     };
   }
-  const next = Math.max(0, state.scrollOffset + delta);
+  const next = Math.max(0, cur + delta);
   return {
     ...state,
     scrollOffset: next,

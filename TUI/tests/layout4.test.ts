@@ -2348,3 +2348,35 @@ test("不变量：所有 FrameSegment.text 不含 ANSI 转义（C3 段级契约�
     );
   }
 });
+
+test("buildFrame 回填可滚动上限：对话区取未折叠全量、活动区取可视行数", () => {
+  // 契约：回填值必须 ≥ 折叠态倍率下的真实可滚范围。对话区底部（折叠中）时
+  // 仍要报**未折叠**全量的上限——上滚会解除折叠，用折叠态上限封顶会把
+  // 上滚钉死在很浅的位置（state.ts scrollBy 的 maxOffset 即来自这里）。
+  let s = initialState();
+  for (let i = 1; i <= 12; i++) {
+    s = reduceState(s, { type: "turn-begin" }); // 回合分隔线：断开流式续写合并
+    s = reduceState(s, { type: "append", text: `回复正文行 ${i}` });
+    s = reduceState(s, { type: "turn-end" });
+  }
+  for (let i = 0; i < 40; i++)
+    s = reduceState(s, { type: "notice", text: `活动区行 ${i}` });
+  const size = { rows: 24, cols: 80 };
+  const report = { dialogueMaxScroll: -1, activityMaxScroll: -1 };
+  buildFrame(s, size, report);
+  assert.equal(s.scrollOffset, 0, "底部（折叠态）也要报未折叠全量上限");
+  assert.ok(report.dialogueMaxScroll > 0, "对话区可滚上限 > 0");
+  assert.ok(report.activityMaxScroll > 0, "活动区可滚上限 > 0");
+  // 折叠态（最近 3 组回复）不足一屏，未折叠全量却远超一屏 → 上限只能来自未折叠
+  const stub = { dialogueMaxScroll: 0, activityMaxScroll: 0 };
+  const folded = buildFrame(
+    reduceState(s, { type: "scroll", delta: 0 }),
+    size,
+    stub,
+  );
+  assert.ok(folded.length > 0);
+  assert.ok(
+    report.dialogueMaxScroll >= stub.dialogueMaxScroll,
+    "上限不随折叠态变小",
+  );
+});
