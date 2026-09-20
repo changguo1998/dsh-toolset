@@ -287,7 +287,7 @@ function histBody(line: string, cols: number): string {
 function makeApp(): { app: App; renderer: FakeRenderer; adapter: FakeAdapter } {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, notify: { enabled: false } });
   app.start();
   return { app, renderer, adapter };
 }
@@ -398,6 +398,7 @@ function makeAppAtCwd(cwd: string): {
   const app = new TrackedApp({
     renderer,
     adapter,
+    notify: { enabled: false },
     status: {
       queries: { time: () => "12:00", cwd: () => cwd, git: () => "main" },
       intervalMs: 60_000,
@@ -1912,7 +1913,7 @@ test("slowStream=true：思考按码点切分，emoji/代理对不被拆断", ()
 test("slowStream 默认关闭：stream 即时显示(mock/demo 原速)", () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, notify: { enabled: false } });
   app.start();
   adapter.push({ type: "stream", sessionId: "s1", text: "即时文本" });
   assert.ok(
@@ -2806,7 +2807,7 @@ test("启动即刷 Mode 快照：state 未建立会话时按 adapter.sessionId �
       value: "danger-full-access",
     },
   ];
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, notify: { enabled: false } });
   app.start();
   const plain = renderer.lastRender.map((l) =>
     l.replace(/\u001b\[[0-9;]*m/g, ""),
