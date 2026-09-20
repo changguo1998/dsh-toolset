@@ -528,11 +528,32 @@ describe("TaskEngine 快照落盘（snapshotPath 周期写）", () => {
       await e.decompose("root", [leafChild("c1", "做 C1", { "r-q": ["c1"] })]);
       e.nextReady();
       assert.ok(e.implement("c1", "产物").ok);
-      // 等串行写盘链落定（fire-and-forget）
-      await new Promise((r) => setTimeout(r, 20));
-      const onDisk = JSON.parse(await readFile(snapPath, "utf8"));
-      assert.ok(Array.isArray(onDisk) && onDisk.length > 0);
-      assert.ok(onDisk.some((ev) => ev.type === "plan/frame-implemented"));
+      // 等串行写盘链落定（fire-and-forget）：轮询「快照含目标事件」而非固定延时——
+      // 并行/高负载下写盘可能超过固定窗口（曾读空文件 JSON.parse 报错 flake）
+      let onDisk: unknown;
+      for (let i = 0; i < 100; i++) {
+        try {
+          const parsed: unknown = JSON.parse(await readFile(snapPath, "utf8"));
+          if (
+            Array.isArray(parsed) &&
+            (parsed as { type?: string }[]).some(
+              (ev) => ev.type === "plan/frame-implemented",
+            )
+          ) {
+            onDisk = parsed;
+            break;
+          }
+        } catch {
+          /* 文件尚未写完整，继续等 */
+        }
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      const events = onDisk as unknown as { type?: string }[];
+      assert.ok(
+        Array.isArray(events) && events.length > 0,
+        "快照超时未就绪（写盘链未落定）",
+      );
+      assert.ok(events.some((ev) => ev.type === "plan/frame-implemented"));
       // 模拟硬中止：直接用磁盘快照恢复，在途帧按设计回收为 pending 后可续做
       const e2 = resumeFromSnapshot(await readFile(snapPath, "utf8"), {
         ...makeHooks(),
