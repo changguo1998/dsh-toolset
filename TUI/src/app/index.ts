@@ -70,6 +70,7 @@ import {
   modelLabel,
   userInputJump,
   type FrameGeometry,
+  helpTableLines,
 } from "./layout.ts";
 import {
   DEFAULT_THEME,
@@ -1583,7 +1584,8 @@ export class App {
         this.apply((s) =>
           reduceState(s, {
             type: "notice",
-            text: this.helpText(),
+            text: "",
+            lines: this.helpLines(),
             tone: "info",
           }),
         );
@@ -2792,39 +2794,116 @@ export class App {
     this.paint();
   }
 
-  private helpText(): string {
+  /** /help 双列表格：命令列定宽对齐、描述列固定起点。折行交给渲染层按
+   *  hanging 悬挂缩进（续行停靠描述列、不穿回第一列；resize 后重排仍对齐）。 */
+  private helpLines(): { text: string; hanging?: number }[] {
+    const commands: { cmd: string; desc: string }[] = [
+      { cmd: "/help", desc: "显示本帮助" },
+      {
+        cmd: "/clearscreen (/cls)",
+        desc: "清空缓冲(只清显示，不动上下文)",
+      },
+      { cmd: "/quit", desc: "退出" },
+      {
+        cmd: "/theme [dark|light|toggle]",
+        desc: "切换主题(默认 dark=fffdark, light=ffflight)",
+      },
+      {
+        cmd: "/session",
+        desc: "会话列表：Enter 切换到 persisted 会话(live 不可续)",
+      },
+      {
+        cmd: "/goal",
+        desc: "当前会话目标迷你面板（goal/todo 只读；↑/↓ 滚动，Esc 关闭）",
+      },
+      { cmd: "/copy", desc: "复制最后一条模型回复到剪贴板(OSC52)" },
+      {
+        cmd: "/model [provider/]model",
+        desc: "switch current-session model; bare /model: interactive picker",
+      },
+      {
+        cmd: "/provider、/effort (/thinking)",
+        desc: "无参直达 /model 面板并定位到 provider / effort 列",
+      },
+      {
+        cmd: "/permission [预设名]",
+        desc: "权限预设（sandbox+审批捆绑；无参列当前与可用，带参切换）",
+      },
+      {
+        cmd: "/preset [预设名]",
+        desc: "agent 预设目录（无参列当前/可用/默认，带参切换）",
+      },
+      {
+        cmd: "/jobs",
+        desc: "后台任务面板（只读列表；↑/↓ 选择、PgUp/PgDn 翻页、Enter 取消、Esc 关闭）",
+      },
+      {
+        cmd: "/init",
+        desc: "初始化 AGENTS.md（当前目录缺失时由模型阅读目录生成；已存在则提示退出）",
+      },
+      {
+        cmd: "/stats (/usage /context)",
+        desc: "本回合 token 用量与上下文占比（最近一次模型调用）",
+      },
+      { cmd: "/rename <标题>", desc: "重命名当前会话标题" },
+      {
+        cmd: "/skills [过滤]",
+        desc: "技能目录面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
+      },
+      {
+        cmd: "/agents",
+        desc: "子代理面板（↑/↓ 选择、PgUp/PgDn 翻页、r 刷新、Enter 直接中断选中项、Esc 关闭）",
+      },
+      {
+        cmd: "/tools [过滤]",
+        desc: "工具目录面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
+      },
+      {
+        cmd: "/settings",
+        desc: "只读展示配置（ns：value，secret 脱敏）",
+      },
+      {
+        cmd: "/fork",
+        desc: "分叉当前会话为新会话（success 提示 + 必要时提示用 /session 查看）",
+      },
+      {
+        cmd: "/task",
+        desc: "任务面板（TaskEngine 只读：↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
+      },
+      {
+        cmd: "/guard",
+        desc: "守卫面板（拦截/放行记录：↑/↓ 选择、PgUp/PgDn 翻页、Enter 看策略、Esc 关闭）",
+      },
+      {
+        cmd: "/memory",
+        desc: "知识库概要（就绪/路径/chunk·source 计数；未就绪给说明）",
+      },
+      {
+        cmd: "/loop",
+        desc: "循环面板（活动/历史循环：↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
+      },
+      {
+        cmd: "/contract",
+        desc: "契约概览（当前目标 + Done-when 条款摘要；无 goal 给出提示）",
+      },
+      {
+        cmd: "/workflows",
+        desc: "工作流运行面板（只读：↑/↓ 选择、PgUp/PgDn 翻页、Esc 关闭）",
+      },
+      {
+        cmd: "/council [N]",
+        desc: "二次意见（并行 N 个评审子代理，对当前目标独立评审；默认 2）",
+      },
+      {
+        cmd: "/search <query>",
+        desc: "网页搜索（多 provider 聚合；Enter 查看来源 URL、Esc 关闭）",
+      },
+    ];
     return [
-      "本地命令：",
-      "  /help   显示本帮助",
-      "  /clearscreen (/cls)  清空缓冲(只清显示，不动上下文)",
-      "  /quit   退出",
-      "  /theme [dark|light|toggle]  切换主题(默认 dark=fffdark, light=ffflight)",
-      "  /session  会话列表：Enter 切换到 persisted 会话(live 不可续)",
-      "  /goal     当前会话目标迷你面板（goal/todo 只读；↑/↓ 滚动，Esc 关闭）",
-      "  /copy     复制最后一条模型回复到剪贴板(OSC52)",
-      "  /model [provider/]model  switch current-session model; bare /model: interactive picker",
-      "  /provider、/effort (/thinking)  无参直达 /model 面板并定位到 provider / effort 列",
-      "  /permission [预设名]  权限预设（sandbox+审批捆绑；无参列当前与可用，带参切换）",
-      "  /preset [预设名]      agent 预设目录（无参列当前/可用/默认，带参切换）",
-      "  /jobs 后台任务面板（只读列表；↑/↓ 选择、PgUp/PgDn 翻页、Enter 取消、Esc 关闭）",
-      "  /init    初始化 AGENTS.md（当前目录缺失时由模型阅读目录生成；已存在则提示退出）",
-      "  /stats (/usage /context)  本回合 token 用量与上下文占比（最近一次模型调用）",
-      "  /rename <标题>  重命名当前会话标题",
-      "  /skills [过滤]  技能目录面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
-      "  /agents  子代理面板（↑/↓ 选择、PgUp/PgDn 翻页、r 刷新、Enter 直接中断选中项、Esc 关闭）",
-      "  /tools [过滤]  工具目录面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
-      "  /settings  只读展示配置（ns：value，secret 脱敏）",
-      "  /fork  分叉当前会话为新会话（success 提示 + 必要时提示用 /session 查看）",
-      "  /task  任务面板（TaskEngine 只读：↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
-      "  /guard  守卫面板（拦截/放行记录：↑/↓ 选择、PgUp/PgDn 翻页、Enter 看策略、Esc 关闭）",
-      "  /memory  知识库概要（就绪/路径/chunk·source 计数；未就绪给说明）",
-      "  /loop  循环面板（活动/历史循环：↑/↓ 选择、PgUp/PgDn 翻页、Enter 详情、Esc 关闭）",
-      "  /contract  契约概览（当前目标 + Done-when 条款摘要；无 goal 给出提示）",
-      "  /workflows  工作流运行面板（只读：↑/↓ 选择、PgUp/PgDn 翻页、Esc 关闭）",
-      "  /council [N]  二次意见（并行 N 个评审子代理，对当前目标独立评审；默认 2）",
-      "  /search <query>  网页搜索（多 provider 聚合；Enter 查看来源 URL、Esc 关闭）",
-      "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
-    ].join("\n");
+      { text: "本地命令：" },
+      ...helpTableLines(commands),
+      { text: "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。" },
+    ];
   }
 
   /** 接受补全候选（Tab）：候选名写入输入框并补尾随空格（便于接参数），

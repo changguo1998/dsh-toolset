@@ -189,6 +189,13 @@
 - **Esc / Alt+Enter**：Esc 先 `restoreQueued()`（登记按顺序并回输入框，核心 `cancel` 会清自己的队列，本机留底不丢输入）再 `interrupt()`；Alt+Enter 同样先并回输入框、打断，然后整条发送（避免「新文本先发、排队内容后发」顺序颠倒；空输入且无登记仍为 no-op）。切换会话（`history-resume-ok`）`queued-clear`。
 - **回归**：`tests/app.test.ts`（运行中 Enter 立即发送且逐条不合并、登记不写 buffer、新回合认领一条转正、Esc 退回输入框 + 清登记 + 打断、Alt+Enter 按序并入）+ `tests/layout-horizontal.test.ts`（排队块位置/灰竖线/视口高收缩；纵向活动区底部对齐不变）。
 
+## /help 双列表格（无边框）
+
+- **排版**（`app/layout/help.ts`）：`helpTableLines` 把命令目录排成两列——命令列定宽 = 最长命令显示宽（`displayWidth`，CJK 安全补白）、描述列固定起点；每行文本 = 行首 2 列缩进 + 命令 + 补白 + 2 列间距 + 描述。
+- **折行**：不做预折行，交给渲染层。notice 的 `BufferLine` 新增可选 `hanging`（描述列起点的悬挂缩进），`build-box` 把它落到 `StyledText.hanging`——描述超 pane 宽时续行停靠描述列起点（不再穿回第一列），且 **resize 后续行重排仍然对齐**。`BufferLine.hanging` 只在 `/help` 生效，其余 notice 不设（续行顶格）。
+- **入口**：`App.helpLines()` 产出「表头 + 表中行 + 表尾」结构化行，`handleSlash` 走 `notice` action 新增的 `lines` 字段（`appendNoticeLines`，逐条独立成行）；表头/表尾是普通行（无悬挂缩进），只在表中行带 `hanging`。
+- **回归**：`tests/help.test.ts`（命令列定宽/CJK 补白/单物理行）+ 渲染层用例（`buildContentRows` 窄 pane 强制折行，验证续行缩进 == 描述列起点）。
+
 ## 验证方式
 
 - 单元：`node --test`（input 解码、layout 视口等）

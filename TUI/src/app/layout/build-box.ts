@@ -303,7 +303,12 @@ export function buildBox(
         tone !== undefined
           ? { style: { fg: NOTICE_TONE_COLOR[tone] as ColorName } }
           : {};
-      const node = styled([{ text: line.text }], style);
+      // 悬垂缩进（/help 双列表格）：折行续行停靠 hanging 列（描述列起点），
+      // 对齐工具行的悬挂机制；普通 notice 不设 hanging → 续行顶格
+      const node = styled([{ text: line.text }], {
+        ...style,
+        ...(line.hanging !== undefined ? { hanging: line.hanging } : {}),
+      });
       // 空文本不舍弃（notice 空行可能保留语义）
       meta.set(node, rowMeta);
       activityLeaves.push(node);

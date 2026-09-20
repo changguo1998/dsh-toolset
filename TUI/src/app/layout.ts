@@ -72,6 +72,7 @@ export {
   wrapLine,
   wrapLines,
 } from "./layout/primitives.ts";
+export { helpTableLines } from "./layout/help.ts";
 
 /** 行纯文本 = 各段 text 拼接（剥离样式；测试/宽度计算用） */
 export function rowText(row: FrameRow): string {

@@ -83,6 +83,8 @@ export interface BufferLine {
   final?: boolean;
   /** 排队中的用户消息（历史区右下角的待发块；右缘竖线改灰色标识未发出） */
   queued?: boolean;
+  /** 悬垂缩进（notice 用，/help 双列表格）：本行折行时续行停靠列（描述列起点） */
+  hanging?: number;
 }
 
 export type Buffer = BufferLine[];
@@ -701,6 +703,38 @@ export function appendNotice(
   };
 }
 
+/** 一条可挂载悬垂缩进的 notice 行（/help 双列表格：折行续行停靠到描述列） */
+export interface NoticeLine {
+  text: string;
+  hanging?: number;
+}
+
+/**
+ * 追加多条命令通知（带可选悬垂缩进）：每条独立成行（不并入 buffer 末行）。
+ * /help 双列表格用它让续行停靠到描述列起点；普通 notice 仍走 appendNotice。
+ */
+export function appendNoticeLines(
+  state: AppState,
+  lines: readonly NoticeLine[],
+  tone?: NoticeTone,
+): AppState {
+  const buffer = state.buffer.length ? [...state.buffer] : [];
+  let seq = state.nextSeq;
+  for (const l of lines) {
+    for (const line of sanitizeText(l.text).text.split("\n"))
+      buffer.push({
+        text: line,
+        kind: "notice",
+        seq: seq++,
+        ...(tone ? { tone } : {}),
+        ...(l.hanging !== undefined ? { hanging: l.hanging } : {}),
+      });
+  }
+  if (buffer.length > MAX_BUFFER_LINES)
+    buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
+  return { ...state, buffer, nextSeq: seq };
+}
+
 /**
  * 追加一条工具行（工具调用 ○ / 结果 ✓|✗）：独立成行、不进模型历史（与 notice 同）。
  * tone=error 时渲染红色（工具结果失败 ✗），其余默认色。
@@ -938,6 +972,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "thinking":
         return appendThinking(state, action.text);
       case "notice":
+        if (action.lines && action.lines.length > 0)
+          return appendNoticeLines(state, action.lines, action.tone);
         return appendNotice(state, action.text, action.error, action.tone);
       case "clear-buffer":
         return clearBuffer(state);
@@ -1773,7 +1809,14 @@ export type StateAction =
   | { type: "queued-claim" }
   | { type: "queued-clear" }
   | { type: "thinking"; text: string }
-  | { type: "notice"; text: string; error?: boolean; tone?: NoticeTone }
+  | {
+      type: "notice";
+      text: string;
+      /** 结构化多行（/help 表格）：每条独立成行并可带悬垂缩进；缺省走 text */
+      lines?: NoticeLine[];
+      error?: boolean;
+      tone?: NoticeTone;
+    }
   | { type: "clear-buffer" }
   | { type: "agent-status"; status: AgentStatus }
   | { type: "approval"; approval: ApprovalItem | null }
