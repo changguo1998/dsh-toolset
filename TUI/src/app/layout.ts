@@ -1879,11 +1879,13 @@ export function buildFrame(
   const diaStart = split.titleRows;
   const diaEnd = diaStart + split.dialogueH; // 活动区分隔行（历史底边 = activity 顶边）
   const D = metrics.historyWidth; // 分隔竖线列（历史区右缘/状态列左缘）
-  // 横向排列：两 pane 之间的内部分隔竖线（帧列；与状态区分隔行交汇处画 ┴）
+  // 横向排列：两 pane 之间的内部分隔竖线（帧列 = 左缘框格 + 活动 pane 宽；
+  // 与状态区分隔行交汇处画 ┴）。活动区在左，故取 activityW——两 pane 等宽时才与
+  // dialogueW 相同，奇偶相差一列时取错会让交汇字形与竖线错开一列
   const innerDividerCol = horizontal
     ? metrics.historyWidth -
       leftColumnWidth(metrics.historyWidth) +
-      split.dialogueW
+      split.activityW
     : undefined;
   const rects: Map<PaneId, Rect> = new Map();
   const rows: FrameRow[] = [

@@ -178,3 +178,24 @@ test("横向排列：两 pane 各自宽度换行（buildContentRows 独立宽度
     "对话 pane 同样受自身宽度约束",
   );
 });
+
+test("横向排列：内部分隔列与下划线行 ┬ / 状态区分隔行 ┴ 同列（两 pane 不等宽时也不偏）", () => {
+  // 100 列（状态列 33）→ 左列正文宽 66 → 活动 pane 33 / 对话 pane 32：两 pane
+  // 不等宽，正是「交汇字形取 dialogueW 而非 activityW」会偏一列的情形
+  const size = { rows: 18, cols: 100 };
+  const m = metricsFor(size, false, 1, 1, {});
+  const contentW = leftColumnWidth(m.historyWidth);
+  const split = topPaneSplit(m.topHeight, contentW, 2, undefined, "auto");
+  assert.equal(split.mode, "horizontal");
+  assert.notEqual(split.activityW, split.dialogueW, "本用例要求两 pane 不等宽");
+  const divCol = m.historyWidth - contentW + split.activityW;
+  const rows = buildFrame(turnState("auto"), size).map(rowText);
+  assert.equal(cols(rows[1]!, divCol, divCol + 1), "┬", "下划线行交汇");
+  for (let r = 2; r < m.topHeight; r++)
+    assert.equal(cols(rows[r]!, divCol, divCol + 1), "│", `竖线 rc=${r}`);
+  assert.equal(
+    cols(rows[m.topHeight]!, divCol, divCol + 1),
+    "┴",
+    "状态区分隔行交汇（与竖线同列）",
+  );
+});
