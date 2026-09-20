@@ -59,6 +59,7 @@
   - 开关：`TUI_LAYOUT_CACHE=0`（初始值）或运行期 `setLayoutCacheEnabled(false)`；`clearLayoutCaches()` 清空全部表并重置码点宽度表。关缓存即回到优化前直算路径，用于等价断言与基准对比。
   - 根因备注：`isZeroWidthChar` 原实现把 326 条零宽区间表声明在函数体内，**每次调用都重建并线性扫描**——这是逐字符宽度计算的主要常数因子；现提升为模块级常量 + 码点宽度表 memo。
 - **App 层 tick 内合帧**（`src/app/index.ts`）：`paint()` 只标脏并排队一个 microtask，同一 tick 内多次标脏只调用一次 `renderer.render`；`flushPaint()` 同步冲刷、`paintNow()` 立即出帧（启动首帧、测试与需即时可见路径用）；绘制期间再次标脏会补画一帧并收敛（不自旋）；`dispose()` 清掉待处理帧（已排队 microtask 变 no-op）。定时路径（状态栏 ticker / 思考打字机 / 面板刷新）与按键回显各自 tick 内仍出帧，不跨 tick 延迟。
+  - **跨回合帧率上限（可选，真实接线默认 10Hz）**：`AppDeps.frameIntervalMs`（`main.ts` 传 100；0/缺省=不限帧，测试与演示保持立即出帧）。`flushPaint()` 距上一帧不足该间隔时**不清脏**、改挂一个「窗口末」定时器，窗口内跨宏任务的标脏合并到该时点统一出一帧——把事件洪峰的每回合一出帧压到目标频率。`paintNow()` 抢占时取消窗口定时器；`dispose()` 一并清除。
   - 语义提醒：同一 tick 内的**中间态**不再逐帧写终端（这正是合帧的目的）。demo mock 的复合场景因此拆成两个 tick 发出，保证 `subagent` 行等中间态能被帧断言看到。
 
 ### 测试与基准

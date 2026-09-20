@@ -89,6 +89,9 @@ export function main(opts: {
     ...tuiConfig.layout,
     notify: tuiConfig.notify,
     autoCleanEmpty: tuiConfig.session?.autoCleanEmpty,
+    // 跨回合帧率上限：真实接线压到 10Hz（窗口内跨宏任务标脏合并到窗口末统一出帧），
+    // 防事件洪峰时每回合全量排版过热；测试/演示不传（缺省 0=立即出帧）
+    frameIntervalMs: 100,
     initialTheme: opts.initialTheme ?? resolvedThemes.active,
     slowStream: opts.slowStream,
     streamCharsPerSecond: opts.streamCharsPerSecond,

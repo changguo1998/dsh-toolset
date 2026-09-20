@@ -165,6 +165,9 @@ export interface AppDeps {
   slowStream?: boolean;
   /** 打字机流速(字符/秒，合法性由 main 归一化；兜底 SLOW_DEFAULT_CPS) */
   streamCharsPerSecond?: number;
+  /** 跨回合最小帧间隔(ms)：>0 时限帧到该频率（窗口内跨宏任务的标脏合并到窗口末
+   *  统一出帧）；缺省 0=不限帧（测试/演示保持立即出帧）。真实接线 main.ts 传 100=10Hz。 */
+  frameIntervalMs?: number;
   /** 用户块左缘/回复右缘对称留空(列数，默认 4，经 initialState 落到 state) */
   messageGutter?: number;
   /** 交互区绝对行数（tui.config.json layout.footerHeight；缺省自动 1/5 上限 4） */
@@ -204,6 +207,13 @@ export class App {
   private paintDirty = false;
   /** 已排队待冲刷的合帧标志（与 paintDirty 成对；dispose 时清零使排队帧变 no-op） */
   private paintScheduled = false;
+  /** 跨回合最小帧间隔(ms)：0=不限帧（缺省，测试/演示保持立即出帧）；
+   *  真实接线 main.ts 传 100（10Hz）。>0 时窗口内跨宏任务的标脏合并到窗口末统一出帧 */
+  private frameIntervalMs = 0;
+  /** 上一帧渲染时刻（帧率上限用；paintNow/定时器出帧都会刷新） */
+  private lastFrameAt = 0;
+  /** 窗口末出帧定时器（帧率上限用） */
+  private frameTimer: ReturnType<typeof setTimeout> | null = null;
   private statusTicker: StatusTicker | null = null;
   // 打字机队列：仅作用于 thinking(reasoning)——正文是最终保留的回复，须即时显示；
   // 思考是“输出结束会被隐藏”的瞬态内容，按 tick 逐段放出便于阅读（slowStream 开启时使用）。
@@ -317,6 +327,11 @@ export class App {
     const th = deps.notify?.idleThresholdMs;
     if (typeof th === "number" && Number.isFinite(th) && th > 0) {
       this.idleBellMs = Math.max(1, Math.floor(th));
+    }
+    // 跨回合帧率上限：0=不限帧（缺省）；>0 时限帧到对应频率（见 flushPaint）
+    const fi = deps.frameIntervalMs;
+    if (typeof fi === "number" && Number.isFinite(fi) && fi > 0) {
+      this.frameIntervalMs = Math.floor(fi);
     }
     // 启动自动清理空会话（tui.config.json session.autoCleanEmpty；缺省关闭）
     this.autoCleanEmpty = deps.autoCleanEmpty === true;
@@ -556,6 +571,7 @@ export class App {
     this.unbindEvents = [];
     this.stopPanelRefresh();
     this.clearIdleBellTimer();
+    this.clearFrameTimer();
     this.deps.adapter.dispose?.();
     this.deps.renderer.close();
   }
@@ -2975,23 +2991,52 @@ export class App {
     queueMicrotask(() => this.flushPaint());
   }
 
-  /** 冲刷待绘制帧（microtask 与显式调用共用）；无脏帧时不动，绘制中再次标脏则排下一帧 */
+  /**
+   * 冲刷待绘制帧（microtask 与显式调用共用）。
+   * 帧率上限（跨回合）：距上一帧不足 frameIntervalMs 时**不清脏**、改排一个「窗口末」
+   * 定时器——窗口内所有跨宏任务的标脏被合并到该时点统一出一帧，把渲染压到目标频率
+   * （真实接线 10Hz）。0=不限帧：与既有语义一致，microtask 即冲刷。
+   * 无脏帧时不动；渲染期间再次标脏则排下一帧。
+   */
   flushPaint(): void {
     this.paintScheduled = false;
     if (this.disposed || !this.paintDirty) return;
+    if (this.frameIntervalMs > 0) {
+      const wait = this.lastFrameAt + this.frameIntervalMs - Date.now();
+      if (wait > 0) {
+        // 窗口内：保留脏标记，只挂一个定时器（重复 flush 不重复挂）
+        if (this.frameTimer === null)
+          this.frameTimer = setTimeout(() => {
+            this.frameTimer = null;
+            this.flushPaint();
+          }, wait);
+        return;
+      }
+    }
     this.paintDirty = false;
     this.renderFrame();
+    this.lastFrameAt = Date.now();
     if (this.paintDirty && !this.paintScheduled) {
       this.paintScheduled = true;
       queueMicrotask(() => this.flushPaint());
     }
   }
 
-  /** 同步出帧（丢弃待处理合帧，立即渲染当前状态）；供启动首帧、测试与需立即出帧的路径 */
+  /** 同步出帧（丢弃待处理合帧与窗口定时器，立即渲染当前状态）；供启动首帧、测试与需立即出帧的路径 */
   paintNow(): void {
     if (this.disposed) return;
     this.paintDirty = false;
+    this.clearFrameTimer();
     this.renderFrame();
+    this.lastFrameAt = Date.now();
+  }
+
+  /** 清除「窗口末出帧」定时器（paintNow 抢占 / dispose 时调用） */
+  private clearFrameTimer(): void {
+    if (this.frameTimer) {
+      clearTimeout(this.frameTimer);
+      this.frameTimer = null;
+    }
   }
 
   /** 实际出帧：取当前终端尺寸 → 全量排版 → 渲染（delta 写出在渲染层） */

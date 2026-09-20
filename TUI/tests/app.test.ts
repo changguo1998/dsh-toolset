@@ -3540,6 +3540,24 @@ test("活动区滚动：上滚越顶之后 ↓ 立即响应（activityScroll 收
   app.dispose();
 });
 
+test("帧率上限：跨回合标脏合并到窗口末统一出帧（frameIntervalMs=100）", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const app = new TrackedApp({ renderer, adapter, frameIntervalMs: 100 });
+  app.start(); // 首帧 paintNow 立即出
+  const base = renderer.renders;
+  // 窗口内多次标脏（跨宏任务，经事件驱动）：距上一帧 <100ms → 不清脏、不提前出帧
+  adapter.push({ type: "thinking", sessionId: "s1", text: "甲" });
+  await new Promise((r) => setTimeout(r, 15));
+  adapter.push({ type: "thinking", sessionId: "s1", text: "乙" });
+  await new Promise((r) => setTimeout(r, 15));
+  assert.equal(renderer.renders, base, "窗口内多次标脏合并、不提前出帧");
+  // 越过窗口：窗口末定时器合并出一帧（两次标脏只出一帧）
+  await new Promise((r) => setTimeout(r, 120));
+  assert.ok(renderer.renders > base, "窗口末统一出一帧");
+  app.dispose();
+});
+
 /** 构造即登记到合帧冲刷钩子：FakeRenderer 读帧前 flushApp() 同步冲刷待绘制帧 */
 class TrackedApp extends App {
   constructor(deps: ConstructorParameters<typeof App>[0]) {
