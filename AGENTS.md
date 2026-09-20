@@ -16,7 +16,7 @@
 ```sh
 npm run check   # 全部子包类型检查（tsc --noEmit）
 npm run build   # 全部子包编译到 dist/
-npm run test    # 全部子包运行 tests/*.test.ts（node --test）
+npm run test    # 全部子包测试并行运行（scripts/test-parallel.sh：GNU parallel 为主、xargs 兜底，node --test）
 npm run demo    # TUI 构建并运行 mock demo（无 DSH 依赖）
 npm run demo -- --smoke  # TUI 冒烟检查（帧断言 SMOKE_PASS，根脚本已带 -- 转发）
 ```

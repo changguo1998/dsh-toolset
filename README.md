@@ -51,12 +51,16 @@ dsh-toolset/
 ```sh
 npm run check   # 全部子包类型检查（tsc --noEmit）
 npm run build   # 全部子包编译到 dist/
-npm run test    # 全部子包运行 tests/*.test.ts（node --test）
+npm run test    # 全部子包测试**并行**运行（scripts/test-parallel.sh：GNU parallel 为主、xargs -P 兜底，≈最慢包时长；TEST_JOBS 并发数 / TEST_RUNNER=parallel|xargs 可调）
 npm run demo    # TUI 构建并运行 mock demo（无 DSH 依赖）
 npm run demo -- --smoke   # TUI 冒烟检查（帧断言 SMOKE_PASS）
+npm run test:tui   # TUI 单包测试快捷入口（开发迭代常用，避免全包并行）
+npm run test:tui -- <正则>           # 只跑测试名匹配的用例（跨全部 TUI 测试文件）
+npm run test:tui -- <文件>.test.ts   # 只跑指定测试文件
+npm run test:tui -- <正则> <文件>    # 单文件内按名过滤
 ```
 
-单个子包内直接运行各自的 `npm run check / build / test / demo`（TUI 另有 `npm run bench` 排版性能基准、`npm run smoke:pty` 真机冒烟）。
+单个子包内直接运行各自的 `npm run check / build / test / demo`（TUI 另有 `npm run bench` 排版性能基准、`npm run smoke:pty` 真机冒烟）。`test:tui` 的实现是 `TUI/scripts/test.sh`：node `--test-name-pattern` 必须放在文件参数之前，而 `npm run x -- <arg>` 只会追加到末尾，故由包装脚本把「名字正则」安插到正确位置（含 `.test.ts` 的参数自动视为文件）。
 
 ## 接入 DSH profile 使用
 
