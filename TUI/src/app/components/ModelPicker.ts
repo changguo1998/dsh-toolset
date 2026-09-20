@@ -11,8 +11,9 @@
 // 顶部/底部对应行显示 `...` 省略号（焦点所在行不显示省略号，保证焦点
 // 恒可见）。最底行打印按键帮助：空格=选中，←/→=切换列，Tab=下一列，Enter=提交，
 // Esc=取消。
-// 列宽：按三列各自「最长选项显示宽（含行前标记）」的比例分配总可用宽度
-// （pickerColumnWidths），长 provider 名自然得宽列不截断、短 effort 列不多占；
+// 列宽：按三列各自「最长选项显示宽（含行前标记）」分配总可用宽度
+// （pickerColumnWidths）——空间充足时按比例分配（长 provider 名自然得宽列不截断、
+// 短 effort 列不多占），空间不足时改用水位法（短列保自然宽、只压最长列）；
 // effort 无选项（unsupported）时按标题宽兜底保证列可见。
 
 import type { FrameRow } from "../../renderer/index.ts";
@@ -45,20 +46,51 @@ function longestCellWidth(items: readonly string[]): number {
   return max;
 }
 
+/** 水位线：最大的 level 使 Σ min(自然宽, level) ≤ avail（二分；同 table.ts 的水位法） */
+function waterLevel(natural: number[], avail: number): number {
+  const fits = (level: number): boolean =>
+    natural.reduce((a, n) => a + Math.min(n, level), 0) <= avail;
+  let lo = 0;
+  let hi = Math.max(...natural);
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (fits(mid)) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
 /**
- * 三列宽度按「各列最长选项显示宽」的比例分配总可用宽度（available）。
+ * 三列宽度：**空间充足时按各列最长选项比例分配**总可用宽（available），
  * 大数优先取余数（floor 后余数按最长列依次补 1），避免尾部残留空白集中在
- * 某一列；每列至少 1（防 0 宽导致分隔错位），不加人为上限（长列自然得宽）。
+ * 某一列；**空间不足（Σ 自然宽 > available）时改用水位法**——短列保持自然宽、
+ * 只有超宽列被压到共同水位线，避免「按比例缩放」把 provider/effort 这类短列
+ * 也压到放不下自身内容而截断（窄面板下 provider 名/表头的截断来源）。
+ * 每列至少 1（防 0 宽导致分隔错位），不加人为上限（长列自然得宽）。
  */
 export function pickerColumnWidths(
   longest: readonly [number, number, number],
   available: number,
 ): [number, number, number] {
-  const total = longest[0] + longest[1] + longest[2];
+  const need = longest.map((l) => Math.max(0, Math.floor(l)));
+  const total = need[0]! + need[1]! + need[2]!;
   if (total <= 0) return [Math.max(1, available), 1, 1];
-  const floors = longest.map((l) => Math.floor((available * l) / total));
+  // 空间不足：水位法（极窄面板 available < 3 时退化为「首列吃掉其余、后两列各 1」）
+  if (total > available) {
+    if (available < 3) return [Math.max(1, available - 2), 1, 1];
+    const level = waterLevel(need, available);
+    const out = need.map((n) => Math.max(1, Math.min(n, level)));
+    let rem = available - (out[0]! + out[1]! + out[2]!);
+    const byLongest = [0, 1, 2].sort((a, b) => need[b]! - need[a]!);
+    for (let i = 0; rem > 0; i = (i + 1) % 3) {
+      out[byLongest[i]!]! += 1;
+      rem -= 1;
+    }
+    return out as [number, number, number];
+  }
+  const floors = need.map((l) => Math.floor((available * l) / total));
   let rem = available - (floors[0]! + floors[1]! + floors[2]!);
-  const order = [0, 1, 2].sort((a, b) => longest[b]! - longest[a]!);
+  const order = [0, 1, 2].sort((a, b) => need[b]! - need[a]!);
   for (let i = 0; rem > 0; i = (i + 1) % 3) {
     floors[order[i]!]! += 1;
     rem -= 1;

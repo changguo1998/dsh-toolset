@@ -448,3 +448,45 @@ test("reducer：thinking 区 efforts 为空时,方向键不移动(整面板不�
   const s2 = reduceState(s1, { type: "picker-move", delta: 1 });
   assert.equal(s2.picker!.effortIndex, 0);
 });
+
+test("pickerColumnWidths：空间不足走水位法——短列保自然宽，只压最长列", () => {
+  // 真实目录量级：provider 7 / model 27 / effort 7（含行前标记 2 列）
+  // 面板 46 列 → available 42：水位线 28 → [7,28,7]（三列都恰好放下内容）
+  assert.deepEqual(pickerColumnWidths([7, 27, 7], 42), [7, 28, 7]);
+  // 面板 42 列 → available 38：水位线 24 → [7,24,7]，provider/effort 不再被压到 6
+  assert.deepEqual(pickerColumnWidths([7, 27, 7], 38), [7, 24, 7]);
+  // 横向排列下活动 pane 很窄：available 25 → [7,11,7]（短列完整、只压 model 列）
+  assert.deepEqual(pickerColumnWidths([7, 27, 7], 25), [7, 11, 7]);
+  // 三列等长时超宽列共同压缩，余数补最长列
+  const even = pickerColumnWidths([10, 10, 10], 25);
+  assert.equal(
+    even.reduce((a, b) => a + b, 0),
+    25,
+  );
+  assert.ok(
+    even.every((w) => w >= 8),
+    `等长列应共同压缩: ${even}`,
+  );
+});
+
+test("pickerColumnWidths：水位法不溢出——每列 ≥1 且和 = available（含极窄面板）", () => {
+  for (const available of [3, 4, 5, 8, 12, 25, 41]) {
+    for (const longest of [
+      [7, 27, 7],
+      [22, 22, 22],
+      [1, 40, 3],
+      [30, 2, 2],
+    ] as const) {
+      const w = pickerColumnWidths(longest, available);
+      assert.equal(
+        w[0]! + w[1]! + w[2]!,
+        available,
+        `available=${available} longest=${longest} → ${w}`,
+      );
+      assert.ok(
+        w.every((x) => x >= 1),
+        `每列至少 1: ${w}`,
+      );
+    }
+  }
+});
