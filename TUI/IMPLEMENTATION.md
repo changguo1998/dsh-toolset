@@ -156,14 +156,38 @@
 
 ## 活动区排列：黄金分割比自动选上下/左右（layout.activityPlacement）
 
-- **位置**：`src/app/layout.ts` 的 `topPaneSplit`（纯函数）+ 三个既有同口径调用点（`buildTopRegion` / `inputPanelHeights` / `dialogueScrollMetrics`）与 `buildFrame` 的焦点矩形。
+- **位置**：`src/app/layout.ts` 的 `topPaneSplit`（纯函数），唯一调用点是 `frameGeometry`（几何唯一来源）；`buildTopRegion`/`buildStatusSeparator`/`buildFrame` 与 App 的翻页/半屏/跳转全部读 `frameGeometry` 的结果。
 - **判定**：pane 宽高比与 φ≈1.618 的对数偏差（`|ln(w/h/φ)|`，取两 pane 较差者）小者胜。等分（divisor=2、纵向两 pane 等高）时该判据等价于「左列正文宽 / 可用行数 > φ → 左右排列」：区域比 φ 更扁时把宽度对半分反而更接近黄金矩形（上下排列会给出一块比 φ 更扁的横条）。判据只吃左列正文宽 + 顶部内容高，**不含**右侧状态列宽。
 - **为什么不放在 state**：判定是尺寸的纯函数，启动与 resize 各自重算即可；不做滞回（阈值处反复拖动终端时最多一次翻转，且翻转点本身就是重排点）。缺省 `"vertical"` 保持既有上下语义（含 `activityTopRow` 锚定与 `activityHeightDivisor` 比例）。
 - **两 pane 独立宽度**：横向时**活动 pane 在左、历史（对话）pane 在右**；活动 pane 宽 = `floor(正文宽 / divisor)`，对话 pane 宽 = 正文宽 − 活动 pane 宽 − 1（两侧各保底 20 列 → 正文宽 < 41 或可用行 < 2 时回落上下）。`BuildBoxOptions` 新增 `activityWidth`，`buildContentRows(buffer, opts, w, aw)` 两 pane 各自 measure/fill；**不做两次 buildBox**（流式下 markdown/表格构建会翻倍），只在构建期给活动 pane 的表格用 `activityWidth` 算预算。
-- **拼行**：横向行 = 左缘框格 + 活动行（补空格到 `activityW`）+ 内部分隔 `│` + 对话行（补到 `dialogueW`）+ D 列 + 状态列 + 右缘框列；活动区分隔行消失，标题栏下划线行在内部分隔列让位 `┬`，状态区分隔行该列收束 `┴`（`buildStatusSeparator` 新增 `innerDividerCol`）。活动 pane 仍底部对齐、面板仍顶部对齐且按 `activityW` 排版。
-- **滚动**：`scrollOffset`/`activityScroll` 语义不变（距各自 pane 底部行数），但**换行宽度变了**——所有跳转/半屏/翻页坐标必须走 `dialogueScrollMetrics`/`inputPanelHeights`（它们内部改用 `topPaneSplit`，与帧同源）；`FrameScrollReport` 上限随 pane 高变化自动收敛。
+- **拼行**：横向行 = 左缘框格 + 活动行（补空格到 `activityW`）+ 内部分隔 `│` + 对话行（补到 `dialogueW`）+ D 列 + 状态列 + 右缘框列；活动区分隔行消失，标题栏下划线行在内部分隔列让位 `┬`，状态区分隔行该列收束 `┴`（`buildStatusSeparator` 以几何为入参）。**活动 pane 恒底部对齐**（两种排列一致：内容自 pane 底边往上长，填满整块 pane 后才折叠最早内容），面板仍顶部对齐且按 `activityW` 排版。
+- **折叠点 = pane 高**：活动内容窗口切片用 `geom.activityH`（横向 = 整列可用行数，纵向 = 可用行数的一半），与渲染 pane 的程序同一变量——这正是「能用一个就不要用两个」要修的点：切片与 pane 各算一份时会出现「活动区内容高度与纵向相同、走到一半就折叠」。
+- **滚动**：`scrollOffset`/`activityScroll` 语义不变（距各自 pane 底部行数），但**换行宽度/视口高变了**——所有跳转/半屏/翻页坐标统一读 `frameGeometry`（与帧同源：`dialogueW` 换行宽、`viewportH` 页高、`activityH`/`contentTopH` 页高）；`FrameScrollReport` 上限随 pane 高变化自动收敛。
 - **焦点框**：`FocusFrameContext.innerDividerCol` 非 undefined 即横向——activity 右缘/history 左缘改为此列（activity 顶边右端用 `┬`、history 顶边左端用 `┬`；底边两端 `┴`），history 右缘仍是 D 列；rects 按左右并排构造（activity 在左、history 在右，等高，底边 = 状态区分隔行）。
-- **回归**：`tests/layout-horizontal.test.ts`（5 例：内部分隔列与 `┬`/`┴`、两 pane 定宽、滚动口径一致、焦点框角字、独立宽度换行）+ `tests/config.test.ts` 的 `topPaneSplit` 判定表；全量 906 单测。
+- **回归**：`tests/layout-horizontal.test.ts`（8 例：内部分隔列与 `┬`/`┴`、两 pane 定宽、滚动口径一致、焦点框角字、独立宽度换行、**活动区底部对齐（填满 pane 后才折叠）**、**排队块钉在历史 pane 右下角**）+ `tests/config.test.ts` 的 `topPaneSplit` 判定表。
+
+## 活动区内容生命周期（不清单类；只在用户输入后整体清空）
+
+- **不按组数折叠**：`flushToolRun` 不再截断工具调用组（`TOOL_MAX_GROUPS` / `TOOL_MORE` 常量与 `...(更早工具调用已隐藏)` 占位已删除）。工具历史只受**活动 pane 可视行数**约束：内容先自下往上填满整块 pane（`activityH`，横向 = 整列可用行数），更早内容折叠在 pane 顶边之外，Tab 聚焦活动区后 ↑/PgUp 可回看（`activityMaxScroll = 活动内容行数 − activityH`）。`tests/content-mapping.test.ts` 里两例旧折叠场景改为「记录基线含占位、新实现全量保留」的显式差异断言。
+- **清空时机 = 用户输入**：`turn-begin` 带 `clearActivity` 参数——`true` 时清空活动区内容（`thinking`/`tool`/`notice`/非 `final` assistant **整类一起清**，不做单类清除）并把 `activityScroll` 归零；`App.beginTurnIfNeeded(userInput)` 只在「用户输入开启的回合」传 true：空闲提交（`sendUserText`）与排队消息被核心认领（`state.queued.length > 0`）——核心自发的回合（goal 轮次、定时唤醒等）只画分隔线、保留上一轮内容继续往上堆。
+- **打字机不丢内容**：正文到达或延迟 `turn-end` 接管时，未放完的思考由 `drainThinking()` **整段放入缓冲**（旧的 `dropThinking` 会静默丢弃未显示的思考）；`dropThinking` 仅留给 `dispose`。
+- **回归**：`tests/app.test.ts`「活动区生命周期：核心自发回合不清空（用户输入才清空，且整类一起清）」+ `tests/layout4.test.ts`「工具历史不按组数折叠，只受活动 pane 可视行数约束（超出可上滚回看）」。
+
+## 排版尺寸唯一来源：FrameGeometry
+
+- **问题**：`metricsFor`/`topPaneSplit`/`leftColumnWidth`/`renderStatusLine` 曾在 `buildFrame`、`buildTopRegion`、`inputPanelHeights`、`dialogueScrollMetrics` 各自算一遍（同一件事 4 份），口径一旦漂移就出现「帧里看到的 pane 高度」与「滚动/翻页用的 pane 高度」不一致——横向排列下活动区内容仍按纵向高度排就是这类缺陷。
+- **做法**：新增 `frameGeometry(state, size): FrameGeometry`（纯函数，`layout.ts`），把状态栏行、模态/提示区判定、`metricsFor`、`topPaneSplit`、排队块行、视口高、分隔列、内部分隔列、焦点框矩形基准全部**一次算定**并返回；`buildFrame`/`buildTopRegion`/`buildStatusSeparator` 与 App（`focusedLineScroll`/`focusedPageScroll`/`userInputJump`/补全可视行）只读这一份。
+- **删除的冗余尺寸入口**：`inputPanelHeights` + `PanelHeights`、`dialogueScrollMetrics` + `DialogueScrollMetrics`（并入 `frameGeometry`）、`ACTIVITY_HEIGHT_RATIO`（已废弃常量）、`THINKING_MAX`（无引用）、`buildTopRegion` 的 12 个位置参数（改为 `(state, geom, report?)`）。
+- **语义保持**：面板开关不改变顶部内容行数（输入态 `footer=交互相-1 + 提示 1`，面板态 `footer=交互相 + 提示 0`，`contentTopH` 相同）；`frameGeometry` 同时产出 `statusLines`，`buildFrame` 不再重复调 `renderStatusLine`。
+
+## 排队消息（agent 运行中 Enter）
+
+- **发送：完全走官方流程**。`App.submit` 在 agent 忙（`agentStatus !== "idle"` 或本地 `inputStatus === "running"`，覆盖「刚提交、核心状态事件未到」窗口）时仍是立即 `adapter.sendMessage(text)` → 核心 `followup`（`next-turn` 队列，durable）——**逐条、不合并**、不由 TUI 积压；空闲时走 `sendUserText`（本地回显 + 直接发送）。两条路径的发送语义一致，**差别只在显示**：忙时不回显历史行，改为排队登记。
+- **显示登记**：`AppState.queued: string[]`（按提交顺序）+ action `queued-push`（追加一条）/ `queued-claim`（弹出最早一条并 `appendStream(..., "user")` 落入历史）/ `queued-clear`。登记只用于渲染，不代表 TUI 持有消息（消息已在核心队列里）。
+- **认领时机**：`beginTurnIfNeeded()`（新回合开始：本地提交或首条思考/正文到达）在 `turn-begin` 之后 `queued-claim`——核心每开一个新回合从 `next-turn` 认领一条，UI 因此「每回合转正一条」；转正后该条按普通用户行渲染（亮红右缘竖线）。
+- **渲染**（`frameGeometry` + `buildTopRegion`）：`queuedBlockRows` 把登记文本按 `\n` 拆行、以 `BufferLine{kind:"user", queued:true}` 走同一套 `buildContentRows`（右对齐 + 灰竖线 `gray`），得到 `geom.queuedRows`；对话 pane 最后 `queuedRows.length` 行渲染排队块（**钉在右下角、不随历史滚动**），历史视口高 = `dialogueH − queuedRows.length`（至少留 1 行历史；超长取尾部），`FrameScrollReport.dialogueGeometry.height` 与 App 的翻页/半屏按该视口高收敛。
+- **Esc / Alt+Enter**：Esc 先 `restoreQueued()`（登记按顺序并回输入框，核心 `cancel` 会清自己的队列，本机留底不丢输入）再 `interrupt()`；Alt+Enter 同样先并回输入框、打断，然后整条发送（避免「新文本先发、排队内容后发」顺序颠倒；空输入且无登记仍为 no-op）。切换会话（`history-resume-ok`）`queued-clear`。
+- **回归**：`tests/app.test.ts`（运行中 Enter 立即发送且逐条不合并、登记不写 buffer、新回合认领一条转正、Esc 退回输入框 + 清登记 + 打断、Alt+Enter 按序并入）+ `tests/layout-horizontal.test.ts`（排队块位置/灰竖线/视口高收缩；纵向活动区底部对齐不变）。
 
 ## 验证方式
 

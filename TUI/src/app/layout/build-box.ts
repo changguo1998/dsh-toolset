@@ -14,8 +14,6 @@ import type { Buffer, BufferKind } from "../state.ts";
 import type { ColorName, ThemeId } from "../../renderer/theme.ts";
 import type { FrameStyle } from "../../renderer/index.ts";
 import {
-  TOOL_MAX_GROUPS,
-  TOOL_MORE,
   TOOL_CONT_INDENT,
   USER_MIN_LEFT_GUTTER,
   isToolCall,
@@ -34,6 +32,8 @@ export interface RowMeta {
   line?: number;
   /** 来源 buffer 行的**稳定序号**（语义锚点身份；filter/裁剪后行下标会平移而序号不变） */
   seq?: number;
+  /** 排队中的用户消息（未发出；渲染层据此把右缘竖线画成灰色） */
+  queued?: boolean;
 }
 
 /** buildBox 产物：内容树 + 行元数据映射 */
@@ -90,7 +90,7 @@ function toolLineSegs(line: string, tone?: string) {
  *
  * 分类逻辑 = 旧管线迁出前的结构平移：
  *  - assistant：final → dialogue、非 final → activity；fence 跨行状态注解
- *  - tool：连续 run 分组 + TOOL_MAX_GROUPS 折叠 + step 头
+ *  - tool：连续 run 分组 + step 头（不按组数折叠：只受活动 pane 可视行数约束）
  *  - user：整块右对齐（h[spacer(fill), styled]）+ 右缘竖线（suffix, minWidth）
  *  - thinking：prefix 紫竖线（minWidth）、空行跳过
  *  - notice：tone 着色
@@ -125,17 +125,9 @@ export function buildBox(
         groups.push([]);
       groups[groups.length - 1]!.push(item.line);
     }
-    const visible = groups.slice(-TOOL_MAX_GROUPS);
-    const hasMore = groups.length > TOOL_MAX_GROUPS;
-    if (hasMore) {
-      const id = freshBlockId();
-      const more = styled([
-        { text: TOOL_MORE, style: { fg: NOTICE_TONE_COLOR.log } },
-      ]);
-      meta.set(more, { kind: "tool", blockId: id });
-      activityLeaves.push(more);
-    }
-    for (const group of visible) {
+    // 不按组数折叠：历史只受「活动 pane 可视行数」约束（超出部分可上滚回看），
+    // 见 buildTopRegion 的 act 切片——折叠点 = pane 高，而非固定组数
+    for (const group of groups) {
       const bid = freshBlockId();
       for (let li = 0; li < group.length; li++) {
         const l = group[li]!;
@@ -176,6 +168,7 @@ export function buildBox(
       blockId: freshBlockId(),
       line: lineOffset + li,
       seq: line.seq,
+      ...(line.queued ? { queued: true } : {}),
     };
     if (line.kind === "tool") {
       toolRun.push({
@@ -201,10 +194,11 @@ export function buildBox(
     }
     if (line.kind === "user") {
       // 整块右对齐 + 右缘竖线：h([spacer(fill), styled(文本, suffix 竖线)])
+      // 排队中（尚未发出）的右缘竖线改灰色：与已发出的用户块（亮红）区分
       const body = styled([{ text: line.text }], {
         suffix: {
           text: "┃",
-          style: { fg: "brightRed" },
+          style: { fg: line.queued ? "gray" : "brightRed" },
           minWidth: USER_MIN_LEFT_GUTTER + 2,
         },
       });

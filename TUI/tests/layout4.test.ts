@@ -16,7 +16,7 @@ import {
   userMaxBodyWidth,
   TITLE_BAR_ROWS,
   dialogueHalfPage,
-  dialogueScrollMetrics,
+  frameGeometry,
   userInputJump,
   DIALOGUE_KEEP_REPLIES,
   anchorToIndex,
@@ -1250,9 +1250,10 @@ test("buildFrame: notice tone 行在帧内灰/蓝/黄/红/绿着色", () => {
   assert.ok(joined.includes("\x1b[38;2;97;211;131m绿"), "success → 绿");
 });
 
-test("buildFrame: 工具历史只显最近 TOOL_MAX_GROUPS 组，窗口内组间无空行", () => {
+test("buildFrame: 工具历史不按组数折叠，只受活动 pane 可视行数约束（超出可上滚回看）", () => {
   let s = initialState();
-  // 6 次调用组（每次 * + +）：超过 TOOL_MAX_GROUPS=4，更早的 cmd1/2 被折叠标记隐藏
+  // 6 次调用组（每次 * + +）：过去按 TOOL_MAX_GROUPS=4 折叠掉前两组，
+  // 现在全部保留（只受 pane 高约束，pane 外的内容可上滚回看）
   for (let i = 1; i <= 6; i++) {
     s = reduceState(s, {
       type: "tool-call",
@@ -1267,19 +1268,31 @@ test("buildFrame: 工具历史只显最近 TOOL_MAX_GROUPS 组，窗口内组间
       detail: "ok " + i,
     });
   }
-  const joined = buildFrame(s, { rows: 20, cols: 50 })
-    .map((l) => rowAnsi(l))
-    .join("\n");
-  const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
+  const strip = (rows: ReturnType<typeof buildFrame>): string =>
+    rows
+      .map((l) => rowAnsi(l))
+      .join("\n")
+      .replace(/\x1b\[[0-9;]*m/g, "");
+  const SIZE = { rows: 20, cols: 50 };
+  const plain = strip(buildFrame(s, SIZE));
+  assert.ok(
+    !plain.includes("更早工具调用已隐藏"),
+    "不再出现按组数折叠的占位行",
+  );
   assert.ok(plain.includes("cmd 6"), "最新调用应保留在活动区窗口");
   assert.ok(plain.includes("ok 6"), "最新结果应保留");
-  assert.ok(plain.includes("cmd 5"), "倒数第二调用应保留");
-  assert.ok(!plain.includes("cmd 2"), "第二早调用被 TOOL_MAX_GROUPS 折叠隐藏");
-  assert.ok(!plain.includes("cmd 1"), "最早调用被折叠隐藏");
-  // 组间不再插空行：cmd5 组与 cmd6 组之间的区域不含空行（旧行为有 1 个）
-  const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
-    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
+  // 折叠点 = pane 高：可见行数恰为 activityH，更早内容在 pane 外（内容仍在缓冲里）
+  const g = frameGeometry(s, SIZE);
+  assert.equal(g.mode, "vertical");
+  const scrolled = strip(
+    buildFrame(reduceState(s, { type: "activity-scroll", delta: 100 }), SIZE),
   );
+  assert.ok(
+    scrolled.includes("cmd 1") && scrolled.includes("ok 1"),
+    "上滚可回看最早调用（内容未被折叠掉）",
+  );
+  // 组间不再插空行：cmd5 组与 cmd6 组之间的区域不含空行（旧行为有 1 个）
+  const lines = strip(buildFrame(s, SIZE)).split("\n");
   const i5 = lines.findIndex((l) => l.includes("cmd 5"));
   const i6 = lines.findIndex((l) => l.includes("cmd 6"));
   assert.ok(i5 >= 0 && i6 > i5, "cmd5/cmd6 均在帧中");
@@ -2268,11 +2281,12 @@ test("dialogueHalfPage：半屏取整且至少 1 行", () => {
   assert.equal(dialogueHalfPage(0), 1);
 });
 
-test("dialogueScrollMetrics：正文宽/可视高与 buildFrame 同口径（rows=24/cols=80）", () => {
-  const m = dialogueScrollMetrics(initialState(), { rows: 24, cols: 80 });
+test("frameGeometry：正文宽/可视高与 buildFrame 同口径（rows=24/cols=80）", () => {
+  const m = frameGeometry(initialState(), { rows: 24, cols: 80 });
   assert.equal(m.dialogueH, 6, "对话区可视行（标题栏 2 行由对话区承担后）");
+  assert.equal(m.viewportH, 6, "无排队块 → 历史视口 = 对话 pane 高");
   // historyWidth = 80 - floor(80/3) = 54，col0 左缘框格占 1 → contentW=53
-  assert.equal(m.contentW, 53, "对话区正文宽 = historyWidth - 左缘框列");
+  assert.equal(m.dialogueW, 53, "对话区正文宽 = historyWidth - 左缘框列");
 });
 
 test("userInputJump：PgUp/PgDn 把用户消息首行翻到顶行，后文不足一屏时填充前面历史", () => {

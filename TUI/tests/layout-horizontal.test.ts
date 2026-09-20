@@ -8,13 +8,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildFrame,
-  dialogueScrollMetrics,
+  frameGeometry,
   displayWidth,
-  inputPanelHeights,
   leftColumnWidth,
   metricsFor,
   topPaneSplit,
   FRAME_LEFT_COLS,
+  type FrameScrollReport,
 } from "../src/app/layout.ts";
 import { buildContentRows } from "../src/app/layout/build-box.ts";
 import type { Buffer } from "../src/app/state.ts";
@@ -110,13 +110,16 @@ test("横向排列：固定 placement 不受黄金比影响（vertical 仍纵向
 
 test("横向排列：滚动口径与帧内 pane 宽高一致（半屏/翻页/跳转坐标）", () => {
   const s = turnState("auto");
-  const m = dialogueScrollMetrics(s, SIZE);
-  assert.equal(m.contentW, SPLIT.dialogueW, "跳转坐标按对话 pane 宽度换算");
-  assert.equal(m.dialogueH, SPLIT.dialogueH);
-  const page = inputPanelHeights(s, SIZE);
-  assert.equal(page.dialogueH, SPLIT.dialogueH);
+  const m = frameGeometry(s, SIZE);
+  assert.equal(m.dialogueW, SPLIT.dialogueW, "跳转坐标按对话 pane 宽度换算");
   assert.equal(
-    page.activityH,
+    m.viewportH,
+    SPLIT.dialogueH,
+    "无排队块 → 视口高 = 对话 pane 高",
+  );
+  assert.equal(m.dialogueH, SPLIT.dialogueH);
+  assert.equal(
+    m.activityH,
     SPLIT.activityH,
     "活动 pane 满高（翻页页高随之变大）",
   );
@@ -198,4 +201,105 @@ test("横向排列：内部分隔列与下划线行 ┬ / 状态区分隔行 ┴
     "┴",
     "状态区分隔行交汇（与竖线同列）",
   );
+});
+
+test("活动区内容底部对齐（两种排列一致）：内容从下往上填满 pane 后才折叠最早内容", () => {
+  const size = { rows: 24, cols: 140 };
+  const short = (placement: "auto" | "vertical"): AppState =>
+    reduceState(
+      reduceState(
+        initialState(undefined, {
+          activityDivisor: 2,
+          activityPlacement: placement,
+          activityTopRow: "half",
+        }),
+        { type: "thinking", text: "TH短内容" },
+      ),
+      { type: "append", text: "AN回复" },
+    );
+  // 内容不足一屏：贴 pane 底部（最新一行落在 pane 末行），上方留白
+  for (const placement of ["auto", "vertical"] as const) {
+    const m = frameGeometry(short(placement), size);
+    const rows = buildFrame(short(placement), size).map(rowText);
+    const paneTop =
+      m.mode === "horizontal" ? m.titleRows : m.titleRows + m.dialogueH + 1;
+    const paneBottom = paneTop + m.activityH - 1;
+    assert.ok(
+      !rows[paneTop]!.includes("TH短内容") &&
+        rows[paneBottom]!.includes("AN回复"),
+      `${m.mode}: 活动内容自 pane 底部往上排（最新一行贴底）`,
+    );
+  }
+  // 内容超过一屏：填满整块 pane 后才折叠——可见行数 = pane 高，最早可见行 = 内容尾部 N 行
+  const manyLines = (placement: "auto" | "vertical"): AppState =>
+    reduceState(
+      initialState(undefined, {
+        activityDivisor: 2,
+        activityPlacement: placement,
+        activityTopRow: "half",
+      }),
+      {
+        type: "thinking",
+        text: Array.from(
+          { length: 60 },
+          (_, i) => `L${String(i + 1).padStart(2, "0")}`,
+        ).join("\n"),
+      },
+    );
+  for (const placement of ["auto", "vertical"] as const) {
+    const m = frameGeometry(manyLines(placement), size);
+    const rows = buildFrame(manyLines(placement), size).map(rowText);
+    const paneTop =
+      m.mode === "horizontal" ? m.titleRows : m.titleRows + m.dialogueH + 1;
+    const paneBottom = paneTop + m.activityH - 1;
+    // pane 高（横向 = 整列可用行数 15；纵向 = 可用行数的一半 4）决定折叠点：
+    // 可见内容恒为「尾部 activityH 行」，即填满整块 pane 后才折叠最早内容
+    const first = 60 - m.activityH + 1;
+    assert.ok(m.activityH >= 4, `${m.mode}: 活动 pane 至少 4 行`);
+    assert.ok(
+      rows[paneTop]!.includes(`L${String(first).padStart(2, "0")}`) &&
+        rows[paneBottom]!.includes("L60"),
+      `${m.mode}: pane 填满 ${m.activityH} 行，可见 L${first}..L60（折叠点在 pane 顶边）`,
+    );
+  }
+});
+
+test("排队块：钉在历史 pane 右下角（右对齐 + 灰色右缘竖线），历史视口高相应收缩", () => {
+  const base = turnState("auto");
+  const size = { rows: 18, cols: 140 };
+  const before = frameGeometry(base, size);
+  assert.equal(before.queuedRows.length, 0, "无排队块");
+  let s = reduceState(base, { type: "queued-push", text: "排队一" });
+  s = reduceState(s, { type: "queued-push", text: "排队二" });
+  const g = frameGeometry(s, size);
+  assert.equal(g.queuedRows.length, 2, "两条排队消息 = 两行（逐条不合并）");
+  assert.equal(
+    g.viewportH,
+    g.dialogueH - 2,
+    "历史视口高 = 对话 pane 高 − 排队块行数",
+  );
+  const rows = buildFrame(s, size);
+  const text = rows.map(rowText);
+  // 排队块占据对话 pane 最后两行（右下角），历史内容下移一行不覆盖
+  const last = g.titleRows + g.dialogueH - 1;
+  assert.ok(text[last - 1]!.includes("排队一"), "排队一在 pane 倒数第二行");
+  assert.ok(text[last]!.includes("排队二"), "排队二在 pane 末行（右下角）");
+  // 右对齐 + 右缘竖线：文本以 ┃ 收尾（其后仅 D 列与状态列）
+  const qRow = rows[last]!;
+  const barIdx = qRow.segments.findIndex((x) => x.text.endsWith("┃"));
+  assert.ok(barIdx >= 0, "排队块右缘有竖线");
+  assert.equal(qRow.segments[barIdx]!.style?.fg, "gray", "排队块竖线为灰色");
+  // 上滚查看旧记录：排队块仍在 pane 底部（历史视口随锚点上移）
+  const report: FrameScrollReport = {
+    dialogueMaxScroll: 0,
+    activityMaxScroll: 0,
+    dialogueGeometry: { rows: 0, height: 0, spans: [], topIdx: 0 },
+    dialogueTop: { seq: 0, row: 0 },
+  };
+  buildFrame(s, size, report);
+  const scrolled = buildFrame(
+    reduceState(s, { type: "scroll", delta: 3, geom: report.dialogueGeometry }),
+    size,
+  ).map(rowText);
+  assert.ok(scrolled[last]!.includes("排队二"), "上滚后排队块仍在右下角");
 });

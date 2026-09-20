@@ -28,7 +28,7 @@ import { initialState, reduceState, sanitizeText } from "../src/app/state.ts";
 import {
   metricsFor,
   displayWidth,
-  inputPanelHeights,
+  frameGeometry,
   TITLE_BAR_ROWS,
 } from "../src/app/layout.ts";
 import type {
@@ -542,6 +542,7 @@ test("模式键：空输入按 $ / / 切换模式且吞键，! 为普通字符�
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(adapter.log, ["send:!x"], "! 为普通字符");
   assert.equal(adapter.interrupts, 0);
+  adapter.push({ type: "turn-end" }); // 回合结束回 idle（否则后续 Enter 进排队）
   // $ 切 shell 吞键、提交不加 $、提交后回退 normal
   renderer.press({ name: "$", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "l", ctrl: false, meta: false, shift: false });
@@ -551,6 +552,7 @@ test("模式键：空输入按 $ / / 切换模式且吞键，! 为普通字符�
     ["send:!x", "send:l"],
     "shell 提交不加 $，提交后回退",
   );
+  adapter.push({ type: "turn-end" });
   // 回退后输入普通 z，不残留模式
   renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
@@ -565,6 +567,7 @@ test("非 normal 模式空输入按 Backspace 回退至 normal（$ / 切了再�
   renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(adapter.log, ["send:z"], "shell 回退后按普通字符发送");
+  adapter.push({ type: "turn-end" }); // 回 idle（否则第二次 Enter 进排队）
   // / → slash，同理回退
   renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "backspace", ctrl: false, meta: false, shift: false });
@@ -601,10 +604,159 @@ test("Alt+Enter 打断并发送：先 interrupt 再 send，输入清空、模式
     ["interrupt", "send:hi"],
     "Alt+Enter 先打断再发送",
   );
+  adapter.push({ type: "turn-end" }); // 回合结束回 idle（否则后续 Enter 进排队）
   // 提交后输入不残留、模式已回退
   renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(adapter.log, ["interrupt", "send:hi", "send:z"]);
+});
+
+test("agent 运行中 Enter → 官方流程：立即发送给核心（逐条不合并），本机只登记排队显示", () => {
+  const { app, renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "第一条");
+  assert.deepEqual(adapter.sent, ["第一条"], "空闲直发");
+  const st = (): { queued: string[]; buffer: { text: string }[] } =>
+    (
+      app as unknown as {
+        state: { queued: string[]; buffer: { text: string }[] };
+      }
+    ).state;
+  // 运行中：后续 Enter 立即 followup（核心 next-turn 队列），逐条、不合并
+  typeAndEnter(renderer, "第二条");
+  typeAndEnter(renderer, "第三条");
+  assert.deepEqual(
+    adapter.sent,
+    ["第一条", "第二条", "第三条"],
+    "排队消息同样走官方 followup（立即发送，不由本机积压）",
+  );
+  assert.deepEqual(st().queued, ["第二条", "第三条"], "本机登记两条排队显示");
+  const bufferText = (): string =>
+    st()
+      .buffer.map((l) => l.text)
+      .join("|");
+  assert.ok(
+    !bufferText().includes("第二条") && !bufferText().includes("第三条"),
+    "未认领的排队消息不写历史 buffer（由排队块显示）",
+  );
+  // 核心开始新回合（首条正文到达）→ 认领最早一条：转入历史流
+  adapter.push({ type: "turn-end" });
+  adapter.push({ type: "stream", sessionId: "s1", text: "第二轮回答" });
+  assert.deepEqual(st().queued, ["第三条"], "每回合认领一条（弹出最早）");
+  assert.ok(bufferText().includes("第二条"), "被认领的排队消息成为历史用户行");
+  app.dispose();
+});
+
+test("活动区生命周期：核心自发回合不清空（用户输入才清空，且整类一起清）", () => {
+  const { app, renderer, adapter } = makeApp();
+  const st = (): { buffer: { text: string; kind: string }[] } =>
+    (app as unknown as { state: { buffer: { text: string; kind: string }[] } })
+      .state;
+  const kinds = (): string[] =>
+    st()
+      .buffer.filter(
+        (l) =>
+          l.kind === "thinking" || l.kind === "tool" || l.kind === "notice",
+      )
+      .map((l) => l.text);
+  // 第一回合：思考 + 工具 + 提示（活动区三类内容）
+  typeAndEnter(renderer, "第一问");
+  adapter.push({ type: "thinking", sessionId: "s1", text: "思考一" });
+  adapter.push({
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "ls",
+  });
+  adapter.push({ type: "notice", text: "提示一" });
+  adapter.push({ type: "turn-end" });
+  assert.deepEqual(
+    kinds(),
+    ["思考一", "bash ls", "提示一"],
+    "三类内容同处活动区",
+  );
+  // 核心自发的新回合（无本地提交）：turn-begin 画分隔线但不清活动区
+  adapter.push({ type: "stream", sessionId: "s1", text: "自发回合正文" });
+  assert.deepEqual(
+    kinds(),
+    ["思考一", "bash ls", "提示一"],
+    "核心自发回合保留上一轮活动内容（只有用户输入才清）",
+  );
+  // 自发回合结束后用户输入（空闲直发）→ 活动区整类清空
+  adapter.push({ type: "turn-end" });
+  typeAndEnter(renderer, "第二问");
+  assert.deepEqual(kinds(), [], "用户输入后活动区三类内容一起清空");
+  // 运行中的用户输入（进排队）→ 被核心认领开启新回合时清空
+  adapter.push({ type: "thinking", sessionId: "s1", text: "思考二" });
+  typeAndEnter(renderer, "第三问");
+  assert.deepEqual(kinds(), ["思考二"], "排队期间不清空运行中回合的活动内容");
+  adapter.push({ type: "turn-end" });
+  adapter.push({ type: "stream", sessionId: "s1", text: "第三问回复" });
+  assert.deepEqual(kinds(), [], "排队消息被认领开启新回合 → 整体清空");
+  app.dispose();
+});
+
+test("排队消息 Esc：退回输入框（保留可编辑）+ 清空登记 + 打断", () => {
+  const { app, renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "发出去了");
+  adapter.push({
+    type: "agent-status",
+    sessionId: "s1",
+    status: "thinking",
+  });
+  typeAndEnter(renderer, "排队甲");
+  typeAndEnter(renderer, "排队乙");
+  assert.deepEqual(
+    adapter.sent,
+    ["发出去了", "排队甲", "排队乙"],
+    "排队消息已按官方流程发出（核心队列持有）",
+  );
+  renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+  const st = (
+    app as unknown as {
+      state: { inputText: string; queued: string[] };
+    }
+  ).state;
+  assert.deepEqual(st.queued, [], "排队登记已清空");
+  assert.equal(
+    st.inputText,
+    "排队甲\n排队乙",
+    "排队内容按顺序退回输入框，可编辑",
+  );
+  assert.equal(adapter.interrupts, 1, "Esc 仍打断运行中的 agent");
+  // 退回后再提交（核心已回 idle）→ 直发退回的草稿
+  adapter.push({ type: "turn-end" });
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "idle" });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.sent, [
+    "发出去了",
+    "排队甲",
+    "排队乙",
+    "排队甲\n排队乙",
+  ]);
+  app.dispose();
+});
+
+test("Alt+Enter 连带排队登记：按时间顺序并入本次发送（不出现顺序颠倒）", () => {
+  const { app, renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "先发的");
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
+  typeAndEnter(renderer, "排队甲");
+  typeAndEnter(renderer, "排队乙");
+  // 再输入新文本后按 Alt+Enter（打断并发送）
+  for (const ch of Array.from("现在打断发")) {
+    renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
+  }
+  renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: true, shift: false });
+  const st = (app as unknown as { state: { queued: string[] } }).state;
+  assert.deepEqual(st.queued, [], "Alt+Enter 已清空排队登记");
+  assert.equal(adapter.interrupts, 1, "Alt+Enter 打断一次");
+  assert.deepEqual(
+    adapter.sent,
+    ["先发的", "排队甲", "排队乙", "排队甲\n排队乙\n现在打断发z"],
+    "排队登记退回输入框后按顺序并入本次发送",
+  );
+  app.dispose();
 });
 
 test("Alt+Enter 空输入无操作：不打断不发送", () => {
@@ -3068,7 +3220,7 @@ test("顶部面板焦点滚动映射：↑/↓ 只作用于各自面板；PgUp/P
     delta: 1,
   });
   // 整页：页 = 面板可视行数
-  const page = { topHeight: 17, activityH: 8, dialogueH: 8 };
+  const page = { contentTopH: 17, activityH: 8, viewportH: 8 } as never;
   assert.deepEqual(focusedPageScroll("history", 1, page), {
     type: "scroll",
     delta: 8,
@@ -3091,16 +3243,17 @@ test("顶部面板焦点滚动映射：↑/↓ 只作用于各自面板；PgUp/P
   });
 });
 
-test("inputPanelHeights：页高口径与 buildFrame 一致（rows=24 → 状态列内容 17 / 活动 8 / 对话 6）", () => {
-  const h = inputPanelHeights(initialState(), { rows: 24, cols: 80 });
+test("frameGeometry：页高口径与 buildFrame 一致（rows=24 → 状态列内容 17 / 活动 8 / 对话 6）", () => {
+  const g = frameGeometry(initialState(), { rows: 24, cols: 80 });
   assert.equal(
-    h.topHeight,
+    g.contentTopH,
     17,
-    "状态列内容高=topHeight（2026-09-27 无顶部边框行）",
+    "状态列内容高=contentTopH（2026-09-27 无顶部边框行）",
   );
-  assert.equal(h.activityH, 8);
+  assert.equal(g.activityH, 8);
   // 标题栏（标题行 + 下划线，2 行）由对话区承担：对话 8 → 6
-  assert.equal(h.dialogueH, 6);
+  assert.equal(g.dialogueH, 6);
+  assert.equal(g.viewportH, 6, "无排队块时历史视口 = 对话 pane 高");
 });
 
 test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 ↑/PgUp 滚动帮助", async () => {
@@ -3280,9 +3433,14 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   renderer.press(key("tab")); // 历史 → 流输出
   for (let i = 0; i < 25; i++) renderer.press(key("up")); // 上滚越过可视上限
   assert.ok(actFirst().startsWith("turn1 行 0"), "上滚后钳制到最早行");
-  // 新回合：stream 触发 turn-begin 清空旧瞬态（activityScroll 归零 + 自动失焦），
+  // 新回合：**用户输入**（提交）触发活动区整体清空（activityScroll 归零 + 自动失焦），
   // 随后 20 条新 notice（超出窗口）
-  adapter.push({ type: "stream", text: "turn2 的模型回复" } as DshEvent);
+  typeAndEnter(renderer, "turn2 提问");
+  adapter.push({
+    type: "stream",
+    sessionId: "s1",
+    text: "turn2 的模型回复",
+  } as DshEvent);
   for (let i = 0; i < 20; i++)
     adapter.push({ type: "notice", text: `turn2 行 ${i}` } as DshEvent);
   // 修复前：activityScroll=25 残余，↓ 后死区仍钳在最老 turn2 行；

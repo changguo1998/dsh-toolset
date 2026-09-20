@@ -81,6 +81,8 @@ export interface BufferLine {
   tone?: NoticeTone;
   /** 回合最终总结标记：turn-end 时由 markFinalSummary 打标；历史恢复行恒为 true */
   final?: boolean;
+  /** 排队中的用户消息（历史区右下角的待发块；右缘竖线改灰色标识未发出） */
+  queued?: boolean;
 }
 
 export type Buffer = BufferLine[];
@@ -304,6 +306,10 @@ export interface AppState {
   dialogueGeometry: DialogueGeometry;
   inputText: string;
   inputCursor: number;
+  /** 排队消息（**已按官方流程 followup 交给核心 next-turn 队列**、但本回合尚未被
+   *  认领的文本，按提交顺序；本机只用于显示——核心认领最早一条时该条转入历史流。
+   *  空数组 = 无排队） */
+  queued: string[];
   /** 输入模式（符号代表模式；提交后自动回退 normal） */
   inputMode: InputMode;
   /** 上次提交所用模式（提示符左字符符号来源；提交时记录，回退 normal 不影响） */
@@ -541,6 +547,7 @@ export function initialState(
     dialogueGeometry: { rows: 0, height: 0, spans: [], topIdx: 0 },
     inputText: "",
     inputCursor: 0,
+    queued: [], // 无排队（agent 运行期间 Enter 的文本登记在此，核心认领后转入历史）
     inputMode: "normal",
     lastSubmitMode: "normal",
     inputStatus: "success",
@@ -788,25 +795,33 @@ export function markFinalSummary(state: AppState): AppState {
 }
 
 /**
- * turn 开始：清掉上一轮遗留瞬态活动行（思考/工具调用/notice/非 final 中间输出，
- * 即活动区内容），再在历史末尾追加分隔线，让每个新回合从干净的活动区开始。
- * 空 buffer 或末尾已是分隔线时不追加（避免孤立/重复分隔）。由 `turn-begin` 触发。
+ * turn 开始：在历史末尾追加分隔线；`clearActivity` 为真时先清掉活动区内容
+ * （思考/工具调用/notice/非 final 中间输出——**整类一起清**，不做单类清除）。
+ *
+ * clearActivity 由触发方决定：**用户输入开启的回合**（提交 / 排队消息被认领）清空，
+ * 核心自发的回合（goal 轮次、定时唤醒等）保留上一轮活动内容继续往上堆——活动区
+ * 内容只在下一次输入后整体清空。空 buffer 或末尾已是分隔线时不追加分隔线
+ * （避免孤立/重复分隔）。由 `turn-begin` 触发。
  */
-export function appendTurnSeparator(state: AppState): AppState {
+export function appendTurnSeparator(
+  state: AppState,
+  clearActivity = true,
+): AppState {
   let buffer = state.buffer.length ? [...state.buffer] : [];
-  // 瞬态活动行仅当前回合可见：清思考 + 工具/notice + 非 final 中间输出
-  // （新回合冲掉旧命令的活动结果；final 总结留在历史区）
-  buffer = buffer.filter(
-    (l) =>
-      l.kind !== "thinking" &&
-      l.kind !== "tool" &&
-      l.kind !== "notice" &&
-      !(l.kind === "assistant" && !l.final),
-  );
-  // 活动区整区被清空（每回合瞬态）：滚动偏移一并归零，新回合回到跟随最新。
-  // 不归零则旧 activityScroll 超出新内容的可视上限，渲染钳制下 ↓ 需连续按到
-  // 偏移耗尽才恢复（“向下没反应”死区）。
-  const next: AppState = { ...state, buffer, activityScroll: 0 };
+  if (clearActivity) {
+    buffer = buffer.filter(
+      (l) =>
+        l.kind !== "thinking" &&
+        l.kind !== "tool" &&
+        l.kind !== "notice" &&
+        !(l.kind === "assistant" && !l.final),
+    );
+  }
+  // 活动区被清空时滚动偏移一并归零，新回合回到跟随最新。不归零则旧 activityScroll
+  // 超出新内容的可视上限，渲染钳制下 ↓ 需连续按到偏移耗尽才恢复（“向下没反应”死区）。
+  const next: AppState = clearActivity
+    ? { ...state, buffer, activityScroll: 0 }
+    : { ...state, buffer };
   if (buffer.length === 0) return next;
   const last = buffer[buffer.length - 1];
   if (last && last.kind === "separator" && last.text === TURN_SEPARATOR)
@@ -872,6 +887,8 @@ export function setSessions(
 const FOCUS_RESET_ACTIONS: ReadonlySet<string> = new Set([
   "append", // 模型正文/用户消息流
   "user-line", // 用户消息行
+  "queued-push", // 排队消息（agent 运行期间 Enter 提交）
+  "queued-claim", // 排队消息被核心认领（转入历史流）
   "thinking", // 思考流
   "notice", // 命令/系统通知
   "turn-begin",
@@ -906,6 +923,18 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return appendStream(state, action.text);
       case "user-line":
         return appendStream(state, action.text, "user");
+      case "queued-push":
+        // 排队消息登记（不合并、不写 buffer）：显示由布局层按 queued 渲染，
+        // 消息本身已由 App 经 adapter.sendMessage 交给核心 next-turn 队列
+        return { ...state, queued: [...state.queued, action.text] };
+      case "queued-claim": {
+        // 核心认领最早一条（新回合开始）：该条转入历史流（灰块 → 用户行）
+        const [head, ...rest] = state.queued;
+        if (head === undefined) return state;
+        return appendStream({ ...state, queued: rest }, head, "user");
+      }
+      case "queued-clear":
+        return { ...state, queued: [] };
       case "thinking":
         return appendThinking(state, action.text);
       case "notice":
@@ -1350,7 +1379,10 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "turn-begin":
         // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容；
         // 非打印字符剔除计数按回合清零（turn-end 时警告后不复用旧值）
-        return appendTurnSeparator({ ...state, strippedChars: 0 });
+        return appendTurnSeparator(
+          { ...state, strippedChars: 0 },
+          action.clearActivity ?? true,
+        );
       case "clear-stripped":
         return { ...state, strippedChars: 0 };
         // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容
@@ -1735,6 +1767,11 @@ export function reduceState(state: AppState, action: StateAction): AppState {
 export type StateAction =
   | { type: "append"; text: string }
   | { type: "user-line"; text: string }
+  /** 排队消息登记：**追加**一条（不合并；发送走官方 followup，核心逐条认领） */
+  | { type: "queued-push"; text: string }
+  /** 核心认领最早一条排队消息（新回合开始）：弹出并作为用户行落历史 */
+  | { type: "queued-claim" }
+  | { type: "queued-clear" }
   | { type: "thinking"; text: string }
   | { type: "notice"; text: string; error?: boolean; tone?: NoticeTone }
   | { type: "clear-buffer" }
@@ -1804,7 +1841,8 @@ export type StateAction =
     }
   | { type: "window-groups"; groups: number }
   | { type: "user-jump"; anchor: DialogueAnchor | null }
-  | { type: "turn-begin" }
+  /** clearActivity：是否清空活动区内容（缺省 true；核心自发回合传 false，见 appendTurnSeparator） */
+  | { type: "turn-begin"; clearActivity?: boolean }
   | { type: "turn-end" }
   | { type: "clear-stripped" }
   | { type: "status"; status: Partial<SystemStatus> }

@@ -16,11 +16,7 @@ import {
 } from "../src/app/state.ts";
 import { routeSlashCommand } from "../src/app/commands.ts";
 import { renderCommandListPanel } from "../src/app/components/CommandListPanel.ts";
-import {
-  buildFrame,
-  inputPanelHeights,
-  displayWidth,
-} from "../src/app/layout.ts";
+import { buildFrame, frameGeometry, displayWidth } from "../src/app/layout.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
 import type {
   CommandPanelRow,
@@ -471,7 +467,7 @@ test("键位：PgDn 页高 = 活动区可视行数、PgUp 回退（钉死接线�
   typeAndEnter(renderer, "/skills");
   await tick();
   // 页高 = 活动区可视行数（80×24 基线 = 8）：若接线点 ⑤ 退化为 page=1，下面的断言必失败
-  const page = inputPanelHeights(initialState(), renderer.size).activityH;
+  const page = frameGeometry(initialState(), renderer.size).activityH;
   assert.equal(page, 8, "80×24 基线：活动区可视行数 = 8");
   press(renderer, "pagedown");
   await tick();

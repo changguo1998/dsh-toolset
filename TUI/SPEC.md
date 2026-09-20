@@ -535,30 +535,30 @@ interface Renderer {
 
 - 输入 = `AppState`（只读）；`buildFrame(state, size): FrameRow[]` 保持**纯函数**：不改 state、无副作用、无 adapter/paint 调用（REFACTOR.md 原则）。
 
-- **排版上下文（fill 阶段只读输入；不跨层，供 §9 管线引用）**：
+- **排版几何（几何唯一来源，已落地）**：所有尺寸在 `frameGeometry(state, size): FrameGeometry` 内**一次算定**（`metricsFor` → `topPaneSplit` → 排队块行），`buildFrame`/`buildTopRegion`/`buildStatusSeparator` 与 App 的翻页/半屏/跳转全部读这一份——不再各处重算（历史缺陷：帧里看到的 pane 高与滚动用的 pane 高分别计算，口径漂移即「高度不一致」）。
 
 ```ts
 // buildFrame 内部：state --buildBox--> Box 树 --measure/allocate--> rects --fill(ctx, rect)--> FrameRow[]
-// ctx 承载构建/填板的只读事实；各区域 fill 不再背一长串位置参数（现 buildTopRegion 的痛）
-interface FrameContext {
-  state: AppState;                          // 只读，无副作用（REFACTOR 原则）
-  size: Size;                               // 终端尺寸（cols×rows）
-  themeId: ThemeId;                         // 主题选择（取色由渲染层）
-  metrics: FrameMetrics;                    // 分区尺寸预算（statusColWidth/historyWidth/topHeight/footerHeight…）
-  focusedPanel: "history" | "activity" | "status" | null;  // 焦点分区（FocusFrame 覆写用）
-}
-
-// FrameMetrics：分区尺寸预算（由 buildFrame 内 metricsFor/topPaneHeights 等计算后填入 ctx）
-interface FrameMetrics {
-  statusColWidth: number;   // 状态列宽（含右缘框列）
-  historyWidth: number;     // 历史区宽（含左缘框列）
-  contentW: number;         // 历史区正文宽（= historyWidth − 左缘框列）
-  topHeight: number;        // 顶部区高（历史+活动区）
-  activityH: number;        // 活动区高
-  dialogueH: number;        // 历史区行可视数
-  footerHeight: number;     // 底部区高（输入+提示）
+interface FrameGeometry {
+  cols: number; rows: number;              // 终端尺寸
+  contentTopH: number;                     // 顶部内容行数（不含状态/输入/提示/分隔行）
+  statusHeight: number; footerHeight: number; hintHeight: number;
+  statusColWidth: number; historyWidth: number; contentW: number;  // contentW = 左列正文宽
+  leftFrame: boolean; rightFrame: boolean;  // 左/右焦点框保留格是否占列
+  mode: "vertical" | "horizontal"; titleRows: number;
+  activityH: number; dialogueH: number;    // 两 pane 可视行数（横向等高）
+  activityW: number; dialogueW: number;    // 两 pane 正文宽（纵向同宽）
+  queuedRows: ContentRow[];                // 排队块（钉在对话 pane 右下角；空=无排队）
+  viewportH: number;                       // 历史视口高 = dialogueH − queuedRows.length
+  dividerCol: number;                      // 历史区右缘/状态列左缘（= cols − statusColWidth）
+  innerDividerCol?: number;                // 横向排列内部分隔竖线列
+  activitySepRow: number;                  // 活动区分隔行（横向 = 对话 pane 底边下一行）
+  showHint: boolean; modalOpen: boolean;   // 按键提示区是否显示 / 模态面板是否打开
+  statusLines: FrameRow[];                 // 状态栏行（避免二次计算）
 }
 ```
+
+- 已删除的冗余尺寸入口（同一件事曾有多份计算）：`inputPanelHeights`/`PanelHeights`、`dialogueScrollMetrics`/`DialogueScrollMetrics`、`ACTIVITY_HEIGHT_RATIO`（废弃常量）、`THINKING_MAX`（无引用）；App 侧统一 `frameGeometry(state, size)`。
 
 ______________________________________________________________________
 

@@ -54,8 +54,6 @@ export {
   TURN_SEPARATOR_CHAR,
   assistantMaxBodyWidth,
   TOOL_CONT_INDENT,
-  TOOL_MAX_GROUPS,
-  TOOL_MORE,
   USER_MIN_LEFT_GUTTER,
   userMaxBodyWidth,
   wrapToolCallText,
@@ -396,10 +394,6 @@ export function dialogueWindow(buffer: Buffer, groups: number): DialogueWindow {
     totalGroups,
   };
 }
-/** 活动区行数 = 右上区（对话历史+活动区）高度的一半（固定比例，不随内容变化） */
-/** @deprecated 由 activityHeight(contentTopH, divisor) 的 divisor=2 取代（配置 tui.config.json layout.activityHeightDivisor） */
-export const ACTIVITY_HEIGHT_RATIO = 1 / 2;
-
 /** 状态列内 goal/todo/jobs 块间分隔：点更少的虚线（double dash，窗口内部板块分隔保留虚线） */
 export const STATUS_BLOCK_SEPARATOR = "╌";
 
@@ -643,12 +637,148 @@ export function topPaneSplit(
   return hDev < vDev ? horizontal : vertical;
 }
 
-/** 普通输入态顶部三面板可视行高（P4 整页滚动用，与 buildFrame 同口径） */
-export interface PanelHeights {
-  /** 状态列内容高（= topHeight - 顶部边框行；PgUp/PgDn 状态列整页用） */
-  topHeight: number;
+/**
+ * 单帧排版几何：**唯一尺寸来源**。buildFrame/buildTopRegion/buildStatusSeparator
+ * 与 App 的翻页/半屏/跳转（`frameGeometry`）全部读这一份，不再各自重算
+ * metricsFor/topPaneSplit/leftColumnWidth——历史上多处各算一次，口径漂移会让
+ * 「帧里看到的 pane 高度」与「滚动用的 pane 高度」不一致。
+ */
+export interface FrameGeometry {
+  /** 终端尺寸（帧总行/列） */
+  cols: number;
+  rows: number;
+  /** 顶部区域内容行数（rows − 状态区 − 交互区 − 提示区 − 分隔行；不含任何边框行） */
+  contentTopH: number;
+  /** 状态区行数 / 交互区行数 / 按键提示区行数（帧底部三段；提示区输入态为 1） */
+  statusHeight: number;
+  footerHeight: number;
+  hintHeight: number;
+  /** 顶部状态列宽 / 历史区（左列）宽 */
+  statusColWidth: number;
+  historyWidth: number;
+  /** 左列正文宽（历史区宽 − 左缘框格；两 pane 宽度都从它派生） */
+  contentW: number;
+  /** 左缘/右缘焦点框保留格是否存在（各 1 列；宽度不足时不留） */
+  leftFrame: boolean;
+  rightFrame: boolean;
+  /** 排列方式（activityPlacement=auto 的判定结果）与标题栏行数 */
+  mode: "vertical" | "horizontal";
+  titleRows: number;
+  /** 活动 pane / 对话 pane 可视行数（横向两 pane 等高） */
   activityH: number;
   dialogueH: number;
+  /** 活动 pane / 对话 pane 正文宽（纵向两 pane 同宽） */
+  activityW: number;
+  dialogueW: number;
+  /** 排队块可见行（右对齐用户块，右缘竖线灰色；钉在对话 pane 底部右下角。
+   *  内容 = `AppState.queued`：已交给核心 next-turn 队列、本回合尚未认领的消息 */
+  queuedRows: ContentRow[];
+  /** 历史视口高 = dialogueH − 排队块行数（语义锚点与滚动上限按它算） */
+  viewportH: number;
+  /** 分隔竖线列（历史区右缘/状态列左缘；= cols − statusColWidth） */
+  dividerCol: number;
+  /** 横向排列的内部分隔竖线列（活动 pane 右缘/历史 pane 左缘）；纵向 undefined */
+  innerDividerCol?: number;
+  /** 活动区分隔行行号（纵向 = 实线分隔行；横向 = 对话 pane 底边下一行，该行无分隔线） */
+  activitySepRow: number;
+  /** 按键提示区是否显示（输入态/历史面板 1 行；模态面板 0 行） */
+  showHint: boolean;
+  /** 模态面板是否打开（焦点框置空 + footer 空白占位） */
+  modalOpen: boolean;
+  /** 状态栏行（整屏宽；buildFrame 直接拼接，避免二次计算） */
+  statusLines: FrameRow[];
+}
+
+/**
+ * 排队块行：按对话 pane 宽排版（右对齐用户块 + 灰色右缘竖线）。
+ * 每条排队消息各自成块（官方流程逐条入队、逐条认领，**不合并**）；消息内含
+ * 显式换行时分行（与历史用户行的多行语义一致）。
+ */
+function queuedBlockRows(state: AppState, width: number): ContentRow[] {
+  if (state.queued.length === 0) return [];
+  const lines: Buffer = state.queued.flatMap((text) =>
+    text.split("\n").map((t) => ({ text: t, kind: "user", queued: true })),
+  );
+  return buildContentRows(
+    lines,
+    { themeId: state.themeId, gutter: state.messageGutter },
+    width,
+  ).dialogue;
+}
+
+/** 单帧几何（纯函数）：终端尺寸 + state 的布局/模态/排队信息 → FrameGeometry */
+export function frameGeometry(state: AppState, size: Size): FrameGeometry {
+  const cols = Math.max(1, size.cols);
+  // 模态面板：审批/问答/模型选择/状态选项/任务/共享列表 = 自带按键提示且 footer 空白占位；
+  // 历史会话面板额外占按键提示区（与输入态同高）
+  const modalOpen =
+    state.approval !== null ||
+    state.question !== null ||
+    state.picker !== null ||
+    state.statusPanel !== null ||
+    state.jobsPanel !== null ||
+    state.commandPanel !== null ||
+    state.history !== null;
+  const normalInput = !modalOpen;
+  const showHint = normalInput || state.history !== null;
+  const statusLines = renderStatusLine(state.systemStatus, cols, state.usage);
+  // 面板态/输入态交互区总高恒定（见 metricsFor）：开关面板不让顶部区域上下跳
+  const metrics = metricsFor(
+    size,
+    !showHint,
+    statusLines.length,
+    showHint ? 1 : 0,
+    state,
+  );
+  const contentTopH = Math.max(0, metrics.topHeight);
+  const contentW = leftColumnWidth(metrics.historyWidth);
+  // 排列方式与两 pane 宽高同源于 topPaneSplit（auto 判定只看左列正文宽 + 内容行数）
+  const split = topPaneSplit(
+    contentTopH,
+    contentW,
+    state.activityDivisor,
+    activityTopRowToLine(state.activityTopRow, size.rows),
+    state.activityPlacement,
+  );
+  const horizontal = split.mode === "horizontal";
+  // 排队块钉在对话 pane 底部：至多占 pane 高 − 1 行（至少留 1 行历史可见）；
+  // 超出时取尾部（最新排队内容优先可见）
+  const queuedAll = queuedBlockRows(state, split.dialogueW);
+  const maxQueued = Math.max(0, split.dialogueH - 1);
+  const queuedRows =
+    queuedAll.length > maxQueued
+      ? queuedAll.slice(queuedAll.length - maxQueued)
+      : queuedAll;
+  return {
+    cols,
+    rows: size.rows,
+    contentTopH,
+    statusHeight: metrics.statusHeight,
+    footerHeight: metrics.footerHeight,
+    hintHeight: metrics.hintHeight,
+    statusColWidth: metrics.statusColWidth,
+    historyWidth: metrics.historyWidth,
+    contentW,
+    leftFrame: metrics.historyWidth >= FRAME_LEFT_COLS + 1,
+    rightFrame: metrics.statusColWidth >= FRAME_RIGHT_COLS + 1,
+    mode: split.mode,
+    titleRows: split.titleRows,
+    activityH: split.activityH,
+    dialogueH: split.dialogueH,
+    activityW: split.activityW,
+    dialogueW: split.dialogueW,
+    queuedRows,
+    viewportH: Math.max(0, split.dialogueH - queuedRows.length),
+    dividerCol: cols - metrics.statusColWidth,
+    // 内部分隔列 = 左缘框格 + 活动 pane 宽（活动区在左；两 pane 等宽时才与对话 pane 同宽）
+    innerDividerCol: horizontal
+      ? metrics.historyWidth - contentW + split.activityW
+      : undefined,
+    activitySepRow: split.titleRows + split.dialogueH,
+    showHint,
+    modalOpen,
+    statusLines,
+  };
 }
 
 /** goal 阶段 → 标题 phase 状态色：active/complete 绿、paused 黄、blocked 红 */
@@ -1177,55 +1307,42 @@ function fillPanelBox(
   return fillToList({ themeId, viewportWidth: w }, box, rect, rects);
 }
 
+/**
+ * 顶部区域（标题栏 + 历史/活动 pane + 状态列）构帧。
+ * 尺寸全部取自 geom（FrameGeometry，唯一来源）；state 只用于内容与主题。
+ *
+ * @param report 回填两 pane 可滚动上限与对话区滚动几何（App 用于收敛偏移）
+ */
 function buildTopRegion(
   state: AppState,
-  topHeight: number,
-  statusColWidth: number,
-  historyWidth: number,
-  focusActive: boolean,
-  goal: GoalState | undefined,
-  todos: TodoItemLike[] | undefined,
-  jobs: JobInfo[] | undefined,
-  statusScroll: number,
-  mode?: ModeState,
-  policy?: "ask" | "never",
-  preset?: string,
-  permissionOptions?: readonly string[],
-  presetOptions?: readonly string[],
-  /** 会话标题（左侧历史区顶部标题栏；空标题 <title> 灰占位保持行稳定） */
-  title = "",
-  /** 活动区分隔行锚定行号（0 基屏幕行；活动区分隔行落在该行；undefined = divisor 比例） */
-  topRow?: number,
-  /** 回填两 pane 的可滚动上限（App 用于收敛偏移；见 FrameScrollReport） */
+  geom: FrameGeometry,
   report?: FrameScrollReport,
 ): FrameRow[] {
-  // 焦点框保留格（所有状态恒定，避免内容重排）：左侧框格列（历史/活动区左缘）
-  // 与右侧框列（状态列右缘）在宽度允许时各占 1 列；未聚焦/模态态该格留空白占位。
-  // 2026-09-27：不再保留独立顶部边框行——标题栏即顶部（标题行在 rc0），焦点框从
-  // 对话区开始（history 顶边用标题栏下划线行兼作），状态列从 rc0 起即有内容。
-  const contentTopH = Math.max(0, topHeight);
-  // 历史/活动区在左、详细状态列在右（2026-09-17 对调）：
-  // 左缘框格 = 历史/活动区左缘（historyWidth≥2 时预留）；右缘框列 = 状态列右缘（statusColWidth≥2 时预留）
-  const useLeftFrame = historyWidth >= FRAME_LEFT_COLS + 1;
-  const useRightFrame = statusColWidth >= FRAME_RIGHT_COLS + 1;
-  const contentW = leftColumnWidth(historyWidth);
-  // 左列顶部为独立标题栏（会话标题行 + 实线下划线，2026-09-27 由右侧状态列迁入）。
-  // 排列方式（上下/左右）与两 pane 宽高同源于 topPaneSplit：activityPlacement 缺省
-  // 恒上下（沿用 activityHeightDivisor / activityTopRow），"auto" 按黄金比自动选择，
-  // 选择只在帧布局内做（启动与 resize 重排自然生效，无需状态记忆）。
-  // 纵向：标题栏行数由对话区承担（topPaneHeights 与 inputPanelHeights 同口径）；
-  // 横向：两 pane 等高（contentTopH − 标题栏），中间 1 列内部分隔竖线。
-  const split = topPaneSplit(
+  const {
     contentTopH,
+    statusColWidth,
+    historyWidth,
     contentW,
-    state.activityDivisor,
-    topRow,
-    state.activityPlacement,
-  );
-  const horizontal = split.mode === "horizontal";
-  const { titleRows, activityH, dialogueH, dialogueW, activityW } = split;
+    titleRows,
+    activityH,
+    dialogueH,
+    dialogueW,
+    activityW,
+    queuedRows,
+    viewportH,
+  } = geom;
+  // 历史/活动区在左、详细状态列在右（2026-09-17 对调）：
+  // 左缘框格 = 历史/活动区左缘；右缘框列 = 状态列右缘（均非聚焦/模态态留空白占位）
+  const useLeftFrame = geom.leftFrame;
+  const useRightFrame = geom.rightFrame;
+  // 当前活跃会话字段（goal/todo/模式/策略/预设）：状态列与状态栏共用口径
+  const { goal, todos, mode, policy, preset } = activeSessionFields(state);
+  // 左列顶部为独立标题栏（会话标题行 + 实线下划线）。
+  // 排列方式与两 pane 宽高在 frameGeometry 内一次算定（纵向：标题栏行数由对话区
+  // 承担；横向：两 pane 等高，中间 1 列内部分隔竖线）。
+  const horizontal = geom.mode === "horizontal";
   const diaStart = titleRows; // 内容行中对话区起点（标题栏之后）
-  const diaEnd = diaStart + dialogueH; // 对话区结束（= 活动区分隔行位置；横向模式无分隔行）
+  const diaEnd = geom.activitySepRow; // 活动区分隔行（横向无分隔行，此值 = 对话 pane 底边下一行）
   // 渐进窗口：只物化最近 windowGroups 个回合组（缺省 3），更早部分以顶部占位行示意；
   // 上滚接近窗口顶部时由 App 增大 windowGroups 再扩窗（不再每帧全量重排历史）
   const win = dialogueWindow(state.buffer, state.windowGroups);
@@ -1252,16 +1369,17 @@ function buildTopRegion(
   const dialogueRows: ContentRow[] = markerRow
     ? [markerRow, ...dialogue]
     : dialogue;
-  // 语义锚点：视口顶行 = (buffer 行, 行内换行序号)；followBottom（anchor=null）时贴窗口底
+  // 语义锚点：视口顶行 = (buffer 行, 行内换行序号)；followBottom（anchor=null）时贴窗口底。
+  // 视口高 = viewportH（对话 pane 高扣掉底部排队块占位）——滚动上限/锚点换算同此口径
   const spans = dialogueSpans(dialogueRows);
-  const maxTop = Math.max(0, dialogueRows.length - dialogueH);
+  const maxTop = Math.max(0, dialogueRows.length - viewportH);
   const topIdx =
     state.scrollAnchor === null
       ? maxTop
       : Math.min(anchorToIndex(spans, state.scrollAnchor), maxTop);
   const vp: Viewport = {
     start: topIdx,
-    end: Math.min(dialogueRows.length, topIdx + dialogueH),
+    end: Math.min(dialogueRows.length, topIdx + viewportH),
     followBottom: topIdx >= maxTop,
     scrollOffset: maxTop - topIdx,
   };
@@ -1270,7 +1388,7 @@ function buildTopRegion(
     report.dialogueMaxScroll = maxTop;
     report.dialogueGeometry = {
       rows: dialogueRows.length,
-      height: dialogueH,
+      height: viewportH,
       spans,
       topIdx,
     };
@@ -1282,15 +1400,15 @@ function buildTopRegion(
   const statusCells = renderStatusColumn(
     goal,
     todos,
-    jobs,
-    statusScroll,
+    state.jobs,
+    state.statusColumnScroll,
     contentTopH,
     statusColWidth,
     mode,
     policy,
     preset,
-    permissionOptions,
-    presetOptions,
+    state.permissionOptions,
+    state.presetOptions,
   );
   // 边框构图参数：分隔竖线列 = historyWidth（历史区右缘/状态列左缘，
   // 为旧 statusColWidth-1 的镜像）；col0 左缘框格属历史/活动区，
@@ -1300,10 +1418,9 @@ function buildTopRegion(
     0,
     statusColWidth - 1 - (useRightFrame ? FRAME_RIGHT_COLS : 0),
   );
-  const panel = state.focusedPanel;
   // 仅 statusFocused 保留（状态列内容偏移 statusCells[rc-1] 与 rc0 顶边占位）；
   // history/activity 焦点态不再影响顶部构图（框线由 focusFrame 统一覆写）
-  const statusFocused = focusActive && panel === "status";
+  const statusFocused = !geom.modalOpen && state.focusedPanel === "status";
   // 焦点中性基线：活动区分隔线 / 分隔竖线 / 左缘框格 / 右缘框列全部以灰
   // 边框色或空白占位产出；亮角字/亮边由 buildFrame 末尾的 focusFrame
   // 按焦点态覆写（DESIGN.md §8，唯一焦点框机制）。
@@ -1327,6 +1444,8 @@ function buildTopRegion(
     actMaxOffset - actOffset,
     actMaxOffset - actOffset + activityH,
   );
+  // 内容不足一屏时底部对齐（两种排列一致）：流从 pane 底部往上长，最新一行贴 pane 底边，
+  // 逐渐填满整块 pane 后才开始折叠最早内容——折叠点恒为「pane 高」而不是「一半」
   const topPad = activityH - act.length;
   // 「有问题交互」面板（审批/问答/模型选择）显示位置=流输出（活动区）窗口顶部：
   // 底部交互区不再承载（footer 空白占位保持交互区高度稳定）；面板占满活动区可视
@@ -1351,9 +1470,13 @@ function buildTopRegion(
     const used = rowWidth2(segs);
     return used < w ? [...segs, seg(" ".repeat(w - used))] : [...segs];
   };
-  // 对话 pane 行（纵向：对话区窗口；横向：满高窗口）：行前缩进已并入 segments
+  // 对话 pane 行：历史视口（viewportH 行）之后是排队块（钉在 pane 底部右下角，始终可见）
   const dialoguePaneSegs = (rr: number): FrameSegment[] => {
     if (rr < 0 || rr >= dialogueH) return [];
+    if (rr >= viewportH) {
+      const q = queuedRows[rr - viewportH];
+      return q ? [...q.segments] : [];
+    }
     const w = dialogueRows[vp.start + rr];
     if (!w || vp.start + rr >= vp.end) return [];
     return [...w.segments];
@@ -1364,7 +1487,7 @@ function buildTopRegion(
     if (modalPanel.length > 0)
       return rr < modalPanel.length ? [...modalPanel[rr]!.segments] : [];
     const a = rr - topPad;
-    return a < 0 ? [] : [...act[a]!.segments];
+    return a < 0 || a >= act.length ? [] : [...act[a]!.segments];
   };
   for (let rc = 0; rc < contentTopH; rc++) {
     // col0：历史/活动区左缘框格（段数组）——焦点中性基线恒空白占位，
@@ -1395,7 +1518,7 @@ function buildTopRegion(
       if (rc < diaStart) {
         // 标题栏：首行标题（空标题 <title> 灰占位保持行稳定）、次行实线下划线
         if (rc === 0) {
-          const rawTitle = (title ?? "").trim();
+          const rawTitle = (state.sessionTitle ?? "").trim();
           const titleText = truncateToWidth(
             rawTitle === "" ? "<title>" : rawTitle,
             contentW,
@@ -1456,7 +1579,6 @@ function buildTopRegion(
   }
   return rows;
 }
-export const THINKING_MAX: number = 4;
 
 /**
  * 工具调用行折行（含续行缩进）：整体首行不缩进、可用全宽；其余行——同段软换行的
@@ -1718,67 +1840,6 @@ function activeSessionFields(state: AppState): {
   return { goal, todos, mode, policy, preset };
 }
 
-/** 普通输入态（无模态面板）顶部三面板可视行高；PgUp/PgDn 整页滚动页大小 */
-export function inputPanelHeights(state: AppState, size: Size): PanelHeights {
-  const fullWidth = Math.max(1, size.cols);
-  const statusLines = renderStatusLine(
-    state.systemStatus,
-    fullWidth,
-    state.usage,
-  );
-  const metrics = metricsFor(size, false, statusLines.length, 1, state);
-  // 2026-09-27：无独立顶部边框行，内容行数 = topHeight（与 buildTopRegion 同口径）
-  const contentTopH = Math.max(0, metrics.topHeight);
-  // 排列方式与 buildTopRegion 同源：黄金比自动选择时翻页页高随排列切换
-  const split = topPaneSplit(
-    contentTopH,
-    leftColumnWidth(metrics.historyWidth),
-    state.activityDivisor,
-    activityTopRowToLine(state.activityTopRow, size.rows),
-    state.activityPlacement,
-  );
-  return {
-    topHeight: contentTopH,
-    activityH: split.activityH,
-    dialogueH: split.dialogueH,
-  };
-}
-
-/** 对话区（历史区）滚动导航所需的同口径尺寸（与 buildFrame 一致）：正文宽 + 可视行高 */
-export interface DialogueScrollMetrics {
-  /** 对话区正文宽（历史区宽 − 左缘框列；↑/↓ 半屏与 PgUp/PgDn 跳转共用） */
-  contentW: number;
-  /** 对话区可视行高（↑/↓ 半屏的页基准、跳转的屏幕高） */
-  dialogueH: number;
-}
-
-/** 对话区滚动导航尺寸：与 buildFrame 同源（metricsFor + topPaneHeights） */
-export function dialogueScrollMetrics(
-  state: AppState,
-  size: Size,
-): DialogueScrollMetrics {
-  const fullWidth = Math.max(1, size.cols);
-  const statusLines = renderStatusLine(
-    state.systemStatus,
-    fullWidth,
-    state.usage,
-  );
-  const metrics = metricsFor(size, false, statusLines.length, 1, state);
-  const contentTopH = Math.max(0, metrics.topHeight);
-  const split = topPaneSplit(
-    contentTopH,
-    leftColumnWidth(metrics.historyWidth),
-    state.activityDivisor,
-    activityTopRowToLine(state.activityTopRow, size.rows),
-    state.activityPlacement,
-  );
-  return {
-    // 跳转坐标（userInputJump）必须与帧内对话 pane 的换行宽度一致
-    contentW: split.dialogueW,
-    dialogueH: split.dialogueH,
-  };
-}
-
 /** 对话区 ↑/↓ 半屏翻页的行数（至少 1 行；向下取整保证上/下对称） */
 export function dialogueHalfPage(rows: number): number {
   return Math.max(1, Math.floor(rows / 2));
@@ -1853,12 +1914,9 @@ export function userInputJump(
  * 无焦点/模态态全边框色 `─`。左侧历史/活动区底边（activity 焦点亮、col0 左下角 └），
  * 右侧状态列底边（status 焦点亮、R 列右下角 ┘），D 列 ┴ 为共用角。 */
 export function buildStatusSeparator(
-  cols: number,
-  statusColWidth: number,
+  geom: FrameGeometry,
   themeId: ThemeId,
   sepFocus: "none" | "status" | "activity",
-  /** 横向排列时的内部分隔竖线列（帧列；该列画 `┴` 收束上方竖线，缺省不画） */
-  innerDividerCol?: number,
 ): FrameRow {
   // 焦点中性基线：状态区上方分隔行恒灰 `─`（col0 非 activity 底角 └、D 列 ┴
   // border、右缘非 status 右下角 ┘）；亮角字/亮边由 buildFrame 末尾 focusFrame
@@ -1866,17 +1924,19 @@ export function buildStatusSeparator(
   // sepFocus / themeId 参数保留（契约兼容），焦点绘图不再在此进行。
   void sepFocus;
   void themeId;
-  const D = cols - statusColWidth; // 分隔竖线列（历史区右缘/状态列左缘）
-  const R = cols - 1;
-  const useRightFrame = statusColWidth >= 2; // 状态列右缘框列存在
+  // 尺寸全部取自几何（分隔竖线列/右缘框列/内部分隔列与帧内其它部分同源）
+  const D = geom.dividerCol; // 分隔竖线列（历史区右缘/状态列左缘）
+  const R = geom.cols - 1;
   const out: FrameSegment[] = [];
   const segN = (n: number): FrameSegment[] => {
     if (n <= 0) return [];
     return [{ text: STATUS_TOP_SEPARATOR.repeat(n), style: { fg: "border" } }];
   };
   const inner =
-    innerDividerCol !== undefined && innerDividerCol > 0 && innerDividerCol < D
-      ? innerDividerCol
+    geom.innerDividerCol !== undefined &&
+    geom.innerDividerCol > 0 &&
+    geom.innerDividerCol < D
+      ? geom.innerDividerCol
       : undefined;
   if (D > 0) out.push({ text: STATUS_TOP_SEPARATOR, style: { fg: "border" } });
   out.push(...segN(Math.max(0, (inner ?? D) - 1)));
@@ -1887,7 +1947,7 @@ export function buildStatusSeparator(
   out.push({ text: "┴", style: { fg: "border" } });
   out.push(...segN(Math.max(0, R - D - 1)));
   // R 列（状态列右缘框列）：灰 `─`（status 焦点由 focusFrame 覆写 ┘）
-  if (useRightFrame)
+  if (geom.rightFrame)
     out.push({ text: STATUS_TOP_SEPARATOR, style: { fg: "border" } });
   return { segments: out };
 }
@@ -1910,81 +1970,26 @@ export function buildFrame(
   size: Size,
   report?: FrameScrollReport,
 ): FrameRow[] {
-  const approval = state.approval;
-  const showApproval = approval !== null;
-  const picker = state.picker;
-  const question = state.question;
+  // 尺寸唯一来源：几何一次算定（顶部内容行数/两 pane 宽高/排列/排队块占位/状态栏行）
+  const geom = frameGeometry(state, size);
+  const {
+    cols: fullWidth,
+    contentTopH,
+    statusColWidth,
+    historyWidth,
+    titleRows,
+    innerDividerCol,
+    showHint,
+    modalOpen,
+  } = geom;
   const history = state.history;
-  const jobsPanel = state.jobsPanel;
-  const commandPanel = state.commandPanel;
-  const statusPanel = state.statusPanel;
-  // 顶部面板（对话/活动/状态列）只读当前活跃会话字段
-  const { goal, todos, mode, policy, preset } = activeSessionFields(state);
-  const fullWidth = Math.max(1, size.cols);
-  // 状态区先算出行数，再让 metrics 以便压缩顶部区域（多行状态栏不溢出帧）
-  // 按键提示区：输入态/历史会话面板显示（历史面板不再自带按键提示，改放提示区；
-  // 其余审批/问答/选择面板自带按键提示），与输入区之间不画横线
-  const normalInput =
-    !showApproval &&
-    !question &&
-    !picker &&
-    !statusPanel &&
-    !history &&
-    !jobsPanel &&
-    !commandPanel;
-  // 历史面板占满活动区、footer 空白占位——交互区拆成「footer 空白 + 提示区 1 行」，
-  // 与输入态同高（footer=交互相-1 + 提示 1），面板开关不改变交互区总高度
-  const showHint = normalInput || history !== null;
-  const statusLines = renderStatusLine(
-    state.systemStatus,
-    fullWidth,
-    state.usage,
-  );
-  // 面板态/输入态共用固定交互区高度（见 metricsFor）；提示区仅输入态/历史面板计入
-  const metrics = metricsFor(
-    size,
-    !showHint,
-    statusLines.length,
-    showHint ? 1 : 0,
-    state,
-  );
-
-  // 活动区分隔行锚定（tui.config.json layout.activityTopRow；"half" = 屏幕中线行）
-  // 行号换算基于整屏 size.rows，buildTopRegion 与 focusFrame 段同源。
-  const topRow = activityTopRowToLine(state.activityTopRow, size.rows);
-
-  const topRegion = buildTopRegion(
-    state,
-    metrics.topHeight,
-    metrics.statusColWidth,
-    metrics.historyWidth,
-    normalInput,
-    goal,
-    todos,
-    state.jobs,
-    state.statusColumnScroll,
-    mode,
-    policy,
-    preset,
-    state.permissionOptions,
-    state.presetOptions,
-    state.sessionTitle,
-    topRow,
-    report,
-  );
+  const topRegion = buildTopRegion(state, geom, report);
 
   let footerLines: FrameRow[];
   // 审批/问答/模型选择/状态选项/任务/历史会话面板 + 输入补全均上移到流输出（活动区）窗口显示；
   // 输入补全不占输入区（输入行与光标必须可见），其余面板打开时 footer 以空白占位（交互区高度稳定）。
-  if (
-    showApproval ||
-    question ||
-    picker ||
-    statusPanel ||
-    jobsPanel ||
-    history
-  ) {
-    footerLines = Array.from({ length: metrics.footerHeight }, () => ({
+  if (modalOpen) {
+    footerLines = Array.from({ length: geom.footerHeight }, () => ({
       segments: [seg(" ".repeat(fullWidth))],
     }));
   } else {
@@ -2005,7 +2010,7 @@ export function buildFrame(
       "Type a message...",
       fullWidth,
       prompt,
-      metrics.footerHeight,
+      geom.footerHeight,
     );
   }
 
@@ -2040,42 +2045,15 @@ export function buildFrame(
   });
   // 状态区上方分隔行的焦点语义（modal 态无焦点回 none）
   let statusSepFocus: "none" | "status" | "activity" = "none";
-  if (normalInput) {
+  if (!modalOpen) {
     if (state.focusedPanel === "status") statusSepFocus = "status";
     else if (state.focusedPanel === "activity") statusSepFocus = "activity";
   }
-  // 排列方式与 buildTopRegion 同源（两 pane 矩形 / 焦点框 / 分隔行交点必须同口径）
-  const contentTopH = Math.max(0, metrics.topHeight);
-  const split = topPaneSplit(
-    contentTopH,
-    leftColumnWidth(metrics.historyWidth),
-    state.activityDivisor,
-    topRow,
-    state.activityPlacement,
-  );
-  const horizontal = split.mode === "horizontal";
-  const diaStart = split.titleRows;
-  const diaEnd = diaStart + split.dialogueH; // 活动区分隔行（历史底边 = activity 顶边）
-  const D = metrics.historyWidth; // 分隔竖线列（历史区右缘/状态列左缘）
-  // 横向排列：两 pane 之间的内部分隔竖线（帧列 = 左缘框格 + 活动 pane 宽；
-  // 与状态区分隔行交汇处画 ┴）。活动区在左，故取 activityW——两 pane 等宽时才与
-  // dialogueW 相同，奇偶相差一列时取错会让交汇字形与竖线错开一列
-  const innerDividerCol = horizontal
-    ? metrics.historyWidth -
-      leftColumnWidth(metrics.historyWidth) +
-      split.activityW
-    : undefined;
   const rects: Map<PaneId, Rect> = new Map();
   const rows: FrameRow[] = [
     ...topRegion,
-    buildStatusSeparator(
-      fullWidth,
-      metrics.statusColWidth,
-      state.themeId,
-      statusSepFocus,
-      innerDividerCol,
-    ),
-    ...statusLines,
+    buildStatusSeparator(geom, state.themeId, statusSepFocus),
+    ...geom.statusLines,
     makeSep(SEPARATOR),
     ...footerLines,
     ...hintLines,
@@ -2084,48 +2062,44 @@ export function buildFrame(
   // 末帧一次扫描按焦点分区矩形（帧坐标，right=x+w-1/bottom=y+h-1）覆写亮
   // 角字/边线（DESIGN.md §8 / SPEC.md §8 唯一焦点框机制）。模态态（面板打开）
   // 焦点用 null 传入：面板占活动区时无焦点框高亮。
-  const underlineRow = Math.max(0, diaStart - 1);
-  if (horizontal) {
+  const underlineRow = Math.max(0, titleRows - 1);
+  const diaEnd = geom.activitySepRow; // 纵向=活动区分隔行；横向=对话 pane 底边下一行
+  if (geom.mode === "horizontal") {
     // 横向排列：活动 pane 在左、对话 pane 在右、两 pane 等高——顶=标题栏下划线行，
     // 底=状态区上方分隔行 contentTopH；内部分隔列 = activity 右缘 / history 左缘
     const h = Math.max(1, contentTopH - underlineRow + 1);
     const divCol = innerDividerCol ?? 0;
     rects.set("activity", { x: 0, y: underlineRow, w: divCol + 1, h });
-    rects.set("history", { x: divCol, y: underlineRow, w: D - divCol + 1, h });
+    rects.set("history", {
+      x: divCol,
+      y: underlineRow,
+      w: historyWidth - divCol + 1,
+      h,
+    });
   } else {
     // history 矩形：顶=标题栏下划线行（titleRows>=2 才有下划线；否则顶=首对话行）、
     // 底=活动区分隔行 diaEnd；覆盖左缘框列 + 正文 + D 列
     rects.set("history", {
       x: 0,
       y: underlineRow,
-      w: metrics.historyWidth,
+      w: historyWidth,
       h: Math.max(1, diaEnd - underlineRow + 1),
     });
     // activity 矩形：顶=活动区分隔行 diaEnd、底=状态区上方分隔行 contentTopH
     rects.set("activity", {
       x: 0,
       y: diaEnd,
-      w: metrics.historyWidth,
+      w: historyWidth,
       h: Math.max(1, contentTopH - diaEnd + 1),
     });
   }
   // status 矩形：x=D（分隔竖线列）、顶=帧顶 rc0、底=状态区上方分隔行 contentTopH
   rects.set("status", {
-    x: D,
+    x: geom.dividerCol,
     y: 0,
-    w: metrics.statusColWidth,
+    w: statusColWidth,
     h: Math.max(1, contentTopH + 1),
   });
-  // 模态态（approval/question/picker/statusPanel/jobsPanel/commandPanel/history/open 面板）
-  // 焦点置空——与现状一致（模态态 statusSepFocus=none、buildTopRegion 框线全灰）
-  const modalOpen =
-    showApproval ||
-    question ||
-    picker ||
-    statusPanel ||
-    jobsPanel ||
-    commandPanel !== null ||
-    history;
   focusFrame(
     {
       themeId: state.themeId,

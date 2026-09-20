@@ -66,11 +66,10 @@ import {
   turnGroupStarts,
   type FrameScrollReport,
   dialogueHalfPage,
-  dialogueScrollMetrics,
-  inputPanelHeights,
+  frameGeometry,
   modelLabel,
   userInputJump,
-  type PanelHeights,
+  type FrameGeometry,
 } from "./layout.ts";
 import {
   DEFAULT_THEME,
@@ -124,7 +123,7 @@ export function focusedLineScroll(
 export function focusedPageScroll(
   panel: AppState["focusedPanel"],
   dir: 1 | -1, // 1=上一页, -1=下一页
-  page: PanelHeights,
+  page: FrameGeometry,
   max?: PaneScrollMax,
 ): StateAction {
   switch (panel) {
@@ -135,11 +134,11 @@ export function focusedPageScroll(
         ...(max ? { max: max.activity } : {}),
       };
     case "status":
-      return { type: "status-column-scroll", delta: -dir * page.topHeight };
+      return { type: "status-column-scroll", delta: -dir * page.contentTopH };
     default:
       return {
         type: "scroll",
-        delta: dir * page.dialogueH,
+        delta: dir * page.viewportH,
         ...(max ? { max: max.dialogue } : {}),
       };
   }
@@ -807,11 +806,21 @@ export class App {
     this.paint();
   }
 
-  /** 回合开始：先画分隔线(仅首个回合空历史时跳过)；submit 与首条思考/正文均需走这里 */
-  private beginTurnIfNeeded(): void {
+  /**
+   * 回合开始：先画分隔线(仅首个回合空历史时跳过)；submit 与首条思考/正文均需走这里。
+   * 新回合开始 = 核心认领最早一条排队消息（每回合认领一条）→ 该条转入历史流。
+   *
+   * @param userInput 本次回合是否由用户输入开启（提交）。活动区内容只在
+   *   「用户输入开启的回合」整体清空（含排队消息被认领）；核心自发的回合
+   *   （goal 轮次/定时唤醒等）保留上一轮内容继续往上堆——活动区只在下一次
+   *   输入后清空，且清空时思考/工具/notice 一起清，不做单类清除。
+   */
+  private beginTurnIfNeeded(userInput = false): void {
     if (this.turnOpen) return;
     this.turnOpen = true;
-    this.apply((s) => reduceState(s, { type: "turn-begin" }));
+    const clearActivity = userInput || this.state.queued.length > 0;
+    this.apply((s) => reduceState(s, { type: "turn-begin", clearActivity }));
+    this.apply((s) => reduceState(s, { type: "queued-claim" }));
   }
 
   /** 启动 thinking 打字机；已在跑或已 disposed 时不动 */
@@ -843,14 +852,15 @@ export class App {
     const texts = this.pendingStream;
     this.pendingStream = [];
     if (texts.length > 0) {
-      this.dropThinking(); // 正文 append 会清除 thinking 行，未放完的队列一并丢弃
+      // 未放完的思考先整段放入缓冲（**不丢内容**）：活动区只在下次输入时整体清空
+      this.drainThinking();
       for (const t of texts)
         this.apply((s) => reduceState(s, { type: "append", text: t }));
       this.paint();
     }
     if (this.pendingTurnEnd) {
       this.pendingTurnEnd = false;
-      this.dropThinking();
+      this.drainThinking();
       this.apply((s) => reduceState(s, { type: "turn-end" }));
       this.warnStrippedChars();
       this.paint();
@@ -864,7 +874,18 @@ export class App {
     }
   }
 
-  /** 正文/turn-end 接管：思考为瞬态展示，未放完的队列直接丢弃（正文即时优先） */
+  /** 正文/turn-end 接管：把未放完的思考一次性放入缓冲（内容不丢；活动区只在下一次输入清空） */
+  private drainThinking(): void {
+    this.slowStop();
+    const rest = this.thinkingPending;
+    this.thinkingPending = "";
+    if (rest !== "") {
+      this.apply((s) => reduceState(s, { type: "thinking", text: rest }));
+      this.paint();
+    }
+  }
+
+  /** 丢弃未放完的思考队列（仅 dispose：不再渲染，无需放入缓冲） */
   private dropThinking(): void {
     this.slowStop();
     this.thinkingPending = "";
@@ -998,7 +1019,7 @@ export class App {
     }
 
     // /jobs 任务面板：↑/↓ 移动高亮、PgUp/PgDn 整页（页高=活动区可视行数，与共享面板
-    // 同 inputPanelHeights 口径）、Enter 取消高亮任务、Esc 关闭；其余按键吞掉
+    // 同 frameGeometry 口径）、Enter 取消高亮任务、Esc 关闭；其余按键吞掉
     if (this.state.jobsPanel) {
       if (name === "up") {
         const focus = this.state.jobsPanel.index;
@@ -1011,8 +1032,8 @@ export class App {
           reduceState(st, { type: "jobs-panel-move", focus, delta: 1 }),
         );
       } else if (name === "pageup" || name === "pagedown") {
-        // 翻页页高 = 活动区可视行数（与 shared commandPanel 同一 inputPanelHeights 口径）
-        const page = inputPanelHeights(
+        // 翻页页高 = 活动区可视行数（与 shared commandPanel 同一 frameGeometry 口径）
+        const page = frameGeometry(
           this.state,
           this.deps.renderer.getSize(),
         ).activityH;
@@ -1033,7 +1054,7 @@ export class App {
     if (this.state.commandPanel) {
       const panel = this.state.commandPanel;
       // 翻页页高 = 活动区可视行数（与面板窗口同口径，见 COMMANDS-SPEC.md §0.4 接线点 5）
-      const page = inputPanelHeights(
+      const page = frameGeometry(
         this.state,
         this.deps.renderer.getSize(),
       ).activityH;
@@ -1206,11 +1227,17 @@ export class App {
           this.paint();
           break;
         }
-        // Esc：打断运行（agent 非 idle 时 interrupt；picker 面板已在上方分支关闭）。
+        // Esc：排队消息先退回输入框（核心 cancel 会清空自己的 next-turn 队列，
+        // 留在本机不丢用户输入）；再打断运行（picker 面板已在上方分支关闭）。
         // idle + 空输入：退出顶部面板焦点循环（有焦点 → 回到无焦点）
+        const restored = this.restoreQueued();
         if (this.state.agentStatus !== "idle") {
           this.deps.adapter.interrupt();
-        } else if (this.state.inputText === "" && this.state.focusedPanel) {
+        } else if (
+          !restored &&
+          this.state.inputText === "" &&
+          this.state.focusedPanel
+        ) {
           this.apply((s) => ({ ...s, focusedPanel: null }));
         }
         break;
@@ -1250,7 +1277,7 @@ export class App {
         if (panel === "activity" || panel === "status") {
           this.apply((s) => reduceState(s, focusedLineScroll(panel, dir, max)));
         } else {
-          const { dialogueH } = dialogueScrollMetrics(
+          const { viewportH } = frameGeometry(
             this.state,
             this.deps.renderer.getSize(),
           );
@@ -1259,7 +1286,7 @@ export class App {
           this.apply((s) =>
             reduceState(s, {
               type: "scroll",
-              delta: dir * dialogueHalfPage(dialogueH),
+              delta: dir * dialogueHalfPage(viewportH),
               geom,
             }),
           );
@@ -1273,10 +1300,7 @@ export class App {
         const dir: 1 | -1 = name === "pageup" ? 1 : -1;
         const panel = this.state.focusedPanel;
         if (panel === "activity" || panel === "status") {
-          const page = inputPanelHeights(
-            this.state,
-            this.deps.renderer.getSize(),
-          );
+          const page = frameGeometry(this.state, this.deps.renderer.getSize());
           this.apply((s) =>
             reduceState(
               s,
@@ -1284,10 +1308,7 @@ export class App {
             ),
           );
         } else {
-          const m = dialogueScrollMetrics(
-            this.state,
-            this.deps.renderer.getSize(),
-          );
+          const m = frameGeometry(this.state, this.deps.renderer.getSize());
           // 跳转只在物化窗口内找目标（更早内容未物化，先按 ↑ 扩窗再翻页）
           const win = dialogueWindow(
             this.state.buffer,
@@ -1295,10 +1316,10 @@ export class App {
           );
           const jump = userInputJump(
             win.lines,
-            m.contentW,
+            m.dialogueW,
             this.state.messageGutter,
             this.state.themeId,
-            m.dialogueH,
+            m.viewportH,
             this.paneMaxes().dialogueGeometry.topIdx,
             win.start,
             dir,
@@ -1444,8 +1465,8 @@ export class App {
       reduceState(s, { type: "input-status", status: "running" }),
     );
     // 真实 DSH 不回显 user/message,由 app 在发送前本地追加用户行。
-    // 回合开始时先画分隔线(上一轮内容 → 新回合内容)
-    this.beginTurnIfNeeded();
+    // 回合开始时先画分隔线(上一轮内容 → 新回合内容)；用户输入开启 → 清空活动区
+    this.beginTurnIfNeeded(true);
     this.apply((s) => reduceState(s, { type: "user-line", text: echoText }));
     this.deps.adapter.sendMessage(
       sendText,
@@ -1465,11 +1486,42 @@ export class App {
     this.sendUserText(INIT_PROMPT, "/init");
   }
 
+  /** agent 是否正在跑（排队判据）：agent 状态权威 + 本地刚提交的过渡态 */
+  private agentBusy(): boolean {
+    return (
+      this.state.agentStatus !== "idle" || this.state.inputStatus === "running"
+    );
+  }
+
+  /**
+   * 排队消息退回输入框（Esc / Alt+Enter 时用）：按提交顺序排在已有输入之前
+   * （核心打断时会清空自己的 next-turn 队列，本机登记的先留底，避免静默丢输入）。
+   */
+  private restoreQueued(): boolean {
+    if (this.state.queued.length === 0) return false;
+    const text = this.state.queued.join("\n");
+    const cur = this.state.inputText;
+    const next = cur === "" ? text : text + "\n" + cur;
+    this.apply((s) =>
+      reduceState(s, { type: "input", text: next, cursor: next.length }),
+    );
+    this.apply((s) => reduceState(s, { type: "queued-clear" }));
+    return true;
+  }
+
   private submit(interrupt = false): void {
+    // 空输入且无排队：no-op（Alt+Enter 空输入也不打断，保持既有语义）
+    if (this.state.inputText.trim() === "" && this.state.queued.length === 0)
+      return;
+    // Alt+Enter：先打断当前 agent，再发送（普通 Enter 走排队/直发分流）。
+    // 已排队内容按时间顺序并入本次提交文本（restoreQueued 前置），避免
+    // 「新文本先发、排队内容后发」的顺序颠倒
+    if (interrupt) {
+      this.restoreQueued();
+      this.deps.adapter.interrupt();
+    }
     const text = this.state.inputText.trim();
     if (!text) return;
-    // Alt+Enter：先打断当前 agent，再发送（普通 Enter 排队发送路径无标志）
-    if (interrupt) this.deps.adapter.interrupt();
     const mode = this.state.inputMode;
     // 记录本次提交所用模式：提示符左字符符号来源（随后 inputMode 回退 normal 不影响）
     this.apply((s) => reduceState(s, { type: "last-submit-mode", mode }));
@@ -1482,7 +1534,19 @@ export class App {
       this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
       return;
     }
-    this.sendUserText(text);
+    // agent 运行中：发送路径**与官方一致**（立即 followup 交给核心 next-turn 队列，
+    // 逐条、不合并），本机只登记显示——排队块钉在历史区右下角（灰竖线），核心
+    // 开始新回合认领最早一条时该条转入历史流（见 beginTurnIfNeeded/queued-claim）。
+    // Alt+Enter（interrupt）打断后已经空闲 → 直发（排队内容已并回输入框）
+    if (!interrupt && this.agentBusy()) {
+      this.apply((s) => reduceState(s, { type: "queued-push", text }));
+      this.deps.adapter.sendMessage(
+        text,
+        this.state.activeSessionId ?? undefined,
+      );
+    } else {
+      this.sendUserText(text);
+    }
     this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
     // 任何提交后自动回退普通模式（提示符回 >）
     this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
@@ -1945,6 +2009,8 @@ export class App {
         }),
       );
       this.notice(`已切换到会话「${title}」`, "success");
+      // 排队块属于切换前会话（核心队列里那条仍在原会话）：显示登记清空
+      this.apply((s) => reduceState(s, { type: "queued-clear" }));
       // 新会话 Mode 初始值（log-only 事件不随 resume 回放，主动折叠一次）
       this.refreshSessionModes();
     } catch (err) {
@@ -2765,7 +2831,7 @@ export class App {
    *  列表随输入重算自动收起（`/name ` 已非命令 token）。 */
   /** 补全面板可显示的候选行数（活动区可视行 - 标题行；与 CommandCompletion 渲染同口径） */
   private completionVisibleRows(): number {
-    const activityH = inputPanelHeights(
+    const activityH = frameGeometry(
       this.state,
       this.deps.renderer.getSize(),
     ).activityH;

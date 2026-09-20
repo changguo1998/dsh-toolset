@@ -6,9 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  TOOL_MAX_GROUPS,
   TOOL_CONT_INDENT,
-  TOOL_MORE,
   TOOL_STATUS_PREFIXES,
   TURN_SEPARATOR_CHAR,
   ACTIVITY_SEPARATOR,
@@ -94,9 +92,7 @@ test("工具渲染：✓ 前缀绿分离、工具名染黄", () => {
 });
 
 test("常量齐全", () => {
-  assert.equal(TOOL_MAX_GROUPS, 4);
   assert.equal(TOOL_CONT_INDENT, 4);
-  assert.equal(TOOL_MORE, "...(更早工具调用已隐藏)");
   assert.equal(TURN_SEPARATOR_CHAR, "╌");
   assert.equal(ACTIVITY_SEPARATOR, "─");
   assert.equal(SEPARATOR, "─");

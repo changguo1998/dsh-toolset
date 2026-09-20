@@ -44,14 +44,6 @@ export function assistantMaxBodyWidth(
   return Math.max(1, width - Math.min(gutter, Math.max(0, width - 1)));
 }
 
-// ---------------- 工具历史折叠 ----------------
-
-/** 工具调用历史：仅展示最近 TOOL_MAX_GROUPS 个调用组，更早隐藏（折叠标记） */
-export const TOOL_MAX_GROUPS = 4;
-
-/** 工具折叠占位（更早调用已隐藏） */
-export const TOOL_MORE = "...(更早工具调用已隐藏)";
-
 /** 工具调用参数续行缩进：软换行/参数内显式换行后的续行统一 4 空格对齐 */
 export const TOOL_CONT_INDENT = 4;
 

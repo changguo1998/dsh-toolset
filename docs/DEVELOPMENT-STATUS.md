@@ -24,5 +24,5 @@
 | session-broker | P2 | — | 未开始 | |
 | command-template | P2 | — | 未开始 | |
 | context-report | P2 | — | 未开始 | |
-| TUI 扩展 | P2 | — | 完成（P2 部分） | /workflows 面板（P2#16）、/council（P2#18）、/search（P2#24）、声音提醒（P2#33）与 A1-A5 命令（/task /guard /memory /loop /contract，C1-C5）均已合入 main；C6/C7 裁定维持排除、C8 /review 裁定搁置；另新增启动自动清理空会话（`session.autoCleanEmpty`，默认关，复用 `/session` 清理判据全目录执行） |
+| TUI 扩展 | P2 | — | 完成（P2 部分） | /workflows 面板（P2#16）、/council（P2#18）、/search（P2#24）、声音提醒（P2#33）与 A1-A5 命令（/task /guard /memory /loop /contract，C1-C5）均已合入 main；C6/C7 裁定维持排除、C8 /review 裁定搁置；另新增启动自动清理空会话（`session.autoCleanEmpty`，默认关，复用 `/session` 清理判据全目录执行）；活动区排列（`activityPlacement` 黄金比自动选上下/左右）与「agent 工作中 Enter 排队（官方 followup 逐条入队）+ 未认领消息以排队块钉在历史区右下角（灰竖线）」、排版尺寸收敛到单一 `frameGeometry` |
 | 内容资产 | P2 | — | 未开始 | workflow 模板 + skill 内容 |

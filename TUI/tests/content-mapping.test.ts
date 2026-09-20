@@ -191,13 +191,32 @@ test("双轨：tool 行分组折叠 + step + 结果", () => {
   assertEquivalent("tool-group@w40g4", buf, 40, 4);
 });
 
-test("双轨：tool 超出 TOOL_MAX_GROUPS 折叠占位", () => {
+test("双轨（已偏离）：tool 不再按组数折叠——基线保留旧折叠占位，新管线全量保留", () => {
+  // 行为变更（2026-09）：工具历史只受活动 pane 可视行数约束，不再按组数折叠。
+  // 冻结基线是旧实现的记录（含 `...(更早工具调用已隐藏)`），此处显式断言差异方向：
+  // 新管线保留全部调用组，旧基线折叠到最近 4 组 + 1 行占位。
   const buf: Buffer = [];
   for (let i = 0; i < 6; i++) {
     buf.push({ text: `bash run ${i}`, kind: "tool" });
     buf.push({ text: `✓ ok${i}`, kind: "tool" });
   }
-  assertEquivalent("tool-overflow@w40g4", buf as Buffer, 40, 4);
+  const fresh = newRows(buf, 40, 4);
+  const legacy = baselineRows("tool-overflow@w40g4", "activity");
+  const textOf = (rows: FixtureRow[]): string =>
+    rows.map((r) => r.text).join("\n");
+  assert.ok(
+    textOf(legacy).includes("...(更早工具调用已隐藏)"),
+    "基线：旧实现按组数折叠（记录保留）",
+  );
+  assert.ok(
+    !textOf(fresh.activity).includes("...(更早工具调用已隐藏)"),
+    "新实现：不再出现折叠占位",
+  );
+  for (const i of [0, 1, 2, 3, 4, 5])
+    assert.ok(
+      textOf(fresh.activity).includes(`bash run ${i}`),
+      `新实现保留第 ${i} 组调用（内容行全量，pane 外可上滚回看）`,
+    );
 });
 
 test("双轨：fence 代码块跨行", () => {
@@ -292,12 +311,27 @@ test("双轨：内部空格与续行（wrap 折行空白保留）", () => {
     assertEquivalent(`internal-space@w${w}g4`, buf, w, 4);
 });
 
-test("双轨：tool step 头 + 多组折叠", () => {
+test("双轨（已偏离）：tool step 头 + 多组不再折叠", () => {
+  // 同 tool-overflow：组数折叠已移除（只受 pane 高约束），step 头保留；
+  // 冻结基线仍是旧实现的记录，此处断言差异方向而非等价。
   const buf: Buffer = [];
   for (let i = 1; i <= 7; i++) {
     buf.push({ text: `step ${i}`, kind: "tool" });
     buf.push({ text: `tool call ${i}`, kind: "tool" });
     buf.push({ text: `✓ result ${i}`, kind: "tool" });
   }
-  assertEquivalent("tool-step@w30g4", buf as Buffer, 30, 4);
+  const fresh = newRows(buf, 30, 4);
+  const legacy = baselineRows("tool-step@w30g4", "activity");
+  const textOf = (rows: FixtureRow[]): string =>
+    rows.map((r) => r.text).join("\n");
+  assert.ok(
+    textOf(legacy).includes("...(更早工具调用已隐藏)"),
+    "基线：旧实现折叠成占位 + 最近 4 组",
+  );
+  const freshText = textOf(fresh.activity);
+  assert.ok(!freshText.includes("...(更早工具调用已隐藏)"), "新实现无折叠占位");
+  for (let i = 1; i <= 7; i++) {
+    assert.ok(freshText.includes(`╌╌ step ${i} `), `保留 step ${i} 分组头`);
+    assert.ok(freshText.includes(`tool call ${i}`), `保留第 ${i} 组调用`);
+  }
 });
