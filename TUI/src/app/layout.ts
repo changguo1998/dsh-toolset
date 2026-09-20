@@ -346,19 +346,28 @@ export const WINDOW_GROW_STEP = 3;
 export const DIALOGUE_MORE = "...(更早回复已折叠)";
 
 /**
- * 回合组切分（渐进窗口的物化单位）：组起点 = 用户消息行，或无用户消息前缀的
- * 回复起头行（assistant 连续段首行）——恢复会话/无 user 行的场景按回复切分，
- * 保证「最近 N 组回复」在任何 buffer 形态下都能切开（否则永不折叠）。
+ * 回合组切分（渐进窗口的物化单位）：组起点 = 用户消息行，或进入历史区的
+ * **final assistant 段首行**（无用户消息前缀的恢复会话/agent 自发回合按回复切分，
+ * 保证「最近 N 组回复」在任何 buffer 形态下都能切开——否则永不折叠）。
+ * **非 final 的 assistant（思考/工具之间的活动区中间输出）不算组起点**：
+ * 否则 agent 持续输出会撑大组数、把历史旧回复挤出物化窗口（历史被活动区“推着滚动”）。
  * 首行不属于任何起点时补一个 0 起点（头部残段自成一组）。
  */
-export function turnGroupStarts(buffer: readonly { kind: string }[]): number[] {
+export function turnGroupStarts(
+  buffer: readonly { kind: string; final?: boolean }[],
+): number[] {
   const starts: number[] = [];
   for (let i = 0; i < buffer.length; i++) {
-    const kind = buffer[i]!.kind;
+    const line = buffer[i]!;
+    const kind = line.kind;
     const prev = i > 0 ? buffer[i - 1]!.kind : undefined;
     const userStart = kind === "user" && prev !== "user";
+    // 与历史一致：紧邻 user 的答复并入该用户组；无 user 前缀的 final 回复自成一组
     const replyStart =
-      kind === "assistant" && prev !== "assistant" && prev !== "user";
+      kind === "assistant" &&
+      line.final === true &&
+      prev !== "assistant" &&
+      prev !== "user";
     if (userStart || replyStart) starts.push(i);
   }
   if (starts.length === 0 || starts[0]! > 0) starts.unshift(0);

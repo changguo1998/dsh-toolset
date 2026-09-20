@@ -89,6 +89,24 @@ test("turnGroupStarts：user 行与无 user 前缀的回复起头都算组起点
   assert.deepEqual(turnGroupStarts(restored), [0, 2]);
 });
 
+test("turnGroupStarts: 非 final 中间输出不算组起点——单回合多 step 不被截断", () => {
+  // 回归：此前非 final 的 assistant（思考/工具之间的中间输出）也算回复组起点，
+  // 单回合被切碎成多组 → 渐进窗口尾部 N 组会截掉本回合早期活动内容（活动区大片空白）。
+  const b: Buffer = [
+    { text: "u", kind: "user" },
+    { text: "sep", kind: "separator" },
+    { text: "思考", kind: "thinking" },
+    { text: "分析甲", kind: "assistant" },
+    { text: "t1", kind: "tool" },
+    { text: "分析乙", kind: "assistant" },
+    { text: "t2", kind: "tool" },
+    { text: "回复", kind: "assistant", final: true },
+  ];
+  assert.deepEqual(turnGroupStarts(b), [0, 7], "仅 user 与 final 回复算组起点");
+  const w = dialogueWindow(b, 3);
+  assert.equal(w.start, 0, "默认窗口下本回合全部物化（中间输出不丢）");
+});
+
 test("dialogueWindow：尾部 N 组切片 + 丢弃行数（增窗上限为组总数）", () => {
   const b: Buffer = [];
   for (let i = 1; i <= 5; i++) {

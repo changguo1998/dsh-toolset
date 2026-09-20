@@ -22,6 +22,7 @@ import {
   anchorToIndex,
   dialogueSpans,
   indexToAnchor,
+  FRAME_LEFT_COLS,
   type FrameScrollReport,
 } from "../src/app/layout.ts";
 import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
@@ -2158,6 +2159,131 @@ test("对话区：渐进窗口（跟底只物化最近 N 组，上滚逐步扩�
   s = reduceState(s, { type: "scroll-to-bottom" });
   assert.equal(s.windowGroups, 3, "回底复位窗口");
   assert.equal(s.scrollAnchor, null, "回底 = 锚点 null（跟随底部）");
+});
+
+test("活动区新输出不推历史：非 final 中间输出不算窗口组，不折叠旧回复", () => {
+  // 回归：turnGroupStarts 曾把活动区（思考/工具/非 final assistant）也算组起点，
+  // agent 持续输出会把历史窗口向前挤、折叠旧回复——历史区被活动区“推着滚动”。
+  let s = initialState();
+  // 5 个真实回合（用户 + turn-begin + 回复 + turn-end）
+  for (let i = 1; i <= 5; i++) {
+    s = reduceState(s, { type: "user-line", text: `Q${i}` });
+    s = reduceState(s, { type: "turn-begin" });
+    s = reduceState(s, { type: "append", text: `A${i}` });
+    s = reduceState(s, { type: "turn-end" });
+  }
+  const size = { rows: 24, cols: 80 };
+  const geomOf = (st: typeof s) => {
+    const r = emptyReportForTest();
+    buildFrame(st, size, r);
+    return r.dialogueGeometry;
+  };
+  const g0 = geomOf(s);
+  // 只来活动区内容：思考 + 工具 + 非 final 中间输出（均不进历史区）
+  s = reduceState(s, { type: "thinking", text: "思考…" });
+  s = reduceState(s, {
+    type: "tool-call",
+    sessionId: "s",
+    name: "bash",
+    summary: "ls",
+  });
+  for (const t of ["中间输出1", "中间输出2"]) {
+    s = reduceState(s, { type: "append", text: t });
+  }
+  const g1 = geomOf(s);
+  assert.deepEqual(g1.spans, g0.spans, "历史窗口不被活动区折叠/移位");
+  assert.equal(g1.rows, g0.rows, "历史行数不变");
+  assert.equal(s.windowGroups, 3, "窗口组数不被活动区撑大");
+});
+
+test("滚动历史区不改变活动区：两 pane 滚动独立", () => {
+  // 回归：活动区内容若受渐进窗口切片影响，滚动历史会改变活动区显示。
+  // 固定横向排列（活动 pane 在左、历史 pane 在右），滚动历史只许改右侧对话区。
+  let s = initialState(undefined, {
+    activityPlacement: "horizontal" as const,
+  });
+  for (let i = 1; i <= 4; i++) {
+    s = reduceState(s, { type: "user-line", text: `Q${i}` });
+    s = reduceState(s, { type: "turn-begin" });
+    s = reduceState(s, { type: "append", text: `回复正文行${i}` });
+    s = reduceState(s, { type: "turn-end" });
+  }
+  // 当前回合：大量活动区内容（非 final 中间输出 + 工具 + step）
+  s = reduceState(s, { type: "turn-begin" });
+  for (let n = 1; n <= 12; n++) {
+    s = reduceState(s, {
+      type: "step",
+      phase: "start",
+      sessionId: "s",
+      turn: 1,
+      step: n,
+    });
+    s = reduceState(s, {
+      type: "tool-call",
+      sessionId: "s",
+      name: "bash",
+      summary: `cmd${n}`,
+    });
+    s = reduceState(s, {
+      type: "tool-result",
+      sessionId: "s",
+      ok: true,
+      detail: `out${n}`,
+    });
+    s = reduceState(s, {
+      type: "step",
+      phase: "end",
+      sessionId: "s",
+      turn: 1,
+      step: n,
+    });
+  }
+  const size = { rows: 18, cols: 100 };
+  const g = frameGeometry(s, size);
+  assert.equal(g.mode, "horizontal", "用例固定横向排列");
+  const div = FRAME_LEFT_COLS + g.activityW;
+  const colText = (l: string, from: number, to: number): string => {
+    let out = "";
+    let w = 0;
+    for (const ch of l) {
+      const cw = displayWidth(ch);
+      if (w >= to) break;
+      if (w >= from && w + cw <= to) out += ch;
+      w += cw;
+    }
+    return out.trimEnd();
+  };
+  const region = (from: number, to: number): string[] => {
+    const rows = buildFrame(s, size).map((r) =>
+      r.segments.map((x) => x.text).join(""),
+    );
+    const out: string[] = [];
+    for (let i = g.titleRows; i < g.titleRows + g.activityH; i++)
+      out.push(colText(rows[i]!, from, to));
+    return out;
+  };
+  const act = (): string[] => region(FRAME_LEFT_COLS, div);
+  const dia = (): string[] => region(div + 1, div + 1 + g.dialogueW);
+  const actBase = act();
+  const diaBase = dia();
+  // 滚动历史区（对话）：先补算几何再应用 scroll
+  const r: FrameScrollReport = emptyReportForTest();
+  buildFrame(s, size, r);
+  let s2 = s;
+  for (let i = 0; i < 6; i++) {
+    s2 = reduceState(s2, {
+      type: "scroll",
+      delta: 1,
+      geom: r.dialogueGeometry,
+    } as never);
+  }
+  const old = s;
+  s = s2;
+  const actAfter = act();
+  const diaAfter = dia();
+  s = old;
+  assert.notDeepEqual(diaAfter, diaBase, "历史 pane 本身确实滚动了");
+  assert.deepEqual(actAfter, actBase, "活动 pane 不受历史滚动影响");
 });
 
 /** 测试用空报告（字段与 FrameScrollReport 对齐） */
