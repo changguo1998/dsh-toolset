@@ -62,6 +62,8 @@ import {
 } from "./model-transition.ts";
 import {
   buildFrame,
+  dialogueWindow,
+  turnGroupStarts,
   type FrameScrollReport,
   dialogueHalfPage,
   dialogueScrollMetrics,
@@ -242,9 +244,13 @@ export class App {
   private paneScrollMax: FrameScrollReport = {
     dialogueMaxScroll: 0,
     activityMaxScroll: 0,
+    dialogueGeometry: { rows: 0, height: 0, spans: [], topIdx: 0 },
+    dialogueTop: { seq: 0, row: 0 },
   };
   /** paneScrollMax 对应的 state 引用（同一 state 不重复补算） */
   private paneScrollMaxState: AppState | null = null;
+  /** 上一帧 buffer 的回合组数（用户停在历史里时按新增组数撑住窗口起点） */
+  private groupCount: number | null = null;
 
   /** 当前 state 的可滚动上限：出帧回填过就直接用，否则就地补算一次（同一帧口径） */
   private paneMaxes(): FrameScrollReport {
@@ -253,6 +259,45 @@ export class App {
       this.paneScrollMaxState = this.state;
     }
     return this.paneScrollMax;
+  }
+
+  /**
+   * 出帧后同步派生缓存（语义锚点/几何/行偏移）：帧已按收敛后的锚点渲染，
+   * 故直接写 state（不经 apply，不触发重绘），与 paneScrollMax 的缓存语义一致。
+   * 只有锚点真正被收敛（窗口收缩、resize、buffer 裁剪）时 state 才会变化。
+   */
+  private syncScrollAnchor(): void {
+    const r = this.paneScrollMax;
+    const st = this.state;
+    // 用户停在历史里（锚点非 null）时，尾部新增回合组会把窗口起点向前挤（窗口按
+    // 「尾部 N 组」计）——按新增组数把窗口撑住，锚定内容不被挤出已物化范围
+    const groups = turnGroupStarts(st.buffer).length;
+    const grew = groups - (this.groupCount ?? groups);
+    this.groupCount = groups;
+    const keepWindow =
+      st.scrollAnchor !== null && grew > 0
+        ? Math.min(groups, st.windowGroups + grew)
+        : st.windowGroups;
+    const same =
+      st.scrollAnchor !== null &&
+      st.scrollAnchor.seq === r.dialogueTop.seq &&
+      st.scrollAnchor.row === r.dialogueTop.row;
+    const offset = Math.max(0, r.dialogueMaxScroll - r.dialogueGeometry.topIdx);
+    if (
+      same &&
+      st.scrollOffset === offset &&
+      st.dialogueGeometry === r.dialogueGeometry &&
+      st.windowGroups === keepWindow
+    )
+      return;
+    this.state = {
+      ...st,
+      // followBottom（锚点 null）保持 null：收敛值仅用于非跟随态
+      scrollAnchor: st.scrollAnchor === null ? null : r.dialogueTop,
+      scrollOffset: st.scrollAnchor === null ? 0 : offset,
+      dialogueGeometry: r.dialogueGeometry,
+      windowGroups: keepWindow,
+    };
   }
 
   /** 按面板取可滚动上限（status 列不按行滚动，返回 undefined = 不设上限） */
@@ -1209,11 +1254,13 @@ export class App {
             this.state,
             this.deps.renderer.getSize(),
           );
+          // 语义锚点位移：几何（行分组表）取自本帧布局，位移换算成 (buffer 行, 行内行号)
+          const geom = this.paneMaxes().dialogueGeometry;
           this.apply((s) =>
             reduceState(s, {
               type: "scroll",
               delta: dir * dialogueHalfPage(dialogueH),
-              ...(max ? { max: max.dialogue } : {}),
+              geom,
             }),
           );
         }
@@ -1241,32 +1288,39 @@ export class App {
             this.state,
             this.deps.renderer.getSize(),
           );
-          const jump = userInputJump(
+          // 跳转只在物化窗口内找目标（更早内容未物化，先按 ↑ 扩窗再翻页）
+          const win = dialogueWindow(
             this.state.buffer,
+            this.state.windowGroups,
+          );
+          const jump = userInputJump(
+            win.lines,
             m.contentW,
             this.state.messageGutter,
             this.state.themeId,
             m.dialogueH,
-            this.state.followBottom,
-            this.state.scrollOffset,
+            this.paneMaxes().dialogueGeometry.topIdx,
+            win.start,
             dir,
+            win.dropped > 0 ? 1 : 0,
           );
           if (jump)
-            this.apply((s) => reduceState(s, { type: "user-jump", ...jump }));
+            this.apply((s) =>
+              reduceState(s, { type: "user-jump", anchor: jump }),
+            );
+          else if (dir === -1)
+            // PgDn 无下一条 → 回到底部跟随最新
+            this.apply((s) => reduceState(s, { type: "scroll-to-bottom" }));
         }
         break;
       }
       case "home":
-        this.apply((s) => ({ ...s, scrollOffset: 0, followBottom: true }));
+        // 回到底部（最新）：跟随底部 + 窗口复位默认组数
+        this.apply((s) => reduceState(s, { type: "scroll-to-bottom" }));
         break;
       case "end":
-        // 跳到顶部（最早历史）：偏移取"未折叠全量行数 − 可视行数"的真实上限，
-        // 不能用 MAX_SAFE_INTEGER——那样偏移永远还不完，下滚会假死
-        this.apply((s) => ({
-          ...s,
-          scrollOffset: this.paneMaxes().dialogueMaxScroll,
-          followBottom: false,
-        }));
+        // 跳到最旧：窗口一次扩到全部回合组，锚点钉在首行（line 0）
+        this.apply((s) => reduceState(s, { type: "scroll-to-oldest" }));
         break;
       case "left":
         this.apply((s) => reduceState(s, { type: "move-cursor", delta: -1 }));
@@ -2755,6 +2809,7 @@ export class App {
     const size = this.deps.renderer.getSize();
     const frame = buildFrame(this.state, size, this.paneScrollMax);
     this.paneScrollMaxState = this.state;
+    this.syncScrollAnchor();
     this.deps.renderer.refresh(frame);
   }
 
@@ -2800,6 +2855,7 @@ export class App {
     // 出帧顺带回填两 pane 的可滚动上限（零额外排版开销），滚键处理据此收敛偏移
     const frame = buildFrame(this.state, size, this.paneScrollMax);
     this.paneScrollMaxState = this.state;
+    this.syncScrollAnchor();
     this.deps.renderer.render(frame);
   }
 

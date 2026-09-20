@@ -124,6 +124,131 @@ export function computeViewport(vp: ViewportInput): Viewport {
   return { start: Math.max(0, start), end, followBottom, scrollOffset: offset };
 }
 
+// ---------- 语义锚点（视口位置的可重建坐标） ----------
+
+/**
+ * 视口顶行的语义锚点：来源 buffer 行的**稳定序号** `seq` + 行内换行序号 `row`（0 基）。
+ * `seq = DIALOGUE_MARKER_SEQ` 表示窗口顶部的「更早回复已折叠」占位行。
+ *
+ * 为什么不用「距底部多少行」或「行下标」：底部新增/流式增长会改变同一偏移所指的
+ * 内容（视图被顶走）、resize 重排会让行数变化、渐进窗口向上扩窗会插入行、**回合
+ * 切换会清掉瞬态活动行使行下标整体平移**——只有内容身份（稳定行序号 + 行内换行
+ * 序号）在所有这几种情况下都指向同一行。
+ */
+export interface DialogueAnchor {
+  seq: number;
+  row: number;
+}
+
+/** 折叠占位行的锚点序号（不属于任何 buffer 行） */
+export const DIALOGUE_MARKER_SEQ = -1;
+
+/** 对话行按来源 buffer 行分组（行序不变，同一行的换行行相邻） */
+export interface DialogueSpan {
+  seq: number;
+  rows: number;
+}
+
+/** 对话区滚动几何（帧回填；App 借它把「行位移」换算成锚点、判断是否该扩窗） */
+export interface DialogueGeometry {
+  /** 物化行数（含折叠占位行） */
+  rows: number;
+  /** 可视行数 */
+  height: number;
+  /** 行分组表（offset ↔ anchor 互算、跨组位移） */
+  spans: DialogueSpan[];
+  /** 本帧视口顶行的绝对行号（0 = 物化窗口首行） */
+  topIdx: number;
+}
+
+/**
+ * 行数组 → 分组表（按 ContentRow.seq 分组）。
+ * 行没有稳定序号时（直接构造的 buffer，如单测）回退用行下标：同一份行数组内
+ * 口径一致，锚点仍可互算；真实链路 buffer 行恒带序号（见 state.append*）。
+ */
+export function dialogueSpans(rows: readonly ContentRow[]): DialogueSpan[] {
+  const out: DialogueSpan[] = [];
+  for (const r of rows) {
+    const seq = r.seq ?? r.line ?? DIALOGUE_MARKER_SEQ;
+    const last = out[out.length - 1];
+    if (last && last.seq === seq) last.rows += 1;
+    else out.push({ seq, rows: 1 });
+  }
+  return out;
+}
+
+/** 分组表总行数 */
+export function spanRows(spans: readonly DialogueSpan[]): number {
+  let n = 0;
+  for (const s of spans) n += s.rows;
+  return n;
+}
+
+/**
+ * 锚点 → 物化行数组内的绝对行号（0 基）。
+ * 锚点所在行不在表内（该行已被清掉/裁掉，或落在窗口外）时收敛到**空间上最近的
+ * 前一行**：序号单调递增，故「比某 span 小」即空间在前（占位行 -1 恒视为窗口顶部）。
+ */
+export function anchorToIndex(
+  spans: readonly DialogueSpan[],
+  anchor: DialogueAnchor,
+): number {
+  let idx = 0;
+  let prev = -1; // 最近的「空间在前」span 起点
+  for (const s of spans) {
+    if (s.seq === anchor.seq) return idx + Math.min(anchor.row, s.rows - 1);
+    if (s.seq > anchor.seq) return prev >= 0 ? prev : 0;
+    prev = idx;
+    idx += s.rows;
+  }
+  // 晚于窗口内所有行 → 末行（调用方按可视上限 clamp）
+  return idx;
+}
+
+/** 绝对行号 → 锚点（越界收敛到首/末行） */
+export function indexToAnchor(
+  spans: readonly DialogueSpan[],
+  idx: number,
+): DialogueAnchor {
+  if (spans.length === 0) return { seq: DIALOGUE_MARKER_SEQ, row: 0 };
+  let rest = Math.max(0, idx);
+  for (const s of spans) {
+    if (rest < s.rows) return { seq: s.seq, row: rest };
+    rest -= s.rows;
+  }
+  const last = spans[spans.length - 1]!;
+  return { seq: last.seq, row: last.rows - 1 };
+}
+
+/** 锚点 → 「距底部行数」（0 = 已到窗口末行；供状态缓存与既有调用口径使用） */
+export function anchorToOffset(
+  spans: readonly DialogueSpan[],
+  anchor: DialogueAnchor | null,
+  height: number,
+): number {
+  if (anchor === null) return 0;
+  const rows = spanRows(spans);
+  const top = anchorToIndex(spans, anchor);
+  return Math.max(0, rows - height - Math.min(top, Math.max(0, rows - height)));
+}
+
+/**
+ * 行位移 → 新锚点（纯函数；App 按键经它换算后再写回 state）。
+ * delta > 0 = 上滚（视口下移方向相反；与旧「scrollOffset += delta」同向）。
+ * 结果顶到窗口末行 → 返回 null（跟随底部，等价于旧 offset = 0）。
+ */
+export function moveDialogueAnchor(
+  anchor: DialogueAnchor | null,
+  delta: number,
+  geom: DialogueGeometry,
+): DialogueAnchor | null {
+  const maxTop = Math.max(0, geom.rows - geom.height);
+  const cur = anchor === null ? maxTop : anchorToIndex(geom.spans, anchor);
+  const next = Math.min(Math.max(0, cur - delta), maxTop);
+  if (next >= maxTop) return null; // 回到跟随底部
+  return indexToAnchor(geom.spans, next);
+}
+
 // ---------- 帧组装 ----------
 
 /** 上/中/下三区之间的横线分隔行数 */
@@ -215,9 +340,62 @@ export function metricsFor(
   };
 }
 
-/** 对话区仅保留最近 DIALOGUE_KEEP_REPLIES 条回复，更早以灰占位折叠 */
+/** 渐进窗口：默认物化最近 DIALOGUE_KEEP_REPLIES 个回合组，上滚接近窗口顶部时按步长扩窗 */
 export const DIALOGUE_KEEP_REPLIES = 3;
+/** 渐进窗口增窗步长（上滚触发时一次多物化的回合组数） */
+export const WINDOW_GROW_STEP = 3;
 export const DIALOGUE_MORE = "...(更早回复已折叠)";
+
+/**
+ * 回合组切分（渐进窗口的物化单位）：组起点 = 用户消息行，或无用户消息前缀的
+ * 回复起头行（assistant 连续段首行）——恢复会话/无 user 行的场景按回复切分，
+ * 保证「最近 N 组回复」在任何 buffer 形态下都能切开（否则永不折叠）。
+ * 首行不属于任何起点时补一个 0 起点（头部残段自成一组）。
+ */
+export function turnGroupStarts(buffer: readonly { kind: string }[]): number[] {
+  const starts: number[] = [];
+  for (let i = 0; i < buffer.length; i++) {
+    const kind = buffer[i]!.kind;
+    const prev = i > 0 ? buffer[i - 1]!.kind : undefined;
+    const userStart = kind === "user" && prev !== "user";
+    const replyStart =
+      kind === "assistant" && prev !== "assistant" && prev !== "user";
+    if (userStart || replyStart) starts.push(i);
+  }
+  if (starts.length === 0 || starts[0]! > 0) starts.unshift(0);
+  return starts;
+}
+
+/** 渐进窗口切片（尾部 groups 个回合组；groups 至少 1） */
+export interface DialogueWindow {
+  /** 物化的 buffer 切片（buildBox 输入） */
+  lines: Buffer;
+  /** 切片在原始 buffer 中的起始行号（0 = 未切） */
+  start: number;
+  /** 被切掉的更早行数（> 0 → 顶部加「更早回复已折叠」占位行） */
+  dropped: number;
+  /** buffer 内回合组总数（增窗上限） */
+  totalGroups: number;
+}
+
+/**
+ * 取 buffer 尾部 groups 个回合组作为物化窗口。
+ * 只物化窗口内的行是「渐进定位」的一半：布局成本与物化行数成正比，
+ * 用户上滚时再逐步向前扩窗（另一半是语义锚点——扩窗会在视口上方插入行，
+ * 只有锚点能保证视图不被顶走）。
+ */
+export function dialogueWindow(buffer: Buffer, groups: number): DialogueWindow {
+  const starts = turnGroupStarts(buffer);
+  const totalGroups = starts.length;
+  const keep = Math.max(1, Math.min(Math.floor(groups), totalGroups));
+  const start = starts[totalGroups - keep] ?? 0;
+  return {
+    lines: start > 0 ? buffer.slice(start) : buffer,
+    start,
+    dropped: start,
+    totalGroups,
+  };
+}
 /** 活动区行数 = 右上区（对话历史+活动区）高度的一半（固定比例，不随内容变化） */
 /** @deprecated 由 activityHeight(contentTopH, divisor) 的 divisor=2 取代（配置 tui.config.json layout.activityHeightDivisor） */
 export const ACTIVITY_HEIGHT_RATIO = 1 / 2;
@@ -471,35 +649,6 @@ export interface PanelHeights {
   topHeight: number;
   activityH: number;
   dialogueH: number;
-}
-
-/** 对话区按回复组折叠：仅保留最近 keep 组 assistant 回复，更早替换为灰色占位 */
-function foldDialogue(rows: ContentRow[], keep: number): ContentRow[] {
-  // 回复组 = 连续 assistant 行（同一回复的流式/多行）
-  const starts: number[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    if (
-      rows[i]!.kind === "assistant" &&
-      (i === 0 || rows[i - 1]!.kind !== "assistant")
-    )
-      starts.push(i);
-  }
-  if (starts.length <= keep) return rows;
-  // 剪切点：第 keep 新回复组起点，前移包含其前置用户消息/分隔线/空行，
-  // 使可见区从“最后 keep 组对话”的用户消息开始，读起来完整。
-  let cut = starts[starts.length - keep]!;
-  while (cut > 0 && isConversationKind(rows[cut - 1]!.kind)) cut--;
-  const marker: ContentRow = {
-    segments: [seg(DIALOGUE_MORE, { fg: NOTICE_TONE_COLOR.log })],
-    kind: "plain",
-    indent: 0,
-  };
-  return [marker, ...rows.slice(cut)];
-}
-
-/** 对话区前置段类型（剪切点外推）：用户/分隔线/空行属于回复的陪衬 */
-function isConversationKind(kind: string | undefined): boolean {
-  return kind === "user" || kind === "separator" || kind === "plain";
 }
 
 /** goal 阶段 → 标题 phase 状态色：active/complete 绿、paused 黄、blocked 红 */
@@ -1077,32 +1226,57 @@ function buildTopRegion(
   const { titleRows, activityH, dialogueH, dialogueW, activityW } = split;
   const diaStart = titleRows; // 内容行中对话区起点（标题栏之后）
   const diaEnd = diaStart + dialogueH; // 对话区结束（= 活动区分隔行位置；横向模式无分隔行）
+  // 渐进窗口：只物化最近 windowGroups 个回合组（缺省 3），更早部分以顶部占位行示意；
+  // 上滚接近窗口顶部时由 App 增大 windowGroups 再扩窗（不再每帧全量重排历史）
+  const win = dialogueWindow(state.buffer, state.windowGroups);
   const { dialogue, activity } = buildContentRows(
-    state.buffer,
+    win.lines,
     {
       themeId: state.themeId,
       gutter: state.messageGutter,
       activityWidth: horizontal ? activityW : undefined,
+      lineOffset: win.start,
     },
     horizontal ? dialogueW : contentW,
   );
+  // 顶部占位行（line = -1）：窗口未覆盖最旧内容时提示更早回复已折叠
+  const markerRow: ContentRow | null =
+    win.dropped > 0
+      ? {
+          segments: [seg(DIALOGUE_MORE, { fg: NOTICE_TONE_COLOR.log })],
+          kind: "plain",
+          indent: 0,
+          seq: DIALOGUE_MARKER_SEQ,
+        }
+      : null;
+  const dialogueRows: ContentRow[] = markerRow
+    ? [markerRow, ...dialogue]
+    : dialogue;
+  // 语义锚点：视口顶行 = (buffer 行, 行内换行序号)；followBottom（anchor=null）时贴窗口底
+  const spans = dialogueSpans(dialogueRows);
+  const maxTop = Math.max(0, dialogueRows.length - dialogueH);
+  const topIdx =
+    state.scrollAnchor === null
+      ? maxTop
+      : Math.min(anchorToIndex(spans, state.scrollAnchor), maxTop);
+  const vp: Viewport = {
+    start: topIdx,
+    end: Math.min(dialogueRows.length, topIdx + dialogueH),
+    followBottom: topIdx >= maxTop,
+    scrollOffset: maxTop - topIdx,
+  };
+  // 回填滚动几何与收敛后的锚点：App 用它把「行位移」换算成锚点并同步 state
+  if (report) {
+    report.dialogueMaxScroll = maxTop;
+    report.dialogueGeometry = {
+      rows: dialogueRows.length,
+      height: dialogueH,
+      spans,
+      topIdx,
+    };
+    report.dialogueTop = indexToAnchor(spans, topIdx);
+  }
 
-  // 对话区折叠：跟随底部（未上滚）时仅保留最近 N 组回复（更早以灰占位）；
-  // 用户上滚查看历史时展开全量——否则被折叠丢弃的更早回复无法滚动到（翻页失效）。
-  // 折叠在窗口计算前统一进行，保证 scrollOffset 基于同一 rows 数组。
-  const dialogueRows =
-    state.scrollOffset > 0
-      ? dialogue
-      : foldDialogue(dialogue, DIALOGUE_KEEP_REPLIES);
-  // 回填可滚动上限：对话区取**未折叠**全量（上滚会解除折叠，折叠态上限偏小不可作上界）
-  if (report)
-    report.dialogueMaxScroll = Math.max(0, dialogue.length - dialogueH);
-  const vp = computeViewport({
-    totalRows: dialogueRows.length,
-    height: dialogueH,
-    followBottom: state.followBottom,
-    scrollOffset: state.scrollOffset,
-  });
   // 状态列（右侧）：恰「内容行数」行，每行宽 statusColWidth。
   // renderStatusColumn 自带右缘竖线，对调后剥去不用，分隔竖线左缘/右缘框列由本函数构图
   const statusCells = renderStatusColumn(
@@ -1610,18 +1784,15 @@ export function dialogueHalfPage(rows: number): number {
   return Math.max(1, Math.floor(rows / 2));
 }
 
-/** PgUp/PgDn 用户输入跳转结果（目标视口距底部行数 + 跟随底部标记） */
-export interface UserInputJump {
-  scrollOffset: number;
-  followBottom: boolean;
-}
-
 /**
  * 对话区用户输入跳转（PgUp/PgDn）：把上一条/下一条用户消息块首行翻到视口顶行。
- * dir=1 上一条（PgUp）、-1 下一条（PgDn）；锚点 = 当前视口首行（全量未折叠坐标）。
- * 目标消息块后文本不足 dialogueH 一屏时回退「底对齐」——以更早历史填充满屏，
- * 目标消息块出现在顶行之下（后续文本高度不够时填充前面的历史）。
- * 无可跳转返回 null（视口不动）；PgDn 无下一条 → 回到跟随底部。
+ * dir=1 上一条（PgUp）、-1 下一条（PgDn）；基准 = 当前视口首行（物化窗口坐标）。
+ * 目标消息块后文本不足一屏时回退「底对齐」（多出的空屏由更早历史填充）。
+ * 返回目标行的语义锚点（视口顶行）；无跳转目标返回 null（视口不动）；PgDn 无下一
+ * 条 → 返回 null 表示应回到底部（调用方按 dir 区分处理）。
+ *
+ * 窗口感知：只扫「渐进窗口内」的行（与帧内物化范围一致，boundary 之上暂未物化），
+ * 行号转锚点用同一份分组表口径（锚点与换行宽度/窗口大小解耦）。
  */
 export function userInputJump(
   buffer: Buffer,
@@ -1629,20 +1800,25 @@ export function userInputJump(
   gutter: number,
   themeId: ThemeId,
   dialogueH: number,
-  followBottom: boolean,
-  scrollOffset: number,
+  topIdx: number,
+  lineOffset: number,
   dir: 1 | -1,
-): UserInputJump | null {
+  markerRows = 0,
+): DialogueAnchor | null {
   if (dialogueH <= 0) return null;
-  const { dialogue } = buildContentRows(buffer, { themeId, gutter }, width);
+  const { dialogue } = buildContentRows(
+    buffer,
+    { themeId, gutter, lineOffset },
+    width,
+  );
+  // 行身份（锚点）在原对话行上的坐标；占位行（markerRows）由调用方在数组前置
+  const spans = dialogueSpans(dialogue);
+  const idx0 = Math.min(
+    Math.max(0, topIdx - markerRows),
+    Math.max(0, dialogue.length - 1),
+  );
   const total = dialogue.length;
   if (total === 0) return null;
-  const start = computeViewport({
-    totalRows: total,
-    height: dialogueH,
-    followBottom,
-    scrollOffset,
-  }).start;
   const maxStart = Math.max(0, total - dialogueH);
   // 用户消息块 = 连续 kind==="user" 的 wrapped 行；只记块首行
   const blockStarts: number[] = [];
@@ -1654,24 +1830,22 @@ export function userInputJump(
       blockStarts.push(i);
   }
   if (blockStarts.length === 0) return null;
-  const aligned = (first: number): UserInputJump => ({
+  const aligned = (first: number): DialogueAnchor =>
     // 顶对齐；后文不足一屏时收敛到底对齐（多出的空屏由更早历史填充）
-    scrollOffset: Math.max(0, total - dialogueH - Math.min(first, maxStart)),
-    followBottom: false,
-  });
+    indexToAnchor(spans, Math.min(first, maxStart));
   if (dir === 1) {
     // 上一条：最后一个位于当前视口首行之上的用户块
     let target = -1;
-    for (const s of blockStarts) {
-      if (s < start) target = s;
+    for (const st of blockStarts) {
+      if (st < idx0) target = st;
       else break;
     }
     if (target < 0) return null;
     return aligned(target);
   }
-  // 下一条：第一个位于当前视口首行之下的用户块；无则回到底部跟随最新
-  const next = blockStarts.find((s) => s > start);
-  if (next === undefined) return { scrollOffset: 0, followBottom: true };
+  // 下一条：第一个位于当前视口首行之下的用户块；无则 null（回到底部跟随最新）
+  const next = blockStarts.find((st) => st > idx0);
+  if (next === undefined) return null;
   return aligned(next);
 }
 
@@ -1725,6 +1899,10 @@ export function buildStatusSeparator(
 export interface FrameScrollReport {
   dialogueMaxScroll: number;
   activityMaxScroll: number;
+  /** 对话区滚动几何（渐进窗口 + 语义锚点；App 经 paneGeometry() 回填或就地补算） */
+  dialogueGeometry: DialogueGeometry;
+  /** 本帧实际渲染的视口顶行锚点（收敛后；App 用它同步 state.scrollAnchor） */
+  dialogueTop: DialogueAnchor;
 }
 
 export function buildFrame(

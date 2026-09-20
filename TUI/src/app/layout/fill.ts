@@ -34,6 +34,10 @@ export interface ContentRow extends FrameRow {
   kind?: string;
   /** 逻辑块 id（同一用户消息/回复/tool 组共享；折叠/跳转定位用） */
   blockId?: number;
+  /** 来源 buffer 行号（绝对行号；调试/分组口径） */
+  line?: number;
+  /** 来源 buffer 行的稳定序号（语义锚点身份，见 layout.DialogueAnchor） */
+  seq?: number;
   /** 行级缩进（已并入 segments；冗余供快速读取） */
   indent?: number;
 }
@@ -55,7 +59,13 @@ export function fillBoxTree(
 }
 
 /** 节点 → 行元数据（buildBox 产出；fill 传播到每行） */
-export type RowMeta = { kind?: string; blockId?: number; indent?: number };
+export type RowMeta = {
+  kind?: string;
+  blockId?: number;
+  indent?: number;
+  line?: number;
+  seq?: number;
+};
 
 /** 便捷：fill 整棵树到行数组（rects 由 allocate 输出，缺省每个节点=根 rect） */
 export function fillToList(
@@ -154,6 +164,8 @@ function fillBox(
         kind: meta?.kind,
         blockId: meta?.blockId,
         indent: meta?.indent,
+        line: meta?.line,
+        seq: meta?.seq,
       });
     }
     return;
@@ -251,6 +263,8 @@ function decorateRows(
       indent: ri === 0 ? indent : hanging,
       kind: rowMeta?.kind,
       blockId: rowMeta?.blockId,
+      line: rowMeta?.line,
+      seq: rowMeta?.seq,
     };
   });
   // tail：非空正文时行尾补 char 到 rect.w
@@ -324,6 +338,8 @@ function fillParagraph(
       indent: 0,
       kind: m?.kind,
       blockId: m?.blockId,
+      line: m?.line,
+      seq: m?.seq,
     });
     return;
   }
@@ -371,6 +387,8 @@ function fillStyled(
       indent: 0,
       kind: m?.kind,
       blockId: m?.blockId,
+      line: m?.line,
+      seq: m?.seq,
     });
     return;
   }

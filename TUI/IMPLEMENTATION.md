@@ -81,6 +81,20 @@
   - `scrollBy(state, delta, maxOffset?)` 与 `activity-scroll` action 先**收敛当前偏移**再叠加 delta、且结果不超上限；`End` 由 `MAX_SAFE_INTEGER` 改为真实上限。上限缺省时行为不变（纯函数测试可直接调）。
 - **回归**：`tests/app.test.ts`（上滚越顶后 `↓` 立即响应 / `End` 后 `↓` 立即响应 / 活动区同理）+ `tests/layout4.test.ts`（回填值在折叠态下仍为未折叠全量）。
 
+## 历史区回滚：语义锚点 + 渐进窗口
+
+- **为什么**：旧模型用「距底部行数」（`scrollOffset`）+ 全量物化，「上滚即展开全量」。三处弱点：底部新增/流式增长会改变同一偏移所指的内容（视图被顶走）、resize 重排后锚定内容跳、首帧上滚要付一次全量排版。
+- **语义锚点**（`layout.ts`：`DialogueAnchor{seq,row}` / `DialogueSpan` / `DialogueGeometry`）：
+  - 位置改成**内容身份**——视口顶行 = 来源 buffer 行的**稳定序号** `seq` + 行内换行序号 `row`（`seq = -1` 是折叠占位行）。序号在行插入时由 `state.append*` 分配（`BufferLine.seq`，`AppState.nextSeq` 单调递增、只增不减），`RowMeta.seq`/`ContentRow.seq` 由 `buildBox`/`fill` 透传，`dialogueSpans(rows)` 每帧把行按序号压成分组表（无序号时回退行下标，便于直接构造 buffer 的单测）。
+  - **为什么必须是稳定序号而不是行下标**：`turn-begin` 会 `filter` 掉上一回合的瞬态活动行（thinking/tool/notice/非 final 中间输出），`MAX_BUFFER_LINES` 也会从头部裁剪——两者都让行下标整体平移；按下标存的锚点会指向别的内容（表现为「提交新消息后视图跳到新内容」），按序号则不受影响。
+  - `anchorToIndex`/`indexToAnchor` 互算（锚点行已被清掉时收敛到**空间上最近的前一行**，越界收敛首/末行）、`moveDialogueAnchor(anchor, deltaRows, geom)` 做行位移（顶到窗口末行 → 返回 `null`，即跟底 = 旧 `offset 0`）；`anchorToOffset` 供 `scrollOffset` 派生缓存口径。
+  - 帧渲染：`topIdx = anchor === null ? maxTop : clamp(anchorToIndex(...))`，视口 = `[topIdx, topIdx+height)`。因此**底部新增行、resize 重排、扩窗在上方插入行都不会移动锚定的内容**。
+- **渐进窗口**（`dialogueWindow(buffer, groups)` / `turnGroupStarts`）：只物化尾部 `windowGroups` 个回合组（缺省 `DIALOGUE_KEEP_REPLIES=3`），组起点 = user 行，或无 user 前缀的回复起头（恢复会话也能切）；窗口未覆盖最旧内容时顶部加 `...(更早回复已折叠)` 占位行（锚点 `line = -1`）。`buildContentRows` 接切片 + `lineOffset`，于是「折叠」不再是显示层裁剪，而是**排版量随窗口收敛**。
+- **增窗/复位**：`scrollDialogue()`（`state.ts`）在位移后判断——上滚且视口顶行进入窗口顶部半屏区间（或窗口内已无可滚行）→ `windowGroups += WINDOW_GROW_STEP(3)`（封顶总组数）；扩窗在视口上方插入行，锚点不变所以画面不跳。下滚回到底部（锚点 `null`）时复位默认组数，释放增量物化。
+- **按键口径**：↑/↓（半屏）走 `scroll` action（带本帧 `geom`）；PgUp/PgDn 的 `userInputJump` 改为在**物化窗口内**找用户块并返回锚点（无下一条 → `null`，App 转 `scroll-to-bottom`）；`Home` = `scroll-to-bottom`（跟底 + 复位窗口）；`End` = `scroll-to-oldest`（窗口一次扩到全部组 + 锚点钉 `line 0`）。
+- **App 接线**：`FrameScrollReport` 增 `dialogueGeometry{rows,height,spans,topIdx}` + `dialogueTop`（本帧渲染的锚点）；`paneMaxes()` 同口径回填/补算，`syncScrollAnchor()` 在出帧后把收敛后的锚点/几何/`scrollOffset` 写回 state（派生缓存，帧已按该锚点渲染故不触发重绘）。**窗口起点不滑走**：用户停在历史里（锚点非 null）而尾部新增了回合组时，按新增组数把 `windowGroups` 撑住——窗口按「尾部 N 组」计，不撑就会被新内容把起点向前挤出已物化范围。
+- **回归**：`tests/scroll-anchor.test.ts`（9 例：组切分/切片、互算往返与越界、**底部新增不顶走视图**、resize 重排锚点可解析、位移到顶/底、增窗与复位、End 跳最旧、**回合切换清瞬态行后视图不跳**）+ `tests/layout4.test.ts`（窗口/占位/报告口径）+ `tests/app.test.ts`（键位路径）。
+
 ## 声音提醒事件钩子（P2#33）
 
 - **输出口**：`Renderer.bell?()`（可选接口方法；真实 renderer 实现 → `Screen.beep()` 向输出流写 BEL `\x07`；注入型 renderer 可不实现，App 经 `bell?.()` 调用）。

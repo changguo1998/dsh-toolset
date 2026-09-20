@@ -2417,10 +2417,13 @@ test("history-resume-ok：替换 buffer、关面板、更新 activeSessionId/标
   assert.equal(s.history, null);
   assert.equal(s.activeSessionId, "s2");
   assert.equal(s.sessionTitle, "我的问题");
-  assert.deepEqual(s.buffer, [
-    { text: "q", kind: "user" },
-    { text: "a", kind: "assistant" },
-  ]);
+  assert.deepEqual(
+    s.buffer.map((l) => ({ text: l.text, kind: l.kind })),
+    [
+      { text: "q", kind: "user" },
+      { text: "a", kind: "assistant" },
+    ],
+  );
   assert.equal(s.followBottom, true);
   // 过期结果被丢弃
   let s2 = reduceState(initialState(), { type: "history-open" });

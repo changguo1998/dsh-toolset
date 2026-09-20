@@ -18,8 +18,14 @@ import {
   dialogueHalfPage,
   dialogueScrollMetrics,
   userInputJump,
+  DIALOGUE_KEEP_REPLIES,
+  anchorToIndex,
+  dialogueSpans,
+  indexToAnchor,
+  type FrameScrollReport,
 } from "../src/app/layout.ts";
 import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
+import { buildContentRows } from "../src/app/layout/build-box.ts";
 import type { InputMode, InputStatus, Buffer } from "../src/app/state.ts";
 import type { FrameRow } from "../src/renderer/screen.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
@@ -259,10 +265,10 @@ test("turn-begin: 回合开始时在历史末尾追加分隔线；流式内容�
   s = reduceState(s, { type: "user-line", text: "q" });
   s = reduceState(s, { type: "append", text: "中间输出" });
   s = reduceState(s, { type: "turn-begin" });
-  assert.deepEqual(s.buffer[s.buffer.length - 1], {
-    text: TURN_SEPARATOR,
-    kind: "separator",
-  });
+  assert.deepEqual(
+    (({ text, kind }) => ({ text, kind }))(s.buffer[s.buffer.length - 1]!),
+    { text: TURN_SEPARATOR, kind: "separator" },
+  );
   assert.equal(
     s.buffer.some((l) => l.kind === "assistant"),
     false,
@@ -2077,28 +2083,79 @@ function contentSig(lines: string[], topRows: number): string[] {
     );
 }
 
-test("对话区：上滚展开折叠历史（offset>0 更早回复可见，跟底时灰占位折叠）", () => {
+test("对话区：渐进窗口（跟底只物化最近 N 组，上滚逐步扩窗露出更早回复）", () => {
   let s = initialState();
-  // 5 组回复（> DIALOGUE_KEEP_REPLIES=3）：user+assistant交替
-  for (let i = 1; i <= 5; i++) {
+  // 8 组回复（> DIALOGUE_KEEP_REPLIES=3），每组多行 → 3 组物化即超出 24 行终端的一屏
+  for (let i = 1; i <= 8; i++) {
     s = reduceState(s, { type: "user-line", text: `Q${i}` });
-    s = reduceState(s, { type: "append", text: `A${i} 的回复正文` });
-    s = reduceState(s, { type: "turn-end" }); // 每回合回复标 final 进历史区
+    for (let k = 0; k < 4; k++)
+      s = reduceState(s, {
+        type: "append",
+        text: `A${i} 的回复正文第 ${k} 行`,
+      });
+    s = reduceState(s, { type: "turn-end" }); // 回复标 final 进历史区
   }
+  const size = { rows: 24, cols: 80 };
+  const geomOf = (st: typeof s) => {
+    const r = emptyReportForTest();
+    buildFrame(st, size, r);
+    return r.dialogueGeometry;
+  };
   const frame = (st: typeof s): string =>
-    buildFrame(st, { rows: 60, cols: 80 })
+    buildFrame(st, size)
       .map((l) => rowAnsi(l))
       .join("\n");
-  // 跟随底部：更早回复折叠为灰占位，最早回复不可见
-  const joined0 = frame(s);
-  assert.ok(joined0.includes("更早回复已折叠"), "跟底时应显示折叠占位");
-  assert.ok(!joined0.includes("A1 的回复正文"), "折叠后最早回复不可见");
-  // 上滚 1 行：展开全量——更早回复可见、折叠占位消失
-  s = reduceState(s, { type: "scroll", delta: 1 });
-  const joined1 = frame(s);
-  assert.ok(joined1.includes("A1 的回复正文"), "上滚后更早回复可见");
-  assert.ok(!joined1.includes("更早回复已折叠"), "上滚中不显示折叠占位");
+  // 跟随底部：只物化最近 3 个回合组 → 首行是「更早回复已折叠」占位（line = -1）
+  const g0 = geomOf(s);
+  assert.equal(s.windowGroups, 3, "默认窗口 = 最近 3 个回合组");
+  assert.equal(g0.spans[0]!.seq, -1, "窗口未覆盖最旧内容 → 顶部物化占位行");
+  assert.ok(!frame(s).includes("A1 的回复正文"), "窗口外的更早回复未物化");
+  const groups0 = s.windowGroups;
+  // 上滚：接近窗口顶部时按步长增窗；锚点保证同一内容留在视口顶行
+  let topBefore = "";
+  let grew = false;
+  for (let i = 0; i < 12; i++) {
+    const before = geomOf(s);
+    const rowAtTop = buildFrame(s, size)
+      .map((l) => rowText(l))
+      .slice(before.height === 0 ? 0 : 0);
+    void rowAtTop;
+    s = reduceState(s, { type: "scroll", delta: 6, geom: before });
+    const after = geomOf(s);
+    if (s.windowGroups > groups0) {
+      grew = true;
+      // 增窗后锚点未变：同一 (buffer 行, 行内行号) 仍在视口顶行
+      assert.deepEqual(
+        s.scrollAnchor,
+        indexToAnchor(after.spans, after.topIdx),
+      );
+      topBefore = s.scrollAnchor ? `${s.scrollAnchor.seq}` : "";
+      break;
+    }
+    void after;
+  }
+  assert.ok(grew, "上滚接近窗口顶部时增窗");
+  assert.ok(topBefore !== "", "增窗后仍持有锚点（非跟随底部）");
+  // 继续上滚到顶：更早的回复出现（窗口已覆盖）
+  for (let i = 0; i < 60; i++) {
+    s = reduceState(s, { type: "scroll", delta: 6, geom: geomOf(s) });
+  }
+  assert.ok(frame(s).includes("A1 的回复正文"), "扩窗后更早回复可见");
+  // 回到底部：窗口复位默认组数（释放增量物化）
+  s = reduceState(s, { type: "scroll-to-bottom" });
+  assert.equal(s.windowGroups, 3, "回底复位窗口");
+  assert.equal(s.scrollAnchor, null, "回底 = 锚点 null（跟随底部）");
 });
+
+/** 测试用空报告（字段与 FrameScrollReport 对齐） */
+function emptyReportForTest(): FrameScrollReport {
+  return {
+    dialogueMaxScroll: 0,
+    activityMaxScroll: 0,
+    dialogueGeometry: { rows: 0, height: 0, spans: [], topIdx: 0 },
+    dialogueTop: { seq: 0, row: 0 },
+  };
+}
 
 // --- /session 历史面板在活动区（modalPanel）的回归：标题对齐 + 按键提示位置 ---
 
@@ -2231,51 +2288,51 @@ test("userInputJump：PgUp/PgDn 把用户消息首行翻到顶行，后文不足
     { text: "a3", kind: "assistant", final: true },
   ];
   const H = 4;
-  // 跟随底部（start=5）：PgUp 跳上一条用户消息 u2（block=3）顶对齐 → offset 9-4-3=2
+  // 跟随底部（start=5）：PgUp 跳上一条用户消息 u2（buffer 行 2）顶对齐
   assert.deepEqual(
-    userInputJump(buffer, 60, 4, themeId, H, true, 0, 1),
-    { scrollOffset: 2, followBottom: false },
+    userInputJump(buffer, 60, 4, themeId, H, 5, 0, 1),
+    { seq: 2, row: 0 },
     "跟随底部 PgUp：跳到上一条用户输入并顶对齐",
   );
-  // 继续 PgUp：当前视口首行=3（u2）→ 上一条 u1（block=0）→ offset 5
+  // 继续 PgUp：当前视口首行=3（u2）→ 上一条 u1（buffer 行 0）
   assert.deepEqual(
-    userInputJump(buffer, 60, 4, themeId, H, false, 2, 1),
-    { scrollOffset: 5, followBottom: false },
+    userInputJump(buffer, 60, 4, themeId, H, 3, 0, 1),
+    { seq: 0, row: 0 },
     "再次 PgUp：跳到更早一条用户输入",
   );
   // 已到最早用户消息（start=0）：无更早 → null（视口不动）
-  assert.equal(userInputJump(buffer, 60, 4, themeId, H, false, 5, 1), null);
-  // PgDn：从 start=0 跳下一条 u2 → offset 2
+  assert.equal(userInputJump(buffer, 60, 4, themeId, H, 0, 0, 1), null);
+  // PgDn：从 start=0 跳下一条 u2 → 行 2
   assert.deepEqual(
-    userInputJump(buffer, 60, 4, themeId, H, false, 5, -1),
-    { scrollOffset: 2, followBottom: false },
+    userInputJump(buffer, 60, 4, themeId, H, 0, 0, -1),
+    { seq: 2, row: 0 },
     "PgDn：跳到下一条用户输入并顶对齐",
   );
-  // 下一条 u3（block=6）：u3 后文本不足一屏（6+4>9）→ 收敛到底对齐（offset 0），
-  // 以更早历史（a2 等）填充，u3 出现在顶行之下
-  assert.deepEqual(
-    userInputJump(buffer, 60, 4, themeId, H, false, 2, -1),
-    { scrollOffset: 0, followBottom: false },
+  // 下一条 u3：u3 后文本不足一屏（6+4>9）→ 收敛到底对齐（锚点指到底对齐那一行）
+  const rows = buildContentRows(buffer, { themeId, gutter: 4 }, 60).dialogue;
+  const spans = dialogueSpans(rows);
+  const jump = userInputJump(buffer, 60, 4, themeId, H, 3, 0, -1)!;
+  assert.equal(
+    anchorToIndex(spans, jump),
+    Math.min(6, rows.length - H),
     "最后一条用户消息后文不足一屏：填充前面历史（底对齐）",
   );
-  // 已在底对齐位再 PgDn：仍指向最后一条 → 稳定无位移（不回跳）
-  assert.deepEqual(userInputJump(buffer, 60, 4, themeId, H, false, 0, -1), {
-    scrollOffset: 0,
-    followBottom: false,
-  });
+  // 窗口切片：lineOffset=3（窗口从 u2 起）时锚点用绝对行号
+  assert.deepEqual(
+    userInputJump(buffer.slice(2), 60, 4, themeId, H, 3, 2, 1),
+    { seq: 2, row: 0 },
+    "窗口切片下锚点取绝对 buffer 行号",
+  );
 });
 
-test("userInputJump：PgDn 无下一条用户消息 → 回到跟随底部；边界返回 null", () => {
+test("userInputJump：PgDn 无下一条用户消息 → null（调用方回到底部）；边界返回 null", () => {
   const themeId = initialState().themeId;
   const single: Buffer = [
     { text: "u1", kind: "user" },
     { text: "a1", kind: "assistant", final: true },
   ];
-  // 视口首行已是唯一用户块之上（start=0）：无下一条 → 回到底部跟随最新
-  assert.deepEqual(userInputJump(single, 60, 4, themeId, 4, false, 5, -1), {
-    scrollOffset: 0,
-    followBottom: true,
-  });
+  // 视口首行已是唯一用户块之上（start=0）：无下一条 → null（App 走 scroll-to-bottom）
+  assert.equal(userInputJump(single, 60, 4, themeId, 4, 0, 0, -1), null);
   // 无任何用户块 → null
   assert.equal(
     userInputJump(
@@ -2284,16 +2341,16 @@ test("userInputJump：PgDn 无下一条用户消息 → 回到跟随底部；边
       4,
       themeId,
       4,
-      true,
+      0,
       0,
       1,
     ),
     null,
   );
   // 空 buffer → null
-  assert.equal(userInputJump([], 60, 4, themeId, 4, true, 0, 1), null);
+  assert.equal(userInputJump([], 60, 4, themeId, 4, 0, 0, 1), null);
   // 对话区不可见（dialogueH<=0）→ null
-  assert.equal(userInputJump(single, 60, 4, themeId, 0, true, 0, 1), null);
+  assert.equal(userInputJump(single, 60, 4, themeId, 0, 0, 0, 1), null);
 });
 
 test("/session 历史面板：标题标明列表范围（当前目录 可见/全量 ⇄ 全部），提示含 [Tab]范围", () => {
@@ -2349,34 +2406,47 @@ test("不变量：所有 FrameSegment.text 不含 ANSI 转义（C3 段级契约�
   }
 });
 
-test("buildFrame 回填可滚动上限：对话区取未折叠全量、活动区取可视行数", () => {
-  // 契约：回填值必须 ≥ 折叠态倍率下的真实可滚范围。对话区底部（折叠中）时
-  // 仍要报**未折叠**全量的上限——上滚会解除折叠，用折叠态上限封顶会把
-  // 上滚钉死在很浅的位置（state.ts scrollBy 的 maxOffset 即来自这里）。
+test("buildFrame 回填滚动几何：上限随物化窗口（渐进），初始窗口为默认组数", () => {
+  // 契约：dialogueMaxScroll = 物化窗口行数 − 可视行数（窗口缺省只含最近 3 个回合组），
+  // 并回填语义锚点几何（行分组表/视口顶行）供 App 换算行位移。
   let s = initialState();
   for (let i = 1; i <= 12; i++) {
+    s = reduceState(s, { type: "user-line", text: `问题 ${i}` }); // 回合组起点
     s = reduceState(s, { type: "turn-begin" }); // 回合分隔线：断开流式续写合并
-    s = reduceState(s, { type: "append", text: `回复正文行 ${i}` });
+    s = reduceState(s, {
+      type: "append",
+      text: `回复正文行 ${i}甲\n回复正文行 ${i}乙`,
+    });
     s = reduceState(s, { type: "turn-end" });
   }
   for (let i = 0; i < 40; i++)
     s = reduceState(s, { type: "notice", text: `活动区行 ${i}` });
   const size = { rows: 24, cols: 80 };
-  const report = { dialogueMaxScroll: -1, activityMaxScroll: -1 };
+  const report = emptyReport();
   buildFrame(s, size, report);
-  assert.equal(s.scrollOffset, 0, "底部（折叠态）也要报未折叠全量上限");
   assert.ok(report.dialogueMaxScroll > 0, "对话区可滚上限 > 0");
   assert.ok(report.activityMaxScroll > 0, "活动区可滚上限 > 0");
-  // 折叠态（最近 3 组回复）不足一屏，未折叠全量却远超一屏 → 上限只能来自未折叠
-  const stub = { dialogueMaxScroll: 0, activityMaxScroll: 0 };
-  const folded = buildFrame(
-    reduceState(s, { type: "scroll", delta: 0 }),
-    size,
-    stub,
-  );
-  assert.ok(folded.length > 0);
+  assert.ok(report.dialogueGeometry.rows > 0, "回填物化行数");
   assert.ok(
-    report.dialogueMaxScroll >= stub.dialogueMaxScroll,
-    "上限不随折叠态变小",
+    report.dialogueGeometry.rows < s.buffer.length,
+    "窗口只物化尾部（渐进定位：不再整段历史入排版）",
   );
+  // 窗口一次扩到全部回合组 → 物化行数随之增长（渐进扩窗）
+  const bigger = emptyReport();
+  buildFrame(reduceState(s, { type: "scroll-to-oldest" }), size, bigger);
+  assert.ok(
+    bigger.dialogueGeometry.rows > report.dialogueGeometry.rows,
+    "扩窗后物化行数变多",
+  );
+  assert.ok(bigger.dialogueMaxScroll > report.dialogueMaxScroll);
 });
+
+/** 空滚动报告（测试用；字段与 FrameScrollReport 对齐） */
+function emptyReport(): FrameScrollReport {
+  return {
+    dialogueMaxScroll: 0,
+    activityMaxScroll: 0,
+    dialogueGeometry: { rows: 0, height: 0, spans: [], topIdx: 0 },
+    dialogueTop: { seq: 0, row: 0 },
+  };
+}

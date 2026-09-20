@@ -30,6 +30,10 @@ import { fillToList, type ContentRow } from "./fill.ts";
 export interface RowMeta {
   kind?: BufferKind;
   blockId?: number;
+  /** 来源 buffer 行号（窗口切片时为绝对行号 = lineOffset + 切片内下标；调试/分组口径） */
+  line?: number;
+  /** 来源 buffer 行的**稳定序号**（语义锚点身份；filter/裁剪后行下标会平移而序号不变） */
+  seq?: number;
 }
 
 /** buildBox 产物：内容树 + 行元数据映射 */
@@ -62,6 +66,9 @@ export interface BuildBoxOptions {
   /** 活动 pane 可用宽（横向排列两 pane 不同宽；缺省 = width）。
    *  仅影响活动区（非 final assistant）markdown 表格的构建期列宽 */
   activityWidth?: number;
+  /** buffer 切片在原始 buffer 中的起始行号（渐进窗口按尾部切片时传入，
+   *  使 RowMeta.line 保持绝对行号；缺省 0 = 未切片） */
+  lineOffset?: number;
 }
 
 /** 工具调用行样式段（首词黄 + 其余原色；折行由 fill 做） */
@@ -161,9 +168,15 @@ export function buildBox(
   };
 
   // 索引循环：markdown 表格需按行前瞻（连续表格行合并为一个 Box 子树）
+  const lineOffset = opts.lineOffset ?? 0;
   for (let li = 0; li < buffer.length; li++) {
     const line = buffer[li]!;
-    const rowMeta: RowMeta = { kind: line.kind, blockId: freshBlockId() };
+    const rowMeta: RowMeta = {
+      kind: line.kind,
+      blockId: freshBlockId(),
+      line: lineOffset + li,
+      seq: line.seq,
+    };
     if (line.kind === "tool") {
       toolRun.push({
         line: { text: line.text, tone: line.tone },
