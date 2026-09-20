@@ -781,6 +781,7 @@ export class MockDshAdapter implements DshAdapter {
       "  - ↑/↓/PageUp/PageDown 在 scrollback 里翻页（上滚暂停跟随）",
       "  - 等第二次回复后出现审批弹窗 → y 批准 / n 拒绝",
       "  - 每次回复演示阶段 2：工具行 ○/✓/✗、状态栏 ctx/cache、retry/compaction toast、错误回合红字",
+      "  - 第 5 条回复演示 markdown 表格（列分隔/表头横线/三态对齐/超宽折行压缩）",
       "  - 输入 /help /clearscreen /cls /quit 体验本地渲染命令",
       "  - 其他 /xxx 在 demo 模式回提示（真实模式走 commands 注册表）",
       "  - 输入框为空按 $ / / 切模式（空输入 Backspace 回退）；Esc 打断运行；Alt+Enter 打断并发送；退出用 /quit",
@@ -795,6 +796,18 @@ export class MockDshAdapter implements DshAdapter {
         "长长的段落反复出现，".repeat(12),
       "第二行结束。你可以 ↑ 翻回去看刚才的内容（上滚会暂停跟随底部）。",
       "审批弹窗将在第二次回复后出现。",
+      // markdown 表格：列分隔 / 表头 ═ 横线 / 三态对齐（末列未标注 → 数字列自动右对齐）
+      [
+        "下面是方案对比表：",
+        "",
+        "| 方案 | 特点 | 成本 |",
+        "| :--- | :---: | --- |",
+        "| A | 简单直接 | 10 |",
+        "| B | 扩展性更好，但要多一层依赖 | 250 |",
+        "| C | 折中方案 | 60 |",
+        "",
+        "推荐 B。",
+      ].join("\n"),
     ];
     return lines[this.seq % lines.length] ?? "";
   }

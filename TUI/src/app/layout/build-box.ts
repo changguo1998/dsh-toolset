@@ -9,6 +9,7 @@
 
 import type { Box, Node } from "./box.ts";
 import { v, h, text, styled, spacer } from "./box.ts";
+import { hasCellPipe, isTableStart, parseTableAt, tableBox } from "./table.ts";
 import type { Buffer, BufferKind } from "../state.ts";
 import type { ColorName, ThemeId } from "../../renderer/theme.ts";
 import type { FrameStyle } from "../../renderer/index.ts";
@@ -50,11 +51,14 @@ export interface BuildBoxResult {
   metadata: Map<Node, RowMeta>;
 }
 
-/** buildBox 输入上下文（width 无关） */
+/** buildBox 输入上下文（除 width 外均与宽度无关） */
 export interface BuildBoxOptions {
   themeId: ThemeId;
   /** 用户/助手右缘留白（assistantMaxBodyWidth 的 gutter；固定配置非 width 相关） */
   gutter?: number;
+  /** 内容区可用宽：仅 markdown 表格需要（列宽是跨行约束，须构建期算死）；
+   *  缺省则表格按普通文本行渲染（宽未知，见 buildContentRows 调用点） */
+  width?: number;
 }
 
 /** 工具调用行样式段（首词黄 + 其余原色；折行由 fill 做） */
@@ -95,6 +99,8 @@ export function buildBox(
   const meta = new Map<Node, RowMeta>();
   const dialogueLeaves: Node[] = [];
   const activityLeaves: Node[] = [];
+  const gutter = opts.gutter ?? USER_MIN_LEFT_GUTTER;
+  const width = opts.width;
   // fence 跨行状态（结构注解：fence 内行 → fillBg 代码块）
   let inFence = false;
   // tool 连续 run 缓冲（flushToolRun 时分组/折叠/step）
@@ -151,7 +157,9 @@ export function buildBox(
     toolRun.length = 0;
   };
 
-  for (const line of buffer) {
+  // 索引循环：markdown 表格需按行前瞻（连续表格行合并为一个 Box 子树）
+  for (let li = 0; li < buffer.length; li++) {
+    const line = buffer[li]!;
     const rowMeta: RowMeta = { kind: line.kind, blockId: freshBlockId() };
     if (line.kind === "tool") {
       toolRun.push({
@@ -184,7 +192,6 @@ export function buildBox(
           minWidth: USER_MIN_LEFT_GUTTER + 2,
         },
       });
-      const gutter = opts.gutter ?? USER_MIN_LEFT_GUTTER;
       // 右缘保底留白 gutter 列：其中 1 列已被右竖线（suffix）占用 → 剩余 gutter-1
       const block = h([
         spacer({ width: { mode: "fill", min: Math.max(0, gutter - 1) } }),
@@ -236,6 +243,35 @@ export function buildBox(
           }
         }
         continue;
+      }
+      // markdown 表格（fence 外）：表头行 + 分隔行成对时（O(1) 预筛）收集连续表格行，
+      // 构建期降级为固定宽 Box 子树（列宽是跨行约束，SPEC §3.2）。可用宽未知时不识别。
+      if (!inFence && width !== undefined) {
+        const next = buffer[li + 1];
+        if (
+          next !== undefined &&
+          next.kind === "assistant" &&
+          isTableStart(line.text, next.text)
+        ) {
+          const texts = [line.text, next.text];
+          for (let j = li + 2; j < buffer.length; j++) {
+            const l = buffer[j]!;
+            if (l.kind !== "assistant" || !hasCellPipe(l.text)) break;
+            texts.push(l.text);
+          }
+          const parsed = parseTableAt(texts, 0);
+          // 宽度预算：final 行让出右缘 gutter（与正文同口径；表格自带左缘竖线列）
+          const budget = width - (line.final ? gutter - 1 : 0);
+          const box = parsed
+            ? tableBox(parsed.table, budget, opts.themeId)
+            : null;
+          if (parsed && box) {
+            markSubtree(box, meta, rowMeta);
+            target.push(box);
+            li += parsed.end - 1; // 表格各行已并入本节点（循环再自增 1）
+            continue;
+          }
+        }
       }
       const body = text(line.text, {
         ...(inFence ? { fillBg: true, width: { mode: "fill" } } : {}),
@@ -378,6 +414,14 @@ function nodePlainText(n: Node): string {
   return "";
 }
 
+/** 递归给子树全部节点挂同一行元数据：表格各叶子须共享 kind/blockId，
+ *  否则 fill 后各行元数据缺失（回复组折叠/块内判定会把它当不同块）。 */
+function markSubtree(node: Node, meta: Map<Node, RowMeta>, m: RowMeta): void {
+  meta.set(node, m);
+  if (node.kind === "box")
+    for (const c of node.children) markSubtree(c, meta, m);
+}
+
 /** 模型回复尾部空行删除（旧后处理 → buildBox 结构层） */
 function trimTrailingAssistantBlanks(
   nodes: Node[],
@@ -483,8 +527,9 @@ export function buildContentRows(
   opts: BuildBoxOptions,
   width: number,
 ): ContentPanes {
-  const built = buildBox(buffer, opts);
   const w = Math.max(1, width);
+  // 可用宽随上下文交给 buildBox：markdown 表格列宽是跨行约束，须构建期算死
+  const built = buildBox(buffer, { ...opts, width: w });
   const rect = { x: 0, y: 0, w, h: 1_000_000 };
   const fillPane = (pane: Box): ContentRow[] => {
     const st = measure(pane, { maxW: w });
