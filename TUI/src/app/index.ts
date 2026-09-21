@@ -3186,7 +3186,7 @@ export class App {
       },
       {
         cmd: "/goal",
-        desc: "当前会话目标迷你面板（goal/todo 只读；↑/↓ 滚动，Esc 关闭）",
+        desc: "goal/todo 详情常驻右侧状态列（本命令仅提示，不打开面板）",
       },
       { cmd: "/copy", desc: "复制最后一条模型回复到剪贴板(OSC52)" },
       {
@@ -3196,6 +3196,10 @@ export class App {
       {
         cmd: "/provider、/effort (/thinking)",
         desc: "无参直达 /model 面板并定位到 provider / effort 列",
+      },
+      {
+        cmd: "/policy [ask|never]",
+        desc: "审批策略：无参打开选项面板，带参直接设置",
       },
       {
         cmd: "/permission [预设名]",
