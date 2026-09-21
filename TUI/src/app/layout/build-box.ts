@@ -336,12 +336,17 @@ export function buildBox(
       // 悬垂缩进（/help 双列表格）：折行续行停靠 hanging 列（描述列起点），
       // 对齐工具行的悬挂机制；普通 notice 不设 hanging → 续行顶格。
       // 紧凑模式：条目压单行 → 悬垂缩进无意义（不设 hanging）
-      const node = styled([{ text: actText(line.text) }], {
-        ...style,
-        ...(!compact && line.hanging !== undefined
-          ? { hanging: line.hanging }
-          : {}),
-      });
+      // 紧凑模式默认把条目压成 1 行；noCompact 行（/help）豁免——保持完整折行 + 悬垂缩进
+      const keepFull = compact && line.noCompact === true;
+      const node = styled(
+        [{ text: compact && !keepFull ? actText(line.text) : line.text }],
+        {
+          ...style,
+          ...((!compact || keepFull) && line.hanging !== undefined
+            ? { hanging: line.hanging }
+            : {}),
+        },
+      );
       // 空文本不舍弃（notice 空行可能保留语义）
       meta.set(node, rowMeta);
       activityLeaves.push(node);

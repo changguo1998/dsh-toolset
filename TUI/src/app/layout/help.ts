@@ -20,10 +20,12 @@ export interface HelpRow {
 }
 
 /** 排好版的一行 /help 行：text = 缩进 + 命令 + 补白 + 间距 + 描述；
- *  hanging = 悬垂缩进（描述列起点），渲染层折行时续行停靠在该列 */
+ *  hanging = 悬垂缩进（描述列起点），渲染层折行时续行停靠在该列。
+ *  noCompact：/help 内容无论紧凑模式与否都完整显示（build-box notice 分支豁免） */
 export interface HelpTableLine {
   text: string;
   hanging: number;
+  noCompact: true;
 }
 
 /**
@@ -42,5 +44,6 @@ export function helpTableLines(rows: readonly HelpRow[]): HelpTableLine[] {
       " ".repeat(HELP_GAP) +
       r.desc,
     hanging,
+    noCompact: true,
   }));
 }

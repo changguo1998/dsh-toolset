@@ -85,6 +85,8 @@ export interface BufferLine {
   queued?: boolean;
   /** 悬垂缩进（notice 用，/help 双列表格）：本行折行时续行停靠列（描述列起点） */
   hanging?: number;
+  /** 紧凑模式（/verbose off）豁免：本行仍完整折行显示（/help 用，不被压成 1 行隐藏） */
+  noCompact?: boolean;
 }
 
 export type Buffer = BufferLine[];
@@ -711,6 +713,8 @@ export function appendNotice(
 export interface NoticeLine {
   text: string;
   hanging?: number;
+  /** 紧凑模式（/verbose off）豁免：仍完整折行显示（如 /help 双列表格），不被压成 1 行 */
+  noCompact?: boolean;
 }
 
 /**
@@ -732,6 +736,7 @@ export function appendNoticeLines(
         seq: seq++,
         ...(tone ? { tone } : {}),
         ...(l.hanging !== undefined ? { hanging: l.hanging } : {}),
+        ...(l.noCompact === true ? { noCompact: true } : {}),
       });
   }
   if (buffer.length > MAX_BUFFER_LINES)

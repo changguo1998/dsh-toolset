@@ -1697,6 +1697,27 @@ test("/verbose on|off 切换活动区详略；无参/非法参数只提示用法
   assert.equal(verbose(), true, "非法参数不切换");
 });
 
+test("/verbose off（紧凑）下 /help 仍完整显示，不被压成单行省略号隐藏", () => {
+  const { renderer } = makeApp();
+  typeAndEnter(renderer, "/help");
+  const fullText = renderer.lastRender.join("\n");
+  typeAndEnter(renderer, "/verbose off");
+  typeAndEnter(renderer, "/help");
+  const compactText = renderer.lastRender.join("\n");
+  // /help 块在活动区底部对齐，可见尾部应包含最后一行脚注（首部与靠前条目
+  // 超出 pane 顶边折叠属正常，不在此断言）——核心是 help 内容不被「压 1 行 + 省略号」。
+  // 脚注可能折行，断言取其单行内完整出现的前缀（与 3135 行既有 /help 断言同款）
+  assert.ok(
+    compactText.includes("其他 /name 通过 commands 注册表执行"),
+    `紧凑模式下 /help 脚注应完整可见，实际:\n${compactText}`,
+  );
+  // /help 命令行（以空白 + / 开头）不应以紧凑截断「…」结尾
+  const helpLineTruncated = compactText
+    .split("\n")
+    .filter((l) => /^\s+\//.test(l) && l.trimEnd().endsWith("…")).length;
+  assert.ok(helpLineTruncated === 0, "紧凑模式下 /help 命令行不被省略号截断");
+});
+
 test("App 本地 notice 按语义 tone 着色（/theme 成功 → success 绿）", () => {
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/theme light");

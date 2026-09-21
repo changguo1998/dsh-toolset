@@ -112,3 +112,49 @@ test("端到端：/verbose off 后 buildFrame 活动区行数收敛且不越宽"
   assert.equal(compactState.activityVerbose, false);
   assert.ok(g.activityH > 0);
 });
+
+test("紧凑模式豁免 noCompact 行（/help）：保持完整折行 + 悬垂缩进，不压单行截断", () => {
+  const buf: Buffer = [
+    { text: "长条目正文".repeat(8) + "（末尾可见）", kind: "thinking" },
+    {
+      text: "  /help 命令辅助行 这是一个很长很长很长的描述文本文本文本文本文本文本文本文本",
+      kind: "notice",
+      hanging: 14,
+      noCompact: true,
+    },
+  ];
+  const compact = buildContentRows(
+    buf,
+    { themeId: "dark", activityCompact: true },
+    W,
+    W,
+  );
+  const texts = compact.activity.map(rowText);
+  // noCompact notice 完整可见（跨行保留），且整块不带省略号（对照的 thinking 条目被压行）
+  const helpTexts = texts.slice(1);
+  const all = helpTexts.join("\n");
+  assert.ok(
+    all.includes("这是") && all.includes("描述文本") && all.includes("文本"),
+    "noCompact 行内容完整可见（未被截断隐藏）",
+  );
+  assert.ok(
+    !helpTexts.some((t) => t.includes("…")),
+    "noCompact 行不被省略号截断",
+  );
+  assert.ok(helpTexts.length > 1, "noCompact 行长描述折成多行（非压成 1 行）");
+  // 对照：普通 notice（无 noCompact）在紧凑下确被压 1 行 + 省略号
+  const plain: Buffer = [
+    {
+      text: "  一条很长很长很长的普通 notice 描述文本文本文本文本文本文本文本",
+      kind: "notice",
+    },
+  ];
+  const cp = buildContentRows(
+    plain,
+    { themeId: "dark", activityCompact: true },
+    W,
+    W,
+  );
+  assert.equal(cp.activity.length, 1, "普通 notice 紧凑下压成 1 行");
+  assert.ok(rowText(cp.activity[0]!).endsWith("…"), "普通 notice 行尾省略号");
+});

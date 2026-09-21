@@ -2843,7 +2843,7 @@ export class App {
 
   /** /help 双列表格：命令列定宽对齐、描述列固定起点。折行交给渲染层按
    *  hanging 悬挂缩进（续行停靠描述列、不穿回第一列；resize 后重排仍对齐）。 */
-  private helpLines(): { text: string; hanging?: number }[] {
+  private helpLines(): { text: string; hanging?: number; noCompact: true }[] {
     const commands: { cmd: string; desc: string }[] = [
       { cmd: "/help", desc: "显示本帮助" },
       {
@@ -2951,9 +2951,12 @@ export class App {
       },
     ];
     return [
-      { text: "本地命令：" },
+      { text: "本地命令：", noCompact: true },
       ...helpTableLines(commands),
-      { text: "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。" },
+      {
+        text: "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
+        noCompact: true,
+      },
     ];
   }
 
