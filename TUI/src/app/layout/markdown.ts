@@ -413,6 +413,10 @@ function computeCharWidth(cp: number): number {
   if (NARROW_TEXT_SYMBOLS.has(cp)) return 1;
   // 宽字符区间（粗粒度近似，与既有风格一致）：CJK/全角/常见 emoji 按 2 列计，
   // 防止低估导致整行长度溢出（如 ❤🚀🤖⭐ 等曾被按 1 计而撑破窗口宽）。
+  // 杂项技术符号（0x2300-0x23FF）按实际呈现拆分：数学/键盘/APL/排版符号在
+  // 等宽终端为 1 列（上/下取整括号、Command/Option/Enter 等按键符号，含键盘
+  // 图标 0x2328——实测终端 1 列），仅 emoji 呈现的时钟/媒体图标按 2 列
+  // （时钟码点 231A-1B、播放控制 23E2 起）——防低估撑破窗口。
   if (
     (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
     (cp >= 0x2e80 && cp <= 0xa4cf) || // CJK 部首/汉字/假名/谚文等
@@ -421,13 +425,16 @@ function computeCharWidth(cp: number): number {
     (cp >= 0xfe30 && cp <= 0xfe4f) || // CJK 兼容形式
     (cp >= 0xff00 && cp <= 0xff60) || // 全角 ASCII/标点（“”？《》等）
     (cp >= 0xffe0 && cp <= 0xffe6) || // 全角货币/竖线符号（￥￤等）
-    (cp >= 0x2300 && cp <= 0x23ff) || // 杂项技术符号（⌚⏰⏳ 等）
+    (cp >= 0x231a && cp <= 0x231b) || // 0x231A-1B 时钟 emoji
+    (cp >= 0x23e2 && cp <= 0x23ff) || // 媒体控制/进度 emoji（0x23E2 起）
     (cp >= 0x2600 && cp <= 0x27bf) || // 杂项符号 + Dingbats（☀⚠✂❤ 等）
     (cp >= 0x2b00 && cp <= 0x2bff) || // 杂项符号与箭头（⭐⬛⬜ 等）
     (cp >= 0x1f000 && cp <= 0x1faff) // emoji 全集：区域指示符(国旗)/表情/交通/补充象形/扩展-A
   ) {
     return 2;
   }
+  // 其余 1 列：含杂项技术符号中的窄段——0x2300-0x2319（数学/键盘窄符号）、
+  // 0x231c-0x2328（括号/积分/Enter 与 Option/键盘图标）、0x2329-0x23e1（APL/数学长括号）
   return 1;
 }
 

@@ -64,6 +64,27 @@ test("charWidth：常见 emoji/全角符号=2（防整行溢出，回归 2026-09
   assert.equal(charWidth("⌗"), 1); // U+2317 VIEWDATA SQUARE
   assert.equal(charWidth("⌈"), 1); // U+2308 LEFT CEILING
   assert.equal(charWidth("⌉"), 1); // U+2309 RIGHT CEILING
+  // 杂项技术符号窄段（2026-11 拆分 0x2300-0x23FF）：数学括号/键盘修饰/APL/
+  // 排版符号在等宽终端按 1 列——上/下取整括号成对宽窄必须一致，否则边框错位
+  // （断言用码点转义书写，避免正文出现符号字面量）
+  assert.equal(charWidth("\u230a"), 1); // 0x230A LEFT FLOOR
+  assert.equal(charWidth("\u230b"), 1); // 0x230B RIGHT FLOOR
+  assert.equal(charWidth("\u230c"), 1); // 0x230C BOTTOM LEFT CROP
+  assert.equal(charWidth("\u231c"), 1); // 0x231C TOP LEFT CORNER
+  assert.equal(charWidth("\u231f"), 1); // 0x231F BOTTOM RIGHT CORNER
+  assert.equal(charWidth("\u2312"), 1); // 0x2312 ARC
+  assert.equal(charWidth("\u2320"), 1); // 0x2320 TOP HALF INTEGRAL
+  assert.equal(charWidth("\u2321"), 1); // 0x2321 BOTTOM HALF INTEGRAL
+  assert.equal(charWidth("\u2303"), 1); // 0x2303 CONTROL
+  assert.equal(charWidth("\u2318"), 1); // 0x2318 PLACE OF INTEREST SIGN
+  assert.equal(charWidth("\u2325"), 1); // 0x2325 OPTION KEY
+  assert.equal(charWidth("\u232b"), 1); // 0x232B ERASE TO THE LEFT
+  assert.equal(charWidth("\u2324"), 1); // 0x2324 ENTER
+  // emoji 呈现的杂项技术符号仍按 2 列（防低估撑破窗口）
+  assert.equal(charWidth("\u23f3"), 2); // 0x23F3 HOURGLASS（emoji）
+  assert.equal(charWidth("\u23e9"), 2); // 0x23E9 媒体控制（emoji）
+  // 键盘图标实测终端 1 列（2026-11 订正）
+  assert.equal(charWidth("\u2328"), 1); // 0x2328 KEYBOARD（终端 1 列）
   // 原有已覆盖区段不受影响
   assert.equal(charWidth("👍"), 2); // U+1F44D 表情
   assert.equal(charWidth("中"), 2);
