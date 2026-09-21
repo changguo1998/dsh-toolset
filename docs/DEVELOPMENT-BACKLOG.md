@@ -1,181 +1,91 @@
 # 待开发功能清单
 
-> 依据：`AGENT-ARCHITECTURE-ANALOGY.md`（架构设计与接口对照 §16）+ `PI-DSH-FEATURE-COMPARISON.md`（迁移基线 §3/§4）。
-> 基线：dsh `dsh-v0.1.5-rc.2`（`fb2c4b9e69`）；两文档中重叠项已合并（list↔任务树序列化、audit↔RET 验收路由、glla goal↔契约起草）。实现时以根目录 `DSH-CTX-API.md`（0.1.5-rc.2 契约）对齐宿主接口。
-> 优先级：**P0** 架构主线（设计文档 §16"自建三块"+ 对比文档 §4.3 前两位）；**P1** 核心体验补齐；**P2** 长尾。
-> **实现状态图例（2026-09-20 对照 git 历史 + 代码目录核实）**：`✅` 已实现——落点为本仓库独立插件或 TUI 包，见各插件目录源码与 `DEVELOPMENT-STATUS.md` 状态表；`◐` 部分实现（括号注明已含/未含部分）；无标注 = 未实现，仍为待办。
+> 本清单只列**未完成**项；已完成项见 `DEVELOPMENT-STATUS.md` 状态表（实现与验证证据在各包源码/测试与 git 历史；已完成的实施清单归入 `archive/`），不在此重复。
+> 设计依据：`AGENT-ARCHITECTURE-ANALOGY.md`（架构与接口对照）、`archive/PI-DSH-FEATURE-COMPARISON.md`（pi→dsh 迁移基线差距，归档调研）。实现时以根目录 `DSH-CTX-API.md` 对齐宿主接口。
+> 基线：dsh `dsh-v0.1.5-rc.2`（commit `fb2c4b9e69`）。
+> 优先级：**P0** 架构主线；**P1** 核心体验补齐；**P2** 长尾。状态标记：`[x]` 已实现（仅第 1 节索引使用）、`[~]` 部分实现（注明未含部分）、无标记 = 未实现。
 
-## 1. 任务控制与执行引擎（P0 主线）
+## 1. 已完成索引
 
-设计文档 §16.1 自建三块 + glla 拆分（对比文档 §3.1）合流。
+`[x]` 已实现并合入 main，落点如下（单测数与首版边界见状态表）：
 
-| # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
-|---|------|------|------------------|--------|
-| 1 | ✅ **TaskStack 引擎服务**：Frame 状态机、decompose/pop、join 续体、就绪池、并行度上限、bounded retry；帧事件溯源（`plan/node-expanded` + 内存树 + 周期快照） | 设计 §13/§15/§16.1-A | storage-sqlite（快照）、`session.append`+`ignorable`、`SessionSeq` | P0 |
-| 2 | ✅ **模型侧工具族**：`decompose`/`implement`/`stop`/`status` + 嵌套任务列表（`parent_id`+`order`；tool-todo 仅扁平） | 设计 §10/§16.1-B；pi-glla list 拆项 | `outputSchema` → `SubagentResult.structured` | P0 |
-| 3 | ✅ **分解双重校验门禁**：粒度四规则（机械）+ coverage 映射（机械拒绝）+ 语义蕴含（audit run 裁决）；拒绝带反馈打回 | 设计 §17.2 | 引擎内实现；语义级复用子代理 audit run | P0 |
-| 4 | ✅ **RET 验收路由器**（= glla audit）：mechanical（命令退出码）/ semantic（独立 audit run + outputSchema）/ human（approval 链） | 设计 §17.4；pi-glla audit 拆项 | `ctx.approval`（注意 turn-enclosed 约束，后台作业 fail-closed） | P0 |
-| 5 | ✅ step 级裁决补齐：事件流/决策输出补 `accepted`、`next` 字段与 step 级 validator | 设计 §8/§11.2 | 随引擎落地 | P1 |
-| 6 | ✅ goal 契约起草：interview 起草、契约 = spec（P）+ acceptance（Q）三级 + verificationContract | 设计 §17.1；pi-glla goal 拆项 | dsh-goal + goal-round-driver + tool-ask-user | P1 |
-| 7 | ✅ loop 指标驱动自动循环：measure 命令、plateau 停止、边界上限、cadence 唤醒 | pi-glla loop 拆项；设计 §6 | workflow + worker-thread + schedule 拼装 | P1 |
+- 任务控制：#1-#5 task-engine（Frame 状态机、工具族、双重门禁、RET 三级路由、step 裁决）、#13 fan-out 就绪池、#6 goal-contract、#7 metric-loop；
+- 知识库与记忆：#8 knowledge-base（两张基表 + 两张 FTS5 虚表）、#9 两级写策略与淘汰提升、#10 持久记忆 CRUD、#11 output-compress、#12 fs-digest；
+- 代码与文件：#19 hash-edit、#20 ast-tools、#21 code-map 报告与影响面、#22 结构层索引与候选调用图；
+- 安全与集成：#27 security-guard 策略层、#36 herdr-integration；
+- TUI：#16 /workflows 面板、#18 /council、#24 /search 多 provider 聚合、#33 声音提醒，以及 7 项纯 TUI 命令与 A1-A5（`/task` `/guard` `/memory` `/loop` `/contract`）。
+- 已取消：#35 rate-guard（不实现，pi 侧已移除，dsh 侧由官方 `llm-retry` 覆盖，见 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1）。
 
-依赖：#2-#4 依赖 #1；#6 的契约结构被 #3/#4 引用。
+## 2. 未完成项
 
-## 2. 知识库与记忆（P0 主线）
-
-设计文档 §12（L4）+ context-mode / hermes-memory 迁移（对比文档 §3.2）合流。
+### 2.1 子代理与编排（P1-P2）
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
-| 8 | ✅ **跨会话知识库**：sources/chunks 四表结构 + 双 FTS5（porter+trigram，external content + TRIGGER 写直达）；接口 `ctx_knowledge: search/put/touch/evict` | 设计 §12.1；context-mode 拆项 2/3 | storage-sqlite、session-query-sqlite（FTS5 底座）、独立 SQLite 库 | P0 |
-| 9 | ✅ 两级写策略与淘汰提升：写直达（事件过滤器）/ 批量写回（consolidation 锁 + backfill 兜底）；LRU+importance 淘汰、resume top-K 提升 | 设计 §12.2-§12.4；hermes auto-consolidation 拆项 | RET 时经引擎回调写回（设计 §13.3） | P1 |
-| 10 | ✅ 持久记忆 CRUD 与检索：token-aware memory_add/replace/remove + target/category/项目过滤 | hermes 拆项 1/2 | 知识库同底座（target/category 列） | P1 |
-| 11 | ✅ 大输出压缩入库：沙箱内派生摘要 + auto-index，原字节不进上下文；确定性压缩 | context-mode 拆项 4；hypa 拆项 1 | code-runtime + output-retention + spill 扩展 | P1 |
-| 12 | ✅ 上下文感知文件读取：outline/signatures/pruned 模式 | hypa 拆项 2 | tool-fs + tool-lsp | P2 |
+| 14 | 工作流内模型路由与成本核算 | dynamic-workflows 拆项 2/3（对比文档 §3.1） | agent-default-model、token-meter | P2 |
+| 15 | `[~]` git-worktree 完整隔离（resume 已由 task-engine `resumeFromSnapshot` 覆盖；隔离未实现） | dynamic-workflows 拆项 5 | 本机本地插件 `dsh-git-worktree` 补完整隔离（当前仅有 disabled-git-hooks） | P2 |
+| 17 | 模板化 pattern 五族（deep-research / code-review / multi-perspective / adversarial-review / codebase-audit） | dynamic-workflows 拆项 7（对比文档 §3.1）；pi-simplify/ponytail 工具族可并入 | workflow 脚本 + skill 内容资产 | P2 |
 
-依赖：#9-#11 依赖 #8。
-
-## 3. 子代理与编排（P1-P2）
-
-dynamic-workflows 迁移（对比文档 §3.1）；核心并发能力 dsh 已满足（设计文档 §16.2 ✅ 项）。
+### 2.2 代码与文件（P2）
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
-| 13 | ✅ fan-out 编排：shared task DAG 承载并行分支 | dynamic-workflows 拆项 1；设计 §14.2/§15.2 | experimental-agent-team（DAG）、`ctx.subagents.start()` 多 run | P1 |
-| 14 | 工作流内模型路由与成本核算 | dynamic-workflows 拆项 2/3 | agent-default-model、token-meter | P2 |
-| 15 | ◐ resume 断点续跑、git-worktree 完整隔离：resume ✅（task-engine `resumeFromSnapshot`）；git-worktree 完整隔离未实现 | 拆项 4/5 | session 事件源续跑；自研 dsh-git-worktree 插件补隔离 | P2 |
-| 16 | ✅ **/workflows 交互面板**（TUI `/workflows` 命令 + 只读运行列表，`343a3f2`） | 拆项 6 | dsh-toolset TUI 新面板（`tool-workflow/*` 桥接事件面维护运行集合，不 emit 增量防污染） | P2 |
-| 17 | 模板化 pattern（deep-research / code-review 等五族） | 拆项 7；pi-simplify/ponytail 工具族可并入 | workflow 脚本内容 + skill 内容资产 | P2 |
-| 18 | ✅ **advisor / council 二次意见**（TUI `/council [N]`，并行 N 个评审子代理对当前目标给独立意见，notice 展示，`083ca77`） | 对比 §3.5 | tool-subagent（并行 `start` + allSettled 汇总，stopReason=error 降级）；目标源 = goal 快照或最近用户输入 | P2 |
+| 22 | `[~]` LSP 语义层：findReferences 精确确认调用关系（结构层候选索引已完成，见 code-map/DESIGN.md 混合架构） | hypa 拆项 3（对比文档 §3.2） | tool-lsp 扩展 | P2 |
+| 23 | PDF/文档结构视图 | readseek 拆项 4（对比文档 §3.4） | 无底座，新工具 | P2 |
 
-## 4. 代码与文件（P1-P2）
-
-readseek / lens / hypa 迁移（对比文档 §3.2/§3.4）。
+### 2.3 外部接入（P2）
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
-| 19 | ✅ LINE:HASH 锚定编辑（行:哈希校验，防脏写） | readseek 拆项 1 | tool-fs + fs-observation-policy（当前仅版本守卫） | P1 |
-| 20 | ✅ ast-grep 结构搜索/替换/大纲/规则 | readseek 拆项 2；lens 拆项 3 | 新工具（tool-fs-search 仅 ripgrep 文本） | P1 |
-| 21 | ✅ 项目/模块报告（结构总览、影响面）：code-map `report`（统计/模块依赖/环/未引用导出）+ `impact`（反向 import 闭包聚合到模块） | lens 拆项 4 | tool-lsp 符号数据可作底座（首版未用，结构层自足） | P2 |
-| 22 | ◐ 代码索引与调用图（callers/graph）：结构层已完成（code-map 索引 + `callers` 候选引用 + `callees` 文件级 + `cycles` 强连通分量）；LSP 语义层（findReferences 精确确认）未做，见 `code-map/DESIGN.md` 混合架构 | hypa 拆项 3 | tool-lsp 扩展（语义层增量） | P2 |
-| 23 | PDF/文档结构视图 | readseek 拆项 4 | 无底座，新工具 | P2 |
+| 25 | GitHub 仓库克隆 | web-access 拆项 3（对比文档 §3.4） | 可先经 shell | P2 |
+| 26 | PDF 提取、视频理解 | web-access 拆项 4/5（对比文档 §3.4） | 无底座，新工具 | P2 |
 
-## 5. 外部接入（P2）
-
-web-access 迁移（对比文档 §3.4）。
+### 2.4 安全治理（P2）
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
-| 24 | ✅ 搜索 provider 聚合（TUI `/search` 命令已实现：`8ebe163`；真实多 provider 聚合审计整改 `e44a8a5`） | web-access 拆项 1；TUI P2#24 | dsh-web seam 为 provider-selecting 非聚合 → **TUI 侧并行多 provider**（web 派生 + `options.searchProviders`）合并/URL 去重/query-token 关联度排序；listPanel 展示、Enter 看来源 | P2 ✅ |
-| 25 | GitHub 仓库克隆 | 拆项 3 | 可先经 shell | P2 |
-| 26 | PDF 提取、视频理解 | 拆项 4/5 | 无底座，新工具 | P2 |
+| 28 | 密文扫描 | hermes-memory 拆项 4（对比文档 §3.2） | credentials 面扩展 | P2 |
+| 29 | 安全 issue 上报 | pi-defender（对比文档 §3.5） | 无对应 | P2 |
 
-## 6. 安全治理（P1-P2）
-
-defender 迁移（对比文档 §3.5）。
+### 2.5 交互与资产（P2）
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
-| 27 | ✅ 危险命令黑名单拦截 + 敏感文件保护策略层 | pi-defender | sandbox / bash-sandbox / permission-presets 之上加策略层（当前是沙箱强制，非黑名单语义） | P1 |
-| 28 | 密文扫描 | hermes 拆项 4 | credentials 面扩展 | P2 |
-| 29 | 安全 issue 上报 | pi-defender | 无对应 | P2 |
+| 30 | 跨会话 broker（消息/委托/状态同步） | pi-intercom（对比文档 §3.3） | 无底座；webhook/acp/sdk 均非等效，新建 unix socket 通道 | P2 |
+| 31 | slash 命令模板（pre-steps/chain/best-of-N）+ 模板级模型选择 | pi-prompt-template-model（对比文档 §3.4） | commands + workflow | P2 |
+| 32 | 近期改动代码审查 | pi-simplify（对比文档 §3.6） | 可并入 #17 模板族 | P2 |
+| 34 | `[~]` 上下文压力/token 报告：单回合用量与上下文占比已由 TUI `/stats`（别名 `/usage` `/context`）覆盖；会话累计形态未做 | supi-context（对比文档 §3.2） | token-meter + session-stats 形态对齐 | P2 |
 
-## 7. 交互与资产（P1-P2）
+### 2.6 其他观察项（未单独立项）
 
-| # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
-|---|------|------|------------------|--------|
-| 30 | 跨会话 broker（消息/委托/状态同步） | pi-intercom | 无底座；webhook/acp/sdk 均非等效 | P2 |
-| 31 | slash 命令模板（pre-steps/chain/best-of-N）+ 模板级模型选择 | pi-prompt-template-model | commands + workflow | P2 |
-| 32 | 近期改动代码审查 | pi-simplify | 可并入 #17 模板族 | P2 |
-| 33 | ✅ **完成/等待声音提醒**（事件钩子，`87935ae`） | notify-sound（原生） | TUI 扩展（完成/等待事件钩子） | P2 |
-| 34 | ◐ 上下文压力/token 报告：单回合 token 用量与上下文占比已由 TUI `/stats`（别名 `/usage` `/context`）覆盖；token-meter/session-stats 会话累计形态未做 | supi-context | token-meter + session-stats 形态对齐 | P2 |
-| 35 | provider 流量控制：限流遥测 + AIMD 咨询守卫（退避等待转 advisory、令牌桶、rate_check 工具） | ~~rate-guard（pi 原生扩展）~~（已移除；「等待后恢复」由新增扩展 provider-guard 承接，见对比文档 §5.4） | llm-retry 已覆盖一般退避；不迁移（quota 长等待/恢复溯源如需要可参照 provider-guard） | P2（已取消，不实现） |
-| 36 | ✅ herdr 面板集成：agent 状态 socket 上报、blocked 事件桥（含 ask-user blocked → herdr blocked） | herdr-agent-state / herdr-ask-user-question（pi 原生扩展） | 新建；协议仿 pi 原生（HERDR_ENV / HERDR_SOCKET_PATH / HERDR_PANE_ID + unix socket） | P1 |
+来自 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3 的仍缺关键面，暂不单独立项，作为后续可选项：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、记忆 auto-consolidation（已有两级写回与淘汰提升，语义接近）、MCP 脚本化（mcpScript）、活动工具交互管理、会话事件自动入知识库。
 
-## TUI 命令扩展（对比其他 agent 的共识命令）
+## 3. 里程碑
 
-> 命令面清单与「值得添加的命令」建议已独立成文：见 `TUI/COMMANDS.md`（依据 2026-09-18 对比 Claude Code / Codex CLI / Gemini CLI / pi 的共识命令与本项目现状）；可实现级规格见 `TUI/COMMANDS-SPEC.md`；实施清单见 `TUI/COMMANDS-TASKS.md`（批次 0 API 合同门 + 四批实现）。
+1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
+1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#25、#26、#28-#32、#34，按需排期；#35 已取消。
+1. 依赖：#17 的模板族与 #32 可共用 workflow/skill 资产；workflow-ext 建包前，工作流相关插件面依赖 task-engine 的契约与执行器；其余相互独立。
 
-> **实施进度（2026-09-20）：批次 0 + 批次 1-4 全部完成并审计通过归档**——7 项纯 TUI 侧命令已实现：`/stats` `/rename` `/skills` `/agents` `/tools` `/settings` `/fork`（提交链 `5f4723e` → `619bffa` → `d11bd47`）。**其后原「9 项推荐但未实现」中的 C1-C5 五条命令已随插件改造完成全部落地合入 main**：`/task`（A1，`ec94879`）、`/guard`（A2，`1bd761b`）、`/memory`（A3，`3ccd8f0`）、`/loop`（A4，`b17f13c`）、`/contract`（A5，`c39359a`）；C6-C8 已设计裁定（维持排除/搁置）。9 项候选当前状态见下表（明细与源码依据在 `TUI/COMMANDS-SPEC.md` §3、`TUI/COMMANDS-TASKS.md` §7）。
+## 4. 插件规划（未建包）
 
-### 9 项「推荐但未实现」命令（当前状态）
+> 每个插件 = 本仓库一个包目录（以现有包为模板：`package.json` 的 `dsh.bundle` + `cordis.patch.yml` 集成契约）；命名按功能自定，不沿用 pi 插件名。已建插件与其承载清单项见 `DEVELOPMENT-STATUS.md`。
 
-| # | 命令 | 类别 | 状态 |
-|---|------|------|------|
-| C1 | `/task` | 需插件改造 | ✅ 已实现（task-engine 只读查询面 `query()/frameStack()`，`ec94879`） |
-| C2 | `/contract` | 需插件包改动 | ✅ 已实现（goal-contract 加 re-export；TUI 内置同构回读 + service 优先钩子，`c39359a`） |
-| C3 | `/guard` | 需插件新增能力 | ✅ 已实现（security-guard 加记录缓冲 `recent()/policy()`，`1bd761b`） |
-| C4 | `/memory` | 需插件改造 | ✅ 已实现（knowledge-base 暴露服务并持有 bundle，`3ccd8f0`） |
-| C5 | `/loop` | 需插件改造 | ✅ 已实现（metric-loop 新增 `list()` 并挂 ctx，`b17f13c`） |
-| C6 | `/clear` | 宿主能力缺口 | ⏸ 裁定维持排除（B1：`dsh-session` 无清理 API；文件级删除已由 `/session` 面板 `d`/`x` + `/session clean` 覆盖，`08f0e3f`） |
-| C7 | `/login` `/logout` | 语义不匹配 | ⏸ 裁定维持排除（B2：宿主无交互登录流程，`0eca5d6`） |
-| C8 | `/review` | 需工作流资产 | ⏸ 裁定搁置（B3：需先建 review 编排资产，`4dfcd16`） |
+| 插件 | 承载清单项 | 复用（不新建） |
+|------|-----------|----------------|
+| `workflow-ext` | #14-#15、#17 | agent-default-model、token-meter、workflow-run；本机本地插件 `dsh-git-worktree` 补完整隔离 |
+| `web-ext` | #23、#25-#26 | search provider 扩充、web-fetch-http、shell（git 克隆先行） |
+| `session-broker` | #30 | 无等效底座，新建 unix socket 通道 |
+| `command-template` | #31 | commands、workflow |
+| `context-report` | #34 | token-meter、session-stats |
+| 内容资产（非插件） | #17、#32 | workflow 脚本 + skill 内容 |
 
-> 排期建议：C1-C5 已实现合入 main，C6/C7 已裁定维持排除、C8 已裁定搁置，**9 项候选当前无待办**；若日后宿主补齐会话清理/登录流程或建成 review 编排资产，再按 `TUI/COMMANDS-SPEC.md` §3 另立规格。`TUI/COMMANDS-TASKS.md` §9 两个面板增量待决也已闭环：/jobs PgUp/PgDn 整页翻页（`1b34bc5`）、/agents 事件驱动刷新（`7aad5ef`）。
+## 5. TUI 侧
 
-## 排序原则与里程碑
-
-1. **里程碑一（P0）**：#1-#4 + #8 —— 引擎三块 + 知识库底座（设计文档 §16.3 结论：其余核心能力 dsh 已有现成服务）；
-1. **里程碑二（P1）**：#5-#7、#9-#11、#13、#19-#20、#27、#36 —— 契约/循环/记忆/压缩/锚点/结构搜索/安全策略/herdr 集成；
-1. **里程碑三（P2）**：其余长尾，按需排期（其中 #16/#18/#21/#22/#24/#33 与 A1-A5 命令已先行完成并合入 main）；#35 rate-guard 已取消（pi 侧已移除，能力由 pi 核心 provider-retry 内建 + 新增扩展 provider-guard 承接；dsh 对应 llm-retry，见对比文档 §5.4）；
-1. 不迁移：pi-dsh-minimal（反向桥）、pi 原生 herdr 扩展文件、pi 内部补丁（对比文档 §4.4）；herdr 面板集成以 `herdr-integration` 仿写实现（#36）。
-
-**起步顺序（实施建议）**：先打通流程、再上大件、双线并行：
-
-1. **热身 `herdr-integration`（#36）**：最小、零依赖、协议可对照 pi 原生扩展仿写；用它打通新插件脚手架（`cordis.patch.yml` + `dsh.bundle`、构建部署、profile 挂载），为后续所有插件铺路；
-1. **主线 `task-engine` 最小闭环（#1-#4）**：架构核心，goal-contract / metric-loop / workflow-ext 都挂其面。首版只做——栈引擎（Frame 状态机 + 就绪池，先单执行器）＋ decompose/implement/stop 工具族与嵌套 todo ＋ 门禁机械部分（粒度四规则 + coverage 映射）＋ RET 路由先上 mechanical / human 两级（semantic 级复用子代理 audit run 后补）；fan-out（#13）留第二迭代；
-1. **并行线 `knowledge-base`（#8）**：与 task-engine 零依赖，可完全并行；也是 #9-#11（写回/记忆/压缩入库）的底座，越早落库积累越多；
-1. **P1 小件穿插**：hash-edit、ast-tools 独立无依赖，可在主线卡壳时穿插；goal-contract 待 task-engine 契约 schema 稳定后做。
-
-## 插件规划（实现载体）
-
-> 每个插件 = dsh-toolset 仓库内一个包目录（以 `TUI/` 为模板：`package.json` 的 `dsh.bundle` + `cordis.patch.yml` 集成契约）；内容型资产不入插件。**命名按功能自定，不沿用 pi 插件名**（仅 ast-grep 为捆绑的底层二进制名）。#13 fan-out 并入 task-engine 的就绪池执行器（复用 agent-team DAG），不单设编排插件。
-
-| 插件 | 阶段 | 承载清单项 | 复用（不新建） |
-|------|------|-----------|----------------|
-| `task-engine` | P0 | #1-#5、#13（#5 为 P1 增量） | subagents.start / fork-in-process、outputSchema、depthLimit、session.append + ignorable、SessionSeq、storage-sqlite、experimental-agent-team（DAG） |
-| `knowledge-base` | P0→P1 | #8-#10 | storage-sqlite、session-query-sqlite（FTS5 模式）、session-telemetry（事件源） |
-| `goal-contract` | P1 | #6 | dsh-goal、goal-round-driver、tool-ask-user；契约 schema 取自 task-engine |
-| `metric-loop` | P1 | #7 | workflow + worker-thread、schedule |
-| `output-compress` | P1 | #11 | code-runtime、output-retention、spill；写入走 knowledge-base 接口 |
-| `fs-digest` | P1-P2 | #12 | tool-fs、tool-lsp |
-| `hash-edit` | P1 | #19 | tool-fs、fs-observation-policy |
-| `ast-tools` | P1 | #20 | 无（新工具，捆绑 ast-grep 二进制） |
-| `security-guard` | P1-P2 | #27-#29 | sandbox、bash-sandbox、permission-presets、credentials |
-| `workflow-ext` | P2 | #14-#15 | agent-default-model、token-meter、workflow-run；自研 dsh-git-worktree 补完整隔离 |
-| `code-map` | P2 | #21-#22 | ast-tools（outline/search）、tool-lsp（语义层增量） |
-| `web-ext` | P2 | #23-#26 | search-deepseek/exa/perplexity（provider 扩充）、web-fetch-http、shell（git 克隆先行） |
-| `session-broker` | P2 | #30 | 无等效底座（webhook/acp/sdk 均非），新建 unix socket 通道 |
-| `command-template` | P2 | #31 | commands、workflow |
-| `context-report` | P2 | #34 | token-meter、session-stats |
-| ~~rate-guard~~ | P2（已取消） | #35 | 无（pi 侧已移除，能力由 pi 核心 provider-retry 内建 + 扩展 provider-guard 承接；dsh 对应 llm-retry，见对比文档 §5.4） |
-| `herdr-integration` | P1 | #36 | 无底座，仿 pi 原生扩展协议（unix socket + 环境变量握手） |
-| TUI 包扩展 ✅（#16/#33 已完成） | P2 | #16、#33 | dsh-toolset TUI（/workflows 面板、声音提醒，均已合入 main）；另含 /council（#18）、/search（#24）、A1-A5 命令与自动清理空会话（`session.autoCleanEmpty`，默认开，可显式 `false` 关闭：启动时后台清理，优雅退出时提示渲染到活动区并等待完成再退出） |
-| 内容资产（非插件） | P2 | #17-#18、#32 | workflow 脚本 + skill 内容 |
-
-依赖：goal-contract、metric-loop、workflow-ext 依赖 task-engine（契约/执行器面）；output-compress 依赖 knowledge-base；其余独立可并行。
-
-## TUI 排版重构（Box 模型，架构级）
-
-> 与上表功能迁移无关的 TUI 本体架构重构。**已完成**（主线 A 契约迁移 + 主线 B Box 模型，2026-09 合入 main；`TUI/TASKS.md` 三波任务全部勾选完成）。
-
-- 范围：排版层引入 Box 树（Box/Paragraph 两类节点）替代 `wrapBufferLines` 分类处理；样式序列化收口 renderer（消灭 app 侧手拼 ANSI）；面板改为 Box 生成器（场景原语）；焦点框线归 FocusFrame 全局覆写
-- 实施：接口冻结 → 契约迁移 / measure-allocate / 内容映射 / 测试序列化辅助 / 拆文件 → 接线汇合 → 全量回归；已拆多个可独立回归的提交合入 main
-- 结果：`TUI/SPEC.md` §6-§8 契约落地（measure/allocate/fill/focus-frame/panel）；7 面板组件改 `buildXxxBox` Box 生成器 + render 薄包装单一数据源；`wrapBufferLines` 已删、两处调用点走 `buildContentRows`；冻结 fixture 对照 16 场景逐帧等价；tsc 0 / 686 单测（当时值；现 844）/ smoke 36 帧 / `smoke:pty` 真机冒烟全绿
-- 已决：C2 markdown 解析器不整体重排（定向契约收敛）；C3 测试按意图迁移（布局断言用 rowText/segments、颜色断言检查 style）；**活动区两态触发方式 = 用户显式命令 `/verbose on|off`（✅ 已实现，不做按高度预算自动降级；见 `TUI/TASKS.md` §6、`TUI/SPEC.md` §6.8）**
-
-## TUI 符号白名单·待议项（2026-11-06 审阅）
-
-（无——本轮审阅全部闭环）
-
-> 已决议（2026-11-06 第一轮）：方块族归一到 □ U+25A1（空心）与 ■ U+25FC（实心），含尺寸变体与填色 emoji；菱形族（emoji + 文本尺寸变体）🔶🔸⬦⬨→◇、🔷🔹⬥⬧→◆；三角族 emoji 🔺🔼→▲、🔻🔽→▼；方形/菱形/三角 emoji 均按「要求更换」反馈（文本尺寸变体只替换、不计 emoji）；**emoji 形状按「设计含色数」归类：单色填充一律实心（含白/黑：⚪⬜🔶🔸 等 → ●■◆），仅双色/内空腔设计按空心（⭕ 圆环 → ○、🔳 白底深边按钮 → □；文本空心变体 ⬦⬨ → ◇）**；星标域（★☆✦✧ 与 emoji ⭐）无推荐代表，一律按警告处理、不归一（⭐ 属 emoji）；未新增 ❎；方框勾/方框叉（☑ U+2611 / ☒ U+2612）定稿为**特例**——虽带独立方框，不作为独立家族/白名单成员，而是并入无框细线符号（✅☑→✓、❌☒→✗）。曾试验「☑ 独立入白名单」（嫌其视觉偏小但无更大替代），最终按用户裁量撤销，改走特例归一。
->
-> 已决议（2026-11-06 第二轮，审阅补充）：**箭头按「方向一致」归一**——各方向黑箭头/三角变体归一到该向推荐（A 线族 `➔➜➡→→`、`⬅⬆⬇→←↑↓`；B 三角族 `▸►⏵⏩➤→▶`、`◂◄⏴⏪→◀`、`▴⏶→▲`、`▾⏷→▼`；C 双线 `⇒→⟹`、`⇐→⟸`、`⇔→⟺`——各方向归一到同向长双线代表 `⟸⟹⟺`（2026-11 第三轮改判，不再拆分提醒））；媒体三角 ⏴⏪⏶⏷ 同 ⏵⏩ 归入 emoji 呈现起源；**方块族订正**——🔲（U+1F532 黑方块按钮，黑底+浅色边框=双色）按空心 → □（同 🔳），◽（U+25FD，观感/渲染为实心）按实心 → ■。⚠ 注意：纯白 ⬜ 与 ◽ 均按「单色=实心」处理，仅带边框按钮（🔳🔲）与空心文本变体（⬦⬨）按空心。
->
-> 已决议（2026-11-06 第四轮补充）：**空心三角族归一**——空心各成一族（与实心 ▶◀▲▼ 不互相归一），四向代表 `▷◁△▽` 入白名单，族内尺寸/指针变体 `▹▻→▷`、`◃◅→◁`、`▵→△`、`▿→▽` 归一到该向代表（△ U+25B3 亦为 ⚠→△ 警示目标）。
->
-> 已决议（2026-11-06 第五轮「举一反三」，1-6 全收）：①媒体双三角 `⏫⏬→▲▼`（同 ⏩⏪，emoji 呈现）；②勾叉扩展 `🗸🗹→✓`、`🗷→✗`（浅勾 + 追加符号区方框勾/叉，同 ☑☒ 特例，emoji 呈现）；③问号 emoji `❓❔→?`（同 ❗❕→!，emoji 呈现）；④黑色大圆 `⬤→●`（U+2B24，文本几何仅大小）；⑤全角金额 `￠￡→¢£`（同 ￥→¥）；⑥Dingbats 右箭头 `➠➢➣→→`（方向一致）。不纳入：对角双线 `⇖⇗⇘⇙`（C 族无长双线对角代表、不跨族归单线）、2B90-2BAF 奇形箭头（家族 D）、`⏮⏭⏯⏸⏹`（新增部件/功能）、装饰星（星标域警告）。
->
-> 已决议（2026-11-06 第六轮，实机复核补充）：全角金额系列补齐 `￦→₩`（U+FFE6 全角韩元 → 半角 U+20A9，同 ￥￠￡）；`👉` 手指指示图形**不归一**（几何=手≠箭头，同 💡 图形族，使用即提醒）。
->
-> 已决议（2026-11-06 第七轮，死循环修复）：**同符号冷却**——某符号被反馈过一次后进入冷却，冷却期内不再反馈该符号（**展示层替换照常**），打破「助手讨论符号本身 → 每轮反复提醒」的循环。双维冷却：`cooldownMs` 时间窗（缺省 10 分钟）+ `cooldownRuns` run 次数（缺省 3），任一维度未过即仍冷却、都过期解冻；显式 0 关闭对应维度，双 0 关闭冷却。emoji 罗列 / 变体计数 / 警示列表三组独立按符号过滤，全被冷却时该 turn 完全静默。**代码与正文均治理**（不跳过代码块）。
+- 命令扩展：7 项纯 TUI 命令与 A1-A5 已完成；C6 `/clear`、C7 `/login` `/logout` 裁定维持排除（宿主能力缺口/语义不匹配），C8 `/review` 裁定搁置（需先建 review 编排资产，可随 #17 一并考虑）；9 项候选当前无待办，现状口径见 `TUI/COMMANDS.md`、`TUI/COMMANDS-SPEC.md` §7，实施清单（已完成）见 `archive/TUI-COMMANDS-TASKS.md`。
+- 排版重构（Box 模型）与符号统一（白名单/归一/同符号冷却）均已完成，机制与配置见 `TUI/README.md`、`TUI/SPEC.md`、`TUI/IMPLEMENTATION.md`，本清单不再跟踪。
+- 开放项（已评估，未排期）：
+  - **排版性能**：区域级帧输出 memo（状态列/状态栏/footer，实测仅占单帧 1-4%）与「只测量可见窗口」的懒排版（需块高度前缀和 + 折叠/滚动边界处理）——现有有界缓存 + 同 tick 合帧已缓解主要成本。
+  - **`/help` 持续增长**：命令加行后 help 超过一屏，且既有测试存在依赖 help 行数的脆弱断言；改 help 前先检查相关断言（改动后需重跑 `scripts/freeze-focus-frame.mts` 并审查冻结基线）。
+  - **`state.usage` 语义**：`/stats` 展示「最近一次模型调用」，不是会话累计；要累计值需另行采集（`tokenMeter.measure` 接入成本高）。
+  - **面板占满活动区**：面板打开期间瞬态输出不可见（与 `/jobs` 行为一致），暂不改变。
+  - **`/agents` 刷新方式**：宿主无 subagent 状态事件面，现为打开期间每 2s 定时刷新 + `r` 手动；宿主补事件面后可改为事件驱动。

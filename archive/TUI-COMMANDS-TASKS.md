@@ -1,5 +1,8 @@
 # TUI 命令扩展任务（Commands Tasks）
 
+> **已归档**：本文是命令扩展的实施期任务清单（批次 0-4 与 A/C/P2 各项均已完成）。当前命令面见 `TUI/README.md`「Slash 命令」与 `TUI/COMMANDS.md`，规格见 `TUI/COMMANDS-SPEC.md`。文内进度与提交记录不再维护。
+> 注：文中 `COMMANDS-SPEC.md` 章节号按当时版本（§0.x/§3），现已重编号为 §1..§8。
+
 > 状态：**全部完成**——批次 0（5 项 API 合同门全部过门，§1）+ 批次 1/2/3/4 四批实现均已完成并审计通过归档。
 > 类型：**[task]**——实施与验收清单；范围 = `COMMANDS-SPEC.md` §1/§2 的**纯 TUI 侧命令**（7 项候选，均已过合同门；宿主服务现成，不改动任何本项目插件）。
 > 配套：`COMMANDS-SPEC.md`（规格与 API 签名核实表）、`COMMANDS.md`（命令来源归口）、`NOTICE-LEVELS.md`（提示分级）、`DESIGN.md` / `SPEC.md`（面板与渲染契约）。

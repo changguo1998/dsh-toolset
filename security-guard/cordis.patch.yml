@@ -1,3 +1,6 @@
+# security-guard 插件的 dsh bundle 声明。
+# dsh 宿主按 package.json 的 dsh.bundle.patch 加载本文件，把安全守卫挂进进程内。
+# pi-lens-ignore: yaml-schema: JSONPatch:0, yaml-schema: JSONPatch:513
 - insert:
     - id: security-guard
       name: '@dsh-toolset/security-guard'

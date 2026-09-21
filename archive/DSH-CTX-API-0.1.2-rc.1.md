@@ -1,5 +1,7 @@
 # DSH 核心 ctx API — 研读笔记（跨插件共享参考）
 
+> **已归档**：0.1.2-rc.1 期的契约研读笔记（历史版本）。当前契约以仓库根 `DSH-CTX-API.md` 为准。
+
 > 来源：官方 `deepseek-harness` clone（`~/GithubRepos/deepseek-harness`，**`dsh-v0.1.2-rc.1`** = commit `a66e470204`）。
 > 上一版：`dsh-v0.1.1-rc.2`（commit `b150a551b8`，已归档至 `archive/DSH-CTX-API-0.1.1-rc.2.md`）。
 > 用途：供 dsh-toolset 各插件（TUI、web、CLI、扩展……）在与 DSH 宿主集成时对齐契约；本文件为研读沉淀，只读参考，非实现。
@@ -56,7 +58,7 @@ type SessionEvent = {
   - `session-log-deepseek/delivery-accepted`
   - `subagent/model-selection-policy`
   - （即 0.1.1-rc.2 文档「master 前瞻」所列 3 项，现已进词汇表）
-- 其余命名延续，注意：**`agent-preset/selected`（连字符）**是正确事件名（0.1.1-rc.2 旧文档 §1 笔误写成 `agent/preset/selected`），载荷 `{ agentPreset: string }`。
+- 其余命名延续，注意：\*\*`agent-preset/selected`（连字符）\*\*是正确事件名（0.1.1-rc.2 旧文档 §1 笔误写成 `agent/preset/selected`），载荷 `{ agentPreset: string }`。
 - 事件载荷新增字段（0.1.2-rc.1）：
   - `assistant/message`：新增 `interrupted?: true`（取消流中途已交付文本/reasoning 前缀的标记）
   - `tool/result`：新增 `meta?: JsonValue`（工具私有展示载荷，如 `dsh-tool-fs` 的结果时上下文 diff；必须是 JSON-serializable，`Session.append` 运行时校验）
@@ -142,12 +144,12 @@ usage{usage} / finish{reason, replayState?}
 接口/契约面：
 
 1. **session 序号模型拆分为 SessionSeq / SessionLogOffset**（破坏性），并新增 `SESSION_FORMAT_VERSION`（当前 0）与 `session/end-seed`。
-2. **SessionEvent 新增 `ignorable?: true`** 兼容机制（词汇外事件可安全跳过）。
-3. **事件载荷新字段**：`assistant/message.interrupted`、`tool/result.meta`、`turn/end` reason 扩展、`compaction/summary.shadowedRange`/`sourceCommandId`。
-4. 词汇表 48 → 52（新增 `model/selection`、`session-log-deepseek/delivery-accepted`、`subagent/model-selection-policy`）。
-5. **agent-presets 交付改配置树（`dsh.configTrees`）+ 会话级预设**（`SessionHeader.agentPreset`、`agent-preset/selected`）。
-6. 会话持久化 JSONL-only（移除 SQLite 后端，0.1.2-rc.1 有 `session-persistence-jsonl` / `session-checkpoint-policy`）。
-7. host 面：`dsh-host-apiproxy` 移除，unary RPC 迁 `dsh-api` Remote controllers + connection 持 RPC transport；`dsh-llm-*` 后端插件化；新增 webhook / hooks-claude-code / hooks-codex / sdk-app / sdk-minimal / acp / attachment-local / credentials-local / sandbox 系 / user-approval 等插件。
-8. CLI：移除 demo；code-mode 更名 **PTC**。
+1. **SessionEvent 新增 `ignorable?: true`** 兼容机制（词汇外事件可安全跳过）。
+1. **事件载荷新字段**：`assistant/message.interrupted`、`tool/result.meta`、`turn/end` reason 扩展、`compaction/summary.shadowedRange`/`sourceCommandId`。
+1. 词汇表 48 → 52（新增 `model/selection`、`session-log-deepseek/delivery-accepted`、`subagent/model-selection-policy`）。
+1. **agent-presets 交付改配置树（`dsh.configTrees`）+ 会话级预设**（`SessionHeader.agentPreset`、`agent-preset/selected`）。
+1. 会话持久化 JSONL-only（移除 SQLite 后端，0.1.2-rc.1 有 `session-persistence-jsonl` / `session-checkpoint-policy`）。
+1. host 面：`dsh-host-apiproxy` 移除，unary RPC 迁 `dsh-api` Remote controllers + connection 持 RPC transport；`dsh-llm-*` 后端插件化；新增 webhook / hooks-claude-code / hooks-codex / sdk-app / sdk-minimal / acp / attachment-local / credentials-local / sandbox 系 / user-approval 等插件。
+1. CLI：移除 demo；code-mode 更名 **PTC**。
 
 > 完整源码对照：`git diff dsh-v0.1.1-rc.2 dsh-v0.1.2-rc.1`（1735 提交）。

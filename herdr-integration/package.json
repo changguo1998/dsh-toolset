@@ -1,7 +1,7 @@
 {
     "name": "@dsh-toolset/herdr-integration",
     "version": "0.1.0",
-    "description": "DSH (DeepSeek Harness) 与 herdr 面板集成：agent 状态经 unix socket 上报、blocked 事件桥（ask-user / approval）",
+    "description": "DSH (DeepSeek Harness) 与 herdr 面板集成：agent 状态经 unix socket 上报、blocked 事件桥（ask-user 提问 / approval 审批 / turn 阻塞三源）",
     "type": "module",
     "main": "dist/src/main.js",
     "scripts": {

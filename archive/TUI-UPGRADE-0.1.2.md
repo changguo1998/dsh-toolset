@@ -1,5 +1,7 @@
 # TUI 升级 DSH 0.1.2-rc.1 更新计划（审阅稿）
 
+> **已归档**：本文是 TUI 升级到 DSH 0.1.2-rc.1 的升级计划草案（当时状态，非现状）。当前 TUI 实现口径见 `TUI/SPEC.md`、`TUI/DESIGN.md`、`TUI/IMPLEMENTATION.md`。
+
 > 状态：**计划草案，待审阅；审阅通过前不实现**。
 > 契约依据：`DSH-CTX-API.md`（0.1.2-rc.1 版）+ `archive/DSH-CTX-API-0.1.1-rc.2.md`（旧版对照）。
 > 源码对照：`~/GithubRepos/deepseek-harness`（`dsh-v0.1.1-rc.2` → `dsh-v0.1.2-rc.1`，1735 提交）。
@@ -41,9 +43,9 @@
 ### 3.1 P0 —— 升级回归（必做，改动的验收基线）
 
 1. **Profile 依赖升级**：profile `dsh-toolset-tui` 的 `@deepseek-ai/dsh` 解析到 0.1.2-rc.1（本机全局已装 `0.1.2-rc.1`，核对 `lockfile`/`pnpm` 解析；若 profile 缓存旧版需更新）。
-2. **契约回归清单（真机冒烟）**：启动 → 会话提交/流式 → 审批弹窗（turn 内）→ `/policy` ask/never → `/permission` 目录（names 来自 configTrees → `PermissionPresetService.names`）→ `/preset` 目录+切换（**`AgentPresets` 改 `TypertRemoteService` 后重点验证 `list()`/`recompose()` 异步调用**）→ jobs → goal/todo → 状态栏 mode 块 → Ctrl+D 退出。
-3. **自动化**：`npm run check`（tsc 直接验证 adapter 类型兼容——若 `AgentPresets`/`PermissionPresetService` 类型不兼容会在编译期暴露）→ `npm test` → `npm run build` → `npm run demo` + smoke。
-4. **diff-check + 提交**（若 P0 即零改动，只提交文档/冒烟记录）。
+1. **契约回归清单（真机冒烟）**：启动 → 会话提交/流式 → 审批弹窗（turn 内）→ `/policy` ask/never → `/permission` 目录（names 来自 configTrees → `PermissionPresetService.names`）→ `/preset` 目录+切换（**`AgentPresets` 改 `TypertRemoteService` 后重点验证 `list()`/`recompose()` 异步调用**）→ jobs → goal/todo → 状态栏 mode 块 → Ctrl+D 退出。
+1. **自动化**：`npm run check`（tsc 直接验证 adapter 类型兼容——若 `AgentPresets`/`PermissionPresetService` 类型不兼容会在编译期暴露）→ `npm test` → `npm run build` → `npm run demo` + smoke。
+1. **diff-check + 提交**（若 P0 即零改动，只提交文档/冒烟记录）。
 
 ### 3.2 P1 —— 目录/预设服务兼容实证（若 P0 冒烟发现回归，回填修复）
 
@@ -73,11 +75,11 @@
 ## 4. 验证链（执行顺序）
 
 1. `npm run check`（类型面抢先暴露不兼容）
-2. `npm test`（全量）
-3. `npm run build` + `npm run demo`（demo：审批/Ctrl+D/目录回归）
-4. `--smoke` 冒烟
-5. **真机 0.1.2-rc.1 profile 冒烟**（§3.1.2 清单）
-6. `git diff --check` + 提交（Conventional Commits，中文）
+1. `npm test`（全量）
+1. `npm run build` + `npm run demo`（demo：审批/Ctrl+D/目录回归）
+1. `--smoke` 冒烟
+1. **真机 0.1.2-rc.1 profile 冒烟**（§3.1.2 清单）
+1. `git diff --check` + 提交（Conventional Commits，中文）
 
 ## 5. 风险与决策点
 

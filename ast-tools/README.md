@@ -1,69 +1,71 @@
 # @dsh-toolset/ast-tools
 
-DSH（DeepSeek Harness）进程内集成插件：基于 **ast-grep** 的 AST 结构搜索、结构化替换、文件大纲与 YAML 规则执行。
+DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索、结构化替换、文件大纲与 YAML 规则执行。零运行时依赖，全部操作经系统 `ast-grep` CLI 子进程完成。
 
-零运行时依赖；通过系统 `ast-grep` CLI 子进程完成全部工作（选型依据见下）。
+## 能力
 
-## 二进制选型
+本包不注册模型侧工具，以 bundle + TS API 形式供宿主与其他插件（如 code-map）调用：
 
-**采用系统 ast-grep CLI，而非 `@ast-grep/napi` 原生绑定。** 依据（均在 ast-grep 0.45.3 实测）：
+| 导出 | 说明 |
+| --- | --- |
+| `searchAst(params, opts?)` | AST 模式搜索 → `AstMatch[]`（`text` / `range` / `metaVariables`） |
+| `replaceAst(params, opts?)` | 结构化替换 → `ReplaceResult`（`updatedSource` / `replacedCount` / `written` / `matches`） |
+| `outlineFile(params, opts?)` | 文件大纲 → `OutlineFile[]`（顶层符号与成员，含 0-based 行列与字节偏移） |
+| `runRules(params, opts?)` | YAML 规则执行 → `AstRuleHit[]`（`ruleId` / `severity` / `message`，fix 规则附 `replacement`） |
+| `createAstToolsBundle(config?)` | 核心工厂：绑定二进制与超时，返回 `search` / `replace` / `outline` / `rules` / `dispose` 服务对象 |
+| `findAstGrepBin` / `ensureAstGrepBin` | 二进制探测（未找到返回 `null` / 抛 `AstGrepMissingError`） |
+| `name` / `Config` / `apply(ctx, config?)` | DSH bundle 契约 |
 
-| 维度 | 系统 CLI（选用） | @ast-grep/napi |
+各操作的参数（`opts` 为通用选项 `bin` / `timeoutMs`）：
+
+- `search`：`pattern`、`language`、`path`（文件或目录）、`strictness?`
+- `replace`：`pattern`、`replacement`、`language`、`path`（仅具体文件）、`strictness?`、`write?`（缺省 false，仅内存返回）
+- `outline`：`path`、`language?`、`items?`（缺省 `auto`：文件取 `structure`，目录取 `exports`）、`types?`
+- `rules`：`rule`（`{ kind: "file", rulePath }` 或 `{ kind: "inline", rules }`）、`paths`、`includeMetadata?`、`minSeverity?`
+
+另导出 `normalizeLanguage`、`runCli` / `runCliJson`、`DEFAULT_TIMEOUT_MS`、`INSTALL_GUIDANCE` 与错误类型 `AstGrepError` / `AstGrepMissingError` / `AstGrepProcessError` / `AstGrepJsonError`（含 `exitCode` / `stderr`）。
+
+## 配置
+
+| 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| 语言覆盖 | 25+ 语言（含 go/rust/java/c++/python 等） | 仅内置 5 种：CSS/HTML/JS/TS/TSX |
-| YAML 规则执行 | 原生 `scan --rule/--inline-rules`，支持 fix 重写与关系子句 | 规则类型无 `fix`/rewrite 字段，无 scan 语义 |
-| 输出 | `--json=compact` 结构化（含字节偏移、元变量捕获） | 命中对象，无 replacementOffsets |
-| 包依赖 | 零运行时依赖（二进制在系统侧） | 需安装 NAPI 原生模块（平台二进制体积大） |
+| `bin` | 自动探测 | ast-grep 二进制绝对路径，优先于一切探测 |
+| `timeoutMs` | `30000` | 单次子进程超时（超时 SIGKILL，`exitCode = -1`） |
 
-代价是每次操作一次子进程启动（毫秒级），对本插件的使用频率可接受。
+二进制探测顺序：显式 `bin` → `AST_GREP_BIN` 环境变量 → `PATH` 中的 `ast-grep` → `PATH` 中的 `sg` → 本地 `node_modules/.bin/ast-grep`。
 
-### 二进制探测顺序
+探测失败抛 `AstGrepMissingError`，报错内含安装方式：`npm install -g @ast-grep/cli`、`brew install ast-grep`、`cargo install ast-grep`、预编译二进制下载，或用 `AST_GREP_BIN` / `bin` 指定路径。bundle 的 `apply` 捕获该错误后记录日志并禁用插件，不使宿主崩溃；其他错误照常抛出。
 
-1. 插件配置 / API 参数的 `bin` 显式路径
-1. `AST_GREP_BIN` 环境变量
-1. `PATH` 中的 `ast-grep`
-1. `PATH` 中的 `sg`（ast-grep 别名）
-1. 本地 `node_modules/.bin/ast-grep`（`@ast-grep/cli` 作为项目依赖安装时的回落）
-
-### 二进制不可用时的降级与安装
-
-探测失败时抛 `AstGrepMissingError`（bundle 入口 `apply` 捕获后仅记录日志并禁用插件，宿主不崩溃）。报错信息内含全部安装路径，任选其一：
-
-```sh
-npm install -g @ast-grep/cli   # 安装 ast-grep / sg 二进制（推荐）
-brew install ast-grep          # macOS
-cargo install ast-grep         # Rust 工具链
-# 或下载预编译二进制: https://github.com/ast-grep/ast-grep/releases
-# 或用 AST_GREP_BIN 环境变量 / 插件配置 bin 字段指定二进制绝对路径
-```
-
-## 快速开始
+## 使用示例
 
 ```ts
-import { searchAst, replaceAst, outlineFile, runRules } from "@dsh-toolset/ast-tools";
+import {
+  outlineFile,
+  replaceAst,
+  runRules,
+  searchAst,
+} from "@dsh-toolset/ast-tools";
 
-// 1. AST 结构搜索（$VAR 单节点元变量，$$$VAR 节点序列元变量）
+// 搜索（$VAR 单节点元变量，$$$VAR 节点序列元变量）
 const hits = await searchAst({
   pattern: "console.log($ARG)",
   language: "ts",
   path: "src/",
 });
-// hits[0].text / hits[0].range（0-based 行列 + 字节偏移）/ hits[0].metaVariables
 
-// 2. 结构化替换（缺省仅内存，write: true 写回磁盘）
+// 结构化替换（缺省仅返回内存结果，write: true 写回磁盘）
 const result = await replaceAst({
   pattern: "console.log($MSG)",
-  replacement: "console.info($MSG)", // $MSG 引用捕获的实参
+  replacement: "console.info($MSG)",
   language: "ts",
   path: "src/app.ts",
   write: true,
 });
 
-// 3. 文件大纲
+// 文件大纲
 const outline = await outlineFile({ path: "src/app.ts", items: "all" });
-// outline[0].items: 顶层符号（函数/类/import），类含 members（方法）
 
-// 4. YAML 规则执行（文件或内联文本）
+// YAML 规则（文件或内联文本）
 const ruleHits = await runRules({
   rule: {
     kind: "inline",
@@ -81,65 +83,27 @@ const ruleHits = await runRules({
 });
 ```
 
-### 可运行样例（本包内）
+包内可运行样例（临时文件全流程断言）：
 
 ```sh
-npm --prefix ast-tools run example:search    # SEARCH_EXAMPLE_PASS
-npm --prefix ast-tools run example:replace   # REPLACE_EXAMPLE_PASS
+npm run example:search    # 输出 SEARCH_EXAMPLE_PASS
+npm run example:replace   # 输出 REPLACE_EXAMPLE_PASS
 ```
 
-样例 1（搜索，`examples/search.example.ts`）：在临时 TS 文件中搜 `console.log($ARG)`，断言恰好命中 1 处、行号 0-based、元变量捕获为 `add(1, 2)`，输出：
+## 边界与限制
 
-```
-hit: console.log(add(1, 2)) (L5:1)
-SEARCH_EXAMPLE_PASS
-```
-
-样例 2（替换，`examples/replace.example.ts`）：把 2 处 `console.log` 替换为 `console.info`（`console.warn` 不受影响），断言替换后全文逐字一致且缺省不写回磁盘，输出：
-
-```
-replaced 2 occurrence(s):
-  + console.info('before');
-  + console.info(x);
-REPLACE_EXAMPLE_PASS
-```
-
-## API
-
-| 导出 | 说明 |
-| --- | --- |
-| `searchAst(params, opts?)` | AST 模式搜索 → `AstMatch[]` |
-| `replaceAst(params, opts?)` | 结构化替换 → `ReplaceResult`（`updatedSource`/`replacedCount`/`written`/`matches`） |
-| `outlineFile(params, opts?)` | 文件大纲 → `OutlineFile[]`（items/members 含 0-based 范围与签名） |
-| `runRules(params, opts?)` | YAML 规则执行 → `AstRuleHit[]`（`ruleId`/`severity`/`message`，fix 规则附 `replacement`） |
-| `findAstGrepBin(bin?)` / `ensureAstGrepBin(bin?)` | 二进制探测（返回 null / 抛错） |
-| `createAstToolsBundle(config?)` | 核心工厂：绑定配置返回 `search/replace/outline/rules` 服务对象 |
-| `name` / `Config` / `apply(ctx, config?)` | DSH bundle 契约（见下） |
-| `AstGrepError` 及子类 | `AstGrepMissingError`（无二进制，含安装路径）/ `AstGrepProcessError`（CLI 失败，含 stderr）/ `AstGrepJsonError` |
-
-### 模式语法注意事项（ast-grep 0.45.x）
-
-- `$VAR`：捕获**单个** AST 节点；`$$$VAR` / `$$$`：捕获**节点序列**（0 个或多个兄弟节点，含分隔符）。
-- `$$VAR` / `$$` 以及带括号的元变量名（如 `$(name)`）在当前版本**不生效或匹配失败**，请勿使用。
+- 依赖系统 ast-grep CLI（不内置二进制、无 NAPI 绑定）：每次操作为一次性子进程，语言覆盖与规则能力随本机 ast-grep 版本；无法安装二进制的环境按上文降级。
+- 元变量语法：`$VAR` 捕获单个 AST 节点，`$$$VAR` / `$$$` 捕获节点序列（0 个或多个兄弟节点）。`$$VAR` / `$$` / `$(name)` 不产生序列捕获（`$(name)` 匹配不到），不要使用。
 - 替换文本中 `$VAR` 引用单节点捕获，`$$$VAR` 按原文展开整个序列。
+- CLI 退出码不作为判据：`run` 无命中与 `scan` 的 error 级命中都可能非零退出而 stdout 为纯 JSON；仅在「无 JSON 且非零退出」时抛 `AstGrepProcessError`，无命中返回空数组。
+- 语言名支持别名（`js` → `javascript`、`py` → `python` 等），未知值原样透传给 CLI 校验；`replace` 要求具体文件路径，不支持目录输入。
 
-## DSH bundle 集成
-
-对齐 `DSH-CTX-API.md` §0 的插件 bundle 约定（`export { name, Config, apply }`，cordis 加载器识别 named `apply` 导出）：
-
-- `package.json` 声明 `dsh.bundle.patch` 指向 `cordis.patch.yml`
-- `cordis.patch.yml` 以 `insert` 条目把 `ast-tools` 插件挂入宿主
-- `apply(ctx, config?)`：二进制可用时记录 ready 日志；缺失时走降级（记录含安装路径的日志并禁用插件，不抛出）
-
-真实宿主侧挂载效果按仓库惯例由部署时人工确认（与 knowledge-base/TUI 一致）。
-
-## 开发
+## 测试
 
 ```sh
-npm --prefix ast-tools run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
-npm --prefix ast-tools run test    # node --test，多语言匹配/替换/大纲/规则 + 降级路径
-npm --prefix ast-tools run build   # 产物 dist/src/index.js
+npm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
+npm run build   # 编译到 dist/
+npm run test    # node --test（27 例：多语言匹配/替换/大纲/规则 + 降级路径）
 ```
 
-- 无二进制的机器上，依赖二进制的测试自动 skip，降级路径用例恒跑。
-- CLI 输出约定：`run` 无命中时 exit=1 但 stdout 为 `[]`；`scan` 的 error 级命中非零退出但 stdout 仍为纯 JSON——本包一律以可解析 JSON 为准，仅在「无 JSON 且非零退出」时抛 `AstGrepProcessError`。
+依赖二进制的用例在缺 ast-grep 的机器上自动 skip，降级路径用例恒跑。

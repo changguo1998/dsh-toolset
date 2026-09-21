@@ -1,111 +1,64 @@
-# knowledge-base 设计与实现
+# knowledge-base 设计
 
-> 实现范围：`docs/DEVELOPMENT-BACKLOG.md` #8-#10（跨会话知识库、写回/淘汰/提升、持久记忆 CRUD）。
-> 设计对照：`docs/AGENT-ARCHITECTURE-ANALOGY.md` §12；接口契约：根目录 `DSH-CTX-API.md`。
-> 语言：本文档中文；代码英文标识符。
+## 1. 定位与取舍
 
-## 1. 定位
+DSH 进程内集成的**跨会话知识库 + 持久记忆**。三个取舍：
 
-DSH 进程内集成的**跨会话知识库**插件，独立于 storage KV 域，搜索密集走 SQLite FTS5。
-与 task-engine 零依赖，可并行开发（BACKLOG 定位）。
+- **独立 SQLite 库（`node:sqlite` 内置）而非宿主 storage KV**：知识库是搜索密集型负载（关键词/子串/打分排序/过期淘汰），关系库 + FTS5 比 KV 域更贴合；用内置模块意味着零新增依赖。
+- **双 FTS5 索引而非单一分词器**：语义词干检索（porter）与子串/模糊检索（trigram）语义不同，各自建索引、各自 `bm25()` 排序，查询时按需合流。
+- **记忆与知识同库**：记忆是 `chunks` 表上 `target` 划域的记录（`category` 表类别），复用同一套分块、去重、检索、淘汰底座，避免第二套存储语义。
 
-- 独立 SQLite 库（`node:sqlite` 内置，零新增依赖，与 `storage-sqlite`/`session-query-sqlite` 同底座）；
-- 接口 `ctx_knowledge: search / put / touch / evict`；
-- 复用底座：storage-sqlite、session-query-sqlite（FTS5 底座模式）、session-telemetry（事件源）。
+对外接口面与配置见 `README.md`。
 
-## 2. 存储结构（§12.1）
+## 2. 数据模型（`src/schema.ts`）
 
-四表 + 双 FTS5 影子表（`src/schema.ts`）：
+2 张基表（`STRICT`）+ 2 张 FTS5 虚表：
 
 | 表 | 关键列 | 职责 |
-|---|---|---|
-| sources | kind(session/file/url/tool_result/manual)、label、ref、content_hash、chunk_count | 溯源/去重/记账 |
-| chunks | source_id、project、target、category、title、content、content_hash、importance(1-5)、session_id、last_referenced、summary | 内容主体（过滤/排序/淘汰） |
-| chunks_fts | title、content（porter 分词） | 语义词干 BM25 检索 |
-| chunks_trigram_fts | title、content（trigram 分词） | 子串/模糊检索 |
+| --- | --- | --- |
+| `sources` | `kind`、`label`、`ref`、`content_hash`、`chunk_count` | 溯源与记账（一个来源 → 多个 chunk） |
+| `chunks` | `source_id`、`project`、`target`、`category`、`title`、`content`、`content_hash`、`importance`(CHECK 1..5)、`session_id`、`last_referenced`、`summary` | 内容主体 |
+| `chunks_fts` | `title`、`content`，`tokenize='porter'` | 语义词干 BM25 检索 |
+| `chunks_trigram_fts` | 同上，`tokenize='trigram'` | 子串 / 模糊检索 |
 
-索引：`(project, last_referenced)`、`(source_id)`。
-双 FTS5 以 `content='chunks'` external content 挂靠（免双份存储），TRIGGER 在 insert/update/delete
-写直达同步（update = delete 旧行 + insert 新行）。
+- 两张 FTS 表都以 `content='chunks'` external content 挂靠（不双份存原文），由 3 个 TRIGGER（insert / delete / update）写直达同步；update 实现为「旧行 delete + 新行 insert」，保证两个索引都一致。
+- 索引两条：`(project, last_referenced)` 服务按项目取过期候选与提升排序，`(source_id)` 服务 source 联动。
+- **open 守护**：库文件 0o600、父目录 0o700；`PRAGMA application_id = 0x4b4e4f57`（`'KNOW'`）、`user_version = 1`。application_id 属于其他应用、或为空但库非空时拒绝打开；版本不匹配时整库重置（DROP 后重建），避免半旧 schema 带着不兼容数据继续跑。
+- 默认 `journal_mode = wal`（可配），允许知识库长连接与其他写入者（如 output-compress）并发读写。
 
-**open 守护**（仿 session-query-sqlite）：`PRAGMA application_id`（'KNOW'）+ `user_version` 版本守护；
-0o600 建库、父目录 0o700、journal_mode 默认 WAL；版本不匹配整库重置后重建。
+## 3. 写入策略（两级）
 
-## 3. ctx_knowledge 四接口（`src/knowledge.ts`）
+- **写直达（会话内实时）**：`src/hooks.ts` 订阅 `session/event`，只对白名单事件类型（工具结果、用户反馈、计划/目标/待办决策、审批结论、压缩摘要）实时 `put`；过滤先于写入，非白名单类型直接跳过，不产生半写。
+- **批量写回（最终一致）**：`WritePolicy.writeBack` 在 `ConsolidationLock` 内批量 `put`；单条失败不抛错，而是进内存 `pending` 队列，`backfill()` 重试。取舍：知识沉淀的可用性优先于强一致——写入失败不应反过来打断会话。
+- **锁的边界**：`ConsolidationLock` 是进程内互斥（同 key 串行化），多进程共享同一库时需升级为文件锁。
 
-`KnowledgeService` 持有 `DatabaseSync`，方法即四接口：
+## 4. 检索算法（`src/knowledge.ts`）
 
-- `put(input)`：content_hash 去重（相同块不重复写）、~2K token markdown 边界分块
-  （超限段落按行/字节硬切）、source 记账（chunk_count 按实际新增数计数）；
-- `search(opts)`：porter BM25（`bm25()` 排序），`fuzzy` 时叠加 trigram 子串召回；
-  命中即更新 `last_referenced`（检索命中提升 §12.4）；支持 project/target/category 过滤；
-- `touch(id)`：手动刷新 `last_referenced`（LRU 参考计数）；
-- `evict(ids)`：删除 chunks 并联动 `sources.chunk_count`，归零清理 source（§12.3 溯源联动，供 #9 复用）。
+1. **分块**（写入侧）：按 markdown 段落边界累加到 ≤ 2000 token（估算 `len/3` ≈ 6000 字符）；单段落超限时按行边界硬切（找不到合适换行则按字符硬切）；分块后 trim 并丢弃空块。
+1. **去重**：chunk 级 `content_hash`（sha256）全局去重，命中即复用既有 id、`created` 不增；`sources` 按 `(content_hash, kind)` 复用。取舍：跨 project 复用同内容是刻意的——同一份事实不必因作用域不同存两遍，代价是「同内容不同 project」不会各自成条。
+1. **召回链**：`chunks_fts` 用 `MATCH` + `bm25()` 升序取 `limit` 条；`fuzzy` 时叠加 `chunks_trigram_fts` 结果补足（不覆盖 porter 命中）；两者都失败或结果不足且查询含 CJK 时，退到 `LIKE` 子串扫描兜底。
+1. **命中即提升**：`search` 命中的行把 `last_referenced` 刷成当前时间，作为 LRU/提升的参考计数——检索本身就是「这条仍然有用」的证据。
 
-检索健壮性：FTS5 对自由输入语法错误（如 `-` 排除符）try/catch 容错；含 CJK 的查询在
-porter/trigram ≤2 字符无法召回时走 LIKE 子串兜底（保持 `fuzzy:false` 不额外召回语义）。
+取舍说明：FTS5 对自由输入（如 `-` 这类查询语法字符）会直接报错，故每次 `MATCH` 都包 try/catch 并降级；CJK 词干/子串命中能力有限（见 `README.md` 边界），`LIKE` 兜底牺牲排序质量换取召回。
 
-**CJK 检索边界（实测）**：porter（unicode61）按连续串分词，`构建通过` ≠ 查询 `构建`；
-trigram 需 ≥3 字符子串。≤2 字符中文词须经 LIKE 兜底命中。已知边界，测试有覆盖。
+## 5. 淘汰与提升
 
-## 4. 数据源接入（`src/hooks.ts`）
+- **淘汰候选** `staleCandidates`：`last_referenced > 0` 且早于 `now - ttlMs`，且 `importance <= maxImportance`（默认 2），按 `last_referenced` 升序取前 `limit` 条。`last_referenced = 0`（从未被检索）不参与，避免误杀刚写入的条目。
+- **降级再淘汰** `evictStale`：默认先 `compress` 把 `content`/`summary` 降级为首行截断 300 字符（保留可检索足迹），再 `evict` 硬删（联动 `sources.chunk_count`，归零清理 source）。取舍：一步硬删会让「曾经知道过什么」彻底消失，压缩降级保留了索引可寻的回指。
+- **提升** `promote`：按 `importance × 1/(1 + 距今小时数/24)` 排序取 top-K（默认 10），只取 `last_referenced > 0` 的条目；分数相同时按 `last_referenced` 倒序。取舍：用重要性加时间衰减表达「重要且近期用过」，比单纯 LRU 更稳。
 
-`SessionHooks` 订阅宿主 `session/event`（结构化 `HookHost`，mock/demo 可跑）：
+这些编排都是显式接口，**本插件内没有调度器**（谁在何时触发由宿主/上层决定）。
 
-- 写直达事件过滤器白名单（§12.2）：`tool/result`、`feedback/record`、`plan/mode`、
-  `goal/change`、`todo/write`、`approval/decided`、`compaction/summary`；
-- `summarizeEvent`：`tool/result` 失败（isError/error）importance=4、成功=2，其余类型 3；
-  递归抽取文本（string / `{text}` / `{content}` / `{message.content}`）；
-- 重复事件经 content_hash 去重；`attach` 返回解绑函数。
-- project 作用域：静态字符串或按事件求值函数（多项目路由）。
-- **0.1.5-rc.2 载荷决策**（dsh 0.1.5-rc.2 实测）：
-  - `tool/result.meta`（FsDiffMeta 等结构化元数据）：`serializeToolMeta` 紧凑序列化，
-    非空才在 chunk 尾部追加 `[tool/meta]` 段（`{}`/`[]`/null 不追加，避免噪声）；
-  - `compaction/summary`：摘要文本后追加 `[compaction]` 尾注块（shadowedRange/shadowedSeqs/
-    shadowedTokenCount/provider/model；sourceCommandId 仅命令触发时存在才输出）；
-    summary 文本缺失时回落整体 JSON，不丢数据；
-  - `ignorable`（宿主"可安全丢弃"语义）：白名单类型事件仍摄取（保守，不丢数据），
-    非白名单类型本就安全跳过。
+## 6. 持久记忆
 
-## 5. 两级写策略与淘汰提升（`src/writepolicy.ts`，#9）
+记忆复用 `chunks` 表：`target` 划域（`user`/`memory`/`project`/`failure`），`category` 记类别，无 project 时归 `__global__`。
 
-- **写直达**（实时，会话内）：hooks 事件过滤器（见上）；
-- **批量写回**：`WritePolicy.writeBack` 在 `ConsolidationLock`（进程内互斥，同 key 串行化）内批量
-  `put`；失败项入 pending，`backfill()` 下次启动/compaction 重试兜底（最终一致）；
-- **淘汰**：`evictStale` 取候选（`last_referenced` 早于 TTL 且 importance≤2），先 `compress` 降级为
-  单行摘要（保留可检索足迹），再硬淘汰（`kb.evict` 联动 source 清理）；
-  触发条件：project 级 token 超预算（`tokenBudgetUsage` 估算）或定期；
-- **提升**：`kb.promote` resume top-K（`last_referenced` 倒序 × importance 加权）注入上下文；
-  检索命中更新 last_referenced（search 内联）；回填按 relevance × importance。
+- `replace` / `remove` 用 `target` + 内容子串（`content`/`summary` 的 `LIKE`，转义 `\`、`%`、`_`）定位，因此同一域内**首个**匹配项被改动。
+- `search` 在过滤之上做 token-aware 截断：逐条累加估算 token，若追加下一条会超 `tokenBudget` 且已有至少一条命中则停止，返回 `usedTokens` 与 `truncated`——把「预算」这件事从调用方挪进服务内。
 
-## 6. 持久记忆（`src/memory.ts`，#10）
+## 7. 已知边界
 
-记忆沉淀在 chunks 表（`target`=记忆域，`category`=类别），复用 knowledge 底座：
-
-- `add`：content_hash 去重；无 project 归 `__global__`；
-- `replace` / `remove`：按 `target` + 内容子串定位（LIKE 转义）；
-- `search`：target/category/project 过滤 + **token-aware 预算截断**（返回 usedTokens/truncated）；
-- 检索命中自动更新 last_referenced（提升）。
-
-## 7. DSH 接入面（`src/index.ts`）
-
-按 bundle 契约 `export { name, apply }`；`@deepseek-ai/cordis` 未发布到 npm，ctx 用结构化
-`BundleHost`（`session/event` + `logger`）。`createKnowledgeBundle` 为核心工厂（开库→建服务→挂事件→
-dispose），`apply` 为宿主挂载入口；`cordis.patch.yml` 声明 bundle 插入。
-
-**服务暴露（BRIEF-C4）**：`apply` 不再「async 建完即丢」——创建结果由模块级持有，
-命令侧可通过 `getKnowledgeBundle()`（同步）、`whenKnowledgeReady()`（等待就绪，避免竞态）、
-`getKnowledgeBundleSummary()`（概要：ready/dbPath/chunkCount/sourceCount）访问；
-bundle 亦直接暴露 `dbPath` 与 `summary()`。保持 `apply` 原调用语义（void、fire-and-forget、
-失败仅日志），未引入 cordis 依赖。
-
-**真实宿主联调**（dsh profile 部署、`ctx_knowledge` 服务注册到宿主 service 域）已由
-`npm run smoke` 自动化覆盖（见 IMPLEMENTATION.md §6）；真实会话中人工使用 put/search
-作为收尾确认门。
-
-## 8. 约束与已知边界
-
-- 检索词干/子串对 ≤2 字符中文走 LIKE 兜底（见 §3）；
-- ConsolidationLock 为进程内互斥，多进程共享库需升级文件锁（ponytail 标注）；
-- pending 写回为内存态，进程重启丢失（ponytail 标注，升级为持久队列时处理）；
-- token 估算 `len/3` 为近似（ponytail 标注，精确 tokenizer 需要时引入）。
+- CJK 检索需经 `LIKE` 兜底（分词器限制，非实现缺陷）；`fuzzy:false` 不额外召回模糊结果。
+- `pending` 为内存态，进程重启丢失；`ConsolidationLock` 不跨进程。
+- token 估算为 `len/3` 近似，未引入精确 tokenizer。
+- `SessionSeq`/`SessionLogOffset` 不消费：去重键是 `content_hash`，`session_id` 仅作溯源列，不参与唯一性。

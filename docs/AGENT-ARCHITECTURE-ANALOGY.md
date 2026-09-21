@@ -1,8 +1,7 @@
 # AGENT 设计讨论整理 —— 计算机体系结构类比
 
-> 来源：dsh-toolset 迁移调研期间的设计讨论。
 > 主题：用计算机体系结构的视角重新审视 agent 系统的功能划分、执行模型与确定性控制。
-> 用途：作为后续 agent 系统设计与迁移实现的架构参考（姊妹文档：`docs/PI-DSH-FEATURE-COMPARISON.md`）。
+> 用途：作为 agent 系统设计与实现的架构参考（姊妹文档：`archive/PI-DSH-FEATURE-COMPARISON.md`，已归档的迁移调研；已落地的插件与状态见 `DEVELOPMENT-STATUS.md`）。
 
 ## 0. 一句话主线
 
@@ -50,10 +49,7 @@ dsh 的 session API 几乎照进程语义设计：
 | IPC | intercom / acp / sdk |
 | 退出码 + 看门狗 | audit、repeat-tool-reminder |
 
-**边界（类比失真点）**：
-
-- 并行性：OS 进程真并发，dsh 会话多"单前台 agent 串行"——成立的是隔离/生命周期/IPC 语义，真并行在 subagent 层；
-- fork 语义：进程 fork 是写时复制内存，session fork 是共享日志前缀 + 独立续写（更像 git branch）。
+**边界（类比失真点）**：OS 进程真并发，dsh 会话多为"单前台 agent 串行"——成立的是隔离/生命周期/IPC 语义，真并行在 subagent 层；进程 fork 是写时复制内存，session fork 是共享日志前缀 + 独立续写（更像 git branch）。
 
 **补充映射**（主映射见 §0）：subagent ≈ 线程/轻量进程；jobs ≈ 守护线程/DMA 异步 I/O；tools = 设备；intercom/sdk = IPC。
 
@@ -74,8 +70,8 @@ dsh 的 session API 几乎照进程语义设计：
 
 ## 5. OS 与 goal 不一致：goal 是"作业（job）"
 
-- **OS 的核心职能**：资源抽象、隔离、调度、保护——管"怎么执行"，对应 **dsh 宿主运行时**（cordis + ctx.\* 服务），不是 glla；
-- **goal 的核心职能**：意图声明、状态追踪、完成验证——管"要达成什么"，对应**批处理系统中的作业（job）**。
+- **OS 的核心职能**：资源抽象、隔离、调度、保护（管"怎么执行"）→ **dsh 宿主运行时**（cordis + ctx.\* 服务），不是 glla；
+- **goal 的核心职能**：意图声明、状态追踪、完成验证（管"要达成什么"）→ **批处理系统中的作业（job）**。
 
 | OS 功能 | agent 对应 |
 |---|---|
@@ -91,7 +87,7 @@ dsh 的 session API 几乎照进程语义设计：
 
 ## 6. glla = 用编程语言实现的系统服务
 
-goal/list/jobs/schedule 不是硬件、不是内核，而是**用编程语言写出来的用户态系统服务程序**——就像真实计算机里的 cron、批处理调度器、任务队列、systemd/supervisord。
+goal/list/jobs/schedule 不是硬件、不是内核，而是**用编程语言写出来的用户态系统服务程序**——像真实计算机里的 cron、批处理调度器、任务队列、systemd/supervisord。
 
 | 计算机系统中的服务程序 | Agent 对应 |
 |---|---|
@@ -103,7 +99,7 @@ goal/list/jobs/schedule 不是硬件、不是内核，而是**用编程语言写
 
 **分层**：硬件层（LLM/工具/存储）→ 内核层（dsh 宿主）→ 语言层（workflow）→ **服务层（glla，用语言实现的常驻程序）** → 应用层（具体任务）。
 
-**判断标准**：凡是"可以完全用 workflow 脚本重写而不改 dsh 宿主"的功能都属于服务层；必须由宿主提供的才是内核层。→ glla 的 gap（list/audit/loop 语义）应当作为新服务程序，用 workflow/插件在 ctx.\* 之上实现，而不是改内核。
+**判断标准**：能用 workflow 脚本完全重写而不改宿主的属于服务层，必须由宿主提供的才是内核层。→ glla 的 gap（list/audit/loop 语义）应作为新服务程序，用 workflow/插件在 ctx.\* 之上实现，而不是改内核。
 
 ## 7. 执行粒度：run / turn / step
 
@@ -114,10 +110,10 @@ run（一次运行/执行实例）      ← 最外层：跑一个任务/程序
             └─ chunk/token    ← 流式节拍（时钟周期）
 ```
 
-- **一次运算 = 一次 step**：一次工具调用或一次模型推理决策，dsh 有 `step/start`/`step/end`（载荷 `{turn, step}`）事件承载；指令周期（取指-译码-执行-写回）详见 §11.1 与 §13.1；
+- **一次运算 = 一次 step**：一次工具调用或一次模型推理决策，由 `step/start`/`step/end`（载荷 `{turn, step}`）承载；指令周期（取指-译码-执行-写回）见 §11.1、§13.1；
 - **程序计数器 = 会话事件序号 seq**：每完成一次运算 seq 单调递增，下次从最新 seq 处"取指"；
 - **turn vs step**：turn 是回合（turn/start→turn/end，reason：completed/aborted/blocked/error/max-tokens/interrupted），step 是回合内原子动作（step/start→step/end），一个 turn 含多个 step——turn=函数调用，step=函数体里的指令；
-- **run**：一次执行实例，无统一事件承载（workflow run、subagent run、agent run 各有 id）；dsh 里最接近的是 `session.status`（idle/running）。run=运行一次程序，会话=进程。
+- **run**：一次执行实例，无统一事件承载（workflow run、subagent run、agent run 各有 id）；最接近的是 `session.status`（idle/running）。run=运行一次程序，会话=进程。
 
 ## 8. 从概率输出到确定性操作
 
@@ -134,7 +130,7 @@ run（一次运行/执行实例）      ← 最外层：跑一个任务/程序
 | L3 状态机/工作流 | 控制流移出模型 | 模型只在决策点从枚举动作集中选一 + 填参数；控制流由确定性执行器跑 DAG/脚本 |
 | L4 计划-执行分层 | 先结构化计划再执行 | 模型产出计划 JSON，执行器按计划跑，模型只在计划内局部决策 |
 
-**落到 dsh**：tool-call-delta 已是结构化通道（L1 半边）；step/start-end 已是事件化裁决点；workflow + tool-ralph 即 L3。缺口 = step_type 的结构化强制 + step 级 validator 门禁——可迁移到 dsh 的新插件面（见 §16）。
+**落到 dsh**：tool-call-delta 已是结构化通道（L1 半边）；step/start-end 已是事件化裁决点；workflow + tool-ralph 即 L3。缺口 = step_type 的结构化强制 + step 级 validator 门禁——已由 `task-engine` 落地（见 §16）。
 
 ## 9. 直接实现 vs 自顶向下拆分
 
@@ -148,19 +144,17 @@ run（一次运行/执行实例）      ← 最外层：跑一个任务/程序
 | 可审计性 | 黑盒 | 分解树可回溯 |
 | 确定性 | 低 | 高 |
 
-**为什么 LLM 倾向直接实现**：训练目标（next-token，语料大量"问→答"直接配对）、自回归性质（无显式规划循环）、上下文压力、RLHF 偏好简洁。
-
-**关键洞察**：直接实现对简单任务是最优解；对复杂任务是"把概率性释放到整条链路上"。自顶向下本质是"把概率关进笼子"：分解树确定结构（确定性骨架），模型只在叶子做局部决策。类比：直接实现 = 解释执行；自顶向下 = 编译（源码→AST→IR→优化→代码生成）。
+**为什么 LLM 倾向直接实现**：next-token 训练目标（语料多为"问→答"直接配对）、自回归无规划循环、上下文压力、RLHF 偏好简洁。**关键洞察**：直接实现对简单任务最优，对复杂任务是"把概率性释放到整条链路"；自顶向下本质是"把概率关进笼子"——分解树确定骨架，模型只在叶子做局部决策。类比：直接实现 = 解释执行，自顶向下 = 编译（源码→AST→IR→代码生成）。
 
 **强制自顶向下的手段**：① plan 门禁（先输出结构化计划，经校验/确认后才允许实现）；② 分解到可执行粒度（叶子=一次 step 可完成）；③ 每层验证契约（verificationContract）；④ 复用 glla/workflow（list 承载队列、workflow DAG 承载结构、audit 验收）。
 
 ## 10. 强制"每次只细化一层"
 
-**核心**：不要靠提示词求它"只细化一层"，而是把"细化一层"变成模型唯一的合法输出动作——一个工具调用。输出通道里没有"实现"这个选项，模型无从直接实现。
+**核心**：不靠提示词求模型"只细化一层"，而把"细化一层"变成模型唯一的合法输出动作——一个工具调用。输出通道里没有"实现"这个选项，模型无从直接实现。
 
 **① 分解动作工具化（schema 强制）**：`decompose(node)` 输出子任务列表（id、标题、验收、是否需再拆）——参数里没有 code/实现字段，schema 层面排除一步到位；`implement` 仅对叶子节点开放。
 
-**② 外部执行器持有任务树（深度控制）**：模型不决定下一步，执行器决定——维护任务树、每次只取一个待细化节点喂给模型、输出子节点后校验挂树、再取下一个；细化策略（BFS 逐层/DFS 下钻）由执行器定。
+**② 外部执行器持有任务树（深度控制）**：执行器维护任务树，每次只取一个待细化节点喂给模型，校验子节点挂树后再取下一个；细化策略（BFS 逐层/DFS 下钻）由执行器定，模型不决定下一步。
 
 **③ 验证器判定"是否真的只细化了一层"**：
 
@@ -175,11 +169,9 @@ run（一次运行/执行实例）      ← 最外层：跑一个任务/程序
 
 **叶子判定**：叶子 = 一次 step 可完成（单工具调用/单段代码/单次问答）；只有执行器标记为叶子的节点才允许 `implement`。
 
-**为什么能控制住**：直接实现是自由文本，自由文本无法可靠约束；把它变成"不存在的工具"就从通道上消灭了它。每次推理的输出空间被压缩为 decompose/implement 二选一，由 schema 和 validator 双重裁决；深度控制权在执行器（确定性层）手里，模型只是局部决策器。
+**为什么能控制住**：自由文本无法可靠约束，而把"实现"变成不存在的工具就从通道上消灭了它——每次推理的输出空间被压缩为 decompose/implement 二选一，由 schema 与 validator 双重裁决，深度控制权留在执行器（确定性层）。类比逐层 IR 降级：编译器前端每次只降一层（AST→高层 IR→低层 IR→指令），从不一步生成机器码。
 
-**计算机类比**：逐层 IR 降级——编译器前端每次只降一层（AST→高层 IR→低层 IR→指令），从不一步生成机器码。
-
-**落地形态**：`plan-decompose` 插件（工具 + 树存储 + 遍历器），细节并入 §16.1。
+**落地形态**：已实现为 `task-engine` 插件（工具族 + 事件溯源任务树 + 遍历器/就绪池），细节见 §16.1。
 
 ## 11. 最小推理步骤（step）的构成
 
@@ -199,33 +191,32 @@ run（一次运行/执行实例）      ← 最外层：跑一个任务/程序
 
 关键点：**"推理"不是步骤的必要内容——裁决后的结果才是**。推理正文只是决策过程的瞬态中间产物，不进系统状态；这是确定性（§8）的落点。
 
-### 11.2 与 dsh 事件流的对应（约 70%）
+### 11.2 与 dsh 事件流的对应
 
 一个 step 在 dsh 里是**一组事件构成的窗口**（step/start → chunk\* → tool/result? → step/end），不是单事件：
 
 | 要素 | dsh 事件流 | 状态 |
 |------|-----------|------|
-| 定位 | step/start {turn,step} + 事件自带 seq | ✅ |
-| 决策 type | 由 assistant/attempt 的 stream 记录推断（text-chunks/reasoning-chunks/tool-call-chunks） | ⚠ 无显式字段 |
-| 裁决 accepted | 无对应 | ❌ 需补 step 级 validator |
-| 执行 result | tool/result（+meta），纯推理步无 | ✅ |
-| 写回 | 事件 append 进日志 | ✅ |
-| 结束 | step/end（回合末另有 turn/end） | ✅ |
-| 下一步 next | 无显式字段，agent loop 内部决定 | ❌ 需补执行器 |
+| 定位 | step/start {turn,step} + 事件自带 seq | `[x]` |
+| 决策 type | 由 assistant/attempt 的 stream 记录推断（text-chunks/reasoning-chunks/tool-call-chunks） | 注意：无显式字段 |
+| 裁决 accepted | 无对应 | 缺口：需补 step 级 validator |
+| 执行 result | tool/result（+meta），纯推理步无 | `[x]` |
+| 写回 | 事件 append 进日志 | `[x]` |
+| 结束 | step/end（回合末另有 turn/end） | `[x]` |
+| 下一步 next | 无显式字段，agent loop 内部决定 | 缺口：需补执行器 |
 
-缺 accepted 与 next 两字段——正是确定性控制要新增的部分；补上后，逻辑 step（schema 规范视图）与物理事件窗口（持久化形式）可严格互译。
+缺 accepted 与 next 两字段——正是确定性控制要新增的部分（已由 `task-engine` 的 step 裁决补齐，见 §16）。补上后，逻辑 step（schema 规范视图）与物理事件窗口（持久化形式）可严格互译。
 
 ### 11.3 现状机制（无结构化输出 / 门禁 / 执行器时）
 
-- **决策**：模型隐式生成——流式输出中"说"出下一步（reasoning-delta=推理、tool-call-delta=调工具、finish=结束）；无显式 step_type，系统不裁决、不记录选择理由；
-- **操作**：半结构化外壳（tool_calls 协议强制工具名 + JSON 参数）+ 运行时直接执行 + tool/result 返回；无语义门禁；
-- **门禁只有三道薄闸**：API 参数解析（结构层）、运行时错误（事后暴露）、审批链（人在环）；
-- **控制流**：agent loop 固定 ReAct 循环（模型输出 → 执行工具 → 结果回填 → 再给模型 → … → finish）；loop 只是循环骨架，不裁决节点与转移，next 由模型隐式决定；
-- **本质**：现状 = 事后纠错（报错/重试/人发现）；设计 = 事前约束（结构 + 门禁 + 执行器）。确定性只存在于工具调用外壳，其余靠模型自觉。
+- **决策**：模型在流式输出中隐式"说"出下一步（reasoning-delta=推理、tool-call-delta=调工具、finish=结束）；无显式 step_type，系统不裁决、不记录选择理由；
+- **操作与门禁**：半结构化外壳（tool_calls 强制工具名 + JSON 参数）+ 运行时直接执行；门禁只有三道薄闸——API 参数解析（结构层）、运行时错误（事后暴露）、审批链（人在环）；
+- **控制流与本质**：agent loop 固定 ReAct 循环，不裁决节点与转移，next 由模型隐式决定；现状 = 事后纠错，设计 = 事前约束（结构 + 门禁 + 执行器），确定性只存在于工具调用外壳。
 
 ## 12. 存储层次设计：L4 知识库
 
 > 依据：本地实证（context-mode 双 FTS5 + sources 表；hermes-memory 元数据分层 + last_referenced + TRIGGER 写直达 + backfill 兜底）＋外部范式（MemGPT 分页、Cline/Claude Code 文件型记忆库）。
+> 落地：已实现为 `knowledge-base` 插件；表结构与接口细节以 `knowledge-base/DESIGN.md` 与源码为准。
 
 ### 12.1 结构（4 张表 + 双 FTS5 影子表）
 
@@ -238,48 +229,31 @@ run（一次运行/执行实例）      ← 最外层：跑一个任务/程序
 
 索引：`(project, last_referenced)` 与 `(source_id)`；双 FTS5 影子表以 external content 模式挂靠 chunks（免双份存储），由 TRIGGER 在 insert / delete / update 时写直达同步（update = delete 旧行 + insert 新行）。
 
-设计决策：
-
-- **外部内容表 + TRIGGER 同步**（SQLite 官方推荐）而非 FTS5 本体存数据：元数据过滤走普通 SQL，全文检索走 FTS5，各自高效；
-- **双索引**：porter（语义词干 BM25，必选）＋ trigram（子串/模糊，可配置开关）；
-- **元数据分层**：project / target / category / importance / session_id / last_referenced（hermes 实证）。
+设计决策：**外部内容表 + TRIGGER 同步**（SQLite 官方推荐，元数据过滤走普通 SQL、全文检索走 FTS5）；**双索引** porter（必选）+ trigram（可配置）；**元数据分层** project / target / category / importance / session_id / last_referenced（hermes 实证）。
 
 ### 12.2 写入规则（两级写策略）
 
-**写直达（实时，会话内）**：
+**写直达（实时）**：事件过滤器只收「值得沉淀」类型（错误/修正/决策与计划/工具结果摘要）；块上限约 2K token，超限按 markdown 边界切块；content_hash 去重；TRIGGER 同步双索引（强一致）。
 
-- 事件过滤器：仅「值得沉淀」类型——错误/failure、修正/correction、决策/计划、工具结果摘要；
-- 块大小上限约 2K token，超限按 markdown 边界（段落/代码块）切块；
-- 去重：content_hash 命中则不重复写；
-- TRIGGER 同步进双索引（强一致）。
-
-**写回（批量，会话结束 / compaction 触发）**：
-
-- 聚合 turn 摘要、经验教训（insight）批量写入；
-- consolidation 锁（hermes `.consolidation-locks` 模式）防并发；
-- 失败可延迟：下次启动 backfill 兜底（最终一致）。
+**写回（批量，会话结束 / compaction 触发）**：聚合 turn 摘要与 insight 批量写入；consolidation 锁（hermes `.consolidation-locks` 模式）防并发；失败延迟到下次启动 backfill 兜底（最终一致）。
 
 ### 12.3 淘汰规则（LRU + importance 加权）
 
-- 主依据：`last_referenced`（LRU）＋ `importance`；
-- 触发：project 级 token 超预算，或定期（如每周）；
-- 候选：last_referenced 超过 TTL（如 90 天）且 importance ≤ 2；
-- 降级优先：先压缩为单行摘要（title + summary 保留在归档区），再删除；
-- 溯源联动：source.chunk_count 归零时清理该 source。
+- 主依据 `last_referenced`（LRU）＋ `importance`；触发为 project 级 token 超预算或定期；
+- 候选：last_referenced 超 TTL（如 90 天）且 importance ≤ 2 → 先压成单行摘要（title + summary 入归档区）再删除；
+- 溯源联动：source.chunk_count 归零则清理该 source。
 
 ### 12.4 提升规则
 
-- **resume**：按 project 拉取 top-K（last_referenced 倒序 × importance 加权）注入 L0；
-- **检索命中**：命中即更新 last_referenced（参考计数，写入方执行）；
-- **回填**：检索结果按 relevance + importance 取前 K 条注入上下文；
-- **人可读导出**（可选）：定期把高 importance 条目生成 MEMORY.md 式文件。
+- **resume**：按 project 拉取 top-K（last_referenced 倒序 × importance 加权）注入 L0；**检索命中**即更新 last_referenced（写入方执行）；
+- **回填**：检索结果按 relevance + importance 取前 K 条注入上下文；可选定期把高 importance 条目导出为 MEMORY.md 式文件。
 
 ### 12.5 与 dsh 整合
 
 - 存储：独立 SQLite 库（搜索密集，独立于 storage KV 域）；
 - 数据源：session/event hooks（对齐 dsh session-telemetry 事件捕获）；
-- 接口：新插件暴露 `ctx_knowledge`：`search / put / touch / evict`；
-- 复用 0.1.2-rc.1 已有：storage-sqlite、session-query-sqlite（FTS5 基础）作为实现底座。
+- 接口：插件暴露 `ctx_knowledge`：`search / put / touch / evict`；
+- 复用宿主既有能力作为实现底座：storage-sqlite、session-query-sqlite（FTS5 基础），契约基线 `dsh-v0.1.5-rc.2`。
 
 ## 13. 运行流水线：调用栈 × 指令流水线
 
@@ -372,27 +346,26 @@ root                             [ ] root
 - 不存树，存事件流：`decompose(parent, [c1..cn])` / `push` / `complete(frame, result)` / `fail(frame, reason)` / `retry(frame, feedback)` 全部 append 进会话日志；
 - 树 = 回放（fold）出的物化视图；崩溃恢复 = 重放；审计 = 日志天然证据链；
 - 学术对应：push/pop 事件序列 = 树的**欧拉环游**表示，事件内 `parent_id` = 邻接表——日志、栈、todo 是同一棵树的三种序列化；
-- 分层落点：L0 运行时活树 / L2 帧事件流（真相源）/ L3 周期快照（resume 加速）；
-- SQL 查询：邻接表（`parent_id` + `order`）+ 递归 CTE 足够；版本历史：持久化数据结构（Okasaki 路径复制）或 Git 式 Merkle DAG。
+- 分层落点：L0 活树 / L2 帧事件流（真相源）/ L3 周期快照（resume 加速）；查询用邻接表（`parent_id` + `order`）+ 递归 CTE 足够，版本历史可选 Okasaki 路径复制或 Git 式 Merkle DAG。
 
 ### 15.2 并行：fork-join + 工作窃取 + 所有权
 
 核心洞察：**树在分支处天然不相交——不加锁，而是不共享**。
 
 1. **Fork-Join + 工作窃取**（Cilk/TBB/ForkJoinPool）：每执行器一 deque，自己底部 pop（LIFO 局部性），空闲者顶部 steal（偷大子树）；Blumofe-Leisler 定理：T_P ≤ T₁/P + O(T\_∞)；
-1. **所有权原则**（Actor/Erlang）：任一时刻一个帧只属一个执行器，树无锁，协调走消息；steal = 所有权转移；
-1. **join = future/Promise.all**（Kahn 过程网络）：父帧续体在全部子 future 完成时激活；
-1. 同点并发才需 MVCC/STM/CRDT（树形 CRDT，Yjs/Automerge）——本场景有宿主、任务有清晰所有权，**用不上，省一大块复杂度**；
-1. 事件日志并发写：单写者 sequencer 或 per-branch 流 + 逻辑时钟合并（`branch_id` = 分布式追踪 span id）；
-1. 打回重做 = bounded retry（Erlang supervisor 模式），已入 Frame。
+1. **所有权原则**（Actor/Erlang）：任一时刻一个帧只属一个执行器，树无锁，协调走消息，steal = 所有权转移；
+1. **join = future/Promise.all**（Kahn 过程网络）：父帧续体在全部子 future 完成时激活；打回重做 = bounded retry（Erlang supervisor 模式），已入 Frame；
+1. 同点并发才需 MVCC/STM/CRDT（Yjs/Automerge 树形 CRDT）——本场景有宿主、所有权清晰，**用不上，省一大块复杂度**；事件日志并发写用单写者 sequencer 或 per-branch 流 + 逻辑时钟合并（`branch_id` = 追踪 span id）。
 
 最简落地：日志记帧事件 + 内存树 + 周期快照；一个就绪池 + N 执行器认领；不加锁、不上 CRDT。
 
-## 16. 实现清单与 dsh 接口对照（0.1.2-rc.1 已核源码）
+## 16. 实现清单与 dsh 接口对照
 
-### 16.1 要实现的内容
+> 接口对照基于 dsh `0.1.2-rc.1` 源码核对；当前契约基线为 `dsh-v0.1.5-rc.2`（见 `DSH-CTX-API.md`）。本节清单已落地为 `task-engine` 插件（首版与边界见 `task-engine/README.md`、`DEVELOPMENT-STATUS.md`）。
 
-- **A. 引擎（dsh-toolset 新插件，cordis 服务）**：①TaskStack 引擎（Frame 状态机、decompose、pop、join 续体、就绪池、并行度上限、bounded retry）；②门禁（前置 + 验收 + 语义蕴含/coverage，拒绝带反馈打回）；③帧事件记录（自定义事件 `plan/node-expanded {parent, children}` + 内存树 + 周期快照）；
+### 16.1 实现内容
+
+- **A. 引擎（插件，cordis 服务）**：①TaskStack 引擎（Frame 状态机、decompose、pop、join 续体、就绪池、并行度上限、bounded retry）；②门禁（前置 + 验收 + 语义蕴含/coverage，拒绝带反馈打回）；③帧事件记录（自定义事件 `plan/node-expanded {parent, children}` + 内存树 + 周期快照）；
 - **B. 模型侧工具**：④`decompose`/`implement`/`stop`/`status`（decompose 输出含 coverage 映射，见 §17.2）；⑤嵌套任务列表（带 `parent_id` + `order`）；
 - **C. 执行器（用现成接口）**：⑥并发任务帧 = 并发子 agent run，join = 完成通知收口；⑦RET 验收路由器（按 acceptance.level 分派三路裁决，见 §17.4）；
 - **D. 与 glla 结合**：任务树 = list 数据源，叶子 = todo 项，audit 验收；
@@ -402,18 +375,18 @@ root                             [ ] root
 
 | 需要 | dsh 接口 | 满足度 |
 |---|---|---|
-| 并发执行多任务帧 | `ctx.subagents.start()` 多 run 并发（providers：spawn/fork/acp/dsh-sdk） | ✅ |
-| 子帧继承父上下文 | `subagent-fork-in-process`：child 以父会话已完成 turn 前缀为 seed | ✅ |
-| 完成通知 / join | `SubagentRun` + `SubagentRunEndInfo`（`subagent.started/finished`） | ✅ |
-| 决策约束（L1 结构化输出） | start 的 `outputSchema`：JSON Schema 校验，`SubagentResult.structured` | ✅ |
-| 防栈溢出 max_depth | 委托深度上限（`SubagentCapabilities.depthLimit`） | ✅ |
-| 帧事件记录 | `session.append` + `ignorable` 机制；`tool/result.meta` | ✅ |
-| seq | `SessionSeq` 会话内单调 | ✅ |
-| 快照/恢复 | `sessions.flush`；storage-sqlite KV 域 | ✅ |
-| 中途引导执行器 | `sendMessage`；`startContinuable` | ✅ |
-| 嵌套 todo | `tool-todo` 为扁平快照 | 🔶 需新建嵌套版 |
-| 用户审批 | `ctx.approval`（waterfall、fail-closed） | ⚠️ 须在 open turn 内；后台作业 fail-closed |
-| 动态分解编排 | `tool-workflow`（worker-thread 静态 JS） | 🔶 不匹配：动态分解用 TS 服务直写，勿硬套 workflow |
+| 并发执行多任务帧 | `ctx.subagents.start()` 多 run 并发（providers：spawn/fork/acp/dsh-sdk） | `[x]` |
+| 子帧继承父上下文 | `subagent-fork-in-process`：child 以父会话已完成 turn 前缀为 seed | `[x]` |
+| 完成通知 / join | `SubagentRun` + `SubagentRunEndInfo`（`subagent.started/finished`） | `[x]` |
+| 决策约束（L1 结构化输出） | start 的 `outputSchema`：JSON Schema 校验，`SubagentResult.structured` | `[x]` |
+| 防栈溢出 max_depth | 委托深度上限（`SubagentCapabilities.depthLimit`） | `[x]` |
+| 帧事件记录 | `session.append` + `ignorable` 机制；`tool/result.meta` | `[x]` |
+| seq | `SessionSeq` 会话内单调 | `[x]` |
+| 快照/恢复 | `sessions.flush`；storage-sqlite KV 域 | `[x]` |
+| 中途引导执行器 | `sendMessage`；`startContinuable` | `[x]` |
+| 嵌套 todo | `tool-todo` 为扁平快照 | 已由 task-engine 的嵌套任务列表（`parent_id` + `order`）补足 |
+| 用户审批 | `ctx.approval`（waterfall、fail-closed） | 注意：须在 open turn 内；后台作业 fail-closed |
+| 动态分解编排 | `tool-workflow`（worker-thread 静态 JS） | `[~]` 不匹配：动态分解用 TS 服务直写，勿硬套 workflow |
 
 ### 16.3 结论
 
@@ -423,7 +396,7 @@ root                             [ ] root
 
 ## 17. 统一任务模型：契约与分解校验
 
-> 基础层抽象：像把任意程序抽象为「代码 + 数据 + 堆栈」，把任意任务抽象为「契约 + 工作集 + 任务树」。程序是 how 预先写死（命令式）；任务是 what 固定、how 动态生成（声明式）——任务的"代码面"是**契约（Hoare 三元组 `{P} S {Q}`）**，S 由模型 + 执行器在运行中生成（decompose = 增量式程序合成）。执行流程（调度/门禁/验收）只依赖契约与状态，与任务内容解耦。
+> 基础层抽象：任意程序可抽象为「代码 + 数据 + 堆栈」，任意任务可抽象为「契约 + 工作集 + 任务树」。程序是 how 预先写死（命令式），任务是 what 固定、how 动态生成（声明式）——任务的"代码面"是**契约（Hoare 三元组 `{P} S {Q}`）**，S 由模型 + 执行器运行时生成（decompose = 增量式程序合成）。执行流程（调度/门禁/验收）只依赖契约与状态。
 
 ### 17.1 契约结构
 
@@ -503,13 +476,11 @@ root                             [ ] root
 | 出错代价 | 控制流错误，整棵子树白做，打回重拆 | 局部错误，bounded retry 可修 |
 | 审查者 | validator（机械）+ LLM 蕴含审查 | 机械 / audit run / approval |
 
-强制审查的对象是**副作用**——凡改树或改世界的必过两道闸；纯思考豁免（`reason` 只有推理，没有执行与审查，仍被记录但不受裁决）。引擎不在两类中——它是求值器（eval），两类任务的共同底座：元任务经它裁决后生效，对象任务经它派发验收。
+强制审查的对象是**副作用**——凡改树或改世界的必过两道闸；纯思考豁免（`reason` 仍被记录但不受裁决）。引擎不在两类中：它是求值器（eval），元任务经它裁决后生效，对象任务经它派发验收。
 
 ## 19. 总结
 
 1. **agent = 一台软件实现的计算机**：CPU（LLM）、存储层次（上下文/记忆）、I/O（工具/互连）、OS（dsh 宿主）、语言（workflow）、进程（会话）、作业系统（glla）。
 1. **分层决定实现边界**：硬件/内核由 dsh 宿主提供；服务层（goal/list/jobs/schedule/audit）用 workflow 语言实现；应用层是具体任务。
-1. **确定性来自结构约束 + 验证裁决**：把"下一步类型"和"细化一层"都变成受 schema 与 validator 双重约束的离散动作，模型只做受限选择。
-1. **自顶向下需要机械强制**：plan 门禁 + 逐层 decompose 工具 + 叶子判定 + audit 验收，把"想清楚"变成默认路径。
-1. **任务 = 契约（Hoare 三元组）**：what 固定、how 生成；分解双重校验（粒度 + 语义蕴含，coverage 映射），验收按 mechanical/semantic/human 三级路由。
-1. **两类任务：元/对象**：改树是元任务、做具体工作是对象任务（任务树 = 同像结构）；两类都强制经「推理→裁决→执行→复验→写回」，门禁强度按类分布——元任务审结构（蕴含），对象任务审结果（acceptance）。
+1. **确定性来自结构约束 + 验证裁决**：把"下一步类型"和"细化一层"都变成受 schema 与 validator 双重约束的离散动作；自顶向下靠机械强制（plan 门禁 + 逐层 decompose + 叶子判定 + audit 验收）成为默认路径。
+1. **任务 = 契约（Hoare 三元组）**：what 固定、how 生成；分解双重校验（粒度 + 语义蕴含，coverage 映射），验收按 mechanical/semantic/human 三级路由；两类任务（元/对象）都强制经「推理→裁决→执行→复验→写回」。

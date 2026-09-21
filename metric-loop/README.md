@@ -1,68 +1,71 @@
 # @dsh-toolset/metric-loop
 
-DSH（DeepSeek Harness）进程内集成插件：指标驱动的自动循环。循环状态持久化为 JSON，
-每次 `dsh` headless 启动 / schedule 唤醒即推进一轮：执行用户提供的测量命令（stdout 解析
-单个数字），按方向比较历史最优，连续 `window` 轮无改进则 plateau 停止。
+DSH（DeepSeek Harness）进程内插件：指标驱动的自动循环。注册工具 `metric_loop`，每轮执行用户提供的测量命令（stdout 解析单个数字），按方向比较历史最优；连续 `window` 轮无改进则 plateau 停止。循环状态持久化为 JSON，跨进程唤醒即可续跑。
 
-- 任务契约：`TASK.md`；实现契约：`DSH-CTX-API.md`（跨插件共享研读笔记，只读），当前对齐版本 0.1.5-rc.2。
-- 停止语义：`plateau`（仅带测量命令的循环）/ `maxRounds`（默认 50）/ `time`（可选，毫秒）/
-  `tokens`（可选，累计）/ `manual`。优先级：plateau > maxRounds > time > tokens。
-- `cadence`：成功后自动唤醒的最小间隔（秒），仅节流 `wake=auto`；显式 start/resume（`wake=explicit`）
-  为紧急唤醒，不受限。
-- `metricless`：无测量命令（缺省或空串）时不做 plateau 判定，只按边界停止。
+## 能力
 
-## 命令
+工具 `metric_loop`（单工具 + `action` 分派）：
+
+| action | 参数 | 作用 |
+| --- | --- | --- |
+| `start` | `id?`、`measureCmd?`、`direction?`、`window?`、`maxRounds?`、`timeBoundMs?`、`tokenBound?`、`cadenceSec?` | 新建循环（重置同名旧状态）并跑第一轮（显式唤醒） |
+| `tick` | `id?`、`wake?`（`auto` / `explicit`，缺省 `explicit`）、`tokensUsed?` | 推进一轮 |
+| `status` | `id?` | 只读状态 |
+| `stop` | `id?` | 手动停止（已停止则幂等） |
+
+默认值：`id` = `default`、`direction` = `min`、`window` = 5、`maxRounds` = 50；`measureCmd` 缺省或空串即 metricless。`id` 仅保留文件名字符并限长 64。
+
+语义：
+
+- 停止原因优先级：`plateau` > `maxRounds` > `time` > `tokens`，另有 `manual`。plateau 仅在带测量命令时判定。
+- 轮前边界检查：已达 `maxRounds` / `timeBoundMs` / `tokenBound` 时本轮不执行、直接停止（结果 `round: null`）。
+- `wake: "auto"` 受 cadence 节流：距上次成功不足 `cadenceSec` 返回 `deferred: true`，不消耗轮次、不落盘；显式 start/tick 不受限。
+- 测量失败（超时、非零退出、stdout 无数字）按本轮无改进处理，不更新最优值、不中断循环。
+- 结果含 `schedule` 提示（运行中为 `schedule_create` 的 `after_seconds` + `prompt`，已停止为 `null`）与一句话 `summary`。
+
+只读服务 `metricLoop`（`provide("metricLoop")`）：`list()` 返回活动/历史循环清单（只读子集，`updatedAt` 倒序，单个状态文件损坏则跳过），`status(id)` 查单循环或返回 `null`。
+
+## 配置
+
+| 字段 | 默认 | 说明 |
+| --- | --- | --- |
+| `stateDir` | `~/.dsh/metric-loop` | 状态文件目录；环境变量 `METRIC_LOOP_STATE_DIR` 优先 |
+| `commandTimeoutMs` | `30000` | 测量命令超时 |
+
+状态文件为 `metric-loop-<id>.json`，原子写（tmp + rename），含 schema 版本（不兼容版本拒绝加载并报错）、历史轮次截断（最多 500 条）。
+
+bundle 契约：`name` / `inject: ["tools"]` / `provide: ["metricLoop"]` / `Config` / `apply`。
+
+## 使用示例
+
+```jsonc
+{ "action": "start", "id": "bundle-size", "measureCmd": "du -sk dist | cut -f1", "direction": "min", "window": 3, "maxRounds": 20, "cadenceSec": 900 }
+{ "action": "tick", "id": "bundle-size", "wake": "auto", "tokensUsed": 1200 }  // cadence 未到时 deferred=true
+{ "action": "status", "id": "bundle-size" }
+{ "action": "stop", "id": "bundle-size" }
+```
+
+宿主联调（smoke 幂等引导 profile `metric-loop`，并把 `stateDir` 重定向到临时目录）：
+
+```sh
+npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau 停止
+```
+
+## 边界与限制
+
+- 自动唤醒复用宿主 schedule 面：插件只返回 `schedule_create` 参数，由宿主按提示排下一次唤醒（`after_seconds` 一次性提醒链式续排）；不新建调度器。
+- 轮内做什么改进动作（循环载体）由宿主 workflow / 会话编排，插件不感知。
+- 跨进程语义依赖状态文件：每次 `dsh` 启动或 schedule 唤醒加载状态推进一轮；文件缺失视为循环不存在（`tick`/`stop` 报错，`status` 返回 `exists: false`）。
+- 测量命令经 `/bin/sh -c` 执行，取 stdout 中最后一个数字（容忍 `score: 0.87` 等噪声）；信任契约内命令，不做沙箱隔离。
+- metricless 循环不判 plateau，只按轮数/时间/token 边界或手动停止。
+
+## 测试
 
 ```sh
 npm run check   # 类型检查（tsc --noEmit，strict）
 npm run build   # 编译到 dist/
-npm run test    # 运行 tests/*.test.ts（node --test，31 项）
-npm run smoke   # 宿主联调：profile 引导 + headless 连跑三轮 + 状态文件断言（约 1-3 分钟）
+npm run test    # node --test（35 例：engine / persist / controller，注入时钟与测量）
+npm run smoke   # 宿主联调：profile 引导 + headless 连跑三轮 + 状态文件断言
 ```
 
-## 结构
-
-- `src/types.ts` — 共享类型（LoopSpec/LoopState/RoundRecord/TickResult）
-- `src/engine.ts` — 纯函数核心：isBetter/normalizeSpec/advance（plateau + 边界）/cadence/nextWakeMs/scheduleHint
-- `src/measure.ts` — 测量命令执行（/bin/sh -c，默认 30s 超时）与 stdout 单数字解析
-- `src/persist.ts` — 状态文件原子读写（tmp+rename）、id 归一化、history 截断（500 条）
-- `src/index.ts` — DSH bundle 接入面：`metric_loop` 工具（start/tick/status/stop）、MetricLoopController（含 `list()` 只读清单）、apply 防御降级；控制器只读查询面（list/status）经 cordis `provide` 挂到 ctx（`ctx.get('metricLoop')`）
-- `tests/` — engine/persist/controller 单测（注入时钟与测量，无宿主依赖）
-- `smoke/smoke.mjs` — 宿主联调 smoke（自动化验收门）
-
-## 宿主联调（smoke）
-
-`npm run smoke` 全自动化（约 1-3 分钟，需本机可用 dsh 0.1.5-rc.2 与模型凭据）：
-
-1. 幂等引导独立 profile `metric-loop`（headless 模板；`dsh plugin add` 以 `link:` 挂载本包；
-   用户层 `cordis.patch.yml` 配置 stateDir——`METRIC_LOOP_STATE_DIR` 环境变量可重定向，
-   缺省 `~/.dsh/metric-loop`）；
-1. 缺 `dist/` 自动构建；
-1. 真实 dsh headless 连跑三次，每次恰好推进一轮（常量指标 `echo 42`，window=2）：
-   R1 start（第 1 轮基线，running）→ R2 tick（streak=1，running）→ R3 tick（streak=2 → plateau 停止）；
-1. 每轮后断言状态文件（跨进程持久化）：rounds 递增、终态 `stopped/plateau/rounds=3/best=42`、
-   history 三条（首条 improved，后续无改进）。
-
-profile 属机器级配置（`~/.dsh/profiles/`），不入库；smoke 会幂等重建/刷新其用户层配置。
-
-## 使用（模型侧）
-
-宿主内 `metric_loop` 工具：
-
-- `start`：`{action:"start", id, measureCmd, direction?, window?, maxRounds?, timeBoundMs?, tokenBound?, cadenceSec?}`，
-  新建循环并跑第一轮（显式唤醒）。
-- `tick`：`{action:"tick", id, wake?("auto"|"explicit"), tokensUsed?}`，推进一轮；
-  `wake=auto` 受 cadence 节流（未到期返回 `deferred=true`，不消耗轮次）。
-- `status` / `stop`：只读状态 / 手动停止。
-
-宿主命令侧：控制器只读查询面以 `metricLoop` 服务提供（`provide: ['metricLoop']`），
-`ctx.get('metricLoop').list()` 返回活动/历史循环清单（id/状态/指标/边界/轮数等已有字段的只读子集，updatedAt 倒序），`status(id)` 查单循环。
-
-结果含 `schedule` 提示：运行中按提示的 `schedule_create` 参数（`after_seconds`）排下次自动唤醒；
-已停止为 `null`。循环载体（轮内做什么改进动作）由宿主 workflow/会话编排，本插件不感知。
-
-## 状态
-
-> 状态：核心语义（direction/window plateau、maxRounds/time/tokens 边界、cadence 节流、metricless、
-> 手动停止、跨进程状态持久化、`list()` 清单与 ctx 服务挂载）已实现；35/35 测试通过，`check/build` 退出 0；宿主联调完成
-> （profile `metric-loop` + `npm run smoke` 全链路 PASS，含 headless 连跑一轮循环 + plateau 停止断言）。
+`npm run smoke` 需本机可用 dsh 0.1.5-rc.2 与模型凭据。

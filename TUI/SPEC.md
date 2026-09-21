@@ -1,6 +1,7 @@
 # TUI 渲染管线规格（Spec）
 
-> 类型：**[spec]**——覆盖"渲染管线"从排版到渲染的接口与规则：Part I Box 排版模型（Box 类型/算法/面板/折叠/表格/焦点框），Part II RenderLine→FrameRow 渲染契约（数据契约/主题/不变量/序列化）。可照写、可验证；设计见 `DESIGN.md` Part II，实施见 `TASKS.md`。
+> 类型：**[spec]**——排版与渲染的接口与规则：Box 类型与布局算法（§2-§8）、排版管线（§9）、层间数据契约与主题契约（§11-§12）、不变量（§13）、段级序列化（§14）。可照写、可验证。
+> 配套：`DESIGN.md`（设计与取舍）、`IMPLEMENTATION.md`（实现要点）。章节编号稳定（代码注释按号引用），新章节追加在末尾。
 
 ## 2. Box 模型 [spec]
 
@@ -46,7 +47,7 @@ interface Box extends NodeBase {
   children: (Box | Paragraph)[];    // 子节点（Box 或 Paragraph）
   separator?: Separator;            // v 排布兄弟间分隔线（结构性，随子项增删；首尾不画）
   id?: PaneId;                      // 分区身份（Pane = 带 id 的 Box）：仅可寻址区域挂
-  // 无 border：边框归 FocusFrame（`DESIGN.md` Part II §8）
+  // 无 border：边框归 FocusFrame（`DESIGN.md` §8）
 }
 
 // 2. Paragraph = 叶子节点（内容最小单位）：不能嵌套子 Box
@@ -61,7 +62,7 @@ interface Paragraph extends NodeBase {
 //   spacer({ height }) := Paragraph({ text:"", height })（v 容器占行）——轴显式
 ```
 
-**简写与说明**：示例中 `v([...])` / `h([...])` 是 `Box(direction:"v"/"h")` 的简写，`text(...)` 是 `Paragraph(...)` 简写。`v.separator` 是**唯一**的"边框"机制——只做兄弟项之间横线分隔，**不做盒子四边描边**（现状无此需求）、**不做** `h` 竖分隔（列间 `│` 仍是行端字符）；焦点框线仍归 `FocusFrame` 全局覆写（`DESIGN.md` Part II §8）。
+**简写与说明**：示例中 `v([...])` / `h([...])` 是 `Box(direction:"v"/"h")` 的简写，`text(...)` 是 `Paragraph(...)` 简写。`v.separator` 是**唯一**的"边框"机制——只做兄弟项之间横线分隔，**不做盒子四边描边**（现状无此需求）、**不做** `h` 竖分隔（列间 `│` 仍是行端字符）；焦点框线仍归 `FocusFrame` 全局覆写（`DESIGN.md` §8）。
 
 **`Spacer` 用法**：块级对齐/间距的占位项——横向 `spacer({ width: fill })` 吃剩余推位（用户块右对齐）、`spacer({ width: fixed n })` 留白（回复右缘 `messageGutter`）；纵向 `spacer({ height: fill })` 吃剩余、让内容不足时落在容器底边、`spacer({ height: fixed n })` 为固定空行。**轴必须显式给出**（`width`→h 占列、`height`→v 占行，杜绝 `{mode:"fill"}` 歧义）；允许 `fill` 与 `fixed`（±夹取界）两种形态，`auto`/`ratio` 对空内容无意义、不做（YAGNI）。
 
@@ -110,10 +111,10 @@ type Height =
 | 引用块 | `text(prefix:{│})` | 单层竖线前缀、正文不加斜 |
 | 列表 / 任务列表 | `text(prefix:{"• "}/{"[x] "}, hanging:2)` | 统一 `•`、`[x]` 删除线 |
 | 代码块 | `v([ Paragraph(lang, style:{italic}), Paragraph(code, style:{bg:"code"}, width:fill, fillBg:true) ])` | 标签单独一行（斜体、无底色）；代码体超长行折行、底色补齐到内容区宽 |
-| markdown 表格 | 构建期降级为 `v([ h([cell,cell…]), … ])`（见 §3.2） | `layout/table.ts`（已实现） |
+| markdown 表格 | 构建期降级为 `v([ h([cell,cell…]), … ])`（见 §3.2） | `layout/table.ts` |
 | 每回合分隔线 | `text("╌"×w)` | `TURN_SEPARATOR` |
 
-**结论（已落地）**：原 `wrapBufferLines`（已删除）里那一大坨"按类型分别处理缩进/前缀/对齐"的逻辑，被"内容元素 → Box 子树"的映射（`buildBox`/`buildContentRows`）统一替代；新增内容类型 = 新增一个映射函数，不改布局。
+**结论**：内容元素 → Box 子树的映射（`buildBox` / `buildContentRows`）统一了「按类型分别处理缩进 / 前缀 / 对齐」的逻辑；新增内容类型 = 新增一个映射函数，不改布局。
 
 ### 3.1 消息分块排版
 
@@ -139,9 +140,9 @@ markdown 解析因此分两级：**先切块、再块内做行内解析**。
 | 表格 | 见 §3.2 |
 | 分隔线 | `Paragraph("─"×w)` |
 
-原实现（`wrapBufferLines`，已删除）的块判定是**隐式**的（混在 `inFence` 状态机等处）；Box 模型将其显式化为"块列表 → 子树"。
+Box 模型把块判定显式化为"块列表 → 子树"，不再与 `inFence` 状态机等混在一处隐式判定。
 
-### 3.2 表格：构建期降级（不新增 `table` 构造子）[已实现]
+### 3.2 表格：构建期降级（不新增 `table` 构造子）
 
 **关键约束**：表格列宽是**跨行约束**——同列第 3 行单元格的宽度取决于第 1 行的单元格（位于另一棵子树）。纯 `v/h` 只能表达嵌套，表达不了跨兄弟约束（HTML 为此专门有 `<table>`，CSS 有 grid）。
 
@@ -189,7 +190,7 @@ parseTableAt(lines: readonly string[], start: number): { table: TableSpec; end: 
 tableBox(table: TableSpec, width: number, themeId: ThemeId): Box | null
 ```
 
-- **`minW` 下限**：`max(3, ⌈自然宽/4⌉)`（`TASKS.md` §6 候选值已定）
+- **`minW` 下限**：`max(3, ⌈自然宽/4⌉)`
 - **对齐**：`:---` 左 / `:--:` 中 / `---:` 右；**未显式标注且该列（表体）非空格全为数字 → 右对齐**（数字列自动右对齐）
 - **转义**：`\|` 为单元格内的字面竖线（不切格），由行内解析还原
 - **`|` 的其它语义不变**：表格行之外的普通文本里 `|` 仍是普通字符（不误判为表格）
@@ -204,7 +205,7 @@ tableBox(table: TableSpec, width: number, themeId: ThemeId): Box | null
 
 1. **样式**：段落 `style` 为默认，行内 markdown 解析产生的段样式在其上覆盖（`FrameSegment` 级）。
 
-1. **产出**：段落摊平后是若干 `FrameRow`，每行若干 `FrameSegment`——与 Part II 渲染契约无缝衔接。
+1. **产出**：段落摊平后是若干 `FrameRow`，每行若干 `FrameSegment`——与 §11 渲染契约无缝衔接。
 
 1. **缩进归属（防止两套机制打架）**：**段落内缩进一律走 `indent`/`hanging`/`prefix`**（行级，逐行生效）；`h` + `spacer` 只表达**块间横向位置**（块级，整块一次）——如用户块右对齐 `h([spacer(fill), text])`、右缘留白 `h([text, spacer(fixed gutter)])`。
 
@@ -219,7 +220,7 @@ tableBox(table: TableSpec, width: number, themeId: ThemeId): Box | null
 
    即：**改几何就拆叶子，改样式就用 `FrameSegment`**（段落 `style` 作默认，行内解析结果在其上覆盖）。
 
-   为什么不能强制"一个 box 一种样式"：那会逼出**跨 box 的行内折行**。例：`这是**粗体**文字，后面还有很多字要折行……` 若拆成 `h([Paragraph("这是"), Paragraph("粗体", bold), Paragraph("文字…")])`，由于 **box 边界不是换行点**，超宽时须由 `h` 容器把子 box 逐行流式摆放（兄弟 box 之间也要能断行）——等于重写一套富文本行内布局（HTML/CSS 最重的机器）。现状之所以简单：折行在**单个叶子内部**按纯文本宽度完成，样式在其后贴上（`parseInlineMarkdown` 产段、`wrapSegments` 每行重开样式），样式不进入宽度计算。
+   为什么不能强制"一个 box 一种样式"：那会逼出**跨 box 的行内折行**。例：`这是**粗体**文字，后面还有很多字要折行……` 若拆成 `h([Paragraph("这是"), Paragraph("粗体", bold), Paragraph("文字…")])`，由于 **box 边界不是换行点**，超宽时须由 `h` 容器把子 box 逐行流式摆放（兄弟 box 之间也要能断行）——等于重写一套富文本行内布局（HTML/CSS 最重的机器）。现状之所以简单：折行在**单个叶子内部**按纯文本宽度完成，样式在其后贴上（`parseInlineMarkdown` 产段、`wrapFrameSegments` 每行重开样式），样式不进入宽度计算。
 
    **例外（该走"每 box 统一格式"的地方）**：**不跨 box 折行的单行组合行**——系统状态栏 `plan off on`（仅生效项高亮）、工具行头（工具名黄 + 参数默认）、Mode 块等，用"各自统一格式的 box + `h` 拼接"表达最自然（单行 + 截断，无需 inline flow）。
 
@@ -244,7 +245,7 @@ tableBox(table: TableSpec, width: number, themeId: ThemeId): Box | null
 
 1. **宽轴 = 自顶向下（分割）**：根矩形（终端尺寸）→ 逐层按 `Width` 意图切分宽度。该链与内容无关，纯分割（`metricsFor`/`contentW` 的活）。
 1. **高轴 = 自底向上（生长）**：**必须在宽度确定后才能计算**——段落折行必须知道可用宽（来自父链分配），折行行数即高度（`fill` 的活）。
-1. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` + 语义锚点 `anchorToIndex` 的活）。左列（历史 + 活动区）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane 宽高比距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 DESIGN 活动区段）。历史区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`dialogueWindow`），视口位置由**语义锚点**（`DialogueAnchor{line,row}`，视口顶行 = (buffer 行, 行内换行序号)）解析——两者合计使「重排/新增内容」不再移动锚定内容（见 DESIGN 历史区段）。
+1. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` + 语义锚点 `anchorToIndex` 的活）。左列（历史 + 活动区）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane 宽高比距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 `DESIGN.md`「四区域布局」）。历史区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`dialogueWindow`），视口位置由**语义锚点**（`DialogueAnchor{line,row}`，视口顶行 = (buffer 行, 行内换行序号)）解析——两者合计使「重排/新增内容」不再移动锚定内容（见 `DESIGN.md`「四区域布局」）。
 
 **次序不变量（长宽不可能同时自由）**：宽度分割先于高度测量；高度永远在宽度确定后计算。`measure(node, constraint)` 的 `constraint` 即「宽度来自父链」的入口——measure 并非无约束累加：宽锁（父分配）→ 高自由（内容生长）。至少一个轴被父链锁死，内容才在另一轴自由生长。
 
@@ -315,7 +316,7 @@ allocate(st: SizeTable, rect: Rect) -> Map<Node, Rect>:
     每个子项递归 allocate(child, { x: rect.x, y: 当前游标, w: rect.w, h: 分配高 })
 ```
 
-- 根矩形 = 终端尺寸（cols×rows）；`allocate` 产出的 `Map<Node, Rect>` 供 fill 阶段与 FocusFrame 使用（`DESIGN.md` Part II §8）。
+- 根矩形 = 终端尺寸（cols×rows）；`allocate` 产出的 `Map<Node, Rect>` 供 fill 阶段与 FocusFrame 使用（`DESIGN.md` §8）。
 - 全局流程 = 宽分割（自顶向下）→ 高生长（自底向上，用已分配宽）→ 视口裁剪（自顶向下），**无迭代回环**（见 §6.1）。
 
 ### 6.5 分配优先级：越精确的指定优先级越高
@@ -394,26 +395,22 @@ setCell(row: FrameRow, col: number, ch: string, style?: FrameStyle): void
 折叠决策依赖**可用高度**，因此全部落在 `fill`（拿 rect 之后）执行——内容树本身与尺寸无关，避免“建树要先知高度”的鸡生蛋：
 
 - **状态列分级折叠**（L0–L3）：按 rect 高逐级尝试、首次放下即采用；必保行与可折叠条目及其优先级由现状块结构（`head`/`items`）自然携带，**不发明“可折叠标注”**（现 `foldAt`）
-- **历史区组折叠**：仅保最近 N 回复组，更早替换为灰占位（现 `foldDialogue`）
+- **历史区组折叠**：仅保最近 N 回复组，更早替换为灰占位（`dialogueWindow` 在 buffer 层切片 + 占位行）
 - **活动区两态**：状态 1（`/verbose on`，缺省）每条完全显示、溢出按行截断 + 可滚动；状态 2（`/verbose off`，紧凑）每条目压为 1 行、行尾省略号。**触发方式已定：显式命令切换**（不做按高度预算自动降级；实现见 `IMPLEMENTATION.md`「活动区详略两态」）
 - 滚动 viewport：按矩形高裁行 + 行级滚动偏移（= 现状 `computeViewport` 语义）
 
-**adapt.ts 签名**（落实 design §6 模块归属）：
+**适配落点**（均为 `(内容, rect) → 行` 的纯函数，同输入同输出，支撑 §9 的摊平可复现不变量）：
 
-```ts
-// 状态列分级折叠：L0-L3 逐级尝试、首次放下即用；输入为状态列内容行（已含 head/items 优先信息），输出裁剪后行
-foldAt(rows: StatusRow[], budget: number): StatusRow[]   // L0→L3 尝试；全部放不下 → 行级截断 `…(+N行)` 兜底
-// 历史区组折叠：保最近 N 回复组，更早替换为灰占位 `…(更早回复已折叠)`
-foldDialogue(rows: ConversationRow[], keep: number): ConversationRow[]
-// 活动区两态：状态 1 完整显示 + 截断/滚动；状态 2 每条目压 1 行 + 行尾省略号
-activityCompact(rows: ActivityItem[]): ActivityItem[]
-```
-
-以上适配函数都是 `(内容, rect) → 行` 的纯函数——同输入同输出，支撑 §9 的摊平可复现不变量。
+| 适配 | 现实现 |
+|---|---|
+| 状态列分级折叠（L0-L3 逐级尝试、首次放下即用，兜底行级截断 `…(+N行)`） | `layout.ts` `foldAt(block, level)` + `capRows(rows, budget)` |
+| 历史区组折叠（保最近 N 回复组，更早替换为灰占位 `...(更早回复已折叠)`） | `dialogueWindow(buffer, groups)` 在 buffer 层切片 + 占位行（排版量随窗口收敛） |
+| 活动区两态（完整折行 / 每条目 1 行 + 行尾省略号） | `layout/build-box.ts` `compactActivityLine`（构建期压缩） |
+| 滚动 viewport（按矩形高裁行 + 行级滚动偏移） | `fill` 产出行后由 `buildFrame` 按 pane 高切窗口 |
 
 ## 7. 面板场景原语 [spec]
 
-落实 `DESIGN.md` Part II §7（面板 = Box 生成器）与 design §6 模块 `layout/panel.ts`。面板组件（Approval/Question/Picker 等）重写为 Box 生成器，用下列**便捷构造**组装（非新 `kind`，均返回 `Box`/`Paragraph`）：
+面板 = Box 生成器（`DESIGN.md` §7），组件用下列**便捷构造**组装（非新 `kind`，均返回 `Box`/`Paragraph`，落在 `layout/panel.ts`）：
 
 ```ts
 // 面板结构原语：各返回 Box 子树，由 fill 统一摊平
@@ -423,13 +420,13 @@ panelExplanation(text: string): Box             // 解释/说明段（次要文�
 panelOptions(options: PanelOption[]): Box       // 选项列表（每项一行：选中标记 + 文本 + 样式）
 ```
 
-- 面板组件 = 这些原语的组合函数（design §7），输出整棵 activity 内容树替换（无需 Overlay）。
+- 面板组件 = 这些原语的组合函数，输出整棵 activity 内容树替换（无需 Overlay）。
 - 选项行：高亮标记 + 文本；`PanelOption { label: string; selected: boolean; focused?: boolean }`——渲染字符沿用现状面板（高亮游标 `>`、单选选中 `*`、多选 `+`，见 `IMPLEMENTATION.md`「/model 命令」ModelPicker）。着色沿用现状面板：**选中行绿、未选中的焦点行黄；两者同一行时绿优先**（`selectedStyle` 覆盖 `focusStyle`）。
 - 面板原语跟普通 `Paragraph` 一样可配 `indent`/`style`/`wrap`，无新属性——纯组装糖，不改布局语义。
 
 ## 8. FocusFrame 覆写规格 [spec]
 
-落实 `DESIGN.md` Part II §8：焦点框 = 全局覆写，无 `box.border`。
+焦点框 = 全局覆写，无 `box.border`（机制与理由见 `DESIGN.md` §8）。
 
 ```ts
 FocusFrame(ctx: FrameContext, rects: Map<PaneId, Rect>, rows: FrameRow[]): void
@@ -442,16 +439,23 @@ FocusFrame(ctx: FrameContext, rects: Map<PaneId, Rect>, rows: FrameRow[]): void
 对每一 row, 每一 col:
   判定该网格位置是否为“焦点分区边界”的候选：
     行列落在 rects[focusedPanel] 的 上/下/左/右 四条边的网格上 且
-    该位置属于设计 §8 表格所列的线条组合（history 顶/左、activity 上/左/分隔、status 四边+角、状态区上下 ┴ ┘ 等）
+    该位置属于下表所列的线条/角字组合
   若候选 → 用 setCell(row, col, 期望角字/边线, 亮色 style) 覆写
 ```
 
-- **期望字符表**：`─` 水平边、`│` 垂直边、`┌┐└┘┴┤├` 角/交叉字（按设计 §8 表格的“现状构图 → 覆写”映射逐条给）。
-- **坐标谓词**：一个位置是否“该亮” = `(row,col)` 属于焦点分区边界线网格 **且** 对应设计 §8 的线/角组合。
-- **防双画**：扫描顺序自上而下、自左而右，同一网格只写一次；**优先级 = FocusFrame 亮边 > 正常内容 > 空白占位**——即覆写发生在所有行已由 fill 产出之后，覆盖内容/占位不重复（设计 §8）。
-- **未聚焦（focusedPanel=null）**：不覆写——灰线/占位由正常内容机制（行端竖线 / `v.separator`）保持。
-- **不变式**：覆写**不改行宽**（`setCell` 坐落在已有段上）、不切 CJK、不改变行数与顺序（A5 不变量兼容）。
-- 「状态区上下横线的 `└/┴/┘`」同规则处理（设计 §8）。
+**各焦点面板的亮边组合**：
+
+| 焦点 | 亮边与角字 |
+|---|---|
+| history | 标题栏下划线行（兼作顶边）`┌─┐`；对话区左缘 `│`；活动区分隔行两端 `┘`；D 列分隔竖线仅对话区行 + 下划线行 |
+| activity | 活动区分隔行两端 `┌┐`；活动区左缘 `│`；状态区上行左段 `└┴`；D 列分隔竖线仅分隔行 + 活动区行 |
+| status | 自屏幕最顶行起（D 列起）`┌─┐`；状态列右缘框列 `│`；状态区上行右段 `─┴┘`；D 列分隔竖线全行 |
+| 无焦点 | 不覆写（全灰 / 空白占位，布局不重排） |
+
+- **期望字符**：`─` 水平边、`│` 垂直边、`┌┐└┘┴` 角 / 交叉字。
+- **防双画**：扫描顺序自上而下、自左而右，同一网格只写一次；**优先级 = FocusFrame 亮边 > 正常内容 > 空白占位**——覆写发生在所有行已由 fill 产出之后。
+- **未聚焦（focusedPanel=null）**：不覆写——灰线 / 占位由正常内容机制（行端竖线 / `v.separator`）保持。
+- **不变式**：覆写**不改行宽**（`setCell` 坐落在已有段上）、不切 CJK、不改变行数与顺序。
 
 ## 9. 排版管线 [spec]
 
@@ -467,16 +471,15 @@ state --buildBox--> Box 树 --measure/allocate--> rects --fill(ctx, rect)--> Fra
 
 ______________________________________________________________________
 
-## Part II · RenderLine→FrameRow 渲染契约
+## 渲染契约（排版 ↔ 渲染）
 
 ## 11. 层间数据契约
 
-### 11.1 排版输出（核心新增，取代 `RenderLine`）
+### 11.1 排版输出（`FrameRow` / `FrameSegment` / `FrameStyle` / `ColorName`）
 
 ```ts
 // 语义色名：排版层唯一颜色词汇；渲染层按当前主题解析为实际 hex + SGR。
-// "code" 为新增语义（行内代码/代码块背景：dark 深灰 / light 浅灰），
-// 取代排版层旧 CODE_BG 手拼 hex（已删；值迁入本槽位）。
+// "code" 为行内代码/代码块背景语义（dark 深灰 / light 浅灰），由主题 semantics 解析。
 export type ColorName =
   | "black" | "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "white" | "gray"
   | "border"
@@ -485,10 +488,9 @@ export type ColorName =
   | "code"
   | (string & {}); // 逃生通道：任意名渲染层回退基底色（fail-safe），不用即弃
 
-// 行内一段：纯文本 + 语义样式（原型 = 原 markdown.ts InlineSegment，已并入本类型；字段已对齐）
 // 段级样式描述：语义色名（渲染层按当前主题解析为 hex + SGR）；
-// 排版层唯一样式类型——FrameSegment / Box.NodeBase.style / prefix.style 共用
-// （样式漂移已消除：原 RenderLine.style 由本类型替代，renderer 无独立行级样式）
+// 排版层唯一样式类型——FrameSegment / Box.NodeBase.style / prefix.style 共用；
+// renderer 无独立行级样式
 export interface FrameStyle {
   /** 原则上取 ColorName；"#hex" 逃生保留但新代码禁用（存量待清理） */
   fg?: ColorName | `#${string}`;
@@ -499,7 +501,7 @@ export interface FrameStyle {
   strike?: boolean;
 }
 
-// 行内一段：纯文本 + 段级样式（原型 = 原 markdown.ts InlineSegment，已并入本类型；字段已对齐）
+// 行内一段：纯文本 + 段级样式
 export interface FrameSegment {
   /** 纯文本，绝不含 ANSI/控制序列（不变量 #1） */
   text: string;
@@ -515,7 +517,7 @@ export interface FrameRow {
 }
 ```
 
-### 11.2 渲染层公共 API（改签名一处）
+### 11.2 渲染层公共 API
 
 ```ts
 interface Renderer {
@@ -536,7 +538,7 @@ interface Renderer {
 
 - 输入 = `AppState`（只读）；`buildFrame(state, size): FrameRow[]` 保持**纯函数**：不改 state、无副作用、无 adapter/paint 调用（REFACTOR.md 原则）。
 
-- **排版几何（几何唯一来源，已落地）**：所有尺寸在 `frameGeometry(state, size): FrameGeometry` 内**一次算定**（`metricsFor` → `topPaneSplit` → 排队块行），`buildFrame`/`buildTopRegion`/`buildStatusSeparator` 与 App 的翻页/半屏/跳转全部读这一份——不再各处重算（历史缺陷：帧里看到的 pane 高与滚动用的 pane 高分别计算，口径漂移即「高度不一致」）。
+- **排版几何（唯一来源）**：所有尺寸在 `frameGeometry(state, size): FrameGeometry` 内**一次算定**（`metricsFor` → `topPaneSplit` → 排队块行），`buildFrame`/`buildTopRegion`/`buildStatusSeparator` 与 App 的翻页/半屏/跳转全部读这一份——不再各处重算——两处各算一份会让「帧里看到的 pane 高」与「滚动 / 翻页用的 pane 高」口径漂移（表现为高度不一致）。
 
 ```ts
 // buildFrame 内部：state --buildBox--> Box 树 --measure/allocate--> rects --fill(ctx, rect)--> FrameRow[]
@@ -559,7 +561,7 @@ interface FrameGeometry {
 }
 ```
 
-- 已删除的冗余尺寸入口（同一件事曾有多份计算）：`inputPanelHeights`/`PanelHeights`、`dialogueScrollMetrics`/`DialogueScrollMetrics`、`ACTIVITY_HEIGHT_RATIO`（废弃常量）、`THINKING_MAX`（无引用）；App 侧统一 `frameGeometry(state, size)`。
+- 尺寸入口只此一处：`inputPanelHeights` 等曾各自重算的入口均已并入 `frameGeometry(state, size)`，App 侧不再另算。
 
 ______________________________________________________________________
 
@@ -597,7 +599,7 @@ ______________________________________________________________________
 
 ## 14. segStyle 精确规格（渲染层段级序列化）
 
-**`segStyle` 精确规格**（design §6 渲染层：screen.ts 段级序列化）：
+**`segStyle` 精确规格**（渲染层 `screen.ts` 段级序列化）：
 
 ```ts
 // 把一段 FrameSegment 序列化为 ANSI 文本（含样式前后缀）

@@ -1,79 +1,68 @@
 # @dsh-toolset/output-compress
 
-DSH（DeepSeek Harness）进程内插件：把**超阈值命令/工具输出**的确定性摘要 + 切片索引写入
-knowledge-base 共享 SQLite 库，使原始大输出不进模型上下文、又可按需检索与定位回原始字节。
+DSH（DeepSeek Harness）进程内插件：把超阈值命令/工具输出压成**确定性摘要 + 切片索引**写进 knowledge-base 的共享 SQLite 库——原始大输出不进模型上下文，事后仍可按需检索并定位回原始字节。
 
-## 它做什么
+## 能力
 
-- 订阅宿主 `session/event` 的 `tool/result` 事件；
-- 触发条件（满足其一）：
-  1. **spill 通知**：宿主 spill-policy 已把大输出落盘并在事件文本尾部追加
-     `(Omitted N bytes. Full formatted result stored at: <locator>. ...)` 通知；
-  1. **阈值**：事件文本的 UTF-8 字节数 ≥ `minBytes`（默认 16384，即 16KB）；
-- 取回完整输出（spill 文件，`maxSourceBytes` 上限，默认 512KB）；
-- 在宿主 `ctx.codeRuntime` 沙箱里运行**单一确定性派生程序**（非 LLM 抽取；该服务经
-  `ctx.reflect.get('codeRuntime', false)` 可选读取，未挂载时回落 `node:vm` 执行同一程序源），产出：
-  行/字节统计、markdown section 标题（≤40）、错误类关键行（≤20）、固定 16 片切片索引
-  （行号/字符区间 + 首行预览 + FNV-1a 指纹）；
-- 把摘要渲染为小体积 Markdown 记录，经**共享库写入器**写进 knowledge-base 的
-  **同一个** SQLite 文件（`category='output-compress'`），复用其 FTS5 触发器自动建索引。
+订阅宿主 `session/event`（`tool/call` 记 `callId → toolName`，`tool/result` 走摘要管线），满足任一条件即触发：
 
-## 挂载声明文件
+1. **spill 通知**：宿主 spill-policy 已把大输出落盘，事件文本末尾带
+   `(Omitted N bytes. Full formatted result stored at: <locator>. ...)`——解析到非空 locator 即触发（权威信号）；
+1. **阈值**：无通知时，事件文本 UTF-8 字节数 ≥ `minBytes`（read 工具被宿主豁免 spill，靠此项兜底）。
 
-`cordis.patch.yml` 是 cordis bundle patch（`insert` 语义），不是 RFC6902 JSON Patch。
-该文件刻意不含注释：仓库统一的 `format` 对 YAML 走 `yq -y -i .`（python yq，无法保留注释），
-保留注释会让格式化永不收敛（每次 format 都产生工作树改动）。
+取回完整输出（读 spill 文件前 `maxSourceBytes` 字节，超出标 `truncated`）后，在沙箱里跑**一段自包含的确定性派生程序**（非 LLM 抽取），产出：
 
-正因为它是 bundle patch 方言而非 JSON Patch，pi-lens 的 `yaml-schema: JSONPatch` 会对其误报
-（缺 op/path/value、insert 不允许）。本目录的 `.pi-lens.json` 用 `ignore` 把该文件排除出
-检查输出（仅在 `output-compress/` 作用域生效），避免假阳性阻断；文件作用与挂载方式见
-`package.json` 的 `dsh.bundle.patch` 与本文件上文说明。
+- `stats`：bytes / chars / lines / maxLineLen / avgLineLen；
+- `headings`：markdown `#`–`######` 标题（行号 + 级别，≤40 条）；
+- `keyLines`：错误类关键词命中行（error/fail/fatal/panic/exception/timeout…，≤20 条，跳过 >400 字符的长行）；
+- `slices`：行区间 + 字符区间 + 80 字符预览 + FNV-1a-32 指纹；
+- `textFnv`：全文指纹。
 
-**边界**：原始字节由宿主 retention/spill 负责保留，本插件不存原文全文、不让原文进模型上下文；
-本插件与 knowledge-base 之间无 npm 依赖，只通过共享库文件这一宿主共享面通信。
-
-## 命令
-
-```sh
-npm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
-npm run test    # node --test 单元测试（阈值触发/摘要确定性/切片结构/共享库写入）
-npm run build   # tsc 编译到 dist/
-npm run smoke   # 真实 dsh headless 会话冒烟（需 dsh CLI + 模型凭据）
-```
+摘要渲染为小体积 Markdown（含 session/seq/tool/source/stats 头与 sections / key lines / slices 三段），经共享库写入器写进 knowledge-base 的**同一个** SQLite 文件（`category`、`target` 均为 `output-compress`，`source.kind = tool_result`，importance 按 isError 取 4 / 2），FTS 索引由 knowledge-base 的库内触发器自动建立。
 
 ## 配置
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
 | `dbPath` | `OUTPUT_COMPRESS_DB_PATH` → `KNOWLEDGE_DB_PATH` → `~/.dsh/knowledge-base/knowledge.db` | 共享库路径，必须与 knowledge-base 一致 |
-| `project` | `'default'` | 摘要记录的 project 过滤维度 |
-| `minBytes` | `16384` | 无通知时触发摘要的最小文本 UTF-8 字节数 |
-| `maxSourceBytes` | `524288` | 读取 spill 文件的字节上限（超出截断并标注 `truncated`） |
+| `minBytes` | `16384` | 无 spill 通知时触发摘要的最小文本 UTF-8 字节数 |
+| `maxSourceBytes` | `524288` | 读取 spill 文件的字节上限 |
+| `kbRetryDelays` | `[1000, 2500, 5000, 10000]` | 库未挂载时的重试退避序列（ms） |
+| `project` | `"default"` | 摘要记录的 project 维度（字符串或按调用上下文求值函数） |
 
-写前校验库指纹（`PRAGMA application_id = 'KNOW'`、`user_version = 1`）与 `sources`/`chunks`
-表存在，不符则拒写（`KbNotMountedError`，事件管线降级为 skipped，不向宿主抛错）。
+写前校验库指纹（`application_id = 0x4b4e4f57`（`'KNOW'`）、`user_version = 1`）与 `sources`/`chunks` 表存在，不符即拒写（`KbNotMountedError`），事件管线降级为 `skipped`，不向宿主抛错。
 
-## 独立 profile
+## 使用示例
 
-`~/.dsh/profiles/dsh-output-compress`：`link:` 依赖指向本仓库 worktree 的
-`output-compress/` 与 `knowledge-base/`，两个 bundle 共享同一 `dbPath` 表达式：
+profile 挂载（`~/.dsh/profiles/<p>`）：以 `link:` 依赖同时指向本包与 knowledge-base，两者共享同一 `dbPath` 表达式，然后 `dsh --profile <p>` 启动。
 
-```
-dsh --profile dsh-output-compress
-```
+检索摘要记录（走 knowledge-base 的检索面，按 category 过滤）：
 
-## 结构
-
-```
-src/
-  index.ts            # bundle 入口（name/apply/createOutputCompressBundle）
-  trigger.ts          # spill 通知解析 + 阈值触发判定
-  summary-program.ts  # 单一派生程序源（SUMMARY_PROGRAM）+ SummaryJson 类型/校验
-  sandbox.ts          # CodeRuntimeSandbox（宿主）/ VmSandbox（node:vm 回落）
-  kb-write.ts         # 共享库写入器（指纹校验/去重/chunk 切分）
-  hooks.ts            # session/event 适配 + 摘要记录渲染 + 管线编排
-tests/                # node --test 单测（含真实临时 SQLite 库）
-smoke/smoke.mjs       # 真实 dsh 会话冒烟
+```ts
+bundle.kb.search({ query: "ENOENT", category: "output-compress", project: "default" });
 ```
 
-设计决策见 `DESIGN.md`；宿主契约研读笔记见仓库根 `DSH-CTX-API.md`。
+命中结果里带 `L<行号>` 区间与 `C<字符区间>`，用 `read offset/limit` 即可定位回 spill 文件中的原始片段。
+
+## 边界与限制
+
+- **不存原文全文**：原始字节由宿主 retention / spill 负责保留；本插件只写入可检索的摘要与切片索引，不让原文进模型上下文。
+- **不与 knowledge-base 建立 npm 依赖**：跨 bundle 只通过共享库文件这一宿主共享面通信，因此**不建表、不写 FTS 表**——`chunks` 的索引同步完全依赖 knowledge-base 的库内触发器。
+- `slices` 片数是**上限 16**：每片行数取 `max(1, ceil(总行数/16))`，行数少时实际片数更少。
+- 触发依赖宿主文案：严格正则锚定 spill 通知字面量，宽松正则兜底宿主文案演进；空 locator 的通知回落阈值判定。
+- 失败一律降级：管线内任何抛错都收敛为 `skipped` + 日志；spill 文件暂不可读时降级为「用事件内文本入库」（并在 10s 冷却窗口内不再尝试读该文件），库未挂载时按 `kbRetryDelays` 主动重试（最多 4 次，绕过去重）后放弃。
+- 去重表（已处理事件、`callId → toolName`）有容量上限，超出后按插入顺序淘汰最旧项。
+- 本包 `cordis.patch.yml` 用 dsh 的 `insert` 方言（非 RFC6902 JSON Patch），故刻意不写注释——仓库统一的 `format` 对 YAML 走 python `yq -y -i .`，会丢注释、导致格式化永不收敛；同目录 `.pi-lens.json` 把该文件排除出 `yaml-schema: JSONPatch` 误报。
+
+## 测试
+
+```sh
+npm run check   # tsc -p tsconfig.json --noEmit
+npm run build   # tsc -p tsconfig.json → dist/
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'
+npm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话，需 dsh CLI 与模型凭据）
+```
+
+42 例单测（trigger 9 + summary 9 + kb-write 9 + hooks 15），含真实临时 SQLite 库的写入与去重用例。
+
+设计决策见 `DESIGN.md`。

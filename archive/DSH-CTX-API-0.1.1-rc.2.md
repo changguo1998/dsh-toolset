@@ -1,5 +1,7 @@
 # DSH 核心 ctx API — 研读笔记（跨插件共享参考）
 
+> **已归档**：0.1.1-rc.2 期的契约研读笔记（历史版本）。当前契约以仓库根 `DSH-CTX-API.md` 为准。
+
 > 来源：官方 `deepseek-harness` clone（`~/GithubRepos/deepseek-harness`，git pull 至 `b150a551b8` = `dsh-0.1.1-rc.2`）。
 > 用途：供 dsh-toolset 各插件（TUI、web、CLI、扩展……）在与 DSH 宿主集成时对齐契约；本文件是阶段 0（ctx API spike）研读的沉淀，属只读研究结论，非实现。
 > 状态：2026-08-23 首次沉淀。源码若演进，以仓库为准（版本号标注于每次更新）。

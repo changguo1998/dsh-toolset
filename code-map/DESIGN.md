@@ -1,133 +1,63 @@
-# code-map 设计与实现
-
-> 实现范围：`docs/DEVELOPMENT-BACKLOG.md` #21（项目/模块报告、影响面）与 #22（代码索引与调用图 callers/graph）。
-> 设计对照：`docs/AGENT-ARCHITECTURE-ANALOGY.md` §1 功能域⑤「代码与文件」；基线差距见 `docs/PI-DSH-FEATURE-COMPARISON.md` §3.2/§3.4（dsh 0.1.5-rc.2 无代码索引，lsp 约等于按需符号查询）。
-> 调研依据：线上 5 流派做法与三决策维度，见 `docs/CODEMAP-RESEARCH.md`（随本设计同期起草）。
-> 命名决策（2026-09-21）：由计划名 `code-intel` 更名 `code-map`——intel 语义泛（情报/智力，撞厂商名），map 贴合「项目结构地图（概览 + 符号/调用连线）」的心智模型；插件规划按能力域聚合（backlog 插件规划节「命名按功能自定」）。
-> 消费方决策（2026-09-21）：**首版以模型（`ctx_code_map` 工具）与其他插件（TS API）为主**；TUI 只读桥（`/map` `/callers`）后置，不进首版范围。
-> 语言：本文档中文；代码英文标识符。
+# code-map 设计
 
 ## 1. 定位
 
-DSH 进程内集成的**代码结构地图**插件（结构索引 + 查询 → 报告），覆盖 backlog #21 与 #22：
+DSH 进程内集成的**代码结构地图**：把「项目里有什么、谁引用了谁、改动会波及什么」变成模型与插件可直接消费的紧凑结构化数据。消费面见 `README.md`（`code_map` 工具 + `codeMap` 服务 + TS 导出）。
 
-- **结构索引**（#22 底座）：全项目符号定义表 + 文件间 import 关系 + 引用/调用边，构成可查询的内存图；
-- **调用图**（#22）：`callers` / `callees` / `cycles`（强连通分量）查询；
-- **项目/模块报告**（#21）：结构总览、模块依赖、影响面（反向引用聚合到目录）。
+## 2. 架构取舍
 
-**轻量混合架构**：两层合流，不引入 SCIP/Kythe 级全量语义索引——
+**语法层为主，语义层按需，不建全量语义索引**：
 
 | 层 | 载体 | 覆盖面 | 特性 |
-|----|------|--------|------|
-| 结构层（recall） | ast-grep（复用 `ast-tools` outline/search） | 全量、快、容忍语法错误 | 不启动语言服务器、不要求项目可编译 |
-| 语义层（precision） | tool-lsp（宿主）findReferences/goToDefinition | 按需、准 | 仅对用户实际查询的符号花语义成本 |
+| --- | --- | --- | --- |
+| 结构层（recall） | ast-grep（复用 `ast-tools` 的 `outline`/`search`） | 全量、快、容忍语法错误 | 不启动语言服务器、不要求项目可编译 |
+| 语义层（precision） | 宿主 tool-lsp | 按需、准 | 仅对实际查询的符号付语义成本 |
 
-复用底座：`ast-tools`（ast-grep outline 已含顶层符号/成员/范围/签名/astKind/import-export 标记）、宿主 `tool-lsp`、`tool-fs`/`tool-fs-search`（ripgrep 兜底）。
+理由：全量语义索引（SCIP/Kythe/LSIF 级）构建成本与维护复杂度远超本插件需求；而「同名标识符候选 + 图上结构聚合」已足以支撑影响面初筛与结构总览。**当前实现只含结构层**，语义层的符号级 `callees`/`resolve`/`precise` 提升留作增量（选型调研记录见 `archive/CODEMAP-RESEARCH.md`）。
 
-## 2. 设计依据（调研摘要）
-
-线上同类项目归 5 流派（详见 `docs/CODEMAP-RESEARCH.md`）：
-
-| 流派 | 代表 | 做法 | 对本插件的取舍 |
-|------|------|------|----------------|
-| A. 给 LLM 的仓库地图 | [Aider repo map](https://aider.chat/2023/10/22/repomap.html)、[RepoMapper](https://github.com/pdavis68/RepoMapper) | tree-sitter 符号 + 引用图 PageRank + token 预算二分拟合 | #21 报告与模型的符号上下文可借鉴「排序 + 拟合」 |
-| B. 纯 LSP 不建索引 | [Serena](https://github.com/oraios/serena)（GitHub gh-aw 已用） | LSP server 按需符号导航，始终新鲜、零索引 | 语义层按需确认范式（成本最低） |
-| C. 工业级全量索引 | [Sourcegraph SCIP](https://sourcegraph.com/docs/admin/how-to/lsif-scip-migration.md)、[OpenGrok](http://demo.opengrok.org/)、[Kythe](https://kythe.io/docs/kythe-compilation-database.html) | 离线构建跨语言索引（LSIF/SCIP/Lucene/facts-edges） | 对本插件过重，**明确不做** |
-| D. 调用图/依赖图专用 | [blarify](https://pypi.org/project/blarify/)、[graphscout](https://pypi.org/project/graphscout/)、[code2flow](https://github.com/scottrogowski/code2flow)、[dependency-cruiser](https://www.npmjs.com/package/dependency-cruiser-json-viewer) | LSP 或静态分析出调用图/依赖图 + 报告 | #22 结构与报告聚合形态参考 |
-| E. 语义级精确分析 | GitHub [CodeQL](https://codeql.github.com/) | 编译语义（数据流/调用图）上跑 QL | 精度最高、构建最重，**首版不做** |
-
-三决策维度（数据源 / 索引策略 / 排序拟合）取舍结论：
-数据源 = **ast-grep（语法层）为主 + LSP 按需补语义**；索引策略 = **会话内懒构建 + mtime 增量，不做持久守护**；排序 = **引用计数 + 可选 PageRank 拟合 token 预算**（Aider 范式，先简单引用计数起步）。
-
-## 3. 数据模型（内存图）
+## 3. 数据模型（进程内内存图，`src/types.ts` + `src/graph/graph.ts`）
 
 ```
-Node:  File(path, lang) │ Symbol(id, name, kind, file, range, signature, astKind, lang, exported)
-       │ Module(目录聚合，按需虚节点)
-Edge:  DEF(file→symbol  contain) · IMPORTS(file→file)
-       · REFS(usage→symbol，候选|precise) · CALLS(symbol→symbol，候选|precise)
+CodeGraph
+  fileNodes : Map<path, CodeMapFile{ path, language, symbols[] }>
+  imp       : Map<from, Set<to>>   直接 import（仅仓库内、已解析的边）
+  impBy     : Map<to,   Set<from>> 反向索引（支撑影响面查询）
 ```
 
-- 结构层产出的引用/调用边初始为**候选态**（`precise:false`）：同名 + 作用域提示的语法级近似；
-- 语义层（tool-lsp）确认后**提升为 `precise:true`** 并缓存——只对用户查过的符号付语义成本；
-- 生命周期：进程内内存图；可选 JSON 快照（仿 task-engine 周期快照）免重启重扫。
+- `CodeMapSymbol.id = <file>::<startLine>:<name>`：跨文件/同名/同起始行可区分；`kind` 取 ast-grep `astKind`，`startLine`/`endLine` 为 0-based，`exported` 取 `isExported`。
+- **不存引用/调用边**：图只有文件节点与 `IMPORTS` 边。候选引用按查询惰性物化（`src/indexer/refs.ts`），故图规模与仓库文件数线性相关，不随同名标识符出现次数膨胀。
+- 模块不是节点：模块 = 报告阶段对文件路径的聚合视图（相对 `root` 的首段目录，`root` 下直接文件归 `.`）。
 
-## 4. 结构层管线（`src/indexer/`，recall）
+## 4. 结构层管线（`src/indexer/scan.ts`）
 
-1. `scan`：glob 源文件（语言白名单按 `ast-tools/src/langs.ts` 归一，尊重 `.gitignore`）→ 逐文件 `ast-tools outlineFile`（含 imports）→ 写 DEF 边 + Symbol 节点 + IMPORTS 边；
-1. `refs`：对需要查询的符号按「同名标识符」做候选引用/调用边（首版先只对查询目标物化，不做全量按名扫——省一次全仓遍历）；
-1. 成本：本仓库量级全量扫描秒级；增量按文件 **mtime 懒失效**（查询时发现过期才重扫单文件），不做文件监听守护。
+1. **收集**：递归目录，按 `SOURCE_EXT` 扩展名白名单（ts/mts/cts/tsx/js/mjs/cjs/jsx/py/rs/go/java/rb/cs/kt/php/swift/c/h/cc/cpp/hpp）取文件，跳过固定噪音目录集合（`node_modules`/`.git`/`dist`/`tmp`/`archive`/`.ruff_cache`/`.pi-glla`/`coverage`/`.dsh`/`.vscode`）；不解析 `.gitignore`——代价是被忽略规则覆盖、却不在该集合内的目录仍会被扫描。
+1. **符号表**：逐文件 `ast.outline({ path, items: "all" })`，展开顶层符号与成员（成员保留简单名，层级由 `kind` 表达），跳过 `isImport` 项；单文件抛错（语法错误/语言不支持）静默跳过，保证整仓扫描不中断。
+1. **import 边**：从 outline 的 `isImport` 项取说明符，`resolveImport` 仅解析相对/绝对路径（补扩展名、目录 `index` 兜底），并要求结果落在 `root` 内；裸模块与 `node:` 内置记 `to=null`（计入 `unresolved`，不入图）。
+1. **成本**：全量扫描在本仓库量级为秒级；每次 `refresh` 都是全量重扫，无 mtime 增量与文件监听。
 
-## 5. 语义层（`src/lsp/`，precision）——**首版不做，增量后置**
+## 5. 查询算法（`src/graph/query.ts` + `src/indexer/refs.ts`）
 
-`resolver`：结构层定位符号 → 批量调宿主 `tool-lsp` `findReferences`/`goToDefinition` → 精确引用集写回 REFS/CALLS（precise）并缓存。
+- `callers(symbol)`：`ast.search({ pattern: symbol.name, strictness: "smart" })` 全仓搜索同名标识符 → 过滤掉与该符号定义区间重叠的出现（定义本身不算引用）→ 按文件去重排序。**候选语义**：无类型解析，同名即候选。
+- `callees(symbol)`：返回该符号所在文件的直接 import 目标（文件级），不做符号级解析。
+- `impact(file)`：从目标文件出发沿 `impBy` 做 BFS 反向传递闭包（不含自身），再按 `moduleOf` 聚合出去重排序的模块列表。
+- `cycles()`：文件 import 图上的 Tarjan SCC——**迭代实现**（显式帧栈）以避免大仓递归爆栈；只返回 `size>=2` 的强连通分量，故自环不算环。
+- 符号定位 `resolveSymbol(name, file?)`：在文件表上线性查找首个同名符号，`file` 可限定文件；找不到时返回空结果而非报错。
 
-**首版范围**只走结构层候选边（recall），不接 tool-lsp（零宿主语义依赖、纯可测）；LSP 精确提升（`resolve`/`precise:true`）作为下一步增量并入查询面。
+## 6. 报告聚合（`src/report/builder.ts`）
 
-两条查询路径按需求选策略：
+在图上做一轮聚合，产出 `CodeMapReport`：文件/符号/import 计数、`unresolvedImportCount`、`languageCounts`、`kindCounts`（ast-grep `astKind` 归一为 class/interface/enum/function/variable/type/import/other 粗类）、模块统计与模块依赖边（文件 import 上卷到模块，去重、去自环）、文件级依赖环、`unimportedExportFiles`（有导出符号但无任何文件 import 它）。
 
-| 路径 | 成本 | 用途 |
-|------|------|------|
-| 快速（默认） | 仅结构索引 | 报告、影响面初筛、候选列表 |
-| 精确 | 结构候选 → LSP 确认 | `callers` 最终答案、消歧、改动影响核验 |
+形态参考 dependency-cruiser 的聚合报告：只给模块级环比与清单，不渲染大图——模型消费的是可 grep/可计数的结构化数据。
 
-## 6. 查询面（消费方 = 模型 + 其他插件）
+## 7. DSH 接入面（`src/index.ts`）
 
-> **命名澄清**（2026-09-21）：`ctx_code_map` 只是本文档概念名（承袭 `ctx_knowledge` 的写法）。按仓库统一命名约定，真实挂载 = **`provide('codeMap')` 服务 + 宿主命令/插件经 `ctx.get('codeMap')` 访问**（对齐 `taskEngine`/`metricLoop`/`knowledge` 模式）；bundle `code-map`、包 `@dsh-toolset/code-map`。
+按 bundle 契约 `export { name, inject, provide, apply }`：`name = "code-map"`，`inject = ["tools"]`（缺失仅告警），`provide = ["codeMap"]`。`apply` 内建 bundle 并由模块级持有（`getCodeMapBundle()` / `getCodeMapSummary()`），`tools.register` 与 `provide` 缺失时降级告警，不使加载失败。`cordis.patch.yml` 声明 bundle 插入。
 
-model 侧经 `code_map` 工具（`inject: ["tools"]`，防御注册；action 见下）；其他插件经 TS 导出面 import。查询操作：
+**降级链**：`createCodeMapBundle` 构造时尝试 `createAstToolsBundle()`，失败则返回 `degradedBundle`——所有操作返回空/`ready:false` 结果，绝不抛出，宿主侧表现为「插件在但地图为空」。
 
-- `index(opts)` / `refresh(opts)`：全量/增量刷新结构索引；
-- `callers(symbol, {depth?})`：调用者列表/子图（#22，首版走候选边）；
-- `callees(symbol, {depth?})`：被调用者；
-- `impact(fileOrSymbol)`：影响面 = 反向引用闭包，聚合到模块（#21 核心）；
-- `cycles()`：依赖环（强连通分量）；
-- `report({scope?})`：项目/模块报告（见 §7）；
-- `resolve(symbol)`：语义层精确确认——**后置（依赖 §5 语义层）**，首版不提供。
+## 8. 约束与已知边界
 
-输出形态要求：**token 感知的紧凑结构化数据**（模型直接消费）；TS 导出等价 API 供其他插件（如 code-review 模板 #32、task-engine 语义面）import。
-
-## 7. 报告（`src/report/`，#21）
-
-`report()` 聚合输出：文件/符号计数、导入拓扑、模块依赖、影响面清单、孤立符号、依赖环、未被引用的导出等。形态参考 dependency-cruiser 的聚合报告（模块级环比、影响面按目录聚合），不渲染大图。
-
-## 8. 模块划分与文件
-
-```
-code-map/
-  cordis.patch.yml            # insert: {id: code-map, name: '@dsh-toolset/code-map'}
-  package.json                # dsh.bundle.patch（仿 ast-tools）；dependencies: @dsh-toolset/ast-tools (link)
-  tsconfig.json
-  src/
-    index.ts                  # bundle 装配：code_map 工具注册 + provide('codeMap') + TS 导出面
-    types.ts                  # Symbol/Edge/Graph/Report 类型
-    indexer/{scan,imports,refs}.ts   # 结构层（复用 ast-tools outlineFile/search）
-    graph/{graph,query}.ts          # 内存图 + callers/callees/impact/cycles
-    report/builder.ts               # #21 报告生成
-    lsp/resolver.ts                # （增量，首版不建）
-  tests/                      # indexer/graph/report
-  README.md  DESIGN.md  IMPLEMENTATION.md
-```
-
-**依赖决策**（2026-09-21）：npm `link:` 依赖 `@dsh-toolset/ast-tools`（直接 import `outlineFile`/`search`，不重复封装 ast-grep CLI）；宿主 profile 已装 ast-tools，code-map 挂载即可用。
-
-## 9. DSH 接入面（`src/index.ts`）
-
-按 bundle 契约 `export { name, inject, provide, apply }`：`name = "code-map"`，`inject = ["tools"]`（注册 `code_map` 工具，防御降级：tools 缺失仅告警），`provide = ["codeMap"]`（只读查询面，宿主命令/插件经 `ctx.get('codeMap')` 访问）；`createCodeMapBundle` 工厂（索引初始化 → 挂图 → 暴露服务，dispose）；模块级持有 + `getCodeMapBundle()` 同步访问 / `whenCodeMapReady()` 等就绪避免竞态；`cordis.patch.yml` 声明 bundle 插入。
-
-## 10. 明确不做（防膨胀）
-
-- SCIP/Kythe/LSIF 全量语义索引格式（流派 C）；
-- 文件系统监听守护（增量走 mtime 懒失效）；
-- 跨文件重命名（需语义级 rename 支持，超出 #21-#22）；
-- 远程仓库 clone 前索引（属 web-ext #25）；
-- 动态语言/宏元编程的精确调用图（语法层近似，文档声明）；
-- **首版不含**：LSP 语义层（`src/lsp`、`resolve`、precise 提升）——增量后置；
-- TUI 只读桥（`/map` `/callers`）——消费方决策后置，不进首版。
-
-## 11. 约束与已知边界
-
-- 候选边同名误连 → 精确路径经 LSP 消歧（候选/精确双态是设计的一部分）；
-- 语法错误文件结构层仍可出符号，语义层跳过（容错有上限）；
-- 内存图随会话生命周期；快照可选、进程退出即丢（未做持久队列前不承诺跨进程一致性）；
-- 首版排序用引用计数起步，PageRank/token 拟合（Aider 范式）作为后续增量（#21 报告质量增强）。
+- 候选边同名误连：精确路径需 LSP 消歧（未实现）；语法错误文件结构层仍可出符号，语义层会跳过。
+- 内存图随进程生命周期：无快照、无跨进程一致性承诺；`report`/`summary` 在首次 `index` 前返回 `undefined`（工具面带 `error`/`ready:false`）。
+- `refresh` 为全量重建：大仓重复调用成本线性。
+- 明确不做：SCIP/Kythe/LSIF 全量语义索引格式；文件系统监听守护；跨文件重命名；远程仓库 clone 前索引；LSP 语义层（`resolve`/`precise` 提升）；TUI 只读桥（`/map`、`/callers`）。
