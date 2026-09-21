@@ -6,8 +6,10 @@
  * 2. 无替代（白名单外的 emoji/特殊符号）时，记录待提醒集合（turn-end 后
  *    notice 给人 + followup 提醒模型，见 App 接入）。
  *
- * 判定顺序（每码点）：零宽跳过 → 别名映射替换 → 治理区(符号/emoji 区)内查
- * 推荐白名单（命中放行 / 未命中记提醒）→ 文字与常用标点放行 → 其余默认放行。
+ * 判定顺序（每码点）：零宽跳过 → 正文内容性排版字符放行（表格框线/分隔线/
+ * 方块元素/数学括号/键盘按键——信息载体而非治理对象，见 TEXTUAL_RANGES）→
+ * 别名映射替换 → 治理区(符号/emoji 区)内查推荐白名单（命中放行 / 未命中记
+ * 提醒）→ 文字与常用标点放行 → 其余默认放行。
  * 集合均可用 tui.config.json `symbols` 段扩展（见 config.ts）。
  */
 
@@ -20,6 +22,38 @@ const GOVERNED_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0x1f000, 0x1faff], // emoji 全集（区域指示符/表情/交通/补充象形/扩展-A）
   [0xffe0, 0xffe6], // 全角符号（￥｜ 等）
 ] as const;
+
+/**
+ * 治理域内的「正文内容性排版」区段：这些字符在模型输出里通常是信息载体
+ * （贴表格/分隔线/进度条/数学表达式/快捷键说明），不是需要统一风格的
+ * 装饰/状态/几何符号——一律原样放行：不别名替换、不进推荐判定、不记提醒。
+ * 判定置于别名替换之前，故即使别名表误含此类字符也不会生效（× ⌫ 已清理）。
+ */
+const TEXTUAL_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x2500, 0x259f], // 框线绘制（─│┌┐└┘…）+ 方块元素（▀▄█▌▐…，文本图形/进度条）
+  [0x2308, 0x230b], // 数学上/下取整括号（⌈⌉⌊⌋，math 排版）
+] as const;
+
+/**
+ * 治理域内的单点排除：键盘修饰/按键符号（技术文档快捷键说明中的信息载体）。
+ * ⇧⇪ 在箭头区；⌃⌘⌥⌦⌧⌨⌫ 在杂项技术符号区。
+ */
+const TEXTUAL_POINTS = new Set<number>([
+  0x2303, // ⌃ CONTROL（上箭头标记）
+  0x2318, // ⌘ PLACE OF INTEREST SIGN（Command 键）
+  0x2325, // ⌥ OPTION KEY
+  0x2326, // ⌦ ERASE TO THE RIGHT
+  0x2327, // ⌧ X IN A RECTANGLE BOX（清除）
+  0x2328, // ⌨ KEYBOARD
+  0x232b, // ⌫ ERASE TO THE LEFT（Backspace；原别名删除已移除）
+  0x21e7, // ⇧ UPWARDS WHITE ARROW（Shift）
+  0x21ea, // ⇪ UPWARDS WHITE ARROW FROM BAR（Caps Lock）
+]);
+
+/** 治理域内正文内容性字符判定（TEXTUAL_RANGES 区间 + TEXTUAL_POINTS 单点）。 */
+function isTextualContent(cp: number): boolean {
+  return inRanges(cp, TEXTUAL_RANGES) || TEXTUAL_POINTS.has(cp);
+}
 
 function inRanges(
   cp: number,
@@ -83,7 +117,6 @@ export const DEFAULT_ALIASES: Readonly<Record<string, string>> = {
   "✖": "✗",
   "✘": "✗",
   "❌": "✗",
-  "×": "✗",
   "🗙": "✗",
   "☒": "✗", // 方框叉（U+2612）特例：并入未加框的叉（2026-11）
   "🗷": "✗", // 方框叉（U+1F5F7，追加符号区 emoji）特例：并入未加框的叉（同 ☒，2026-11）
@@ -193,7 +226,6 @@ export const DEFAULT_ALIASES: Readonly<Record<string, string>> = {
   "◅": "◁",
   "▵": "△",
   "▿": "▽",
-  "⌫": "",
 };
 /**
  * 已按「只看几何」拆分的别名（几何独立、不再归一 → 各自独立）：
@@ -212,8 +244,10 @@ export const DEFAULT_ALIASES: Readonly<Record<string, string>> = {
  *   菱形族 🔶🔸🔷🔹⬥⬧→◆、⬦⬨（文本空心）→◇；三角族 🔺🔼→▲、🔻🔽→▼；
  *   空心三角族（文本几何 ▷◁△▽）四向代表入白名单、族内变体归一到代表（2026-11）。
  * 星标域（含 emoji ⭐）：无推荐代表，一律按警告处理、不归一。
- * 保留归一：×（乘号交叉线视为叉几何）、⏩⏫⏬（双三角=数量/速度修饰，⏫⏬ 归 ▲▼）、
+ * 保留归一：⏩⏫⏬（双三角=数量/速度修饰，⏫⏬ 归 ▲▼）、
  *           ⚠（警告三角 → 三角几何 △，空心↔空心同族）。
+ * 不再归一：×（U+00D7 数学乘号，治理区外、数学/计量场景误伤——已从别名移除）、
+ *           ⌫（U+232B 退格键，键盘按键属正文内容性字符，见 TEXTUAL_POINTS）。
  */
 
 /** 用户可配置项（tui.config.json `symbols`）。 */
@@ -386,6 +420,12 @@ export function normalizeSymbols(
       continue;
     }
     if (isZeroWidth(cp)) {
+      out += ch;
+      continue;
+    }
+    // 正文内容性排版字符（框线/方块元素/数学括号/键盘按键等）：信息载体，
+    // 不参与任何治理——置于别名替换之前，别名表即使误含此类也不会命中
+    if (isTextualContent(cp)) {
       out += ch;
       continue;
     }

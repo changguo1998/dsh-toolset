@@ -123,9 +123,9 @@ test("按几何拆分的符号：不再归一 → 各自独立（使用即提醒
     [],
     "√ 治理区外、◦✓ 白名单放行、☑☒ 特例归一，均不提醒",
   );
-  // 保留归一项不受影响
+  // 保留归一项不受影响；×（数学乘号）已移除别名（治理区外、正文内容性放行）
   assert.equal(rules.aliases["✅"], "✓", "✅ → ✓（方框勾 emoji）");
-  assert.equal(rules.aliases["×"], "✗", "× 保留归一");
+  assert.equal(rules.aliases["×"], undefined, "× 数学乘号不再归一");
   assert.equal(rules.aliases["⚠"], "△", "⚠ 保留归一");
   assert.equal(rules.aliases["⏩"], "▶", "⏩ 保留归一");
 });
@@ -207,19 +207,53 @@ test("星标域：全域不纳入 → 使用即提醒、展示层不改动", () 
   );
 });
 
-test("aliases：变体叉/勾/乘号 → 推荐符号（替换 + 计数 + 明细）", () => {
+test("aliases：变体叉/勾 → 推荐符号（替换 + 计数 + 明细）；× 数学乘号不归一", () => {
   const rules = resolveSymbolRules();
   const r = normalizeSymbols("✔ 好 ✖ 坏 ❌ 停 ✅ 成 × 错", rules);
-  assert.equal(r.text, "✓ 好 ✗ 坏 ✗ 停 ✓ 成 ✗ 错");
-  assert.equal(r.replacedCount, 5);
+  assert.equal(r.text, "✓ 好 ✗ 坏 ✗ 停 ✓ 成 × 错");
+  assert.equal(r.replacedCount, 4);
   assert.deepEqual(r.unrecommended, []);
   assert.ok(r.remaps.some((m) => m.from === "❌" && m.to === "✗"));
-  // emoji 起源单独记录（✅❌ 在列；✔✖× 细线变体不在列）
+  // emoji 起源单独记录（✅❌ 在列；✔✖ 细线变体不在列；× 数学乘号不替换）
   assert.equal(
     r.emojiRemaps.map((m) => m.from).join(""),
     "❌✅",
     "emojiRemaps 只含 emoji 呈现起源的替换",
   );
+});
+
+test("正文内容性排版字符：框线/方块元素/数学括号/键盘按键一律放行（不替换、不提醒）", () => {
+  const rules = resolveSymbolRules();
+  // 框线 + 方块元素（表格/分隔线/进度条）：原样、零替换、零提醒
+  const frame = normalizeSymbols(
+    "────────\n┌────┐\n│ 内容 │\n└────┘\n进度 ████▀▄▌▐",
+    rules,
+  );
+  assert.equal(frame.replacedCount, 0);
+  assert.deepEqual(frame.unrecommended, [], "框线/方块元素不提醒");
+  assert.equal(frame.text, "────────\n┌────┐\n│ 内容 │\n└────┘\n进度 ████▀▄▌▐");
+  // 数学括号 ⌈⌉⌊⌋：原样放行（markdown.ts 亦按文本符号窄列处理）
+  const braces = normalizeSymbols("上取整 ⌈x⌉ 下取整 ⌊y⌋", rules);
+  assert.equal(braces.replacedCount, 0);
+  assert.deepEqual(braces.unrecommended, []);
+  // 键盘修饰/按键 ⌘⌃⌥⇧⇪⌫：原样放行（README 声明键盘键不治理）
+  const keys = normalizeSymbols(
+    "按 ⌘R 刷新 ⌥ 键 ⇧ Shift ⌃ Ctrl ⇪ Caps ⌫ 退",
+    rules,
+  );
+  assert.equal(keys.replacedCount, 0);
+  assert.deepEqual(keys.unrecommended, [], "键盘符号（含 ⌫ 不再删除）不提醒");
+  assert.equal(keys.text, "按 ⌘R 刷新 ⌥ 键 ⇧ Shift ⌃ Ctrl ⇪ Caps ⌫ 退");
+  // 数学/计量乘号 ×：不替换为 ✗（数学场景原样）
+  const mul = normalizeSymbols("3 × 4 = 12，尺寸 5×7，×2 倍", rules);
+  assert.equal(mul.replacedCount, 0);
+  assert.deepEqual(mul.unrecommended, []);
+  assert.equal(mul.text, "3 × 4 = 12，尺寸 5×7，×2 倍");
+  // 对照：同属治理域的装饰性符号照常治理（证明放行仅限内容性字符）
+  const ctl = normalizeSymbols("完成 ✅ 注意 ⚠ 失败 ❌", rules);
+  assert.equal(ctl.replacedCount, 3);
+  assert.deepEqual(ctl.unrecommended, []);
+  assert.equal(ctl.text, "完成 ✓ 注意 △ 失败 ✗");
 });
 
 test("无替代符号：保留原文并记 unrecommended（去重、按序）", () => {
@@ -262,7 +296,7 @@ test("README 建议的 ✓/✗/△ 与文字替代在 aliases 内可用", () => 
   assert.equal(rules.aliases["✔"], "✓", "✔ → ✓");
   assert.equal(rules.aliases["✅"], "✓", "✅ → ✓");
   assert.equal(rules.aliases["☑"], "✓", "☑ → ✓");
-  for (const from of ["✕", "✖", "✘", "❌", "×", "🗙", "☒"]) {
+  for (const from of ["✕", "✖", "✘", "❌", "🗙", "☒"]) {
     assert.equal(rules.aliases[from], "✗", `${from} → ✗`);
   }
   assert.equal(rules.aliases["⚠"], "△", "⚠ → △（填色三角换细线空心三角）");
