@@ -1,6 +1,6 @@
 # TUI 命令清单与扩展建议
 
-> 依据：2026-09-18 横向对比 **Claude Code（108 条）/ Codex CLI（55）/ Gemini CLI（38）/ pi（23 内置）** 与本项目现状（本地 17 条含别名 + 宿主注册 7 条）。
+> 依据：2026-09-18 横向对比 **Claude Code（108 条）/ Codex CLI（55）/ Gemini CLI（38）/ pi（23 内置）** 与本项目现状（本地 35 条含别名 = 31 项 + 4 别名〔`/cls` `/thinking` `/usage` `/context`〕，宿主注册 7 条；2026-10 按 `LOCAL_COMMANDS` 实测刷新）。
 > 用途：记录命令面现状与「值得添加的命令」建议，供排期参考；功能级待办以 `docs/DEVELOPMENT-BACKLOG.md` 为准，命令实现细节见 `DESIGN.md` / `IMPLEMENTATION.md`。
 
 ## 1. 现状
@@ -13,6 +13,7 @@
 | `/clearscreen`（`/cls`） | 清空显示缓冲（只清 UI，不动会话上下文） |
 | `/quit` | 关闭 renderer 退出 |
 | `/theme` | 主题切换 dark/light |
+| `/verbose` | 活动区详略两态：`on`（缺省）完整折行 / `off` 紧凑（每条目 1 行 + 行尾 `…`）；SPEC §6.8 |
 | `/session` | 历史会话面板（浏览/恢复/删除/清理，范围跟随列表） |
 | `/copy` | 复制最后一条模型回复（OSC52） |
 | `/goal` | goal/todo 提示（详情常驻右侧状态列） |
@@ -24,6 +25,21 @@
 | `/model` | 模型选择面板（provider/model/effort 三列） |
 | `/provider` | 同面板，焦点预置 provider 列 |
 | `/effort`（`/thinking`） | 同面板，焦点预置 effort 列 |
+| `/stats`（`/usage` `/context`） | 本回合 token 用量与上下文占比（最近一次模型调用） |
+| `/rename` | 重命名当前会话标题 |
+| `/skills` | 技能目录面板（Enter 详情、PgUp/PgDn 翻页） |
+| `/agents` | 子代理面板（Enter 直接中断选中项、`r` 刷新） |
+| `/tools` | 工具目录面板（Enter 详情） |
+| `/settings` | 只读展示配置（`ns：value`，secret 脱敏） |
+| `/fork` | 分叉当前会话为新会话 |
+| `/task` | 任务面板（task-engine 只读：标题/状态） |
+| `/guard` | 守卫面板（security-guard：拦截/放行记录，Enter 看策略） |
+| `/memory` | 知识库概要（knowledge-base：就绪/路径/chunk·source 计数） |
+| `/loop` | 循环面板（metric-loop：活动/历史循环，Enter 详情） |
+| `/contract` | 契约概览（goal-contract：当前目标 + Done-when 条款，notice 型） |
+| `/workflows` | 工作流运行面板（tool-workflow：只读运行列表） |
+| `/council [N]` | 二次意见（并行 N 个评审子代理对当前目标给独立意见，notice 展示） |
+| `/search <query>` | 网页搜索（dsh-web 多 provider 聚合；列表展示，Enter 看来源） |
 
 ### 1.2 宿主注册命令（`ctx.commands.register`，转发即用）
 
