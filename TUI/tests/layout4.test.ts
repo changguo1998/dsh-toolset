@@ -26,6 +26,7 @@ import {
   type FrameScrollReport,
 } from "../src/app/layout.ts";
 import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
+import { wrapAssistantLine } from "../src/app/layout/markdown.ts";
 import { buildContentRows } from "../src/app/layout/build-box.ts";
 import type { InputMode, InputStatus, Buffer } from "../src/app/state.ts";
 import type { FrameRow } from "../src/renderer/screen.ts";
@@ -1128,6 +1129,60 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
   assert.ok(
     plain.some((l) => l.includes("**粗** 在 thinking")),
     "thinking 保持原样",
+  );
+});
+
+test("markdown 列表长项折行：悬挂缩进对齐正文、续行不顶满", () => {
+  // 单元：wrapAssistantLine——首行前缀 + 续行同宽空格缩进（正文对齐、不重复前缀）
+  const unit = (input: string, width: number, prefixWidth: number): void => {
+    const rows = wrapAssistantLine(input, width, "dark");
+    assert.ok(rows.length >= 2, "长列表项应折出多行");
+    const first = rows[0]!.map((s) => s.text).join("");
+    assert.ok(
+      !first.startsWith(" "),
+      "首行以前缀开头（无前导缩进）: " + JSON.stringify(first),
+    );
+    for (const row of rows.slice(1)) {
+      const text = row.map((s) => s.text).join("");
+      assert.ok(
+        text.startsWith(" ".repeat(prefixWidth)),
+        `续行缩进 ${prefixWidth} 列对齐正文: ${JSON.stringify(text.slice(0, prefixWidth + 4))}`,
+      );
+      assert.ok(!text.startsWith("• "), "续行不重复子弹前缀");
+      assert.ok(
+        displayWidth(text) <= width,
+        `续行总宽不超 ${width}: ${JSON.stringify(text)}`,
+      );
+    }
+  };
+  // 无序 •（2 列）/ 有序 1. 与 10. + 全角数字前缀（3/4 列）/ 任务 [x] [ ]（4 列）
+  unit("- ".concat("标".repeat(60)), 20, 2);
+  unit("1. ".concat("标".repeat(60)), 22, 3);
+  unit("10. ".concat("标".repeat(60)), 23, 4);
+  unit("- [x] ".concat("标".repeat(60)), 24, 4);
+  unit("- [ ] ".concat("标".repeat(60)), 24, 4);
+  // 集成：对话区真实渲染——续行在 assistant 左竖线（U+2503）后缩进到正文列
+  // （不顶满第一列）。竖线为 UI 既有装饰字符，此处用码点转义书写。
+  let s = initialState();
+  s = reduceState(s, {
+    type: "append",
+    text: "- ".concat("ABCDEFGHIJKLMNOPQRSTUVWXYZ".repeat(3)) + "\n",
+  });
+  const raw = buildFrame(s, { rows: 24, cols: 80 });
+  const lines = raw
+    .map((l) => stripAnsi(rowText(l)))
+    .filter((l) => l.includes("ABCDEFG"));
+  assert.ok(lines.length >= 2, "列表项在对话区折出多行");
+  const body = (t: string): string => {
+    const i = t.indexOf("\u2503");
+    return i >= 0 ? t.slice(i + 1) : t;
+  };
+  const cont0 = body(lines[0]!);
+  const cont1 = body(lines[1]!);
+  assert.ok(cont0.startsWith("• "), "首行子弹前缀: " + JSON.stringify(cont0));
+  assert.ok(
+    cont1.startsWith("  ") && !cont1.startsWith("• "),
+    "续行悬挂缩进对齐正文: " + JSON.stringify(cont1),
   );
 });
 

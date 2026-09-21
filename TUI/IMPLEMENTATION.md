@@ -143,6 +143,12 @@
 - 槽位映射：`black..white` → `ansi[]`，`brightBlack..brightWhite` → `bright[]`；语义槽位 `gray`/`border`/`code`/`focus` → 各主题 `semantics`（默认 dark：gray=bright.0、border=ansi.4、code=ansi.0、focus=bright.7；light：gray=bright.0、border=ansi.4、code=ansi.7、focus=ansi.0）。`ansiNameToHex(theme, name)` 解析（颜色名转小写后查表）。段级 `style` 由 `segStyle` / `serializeFrameRow`（screen.ts）按 Manual-ANSI 处理（fg/bg 分别 `38;2`/`48;2`，bold 用 `1m`/`22m`），着色一律**以主题基底前景/背景收尾**（不用 chalk：chalk 以 `39m`/`49m` 收尾会复位到终端默认，浅色主题下不可读）。
 - 基底色：`Screen` 持有当前主题（`setTheme(id)`），整帧渲染在 `ESC[2J` 清屏**之前**写出基底前景/背景（truecolor 背景 → 清屏即填充主题色）；每个 delta 行也带基底，保证 `ESC[K` 擦除以主题背景填充。`setTheme` 同时清掉渲染器 delta 缓存（`prevLines = null`），切换后必然全帧重绘。`close()` 前 `Screen.reset()` 输出 `ESC[0m` 恢复终端默认。
 
+## markdown 列表项悬挂缩进（块级 markdown）
+
+- **行为**：`wrapAssistantLine` 的普通列表（`-`/`*`/`+`/`1.`）与任务列表（`- [x]`/`- [ ]`）长项折行时，续行行首补与列表前缀同宽的空格（无序 `• ` 2 列 / 有序数字前缀按实际列数 / 任务 `[x] `、`[ ] ` 4 列），正文与首行文字同列对齐、不穿回第一列不顶满。
+- **实现**：`layout/markdown.ts` 新增 `wrapListRows(segs, prefixWidth, width)`——复用 `wrapFrameSegments` 的 `hanging` 续行折宽（扣 `prefixWidth` 封顶总宽），并在折行结果每个续行行首补 `prefixWidth` 宽空格段；首行保持前缀随正文全宽折行。前缀宽 `<= 0` 或无续行时原样透传（不引入空段）。
+- **对齐设计意图**：SPEC §2 `text(prefix:{"• "}, hanging:2)` 早声明列表悬挂缩进，此前 `wrapAssistantLine` 列表分支漏传 `hanging`（续行顶格）；本轮补上，与工具行 `/help` 双列表格的悬挂机制同构。
+
 ## markdown 表格（SPEC §3.2）
 
 - **位置**：`src/app/layout/table.ts`（解析 + 构建期降级构建器）；识别与接线在 `layout/build-box.ts` 的 assistant 分支（`for` 改为索引循环以做逐行前瞻）。

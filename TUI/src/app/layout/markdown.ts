@@ -668,6 +668,22 @@ function codeLineRows(text: string, width: number): FrameSegment[][] {
 }
 
 /**
+ * 列表悬挂折行：首行全宽折行（前缀 `• `/`[x] `/`1. ` 计入首行宽），续行
+ * 行首补 prefixWidth 宽空格（正文与首行文字同列对齐、不穿回第一列不顶满），
+ * 续行折宽扣 prefixWidth（封顶后总宽不超 width）。前缀宽 <= 0 或无续行时原样。
+ */
+function wrapListRows(
+  segs: FrameSegment[],
+  prefixWidth: number,
+  width: number,
+): FrameSegment[][] {
+  const rows = wrapFrameSegments(segs, width, prefixWidth);
+  if (prefixWidth <= 0 || rows.length <= 1) return rows;
+  const pad: FrameSegment = { text: " ".repeat(prefixWidth) };
+  return rows.map((row, i) => (i === 0 ? row : [pad, ...row]));
+}
+
+/**
  * 普通 assistant 行（fence 外）按块级元素分类渲染：
  * 分隔线 → 任务列表 → 标题 → 引用 → 普通列表 → 行内 markdown。
  */
@@ -696,22 +712,24 @@ function assistantLineRows(
       width,
     );
   }
-  // 2. 任务列表：ASCII [x]/[ ]，已完成正文删除线、未完成普通（均正常前景色）
+  // 2. 任务列表：ASCII [x]/[ ]，已完成正文删除线、未完成普通（均正常前景色）；
+  //    续行悬挂缩进到前缀起列（对齐正文、不顶满）
   const task = TASK_RE.exec(text);
   if (task) {
     const checked = task[1]!.toLowerCase() === "x";
     const body = parseInlineMarkdown(task[2]!, themeId);
+    const taskPrefix = checked ? "[x] " : "[ ] ";
     const segs: FrameSegment[] = checked
       ? [
           // 已完成：勾选前缀 + 正文删除线（正常前景色）
-          { text: "[x] " },
+          { text: taskPrefix },
           ...body.map((s) => ({
             text: s.text,
             style: mergeStyle({ strike: true }, s.style ?? {}),
           })),
         ]
-      : [{ text: "[ ] " }, ...body];
-    return wrapFrameSegments(segs, width);
+      : [{ text: taskPrefix }, ...body];
+    return wrapListRows(segs, displayWidth(taskPrefix), width);
   }
   // 3. 标题：去掉 #，整行 bold + 醒目青；行内 token（如 **粗**）叠加保留
   const heading = HEADING_RE.exec(text);
@@ -737,7 +755,7 @@ function assistantLineRows(
     ];
     return wrapFrameSegments(segs, width);
   }
-  // 5. 普通列表项：前缀正常前景色，内容走行内解析
+  // 5. 普通列表项：前缀正常前景色，内容走行内解析；续行悬挂缩进对齐正文（不顶满）
   const list = LIST_RE.exec(text);
   if (list) {
     // 无序列表 (-/*/+) 统一显示为明显的 •；有序列表保留数字前缀
@@ -747,7 +765,7 @@ function assistantLineRows(
       { text: prefix },
       ...parseInlineMarkdown(list[1]!, themeId),
     ];
-    return wrapFrameSegments(segs, width);
+    return wrapListRows(segs, displayWidth(prefix), width);
   }
   // 6. 普通行内 markdown
   return wrapFrameSegments(parseInlineMarkdown(text, themeId), width);
