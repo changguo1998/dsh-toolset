@@ -702,13 +702,15 @@ export interface FrameGeometry {
 /**
  * 排队块行：按对话 pane 宽排版（右对齐用户块 + 灰色右缘竖线）。
  * 每条排队消息各自成块（官方流程逐条入队、逐条认领，**不合并**）；消息内含
- * 显式换行时分行（与历史用户行的多行语义一致）。
+ * 显式换行时保留在同一块内（与历史用户行一致：块内行首左对齐、块宽 = 最长行）。
  */
 function queuedBlockRows(state: AppState, width: number): ContentRow[] {
   if (state.queued.length === 0) return [];
-  const lines: Buffer = state.queued.flatMap((text) =>
-    text.split("\n").map((t) => ({ text: t, kind: "user", queued: true })),
-  );
+  const lines: Buffer = state.queued.map((text) => ({
+    text,
+    kind: "user",
+    queued: true,
+  }));
   return buildContentRows(
     lines,
     { themeId: state.themeId, gutter: state.messageGutter },

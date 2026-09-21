@@ -67,9 +67,12 @@ export function surfaceToBuffer(
     [];
   for (const m of messages) {
     if (m.role === "user" || m.role === "assistant") {
-      // 消息可能含多段文本（extractTextBlocks 以 \n join）：拆成独立 buffer 行，
-      // 避免行内残留 \n/\r 被当作普通字符渲染，导致终端中途换行/回车破坏帧布局
-      for (const line of sanitizeText(m.text).text.split("\n"))
+      // assistant 多段文本（extractTextBlocks 以 \n join）拆成独立 buffer 行：
+      // 逐行结构是 fence 识别/段落归并的前提。user 消息则整段保留（一次输入 =
+      // 一个用户块，显式换行由布局层按物理行渲染，块内行首左对齐）。
+      const text = sanitizeText(m.text).text;
+      const parts = m.role === "user" ? [text] : text.split("\n");
+      for (const line of parts)
         out.push({
           text: line,
           kind: m.role,

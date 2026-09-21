@@ -103,7 +103,7 @@ type Height =
 
 | 内容元素 | Box 表达 | 对应现状 |
 |---|---|---|
-| 一条用户输入 | `h([ spacer(fill), Paragraph(width:auto) ])`（**块级对齐，不用 `align`**） | 整体靠右的收缩块（先换行取最大行宽作块宽、块内左对齐、右缘贴边） |
+| 一条用户输入 | `h([ spacer(fill), Paragraph(width:auto) ])`（**块级对齐，不用 `align`**） | 整体靠右的收缩块（一次输入 = 一条 buffer 行：显式换行保留在行内、按物理行折行取最大行宽作块宽、块内行首左对齐、右缘贴边） |
 | 一条 LLM 回复段落 | `h([ text(indent), spacer(gutter) ])` | 回复靠左 + 右缘 `messageGutter` 留空 |
 | 思考 | `text(prefix:{┃,紫}, indent:1)` | 左侧紫色竖线区分 |
 | 一条工具调用记录 | `v([调用行, 结果行])`，续行 `hanging:4` | 工具行缩进 + 续行 `TOOL_CONT_INDENT=4` |

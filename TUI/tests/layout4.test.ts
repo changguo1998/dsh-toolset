@@ -1063,6 +1063,53 @@ test("交错布局：输入最长折行左缘与回复正文第 5 个字符同�
   assert.equal(colOf(rRow, "R"), 2, "回复正文自 col2 起（┃ 占 col1）");
 });
 
+test("交错布局：多行输入为一块——块内行首左对齐、块宽 = 最长行、右缘竖线同列", () => {
+  const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
+  const cols = 60;
+  // 三行显式换行（最长行 24 列 < 上限 33 → 块不顶左边界，左缘由块宽决定）
+  let s = initialState();
+  s = reduceState(s, {
+    type: "user-line",
+    text: "短\n中等长度的一行\n最长的一行内容ABCDEFGHIJ",
+  });
+  s = reduceState(s, { type: "append", text: "好" });
+  s = reduceState(s, { type: "turn-end" });
+  // 一次输入 = 一条 buffer 行（显式换行保留在行内，不再拆成多条 user 行）
+  const userLines = s.buffer.filter((l) => l.kind === "user");
+  assert.equal(userLines.length, 1, "多行输入只占一条 buffer 行");
+  assert.ok(userLines[0]!.text.includes("\n"), "换行保留在行内");
+
+  const rows = buildFrame(s, { rows: 24, cols })
+    .map((l) => strip(rowAnsi(l)))
+    .filter((l) => /短|中等长度的一行|最长的一行内容/.test(l));
+  assert.equal(rows.length, 3, "三行都在同一块内可见");
+  const body = (l: string): string => histContent(l, cols);
+  const lead = (l: string): number =>
+    displayWidth(body(l)) - displayWidth(body(l).trimStart());
+  const barCol = (l: string): number => {
+    let col = 0;
+    for (const c of [...body(l)]) {
+      if (c === "┃") return col;
+      col += displayWidth(c);
+    }
+    return -1;
+  };
+  // 块内行首左对齐（三行同一左边界）+ 右缘竖线同列（块宽 = 最长行 + 1 列竖线）
+  assert.deepEqual(
+    [lead(rows[1]!), lead(rows[2]!)],
+    [lead(rows[0]!), lead(rows[0]!)],
+    "块内各行行首左对齐",
+  );
+  assert.deepEqual(
+    [barCol(rows[1]!), barCol(rows[2]!)],
+    [barCol(rows[0]!), barCol(rows[0]!)],
+    "块右缘竖线同列",
+  );
+  // 块宽 = 最长行（24）+ 竖线 1 列 → 左缘 = 正文区宽 − 25
+  const contentW = metricsFor({ rows: 24, cols }, false).historyWidth - 1;
+  assert.equal(lead(rows[2]!), contentW - 25, "块宽取决于最长行（右对齐贴边）");
+});
+
 test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代码块", () => {
   const lines = [
     "# 一级标题",

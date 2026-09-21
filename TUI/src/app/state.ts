@@ -642,6 +642,8 @@ export function sanitizeText(text: string): { text: string; stripped: number } {
  *  - 换行之后的段落各自新开一行
  *  - 若文本以换行结尾，末尾出现一个空行
  *  - 末行为 turn 分隔线时不合并（分隔线是硬边界，下个 turn 另起一行）
+ *  - `kind="user"` 例外：整段保留（含显式换行）为**一条** buffer 行——一次输入
+ *    即一个用户块，布局层按物理行折行渲染（块内行首左对齐、块宽 = 最长行、整块右对齐）
  */
 export function appendStream(
   state: AppState,
@@ -655,7 +657,8 @@ export function appendStream(
   // 渲染保护：剔除非打印控制字符（CRLF/孤立 CR 归一为 LF、其余 C0/C1 移除），
   // 剔除计数累计入 state.strippedChars，turn-end 时统一警告
   const { text: clean, stripped } = sanitizeText(text);
-  const parts = clean.split("\n");
+  // 用户输入不按 \n 拆行（多行输入 = 一块）；流式 assistant/thinking 仍逐行拆
+  const parts = kind === "user" ? [clean] : clean.split("\n");
   const lastIndex = buffer.length - 1;
   const last = buffer[lastIndex];
   let seq = state.nextSeq;

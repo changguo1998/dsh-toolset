@@ -2519,7 +2519,7 @@ test("append：CRLF/孤立 CR 归一为 LF 再切分，buffer 行不残留 \\r�
   );
 });
 
-test("surfaceToBuffer：多段消息拆成独立 buffer 行，不残留 \\n/\\r", () => {
+test("surfaceToBuffer：assistant 多段拆成独立 buffer 行；user 整段保留（\\n 归一到行内）", () => {
   const rows = surfaceToBuffer([
     { role: "assistant", text: "第一段\r\n第二段\r第三段\n\n第四段" },
     { role: "user", text: "单行问题" },
@@ -2536,6 +2536,33 @@ test("surfaceToBuffer：多段消息拆成独立 buffer 行，不残留 \\n/\\r"
   assert.equal(rows[0]!.final, true);
   assert.equal(rows[5]!.kind, "user");
   assert.equal(rows[5]!.final, undefined);
+
+  // user 消息：一次输入 = 一条 buffer 行（显式换行保留在行内，布局层渲染为一块）
+  const u = surfaceToBuffer([{ role: "user", text: "第一行\r\n第二行" }]);
+  assert.deepEqual(u, [
+    { text: "第一行\n第二行", kind: "user", final: undefined },
+  ]);
+});
+
+test("user-line：显式换行保留在一条 buffer 行（一次输入 = 一个用户块）；append 仍逐行拆", () => {
+  const s = reduceState(initialState(), {
+    type: "user-line",
+    text: "第一行\n第二行",
+  });
+  assert.deepEqual(
+    s.buffer.map((l) => l.text),
+    ["第一行\n第二行"],
+  );
+  assert.deepEqual(
+    s.buffer.map((l) => l.kind),
+    ["user"],
+  );
+  // 流式 assistant 仍按 \n 拆行（增量续写/逐行结构依赖）
+  const a = reduceState(initialState(), { type: "append", text: "p1\np2" });
+  assert.deepEqual(
+    a.buffer.map((l) => l.text),
+    ["p1", "p2"],
+  );
 });
 
 test("sanitizeText：剔除非打印控制符但保留换行/ANSI 序列，计数正确", () => {

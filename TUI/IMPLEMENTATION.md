@@ -104,6 +104,13 @@
 - **连带**：竖线可见阈值 `USER_MIN_LEFT_GUTTER + 2` 由 6 上移到 8（w≤7 不画竖线）；`DEFAULT_MESSAGE_GUTTER` 与 `normalizeTuiDisplayConfig` 缺省同步 6；`tests/fixtures/focus-frame-legacy.json` 的 w20 四场景按新口径重冻结（窄窗正文宽随留白收窄，属预期）。
 - **回归**：`tests/layout4.test.ts`「输入最长折行左缘与回复正文第 5 个字符同列（gutter=6）」+ `tests/content-mapping.test.ts` 竖线阈值边界（w=6/7 关闭、w=8 开启，w=6 相对旧基线已偏离）。
 
+## 多行用户输入 = 一块（2026-12）
+
+- **口径（用户 2026-12）**：一次输入（含 `Ctrl+J` 显式换行）视为**一个块**——块内行首左对齐（各行共享左边界）、块宽 = 该块折行后最长行宽、整块右对齐（右缘 `┃` 贴正文区最后一列，短行在其右侧补白）。
+- **实现**：`appendStream` 对 `kind="user"` 不按 `\n` 拆行（整段 = 一条 buffer 行、一个 `seq`）；折行/补白交给渲染层——`fill.decorateRows` 按 `maxBodyW` 给每行右侧补白到块宽，故块内各行天然左对齐、`┃` 同列。改前 user 文本被 `split("\n")` 拆成多条独立行，每条各自右对齐（行首参差），与 DESIGN「整块统一 leftPad、块内左对齐」不符。
+- **配套**：`queuedBlockRows`（排队消息同语义，整条消息一块）；`surfaceToBuffer` 的 user 消息也不拆（恢复的历史输入同样一块）。**assistant 仍逐行拆**：正文流式逐行到达，且 fence 开合、尾部空行清理、回复组折叠都按 buffer 行粒度工作。
+- **回归**：`tests/layout4.test.ts`「多行输入为一块——块内行首左对齐、块宽 = 最长行、右缘竖线同列」+ `tests/app.test.ts`（`user-line` 保留换行 / `append` 仍拆行 / `surfaceToBuffer` user 整段保留）。
+
 ## 声音提醒事件钩子（P2#33）
 
 - **输出口**：`Renderer.bell?()`（可选接口方法；真实 renderer 实现 → `Screen.beep()` 向输出流写 BEL `\x07`；注入型 renderer 可不实现，App 经 `bell?.()` 调用）。
