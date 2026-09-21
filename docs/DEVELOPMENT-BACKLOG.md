@@ -56,8 +56,8 @@ readseek / lens / hypa 迁移（对比文档 §3.2/§3.4）。
 |---|------|------|------------------|--------|
 | 19 | ✅ LINE:HASH 锚定编辑（行:哈希校验，防脏写） | readseek 拆项 1 | tool-fs + fs-observation-policy（当前仅版本守卫） | P1 |
 | 20 | ✅ ast-grep 结构搜索/替换/大纲/规则 | readseek 拆项 2；lens 拆项 3 | 新工具（tool-fs-search 仅 ripgrep 文本） | P1 |
-| 21 | 项目/模块报告（结构总览、影响面） | lens 拆项 4 | tool-lsp 符号数据可作底座 | P2 |
-| 22 | 代码索引与调用图（callers/graph） | hypa 拆项 3 | tool-lsp 扩展 | P2 |
+| 21 | ✅ 项目/模块报告（结构总览、影响面）：code-map `report`（统计/模块依赖/环/未引用导出）+ `impact`（反向 import 闭包聚合到模块） | lens 拆项 4 | tool-lsp 符号数据可作底座（首版未用，结构层自足） | P2 |
+| 22 | ◐ 代码索引与调用图（callers/graph）：结构层已完成（code-map 索引 + `callers` 候选引用 + `callees` 文件级 + `cycles` 强连通分量）；LSP 语义层（findReferences 精确确认）未做，见 `code-map/DESIGN.md` 混合架构 | hypa 拆项 3 | tool-lsp 扩展（语义层增量） | P2 |
 | 23 | PDF/文档结构视图 | readseek 拆项 4 | 无底座，新工具 | P2 |
 
 ## 5. 外部接入（P2）
@@ -117,7 +117,7 @@ defender 迁移（对比文档 §3.5）。
 
 1. **里程碑一（P0）**：#1-#4 + #8 —— 引擎三块 + 知识库底座（设计文档 §16.3 结论：其余核心能力 dsh 已有现成服务）；
 1. **里程碑二（P1）**：#5-#7、#9-#11、#13、#19-#20、#27、#36 —— 契约/循环/记忆/压缩/锚点/结构搜索/安全策略/herdr 集成；
-1. **里程碑三（P2）**：其余长尾，按需排期（其中 #16/#18/#24/#33 与 A1-A5 命令已先行完成并合入 main）；#35 rate-guard 已取消（pi 侧已移除，能力由 pi 核心 provider-retry 内建 + 新增扩展 provider-guard 承接；dsh 对应 llm-retry，见对比文档 §5.4）；
+1. **里程碑三（P2）**：其余长尾，按需排期（其中 #16/#18/#21/#22/#24/#33 与 A1-A5 命令已先行完成并合入 main）；#35 rate-guard 已取消（pi 侧已移除，能力由 pi 核心 provider-retry 内建 + 新增扩展 provider-guard 承接；dsh 对应 llm-retry，见对比文档 §5.4）；
 1. 不迁移：pi-dsh-minimal（反向桥）、pi 原生 herdr 扩展文件、pi 内部补丁（对比文档 §4.4）；herdr 面板集成以 `herdr-integration` 仿写实现（#36）。
 
 **起步顺序（实施建议）**：先打通流程、再上大件、双线并行：

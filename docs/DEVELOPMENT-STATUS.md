@@ -3,7 +3,7 @@
 > 依据 `DEVELOPMENT-BACKLOG.md` 插件规划；各插件待办任务见其插件目录下 `TASKS.md`，本表只记状态、不记细节。
 > 状态：未开始 / 进行中 / 阻塞 / 完成（另有：暂缓）。
 > 更新约定：状态变化时更新本表；任务完成并合入本分支后清理对应 `TASKS.md`。
-> **里程碑进度**：三插件首版 + r2、P1 七插件（goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard）均已完成并合入 main；**TUI 排版重构（主线 A 契约迁移 + 主线 B Box 模型）已完成并合入 main**（见 `TUI/TASKS.md`，2026-09）；**TUI 排版性能（折行/宽度有界缓存 + `charWidth` 码点表 + paint 同 tick 合帧，`TUI_LAYOUT_CACHE=0` 可关）已完成**（机制与基准见 `TUI/IMPLEMENTATION.md`「排版缓存与绘制合帧」）；**TUI 主题调色板可配置化已完成**（`tui.config.json` theme 段：内联 > `paletteDir` 上游文件 > 内置兜底；语义槽位 `gray/border/code/focus` 数据化，随上游 fff 配色更新不再内嵌漂移；`/theme` 协议不变）；**P2 部分功能与命令扩展已完成并合入 main**：`/workflows` 面板（P2#16，`343a3f2`）、`/council` 二次意见（P2#18，`083ca77`）、`/search` 多 provider 聚合（P2#24，`8ebe163` + 审计整改 `e44a8a5`）、声音提醒（P2#33，`87935ae`），以及 A1-A5 命令 `/task` `/guard` `/memory` `/loop` `/contract`（对应插件只读查询面已落地，`c31f4ec`→`ec94879` 等）；剩余 P2 插件未开始，rate-guard 已取消（不迁移，见对比文档 §5.4）。
+> **里程碑进度**：三插件首版 + r2、P1 七插件（goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard）均已完成并合入 main；**TUI 排版重构（主线 A 契约迁移 + 主线 B Box 模型）已完成并合入 main**（见 `TUI/TASKS.md`，2026-09）；**TUI 排版性能（折行/宽度有界缓存 + `charWidth` 码点表 + paint 同 tick 合帧，`TUI_LAYOUT_CACHE=0` 可关）已完成**（机制与基准见 `TUI/IMPLEMENTATION.md`「排版缓存与绘制合帧」）；**TUI 主题调色板可配置化已完成**（`tui.config.json` theme 段：内联 > `paletteDir` 上游文件 > 内置兜底；语义槽位 `gray/border/code/focus` 数据化，随上游 fff 配色更新不再内嵌漂移；`/theme` 协议不变）；**P2 部分功能与命令扩展已完成并合入 main**：`/workflows` 面板（P2#16，`343a3f2`）、`/council` 二次意见（P2#18，`083ca77`）、`/search` 多 provider 聚合（P2#24，`8ebe163` + 审计整改 `e44a8a5`）、声音提醒（P2#33，`87935ae`），以及 A1-A5 命令 `/task` `/guard` `/memory` `/loop` `/contract`（对应插件只读查询面已落地，`c31f4ec`→`ec94879` 等）；**code-map（P2 #21/#22）已完成并合入 main**（`ed73763`，2026-09-21：结构层索引（符号表 + import 图）+ 调用图 callers/callees/cycles/impact + 项目/模块报告，13 单测），首版边界见 `code-map/DESIGN.md`；剩余 P2 插件未开始，rate-guard 已取消（不迁移，见对比文档 §5.4）。
 
 | 插件 | 阶段 | 分支 | 状态 | 备注 |
 |------|------|------|------|------|
@@ -19,7 +19,7 @@
 | security-guard | P1-P2 | — | 完成 | 危险命令黑名单 + 敏感文件保护，37 单测；已合入 main |
 | rate-guard | P2 | — | 已取消 | pi 侧已移除（能力由 pi 核心 provider-retry 内建 + 扩展 provider-guard 承接），不迁移（对比文档 §5.4） |
 | workflow-ext | P2 | — | 未开始 | |
-| code-map | P2 | — | 未开始 | 设计已定（2026-09-21，见 `code-map/DESIGN.md`）：结构层索引 + 调用图 + 报告，首版不含 LSP 语义层 |
+| code-map | P2 | — | 完成 | 结构层索引（符号表 + import 图）+ 调用图（callers/callees/cycles/impact）+ 项目/模块报告，13 单测；已合入 main（2026-09-21，`ed73763`）。首版边界：引用为候选（同名近似，无 LSP 语义层）；callees 文件级；索引惰性（首查时构建） |
 | web-ext | P2 | — | 未开始 | |
 | session-broker | P2 | — | 未开始 | |
 | command-template | P2 | — | 未开始 | |
