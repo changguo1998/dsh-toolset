@@ -146,6 +146,7 @@ export type SlashRoute =
   | "effort"
   | "theme"
   | "verbose"
+  | "symbol-unify"
   | "session"
   | "copy"
   | "registry"
@@ -199,6 +200,11 @@ export const LOCAL_COMMANDS: readonly {
     name: "verbose",
     route: "verbose",
     desc: "活动区详略：on=完整折行 / off=紧凑（每条目 1 行 + 省略号）",
+  },
+  {
+    name: "symbol-unify",
+    route: "symbol-unify",
+    desc: "模型输出符号统一：on=变体替换为推荐符号并提醒 / off=原样（不替换不提醒）",
   },
   { name: "session", route: "session", desc: "历史会话浏览/恢复" },
   { name: "copy", route: "copy", desc: "复制最后一条回复（OSC52）" },

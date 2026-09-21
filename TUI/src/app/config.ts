@@ -19,6 +19,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { SymbolRulesConfig } from "./symbols.ts";
 
 export interface TuiLayoutConfig {
   /** 交互区绝对行数（输入框+按键提示；缺省自动 1/5 上限 4） */
@@ -77,6 +78,8 @@ export interface TuiConfig {
   theme?: TuiThemeConfig;
   /** 会话维护段（启动自动清理空会话等） */
   session?: TuiSessionConfig;
+  /** 模型输出符号规范化段（推荐列表/别名映射/是否提醒模型，见 src/app/symbols.ts） */
+  symbols?: SymbolRulesConfig;
 }
 
 const CFG_FILE = "tui.config.json";
@@ -170,6 +173,7 @@ export function normalizeConfig(raw: unknown): TuiConfig {
     notify?: Record<string, unknown>;
     theme?: unknown;
     session?: Record<string, unknown>;
+    symbols?: Record<string, unknown>;
   };
   const l = r.layout ?? {};
   const n = r.notify ?? {};
@@ -208,6 +212,33 @@ export function normalizeConfig(raw: unknown): TuiConfig {
         ? {}
         : { autoCleanEmpty: boolOr(s.autoCleanEmpty) }),
     },
+    symbols: normalizeSymbolsSection(r.symbols),
+  };
+}
+
+/** 归一化 symbols 段：recommended（字符串数组）/ aliases（非空字符串映射）/ warnModel（布尔）。 */
+function normalizeSymbolsSection(raw: unknown): SymbolRulesConfig | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const s = raw as Record<string, unknown>;
+  const recommended = Array.isArray(s.recommended)
+    ? s.recommended.filter(
+        (x): x is string => typeof x === "string" && x !== "",
+      )
+    : undefined;
+  let aliases: Record<string, string> | undefined;
+  if (typeof s.aliases === "object" && s.aliases !== null) {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(s.aliases as Record<string, unknown>)) {
+      if (typeof v === "string" && v !== "") out[k] = v;
+    }
+    if (Object.keys(out).length > 0) aliases = out;
+  }
+  const warnModel = boolOr(s.warnModel);
+  if (!recommended && !aliases && warnModel === undefined) return undefined;
+  return {
+    ...(recommended ? { recommended } : {}),
+    ...(aliases ? { aliases } : {}),
+    ...(warnModel === undefined ? {} : { warnModel }),
   };
 }
 

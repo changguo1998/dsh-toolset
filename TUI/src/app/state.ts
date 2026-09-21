@@ -402,6 +402,9 @@ export interface AppState {
   /** 活动区是否完整显示（verbose）：true=每条目完整折行显示（缺省）；
    *  false=紧凑模式（SPEC §6.8 状态 2：每条目压 1 行 + 行尾省略号）。`/verbose on|off` 切换 */
   activityVerbose: boolean;
+  /** 模型输出符号统一（symbol-unify）：true=把变体符号替换为推荐符号并提醒（缺省）；
+   *  false=关闭（原样展示，不替换不提醒）。`/symbol-unify on|off` 切换 */
+  symbolUnify: boolean;
   /** 本回合剔除的非打印控制字符计数（appendStream 累计；turn-begin 清零、turn-end 警告） */
   strippedChars: number;
 }
@@ -545,6 +548,7 @@ export function initialState(
     focusedPanel: null, // 无焦点；Tab 进入焦点循环
     activityScroll: 0,
     activityVerbose: true, // 活动区完整显示（缺省）；/verbose off 切紧凑
+    symbolUnify: true, // 模型输出符号统一（缺省开）；/symbol-unify off 切原样
     strippedChars: 0, // 本回合剔除的非打印控制字符计数（turn-begin 清零）
     buffer: [],
     followBottom: true,
@@ -1444,6 +1448,9 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "activity-verbose":
         // 活动区显示详略（SPEC §6.8 两态）：true=完整折行；false=紧凑（每条目 1 行 + 省略号）
         return { ...state, activityVerbose: action.on };
+      case "symbol-unify":
+        // 模型输出符号统一开关：true=变体替换为推荐并提醒；false=原样（不替换不提醒）
+        return { ...state, symbolUnify: action.on };
       case "tool-call":
         // 工具调用：紧凑工具行（○ <name> <summary> 由 tool-line.ts 组装），不进模型历史；
         // B3：当前 step 组首条工具行前先插分组头 `step N`（无 step 上下文不插头）
@@ -1903,6 +1910,7 @@ export type StateAction =
   | { type: "status"; status: Partial<SystemStatus> }
   | { type: "set-theme"; themeId: ThemeId }
   | { type: "activity-verbose"; on: boolean }
+  | { type: "symbol-unify"; on: boolean }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }
   | {
       type: "model-selection";

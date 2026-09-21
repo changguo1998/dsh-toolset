@@ -206,6 +206,20 @@
 - **入口**：`App.helpLines()` 产出「表头 + 表中行 + 表尾」结构化行，`handleSlash` 走 `notice` action 新增的 `lines` 字段（`appendNoticeLines`，逐条独立成行）；表头/表尾是普通行（无悬挂缩进），只在表中行带 `hanging`。
 - **回归**：`tests/help.test.ts`（命令列定宽/CJK 补白/单物理行）+ 渲染层用例（`buildContentRows` 窄 pane 强制折行，验证续行缩进 == 描述列起点）。
 
+## 模型输出符号规范化（symbols，2026-09-21）
+
+- **纯函数**（`app/symbols.ts`）：`resolveSymbolRules`（内置默认 + 配置合并）与 `normalizeSymbols`（逐码点，判定顺序：孤立代理/零宽跳过 → 别名映射替换 → 治理区 `[2190-21FF, 2300-23FF, 2500-27BF, 2B00-2BFF, 1F000-1FAFF, FFE0-FFE6]` 内查推荐白名单 → 文字/标点放行 → 其余放行）。输出替换后文本 + `replacedCount/remaps/unrecommended`。
+- **接入**（`app/index.ts`）：`case "stream"` 对每段正文 `normalizeSymbols`（slowStream 的 `pendingStream` 与直发两条路径都走规范化），结果累积到 `symbolTurn`（跨段去重）；`turn-end` 两个分支（直发 / slow 的 `flushPending` 补执行）后 `flushSymbolTurn()`：有未推荐符号 → notice（含替换计数）+ 生成 `pendingSymbolText`。
+- **反馈注入**：turn-end 检测到替换/警示后**立即直接发送**（`adapter.sendMessage`，`[符号规范]` 一条，替换段 = 无歧义「请将 X 替换为 Y」指令、警示段 = 复述 3 条选择规则 + 要求重新选择）；**不**随用户下一条消息合并（原 pendingSymbolText 机制已移除）。不经 `sendUserText` 以避免清空活动区刷掉 notice。
+- **配置**（`app/config.ts`）：`tui.config.json` `symbols.{recommended[],aliases{},warnModel}`；`main.ts` 经 `new App({ symbols })` 注入，缺省走内置默认。内置推荐 = `✓ ✗ △ → ← ↑ ↓ ↔ ▶ ◀ ▲ ▼ ⟹ • ◦ ○ ● ◯ ■ □ ◇ ◆ ⓘ 〜 …`，按「域 × 家族」归一（箭头单线四向、三角四向、C 双线 `⟹`、圆/方块/菱形几何全推、列表圆点 `•`、信息圈 i `ⓘ`、感叹/加减 emoji→ASCII `!`/`+`/`-`、金额 `￥→¥`、全角波浪 `～→〜`）；**按几何拆分**：`☑☒`（方框）、`◦`（空心圆点）、`√`（根号）、`⇔`（双向）、`⇐`（左向）不归一（`☑☒◦⇔⇐` 使用即提醒、`√` 治理区外放行）；箭头 D、列表三角点/方块族、星标域（含 emoji `⭐`）、信息图形族（`💡`）不纳入——使用即提醒。
+- **选型判据（2026-09-21 评审定稿，用于后续扩展推荐/别名对齐）**：
+  1. 归一依据 = **形状身份（几何部件组合）**；功能、语义、宽度一律不参与；
+  1. 同一形状身份内只容**修饰性变体**归一：粗细、明暗/填充、大小、重复数量、emoji 上色、内缀细节；
+  1. 触发**拆分**（不归一，按几何各自独立）：新增独立部件（方框）、核心形状变化（圆环 vs 实盘、勾 vs 根号）、方向/对称变化（反向、双向 vs 单向）。
+     校准点：`✅`（空心粗勾、无独立框）留 `→✓`，而 `☑`（勾+独立方框）拆；`⏩`（双三角 = 数量修饰）留 `→▶`，而 `⇔`（双向 = 方向变化）拆。
+- **开关**（`app/index.ts` + `app/state.ts`）：`/symbol-unify on|off`（缺省 on，会话级）——`off` 时 `stream` 不规范化（原样）、`flushSymbolTurn` 直接跳过（不提醒不注入）；`state.symbolUnify` 由 reducer `symbol-unify` 切换。帮助目录与 `COMMANDS.md` 已列。
+- **回归**：`tests/symbols.test.ts`（纯函数 7 例）+ `tests/app.test.ts`「symbols」组（展示层替换 / notice / warnModel 注入与关闭 / recommended 扩展 / symbol-unify 开关）。
+
 ## 验证方式
 
 - 单元：`node --test`（input 解码、layout 视口等）

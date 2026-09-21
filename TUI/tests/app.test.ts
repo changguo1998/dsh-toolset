@@ -3612,3 +3612,122 @@ class TrackedApp extends App {
     registerApp(this);
   }
 }
+
+// ---- 模型输出符号规范化（symbols；2026-09-21） ----
+
+/** 可注入 symbol 规则的 makeApp 变体（默认规则 / 自定义）。 */
+function makeSymbolApp(
+  symbols?: ConstructorParameters<typeof App>[0]["symbols"],
+) {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const app = new TrackedApp({
+    renderer,
+    adapter,
+    notify: { enabled: false },
+    symbols,
+  });
+  app.start();
+  return { app, renderer, adapter };
+}
+
+test("symbols：stream 中别名符号替换、无替代符号保留原文（展示层）", () => {
+  const { renderer, adapter } = makeSymbolApp();
+  adapter.push({ type: "stream", sessionId: "s1", text: "本轮 ✔ 与 🚀" });
+  adapter.push({ type: "turn-end" });
+  // 正文行限定：notice 的合并消息含替换明细（✔→✓），不能拿全屏找"无 ✔"
+  const row = renderer.lastRender.find((l) => l.includes("本轮"));
+  assert.ok(row && row.includes("✓"), "正文行 ✔ 被替换为 ✓");
+  assert.ok(row && !row.includes("✔"), "正文行无原 ✔ 残留");
+  assert.ok(row && row.includes("🚀"), "无替代符号保留原文");
+});
+
+test("symbols：turn-end 发 notice（替换数 + 未推荐符号，合并一条）", () => {
+  const { renderer, adapter } = makeSymbolApp();
+  adapter.push({ type: "stream", sessionId: "s1", text: "✔ 成功 ✖ 失败 🚀" });
+  adapter.push({ type: "turn-end" });
+  const joined = renderer.lastRender.join("\n");
+  assert.ok(joined.includes("符号已替换"), "替换提示");
+  assert.ok(joined.includes("共 2 处"), "替换计数提示");
+  assert.ok(joined.includes("未推荐符号"), "未推荐符号提示");
+  assert.ok(joined.includes("🚀"), "列出的未推荐符号");
+});
+
+test("symbols：warnModel 默认 → turn-end 检测到即直接发送反馈", () => {
+  const { renderer, adapter } = makeSymbolApp();
+  adapter.push({ type: "stream", sessionId: "s1", text: "用了 🚀" });
+  adapter.push({ type: "turn-end" });
+  assert.ok(adapter.sent.length >= 1, "turn-end 后直接发送（不等用户输入）");
+  const fb = adapter.sent[0]!;
+  assert.ok(fb.includes("[符号规范]"), `规范反馈已发送（${fb.slice(0, 30)}）`);
+  assert.ok(fb.includes("重新选择"), "警示段要求重新选择");
+  assert.ok(fb.includes("符号选择规则"), "警示段复述选择规则");
+});
+
+test("symbols：仅替换（无未推荐）也反馈模型——无歧义映射指令", () => {
+  const { renderer, adapter } = makeSymbolApp();
+  adapter.push({ type: "stream", sessionId: "s1", text: "进度 ✔ 与 ⚠ 注意" });
+  adapter.push({ type: "turn-end" });
+  // notice 合并一条：既有替换明细也没有未推荐项
+  const joined = renderer.lastRender.join("\n");
+  assert.ok(joined.includes("符号已替换"), "替换提示存在");
+  assert.ok(joined.includes("✔→✓"), "替换明细（去重）");
+  assert.ok(!joined.includes("未推荐符号"), "本回合无未推荐项");
+  // 反馈直接发送（turn-end 后，无需用户输入）：无歧义指令
+  const fb = adapter.sent.find((s) => s.includes("[符号规范]"));
+  assert.ok(fb && fb.includes("请将「✔」替换为「✓」"), "替换反馈为无歧义指令");
+  assert.ok(fb && !fb.includes("重新选择"), "无警示时不要求重新选择");
+});
+
+test("symbols：warnModel:false 只 notice 不发送反馈", () => {
+  const { renderer, adapter } = makeSymbolApp({ warnModel: false });
+  adapter.push({ type: "stream", sessionId: "s1", text: "用了 🚀" });
+  adapter.push({ type: "turn-end" });
+  assert.equal(adapter.sent.length, 0, "warnModel=false 不发送反馈");
+  const joined = renderer.lastRender.join("\n");
+  assert.ok(joined.includes("未推荐符号"), "notice 仍给人看");
+});
+
+test("symbols：recommended 扩展后该符号不再提醒，alias 仍替换", () => {
+  const { renderer, adapter } = makeSymbolApp({
+    recommended: ["🚀"],
+  });
+  adapter.push({ type: "stream", sessionId: "s1", text: "火箭 🚀 成功 ✔" });
+  adapter.push({ type: "turn-end" });
+  const joined = renderer.lastRender.join("\n");
+  assert.ok(joined.includes("✓"), "✔ 被替换为 ✓（配置不改 alias）");
+  assert.ok(!joined.includes("未推荐符号"), "🚀 已在推荐列表内，不提醒");
+});
+
+test("symbol-unify 开关：off 原样不替换不提醒，on 恢复", () => {
+  const { renderer, adapter } = makeSymbolApp();
+  // off：关闭替换与提醒
+  typeAndEnter(renderer, "/symbol-unify off");
+  adapter.push({ type: "stream", sessionId: "s1", text: "原样 ✔ 与 🚀" });
+  adapter.push({ type: "turn-end" });
+  let joined = renderer.lastRender.join("\n");
+  assert.ok(joined.includes("✔"), "off 时 ✔ 原样保留（不替换）");
+  assert.ok(!joined.includes("未推荐符号"), "off 时不提醒");
+  // on：恢复替换与提醒
+  typeAndEnter(renderer, "/symbol-unify on");
+  adapter.push({ type: "stream", sessionId: "s1", text: "再试 ✔ 与 🚀" });
+  adapter.push({ type: "turn-end" });
+  joined = renderer.lastRender.join("\n");
+  assert.ok(joined.includes("✓"), "on 时 ✔ 被替换为 ✓");
+  // 本回合行不再含原 ✔（历史区仍有 off 回合的行，故限定本回合）
+  const onRow = renderer.lastRender.find((l) => l.includes("再试"));
+  assert.ok(onRow && !onRow.includes("✔"), "on 时本回合行无原 ✔");
+  assert.ok(joined.includes("未推荐符号"), "on 时无替代符号提醒");
+});
+
+test("symbol-unify：无参给出 usage 提示、状态不变", () => {
+  const { renderer, adapter } = makeSymbolApp();
+  typeAndEnter(renderer, "/symbol-unify");
+  const joined = renderer.lastRender.join("\n");
+  assert.ok(joined.includes("usage: /symbol-unify on|off"), "usage 提示");
+  // 状态仍为默认 on：后续 stream 正常替换
+  adapter.push({ type: "stream", sessionId: "s1", text: "✔" });
+  adapter.push({ type: "turn-end" });
+  const j2 = renderer.lastRender.join("\n");
+  assert.ok(j2.includes("✓"), "默认 on 仍替换");
+});

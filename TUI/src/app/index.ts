@@ -31,6 +31,14 @@ import type {
 } from "./adapter/dsh.ts";
 import type { NoticeTone } from "./adapter/types.ts";
 import {
+  normalizeSymbols,
+  resolveSymbolRules,
+  type NormalizeResult,
+  type ResolvedSymbolRules,
+  type SymbolRemap,
+  type SymbolRulesConfig,
+} from "./symbols.ts";
+import {
   parseSlashCommand,
   type CommandPanelKind,
   contractSummaryText,
@@ -194,6 +202,8 @@ export interface AppDeps {
     /** 等待用户输入超时(ms)；缺省 8000。最小 1000（由 config 归一化兜底） */
     idleThresholdMs?: number;
   };
+  /** 模型输出符号规范化规则（tui.config.json `symbols`；不传用内置默认，见 symbols.ts） */
+  symbols?: SymbolRulesConfig;
   /** 启动时自动清理空会话（tui.config.json `session.autoCleanEmpty`）。
    *  true 时 start() 异步扫描全部目录，删除已持久化 + 非 live + 无用户消息的会话。 */
   autoCleanEmpty?: boolean;
@@ -238,6 +248,14 @@ export class App {
   private bellEnabled = true;
   /** 声音提醒：等待输入阈值(ms)（deps.notify?.idleThresholdMs ?? 8000） */
   private idleBellMs = 8000;
+  /** 符号规范化规则（内置默认 + 配置合并；见 symbols.ts） */
+  private readonly symbolRules: ResolvedSymbolRules;
+  /** 本回合符号报告累积（已替换/未推荐符号），turn-end 后清 */
+  private symbolTurn: {
+    replacedCount: number;
+    remaps: SymbolRemap[];
+    unrecommended: string[];
+  } | null = null;
   /** 启动自动清理空会话开关（deps.autoCleanEmpty ?? false） */
   private autoCleanEmpty = false;
   /** 每 turn 思考的初始流速（配置值或默认）；正文加速后在下个 turn 回落 */
@@ -320,6 +338,8 @@ export class App {
   }
 
   constructor(private deps: AppDeps) {
+    // 符号规范化规则（tui.config.json symbols；缺省内置默认）
+    this.symbolRules = resolveSymbolRules(deps.symbols);
     // 声音提醒配置（P2#33）：不传 notify = 默认开启 + 8s 阈值
     this.bellEnabled = deps.notify?.enabled ?? true;
     // 阈值合法性：>0 有限数即可（1000ms 下限是 tui.config.json 用户配置层的职责，
@@ -690,13 +710,26 @@ export class App {
           break;
         }
         this.beginTurnIfNeeded();
+        // 符号统一（/symbol-unify 开关）：on=变体替换为推荐符号并记提醒（展示层）；
+        // off=原样透传（不替换不提醒）
+        const unified = this.state.symbolUnify
+          ? normalizeSymbols(e.text, this.symbolRules)
+          : null;
+        if (unified !== null) {
+          if (unified.replacedCount > 0 || unified.unrecommended.length > 0) {
+            this.accumulateSymbolTurn(unified);
+          }
+        }
+        const streamText = unified !== null ? unified.text : e.text;
         if (this.deps.slowStream && this.slowTimer) {
           // 思考打字机进行中：正文段入缓冲，等思考放完再即时显示(不限制正文流速)；
           // 正文已到=模型进入正题，剩余思考加速放完
           this.slowCps = SLOW_STREAM_ARRIVED_CPS;
-          this.pendingStream.push(e.text);
+          this.pendingStream.push(streamText);
         } else {
-          this.apply((s) => reduceState(s, { type: "append", text: e.text }));
+          this.apply((s) =>
+            reduceState(s, { type: "append", text: streamText }),
+          );
         }
         break;
       case "thinking":
@@ -774,6 +807,7 @@ export class App {
         } else {
           this.apply((s) => reduceState(s, { type: "turn-end" }));
           this.warnStrippedChars();
+          this.flushSymbolTurn();
         }
         break;
       case "tool-call":
@@ -880,6 +914,7 @@ export class App {
       this.drainThinking();
       this.apply((s) => reduceState(s, { type: "turn-end" }));
       this.warnStrippedChars();
+      this.flushSymbolTurn();
       this.paint();
     }
   }
@@ -920,6 +955,83 @@ export class App {
       }),
     );
     this.apply((s) => reduceState(s, { type: "clear-stripped" }));
+    this.paint();
+  }
+
+  /** 累积本回合符号报告（多次 stream 段汇总；替换明细 + 无替代符号去重）。 */
+  private accumulateSymbolTurn(nr: NormalizeResult): void {
+    const t = this.symbolTurn ?? {
+      replacedCount: 0,
+      remaps: [],
+      unrecommended: [],
+    };
+    t.replacedCount += nr.replacedCount;
+    t.remaps.push(...nr.remaps);
+    for (const ch of nr.unrecommended) {
+      if (!t.unrecommended.includes(ch)) t.unrecommended.push(ch);
+    }
+    this.symbolTurn = t;
+  }
+
+  /**
+   * turn 结束收尾：本回合有「替换（归一）」或「未推荐（警示）」时——
+   * notice 给人（合并一条）；warnModel 开启时生成一条合并反馈（替换+警示），
+   * 随下一条用户消息提交给模型（不单独发空回合）。
+   */
+  private flushSymbolTurn(): void {
+    const t = this.symbolTurn;
+    this.symbolTurn = null;
+    if (!this.state.symbolUnify) return; // 开关关闭：既不提示也不注入
+    if (!t) return;
+    const hasReplace = t.replacedCount > 0;
+    const hasWarn = t.unrecommended.length > 0;
+    if (!hasReplace && !hasWarn) return;
+    const remapBrief = [
+      ...new Set(t.remaps.map((m) => `${m.from}→${m.to}`)),
+    ].join(" ");
+    // notice（人：替换与警示合并一条）
+    let noticeText = "";
+    if (hasReplace) {
+      noticeText += `符号已替换：${remapBrief}（共 ${t.replacedCount} 处）`;
+    }
+    if (hasWarn) {
+      noticeText +=
+        (noticeText !== "" ? "；" : "") +
+        `未推荐符号：${t.unrecommended.join("")}`;
+    }
+    this.notice(noticeText + "（建议用推荐符号或文字）", "warn");
+    // 模型反馈（合并一条）：替换段 = 无歧义映射指令；警示段 = 复述规则 + 要求重新选择
+    if (this.symbolRules.warnModel) {
+      const parts: string[] = [];
+      if (hasReplace) {
+        // 按 from 去重（同一变体多处只列一次），生成「将 X 替换为 Y」指令；目标为空 → 删除
+        const seen = new Set<string>();
+        const instrs: string[] = [];
+        for (const { from, to } of t.remaps) {
+          if (seen.has(from)) continue;
+          seen.add(from);
+          instrs.push(
+            to === "" ? `请删除「${from}」` : `请将「${from}」替换为「${to}」`,
+          );
+        }
+        parts.push(`${instrs.join("；")}（推荐符号）。`);
+      }
+      if (hasWarn) {
+        parts.push(
+          `你使用的符号「${t.unrecommended.join("」 「")}」无推荐替代，请按符号选择规则重新选择：` +
+            `1）状态/方向/几何类符号用推荐符号（✓ ✗ △ → ← ↑ ↓ ↔ ▶ ◀ ▲ ▼ ⟹ • ◦ ○ ● ◯ ■ □ ◇ ◆ ⓘ 〜 …）或文字；` +
+            `2）有推荐对应关系的变体符号必须使用推荐对应符；` +
+            `3）避免 emoji、带颜色/填色符号及终端宽度不确定的字符。`,
+        );
+      }
+      // 立即直接发送（不等用户下一条输入）：turn-end 检测到即发，模型即刻处理。
+      // 直接 adapter.sendMessage（不经 sendUserText，避免 beginTurnIfNeeded 清空活动区
+      // 把刚发的 notice 一并刷掉；notice 保留到下次用户输入）
+      this.deps.adapter.sendMessage(
+        `[符号规范] ${parts.join(" ")}`,
+        this.state.activeSessionId ?? undefined,
+      );
+    }
     this.paint();
   }
 
@@ -1628,6 +1740,9 @@ export class App {
       case "verbose":
         this.handleVerboseCommand(line);
         return;
+      case "symbol-unify":
+        this.handleSymbolUnifyCommand(line);
+        return;
       case "session":
         // 会话列表 + 切换：见 openHistory / resumeToSession；
         // 子命令 clean：打开面板并直达「清理当前项目空会话」二次确认
@@ -1800,6 +1915,30 @@ export class App {
     }
     this.notice(
       `活动区：${next ? "verbose on（完整折行）" : "verbose off（紧凑：每条目 1 行 + 省略号）"}`,
+      "success",
+    );
+  }
+
+  /** `/symbol-unify on|off`：模型输出符号统一开关（变体替换为推荐 + 未推荐提醒）。 */
+  private handleSymbolUnifyCommand(line: string): void {
+    const arg = line.slice("/symbol-unify".length).trim().toLowerCase();
+    const cur = this.state.symbolUnify;
+    let next: boolean;
+    if (arg === "on" || arg === "true") next = true;
+    else if (arg === "off" || arg === "false") next = false;
+    else {
+      this.notice(
+        `usage: /symbol-unify on|off（当前：${cur ? "on(替换+提醒)" : "off(原样)"}）`,
+        "info",
+      );
+      return;
+    }
+    if (next !== cur) {
+      this.apply((s) => reduceState(s, { type: "symbol-unify", on: next }));
+      this.paint();
+    }
+    this.notice(
+      `模型输出符号统一：${next ? "on（变体替换为推荐符号并提醒）" : "off（原样，不替换不提醒）"}`,
       "success",
     );
   }
@@ -2858,6 +2997,10 @@ export class App {
       {
         cmd: "/verbose on|off",
         desc: "活动区详略：on=完整折行 / off=紧凑（每条目 1 行 + 行尾省略号）",
+      },
+      {
+        cmd: "/symbol-unify on|off",
+        desc: "模型输出符号统一：on=变体替换为推荐符号并提醒 / off=原样（不替换不提醒）",
       },
       {
         cmd: "/session",
