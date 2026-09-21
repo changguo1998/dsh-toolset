@@ -58,9 +58,11 @@ Edge:  DEF(file→symbol  contain) · IMPORTS(file→file)
 1. `refs`：对需要查询的符号按「同名标识符」做候选引用/调用边（首版先只对查询目标物化，不做全量按名扫——省一次全仓遍历）；
 1. 成本：本仓库量级全量扫描秒级；增量按文件 **mtime 懒失效**（查询时发现过期才重扫单文件），不做文件监听守护。
 
-## 5. 语义层（`src/lsp/`，precision）
+## 5. 语义层（`src/lsp/`，precision）——**首版不做，增量后置**
 
 `resolver`：结构层定位符号 → 批量调宿主 `tool-lsp` `findReferences`/`goToDefinition` → 精确引用集写回 REFS/CALLS（precise）并缓存。
+
+**首版范围**只走结构层候选边（recall），不接 tool-lsp（零宿主语义依赖、纯可测）；LSP 精确提升（`resolve`/`precise:true`）作为下一步增量并入查询面。
 
 两条查询路径按需求选策略：
 
@@ -71,15 +73,17 @@ Edge:  DEF(file→symbol  contain) · IMPORTS(file→file)
 
 ## 6. 查询面（消费方 = 模型 + 其他插件）
 
-`ctx_code_map`（服务注册到宿主 service 域，仿 `ctx_knowledge`）：
+> **命名澄清**（2026-09-21）：`ctx_code_map` 只是本文档概念名（承袭 `ctx_knowledge` 的写法）。按仓库统一命名约定，真实挂载 = **`provide('codeMap')` 服务 + 宿主命令/插件经 `ctx.get('codeMap')` 访问**（对齐 `taskEngine`/`metricLoop`/`knowledge` 模式）；bundle `code-map`、包 `@dsh-toolset/code-map`。
+
+model 侧经 `code_map` 工具（`inject: ["tools"]`，防御注册；action 见下）；其他插件经 TS 导出面 import。查询操作：
 
 - `index(opts)` / `refresh(opts)`：全量/增量刷新结构索引；
-- `callers(symbol, {depth?, precise?})`：调用者列表/子图（#22）；
+- `callers(symbol, {depth?})`：调用者列表/子图（#22，首版走候选边）；
 - `callees(symbol, {depth?})`：被调用者；
 - `impact(fileOrSymbol)`：影响面 = 反向引用闭包，聚合到模块（#21 核心）；
 - `cycles()`：依赖环（强连通分量）；
 - `report({scope?})`：项目/模块报告（见 §7）；
-- `resolve(symbol)`：语义层精确确认，附 precise 结果。
+- `resolve(symbol)`：语义层精确确认——**后置（依赖 §5 语义层）**，首版不提供。
 
 输出形态要求：**token 感知的紧凑结构化数据**（模型直接消费）；TS 导出等价 API 供其他插件（如 code-review 模板 #32、task-engine 语义面）import。
 
@@ -92,22 +96,24 @@ Edge:  DEF(file→symbol  contain) · IMPORTS(file→file)
 ```
 code-map/
   cordis.patch.yml            # insert: {id: code-map, name: '@dsh-toolset/code-map'}
-  package.json                # dsh.bundle.patch（仿 ast-tools）
+  package.json                # dsh.bundle.patch（仿 ast-tools）；dependencies: @dsh-toolset/ast-tools (link)
   tsconfig.json
   src/
-    index.ts                  # bundle 装配 + ctx_code_map 注册（仿 knowledge-base）+ TS 导出面
+    index.ts                  # bundle 装配：code_map 工具注册 + provide('codeMap') + TS 导出面
     types.ts                  # Symbol/Edge/Graph/Report 类型
-    indexer/{scan,imports,refs}.ts
-    graph/{graph,query}.ts
-    lsp/resolver.ts
-    report/builder.ts
-  tests/                      # indexer/graph/resolver/report
+    indexer/{scan,imports,refs}.ts   # 结构层（复用 ast-tools outlineFile/search）
+    graph/{graph,query}.ts          # 内存图 + callers/callees/impact/cycles
+    report/builder.ts               # #21 报告生成
+    lsp/resolver.ts                # （增量，首版不建）
+  tests/                      # indexer/graph/report
   README.md  DESIGN.md  IMPLEMENTATION.md
 ```
 
+**依赖决策**（2026-09-21）：npm `link:` 依赖 `@dsh-toolset/ast-tools`（直接 import `outlineFile`/`search`，不重复封装 ast-grep CLI）；宿主 profile 已装 ast-tools，code-map 挂载即可用。
+
 ## 9. DSH 接入面（`src/index.ts`）
 
-按 bundle 契约 `export { name, apply }`（仿 knowledge-base）：`createCodeMapBundle` 工厂（索引初始化 → 挂图 → 暴露服务，dispose）；`apply` 为宿主挂载入口；模块级持有 + `getCodeMapBundle()` 同步访问 / `whenCodeMapReady()` 等就绪避免竞态；`cordis.patch.yml` 声明 bundle 插入。
+按 bundle 契约 `export { name, inject, provide, apply }`：`name = "code-map"`，`inject = ["tools"]`（注册 `code_map` 工具，防御降级：tools 缺失仅告警），`provide = ["codeMap"]`（只读查询面，宿主命令/插件经 `ctx.get('codeMap')` 访问）；`createCodeMapBundle` 工厂（索引初始化 → 挂图 → 暴露服务，dispose）；模块级持有 + `getCodeMapBundle()` 同步访问 / `whenCodeMapReady()` 等就绪避免竞态；`cordis.patch.yml` 声明 bundle 插入。
 
 ## 10. 明确不做（防膨胀）
 
@@ -116,6 +122,7 @@ code-map/
 - 跨文件重命名（需语义级 rename 支持，超出 #21-#22）；
 - 远程仓库 clone 前索引（属 web-ext #25）；
 - 动态语言/宏元编程的精确调用图（语法层近似，文档声明）；
+- **首版不含**：LSP 语义层（`src/lsp`、`resolve`、precise 提升）——增量后置；
 - TUI 只读桥（`/map` `/callers`）——消费方决策后置，不进首版。
 
 ## 11. 约束与已知边界

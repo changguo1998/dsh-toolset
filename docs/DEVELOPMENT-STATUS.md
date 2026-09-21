@@ -19,7 +19,7 @@
 | security-guard | P1-P2 | — | 完成 | 危险命令黑名单 + 敏感文件保护，37 单测；已合入 main |
 | rate-guard | P2 | — | 已取消 | pi 侧已移除（能力由 pi 核心 provider-retry 内建 + 扩展 provider-guard 承接），不迁移（对比文档 §5.4） |
 | workflow-ext | P2 | — | 未开始 | |
-| code-intel | P2 | — | 未开始 | |
+| code-map | P2 | — | 未开始 | 设计已定（2026-09-21，见 `code-map/DESIGN.md`）：结构层索引 + 调用图 + 报告，首版不含 LSP 语义层 |
 | web-ext | P2 | — | 未开始 | |
 | session-broker | P2 | — | 未开始 | |
 | command-template | P2 | — | 未开始 | |

@@ -289,8 +289,8 @@ pi-dsh-minimal（反向桥）、herdr 集成、pi 内部补丁、配置数据。
 
 | 缺口 | 计划插件（backlog #） | 备注 |
 |------|----------------------|------|
-| 代码索引/符号图（callers）、项目/模块报告、PDF 视图 | code-intel（#21-#23） | 未开始 |
-| 搜索 provider 扩充、GitHub 克隆、PDF 提取、视频理解 | web-ext（#24-#26） | 未开始 |
+| 代码索引/符号图（callers）、项目/模块报告 | code-map（#21-#22） | 未开始（设计已定 2026-09-21） |
+| 搜索 provider 扩充、GitHub 克隆、PDF 视图/提取、视频理解 | web-ext（#23-#26） | 未开始 |
 | 跨会话 broker（消息/委托/状态同步） | session-broker（#30） | 未开始，无等效底座 |
 | slash 命令模板 + 模板级模型选择 | command-template（#31） | 未开始 |
 | 上下文压力/token 报告 | context-report（#34） | 未开始 |

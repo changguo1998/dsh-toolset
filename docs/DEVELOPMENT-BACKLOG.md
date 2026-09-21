@@ -143,7 +143,7 @@ defender 迁移（对比文档 §3.5）。
 | `ast-tools` | P1 | #20 | 无（新工具，捆绑 ast-grep 二进制） |
 | `security-guard` | P1-P2 | #27-#29 | sandbox、bash-sandbox、permission-presets、credentials |
 | `workflow-ext` | P2 | #14-#15 | agent-default-model、token-meter、workflow-run；自研 dsh-git-worktree 补完整隔离 |
-| `code-intel` | P2 | #21-#22 | tool-lsp |
+| `code-map` | P2 | #21-#22 | ast-tools（outline/search）、tool-lsp（语义层增量） |
 | `web-ext` | P2 | #23-#26 | search-deepseek/exa/perplexity（provider 扩充）、web-fetch-http、shell（git 克隆先行） |
 | `session-broker` | P2 | #30 | 无等效底座（webhook/acp/sdk 均非），新建 unix socket 通道 |
 | `command-template` | P2 | #31 | commands、workflow |
