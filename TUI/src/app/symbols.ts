@@ -224,13 +224,29 @@ export interface SymbolRulesConfig {
   aliases?: Record<string, string>;
   /** 是否随下一条用户消息向模型发提醒（缺省 true）。 */
   warnModel?: boolean;
+  /**
+   * 同符号冷却时间窗（毫秒，缺省 10 分钟；显式 0 = 关闭时间维度）。
+   * 某符号被反馈过一次后进入冷却，冷却期内不再对该符号反馈（2026-11 打破循环）。
+   */
+  cooldownMs?: number;
+  /**
+   * 同符号冷却 run 次数（缺省 3；显式 0 = 关闭次数维度）。
+   * 反馈后的若干次模型 run 内不再反馈同一符号；与 cooldownMs 并存时两个维度都过期才解冻。
+   */
+  cooldownRuns?: number;
 }
+
+/** 内置默认冷却：时间 10 分钟 / run 次数 3（均可配置覆盖，传 0 关闭对应维度）。 */
+export const DEFAULT_SYMBOL_COOLDOWN_MS = 10 * 60 * 1000;
+export const DEFAULT_SYMBOL_COOLDOWN_RUNS = 3;
 
 /** 解析后的完整规则（内置 + 配置合并）。 */
 export interface ResolvedSymbolRules {
   recommendedSet: ReadonlySet<string>;
   aliases: Readonly<Record<string, string>>;
   warnModel: boolean;
+  cooldownMs: number;
+  cooldownRuns: number;
 }
 
 /** 把配置合并到内置默认，产出最终规则。 */
@@ -244,6 +260,8 @@ export function resolveSymbolRules(
     recommendedSet: recommended,
     aliases,
     warnModel: cfg?.warnModel ?? true,
+    cooldownMs: cfg?.cooldownMs ?? DEFAULT_SYMBOL_COOLDOWN_MS,
+    cooldownRuns: cfg?.cooldownRuns ?? DEFAULT_SYMBOL_COOLDOWN_RUNS,
   };
 }
 
@@ -253,24 +271,6 @@ export interface SymbolRemap {
   to: string;
 }
 
-/** 单次规范化的产出。 */
-export interface NormalizeResult {
-  /** 替换后的展示文本（无替代的符号保留原样）。 */
-  text: string;
-  /** 已替换次数（别名命中）。 */
-  replacedCount: number;
-  /** 替换明细（from → to，全部别名命中）。 */
-  remaps: SymbolRemap[];
-  /** 无替代的治理区外符号（去重，按出现顺序）。 */
-  unrecommended: string[];
-}
-
-/** 文字/常用标点放行判定（汉字/假名/谚文/全角标点与英文拉丁字母等非治理对象）。 */
-function isPassable(cp: number): boolean {
-  if (cp < 0x2000) return true; // ASCII + Latin-1 补充/希腊/西里尔等字母制
-  if (cp >= 0x2000 && cp <= 0x206f) return true; // 通用标点（含 …）
-  if (cp >= 0x2e80 && cp <= 0xa4cf) return true; // 部首/汉字/假名/谚文/注音
-  if (cp >= 0xac00 && cp <= 0xd7a3) return true; // Hangul 音节
 /**
  * emoji 呈现起源的别名来源：展示层照常替换，但模型反馈按「先要求更换、再说明已替换」
  * 处理（2026-11）。勾/叉/警示/圆/方块等带色或 emoji 呈现的符号归入，细线变体不归入。
@@ -328,6 +328,26 @@ const EMOJI_ORIGIN: ReadonlySet<string> = new Set([
   "⏬",
 ]);
 
+/** 单次规范化的产出。 */
+export interface NormalizeResult {
+  /** 替换后的展示文本（无替代的符号保留原样）。 */
+  text: string;
+  /** 已替换次数（别名命中）。 */
+  replacedCount: number;
+  /** 替换明细（from → to，全部别名命中）。 */
+  remaps: SymbolRemap[];
+  /** 仅 emoji 起源的替换明细（模型反馈按「要求更换」列出）。 */
+  emojiRemaps: SymbolRemap[];
+  /** 无替代的治理区外符号（去重，按出现顺序）。 */
+  unrecommended: string[];
+}
+
+/** 文字/常用标点放行判定（汉字/假名/谚文/全角标点与英文拉丁字母等非治理对象）。 */
+function isPassable(cp: number): boolean {
+  if (cp < 0x2000) return true; // ASCII + Latin-1 补充/希腊/西里尔等字母制
+  if (cp >= 0x2000 && cp <= 0x206f) return true; // 通用标点（含 …）
+  if (cp >= 0x2e80 && cp <= 0xa4cf) return true; // 部首/汉字/假名/谚文/注音
+  if (cp >= 0xac00 && cp <= 0xd7a3) return true; // Hangul 音节
   if (cp >= 0xf900 && cp <= 0xfaff) return true; // CJK 兼容表意
   if (cp >= 0x20000 && cp <= 0x2fffd) return true; // CJK 扩展 B+
   if (cp >= 0xfe10 && cp <= 0xfe4f) return true; // 竖排/兼容形式
@@ -336,8 +356,6 @@ const EMOJI_ORIGIN: ReadonlySet<string> = new Set([
 }
 
 /** 是否为零宽/组合字符（不参与治理，原样透传）。 */
-  /** 仅 emoji 起源的替换明细（模型反馈按「要求更换」列出）。 */
-  emojiRemaps: SymbolRemap[];
 function isZeroWidth(cp: number): boolean {
   return (
     (cp >= 0x0300 && cp <= 0x036f) ||
@@ -357,6 +375,7 @@ export function normalizeSymbols(
   let out = "";
   let replacedCount = 0;
   const remaps: SymbolRemap[] = [];
+  const emojiRemaps: SymbolRemap[] = [];
   const unrecommended: string[] = [];
   const seen = new Set<string>();
   for (const ch of text) {
@@ -375,7 +394,7 @@ export function normalizeSymbols(
       out += alias;
       replacedCount++;
       remaps.push({ from: ch, to: alias });
-  const emojiRemaps: SymbolRemap[] = [];
+      if (EMOJI_ORIGIN.has(ch)) emojiRemaps.push({ from: ch, to: alias });
       continue;
     }
     if (inRanges(cp, GOVERNED_RANGES)) {
@@ -394,7 +413,6 @@ export function normalizeSymbols(
       out += ch;
       continue;
     }
-      if (EMOJI_ORIGIN.has(ch)) emojiRemaps.push({ from: ch, to: alias });
     out += ch; // 其他（默认放行）
   }
   return { text: out, replacedCount, remaps, emojiRemaps, unrecommended };

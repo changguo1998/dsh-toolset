@@ -254,8 +254,14 @@ export class App {
   private symbolTurn: {
     replacedCount: number;
     remaps: SymbolRemap[];
+    emojiRemaps: SymbolRemap[];
     unrecommended: string[];
   } | null = null;
+  /** 同符号冷却表（2026-11）：symbol → { dueAtMs, remainingRuns }——反馈过一次后冷却期内不再反馈 */
+  private symbolCooldown = new Map<
+    string,
+    { dueAtMs: number; remainingRuns: number }
+  >();
   /** 启动自动清理空会话开关（deps.autoCleanEmpty ?? false） */
   private autoCleanEmpty = false;
   /** 每 turn 思考的初始流速（配置值或默认）；正文加速后在下个 turn 回落 */
@@ -958,15 +964,63 @@ export class App {
     this.paint();
   }
 
+  /**
+   * 同符号冷却（2026-11）：某符号反馈过一次后进入冷却，冷却期内不再反馈该符号，
+   * 打破「助手讨论符号本身 → 每轮反复提醒」的循环。时间窗与 run 次数双维：
+   * 任一维度未过期即视为仍冷却；都过期才解冻（可再次反馈）。展示层替换照常进行。
+   */
+  private isSymbolCooling(ch: string): boolean {
+    const rec = this.symbolCooldown.get(ch);
+    if (!rec) return false;
+    const inTime = this.symbolRules.cooldownMs > 0 && Date.now() < rec.dueAtMs;
+    const inRuns = this.symbolRules.cooldownRuns > 0 && rec.remainingRuns > 0;
+    return inTime || inRuns;
+  }
+
+  /** 对已反馈（列入本次提醒）的符号登记或重置冷却。 */
+  private enterSymbolCooldown(ch: string): void {
+    if (
+      this.symbolRules.cooldownMs <= 0 &&
+      this.symbolRules.cooldownRuns <= 0
+    ) {
+      return;
+    }
+    const rec = this.symbolCooldown.get(ch) ?? {
+      dueAtMs: 0,
+      remainingRuns: 0,
+    };
+    rec.dueAtMs = Date.now() + Math.max(this.symbolRules.cooldownMs, 0);
+    rec.remainingRuns = Math.max(this.symbolRules.cooldownRuns, 0);
+    this.symbolCooldown.set(ch, rec);
+  }
+
+  /** 每 turn 推进冷却 run 计数；两个维度都过期后清出记录（解冻）。 */
+  private tickSymbolCooldown(): void {
+    if (this.symbolRules.cooldownRuns > 0) {
+      for (const rec of this.symbolCooldown.values()) {
+        if (rec.remainingRuns > 0) rec.remainingRuns -= 1;
+      }
+    }
+    for (const [ch, rec] of this.symbolCooldown) {
+      const inTime =
+        this.symbolRules.cooldownMs > 0 && Date.now() < rec.dueAtMs;
+      if (!inTime && rec.remainingRuns <= 0) {
+        this.symbolCooldown.delete(ch);
+      }
+    }
+  }
+
   /** 累积本回合符号报告（多次 stream 段汇总；替换明细 + 无替代符号去重）。 */
   private accumulateSymbolTurn(nr: NormalizeResult): void {
     const t = this.symbolTurn ?? {
       replacedCount: 0,
       remaps: [],
+      emojiRemaps: [],
       unrecommended: [],
     };
     t.replacedCount += nr.replacedCount;
     t.remaps.push(...nr.remaps);
+    t.emojiRemaps.push(...nr.emojiRemaps);
     for (const ch of nr.unrecommended) {
       if (!t.unrecommended.includes(ch)) t.unrecommended.push(ch);
     }
@@ -979,53 +1033,79 @@ export class App {
    * 随下一条用户消息提交给模型（不单独发空回合）。
    */
   private flushSymbolTurn(): void {
+    this.tickSymbolCooldown(); // 每 turn 推进冷却 run 计数（解冻判定）
     const t = this.symbolTurn;
     this.symbolTurn = null;
     if (!this.state.symbolUnify) return; // 开关关闭：既不提示也不注入
     if (!t) return;
-    const hasReplace = t.replacedCount > 0;
-    const hasWarn = t.unrecommended.length > 0;
-    if (!hasReplace && !hasWarn) return;
-    const remapBrief = [
-      ...new Set(t.remaps.map((m) => `${m.from}→${m.to}`)),
-    ].join(" ");
-    // notice（人：替换与警示合并一条）
+    // 冷却过滤（2026-11）：反馈过一次的符号在冷却期内不再反馈（展示层替换照常）；
+    // 本轮真正列入提醒的符号在此登记冷却。三组（emoji 罗列/变体计数/警示）独立计数。
+    const emojiSeen = new Set<string>();
+    const emojiInstrs: string[] = [];
+    for (const { from, to } of t.emojiRemaps) {
+      if (emojiSeen.has(from)) continue;
+      emojiSeen.add(from);
+      if (this.isSymbolCooling(from)) continue; // emoji 罗列跳过冷却中的符号
+      emojiInstrs.push(
+        to === "" ? `请删除「${from}」` : `请将「${from}」改为「${to}」`,
+      );
+      this.enterSymbolCooldown(from);
+    }
+    const emojiFroms = new Set(t.emojiRemaps.map((r) => r.from));
+    let variantCount = 0;
+    const variantSeen = new Set<string>();
+    for (const { from } of t.remaps) {
+      if (emojiFroms.has(from) || variantSeen.has(from)) continue;
+      variantSeen.add(from);
+      if (this.isSymbolCooling(from)) continue; // 变体只统计未冷却的
+      variantCount++;
+      this.enterSymbolCooldown(from);
+    }
+    const warnList: string[] = [];
+    for (const ch of t.unrecommended) {
+      if (this.isSymbolCooling(ch)) continue; // 警示跳过冷却中的符号
+      warnList.push(ch);
+      this.enterSymbolCooldown(ch);
+    }
+    const hasEmoji = emojiInstrs.length > 0;
+    const hasVariant = variantCount > 0;
+    const hasWarn = warnList.length > 0;
+    if (!hasEmoji && !hasVariant && !hasWarn) return; // 全部处于冷却：本轮静默
+    // notice（人：替换只报计数、不罗列被替换符号；警示列未推荐符号——均只含未冷却的新内容）
     let noticeText = "";
-    if (hasReplace) {
-      noticeText += `符号已替换：${remapBrief}（共 ${t.replacedCount} 处）`;
+    if (hasEmoji || hasVariant) {
+      noticeText += `符号已替换 ${emojiInstrs.length + variantCount} 处为推荐符号`;
     }
     if (hasWarn) {
       noticeText +=
-        (noticeText !== "" ? "；" : "") +
-        `未推荐符号：${t.unrecommended.join("")}`;
+        (noticeText !== "" ? "；" : "") + `未推荐符号：${warnList.join("")}`;
     }
     this.notice(noticeText + "（建议用推荐符号或文字）", "warn");
-    // 模型反馈（合并一条）：替换段 = 无歧义映射指令；警示段 = 复述规则 + 要求重新选择
+    // 模型反馈（合并一条）：
+    //   emoji 起源替换 = 先要求更换（罗列「X→Y」）；普通变体替换 = 只报计数；
+    //   警示 = 复述规则 + 要求重新选择
     if (this.symbolRules.warnModel) {
       const parts: string[] = [];
-      if (hasReplace) {
-        // 按 from 去重（同一变体多处只列一次），生成「将 X 替换为 Y」指令；目标为空 → 删除
-        const seen = new Set<string>();
-        const instrs: string[] = [];
-        for (const { from, to } of t.remaps) {
-          if (seen.has(from)) continue;
-          seen.add(from);
-          instrs.push(
-            to === "" ? `请删除「${from}」` : `请将「${from}」替换为「${to}」`,
-          );
-        }
-        parts.push(`${instrs.join("；")}（推荐符号）。`);
+      if (hasEmoji) {
+        parts.push(
+          `你使用了 emoji 符号，展示层已替换为推荐符号——请更换为推荐符号或文字：${emojiInstrs.join("；")}。`,
+        );
+      }
+      if (hasVariant) {
+        parts.push(
+          `另有 ${variantCount} 处变体符号已按推荐替换（不逐一列示，请直接用推荐符号）。`,
+        );
       }
       if (hasWarn) {
         parts.push(
-          `你使用的符号「${t.unrecommended.join("」 「")}」无推荐替代，请按符号选择规则重新选择：` +
-            `1）状态/方向/几何类符号用推荐符号（✓ ✗ △ → ← ↑ ↓ ↔ ▶ ◀ ▲ ▼ ⟹ • ◦ ○ ● ◯ ■ □ ◇ ◆ ⓘ 〜 …）或文字；` +
+          `你使用的符号「${warnList.join("」 「")}」无推荐替代，请按符号选择规则重新选择：` +
+            `1）状态/方向/几何类符号用推荐符号（✓ ✗ △ → ← ↑ ↓ ↔ ↕ ↖ ↗ ↘ ↙ ▶ ◀ ▲ ▼ ▷ ◁ ▽ ⟸ ⟹ ⟺ • ◦ ○ ● ◯ ■ □ ◇ ◆ ⓘ 〜 …）或文字；` +
             `2）有推荐对应关系的变体符号必须使用推荐对应符；` +
             `3）避免 emoji、带颜色/填色符号及终端宽度不确定的字符。`,
         );
       }
-      // 实验（2026-09-21）：turn-end 回调内同步 followup 宿主不接（实测 0 落盘）；
-      // 推迟一个宏任务再发，待宿主完成 run 收尾进入等待态，验证能否送达
+      // turn-end 回调内同步 followup 宿主不接（实测不落盘）；推迟一个宏任务再发，
+      // 待宿主完成 run 收尾进入等待态（实测送达模型并自动开新回合）
       const fb = `[符号规范] ${parts.join(" ")}`;
       const sid = this.state.activeSessionId ?? undefined;
       setTimeout(() => {

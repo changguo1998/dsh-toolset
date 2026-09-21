@@ -3738,3 +3738,67 @@ test("symbol-unify：无参给出 usage 提示、状态不变", () => {
   const j2 = renderer.lastRender.join("\n");
   assert.ok(j2.includes("✓"), "默认 on 仍替换");
 });
+
+// ---- 同符号冷却（2026-11：反馈过一次后冷却期内不再反馈，打破反复提醒循环） ----
+
+test("symbols：冷却 run 次数——同一符号反馈一次后若干 run 内不再反馈，解冻后再反馈", async () => {
+  const { adapter } = makeSymbolApp({ cooldownRuns: 2, cooldownMs: 0 });
+  const push = (text: string) => {
+    adapter.push({ type: "stream", sessionId: "s1", text });
+    adapter.push({ type: "turn-end" });
+  };
+  const feedbacks = () => adapter.sent.filter((s) => s.includes("[符号规范]"));
+  push("第一次 🚀");
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(feedbacks().length, 1, "首次出现即反馈（含警示段）");
+  push("第二次 🚀");
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(feedbacks().length, 1, "冷却期内同一符号不再反馈");
+  push("第三次 🚀");
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(feedbacks().length, 2, "run 次数耗尽解冻后再反馈");
+});
+
+test("symbols：冷却不误伤其它符号；时间窗维度未过时仍冷却（双维任一未过即冷却）", async () => {
+  const { adapter } = makeSymbolApp({ cooldownRuns: 2, cooldownMs: 60_000 });
+  const push = (text: string) => {
+    adapter.push({ type: "stream", sessionId: "s1", text });
+    adapter.push({ type: "turn-end" });
+  };
+  const feedbacks = () => adapter.sent.filter((s) => s.includes("[符号规范]"));
+  push("第一个 🚀");
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(feedbacks().length, 1, "🚀 首次反馈并进入冷却");
+  push("第二个 ⚠");
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(feedbacks().length, 2, "不同符号不受冷却影响、照常反馈");
+  push("第三个 🚀");
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(
+    feedbacks().length,
+    2,
+    "🚀 次数已跑完但 60s 时间窗未过 → 仍冷却静默",
+  );
+  push("第四个 ⚠");
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(feedbacks().length, 2, "⚠ 反馈后进入冷却 → 第四 run 静默");
+});
+
+test("symbols：变体（非 emoji）替换也按符号冷却", async () => {
+  const { adapter } = makeSymbolApp({ cooldownRuns: 2, cooldownMs: 0 });
+  const push = (text: string) => {
+    adapter.push({ type: "stream", sessionId: "s1", text });
+    adapter.push({ type: "turn-end" });
+  };
+  const feedbacks = () => adapter.sent.filter((s) => s.includes("[符号规范]"));
+  push("细线变体 ✔ 一次");
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(feedbacks().length, 1, "首次报「另有 1 处变体」");
+  assert.ok(feedbacks()[0]!.includes("另有 1 处变体"), "变体只报计数");
+  push("细线变体 ✔ 二次");
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(feedbacks().length, 1, "同一变体符号冷却期内静默");
+  push("细线变体 ✔ 三次");
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(feedbacks().length, 2, "解冻后再报变体");
+});

@@ -208,17 +208,17 @@
 
 ## 模型输出符号规范化（symbols，2026-09-21）
 
-- **纯函数**（`app/symbols.ts`）：`resolveSymbolRules`（内置默认 + 配置合并）与 `normalizeSymbols`（逐码点，判定顺序：孤立代理/零宽跳过 → 别名映射替换 → 治理区 `[2190-21FF, 2300-23FF, 2500-27BF, 2B00-2BFF, 1F000-1FAFF, FFE0-FFE6]` 内查推荐白名单 → 文字/标点放行 → 其余放行）。输出替换后文本 + `replacedCount/remaps/unrecommended`。
-- **接入**（`app/index.ts`）：`case "stream"` 对每段正文 `normalizeSymbols`（slowStream 的 `pendingStream` 与直发两条路径都走规范化），结果累积到 `symbolTurn`（跨段去重）；`turn-end` 两个分支（直发 / slow 的 `flushPending` 补执行）后 `flushSymbolTurn()`：有未推荐符号 → notice（含替换计数）+ 生成 `pendingSymbolText`。
-- **反馈注入**：turn-end 检测到替换/警示后**立即直接发送**（`adapter.sendMessage`，`[符号规范]` 一条，替换段 = 无歧义「请将 X 替换为 Y」指令、警示段 = 复述 3 条选择规则 + 要求重新选择）；**不**随用户下一条消息合并（原 pendingSymbolText 机制已移除）。不经 `sendUserText` 以避免清空活动区刷掉 notice。
-- **配置**（`app/config.ts`）：`tui.config.json` `symbols.{recommended[],aliases{},warnModel}`；`main.ts` 经 `new App({ symbols })` 注入，缺省走内置默认。内置推荐 = `✓ ✗ △ → ← ↑ ↓ ↔ ▶ ◀ ▲ ▼ ⟹ • ◦ ○ ● ◯ ■ □ ◇ ◆ ⓘ 〜 …`，按「域 × 家族」归一（箭头单线四向、三角四向、C 双线 `⟹`、圆/方块/菱形几何全推、列表圆点 `•`、信息圈 i `ⓘ`、感叹/加减 emoji→ASCII `!`/`+`/`-`、金额 `￥→¥`、全角波浪 `～→〜`）；**按几何拆分**：`☑☒`（方框）、`◦`（空心圆点）、`√`（根号）、`⇔`（双向）、`⇐`（左向）不归一（`☑☒◦⇔⇐` 使用即提醒、`√` 治理区外放行）；箭头 D、列表三角点/方块族、星标域（含 emoji `⭐`）、信息图形族（`💡`）不纳入——使用即提醒。
+- **纯函数**（`app/symbols.ts`）：`resolveSymbolRules`（内置默认 + 配置合并）与 `normalizeSymbols`（逐码点，判定顺序：孤立代理/零宽跳过 → 别名映射替换 → 治理区 `[2190-21FF, 2300-23FF, 2500-27BF, 2B00-2BFF, 1F000-1FAFF, FFE0-FFE6]` 内查推荐白名单 → 文字/标点放行 → 其余放行）。输出替换后文本 + `replacedCount/remaps/emojiRemaps/unrecommended`（emojiRemaps = 仅 emoji 呈现起源的替换明细，供反馈按「要求更换」罗列）。
+- **接入**（`app/index.ts`）：`case "stream"` 对每段正文 `normalizeSymbols`（slowStream 的 `pendingStream` 与直发两条路径都走规范化），结果累积到 `symbolTurn`（跨段去重）；`turn-end` 两个分支（直发 / slow 的 `flushPending` 补执行）后 `flushSymbolTurn()`：有替换/未推荐 → notice（给人）+ 按需生成 `[符号规范]` 反馈（见下）。
+- **反馈注入**：turn-end 检测到替换/警示后**宏任务推迟直发**（`setTimeout(0)` + `adapter.sendMessage`，`[符号规范]` 一条：**emoji 起源替换罗列「请将 X 改为 Y」要求更换**（先要求更换、展示层再替换，2026-11）；**细线变体替换只报计数**、不罗列明细；警示段复述 3 条选择规则 + 要求重新选择）；**同符号冷却（2026-11）**：`flushSymbolTurn` 开头 `tickSymbolCooldown()` 推进 run 计数；emoji 罗列 / 变体计数 / 警示列表三组各自按 `isSymbolCooling(from)` 过滤冷却中的符号，本轮真正列入提醒的符号 `enterSymbolCooldown` 登记冷却——三组全部被冷却时该 turn 完全静默（无 notice 无反馈）；**不**随用户下一条消息合并（原 pendingSymbolText 机制已移除）。不经 `sendUserText` 以避免清空活动区刷掉 notice。直发经宏任务推迟：turn-end 回调内同步 followup 宿主不接（实测不送达/不落盘），宏任务后再发实测送达。发送前检查 `disposed`。
+- **配置**（`app/config.ts`）：`tui.config.json` `symbols.{recommended[],aliases{},warnModel,cooldownMs,cooldownRuns}`；`main.ts` 经 `new App({ symbols })` 注入，缺省走内置默认（冷却缺省 10 分钟 / 3 run，均传 0 关闭对应维度）。内置推荐 = `✓ ✗ △ → ← ↑ ↓ ↔ ↕ ↖ ↗ ↘ ↙ ▶ ◀ ▲ ▼ ▷ ◁ ▽ ⟸ ⟹ ⟺ • ◦ ○ ● ◯ ■ □ ◇ ◆ ⓘ 〜 …`，按「域 × 家族」归一（箭头单线八向 + 双向 `↔↕`、三角四向（实/空心）、C 双线 `⟸⟹⟺`、圆/方块/菱形几何全推（**空心/实心各成一族**，2026-11）、圆族 emoji `⭕→○`（圆环）`⚪⚫🔴🔵🟠🟡🟢🟣🟤→●`（`⬤` U+2B24 黑大圆同 ● 仅大小）、方块族 <code>▫◻🔳🔲→□</code>/<code>◽▪◼⬛⬜🟥🟦🟧🟨🟩🟪🟫→■</code>（🔳🔲 双色方块按钮 → □；◽ 观感实心 → ■，2026-11 订正）、菱形族 <code>🔷🔹🔶🔸⬥⬧→◆</code>/<code>⬦⬨→◇</code>、三角族 <code>🔺🔼→▲</code>/<code>🔻🔽→▼</code>（emoji 按「设计含色数」归类，2026-11：单色填充=实心、双色/内空腔=空心）、状态族 <code>✔✅☑🗹→✓</code>/<code>✕✖✘❌×🗙☒🗷→✗</code>（☑☒ 与 🗹🗷 为**特例**）、列表圆点 `•`、信息圈 i `ⓘ`、感叹/问号/加减 emoji→ASCII `!`/`?`/`+`/`-`、金额 `￥￠￡￦→¥¢£₩`、全角波浪 `～→〜`）；**箭头按「方向一致」归一（2026-11）**：各方向黑箭头/三角变体归一到该向代表（A 族 `➔➜➡➠➢➣→→`、`⬅⬆⬇→←↑↓`；B 族 `▸►⏵⏩➤→▶`、`◂◄⏴⏪→◀`、`▴⏶⏫→▲`、`▾⏷⏬→▼`；B 空心三角族 `▹▻→▷`、`◃◅→◁`、`▵→△`、`▿→▽`（▷◁△▽ 四向代表，与实心族不互相归一）；C 族 `⇒→⟹`、`⇐→⟸`、`⇔→⟺`）；**按几何拆分**：`√`（根号）不归一（治理区外放行）；箭头 D、列表三角点不纳入——使用即提醒；星标域 `★☆✦✧` 与 emoji `⭐` 均无推荐代表——一律按警告处理、不归一（2026-11）、信息图形族（`💡`）不纳入——使用即提醒。
 - **选型判据（2026-09-21 评审定稿，用于后续扩展推荐/别名对齐）**：
   1. 归一依据 = **形状身份（几何部件组合）**；功能、语义、宽度一律不参与；
   1. 同一形状身份内只容**修饰性变体**归一：粗细、大小、重复数量、emoji 上色、内缀细节；**明暗/填充（空心 vs 实心）不是修饰**——空心、实心各为独立一族（2026-11 修订）；
   1. 触发**拆分**（不归一，按几何各自独立）：**明暗/填充（空心/实心各成一族）**、新增独立部件（方框）、核心形状变化（圆环 vs 实盘、勾 vs 根号）、方向/对称变化（反向、双向 vs 单向）。
      校准点：`☑`（方框勾）/`☒`（方框叉）与追加符号区 `🗹`/`🗷` 为**特例**（2026-11，用户裁量）：虽带独立方框，不各自成族也不拆分提醒，而是并入无框的细线符号 `✅☑🗹→✓`、`❌☒🗷→✗`；其余独立部件判定照旧（`√` 治理区外放行）；`⏩⏫⏬`（双三角 = 数量/速度修饰）留 `→▶`/`→▲▼`，而 C 族短双线 `⇒⇐⇔` 按方向归一到长双线代表 `⟸⟹⟺`（2026-11，不再拆分提醒）；**空心三角族**（2026-11）四向代表 `▷◁△▽` 入白名单、族内尺寸/指针变体归一到该向代表，与实心 `▶◀▲▼` 族间不互相归一。
 - **开关**（`app/index.ts` + `app/state.ts`）：`/symbol-unify on|off`（缺省 on，会话级）——`off` 时 `stream` 不规范化（原样）、`flushSymbolTurn` 直接跳过（不提醒不注入）；`state.symbolUnify` 由 reducer `symbol-unify` 切换。帮助目录与 `COMMANDS.md` 已列。
-- **回归**：`tests/symbols.test.ts`（纯函数 7 例）+ `tests/app.test.ts`「symbols」组（展示层替换 / notice / warnModel 注入与关闭 / recommended 扩展 / symbol-unify 开关）。
+- **回归**：`tests/symbols.test.ts`（纯函数 7 例）+ `tests/app.test.ts`「symbols」组（展示层替换 / notice / warnModel 注入与关闭 / recommended 扩展 / symbol-unify 开关 / **同符号冷却**：run 次数解冻、时间窗维度、跨符号互不影响、变体冷却）。
 
 ## 验证方式
 

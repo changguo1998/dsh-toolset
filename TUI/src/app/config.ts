@@ -104,6 +104,12 @@ const intGe = (v: unknown, min: number): number | undefined =>
 const boolOr = (v: unknown): boolean | undefined =>
   typeof v === "boolean" ? v : undefined;
 
+/** 非负有限数字段（cooldown 用；非法/负数/小数取整后 → undefined）。 */
+const nonNegIntOr = (v: unknown): number | undefined =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0
+    ? Math.floor(v)
+    : undefined;
+
 const isNonEmptyStr = (v: unknown): v is string =>
   typeof v === "string" && v !== "";
 
@@ -216,7 +222,7 @@ export function normalizeConfig(raw: unknown): TuiConfig {
   };
 }
 
-/** 归一化 symbols 段：recommended（字符串数组）/ aliases（非空字符串映射）/ warnModel（布尔）。 */
+/** 归一化 symbols 段：recommended / aliases / warnModel / 冷却（cooldownMs、cooldownRuns 非负整数）。 */
 function normalizeSymbolsSection(raw: unknown): SymbolRulesConfig | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const s = raw as Record<string, unknown>;
@@ -234,11 +240,23 @@ function normalizeSymbolsSection(raw: unknown): SymbolRulesConfig | undefined {
     if (Object.keys(out).length > 0) aliases = out;
   }
   const warnModel = boolOr(s.warnModel);
-  if (!recommended && !aliases && warnModel === undefined) return undefined;
+  const cooldownMs = nonNegIntOr(s.cooldownMs);
+  const cooldownRuns = nonNegIntOr(s.cooldownRuns);
+  if (
+    !recommended &&
+    !aliases &&
+    warnModel === undefined &&
+    cooldownMs === undefined &&
+    cooldownRuns === undefined
+  ) {
+    return undefined;
+  }
   return {
     ...(recommended ? { recommended } : {}),
     ...(aliases ? { aliases } : {}),
     ...(warnModel === undefined ? {} : { warnModel }),
+    ...(cooldownMs === undefined ? {} : { cooldownMs }),
+    ...(cooldownRuns === undefined ? {} : { cooldownRuns }),
   };
 }
 
