@@ -25,7 +25,7 @@
 | hash-edit | P1 | 完成 | LINE:HASH 锚定读写编辑（stale 整批拒绝），43 单测 |
 | ast-tools | P1 | 完成 | ast-grep 搜索/替换/大纲/规则执行，27 单测 |
 | security-guard | P1-P2 | 完成 | 危险命令黑名单 + 敏感文件保护策略层，37 单测 |
-| code-map | P2 | 完成 | 结构索引（符号表 + import 图）+ callers/callees/cycles/impact + 项目/模块报告，13 单测；首版边界：引用为候选（无 LSP 语义层）、callees 文件级、索引惰性构建，见 `code-map/DESIGN.md` |
+| code-map | P2 | 完成 | 结构索引（符号表 + import 图）+ callers/callees/cycles/impact + 项目/模块报告，14 单测；首版边界：引用为候选（无 LSP 语义层）、callees 文件级、索引惰性构建，见 `code-map/DESIGN.md` |
 | TUI 扩展 | P2 | 完成（P2 部分） | 命令面：7 项纯 TUI 命令、A1-A5（/task /guard /memory /loop /contract）、/workflows、/council、/search；另有声音提醒、/verbose 两态、会话自动清理（`session.autoCleanEmpty`，默认开）等。C6/C7 裁定维持排除、C8 /review 裁定搁置；现状口径见 `TUI/COMMANDS.md`、`TUI/COMMANDS-SPEC.md`（实施清单已完成并归档：`archive/TUI-COMMANDS-TASKS.md`） |
 | rate-guard | P2 | 已取消 | 不迁移，见总览 |
 | workflow-ext | P2 | 未开始 | |

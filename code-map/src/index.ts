@@ -2,8 +2,9 @@
  * code-map 插件入口（DSH bundle 接入面）。
  *
  * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
- * name / inject / provide / apply；apply 不收配置形参（内部自建缺省 `CodeMapConfig` 实例），
- * 故不导出 Config——宿主配置原样透传且被忽略。
+ * name / inject / provide / apply / Config；apply(ctx, config) 把配置透传给
+ * `createCodeMapBundle`（`root` 生效，`ast` 供程序化注入），Config 以类型别名给出
+ * （无运行时 schema，宿主不校验）。
  * - `inject: ["tools"]`：注册 `code_map` 工具（防御降级：tools 缺失仅告警）；
  * - `provide: ["codeMap"]`：只读查询面，宿主命令/插件经 `ctx.get('codeMap')` 访问；
  * - 核心工厂 `createCodeMapBundle`（可测/可复用），apply 为宿主挂载入口。
@@ -61,6 +62,13 @@ export interface CodeMapConfig {
   /** 注入 ast-tools bundle（可测）；缺省自建（ast-grep 缺失时降级为不可用）。 */
   ast?: AstToolsBundle;
 }
+
+/**
+ * Config 契约别名（DSH bundle §0 的 `Config`）：仅类型级导出，不新增运行时 schema——
+ * cordis `resolveConfig()` 只在本导出带 `'~standard'` 校验接口时才校验配置，无 schema 即
+ * 原样透传，故不改变本包既有的缺省链/降级语义（避免 fail-closed 改变行为）。
+ */
+export type Config = CodeMapConfig;
 
 export interface CodeMapBundle extends CodeMapService {
   dispose(): void;
@@ -330,12 +338,18 @@ export function getCodeMapSummary():
   return activeBundle?.summary();
 }
 
-/** DSH 宿主按 bundle 契约调用：惰性、防御，加载失败只告警；索引惰性（首查时构建）。 */
-export function apply(ctx: BundleHost & Record<string, unknown>): void {
+/**
+ * DSH 宿主按 bundle 契约调用：惰性、防御，加载失败只告警；索引惰性（首查时构建）。
+ * `config` 透传给 `createCodeMapBundle`（`root` 决定索引根，缺省 cwd）。
+ */
+export function apply(
+  ctx: BundleHost & Record<string, unknown>,
+  config: CodeMapConfig = {},
+): void {
   const warn = (msg: string): void => {
     ctx.logger?.(name).info(msg) ?? process.stderr.write(`[code-map] ${msg}\n`);
   };
-  const bundle = createCodeMapBundle();
+  const bundle = createCodeMapBundle(config);
   activeBundle = bundle;
   const tools = (ctx as { tools?: { register(def: unknown): unknown } }).tools;
   if (tools && typeof tools.register === "function") {

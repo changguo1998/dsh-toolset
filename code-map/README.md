@@ -76,6 +76,6 @@ npm run build   # tsc -p tsconfig.json → dist/
 npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'
 ```
 
-13 例（收集/扫描/import 解析、图与查询、报告、bundle 装配）。依赖本机 ast-grep 二进制：缺失时相关用例注册为 skip，套件仍全绿。
+14 例（收集/扫描/import 解析、图与查询、报告、bundle 装配与 config 透传）。依赖本机 ast-grep 二进制：缺失时相关用例注册为 skip，套件仍全绿。
 
 设计决策见 `DESIGN.md`（选型调研记录见 `archive/CODEMAP-RESEARCH.md`）。

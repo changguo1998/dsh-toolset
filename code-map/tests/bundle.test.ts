@@ -90,3 +90,32 @@ test("apply 防御：tools.register 抛错只告警不崩", () => {
   };
   assert.doesNotThrow(() => apply(ctx as never));
 });
+
+astTest("apply：config 透传（root 生效；缺省沿用 cwd）", async () => {
+  const { dir, cleanup } = withTempDir();
+  const root = join(dir, "repo");
+  writeFixture(root, "src/a.ts", "export const A = 1;\n");
+  try {
+    const provided: Record<string, unknown> = {};
+    apply(
+      {
+        provide: (key: string, value: unknown) => {
+          provided[key] = value;
+        },
+      } as never,
+      { root },
+    );
+    const bundle = getCodeMapBundle();
+    assert.ok(bundle, "apply 后 getCodeMapBundle 可用");
+    await bundle!.index();
+    assert.equal(bundle!.summary()?.root, root, "索引根取自 config.root");
+    // provide 面暴露同一 bundle
+    const svc = provided["codeMap"] as { getBundle: () => unknown };
+    assert.equal(svc.getBundle(), bundle);
+    bundle!.dispose();
+  } finally {
+    // 复位共享状态：后续用例（无 config 的 apply）不应看到本用例的 bundle
+    apply({} as never);
+    cleanup();
+  }
+});
