@@ -1,7 +1,8 @@
 // tests/table.test.ts — markdown 表格解析与构建期降级（SPEC.md §3.2）
 //
 // 覆盖：单元格切分/转义、表头+分隔行成对判定、列宽求解（自然宽 / 压缩 / 省略号
-// 截断 / 过窄放弃）、列对齐三态、表头加粗与 ═ 横线、折行续行的列分隔逐行重复、
+// 截断 / 过窄放弃）、列对齐三态、表头加粗与 ═ 横线、左缘回复竖线逐行连续 + 1 空格
+// 间隔（横线不与其连接、左缘无交叉字）、折行续行的列分隔逐行重复、
 // 行高与 valign 居中，以及 buildContentRows 集成（kind 传播 / fence 保护 / 窄宽回退）。
 
 import { test } from "node:test";
@@ -56,9 +57,9 @@ function glyphCols(line: string, glyph: string): number[] {
   return cols;
 }
 
-/** 数据行（`┃` 起的网格行；横线行为 `╢`/`├` 起） */
+/** 数据/表头行与折行续行（排除横线行：`┃ ═` / `┃ ─` 起头） */
 const dataLines = (out: string[]): string[] =>
-  out.filter((l) => l.startsWith("┃"));
+  out.filter((l) => !/^┃?\s*[═─]/.test(l) && l.trim() !== "");
 
 /** 行的显示宽度 */
 const widthOf = (line: string): number => displayWidth(line);
@@ -129,8 +130,12 @@ test("parseTableAt: 非表格返回 null（普通文本 / 单行分隔线 / 缺�
 test("列宽 = 该列所有格（渲染文本）自然宽；CJK 按 2 列计", () => {
   const spec = parse(["| 名称 | 说明 |", "| --- | --- |", "| a | 中文 |"]);
   const out = rows(spec, 40);
-  // 左竖线 1 + 每列自然宽 4/4 + 留白与列分隔；表头下 ╢══╪══
-  assert.deepEqual(out, ["┃ 名称 │ 说明 ", "╢══════╪══════", "┃ a    │ 中文 "]);
+  // 左缘回复竖线 1 + 间隔 1 空格 + 每列自然宽 4/4 + 留白与列分隔；表头下 ══╪══
+  assert.deepEqual(out, [
+    "┃  名称 │ 说明 ",
+    "┃ ══════╪══════",
+    "┃  a    │ 中文 ",
+  ]);
 });
 
 test("列对齐三态（:--- 左 / :--: 中 / ---: 右）+ 表头加粗 + 网格线", () => {
@@ -144,11 +149,11 @@ test("列对齐三态（:--- 左 / :--: 中 / ---: 右）+ 表头加粗 + 网格
   const out = fillBoxTree(box, 200, 30, THEME);
   const texts = out.map(rowText);
   assert.deepEqual(texts, [
-    "┃ Lxx  │ Cxx │ Rxx ",
-    "╢══════╪═════╪═════",
-    "┃ a    │  b  │   1 ",
-    "├──────┼─────┼─────",
-    "┃ 中文 │  c  │ 250 ",
+    "┃  Lxx  │ Cxx │ Rxx ",
+    "┃ ══════╪═════╪═════",
+    "┃  a    │  b  │   1 ",
+    "┃ ──────┼─────┼─────",
+    "┃  中文 │  c  │ 250 ",
   ]);
   // 表头加粗；网格线一律不着色（默认前景色，不用语义色）
   const bold = out[0]!.segments.filter((s) => s.style?.bold);
@@ -174,16 +179,30 @@ test("列对齐三态（:--- 左 / :--: 中 / ---: 右）+ 表头加粗 + 网格
       .every((s) => s.style === undefined),
     "行间横线与交叉字不着色",
   );
-  // 左竖线与 assistant 正文同色（brightBlue）
+  // 左缘回复竖线保留：每行以 `┃` 起（与正文同列同色），其后 1 空格 prefix 再排表格
   assert.ok(
-    out[0]!.segments.some(
-      (s) => s.text === "┃" && s.style?.fg === "brightBlue",
-    ),
-    "左竖线为正文竖线色",
+    texts.every((t) => t.startsWith("┃ ")),
+    "表格各行首列为回复竖线 + 间隔空格：" + JSON.stringify(texts),
   );
+  const bar = out[0]!.segments[0]!;
+  assert.equal(bar.text, "┃", "首段即左缘竖线");
+  assert.equal(bar.style?.fg, "brightBlue", "左缘竖线与正文同色");
+  assert.ok(
+    out.every((r) => r.segments[0]!.style?.fg === "brightBlue"),
+    "含横线行在内整表竖线连续",
+  );
+  // 横线不与竖线连接：横线上首列 `┃`、第二列空格，横线自第三列起
+  for (const r of out) {
+    const t = rowText(r);
+    if (/[═─]/.test(t))
+      assert.ok(
+        t.startsWith("┃ ") && /[═─]/.test(t[2]!),
+        "横线与竖线之间留 1 空格：" + JSON.stringify(t),
+      );
+  }
 });
 
-test("网格：左竖线逐行连续、横线与竖线交叉处以交叉字连接、各行等宽", () => {
+test("网格：左缘回复竖线逐行连续、横线隔 1 空格不与其连接、各行等宽", () => {
   const spec = parse([
     "| 名称 | 说明 |",
     "| --- | --- |",
@@ -191,15 +210,15 @@ test("网格：左竖线逐行连续、横线与竖线交叉处以交叉字连�
     "| b | 短 |",
   ]);
   const out = rows(spec, 24);
-  // 1) 每行都以竖线或交叉字开头（含折行续行、横线行）→ 左竖线连续
+  // 1) 每行以 `┃ ` 起（左缘回复竖线 + 间隔空格；含折行续行、横线行）
   for (const line of out)
-    assert.ok(["┃", "╢", "├"].includes(line[0]!), "左缘竖线不连续：" + line);
-  // 2) 表头下横线：╢ 起，╪ 与列分隔同列
+    assert.ok(line.startsWith("┃ "), "表格行首须为回复竖线 + 空格：" + line);
+  // 2) 表头下横线：`┃ ═` 起（竖线与横线之间有空格，不连接），╪ 与列分隔同列
   const headRule = out[1]!;
-  assert.ok(headRule.startsWith("╢══════"));
+  assert.ok(headRule.startsWith("┃ ══════"));
   assert.deepEqual(glyphCols(headRule, "╪"), sepCols(out[0]!));
-  // 3) 数据行之间以 ─ 分隔（折行时区分行），├ 起、┼ 与列分隔同列
-  const rowRule = out.find((l) => l.startsWith("├"))!;
+  // 3) 数据行之间以 ─ 分隔（折行时区分行），`┃ ─` 起、┼ 与列分隔同列
+  const rowRule = out.find((l) => l.startsWith("┃ ─"))!;
   assert.ok(rowRule, "数据行之间应有横线：" + JSON.stringify(out));
   assert.ok(rowRule.includes("─"));
   assert.deepEqual(glyphCols(rowRule, "┼"), sepCols(out[0]!));
@@ -207,12 +226,18 @@ test("网格：左竖线逐行连续、横线与竖线交叉处以交叉字连�
   const w = widthOf(out[0]!);
   for (const line of out) {
     assert.equal(widthOf(line), w, "行宽不一致：" + line);
-    if (line.startsWith("┃")) assert.deepEqual(sepCols(line), sepCols(out[0]!));
+    if (!line.startsWith("┃ ═") && !line.startsWith("┃ ─"))
+      assert.deepEqual(sepCols(line), sepCols(out[0]!));
   }
-  // 5) 折行续行同样带左竖线与列分隔
+  // 5) 左缘竖线后必为空格（横线不以交叉字与竖线相接）
+  assert.ok(
+    out.every((l) => !/^┃\S/.test(l)),
+    "左缘竖线后不得紧邻非空格字符：" + JSON.stringify(out),
+  );
+  // 6) 折行续行同样带列分隔
   const wrapped = dataLines(out).slice(1, 4);
   assert.ok(
-    wrapped.some((l) => l.startsWith("┃") && sepCols(l).length === 1),
+    wrapped.some((l) => sepCols(l).length === 1),
     "折行续行保留网格：" + JSON.stringify(wrapped),
   );
 });
@@ -222,7 +247,7 @@ test("格内行内 markdown 生效（粗体/行内代码），且列宽按渲染
   const box = tableBox(spec, 30, THEME)!;
   const out = fillBoxTree(box, 200, 30, THEME);
   // 自然宽：a=1、粗=2（去掉 ** ）；b=1、code=4
-  assert.equal(rowText(out[2]!), "┃ 粗 │ code ");
+  assert.equal(rowText(out[2]!), "┃  粗 │ code ");
   assert.ok(
     out[2]!.segments.some((s) => s.style?.bold === true && s.text === "粗"),
   );
@@ -256,7 +281,7 @@ test("极窄：minW 也放不下 → 格内省略号截断（不溢出、不折�
     "| --- | --- | --- |",
     "| a | 中文说明 | 12 |",
   ]);
-  const budget = 15; // overhead 9 → 可用 6 < ΣminW 9
+  const budget = 15; // overhead 10 → 可用 5 < ΣminW 9
   const out = rows(spec, budget);
   for (const line of out) assert.ok(widthOf(line) <= budget);
   assert.ok(
@@ -267,9 +292,9 @@ test("极窄：minW 也放不下 → 格内省略号截断（不溢出、不折�
 
 test("过窄：连每列 1 列都放不下 → tableBox 返回 null（调用方退回普通文本）", () => {
   const spec = parse(["| a | b |", "| --- | --- |"]);
-  // 两列最小占宽 = 左竖线 1 + 每列 1 + 左右留白 4 + 列分隔 1 = 8
-  assert.equal(tableBox(spec, 7, THEME), null);
-  assert.ok(tableBox(spec, 8, THEME), "8 列起可构建");
+  // 两列最小占宽 = 左竖线 1 + 间隔 1 + 每列 1 + 左右留白 4 + 列分隔 1 = 9
+  assert.equal(tableBox(spec, 8, THEME), null);
+  assert.ok(tableBox(spec, 9, THEME), "9 列起可构建");
 });
 
 test("行高不一致：矮格垂直居中补白（valign center）", () => {
@@ -301,7 +326,7 @@ test("压缩优先保住窄列自然宽（水位法）：只压超宽列，窄�
     "| --- | --- |",
     `| ${"甲".repeat(40)} | ab |`,
   ]);
-  const budget = 35; // 左竖线 + overhead 5 → 可用 29：超宽列 25、窄列保 4
+  const budget = 35; // 左竖线 1 + 间隔 1 + overhead 5 → 可用 28：超宽列 24、窄列保 4
   const out = rows(spec, budget);
   const header = out[0]!;
   assert.ok(
@@ -329,8 +354,8 @@ test("数字列自动右对齐（分隔行未显式标注时）；显式 :--- �
   ]);
   assert.deepEqual(auto.aligns, ["left", "right"]);
   const out = rows(auto, 30);
-  assert.equal(out[2], "┃ aaa  │    1 ");
-  assert.equal(out[4], "┃ b    │ 1288 ");
+  assert.equal(out[2], "┃  aaa  │    1 ");
+  assert.equal(out[4], "┃  b    │ 1288 ");
 
   const explicitLeft = parse([
     "| 名称 | 数量 |",
@@ -382,8 +407,8 @@ test("buildContentRows: 表格成块渲染，各行 kind 均为 assistant（回�
     "表头 + 数据行各一行列分隔",
   );
   assert.ok(
-    dialogue.some((r) => r.segments.some((s) => s.text.includes("┃"))),
-    "表格带左缘竖线",
+    dialogue.some((r) => r.segments.some((s) => s.text.includes("│"))),
+    "表格带列分隔",
   );
   assert.ok(
     dialogue.every((r) => r.kind === "assistant"),
@@ -391,7 +416,7 @@ test("buildContentRows: 表格成块渲染，各行 kind 均为 assistant（回�
   );
 });
 
-test("集成：整条回答左缘竖线连续（正文行与表格各行，含表格折行续行）", () => {
+test("集成：表格行保留回复左缘竖线，横线与其之间隔 1 空格（不连接）", () => {
   const buffer: Buffer = [
     a("说明："),
     a("| 名称 | 说明 |"),
@@ -404,12 +429,32 @@ test("集成：整条回答左缘竖线连续（正文行与表格各行，含�
     { themeId: THEME, gutter: 4 },
     26,
   );
-  for (const r of dialogue) {
+  // 表格各行（含横线行）以 `┃ ` 起：回复左缘竖线保留，其后 1 空格间隔
+  const tableRows = dialogue.filter((r) =>
+    r.segments.some((s) => s.text.includes("│") || s.text.includes("═")),
+  );
+  assert.ok(
+    tableRows.length > 0,
+    "有表格行：" + JSON.stringify(dialogue.map(rowText)),
+  );
+  for (const r of tableRows) {
     const t = rowText(r);
-    // 首列恒为竖线字形（数据行 ┃、表头下横线 ╢、行间横线 ├）→ 竖线不中断
     assert.ok(
-      ["┃", "╢", "├"].includes(t[0]!),
-      "左缘竖线断开：" + JSON.stringify(t),
+      t.startsWith("┃ "),
+      "表格行以回复竖线 + 空格起：" + JSON.stringify(t),
+    );
+    assert.equal(r.segments[0]!.style?.fg, "brightBlue", "竖线与正文同色");
+  }
+  // 横线行：竖线后隔 1 空格才是横线（左缘不设交叉字，两条线不连接）
+  const ruleRows = tableRows.filter((r) => rowText(r).includes("═"));
+  assert.ok(ruleRows.length > 0, "有表头横线行");
+  for (const r of ruleRows) {
+    const t = rowText(r);
+    assert.equal(t[1], " ", "竖线与横线之间为空隔：" + JSON.stringify(t));
+    assert.equal(t[2], "═", "横线自间隔后起：" + JSON.stringify(t));
+    assert.ok(
+      !t.includes("╢") && !t.includes("├"),
+      "左缘无交叉字：" + JSON.stringify(t),
     );
   }
 });
@@ -471,7 +516,7 @@ test("窄宽回退：可用宽过窄时退回普通文本（不抛错、不溢�
     a("| --- | --- |"),
     a("| a | 1 |"),
   ];
-  // 宽 10 → 预算 = 10 - 1(缩进) - 3(final gutter) = 6 < 两列最小占宽 7 → 放弃表格
+  // 宽 10 → 预算 = 10 - 1(缩进) - 3(final gutter) = 6 < 两列最小占宽 9 → 放弃表格
   const { dialogue } = buildContentRows(
     buffer,
     { themeId: THEME, gutter: 4 },

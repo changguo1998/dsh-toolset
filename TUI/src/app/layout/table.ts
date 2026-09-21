@@ -3,11 +3,11 @@
 // 表格列宽是跨行约束（同列各行必须等宽），纯 v/h 嵌套表达不了跨兄弟约束，
 // 因此在内容映射层把 2D 数学算完：
 //   量各格自然宽 → 水位法压缩（下限 minW）→ 产出
-//   v([ h([┃, pad, cell, pad, │, …]), ╢═╪═…, 数据行… ])
+//   v([ h([┃, 空格, pad, cell, pad, │, …]), ┃ ══╪═…, 数据行… ])
 // 的固定宽 Box 子树；布局引擎保持两类节点（Box/Paragraph），不新增 table 构造子。
-// 网格：左缘一列竖线 `┃`（与 assistant 正文同列同色，整表逐行连续）、
-// 表头下双横线 `═`（交叉处 `╢`/`╪`）、数据行之间单横线 `─`（交叉处 `├`/`┼`，
-// 内容折行时用于区分行）。
+// 网格：左缘一列回复竖线 `┃`（与 assistant 正文同列同色、整表逐行连续）+ 1 空格
+// prefix（横线与其不连接，故左缘不设交叉字）、表头下双横线 `═`（列分隔交叉处 `╪`）、
+// 数据行之间单横线 `─`（交叉处 `┼`，内容折行时用于区分行）。
 //
 // 单元格内容按行内 markdown 解析后作为 StyledText 叶子（若留作 Paragraph 原文，
 // measure 会把 `**` 等标记算进宽度，行高与 fill 折行口径不一致）；行高由引擎自身
@@ -34,12 +34,16 @@ export interface TableSpec {
 /** 单元格左右留白列数（表头/数据行一致，保证列分隔符逐行同列） */
 const CELL_PAD = 1;
 
-/** 左缘竖线列宽（1 列）：内容整体位于其右侧，使整条回答左缘竖线连续 */
+/** 左缘回复竖线列宽（1 列）：表格内容整体位于其右侧，整表竖线逐行连续 */
 const BAR_COLS = 1;
 
-/** 左缘竖线字形与配色（与 assistant 正文 `┃` 同列同色） */
+/** 左缘回复竖线字形与配色（与 assistant 正文 `┃` 一致） */
 const BAR_CHAR = "┃";
 const BAR_STYLE: FrameStyle = { fg: "brightBlue" };
+
+/** 回复竖线与表格内容之间的间隔列（表格 box 的 prefix 空格）：横线止于其右侧，
+ *  不与回复竖线连接——连接会让竖线列被交叉字替换掉，整条回复竖线断开。 */
+const BAR_GAP = 1;
 
 /** 列分隔字形（前景色实线，末列不画） */
 const COL_SEP = "│";
@@ -50,9 +54,8 @@ const HEAD_RULE = "═";
 /** 数据行之间的横线字形（内容折行时用于区分行） */
 const ROW_RULE = "─";
 
-/** 交叉字形：左竖线↔表头横线 `╢`、左竖线↔行横线 `├`、列分隔↔横线 `╪`（双）/`┼`（单） */
-const BAR_HEAD_CROSS = "╢";
-const BAR_ROW_CROSS = "├";
+/** 列分隔↔横线交叉字形（表格内侧，`╪` 双横 / `┼` 单横；左缘竖线与横线之间
+ *  隔着 BAR_GAP 空格、并不相接，故左缘不设交叉字） */
 const HEAD_CROSS = "╪";
 const ROW_CROSS = "┼";
 
@@ -317,8 +320,10 @@ function hRuleLeaf(ch: string, w: number): StyledText {
 }
 
 /**
- * 组装一行网格：`左竖线 | 留白 内容 留白 | 列分隔 | …`（末列后不画列分隔）。
- * cells 为该行各列内容（数据/表头行是单元格叶子）；sep 为列间字形（数据行 `│`）。
+ * 组装一行网格：`回复竖线 | 间隔 | 留白 内容 留白 | 列分隔 | …`（末列后不画列分隔）。
+ * 左缘保留回复竖线 `┃`（整条回复竖线连续），其后 BAR_GAP 空格：横线不与竖线连接，
+ * 故左缘不设交叉字。cells 为该行各列内容（数据/表头行是单元格叶子）；sep 为列间
+ * 字形（数据行 `│`）。
  */
 function gridRow(
   bar: StyledText,
@@ -327,7 +332,10 @@ function gridRow(
   sepRows: number,
 ): Box {
   const pad = (): Node => spacer({ width: { mode: "fixed", cols: CELL_PAD } });
-  const kids: Node[] = [bar];
+  const kids: Node[] = [
+    bar,
+    spacer({ width: { mode: "fixed", cols: BAR_GAP } }),
+  ];
   for (let j = 0; j < cells.length; j++) {
     kids.push(pad(), cells[j]!, pad());
     if (j < cells.length - 1) kids.push(vLineLeaf(sep, sepRows));
@@ -335,7 +343,7 @@ function gridRow(
   return h(kids);
 }
 
-/** 数据/表头行：左竖线 + 各格（固定列宽、列对齐）+ 列分隔 */
+/** 数据/表头行：左缘回复竖线 + 各格（固定列宽、列对齐）+ 列分隔 */
 function rowBox(
   cells: string[],
   cols: number[],
@@ -359,15 +367,14 @@ function rowBox(
   return gridRow(vLineLeaf(BAR_CHAR, rowH, BAR_STYLE), leaves, COL_SEP, rowH);
 }
 
-/** 横线行（表头下双横线 / 数据行间单横线）：横线铺满整个列区域（含左右留白），
- *  与左竖线、列分隔的交叉处以交叉字连接（保证交叉位置不断开）。 */
-function ruleRow(
-  cols: number[],
-  ch: string,
-  barCross: string,
-  colCross: string,
-): Box {
-  const kids: Node[] = [vLineLeaf(barCross, 1, BAR_STYLE)];
+/** 横线行（表头下双横线 / 数据行间单横线）：左缘回复竖线照常连续（不设交叉字），
+ *  隔 BAR_GAP 空格后横线铺满整个列区域（含左右留白），与列分隔的交叉处以交叉字
+ *  连接（保证交叉位置不断开）。 */
+function ruleRow(cols: number[], ch: string, colCross: string): Box {
+  const kids: Node[] = [
+    vLineLeaf(BAR_CHAR, 1, BAR_STYLE),
+    spacer({ width: { mode: "fixed", cols: BAR_GAP } }),
+  ];
   for (let j = 0; j < cols.length; j++) {
     kids.push(hRuleLeaf(ch, cols[j]! + CELL_PAD * 2));
     if (j < cols.length - 1) kids.push(vLineLeaf(colCross, 1));
@@ -377,10 +384,10 @@ function ruleRow(
 
 /**
  * 表格 Box 子树：v([表头行, ═ 横线, 数据行…])，数据行之间以 `─` 分隔
- * （内容折行时用于区分「哪一行」）。整表左缘一列竖线 `┃` 逐行连续，
- * 与 assistant 正文的左竖线同列同色——内容整体位于该竖线右侧。
- * 可用宽 width 含左缘竖线 + 列间分隔 + 每列左右留白；过窄返回 null，
- * 由调用方退回普通文本行渲染（窄终端降级）。
+ * （内容折行时用于区分「哪一行」）。整表左缘保留回复竖线 `┃`（与 assistant
+ * 正文同列同色、逐行连续），竖线后隔 BAR_GAP 空格再排表格内容——横线不与
+ * 回复竖线连接。可用宽 width 含左缘竖线 + 间隔 + 列间分隔 + 每列左右留白；
+ * 过窄返回 null，由调用方退回普通文本行渲染（窄终端降级）。
  */
 export function tableBox(
   table: TableSpec,
@@ -389,8 +396,8 @@ export function tableBox(
 ): Box | null {
   const ncols = table.header.length;
   if (ncols === 0) return null;
-  // 固定开销：左缘竖线 + 每列左右留白 + 列间分隔
-  const overhead = BAR_COLS + CELL_PAD * 2 * ncols + (ncols - 1);
+  // 固定开销：左缘竖线 + 间隔 + 每列左右留白 + 列间分隔
+  const overhead = BAR_COLS + BAR_GAP + CELL_PAD * 2 * ncols + (ncols - 1);
   if (width < overhead + ncols) return null;
   // 各列自然宽 = 该列所有格（渲染文本）最大显示宽
   const natural = table.header.map((head, j) => {
@@ -402,10 +409,10 @@ export function tableBox(
   const { cols, truncate } = fitCols(natural, width - overhead);
   const body: Node[] = [
     rowBox(table.header, cols, table.aligns, themeId, true, truncate),
-    ruleRow(cols, HEAD_RULE, BAR_HEAD_CROSS, HEAD_CROSS),
+    ruleRow(cols, HEAD_RULE, HEAD_CROSS),
   ];
   for (let i = 0; i < table.rows.length; i++) {
-    if (i > 0) body.push(ruleRow(cols, ROW_RULE, BAR_ROW_CROSS, ROW_CROSS));
+    if (i > 0) body.push(ruleRow(cols, ROW_RULE, ROW_CROSS));
     body.push(
       rowBox(table.rows[i]!, cols, table.aligns, themeId, false, truncate),
     );
