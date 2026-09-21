@@ -1,7 +1,8 @@
 /**
  * security-guard 插件入口（DSH bundle 接入面）。
  *
- * 契约对齐 DSH-CTX-API.md §0：bundle 约定为 `export { name, inject, Config, apply }`。
+ * 契约对齐 DSH-CTX-API.md §0（`export { name, inject, Config, apply }`）：本包导出
+ * `name` / `inject` / `provide` / `apply`，配置由 TS 接口接收（未提供运行时 Config schema）。
  * @deepseek-ai/cordis 是 dsh 仓的 workspace 包（未发布 npm），故宿主 ctx 以
  * 结构化类型声明（与 knowledge-base 同策略）；GuardEngine 是核心（纯、可测），
  * apply 是宿主挂载入口。

@@ -1,7 +1,7 @@
 /**
  * 指标驱动自动循环的类型定义。
  *
- * 语义对齐 metric-loop/TASK.md：
+ * 语义对齐 metric-loop/README.md 与 COMMANDS-SPEC.md 的命令契约：
  * - direction: min（越低越好）/ max（越高越好）
  * - window: 连续 N 轮无改进 → plateau 停止（默认 5）
  * - 边界: 轮数 cap（默认 50）、时间 bound（可选）、token bound（可选）

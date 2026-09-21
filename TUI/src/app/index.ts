@@ -260,7 +260,7 @@ export class App {
     emojiRemaps: SymbolRemap[];
     unrecommended: string[];
   } | null = null;
-  /** 同符号冷却表（2026-11）：symbol → { dueAtMs, remainingRuns }——反馈过一次后冷却期内不再反馈 */
+  /** 同符号冷却表：symbol → { dueAtMs, remainingRuns }——反馈过一次后冷却期内不再反馈 */
   private symbolCooldown = new Map<
     string,
     { dueAtMs: number; remainingRuns: number }
@@ -1062,7 +1062,7 @@ export class App {
   }
 
   /**
-   * 同符号冷却（2026-11）：某符号反馈过一次后进入冷却，冷却期内不再反馈该符号，
+   * 同符号冷却：某符号反馈过一次后进入冷却，冷却期内不再反馈该符号，
    * 打破「助手讨论符号本身 → 每轮反复提醒」的循环。时间窗与 run 次数双维：
    * 任一维度未过期即视为仍冷却；都过期才解冻（可再次反馈）。展示层替换照常进行。
    */
@@ -1135,7 +1135,7 @@ export class App {
     this.symbolTurn = null;
     if (!this.state.symbolUnify) return; // 开关关闭：既不提示也不注入
     if (!t) return;
-    // 冷却过滤（2026-11）：反馈过一次的符号在冷却期内不再反馈（展示层替换照常）；
+    // 冷却过滤：反馈过一次的符号在冷却期内不再反馈（展示层替换照常）；
     // 本轮真正列入提醒的符号在此登记冷却。三组（emoji 罗列/变体计数/警示）独立计数。
     const emojiSeen = new Set<string>();
     const emojiInstrs: string[] = [];
@@ -1360,7 +1360,7 @@ export class App {
     // 共享列表面板（/skills 等）：↑/↓ 移动、PgUp/PgDn 整页、Enter 主操作、Esc 关闭；其余吞掉
     if (this.state.commandPanel) {
       const panel = this.state.commandPanel;
-      // 翻页页高 = 活动区可视行数（与面板窗口同口径，见 COMMANDS-SPEC.md §0.4 接线点 5）
+      // 翻页页高 = 活动区可视行数（与面板窗口同口径，见 COMMANDS-SPEC.md §4 接线点 5）
       const page = frameGeometry(
         this.state,
         this.deps.renderer.getSize(),

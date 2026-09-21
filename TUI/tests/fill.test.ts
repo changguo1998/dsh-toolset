@@ -37,7 +37,7 @@ test("fill Paragraph：长文本 token 折行（wrapAssistantLine 语义）", ()
 });
 
 test("fill Paragraph：assistant 正文 \n 为普通字符（对齐旧 wrapAssistantLine 语义）", () => {
-  // 旧 wrapBufferLines：assistant 整串交 wrapAssistantLine，\n 非零宽字符，
+  // assistant 整串交 wrapAssistantLine，\n 非零宽字符，
   // 不预拆物理行（与 plain 走 wrapLine 一致）；StyledText（user）才拆 \n
   const rows = fillFixed(text("a\n\nb"), 10, 1);
   assert.deepEqual(rowsText(rows), ["a\n\nb"]);

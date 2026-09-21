@@ -17,7 +17,7 @@ import {
   themeSizedKey,
 } from "./cache.ts";
 
-// ---------- 宽度原语（自 layout.ts 迁入；layout.ts 重导 charWidth/displayWidth） ----------
+// ---------- 宽度原语（由 layout.ts 重导 charWidth/displayWidth） ----------
 
 /** ANSI SGR 转义序列：宽度计算与截断需跳过、原样透传 */
 const ANSI_RE = /\x1b\[[0-9;]*m/g;

@@ -1,6 +1,6 @@
 // src/app/components/JobsPanel.ts — /jobs 后台任务面板渲染（纯函数）
 //
-// 输出恰 height 行（占满固定交互区，与 /goal、/history 等面板同一区域）。
+// 输出恰 height 行（渲染在活动区窗口并占满可视行；底部交互区以空白占位）。
 // 数据源为 ctx.jobs 快照（adapter 经 onJobsChanged 增量推送 + 打开时 refreshJobs 拉全量）：
 //   - 首行标题 + 任务计数；每任务一行：`>` 高亮标记 + 状态符号 + label（detail 作后缀）
 //   - 状态着色：running/stopping 黄、failed/error 红、cancelled 灰、其余默认

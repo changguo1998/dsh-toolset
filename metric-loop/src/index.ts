@@ -4,7 +4,7 @@
  * 与 task-engine 同模式：导出 `{ name, inject, apply }`，零 DSH 运行时依赖、
  * 结构面访问 ctx；ctx.tools 缺失时降级告警而非抛错，保证 dsh 加载不崩。
  *
- * 循环载体与宿主面复用（对齐 TASK.md「复用底座（不新建）」）：
+ * 循环载体与宿主面复用（「复用底座，不新建」）：
  * - 周期唤醒 = 宿主 schedule（model-facing schedule_create after 提醒链式续排）；
  *   本插件每轮返回可直接调用的 schedule 参数，不另建调度器。
  * - 改进步载体 = 宿主 workflow（会话内 agent 编排），循环引擎不感知轮内做什么。

@@ -371,7 +371,7 @@ export class MockDshAdapter implements DshAdapter {
         150,
       ),
     );
-    // 启动注入 jobs 快照：状态列 jobs 块默认可见（水平状态栏 jobs 徽标已于 2026-09-07 移除）；
+    // 启动注入 jobs 快照：状态列 jobs 块默认可见（水平状态栏不显示 jobs 徽标）；
     // /jobs 打开仍走 refreshJobs 重拉（行为不变）
     this.timers.push(
       setTimeout(

@@ -273,8 +273,8 @@ if (smoke) {
         adapter.interrupts === 1,
         "question Esc must not interrupt, interrupts=" + adapter.interrupts,
       );
-      // 10. 状态栏会话徽标（mode/policy/preset/jobs；goal/todo 自 2026-09-17 起移入
-      //     右侧顶部状态列详显，状态栏不再显示）；/goal 只提示查看信息栏（面板已移除）
+      // 10. 状态栏会话徽标（mode/policy/preset/jobs；goal/todo 在
+      //     右侧顶部状态列详显，状态栏不显示）；/goal 只提示查看信息栏（面板已移除）
       const badgePlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
       ok(
         "mode-badge",
@@ -348,7 +348,7 @@ if (smoke) {
       renderer.emitKey(key("escape")); // 关闭面板
       await sleep(100);
 
-      // —— 活动区混合断言（2026-09-27）：思考/中间输出/工具/notice 按时间顺序混合 ——
+      // —— 活动区混合断言：思考/中间输出/工具/notice 按时间顺序混合 ——
       // 先 /cls 清掉旧活动区瞬态（turn-begin 是内部 reducer 动作，adapter 事件面不可
       // 发），再注入一个混合回合：thinking → stream(中间，非 final) → 工具调用/结果
       // → notice → stream(最终总结)；turn-end 后中间输出/工具/notice 留在活动区（按

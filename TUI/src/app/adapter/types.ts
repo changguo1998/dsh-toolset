@@ -957,7 +957,7 @@ export interface JobInfo {
   detail?: string;
 }
 
-// ---------- 共享列表面板（/skills、/agents、/tools；契约见 COMMANDS-SPEC.md §0.4） ----------
+// ---------- 共享列表面板（/skills、/agents、/tools；契约见 COMMANDS-SPEC.md §4） ----------
 
 /** 共享列表面板 kind（批次 2 仅 skills；agents/tools 由批次 3 接入） */
 export type CommandPanelKind =

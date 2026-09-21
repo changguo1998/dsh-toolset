@@ -41,7 +41,7 @@ test("charWidth：组合附加符/ZWJ/变体选择符/肤色修饰符=0（零宽
   assert.equal(charWidth("\u{1f3fb}"), 0); // emoji 肤色修饰符
 });
 
-test("charWidth：常见 emoji/全角符号=2（防整行溢出，回归 2026-09-21）", () => {
+test("charWidth：常见 emoji/全角符号=2（防整行溢出）", () => {
   // 曾经的漏洞：这些区段未按 2 列计 → 低估宽度导致整行溢出
   assert.equal(charWidth("❤"), 2); // U+2764 Dingbats
   assert.equal(charWidth("✂"), 2); // U+2702 Dingbats
@@ -64,7 +64,7 @@ test("charWidth：常见 emoji/全角符号=2（防整行溢出，回归 2026-09
   assert.equal(charWidth("⌗"), 1); // U+2317 VIEWDATA SQUARE
   assert.equal(charWidth("⌈"), 1); // U+2308 LEFT CEILING
   assert.equal(charWidth("⌉"), 1); // U+2309 RIGHT CEILING
-  // 杂项技术符号窄段（2026-11 拆分 0x2300-0x23FF）：数学括号/键盘修饰/APL/
+  // 杂项技术符号窄段（0x2300-0x23FF）：数学括号/键盘修饰/APL/
   // 排版符号在等宽终端按 1 列——上/下取整括号成对宽窄必须一致，否则边框错位
   // （断言用码点转义书写，避免正文出现符号字面量）
   assert.equal(charWidth("\u230a"), 1); // 0x230A LEFT FLOOR
@@ -83,7 +83,7 @@ test("charWidth：常见 emoji/全角符号=2（防整行溢出，回归 2026-09
   // emoji 呈现的杂项技术符号仍按 2 列（防低估撑破窗口）
   assert.equal(charWidth("\u23f3"), 2); // 0x23F3 HOURGLASS（emoji）
   assert.equal(charWidth("\u23e9"), 2); // 0x23E9 媒体控制（emoji）
-  // 键盘图标实测终端 1 列（2026-11 订正）
+  // 键盘图标实测终端 1 列
   assert.equal(charWidth("\u2328"), 1); // 0x2328 KEYBOARD（终端 1 列）
   // 原有已覆盖区段不受影响
   assert.equal(charWidth("👍"), 2); // U+1F44D 表情

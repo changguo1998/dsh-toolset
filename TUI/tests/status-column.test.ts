@@ -5,7 +5,7 @@
 // 依次尝试（L0 全显 / L1 隐藏已完成 / L2 仅进行中、goal 压标题行 / L3 进行中压 1 行）」、
 // 每行定宽含右缘竖线、status-column-scroll
 // reducer（PgUp/PgDn 经 index 转发）。
-// 2026-09-07 追加 Mode 块：会话运行模式/权限/策略（原水平状态栏徽标迁入，列出全部
+// Mode 块：会话运行模式/权限/策略（列出全部
 // 可选项、生效项着色、其余灰）。
 
 import { test } from "node:test";
@@ -268,7 +268,7 @@ test("status-column-scroll reducer: delta 累加且 clamp 非负", () => {
   assert.equal(s.statusColumnScroll, 0, "clamp 到 0");
 });
 
-// ===== Mode 块：会话运行模式/权限/策略（原水平状态栏徽标迁入，2026-09-07）=====
+// ===== Mode 块：会话运行模式/权限/策略 =====
 
 test("renderStatusColumn: 标题行置顶、Mode 块随后展示（无 goal 也显示）；各项目列出全部可选项", () => {
   const mode: ModeState = {

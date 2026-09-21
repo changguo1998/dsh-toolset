@@ -1,4 +1,4 @@
-// tests/focus-frame.test.ts — 焦点构图与面板渲染双轨对照（接线汇合里程碑）
+// tests/focus-frame.test.ts — 焦点构图与面板渲染双轨对照
 //
 // 冻结基线：fixtures/focus-frame-legacy.json（scripts/freeze-focus-frame.mts
 // 生成，其调用了迁移前的内联焦点构图 buildFrame）。本测试从 fixture 读取
@@ -57,10 +57,9 @@ function stateFor(scene: string): AppState {
     const t = kind.slice("focus-".length);
     if (t === "history") s = reduceState(s, { type: "focus-panel-cycle" });
     else if (t === "activity")
-      s = reduceState(
-        reduceState(s, { type: "focus-panel-cycle" }),
-        { type: "focus-panel-cycle" },
-      );
+      s = reduceState(reduceState(s, { type: "focus-panel-cycle" }), {
+        type: "focus-panel-cycle",
+      });
     else if (t === "status")
       s = reduceState(
         reduceState(reduceState(s, { type: "focus-panel-cycle" }), {
@@ -140,8 +139,20 @@ function stateFor(scene: string): AppState {
       s = reduceState(s, {
         type: "history-list",
         records: [
-          { id: "s1", title: "会话甲", createdAt: 1, live: false, persisted: true },
-          { id: "s2", title: "会话乙", createdAt: 2, live: false, persisted: true },
+          {
+            id: "s1",
+            title: "会话甲",
+            createdAt: 1,
+            live: false,
+            persisted: true,
+          },
+          {
+            id: "s2",
+            title: "会话乙",
+            createdAt: 2,
+            live: false,
+            persisted: true,
+          },
         ],
       });
       break;
@@ -192,6 +203,8 @@ test("focus-frame：行不变量（行数恒定、无 CJK 被切、显示宽度�
   const s = stateFor("focus-activity@w60");
   const rows = buildFrame(s, { ...TF, cols: 60 });
   // 每行段拼接的显示宽度不因实现变化而改变（以 text 长度近似校验行序稳定）
-  const texts = rows.map((r: FrameRow) => r.segments.map((g) => g.text).join(""));
+  const texts = rows.map((r: FrameRow) =>
+    r.segments.map((g) => g.text).join(""),
+  );
   assert.equal(texts.length, FIXTURE["focus-activity@w60"]!.rows.length);
 });

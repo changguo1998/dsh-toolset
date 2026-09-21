@@ -130,7 +130,7 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     top.slice(1).every((l) => /[│─╌]/.test(plain(l))),
     "分隔竖线保留（对话区右缘/状态列左缘，内容行均有；活动区分隔行两端的角为 ┘/┐）",
   );
-  // 标题栏即顶部（2026-09-27 无独立顶部边框行）：title 占位 + 实线下划线，历史区内容在其后
+  // 标题栏即顶部（无独立顶部边框行）：title 占位 + 实线下划线，历史区内容在其后
   assert.ok(
     rowAnsi(top[0]!).includes("<title>"),
     "顶部首行为标题栏（会话标题占位）",
@@ -1387,7 +1387,7 @@ test("buildFrame: notice tone 行在帧内灰/蓝/黄/红/绿着色", () => {
 
 test("buildFrame: 工具历史不按组数折叠，只受活动 pane 可视行数约束（超出可上滚回看）", () => {
   let s = initialState();
-  // 6 次调用组（每次 * + +）：过去按 TOOL_MAX_GROUPS=4 折叠掉前两组，
+  // 6 次调用组（每次 * + +）：过去按固定组数上限（=4）折叠掉前两组，
   // 现在全部保留（只受 pane 高约束，pane 外的内容可上滚回看）
   for (let i = 1; i <= 6; i++) {
     s = reduceState(s, {
@@ -1866,8 +1866,8 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
   assert.ok(t.includes("ctx 12.4k"), "窄列下 contextLen 段保留");
   assert.ok(!t.includes("新会话"), "窄列下标题段省略");
 
-  // --- 会话徽标已整体迁出：plan/sandbox/permission/ask/preset/jobs 移入顶部状态列
-  //     Mode 块（见 statusColumnBody/modeBlock），水平状态栏不再承载任何会话徽标 ---
+  // --- 会话徽标位于顶部状态列 Mode 块（见 modeBlock）：plan/sandbox/permission/
+  //     ask/preset/jobs；水平状态栏不承载会话徽标 ---
 
   test("renderStatusLine: 会话徽标已全部移除（已移入顶部状态列 Mode 块；jobs 不再显示）", () => {
     const t = renderStatusLine(baseStatus, 120, undefined)
@@ -2191,7 +2191,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     "面板态：无亮白框线",
   );
   assert.ok(!plain(rows[0]!).includes("─"), "面板态：顶部边框行空白占位");
-  // 面板态：审批/问答/选择面板自 2026-09-17 起渲染在流输出（活动区）窗口
+  // 面板态：审批/问答/选择面板渲染在流输出（活动区）窗口
   // （分隔行之后），而非底部交互区；对话历史/状态列内容不被挤占（无缓冲仍空）
   const sepI2 = activitySepIdx(rows, size.cols);
   const actRows2 = rows.slice(sepI2 + 1, topRows).map(plain);

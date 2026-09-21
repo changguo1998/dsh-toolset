@@ -90,8 +90,8 @@ test("turnGroupStarts：user 行与无 user 前缀的回复起头都算组起点
 });
 
 test("turnGroupStarts: 非 final 中间输出不算组起点——单回合多 step 不被截断", () => {
-  // 回归：此前非 final 的 assistant（思考/工具之间的中间输出）也算回复组起点，
-  // 单回合被切碎成多组 → 渐进窗口尾部 N 组会截掉本回合早期活动内容（活动区大片空白）。
+  // 回归：非 final 的 assistant（思考/工具之间的中间输出）若也算回复组起点，单回合
+  // 会被切碎成多组 → 渐进窗口尾部 N 组会截掉本回合早期活动内容（活动区大片空白）。
   const b: Buffer = [
     { text: "u", kind: "user" },
     { text: "sep", kind: "separator" },

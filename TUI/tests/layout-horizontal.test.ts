@@ -2,7 +2,7 @@
 //
 // 覆盖：topPaneSplit 在帧内的落地（内部分隔列 + 下划线行 ┬ / 状态区分隔行 ┴）、
 // 两 pane 独立宽度（各自补齐、活动 pane 按自身宽度换行）、滚动口径与帧一致
-// （dialogueScrollMetrics/inputPanelHeights）、焦点框落到内部分隔列。
+// （原 dialogueScrollMetrics / inputPanelHeights 已并入 frameGeometry）、焦点框落到内部分隔列。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

@@ -317,8 +317,8 @@ export function metricsFor(
   const interaction =
     layout?.footerHeight ?? Math.min(4, Math.max(2, Math.floor(size.rows / 5)));
   const footerHeight = hasPanel ? interaction : interaction - 1;
-  // 状态列：窄列约 1/3（含右侧竖线，2026-09-07 由 25% 改 1/3），**最低 20 列**
-  // （2026-09-21 由底限 1 提升；内容列宽 = cols/divisor，不足 20 时提到 20），
+  // 状态列：窄列约 1/3（含右侧竖线），**最低 20 列**
+  // （内容列宽 = cols/divisor，不足 20 时提到 20），
   // 但仍受「历史区保底 10 列」上限约束（cols < 30 时历史区优先，状态列让位）
   const statusColWidth = Math.min(
     Math.max(20, Math.floor(size.cols / (layout?.statusDivisor ?? 3))),
@@ -422,7 +422,7 @@ function permColor(code: string): ColorName {
   return "gray";
 }
 /** 焦点面板四边框的保留格：左侧 1 列、右侧 1 列（所有状态恒定，未聚焦留空白占位，防内容重排）。
- *  2026-09-27：不再保留顶部边框行（标题栏即顶部，焦点顶边用标题栏下划线/状态列顶行兼作）。 */
+ *  不保留顶部边框行（标题栏即顶部，焦点顶边用标题栏下划线/状态列顶行兼作）。 */
 export const FRAME_LEFT_COLS = 1;
 export const FRAME_RIGHT_COLS = 1;
 
@@ -432,8 +432,8 @@ export function leftColumnWidth(historyWidth: number): number {
   return Math.max(1, historyWidth - (useLeftFrame ? FRAME_LEFT_COLS : 0));
 }
 
-/** 左列顶部标题栏行数：标题行 + 实线下划线（2026-09-27 由右侧状态列迁入，
- *  置于会话历史区上方；极矮终端由 topPaneHeights 自适应收缩到 1/0 行） */
+/** 左列顶部标题栏行数：标题行 + 实线下划线（置于会话历史区上方；
+ *  极矮终端由 topPaneHeights 自适应收缩到 1/0 行） */
 export const TITLE_BAR_ROWS = 2;
 
 /** 焦点框色（L4 强调级）：dark=bright[7] 白、light=ansi[0] 黑。
@@ -442,7 +442,7 @@ export const focusFrameColor = focusColor;
 
 /**
  * 活动区可视行数（= 顶部区域「内容行数」= topHeight-边框行的一半；
- * 在 buildTopRegion/inputPanelHeights 中经 topPaneHeights 先扣标题栏行数后应用）
+ * 在 buildTopRegion/frameGeometry 中经 topPaneHeights 先扣标题栏行数后应用）
  */
 export function activityHeight(contentTopH: number, divisor?: number): number {
   // 活动区高 = contentTopH / divisor（tui.config.json；默认 2 ≈ 原 1/2 比例）
@@ -467,7 +467,7 @@ export function activityTopRowToLine(
   return undefined;
 }
 
-/** 顶部左列面板行数划分（标题栏 + 对话区 + 活动区；buildTopRegion/inputPanelHeights 同口径） */
+/** 顶部左列面板行数划分（标题栏 + 对话区 + 活动区；buildTopRegion 与 frameGeometry 同口径） */
 export interface TopPaneHeights {
   /** 标题栏行数（标题行 + 实线下划线；极矮终端自适应收缩到 1/0 行） */
   titleRows: number;
@@ -481,9 +481,8 @@ export interface TopPaneHeights {
  * 顶部左列行数划分：标题栏优先 TITLE_BAR_ROWS=2 行（标题行 + 实线下划线）；
  * 若对话区将不足 1 行（矮终端）则降级为 1 行（仅标题行），仍不足则省略标题栏
  * （0 行）——保证对话区/活动区至少可展开不溢出。
- * 活动区 = 顶部内容行数的一半（沿用原公式、不因标题栏收缩），对话区取剩余
- * （标题栏行数由对话区承担，与 2026-09-27 标题栏自状态列迁入左侧前的状态列
- * 各行占比语义一致：活动区高度不随标题栏位置变化）。
+ * 活动区 = 顶部内容行数的一半（不因标题栏收缩），对话区取剩余；标题栏行数由
+ * 对话区承担，故活动区高度不随标题栏位置变化。
  *
  * topRow 参数（非 undefined）：活动区分隔行锚定——历史区与活动区之间的分隔行
  * 恰好落在 topRow 行（0 基，屏幕行；"half"/绝对行号经 activityTopRowToLine 换算）。
@@ -584,8 +583,8 @@ function aspectDeviation(w: number, h: number): number {
 }
 
 /**
- * 顶部左列划分（排列方式 + 两 pane 宽高），buildTopRegion / inputPanelHeights /
- * dialogueScrollMetrics 与 focusFrame 矩形同源调用（口径必须一致）。
+ * 顶部左列划分（排列方式 + 两 pane 宽高），buildTopRegion 与 focusFrame 矩形同源调用
+ * （均读 frameGeometry，口径必须一致）。
  *
  * - vertical：沿用 topPaneHeights（activityHeightDivisor 比例或 activityTopRow 锚定），
  *   两 pane 共占左列正文宽。
@@ -1343,7 +1342,7 @@ function buildTopRegion(
     queuedRows,
     viewportH,
   } = geom;
-  // 历史/活动区在左、详细状态列在右（2026-09-17 对调）：
+  // 历史/活动区在左、详细状态列在右：
   // 左缘框格 = 历史/活动区左缘；右缘框列 = 状态列右缘（均非聚焦/模态态留空白占位）
   const useLeftFrame = geom.leftFrame;
   const useRightFrame = geom.rightFrame;
@@ -1998,7 +1997,7 @@ export function buildStatusSeparator(
 export interface FrameScrollReport {
   dialogueMaxScroll: number;
   activityMaxScroll: number;
-  /** 对话区滚动几何（渐进窗口 + 语义锚点；App 经 paneGeometry() 回填或就地补算） */
+  /** 对话区滚动几何（渐进窗口 + 语义锚点；App 经 paneMaxes() 回填或就地补算） */
   dialogueGeometry: DialogueGeometry;
   /** 本帧实际渲染的视口顶行锚点（收敛后；App 用它同步 state.scrollAnchor） */
   dialogueTop: DialogueAnchor;

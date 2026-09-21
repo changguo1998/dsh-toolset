@@ -1,9 +1,9 @@
 /**
  * ast-tools 插件入口（DSH bundle 集成面）。
  *
- * 契约对齐 DSH-CTX-API.md §0：插件 bundle 约定 `export { name, Config, apply }`
- * （cordis 加载器识别 named apply 导出；与 knowledge-base/TUI 同款挂载形态，
- * 真实宿主侧挂载由部署时人工确认）。
+ * 契约对齐 DSH-CTX-API.md §0（`export { name, inject, Config, apply }`）：本包导出
+ * `name` / `apply`，`Config` 以类型别名给出（无运行时 schema，配置由 TS 接口约束）。
+ * cordis 加载器识别 named apply 导出；与 knowledge-base/TUI 同款挂载形态。
  *
  * 四个操作 search/replace/outline/rules 均委托系统 ast-grep CLI 子进程
  * （选型依据见 README「二进制选型」）；二进制缺失时 apply 走降级：
@@ -86,7 +86,7 @@ export interface AstToolsConfig {
   timeoutMs?: number;
 }
 
-/** Config 契约别名（DSH bundle 约定 export { name, Config, apply }）。 */
+/** Config 契约别名（DSH bundle 约定的 `Config`；本包以类型别名提供，无运行时 schema）。 */
 export type Config = AstToolsConfig;
 
 /** 可复用 bundle 实例（核心工厂产物，也是宿主侧可消费的服务形态）。 */

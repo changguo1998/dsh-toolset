@@ -28,7 +28,7 @@ export interface FillContext {
   viewportWidth?: number;
 }
 
-/** fill 产出行：语义扩展（kind/blockId 供 foldDialogue/userInputJump 等） */
+/** fill 产出行：语义扩展（kind/blockId 供回复组切分/userInputJump 等） */
 export interface ContentRow extends FrameRow {
   /** 来源 buffer 行类型（结构分类，buildBox 标注） */
   kind?: string;

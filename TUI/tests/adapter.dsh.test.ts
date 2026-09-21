@@ -3467,7 +3467,7 @@ test("真实 adapter /tools：schemas() 不带 scope（全局视图）+ filter �
     panelRows(events, "tools").map((r) => r.title),
     ["read", "bash"],
   );
-  // SPEC §2.1：filter 只匹配工具名子串——描述命中不算
+  // filter 只匹配工具名子串——描述命中不算
   await adapter.refreshTools?.("执行命令");
   assert.equal(panelRows(events, "tools").length, 2, "描述不参与过滤");
   await adapter.refreshTools?.("BA");

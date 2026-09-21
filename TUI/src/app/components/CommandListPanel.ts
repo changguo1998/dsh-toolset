@@ -1,6 +1,6 @@
 // src/app/components/CommandListPanel.ts — 共享列表面板渲染（/skills、/agents、/tools；纯函数）
 //
-// 输出恰 height 行，渲染于**活动区窗口**（见 COMMANDS-SPEC.md §0.4：面板由
+// 输出恰 height 行，渲染于**活动区窗口**（见 COMMANDS-SPEC.md §4：面板由
 // layout.buildActivePanelBox 选型，用活动区高度与内容宽度构建）。
 // 单一 buildCommandListPanelBox 供三个 kind 复用（不复制 N 套 state/reducer/渲染）：
 //   - 首行标题（青）+ 计数 + 右侧按键提示（灰，按剩余宽截断）

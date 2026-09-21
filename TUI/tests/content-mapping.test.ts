@@ -1,11 +1,8 @@
 // tests/content-mapping.test.ts — 双轨对照：BuildBox+fill 管线 vs 冻结基线
 //
-// 内容映射里程碑：新 Box 管线产出与旧 wrapBufferLines 逐行等价。切换
-// 调用点（cutover）前曾用 scripts/freeze-content-mapping.mts（git 历史保存）
-// 调用旧实现并归一化，
-// 输出固化为 fixtures/content-mapping-legacy.json（「冻结基线」）。此后
-// 测试从 fixture 读取 legacy 基线，不再 import wrapBufferLines（旧实现
-// 已删除），对照测试因此独立且可持续回归。
+// 内容映射对照：Box 管线产出与冻结基线逐行等价。基线固化在
+// fixtures/content-mapping-legacy.json（旧管线输出的冻结记录，可由 git 历史追溯）；
+// 测试只从 fixture 读取基线、不依赖实现源码，对照因此独立且可持续回归。
 //
 // 比较口径：对话区（dialogue）与活动区（activity）分别比较行数组，每行
 // 归一化为「最终 content-width 行」{text, ansi, kind}：
@@ -164,8 +161,8 @@ test("双轨：user 多行 + 竖线阈值边界（新阈值 w≥8 开启竖线�
 });
 
 // 窄窗（w≤5）竖线关闭边界：旧 userMaxBodyWidth(w,4) 折宽 = w−min(4,w−1)，
-// 新管线 spacer(fill,min:gutter−1) 的收缩语义在超窄窗留白列数略异——此为本
-// 里程碑已知边界（TASKS 记录），此处仅验「pane/kind/语义文本」等价。
+// 新管线 spacer(fill,min:gutter−1) 的收缩语义在超窄窗留白列数略异——此为已知
+// 边界，此处仅验「pane/kind/语义文本」等价。
 test("双轨：窄窗（宽 1/4/5）user 语义等价（非严格 pad 序列）", () => {
   const buf: Buffer = [
     { text: "line1\nline2", kind: "user" },
@@ -203,7 +200,7 @@ test("双轨：tool 行分组折叠 + step + 结果", () => {
 });
 
 test("双轨（已偏离）：tool 不再按组数折叠——基线保留旧折叠占位，新管线全量保留", () => {
-  // 行为变更（2026-09）：工具历史只受活动 pane 可视行数约束，不再按组数折叠。
+  // 工具历史只受活动 pane 可视行数约束，不按组数折叠。
   // 冻结基线是旧实现的记录（含 `...(更早工具调用已隐藏)`），此处显式断言差异方向：
   // 新管线保留全部调用组，旧基线折叠到最近 4 组 + 1 行占位。
   const buf: Buffer = [];
@@ -323,8 +320,8 @@ test("双轨：内部空格与续行（wrap 折行空白保留）", () => {
 });
 
 test("双轨（已偏离）：tool step 头 + 多组不再折叠", () => {
-  // 同 tool-overflow：组数折叠已移除（只受 pane 高约束），step 头保留；
-  // 冻结基线仍是旧实现的记录，此处断言差异方向而非等价。
+  // 同 tool-overflow：工具历史只受 pane 高约束、不按组数折叠，step 头保留；
+  // 冻结基线记录旧管线行为，此处断言差异方向而非等价。
   const buf: Buffer = [];
   for (let i = 1; i <= 7; i++) {
     buf.push({ text: `step ${i}`, kind: "tool" });

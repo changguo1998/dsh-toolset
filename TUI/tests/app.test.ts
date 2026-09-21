@@ -2009,7 +2009,7 @@ const plainFrame = (renderer: FakeRenderer): string =>
 
 test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多题动态按键提示", () => {
   const { app, renderer, adapter } = makeApp();
-  // 面板自 2026-09-17 起显示在流输出（活动区）窗口；压矮终端让活动区面板
+  // 面板显示在流输出（活动区）窗口；压矮终端让活动区面板
   // 高度回到 4 行（选项区 2 行），保持「未导航锚定顶部、窗口裁掉更后选项」语义
   renderer.size = { cols: 80, rows: 15 };
   pushQuestion(adapter);
@@ -3323,11 +3323,7 @@ test("顶部面板焦点滚动映射：↑/↓ 只作用于各自面板；PgUp/P
 
 test("frameGeometry：页高口径与 buildFrame 一致（rows=24 → 状态列内容 17 / 活动 8 / 对话 6）", () => {
   const g = frameGeometry(initialState(), { rows: 24, cols: 80 });
-  assert.equal(
-    g.contentTopH,
-    17,
-    "状态列内容高=contentTopH（2026-09-27 无顶部边框行）",
-  );
+  assert.equal(g.contentTopH, 17, "状态列内容高=contentTopH（无顶部边框行）");
   assert.equal(g.activityH, 8);
   // 标题栏（标题行 + 下划线，2 行）由对话区承担：对话 8 → 6
   assert.equal(g.dialogueH, 6);
@@ -3403,7 +3399,7 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
 
 test("无焦点空输入：↑ 上滚对话区，展开折叠的更早回复", () => {
   const { app, renderer, adapter } = makeApp();
-  // 标题栏迁入左列后对话区减少 2 行（rows=24 → dialogueH=5），折叠占位 + 最近
+  // 标题栏占对话区 2 行（rows=24 → dialogueH=5），折叠占位 + 最近
   // 3 组回复（7 行）需加高终端才完整可见：rows=28 → dialogueH=7
   renderer.size = { cols: 80, rows: 28 };
   // 5 组回复（> DIALOGUE_KEEP_REPLIES=3）：stream（assistant）+ turn-end 分隔
@@ -3643,7 +3639,7 @@ class TrackedApp extends App {
   }
 }
 
-// ---- 模型输出符号规范化（symbols；2026-09-21） ----
+// ---- 模型输出符号规范化（symbols） ----
 
 /** 可注入 symbol 规则的 makeApp 变体（默认规则 / 自定义）。 */
 function makeSymbolApp(
@@ -3769,7 +3765,7 @@ test("symbol-unify：无参给出 usage 提示、状态不变", () => {
   assert.ok(j2.includes("✓"), "默认 on 仍替换");
 });
 
-// ---- 同符号冷却（2026-11：反馈过一次后冷却期内不再反馈，打破反复提醒循环） ----
+// ---- 同符号冷却（反馈过一次后冷却期内不再反馈，打破反复提醒循环） ----
 
 test("symbols：冷却 run 次数——同一符号反馈一次后若干 run 内不再反馈，解冻后再反馈", async () => {
   const { adapter } = makeSymbolApp({ cooldownRuns: 2, cooldownMs: 0 });

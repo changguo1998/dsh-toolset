@@ -1,7 +1,8 @@
 /**
  * knowledge-base 插件入口（DSH bundle 接入面）。
  *
- * 契约对齐 DSH-CTX-API.md §0：插件 bundle 约定 `export { name, inject, Config, apply }`。
+ * 契约对齐 DSH-CTX-API.md §0（`export { name, inject, Config, apply }`）：本包导出
+ * `name` / `provide` / `apply`，配置由 TS 接口接收（未提供运行时 Config schema）。
  * @deepseek-ai/cordis 为 dsh 仓库 workspace 包（未发布到 npm），宿主 ctx 用结构化类型声明；
  * createKnowledgeBundle 为核心工厂（可测/可复用），apply 为 DSH 宿主挂载入口。
  * ctx_knowledge 四接口 = KnowledgeService 的 search/put/touch/evict。

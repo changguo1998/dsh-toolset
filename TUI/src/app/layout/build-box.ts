@@ -108,7 +108,7 @@ function toolLineSegs(line: string, tone?: string) {
 /**
  * 把 buffer 分类为对话/活动两棵内容树。
  *
- * 分类逻辑 = 旧管线迁出前的结构平移：
+ * 分类逻辑（按内容类型分流）：
  *  - assistant：final → dialogue、非 final → activity；fence 跨行状态注解
  *  - tool：连续 run 分组 + step 头（不按组数折叠：只受活动 pane 可视行数约束）
  *  - user：整块右对齐（h[spacer(fill), styled]）+ 右缘竖线（suffix, minWidth）
@@ -405,7 +405,7 @@ function finalSpace(
   return block;
 }
 
-/** step 分割行前吸收前文拖尾空行（对齐旧 isBlankRow 吸收语义）：
+/** step 分割行前吸收前文拖尾空行（对齐旧的空行吸收语义）：
  *  仅当活动区末尾是「纯空文本节点」（fill 后必单空行）或「文本以换行结尾的
  *  节点」（fill 拆物理行后末行必空，如 notice/thinking 拖尾换行锚点）时，
  *  剥掉其尾部换行（正文保留，仅尾空行不渲染——旧实现在折行后精确 pop 的
@@ -419,7 +419,7 @@ function absorbActivityBlank(leaves: Node[]): void {
     }
     // 剥掉尾随换行：仅修改节点文本（不重建节点，保持 meta 引用有效）。
     // 若剥离后节点只剩空文本（如 notice 文本恰为单个换行），继续向上吸收，
-    // 否则该节点仍产视觉空行——对齐旧实现连续 pop isBlankRow 的循环语义。
+    // 否则该节点仍产视觉空行——对齐旧实现连续 pop 空行的循环语义。
     if (stripTrailingNewline(last)) {
       if (nodePlainText(last) === "") {
         leaves.pop();

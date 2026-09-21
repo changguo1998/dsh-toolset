@@ -1,6 +1,6 @@
 // src/app/state.ts — 状态模型 + 纯 reducer
 //
-// buffer 持有会话文本行（无界，超出 SCROLLBACK_MAX 裁剪旧行）。
+// buffer 持有会话文本行（无界，超出 MAX_BUFFER_LINES 裁剪旧行）。
 // 滚动状态：followBottom 跟随底部；scrollOffset = 上滚的行单位偏移。
 
 import type {
@@ -276,7 +276,7 @@ function dropHistoryRecords(
   };
 }
 
-/** 共享列表面板状态（/skills、/agents、/tools 共用一套 reducer 与渲染；契约见 COMMANDS-SPEC.md §0.4） */
+/** 共享列表面板状态（/skills、/agents、/tools 共用一套 reducer 与渲染；契约见 COMMANDS-SPEC.md §4） */
 export interface CommandPanelState {
   kind: CommandPanelKind;
   /** 高亮行索引（clamp 到 rows 范围；可见窗口随 index 平移） */
@@ -650,9 +650,8 @@ export function appendStream(
   text: string,
   kind: BufferKind = "assistant",
 ): AppState {
-  // 思考/正文已分属活动区与历史区两个窗口：正文 arrival 不再清思考——
-  // 遗留的「推理让位」清理已移除，思考保留显示到本 turn 结束，
-  // 由下回 turn-begin 统一清空（活动区瞬态整轮重置）。
+  // 思考/正文分属活动区与历史区两个窗口：正文到达不清思考，思考保留显示到本
+  // turn 结束，由下轮 turn-begin 统一清空（活动区瞬态整轮重置）。
   const buffer = state.buffer.length ? [...state.buffer] : [];
   // 渲染保护：剔除非打印控制字符（CRLF/孤立 CR 归一为 LF、其余 C0/C1 移除），
   // 剔除计数累计入 state.strippedChars，turn-end 时统一警告

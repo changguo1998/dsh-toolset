@@ -1,4 +1,4 @@
-// tests/command-panel-search.test.ts — P2#24：/search 多引擎聚合命令（listPanel）
+// tests/command-panel-search.test.ts — P2#24：/search 多引擎聚合命令（共享列表面板）
 //
 // 覆盖：路由；查询透传 → 行归一化（title ?? host、url/snippet、payload=url）；空结果 → 占位；
 // 无 query / 服务缺失 → warn 不空开面板；Enter 展示来源 URL；翻页。多引擎语义由宿主

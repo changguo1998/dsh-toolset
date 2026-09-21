@@ -292,8 +292,8 @@ function normalizeHistoryMessages(
  * tool/call.arguments（原始 JSON 字符串）→ 单行摘要：优先关键字段启发式
  * （path/file/url/command/pattern/query/dir——read/write/edit→路径、bash→命令等），
  * 无关键字段回落原始紧凑串；JSON 解析失败兜底原样。
- * 2026-09-28：不再做固定字符数截断（旧 SUMMARY_MAX=80 与窗口宽度无关，窄/宽终端
- * 都不匹配），完整摘要交给渲染层按窗口宽度换行。
+ * 不做固定字符数截断（固定字符数与窗口宽度无关，窄/宽终端下都不匹配）；
+ * 完整摘要交给渲染层按窗口宽度换行。
  */
 function summarizeToolArguments(args: string): string {
   const raw = args.trim();
@@ -745,7 +745,10 @@ function relevanceScore(hit: {
  *  query-token 关联度降序（分数一致保 provider/来源顺序稳定）。返回行 + 成败统计；
  *  单个 provider 失败仅丢其数据（其余保留），全部失败由调用方据 failed===total 判 reject。 */
 export function aggregateSearchSources(params: {
-  providers: { id: string; search(): Promise<{ sources: readonly SearchSourceLike[] }> }[];
+  providers: {
+    id: string;
+    search(): Promise<{ sources: readonly SearchSourceLike[] }>;
+  }[];
   query: string;
   maxResults: number;
 }): Promise<{
@@ -759,14 +762,19 @@ export function aggregateSearchSources(params: {
     Promise.resolve()
       .then(() => p.search())
       .then(
-        (r) =>
-          ({ status: "fulfilled" as const, provider: p.id, r }),
+        (r) => ({ status: "fulfilled" as const, provider: p.id, r }),
         (err) => ({ status: "rejected" as const, provider: p.id, err }),
       ),
   );
   return Promise.all(results).then((settled) => {
     const seen = new Set<string>();
-    const hits: { title: string; snippet: string; tokens: string[]; source: SearchSourceLike; provider: string }[] = [];
+    const hits: {
+      title: string;
+      snippet: string;
+      tokens: string[];
+      source: SearchSourceLike;
+      provider: string;
+    }[] = [];
     let success = 0;
     let failed = 0;
     for (const s of settled) {
@@ -795,8 +803,7 @@ export function aggregateSearchSources(params: {
       .sort((a, b) => b.score - a.score)
       .slice(0, Math.max(0, params.maxResults));
     const rows = ordered.map(({ h }) => ({
-      title:
-        (h.title !== "" ? h.title : "") || urlHost(h.source.url),
+      title: (h.title !== "" ? h.title : "") || urlHost(h.source.url),
       detail: [
         `[${h.provider}]`,
         h.source.snippet ?? "",
@@ -866,7 +873,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   // /workflows 面板行：runs 集合 → CommandPanelRow[]（running → active 黄 / done → inactive 灰）。
   // 行归一只在 refreshWorkflows 主动调用时 emit（面板打开）；tool-workflow 增量事件仅更新
   // 内部 Map、不 emit 额外事件（避免污染既有事件流尾索引断言），面板实时性由 App 打开期间
-  // 定时刷新承担（C2 同款 inputPanelHeights/interval 基建）。
+  // 定时刷新承担（与 /agents 同款定时刷新基建）。
   const workflowRows = (): {
     title: string;
     detail: string;
@@ -2400,7 +2407,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       try {
         const schemas = svc.schemas() ?? [];
         const needle = (filter ?? "").toLowerCase();
-        // SPEC §2.1：filter 只匹配工具名子串（描述不参与，避免描述误命中）
+        // filter 只匹配工具名子串（描述不参与，避免描述误命中）
         const matched =
           needle === ""
             ? schemas
@@ -2547,9 +2554,13 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     async search(query: string, maxResults = 10): Promise<void> {
       // provider 集合：opts.web（host 派生）+ options.searchProviders（TUI 本地可配置）
       // —— seam 是 provider-selecting 非聚合，TUI 侧负责并行遍历与合并/去重/排序。
-      const providers: { id: string; search(): Promise<{ sources: readonly SearchSourceLike[] }> }[] = [];
+      const providers: {
+        id: string;
+        search(): Promise<{ sources: readonly SearchSourceLike[] }>;
+      }[] = [];
       const svc = opts.web;
-      const webSearch = svc && typeof svc.search === "function" ? svc.search : undefined;
+      const webSearch =
+        svc && typeof svc.search === "function" ? svc.search : undefined;
       if (webSearch) {
         providers.push({
           id: "web",
