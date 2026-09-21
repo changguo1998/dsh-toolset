@@ -554,8 +554,9 @@ describe("TaskEngine 快照落盘（snapshotPath 周期写）", () => {
         "快照超时未就绪（写盘链未落定）",
       );
       assert.ok(events.some((ev) => ev.type === "plan/frame-implemented"));
-      // 模拟硬中止：直接用磁盘快照恢复，在途帧按设计回收为 pending 后可续做
-      const e2 = resumeFromSnapshot(await readFile(snapPath, "utf8"), {
+      // 模拟硬中止：直接用**已验就绪的快照**恢复（不二次 readFile——fire-and-forget
+      // 写盘非原子，重读可能在另一 in-flight 写盘中途截断，导致偶发 Unexpected end）
+      const e2 = resumeFromSnapshot(JSON.stringify(onDisk), {
         ...makeHooks(),
       });
       assert.equal(e2.frames().get("c1")?.status, "pending");
