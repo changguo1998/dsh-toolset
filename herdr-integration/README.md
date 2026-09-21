@@ -57,13 +57,13 @@ dsh --profile <p>
 
 ### 加载顺序注意（重要）
 
-本插件的 blocked 桥是**观察型 waterfall 监听者**：它必须在真实答案者（如 `@dsh-toolset/dsh-tui` 的问答应答者）**之前**注册，否则请求已被下游认领，观察者收不到事件。多个 bundle 时请把本 bundle 排在 dsh-tui **之前**：
+本插件的 blocked 桥是**观察型 waterfall 监听者**：它必须在真实答案者（如 `@dsh-toolset/tui` 的问答应答者）**之前**注册，否则请求已被下游认领，观察者收不到事件。多个 bundle 时请把本 bundle 排在 tui **之前**：
 
 ```jsonc
 "bundles": [
   "@deepseek-ai/dsh-base",
-  "@dsh-toolset/herdr-integration",   // 先于 dsh-tui
-  "@dsh-toolset/dsh-tui"
+  "@dsh-toolset/herdr-integration",   // 先于 tui
+  "@dsh-toolset/tui"
 ]
 ```
 

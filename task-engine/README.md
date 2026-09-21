@@ -1,4 +1,4 @@
-# @dsh-toolset/dsh-task-engine
+# @dsh-toolset/task-engine
 
 DSH（DeepSeek Harness）任务树引擎：Frame 状态机、decompose/implement/stop/status 工具族、
 机械+语义双重门禁与 RET 验收路由。架构对齐 `docs/AGENT-ARCHITECTURE-ANALOGY.md` §10/§13-§18 与
@@ -79,13 +79,13 @@ task-engine/
 
 在 `~/.dsh/profiles/fff/`：
 
-1. `package.json` 的 `dependencies` 增加 `"@dsh-toolset/dsh-task-engine": "link:<本包绝对路径>"`，
-   `dsh.profile.bundles` 增加 `"@dsh-toolset/dsh-task-engine"`；
+1. `package.json` 的 `dependencies` 增加 `"@dsh-toolset/task-engine": "link:<本包绝对路径>"`，
+   `dsh.profile.bundles` 增加 `"@dsh-toolset/task-engine"`；
 1. `cordis.patch.yml` 追加：
 
 ```yaml
-- id: dsh-task-engine
-  name: '@dsh-toolset/dsh-task-engine'
+- id: task-engine
+  name: '@dsh-toolset/task-engine'
 ```
 
 1. 构建产物经 symlink 实时可见，直接 `dsh --profile fff` 加载（无需 `pnpm install`；勿用 `file:` 依赖）。

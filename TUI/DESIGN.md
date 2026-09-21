@@ -62,14 +62,14 @@ DSH 适配层接口以**官方源码研读**为准（`~/GithubRepos/deepseek-har
 
 ```
 TUI/
-  package.json          # type: module, bin: dsh-tui.js
+  package.json          # type: module, bin: tui.js
   tsconfig.json
   src/
     main.ts             # 组装: renderer + app + DSH adapter
   demo/                 # 无 DSH 依赖的 demo：mock adapter 喂模拟流式文本 + 审批，
                         #   完整走通 renderer→app 栈，不接 DSH
   tests/                # 极少的可运行自检；优先覆盖 input.ts（ANSI 解码易错）
-  bin/dsh-tui.js        # shebang + import('../dist/main.js')
+  bin/tui.js            # shebang + import('../dist/main.js')
 ```
 
 框架层 `src/renderer/` —— 不感知 DSH、不 import app：
@@ -217,7 +217,7 @@ interface Renderer {
 ## 构建与运行
 
 - 构建：`tsc`（无 bundler，Node CLI 无需打包），`outDir: dist/`，ESM
-- bin：`bin/dsh-tui.js` = shebang + `import('../dist/main.js')`，`package.json.bin` 指向它
+- bin：`bin/tui.js` = shebang + `import('../dist/main.js')`，`package.json.bin` 指向它
 - demo：`npm run demo` → tsc 后 `node dist/demo/main.js`；`npm run demo -- --smoke` 冒烟（帧断言 SMOKE_PASS）；`npm run smoke:pty` 真实 DSH PTY 冒烟
 
 ## 事件接入与渲染（当前状态）

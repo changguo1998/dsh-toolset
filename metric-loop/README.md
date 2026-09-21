@@ -1,4 +1,4 @@
-# @dsh-toolset/dsh-metric-loop
+# @dsh-toolset/metric-loop
 
 DSH（DeepSeek Harness）进程内集成插件：指标驱动的自动循环。循环状态持久化为 JSON，
 每次 `dsh` headless 启动 / schedule 唤醒即推进一轮：执行用户提供的测量命令（stdout 解析
@@ -34,7 +34,7 @@ npm run smoke   # 宿主联调：profile 引导 + headless 连跑三轮 + 状态
 
 `npm run smoke` 全自动化（约 1-3 分钟，需本机可用 dsh 0.1.5-rc.2 与模型凭据）：
 
-1. 幂等引导独立 profile `dsh-metric-loop`（headless 模板；`dsh plugin add` 以 `link:` 挂载本包；
+1. 幂等引导独立 profile `metric-loop`（headless 模板；`dsh plugin add` 以 `link:` 挂载本包；
    用户层 `cordis.patch.yml` 配置 stateDir——`METRIC_LOOP_STATE_DIR` 环境变量可重定向，
    缺省 `~/.dsh/metric-loop`）；
 1. 缺 `dist/` 自动构建；
@@ -65,4 +65,4 @@ profile 属机器级配置（`~/.dsh/profiles/`），不入库；smoke 会幂等
 
 > 状态：核心语义（direction/window plateau、maxRounds/time/tokens 边界、cadence 节流、metricless、
 > 手动停止、跨进程状态持久化、`list()` 清单与 ctx 服务挂载）已实现；35/35 测试通过，`check/build` 退出 0；宿主联调完成
-> （profile `dsh-metric-loop` + `npm run smoke` 全链路 PASS，含 headless 连跑一轮循环 + plateau 停止断言）。
+> （profile `metric-loop` + `npm run smoke` 全链路 PASS，含 headless 连跑一轮循环 + plateau 停止断言）。

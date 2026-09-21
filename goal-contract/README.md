@@ -1,4 +1,4 @@
-# @dsh-toolset/dsh-goal-contract
+# @dsh-toolset/goal-contract
 
 DSH（DeepSeek Harness）goal 会话契约起草插件：interview 式提问（经
 `tool-ask-user` / `ctx.userQuestions` 面）起草「目标 + Done-when 验证条款」，
@@ -39,21 +39,21 @@ DSH（DeepSeek Harness）goal 会话契约起草插件：interview 式提问（�
 npm run check   # tsc --noEmit
 npm run test    # node --test（interview 状态机 / 条款校验 / goal 事件落地）
 npm run build   # dist/
-npm run smoke   # 真实 dsh 会话（独立 profile dsh-goal-contract）
+npm run smoke   # 真实 dsh 会话（独立 profile goal-contract）
 ```
 
 迭代回合：改代码 → `npm run build` → 重启挂本 profile 的 `dsh` 会话。
 
 ## 挂载到 profile（独立 profile 示例）
 
-smoke 幂等引导 `~/.dsh/profiles/dsh-goal-contract`：headless 默认 profile
-创建 → `dsh plugin --profile dsh-goal-contract add '@dsh-toolset/dsh-goal-contract@link:<worktree>/goal-contract'`
-→ 同挂 `@dsh-toolset/dsh-task-engine`（link）。手工挂载等价命令：
+smoke 幂等引导 `~/.dsh/profiles/goal-contract`：headless 默认 profile
+创建 → `dsh plugin --profile goal-contract add '@dsh-toolset/goal-contract@link:<worktree>/goal-contract'`
+→ 同挂 `@dsh-toolset/task-engine`（link）。手工挂载等价命令：
 
 ```sh
-dsh --profile dsh-goal-contract --from-default-profile headless --dump-config
-dsh plugin --profile dsh-goal-contract add '@dsh-toolset/dsh-goal-contract@link:<本包路径>'
-dsh plugin --profile dsh-goal-contract add '@dsh-toolset/dsh-task-engine@link:<task-engine 路径>'
+dsh --profile goal-contract --from-default-profile headless --dump-config
+dsh plugin --profile goal-contract add '@dsh-toolset/goal-contract@link:<本包路径>'
+dsh plugin --profile goal-contract add '@dsh-toolset/task-engine@link:<task-engine 路径>'
 ```
 
 ## 边界

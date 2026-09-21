@@ -1,4 +1,4 @@
-# @dsh-toolset/dsh-tui
+# @dsh-toolset/tui
 
 本目录文档导航（等级 = design/spec/task/implementation/meta）：
 
@@ -30,16 +30,16 @@ DSH（DeepSeek Harness）进程内集成的终端 UI 插件。复用 DSH 核心�
 
 ## 双态启动
 
-`bin/dsh-tui.js` 是 delegating launcher（零第三方依赖，逻辑仅基于 node 内建模块）：
+`bin/tui.js` 是 delegating launcher（零第三方依赖，逻辑仅基于 node 内建模块）：
 
 - **真实链路**：目标 profile（默认 `fff`，可用 `DSH_TUI_PROFILE` 覆盖）已安装本 bundle 时，bin 委托 `dsh --profile <p>` 启动——profile 树内 cordis 以插件方式调用 `main.ts 的 apply(ctx)`，创建会话/拉起 agent 并组装 renderer+app+real adapter，argv 与退出码原样透传。
 - **无 DSH 退化**：无可用 profile 或传 `--demo` 时，运行 mock demo（renderer + app + mock adapter 全栈走通，不触碰 DSH）。
 
 ```
 
-dsh-tui            # 双态自动判定
-dsh-tui --demo     # 强制 mock demo（无 DSH 依赖）
-dsh-tui --help
+tui            # 双态自动判定
+tui --demo     # 强制 mock demo（无 DSH 依赖）
+tui --help
 
 ```
 
@@ -68,8 +68,8 @@ dsh-tui --help
 ```jsonc
 // <profile>/package.json
 {
-  "dependencies": { "@dsh-toolset/dsh-tui": "link:<本包路径>" },
-  "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@dsh-toolset/dsh-tui"] } }
+  "dependencies": { "@dsh-toolset/tui": "link:<本包路径>" },
+  "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@dsh-toolset/tui"] } }
 }
 ```
 
@@ -77,7 +77,7 @@ dsh-tui --help
 
 ```sh
 # 本地开发使用 link: 依赖，无需重新安装；正式发布使用 dsh plugin add
-dsh --profile <p> --dump-config        # 应出现 - id: dsh-tui 行
+dsh --profile <p> --dump-config        # 应出现 - id: tui 行
 ```
 
 1. 启动（需要 DEEPSEEK_API_KEY 与真实终端）：
@@ -91,11 +91,11 @@ dsh --profile <p>
 ## profile 配置（主题与流式显示）
 
 - **内置主题**：`fffdark`（`dark`，默认）与 `ffflight`（`light`）两套 truecolor 配色；`/theme`（无参 toggle）仅切换当前会话，不落盘。
-- 在 profile 的 `cordis.patch.yml` 中给 `dsh-tui` 节点加 `config` 即可配置以下项（缺省/非法值回退默认，非法值会在启动时告警）：
+- 在 profile 的 `cordis.patch.yml` 中给 `tui` 节点加 `config` 即可配置以下项（缺省/非法值回退默认，非法值会在启动时告警）：
 
 ```yaml
-- id: dsh-tui
-  name: '@dsh-toolset/dsh-tui'
+- id: tui
+  name: '@dsh-toolset/tui'
   config:
     theme: light            # dark | light（默认 dark）
     streamTypewriter: true  # 打字机总开关（默认 true：真实链路放缓流式正文显示）
@@ -188,7 +188,7 @@ dsh --profile <p>
 - **paletteDir 解析链**：配置值 → `$FFF_HOME/config/terminal-colortheme` → `~/fff/config/terminal-colortheme`；`"paletteDir": ""` 显式禁用文件查找（只用内联/内置）。`~/fff` 是选配环境（fff 配色单一源），缺目录时静默回落内置兜底。
 - **语义色槽位**：`gray`/`border`/`code`/`focus` 从各主题 `semantics` 解析（不再按主题名/ID 推断），可经 `palettes.<id>.semantics` 覆盖：值可为字面 `#RRGGBB` 或槽位引用 `ansi.N`/`bright.N`。内置默认 = 当前上游配色快照（dark：gray=bright.0、border=ansi.4、code=ansi.0、focus=bright.7；light：gray=bright.0、border=ansi.4、code=ansi.7、focus=ansi.0）。
 - 生效时机：启动读取一次，不做热重载；`/theme dark|light|toggle` 仅当前会话切换调色板，不写回配置。
-- 非法/缺失字段逐级回落并记告警（`[dsh-tui]` 输出），不崩溃。
+- 非法/缺失字段逐级回落并记告警（`[tui]` 输出），不崩溃。
 
 ## 构建 / 测试
 
