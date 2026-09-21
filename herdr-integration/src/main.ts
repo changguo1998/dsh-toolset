@@ -6,8 +6,8 @@
 //   3. blocked 事件桥：观察型 waterfall 监听 approval/request、user-questions/request，
 //      并以 session/event 订阅 turn/end{reason:'blocked'} 作为第三阻塞源（turn/start 解除）——
 //      pending 期间上报 blocked（等待审批 / 等待用户 / 等待输入），沉降后解除；监听者
-//      不认领请求，不影响真实答案者（如 dsh-tui）。注意：观察者必须先于答案者注册，
-//      profile bundles 顺序应将本 bundle 排在 dsh-tui 之前（见 cordis.patch.yml 注释）。
+//      不认领请求，不影响真实答案者（如 tui）。注意：观察者必须先于答案者注册，
+//      profile bundles 顺序应将本 bundle 排在 tui 之前（见 cordis.patch.yml 注释）。
 //   4. 根 agent 出现/会话切换时上报 pane.report_agent_session。
 //
 // 契约对齐 DSH-CTX-API.md（dsh 0.1.2-rc.1）：
@@ -71,7 +71,7 @@ export interface HerdrPluginHandle {
 // 插件入口
 // ---------------------------------------------------------------------------
 
-export const name = "@dsh-toolset/herdr-integration";
+export const name = "herdr-integration";
 
 export const inject = ["agents"];
 

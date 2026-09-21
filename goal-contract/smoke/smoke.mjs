@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * 宿主联调 smoke（独立 profile: dsh-goal-contract，对齐 DSH-CTX-API 0.1.5-rc.2）。
+ * 宿主联调 smoke（独立 profile: goal-contract，对齐 DSH-CTX-API 0.1.5-rc.2）。
  *
  * 验证「draft → goal drop → clause readback」链路：
  *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.2）
- *   1. profile dsh-goal-contract 引导（幂等：headless 默认 profile 创建 →
+ *   1. profile goal-contract 引导（幂等：headless 默认 profile 创建 →
  *      挂载本插件 link: → 同挂 task-engine link:）
  *   2. 缺 dist 时先构建（本包 + task-engine，含 task-engine 依赖安装）
  *   3. 真实 dsh headless 一次性会话：模型全量预填调用 goal_contract_draft
@@ -40,9 +40,9 @@ const PKG_ROOT = path.resolve(
   "..",
 );
 const TASK_ENGINE_ROOT = path.resolve(PKG_ROOT, "..", "task-engine");
-const PKG_NAME = "@dsh-toolset/dsh-goal-contract";
-const TASK_ENGINE_NAME = "@dsh-toolset/dsh-task-engine";
-const PROFILE = "dsh-goal-contract";
+const PKG_NAME = "@dsh-toolset/goal-contract";
+const TASK_ENGINE_NAME = "@dsh-toolset/task-engine";
+const PROFILE = "goal-contract";
 const PROFILE_PKG = path.join(
   homedir(),
   ".dsh",

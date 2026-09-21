@@ -1,10 +1,10 @@
 {
-    "name": "@dsh-toolset/dsh-tui",
+    "name": "@dsh-toolset/tui",
     "version": "0.1.0",
     "description": "DSH (DeepSeek Harness) 进程内集成终端 UI",
     "type": "module",
     "bin": {
-        "dsh-tui": "./bin/dsh-tui.js"
+        "tui": "./bin/tui.js"
     },
     "main": "dist/src/main.js",
     "scripts": {

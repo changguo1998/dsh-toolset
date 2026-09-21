@@ -37,7 +37,7 @@ interface BundleHost {
 export function apply(ctx: unknown): void {
   // 观测：stderr 警告（宿主 logger 面形状不固定，不依赖）
   const warn = (message: string): void => {
-    process.stderr.write(`[dsh-goal-contract] warn: ${message}\n`);
+    process.stderr.write(`[goal-contract] warn: ${message}\n`);
   };
   const host = ctx as BundleHost;
   // tools 服务必备：无工具注册表则插件无事可做

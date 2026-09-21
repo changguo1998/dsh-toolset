@@ -9,7 +9,7 @@ import {
   type DigestResult,
 } from "./types.ts";
 
-export const name = "@dsh-toolset/fs-digest";
+export const name = "fs-digest";
 
 /** 注入面：tools（注册 fs_digest）；lsp 面由宿主结构面 duck-typed 复用，不显式注入。 */
 export const inject = ["tools"];

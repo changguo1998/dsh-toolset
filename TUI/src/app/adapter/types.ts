@@ -1121,7 +1121,7 @@ export interface TaskEngineQueryLike {
   isComplete: boolean;
 }
 
-/** ctx.get('taskEngine') 只读查询面（dsh-task-engine cordis provide；缺失时 /task 提示不可用） */
+/** ctx.get('taskEngine') 只读查询面（task-engine cordis provide；缺失时 /task 提示不可用） */
 export interface TaskEngineLike {
   query?(): TaskEngineQueryLike;
   frameStack?(): readonly string[];
@@ -1350,7 +1350,7 @@ export interface RealAdapterOptions {
   tools?: ToolsLike;
   /** ctx.get('settings') 服务（dsh-settings）；缺失时 /settings 提示不可用 */
   settings?: SettingsLike;
-  /** ctx.get('taskEngine') 只读查询面（dsh-task-engine cordis provide）；缺失时 /task 提示不可用 */
+  /** ctx.get('taskEngine') 只读查询面（task-engine cordis provide）；缺失时 /task 提示不可用 */
   taskEngine?: TaskEngineLike;
   /** ctx.get('guard') 只读查询面（security-guard cordis provide）；缺失时 /guard 提示不可用 */
   guard?: SecurityGuardLike;

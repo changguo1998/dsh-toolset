@@ -14,7 +14,7 @@ import { TaskEngine, type RootSpec } from "./engine.ts";
 import { createTools, type TaskToolDef, type ToolExecuteCtx } from "./tools.ts";
 import type { Acceptance, AcceptanceLevel } from "./types.ts";
 
-export const name = "@dsh-toolset/dsh-task-engine";
+export const name = "task-engine";
 export const inject = ["tools"];
 /** 只读查询面挂载声明（BACKLOG C1 补全：TUI /task 经 ctx.get('taskEngine') 接线） */
 export const provide = ["taskEngine"];
@@ -161,7 +161,7 @@ interface ApprovalLike {
 
 export async function apply(ctx: unknown, config?: Config): Promise<void> {
   const warn = (msg: string): void => {
-    process.stderr.write(`[dsh-task-engine] warn: ${msg}\n`);
+    process.stderr.write(`[task-engine] warn: ${msg}\n`);
   };
   const toolsSvc: ToolsRegistrar | undefined = (
     ctx as { tools?: ToolsRegistrar }

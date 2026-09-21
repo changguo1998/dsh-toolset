@@ -4,11 +4,11 @@
 //   1. DSH 插件(bundle)入口：导出 `{ name, inject, apply }`(注意：cordis 要求
 //      Config 为 schemastery Schema 才导出 `Config`——本项目零运行时依赖、不引入
 //      schemastery，故不导出 Config，loader 对无 schema 插件直接透传 config)，由
-//      cordis/dsh 以 `name: '@dsh-toolset/dsh-tui'` 加载，apply(ctx) 在真实
+//      cordis/dsh 以 `name: '@dsh-toolset/tui'` 加载，apply(ctx) 在真实
 //      profile 内做会话/agent 引导并组装 renderer + app + real adapter。
 //      注意：本模块作为插件被 import 时绝不能有顶层副作用(如直接 start)，
 //      否则 loader 阶段就会抢占 TTY。
-//   2. 独立 `main()`：供 bin/dsh-tui.js 显式调用(阶段 3 再指向 profile boot)。
+//   2. 独立 `main()`：供 bin/tui.js 显式调用(阶段 3 再指向 profile boot)。
 
 import { createRenderer, type Renderer } from "./renderer/index.ts";
 import { normalizeThemeId, type ThemeId } from "./renderer/theme.ts";
@@ -109,7 +109,7 @@ export function main(opts: {
 // cordis 插件入口
 // ---------------------------------------------------------------------------
 
-export const name = "@dsh-toolset/dsh-tui";
+export const name = "tui";
 
 export const inject = ["agents"];
 
@@ -158,7 +158,7 @@ export function normalizeTuiDisplayConfig(
       >
     | undefined,
   warn: (msg: string) => void = (m) =>
-    process.stderr.write("[dsh-tui] config warning: " + m + "\n"),
+    process.stderr.write("[tui] config warning: " + m + "\n"),
 ): TuiDisplayConfig {
   const num = (
     v: number | undefined,
@@ -227,7 +227,7 @@ export async function apply(
     | undefined;
 
   if (typeof agents?.create !== "function") {
-    throw new Error("dsh-tui: ctx.agents.create 不可用(缺 dsh-agent-loop)");
+    throw new Error("tui: ctx.agents.create 不可用(缺 dsh-agent-loop)");
   }
 
   // 模型 route 解析：显式 config > 宿主默认选择(agentDefaultModel) > 空。
@@ -310,7 +310,7 @@ export async function apply(
 
   if (!route.provider || !route.model) {
     process.stderr.write(
-      "[dsh-tui] warn: model route 为空，agent 将无法发起请求(配置 provider/model 或环境默认)\n",
+      "[tui] warn: model route 为空，agent 将无法发起请求(配置 provider/model 或环境默认)\n",
     );
   }
 
@@ -375,7 +375,7 @@ export async function apply(
     // 设置服务（ctx.get('settings')，dsh-settings；缺失时 /settings 提示不可用）
     settings: (ctx as { get?: (name: string) => unknown }).get?.("settings") as
       SettingsLike | undefined,
-    // 任务引擎只读查询面（ctx.get('taskEngine')，dsh-task-engine provide；缺失时 /task 提示不可用）
+    // 任务引擎只读查询面（ctx.get('taskEngine')，task-engine provide；缺失时 /task 提示不可用）
     taskEngine: (ctx as { get?: (name: string) => unknown }).get?.(
       "taskEngine",
     ) as TaskEngineLike | undefined,
@@ -410,7 +410,7 @@ export async function apply(
     adapter,
     initialTheme:
       config?.theme === undefined ? undefined : normalizeThemeId(config.theme),
-    logger: (msg) => process.stderr.write("[dsh-tui] " + msg + "\n"),
+    logger: (msg) => process.stderr.write("[tui] " + msg + "\n"),
     // 真实接入链路：打字机放缓默认开启，streamTypewriter: false 可关闭
     slowStream: display.streamTypewriter,
     streamCharsPerSecond: display.streamCharsPerSecond,

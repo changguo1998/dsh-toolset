@@ -205,7 +205,7 @@ describe("工具注册（mock ctx）", () => {
   }
 
   it("apply 注册 fs_digest 工具，name/inject 常量正确", () => {
-    assert.equal(name, "@dsh-toolset/fs-digest");
+    assert.equal(name, "fs-digest");
     assert.deepEqual(inject, ["tools"]);
     const { ctx, registered } = mockCtx();
     apply(ctx as never, {});

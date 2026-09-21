@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * 宿主联调 smoke（profile: dsh-metric-loop，对齐 DSH-CTX-API 0.1.5-rc.2）。
+ * 宿主联调 smoke（profile: metric-loop，对齐 DSH-CTX-API 0.1.5-rc.2）。
  *
  * 流程：
  *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.2）
- *   1. profile dsh-metric-loop 引导（幂等：创建 → 挂载插件 link: → 写用户层配置）
+ *   1. profile metric-loop 引导（幂等：创建 → 挂载插件 link: → 写用户层配置）
  *   2. 缺 dist 时先构建
  *   3. 真实 dsh headless 连跑三次，每次恰好推进一轮：
  *        R1 start（常量指标 echo 42，window=2）→ 第 1 轮（基线，running）
@@ -36,9 +36,9 @@ const PKG_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const PROFILE = "dsh-metric-loop";
+const PROFILE = "metric-loop";
 const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
-const PKG_NAME = "@dsh-toolset/dsh-metric-loop";
+const PKG_NAME = "@dsh-toolset/metric-loop";
 const REQUIRED_VERSION = "0.1.5-rc.2";
 const LOOP_ID = "smoke";
 
@@ -47,8 +47,8 @@ const LOOP_ID = "smoke";
 const CORDIS_PATCH = `# 本 profile 用户层：metric-loop 插件配置（由 smoke 脚本管理，勿手改）。
 # stateDir 优先取 METRIC_LOOP_STATE_DIR 环境变量（smoke 重定向到临时目录），
 # 缺省落 ~/.dsh/metric-loop（dshHomePath 由宿主 !!js 提供）。
-- id: dsh-metric-loop
-  name: '@dsh-toolset/dsh-metric-loop'
+- id: metric-loop
+  name: '@dsh-toolset/metric-loop'
   config:
     stateDir: !!js process.env.METRIC_LOOP_STATE_DIR || dshHomePath('metric-loop')
 `;
@@ -231,7 +231,7 @@ async function runSession(stateDir, task, tag) {
   // 断言宿主 stderr 含注册行（bundle apply 真实执行证据，每次启动均须出现）
   if (
     !assert(
-      result.stderr.includes("[dsh-metric-loop] 已注册 metric_loop 工具"),
+      result.stderr.includes("[metric-loop] 已注册 metric_loop 工具"),
       `stderr 缺少注册行（bundle apply 未执行？）stderr 尾部：${result.stderr.slice(-300)}`,
     )
   ) {

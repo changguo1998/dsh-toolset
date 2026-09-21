@@ -1,5 +1,5 @@
 /**
- * dsh-metric-loop 插件入口（DSH bundle 接入面）。
+ * metric-loop 插件入口（DSH bundle 接入面）。
  *
  * 与 task-engine 同模式：导出 `{ name, inject, apply }`，零 DSH 运行时依赖、
  * 结构面访问 ctx；ctx.tools 缺失时降级告警而非抛错，保证 dsh 加载不崩。
@@ -64,7 +64,7 @@ export {
 } from "./persist.ts";
 export type * from "./types.ts";
 
-export const name = "@dsh-toolset/dsh-metric-loop";
+export const name = "metric-loop";
 export const inject = ["tools"];
 
 /** 提供的服务名（cordis：宿主命令经 ctx.get('metricLoop') 访问只读查询面）。 */
@@ -416,7 +416,7 @@ function toToolDef(controller: MetricLoopController) {
 /** DSH 宿主按 bundle 契约调用：惰性、防御，加载失败只告警。 */
 export async function apply(ctx: unknown, config?: Config): Promise<void> {
   const warn = (msg: string): void => {
-    process.stderr.write(`[dsh-metric-loop] warn: ${msg}\n`);
+    process.stderr.write(`[metric-loop] warn: ${msg}\n`);
   };
   let controller: MetricLoopController;
   try {
@@ -439,7 +439,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   try {
     toolsSvc.register(toToolDef(controller));
     process.stderr.write(
-      `[dsh-metric-loop] 已注册 metric_loop 工具（stateDir=${controller["stateDir"]}）\n`,
+      `[metric-loop] 已注册 metric_loop 工具（stateDir=${controller["stateDir"]}）\n`,
     );
   } catch (err) {
     warn(`工具注册失败：${String(err)}`);

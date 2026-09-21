@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// bin/dsh-tui.js — dsh-tui 双态启动器（delegating launcher）
+// bin/tui.js — tui 双态启动器（delegating launcher）
 //
 // 双态判定与社区 @deepseek-harness-tui/dsh-tui bin 同构（零第三方依赖）：
-//   - 目标 profile 存在（$DSH_HOME/profiles/<profile> 且其 dsh-tui bundle 已
-//     安装于 node_modules/@dsh-toolset/dsh-tui）→ spawn `dsh --profile <profile>`，
+//   - 目标 profile 存在（$DSH_HOME/profiles/<profile> 且其 tui bundle 已
+//     安装于 node_modules/@dsh-toolset/tui）→ spawn `dsh --profile <profile>`，
 //     argv 与退出码原样透传（真实链路：profile 树内 apply(ctx) 建 agent）。
 //   - 无 DSH / 无该 profile / `--demo` → 退化为 mock demo（renderer+app+
 //     mock adapter 走通全栈，纯本地演示，不触碰 DSH）。
@@ -16,15 +16,15 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const PROFILE = process.env.DSH_TUI_PROFILE ?? "fff";
-const PACKAGE = "@dsh-toolset/dsh-tui";
-const OWN_NAME = "@dsh-toolset/dsh-tui";
+const PACKAGE = "@dsh-toolset/tui";
+const OWN_NAME = "@dsh-toolset/tui";
 
-/** 目标 profile 的 dsh-tui bundle 是否已安装（包目录 + name 匹配 + bin 存在） */
+/** 目标 profile 的 tui bundle 是否已安装（包目录 + name 匹配 + bin 存在） */
 function profileBundleReady() {
   const home = process.env.DSH_HOME || join(homedir(), ".dsh");
   const pkgDir = join(home, "profiles", PROFILE, "node_modules", PACKAGE);
   const pkg = join(pkgDir, "package.json");
-  const bin = join(pkgDir, "bin", "dsh-tui.js");
+  const bin = join(pkgDir, "bin", "tui.js");
   if (!existsSync(pkg) || !existsSync(bin)) return false;
   try {
     // 仅校验 name——避免半安装/占位目录被判为已就绪
@@ -45,9 +45,7 @@ function delegate(args) {
     process.exit(code ?? 1);
   });
   child.on("error", (err) => {
-    process.stderr.write(
-      "[dsh-tui] 委托 dsh 失败: " + String(err.message) + "\n",
-    );
+    process.stderr.write("[tui] 委托 dsh 失败: " + String(err.message) + "\n");
     process.exit(1);
   });
 }
@@ -75,12 +73,12 @@ if (cmd === "--demo") {
 } else if (cmd === "--help" || cmd === "-h") {
   process.stdout.write(
     [
-      "dsh-tui — DSH (DeepSeek Harness) 进程内集成终端 UI",
+      "tui — DSH (DeepSeek Harness) 进程内集成终端 UI",
       "",
       "用法:",
-      "  dsh-tui                        双态启动:有可用 profile 则委托真实链路,否则 mock demo",
-      "  dsh-tui --demo                强制 mock demo(无 DSH 依赖)",
-      "  dsh-tui --help                本帮助",
+      "  tui                        双态启动:有可用 profile 则委托真实链路,否则 mock demo",
+      "  tui --demo                强制 mock demo(无 DSH 依赖)",
+      "  tui --help                本帮助",
       "",
       "环境:",
       `  DSH_HOME       (当前 ${process.env.DSH_HOME ?? join(homedir(), ".dsh")})`,
