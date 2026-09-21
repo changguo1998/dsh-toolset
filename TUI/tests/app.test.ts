@@ -3653,10 +3653,11 @@ test("symbols：turn-end 发 notice（替换数 + 未推荐符号，合并一条
   assert.ok(joined.includes("🚀"), "列出的未推荐符号");
 });
 
-test("symbols：warnModel 默认 → turn-end 检测到即直接发送反馈", () => {
+test("symbols：warnModel 默认 → turn-end 检测到即直接发送反馈", async () => {
   const { renderer, adapter } = makeSymbolApp();
   adapter.push({ type: "stream", sessionId: "s1", text: "用了 🚀" });
   adapter.push({ type: "turn-end" });
+  await new Promise((r) => setTimeout(r, 5)); // 直发为宏任务推迟，等待落定
   assert.ok(adapter.sent.length >= 1, "turn-end 后直接发送（不等用户输入）");
   const fb = adapter.sent[0]!;
   assert.ok(fb.includes("[符号规范]"), `规范反馈已发送（${fb.slice(0, 30)}）`);
@@ -3664,7 +3665,7 @@ test("symbols：warnModel 默认 → turn-end 检测到即直接发送反馈", (
   assert.ok(fb.includes("符号选择规则"), "警示段复述选择规则");
 });
 
-test("symbols：仅替换（无未推荐）也反馈模型——无歧义映射指令", () => {
+test("symbols：仅替换（无未推荐）也反馈模型——无歧义映射指令", async () => {
   const { renderer, adapter } = makeSymbolApp();
   adapter.push({ type: "stream", sessionId: "s1", text: "进度 ✔ 与 ⚠ 注意" });
   adapter.push({ type: "turn-end" });
@@ -3673,7 +3674,8 @@ test("symbols：仅替换（无未推荐）也反馈模型——无歧义映射�
   assert.ok(joined.includes("符号已替换"), "替换提示存在");
   assert.ok(joined.includes("✔→✓"), "替换明细（去重）");
   assert.ok(!joined.includes("未推荐符号"), "本回合无未推荐项");
-  // 反馈直接发送（turn-end 后，无需用户输入）：无歧义指令
+  // 反馈（宏任务推迟后）直接发送：无歧义指令
+  await new Promise((r) => setTimeout(r, 5));
   const fb = adapter.sent.find((s) => s.includes("[符号规范]"));
   assert.ok(fb && fb.includes("请将「✔」替换为「✓」"), "替换反馈为无歧义指令");
   assert.ok(fb && !fb.includes("重新选择"), "无警示时不要求重新选择");

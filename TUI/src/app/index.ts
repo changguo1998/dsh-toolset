@@ -1024,13 +1024,14 @@ export class App {
             `3）避免 emoji、带颜色/填色符号及终端宽度不确定的字符。`,
         );
       }
-      // 立即直接发送（不等用户下一条输入）：turn-end 检测到即发，模型即刻处理。
-      // 直接 adapter.sendMessage（不经 sendUserText，避免 beginTurnIfNeeded 清空活动区
-      // 把刚发的 notice 一并刷掉；notice 保留到下次用户输入）
-      this.deps.adapter.sendMessage(
-        `[符号规范] ${parts.join(" ")}`,
-        this.state.activeSessionId ?? undefined,
-      );
+      // 实验（2026-09-21）：turn-end 回调内同步 followup 宿主不接（实测 0 落盘）；
+      // 推迟一个宏任务再发，待宿主完成 run 收尾进入等待态，验证能否送达
+      const fb = `[符号规范] ${parts.join(" ")}`;
+      const sid = this.state.activeSessionId ?? undefined;
+      setTimeout(() => {
+        if (this.disposed) return;
+        this.deps.adapter.sendMessage(fb, sid);
+      }, 0);
     }
     this.paint();
   }
