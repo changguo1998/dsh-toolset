@@ -906,3 +906,117 @@ test("启动自动清理：关闭（缺省/autoCleanEmpty=false）或不挂会�
   assert.ok(true, "无会话服务时启动清理静默跳过（不抛错）");
   a2.dispose();
 });
+
+// ---------------------------------------------------------------------------
+// 退出自动清理（复用 session.autoCleanEmpty：提示渲染到活动区，等待完成后再收尾退出）
+// ---------------------------------------------------------------------------
+
+test("退出自动清理（autoCleanEmpty=true）：提示渲染到活动区并等待清理完成再关渲染器", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeSessionsAdapter();
+  const app = new TrackedApp({
+    renderer,
+    adapter: adapter as unknown as DshAdapter,
+    autoCleanEmpty: true,
+  });
+  app.start();
+  await flush();
+  // 启动后再造空会话：让「其他空会话」只由退出清理负责（启动清理为空）
+  adapter.serverRecords = [
+    rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
+    rec({ id: "tui-empty001", isEmpty: true, cwd: "/proj" }),
+    rec({ id: "tui-empty002", isEmpty: true, cwd: "/other" }),
+    rec({ id: "tui-chat0001", cwd: "/proj" }),
+    rec({ id: "tui-mem00001", isEmpty: true, cwd: "/proj", persisted: false }),
+  ];
+  const rendersBefore = renderer.renders;
+  app.dispose();
+  assert.equal(renderer.closes, 0, "清理完成前不关渲染器（等待中）");
+  await flush();
+  await flush();
+  // 全目录空会话（持久化+非 live+非当前+无用户消息）；当前活跃/带对话/未持久化不动
+  assert.deepEqual(adapter.deleteCalls, ["tui-empty001", "tui-empty002"]);
+  assert.equal(renderer.closes, 1, "清理完成后才关渲染器");
+  // 「正在清理」提示帧 + 结果帧都渲染到活动区（绕过 disposed/合帧，close 前落屏）
+  assert.ok(
+    renderer.renders - rendersBefore >= 2,
+    "先出「正在清理」帧、再出结果帧",
+  );
+  assert.ok(
+    renderer.lastRender.join("\n").includes("已自动清理 2 个空会话"),
+    "结果渲染到活动区",
+  );
+});
+
+test("退出自动清理：无可清理项时静默（不出提示帧），仍正常关闭", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeSessionsAdapter();
+  const app = new TrackedApp({
+    renderer,
+    adapter: adapter as unknown as DshAdapter,
+    autoCleanEmpty: true,
+  });
+  app.start();
+  await flush();
+  adapter.serverRecords = [
+    rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
+    rec({ id: "tui-chat0001", cwd: "/proj" }),
+  ];
+  const rendersBefore = renderer.renders;
+  app.dispose();
+  await flush();
+  await flush();
+  assert.deepEqual(adapter.deleteCalls, [], "无可清理项不入队");
+  assert.equal(renderer.closes, 1, "仍正常关闭");
+  assert.equal(
+    renderer.renders - rendersBefore,
+    0,
+    "无可清理项不出提示帧",
+  );
+});
+
+test("退出自动清理：部分失败计数渲染到活动区，仍完成收尾", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeSessionsAdapter();
+  adapter.failOn.add("tui-boom0001");
+  const app = new TrackedApp({
+    renderer,
+    adapter: adapter as unknown as DshAdapter,
+    autoCleanEmpty: true,
+  });
+  app.start();
+  await flush();
+  adapter.serverRecords = [
+    rec({ id: "tui-empty001", isEmpty: true, cwd: "/proj" }),
+    rec({ id: "tui-boom0001", isEmpty: true, cwd: "/proj" }),
+  ];
+  app.dispose();
+  await flush();
+  await flush();
+  assert.deepEqual(adapter.deleteCalls, ["tui-empty001", "tui-boom0001"]);
+  assert.equal(renderer.closes, 1, "失败也完成收尾（不阻塞退出）");
+  assert.ok(
+    renderer
+      .lastRender.join("\n")
+      .includes("已自动清理 1 个空会话（1 个失败）"),
+    "部分失败计数渲染到活动区",
+  );
+});
+
+test("退出自动清理：关闭（缺省）时 dispose 同步收尾，不渲染提示不删", () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeSessionsAdapter();
+  adapter.serverRecords = [
+    rec({ id: "tui-empty001", isEmpty: true, cwd: "/x" }),
+  ];
+  const app = new TrackedApp({
+    renderer,
+    adapter: adapter as unknown as DshAdapter,
+  });
+  app.start();
+  const rendersBefore = renderer.renders;
+  app.dispose();
+  assert.equal(renderer.closes, 1, "同步关闭（不等待）");
+  assert.deepEqual(adapter.deleteCalls, [], "未开启不自动清理");
+  assert.equal(renderer.renders - rendersBefore, 0, "关闭时不渲染提示");
+});

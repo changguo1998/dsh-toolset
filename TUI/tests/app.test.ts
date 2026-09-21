@@ -948,7 +948,7 @@ test("dispose 调用 adapter.dispose", () => {
   assert.equal(adapter.disposed, 1);
 });
 
-test("main(): 返回 disposer——调用后关闭 renderer 并释放 adapter（Cordis pause/退出共用清理）", () => {
+test("main(): 返回 disposer——调用后关闭 renderer 并释放 adapter（Cordis pause/退出共用清理）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
   const dispose = main({
@@ -962,6 +962,9 @@ test("main(): 返回 disposer——调用后关闭 renderer 并释放 adapter（
   });
   assert.equal(typeof dispose, "function", "main 返回 disposer");
   dispose();
+  // 仓库级 tui.config.json 开启 session.autoCleanEmpty：dispose 先走退出清理（本
+  // fake 无会话服务 → 立即跳过）再收尾，故 close/dispose 落在下一 tick
+  await flush();
   assert.equal(
     adapter.disposed,
     1,

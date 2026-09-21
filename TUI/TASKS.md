@@ -93,7 +93,7 @@ npm run smoke:pty      # 真机冒烟（工具行/状态栏 usage）
 | — | 活动区两态触发方式 | ✅ 已裁定并实现：**用户显式命令** `/verbose on\|off`（不做按高度预算自动降级）。状态 2（紧凑）= 每条目 1 行 + 行尾 `…`，`state.activityVerbose` + `buildBox` 单行压缩；`SPEC.md` §6.8、`IMPLEMENTATION.md`「活动区详略两态」 |
 | — | 表格 `minW` 取值策略 | ✅ 已定并实现：`max(3, ⌈自然宽/4⌉)`；压缩改**水位法**（窄列保自然宽、超宽列压到共同水位线），ΣminW 仍放不下才按 minW 比例 + 格内 `…` 截断（`SPEC.md` §3.2、`layout/table.ts`） |
 | — | 面板选中/高亮字符 | 候选沿用现状：`>` 高亮、单选 `*`、多选 `+`；SPEC 面板原语只定结构字段，字符待定（`SPEC.md` §7） |
-| — | 启动自动清理空会话 | ✅ 已实现（session.autoCleanEmpty 开关，缺省关；start() 后台全目录扫描空会话复用 /session 判据，deleteSession 串行删除 + notice 汇报；startupCleanableIds 纯函数 + App 集成 3 例） |
+| — | 启动自动清理空会话 | ✅ 已实现（session.autoCleanEmpty 开关，**缺省开**，tui.config.json 显式 false 关闭；启动 + 优雅退出两个时机：start() 后台全目录扫描空会话复用 /session 判据，deleteSession 串行删除 + notice 汇报；退出时提示与结果渲染到活动区并等待完成再退出；startupCleanableIds 纯函数 + App 集成 7 例） |
 
 ## 7. 开放点
 

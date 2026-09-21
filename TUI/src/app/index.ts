@@ -26,7 +26,6 @@ import type {
   ModelSelection,
   ModelReasoning,
   HistoryMessage,
-  SessionInfo,
   SessionSurfaceView,
 } from "./adapter/dsh.ts";
 import type { NoticeTone } from "./adapter/types.ts";
@@ -100,6 +99,9 @@ const SLOW_DEFAULT_CPS = 120;
 const CTRL_C_DOUBLE_MS = 750;
 /** 收到正文回复(stream)后：剩余思考的加速流速(尽快进入正题) */
 const SLOW_STREAM_ARRIVED_CPS = 200;
+/** 退出时清理空会话的最长等待(ms)：防会话服务挂起把退出卡死。
+ *  正常清理毫秒级即可完成，超时仅放弃清理并继续退出。 */
+const EXIT_CLEAN_TIMEOUT_MS = 5000;
 
 /**
  * 焦点面板单行滚动 action 映射：history/activity 偏移语义=距底部（上滚=+），
@@ -204,8 +206,9 @@ export interface AppDeps {
   };
   /** 模型输出符号规范化规则（tui.config.json `symbols`；不传用内置默认，见 symbols.ts） */
   symbols?: SymbolRulesConfig;
-  /** 启动时自动清理空会话（tui.config.json `session.autoCleanEmpty`）。
-   *  true 时 start() 异步扫描全部目录，删除已持久化 + 非 live + 无用户消息的会话。 */
+  /** 自动清理空会话（tui.config.json `session.autoCleanEmpty`；main.ts 接线缺省 true）。
+   *  true 时 start() 异步扫描全部目录删除空会话（notice 汇报），且优雅退出时
+   *  （/quit、Ctrl+D、双击 Ctrl+C、插件 unload）先打印提示并等待清理完成再关闭渲染器。 */
   autoCleanEmpty?: boolean;
 }
 
@@ -423,36 +426,52 @@ export class App {
   }
 
   /**
-   * 启动时自动清理空会话：列出全部会话 → 过滤可清理（持久化 + 非 live + 非当前 +
-   * 无用户消息）→ 逐个文件级删除 → 结果经 notice 汇报。
-   * 依赖宿主 sessionQuery（listSessions/deleteSession）已挂载；缺失或执行失败静默跳过
-   * （清理属于维护性功能，不让启动失败）。当前活跃/live 会话由判据天然排除。
+   * 列出全部会话并返回可清理的空会话 id（判据 startupCleanableIds：已持久化 + 非 live +
+   * 非当前 + 无用户消息）。列表服务缺失或读取失败 → 空数组（不抛，不阻碍调用方）。
    */
-  private async runStartupCleanEmptySessions(): Promise<void> {
-    const adapter = this.deps.adapter;
-    const list = adapter.listSessions;
-    const del = adapter.deleteSession;
-    if (!list || !del) return;
-    let records: SessionInfo[];
+  private async cleanableSessionIdsViaAdapter(): Promise<string[]> {
+    const list = this.deps.adapter.listSessions;
+    if (!list) return [];
     try {
-      records = await list.call(adapter);
+      return startupCleanableIds(await list.call(this.deps.adapter));
     } catch {
-      return; // 列表不可用 → 不清理
+      return []; // 列表不可用 → 不清理
     }
-    const ids = startupCleanableIds(records);
-    if (ids.length === 0) return;
-    // 逐个删除（串行避免并发 IO 与错误归属混乱），记录失败数
+  }
+
+  /**
+   * 逐个文件级删除给定会话（串行，避免并发 IO 与错误归属混乱），返回成功/失败计数。
+   * 删除服务缺失时不删任何项（返回 0/0）。
+   */
+  private async deleteSessionIds(
+    ids: string[],
+  ): Promise<{ removed: number; failed: number }> {
+    const del = this.deps.adapter.deleteSession;
+    if (!del) return { removed: 0, failed: 0 };
     let removed = 0;
     let failed = 0;
     for (const id of ids) {
       try {
-        const res = await del.call(adapter, id);
+        const res = await del.call(this.deps.adapter, id);
         if (res.ok) removed += 1;
         else failed += 1;
       } catch {
         failed += 1;
       }
     }
+    return { removed, failed };
+  }
+
+  /**
+   * 启动时自动清理空会话（session.autoCleanEmpty=true）：与退出清理共享判据与删除核心，
+   * 结果经 notice 汇报（UI 尚在，走对话区提示）。依赖宿主 sessionQuery
+   * （listSessions/deleteSession）已挂载；缺失或执行失败静默跳过（清理属于维护性功能，
+   * 不让启动失败）。当前活跃/live 会话由判据天然排除。
+   */
+  private async runStartupCleanEmptySessions(): Promise<void> {
+    const ids = await this.cleanableSessionIdsViaAdapter();
+    if (ids.length === 0) return;
+    const { removed, failed } = await this.deleteSessionIds(ids);
     if (removed === 0) {
       // 全部失败才提示（避免静默）；部分成功走下方成功文案
       if (failed > 0) {
@@ -466,6 +485,49 @@ export class App {
         : `已自动清理 ${removed} 个空会话`,
       failed > 0 ? "warn" : "success",
     );
+  }
+
+  /**
+   * 退出时清理其他空会话（复用 session.autoCleanEmpty 开关；优雅退出路径在关渲染器前调用）。
+   * 有可清理项才把提示渲染到**活动区**并等待清理完成，完成后才继续后续收尾（释放 adapter/
+   * 关闭渲染器退出）；无清理项/无可清理服务时静默直接返回，不拖慢退出。
+   */
+  private async runExitCleanEmptySessions(): Promise<void> {
+    const ids = await this.cleanableSessionIdsViaAdapter();
+    if (ids.length === 0) return;
+    const t0 = Date.now();
+    this.paintExitNotice(`正在清理 ${ids.length} 个空会话...`, "info");
+    const { removed, failed } = await this.deleteSessionIds(ids);
+    const elapsed = Date.now() - t0;
+    if (removed === 0) {
+      this.paintExitNotice(`清理空会话失败：${failed} 个删除未生效`, "error");
+      return;
+    }
+    this.paintExitNotice(
+      `已自动清理 ${removed} 个空会话` +
+        (failed > 0 ? `（${failed} 个失败）` : "") +
+        `（${elapsed}ms）`,
+      failed > 0 ? "warn" : "success",
+    );
+  }
+
+  /**
+   * 退出清理提示：绕过 disposed 守卫与 10Hz 合帧，把消息直接渲染到活动区。
+   * dispose() 已置 disposed=true（常规 notice/paint 均被守卫拦截），且主接线
+   * frameIntervalMs>0 时标脏可能被窗口定时器推迟到关终端之后——此处同步 apply + render，
+   * 保证提示在 close() 前真实落屏。
+   */
+  private paintExitNotice(text: string, tone?: NoticeTone): void {
+    this.state = reduceState(this.state, {
+      type: "notice",
+      text,
+      ...(tone ? { tone } : {}),
+    });
+    const size = this.deps.renderer.getSize();
+    const frame = buildFrame(this.state, size, this.paneScrollMax);
+    this.paneScrollMaxState = this.state;
+    this.syncScrollAnchor();
+    this.deps.renderer.render(frame);
   }
 
   /**
@@ -598,8 +660,43 @@ export class App {
     this.stopPanelRefresh();
     this.clearIdleBellTimer();
     this.clearFrameTimer();
+    // 退出时清理其他空会话（复用 session.autoCleanEmpty 开关）：开启时先打印提示并等待
+    // 清理完成，再释放 adapter/关闭渲染器退出；关闭或无可清理服务时保持同步收尾。
+    // 注意：仅优雅退出路径（/quit、Ctrl+D、双击 Ctrl+C、插件 unload）覆盖——信号强退
+    // （SIGINT/SIGTERM）与崩溃路径由 renderer 直接 process.exit，无法可靠等待异步 IO。
+    if (!this.autoCleanEmpty) {
+      this.finishDispose();
+      return;
+    }
+    void this.disposeWithExitClean();
+  }
+
+  /** 收尾释放：适配器 → 渲染器（close 恢复终端并退出事件循环/进程）。 */
+  private finishDispose(): void {
     this.deps.adapter.dispose?.();
     this.deps.renderer.close();
+  }
+
+  /** autoCleanEmpty 开启时的退出收尾：等待清理完成（含超时兜底）后再 finishDispose。 */
+  private async disposeWithExitClean(): Promise<void> {
+    let timedOut = false;
+    try {
+      await Promise.race([
+        this.runExitCleanEmptySessions(),
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            timedOut = true;
+            resolve();
+          }, EXIT_CLEAN_TIMEOUT_MS);
+        }),
+      ]);
+    } catch (err) {
+      this.paintExitNotice(`退出清理异常：${String(err)}`, "error");
+    }
+    if (timedOut) {
+      this.paintExitNotice("清理空会话超时，放弃等待", "warn");
+    }
+    this.finishDispose();
   }
 
   // ---------- 声音提醒（P2#33） ----------

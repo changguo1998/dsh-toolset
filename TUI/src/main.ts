@@ -88,7 +88,8 @@ export function main(opts: {
     },
     ...tuiConfig.layout,
     notify: tuiConfig.notify,
-    autoCleanEmpty: tuiConfig.session?.autoCleanEmpty,
+    // 自动清理空会话：缺省开启（未配置 session.autoCleanEmpty → true）；显式 false 关闭
+    autoCleanEmpty: tuiConfig.session?.autoCleanEmpty ?? true,
     symbols: tuiConfig.symbols,
     // 跨回合帧率上限：真实接线压到 10Hz（窗口内跨宏任务标脏合并到窗口末统一出帧），
     // 防事件洪峰时每回合全量排版过热；测试/演示不传（缺省 0=立即出帧）

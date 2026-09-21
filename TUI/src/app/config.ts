@@ -12,8 +12,11 @@
 //                             左右排列时活动区宽 = floor(左列正文宽 / activityHeightDivisor)，
 //                             两侧各保底 20 列（不足则回落上下），activityTopRow 不再生效。
 // 会话维护段：
-//   - session.autoCleanEmpty: 启动时自动清理空会话（持久化+非 live+非当前+无用户消息），
-//                             缺省 false（关闭）；开启后 start() 后台删除并 notice 汇报
+//   - session.autoCleanEmpty: 自动清理空会话（持久化+非 live+非当前+无用户消息），
+//                             缺省 true（开启，main.ts 接线默认；可显式 false 关闭）；
+//                             开启后启动时后台删除并 notice 汇报，
+//                             优雅退出时（/quit、Ctrl+D、双击 Ctrl+C、插件 unload）先打印
+//                             提示并等待清理完成再退出；信号强退路径不保证清理。
 // 配置文件缺失/非法 → 全部回落默认（fail-safe，不崩溃）。
 
 import { existsSync, readFileSync } from "node:fs";
@@ -67,7 +70,9 @@ export interface TuiThemeConfig {
 }
 
 export interface TuiSessionConfig {
-  /** 启动时自动清理空会话（持久化 + 非 live + 非当前 + 无用户消息）；缺省 false（关闭） */
+  /** 自动清理空会话（持久化 + 非 live + 非当前 + 无用户消息）；缺省 true（开启，
+   *  main.ts 接线默认，可显式 false 关闭）。
+   *  开启后启动时后台清理并 notice 汇报，优雅退出时打印提示并等待清理完成再退出。 */
   autoCleanEmpty?: boolean;
 }
 
@@ -212,7 +217,8 @@ export function normalizeConfig(raw: unknown): TuiConfig {
         : { idleThresholdMs: intGe(n.idleThresholdMs, 1_000) }),
     },
     theme: normalizeThemeSection(r.theme),
-    // session：非法值回落 undefined（各自回落默认；autoCleanEmpty 非法 → 关闭）
+    // 会话维护段（normalizeConfig 只回落非法值到 undefined；缺省由消费方 main.ts 应用：
+    // autoCleanEmpty 未配置/非法 → 默认开启 true，可显式 false 关闭）
     session: {
       ...(boolOr(s.autoCleanEmpty) === undefined
         ? {}

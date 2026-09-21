@@ -104,13 +104,15 @@
 - **测试**：`tests/notify-bell.test.ts` 5 例（turn-end 响一次 / enabled=false 不响 / 超阈值补响 / 输入取消 / 真实 renderer 输出 BEL）+ `config.test.ts` notify 归一化 1 例。
 - 边界：仅 TUI 事件触发 + bell，不动插件、不做桌面通知。
 
-## 启动自动清理空会话（session.autoCleanEmpty）
+## 自动清理空会话（session.autoCleanEmpty）
 
-- **config**：`tui.config.json` `session.autoCleanEmpty`（缺省 false，删除类操作默认保守）；`config.normalizeConfig` 归一化（非法回落关闭）；main.ts `loadTuiConfig().session?.autoCleanEmpty` → AppDeps.autoCleanEmpty（`deps.autoCleanEmpty === true` 才生效）。
+- **config**：`tui.config.json` `session.autoCleanEmpty`（缺省 true，可显式 `false` 关闭）；`config.normalizeConfig` 归一化（非法回落 undefined，默认由消费方应用）；main.ts `loadTuiConfig().session?.autoCleanEmpty ?? true` → AppDeps.autoCleanEmpty（`deps.autoCleanEmpty === true` 才生效）。同一开关覆盖**启动**与**优雅退出**两个时机。
 - **判据**：`startupCleanableIds(records)`（state.ts 纯函数）——已持久化 + 非 live + 非当前 + `isEmpty`（无用户消息），全目录范围，与面板 `cleanableSessionIds` 同语义但不依赖 history 面板状态（启动时未必打开）。
-- **执行**：`App.start()` 末尾 `if (this.autoCleanEmpty) void this.runStartupCleanEmptySessions()`（后台异步，不阻塞首帧）——`adapter.listSessions()` 列全量 → 过滤 → 逐个 `adapter.deleteSession()` 串行删除（复用 `/session` 面板同一守卫：安全 id + realpath 包含性校验 + 活会话拒绝）→ notice 汇报「已自动清理 N 个（M 个失败）」。
-- **降级**：宿主未挂 `sessionQuery`（listSessions/deleteSession 缺失）、列表读取失败或无可清理项 → 静默跳过；删除失败计入失败数一并提示，不让启动失败。
-- **测试**：`tests/session-delete.test.ts` +3 例（正常清理含提示 / 部分失败计数 / 缺省关闭与无服务跳过）+ `startupCleanableIds` 纯函数 1 例 + `config.test.ts` session 归一化 1 例。
+- **共享核心**：`cleanableSessionIdsViaAdapter()`（`listSessions()` 全量 → 判据过滤；列表缺失/读取失败返回空）+ `deleteSessionIds()`（逐个 `deleteSession()` 串行删除，复用 `/session` 面板同一守卫，返回成功/失败计数）；启动与退出清理共用。
+- **启动执行**：`App.start()` 末尾 `if (this.autoCleanEmpty) void this.runStartupCleanEmptySessions()`（后台异步，不阻塞首帧）——notice 汇报「已自动清理 N 个（M 个失败）」。
+- **退出执行**：`App.dispose()` 开启时走 `disposeWithExitClean()`——先 `runExitCleanEmptySessions()`：有可清理项把「正在清理 N 个空会话...」**渲染到活动区**（`paintExitNotice`：dispose 已置 disposed=true，常规 notice/paint 被守卫拦截；且主接线 10Hz 合帧可能把标脏推迟到关终端之后——故同步 apply + render 直接落屏）并等待完成，结果与耗时同样渲染到活动区，完成后才执行释放 adapter/关闭渲染器；无清理项静默。等待受 `EXIT_CLEAN_TIMEOUT_MS`（5s）兜底，超时渲染提示并继续退出。仅优雅退出路径（`/quit`、Ctrl+D、双击 Ctrl+C、插件 unload）覆盖——信号强退（SIGINT/SIGTERM）与崩溃由 renderer 直接 `process.exit`，无法可靠等待异步 IO，不保证清理。
+- **降级**：宿主未挂 `sessionQuery`（listSessions/deleteSession 缺失）、列表读取失败或无可清理项 → 静默跳过；删除失败计入失败数一并提示，不让启动/退出失败（未开启路径 `dispose` 保持同步收尾）。
+- **测试**：`tests/session-delete.test.ts` 启动清理 3 例 + 退出清理 4 例（清理顺序与提示 / 无可清理项静默 / 部分失败计数 / 缺省同步收尾）+ `startupCleanableIds` 纯函数 1 例 + `config.test.ts` session 归一化 1 例；`app.test.ts` disposer 测试改为等待退出清理后的收尾（仓库 tui.config.json 已开启该开关）。
 
 ## /model 命令
 

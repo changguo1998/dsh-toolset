@@ -152,19 +152,19 @@ dsh --profile <p>
 
 ## 会话维护配置（session，tui.config.json）
 
-启动时自动清理空会话（默认关闭；开启后每次启动 TUI 后台异步删除"空会话"——已持久化 + 非 live + 非当前 + 无用户消息，全目录范围）：
+自动清理空会话（默认开启；`tui.config.json` 设 `session.autoCleanEmpty: false` 关闭；开启后于两个时机执行：每次启动 TUI 时后台异步删除；优雅退出时（/quit、Ctrl+D、双击 Ctrl+C、插件 unload）先把提示渲染到活动区并等待清理完成、完成后再关闭退出，信号强退（SIGINT/SIGTERM/崩溃）路径不保证。清理对象为"空会话"——已持久化 + 非 live + 非当前 + 无用户消息，全目录范围）：
 
 ```json
 {
   "session": {
-    "autoCleanEmpty": true   // 启动自动清理空会话（可选；缺省 false）
+    "autoCleanEmpty": true   // 启动/退出自动清理空会话（可选；缺省 true，显式 false 关闭）
   }
 }
 ```
 
 - 清理判据与 `/session` 面板 `x` 清理一致（同 `cleanableSessionIds` 语义），范围固定"全部目录"；当前活跃/live 会话天然排除。
 - 删除走 `deleteSession`（文件级，安全 id + realpath 包含性校验）；结果经活动区 notice 汇报（清理 N 个、部分失败时附失败数）；宿主未挂载会话服务、列表不可用或无需清理时静默跳过，不阻塞启动。
-- 缺省关闭：删除类操作默认保守，显式开启才生效。
+- 缺省开启（main.ts 接线默认）；如不希望自动清理，在 `tui.config.json` 显式设 `session.autoCleanEmpty: false` 即可关闭。
 
 ## 模型输出符号规范化（symbols，tui.config.json）
 
