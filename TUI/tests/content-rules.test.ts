@@ -96,5 +96,6 @@ test("常量齐全", () => {
   assert.equal(TURN_SEPARATOR_CHAR, "╌");
   assert.equal(ACTIVITY_SEPARATOR, "─");
   assert.equal(SEPARATOR, "─");
-  assert.equal(USER_MIN_LEFT_GUTTER, 4);
+  // 6 = 正文区留白 5 列：输入最长折行左缘对齐回复正文第 5 个字符
+  assert.equal(USER_MIN_LEFT_GUTTER, 6);
 });

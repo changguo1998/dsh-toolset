@@ -130,7 +130,7 @@ export interface DshTuiConfig {
   streamTypewriter?: boolean;
   /** 思考打字机流速（字符/秒，默认 120；收到正文后自动加速到 200；合法域 1..2000，非法回退默认） */
   streamCharsPerSecond?: number;
-  /** 用户块左缘/回复右缘对称留空（列数，默认 4；合法域 0..20，非法回退默认） */
+  /** 用户块左缘/回复右缘对称留空（列数，默认 6；合法域 0..20，非法回退默认） */
   messageGutter?: number;
   /** 锚定工具引导（两阶段工具锁定-释放，移植自 dsh-anchored-standard）。
    *  仅 deepseek-v4-pro 生效；其他模型与 false 时原样透传。默认 true。 */
@@ -142,7 +142,7 @@ export interface TuiDisplayConfig {
   streamTypewriter: boolean;
   /** streamCharsPerSecond 归一化结果（1..2000） */
   streamCharsPerSecond: number;
-  /** messageGutter 归一化结果（0..20，默认 4） */
+  /** messageGutter 归一化结果（0..20，默认 6） */
   messageGutter: number;
 }
 
@@ -192,7 +192,7 @@ export function normalizeTuiDisplayConfig(
       2000,
       "streamCharsPerSecond",
     ),
-    messageGutter: num(raw?.messageGutter, 4, 0, 20, "messageGutter"),
+    messageGutter: num(raw?.messageGutter, 6, 0, 20, "messageGutter"),
   };
 }
 

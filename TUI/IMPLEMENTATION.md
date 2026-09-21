@@ -96,6 +96,14 @@
 - **App 接线**：`FrameScrollReport` 增 `dialogueGeometry{rows,height,spans,topIdx}` + `dialogueTop`（本帧渲染的锚点）；`paneMaxes()` 同口径回填/补算，`syncScrollAnchor()` 在出帧后把收敛后的锚点/几何/`scrollOffset` 写回 state（派生缓存，帧已按该锚点渲染故不触发重绘）。**窗口起点不滑走**：用户停在历史里（锚点非 null）而尾部新增了回合组时，按新增组数把 `windowGroups` 撑住——窗口按「尾部 N 组」计，不撑就会被新内容把起点向前挤出已物化范围。
 - **回归**：`tests/scroll-anchor.test.ts`（9 例：组切分/切片、互算往返与越界、**底部新增不顶走视图**、resize 重排锚点可解析、位移到顶/底、增窗与复位、End 跳最旧、**回合切换清瞬态行后视图不跳**）+ `tests/layout4.test.ts`（窗口/占位/报告口径）+ `tests/app.test.ts`（键位路径）。
 
+## 对话左右交错留白（`messageGutter` 默认 6）
+
+- **目标（用户 2026-12 口径）**：超长（英文）输入折行时，输入的最左侧与回复正文第 5 个字符同列。
+- **列口径**：历史区左缘第 0 列是焦点框保留格（`FRAME_LEFT_COLS=1`，未聚焦空白、聚焦画 `│`），正文区自其右侧起算——回复行 `┃` 占正文区第 0 列、正文自第 1 列起；用户块整体右对齐，左缘留白 `gutter-1` 列（`spacer(fill, min)`）、块内右缘 `┃` 贴正文区最后一列。故输入正文起列 = `gutter-1`（正文区）/ `gutter`（屏幕列），令其等于回复第 5 字符所在列（正文区 5 / 屏幕 6）解得 **`gutter = 6`**。
+- **两侧同源**：`gutter` 同时是用户块左缘留白与回复右缘留白（`finalSpace` 的 `spacer(fixed gutter-1)`），故默认 6 时两侧文本上限对称各收 2 列（宽 60 时：正文区 39 列 → 回复正文 33 列、用户文本 33 列，输入左缘与回复第 5 字符同列）。
+- **连带**：竖线可见阈值 `USER_MIN_LEFT_GUTTER + 2` 由 6 上移到 8（w≤7 不画竖线）；`DEFAULT_MESSAGE_GUTTER` 与 `normalizeTuiDisplayConfig` 缺省同步 6；`tests/fixtures/focus-frame-legacy.json` 的 w20 四场景按新口径重冻结（窄窗正文宽随留白收窄，属预期）。
+- **回归**：`tests/layout4.test.ts`「输入最长折行左缘与回复正文第 5 个字符同列（gutter=6）」+ `tests/content-mapping.test.ts` 竖线阈值边界（w=6/7 关闭、w=8 开启，w=6 相对旧基线已偏离）。
+
 ## 声音提醒事件钩子（P2#33）
 
 - **输出口**：`Renderer.bell?()`（可选接口方法；真实 renderer 实现 → `Screen.beep()` 向输出流写 BEL `\x07`；注入型 renderer 可不实现，App 经 `bell?.()` 调用）。

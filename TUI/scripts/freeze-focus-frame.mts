@@ -8,6 +8,8 @@
 //
 // 序列化口径：整帧每行 { text, ansi } —— text=纯文本拼接（行宽 infos 保留），
 // ansi=行经 dark 主题段级序列化（样式差异捕获）。key=`scene@w{cols}`。
+// 注意：fixture 缩进以本脚本写出的为准，勿对产出的 JSON 跑 `format`
+// （jq 会整体改缩进，把几行真实差异淹成整文件 diff）。
 
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

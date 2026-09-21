@@ -143,13 +143,24 @@ test("双轨：user + assistant final（收缩块右对齐 + 竖线）", () => {
     assertEquivalent(`user-assistant-final@w${w}g4`, buf, w, 4);
 });
 
-test("双轨：user 多行 + 竖线阈值边界（w=6 开启竖线）", () => {
+test("双轨：user 多行 + 竖线阈值边界（新阈值 w≥8 开启竖线；w=6 已偏离基线）", () => {
   const buf: Buffer = [
     { text: "line1\nline2", kind: "user" },
     { text: "ok", kind: "assistant", final: true },
   ];
-  for (const w of [6, 12, 40])
+  // 宽窗（阈值之上）：仍与冻结基线逐行等价
+  for (const w of [12, 40])
     assertEquivalent(`user-multiline@w${w}g4`, buf, w, 4);
+  // 竖线可见阈值 = USER_MIN_LEFT_GUTTER + 2，随常量 4→6 由 6 上移到 8：
+  // w=6/7 低于阈值不画竖线，冻结基线（旧阈值 6 的记录）在该宽度画竖线
+  // ——断言偏离方向而非等价。
+  const hasBar = (rows: FixtureRow[]): boolean =>
+    rows.some((r) => r.text.includes("┃"));
+  const legacy6 = baselineRows("user-multiline@w6g4", "dialogue");
+  assert.ok(hasBar(legacy6), "冻结基线（旧阈值 6）在 w=6 画竖线");
+  assert.ok(!hasBar(newRows(buf, 6, 4).dialogue), "w=6 低于新阈值：不画竖线");
+  assert.ok(!hasBar(newRows(buf, 7, 4).dialogue), "w=7 低于新阈值：不画竖线");
+  assert.ok(hasBar(newRows(buf, 8, 4).dialogue), "w=8 达新阈值：竖线开启");
 });
 
 // 窄窗（w≤5）竖线关闭边界：旧 userMaxBodyWidth(w,4) 折宽 = w−min(4,w−1)，

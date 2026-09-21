@@ -25,8 +25,10 @@ export const SEPARATOR = "─";
 
 // ---------------- 用户/助手缩进 ----------------
 
-/** 用户消息块最小左缘留白（窄列降级阈值也用它） */
-export const USER_MIN_LEFT_GUTTER = 4;
+/** 用户消息块最小左缘留白（窄列降级阈值也用它）。
+ *  6 = 正文区留白 gutter-1 = 5 列：输入最长折行时左缘与回复正文第 5 个字符同列
+ *  （回复竖线占正文区第 0 列、正文自第 1 列起）。 */
+export const USER_MIN_LEFT_GUTTER = 6;
 
 /** 用户消息块最大正文宽：块整体靠右，左侧至少保留 gutter(默认 USER_MIN_LEFT_GUTTER) */
 export function userMaxBodyWidth(

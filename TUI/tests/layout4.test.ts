@@ -834,7 +834,8 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   let u = reduceState(initialState(), { type: "user-line", text: "孤立" });
   u = reduceState(u, { type: "turn-end" });
   u = reduceState(u, { type: "turn-begin" });
-  plain = buildFrame(u, { rows: 20, cols: 30 }).map((l) =>
+  // cols=40（历史宽 20）：gutter=6 下窄窗正文宽更小，cols=30 会把「孤立」折成两行
+  plain = buildFrame(u, { rows: 20, cols: 40 }).map((l) =>
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const uu = plain.findIndex((l) => l.includes("孤立"));
@@ -1029,6 +1030,37 @@ test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满历
     hist - 1,
     "gutter=0 时正文顶满内容区宽度（右缘留框列）",
   );
+});
+
+test("交错布局：输入最长折行左缘与回复正文第 5 个字符同列（gutter=6）", () => {
+  const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
+  const cols = 60;
+  // 输入/回复均为超长英文（无自然断点）→ 各自折到宽度上限，左缘停在最左可占据列
+  let s = initialState();
+  s = reduceState(s, { type: "user-line", text: "U".repeat(120) });
+  s = reduceState(s, { type: "append", text: "R".repeat(120) });
+  s = reduceState(s, { type: "turn-end" }); // 正文标 final → 历史区
+  const frame = buildFrame(s, { rows: 24, cols }).map((l) => strip(rowAnsi(l)));
+  const colOf = (line: string, ch: string): number => {
+    let col = 0;
+    for (const c of [...line]) {
+      if (c === ch) return col;
+      col += displayWidth(c);
+    }
+    return -1;
+  };
+  const uRow = frame.find((l) => l.includes("U"));
+  const rRow = frame.find((l) => l.includes("R"));
+  assert.ok(uRow !== undefined && rRow !== undefined, "输入/回复行都可见");
+  // 屏幕列口径：左缘框列 1 + 用户块留白 gutter-1 → 输入正文起 gutter 列；
+  // 回复行 ┃ 占 col1、正文自 col2 起 → 第 5 个字符在 col2+4
+  assert.equal(
+    colOf(uRow, "U"),
+    USER_MIN_LEFT_GUTTER,
+    "输入最长左缘 = gutter 列",
+  );
+  assert.equal(colOf(rRow, "R") + 4, USER_MIN_LEFT_GUTTER, "回复第 5 字符同列");
+  assert.equal(colOf(rRow, "R"), 2, "回复正文自 col2 起（┃ 占 col1）");
 });
 
 test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代码块", () => {
