@@ -41,6 +41,42 @@ test("charWidth：组合附加符/ZWJ/变体选择符/肤色修饰符=0（零宽
   assert.equal(charWidth("\u{1f3fb}"), 0); // emoji 肤色修饰符
 });
 
+test("charWidth：常见 emoji/全角符号=2（防整行溢出，回归 2026-09-21）", () => {
+  // 曾经的漏洞：这些区段未按 2 列计 → 低估宽度导致整行溢出
+  assert.equal(charWidth("❤"), 2); // U+2764 Dingbats
+  assert.equal(charWidth("✂"), 2); // U+2702 Dingbats
+  assert.equal(charWidth("⏰"), 2); // U+23F0 杂项技术符号
+  assert.equal(charWidth("⌚"), 2); // U+231A 杂项技术符号
+  assert.equal(charWidth("⭐"), 2); // U+2B50 杂项符号与箭头
+  assert.equal(charWidth("🚀"), 2); // U+1F680 交通与地图符号
+  assert.equal(charWidth("🤖"), 2); // U+1F916 补充象形文字
+  assert.equal(charWidth("🧠"), 2); // U+1F9E0 补充象形文字
+  assert.equal(charWidth("🪐"), 2); // U+1FA90 象形文字扩展-A
+  assert.equal(charWidth("🇨"), 2); // U+1F1E8 区域指示符（国旗）
+  assert.equal(charWidth("￥"), 2); // U+FFE5 全角货币符号
+  // 文本呈现符号例外：虽在 emoji 区段但按 1 列（UI 状态标记如 ⚠/✓/✗/⚙/⚑/⌗/⌈⌉）
+  assert.equal(charWidth("⚠"), 1); // U+26A0 WARNING SIGN
+  assert.equal(charWidth("✓"), 1); // U+2713 CHECK MARK
+  assert.equal(charWidth("✗"), 1); // U+2717 BALLOT X
+  assert.equal(charWidth("☑"), 1); // U+2611 BALLOT BOX WITH CHECK
+  assert.equal(charWidth("⚙"), 1); // U+2699 GEAR
+  assert.equal(charWidth("⚑"), 1); // U+2691 BLACK FLAG
+  assert.equal(charWidth("⌗"), 1); // U+2317 VIEWDATA SQUARE
+  assert.equal(charWidth("⌈"), 1); // U+2308 LEFT CEILING
+  assert.equal(charWidth("⌉"), 1); // U+2309 RIGHT CEILING
+  // 原有已覆盖区段不受影响
+  assert.equal(charWidth("👍"), 2); // U+1F44D 表情
+  assert.equal(charWidth("中"), 2);
+  assert.equal(charWidth("a"), 1);
+});
+
+test("displayWidth：emoji+VS16 组合按 2 列计（不再低估溢出）", () => {
+  assert.equal(displayWidth("❤️"), 2); // ❤(2)+VS16(0)
+  assert.equal(displayWidth("🚀 ok"), 5); // 🚀(2)+空格(1)+o(1)+k(1)
+  assert.equal(displayWidth("a❤️b"), 4); // 1+2+0+1
+  assert.equal(displayWidth("🔥🔥"), 4); // 两个表情
+});
+
 test("displayWidth：零宽字符不计宽（总宽度不虚高）", () => {
   assert.equal(displayWidth("a\u0301中"), 3); // a(1)+组合(0)+中(2)
   assert.equal(displayWidth("👍\ufe0f"), 2); // emoji(2)+VS16(0)

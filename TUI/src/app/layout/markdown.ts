@@ -366,6 +366,31 @@ function isZeroWidthChar(cp: number): boolean {
   return false;
 }
 
+/**
+ * 文本呈现常见符号：虽位于宽字符区段内但按 1 列计。
+ * 集合来自 TUI 源码字面使用（grep 穷举可闭合，非全量黑名单）：✓/✗/⚠/⚙/⚑/⌗/⌈⌉ 等
+ * UI 状态标记与文本符号默认以文本呈现（窄），若随 emoji 区一并按 2 会撑宽工具行/提示行；
+ * 其余落在 emoji 区段的字符仍按 2（防宽度 2 的 emoji 被低估导致整行溢出）。
+ * 防线：focus-frame 等冻结基线测试会在误判方向时自动失败（本表即由此迭代收敛）。
+ */
+const NARROW_TEXT_SYMBOLS = new Set<number>([
+  0x2308, // ⌈ LEFT CEILING（数学/表格装饰，窄）
+  0x2309, // ⌉ RIGHT CEILING
+  0x2317, // ⌗ VIEWDATA SQUARE（hooks 调用标记）
+  0x2610, // ☐ BALLOT BOX
+  0x2611, // ☑ BALLOT BOX WITH CHECK
+  0x2612, // ☒ BALLOT BOX WITH X
+  0x2691, // ⚑ BLACK FLAG（事件/标记）
+  0x2699, // ⚙ GEAR（设置标记）
+  0x26a0, // ⚠ WARNING SIGN（审批/问答面板状态标记，文本呈现按 1 列）
+  0x2713, // ✓ CHECK MARK
+  0x2714, // ✔ HEAVY CHECK MARK
+  0x2715, // ✕ MULTIPLICATION X
+  0x2716, // ✖ HEAVY MULTIPLICATION X
+  0x2717, // ✗ BALLOT X
+  0x2718, // ✘ HEAVY BALLOT X
+]);
+
 /** 码点宽度 memo：0=未算，否则 宽度+1（1 单列 / 2 双列 / 3 零宽）；缓存关闭时不查不写 */
 const CHAR_WIDTH_TABLE = new Uint8Array(0x110000);
 registerCacheReset(() => CHAR_WIDTH_TABLE.fill(0));
@@ -380,20 +405,26 @@ export function charWidth(ch: string): number {
   return width;
 }
 
-/** charWidth 的直算路径（无缓存；含零宽与宽字符区间判定） */
+/** charWidth 的直算路径（无缓存；含零宽、文本符号例外与宽字符区间判定） */
 function computeCharWidth(cp: number): number {
   // 零宽字符：组合附加符/变体选择符/ZWJ 等（占 0 列，避免提前换行与总宽虚高）
   if (isZeroWidthChar(cp)) return 0;
-  // CJK 统一表意文字、全角标点、Hangul 音节、假名 等常见宽字符区间
+  // 文本呈现符号例外（✓/✗ 等 UI 状态标记按 1 列，见 NARROW_TEXT_SYMBOLS）
+  if (NARROW_TEXT_SYMBOLS.has(cp)) return 1;
+  // 宽字符区间（粗粒度近似，与既有风格一致）：CJK/全角/常见 emoji 按 2 列计，
+  // 防止低估导致整行长度溢出（如 ❤🚀🤖⭐ 等曾被按 1 计而撑破窗口宽）。
   if (
-    (cp >= 0x1100 && cp <= 0x115f) ||
-    (cp >= 0x2e80 && cp <= 0xa4cf) ||
-    (cp >= 0xac00 && cp <= 0xd7a3) ||
-    (cp >= 0xf900 && cp <= 0xfaff) ||
-    (cp >= 0xfe30 && cp <= 0xfe4f) ||
-    (cp >= 0xff00 && cp <= 0xff60) ||
-    (cp >= 0x1f300 && cp <= 0x1f64f) ||
-    (cp >= 0x20000 && cp <= 0x2fffd)
+    (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
+    (cp >= 0x2e80 && cp <= 0xa4cf) || // CJK 部首/汉字/假名/谚文等
+    (cp >= 0xac00 && cp <= 0xd7a3) || // Hangul 音节
+    (cp >= 0xf900 && cp <= 0xfaff) || // CJK 兼容表意
+    (cp >= 0xfe30 && cp <= 0xfe4f) || // CJK 兼容形式
+    (cp >= 0xff00 && cp <= 0xff60) || // 全角 ASCII/标点（“”？《》等）
+    (cp >= 0xffe0 && cp <= 0xffe6) || // 全角货币/竖线符号（￥￤等）
+    (cp >= 0x2300 && cp <= 0x23ff) || // 杂项技术符号（⌚⏰⏳ 等）
+    (cp >= 0x2600 && cp <= 0x27bf) || // 杂项符号 + Dingbats（☀⚠✂❤ 等）
+    (cp >= 0x2b00 && cp <= 0x2bff) || // 杂项符号与箭头（⭐⬛⬜ 等）
+    (cp >= 0x1f000 && cp <= 0x1faff) // emoji 全集：区域指示符(国旗)/表情/交通/补充象形/扩展-A
   ) {
     return 2;
   }
