@@ -1,7 +1,8 @@
 // tests/completion.test.ts — 命令输入补全单测（纯函数层）
 //
 // 覆盖：命令 token 判定（含 slash 模式下无前导 `/` 的归一）、前缀匹配与排序
-// （items[0]=最匹配）、宿主命令并入与去重、候选上限、面板渲染（默认高亮/行数）。
+// （items[0]=最匹配）、宿主命令并入与去重、候选全量（不设硬上限，面板按可视行截断）、
+// 面板渲染（默认高亮/行数）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -38,7 +39,7 @@ test("completeCommandInput：前缀匹配 + 最匹配（名称最短）排首", 
   // 多命中时按名称短→长：cls(3) 最短 → 首位
   const all = completeCommandInput("/");
   assert.deepEqual(names(all?.items)?.slice(0, 3), ["cls", "copy", "fork"]);
-  assert.equal(all?.items.length, Math.min(LOCAL_COMMANDS.length, 16));
+  assert.equal(all?.items.length, LOCAL_COMMANDS.length);
 });
 
 test("completeCommandInput：大小写不敏感 + 别名可补全", () => {
@@ -56,7 +57,7 @@ test("completeCommandInput：slash 模式下输入框无前导 `/`（归一后�
     "model",
   ]);
   // 归一后同样支持「空 token = 全量」
-  assert.equal(completeCommandInput("", [], "slash")?.items.length, 16);
+  assert.equal(completeCommandInput("", [], "slash")?.items.length, LOCAL_COMMANDS.length);
   // 非 slash 模式的裸名字不匹配（避免普通文本误触发）
   assert.equal(completeCommandInput("mo", [], "normal"), null);
   assert.equal(completeCommandInput("mo", [], "shell"), null);
@@ -115,7 +116,7 @@ test("renderCommandCompletion：标题 + 默认高亮首项 + 恰 height 行", (
     `默认高亮最匹配项(黄): ${rowAnsi(focused)}`,
   );
   // 末行是候选行（面板不放提示行：键位统一在输入区下方的按键提示区）
-  // height=10 → 标题 1 行 + 9 行候选，候选数（16）足够铺满
+  // height=10 → 标题 1 行 + 9 行候选，本地候选数足够铺满
   assert.ok(
     rowAnsi(rows[9]!).includes("/"),
     `末行应为候选行（铺满活动区）: ${JSON.stringify(rowAnsi(rows[9]!))}`,

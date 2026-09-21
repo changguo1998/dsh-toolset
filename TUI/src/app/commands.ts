@@ -312,9 +312,6 @@ export interface CommandCandidate {
   desc: string;
 }
 
-/** 补全候选上限（按最优排序截断；够高活动区铺满，超出由面板跟随焦点滚动） */
-const COMPLETION_LIMIT = 16;
-
 /** 输入是否仍处于「首个命令 token」（字面 `/` 开头 + 仅命令名字符，无空白与参数） */
 export function isCommandTokenInput(text: string): boolean {
   return /^\/[a-z0-9_-]*$/i.test(text);
@@ -358,7 +355,9 @@ export function completeCommandInput(
   items.sort(
     (a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name),
   );
-  return { items: items.slice(0, COMPLETION_LIMIT), index: 0 };
+  // 候选不设硬上限：面板按活动区可视行截断（CommandCompletion 超出丢弃、焦点导航
+  // 由 App.completionVisibleRows() 同口径限制），候选池足够时活动区即可铺满。
+  return { items, index: 0 };
 }
 
 /** /model 参数（命令名之后的文本，去首尾空白）；空串 = 无参（进入交互选择） */
