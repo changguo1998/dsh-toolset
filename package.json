@@ -4,8 +4,8 @@
     "private": true,
     "description": "DSH（DeepSeek Harness）进程内集成插件工具集",
     "scripts": {
-        "check": "npm --prefix TUI run check && npm --prefix herdr-integration run check && npm --prefix knowledge-base run check && npm --prefix task-engine run check && npm --prefix ast-tools run check && npm --prefix fs-digest run check && npm --prefix goal-contract run check && npm --prefix hash-edit run check && npm --prefix metric-loop run check && npm --prefix output-compress run check && npm --prefix security-guard run check",
-        "build": "npm --prefix TUI run build && npm --prefix herdr-integration run build && npm --prefix knowledge-base run build && npm --prefix task-engine run build && npm --prefix ast-tools run build && npm --prefix fs-digest run build && npm --prefix goal-contract run build && npm --prefix hash-edit run build && npm --prefix metric-loop run build && npm --prefix output-compress run build && npm --prefix security-guard run build",
+        "check": "npm --prefix TUI run check && npm --prefix herdr-integration run check && npm --prefix knowledge-base run check && npm --prefix task-engine run check && npm --prefix ast-tools run check && npm --prefix fs-digest run check && npm --prefix goal-contract run check && npm --prefix hash-edit run check && npm --prefix metric-loop run check && npm --prefix output-compress run check && npm --prefix security-guard run check && npm --prefix code-map run check",
+        "build": "npm --prefix TUI run build && npm --prefix herdr-integration run build && npm --prefix knowledge-base run build && npm --prefix task-engine run build && npm --prefix ast-tools run build && npm --prefix fs-digest run build && npm --prefix goal-contract run build && npm --prefix hash-edit run build && npm --prefix metric-loop run build && npm --prefix output-compress run build && npm --prefix security-guard run build && npm --prefix code-map run build",
         "test": "sh scripts/test-parallel.sh",
         "demo": "npm --prefix TUI run demo --",
         "test:tui": "sh TUI/scripts/test.sh"

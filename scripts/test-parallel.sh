@@ -14,7 +14,7 @@
 set -u
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
-default_pkgs="TUI herdr-integration knowledge-base task-engine ast-tools fs-digest goal-contract hash-edit metric-loop output-compress security-guard"
+default_pkgs="TUI herdr-integration knowledge-base task-engine ast-tools fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map"
 pkgs="${*:-$default_pkgs}"
 logbase="${TMPDIR:-/tmp}/dsh-test-parallel.$$"
 mkdir -p "$logbase"

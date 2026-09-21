@@ -1,16 +1,17 @@
 {
-    "name": "@dsh-toolset/ast-tools",
+    "name": "@dsh-toolset/code-map",
     "version": "0.1.0",
-    "description": "DSH (DeepSeek Harness) 进程内集成插件：ast-grep AST 结构搜索/替换/大纲/规则",
+    "description": "DSH（DeepSeek Harness）进程内集成插件：代码结构地图（结构索引 + 调用图候选 + 项目/模块报告）",
     "type": "module",
     "main": "dist/src/index.js",
     "types": "./dist/src/index.d.ts",
     "scripts": {
         "build": "tsc -p tsconfig.json",
         "check": "tsc -p tsconfig.json --noEmit",
-        "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
-        "example:search": "node --experimental-transform-types examples/search.example.ts",
-        "example:replace": "node --experimental-transform-types examples/replace.example.ts"
+        "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+    },
+    "dependencies": {
+        "@dsh-toolset/ast-tools": "link:../ast-tools"
     },
     "devDependencies": {
         "@types/node": "^24.13.3",
