@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * 宿主联调 smoke（profile: metric-loop，对齐 DSH-CTX-API 0.1.5-rc.2）。
+ * 宿主联调 smoke（profile: dsh-toolset-metric-loop，对齐 DSH-CTX-API 0.1.5-rc.2）。
  *
  * 流程：
  *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.2）
- *   1. profile metric-loop 引导（幂等：创建 → 挂载插件 link: → 写用户层配置）
+ *   1. profile dsh-toolset-metric-loop 引导（幂等：创建 → 挂载插件 link: → 写用户层配置）
  *   2. 缺 dist 时先构建
  *   3. 真实 dsh headless 连跑三次，每次恰好推进一轮：
  *        R1 start（常量指标 echo 42，window=2）→ 第 1 轮（基线，running）
@@ -36,7 +36,7 @@ const PKG_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const PROFILE = "metric-loop";
+const PROFILE = "dsh-toolset-metric-loop";
 const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
 const PKG_NAME = "@dsh-toolset/metric-loop";
 const REQUIRED_VERSION = "0.1.5-rc.2";

@@ -48,12 +48,12 @@ DSH（DeepSeek Harness）进程内插件：goal 会话契约起草。经 `tool-a
 }
 ```
 
-profile 挂载（smoke 幂等引导独立 profile `goal-contract`，与本包同挂 task-engine）：
+profile 挂载（smoke 幂等引导独立 profile `dsh-toolset-goal-contract`，并同挂 task-engine 作共存验证——本包不使用其服务）：
 
 ```sh
-dsh --profile goal-contract --from-default-profile headless --dump-config
-dsh plugin --profile goal-contract add '@dsh-toolset/goal-contract@link:<本包路径>'
-dsh plugin --profile goal-contract add '@dsh-toolset/task-engine@link:<task-engine 路径>'
+dsh --profile dsh-toolset-goal-contract --from-default-profile headless --dump-config
+dsh plugin --profile dsh-toolset-goal-contract add '@dsh-toolset/goal-contract@link:<本包路径>'
+dsh plugin --profile dsh-toolset-goal-contract add '@dsh-toolset/task-engine@link:<task-engine 路径>'
 ```
 
 ## 边界与限制

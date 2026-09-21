@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * 宿主联调 smoke（独立 profile: goal-contract，对齐 DSH-CTX-API 0.1.5-rc.2）。
+ * 宿主联调 smoke（独立 profile: dsh-toolset-goal-contract，对齐 DSH-CTX-API 0.1.5-rc.2）。
  *
  * 验证「draft → goal drop → clause readback」链路：
  *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.2）
- *   1. profile goal-contract 引导（幂等：headless 默认 profile 创建 →
- *      挂载本插件 link: → 同挂 task-engine link:）
+ *   1. profile dsh-toolset-goal-contract 引导（幂等：headless 默认 profile 创建 →
+ *      挂载本插件 link: → 同挂 task-engine link: 作共存验证；本包不依赖其服务，
+ *      goal 面来自宿主 dsh-goal）
  *   2. 缺 dist 时先构建（本包 + task-engine，含 task-engine 依赖安装）
  *   3. 真实 dsh headless 一次性会话：模型全量预填调用 goal_contract_draft
  *      （非交互路径），工具经 ctx.goals.create 落 dsh-goal 事件源（goal/change）
@@ -42,7 +43,7 @@ const PKG_ROOT = path.resolve(
 const TASK_ENGINE_ROOT = path.resolve(PKG_ROOT, "..", "task-engine");
 const PKG_NAME = "@dsh-toolset/goal-contract";
 const TASK_ENGINE_NAME = "@dsh-toolset/task-engine";
-const PROFILE = "goal-contract";
+const PROFILE = "dsh-toolset-goal-contract";
 const PROFILE_PKG = path.join(
   homedir(),
   ".dsh",
@@ -90,6 +91,7 @@ if (!version.includes(REQUIRED_VERSION)) {
 }
 
 // 1) 独立 profile 引导（幂等）：headless 默认 profile 创建 + 双插件挂载
+//    （task-engine 仅共存验证：本包不使用其服务，goal 面来自宿主 dsh-goal）
 if (!existsSync(PROFILE_PKG)) {
   run("dsh", [
     "--profile",

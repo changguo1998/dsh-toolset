@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * output-compress 宿主联调 smoke（profile: dsh-output-compress，对齐 DSH 0.1.5-rc.2）。
+ * output-compress 宿主联调 smoke（profile: dsh-toolset-output-compress，对齐 DSH 0.1.5-rc.2）。
  *
  * 流程：
  *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.2）
- *   1. profile dsh-output-compress 引导（幂等：创建 → 双插件 link: → 写用户层配置）
+ *   1. profile dsh-toolset-output-compress 引导（幂等：创建 → 双插件 link: → 写用户层配置）
  *   2. 缺 dist 时先构建（output-compress + knowledge-base 双包）
  *   3. 真实 dsh headless 一次性会话：bash cat 大文件（>50KB → 宿主 spill → 触发本插件）
  *   4. 断言：DB 指纹、category='output-compress' chunk、FTS 召回、切片索引定位回原始字节、
@@ -35,7 +35,7 @@ const PKG_ROOT = path.resolve(
   "..",
 );
 const KB_ROOT = path.resolve(PKG_ROOT, "..", "knowledge-base");
-const PROFILE = "dsh-output-compress";
+const PROFILE = "dsh-toolset-output-compress";
 const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
 const PKG_NAME_OC = "@dsh-toolset/output-compress";
 const PKG_NAME_KB = "@dsh-toolset/knowledge-base";
@@ -53,13 +53,13 @@ const CORDIS_PATCH = `# 本 profile 用户层：knowledge-base + output-compress
   name: '@dsh-toolset/knowledge-base'
   config:
     dbPath: !!js process.env.KNOWLEDGE_DB_PATH || dshHomePath('knowledge-base/knowledge.db')
-    project: 'dsh-output-compress'
+    project: 'dsh-toolset-output-compress'
 
 - id: output-compress
   name: '@dsh-toolset/output-compress'
   config:
     dbPath: !!js process.env.KNOWLEDGE_DB_PATH || dshHomePath('knowledge-base/knowledge.db')
-    project: 'dsh-output-compress'
+    project: 'dsh-toolset-output-compress'
 `;
 
 // 大文件任务提示词：强制模型用 bash cat 完整输出预置大文件（确定性 >50KB → 宿主 spill）

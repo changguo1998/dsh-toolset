@@ -35,4 +35,4 @@
 | context-report | P2 | 未开始 | |
 | 内容资产 | P2 | 未开始 | workflow 模板 + skill 内容 |
 
-依赖关系（影响排期）：goal-contract / metric-loop / workflow-ext 依赖 task-engine 的契约与执行器面；output-compress 依赖 knowledge-base；code-map 经 `link:` 依赖 `@dsh-toolset/ast-tools`（profile 挂载 code-map 时必须同时挂载 ast-tools）；其余独立。
+依赖关系（影响排期）：workflow-ext（未建包）依赖 task-engine 的契约与执行器面；output-compress 依赖 knowledge-base；code-map 经 `link:` 依赖 `@dsh-toolset/ast-tools`（profile 挂载 code-map 时必须同时挂载 ast-tools）；goal-contract / metric-loop 与其余包独立（goal-contract 的 goal 面来自宿主 dsh-goal，不经 task-engine）。

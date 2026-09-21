@@ -82,6 +82,6 @@ npm run smoke   # node smoke/smoke.mjs（需本机 dsh 0.1.5-rc.2 与模型凭�
 
 39 例测试（schema 3 + knowledge 8 + hooks 12 + writepolicy 8 + memory 6 + exposure 2）。
 
-`smoke` 幂等引导独立 profile `dsh-toolset-kb`（`link:` 挂载、缺 `dist/` 自动构建），跑一次性真实 headless 会话强制触发 compaction 与 fs 写入，再断言库 schema 指纹与 `[tool/meta]`/`shadowedRange` 摄取行，最后对 dist 产物做 put / search / touch / evict 往返（profile 属机器级配置，不入库）。断言口径见 `IMPLEMENTATION.md` §6。
+`smoke` 幂等引导独立 profile `dsh-toolset-knowledge-base`（`link:` 挂载、缺 `dist/` 自动构建），跑一次性真实 headless 会话强制触发 compaction 与 fs 写入，再断言库 schema 指纹与 `[tool/meta]`/`shadowedRange` 摄取行，最后对 dist 产物做 put / search / touch / evict 往返（profile 属机器级配置，不入库）。断言口径见 `IMPLEMENTATION.md` §6。
 
 设计决策见 `DESIGN.md`，实现落点与踩坑见 `IMPLEMENTATION.md`。

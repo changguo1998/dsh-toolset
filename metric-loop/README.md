@@ -45,7 +45,7 @@ bundle 契约：`name` / `inject: ["tools"]` / `provide: ["metricLoop"]` / `Conf
 { "action": "stop", "id": "bundle-size" }
 ```
 
-宿主联调（smoke 幂等引导 profile `metric-loop`，并把 `stateDir` 重定向到临时目录）：
+宿主联调（smoke 幂等引导 profile `dsh-toolset-metric-loop`，并把 `stateDir` 重定向到临时目录）：
 
 ```sh
 npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau 停止

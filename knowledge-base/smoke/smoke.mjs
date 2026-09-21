@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * 宿主联调 smoke（profile: dsh-toolset-kb，对齐 DSH-CTX-API 0.1.5-rc.2）。
+ * 宿主联调 smoke（profile: dsh-toolset-knowledge-base，对齐 DSH-CTX-API 0.1.5-rc.2）。
  *
  * 流程：
  *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.2）
- *   1. profile dsh-toolset-kb 引导（幂等：创建 → 挂载插件 link: → 写用户层配置）
+ *   1. profile dsh-toolset-knowledge-base 引导（幂等：创建 → 挂载插件 link: → 写用户层配置）
  *   2. 缺 dist 时先构建
  *   3. 真实 dsh headless 一次性会话（低阈值强制压缩 + fs write 产生真实 meta）
  *   4. 断言 ctx_knowledge 注册（DB schema 指纹）与新字段摄取（[tool/meta]、shadowedRange）
@@ -33,7 +33,7 @@ const PKG_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const PROFILE = "dsh-toolset-kb";
+const PROFILE = "dsh-toolset-knowledge-base";
 const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
 const PKG_NAME = "@dsh-toolset/knowledge-base";
 const REQUIRED_VERSION = "0.1.5-rc.2";
@@ -54,7 +54,7 @@ const CORDIS_PATCH = `# 本 profile 用户层：knowledge-base 插件配置（�
   name: '@dsh-toolset/knowledge-base'
   config:
     dbPath: !!js process.env.KNOWLEDGE_DB_PATH || dshHomePath('knowledge-base/knowledge.db')
-    project: 'dsh-toolset-kb'
+    project: 'dsh-toolset-knowledge-base'
 `;
 
 const COMPACTION_OVERLAY = `# smoke 专用：强制低压缩阈值，让一次性会话也能触发 compaction/summary
@@ -269,7 +269,7 @@ async function syntheticBackstop(dbPath, { needMeta, needCompaction }) {
     const sessionHooks = new hooks.SessionHooks(
       new knowledge.KnowledgeService(db),
       {
-        project: "dsh-toolset-kb",
+        project: "dsh-toolset-knowledge-base",
       },
     );
     if (needMeta) {
@@ -325,7 +325,7 @@ async function roundtrip(dbPath) {
   const db = await schema.openKnowledgeDatabase(dbPath);
   try {
     const kb = new knowledge.KnowledgeService(db);
-    const project = "dsh-toolset-kb";
+    const project = "dsh-toolset-knowledge-base";
     const target = "smoke/roundtrip";
     const content = "smoke roundtrip marker 烟雾弹 12345";
     kb.put({ project, target, content, importance: 3, sessionId: "smoke" });

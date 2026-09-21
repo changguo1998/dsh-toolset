@@ -62,4 +62,4 @@ npm run smoke   # 需本机 dsh 0.1.5-rc.2 与模型凭据
 ```
 
 - 单测分布：`schema` 3（TRIGGER 双索引一致、索引建立、文件库幂等 reopen）、`knowledge` 8、`hooks` 12、`writepolicy` 8、`memory` 6、`exposure` 2（apply 前暴露面未就绪 / apply 后 bundle 可写入与检索）。
-- `npm run smoke` 的判定口径是**确定性证据**：引导 profile `dsh-toolset-kb`（`link:` 挂载、缺 `dist/` 自动构建）→ `dsh --version` 必须等于 0.1.5-rc.2 → 低压缩阈值 overlay 强制触发 compaction + 任务强制 fs write 产生真实 meta → 断言库文件存在且 schema 指纹匹配（`application_id = 0x4b4e4f57`、`user_version = 1`）与 `[tool/meta]`/`shadowedRange` 摄取行（不依赖宿主 logger 输出）→ dist 产物 put / search（EN 词干 + CJK LIKE）/ touch / evict 往返。真实载荷缺失时经 dist hooks 注入合成事件兜底；失败保留临时目录并打印路径。
+- `npm run smoke` 的判定口径是**确定性证据**：引导 profile `dsh-toolset-knowledge-base`（`link:` 挂载、缺 `dist/` 自动构建）→ `dsh --version` 必须等于 0.1.5-rc.2 → 低压缩阈值 overlay 强制触发 compaction + 任务强制 fs write 产生真实 meta → 断言库文件存在且 schema 指纹匹配（`application_id = 0x4b4e4f57`、`user_version = 1`）与 `[tool/meta]`/`shadowedRange` 摄取行（不依赖宿主 logger 输出）→ dist 产物 put / search（EN 词干 + CJK LIKE）/ touch / evict 往返。真实载荷缺失时经 dist hooks 注入合成事件兜底；失败保留临时目录并打印路径。
