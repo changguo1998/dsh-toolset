@@ -1,8 +1,9 @@
 /**
  * ast-tools 插件入口（DSH bundle 集成面）。
  *
- * 契约对齐 DSH-CTX-API.md §0（`export { name, inject, Config, apply }`）：本包导出
- * `name` / `apply`，`Config` 以类型别名给出（无运行时 schema，配置由 TS 接口约束）。
+ * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+ * name / apply（无 inject / provide），Config 以类型别名给出（无运行时 schema，宿主不校验，
+ * 配置原样透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。
  * cordis 加载器识别 named apply 导出；与 knowledge-base/TUI 同款挂载形态。
  *
  * 四个操作 search/replace/outline/rules 均委托系统 ast-grep CLI 子进程
@@ -86,7 +87,11 @@ export interface AstToolsConfig {
   timeoutMs?: number;
 }
 
-/** Config 契约别名（DSH bundle 约定的 `Config`；本包以类型别名提供，无运行时 schema）。 */
+/**
+ * Config 契约别名（DSH bundle §0 的 `Config`）：仅类型级导出，不新增运行时 schema——
+ * cordis `resolveConfig()` 只在本导出带 `'~standard'` 校验接口时才校验配置，无 schema 即
+ * 原样透传，故不改变本包既有的缺省回退/二进制缺失降级告警语义（避免 fail-closed 改变行为）。
+ */
 export type Config = AstToolsConfig;
 
 /** 可复用 bundle 实例（核心工厂产物，也是宿主侧可消费的服务形态）。 */

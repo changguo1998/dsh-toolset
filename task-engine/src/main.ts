@@ -1,8 +1,12 @@
 // src/main.ts — cordis 插件入口（零 DSH 运行时依赖，结构面访问）
 //
-// 与 TUI/src/main.ts 同模式：导出 `{ name, inject, apply }`，不导 Config
-//（不引入 schemastery）。惰性、防御：可选服务（approval/tools）缺失时降级
-// 告警而非抛错；工具注册按结构面构造，失败只告警——保证 dsh 加载本 bundle 时不崩。
+// 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+// name / inject / provide / Config / apply，Config 以类型声明给出（interface Config；
+// 无运行时 schema，不引入 schemastery；宿主不校验，配置原样透传给 apply；缺省/非法值
+// 沿用本包既有语义——root 缺省示例根、level 非法归一 mechanical，不新增校验）。
+//
+// 惰性、防御：可选服务（approval/tools）缺失时降级告警而非抛错；工具注册按结构面构造，
+// 失败只告警——保证 dsh 加载本 bundle 时不崩。
 //
 // 已知边界（README 注明）：v1 单执行器、单会话实例；验收命令由本插件以
 // /bin/sh -c 执行（信任契约内命令）；human 级审批在工具 execute 内调用

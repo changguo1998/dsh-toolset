@@ -6,7 +6,10 @@
  *  - 原始字节由宿主 retention/spill 保留落盘，不进知识库全文、不进模型上下文；
  *  - 不做 npm 级 knowledge-base 依赖，共享面 = 同一 SQLite 库文件。
  *
- * DSH bundle 契约（对齐 knowledge-base）：导出 name / Config / apply(ctx, config)。
+ * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+ * name / Config / apply(ctx, config)（无 inject / provide，codeRuntime 经 ctx.reflect 可选读取），
+ * Config 以类型别名给出（无运行时 schema，宿主不校验，配置原样透传给 apply；缺省/非法值
+ * 沿用本包既有语义，不新增校验）。
  */
 import type { HookHost } from "./hooks.ts";
 import { OutputCompressHooks } from "./hooks.ts";
@@ -30,6 +33,13 @@ export interface OutputCompressConfig {
   /** 入库 project；字符串或按调用上下文动态获取。 */
   project?: string | (() => string);
 }
+
+/**
+ * Config 契约别名（DSH bundle §0 的 `Config`）：仅类型级导出，不新增运行时 schema——
+ * cordis `resolveConfig()` 只在本导出带 `'~standard'` 校验接口时才校验配置，无 schema 即
+ * 原样透传，故不改变本包既有的缺省回退/启动失败只告警语义（避免 fail-closed 改变行为）。
+ */
+export type Config = OutputCompressConfig;
 
 /** bundle 生命周期句柄。 */
 export interface OutputCompressBundle {

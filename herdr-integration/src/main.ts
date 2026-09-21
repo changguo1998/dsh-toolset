@@ -10,6 +10,10 @@
 //      profile bundles 顺序应将本 bundle 排在 tui 之前（见 cordis.patch.yml 注释）。
 //   4. 根 agent 出现/会话切换时上报 pane.report_agent_session。
 //
+// 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+// name / inject / apply，Config 以类型别名给出（无运行时 schema，宿主不校验，配置原样
+// 透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。
+//
 // 契约对齐 DSH-CTX-API.md（dsh 0.1.2-rc.1）：
 //   - agent/status({agent, status})，AgentStatus = 'idle' | 'running'（agent 层事件）；
 //   - approval/request(req, next)、user-questions/request(req, next) 均为 agent 作用域
@@ -52,6 +56,13 @@ export interface HerdrIntegrationConfig {
   /** 首档发送尝试的等待响应超时 ms（默认 500，与 pi 原生一致） */
   attemptTimeoutMs?: number;
 }
+
+/**
+ * Config 契约别名（DSH bundle §0 的 `Config`）：仅类型级导出，不新增运行时 schema——
+ * cordis `resolveConfig()` 只在本导出带 `'~standard'` 校验接口时才校验配置，无 schema 即
+ * 原样透传，故不改变本包既有的缺省回退/未握手静默空转语义（避免 fail-closed 改变行为）。
+ */
+export type Config = HerdrIntegrationConfig;
 
 /** 测试注入面。 */
 export interface HerdrPluginDeps {

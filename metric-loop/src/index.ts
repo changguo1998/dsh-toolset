@@ -1,8 +1,12 @@
 /**
  * metric-loop 插件入口（DSH bundle 接入面）。
  *
- * 与 task-engine 同模式：导出 `{ name, inject, apply }`，零 DSH 运行时依赖、
- * 结构面访问 ctx；ctx.tools 缺失时降级告警而非抛错，保证 dsh 加载不崩。
+ * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+ * name / inject / provide / apply，Config 以类型声明给出（interface Config；无运行时 schema，
+ * 宿主不校验，配置原样透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。
+ *
+ * 与 task-engine 同模式：零 DSH 运行时依赖、结构面访问 ctx；ctx.tools 缺失时降级告警而非抛错，
+ * 保证 dsh 加载不崩。
  *
  * 循环载体与宿主面复用（「复用底座，不新建」）：
  * - 周期唤醒 = 宿主 schedule（model-facing schedule_create after 提醒链式续排）；

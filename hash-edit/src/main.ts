@@ -1,8 +1,10 @@
 /**
  * main — cordis 插件入口（DSH bundle 接入面，零 DSH 运行时依赖，结构式访问）。
  *
- * 与 task-engine/src/main.ts 同模式：导出 `{ name, inject, apply }`，无 default export。
- * 惰性防御：ctx.tools 缺失时告警降级不抛错，保证 dsh 加载本 bundle 不崩。
+ * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+ * name / inject / Config / apply，Config 以类型声明给出（interface Config；无运行时 schema，
+ * 宿主不校验，配置原样透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。无 default export。
+ * 与 task-engine/src/main.ts 同模式：惰性防御，ctx.tools 缺失时告警降级不抛错，保证 dsh 加载本 bundle 不崩。
  *
  * 注册两个模型侧工具：
  * - hash_read: 读取文件行并返回 LINE:HASH 锚点（锚定编辑的锚点来源）

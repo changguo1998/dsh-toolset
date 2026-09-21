@@ -1,6 +1,7 @@
 // src/index.ts — goal-contract 插件入口（DSH bundle 接入面）
 //
-// 契约对齐 DSH-CTX-API.md §0（bundle 约定 export { name, inject, apply }）
+// 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+// name / inject / apply；apply 不收配置形参（无 Config 可导出，宿主配置原样透传且被忽略）。
 // 与 task-engine src/main.ts 的结构化面模式：宿主 ctx 用结构化最小型
 // （@deepseek-ai/cordis 是 dsh workspace 包，非 npm 依赖，不 import）；
 // 服务经 ctx.get(...) 面获取、直连属性回落，缺失时警告降级不抛错。

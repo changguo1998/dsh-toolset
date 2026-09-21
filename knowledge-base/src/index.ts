@@ -1,8 +1,9 @@
 /**
  * knowledge-base 插件入口（DSH bundle 接入面）。
  *
- * 契约对齐 DSH-CTX-API.md §0（`export { name, inject, Config, apply }`）：本包导出
- * `name` / `provide` / `apply`，配置由 TS 接口接收（未提供运行时 Config schema）。
+ * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+ * name / provide / apply（无 inject），Config 以类型别名给出（无运行时 schema，宿主不校验，
+ * 配置原样透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。
  * @deepseek-ai/cordis 为 dsh 仓库 workspace 包（未发布到 npm），宿主 ctx 用结构化类型声明；
  * createKnowledgeBundle 为核心工厂（可测/可复用），apply 为 DSH 宿主挂载入口。
  * ctx_knowledge 四接口 = KnowledgeService 的 search/put/touch/evict。
@@ -47,6 +48,13 @@ export interface KnowledgeConfig {
   project?: string | (() => string);
   persistTypes?: ReadonlySet<string> | null;
 }
+
+/**
+ * Config 契约别名（DSH bundle §0 的 `Config`）：仅类型级导出，不新增运行时 schema——
+ * cordis `resolveConfig()` 只在本导出带 `'~standard'` 校验接口时才校验配置，无 schema 即
+ * 原样透传，故不改变本包既有的缺省链回退/启动失败只告警语义（避免 fail-closed 改变行为）。
+ */
+export type Config = KnowledgeConfig;
 
 export interface KnowledgeBundle {
   kb: KnowledgeService;

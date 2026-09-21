@@ -1,5 +1,7 @@
-// src/main.ts — dsh bundle 入口 + fs_digest 工具注册。
-// 契约对齐 DSH-CTX-API.md：bundle 无 default export，导出 name/inject/Config/apply。
+// src/main.ts — dsh bundle 入口 + fs_digest 工具注册（package.json main 指向 index.ts，由其 re-export 本模块）。
+// 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+// name / inject / Config / apply，Config 以类型声明给出（interface Config；无运行时 schema，
+// 宿主不校验，配置原样透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。bundle 无 default export。
 
 import { resolve } from "node:path";
 import { digest, type DigestDeps } from "./digest.ts";

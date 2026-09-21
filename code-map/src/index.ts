@@ -1,7 +1,9 @@
 /**
  * code-map 插件入口（DSH bundle 接入面）。
  *
- * 契约对齐 DSH-CTX-API.md §0：`export { name, inject, provide, apply }`。
+ * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+ * name / inject / provide / apply；apply 不收配置形参（内部自建缺省 `CodeMapConfig` 实例），
+ * 故不导出 Config——宿主配置原样透传且被忽略。
  * - `inject: ["tools"]`：注册 `code_map` 工具（防御降级：tools 缺失仅告警）；
  * - `provide: ["codeMap"]`：只读查询面，宿主命令/插件经 `ctx.get('codeMap')` 访问；
  * - 核心工厂 `createCodeMapBundle`（可测/可复用），apply 为宿主挂载入口。

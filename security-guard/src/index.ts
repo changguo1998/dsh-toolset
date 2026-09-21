@@ -1,8 +1,9 @@
 /**
  * security-guard 插件入口（DSH bundle 接入面）。
  *
- * 契约对齐 DSH-CTX-API.md §0（`export { name, inject, Config, apply }`）：本包导出
- * `name` / `inject` / `provide` / `apply`，配置由 TS 接口接收（未提供运行时 Config schema）。
+ * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+ * name / inject / provide / apply，Config 以类型别名给出（无运行时 schema，宿主不校验，
+ * 配置原样透传给 apply；缺省/非法值沿用本包既有语义——非法规则按保守策略处理，不新增校验）。
  * @deepseek-ai/cordis 是 dsh 仓的 workspace 包（未发布 npm），故宿主 ctx 以
  * 结构化类型声明（与 knowledge-base 同策略）；GuardEngine 是核心（纯、可测），
  * apply 是宿主挂载入口。
@@ -90,6 +91,13 @@ export interface SecurityGuardConfig {
     allowedPaths?: readonly string[];
   };
 }
+
+/**
+ * Config 契约别名（DSH bundle §0 的 `Config`）：仅类型级导出，不新增运行时 schema——
+ * cordis `resolveConfig()` 只在本导出带 `'~standard'` 校验接口时才校验配置，无 schema 即
+ * 原样透传，故不改变本包既有的缺省归一化/非法规则保守处理语义（避免 fail-closed 改变行为）。
+ */
+export type Config = SecurityGuardConfig;
 
 /** 宿主 tools/pre-execute 水位线收到的执行对象（结构化子集）。 */
 export interface PreExecuteExecution {
