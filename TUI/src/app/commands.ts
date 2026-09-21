@@ -145,6 +145,7 @@ export type SlashRoute =
   | "provider"
   | "effort"
   | "theme"
+  | "verbose"
   | "session"
   | "copy"
   | "registry"
@@ -194,6 +195,11 @@ export const LOCAL_COMMANDS: readonly {
     desc: "打开模型面板的 effort 列（同 /effort）",
   },
   { name: "theme", route: "theme", desc: "主题切换 dark/light" },
+  {
+    name: "verbose",
+    route: "verbose",
+    desc: "活动区详略：on=完整折行 / off=紧凑（每条目 1 行 + 省略号）",
+  },
   { name: "session", route: "session", desc: "历史会话浏览/恢复" },
   { name: "copy", route: "copy", desc: "复制最后一条回复（OSC52）" },
   { name: "goal", route: "goal", desc: "当前会话目标迷你面板" },

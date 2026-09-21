@@ -175,6 +175,14 @@
 - **打字机不丢内容**：正文到达或延迟 `turn-end` 接管时，未放完的思考由 `drainThinking()` **整段放入缓冲**（旧的 `dropThinking` 会静默丢弃未显示的思考）；`dropThinking` 仅留给 `dispose`。
 - **回归**：`tests/app.test.ts`「活动区生命周期：核心自发回合不清空（用户输入才清空，且整类一起清）」+ `tests/layout4.test.ts`「工具历史不按组数折叠，只受活动 pane 可视行数约束（超出可上滚回看）」。
 
+## 活动区详略两态（`/verbose on|off`；SPEC §6.8）
+
+- **语义**：状态 1（`verbose on`，缺省）= 每条目完整折行显示；状态 2（`verbose off`，紧凑）= 每条目**压成 1 行 + 行尾 `…`**，条目内换行折叠为空格。触发方式裁定为**用户显式命令**（不做「按 fill 高度预算自动降级」——自动降级会让同一份内容在不同窗口高度下详略跳变，阅读位置不稳定）。
+- **状态**：`AppState.activityVerbose: boolean`（缺省 `true`）+ action `activity-verbose{on}`；`buildTopRegion` 传 `activityCompact: !state.activityVerbose` 进 `buildContentRows` → `BuildBoxOptions.activityCompact`。
+- **实现位置**：全部落在 `build-box.ts` 构建期（`compactActivityLine` 单行压缩：按显示宽截断时预留 1 列放 `…`，宽度 = 活动 pane 宽扣该条目前缀列数——思考/非 final 的 `┃` 扣 1 列）。各分支：thinking、tool（调用/结果/辅助行，用压缩后的文本再上色，工具名/`✓` 前缀保持）、notice（紧凑下不再设 `hanging`，悬垂缩进对单行无意义）、非 final assistant（含内部换行/表格的行：紧凑下**不建 markdown 表格**，因其天然多行）。消息前缀占位在 fill 阶段保持原语义。
+- **与 pane 高度/滚动的关系**：紧凑只改条目行数，`activityH` 与 `activityScroll` 口径不变；行数变少后 `activityMaxScroll` 自动收敛（`activity-scroll` reducer 已按 max clamp），上滚位置不会越界。
+- **回归**：`tests/activity-verbose.test.ts`（完整模式折行多行 / 紧凑每条目 1 行且 ≤ pane 宽 + 行尾 `…` / 换行折叠 / 短条目不加省略号 / 端到端 buildFrame 行数收敛）+ `tests/app.test.ts`（`/verbose on|off` 切换与无参、非法参数只提示用法不动状态）。
+
 ## 排版尺寸唯一来源：FrameGeometry
 
 - **问题**：`metricsFor`/`topPaneSplit`/`leftColumnWidth`/`renderStatusLine` 曾在 `buildFrame`、`buildTopRegion`、`inputPanelHeights`、`dialogueScrollMetrics` 各自算一遍（同一件事 4 份），口径一旦漂移就出现「帧里看到的 pane 高度」与「滚动/翻页用的 pane 高度」不一致——横向排列下活动区内容仍按纵向高度排就是这类缺陷。

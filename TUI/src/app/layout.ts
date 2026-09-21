@@ -1362,6 +1362,8 @@ function buildTopRegion(
       themeId: state.themeId,
       gutter: state.messageGutter,
       activityWidth: horizontal ? activityW : undefined,
+      // 活动区详略两态（SPEC §6.8）：verbose=false → 紧凑（每条目 1 行 + 省略号，/verbose off）
+      activityCompact: !state.activityVerbose,
       lineOffset: win.start,
     },
     horizontal ? dialogueW : contentW,

@@ -394,7 +394,7 @@ setCell(row: FrameRow, col: number, ch: string, style?: FrameStyle): void
 
 - **状态列分级折叠**（L0–L3）：按 rect 高逐级尝试、首次放下即采用；必保行与可折叠条目及其优先级由现状块结构（`head`/`items`）自然携带，**不发明“可折叠标注”**（现 `foldAt`）
 - **历史区组折叠**：仅保最近 N 回复组，更早替换为灰占位（现 `foldDialogue`）
-- **活动区两态**：状态 1 每条完全显示、溢出按行截断 + 可滚动；状态 2（紧凑）每条目压为 1 行、行尾省略号；**触发方式待定**（`TASKS.md` §6）
+- **活动区两态**：状态 1（`/verbose on`，缺省）每条完全显示、溢出按行截断 + 可滚动；状态 2（`/verbose off`，紧凑）每条目压为 1 行、行尾省略号。**触发方式已定：显式命令切换**（不做按高度预算自动降级；实现见 `IMPLEMENTATION.md`「活动区详略两态」）
 - 滚动 viewport：按矩形高裁行 + 行级滚动偏移（= 现状 `computeViewport` 语义）
 
 **adapt.ts 签名**（落实 design §6 模块归属）：

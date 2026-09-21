@@ -1625,6 +1625,9 @@ export class App {
       case "theme":
         this.handleThemeCommand(line);
         return;
+      case "verbose":
+        this.handleVerboseCommand(line);
+        return;
       case "session":
         // 会话列表 + 切换：见 openHistory / resumeToSession；
         // 子命令 clean：打开面板并直达「清理当前项目空会话」二次确认
@@ -1769,6 +1772,34 @@ export class App {
     }
     this.notice(
       `theme: ${next} (${this.deps.renderer.getTheme?.(next)?.name ?? next})`,
+      "success",
+    );
+  }
+
+  /**
+   * /verbose on|off：活动区详略切换（SPEC §6.8 两态）。
+   * on = 每条目完整折行（状态 1，缺省）；off = 紧凑（状态 2：每条目 1 行 + 行尾省略号）。
+   * 无参数/非法参数 → 只提示用法与当前状态，不切换。
+   */
+  private handleVerboseCommand(line: string): void {
+    const arg = line.slice("/verbose".length).trim().toLowerCase();
+    const cur = this.state.activityVerbose;
+    let next: boolean;
+    if (arg === "on" || arg === "true") next = true;
+    else if (arg === "off" || arg === "false") next = false;
+    else {
+      this.notice(
+        `usage: /verbose on|off（当前：${cur ? "on(完整)" : "off(紧凑)"}）`,
+        "info",
+      );
+      return;
+    }
+    if (next !== cur) {
+      this.apply((s) => reduceState(s, { type: "activity-verbose", on: next }));
+      this.paint();
+    }
+    this.notice(
+      `活动区：${next ? "verbose on（完整折行）" : "verbose off（紧凑：每条目 1 行 + 省略号）"}`,
       "success",
     );
   }
@@ -2823,6 +2854,10 @@ export class App {
       {
         cmd: "/theme [dark|light|toggle]",
         desc: "切换主题(默认 dark=fffdark, light=ffflight)",
+      },
+      {
+        cmd: "/verbose on|off",
+        desc: "活动区详略：on=完整折行 / off=紧凑（每条目 1 行 + 行尾省略号）",
       },
       {
         cmd: "/session",

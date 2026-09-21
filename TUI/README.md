@@ -212,6 +212,7 @@ npm run watch # tsc --watch 常驻：源码变更自动编译到 dist/（仍需�
   - `/help` — 显示本地命令帮助
   - `/clearscreen`（简写 `/cls`）— 清空显示缓冲（只清 UI，不动会话上下文）
   - `/quit` — 关闭 renderer 退出
+  - `/verbose on|off` — 活动区详略两态（SPEC §6.8）：`on`（缺省）每条目完整折行；`off` 紧凑模式——每条目压成 **1 行 + 行尾 `…`**（条目内换行折叠为空格，宽度按活动 pane 宽扣前缀列），便于高密度浏览长任务输出；无参/非法参数只提示用法与当前状态，不切换。仅当前会话，不落盘
   - `/session` — 会话面板：列出持久化会话（newest-first，live 会话标记 `[当前]` 不可续），Enter 切换到选中的 persisted 会话（先释放当前 agent，再经 host `agents.resume` 恢复继续对话；resume 失败进面板 error 态不崩溃）；`Tab` 切换列表范围（默认当前目录 / 全部）、`d`/Delete 删除选中会话（二次确认）、`x` 清理空会话（范围跟随列表范围，二次确认）、`/session clean` 直达清理确认（文件级删除：安全 id + realpath 包含性校验；清理范围跟随列表范围（当前目录 / 全部））
   - `/copy` — 复制最后一条模型回复到剪贴板（OSC52 序列 `ESC ]52;c;<base64>BEL`，ANSI 剥离后写入；无回复时提示）
   - `/goal` — goal/todo 查看提示：goal、todo、jobs 详情**常驻右侧顶部状态列**（goal 块标题 `Goal <phase>`（Goal 蓝、phase 状态色：active/complete 绿、paused 黄、blocked 红）+ objective/阻塞原因、todo 块 `Todo 完成数/总数`（`○`/`●`黄/`✓`对号灰+正文灰删线，超高时优先隐藏已完成项）、jobs 块 `Jobs 运行中/总数`，PgUp/PgDn 滚动；状态栏不显示 goal/todo 徽标）。输入 `/goal` 仅提示「详情见右侧信息栏」，不再打开面板

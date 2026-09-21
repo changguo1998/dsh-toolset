@@ -23,6 +23,8 @@ import {
 } from "./content-rules.ts";
 import { measure, allocate } from "./measure.ts";
 import { fillToList, type ContentRow } from "./fill.ts";
+import { displayWidth } from "./markdown.ts";
+import { truncateToWidth } from "./primitives.ts";
 
 /** 行元数据（fill 传播到 ContentRow） */
 export interface RowMeta {
@@ -69,6 +71,24 @@ export interface BuildBoxOptions {
   /** buffer 切片在原始 buffer 中的起始行号（渐进窗口按尾部切片时传入，
    *  使 RowMeta.line 保持绝对行号；缺省 0 = 未切片） */
   lineOffset?: number;
+  /** 活动区紧凑模式（SPEC §6.8 状态 2，`/verbose off`）：每条目压成 1 行 + 行尾省略号
+   *  （内部换行折叠为空格；宽度按活动 pane 宽，扣该条目前缀占列）。缺省 false=完整折行 */
+  activityCompact?: boolean;
+}
+
+/**
+ * 紧凑模式：把一条活动区条目压成单行文本（内部换行折叠为空格，超宽按显示宽截断
+ * + 行尾省略号）。宽度预算为活动 pane 可用宽扣除该条目前缀占列数。
+ */
+function compactActivityLine(
+  text: string,
+  paneWidth: number,
+  prefixCols = 0,
+): string {
+  const one = text.replace(/\s*\n+\s*/g, " ").trimEnd();
+  const w = Math.max(1, paneWidth - prefixCols);
+  if (displayWidth(one) <= w) return one;
+  return truncateToWidth(one, Math.max(1, w - 1)) + "…";
 }
 
 /** 工具调用行样式段（首词黄 + 其余原色；折行由 fill 做） */
@@ -111,6 +131,13 @@ export function buildBox(
   const activityLeaves: Node[] = [];
   const gutter = opts.gutter ?? USER_MIN_LEFT_GUTTER;
   const width = opts.width;
+  // 紧凑模式（/verbose off）：活动 pane 条目压单行——宽度取活动 pane 可用宽
+  // （横向两 pane 不同宽；纵向 activityWidth 缺省 = width），前缀占列由各分支自扣
+  const compact = opts.activityCompact === true;
+  const actPaneW = opts.activityWidth ?? width ?? 0;
+  /** 活动区条目文本：紧凑模式压单行 + 行尾省略号（prefixCols = 该条目前缀占列） */
+  const actText = (s: string, prefixCols = 0): string =>
+    compact ? compactActivityLine(s, actPaneW, prefixCols) : s;
   // fence 跨行状态（结构注解：fence 内行 → fillBg 代码块）
   let inFence = false;
   // tool 连续 run 缓冲（flushToolRun 时分组/折叠/step）
@@ -146,10 +173,11 @@ export function buildBox(
         } else {
           const isCall = li === 0 && isToolCall(l.text);
           // 调用行：首词染黄（renderToolNameLine）；结果行：✓绿/✗tone；其余辅助行原色。
-          // 折行统一悬挂缩进（首行全宽、续行 TOOL_CONT_INDENT，与 wrapToolCallText 一致）
+          // 折行统一悬挂缩进（首行全宽、续行 TOOL_CONT_INDENT，与 wrapToolCallText 一致）；
+          // 紧凑模式：条目压单行（工具行无前缀占列）
           const segs2 = isCall
-            ? toolCallSegs(l.text)
-            : toolLineSegs(l.text, l.tone);
+            ? toolCallSegs(actText(l.text))
+            : toolLineSegs(actText(l.text), l.tone);
           node = styled(segs2, { hanging: TOOL_CONT_INDENT });
         }
         meta.set(node, { kind: "tool", blockId: bid });
@@ -181,7 +209,8 @@ export function buildBox(
     if (line.kind === "thinking") {
       // 空思考行跳过（流式增量换行锚点）
       if (line.text === "") continue;
-      const node = styled([{ text: line.text }], {
+      // 紧凑模式：单行（扣 ┃ 前缀 1 列）
+      const node = styled([{ text: actText(line.text, 1) }], {
         prefix: {
           text: "┃",
           style: { fg: "brightMagenta" },
@@ -217,7 +246,7 @@ export function buildBox(
       // 含显式换行的单条行：旧 FENCE_RE 对整串不匹配（^…$ 需整行），
       // 整段交 wrapAssistantLine 解析；fill 的 Paragraph 按 \n 拆物理行。直接产单节点。
       if (line.text.includes("\n")) {
-        const body = text(line.text, {
+        const body = text(line.final ? line.text : actText(line.text, 1), {
           prefix: {
             text: "┃",
             style: { fg: "brightBlue" },
@@ -256,7 +285,8 @@ export function buildBox(
       }
       // markdown 表格（fence 外）：表头行 + 分隔行成对时（O(1) 预筛）收集连续表格行，
       // 构建期降级为固定宽 Box 子树（列宽是跨行约束，SPEC §3.2）。可用宽未知时不识别。
-      if (!inFence && width !== undefined) {
+      // 紧凑模式（活动 pane 条目压单行）不建表——表格天然多行，与「每条目 1 行」冲突
+      if (!inFence && width !== undefined && !(compact && !line.final)) {
         const next = buffer[li + 1];
         if (
           next !== undefined &&
@@ -285,7 +315,7 @@ export function buildBox(
           }
         }
       }
-      const body = text(line.text, {
+      const body = text(line.final ? line.text : actText(line.text, 1), {
         ...(inFence ? { fillBg: true, width: { mode: "fill" } } : {}),
         prefix: {
           text: "┃",
@@ -304,10 +334,13 @@ export function buildBox(
           ? { style: { fg: NOTICE_TONE_COLOR[tone] as ColorName } }
           : {};
       // 悬垂缩进（/help 双列表格）：折行续行停靠 hanging 列（描述列起点），
-      // 对齐工具行的悬挂机制；普通 notice 不设 hanging → 续行顶格
-      const node = styled([{ text: line.text }], {
+      // 对齐工具行的悬挂机制；普通 notice 不设 hanging → 续行顶格。
+      // 紧凑模式：条目压单行 → 悬垂缩进无意义（不设 hanging）
+      const node = styled([{ text: actText(line.text) }], {
         ...style,
-        ...(line.hanging !== undefined ? { hanging: line.hanging } : {}),
+        ...(!compact && line.hanging !== undefined
+          ? { hanging: line.hanging }
+          : {}),
       });
       // 空文本不舍弃（notice 空行可能保留语义）
       meta.set(node, rowMeta);

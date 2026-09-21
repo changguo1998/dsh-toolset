@@ -1671,6 +1671,32 @@ test("/theme 非法参数 → notice usage,不调用 renderer.setTheme", () => {
   );
 });
 
+test("/verbose on|off 切换活动区详略；无参/非法参数只提示用法不动状态", () => {
+  const { app, renderer } = makeApp();
+  // 状态不可变（apply 替换 state 对象）：每次重新取，避免持有陈旧引用
+  const verbose = (): boolean =>
+    (app as unknown as { state: { activityVerbose: boolean } }).state
+      .activityVerbose;
+  assert.equal(verbose(), true, "缺省完整显示（verbose on）");
+  typeAndEnter(renderer, "/verbose off");
+  assert.equal(verbose(), false, "off → 紧凑模式");
+  assert.ok(
+    renderer.lastRender.join("\n").includes("verbose off"),
+    "切换成功有 notice 回执",
+  );
+  typeAndEnter(renderer, "/verbose on");
+  assert.equal(verbose(), true, "on → 完整模式");
+  // 无参 / 非法参数：只提示用法，不改变当前状态
+  typeAndEnter(renderer, "/verbose");
+  assert.equal(verbose(), true, "无参不切换");
+  assert.ok(
+    renderer.lastRender.join("\n").includes("usage: /verbose on|off"),
+    `应有 usage 提示，实际:\n${renderer.lastRender.join("\n")}`,
+  );
+  typeAndEnter(renderer, "/verbose 也许");
+  assert.equal(verbose(), true, "非法参数不切换");
+});
+
 test("App 本地 notice 按语义 tone 着色（/theme 成功 → success 绿）", () => {
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/theme light");
