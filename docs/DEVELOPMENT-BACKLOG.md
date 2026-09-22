@@ -12,6 +12,7 @@
 - 任务控制：#1-#5 task-engine（Frame 状态机、工具族、双重门禁、RET 三级路由、step 裁决）、#13 fan-out 就绪池、#6 goal-contract、#7 metric-loop；
 - 知识库与记忆：#8 knowledge-base（两张基表 + 两张 FTS5 虚表）、#9 两级写策略与淘汰提升、#10 持久记忆 CRUD、#11 output-compress、#12 fs-digest；
 - 代码与文件：#19 hash-edit、#20 ast-tools、#21 code-map 报告与影响面、#22 结构层索引与候选调用图；
+- 上下文报告：#34 context-report（host-only 投影 `sessionContext` 折叠会话累计 + `context_report` 三档报告）；
 - 安全与集成：#27 security-guard 策略层、#36 herdr-integration；
 - TUI：#16 /workflows 面板、#18 /council、#24 /search 多 provider 聚合、#33 声音提醒，以及 7 项纯 TUI 命令与 A1-A5（`/task` `/guard` `/memory` `/loop` `/contract`）。
 - 已取消：#35 rate-guard（不实现，pi 侧已移除，dsh 侧由官方 `llm-retry` 覆盖，见 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1）。
@@ -54,7 +55,6 @@
 | 30 | 跨会话 broker（消息/委托/状态同步） | pi-intercom（对比文档 §3.3） | 无底座；webhook/acp/sdk 均非等效，新建 unix socket 通道 | P2 |
 | 31 | slash 命令模板（pre-steps/chain/best-of-N）+ 模板级模型选择 | pi-prompt-template-model（对比文档 §3.4） | commands + workflow | P2 |
 | 32 | 近期改动代码审查 | pi-simplify（对比文档 §3.6） | 可并入 #17 模板族 | P2 |
-| 34 | `[~]` 上下文压力/token 报告：单回合用量与上下文占比已由 TUI `/stats`（别名 `/usage` `/context`）覆盖；会话累计形态未做 | supi-context（对比文档 §3.2） | token-meter + session-stats 形态对齐 | P2 |
 
 ### 2.6 其他观察项（未单独立项）
 
@@ -63,7 +63,7 @@
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
-1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#25、#26、#28-#32、#34，按需排期；#35 已取消。
+1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#25、#26、#28-#32，按需排期；#34 已完成；#35 已取消。
 1. 依赖：#17 的模板族与 #32 可共用 workflow/skill 资产；workflow-ext 建包前，工作流相关插件面依赖 task-engine 的契约与执行器；其余相互独立。
 
 ## 4. 插件规划（未建包）
@@ -76,7 +76,6 @@
 | `web-ext` | #23、#25-#26 | search provider 扩充、web-fetch-http、shell（git 克隆先行） |
 | `session-broker` | #30 | 无等效底座，新建 unix socket 通道 |
 | `command-template` | #31 | commands、workflow |
-| `context-report` | #34 | token-meter、session-stats |
 | 内容资产（非插件） | #17、#32 | workflow 脚本 + skill 内容 |
 
 ## 5. TUI 侧

@@ -6,7 +6,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 
 ## 组成
 
-仓库含 `TUI/` 终端界面包与 11 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
+仓库含 `TUI/` 终端界面包与 12 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
 
 | 包 | 功能 |
 |----|------|
@@ -22,6 +22,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **ast-tools** | 基于 ast-grep 的 AST 结构搜索、结构化替换、文件大纲与 YAML 规则执行（经系统 CLI 子进程，零运行时依赖） |
 | **security-guard** | 安全守卫：危险命令黑名单 + 敏感文件保护策略层，挂在宿主 `tools/pre-execute` 水位线，命令下发前拦截 |
 | **code-map** | 代码结构地图：文件节点 + import 图索引，`callers`/`callees`/`cycles`/`impact` 查询与项目/模块报告（引用为候选，无 LSP 语义层）；经 `link:` 依赖 `@dsh-toolset/ast-tools`（挂载时需一并安装） |
+| **context-report** | 会话上下文与用量报告：host-only 投影 `sessionContext` 折叠会话累计（回合/步、模型与工具墙钟、首 token、token 分桶），工具 `context_report` 合成 token-meter 即时压力与模型容量读数 |
 
 各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/DEVELOPMENT-STATUS.md`。
 
@@ -41,8 +42,9 @@ dsh-toolset/
 ├── ast-tools/            # AST 搜索/替换/大纲/规则
 ├── security-guard/       # 危险命令与敏感文件防护
 ├── code-map/             # 代码结构地图（符号/import 图、查询与报告）
+├── context-report/       # 会话上下文/用量报告（sessionContext 投影 + context_report 工具）
 ├── presets/              # agent preset 资产（fff：官方 standard 组合克隆；部署见 presets/README.md）
-├── docs/                 # 状态表、待办清单与架构对照
+├── docs/                 # 状态表、待办清单、架构对照与宿主包清单
 ├── archive/              # 已归档：完成的任务清单与历史调研记录
 ├── AGENTS.md             # 面向 agent 的协作规范（语言/命令/格式化/构建部署/变更流程）
 ├── DSH-CTX-API.md        # 跨插件共享研读笔记（只读）
@@ -89,5 +91,6 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 - `docs/DEVELOPMENT-BACKLOG.md` — 未完成功能清单（P0/P1/P2）与里程碑。
 - `TUI/DESIGN.md`、`TUI/SPEC.md`、`TUI/IMPLEMENTATION.md`、`TUI/COMMANDS.md`、`TUI/COMMANDS-SPEC.md` — TUI 设计、渲染规格、实现记录、命令面与命令扩展规格。
 - `docs/AGENT-ARCHITECTURE-ANALOGY.md` — agent 架构与 DSH 接口对照（任务树、知识库插件的设计依据）。
+- `docs/HOST-PACKAGES.md` — 宿主官方包清单（`dsh 0.1.5-rc.2` 的 240 个包，分类 + 关键包说明 + fff 挂载清单；宿主升级后需刷新）。
 - `archive/PI-DSH-FEATURE-COMPARISON.md`、`archive/CODEMAP-RESEARCH.md` — 已归档的调研记录（pi→dsh 迁移基线与 code-map 选型快照，仅作历史参考；现状以状态表/待办清单为准）。
 - `DSH-CTX-API.md` — 对齐官方 deepseek-harness 的核心契约研读笔记（只读参考）。

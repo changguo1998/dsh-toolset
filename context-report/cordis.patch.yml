@@ -1,0 +1,3 @@
+- insert:
+    - id: context-report
+      name: '@dsh-toolset/context-report'

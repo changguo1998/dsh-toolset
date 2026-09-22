@@ -1,6 +1,6 @@
 # AGENTS.md — dsh-toolset
 
-本项目为 DSH（DeepSeek Harness）进程内集成插件工具集，包含 `TUI/` 终端界面包与 11 个进程内集成插件（herdr-integration / task-engine / knowledge-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard / code-map）。
+本项目为 DSH（DeepSeek Harness）进程内集成插件工具集，包含 `TUI/` 终端界面包与 12 个进程内集成插件（herdr-integration / task-engine / knowledge-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard / code-map / context-report）。
 
 > 文档分工：根目录 `README.md` 面向人（项目总览、插件功能、快速开始、文档索引），本文件面向 agent（开发协作规范）；插件功能与当前状态见 `README.md` 与 `docs/DEVELOPMENT-STATUS.md`，`docs/` 其余文档与 `DSH-CTX-API.md` 为设计/契约参考。
 
@@ -11,7 +11,7 @@
 
 ## 命令
 
-仓库根 `package.json` 委托全部子包（TUI / herdr-integration / knowledge-base / task-engine / ast-tools / fs-digest / goal-contract / hash-edit / metric-loop / output-compress / security-guard / code-map）：
+仓库根 `package.json` 委托全部子包（TUI / herdr-integration / knowledge-base / task-engine / ast-tools / fs-digest / goal-contract / hash-edit / metric-loop / output-compress / security-guard / code-map / context-report）：
 
 ```sh
 npm run check   # 全部子包类型检查（tsc --noEmit）
@@ -48,9 +48,9 @@ npm run test:tui          # TUI 单包测试（开发迭代常用，避免全包
 ## 结构与约定
 
 - `TUI/src/app/` 状态与纯函数层（state/layout），`TUI/src/renderer/` 终端渲染层，`TUI/src/app/adapter/` 插拔适配层，`TUI/demo/` mock demo。
-- 插件子包：`task-engine/`（任务执行引擎）、`knowledge-base/`（知识库与记忆）、`herdr-integration/`（herdr 面板桥）、`goal-contract/`（Done-when 契约起草）、`metric-loop/`（指标循环）、`output-compress/`（大输出摘要入库）、`fs-digest/`（文件摘要）、`hash-edit/`（LINE:HASH 锚定编辑）、`ast-tools/`（AST 搜索/替换/大纲）、`security-guard/`（危险命令与敏感文件防护）、`code-map/`（代码结构地图）；各包的 `package.json` 带 `dsh.bundle` 集成契约与 `cordis.patch.yml`。
+- 插件子包：`task-engine/`（任务执行引擎）、`knowledge-base/`（知识库与记忆）、`herdr-integration/`（herdr 面板桥）、`goal-contract/`（Done-when 契约起草）、`metric-loop/`（指标循环）、`output-compress/`（大输出摘要入库）、`fs-digest/`（文件摘要）、`hash-edit/`（LINE:HASH 锚定编辑）、`ast-tools/`（AST 搜索/替换/大纲）、`security-guard/`（危险命令与敏感文件防护）、`code-map/`（代码结构地图）、`context-report/`（会话上下文/用量报告）；各包的 `package.json` 带 `dsh.bundle` 集成契约与 `cordis.patch.yml`。
 - 核心契约对齐官方 deepseek-harness：根目录 `DSH-CTX-API.md` 为跨插件共享研读笔记（只读参考，勿改动）。
-- `docs/` 设计文档：`AGENT-ARCHITECTURE-ANALOGY.md`（架构与接口对照）、`DEVELOPMENT-STATUS.md`（状态追踪）、`DEVELOPMENT-BACKLOG.md`（未完成待办）；改动行为时同步更新状态表，功能完成时同步清理待办清单。
+- `docs/` 设计文档：`AGENT-ARCHITECTURE-ANALOGY.md`（架构与接口对照）、`DEVELOPMENT-STATUS.md`（状态追踪）、`DEVELOPMENT-BACKLOG.md`（未完成待办）、`HOST-PACKAGES.md`（宿主官方包清单与 profile 挂载情况，宿主升级后刷新）；改动行为时同步更新状态表，功能完成时同步清理待办清单。
 - `archive/` 存放**已完成任务清单与历史调研**（如 `TUI-REFACTOR-TASKS.md`、`TUI-COMMANDS-TASKS.md`、`PI-DSH-FEATURE-COMPARISON.md`、`CODEMAP-RESEARCH.md`）：仅作历史记录，不是现状来源；当前口径以 `docs/DEVELOPMENT-STATUS.md`、`TUI/SPEC.md`、`TUI/IMPLEMENTATION.md`、`TUI/COMMANDS.md`、`TUI/COMMANDS-SPEC.md` 为准。
 - DSH 集成契约以各包 `cordis.patch.yml` + `package.json` 的 `dsh.bundle` 为准。
 - 设计/实现讨论沉淀在 `TUI/DESIGN.md`、`TUI/SPEC.md` 与 `TUI/IMPLEMENTATION.md`，改动行为时同步更新。
