@@ -29,6 +29,11 @@ export interface FocusFrameContext {
   /** 横向排列（活动区在左、历史区在右）时的内部分隔竖线列：
    *  activity 右缘 / history 左缘改为此列，底边不再有纵向分隔行（缺省 = 纵向排列） */
   innerDividerCol?: number;
+  /** 状态区上方分隔行行号（=contentTopH，buildStatusSeparator 所在行）——
+   *  该行被焦点 coverH 覆写为 ─ 时恢复状态栏框线竖线交点（┬），保持相接结构 */
+  statusSepRow?: number;
+  /** 状态栏框线竖线列（buildStatusSeparator 行的 ┬ 交点列，0 基） */
+  statusSeamCols?: number[];
 }
 
 /** 焦点框亮色（语义色名 "focus"，取色由渲染层经主题 semantics 解析）；不再按主题 ID 推断（旧 dark=brightWhite / light=black） */
@@ -212,6 +217,22 @@ export function coverH(
  *   status 矩形 = 状态列（x=historyWidth, w=statusColWidth）
  * focusedPanel=null 时不覆写。
  */
+
+/** coverH 把状态区上方分隔行整段覆写为 ─ 后，恢复状态栏框线竖线交点（┬），
+ *  保持竖线与横线相接的结构（交点随焦点 body 变亮）。仅作用于该行 */
+function restoreStatusSeams(
+  rows: FrameRow[],
+  bottom: number,
+  c0: number,
+  c1: number,
+  style: FrameStyle | undefined,
+  ctx: FocusFrameContext,
+): void {
+  if (ctx.statusSepRow === undefined || bottom !== ctx.statusSepRow) return;
+  for (const c of ctx.statusSeamCols ?? []) {
+    if (c >= c0 && c < c1) cover(rows, bottom, c, "┬", style);
+  }
+}
 export function focusFrame(
   ctx: FocusFrameContext,
   rects: Map<PaneId, Rect>,
@@ -244,8 +265,10 @@ export function focusFrame(
         cover(rows, r, dCol, "│", style);
       }
       // 底边：纵向 = 活动区分隔行、横向 = 状态区分隔行；正文 ─ 亮后两端角字
-      // （coverH 先 body、cover 后角，保留 body 与角字独立段）
+      // （coverH 先 body、cover 后角，保留 body 与角字独立段）；状态区分隔行
+      // 被覆写后恢复框线竖线交点（┬）
       coverH(rows, bottom, left + 1, dCol, "─", style);
+      restoreStatusSeams(rows, bottom, left + 1, dCol, style, ctx);
       cover(rows, bottom, left, divCol !== undefined ? "┴" : "┘", style);
       cover(rows, bottom, dCol, "┘", style);
       break;
@@ -262,8 +285,10 @@ export function focusFrame(
         cover(rows, r, left, "│", style);
         cover(rows, r, rEdge, "│", style);
       }
-      // 底边 = 状态区上方分隔行：正文 ─ 亮后左下 └、右缘 ┴
+      // 底边 = 状态区上方分隔行：正文 ─ 亮后左下 └、右缘 ┴；
+      // 覆写后恢复框线竖线交点（┬）
       coverH(rows, bottom, left + 1, rEdge, "─", style);
+      restoreStatusSeams(rows, bottom, left + 1, rEdge, style, ctx);
       cover(rows, bottom, left, "└", style);
       cover(rows, bottom, rEdge, "┴", style);
       break;

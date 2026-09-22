@@ -49,9 +49,11 @@ export interface NodeBase {
   wrap?: boolean;
 }
 
-/** 兄弟项之间的分隔线（结构性，随子项增删；首尾不画，仅纵向 Box） */
+/** 兄弟项之间的分隔线（结构性，随子项增删；首尾不画）：
+ *  纵向 Box = 行间横线（缺省 `╌`，如 turn 分隔/状态列块间虚线）；
+ *  横向 Box = 列间竖线框线（缺省 `│`，如状态栏组间分隔，与上/下横线相接成格） */
 export interface Separator {
-  /** 缺省按主题/场景（如 `╌` turn 分隔、状态列块间虚线） */
+  /** 缺省：纵向 `╌` / 横向 `│` */
   char?: string;
   /** 缺省 border（灰） */
   color?: ColorName;
@@ -129,7 +131,7 @@ export function v(
 /** 横向 Box 便捷构造：h(children, opts?)  */
 export function h(
   children: Node[],
-  opts: Omit<Box, "kind" | "direction" | "children" | "separator" | "id"> = {},
+  opts: Omit<Box, "kind" | "direction" | "children" | "id"> = {},
 ): Box {
   return { kind: "box", direction: "h", children, ...opts };
 }

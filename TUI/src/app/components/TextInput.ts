@@ -10,7 +10,7 @@ import { displayWidth, charWidth } from "../layout.ts";
 
 /**
  * 生成输入区（height 行）。cursor 为文本内光标位置(0..text.length，按 code point)。
- * width 为终端列宽；prompt 为显示前缀段数组（如两字符提示 "✓> "，可携带样式；
+ * width 为终端列宽；prompt 为显示前缀段数组（如单字符提示 "> "，可携带样式；
  * 默认 ["> "]）；宽度始终按未着色纯文本经 displayWidth 计算（style 不占列）。
  *
  * 文本按 avail = width - promptWidth 列统一换行（字符不跨行，不切半个 CJK）：

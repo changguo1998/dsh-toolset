@@ -362,6 +362,10 @@ function measureNode(
   }
   // h 排布
   let childMaxH = 0;
+  // 子项间框线占 1 列（横向 separator；无 separator 时 0，行为与旧一致）
+  const sepCount =
+    box.children.length > 1 && box.separator ? box.children.length - 1 : 0;
+  const contentW = Math.max(1, c.maxW - sepCount);
   // fill 项的 min 预留：auto 折宽上界先扣除（右侧留白如用户块 gutter）
   let fillReserve = 0;
   for (let i = 0; i < box.children.length; i++) {
@@ -375,12 +379,12 @@ function measureNode(
     const reserve = wd.mode === "fill" ? 0 : fillReserve;
     const upper =
       wd.mode === "auto" && wd.max !== undefined
-        ? Math.min(c.maxW, wd.max)
-        : Math.max(1, c.maxW - reserve);
+        ? Math.min(contentW, wd.max)
+        : Math.max(1, contentW - reserve);
     measureNode(child, { maxW: Math.max(1, upper) }, st); // 副作用：写入 st.size 供第二遍取高
   }
-  // 第二遍：按优先级分配宽度
-  const allocated = allocateWidths(box.children, c.maxW, st.size);
+  // 第二遍：按优先级分配宽度（预算扣框线占列）
+  const allocated = allocateWidths(box.children, contentW, st.size);
   let filledW = 0;
   for (let i = 0; i < box.children.length; i++) {
     const child = box.children[i]!;
@@ -390,7 +394,7 @@ function measureNode(
     childMaxH = Math.max(childMaxH, m.h);
     filledW += aw;
   }
-  const m = applyDeclaredHeight(box, { w: filledW, h: childMaxH });
+  const m = applyDeclaredHeight(box, { w: filledW + sepCount, h: childMaxH });
   st.size.set(box, m);
   return m;
 }
@@ -417,13 +421,21 @@ function allocateNode(
   if (node.kind === "text" || node.kind === "styled") return;
   const box = node as Box;
   if (box.direction === "h") {
-    const widths = allocateWidths(box.children, rect.w, st.size);
+    // 子项间框线占 1 列（横向 separator）：预算扣框线，x 递增时跳过
+    const sepCount =
+      box.children.length > 1 && box.separator ? box.children.length - 1 : 0;
+    const widths = allocateWidths(
+      box.children,
+      Math.max(1, rect.w - sepCount),
+      st.size,
+    );
     let x = rect.x;
     for (let i = 0; i < box.children.length; i++) {
       const child = box.children[i]!;
       const w = widths[i]!.w;
       allocateNode(child, { x, y: rect.y, w, h: rect.h }, st, out);
       x += w;
+      if (box.separator && i < box.children.length - 1) x += 1;
     }
     return;
   }

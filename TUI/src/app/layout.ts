@@ -37,7 +37,8 @@ import { buildApprovalBox } from "./components/ApprovalPrompt.ts";
 import { buildContentRows } from "./layout/build-box.ts";
 import { measure } from "./layout/measure.ts";
 import { allocate } from "./layout/measure.ts";
-import { fillToList } from "./layout/fill.ts";
+import { fillToList, fillBoxTree } from "./layout/fill.ts";
+import { h, styled } from "./layout/box.ts";
 import { focusFrame, focusColor } from "./layout/focus-frame.ts";
 import type { PaneId, Rect } from "./layout/box.ts";
 import type { ContentRow } from "./layout/fill.ts";
@@ -733,7 +734,13 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     state.history !== null;
   const normalInput = !modalOpen;
   const showHint = normalInput || state.history !== null;
-  const statusLines = renderStatusLine(state.systemStatus, cols, state.usage);
+  const statusLines = renderStatusLine(
+    state.systemStatus,
+    cols,
+    state.usage,
+    state.inputStatus,
+    state.themeId,
+  );
   // 面板态/输入态交互区总高恒定（见 metricsFor）：开关面板不让顶部区域上下跳
   const metrics = metricsFor(
     size,
@@ -1727,6 +1734,10 @@ export function renderStatusLine(
   cols: number,
   /** 最新一次模型调用 token 用量（有且 total>0 时覆盖 contextLen/cacheHit 占位） */
   usage?: AppState["usage"],
+  /** 输入状态：非空时在状态栏首行最左侧渲染状态符号（✓/✗/○/△/?） */
+  inputStatus?: InputStatus,
+  /** 主题（横向 Box fill 折行/着色用；缺省 dark 兼容直接调用方） */
+  themeId: ThemeId = "dark",
 ): FrameRow[] {
   const u = usage ? usageStatus(usage) : undefined;
   const ctxSeg = u?.ctx ?? status.contextLen;
@@ -1738,12 +1749,27 @@ export function renderStatusLine(
   const thinkState = status.modelThinking ?? (thinkOn ? "on" : "none");
   const modelSeg = `${modelBase}:${thinkState}`;
 
-  // 状态栏按类分组（组间 `|` 分隔、组内 `·` 分隔）：
+  // 状态栏按类分组（组间以横向 Box 框线分隔、组内 `·` 分隔）：
   //   环境组：time · git · cwd            （本机/工作区信息，与会话无关）
   //   LLM 组：model:{后缀} · ctx · cache  （最近一次模型调用指标）
   // 每个「逻辑段」= 多个 FrameSegment（点击色可分多段，如 provider/model/:后缀），
   // 组内逻辑段之间插 `·`、物理段之间不插。
-  const maxSegW = Math.max(1, cols - 2); // 留首尾各 1 列
+  // 状态符号段（首行最左侧）：前导 1 空格留边（符号不贴边）+ 1 符号 +
+  // ` │ ` 竖线分隔（box-drawing 边框线、边框色，与时间等环境组隔开）；
+  // 符号未知/未定义时回退 `?`；未提供 inputStatus 时保持原首空格留边
+  const lead: FrameSegment[] | undefined = inputStatus
+    ? [
+        { text: " " },
+        {
+          text: STATUS_SYMBOL[inputStatus] ?? "?",
+          ...(STATUS_SYMBOL_COLOR[inputStatus]
+            ? { style: { fg: STATUS_SYMBOL_COLOR[inputStatus]! } }
+            : {}),
+        },
+        { text: " │ ", style: { fg: "border" } },
+      ]
+    : undefined;
+  const maxSegW = Math.max(1, cols - 2 - (lead ? 5 : 0)); // 留首尾各 1 列 + 符号段占位 5 列
   // 段配色：time 默认 / git 洋红 / cwd 蓝 / title 青 / provider 紫 / model 青
   //          / 后缀 正常前景 / ctx 蓝 / cache 默认
   const envFull: FrameSegment[][] = [
@@ -1780,71 +1806,97 @@ export function renderStatusLine(
       [{ text: cacheSeg }],
     ];
   };
-  const groups: Array<{
-    full: FrameSegment[][];
-    fit: (w: number) => FrameSegment[][];
-  }> = [
-    { full: envFull, fit: envFit },
-    { full: llmFull, fit: llmFit },
-  ];
 
-  const groupWidth = (g: FrameSegment[][]): number =>
-    g.reduce(
-      (acc, s, i) =>
-        acc + (i > 0 ? 1 : 0) + s.reduce((a, x) => a + displayWidth(x.text), 0),
-      0,
-    );
+  // 组段（组内逻辑段间插 `·`；单组超行宽时用组内压缩版）
+  const dotJoin = (g: FrameSegment[][]): FrameSegment[] =>
+    g.flatMap((s, si) => [
+      ...(si > 0 ? [{ text: "·" } as FrameSegment] : []),
+      ...s,
+    ]);
+  const segWidth = (segs: FrameSegment[]): number =>
+    segs.reduce((a, x) => a + displayWidth(x.text), 0);
+  const fulls = [dotJoin(envFull), dotJoin(llmFull)];
+  const fits = [dotJoin(envFit(maxSegW)), dotJoin(llmFit(maxSegW))];
+  const pick = (gi: number): FrameSegment[] =>
+    segWidth(fulls[gi]!) > maxSegW ? fits[gi]! : fulls[gi]!;
 
-  // 组集 → one FrameRow：组间 `|`、组内逻辑段间 `·`、物理段直拼、首尾空格留边
-  const renderRow = (row: FrameSegment[][][]): FrameRow => ({
-    segments: [
-      { text: " " },
-      ...row.flatMap((g, gi) => [
-        ...(gi > 0 ? [{ text: "|" } as FrameSegment] : []),
-        ...g.flatMap((seg, si) => [
-          ...(si > 0 ? [{ text: "·" } as FrameSegment] : []),
-          ...seg,
-        ]),
-      ]),
-      { text: " " },
-    ],
-  });
-
-  // 单行完整（宽度足够）→ 各段完整、无省略号
-  const fullW = groups.reduce(
-    (acc, g, gi) => acc + (gi > 0 ? 1 : 0) + groupWidth(g.full),
-    0,
-  );
-  if (fullW <= maxSegW) return [renderRow(groups.map((g) => g.full))];
-
-  // 折行（尽量少行）：以组为单位依次放入，放不下整组换行。
-  // 单组超行宽时才组内压缩（cwd 保尾 / model 保后缀）。
-  const lines: FrameSegment[][][][] = [[]];
+  // 行分组决策（组为整体不拆，放不下整组换行；单组超行宽才组内压缩）：
+  // 每行 = 组索引列表，行内组间以横向 Box 框线分隔
+  const rowPlan: number[][] = [[]];
   let used = 0;
-  for (const g of groups) {
-    let segs = g.full;
-    if (groupWidth(segs) > maxSegW) segs = g.fit(maxSegW);
+  for (let gi = 0; gi < fulls.length; gi++) {
+    const segs = pick(gi);
     const gap = used > 0 ? 1 : 0;
-    if (used > 0 && used + gap + groupWidth(segs) > maxSegW) {
-      lines.push([]);
+    if (used > 0 && used + gap + segWidth(segs) > maxSegW) {
+      rowPlan.push([]);
       used = 0;
     }
-    const row = lines[lines.length - 1]!;
-    row.push(segs);
-    used += (used > 0 ? 1 : 0) + groupWidth(segs);
+    rowPlan[rowPlan.length - 1]!.push(gi);
+    used += (used > 0 ? 1 : 0) + segWidth(segs);
   }
-  return lines.map(renderRow);
+
+  // 每行 → 横向 Box（组间框线 separator，占 1 列由 measure/allocate 预留、
+  // fill 逐行插竖线）→ 摊平成一行。首行携带状态符号 lead（含前导空格与符号后
+  // 框线），折行非首行行首留 1 空格；行尾留 1 空格（「首尾空格留边」）。
+  return rowPlan.map((plan, ri) => {
+    const children = plan.map((gi, i) => {
+      const segs: FrameSegment[] = [];
+      if (i === 0) {
+        // 行首：首行带状态符号 lead（含前导空格），折行行/无符号态留 1 空格
+        if (ri === 0 && lead) segs.push(...lead);
+        else segs.push({ text: " " });
+      }
+      segs.push(...pick(gi));
+      if (i === plan.length - 1) segs.push({ text: " " }); // 行尾留边
+      return styled(segs, { wrap: false });
+    });
+    const box = h(
+      children,
+      plan.length > 1 ? { separator: { char: "│", color: "border" } } : {},
+    );
+    const out = fillBoxTree(box, 1, cols, themeId);
+    return out[0] ?? { segments: [] };
+  });
 }
 
-/** 提示符左字符 = 上次提交所用模式的符号（normal > / shell $ / slash /；颜色随状态） */
+/**
+ * 状态栏框线竖线（边框色 `│`）在行内的列位置列表（0 基，升序去重）。
+ * 覆盖两类竖线：组间框线（纯 `│` 段）与符号右侧分隔竖线（lead 复合段
+ * ` │ ` 中的 `│`）。buildFrame 用它在上/下横线对应列画交点（┬/┴），
+ * 使竖线两端与横线相接成格。
+ */
+export function statusBarSeamCols(row: FrameRow | undefined): number[] {
+  if (!row) return [];
+  const cols: number[] = [];
+  let col = 0;
+  for (const seg of row.segments) {
+    if (seg.style?.fg === "border") {
+      const i = seg.text.indexOf("│");
+      if (i >= 0) cols.push(col + displayWidth(seg.text.slice(0, i)));
+    }
+    col += displayWidth(seg.text);
+  }
+  return [...new Set(cols)].sort((a, b) => a - b);
+}
 
-/** 提示符左字符状态色：绿=成功等待 / 黄=进行中 / 红=失败等待 */
-const STATUS_PROMPT_COLOR: Record<InputStatus, ColorName> = {
-  success: "green",
-  running: "yellow",
-  failure: "red",
+/** 状态栏最左侧的状态符号：绿✓=成功 / 红✗=失败 / 黄○=运行中 / 黄△=等待交互；
+ *  `?` 为不确定/未知状态时的回退占位（含初始 idle），查找失败经 `?? "?"` 兜底 */
+const STATUS_SYMBOL: Record<InputStatus, string> = {
+  success: "✓",
+  failure: "✗",
+  running: "○",
+  waiting: "△",
+  idle: "?",
 };
-/** 提示符右字符 = 当前输入模式符号（normal > / shell $ / slash /；默认前景色，不着色） */
+/** 状态符号着色：成功绿 / 失败红 / 运行中与等待交互黄 / 回退占位（?）默认前景 */
+const STATUS_SYMBOL_COLOR: Record<InputStatus, ColorName | undefined> = {
+  success: "green",
+  failure: "red",
+  running: "yellow",
+  waiting: "yellow",
+  idle: undefined,
+};
+/** 提示符 = 当前输入模式符号（normal > / shell $ / slash /；默认前景色，不着色） */
 const MODE_SYMBOL: Record<InputMode, string> = {
   normal: ">",
   shell: "$",
@@ -1951,11 +2003,16 @@ export function userInputJump(
 
 /** 状态栏上方分隔行（焦点四边框的底边）：按焦点面板分段着色 + 角字（└/┴/┘）；
  * 无焦点/模态态全边框色 `─`。左侧历史/活动区底边（activity 焦点亮、col0 左下角 └），
- * 右侧状态列底边（status 焦点亮、R 列右下角 ┘），D 列 ┴ 为共用角。 */
+ * 右侧状态列底边（status 焦点亮、R 列右下角 ┘），D 列 ┴ 为共用角。
+ * seamCols：状态栏框线竖线列（0 基数组）——竖线在横线**下方**（状态栏内），
+ * 该列画 `┬` 与竖线相接（竖线自横线向下伸入状态栏）；D 列/内部分隔列竖线在
+ * 横线**上方**（topRegion），交点画 `┴`（竖线自横线向上顶住）。 */
 export function buildStatusSeparator(
   geom: FrameGeometry,
   themeId: ThemeId,
   sepFocus: "none" | "status" | "activity",
+  /** 状态栏框线竖线列（0 基）：该列画 ┬ 与状态栏竖线相接；缺省不画 */
+  seamCols?: number[],
 ): FrameRow {
   // 焦点中性基线：状态区上方分隔行恒灰 `─`（col0 非 activity 底角 └、D 列 ┴
   // border、右缘非 status 右下角 ┘）；亮角字/亮边由 buildFrame 末尾 focusFrame
@@ -1977,14 +2034,23 @@ export function buildStatusSeparator(
     geom.innerDividerCol < D
       ? geom.innerDividerCol
       : undefined;
-  if (D > 0) out.push({ text: STATUS_TOP_SEPARATOR, style: { fg: "border" } });
-  out.push(...segN(Math.max(0, (inner ?? D) - 1)));
-  // 内部分隔竖线（横向排列）：与水平实线交汇 → 灰 ┴
-  if (inner !== undefined) out.push({ text: "┴", style: { fg: "border" } });
-  out.push(...segN(Math.max(0, D - (inner ?? D) - 1)));
-  // D 列交点恒与水平实线相交（灰 ┴；status/activity 焦点由 focusFrame 覆写亮 ┴）
-  out.push({ text: "┴", style: { fg: "border" } });
-  out.push(...segN(Math.max(0, R - D - 1)));
+  // 交点列 → 字符：状态栏框线竖线在横线下方 → `┬`；D 列/内部分隔列竖线在
+  // 横线上方 → `┴`（D=0 时 col0 亦为 ┴，与旧实现一致）。升序排列后逐列输出。
+  const pts: Array<{ col: number; ch: "┬" | "┴" }> = [];
+  for (const c of seamCols ?? []) {
+    if (c >= 0 && c <= R) pts.push({ col: c, ch: "┬" });
+  }
+  if (inner !== undefined) pts.push({ col: inner, ch: "┴" });
+  if (D >= 0 && D <= R) pts.push({ col: D, ch: "┴" });
+  pts.sort((a, b) => a.col - b.col);
+  let cursor = 0;
+  for (const p of pts) {
+    if (p.col < cursor) continue; // 同列已输出（去重）
+    out.push(...segN(p.col - cursor));
+    out.push({ text: p.ch, style: { fg: "border" } });
+    cursor = p.col + 1;
+  }
+  out.push(...segN(Math.max(0, R - cursor)));
   // R 列（状态列右缘框列）：灰 `─`（status 焦点由 focusFrame 覆写 ┘）
   if (geom.rightFrame)
     out.push({ text: STATUS_TOP_SEPARATOR, style: { fg: "border" } });
@@ -2032,14 +2098,10 @@ export function buildFrame(
       segments: [seg(" ".repeat(fullWidth))],
     }));
   } else {
-    // 两字符提示符：左字符 = 上次提交所用模式符号（MODE_SYMBOL[lastSubmitMode]，
-    // 颜色随状态绿/黄/红），右字符 = 当前输入模式符号（MODE_SYMBOL[inputMode]，
-    // 默认前景色不着色）；prompt 预先分段，renderTextInput 宽度按未着色文本计算。
-    // 输入区为多行框：文本按宽度换行、顶部对齐，光标行超出区域时跟随。
+    // 单字符提示符：当前输入模式符号（MODE_SYMBOL[inputMode]，默认前景色不着色）；
+    // 上次命令结果/运行状态符号已移至水平状态栏最左侧（STATUS_SYMBOL）。
+    // prompt 预先分段，renderTextInput 宽度按未着色文本计算。
     const prompt: FrameSegment[] = [
-      seg(MODE_SYMBOL[state.lastSubmitMode] ?? ">", {
-        fg: STATUS_PROMPT_COLOR[state.inputStatus],
-      }),
       seg(MODE_SYMBOL[state.inputMode] ?? ">"),
       seg(" "),
     ];
@@ -2077,23 +2139,47 @@ export function buildFrame(
 
   // 分隔行（边框统一边框色：先纯文本截断再段化）。状态区上方与其余横线同为 `─`；
   // 焦点在底部为流输出/状态列时该行用亮色框（钩到面板底边）。
-  const makeSep = (ch: string, color: ColorName = "border"): FrameRow => ({
-    segments: [
-      seg(truncateToWidth(ch.repeat(fullWidth), fullWidth), { fg: color }),
-    ],
-  });
+  // teeCols：状态栏框线竖线列——竖线在横线**上方**（状态栏内），该列画 `┴`
+  // 与竖线相接（竖线自横线向上顶住；上横线交点 ┬ 在 buildStatusSeparator）。
+  const makeSep = (
+    ch: string,
+    color: ColorName = "border",
+    teeCols?: number[],
+  ): FrameRow => {
+    const valid = (teeCols ?? []).filter((c) => c > 0 && c < fullWidth - 1);
+    if (valid.length === 0)
+      return {
+        segments: [
+          seg(truncateToWidth(ch.repeat(fullWidth), fullWidth), { fg: color }),
+        ],
+      };
+    const out: FrameSegment[] = [];
+    let cursor = 0;
+    for (const c of [...new Set(valid)].sort((a, b) => a - b)) {
+      out.push(seg(ch.repeat(c - cursor), { fg: color }));
+      out.push(seg("┴", { fg: color }));
+      cursor = c + 1;
+    }
+    out.push(seg(ch.repeat(fullWidth - cursor), { fg: color }));
+    return { segments: out };
+  };
   // 状态区上方分隔行的焦点语义（modal 态无焦点回 none）
   let statusSepFocus: "none" | "status" | "activity" = "none";
   if (!modalOpen) {
     if (state.focusedPanel === "status") statusSepFocus = "status";
     else if (state.focusedPanel === "activity") statusSepFocus = "activity";
   }
+  // 状态栏框线竖线列：上横线按首行竖线画交点 ┬（竖线自横线向下伸入状态栏）、
+  // 下横线按末行竖线画交点 ┴（竖线自横线向上顶住状态栏），两端相接成格
+  const topSeams = statusBarSeamCols(geom.statusLines[0]);
+  const lastLine = geom.statusLines[geom.statusLines.length - 1];
+  const bottomSeams = statusBarSeamCols(lastLine);
   const rects: Map<PaneId, Rect> = new Map();
   const rows: FrameRow[] = [
     ...topRegion,
-    buildStatusSeparator(geom, state.themeId, statusSepFocus),
+    buildStatusSeparator(geom, state.themeId, statusSepFocus, topSeams),
     ...geom.statusLines,
-    makeSep(SEPARATOR),
+    makeSep(SEPARATOR, "border", bottomSeams),
     ...footerLines,
     ...hintLines,
   ];
@@ -2148,6 +2234,9 @@ export function buildFrame(
       activitySepRow: diaEnd,
       // 横向排列：history 右缘/activity 左缘 = 内部分隔列（缺省走 D 列）
       innerDividerCol,
+      // 状态区上方分隔行（buildStatusSeparator）：被焦点覆写为 ─ 后恢复框线交点
+      statusSepRow: contentTopH,
+      statusSeamCols: topSeams,
     },
     rects,
     rows,

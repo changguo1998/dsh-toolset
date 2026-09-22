@@ -795,24 +795,28 @@ test("shell 模式提交：仅展示层，文本原样走 sendMessage（不加 $
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(adapter.sent, ["ls"], "shell 模式不加 $ 前缀");
   assert.deepEqual(adapter.log, ["send:ls"]);
-  // 左提示符 = 上次提交模式 $，右提示符 = 当前模式 normal >（24 行终端输入区 3 行+提示区 1 行，输入行为倒数第 4 行）
+  // 单字符提示符 = 当前模式符号：提交后已回退 normal → 输入行以 "> " 开头（24 行终端输入区 3 行+提示区 1 行，输入行为倒数第 4 行）
   const lastLine = renderer.lastRender.at(-4) ?? "";
   const plain = lastLine.replace(/\u001b\[[0-9;]*m/g, "");
   assert.ok(
-    plain.startsWith("$> "),
-    "shell 提交后左字符 $（上次模式）右字符 >（已回退 normal）",
+    plain.startsWith("> "),
+    "提交后提示符为当前模式符号 >（shell 提交后已回退 normal）",
+  );
+  assert.ok(
+    !plain.startsWith("$> "),
+    "提示符已改单字符，不再有左 $（状态符号移至状态栏最左侧）",
   );
 });
 
-test("活跃任务中 slash 结果不覆盖黄：/help、无效命令、error notice 均保持黄", () => {
+test("活跃任务中 slash 结果不覆盖运行中：/help、无效命令、error notice 均保持黄○", () => {
   const { renderer, adapter } = makeApp();
-  // 输入行前缀 SGR（24 行终端输入区 3 行+提示区 1 行，输入行为倒数第 4 行）
+  // 状态栏行首状态符号 SGR（24 行终端：分隔线后状态栏 = 倒数第 6 行；
+  // 行首为前导空格，取行内首个 SGR = 状态符号色）
   const sgr = (): string =>
-    /^\x1b\[38;2;\d+;\d+;\d+m/.exec(renderer.lastRender.at(-4) ?? "")?.[0] ??
-    "";
+    /\x1b\[38;2;\d+;\d+;\d+m/.exec(renderer.lastRender.at(-6) ?? "")?.[0] ?? "";
   adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
   const yellow = sgr();
-  assert.ok(yellow, "活跃任务前缀为黄");
+  assert.ok(yellow, "活跃任务状态符号为黄");
   // 成功 slash（/help 本地命令）→ 保持黄
   typeAndEnter(renderer, "/help");
   assert.equal(sgr(), yellow, "活跃中 /help 成功不覆盖黄");
@@ -850,22 +854,30 @@ test("slash 模式 /model 提交后回退 normal：确认面板后普通发送",
   assert.ok(!adapter.commands.some((c) => c === "/zzz"), "不再自动补 / 前缀");
 });
 
-test("未知 slash 命令：error notice → 前缀红；turn-end → 回绿", () => {
+test("未知 slash 命令：error notice → 状态栏符号红✗；turn-end → 回绿✓", () => {
   const { renderer, adapter } = makeApp();
-  // 输入行（24 行终端输入区 3 行+提示区 1 行，输入行为倒数第 4 行）前缀的第一段 SGR（状态色）；start 后无渲染，先 push 触发一帧
-  const sgr = (): string =>
-    /^\x1b\[38;2;\d+;\d+;\d+m/.exec(renderer.lastRender.at(-4) ?? "")?.[0] ??
-    "";
-  adapter.push({ type: "turn-end" }); // 触发首帧渲染，success 绿
-  const green = sgr();
-  assert.ok(green, "初始 success 前缀为绿色");
+  // 状态栏行（24 行终端：分隔线后状态栏 = 倒数第 6 行）状态符号与 SGR；
+  // 行首为前导空格，取行内首个 SGR = 状态符号色；start 后无渲染，先 push 触发一帧
+  const mark = (): { sgr: string; sym: string } => {
+    const row = renderer.lastRender.at(-6) ?? "";
+    return {
+      sgr: /\x1b\[38;2;\d+;\d+;\d+m/.exec(row)?.[0] ?? "",
+      sym: row.replace(/\u001b\[[0-9;]*m/g, "").trimStart()[0] ?? "",
+    };
+  };
+  adapter.push({ type: "turn-end" }); // 触发首帧渲染，success 绿✓
+  const green = mark().sgr;
+  assert.ok(green, "turn-end 后状态符号为绿");
+  assert.equal(mark().sym, "✓", "成功 = 绿勾");
   // 未知命令：/ 开头直接走 handleSlash → runCommand → error notice（fail-close）
   typeAndEnter(renderer, "/nope");
-  const red = sgr();
-  assert.ok(red && red !== green, "未知 slash 命令后前缀变红");
+  const red = mark().sgr;
+  assert.ok(red && red !== green, "未知 slash 命令后状态符号变红");
+  assert.equal(mark().sym, "✗", "失败 = 红叉");
   // 回合正常结束 → 回绿
   adapter.push({ type: "turn-end" });
-  assert.equal(sgr(), green, "turn-end 后前缀回到绿");
+  assert.equal(mark().sgr, green, "turn-end 后状态符号回到绿");
+  assert.equal(mark().sym, "✓", "回合结束后回到绿勾");
 });
 
 test("Ctrl+L 触发强制重绘(refresh)，不吞普通 'l' 输入", () => {
@@ -1753,7 +1765,7 @@ function barRowCount(renderer: FakeRenderer): number {
   return renderer.lastRender.filter((l) => {
     // 只看历史区（右侧状态列可能把占位/标题混进同一行，误伤分隔判定）
     const t = histBody(l, renderer.size.cols);
-    return /[-=·─╌]/.test(t) && t.replace(/[-=·─╌|│┐┘└┌┴]/g, "").trim() === "";
+    return /[-=·─╌]/.test(t) && t.replace(/[-=·─╌|│┐┘└┌┴┬]/g, "").trim() === "";
   }).length;
 }
 
@@ -3346,8 +3358,10 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
     const sep = lines.findIndex(
       (l, i) => i > TITLE_BAR_ROWS && /^─+$/.test(histBody(l, 120).trim()),
     );
-    // 标题已移入状态列，水平栏定位改用组间管道符 `|`
-    const statusIdx = lines.findIndex((l) => l.includes("|"));
+    // 标题已移入状态列，水平栏定位改用组间框线（状态栏行 = 状态符号 + 空格 + │ 开头）
+    const statusIdx = lines.findIndex(
+      (l, i) => i > sep && /^[✓✗○△?] │/.test(l.trimStart()),
+    );
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
     return lines
       .slice(sep + 1, statusIdx)
@@ -3480,8 +3494,10 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
     const sep = lines.findIndex(
       (l, i) => i > TITLE_BAR_ROWS && /^─+$/.test(histBody(l, 120).trim()),
     );
-    // 标题已移入状态列，水平栏定位改用组间管道符 `|`
-    const statusIdx = lines.findIndex((l) => l.includes("|"));
+    // 标题已移入状态列，水平栏定位改用组间框线（状态栏行 = 状态符号 + 空格 + │ 开头）
+    const statusIdx = lines.findIndex(
+      (l, i) => i > sep && /^[✓✗○△?] │/.test(l.trimStart()),
+    );
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
     return (
       lines

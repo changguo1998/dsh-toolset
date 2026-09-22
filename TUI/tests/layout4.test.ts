@@ -153,7 +153,7 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   // 标题已移入纵向状态列顶部（水平栏不再承载；此处验证水平栏不含标签行）
   assert.ok(!rowAnsi(status).includes("标题"), "水平状态栏不含标题段");
   assert.ok(rowAnsi(status).includes("·"), "组内段用 · 分隔");
-  assert.ok(rowAnsi(status).includes("|"), "组间用 | 分隔");
+  assert.ok(rowAnsi(status).includes("│"), "组间用框线 │ 分隔");
   assert.ok(rowAnsi(status).includes("none"), "LLM 组含模型思考后缀");
   // 第二个横线分隔行，然后输入区（3 行，多行框顶部对齐：首行占位提示）
   const separator2 = frame[19]!;
@@ -170,78 +170,76 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   );
 });
 
-test("输入栏两字符提示符：左=上次提交模式符号+状态色，右=当前模式符号（默认前景色）", () => {
+test("输入栏单字符提示符：当前模式符号（默认前景色）；状态符号移至水平状态栏最左侧", () => {
   const strip = (l: FrameRow): string =>
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "");
   const sgr = (l: FrameRow): string =>
-    /^\x1b\[38;2;\d+;\d+;\d+m/.exec(rowAnsi(l))?.[0] ?? "";
-  const last = (s: ReturnType<typeof initialState>): FrameRow =>
+    /\x1b\[38;2;\d+;\d+;\d+m/.exec(rowAnsi(l))?.[0] ?? ""; // 行内首个 SGR（行首为前导空格）
+  const inputRow = (s: ReturnType<typeof initialState>): FrameRow =>
     buildFrame(s, { rows: 10, cols: 40 }).at(-2)!; // 输入行（末行是按键提示区，之间不画横线）
-  const mk = (
-    lastMode: InputMode,
-    status: InputStatus,
-    curMode: InputMode = "normal",
-  ) =>
+  const statusRow = (s: ReturnType<typeof initialState>): FrameRow =>
+    buildFrame(s, { rows: 24, cols: 60 })[18]!; // 状态栏行（状态区上方分隔线后首行）
+  const mk = (curMode: InputMode, status: InputStatus) =>
     reduceState(
-      reduceState(
-        reduceState(initialState(), {
-          type: "last-submit-mode",
-          mode: lastMode,
-        }),
-        { type: "input-status", status },
-      ),
-      { type: "input-mode", mode: curMode },
+      reduceState(initialState(), { type: "input-mode", mode: curMode }),
+      { type: "input-status", status },
     );
-  // 左字符=上次提交模式符号，右字符=当前模式符号
-  // 左字符=上次提交模式符号，右字符=当前模式符号
+  // 单字符提示符 = 当前输入模式符号；状态色不着色（状态符号已移至状态栏）
   assert.ok(
-    strip(last(mk("normal", "success"))).startsWith(">> "),
-    "normal 提交成功显示 >> ",
-  );
-  assert.ok(
-    strip(last(mk("shell", "success"))).startsWith("$> "),
-    "shell 提交成功显示 $>（左 $ 绿）",
+    strip(inputRow(mk("normal", "success"))).startsWith("> "),
+    "normal 模式提示符 > ",
   );
   assert.ok(
-    strip(last(mk("slash", "success"))).startsWith("/> "),
-    "slash 提交成功显示 /> ",
+    strip(inputRow(mk("shell", "success"))).startsWith("$ "),
+    "shell 模式提示符 $ ",
   );
   assert.ok(
-    strip(last(mk("shell", "success", "shell"))).startsWith("$$ "),
-    "当前模式 shell 时右字符 $",
+    strip(inputRow(mk("slash", "success"))).startsWith("/ "),
+    "slash 模式提示符 / ",
   );
-  assert.ok(
-    strip(last(mk("normal", "running"))).startsWith(">> "),
-    "running 左字符仍为上次模式符号",
+  assert.equal(
+    sgr(inputRow(mk("shell", "success"))),
+    "",
+    "提示符不着色（默认前景色，状态色在状态栏）",
   );
-  assert.ok(
-    strip(last(mk("normal", "failure"))).startsWith(">> "),
-    "failure 左字符仍为上次模式符号",
-  );
-  // 左字符 SGR 三态为绿/黄/红且互异
-  const green = sgr(last(mk("shell", "success")));
-  const yellow = sgr(last(mk("shell", "running")));
-  const red = sgr(last(mk("shell", "failure")));
-  assert.ok(green && yellow && red, "左字符三态均有着色");
-  assert.notEqual(green, yellow);
-  assert.notEqual(yellow, red);
-  // 结构：SGR + 左符号 + 恢复 SGR + 右符号（右符号前无新 SGR，默认前景色）
-  const t = rowAnsi(last(mk("shell", "success")));
-  assert.ok(
-    /^(\x1b\[38;2;\d+;\d+;\d+m)(\$)(\x1b\[38;2;\d+;\d+;\d+m)(>)/.test(t),
-    "两字符提示符结构：着色 $ + 恢复 + 默认色 >",
-  );
-  // 外部活动（thinking/tool）→ 进行中黄
-  const busy = last(
-    reduceState(initialState(), { type: "agent-status", status: "thinking" }),
-  );
-  assert.equal(sgr(busy), yellow, "thinking 视为进行中");
-  assert.ok(strip(busy).startsWith(">> "), "thinking 左字符保持上次模式符号");
   // 占位提示固定
   assert.ok(
-    strip(last(mk("normal", "success"))).includes("Type a message..."),
+    strip(inputRow(mk("normal", "success"))).includes("Type a message..."),
     "占位提示固定",
   );
+
+  // 状态符号在水平状态栏最左侧：四态符号 + 初始占位
+  const mark = (status: InputStatus): { sym: string; sgr: string } => {
+    const l = statusRow(mk("normal", status));
+    return { sym: strip(l).trimStart()[0] ?? "", sgr: sgr(l) };
+  };
+  assert.equal(mark("success").sym, "✓", "成功 = 勾");
+  assert.equal(mark("failure").sym, "✗", "失败 = 叉");
+  assert.equal(mark("running").sym, "○", "运行中 = 空心圆");
+  assert.equal(mark("waiting").sym, "△", "等待交互 = 空心三角");
+  assert.equal(mark("idle").sym, "?", "回退/未知占位 = 问号");
+  // 着色：成功绿 / 失败红 / 运行中黄 / 等待交互黄 / 回退占位默认前景
+  const green = mark("success").sgr;
+  const red = mark("failure").sgr;
+  const yellow = mark("running").sgr;
+  assert.ok(green, "成功符号为绿");
+  assert.ok(red, "失败符号为红");
+  assert.ok(yellow, "运行中符号为黄");
+  assert.notEqual(green, red, "绿红互异");
+  assert.notEqual(red, yellow, "红黄互异");
+  assert.equal(yellow, mark("waiting").sgr, "等待交互与运行中同为黄");
+  // 回退占位 ? 不着色：行内首个 SGR（边框竖线）非任何状态色；符号+竖线结构齐全
+  const idleRow = strip(statusRow(mk("normal", "idle")));
+  assert.ok(idleRow.includes("? │ "), "回退占位后接边框色竖线");
+  assert.notEqual(mark("idle").sgr, green, "回退占位无绿");
+  assert.notEqual(mark("idle").sgr, red, "回退占位无红");
+  assert.notEqual(mark("idle").sgr, yellow, "回退占位无黄");
+  // 外部活动（thinking/tool）→ 运行中黄○
+  const busy = statusRow(
+    reduceState(initialState(), { type: "agent-status", status: "thinking" }),
+  );
+  assert.equal(sgr(busy), yellow, "thinking 视为运行中");
+  assert.equal(strip(busy).trimStart()[0], "○", "thinking 显示运行中空心圆");
 });
 
 test("buildFrame: 审批弹窗时交互区高度与输入态一致（不上下调整）", () => {
@@ -821,8 +819,8 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
       cols: 40,
     },
   ).map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""));
-  // 标题已移入状态列，水平栏定位改用组间管道符（标题段不再承载）
-  const statIdx = st.findIndex((l) => l.includes("|"));
+  // 标题已移入状态列，水平栏定位改用组间框线（状态栏行 = 状态符号 + 空格 + │ 开头）
+  const statIdx = st.findIndex((l) => /^[✓✗○△?] │/.test(l.trimStart()));
   assert.ok(statIdx > 0, "状态行存在");
   assert.ok(st[statIdx - 1]!.trimStart().startsWith("─"), "状态栏上方 ─ 分隔");
   assert.ok(
@@ -1980,9 +1978,9 @@ test("活动区：activityScroll 滚动窗口（默认尾部；上滚看更早�
         : reduceState(s, { type: "activity-scroll", delta: scrollDelta });
     const plain = buildFrame(st, { rows: 30, cols: 60 }).map((l) => rowAnsi(l));
     const sep = activitySepIdx(plain, 60);
-    // 状态栏上方 ─ 分隔行：D 列交点恒为灰 ┴（无焦点不再延续活动区点线）
+    // 状态栏上方 ─ 分隔行：D 列交点恒为灰 ┴、框线竖线交点 ┬（无焦点不再延续活动区点线）
     const end = plain.findIndex(
-      (l, i) => i > sep && /^[─┴]+$/.test(stripAnsi(l)),
+      (l, i) => i > sep && /^[─┴┬]+$/.test(stripAnsi(l)),
     );
     assert.ok(sep >= 0 && end > sep, "活动区分隔线与状态栏存在");
     return plain

@@ -62,8 +62,11 @@ export const DEFAULT_MESSAGE_GUTTER = 6;
 /** 输入栏临时模式（$ shell / / slash；提交后自动回退 normal，不再有 Esc 回退） */
 export type InputMode = "normal" | "shell" | "slash";
 
-/** 输入栏状态色：绿=成功等待 / 黄=进行中 / 红=失败等待 */
-export type InputStatus = "success" | "running" | "failure";
+/** 输入状态（状态栏最左侧符号）：绿✓=成功 / 红✗=失败 / 黄○=运行中 /
+ *  黄△=等待交互（审批/问答面板打开等用户决策）/ idle=尚无结果（渲染回退 ?，
+ *  未知状态也回退 ?） */
+export type InputStatus =
+  "success" | "failure" | "running" | "waiting" | "idle";
 
 /** 缓冲行类型:用户输出靠右缩进展示,模型正文靠左;思考行限高,完成后清除 */
 export type BufferKind =
@@ -338,9 +341,8 @@ export interface AppState {
   queued: string[];
   /** 输入模式（符号代表模式；提交后自动回退 normal） */
   inputMode: InputMode;
-  /** 上次提交所用模式（提示符左字符符号来源；提交时记录，回退 normal 不影响） */
-  lastSubmitMode: InputMode;
-  /** 输入状态色（绿=成功等待 / 黄=进行中 / 红=失败等待） */
+  /** 输入状态（状态栏最左侧符号来源）：绿✓=成功 / 红✗=失败 / 黄○=运行中 /
+   *  黄△=等待交互（审批/问答面板打开）/ idle=尚无结果（渲染回退 ?） */
   inputStatus: InputStatus;
   approval: ApprovalItem | null;
   agentStatus: AgentStatus;
@@ -583,8 +585,7 @@ export function initialState(
     inputCursor: 0,
     queued: [], // 无排队（agent 运行期间 Enter 的文本登记在此，核心认领后转入历史）
     inputMode: "normal",
-    lastSubmitMode: "normal",
-    inputStatus: "success",
+    inputStatus: "idle",
     approval: null,
     picker: null,
     question: null,
@@ -832,8 +833,10 @@ export function appendThinking(state: AppState, text: string): AppState {
   return appendStream(state, text, "thinking");
 }
 
-/** 任务进行中(黄)权威：agent 活跃期间不接受绿/红结果覆盖，绿/红仅空闲时暴露 */
+/** 输入状态权威：审批/问答面板打开 = 等待用户决策（黄△）；agent 活跃期间
+ *  不接受绿/红结果覆盖（压回运行中黄○），绿/红仅空闲时暴露 */
 function statusFor(state: AppState, fallback: InputStatus): InputStatus {
+  if (state.approval || state.question) return "waiting";
   return state.agentStatus === "idle" ? fallback : "running";
 }
 
@@ -932,11 +935,16 @@ export function setAgentStatus(state: AppState, status: AgentStatus): AppState {
   return { ...state, agentStatus: status };
 }
 
+/** 审批面板：打开 = 等待用户决策（黄△）；关闭按 agent 活跃度恢复（运行中/上次结果） */
 export function setApproval(
   state: AppState,
   approval: ApprovalItem | null,
 ): AppState {
-  return { ...state, approval };
+  if (!approval) {
+    const next = { ...state, approval: null };
+    return { ...next, inputStatus: statusFor(next, "success") };
+  }
+  return { ...state, approval, inputStatus: "waiting" };
 }
 
 export function setSessions(
@@ -1015,13 +1023,16 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "clear-buffer":
         return clearBuffer(state);
       case "agent-status":
-        // 外部活动兜底：thinking/tool 视为进行中(黄)；idle 不改状态色
+        // 外部活动兜底：审批/问答打开保持等待交互(黄△)；thinking/tool 视为
+        // 进行中(黄○)；idle 不改状态色
         return {
           ...setAgentStatus(state, action.status),
           inputStatus:
-            action.status === "thinking" || action.status === "tool"
-              ? "running"
-              : state.inputStatus,
+            state.approval || state.question
+              ? "waiting"
+              : action.status === "thinking" || action.status === "tool"
+                ? "running"
+                : state.inputStatus,
         };
       case "approval":
         return setApproval(state, action.approval);
@@ -1081,8 +1092,11 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return selectQuestionOption(state);
       case "question-custom":
         return setQuestionCustom(state, action.text);
-      case "question-close":
-        return { ...state, question: null };
+      case "question-close": {
+        // 关闭问答面板：按 agent 活跃度恢复（运行中/上次结果），不再等待交互
+        const next = { ...state, question: null };
+        return { ...next, inputStatus: statusFor(next, "success") };
+      }
       case "history-refresh": {
         // 删除/清理后重拉列表：保留面板结果提示与高亮位置（按**可见**长度 clamp）；
         // 标记集按新列表裁剪（已消失的 id 不再计入，避免幽灵标记）
@@ -1438,8 +1452,6 @@ export function reduceState(state: AppState, action: StateAction): AppState {
             action.mode,
           ),
         };
-      case "last-submit-mode":
-        return { ...state, lastSubmitMode: action.mode };
       case "input-status":
         // 活跃守卫：agent 非 idle 时绿/红结果不暴露（压回黄），空闲后才显示结果色
         return { ...state, inputStatus: statusFor(state, action.status) };
@@ -1968,7 +1980,6 @@ export type StateAction =
   | { type: "sessions"; sessions: SessionMeta[] }
   | { type: "input"; text: string; cursor: number }
   | { type: "input-mode"; mode: InputMode }
-  | { type: "last-submit-mode"; mode: InputMode }
   | { type: "input-status"; status: InputStatus }
   | { type: "move-cursor"; delta: number }
   | { type: "scroll"; delta: number; max?: number; geom?: DialogueGeometry }
@@ -2379,6 +2390,8 @@ function openQuestion(
       items,
       itemIndex: 0,
     },
+    // 问答面板打开 = 等待用户决策（黄△）
+    inputStatus: "waiting",
   };
 }
 

@@ -45,7 +45,7 @@ interface Box extends NodeBase {
   kind: "box";
   direction: "v" | "h";            // 子项排布：上下（v）/ 左右（h）
   children: (Box | Paragraph)[];    // 子节点（Box 或 Paragraph）
-  separator?: Separator;            // v 排布兄弟间分隔线（结构性，随子项增删；首尾不画）
+  separator?: Separator;            // v 排布行间横线 / h 排布列间竖线框线（结构性，随子项增删；首尾不画）
   id?: PaneId;                      // 分区身份（Pane = 带 id 的 Box）：仅可寻址区域挂
   // 无 border：边框归 FocusFrame（`DESIGN.md` §8）
 }
@@ -62,7 +62,7 @@ interface Paragraph extends NodeBase {
 //   spacer({ height }) := Paragraph({ text:"", height })（v 容器占行）——轴显式
 ```
 
-**简写与说明**：示例中 `v([...])` / `h([...])` 是 `Box(direction:"v"/"h")` 的简写，`text(...)` 是 `Paragraph(...)` 简写。`v.separator` 是**唯一**的"边框"机制——只做兄弟项之间横线分隔，**不做盒子四边描边**（现状无此需求）、**不做** `h` 竖分隔（列间 `│` 仍是行端字符）；焦点框线仍归 `FocusFrame` 全局覆写（`DESIGN.md` §8）。
+**简写与说明**：示例中 `v([...])` / `h([...])` 是 `Box(direction:"v"/"h")` 的简写，`text(...)` 是 `Paragraph(...)` 简写。`separator` 是**唯一**的"边框"机制——纵向 `v` 做兄弟项之间横线分隔（缺省 `╌`）、横向 `h` 做列间竖线框线分隔（缺省 `│`，如状态栏组间框线，与上/下横线相交相接成格），**不做盒子四边描边**（现状无此需求）；焦点框线仍归 `FocusFrame` 全局覆写（`DESIGN.md` §8）。
 
 **`Spacer` 用法**：块级对齐/间距的占位项——横向 `spacer({ width: fill })` 吃剩余推位（用户块右对齐）、`spacer({ width: fixed n })` 留白（回复右缘 `messageGutter`）；纵向 `spacer({ height: fill })` 吃剩余、让内容不足时落在容器底边、`spacer({ height: fixed n })` 为固定空行。**轴必须显式给出**（`width`→h 占列、`height`→v 占行，杜绝 `{mode:"fill"}` 歧义）；允许 `fill` 与 `fixed`（±夹取界）两种形态，`auto`/`ratio` 对空内容无意义、不做（YAGNI）。
 
@@ -282,15 +282,15 @@ measure(node, c: MeasureConstraint) -> SizeTable:
     返回 { w, h }
   若 node 是 Box(direction: v):                          # 上下排布：不额外占宽
     对每个 child: measure(child, { maxW: c.maxW })        # 各子同宽约束
-    h = Σ child.h + separator 行数                        # 仅纵向 Box 有 separator：各子项间 1 行，首尾不画
+    h = Σ child.h + separator 行数                        # 纵向 Box 的 separator：各子项间 1 行，首尾不画
     w = max(child.w)                                     # v 宽取最宽子项
     返回父 SizeTable（含子 size）
   若 node 是 Box(direction: h):                          # 左右排布：横向分摊
-    先按「分配优先级」（§6.5）把 c.maxW 切给每个 child：fixed/min/max/ratio 直接定宽，
-    auto 先以 max 为折行上界再量内容宽，fill 吃剩余
+    先按「分配优先级」（§6.5）把 c.maxW − separator 列数 切给每个 child：
+    fixed/min/max/ratio 直接定宽，auto 先以 max 为折行上界再量内容宽，fill 吃剩余
     对 auto/fill 的 child 再次 measure(child, { maxW: 分配宽 })
     h = max(child.h)                                     # h 高取最高子项
-    w = Σ child.w                                        # 列间 │ 为行端字符、不占分配宽（末列不画）
+    w = Σ child.w + separator 列数                       # 横向 Box 的 separator：各子项间 1 列竖线，首尾不画
     返回父 SizeTable（含子 size）
 ```
 
@@ -306,8 +306,8 @@ allocate(st: SizeTable, rect: Rect) -> Map<Node, Rect>:
   若是 Paragraph（叶子）: 记录 rect；结束
   若是 Box(direction: h):                                     # 横向切宽
     依「分配优先级」（§6.5）给每个子项定宽：fixed → min/max → ratio → auto（用 st.size[child].w 夹 max）→ fill(吃剩余)
-    列间 │ 为行端字符、不占分配宽（fill 阶段在段边界补画，末列不画）；遇过度约束按让路顺序压缩（fill→auto→ratio→max→min→fixed）
-    每个子项递归 allocate(child, { x: 当前游标, y: rect.y, w: 分配宽, h: rect.h })
+    预算 = rect.w − separator 列数（横向 Box 的 separator：各子项间 1 列竖线，首尾不画）；遇过度约束按让路顺序压缩（fill→auto→ratio→max→min→fixed）
+    每个子项递归 allocate(child, { x: 当前游标, y: rect.y, w: 分配宽, h: rect.h })；游标跨子项后 +1（框线列）
   若是 Box(direction: v):                                     # 纵向切高
     每个子项宽 = rect.w（同宽）
     子项高：声明 fixed/fill 者按意图；无声明者取 st.size[child].h（测量高）
@@ -371,7 +371,7 @@ fill(ctx: FrameContext, box: Box | Paragraph, rect: Rect, append: (row: FrameRow
 
 - **`Paragraph`（叶子）**：沉淀行 → 每行 `FrameSegment[]`（见下）→ 组装 `FrameRow`。折行宽度 = `rect.w − indent − prefix.width`（有 `suffix` 再 − `suffix.width`）；行内 markdown 在此解析（`parseInlineMarkdown` → 段式 `FrameSegment[]`）；`prefix` 先占列、逐行重复（引用/列表/思考）；`suffix` 末占列、逐行重复（如用户块右缘竖线，正文补白到 `rect.w − suffix.width` 后挂，竖线列恒定）；`tail` 在行尾把 `char` 重复补到 `rect.w`（铺满行，如 step 虚线 / turn 分隔），与正文不相干、只在文本空时整行铺满。`valign`：若自身行数 < `rect.h`，按 `top/center/bottom` 在行组前后补空白行（空白行 = 空 `FrameRow`）。`align ≠ left` 时右/中对齐按 `rect.w` 计算行内偏移。
 - **`Box(direction: v)`**：按 `rect` 纵向遍历子项，子项行接续 append；`separator` 在两子项之间产出 1 行横线（字符/颜色按 `Separator`，缺省 `╌` + border）。
-- **`Box(direction: h)`**：按 `rect` 的子项 `x`/`w` 依次 append；相邻子项间无竖线（`│` 是叶子文本自带的行端字符，见 §5 规则 8）——`h` 自身不画分隔。
+- **`Box(direction: h)`**：按 `rect` 的子项 `x`/`w` 逐行横向拼接（同 y 对齐、子项间按 x 偏移补空格）；`separator` 在兄弟边界逐行插 1 列竖线框线（字符/颜色按 `Separator`，缺省 `│` + border；每行同列、垂直贯通，如状态栏组间框线与上/下横线相接成格）。
 
 **迭代 / 裁剪**：`fill` 只负责“把行追加进 append 的回调”，**滚动画布/裁剪由上层在拿到行数组后按 pane `rect.h` 做行级处理**（见 §6.8）。
 
@@ -577,7 +577,7 @@ state 事实("status=failure")             -- 逻辑层，不碰颜色
 色名 → 色值 → SGR("red" → hex → \x1b[…   -- 渲染层
 ```
 
-- **语义 → 色名（排版层）**：映射表为**排版层常量**——不入 `AppState`、不进 renderer。现有实例：`STATUS_PROMPT_COLOR[inputStatus]`（success 绿 / running 黄 / failure 红）、`permColor`（sandbox 危险等级 ro 绿 / wr 黄 / full 红）、notice tone（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿）。markdown 语义同为此类（`**`→bold、`` ` ``→bg:code）：解析器在排版层，调"强调样式"只改排版层映射，state / renderer 均不动。
+- **语义 → 色名（排版层）**：映射表为**排版层常量**——不入 `AppState`、不进 renderer。现有实例：`STATUS_SYMBOL_COLOR[inputStatus]`（success 绿 / failure 红 / running 黄 / waiting 黄 / idle 不着色；符号 `STATUS_SYMBOL` 渲染在状态区最左侧）、`permColor`（sandbox 危险等级 ro 绿 / wr 黄 / full 红）、notice tone（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿）。markdown 语义同为此类（`**`→bold、`` ` ``→bg:code）：解析器在排版层，调"强调样式"只改排版层映射，state / renderer 均不动。
 - **色名 → 色值（渲染层独占）**：`ColorName → hex → SGR`（`ansiNameToHex` / `hexSgr` 不得再被排版层 import，`theme.ts` 收口取色、`screen.ts` 的 `segStyle`/`serializeFrameRow` 收口序列化）。
 - **排版层仅持有**：`ThemeId` + 语义 `ColorName`；state 保持与呈现无关（不存颜色）。
 - 未知色名回退基底色（fail-safe，不抛异常，与现状 `ansiNameToHex` 返回 null 语义一致）。

@@ -370,18 +370,18 @@ test("h 过度约束：fixed + auto + fill 按 fill→auto→fixed 让路", () =
   assert.ok(rectOf(rects, "AAAAA").w >= 1, "auto 让到 1");
 });
 
-test("spacer 类型契约：空/双轴、h 传 separator 均在编译期拒绝", () => {
+test("spacer 类型契约：空/双轴编译期拒绝；h 接受 separator（横向框线）", () => {
   // 非法构造放在未调用函数体内：仅做编译期拒绝验证、永不执行
   const typeguard = (): void => {
     // @ts-expect-error spacer 必须至少给一个轴
     const bad1 = spacer({});
     // @ts-expect-error width/height 互斥
     const bad2 = spacer({ width: { mode: "fill" }, height: { mode: "fill" } });
-    // @ts-expect-error h 排布不接受 separator（仅 v）
-    const bad3 = h([], { separator: { char: "-" } });
+    // h 排布接受 separator（横向框线分隔，SPEC §2）
+    const ok3 = h([], { separator: { char: "-" } });
     void bad1;
     void bad2;
-    void bad3;
+    void ok3;
   };
   void typeguard;
   assert.ok(spacer({ width: { mode: "fill" } }).kind === "text");

@@ -1844,8 +1844,6 @@ export class App {
     const text = this.state.inputText.trim();
     if (!text) return;
     const mode = this.state.inputMode;
-    // 记录本次提交所用模式：提示符左字符符号来源（随后 inputMode 回退 normal 不影响）
-    this.apply((s) => reduceState(s, { type: "last-submit-mode", mode }));
     // slash 模式：自动补 "/" 前缀走既有路由（规则：文本中不需要再在开头加 /）
     const slashLine =
       mode === "slash" && !text.startsWith("/") ? "/" + text : text;

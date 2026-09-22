@@ -116,8 +116,11 @@ function fillBox(
 ): void {
   if (box.direction === "h") {
     // 横向：子项按各自 allocate 出的 x/w 绘制，逐行横向拼接（同 y 对齐）。
-    // h 不画竖向分隔（竖线是叶子文本自带；SPEC §6.5）。
+    // h 的分隔框线（separator）：在兄弟边界逐行插竖线（每行同列，垂直相接成格；
+    // 占 1 列由 measure/allocate 预留）。竖线是结构性分隔，非叶子文本自带。
     // spacer（空文本 + 尺寸声明）只占横向容量，不产独立语义行。
+    const sepChar = box.separator?.char ?? "│";
+    const sepColor = box.separator?.color ?? "border";
     const isSpacer = (c: Node): boolean =>
       c.kind === "text" &&
       c.text === "" &&
@@ -157,6 +160,9 @@ function fillBox(
           const c2 = rowWidth2(segs);
           if (c2 < target) segs.push(seg(" ".repeat(target - c2)));
         }
+        // 兄弟边界插分隔框线（非末项；缺行行也画，保证竖线贯通）
+        if (box.separator && ci < box.children.length - 1)
+          segs.push(seg(sepChar, { fg: sepColor }));
       }
       // 合并行继承内容子项元数据（spacer 不产独立语义行）
       const meta =

@@ -104,7 +104,7 @@ if (smoke) {
       // 2. ! 为普通字符：空输入按 ! 不切模式，直接发送 "!hello"
       typeLine("!hello");
       await sleep(2600); // 等 mock 回复 + turn-end（把上次模式落回 normal）
-      // 3. $ 切 shell 模式 + 提交 → 不加 $ 前缀发送 "ls"；随后左提示符应为 $
+      // 3. $ 切 shell 模式 + 提交 → 不加 $ 前缀发送 "ls"；提示符单字符（状态符号在状态栏）
       renderer.emitKey(key("$"));
       typeText("ls");
       renderer.emitKey(key("enter"));
@@ -211,9 +211,25 @@ if (smoke) {
       );
       const plain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
       ok(
-        "prompt-shell-left",
-        plain.includes("$> "),
-        "no '$> ' left-prompt in frames",
+        "prompt-single-char",
+        !plain.includes("$> "),
+        "prompt should be single char (no '$> ' two-char prompt)",
+      );
+      // 状态栏最左侧状态符号：初始问号占位、turn-end 后绿勾、审批/问答打开黄三角
+      ok(
+        "statusbar-idle-mark",
+        plain.includes("? "),
+        "no '? ' idle mark at status bar left in frames",
+      );
+      ok(
+        "statusbar-success-mark",
+        plain.includes("✓ "),
+        "no '✓ ' success mark at status bar left in frames",
+      );
+      ok(
+        "statusbar-waiting-mark",
+        plain.includes("△ "),
+        "no '△ ' waiting mark at status bar left in frames",
       );
       ok(
         "approval-rendered",
