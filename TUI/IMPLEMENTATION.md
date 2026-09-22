@@ -149,10 +149,10 @@
 
 ## /help 双列表格（无边框）
 
-- **排版**（`app/layout/help.ts`）：`helpTableLines` 把命令目录排成两列——命令列定宽 = 最长命令显示宽（CJK 安全补白）、描述列固定起点；每行 = 行首 2 列缩进 + 命令 + 补白 + 2 列间距 + 描述。
+- **排版**（`app/layout/help.ts`）：`helpTableLines` 把命令目录排成两列——命令列定宽 = `min(最长命令显示宽, HELP_CMD_MAX=10)`（CJK 安全补白）、描述列固定起点；每行 = 行首 2 列缩进 + 命令 + 补白 + 2 列间距 + 描述。命令显示宽超 10（常见诱因：别名/参数示例合并写在一个命令里，如 `/provider、/effort (/thinking)`）不再撑宽整表——拆成两条独立行：命令独占一行、描述另起一行缩进到描述列起点（第二列），后续软折行续行同样停在描述列。描述列起点 = 2 + 上限(10) + 2 = 14 列。
 - **折行**：不做预折行，交给渲染层——notice 的 `BufferLine` 可选 `hanging`（描述列起点的悬挂缩进），`build-box` 落到 `StyledText.hanging`，描述超 pane 宽时续行停靠描述列起点且 resize 后仍对齐。`BufferLine.hanging` 只在 `/help` 生效。
 - **入口**：`App.helpLines()` 产出「表头 + 表中行 + 表尾」结构化行，`handleSlash` 走 `notice` action 的 `lines` 字段（`appendNoticeLines`，逐条独立成行）；表头 / 表尾无悬挂缩进。
-- **回归**：`tests/help.test.ts`（命令列定宽 / CJK 补白 / 单物理行）+ 渲染层用例（窄 pane 强制折行时续行缩进 == 描述列起点）。
+- **回归**：`tests/help.test.ts`（命令列定宽 / 超宽命令拆行 / 全短命令回落 / CJK 补白 / 单物理行）+ 渲染层用例（窄 pane 强制折行时续行缩进 == 描述列起点；超宽命令描述另起一行的缩进 == 描述列起点）。
 
 ## markdown 列表项悬挂缩进
 
