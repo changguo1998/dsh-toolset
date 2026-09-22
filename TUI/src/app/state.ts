@@ -173,6 +173,11 @@ export interface HistoryPanelState {
   pendingResume?: string;
   /** confirm-delete/deleting 阶段的目标会话 id（确认后由调用方经 adapter 删除） */
   pendingDelete?: string;
+  /** confirm-delete/deleting 阶段的**批量**目标会话 id（有标记时按标记集删除；
+   *  与 pendingDelete 互斥，二者恰有其一非空） */
+  pendingDeleteIds?: string[];
+  /** 批量删除标记集（Space 标记/取消、a 全选当前范围、c 清空；按 id 记录，跨范围切换保留） */
+  marked?: string[];
   /** confirm-clean/cleaning 阶段待清理的空会话 id 列表（范围=当前列表范围） */
   pendingClean?: string[];
   /** confirm-clean/cleaning 阶段的当前项目路径（确认文案展示） */
@@ -253,7 +258,23 @@ export function historyVisibleRecords(state: AppState): SessionInfo[] {
   return h.records.filter((r) => r.cwd === cwd);
 }
 
-/** 从列表移除若干会话 id：按新范围可见数收敛高亮索引、清空 pending/查看态字段并回到 list */
+/**
+ * 单条会话可删除判据：已持久化 + 非 live + 非当前活跃。
+ * 面板 d（单条）、Space 标记、a 全选与批量删除共用同一守卫。
+ */
+export function deletableSession(rec: SessionInfo): boolean {
+  return rec.persisted === true && !rec.live && rec.current !== true;
+}
+
+/** 当前列表范围下可标记（可删除）的会话 id 集：a 全选与批量确认的范围来源 */
+export function markableSessionIds(state: AppState): string[] {
+  return historyVisibleRecords(state)
+    .filter(deletableSession)
+    .map((r) => r.id);
+}
+
+/** 从列表移除若干会话 id：按新范围可见数收敛高亮索引、清空 pending/查看态字段并回到 list。
+ *  标记集只摘除已删除项（部分失败时失败项保留标记，便于重试）。 */
 function dropHistoryRecords(
   h: HistoryPanelState,
   ids: readonly string[],
@@ -268,8 +289,10 @@ function dropHistoryRecords(
     records,
     index: Math.max(0, Math.min(visibleCount - 1, h.index)),
     pendingDelete: undefined,
+    pendingDeleteIds: undefined,
     pendingClean: undefined,
     cleanCwd: undefined,
+    marked: h.marked?.filter((id) => !drop.has(id)),
     currentId: undefined,
     messages: [],
     scroll: 0,
@@ -1061,13 +1084,16 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "question-close":
         return { ...state, question: null };
       case "history-refresh": {
-        // 删除/清理后重拉列表：保留面板结果提示与高亮位置（按**可见**长度 clamp）
+        // 删除/清理后重拉列表：保留面板结果提示与高亮位置（按**可见**长度 clamp）；
+        // 标记集按新列表裁剪（已消失的 id 不再计入，避免幽灵标记）
         const hrf = state.history;
         if (!hrf || hrf.phase !== "list") return state;
+        const alive = new Set(action.records.map((r) => r.id));
         const refreshed: HistoryPanelState = {
           ...hrf,
           records: action.records,
           error: undefined,
+          marked: hrf.marked?.filter((id) => alive.has(id)),
         };
         const visible = historyVisibleRecords({ ...state, history: refreshed });
         return {
@@ -1142,6 +1168,43 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           ),
         );
         return { ...state, history: { ...hmv, index: next } };
+      }
+      case "history-mark-toggle": {
+        // Space：切换高亮行标记并下移一行（连续标记不必反复按 ↓）；
+        // 不可删项（当前活跃 / live / 未持久化）不标记也不移动，由调用方 notice 说明
+        const hmt = state.history;
+        if (!hmt || hmt.phase !== "list") return state;
+        const marked = hmt.marked ?? [];
+        const rec = historyVisibleRecords(state)[hmt.index];
+        if (!rec || !deletableSession(rec)) return state;
+        const next = marked.includes(rec.id)
+          ? marked.filter((id) => id !== rec.id)
+          : [...marked, rec.id];
+        const rows = historyVisibleRecords(state).length;
+        return {
+          ...state,
+          history: {
+            ...hmt,
+            marked: next,
+            index: Math.min(Math.max(0, rows - 1), hmt.index + 1),
+          },
+        };
+      }
+      case "history-mark-all": {
+        // a：全选当前列表范围的可删项（**替换**标记集：删除集恒等于当前范围可删项，再按 Space 微调）
+        const hma = state.history;
+        if (!hma || hma.phase !== "list") return state;
+        const ids = markableSessionIds(state);
+        if (ids.length === 0) return state;
+        return { ...state, history: { ...hma, marked: ids } };
+      }
+      case "history-mark-clear": {
+        // c：清空标记集（无标记时不动状态，调用方据此提示）
+        const hmc = state.history;
+        if (!hmc || hmc.phase !== "list" || (hmc.marked?.length ?? 0) === 0) {
+          return state;
+        }
+        return { ...state, history: { ...hmc, marked: [] } };
       }
       case "history-open-view": {
         if (!state.history || state.history.phase !== "list") return state;
@@ -1252,9 +1315,26 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "history-confirm-delete": {
         const hcd = state.history;
         if (!hcd || hcd.phase !== "list") return state;
+        // 有标记 → 批量删除标记集（跨范围保留的标记也计入；已不可删的项自动剔除）
+        const batch = (hcd.marked ?? []).filter((id) => {
+          const target = hcd.records.find((r) => r.id === id);
+          return target !== undefined && deletableSession(target);
+        });
+        if (batch.length > 0) {
+          return {
+            ...state,
+            history: {
+              ...hcd,
+              phase: "confirm-delete",
+              pendingDelete: undefined,
+              pendingDeleteIds: batch,
+              result: undefined,
+            },
+          };
+        }
         const rec = historyVisibleRecords(state)[hcd.index];
         // 当前活跃 / live / 未持久化 → 不进入确认（调用方以 notice 说明原因）
-        if (!rec || rec.current === true || rec.live || !rec.persisted) {
+        if (!rec || !deletableSession(rec)) {
           return state;
         }
         return {
@@ -1263,6 +1343,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
             ...hcd,
             phase: "confirm-delete",
             pendingDelete: rec.id,
+            pendingDeleteIds: undefined,
             result: undefined,
           },
         };
@@ -1297,6 +1378,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
             ...hcx,
             phase: "list",
             pendingDelete: undefined,
+            pendingDeleteIds: undefined,
             pendingClean: undefined,
             cleanCwd: undefined,
           },
@@ -1307,23 +1389,16 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           ? { ...state, history: { ...state.history, phase: "deleting" } }
           : state;
       case "history-delete-done": {
+        // 单条与批量共用：ids = 成功删除的集合（空集 = 全部失败 → 记录与标记原样保留，仍回列表）
         const hdd = state.history;
-        if (
-          !hdd ||
-          hdd.phase !== "deleting" ||
-          hdd.pendingDelete !== action.id
-        ) {
-          return state;
-        }
+        if (!hdd || hdd.phase !== "deleting") return state;
         return {
           ...state,
-          history: action.removed
-            ? dropHistoryRecords(
-                hdd,
-                [action.id],
-                historyVisibleRecords(state).map((r) => r.id),
-              )
-            : { ...hdd, phase: "list", pendingDelete: undefined },
+          history: dropHistoryRecords(
+            hdd,
+            action.ids,
+            historyVisibleRecords(state).map((r) => r.id),
+          ),
         };
       }
       case "history-clean":
@@ -1863,6 +1938,9 @@ export type StateAction =
   | { type: "history-list-error"; error: string }
   | { type: "history-move"; delta: number }
   | { type: "history-scope-toggle" }
+  | { type: "history-mark-toggle" }
+  | { type: "history-mark-all" }
+  | { type: "history-mark-clear" }
   | { type: "history-open-view" }
   | { type: "history-view"; id: string; messages: HistoryMessage[] }
   | { type: "history-view-error"; error: string }
@@ -1882,7 +1960,7 @@ export type StateAction =
   | { type: "history-confirm-clean" }
   | { type: "history-confirm-cancel" }
   | { type: "history-delete" }
-  | { type: "history-delete-done"; id: string; removed: boolean }
+  | { type: "history-delete-done"; ids: string[] }
   | { type: "history-clean" }
   | { type: "history-clean-done"; ids: string[] }
   | { type: "history-close" }

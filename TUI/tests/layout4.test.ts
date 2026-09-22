@@ -2658,6 +2658,64 @@ test("/session 历史面板：标题标明列表范围（当前目录 可见/全
   );
 });
 
+test("/session 历史面板：批量标记行标 *、标题标计数；批量删除确认列出数量", () => {
+  let s = initialState();
+  s = reduceState(s, { type: "status", status: { cwd: "/proj" } });
+  s = reduceState(s, { type: "history-open" });
+  s = reduceState(s, {
+    type: "history-list",
+    records: [
+      {
+        id: "s1",
+        createdAt: 1,
+        live: false,
+        persisted: true,
+        title: "甲",
+        cwd: "/proj",
+      },
+      {
+        id: "s2",
+        createdAt: 2,
+        live: false,
+        persisted: true,
+        title: "乙",
+        cwd: "/proj",
+      },
+    ],
+  });
+  // 标记 s1（首行）→ 高亮自动下移到 s2
+  s = reduceState(s, { type: "history-mark-toggle" });
+  const rows = (state: Parameters<typeof buildFrame>[0]): string[] =>
+    buildFrame(state, { rows: 24, cols: 80 }).map((l) =>
+      stripAnsi(typeof l === "string" ? l : rowAnsi(l)),
+    );
+  const plain = rows(s);
+  const title = plain.find((l) => l.includes("历史会话 ["));
+  assert.ok(title?.includes("· 标记 1"), "标题含标记计数: " + title);
+  const markedRow = plain.find((l) => l.includes("甲"));
+  assert.ok(markedRow?.includes("*"), "标记行显示 * 标记: " + markedRow);
+
+  // 未标记行无 *
+  const unmarked = plain.find((l) => l.includes("乙"));
+  assert.ok(unmarked && !unmarked.includes("*"), "未标记行无 *: " + unmarked);
+
+  // 批量确认：标题 + 数量 + 预览
+  s = reduceState(s, { type: "history-confirm-delete" });
+  const confirm = rows(s);
+  assert.ok(
+    confirm.some((l) => l.includes("批量删除确认")),
+    "批量确认标题",
+  );
+  assert.ok(
+    confirm.some((l) => l.includes("删除标记的 1 个会话？")),
+    "确认文案含标记数量",
+  );
+  assert.ok(
+    confirm.some((l) => l.includes("- 甲（")),
+    "确认预览列出标题",
+  );
+});
+
 test("不变量：所有 FrameSegment.text 不含 ANSI 转义（C3 段级契约）", () => {
   // C3 契约不变量 #1：排版层产出段文本绝不含 ANSI（样式在 style 字段），
   // 渲染层 serial 才生成 SGR。对代表性帧（含 markdown/状态列/焦点框内容）全量断言。

@@ -88,7 +88,7 @@ commandPanel: {
 
 | 命令 | 裁定 |
 |------|------|
-| `/clear` | 宿主无对应能力：`dsh-session` 公开面无删除/清理 API（`detachEntered` 为 private teardown）、`dsh-session-query` 仅查询、无 `session/delete` 事件；会话清理诉求已由 `/session` 面板 `d`/`x` + `/session clean` 文件级删除覆盖 |
+| `/clear` | 宿主无对应能力：`dsh-session` 公开面无删除/清理 API（`detachEntered` 为 private teardown）、`dsh-session-query` 仅查询、无 `session/delete` 事件；会话清理诉求已由 `/session` 面板多选批量删除（`Space` 标记 + `d`）/ `x` 清理空会话 + `/session clean` 文件级删除覆盖 |
 | `/login` `/logout` | 语义不匹配：`ctx.credentials` 为凭据引用/记录 seam（reference 空间 `resolve` / `describe` / `set` / `unset` + record 空间 + `credentials/reference-updated` 事件），无交互式登录流程（供应商选择 / OAuth / 设备码）；`/logout` 亦无宿主「登出」概念 |
 | `/review` | 需先建编排资产：`workflowEngine.start` 为通用脚本引擎，须自备 `script` / `meta`（`WorkflowMeta`）/ `parent: Agent`，包内无 review 资产 |
 

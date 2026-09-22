@@ -53,6 +53,7 @@
 - `/contract`、`/council` 的目标取当前会话 goal 快照 objective，无 goal 时回退 buffer 最近 user 行。
 - `/agents` 的 `kind:'diagnostic'` 条目灰显且 payload 置空（无可中断 id 时只提示、不发调用）。
 - `/session` 的 live 会话读取走 `Session.events` 原始事件（`readSurface` 的 surface fold 会滤掉 `surfaceOp`，`readSession` 的全量校验对 live 混合日志会抛校验错）；persisted 会话走 `readSurface`，兜底 `readSession`；`readSurface` 必须直接调用 `sq.readSurface(id)`（解构丢失 `this` 读 `_corpus` 报错）。
+- `/session` 批量删除：`Space` 标记 / 取消（标记后高亮自动下移一行）、`a` 全选当前范围可删项（替换标记集）、`c` 清空；判据 `deletableSession`（persisted + 非 live + 非当前），`deletableSession` / `markableSessionIds` 为 `state.ts` 纯函数。标记按 id 记录并跨 `Tab` 范围切换保留；`d` 有标记 = 批量（`pendingDeleteIds`，跨范围保留的标记也计入、自动剔除已不可删项），无标记 = 单条（`pendingDelete`）。批量与单条共用 `runPendingHistoryOp` 的逐条 `deleteSession` 串行删除循环，成功集经 `history-delete-done` 移除记录（`dropHistoryRecords`），**失败项保留标记**便于重试；列表重拉只一次。
 
 ## 文本管线（流式 / 清洗 / 补发）
 

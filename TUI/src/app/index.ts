@@ -16,6 +16,7 @@ import {
   cleanableSessionIds,
   historyVisibleRecords,
   initialState,
+  markableSessionIds,
   reduceState,
   startupCleanableIds,
 } from "./state.ts";
@@ -26,6 +27,7 @@ import type {
   ModelSelection,
   ModelReasoning,
   HistoryMessage,
+  SessionInfo,
   SessionSurfaceView,
 } from "./adapter/dsh.ts";
 import type { NoticeTone } from "./adapter/types.ts";
@@ -1442,6 +1444,18 @@ export class App {
         } else if (name === "tab") {
           // [Tab]：切换列表范围（当前目录 ⇄ 全部目录），默认当前目录
           this.apply((st) => reduceState(st, { type: "history-scope-toggle" }));
+        } else if (name === " " || name === "space") {
+          // Space：批量标记/取消（不可删项以 notice 说明原因）
+          this.toggleMarkRecord();
+          return;
+        } else if (name === "a") {
+          // a：全选当前范围可删项（批量删除入口的快捷全选）
+          this.markAllRecords();
+          return;
+        } else if (name === "c") {
+          // c：清空批量标记
+          this.clearMarkedRecords();
+          return;
         } else if (name === "d" || name === "delete" || name === "backspace") {
           this.confirmDeleteRecord();
           return;
@@ -2121,31 +2135,78 @@ export class App {
     );
   }
 
-  /** 面板 d/Delete：进入删除二次确认（不可删时以 notice 说明原因，不改列表） */
+  /** 单条会话不可删除原因（可删返回 undefined）；标记/单删共用的护栏文案 */
+  private deleteBlockReason(rec: SessionInfo): string | undefined {
+    if (rec.current === true) return "当前活跃会话不可删除";
+    if (rec.live) return "live 会话不可删除（仅可删除已持久化的非活跃会话）";
+    if (rec.persisted !== true) return "该会话未持久化，没有可删除的文件";
+    return undefined;
+  }
+
+  /** 面板 d/Delete：无标记 → 单条删除；有标记 → 批量删除（判据在 reducer 逐个复核） */
   private confirmDeleteRecord(): void {
     const h = this.state.history;
-    const rec = h ? historyVisibleRecords(this.state)[h.index] : undefined;
-    if (!h || !rec) return;
-    if (rec.current === true) {
-      this.historyNotice("当前活跃会话不可删除", "warn");
-      return;
-    }
-    if (rec.live) {
-      this.historyNotice(
-        "live 会话不可删除（仅可删除已持久化的非活跃会话）",
-        "warn",
-      );
-      return;
-    }
-    if (!rec.persisted) {
-      this.historyNotice("该会话未持久化，没有可删除的文件", "warn");
-      return;
-    }
+    if (!h) return;
     if (!this.deps.adapter.deleteSession) {
       this.historyNotice("会话删除不可用（宿主未挂载 sessionQuery）", "warn");
       return;
     }
+    if ((h.marked?.length ?? 0) > 0) {
+      this.apply((st) => reduceState(st, { type: "history-confirm-delete" }));
+      this.paint();
+      return;
+    }
+    const rec = historyVisibleRecords(this.state)[h.index];
+    if (!rec) return;
+    const reason = this.deleteBlockReason(rec);
+    if (reason) {
+      this.historyNotice(reason, "warn");
+      return;
+    }
     this.apply((st) => reduceState(st, { type: "history-confirm-delete" }));
+    this.paint();
+  }
+
+  /** Space：切换高亮行标记（不可删项提示原因；标记由 reducer 置 + 高亮下移一行） */
+  private toggleMarkRecord(): void {
+    const h = this.state.history;
+    const rec = h ? historyVisibleRecords(this.state)[h.index] : undefined;
+    if (!h || !rec) return;
+    const reason = this.deleteBlockReason(rec);
+    if (reason) {
+      this.historyNotice(reason, "warn");
+      return;
+    }
+    this.apply((st) => reduceState(st, { type: "history-mark-toggle" }));
+    this.paint();
+  }
+
+  /** a：全选当前列表范围的可删项（当前活跃 / live / 未持久化天然排除） */
+  private markAllRecords(): void {
+    const h = this.state.history;
+    if (!h) return;
+    if (markableSessionIds(this.state).length === 0) {
+      this.historyNotice(
+        this.state.history?.scope === "all"
+          ? "全部目录没有可标记的会话"
+          : "当前项目没有可标记的会话",
+        "info",
+      );
+      return;
+    }
+    this.apply((st) => reduceState(st, { type: "history-mark-all" }));
+    this.paint();
+  }
+
+  /** c：清空批量删除标记 */
+  private clearMarkedRecords(): void {
+    const h = this.state.history;
+    if (!h) return;
+    if ((h.marked?.length ?? 0) === 0) {
+      this.historyNotice("当前没有批量删除标记", "info");
+      return;
+    }
+    this.apply((st) => reduceState(st, { type: "history-mark-clear" }));
     this.paint();
   }
 
@@ -2176,32 +2237,51 @@ export class App {
     const del = adapter.deleteSession;
     if (!h || !del) return;
     if (h.phase === "confirm-delete") {
-      const id = h.pendingDelete;
-      if (!id) return;
+      // 目标集：单条（pendingDelete）或批量（pendingDeleteIds，优先级高）
+      const ids =
+        h.pendingDeleteIds ?? (h.pendingDelete ? [h.pendingDelete] : []);
+      if (ids.length === 0) return;
+      const isBatch = h.pendingDeleteIds !== undefined;
       // 先取标题再删记录：historyRecordLabel 依赖面板记录，删后只剩短 id
-      const label = this.historyRecordLabel(id);
+      const labels = ids.map((id) => this.historyRecordLabel(id));
       this.apply((st) => reduceState(st, { type: "history-delete" }));
       this.paint();
-      let removed = false;
+      const removed: string[] = [];
+      let failed = 0;
       let reason: string | undefined;
-      try {
-        // SAFETY: adapter 方法未约定自带绑定（实现可为原型方法），
-        // 按接收者调用保留 this（同 setApprovalPolicy 的 .call(adapter) 约定）
-        const res = await del.call(adapter, id);
-        removed = res.ok;
-        if (!res.ok) reason = res.reason;
-      } catch (err) {
-        reason = String(err);
+      for (const id of ids) {
+        try {
+          // SAFETY: adapter 方法未约定自带绑定（实现可为原型方法），
+          // 按接收者调用保留 this（同 setApprovalPolicy 的 .call(adapter) 约定）
+          const res = await del.call(adapter, id);
+          if (res.ok) removed.push(id);
+          else {
+            failed += 1;
+            reason ??= res.reason;
+          }
+        } catch (err) {
+          failed += 1;
+          reason ??= String(err);
+        }
       }
       this.apply((st) =>
-        reduceState(st, { type: "history-delete-done", id, removed }),
+        reduceState(st, { type: "history-delete-done", ids: removed }),
       );
       this.paint();
-      if (!removed) {
+      if (removed.length === 0) {
         this.historyNotice(`删除失败：${reason ?? "未知原因"}`, "error");
         return;
       }
-      this.historyNotice(`已删除会话「${label}」`, "success");
+      if (isBatch) {
+        this.historyNotice(
+          failed > 0
+            ? `已删除 ${removed.length} 个会话（${failed} 个失败）`
+            : `已删除 ${removed.length} 个会话`,
+          failed > 0 ? "warn" : "success",
+        );
+      } else {
+        this.historyNotice(`已删除会话「${labels[0] ?? ""}」`, "success");
+      }
       await this.refreshHistoryList();
       return;
     }

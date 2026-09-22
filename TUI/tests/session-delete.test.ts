@@ -243,7 +243,7 @@ test("面板：deleting → delete-done 移除记录并收敛高亮索引", () =
   s = reduceState(s, { type: "history-confirm-delete" });
   s = reduceState(s, { type: "history-delete" });
   assert.equal(s.history?.phase, "deleting");
-  s = reduceState(s, { type: "history-delete-done", id: "s3", removed: true });
+  s = reduceState(s, { type: "history-delete-done", ids: ["s3"] });
   assert.equal(s.history?.phase, "list");
   assert.deepEqual(
     s.history?.records.map((r) => r.id),
@@ -252,14 +252,144 @@ test("面板：deleting → delete-done 移除记录并收敛高亮索引", () =
   assert.equal(s.history?.index, 2, "索引收敛到末行");
   assert.equal(s.history?.pendingDelete, undefined);
 
-  // removed=false（adapter 拒绝/异常）→ 记录保留，仍回列表
+  // ids=[]（adapter 全部拒绝/异常）→ 记录保留，仍回列表
   let f = panelState(records);
   f = reduceState(f, { type: "history-move", delta: 1 });
   f = reduceState(f, { type: "history-confirm-delete" });
   f = reduceState(f, { type: "history-delete" });
-  f = reduceState(f, { type: "history-delete-done", id: "s1", removed: false });
+  f = reduceState(f, { type: "history-delete-done", ids: [] });
   assert.equal(f.history?.records.length, 4, "失败不动列表");
   assert.equal(f.history?.phase, "list");
+});
+
+test("面板：Space 标记/取消（自动下移）+ a 全选替换 + c 清空；不可删项不标记", () => {
+  const cur = rec({ id: "cur", live: true, current: true, cwd: "/proj" });
+  const records = [
+    cur,
+    rec({ id: "s1", cwd: "/proj", title: "第一条" }),
+    rec({ id: "s2", cwd: "/proj", title: "第二条" }),
+    rec({ id: "mem", persisted: false, cwd: "/proj" }),
+    rec({ id: "liv", live: true, cwd: "/proj" }),
+    rec({ id: "other", cwd: "/other" }),
+  ];
+  let s = panelState(records);
+
+  // 高亮首行=当前活跃 → Space 不标记不移动
+  s = reduceState(s, { type: "history-mark-toggle" });
+  assert.equal(s.history?.marked, undefined, "当前活跃不可标记");
+
+  s = reduceState(s, { type: "history-move", delta: 1 }); // s1
+  s = reduceState(s, { type: "history-mark-toggle" });
+  assert.deepEqual(s.history?.marked, ["s1"], "标记后记录 id");
+  assert.equal(s.history?.index, 2, "标记后高亮自动下移一行");
+
+  // 再标记 s2 → [s1, s2]；mem（未持久化）/liv（live）不接受标记
+  s = reduceState(s, { type: "history-mark-toggle" });
+  assert.deepEqual(s.history?.marked, ["s1", "s2"]);
+  s = reduceState(s, { type: "history-mark-toggle" }); // 高亮 mem
+  assert.deepEqual(s.history?.marked, ["s1", "s2"], "未持久化不可标记");
+  s = reduceState(s, { type: "history-move", delta: 1 }); // liv
+  s = reduceState(s, { type: "history-mark-toggle" });
+  assert.deepEqual(s.history?.marked, ["s1", "s2"], "live 不可标记");
+
+  // 再按 Space（当前 s2）→ 取消标记
+  s = reduceState(s, { type: "history-move", delta: -2 }); // 回 s2（index 2）
+  s = reduceState(s, { type: "history-mark-toggle" });
+  assert.deepEqual(s.history?.marked, ["s1"], "再按 Space 取消标记");
+
+  // a：全选当前范围可删项（替换标记集；cur/mem/liv/other 均不计）
+  s = reduceState(s, { type: "history-mark-all" });
+  assert.deepEqual(
+    s.history?.marked,
+    ["s1", "s2"],
+    "a 全选=当前范围可删项（替换已有标记）",
+  );
+
+  // 跨范围切换标记保留；全部范围 a 含他目录可删项
+  s = reduceState(s, { type: "history-scope-toggle" });
+  assert.deepEqual(s.history?.marked, ["s1", "s2"], "Tab 切换范围标记保留");
+  s = reduceState(s, { type: "history-mark-all" });
+  assert.deepEqual(
+    [...(s.history?.marked ?? [])].sort(),
+    ["s1", "s2", "other"].sort(),
+    "全部范围全选含他目录可删项",
+  );
+
+  // c：清空标记；已空再 c 为 no-op
+  s = reduceState(s, { type: "history-mark-clear" });
+  assert.deepEqual(s.history?.marked, [], "c 清空标记");
+  assert.equal(
+    reduceState(s, { type: "history-mark-clear" }),
+    s,
+    "空标记时 c 为 no-op",
+  );
+});
+
+test("面板：有标记 d 走批量确认（pendingDeleteIds）；无标记走单条；批量集剔除已不可删项", () => {
+  const cur = rec({ id: "cur", live: true, current: true, cwd: "/proj" });
+  const records = [
+    cur,
+    rec({ id: "s1", cwd: "/proj", title: "第一条" }),
+    rec({ id: "s2", cwd: "/proj", title: "第二条" }),
+  ];
+  let s = panelState(records);
+
+  // 无标记 → 单条（高亮 s1 → pendingDelete）
+  s = reduceState(s, { type: "history-move", delta: 1 });
+  s = reduceState(s, { type: "history-confirm-delete" });
+  assert.equal(s.history?.phase, "confirm-delete");
+  assert.equal(s.history?.pendingDelete, "s1");
+  assert.equal(s.history?.pendingDeleteIds, undefined);
+  s = reduceState(s, { type: "history-confirm-cancel" });
+  assert.equal(s.history?.phase, "list");
+  assert.equal(s.history?.pendingDeleteIds, undefined, "取消清空批量目标");
+
+  // 标记 s1+s2 → d 走批量（pendingDelete 清空、pendingDeleteIds 填标记集；取消后 index 仍在 s1）
+  s = reduceState(s, { type: "history-mark-toggle" }); // s1
+  s = reduceState(s, { type: "history-mark-toggle" }); // s2
+  s = reduceState(s, { type: "history-confirm-delete" });
+  assert.equal(s.history?.phase, "confirm-delete");
+  assert.deepEqual(s.history?.pendingDeleteIds, ["s1", "s2"]);
+  assert.equal(
+    s.history?.pendingDelete,
+    undefined,
+    "批量时走 pendingDeleteIds",
+  );
+
+  // 标记项刷新后不可删（如变 live）→ 批量集剔除
+  let t = reduceState(s, { type: "history-confirm-cancel" });
+  t = reduceState(t, {
+    type: "history-refresh",
+    records: [
+      cur,
+      rec({ id: "s1", cwd: "/proj", title: "第一条" }),
+      rec({ id: "s2", live: true, cwd: "/proj", title: "第二条" }),
+    ],
+  });
+  t = reduceState(t, { type: "history-confirm-delete" });
+  assert.deepEqual(t.history?.pendingDeleteIds, ["s1"], "批量集仅保留仍可删项");
+});
+
+test("面板：delete-done 批量移除记录并按成功集收敛标记（部分失败留标记）", () => {
+  const cur = rec({ id: "cur", live: true, current: true, cwd: "/proj" });
+  const records = [
+    cur,
+    rec({ id: "s1", cwd: "/proj" }),
+    rec({ id: "s2", cwd: "/proj" }),
+    rec({ id: "s3", cwd: "/proj" }),
+  ];
+  let s = panelState(records);
+  s = reduceState(s, { type: "history-mark-all" });
+  s = reduceState(s, { type: "history-confirm-delete" });
+  s = reduceState(s, { type: "history-delete" });
+  s = reduceState(s, { type: "history-delete-done", ids: ["s1", "s3"] });
+  assert.deepEqual(
+    s.history?.records.map((r) => r.id),
+    ["cur", "s2"],
+    "批量删除按成功集移除记录",
+  );
+  assert.deepEqual(s.history?.marked, ["s2"], "失败项（s2）保留标记便于重试");
+  assert.equal(s.history?.pendingDeleteIds, undefined, "完成后清空批量目标");
 });
 
 test("面板：clean-done 仅移除已删除记录；阶段不符时忽略", () => {
@@ -627,6 +757,93 @@ test("面板护栏：adapter 拒绝删除（失败）→ 列表保留并提示�
   assert.ok(frame().includes("历史会话 [当前目录]（2/2）"), "记录保留");
 });
 
+test("面板批量删除：Space 标记 → d 批量确认 → y 删除全部标记并重拉一次列表", async () => {
+  const { renderer, adapter, frame } = makeApp();
+  adapter.serverRecords = [
+    rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
+    rec({ id: "tui-first001", title: "第一条", cwd: "/proj" }),
+    rec({ id: "tui-second02", title: "第二条", cwd: "/proj" }),
+    rec({ id: "tui-third003", title: "第三条", cwd: "/proj" }),
+  ];
+  typeAndEnter(renderer, "/session");
+  await flush();
+  await flush();
+
+  // 首行是当前活跃会话（不可标记）→ 下移后 Space 标记前两条（自动下移），标题显示标记计数
+  press(renderer, "down");
+  press(renderer, "space");
+  press(renderer, "space");
+  assert.ok(
+    frame().includes("· 标记 2"),
+    "标题标明标记计数: " +
+      frame()
+        .split("\n")
+        .find((l) => l.includes("历史会话")),
+  );
+
+  press(renderer, "d");
+  assert.ok(frame().includes("批量删除确认"), "进入批量删除确认：标题");
+  assert.ok(frame().includes("删除标记的 2 个会话？"), "确认文案含数量");
+  assert.ok(
+    frame().includes("第一条（tui-firs）") &&
+      frame().includes("第二条（tui-seco"),
+    "确认文案预览列出标记会话",
+  );
+  assert.deepEqual(adapter.deleteCalls, [], "确认前不调用 adapter");
+
+  press(renderer, "y");
+  await flush();
+  await flush();
+  assert.deepEqual(
+    adapter.deleteCalls,
+    ["tui-first001", "tui-second02"],
+    "批量删除按标记顺序串行删除",
+  );
+  assert.equal(adapter.listSessionsCalls, 2, "批量删除只重拉一次列表");
+  assert.ok(frame().includes("已删除 2 个会话"), "批量成功提示");
+  assert.ok(
+    frame().includes("历史会话 [当前目录]（2/2）"),
+    "重拉后列表收敛（fake 不自改可见列表）",
+  );
+  assert.ok(frame().includes("已删除 1 个会话") === false, "不用单条文案");
+});
+
+test("面板批量删除：部分失败 → 成功项移除、失败项保留标记并重拉列表", async () => {
+  const { renderer, adapter, frame } = makeApp();
+  adapter.serverRecords = [
+    rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
+    rec({ id: "tui-ok000001", title: "能删的", cwd: "/proj" }),
+    rec({ id: "tui-boom0001", title: "删不掉的", cwd: "/proj" }),
+    rec({ id: "tui-ok000002", title: "另一个", cwd: "/proj" }),
+  ];
+  adapter.failOn.add("tui-boom0001");
+  typeAndEnter(renderer, "/session");
+  await flush();
+  await flush();
+
+  // a 全选当前范围 3 个可删项（当前活跃天然排除）
+  press(renderer, "a");
+  assert.ok(frame().includes("· 标记 3"), "a 全选当前范围可删项");
+
+  press(renderer, "d");
+  assert.ok(frame().includes("删除标记的 3 个会话？"), "批量确认数量=3");
+  press(renderer, "y");
+  await flush();
+  await flush();
+  assert.deepEqual(
+    adapter.deleteCalls,
+    ["tui-ok000001", "tui-boom0001", "tui-ok000002"],
+    "逐条删除（失败项也调用）",
+  );
+  assert.ok(frame().includes("已删除 2 个会话（1 个失败）"), "部分失败提示");
+  assert.equal(adapter.listSessionsCalls, 2, "批量删除只重拉一次列表");
+  assert.ok(
+    frame().includes("· 标记 1"),
+    "失败项保留标记便于重试（重拉列表后仍在）",
+  );
+  assert.ok(frame().includes("删不掉的"), "失败会话仍在列表");
+});
+
 test("/session clean 直达清理确认（无可清理项则提示且不开确认）", async () => {
   const { renderer, adapter, frame } = makeApp();
   adapter.serverRecords = [
@@ -968,11 +1185,7 @@ test("退出自动清理：无可清理项时静默（不出提示帧），仍�
   await flush();
   assert.deepEqual(adapter.deleteCalls, [], "无可清理项不入队");
   assert.equal(renderer.closes, 1, "仍正常关闭");
-  assert.equal(
-    renderer.renders - rendersBefore,
-    0,
-    "无可清理项不出提示帧",
-  );
+  assert.equal(renderer.renders - rendersBefore, 0, "无可清理项不出提示帧");
 });
 
 test("退出自动清理：部分失败计数渲染到活动区，仍完成收尾", async () => {
@@ -996,8 +1209,8 @@ test("退出自动清理：部分失败计数渲染到活动区，仍完成收�
   assert.deepEqual(adapter.deleteCalls, ["tui-empty001", "tui-boom0001"]);
   assert.equal(renderer.closes, 1, "失败也完成收尾（不阻塞退出）");
   assert.ok(
-    renderer
-      .lastRender.join("\n")
+    renderer.lastRender
+      .join("\n")
       .includes("已自动清理 1 个空会话（1 个失败）"),
     "部分失败计数渲染到活动区",
   );

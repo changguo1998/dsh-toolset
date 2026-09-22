@@ -239,7 +239,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 | `/preset [预设名]` | agent 预设：无参打开面板，带参经 `selectAgentPreset`（宿主 `recompose` 写路径）切换 |
 | `/goal` | 提示 goal / todo / jobs 详情常驻右侧状态列（不再打开面板） |
 | `/stats`（`/usage` `/context`） | 最近一次模型调用的 token 用量：分解（输入/输出/缓存读）、上下文占用、缓存命中率 |
-| `/session` | 会话面板：列出持久化会话，Enter 切换（`agents.resume` 恢复后继续对话）；`Tab` 切换范围（当前目录 / 全部）、`d`/Delete 删除、`x` 清理空会话、`/session clean` 直达清理确认 |
+| `/session` | 会话面板：列出持久化会话，Enter 切换（`agents.resume` 恢复后继续对话）；`Tab` 切换范围（当前目录 / 全部）、`Space` 批量标记（`a` 全选当前范围、`c` 清空）、`d`/Delete 删除（有标记=批量删除全部标记，无标记=删当前高亮）、`x` 清理空会话、`/session clean` 直达清理确认 |
 | `/rename <标题>` | 重命名当前会话标题（写宿主 `sessionTitle.rename`；空标题或含换行本地拒绝） |
 | `/copy` | 复制最后一条模型回复到系统剪贴板（OSC52，剥离 ANSI） |
 | `/fork` | 分叉当前会话为新会话（宿主 `sessions.fork`，错误码映射中文提示） |

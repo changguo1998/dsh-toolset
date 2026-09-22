@@ -3,9 +3,11 @@
 // 输出恰 height 行（占满活动区可视行，与审批/问答/模型选择/任务面板同一渲染链，
 // 显示于流输出窗口；底部输入区以空白占位）。
 // 十阶段：loading-list（加载中）、list（会话列表）、loading-view（内容加载）、
-// view（只读消息浏览，↑/↓ 滚动窗口）、resuming（切换中）、confirm-delete（删除二次确认）、
-// deleting（删除中）、confirm-clean（清理空会话二次确认）、cleaning（清理中）、error（错误消息）。
-// 列表行格式：`> MM-DD HH:mm  <8位短id>  <标题>  .../cwd  [当前]|[不可续]|[空]`。
+// view（只读消息浏览，↑/↓ 滚动窗口）、resuming（切换中）、confirm-delete
+// （删除二次确认，单条或批量）、deleting（删除中）、confirm-clean（清理空会话二次确认）、
+// cleaning（清理中）、error（错误消息）。
+// 列表行格式：`[>| ]* MM-DD HH:mm  <8位短id>  <标题>  .../cwd  [当前]|[不可续]|[空]`
+// （第 2 列 * = 批量删除标记，Space 切换；可删项标红不涉及，见 index.ts 键位）。
 // 按键提示不放面板内（位于输入区下方提示区，见 layout.ts HISTORY_*_HINT_LINE）；
 // 标题按显示宽补齐，避免 CJK 顶开活动区右缘框线。
 // 无 ANSI 着色（与模型选择面板同风格），中文界面文本按显示宽度截断。
@@ -55,13 +57,20 @@ function tailCwd(cwd: string, w: number): string {
 }
 
 /**
- * 列表行：`> MM-DD HH:mm  <短id>  <标题>  .../cwd  [当前]|[不可续]`。
+ * 列表行：`[>| ]* MM-DD HH:mm  <短id>  <标题>  .../cwd  [当前]|[不可续]|[空]`。
+ * 第 1 列为焦点（>）、第 2 列为批量标记（*），无则空格（列宽恒 2，行宽稳定）。
  * 标题优先官方 session/title 事件，缺失本地兜底；两者皆无显示（新会话）。
- * live 会话：当前活跃标 [当前]，其余 live 标 [不可续]（不可选中）；
+ * live 会话：当前活跃标 [当前]，其余 live 标 [不可续]（不可选中/标记）；
  * 空会话（persisted 且无用户消息）标 [空]（可被 /session clean 清理）。
+ * 批量可删项（persisted 非 live 非当前）可被 Space 标记，d 批量删除。
  */
-function listLine(rec: SessionInfo, isFocus: boolean, width: number): string {
-  const marker = isFocus ? "> " : "  ";
+function listLine(
+  rec: SessionInfo,
+  isFocus: boolean,
+  marked: boolean,
+  width: number,
+): string {
+  const marker = `${isFocus ? ">" : " "}${marked ? "*" : " "}`;
   const time = fmtTime(rec.createdAt);
   const id = rec.id.slice(0, 8);
   // 当前活跃 live 行双标（[当前] 活跃 + [不可续] 不可选中）；其余 live 仅 [不可续]；空会话 [空]
@@ -149,7 +158,12 @@ export function buildHistoryPanelBox(view: HistoryPanelView): Box {
       const count = allScope
         ? `${view.records.length}`
         : `${view.records.length}/${view.totalCount}`;
-      title = truncateToWidth(`历史会话 [${scopeLabel}]（${count}）`, width);
+      const markedCount = h.marked?.length ?? 0;
+      const markLabel = markedCount > 0 ? ` · 标记 ${markedCount}` : "";
+      title = truncateToWidth(
+        `历史会话 [${scopeLabel}]（${count}）${markLabel}`,
+        width,
+      );
       const head =
         h.result === undefined ? null : truncateToWidth(h.result, width);
       const listRows = Math.max(0, bodyRows - (head === null ? 0 : 1));
@@ -164,7 +178,16 @@ export function buildHistoryPanelBox(view: HistoryPanelView): Box {
         for (let r = 0; r < listRows; r++) {
           const idx = start + r;
           const rec = view.records[idx];
-          body.push(rec ? listLine(rec, idx === h.index, width) : "");
+          body.push(
+            rec
+              ? listLine(
+                  rec,
+                  idx === h.index,
+                  h.marked?.includes(rec.id) === true,
+                  width,
+                )
+              : "",
+          );
         }
       }
       if (head !== null) body = [head, ...body];
@@ -179,12 +202,36 @@ export function buildHistoryPanelBox(view: HistoryPanelView): Box {
       body = ["切换到该会话..."];
       break;
     case "confirm-delete": {
-      const rec = h.records.find((r) => r.id === h.pendingDelete);
+      // 批量（标记 ≥1 条；标记驱动即为批量）：标题含数量、正文逐条预览（超出行数截断 + 省略计数）
+      const batch = h.pendingDeleteIds;
+      if (batch && batch.length > 0) {
+        const label = (id: string): string => {
+          const r = h.records.find((x) => x.id === id);
+          const t = r?.title?.trim();
+          return t ? t : "（新会话）";
+        };
+        const previewRows = Math.max(0, bodyRows - 4);
+        const preview = batch.slice(0, previewRows);
+        const lines = [
+          `删除标记的 ${batch.length} 个会话？`,
+          ...preview.map((id) => `- ${label(id)}（${id.slice(0, 8)}）`),
+        ];
+        if (preview.length < batch.length) {
+          lines.push(`…（其余 ${batch.length - preview.length} 个）`);
+        }
+        lines.push("不可恢复：这些会话的持久化文件将被永久删除。");
+        lines.push("[y/Enter] 确认删除    [n/Esc] 取消");
+        title = "历史会话 · 批量删除确认";
+        body = wrapBody(lines, width, bodyRows);
+        break;
+      }
+      const singleId = h.pendingDelete ?? batch?.[0];
+      const rec = h.records.find((r) => r.id === singleId);
       const label = rec?.title?.trim() ? rec.title : "（新会话）";
       title = "历史会话 · 删除确认";
       body = wrapBody(
         [
-          `删除会话「${label}」（${(h.pendingDelete ?? "").slice(0, 8)}）？`,
+          `删除会话「${label}」（${(singleId ?? "").slice(0, 8)}）？`,
           "不可恢复：该会话的持久化文件将被永久删除。",
           "[y/Enter] 确认删除    [n/Esc] 取消",
         ],

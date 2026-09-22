@@ -69,7 +69,7 @@
 
 | 项 | 理由 |
 |----|------|
-| `/clear` | 宿主无会话删除/清理 API（`dsh-session` 公开面无删除，`dsh-session-query` 仅查询）；会话清理诉求已由 `/session` 面板 `d`/`x` + `/session clean` 覆盖 |
+| `/clear` | 宿主无会话删除/清理 API（`dsh-session` 公开面无删除，`dsh-session-query` 仅查询）；会话清理诉求已由 `/session` 面板多选批量删除（`Space` 标记 + `d`）/ `x` 清理空会话 + `/session clean` 覆盖 |
 | `/login` `/logout` | `ctx.credentials` 仅为凭据引用/记录 seam，无交互登录流程；`/logout` 亦无宿主「登出」概念 |
 | `/review` | `workflowEngine.start` 为通用脚本引擎（需自备 `script` / `meta` / `parent: Agent`），包内无 review 资产 |
 | `/mcp` `/hooks` | 需额外装配官方可选 bundle（`dsh-mcp-client` / `dsh-hooks-claude-code` / `dsh-hooks-codex`），当前 profile 未挂载 |
