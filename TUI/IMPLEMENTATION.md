@@ -208,6 +208,18 @@
   - 语义提醒：同一 tick 内的中间态不再逐帧写终端（这正是合帧的目的）；demo mock 的复合场景因此拆成两个 tick 发出，保证 `subagent` 行等中间态能被帧断言看到。
 - **测试与基准**：`tests/layout-cache.test.ts` 断言 cache 冷 / 热与 off 逐项一致、固定动作序列整帧一致，以及合帧侧「同 tick 200 事件只画一帧」「flushPaint / paintNow」「绘制期间标脏收敛」「dispose 丢弃待处理帧」等；`tests/helpers/paintFlush.ts` 提供同步测试体读帧前的冲刷辅助（`TrackedApp` 构造即登记）。基准 `npm run bench`（`bench/layout-bench.mts`，手动运行不设阈值）对同一合成语料跑 cache off/on 三档（cold 每帧清缓存 / warm 同状态重复排版 / incremental 增量追尾），打印中位耗时与提速倍数。
 
+## 增量渲染与防闪烁
+
+渲染层五项防闪烁机制（业界对照：Bubble Tea 行级跳过 + 60fps 合帧、pi 的 `firstChanged..lastChanged` 区间重写 + DEC 2026、Textual dirty region、Codewhale 去 `2J` 修复、Claude Code #37283）：
+
+- **变化区间重写**（`renderer/index.ts` 的 `changedRange` + `screen.renderRange/renderRanges`）：逐行比较新旧帧（按主题下序列化文本，`caret` 参与比较），取 `[firstChanged, lastChanged]` 区间，绝对定位 + 逐行 `ESC[K` 擦行重写；新帧更短时区间末尾以 `ESC[J` 清除下方残留。**增量帧绝不 `ESC[2J` 清屏**——这是符号闪烁/流式行内增长场景的主要修复点（旧实现只支持「帧尾纯追加」，其余一律全帧清屏）。
+- **帧段（box）切分**（`app/layout.ts` 的 `frameSections` + `renderer` 的 `changedIntervals`）：由 `FrameGeometry` 纯推导行带表（top / status / footer / hint），`buildFrame` 经 `FrameBuildOutput` 回填、App 随帧传入；段表与上一帧一致时按段独立取变化区间（多段同时变化只重写各段内变化行，不跨越中间未变化的段）；段表缺失/不一致（几何或行数变化）退化为整帧单一区间，保证不漏更新。
+- **DEC 2026 同步输出**（`screen.ts`）：整帧与区间报文首尾包 `ESC[?2026h` / `ESC[?2026l`，支持的终端（kitty / iTerm2 / WezTerm / Ghostty / Windows Terminal / tmux 3.4+）原子呈现整块更新；不支持的终端按未知私有模式忽略。`reset()` 补发结束序列兜底。
+- **覆盖式全帧**：仅**首帧**清屏一次（清终端既有内容），后续全帧（resize / 主题切换 / Ctrl+L）改为绝对定位原点 + 逐行覆盖重写（每行 `ESC[K`）+ 末尾 `ESC[J`，不再破坏性清屏。
+- **渲染期光标隐藏**：报文开头 `ESC[?25l`、定位 caret 后 `ESC[?25h`，消除重写期间硬件光标跳动；`reset()` 兜底补发显示序列。
+
+量化验收：`tmp/repro-flicker/verify.mjs`（临时排查留档，非仓库产物）四场景——状态符号翻转、流式行内增长、纯追加、内容滚动——全帧清屏均为 0 次（修复前分别 10/10/0/1 次，输出 22.7KB → 约 3KB）。回归测试：`tests/renderer-diff.test.ts`（区间 diff 6 例 + 段切分 3 例）、`tests/screen.test.ts`（报文序列：同步包裹 / 仅首帧清屏 / 光标管理）、`tests/layout4.test.ts`（`frameSections` 覆盖性与行带一致性）。
+
 ## 自动清理空会话
 
 - **config**：`tui.config.json` 的 `session.autoCleanEmpty`（缺省 true，显式 `false` 关闭）；`normalizeConfig` 归一化（非法回落 undefined，默认由消费方应用）；`main.ts` 取 `loadTuiConfig().session?.autoCleanEmpty ?? true` → `AppDeps.autoCleanEmpty`（需 `=== true` 才生效）。同一开关覆盖**启动**与**优雅退出**两个时机。
@@ -254,7 +266,7 @@
 
 - 配色方案：启动时解析 `tui.config.json` 的 theme 段（`renderer/theme-config.ts`：内联 `palettes.<id>` → `paletteDir/<file>.json`（上游单一源，默认 `~/fff/config/terminal-colortheme/`）→ 内置兜底快照）。`theme.ts` 的 `THEMES` 仅是兜底快照（= 当前上游配色）；语义色槽位 `gray` / `border` / `code` / `focus` 从各主题 `semantics` 解析（不再按主题名 / ID 分支）。定义 16 个 ANSI 槽位 + 基底前景 / 背景，全部 truecolor。
 - 槽位映射：`black..white` → `ansi[]`，`brightBlack..brightWhite` → `bright[]`；`ansiNameToHex(theme, name)` 解析。段级 `style` 由 `segStyle` / `serializeFrameRow`（`screen.ts`）按 Manual-ANSI 处理（fg/bg 分别 `38;2` / `48;2`，bold 用 `1m` / `22m`），着色一律**以主题基底前景 / 背景收尾**（不用 chalk：其 `39m` / `49m` 会复位到终端默认，浅色主题下不可读）。
-- 基底色：`Screen` 持有当前主题（`setTheme(id)`），整帧渲染在 `ESC[2J` 清屏**之前**写出基底前景 / 背景（truecolor 背景 → 清屏即填充主题色）；每个 delta 行也带基底，保证 `ESC[K` 擦除以主题背景填充。`setTheme` 同时清掉 delta 缓存（`prevLines = null`），切换后必然全帧重绘。`close()` 前 `Screen.reset()` 输出 `ESC[0m` 恢复终端默认。
+- 基底色：`Screen` 持有当前主题（`setTheme(id)`），报文在清屏/定位之前写出基底前景 / 背景（truecolor 背景 → `ESC[2J` 首帧清屏即以主题色填充；覆盖式全帧与每个增量区间行同样带基底），保证 `ESC[K` / `ESC[J` 擦除以主题背景填充。`setTheme` 同时清掉帧缓存（`prevRows = null`），切换后必然全帧重绘。`close()` 前 `Screen.reset()` 输出同步结束 + 光标显示 + `ESC[0m` 恢复终端默认。
 
 ## 验证方式
 
