@@ -10,6 +10,7 @@
 - 每行格式：`包名`（`ctx.<服务名>`，已挂载） — 官方一句话定位。
 - **`（ctx.x）` 表示该包注册了这个 host 服务**，是我们插件 `inject` 的对象；没有的包是工具/后端/客户端资产，通过别的服务被消费。
 - **`已挂载`** 指 `fff` profile（`dsh-base` bundle）启动时会加载它；未标记的包虽已随 dsh 安装、但该 profile 不加载。
+- **`树外加装`** 指该包未随 dsh 分发，由 `fff` profile 自行安装（`dsh plugin add`，落到 profile 的 `node_modules`）并在其 `cordis.patch.yml` 用 `- insert:` 挂载；当前仅 `session-title-all-prompts-llm` 属此类（不随装、按需启用）。
 - 包名省略 `@deepseek-ai/dsh-` 前缀与作用域（`cordis-*` 来自 vendored cordis）。
 
 ## 1. 现成可用（fff 已挂载，82 个）
@@ -17,6 +18,8 @@
 ```
 agent agent-default-model agent-instructions agent-loop api-gateway attachment-local bash-sandbox command-compact command-feedback command-goal commands compaction-basic compaction-tool-result-pruner cordis-plugin-hmr cordis-plugin-timer credentials-local deepseek-llm-api-extensions fs-observation-policy fs-sandbox goal goal-round-driver jobs-local llm llm-deepseek llm-pi-ai llm-retry permission-presets plan-mode plugin-package-inventory-deepseek pwsh-sandbox repeat-tool-reminder sandbox-local sandbox-policy session session-checkpoint-policy session-log-deepseek session-persistence-jsonl session-projection session-projection-cache session-query-sqlite session-telemetry-otel session-title session-title-first-prompt-llm settings-file shell-env skill skill-badge skill-filesystem spill-local spill-policy storage storage-domain storage-json subagent subagent-fork-in-process subagent-spawn-in-process subprocess-local system-prompt token-meter tool-bash tool-call-timeout-policy tool-fs tool-fs-search tool-goal tool-jobs tool-pwsh tool-ralph tool-skill tool-subagent tool-subagent-control tool-todo tool-web tool-workflow tools typert-loader typert-registry user-approval user-questions web web-fetch-http web-search-deepseek workflow-worker-thread
 ```
+
+另有 1 个树外加装包未计入上表：`session-title-all-prompts-llm`（会话标题 provider，见 §2「会话 / 上下文 / 存储」）。
 
 ## 2. 全部分组清单（240 个）
 
@@ -76,7 +79,8 @@ agent agent-default-model agent-instructions agent-loop api-gateway attachment-l
 - `session-telemetry`（`ctx.sessionTelemetry`） — `ctx.sessionTelemetry`：会话事件采集/投影/脱敏与上报缝
 - `session-telemetry-otel`（已挂载） — 遥测的 OpenTelemetry 后端（交给 OTel JS SDK 日志管道）
 - `session-title`（`ctx.sessionTitle`，已挂载） — `ctx.sessionTitle`：基于日志的会话标题服务与 provider 注册（get/rename/refresh/register）
-- `session-title-first-prompt-llm`（已挂载） — 标题 provider：用首条消息经 LLM 生成标题
+- `session-title-all-prompts-llm`（已挂载，树外加装） — 标题 provider：聚合**全部**符合条件的用户消息经 LLM 生成/更新标题（每条用户消息触发一次修订、随会话演进；`messageSeqs` 即聚合到的消息序号）；fff 以 `provider: ustc` / `model: deepseek-v4-flash` / `maxInputBytes: 32768` 覆盖——聚合输入超 `maxInputBytes` 即请求失败并**保留旧标题**（不截断历史），`ctx.sessionTitle.refresh()` 为显式重试
+- `session-title-first-prompt-llm`（已挂载，fff 禁用） — 标题 provider：用首条消息经 LLM 生成标题（只在首条人类消息时触发一次）；因 `ctx.sessionTitle` 只允许注册一个 provider（二次注册抛错），fff 在 patch 层置 `disabled: true` 后改挂 all-prompts 变体
 - `session-title-llm` — 标题 provider 共享的 LLM 生成策略
 - `session-turn-outline` — 整日志投影 `turnOutline`：回合大纲
 - `spill`（`ctx.spillStore`） — `ctx.spillStore`：超大输出的落盘存储缝（saveText → 取回定位符）
