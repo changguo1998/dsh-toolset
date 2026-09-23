@@ -84,7 +84,6 @@ dsh --profile <p>                      # 启动（需要真实终端；真实链
 每回合瞬态的思考 / 工具调用 / notice / 非 final 中间输出**按时间顺序混合显示**，不做类型分组；内容自 pane 底边往上长（恒底部对齐），填满整块 pane 后才折叠最早内容，可上滚回看。
 
 - **清空时机**：只在「用户输入开启的回合」清空（提交消息、或排队消息被核心认领）；核心自发的回合（goal 轮次、定时唤醒等）保留上一轮内容继续往上堆。
-- **思考打字机**：真实链路下 reasoning 按打字机节奏放缓显示（初始约 120 字符/秒；正文到达后剩余思考加速到 200 字符/秒放完再铺正文，turn 结束后回落初始速度）。思考以紫色竖线 `┃` 标识；`streamTypewriter: false` 或 mock demo 保持原速。
 - **工具行**：`bash <摘要>`（无前缀图标），结果 `✓ <首行>` / 失败红色 `✗ <详情>`；每步以 `╌╌ step N ╌╌╌…` 整行虚线分隔，连续两次调用之间不空行。
 - **详略两态**：`/verbose off` 紧凑模式把每条目压成 1 行 + 行尾 `…`，便于高密度浏览长任务输出。
 - **面板优先**：审批 / 问答 / 模型选择 / 各列表面板打开时占满活动区可视行，瞬态行本帧让位。
@@ -166,13 +165,11 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
   name: '@dsh-toolset/tui'
   config:
     theme: light                # dark | light（默认 dark）
-    streamTypewriter: true      # 思考打字机总开关（默认 true）
-    streamCharsPerSecond: 120   # 思考打字机初始流速（默认 120，合法域 1..2000）
     messageGutter: 6            # 用户块左缘 / 回复右缘对称留空列数（默认 6，合法域 0..20）
     toolBootstrap: true         # 锚定工具引导（默认 true，仅 deepseek-v4-pro 生效）
 ```
 
-缺省或非法值回退默认并在启动时告警；改后需重启 `dsh --profile <p>`。`streamCharsPerSecond` 只在 `streamTypewriter: true` 时生效，按码点切分不拆 emoji/CJK。默认 `messageGutter: 6` 使输入最长折行的左缘与回复正文第 5 个字符同列；要让它对齐回复的第 k 个字符，配置 `messageGutter: k+1`。
+缺省或非法值回退默认并在启动时告警；改后需重启 `dsh --profile <p>`。默认 `messageGutter: 6` 使输入最长折行的左缘与回复正文第 5 个字符同列；要让它对齐回复的第 k 个字符，配置 `messageGutter: k+1`。
 
 **锚定工具引导（`toolBootstrap`，默认 true）**：移植 [dsh-anchored-standard](https://github.com/Jungod1121/dsh-anchored-standard) 的两阶段工具锁定-释放——按会话首个真实用户消息分类（spec / react / weak），首请求仅暴露 `bash` + `read`（spec 加 `edit`、react 加 `write`，`glob`/`grep` 永不进入）并把 persona 作为唯一 prompt section、清空 contexts；会话记录首次 `tool/call` 后解锁全量工具目录并恢复完整 sections。仅对 `deepseek-v4-pro` 生效，其它模型或 `toolBootstrap: false` 时原样透传；promotion 状态按会话记忆（resume 保留），任何异常降级为全量目录（fail-open）。
 

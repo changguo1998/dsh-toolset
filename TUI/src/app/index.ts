@@ -90,18 +90,8 @@ import {
 import { StatusTicker, type StatusQueries } from "./status.ts";
 import type { ActivityPlacement } from "./config.ts";
 
-// 仅真实链路生效的思考打字机节奏：tick 固定 50ms，每 tick 放出的字符数
-// 由 streamCharsPerSecond(字符/秒)折算并按分数累计，低速下也能正确逐字输出；
-// 切分按码点进行，避免把 emoji/CJK 代理对拆断；对象仅为 thinking(reasoning)。
-// 正文回复即时显示；正文到达后剩余思考自动加速到 SLOW_STREAM_ARRIVED_CPS 放完，
-// 尽快进入正文。mock demo 不经过该队列。
-const SLOW_TICK_MS = 50;
-/** streamCharsPerSecond 缺省/非法时的兜底流速(字符/秒) */
-const SLOW_DEFAULT_CPS = 120;
 /** Ctrl+C 双击退出窗口(毫秒)：窗口内第二次 Ctrl+C 退出程序 */
 const CTRL_C_DOUBLE_MS = 750;
-/** 收到正文回复(stream)后：剩余思考的加速流速(尽快进入正题) */
-const SLOW_STREAM_ARRIVED_CPS = 200;
 /** 退出时清理空会话的最长等待(ms)：防会话服务挂起把退出卡死。
  *  正常清理毫秒级即可完成，超时仅放弃清理并继续退出。 */
 const EXIT_CLEAN_TIMEOUT_MS = 5000;
@@ -177,10 +167,6 @@ export interface AppDeps {
   };
   /** 初始主题（默认 dark=fffdark；/theme 切换仅当前会话） */
   initialTheme?: ThemeId;
-  /** 真实链路：流式正文放缓显示(打字机节奏)；mock demo 默认关闭保持原速 */
-  slowStream?: boolean;
-  /** 打字机流速(字符/秒，合法性由 main 归一化；兜底 SLOW_DEFAULT_CPS) */
-  streamCharsPerSecond?: number;
   /** 跨回合最小帧间隔(ms)：>0 时限帧到该频率（窗口内跨宏任务的标脏合并到窗口末
    *  统一出帧）；缺省 0=不限帧（测试/演示保持立即出帧）。真实接线 main.ts 传 100=10Hz。 */
   frameIntervalMs?: number;
@@ -237,14 +223,6 @@ export class App {
   /** 运行中闪烁时间驱动定时器（running 期间周期性发 virt-tick：无数据时虚拟速度
    *  衰减回落、虚拟总 token 持续积分——闪烁频率渐降到最低而不断） */
   private virtTimer: ReturnType<typeof setInterval> | null = null;
-  // 打字机队列：仅作用于 thinking(reasoning)——正文是最终保留的回复，须即时显示；
-  // 思考是“输出结束会被隐藏”的瞬态内容，按 tick 逐段放出便于阅读（slowStream 开启时使用）。
-  private thinkingPending = "";
-  /** 思考放完前到达的正文段按序缓冲，思考清空后再即时显示(不限制正文流速) */
-  private pendingStream: string[] = [];
-  /** 思考放完前到达的 turn-end 记下，放完后补执行(不分隔线；思考保留至下回合一并清) */
-  private pendingTurnEnd = false;
-  private slowTimer: ReturnType<typeof setInterval> | null = null;
   /** 面板定时刷新 timer（/agents、/workflows 共用；仅面板打开期间存活，tick 自检 kind） */
   private panelRefreshTimer: ReturnType<typeof setInterval> | null = null;
   /** 当前定时刷新面板 kind 对应的 refresh + 服务名（stop 前检查） */
@@ -253,7 +231,6 @@ export class App {
     refresh: (() => Promise<void>) | undefined;
     label: string;
   } | null = null;
-  private slowCps = SLOW_DEFAULT_CPS;
   /** 声音提醒：待用户输入超阈值计时器（turn-end 启动，任意键输入清除） */
   private idleBellTimer: ReturnType<typeof setTimeout> | null = null;
   /** 声音提醒：bell 总开关（deps.notify?.enabled ?? true） */
@@ -276,16 +253,10 @@ export class App {
   >();
   /** 启动自动清理空会话开关（deps.autoCleanEmpty ?? false） */
   private autoCleanEmpty = false;
-  /** 每 turn 思考的初始流速（配置值或默认）；正文加速后在下个 turn 回落 */
-  private slowCpsBase = SLOW_DEFAULT_CPS;
   /** 上次 Ctrl+C 时间戳；双击窗口内再次按下则退出（含输入为空时计数） */
   private lastCtrlCAt = 0;
-  /** turn-end 后置位：下一条 thinking 视为新 turn，先把流速回落到 slowCpsBase */
-  private slowNewTurn = false;
   /** 当前 turn 是否已画分隔线(回合开始画；turn-end 清) */
   private turnOpen = false;
-  /** 每 tick 累积的字符配额余数（低速时不足 1 字符的跨 tick 累计） */
-  private slowCredit = 0;
   /** 两 pane 可滚动上限（renderFrame 出帧时回填；滚键据此收敛偏移，防越界假死） */
   private paneScrollMax: FrameScrollReport = {
     dialogueMaxScroll: 0,
@@ -373,13 +344,6 @@ export class App {
     }
     // 启动自动清理空会话（tui.config.json session.autoCleanEmpty；缺省关闭）
     this.autoCleanEmpty = deps.autoCleanEmpty === true;
-    // 初始思考流速来自配置(默认 120)；收到正文后由 SLOW_STREAM_ARRIVED_CPS 加速，
-    // turn 结束后回落到 slowCpsBase（下个 turn 重新从慢速开始）
-    const cps = this.deps.streamCharsPerSecond;
-    if (typeof cps === "number" && Number.isFinite(cps) && cps > 0) {
-      this.slowCps = cps;
-      this.slowCpsBase = cps;
-    }
     this.state = initialState(
       normalizeThemeId(this.deps.initialTheme ?? DEFAULT_THEME),
       {
@@ -680,9 +644,6 @@ export class App {
     // 待处理合帧作废：已排队的 microtask 见 disposed 直接返回，不再写终端
     this.paintDirty = false;
     this.paintScheduled = false;
-    this.dropThinking();
-    this.pendingStream = [];
-    this.pendingTurnEnd = false;
     for (const f of this.unbindEvents) f();
     this.unbindEvents = [];
     this.stopPanelRefresh();
@@ -852,20 +813,13 @@ export class App {
           }
         }
         const streamText = unified !== null ? unified.text : e.text;
-        if (this.deps.slowStream && this.slowTimer) {
-          // 思考打字机进行中：正文段入缓冲，等思考放完再即时显示(不限制正文流速)；
-          // 正文已到=模型进入正题，剩余思考加速放完
-          this.slowCps = SLOW_STREAM_ARRIVED_CPS;
-          this.pendingStream.push(streamText);
-        } else {
-          this.apply((s) =>
-            reduceState(s, {
-              type: "append",
-              text: streamText,
-              time: Date.now(),
-            }),
-          );
-        }
+        this.apply((s) =>
+          reduceState(s, {
+            type: "append",
+            text: streamText,
+            time: Date.now(),
+          }),
+        );
         break;
       case "thinking":
         if (
@@ -875,24 +829,13 @@ export class App {
           break;
         }
         this.beginTurnIfNeeded();
-        if (this.deps.slowStream) {
-          // 打字机只作用于 thinking(reasoning)：逐段放出便于阅读；正文不受此限制。
-          // 每个 turn 的思考从初始流速开始（正文加速仅限当次回合）
-          if (this.slowNewTurn) {
-            this.slowNewTurn = false;
-            this.slowCps = this.slowCpsBase;
-          }
-          this.thinkingPending += e.text;
-          this.slowStart();
-        } else {
-          this.apply((s) =>
-            reduceState(s, {
-              type: "thinking",
-              text: e.text,
-              time: Date.now(),
-            }),
-          );
-        }
+        this.apply((s) =>
+          reduceState(s, {
+            type: "thinking",
+            text: e.text,
+            time: Date.now(),
+          }),
+        );
         break;
       case "agent-status":
         if (
@@ -937,19 +880,13 @@ export class App {
         );
         break;
       case "turn-end":
-        // turn 结束：不再画分隔线(下个回合开始时画)；登记下轮流速回落。
-        // 思考打字机进行中则等其放完再清思考(不打断思考读取)
+        // turn 结束：不再画分隔线(下个回合开始时画)。
         // P2#33 声音提醒：任务结束 bell + 启动「等待用户输入超阈值」计时（输入即清）
         this.onTurnEnded();
-        this.slowNewTurn = true;
         this.turnOpen = false;
-        if (this.deps.slowStream && this.slowTimer) {
-          this.pendingTurnEnd = true;
-        } else {
-          this.apply((s) => reduceState(s, { type: "turn-end" }));
-          this.warnStrippedChars();
-          this.flushSymbolTurn();
-        }
+        this.apply((s) => reduceState(s, { type: "turn-end" }));
+        this.warnStrippedChars();
+        this.flushSymbolTurn();
         break;
       case "tool-call":
       case "model-selection":
@@ -1013,81 +950,6 @@ export class App {
     const clearActivity = userInput || this.state.queued.length > 0;
     this.apply((s) => reduceState(s, { type: "turn-begin", clearActivity }));
     this.apply((s) => reduceState(s, { type: "queued-claim" }));
-  }
-
-  /** 启动 thinking 打字机；已在跑或已 disposed 时不动 */
-  private slowStart(): void {
-    if (this.slowTimer || this.disposed) return;
-    this.slowTimer = setInterval(() => {
-      if (this.thinkingPending === "") {
-        this.flushPending();
-        return;
-      }
-      // 分数累计配额：cps→每 tick 的字符数，余数跨 tick 保留（低速也逐步输出）
-      this.slowCredit += (this.slowCps * SLOW_TICK_MS) / 1000;
-      let n = Math.floor(this.slowCredit);
-      this.slowCredit -= n;
-      if (n < 1) return; // 本 tick 不足 1 字符，继续等待下一 tick
-      const pts = Array.from(this.thinkingPending);
-      n = Math.min(n, pts.length);
-      const text = pts.slice(0, n).join("");
-      this.thinkingPending = pts.slice(n).join("");
-      this.apply((s) =>
-        reduceState(s, { type: "thinking", text, time: Date.now() }),
-      );
-      this.paint();
-      if (this.thinkingPending === "") this.flushPending();
-    }, SLOW_TICK_MS);
-  }
-
-  /** thinking 放完后：按序即时显示积压正文，再补挂起的 turn-end(不再画线；思考保留显示) */
-  private flushPending(): void {
-    this.slowStop();
-    const texts = this.pendingStream;
-    this.pendingStream = [];
-    if (texts.length > 0) {
-      // 未放完的思考先整段放入缓冲（**不丢内容**）：活动区只在下次输入时整体清空
-      this.drainThinking();
-      for (const t of texts)
-        this.apply((s) =>
-          reduceState(s, { type: "append", text: t, time: Date.now() }),
-        );
-      this.paint();
-    }
-    if (this.pendingTurnEnd) {
-      this.pendingTurnEnd = false;
-      this.drainThinking();
-      this.apply((s) => reduceState(s, { type: "turn-end" }));
-      this.warnStrippedChars();
-      this.flushSymbolTurn();
-      this.paint();
-    }
-  }
-
-  private slowStop(): void {
-    if (this.slowTimer) {
-      clearInterval(this.slowTimer);
-      this.slowTimer = null;
-    }
-  }
-
-  /** 正文/turn-end 接管：把未放完的思考一次性放入缓冲（内容不丢；活动区只在下一次输入清空） */
-  private drainThinking(): void {
-    this.slowStop();
-    const rest = this.thinkingPending;
-    this.thinkingPending = "";
-    if (rest !== "") {
-      this.apply((s) =>
-        reduceState(s, { type: "thinking", text: rest, time: Date.now() }),
-      );
-      this.paint();
-    }
-  }
-
-  /** 丢弃未放完的思考队列（仅 dispose：不再渲染，无需放入缓冲） */
-  private dropThinking(): void {
-    this.slowStop();
-    this.thinkingPending = "";
   }
 
   /** turn 结束后警告：本回合剔除的非打印控制字符（渲染保护兜底） */

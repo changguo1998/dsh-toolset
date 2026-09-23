@@ -60,10 +60,6 @@ export function main(opts: {
   logger?: (m: string) => void;
   /** 初始主题（默认 dark） */
   initialTheme?: ThemeId;
-  /** 真实链路：流式正文放缓显示(打字机节奏)，mock demo 不传保持原速 */
-  slowStream?: boolean;
-  /** 思考打字机流速(字符/秒，默认 120；收到正文后自动加速到 200；由 apply 归一化) */
-  streamCharsPerSecond?: number;
   /** 用户块左缘/回复右缘对称留空(列数，默认 4；由 apply 归一化，域 0..20) */
   /** 用户块左缘/回复右缘对称留空(列数，默认 4；由 apply 归一化，域 0..20) */
   messageGutter?: number;
@@ -95,8 +91,6 @@ export function main(opts: {
     // 防事件洪峰时每回合全量排版过热；测试/演示不传（缺省 0=立即出帧）
     frameIntervalMs: 100,
     initialTheme: opts.initialTheme ?? resolvedThemes.active,
-    slowStream: opts.slowStream,
-    streamCharsPerSecond: opts.streamCharsPerSecond,
     messageGutter: opts.messageGutter,
   });
   app.setLogger(opts.logger ?? ((msg) => void msg));
@@ -126,10 +120,6 @@ export interface DshTuiConfig {
   reasoningEffort?: string;
   /** 初始主题（默认 dark=fffdark；light=ffflight） */
   theme?: ThemeId;
-  /** 打字机总开关（默认 true：真实链路放缓流式正文显示；false 恢复原速） */
-  streamTypewriter?: boolean;
-  /** 思考打字机流速（字符/秒，默认 120；收到正文后自动加速到 200；合法域 1..2000，非法回退默认） */
-  streamCharsPerSecond?: number;
   /** 用户块左缘/回复右缘对称留空（列数，默认 6；合法域 0..20，非法回退默认） */
   messageGutter?: number;
   /** 锚定工具引导（两阶段工具锁定-释放，移植自 dsh-anchored-standard）。
@@ -138,10 +128,6 @@ export interface DshTuiConfig {
 }
 
 export interface TuiDisplayConfig {
-  /** streamTypewriter 归一化结果 */
-  streamTypewriter: boolean;
-  /** streamCharsPerSecond 归一化结果（1..2000） */
-  streamCharsPerSecond: number;
   /** messageGutter 归一化结果（0..20，默认 6） */
   messageGutter: number;
 }
@@ -151,14 +137,7 @@ export interface TuiDisplayConfig {
  * 纯函数，便于单测；在 apply() 配置边界集中处理，app 内不需要再判断合法性。
  */
 export function normalizeTuiDisplayConfig(
-  raw:
-    | Partial<
-        Pick<
-          DshTuiConfig,
-          "streamTypewriter" | "streamCharsPerSecond" | "messageGutter"
-        >
-      >
-    | undefined,
+  raw: Partial<Pick<DshTuiConfig, "messageGutter">> | undefined,
   warn: (msg: string) => void = (m) =>
     process.stderr.write("[tui] config warning: " + m + "\n"),
 ): TuiDisplayConfig {
@@ -180,18 +159,6 @@ export function normalizeTuiDisplayConfig(
     return n;
   };
   return {
-    // 显式给出的值就地布尔化（YAML 写 false/0 均按关闭处理），缺省开启
-    streamTypewriter:
-      raw?.streamTypewriter === undefined
-        ? true
-        : Boolean(raw.streamTypewriter),
-    streamCharsPerSecond: num(
-      raw?.streamCharsPerSecond,
-      120,
-      1,
-      2000,
-      "streamCharsPerSecond",
-    ),
     messageGutter: num(raw?.messageGutter, 6, 0, 20, "messageGutter"),
   };
 }
@@ -413,9 +380,6 @@ export async function apply(
     initialTheme:
       config?.theme === undefined ? undefined : normalizeThemeId(config.theme),
     logger: (msg) => process.stderr.write("[tui] " + msg + "\n"),
-    // 真实接入链路：打字机放缓默认开启，streamTypewriter: false 可关闭
-    slowStream: display.streamTypewriter,
-    streamCharsPerSecond: display.streamCharsPerSecond,
     messageGutter: display.messageGutter,
   });
   // Cordis 插件生命周期：pause/unload 时释放 App/adapter——

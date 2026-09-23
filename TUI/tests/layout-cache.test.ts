@@ -296,14 +296,14 @@ function key(name: string): KeyEvent {
   return { name, ctrl: false, meta: false, shift: false };
 }
 
-function makeApp(slowStream = false): {
+function makeApp(): {
   app: App;
   renderer: FrameRenderer;
   adapter: EventAdapter;
 } {
   const renderer = new FrameRenderer();
   const adapter = new EventAdapter();
-  const app = new App({ renderer, adapter, slowStream });
+  const app = new App({ renderer, adapter });
   app.start();
   return { app, renderer, adapter };
 }
@@ -384,18 +384,6 @@ test("合帧：绘制期间再次标脏会补画一帧并收敛（不自旋）",
   );
   await drain();
   assert.equal(renderer.frames.length, 3, "无新标脏时不应继续出帧");
-});
-
-test("合帧：思考打字机每 tick 出帧，不被合帧吞掉（定时路径）", async () => {
-  const { renderer, adapter } = makeApp(true);
-  adapter.emit({ type: "thinking", sessionId: "s1", text: "思".repeat(60) });
-  await new Promise((r) => setTimeout(r, 30));
-  const afterFirst = renderer.frames.length;
-  await new Promise((r) => setTimeout(r, 130));
-  assert.ok(
-    renderer.frames.length > afterFirst,
-    "打字机应随定时 tick 持续出帧（合帧不得跨 tick 延迟定时绘制）",
-  );
 });
 
 test("合帧：dispose 丢弃待处理帧（不再写终端）", async () => {

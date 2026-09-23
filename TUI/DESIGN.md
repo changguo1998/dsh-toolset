@@ -167,7 +167,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 
 ### 展示类配置
 
-展示类配置在 `apply()` 边界由 `normalizeTuiDisplayConfig` 一次性归一化（非法值告警 + 回退默认），经 `main()` → `App` → `initialState` 下传，app 内不再校验：`streamTypewriter`、`streamCharsPerSecond`、`messageGutter`、`theme`。`toolBootstrap` 属行为开关，在 `apply()` 直接读 `config.toolBootstrap` 透传，不参与 display 归一化。配置项与默认值见 `README.md`。
+展示类配置在 `apply()` 边界由 `normalizeTuiDisplayConfig` 一次性归一化（非法值告警 + 回退默认），经 `main()` → `App` → `initialState` 下传，app 内不再校验：`messageGutter`、`theme`。`toolBootstrap` 属行为开关，在 `apply()` 直接读 `config.toolBootstrap` 透传，不参与 display 归一化。配置项与默认值见 `README.md`。
 
 ### 锚定工具引导（两阶段工具锁定-释放）
 

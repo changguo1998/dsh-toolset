@@ -57,7 +57,6 @@
 
 ## 文本管线（流式 / 清洗 / 补发）
 
-- **打字机（思考）**：真实链路 `slowStream`（默认 true）只对 thinking 生效；初始流速 `streamCharsPerSecond`（默认 120，分数累计配额、按码点切分不拆 emoji）随 tick（50ms）逐段 append；收到正文后加速到 200 字符/秒放完剩余思考；`turn-end` 置 `slowNewTurn`，下一条 thinking 回落初始速度——每个 turn 的思考都从初始速度重新开始。正文**即时显示**：思考队列运行期间到达的正文段按序缓冲（`pendingStream`），思考放完后一次性铺出再执行 turn-end。思考保留显示至下个回合 `turn-begin` 统一清空。
 - **sanitizeText（渲染保护）**：流式文本进 buffer 前清洗——CRLF / 孤立 CR 归一为换行（否则 `\r` 残留被终端当回车、抹掉整行造成大段空白），其余 C0/C1 控制字符（含 Tab、孤立 ESC）剔除，完整 ANSI 转义序列（CSI / OSC）保留（渲染着色功能，`/copy` 时再剥离）。剔除计数入 `state.strippedChars`（turn-begin 清零），turn-end 后以黄色 notice 提示。恢复历史（`surfaceToBuffer`）同样走清洗。
 - **非流式回复补发**：`assistant/message` 是每个 step 结束必发的完整正文 surface 事件。adapter 按 `(session:turn:step)` 累计已流式输出的正文（reasoning 不计），该事件只补发缺失后缀；非流式 / 无思考 provider（无任何 chunk）累计为空 → 直接输出完整正文。`surfaceOp: replace` 的影子覆盖事件跳过（append-only 无法安全重写）；`turn/end` 与 dispose 清空累计。
 - **消息 identified**：`buildUserMessage` 用 `crypto.randomUUID()` 生成稳定消息 `id`——`agent/inbox/spliced` 与 `user/message` 均带 identified 标记；缺 id 会导致后续 `agents.resume` 全量校验抛 `SessionPersistenceCorruptionError`（会话永久不可 resume）。
