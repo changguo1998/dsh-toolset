@@ -43,6 +43,19 @@ export interface Renderer {
   onKey(cb: (k: KeyEvent) => void): void;
   /** 合成按键注入（无 TTY / 测试 / 脚本驱动用；不经 stdin 解码） */
   emitKey(k: KeyEvent): void;
+  /** 合成 CPR 响应注入（无 TTY / 测试 / 脚本驱动用；实现可选） */
+  emitCpr?(row: number, col: number): void;
+  /**
+   * 终端字符宽度探测（EAW 歧义字符的实测取值）：批量写「字符 + `CSI 6n`」，
+   * 再按序读回光标位置（CPR），列差即该字符占用的列数——一次往返完成整批。
+   * 终端不支持 CPR 时在 `timeoutMs` 后返回已收集结果（可能为空 Map）。
+   * 探测字符会短暂出现在屏幕原点：调用方应在首帧渲染前调用（首帧清屏覆盖）。
+   * 注入型 renderer 可不实现（App 侧判空后跳过探测，沿用静态表）。
+   */
+  probeSymbolWidths?(
+    chars: readonly string[],
+    timeoutMs?: number,
+  ): Promise<Map<string, number>>;
   onResize(cb: (cols: number, rows: number) => void): void;
   getSize(): Size;
   /** 切换主题（改变基底前景/背景与 16 色槽位映射） */
@@ -72,10 +85,17 @@ export interface CreateRendererOptions {
 export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
   const terminal = createTerminal();
   const themes = opts.themes ?? THEMES;
-  const screen = new Screen({ write: opts.write, themes });
+  // 原始写出句柄（屏幕渲染与宽度探测共用同一出口，便于测试捕获）
+  const write = opts.write ?? ((s: string) => process.stdout.write(s));
+  const screen = new Screen({ write, themes });
   const decoder = new KeyDecoder();
   const keyCbs = new Set<(k: KeyEvent) => void>();
   const resizeCbs = new Set<(cols: number, rows: number) => void>();
+  // CPR 等待者（宽度探测：终端对 CSI 6n 的应答按序唤醒）
+  const cprWaiters = new Set<(row: number, col: number) => void>();
+  decoder.onCpr = (row, col) => {
+    for (const w of [...cprWaiters]) w(row, col);
+  };
   const delta = opts.delta ?? true;
   const exitOnClose = opts.exitOnClose ?? true;
   // 当前主题（序列化文本比较用；随 setTheme 同步，screen.theme 为私有）
@@ -171,6 +191,53 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
     },
     emitKey(k: KeyEvent): void {
       for (const cb of keyCbs) cb(k);
+    },
+    emitCpr(row: number, col: number): void {
+      decoder.onCpr?.(row, col);
+    },
+    async probeSymbolWidths(
+      chars: readonly string[],
+      timeoutMs = 500,
+    ): Promise<Map<string, number>> {
+      const widths = new Map<string, number>();
+      if (closed || chars.length === 0) return widths;
+      const unique = [...new Set(chars)];
+      // 批量探测：一次报文写完全部「字符 + CSI 6n」，响应按序到达
+      const responses: Array<{ row: number; col: number }> = [];
+      const collected = new Promise<void>((resolve) => {
+        const onCpr = (row: number, col: number): void => {
+          responses.push({ row, col });
+          if (responses.length >= unique.length) {
+            clearTimeout(timer);
+            cprWaiters.delete(onCpr);
+            resolve();
+          }
+        };
+        const timer = setTimeout(() => {
+          cprWaiters.delete(onCpr);
+          resolve();
+        }, timeoutMs);
+        cprWaiters.add(onCpr);
+      });
+      let payload = "\x1b[1;1H";
+      for (const ch of unique) payload += ch + "\x1b[6n";
+      write(payload);
+      await collected;
+      // 解析：同一行内相邻 CPR 的列差即字符宽度；跨行（自动换行）跳过该字符
+      let prevRow = 1;
+      let prevCol = 1;
+      for (let i = 0; i < responses.length; i++) {
+        const { row, col } = responses[i]!;
+        const ch = unique[i]!;
+        if (row === prevRow) {
+          const w = col - prevCol;
+          if (w === 1 || w === 2) widths.set(ch, w); // 仅接受合理值，异常跳过
+        }
+        prevRow = row;
+        prevCol = col;
+      }
+      write("\x1b[1;1H"); // 复位光标（首帧会重绘并覆盖探测残留）
+      return widths;
     },
     onResize(cb: (cols: number, rows: number) => void): void {
       resizeCbs.add(cb);

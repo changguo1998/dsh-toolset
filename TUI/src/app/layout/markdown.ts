@@ -9,6 +9,7 @@
 import type { ColorName, ThemeId } from "../../renderer/theme.ts";
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
 import {
+  clearLayoutCaches,
   createTextCache,
   layoutCacheEnabled,
   memo,
@@ -400,6 +401,40 @@ const NARROW_TEXT_SYMBOLS = new Set<number>([
 const CHAR_WIDTH_TABLE = new Uint8Array(0x110000);
 registerCacheReset(() => CHAR_WIDTH_TABLE.fill(0));
 
+/**
+ * 终端实测宽度覆盖表（码点 → 列数）：启动探测（`Renderer.probeSymbolWidths`）
+ * 对 EAW 歧义字符（A 类）测得的真实列数——不同终端对 A 类的解析不同（1 或 2 列），
+ * 静态表只能保守取值，实测值优先于全部静态判定。
+ */
+const WIDTH_OVERRIDES = new Map<number, number>();
+
+/**
+ * 写入实测宽度覆盖（探测结果）：仅在新值与既有不同时清空全部排版缓存，
+ * 使新的宽度立即生效。返回是否有变化（供调用方决定是否重绘）。
+ */
+export function setWidthOverrides(
+  entries: Iterable<readonly [string, number]>,
+): boolean {
+  let changed = false;
+  for (const [ch, width] of entries) {
+    const cp = ch.codePointAt(0);
+    if (cp === undefined || width < 0) continue;
+    if (WIDTH_OVERRIDES.get(cp) !== width) {
+      WIDTH_OVERRIDES.set(cp, width);
+      changed = true;
+    }
+  }
+  if (changed) clearLayoutCaches(); // 宽度变了：已缓存的折行/宽度结果全部失效
+  return changed;
+}
+
+/** 清空实测覆盖（测试用；同时清排版缓存） */
+export function clearWidthOverrides(): void {
+  if (WIDTH_OVERRIDES.size === 0) return;
+  WIDTH_OVERRIDES.clear();
+  clearLayoutCaches();
+}
+
 /** 按字符显示宽度计算（CJK/全角 = 2 列，组合符/零宽 = 0，其余 = 1 列） */
 export function charWidth(ch: string): number {
   const cp = ch.codePointAt(0)!;
@@ -410,8 +445,11 @@ export function charWidth(ch: string): number {
   return width;
 }
 
-/** charWidth 的直算路径（无缓存；含零宽、文本符号例外与 EAW 表判定） */
+/** charWidth 的直算路径（无缓存；含实测覆盖、零宽、文本符号例外与 EAW 表判定） */
 function computeCharWidth(cp: number): number {
+  // 终端实测覆盖（启动探测；最权威，优先于所有静态判定；未探测时表为空）
+  const probed = WIDTH_OVERRIDES.get(cp);
+  if (probed !== undefined) return probed;
   // 零宽字符：组合附加符/变体选择符/ZWJ 等（占 0 列，避免提前换行与总宽虚高）
   if (isZeroWidthChar(cp)) return 0;
   // 文本呈现符号例外（✓/✗ 等 UI 状态标记按 1 列，见 NARROW_TEXT_SYMBOLS）
@@ -420,8 +458,8 @@ function computeCharWidth(cp: number): number {
   // - W/F：无歧义宽字符（CJK/全角/多数 emoji）按 2 列；
   // - A（歧义）仅在几何/符号/CJK/emoji 保守区间内按 2 列（可能被 CJK 字体按全角
   //   设计，防低估撑破窗口），其余 A 类（→ × ± 等）按 1 列，与主流终端一致；
-  // - emoji 保守集：EAW=N/A 但带 emoji 属性且 ≥ U+2190（❤✂🇨 等）按 2 列——多数
-  //   终端按 emoji 呈现，按 1 列会低估撑破；
+  // - emoji 保守集：EAW=N/A 但带 emoji 属性且 ≥ U+2190（U+2764 心形、U+2702 剪刀、
+  //   U+1F1E8 区域指示符等）按 2 列——多数终端按 emoji 呈现，按 1 列会低估撑破；
   // - N（中性）且无 emoji 属性（⬤ U+2B24、⬀ U+2B00 等纯几何/装饰符号）落到默认
   //   1 列——旧实现整段按 2 会多留一格（本次修复点）。
   if (inFlatRanges(cp, EAW_WIDE_RANGES)) return 2;

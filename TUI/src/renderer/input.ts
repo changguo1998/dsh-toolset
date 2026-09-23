@@ -23,6 +23,11 @@ export class KeyDecoder {
   private pending: number[] = [];
   /** bracketed paste 累积原始字节；null = 不在 paste 模式 */
   private pasteRaw: number[] | null = null;
+  /**
+   * CPR（Cursor Position Report，`CSI row ; col R`）响应回调。
+   * 终端对 `CSI 6n` 的应答经此上报（字符宽度探测用），**不作为按键事件**产出。
+   */
+  onCpr: ((row: number, col: number) => void) | null = null;
 
   feed(bytes: ArrayLike<number> | null | undefined): KeyEvent[] {
     if (bytes) this.pending.push(...Array.from(bytes));
@@ -156,6 +161,14 @@ export class KeyDecoder {
       return key
         ? { name: key, ctrl: false, meta: false, shift: false }
         : undefined;
+    }
+    // CPR 响应（CSI row ; col R）：宽度探测的 `CSI 6n` 应答 → 交回调，不作按键
+    if (fin === 0x52 /* 'R' */ && params.length > 0) {
+      const digits = String.fromCharCode(...params);
+      const m = /^(\d+);(\d+)$/.exec(digits);
+      this.pending.splice(0, seqLen);
+      if (m) this.onCpr?.(Number(m[1]), Number(m[2]));
+      return CONSUMED;
     }
     // 字母终态：光标键 + 可选修饰符
     const modifiers = params.includes(0x3b);

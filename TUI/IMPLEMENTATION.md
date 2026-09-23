@@ -193,6 +193,18 @@
 
 **回归**：`tests/symbols.test.ts`（纯函数 7 例）+ `tests/app.test.ts`「symbols」组（展示层替换 / notice / warnModel 注入与关闭 / recommended 扩展 / 开关 / 同符号冷却：run 次数解冻、时间窗维度、跨符号互不影响、变体冷却）。
 
+## 字符宽度（EAW 精确表 + 启动探测）
+
+- **静态表**（`layout/eaw-table.ts`，生成物）：`scripts/gen-width-table.mts` 生成——EAW（UAX #11）取自 `scripts/eaw-dump.py`（Python `unicodedata`），emoji 属性取自 Node `\p{Emoji}` / `\p{Emoji_Presentation}`（UTS #51）。三张扁平区间表（每两个数字一对 `[lo, hi]`，运行期二分）：
+  - `EAW_WIDE_RANGES`：EAW ∈ {W, F} → 2 列（CJK/全角/多数 emoji）；
+  - `EAW_AMBIGUOUS_CONSERVATIVE`：EAW = A 且落在几何/符号/CJK/emoji 保守区间 → 2 列（这些符号可能被 CJK 字体按全角设计，防低估撑破）；
+  - `EMOJI_CONSERVATIVE`：EAW = N/A 但带 emoji 属性且 ≥ U+2190 → 2 列（多数终端按 emoji 呈现；排除箭头区与 ™/©/® 等 1 列字符）。
+  - 重新生成：`TUI` 内 `npm run gen:width-table`，随后跑 `format` 对齐数组换行。
+- **判定顺序**（`layout/markdown.ts` `computeCharWidth`）：实测覆盖 → 零宽 → 文本符号例外（`NARROW_TEXT_SYMBOLS`）→ W/F → A(保守) → emoji 保守集 → 默认 1 列。
+- **启动探测**（`Renderer.probeSymbolWidths` + `App.probeWidths`）：A 类（歧义）字符的实际列数由终端/字体解析决定（1 或 2 列），静态表只能保守取值。启动时（首帧渲染**前**）对推荐符号集（`DEFAULT_RECOMMENDED`）批量写「字符 + `CSI 6n`」，按序读回 CPR 光标位置，列差即实测列宽——**一次往返**完成整批；结果经 `setWidthOverrides` 写入覆盖表并清排版缓存，宽度确有变化则重绘一帧（探测字符画在原点，被首帧清屏覆盖）。终端不支持 CPR → 500ms 超时后静默沿用静态表；`TUI_WIDTH_PROBE=0` 整体关闭。
+- **修复背景**：旧实现把 `0x2B00-0x2BFF`、`0x2600-0x27BF` 等区间**整段**按 2 列，使 EAW=N（中性、无歧义 1 列）字符（如 U+2B24、U+2B00）在屏幕上多留一格；现按 EAW 精确判定，N 类归 1 列，emoji 保守集仍按 2 列防低估撑破。
+- **回归**：`tests/width-eaw.test.ts`（N/W/A/emoji 分层与优先级）、`tests/width-probe.test.ts`（CPR 解码不产按键、批量列差解析、超时回退、跨行跳过、覆盖表失效）。
+
 ## 排版缓存与绘制合帧（性能）
 
 排版成本集中在折行 / 宽度计算的逐字符工作（`wrapLine` / `displayWidth` / `wrapInlineMarkdown` 等，measure 与 fill 两阶段都调）。优化分两层，互不耦合：

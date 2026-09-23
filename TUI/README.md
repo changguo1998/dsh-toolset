@@ -303,6 +303,8 @@ npm run watch # tsc --watch 常驻编译到 dist/（仍需重启 dsh 生效）
 
 排版折行 / 宽度纯函数走有界缓存（键含文本 + 列宽 + 主题，`TUI_LAYOUT_CACHE=0` 可关）；`paint()` 同 tick 合帧（真实链路默认 10Hz 上限，`AppDeps.frameIntervalMs`）。机制与基准见 `IMPLEMENTATION.md`「排版缓存与绘制合帧」。
 
+字符宽度按 EAW 精确表判定（N 类 1 列 / W·F 2 列 / A 类保守 2 列），并在启动时对推荐符号集做一次终端实测（`CSI 6n` 光标列差）覆盖歧义字符的真实列数（`TUI_WIDTH_PROBE=0` 可关）；见 `IMPLEMENTATION.md`「字符宽度（EAW 精确表 + 启动探测）」。
+
 ## 已知限制
 
 - **模型选择不随会话持久化**：`/model` 只改进程内当前选择，会话不保存、resume 后回落宿主默认模型；同进程内切换会话也可能带上先前选择。详见 `IMPLEMENTATION.md`「/model 命令」。

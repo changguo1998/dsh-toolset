@@ -32,6 +32,7 @@ import type {
 } from "./adapter/dsh.ts";
 import type { NoticeTone } from "./adapter/types.ts";
 import {
+  DEFAULT_RECOMMENDED,
   normalizeSymbols,
   resolveSymbolRules,
   type NormalizeResult,
@@ -39,6 +40,7 @@ import {
   type SymbolRemap,
   type SymbolRulesConfig,
 } from "./symbols.ts";
+import { setWidthOverrides } from "./layout/markdown.ts";
 import {
   parseSlashCommand,
   type CommandPanelKind,
@@ -361,6 +363,28 @@ export class App {
   /** 预留日志注入点（当前无内部消费方，保持 API 兼容为 no-op） */
   setLogger(_fn: (msg: string) => void): void {}
 
+  /**
+   * 启动宽度探测：对推荐符号集做一次终端实测（`CSI 6n` 光标列差），把 EAW 歧义
+   * （A 类）字符的真实列数写入宽度覆盖表——不同终端/字体对 A 类的解析不同
+   * （1 或 2 列），静态表只能保守取值（见 `layout/eaw-table.ts`）。
+   *
+   * 时序：首帧渲染**前**发起（探测字符画在原点，首帧清屏覆盖它）；响应到达后若
+   * 宽度确有变化则重绘一帧。终端不支持 CPR 时超时（500ms）后静默沿用静态表。
+   * `TUI_WIDTH_PROBE=0` 可整体关闭（排查用）。
+   */
+  private probeWidths(): void {
+    if (process.env.TUI_WIDTH_PROBE === "0") return;
+    const probe = this.deps.renderer.probeSymbolWidths;
+    if (typeof probe !== "function") return;
+    void probe
+      .call(this.deps.renderer, DEFAULT_RECOMMENDED)
+      .then((widths) => {
+        if (this.disposed || widths.size === 0) return;
+        if (setWidthOverrides(widths)) this.paint(); // 宽度变了：重排重绘
+      })
+      .catch(() => {});
+  }
+
   start(): void {
     this.deps.renderer.onKey((k) => this.handleKey(k));
     this.deps.renderer.onResize(() => this.paint());
@@ -392,6 +416,8 @@ export class App {
       if (this.virtTimer) clearInterval(this.virtTimer);
       this.virtTimer = null;
     });
+    // 首帧前发起终端宽度探测（异步、不阻塞首帧；首帧清屏覆盖探测残留）
+    this.probeWidths();
     // 首帧前同步 renderer 主题（基底色/词槽位随 /theme 切换）
     this.deps.renderer.setTheme(this.state.themeId);
     this.paintNow();
