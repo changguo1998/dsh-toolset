@@ -29,10 +29,19 @@ import {
   anchorToIndex,
   anchorToOffset,
   dialogueWindow,
+  emptyRunVirt,
+  estimateOutputTokens,
   moveDialogueAnchor,
+  nextRunVirt,
   turnGroupStarts,
+  virtTick,
+  VIRT_SPEED_MIN,
+  TOKEN_CALIB_ALPHA,
+  TOKEN_CALIB_MAX,
+  TOKEN_CALIB_MIN,
   type DialogueAnchor,
   type DialogueGeometry,
+  type RunVirtState,
 } from "./layout.ts";
 import { completeCommandInput, type CommandCandidate } from "./commands.ts";
 import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
@@ -62,9 +71,9 @@ export const DEFAULT_MESSAGE_GUTTER = 6;
 /** 输入栏临时模式（$ shell / / slash；提交后自动回退 normal，不再有 Esc 回退） */
 export type InputMode = "normal" | "shell" | "slash";
 
-/** 输入状态（状态栏最左侧符号）：绿✓=成功 / 红✗=失败 / 黄○=运行中 /
- *  黄△=等待交互（审批/问答面板打开等用户决策）/ idle=尚无结果（渲染回退 ?，
- *  未知状态也回退 ?） */
+/** 输入状态（状态栏最左侧符号）：绿✓=成功 / 红✗=失败 / 黄●/○=运行中（实心/空心
+ *  圆按流式输出节奏交替，见 RUN_TOGGLE_CHARS）/ 黄△=等待交互（审批/问答面板打开等
+ *  用户决策）/ idle=尚无结果（渲染回退 ?，未知状态也回退 ?） */
 export type InputStatus =
   "success" | "failure" | "running" | "waiting" | "idle";
 
@@ -341,8 +350,8 @@ export interface AppState {
   queued: string[];
   /** 输入模式（符号代表模式；提交后自动回退 normal） */
   inputMode: InputMode;
-  /** 输入状态（状态栏最左侧符号来源）：绿✓=成功 / 红✗=失败 / 黄○=运行中 /
-   *  黄△=等待交互（审批/问答面板打开）/ idle=尚无结果（渲染回退 ?） */
+  /** 输入状态（状态栏最左侧符号来源）：绿✓=成功 / 红✗=失败 / 黄●/○=运行中（按
+   *  流式输出节奏交替）/ 黄△=等待交互（审批/问答面板打开）/ idle=尚无结果（渲染回退 ?） */
   inputStatus: InputStatus;
   approval: ApprovalItem | null;
   agentStatus: AgentStatus;
@@ -431,6 +440,14 @@ export interface AppState {
   symbolUnify: boolean;
   /** 本回合剔除的非打印控制字符计数（appendStream 累计；turn-begin 清零、turn-end 警告） */
   strippedChars: number;
+  /** 运行中闪烁虚拟状态（速度/虚拟总 token/时间基准/速率估计窗口）。run 边界 =
+   *  两次用户输入之间：下次用户输入（turn-begin clearActivity=true）时重置；
+   *  turn-end 仅把速度更新为下限（输出停止），虚拟总 token 保留 */
+  runVirt: RunVirtState;
+  /** 本 step 估算 token 累计（P5：流末 usage 真值到达时用于校准 tokenCalib） */
+  stepEstTokens: number;
+  /** 估算 token 校准系数（P5：usage 真值/估算值的 EMA，跨 step 保留，缺省 1） */
+  tokenCalib: number;
 }
 
 /** /model 交互选择面板状态：三列列表（provider/model/effort）+ 高亮索引 */
@@ -574,6 +591,9 @@ export function initialState(
     activityVerbose: true, // 活动区完整显示（缺省）；/verbose off 切紧凑
     symbolUnify: true, // 模型输出符号统一（缺省开）；/symbol-unify off 切原样
     strippedChars: 0, // 本回合剔除的非打印控制字符计数（turn-begin 清零）
+    runVirt: emptyRunVirt(), // 运行中闪烁虚拟状态（下次用户输入时重置）
+    stepEstTokens: 0, // 本 step 估算 token 累计（usage 真值到达时校准）
+    tokenCalib: 1, // 估算 token 校准系数（usage 真值/估算值 EMA，跨 step 保留）
     buffer: [],
     followBottom: true,
     scrollOffset: 0,
@@ -673,6 +693,8 @@ export function appendStream(
   state: AppState,
   text: string,
   kind: BufferKind = "assistant",
+  /** 流式事件到达时刻（ms；assistant/thinking 时驱动虚拟速度/虚拟总 token 更新） */
+  time?: number,
 ): AppState {
   // 思考/正文分属活动区与历史区两个窗口：正文到达不清思考，思考保留显示到本
   // turn 结束，由下轮 turn-begin 统一清空（活动区瞬态整轮重置）。
@@ -697,11 +719,23 @@ export function appendStream(
   }
   if (buffer.length > MAX_BUFFER_LINES)
     buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
+  // 模型流式输出（assistant/thinking）推进虚拟状态（窗口速率估计 → slew/clamp
+  // 虚拟速度 → 虚拟总 token 积分，驱动 ●/○ 交替）；用户行不参与。
+  // 估算 token 按 tokenCalib 校正（P5：流末 usage 真值学习）；stepEstTokens 累计
+  // 原始估算量供校准对比
+  const streamed = kind === "assistant" || kind === "thinking";
+  const estTokens = streamed ? estimateOutputTokens(clean) : 0;
+  const virt = streamed
+    ? nextRunVirt(state.runVirt, time, estTokens * state.tokenCalib)
+    : undefined;
   return {
     ...state,
     buffer,
     nextSeq: seq,
     strippedChars: state.strippedChars + stripped,
+    ...(virt
+      ? { runVirt: virt, stepEstTokens: state.stepEstTokens + estTokens }
+      : {}),
   };
 }
 
@@ -829,12 +863,16 @@ export function appendStepToolLine(
  * 正文(历史区)到达不再清除——保留至 turn-end 后、下回合 turn-begin
  * 由 appendTurnSeparator 统一清空(活动区瞬态整轮重置)。
  */
-export function appendThinking(state: AppState, text: string): AppState {
-  return appendStream(state, text, "thinking");
+export function appendThinking(
+  state: AppState,
+  text: string,
+  time?: number,
+): AppState {
+  return appendStream(state, text, "thinking", time);
 }
 
 /** 输入状态权威：审批/问答面板打开 = 等待用户决策（黄△）；agent 活跃期间
- *  不接受绿/红结果覆盖（压回运行中黄○），绿/红仅空闲时暴露 */
+ *  不接受绿/红结果覆盖（压回运行中黄●/○），绿/红仅空闲时暴露 */
 function statusFor(state: AppState, fallback: InputStatus): InputStatus {
   if (state.approval || state.question) return "waiting";
   return state.agentStatus === "idle" ? fallback : "running";
@@ -999,7 +1037,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
   const next: AppState = (() => {
     switch (action.type) {
       case "append":
-        return appendStream(state, action.text);
+        return appendStream(state, action.text, "assistant", action.time);
       case "user-line":
         return appendStream(state, action.text, "user");
       case "queued-push":
@@ -1015,7 +1053,12 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "queued-clear":
         return { ...state, queued: [] };
       case "thinking":
-        return appendThinking(state, action.text);
+        return appendThinking(state, action.text, action.time);
+      case "virt-tick": {
+        // 运行中闪烁时间驱动：虚拟速度按指数衰减回落、虚拟总 token 按衰减中的
+        // 速度持续积分（无数据时闪烁频率渐降到最低而不断）；速率窗口同步衰减
+        return { ...state, runVirt: virtTick(state.runVirt, action.time) };
+      }
       case "notice":
         if (action.lines && action.lines.length > 0)
           return appendNoticeLines(state, action.lines, action.tone);
@@ -1024,7 +1067,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return clearBuffer(state);
       case "agent-status":
         // 外部活动兜底：审批/问答打开保持等待交互(黄△)；thinking/tool 视为
-        // 进行中(黄○)；idle 不改状态色
+        // 进行中(黄●/○)；idle 不改状态色
         return {
           ...setAgentStatus(state, action.status),
           inputStatus:
@@ -1513,13 +1556,19 @@ export function reduceState(state: AppState, action: StateAction): AppState {
             state.dialogueGeometry.height,
           ),
         };
-      case "turn-begin":
+      case "turn-begin": {
         // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容；
-        // 非打印字符剔除计数按回合清零（turn-end 时警告后不复用旧值）
+        // 非打印字符剔除计数按回合清零（turn-end 时警告后不复用旧值）。
+        // run 边界 = 两次用户输入之间（见 runVirt 注释）：仅用户输入开启的回合
+        // （clearActivity=true，含排队消息被认领）才重置虚拟状态与本 step 累计；
+        // 核心自发的回合（goal 轮次/定时唤醒，clearActivity=false）属同一 run，保留
+        const clearActivity = action.clearActivity ?? true;
+        const virt = clearActivity ? { runVirt: emptyRunVirt() } : {};
         return appendTurnSeparator(
-          { ...state, strippedChars: 0 },
-          action.clearActivity ?? true,
+          { ...state, strippedChars: 0, stepEstTokens: 0, ...virt },
+          clearActivity,
         );
+      }
       case "clear-stripped":
         return { ...state, strippedChars: 0 };
         // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容
@@ -1527,8 +1576,15 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "turn-end":
         // 回合结束：不再画分隔线(下个回合 begin 时画)；也不清思考/中间输出——
         // 保留显示，至下回合 turn-begin 统一清空(输出结束后不立即清)；
-        // 本回合最后一段模型正文打 final 标记进历史区（最终总结）；置成功色(绿)
-        return markFinalSummary({ ...state, inputStatus: "success" });
+        // 本回合最后一段模型正文打 final 标记进历史区（最终总结）；置成功色(绿)。
+        // 虚拟状态：仅把虚拟速度大小更新为下限（回合结束=输出停止→最低闪烁频率），
+        // 虚拟总 token **不清零**（run 边界 = 两次用户输入之间，到下次用户输入
+        // turn-begin clearActivity=true 时才重置），lastTime/速率窗口保持
+        return markFinalSummary({
+          ...state,
+          inputStatus: "success",
+          runVirt: { ...state.runVirt, speed: VIRT_SPEED_MIN },
+        });
       case "status":
         return setSystemStatus(state, action.status);
       case "set-theme":
@@ -1574,10 +1630,27 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           false,
           "warn",
         );
-      case "usage":
-        // 阶段 1：仅入状态（阶段 2 状态栏 contextLen/cacheHit 从 state.usage 读取）
+      case "usage": {
+        // 阶段 1：入状态（阶段 2 状态栏 contextLen/cacheHit 从 state.usage 读取）。
+        // P5 估算校准：usage 真值（output，每 step 一次）与本 step 估算累计对比，
+        // 比例经 EMA 平滑并 clamp 后写入 tokenCalib，供后续 run 校正启发式估算；
+        // 本 step 累计清零（真值已消费）。provider 未报 usage（output<=0）不校准。
+        const est = state.stepEstTokens;
+        const tokenCalib =
+          est > 0 && action.output > 0
+            ? Math.min(
+                TOKEN_CALIB_MAX,
+                Math.max(
+                  TOKEN_CALIB_MIN,
+                  TOKEN_CALIB_ALPHA * (action.output / est) +
+                    (1 - TOKEN_CALIB_ALPHA) * state.tokenCalib,
+                ),
+              )
+            : state.tokenCalib;
         return {
           ...state,
+          stepEstTokens: 0,
+          tokenCalib,
           usage: {
             input: action.input,
             output: action.output,
@@ -1587,6 +1660,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
               : { contextWindow: action.contextWindow }),
           },
         };
+      }
       case "goal-change": {
         // P2：goal 全量快照/clear 墓碑，按 sessionId 隔离存储（判别联合同事件，完整保留字段）
         if (action.operation === "clear") {
@@ -1908,14 +1982,17 @@ export function reduceState(state: AppState, action: StateAction): AppState {
 }
 
 export type StateAction =
-  | { type: "append"; text: string }
+  | { type: "append"; text: string; time?: number }
   | { type: "user-line"; text: string }
   /** 排队消息登记：**追加**一条（不合并；发送走官方 followup，核心逐条认领） */
   | { type: "queued-push"; text: string }
   /** 核心认领最早一条排队消息（新回合开始）：弹出并作为用户行落历史 */
   | { type: "queued-claim" }
   | { type: "queued-clear" }
-  | { type: "thinking"; text: string }
+  | { type: "thinking"; text: string; time?: number }
+  /** 运行中闪烁时间驱动（App 在 running 期间周期性发送）：无数据时虚拟速度
+   *  衰减回落、虚拟总 token 持续积分（闪烁不停、频率渐降到最低） */
+  | { type: "virt-tick"; time: number }
   | {
       type: "notice";
       text: string;

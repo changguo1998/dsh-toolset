@@ -80,6 +80,7 @@ import {
   userInputJump,
   type FrameGeometry,
   helpTableLines,
+  runPhase,
 } from "./layout.ts";
 import {
   DEFAULT_THEME,
@@ -104,6 +105,9 @@ const SLOW_STREAM_ARRIVED_CPS = 200;
 /** 退出时清理空会话的最长等待(ms)：防会话服务挂起把退出卡死。
  *  正常清理毫秒级即可完成，超时仅放弃清理并继续退出。 */
 const EXIT_CLEAN_TIMEOUT_MS = 5000;
+/** 运行中闪烁时间驱动的 tick 周期(ms)：running 期间周期性推进虚拟状态
+ *  （无数据时虚拟速度衰减回落、虚拟总 token 持续积分，闪烁频率渐降到最低而不断） */
+const VIRT_TICK_MS = 250;
 
 /**
  * 焦点面板单行滚动 action 映射：history/activity 偏移语义=距底部（上滚=+），
@@ -230,6 +234,9 @@ export class App {
   /** 窗口末出帧定时器（帧率上限用） */
   private frameTimer: ReturnType<typeof setTimeout> | null = null;
   private statusTicker: StatusTicker | null = null;
+  /** 运行中闪烁时间驱动定时器（running 期间周期性发 virt-tick：无数据时虚拟速度
+   *  衰减回落、虚拟总 token 持续积分——闪烁频率渐降到最低而不断） */
+  private virtTimer: ReturnType<typeof setInterval> | null = null;
   // 打字机队列：仅作用于 thinking(reasoning)——正文是最终保留的回复，须即时显示；
   // 思考是“输出结束会被隐藏”的瞬态内容，按 tick 逐段放出便于阅读（slowStream 开启时使用）。
   private thinkingPending = "";
@@ -412,6 +419,14 @@ export class App {
       this.statusTicker.start();
       this.unbindEvents.push(() => this.statusTicker?.stop());
     }
+    // 运行中闪烁时间驱动（250ms tick）：仅 inputStatus=running 时推进（见 virtTick
+    // 方法）。unref：不阻止测试进程退出（node --test 下 interval 会让事件循环挂住）。
+    this.virtTimer = setInterval(() => this.virtTick(), VIRT_TICK_MS);
+    this.virtTimer.unref?.();
+    this.unbindEvents.push(() => {
+      if (this.virtTimer) clearInterval(this.virtTimer);
+      this.virtTimer = null;
+    });
     // 首帧前同步 renderer 主题（基底色/词槽位随 /theme 切换）
     this.deps.renderer.setTheme(this.state.themeId);
     this.paintNow();
@@ -598,6 +613,17 @@ export class App {
 
   /** 生效模型缓存 key；值变化才重绘（避免每 5s 空重绘） */
   private modelStatusKey: string | undefined;
+
+  /** 运行中闪烁时间驱动：仅 inputStatus=running 时推进虚拟状态（virt-tick）——
+   *  没有新数据也按衰减中的虚拟速度持续积分（闪烁频率渐降到最低而不断）；
+   *  等待交互（△）/空闲（✓/?）不推进。P5：相位未变时不重绘（tick 只改虚拟
+   *  状态，画面无变化；相位变化才出一帧） */
+  private virtTick(): void {
+    if (this.disposed || this.state.inputStatus !== "running") return;
+    const before = runPhase(this.state.runVirt.tokens);
+    this.apply((s) => reduceState(s, { type: "virt-tick", time: Date.now() }));
+    if (runPhase(this.state.runVirt.tokens) !== before) this.paint();
+  }
 
   /** 读取生效模型(会话切换 ?? 宿主默认)写入状态栏 model+思考徽标；无变化时跳过 */
   private async refreshModelStatus(): Promise<void> {
@@ -833,7 +859,11 @@ export class App {
           this.pendingStream.push(streamText);
         } else {
           this.apply((s) =>
-            reduceState(s, { type: "append", text: streamText }),
+            reduceState(s, {
+              type: "append",
+              text: streamText,
+              time: Date.now(),
+            }),
           );
         }
         break;
@@ -855,7 +885,13 @@ export class App {
           this.thinkingPending += e.text;
           this.slowStart();
         } else {
-          this.apply((s) => reduceState(s, { type: "thinking", text: e.text }));
+          this.apply((s) =>
+            reduceState(s, {
+              type: "thinking",
+              text: e.text,
+              time: Date.now(),
+            }),
+          );
         }
         break;
       case "agent-status":
@@ -996,7 +1032,9 @@ export class App {
       n = Math.min(n, pts.length);
       const text = pts.slice(0, n).join("");
       this.thinkingPending = pts.slice(n).join("");
-      this.apply((s) => reduceState(s, { type: "thinking", text }));
+      this.apply((s) =>
+        reduceState(s, { type: "thinking", text, time: Date.now() }),
+      );
       this.paint();
       if (this.thinkingPending === "") this.flushPending();
     }, SLOW_TICK_MS);
@@ -1011,7 +1049,9 @@ export class App {
       // 未放完的思考先整段放入缓冲（**不丢内容**）：活动区只在下次输入时整体清空
       this.drainThinking();
       for (const t of texts)
-        this.apply((s) => reduceState(s, { type: "append", text: t }));
+        this.apply((s) =>
+          reduceState(s, { type: "append", text: t, time: Date.now() }),
+        );
       this.paint();
     }
     if (this.pendingTurnEnd) {
@@ -1037,7 +1077,9 @@ export class App {
     const rest = this.thinkingPending;
     this.thinkingPending = "";
     if (rest !== "") {
-      this.apply((s) => reduceState(s, { type: "thinking", text: rest }));
+      this.apply((s) =>
+        reduceState(s, { type: "thinking", text: rest, time: Date.now() }),
+      );
       this.paint();
     }
   }

@@ -860,6 +860,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   const activeCommands = new Set<AbortController>();
   // 流式块去重累计：key = session:turn:step:index，block-end 只补发未输出部分
   const emittedByBlock = new Map<string, string>();
+  // 实时帧通道（agent/assistant-stream）已完整交付（delta 累计 + block-end 补发）
+  // 的块：结算数组（assistant/attempt）处理时跳过，避免正文重复显示；turn/end 清空
+  const completedBlocks = new Set<string>();
   // P2 seq 守卫：per-session 游标，同 seq 重复/倒序丢弃（防重放），间隙接受
   const sessionSeq = new Map<string, number>();
   // 按 (session:turn:step) 累计已流式输出的正文（text 块；reasoning 不计）。
@@ -1096,6 +1099,130 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     return map;
   };
 
+  // --- 流式块应用（实时帧与结算数组共用） ---
+  // 按 (session, turn, step, index) 累计已流式输出的 delta，block-end 只补发未输出
+  // 部分（DSH-CTX-API.md §2 PartialAccumulator 折叠语义），避免完整正文重复显示。
+  // 同一 index 跨 turn/step 不复用累计（key 含 turn/step；turn/end 亦清空）。
+  // finish/usage 等载荷可能无 index；仅带 index 的块类型参与累计。
+  // completedBlocks 拦截：实时帧已完整交付的块，结算数组不再输出。
+  const applyChunk = (
+    sid: string,
+    turn: number,
+    step: number,
+    chunk: StreamChunk,
+  ): void => {
+    const index = (chunk as { index?: number }).index ?? 0;
+    const blockKey = sid + ":" + turn + ":" + step + ":" + index;
+    const sk = sid + ":" + turn + ":" + step;
+    const isReasoning =
+      chunk.type === "reasoning-delta" ||
+      (chunk.type === "block-end" &&
+        (chunk.block?.type === "reasoning" || chunk.blockType === "reasoning"));
+    if (chunk.type === "block-start") {
+      emittedByBlock.delete(blockKey);
+    } else if (
+      chunk.type === "reasoning-delta" ||
+      chunk.type === "text-delta"
+    ) {
+      // 实时帧已完整交付（completedBlocks 有 key）的块：结算数组里的 delta 跳过
+      if (completedBlocks.has(blockKey)) return;
+      const emitted = emittedByBlock.get(blockKey) ?? "";
+      // 结算 delta 与实时帧 delta 同源同切分：该片段已实时输出过（新 delta 是
+      // 已累计文本的前缀）则跳过，只输出尚未覆盖的新片段（实时帧中途丢失时结算补全）
+      if (
+        emitted !== "" &&
+        chunk.text.length <= emitted.length &&
+        emitted.startsWith(chunk.text)
+      ) {
+        return;
+      }
+      emittedByBlock.set(blockKey, emitted + chunk.text);
+      emit({
+        type: isReasoning ? "thinking" : "stream",
+        sessionId: sid,
+        text: chunk.text,
+      });
+      // 仅正文进 step 累计（reasoning 为瞬态展示，不进 assistant/message）
+      if (!isReasoning) {
+        stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + chunk.text);
+      }
+    } else if (chunk.type === "block-end") {
+      // 实时帧已完整交付（completedBlocks 有 key）的块：结算数组跳过
+      if (completedBlocks.has(blockKey)) return;
+      const full =
+        chunk.block?.text ?? (chunk as StreamChunk & { text?: string }).text;
+      if (full === undefined) return;
+      const done = emittedByBlock.get(blockKey) ?? "";
+      emittedByBlock.delete(blockKey);
+      if (done === "") {
+        // 无 delta 的 provider：block-end 即完整文本
+        emit({
+          type: isReasoning ? "thinking" : "stream",
+          sessionId: sid,
+          text: full,
+        });
+        if (!isReasoning) {
+          stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + full);
+        }
+      } else if (full.startsWith(done)) {
+        // 已流式输出 delta，仅补发缺失后缀
+        const rest = full.slice(done.length);
+        if (rest.length > 0) {
+          emit({
+            type: isReasoning ? "thinking" : "stream",
+            sessionId: sid,
+            text: rest,
+          });
+          if (!isReasoning) {
+            stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + rest);
+          }
+        }
+      }
+      // 块已完整处理（delta 与 block-end 不一致时不再输出——append-only UI 无法
+      // 安全重写）→ 标记完成，结算通道不再重复尝试
+      completedBlocks.add(blockKey);
+    }
+  };
+
+  // --- agent/assistant-stream 实时帧（逐 chunk、流中实时；agent-subject 事件） ---
+  // 宿主 agent-loop 在流进行中每 chunk 发一帧（含 time 时间戳），流结束后才经
+  // session/event 发一次性 assistant/attempt 结算。实时帧先行输出正文（驱动逐
+  // chunk 渲染 + 运行中 ●/○ 动画），结算数组经 completedBlocks 去重只补缺失。
+  // attemptId → {turn, step}（chunk 帧不带 turn/step，由 start 帧登记）
+  const attemptMeta = new Map<string, { turn: number; step: number }>();
+  const onAssistantFrame = (
+    sessionId: string,
+    frame: {
+      type: string;
+      attemptId: string;
+      turn?: number;
+      step?: number;
+      chunk?: StreamChunk;
+    },
+  ): void => {
+    // 单活跃会话口径与 session/event 一致
+    if (sessionId !== activeSessionId) return;
+    if (frame.type === "start" && frame.turn !== undefined) {
+      attemptMeta.set(frame.attemptId, {
+        turn: frame.turn,
+        step: frame.step ?? 0,
+      });
+      return;
+    }
+    if (frame.type === "chunk" && frame.chunk) {
+      const meta = attemptMeta.get(frame.attemptId);
+      if (!meta) return;
+      // usage/finish 等非文本块不参与流式正文（usage 由结算通道 assistant/message 提取）
+      if (frame.chunk.type !== "usage" && frame.chunk.type !== "finish") {
+        applyChunk(sessionId, meta.turn, meta.step, frame.chunk);
+      }
+      return;
+    }
+    if (frame.type === "end") {
+      attemptMeta.delete(frame.attemptId);
+    }
+  };
+
   // --- session/event 归一化 ---
   const onSessionEvent = (session: unknown, raw: SessionEvent): void => {
     const sid = (session as { id?: string } | null)?.id ?? activeSessionId;
@@ -1136,96 +1263,36 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         // text-chunks / reasoning-chunks / tool-call-chunks 为打包的 delta 运行（逐成员
         // 等价 text-delta / reasoning-delta / tool-call-delta），`chunk` 记录为原始
         // StreamChunk（block/usage/finish 恒为 raw chunk 记录）。
+        // 结算语义：正文已由实时帧通道（agent/assistant-stream）先行输出，此处经
+        // completedBlocks 去重只补缺失；实时帧未到齐时走既有完整逻辑（兜底）。
         const stream = data.stream as AssistantStreamRecord[] | undefined;
         if (!Array.isArray(stream) || stream.length === 0) return;
-        // 真实 DSH 同时送达增量 delta 与 block-end 完整块文本（DSH-CTX-API.md §2
-        // PartialAccumulator 折叠语义）。按 (session, turn, step, index) 累计已流式
-        // 输出的 delta，block-end 只补发未输出部分，避免完整正文被重复显示。
-        // 同一 index 跨 turn/step 不复用累计（key 含 turn/step；turn/end 亦清空）。
-        // finish/usage 等载荷可能无 index；仅带 index 的块类型参与累计
-        const applyChunk = (chunk: StreamChunk): void => {
-          const index = (chunk as { index?: number }).index ?? 0;
-          const blockKey =
-            sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0) + ":" + index;
-          const isReasoning =
-            chunk.type === "reasoning-delta" ||
-            (chunk.type === "block-end" &&
-              (chunk.block?.type === "reasoning" ||
-                chunk.blockType === "reasoning"));
-          if (chunk.type === "block-start") {
-            emittedByBlock.delete(blockKey);
-          } else if (
-            chunk.type === "reasoning-delta" ||
-            chunk.type === "text-delta"
-          ) {
-            emittedByBlock.set(
-              blockKey,
-              (emittedByBlock.get(blockKey) ?? "") + chunk.text,
-            );
-            emit({
-              type: isReasoning ? "thinking" : "stream",
-              sessionId: sid,
-              text: chunk.text,
-            });
-            // 仅正文进 step 累计（reasoning 为瞬态展示，不进 assistant/message）
-            if (!isReasoning) {
-              const sk = sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0);
-              stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + chunk.text);
-            }
-          } else if (chunk.type === "block-end") {
-            const full =
-              chunk.block?.text ??
-              (chunk as StreamChunk & { text?: string }).text;
-            if (full === undefined) return;
-            const done = emittedByBlock.get(blockKey) ?? "";
-            emittedByBlock.delete(blockKey);
-            if (done === "") {
-              // 无 delta 的 provider：block-end 即完整文本
-              emit({
-                type: isReasoning ? "thinking" : "stream",
-                sessionId: sid,
-                text: full,
-              });
-              if (!isReasoning) {
-                const sk =
-                  sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0);
-                stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + full);
-              }
-            } else if (full.startsWith(done)) {
-              // 已流式输出 delta，仅补发缺失后缀
-              const rest = full.slice(done.length);
-              if (rest.length > 0) {
-                emit({
-                  type: isReasoning ? "thinking" : "stream",
-                  sessionId: sid,
-                  text: rest,
-                });
-                if (!isReasoning) {
-                  const sk =
-                    sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0);
-                  stepEmitted.set(sk, (stepEmitted.get(sk) ?? "") + rest);
-                }
-              }
-            }
-            // delta 与 block-end 文本不一致时不再输出（append-only UI 无法安全重写）
-          }
-        };
+        const turn = data.turn ?? 0;
+        const step = data.step ?? 0;
         // 遍历流记录展开为逐 chunk 处理：text/reasoning-chunks 逐成员等价对应 delta；
         // tool-call-chunks 逐成员等价 tool-call-delta（id/name 随块声明带上）
         for (const rec of stream) {
           if (rec.type === "chunk") {
-            applyChunk(rec.chunk);
+            applyChunk(sid, turn, step, rec.chunk);
           } else if (rec.type === "text-chunks") {
             for (const text of rec.texts) {
-              applyChunk({ type: "text-delta", index: rec.index, text });
+              applyChunk(sid, turn, step, {
+                type: "text-delta",
+                index: rec.index,
+                text,
+              });
             }
           } else if (rec.type === "reasoning-chunks") {
             for (const text of rec.texts) {
-              applyChunk({ type: "reasoning-delta", index: rec.index, text });
+              applyChunk(sid, turn, step, {
+                type: "reasoning-delta",
+                index: rec.index,
+                text,
+              });
             }
           } else {
             for (const argsDelta of rec.args) {
-              applyChunk({
+              applyChunk(sid, turn, step, {
                 type: "tool-call-delta",
                 index: rec.index,
                 ...(rec.id === undefined ? {} : { id: rec.id }),
@@ -1326,6 +1393,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         // turn 结束：清空流式累计，block index 跨 turn 复用不残留
         emittedByBlock.clear();
         stepEmitted.clear();
+        completedBlocks.clear();
         emit({ type: "turn-end" });
         // finish reason 分级 notice：completed 静默、异常 kind 带 tone（阶段 2 按 tone 渲染）
         const endNote = turnEndNotice(data.reason);
@@ -2907,6 +2975,20 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     runtime.on("session/event", (session, event) =>
       onSessionEvent(session, event as SessionEvent),
     ),
+  );
+  // agent/assistant-stream 实时帧（agent-subject 事件，payload 含 agent + frame）：
+  // 宿主 agent-loop 流中逐 chunk 发布；TUI 据此实时渲染正文与运行中 ●/○ 动画。
+  // 老宿主无此事件时静默（订阅不报错），回退到 session/event 结算一次性输出。
+  collectUnbind(
+    runtime.on("agent/assistant-stream", (payload) => {
+      const p = payload as {
+        agent?: { session?: { id?: string } };
+        frame?: Parameters<typeof onAssistantFrame>[1];
+      };
+      const sessionId = p?.agent?.session?.id;
+      if (!sessionId || !p?.frame) return;
+      onAssistantFrame(sessionId, p.frame);
+    }),
   );
   collectUnbind(
     runtime.on("agent/status", (payload) =>

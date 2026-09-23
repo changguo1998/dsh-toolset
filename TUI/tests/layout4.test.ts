@@ -23,6 +23,13 @@ import {
   dialogueSpans,
   indexToAnchor,
   FRAME_LEFT_COLS,
+  emptyRunVirt,
+  nextRunVirt,
+  TOKEN_CALIB_MAX,
+  virtTick,
+  VIRT_SLEW_RATE,
+  VIRT_SPEED_MAX,
+  VIRT_SPEED_MIN,
   type FrameScrollReport,
 } from "../src/app/layout.ts";
 import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
@@ -215,7 +222,7 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   };
   assert.equal(mark("success").sym, "✓", "成功 = 勾");
   assert.equal(mark("failure").sym, "✗", "失败 = 叉");
-  assert.equal(mark("running").sym, "○", "运行中 = 空心圆");
+  assert.equal(mark("running").sym, "●", "运行中 = 实心圆（相位 0）");
   assert.equal(mark("waiting").sym, "△", "等待交互 = 空心三角");
   assert.equal(mark("idle").sym, "?", "回退/未知占位 = 问号");
   // 着色：成功绿 / 失败红 / 运行中黄 / 等待交互黄 / 回退占位默认前景
@@ -234,12 +241,356 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   assert.notEqual(mark("idle").sgr, green, "回退占位无绿");
   assert.notEqual(mark("idle").sgr, red, "回退占位无红");
   assert.notEqual(mark("idle").sgr, yellow, "回退占位无黄");
-  // 外部活动（thinking/tool）→ 运行中黄○
+  // 外部活动（thinking/tool）→ 运行中黄●（相位 0）
   const busy = statusRow(
     reduceState(initialState(), { type: "agent-status", status: "thinking" }),
   );
   assert.equal(sgr(busy), yellow, "thinking 视为运行中");
-  assert.equal(strip(busy).trimStart()[0], "○", "thinking 显示运行中空心圆");
+  assert.equal(strip(busy).trimStart()[0], "●", "thinking 显示运行中实心圆");
+  // 运行中符号按虚拟总 token 交替（与真实 tps 解耦）：
+  // 虚拟速度 = 窗口速率估计 → 速率化 slew → clamp [MIN,MAX]；虚拟总 token = ∫虚拟速度 dt；
+  // 首帧无时间基准不积分（相位 0）；速度为界内起点 MIN。
+  const ascii = (chars: number): string => "x".repeat(chars);
+  const busyAt = (evs: { t: number; text: string }[]): string => {
+    let s = reduceState(initialState(), {
+      type: "agent-status",
+      status: "thinking",
+    });
+    for (const ev of evs)
+      s = reduceState(s, { type: "append", text: ev.text, time: ev.t });
+    return strip(statusRow(s)).trimStart()[0] ?? "";
+  };
+  assert.equal(
+    busyAt([{ t: 1000, text: ascii(64) }]),
+    "●",
+    "首帧无时间基准不积分 = 实心圆",
+  );
+  // 高速率/低速率/思考流：循环推进直到相位翻转（帧数不写死，随频率参数自适应）
+  const runUntilFlip = (
+    kind: "append" | "thinking",
+    stepMs: number,
+    text: string,
+  ): { sym: string; frames: number } => {
+    let s = reduceState(initialState(), {
+      type: "agent-status",
+      status: "thinking",
+    });
+    for (let i = 1; i <= 80; i++) {
+      s = reduceState(s, { type: kind, text, time: 1000 + i * stepMs });
+      const sym = strip(statusRow(s)).trimStart()[0] ?? "";
+      if (sym === "○") return { sym, frames: i };
+    }
+    return { sym: strip(statusRow(s)).trimStart()[0] ?? "", frames: 80 };
+  };
+  // 高速率（每 0.05s 64 字符 ≈ 320 token/s）：速度爬到上限，虚拟 token 跨阈值
+  const fastFlip = runUntilFlip("append", 50, ascii(64));
+  assert.equal(
+    fastFlip.sym,
+    "○",
+    `高速率最终切换空心圆（${fastFlip.frames} 帧）`,
+  );
+  // 低速率（每 0.5s 16 汉字 ≈ 32 token/s）：下限速度兜底仍能切换
+  const slowFlip = runUntilFlip("append", 500, "中".repeat(16));
+  assert.equal(
+    slowFlip.sym,
+    "○",
+    `低速率仍切换（下限速度驱动，${slowFlip.frames} 帧）`,
+  );
+  // 思考流同样驱动交替
+  const thinkFlip = runUntilFlip("thinking", 50, ascii(64));
+  assert.equal(
+    thinkFlip.sym,
+    "○",
+    `思考流同样驱动交替（${thinkFlip.frames} 帧）`,
+  );
+  // run 边界 = 两次用户输入之间：turn-end（回合结束）**不清零**（同一 run 内），
+  // 下次用户输入（turn-begin clearActivity=true）才清零回到相位 0
+  let tb = reduceState(initialState(), {
+    type: "agent-status",
+    status: "thinking",
+  });
+  tb = reduceState(tb, { type: "append", text: ascii(64), time: 1000 });
+  tb = reduceState(tb, { type: "append", text: ascii(64), time: 1050 });
+  const beforeTurnEnd = tb.runVirt.tokens;
+  assert.ok(beforeTurnEnd > 0, "流式输出已累计虚拟 token");
+  tb = reduceState(tb, { type: "turn-end" });
+  assert.equal(
+    tb.runVirt.tokens,
+    beforeTurnEnd,
+    "turn-end 保留虚拟总 token（run 未结束）",
+  );
+  assert.equal(
+    tb.runVirt.speed,
+    VIRT_SPEED_MIN,
+    "turn-end 仅把虚拟速度更新为下限（输出停止）",
+  );
+  // 用户输入开启的回合（clearActivity=true）：清零
+  tb = reduceState(tb, { type: "turn-begin", clearActivity: true });
+  assert.equal(tb.runVirt.tokens, 0, "用户输入（turn-begin）清零虚拟总 token");
+  assert.equal(tb.runVirt.speed, VIRT_SPEED_MIN, "用户输入重置虚拟速度为下限");
+  // 核心自发回合（clearActivity=false）：属同一 run，保留
+  tb = reduceState(tb, { type: "agent-status", status: "thinking" });
+  tb = reduceState(tb, { type: "append", text: ascii(64), time: 2000 });
+  tb = reduceState(tb, { type: "append", text: ascii(64), time: 2050 });
+  const midRun = tb.runVirt.tokens;
+  assert.ok(midRun > 0, "核心回合流式输出累计虚拟 token");
+  tb = reduceState(tb, { type: "turn-begin", clearActivity: false });
+  assert.equal(
+    tb.runVirt.tokens,
+    midRun,
+    "核心自发回合（clearActivity=false）不清零",
+  );
+  // 用户输入提交后状态栏回到相位 0 实心圆
+  tb = reduceState(tb, { type: "turn-begin", clearActivity: true });
+  tb = reduceState(tb, { type: "agent-status", status: "thinking" });
+  assert.equal(
+    strip(statusRow(tb)).trimStart()[0],
+    "●",
+    "用户输入清零后回到相位 0 实心圆",
+  );
+});
+
+test("nextRunVirt: 窗口速率估计 + 速率化 slew + 上下限 clamp（P1 时间一致 / P2 抗噪）", () => {
+  // 首帧无时间基准：仅登记基准，不更新速度、不积分、窗口不累计
+  const first = nextRunVirt(emptyRunVirt(), 1000, 16);
+  assert.equal(first.speed, VIRT_SPEED_MIN, "首帧速度保持下限（界内起点）");
+  assert.equal(first.tokens, 0, "首帧不积分");
+  assert.equal(first.lastTime, 1000, "登记时间基准");
+  assert.equal(first.winTokens, 0, "首帧窗口未累计（无时长基准）");
+  // 持续高速（每 50ms 16 token ≈ 320 token/s）→ 爬到上限
+  let v = first;
+  for (let i = 0; i < 40; i++) v = nextRunVirt(v, 1000 + (i + 1) * 50, 16);
+  assert.equal(v.speed, VIRT_SPEED_MAX, "高速率爬到上限");
+  assert.ok(v.tokens > 0, "虚拟总 token 随积分增长");
+  // 极低真实速率（1s 1 token）→ clamp 到下限
+  const slow = nextRunVirt({ ...emptyRunVirt(), lastTime: 2000 }, 3000, 1);
+  assert.equal(slow.speed, VIRT_SPEED_MIN, "低速率 clamp 到下限");
+  assert.ok(slow.tokens > 0, "下限速度仍积分出虚拟 token");
+  // 时间未推进：不更新不积分
+  const same = nextRunVirt(slow, 3000, 16);
+  assert.equal(same.speed, slow.speed, "时间未推进速度不变");
+  assert.equal(same.tokens, slow.tokens, "时间未推进不积分");
+  // 无时间（undefined）：保持现有值
+  const noTime = nextRunVirt(slow, undefined, 16);
+  assert.equal(noTime.speed, slow.speed, "无时间速度不变");
+  // P1 速率化 slew：单帧最大移动 = VIRT_SLEW_RATE × Δt（与帧间隔成正比）
+  const boom = nextRunVirt(
+    { ...emptyRunVirt(), speed: VIRT_SPEED_MIN, lastTime: 4000 },
+    4100,
+    1000, // 巨量数据：目标必到上限，但 slew 只允许 rate×0.1
+  );
+  assert.equal(
+    boom.speed,
+    VIRT_SPEED_MIN + VIRT_SLEW_RATE * 0.1,
+    "爆发帧只移动 VIRT_SLEW_RATE×Δt",
+  );
+  const halt = nextRunVirt(
+    { ...emptyRunVirt(), speed: VIRT_SPEED_MAX, lastTime: 5000 },
+    5100,
+    0, // 零数据：目标下限，slew 只允许 -rate×0.1
+  );
+  assert.equal(
+    halt.speed,
+    VIRT_SPEED_MAX - VIRT_SLEW_RATE * 0.1,
+    "停顿帧只移动 -VIRT_SLEW_RATE×Δt",
+  );
+  // P1 时间一致：同样真实速率（80 token/s）、不同 chunk 频率 → 同一时刻速度相同
+  const runFixedRate = (stepMs: number, totalMs: number): number => {
+    let s = nextRunVirt(emptyRunVirt(), 1000, 0); // 登记基准
+    for (let ms = stepMs; ms <= totalMs; ms += stepMs) {
+      s = nextRunVirt(s, 1000 + ms, (80 * stepMs) / 1000);
+    }
+    return s.speed;
+  };
+  const fastFrames = runFixedRate(10, 400);
+  const slowFrames = runFixedRate(200, 400);
+  assert.ok(
+    Math.abs(fastFrames - slowFrames) < 0.01,
+    `时间一致：10ms 帧 ${fastFrames} vs 200ms 帧 ${slowFrames}`,
+  );
+  // P2 抗噪：单帧异常大 chunk 不使速度越过 slew 上限（窗口稀释）
+  const noisy = nextRunVirt(
+    {
+      ...emptyRunVirt(),
+      speed: 20,
+      lastTime: 7000,
+      winTokens: 20 * 0.5,
+      winSecs: 0.5,
+    },
+    7100,
+    500, // 单帧 500 token（异常）：窗口 = (10×0.82+500)/(0.5×0.82+0.1)
+  );
+  assert.ok(
+    noisy.speed <= 20 + VIRT_SLEW_RATE * 0.1,
+    "异常大 chunk 受 slew 限制",
+  );
+});
+
+test("virtTick: 无数据时虚拟速度指数衰减回落到下限、虚拟总 token 持续积分（闪烁不停）", () => {
+  // 无时间基准：原样返回
+  const noBase = virtTick({ ...emptyRunVirt(), speed: VIRT_SPEED_MAX }, 1000);
+  assert.equal(noBase.speed, VIRT_SPEED_MAX, "无时间基准速度不变");
+  assert.equal(noBase.tokens, 0, "无时间基准不积分");
+  // 时间未推进：原样返回
+  const v0 = virtTick(
+    { ...emptyRunVirt(), speed: VIRT_SPEED_MAX, lastTime: 1000 },
+    2000,
+  );
+  const same = virtTick(v0, 2000);
+  assert.equal(same.speed, v0.speed, "时间未推进速度不变");
+  assert.equal(same.tokens, v0.tokens, "时间未推进不积分");
+  // 6s（=τ）衰减：速度按 16 + (MAX−16)·e^(−1) 回落，token 按衰减速度积分增长
+  const v1 = virtTick(
+    { ...emptyRunVirt(), speed: VIRT_SPEED_MAX, lastTime: 0 },
+    6000,
+  );
+  const expect6s =
+    VIRT_SPEED_MIN + (VIRT_SPEED_MAX - VIRT_SPEED_MIN) * Math.exp(-1);
+  assert.ok(
+    Math.abs(v1.speed - expect6s) < 1e-6,
+    `6s 后速度 ${expect6s}（实际 ${v1.speed}）`,
+  );
+  assert.ok(v1.speed < VIRT_SPEED_MAX, "6s 后速度已下降");
+  // token 积分 = MIN·Δt + (v₀−MIN)·τ·(1−e^(−Δt/τ))
+  const expectTokens =
+    VIRT_SPEED_MIN * 6 +
+    (VIRT_SPEED_MAX - VIRT_SPEED_MIN) * 6 * (1 - Math.exp(-1));
+  assert.ok(
+    Math.abs(v1.tokens - expectTokens) < 1e-6,
+    `6s 积分 ${expectTokens}（实际 ${v1.tokens}）`,
+  );
+  // 长时间无数据：速度回落到下限附近，token 仍按下限速度持续增长
+  const v2 = virtTick(v1, 6000 + 54000);
+  assert.ok(
+    v2.speed < VIRT_SPEED_MIN + 0.5,
+    `60s 后速度接近下限（实际 ${v2.speed}）`,
+  );
+  assert.ok(v2.tokens > v1.tokens, "token 持续积分不停止");
+  // 下限保持：速度永不低于 MIN
+  const v3 = virtTick(v2, 6000 + 54000 + 60000);
+  assert.ok(v3.speed >= VIRT_SPEED_MIN, "速度不低于下限");
+  // 速率窗口同步衰减（忘记旧数据）
+  const v4 = virtTick(
+    {
+      ...emptyRunVirt(),
+      speed: VIRT_SPEED_MAX,
+      lastTime: 0,
+      winTokens: 100,
+      winSecs: 1,
+    },
+    6000,
+  );
+  assert.ok(v4.winTokens < 100 && v4.winSecs < 1, "窗口随时长衰减");
+});
+
+test("运行中无数据：virt-tick 持续积分跨过阈值切换 ●/○，速度渐降但 token 不停", () => {
+  const ascii = (chars: number): string => "x".repeat(chars);
+  const strip = (l: FrameRow): string =>
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "");
+  const statusRow = (s: ReturnType<typeof initialState>): FrameRow =>
+    buildFrame(s, { rows: 24, cols: 60 })[18]!; // 状态栏行
+  const sym = (s: ReturnType<typeof initialState>): string =>
+    strip(statusRow(s)).trimStart()[0] ?? "";
+  // 高速流式若干帧（每 50ms 16 token）：速度按 slew 速率爬升，虚拟总 token 积分
+  let s = reduceState(initialState(), {
+    type: "agent-status",
+    status: "thinking",
+  });
+  s = reduceState(s, { type: "append", text: ascii(64), time: 1000 });
+  for (let i = 0; i < 8; i++)
+    s = reduceState(s, {
+      type: "append",
+      text: ascii(64),
+      time: 1050 + i * 50,
+    });
+  assert.equal(sym(s), "●", "数据停止时相位 0 实心圆");
+  const tokensAtStop = s.runVirt.tokens;
+  assert.ok(tokensAtStop > 0, "已累计虚拟 token");
+  // 无数据：250ms tick 持续推进（token 单调增长），若干次后跨过阈值 → ○
+  let flipped = -1;
+  for (let i = 1; i <= 20; i++) {
+    s = reduceState(s, { type: "virt-tick", time: 1400 + i * 250 });
+    if (sym(s) === "○") {
+      flipped = i;
+      break;
+    }
+  }
+  assert.ok(flipped > 0, `无数据 tick 最终跨阈值切换 ●→○（第 ${flipped} 次）`);
+  assert.ok(s.runVirt.tokens > tokensAtStop, "虚拟总 token 持续积分不停止");
+  // 长时间无数据：速度回落到下限附近，token 仍持续增长
+  const tokensMid = s.runVirt.tokens;
+  s = reduceState(s, { type: "virt-tick", time: 1400 + 20 * 250 + 30000 });
+  assert.ok(
+    s.runVirt.speed < VIRT_SPEED_MIN + 0.5,
+    "长时间无数据速度回落到下限附近",
+  );
+  assert.ok(s.runVirt.tokens > tokensMid, "长时间无数据 token 仍增长");
+});
+
+test("usage 校准（P5）：真值/估算比例 EMA 更新 tokenCalib；无真值不校准", () => {
+  let s = reduceState(initialState(), {
+    type: "agent-status",
+    status: "thinking",
+  });
+  // 估算 16 token（64 ASCII × 0.25）；真值 32 → ratio 2 → calib = 0.3×2 + 0.7×1
+  s = reduceState(s, { type: "append", text: "x".repeat(64), time: 1000 });
+  assert.equal(s.stepEstTokens, 16, "本 step 估算累计");
+  s = reduceState(s, {
+    type: "usage",
+    sessionId: "s1",
+    input: 100,
+    output: 32,
+    cacheRead: 0,
+  });
+  assert.ok(
+    Math.abs(s.tokenCalib - 1.3) < 1e-9,
+    `真值是估算 2 倍 → calib 1.3（实际 ${s.tokenCalib}）`,
+  );
+  assert.equal(s.stepEstTokens, 0, "校准后本 step 累计清零");
+  // 估算与真值一致 → 向 1 收敛
+  s = reduceState(s, { type: "append", text: "x".repeat(64), time: 1100 });
+  s = reduceState(s, {
+    type: "usage",
+    sessionId: "s1",
+    input: 100,
+    output: 16,
+    cacheRead: 0,
+  });
+  assert.ok(
+    Math.abs(s.tokenCalib - 1.21) < 1e-9,
+    `ratio=1 → calib 1.21（实际 ${s.tokenCalib}）`,
+  );
+  // 校准系数参与后续估算（P5 生效于 nextRunVirt 输入）
+  const calibBefore = s.tokenCalib;
+  const before = s.runVirt.winTokens;
+  s = reduceState(s, { type: "append", text: "x".repeat(64), time: 1200 });
+  const delta = s.runVirt.winTokens - before * Math.exp(-0.1 / 0.5);
+  assert.ok(
+    Math.abs(delta - 16 * calibBefore) < 1e-6,
+    `窗口按校正后估算累计（实际 ${delta}）`,
+  );
+  // provider 未报 usage（output<=0）→ 不校准
+  s = reduceState(s, { type: "append", text: "x".repeat(64), time: 1300 });
+  const keep = s.tokenCalib;
+  s = reduceState(s, {
+    type: "usage",
+    sessionId: "s1",
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+  });
+  assert.equal(s.tokenCalib, keep, "无真值不校准");
+  assert.equal(s.stepEstTokens, 0, "step 累计仍清零");
+  // 极端真值 → 校准系数 clamp 到上限
+  s = reduceState(s, { type: "append", text: "x".repeat(4), time: 1400 });
+  s = reduceState(s, {
+    type: "usage",
+    sessionId: "s1",
+    input: 0,
+    output: 10000,
+    cacheRead: 0,
+  });
+  assert.equal(s.tokenCalib, TOKEN_CALIB_MAX, "校准系数 clamp 到上限");
 });
 
 test("buildFrame: 审批弹窗时交互区高度与输入态一致（不上下调整）", () => {
@@ -541,7 +892,7 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(�
   const plain = (line: FrameRow): string =>
     rowAnsi(line).replace(/\x1b\[[0-9;]*m/g, "");
   const visible = top.map(plain);
-  // 长消息占满最大正文宽 ⇒ 左边界 = 历史宽 - userMaxBodyWidth
+  // 长消息占满最大正文宽 ⟹ 左边界 = 历史宽 - userMaxBodyWidth
   const m = metricsFor({ rows: 24, cols: 40 }, false);
   const hist = m.historyWidth;
   const pad = hist - userMaxBodyWidth(hist);
@@ -820,7 +1171,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
     },
   ).map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""));
   // 标题已移入状态列，水平栏定位改用组间框线（状态栏行 = 状态符号 + 空格 + │ 开头）
-  const statIdx = st.findIndex((l) => /^[✓✗○△?] │/.test(l.trimStart()));
+  const statIdx = st.findIndex((l) => /^[✓✗●○△?] │/.test(l.trimStart()));
   assert.ok(statIdx > 0, "状态行存在");
   assert.ok(st[statIdx - 1]!.trimStart().startsWith("─"), "状态栏上方 ─ 分隔");
   assert.ok(

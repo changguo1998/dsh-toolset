@@ -808,7 +808,7 @@ test("shell 模式提交：仅展示层，文本原样走 sendMessage（不加 $
   );
 });
 
-test("活跃任务中 slash 结果不覆盖运行中：/help、无效命令、error notice 均保持黄○", () => {
+test("活跃任务中 slash 结果不覆盖运行中：/help、无效命令、error notice 均保持黄●/○", () => {
   const { renderer, adapter } = makeApp();
   // 状态栏行首状态符号 SGR（24 行终端：分隔线后状态栏 = 倒数第 6 行；
   // 行首为前导空格，取行内首个 SGR = 状态符号色）
@@ -3360,7 +3360,7 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
     );
     // 标题已移入状态列，水平栏定位改用组间框线（状态栏行 = 状态符号 + 空格 + │ 开头）
     const statusIdx = lines.findIndex(
-      (l, i) => i > sep && /^[✓✗○△?] │/.test(l.trimStart()),
+      (l, i) => i > sep && /^[✓✗●○△?] │/.test(l.trimStart()),
     );
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
     return lines
@@ -3496,7 +3496,7 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
     );
     // 标题已移入状态列，水平栏定位改用组间框线（状态栏行 = 状态符号 + 空格 + │ 开头）
     const statusIdx = lines.findIndex(
-      (l, i) => i > sep && /^[✓✗○△?] │/.test(l.trimStart()),
+      (l, i) => i > sep && /^[✓✗●○△?] │/.test(l.trimStart()),
     );
     assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
     return (

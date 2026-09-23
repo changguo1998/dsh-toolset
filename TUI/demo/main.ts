@@ -231,6 +231,12 @@ if (smoke) {
         plain.includes("△ "),
         "no '△ ' waiting mark at status bar left in frames",
       );
+      // 运行中 ●/○ 交替符号（流式输出驱动，相位不定故两相皆可）
+      ok(
+        "statusbar-running-mark",
+        /[●○] │ /.test(plain),
+        "no '●/○ │ ' running mark at status bar left in frames",
+      );
       ok(
         "approval-rendered",
         plain.includes("允许执行?"),
