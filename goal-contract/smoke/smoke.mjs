@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * 宿主联调 smoke（独立 profile: dsh-toolset-goal-contract，对齐 DSH-CTX-API 0.1.5-rc.2）。
+ * 宿主联调 smoke（独立 profile: dsh-toolset-goal-contract，对齐 DSH-CTX-API 0.1.5-rc.3）。
  *
  * 验证「draft → goal drop → clause readback」链路：
- *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.2）
+ *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.3）
  *   1. profile dsh-toolset-goal-contract 引导（幂等：headless 默认 profile 创建 →
  *      挂载本插件 link: → 同挂 task-engine link: 作共存验证；本包不依赖其服务，
  *      goal 面来自宿主 dsh-goal）
@@ -51,7 +51,7 @@ const PROFILE_PKG = path.join(
   PROFILE,
   "package.json",
 );
-const REQUIRED_VERSION = "0.1.5-rc.2";
+const REQUIRED_VERSION = "0.1.5-rc.3";
 
 // 一次性会话任务：全量预填（非交互）→ 落 goal → 输出回读标记 → complete 收尾
 const SESSION_TASK = [

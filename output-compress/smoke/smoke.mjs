@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * output-compress 宿主联调 smoke（profile: dsh-toolset-output-compress，对齐 DSH 0.1.5-rc.2）。
+ * output-compress 宿主联调 smoke（profile: dsh-toolset-output-compress，对齐 DSH 0.1.5-rc.3）。
  *
  * 流程：
- *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.2）
+ *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.3）
  *   1. profile dsh-toolset-output-compress 引导（幂等：创建 → 双插件 link: → 写用户层配置）
  *   2. 缺 dist 时先构建（output-compress + knowledge-base 双包）
  *   3. 真实 dsh headless 一次性会话：bash cat 大文件（>50KB → 宿主 spill → 触发本插件）
@@ -39,7 +39,7 @@ const PROFILE = "dsh-toolset-output-compress";
 const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
 const PKG_NAME_OC = "@dsh-toolset/output-compress";
 const PKG_NAME_KB = "@dsh-toolset/knowledge-base";
-const REQUIRED_VERSION = "0.1.5-rc.2";
+const REQUIRED_VERSION = "0.1.5-rc.3";
 const KNOWLEDGE_APP_ID = 0x4b4e4f57; // knowledge-base schema.ts 'KNOW'
 const KNOWLEDGE_SCHEMA_VERSION = 1;
 const MARKER = "ERROR output-compress-smoke-marker unique-token-42";

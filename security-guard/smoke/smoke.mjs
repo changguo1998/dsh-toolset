@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * 宿主联调 smoke（profile: dsh-toolset-security-guard，对齐 DSH-CTX-API 0.1.5-rc.2）。
+ * 宿主联调 smoke（profile: dsh-toolset-security-guard，对齐 DSH-CTX-API 0.1.5-rc.3）。
  *
  * 流程：
- *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.2）
+ *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.3）
  *   1. profile dsh-toolset-security-guard 引导（幂等：创建 → 挂载插件 link: → 写用户层配置，
  *      用户层不写 config，验证默认保守策略）
  *   2. 缺 dist 时先构建
@@ -40,7 +40,7 @@ const PKG_ROOT = path.resolve(
 const PROFILE = "dsh-toolset-security-guard";
 const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
 const PKG_NAME = "@dsh-toolset/security-guard";
-const REQUIRED_VERSION = "0.1.5-rc.2";
+const REQUIRED_VERSION = "0.1.5-rc.3";
 
 // 用户层只声明挂载，不写 config —— 验证默认保守策略（无用户层放行）。
 const CORDIS_PATCH = `# 本 profile 用户层：security-guard 插件挂载（由 smoke 脚本管理，勿手改）。
