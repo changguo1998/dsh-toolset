@@ -119,15 +119,20 @@ export class Screen {
     this.write(out.join(""));
   }
 
-  /** 只重绘末尾追加的 delta 行：移动到 delta 起始行后、以主题基底色写出行 */
-  renderDelta(startLine: number, rows: FrameRow[]): void {
+  /**
+   * 区间重写：从 startLine（1 基）起逐行重写 rows——帧中**任意区间**（不限帧尾）。
+   * 每行以主题基底色写出并 `ESC[K` 擦行尾；非末行 CRLF 前进、末行省略 CRLF
+   * （防满高帧触底上滚）。`clearBelow`：新帧比旧帧短时清除区间下方残留行
+   * （绝对定位 + `ESC[J`，不触发滚动；仅在残留行位于屏幕内时写出）。
+   */
+  renderRange(startLine: number, rows: FrameRow[], clearBelow = false): void {
     const out: string[] = [];
-    // 光标移动到 startLine（1 基数）
+    // 绝对定位到区间首行（不依赖当前光标位置，可安全用于帧中任意区间）
     out.push(`\x1b[${startLine};1H`);
-    let caret: { row: number; col: number } | null = null;
+    let caret: { row: number; col: number } | null = null; // 输入行光标(0 基列)
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]!;
-      // ESC[K 擦除以当前 bg 填充，故每个 delta 行都要带主题基底色
+      // ESC[K 擦除以当前 bg 填充，故每个区间行都要带主题基底色
       out.push(baseSgr(this.theme) + serializeFrameRow(row, this.theme));
       if (row.caret !== undefined) {
         caret = { row: startLine + i, col: row.caret };
@@ -135,8 +140,19 @@ export class Screen {
       // 非末行 CRLF 换行、末行省略 CRLF（防满高帧触底上滚）；ESC[K 擦除行尾残留旧字符
       out.push(i < rows.length - 1 ? "\r\n\x1b[K" : "\x1b[K");
     }
+    if (clearBelow) {
+      // 残留首行（1 基）：区间为空时即 startLine 本身
+      const clearLine = rows.length > 0 ? startLine + rows.length : startLine;
+      if (clearLine <= this.rows) out.push(`\x1b[${clearLine};1H\x1b[J`);
+    }
+    // 光标必须在所有行写完后再移动，否则后续行从光标列起写
     if (caret) out.push(`\x1b[${caret.row};${caret.col + 1}H`);
     this.write(out.join(""));
+  }
+
+  /** 只重绘末尾追加的 delta 行：等价于「区间重写」的帧尾特例 */
+  renderDelta(startLine: number, rows: FrameRow[]): void {
+    this.renderRange(startLine, rows);
   }
 
   /** 恢复终端默认样式（关闭前调用，避免残留主题色） */

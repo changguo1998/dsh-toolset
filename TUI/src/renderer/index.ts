@@ -113,14 +113,22 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
   const renderer: Renderer = {
     render(rows: FrameRow[]): void {
       if (closed) return;
-      // delta 优化：与上一帧共用前缀，仅末尾变化/追加 → 只写 delta
+      // delta 优化：与上一帧逐行比较取变化区间，只重写该区间（帧中任意位置，
+      // 不限帧尾——状态栏符号/流式末行增长都只重写对应行，不清屏）
       if (delta && prevRows) {
-        const prefix = commonPrefix(prevRows, rows, theme);
-        if (prefix >= prevRows.length) {
-          screen.renderDelta(prefix + 1, rows.slice(prefix));
-          prevRows = rows;
+        const { first, last } = changedRange(prevRows, rows, theme);
+        if (first === -1) {
+          prevRows = rows; // 画面无变化：不出报文
           return;
         }
+        // 新帧比旧帧短：区间重写后清除下方残留行（ESC[J）
+        screen.renderRange(
+          first + 1,
+          rows.slice(first, last + 1),
+          rows.length < prevRows.length,
+        );
+        prevRows = rows;
+        return;
       }
       screen.render(rows);
       prevRows = rows;
@@ -170,11 +178,32 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
   return renderer;
 }
 
-/** 两帧 FrameRow 从头部起相同前缀的行数 */
-function commonPrefix(a: FrameRow[], b: FrameRow[], theme: ColorTheme): number {
-  let n = 0;
-  while (n < a.length && n < b.length && sameRow(a[n]!, b[n]!, theme)) n++;
-  return n;
+/**
+ * 两帧的变化行区间（0 基，闭区间；`first === -1` = 无变化）。
+ * 逐行比较至两帧较长者：行数不同时缺失侧视为「无行」，多出/缺少的行即变化行，
+ * 故删除与追加都能落到区间内（区间重写 + 尾部残留清除即可收敛到新帧）。
+ */
+function changedRange(
+  a: FrameRow[],
+  b: FrameRow[],
+  theme: ColorTheme,
+): { first: number; last: number } {
+  const max = Math.max(a.length, b.length);
+  let first = -1;
+  let last = -1;
+  for (let i = 0; i < max; i++) {
+    const x = a[i];
+    const y = b[i];
+    const same =
+      x !== undefined && y !== undefined
+        ? sameRow(x, y, theme)
+        : x === undefined && y === undefined;
+    if (!same) {
+      if (first === -1) first = i;
+      last = i;
+    }
+  }
+  return { first, last };
 }
 
 /**
