@@ -37,7 +37,10 @@ test("区间 diff：中部单行变化只重写该行（状态栏符号，无清
   renderer.render(frame("○"));
   const out = chunks.slice(mark).join("");
   assert.ok(!out.includes("\x1b[2J"), "增量帧不得清屏");
-  assert.ok(out.startsWith("\x1b[35;1H"), "应绝对定位到第 35 行（状态行）");
+  assert.ok(
+    out.startsWith("\x1b[?2026h\x1b[35;1H"),
+    "应绝对定位到第 35 行（状态行）",
+  );
   assert.ok(out.includes("status ○"), "应重写变化行");
   assert.ok(!out.includes("content 33"), "未变化行不重写");
   assert.ok(!out.includes("> input"), "变化行之后的未变化行不重写");
@@ -55,7 +58,7 @@ test("区间 diff：流式末行行内增长只重写末行", () => {
   renderer.render(frame("assistant: 你好"));
   const out = chunks.slice(mark).join("");
   assert.ok(!out.includes("\x1b[2J"), "增量帧不得清屏");
-  assert.ok(out.startsWith("\x1b[6;1H"), "应定位到第 6 行（末行）");
+  assert.ok(out.startsWith("\x1b[?2026h\x1b[6;1H"), "应定位到第 6 行（末行）");
   assert.ok(out.includes("assistant: 你好"), "应重写末行新内容");
   assert.ok(!out.includes("line 4"), "前文不重写");
   renderer.close();
@@ -70,7 +73,10 @@ test("区间 diff：纯追加新行只写追加行", () => {
   renderer.render(frame(7));
   const out = chunks.slice(mark).join("");
   assert.ok(!out.includes("\x1b[2J"), "增量帧不得清屏");
-  assert.ok(out.startsWith("\x1b[7;1H"), "应定位到第 7 行（新增行）");
+  assert.ok(
+    out.startsWith("\x1b[?2026h\x1b[7;1H"),
+    "应定位到第 7 行（新增行）",
+  );
   assert.ok(out.includes("line 6"), "应写入新增行");
   assert.ok(!out.includes("line 0"), "既有行不重写");
   renderer.close();
@@ -87,7 +93,7 @@ test("区间 diff：行数减少时清除下方残留（ESC[J）", () => {
   assert.ok(!out.includes("\x1b[2J"), "增量帧不得清屏");
   assert.ok(out.includes("\x1b[J"), "应清除区间下方残留行");
   assert.ok(
-    out.startsWith("\x1b[6;1H"),
+    out.startsWith("\x1b[?2026h\x1b[6;1H"),
     "变化区间自第 6 行起（原第 6 行起被删除）",
   );
   assert.ok(
@@ -120,7 +126,7 @@ test("区间 diff：caret 变化（输入行）触发该行重写", () => {
   renderer.render(frame(4));
   const out = chunks.slice(mark).join("");
   assert.ok(!out.includes("\x1b[2J"), "增量帧不得清屏");
-  assert.ok(out.startsWith("\x1b[4;1H"), "应定位到输入行");
+  assert.ok(out.startsWith("\x1b[?2026h\x1b[4;1H"), "应定位到输入行");
   assert.ok(out.includes("\x1b[4;5H"), "光标应落到新 caret 列");
   renderer.close();
 });

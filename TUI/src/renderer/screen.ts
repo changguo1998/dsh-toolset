@@ -1,8 +1,8 @@
 // renderer/screen.ts — FrameRow 定义 + 帧缓冲 + 整帧重绘
 //
-// 写入一次性 ANSI 报文（清屏 + 光标回到原点 + 逐行带样式写出）。
-// 无 diff：每次 render 整帧重绘。`ponytail:` 无 diff，行数大若有闪烁
-// 再引入增量渲染。颜色全部 manual ANSI truecolor（经 theme.ts 解析），
+// 写入一次性 ANSI 报文（同步输出包裹 + 清屏/定位 + 逐行带样式写出）。
+// 增量由 Renderer 走 renderRange（变化区间重写），本类只负责报文组装。
+// 颜色全部 manual ANSI truecolor（经 theme.ts 解析），
 // 不使用 chalk：chalk 以 `39m`/`49m` 收尾复位到终端默认，浅色主题会不可读；
 // 这里每个样式段都以主题基底前景/背景收尾，保证后续文本仍按主题取色。
 
@@ -16,6 +16,13 @@ import {
   type ThemeId,
   hexSgr,
 } from "./theme.ts";
+
+// ---------- 终端同步输出（DEC 2026） ----------
+// 报文首尾包裹 begin/end：支持的终端（kitty/iTerm2/WezTerm/Ghostty/Windows
+// Terminal/tmux 3.4+ 等）会把整块更新原子呈现，消除清屏/重写之间的中间态；
+// 不支持的终端按未知私有模式忽略，无损降级。
+const SYNC_BEGIN = "\x1b[?2026h";
+const SYNC_END = "\x1b[?2026l";
 
 // ---------- 段级渲染契约（旧行类型已迁移完成，FrameRow 为唯一行类型） ----------
 
@@ -95,7 +102,7 @@ export class Screen {
     const base = baseSgr(this.theme); // 主题基底前景+背景
     // 基底色先于清屏写出：ESC[2J 以当前(主题)背景填充整屏；后续每行再补
     // 基底色以覆盖行内样式段收尾后恢复到主题基底（不依赖 chalk 复位）
-    const out: string[] = [base + "\x1b[2J\x1b[H"]; // 基底色 + 清屏 + 光标回原点
+    const out: string[] = [SYNC_BEGIN, base + "\x1b[2J\x1b[H"]; // 同步开始 + 基底色 + 清屏 + 光标回原点
     let caret: { row: number; col: number } | null = null; // 输入行光标(0 基列)
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]!;
@@ -116,6 +123,7 @@ export class Screen {
     }
     // 光标必须在所有行写完后再移动，否则后续行从光标列起写
     if (caret) out.push(`\x1b[${caret.row};${caret.col + 1}H`);
+    out.push(SYNC_END); // 同步结束：终端原子呈现整帧
     this.write(out.join(""));
   }
 
@@ -126,7 +134,7 @@ export class Screen {
    * （绝对定位 + `ESC[J`，不触发滚动；仅在残留行位于屏幕内时写出）。
    */
   renderRange(startLine: number, rows: FrameRow[], clearBelow = false): void {
-    const out: string[] = [];
+    const out: string[] = [SYNC_BEGIN];
     // 绝对定位到区间首行（不依赖当前光标位置，可安全用于帧中任意区间）
     out.push(`\x1b[${startLine};1H`);
     let caret: { row: number; col: number } | null = null; // 输入行光标(0 基列)
@@ -147,6 +155,7 @@ export class Screen {
     }
     // 光标必须在所有行写完后再移动，否则后续行从光标列起写
     if (caret) out.push(`\x1b[${caret.row};${caret.col + 1}H`);
+    out.push(SYNC_END); // 同步结束：终端原子呈现本区间更新
     this.write(out.join(""));
   }
 
@@ -157,7 +166,8 @@ export class Screen {
 
   /** 恢复终端默认样式（关闭前调用，避免残留主题色） */
   reset(): void {
-    this.write("\x1b[0m");
+    // 补发同步结束：进程若在同步块内异常收尾，防止终端保持「不刷新」状态
+    this.write(SYNC_END + "\x1b[0m");
   }
 }
 
