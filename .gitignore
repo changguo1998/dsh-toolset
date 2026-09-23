@@ -5,3 +5,6 @@ TUI/dist/
 
 # 各插件启动时生成的构建哈希产物（构建即生成，随 build 一并落盘）
 .fff-build-hash
+
+# 临时文件与排查留档目录（见 AGENTS.md「文件位置」）
+tmp/
