@@ -24,6 +24,13 @@ import {
 const SYNC_BEGIN = "\x1b[?2026h";
 const SYNC_END = "\x1b[?2026l";
 
+// ---------- 渲染期光标隐藏 ----------
+// 报文执行期间隐藏硬件光标、末尾定位 caret 后再显示：避免重写过程中光标
+// 在屏幕上跳动（Bubble Tea/pi 同样在渲染期间隐藏光标）。异常收尾时由 reset()
+// 兜底恢复显示，防止光标永久隐藏。
+const CURSOR_HIDE = "\x1b[?25l";
+const CURSOR_SHOW = "\x1b[?25h";
+
 // ---------- 段级渲染契约（旧行类型已迁移完成，FrameRow 为唯一行类型） ----------
 
 /** 段级样式：语义色名 + 字型开关。排版层唯一样式类型（规范见 SPEC.md §11.1） */
@@ -123,7 +130,7 @@ export class Screen {
    */
   render(rows: FrameRow[]): void {
     const base = baseSgr(this.theme); // 主题基底前景+背景
-    const out: string[] = [SYNC_BEGIN]; // 同步开始
+    const out: string[] = [SYNC_BEGIN, CURSOR_HIDE]; // 同步开始 + 渲染期隐藏光标
     if (!this.firstRenderDone) {
       // 首帧：基底色先于清屏写出（ESC[2J 以当前主题背景填充整屏）
       out.push(base + "\x1b[2J\x1b[H");
@@ -156,6 +163,7 @@ export class Screen {
     out.push("\x1b[J");
     // 光标必须在所有行写完后再移动，否则后续行从光标列起写
     if (caret) out.push(`\x1b[${caret.row};${caret.col + 1}H`);
+    out.push(CURSOR_SHOW); // 定位完成后再显示光标（无 caret 时同样保持可见）
     out.push(SYNC_END); // 同步结束：终端原子呈现整帧
     this.write(out.join(""));
   }
@@ -166,7 +174,7 @@ export class Screen {
    * 多段同时变化时只重写各段内的变化行，不跨越中间未变化的段。
    */
   renderRanges(intervals: RenderInterval[], clearBelow = false): void {
-    const out: string[] = [SYNC_BEGIN];
+    const out: string[] = [SYNC_BEGIN, CURSOR_HIDE]; // 同步开始 + 渲染期隐藏光标
     let caret: { row: number; col: number } | null = null; // 输入行光标(0 基列)
     let lastLine = 0; // 已写内容的最末行（1 基；残留清除起点据此推算）
     for (const iv of intervals) {
@@ -193,6 +201,7 @@ export class Screen {
     }
     // 光标必须在所有行写完后再移动，否则后续行从光标列起写
     if (caret) out.push(`\x1b[${caret.row};${caret.col + 1}H`);
+    out.push(CURSOR_SHOW); // 定位完成后再显示光标
     out.push(SYNC_END); // 同步结束：终端原子呈现本批区间更新
     this.write(out.join(""));
   }
@@ -209,8 +218,9 @@ export class Screen {
 
   /** 恢复终端默认样式（关闭前调用，避免残留主题色） */
   reset(): void {
-    // 补发同步结束：进程若在同步块内异常收尾，防止终端保持「不刷新」状态
-    this.write(SYNC_END + "\x1b[0m");
+    // 补发同步结束与光标显示：进程若在同步块/隐藏光标状态下异常收尾，
+    // 防止终端保持「不刷新」或光标永久隐藏
+    this.write(SYNC_END + CURSOR_SHOW + "\x1b[0m");
   }
 }
 

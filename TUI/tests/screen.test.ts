@@ -46,7 +46,7 @@ test("满高帧 render：输入行(caret)后无 CRLF，光标精确落在输入�
   );
   assert.equal(
     out.slice(idx + rowText(footer).length),
-    "\x1b[K\x1b[J\x1b[24;3H\x1b[?2026l",
+    "\x1b[K\x1b[J\x1b[24;3H\x1b[?25h\x1b[?2026l",
     "擦行尾 + 清下方残留后定位到第24行第3列",
   );
 });
@@ -60,7 +60,7 @@ test("非满高帧 render：普通行保留 CRLF，输入行仍定位正确", ()
   const idx = out.lastIndexOf(rowText(footer));
   assert.equal(
     out.slice(idx + rowText(footer).length),
-    "\x1b[K\x1b[J\x1b[2;3H\x1b[?2026l",
+    "\x1b[K\x1b[J\x1b[2;3H\x1b[?25h\x1b[?2026l",
     "光标在第2行第3列",
   );
   assert.ok(out.includes("header\r\n"), "普通行保留 CRLF");
@@ -74,7 +74,7 @@ test("renderDelta 满高帧：startLine+i 为末行时输入行不 CRLF，光标
   assert.ok(!tail.includes("\r\n"), "delta 输入行尾不得有 CRLF(避免触底上滚)");
   assert.equal(
     tail,
-    "\x1b[K\x1b[24;8H\x1b[?2026l",
+    "\x1b[K\x1b[24;8H\x1b[?25h\x1b[?2026l",
     "先擦行尾再定位到第24行第8列",
   );
 });
@@ -92,7 +92,7 @@ test("renderDelta 非满高帧：输入行 CRLF-替换为 K + 定位，位置正
   const tail = out.slice(idx + rowText(footer).length);
   assert.equal(
     tail,
-    "\x1b[K\x1b[6;5H\x1b[?2026l",
+    "\x1b[K\x1b[6;5H\x1b[?25h\x1b[?2026l",
     "输入行在 delta 中行为一行带擦除+定位",
   );
 });
@@ -120,7 +120,7 @@ test("满高帧 render：输入行后 CRLF 换行、按键提示区另起一行�
   const hidx = out.lastIndexOf(rowText(hint));
   assert.equal(
     out.slice(hidx + rowText(hint).length),
-    "\x1b[K\x1b[J\x1b[23;3H\x1b[?2026l",
+    "\x1b[K\x1b[J\x1b[23;3H\x1b[?25h\x1b[?2026l",
     "末行(提示区)无 CRLF，光标定位输入行(第23行)第3列",
   );
 });
@@ -138,7 +138,7 @@ test("renderDelta 满高帧：delta=输入行+按键提示区，输入行后 CRL
   const hidx = out.lastIndexOf(rowText(hint));
   assert.equal(
     out.slice(hidx + rowText(hint).length),
-    "\x1b[K\x1b[23;8H\x1b[?2026l",
+    "\x1b[K\x1b[23;8H\x1b[?25h\x1b[?2026l",
     "提示区(末行)后无 CRLF，光标定位输入行第8列",
   );
 });
@@ -146,10 +146,10 @@ test("renderDelta 满高帧：delta=输入行+按键提示区，输入行后 CRL
 test("同步输出：整帧与区间报文均以 DEC 2026 begin/end 成对包裹", () => {
   const full = capture([{ segments: [{ text: "x" }] }], 40, 24);
   assert.ok(full.startsWith("\x1b[?2026h"), "整帧报文以同步开始包裹");
-  assert.ok(full.endsWith("\x1b[?2026l"), "整帧报文以同步结束收尾");
+  assert.ok(full.endsWith("\x1b[?25h\x1b[?2026l"), "整帧报文以同步结束收尾");
   const range = capture([{ segments: [{ text: "y" }] }], 40, 24, 3, true);
   assert.ok(range.startsWith("\x1b[?2026h"), "区间报文以同步开始包裹");
-  assert.ok(range.endsWith("\x1b[?2026l"), "区间报文以同步结束收尾");
+  assert.ok(range.endsWith("\x1b[?25h\x1b[?2026l"), "区间报文以同步结束收尾");
 });
 
 test("全帧重写：仅首帧清屏，后续全帧覆盖式重写（无 ESC[2J）", () => {
@@ -170,4 +170,20 @@ test("全帧重写：仅首帧清屏，后续全帧覆盖式重写（无 ESC[2J�
   assert.ok(out.includes("\x1b[J"), "应清除下方残留旧行");
   assert.ok(out.includes("second"), "应写入新内容");
   assert.ok(out.includes("\x1b[K"), "每行应擦行尾（不依赖清屏）");
+});
+
+test("光标管理：报文渲染期隐藏、定位 caret 后显示；reset 兜底恢复显示", () => {
+  const writes: string[] = [];
+  const screen = new Screen({ write: (x) => writes.push(x) });
+  screen.resize(40, 24);
+  screen.render([{ segments: [{ text: "> x" }], caret: 3 }]);
+  const out = writes.join("");
+  assert.ok(out.startsWith("\x1b[?2026h\x1b[?25l"), "报文开头隐藏光标");
+  assert.ok(out.includes("\x1b[1;4H\x1b[?25h"), "定位 caret 后再显示光标");
+  writes.length = 0;
+  screen.reset();
+  assert.ok(
+    writes.join("").includes("\x1b[?25h"),
+    "reset 兜底恢复光标显示（防异常收尾永久隐藏）",
+  );
 });

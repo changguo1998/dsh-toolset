@@ -245,7 +245,7 @@ test("Screen.reset 与 reducer set-theme / initialState(theme)", () => {
   const screen = new Screen({ write: (s) => w.call(s) });
   screen.reset();
   // reset 先补发同步输出结束（防同步块内异常收尾卡住终端），再恢复默认样式
-  assert.equal(w.out, "\x1b[?2026l\x1b[0m");
+  assert.equal(w.out, "\x1b[?2026l\x1b[?25h\x1b[0m");
 
   assert.equal(initialState().themeId, "dark");
   assert.equal(initialState("light").themeId, "light");
