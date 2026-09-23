@@ -15,7 +15,7 @@
 - **绘制节律**：`paint()` 标脏 + 同一 tick 合帧（microtask 冲刷，一 tick 一帧），事件 burst 不逐事件重绘；真实链路另有跨回合帧率上限（默认 10Hz）。排版侧折行 / 宽度走有界缓存（`TUI_LAYOUT_CACHE=0` 可关）。详见 `IMPLEMENTATION.md`「排版缓存与绘制合帧」。
 - `node-pty` 已评估、暂不引入（除非 TUI 需直接开 shell，否则会话由 DSH 管理）。
 
-DSH 适配层接口以**官方源码研读**为准（契约沉淀于仓库根 `DSH-CTX-API.md`，基线 `dsh-v0.1.5-rc.2`）：
+DSH 适配层接口以**官方源码研读**为准（契约沉淀于仓库根 `DSH-CTX-API.md`，基线 `dsh-v0.1.5-rc.3`）：
 
 - 进程内宿主为 vendored `@deepseek-ai/cordis`（Context / Service / Fiber），插件导出 `apply(ctx)`；
 - 订阅会话事件：`ctx.on('session/event', (session, event) => …)`（带 `seq` 连续契约）；
@@ -181,7 +181,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 
 ### 事件接入与渲染
 
-对照官方 deepseek-harness `dsh-v0.1.5-rc.2`（= 本机安装宿主）：8 个可消费服务（sessions / agents / approval / userQuestions / llm / commands / sessionQuery / agentDefaultModel）已全部接入；事件词汇表以该 tag 的 `known-event-types.ts` 为准（53 项）。已接入能力按域：
+对照官方 deepseek-harness `dsh-v0.1.5-rc.3`（= 本机安装宿主）：8 个可消费服务（sessions / agents / approval / userQuestions / llm / commands / sessionQuery / agentDefaultModel）已全部接入；事件词汇表以该 tag 的 `known-event-types.ts` 为准（53 项）。已接入能力按域：
 
 - **工具与用量域**：`tool/call` + `tool/result` → 紧凑工具行（编码代理 TUI 的第一可见性）；usage 状态栏槽位（usage chunk 已解析，零新事件）；`finish` reason 挂 turn-end notice；`compaction/start` + `compaction/end` toast；`llm/retry` + `llm/retry-started` 重试透明化。
 - **状态域**：`goal/change`、`todo/write` → 状态列详显；`plan/mode`、`sandbox/mode`、`permission/preset`、审批策略、agent 预设 → 状态列 Mode 块；`step/start` | `step/end` turn 内分步；`subagent/descriptor` 子代理行；`compaction/summary` 摘要 toast。

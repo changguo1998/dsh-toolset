@@ -1,8 +1,9 @@
-# 可用官方包清单（DSH 0.1.5-rc.2）
+# 可用官方包清单（DSH 0.1.5-rc.3）
 
-> 来源：本地安装的官方 deepseek-harness（全局 dsh `0.1.5-rc.2`，`~/.local/share/fnm/node-versions/v24.16.0/installation/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/`）；与源码 clone（`~/GithubRepos/deepseek-harness`，`dsh-v0.1.5-rc.2` = commit `fb2c4b9e69`）同版本。
+> 来源：本地安装的官方 deepseek-harness（全局 dsh `0.1.5-rc.3`，`~/.local/share/fnm/node-versions/v24.16.0/installation/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/`）；与源码 clone（`~/GithubRepos/deepseek-harness`，`dsh-v0.1.5-rc.3` = commit `a4c74a91e0`）同版本。
 > 用途：与 `DSH-CTX-API.md` 配套——该文件记「接口怎么用」，本文件记「有哪些包、每个包提供什么服务」；供 dsh-toolset 各插件选型与集成对齐。
-> 版本口径：只记 `0.1.5-rc.2` 实际随包分发的内容；服务名与描述由安装目录实测提取（见文末复现命令）。宿主升级后需重新生成。
+> 版本口径：只记 `0.1.5-rc.3` 实际随包分发的内容；服务名与描述由安装目录实测提取（见文末复现命令）。宿主升级后需重新生成。
+> rc.2 → rc.3 只有发布改动（版本号 + vendor 家族依赖由 `workspace:^` 改为 `workspace:*` 精确钉版），随包分发的 240 个包、描述、服务名与 fff 挂载集合均逐项实测一致，故清单内容未变。
 
 ## 0. 怎么读这份清单
 
@@ -370,7 +371,7 @@ agent agent-default-model agent-instructions agent-loop api-gateway attachment-l
 | `ctx.workspaceFiles` | `api-workspace-files` |
 | `ctx.workspaceRegistry` | `workspace` |
 
-## 4. 0.1.5-rc.2 里没有的（与我们的待办相关）
+## 4. 0.1.5-rc.3 里没有的（与我们的待办相关）
 
 - **没有 git worktree 集成包**：全量 240 个包中不存在按 agent 隔离工作目录的实现（对应待办 #15）。
 - **没有跨会话消息包**：不存在 broker / intercom / socket / IPC 类的 agent 间通道；进程内只有 `ctx.subagents.sendMessage`（相邻 agent），跨会话只有只读的 `session-query` / `session-reference`（对应待办 #30）。
@@ -382,6 +383,7 @@ agent agent-default-model agent-instructions agent-loop api-gateway attachment-l
 - **我们 inject 的服务**：`tools`（全部工具注册）、`systemPrompt`（提示/上下文贡献）、`sessionProjections`（context-report 的 `sessionContext` 投影）、`sessions`、`tokenMeter`、`agents`、`fs`、`shell`、`subagents`、`userQuestions`（herdr-integration 桥接 blocked）、`approval`。接口怎么用见 `DSH-CTX-API.md`。
 - **启用未挂载的官方包不需要安装**：包已随 dsh 装在共享 `node_modules`，在 profile 的 `cordis.patch.yml` 加一行（或 `dsh plugin --profile <p> add <包名>`）即可。
 - **升级注意**：fff 的官方包全部是指向全局 dsh 安装的软链，升级 CLI 后 profile 无需动作即换版本；因此本清单与 `DSH-CTX-API.md` 需随升级复核。
+- **升级方式**：`npm i -g @deepseek-ai/dsh@<显式版本>`（rc.3 用 `@0.1.5-rc.3` 或 `@next`），**不要用 `npm update -g`**——npm 的 `latest` 停在 `0.1.5-rc.2`，而 rc.2 的 vendor 依赖是 caret 范围（`cordis ^4.0.2` 等），`npm update -g` 会把它们浮动到未配套的 vendor 版本（实测会装出 cordis 4.0.4 与 loader/timer/schemastery 各两份的混合树）；rc.3 起 vendor 家族为精确钉版，不再浮动。
 
 ## 6. 复现命令（宿主升级后重新生成）
 
@@ -395,4 +397,8 @@ grep -rhoE 'super\(ctx, "[a-zA-Z]+"' "$D"/*/lib/index.js | sed 's/super(ctx, "//
 { grep -rhoE "name: '@deepseek-ai/[^']+'" ~/.dsh/profiles/fff/cordis.patch.yml "$D/dsh-base/cordis.patch.yml"; } | sed "s/name: '//;s/'$//" | sort -u
 ```
 
-注意：`dsh --profile fff --dump-config` 在只读 profile 目录下会因写 `cordis.yml` 失败（EROFS）；改用上面的解析方式核对。
+核对口径：
+
+- **服务名只取包的主入口 `lib/index.js`**：客户端面（`lib/client.js`，如 `slots`、`uiSession`）与未挂载的子路径入口（如 `tool-subagent/model-selection-settings` 的 `subagentModelSelection`）注册的服务不算该包的 host 服务。
+- **挂载清单要去子路径条目**：patch 里会出现同一包的第二入口（如 `@deepseek-ai/dsh-tool-subagent-control/list-agents`），按包名前缀归并后才是 82 个。
+- `dsh --profile fff --dump-config` 在只读 profile 目录下会因写 `cordis.yml` 失败（EROFS）；改用上面的解析方式核对，或在可写环境下用它交叉验证（实测同为 82 个官方包）。

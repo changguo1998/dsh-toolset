@@ -10,7 +10,7 @@
 - 12 个插件全部完成并合入 main：herdr-integration、task-engine、knowledge-base、goal-contract、metric-loop、output-compress、fs-digest、hash-edit、ast-tools、security-guard、code-map、context-report。
 - `rate-guard` 已取消（不迁移）：pi 侧已移除，能力由 pi 核心 provider-retry 内建 + 扩展 provider-guard 承接；dsh 侧一般退避由官方 `llm-retry` 覆盖，决策见 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1（归档调研）。
 - 剩余 P2 插件（workflow-ext / web-ext / session-broker / command-template）与内容资产未开始。
-- 宿主基线：本地安装 dsh `0.1.5-rc.2`。官方包总量（240 个）、分类说明与 fff 挂载清单（82 个）见 `HOST-PACKAGES.md`；该基线内**无 worktree 隔离包、无跨会话消息包**（对应待办 #15 / #30）。
+- 宿主基线：本地安装 dsh `0.1.5-rc.3`。官方包总量（240 个）、分类说明与 fff 挂载清单（82 个）见 `HOST-PACKAGES.md`；该基线内**无 worktree 隔离包、无跨会话消息包**（对应待办 #15 / #30）。
 
 ## 状态表
 

@@ -1,8 +1,8 @@
 # DSH 核心 ctx API（跨插件共享参考）
 
-> 来源：官方 `deepseek-harness` clone（`~/GithubRepos/deepseek-harness`，`dsh-v0.1.5-rc.2` = commit `fb2c4b9e69`）。
+> 来源：官方 `deepseek-harness` clone（`~/GithubRepos/deepseek-harness`，`dsh-v0.1.5-rc.3` = commit `a4c74a91e0`）。
 > 用途：供 dsh-toolset 各插件（TUI、herdr-integration、knowledge-base、task-engine）在与 DSH 宿主集成时对齐契约；本文件为研读沉淀，只读参考，非实现。
-> 版本口径：以 `dsh-v0.1.5-rc.2` 为准。源码若演进，以仓库为准。
+> 版本口径：以 `dsh-v0.1.5-rc.3` 为准。源码若演进，以仓库为准。
 
 ## 0. 运行时总览
 

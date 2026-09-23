@@ -51,7 +51,7 @@ bundle 契约：`name` / `inject: ["sessionProjections", "sessions", "tools"]` /
 
 - **只统计已关闭的步**（`step/end`）：步内模型墙钟、token 分桶、回合数先挂账在在途账上，`step/end` 时一次提交；未闭合的步一律不计（在途回合不算完成）。与宿主 `dsh-session-stats` 的「已关闭步」口径一致。
 - **回合计数**挂在 `turn/start` 的回合身份上：同回合多步只计一次；无回合信息的步不计回合。
-- **首 token / 解码**：优先取流记录里首个非空 text/reasoning 增量——宿主 0.1.5-rc.2 实测为 `text-chunks` / `reasoning-chunks` 块（取 `time0` 精确绝对时间），兼容旧 `text-delta` 形态（entry `time`，缺则消息时间兜底）。`assistant/attempt` 的流增量同样计入；完全无增量时退化为「消息时间上界」（此时解码窗口记 0，不编造）。
+- **首 token / 解码**：优先取流记录里首个非空 text/reasoning 增量——宿主 0.1.5-rc.2 实测（rc.3 与其源码同构）为 `text-chunks` / `reasoning-chunks` 块（取 `time0` 精确绝对时间），兼容旧 `text-delta` 形态（entry `time`，缺则消息时间兜底）。`assistant/attempt` 的流增量同样计入；完全无增量时退化为「消息时间上界」（此时解码窗口记 0，不编造）。
 - **token 分桶**只累计 provider 实际上报的步（`assistant/message.usage`）；`reasoning` 是 `output` 的子集，单独给出且不重复计入总量。
 - **上下文占用**：`projectedTokens` 优先、其次 `pressureTokens`；容量取自宿主 token-meter 的 `contextWindow`（模型路由容量）——容量未知时**不给百分比**，不猜分母。
 - 墙钟差为负、时间戳缺失、载荷形状非法时跳过该样本，不写入负数、不抛错。

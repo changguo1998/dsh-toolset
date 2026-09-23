@@ -77,7 +77,7 @@ npm run check   # tsc -p tsconfig.json --noEmit
 npm run build   # tsc -p tsconfig.json → dist/
 npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'
 npm run demo    # node --experimental-transform-types demo/main.ts（末行 demo OK）
-npm run smoke   # node smoke/smoke.mjs（需本机 dsh 0.1.5-rc.2 与模型凭据）
+npm run smoke   # node smoke/smoke.mjs（需本机 dsh 0.1.5-rc.3 与模型凭据）
 ```
 
 39 例测试（schema 3 + knowledge 8 + hooks 12 + writepolicy 8 + memory 6 + exposure 2）。

@@ -2,7 +2,7 @@
 
 > 本清单只列**未完成**项；已完成项见 `DEVELOPMENT-STATUS.md` 状态表（实现与验证证据在各包源码/测试与 git 历史；已完成的实施清单归入 `archive/`），不在此重复。
 > 设计依据：`AGENT-ARCHITECTURE-ANALOGY.md`（架构与接口对照）、`archive/PI-DSH-FEATURE-COMPARISON.md`（pi→dsh 迁移基线差距，归档调研）。实现时以根目录 `DSH-CTX-API.md` 对齐宿主接口。
-> 基线：dsh `dsh-v0.1.5-rc.2`（commit `fb2c4b9e69`）。
+> 基线：dsh `dsh-v0.1.5-rc.3`（commit `a4c74a91e0`）。
 > 优先级：**P0** 架构主线；**P1** 核心体验补齐；**P2** 长尾。状态标记：`[x]` 已实现（仅第 1 节索引使用）、`[~]` 部分实现（注明未含部分）、无标记 = 未实现。
 
 ## 1. 已完成索引

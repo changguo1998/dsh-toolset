@@ -253,7 +253,7 @@ run（一次运行/执行实例）      ← 最外层：跑一个任务/程序
 - 存储：独立 SQLite 库（搜索密集，独立于 storage KV 域）；
 - 数据源：session/event hooks（对齐 dsh session-telemetry 事件捕获）；
 - 接口：插件暴露 `ctx_knowledge`：`search / put / touch / evict`；
-- 复用宿主既有能力作为实现底座：storage-sqlite、session-query-sqlite（FTS5 基础），契约基线 `dsh-v0.1.5-rc.2`。
+- 复用宿主既有能力作为实现底座：storage-sqlite、session-query-sqlite（FTS5 基础），契约基线 `dsh-v0.1.5-rc.3`。
 
 ## 13. 运行流水线：调用栈 × 指令流水线
 
@@ -361,7 +361,7 @@ root                             [ ] root
 
 ## 16. 实现清单与 dsh 接口对照
 
-> 接口对照基于 dsh `0.1.2-rc.1` 源码核对；当前契约基线为 `dsh-v0.1.5-rc.2`（见 `DSH-CTX-API.md`）。本节清单已落地为 `task-engine` 插件（首版与边界见 `task-engine/README.md`、`DEVELOPMENT-STATUS.md`）。
+> 接口对照基于 dsh `0.1.2-rc.1` 源码核对；当前契约基线为 `dsh-v0.1.5-rc.3`（见 `DSH-CTX-API.md`）。本节清单已落地为 `task-engine` 插件（首版与边界见 `task-engine/README.md`、`DEVELOPMENT-STATUS.md`）。
 
 ### 16.1 实现内容
 

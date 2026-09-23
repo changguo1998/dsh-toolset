@@ -68,4 +68,4 @@ npm run test    # node --test（35 例：engine / persist / controller，注入�
 npm run smoke   # 宿主联调：profile 引导 + headless 连跑三轮 + 状态文件断言
 ```
 
-`npm run smoke` 需本机可用 dsh 0.1.5-rc.2 与模型凭据。
+`npm run smoke` 需本机可用 dsh 0.1.5-rc.3 与模型凭据。

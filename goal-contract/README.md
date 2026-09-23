@@ -70,5 +70,5 @@ dsh plugin --profile dsh-toolset-goal-contract add '@dsh-toolset/task-engine@lin
 npm run check   # tsc --noEmit
 npm run build   # 编译到 dist/
 npm run test    # node --test（35 例：访谈状态机 / 条款校验 / goal 事件落地与回读）
-npm run smoke   # 真实 dsh 会话联调（需 dsh 0.1.5-rc.2 与模型凭据）
+npm run smoke   # 真实 dsh 会话联调（需 dsh 0.1.5-rc.3 与模型凭据）
 ```

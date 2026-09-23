@@ -2,7 +2,7 @@
 
 DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方式挂载进 DSH 会话进程的一组 TypeScript 插件，补齐任务树、知识库与记忆、目标契约、指标循环等能力；另含一套自研终端 UI（TUI），是 Web UI / CLI 之外的第三种交互方式。
 
-面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `DSH-CTX-API.md`（只读，版本口径 `dsh-v0.1.5-rc.2`）。
+面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `DSH-CTX-API.md`（只读，版本口径 `dsh-v0.1.5-rc.3`）。
 
 ## 组成
 
@@ -91,6 +91,6 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 - `docs/DEVELOPMENT-BACKLOG.md` — 未完成功能清单（P0/P1/P2）与里程碑。
 - `TUI/DESIGN.md`、`TUI/SPEC.md`、`TUI/IMPLEMENTATION.md`、`TUI/COMMANDS.md`、`TUI/COMMANDS-SPEC.md` — TUI 设计、渲染规格、实现记录、命令面与命令扩展规格。
 - `docs/AGENT-ARCHITECTURE-ANALOGY.md` — agent 架构与 DSH 接口对照（任务树、知识库插件的设计依据）。
-- `docs/HOST-PACKAGES.md` — 宿主官方包清单（`dsh 0.1.5-rc.2` 的 240 个包，分类 + 关键包说明 + fff 挂载清单；宿主升级后需刷新）。
+- `docs/HOST-PACKAGES.md` — 宿主官方包清单（`dsh 0.1.5-rc.3` 的 240 个包，分类 + 关键包说明 + fff 挂载清单；宿主升级后需刷新）。
 - `archive/PI-DSH-FEATURE-COMPARISON.md`、`archive/CODEMAP-RESEARCH.md` — 已归档的调研记录（pi→dsh 迁移基线与 code-map 选型快照，仅作历史参考；现状以状态表/待办清单为准）。
 - `DSH-CTX-API.md` — 对齐官方 deepseek-harness 的核心契约研读笔记（只读参考）。

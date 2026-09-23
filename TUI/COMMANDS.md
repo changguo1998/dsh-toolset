@@ -46,7 +46,7 @@
 
 ### 1.2 宿主注册命令
 
-`ctx.commands.register` 现注册 6 条（dsh 0.1.5-rc.2 安装树核实）：`/compact` `/feedback` `/goal` `/permission` `/plan` 由 dsh-base 装配的插件注册（dsh-command-compact / dsh-command-feedback / dsh-command-goal / dsh-permission-presets / dsh-plan-mode），`/export` 来自 dsh-session-log-export。本地目录未命中的命令名一律经 `adapter.runCommand` 转发注册表；注册表未命中提示未知命令（fail-close，绝不把 slash 行发给模型）。
+`ctx.commands.register` 现注册 6 条（dsh 0.1.5-rc.3 安装树核实）：`/compact` `/feedback` `/goal` `/permission` `/plan` 由 dsh-base 装配的插件注册（dsh-command-compact / dsh-command-feedback / dsh-command-goal / dsh-permission-presets / dsh-plan-mode），`/export` 来自 dsh-session-log-export。本地目录未命中的命令名一律经 `adapter.runCommand` 转发注册表；注册表未命中提示未知命令（fail-close，绝不把 slash 行发给模型）。
 
 - 补全候选 = 本地目录 + `ctx.commands.list(agent)`（`start()` 时拉取一次，无周期刷新）；同名本地优先。
 - `/goal` `/permission` 与本地同名：`/permission` 无参走本地面板、带参转发宿主；`/goal` 恒为本地提示（不转发）。
