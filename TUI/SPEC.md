@@ -521,7 +521,7 @@ export interface FrameRow {
 
 ```ts
 interface Renderer {
-  render(rows: FrameRow[], sections?: FrameSection[]): void;  // 变化区间重写（内部优化；sections = 帧段表，按段切分区间）
+  render(rows: FrameRow[], sections?: FrameSection[]): void;  // 变化行游程重写（内部优化；sections = 帧段表，先按段收敛、段内按游程切分）
   refresh(rows: FrameRow[], sections?: FrameSection[]): void; // 强制全帧（Ctrl+L）
   onKey(cb: (k: KeyEvent) => void): void;
   emitKey(k: KeyEvent): void;
@@ -533,7 +533,7 @@ interface Renderer {
 ```
 
 - `App.paint()` 为**标脏 + 同 tick 合帧**：同一 tick 内多次标脏只调用一次 `render(rows, sections)`；`flushPaint()` 同步冲刷、`paintNow()` 立即出帧（启动首帧与测试用）；`refresh()`（Ctrl+L）绕过区间 diff 立即整帧重绘。
-- 渲染层不变量：增量帧只重写变化区间（绝不 `ESC[2J` 清屏）；报文以 DEC 2026 同步输出（`ESC[?2026h/l`）包裹、渲染期隐藏光标（`ESC[?25l/h`）；仅首帧清屏一次，后续全帧走覆盖式重写。见 `IMPLEMENTATION.md`「增量渲染与防闪烁」。
+- 渲染层不变量：增量帧只重写变化行游程——连续变化行各成一段、段间不取跨度（绝不 `ESC[2J` 清屏）；报文以 DEC 2026 同步输出（`ESC[?2026h/l`）包裹、渲染期隐藏光标（`ESC[?25l/h`）；仅首帧清屏一次，后续全帧走覆盖式重写。见 `IMPLEMENTATION.md`「增量渲染与防闪烁」。
 
 ### 11.3 排版输入（已有契约，立字据）
 

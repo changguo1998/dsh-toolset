@@ -36,7 +36,7 @@ export type {
 export type { Size };
 
 export interface Renderer {
-  /** 整帧重绘；render 内含变化区间重写（sections 提供时按帧段切分区间） */
+  /** 整帧重绘；render 内含变化行游程重写（sections 提供时先按帧段切分） */
   render(rows: FrameRow[], sections?: FrameSection[]): void;
   /** 强制整帧重绘（绕过 delta 优化，Ctrl+L 用） */
   refresh(rows: FrameRow[], sections?: FrameSection[]): void;
@@ -146,10 +146,10 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
   const renderer: Renderer = {
     render(rows: FrameRow[], sections?: FrameSection[]): void {
       if (closed) return;
-      // delta 优化：与上一帧逐行比较取变化区间，只重写该区间（帧中任意位置，
+      // delta 优化：与上一帧逐行比较取变化行**游程**，只重写这些区间（帧中任意位置，
       // 不限帧尾——状态栏符号/流式末行增长都只重写对应行，不清屏）。
-      // sections 提供且与上一帧段表一致时按**帧段**切分区间：多段同时变化
-      // 只重写各段内的变化行，不跨越中间未变化的段。
+      // sections 提供且与上一帧段表一致时按**帧段**切分：多段同时变化只重写各段内
+      // 变化行，不跨越中间未变化的段；段内不连续的变化行再各自成区间（见 changedRuns）。
       if (delta && prevRows) {
         let intervals = changedIntervals(
           prevRows,
@@ -159,12 +159,13 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
           theme,
         );
         if (intervals === null) {
-          // 段表不可用（首帧/几何变化/覆盖不全）：退化为整帧单一区间
-          const { first, last } = changedRange(prevRows, rows, theme);
-          intervals =
-            first === -1
-              ? []
-              : [{ startLine: first + 1, rows: rows.slice(first, last + 1) }];
+          // 段表不可用（首帧/几何变化/覆盖不全）：退化为整帧逐行游程比较
+          intervals = changedRuns(prevRows, rows, theme).map(
+            ({ first, last }) => ({
+              startLine: first + 1,
+              rows: rows.slice(first, last + 1),
+            }),
+          );
         }
         if (intervals.length === 0) {
           prevRows = rows; // 画面无变化：不出报文
@@ -274,19 +275,25 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
 }
 
 /**
- * 两帧的变化行区间（0 基，闭区间；`first === -1` = 无变化）。
+ * 两帧的**变化行游程**（0 基闭区间数组；空数组 = 无变化）。
  * 逐行比较至两帧较长者：行数不同时缺失侧视为「无行」，多出/缺少的行即变化行，
- * 故删除与追加都能落到区间内（区间重写 + 尾部残留清除即可收敛到新帧）。
+ * 故删除与追加都能落到游程内（区间重写 + 尾部残留清除即可收敛到新帧）。
+ *
+ * 关键：只把**连续**变化行合成一段，不取「首末跨度」。状态列（最左窄列，纵向贯穿
+ * 顶部区域）与活动区（底部流式行）会在同一 tick 同时变化，两者之间大段行其实未变——
+ * 取跨度会把整段一起逐行擦除重写（实测 18 行/tick），正是无 DEC2026 同步终端上
+ * 可见闪烁与多余字节的直接来源（改游程后同场景 2~3 行/tick）。
  */
-function changedRange(
+function changedRuns(
   a: FrameRow[],
   b: FrameRow[],
   theme: ColorTheme,
-): { first: number; last: number } {
-  const max = Math.max(a.length, b.length);
-  let first = -1;
-  let last = -1;
-  for (let i = 0; i < max; i++) {
+  from = 0,
+  to = Math.max(a.length, b.length),
+): Array<{ first: number; last: number }> {
+  const runs: Array<{ first: number; last: number }> = [];
+  let start = -1; // 当前游程起点（-1 = 未开始）
+  for (let i = from; i < to; i++) {
     const x = a[i];
     const y = b[i];
     const same =
@@ -294,18 +301,24 @@ function changedRange(
         ? sameRow(x, y, theme)
         : x === undefined && y === undefined;
     if (!same) {
-      if (first === -1) first = i;
-      last = i;
+      if (start === -1) start = i;
+      continue;
+    }
+    if (start !== -1) {
+      // 命中未变化行 → 封口当前游程（其后变化行另起一段）
+      runs.push({ first: start, last: i - 1 });
+      start = -1;
     }
   }
-  return { first, last };
+  if (start !== -1) runs.push({ first: start, last: to - 1 });
+  return runs;
 }
 
 /**
- * 按**帧段**切分的变化区间（每段内独立取首尾变化行）；返回 `null` 表示段表不可用，
- * 调用方退化为整帧单一区间。可用条件：新旧段表均存在、逐段 id/startLine/lineCount
- * 完全一致，且段覆盖帧的全部行——行数或几何变化都会改变段表，故该校验即几何一致性
- * 校验（不满足时按整帧比较，避免漏更新）。
+ * 按**帧段**切分的变化区间（每段内独立取变化行游程，段内不连续处再各自成区间）；
+ * 返回 `null` 表示段表不可用，调用方退化为整帧游程比较。可用条件：新旧段表均存在、
+ * 逐段 id/startLine/lineCount 完全一致，且段覆盖帧的全部行——行数或几何变化都会
+ * 改变段表，故该校验即几何一致性校验（不满足时按整帧比较，避免漏更新）。
  */
 function changedIntervals(
   prevRows: FrameRow[],
@@ -334,16 +347,15 @@ function changedIntervals(
   for (const s of sections) {
     const from = s.startLine;
     const to = s.startLine + s.lineCount;
-    const { first, last } = changedRange(
-      prevRows.slice(from, to),
-      rows.slice(from, to),
+    for (const { first, last } of changedRuns(
+      prevRows,
+      rows,
       theme,
-    );
-    if (first === -1) continue;
-    out.push({
-      startLine: from + first + 1,
-      rows: rows.slice(from + first, from + last + 1),
-    });
+      from,
+      to,
+    )) {
+      out.push({ startLine: first + 1, rows: rows.slice(first, last + 1) });
+    }
   }
   return out;
 }

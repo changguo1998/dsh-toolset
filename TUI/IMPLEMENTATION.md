@@ -224,17 +224,25 @@
 
 渲染层五项防闪烁机制（业界对照：Bubble Tea 行级跳过 + 60fps 合帧、pi 的 `firstChanged..lastChanged` 区间重写 + DEC 2026、Textual dirty region、Codewhale 去 `2J` 修复、Claude Code #37283）：
 
-- **变化区间重写**（`renderer/index.ts` 的 `changedRange` + `screen.renderRange/renderRanges`）：逐行比较新旧帧（按主题下序列化文本，`caret` 参与比较），取 `[firstChanged, lastChanged]` 区间，绝对定位 + 逐行 `ESC[K` 擦行重写；新帧更短时区间末尾以 `ESC[J` 清除下方残留。**增量帧绝不 `ESC[2J` 清屏**——这是符号闪烁/流式行内增长场景的主要修复点（旧实现只支持「帧尾纯追加」，其余一律全帧清屏）。
-- **帧段（box）切分**（`app/layout.ts` 的 `frameSections` + `renderer` 的 `changedIntervals`）：由 `FrameGeometry` 纯推导行带表（top / status / footer / hint），`buildFrame` 经 `FrameBuildOutput` 回填、App 随帧传入；段表与上一帧一致时按段独立取变化区间（多段同时变化只重写各段内变化行，不跨越中间未变化的段）；段表缺失/不一致（几何或行数变化）退化为整帧单一区间，保证不漏更新。
+- **变化行游程重写**（`renderer/index.ts` 的 `changedRuns` + `screen.renderRange/renderRanges`）：逐行比较新旧帧（按主题下序列化文本，`caret` 参与比较），把**连续变化行**各合成一段、段间独立绝对定位 + 逐行 `ESC[K` 擦行重写；新帧更短时末尾以 `ESC[J` 清除下方残留。**只取「首末跨度」是不行的**：状态列（最左纵向窄列，贯穿整个顶部区域）与活动区（底部流式行）常在同一 tick 同时变化，取跨度会把中间大片未变化行一起擦除重写（实测 **18 行/tick** → 改游程后 **2~3 行/tick**，报文 3.1 KB → 0.7 KB）；无 DEC 2026 同步的终端上，逐行擦除+重写正是肉眼可见闪烁的来源。**增量帧绝不 `ESC[2J` 清屏**——这是符号闪烁/流式行内增长场景的主要修复点（旧实现只支持「帧尾纯追加」，其余一律全帧清屏）。
+- **帧段（box）切分**（`app/layout.ts` 的 `frameSections` + `renderer` 的 `changedIntervals`）：由 `FrameGeometry` 纯推导行带表（top / status / footer / hint），`buildFrame` 经 `FrameBuildOutput` 回填、App 随帧传入；段表与上一帧一致时先把范围收敛到各段（多段同时变化只重写各段内变化行，不跨越中间未变化的段），段内再按变化行游程切成若干区间（不取跨度）；段表缺失/不一致（几何或行数变化）退化为整帧游程比较，保证不漏更新。
 - **DEC 2026 同步输出**（`screen.ts`）：整帧与区间报文首尾包 `ESC[?2026h` / `ESC[?2026l`，支持的终端（kitty / iTerm2 / WezTerm / Ghostty / Windows Terminal / tmux 3.4+）原子呈现整块更新；不支持的终端按未知私有模式忽略。`reset()` 补发结束序列兜底。
 - **覆盖式全帧**：仅**首帧**清屏一次（清终端既有内容），后续全帧（resize / 主题切换 / Ctrl+L）改为绝对定位原点 + 逐行覆盖重写（每行 `ESC[K`）+ 末尾 `ESC[J`，不再破坏性清屏。
 - **渲染期光标隐藏**：报文开头 `ESC[?25l`、定位 caret 后 `ESC[?25h`，消除重写期间硬件光标跳动；`reset()` 兜底补发显示序列。
 
-量化验收：`tmp/repro-flicker/verify.mjs`（临时排查留档，非仓库产物）四场景——状态符号翻转、流式行内增长、纯追加、内容滚动——全帧清屏均为 0 次（修复前分别 10/10/0/1 次，输出 22.7KB → 约 3KB）。回归测试：`tests/renderer-diff.test.ts`（区间 diff 6 例 + 段切分 3 例）、`tests/screen.test.ts`（报文序列：同步包裹 / 仅首帧清屏 / 光标管理）、`tests/layout4.test.ts`（`frameSections` 覆盖性与行带一致性）。
+量化验收（`tmp/repro-flicker/` 三种脚本，临时排查留档、非仓库产物）：
+
+| 脚本 | 场景 | 结果 |
+| --- | --- | --- |
+| `verify.mjs` | 符号翻转 / 流式行内增长 / 纯追加 / 内容滚动 | 全帧清屏均 0 次（修复前 10/10/0/1 次，输出 22.7 KB → 约 3 KB） |
+| `verify-real-frames.mjs` | 真实 24×80 布局帧：20 帧流式 + 符号交替 | 0 清屏、0 缺同步包裹/光标序列；纯符号帧 356 B |
+| `diag-rows.mjs` | 单 tick **重写行数**（游程改造前后对照） | 流式+符号 2 行/帧；状态列+活动区同 tick 3 行（取跨度时 18 行）；只符号翻转 1 行 |
+
+回归测试：`tests/renderer-diff.test.ts`（区间 diff 6 例 + 段切分 3 例 + 游程切分 2 例，含真实帧「状态列 + 活动区同 tick ≤ 4 行」）、`tests/screen.test.ts`（报文序列：同步包裹 / 仅首帧清屏 / 光标管理）、`tests/layout4.test.ts`（`frameSections` 覆盖性与行带一致性）。
 
 ### 已评估未采用（附实测，勿重复讨论）
 
-反闪烁改造完成后重新评估下面两项，**结论均为不做**。测量脚本 `tmp/measure-render-cost.mjs`（24×80 真实布局帧、300 帧流式 + 符号交替序列）：
+反闪烁改造完成后重新评估下面三项，**结论均为不做**。测量脚本 `tmp/measure-render-cost.mjs`（24×80 真实布局帧、300 帧流式 + 符号交替序列）：
 
 | 指标 | 实测 |
 | --- | --- |
@@ -245,6 +253,7 @@
 | 输出量 | 569 B/帧 |
 | 10Hz 出帧 CPU 上界 | 1.20 ms/s（约 0.12% 单核） |
 
+- **列级（单元格）局部重写（不做）**：状态列只占左侧 `statusColWidth` 列，理论上可只重写该列单元格（`ESC[r;cH` + 局部段）而不整行。但行级游程已把「状态列 + 活动区同 tick」压到 2~3 行/tick，收益只剩每行右半段（≈60 B/行）；代价是局部序列化必须自己处理宽字符跨界、样式收尾与右侧残留（`ESC[K` 不能用了），风险高于收益。
 - **行序列化结果缓存（不做）**：收益上限即 0.0255 ms/帧（约总成本千分之五）；且 `buildFrame` 每帧新建 `FrameRow` 对象，按对象缓存（WeakMap）不会命中，须按内容做键，收益进一步缩水。
 - **滚动区（DECSTBM）「只移动不重画」（不做）**：滚动场景写入量约 1.5 KB/帧、10Hz 下 15 KB/s，远低于终端处理能力；JS 侧已非瓶颈（上表），收益无从测量，却引入终端状态污染风险——Bubble Tea 的 `insertTop`/`insertBottom` 已标 deprecated，Codewhale 亦有「子进程泄漏 DECSTBM/DECOM 致视口整体下移」的修复记录。
 - **重新评估的触发条件**：帧行数/宽度出现数量级增长（如 100+ 行帧 + 大量 CJK/emoji）致「比较」成本 > 10 ms/帧；或真机出现肉眼可见卡顿且定位到瓶颈为**终端写入量**（若瓶颈是终端自身重绘速度，程序侧优化无益，应排查终端 / tmux 配置）。

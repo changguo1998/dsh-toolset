@@ -10,7 +10,7 @@
 ## 技术选型
 
 - 语言 TypeScript（与 DSH 核心一致），运行时 Node.js，依赖仅 `chalk`（ANSI 颜色控制）。
-- 不采用 Ink / Solid-TUI 等框架，自研极简渲染层。理由：流式输出本质是「增量文本追加 + 偶尔整帧重绘」；渲染层以**变化区间重写**为核心（逐行比较取首尾变化行，只重写该区间，不清屏），无组件树与布局引擎。防闪烁机制（区间重写 / 帧段切分 / DEC 2026 同步输出 / 覆盖式全帧 / 渲染期光标隐藏）见 `IMPLEMENTATION.md`「增量渲染与防闪烁」。
+- 不采用 Ink / Solid-TUI 等框架，自研极简渲染层。理由：流式输出本质是「增量文本追加 + 偶尔整帧重绘」；渲染层以**变化行游程重写**为核心（逐行比较，连续变化行各成一段、段间独立定位重写，不清屏），无组件树与布局引擎。防闪烁机制（区间重写 / 帧段切分 / DEC 2026 同步输出 / 覆盖式全帧 / 渲染期光标隐藏）见 `IMPLEMENTATION.md`「增量渲染与防闪烁」。
 - 代价是输入解码需手写 ANSI 转义序列解析（方向键、Home/End、Ctrl 组合、bracketed paste）——node 无 stdlib 键盘解析，这是自研相对用 Ink 的真正成本。
 - **绘制节律**：`paint()` 标脏 + 同一 tick 合帧（microtask 冲刷，一 tick 一帧），事件 burst 不逐事件重绘；真实链路另有跨回合帧率上限（默认 10Hz）。排版侧折行 / 宽度走有界缓存（`TUI_LAYOUT_CACHE=0` 可关）。详见 `IMPLEMENTATION.md`「排版缓存与绘制合帧」。
 - `node-pty` 已评估、暂不引入（除非 TUI 需直接开 shell，否则会话由 DSH 管理）。
@@ -84,7 +84,7 @@ TUI/
 
 ## 核心接口契约（renderer 公共 API）
 
-排版层向渲染层交付 `FrameRow[]`（每行 = 段序列 `FrameSegment[]`，段携带**语义样式名**；输入行另带 `caret` 硬件光标列），渲染层向 App 交付结构化 `KeyEvent`（`name` + `ctrl`/`meta`/`shift`）。`Renderer` 对外提供：`render(rows, sections?)`（整帧重绘，变化区间重写为内部优化；`sections` 为帧段表，用于按段切分区间）、`refresh(rows, sections?)`（Ctrl+L 强制全帧）、`onKey` / `onResize` / `getSize`、`setTheme(id)`（切换主题并令帧缓存失效）、`close()`（恢复终端退出）。
+排版层向渲染层交付 `FrameRow[]`（每行 = 段序列 `FrameSegment[]`，段携带**语义样式名**；输入行另带 `caret` 硬件光标列），渲染层向 App 交付结构化 `KeyEvent`（`name` + `ctrl`/`meta`/`shift`）。`Renderer` 对外提供：`render(rows, sections?)`（整帧重绘，变化行游程重写为内部优化；`sections` 为帧段表，先按段收敛范围、段内再按游程切分区间）、`refresh(rows, sections?)`（Ctrl+L 强制全帧）、`onKey` / `onResize` / `getSize`、`setTheme(id)`（切换主题并令帧缓存失效）、`close()`（恢复终端退出）。
 
 完整类型与签名（`ColorName` / `FrameStyle` / `FrameSegment` / `FrameRow` / `Renderer` / `serializeFrameRow`）见 `SPEC.md` §11-§14。
 
@@ -129,7 +129,7 @@ activity 的内容 = v( 瞬态行 Box … )    // 思考/工具/notice；面板�
 | `layout/markdown.ts` | 块识别 + 行内解析，产出 `FrameSegment[]` |
 | `layout/tool-line.ts` | 工具行文本组装（summary/detail 启发式在 adapter 归一化时产出） |
 
-`layout.ts` 保留几何唯一来源 `frameGeometry` 与四区域帧组装（并派生帧段表 `frameSections`）；渲染层 `renderer/index.ts` 按序列化文本逐行比较取变化区间（可选按帧段切分）、`screen.ts` 负责报文组装；`components/*` 为 Box 生成器。模块拆分原则与触发标准见 `REFACTOR.md`。
+`layout.ts` 保留几何唯一来源 `frameGeometry` 与四区域帧组装（并派生帧段表 `frameSections`）；渲染层 `renderer/index.ts` 按序列化文本逐行比较取变化行游程（先按帧段收敛范围，段内不连续处各自成区间）、`screen.ts` 负责报文组装；`components/*` 为 Box 生成器。模块拆分原则与触发标准见 `REFACTOR.md`。
 
 ### 7. 面板：activity 内容树整体替换
 

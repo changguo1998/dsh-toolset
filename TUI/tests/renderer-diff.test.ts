@@ -7,6 +7,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRenderer, type FrameRow } from "../src/renderer/index.ts";
+import { buildFrame, type FrameBuildOutput } from "../src/app/layout.ts";
+import { initialState, reduceState } from "../src/app/state.ts";
 
 function row(text: string): FrameRow {
   return { segments: [{ text }] };
@@ -205,5 +207,63 @@ test("帧段切分：段内变化行数少于整段时只重写变化行", () =>
   );
   assert.ok(out.includes("t3 changed"), "重写变化行");
   assert.ok(!out.includes("t1"), "同段未变化行不重写");
+  renderer.close();
+});
+
+// —— 帧内不连续变化：各自成区间（不取首末跨度） ——
+test("区间 diff：同段内不连续的两处变化各自成区间（不跨越中间未变化行）", () => {
+  const { chunks, renderer } = collector();
+  renderer.render(sectionFrame("top A", "●"), SECTIONS);
+  const mark = chunks.length;
+  const next = sectionFrame("top B", "●");
+  next[4] = row("t4 changed"); // top 段首行 + 末行变化，中间 t1..t3 未变
+  renderer.render(next, SECTIONS);
+  const out = chunks.slice(mark).join("");
+  assert.ok(!out.includes("\x1b[2J"), "增量帧不得清屏");
+  assert.ok(out.includes("\x1b[1;1H"), "首处变化定位第 1 行");
+  assert.ok(out.includes("\x1b[5;1H"), "次处变化定位第 5 行（不跨中间行）");
+  assert.ok(
+    out.includes("top B") && out.includes("t4 changed"),
+    "两处变化都重写",
+  );
+  assert.ok(!out.includes("t1") && !out.includes("t3"), "中间未变化行不重写");
+  assert.equal((out.match(/\x1b\[K/g) ?? []).length, 2, "只重写 2 行");
+  renderer.close();
+});
+
+test("区间 diff：真实帧里状态列与活动区同 tick 变化只重写变化行（回归：曾整段 18 行）", () => {
+  // 状态列（最左窄列，纵向贯穿顶部区域）与活动区（底部流式行）在同一 tick 同时
+  // 变化时，中间大段行其实未变；取「首末跨度」会把整段逐行擦除重写。
+  const size = { rows: 24, cols: 80 };
+  const { chunks, renderer } = collector();
+  let s = initialState();
+  s = reduceState(s, { type: "turn-begin" });
+  for (let i = 0; i < 8; i++)
+    s = reduceState(s, { type: "append", text: `底稿第 ${i} 行内容占位` });
+  const paint = (st: typeof s): void => {
+    const out: FrameBuildOutput = {};
+    const rows = buildFrame(st, size, undefined, out);
+    renderer.render(rows, out.sections);
+  };
+  paint(s);
+  const mark = chunks.length;
+  // 同一 tick：活动区末行增长 + 状态列 todo 更新
+  let next = reduceState(s, { type: "append", text: "字" });
+  next = reduceState(next, {
+    type: "todo-write",
+    sessionId: "s1",
+    todos: [
+      { content: "任务一：占位内容", status: "in_progress" },
+      { content: "任务二：占位内容", status: "pending" },
+    ],
+  });
+  paint(next);
+  const out = chunks.slice(mark).join("");
+  const rowsWritten = (out.match(/\x1b\[K/g) ?? []).length;
+  assert.ok(!out.includes("\x1b[2J"), "增量帧不得清屏");
+  assert.ok(
+    rowsWritten <= 4,
+    `只重写变化行（实测 ${rowsWritten} 行；取首末跨度时为整段 18 行）`,
+  );
   renderer.close();
 });
