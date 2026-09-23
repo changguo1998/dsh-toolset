@@ -290,7 +290,10 @@ test("renderStatusColumn: 标题行置顶、Mode 块随后展示（无 goal 也�
   const t = rows.join("\n");
   assert.ok(t.includes("Mode"), "Mode 块标题存在（无 goal 也显示）");
   assert.ok(!t.includes("（无目标/待办）"), "无 goal 时不留占位文字");
-  assert.ok(t.includes("plan off on"), "plan 列出 off/on 全部可选项");
+  assert.ok(
+    t.includes("plan ✓"),
+    "plan 等 on/off 类项以单符号显示当前态（on → ✓）",
+  );
   assert.ok(t.includes("sandbox ro wr full"), "sandbox 列出 ro/wr/full");
   assert.ok(
     t.includes("permission ro wr full"),
@@ -392,15 +395,13 @@ test("renderStatusColumn: Mode 各项以竖线分隔连续排布；宽列单行�
           .trimEnd(),
       )
       .join("\n");
-  // 宽列：各项单行连续排布（不强制换行），竖线分隔
+  // 宽列：按「项宽升序」单行连续排布（短项先行），项目间竖线分隔
   const wide = text(120);
   assert.ok(
-    wide.includes("plan off on | sandbox ro wr full"),
-    "宽列各项以 | 分隔连续排布（不强制换行）: " + wide,
-  );
-  assert.ok(
-    wide.includes("policy ask auto | preset claude"),
-    "preset 也以 | 与上一项衔接: " + wide,
+    wide.includes(
+      "plan ✓ | preset claude | policy ask auto | sandbox ro wr full | permission ro wr full",
+    ),
+    "宽列按项宽升序排布、以 | 分隔: " + wide,
   );
   const wideBody = wide.split("\n").filter((l) => l.includes("plan"));
   assert.equal(wideBody.length, 1, "宽列 Mode 内容单行: " + wide);
@@ -583,4 +584,114 @@ test("renderStatusColumn: 目录空（未同步/降级）时目录外自定义�
     t.includes("permission ro wr full very-long-custom-preset-name-0123"),
     "目录空降级时自定义当前值仍补入并显示: " + t,
   );
+});
+
+test("renderStatusColumn: Mode 块 on/off 类项按项宽升序拼行、以单符号显示当前态", () => {
+  const rows = renderStatusColumn(
+    undefined,
+    [],
+    undefined,
+    0,
+    10,
+    32,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      verbose: true,
+      symbolUnify: false,
+      notifyEnabled: true,
+    },
+  ).map((l) => rowText(l).replace(/│$/, ""));
+  const body = rows.map((r) => r.trimEnd()).filter((r) => r !== "");
+  // 项宽升序：bell ✓(6) → verbose ✓(9) → symbol-unify ✗(14)；短项拼行
+  assert.deepEqual(
+    body,
+    ["Mode", "bell ✓ | verbose ✓", "symbol-unify ✗"],
+    "排序 + 短项拼行 + 单符号当前态: " + JSON.stringify(body),
+  );
+  // on/off 类项不再出现 on/off 字面值，只以 ✓（on）/✗（off）表示当前态
+  assert.ok(
+    body.every((r) => !/\b(on|off)\b/.test(r)),
+    "不出现 on/off 字面值: " + JSON.stringify(body),
+  );
+  assert.ok(
+    body.some((r) => r.includes("bell ✓")),
+    "bell on → ✓",
+  );
+  assert.ok(
+    body.some((r) => r.includes("verbose ✓")),
+    "verbose on → ✓",
+  );
+  assert.ok(
+    body.some((r) => r.includes("symbol-unify ✗")),
+    "symbol-unify off → ✗",
+  );
+});
+
+test("renderStatusColumn: 未传 switches 时不列开关项（Mode 块仅含会话模式类项；无可列项则整块省略）", () => {
+  const withMode = renderStatusColumn(undefined, [], undefined, 0, 6, 30, {
+    plan: "off",
+  })
+    .map((l) => rowText(l))
+    .join("\n");
+  assert.ok(withMode.includes("plan ✗"), "模式类项照常显示（off → ✗）");
+  assert.ok(!withMode.includes("bell"), "未传 switches 不显示 bell");
+  assert.ok(!withMode.includes("autoclean"), "未传 switches 不显示 autoclean");
+  const none = renderStatusColumn(undefined, [], undefined, 0, 4, 30)
+    .map((l) => rowText(l))
+    .join("\n");
+  assert.ok(!none.includes("Mode"), "无任何可列项时整块省略");
+});
+
+test("renderStatusColumn: 开关项常驻后仍按等级折叠（Mode 块恒完整，超高整列截断兜底）", () => {
+  const SW = {
+    verbose: true,
+    symbolUnify: true,
+    notifyEnabled: true,
+  };
+  const todos: TodoItemLike[] = Array.from({ length: 8 }, (_, i) => ({
+    content: `任务 ${i}`,
+    status: i < 3 ? "completed" : i === 3 ? "in_progress" : "pending",
+  }));
+  const jobs: JobInfo[] = Array.from({ length: 4 }, (_, i) => ({
+    id: `j${i}`,
+    kind: "task",
+    label: `后台任务 ${i}`,
+    status: i === 0 ? "running" : "success",
+  }));
+  const render = (height: number): string[] =>
+    renderStatusColumn(
+      setGoal("active", "折叠与截断"),
+      todos,
+      jobs,
+      0,
+      height,
+      26,
+      { plan: "on", sandbox: "workspace-read", permission: "workspace-write" },
+      "ask",
+      "default",
+      undefined,
+      undefined,
+      SW,
+    ).map((l) => rowText(l).replace(/│$/, "").replace(/\s+$/, ""));
+  // 高度充足：Mode 块（含开关项）完整 + Goal + Todo + Jobs
+  const roomy = render(30).filter((l) => l !== "");
+  assert.ok(
+    roomy.some((l) => l.includes("verbose ✓")) &&
+      roomy.some((l) => l.includes("symbol-unify ✓")) &&
+      roomy.some((l) => l.includes("bell ✓")),
+    "开关项优先完整保留: " + roomy.join(" / "),
+  );
+  // 高度紧张：Mode 块仍恒完整（不折叠），其余块按等级折叠/截断，行数恰 height
+  const tight = render(10);
+  assert.equal(tight.length, 10, "恰 height 行");
+  assert.ok(
+    tight.some((l) => l.includes("Mode")) &&
+      tight.some((l) => l.includes("symbol-unify ✓")),
+    "Mode 块不被折叠掉: " + tight.join(" / "),
+  );
+  assert.ok(tight.filter((l) => l !== "").length <= 10, "不溢出窗口高度");
 });

@@ -18,7 +18,7 @@
 
 - 对话折叠占位 `...(更早回复已折叠)`（`DIALOGUE_MORE`，走 `NOTICE_TONE_COLOR.log`）
 - todo 完成项：`✓` 标记与正文（正文另加删除线）；job 完成行同理（`✓` 灰 + 正文灰 + 删除线）
-- 状态列 Mode 块未生效的属性值（生效项按语义色强调：plan 青、sandbox/permission `ro` 绿 / `wr` 黄 / `full` 红、policy `ask` 绿 / `auto` 红、preset 洋红）；权限等级取值未知时 `permColor` 亦回落 gray
+- 状态列 Mode 块未生效的属性值（枚举类项生效值按语义色强调：sandbox/permission `ro` 绿 / `wr` 黄 / `full` 红、policy `ask` 绿 / `auto` 红、preset 洋红；on/off 类项单符号 `✓` 用该项生效色——plan / verbose / symbol-unify 青、bell 绿——`✗` 一律灰）；权限等级取值未知时 `permColor` 亦回落 gray
 - 列表面板：标题右侧按键提示（`JobsPanel` / `CommandListPanel`）、空态与加载态占位（`（无后台任务）` / `加载中…`）、取消/停用状态符号（`statusMark` 的 `○`；`✓` 为默认前景，jobs 完成行的灰 + 删除线由 `layout.ts` 单独实现）
 - notice 的 `log` tone 与工具行的灰行（进度/状态类）
 

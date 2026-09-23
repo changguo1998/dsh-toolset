@@ -2742,7 +2742,7 @@ test("启动即刷 Mode 快照：state 未建立会话时按 adapter.sessionId �
   // 生效值按 MODE_SHORT 缩写展示（sandbox read-only→ro、permission danger-full-access→full）
   const joined = plain.join("\n");
   assert.ok(joined.includes("Mode"), "无需输入即显示 Mode 块");
-  assert.ok(joined.includes("plan") && joined.includes("off"), "plan off");
+  assert.ok(joined.includes("plan ✗"), "plan off 以单符号显示（✗）");
   assert.ok(
     joined.includes("sandbox") && joined.includes("ro"),
     "sandbox ro 生效",
@@ -2751,6 +2751,32 @@ test("启动即刷 Mode 快照：state 未建立会话时按 adapter.sessionId �
     joined.includes("permission") && joined.includes("full"),
     "permission full 生效",
   );
+});
+
+test("状态列 Mode 块开关项：bell 按配置接线显示单符号（autoclean 不显示）", async () => {
+  // 接线回归：deps.notify.enabled → AppState.notifyEnabled → 状态列 Mode 块单符号；
+  // 只读配置项只显示当前态（autoCleanEmpty 已按要求不显示）
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  adapter.sessionId = "s1";
+  const app = new TrackedApp({
+    renderer,
+    adapter,
+    notify: { enabled: false }, // bell 关
+    autoCleanEmpty: true, // autoclean 开（main.ts 缺省 true 同口径）
+  });
+  app.start();
+  const plain = renderer.lastRender
+    .map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""))
+    .join("\n");
+  assert.ok(plain.includes("bell ✗"), "bell 关（notify.enabled=false）→ ✗");
+  assert.ok(!plain.includes("bell ✓"), "关闭项不显示勾: " + plain);
+  assert.ok(
+    !plain.includes("autoclean"),
+    "autoCleanEmpty 配置项不显示（已从状态列移除）: " + plain,
+  );
+  assert.ok(plain.includes("verbose ✓"), "verbose 缺省 on → ✓");
+  assert.ok(plain.includes("symbol-unify ✓"), "symbol-unify 缺省 on → ✓");
 });
 
 test("非活跃会话事件不污染活跃 buffer 与状态（App 侧兜底过滤）", async () => {

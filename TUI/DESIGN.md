@@ -148,7 +148,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 屏幕自上而下切分为**顶部区域**（最左详细状态列；右侧会话标题栏 + 对话历史 + 活动区）、**系统状态区**、**输入区 + 按键提示区**。用户可见行为与配置见 `README.md`，此处只记设计口径：
 
 - **高度分配**：顶部高度 = `rows − 状态区 − 输入区 − 提示区 − 分隔行(2)`。输入区 + 提示区为「交互区」：常规终端固定 4 行（输入 3 + 提示 1），矮终端按 `floor(rows/5)` 收缩、至少 2 行。模态面板（审批 / 问答 / 模型选择 / 列表族 / 历史会话）显示于活动区窗口、底部交互区以空白占位，与输入态同高——面板开关不上下调整交互区高度。`buildFrame` 输出顺序：顶部区 → 分隔行 → 状态区 → 分隔行 → 输入区 → 按键提示区。
-- **顶部状态列**：最左侧常驻窄列（`statusColumnDivisor`，默认 1/3、最低 20 列，历史区保底 10 列），右缘即分隔竖线（D 列）。块顺序为 Mode（plan / sandbox / permission / policy / preset，列全部可选项、生效项着色）→ Goal → Todo → Jobs，块间虚线 `╌`；折叠按窗口总高分级尝试（L0 不折叠 → L1 隐藏已完成 → L2 仅进行中（goal 压成标题行）→ L3 进行中压 1 行），仍放不下则行级截断 `…(+N行)`；折叠在 fill 阶段执行（依赖可用高度），内容树与尺寸无关。无数据时整块省略，不留占位文字。
+- **顶部状态列**：最左侧常驻窄列（`statusColumnDivisor`，默认 1/3、最低 20 列，历史区保底 10 列），右缘即分隔竖线（D 列）。块顺序为 Mode（会话可切换状态总览：有数据的 sandbox / permission / policy / preset 列全部可选项、生效项着色；plan / verbose / symbol-unify / bell 这四个 on/off 类项只显示当前态单符号 `✓`（on，用生效色）/ `✗`（off，灰）；按项宽升序拼行）→ Goal → Todo → Jobs，块间虚线 `╌`；折叠按窗口总高分级尝试（L0 不折叠 → L1 隐藏已完成 → L2 仅进行中（goal 压成标题行）→ L3 进行中压 1 行），仍放不下则行级截断 `…(+N行)`；折叠在 fill 阶段执行（依赖可用高度），内容树与尺寸无关。无数据时整块省略，不留占位文字。
 - **历史区**：区域顶部为会话标题栏（标题行 + 下划线；标题取自官方 `session/title` 事件折叠结果，缺失时本地兜底）。正文按显示宽度换行，buffer 上限 `MAX_BUFFER_LINES`（2000 行，超出从头部裁剪）；排版量由**渐进窗口**限定（只物化尾部 3 个回合组），视口位置由**语义锚点**（`DialogueAnchor`，视口顶行 = (buffer 行, 行内换行序号)）解析——两者合计使底部新增、resize 重排、扩窗插入行都不移动锚定内容。滚动条语义：↑/↓ 半屏、PgUp/PgDn 跳用户块、Home 回底并复位窗口、End 扩窗到全部并钉首行。
 - **活动区**：固定高度 = 顶部内容高 / `activityHeightDivisor`（默认 2；可经 `activityTopRow` 改为绝对行锚定），长内容超出时按可视行截断、可上滚。内容按时间顺序混合显示、不做类型分组；只有 turn-end 标记 `final` 的最终总结进历史区，其余中间输出与思考留在活动区。面板打开时活动区内容整体替换为面板 Box（非叠加层）。详略两态 `/verbose`：完整折行 / 每条目 1 行。
 - **排列方式（`activityPlacement`）**：黄金分割比自动选择——比较两种排列下历史 pane 与活动 pane 的宽高比距 φ≈1.618 的对数偏差（取较差 pane），小者胜；判据只用区域正文宽 + 顶部内容高，不含状态列宽。左右排列时历史区在左、活动区在右，两 pane 等高、中间 1 列内部分隔竖线，两侧各保底 20 列（不可行回落上下）。活动区内容**恒底部对齐**（两种排列一致）：流自 pane 底边往上长，填满整块 pane 后才折叠最早内容——折叠点与切片高度同源（`frameGeometry.activityH` 一处算出）。焦点框随之落在内部分隔列。
@@ -206,7 +206,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 | --- | --- | --- |
 | `goal/change`（create/edit/pause/resume/complete/block 携带 `GoalSnapshot{id, revision, objective, phase, blockedReason?, maxGoalRounds}` + roundsStarted；clear 携带 cleared + clearedAt） | `goal-change` 判别联合（set / clear） | 状态列 Goal 块（标题 `Goal <phase>` + objective；blocked 附黄 tone 原因）；clear → 省略 |
 | `todo/write` `{todos}`（全量快照，last-write-wins） | `todo-write` `{sessionId, todos}` | 状态列 Todo 块（`○` 待办 / `●` 进行中黄 / `✓` 完成灰 + 删除线） |
-| `plan/mode` `{active}` | `mode {kind:'plan', value}` | Mode 块 `plan off/on`，生效项青色 |
+| `plan/mode` `{active}` | `mode {kind:'plan', value}` | Mode 块 `plan ✓`（on，青）/ `plan ✗`（off，灰） |
 | `sandbox/mode` `{mode}` | `mode {kind:'sandbox', value}` | Mode 块 `sandbox ro/wr/full`，按危险等级着色 |
 | `permission/preset` `{preset}` | `mode {kind:'permission', value}` | Mode 块 permission 项（按实际目录列出） |
 | `step/start` / `step/end` `{turn, step}` | `step {phase:'start'\|'end'}` | 分组头 `step N`（该 step 首个工具调用时渲染；end 无独立渲染） |
@@ -216,7 +216,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 #### 渲染语义（状态侧）
 
 - **goal / todo / mode / policy / preset 均按 `sessionId` 隔离**（`goalBySession` / `todoBySession` / `modeBySession` / `policyBySession` / `presetBySession`），切换活跃会话读对应状态，杜绝旧会话泄漏；goal 非 clear 为快照全量替换（原子无增量），clear 则省略块。
-- **Mode 块**各项目以 `|` 分隔连续排布（放不下折行，折行处不加竖线），每项列出全部可选项并高亮生效值：属性名用默认前景色、只有未生效的属性值用灰色。权限预设目录（`ctx.permissionPresets.names`）与 agent 预设目录（`ctx.agentPresets.list`）经 `permission-catalog` / `agent-preset-catalog` 事件同步；目录不含当前值时补入列表末尾并高亮。无 mode / policy / preset 数据时整块省略；新会话由 adapter 的 Mode 快照（宿主 `permissionPresets.defaultPreset` 捆绑兜底 + plan=off）补发初始事件，与宿主当前模式一致。
+- **Mode 块**各项目**按项宽升序**排布后 greedy 拼行（短项先行、一行尽量多放；放不下折行，折行处不加竖线），枚举类项（`sandbox` / `permission` / `policy` / `preset`）列出全部可选项并高亮生效值：属性名用默认前景色、只有未生效的属性值用灰色。on/off 类项（`plan`、`verbose` / `symbol-unify` 取 `AppState`、`bell` 取启动接线的配置值 `notify.enabled`）改以**单个符号**显示当前态：`✓` = on（勾用该项生效色，verbose / symbol-unify / plan 青、bell 绿）、`✗` = off（灰）。权限预设目录（`ctx.permissionPresets.names`）与 agent 预设目录（`ctx.agentPresets.list`）经 `permission-catalog` / `agent-preset-catalog` 事件同步；目录不含当前值时补入列表末尾并高亮。无 mode / policy / preset 数据且未接开关态时整块省略；新会话由 adapter 的 Mode 快照（宿主 `permissionPresets.defaultPreset` 捆绑兜底 + plan=off）补发初始事件，与宿主当前模式一致。
 - **step**：`step/start` 到来且当前有活动工具组时先 flush 并另起分组头；无工具调用的 step 不产生输出。
 - **compaction/summary**：只取首个非空文本块首行入 toast（空摘要 → 「压缩完成（无摘要）」）。
 - **后台任务 `/jobs`**：宿主 `JobRegistry.onJobsChanged` 推送全量快照；`list(caller)` / `kill(id, caller)` 为 owner-relative，故一律显式传 `{ id: activeSessionId }`；App 事件层再按活跃 sessionId 过滤一道（防迟到事件与切会话串味）。仅只读展示 + cancel，不做 job 创建 / 参数 UI。

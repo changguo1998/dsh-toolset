@@ -438,6 +438,9 @@ export interface AppState {
   /** 模型输出符号统一（symbol-unify）：true=把变体符号替换为推荐符号并提醒（缺省）；
    *  false=关闭（原样展示，不替换不提醒）。`/symbol-unify on|off` 切换 */
   symbolUnify: boolean;
+  /** 声音提醒总开关（tui.config.json `notify.enabled`；启动时接线）。无会话内切换路径，
+   *  状态列 Mode 块按其当前值只读展示（勾绿 / 叉灰） */
+  notifyEnabled: boolean;
   /** 本回合剔除的非打印控制字符计数（appendStream 累计；turn-begin 清零、turn-end 警告） */
   strippedChars: number;
   /** 运行中闪烁虚拟状态（速度/虚拟总 token/时间基准/速率估计窗口）。run 边界 =
@@ -537,6 +540,8 @@ export function initialState(
     activityTopRow?: "half" | number;
     activityPlacement?: ActivityPlacement;
     statusDivisor?: number;
+    /** 声音提醒总开关（缺省 true，与 App 的 `deps.notify?.enabled ?? true` 同口径） */
+    notifyEnabled?: boolean;
   },
 ): AppState {
   const messageGutter =
@@ -590,6 +595,7 @@ export function initialState(
     activityScroll: 0,
     activityVerbose: true, // 活动区完整显示（缺省）；/verbose off 切紧凑
     symbolUnify: true, // 模型输出符号统一（缺省开）；/symbol-unify off 切原样
+    notifyEnabled: opts?.notifyEnabled ?? true, // 声音提醒（配置项，只读展示）
     strippedChars: 0, // 本回合剔除的非打印控制字符计数（turn-begin 清零）
     runVirt: emptyRunVirt(), // 运行中闪烁虚拟状态（下次用户输入时重置）
     stepEstTokens: 0, // 本 step 估算 token 累计（usage 真值到达时校准）

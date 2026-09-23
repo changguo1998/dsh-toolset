@@ -1003,9 +1003,27 @@ function wrapSegs(
   return rows;
 }
 
-/** 状态列 Mode 块：会话运行模式/权限/审批策略。各项目（plan/sandbox/permission/
- *  policy/preset）以竖线 ` | ` 分隔连续排布（同水平状态栏段间分隔），放不下才折行；
- *  每项目列出全部可选项、生效项着色强调、其余灰。无会话数据时整块省略。 */
+/** 状态列 Mode 块 on/off 类项的单符号取值：on = `✓`（勾用该项生效色）、off = `✗`（灰）。
+ *  仅显示当前态（不再列 off/on 两个可选项），宽度更省、一眼可读。 */
+const SWITCH_ON = "✓";
+const SWITCH_OFF = "✗";
+
+/** 状态列 Mode 块的开关类项（会话可切换状态 + 只读配置项） */
+export interface StatusSwitches {
+  /** 活动区详略（`/verbose on|off`） */
+  verbose: boolean;
+  /** 输出符号统一（`/symbol-unify on|off`） */
+  symbolUnify: boolean;
+  /** 声音提醒总开关（`notify.enabled`，配置项：只读显示当前值） */
+  notifyEnabled: boolean;
+}
+
+/** 状态列 Mode 块：会话可切换状态总览——运行模式/权限/审批策略/预设（有值才列出）
+ *  与开关类项（`switches` 提供时列出：`verbose`、`symbol-unify` 会话内可切；`bell`
+ *  为只读配置值）。各项目以竖线 ` | ` 分隔、**按项宽升序**排布后 greedy 拼行（短项先行
+ *  → 一行尽量多放；放不下才折行）。枚举类项列出全部可选项、生效项着色强调、其余灰；
+ *  on/off 类项（plan/verbose/symbol-unify/bell）只显示**单个符号**当前态（`✓`=on 用该
+ *  项生效色、`✗`=off 灰）。无任何可列项时整块省略。 */
 function modeBlock(
   mode: ModeState | undefined,
   policy: "ask" | "never" | undefined,
@@ -1015,18 +1033,22 @@ function modeBlock(
   permissionOptions?: readonly string[],
   /** agent 预设目录（id 列表；缺省/空 → 只显示当前值） */
   presetOptions?: readonly string[],
+  /** 会话开关态（verbose / symbol-unify / 声音提醒；缺省 undefined = 不列出这三项） */
+  switches?: StatusSwitches,
 ): StatusRow[] {
   const out: StatusRow[] = [];
+  // 无任何可列项（无 mode/policy/preset 且未传开关态）→ 整块省略
   const has =
     mode !== undefined ||
     policy !== undefined ||
-    (preset !== undefined && preset !== "");
+    (preset !== undefined && preset !== "") ||
+    switches !== undefined;
   if (!has) return out;
   out.push({ segments: [seg("Mode", { fg: "blue" })] });
   // 各项目 token（标签默认前景 + 全部可选项，生效项 act 强调色、未生效值灰）。
   // 项目之间的竖线 ` | ` 由 wrapSegs 在「同行的相邻项目」之间插入（灰色），
   // 折行处不加竖线——属性名恒默认前景、只有未生效的属性值才灰
-  const tokens: FrameSegment[][] = [];
+  const items: { segs: FrameSegment[]; w: number }[] = [];
   const add = (
     tag: string,
     options: readonly string[],
@@ -1039,10 +1061,19 @@ function modeBlock(
       if (i > 0) segs.push(seg(" "));
       segs.push(seg(o, o === current ? { fg: act(o) } : { fg: "gray" }));
     });
-    tokens.push(segs);
+    // 项宽 = 各段显示宽之和（排序与拼行共用同一口径）
+    items.push({
+      segs,
+      w: segs.reduce((acc, x) => acc + displayWidth(x.text), 0),
+    });
+  };
+  // on/off 类项统一：单个符号显示当前态（勾=生效色、叉=灰）
+  const onOff = (tag: string, on: boolean, color: ColorName): void => {
+    const sym = on ? SWITCH_ON : SWITCH_OFF;
+    add(tag, [sym], sym, () => (on ? color : "gray"));
   };
   if (mode) {
-    if (mode.plan) add("plan", ["off", "on"], mode.plan, () => "cyan");
+    if (mode.plan) onOff("plan", mode.plan === "on", "cyan");
     if (mode.sandbox) {
       // 可选项 = 静态三档；目录（宿主）暂无 sandbox 可选项源，三档外生效值
       // （如 custom）始终补入列表并高亮（洋红），保证「生效值必显示」
@@ -1090,9 +1121,21 @@ function modeBlock(
         : [preset];
     add("preset", opts, preset, () => "magenta");
   }
+  if (switches) {
+    // 会话内开关（/verbose、/symbol-unify）：勾青（与 plan 同档）
+    onOff("verbose", switches.verbose, "cyan");
+    onOff("symbol-unify", switches.symbolUnify, "cyan");
+    // 只读配置项（无会话内切换路径）：当前值同样以单符号显示，勾绿
+    onOff("bell", switches.notifyEnabled, "green");
+  }
+  // 排序：项宽升序（同宽保持声明的语义顺序）——短项先行，后续 greedy 拼行更紧凑；
   // 项目竖线属边框：前景色；未生效值仍 gray
+  const sorted = items
+    .map((it, i) => ({ it, i }))
+    .sort((a, b) => a.it.w - b.it.w || a.i - b.i)
+    .map((x) => x.it.segs);
   out.push(
-    ...wrapSegs(tokens, width, { text: " | ", style: { fg: "border" } }),
+    ...wrapSegs(sorted, width, { text: " | ", style: { fg: "border" } }),
   );
   return out;
 }
@@ -1109,6 +1152,8 @@ function statusBlocks(
   preset?: string,
   permissionOptions?: readonly string[],
   presetOptions?: readonly string[],
+  /** 会话开关态（透传 Mode 块） */
+  switches?: StatusSwitches,
 ): StatusBlock[] {
   const blocks: StatusBlock[] = [];
   const sep = (): StatusRow => ({
@@ -1123,6 +1168,7 @@ function statusBlocks(
     width,
     permissionOptions,
     presetOptions,
+    switches,
   );
   if (modeRows.length > 0)
     blocks.push({ id: "mode", head: modeRows, items: [] });
@@ -1220,13 +1266,15 @@ export function renderStatusColumn(
   scroll: number,
   height: number,
   width: number,
-  /** 会话运行模式/权限/策略（缺省 undefined：Mode 块省略） */
+  /** 会话运行模式/权限/策略（缺省 undefined：这些项不列出；开关类项恒显示） */
   mode?: ModeState,
   policy?: "ask" | "never",
   preset?: string,
   /** 权限/agent 预设目录（可选值列表；缺省 Mode 块降级） */
   permissionOptions?: readonly string[],
   presetOptions?: readonly string[],
+  /** 会话开关态（verbose / symbol-unify / 声音提醒 / 自动清理） */
+  switches?: StatusSwitches,
 ): FrameRow[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);
@@ -1242,6 +1290,7 @@ export function renderStatusColumn(
     preset,
     permissionOptions,
     presetOptions,
+    switches,
   );
   // 状态列折叠策略：无强制行数上限——从 L0 到 L3 依次尝试折叠等级，
   // 首次放下即采用；全部等级用尽仍放不下（mode/goal 大头）→ 整列行级截断兜底
@@ -1429,12 +1478,20 @@ function buildTopRegion(
     state.jobs,
     state.statusColumnScroll,
     contentTopH,
-    statusColWidth,
+    // 只传「状态列正文宽 + 末位竖线」：正文可见列 = statusColWidth − 外缘框格(1)
+    // − 分隔竖线(1) = statusColWidth − 2（renderStatusColumn 末位自带竖线，剥去后
+    // 与 statusBodyW 同宽）——传满宽会让拼行/折行多算一列，恰好拼满的行被截掉末字符
+    statusColWidth - 1,
     mode,
     policy,
     preset,
     state.permissionOptions,
     state.presetOptions,
+    {
+      verbose: state.activityVerbose,
+      symbolUnify: state.symbolUnify,
+      notifyEnabled: state.notifyEnabled,
+    },
   );
   // 边框构图参数：分隔竖线列 = statusColWidth-1（状态列右缘/历史区左缘，
   // 为旧 historyWidth 的镜像）；col0 左缘框格属状态列，

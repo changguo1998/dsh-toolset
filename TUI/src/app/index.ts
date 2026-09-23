@@ -356,6 +356,8 @@ export class App {
         activityTopRow: this.deps.activityTopRow,
         activityPlacement: this.deps.activityPlacement,
         statusDivisor: this.deps.statusColumnDivisor,
+        // 状态列 Mode 块的只读配置项（声音提醒）
+        notifyEnabled: this.bellEnabled,
       },
     );
   }

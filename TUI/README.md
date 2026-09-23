@@ -93,7 +93,7 @@ dsh --profile <p>                      # 启动（需要真实终端；真实链
 
 自上而下若干块，块间以虚线 `╌` 分隔：
 
-- **Mode 块**：`plan` / `sandbox` / `permission` / `policy` / `preset` 以 `|` 分隔连续排布，每项列出全部可选项、生效项着色强调（plan 青；sandbox/permission 按危险等级 ro 绿 / wr 黄 / full 红；policy ask 绿 / auto 红；preset 洋红）、其余灰。无会话数据时整块省略。
+- **Mode 块**（会话可切换状态总览）：各项目以 `|` 分隔，**按项宽升序排布后短项拼行**（同行多项目以 `|` 相连，放不下才折行、折行处不加竖线）。项目分两类——① 枚举类项（有数据才列出，列出全部可选项、生效项着色强调、其余灰）：`sandbox` / `permission` 按危险等级 ro 绿 / wr 黄 / full 红，`policy` ask 绿 / auto 红，`preset` 洋红；② **on/off 类项只显示当前态的单符号**（不再列 `on|off` 字面值）：`plan ✓/✗`、`verbose ✓/✗`（`/verbose`）、`symbol-unify ✓/✗`（`/symbol-unify`）、`bell ✓/✗`（`notify.enabled` 配置项）——**勾 = on**（用该项生效色：plan / verbose / symbol-unify 青，bell 绿）、**叉 = off**（灰）。无任何可列项时整块省略。
 - **Goal 块**：标题 `Goal <phase>`（Goal 蓝、phase 按 active/complete 绿、paused 黄、blocked 红）+ objective；blocked 时附黄色阻塞原因。
 - **Todo 块**：标题 `Todo 完成数/总数`（蓝）+ 列表（`○` 待办 / `●` 进行中（黄，续行同色）/ `✓` 完成（对号灰、正文灰 + 删除线））。
 - **Jobs 块**：标题 `Jobs 运行中/总数`（蓝）+ 任务行（`●` 运行中黄 / `✗` 失败红 / `○` 取消灰 / `✓` 已完成灰 + 删除线）。

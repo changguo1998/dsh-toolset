@@ -2438,7 +2438,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
       .every((l) => colAt(l, D) === "│"),
     "无焦点：对话区各行分隔竖线仍恒位于 D 列（灰；标题栏下划线行 D 列 ┤ 除外）",
   );
-  const sigHistory = contentSig(rows, topRowsOf(st));
+  const sigHistory = contentSig(rows, topRowsOf(st), START, R);
 
   // 焦点=历史（左列）：Tab 一次进入——标题栏下划线行兼作顶边 ┌─┐（标题行不在焦点
   // 窗口：左缘空白、D 列竖线灰）、活动区分隔 ─ 亮 + 两端 ┘、对话区左缘/分隔竖线亮 │
@@ -2507,7 +2507,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     "流输出焦点：col0（状态列）不画底角",
   );
   assert.deepEqual(
-    contentSig(rows, topRowsOf(st)),
+    contentSig(rows, topRowsOf(st), START, R),
     sigHistory,
     "切换焦点不重排内容",
   );
@@ -2539,9 +2539,9 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(colAt(e2, D) === "┴", "状态焦点：底边右角与分隔竖线相接 ┴");
   assert.ok(colAt(e2, R) === "─", "状态焦点：区域底边保持灰 ─");
   assert.deepEqual(
-    contentSig(rows, topRowsOf(st)),
+    contentSig(rows, topRowsOf(st), START, R),
     sigHistory,
-    "状态焦点同样不重排",
+    "状态焦点同样不重排区域内容（状态列自身顶边占 rc0，属框线语义）",
   );
 
   // 面板态（非输入态）：亮色框全回灰、顶边/两侧框列空白占位，内容仍不重排
@@ -2587,19 +2587,24 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.equal(focusFrameColor(), "focus");
 });
 
-/** 顶部面板内容签名：去掉两外缘框列（屏幕最左 col0 = 状态列外缘框格、最右列 =
- *  区域外缘框列——两列只承载外缘框线，跨焦点/面板态恒定）+ 框线字符 + 尾部空白，
- *  逐行一致 */
-function contentSig(lines: string[], topRows: number): string[] {
+/** 顶部面板**区域内容**签名（只看区域正文列 [from, to)：状态列最右列与区域外缘框列
+ *  都不计入——它们只承载焦点框线）。焦点切换会改动这些边界列的字形，但不改区域内容；
+ *  同理状态列在 status 焦点时顶边占 rc0、自身内容整体下移一行，也只属框线语义。
+ *  框线字形统一归一化/删除后逐行比较，用于断言「切换焦点不重排区域内容」。 */
+function contentSig(
+  lines: string[],
+  topRows: number,
+  from: number,
+  to: number,
+): string[] {
   return lines
     .slice(1, topRows) // 顶部边框行不计数；footer/状态栏被模态面板接管，不算内容
     .map((l) =>
       stripAnsi(l)
-        .slice(1, -1) // 去掉 col0 与最右列（两外缘框列）
-        // 分隔竖线 `│` 与连接字（├/┤）删除以跨焦点等长（竖线/连接字不算内容）；
-        // 其余角/虚线归一化为线段字符（┐/└/┌→─、╌→─，长度不变），
-        // 焦点差异不计入内容签名
-        .replace(/[│├┤┐└┌]/g, "")
+        .slice(from, to) // 只取区域正文列（状态列与两外缘框列之外）
+        // 分隔竖线 `│` 与连接字（├/┤/┬）删除以跨焦点等长（竖线/连接字不算内容）；
+        // 其余角/虚线归一化为线段字符（┐/└/┌→─、┘/┴/╌→─，长度不变）
+        .replace(/[│├┤┬┐└┌]/g, "")
         .replace(/┘(?=\s)/g, "")
         .replace(/[┘┴╌]/g, "─")
         .replace(/\s+$/, ""),
@@ -3183,4 +3188,39 @@ test("frameSections：段表覆盖整帧、行带连续且与几何一致", () =
   assert.equal(status.lineCount, geom.statusHeight + 2, "状态段含上下分隔行");
   // top 段行数 = 顶部内容行数
   assert.equal(sections[0]!.lineCount, geom.contentTopH, "top 段即顶部内容区");
+});
+
+test("状态列：正文宽口径 = statusColWidth − 2（外缘框格 + 分隔竖线），Mode 拼行不被截断", () => {
+  // 回归：buildTopRegion 曾把 statusColWidth 满宽传给 renderStatusColumn，而实际可见
+  // 正文只有 statusColWidth − 2 列（col0 状态列外缘框格、末列分隔竖线）——拼行/折行
+  // 多算一列后，恰好拼满的行丢掉最后一个字符（cols=120 时 verbose 的 on 显示成 o）。
+  for (const cols of [92, 120, 126]) {
+    const size = { rows: 24, cols };
+    let s = initialState(undefined, { notifyEnabled: true });
+    s = reduceState(s, {
+      type: "mode",
+      sessionId: "s1",
+      kind: "plan",
+      value: "off",
+    });
+    const g = frameGeometry(s, size);
+    const bodyW = g.statusColWidth - 2; // 可见正文宽
+    const rows = buildFrame(s, size).map((r) =>
+      rowAnsi(r).replace(/\x1b\[[0-9;]*m/g, ""),
+    );
+    const body = (l: string): string => l.slice(1, g.statusColWidth - 1);
+    const top = rows.slice(0, 6).map(body);
+    const joined = top.join("\n");
+    assert.ok(
+      joined.includes("symbol-unify ✓"),
+      `cols=${cols}: symbol-unify 项完整（末字符不被截断）: ` +
+        JSON.stringify(joined),
+    );
+    assert.ok(joined.includes("bell ✓"), `cols=${cols}: bell 完整`);
+    for (const l of top)
+      assert.ok(
+        displayWidth(l) <= bodyW,
+        `cols=${cols}: 正文不超可见宽（${displayWidth(l)} > ${bodyW}）`,
+      );
+  }
 });

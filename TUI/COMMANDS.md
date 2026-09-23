@@ -15,8 +15,8 @@
 | `/clearscreen`（`/cls`） | 清空显示缓冲（只清 UI，不动会话上下文） |
 | `/quit` | 关闭 renderer 退出 |
 | `/theme [dark\|light\|toggle]` | 主题切换（仅当前会话，不落盘） |
-| `/verbose on\|off` | 活动区详略两态：`on`（缺省）完整折行 / `off` 紧凑（每条目 1 行 + 行尾 `…`）；SPEC §6.8 |
-| `/symbol-unify on\|off` | 模型输出符号统一：`on`（缺省）把变体符号替换为推荐符号并提醒模型 / `off` 原样（不替换不提醒） |
+| `/verbose on\|off` | 活动区详略两态：`on`（缺省）完整折行 / `off` 紧凑（每条目 1 行 + 行尾 `…`）；SPEC §6.8。生效值常驻状态列 Mode 块（`✓`=on / `✗`=off） |
+| `/symbol-unify on\|off` | 模型输出符号统一：`on`（缺省）把变体符号替换为推荐符号并提醒模型 / `off` 原样（不替换不提醒）。生效值常驻状态列 Mode 块（`✓`=on / `✗`=off） |
 | `/session` | 历史会话面板（浏览/恢复/删除/清理，范围 Tab 切换；`/session clean` 直达清理确认） |
 | `/copy` | 复制最后一条模型回复（OSC52） |
 | `/goal` | goal/todo 提示（详情常驻左侧状态列） |
