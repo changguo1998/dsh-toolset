@@ -232,6 +232,23 @@
 
 量化验收：`tmp/repro-flicker/verify.mjs`（临时排查留档，非仓库产物）四场景——状态符号翻转、流式行内增长、纯追加、内容滚动——全帧清屏均为 0 次（修复前分别 10/10/0/1 次，输出 22.7KB → 约 3KB）。回归测试：`tests/renderer-diff.test.ts`（区间 diff 6 例 + 段切分 3 例）、`tests/screen.test.ts`（报文序列：同步包裹 / 仅首帧清屏 / 光标管理）、`tests/layout4.test.ts`（`frameSections` 覆盖性与行带一致性）。
 
+### 已评估未采用（附实测，勿重复讨论）
+
+反闪烁改造完成后重新评估下面两项，**结论均为不做**。测量脚本 `tmp/measure-render-cost.mjs`（24×80 真实布局帧、300 帧流式 + 符号交替序列）：
+
+| 指标 | 实测 |
+| --- | --- |
+| 单帧全量序列化（24 行） | 0.0128 ms |
+| diff 比较（`sameRow` 每行 2 次序列化） | 0.0255 ms/帧 |
+| 排版 `buildFrame` | 0.065 ms/帧 |
+| 渲染（比较 + 序列化 + 报文组装） | 0.054 ms/帧 |
+| 输出量 | 569 B/帧 |
+| 10Hz 出帧 CPU 上界 | 1.20 ms/s（约 0.12% 单核） |
+
+- **行序列化结果缓存（不做）**：收益上限即 0.0255 ms/帧（约总成本千分之五）；且 `buildFrame` 每帧新建 `FrameRow` 对象，按对象缓存（WeakMap）不会命中，须按内容做键，收益进一步缩水。
+- **滚动区（DECSTBM）「只移动不重画」（不做）**：滚动场景写入量约 1.5 KB/帧、10Hz 下 15 KB/s，远低于终端处理能力；JS 侧已非瓶颈（上表），收益无从测量，却引入终端状态污染风险——Bubble Tea 的 `insertTop`/`insertBottom` 已标 deprecated，Codewhale 亦有「子进程泄漏 DECSTBM/DECOM 致视口整体下移」的修复记录。
+- **重新评估的触发条件**：帧行数/宽度出现数量级增长（如 100+ 行帧 + 大量 CJK/emoji）致「比较」成本 > 10 ms/帧；或真机出现肉眼可见卡顿且定位到瓶颈为**终端写入量**（若瓶颈是终端自身重绘速度，程序侧优化无益，应排查终端 / tmux 配置）。
+
 ## 自动清理空会话
 
 - **config**：`tui.config.json` 的 `session.autoCleanEmpty`（缺省 true，显式 `false` 关闭）；`normalizeConfig` 归一化（非法回落 undefined，默认由消费方应用）；`main.ts` 取 `loadTuiConfig().session?.autoCleanEmpty ?? true` → `AppDeps.autoCleanEmpty`（需 `=== true` 才生效）。同一开关覆盖**启动**与**优雅退出**两个时机。
