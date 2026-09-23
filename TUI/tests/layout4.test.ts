@@ -31,6 +31,7 @@ import {
   VIRT_SPEED_MAX,
   VIRT_SPEED_MIN,
   type FrameScrollReport,
+  type FrameBuildOutput,
 } from "../src/app/layout.ts";
 import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
 import { wrapAssistantLine } from "../src/app/layout/markdown.ts";
@@ -3131,3 +3132,29 @@ function emptyReport(): FrameScrollReport {
     dialogueTop: { seq: 0, row: 0 },
   };
 }
+
+test("frameSections：段表覆盖整帧、行带连续且与几何一致", () => {
+  const size = { rows: 24, cols: 60 };
+  const state = initialState();
+  const out: FrameBuildOutput = {};
+  const rows = buildFrame(state, size, undefined, out);
+  const sections = out.sections;
+  assert.ok(sections && sections.length >= 3, "至少 top/status/footer 三段");
+  assert.deepEqual(
+    sections.map((s) => s.id),
+    ["top", "status", "footer", "hint"],
+    "行带顺序与 buildFrame 拼接顺序一致（top→status→footer→hint）",
+  );
+  let cursor = 0;
+  for (const sec of sections) {
+    assert.equal(sec.startLine, cursor, `段 ${sec.id} 起点应连续`);
+    cursor += sec.lineCount;
+  }
+  assert.equal(cursor, rows.length, "段表应恰好覆盖整帧行数");
+  // 状态段 = 状态栏行数 + 上下两条分隔行
+  const geom = frameGeometry(state, size);
+  const status = sections.find((s) => s.id === "status")!;
+  assert.equal(status.lineCount, geom.statusHeight + 2, "状态段含上下分隔行");
+  // top 段行数 = 顶部内容行数
+  assert.equal(sections[0]!.lineCount, geom.contentTopH, "top 段即顶部内容区");
+});

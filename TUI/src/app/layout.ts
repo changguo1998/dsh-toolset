@@ -11,7 +11,7 @@
 // 换行/视口/帧组装，并重导 charWidth/displayWidth/parseInlineMarkdown/wrapInlineMarkdown。
 
 import type { FrameRow, FrameSegment } from "../renderer/index.ts";
-import type { Size } from "../renderer/index.ts";
+import type { FrameSection, Size } from "../renderer/index.ts";
 import type {
   AppState,
   InputMode,
@@ -2251,10 +2251,45 @@ export interface FrameScrollReport {
   dialogueTop: DialogueAnchor;
 }
 
+/**
+ * 帧段表（纯函数，零排版开销）：由几何推导各**行带**的屏幕行范围。
+ * 行带顺序与 buildFrame 的拼接顺序一致——top（活动/对话区 + 状态列）→
+ * status（状态栏含其上下两条分隔行）→ footer（交互区）→ hint（按键提示区）。
+ * 渲染层用它把「变化行区间」按段切分：多段同时变化时只重写各自段内的变化行，
+ * 不跨越中间未变化的段（窗口偏移只影响 top 段内容）。
+ */
+export function frameSections(geom: FrameGeometry): FrameSection[] {
+  const top = Math.max(0, geom.contentTopH);
+  // 状态段含上下分隔行（视觉同属状态区边界，且底分隔行的交点列随状态栏变化）
+  const status = geom.statusHeight + 2;
+  const footer = geom.footerHeight;
+  const hint = geom.showHint ? geom.hintHeight : 0;
+  const sections: FrameSection[] = [
+    { id: "top", startLine: 0, lineCount: top },
+    { id: "status", startLine: top, lineCount: status },
+    { id: "footer", startLine: top + status, lineCount: footer },
+  ];
+  if (hint > 0) {
+    sections.push({
+      id: "hint",
+      startLine: top + status + footer,
+      lineCount: hint,
+    });
+  }
+  return sections;
+}
+
+/** buildFrame 的可选回填输出（与 report 同模式：避免重复计算几何） */
+export interface FrameBuildOutput {
+  /** 帧段表（行带范围；渲染层区间重写用，见 frameSections） */
+  sections?: FrameSection[];
+}
+
 export function buildFrame(
   state: AppState,
   size: Size,
   report?: FrameScrollReport,
+  out?: FrameBuildOutput,
 ): FrameRow[] {
   // 尺寸唯一来源：几何一次算定（顶部内容行数/两 pane 宽高/排列/排队块占位/状态栏行）
   const geom = frameGeometry(state, size);
@@ -2422,5 +2457,7 @@ export function buildFrame(
     rects,
     rows,
   );
+  // 帧段表回填（几何已算定，零额外开销）：渲染层按段切分变化区间
+  if (out) out.sections = frameSections(geom);
   return rows;
 }

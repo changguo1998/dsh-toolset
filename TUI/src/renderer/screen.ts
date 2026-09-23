@@ -49,6 +49,22 @@ export interface FrameRow {
   caret?: number;
 }
 
+/** 一次报文内要重写的单个区间：startLine（1 基）+ 该区间的新行 */
+export interface RenderInterval {
+  startLine: number;
+  rows: FrameRow[];
+}
+
+/** 帧段 id：按屏幕行带划分（渲染层区间重写的边界，见 app/layout 的 frameSections） */
+export type FrameSectionId = "top" | "status" | "footer" | "hint";
+
+/** 帧段：屏幕行范围（0 基 startLine，lineCount 行） */
+export interface FrameSection {
+  id: FrameSectionId;
+  startLine: number;
+  lineCount: number;
+}
+
 export interface ScreenOptions {
   /** 输出流（默认 process.stdout），可注入以测试 */
   write?: (s: string) => void;
@@ -128,35 +144,45 @@ export class Screen {
   }
 
   /**
-   * 区间重写：从 startLine（1 基）起逐行重写 rows——帧中**任意区间**（不限帧尾）。
-   * 每行以主题基底色写出并 `ESC[K` 擦行尾；非末行 CRLF 前进、末行省略 CRLF
-   * （防满高帧触底上滚）。`clearBelow`：新帧比旧帧短时清除区间下方残留行
-   * （绝对定位 + `ESC[J`，不触发滚动；仅在残留行位于屏幕内时写出）。
+   * 多区间重写：一次报文内更新多个**不连续**区间（各自绝对定位 + `ESC[K` 擦行），
+   * 末尾统一清残留（`clearBelow`）并定位光标。用于按帧段切分的变化区间——
+   * 多段同时变化时只重写各段内的变化行，不跨越中间未变化的段。
    */
-  renderRange(startLine: number, rows: FrameRow[], clearBelow = false): void {
+  renderRanges(intervals: RenderInterval[], clearBelow = false): void {
     const out: string[] = [SYNC_BEGIN];
-    // 绝对定位到区间首行（不依赖当前光标位置，可安全用于帧中任意区间）
-    out.push(`\x1b[${startLine};1H`);
     let caret: { row: number; col: number } | null = null; // 输入行光标(0 基列)
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]!;
-      // ESC[K 擦除以当前 bg 填充，故每个区间行都要带主题基底色
-      out.push(baseSgr(this.theme) + serializeFrameRow(row, this.theme));
-      if (row.caret !== undefined) {
-        caret = { row: startLine + i, col: row.caret };
+    let lastLine = 0; // 已写内容的最末行（1 基；残留清除起点据此推算）
+    for (const iv of intervals) {
+      if (iv.rows.length === 0) continue;
+      // 绝对定位到区间首行（不依赖前一区间的落点）
+      out.push(`\x1b[${iv.startLine};1H`);
+      for (let i = 0; i < iv.rows.length; i++) {
+        const row = iv.rows[i]!;
+        // ESC[K 擦除以当前 bg 填充，故每个区间行都要带主题基底色
+        out.push(baseSgr(this.theme) + serializeFrameRow(row, this.theme));
+        if (row.caret !== undefined) {
+          caret = { row: iv.startLine + i, col: row.caret };
+        }
+        // 非末行 CRLF 换行、末行省略 CRLF（防满高帧触底上滚）；ESC[K 擦除行尾残留旧字符
+        out.push(i < iv.rows.length - 1 ? "\r\n\x1b[K" : "\x1b[K");
       }
-      // 非末行 CRLF 换行、末行省略 CRLF（防满高帧触底上滚）；ESC[K 擦除行尾残留旧字符
-      out.push(i < rows.length - 1 ? "\r\n\x1b[K" : "\x1b[K");
+      lastLine = Math.max(lastLine, iv.startLine + iv.rows.length - 1);
     }
     if (clearBelow) {
-      // 残留首行（1 基）：区间为空时即 startLine 本身
-      const clearLine = rows.length > 0 ? startLine + rows.length : startLine;
+      // 残留首行（1 基）：无任何区间写入时取首区间起点
+      const first = intervals[0]?.startLine ?? 1;
+      const clearLine = lastLine > 0 ? lastLine + 1 : first;
       if (clearLine <= this.rows) out.push(`\x1b[${clearLine};1H\x1b[J`);
     }
     // 光标必须在所有行写完后再移动，否则后续行从光标列起写
     if (caret) out.push(`\x1b[${caret.row};${caret.col + 1}H`);
-    out.push(SYNC_END); // 同步结束：终端原子呈现本区间更新
+    out.push(SYNC_END); // 同步结束：终端原子呈现本批区间更新
     this.write(out.join(""));
+  }
+
+  /** 单区间重写（renderRanges 的特例） */
+  renderRange(startLine: number, rows: FrameRow[], clearBelow = false): void {
+    this.renderRanges([{ startLine, rows }], clearBelow);
   }
 
   /** 只重绘末尾追加的 delta 行：等价于「区间重写」的帧尾特例 */

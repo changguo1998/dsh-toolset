@@ -74,6 +74,7 @@ import {
   dialogueWindow,
   turnGroupStarts,
   type FrameScrollReport,
+  type FrameBuildOutput,
   dialogueHalfPage,
   frameGeometry,
   modelLabel,
@@ -505,10 +506,11 @@ export class App {
       ...(tone ? { tone } : {}),
     });
     const size = this.deps.renderer.getSize();
-    const frame = buildFrame(this.state, size, this.paneScrollMax);
+    const out: FrameBuildOutput = {};
+    const frame = buildFrame(this.state, size, this.paneScrollMax, out);
     this.paneScrollMaxState = this.state;
     this.syncScrollAnchor();
-    this.deps.renderer.render(frame);
+    this.deps.renderer.render(frame, out.sections);
   }
 
   /**
@@ -3313,10 +3315,11 @@ export class App {
   private refresh(): void {
     if (this.disposed) return;
     const size = this.deps.renderer.getSize();
-    const frame = buildFrame(this.state, size, this.paneScrollMax);
+    const out: FrameBuildOutput = {};
+    const frame = buildFrame(this.state, size, this.paneScrollMax, out);
     this.paneScrollMaxState = this.state;
     this.syncScrollAnchor();
-    this.deps.renderer.refresh(frame);
+    this.deps.renderer.refresh(frame, out.sections);
   }
 
   /**
@@ -3384,14 +3387,15 @@ export class App {
     }
   }
 
-  /** 实际出帧：取当前终端尺寸 → 全量排版 → 渲染（delta 写出在渲染层） */
+  /** 实际出帧：取当前终端尺寸 → 全量排版 → 渲染（区间 diff 与按段切分在渲染层） */
   private renderFrame(): void {
     const size = this.deps.renderer.getSize();
-    // 出帧顺带回填两 pane 的可滚动上限（零额外排版开销），滚键处理据此收敛偏移
-    const frame = buildFrame(this.state, size, this.paneScrollMax);
+    // 出帧顺带回填两 pane 的可滚动上限与帧段表（零额外排版开销）
+    const out: FrameBuildOutput = {};
+    const frame = buildFrame(this.state, size, this.paneScrollMax, out);
     this.paneScrollMaxState = this.state;
     this.syncScrollAnchor();
-    this.deps.renderer.render(frame);
+    this.deps.renderer.render(frame, out.sections);
   }
 
   private apply(fn: (s: AppState) => AppState): void {
