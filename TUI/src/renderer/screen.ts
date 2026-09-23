@@ -84,6 +84,8 @@ export class Screen {
   private rows: number;
   private theme: ColorTheme;
   private themes: Record<ThemeId, ColorTheme>;
+  /** 首帧是否已渲染：仅首帧做破坏性清屏（清终端既有内容），后续全帧覆盖式重写 */
+  private firstRenderDone = false;
 
   constructor(opts: ScreenOptions = {}) {
     this.themes = opts.themes ?? THEMES;
@@ -113,12 +115,23 @@ export class Screen {
     this.theme = this.themes[id] ?? this.themes[DEFAULT_THEME];
   }
 
-  /** 整帧重绘：清屏 → 原点 → 每行(基底色+样式)输出（末行不写 CRLF，防满高帧触底上滚）→ 末尾光标回到输入行 */
+  /**
+   * 整帧重绘：定位原点 → 逐行(基底色+样式)覆盖（每行 `ESC[K` 擦行尾）→ 清除下方
+   * 残留 → 末尾光标回到输入行。**仅首帧**做一次破坏性清屏（清掉终端既有内容）；
+   * 后续全帧（resize/主题切换/Ctrl+L）不再 `ESC[2J`——清屏与重写之间的中间态
+   * 正是可见闪烁的来源（见 Codewhale 去 2J 修复、Bubble Tea/pi 的常规帧不清屏）。
+   */
   render(rows: FrameRow[]): void {
     const base = baseSgr(this.theme); // 主题基底前景+背景
-    // 基底色先于清屏写出：ESC[2J 以当前(主题)背景填充整屏；后续每行再补
-    // 基底色以覆盖行内样式段收尾后恢复到主题基底（不依赖 chalk 复位）
-    const out: string[] = [SYNC_BEGIN, base + "\x1b[2J\x1b[H"]; // 同步开始 + 基底色 + 清屏 + 光标回原点
+    const out: string[] = [SYNC_BEGIN]; // 同步开始
+    if (!this.firstRenderDone) {
+      // 首帧：基底色先于清屏写出（ESC[2J 以当前主题背景填充整屏）
+      out.push(base + "\x1b[2J\x1b[H");
+      this.firstRenderDone = true;
+    } else {
+      // 全帧重写：绝对定位原点，逐行覆盖（不依赖清屏）
+      out.push(base + "\x1b[1;1H");
+    }
     let caret: { row: number; col: number } | null = null; // 输入行光标(0 基列)
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]!;
@@ -134,9 +147,13 @@ export class Screen {
       // （按键提示区加入后输入行不再占末行、须 CRLF 换行；此前无 caret 行的
       // 面板帧末行会写 CRLF 同样触底上滚 1 行，此处一并修正）
       if (i < rows.length - 1) {
-        out.push("\r\n");
+        out.push("\r\n\x1b[K"); // 换行并擦除行尾残留（全帧不再依赖清屏）
+      } else {
+        out.push("\x1b[K");
       }
     }
+    // 清除光标下方可能残留的旧行（尺寸/行数变化时；ESC[J 不触发滚动，幂等安全）
+    out.push("\x1b[J");
     // 光标必须在所有行写完后再移动，否则后续行从光标列起写
     if (caret) out.push(`\x1b[${caret.row};${caret.col + 1}H`);
     out.push(SYNC_END); // 同步结束：终端原子呈现整帧

@@ -217,22 +217,26 @@ test("createRenderer.close 输出 SGR 复位;setTheme 使 delta 缓存失效全�
     delta: true,
     exitOnClose: false,
   });
-  // 首帧 dark 清屏含 dark 背景
-  r.render([{ segments: [{ text: "x" }] }]);
-  assert.ok(w.out.includes("\x1b[48;2;10;17;39m"), "dark 背景应先于清屏");
-  w.out = "";
-  // 相同的行再次 render → delta 优化,不应重新清屏
-  r.render([{ segments: [{ text: "x" }] }]);
-  assert.ok(!w.out.includes("2J"), "同帧走 delta 无清屏");
-  // setTheme 后相同行 → 必须全帧重绘(清屏含新背景)
-  r.setTheme("light");
-  w.out = "";
-  r.render([{ segments: [{ text: "x" }] }]);
-  assert.ok(w.out.includes("2J"), "setTheme 后应全帧清屏重绘");
-  assert.ok(w.out.includes("\x1b[48;2;255;246;225m"), "清屏含新浅背景");
-
-  // close 恢复终端默认样式
-  r.close();
+  try {
+    // 首帧 dark 清屏含 dark 背景
+    r.render([{ segments: [{ text: "x" }] }]);
+    assert.ok(w.out.includes("\x1b[48;2;10;17;39m"), "dark 背景应先于清屏");
+    assert.ok(w.out.includes("2J"), "首帧清屏一次（清终端既有内容）");
+    w.out = "";
+    // 相同的行再次 render → delta 优化,不应重新清屏
+    r.render([{ segments: [{ text: "x" }] }]);
+    assert.ok(!w.out.includes("2J"), "同帧走 delta 无清屏");
+    // setTheme 后相同行 → 必须全帧重绘（覆盖式重写，不再破坏性清屏）
+    r.setTheme("light");
+    w.out = "";
+    r.render([{ segments: [{ text: "x" }] }]);
+    assert.ok(!w.out.includes("2J"), "setTheme 后全帧覆盖式重写，不清理屏幕");
+    assert.ok(w.out.includes("\x1b[1;1H"), "应绝对定位原点覆盖重写");
+    assert.ok(w.out.includes("\x1b[48;2;255;246;225m"), "行前缀含新浅背景");
+  } finally {
+    // close 恢复终端默认样式（finally 保证断言失败时也释放句柄，避免测试挂起）
+    r.close();
+  }
   assert.ok(w.out.endsWith("\x1b[0m"), "close 应输出 ESC[0m");
 });
 

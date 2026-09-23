@@ -46,8 +46,8 @@ test("满高帧 render：输入行(caret)后无 CRLF，光标精确落在输入�
   );
   assert.equal(
     out.slice(idx + rowText(footer).length),
-    "\x1b[24;3H\x1b[?2026l",
-    "光标应定位到第24行第3列（报文以同步结束收尾）",
+    "\x1b[K\x1b[J\x1b[24;3H\x1b[?2026l",
+    "擦行尾 + 清下方残留后定位到第24行第3列",
   );
 });
 
@@ -60,7 +60,7 @@ test("非满高帧 render：普通行保留 CRLF，输入行仍定位正确", ()
   const idx = out.lastIndexOf(rowText(footer));
   assert.equal(
     out.slice(idx + rowText(footer).length),
-    "\x1b[2;3H\x1b[?2026l",
+    "\x1b[K\x1b[J\x1b[2;3H\x1b[?2026l",
     "光标在第2行第3列",
   );
   assert.ok(out.includes("header\r\n"), "普通行保留 CRLF");
@@ -120,7 +120,7 @@ test("满高帧 render：输入行后 CRLF 换行、按键提示区另起一行�
   const hidx = out.lastIndexOf(rowText(hint));
   assert.equal(
     out.slice(hidx + rowText(hint).length),
-    "\x1b[23;3H\x1b[?2026l",
+    "\x1b[K\x1b[J\x1b[23;3H\x1b[?2026l",
     "末行(提示区)无 CRLF，光标定位输入行(第23行)第3列",
   );
 });
@@ -150,4 +150,24 @@ test("同步输出：整帧与区间报文均以 DEC 2026 begin/end 成对包裹
   const range = capture([{ segments: [{ text: "y" }] }], 40, 24, 3, true);
   assert.ok(range.startsWith("\x1b[?2026h"), "区间报文以同步开始包裹");
   assert.ok(range.endsWith("\x1b[?2026l"), "区间报文以同步结束收尾");
+});
+
+test("全帧重写：仅首帧清屏，后续全帧覆盖式重写（无 ESC[2J）", () => {
+  const writes: string[] = [];
+  const screen = new Screen({ write: (x) => writes.push(x) });
+  screen.resize(40, 24);
+  const frame = (text: string): FrameRow[] => [
+    { segments: [{ text }] },
+    { segments: [{ text: "> input" }], caret: 2 },
+  ];
+  screen.render(frame("first"));
+  assert.ok(writes[0]!.includes("\x1b[2J"), "首帧清屏一次（清终端既有内容）");
+  writes.length = 0;
+  screen.render(frame("second"));
+  const out = writes.join("");
+  assert.ok(!out.includes("\x1b[2J"), "后续全帧不得清屏（闪烁来源）");
+  assert.ok(out.includes("\x1b[1;1H"), "应绝对定位原点覆盖重写");
+  assert.ok(out.includes("\x1b[J"), "应清除下方残留旧行");
+  assert.ok(out.includes("second"), "应写入新内容");
+  assert.ok(out.includes("\x1b[K"), "每行应擦行尾（不依赖清屏）");
 });
