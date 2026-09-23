@@ -28,7 +28,7 @@
 
 ## 强调（focus）
 
-焦点态由 `layout/focus-frame.ts` 的全局 `FocusFrame` 覆写实现，取色走语义槽位 `focus`（`focusColor()`）：历史/状态列焦点顶框、左缘框格、右上角、焦点时的活动区分隔线与连接字。**不再按主题 ID 推断**（旧的 `dark=brightWhite / light=black` 分支已删除）。
+焦点态由 `layout/focus-frame.ts` 的全局 `FocusFrame` 覆写实现，取色走语义槽位 `focus`（`focusColor()`）：状态列焦点顶框（屏幕最左起、右端止于 D 列）与左缘框格、历史/活动区焦点框（D 列/内部分隔列连接字 + 区域外缘框列角字）、焦点时的活动区分隔线与连接字。**不再按主题 ID 推断**（旧的 `dark=brightWhite / light=black` 分支已删除）。
 
 ## 基底前景
 

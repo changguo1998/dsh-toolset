@@ -21,25 +21,29 @@ function frameOf(rows: number, cols: number): FrameRow[] {
   return Array.from({ length: rows }, () => row(" ".repeat(cols)));
 }
 
-/** 构造标准三区 rects（history/activity 左列 + status 右列） */
+/**
+ * 构造标准三区 rects（status 最左窄列 + history/activity 区域宽列）。
+ * 区域左缘 = 分隔竖线列 D（= statusW-1，与状态列右缘共用该框线）、右缘 = R 列
+ * （cols-1，区域外缘框列）——与 buildFrame 的矩形口径一致。
+ */
 function stdRects(
   cols: number,
   sepRow: number, // 活动区分隔行（history 底边 = activity 顶边）
   statusRow: number, // 状态区上方分隔行（activity/status 底边）
 ): Map<PaneId, Rect> {
-  const historyW = Math.floor((cols * 2) / 3);
-  const statusW = cols - historyW;
+  const statusW = Math.floor(cols / 3);
+  const D = statusW - 1;
+  const regionW = cols - D;
   const m = new Map<PaneId, Rect>();
   // h 含边界行：bottom = y + h - 1（history 底=分隔行、activity 底=状态分隔、status 底=状态分隔）
-  m.set("history", { x: 0, y: 1, w: historyW, h: sepRow }); // bottom = 1+h-1 = sepRow
+  m.set("history", { x: D, y: 1, w: regionW, h: sepRow }); // bottom = 1+h-1 = sepRow
   m.set("activity", {
-    x: 0,
+    x: D,
     y: sepRow,
-    w: historyW,
+    w: regionW,
     h: statusRow - sepRow + 1,
   }); // bottom = statusRow
-  m.set("status", { x: historyW, y: 0, w: statusW, h: statusRow + 1 }); // bottom = statusRow
-  void m;
+  m.set("status", { x: 0, y: 0, w: statusW, h: statusRow + 1 }); // right = D
   return m;
 }
 
@@ -103,56 +107,63 @@ test("focusFrame：null 不覆写", () => {
   assert.deepEqual(rows.map(rowPlain), before);
 });
 
-test("focusFrame：history 焦点覆写（顶边/左缘/D 列竖线/底边）", () => {
+test("focusFrame：history 焦点覆写（顶边/左右缘竖线/底边）", () => {
   const cols = 12;
   const sepRow = 3; // 活动区分隔行
   const statusRow = 5; // 状态区上方分隔
   const rows = frameOf(7, cols);
-  focusFrame(
-    { themeId: "dark", focusedPanel: "history" },
-    stdRects(cols, sepRow, statusRow),
-    rows,
-  );
-  // 顶边（行 1=rect.top）：┌ 左边、─ 中、┐ D 列
+  const rects = stdRects(cols, sepRow, statusRow);
+  focusFrame({ themeId: "dark", focusedPanel: "history" }, rects, rows);
+  const r = rects.get("history")!;
+  const left = r.x; // 分隔竖线列 D（区域左缘，与状态列共用）
+  const right = r.x + r.w - 1; // 区域外缘框列
+  // 顶边（行 1=rect.top）：├ 左（竖线贯穿 + 横线接入）、─ 中、┐ 右
   const top = rowPlain(rows[1]!);
-  assert.equal(top[0], "┌");
-  assert.equal(top[5 - 1 + 4], "┐"); // D 列 = historyW-? 见下
-  // 对话区行（2）：左缘 + D 列竖线
+  assert.equal(top[left], "├");
+  assert.equal(top[right], "┐");
+  // 历史区行（2）：左右缘竖线
   const mid = rowPlain(rows[2]!);
-  assert.equal(mid[0], "│");
-  // 底边（行 3=sepRow）：┘ 两端
+  assert.equal(mid[left], "│");
+  assert.equal(mid[right], "│");
+  // 底边（行 3=sepRow，活动区分隔行）：├（竖线贯穿）/ ┘
   const bot = rowPlain(rows[3]!);
-  assert.equal(bot[0], "┘");
+  assert.equal(bot[left], "├");
+  assert.equal(bot[right], "┘");
   // 行数与行序不变
   assert.equal(rows.length, 7);
 });
 
-test("focusFrame：activity 焦点覆写（顶边 ┌/┐、左缘/D 竖线、底边 └/┴）", () => {
+test("focusFrame：activity 焦点覆写（顶边 ┌/┐、左右缘竖线、底边 └/┘）", () => {
   const cols = 12;
   const rows = frameOf(7, cols);
-  focusFrame(
-    { themeId: "dark", focusedPanel: "activity" },
-    stdRects(cols, 3, 5),
-    rows,
-  );
+  const rects = stdRects(cols, 3, 5);
+  focusFrame({ themeId: "dark", focusedPanel: "activity" }, rects, rows);
+  const r = rects.get("activity")!;
   const top = rowPlain(rows[3]!); // 活动区分隔行 = activity 顶边
-  assert.equal(top[0], "┌");
+  assert.equal(top[r.x], "├", "左缘 D 列竖线贯穿（横线右接入）");
+  assert.equal(top[r.x + r.w - 1], "┐");
   const bot = rowPlain(rows[5]!); // 状态区上方分隔行 = activity 底边
-  assert.equal(bot[0], "└");
+  assert.equal(bot[r.x], "┴", "左缘 D 列竖线收束");
+  assert.equal(bot[r.x + r.w - 1], "┘");
 });
 
-test("focusFrame：status 焦点覆写（顶边 ┐、右缘竖线、底边 ┘/┴）", () => {
+test("focusFrame：status 焦点覆写（顶边 ┌/┐、左缘竖线、底边 └/┴）", () => {
   const cols = 12;
   const rows = frameOf(7, cols);
-  focusFrame(
-    { themeId: "dark", focusedPanel: "status" },
-    stdRects(cols, 3, 5),
-    rows,
-  );
+  const rects = stdRects(cols, 3, 5);
+  focusFrame({ themeId: "dark", focusedPanel: "status" }, rects, rows);
+  const r = rects.get("status")!;
+  const left = r.x; // 0：屏幕最左 = 状态列外缘框列
+  const right = r.x + r.w - 1; // 状态列右缘 = 分隔竖线列
   const top = rowPlain(rows[0]!); // statusRect.top=0
-  assert.equal(top[cols - 1], "┐", "状态列顶边右缘 ┐");
+  assert.equal(top[left], "┌", "状态列顶边左缘 ┌");
+  assert.equal(top[right], "┐", "状态列顶边右缘 ┐");
+  const mid = rowPlain(rows[2]!);
+  assert.equal(mid[left], "│", "状态列左缘竖线");
+  assert.equal(mid[right], "│", "分隔竖线（status 焦点全列亮）");
   const bot = rowPlain(rows[5]!); // 状态区上方分隔行（status 底边）
-  assert.equal(bot[cols - 1], "┘", "状态列底边右缘 ┘");
+  assert.equal(bot[left], "└", "状态列底边左缘 └");
+  assert.equal(bot[right], "┴", "状态列底边右缘与分隔竖线相接 ┴");
 });
 
 test("setCell：surrogate pair emoji 不切两半（code point 安全）", () => {

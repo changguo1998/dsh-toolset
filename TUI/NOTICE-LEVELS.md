@@ -39,7 +39,7 @@
 | 提示信息 | 来源 |
 | --- | --- |
 | /help 帮助内容 | handleSlash（/help） |
-| goal/todo 详情见右侧信息栏 | handleSlash（/goal） |
+| goal/todo 详情见左侧信息栏 | handleSlash（/goal） |
 | usage: /\<name> (no argument; opens the picker) | handleModelFocus（/provider、/effort 带参） |
 | usage: /theme [light|dark|toggle] | handleThemeCommand（/theme 非法参数） |
 | usage: /verbose on|off（当前：…） / usage: /symbol-unify on|off（当前：…） | handleVerboseCommand / handleSymbolUnifyCommand（无参或非法参数） |

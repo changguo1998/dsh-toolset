@@ -43,28 +43,25 @@ import { rowAnsi, rowText } from "./helpers/rowText.ts";
 /** 去 ANSI 取行文本 */
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 
-/** 顶部行历史/活动区正文：取左侧历史区段（跳过 col0 左缘框格，
- *  到 historyWidth-1 宽为止，右侧为详细状态列；按显示宽度定位，兼容 CJK） */
+/** 顶部行区域正文：取正文段（跳过状态列与分隔竖线，到右缘框列前为止；
+ *  按显示宽度定位，兼容 CJK） */
 function histBody(line: string, cols: number): string {
   const m = metricsFor({ rows: 24, cols }, false);
-  const contentW = m.historyWidth - 1; // 历史正文宽（col0 左缘框格外）
+  const start = m.statusColWidth; // 区域正文起始列（状态列与分隔竖线之后）
+  const contentW = m.historyWidth - 1; // 区域正文宽（右缘框列之外）
   const s = stripAnsi(line);
   let out = "";
-  let w = 0; // 累计显示列（含 col0）
-  for (let i = 0; i < s.length; i++) {
-    const cw = displayWidth(s[i]!);
-    if (w + cw <= 1) {
-      w += cw;
-      continue;
-    } // 仍在 col0 框格内
-    if (w >= 1 + contentW) break; // 已到正文段末尾（右侧状态列前）
-    out += s[i]!;
+  let w = 0; // 累计显示列（含状态列）
+  for (const ch of s) {
+    const cw = displayWidth(ch);
+    if (w >= start + contentW) break; // 已到正文段末尾（右缘框列前）
+    if (w >= start) out += ch;
     w += cw;
   }
   return out;
 }
 
-/** 正文区左侧内容：历史/活动区正文段（不含右侧状态列与分隔竖线） */
+/** 区域正文内容：区域正文段（不含状态列、分隔竖线与外缘框列） */
 function histContent(line: string, cols: number): string {
   return histBody(line, cols).trimEnd();
 }
@@ -75,9 +72,14 @@ function histContent(line: string, cols: number): string {
  *  顶部边框行也是 ─ 全；标题栏下划线在 index TITLE_BAR_ROWS=2，24/30 行终端
  *  标题栏恒为 2 行，下划线行亦为全 ─） */
 function activitySepIdx(lines: string[], cols: number): number {
-  return lines.findIndex(
-    (l, i) => i > TITLE_BAR_ROWS && /^─+$/.test(histContent(l, cols).trim()),
-  );
+  return lines.findIndex((l, i) => i > TITLE_BAR_ROWS && isSepRow(l, cols));
+}
+
+/** 活动区分隔行判定：区域正文段为整行横线——焦点活动区/历史区时两端被焦点框
+ *  角字覆写（┌/└/┐/┘），故允许边框类字形收尾，只要足够长的横线主体仍在 */
+function isSepRow(line: string, cols: number): boolean {
+  const c = histContent(line, cols).trim();
+  return /^[─┬┴┌┐└┘├┤]+$/.test(c) && (c.match(/─/g)?.length ?? 0) >= 10;
 }
 
 /** 思考行判定：历史区正文以 2 空格缩进开头（活动区瞬态，无 [思考] 前缀）。
@@ -1402,15 +1404,19 @@ test("交错布局：输入最长折行左缘与回复正文第 5 个字符同�
   const uRow = frame.find((l) => l.includes("U"));
   const rRow = frame.find((l) => l.includes("R"));
   assert.ok(uRow !== undefined && rRow !== undefined, "输入/回复行都可见");
-  // 屏幕列口径：左缘框列 1 + 用户块留白 gutter-1 → 输入正文起 gutter 列；
-  // 回复行 ┃ 占 col1、正文自 col2 起 → 第 5 个字符在 col2+4
+  // 屏幕列口径：区域正文起始列（状态列之后）= 0 基参照；正文首列放 ┃、
+  // 自次列起为回复内容 → 回复正文起 start+1；用户块留白 gutter-1 →
+  // 输入正文起 start+gutter-1，恰与回复第 5 个字符同列
+  const start = metricsFor({ rows: 24, cols }, false).statusColWidth;
+  const uCol = colOf(uRow, "U");
+  const rCol = colOf(rRow, "R");
   assert.equal(
-    colOf(uRow, "U"),
-    USER_MIN_LEFT_GUTTER,
-    "输入最长左缘 = gutter 列",
+    uCol,
+    start + USER_MIN_LEFT_GUTTER - 1,
+    "输入最长左缘 = 正文首列 + gutter−1",
   );
-  assert.equal(colOf(rRow, "R") + 4, USER_MIN_LEFT_GUTTER, "回复第 5 字符同列");
-  assert.equal(colOf(rRow, "R"), 2, "回复正文自 col2 起（┃ 占 col1）");
+  assert.equal(uCol, rCol + 4, "输入左缘与回复第 5 字符同列");
+  assert.equal(rCol, start + 1, "回复正文自区域正文次列起（┃ 占首列）");
 });
 
 test("交错布局：多行输入为一块——块内行首左对齐、块宽 = 最长行、右缘竖线同列", () => {
@@ -2129,10 +2135,7 @@ test("buildFrame: 工具调用长参数换行——仅首行工具名着黄，�
     .slice(start + 1, start + block.length)
     .filter((l) => l.replace(/\x1b\[[0-9;]*m/g, "") !== "");
   assert.ok(
-    firstRow
-      .replace(/\x1b\[[0-9;]*m/g, "")
-      .trimStart()
-      .startsWith("bash "),
+    histBody(firstRow, 60).trimStart().startsWith("bash "),
     "首行为工具调用原始行",
   );
   assert.ok(firstRow.includes(YELLOW), "首行工具名着黄");
@@ -2359,9 +2362,11 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   // dark 主题焦点框=L4 强调 brightWhite #FFFFFF；light 主题应取黑（单独断言 focusFrameColor）
   const WHITE = "\x1b[38;2;255;255;255m";
   const size = { rows: 24, cols: 80 } as const;
-  // 对调后：历史/活动区在左（宽 historyWidth=60），详细状态列在右（宽 statusColWidth=20）
+  // 状态列在最左（col0..D，宽 statusColWidth），历史/活动区在右（宽 historyWidth）
   const m = metricsFor(size, false);
-  const D = m.historyWidth; // 60：分隔竖线列（历史区右缘/状态列左缘）
+  const D = m.statusColWidth - 1; // 分隔竖线列（状态列右缘/历史区左缘）
+  const START = m.statusColWidth; // 区域正文起始列（标题栏与两 pane 正文首列）
+  const R = size.cols - 1; // 区域外缘框列（屏幕最右）
   const rowsOf = (st: ReturnType<typeof initialState>): string[] =>
     buildFrame(st, size).map((l) => rowAnsi(l));
   const plain = (l: string): string => stripAnsi(l);
@@ -2387,7 +2392,9 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     }
     return "";
   };
-  const topRows = metricsFor(size, false).topHeight;
+  // 顶部内容行数（= buildFrame 的 contentTopH）：随模态态变化（面板态无提示区 → 多 1 行）
+  const topRowsOf = (state: ReturnType<typeof initialState>): number =>
+    frameGeometry(state, size).contentTopH;
   const countBrightBar = (raw: string): number =>
     raw.split(WHITE + "│").length - 1;
 
@@ -2403,17 +2410,17 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   const s0 = sepRow(rows);
   assert.ok(!s0.includes(WHITE + "─"), "无焦点：活动区分隔 ╌ 不亮（回灰）");
   const dlg = rows.find((l) => plain(l).includes("<title>"))!;
-  assert.ok(!plain(dlg).startsWith("│"), "无焦点：左缘框格空白占位");
+  assert.ok(!plain(dlg).startsWith("│"), "无焦点：col0 状态列外缘框格空白占位");
   assert.ok(colAt(dlg, D) === "│", "无焦点：分隔竖线恒位于 D 列（灰）");
   assert.ok(
-    plain(dlg).slice(0, D).includes("<title>"),
-    "无焦点：会话标题在左侧标题栏（历史区上方、分隔竖线左侧）",
+    plain(dlg).slice(START, R).includes("<title>"),
+    "无焦点：会话标题在区域标题栏（分隔竖线右侧、状态列之外）",
   );
   assert.ok(!eqRow(rows).includes(WHITE + "─"), "无焦点：状态区上方分隔无亮 ─");
   const sepIdx0 = activitySepIdx(rows, size.cols);
   assert.equal(countBrightBar(rows[sepIdx0 + 1]!), 0, "无焦点：活动行无亮 │");
   assert.ok(
-    rows.slice(0, topRows).every((l) => displayWidth(plain(l)) === 80),
+    rows.slice(0, topRowsOf(st)).every((l) => displayWidth(plain(l)) === 80),
     "所有内容行补齐到整屏宽（右缘框线恒在固定列）",
   );
   assert.ok(
@@ -2431,7 +2438,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
       .every((l) => colAt(l, D) === "│"),
     "无焦点：对话区各行分隔竖线仍恒位于 D 列（灰；标题栏下划线行 D 列 ┤ 除外）",
   );
-  const sigHistory = contentSig(rows, topRows);
+  const sigHistory = contentSig(rows, topRowsOf(st));
 
   // 焦点=历史（左列）：Tab 一次进入——标题栏下划线行兼作顶边 ┌─┐（标题行不在焦点
   // 窗口：左缘空白、D 列竖线灰）、活动区分隔 ─ 亮 + 两端 ┘、对话区左缘/分隔竖线亮 │
@@ -2439,8 +2446,11 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   rows = rowsOf(st);
   const bH = rows[1]!; // 下划线行（顶边）
   assert.ok(plain(bH).includes("─"), "历史焦点：下划线行兼作顶边画 ─");
-  assert.ok(plain(bH).includes("┌"), "历史焦点：左上角 ┌");
-  assert.ok(colAt(bH, D) === "┐", "历史焦点：右上角 ┐（分隔竖线列）");
+  assert.ok(
+    colAt(bH, D) === "├",
+    "历史焦点：左缘 D 列连接字 ├（竖线贯穿 + 下划线接入）",
+  );
+  assert.ok(colAt(bH, R) === "┐", "历史焦点：右上角 ┐（区域外缘框列）");
   assert.ok(bH.includes(WHITE), "历史焦点：顶边/竖线亮白");
   const titleH = rows.find((l) => plain(l).includes("<title>"))!;
   assert.ok(
@@ -2470,12 +2480,15 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   const s1 = sepRow(rows);
   assert.ok(s1.includes(WHITE + "─"), "流输出焦点：活动区分隔 ─ 亮白");
   assert.ok(plain(s1).includes("┐"), "流输出焦点：分隔行右端 ┐");
-  assert.ok(plain(s1).startsWith("┌"), "流输出焦点：分隔行左端 ┌");
+  assert.ok(
+    colAt(s1, D) === "├",
+    "流输出焦点：分隔行左端 ├（D 列竖线贯穿 + 横线接入）",
+  );
   // 活动区首行（分隔行之后）左缘框格与分隔竖线应亮 │
   const sepIdx1 = activitySepIdx(rows, size.cols);
   const act = rows[sepIdx1 + 1]!;
-  assert.ok(plain(act).startsWith("│"), "流输出焦点：活动区左缘框列 │");
-  assert.ok(colAt(act, D) === "│", "流输出焦点：活动区右缘分隔竖线 │");
+  assert.ok(colAt(act, D) === "│", "流输出焦点：活动区左缘 D 列竖线 │");
+  assert.ok(colAt(act, R) === "│", "流输出焦点：活动区右缘框列 │");
   const dlgA = rows.find((l) => plain(l).includes("<title>"))!;
   assert.equal(countBrightBar(dlgA), 0, "流输出焦点：对话行分隔竖线回灰");
   assert.equal(
@@ -2485,11 +2498,19 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   );
   assert.ok(!plain(dlgA).startsWith("│"), "流输出焦点：对话行左缘空白占位");
   const e1 = eqRow(rows);
-  assert.ok(e1.includes(WHITE + "─"), "流输出焦点：─ 亮白左段");
+  assert.ok(e1.includes(WHITE + "─"), "流输出焦点：区域底边 ─ 亮白");
   assert.ok(plain(e1).includes("┴"), "流输出焦点：分隔列角 ┴");
-  assert.ok(plain(e1).includes("└"), "流输出焦点：历史/活动区底角 └");
-  assert.ok(!plain(e1).includes("┘"), "流输出焦点：无状态列右下角 ┘");
-  assert.deepEqual(contentSig(rows, topRows), sigHistory, "切换焦点不重排内容");
+  assert.ok(colAt(e1, D) === "┴", "流输出焦点：底边左端 D 列收束 ┴");
+  assert.ok(colAt(e1, R) === "┘", "流输出焦点：区域底边右角 ┘");
+  assert.ok(
+    !plain(e1).startsWith(WHITE + "└"),
+    "流输出焦点：col0（状态列）不画底角",
+  );
+  assert.deepEqual(
+    contentSig(rows, topRowsOf(st)),
+    sigHistory,
+    "切换焦点不重排内容",
+  );
 
   // 焦点=状态（右列）：顶边 ┌─┐（D 起）、活动区分隔回灰、─ 亮右段含 ┴┘（无 └）
   st = reduceState(initialState(), { type: "focus-panel-cycle" }); // null → 历史
@@ -2497,27 +2518,31 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   st = reduceState(st, { type: "focus-panel-cycle" }); // → 状态
   rows = rowsOf(st);
   const b2 = rows[0]!;
-  assert.ok(plain(b2).includes("─"), "状态焦点：顶部右边 ─");
-  assert.ok(colAt(b2, D) === "┌", "状态焦点：顶边收角 ┌（分隔竖线列）");
-  assert.ok(colAt(b2, 79) === "┐", "状态焦点：右上角 ┐（屏幕右缘）");
+  assert.ok(plain(b2).includes("─"), "状态焦点：顶部左段 ─");
+  assert.ok(colAt(b2, 0) === "┌", "状态焦点：顶边左角 ┌（屏幕最左）");
+  assert.ok(colAt(b2, D) === "┐", "状态焦点：顶边右角 ┐（分隔竖线列）");
   assert.ok(b2.includes(WHITE + "─"), "状态焦点：顶边/竖线亮白");
   assert.ok(!sepRow(rows).includes(WHITE + "─"), "状态焦点：活动区分隔回灰");
   const dlgS = rows.find((l) => plain(l).includes("<title>"))!;
   assert.ok(
     !plain(dlgS).startsWith("│"),
-    "状态焦点：左缘空白占位（状态列在右）",
+    "状态焦点：col0 为顶边角 ┌（非竖线）",
   );
   assert.ok(
-    dlgS.includes(WHITE + "┌") && colAt(dlgS, 79) === "┐",
-    "状态焦点：标题行状态列顶边角 ┌/┐ 亮白（顶边从 D 列起）",
+    dlgS.includes(WHITE + "┌") && colAt(dlgS, D) === "┐",
+    "状态焦点：标题行状态列顶边角 ┌/┐ 亮白（顶边止于 D 列）",
   );
   assert.ok(rows[0]!.includes(WHITE + "┌"), "状态焦点：左上角 ┌");
   const e2 = eqRow(rows);
-  assert.ok(e2.includes(WHITE + "─"), "状态焦点：─ 右段亮白");
-  assert.ok(plain(e2).includes("┴"), "状态焦点：分隔列角 ┴");
-  assert.ok(plain(e2).includes("┘"), "状态焦点：状态列右下角 ┘");
-  assert.ok(!plain(e2).includes("└"), "状态焦点：无历史/活动区底角 └");
-  assert.deepEqual(contentSig(rows, topRows), sigHistory, "状态焦点同样不重排");
+  assert.ok(e2.includes(WHITE + "─"), "状态焦点：状态列底边 ─ 亮白");
+  assert.ok(colAt(e2, 0) === "└", "状态焦点：底边左角 └（屏幕最左）");
+  assert.ok(colAt(e2, D) === "┴", "状态焦点：底边右角与分隔竖线相接 ┴");
+  assert.ok(colAt(e2, R) === "─", "状态焦点：区域底边保持灰 ─");
+  assert.deepEqual(
+    contentSig(rows, topRowsOf(st)),
+    sigHistory,
+    "状态焦点同样不重排",
+  );
 
   // 面板态（非输入态）：亮色框全回灰、顶边/两侧框列空白占位，内容仍不重排
   st = reduceState(initialState(), {
@@ -2544,7 +2569,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   // 面板态：审批/问答/选择面板渲染在流输出（活动区）窗口
   // （分隔行之后），而非底部交互区；对话历史/状态列内容不被挤占（无缓冲仍空）
   const sepI2 = activitySepIdx(rows, size.cols);
-  const actRows2 = rows.slice(sepI2 + 1, topRows).map(plain);
+  const actRows2 = rows.slice(sepI2 + 1, topRowsOf(st)).map(plain);
   assert.ok(
     actRows2.some((l) => l.includes("deepseek")),
     "面板态：模型选择面板显示在流输出窗口",
@@ -2553,8 +2578,8 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     rows
       // 跳过标题栏（标题行 + 下划线），只查对话历史区正文
       .slice(1 + TITLE_BAR_ROWS, sepI2)
-      .every((l) => plain(l).slice(1, m.historyWidth).trim() === ""),
-    "面板态：对话历史区仍空（未因面板挤占重排）",
+      .every((l) => histBody(plain(l), size.cols).trim() === ""),
+    "面板态：历史区仍空（未因面板挤占重排）",
   );
 
   // focusFrameColor：语义色名 "focus"，取色由各主题 semantics 解析
@@ -2562,19 +2587,19 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.equal(focusFrameColor(), "focus");
 });
 
-/** 顶部面板内容签名：去掉 col0 左缘框格（右侧状态列正文跨焦点/面板态恒定，
- *  不影响签名）+ 框线字符 + 尾部空白，逐行一致 */
+/** 顶部面板内容签名：去掉两外缘框列（屏幕最左 col0 = 状态列外缘框格、最右列 =
+ *  区域外缘框列——两列只承载外缘框线，跨焦点/面板态恒定）+ 框线字符 + 尾部空白，
+ *  逐行一致 */
 function contentSig(lines: string[], topRows: number): string[] {
   return lines
     .slice(1, topRows) // 顶部边框行不计数；footer/状态栏被模态面板接管，不算内容
     .map((l) =>
       stripAnsi(l)
-        .slice(1) // 去掉 col0 左缘框格（│ 或空白占位）
-        // 右缘框列 `│` 与行内焦点角（活动分隔行右端）删除以跨焦点等长；
-        // 其余角/虚线归一化为线段字符（行尾 `┘`=状态栏右下角、`┴`、`╌`→─，
-        // 长度不变），焦点差异不计入内容签名
-        // ┤ 为活动区分隔行在分隔竖线的连接交点（非线段内容），与 ┐/│ 同理移除
-        .replace(/[│┐└┌┤]/g, "")
+        .slice(1, -1) // 去掉 col0 与最右列（两外缘框列）
+        // 分隔竖线 `│` 与连接字（├/┤）删除以跨焦点等长（竖线/连接字不算内容）；
+        // 其余角/虚线归一化为线段字符（┐/└/┌→─、╌→─，长度不变），
+        // 焦点差异不计入内容签名
+        .replace(/[│├┤┐└┌]/g, "")
         .replace(/┘(?=\s)/g, "")
         .replace(/[┘┴╌]/g, "─")
         .replace(/\s+$/, ""),
@@ -2682,7 +2707,7 @@ test("活动区新输出不推历史：非 final 中间输出不算窗口组，�
 
 test("滚动历史区不改变活动区：两 pane 滚动独立", () => {
   // 回归：活动区内容若受渐进窗口切片影响，滚动历史会改变活动区显示。
-  // 固定横向排列（活动 pane 在左、历史 pane 在右），滚动历史只许改右侧对话区。
+  // 固定横向排列（历史 pane 在左、活动 pane 在右），滚动历史只许改左侧历史 pane。
   let s = initialState(undefined, {
     activityPlacement: "horizontal" as const,
   });
@@ -2725,7 +2750,7 @@ test("滚动历史区不改变活动区：两 pane 滚动独立", () => {
   const size = { rows: 18, cols: 100 };
   const g = frameGeometry(s, size);
   assert.equal(g.mode, "horizontal", "用例固定横向排列");
-  const div = FRAME_LEFT_COLS + g.activityW;
+  const div = g.contentStartCol + g.dialogueW; // 内部分隔竖线列（历史右缘/活动左缘）
   const colText = (l: string, from: number, to: number): string => {
     let out = "";
     let w = 0;
@@ -2746,8 +2771,9 @@ test("滚动历史区不改变活动区：两 pane 滚动独立", () => {
       out.push(colText(rows[i]!, from, to));
     return out;
   };
-  const act = (): string[] => region(FRAME_LEFT_COLS, div);
-  const dia = (): string[] => region(div + 1, div + 1 + g.dialogueW);
+  const act = (): string[] => region(div + 1, div + 1 + g.activityW);
+  const dia = (): string[] =>
+    region(g.contentStartCol, g.contentStartCol + g.dialogueW);
   const actBase = act();
   const diaBase = dia();
   // 滚动历史区（对话）：先补算几何再应用 scroll

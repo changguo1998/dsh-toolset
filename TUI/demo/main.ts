@@ -296,7 +296,7 @@ if (smoke) {
         "question Esc must not interrupt, interrupts=" + adapter.interrupts,
       );
       // 10. 状态栏会话徽标（mode/policy/preset/jobs；goal/todo 在
-      //     右侧顶部状态列详显，状态栏不显示）；/goal 只提示查看信息栏（面板已移除）
+      //     左侧顶部状态列详显，状态栏不显示）；/goal 只提示查看信息栏（面板已移除）
       const badgePlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
       ok(
         "mode-badge",
@@ -340,7 +340,7 @@ if (smoke) {
       const panelPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
       ok(
         "goal-panel",
-        panelPlain.includes("详情见右侧信息栏") &&
+        panelPlain.includes("详情见左侧信息栏") &&
           panelPlain.includes("P2 阶段 B1+B2"),
         "goal 提示/状态列 objective absent from frames",
       );

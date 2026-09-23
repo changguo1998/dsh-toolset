@@ -33,7 +33,7 @@
 | `/search` | 并行多 provider 聚合（见下） | 全部失败 → warn 不空开面板 |
 | `/settings` | `ctx.settings.describe()` → `ns：value` 多行 info，secret 脱敏 `<redacted>`；只读不写 | 服务缺失 → warn |
 | `/jobs` | `ctx.jobs.onJobsChanged` 增量 + 打开时全量拉取；`Enter` → `ctx.jobs.kill` | 服务缺失 → warn |
-| `/goal` | 仅 notice 提示「详情见右侧信息栏」（goal/todo/jobs 常驻状态列） | — |
+| `/goal` | 仅 notice 提示「详情见左侧信息栏」（goal/todo/jobs 常驻状态列） | — |
 
 **只读服务面（插件侧提供）**：task-engine `ctx.provide("taskEngine", { query, frameStack })`、metric-loop `ctx.provide("metricLoop", { list, status })`、security-guard `ctx.provide("guard", { recent, policy })`、knowledge-base `ctx.provide("knowledge", { getSummary, whenReady })`。`/contract` 例外：goal-contract 不 expose ctx 服务，TUI 优先用 `opts.goalContract.parseContract`（`ctx.get('goalContract')`），未挂载时走内置同构回读 `parseContractObjective`（定位独占 `Done-when:` 行 + 段后 JSON 数组）；包入口直读不可行（TUI 无跨包依赖、根无 workspaces、`file:` 依赖被项目约定禁止）。
 
@@ -93,14 +93,14 @@
 
 ## 排版尺寸唯一来源：FrameGeometry
 
-- **问题**：`metricsFor` / `topPaneSplit` / `leftColumnWidth` / `renderStatusLine` 曾在 `buildFrame`、`buildTopRegion`、`inputPanelHeights`、`dialogueScrollMetrics` 各自算一遍（同一件事 4 份），口径漂移即出现「帧里看到的 pane 高度」与「滚动 / 翻页用的 pane 高度」不一致（横向排列下活动区内容仍按纵向高度排就是这类缺陷）。
+- **问题**：`metricsFor` / `topPaneSplit` / `regionColumnWidth` / `renderStatusLine` 曾在 `buildFrame`、`buildTopRegion`、`inputPanelHeights`、`dialogueScrollMetrics` 各自算一遍（同一件事 4 份），口径漂移即出现「帧里看到的 pane 高度」与「滚动 / 翻页用的 pane 高度」不一致（横向排列下活动区内容仍按纵向高度排就是这类缺陷）。
 - **做法**：`frameGeometry(state, size): FrameGeometry`（纯函数，`layout.ts`）把状态栏行、模态 / 提示区判定、`metricsFor`、`topPaneSplit`、排队块行、视口高、分隔列、内部分隔列、焦点框矩形基准一次算定并返回；`buildFrame` / `buildTopRegion` / `buildStatusSeparator` 与 App（`focusedLineScroll` / `focusedPageScroll` / `userInputJump` / 补全可视行）只读这一份（字段清单见 `SPEC.md` §11.3）。
 - **语义保持**：面板开关不改变顶部内容行数（输入态 `footer = 交互相−1 + 提示 1`，面板态 `footer = 交互相 + 提示 0`，`contentTopH` 相同）；`frameGeometry` 同时产出 `statusLines`，`buildFrame` 不再重复调 `renderStatusLine`。
 
 ## 对话左右交错留白（`messageGutter`）
 
 - **口径**：超长（英文）输入折行时，输入的最左侧与回复正文第 5 个字符同列。
-- **列口径**：历史区左缘第 0 列是焦点框保留格（`FRAME_LEFT_COLS=1`），正文区自其右侧起算——回复行 `┃` 占正文区第 0 列、正文自第 1 列起；用户块整体右对齐，左缘留白 `gutter−1` 列（`spacer(fill, min)`）、块内右缘 `┃` 贴正文区最后一列。故输入正文起列 = `gutter`（屏幕列），令其等于回复第 5 字符所在列（屏幕列 6）解得 **`gutter = 6`**。
+- **列口径**：区域右缘框列是焦点框保留格（`FRAME_RIGHT_COLS=1`），正文区自区域正文起始列（状态列与分隔竖线之后，屏幕列 = `statusColWidth`）起算——回复行 `┃` 占正文区第 0 列、正文自第 1 列起；用户块整体右对齐，左缘留白 `gutter−1` 列（`spacer(fill, min)`）、块内右缘 `┃` 贴正文区最后一列。故输入正文起列 = 正文区起始列 + `gutter−1`（屏幕列），令其等于回复第 5 字符所在列（正文区第 5 列）解得 **`gutter = 6`**。
 - **两侧同源**：`gutter` 同时是用户块左缘留白与回复右缘留白（`finalSpace` 的 `spacer(fixed gutter−1)`），故默认 6 时两侧文本上限对称各收 2 列（宽 60 时：正文区 39 列 → 回复正文 33 列、用户文本 33 列）。
 - **连带**：竖线可见阈值 `USER_MIN_LEFT_GUTTER + 2` 由 6 上移到 8（w ≤ 7 不画竖线）；`DEFAULT_MESSAGE_GUTTER` 与 `normalizeTuiDisplayConfig` 缺省同步为 6。
 - **回归**：`tests/layout4.test.ts`「输入最长折行左缘与回复正文第 5 个字符同列（gutter=6）」+ `tests/content-mapping.test.ts` 竖线阈值边界（w=6/7 关闭、w=8 开启）+ `tests/fixtures/focus-frame-legacy.json`（w20 四场景按新口径冻结）。
@@ -129,12 +129,12 @@
 ## 活动区排列：黄金分割比自动选上下 / 左右
 
 - **位置**：`layout.ts` 的 `topPaneSplit`（纯函数），唯一调用点是 `frameGeometry`（几何唯一来源）。
-- **判定**：pane 宽高比与 φ≈1.618 的对数偏差（`|ln(w/h/φ)|`，取两 pane 较差者）小者胜；等分（divisor=2、纵向两 pane 等高）时等价于「左列正文宽 / 可用行数 > φ → 左右排列」。判据只吃左列正文宽 + 顶部内容高，不含右侧状态列宽。
+- **判定**：pane 宽高比与 φ≈1.618 的对数偏差（`|ln(w/h/φ)|`，取两 pane 较差者）小者胜；等分（divisor=2、纵向两 pane 等高）时等价于「区域正文宽 / 可用行数 > φ → 左右排列」。判据只吃区域正文宽 + 顶部内容高，不含状态列宽。
 - **为什么不放在 state**：判定是尺寸的纯函数，启动与 resize 各自重算即可；不做滞回（阈值处反复拖动终端时最多一次翻转，且翻转点本身就是重排点）。缺省 `"vertical"` 保持既有上下语义（含 `activityTopRow` 锚定与 `activityHeightDivisor` 比例）。
 - **两 pane 独立宽度**：横向时活动 pane 在左、历史 pane 在右；活动 pane 宽 = `floor(正文宽 / divisor)`，对话 pane 宽 = 正文宽 − 活动 pane 宽 − 1（两侧各保底 20 列 → 正文宽 < 41 或可用行 < 2 时回落上下）。`BuildBoxOptions.activityWidth` 让 `buildContentRows(buffer, opts, w, aw)` 两 pane 各自 measure / fill；**不做两次 buildBox**（流式下 markdown / 表格构建会翻倍），只在构建期给活动 pane 的表格用 `activityWidth` 算预算。
-- **拼行**：横向行 = 左缘框格 + 活动行（补空格到 `activityW`）+ 内部分隔 `│` + 对话行（补到 `dialogueW`）+ D 列 + 状态列 + 右缘框列；活动区分隔行消失，标题栏下划线行在内部分隔列让位 `┬`，状态区分隔行该列收束 `┴`（`buildStatusSeparator` 以几何为入参）。活动 pane 恒底部对齐（与纵向一致），面板仍顶部对齐且按 `activityW` 排版。
+- **拼行**：横向行 = 状态列 + D 列 `│` + 历史行（补空格到 `dialogueW`）+ 内部分隔 `│` + 活动行（补到 `activityW`）+ 区域右缘框列；活动区分隔行消失，标题栏下划线行在内部分隔列让位 `┬`，状态区分隔行该列收束 `┴`（`buildStatusSeparator` 以几何为入参）。活动 pane 恒底部对齐（与纵向一致），面板仍顶部对齐且按 `activityW` 排版。
 - **滚动**：`scrollOffset` / `activityScroll` 语义不变（距各自 pane 底部行数），换行宽度 / 视口高变化——所有跳转 / 半屏 / 翻页坐标统一读 `frameGeometry`。
-- **焦点框**：`FocusFrameContext.innerDividerCol` 非 undefined 即横向——activity 右缘 / history 左缘改为此列（顶边两端 `┬`、底边两端 `┴`），history 右缘仍是 D 列；rects 按左右并排构造。
+- **焦点框**：区域矩形左缘 = D 列（分隔竖线，与状态列共用 → 顶/底边用连接字 `├`/`┴`）、右缘 = 区域外缘框列（角字 `┐`/`┘`）；`FocusFrameContext.innerDividerCol` 非 undefined 即横向——history 右缘 / activity 左缘改为此列（顶边 `┬`、底边 `┴`），activity 右缘仍是区域外缘框列；rects 按左右并排构造。
 - **回归**：`tests/layout-horizontal.test.ts`（8 例：内部分隔列与 `┬`/`┴`、两 pane 定宽、滚动口径一致、焦点框角字、独立宽度换行、活动区底部对齐、排队块钉在历史 pane 右下角）+ `tests/config.test.ts` 的 `topPaneSplit` 判定表。
 
 ## 排队消息（agent 运行中 Enter）

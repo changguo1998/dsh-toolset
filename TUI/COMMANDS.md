@@ -19,7 +19,7 @@
 | `/symbol-unify on\|off` | 模型输出符号统一：`on`（缺省）把变体符号替换为推荐符号并提醒模型 / `off` 原样（不替换不提醒） |
 | `/session` | 历史会话面板（浏览/恢复/删除/清理，范围 Tab 切换；`/session clean` 直达清理确认） |
 | `/copy` | 复制最后一条模型回复（OSC52） |
-| `/goal` | goal/todo 提示（详情常驻右侧状态列） |
+| `/goal` | goal/todo 提示（详情常驻左侧状态列） |
 | `/policy [ask\|never]` | 审批策略：无参开状态选项面板，带参直接设置 |
 | `/permission [预设名]` | 权限预设（sandbox mode + 审批策略捆绑）：无参开面板，带参转发宿主命令 |
 | `/preset [预设名]` | agent 预设目录：无参开面板，带参切换 |

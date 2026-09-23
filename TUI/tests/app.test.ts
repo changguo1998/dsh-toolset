@@ -263,25 +263,29 @@ class FakeAdapter implements DshAdapter {
   }
 }
 
-/** 顶部行历史/活动区正文：取左侧历史区段（跳过 col0 左缘框格，
- *  到 historyWidth-1 宽为止，右侧为详细状态列；按显示宽度定位，兼容 CJK） */
+/** 顶部行历史/活动区正文：取区域正文段（跳过状态列与分隔竖线，到右缘框列前为止；
+ *  按显示宽度定位，兼容 CJK） */
 function histBody(line: string, cols: number): string {
   const m = metricsFor({ rows: 24, cols }, false);
-  const contentW = m.historyWidth - 1; // 历史正文宽（col0 左缘框格外）
+  const start = m.statusColWidth; // 区域正文起始列（状态列与分隔竖线之后）
+  const contentW = m.historyWidth - 1; // 区域正文宽（右缘框列之外）
   const s = line.replace(/\u001b\[[0-9;]*m/g, "");
   let out = "";
-  let w = 0; // 累计显示列（含 col0）
-  for (let i = 0; i < s.length; i++) {
-    const cw = displayWidth(s[i]!);
-    if (w + cw <= 1) {
-      w += cw;
-      continue;
-    } // 仍在 col0 框格内
-    if (w >= 1 + contentW) break; // 已到正文段末尾（右侧状态列前）
-    out += s[i]!;
+  let w = 0; // 累计显示列（含状态列）
+  for (const ch of s) {
+    const cw = displayWidth(ch);
+    if (w >= start + contentW) break; // 已到正文段末尾（右缘框列前）
+    if (w >= start) out += ch;
     w += cw;
   }
   return out;
+}
+
+/** 活动区分隔行判定：区域正文段为整行横线——焦点活动区/历史区时两端被焦点框
+ *  角字覆写（┌/└/┐/┘），故允许边框类字形收尾，只要足够长的横线主体仍在 */
+function isSepRow(line: string, cols: number): boolean {
+  const c = histBody(line, cols).trim();
+  return /^[─┬┴┌┐└┘├┤]+$/.test(c) && (c.match(/─/g)?.length ?? 0) >= 10;
 }
 
 function makeApp(): { app: App; renderer: FakeRenderer; adapter: FakeAdapter } {
@@ -1763,7 +1767,7 @@ test("App initialTheme 非法值回落 dark(外部配置健壮性)", () => {
 // 横线分隔行计数：- / = / · 三种分隔字形均为横线分隔行（状态列右缘 | 不计）
 function barRowCount(renderer: FakeRenderer): number {
   return renderer.lastRender.filter((l) => {
-    // 只看历史区（右侧状态列可能把占位/标题混进同一行，误伤分隔判定）
+    // 只看历史区（左侧状态列可能把占位/标题混进同一行，误伤分隔判定）
     const t = histBody(l, renderer.size.cols);
     return /[-=·─╌]/.test(t) && t.replace(/[-=·─╌|│┐┘└┌┴┬]/g, "").trim() === "";
   }).length;
@@ -3101,15 +3105,15 @@ test("usage 事件带 contextWindow → 状态栏 ctx 追加占用百分比", ()
   );
 });
 
-test("/goal：不再打开面板，通知右侧信息栏查看 goal/todo", () => {
+test("/goal：不再打开面板，通知左侧信息栏查看 goal/todo", () => {
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/goal");
   const plain = renderer.lastRender.map((l) =>
     l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
-    plain.some((l) => l.includes("详情见右侧信息栏")),
-    "/goal 仅提示查看右侧信息栏（不再打开面板）",
+    plain.some((l) => l.includes("详情见左侧信息栏")),
+    "/goal 仅提示查看左侧信息栏（不再打开面板）",
   );
 });
 
@@ -3189,7 +3193,7 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
     const lines = renderer.lastRender.map(strip);
     // 跳过标题栏分隔行（rows=24 时标题栏 2 行、下划线在 index 2）
     const sep = lines.findIndex(
-      (l, i) => i > TITLE_BAR_ROWS && /^─+$/.test(histBody(l, 120).trim()),
+      (l, i) => i > TITLE_BAR_ROWS && isSepRow(l, 120),
     );
     // 标题已移入状态列，水平栏定位改用组间框线（状态栏行 = 状态符号 + 空格 + │ 开头）
     const statusIdx = lines.findIndex(
@@ -3325,7 +3329,7 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
     const lines = renderer.lastRender.map(strip);
     // 跳过标题栏分隔行（rows=24 时标题栏 2 行、下划线在 index 2）
     const sep = lines.findIndex(
-      (l, i) => i > TITLE_BAR_ROWS && /^─+$/.test(histBody(l, 120).trim()),
+      (l, i) => i > TITLE_BAR_ROWS && isSepRow(l, 120),
     );
     // 标题已移入状态列，水平栏定位改用组间框线（状态栏行 = 状态符号 + 空格 + │ 开头）
     const statusIdx = lines.findIndex(

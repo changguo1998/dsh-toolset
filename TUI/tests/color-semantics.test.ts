@@ -102,10 +102,10 @@ test("帧层：焦点窗口边框转强调色（fc），非焦点回边框色", 
       lineColors(none, "┴").includes(border),
       `${t} none 状态区分隔=边框色`,
     );
-    // history 焦点：顶框含强调色；状态区分隔仍边框色（状态栏未聚焦）
+    // history 焦点：顶框含强调色（区域右缘角 ┐）；状态区分隔仍边框色（状态栏未聚焦）
     const hist = frame(t, "history");
     assert.ok(
-      lineColors(hist, "┌").includes(accent),
+      lineColors(hist, "┐").includes(accent),
       `${t} history 顶框=强调色`,
     );
     assert.ok(

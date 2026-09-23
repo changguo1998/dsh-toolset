@@ -26,8 +26,8 @@ export interface FocusFrameContext {
   titleUnderlineRow?: number;
   /** 活动区分隔行（=diaEnd；横向排列无此行）——该行 D 列为连接字形 `┤`，status 焦点覆写亮 ┤ */
   activitySepRow?: number;
-  /** 横向排列（活动区在左、历史区在右）时的内部分隔竖线列：
-   *  activity 右缘 / history 左缘改为此列，底边不再有纵向分隔行（缺省 = 纵向排列） */
+  /** 横向排列（历史区在左、活动区在右）时的内部分隔竖线列：
+   *  history 右缘 / activity 左缘改为此列，底边不再有纵向分隔行（缺省 = 纵向排列） */
   innerDividerCol?: number;
   /** 状态区上方分隔行行号（=contentTopH，buildStatusSeparator 所在行）——
    *  该行被焦点 coverH 覆写为 ─ 时恢复状态栏框线竖线交点（┬），保持相接结构 */
@@ -213,8 +213,9 @@ export function coverH(
 /**
  * 焦点框覆写入口：整帧一次扫描，把焦点分区边界网格点亮。
  * rects 由布局层构造（帧坐标，right=x+w-1、bottom=y+h-1）：
- *   history/activity 矩形 = 左列（x=0, w=historyWidth，D 列=status 矩形 x 分隔）
- *   status 矩形 = 状态列（x=historyWidth, w=statusColWidth）
+ *   status 矩形 = 状态列（x=0, w=statusColWidth，右缘即分隔竖线 D 列）
+ *   history/activity 矩形 = 区域（x=区域正文起始列，w=historyWidth，横向两 pane 以
+ *   内部分隔列切开）
  * focusedPanel=null 时不覆写。
  */
 
@@ -247,72 +248,79 @@ export function focusFrame(
   const right = rect.x + rect.w - 1;
   const top = rect.y;
   const bottom = rect.y + rect.h - 1;
-  // 分隔竖线列（历史区右缘/状态列左缘）
-  const dCol = rects.get("status")?.x ?? left + rect.w;
-  // 内部分隔列（横向排列：activity 右缘 / history 左缘；缺省 undefined = 纵向）
+  // 分隔竖线列 D（状态列右缘/区域左缘）：区域两 pane 的左缘与该列重合——该列竖线
+  // 上下贯穿（状态列与区域共用），横线出入处用连接字 ├/┴/┬，不用角字
+  const statusRect = rects.get("status");
+  const dCol = statusRect ? statusRect.x + statusRect.w - 1 : left;
+  // 内部分隔列（横向排列：history 右缘 / activity 左缘；缺省 undefined = 纵向）
   const divCol = ctx.innerDividerCol;
+  const horizontal = divCol !== undefined;
 
   switch (panel) {
     case "history": {
-      // 顶边 = 标题栏下划线行（rect.top）：角字亮、body 灰（基线 ─ 灰保留，
-      // 对齐现状下划线行仅角亮——body 不覆写）。横向排列历史在右：左缘 =
-      // 内部分隔列（该列竖线自此下行 → `┬`）、右缘恒为 D 列。
-      cover(rows, top, left, divCol !== undefined ? "┬" : "┌", style);
-      cover(rows, top, dCol, "┐", style);
-      // 左缘 + 右缘竖线（对话区行）
+      // 顶边 = 标题栏下划线行（rect.top）：连接字/角字亮、body 灰（基线 ─ 灰保留）。
+      // 左缘恒为 D 列（`├`：竖线上下贯穿 + 横线右接入）；右缘横向 = 内部分隔列
+      // （`┬`）、纵向 = 区域外缘框列（`┐`）。
+      const rEdge = horizontal ? divCol : right;
+      cover(rows, top, dCol, "├", style);
+      cover(rows, top, rEdge, horizontal ? "┬" : "┐", style);
+      // 左缘（D 列）+ 右缘竖线（历史区行）
       for (let r = top + 1; r < bottom; r++) {
-        cover(rows, r, left, "│", style);
         cover(rows, r, dCol, "│", style);
+        cover(rows, r, rEdge, "│", style);
       }
-      // 底边：纵向 = 活动区分隔行、横向 = 状态区分隔行；正文 ─ 亮后两端角字
-      // （coverH 先 body、cover 后角，保留 body 与角字独立段）；状态区分隔行
-      // 被覆写后恢复框线竖线交点（┬）
-      coverH(rows, bottom, left + 1, dCol, "─", style);
-      restoreStatusSeams(rows, bottom, left + 1, dCol, style, ctx);
-      cover(rows, bottom, left, divCol !== undefined ? "┴" : "┘", style);
-      cover(rows, bottom, dCol, "┘", style);
+      // 底边：纵向 = 活动区分隔行（D 列 `├`、右端 `┘`）、横向 = 状态区分隔行
+      // （D 列 `┴`、内部列 `┴`）；正文 ─ 亮后两端连接字/角字（coverH 先 body、
+      // cover 后角，保留 body 与角字独立段）；分隔行被覆写后恢复状态栏交点（┬）
+      coverH(rows, bottom, dCol + 1, rEdge, "─", style);
+      restoreStatusSeams(rows, bottom, dCol + 1, rEdge, style, ctx);
+      cover(rows, bottom, dCol, horizontal ? "┴" : "├", style);
+      cover(rows, bottom, rEdge, horizontal ? "┴" : "┘", style);
       break;
     }
     case "activity": {
-      // 顶边 = 纵向：活动区分隔行；横向：标题栏下划线行（活动在左，右缘 =
-      // 内部分隔列 → `┬`）。左缘恒为左缘框格列。
-      const rEdge = divCol !== undefined ? divCol : dCol;
-      coverH(rows, top, left + 1, rEdge, "─", style);
-      cover(rows, top, left, "┌", style);
-      cover(rows, top, rEdge, divCol !== undefined ? "┬" : "┐", style);
+      // 顶边 = 纵向：活动区分隔行（左缘 D 列 `├`）；横向：标题栏下划线行
+      // （左缘 = 内部分隔列 → `┬`）。右缘恒为区域外缘框列（`┐`）。
+      const lEdge = horizontal ? divCol : dCol;
+      coverH(rows, top, lEdge + 1, right, "─", style);
+      cover(rows, top, lEdge, horizontal ? "┬" : "├", style);
+      cover(rows, top, right, "┐", style);
       // 左缘 + 右缘竖线（活动区行）
       for (let r = top + 1; r < bottom; r++) {
-        cover(rows, r, left, "│", style);
-        cover(rows, r, rEdge, "│", style);
+        cover(rows, r, lEdge, "│", style);
+        cover(rows, r, right, "│", style);
       }
-      // 底边 = 状态区上方分隔行：正文 ─ 亮后左下 └、右缘 ┴；
+      // 底边 = 状态区上方分隔行：正文 ─ 亮后左缘 ┴（左缘竖线在此收束）、右缘 ┘；
       // 覆写后恢复框线竖线交点（┬）
-      coverH(rows, bottom, left + 1, rEdge, "─", style);
-      restoreStatusSeams(rows, bottom, left + 1, rEdge, style, ctx);
-      cover(rows, bottom, left, "└", style);
-      cover(rows, bottom, rEdge, "┴", style);
+      coverH(rows, bottom, lEdge + 1, right, "─", style);
+      restoreStatusSeams(rows, bottom, lEdge + 1, right, style, ctx);
+      cover(rows, bottom, lEdge, "┴", style);
+      cover(rows, bottom, right, "┘", style);
       break;
     }
     case "status": {
-      // 顶边 = 状态列顶行（rc0）：正文 ─ 亮后 D 列 ┌、右缘 ┐
-      coverH(rows, top, dCol + 1, right, "─", style);
-      cover(rows, top, dCol, "┌", style);
+      // 状态列在最左：左缘 = 屏幕首列（外缘框列）、右缘 = D 列（分隔竖线）
+      // 顶边 = 状态列顶行（rc0）：正文 ─ 亮后左缘 ┌、右缘 D 列 ┐
+      coverH(rows, top, left + 1, right, "─", style);
+      cover(rows, top, left, "┌", style);
       cover(rows, top, right, "┐", style);
-      // D 列竖线（历史/活动区右缘=状态列左缘，status 焦点全列亮；下划线行
-      // diaStart-1 保持灰 ┤——标题栏顶边归属 history，不归 status）
+      // D 列竖线（状态列右缘=历史/活动区左缘，status 焦点全列亮；下划线行
+      // diaStart-1 保持灰 ├——标题栏顶边归属 history，不归 status）
       for (let r = top + 1; r <= bottom; r++) {
         if (ctx.titleUnderlineRow !== undefined && r === ctx.titleUnderlineRow)
           continue;
         if (ctx.activitySepRow !== undefined && r === ctx.activitySepRow)
-          cover(rows, r, dCol, "┤", style);
-        else cover(rows, r, dCol, "│", style);
+          cover(rows, r, right, "├", style);
+        else cover(rows, r, right, "│", style);
       }
-      // 右缘竖线（状态区行）
-      for (let r = top + 1; r <= bottom; r++) cover(rows, r, right, "│", style);
-      // 底边 = 状态区上方分隔行：正文 ─ 亮后 D 列 ┴、右缘 ┘（右列段）
-      coverH(rows, bottom, dCol + 1, right, "─", style);
-      cover(rows, bottom, dCol, "┴", style);
-      cover(rows, bottom, right, "┘", style);
+      // 左缘竖线（状态列行）
+      for (let r = top + 1; r <= bottom; r++) cover(rows, r, left, "│", style);
+      // 底边 = 状态区上方分隔行：正文 ─ 亮后左缘 └、右缘 D 列 ┴；
+      // 覆写后恢复框线竖线交点（┬）——状态列位于最左，状态栏框线竖线列在其底边范围内
+      coverH(rows, bottom, left + 1, right, "─", style);
+      restoreStatusSeams(rows, bottom, left + 1, right, style, ctx);
+      cover(rows, bottom, left, "└", style);
+      cover(rows, bottom, right, "┴", style);
       break;
     }
   }

@@ -211,7 +211,7 @@ export const LOCAL_COMMANDS: readonly {
   },
   { name: "session", route: "session", desc: "历史会话浏览/恢复" },
   { name: "copy", route: "copy", desc: "复制最后一条回复（OSC52）" },
-  { name: "goal", route: "goal", desc: "goal/todo 详情见右侧状态列" },
+  { name: "goal", route: "goal", desc: "goal/todo 详情见左侧状态列" },
   { name: "policy", route: "policy", desc: "审批策略 ask/never" },
   {
     name: "permission",

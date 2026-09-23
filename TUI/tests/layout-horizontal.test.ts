@@ -10,10 +10,9 @@ import {
   buildFrame,
   frameGeometry,
   displayWidth,
-  leftColumnWidth,
+  regionColumnWidth,
   metricsFor,
   topPaneSplit,
-  FRAME_LEFT_COLS,
   type FrameScrollReport,
 } from "../src/app/layout.ts";
 import { buildContentRows } from "../src/app/layout/build-box.ts";
@@ -67,12 +66,15 @@ function cols(line: string, from: number, to: number): string {
 }
 
 const SIZE = { rows: 18, cols: 140 };
-/** 主分隔竖线列（历史区右缘/状态列左缘） */
-const D = metricsFor(SIZE, false, 1, 1, {}).historyWidth;
-const CONTENT_W = leftColumnWidth(D);
+const M = metricsFor(SIZE, false, 1, 1, {});
+/** 主分隔竖线列（状态列右缘/历史区左缘） */
+const D = M.statusColWidth - 1;
+/** 区域正文起始列（标题栏与两 pane 正文自该列起算） */
+const CONTENT_START = M.statusColWidth;
+const CONTENT_W = regionColumnWidth(M.historyWidth);
 const SPLIT = topPaneSplit(12, CONTENT_W, 2, undefined, "auto");
-/** 内部分隔竖线帧列（左缘框格 + 活动 pane 宽；活动区在左、历史区在右） */
-const DIV_COL = FRAME_LEFT_COLS + SPLIT.activityW;
+/** 内部分隔竖线帧列（区域正文起始列 + 历史 pane 宽；历史区在左、活动区在右） */
+const DIV_COL = CONTENT_START + SPLIT.dialogueW;
 
 test("横向排列：宽而矮终端 auto 选左右并落地内部分隔列与交汇字形", () => {
   assert.equal(SPLIT.mode, "horizontal", "宽 93 / 可用 10 行 → 比 φ 扁");
@@ -80,8 +82,8 @@ test("横向排列：宽而矮终端 auto 选左右并落地内部分隔列与�
   assert.equal(SPLIT.activityH, 10);
   const rows = buildFrame(turnState("auto"), SIZE).map(rowText);
   assert.equal(rows.length, SIZE.rows);
-  // 标题行仍是整列标题；下划线行在内部分隔列让位 ┬（竖线自此下行）
-  assert.ok(rows[0]!.startsWith(" <title>") || rows[0]!.includes("<title>"));
+  // 标题行仍是整个区域宽度的标题（状态列之后）；下划线行在内部分隔列让位 ┬（竖线自此下行）
+  assert.ok(rows[0]!.includes("<title>"));
   assert.equal(cols(rows[1]!, DIV_COL, DIV_COL + 1), "┬");
   // 内容行（标题栏之后到状态区分隔行之前）内部分隔列为竖线
   for (let r = 2; r < 12; r++)
@@ -89,13 +91,13 @@ test("横向排列：宽而矮终端 auto 选左右并落地内部分隔列与�
   // 状态区上方分隔行：内部分隔列收束为 ┴（与 D 列 ┴ 并存）
   assert.equal(cols(rows[12]!, DIV_COL, DIV_COL + 1), "┴");
   assert.equal(cols(rows[12]!, D, D + 1), "┴", "D 列交点不变");
-  // 两个 pane 都不越界：活动 pane（左）右缘紧邻分隔列、对话 pane（右）右缘紧邻 D 列
+  // 两个 pane 都不越界：历史 pane（左）右缘紧邻分隔列、活动 pane（右）右缘为区域外缘
   for (let r = 2; r < 12; r++) {
     assert.equal(cols(rows[r]!, D, D + 1), "│", `D 列竖线 rc=${r}`);
-    const act = cols(rows[r]!, FRAME_LEFT_COLS, DIV_COL);
+    const dia = cols(rows[r]!, CONTENT_START, DIV_COL);
+    assert.equal(displayWidth(dia), SPLIT.dialogueW, `历史 pane 定宽 rc=${r}`);
+    const act = cols(rows[r]!, DIV_COL + 1, SIZE.cols - 1);
     assert.equal(displayWidth(act), SPLIT.activityW, `活动 pane 定宽 rc=${r}`);
-    const dia = cols(rows[r]!, DIV_COL + 1, D);
-    assert.equal(displayWidth(dia), SPLIT.dialogueW, `对话 pane 定宽 rc=${r}`);
   }
 });
 
@@ -125,33 +127,46 @@ test("横向排列：滚动口径与帧内 pane 宽高一致（半屏/翻页/跳
   );
 });
 
-test("横向排列：焦点框落在内部分隔列（activity 右缘 / history 左缘）", () => {
+test("横向排列：焦点框落在内部分隔列（历史右缘 / 活动左缘）", () => {
   let s = turnState("auto");
   // 焦点循环：null → history → activity → status
   s = reduceState(s, { type: "focus-panel-cycle" });
   const hist = buildFrame(s, SIZE).map(rowText);
-  assert.equal(cols(hist[1]!, 0, 1), " ", "history 在右：左缘框格不属它");
+  assert.equal(
+    cols(hist[1]!, 0, 1),
+    " ",
+    "col0 是状态列外缘框格，非 history 的边",
+  );
+  assert.equal(
+    cols(hist[1]!, D, D + 1),
+    "├",
+    "history 顶边左端 = D 列连接字（竖线贯穿 + 下划线接入）",
+  );
   assert.equal(
     cols(hist[1]!, DIV_COL, DIV_COL + 1),
     "┬",
-    "history 顶边左角 = 内部分隔列",
+    "history 顶边右端 = 内部分隔列",
   );
-  assert.equal(cols(hist[1]!, D, D + 1), "┐", "history 顶边右角 = D 列");
   assert.equal(
     cols(hist[12]!, DIV_COL, DIV_COL + 1),
     "┴",
-    "history 底边左角竖线收束",
+    "history 底边右端竖线收束",
   );
+  assert.equal(cols(hist[12]!, D, D + 1), "┴", "history 底边左端 = D 列 ┴");
   s = reduceState(s, { type: "focus-panel-cycle" });
   const act = buildFrame(s, SIZE).map(rowText);
-  assert.equal(cols(act[1]!, 0, 1), "┌", "activity 在左：顶边左角 = 左缘框格");
   assert.equal(
     cols(act[1]!, DIV_COL, DIV_COL + 1),
     "┬",
-    "activity 顶边右角 = 内部分隔列",
+    "activity 顶边左端 = 内部分隔列",
   );
-  assert.equal(cols(act[12]!, 0, 1), "└");
+  assert.equal(
+    cols(act[1]!, SIZE.cols - 1, SIZE.cols),
+    "┐",
+    "activity 顶边右角 = 区域外缘框列",
+  );
   assert.equal(cols(act[12]!, DIV_COL, DIV_COL + 1), "┴");
+  assert.equal(cols(act[12]!, SIZE.cols - 1, SIZE.cols), "┘");
 });
 
 test("横向排列：两 pane 各自宽度换行（buildContentRows 独立宽度）", () => {
@@ -183,15 +198,15 @@ test("横向排列：两 pane 各自宽度换行（buildContentRows 独立宽度
 });
 
 test("横向排列：内部分隔列与下划线行 ┬ / 状态区分隔行 ┴ 同列（两 pane 不等宽时也不偏）", () => {
-  // 100 列（状态列 33）→ 左列正文宽 66 → 活动 pane 33 / 对话 pane 32：两 pane
-  // 不等宽，正是「交汇字形取 dialogueW 而非 activityW」会偏一列的情形
+  // 100 列（状态列 33）→ 区域正文宽 66 → 历史 pane 32 / 活动 pane 33：两 pane
+  // 不等宽，正是「交汇字形取错了 pane 宽」会偏一列的情形
   const size = { rows: 18, cols: 100 };
   const m = metricsFor(size, false, 1, 1, {});
-  const contentW = leftColumnWidth(m.historyWidth);
+  const contentW = regionColumnWidth(m.historyWidth);
   const split = topPaneSplit(m.topHeight, contentW, 2, undefined, "auto");
   assert.equal(split.mode, "horizontal");
   assert.notEqual(split.activityW, split.dialogueW, "本用例要求两 pane 不等宽");
-  const divCol = m.historyWidth - contentW + split.activityW;
+  const divCol = m.statusColWidth + split.dialogueW;
   const rows = buildFrame(turnState("auto"), size).map(rowText);
   assert.equal(cols(rows[1]!, divCol, divCol + 1), "┬", "下划线行交汇");
   for (let r = 2; r < m.topHeight; r++)

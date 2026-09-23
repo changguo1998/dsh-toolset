@@ -245,7 +245,7 @@ tableBox(table: TableSpec, width: number, themeId: ThemeId): Box | null
 
 1. **宽轴 = 自顶向下（分割）**：根矩形（终端尺寸）→ 逐层按 `Width` 意图切分宽度。该链与内容无关，纯分割（`metricsFor`/`contentW` 的活）。
 1. **高轴 = 自底向上（生长）**：**必须在宽度确定后才能计算**——段落折行必须知道可用宽（来自父链分配），折行行数即高度（`fill` 的活）。
-1. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` + 语义锚点 `anchorToIndex` 的活）。左列（历史 + 活动区）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane 宽高比距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 `DESIGN.md`「四区域布局」）。历史区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`dialogueWindow`），视口位置由**语义锚点**（`DialogueAnchor{line,row}`，视口顶行 = (buffer 行, 行内换行序号)）解析——两者合计使「重排/新增内容」不再移动锚定内容（见 `DESIGN.md`「四区域布局」）。
+1. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` + 语义锚点 `anchorToIndex` 的活）。区域（历史 + 活动区，位于状态列右侧）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane 宽高比距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 `DESIGN.md`「四区域布局」）。历史区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`dialogueWindow`），视口位置由**语义锚点**（`DialogueAnchor{line,row}`，视口顶行 = (buffer 行, 行内换行序号)）解析——两者合计使「重排/新增内容」不再移动锚定内容（见 `DESIGN.md`「四区域布局」）。
 
 **次序不变量（长宽不可能同时自由）**：宽度分割先于高度测量；高度永远在宽度确定后计算。`measure(node, constraint)` 的 `constraint` 即「宽度来自父链」的入口——measure 并非无约束累加：宽锁（父分配）→ 高自由（内容生长）。至少一个轴被父链锁死，内容才在另一轴自由生长。
 
@@ -447,9 +447,9 @@ FocusFrame(ctx: FrameContext, rects: Map<PaneId, Rect>, rows: FrameRow[]): void
 
 | 焦点 | 亮边与角字 |
 |---|---|
-| history | 标题栏下划线行（兼作顶边）`┌─┐`；对话区左缘 `│`；活动区分隔行两端 `┘`；D 列分隔竖线仅对话区行 + 下划线行 |
-| activity | 活动区分隔行两端 `┌┐`；活动区左缘 `│`；状态区上行左段 `└┴`；D 列分隔竖线仅分隔行 + 活动区行 |
-| status | 自屏幕最顶行起（D 列起）`┌─┐`；状态列右缘框列 `│`；状态区上行右段 `─┴┘`；D 列分隔竖线全行 |
+| history | 标题栏下划线行（兼作顶边）左端 `├`、右端 `┐`；历史区左缘 D 列 `│`；活动区分隔行左端 `├`、右端 `┘`；D 列分隔竖线仅历史区行 + 下划线行（横向排列时右缘改内部分隔列 `┬`/`┴`） |
+| activity | 活动区分隔行左端 `├`、右端 `┐`；活动区左缘 D 列 `│`；状态区上行左端 `┴`、右端 `┘`；D 列分隔竖线仅分隔行 + 活动区行（横向排列时左缘改内部分隔列 `┬`/`┴`） |
+| status | 自屏幕最左列/最顶行起 `┌─┐`（右端止于 D 列）；状态列左缘框列 `│`；状态区上行左段 `└─` 收 `┴`；D 列分隔竖线全行 |
 | 无焦点 | 不覆写（全灰 / 空白占位，布局不重排） |
 
 - **期望字符**：`─` 水平边、`│` 垂直边、`┌┐└┘┴` 角 / 交叉字。
@@ -547,15 +547,16 @@ interface FrameGeometry {
   cols: number; rows: number;              // 终端尺寸
   contentTopH: number;                     // 顶部内容行数（不含状态/输入/提示/分隔行）
   statusHeight: number; footerHeight: number; hintHeight: number;
-  statusColWidth: number; historyWidth: number; contentW: number;  // contentW = 左列正文宽
-  leftFrame: boolean; rightFrame: boolean;  // 左/右焦点框保留格是否占列
+  statusColWidth: number; historyWidth: number; contentW: number;  // contentW = 区域正文宽（historyWidth − 右缘框列）
+  leftFrame: boolean; rightFrame: boolean;  // 屏幕最左（状态列外缘）/最右（区域外缘）焦点框保留格是否占列
   mode: "vertical" | "horizontal"; titleRows: number;
   activityH: number; dialogueH: number;    // 两 pane 可视行数（横向等高）
   activityW: number; dialogueW: number;    // 两 pane 正文宽（纵向同宽）
   queuedRows: ContentRow[];                // 排队块（钉在对话 pane 右下角；空=无排队）
   viewportH: number;                       // 历史视口高 = dialogueH − queuedRows.length
-  dividerCol: number;                      // 历史区右缘/状态列左缘（= cols − statusColWidth）
-  innerDividerCol?: number;                // 横向排列内部分隔竖线列
+  dividerCol: number;                      // 状态列右缘/历史区左缘（= statusColWidth − 1）
+  contentStartCol: number;                 // 区域正文起始列（= dividerCol + 1，标题栏与两 pane 自该列起）
+  innerDividerCol?: number;                // 横向排列内部分隔竖线列（历史右缘/活动左缘）
   activitySepRow: number;                  // 活动区分隔行（横向 = 对话 pane 底边下一行）
   showHint: boolean; modalOpen: boolean;   // 按键提示区是否显示 / 模态面板是否打开
   statusLines: FrameRow[];                 // 状态栏行（避免二次计算）

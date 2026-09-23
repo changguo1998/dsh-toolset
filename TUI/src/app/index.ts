@@ -1875,8 +1875,8 @@ export class App {
         }
         return;
       case "goal":
-        // /goal 不再打开面板：goal/todo 详情常驻右侧顶部状态列
-        this.notice("goal/todo 详情见右侧信息栏", "info");
+        // /goal 不再打开面板：goal/todo 详情常驻左侧顶部状态列
+        this.notice("goal/todo 详情见左侧信息栏", "info");
         return;
       case "policy":
         this.handlePolicyCommand(line);
@@ -3196,7 +3196,7 @@ export class App {
       },
       {
         cmd: "/goal",
-        desc: "goal/todo 详情常驻右侧状态列（本命令仅提示，不打开面板）",
+        desc: "goal/todo 详情常驻左侧状态列（本命令仅提示，不打开面板）",
       },
       { cmd: "/copy", desc: "复制最后一条模型回复到剪贴板(OSC52)" },
       {
