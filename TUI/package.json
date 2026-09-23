@@ -12,6 +12,7 @@
         "build": "tsc -p tsconfig.json",
         "check": "tsc -p tsconfig.json --noEmit",
         "demo": "npm run build && node dist/demo/main.js",
+        "gen:width-table": "node scripts/gen-width-table.mts",
         "smoke:pty": "node demo/smokePty.mjs",
         "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
         "watch": "tsc -p tsconfig.json --watch"

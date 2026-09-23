@@ -16,6 +16,11 @@ import {
   sizedKey,
   themeSizedKey,
 } from "./cache.ts";
+import {
+  EAW_AMBIGUOUS_CONSERVATIVE,
+  EAW_WIDE_RANGES,
+  EMOJI_CONSERVATIVE,
+} from "./eaw-table.ts";
 
 // ---------- 宽度原语（由 layout.ts 重导 charWidth/displayWidth） ----------
 
@@ -405,37 +410,43 @@ export function charWidth(ch: string): number {
   return width;
 }
 
-/** charWidth 的直算路径（无缓存；含零宽、文本符号例外与宽字符区间判定） */
+/** charWidth 的直算路径（无缓存；含零宽、文本符号例外与 EAW 表判定） */
 function computeCharWidth(cp: number): number {
   // 零宽字符：组合附加符/变体选择符/ZWJ 等（占 0 列，避免提前换行与总宽虚高）
   if (isZeroWidthChar(cp)) return 0;
   // 文本呈现符号例外（✓/✗ 等 UI 状态标记按 1 列，见 NARROW_TEXT_SYMBOLS）
   if (NARROW_TEXT_SYMBOLS.has(cp)) return 1;
-  // 宽字符区间（粗粒度近似，与既有风格一致）：CJK/全角/常见 emoji 按 2 列计，
-  // 防止低估导致整行长度溢出（如 ❤🚀🤖⭐ 等曾被按 1 计而撑破窗口宽）。
-  // 杂项技术符号（0x2300-0x23FF）按实际呈现拆分：数学/键盘/APL/排版符号在
-  // 等宽终端为 1 列（上/下取整括号、Command/Option/Enter 等按键符号，含键盘
-  // 图标 0x2328——实测终端 1 列），仅 emoji 呈现的时钟/媒体图标按 2 列
-  // （时钟码点 231A-1B、播放控制 23E2 起）——防低估撑破窗口。
-  if (
-    (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
-    (cp >= 0x2e80 && cp <= 0xa4cf) || // CJK 部首/汉字/假名/谚文等
-    (cp >= 0xac00 && cp <= 0xd7a3) || // Hangul 音节
-    (cp >= 0xf900 && cp <= 0xfaff) || // CJK 兼容表意
-    (cp >= 0xfe30 && cp <= 0xfe4f) || // CJK 兼容形式
-    (cp >= 0xff00 && cp <= 0xff60) || // 全角 ASCII/标点（“”？《》等）
-    (cp >= 0xffe0 && cp <= 0xffe6) || // 全角货币/竖线符号（￥￤等）
-    (cp >= 0x231a && cp <= 0x231b) || // 0x231A-1B 时钟 emoji
-    (cp >= 0x23e2 && cp <= 0x23ff) || // 媒体控制/进度 emoji（0x23E2 起）
-    (cp >= 0x2600 && cp <= 0x27bf) || // 杂项符号 + Dingbats（☀⚠✂❤ 等）
-    (cp >= 0x2b00 && cp <= 0x2bff) || // 杂项符号与箭头（⭐⬛⬜ 等）
-    (cp >= 0x1f000 && cp <= 0x1faff) // emoji 全集：区域指示符(国旗)/表情/交通/补充象形/扩展-A
-  ) {
-    return 2;
-  }
-  // 其余 1 列：含杂项技术符号中的窄段——0x2300-0x2319（数学/键盘窄符号）、
-  // 0x231c-0x2328（括号/积分/Enter 与 Option/键盘图标）、0x2329-0x23e1（APL/数学长括号）
+  // EAW 精确表（scripts/gen-width-table.mts 生成，替代原「粗粒度区间整段按 2 列」）：
+  // - W/F：无歧义宽字符（CJK/全角/多数 emoji）按 2 列；
+  // - A（歧义）仅在几何/符号/CJK/emoji 保守区间内按 2 列（可能被 CJK 字体按全角
+  //   设计，防低估撑破窗口），其余 A 类（→ × ± 等）按 1 列，与主流终端一致；
+  // - emoji 保守集：EAW=N/A 但带 emoji 属性且 ≥ U+2190（❤✂🇨 等）按 2 列——多数
+  //   终端按 emoji 呈现，按 1 列会低估撑破；
+  // - N（中性）且无 emoji 属性（⬤ U+2B24、⬀ U+2B00 等纯几何/装饰符号）落到默认
+  //   1 列——旧实现整段按 2 会多留一格（本次修复点）。
+  if (inFlatRanges(cp, EAW_WIDE_RANGES)) return 2;
+  if (inFlatRanges(cp, EAW_AMBIGUOUS_CONSERVATIVE)) return 2;
+  if (inFlatRanges(cp, EMOJI_CONSERVATIVE)) return 2;
+  // 其余（含 N/Na/H 与保守区间外的 A）按 1 列
   return 1;
+}
+
+/**
+ * 扁平区间表二分查找（每两个数字一对 [lo, hi] 闭区间，表按 lo 升序）。
+ * 表规模约 130 对，二分约 7 次比较——避免线性扫描成为逐字符热路径开销。
+ */
+function inFlatRanges(cp: number, flat: readonly number[]): boolean {
+  let lo = 0;
+  let hi = flat.length / 2 - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const start = flat[mid * 2]!;
+    const end = flat[mid * 2 + 1]!;
+    if (cp < start) hi = mid - 1;
+    else if (cp > end) lo = mid + 1;
+    else return true;
+  }
+  return false;
 }
 
 const displayWidthCache = createTextCache<number>();
