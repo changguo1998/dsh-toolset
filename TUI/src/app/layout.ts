@@ -48,6 +48,7 @@ import {
   NOTICE_TONE_COLOR,
   SEPARATOR,
   STATUS_TOP_SEPARATOR,
+  TURN_SEPARATOR_CHAR,
 } from "./layout/content-rules.ts";
 export {
   SEPARATOR,
@@ -429,6 +430,20 @@ function permColor(code: string): ColorName {
 export const FRAME_LEFT_COLS = 1;
 export const FRAME_RIGHT_COLS = 1;
 
+/** 区域 pane **文字**右缘留白（列）：历史区/活动区的文字排版宽度在各自 pane 宽上再收窄。
+ *  - 横向排列两 pane 各让 1 列（历史 1 + 活动 1 = 2）；纵向排列两 pane 同列同宽，
+ *    右缘留白合并为 2 列（各让 2 列）。
+ *  - **只缩文字**：边框/分隔线一概不动——标题栏下划线、活动区分隔线、状态栏框线与
+ *    分隔行仍铺满整行（到区域外缘框列 `FRAME_RIGHT_COLS`），焦点框矩形也不变。
+ *  - 目的：字形宽度算错（CJK/组合字符宽度估算偏差）时多出的列落在留白里，不顶到
+ *    外缘框列、不把整行挤到下一行（整行溢出 = 帧行折行 → 全屏错位）。 */
+export const PANE_TEXT_MARGIN_COLS = 1;
+
+/** pane 文字排版宽：pane 正文宽扣掉右缘留白（stacked = 纵向两 pane 同列，留白叠加 2 列） */
+export function paneTextWidth(paneW: number, stacked = false): number {
+  return Math.max(1, paneW - PANE_TEXT_MARGIN_COLS * (stacked ? 2 : 1));
+}
+
 /** 区域正文宽（标题栏 + 历史/活动区）：historyWidth 扣外缘框格（buildTopRegion 与滚动口径同源） */
 export function regionColumnWidth(historyWidth: number): number {
   const useFrame = historyWidth >= FRAME_RIGHT_COLS + 1;
@@ -679,9 +694,12 @@ export interface FrameGeometry {
   /** 活动 pane / 对话 pane 可视行数（横向两 pane 等高） */
   activityH: number;
   dialogueH: number;
-  /** 活动 pane / 对话 pane 正文宽（纵向两 pane 同宽） */
+  /** 活动 pane / 对话 pane 正文宽（纵向两 pane 同宽；含文字右缘留白列，边框按它铺满） */
   activityW: number;
   dialogueW: number;
+  /** 两 pane **文字**排版宽（正文宽扣右缘留白，见 PANE_TEXT_MARGIN_COLS；边框不受影响） */
+  dialogueTextW: number;
+  activityTextW: number;
   /** 排队块可见行（右对齐用户块，右缘竖线灰色；钉在对话 pane 底部右下角。
    *  内容 = `AppState.queued`：已交给核心 next-turn 队列、本回合尚未认领的消息 */
   queuedRows: ContentRow[];
@@ -764,9 +782,12 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     state.activityPlacement,
   );
   const horizontal = split.mode === "horizontal";
+  // 文字排版宽：右缘留白只作用于文字（横向两 pane 各 1 列；纵向两 pane 同列，叠加 2 列）
+  const dialogueTextW = paneTextWidth(split.dialogueW, !horizontal);
+  const activityTextW = paneTextWidth(split.activityW, !horizontal);
   // 排队块钉在对话 pane 底部：至多占 pane 高 − 1 行（至少留 1 行历史可见）；
   // 超出时取尾部（最新排队内容优先可见）
-  const queuedAll = queuedBlockRows(state, split.dialogueW);
+  const queuedAll = queuedBlockRows(state, dialogueTextW);
   const maxQueued = Math.max(0, split.dialogueH - 1);
   const queuedRows =
     queuedAll.length > maxQueued
@@ -790,6 +811,8 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     dialogueH: split.dialogueH,
     activityW: split.activityW,
     dialogueW: split.dialogueW,
+    dialogueTextW,
+    activityTextW,
     queuedRows,
     viewportH: Math.max(0, split.dialogueH - queuedRows.length),
     dividerCol: metrics.statusColWidth - 1,
@@ -1401,6 +1424,8 @@ function buildTopRegion(
     dialogueH,
     dialogueW,
     activityW,
+    dialogueTextW,
+    activityTextW,
     queuedRows,
     viewportH,
   } = geom;
@@ -1424,12 +1449,13 @@ function buildTopRegion(
     {
       themeId: state.themeId,
       gutter: state.messageGutter,
-      activityWidth: horizontal ? activityW : undefined,
+      // 活动 pane 文字宽（纵向与对话 pane 同宽，取 dialogueTextW）
+      activityWidth: horizontal ? activityTextW : undefined,
       // 活动区详略两态（SPEC §6.8）：verbose=false → 紧凑（每条目 1 行 + 省略号，/verbose off）
       activityCompact: !state.activityVerbose,
       lineOffset: win.start,
     },
-    horizontal ? dialogueW : contentW,
+    dialogueTextW,
   );
   // 顶部占位行（line = -1）：窗口未覆盖最旧内容时提示更早回复已折叠
   const markerRow: ContentRow | null =
@@ -1534,9 +1560,9 @@ function buildTopRegion(
   // 底部交互区不再承载（footer 空白占位保持交互区高度稳定）；面板占满活动区可视
   // 行，活动区瞬态行（thinking/tool/notice）在面板存在时本帧让位
   // 活动区面板 Box 生成器统一入口（buildActivePanelBox 多分支选型）
-  const activeBox = buildActivePanelBox(state, activityH, activityW);
+  const activeBox = buildActivePanelBox(state, activityH, activityTextW);
   const modalPanel: ContentRow[] = activeBox
-    ? fillPanelBox(activeBox, activityH, activityW, state.themeId)
+    ? fillPanelBox(activeBox, activityH, activityTextW, state.themeId)
     : [];
   const divFor = (rc: number): FrameSegment[] => {
     // 焦点中性基线：活动区分隔行 D 列=连接 `├`（竖线贯穿+横线右接入，
@@ -1549,10 +1575,17 @@ function buildTopRegion(
     return [seg("│", { fg: "border" })];
   };
   // 段数组补齐到定宽（横向两 pane 各自补齐，分隔竖线恒落在各自右边界）
-  const padTo = (segs: FrameSegment[], w: number): FrameSegment[] => {
+  const padTo = (
+    segs: FrameSegment[],
+    w: number,
+    fill = " ",
+  ): FrameSegment[] => {
     const used = rowWidth2(segs);
-    return used < w ? [...segs, seg(" ".repeat(w - used))] : [...segs];
+    return used < w ? [...segs, seg(fill.repeat(w - used))] : [...segs];
   };
+  /** 历史 pane 内容行（越界或排队块行 → undefined；排队块不属回合分隔线） */
+  const dialogueRowAt = (rr: number): ContentRow | undefined =>
+    rr >= 0 && rr < viewportH ? dialogueRows[vp.start + rr] : undefined;
   // 对话 pane 行：历史视口（viewportH 行）之后是排队块（钉在 pane 底部右下角，始终可见）
   const dialoguePaneSegs = (rr: number): FrameSegment[] => {
     if (rr < 0 || rr >= dialogueH) return [];
@@ -1622,11 +1655,19 @@ function buildTopRegion(
         return [seg(SEPARATOR.repeat(Math.max(1, contentW)), { fg: "border" })];
       }
       if (horizontal) {
-        // 横向：历史 pane（左）| 内部分隔竖线 | 活动 pane（右）——两 pane 同高、各自补齐定宽
+        // 横向：历史 pane（左）| 内部分隔竖线 | 活动 pane（右）——历史 pane 补齐到
+        // dialogueW（让分隔竖线恒在固定列；回合分隔线用 ╌ 补齐=横线铺满 pane）；
+        // **活动 pane 行尾不补空格**（内容到文字右缘为止，右侧留白列不落字形、
+        // 也不画外缘框列）
+        const dRow = dialogueRowAt(rc - diaStart);
         return [
-          ...padTo(dialoguePaneSegs(rc - diaStart), dialogueW),
+          ...padTo(
+            dialoguePaneSegs(rc - diaStart),
+            dialogueW,
+            dRow?.kind === "separator" ? TURN_SEPARATOR_CHAR : " ",
+          ),
           seg("│", { fg: "border" }),
-          ...padTo(activityPaneSegs(rc - diaStart), activityW),
+          ...activityPaneSegs(rc - diaStart),
         ];
       }
       if (rc < diaEnd) {
@@ -1643,13 +1684,32 @@ function buildTopRegion(
       }
       return [];
     })();
-    // 区域正文补齐到 contentW：右缘框列恒位于 R 列（不紧贴文字末尾）
+    // 区域正文补齐到 contentW：右缘框列恒位于 R 列（不紧贴文字末尾）。
+    // 例外：**活动区行**不补空格、也不画外缘框列（行到活动区文字右缘为止，
+    // 右侧留白列不落任何字形；焦点框同样不画活动区右边框）。
+    const actRow = horizontal ? rc >= diaStart : activityH > 0 && rc > diaEnd;
+    // 回合分隔线行（kind=separator）属「横线」：铺满区域正文宽、外缘框列补 ╌，
+    // 与边框行同口径（文字右缘留白只作用于文本行，横线一律顶到屏幕最右列）
+    const ruleRow =
+      !actRow && dialogueRowAt(rc - diaStart)?.kind === "separator";
     const contentW2 = rowWidth2(contentSegs);
     const padSegs: FrameSegment[] =
-      contentW2 < contentW ? [seg(" ".repeat(contentW - contentW2))] : [];
+      !actRow && contentW2 < contentW
+        ? [
+            seg(
+              (ruleRow ? TURN_SEPARATOR_CHAR : " ").repeat(
+                contentW - contentW2,
+              ),
+            ),
+          ]
+        : [];
     // 右缘框列（历史/活动区外缘）：焦点中性基线恒空白占位（history/activity 焦点
-    // 由 focusFrame 覆写 ┐/│/┘）
-    const right = " ";
+    // 由 focusFrame 覆写 ┐/│/┘）；**水平边框行**（标题栏下划线 / 活动区分隔行）
+    // 例外——该列补 `─`，横线铺满整行到屏幕最右列（边框不留缺口）。
+    const borderRow =
+      (titleRows > 1 && rc === diaStart - 1) ||
+      (rc === diaEnd && activityH > 0);
+    const right = borderRow ? SEPARATOR : ruleRow ? TURN_SEPARATOR_CHAR : " ";
     // 行拼装（自左至右）：状态列外缘框格 ‖ 状态列正文 ‖ 分隔竖线 ‖ 区域正文 ‖ 区域外缘框列
     const rowSegments: FrameSegment[] = [
       ...left,
@@ -1657,7 +1717,7 @@ function buildTopRegion(
       ...divFor(rc),
       ...contentSegs,
       ...padSegs,
-      ...(useRightFrame ? rightGlyph(right) : []),
+      ...(useRightFrame && !actRow ? rightGlyph(right) : []),
     ];
     rows.push({ segments: rowSegments });
   }

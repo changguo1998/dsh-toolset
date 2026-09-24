@@ -97,7 +97,10 @@ test("横向排列：宽而矮终端 auto 选左右并落地内部分隔列与�
     const dia = cols(rows[r]!, CONTENT_START, DIV_COL);
     assert.equal(displayWidth(dia), SPLIT.dialogueW, `历史 pane 定宽 rc=${r}`);
     const act = cols(rows[r]!, DIV_COL + 1, SIZE.cols - 1);
-    assert.equal(displayWidth(act), SPLIT.activityW, `活动 pane 定宽 rc=${r}`);
+    assert.ok(
+      displayWidth(act) <= SPLIT.activityW,
+      `活动 pane 不越界 rc=${r}（行尾不补空格 → 内容到文字右缘为止）`,
+    );
   }
 });
 
@@ -162,11 +165,15 @@ test("横向排列：焦点框落在内部分隔列（历史右缘 / 活动左�
   );
   assert.equal(
     cols(act[1]!, SIZE.cols - 1, SIZE.cols),
-    "┐",
-    "activity 顶边右角 = 区域外缘框列",
+    "─",
+    "activity 顶边亮线铺到屏幕最右列（不画右边框 → 无 ┐ 角字）",
   );
   assert.equal(cols(act[12]!, DIV_COL, DIV_COL + 1), "┴");
-  assert.equal(cols(act[12]!, SIZE.cols - 1, SIZE.cols), "┘");
+  assert.equal(
+    cols(act[12]!, SIZE.cols - 1, SIZE.cols),
+    "─",
+    "activity 底边亮线铺到屏幕最右列（无 ┘ 角字）",
+  );
 });
 
 test("横向排列：两 pane 各自宽度换行（buildContentRows 独立宽度）", () => {

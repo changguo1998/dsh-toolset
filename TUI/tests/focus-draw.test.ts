@@ -133,18 +133,22 @@ test("focusFrame：history 焦点覆写（顶边/左右缘竖线/底边）", () 
   assert.equal(rows.length, 7);
 });
 
-test("focusFrame：activity 焦点覆写（顶边 ┌/┐、左右缘竖线、底边 └/┘）", () => {
+test("focusFrame：activity 焦点覆写（顶边 ├/─、左缘竖线、底边 ┴；不画右边框）", () => {
   const cols = 12;
   const rows = frameOf(7, cols);
   const rects = stdRects(cols, 3, 5);
   focusFrame({ themeId: "dark", focusedPanel: "activity" }, rects, rows);
   const r = rects.get("activity")!;
+  const right = r.x + r.w - 1;
   const top = rowPlain(rows[3]!); // 活动区分隔行 = activity 顶边
   assert.equal(top[r.x], "├", "左缘 D 列竖线贯穿（横线右接入）");
-  assert.equal(top[r.x + r.w - 1], "┐");
+  assert.equal(top[right], "─", "顶边亮线铺到最右列，不画右角 ┐");
+  const mid = rowPlain(rows[4]!); // 活动区行：只有左缘竖线
+  assert.equal(mid[r.x], "│", "活动区行左缘竖线");
+  assert.equal(mid[right], " ", "活动区不画右边框（右缘无竖线）");
   const bot = rowPlain(rows[5]!); // 状态区上方分隔行 = activity 底边
   assert.equal(bot[r.x], "┴", "左缘 D 列竖线收束");
-  assert.equal(bot[r.x + r.w - 1], "┘");
+  assert.equal(bot[right], "─", "底边亮线铺到最右列，不画右角 ┘");
 });
 
 test("focusFrame：status 焦点覆写（顶边 ┌/┐、左缘竖线、底边 └/┴）", () => {

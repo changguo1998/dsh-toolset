@@ -100,6 +100,7 @@
 ## 对话左右交错留白（`messageGutter`）
 
 - **口径**：超长（英文）输入折行时，输入的最左侧与回复正文第 5 个字符同列。
+- **文字右缘留白（`PANE_TEXT_MARGIN_COLS=1`）**：历史区/活动区的**文字排版宽**在各自 pane 宽上再收窄——横向两 pane 各让 1 列（历史 1 + 活动 1 = 2）、纵向两 pane 同列同宽各让 2 列（`frameGeometry.dialogueTextW/activityTextW`；排队块、活动区面板同口径）。**所有横线一概不缩**：标题栏下划线、活动区分隔线、回合分隔线（`╌`，按 `ContentRow.kind === "separator"` 识别并补满）、状态栏上下边框都铺满到屏幕最右列（区域外缘框列在横线行补 `─`/`╌`）。**活动区行尾不补空格、也不画右边框**：`buildTopRegion` 对活动区行跳过 `padSegs` 与外缘框列字形；`FocusFrame` 的 activity 分支只画左缘竖线，顶/底亮线铺到最右列收尾（无角字）。回归：`tests/pane-text-margin.test.ts`。
 - **列口径**：区域右缘框列是焦点框保留格（`FRAME_RIGHT_COLS=1`），正文区自区域正文起始列（状态列与分隔竖线之后，屏幕列 = `statusColWidth`）起算——回复行 `┃` 占正文区第 0 列、正文自第 1 列起；用户块整体右对齐，左缘留白 `gutter−1` 列（`spacer(fill, min)`）、块内右缘 `┃` 贴正文区最后一列。故输入正文起列 = 正文区起始列 + `gutter−1`（屏幕列），令其等于回复第 5 字符所在列（正文区第 5 列）解得 **`gutter = 6`**。
 - **两侧同源**：`gutter` 同时是用户块左缘留白与回复右缘留白（`finalSpace` 的 `spacer(fixed gutter−1)`），故默认 6 时两侧文本上限对称各收 2 列（宽 60 时：正文区 39 列 → 回复正文 33 列、用户文本 33 列）。
 - **连带**：竖线可见阈值 `USER_MIN_LEFT_GUTTER + 2` 由 6 上移到 8（w ≤ 7 不画竖线）；`DEFAULT_MESSAGE_GUTTER` 与 `normalizeTuiDisplayConfig` 缺省同步为 6。
@@ -131,7 +132,7 @@
 - **位置**：`layout.ts` 的 `topPaneSplit`（纯函数），唯一调用点是 `frameGeometry`（几何唯一来源）。
 - **判定**：pane 宽高比与 φ≈1.618 的对数偏差（`|ln(w/h/φ)|`，取两 pane 较差者）小者胜；等分（divisor=2、纵向两 pane 等高）时等价于「区域正文宽 / 可用行数 > φ → 左右排列」。判据只吃区域正文宽 + 顶部内容高，不含状态列宽。
 - **为什么不放在 state**：判定是尺寸的纯函数，启动与 resize 各自重算即可；不做滞回（阈值处反复拖动终端时最多一次翻转，且翻转点本身就是重排点）。缺省 `"vertical"` 保持既有上下语义（含 `activityTopRow` 锚定与 `activityHeightDivisor` 比例）。
-- **两 pane 独立宽度**：横向时活动 pane 在左、历史 pane 在右；活动 pane 宽 = `floor(正文宽 / divisor)`，对话 pane 宽 = 正文宽 − 活动 pane 宽 − 1（两侧各保底 20 列 → 正文宽 < 41 或可用行 < 2 时回落上下）。`BuildBoxOptions.activityWidth` 让 `buildContentRows(buffer, opts, w, aw)` 两 pane 各自 measure / fill；**不做两次 buildBox**（流式下 markdown / 表格构建会翻倍），只在构建期给活动 pane 的表格用 `activityWidth` 算预算。
+- **两 pane 独立宽度**：横向时历史 pane 在左、活动 pane 在右；活动 pane 宽 = `floor(正文宽 / divisor)`，对话 pane 宽 = 正文宽 − 活动 pane 宽 − 1（两侧各保底 20 列 → 正文宽 < 41 或可用行 < 2 时回落上下）；**文字**排版另扣右缘留白（见「文字右缘留白」）。`BuildBoxOptions.activityWidth` 让 `buildContentRows(buffer, opts, w, aw)` 两 pane 各自 measure / fill；**不做两次 buildBox**（流式下 markdown / 表格构建会翻倍），只在构建期给活动 pane 的表格用 `activityWidth` 算预算。
 - **拼行**：横向行 = 状态列 + D 列 `│` + 历史行（补空格到 `dialogueW`）+ 内部分隔 `│` + 活动行（补到 `activityW`）+ 区域右缘框列；活动区分隔行消失，标题栏下划线行在内部分隔列让位 `┬`，状态区分隔行该列收束 `┴`（`buildStatusSeparator` 以几何为入参）。活动 pane 恒底部对齐（与纵向一致），面板仍顶部对齐且按 `activityW` 排版。
 - **滚动**：`scrollOffset` / `activityScroll` 语义不变（距各自 pane 底部行数），换行宽度 / 视口高变化——所有跳转 / 半屏 / 翻页坐标统一读 `frameGeometry`。
 - **焦点框**：区域矩形左缘 = D 列（分隔竖线，与状态列共用 → 顶/底边用连接字 `├`/`┴`）、右缘 = 区域外缘框列（角字 `┐`/`┘`）；`FocusFrameContext.innerDividerCol` 非 undefined 即横向——history 右缘 / activity 左缘改为此列（顶边 `┬`、底边 `┴`），activity 右缘仍是区域外缘框列；rects 按左右并排构造。

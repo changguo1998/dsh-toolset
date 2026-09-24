@@ -280,22 +280,21 @@ export function focusFrame(
     }
     case "activity": {
       // 顶边 = 纵向：活动区分隔行（左缘 D 列 `├`）；横向：标题栏下划线行
-      // （左缘 = 内部分隔列 → `┬`）。右缘恒为区域外缘框列（`┐`）。
+      // （左缘 = 内部分隔列 → `┬`）。**不画右边框**：区域右缘留白列不落字形
+      // （顶/底边横向亮线仍铺满到屏幕最右列，行尾也不补空格，见 buildTopRegion）。
       const lEdge = horizontal ? divCol : dCol;
-      coverH(rows, top, lEdge + 1, right, "─", style);
+      // 顶/底亮线一律铺到屏幕最右列（含该列；活动区不画右边框，无角字收尾）
+      coverH(rows, top, lEdge + 1, right + 1, "─", style);
       cover(rows, top, lEdge, horizontal ? "┬" : "├", style);
-      cover(rows, top, right, "┐", style);
-      // 左缘 + 右缘竖线（活动区行）
+      // 左缘竖线（活动区行）；右缘不画
       for (let r = top + 1; r < bottom; r++) {
         cover(rows, r, lEdge, "│", style);
-        cover(rows, r, right, "│", style);
       }
-      // 底边 = 状态区上方分隔行：正文 ─ 亮后左缘 ┴（左缘竖线在此收束）、右缘 ┘；
-      // 覆写后恢复框线竖线交点（┬）
-      coverH(rows, bottom, lEdge + 1, right, "─", style);
+      // 底边 = 状态区上方分隔行：正文 ─ 亮后左缘 ┴（左缘竖线在此收束）；右端不画角字。
+      // 覆写后恢复框线竖线列交点（┬）
+      coverH(rows, bottom, lEdge + 1, right + 1, "─", style);
       restoreStatusSeams(rows, bottom, lEdge + 1, right, style, ctx);
       cover(rows, bottom, lEdge, "┴", style);
-      cover(rows, bottom, right, "┘", style);
       break;
     }
     case "status": {

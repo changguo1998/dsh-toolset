@@ -551,7 +551,8 @@ interface FrameGeometry {
   leftFrame: boolean; rightFrame: boolean;  // 屏幕最左（状态列外缘）/最右（区域外缘）焦点框保留格是否占列
   mode: "vertical" | "horizontal"; titleRows: number;
   activityH: number; dialogueH: number;    // 两 pane 可视行数（横向等高）
-  activityW: number; dialogueW: number;    // 两 pane 正文宽（纵向同宽）
+  activityW: number; dialogueW: number;    // 两 pane 正文宽（纵向同宽；含文字右缘留白列）
+  dialogueTextW: number; activityTextW: number;  // 两 pane 文字排版宽（正文宽扣右缘留白；边框按正文宽铺满）
   queuedRows: ContentRow[];                // 排队块（钉在对话 pane 右下角；空=无排队）
   viewportH: number;                       // 历史视口高 = dialogueH − queuedRows.length
   dividerCol: number;                      // 状态列右缘/历史区左缘（= statusColWidth − 1）

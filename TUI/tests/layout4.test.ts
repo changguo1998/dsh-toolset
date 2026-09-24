@@ -23,6 +23,8 @@ import {
   dialogueSpans,
   indexToAnchor,
   FRAME_LEFT_COLS,
+  regionColumnWidth,
+  paneTextWidth,
   emptyRunVirt,
   nextRunVirt,
   TOKEN_CALIB_MAX,
@@ -1321,10 +1323,10 @@ test("会话流：turn 分隔线在历史区铺满宽度", () => {
 
 test("交错布局：模型正文右缘保留与用户块左缘对称的空位(gutter)；用户块仍贴右缘", () => {
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
-  // cols=40 → historyWidth 依 metricsFor；USER_MIN_LEFT_GUTTER=4 → 正文宽 = hist-4
+  // cols=40 → historyWidth 依 metricsFor；文字排版宽再扣文字右缘留白（纵向 2 列）
   const m = metricsFor({ rows: 16, cols: 40 }, false);
-  const hist = m.historyWidth;
-  const bodyW = hist - USER_MIN_LEFT_GUTTER - 1; // contentW（右缘预留框列）- gutter
+  const textW = paneTextWidth(regionColumnWidth(m.historyWidth), true);
+  const bodyW = textW - USER_MIN_LEFT_GUTTER;
   let s = initialState();
   s = reduceState(s, {
     type: "append",
@@ -1348,7 +1350,7 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
   assert.equal(
     first.length,
     bodyW + 1,
-    `默认 gutter=4：正文(含左侧竖线)恰为内容区宽-4+2（右缘预留框列）`,
+    `默认 gutter=6：正文(含左侧竖线) = 文字排版宽 − gutter + 1（右缘留文字留白 + 焦点框列）`,
   );
   // 用户块整体靠右（右缘预留焦点框列）
   let u = initialState();
@@ -1373,14 +1375,14 @@ test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满历
     .map((l) => strip(rowAnsi(l)))
     .filter((l) => /[0-9]/.test(l));
   const m = metricsFor({ rows: 16, cols: 40 }, false);
-  const hist = m.historyWidth;
-  // gutter=0 → 正文宽 = historyWidth-1（内容区右侧预留焦点框列）
+  // gutter=0 → 正文顶满文字排版宽（区域正文宽扣文字右缘留白 2 列）
+  const textW = paneTextWidth(regionColumnWidth(m.historyWidth), true);
   assert.ok(rows.length >= 2, "40 字符在窄历史宽下软换行");
   const body = histContent(rows[0]!, 40);
   assert.equal(
     body.length,
-    hist - 1,
-    "gutter=0 时正文顶满内容区宽度（右缘留框列）",
+    textW,
+    "gutter=0 时正文顶满文字排版宽（右侧仍留文字留白 + 焦点框列）",
   );
 });
 
@@ -1461,9 +1463,16 @@ test("交错布局：多行输入为一块——块内行首左对齐、块宽 =
     [barCol(rows[0]!), barCol(rows[0]!)],
     "块右缘竖线同列",
   );
-  // 块宽 = 最长行（24）+ 竖线 1 列 → 左缘 = 正文区宽 − 25
-  const contentW = metricsFor({ rows: 24, cols }, false).historyWidth - 1;
-  assert.equal(lead(rows[2]!), contentW - 25, "块宽取决于最长行（右对齐贴边）");
+  // 块宽 = 最长行（24）+ 竖线 1 列 → 左缘 = 文字排版宽 − 25
+  const textW = paneTextWidth(
+    regionColumnWidth(metricsFor({ rows: 24, cols }, false).historyWidth),
+    true,
+  );
+  assert.equal(
+    lead(rows[2]!),
+    textW - 25,
+    "块宽取决于最长行（右对齐贴文字右缘）",
+  );
 });
 
 test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代码块", () => {
@@ -2419,9 +2428,15 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(!eqRow(rows).includes(WHITE + "─"), "无焦点：状态区上方分隔无亮 ─");
   const sepIdx0 = activitySepIdx(rows, size.cols);
   assert.equal(countBrightBar(rows[sepIdx0 + 1]!), 0, "无焦点：活动行无亮 │");
+  const actFrom = frameGeometry(st, size).activitySepRow + 1;
+  const contentRows = rows.slice(0, topRowsOf(st));
   assert.ok(
-    rows.slice(0, topRowsOf(st)).every((l) => displayWidth(plain(l)) === 80),
-    "所有内容行补齐到整屏宽（右缘框线恒在固定列）",
+    contentRows.slice(0, actFrom).every((l) => displayWidth(plain(l)) === 80),
+    "非活动区行补齐到整屏宽（右缘框线恒在固定列）",
+  );
+  assert.ok(
+    contentRows.slice(actFrom).every((l) => displayWidth(plain(l)) <= 80),
+    "活动区行到内容右缘为止（行尾不补空格）",
   );
   assert.ok(
     rows
@@ -2479,7 +2494,11 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   assert.ok(!plain(rows[0]!).includes("┐"), "流输出焦点：顶部无角");
   const s1 = sepRow(rows);
   assert.ok(s1.includes(WHITE + "─"), "流输出焦点：活动区分隔 ─ 亮白");
-  assert.ok(plain(s1).includes("┐"), "流输出焦点：分隔行右端 ┐");
+  assert.ok(
+    !plain(s1).includes("┐"),
+    "流输出焦点：分隔行右端不画角字（活动区不画右边框）",
+  );
+  assert.ok(colAt(s1, R) === "─", "流输出焦点：分隔行亮线铺到屏幕最右列");
   assert.ok(
     colAt(s1, D) === "├",
     "流输出焦点：分隔行左端 ├（D 列竖线贯穿 + 横线接入）",
@@ -2488,20 +2507,26 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   const sepIdx1 = activitySepIdx(rows, size.cols);
   const act = rows[sepIdx1 + 1]!;
   assert.ok(colAt(act, D) === "│", "流输出焦点：活动区左缘 D 列竖线 │");
-  assert.ok(colAt(act, R) === "│", "流输出焦点：活动区右缘框列 │");
+  assert.ok(
+    colAt(act, R) !== "│",
+    "流输出焦点：活动区不画右边框（右缘框列无竖线）",
+  );
   const dlgA = rows.find((l) => plain(l).includes("<title>"))!;
   assert.equal(countBrightBar(dlgA), 0, "流输出焦点：对话行分隔竖线回灰");
   assert.equal(
     countBrightBar(act),
-    2,
-    "流输出焦点：活动行左缘框列+分隔竖线 2 条亮 │",
+    1,
+    "流输出焦点：活动行仅左缘 1 条亮 │（不画右边框）",
   );
   assert.ok(!plain(dlgA).startsWith("│"), "流输出焦点：对话行左缘空白占位");
   const e1 = eqRow(rows);
   assert.ok(e1.includes(WHITE + "─"), "流输出焦点：区域底边 ─ 亮白");
   assert.ok(plain(e1).includes("┴"), "流输出焦点：分隔列角 ┴");
   assert.ok(colAt(e1, D) === "┴", "流输出焦点：底边左端 D 列收束 ┴");
-  assert.ok(colAt(e1, R) === "┘", "流输出焦点：区域底边右角 ┘");
+  assert.ok(
+    colAt(e1, R) === "─",
+    "流输出焦点：底边亮线铺到最右列（活动区不画右边框 → 无 ┘ 角字）",
+  );
   assert.ok(
     !plain(e1).startsWith(WHITE + "└"),
     "流输出焦点：col0（状态列）不画底角",
