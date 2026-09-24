@@ -1,7 +1,8 @@
 // tests/screen.test.ts — Screen 帧写出（光标定位）单测
 //
 // REGRESSION: 满高帧下 input 行为最后一行，旧实现尾部 CRLF 触发触底上滚，
-// 硬件光标落在输入行下一行(与显示不符)。修复后尾部只跟 \x1b[K 与定位转义。
+// 硬件光标落在输入行下一行(与显示不符)。修复后尾部只跟定位转义（擦除改为
+// 「每行先擦后写」，见 Screen 的 eraseBeforeWrite）。
 // 按键提示区另起一行、输入行不占末行：统一规则「仅帧末行不写 CRLF」，
 // 保证提示区另起一行；并修掉无 caret 行的面板帧末行 CRLF 的触底上滚 1 行问题。
 
@@ -46,8 +47,8 @@ test("满高帧 render：输入行(caret)后无 CRLF，光标精确落在输入�
   );
   assert.equal(
     out.slice(idx + rowText(footer).length),
-    "\x1b[K\x1b[J\x1b[24;3H\x1b[?25h\x1b[?2026l",
-    "擦行尾 + 清下方残留后定位到第24行第3列",
+    "\x1b[24;3H\x1b[?25h\x1b[?2026l",
+    "满高帧末行后直接定位到第24行第3列（下方无残留需清；擦除在行首完成）",
   );
 });
 
@@ -60,8 +61,8 @@ test("非满高帧 render：普通行保留 CRLF，输入行仍定位正确", ()
   const idx = out.lastIndexOf(rowText(footer));
   assert.equal(
     out.slice(idx + rowText(footer).length),
-    "\x1b[K\x1b[J\x1b[2;3H\x1b[?25h\x1b[?2026l",
-    "光标在第2行第3列",
+    "\x1b[3;1H\x1b[J\x1b[2;3H\x1b[?25h\x1b[?2026l",
+    "帧下一行行首 ESC[J 清残留，再定位光标到第2行第3列",
   );
   assert.ok(out.includes("header\r\n"), "普通行保留 CRLF");
 });
@@ -74,12 +75,12 @@ test("renderDelta 满高帧：startLine+i 为末行时输入行不 CRLF，光标
   assert.ok(!tail.includes("\r\n"), "delta 输入行尾不得有 CRLF(避免触底上滚)");
   assert.equal(
     tail,
-    "\x1b[K\x1b[24;8H\x1b[?25h\x1b[?2026l",
-    "先擦行尾再定位到第24行第8列",
+    "\x1b[24;8H\x1b[?25h\x1b[?2026l",
+    "定位到第24行第8列（擦除已在行首完成，行尾不再补 ESC[K）",
   );
 });
 
-test("renderDelta 非满高帧：输入行 CRLF-替换为 K + 定位，位置正确", () => {
+test("renderDelta 非满高帧：输入行写内容后定位，位置正确", () => {
   const footer: FrameRow = { segments: [{ text: "> ab" }], caret: 4 };
   const out = capture(
     [{ segments: [{ text: "scrolled" }] }, footer],
@@ -92,8 +93,8 @@ test("renderDelta 非满高帧：输入行 CRLF-替换为 K + 定位，位置正
   const tail = out.slice(idx + rowText(footer).length);
   assert.equal(
     tail,
-    "\x1b[K\x1b[6;5H\x1b[?25h\x1b[?2026l",
-    "输入行在 delta 中行为一行带擦除+定位",
+    "\x1b[6;5H\x1b[?25h\x1b[?2026l",
+    "输入行在 delta 中为一行内容 + 定位",
   );
 });
 
@@ -120,7 +121,7 @@ test("满高帧 render：输入行后 CRLF 换行、按键提示区另起一行�
   const hidx = out.lastIndexOf(rowText(hint));
   assert.equal(
     out.slice(hidx + rowText(hint).length),
-    "\x1b[K\x1b[J\x1b[23;3H\x1b[?25h\x1b[?2026l",
+    "\x1b[23;3H\x1b[?25h\x1b[?2026l",
     "末行(提示区)无 CRLF，光标定位输入行(第23行)第3列",
   );
 });
@@ -131,14 +132,14 @@ test("renderDelta 满高帧：delta=输入行+按键提示区，输入行后 CRL
   const out = capture([input, hint], 40, 24, 23, true); // 输入行=23 行，提示区=24 行(底行)
   const idx = out.lastIndexOf(rowText(input));
   assert.equal(
-    out.slice(idx + rowText(input).length, idx + rowText(input).length + 5),
-    "\r\n\x1b[K",
-    "输入行后 CRLF 再擦行尾",
+    out.slice(idx + rowText(input).length, idx + rowText(input).length + 2),
+    "\r\n",
+    "输入行后 CRLF 换行",
   );
   const hidx = out.lastIndexOf(rowText(hint));
   assert.equal(
     out.slice(hidx + rowText(hint).length),
-    "\x1b[K\x1b[23;8H\x1b[?25h\x1b[?2026l",
+    "\x1b[23;8H\x1b[?25h\x1b[?2026l",
     "提示区(末行)后无 CRLF，光标定位输入行第8列",
   );
 });
@@ -169,7 +170,7 @@ test("全帧重写：仅首帧清屏，后续全帧覆盖式重写（无 ESC[2J�
   assert.ok(out.includes("\x1b[1;1H"), "应绝对定位原点覆盖重写");
   assert.ok(out.includes("\x1b[J"), "应清除下方残留旧行");
   assert.ok(out.includes("second"), "应写入新内容");
-  assert.ok(out.includes("\x1b[K"), "每行应擦行尾（不依赖清屏）");
+  assert.ok(out.includes("\x1b[K"), "每行先擦后写（行首 ESC[K，不依赖清屏）");
 });
 
 test("光标管理：报文渲染期隐藏、定位 caret 后显示；reset 兜底恢复显示", () => {

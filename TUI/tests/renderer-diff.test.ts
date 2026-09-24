@@ -227,6 +227,7 @@ test("区间 diff：同段内不连续的两处变化各自成区间（不跨越
     "两处变化都重写",
   );
   assert.ok(!out.includes("t1") && !out.includes("t3"), "中间未变化行不重写");
+  // 每行一个「先擦后写」的 ESC[K（见 Screen.renderRanges）
   assert.equal((out.match(/\x1b\[K/g) ?? []).length, 2, "只重写 2 行");
   renderer.close();
 });
