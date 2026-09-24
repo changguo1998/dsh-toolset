@@ -6,7 +6,7 @@
 
 ## 总览
 
-- `TUI/` 终端界面包已完成：排版重构（Box 模型）、排版缓存与绘制合帧、主题调色板可配置化、P2 命令扩展与自动清理空会话等；现状口径见 `TUI/SPEC.md`、`TUI/IMPLEMENTATION.md`、`TUI/README.md`（重构任务清单已完成并归档：`archive/TUI-REFACTOR-TASKS.md`）。
+- `TUI/` 终端界面包已完成：排版重构（Box 模型）、排版缓存与绘制合帧、主题调色板可配置化、P2 命令扩展与自动清理空会话等；界面细节一轮集中修复（P1–P9：状态符号迁入用户块、状态栏圆点分隔、行尾真空按 pane 收窄、工具行缩进 2 列、活动区空白分片与 step 头时间戳、Mode 迁入标题栏 + `Ctrl+S`、压缩期间算活跃、恢复会话按 step 概要）已完成并归档：`archive/TUI-P1-P9-FIX-RECORD.md`；现状口径见 `TUI/SPEC.md`、`TUI/IMPLEMENTATION.md`、`TUI/README.md`（重构任务清单已完成并归档：`archive/TUI-REFACTOR-TASKS.md`）。
 - 12 个插件全部完成并合入 main：herdr-integration、task-engine、knowledge-base、goal-contract、metric-loop、output-compress、fs-digest、hash-edit、ast-tools、security-guard、code-map、context-report。
 - `rate-guard` 已取消（不迁移）：pi 侧已移除，能力由 pi 核心 provider-retry 内建 + 扩展 provider-guard 承接；dsh 侧一般退避由官方 `llm-retry` 覆盖，决策见 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1（归档调研）。
 - 剩余 P2 插件（workflow-ext / web-ext / session-broker / command-template）与内容资产未开始。
