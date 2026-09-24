@@ -25,12 +25,16 @@ import {
   surfaceToBuffer,
 } from "../src/app/commands.ts";
 import { initialState, reduceState, sanitizeText } from "../src/app/state.ts";
+import type { AppState } from "../src/app/state.ts";
 import {
   metricsFor,
   displayWidth,
   frameGeometry,
   TITLE_BAR_ROWS,
+  TITLE_ICON,
+  titleBarSegments,
 } from "../src/app/layout.ts";
+import type { TurnEndReason } from "../src/app/state.ts";
 import type {
   DshAdapter,
   DshEvent,
@@ -311,6 +315,29 @@ function pickerColumnText(frame: string): string {
 function isSepRow(line: string, cols: number): boolean {
   const c = histBody(line, cols).trim();
   return /^[─┬┴┌┐└┘├┤]+$/.test(c) && (c.match(/─/g)?.length ?? 0) >= 10;
+}
+
+/** P1：用户块首行状态符号与它的生效前景色 SGR（符号 + 1 空格 = 块内 2 列前缀）。
+ *  lines = 一帧的原始行（含 ANSI）；text = 用户块正文（用于定位该块首行）。
+ *  整行最左的状态列里也有 ✓/✗，故符号只从历史 pane 正文段（histBody）取；
+ *  符号色 = 紧邻符号（中间只隔空白填充）的最近一个 SGR——回退 `?` 无色段，
+ *  取到的是块默认前景色（非任何状态色）。 */
+function userBlockMark(
+  lines: string[],
+  cols: number,
+  text: string,
+): { sym: string; sgr: string } {
+  const row = lines.find((l) => histBody(l, cols).includes(text)) ?? "";
+  const sym = histBody(row, cols).trimStart()[0] ?? "";
+  const before = row.slice(0, row.indexOf(text));
+  const at = before.lastIndexOf(sym);
+  return {
+    sym,
+    sgr:
+      at >= 0
+        ? (/\x1b\[[0-9;]*m(?=\s*$)/.exec(before.slice(0, at))?.[0] ?? "")
+        : "",
+  };
 }
 
 function makeApp(): { app: App; renderer: FakeRenderer; adapter: FakeAdapter } {
@@ -740,6 +767,94 @@ test("agent 运行中 Enter → 官方流程：立即发送给核心（逐条不
   app.dispose();
 });
 
+test("P1：turn-end 的 reason 进 state → 用户块落终态（completed/aborted/error；其余保持未定）", () => {
+  const cases: {
+    reason?: TurnEndReason;
+    want?: "success" | "failure" | "aborted";
+  }[] = [
+    { reason: "completed", want: "success" },
+    { reason: "aborted", want: "aborted" },
+    { reason: "error", want: "failure" },
+    { reason: "blocked" }, // 未识别为终态 → 保持未定（渲染 `?`）
+    {}, // 缺 reason（旧宿主/mock）→ 同样保持未定
+  ];
+  for (const c of cases) {
+    const { app, renderer, adapter } = makeApp();
+    const st = (): { buffer: { kind: string; status?: string }[] } =>
+      (
+        app as unknown as {
+          state: { buffer: { kind: string; status?: string }[] };
+        }
+      ).state;
+    typeAndEnter(renderer, "问一句");
+    adapter.push({
+      type: "turn-end",
+      ...(c.reason === undefined ? {} : { reason: c.reason }),
+    });
+    const last = [...st().buffer].reverse().find((l) => l.kind === "user");
+    assert.equal(
+      last?.status,
+      c.want,
+      `reason=${String(c.reason)} → status=${String(c.want)}`,
+    );
+    app.dispose();
+  }
+});
+
+test("P1：活跃块只看最后一条用户输入——更早的未终态块不跟随运行状态", () => {
+  const { app, renderer, adapter } = makeApp();
+  // 放大窗口：三条用户块需同屏（横向排列下历史 pane 行数有限）
+  renderer.resize(140, 40);
+  const cols = 140;
+  typeAndEnter(renderer, "第一条");
+  adapter.push({ type: "turn-end", reason: "blocked" }); // blocked 不落终态 → 第一条保持未定
+  typeAndEnter(renderer, "第二条");
+  adapter.push({ type: "turn-end", reason: "completed" }); // 第二条落终态
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" }); // 忙
+  const mark = (text: string): string =>
+    userBlockMark(renderer.lastRender, cols, text).sym;
+  assert.equal(mark("第一条"), "?", "更早的未终态块保持 `?`（不因会话忙而变）");
+  assert.equal(mark("第二条"), "✓", "最后一条已落终态 → 不再显示运行中");
+  // 会话仍在忙时，更早的未终态块也不得闪 ●/○/△：该块行里除 `?` 外不应出现这些符号
+  const olderRow = renderer.lastRender.find((l) =>
+    histBody(l, cols).includes("第一条"),
+  );
+  assert.ok(olderRow, "第一条所在行存在");
+  const olderText = histBody(olderRow!, cols);
+  assert.ok(
+    !/[●○△]/.test(olderText),
+    `更早的未终态块只带 ? 不带运行中/等待符号: ${JSON.stringify(olderText.trimEnd())}`,
+  );
+  app.dispose();
+});
+
+test("P8：压缩期间 Enter 进排队、Ctrl+D 不退出；压缩结束恢复", () => {
+  const { app, renderer, adapter } = makeApp();
+  const st = (): {
+    queued: string[];
+    compactingBySession: Record<string, boolean>;
+  } =>
+    (
+      app as unknown as {
+        state: {
+          queued: string[];
+          compactingBySession: Record<string, boolean>;
+        };
+      }
+    ).state;
+  adapter.push({ type: "compaction", phase: "start", sessionId: "s1" });
+  assert.ok(st().compactingBySession["s1"], "start 后按会话标记压缩中");
+  renderer.press({ name: "d", ctrl: true, meta: false, shift: false });
+  assert.equal(renderer.closed, 0, "压缩期间 Ctrl+D 不退出（视为活跃）");
+  typeAndEnter(renderer, "压缩中提问");
+  assert.deepEqual(st().queued, ["压缩中提问"], "压缩期间 Enter 走排队显示");
+  adapter.push({ type: "compaction", phase: "end", sessionId: "s1" });
+  assert.deepEqual(st().compactingBySession, {}, "end 后清除标记");
+  renderer.press({ name: "d", ctrl: true, meta: false, shift: false });
+  assert.equal(renderer.closed, 1, "空闲后 Ctrl+D 正常退出");
+  app.dispose();
+});
+
 test("活动区生命周期：核心自发回合不清空（用户输入才清空，且整类一起清）", () => {
   const { app, renderer, adapter } = makeApp();
   const st = (): { buffer: { text: string; kind: string }[] } =>
@@ -903,31 +1018,41 @@ test("shell 模式提交：仅展示层，文本原样走 sendMessage（不加 $
 
 test("活跃任务中 slash 结果不覆盖运行中：/help、无效命令、error notice 均保持黄●/○", () => {
   const { renderer, adapter } = makeApp();
-  // 状态栏行首状态符号 SGR（24 行终端：分隔线后状态栏 = 倒数第 6 行；
-  // 行首为前导空格，取行内首个 SGR = 状态符号色）
-  const sgr = (): string =>
-    /\x1b\[38;2;\d+;\d+;\d+m/.exec(renderer.lastRender.at(-6) ?? "")?.[0] ?? "";
+  const USER = "任务中提问";
+  // 用户块首行状态符号（P1：符号不再渲染在状态栏；整行最左的状态列里也有 ✓/✗，
+  // 故 userBlockMark 只取历史 pane 正文段）
+  const mark = (): { sym: string; sgr: string } =>
+    userBlockMark(renderer.lastRender, renderer.size.cols, USER);
+  // 提交用户消息 → 用户块入 buffer（符号挂在它首行）；agent thinking → 运行中黄 ●/○
+  typeAndEnter(renderer, USER);
   adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
-  const yellow = sgr();
-  assert.ok(yellow, "活跃任务状态符号为黄");
+  const yellow = mark().sgr;
+  assert.ok(yellow, "活跃任务用户块首行符号为黄（运行中）");
+  assert.ok(
+    ["●", "○"].includes(mark().sym),
+    "运行中符号为 ●/○（虚拟 token 相位）",
+  );
   // 成功 slash（/help 本地命令）→ 保持黄
   typeAndEnter(renderer, "/help");
-  assert.equal(sgr(), yellow, "活跃中 /help 成功不覆盖黄");
+  assert.equal(mark().sgr, yellow, "活跃中 /help 成功不覆盖黄");
   // 无效 slash（slash 模式提交 "!" 构成 "/!"，语法无效）→ 保持黄
   renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
-  assert.equal(sgr(), yellow, "活跃中无效 slash 不覆盖黄");
+  assert.equal(mark().sgr, yellow, "活跃中无效 slash 不覆盖黄");
   // error notice（fail-close 路径）→ 保持黄
   adapter.push({
     type: "notice",
     text: "未知命令，输入 /help 查看可用命令。",
     error: true,
   });
-  assert.equal(sgr(), yellow, "活跃中 error notice 不覆盖黄");
-  // 回合结束 → 回绿
-  adapter.push({ type: "turn-end" });
-  assert.notEqual(sgr(), yellow, "回合结束回到成功绿");
+  assert.equal(mark().sgr, yellow, "活跃中 error notice 不覆盖黄");
+  // 回合结束：agent 回 idle（真实路径由宿主的 agent/status 送达）→ 用户块撤下运行中黄。
+  // 终态 ✓/✗/■ 由 turn-end 的 reason 打标到用户行（BufferLine.status），取值见
+  // layout4「输入栏单字符提示符」用例（completed→绿✓ / error→红✗ / aborted→灰■）。
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "idle" });
+  adapter.push({ type: "turn-end", reason: "completed" });
+  assert.notEqual(mark().sgr, yellow, "回合结束不再显示运行中黄");
 });
 
 test("slash 模式 /model 提交后回退 normal：确认面板后普通发送", async () => {
@@ -947,30 +1072,26 @@ test("slash 模式 /model 提交后回退 normal：确认面板后普通发送",
   assert.ok(!adapter.commands.some((c) => c === "/zzz"), "不再自动补 / 前缀");
 });
 
-test("未知 slash 命令：error notice → 状态栏符号红✗；turn-end → 回绿✓", () => {
-  const { renderer, adapter } = makeApp();
-  // 状态栏行（24 行终端：分隔线后状态栏 = 倒数第 6 行）状态符号与 SGR；
-  // 行首为前导空格，取行内首个 SGR = 状态符号色；start 后无渲染，先 push 触发一帧
-  const mark = (): { sgr: string; sym: string } => {
-    const row = renderer.lastRender.at(-6) ?? "";
-    return {
-      sgr: /\x1b\[38;2;\d+;\d+;\d+m/.exec(row)?.[0] ?? "",
-      sym: row.replace(/\u001b\[[0-9;]*m/g, "").trimStart()[0] ?? "",
-    };
-  };
-  adapter.push({ type: "turn-end" }); // 触发首帧渲染，success 绿✓
-  const green = mark().sgr;
-  assert.ok(green, "turn-end 后状态符号为绿");
-  assert.equal(mark().sym, "✓", "成功 = 绿勾");
+test("未知 slash 命令：error notice → 失败态；turn-end → 回成功态", () => {
+  const { app, renderer, adapter } = makeApp();
+  // P1：用户块终态符号（✓/✗/■）由 turn-end 的 reason 打标到用户行 BufferLine.status
+  // （取值与着色见 layout4「输入栏单字符提示符」用例）；应用层把事件 reason 转进
+  // state action 之前，这里按 state 口径断言收尾态：error notice/failure、turn-end/success
+  const st = (): { inputStatus: string; buffer: { kind: string }[] } =>
+    (app as unknown as { state: never }).state;
+  // 触发首帧渲染（start 后无渲染）；turn-end(completed) → 成功态（绿✓）
+  adapter.push({ type: "turn-end", reason: "completed" });
+  assert.equal(st().inputStatus, "success", "turn-end 后回成功态（绿勾）");
   // 未知命令：/ 开头直接走 handleSlash → runCommand → error notice（fail-close）
   typeAndEnter(renderer, "/nope");
-  const red = mark().sgr;
-  assert.ok(red && red !== green, "未知 slash 命令后状态符号变红");
-  assert.equal(mark().sym, "✗", "失败 = 红叉");
-  // 回合正常结束 → 回绿
-  adapter.push({ type: "turn-end" });
-  assert.equal(mark().sgr, green, "turn-end 后状态符号回到绿");
-  assert.equal(mark().sym, "✓", "回合结束后回到绿勾");
+  assert.equal(st().inputStatus, "failure", "未知 slash 命令 = 失败态（红叉）");
+  assert.ok(
+    renderer.lastRender.join("\n").includes("未知命令"),
+    "error notice 进 UI 缓冲（fail-close，不经 sendMessage）",
+  );
+  // 回合正常结束 → 回成功态
+  adapter.push({ type: "turn-end", reason: "completed" });
+  assert.equal(st().inputStatus, "success", "turn-end 后回到成功态（绿勾）");
 });
 
 test("Ctrl+L 触发强制重绘(refresh)，不吞普通 'l' 输入", () => {
@@ -2824,22 +2945,27 @@ test("启动即刷 Mode 快照：state 未建立会话时按 adapter.sessionId �
   ];
   const app = new TrackedApp({ renderer, adapter, notify: { enabled: false } });
   app.start();
-  const plain = renderer.lastRender.map((l) =>
-    l.replace(/\u001b\[[0-9;]*m/g, ""),
+  // 未推 session-list / session-title（未输入任何内容）即按 adapter.sessionId 兜底写入；
+  // P7 起 Mode 块已从状态列移除（会话状态改由标题栏符号承载），故直接校验写入的 state 字段
+  const st = (): {
+    modeBySession: Record<
+      string,
+      { plan?: string; sandbox?: string; permission?: string }
+    >;
+  } => (app as unknown as { state: never }).state;
+  const mode = st().modeBySession["s1"] ?? {};
+  assert.equal(mode.plan, "off", "plan 快照按 adapter.sessionId 兜底写入");
+  assert.equal(mode.sandbox, "read-only", "sandbox 快照按兜底键写入");
+  assert.equal(mode.permission, "danger-full-access", "permission 快照写入");
+  // 落盘快照同口径（sessionUiState）：模式字段 + P7 statusColumn 字段
+  app.dispose(); // 退出前 flush 待落盘快照
+  const rec = adapter.savedUiStates.at(-1);
+  assert.deepEqual(
+    rec?.state.modes,
+    { plan: "off", sandbox: "read-only", permission: "danger-full-access" },
+    "快照含模式字段（兜底来源）",
   );
-  // 未推 session-list / session-title（未输入任何内容）即显示 Mode 块；
-  // 生效值按 MODE_SHORT 缩写展示（sandbox read-only→ro、permission danger-full-access→full）
-  const joined = plain.join("\n");
-  assert.ok(joined.includes("Mode"), "无需输入即显示 Mode 块");
-  assert.ok(joined.includes("plan ✗"), "plan off 以单符号显示（✗）");
-  assert.ok(
-    joined.includes("sandbox") && joined.includes("ro"),
-    "sandbox ro 生效",
-  );
-  assert.ok(
-    joined.includes("permission") && joined.includes("full"),
-    "permission full 生效",
-  );
+  assert.equal(rec?.state.statusColumn, true, "快照含 P7 statusColumn 字段");
 });
 
 test("会话状态回填：ui-flags 恢复 verbose/symbol-unify，model-selection 恢复会话模型", async () => {
@@ -2891,30 +3017,70 @@ test("会话状态快照：/verbose 与 /model 变更在退出前落盘（含模
   );
 });
 
-test("状态列 Mode 块开关项：bell 按配置接线显示单符号（autoclean 不显示）", async () => {
-  // 接线回归：deps.notify.enabled → AppState.notifyEnabled → 状态列 Mode 块单符号；
+test("标题栏 bell 图标按配置接线：notify.enabled → off 灰 / on 默认前景（autoclean 不显示）", async () => {
+  // 接线回归：deps.notify.enabled → AppState.notifyEnabled → 标题栏 bell 符号
+  // （P7 起会话开关态改由标题栏符号承载：on = 默认前景、off = 灰）；
   // 只读配置项只显示当前态（autoCleanEmpty 已按要求不显示）
-  const renderer = new FakeRenderer();
-  const adapter = new FakeAdapter();
-  adapter.sessionId = "s1";
-  const app = new TrackedApp({
-    renderer,
-    adapter,
-    notify: { enabled: false }, // bell 关
-    autoCleanEmpty: true, // autoclean 开（main.ts 缺省 true 同口径）
-  });
-  app.start();
-  const plain = renderer.lastRender
-    .map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""))
-    .join("\n");
-  assert.ok(plain.includes("bell ✗"), "bell 关（notify.enabled=false）→ ✗");
-  assert.ok(!plain.includes("bell ✓"), "关闭项不显示勾: " + plain);
+  const mkAppWith = async (enabled: boolean) => {
+    const renderer = new FakeRenderer();
+    const adapter = new FakeAdapter();
+    adapter.sessionId = "s1";
+    const app = new TrackedApp({
+      renderer,
+      adapter,
+      notify: { enabled },
+      autoCleanEmpty: true, // autoclean 开（main.ts 缺省 true 同口径）
+    });
+    app.start();
+    await flush();
+    const st = (app as unknown as { state: AppState }).state;
+    return {
+      app,
+      plain: renderer.lastRender
+        .map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""))
+        .join("\n"),
+      segs: titleBarSegments(
+        st,
+        {
+          mode: st.modeBySession["s1"] ?? {},
+          policy: st.policyBySession["s1"],
+          preset: st.presetBySession["s1"],
+        },
+        {
+          verbose: st.activityVerbose,
+          symbolUnify: st.symbolUnify,
+          notifyEnabled: st.notifyEnabled,
+        },
+        renderer.size.cols,
+      ),
+    };
+  };
+  const bellFg = (
+    segs: ReturnType<typeof titleBarSegments>,
+  ): string | undefined =>
+    segs.find((x) => x.text === TITLE_ICON.bell)?.style?.fg;
+  const off = await mkAppWith(false);
+  const on = await mkAppWith(true);
   assert.ok(
-    !plain.includes("autoclean"),
-    "autoCleanEmpty 配置项不显示（已从状态列移除）: " + plain,
+    off.plain.includes(TITLE_ICON.bell),
+    "标题栏显示 bell 图标: " + off.plain,
   );
-  assert.ok(plain.includes("verbose ✓"), "verbose 缺省 on → ✓");
-  assert.ok(plain.includes("symbol-unify ✓"), "symbol-unify 缺省 on → ✓");
+  assert.equal(
+    bellFg(off.segs),
+    "gray",
+    "bell 关（notify.enabled=false）→ 图标灰",
+  );
+  assert.equal(bellFg(on.segs), undefined, "bell 开 → 图标默认前景（不着色）");
+  assert.ok(
+    !off.plain.includes("bell ✓") && !off.plain.includes("bell ✗"),
+    "状态列不再有 bell 单符号项: " + off.plain,
+  );
+  assert.ok(
+    !off.plain.includes("autoclean"),
+    "autoCleanEmpty 配置项不显示（已从状态列移除）: " + off.plain,
+  );
+  off.app.dispose();
+  on.app.dispose();
 });
 
 test("非活跃会话事件不污染活跃 buffer 与状态（App 侧兜底过滤）", async () => {
@@ -3090,7 +3256,7 @@ test("tool-call：summary 含 \\r/\\n/控制符 → 换行保留、\\r/\\t/控�
   assert.equal(s.buffer[0]!.text, "bash ls -l\n/tmp/a\n第二行x");
 });
 
-test("tool-call：参数显式换行/软折行 → 续行统一 4 空格缩进", () => {
+test("tool-call：参数显式换行/软折行 → 续行统一 2 空格缩进", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({
     type: "tool-call",
@@ -3106,18 +3272,18 @@ test("tool-call：参数显式换行/软折行 → 续行统一 4 空格缩进",
     plain.some((l) => l.includes("bash echo a")),
     "首行含 <name> <summary>",
   );
-  // 参数内显式换行 → 新行且 4 空格缩进
+  // 参数内显式换行 → 新行且 2 空格缩进
   assert.ok(
-    plain.some((l) => l.includes("    cd /tmp/x")),
-    "显式换行后的续行带 4 空格缩进",
+    plain.some((l) => l.includes("  cd /tmp/x")),
+    "显式换行后的续行带 2 空格缩进",
   );
-  // 超宽参数软折行 → 每段续行均 4 空格缩进（窗口宽 80，contentW≈53，续行按 49 折）
-  const cont = plain.filter((l) => l.includes(`    ${"x".repeat(10)}`));
+  // 超宽参数软折行 → 每段续行均 2 空格缩进（窗口宽 80，contentW≈53，续行按 51 折）
+  const cont = plain.filter((l) => l.includes(`  ${"x".repeat(10)}`));
   assert.ok(
     cont.length >= 2,
-    `软折行续行 ≥2 段且均 4 空格缩进，实际=${cont.length}`,
+    `软折行续行 ≥2 段且均 2 空格缩进，实际=${cont.length}`,
   );
-  // 首行不含 4 空格前缀（紧贴左缘框列后直接是工具名）
+  // 首行不含 2 空格前缀（紧贴左缘框列后直接是工具名）
   const first = plain.find((l) => l.includes("bash echo a"))!;
   assert.ok(first.replace(/^.*?(bash echo a)/, "$1").indexOf("bash") >= 0);
   // 结果行不保留换行（非参数）；此处确认 tone 行仍走既有折叠逻辑
@@ -3365,20 +3531,19 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
       .find((l) => l?.startsWith("[Alt+Enter]"));
     return h ?? "";
   };
-  // 活动区正文 = 实线分隔行与状态栏之间：取左侧历史/活动区段（右侧为状态列）
+  // 活动区正文 = 实线分隔行与状态区上边分隔行之间：取左侧历史/活动区段（右侧为状态列）
   const actBody = (): string[] => {
     const lines = renderer.lastRender.map(strip);
     // 跳过标题栏分隔行（rows=24 时标题栏 2 行、下划线在 index 2）
     const sep = lines.findIndex(
       (l, i) => i > TITLE_BAR_ROWS && isSepRow(l, 120),
     );
-    // 标题已移入状态列，水平栏定位改用组间框线（状态栏行 = 状态符号 + 空格 + │ 开头）
-    const statusIdx = lines.findIndex(
-      (l, i) => i > sep && /^[✓✗●○△?] │/.test(l.trimStart()),
-    );
-    assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
+    // 状态栏行定位（P1）：状态栏不再以「符号 + 空格 + │」起头（符号已移到用户块首行、
+    // 组间改 • 分隔），改按状态区三段结构定位——上分隔行 / 状态栏行 / 下分隔行
+    const statusSep = lines.findIndex((l, i) => i > sep && isSepRow(l, 120));
+    assert.ok(sep >= 0 && statusSep > sep, "活动区窗口存在");
     return lines
-      .slice(sep + 1, statusIdx)
+      .slice(sep + 1, statusSep)
       .map((l) => histBody(l, size.cols).trim())
       .filter((l) => l !== "");
   };
@@ -3508,14 +3673,13 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
     const sep = lines.findIndex(
       (l, i) => i > TITLE_BAR_ROWS && isSepRow(l, 120),
     );
-    // 标题已移入状态列，水平栏定位改用组间框线（状态栏行 = 状态符号 + 空格 + │ 开头）
-    const statusIdx = lines.findIndex(
-      (l, i) => i > sep && /^[✓✗●○△?] │/.test(l.trimStart()),
-    );
-    assert.ok(sep >= 0 && statusIdx > sep, "活动区窗口存在");
+    // 状态栏行定位（P1）：不再按「符号 + 空格 + │」前缀找状态栏，改按状态区三段结构
+    // ——上分隔行 / 状态栏行 / 下分隔行（活动 pane 底界 = 状态区上边分隔行）
+    const statusSep = lines.findIndex((l, i) => i > sep && isSepRow(l, 120));
+    assert.ok(sep >= 0 && statusSep > sep, "活动区窗口存在");
     return (
       lines
-        .slice(sep + 1, statusIdx)
+        .slice(sep + 1, statusSep)
         .map((l) => histBody(l, size.cols).trim())
         .filter((l) => l !== "")[0] ?? "(空)"
     );

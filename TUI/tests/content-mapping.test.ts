@@ -188,15 +188,33 @@ test("双轨：thinking + notice + 非 final assistant（活动区）", () => {
   assertEquivalent("thinking-notice@w40g4", buf, 40, 4);
 });
 
-test("双轨：tool 行分组折叠 + step + 结果", () => {
+test("双轨（已偏离）：tool 行分组 + step 结果（P6 起分组头带时间戳）", () => {
+  // 冻结基线记录旧格式 `╌╌ step 2 `；P6 起分组头为 `╌╌ hh:mm:ss #N `，
+  // 故此处断言「除分组头文本与尾部铺满长度外逐行等价」而非整行等价。
   const buf: Buffer = [
     { text: "bash run cmd", kind: "tool" },
     { text: "✓ done", kind: "tool" },
-    { text: "step 2", kind: "tool" },
+    { text: "22:31:05 #2", kind: "tool" },
     { text: "bash run next", kind: "tool" },
     { text: "✗ fail", kind: "tool", tone: "error" },
   ];
-  assertEquivalent("tool-group@w40g4", buf, 40, 4);
+  const fresh = newRows(buf, 40, 4);
+  /** 归一化：分组头时钟戳还原为旧格式、去掉尾部 `╌` 铺满（长度随文本变化） */
+  const norm = (rows: FixtureRow[]): { text: string; kind?: string }[] =>
+    rows.map((r) => ({
+      text: r.text
+        .replace(/\d{2}:\d{2}:\d{2} #(\d+)/, "step $1")
+        .replace(/╌+$/, "")
+        .trimEnd(),
+      kind: r.kind,
+    }));
+  for (const pane of ["dialogue", "activity"] as const) {
+    assert.deepEqual(
+      norm(fresh[pane]),
+      norm(baselineRows("tool-group@w40g4", pane)),
+      `${pane} 除分组头文本外应等价`,
+    );
+  }
 });
 
 test("双轨（已偏离）：tool 不再按组数折叠——基线保留旧折叠占位，新管线全量保留", () => {
@@ -324,7 +342,7 @@ test("双轨（已偏离）：tool step 头 + 多组不再折叠", () => {
   // 冻结基线记录旧管线行为，此处断言差异方向而非等价。
   const buf: Buffer = [];
   for (let i = 1; i <= 7; i++) {
-    buf.push({ text: `step ${i}`, kind: "tool" });
+    buf.push({ text: `22:31:05 #${i}`, kind: "tool" }); // P6：分组头带时间戳
     buf.push({ text: `tool call ${i}`, kind: "tool" });
     buf.push({ text: `✓ result ${i}`, kind: "tool" });
   }
@@ -339,7 +357,10 @@ test("双轨（已偏离）：tool step 头 + 多组不再折叠", () => {
   const freshText = textOf(fresh.activity);
   assert.ok(!freshText.includes("...(更早工具调用已隐藏)"), "新实现无折叠占位");
   for (let i = 1; i <= 7; i++) {
-    assert.ok(freshText.includes(`╌╌ step ${i} `), `保留 step ${i} 分组头`);
+    assert.ok(
+      freshText.includes(`╌╌ 22:31:05 #${i} `),
+      `保留 step ${i} 分组头（含时间戳）`,
+    );
     assert.ok(freshText.includes(`tool call ${i}`), `保留第 ${i} 组调用`);
   }
 });

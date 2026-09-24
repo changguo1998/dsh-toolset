@@ -160,9 +160,14 @@ function fillBox(
           const c2 = rowWidth2(segs);
           if (c2 < target) segs.push(seg(" ".repeat(target - c2)));
         }
-        // 兄弟边界插分隔框线（非末项；缺行行也画，保证竖线贯通）
+        // 兄弟边界插分隔框线（非末项；缺行行也画，保证竖线贯通）；
+        // color="plain" = 默认前景（不染色，状态栏圆点分隔用）
         if (box.separator && ci < box.children.length - 1)
-          segs.push(seg(sepChar, { fg: sepColor }));
+          segs.push(
+            sepColor === "plain"
+              ? seg(sepChar)
+              : seg(sepChar, { fg: sepColor }),
+          );
       }
       // 合并行继承内容子项元数据（spacer 不产独立语义行）
       const meta =
@@ -191,12 +196,16 @@ function fillBox(
 
 function separatorRow(
   char: string | undefined,
-  color: ColorName | undefined,
+  color: ColorName | "plain" | undefined,
   w: number,
 ): ContentRow {
   const c = char ?? "╌";
+  const text = c.repeat(Math.max(1, w));
+  // "plain" = 默认前景（不染色）；其余缺省沿旧行为取 border（灰）
   return {
-    segments: [seg(c.repeat(Math.max(1, w)), { fg: color ?? "border" })],
+    segments: [
+      color === "plain" ? seg(text) : seg(text, { fg: color ?? "border" }),
+    ],
   };
 }
 

@@ -13,6 +13,7 @@ import {
   SEPARATOR,
   isToolCall,
   isToolResult,
+  isStepHeader,
   NOTICE_TONE_COLOR,
   renderToolText,
   renderToolNameLine,
@@ -36,7 +37,7 @@ test("content-rules：工具折行首行全宽、续行缩进", () => {
 });
 
 test("wrapToolCallText：参数内显式换行后的各行同样缩进", () => {
-  const pad = " ".repeat(4);
+  const pad = " ".repeat(TOOL_CONT_INDENT);
   assert.deepEqual(wrapToolCallText("a\nb\nc", 20), [
     "a",
     pad + "b",
@@ -49,14 +50,26 @@ test("wrapToolCallText：空串", () => {
 });
 
 test("wrapToolCallText：窄窗口降级不缩进", () => {
+  // 宽度 = 缩进量时不缩进（缩进本身会溢出），仅按宽度硬折
   const rows = wrapToolCallText("abcdefgh", TOOL_CONT_INDENT);
-  assert.deepEqual(rows, ["abcd", "efgh"]);
+  assert.ok(
+    rows.every((r) => !r.startsWith(" ")),
+    "不得带缩进空格",
+  );
+  assert.equal(rows.join(""), "abcdefgh");
 });
 
 test("分组判定：无状态前缀=调用，状态前缀=辅助行", () => {
   assert.ok(isToolCall("bash run task"), "无前缀=工具调用");
   assert.ok(!isToolCall("✓ done"), "✓ 是结果行");
-  assert.ok(!isToolCall("step 2"), "step 是辅助行");
+  assert.ok(
+    !isToolCall("22:31:05 #2"),
+    "step 分组头是辅助行（P6 起为 hh:mm:ss #N）",
+  );
+  assert.ok(isStepHeader("22:31:05 #2"), "带时间的分组头");
+  assert.ok(isStepHeader("#2"), "缺时间的分组头");
+  assert.ok(!isStepHeader("step 2"), "旧格式不再识别为分组头");
+  assert.ok(!isToolCall("#2"), "缺时间的分组头同样非调用行");
   assert.ok(isToolResult("✓ done"));
   assert.ok(isToolResult("✗ fail"));
   assert.ok(!isToolResult("bash run"));
@@ -92,7 +105,7 @@ test("工具渲染：✓ 前缀绿分离、工具名染黄", () => {
 });
 
 test("常量齐全", () => {
-  assert.equal(TOOL_CONT_INDENT, 4);
+  assert.equal(TOOL_CONT_INDENT, 2);
   assert.equal(TURN_SEPARATOR_CHAR, "╌");
   assert.equal(ACTIVITY_SEPARATOR, "─");
   assert.equal(SEPARATOR, "─");

@@ -27,6 +27,8 @@ export interface SessionUiState {
   verbose?: boolean;
   /** 模型输出符号统一（/symbol-unify on|off；TUI 本地） */
   symbolUnify?: boolean;
+  /** P7：垂直状态列是否显示（Ctrl+S 切换；TUI 本地。缺省 = 显示） */
+  statusColumn?: boolean;
   /** Mode 块兜底值（宿主日志无对应事件时使用；plan/sandbox/permission + 审批策略） */
   modes?: {
     plan?: "on" | "off";
@@ -66,6 +68,7 @@ function parseSessionUiState(raw: unknown): SessionUiState | undefined {
   }
   if (typeof o.verbose === "boolean") out.verbose = o.verbose;
   if (typeof o.symbolUnify === "boolean") out.symbolUnify = o.symbolUnify;
+  if (typeof o.statusColumn === "boolean") out.statusColumn = o.statusColumn;
   const modes = o.modes as Record<string, unknown> | undefined;
   if (modes && typeof modes === "object") {
     const plan =

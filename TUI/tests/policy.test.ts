@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { App } from "../src/app/index.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { routeSlashCommand } from "../src/app/commands.ts";
-import { renderStatusColumn } from "../src/app/layout.ts";
+import { TITLE_ICON, titleBarSegments } from "../src/app/layout.ts";
 import { createRealDshAdapter } from "../src/app/adapter/dsh.ts";
 import { rowAnsi } from "./helpers/rowText.ts";
 import type {
@@ -30,35 +30,44 @@ import type { ThemeId } from "../src/renderer/theme.ts";
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";
 // ---------- layout：策略徽标 ----------
 
-test("renderStatusColumn: policy ask → 行列出 ask/auto（ask 生效）；never → auto 生效；缺省省略", () => {
-  const strip = (policy: "ask" | "never" | undefined): string =>
-    renderStatusColumn(
-      undefined,
-      [],
-      undefined,
-      0,
-      6,
-      30,
-      undefined,
-      policy,
-      undefined,
-    )
-      .map((l) => rowAnsi(l).replace(/\u001b\[[0-9;]*m/g, ""))
-      .join("\n");
-  const ask = strip("ask");
-  assert.ok(
-    ask.includes("policy ask auto"),
-    `ask 策略行列出 ask/auto 可选项: ${ask}`,
+test("titleBarSegments: policy ask → 黄色询问图标；never → 绿色移除图标；缺省不显示（P7）", () => {
+  const segsOf = (policy: "ask" | "never" | undefined) => {
+    const s = initialState();
+    s.sessionTitle = "会话标题";
+    const segs = titleBarSegments(
+      s,
+      { policy },
+      { verbose: true, symbolUnify: true, notifyEnabled: true },
+      60,
+    );
+    return { text: segs.map((x) => x.text).join(""), segs };
+  };
+  const fgOf = (
+    segs: { text: string; style?: { fg?: string } }[],
+    icon: string,
+  ) => segs.find((x) => x.text === icon)?.style?.fg;
+  const ask = segsOf("ask");
+  assert.ok(ask.text.includes(TITLE_ICON.policyAsk), `ask 图标: ${ask.text}`);
+  assert.equal(
+    fgOf(ask.segs, TITLE_ICON.policyAsk),
+    "yellow",
+    "ask = 黄（需要人批）",
   );
-  const auto = strip("never");
+  const never = segsOf("never");
   assert.ok(
-    auto.includes("policy ask auto"),
-    `never 策略行仍列出 ask/auto（auto 为生效项，着色在原始行）: ${auto}`,
+    never.text.includes(TITLE_ICON.policyNever),
+    `never 图标: ${never.text}`,
   );
-  const none = strip(undefined);
+  assert.equal(
+    fgOf(never.segs, TITLE_ICON.policyNever),
+    "green",
+    "never = 绿（自动放行）",
+  );
+  const none = segsOf(undefined);
   assert.ok(
-    !none.includes("policy") && !none.includes("Mode"),
-    `无 policy 时 Mode 块（含 policy 行）省略: ${none}`,
+    !none.text.includes(TITLE_ICON.policyAsk) &&
+      !none.text.includes(TITLE_ICON.policyNever),
+    `无策略时不显示策略符号: ${none.text}`,
   );
 });
 

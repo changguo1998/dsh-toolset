@@ -16,6 +16,7 @@ import {
   cleanableSessionIds,
   historyVisibleRecords,
   initialState,
+  isCompacting,
   markableSessionIds,
   reduceState,
   startupCleanableIds,
@@ -94,6 +95,16 @@ import {
 } from "../renderer/theme.ts";
 import { StatusTicker, type StatusQueries } from "./status.ts";
 import type { ActivityPlacement } from "./config.ts";
+
+/** Ctrl+D 退出守卫（P8 口径）：agent 空闲、**未在压缩上下文**、且输入区为空才退出。
+ *  压缩期间视为活跃——此时按 Ctrl+D 不退出（与排队判据同源，见 App.agentBusy）。 */
+export function canExitOnCtrlD(state: AppState): boolean {
+  return (
+    state.agentStatus === "idle" &&
+    !isCompacting(state) &&
+    state.inputText === ""
+  );
+}
 
 /** Ctrl+C 双击退出窗口(毫秒)：窗口内第二次 Ctrl+C 退出程序 */
 const CTRL_C_DOUBLE_MS = 750;
@@ -638,6 +649,8 @@ export class App {
         : {}),
       verbose: this.state.activityVerbose,
       symbolUnify: this.state.symbolUnify,
+      // P7：垂直状态列显隐（TUI 本地开关，随会话持久化）
+      statusColumn: this.state.statusColumnVisible,
       modes: {
         ...(mode.plan === undefined ? {} : { plan: mode.plan }),
         ...(mode.sandbox === undefined ? {} : { sandbox: mode.sandbox }),
@@ -996,7 +1009,12 @@ export class App {
         // P2#33 声音提醒：任务结束 bell + 启动「等待用户输入超阈值」计时（输入即清）
         this.onTurnEnded();
         this.turnOpen = false;
-        this.apply((s) => reduceState(s, { type: "turn-end" }));
+        // P1：把 adapter 归一化的收尾原因转给 reducer——它给该回合的用户块打终态符号
+        // （completed→绿 ✓ / aborted→灰 ■ / error→红 ✗ / 其余保持未定 → `?`）；漏传则
+        // 真实事件路径下用户块永远不会显示终态
+        this.apply((s) =>
+          reduceState(s, { type: "turn-end", reason: e.reason }),
+        );
         this.warnStrippedChars();
         this.flushSymbolTurn();
         break;
@@ -1050,6 +1068,11 @@ export class App {
         if (e.symbolUnify !== undefined) {
           this.apply((s) =>
             reduceState(s, { type: "symbol-unify", on: e.symbolUnify! }),
+          );
+        }
+        if (e.statusColumn !== undefined) {
+          this.apply((s) =>
+            reduceState(s, { type: "status-column", visible: e.statusColumn! }),
           );
         }
         break;
@@ -1547,9 +1570,18 @@ export class App {
     // Ctrl+D：仅 idle 且输入区为空时退出（输入非空时按无操作忽略）；
     // 走 App.dispose 释放 adapter 与当前活跃 handle
     if (ctrl && name === "d") {
-      if (this.state.agentStatus === "idle" && this.state.inputText === "") {
+      if (canExitOnCtrlD(this.state)) {
         this.dispose();
       }
+      return;
+    }
+
+    // Ctrl+S：切换垂直状态列显隐（P7）。隐藏后历史区变宽，需要整帧重排；
+    // 显隐状态随会话持久化（tui-state.json）。
+    if (ctrl && name === "s") {
+      this.apply((s) => reduceState(s, { type: "status-column" }));
+      this.scheduleSessionStateSave();
+      this.paint();
       return;
     }
 
@@ -1851,10 +1883,13 @@ export class App {
     this.sendUserText(INIT_PROMPT, "/init");
   }
 
-  /** agent 是否正在跑（排队判据）：agent 状态权威 + 本地刚提交的过渡态 */
+  /** agent 是否正在跑（排队判据）：agent 状态权威 + 本地刚提交的过渡态 +
+   *  P8「压缩上下文期间也算活跃」（否则压缩期间提交会绕过排队直接发送） */
   private agentBusy(): boolean {
     return (
-      this.state.agentStatus !== "idle" || this.state.inputStatus === "running"
+      this.state.agentStatus !== "idle" ||
+      this.state.inputStatus === "running" ||
+      isCompacting(this.state)
     );
   }
 

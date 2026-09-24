@@ -22,11 +22,14 @@ export class ScreenEmu {
     );
   }
 
-  /** 喂入渲染层输出报文（逐字符解析 CSI / 文本） */
+  /** 喂入渲染层输出报文（逐**码点**解析 CSI / 文本）——
+   *  星平面字符（如 Nerd Font plane-15 图标 U+F0000+）是**一个**字符、宽 1 列，
+   *  必须整体取码点；按 UTF-16 单元逐个处理会把代理对当两格，整行多出列数而假性折行。 */
   feed(s: string): void {
     let i = 0;
     while (i < s.length) {
-      const ch = s[i]!;
+      const ch = String.fromCodePoint(s.codePointAt(i)!);
+      const step = ch.length; // 1（BMP）或 2（代理对）个 UTF-16 单元
       if (ch === "\x1b") {
         const m = /^\x1b\[([0-9;?]*)([A-Za-z~])/.exec(s.slice(i));
         if (m) {
@@ -49,18 +52,18 @@ export class ScreenEmu {
           i += m[0].length;
           continue;
         }
-        i += 1; // 其余转义（SGR/私有模式）忽略
+        i += step; // 其余转义（SGR/私有模式）忽略
         continue;
       }
       if (ch === "\r") {
         this.col = 0;
         this.pendingWrap = false;
-        i += 1;
+        i += step;
         continue;
       }
       if (ch === "\n") {
         this.row = Math.min(this.rows - 1, this.row + 1);
-        i += 1;
+        i += step;
         continue;
       }
       if (ch >= " ") {
@@ -78,7 +81,7 @@ export class ScreenEmu {
           this.pendingWrap = true;
         }
       }
-      i += 1;
+      i += step;
     }
   }
 

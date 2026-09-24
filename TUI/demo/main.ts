@@ -9,7 +9,12 @@
 // 回退 / Alt+Enter 打断并发送 / Esc idle 无操作 / 审批弹窗 Esc 不打断不关闭），
 // 产出 SMOKE_* 证据后 /quit 以退出码 0 收尾，便于无头环境演示与机械验证。
 
-import { createRenderer, type KeyEvent } from "../src/renderer/index.ts";
+import {
+  createRenderer,
+  type FrameRow,
+  type FrameSection,
+  type KeyEvent,
+} from "../src/renderer/index.ts";
 import { loadTuiConfig } from "../src/app/config.ts";
 import { resolveThemes } from "../src/renderer/theme-config.ts";
 import {
@@ -39,6 +44,27 @@ const initialTheme = themeIdx >= 0 ? process.argv[themeIdx + 1] : undefined;
 const smokeTheme = resolvedThemes.themes[normalizeThemeId(initialTheme)];
 const smokeSgr = (name: "red" | "green" | "yellow"): string =>
   hexSgr(ansiNameToHex(smokeTheme, name)!, true);
+
+// 冒烟模式：额外记录**完整帧**文本——stdout 上只有增量行，折行通知的两半会被其它行
+// 插入打断（按连续文本断言会漏）；渲染层每帧都拿到整帧行数组，改从它取证。
+const smokeFrames: string[] = [];
+if (smoke) {
+  const origRender = renderer.render.bind(renderer);
+  const origRefresh = renderer.refresh.bind(renderer);
+  const cap = (rows: FrameRow[]): void => {
+    smokeFrames.push(
+      rows.map((r) => r.segments.map((x) => x.text).join("")).join("\n"),
+    );
+  };
+  renderer.render = ((rows: FrameRow[], sections?: FrameSection[]) => {
+    cap(rows);
+    origRender(rows, sections);
+  }) as typeof renderer.render;
+  renderer.refresh = ((rows: FrameRow[], sections?: FrameSection[]) => {
+    cap(rows);
+    origRefresh(rows, sections);
+  }) as typeof renderer.refresh;
+}
 
 const app = new App({
   renderer,
@@ -133,6 +159,10 @@ if (smoke) {
         sessionId: "mock-1",
         status: "tool",
       });
+      // P1：状态符号随用户块——△ 只出现在**最新未终态块**上。先提交一条（mock 尚未回包），
+      // 再打开审批面板，帧内即可见 `△ <文本>`（状态栏已不再承载状态符号）
+      typeLine("等待审批的输入");
+      await sleep(120);
       adapter.emitEvent({
         type: "approval",
         id: "smoke-ap",
@@ -186,6 +216,13 @@ if (smoke) {
       renderer.emitKey(key("escape"));
       await sleep(300);
 
+      // P1：中止终态（灰 ■）——提交一条并让宿主以 aborted 收尾（`?` 只在「未终态且非活跃」
+      // 时出现：由恢复历史/异常中断产生，单测覆盖；冒烟验可驱动的 ■）
+      typeLine("中止示例");
+      await sleep(120);
+      adapter.emitEvent({ type: "turn-end", reason: "aborted" });
+      await sleep(200);
+
       // —— 自断言（interrupt 应恰好 1 次：仅 Alt+Enter；Esc idle 与审批 Esc 均不得打断）——
       const sent = adapter.sent;
       ok(
@@ -215,27 +252,28 @@ if (smoke) {
         !plain.includes("$> "),
         "prompt should be single char (no '$> ' two-char prompt)",
       );
-      // 状态栏最左侧状态符号：初始问号占位、turn-end 后绿勾、审批/问答打开黄三角
+      // P1：状态符号在**用户块首行左侧**（`符号 + 1 空格 + 文本`），状态栏不再承载：
+      // 终态绿 ✓ / 灰 ■（中止）/ 无终态 `?`；活跃块在忙时 ●/○、审批·问答面板打开时 △
       ok(
-        "statusbar-idle-mark",
-        plain.includes("? "),
-        "no '? ' idle mark at status bar left in frames",
+        "userblock-aborted-mark",
+        /■ 中止示例┃/.test(plain),
+        "no '■ ' aborted mark on the user block",
       );
       ok(
-        "statusbar-success-mark",
-        plain.includes("✓ "),
-        "no '✓ ' success mark at status bar left in frames",
+        "userblock-success-mark",
+        /✓ (rm tmp|ls|!hello)┃/.test(plain),
+        "no '✓ ' mark on a completed user block",
       );
       ok(
-        "statusbar-waiting-mark",
-        plain.includes("△ "),
-        "no '△ ' waiting mark at status bar left in frames",
+        "userblock-waiting-mark",
+        /△ 等待审批/.test(plain),
+        "no '△ ' mark on the active user block while the approval panel is open",
       );
       // 运行中 ●/○ 交替符号（流式输出驱动，相位不定故两相皆可）
       ok(
-        "statusbar-running-mark",
-        /[●○] │ /.test(plain),
-        "no '●/○ │ ' running mark at status bar left in frames",
+        "userblock-running-mark",
+        /[●○] (rm tmp|等待审批|!hello|ls)/.test(plain),
+        "no '●/○ ' mark on the active user block",
       );
       ok(
         "approval-rendered",
@@ -298,17 +336,43 @@ if (smoke) {
       // 10. 状态栏会话徽标（mode/policy/preset/jobs；goal/todo 在
       //     左侧顶部状态列详显，状态栏不显示）；/goal 只提示查看信息栏（面板已移除）
       const badgePlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
+      /** 折行归一化：去掉 ANSI / 空白 / pane 边框 `│`——通知文本可能被 pane 宽折成多行，
+       *  逐行子串匹配会漏（同一行内才匹配），故按「拼接后的连续文本」断言 */
+      const flatFrames = (): string =>
+        smokeFrames.join("\n").replace(/[│\s]+/g, "");
+      // P7：Mode 块已从状态列移除 → 会话状态符号改在**标题栏首行**（preset + 图标组 + 标题）。
+      // 图标是 Nerd Font 私有区字形，按码位断言（终端字体差异不影响判断）
+      const modeIconsPlain = flatFrames();
+      const ICON = {
+        box: "\u{ED95}",
+        boxClosed: "\u{ED75}",
+        ask: "\u{F1739}",
+        never: "\u{F1414}",
+        route: "\u{EDA6}",
+        verbose: "\u{F09AA}",
+        unify: "\u{F04C6}",
+        bell: "\u{F009F}",
+        preset: "\u{F0A66}",
+      };
       ok(
-        "mode-badge",
-        badgePlain.includes("plan off on") &&
-          badgePlain.includes("sandbox ro wr full") &&
-          badgePlain.includes("permission wr full"),
-        "no Mode block (plan/sandbox/permission) in status column frames",
+        "titlebar-mode-icons",
+        (modeIconsPlain.includes(ICON.box) ||
+          modeIconsPlain.includes(ICON.boxClosed)) &&
+          modeIconsPlain.includes(ICON.ask) &&
+          modeIconsPlain.includes(ICON.route),
+        "no title-bar status icons (sandbox / policy / plan) in frames",
+      );
+      ok(
+        "status-column-no-mode",
+        !badgePlain.includes("plan off on") &&
+          !badgePlain.includes("sandbox ro wr full"),
+        "status column still shows the removed Mode block",
       );
       ok(
         "step-header",
-        badgePlain.includes("step 1") && badgePlain.includes("step 2"),
-        "no step N group headers in frames",
+        /\d{2}:\d{2}:\d{2} #1 /.test(badgePlain) &&
+          /\d{2}:\d{2}:\d{2} #2 /.test(badgePlain),
+        "no `╌╌ hh:mm:ss #N ` step headers in frames",
       );
       ok(
         "subagent-line",
@@ -317,7 +381,7 @@ if (smoke) {
       );
       ok(
         "compaction-summary-toast",
-        badgePlain.includes("压缩完成：已压缩 182 条历史消息"),
+        flatFrames().includes("压缩完成：已压缩182条历史消息"),
         "no compaction-summary toast in frames",
       );
       ok(
@@ -422,16 +486,16 @@ if (smoke) {
         (l, i) => i > 1 && /^─+$/.test(l.slice(0, 40).trim()),
       );
       const sepBefore = (i: number): boolean => i >= 0 && i > mixedSepIdx;
+      // 排列方式为 auto（上下/左右随几何选择）：只断言活动条目的**时间顺序**与总结落位；
+      // 上下排列时另有活动区分隔行（mixedSepIdx），左右排列时该行不存在（=-1）
       ok(
         "activity-mixed-ordered",
         aT >= 0 &&
           aM > aT &&
           aTool > aM &&
           aN > aTool &&
-          sepBefore(aT) &&
-          sepBefore(aN) &&
           aSum >= 0 &&
-          aSum < mixedSepIdx,
+          (mixedSepIdx < 0 || aSum < mixedSepIdx),
         "idx=" + [aT, aM, aTool, aN, aSum, mixedSepIdx].join(","),
       );
       // /preset 无参：读目录 → 打开状态选项面板（标题 + agent 预设选项）
@@ -454,9 +518,8 @@ if (smoke) {
       // 用 raw 帧的绿色 SGR（dark #61D383）断言 ask 为生效项（区分色而非文本）
       ok(
         "policy-badge-ask",
-        badgePlain.includes("policy ask auto") &&
-          smokeOut.includes(smokeSgr("green") + "ask"),
-        "no ask policy row (green ask) in frames",
+        smokeOut.includes(smokeSgr("yellow") + ICON.ask),
+        "no yellow ask icon in the title bar",
       );
       typeLine("/policy never");
       await sleep(400);
@@ -471,13 +534,13 @@ if (smoke) {
       );
       ok(
         "policy-notice",
-        policyPlain.includes("审批策略：never（工具调用自动放行）"),
+        flatFrames().includes("审批策略：never（工具调用自动放行）"),
         "no /policy never notice in frames",
       );
       ok(
-        "policy-badge-auto",
-        smokeOut.includes(smokeSgr("red") + "auto"),
-        "no auto policy row (red auto) after /policy never in frames",
+        "policy-badge-never",
+        smokeOut.includes(smokeSgr("green") + ICON.never),
+        "no green never icon in the title bar after /policy never",
       );
       // P3：/preset 命令 + /jobs 面板 + 状态栏预设/任务徽标（mock 已实现新写路径）
       typeLine("/preset code-review");
@@ -493,15 +556,16 @@ if (smoke) {
       );
       ok(
         "preset-notice",
-        presetPlain.includes("已切换为 code-review"),
-        "no /preset notice in frames",
+        // 通知整串（`agent 预设：已切换为 code-review`）在 80 列下会被 pane 宽折行，
+        // 且左右排列时两半之间夹着另一 pane 的行文本（无法拼接）→ 断言可容纳的前缀片段
+        flatFrames().includes("agent预设：已切换为") &&
+          flatFrames().includes("code-review"),
+        "no /preset notice fragment in frames",
       );
       ok(
         "preset-badge",
-        presetPlain.includes("preset") &&
-          presetPlain.includes("default research") &&
-          presetPlain.includes("code-review"),
-        "no preset catalog row in status column frames",
+        presetPlain.includes(ICON.preset + " code-review"),
+        "no preset icon+name in the title bar",
       );
       // /jobs 面板：打开 → refreshJobs 拉取 → 任务状态行（标题 + label + 徽标计数）；Esc 关闭
       typeLine("/jobs");

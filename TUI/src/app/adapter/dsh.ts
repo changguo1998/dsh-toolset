@@ -29,6 +29,8 @@
 // answerQuestion(id, {answers}) 映射为整批回答 resolve；Esc/cancel → reject；
 // signal 中断 → reject。单活动请求守卫：已有待答提问时直接 reject（单面板约束）。
 
+import type { TurnEndReason } from "../state.ts";
+import { clockHms } from "../clock.ts";
 import type {
   DshEvent,
   DshAdapter,
@@ -265,35 +267,87 @@ function extractTextBlocks(content: unknown): string {
   return parts.join("\n");
 }
 
-/** 表面事件数组 → app 消息列表。
+/** 事件数组 → app 消息列表（P9：含 step 级工具概要行）。
  * 支持两种落在原始日志里的消息形态：
  *  1. user/message、assistant/message（旧/其他 backend 的完整消息事件）；
  *  2. agent/inbox/spliced（当前 dsh 内存会话承载消息的形态）——文本在
  *     data.inserted[].content[]（role 取 inserted[].role，仅 user/assistant）。
- * 其余（tool/result、系统事件）省略。
+ *
+ * P9 折叠口径（与 docs/PENDING-FIXES.md P9 一致）：
+ *  - 每个 step 折成**一行摘要**（见 `flushStep`），只保留工具名去重计数与失败数；
+ *    参数摘要、结果详情、thinking 一概不还原；
+ *  - 无工具调用的 step（纯思考/纯正文）不出行；
+ *  - **整条消息为空（纯空白）时不产出行**——宿主每步补发的 `"\n\n"` 文本块正是
+ *    恢复后成片空行的来源；消息**内部**的空行属段落间隔，保留（与实时渲染一致）。
  */
 function normalizeHistoryMessages(
   events: readonly Record<string, unknown>[],
 ): HistoryMessage[] {
   const out: HistoryMessage[] = [];
+  /** 当前 step 的工具调用累计（null = 不在 step 内） */
+  let step: {
+    n: number;
+    time?: number;
+    names: Map<string, number>;
+    fails: number;
+  } | null = null;
+  /** 收口当前 step：有工具调用才产出一行摘要（时间缺失时省略时间片段） */
+  const flushStep = (): void => {
+    const cur = step;
+    step = null;
+    if (!cur || cur.names.size === 0) return;
+    const tools =
+      [...cur.names.entries()]
+        .map(([name, count]) => (count > 1 ? `${name} ×${count}` : name))
+        .join(", ") + (cur.fails > 0 ? ` ✗${cur.fails}` : "");
+    const hms = clockHms(cur.time);
+    out.push({
+      role: "step",
+      text: `${hms === undefined ? "" : hms + " "}#${cur.n} ╌╌ ${tools}`,
+    });
+  };
+  /** 正文消息：整条纯空白 → 丢弃（P9 空行来源） */
+  const pushText = (role: "user" | "assistant", raw: string): void => {
+    const text = raw.trim() === "" ? "" : raw;
+    if (text === "") return;
+    out.push({ role, text });
+  };
   for (const e of events) {
     const data = e.data as Record<string, unknown> | undefined;
     if (!data) continue;
-    if (e.type === "user/message") {
-      out.push({ role: "user", text: extractTextBlocks(data.content) });
+    if (e.type === "step/start") {
+      flushStep(); // 防御：上一个 step 未发 step/end（截断日志）时先收口
+      step = {
+        n: typeof data.step === "number" ? data.step : 0,
+        ...(typeof e.time === "number" ? { time: e.time } : {}),
+        names: new Map<string, number>(),
+        fails: 0,
+      };
+    } else if (e.type === "step/end") {
+      flushStep();
+    } else if (e.type === "tool/call") {
+      const name = typeof data.name === "string" ? data.name : "";
+      if (step && name !== "")
+        step.names.set(name, (step.names.get(name) ?? 0) + 1);
+    } else if (e.type === "tool/result") {
+      // 失败判定与实时路径同口径：error 字段存在即失败
+      if (step && data.error !== undefined && data.error !== null) step.fails++;
+    } else if (e.type === "user/message") {
+      pushText("user", extractTextBlocks(data.content));
     } else if (e.type === "assistant/message") {
       const msg = data.message as Record<string, unknown> | undefined;
-      out.push({ role: "assistant", text: extractTextBlocks(msg?.content) });
+      pushText("assistant", extractTextBlocks(msg?.content));
     } else if (e.type === "agent/inbox/spliced") {
       const inserted = data.inserted;
       if (!Array.isArray(inserted)) continue;
       for (const item of inserted as Array<Record<string, unknown>>) {
         const role = item.role;
         if (role !== "user" && role !== "assistant") continue;
-        out.push({ role, text: extractTextBlocks(item.content) });
+        pushText(role, extractTextBlocks(item.content));
       }
     }
   }
+  flushStep(); // 末尾收口（最后一步可能没有 step/end）
   return out;
 }
 
@@ -362,6 +416,27 @@ function toolResultDetail(message: unknown): string {
  * turn/end.reason（结构化判别联合；向后兼容字符串 reason）→ 分级 notice：
  * error/max-tokens/aborted/interrupted/blocked 显式提示并带 tone，completed 及未知静默。
  */
+/** turn/end 的 reason → 归一化收尾原因（宿主用 `reason` 字符串或 `reason.kind`；未识别返回 undefined）。
+ *  P1：只有 completed / aborted / error 会在用户块上落终态符号，其余（blocked / max-tokens /
+ *  interrupted / 未知）保持未定 → 渲染 `?`（与「已进历史区但未收到终态」同口径）。 */
+function turnEndReason(reason: unknown): TurnEndReason | undefined {
+  const kind =
+    typeof reason === "string"
+      ? reason
+      : (reason as { kind?: unknown } | null)?.kind;
+  switch (kind) {
+    case "completed":
+    case "aborted":
+    case "error":
+    case "blocked":
+    case "max-tokens":
+    case "interrupted":
+      return kind;
+    default:
+      return undefined;
+  }
+}
+
 function turnEndNotice(
   reason: unknown,
 ): Extract<DshEvent, { type: "notice" }> | undefined {
@@ -1134,7 +1209,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     }
 
     // —— TUI 本地开关（宿主日志没有，只有快照） ——
-    if (uiState?.verbose !== undefined || uiState?.symbolUnify !== undefined) {
+    if (
+      uiState?.verbose !== undefined ||
+      uiState?.symbolUnify !== undefined ||
+      uiState?.statusColumn !== undefined
+    ) {
       emit({
         type: "ui-flags",
         sessionId: id,
@@ -1142,6 +1221,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         ...(uiState.symbolUnify === undefined
           ? {}
           : { symbolUnify: uiState.symbolUnify }),
+        // P7：垂直状态列显隐（缺省显示）
+        ...(uiState.statusColumn === undefined
+          ? {}
+          : { statusColumn: uiState.statusColumn }),
       });
     }
   };
@@ -1476,7 +1559,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         emittedByBlock.clear();
         stepEmitted.clear();
         completedBlocks.clear();
-        emit({ type: "turn-end" });
+        // P1：仅在能识别出收尾原因时携带 reason（其余保持既有事件形态）
+        const reason = turnEndReason(data.reason);
+        emit(reason ? { type: "turn-end", reason } : { type: "turn-end" });
         // finish reason 分级 notice：completed 静默、异常 kind 带 tone（阶段 2 按 tone 渲染）
         const endNote = turnEndNotice(data.reason);
         if (endNote) emit(endNote);
@@ -1541,6 +1626,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         emit({
           type: "compaction",
           phase: raw.type === "compaction/start" ? "start" : "end",
+          // P8：压缩期间按会话标记「活跃」
+          sessionId: sid,
         });
         return;
       }
@@ -1634,13 +1721,15 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       case "step/start":
       case "step/end":
-        // P2 step 边界（B3 工具行分组头）；载荷为 {turn, step}，无独立值
+        // P2 step 边界（B3 工具行分组头）；载荷为 {turn, step}，无独立值；
+        // P6：转发事件信封时间（分组头渲染为 `hh:mm:ss #N`）
         emit({
           type: "step",
           sessionId: sid,
           turn: data.turn ?? 0,
           step: data.step ?? 0,
           phase: raw.type === "step/start" ? "start" : "end",
+          time: raw.time,
         });
         return;
       case "subagent/descriptor": {

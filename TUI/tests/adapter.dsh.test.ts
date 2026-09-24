@@ -677,7 +677,7 @@ test("turn/start 忽略；turn/end → turn-end 事件", () => {
       data: { turn: 1, reason: "completed" },
     },
   );
-  assert.deepEqual(t.events, [{ type: "turn-end" }]);
+  assert.deepEqual(t.events, [{ type: "turn-end", reason: "completed" }]);
 });
 
 test("agent/status payload → agent-status 事件", () => {
@@ -1834,6 +1834,151 @@ test("历史会话：未注入 sessionQuery 时方法为 undefined（app 层提�
   assert.equal(adapter.readSessionSurface, undefined);
 });
 
+// --- P9：恢复会话的工具记录按 step 折叠成概要行 ---
+
+/** P9 事件序列：step 3 = read ×2（1 次失败）+ bash ×1；step 4 = 纯正文 */
+function p9Events(): Record<string, unknown>[] {
+  const t = new Date(2026, 0, 2, 22, 31, 5).getTime();
+  const call = (seq: number, callId: string, name: string) => ({
+    type: "tool/call",
+    seq,
+    time: t,
+    data: { callId, name, arguments: "{}" },
+  });
+  const ok = (seq: number, callId: string) => ({
+    type: "tool/result",
+    seq,
+    time: t,
+    data: { callId, message: "done" },
+  });
+  return [
+    { type: "turn/start", seq: 1, time: t, data: { turn: 1 } },
+    {
+      type: "user/message",
+      seq: 2,
+      time: t,
+      data: { content: [{ type: "text", text: "问题" }] },
+    },
+    { type: "step/start", seq: 3, time: t, data: { turn: 1, step: 3 } },
+    call(4, "c1", "read"),
+    ok(5, "c1"),
+    call(6, "c2", "read"),
+    {
+      type: "tool/result",
+      seq: 7,
+      time: t,
+      data: { callId: "c2", error: { name: "EACCES", code: "13" } },
+    },
+    call(8, "c3", "bash"),
+    ok(9, "c3"),
+    { type: "step/end", seq: 10, time: t, data: { turn: 1, step: 3 } },
+    { type: "step/start", seq: 11, time: t, data: { turn: 1, step: 4 } },
+    {
+      type: "assistant/message",
+      seq: 12,
+      time: t,
+      data: {
+        turn: 1,
+        step: 4,
+        message: { content: [{ type: "text", text: "最终回复" }] },
+      },
+    },
+    { type: "step/end", seq: 13, time: t, data: { turn: 1, step: 4 } },
+  ];
+}
+
+test("P9：step 折叠成一行摘要（名字去重计数 + 失败数），纯正文 step 不出行", async () => {
+  const slim: SessionQueryLike = {
+    listSessions: () => Promise.resolve([]),
+    readSession: (id) =>
+      Promise.resolve({ session: { id }, events: p9Events() }),
+  };
+  const { adapter } = makeAdapterWithSessionQuery(slim);
+  const view = await adapter.readSessionSurface!("p9-1");
+  assert.deepEqual(view.messages, [
+    { role: "user", text: "问题" },
+    { role: "step", text: "22:31:05 #3 ╌╌ read ×2, bash ✗1" },
+    { role: "assistant", text: "最终回复" },
+  ]);
+});
+
+test("P9：空文本消息不产出行（宿主每步补发的纯换行文本块不再变成空行）", async () => {
+  const t = new Date(2026, 0, 2, 22, 31, 5).getTime();
+  const slim: SessionQueryLike = {
+    listSessions: () => Promise.resolve([]),
+    readSession: (id) =>
+      Promise.resolve({
+        session: { id },
+        events: [
+          {
+            type: "user/message",
+            seq: 1,
+            time: t,
+            data: { content: [{ type: "text", text: "问题" }] },
+          },
+          {
+            type: "assistant/message",
+            seq: 2,
+            time: t,
+            data: { message: { content: [{ type: "text", text: "\n\n" }] } },
+          },
+          {
+            type: "assistant/message",
+            seq: 3,
+            time: t,
+            data: { message: { content: [{ type: "text", text: "   " }] } },
+          },
+          {
+            type: "assistant/message",
+            seq: 4,
+            time: t,
+            data: { message: { content: [{ type: "text", text: "正文" }] } },
+          },
+        ],
+      }),
+  };
+  const { adapter } = makeAdapterWithSessionQuery(slim);
+  const view = await adapter.readSessionSurface!("p9-2");
+  assert.deepEqual(view.messages, [
+    { role: "user", text: "问题" },
+    { role: "assistant", text: "正文" },
+  ]);
+});
+
+test("P9：无工具调用的 step 不出行；缺 time 时摘要只出步号", async () => {
+  const slim: SessionQueryLike = {
+    listSessions: () => Promise.resolve([]),
+    readSession: (id) =>
+      Promise.resolve({
+        session: { id },
+        events: [
+          { type: "step/start", seq: 1, data: { turn: 1, step: 7 } },
+          {
+            type: "tool/call",
+            seq: 2,
+            data: { callId: "c1", name: "grep", arguments: "{}" },
+          },
+          { type: "step/end", seq: 3, data: { turn: 1, step: 7 } },
+          { type: "step/start", seq: 4, data: { turn: 1, step: 8 } },
+          {
+            type: "assistant/message",
+            seq: 5,
+            data: {
+              message: { content: [{ type: "text", text: "无工具的步骤" }] },
+            },
+          },
+          { type: "step/end", seq: 6, data: { turn: 1, step: 8 } },
+        ],
+      }),
+  };
+  const { adapter } = makeAdapterWithSessionQuery(slim);
+  const view = await adapter.readSessionSurface!("p9-3");
+  assert.deepEqual(view.messages, [
+    { role: "step", text: "#7 ╌╌ grep" },
+    { role: "assistant", text: "无工具的步骤" },
+  ]);
+});
+
 function makeAdapterWithSessionQuery(
   sq: SessionQueryLike,
   sessions?: SessionStoreLike,
@@ -2204,7 +2349,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
     ]);
   });
 
-  test("compaction/start + compaction/end → compaction {phase}", () => {
+  test("compaction/start + compaction/end → compaction {phase, sessionId}（P8 按会话标记活跃）", () => {
     const t = makeAdapter();
     fire(t, "compaction/start", {
       compactionId: "cp1",
@@ -2215,8 +2360,8 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
       sourceCommandId: "fx-cmd-1",
     });
     assert.deepEqual(t.events, [
-      { type: "compaction", phase: "start" },
-      { type: "compaction", phase: "end" },
+      { type: "compaction", phase: "start", sessionId: "s1" },
+      { type: "compaction", phase: "end", sessionId: "s1" },
     ]);
   });
 
@@ -2283,7 +2428,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
       },
     });
     assert.deepEqual(t.events, [
-      { type: "turn-end" },
+      { type: "turn-end", reason: "error" },
       {
         type: "notice",
         text: "✗ RATE_LIMIT: 429 too many",
@@ -2301,9 +2446,9 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
       reason: { kind: "aborted", reason: { kind: "user" } },
     });
     assert.deepEqual(t.events, [
-      { type: "turn-end" },
+      { type: "turn-end", reason: "max-tokens" },
       { type: "notice", text: "输出达 token 上限", tone: "warn" },
-      { type: "turn-end" },
+      { type: "turn-end", reason: "aborted" },
       { type: "notice", text: "已取消", tone: "info" },
     ]);
   });
@@ -2311,7 +2456,14 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
   test("turn/end reason：completed 静默（仅 turn-end，无 notice）", () => {
     const t = makeAdapter();
     fire(t, "turn/end", { turn: 1, reason: { kind: "completed" } });
-    assert.deepEqual(t.events, [{ type: "turn-end" }]);
+    assert.deepEqual(t.events, [{ type: "turn-end", reason: "completed" }]);
+  });
+
+  test("turn/end reason：未识别/缺失时不带 reason 字段（P1 用户块保持未终态）", () => {
+    const t = makeAdapter();
+    fire(t, "turn/end", { turn: 1, reason: { kind: "whatever" } });
+    fire(t, "turn/end", { turn: 2 });
+    assert.deepEqual(t.events, [{ type: "turn-end" }, { type: "turn-end" }]);
   });
 
   test("session/event：非活跃会话的 tool/compaction/retry 事件丢弃", () => {
@@ -2608,8 +2760,15 @@ test("P2 step/start|end → step 事件（turn/step/phase）", () => {
     data: { turn: 2, step: 1 },
   } as SessionEvent<"step/end">);
   assert.deepEqual(t.events, [
-    { type: "step", sessionId: "s1", turn: 2, step: 1, phase: "start" },
-    { type: "step", sessionId: "s1", turn: 2, step: 1, phase: "end" },
+    {
+      type: "step",
+      sessionId: "s1",
+      turn: 2,
+      step: 1,
+      phase: "start",
+      time: 1,
+    },
+    { type: "step", sessionId: "s1", turn: 2, step: 1, phase: "end", time: 1 },
   ]);
 });
 

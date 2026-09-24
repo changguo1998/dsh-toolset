@@ -46,8 +46,8 @@ export function assistantMaxBodyWidth(
   return Math.max(1, width - Math.min(gutter, Math.max(0, width - 1)));
 }
 
-/** 工具调用参数续行缩进：软换行/参数内显式换行后的续行统一 4 空格对齐 */
-export const TOOL_CONT_INDENT = 4;
+/** 工具调用参数续行缩进：软换行/参数内显式换行后的续行统一 2 空格对齐 */
+export const TOOL_CONT_INDENT = 2;
 
 /**
  * 工具调用行折行（含续行缩进）：整体首行不缩进、可用全宽；其余行——同段软换行的
@@ -84,7 +84,8 @@ export function wrapToolCallText(text: string, width: number): string[] {
 // ---------------- 工具行分组/判定/渲染 ----------------
 
 /** 工具行分组判定：无状态符号前缀的行=工具调用（新组起点）。
- * 前缀集与 tool-line.ts 各辅助行对齐（✓/✗/↻/⚑/⤷/↩//>/⇥/⌗/@/step） */
+ * 前缀集与 tool-line.ts 各辅助行对齐（✓/✗/↻/⚑/⤷/↩//>/⇥/⌗/@）；
+ * step 分组头（P6 起为 `hh:mm:ss #N`，不再有固定前缀）由 isStepHeader 单独判定 */
 export const TOOL_STATUS_PREFIXES = [
   "✓ ",
   "✗ ",
@@ -96,12 +97,18 @@ export const TOOL_STATUS_PREFIXES = [
   "⇥ ",
   "⌗ ",
   "@ ",
-  "step ",
 ];
 
-/** 无状态符号前缀的行=工具调用行（新组起点） */
+/** step 分组头行判定（P6）：文本为 `hh:mm:ss #N`，时间缺失时为 `#N` */
+export function isStepHeader(text: string): boolean {
+  return /^(?:\d{2}:\d{2}:\d{2} )?#\d+$/.test(text);
+}
+
+/** 无状态符号前缀、且非 step 分组头的行=工具调用行（新组起点） */
 export function isToolCall(text: string): boolean {
-  return !TOOL_STATUS_PREFIXES.some((p) => text.startsWith(p));
+  return (
+    !TOOL_STATUS_PREFIXES.some((p) => text.startsWith(p)) && !isStepHeader(text)
+  );
 }
 
 /** 工具结果行判定（✓ 成功 / ✗ 失败前缀）：结果行与调用行同规格折行缩进 */

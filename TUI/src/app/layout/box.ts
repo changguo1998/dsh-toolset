@@ -55,8 +55,8 @@ export interface NodeBase {
 export interface Separator {
   /** 缺省：纵向 `╌` / 横向 `│` */
   char?: string;
-  /** 缺省 border（灰） */
-  color?: ColorName;
+  /** 缺省 border（灰）；`"plain"` = 默认前景（不染色，如状态栏圆点分隔） */
+  color?: ColorName | "plain";
 }
 
 /** 可寻址分区 id（与 state.focusedPanel 收口一处）；仅可寻址区域挂 */

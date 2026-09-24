@@ -4,6 +4,7 @@
 // 外部消费方（app/demo/tests）继续从 ./adapter/dsh.ts 的显式重导取得。
 
 import type { SessionUiState } from "./session-ui-state.ts";
+import type { TurnEndReason } from "../state.ts";
 
 export type AgentStatus = "idle" | "thinking" | "tool" | "done";
 
@@ -123,7 +124,8 @@ export type DshEvent =
   | { type: "question"; id: string; questions: QuestionItem[] }
   | { type: "agent-status"; sessionId: string; status: AgentStatus }
   | { type: "notice"; text: string; error?: boolean; tone?: NoticeTone }
-  | { type: "turn-end" }
+  /** P1：收尾原因（宿主 turn/end reason.kind）→ 用户块终态符号依据 */
+  | { type: "turn-end"; reason?: TurnEndReason }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }
   | {
       type: "tool-result";
@@ -147,7 +149,8 @@ export type DshEvent =
       cacheRead: number;
       contextWindow?: number;
     }
-  | { type: "compaction"; phase: "start" | "end" }
+  /** P8：sessionId 供「压缩中算活跃」按会话标记 */
+  | { type: "compaction"; phase: "start" | "end"; sessionId?: string }
   | {
       type: "retry";
       attempt: number;
@@ -189,6 +192,8 @@ export type DshEvent =
       verbose?: boolean;
       /** 模型输出符号统一（/symbol-unify）；缺省 = 该会话无记录 */
       symbolUnify?: boolean;
+      /** P7：垂直状态列是否显示（Ctrl+S 切换）；缺省 = 该会话无记录（默认显示） */
+      statusColumn?: boolean;
     }
   | {
       type: "step";
@@ -196,6 +201,8 @@ export type DshEvent =
       turn: number;
       step: number;
       phase: "start" | "end";
+      /** P6：事件信封时间（epoch ms）——分组头时间戳；缺省由 reducer 回退当前时刻 */
+      time?: number;
     }
   | {
       type: "subagent";
@@ -853,9 +860,13 @@ export interface SessionInfo {
 /** 删除会话结果：ok=false 时 reason 为可见失败原因（不可删 / 未找到 / 越界 / IO 失败） */
 export type SessionDeleteResult = { ok: true } | { ok: false; reason: string };
 
-/** 历史会话只读表面的归一化消息（v1 仅保留 user/assistant 正文，tool/result 省略） */
+/** 历史会话只读表面的归一化消息。
+ *  - `user` / `assistant`：正文消息；
+ *  - `step`（P9）：按 step 折叠的**工具概要行**，text 形如
+ *    `22:31:05 #3 ╌╌ read ×2, bash ×1`（渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满）；
+ *    无工具调用的 step 不产出行，参数摘要/结果详情/thinking 均不还原。 */
 export interface HistoryMessage {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "step";
   text: string;
 }
 

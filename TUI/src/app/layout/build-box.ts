@@ -10,13 +10,14 @@
 import type { Box, Node } from "./box.ts";
 import { v, h, text, styled, spacer } from "./box.ts";
 import { hasCellPipe, isTableStart, parseTableAt, tableBox } from "./table.ts";
-import type { Buffer, BufferKind } from "../state.ts";
+import type { Buffer, BufferKind, BufferLine } from "../state.ts";
 import type { ColorName, ThemeId } from "../../renderer/theme.ts";
-import type { FrameStyle } from "../../renderer/index.ts";
+import type { FrameSegment, FrameStyle } from "../../renderer/index.ts";
 import {
   TOOL_CONT_INDENT,
   USER_MIN_LEFT_GUTTER,
   isToolCall,
+  isStepHeader,
   NOTICE_TONE_COLOR,
   renderToolText,
   renderToolNameLine,
@@ -74,6 +75,11 @@ export interface BuildBoxOptions {
   /** 活动区紧凑模式（SPEC §6.8 状态 2，`/verbose off`）：每条目压成 1 行 + 行尾省略号
    *  （内部换行折叠为空格；宽度按活动 pane 宽，扣该条目前缀占列）。缺省 false=完整折行 */
   activityCompact?: boolean;
+  /** P1：用户块**首行**左侧状态符号（2 列前缀 = 符号 + 1 空格；由 layout 依会话状态算定）。
+   *  返回 undefined = 该行不显示符号（非用户块 / 排队块 / 无状态）。 */
+  userStatus?: (
+    line: BufferLine,
+  ) => { text: string; fg?: ColorName } | undefined;
 }
 
 /**
@@ -158,16 +164,16 @@ export function buildBox(
       const bid = freshBlockId();
       for (let li = 0; li < group.length; li++) {
         const l = group[li]!;
-        // step 头：虚线整行（tail 铺满）
-        const stepM = /^step (\d+)$/.exec(l.text);
-        if (stepM) {
+        // step 头：虚线整行（tail 铺满）；缓冲文本为 `hh:mm:ss #N`（P6）
+        const isStep = isStepHeader(l.text);
+        if (isStep) {
           // step 分割行吸收前文拖尾空活动行（notice/thinking 换行锚点等）——
           // 对齐 legacy：分割行前积的视觉空行直接吞掉，不渲染
           absorbActivityBlank(activityLeaves);
         }
         let node: Node;
-        if (stepM) {
-          node = styled([{ text: `╌╌ step ${stepM[1]} ` }], {
+        if (isStep) {
+          node = styled([{ text: `╌╌ ${l.text} ` }], {
             tail: { char: "╌" },
           });
         } else {
@@ -224,7 +230,17 @@ export function buildBox(
     if (line.kind === "user") {
       // 整块右对齐 + 右缘竖线：h([spacer(fill), styled(文本, suffix 竖线)])
       // 排队中（尚未发出）的右缘竖线改灰色：与已发出的用户块（亮红）区分
-      const body = styled([{ text: line.text }], {
+      // P1：首行左侧状态符号（符号 + 1 空格，2 列；块宽随之 +2、右缘位置不变，
+      // 符号因此紧贴首行文本左侧）——只作用于首行，多行输入其余物理行不受影响
+      const sym = opts.userStatus?.(line);
+      const bodySegs: FrameSegment[] = sym
+        ? [
+            { text: sym.text, ...(sym.fg ? { style: { fg: sym.fg } } : {}) },
+            { text: " " },
+            { text: line.text },
+          ]
+        : [{ text: line.text }];
+      const body = styled(bodySegs, {
         suffix: {
           text: "┃",
           style: { fg: line.queued ? "gray" : "brightRed" },
@@ -350,6 +366,16 @@ export function buildBox(
       // 空文本不舍弃（notice 空行可能保留语义）
       meta.set(node, rowMeta);
       activityLeaves.push(node);
+      continue;
+    }
+    if (line.kind === "step") {
+      // P9：恢复会话的 step 概要行（`╌╌ 22:31:05 #3 ╌╌ read ×2, bash ×1`）——
+      // 形制与 P6 实时 step 头一致：`╌╌ ` 前缀 + 文本 + 1 空格，尾部 `╌` 铺满
+      const node = styled([{ text: `╌╌ ${line.text} ` }], {
+        tail: { char: "╌" },
+      });
+      meta.set(node, rowMeta);
+      dialogueLeaves.push(node);
       continue;
     }
     // separator / plain → 对话区

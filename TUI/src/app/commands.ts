@@ -58,27 +58,34 @@ export function buildOsc52(text: string): string {
   return `\x1b]52;c;${b64}\x07`;
 }
 
-/** 历史会话表面消息 → buffer 行（仅 user/assistant，供 resume 后展示上下文）；
- *  历史 assistant 均为已完成回合的最终总结 → final: true（历史区展示） */
+/** 历史会话表面消息 → buffer 行（user/assistant 正文 + P9 的 step 概要行）；
+ *  历史 assistant 均为已完成回合的最终总结 → final: true（历史区展示）。
+ *  P9：整条为空的消息不再产出行（恢复后成片空行的来源），step 行原样成行。 */
 export function surfaceToBuffer(
-  messages: readonly { role: "user" | "assistant"; text: string }[],
-): { text: string; kind: "user" | "assistant"; final?: boolean }[] {
-  const out: { text: string; kind: "user" | "assistant"; final?: boolean }[] =
-    [];
+  messages: readonly { role: "user" | "assistant" | "step"; text: string }[],
+): { text: string; kind: "user" | "assistant" | "step"; final?: boolean }[] {
+  const out: {
+    text: string;
+    kind: "user" | "assistant" | "step";
+    final?: boolean;
+  }[] = [];
   for (const m of messages) {
-    if (m.role === "user" || m.role === "assistant") {
-      // assistant 多段文本（extractTextBlocks 以 \n join）拆成独立 buffer 行：
-      // 逐行结构是 fence 识别/段落归并的前提。user 消息则整段保留（一次输入 =
-      // 一个用户块，显式换行由布局层按物理行渲染，块内行首左对齐）。
-      const text = sanitizeText(m.text).text;
-      const parts = m.role === "user" ? [text] : text.split("\n");
-      for (const line of parts)
-        out.push({
-          text: line,
-          kind: m.role,
-          final: m.role === "assistant" ? true : undefined,
-        });
+    if (m.role === "step") {
+      if (m.text.trim() !== "") out.push({ text: m.text, kind: "step" });
+      continue;
     }
+    // assistant 多段文本（extractTextBlocks 以 \n join）拆成独立 buffer 行：
+    // 逐行结构是 fence 识别/段落归并的前提。user 消息则整段保留（一次输入 =
+    // 一个用户块，显式换行由布局层按物理行渲染，块内行首左对齐）。
+    const text = sanitizeText(m.text).text;
+    if (text.trim() === "") continue; // P9：空文本不产行
+    const parts = m.role === "user" ? [text] : text.split("\n");
+    for (const line of parts)
+      out.push({
+        text: line,
+        kind: m.role,
+        final: m.role === "assistant" ? true : undefined,
+      });
   }
   return out;
 }

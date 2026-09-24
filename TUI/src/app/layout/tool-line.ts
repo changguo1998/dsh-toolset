@@ -3,7 +3,9 @@
 // 状态层（state.ts）用它构建工具调用/结果行的 buffer 文本（工具调用 ○ / 结果 ✓|✗ 前缀），
 // 渲染层按 BufferKind="tool" + tone 着色。summary/detail 的启发式提取已由
 // adapter（dsh.ts）在归一化时产出（tool/call → summary、tool/result → detail），
-// 本文件只负责展示行组装，避免重复解析。零运行时依赖。
+// 本文件只负责展示行组装，避免重复解析。仅依赖 app/clock.ts（时间格式化叶子模块）。
+
+import { clockHms } from "../clock.ts";
 
 /** 工具调用行：<name> <summary>（summary 为空时省略；无前导图标前缀） */
 export function toolCallLine(name: string, summary: string): string {
@@ -35,9 +37,12 @@ function diffSummary(meta: unknown): string | undefined {
   return added + removed === 0 ? undefined : `(+${added}/-${removed})`;
 }
 
-/** step 分组头：`step N`（B3，步内首条工具行前插入；N 取事件 step 字段） */
-export function stepHeaderLine(step: number): string {
-  return "step " + step;
+/** step 分组头：`hh:mm:ss #N`（P6；时间缺失时只出 `#N`）。
+ *  渲染层在其前后补 `╌╌ ` 前缀与尾部 `╌` 铺满（build-box 的 step 分支）；
+ *  `N` 取事件 step 字段原样、不补零。 */
+export function stepHeaderLine(step: number, time?: number): string {
+  const hms = clockHms(time);
+  return hms ? `${hms} #${step}` : `#${step}`;
 }
 
 /**

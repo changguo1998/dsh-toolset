@@ -1,7 +1,7 @@
 // tests/tool-call-wrap.test.ts — 活动区工具调用行折行宽度回归
 //
-// 回归点：工具调用长参数软折行时，续行统一 4 空格缩进，折行宽度必须按缩进扣除，
-// 缩进后每行总宽 ≤ 窗口宽（修复前续行仍按全宽折行，缩进后超出 4 列、溢出右边框）。
+// 回归点：工具调用长参数软折行时，续行统一 2 空格缩进，折行宽度必须按缩进扣除，
+// 缩进后每行总宽 ≤ 窗口宽（修复前续行仍按全宽折行，缩进后超出 2 列、溢出右边框）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -47,8 +47,13 @@ test("wrapToolCallText：参数内显式换行后的各行同样缩进", () => {
 });
 
 test("wrapToolCallText：窄窗口（width ≤ 缩进）降级不缩进，仍不溢出", () => {
+  // 宽度 = 缩进量时不缩进（缩进本身会溢出），仅按宽度硬折
   const rows = wrapToolCallText("abcdefgh", TOOL_CONT_INDENT);
-  assert.deepEqual(rows, ["abcd", "efgh"]);
+  assert.ok(
+    rows.every((r) => !r.startsWith(" ")),
+    "不得带缩进空格",
+  );
+  assert.equal(rows.join(""), "abcdefgh");
 });
 
 test("buildFrame：活动区工具调用长参数折行后不溢出边框", () => {

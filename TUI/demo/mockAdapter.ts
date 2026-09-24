@@ -503,7 +503,7 @@ export class MockDshAdapter implements DshAdapter {
     this.timers.push(
       setTimeout(
         () => {
-          this.emit({ type: "turn-end" });
+          this.emit({ type: "turn-end", reason: "completed" });
           this.emit({
             type: "agent-status",
             sessionId: this.sessionId,

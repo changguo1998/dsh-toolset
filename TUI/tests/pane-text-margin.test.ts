@@ -1,7 +1,8 @@
 // tests/pane-text-margin.test.ts — 历史区/活动区「文字右缘留白」（PANE_TEXT_MARGIN_COLS）
 //
-// 覆盖：**只有文字排版宽度收窄**——横向排列两 pane 各让 1 列（历史 1 + 活动 1 = 2）、
-// 纵向排列两 pane 同列同宽各让 2 列（右缘留白合并为 2 列）；**边框/分隔线一概不动**：
+// 覆盖：**只有文字排版宽度收窄**（P3：留白是行尾属性，只给右缘贴外框列的 pane）——
+// 横向历史 pane 不留白（`┃` 紧贴内部分隔竖线）、横向活动 pane 让 1 列、纵向两 pane 同列各让 1 列；
+// **边框/分隔线一概不动**：
 // 标题栏下划线、活动区分隔线仍铺满整行到区域外缘框列，顶区帧行宽恒 = cols，
 // 焦点框矩形也不变。文字不落在留白列（字形宽度算错时多出的列落在留白里，不整行溢出）。
 
@@ -88,7 +89,7 @@ function paneRanges(g: ReturnType<typeof frameGeometry>) {
   };
 }
 
-test("文字右缘留白：横向两 pane 各让 1 列，纵向两 pane 同宽各让 2 列", () => {
+test("文字右缘留白：横向历史不留白 / 横向活动让 1 列 / 纵向两 pane 各让 1 列", () => {
   for (const size of SIZES) {
     for (const placement of ["vertical", "horizontal"] as const) {
       const g = frameGeometry(state(placement), size);
@@ -99,8 +100,8 @@ test("文字右缘留白：横向两 pane 各让 1 列，纵向两 pane 同宽�
       if (g.mode === "horizontal") {
         assert.equal(
           g.dialogueTextW,
-          g.dialogueW - PANE_TEXT_MARGIN_COLS,
-          `${tag}: 历史 pane 文字让 1 列`,
+          g.dialogueW,
+          `${tag}: 横向历史 pane 不留白（┃ 紧贴内部分隔竖线）`,
         );
         assert.equal(
           g.activityTextW,
@@ -121,7 +122,7 @@ test("文字右缘留白：横向两 pane 各让 1 列，纵向两 pane 同宽�
         assert.equal(
           g.dialogueTextW,
           paneTextWidth(g.dialogueW, true),
-          `${tag}: 纵向两 pane 文字同宽，各让 2 列`,
+          `${tag}: 纵向两 pane 文字同宽，各让 1 列`,
         );
         assert.equal(g.activityTextW, g.dialogueTextW);
       }

@@ -98,15 +98,29 @@ export const DEFAULT_MESSAGE_GUTTER = 6;
 /** 输入栏临时模式（$ shell / / slash；提交后自动回退 normal，不再有 Esc 回退） */
 export type InputMode = "normal" | "shell" | "slash";
 
-/** 输入状态（状态栏最左侧符号）：绿✓=成功 / 红✗=失败 / 黄●/○=运行中（实心/空心
- *  圆按流式输出节奏交替，见 RUN_TOGGLE_CHARS）/ 黄△=等待交互（审批/问答面板打开等
- *  用户决策）/ idle=尚无结果（渲染回退 ?，未知状态也回退 ?） */
+/** 输入状态（P1 起用于**用户块首行**符号，不再渲染在状态栏最左侧）：绿✓=成功 /
+ *  红✗=失败 / 黄●/○=运行中（实心/空心圆按流式输出节奏交替，见 RUN_TOGGLE_CHARS）/
+ *  黄△=等待交互（审批/问答面板打开等用户决策）/ idle=尚无结果（渲染回退 ?） */
 export type InputStatus =
   "success" | "failure" | "running" | "waiting" | "idle";
 
-/** 缓冲行类型:用户输出靠右缩进展示,模型正文靠左;思考行限高,完成后清除 */
+/** turn/end 的收尾原因（宿主 `reason.kind`；缺省/未识别 = undefined）。
+ *  P1 用它决定用户块终态符号：`completed`→✓ / `aborted`→■ / `error`→✗ / 其余→`?` */
+export type TurnEndReason =
+  "completed" | "aborted" | "error" | "blocked" | "max-tokens" | "interrupted";
+
+/** 缓冲行类型:用户输出靠右缩进展示,模型正文靠左;思考行限高,完成后清除
+ *  - `step`（P9）：恢复会话时的 step 概要行（`22:31:05 #3 ╌╌ read ×2, bash ×1`），
+ *    渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满，形制与实时 step 头（P6）一致 */
 export type BufferKind =
-  "user" | "assistant" | "thinking" | "notice" | "tool" | "separator" | "plain";
+  | "user"
+  | "assistant"
+  | "thinking"
+  | "notice"
+  | "tool"
+  | "separator"
+  | "step"
+  | "plain";
 
 /** 缓冲行:纯文本 + 类型标记(展示时决定缩进/配色) + 可选 tone（notice/tool 行着色分级）
  *  final: true = 该回合最终总结（历史区展示）；false/缺省 = 过程行（活动区展示） */
@@ -121,6 +135,9 @@ export interface BufferLine {
   final?: boolean;
   /** 排队中的用户消息（历史区右下角的待发块；右缘竖线改灰色标识未发出） */
   queued?: boolean;
+  /** P1：该用户块的终态（turn-end 时按 reason 打标；缺省 = 未收到终态，渲染 `?`）。
+   *  - `success` 绿 ✓（completed）；`failure` 红 ✗（error）；`aborted` 灰 ■（aborted）。 */
+  status?: "success" | "failure" | "aborted";
   /** 悬垂缩进（notice 用，/help 双列表格）：本行折行时续行停靠列（描述列起点） */
   hanging?: number;
   /** 紧凑模式（/verbose off）豁免：本行仍完整折行显示（/help 用，不被压成 1 行隐藏） */
@@ -428,8 +445,13 @@ export interface AppState {
   stepGroup: {
     sessionId: string;
     step: number;
+    /** P6：分组头时间戳（epoch ms；渲染为 `hh:mm:ss #N`） */
+    time?: number;
     headerEmitted: boolean;
   } | null;
+  /** P8：按 sessionId 隔离的「上下文压缩中」标记——压缩期间该会话算活跃
+   *  （用户块显示运行中、新消息走排队、Ctrl+D 不退出）；compaction/end 清除 */
+  compactingBySession: Record<string, boolean>;
   /** P3：按 sessionId 隔离的 agent 预设（agent-preset/selected 事件 latest-wins；无=未收到） */
   presetBySession: Record<string, string>;
   /** 事件回读的生效模型（model/selection）；状态栏模型徽标 fallback 来源 */
@@ -460,11 +482,17 @@ export interface AppState {
   /** 模型输出符号统一（symbol-unify）：true=把变体符号替换为推荐符号并提醒（缺省）；
    *  false=关闭（原样展示，不替换不提醒）。`/symbol-unify on|off` 切换 */
   symbolUnify: boolean;
+  /** P7：垂直状态列是否显示（`Ctrl+S` 切换；随会话持久化 tui-state.json；缺省显示）。
+   *  隐藏时状态列宽 0、分隔竖线不绘制、历史区变宽 */
+  statusColumnVisible: boolean;
   /** 声音提醒总开关（tui.config.json `notify.enabled`；启动时接线）。无会话内切换路径，
    *  状态列 Mode 块按其当前值只读展示（勾绿 / 叉灰） */
   notifyEnabled: boolean;
   /** 本回合剔除的非打印控制字符计数（appendStream 累计；turn-begin 清零、turn-end 警告） */
   strippedChars: number;
+  /** P5：上一分片是「被丢弃的纯空白块」——下一条流式分片不并入末行、另起一行。
+   *  既消除宿主每步补发的 `"\n\n"` 造成的空行，又保住「两个思考分片各占一行」 */
+  streamBreak: boolean;
   /** 运行中闪烁虚拟状态（速度/虚拟总 token/时间基准/速率估计窗口）。run 边界 =
    *  两次用户输入之间：下次用户输入（turn-begin clearActivity=true）时重置；
    *  turn-end 仅把速度更新为下限（输出停止），虚拟总 token 保留 */
@@ -604,6 +632,7 @@ export function initialState(
     modeBySession: {},
     policyBySession: {},
     compactionBySession: {},
+    compactingBySession: {},
     stepGroup: null,
     presetBySession: {},
     modelBySession: {},
@@ -618,7 +647,9 @@ export function initialState(
     activityVerbose: true, // 活动区完整显示（缺省）；/verbose off 切紧凑
     symbolUnify: true, // 模型输出符号统一（缺省开）；/symbol-unify off 切原样
     notifyEnabled: opts?.notifyEnabled ?? true, // 声音提醒（配置项，只读展示）
+    statusColumnVisible: true, // P7：垂直状态列默认显示（Ctrl+S 切换）
     strippedChars: 0, // 本回合剔除的非打印控制字符计数（turn-begin 清零）
+    streamBreak: false, // P5：上一分片是否为被丢弃的纯空白块
     runVirt: emptyRunVirt(), // 运行中闪烁虚拟状态（下次用户输入时重置）
     stepEstTokens: 0, // 本 step 估算 token 累计（usage 真值到达时校准）
     tokenCalib: 1, // 估算 token 校准系数（usage 真值/估算值 EMA，跨 step 保留）
@@ -735,14 +766,37 @@ export function appendStream(
   const lastIndex = buffer.length - 1;
   const last = buffer[lastIndex];
   let seq = state.nextSeq;
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i]!;
-    // 首个段落合并进末尾同类行(流式续写)；不合并时不产生中间状态
-    if (i === 0 && last && last.kind === kind && last.kind !== "separator") {
-      if (part !== "") buffer[lastIndex] = { ...last, text: last.text + part };
-    } else {
-      // 新行分配稳定序号（同块续写沿用原行序号）
-      buffer.push({ text: part, kind, seq: seq++ });
+  // P5（降级版）：宿主每个 step 末尾会补发一个「只有换行」的文本块（实测 190 个
+  // 文本分片里 154 个就是 "\n\n"），逐行落 buffer 会在思考/工具行之后留下成片空行。
+  // 判据：整段仅空白 **且** 上一行是异 kind（思考/工具/notice/用户行/分隔线）
+  // 或 buffer 为空时才丢弃；同 kind 内部的空白分片维持现状（软换行与段落空行
+  // 语义不变），也不做段尾空行清理（完整方案见 docs/PENDING-FIXES.md P5 备查注释）。
+  const streamed = kind === "assistant" || kind === "thinking";
+  const lastKind = last?.kind;
+  const dropBlankChunk =
+    streamed &&
+    clean.trim() === "" &&
+    (lastKind === undefined || lastKind !== kind);
+  // 上一分片是被丢弃的纯空白块时，本分片不再并入末行：丢弃 ≠ 合并，否则两个思考
+  // 分片会被粘成一行（"…to" + "fix …" → "…tofix …"），原本的空行变成缺空格
+  const breakBefore = streamed && state.streamBreak;
+  if (!dropBlankChunk) {
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]!;
+      // 首个段落合并进末尾同类行(流式续写)；不合并时不产生中间状态
+      if (
+        i === 0 &&
+        !breakBefore &&
+        last &&
+        last.kind === kind &&
+        last.kind !== "separator"
+      ) {
+        if (part !== "")
+          buffer[lastIndex] = { ...last, text: last.text + part };
+      } else {
+        // 新行分配稳定序号（同块续写沿用原行序号）
+        buffer.push({ text: part, kind, seq: seq++ });
+      }
     }
   }
   trimBufferHead(buffer, state.scrollAnchor);
@@ -750,7 +804,6 @@ export function appendStream(
   // 虚拟速度 → 虚拟总 token 积分，驱动 ●/○ 交替）；用户行不参与。
   // 估算 token 按 tokenCalib 校正（P5：流末 usage 真值学习）；stepEstTokens 累计
   // 原始估算量供校准对比
-  const streamed = kind === "assistant" || kind === "thinking";
   const estTokens = streamed ? estimateOutputTokens(clean) : 0;
   const virt = streamed
     ? nextRunVirt(state.runVirt, time, estTokens * state.tokenCalib)
@@ -760,6 +813,8 @@ export function appendStream(
     buffer,
     nextSeq: seq,
     strippedChars: state.strippedChars + stripped,
+    // 丢弃后置位（下一条流式分片另起一行）；流式分片消费后清位；非流式分片不动
+    streamBreak: streamed ? dropBlankChunk : state.streamBreak,
     ...(virt
       ? { runVirt: virt, stepEstTokens: state.stepEstTokens + estTokens }
       : {}),
@@ -875,7 +930,7 @@ export function appendStepToolLine(
   // 分组头先插（组内首条工具行前），随后标记已发头，避免重复插头
   const next = group.headerEmitted
     ? state
-    : appendToolLine(state, stepHeaderLine(group.step));
+    : appendToolLine(state, stepHeaderLine(group.step, group.time));
   return {
     ...appendToolLine(next, text, tone, params),
     stepGroup: { ...group, headerEmitted: true },
@@ -893,6 +948,13 @@ export function appendThinking(
   time?: number,
 ): AppState {
   return appendStream(state, text, "thinking", time);
+}
+
+/** P8：当前活跃会话是否正在压缩上下文（压缩期间视为活跃：状态符号显示运行中、
+ *  新消息走排队、Ctrl+D 退出守卫不触发）。非活跃会话的标记不影响当前视图。 */
+export function isCompacting(state: AppState): boolean {
+  const sid = state.activeSessionId;
+  return typeof sid === "string" && state.compactingBySession[sid] === true;
 }
 
 /** 输入状态权威：审批/问答面板打开 = 等待用户决策（黄△）；agent 活跃期间
@@ -928,6 +990,38 @@ export function markFinalSummary(state: AppState): AppState {
   const next = [...buffer];
   for (let i = begin; i < end; i++) next[i] = { ...next[i]!, final: true };
   return { ...state, buffer: next };
+}
+
+/**
+ * P1：按 turn/end 的 reason 给「最新未终态用户块」打终态符号依据。
+ *  - `completed` → `success`（渲染绿 ✓）、`aborted` → `aborted`（灰 ■）、`error` → `failure`（红 ✗）；
+ *  - 其余（`blocked` / `max-tokens` / `interrupted` / 未识别 / 缺省）保持未定 → 渲染 `?`。
+ *  只作用 buffer 里**最后一个** kind="user" 且 status 未定的行；该行已有终态时不回溯覆盖更早的块
+ *  （排队块由布局层单独渲染、不入 buffer，故天然不参与）。
+ */
+export function markUserBlockStatus(
+  state: AppState,
+  reason?: TurnEndReason,
+): AppState {
+  const status: BufferLine["status"] =
+    reason === "completed"
+      ? "success"
+      : reason === "aborted"
+        ? "aborted"
+        : reason === "error"
+          ? "failure"
+          : undefined;
+  if (status === undefined) return state;
+  const buffer = state.buffer;
+  for (let i = buffer.length - 1; i >= 0; i--) {
+    const l = buffer[i]!;
+    if (l.kind !== "user") continue;
+    if (l.status !== undefined) return state; // 已有终态：不覆盖
+    const next = [...buffer];
+    next[i] = { ...l, status };
+    return { ...state, buffer: next };
+  }
+  return state;
 }
 
 /**
@@ -1617,22 +1711,38 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return { ...state, strippedChars: 0 };
         // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容
         return appendTurnSeparator(state);
-      case "turn-end":
+      case "turn-end": {
         // 回合结束：不再画分隔线(下个回合 begin 时画)；也不清思考/中间输出——
         // 保留显示，至下回合 turn-begin 统一清空(输出结束后不立即清)；
         // 本回合最后一段模型正文打 final 标记进历史区（最终总结）；置成功色(绿)。
         // 虚拟状态：仅把虚拟速度大小更新为下限（回合结束=输出停止→最低闪烁频率），
         // 虚拟总 token **不清零**（run 边界 = 两次用户输入之间，到下次用户输入
         // turn-begin clearActivity=true 时才重置），lastTime/速率窗口保持
+        // P1：按 reason 给最新未终态用户块打终态（completed→✓ / aborted→■ / error→✗）
+        const marked = markUserBlockStatus(state, action.reason);
         return markFinalSummary({
-          ...state,
+          ...marked,
           inputStatus: "success",
-          runVirt: { ...state.runVirt, speed: VIRT_SPEED_MIN },
+          runVirt: { ...marked.runVirt, speed: VIRT_SPEED_MIN },
         });
+      }
       case "status":
         return setSystemStatus(state, action.status);
       case "set-theme":
         return { ...state, themeId: action.themeId };
+      case "status-column": {
+        // P7：Ctrl+S 切换垂直状态列显隐（缺省取反）；隐藏时把焦点从状态列移开
+        // （否则 0 宽面板仍会被 focusFrame 画出退化边框，压在内容首列上）
+        const visible = action.visible ?? !state.statusColumnVisible;
+        return {
+          ...state,
+          statusColumnVisible: visible,
+          focusedPanel:
+            !visible && state.focusedPanel === "status"
+              ? null
+              : state.focusedPanel,
+        };
+      }
       case "activity-verbose":
         // 活动区显示详略（SPEC §6.8 两态）：true=完整折行；false=紧凑（每条目 1 行 + 省略号）
         return { ...state, activityVerbose: action.on };
@@ -1657,14 +1767,23 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           toolResultLine(action.ok, action.detail, action.meta),
           action.ok ? undefined : "error",
         );
-      case "compaction":
-        // 长会话压缩 toast：start/end 提示
+      case "compaction": {
+        // 长会话压缩 toast：start/end 提示；P8：压缩期间把该会话标记为活跃
+        const raw = action.sessionId ?? state.activeSessionId;
+        const sid = typeof raw === "string" && raw !== "" ? raw : undefined;
+        let flags = state.compactingBySession;
+        if (sid !== undefined) {
+          flags = { ...flags };
+          if (action.phase === "start") flags[sid] = true;
+          else delete flags[sid];
+        }
         return appendNotice(
-          state,
+          { ...state, compactingBySession: flags },
           action.phase === "start" ? "正在压缩上下文..." : "压缩完成",
           false,
           action.phase === "start" ? "info" : "success",
         );
+      }
       case "retry":
         // 模型重试 toast：第 attempt/max 次 + 退避 + 失败码（黄色，表进行中）
         return appendNotice(
@@ -1771,6 +1890,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
               stepGroup: {
                 sessionId: action.sessionId,
                 step: action.step,
+                // P6：分组头时间戳取事件时间；mock/合成事件缺 time 时回退当前时刻
+                time: action.time ?? Date.now(),
                 headerEmitted: false,
               },
             }
@@ -1994,18 +2115,22 @@ export function reduceState(state: AppState, action: StateAction): AppState {
             state.statusColumnScroll + action.delta,
           ),
         };
-      case "focus-panel-cycle":
-        // 顶部三面板焦点循环：无焦点(null) → history → activity → status → history
+      case "focus-panel-cycle": {
+        // 顶部三面板焦点循环：无焦点(null) → history → activity → status → history；
+        // P7：状态列隐藏（Ctrl+S）时跳过 status——该列宽 0，聚焦会画出退化焦点框并占掉内容首列
+        const cycle: readonly ("history" | "activity" | "status")[] =
+          state.statusColumnVisible
+            ? PANEL_CYCLE
+            : PANEL_CYCLE.filter((p) => p !== "status");
+        const cur = state.focusedPanel;
         return {
           ...state,
           focusedPanel:
-            state.focusedPanel === null
-              ? "history"
-              : PANEL_CYCLE[
-                  (PANEL_CYCLE.indexOf(state.focusedPanel) + 1) %
-                    PANEL_CYCLE.length
-                ]!,
+            cur === null || !cycle.includes(cur)
+              ? cycle[0]!
+              : cycle[(cycle.indexOf(cur) + 1) % cycle.length]!,
         };
+      }
       case "activity-scroll": {
         // 活动区（流输出）滚动：偏移累加（距底部行数）；0=跟随最新。
         // max = 上一帧回填的可滚动上限：先收敛越界偏移再叠加、结果不超上限，
@@ -2084,7 +2209,8 @@ export type StateAction =
       type: "history-resume-ok";
       id: string;
       title: string;
-      rows: { text: string; kind: "user" | "assistant" }[];
+      /** 恢复行（P9 起含 step 概要行）；kind 与 BufferKind 的子集一致 */
+      rows: { text: string; kind: "user" | "assistant" | "step" }[];
     }
   /** 切换活跃会话（/new 新建后切过去）：缓冲/滚动/窗口按空会话重置 */
   | { type: "session-switch"; id: string; title: string }
@@ -2119,11 +2245,14 @@ export type StateAction =
   | { type: "user-jump"; anchor: DialogueAnchor | null }
   /** clearActivity：是否清空活动区内容（缺省 true；核心自发回合传 false，见 appendTurnSeparator） */
   | { type: "turn-begin"; clearActivity?: boolean }
-  | { type: "turn-end" }
+  /** P1：reason 决定最新用户块的终态符号（completed→✓ / aborted→■ / error→✗ / 其余→?） */
+  | { type: "turn-end"; reason?: TurnEndReason }
   | { type: "clear-stripped" }
   | { type: "status"; status: Partial<SystemStatus> }
   | { type: "set-theme"; themeId: ThemeId }
   | { type: "activity-verbose"; on: boolean }
+  /** P7：垂直状态列显隐（visible 缺省 = 取反，供 Ctrl+S 切换） */
+  | { type: "status-column"; visible?: boolean }
   | { type: "symbol-unify"; on: boolean }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }
   | {
@@ -2155,7 +2284,8 @@ export type StateAction =
       cacheRead: number;
       contextWindow?: number;
     }
-  | { type: "compaction"; phase: "start" | "end" }
+  /** P8：sessionId 用于把「压缩中」记到该会话（缺省回退当前活跃会话） */
+  | { type: "compaction"; phase: "start" | "end"; sessionId?: string }
   | {
       type: "retry";
       attempt: number;
@@ -2194,6 +2324,8 @@ export type StateAction =
       turn: number;
       step: number;
       phase: "start" | "end";
+      /** P6：step 事件时间（epoch ms）——分组头时间戳；缺省回退当前时刻 */
+      time?: number;
     }
   | {
       type: "subagent";

@@ -36,9 +36,19 @@ import {
   type FrameBuildOutput,
 } from "../src/app/layout.ts";
 import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
+
+/** P6：step 分组头的固定时间戳（本地时间 03:04:05），使分组头文本可精确断言 */
+const STEP_TIME = new Date(2026, 0, 2, 3, 4, 5).getTime();
+/** P6：期望的 step 分组头前缀（`╌╌ hh:mm:ss #N `） */
+const stepHead = (n: number): string => `╌╌ 03:04:05 #${n} `;
 import { wrapAssistantLine } from "../src/app/layout/markdown.ts";
 import { buildContentRows } from "../src/app/layout/build-box.ts";
-import type { InputMode, InputStatus, Buffer } from "../src/app/state.ts";
+import type {
+  InputMode,
+  InputStatus,
+  Buffer,
+  TurnEndReason,
+} from "../src/app/state.ts";
 import type { FrameRow } from "../src/renderer/screen.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
 
@@ -164,8 +174,11 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   assert.ok(rowAnsi(status).includes("main"), "状态含 git(branch)");
   // 标题已移入纵向状态列顶部（水平栏不再承载；此处验证水平栏不含标签行）
   assert.ok(!rowAnsi(status).includes("标题"), "水平状态栏不含标题段");
-  assert.ok(rowAnsi(status).includes("·"), "组内段用 · 分隔");
-  assert.ok(rowAnsi(status).includes("│"), "组间用框线 │ 分隔");
+  assert.ok(
+    rowAnsi(status).includes("•"),
+    "组内段与组间分隔统一为圆点 •（P2）",
+  );
+  assert.ok(!rowAnsi(status).includes("│"), "状态栏内不再有竖线（P2）");
   assert.ok(rowAnsi(status).includes("none"), "LLM 组含模型思考后缀");
   // 第二个横线分隔行，然后输入区（3 行，多行框顶部对齐：首行占位提示）
   const separator2 = frame[19]!;
@@ -182,21 +195,67 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   );
 });
 
-test("输入栏单字符提示符：当前模式符号（默认前景色）；状态符号移至水平状态栏最左侧", () => {
+test("输入栏单字符提示符：当前模式符号（默认前景色）；状态符号渲染在用户块首行左侧", () => {
   const strip = (l: FrameRow): string =>
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "");
   const sgr = (l: FrameRow): string =>
     /\x1b\[38;2;\d+;\d+;\d+m/.exec(rowAnsi(l))?.[0] ?? ""; // 行内首个 SGR（行首为前导空格）
   const inputRow = (s: ReturnType<typeof initialState>): FrameRow =>
     buildFrame(s, { rows: 10, cols: 40 }).at(-2)!; // 输入行（末行是按键提示区，之间不画横线）
-  const statusRow = (s: ReturnType<typeof initialState>): FrameRow =>
-    buildFrame(s, { rows: 24, cols: 60 })[18]!; // 状态栏行（状态区上方分隔线后首行）
+  /** 探针用户块文本：符号挂在用户块首行，读数前把它补到 buffer 末尾（恒在视口内） */
+  const LIVE = "活跃用户块";
+  /** 用户块首行所在帧行：历史 pane 正文段含该块文本的首行 */
+  const userRow = (
+    s: ReturnType<typeof initialState>,
+    text: string,
+  ): FrameRow => {
+    const frame = buildFrame(s, { rows: 24, cols: 60 });
+    const at = frame.findIndex((l) =>
+      histContent(rowAnsi(l), 60).includes(text),
+    );
+    assert.ok(at >= 0, "用户块首行在帧内可见");
+    return frame[at]!;
+  };
+  /** 用户块首行状态符号 + 符号的生效前景色 SGR（P1：符号 + 1 空格 = 块内 2 列前缀）。
+   *  符号是块内独立染色段，其色 = 紧邻符号（中间只隔空白填充）的最近一个 SGR；
+   *  回退 `?` 无色段，取到的是块默认前景色（非任何状态色）。整行最左的状态列里也有
+   *  ✓/✗，故先把范围收到「本块文本之前」，只从历史 pane 正文段取。 */
+  const mark = (
+    s: ReturnType<typeof initialState>,
+    text: string = "用户输入文本",
+  ): { sym: string; sgr: string } => {
+    const row = rowAnsi(userRow(s, text));
+    const sym = histContent(row, 60).trimStart()[0] ?? "";
+    const before = row.slice(0, row.indexOf(text));
+    const at = before.lastIndexOf(sym);
+    return {
+      sym,
+      sgr:
+        at >= 0
+          ? (/\x1b\[[0-9;]*m(?=\s*$)/.exec(before.slice(0, at))?.[0] ?? "")
+          : "",
+    };
+  };
+  /** 读数前追加一条探针用户行：流式输出会把早先的用户块推出视口；user 行不参与
+   *  虚拟 token 积分（appendStream 只对 assistant/thinking 更新 runVirt），不扰相位 */
+  const liveSym = (s: ReturnType<typeof initialState>): string =>
+    mark(reduceState(s, { type: "user-line", text: LIVE }), LIVE).sym;
   const mk = (curMode: InputMode, status: InputStatus) =>
     reduceState(
-      reduceState(initialState(), { type: "input-mode", mode: curMode }),
+      reduceState(
+        reduceState(initialState(), {
+          type: "user-line",
+          text: "用户输入文本",
+        }),
+        { type: "input-mode", mode: curMode },
+      ),
       { type: "input-status", status },
     );
-  // 单字符提示符 = 当前输入模式符号；状态色不着色（状态符号已移至状态栏）
+  /** 终态用例：turn-end 的 reason 给最新未终态用户块打终态（state.markUserBlockStatus），
+   *  再读该用户块首行的符号与着色 */
+  const ended = (reason?: TurnEndReason): { sym: string; sgr: string } =>
+    mark(reduceState(mk("normal", "idle"), { type: "turn-end", reason }));
+  // 单字符提示符 = 当前输入模式符号；提示符不着色（默认前景色，状态符号在用户块首行）
   assert.ok(
     strip(inputRow(mk("normal", "success"))).startsWith("> "),
     "normal 模式提示符 > ",
@@ -212,7 +271,7 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   assert.equal(
     sgr(inputRow(mk("shell", "success"))),
     "",
-    "提示符不着色（默认前景色，状态色在状态栏）",
+    "提示符不着色（默认前景色，状态色在用户块符号）",
   );
   // 占位提示固定
   assert.ok(
@@ -220,50 +279,73 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
     "占位提示固定",
   );
 
-  // 状态符号在水平状态栏最左侧：四态符号 + 初始占位
-  const mark = (status: InputStatus): { sym: string; sgr: string } => {
-    const l = statusRow(mk("normal", status));
-    return { sym: strip(l).trimStart()[0] ?? "", sgr: sgr(l) };
-  };
-  assert.equal(mark("success").sym, "✓", "成功 = 勾");
-  assert.equal(mark("failure").sym, "✗", "失败 = 叉");
-  assert.equal(mark("running").sym, "●", "运行中 = 实心圆（相位 0）");
-  assert.equal(mark("waiting").sym, "△", "等待交互 = 空心三角");
-  assert.equal(mark("idle").sym, "?", "回退/未知占位 = 问号");
-  // 着色：成功绿 / 失败红 / 运行中黄 / 等待交互黄 / 回退占位默认前景
-  const green = mark("success").sgr;
-  const red = mark("failure").sgr;
-  const yellow = mark("running").sgr;
+  // 状态符号在用户块首行左侧（P1，不再在状态栏）：终态按 turn-end reason 打标
+  assert.equal(ended("completed").sym, "✓", "成功 = 勾");
+  assert.equal(ended("error").sym, "✗", "失败 = 叉");
+  assert.equal(ended("aborted").sym, "■", "中止 = 实心方块");
+  assert.equal(ended("blocked").sym, "?", "未映射收尾原因(blocked) = 回退问号");
+  assert.equal(
+    mark(mk("normal", "idle")).sym,
+    "?",
+    "未收到 turn/end = 回退问号",
+  );
+  assert.equal(
+    mark(mk("normal", "running")).sym,
+    "●",
+    "运行中 = 实心圆（相位 0）",
+  );
+  assert.equal(mark(mk("normal", "waiting")).sym, "△", "等待交互 = 空心三角");
+  // 着色：成功绿 / 失败红 / 中止灰 / 运行中黄 / 等待交互黄 / 回退占位默认前景
+  const green = ended("completed").sgr;
+  const red = ended("error").sgr;
+  const gray = ended("aborted").sgr;
+  const yellow = mark(mk("normal", "running")).sgr;
   assert.ok(green, "成功符号为绿");
   assert.ok(red, "失败符号为红");
+  assert.ok(gray, "中止符号为灰");
   assert.ok(yellow, "运行中符号为黄");
   assert.notEqual(green, red, "绿红互异");
   assert.notEqual(red, yellow, "红黄互异");
-  assert.equal(yellow, mark("waiting").sgr, "等待交互与运行中同为黄");
-  // 回退占位 ? 不着色：行内首个 SGR（边框竖线）非任何状态色；符号+竖线结构齐全
-  const idleRow = strip(statusRow(mk("normal", "idle")));
-  assert.ok(idleRow.includes("? │ "), "回退占位后接边框色竖线");
-  assert.notEqual(mark("idle").sgr, green, "回退占位无绿");
-  assert.notEqual(mark("idle").sgr, red, "回退占位无红");
-  assert.notEqual(mark("idle").sgr, yellow, "回退占位无黄");
-  // 外部活动（thinking/tool）→ 运行中黄●（相位 0）
-  const busy = statusRow(
-    reduceState(initialState(), { type: "agent-status", status: "thinking" }),
+  assert.notEqual(gray, green, "中止灰与成功绿互异");
+  assert.equal(
+    yellow,
+    mark(mk("normal", "waiting")).sgr,
+    "等待交互与运行中同为黄",
   );
-  assert.equal(sgr(busy), yellow, "thinking 视为运行中");
-  assert.equal(strip(busy).trimStart()[0], "●", "thinking 显示运行中实心圆");
+  // 回退占位 ? 不着色：符号沿用块默认前景色，紧随用户文本（2 列前缀结构）
+  const idle = mark(mk("normal", "idle"));
+  assert.ok(
+    histContent(
+      rowAnsi(userRow(mk("normal", "idle"), "用户输入文本")),
+      60,
+    ).includes("? 用户输入文本"),
+    "回退占位 = 符号 + 空格 + 文本",
+  );
+  assert.notEqual(idle.sgr, green, "回退占位无绿");
+  assert.notEqual(idle.sgr, red, "回退占位无红");
+  assert.notEqual(idle.sgr, yellow, "回退占位无黄");
+  assert.notEqual(idle.sgr, gray, "回退占位无灰");
+  // 外部活动（thinking/tool）→ 运行中黄●（相位 0）
+  const busy = mark(
+    reduceState(mk("normal", "idle"), {
+      type: "agent-status",
+      status: "thinking",
+    }),
+  );
+  assert.equal(busy.sgr, yellow, "thinking 视为运行中");
+  assert.equal(busy.sym, "●", "thinking 显示运行中实心圆");
   // 运行中符号按虚拟总 token 交替（与真实 tps 解耦）：
   // 虚拟速度 = 窗口速率估计 → 速率化 slew → clamp [MIN,MAX]；虚拟总 token = ∫虚拟速度 dt；
   // 首帧无时间基准不积分（相位 0）；速度为界内起点 MIN。
   const ascii = (chars: number): string => "x".repeat(chars);
   const busyAt = (evs: { t: number; text: string }[]): string => {
-    let s = reduceState(initialState(), {
+    let s = reduceState(mk("normal", "idle"), {
       type: "agent-status",
       status: "thinking",
     });
     for (const ev of evs)
       s = reduceState(s, { type: "append", text: ev.text, time: ev.t });
-    return strip(statusRow(s)).trimStart()[0] ?? "";
+    return liveSym(s);
   };
   assert.equal(
     busyAt([{ t: 1000, text: ascii(64) }]),
@@ -276,16 +358,16 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
     stepMs: number,
     text: string,
   ): { sym: string; frames: number } => {
-    let s = reduceState(initialState(), {
+    let s = reduceState(mk("normal", "idle"), {
       type: "agent-status",
       status: "thinking",
     });
     for (let i = 1; i <= 80; i++) {
       s = reduceState(s, { type: kind, text, time: 1000 + i * stepMs });
-      const sym = strip(statusRow(s)).trimStart()[0] ?? "";
+      const sym = liveSym(s);
       if (sym === "○") return { sym, frames: i };
     }
-    return { sym: strip(statusRow(s)).trimStart()[0] ?? "", frames: 80 };
+    return { sym: liveSym(s), frames: 80 };
   };
   // 高速率（每 0.05s 64 字符 ≈ 320 token/s）：速度爬到上限，虚拟 token 跨阈值
   const fastFlip = runUntilFlip("append", 50, ascii(64));
@@ -310,7 +392,7 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   );
   // run 边界 = 两次用户输入之间：turn-end（回合结束）**不清零**（同一 run 内），
   // 下次用户输入（turn-begin clearActivity=true）才清零回到相位 0
-  let tb = reduceState(initialState(), {
+  let tb = reduceState(mk("normal", "idle"), {
     type: "agent-status",
     status: "thinking",
   });
@@ -345,14 +427,10 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
     midRun,
     "核心自发回合（clearActivity=false）不清零",
   );
-  // 用户输入提交后状态栏回到相位 0 实心圆
+  // 用户输入提交后用户块符号回到相位 0 实心圆
   tb = reduceState(tb, { type: "turn-begin", clearActivity: true });
   tb = reduceState(tb, { type: "agent-status", status: "thinking" });
-  assert.equal(
-    strip(statusRow(tb)).trimStart()[0],
-    "●",
-    "用户输入清零后回到相位 0 实心圆",
-  );
+  assert.equal(liveSym(tb), "●", "用户输入清零后回到相位 0 实心圆");
 });
 
 test("nextRunVirt: 窗口速率估计 + 速率化 slew + 上下限 clamp（P1 时间一致 / P2 抗噪）", () => {
@@ -490,14 +568,21 @@ test("virtTick: 无数据时虚拟速度指数衰减回落到下限、虚拟总 
 
 test("运行中无数据：virt-tick 持续积分跨过阈值切换 ●/○，速度渐降但 token 不停", () => {
   const ascii = (chars: number): string => "x".repeat(chars);
-  const strip = (l: FrameRow): string =>
-    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "");
-  const statusRow = (s: ReturnType<typeof initialState>): FrameRow =>
-    buildFrame(s, { rows: 24, cols: 60 })[18]!; // 状态栏行
-  const sym = (s: ReturnType<typeof initialState>): string =>
-    strip(statusRow(s)).trimStart()[0] ?? "";
+  /** 状态符号在用户块首行（P1）：读数前追加探针用户行（活跃块 = buffer 末尾，恒在
+   *  视口内；user 行不参与虚拟 token 积分，不扰相位），符号取该块首行首个非空格字符 */
+  const LIVE = "活跃用户块";
+  const sym = (s: ReturnType<typeof initialState>): string => {
+    const st = reduceState(s, { type: "user-line", text: LIVE });
+    const frame = buildFrame(st, { rows: 24, cols: 60 });
+    const at = frame.findIndex((l) =>
+      histContent(rowAnsi(l), 60).includes(LIVE),
+    );
+    assert.ok(at >= 0, "活跃用户块在帧内可见");
+    return histContent(rowAnsi(frame[at]!), 60).trimStart()[0] ?? "";
+  };
   // 高速流式若干帧（每 50ms 16 token）：速度按 slew 速率爬升，虚拟总 token 积分
-  let s = reduceState(initialState(), {
+  let s = reduceState(initialState(), { type: "user-line", text: "用户问题" });
+  s = reduceState(s, {
     type: "agent-status",
     status: "thinking",
   });
@@ -1175,9 +1260,18 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
       cols: 40,
     },
   ).map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""));
-  // 标题已移入状态列，水平栏定位改用组间框线（状态栏行 = 状态符号 + 空格 + │ 开头）
-  const statIdx = st.findIndex((l) => /^[✓✗●○△?] │/.test(l.trimStart()));
-  assert.ok(statIdx > 0, "状态行存在");
+  // 状态栏行定位（P1）：状态栏不再以「符号 + 空格 + │」起头（符号已移到用户块首行、
+  // 组间改 • 分隔），改按状态区三段结构定位——上分隔行 / 状态栏行 / 下分隔行
+  const seps = st
+    .map((l, i) => (i > TITLE_BAR_ROWS && isSepRow(l, 40) ? i : -1))
+    .filter((i) => i >= 0);
+  const pair = seps.findIndex((i, k) => seps[k + 1] === i + 2);
+  assert.ok(pair >= 0, "状态区上下分隔行存在");
+  const statIdx = seps[pair]! + 1;
+  assert.ok(
+    st[statIdx]!.includes("•"),
+    "状态栏行在上下分隔行之间（组间 • 分隔）",
+  );
   assert.ok(st[statIdx - 1]!.trimStart().startsWith("─"), "状态栏上方 ─ 分隔");
   assert.ok(
     st[statIdx + 1]!.trimStart().startsWith("─"),
@@ -1803,13 +1897,14 @@ test("buildFrame: 工具历史不按组数折叠，只受活动 pane 可视行�
   );
 });
 
-test("buildFrame: step 分组头渲染为 `╌╌ step N ╌╌╌` 历史虚线整行（与 turn 分隔一致），后无空行", () => {
+test("buildFrame: step 分组头渲染为 `╌╌ hh:mm:ss #N ╌╌╌` 历史虚线整行（与 turn 分隔一致），后无空行", () => {
   let s = initialState();
   s = reduceState(s, {
     type: "step",
     sessionId: "s1",
     turn: 1,
     step: 123,
+    time: STEP_TIME,
     phase: "start",
   });
   s = reduceState(s, {
@@ -1827,10 +1922,10 @@ test("buildFrame: step 分组头渲染为 `╌╌ step N ╌╌╌` 历史虚线
   const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
-  const sep = lines.findIndex((l) => l.includes("╌╌ step 123"));
+  const sep = lines.findIndex((l) => l.includes(stepHead(123)));
   assert.ok(sep >= 0, "虚线 step 分隔行存在: " + lines.join("|"));
   // 活动区行带左缩进 + 右缘竖线：段头前后均为与 turn 一致的历史虚线段（╌，到竖线前）
-  const head = "╌╌ step 123 ";
+  const head = stepHead(123);
   const after = lines[sep]!.slice(lines[sep]!.indexOf(head) + head.length);
   assert.ok(
     /^ *╌+│? *$/.test(after) && after.includes("╌"),
@@ -1850,6 +1945,7 @@ test("buildFrame: step 分割行前吸收空活动行（前文结束即接分割
     sessionId: "s1",
     turn: 1,
     step: 1,
+    time: STEP_TIME,
     phase: "start",
   });
   s = reduceState(s, {
@@ -1876,6 +1972,7 @@ test("buildFrame: step 分割行前吸收空活动行（前文结束即接分割
     sessionId: "s1",
     turn: 1,
     step: 2,
+    time: STEP_TIME,
     phase: "start",
   });
   s = reduceState(s, {
@@ -1894,7 +1991,7 @@ test("buildFrame: step 分割行前吸收空活动行（前文结束即接分割
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const blank = (l: string): boolean => l.replace(/[│|\s]/g, "") === "";
-  const sep = lines.findIndex((l) => l.includes("╌╌ step 2"));
+  const sep = lines.findIndex((l) => l.includes(stepHead(2)));
   assert.ok(sep >= 0, "step 2 分割行存在: " + lines.join("|"));
   assert.ok(
     !blank(lines[sep - 1]!),
@@ -1913,6 +2010,7 @@ test("buildFrame: 思考以换行结尾时 step 分割行前不显示空行（�
     sessionId: "s1",
     turn: 1,
     step: 1,
+    time: STEP_TIME,
     phase: "start",
   });
   s = reduceState(s, {
@@ -1934,6 +2032,7 @@ test("buildFrame: 思考以换行结尾时 step 分割行前不显示空行（�
     sessionId: "s1",
     turn: 1,
     step: 2,
+    time: STEP_TIME,
     phase: "start",
   });
   s = reduceState(s, {
@@ -1952,7 +2051,7 @@ test("buildFrame: 思考以换行结尾时 step 分割行前不显示空行（�
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const blank = (l: string): boolean => l.replace(/[│|\s]/g, "") === "";
-  const sep = lines.findIndex((l) => l.includes("╌╌ step 2"));
+  const sep = lines.findIndex((l) => l.includes(stepHead(2)));
   assert.ok(sep >= 0, "step 2 分割行存在: " + lines.join("|"));
   assert.ok(
     (lines[sep - 1] ?? "").includes("┃好的，下一步执行") ||
@@ -1988,6 +2087,7 @@ test("buildFrame: notice 纯换行紧贴 step 头被吸收（无视觉空行）"
     sessionId: "s1",
     turn: 1,
     step: 2,
+    time: STEP_TIME,
     phase: "start",
   });
   s = reduceState(s, {
@@ -2000,7 +2100,7 @@ test("buildFrame: notice 纯换行紧贴 step 头被吸收（无视觉空行）"
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const blank = (l: string): boolean => l.replace(/[│|\s]/g, "") === "";
-  const sep = lines.findIndex((l) => l.includes("╌╌ step 2"));
+  const sep = lines.findIndex((l) => l.includes(stepHead(2)));
   assert.ok(sep >= 0, "step 2 分割行存在: " + lines.join("|"));
   assert.ok(!blank(lines[sep - 1]!), "纯换行 notice 被吸收，分割行前无空行");
   assert.ok((lines[sep + 1] ?? "").includes("bash pwd"), "分割行后紧跟工具行");
@@ -2031,6 +2131,7 @@ test("buildFrame: notice 尾换行被吸收但正文保留（中间提示场景�
     sessionId: "s1",
     turn: 1,
     step: 2,
+    time: STEP_TIME,
     phase: "start",
   });
   s = reduceState(s, {
@@ -2043,7 +2144,7 @@ test("buildFrame: notice 尾换行被吸收但正文保留（中间提示场景�
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const blank = (l: string): boolean => l.replace(/[│|\s]/g, "") === "";
-  const sep = lines.findIndex((l) => l.includes("╌╌ step 2"));
+  const sep = lines.findIndex((l) => l.includes(stepHead(2)));
   assert.ok(sep >= 0, "step 2 分割行存在: " + lines.join("|"));
   assert.ok(
     (lines[sep - 1] ?? "").includes("中间提示"),
@@ -3215,21 +3316,24 @@ test("frameSections：段表覆盖整帧、行带连续且与几何一致", () =
   assert.equal(sections[0]!.lineCount, geom.contentTopH, "top 段即顶部内容区");
 });
 
-test("状态列：正文宽口径 = statusColWidth − 2（外缘框格 + 分隔竖线），Mode 拼行不被截断", () => {
+test("状态列：正文宽口径 = statusColWidth − 2（外缘框格 + 分隔竖线），满宽行不被截断", () => {
   // 回归：buildTopRegion 曾把 statusColWidth 满宽传给 renderStatusColumn，而实际可见
   // 正文只有 statusColWidth − 2 列（col0 状态列外缘框格、末列分隔竖线）——拼行/折行
-  // 多算一列后，恰好拼满的行丢掉最后一个字符（cols=120 时 verbose 的 on 显示成 o）。
+  // 多算一列后，恰好拼满的行丢掉最后一个字符（原症状：verbose 的 on 显示成 o）。
+  // P7 起 Mode 块已从状态列移除，改用 Todo 条目做同口径的满宽拼行验证。
   for (const cols of [92, 120, 126]) {
     const size = { rows: 24, cols };
-    let s = initialState(undefined, { notifyEnabled: true });
+    let s = initialState();
+    s = reduceState(s, { type: "session-identify", id: "s1", title: "会话" });
+    const bodyW = frameGeometry(s, size).statusColWidth - 2; // 可见正文宽
+    // todo 首行 = 标记 2 列 + 正文（折行宽 = 状态列正文宽 − 2）→ 正文取 bodyW − 2 恰好拼满
+    const content = "x".repeat(Math.max(1, bodyW - 2));
     s = reduceState(s, {
-      type: "mode",
+      type: "todo-write",
       sessionId: "s1",
-      kind: "plan",
-      value: "off",
+      todos: [{ content, status: "pending" }],
     });
     const g = frameGeometry(s, size);
-    const bodyW = g.statusColWidth - 2; // 可见正文宽
     const rows = buildFrame(s, size).map((r) =>
       rowAnsi(r).replace(/\x1b\[[0-9;]*m/g, ""),
     );
@@ -3237,11 +3341,13 @@ test("状态列：正文宽口径 = statusColWidth − 2（外缘框格 + 分隔
     const top = rows.slice(0, 6).map(body);
     const joined = top.join("\n");
     assert.ok(
-      joined.includes("symbol-unify ✓"),
-      `cols=${cols}: symbol-unify 项完整（末字符不被截断）: ` +
-        JSON.stringify(joined),
+      joined.includes("Todo 0/1"),
+      `cols=${cols}: Todo 标题完整: ` + JSON.stringify(joined),
     );
-    assert.ok(joined.includes("bell ✓"), `cols=${cols}: bell 完整`);
+    assert.ok(
+      joined.includes(`○ ${content}`),
+      `cols=${cols}: 满宽 todo 行末字符不被截断: ` + JSON.stringify(joined),
+    );
     for (const l of top)
       assert.ok(
         displayWidth(l) <= bodyW,
