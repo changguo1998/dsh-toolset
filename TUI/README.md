@@ -94,11 +94,11 @@ dsh --profile <p>                      # 启动（需要真实终端；真实链
 自上而下若干块，块间以虚线 `╌` 分隔：
 
 - **Mode 块**（会话可切换状态总览）：各项目以 `|` 分隔，**按项宽升序排布后短项拼行**（同行多项目以 `|` 相连，放不下才折行、折行处不加竖线）。项目分两类——① 枚举类项（有数据才列出，列出全部可选项、生效项着色强调、其余灰）：`sandbox` / `permission` 按危险等级 ro 绿 / wr 黄 / full 红，`policy` ask 绿 / auto 红，`preset` 洋红；② **on/off 类项只显示当前态的单符号**（不再列 `on|off` 字面值）：`plan ✓/✗`、`verbose ✓/✗`（`/verbose`）、`symbol-unify ✓/✗`（`/symbol-unify`）、`bell ✓/✗`（`notify.enabled` 配置项）——**勾 = on**（用该项生效色：plan / verbose / symbol-unify 青，bell 绿）、**叉 = off**（灰）。无任何可列项时整块省略。
-- **Goal 块**：标题 `Goal <phase>`（Goal 蓝、phase 按 active/complete 绿、paused 黄、blocked 红）+ objective；blocked 时附黄色阻塞原因。
+- **Goal 块**：标题 `Goal <phase>`（当前 goal；Goal 蓝、phase 按 active/complete 绿、paused 黄、blocked 红）+ objective；blocked 时附黄色阻塞原因。其下为**历史（旧）goal**：每条「`Goal <phase>`（灰）+ objective（灰 + 删除线）」，与已完成 todo 同口径——同一会话的 goal 变更累积展示（create 入栈、后续事件按 id 原位更新、clear 出栈）。
 - **Todo 块**：标题 `Todo 完成数/总数`（蓝）+ 列表（`○` 待办 / `●` 进行中（黄，续行同色）/ `✓` 完成（对号灰、正文灰 + 删除线））。
 - **Jobs 块**：标题 `Jobs 运行中/总数`（蓝）+ 任务行（`●` 运行中黄 / `✗` 失败红 / `○` 取消灰 / `✓` 已完成灰 + 删除线）。
 
-**折叠策略**：整体不溢出时完整显示；超高时按等级整体尝试、首次放下即采用——L0 不折叠 / L1 隐藏已完成条目 / L2 仅保留进行中条目（goal 压成标题行）/ L3 进行中条目也压为 1 行；隐藏条目以 `…(+N项已隐藏)` 收尾，全部等级仍放不下则整列行级截断 `…(+N行)`。折叠在渲染期按窗口高决定，不改状态。焦点在状态列时 `PgUp/PgDn` 滚动。
+**折叠策略**：整体不溢出时完整显示；超高时按等级整体尝试、首次放下即采用——L0 不折叠 / L1 隐藏已完成条目（Goal 块保留最近 1 条历史 goal）/ L2 仅保留进行中条目（goal 压成标题行）/ L3 进行中条目也压为 1 行；隐藏条目以 `…(+N项已隐藏)`（goal 历史为 `…(+N个历史 goal 已隐藏)`）收尾，全部等级仍放不下则整列行级截断 `…(+N行)`。折叠在渲染期按窗口高决定，不改状态。焦点在状态列时 `PgUp/PgDn` 滚动。
 
 ### 排队消息
 

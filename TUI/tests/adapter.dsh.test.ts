@@ -2704,12 +2704,60 @@ test("P2 reducer：goal set/clear、todo 全量替换、mode 三合一、compact
     updatedAt: 1,
   });
   const gSet = s.goalBySession[sid];
-  assert.ok(gSet && gSet.status === "set");
-  assert.equal(gSet.goal.phase, "active");
-  assert.equal(gSet.goal.maxGoalRounds, 3);
-  assert.equal(gSet.operation, "create");
+  assert.ok(gSet && gSet.length === 1);
+  assert.equal(gSet[0]!.goal.phase, "active");
+  assert.equal(gSet[0]!.goal.maxGoalRounds, 3);
+  assert.equal(gSet[0]!.operation, "create");
   // 其它会话此时无 goal
   assert.equal(s.goalBySession["s2"], undefined);
+  // goal 历史：create 新目标入栈到 index 0（其后为旧 goal）
+  s = reduceState(s, {
+    type: "goal-change",
+    sessionId: sid,
+    operation: "create",
+    goal: {
+      id: "g2",
+      revision: 1,
+      objective: "第二个目标",
+      phase: "active",
+      maxGoalRounds: 5,
+    },
+    roundsStarted: 0,
+    createdAt: 5,
+    updatedAt: 5,
+  });
+  assert.deepEqual(
+    s.goalBySession[sid]?.map((e) => [e.goal.id, e.goal.phase]),
+    [
+      ["g2", "active"],
+      ["g1", "active"],
+    ],
+    "新 goal 入栈到 index 0（旧 goal 留作历史）",
+  );
+  // 旧 goal 的后续事件按 id 原位更新：不重排、不新增条目
+  s = reduceState(s, {
+    type: "goal-change",
+    sessionId: sid,
+    operation: "complete",
+    goal: {
+      id: "g1",
+      revision: 2,
+      objective: "目标",
+      phase: "complete",
+      maxGoalRounds: 3,
+    },
+    roundsStarted: 0,
+    createdAt: 1,
+    updatedAt: 3,
+  });
+  assert.deepEqual(
+    s.goalBySession[sid]?.map((e) => [e.goal.id, e.goal.phase]),
+    [
+      ["g2", "active"],
+      ["g1", "complete"],
+    ],
+    "历史 goal 原位更新（保持原顺序）",
+  );
   // todo 全量替换（非 append）
   s = reduceState(s, {
     type: "todo-write",
@@ -2736,17 +2784,27 @@ test("P2 reducer：goal set/clear、todo 全量替换、mode 三合一、compact
   assert.deepEqual(s.todoBySession["s2"], [
     { content: "x", status: "pending" },
   ]);
-  // goal clear：该会话清空为 cleared，其它会话不受影响
+  // goal clear：按 id 出栈（墓碑不留条目），其它会话不受影响
   s = reduceState(s, {
     type: "goal-change",
     sessionId: sid,
     operation: "clear",
-    cleared: { id: "g1", revision: 2 },
+    cleared: { id: "g1", revision: 3 },
     clearedAt: 9,
   });
-  const gClear = s.goalBySession[sid];
-  assert.ok(gClear && gClear.status === "cleared");
-  assert.deepEqual(gClear.cleared, { id: "g1", revision: 2 });
+  assert.deepEqual(
+    s.goalBySession[sid]?.map((e) => e.goal.id),
+    ["g2"],
+    "clear 只移除被清除的那条（历史其余保留）",
+  );
+  s = reduceState(s, {
+    type: "goal-change",
+    sessionId: sid,
+    operation: "clear",
+    cleared: { id: "g2", revision: 2 },
+    clearedAt: 10,
+  });
+  assert.deepEqual(s.goalBySession[sid], [], "全部清除后该会话无 goal 条目");
   // mode：plan/sandbox/permission 三合一 + 会话隔离
   s = reduceState(s, {
     type: "mode",
@@ -3429,7 +3487,7 @@ test("restoreSessionState：模型按 model/selection → 快照 → 最近 requ
   }
 });
 
-test("restoreSessionState：goal/todo 折叠末条 + TUI 本地开关来自快照", async () => {
+test("restoreSessionState：goal 按序回放全部事件（历史）+ todo 折叠末条 + TUI 本地开关来自快照", async () => {
   const { root, cleanup } = makeSessionRoot("s1");
   try {
     writeSessionUiState(
@@ -3444,7 +3502,7 @@ test("restoreSessionState：goal/todo 折叠末条 + TUI 本地开关来自快�
         seq: 1,
         data: {
           operation: "create",
-          goal: { id: "g1", title: "目标" },
+          goal: { id: "g1", objective: "目标", phase: "active" },
           roundsStarted: 0,
           createdAt: 1,
           updatedAt: 2,
@@ -3452,8 +3510,30 @@ test("restoreSessionState：goal/todo 折叠末条 + TUI 本地开关来自快�
       },
       { type: "todo/write", seq: 2, data: { todos: [{ content: "甲" }] } },
       {
-        type: "todo/write",
+        type: "goal/change",
         seq: 3,
+        data: {
+          operation: "complete",
+          goal: { id: "g1", objective: "目标", phase: "complete" },
+          roundsStarted: 0,
+          createdAt: 1,
+          updatedAt: 3,
+        },
+      },
+      {
+        type: "goal/change",
+        seq: 4,
+        data: {
+          operation: "create",
+          goal: { id: "g2", objective: "新目标", phase: "active" },
+          roundsStarted: 0,
+          createdAt: 4,
+          updatedAt: 4,
+        },
+      },
+      {
+        type: "todo/write",
+        seq: 5,
         data: { todos: [{ content: "乙", status: "in_progress" }] },
       },
     ];
@@ -3465,17 +3545,37 @@ test("restoreSessionState：goal/todo 折叠末条 + TUI 本地开关来自快�
     await adapter.restoreSessionState!("s1");
     unbind();
     assert.deepEqual(
-      events.find((e) => e.type === "goal-change"),
-      {
-        type: "goal-change",
-        sessionId: "s1",
-        operation: "create",
-        goal: { id: "g1", title: "目标" },
-        roundsStarted: 0,
-        createdAt: 1,
-        updatedAt: 2,
-      },
-      "goal 取末条全量快照",
+      events.filter((e) => e.type === "goal-change"),
+      [
+        {
+          type: "goal-change",
+          sessionId: "s1",
+          operation: "create",
+          goal: { id: "g1", objective: "目标", phase: "active" },
+          roundsStarted: 0,
+          createdAt: 1,
+          updatedAt: 2,
+        },
+        {
+          type: "goal-change",
+          sessionId: "s1",
+          operation: "complete",
+          goal: { id: "g1", objective: "目标", phase: "complete" },
+          roundsStarted: 0,
+          createdAt: 1,
+          updatedAt: 3,
+        },
+        {
+          type: "goal-change",
+          sessionId: "s1",
+          operation: "create",
+          goal: { id: "g2", objective: "新目标", phase: "active" },
+          roundsStarted: 0,
+          createdAt: 4,
+          updatedAt: 4,
+        },
+      ],
+      "goal 按 seq 顺序回放全部 goal/change（旧 goal 由 reducer 累积为历史）",
     );
     assert.deepEqual(
       events.filter((e) => e.type === "todo-write"),

@@ -959,7 +959,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
    *  - mode：`plan/mode` / `sandbox/mode` / `permission/preset`；`approval/policy`
    *    同理单独成事件。宿主无记录时退回快照，再退回 permissionPresets.defaultPreset
    *    捆绑（= pinInitialPermission 会给全新会话钉上的组合），plan 无记录即 off。
-   *  - goal/todo：末条 `goal/change` / `todo/write`（全量快照事件，latest-wins）。
+   *  - goal：按 seq 顺序回放全部 `goal/change`（累积成会话 goal 历史，当前 + 旧 goal 一并展示）；
+   *    todo：末条 `todo/write`（全量快照事件，latest-wins）。
    *  - TUI 本地开关（`/verbose`、`/symbol-unify`）宿主不认识，只在快照里 → ui-flags。
    *
    * 读取源：live 会话优先读内存 events（全量原始，最省事）；否则走
@@ -1094,26 +1095,32 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       });
     }
 
-    // —— goal / todo（全量快照事件，latest-wins） ——
-    const goal = lastOf("goal/change") as GoalChangeLike | undefined;
-    if (goal?.operation === "clear") {
-      emit({
-        type: "goal-change",
-        sessionId: id,
-        operation: "clear",
-        cleared: goal.cleared,
-        clearedAt: goal.clearedAt,
-      });
-    } else if (goal !== undefined) {
-      emit({
-        type: "goal-change",
-        sessionId: id,
-        operation: goal.operation,
-        goal: goal.goal,
-        roundsStarted: goal.roundsStarted,
-        createdAt: goal.createdAt,
-        updatedAt: goal.updatedAt,
-      });
+    // —— goal / todo ——
+    // goal：按 seq 顺序回放**全部** `goal/change`（状态列按会话累积成历史：当前 + 旧 goal；
+    // 只取末条会丢掉已完成的历史）。todo：末条 `todo/write`（全量快照，latest-wins）。
+    for (const ev of events ?? []) {
+      if (ev.type !== "goal/change") continue;
+      const change = ev.data as GoalChangeLike | undefined;
+      if (change === undefined) continue;
+      if (change.operation === "clear") {
+        emit({
+          type: "goal-change",
+          sessionId: id,
+          operation: "clear",
+          cleared: change.cleared,
+          clearedAt: change.clearedAt,
+        });
+      } else {
+        emit({
+          type: "goal-change",
+          sessionId: id,
+          operation: change.operation,
+          goal: change.goal,
+          roundsStarted: change.roundsStarted,
+          createdAt: change.createdAt,
+          updatedAt: change.updatedAt,
+        });
+      }
     }
     const todos = lastOf("todo/write") as { todos?: unknown } | undefined;
     if (todos !== undefined) {

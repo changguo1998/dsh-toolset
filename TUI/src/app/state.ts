@@ -145,32 +145,27 @@ export interface SystemStatus {
 /** turn 分隔线（横线占位；实际宽度由历史区换行决定） */
 export const TURN_SEPARATOR = "--------";
 
-/** P2 goal 状态（判别联合同 DshEvent：set 完整保留快照字段，clear 保留墓碑 ref） */
-export type GoalState =
-  | {
-      status: "set";
-      operation: Exclude<GoalOperation, "clear">;
-      goal: GoalSnapshotLike;
-      roundsStarted?: number;
-      createdAt?: number;
-      updatedAt?: number;
-    }
-  | {
-      status: "cleared";
-      operation: "clear";
-      cleared: GoalRefLike;
-      clearedAt?: number;
-    };
+/** P2 goal 条目（`goal/change` set 分支：完整快照 + 事件元数据；clear 分支即出栈不留条目） */
+export interface GoalEntry {
+  operation: Exclude<GoalOperation, "clear">;
+  goal: GoalSnapshotLike;
+  roundsStarted?: number;
+  createdAt?: number;
+  updatedAt?: number;
+}
 
-/** P2 selector：取当前会话 set 态 goal 快照（含 objective/phase）；无/清除 → undefined */
+/** P2 goal 历史（按会话隔离；index 0 = 当前/最新 goal，其后为已完成或已被取代的旧 goal）。
+ *  create（含未知 id）入栈、edit/pause/resume/complete/block 按 id 原位更新、clear 出栈；
+ *  状态列据此把旧 goal 以「已结束」样式（灰 + 删除线）与当前 goal 一并展示。 */
+export type GoalHistory = readonly GoalEntry[];
+
+/** P2 selector：取当前会话最新 goal 快照（含 objective/phase）；无/已清除 → undefined */
 export function activeGoalSnapshot(
   state: AppState,
   sessionId: string | undefined,
 ): GoalSnapshotLike | undefined {
   if (!sessionId) return undefined;
-  const g = state.goalBySession[sessionId];
-  if (!g || g.status !== "set") return undefined;
-  return g.goal;
+  return state.goalBySession[sessionId]?.[0]?.goal;
 }
 
 /** P2 模式徽标状态（plan 用 "on"/"off"；sandbox/permission 存原始值字符串；缺省省略） */
@@ -417,7 +412,7 @@ export interface AppState {
   /** 当前会话标题（resume 后由 surface 首条用户消息生成；新会话为空，状态栏以 <title> 占位） */
   sessionTitle: string;
   /** P2：按 sessionId 隔离的 goal 状态（判别联合；完整保留原始载荷字段） */
-  goalBySession: Record<string, GoalState>;
+  goalBySession: Record<string, GoalHistory>;
   /** P2：按 sessionId 隔离的 todo 列表（全量快照 last-write-wins） */
   todoBySession: Record<string, TodoItemLike[]>;
   /** P2：按 sessionId 隔离的模式徽标（plan/sandbox/permission 三合一） */
@@ -1711,34 +1706,35 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         };
       }
       case "goal-change": {
-        // P2：goal 全量快照/clear 墓碑，按 sessionId 隔离存储（判别联合同事件，完整保留字段）
+        // P2：goal 累积为会话历史（index 0 = 当前）——create/未知 id 入栈；edit/pause/
+        // resume/complete/block 按 id 原位更新；clear 出栈（墓碑只带 ref，不再展示）
+        const prev = state.goalBySession[action.sessionId] ?? [];
+        let next: GoalHistory;
         if (action.operation === "clear") {
-          return {
-            ...state,
-            goalBySession: {
-              ...state.goalBySession,
-              [action.sessionId]: {
-                status: "cleared",
-                operation: "clear",
-                cleared: action.cleared,
-                clearedAt: action.clearedAt,
-              },
-            },
+          next = prev.filter((e) => e.goal.id !== action.cleared.id);
+        } else {
+          const entry: GoalEntry = {
+            operation: action.operation,
+            goal: action.goal,
+            ...(action.roundsStarted === undefined
+              ? {}
+              : { roundsStarted: action.roundsStarted }),
+            ...(action.createdAt === undefined
+              ? {}
+              : { createdAt: action.createdAt }),
+            ...(action.updatedAt === undefined
+              ? {}
+              : { updatedAt: action.updatedAt }),
           };
+          const at = prev.findIndex((e) => e.goal.id === action.goal.id);
+          next =
+            at < 0
+              ? [entry, ...prev]
+              : prev.map((e, i) => (i === at ? entry : e));
         }
         return {
           ...state,
-          goalBySession: {
-            ...state.goalBySession,
-            [action.sessionId]: {
-              status: "set",
-              operation: action.operation,
-              goal: action.goal,
-              roundsStarted: action.roundsStarted,
-              createdAt: action.createdAt,
-              updatedAt: action.updatedAt,
-            },
-          },
+          goalBySession: { ...state.goalBySession, [action.sessionId]: next },
         };
       }
       case "todo-write":

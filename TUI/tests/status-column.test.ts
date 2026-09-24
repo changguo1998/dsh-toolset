@@ -1,9 +1,10 @@
 // tests/status-column.test.ts — 顶部状态列渲染单测（renderStatusColumn）
 //
-// 覆盖：goal set（`Goal <phase>` 蓝标题+phase 状态色 + objective + blocked 黄 tone）、
+// 覆盖：goal 列表（index 0 = 当前，其后为历史旧 goal；`Goal <phase>` 蓝标题+phase 状态色 +
+// objective + blocked 黄 tone；已完成 objective 灰+删除线）、
 // todo/jobs 列表（无强制行数上限）、无 goal/todo 占位、总高超窗口时「折叠等级从低到高
-// 依次尝试（L0 全显 / L1 隐藏已完成 / L2 仅进行中、goal 压标题行 / L3 进行中压 1 行）」、
-// 每行定宽含右缘竖线、status-column-scroll
+// 依次尝试（L0 全显 / L1 隐藏已完成、goal 保留最近 1 条历史 / L2 仅进行中、goal 压标题行 /
+// L3 进行中压 1 行）」、每行定宽含右缘竖线、status-column-scroll
 // reducer（PgUp/PgDn 经 index 转发）。
 // Mode 块：会话运行模式/权限/策略（列出全部
 // 可选项、生效项着色、其余灰）。
@@ -12,7 +13,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderStatusColumn, displayWidth } from "../src/app/layout.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
-import type { GoalState, ModeState } from "../src/app/state.ts";
+import type { GoalHistory, ModeState } from "../src/app/state.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import type { JobInfo, TodoItemLike } from "../src/app/adapter/dsh.ts";
 
@@ -20,24 +21,51 @@ const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 type GoalPhase = "active" | "paused" | "blocked" | "complete";
 
+/** 单条 goal 的列表形式（index 0 = 当前）；历史项由 goalList 拼装 */
 const setGoal = (
   phase: GoalPhase,
   objective: string,
   blockedReason?: { code: string; message: string },
-): GoalState => ({
-  status: "set",
-  operation: phase === "blocked" ? "block" : "create",
-  goal: { id: "g1", revision: 1, objective, phase, blockedReason },
-});
+): GoalHistory => [
+  {
+    operation: phase === "blocked" ? "block" : "create",
+    goal: { id: "g1", revision: 1, objective, phase, blockedReason },
+  },
+];
+
+/** 当前 goal + 历史（旧）goal 列表：第 2 项起为历史条目 */
+const goalList = (
+  current: { phase: GoalPhase; objective: string },
+  ...history: { phase: GoalPhase; objective: string }[]
+): GoalHistory => [
+  {
+    operation: "create",
+    goal: {
+      id: "g0",
+      revision: 1,
+      objective: current.objective,
+      phase: current.phase,
+    },
+  },
+  ...history.map((h, i) => ({
+    operation: "create" as const,
+    goal: {
+      id: `h${i + 1}`,
+      revision: 1,
+      objective: h.objective,
+      phase: h.phase,
+    },
+  })),
+];
 
 function col(
-  goal: GoalState | undefined,
+  goals: GoalHistory | undefined,
   todos: TodoItemLike[] | undefined,
   opts: { height?: number; width?: number; scroll?: number } = {},
   jobs?: JobInfo[],
 ): string[] {
   return renderStatusColumn(
-    goal,
+    goals,
     todos,
     jobs,
     opts.scroll ?? 0,
@@ -143,6 +171,71 @@ test("renderStatusColumn: goal 块超窗口高时按等级折叠（L2 压成标�
     height: 30,
   });
   assert.ok(full.join("|").includes("行39"), "高度充足时目标完整显示");
+});
+
+test("renderStatusColumn: 当前 goal + 历史旧 goal 同块展示（旧条目灰+删除线）", () => {
+  const goals = goalList(
+    { phase: "active", objective: "当前目标" },
+    { phase: "complete", objective: "旧目标" },
+  );
+  const rows = col(goals, [], { width: 30, height: 12 });
+  const t = rows.join("\n");
+  assert.ok(t.includes("Goal active"), "标题=当前 goal 的 phase");
+  assert.ok(t.includes("当前目标"), "当前 objective 展示");
+  assert.ok(t.includes("Goal complete"), "历史条目标题行保留 phase");
+  assert.ok(t.includes("旧目标"), "历史 objective 展示");
+  // 历史 objective 灰 + 删除线（同 todo 完成态口径）：在未 strip 的原始行上断言
+  const rawRows = renderStatusColumn(goals, [], undefined, 0, 12, 30);
+  const rawHistory = rawRows.find((r) => rowText(r).includes("旧目标"))!;
+  assert.ok(
+    rowAnsi(rawHistory).includes("9m"),
+    "历史 objective 带删除线: " + rowAnsi(rawHistory),
+  );
+  const rawCurrent = rawRows.find((r) => rowText(r).includes("当前目标"))!;
+  assert.ok(
+    !rowAnsi(rawCurrent).includes("9m"),
+    "进行中（active）当前 goal 不带删除线: " + rowAnsi(rawCurrent),
+  );
+  // 当前 goal 自身已 complete → 与历史条目同口径（灰 + 删除线）
+  const done = renderStatusColumn(
+    setGoal("complete", "已完成目标"),
+    [],
+    undefined,
+    0,
+    8,
+    30,
+  ).find((r) => rowText(r).includes("已完成目标"))!;
+  assert.ok(
+    rowAnsi(done).includes("9m"),
+    "complete 的当前 goal objective 带删除线: " + rowAnsi(done),
+  );
+});
+
+test("renderStatusColumn: 历史 goal 按折叠等级收敛（L1 留最近 1 条、L2 全隐藏）", () => {
+  const goals = goalList(
+    { phase: "active", objective: "当前" },
+    { phase: "complete", objective: "历史一" },
+    { phase: "complete", objective: "历史二" },
+  );
+  // 高度充足：L0 展示全部历史
+  const full = col(goals, [], { width: 30, height: 20 }).join("\n");
+  assert.ok(
+    full.includes("历史一") && full.includes("历史二"),
+    "L0 展示全部历史 goal",
+  );
+  // 高度 5（L0=6 行放不下）→ L1：当前 goal + 最近 1 条历史 + 隐藏计数提示
+  const mid = col(goals, [], { width: 30, height: 5 }).join("\n");
+  assert.ok(mid.includes("当前"), "L1 保留当前 goal 的 objective");
+  assert.ok(mid.includes("历史一"), "L1 保留最近 1 条历史 goal");
+  assert.ok(!mid.includes("历史二"), "L1 隐藏更早的历史 goal");
+  assert.ok(mid.includes("历史 goal 已隐藏"), "L1 出现隐藏计数提示");
+  // 高度 3：L1(5 行) 放不下 → L2 压成标题行（objective 与历史全隐藏）
+  const tight = col(goals, [], { width: 30, height: 3 }).join("\n");
+  assert.ok(tight.includes("Goal active"), "L2 保留标题行");
+  assert.ok(
+    !tight.includes("当前") && !tight.includes("历史一"),
+    "L2 隐藏 objective 与全部历史 goal",
+  );
 });
 
 test("renderStatusColumn: todo 无固定行数上限——高度充足完整显示，溢出保首部提示", () => {

@@ -82,7 +82,8 @@
     `approval-policy`（原 `emitSessionModeSnapshot` 能力）；
   - **模型**：末条 `model/selection`（显式意图）→ 末条 `request/header.header.config`
     （该会话最近一次**实际使用**的 provider / model / effort；TUI 的 `/model` 也记在这里）；
-  - `goal/change`、`todo/write` 末条（全量快照事件，latest-wins）→ 回填状态列。
+  - **goal**：按 seq 顺序回放**全部** `goal/change`（state 侧按会话累积成 goal 历史：index 0 =
+    当前 goal、其后为旧 goal）；**todo**：末条 `todo/write`（全量快照事件，latest-wins）→ 回填状态列。
 - **TUI 侧会话状态快照**（`<会话目录>/tui-state.json`，`adapter/session-ui-state.ts`）：
   `/model` 结果、`/verbose`、`/symbol-unify` 与 Mode 兜底值。宿主不认识 TUI 本地开关，
   「已选但尚未发起请求」的模型也不在日志里——这两类只有快照能恢复。

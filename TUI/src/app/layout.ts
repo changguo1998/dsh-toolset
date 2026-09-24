@@ -16,14 +16,15 @@ import type {
   AppState,
   InputMode,
   InputStatus,
-  GoalState,
+  GoalEntry,
+  GoalHistory,
   ModeState,
 } from "./state.ts";
 import { currentProjectCwd, historyVisibleRecords } from "./state.ts";
 import type { ActivityPlacement } from "./config.ts";
 
 import type { Buffer } from "./state.ts";
-import type { JobInfo, TodoItemLike } from "./adapter/dsh.ts";
+import type { JobInfo, TodoItemLike, GoalSnapshotLike } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { buildModelPickerBox } from "./components/ModelPicker.ts";
 import { buildHistoryPanelBox } from "./components/HistoryPanel.ts";
@@ -888,24 +889,44 @@ interface StatusRow {
   segments: FrameSegment[];
 }
 
-/** 状态列块：head=分隔线/标题等必保行；items=可按优先级折叠的条目（todo/jobs） */
+/** 状态列块：head=分隔线/标题等必保行；items=可按优先级折叠的条目（todo/jobs/goal 历史） */
 interface StatusBlock {
   id: "mode" | "goal" | "todo" | "jobs";
   head: StatusRow[];
   items: { rows: StatusRow[]; done: boolean; active: boolean }[];
+  /** goal 块专用：items[≥ historyFrom] 为历史（旧）goal 条目——L1 只保留首条，L2 起全隐藏 */
+  historyFrom?: number;
 }
 
 /** 状态列折叠等级（全局统一递增尝试）：
- *  L0 不折叠；L1 隐藏已完成条目；L2 仅保留进行中条目（goal 压成标题行）；
- *  L3 进行中条目也压为 1 行。 */
+ *  L0 不折叠；L1 隐藏已完成条目（goal 保留最近 1 条历史）；L2 仅保留进行中条目
+ *  （goal 压成标题行）；L3 进行中条目也压为 1 行。 */
 type FoldLevel = 0 | 1 | 2 | 3;
 
-/** 按折叠等级折叠块：goal 无条目概念（L2 起压成标题行「Goal <phase>」）；
- *  todo/jobs 按 done/active 过滤并带隐藏计数提示；mode 恒完整。 */
+/** 按折叠等级折叠块：goal 的 items 分「当前 goal 行 + 历史条目」（L1 保留最近 1 条历史、
+ *  L2 起压成标题行「Goal <phase>」）；todo/jobs 按 done/active 过滤并带隐藏计数提示；
+ *  mode 恒完整。 */
 function foldAt(block: StatusBlock, level: FoldLevel): StatusRow[] {
-  if (block.id === "goal" && level >= 2) {
-    // head 末行恒为标题（首块无 sep），L2 起只留标题，删除分隔线与 objective
-    return [block.head[block.head.length - 1]!];
+  if (block.id === "goal") {
+    // head 末行恒为标题（首块无 sep），L2 起只留标题：删除分隔线、objective 与历史
+    if (level >= 2) return [block.head[block.head.length - 1]!];
+    let kept = block.items;
+    let hidden = 0;
+    const from = block.historyFrom ?? kept.length;
+    // L1：历史只留最近 1 条（当前 goal 行不受折叠影响）
+    if (level >= 1 && kept.length > from + 1) {
+      hidden = kept.length - (from + 1);
+      kept = kept.slice(0, from + 1);
+    }
+    const rows = kept.flatMap((it) => it.rows);
+    if (hidden > 0) {
+      rows.push({
+        segments: [
+          seg(`…(+${hidden}个历史 goal 已隐藏)`, { fg: NOTICE_TONE_COLOR.log }),
+        ],
+      });
+    }
+    return [...block.head, ...rows];
   }
   if (block.id === "todo" || block.id === "jobs") {
     let kept = block.items;
@@ -944,6 +965,38 @@ function capRows(rows: StatusRow[], budget: number): StatusRow[] {
   const kept = rows.slice(0, budget - 1);
   kept.push({ segments: [seg(`…(+${hidden}行)`)] });
   return kept;
+}
+
+/** 当前 goal 的 objective 行（phase=complete 已完成 → 灰 + 删除线，与 todo 完成态同口径） */
+function goalObjectiveRows(g: GoalSnapshotLike, width: number): StatusRow[] {
+  return wrapLine(g.objective || "（空目标）", Math.max(1, width)).map(
+    (text) => ({
+      segments: [
+        g.phase === "complete"
+          ? seg(text, { fg: "gray", strike: true })
+          : seg(text),
+      ],
+    }),
+  );
+}
+
+/** 历史（旧）goal 行：标题行「Goal <phase>」（灰）+ objective（灰 + 删除线） */
+function goalHistoryRows(e: GoalEntry, width: number): StatusRow[] {
+  const rows = wrapLine(
+    e.goal.objective || "（空目标）",
+    Math.max(1, width),
+  ).map((text) => ({
+    segments: [seg(text, { fg: "gray", strike: true })],
+  }));
+  return [
+    {
+      segments: [
+        seg("Goal ", { fg: "gray" }),
+        seg(e.goal.phase, { fg: "gray" }),
+      ],
+    },
+    ...rows,
+  ];
 }
 
 /** todo 条目渲染行（首行带标记，续行缩进对齐） */
@@ -1207,7 +1260,7 @@ function modeBlock(
 /** 顶部状态列正文行（未按可视高度裁剪；供滚动窗口取窗） */
 /** 状态列各块（完整自然高度，无强制行数上限；是否折叠由 renderStatusColumn 按窗口总高决定） */
 function statusBlocks(
-  goal: GoalState | undefined,
+  goals: GoalHistory | undefined,
   todos: TodoItemLike[] | undefined,
   jobs: JobInfo[] | undefined,
   width: number,
@@ -1237,32 +1290,39 @@ function statusBlocks(
   if (modeRows.length > 0)
     blocks.push({ id: "mode", head: modeRows, items: [] });
   // goal 块非必需；todo/jobs 块独立展示（不早退）
-  if (goal && goal.status !== "cleared") {
-    const g = goal.goal;
+  // 条目布局：[当前 goal（objective，+blocked 原因）] + [历史（旧）goal 至少一条]
+  const goalList = goals ?? [];
+  if (goalList.length > 0) {
+    const current = goalList[0]!;
     const head: StatusRow[] = [];
     if (blocks.length > 0) head.push(sep());
     head.push({
       segments: [
         seg("Goal ", { fg: "blue" }),
-        seg(g.phase, { fg: GOAL_PHASE_COLOR[g.phase] ?? "green" }),
+        seg(current.goal.phase, {
+          fg: GOAL_PHASE_COLOR[current.goal.phase] ?? "green",
+        }),
       ],
     });
     const items: StatusBlock["items"] = [
       {
-        rows: wrapLine(g.objective || "（空目标）", Math.max(1, width)).map(
-          (text) => ({ segments: [seg(text)] }),
-        ),
-        done: false,
-        active: false,
+        rows: goalObjectiveRows(current.goal, width),
+        done: current.goal.phase === "complete",
+        active: current.goal.phase === "active",
       },
     ];
     // blocked → blockedReason.message 黄 tone
-    if (g.phase === "blocked" && g.blockedReason?.message) {
+    if (
+      current.goal.phase === "blocked" &&
+      current.goal.blockedReason?.message
+    ) {
       items.push({
         rows: [
           {
             segments: [
-              seg("阻塞: " + g.blockedReason.message, { fg: "yellow" }),
+              seg("阻塞: " + current.goal.blockedReason.message, {
+                fg: "yellow",
+              }),
             ],
           },
         ],
@@ -1270,7 +1330,15 @@ function statusBlocks(
         active: false,
       });
     }
-    blocks.push({ id: "goal", head, items });
+    const historyFrom = items.length;
+    for (const e of goalList.slice(1)) {
+      items.push({
+        rows: goalHistoryRows(e, width),
+        done: true,
+        active: false,
+      });
+    }
+    blocks.push({ id: "goal", head, items, historyFrom });
   }
   // todo 块：标题（完成数/总数，蓝）+ 列表（每条完整折行，不设强制行数上限）
   const list = todos ?? [];
@@ -1324,7 +1392,7 @@ function statusStartFor(len: number, offset: number, rows: number): number {
  *  由 buildTopRegion 剥去后重新构图左缘外框格/右缘分隔竖线）。
  *  滚动独立于对话区（statusColumnScroll，↑/↓ 仍滚历史，PgUp/PgDn 滚状态列）。 */
 export function renderStatusColumn(
-  goal: GoalState | undefined,
+  goals: GoalHistory | undefined,
   todos: TodoItemLike[] | undefined,
   jobs: JobInfo[] | undefined,
   scroll: number,
@@ -1345,7 +1413,7 @@ export function renderStatusColumn(
   // 状态列折叠策略：无强制行数上限——各块完整渲染，仅当总高度超过窗口高度时
   // 才折叠：高度按块尽量平均分配，块内按「已完成 → 靠后的未完成」优先级隐藏条目
   const blocks = statusBlocks(
-    goal,
+    goals,
     todos,
     jobs,
     w - 1,
@@ -1474,8 +1542,8 @@ function buildTopRegion(
   // 左缘框格 = 状态列左缘；右缘框列 = 历史/活动区右缘（均非聚焦/模态态留空白占位）
   const useLeftFrame = geom.leftFrame;
   const useRightFrame = geom.rightFrame;
-  // 当前活跃会话字段（goal/todo/模式/策略/预设）：状态列与状态栏共用口径
-  const { goal, todos, mode, policy, preset } = activeSessionFields(state);
+  // 当前活跃会话字段（goal 历史/todo/模式/策略/预设）：状态列与状态栏共用口径
+  const { goals, todos, mode, policy, preset } = activeSessionFields(state);
   // 区域顶部为独立标题栏（会话标题行 + 实线下划线）。
   // 排列方式与两 pane 宽高在 frameGeometry 内一次算定（纵向：标题栏行数由对话区
   // 承担；横向：两 pane 等高，中间 1 列内部分隔竖线）。
@@ -1538,7 +1606,7 @@ function buildTopRegion(
   // 状态列（最左）：恰「内容行数」行，每行宽 statusColWidth。
   // renderStatusColumn 自带右缘竖线，剥去不用，分隔竖线/外缘框格由本函数构图
   const statusCells = renderStatusColumn(
-    goal,
+    goals,
     todos,
     state.jobs,
     state.statusColumnScroll,
@@ -2247,13 +2315,13 @@ const MODE_SYMBOL: Record<InputMode, string> = {
 
 /** 当前活跃会话的目标/todo/模式/策略/预设/运行中任务数（状态栏与整页高度共用口径） */
 function activeSessionFields(state: AppState): {
-  goal?: GoalState;
+  goals?: GoalHistory;
   todos?: TodoItemLike[];
   mode?: ModeState;
   policy?: "ask" | "never";
   preset?: string;
 } {
-  const goal = state.activeSessionId
+  const goals = state.activeSessionId
     ? state.goalBySession[state.activeSessionId]
     : undefined;
   const todos = state.activeSessionId
@@ -2270,7 +2338,7 @@ function activeSessionFields(state: AppState): {
   const preset = state.activeSessionId
     ? state.presetBySession[state.activeSessionId]
     : undefined;
-  return { goal, todos, mode, policy, preset };
+  return { goals, todos, mode, policy, preset };
 }
 
 /** 对话区 ↑/↓ 半屏翻页的行数（至少 1 行；向下取整保证上/下对称） */
