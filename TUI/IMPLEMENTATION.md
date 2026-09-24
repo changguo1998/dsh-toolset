@@ -70,9 +70,32 @@
 - tool 行文本由 `layout/tool-line.ts` 纯函数组装；summary / detail 启发式由 adapter（`dsh.ts`）在归一化时产出。
 - **seq 守卫**（per-session 游标）：`event.seq <= lastSeq` 丢弃；间隙接受不补缺；非活跃会话丢弃。
 
-## Mode 初始值折叠
+## 会话状态恢复（Mode / 模型 / goal / todo / TUI 本地开关）
 
-官方 `plan/mode`、`sandbox/mode`、`permission/preset`、`approval/policy` 均为 log-only 事件（仅切换时落盘，会话启动无初始事件）→ `DshAdapter.refreshSessionModes?(id)`（`emitSessionModeSnapshot`：从 live 内存事件或 `readSession` 折叠各事件最后一条并 emit mode / approval-policy；**不能用 `readSurface`**——log-only 事件被 surface fold 滤掉）；`App.start` / `resumeToSession` 成功后调用。
+切换会话（`/session` Enter → `agents.resume`）与启动时都不重放历史事件，故 `App.start` /
+`resumeToSession` 成功后调用 `adapter.restoreSessionState?(id)`（adapter 侧 `restoreSessionState`），
+折叠**宿主日志**与 **TUI 侧快照**两份来源并 emit 对应事件：
+
+- **宿主日志**（live 内存事件优先，其次 `sessionQuery.readSession`；**不能用 `readSurface`**——
+  log-only 事件被 surface fold 滤掉）：
+  - `plan/mode` / `sandbox/mode` / `permission/preset` / `approval/policy` 末条 → `mode` /
+    `approval-policy`（原 `emitSessionModeSnapshot` 能力）；
+  - **模型**：末条 `model/selection`（显式意图）→ 末条 `request/header.header.config`
+    （该会话最近一次**实际使用**的 provider / model / effort；TUI 的 `/model` 也记在这里）；
+  - `goal/change`、`todo/write` 末条（全量快照事件，latest-wins）→ 回填状态列。
+- **TUI 侧会话状态快照**（`<会话目录>/tui-state.json`，`adapter/session-ui-state.ts`）：
+  `/model` 结果、`/verbose`、`/symbol-unify` 与 Mode 兜底值。宿主不认识 TUI 本地开关，
+  「已选但尚未发起请求」的模型也不在日志里——这两类只有快照能恢复。
+
+每项取值优先级 = 宿主日志 → 快照 → 宿主默认（`permissionPresets.defaultPreset` 捆绑；
+plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent/request` 钩子的生效源，
+也是 `/model` 面板与状态栏的显示源）；三者皆无则**清空**该引用回落宿主实时默认——顺带修掉
+「同进程内 A 会话的模型选择泄漏进 resumed 的 B 会话」。
+
+落盘时机：`/model`、`/verbose`、`/symbol-unify` 与 mode / policy 事件 → 400ms 合并写
+（`SESSION_STATE_SAVE_MS`）；切换会话前与 `dispose()` 前 `flushSessionStateSave()` 立即写。
+快照随会话目录走（会话删除即随之清理）；仅内存会话（无持久化目录）静默跳过；文件损坏 /
+版本不符 / 字段类型不符按「无快照」或逐项丢弃处理，绝不影响渲染。
 
 ## 滚动偏移收敛（越界假死）
 
@@ -278,7 +301,7 @@
 
 ## /model 命令
 
-- 能力：查询可用模型 + 切换当前会话模型（不落盘）。
+- 能力：查询可用模型 + 切换当前会话模型（写回会话内引用 + 记入会话状态快照，切回该会话时恢复）。
 - `/model` 无参 → 交互选择面板（渲染在活动区窗口）：`↑/↓` 移动高亮、`←/→`（或 Tab）切换 provider / model / effort 三列焦点（clamp 不循环）、`Enter` 确认、`Esc` 取消；普通字符键被忽略（不进入输入框）。`/model <provider>/<model>` 直接切换；`/model <modelId>` 跨全部 provider 唯一匹配（未匹配或歧义 → 错误提示，不落盘）。`/provider` `/effort`（`/thinking`）无参调用同一面板并预置焦点列（0 = provider、2 = effort）；带参仅提示 usage。
 - **状态与 reducer**：`state.picker`（`PickerState`：options + index + phase + efforts + effortIndex）+ `picker-open` / `-move` / `-tab` / `-phase` / `-efforts` / `-close`。渲染为 `components/ModelPicker.ts` 纯函数（输出恰活动区可视行）：三列独立列表同屏，头部全小写；当前模型恒为首行标 `*` 附 `[current]`，焦点行标 `>` 并加粗。等级列表经 adapter `modelEfforts(provider, model)`（宿主 `llm.resolveModelInfo` → `reasoning.efforts`；非思考模型返回 undefined，面板显示 `effort: (unsupported)`）异步加载；`metricsFor` 的 picker 高度预算取模型列表与等级列表较大者；宿主等级名首字母大写，adapter 归一为小写再展示（与状态栏 `model:<等级>` 后缀同源）。
 - **列宽分配**（`pickerColumnWidths`）：三列自然宽 = 各自最长选项显示宽（含行前标记 2 列，effort 无选项时按标题宽兜底）。空间充足时按自然宽比例分配（余数按最长列依次补 1），不出现大片留白；空间不足改用水位法（同 `table.ts`）——短列保持自然宽、只有超宽列被压到共同水位线；极窄（可用宽 < 3）退化为「首列吃其余、后两列各 1」。
@@ -286,7 +309,7 @@
 - **切换语义**：只改会话内 `SessionModelSelectionRef.current`（经 `installSessionModelSelection` 挂到 agentCtx 的 `system-prompt/assemble` + `agent/request` 双钩子，下一 step 生效，快照保证不撕裂当步请求）；**绝不调用宿主 `agentDefaultModel.saveSelection()`**（避免覆盖配置中的默认模型）。有效选择 = 会话内切换 ?? 宿主实时默认（`currentSelection()` 只读兜底，不做一次性快照以免异步 publish 时序吞掉设置）。切换时保留当前 `reasoningEffort`，不提供 effort 参数。
 - **接线**：`main.ts` 的 `apply()` 在 `agents.create({ setup })` 中把 `installSessionModelSelection(agentCtx, sessionModel, () => readDefaultSelection(defaultModelSvc))` 挂上，并把同一 `sessionModel` 引用 + 只读 `defaultModel` 兜底传入 `createRealDshAdapter`（结构面 `LlmLike` / `AgentDefaultModelLike`，零运行时依赖）。
 - **状态回显**：切换成功后 `systemStatus.model` 更新为 `provider/model` 并写入 notice；`App.start()` 读取 `modelCatalog().current` 写入 `systemStatus.model`。宿主 `agentDefaultModel` 需等 LLM provider 注册后才返回真实路由，故改为常驻跟随 `StatusTicker` 的 5s 周期（值变更才重绘）。
-- **已知限制（模型不随会话持久化 / 恢复）**：`/model` 只改进程内 `sessionModel.current`（不落盘），会话日志只按次记录 `request/header`（`header.config` 带 provider / model / effort，可查「用过哪些模型」），**无 `model/selection` 事件**，折叠状态亦无模型行。影响：① resume 后回落到宿主默认而非该会话最后用的模型；② 同进程内先在 A 会话切模型、再 resume B，残留的 `sessionModel.current` 会带进 B。修复需 TUI 侧自存「会话→模型」映射（核心无 per-session 持久化 API）。
+- **持久化与恢复**：`/model` 只改会话内 `sessionModel.current`（**绝不写宿主 `agentDefaultModel.saveSelection()`**，避免覆盖配置默认模型），同时记入 `state.modelBySession` 供会话状态快照落盘；resume / 启动时按「宿主 `model/selection` → 快照 → 最近 `request/header.config`」恢复并写回引用（详见「会话状态恢复」）。仅内存会话（无持久化目录）没有快照，此时退化为宿主日志口径。
 
 ## 命令输入补全
 

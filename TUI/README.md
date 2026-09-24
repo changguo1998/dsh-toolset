@@ -227,17 +227,17 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 | `/help` | 本地命令帮助（双列表格：描述超宽续行对齐描述列；命令过长时描述另起一行、同样对齐描述列） |
 | `/clearscreen`（`/cls`） | 清空显示缓冲（不动会话上下文） |
 | `/quit` | 关闭 renderer 退出 |
-| `/verbose on\|off` | 活动区详略两态：`on`（默认）完整折行；`off` 每条目压成 1 行 + 行尾 `…` |
-| `/symbol-unify on\|off` | 模型输出符号规范化开关（默认 on，会话级不落盘） |
+| `/verbose on\|off` | 活动区详略两态：`on`（默认）完整折行；`off` 每条目压成 1 行 + 行尾 `…`（随会话状态快照保存，切回该会话时恢复） |
+| `/symbol-unify on\|off` | 模型输出符号规范化开关（默认 on；随会话状态快照保存，切回该会话时恢复） |
 | `/theme [dark\|light\|toggle]` | 切换调色板（仅当前会话，不落盘） |
-| `/model [provider/]model` | 无参打开模型选择面板（provider / model / effort 三列同屏，`←/→` 换列、空格选中、Enter 提交）；带参直接切换（会话内生效，不落盘） |
+| `/model [provider/]model` | 无参打开模型选择面板（provider / model / effort 三列同屏，`←/→` 换列、空格选中、Enter 提交）；带参直接切换（会话内生效并记入该会话的状态快照，切回时恢复） |
 | `/provider`、`/effort`（`/thinking`） | 打开同一模型选择面板并预置焦点列；带参只提示用法 |
 | `/policy [ask\|never]` | 审批策略：无参打开状态选项面板，带参直接设置（写宿主 `approval.setPolicy`） |
 | `/permission [预设名]` | 权限预设（sandbox mode + 审批策略捆绑）：无参打开面板，带参转发宿主命令 |
 | `/preset [预设名]` | agent 预设：无参打开面板，带参经 `selectAgentPreset`（宿主 `recompose` 写路径）切换 |
 | `/goal` | 提示 goal / todo / jobs 详情常驻左侧状态列（不再打开面板） |
 | `/stats`（`/usage` `/context`） | 最近一次模型调用的 token 用量：分解（输入/输出/缓存读）、上下文占用、缓存命中率 |
-| `/session` | 会话面板：列出持久化会话，Enter 切换（`agents.resume` 恢复后继续对话）；`Tab` 切换范围（当前目录 / 全部）、`Space` 批量标记（`a` 全选当前范围、`c` 清空）、`d`/Delete 删除（有标记=批量删除全部标记，无标记=删当前高亮）、`x` 清理空会话、`/session clean` 直达清理确认 |
+| `/session` | 会话面板：列出持久化会话，Enter 切换（`agents.resume` 恢复后继续对话，并回填该会话的模型 / Mode（plan、sandbox、permission、审批策略）/ goal / todo / `verbose`、`symbol-unify` 开关）；`Tab` 切换范围（当前目录 / 全部）、`Space` 批量标记（`a` 全选当前范围、`c` 清空）、`d`/Delete 删除（有标记=批量删除全部标记，无标记=删当前高亮）、`x` 清理空会话、`/session clean` 直达清理确认 |
 | `/rename <标题>` | 重命名当前会话标题（写宿主 `sessionTitle.rename`；空标题或含换行本地拒绝） |
 | `/copy` | 复制最后一条模型回复到系统剪贴板（OSC52，剥离 ANSI） |
 | `/fork` | 分叉当前会话为新会话（宿主 `sessions.fork`，错误码映射中文提示） |
@@ -308,7 +308,7 @@ npm run watch # tsc --watch 常驻编译到 dist/（仍需重启 dsh 生效）
 
 ## 已知限制
 
-- **模型选择不随会话持久化**：`/model` 只改进程内当前选择，会话不保存、resume 后回落宿主默认模型；同进程内切换会话也可能带上先前选择。详见 `IMPLEMENTATION.md`「/model 命令」。
+- **模型与 TUI 本地开关随会话恢复**：resume / 启动时按「宿主日志 → TUI 侧快照（`<会话目录>/tui-state.json`）→ 宿主默认」恢复模型、Mode 与 `verbose` / `symbol-unify`；仅内存会话（无持久化目录）没有快照，模型退化为宿主日志口径。详见 `IMPLEMENTATION.md`「会话状态恢复」。
 - 多会话并行不支持（维持单活跃会话设计）。
 - 思考不提供展开 / 收起交互。
-- 未接入事件（评估后暂缓）：`model/selection` 回放、`subagent/model-selection-policy`、log-only 调试类事件、审批审计对（`approval/asked` + `decided` 无界面，数据随会话持久化不丢）。
+- 未接入事件（评估后暂缓）：`subagent/model-selection-policy`、log-only 调试类事件、审批审计对（`approval/asked` + `decided` 无界面，数据随会话持久化不丢）。

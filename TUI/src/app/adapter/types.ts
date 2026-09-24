@@ -3,6 +3,8 @@
 // 全部为纯类型（type/interface），无运行时依赖；dsh.ts 与 normalize.ts 从这里导入，
 // 外部消费方（app/demo/tests）继续从 ./adapter/dsh.ts 的显式重导取得。
 
+import type { SessionUiState } from "./session-ui-state.ts";
+
 export type AgentStatus = "idle" | "thinking" | "tool" | "done";
 
 export interface SessionMeta {
@@ -180,6 +182,15 @@ export type DshEvent =
       value: string;
     }
   | {
+      /** TUI 本地开关回填（切换会话时由 TUI 侧快照恢复；宿主日志不记录这两项） */
+      type: "ui-flags";
+      sessionId: string;
+      /** 活动区详略（/verbose）；缺省 = 该会话无记录 */
+      verbose?: boolean;
+      /** 模型输出符号统一（/symbol-unify）；缺省 = 该会话无记录 */
+      symbolUnify?: boolean;
+    }
+  | {
       type: "step";
       sessionId: string;
       turn: number;
@@ -319,9 +330,14 @@ export interface DshAdapter {
   /** 删除持久化会话（文件级：单段安全 id + realpath 包含性校验后删除会话目录）；
    *  当前活跃会话一律拒绝；live 会话由调用方（面板）先拒绝。宿主无会话查询服务时为 undefined。 */
   deleteSession?(id: string): Promise<SessionDeleteResult>;
-  /** 刷新会话 Mode 初始值：从会话日志折叠 plan/sandbox/permission/policy 最后一条
-   *  并 emit 对应事件（log-only 事件启动不产生，主动补快照）；宿主无读取面时静默 */
-  refreshSessionModes?(sessionId: string): Promise<void>;
+  /** 回填会话状态：启动/恢复会话时从宿主日志（log-only 事件）与 TUI 侧快照折叠
+   *  model / plan / sandbox / permission / policy / goal / todo / TUI 本地开关，
+   *  并 emit 对应事件（另把模型写回会话内选择引用）；宿主无读取面时静默 */
+  restoreSessionState?(sessionId: string): Promise<void>;
+  /** 读取 TUI 侧会话状态快照（`<会话目录>/tui-state.json`）；无快照/损坏 → undefined */
+  readSessionUiState?(sessionId: string): SessionUiState | undefined;
+  /** 落盘 TUI 侧会话状态快照（会话目录不存在或不可写 → false，静默降级） */
+  saveSessionUiState?(sessionId: string, state: SessionUiState): boolean;
   /** 切换当前会话审批策略（ask=每次询问 / never=恒拒自动放行）；
    *  宿主未挂载 ctx.approval 时 reject，调用方 notice「审批策略服务不可用」。 */
   setApprovalPolicy?(policy: "ask" | "never"): Promise<void>;
@@ -1323,6 +1339,9 @@ export interface RealAdapterOptions {
   defaultModel?: AgentDefaultModelLike;
   /** ctx.get('sessionQuery') 服务（dsh-session-query）；缺失时历史会话浏览不可用但 adapter 正常启动 */
   sessionQuery?: SessionQueryLike;
+  /** TUI 侧会话状态快照的查找根目录（tui-state.json 所在会话目录）；缺省 sessionRoots()
+   *  （DSH_TUI_SESSION_ROOT → $DSH_HOME/sessions → ~/.dsh-tui/sessions），测试可注入临时根 */
+  sessionStateRoots?: readonly string[];
   /** ctx.get('sessions') 会话存储服务（读 live 会话原始事件；缺失时仅 live 会话内容读取降级走 readSurface/readSession） */
   sessions?: SessionStoreLike;
   /** ctx.agents（resume 持久化会话用）；缺失时 resumeTo 提示不可用 */

@@ -43,7 +43,9 @@ import {
 import { setWidthOverrides } from "./layout/markdown.ts";
 import {
   parseSlashCommand,
+  SESSION_UI_STATE_VERSION,
   type CommandPanelKind,
+  type SessionUiState,
   contractSummaryText,
 } from "./adapter/dsh.ts";
 import { activeGoalSnapshot } from "./state.ts";
@@ -101,6 +103,8 @@ const EXIT_CLEAN_TIMEOUT_MS = 5000;
 /** 运行中闪烁时间驱动的 tick 周期(ms)：running 期间周期性推进虚拟状态
  *  （无数据时虚拟速度衰减回落、虚拟总 token 持续积分，闪烁频率渐降到最低而不断） */
 const VIRT_TICK_MS = 250;
+/** 会话状态快照落盘合并窗口(ms)：/model、/verbose、模式事件等连续变更只写一次文件 */
+const SESSION_STATE_SAVE_MS = 400;
 
 /**
  * 焦点面板单行滚动 action 映射：history/activity 偏移语义=距底部（上滚=+），
@@ -267,6 +271,10 @@ export class App {
     dialogueGeometry: { rows: 0, height: 0, spans: [], topIdx: 0 },
     dialogueTop: { seq: 0, row: 0 },
   };
+  /** 会话状态快照待落盘定时器（见 scheduleSessionStateSave） */
+  private sessionStateTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 待落盘的会话 id（切换会话/退出前 flush；null = 无待写） */
+  private sessionStatePendingSid: string | null = null;
   /** paneScrollMax 对应的 state 引用（同一 state 不重复补算） */
   private paneScrollMaxState: AppState | null = null;
   /** 上一帧 buffer 的回合组数（用户停在历史里时按新增组数撑住窗口起点） */
@@ -428,7 +436,7 @@ export class App {
     // 拉取宿主命令注册表目录（输入补全候选；服务缺失时仅本地目录）
     this.refreshCommandCatalog();
     // 补 Mode 块初始值（log-only 事件启动不产生，从会话日志折叠一次）
-    this.refreshSessionModes();
+    this.restoreSessionState();
     // 启动自动清理空会话（session.autoCleanEmpty=true 时后台执行，不阻塞 UI）
     if (this.autoCleanEmpty) {
       void this.runStartupCleanEmptySessions();
@@ -588,21 +596,93 @@ export class App {
   }
 
   /**
-   * 刷新当前会话 Mode 初始值（plan/sandbox/permission/policy）：log-only 事件
-   * 启动不产生，主动从会话日志折叠一次补 Mode 块快照；宿主无读取面时静默。
+   * 回填当前会话状态（启动、切换会话成功后调用）：模型选择、plan/sandbox/permission/
+   * policy、goal/todo、TUI 本地开关（verbose/symbol-unify）。宿主日志里的 log-only
+   * 事件启动不产生、切会话也不重放，故主动折叠一次；TUI 本地开关只在会话状态快照里。
+   * 回填后刷新状态栏模型徽标（会话内模型引用已被 adapter 写回）。
    */
-  private refreshSessionModes(): void {
+  private restoreSessionState(): void {
     const a = this.deps.adapter;
     // 启动初期 state.activeSessionId 尚为 null（真实 adapter 不发 session-list、
     // 全新会话 title 要等首条消息）→ 按 adapter 视角的活跃会话 id 兜底
     const sid = this.state.activeSessionId ?? a.sessionId;
-    if (!a.refreshSessionModes || !sid) return;
+    if (!a.restoreSessionState || !sid) return;
     void a
-      .refreshSessionModes(sid)
+      .restoreSessionState(sid)
       .then(() => {
-        if (!this.disposed) this.paint();
+        if (this.disposed) return;
+        this.refreshModelStatus();
+        this.paint();
       })
       .catch(() => {});
+  }
+
+  /** 当前 TUI 视角的会话状态快照（宿主不掌握 verbose/symbol-unify；模型/模式作兜底） */
+  private sessionUiState(): SessionUiState {
+    const sid = this.state.activeSessionId ?? this.deps.adapter.sessionId ?? "";
+    const model = this.state.modelBySession[sid];
+    const mode = this.state.modeBySession[sid] ?? {};
+    const policy = this.state.policyBySession[sid];
+    return {
+      version: SESSION_UI_STATE_VERSION,
+      ...(model?.provider && model.model
+        ? {
+            model: {
+              provider: model.provider,
+              model: model.model,
+              ...(typeof model.reasoningEffort === "string"
+                ? { reasoningEffort: model.reasoningEffort }
+                : {}),
+            },
+          }
+        : {}),
+      verbose: this.state.activityVerbose,
+      symbolUnify: this.state.symbolUnify,
+      modes: {
+        ...(mode.plan === undefined ? {} : { plan: mode.plan }),
+        ...(mode.sandbox === undefined ? {} : { sandbox: mode.sandbox }),
+        ...(mode.permission === undefined
+          ? {}
+          : { permission: mode.permission }),
+        ...(policy === undefined ? {} : { policy }),
+      },
+    };
+  }
+
+  /**
+   * 标记会话状态待落盘（400ms 合并多次变更；写的是标记时的活跃会话）。
+   * 快照随会话目录走（`<会话目录>/tui-state.json`）：切走/退出前由
+   * `flushSessionStateSave()` 立即落盘，会话目录不存在（仅内存会话）时静默跳过。
+   */
+  private scheduleSessionStateSave(): void {
+    const a = this.deps.adapter;
+    if (!a.saveSessionUiState) return;
+    const sid = this.state.activeSessionId ?? a.sessionId;
+    if (!sid) return;
+    this.sessionStatePendingSid = sid;
+    if (this.sessionStateTimer) clearTimeout(this.sessionStateTimer);
+    this.sessionStateTimer = setTimeout(() => {
+      this.sessionStateTimer = null;
+      this.flushSessionStateSave();
+    }, SESSION_STATE_SAVE_MS);
+    this.sessionStateTimer.unref?.();
+  }
+
+  /** 立即落盘待写的会话状态快照（切换会话前、退出时调用；无待写则 no-op） */
+  private flushSessionStateSave(): void {
+    if (this.sessionStateTimer) {
+      clearTimeout(this.sessionStateTimer);
+      this.sessionStateTimer = null;
+    }
+    const sid = this.sessionStatePendingSid;
+    this.sessionStatePendingSid = null;
+    const save = this.deps.adapter.saveSessionUiState;
+    if (!sid || !save) return;
+    try {
+      save.call(this.deps.adapter, sid, this.sessionUiState());
+    } catch {
+      /* 快照落盘失败不影响渲染与退出 */
+    }
   }
 
   /** 生效模型缓存 key；值变化才重绘（避免每 5s 空重绘） */
@@ -670,6 +750,8 @@ export class App {
 
   dispose(): void {
     if (this.disposed) return;
+    // 退出前落盘会话状态快照（未过合并窗口的变更不丢）
+    this.flushSessionStateSave();
     this.disposed = true;
     // 待处理合帧作废：已排队的 microtask 见 disposed 直接返回，不再写终端
     this.paintDirty = false;
@@ -819,7 +901,7 @@ export class App {
           // 启动初期 activeSessionId 尚为 null，start() 的 Mode 快照被跳过；
           // 首个 title 事件建立会话后补拉一次（全新会话日志无 mode 事件时，
           // adapter 以宿主默认预设兜底，见 emitSessionModeSnapshot）
-          if (wasUnidentified) this.refreshSessionModes();
+          if (wasUnidentified) this.restoreSessionState();
         }
         break;
       case "stream":
@@ -943,7 +1025,35 @@ export class App {
         // 阶段 1 pass-through：仅入 reducer（事件结构 = StateAction 同型），不渲染；
         // 阶段 2 按事件落 buffer 工具行 / toast / 状态栏槽位；P2 B 阶段渲染前同此处理
         this.apply((s) => reduceState(s, e));
+        // 模型/模式类状态变化 → 刷新会话状态快照（宿主日志仍是主来源，快照作兜底）
+        if (
+          e.type === "model-selection" ||
+          e.type === "mode" ||
+          e.type === "approval-policy"
+        ) {
+          this.scheduleSessionStateSave();
+        }
         break;
+      case "ui-flags": {
+        // 切换会话后回填 TUI 本地开关（宿主日志不记录 verbose / symbol-unify）
+        if (
+          this.state.activeSessionId &&
+          e.sessionId !== this.state.activeSessionId
+        ) {
+          break;
+        }
+        if (e.verbose !== undefined) {
+          this.apply((s) =>
+            reduceState(s, { type: "activity-verbose", on: e.verbose! }),
+          );
+        }
+        if (e.symbolUnify !== undefined) {
+          this.apply((s) =>
+            reduceState(s, { type: "symbol-unify", on: e.symbolUnify! }),
+          );
+        }
+        break;
+      }
       case "agent-preset":
       case "jobs-changed": {
         // 单活跃会话：非当前活跃会话的 agent-preset / jobs 事件不进入状态
@@ -2036,6 +2146,7 @@ export class App {
     if (next !== cur) {
       this.apply((s) => reduceState(s, { type: "activity-verbose", on: next }));
       this.paint();
+      this.scheduleSessionStateSave();
     }
     this.notice(
       `活动区：${next ? "verbose on（完整折行）" : "verbose off（紧凑：每条目 1 行 + 省略号）"}`,
@@ -2060,6 +2171,7 @@ export class App {
     if (next !== cur) {
       this.apply((s) => reduceState(s, { type: "symbol-unify", on: next }));
       this.paint();
+      this.scheduleSessionStateSave();
     }
     this.notice(
       `模型输出符号统一：${next ? "on（变体替换为推荐符号并提醒）" : "off（原样，不替换不提醒）"}`,
@@ -2346,6 +2458,8 @@ export class App {
       this.notice("会话切换不可用（宿主未配置会话持久化）", "warn");
       return;
     }
+    // 切走前先把当前会话的 TUI 侧状态落盘（快照按会话隔离）
+    this.flushSessionStateSave();
     this.apply((s) => reduceState(s, { type: "history-resume", id }));
     this.paint();
     try {
@@ -2390,7 +2504,7 @@ export class App {
       // 排队块属于切换前会话（核心队列里那条仍在原会话）：显示登记清空
       this.apply((s) => reduceState(s, { type: "queued-clear" }));
       // 新会话 Mode 初始值（log-only 事件不随 resume 回放，主动折叠一次）
-      this.refreshSessionModes();
+      this.restoreSessionState();
     } catch (err) {
       if (this.disposed) return;
       this.apply((s) =>
@@ -2518,6 +2632,20 @@ export class App {
         status: { model: label, modelThinking: thinking },
       }),
     );
+    // 记入会话状态（modelBySession 同时是快照的模型来源；切回本会话时按它恢复）
+    this.apply((s) =>
+      reduceState(s, {
+        type: "model-selection",
+        sessionId:
+          this.state.activeSessionId ?? this.deps.adapter.sessionId ?? "",
+        provider: saved.provider,
+        model: saved.model,
+        ...(saved.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: saved.reasoningEffort }),
+      }),
+    );
+    this.scheduleSessionStateSave();
     this.notice(`current model -> ${label}`, "success");
   }
 

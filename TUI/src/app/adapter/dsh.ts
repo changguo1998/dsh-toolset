@@ -77,9 +77,19 @@ import {
   parseSlashCommand,
   readDefaultSelection,
 } from "./normalize.ts";
-import { existsSync, readdirSync, realpathSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, sep } from "node:path";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
+import { locateSessionDir, sessionRoots } from "./session-paths.ts";
+import {
+  readSessionUiState,
+  writeSessionUiState,
+  type SessionUiState,
+} from "./session-ui-state.ts";
+
+// 会话目录定位/删除（兼容旧 import 路径：实现已移到 ./session-paths.ts）
+export { isSafeSessionId, sessionRoots } from "./session-paths.ts";
+export type { SessionUiState } from "./session-ui-state.ts";
+export { SESSION_UI_STATE_VERSION } from "./session-ui-state.ts";
 
 export type {
   AgentStatus,
@@ -453,82 +463,36 @@ interface SessionSurfaceProbe {
   readable: boolean;
 }
 
-/** 会话 id 必须是单段安全路径段（UUID / tui-<uuid> / session-<uuid>）：
- *  白名单与官方 dsh-tui 一致（仅字母数字与 `_`/`-`），分隔符与点段自然被拒 */
-export function isSafeSessionId(id: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id);
-}
-
-/**
- * 会话存储根目录（顺序与官方 dsh-tui sessionsRoots 一致）：
- * DSH_TUI_SESSION_ROOT → $DSH_HOME（缺省 ~/.dsh）/sessions → ~/.dsh-tui/sessions。
- */
-export function sessionRoots(
-  env: NodeJS.ProcessEnv = process.env,
-  home: string = homedir(),
-): string[] {
-  const roots: string[] = [];
-  const override = env.DSH_TUI_SESSION_ROOT?.trim();
-  if (override) roots.push(override);
-  const dshHome = env.DSH_HOME?.trim();
-  roots.push(join(dshHome ? dshHome : join(home, ".dsh"), "sessions"));
-  roots.push(join(home, ".dsh-tui", "sessions"));
-  return [...new Set(roots)];
-}
-
 /** 会话目录删除结果：ok=true 时 path 为实际删除的目录（realpath 解析后） */
 export type SessionDeleteOutcome =
   { ok: true; path: string } | { ok: false; reason: string };
 
 /**
  * 文件级删除一个持久化会话目录。
- * 安全线：单段 id 校验 → 各根下按 <project-slug>/<id> 定位 → realpath 包含性校验
- * （slug 或会话目录为指向根外的符号链接 → 跳过，不删）→ rmSync(recursive)。
- * 未找到 → 返回失败且无副作用。
+ * 安全线由 `locateSessionDir` 承担（单段 id 校验 → 各根下按 <project-slug>/<id>
+ * 定位 → realpath 包含性校验，slug 或会话目录为指向根外的符号链接则跳过）；
+ * 本函数只负责找到后 rmSync(recursive)。未找到 → 返回失败且无副作用。
  */
 export function deleteSessionDir(
   id: string,
   roots: readonly string[] = sessionRoots(),
 ): SessionDeleteOutcome {
-  if (!isSafeSessionId(id)) {
-    return { ok: false, reason: "会话 id 非法，拒绝删除" };
+  const found = locateSessionDir(id, roots);
+  if (!found.ok) {
+    return {
+      ok: false,
+      reason:
+        found.reason === "会话 id 非法"
+          ? "会话 id 非法，拒绝删除"
+          : "未找到该会话的持久化文件（可能仅存在于内存或已删除）",
+    };
   }
-  for (const root of roots) {
-    if (!existsSync(root)) continue;
-    let realRoot: string;
-    try {
-      realRoot = realpathSync(root);
-    } catch {
-      continue;
-    }
-    let entries: string[];
-    try {
-      entries = readdirSync(realRoot);
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      let real: string;
-      try {
-        real = realpathSync(join(realRoot, entry, id));
-      } catch {
-        continue; // 该 slug 下无此会话目录
-      }
-      // 包含性校验：解析后必须仍在根内（防符号链接越界）
-      if (!real.startsWith(realRoot + sep)) continue;
-      try {
-        rmSync(real, { recursive: true, force: true });
-        return { ok: true, path: real };
-      } catch (err) {
-        // 前缀由调用方（面板提示）统一补「删除失败：」，此处只给底层原因
-        return { ok: false, reason: String(err) };
-      }
-    }
+  try {
+    rmSync(found.path, { recursive: true, force: true });
+    return { ok: true, path: found.path };
+  } catch (err) {
+    return { ok: false, reason: String(err) };
   }
-  return {
-    ok: false,
-    reason: "未找到该会话的持久化文件（可能仅存在于内存或已删除）",
-  };
 }
 
 /** 展示用设置值：对象/数组 → 单行 JSON；超长值截断（notice 每行再按面板宽截断） */
@@ -846,6 +810,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   let activeCommandAgent = opts.commandAgent;
   let activeCancel = opts.interrupt ?? (() => {});
   let activeDispose = opts.handleDispose;
+  // 会话内模型引用的初始值（main.ts 的 config 固定种子；settings 默认走实时兜底不进这里）：
+  // 恢复会话时若无任何记录 → 回到该种子，既不丢配置固定模型、也不残留上一个会话的选择。
+  const sessionModelSeed = opts.sessionModel?.current;
   const listeners = new Set<(e: DshEvent) => void>();
   const pendingApprovals = new Map<
     string,
@@ -981,27 +948,42 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   };
 
   /**
-   * Mode 初始值折叠：plan/mode、sandbox/mode、permission/preset、approval/policy
-   * 均为 log-only 事件（只在切换时落盘），故启动/恢复会话时主动从会话日志取各事件
-   * 最后一条，emit 为对应 DshEvent 补 Mode 块初始值。
-   * 读取源与 doReadSessionSurface 同源：live 读内存 events（全量原始）；persisted
-   * 必须走 readSession（readSurface 做 surface fold 会滤掉 log-only 事件）。
-   * 全新会话日志可能没有这些事件（pinInitialPermission 的钉值未进读取面时）：此时
-   * 以宿主 permissionPresets.defaultPreset 捆绑兜底（= pinInitialPermission 会给
-   * 全新会话钉上的组合），plan 无记录即 off——与宿主当前模式一致。宿主既无
-   * sessionQuery 也无 permissionPresets 时静默（Mode 块保持事件驱动）。
+   * 会话状态回填：启动/恢复会话时把**宿主日志**（log-only 事件，切换会话不重放）
+   * 与 **TUI 侧快照**（`<会话目录>/tui-state.json`）折叠成事件推给 App。
+   *
+   * 折叠口径（每项都是「宿主日志末条 → 快照 → 宿主默认」）：
+   *  - model：末条 `model/selection`（显式意图）→ 快照 `model` → 末条
+   *    `request/header.header.config`（该会话最近一次**实际使用**的 provider/model/
+   *    effort）。命中即写回 `opts.sessionModel.current`（agent/request 钩子的生效源，
+   *    也是 /model 面板与状态栏的显示源）；三者都没有 → 清空会话内引用回落宿主默认。
+   *  - mode：`plan/mode` / `sandbox/mode` / `permission/preset`；`approval/policy`
+   *    同理单独成事件。宿主无记录时退回快照，再退回 permissionPresets.defaultPreset
+   *    捆绑（= pinInitialPermission 会给全新会话钉上的组合），plan 无记录即 off。
+   *  - goal/todo：末条 `goal/change` / `todo/write`（全量快照事件，latest-wins）。
+   *  - TUI 本地开关（`/verbose`、`/symbol-unify`）宿主不认识，只在快照里 → ui-flags。
+   *
+   * 读取源：live 会话优先读内存 events（全量原始，最省事）；否则走
+   * `sessionQuery.readSession`（readSurface 做 surface fold 会滤掉 log-only 事件）。
+   * 宿主既无 live 会话也无 sessionQuery 时只回填快照能提供的部分；快照也没有则静默
+   * （Mode 块保持事件驱动）。
    */
-  const emitSessionModeSnapshot = async (id: string): Promise<void> => {
+  const restoreSessionState = async (id: string): Promise<void> => {
     let events: readonly { type?: string; data?: unknown }[] | undefined;
-    if (sessionQuery) {
-      const live = opts.sessions?.get(id);
-      if (live && Array.isArray(live.events) && live.events.length > 0) {
-        events = live.events as readonly { type?: string; data?: unknown }[];
-      } else if (sessionQuery.readSession) {
+    const live = opts.sessions?.get(id);
+    if (live && Array.isArray(live.events) && live.events.length > 0) {
+      events = live.events as readonly { type?: string; data?: unknown }[];
+    } else if (sessionQuery?.readSession) {
+      try {
         const snap = await sessionQuery.readSession(id);
         events = snap.events as readonly { type?: string; data?: unknown }[];
+      } catch {
+        events = undefined; // 混合日志校验失败等：退回快照/默认值，不阻断恢复
       }
     }
+    const uiState = readSessionUiState(
+      id,
+      opts.sessionStateRoots ?? sessionRoots(),
+    );
     const lastOf = <T>(type: string): T | undefined => {
       if (!events) return undefined;
       for (let i = events.length - 1; i >= 0; i--) {
@@ -1025,42 +1007,134 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         ? defSpec.approval
         : undefined;
 
-    const plan = lastOf("plan/mode") as { active?: unknown } | undefined;
-    emit({
-      type: "mode",
-      sessionId: id,
-      kind: "plan",
-      // plan 是 opt-in：无记录即未开启（off）
-      value: plan?.active === true ? "on" : "off",
-    });
+    // —— 模式（宿主末条事件 → 快照 → 宿主默认） ——
+    const planRec = lastOf("plan/mode") as { active?: unknown } | undefined;
+    // plan 是 opt-in：宿主无记录时看快照，仍无记录即未开启（off）
+    const plan: "on" | "off" =
+      planRec !== undefined
+        ? planRec.active === true
+          ? "on"
+          : "off"
+        : (uiState?.modes?.plan ?? "off");
+    emit({ type: "mode", sessionId: id, kind: "plan", value: plan });
     const sandbox = lastOf("sandbox/mode") as { mode?: unknown } | undefined;
-    if (sandbox && typeof sandbox.mode === "string") {
+    const sandboxValue =
+      typeof sandbox?.mode === "string"
+        ? sandbox.mode
+        : (uiState?.modes?.sandbox ?? defSandbox);
+    if (sandboxValue !== undefined) {
       emit({
         type: "mode",
         sessionId: id,
         kind: "sandbox",
-        value: sandbox.mode,
+        value: sandboxValue,
       });
-    } else if (defSandbox) {
-      emit({ type: "mode", sessionId: id, kind: "sandbox", value: defSandbox });
     }
     const perm = lastOf("permission/preset") as
       { preset?: unknown } | undefined;
-    if (perm && typeof perm.preset === "string") {
+    const permValue =
+      typeof perm?.preset === "string"
+        ? perm.preset
+        : (uiState?.modes?.permission ?? defName);
+    if (permValue !== undefined) {
       emit({
         type: "mode",
         sessionId: id,
         kind: "permission",
-        value: perm.preset,
+        value: permValue,
       });
-    } else if (defName) {
-      emit({ type: "mode", sessionId: id, kind: "permission", value: defName });
     }
     const pol = lastOf("approval/policy") as { policy?: unknown } | undefined;
-    if (pol && (pol.policy === "ask" || pol.policy === "never")) {
-      emit({ type: "approval-policy", sessionId: id, policy: pol.policy });
-    } else if (defPolicy) {
-      emit({ type: "approval-policy", sessionId: id, policy: defPolicy });
+    const policyValue =
+      pol?.policy === "ask" || pol?.policy === "never"
+        ? pol.policy
+        : (uiState?.modes?.policy ?? defPolicy);
+    if (policyValue !== undefined) {
+      emit({ type: "approval-policy", sessionId: id, policy: policyValue });
+    }
+
+    // —— 模型（宿主显式意图 → TUI 快照 → 宿主最近实际使用） ——
+    const pick = (
+      v:
+        | { provider?: unknown; model?: unknown; reasoningEffort?: unknown }
+        | undefined,
+    ):
+      | { provider: string; model: string; reasoningEffort?: string }
+      | undefined => {
+      if (typeof v?.provider !== "string" || typeof v.model !== "string")
+        return undefined;
+      return {
+        provider: v.provider,
+        model: v.model,
+        ...(typeof v.reasoningEffort === "string"
+          ? { reasoningEffort: v.reasoningEffort }
+          : {}),
+      };
+    };
+    const header = lastOf("request/header") as
+      { header?: { config?: Record<string, unknown> } } | undefined;
+    const selected =
+      pick(lastOf("model/selection")) ??
+      pick(uiState?.model) ??
+      pick(header?.header?.config);
+    // sessionModel 引用是 agent/request 钩子的生效源：恢复后本会话的请求就用该模型。
+    // 三者皆无 → 回到初始种子（config 固定模型；无种子即 undefined → 回落宿主实时默认），
+    // 避免「上一个会话的选择」泄漏进本会话，也不把 config 固定的模型清掉。
+    if (opts.sessionModel) opts.sessionModel.current = selected ?? sessionModelSeed;
+    if (selected) {
+      emit({
+        type: "model-selection",
+        sessionId: id,
+        provider: selected.provider,
+        model: selected.model,
+        ...(selected.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: selected.reasoningEffort }),
+      });
+    }
+
+    // —— goal / todo（全量快照事件，latest-wins） ——
+    const goal = lastOf("goal/change") as GoalChangeLike | undefined;
+    if (goal?.operation === "clear") {
+      emit({
+        type: "goal-change",
+        sessionId: id,
+        operation: "clear",
+        cleared: goal.cleared,
+        clearedAt: goal.clearedAt,
+      });
+    } else if (goal !== undefined) {
+      emit({
+        type: "goal-change",
+        sessionId: id,
+        operation: goal.operation,
+        goal: goal.goal,
+        roundsStarted: goal.roundsStarted,
+        createdAt: goal.createdAt,
+        updatedAt: goal.updatedAt,
+      });
+    }
+    const todos = lastOf("todo/write") as { todos?: unknown } | undefined;
+    if (todos !== undefined) {
+      emit({
+        type: "todo-write",
+        sessionId: id,
+        todos: Array.isArray(todos.todos)
+          ? (todos.todos as TodoItemLike[])
+          : [],
+      });
+    }
+
+    // —— TUI 本地开关（宿主日志没有，只有快照） ——
+    if (uiState?.verbose !== undefined || uiState?.symbolUnify !== undefined) {
+      emit({
+        type: "ui-flags",
+        sessionId: id,
+        ...(uiState.verbose === undefined ? {} : { verbose: uiState.verbose }),
+        ...(uiState.symbolUnify === undefined
+          ? {}
+          : { symbolUnify: uiState.symbolUnify }),
+      });
     }
   };
 
@@ -2334,10 +2408,17 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           return doReadSessionSurface(id);
         }
       : undefined,
-    refreshSessionModes:
-      sessionQuery || opts.permissionPresets
-        ? (id) => emitSessionModeSnapshot(id)
+    restoreSessionState:
+      sessionQuery || opts.permissionPresets || opts.sessions
+        ? async (id: string) => {
+            await restoreSessionState(id);
+          }
         : undefined,
+    readSessionUiState: (id: string) =>
+      readSessionUiState(id, opts.sessionStateRoots ?? sessionRoots()),
+    saveSessionUiState: (id: string, state: SessionUiState) =>
+      writeSessionUiState(id, state, opts.sessionStateRoots ?? sessionRoots())
+        .ok,
     async sessionTitle(id) {
       if (!sessionQuery || typeof sessionQuery.readTitle !== "function") {
         return undefined;

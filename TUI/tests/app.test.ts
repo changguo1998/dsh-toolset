@@ -43,6 +43,7 @@ import type {
   SessionSurfaceView,
 } from "../src/app/adapter/dsh.ts";
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
+import type { SessionUiState } from "../src/app/adapter/session-ui-state.ts";
 import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
 import { rowAnsi } from "./helpers/rowText.ts";
@@ -116,11 +117,20 @@ class FakeAdapter implements DshAdapter {
   events: DshEvent[] = [];
   disposed = 0;
   private cbs: ((e: DshEvent) => void)[] = [];
-  /** 非空时 refreshSessionModes 会把这些事件推给 app（模拟宿主 Mode 快照回读） */
+  /** 非空时 restoreSessionState 会把这些事件推给 app（模拟宿主状态回读） */
   modeSnapshotEvents: DshEvent[] | null = null;
-  async refreshSessionModes(): Promise<void> {
+  async restoreSessionState(): Promise<void> {
     if (!this.modeSnapshotEvents) return;
     for (const e of this.modeSnapshotEvents) this.push(e);
+  }
+  /** 会话状态快照落盘记录（saveSessionUiState；模拟写入会话目录 tui-state.json） */
+  savedUiStates: { sessionId: string; state: SessionUiState }[] = [];
+  saveSessionUiState(sessionId: string, state: SessionUiState): boolean {
+    this.savedUiStates.push({ sessionId, state });
+    return true;
+  }
+  readSessionUiState(): SessionUiState | undefined {
+    return undefined;
   }
 
   onEvent(cb: (e: DshEvent) => void): () => void {
@@ -279,6 +289,14 @@ function histBody(line: string, cols: number): string {
     w += cw;
   }
   return out;
+}
+
+/** 选择面板三列区域文本（自表头行起 4 行）：只校验面板列内容，
+ *  避免把状态栏里的「当前模型」标签算进去（面板打开时它同时出现在状态栏） */
+function pickerColumnText(frame: string): string {
+  const lines = frame.split("\n");
+  const i = lines.findIndex((l) => l.includes("[ provider ]"));
+  return i < 0 ? "" : lines.slice(i, i + 4).join("\n");
 }
 
 /** 活动区分隔行判定：区域正文段为整行横线——焦点活动区/历史区时两端被焦点框
@@ -1361,9 +1379,9 @@ test("/model 面板: model/思考等级列表跟随星号(选中)而非 > 焦点
   renderer.press({ name: "left", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   await flush();
-  const plain1 = plainFrame(renderer);
+  const cols1 = pickerColumnText(plainFrame(renderer));
   assert.ok(
-    plain1.includes("m1a") && !plain1.includes("m2a"),
+    cols1.includes("m1a") && !cols1.includes("m2a"),
     "焦点移到 p2 不切 model 列表",
   );
   assert.equal(
@@ -1375,9 +1393,9 @@ test("/model 面板: model/思考等级列表跟随星号(选中)而非 > 焦点
   // Tab → model 列（provider → model）
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
   await flush();
-  const plain2 = plainFrame(renderer);
+  const cols2 = pickerColumnText(plainFrame(renderer));
   assert.ok(
-    plain2.includes("m2a") && !plain2.includes("m1a"),
+    cols2.includes("m2a") && !cols2.includes("m1a"),
     "星号移到 p2 后 model 列表跟随",
   );
   assert.deepEqual(
@@ -2750,6 +2768,55 @@ test("启动即刷 Mode 快照：state 未建立会话时按 adapter.sessionId �
   assert.ok(
     joined.includes("permission") && joined.includes("full"),
     "permission full 生效",
+  );
+});
+
+test("会话状态回填：ui-flags 恢复 verbose/symbol-unify，model-selection 恢复会话模型", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  adapter.sessionId = "s1";
+  adapter.modeSnapshotEvents = [
+    { type: "ui-flags", sessionId: "s1", verbose: false, symbolUnify: false },
+    { type: "model-selection", sessionId: "s1", provider: "p2", model: "m2" },
+  ];
+  const app = new TrackedApp({ renderer, adapter, notify: { enabled: false } });
+  app.start();
+  await flush();
+  const st = (): {
+    activityVerbose: boolean;
+    symbolUnify: boolean;
+    modelBySession: Record<string, { provider?: string; model?: string }>;
+  } => (app as unknown as { state: never }).state;
+  assert.equal(
+    st().activityVerbose,
+    false,
+    "verbose 由 ui-flags 回填（宿主日志不记录）",
+  );
+  assert.equal(st().symbolUnify, false, "symbol-unify 由 ui-flags 回填");
+  const got = st().modelBySession["s1"];
+  assert.deepEqual(
+    { provider: got?.provider, model: got?.model },
+    { provider: "p2", model: "m2" },
+    "会话模型回填 modelBySession",
+  );
+  app.dispose();
+});
+
+test("会话状态快照：/verbose 与 /model 变更在退出前落盘（含模型与 TUI 本地开关）", async () => {
+  const { app, renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/verbose off");
+  typeAndEnter(renderer, "/model deepseek/deepseek-reasoner");
+  await flush();
+  await flush();
+  app.dispose(); // 退出前 flush 待落盘快照（合并窗口内的变更不丢）
+  const rec = adapter.savedUiStates.at(-1);
+  assert.ok(rec, "退出前已落盘会话状态快照");
+  assert.equal(rec.sessionId, "s1", "快照记在活跃会话上");
+  assert.equal(rec.state.verbose, false, "verbose 记入快照");
+  assert.deepEqual(
+    rec.state.model,
+    { provider: "deepseek", model: "deepseek-reasoner" },
+    "会话模型记入快照",
   );
 });
 

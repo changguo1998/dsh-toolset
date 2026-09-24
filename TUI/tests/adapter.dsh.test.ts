@@ -51,6 +51,10 @@ import {
   type JobsLike,
 } from "../src/app/adapter/dsh.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
+import {
+  readSessionUiState,
+  writeSessionUiState,
+} from "../src/app/adapter/session-ui-state.ts";
 import type {
   StreamChunk,
   AssistantStreamRecord,
@@ -1833,6 +1837,10 @@ test("历史会话：未注入 sessionQuery 时方法为 undefined（app 层提�
 function makeAdapterWithSessionQuery(
   sq: SessionQueryLike,
   sessions?: SessionStoreLike,
+  extra?: {
+    sessionStateRoots?: readonly string[];
+    sessionModel?: SessionModelSelectionRef;
+  },
 ): {
   adapter: ReturnType<typeof createRealDshAdapter>;
 } {
@@ -1843,6 +1851,7 @@ function makeAdapterWithSessionQuery(
       agent: new FakeAgent(),
       sessionQuery: sq,
       sessions,
+      ...extra,
     }),
   };
 }
@@ -3097,7 +3106,7 @@ test("P2-0.1.2 model/selection → model-selection 事件（provider/model/reaso
   );
 });
 
-test("refreshSessionModes：从会话日志折叠 plan/sandbox/permission/policy 初始值", async () => {
+test("restoreSessionState：从会话日志折叠 plan/sandbox/permission/policy 初始值", async () => {
   const sq = new FakeSessionQuery();
   sq.events = [
     { type: "plan/mode", seq: 1, data: { active: false } },
@@ -3114,7 +3123,7 @@ test("refreshSessionModes：从会话日志折叠 plan/sandbox/permission/policy
   const { adapter } = makeAdapterWithSessionQuery(sq);
   const events: DshEvent[] = [];
   const unbind = adapter.onEvent((e) => events.push(e));
-  await adapter.refreshSessionModes!("s1");
+  await adapter.restoreSessionState!("s1");
   unbind();
   assert.deepEqual(events, [
     { type: "mode", sessionId: "s1", kind: "plan", value: "on" },
@@ -3139,13 +3148,13 @@ test("adapter.sessionId：实时返回当前活跃会话 id（App 启动期 Mode
   assert.equal(t.adapter.sessionId, "s1", "初始活跃会话 id");
 });
 
-test("refreshSessionModes：无 mode 事件且宿主无默认预设 → 仅 emit plan off", async () => {
+test("restoreSessionState：无 mode 事件且宿主无默认预设 → 仅 emit plan off", async () => {
   const sq = new FakeSessionQuery();
   sq.events = [{ type: "user/message", seq: 1, data: {} }];
   const { adapter } = makeAdapterWithSessionQuery(sq);
   const events: DshEvent[] = [];
   const unbind = adapter.onEvent((e) => events.push(e));
-  await adapter.refreshSessionModes!("s1");
+  await adapter.restoreSessionState!("s1");
   unbind();
   // plan 是 opt-in、无记录即 off；沙箱/权限/策略无宿主默认数据源时不臆造
   assert.deepEqual(events, [
@@ -3155,13 +3164,13 @@ test("refreshSessionModes：无 mode 事件且宿主无默认预设 → 仅 emit
   // 宿主既无 sessionQuery 也无 permissionPresets：不暴露方法（静默跳过）
   const t = makeAdapter();
   assert.equal(
-    t.adapter.refreshSessionModes,
+    t.adapter.restoreSessionState,
     undefined,
     "无读取面无默认数据源不暴露方法",
   );
 });
 
-test("refreshSessionModes：全新会话无 mode 事件 → 以宿主 defaultPreset 兜底（与当前模式一致）", async () => {
+test("restoreSessionState：全新会话无 mode 事件 → 以宿主 defaultPreset 兜底（与当前模式一致）", async () => {
   const sq = new FakeSessionQuery();
   sq.events = [{ type: "user/message", seq: 1, data: {} }];
   const presets = {
@@ -3185,7 +3194,7 @@ test("refreshSessionModes：全新会话无 mode 事件 → 以宿主 defaultPre
   });
   const events: DshEvent[] = [];
   const unbind = adapter.onEvent((e) => events.push(e));
-  await adapter.refreshSessionModes!("s1");
+  await adapter.restoreSessionState!("s1");
   unbind();
   assert.deepEqual(events, [
     { type: "mode", sessionId: "s1", kind: "plan", value: "off" },
@@ -3212,7 +3221,7 @@ test("refreshSessionModes：全新会话无 mode 事件 → 以宿主 defaultPre
   ];
   const events2: DshEvent[] = [];
   const unbind2 = adapter.onEvent((e) => events2.push(e));
-  await adapter.refreshSessionModes!("s1");
+  await adapter.restoreSessionState!("s1");
   unbind2();
   assert.deepEqual(events2, [
     { type: "mode", sessionId: "s1", kind: "plan", value: "off" },
@@ -3230,6 +3239,269 @@ test("refreshSessionModes：全新会话无 mode 事件 → 以宿主 defaultPre
     },
     { type: "approval-policy", sessionId: "s1", policy: "never" },
   ]);
+});
+
+// --- 会话状态回填：模型 / goal / todo / TUI 本地开关 ---
+
+/** 临时会话根 <root>/<slug>/<id>/（tui-state.json 由 writeSessionUiState 写入） */
+function makeSessionRoot(id: string): {
+  root: string;
+  cleanup: () => void;
+} {
+  const root = mkdtempSync(join(tmpdir(), "dsh-tui-state-"));
+  mkdirSync(join(root, "proj-slug", id), { recursive: true });
+  return {
+    root,
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+test("restoreSessionState：模型按 model/selection → 快照 → 最近 request/header 恢复", async () => {
+  const { root, cleanup } = makeSessionRoot("s1");
+  try {
+    writeSessionUiState(
+      "s1",
+      { version: 1, model: { provider: "p-snap", model: "m-snap" } },
+      [root],
+    );
+    const sq = new FakeSessionQuery();
+    const ref: SessionModelSelectionRef = {
+      current: { provider: "p-old", model: "m-old" },
+    };
+    const { adapter } = makeAdapterWithSessionQuery(sq, undefined, {
+      sessionStateRoots: [root],
+      sessionModel: ref,
+    });
+    const collect = async (): Promise<DshEvent[]> => {
+      const events: DshEvent[] = [];
+      const unbind = adapter.onEvent((e) => events.push(e));
+      await adapter.restoreSessionState!("s1");
+      unbind();
+      return events;
+    };
+    // 1) 宿主显式意图（model/selection）优先
+    sq.events = [
+      {
+        type: "model/selection",
+        seq: 1,
+        data: { provider: "p-log", model: "m-log" },
+      },
+      {
+        type: "request/header",
+        seq: 2,
+        data: {
+          header: { config: { provider: "p-hdr", model: "m-hdr" } },
+        },
+      },
+    ];
+    const e1 = await collect();
+    assert.deepEqual(
+      ref.current,
+      { provider: "p-log", model: "m-log" },
+      "model/selection 优先于快照与请求头",
+    );
+    assert.deepEqual(
+      e1.find((e) => e.type === "model-selection"),
+      {
+        type: "model-selection",
+        sessionId: "s1",
+        provider: "p-log",
+        model: "m-log",
+      },
+      "emit model-selection 供 App 显示",
+    );
+    // 2) 无 model/selection → TUI 快照优先（「已选但尚未发请求」的选择不丢）
+    sq.events = [
+      {
+        type: "request/header",
+        seq: 1,
+        data: {
+          header: {
+            config: {
+              provider: "p-hdr",
+              model: "m-hdr",
+              reasoningEffort: "high",
+            },
+          },
+        },
+      },
+    ];
+    await collect();
+    assert.deepEqual(
+      ref.current,
+      { provider: "p-snap", model: "m-snap" },
+      "快照优先于最近请求头",
+    );
+    // 3) 快照无模型记录 → 最近 request/header.config（含 effort）
+    writeSessionUiState("s1", { version: 1 }, [root]);
+    await collect();
+    assert.deepEqual(ref.current, {
+      provider: "p-hdr",
+      model: "m-hdr",
+      reasoningEffort: "high",
+    });
+    // 4) 三者皆无 → 回到初始种子（config 固定模型；此处即构造时的 p-old/m-old），
+    //    既不残留上一个会话的选择，也不把 config 固定的模型清掉
+    sq.events = [{ type: "user/message", seq: 1, data: {} }];
+    const e4 = await collect();
+    assert.deepEqual(
+      ref.current,
+      { provider: "p-old", model: "m-old" },
+      "无记录 → 回到 config 种子",
+    );
+    assert.equal(
+      e4.find((e) => e.type === "model-selection"),
+      undefined,
+      "无记录不发 model-selection 事件",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("restoreSessionState：goal/todo 折叠末条 + TUI 本地开关来自快照", async () => {
+  const { root, cleanup } = makeSessionRoot("s1");
+  try {
+    writeSessionUiState(
+      "s1",
+      { version: 1, verbose: false, symbolUnify: false },
+      [root],
+    );
+    const sq = new FakeSessionQuery();
+    sq.events = [
+      {
+        type: "goal/change",
+        seq: 1,
+        data: {
+          operation: "create",
+          goal: { id: "g1", title: "目标" },
+          roundsStarted: 0,
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      },
+      { type: "todo/write", seq: 2, data: { todos: [{ content: "甲" }] } },
+      {
+        type: "todo/write",
+        seq: 3,
+        data: { todos: [{ content: "乙", status: "in_progress" }] },
+      },
+    ];
+    const { adapter } = makeAdapterWithSessionQuery(sq, undefined, {
+      sessionStateRoots: [root],
+    });
+    const events: DshEvent[] = [];
+    const unbind = adapter.onEvent((e) => events.push(e));
+    await adapter.restoreSessionState!("s1");
+    unbind();
+    assert.deepEqual(
+      events.find((e) => e.type === "goal-change"),
+      {
+        type: "goal-change",
+        sessionId: "s1",
+        operation: "create",
+        goal: { id: "g1", title: "目标" },
+        roundsStarted: 0,
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      "goal 取末条全量快照",
+    );
+    assert.deepEqual(
+      events.filter((e) => e.type === "todo-write"),
+      [
+        {
+          type: "todo-write",
+          sessionId: "s1",
+          todos: [{ content: "乙", status: "in_progress" }],
+        },
+      ],
+      "todo 只发末条（latest-wins）",
+    );
+    assert.deepEqual(
+      events.find((e) => e.type === "ui-flags"),
+      {
+        type: "ui-flags",
+        sessionId: "s1",
+        verbose: false,
+        symbolUnify: false,
+      },
+      "TUI 本地开关来自快照",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("restoreSessionState：宿主日志无 mode 事件时用快照兜底", async () => {
+  const { root, cleanup } = makeSessionRoot("s1");
+  try {
+    writeSessionUiState(
+      "s1",
+      {
+        version: 1,
+        modes: {
+          plan: "on",
+          sandbox: "read-only",
+          permission: "ro",
+          policy: "never",
+        },
+      },
+      [root],
+    );
+    const sq = new FakeSessionQuery();
+    sq.events = [{ type: "user/message", seq: 1, data: {} }];
+    const { adapter } = makeAdapterWithSessionQuery(sq, undefined, {
+      sessionStateRoots: [root],
+    });
+    const events: DshEvent[] = [];
+    const unbind = adapter.onEvent((e) => events.push(e));
+    await adapter.restoreSessionState!("s1");
+    unbind();
+    assert.deepEqual(events, [
+      { type: "mode", sessionId: "s1", kind: "plan", value: "on" },
+      { type: "mode", sessionId: "s1", kind: "sandbox", value: "read-only" },
+      { type: "mode", sessionId: "s1", kind: "permission", value: "ro" },
+      { type: "approval-policy", sessionId: "s1", policy: "never" },
+    ]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("saveSessionUiState/readSessionUiState：会话目录旁挂 tui-state.json（无目录则失败）", () => {
+  const { root, cleanup } = makeSessionRoot("s1");
+  try {
+    const state = {
+      version: 1 as const,
+      model: { provider: "p", model: "m", reasoningEffort: "high" },
+      verbose: false,
+      symbolUnify: true,
+      modes: { plan: "on" as const, sandbox: "ro", policy: "ask" as const },
+    };
+    const { adapter } = makeAdapterWithSessionQuery(
+      new FakeSessionQuery(),
+      undefined,
+      {
+        sessionStateRoots: [root],
+      },
+    );
+    assert.equal(adapter.saveSessionUiState!("s1", state), true, "写快照成功");
+    assert.deepEqual(adapter.readSessionUiState!("s1"), state, "读回一致");
+    // 会话目录不存在（仅内存会话）→ 失败且不建目录
+    assert.equal(
+      adapter.saveSessionUiState!("tui-none9999", state),
+      false,
+      "无会话目录 → 落盘失败",
+    );
+    assert.equal(
+      adapter.readSessionUiState!("tui-none9999"),
+      undefined,
+      "无会话目录 → 无快照",
+    );
+  } finally {
+    cleanup();
+  }
 });
 
 // --- 会话清理：isEmpty 回填 + deleteSession 守卫（真机 adapter） ---
