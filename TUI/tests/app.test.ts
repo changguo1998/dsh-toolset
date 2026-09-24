@@ -461,6 +461,16 @@ test("/init：AGENTS.md 缺失 → 注入初始化指令（用户行回显 /init
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("/exit 为 /quit 别名：关闭 renderer 且释放 adapter，不经宿主命令", () => {
+  const { app, renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/exit");
+  assert.equal(renderer.closed, 1, "关闭 renderer");
+  assert.equal(adapter.disposed, 1, "释放 adapter（含当前活跃 handle）");
+  assert.deepEqual(adapter.sent, [], "不发给模型");
+  assert.deepEqual(adapter.commands, [], "不经宿主命令注册表");
+  app.dispose();
+});
+
 test("/quit → 走 App.dispose：关闭 renderer 且释放 adapter", () => {
   const { app, renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/quit");

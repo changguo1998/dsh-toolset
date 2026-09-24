@@ -186,6 +186,7 @@ export const LOCAL_COMMANDS: readonly {
   { name: "clearscreen", route: "clearscreen", desc: "清屏" },
   { name: "cls", route: "clearscreen", desc: "清屏（同 /clearscreen）" },
   { name: "quit", route: "quit", desc: "退出 TUI" },
+  { name: "exit", route: "quit", desc: "退出 TUI（同 /quit）" },
   { name: "model", route: "model", desc: "切换模型：无参打开选择面板" },
   {
     name: "provider",

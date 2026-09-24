@@ -38,7 +38,8 @@ test("completeCommandInput：前缀匹配 + 最匹配（名称最短）排首", 
   assert.equal(r?.index, 0, "默认选中项为 items[0]（最匹配）");
   // 多命中时按名称短→长：cls(3) 最短 → 首位
   const all = completeCommandInput("/");
-  assert.deepEqual(names(all?.items)?.slice(0, 3), ["cls", "copy", "fork"]);
+  // cls 最短排首；4 字符名同长按字典序：copy < exit < fork
+  assert.deepEqual(names(all?.items)?.slice(0, 3), ["cls", "copy", "exit"]);
   assert.equal(all?.items.length, LOCAL_COMMANDS.length);
 });
 
@@ -57,7 +58,10 @@ test("completeCommandInput：slash 模式下输入框无前导 `/`（归一后�
     "model",
   ]);
   // 归一后同样支持「空 token = 全量」
-  assert.equal(completeCommandInput("", [], "slash")?.items.length, LOCAL_COMMANDS.length);
+  assert.equal(
+    completeCommandInput("", [], "slash")?.items.length,
+    LOCAL_COMMANDS.length,
+  );
   // 非 slash 模式的裸名字不匹配（避免普通文本误触发）
   assert.equal(completeCommandInput("mo", [], "normal"), null);
   assert.equal(completeCommandInput("mo", [], "shell"), null);

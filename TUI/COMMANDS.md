@@ -7,13 +7,13 @@
 
 ### 1.1 本地命令（app 层直接处理，不经 adapter）
 
-单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（36 条 = 32 命令 + 4 别名 `/cls` `/thinking` `/usage` `/context`）；路由决策 `routeSlashCommand`，处理分支在 `src/app/index.ts` `handleSlash`。
+单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（37 条 = 32 命令 + 5 别名 `/cls` `/thinking` `/usage` `/context` `/exit`）；路由决策 `routeSlashCommand`，处理分支在 `src/app/index.ts` `handleSlash`。
 
 | 命令 | 用途 |
 |------|------|
 | `/help` | 本地帮助（命令与快捷键） |
 | `/clearscreen`（`/cls`） | 清空显示缓冲（只清 UI，不动会话上下文） |
-| `/quit` | 关闭 renderer 退出 |
+| `/quit`（`/exit`） | 关闭 renderer 退出 |
 | `/theme [dark\|light\|toggle]` | 主题切换（仅当前会话，不落盘） |
 | `/verbose on\|off` | 活动区详略两态：`on`（缺省）完整折行 / `off` 紧凑（每条目 1 行 + 行尾 `…`）；SPEC §6.8。生效值常驻状态列 Mode 块（`✓`=on / `✗`=off） |
 | `/symbol-unify on\|off` | 模型输出符号统一：`on`（缺省）把变体符号替换为推荐符号并提醒模型 / `off` 原样（不替换不提醒）。生效值常驻状态列 Mode 块（`✓`=on / `✗`=off） |
