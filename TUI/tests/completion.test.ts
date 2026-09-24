@@ -38,8 +38,8 @@ test("completeCommandInput：前缀匹配 + 最匹配（名称最短）排首", 
   assert.equal(r?.index, 0, "默认选中项为 items[0]（最匹配）");
   // 多命中时按名称短→长：cls(3) 最短 → 首位
   const all = completeCommandInput("/");
-  // cls 最短排首；4 字符名同长按字典序：copy < exit < fork
-  assert.deepEqual(names(all?.items)?.slice(0, 3), ["cls", "copy", "exit"]);
+  // 3 字符名同长按字典序：cls < new，随后是 4 字符的 copy
+  assert.deepEqual(names(all?.items)?.slice(0, 3), ["cls", "new", "copy"]);
   assert.equal(all?.items.length, LOCAL_COMMANDS.length);
 });
 

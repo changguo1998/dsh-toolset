@@ -300,6 +300,8 @@ export async function apply(
     agents: agents as AgentRegistryLike | undefined,
     setup: makeSetup(),
     agentOptions: route,
+    // /new 新建会话沿用同一 meta（与上面 agents.create 一致，决定会话目录 slug）
+    sessionMeta: { cwd: config?.cwd ?? process.cwd() },
     handleDispose: () => handle.dispose(),
     commands,
     llm: (ctx as { get?: (name: string) => unknown }).get?.("llm") as

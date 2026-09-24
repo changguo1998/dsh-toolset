@@ -7,7 +7,7 @@
 
 ### 1.1 本地命令（app 层直接处理，不经 adapter）
 
-单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（37 条 = 32 命令 + 5 别名 `/cls` `/thinking` `/usage` `/context` `/exit`）；路由决策 `routeSlashCommand`，处理分支在 `src/app/index.ts` `handleSlash`。
+单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（38 条 = 33 命令 + 5 别名 `/cls` `/thinking` `/usage` `/context` `/exit`）；路由决策 `routeSlashCommand`，处理分支在 `src/app/index.ts` `handleSlash`。
 
 | 命令 | 用途 |
 |------|------|
@@ -34,6 +34,7 @@
 | `/agents` | 子代理面板（Enter 直接中断选中项、`r` 手动刷新、打开期间每 2s 定时刷新） |
 | `/tools [过滤]` | 工具目录面板（Enter 详情） |
 | `/settings` | 只读展示配置（`ns：value`，secret 脱敏） |
+| `/new` | 新建会话（不重启进程；释放当前 agent handle → `agents.create` 新会话并切过去；原会话可经 `/session` 切回） |
 | `/fork` | 分叉当前会话为新会话 |
 | `/task` | 任务面板（task-engine 只读：标题/状态） |
 | `/guard` | 守卫面板（security-guard：拦截/放行记录，Enter 看策略） |

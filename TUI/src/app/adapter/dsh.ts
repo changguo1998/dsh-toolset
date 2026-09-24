@@ -3036,6 +3036,62 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       activeSessionId = id;
       activeDispose = () => handle.dispose();
     },
+    /** /new：新建会话（dispose 旧 agent → agents.create 全新会话，同一 setup/agentOptions）。
+     *  旧会话已持久化在磁盘上（handle 释放后变 persisted 非 live），可经 /session 切回。 */
+    async newSession() {
+      if (disposed) {
+        throw new Error("adapter 已释放，无法新建会话");
+      }
+      if (!opts.agents || typeof opts.agents.create !== "function") {
+        throw new Error("agents 未暴露 create（宿主未配置会话创建）");
+      }
+      // 与 resumeTo 同序：先释放当前 agent 的 handle，再建新会话（失败不留下双活 handle）
+      const prevDispose = activeDispose;
+      if (prevDispose) {
+        activeDispose = undefined;
+        try {
+          await prevDispose();
+        } catch {
+          /* 旧 handle 释放失败不阻断新建 */
+        }
+      }
+      const { randomUUID } = await import("node:crypto");
+      const sessionId = "tui-" + randomUUID();
+      const handle = await opts.agents.create({
+        sessionId,
+        ...(opts.sessionMeta ? { meta: opts.sessionMeta } : {}),
+        ...(opts.agentOptions ? { agentOptions: opts.agentOptions } : {}),
+        ...(opts.setup ? { setup: opts.setup } : {}),
+      });
+      const rawAgent = handle.agent as
+        | {
+            session?: { id?: string };
+            followup?: (m: ReturnType<typeof buildUserMessage>) => void;
+            cancel?: (cause: { kind: "user" }) => void;
+          }
+        | undefined;
+      if (!rawAgent?.session || !rawAgent.session.id) {
+        try {
+          await handle.dispose();
+        } catch {
+          /* 释放失败不阻断 */
+        }
+        throw new Error("create 未返回有效 agent");
+      }
+      activeAgent = {
+        session: rawAgent.session,
+        followup: (m: ReturnType<typeof buildUserMessage>) =>
+          rawAgent.followup?.(m),
+      } as DshAgentLike;
+      activeCommandAgent = rawAgent as unknown;
+      activeCancel =
+        rawAgent.cancel === undefined
+          ? () => {}
+          : () => rawAgent.cancel?.({ kind: "user" });
+      activeSessionId = rawAgent.session.id;
+      activeDispose = () => handle.dispose();
+      return { id: activeSessionId };
+    },
     async setSessionModel(sel) {
       if (!opts.sessionModel) {
         throw new Error("会话模型引用未注入，无法切换模型");

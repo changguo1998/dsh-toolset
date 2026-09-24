@@ -2029,6 +2029,9 @@ export class App {
       case "settings":
         this.handleSettingsCommand();
         return;
+      case "new":
+        this.startNewSession();
+        return;
       case "fork":
         this.handleForkCommand();
         return;
@@ -2952,6 +2955,39 @@ export class App {
       (text) =>
         this.notice(text && text.trim() !== "" ? text : "（无设置项）", "info"),
       () => this.notice("settings 服务不可用", "warn"),
+    );
+  }
+
+  /** `/new`：不重启进程新建会话——释放当前 agent handle → `agents.create` 全新会话
+   *  （同一 setup / agentOptions / meta）→ 切到新会话（缓冲与滚动按空会话重置，
+   *  模型/Mode/开关由 restoreSessionState 回默认值）。旧会话已持久化在磁盘上，
+   *  可经 `/session` 列表切回。宿主未暴露 agents.create → warn 不动作。 */
+  private startNewSession(): void {
+    const adapter = this.deps.adapter;
+    const create = adapter.newSession;
+    if (!create) {
+      this.notice("新建会话不可用（宿主未配置会话创建）", "warn");
+      return;
+    }
+    // 切走前先把当前会话的 TUI 侧状态落盘（快照按会话隔离）
+    this.flushSessionStateSave();
+    void create.call(adapter).then(
+      ({ id }) => {
+        if (this.disposed) return;
+        this.turnOpen = false; // 新会话没有在跑的回合（旧 handle 已释放）
+        this.apply((s) =>
+          reduceState(s, { type: "session-switch", id, title: "" }),
+        );
+        this.apply((s) => reduceState(s, { type: "queued-clear" }));
+        this.restoreSessionState();
+        this.notice(`已新建会话 ${id}（原会话可用 /session 切回）`, "success");
+        this.paint();
+      },
+      (err: unknown) =>
+        this.notice(
+          `新建会话失败：${err instanceof Error ? err.message : "未知错误"}`,
+          "warn",
+        ),
     );
   }
 

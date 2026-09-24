@@ -327,6 +327,10 @@ export interface DshAdapter {
   /** 运行时切换到持久化会话（agents.resume）：dispose 旧 agent → resume 新 agent，
    *  成功后本 adapter 的活跃会话变为该 id。宿主未挂载 agents.resume 时 reject 提示。 */
   resumeTo?(id: string): Promise<void>;
+  /** 运行时新建会话（`/new`）：dispose 旧 agent → agents.create 全新会话（同一 setup /
+   *  agentOptions），成功后本 adapter 的活跃会话变为新 id（旧会话保留在磁盘，可经
+   *  /session 切回）。宿主未暴露 agents.create 时省略 → /new 提示不可用。 */
+  newSession?(): Promise<{ id: string }>;
   /** 删除持久化会话（文件级：单段安全 id + realpath 包含性校验后删除会话目录）；
    *  当前活跃会话一律拒绝；live 会话由调用方（面板）先拒绝。宿主无会话查询服务时为 undefined。 */
   deleteSession?(id: string): Promise<SessionDeleteResult>;
@@ -944,6 +948,14 @@ export interface AgentRegistryLike {
     setup?: (agentCtx: unknown) => unknown;
     signal?: AbortSignal;
   }): Promise<{ agent: unknown; dispose(): Promise<void> }>;
+  /** 新建会话（官方 agents.create；sessionId 缺省由宿主生成）。/new 用；
+   *  老宿主只暴露 resume 时省略 → /new 提示不可用。 */
+  create?(opts: {
+    sessionId?: string;
+    meta?: { cwd?: string };
+    agentOptions?: Record<string, unknown>;
+    setup?: (agentCtx: unknown) => unknown;
+  }): Promise<{ agent: unknown; dispose(): Promise<void> }>;
 }
 
 /** 权限预设目录信息（rc.2 ctx.permissionPresets 结构面：names + current + 展示描述） */
@@ -1351,6 +1363,9 @@ export interface RealAdapterOptions {
   setup?: (agentCtx: unknown) => unknown;
   /** 创建 agent 时的 agentOptions（route provider/model/effort），resume 时沿用 */
   agentOptions?: Record<string, unknown>;
+  /** 新建会话的 meta（`agents.create({ meta })`，如 { cwd }）；resumeTo 不用（会话自带 meta）。
+   *  缺省不传 meta，与宿主自己的默认策略一致。 */
+  sessionMeta?: Record<string, unknown>;
   /** 初始 agent handle 的释放函数（main.ts 的 handle.dispose）；resume 切换后由 adapter 负责释放 */
   handleDispose?: () => Promise<void>;
   /** ctx.get('permissionPresets') 服务（dsh-permission-presets）；缺失时 /permission 提示不可用 */

@@ -1889,6 +1889,76 @@ test("resumeTo：切换成功 → 旧 handle 释放 → 后续 sendMessage/cance
   assert.equal(agent2.followups.length, 1);
 });
 
+test("newSession：dispose 旧 handle → agents.create 新会话（同一 setup/meta/agentOptions）→ 活跃会话切换", async () => {
+  const runtime = new FakeRuntime();
+  const log: string[] = [];
+  const created: Record<string, unknown>[] = [];
+  const agent2 = new FakeAgent();
+  const setup = (): void => {};
+  const adapter = createRealDshAdapter({
+    runtime,
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    agents: {
+      resume: async () => {
+        throw new Error("newSession 不应调用 resume");
+      },
+      create: async (o: Record<string, unknown>) => {
+        created.push(o);
+        log.push("create");
+        agent2.session = { id: String(o.sessionId) };
+        return {
+          agent: agent2,
+          dispose: async (): Promise<void> => {
+            log.push("dispose2");
+          },
+        };
+      },
+    } as unknown as AgentRegistryLike,
+    agentOptions: { provider: "p", model: "m" },
+    sessionMeta: { cwd: "/tmp/proj" },
+    setup,
+    handleDispose: async (): Promise<void> => {
+      log.push("dispose1");
+    },
+  });
+  const { id } = await adapter.newSession!();
+  assert.match(id, /^tui-/, "新会话 id 沿用 tui- 前缀");
+  assert.deepEqual(log, ["dispose1", "create"], "先释放旧 handle 再建新会话");
+  assert.equal(created[0]?.sessionId, id, "create 收到同一 sessionId");
+  assert.deepEqual(
+    created[0]?.meta,
+    { cwd: "/tmp/proj" },
+    "沿用 create 的 meta",
+  );
+  assert.deepEqual(created[0]?.agentOptions, { provider: "p", model: "m" });
+  assert.equal(
+    created[0]?.setup,
+    setup,
+    "沿用同一 setup（模型选择/工具引导钩子）",
+  );
+  assert.equal(adapter.sessionId, id, "活跃会话切到新会话");
+  // 新 agent 生效：sendMessage 走新会话
+  adapter.sendMessage("hi");
+  assert.equal(agent2.followups.length, 1, "后续消息发到新会话的 agent");
+});
+
+test("newSession：宿主未暴露 agents.create → reject（/new 提示不可用）", async () => {
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    agents: {
+      resume: async () => ({ agent: new FakeAgent(), dispose: async () => {} }),
+    } as unknown as AgentRegistryLike,
+  });
+  await assert.rejects(
+    () => adapter.newSession!(),
+    /create/,
+    "无 create 能力 → 抛错提示",
+  );
+});
+
 test("resumeTo：resume 未返回有效 agent → 释放新 handle 并抛错", async () => {
   const runtime = new FakeRuntime();
   const log: string[] = [];

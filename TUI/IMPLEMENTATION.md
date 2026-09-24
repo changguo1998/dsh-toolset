@@ -24,7 +24,7 @@
 | `/rename` | 纯函数 `renameCommandDecision(line)` 判 usage / invalid / apply；apply → `ctx.sessionTitle.rename(live Session, title)`；标题栏由既有 `session/title` 链路刷新，不手工改 state | 空标题 / 含换行本地拒绝；服务缺失 → warn |
 | `/model`、`/provider`、`/effort` | 见下文「/model 命令」 | 目录读取失败 → 提示 |
 | `/policy`、`/permission`、`/preset` | 见下文「通用状态选项面板」 | 服务缺失 → 提示不可用 |
-| `/session`、`/fork` | `listSessions()` / `readSessionSurface(id)` / `deleteSession(id)`；`ctx.sessions.fork(activeSessionId)`（后两参省略 = 源会话最后事件 + store id 策略） | fork 错误码映射中文 → warn；面板失败入 error 态 |
+| `/session`、`/new`、`/fork` | `listSessions()` / `readSessionSurface(id)` / `deleteSession(id)`；`/new` = `adapter.newSession()`（dispose 旧 handle → `agents.create` 同一 setup/agentOptions/meta 的新会话 → `session-switch` 切过去 + `restoreSessionState` 回默认值）；`/fork` = `ctx.sessions.fork(activeSessionId)`（后两参省略 = 源会话最后事件 + store id 策略） | `/new` 宿主未暴露 `agents.create` → warn 不动作；fork 错误码映射中文 → warn；面板失败入 error 态 |
 | `/skills`、`/agents`、`/tools` | 共享列表面板（`refreshSkills` / `refreshAgents` / `refreshTools`）；`Enter` 经 `skillDetail` / `interruptAgent` / `toolDetail` | 服务缺失 → warn 且不空开面板 |
 | `/task`、`/guard`、`/loop`、`/workflows` | 共享列表面板；`Enter` 经 `taskDetail` / `guardPolicy` / `loopDetail` 取详情；workflows 为只读 | 同上 |
 | `/memory` | `ctx.knowledge.getSummary()`（同步优先，否则 `whenReady()` 等待）→ info notice | 服务缺失 / 失败 → warn |
@@ -86,6 +86,9 @@
 - **TUI 侧会话状态快照**（`<会话目录>/tui-state.json`，`adapter/session-ui-state.ts`）：
   `/model` 结果、`/verbose`、`/symbol-unify` 与 Mode 兜底值。宿主不认识 TUI 本地开关，
   「已选但尚未发起请求」的模型也不在日志里——这两类只有快照能恢复。
+
+`/new` 走同一条回填路径：新会话既无日志事件也无快照 → 各旋钮回默认值（plan off、
+sandbox/permission 取宿主默认预设、模型回到 config 种子），无需额外重置逻辑。
 
 每项取值优先级 = 宿主日志 → 快照 → 宿主默认（`permissionPresets.defaultPreset` 捆绑；
 plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent/request` 钩子的生效源，

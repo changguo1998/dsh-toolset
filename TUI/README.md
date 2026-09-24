@@ -240,6 +240,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 | `/session` | 会话面板：列出持久化会话，Enter 切换（`agents.resume` 恢复后继续对话，并回填该会话的模型 / Mode（plan、sandbox、permission、审批策略）/ goal / todo / `verbose`、`symbol-unify` 开关）；`Tab` 切换范围（当前目录 / 全部）、`Space` 批量标记（`a` 全选当前范围、`c` 清空）、`d`/Delete 删除（有标记=批量删除全部标记，无标记=删当前高亮）、`x` 清理空会话、`/session clean` 直达清理确认 |
 | `/rename <标题>` | 重命名当前会话标题（写宿主 `sessionTitle.rename`；空标题或含换行本地拒绝） |
 | `/copy` | 复制最后一条模型回复到系统剪贴板（OSC52，剥离 ANSI） |
+| `/new` | 新建会话（不重启进程）：释放当前 agent handle → `agents.create` 新会话并切过去；原会话保留在磁盘，可经 `/session` 切回。缓冲/滚动按空会话重置，模型 / Mode / `verbose`、`symbol-unify` 回默认值 |
 | `/fork` | 分叉当前会话为新会话（宿主 `sessions.fork`，错误码映射中文提示） |
 | `/settings` | 只读展示配置（`ns：value` 多行，secret 脱敏；宿主未挂载 settings 服务时提示不可用） |
 | `/init` | 生成项目 `AGENTS.md`：已存在则提示并结束，缺失则注入初始化指令由模型生成 |

@@ -1375,6 +1375,25 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           scrollOffset: 0,
           activityScroll: 0,
         };
+      case "session-switch":
+        // /new：全新会话 → 缓冲、滚动、窗口、焦点与排队登记全部归零。
+        // 按会话隔离的 mode/goal/todo/model 与 TUI 本地开关由 App 随后的
+        // restoreSessionState 回填（新会话无记录 → 各回默认值）。
+        return {
+          ...state,
+          activeSessionId: action.id,
+          sessionTitle: action.title,
+          history: null,
+          buffer: [],
+          followBottom: true,
+          scrollOffset: 0,
+          scrollAnchor: null,
+          activityScroll: 0,
+          windowGroups: DIALOGUE_KEEP_REPLIES,
+          focusedPanel: null,
+          queued: [],
+          stepGroup: null,
+        };
       case "history-confirm-delete": {
         const hcd = state.history;
         if (!hcd || hcd.phase !== "list") return state;
@@ -2047,6 +2066,8 @@ export type StateAction =
       title: string;
       rows: { text: string; kind: "user" | "assistant" }[];
     }
+  /** 切换活跃会话（/new 新建后切过去）：缓冲/滚动/窗口按空会话重置 */
+  | { type: "session-switch"; id: string; title: string }
   | { type: "history-scroll"; delta: number }
   | { type: "history-back" }
   | { type: "history-result"; text: string }

@@ -151,6 +151,7 @@ export type SlashRoute =
   | "verbose"
   | "symbol-unify"
   | "session"
+  | "new"
   | "copy"
   | "registry"
   | "goal"
@@ -211,6 +212,11 @@ export const LOCAL_COMMANDS: readonly {
     desc: "模型输出符号统一：on=变体替换为推荐符号并提醒 / off=原样（不替换不提醒）",
   },
   { name: "session", route: "session", desc: "历史会话浏览/恢复" },
+  {
+    name: "new",
+    route: "new",
+    desc: "新建会话（不重启进程；当前会话保留，可经 /session 切回）",
+  },
   { name: "copy", route: "copy", desc: "复制最后一条回复（OSC52）" },
   { name: "goal", route: "goal", desc: "goal/todo 详情见左侧状态列" },
   { name: "policy", route: "policy", desc: "审批策略 ask/never" },

@@ -123,6 +123,13 @@ class FakeAdapter implements DshAdapter {
     if (!this.modeSnapshotEvents) return;
     for (const e of this.modeSnapshotEvents) this.push(e);
   }
+  /** /new 新建会话调用次数与返回的新会话 id（模拟 agents.create 换成新会话） */
+  newSessionCalls = 0;
+  newSessionId = "s-new";
+  async newSession(): Promise<{ id: string }> {
+    this.newSessionCalls++;
+    return { id: this.newSessionId };
+  }
   /** 会话状态快照落盘记录（saveSessionUiState；模拟写入会话目录 tui-state.json） */
   savedUiStates: { sessionId: string; state: SessionUiState }[] = [];
   saveSessionUiState(sessionId: string, state: SessionUiState): boolean {
@@ -468,6 +475,60 @@ test("/exit 为 /quit 别名：关闭 renderer 且释放 adapter，不经宿主�
   assert.equal(adapter.disposed, 1, "释放 adapter（含当前活跃 handle）");
   assert.deepEqual(adapter.sent, [], "不发给模型");
   assert.deepEqual(adapter.commands, [], "不经宿主命令注册表");
+  app.dispose();
+});
+
+test("/new：不重启进程新建会话 → 切换活跃会话、缓冲清空、状态按新会话回填", async () => {
+  const { app, renderer, adapter } = makeApp();
+  adapter.newSessionId = "s-new2";
+  adapter.modeSnapshotEvents = [
+    { type: "mode", sessionId: "s-new2", kind: "plan", value: "off" },
+  ];
+  // 旧会话留内容 + 一个待落盘的开关变更（切走前应 flush 给旧会话）
+  typeAndEnter(renderer, "旧会话的问题");
+  adapter.push({ type: "stream", sessionId: "s1", text: "旧会话的回答" });
+  typeAndEnter(renderer, "/verbose off");
+  await flush();
+  typeAndEnter(renderer, "/new");
+  await flush();
+  await flush();
+  const st = (): {
+    activeSessionId: string | null;
+    buffer: unknown[];
+    activityVerbose: boolean;
+    modeBySession: Record<string, { plan?: string }>;
+  } => (app as unknown as { state: never }).state;
+  assert.equal(adapter.newSessionCalls, 1, "调用 adapter.newSession");
+  assert.equal(st().activeSessionId, "s-new2", "活跃会话切到新会话");
+  const texts = st().buffer.map((l) => (l as { text: string }).text);
+  assert.ok(
+    !texts.some((t) => t.includes("旧会话")),
+    "旧会话内容不残留（缓冲按空会话重置）",
+  );
+  assert.deepEqual(
+    texts.filter((t) => !t.includes("已新建会话")),
+    [],
+    "缓冲中只剩新建提示行",
+  );
+  assert.equal(
+    adapter.savedUiStates.at(-1)?.sessionId,
+    "s1",
+    "切走前把旧会话的 TUI 侧状态落盘",
+  );
+  assert.equal(
+    adapter.savedUiStates.at(-1)?.state.verbose,
+    false,
+    "落盘内容含 verbose off",
+  );
+  assert.equal(
+    st().modeBySession["s-new2"]?.plan,
+    "off",
+    "新会话状态已回填（restoreSessionState）",
+  );
+  assert.ok(
+    plainFrame(renderer).includes("已新建会话 s-new2"),
+    "提示新会话 id 与切回方式",
+  );
   app.dispose();
 });
 
@@ -1145,7 +1206,7 @@ test("输入补全：/ 前缀出候选面板, 最匹配默认高亮, Tab 接受�
 
 test("输入补全：↑/↓ 只在候选间移动, Tab 接受焦点项", async () => {
   const { renderer } = makeApp();
-  // "/" = 全量候选，按名称短→长排序：cls 最短为默认焦点，↓ 后为 copy
+  // "/" = 全量候选，按名称短→长排序（同长按字典序）：cls 最短为默认焦点，↓ 后为 new
   renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
   let frame = plainFrame(renderer);
   assert.ok(frame.includes("/cls"), `全量候选应含 /cls: ${frame}`);
@@ -1155,8 +1216,8 @@ test("输入补全：↑/↓ 只在候选间移动, Tab 接受焦点项", async 
   await flush();
   frame = plainFrame(renderer);
   assert.ok(
-    frame.includes("copy ") && !frame.includes("/copy"),
-    `↓ 后 Tab 应接受 copy: ${frame}`,
+    frame.includes("new ") && !frame.includes("/new"),
+    `↓ 后 Tab 应接受 new: ${frame}`,
   );
 });
 
