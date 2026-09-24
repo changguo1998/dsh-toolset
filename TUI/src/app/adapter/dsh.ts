@@ -1080,7 +1080,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     // sessionModel 引用是 agent/request 钩子的生效源：恢复后本会话的请求就用该模型。
     // 三者皆无 → 回到初始种子（config 固定模型；无种子即 undefined → 回落宿主实时默认），
     // 避免「上一个会话的选择」泄漏进本会话，也不把 config 固定的模型清掉。
-    if (opts.sessionModel) opts.sessionModel.current = selected ?? sessionModelSeed;
+    if (opts.sessionModel)
+      opts.sessionModel.current = selected ?? sessionModelSeed;
     if (selected) {
       emit({
         type: "model-selection",
