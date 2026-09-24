@@ -15,14 +15,14 @@
 | `/clearscreen`（`/cls`） | 清空显示缓冲（只清 UI，不动会话上下文） |
 | `/quit`（`/exit`） | 关闭 renderer 退出 |
 | `/theme [dark\|light\|toggle]` | 主题切换（仅当前会话，不落盘） |
-| `/verbose on\|off` | 活动区详略两态：`on`（缺省）完整折行 / `off` 紧凑（每条目 1 行 + 行尾 `…`）；SPEC §6.8。生效值常驻状态列 Mode 块（`✓`=on / `✗`=off） |
-| `/symbol-unify on\|off` | 模型输出符号统一：`on`（缺省）把变体符号替换为推荐符号并提醒模型 / `off` 原样（不替换不提醒）。生效值常驻状态列 Mode 块（`✓`=on / `✗`=off） |
+| `/verbose on\|off` | 活动区详略两态：`on`（缺省）完整折行 / `off` 紧凑（每条目 1 行 + 行尾 `…`）；SPEC §6.8。生效值常驻标题栏图标（on 默认前景 / off 灰） |
+| `/symbol-unify on\|off` | 模型输出符号统一：`on`（缺省）把变体符号替换为推荐符号并提醒模型 / `off` 原样（不替换不提醒）。生效值常驻标题栏图标（on 默认前景 / off 灰） |
 | `/session` | 历史会话面板（浏览/恢复/删除/清理，范围 Tab 切换；`/session clean` 直达清理确认） |
 | `/copy` | 复制最后一条模型回复（OSC52） |
 | `/goal [<目标>\|edit <目标>\|pause\|resume\|clear]` | 无参：goal/todo 提示（详情常驻左侧状态列）；带参：转发宿主 `dsh-command-goal`（新建/编辑/暂停/恢复/清除当前会话 goal，结果经 notice 回报） |
-| `/policy [ask\|never]` | 审批策略：无参开状态选项面板，带参直接设置 |
-| `/permission [预设名]` | 权限预设（sandbox mode + 审批策略捆绑）：无参开面板，带参转发宿主命令 |
-| `/preset [预设名]` | agent 预设目录：无参开面板，带参切换 |
+| `/policy [ask\|never]` | 审批策略：无参开状态选项面板，带参直接设置。生效值显示为标题栏 policy 图标（`ask` 黄 / `never` 绿） |
+| `/permission [预设名]` | 权限预设（sandbox mode + 审批策略捆绑）：无参开面板，带参转发宿主命令。预设名本身不再显示，其沙箱取值显示为标题栏沙箱图标（按危险等级绿 / 黄 / 红，其它值灰） |
+| `/preset [预设名]` | agent 预设目录：无参开面板，带参切换。生效值显示为标题栏 preset 段（拼图图标 + 预设名） |
 | `/jobs` | 后台任务面板（↑/↓ 选择、PgUp/PgDn 翻页、Enter 取消、Esc 关闭） |
 | `/init` | 初始化 `AGENTS.md`（缺失时由模型阅读目录生成；已存在则提示退出） |
 | `/model [provider/]model` | 无参开模型选择面板（provider/model/effort 三列），带参直接切换 |

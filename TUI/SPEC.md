@@ -62,7 +62,7 @@ interface Paragraph extends NodeBase {
 //   spacer({ height }) := Paragraph({ text:"", height })（v 容器占行）——轴显式
 ```
 
-**简写与说明**：示例中 `v([...])` / `h([...])` 是 `Box(direction:"v"/"h")` 的简写，`text(...)` 是 `Paragraph(...)` 简写。`separator` 是**唯一**的"边框"机制——纵向 `v` 做兄弟项之间横线分隔（缺省 `╌`）、横向 `h` 做列间竖线框线分隔（缺省 `│`，如状态栏组间框线，与上/下横线相交相接成格），**不做盒子四边描边**（现状无此需求）；焦点框线仍归 `FocusFrame` 全局覆写（`DESIGN.md` §8）。
+**简写与说明**：示例中 `v([...])` / `h([...])` 是 `Box(direction:"v"/"h")` 的简写，`text(...)` 是 `Paragraph(...)` 简写。`separator` 是**唯一**的"边框"机制——纵向 `v` 做兄弟项之间横线分隔（缺省 `╌`）、横向 `h` 做列间分隔（缺省 `│`+border；状态栏组内 / 组间分隔改传 `{ char:"•", color:"plain" }`，见 §3「系统状态栏分隔」，不再与上/下横线相交、无交点 `┬`），**不做盒子四边描边**（现状无此需求）；焦点框线仍归 `FocusFrame` 全局覆写（`DESIGN.md` §8）。
 
 **`Spacer` 用法**：块级对齐/间距的占位项——横向 `spacer({ width: fill })` 吃剩余推位（用户块右对齐）、`spacer({ width: fixed n })` 留白（回复右缘 `messageGutter`）；纵向 `spacer({ height: fill })` 吃剩余、让内容不足时落在容器底边、`spacer({ height: fixed n })` 为固定空行。**轴必须显式给出**（`width`→h 占列、`height`→v 占行，杜绝 `{mode:"fill"}` 歧义）；允许 `fill` 与 `fixed`（±夹取界）两种形态，`auto`/`ratio` 对空内容无意义、不做（YAGNI）。
 
@@ -107,7 +107,9 @@ type Height =
 | 一条用户输入 | `h([ spacer(fill), Paragraph(width:auto) ])`（**块级对齐，不用 `align`**） | 整体靠右的收缩块（一次输入 = 一条 buffer 行：显式换行保留在行内、按物理行折行取最大行宽作块宽、块内行首左对齐、右缘贴边） |
 | 一条 LLM 回复段落 | `h([ text(indent), spacer(gutter) ])` | 回复靠左 + 右缘 `messageGutter` 留空 |
 | 思考 | `text(prefix:{┃,紫}, indent:1)` | 左侧紫色竖线区分 |
-| 一条工具调用记录 | `v([调用行, 结果行])`，续行 `hanging:4` | 工具行缩进 + 续行 `TOOL_CONT_INDENT=4` |
+| 一条工具调用记录 | `v([调用行, 结果行])`，续行 `hanging:2` | 工具行缩进 + 续行 `TOOL_CONT_INDENT=2` |
+| step 分组头 | `text("╌╌ hh:mm:ss #N ", tail:{char:"╌"})` | `stepHeaderLine(step, time)`（P6：本地时区 24 小时制逐段补零，时间缺失只出 `#N`；该 step 首个工具调用时渲染） |
+| 恢复会话的 step 概要行 | 同上形制（buffer `kind = "step"`） | P9：`╌╌ hh:mm:ss #N ╌╌ 工具名[×次数], …[ ✗失败数]`，由 `surfaceToBuffer` 注入、`build-box` 按同形制品渲染 |
 | 引用块 | `text(prefix:{│})` | 单层竖线前缀、正文不加斜 |
 | 列表 / 任务列表 | `text(prefix:{"• "}/{"[x] "}, hanging:2)` | 统一 `•`、`[x]` 删除线 |
 | 代码块 | `v([ Paragraph(lang, style:{italic}), Paragraph(code, style:{bg:"code"}, width:fill, fillBg:true) ])` | 标签单独一行（斜体、无底色）；代码体超长行折行、底色补齐到内容区宽 |
@@ -115,6 +117,10 @@ type Height =
 | 每回合分隔线 | `text("╌"×w)` | `TURN_SEPARATOR` |
 
 **结论**：内容元素 → Box 子树的映射（`buildBox` / `buildContentRows`）统一了「按类型分别处理缩进 / 前缀 / 对齐」的逻辑；新增内容类型 = 新增一个映射函数，不改布局。
+
+**顶部区域构成（结构规格）**：状态列 = **Goal / Todo / Jobs 三块**（块间虚线 `╌`，不再有 Mode 块）；标题栏首行 = `[preset 图标 + 1 空格 + 预设名] 1 空格 [状态符号组（最多 6 个，空格分隔，固定顺序：沙箱 / policy / plan / verbose / symbol-unify / bell）] 2 空格 [会话标题]`，符号取 Nerd Font 私有区字形（`TITLE_ICON`，各 1 列）、**颜色即语义值**（沙箱 `read-only` 绿 / `workspace-write` 黄 / `danger-full-access` 红 / 其它灰；policy `ask` 黄 / `never` 绿；四个开关 `on` 默认前景 / `off` 灰；preset 默认前景；`permission` 不显示），窄宽让位顺序 = ① 去掉 preset → ② 截断标题 → ③ 去掉整组符号 → ④ 既有标题栏降级。`Ctrl+S` 切换状态列显隐：隐藏时 `statusColWidth = 0`、右缘分隔竖线不画、历史区吃满整区全宽；显隐随会话写入 `tui-state.json`。
+
+**系统状态栏分隔**：组内与组间统一 `•`（U+2022，默认前景色、1 列、两侧无空格；`h` 容器的 `separator` 以 `char:"•"` / `color:"plain"` 传入），因此组间不再有边框色竖线，其上/下横线也没有组间交点 `┬`（状态列右缘 D 列的 `┴` 保留）。
 
 ### 3.1 消息分块排版
 
@@ -209,7 +215,7 @@ tableBox(table: TableSpec, width: number, themeId: ThemeId): Box | null
 
 1. **缩进归属（防止两套机制打架）**：**段落内缩进一律走 `indent`/`hanging`/`prefix`**（行级，逐行生效）；`h` + `spacer` 只表达**块间横向位置**（块级，整块一次）——如用户块右对齐 `h([spacer(fill), text])`、右缘留白 `h([text, spacer(fixed gutter)])`。
 
-   为什么不用 spacer 表达段落缩进：① **悬挂缩进做不到**——`h([space(4), text])` 会让整块（含首行）都缩进 4，而工具行要求首行 0、续行 4（现状 `wrapToolCallText`：首行全宽、续行 `TOOL_CONT_INDENT=4` 且折行宽度扣掉缩进）；② **前缀需逐行重复**（引用 `│`、列表 `•`、思考 `┃`），spacer 只作用于块首；③ **`fixed` spacer 并未消灭那个数字**，只是把 indent 搬进节点，且布局仍须扣除它才能算可用宽。
+   为什么不用 spacer 表达段落缩进：① **悬挂缩进做不到**——`h([space(2), text])` 会让整块（含首行）都缩进 2，而工具行要求首行 0、续行 2（现状 `wrapToolCallText`：首行全宽、续行 `TOOL_CONT_INDENT=2` 且折行宽度扣掉缩进）；② **前缀需逐行重复**（引用 `│`、列表 `•`、思考 `┃`），spacer 只作用于块首；③ **`fixed` spacer 并未消灭那个数字**，只是把 indent 搬进节点，且布局仍须扣除它才能算可用宽。
 
 1. **格式一致性：约束绑定"几何"，不绑定"样式"**——把"格式"拆成两类属性，只对前一类要求叶子内一致：
 
@@ -222,7 +228,7 @@ tableBox(table: TableSpec, width: number, themeId: ThemeId): Box | null
 
    为什么不能强制"一个 box 一种样式"：那会逼出**跨 box 的行内折行**。例：`这是**粗体**文字，后面还有很多字要折行……` 若拆成 `h([Paragraph("这是"), Paragraph("粗体", bold), Paragraph("文字…")])`，由于 **box 边界不是换行点**，超宽时须由 `h` 容器把子 box 逐行流式摆放（兄弟 box 之间也要能断行）——等于重写一套富文本行内布局（HTML/CSS 最重的机器）。现状之所以简单：折行在**单个叶子内部**按纯文本宽度完成，样式在其后贴上（`parseInlineMarkdown` 产段、`wrapFrameSegments` 每行重开样式），样式不进入宽度计算。
 
-   **例外（该走"每 box 统一格式"的地方）**：**不跨 box 折行的单行组合行**——系统状态栏 `plan off on`（仅生效项高亮）、工具行头（工具名黄 + 参数默认）、Mode 块等，用"各自统一格式的 box + `h` 拼接"表达最自然（单行 + 截断，无需 inline flow）。
+   **例外（该走"每 box 统一格式"的地方）**：**不跨 box 折行的单行组合行**——标题栏符号组（preset 图标 + 名称、最多 6 个状态符号 + 标题）、系统状态栏（环境组 `•` LLM 组，各段按语义着色）、工具行头（工具名黄 + 参数默认）等，用"各自统一格式的 box + `h` 拼接"表达最自然（单行 + 截断，无需 inline flow）。
 
 1. **对齐归属：块级走 `spacer`，行级走 `align`**——两种粒度分开，不要混用：
 
@@ -371,7 +377,7 @@ fill(ctx: FrameContext, box: Box | Paragraph, rect: Rect, append: (row: FrameRow
 
 - **`Paragraph`（叶子）**：沉淀行 → 每行 `FrameSegment[]`（见下）→ 组装 `FrameRow`。折行宽度 = `rect.w − indent − prefix.width`（有 `suffix` 再 − `suffix.width`）；行内 markdown 在此解析（`parseInlineMarkdown` → 段式 `FrameSegment[]`）；`prefix` 先占列、逐行重复（引用/列表/思考）；`suffix` 末占列、逐行重复（如用户块右缘竖线，正文补白到 `rect.w − suffix.width` 后挂，竖线列恒定）；`tail` 在行尾把 `char` 重复补到 `rect.w`（铺满行，如 step 虚线 / turn 分隔），与正文不相干、只在文本空时整行铺满。`valign`：若自身行数 < `rect.h`，按 `top/center/bottom` 在行组前后补空白行（空白行 = 空 `FrameRow`）。`align ≠ left` 时右/中对齐按 `rect.w` 计算行内偏移。
 - **`Box(direction: v)`**：按 `rect` 纵向遍历子项，子项行接续 append；`separator` 在两子项之间产出 1 行横线（字符/颜色按 `Separator`，缺省 `╌` + border）。
-- **`Box(direction: h)`**：按 `rect` 的子项 `x`/`w` 逐行横向拼接（同 y 对齐、子项间按 x 偏移补空格）；`separator` 在兄弟边界逐行插 1 列竖线框线（字符/颜色按 `Separator`，缺省 `│` + border；每行同列、垂直贯通，如状态栏组间框线与上/下横线相接成格）。
+- **`Box(direction: h)`**：按 `rect` 的子项 `x`/`w` 逐行横向拼接（同 y 对齐、子项间按 x 偏移补空格）；`separator` 在兄弟边界逐行插 1 列框线（字符/颜色按 `Separator`，缺省 `│` + border；每行同列、垂直贯通——横向排列的内部分隔列、状态列右缘与上/下横线相接成格；状态栏组内 / 组间传 `{ char:"•", color:"plain" }`，不参与交点连接）。
 
 **迭代 / 裁剪**：`fill` 只负责“把行追加进 append 的回调”，**滚动画布/裁剪由上层在拿到行数组后按 pane `rect.h` 做行级处理**（见 §6.8）。
 
@@ -547,12 +553,12 @@ interface FrameGeometry {
   cols: number; rows: number;              // 终端尺寸
   contentTopH: number;                     // 顶部内容行数（不含状态/输入/提示/分隔行）
   statusHeight: number; footerHeight: number; hintHeight: number;
-  statusColWidth: number; historyWidth: number; contentW: number;  // contentW = 区域正文宽（historyWidth − 右缘框列）
+  statusColWidth: number; historyWidth: number; contentW: number;  // contentW = 区域正文宽（historyWidth − 右缘框列）；Ctrl+S 隐藏状态列时 statusColWidth = 0、historyWidth = cols
   leftFrame: boolean; rightFrame: boolean;  // 屏幕最左（状态列外缘）/最右（区域外缘）焦点框保留格是否占列
   mode: "vertical" | "horizontal"; titleRows: number;
   activityH: number; dialogueH: number;    // 两 pane 可视行数（横向等高）
   activityW: number; dialogueW: number;    // 两 pane 正文宽（纵向同宽；含文字右缘留白列）
-  dialogueTextW: number; activityTextW: number;  // 两 pane 文字排版宽（正文宽扣右缘留白；边框按正文宽铺满）
+  dialogueTextW: number; activityTextW: number;  // 两 pane 文字排版宽（P3：只有右缘贴外框列的 pane 扣 1 列留白——横向历史 pane == dialogueW；边框按正文宽铺满）
   queuedRows: ContentRow[];                // 排队块（钉在对话 pane 右下角；空=无排队）
   viewportH: number;                       // 历史视口高 = dialogueH − queuedRows.length
   dividerCol: number;                      // 状态列右缘/历史区左缘（= statusColWidth − 1）
@@ -580,7 +586,7 @@ state 事实("status=failure")             -- 逻辑层，不碰颜色
 色名 → 色值 → SGR("red" → hex → \x1b[…   -- 渲染层
 ```
 
-- **语义 → 色名（排版层）**：映射表为**排版层常量**——不入 `AppState`、不进 renderer。现有实例：`STATUS_SYMBOL_COLOR[inputStatus]`（success 绿 / failure 红 / running 黄 / waiting 黄 / idle 不着色；符号 `STATUS_SYMBOL` 渲染在状态区最左侧）、`permColor`（sandbox 危险等级 ro 绿 / wr 黄 / full 红）、notice tone（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿）。markdown 语义同为此类（`**`→bold、`` ` ``→bg:code）：解析器在排版层，调"强调样式"只改排版层映射，state / renderer 均不动。
+- **语义 → 色名（排版层）**：映射表为**排版层常量**——不入 `AppState`、不进 renderer。现有实例：`USER_BLOCK_SYMBOL` + `userBlockSymbolResolver`（用户输入块**首行左侧**的状态符号：success 绿 / failure 红 / aborted 灰；最新未终态块 running / waiting 黄；其余无终态块 `?` 不着色，排队块不出符号）、标题栏图标语义色（`TITLE_ICON` 在 `titleBarSegments` 内取色：沙箱 ro 绿 / wr 黄 / full 红 / 其它灰，policy ask 黄 / never 绿，开关 on 默认前景 / off 灰，preset 默认前景）、notice tone（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿）。markdown 语义同为此类（`**`→bold、`` ` ``→bg:code）：解析器在排版层，调"强调样式"只改排版层映射，state / renderer 均不动。
 - **色名 → 色值（渲染层独占）**：`ColorName → hex → SGR`（`ansiNameToHex` / `hexSgr` 不得再被排版层 import，`theme.ts` 收口取色、`screen.ts` 的 `segStyle`/`serializeFrameRow` 收口序列化）。
 - **排版层仅持有**：`ThemeId` + 语义 `ColorName`；state 保持与呈现无关（不存颜色）。
 - 未知色名回退基底色（fail-safe，不抛异常，与现状 `ansiNameToHex` 返回 null 语义一致）。

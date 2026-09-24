@@ -57,9 +57,11 @@
 
 ## 文本管线（流式 / 清洗 / 补发）
 
-- **sanitizeText（渲染保护）**：流式文本进 buffer 前清洗——CRLF / 孤立 CR 归一为换行（否则 `\r` 残留被终端当回车、抹掉整行造成大段空白），其余 C0/C1 控制字符（含 Tab、孤立 ESC）剔除，完整 ANSI 转义序列（CSI / OSC）保留（渲染着色功能，`/copy` 时再剥离）。剔除计数入 `state.strippedChars`（turn-begin 清零），turn-end 后以黄色 notice 提示。恢复历史（`surfaceToBuffer`）同样走清洗。
+- **sanitizeText（渲染保护）**：流式文本进 buffer 前清洗——CRLF / 孤立 CR 归一为换行（否则 `\r` 残留被终端当回车、抹掉整行造成大段空白），其余 C0/C1 控制字符（含 Tab、孤立 ESC）剔除，完整 ANSI 转义序列（CSI / OSC）保留（渲染着色功能，`/copy` 时再剥离）。剔除计数入 `state.strippedChars`（turn-begin 清零），turn-end 后以黄色 notice 提示。恢复历史（`surfaceToBuffer`，P9 起由事件折叠产出 step 概要行）同样走清洗，整条纯空白文本直接丢弃。
 - **非流式回复补发**：`assistant/message` 是每个 step 结束必发的完整正文 surface 事件。adapter 按 `(session:turn:step)` 累计已流式输出的正文（reasoning 不计），该事件只补发缺失后缀；非流式 / 无思考 provider（无任何 chunk）累计为空 → 直接输出完整正文。`surfaceOp: replace` 的影子覆盖事件跳过（append-only 无法安全重写）；`turn/end` 与 dispose 清空累计。
 - **消息 identified**：`buildUserMessage` 用 `crypto.randomUUID()` 生成稳定消息 `id`——`agent/inbox/spliced` 与 `user/message` 均带 identified 标记；缺 id 会导致后续 `agents.resume` 全量校验抛 `SessionPersistenceCorruptionError`（会话永久不可 resume）。
+- **空白分片丢弃（P5）**：宿主每个 step 末尾常补发「只有换行」的文本块（实测 190 个文本分片里 154 个是 `"\n\n"`），逐行落 buffer 会在思考 / 工具行之后留下成片空行。判据：整段仅空白 **且**（上一行是异 kind 或 buffer 为空）才丢弃；同 kind 内部的空白分片维持现状（软换行与段落空行语义不变），也不做段尾空行清理。丢弃后置 `streamBreak`，使下一条流式分片另起一行（不并入末行、不粘行：否则两个思考分片会被粘成一行、原本的空行变成缺空格）；流式分片消费后清位、非流式分片不动。回归：`tests/p5-blank-chunk.test.ts`。
+- **恢复会话按 step 概要（P9）**：resume 不还原逐条工具行，而是折叠事件流（`adapter/dsh.ts` 的 `normalizeHistoryMessages`）——每个**含工具调用**的 step 收口成一行 `[hh:mm:ss ]#N ╌╌ 工具名[×次数], …[ ✗失败数]`（时间缺失省略时间片段；失败判定与实时路径同口径——`tool/result.error` 存在即失败），无工具调用的 step 不出行；参数摘要 / 结果详情 / thinking 不还原。整条纯空白文本直接丢弃，不再产出空行。`commands.ts` 的 `surfaceToBuffer` 把 role `"step"` 原样转成 buffer `kind:"step"`，`build-box` 按 `╌╌ <文本> ` + 尾部 `╌` 铺满渲染（与 P6 实时 step 头同形制、同落历史区）。回归：`tests/resume-summary.test.ts`。
 - **零宽字符宽度**：`charWidth` 对组合附加符 / 变体选择符 / ZWJ / ZWSP / emoji 肤色修饰符等计 0 列（对齐 Markus Kuhn wcwidth 零宽表），避免工具内容夹带特殊字符时总宽度虚高或提前换行。
 
 ## 事件 → 状态 → 渲染
@@ -67,10 +69,20 @@
 完整映射与渲染语义见 `DESIGN.md`「事件接入与渲染」。实现要点：
 
 - raw 事件由 adapter 归一化为 `DshEvent` → App 事件 switch → state reducer → `buildFrame`；`DshEvent` 为封闭联合，新增成员需同步 `index.ts` 穷尽登记（否则 `npm run check` 失败）。
-- tool 行文本由 `layout/tool-line.ts` 纯函数组装；summary / detail 启发式由 adapter（`dsh.ts`）在归一化时产出。
+- tool 行文本由 `layout/tool-line.ts` 纯函数组装（step 分组头 = `stepHeaderLine(step, time)` → `hh:mm:ss #N`，P6：本地时区 24 小时制逐段补零、时间缺失只出 `#N`；渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满）；summary / detail 启发式由 adapter（`dsh.ts`）在归一化时产出。
+- **压缩期间算活跃（P8）**：`compaction/start` → `compaction/end` 期间按会话记 `compactingBySession`，`isCompacting(state)` 供 `index.ts` 的 `agentBusy()` 判定——该会话视为忙：用户块符号显示运行中 `●`/`○`、Enter 提交走排队、`Ctrl+D` 退出守卫不触发（`Esc` 中断语义不变）。回归：`tests/p8-compaction-active.test.ts`。
+- **状态符号渲染位置（P1）**：符号在排版层算定（`userBlockSymbolResolver` → `USER_BLOCK_SYMBOL`；终态由 `turn/end` 的 reason 经 `markUserBlockStatus` 打标到 `BufferLine.status`），`build-box` 只负责把 `符号 + 1 空格` 拼到用户块首行左侧（在块内部，块右缘位置不变；排队块不出符号）。水平状态栏不再有符号段。回归：`tests/app.test.ts`（用户块首行符号与 SGR / turn-end reason 打标）/ `tests/layout4.test.ts`。
 - **seq 守卫**（per-session 游标）：`event.seq <= lastSeq` 丢弃；间隙接受不补缺；非活跃会话丢弃。
 
-## 会话状态恢复（Mode / 模型 / goal / todo / TUI 本地开关）
+## 顶部状态列与标题栏（P1 / P2 / P7）
+
+- **状态列**（`renderStatusColumn`）：自上而下 **Goal / Todo / Jobs 三块**（块间虚线 `╌`），原 Mode 块整体删除——`modeBySession` 里的 plan / sandbox / permission 改由标题栏消费，`permission` 不再渲染。
+- **状态列显隐（P7）**：`state.statusColumnVisible`（缺省显示）+ reducer `status-column{visible}`（`visible` 缺省取反，供 `Ctrl+S`）；`frameGeometry` 隐藏时 `statusColWidth = 0`、`historyWidth = cols`，`buildTopRegion` 不构建该列内容也不拼分隔段（分隔竖线随之消失）。显隐经 `adapter/session-ui-state.ts` 的 `statusColumn` 字段随会话写入 `tui-state.json`，`restoreSessionState` 回灌。
+- **标题栏**（`titleBarSegments` / `TITLE_ICON`）：首行 = `[preset 图标 + 空格 + 预设名] 空格 [≤6 个状态图标（空格分隔，顺序：sandbox / policy / plan / verbose / symbol-unify / bell）] 2 空格 [标题]`；图标是 Nerd Font 私有区字形（`boxClosed U+ED75` / `boxOpen U+ED95`、`policyAsk U+F1739` / `policyNever U+F1414`、`plan U+EDA6`、`verbose U+F09AA`、`symbolUnify U+F04C6`、`bell U+F009F`、`preset U+F0A66`，命中与宽度实测各 1 列）。颜色即语义值：沙箱 ro 绿 / wr 黄 / full 红 / 其它灰（`MODE_SHORT` 归一，取值未知回落灰）、policy ask 黄 / never 绿、四个开关 on 默认前景 / off 灰、preset 段默认前景。**让位顺序**（`MIN_TITLE = 8` 列保底）：① 去掉 preset 段 → ② 截断标题 → ③ 去掉整组图标 → ④ 既有标题栏降级（收下划线 / 整栏省略，`titleRows` 在 `frameGeometry`）。**字体依赖**：非 Nerd Font 终端显示豆腐块（本机验证字体 Maple Mono NF CN）。
+- **水平状态栏**（`renderStatusLine`）：`dotJoin` 给组内逻辑段插 `•`，`h` 的 `separator` 传 `{ char:"•", color:"plain" }` 做组间分隔；状态符号段（符号 + `│` lead 段）整体删除，首行行首回到 1 空格留边。因此 `statusBarSeamCols` 在状态栏行上取不到边框色竖线列——上/下横线不再画组间交点 `┬`，仅状态列右缘 D 列的 `┴` / `├` 保留（横向排列时内部分隔列的 `┬`/`┴` 属另一机制，不受影响）。
+- **回归**：`tests/title-bar.test.ts`（段结构 / permission 不显示 / 沙箱四态取色 / 开关 on-off / 让位顺序）+ `tests/status-column.test.ts`（三块渲染与折叠）+ `tests/status.test.ts` / `tests/tee-glyph.test.ts`（状态栏分隔与交点）。
+
+## 会话状态恢复（模式与策略 / 模型 / goal / todo / TUI 本地开关）
 
 切换会话（`/session` Enter → `agents.resume`）与启动时都不重放历史事件，故 `App.start` /
 `resumeToSession` 成功后调用 `adapter.restoreSessionState?(id)`（adapter 侧 `restoreSessionState`），
@@ -79,14 +91,16 @@
 - **宿主日志**（live 内存事件优先，其次 `sessionQuery.readSession`；**不能用 `readSurface`**——
   log-only 事件被 surface fold 滤掉）：
   - `plan/mode` / `sandbox/mode` / `permission/preset` / `approval/policy` 末条 → `mode` /
-    `approval-policy`（原 `emitSessionModeSnapshot` 能力）；
+    `approval-policy`（原 `emitSessionModeSnapshot` 能力）。P7 起这批值渲染为**标题栏符号组**
+    （plan / sandbox / 审批策略各出图标；`permission` 不再显示，仅随快照保存与兜底）；
   - **模型**：末条 `model/selection`（显式意图）→ 末条 `request/header.header.config`
     （该会话最近一次**实际使用**的 provider / model / effort；TUI 的 `/model` 也记在这里）；
   - **goal**：按 seq 顺序回放**全部** `goal/change`（state 侧按会话累积成 goal 历史：index 0 =
     当前 goal、其后为旧 goal）；**todo**：末条 `todo/write`（全量快照事件，latest-wins）→ 回填状态列。
 - **TUI 侧会话状态快照**（`<会话目录>/tui-state.json`，`adapter/session-ui-state.ts`）：
-  `/model` 结果、`/verbose`、`/symbol-unify` 与 Mode 兜底值。宿主不认识 TUI 本地开关，
-  「已选但尚未发起请求」的模型也不在日志里——这两类只有快照能恢复。
+  `/model` 结果、`/verbose`、`/symbol-unify`、模式兜底值与 **`statusColumn`（P7：垂直状态列
+  显隐，`Ctrl+S` 切换）**。宿主不认识 TUI 本地开关，「已选但尚未发起请求」的模型也不在日志里
+  ——这两类只有快照能恢复。
 
 `/new` 走同一条回填路径：新会话既无日志事件也无快照 → 各旋钮回默认值（plan off、
 sandbox/permission 取宿主默认预设、模型回到 config 种子），无需额外重置逻辑。
@@ -96,10 +110,10 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 也是 `/model` 面板与状态栏的显示源）；三者皆无则**清空**该引用回落宿主实时默认——顺带修掉
 「同进程内 A 会话的模型选择泄漏进 resumed 的 B 会话」。
 
-落盘时机：`/model`、`/verbose`、`/symbol-unify` 与 mode / policy 事件 → 400ms 合并写
+落盘时机：`/model`、`/verbose`、`/symbol-unify`、`Ctrl+S` 状态列显隐与 mode / policy 事件 → 400ms 合并写
 （`SESSION_STATE_SAVE_MS`）；切换会话前与 `dispose()` 前 `flushSessionStateSave()` 立即写。
 快照随会话目录走（会话删除即随之清理）；仅内存会话（无持久化目录）静默跳过；文件损坏 /
-版本不符 / 字段类型不符按「无快照」或逐项丢弃处理，绝不影响渲染。
+版本不符 / 字段类型不符按「无快照」或逐项丢弃处理，绝不影响渲染。回归：`tests/session-ui-state.test.ts`（含 `statusColumn` 字段的读写与类型不符丢弃）+ `tests/status-column.test.ts`（垂直状态列三块渲染）。
 
 ## 滚动偏移收敛（越界假死）
 
@@ -131,7 +145,7 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 ## 对话左右交错留白（`messageGutter`）
 
 - **口径**：超长（英文）输入折行时，输入的最左侧与回复正文第 5 个字符同列。
-- **文字右缘留白（`PANE_TEXT_MARGIN_COLS=1`）**：历史区/活动区的**文字排版宽**在各自 pane 宽上再收窄——横向两 pane 各让 1 列（历史 1 + 活动 1 = 2）、纵向两 pane 同列同宽各让 2 列（`frameGeometry.dialogueTextW/activityTextW`；排队块、活动区面板同口径）。**所有横线一概不缩**：标题栏下划线、活动区分隔线、回合分隔线（`╌`，按 `ContentRow.kind === "separator"` 识别并补满）、状态栏上下边框都铺满到屏幕最右列（区域外缘框列在横线行补 `─`/`╌`）。**活动区行尾不补空格、也不画右边框**：`buildTopRegion` 对活动区行跳过 `padSegs` 与外缘框列字形；`FocusFrame` 的 activity 分支只画左缘竖线，顶/底亮线铺到最右列收尾（无角字）。回归：`tests/pane-text-margin.test.ts`。
+- **文字右缘留白（`PANE_TEXT_MARGIN_COLS=1`，P3）**：留白只作用于**右缘贴着外框列**的文字——横向历史 pane **不留白**（用户块右缘 `┃` 紧贴内部分隔竖线）、横向活动 pane 与纵向两 pane 各让 1 列（`paneTextWidth(paneW, reserve)`：`frameGeometry.dialogueTextW/activityTextW`，`reserve` 只在右缘是外框列时为真；排队块、活动区面板同口径）。**所有横线一概不缩**：标题栏下划线、活动区分隔线、回合分隔线（`╌`，按 `ContentRow.kind === "separator"` 识别并补满）、状态栏上下边框都铺满到屏幕最右列（区域外缘框列在横线行补 `─`/`╌`）。**活动区行尾不补空格、也不画右边框**：`buildTopRegion` 对活动区行跳过 `padSegs` 与外缘框列字形；`FocusFrame` 的 activity 分支只画左缘竖线，顶/底亮线铺到最右列收尾（无角字）。回归：`tests/pane-text-margin.test.ts`。
 - **列口径**：区域右缘框列是焦点框保留格（`FRAME_RIGHT_COLS=1`），正文区自区域正文起始列（状态列与分隔竖线之后，屏幕列 = `statusColWidth`）起算——回复行 `┃` 占正文区第 0 列、正文自第 1 列起；用户块整体右对齐，左缘留白 `gutter−1` 列（`spacer(fill, min)`）、块内右缘 `┃` 贴正文区最后一列。故输入正文起列 = 正文区起始列 + `gutter−1`（屏幕列），令其等于回复第 5 字符所在列（正文区第 5 列）解得 **`gutter = 6`**。
 - **两侧同源**：`gutter` 同时是用户块左缘留白与回复右缘留白（`finalSpace` 的 `spacer(fixed gutter−1)`），故默认 6 时两侧文本上限对称各收 2 列（宽 60 时：正文区 39 列 → 回复正文 33 列、用户文本 33 列）。
 - **连带**：竖线可见阈值 `USER_MIN_LEFT_GUTTER + 2` 由 6 上移到 8（w ≤ 7 不画竖线）；`DEFAULT_MESSAGE_GUTTER` 与 `normalizeTuiDisplayConfig` 缺省同步为 6。

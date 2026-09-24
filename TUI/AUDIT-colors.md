@@ -18,13 +18,13 @@
 
 - 对话折叠占位 `...(更早回复已折叠)`（`DIALOGUE_MORE`，走 `NOTICE_TONE_COLOR.log`）
 - todo 完成项：`✓` 标记与正文（正文另加删除线）；job 完成行同理（`✓` 灰 + 正文灰 + 删除线）
-- 状态列 Mode 块未生效的属性值（枚举类项生效值按语义色强调：sandbox/permission `ro` 绿 / `wr` 黄 / `full` 红、policy `ask` 绿 / `auto` 红、preset 洋红；on/off 类项单符号 `✓` 用该项生效色——plan / verbose / symbol-unify 青、bell 绿——`✗` 一律灰）；权限等级取值未知时 `permColor` 亦回落 gray
+- 标题栏状态符号的次要态：开关类图标（plan / verbose / symbol-unify / bell）`off` 用 `gray`，`on` 用默认前景（不着色）；沙箱取值不是 `ro` / `wr` / `full` 时图标同样回落 `gray`；此外还有状态列旧 goal 的标题行与 objective（灰 + 删除线，与已完成 todo 同口径）
 - 列表面板：标题右侧按键提示（`JobsPanel` / `CommandListPanel`）、空态与加载态占位（`（无后台任务）` / `加载中…`）、取消/停用状态符号（`statusMark` 的 `○`；`✓` 为默认前景，jobs 完成行的灰 + 删除线由 `layout.ts` 单独实现）
 - notice 的 `log` tone 与工具行的灰行（进度/状态类）
 
 ## 边框（border）元素
 
-非焦点态：活动区 / 状态区分隔线、分隔列与框格连接字（`│` `┤` `┬` `┴`）、状态区上/下分隔（上下逻辑不同：上方随焦点，下方恒边框色）、Mode 块项间 `|` 分隔、markdown 水平分隔线、空标题 `<title>` 占位。
+非焦点态：活动区 / 状态区分隔线、分隔列与框格连接字（`│` `┤` `┴`，横向排列下标题栏下划线与内部分隔列的 `┬`）、状态区上/下分隔（上下逻辑不同：上方随焦点，下方恒边框色）、markdown 水平分隔线、空标题 `<title>` 占位。状态栏的组内与组间分隔自 P2 起统一为 `•`（默认前景、1 列、无空格），不再是边框色竖线 `│`，其上方/下方横线也随之没有组间交点 `┬`。
 
 ## 强调（focus）
 
@@ -32,7 +32,13 @@
 
 ## 基底前景
 
-未显式着色的文字一律走 Screen 帧首铺设的基底前景 `theme.foreground`——包括对话/活动区正文、输入区文本与提示符（单字符模式符号）、按键提示区、状态列正文（goal objective / todo 待办等）、状态块之间虚线 `╌`（与字体同色，不染边框蓝）、会话标题（非 `<title>` 占位）、模型段的 effort 后缀、cache 徽标、markdown 正文；代码块语言标签为默认前景斜体，代码块正文行整体带 `code` 背景。**例外：状态区最左侧的命令状态符号按输入状态着色**（`STATUS_SYMBOL_COLOR`：成功绿 / 失败红 / 运行中与等待交互黄；回退占位 `?` 不着色），其后的分隔竖线 `│` 与组间框线 `│` 用边框色（`border`，与状态栏上方/下方横线同色，框线向上/下横线画交点 `┬`/`┴` 相接成格）。排版层只携带语义色名，不落 hex；主题切换后由渲染层重新铺设基底。
+未显式着色的文字一律走 Screen 帧首铺设的基底前景 `theme.foreground`——包括对话/活动区正文、输入区文本与提示符（单字符模式符号）、按键提示区、状态列正文（goal objective / todo 待办等）、状态块之间虚线 `╌`（与字体同色，不染边框蓝）、会话标题（非 `<title>` 占位）、模型段的 effort 后缀、cache 徽标、markdown 正文；代码块语言标签为默认前景斜体，代码块正文行整体带 `code` 背景。**例外（按语义着色，各有一张排版层常量表）**：
+
+- **用户块首行左侧的状态符号**（`USER_BLOCK_SYMBOL` / `userBlockSymbolResolver`）：终态 `✓` 绿（success）/ `✗` 红（failure）/ `■` 灰（aborted）；最新未终态块在忙时 `●`/`○` 黄（虚拟 token 交替）、审批/问答面板打开时 `△` 黄；其余无终态块（恢复的历史等）`?` 不着色；排队块不显示符号。
+- **标题栏状态符号组**（`TITLE_ICON` + `titleBarSegments`，按语义值取色，不以主题分支）：沙箱图标 `read-only` 绿 / `workspace-write` 黄 / `danger-full-access` 红 / 其它值灰；policy `ask` 黄 / `never` 绿；plan / verbose / symbol-unify / bell 开关 `on` 默认前景 / `off` 灰；preset 图标 + 预设名默认前景。`permission` 不再显示（值仍随会话状态快照保存）。图标是 Nerd Font 私有区字形（各 1 列，码位见 `layout.ts` 的 `TITLE_ICON`），终端字体不支持时显示豆腐块——那是字体缺字形，与本文件的配色口径无关。
+- **状态栏分隔**：组内与组间统一 `•`（U+2022）取默认前景色（P2；1 列、两侧无空格），组间不再有边框色竖线，横线上也不再有交点 `┬`；状态列右缘（D 列）的 `┴`/`├` 等连接字仍取 `border`/焦点色。
+
+排版层只携带语义色名，不落 hex；主题切换后由渲染层重新铺设基底。
 
 ## 权威源与引用规则
 
@@ -43,4 +49,4 @@
 ## 语义槽位现状说明
 
 - `code` 是背景色槽位（不属灰度三语义）：与 `gray` / `border` / `focus` 一样是 `SemanticColorName` 之一（`theme.ts`），内置值按各主题底色调性取槽位（dark ansi[0] / light ansi[7]），可由内联 `palettes.<id>.semantics` 覆盖，语义随主题解析。
-- 彩色 tone（info 蓝 / warn 黄 / success 绿 / error 红）与面板生效色（`ro` / `wr` / `full`、思考紫、plan 青、preset 洋红）不在灰度三语义范围内。
+- 彩色 tone（info 蓝 / warn 黄 / success 绿 / error 红）与面板生效色（选中行绿 / 焦点行黄）、沙箱危险等级色（`ro` / `wr` / `full` → 绿 / 黄 / 红）、思考紫不在灰度三语义范围内。
