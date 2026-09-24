@@ -64,6 +64,33 @@ export const PANEL_CYCLE = ["history", "activity", "status"] as const;
 /** scrollback 行数上限（纯物理上限；DESIGN:2000 行） */
 export const MAX_BUFFER_LINES = 2000;
 
+/**
+ * 缓冲头部裁剪（就地）：超过上限时丢弃最旧行，但**保留语义锚点所在行及之后的内容**。
+ *
+ * 用户上翻阅读历史时 `scrollAnchor` 指向视口顶行。若这行被逐行裁掉，视口只能跟着
+ * 缓冲头一起前移（锚点随之被重设为缓冲头，`scrollOffset` 被推导成「窗口顶到内容底」
+ * 的距离），表现为「活动区输出大量文本时历史区跟着一起上滚」——阅读位置被持续拽走。
+ * 保留锚点行即可让视口纹丝不动（新行只从底部追加，锚点行留在原地）。
+ * 代价是缓冲临时超过上限，故给锚点保护设宽松上限（保留不超过 2× 上限）：极端输出
+ * 下仍会放弃保护、退回上限裁剪（此时由 layout 的 `dialogueTopIdx` 兜底为距底偏移）。
+ */
+function trimBufferHead(
+  buffer: { seq?: number }[],
+  anchor: DialogueAnchor | null,
+): void {
+  const over = buffer.length - MAX_BUFFER_LINES;
+  if (over <= 0) return;
+  const idx =
+    anchor === null ? -1 : buffer.findIndex((l) => l.seq === anchor.seq);
+  // 锚点行在缓冲内 → 最多裁到它（该行保留，故裁的比上限要求的更少）；不在（已裁掉/无
+  // 锚点）→ 按上限裁。锚点保护另有宽松上限：保留不超过 2× 上限（极端输出下放弃保护）。
+  const keepFrom =
+    idx >= 0
+      ? Math.max(Math.min(over, idx), buffer.length - MAX_BUFFER_LINES * 2)
+      : over;
+  if (keepFrom > 0) buffer.splice(0, keepFrom);
+}
+
 /** 用户块左缘/回复右缘对称留空默认列数（可经 initialState 配置，交错布局用）。
  *  6：两侧各留 gutter-1 = 5 列 → 输入最长折行左缘对齐回复正文第 5 个字符。 */
 export const DEFAULT_MESSAGE_GUTTER = 6;
@@ -723,8 +750,7 @@ export function appendStream(
       buffer.push({ text: part, kind, seq: seq++ });
     }
   }
-  if (buffer.length > MAX_BUFFER_LINES)
-    buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
+  trimBufferHead(buffer, state.scrollAnchor);
   // 模型流式输出（assistant/thinking）推进虚拟状态（窗口速率估计 → slew/clamp
   // 虚拟速度 → 虚拟总 token 积分，驱动 ●/○ 交替）；用户行不参与。
   // 估算 token 按 tokenCalib 校正（P5：流末 usage 真值学习）；stepEstTokens 累计
@@ -766,8 +792,7 @@ export function appendNotice(
       seq: seq++,
       ...(tone ? { tone } : {}),
     });
-  if (buffer.length > MAX_BUFFER_LINES)
-    buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
+  trimBufferHead(buffer, state.scrollAnchor);
   // 失败标记(error notice，如未知 slash 命令 fail-close)→ 输入栏失败色(红)；
   // agent 仍活跃时保持黄（活跃守卫），绿/红仅空闲时暴露
   return {
@@ -808,8 +833,7 @@ export function appendNoticeLines(
         ...(l.noCompact === true ? { noCompact: true } : {}),
       });
   }
-  if (buffer.length > MAX_BUFFER_LINES)
-    buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
+  trimBufferHead(buffer, state.scrollAnchor);
   return { ...state, buffer, nextSeq: seq };
 }
 
@@ -835,8 +859,7 @@ export function appendToolLine(
     seq: state.nextSeq,
     ...(tone ? { tone } : {}),
   });
-  if (buffer.length > MAX_BUFFER_LINES)
-    buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
+  trimBufferHead(buffer, state.scrollAnchor);
   return { ...state, buffer, nextSeq: state.nextSeq + 1 };
 }
 
@@ -950,8 +973,7 @@ export function appendTurnSeparator(
     seq: state.nextSeq,
   });
   next.nextSeq = state.nextSeq + 1;
-  if (buffer.length > MAX_BUFFER_LINES)
-    buffer.splice(0, buffer.length - MAX_BUFFER_LINES);
+  trimBufferHead(buffer, state.scrollAnchor);
   return next;
 }
 
@@ -1372,6 +1394,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           })),
           nextSeq: state.nextSeq + action.rows.length,
           followBottom: true,
+          // 会话切换：清掉上一会话的语义锚点，回到跟随底部
+          scrollAnchor: null,
           scrollOffset: 0,
           activityScroll: 0,
         };

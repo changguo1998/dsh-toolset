@@ -14,6 +14,7 @@ import {
   anchorToIndex,
   anchorToOffset,
   dialogueSpans,
+  dialogueTopIdx,
   dialogueWindow,
   indexToAnchor,
   moveDialogueAnchor,
@@ -21,6 +22,7 @@ import {
   turnGroupStarts,
   type DialogueAnchor,
   type DialogueGeometry,
+  type DialogueSpan,
   type FrameScrollReport,
 } from "../src/app/layout.ts";
 import { buildContentRows } from "../src/app/layout/build-box.ts";
@@ -409,3 +411,61 @@ function geomWith(
       : Math.max(0, rows.length - height),
   };
 }
+
+// ---------------------------------------------------------------------------
+// 视口顶行换算：锚点行不可达时的回落（「活动区大量输出带着历史区一起上滚」的回归）
+// ---------------------------------------------------------------------------
+
+/** 最小几何缓存（dialogueTopIdx 只用 topIdx） */
+function geomOf(spans: DialogueSpan[], topIdx: number): DialogueGeometry {
+  return {
+    rows: spans.reduce((n, s) => n + s.rows, 0),
+    height: 3,
+    spans,
+    topIdx,
+  };
+}
+
+test("dialogueTopIdx：锚点行不可达 → 钉到下一段可用内容（不跟缓冲头逐帧前移）", () => {
+  const spans: DialogueSpan[] = [
+    { seq: 10, rows: 2 },
+    { seq: 20, rows: 1 },
+    { seq: 30, rows: 1 },
+  ];
+  const maxTop = 2;
+  // 锚点 15 已不可达（被缓冲裁剪/被压缩摘要遮蔽）→ 取第一条 seq ≥ 15 的可用内容
+  // （seq 20 的起始行号 = 2），而不是收敛到窗口首行（0）
+  assert.equal(
+    dialogueTopIdx({ scrollAnchor: { seq: 15, row: 0 } }, spans, maxTop),
+    2,
+    "钉到下一段可用内容",
+  );
+  // 锚点可达 → 语义行号（含行内行号）
+  assert.equal(
+    dialogueTopIdx({ scrollAnchor: { seq: 10, row: 1 } }, spans, maxTop),
+    1,
+    "可达时按行内行号定位",
+  );
+  // 跟随底部（锚点 null）→ 贴窗口底
+  assert.equal(dialogueTopIdx({ scrollAnchor: null }, spans, 1), 1, "跟随底部");
+  // 占位行（更早回复已折叠）不是内容行：按不可达处理，落到首个内容行
+  const withMarker: DialogueSpan[] = [
+    { seq: DIALOGUE_MARKER_SEQ, rows: 1 },
+    ...spans,
+  ];
+  assert.equal(
+    dialogueTopIdx(
+      { scrollAnchor: { seq: DIALOGUE_MARKER_SEQ, row: 0 } },
+      withMarker,
+      maxTop,
+    ),
+    1,
+    "占位行锚点按不可达处理（落到首个内容行）",
+  );
+  // 全部不可达（锚点比窗口内所有内容都新）→ 贴底
+  assert.equal(
+    dialogueTopIdx({ scrollAnchor: { seq: 99, row: 0 } }, spans, maxTop),
+    maxTop,
+    "全不可达 → 贴底",
+  );
+});

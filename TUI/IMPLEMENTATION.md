@@ -115,7 +115,11 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 - **渐进窗口**（`dialogueWindow(buffer, groups)` / `turnGroupStarts`）：只物化尾部 `windowGroups` 个回合组（缺省 `DIALOGUE_KEEP_REPLIES=3`，组起点 = user 行或无 user 前缀的回复起头）；窗口未覆盖最旧内容时顶部加 `...(更早回复已折叠)` 占位行。`buildContentRows` 接切片 + `lineOffset`，「折叠」不再是显示层裁剪，而是排版量随窗口收敛。
 - **增窗 / 复位**：`scrollDialogue()` 在位移后判断——上滚且视口顶行进入窗口顶部半屏区间（或窗口内已无可滚行）→ `windowGroups += WINDOW_GROW_STEP(3)`（封顶总组数）；扩窗在视口上方插入行、锚点不变故画面不跳；下滚回到底部时复位默认组数。
 - **App 接线**：`FrameScrollReport` 增 `dialogueGeometry{rows,height,spans,topIdx}` + `dialogueTop`（本帧渲染的锚点）；`paneMaxes()` 同口径回填 / 补算；`syncScrollAnchor()` 在出帧后把收敛后的锚点 / 几何 / `scrollOffset` 写回 state（派生缓存，帧已按该锚点渲染故不触发重绘）。**窗口起点不滑走**：用户停在历史里（锚点非 null）而尾部新增了回合组时，按新增组数把 `windowGroups` 撑住。
-- **回归**：`tests/scroll-anchor.test.ts`（9 例：组切分 / 切片、互算往返与越界、底部新增不顶走视图、resize 重排锚点可解析、位移到顶 / 底、增窗与复位、`End` 跳最旧、回合切换清瞬态行后视图不跳）+ `tests/layout4.test.ts`（窗口 / 占位 / 报告口径）+ `tests/app.test.ts`（键位路径）。
+- **阅读位置不被输出拽走**（「活动区输出大量文本后，历史区跟着一起向上滚动」的回归，两处协同）：
+  1. 缓冲头部裁剪（`state.ts` 的 `trimBufferHead`）超过 `MAX_BUFFER_LINES` 时**保留锚点行**（最多裁到该行；锚点保护设 2× 上限的安全阀，越界则放弃保护、退回上限裁剪）——否则用户正在读的那一行被逐行裁掉，视口只能跟着不断前移的缓冲头走。
+  1. 锚点行不可达时的顶行回落（`layout.ts` 的 `dialogueTopIdx`）：被裁剪 / 被 `compaction/summary` 遮蔽 / 改由活动区承载 / 落在折叠占位行上时，钉到缓冲中「不早于锚点行的第一条仍可达内容」，而不是 `anchorToIndex` 那样收敛到窗口首行（否则视口会钉在占位行与偏移位之间来回跳，并与压缩摘要互相打架）；全不可达时贴底。
+  1. 会话切换（`history-resume-ok` / `session-switch`）清掉锚点回跟随底部，避免上一会话的锚点跨会话残留。
+- **回归**：`tests/scroll-anchor.test.ts`（10 例：组切分 / 切片、互算往返与越界、底部新增不顶走视图、resize 重排锚点可解析、位移到顶 / 底、增窗与复位、`End` 跳最旧、回合切换清瞬态行后视图不跳、`dialogueTopIdx` 不可达回落）+ `tests/buffer-trim.test.ts`（4 例：锚点行保留 / 无锚点严格按上限 / 锚点已不在缓冲 / 2× 安全阀）+ `tests/layout4.test.ts`（窗口 / 占位 / 报告口径）+ `tests/app.test.ts`（键位路径）。
 
 ## 排版尺寸唯一来源：FrameGeometry
 

@@ -207,6 +207,46 @@ export function anchorToIndex(
   return idx;
 }
 
+/**
+ * 视口顶行号：锚点 → 行号；锚点行**在对话行表里不可达**时钉到下一段可用内容。
+ *
+ * 不可达的几种情形：① 被缓冲上限裁剪（活动区/对话区大量输出时逐行裁掉最旧行）；
+ * ② 被压缩摘要遮蔽（`compaction/summary` 的 shadowed 行）；③ 该行改由活动区承载；
+ * ④ 锚点就是折叠占位行（`DIALOGUE_MARKER_SEQ`）。
+ * 若此时照旧让 `anchorToIndex` 收敛到物化窗口首行，视口就被钉在不断前移的缓冲头上
+ * 逐帧往前挪（占位行 ↔ 缓冲头），表现为「活动区输出大量文本时历史区跟着一起上滚」，
+ * 用户上翻阅读时阅读位置被持续拽走，还常与压缩摘要互相打架（顶行两处来回跳）。
+ * 故改为钉到缓冲中「不早于锚点行的第一条仍可达内容」：位置只由内容本身决定，与新行
+ * 到达、窗口扩缩、距底偏移都无关（新内容只从底部追加 → 视口纹丝不动）；内容被裁掉 /
+ * 遮蔽时只单调前进到下一段可用内容。全不可达（锚点比表内所有内容都新）时贴底。
+ */
+export function dialogueTopIdx(
+  state: { scrollAnchor: DialogueAnchor | null },
+  spans: readonly DialogueSpan[],
+  maxTop: number,
+): number {
+  const anchor = state.scrollAnchor;
+  if (anchor === null) return maxTop;
+  // 占位行（更早回复已折叠）不是内容行，同样按不可达处理
+  const reachable =
+    anchor.seq !== DIALOGUE_MARKER_SEQ &&
+    spans.some((s) => s.seq === anchor.seq);
+  if (!reachable) {
+    // 钉到缓冲中「不早于锚点行的第一条仍可达内容」：位置由内容本身决定，与新行到达、
+    // 窗口扩缩、距底偏移都无关 —— 新内容只从底部追加，视口因此不再漂移；内容被裁掉/
+    // 遮蔽时只前进一格到下一段可用内容（单调，不来回跳）。全不可达时贴底。
+    const nextSpan = spans.find(
+      (s) => s.seq !== DIALOGUE_MARKER_SEQ && s.seq >= anchor.seq,
+    );
+    if (nextSpan === undefined) return maxTop;
+    return Math.max(
+      0,
+      Math.min(anchorToIndex(spans, { seq: nextSpan.seq, row: 0 }), maxTop),
+    );
+  }
+  return anchorToIndex(spans, anchor);
+}
+
 /** 绝对行号 → 锚点（越界收敛到首/末行） */
 export function indexToAnchor(
   spans: readonly DialogueSpan[],
@@ -1475,10 +1515,8 @@ function buildTopRegion(
   // 视口高 = viewportH（对话 pane 高扣掉底部排队块占位）——滚动上限/锚点换算同此口径
   const spans = dialogueSpans(dialogueRows);
   const maxTop = Math.max(0, dialogueRows.length - viewportH);
-  const topIdx =
-    state.scrollAnchor === null
-      ? maxTop
-      : Math.min(anchorToIndex(spans, state.scrollAnchor), maxTop);
+  // 顶行换算见 dialogueTopIdx：锚点行不可达时钉到下一段可用内容，不被拽向缓冲头
+  const topIdx = Math.min(dialogueTopIdx(state, spans, maxTop), maxTop);
   const vp: Viewport = {
     start: topIdx,
     end: Math.min(dialogueRows.length, topIdx + viewportH),
