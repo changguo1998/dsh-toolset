@@ -1987,8 +1987,13 @@ export class App {
         }
         return;
       case "goal":
-        // /goal 不再打开面板：goal/todo 详情常驻左侧顶部状态列
-        this.notice("goal/todo 详情见左侧信息栏", "info");
+        // 无参：goal/todo 详情常驻左侧顶部状态列；带参数（<objective> / edit <objective> /
+        // pause / resume / clear）→ 交宿主 dsh-command-goal 执行，结果经 notice 回报
+        if (line.slice("/goal".length).trim() === "") {
+          this.notice("goal/todo 详情见左侧信息栏", "info");
+          return;
+        }
+        this.deps.adapter.runCommand(line);
         return;
       case "policy":
         this.handlePolicyCommand(line);
@@ -3362,7 +3367,7 @@ export class App {
       },
       {
         cmd: "/goal",
-        desc: "goal/todo 详情常驻左侧状态列（本命令仅提示，不打开面板）",
+        desc: "无参：goal/todo 详情常驻左侧状态列（不打开面板）；带参：交宿主新建/编辑/暂停/恢复/清除当前 goal",
       },
       { cmd: "/copy", desc: "复制最后一条模型回复到剪贴板(OSC52)" },
       {

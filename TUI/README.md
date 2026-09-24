@@ -235,7 +235,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 | `/policy [ask\|never]` | 审批策略：无参打开状态选项面板，带参直接设置（写宿主 `approval.setPolicy`） |
 | `/permission [预设名]` | 权限预设（sandbox mode + 审批策略捆绑）：无参打开面板，带参转发宿主命令 |
 | `/preset [预设名]` | agent 预设：无参打开面板，带参经 `selectAgentPreset`（宿主 `recompose` 写路径）切换 |
-| `/goal` | 提示 goal / todo / jobs 详情常驻左侧状态列（不再打开面板） |
+| `/goal [<目标>\|edit <目标>\|pause\|resume\|clear]` | 无参：提示 goal / todo / jobs 详情常驻左侧状态列（不再打开面板）；带参：转发宿主 `dsh-command-goal` 管理当前会话 goal（`/goal <目标>` 新建、`edit`/`pause`/`resume`/`clear` 改／暂停／恢复／清除） |
 | `/stats`（`/usage` `/context`） | 最近一次模型调用的 token 用量：分解（输入/输出/缓存读）、上下文占用、缓存命中率 |
 | `/session` | 会话面板：列出持久化会话，Enter 切换（`agents.resume` 恢复后继续对话，并回填该会话的模型 / Mode（plan、sandbox、permission、审批策略）/ goal / todo / `verbose`、`symbol-unify` 开关）；`Tab` 切换范围（当前目录 / 全部）、`Space` 批量标记（`a` 全选当前范围、`c` 清空）、`d`/Delete 删除（有标记=批量删除全部标记，无标记=删当前高亮）、`x` 清理空会话、`/session clean` 直达清理确认 |
 | `/rename <标题>` | 重命名当前会话标题（写宿主 `sessionTitle.rename`；空标题或含换行本地拒绝） |
@@ -258,7 +258,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 
 ### 宿主自带命令
 
-`/compact`、`/feedback`、`/goal`、`/permission`、`/plan` 由 dsh-base 装配的插件注册（dsh-command-compact / dsh-command-feedback / dsh-command-goal / dsh-permission-presets / dsh-plan-mode），`/export` 来自 dsh-session-log-export，均经 `ctx.commands.register` 注册。其中 `/goal` 恒为本地提示（不转发宿主），`/permission` 无参走本地面板、带参转发宿主；其余走 registry 转发即用。完整命令面与扩展建议见 `COMMANDS.md`。
+`/compact`、`/feedback`、`/goal`、`/permission`、`/plan` 由 dsh-base 装配的插件注册（dsh-command-compact / dsh-command-feedback / dsh-command-goal / dsh-permission-presets / dsh-plan-mode），`/export` 来自 dsh-session-log-export，均经 `ctx.commands.register` 注册。其中 `/goal` 无参为本地提示、带参转发宿主，`/permission` 无参走本地面板、带参转发宿主；其余走 registry 转发即用。完整命令面与扩展建议见 `COMMANDS.md`。
 
 ## 按键
 

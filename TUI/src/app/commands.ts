@@ -218,7 +218,11 @@ export const LOCAL_COMMANDS: readonly {
     desc: "新建会话（不重启进程；当前会话保留，可经 /session 切回）",
   },
   { name: "copy", route: "copy", desc: "复制最后一条回复（OSC52）" },
-  { name: "goal", route: "goal", desc: "goal/todo 详情见左侧状态列" },
+  {
+    name: "goal",
+    route: "goal",
+    desc: "无参看状态列；带参转发宿主",
+  },
   { name: "policy", route: "policy", desc: "审批策略 ask/never" },
   {
     name: "permission",

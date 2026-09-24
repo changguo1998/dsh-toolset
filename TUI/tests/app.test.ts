@@ -3281,6 +3281,19 @@ test("/goal：不再打开面板，通知左侧信息栏查看 goal/todo", () =>
   );
 });
 
+test("/goal <objective>：带参数转交宿主 goal 命令（无参数仍只提示左侧信息栏）", () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/goal 打磨状态列");
+  assert.deepEqual(
+    adapter.commands,
+    ["/goal 打磨状态列"],
+    "带参数的 /goal 交 adapter.runCommand（宿主 dsh-command-goal）",
+  );
+  assert.deepEqual(adapter.sent, [], "不经 sendMessage 当作消息发给模型");
+  typeAndEnter(renderer, "/goal");
+  assert.equal(adapter.commands.length, 1, "无参数 /goal 仍是本地提示");
+});
+
 // ===== 顶部三面板焦点滚动（Tab 切换 / ↑↓ 行滚动 / PgUp/PgDn 整页）=====
 
 test("顶部面板焦点滚动映射：↑/↓ 只作用于各自面板；PgUp/PgDn 用面板可视行高", () => {

@@ -19,7 +19,7 @@
 | `/symbol-unify on\|off` | 模型输出符号统一：`on`（缺省）把变体符号替换为推荐符号并提醒模型 / `off` 原样（不替换不提醒）。生效值常驻状态列 Mode 块（`✓`=on / `✗`=off） |
 | `/session` | 历史会话面板（浏览/恢复/删除/清理，范围 Tab 切换；`/session clean` 直达清理确认） |
 | `/copy` | 复制最后一条模型回复（OSC52） |
-| `/goal` | goal/todo 提示（详情常驻左侧状态列） |
+| `/goal [<目标>\|edit <目标>\|pause\|resume\|clear]` | 无参：goal/todo 提示（详情常驻左侧状态列）；带参：转发宿主 `dsh-command-goal`（新建/编辑/暂停/恢复/清除当前会话 goal，结果经 notice 回报） |
 | `/policy [ask\|never]` | 审批策略：无参开状态选项面板，带参直接设置 |
 | `/permission [预设名]` | 权限预设（sandbox mode + 审批策略捆绑）：无参开面板，带参转发宿主命令 |
 | `/preset [预设名]` | agent 预设目录：无参开面板，带参切换 |
@@ -50,7 +50,7 @@
 `ctx.commands.register` 现注册 6 条（dsh 0.1.5-rc.3 安装树核实）：`/compact` `/feedback` `/goal` `/permission` `/plan` 由 dsh-base 装配的插件注册（dsh-command-compact / dsh-command-feedback / dsh-command-goal / dsh-permission-presets / dsh-plan-mode），`/export` 来自 dsh-session-log-export。本地目录未命中的命令名一律经 `adapter.runCommand` 转发注册表；注册表未命中提示未知命令（fail-close，绝不把 slash 行发给模型）。
 
 - 补全候选 = 本地目录 + `ctx.commands.list(agent)`（`start()` 时拉取一次，无周期刷新）；同名本地优先。
-- `/goal` `/permission` 与本地同名：`/permission` 无参走本地面板、带参转发宿主；`/goal` 恒为本地提示（不转发）。
+- `/goal` `/permission` 与本地同名：`/permission` 无参走本地面板、带参转发宿主；`/goal` 无参为本地提示、带参转发宿主（`/goal <目标>` 即新建当前会话 goal）。
 
 ## 2. 扩展建议
 

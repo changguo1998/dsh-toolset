@@ -33,7 +33,7 @@
 | `/search` | 并行多 provider 聚合（见下） | 全部失败 → warn 不空开面板 |
 | `/settings` | `ctx.settings.describe()` → `ns：value` 多行 info，secret 脱敏 `<redacted>`；只读不写 | 服务缺失 → warn |
 | `/jobs` | `ctx.jobs.onJobsChanged` 增量 + 打开时全量拉取；`Enter` → `ctx.jobs.kill` | 服务缺失 → warn |
-| `/goal` | 仅 notice 提示「详情见左侧信息栏」（goal/todo/jobs 常驻状态列） | — |
+| `/goal` | 无参：仅 notice 提示「详情见左侧信息栏」（goal/todo/jobs 常驻状态列）；带参：`adapter.runCommand(line)` → 宿主 `dsh-command-goal`（`<目标>` 新建 / `edit <目标>` / `pause` / `resume` / `clear`），结果经 notice 回报 | 注册表未命中 → warn（fail-close 不发消息） |
 
 **只读服务面（插件侧提供）**：task-engine `ctx.provide("taskEngine", { query, frameStack })`、metric-loop `ctx.provide("metricLoop", { list, status })`、security-guard `ctx.provide("guard", { recent, policy })`、knowledge-base `ctx.provide("knowledge", { getSummary, whenReady })`。`/contract` 例外：goal-contract 不 expose ctx 服务，TUI 优先用 `opts.goalContract.parseContract`（`ctx.get('goalContract')`），未挂载时走内置同构回读 `parseContractObjective`（定位独占 `Done-when:` 行 + 段后 JSON 数组）；包入口直读不可行（TUI 无跨包依赖、根无 workspaces、`file:` 依赖被项目约定禁止）。
 
