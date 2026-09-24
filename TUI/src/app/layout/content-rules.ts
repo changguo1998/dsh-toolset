@@ -132,3 +132,23 @@ export function renderToolNameLine(text: string): FrameSegment[] {
   if (sp < 0) return [seg(text, { fg: "yellow" })];
   return [seg(text.slice(0, sp), { fg: "yellow" }), seg(text.slice(sp))];
 }
+
+/**
+ * 横线交点字形：上/下是否都有竖线 → `┼`（贯通）、仅上 → `┴`、仅下 → `┬`。
+ * 用于「状态列右边框（上竖线）与状态栏段分隔竖线（下竖线）落在同一列」的场景，
+ * 避免只按一侧选字导致另一侧竖线断开。
+ */
+export function teeGlyph(hasUp: boolean, hasDown: boolean): "┼" | "┴" | "┬" {
+  if (hasUp && hasDown) return "┼";
+  return hasUp ? "┴" : "┬";
+}
+
+/** 字形是否含**向上**笔画（用于判断上一行竖线能否与该行相接） */
+export function strokeUp(ch: string): boolean {
+  return "│┼┴┤├└┘".includes(ch);
+}
+
+/** 字形是否含**向下**笔画（用于判断下一行竖线能否与该行相接） */
+export function strokeDown(ch: string): boolean {
+  return "│┼┬┤├┌┐".includes(ch);
+}

@@ -49,6 +49,7 @@ import {
   SEPARATOR,
   STATUS_TOP_SEPARATOR,
   TURN_SEPARATOR_CHAR,
+  teeGlyph,
 } from "./layout/content-rules.ts";
 export {
   SEPARATOR,
@@ -2338,21 +2339,24 @@ export function buildStatusSeparator(
     geom.innerDividerCol <= R
       ? geom.innerDividerCol
       : undefined;
-  // 交点列 → 字符：状态栏框线竖线在横线下方 → `┬`；D 列/内部分隔列竖线在
-  // 横线上方 → `┴`（D=0 时 col0 亦为 ┴，与旧实现一致）。升序排列后逐列输出。
-  const pts: Array<{ col: number; ch: "┬" | "┴" }> = [];
-  for (const c of seamCols ?? []) {
-    if (c >= 0 && c <= R) pts.push({ col: c, ch: "┬" });
-  }
-  if (inner !== undefined) pts.push({ col: inner, ch: "┴" });
-  if (D >= 0 && D <= R) pts.push({ col: D, ch: "┴" });
-  pts.sort((a, b) => a.col - b.col);
+  // 交点列 → 字符：状态栏框线竖线在横线**下方**（`┬`）；D 列/内部分隔列竖线在
+  // 横线**上方**（`┴`）；同列两者都有 → `┼`（否则只按一侧选字会让另一侧竖线断开，
+  // 如段分隔竖线恰好落在 D 列时状态列右边框出现空白）。
+  const upCols = new Set<number>();
+  if (inner !== undefined) upCols.add(inner);
+  if (D >= 0 && D <= R) upCols.add(D);
+  const downCols = new Set<number>();
+  for (const c of seamCols ?? []) if (c >= 0 && c <= R) downCols.add(c);
+  const cols = [...new Set([...upCols, ...downCols])].sort((a, b) => a - b);
   let cursor = 0;
-  for (const p of pts) {
-    if (p.col < cursor) continue; // 同列已输出（去重）
-    out.push(...segN(p.col - cursor));
-    out.push({ text: p.ch, style: { fg: "border" } });
-    cursor = p.col + 1;
+  for (const col of cols) {
+    if (col < cursor) continue;
+    out.push(...segN(col - cursor));
+    out.push({
+      text: teeGlyph(upCols.has(col), downCols.has(col)),
+      style: { fg: "border" },
+    });
+    cursor = col + 1;
   }
   out.push(...segN(Math.max(0, R - cursor)));
   // R 列（历史/活动区外缘框列）：灰 `─`（history/activity 焦点由 focusFrame 覆写 ┴/┘）；

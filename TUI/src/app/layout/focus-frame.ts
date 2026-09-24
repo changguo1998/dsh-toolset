@@ -17,6 +17,7 @@ import type {
 import type { ColorName, ThemeId } from "../../renderer/theme.ts";
 import type { PaneId, Rect } from "./box.ts";
 import { displayWidth } from "./markdown.ts";
+import { strokeDown, strokeUp, teeGlyph } from "./content-rules.ts";
 
 /** 焦点框覆写上下文（不 import layout.ts / AppState，防循环依赖） */
 export interface FocusFrameContext {
@@ -221,6 +222,27 @@ export function coverH(
 
 /** coverH 把状态区上方分隔行整段覆写为 ─ 后，恢复状态栏框线竖线交点（┬），
  *  保持竖线与横线相接的结构（交点随焦点 body 变亮）。仅作用于该行 */
+/** 读 (row, col) 处字形（按显示列定位；越界/无字返回空格） */
+function cellAt(rows: FrameRow[], row: number, col: number): string {
+  const r = rows[row];
+  if (!r || col < 0) return " ";
+  let w = 0;
+  for (const segment of r.segments) {
+    for (const ch of segment.text) {
+      const cw = displayWidth(ch);
+      if (cw <= 0) continue;
+      if (col < w + cw) return ch;
+      w += cw;
+    }
+  }
+  return " ";
+}
+
+/**
+ * 恢复状态栏上横线的段分隔竖线交点。**按上下行取并集字形**：同列上方的竖线
+ * （如 D 列的状态列右边框）与下方的段分隔竖线都存在时写 `┼`，否则只按一侧选字
+ * 会把另一侧切断（表现为水平线上方出现空白、交线断开）。
+ */
 function restoreStatusSeams(
   rows: FrameRow[],
   bottom: number,
@@ -231,7 +253,10 @@ function restoreStatusSeams(
 ): void {
   if (ctx.statusSepRow === undefined || bottom !== ctx.statusSepRow) return;
   for (const c of ctx.statusSeamCols ?? []) {
-    if (c >= c0 && c < c1) cover(rows, bottom, c, "┬", style);
+    if (c < c0 || c >= c1) continue;
+    const up = strokeUp(cellAt(rows, bottom - 1, c));
+    const down = strokeDown(cellAt(rows, bottom + 1, c));
+    cover(rows, bottom, c, teeGlyph(up, down), style);
   }
 }
 export function focusFrame(
