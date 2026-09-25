@@ -2,7 +2,7 @@
 
 DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方式挂载进 DSH 会话进程的一组 TypeScript 插件，补齐任务树、知识库与记忆、目标契约、指标循环等能力；另含一套自研终端 UI（TUI），是 Web UI / CLI 之外的第三种交互方式。
 
-面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `DSH-CTX-API.md`（只读，版本口径 `dsh-v0.1.5-rc.3`）。
+面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `docs/host/DSH-CTX-API.md`（只读，版本口径 `dsh-v0.1.5-rc.3`）。
 
 ## 组成
 
@@ -48,7 +48,7 @@ dsh-toolset/
 ├── docs/                 # 状态表、待办清单、agent 面组合说明、架构对照与宿主包清单
 ├── archive/              # 已归档：完成的任务清单与历史调研记录
 ├── AGENTS.md             # 面向 agent 的协作规范（语言/命令/格式化/构建部署/变更流程）
-├── DSH-CTX-API.md        # 跨插件共享研读笔记（只读）
+├── docs/host/DSH-CTX-API.md        # 跨插件共享研读笔记（只读）
 └── package.json          # 根脚本：委托全部子包的 check/build/test
 ```
 
@@ -95,17 +95,38 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 
 ### agent 面组合（不使用 preset）
 
-本项目只用 TUI，agent 面由 profile 的全局组合提供（`dsh-base` + 本项目 bundles + `cordis.patch.yml`），**不配置也不加载 agent preset**：官方设计里 TUI 是"没有 preset 的单组合面"，`/preset` 提示「agent 预设服务不可用」属正常。要改工具 / 提示 / 人格请落 profile 用户 patch；需要多套组合用多个 profile。官方依据、本机验证与 0.1.7 版本断层见 `docs/AGENT-COMPOSITION.md`。
+本项目只用 TUI，agent 面由 profile 的全局组合提供（`dsh-base` + 本项目 bundles + `cordis.patch.yml`），**不配置也不加载 agent preset**：官方设计里 TUI 是"没有 preset 的单组合面"，`/preset` 提示「agent 预设服务不可用」属正常。要改工具 / 提示 / 人格请落 profile 用户 patch；需要多套组合用多个 profile。官方依据、本机验证与 0.1.7 版本断层见 `docs/host/AGENT-COMPOSITION.md`。
 
 ## 文档
 
-- `AGENTS.md` — 面向 agent：语言约定、命令、格式化、构建部署到 profile、变更流程、结构约定、Git 规范。
-- `docs/DEVELOPMENT-STATUS.md` — 插件开发状态追踪表（状态的唯一来源）。
-- `docs/DEVELOPMENT-BACKLOG.md` — 未完成功能清单（P0/P1/P2）与里程碑。
-- `docs/AGENT-COMPOSITION.md` — agent 面组合现状：TUI 走 profile 全局组合、不用 preset（官方依据 + 本机验证 + 0.1.7 版本断层）。
-- `docs/HOST-UPGRADE-0.1.7-rc.2.md` — 宿主升级对照：`0.1.5-rc.3 → 0.1.7-rc.2` 的官方接口变更（服务注册表 diff、我方消费面逐项判定、装配机制、会话格式 V4）与重大更新，附逐包影响与行动清单。
-- `TUI/DESIGN.md`、`TUI/SPEC.md`、`TUI/IMPLEMENTATION.md`、`TUI/COMMANDS.md`、`TUI/COMMANDS-SPEC.md` — TUI 设计、渲染规格、实现记录、命令面与命令扩展规格。
-- `docs/AGENT-ARCHITECTURE-ANALOGY.md` — agent 架构与 DSH 接口对照（任务树、知识库插件的设计依据）。
-- `docs/HOST-PACKAGES.md` — 宿主官方包清单（`dsh 0.1.5-rc.3` 的 240 个包，分类 + 关键包说明 + fff 挂载清单；宿主升级后需刷新）。
-- `archive/PI-DSH-FEATURE-COMPARISON.md`、`archive/CODEMAP-RESEARCH.md` — 已归档的调研记录（pi→dsh 迁移基线与 code-map 选型快照，仅作历史参考；现状以状态表/待办清单为准）。
-- `DSH-CTX-API.md` — 对齐官方 deepseek-harness 的核心契约研读笔记（只读参考）。
+索引只此一处（`AGENTS.md` 不再重复列清单）；每份文档开头三行写明「职责 / 不负责 / 过期条件」。
+
+**项目面（现状与推进）**
+
+- `docs/DEVELOPMENT-STATUS.md` — 插件与宿主基线的现状快照（状态的唯一来源）。
+- `docs/DEVELOPMENT-BACKLOG.md` — 待办全集：缺陷 + 功能（P0/P1/P2）+ 里程碑 + 插件规划 + TUI 开放项。
+
+**宿主面（`docs/host/`，升宿主后必复核）**
+
+- `docs/host/DSH-CTX-API.md` — 宿主 ctx 接口研读笔记（跨插件契约，只读参考）。
+- `docs/host/HOST-PACKAGES.md` — 宿主官方包与服务字典（生成物，升宿主后重新生成）。
+- `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` — 当前升级对照（0.1.5-rc.3 → 0.1.7-rc.2）与实施状态；下次升级另开新文件，本份移入 `archive/`。
+- `docs/host/AGENT-COMPOSITION.md` — agent 面组合现状与官方依据（TUI 走 profile 全局组合、不配 preset）。
+- `docs/host/AGENT-ARCHITECTURE-ANALOGY.md` — 官方 agent 架构与接口对照（task-engine、knowledge-base 的设计依据）。
+
+**TUI 面（`TUI/docs/`）**
+
+- `TUI/README.md` — TUI 用法、配置项与命令行为表。
+- `TUI/docs/SPEC.md` — 渲染管线规格；`TUI/docs/DESIGN.md` — 机制与取舍；`TUI/docs/IMPLEMENTATION.md` — 实现记录。
+- `TUI/docs/COMMANDS.md` — 命令清单（按本地 / 宿主注册层归属）与扩展裁定索引；`TUI/docs/COMMANDS-SPEC.md` — 新命令的硬规格。
+- `TUI/docs/NOTICE-LEVELS.md`、`TUI/docs/AUDIT-colors.md`、`TUI/docs/REFACTOR.md` — 提示等级 / 配色语义 / 模块拆分三项约定。
+
+**插件包**
+
+- 各包 `README.md`（职责、契约、边界、测试命令）；`knowledge-base`、`output-compress`、`code-map` 另有 `DESIGN.md`。
+
+**协作与历史**
+
+- `AGENTS.md` — 面向 agent 的协作规范（语言、命令、格式化、构建部署、变更流程、结构约定、Git）。
+- `archive/` — 已完成清单、历史调研、旧版契约快照与完成使命的升级文档；仅作历史记录，不作现状来源。
+- 不维护 `CHANGELOG.md`：变更记录以 `git log`（Conventional Commits）与 `docs/host/HOST-UPGRADE-*.md` 为准。

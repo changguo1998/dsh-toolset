@@ -1,5 +1,9 @@
 # 宿主升级对照：0.1.5-rc.3 → 0.1.7-rc.2
 
+> 职责：本次升级（0.1.5-rc.3 → 0.1.7-rc.2）的接口对照、重大更新与实施状态
+> 不负责：包清单（见 `docs/host/HOST-PACKAGES.md`）
+> 过期条件：下次升级时另开新文件，本份移入 `archive/`
+
 > 用途：本项目 13 个包（TUI + 12 个进程内插件）当前跑在 `dsh 0.1.5-rc.3`（npm dist-tag `latest`）。本文对照下一个 rc（npm dist-tag `next`）的**官方接口变更**与**重大更新**，供升级决策、回归测试取材。
 > 口径：宿主源码本地克隆 `~/GithubRepos/deepseek-harness`，工作区 checkout = tag `dsh-v0.1.7-rc.2`（提交 `477b4f42`，2026-09-24，下称 NEW）；对照基线 = tag `dsh-v0.1.5-rc.3`（提交 `a4c74a91`，2026-09-22，下称 OLD）。核对时间 2026-09-25。
 > 只记**会影响本仓库**的事实，逐条带证据（`文件:行` / commit / 官方 note）。未核实项单列 §7；复现命令见 §6。
@@ -25,7 +29,7 @@
 
 - **装配机制兼容**：`dsh.profile.bundles` 语义与五层 patch 顺序逐字未变；`cordis.patch.yml` 的 `- id:`（覆盖）/ `- insert:`（新增）方言主体零 diff；插件导出形状（`{name, inject, provide, Config, apply}`）与 `ctx.reflect.get(name, strict)` 完全未变（cordis 4.0.2 → 4.0.4，`reflect.ts` 零 diff）。
 - **持久化**：Session 格式 v3 → v4，官方附迁移（读旧会话在**内存**转换、写入时在旧文件旁发布 V4 successor，不就地重写）；同时新增「禁止新的同步事件读取」规则（`Session.eventAt/snapshotEvents/ownEvents` 标 `@deprecated`）——我方未使用这三个同步读。
-- **preset 机制**：目录式 roster（`agent-presets` 包）删除，改为 profile YAML 的 `agent-preset-registry` + `@deepseek-ai/dsh-agent-preset` 声明行；与本项目「只用 TUI、走 profile 全局组合、不配 preset」口径同向，`AGENT-COMPOSITION.md` 结论继续成立。
+- **preset 机制**：目录式 roster（`agent-presets` 包）删除，改为 profile YAML 的 `agent-preset-registry` + `@deepseek-ai/dsh-agent-preset` 声明行；与本项目「只用 TUI、走 profile 全局组合、不配 preset」口径同向，`docs/host/AGENT-COMPOSITION.md` 结论继续成立。
 - **官方新增能力面**：deliverables（`present` + `workspace-changes`）、browser-use / computer-use、PTC 运行时、SSH provider 家族、plugin-manager / config-editor / HMR、DeepSeek 账号 PKCE、Web 设置页按命名空间拆分 + 右侧栏终端/浏览器。
 
 ### 0.1 实施状态（本项目，2026-09-25）
@@ -34,13 +38,13 @@
 |---|---|---|
 | TUI `jobs` / `/agents`、output-compress PTC 三处改造 | **已完成** | 按 §3.2 落地：能力探测择路，0.1.7 与 ≤0.1.5 都能走通（过渡期双栈） |
 | 单测与构建 | **已完成** | `npm run check` 全绿；TUI 1087 用例、output-compress 45 用例（含 3 个新增 PTC 用例）通过；`npm run build` + `npm run demo -- --smoke` 通过 |
-| `scripts/install.sh` 与 TUI 文档同步 | **已完成** | 默认版本 → `0.1.7-rc.2`；`TUI/DESIGN.md`、`TUI/IMPLEMENTATION.md`、`TUI/COMMANDS-SPEC.md` 记录新契约 |
+| `scripts/install.sh` 与 TUI 文档同步 | **已完成** | 默认版本 → `0.1.7-rc.2`；`TUI/docs/DESIGN.md`、`TUI/docs/IMPLEMENTATION.md`、`TUI/docs/COMMANDS-SPEC.md` 记录新契约 |
 | 宿主安装 + profile 依赖同步 + settings 迁移 | **已完成** | `dsh --version` = 0.1.7-rc.2（随包 283 个）；profile 的 `dsh-session-title-all-prompts-llm` → 0.1.7-rc.2 且 `pnpm install` 通过（peer 期望随之变为 `cordis ~4.0.4` / `dsh-* 0.1.7-rc.2`）；首次启动完成 settings 迁移：`settings.yaml` → `.imported`、profile patch 写入 `agent-default-model` / `llm-pi-ai` 段 |
 | 组合与启动核对 | **已完成** | `--dump-config` 含 `dsh-base` + 13 个 `@dsh-toolset/*` + `tool-ask-user` + `session-title-all-prompts-llm`；关键服务条目在位：`jobs`、`subagent`、`ptc-runtime`（`@deepseek-ai/dsh-ptc-runtime-node`）、`sandbox-policy`；pty 冒烟 15s：TUI 正常渲染、**无 `did not activate` / `startup failed`** |
 | 运行时核对（自动） | **已完成** | 重启后本会话即跑在 rc.2：会话目录同时存在旧 `session.v3.jsonl.zstd` 与新 `session.v4.jsonl.zstd`（V4 writer 另存 successor、不改写前代）且会话可继续追加；插件实测：`code_map index` 建成 265 文件 / 5052 符号索引、`context_report` 正常（读的正是跨 V3→V4 迁移后的会话）、`task_engine` 正常、metric-loop 启动注册日志在位、output-compress 产生新分片（48KB / 37KB，`inline-event-text` 触发） |
 | 复核中发现的问题（与升级无关） | **已记录，待修** | `fs_digest` 工具在 0.1.5 与 rc.2 上均报 `cannot get property "cwd" without inject`：`fs-digest/src/main.ts:129` 直接读 `ctx.cwd`，但 `cwd` 不是宿主服务，cordis 代理对未 inject 的属性访问即抛错，`?? process.cwd()` 永远走不到。**既有缺陷**，不在本次升级范围内 |
 | 交互验收（`/jobs`、`/agents`） | **已通过** | `/jobs`：起一个后台任务后能列出会话自有任务，`Enter` 取消生效（任务在 ~24s 时被 SIGTERM 终止，远早于其 240s 时长）——旧代码传 `{ id }` 会因 owner 不匹配而面板恒空，故这两步同时验证了 caller 与 `kill` 改造；`/agents`：行内显示 `continuable · inactive`，即富条目的 `mode`/`activity` —— 0.1.7 的 `listChildren` 只给投影目录（无 activity），可见 `listDescendants` 优先分支生效 |
-| `HOST-PACKAGES.md` 重刷（240 → 283 个随包分发包口径） | **进行中** | 已采集 283 包 + 91 个挂载清单（`tmp/hostdoc/`），按 §6 复现命令重生成 |
+| `docs/host/HOST-PACKAGES.md` 重刷（240 → 283 个随包分发包口径） | **进行中** | 已采集 283 包 + 91 个挂载清单（`tmp/hostdoc/`），按 §6 复现命令重生成 |
 
 升级实际执行记录（2026-09-25，工作区外操作；profile 里的 `package.json` 是指向 `~/fff/config/dsh/profiles/fff/package.json` 的软链，改的是后者）：
 
@@ -216,7 +220,7 @@ NEW 107 / OLD 88 个服务名。
 | `herdr-integration` | 无（`agents` 不变） | 无 |
 | 其余 9 包 | 无（仅 `tools.register`，`ToolDefinition` 只新增可选字段） | 无 |
 | 部署 / profile | `settings.yaml` 不再作为配置后端（§3.6）；启动失败语义变化（§3.5） | ① 核对 `~/.dsh/settings.yaml` 的 provider/凭据段能否落到同名 profile 条目；② 升级后跑一次 `--dump-config` 并断言启动 stderr 无 `did not activate`；③ `scripts/install.sh` 的 `dsh_version_default` 与「凭据在 settings.yaml」提示需同步 |
-| 文档 | `docs/HOST-PACKAGES.md` 绑定 0.1.5-rc.3（240 包挂载口径） | 升级时按 312 包重刷 |
+| 文档 | `docs/host/HOST-PACKAGES.md` 绑定 0.1.5-rc.3（240 包挂载口径） | 升级时按 312 包重刷 |
 
 ## 6. 复现命令
 

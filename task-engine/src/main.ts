@@ -1,6 +1,6 @@
 // src/main.ts — cordis 插件入口（零 DSH 运行时依赖，结构面访问）
 //
-// 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+// 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
 // name / inject / provide / Config / apply，Config 以类型声明给出（interface Config；
 // 无运行时 schema，不引入 schemastery；宿主不校验，配置原样透传给 apply；缺省/非法值
 // 沿用本包既有语义——root 缺省示例根、level 非法归一 mechanical，不新增校验）。

@@ -1,6 +1,6 @@
 // src/types.ts — 任务树引擎领域类型
 //
-// 契约对齐 AGENT-ARCHITECTURE-ANALOGY.md §17：任务 = 契约（spec + acceptance 三级）。
+// 契约对齐 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §17：任务 = 契约（spec + acceptance 三级）。
 // 帧（Frame）是活动记录：只携续体所需最小上下文（§13.3）。
 
 export type FrameId = string;

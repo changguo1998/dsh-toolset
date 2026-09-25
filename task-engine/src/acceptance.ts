@@ -1,6 +1,6 @@
 // src/acceptance.ts — RET 验收路由器（机械/人工/语义三级）
 //
-// 对齐 AGENT-ARCHITECTURE-ANALOGY.md §17.4：按 acceptance.level 分派：
+// 对齐 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §17.4：按 acceptance.level 分派：
 // mechanical → 命令退出码定性；human → approval 链（fail-closed）；semantic →
 // 独立 audit run（宿主侧子代跑/裁判模型，经可注入 audit hook，§16.2 outputSchema
 // 结构化裁决）。全部通过才弹栈，任一失败带反馈打回。缺 audit hook 时语义级

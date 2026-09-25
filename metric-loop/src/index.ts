@@ -1,7 +1,7 @@
 /**
  * metric-loop 插件入口（DSH bundle 接入面）。
  *
- * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+ * 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
  * name / inject / provide / apply，Config 以类型声明给出（interface Config；无运行时 schema，
  * 宿主不校验，配置原样透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。
  *

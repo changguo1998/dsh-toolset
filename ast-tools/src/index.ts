@@ -1,7 +1,7 @@
 /**
  * ast-tools 插件入口（DSH bundle 集成面）。
  *
- * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+ * 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
  * name / apply（无 inject / provide），Config 以类型别名给出（无运行时 schema，宿主不校验，
  * 配置原样透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。
  * cordis 加载器识别 named apply 导出；与 knowledge-base/TUI 同款挂载形态。

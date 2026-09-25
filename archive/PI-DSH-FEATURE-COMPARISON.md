@@ -23,7 +23,7 @@
 
 ## §2 dsh 0.1.5-rc.2 已实现功能基线
 
-> 能力域均经 git 核实存在；细节契约见 `DSH-CTX-API.md`。0.1.5 确认**没有**的：ast-grep、代码索引、记忆库、auditor、跨会话 broker。0.1.5-rc.2 相对 0.1.2-rc.1 的包增量与新事件（256→274 包）见 `DSH-CTX-API.md` §10。
+> 能力域均经 git 核实存在；细节契约见 `docs/host/DSH-CTX-API.md`。0.1.5 确认**没有**的：ast-grep、代码索引、记忆库、auditor、跨会话 broker。0.1.5-rc.2 相对 0.1.2-rc.1 的包增量与新事件（256→274 包）见 `docs/host/DSH-CTX-API.md` §10。
 
 | 能力域 | 0.1.5-rc.2 代表包 | 说明 |
 |--------|------------------|------|
@@ -234,7 +234,7 @@ ask-user-question、todo、会话命名、subagents 委派、MCP 客户端、沙
 
 ### 4.4 不迁移
 
-pi-dsh-minimal（反向桥）、herdr 集成、pi 内部补丁、配置数据。所有新增实现以 `DSH-CTX-API.md`（基线 `dsh-v0.1.5-rc.2`）对齐宿主接口。
+pi-dsh-minimal（反向桥）、herdr 集成、pi 内部补丁、配置数据。所有新增实现以 `docs/host/DSH-CTX-API.md`（基线 `dsh-v0.1.5-rc.2`）对齐宿主接口。
 
 ## §5 迁移落地与决策记录
 

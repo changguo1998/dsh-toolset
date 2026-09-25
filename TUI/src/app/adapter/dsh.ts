@@ -6,7 +6,7 @@
 //
 // 接口化让 mock（demo/）与真实（阶段 2）可互换，app 层不感知实现。
 // tool-bootstrap（锚定工具引导）见 ./tool-bootstrap.ts，本文件显式重导保持公共导出不变。
-// 类型骨架依据官方 deepseek-harness 源码研读沉淀对齐（见 dsh-toolset/DSH-CTX-API.md，
+// 类型骨架依据官方 deepseek-harness 源码研读沉淀对齐（见 docs/host/DSH-CTX-API.md，
 // clone b150a551b8 = dsh-0.1.1-rc.2）。
 //
 // DSH 原生信号 → app 归一化事件的映射（阶段 2 已在 createRealDshAdapter 内实现）：
@@ -1276,7 +1276,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
 
   // --- 流式块应用（实时帧与结算数组共用） ---
   // 按 (session, turn, step, index) 累计已流式输出的 delta，block-end 只补发未输出
-  // 部分（DSH-CTX-API.md §2 PartialAccumulator 折叠语义），避免完整正文重复显示。
+  // 部分（docs/host/DSH-CTX-API.md §2 PartialAccumulator 折叠语义），避免完整正文重复显示。
   // 同一 index 跨 turn/step 不复用累计（key 含 turn/step；turn/end 亦清空）。
   // finish/usage 等载荷可能无 index；仅带 index 的块类型参与累计。
   // completedBlocks 拦截：实时帧已完整交付的块，结算数组不再输出。

@@ -1,6 +1,6 @@
 # TUI 渲染管线重构任务（Tasks）
 
-> **已归档**：本文是渲染管线重构的实施期任务清单（主线 A/B 均已完成）。当前口径见 `TUI/SPEC.md`（规格）、`TUI/DESIGN.md`（设计）、`TUI/IMPLEMENTATION.md`（实现要点）；实施过程记录见 `TUI-RENDER-REFACTOR-RECORD.md`。文内「待实施 / 拆分中」等表述均为当时状态，不再维护。
+> **已归档**：本文是渲染管线重构的实施期任务清单（主线 A/B 均已完成）。当前口径见 `TUI/docs/SPEC.md`（规格）、`TUI/docs/DESIGN.md`（设计）、`TUI/docs/IMPLEMENTATION.md`（实现要点）；实施过程记录见 `TUI-RENDER-REFACTOR-RECORD.md`。文内「待实施 / 拆分中」等表述均为当时状态，不再维护。
 > 注：文中 `COMMANDS-SPEC.md` 章节号按当时版本（§0.x/§3），现已重编号为 §1..§8。
 
 > 状态：**设计草案，待实施**（2026-09）。

@@ -93,4 +93,4 @@ npm run demo    # npm run build && node dist/demo/main.js；脚本化模型跑�
                 # 语义验收 audit、step 裁决、语义蕴含门、abort 恢复；输出 DEMO_OK / DEMO_FAIL，退出码 0/1
 ```
 
-架构对照见 `docs/AGENT-ARCHITECTURE-ANALOGY.md`。
+架构对照见 `docs/host/AGENT-ARCHITECTURE-ANALOGY.md`。

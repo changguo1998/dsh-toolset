@@ -1,9 +1,9 @@
 # TUI 升级 DSH 0.1.2-rc.1 更新计划（审阅稿）
 
-> **已归档**：本文是 TUI 升级到 DSH 0.1.2-rc.1 的升级计划草案（当时状态，非现状）。当前 TUI 实现口径见 `TUI/SPEC.md`、`TUI/DESIGN.md`、`TUI/IMPLEMENTATION.md`。
+> **已归档**：本文是 TUI 升级到 DSH 0.1.2-rc.1 的升级计划草案（当时状态，非现状）。当前 TUI 实现口径见 `TUI/docs/SPEC.md`、`TUI/docs/DESIGN.md`、`TUI/docs/IMPLEMENTATION.md`。
 
 > 状态：**计划草案，待审阅；审阅通过前不实现**。
-> 契约依据：`DSH-CTX-API.md`（0.1.2-rc.1 版）+ `archive/DSH-CTX-API-0.1.1-rc.2.md`（旧版对照）。
+> 契约依据：`docs/host/DSH-CTX-API.md`（0.1.2-rc.1 版）+ `archive/DSH-CTX-API-0.1.1-rc.2.md`（旧版对照）。
 > 源码对照：`~/GithubRepos/deepseek-harness`（`dsh-v0.1.1-rc.2` → `dsh-v0.1.2-rc.1`，1735 提交）。
 > 2026-09-08 制订。
 
@@ -89,13 +89,13 @@
 | R2 | `dsh-tool-fs` 的 `meta` diff 形状未在本仓库文档化 | 中（P2 新功能） | 真机抓一条带 meta 的 `tool/result` 实证形状后再落渲染 |
 | D1 | tool/result.meta `+N/-M` 是否本轮做 | 范围 | 建议做（数据源就绪、价值高） |
 | D2 | `model/selection`/`interrupted` 消费是否本轮做 | 范围 | 建议缓到下一批（非升级必需） |
-| D3 | 归档/文档是否需要记录本轮冒烟结论 | 低 | 冒烟产出追加到 `DSH-CTX-API.md` §8 或 IMPLEMENTATION |
+| D3 | 归档/文档是否需要记录本轮冒烟结论 | 低 | 冒烟产出追加到 `docs/host/DSH-CTX-API.md` §8 或 IMPLEMENTATION |
 
 ## 6. 回退与冻结策略
 
 - **回退条件**：P0 真机冒烟失败且判定为 TUI 与 0.1.2-rc.1 的接口不兼容时，**冻结升级**——TUI 代码零改动（进程内插件 + `link:` profile），仅把 profile 依赖锁回 0.1.1-rc.2 即可继续运行，回退代价很低。
 - **修复优先级**（若需回填）：A. adapter 目录/预设三方法调用形态 → B. 事件映射（新增 case）→ C. 渲染层。
-- **冒烟留痕**：真机冒烟产出（通过/失败 + 现场）记入 `DSH-CTX-API.md` §8 或本文件附录，供回归基线。
+- **冒烟留痕**：真机冒烟产出（通过/失败 + 现场）记入 `docs/host/DSH-CTX-API.md` §8 或本文件附录，供回归基线。
 
 ## 7. 暂停点
 

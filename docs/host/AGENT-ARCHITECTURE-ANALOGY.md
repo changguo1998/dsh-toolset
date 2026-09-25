@@ -1,5 +1,9 @@
 # AGENT 设计讨论整理 —— 计算机体系结构类比
 
+> 职责：官方 agent 架构与 DSH 接口对照（task-engine、knowledge-base 的设计依据）
+> 不负责：现状描述（见 `docs/DEVELOPMENT-STATUS.md`）
+> 过期条件：宿主 agent 架构变化时复核
+
 > 主题：用计算机体系结构的视角重新审视 agent 系统的功能划分、执行模型与确定性控制。
 > 用途：作为 agent 系统设计与实现的架构参考（姊妹文档：`archive/PI-DSH-FEATURE-COMPARISON.md`，已归档的迁移调研；已落地的插件与状态见 `DEVELOPMENT-STATUS.md`）。
 
@@ -361,7 +365,7 @@ root                             [ ] root
 
 ## 16. 实现清单与 dsh 接口对照
 
-> 接口对照基于 dsh `0.1.2-rc.1` 源码核对；当前契约基线为 `dsh-v0.1.5-rc.3`（见 `DSH-CTX-API.md`）。本节清单已落地为 `task-engine` 插件（首版与边界见 `task-engine/README.md`、`DEVELOPMENT-STATUS.md`）。
+> 接口对照基于 dsh `0.1.2-rc.1` 源码核对；当前契约基线为 `dsh-v0.1.5-rc.3`（见 `docs/host/DSH-CTX-API.md`）。本节清单已落地为 `task-engine` 插件（首版与边界见 `task-engine/README.md`、`DEVELOPMENT-STATUS.md`）。
 
 ### 16.1 实现内容
 

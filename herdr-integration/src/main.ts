@@ -10,11 +10,11 @@
 //      profile bundles 顺序应将本 bundle 排在 tui 之前（见 cordis.patch.yml 注释）。
 //   4. 根 agent 出现/会话切换时上报 pane.report_agent_session。
 //
-// 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+// 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
 // name / inject / apply，Config 以类型别名给出（无运行时 schema，宿主不校验，配置原样
 // 透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。
 //
-// 契约对齐 DSH-CTX-API.md（dsh 0.1.2-rc.1）：
+// 契约对齐 docs/host/DSH-CTX-API.md（dsh 0.1.2-rc.1）：
 //   - agent/status({agent, status})，AgentStatus = 'idle' | 'running'（agent 层事件）；
 //   - approval/request(req, next)、user-questions/request(req, next) 均为 agent 作用域
 //     waterfall；根 ctx（unscoped）全局放行，可收所有 agent 的请求；

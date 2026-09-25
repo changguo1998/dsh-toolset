@@ -3,7 +3,7 @@
 #
 # 默认值：profile 名 fff、dsh 版本 0.1.7-rc.2、插件取全部 13 个包。
 # 本项目只用 TUI：agent 面由 profile 全局组合提供，脚本不配置 agent preset
-# （说明见 docs/AGENT-COMPOSITION.md）。
+# （说明见 docs/host/AGENT-COMPOSITION.md）。
 # 幂等：已存在的 profile 配置文件默认原样保留（--force 才覆盖，且先备份
 # `.bak.<时间戳>`）；只写 $DSH_HOME（默认 ~/.dsh）下的 profile 目录与本仓库，
 # 不 sudo、不动系统路径、不改 settings.yaml。
@@ -313,6 +313,6 @@ cat << EOF
     cordis.patch.yml；0.1.7 起 $dsh_home/settings.yaml 仅作一次性导入（自动改名 .imported）。
     本脚本不动这两处文件。
   - 本项目只用 TUI：agent 面走 profile 全局组合，不配置 agent preset；TUI 的 /preset
-    提示「agent 预设服务不可用」属正常（依据见 docs/AGENT-COMPOSITION.md）。
+    提示「agent 预设服务不可用」属正常（依据见 docs/host/AGENT-COMPOSITION.md）。
   - 若退出码非零或启动报 patch 告警，多半是 profile 的 cordis.patch.yml 引用了未安装的条目 id。
 EOF

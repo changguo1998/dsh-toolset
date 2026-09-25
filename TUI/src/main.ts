@@ -170,7 +170,7 @@ export function normalizeTuiDisplayConfig(
  * SAFETY: apply 由 cordis 注入完整 Context，本文件刻意不依赖 @deepseek-ai/*
  * 类型(保持零运行时依赖)，用 DshRuntime/DshAgentLike 结构面访问——所有消费
  * 字段(session.id、followup、agents.create、agentDefaultModel)与官方 dsh 公开
- * 契约一致，见仓库根 DSH-CTX-API.md §4 与 @deepseek-ai/dsh-agent-default-model。
+ * 契约一致，见docs/host/DSH-CTX-API.md §4 与 @deepseek-ai/dsh-agent-default-model。
  * 若 DSH 升级破坏形状，真机环境会立即暴露。
  */
 export async function apply(
@@ -271,7 +271,7 @@ export async function apply(
     cancel?(cause: { kind: "user" }): void;
   };
   // SAFETY: agents.create 的返回契约(AgentHandle.agent)来自 @deepseek-ai/dsh-agent，
-  // agent.session.id 与 agent.followup(UserMessage) 已获官方源码确认(DSH-CTX-API.md)。
+  // agent.session.id 与 agent.followup(UserMessage) 已获官方源码确认(docs/host/DSH-CTX-API.md)。
   const agentLike: DshAgentLike = {
     session: rawAgent.session,
     followup: (m) => rawAgent.followup(m),
@@ -285,7 +285,7 @@ export async function apply(
 
   // slash 命令注册表：官方 dsh-commands 服务(cordis 挂载，未在本插件 inject 声明，
   // 经 ctx.get 读取)。真实 agent 用于注册表作用域查找(runCommand 需要完整 Agent，
-  // 而 app 层只有瘦 DshAgentLike)。结构面见 DshCommandLike(与 DSH-CTX-API.md 契约一致)。
+  // 而 app 层只有瘦 DshAgentLike)。结构面见 DshCommandLike(与 docs/host/DSH-CTX-API.md 契约一致)。
   const commands = (ctx as { get?: (name: string) => unknown }).get?.(
     "commands",
   ) as DshCommandLike | undefined;

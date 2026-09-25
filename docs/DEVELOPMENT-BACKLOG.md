@@ -1,7 +1,11 @@
 # 待开发功能清单
 
+> 职责：待办全集：缺陷 + 功能 + 里程碑 + 插件规划
+> 不负责：现状描述（见 `docs/DEVELOPMENT-STATUS.md`）
+> 过期条件：无
+
 > 本清单只列**未完成**项；已完成项见 `DEVELOPMENT-STATUS.md` 状态表（实现与验证证据在各包源码/测试与 git 历史；已完成的实施清单归入 `archive/`），不在此重复。
-> 设计依据：`AGENT-ARCHITECTURE-ANALOGY.md`（架构与接口对照）、`archive/PI-DSH-FEATURE-COMPARISON.md`（pi→dsh 迁移基线差距，归档调研）。实现时以根目录 `DSH-CTX-API.md` 对齐宿主接口。
+> 设计依据：`docs/host/AGENT-ARCHITECTURE-ANALOGY.md`（架构与接口对照）、`archive/PI-DSH-FEATURE-COMPARISON.md`（pi→dsh 迁移基线差距，归档调研）。实现时以根目录 `docs/host/DSH-CTX-API.md` 对齐宿主接口。
 > 基线：dsh `dsh-v0.1.5-rc.3`（commit `a4c74a91e0`）。
 > 优先级：**P0** 架构主线；**P1** 核心体验补齐；**P2** 长尾。状态标记：`[x]` 已实现（仅第 1 节索引使用）、`[~]` 部分实现（注明未含部分）、无标记 = 未实现。
 
@@ -64,9 +68,9 @@
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
-| 37 | preset 机制对齐（清理已完成，余迁移评估）：本项目只用 TUI，agent 面由 profile 全局组合提供，preset 配置已于 2026-09-25 从 `Projects/dsh-toolset`、`~/.dsh`、`~/fff/config/dsh` 清除（记录见 `AGENT-COMPOSITION.md` §5）。**剩余**：宿主升级到 0.1.7+ 时，若确需「同一 TUI 进程内不同会话用不同组合」，按官方声明式自建——挂 `agent-preset-registry`、以 `@deepseek-ai/dsh-agent-preset` 行声明组合、并像 `web-app` 那样禁用 base 的 agent 面行（切换只对空白会话生效）；不需要则本项直接关闭 | 官方仓库核对 2026-09-25（`master` `477b4f4205` = `dsh-v0.1.7-rc.2`；preset 重写 commit `d1e22a7e24`，TUI 包移除 commit `10bb9cbf4a`） | 现状：profile 用户 patch；若要 preset：`agent-preset-registry` + `agent-preset` | P2 |
+| 37 | preset 机制对齐（清理已完成，余迁移评估）：本项目只用 TUI，agent 面由 profile 全局组合提供，preset 配置已于 2026-09-25 从 `Projects/dsh-toolset`、`~/.dsh`、`~/fff/config/dsh` 清除（记录见 `docs/host/AGENT-COMPOSITION.md` §5）。**剩余**：宿主升级到 0.1.7+ 时，若确需「同一 TUI 进程内不同会话用不同组合」，按官方声明式自建——挂 `agent-preset-registry`、以 `@deepseek-ai/dsh-agent-preset` 行声明组合、并像 `web-app` 那样禁用 base 的 agent 面行（切换只对空白会话生效）；不需要则本项直接关闭 | 官方仓库核对 2026-09-25（`master` `477b4f4205` = `dsh-v0.1.7-rc.2`；preset 重写 commit `d1e22a7e24`，TUI 包移除 commit `10bb9cbf4a`） | 现状：profile 用户 patch；若要 preset：`agent-preset-registry` + `agent-preset` | P2 |
 
-| 38 | 宿主双栈兼容垫片清理：0.1.7-rc.2 升级改造为过渡期保留了「按宿主版本择路」的分支——TUI `jobsCallerFor`（jobs caller 形态）与 `refreshAgents` 的 `listDescendants` / `listChildren` 择路、`output-compress` 的 `ptcRuntime` / `codeRuntime` 探测；待 0.1.5-rc.3 彻底退役后删除旧分支与对应旧形态测试用例，回到单一形态 | `docs/HOST-UPGRADE-0.1.7-rc.2.md` §0.1 / §3.2（升级改造 2026-09-25） | 无（纯清理） | P2 |
+| 38 | 宿主双栈兼容垫片清理：0.1.7-rc.2 升级改造为过渡期保留了「按宿主版本择路」的分支——TUI `jobsCallerFor`（jobs caller 形态）与 `refreshAgents` 的 `listDescendants` / `listChildren` 择路、`output-compress` 的 `ptcRuntime` / `codeRuntime` 探测；待 0.1.5-rc.3 彻底退役后删除旧分支与对应旧形态测试用例，回到单一形态 | `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` §0.1 / §3.2（升级改造 2026-09-25） | 无（纯清理） | P2 |
 
 ## 3. 里程碑
 
@@ -88,8 +92,8 @@
 
 ## 5. TUI 侧
 
-- 命令扩展：7 项纯 TUI 命令与 A1-A5 已完成；C6 `/clear`、C7 `/login` `/logout` 裁定维持排除（宿主能力缺口/语义不匹配），C8 `/review` 裁定搁置（需先建 review 编排资产，可随 #17 一并考虑）；9 项候选当前无待办，现状口径见 `TUI/COMMANDS.md`、`TUI/COMMANDS-SPEC.md` §7，实施清单（已完成）见 `archive/TUI-COMMANDS-TASKS.md`。
-- 排版重构（Box 模型）与符号统一（白名单/归一/同符号冷却）均已完成，机制与配置见 `TUI/README.md`、`TUI/SPEC.md`、`TUI/IMPLEMENTATION.md`，本清单不再跟踪。
+- 命令扩展：7 项纯 TUI 命令与 A1-A5 已完成，9 项候选当前无待办；**裁定理由不在本清单复述**——`/clear`、`/login` `/logout` 维持排除，`/review` 搁置（可随 #17 一并考虑），详见 `TUI/docs/COMMANDS-SPEC.md` §7；命令清单与层归属见 `TUI/docs/COMMANDS.md`，实施清单（已完成）见 `archive/TUI-COMMANDS-TASKS.md`。
+- 排版重构（Box 模型）与符号统一（白名单/归一/同符号冷却）均已完成，机制与配置见 `TUI/README.md`、`TUI/docs/SPEC.md`、`TUI/docs/IMPLEMENTATION.md`，本清单不再跟踪。
 - 开放项（已评估，未排期）：
   - **排版性能**：区域级帧输出 memo（状态列/状态栏/footer，实测仅占单帧 1-4%）与「只测量可见窗口」的懒排版（需块高度前缀和 + 折叠/滚动边界处理）——现有有界缓存 + 同 tick 合帧已缓解主要成本。
   - **`/help` 持续增长**：命令加行后 help 超过一屏，且既有测试存在依赖 help 行数的脆弱断言；改 help 前先检查相关断言（改动后需重跑 `scripts/freeze-focus-frame.mts` 并审查冻结基线）。

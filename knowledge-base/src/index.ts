@@ -1,7 +1,7 @@
 /**
  * knowledge-base 插件入口（DSH bundle 接入面）。
  *
- * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+ * 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
  * name / provide / apply（无 inject），Config 以类型别名给出（无运行时 schema，宿主不校验，
  * 配置原样透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。
  * @deepseek-ai/cordis 为 dsh 仓库 workspace 包（未发布到 npm），宿主 ctx 用结构化类型声明；

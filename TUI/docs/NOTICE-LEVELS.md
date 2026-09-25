@@ -1,5 +1,9 @@
 # TUI 提示信息分级总表（NOTICE-LEVELS）
 
+> 职责：提示信息分级约定（level 与呈现口径）
+> 不负责：各命令的具体行为（见 `TUI/README.md`）
+> 过期条件：无
+
 > 依据：notice / tool 行 tone 的**4 级语义 5 色值**权威口径，见 `src/app/adapter/types.ts` 的 `NoticeTone` 注释。
 > 对账口径：以 **tone 调用点**（`notice()` / `appendNotice` / `appendToolLine` / 带 tone 的 emit）为粒度全部入表；命令与 help 的**正文内容**属已列 notice 的内容，不单列；面板标题、工具参数摘要、历史面板 error 态、stderr 诊断非 notice 通道，不在表内。
 

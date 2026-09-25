@@ -1,7 +1,7 @@
 /**
  * knowledge-base SQLite schema：四表结构（sources/chunks）+ 双 FTS5 影子表 + TRIGGER 写直达。
  *
- * 设计对照 docs/AGENT-ARCHITECTURE-ANALOGY.md §12.1：
+ * 设计对照 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §12.1：
  * - sources / chunks 为内容主体（普通 SQL 做过滤/排序/淘汰）；
  * - chunks_fts（porter 语义词干 BM25）与 chunks_trigram_fts（trigram 子串/模糊检索）
  *   以 external content 模式挂靠 chunks（免双份存储），由 TRIGGER 在 insert/update/delete

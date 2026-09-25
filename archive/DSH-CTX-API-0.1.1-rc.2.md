@@ -1,6 +1,6 @@
 # DSH 核心 ctx API — 研读笔记（跨插件共享参考）
 
-> **已归档**：0.1.1-rc.2 期的契约研读笔记（历史版本）。当前契约以仓库根 `DSH-CTX-API.md` 为准。
+> **已归档**：0.1.1-rc.2 期的契约研读笔记（历史版本）。当前契约以仓库根 `docs/host/DSH-CTX-API.md` 为准。
 
 > 来源：官方 `deepseek-harness` clone（`~/GithubRepos/deepseek-harness`，git pull 至 `b150a551b8` = `dsh-0.1.1-rc.2`）。
 > 用途：供 dsh-toolset 各插件（TUI、web、CLI、扩展……）在与 DSH 宿主集成时对齐契约；本文件是阶段 0（ctx API spike）研读的沉淀，属只读研究结论，非实现。
@@ -100,7 +100,7 @@ usage{usage} / finish{reason, replayState?}
 
 ## 8. P2 阶段 A0+A 备注（2026-09-05，对照 dsh-v0.1.1-rc.2 源码核实）
 
-> 说明：本文件按 AGENTS.md 原为只读研读笔记；因 P2 goal 客观要求把 A0 与 9 个 P2 事件的载荷结论沉淀于此（备注性质、不改动既有正文），故追加本节。TUI 侧落地细节见 `TUI/DESIGN.md`「P2 实现计划」。
+> 说明：本文件按 AGENTS.md 原为只读研读笔记；因 P2 goal 客观要求把 A0 与 9 个 P2 事件的载荷结论沉淀于此（备注性质、不改动既有正文），故追加本节。TUI 侧落地细节见 `TUI/docs/DESIGN.md`「P2 实现计划」。
 
 ### A0 — 审批策略会话级写路径（决定 C 形态）
 

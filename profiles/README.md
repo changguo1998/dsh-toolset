@@ -2,7 +2,7 @@
 
 随仓库分发的 DSH **profile 配置示例**：`example/` 是可直接复制的 profile 三件套骨架，演示本项目插件如何挂进 profile，以及用户层如何覆盖宿主 / 插件配置（含权限预设表）。
 
-本目录是 **profile**（进程装配与插件挂载层，装到 `~/.dsh/profiles/`）：本项目只用 TUI，agent 面就由这里的 profile 全局组合提供，**不使用 agent preset**（说明与依据见 `../docs/AGENT-COMPOSITION.md`）。
+本目录是 **profile**（进程装配与插件挂载层，装到 `~/.dsh/profiles/`）：本项目只用 TUI，agent 面就由这里的 profile 全局组合提供，**不使用 agent preset**（说明与依据见 `../docs/host/AGENT-COMPOSITION.md`）。
 
 ## 内容
 

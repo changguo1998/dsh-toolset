@@ -1,7 +1,7 @@
 // src/engine.ts — TaskStack 引擎：Frame 状态机、decompose/implement/stop、
 // 就绪池（fan-out 多执行器 + 有界并发）、join 续体激活、bounded retry
 //
-// 对齐 AGENT-ARCHITECTURE-ANALOGY.md §13/§14/§15/§17：事件溯源驱动，树 = 事件回放；
+// 对齐 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §13/§14/§15/§17：事件溯源驱动，树 = 事件回放；
 // 栈 = 树的 DFS 遍历器（子任务逆序压栈、先序出栈）；验收失败不弹栈，带反馈打回。
 // 第二迭代（BACKLOG #5/#13）：
 //   - fan-out：active 帧数达 maxConcurrent 上限时不再弹栈，保持 join 续体语义（§14.2/§15.2）。

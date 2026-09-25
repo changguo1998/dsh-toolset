@@ -1,6 +1,6 @@
 // src/main.ts — cordis 插件入口（DSH bundle 接入面）
 //
-// 契约对齐 DSH-CTX-API.md §0（`export { name, inject, provide, Config, apply }`）与
+// 契约对齐 docs/host/DSH-CTX-API.md §0（`export { name, inject, provide, Config, apply }`）与
 // dsh 0.1.5-rc.2 宿主实现：
 //   - `inject: ['sessionProjections']`：投影注册表是 registry 驱动面；宿主按会话持有单元
 //     （`cellFor`）、每次提交事件 eager 驱动 `apply`、缺缓存行时按需惰性整段折叠

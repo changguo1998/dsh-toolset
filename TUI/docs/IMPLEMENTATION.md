@@ -1,5 +1,9 @@
 # DSH TUI 实现要点（Implementation）
 
+> 职责：实现记录：命令接线、宿主服务契约、边界与降级处理
+> 不负责：设计动机（见 `TUI/docs/DESIGN.md`）
+> 过期条件：无
+
 > 类型：**[implementation]**——实现层关键机制记录（现状方案）。
 > 配套：`README.md`（使用与配置）、`DESIGN.md`（架构/设计）、`SPEC.md`（规格）、`COMMANDS.md` / `COMMANDS-SPEC.md`（命令面）。渲染管线重构（主线 A/B）的实施过程已归档至仓库根 `archive/TUI-RENDER-REFACTOR-RECORD.md`。
 

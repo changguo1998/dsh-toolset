@@ -528,13 +528,13 @@ export type StreamChunk =
       type: "block-end";
       index: number;
       blockType?: string;
-      /** 真实 DSH 载荷:完整块文本嵌套在 block.text(与 DSH-CTX-API.md StreamChunk 契约一致) */
+      /** 真实 DSH 载荷:完整块文本嵌套在 block.text(与 docs/host/DSH-CTX-API.md StreamChunk 契约一致) */
       block?: { type?: string; text?: string; [k: string]: unknown };
     }
   | { type: "usage"; index?: number; usage: Record<string, unknown> }
   | { type: "finish"; reason: string; replayState?: unknown };
 
-/** AssistantStreamRecord（assistant/attempt 的 stream 数组元素，见 DSH-CTX-API.md §10）：
+/** AssistantStreamRecord（assistant/attempt 的 stream 数组元素，见 docs/host/DSH-CTX-API.md §10）：
  *  text/reasoning/tool-call-chunks 为打包的 delta 运行（逐成员等价 text-delta /
  *  reasoning-delta / tool-call-delta）；`chunk` 为原始 StreamChunk（block/usage/finish
  *  恒为 raw chunk 记录）。 */
@@ -772,7 +772,7 @@ export interface DshUserMessageLike {
  * 结构面：官方 @deepseek-ai/dsh-commands 注册表（ctx.commands.execute）。
  * execute(agent, line, images, signal) → CommandExecution | undefined；
  * undefined 表示未命中注册表(fail-close)。与官方 packages/interaction/commands/
- * src/types.ts 契约一致(DSH-CTX-API.md)。
+ * src/types.ts 契约一致(docs/host/DSH-CTX-API.md)。
  */
 export interface DshCommandLike {
   execute(
@@ -910,7 +910,7 @@ export interface SessionStoreLike {
   ): { id: string; title?: string } | undefined;
 }
 
-/** 宿主会话查询服务结构面（ctx.get('sessionQuery')，@deepseek-ai/dsh-session-query；契约见仓库根 DSH-CTX-API.md） */
+/** 宿主会话查询服务结构面（ctx.get('sessionQuery')，@deepseek-ai/dsh-session-query；契约见 docs/host/DSH-CTX-API.md） */
 export interface SessionQueryLike {
   listSessions(): Promise<
     readonly {

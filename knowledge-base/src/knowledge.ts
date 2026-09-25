@@ -1,7 +1,7 @@
 /**
  * ctx_knowledge 四接口实现：search / put / touch / evict。
  *
- * 契约对齐 DSH-CTX-API.md 与 docs/AGENT-ARCHITECTURE-ANALOGY.md §12：
+ * 契约对齐 docs/host/DSH-CTX-API.md 与 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §12：
  * - put：content_hash 去重、~2K token 按 markdown 边界分块、source 记账（chunk_count）；
  * - search：porter 语义 BM25 检索（可叠加 trigram 模糊召回），命中即更新 last_referenced（提升 §12.4）；
  * - touch：手动刷新 last_referenced（LRU 参考计数入口）；

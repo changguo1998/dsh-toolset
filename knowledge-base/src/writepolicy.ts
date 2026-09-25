@@ -1,5 +1,5 @@
 /**
- * #9 两级写策略与淘汰提升（docs/AGENT-ARCHITECTURE-ANALOGY.md §12.2-§12.4）。
+ * #9 两级写策略与淘汰提升（docs/host/AGENT-ARCHITECTURE-ANALOGY.md §12.2-§12.4）。
  *
  * - 写直达（实时，会话内）：由 hooks.ts 事件过滤器完成（stage 4）；
  * - 批量写回（consolidation 锁）：WritePolicy.writeBack 在锁内聚合写入，失败项入 pending，

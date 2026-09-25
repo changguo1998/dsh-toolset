@@ -1,5 +1,5 @@
 /**
- * #10 持久记忆 CRUD 与检索（docs/AGENT-ARCHITECTURE-ANALOGY.md §12 + BACKLOG #10）。
+ * #10 持久记忆 CRUD 与检索（docs/host/AGENT-ARCHITECTURE-ANALOGY.md §12 + BACKLOG #10）。
  * 记忆直接沉淀在 chunks 表（target=记忆域，类别=category），复用 knowledge 检索底座：
  * add（content_hash 去重）、replace / remove（按 target + 内容子串定位）、
  * search（target/category/project 过滤 + token-aware 预算截断）。

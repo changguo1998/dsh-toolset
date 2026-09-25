@@ -1,14 +1,14 @@
 /**
  * session/event 数据源接入：写直达事件过滤器 + 事件摘要化。
  *
- * 契约对齐 DSH-CTX-API.md §1（`ctx.on('session/event', (session, event) => ...)`）与
- * docs/AGENT-ARCHITECTURE-ANALOGY.md §12.2（仅「值得沉淀」类型实时写入）。
+ * 契约对齐 docs/host/DSH-CTX-API.md §1（`ctx.on('session/event', (session, event) => ...)`）与
+ * docs/host/AGENT-ARCHITECTURE-ANALOGY.md §12.2（仅「值得沉淀」类型实时写入）。
  * 过滤白名单覆盖：工具结果（含失败/摘要，tool/result）、用户修正反馈（feedback/record）、
  * 决策计划（plan/mode、goal/change、todo/write、approval/decided）、会话压缩摘要
  * （compaction/summary）。纯逻辑为可测函数；挂接采用结构化 ctx 形态，便于 mock 与 demo。
  * 事件数据量大时由 put 内部按 ~2K token 分块；重复事件经 content_hash 去重。
  *
- * 0.1.5-rc.2 对齐（DSH-CTX-API.md §1/§10）：
+ * 0.1.5-rc.2 对齐（docs/host/DSH-CTX-API.md §1/§10）：
  * - tool/result：摄取 `meta` 私有展示载荷（宿主契约要求 JSON-serializable），
  *   以 [tool/meta] 段追加进内容；
  * - compaction/summary：摄取新字段 `shadowedRange{start,end}` 与 `sourceCommandId?`，

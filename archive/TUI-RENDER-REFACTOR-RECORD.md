@@ -1,6 +1,6 @@
 # TUI 渲染管线重构实现记录（已归档）
 
-> **归档说明**：本文档记录 2026-09 渲染管线重构（主线 A 契约迁移 + 主线 B Box 排版模型）的实施过程与踩坑，供追溯历史决策。当前实现口径见 `TUI/IMPLEMENTATION.md`，设计见 `TUI/DESIGN.md`，规格见 `TUI/SPEC.md`。
+> **归档说明**：本文档记录 2026-09 渲染管线重构（主线 A 契约迁移 + 主线 B Box 排版模型）的实施过程与踩坑，供追溯历史决策。当前实现口径见 `TUI/docs/IMPLEMENTATION.md`，设计见 `TUI/docs/DESIGN.md`，规格见 `TUI/docs/SPEC.md`。
 > 原实施清单见同目录 `TUI-REFACTOR-TASKS.md`，命令扩展实施清单见 `TUI-COMMANDS-TASKS.md`。
 
 ## 主线 A：RenderLine → FrameRow 契约迁移（已完成）

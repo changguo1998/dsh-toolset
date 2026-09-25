@@ -1,7 +1,7 @@
 /**
  * code-map 插件入口（DSH bundle 接入面）。
  *
- * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+ * 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
  * name / inject / provide / apply / Config；apply(ctx, config) 把配置透传给
  * `createCodeMapBundle`（`root` 生效，`ast` 供程序化注入），Config 以类型别名给出
  * （无运行时 schema，宿主不校验）。

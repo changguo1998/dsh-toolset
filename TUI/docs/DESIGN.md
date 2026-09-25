@@ -1,5 +1,9 @@
 # DSH TUI 插件设计
 
+> 职责：TUI 的机制取舍与设计依据（为什么这样实现）
+> 不负责：逐条实现细节（见 `TUI/docs/IMPLEMENTATION.md`）
+> 过期条件：无
+
 > 类型：**[design]**——架构设计：术语与模块划分、Box 排版模型、四区域布局、DSH 事件接入、规划与边界。
 > 配套：`README.md`（使用与配置）、`SPEC.md`（规范性接口与算法）、`IMPLEMENTATION.md`（实现要点）、`COMMANDS.md` / `COMMANDS-SPEC.md`（命令面）、`REFACTOR.md`（模块拆分约定）。
 
@@ -15,7 +19,7 @@
 - **绘制节律**：`paint()` 标脏 + 同一 tick 合帧（microtask 冲刷，一 tick 一帧），事件 burst 不逐事件重绘；真实链路另有跨回合帧率上限（默认 10Hz）。排版侧折行 / 宽度走有界缓存（`TUI_LAYOUT_CACHE=0` 可关）。详见 `IMPLEMENTATION.md`「排版缓存与绘制合帧」。
 - `node-pty` 已评估、暂不引入（除非 TUI 需直接开 shell，否则会话由 DSH 管理）。
 
-DSH 适配层接口以**官方源码研读**为准（契约沉淀于仓库根 `DSH-CTX-API.md`，基线 `dsh-v0.1.5-rc.3`）：
+DSH 适配层接口以**官方源码研读**为准（契约沉淀于仓库根 `docs/host/DSH-CTX-API.md`，基线 `dsh-v0.1.5-rc.3`）：
 
 - 进程内宿主为 vendored `@deepseek-ai/cordis`（Context / Service / Fiber），插件导出 `apply(ctx)`；
 - 订阅会话事件：`ctx.on('session/event', (session, event) => …)`（带 `seq` 连续契约）；
@@ -224,7 +228,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 - **恢复会话按 step 概要（P9）**：恢复不还原逐条工具行，而是折叠事件——每个**含工具调用**的 step 折成一行 `╌╌ hh:mm:ss #N ╌╌ 工具名[×次数], …[ ✗失败数] ╌╌╌…`（buffer `kind = "step"`，由 `surfaceToBuffer` 注入、`build-box` 按同一形制品渲染），无工具调用的 step 不出行；参数摘要 / 结果详情 / thinking 不还原；整条空文本不再产出空行。
 - **compaction/summary**：只取首个非空文本块首行入 toast（空摘要 → 「压缩完成（无摘要）」）。
 - **后台任务 `/jobs`**：宿主 `JobRegistry` 推送全量快照——数据源与 caller 形态按宿主版本择路（0.1.7 起事件走 `jobs.events.subscribe({ owner: sessionId })`、caller 是裸 `sessionId` 字符串；≤0.1.5 事件走 `onJobsChanged(listener)`、caller 是只读 `.id` 的对象，adapter 经 `jobsCallerFor` 探测后传值；事件与订阅都缺时退化为打开面板时拉取一次）。`list(caller)` / `kill(id, caller)` 为 owner-relative；App 事件层再按活跃 sessionId 过滤一道（防迟到事件与切会话串味）。仅只读展示 + cancel，不做 job 创建 / 参数 UI。
-- **装配证据**：rc.2 bundle 默认装配含 command-compact / command-feedback / jobs-local / permission-presets / tool-jobs；**`agent-presets` 不在默认装配**——装配了该服务的环境 `/preset` 可用，未装配时提示「agent 预设服务不可用」（fail-safe 正常路径）。**这是官方设计而非缺配置**：TUI 是"没有 preset 的单组合面"（官方 `packages/client/ui-user-questions/README.md` 的 "the TUI composition, which has no presets"、`packages/bundle/web-app/cordis.patch.yml` 的 "composes its agent process-wide"），agent 面由 profile 的 `dsh-base` 行全局装配，改组合落 profile 用户 patch，本项目不为 TUI 挂 preset roster（依据与版本断层见 `../docs/AGENT-COMPOSITION.md`）。
+- **装配证据**：rc.2 bundle 默认装配含 command-compact / command-feedback / jobs-local / permission-presets / tool-jobs；**`agent-presets` 不在默认装配**——装配了该服务的环境 `/preset` 可用，未装配时提示「agent 预设服务不可用」（fail-safe 正常路径）。**这是官方设计而非缺配置**：TUI 是"没有 preset 的单组合面"（官方 `packages/client/ui-user-questions/README.md` 的 "the TUI composition, which has no presets"、`packages/bundle/web-app/cordis.patch.yml` 的 "composes its agent process-wide"），agent 面由 profile 的 `dsh-base` 行全局装配，改组合落 profile 用户 patch，本项目不为 TUI 挂 preset roster（依据与版本断层见 `../docs/host/AGENT-COMPOSITION.md`）。
 
 #### seq 守卫
 

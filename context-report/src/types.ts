@@ -1,6 +1,6 @@
 // src/types.ts — 纯类型层（不 import 任何宿主包）
 //
-// 契约对齐 DSH-CTX-API.md 与宿主类型声明（dsh 0.1.5-rc.2）：
+// 契约对齐 docs/host/DSH-CTX-API.md 与宿主类型声明（dsh 0.1.5-rc.2）：
 //   - `fold.ts` 只吃宿主 `SessionEvent` 的结构子集（`ReportEvent`），故本包零宿主运行期依赖、
 //     可在无 dsh 环境下单测；真实事件对象（含宿主事件类型）满足该结构面。
 //   - 会话级累计值来自本包自折叠（host-only 投影 `sessionContext`）；请求压力与模型容量

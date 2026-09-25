@@ -6,7 +6,7 @@
  *  - 原始字节由宿主 retention/spill 保留落盘，不进知识库全文、不进模型上下文；
  *  - 不做 npm 级 knowledge-base 依赖，共享面 = 同一 SQLite 库文件。
  *
- * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
+ * 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
  * name / Config / apply(ctx, config)（无 inject / provide，沙箱服务经 ctx.reflect 可选读取：
  * 0.1.7 起 `ptcRuntime`，≤0.1.5 为 `codeRuntime`），
  * Config 以类型别名给出（无运行时 schema，宿主不校验，配置原样透传给 apply；缺省/非法值

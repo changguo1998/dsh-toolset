@@ -1,9 +1,13 @@
 # 可用官方包清单（DSH 0.1.7-rc.2）
 
+> 职责：宿主官方包与服务字典（由已安装 dsh 生成）
+> 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）
+> 过期条件：**升宿主后必须重新生成**
+
 > 来源：本地安装的官方 deepseek-harness（全局 dsh `0.1.7-rc.2`，`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai/`）；与源码 clone（`~/GithubRepos/deepseek-harness`，`dsh-v0.1.7-rc.2` = commit `477b4f42`）同版本。
-> 用途：与 `DSH-CTX-API.md` 配套——该文件记「接口怎么用」，本文件记「有哪些包、每个包提供什么服务」；供 dsh-toolset 各插件选型与集成对齐。
+> 用途：与 `docs/host/DSH-CTX-API.md` 配套——该文件记「接口怎么用」，本文件记「有哪些包、每个包提供什么服务」；供 dsh-toolset 各插件选型与集成对齐。
 > 版本口径：只记 `0.1.7-rc.2` 实际随包分发的内容（283 个包）；版本与描述取自各包 `package.json`，服务名与 fff 挂载集合由安装目录与 profile 实测提取（见文末复现命令）。宿主升级后需重新生成。
-> 采集时间：2026-09-25（宿主 `dsh --version` = `0.1.7-rc.2`）。接口与包增删的逐项对照见同目录 `HOST-UPGRADE-0.1.7-rc.2.md`。
+> 采集时间：2026-09-25（宿主 `dsh --version` = `0.1.7-rc.2`）。接口与包增删的逐项对照见同目录 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`。
 > 与上一版清单（`0.1.5-rc.3`）的差异：随包分发包 240 → 283、fff 已挂载 82 → 91；分类结构沿用旧版，逐行按新数据重写。
 
 ## 0. 怎么读这份清单
@@ -12,7 +16,7 @@
 - **`（ctx.x）` 表示该包注册了这个 host 服务**，是我们插件 `inject` 的对象；没有的包是工具/后端/客户端资产，通过别的服务被消费。
 - **`已挂载`** 指 `fff` profile 启动时会加载它（等价于 `dsh-base` bundle 行 + profile 用户 patch 行）；未标记的包虽已随 dsh 安装、但该 profile 不加载。
 - **`树外加装`** 指该包未随 dsh 分发，由 `fff` profile 自行安装（`dsh plugin add` 或 profile 的 `package.json` + `pnpm install`，落到 profile 的 `node_modules`）并在 profile 的 `cordis.patch.yml` 挂载；当前仅 `session-title-all-prompts-llm` 属此类（不随装、按需启用）。
-- **`agent-preset` 家族未挂载是设计结果，不是缺配置**：官方只让 Web 面（`web-app` bundle）禁用 base 的 agent 面行并挂 preset registry，TUI 这类单组合面保持 base 的进程级 agent 组合（`packages/bundle/web-app/cordis.patch.yml` 的 "for the TUI, which is single-session and composes its agent process-wide" 注释、`packages/client/ui-user-questions/README.md` 的 "the TUI composition, which has no presets"）。依据、验证与版本断层见 `AGENT-COMPOSITION.md`；要改 agent 面请落 profile 用户 patch。
+- **`agent-preset` 家族未挂载是设计结果，不是缺配置**：官方只让 Web 面（`web-app` bundle）禁用 base 的 agent 面行并挂 preset registry，TUI 这类单组合面保持 base 的进程级 agent 组合（`packages/bundle/web-app/cordis.patch.yml` 的 "for the TUI, which is single-session and composes its agent process-wide" 注释、`packages/client/ui-user-questions/README.md` 的 "the TUI composition, which has no presets"）。依据、验证与版本断层见 `docs/host/AGENT-COMPOSITION.md`；要改 agent 面请落 profile 用户 patch。
 - **包名省略 `@deepseek-ai/dsh-` 前缀与作用域**。少数包本就不带该前缀：`cordis` / `cordis-plugin-*` / `cosmokit` / `schemastery` 来自 vendored cordis 生态，`libreoffice-kit*` / `node-addon-system*` 是预编译资产包——这 11 个 + `web-frontend`（构建产物）共 12 个包在 `packages/` 下没有源码目录，行内已注明 vendor / 构建产物。
 - **归类与计数口径**：分组沿用旧版 12 个分类，按宿主源码目录（`packages/` 下路径）归口，少数跨面包沿用旧版口径（`command-*` 归「技能 / 命令 / Web / 集成」；编排类 `tool-*`（goal / jobs / subagent / workflow / agent-team）归「agent 与编排」；`client-*` 全部归「客户端 UI」；`util-*` 与 vendor 归「插件 / 启动 / 基础设施」）；`experimental-` 前缀包剥掉前缀后按同一规则落位。
 - **小计自洽性**：各分类包数之和 = **283**；各分类「已挂载」之和 = **91**，其中 90 个在 §2 的 283 个之内，另 1 个是树外加装包 `session-title-all-prompts-llm`（归入「会话 / 上下文 / 存储」，不占该分类的 41 个名额）。
@@ -456,18 +460,18 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - **仍然没有 git worktree 隔离包（成立）**：283 个随包分发包里没有按 agent 隔离工作目录的实现（对应待办 #15），官方源码树里也没有 worktree 类包。0.1.7 新增的 `experimental-agent-team` 明确不做：其 README 写「成员共享 cwd，修改立即可见」「本包不提供 worktree、远端成员、merge 或文件锁」，并把「通过 worktree 实现文件系统隔离」列进**未承诺**的未来方向。
 - **跨会话消息：跨会话仍没有，但同会话内的 agent 间持久信箱有了（旧结论需改写）**：旧版三条之一的「不存在 broker / intercom / socket / IPC 类的 agent 间通道」，对「跨会话」这半仍成立——跨会话依旧只有只读的 `session-query` / `session-reference`。但 0.1.7 新增 `experimental-agent-team`（`ctx.agentTeams`）+ `experimental-tool-agent-team`：在一个会话内提供 Lead/teammate 花名册、**持久 peer mailbox**（成员离线时消息排队、恢复后投递）与共享任务 DAG，需持久会话存储才能激活。它明确不跨进程（「跨进程 mailbox 事务」列为未来方向），也不给成员独立工作目录。故：待办 #30 若指「跨会话/跨进程」，结论不变；若指「同一会话里多 agent 互发持久消息」，已有官方实验实现可直接取用。
 - **仍然没有跨进程 subagent provider（成立）**：283 个里 `packages/subagent/` 只分发 6 个包——`subagent`（缝）+ `subagent-fork-in-process` + `subagent-spawn-in-process` + `subagent-in-process-driver` + 2 个工具包；provider 仍只有 `spawn` / `fork` 两个**进程内**实现。`subagent-acp` / `subagent-dsh-sdk` / `subagent-claude-code` / `subagent-codex` 仍只存在于官方源码仓库（`packages/subagent/` 下共 10 个包），不在随包分发里。
-- **0.1.7 新增能力面（可选清单）**：deliverables（`tool-present` 交付声明 + `workspace-changes` 每轮变更记录，客户端有 `client-ui-deliverables` 变更卡）、PTC 运行时（`ptc-runtime` + `ptc-runtime-node`，取代 `code-runtime` 家族）、Agent Teams 与语音输入（均 experimental）、宿主运维面（`plugin-manager` / `config-editor` / `hmr`）、`compaction-image-offload`（图片卸载）、`session-format-v3-to-v4`（V3→V4 迁移库）、`mcp-resources`、`schedule`、`office-to-pdf` + `skill-office` + `libreoffice-kit*` 文档链、`deepseek-account-platform`（PKCE 登录）。逐条说明与证据见 `HOST-UPGRADE-0.1.7-rc.2.md` §4。
+- **0.1.7 新增能力面（可选清单）**：deliverables（`tool-present` 交付声明 + `workspace-changes` 每轮变更记录，客户端有 `client-ui-deliverables` 变更卡）、PTC 运行时（`ptc-runtime` + `ptc-runtime-node`，取代 `code-runtime` 家族）、Agent Teams 与语音输入（均 experimental）、宿主运维面（`plugin-manager` / `config-editor` / `hmr`）、`compaction-image-offload`（图片卸载）、`session-format-v3-to-v4`（V3→V4 迁移库）、`mcp-resources`、`schedule`、`office-to-pdf` + `skill-office` + `libreoffice-kit*` 文档链、`deepseek-account-platform`（PKCE 登录）。逐条说明与证据见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` §4。
 - **官方源码有、随包分发没有的（想要得自己找）**：SSH 家族（`ssh` / `fs-ssh` / `sandbox-ssh` / `subprocess-ssh`）、`browser-use` / `computer-use` 及 6 个实验 provider、LSP 三件套（`lsp` / `lsp-stdio` / `tool-lsp`）、`subagent-acp` / `subagent-claude-code` / `subagent-codex` / `subagent-dsh-sdk`、`storage-sqlite`、`tool-terminal`、`tool-session-query`、`web-search-exa` / `web-search-perplexity`、`session-snapshot`、`experimental-ptc-runtime-python` 等（官方源码 312 个 `@deepseek-ai/dsh-*` 包 vs 随包分发 272 个）。`session-title-all-prompts-llm` 同属这一类，但它是 fff 自己装进 profile 的——本清单 §1 的 91 个里唯一一个不随 dsh 分发。
 
 ## 5. 对本项目的落点
 
 - **本项目 13 个包不在这 283 个里**：`@dsh-toolset/*`（TUI + 12 个进程内插件）以 `link:` 依赖 + bundle 行挂进 profile（`package.json` 的 `dsh.profile.bundles` + 各自的 `cordis.patch.yml`），与官方包「已装但未挂载」的形态不同。
-- **我们 inject / 读取的宿主服务**：`inject` 里显式声明 6 个——`tools`（全部工具注册）、`agents`、`sessions`、`sessionProjections`（context-report 的 `sessionContext` 投影）、`userQuestions`、`goals`；其余经 `ctx.get()` 读取——`jobs`、`commands`、`sessionQuery`、`sessionTitle`、`skills`、`subagents`、`llm`（含 `agentDefaultModel`）、`agentPresets`、`settings`、`permissionPresets`、`web`、`workflowEngine`、`lsp`；另有事件面消费（TUI 订 `approval/policy`、`skill/*` 等）。`slots` 零引用（客户端面）。接口怎么用见 `DSH-CTX-API.md`；0.1.7 的逐项兼容判定见 `HOST-UPGRADE-0.1.7-rc.2.md` §3.2。
+- **我们 inject / 读取的宿主服务**：`inject` 里显式声明 6 个——`tools`（全部工具注册）、`agents`、`sessions`、`sessionProjections`（context-report 的 `sessionContext` 投影）、`userQuestions`、`goals`；其余经 `ctx.get()` 读取——`jobs`、`commands`、`sessionQuery`、`sessionTitle`、`skills`、`subagents`、`llm`（含 `agentDefaultModel`）、`agentPresets`、`settings`、`permissionPresets`、`web`、`workflowEngine`、`lsp`；另有事件面消费（TUI 订 `approval/policy`、`skill/*` 等）。`slots` 零引用（客户端面）。接口怎么用见 `docs/host/DSH-CTX-API.md`；0.1.7 的逐项兼容判定见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` §3.2。
 - **启用未挂载的官方包不需要安装**：包已随 dsh 装在共享 `node_modules`，在 profile 的 `cordis.patch.yml` 加一行（或 `dsh plugin --profile <p> add <包名>`）即可。例外是 §4 的「源码有、不分发」包与树外加装包——那些要自己装。
 - **升级注意（0.1.7 的事实）**：
   - `codeRuntime` → `ptcRuntime`：服务改名，且 `run(request)` 拆成 `resolve(request) → spec` + `run(spec)`（Node 提供方要求 spec 带 `cwd` / `sandboxPolicy`）。output-compress 已改为反射 `ptcRuntime` 并保留 `codeRuntime` 回退（双栈过渡）。
   - `dsh-settings-file` 删除：settings 命名空间改为 **profile 插件条目 id**，写入落 profile 的 `cordis.patch.yml`；旧 `~/.dsh/settings.yaml` 退化为一次性导入源（启动时改名 `.imported` 逐段导入，无对应条目的段 warning 后丢弃）。fff 首次启动已把 `agent-default-model` / `llm-pi-ai` 段落进 profile patch。
-  - preset 机制改声明式：目录式 roster（`agent-presets` 包）删除，改为 profile YAML 的 `agent-preset-registry`（服务名 `agentPresets` 不变）+ `agent-preset` 声明行。「TUI 不用 preset、走 profile 全局组合」的结论不变（见 `AGENT-COMPOSITION.md`）；两包在本 profile 均不挂载，属预期。
+  - preset 机制改声明式：目录式 roster（`agent-presets` 包）删除，改为 profile YAML 的 `agent-preset-registry`（服务名 `agentPresets` 不变）+ `agent-preset` 声明行。「TUI 不用 preset、走 profile 全局组合」的结论不变（见 `docs/host/AGENT-COMPOSITION.md`）；两包在本 profile 均不挂载，属预期。
   - 启动失败语义反转：只有 7 个硬编码 id 是必需条目，其余 `inject` 未满足只打 stderr warning 后继续启动——升级后建议断言启动 stderr 无 `did not activate`（本次实测无）。
   - 会话格式 V3 → V4（读旧会话在内存转换、写入时才在旧文件旁发布 successor）；`Session.eventAt/snapshotEvents/ownEvents` 标 `@deprecated`（我方未使用）。
 - **升级方式**：`npm i -g @deepseek-ai/dsh@0.1.7-rc.2`（或 `@next`；`scripts/install.sh` 的默认版本已同步为 `0.1.7-rc.2`）。**不要用 `npm update -g`**——npm 的 `latest` 仍停在 `0.1.5-rc.3`（dist-tags：`next` = `0.1.7-rc.2`、`alpha` = `0.1.7-alpha.2`），`npm update -g` 只会把 CLI 停在/拉回 0.1.5-rc.3。升级 CLI 后 fff 的官方包软链随安装树整体换版本，但**树外加装包（`session-title-all-prompts-llm`）要自己升版**（profile 目录里 `npm pkg set` 后 `pnpm install`）。
