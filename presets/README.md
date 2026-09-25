@@ -18,16 +18,24 @@
 ```sh
 scripts/install.sh                      # profile 与 preset 名都用默认值 fff
 scripts/install.sh --preset myagent     # 换 preset 安装名（id = 安装目录名）
+scripts/install.sh --preset-link        # 改软链接模式（见下）
 scripts/install.sh --help               # 全部选项
 ```
 
-手工安装等价于「真实目录 + 两个文件软链接」（仓库内改 preset 后无需再同步副本）：
+两种安装形态（脚本默认前者，两者的 preset 目录本身都必须是**真实目录**）：
+
+| 形态 | 做法 | 取舍 |
+|------|------|------|
+| 真实副本（默认） | `cp` 两份文件到 `~/.dsh/.agent-presets/<id>/` | 本机配置**不依赖仓库路径**：仓库改名/移动/删除都不影响已装 preset；代价是仓库内改动不再自动生效，需重跑脚本（或再 cp 一次） |
+| 软链接（`--preset-link`） | `ln -sfn` 指向 `presets/example/` | 仓库内改 preset 立即生效（下次会话按 stamp 重载）；代价是本机配置依赖仓库路径，仓库改名会让链接悬空 |
+
+手工安装与副本模式等价（把 `cp` 换成 `ln -sfn` 即软链接模式）：
 
 ```sh
-# 1) 建真实目录并软链接两个文件（preset id = 目录名，这里取 fff）
+# 1) 建真实目录并复制两份文件（preset id = 目录名，这里取 fff）
 mkdir -p ~/.dsh/.agent-presets/fff
-ln -sfn "$PWD/presets/example/agent.cordis.yml" ~/.dsh/.agent-presets/fff/agent.cordis.yml
-ln -sfn "$PWD/presets/example/preset.yml"       ~/.dsh/.agent-presets/fff/preset.yml
+cp "$PWD/presets/example/agent.cordis.yml" ~/.dsh/.agent-presets/fff/agent.cordis.yml
+cp "$PWD/presets/example/preset.yml"       ~/.dsh/.agent-presets/fff/preset.yml
 
 # 2) 设为默认 preset（也可在 TUI 用 /preset 选择；仅影响之后新建的会话）
 #    在 ~/.dsh/settings.yaml 写入（已有该段则改 default 一行）：
@@ -43,7 +51,7 @@ dsh --profile fff
 
 ## 边界与限制
 
-- 不要对 preset 目录本身建软链接：宿主发现 preset 时会跳过符号链接目录；只允许软链接目录内的文件（`readFile` / `stat` 跟随链接，重载按 mtime + size stamp 生效）。
+- 不要对 preset 目录本身建软链接：宿主发现 preset 时会跳过符号链接目录；目录内的**文件**可以软链接（`readFile` / `stat` 跟随链接，重载按 mtime + size stamp 生效），但那样本机配置就依赖仓库路径了——默认用副本。
 - 不要对本目录的 `agent.cordis.yml` 运行仓库统一的 `format`：该文件含 `!!js` 标签，yq 会剥离标签并丢注释；保持与官方同格式。
-- 上游对齐：与官方 `standard` 保持同步或 fork 自改，改 `presets/example/` 即直接作用于已软链接安装的 `~/.dsh/.agent-presets/<preset 名>/`（下次会话挂载按 stamp 自动重载）。
+- 上游对齐：与官方 `standard` 保持同步或 fork 自改。软链接模式下改 `presets/example/` 立即作用于已装 preset；副本模式下需重跑 `scripts/install.sh`（或手工 cp）才生效。
 - 来源：`@deepseek-ai/dsh-agent-presets`（MIT）随宿主安装的 `standard` preset。

@@ -75,10 +75,10 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 ```sh
 git clone <本仓库> && cd dsh-toolset
 scripts/install.sh                 # profile 与 preset 名默认都是 fff
-scripts/install.sh --help          # --profile/--preset/--plugins/--dsh-version/--force/--dry-run
+scripts/install.sh --help          # --profile/--preset/--plugins/--dsh-version/--preset-link/--force/--dry-run
 ```
 
-脚本幂等：已存在的 profile / preset 文件默认保留，`--force` 才覆盖且先备份；只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。
+脚本幂等：已存在的 profile / preset 文件默认保留，`--force` 才覆盖且先备份；只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。preset 默认**复制**仓库资产（装好后本机配置不依赖仓库路径），`--preset-link` 改回软链接模式。
 
 手工配置时各插件以 cordis bundle 方式挂载到 DSH profile。示例（`~/.dsh/profiles/fff`，详见 `TUI/README.md`）：
 
@@ -96,7 +96,7 @@ scripts/install.sh --help          # --profile/--preset/--plugins/--dsh-version/
 
 ### agent preset（会话 agent 组合）
 
-`presets/` 随仓库分发 agent preset 资产（`presets/example/` = 官方 `standard` 组合克隆，与本项目插件正交叠加：插件工具由 profile 全局注册，preset 只承载官方 agent 面）。**资产目录名固定为 `example`，安装后的 preset id = 安装目录名**（`scripts/install.sh --preset <名字>` 默认 `fff`）。手工部署（软链接三步：真实目录 + 文件软链接指向 `presets/example/`、设 `agent-presets.default`、重启）见 `presets/README.md`。
+`presets/` 随仓库分发 agent preset 资产（`presets/example/` = 官方 `standard` 组合克隆，与本项目插件正交叠加：插件工具由 profile 全局注册，preset 只承载官方 agent 面）。**资产目录名固定为 `example`，安装后的 preset id = 安装目录名**（`scripts/install.sh --preset <名字>` 默认 `fff`）。安装形态两种：复制两份文件（默认，本机配置不依赖仓库路径）或软链接（`--preset-link`，仓库改动即时生效）；手工步骤与取舍见 `presets/README.md`。
 
 ## 文档
 

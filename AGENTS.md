@@ -29,8 +29,8 @@ npm run test:tui          # TUI 单包测试（开发迭代常用，避免全包
 新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 13 个包 → 装 agent preset）：
 
 ```sh
-scripts/install.sh          # profile/preset 名默认 fff；幂等，--force 才覆盖已存在文件
-scripts/install.sh --help   # --profile/--preset/--plugins/--dsh-version/--skip-dsh/--skip-build/--dry-run
+scripts/install.sh          # profile/preset 名默认 fff；preset 默认复制（不依赖仓库路径）；幂等，--force 才覆盖
+scripts/install.sh --help   # --profile/--preset/--plugins/--dsh-version/--preset-link/--skip-dsh/--skip-build/--dry-run
 ```
 
 修改后至少跑 `npm run check`；涉及逻辑改动跑 `npm run test`。
