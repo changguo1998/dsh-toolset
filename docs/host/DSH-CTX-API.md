@@ -2,7 +2,7 @@
 
 > 职责：dsh-base 的 cordis ctx 接口研读笔记（跨插件契约；本目录 `docs/host/` 收全部宿主官方接口研读与升级文档，不限 dsh-base）
 > 不负责：包清单与升级记录（见同目录另两份）
-> 过期条件：契约变化时复核（只读参考；升宿主后按升级对照复核更新）
+> 过期条件：契约变化时复核（只读参考；仅人工控制下更新）
 
 > 来源：官方 `deepseek-harness` clone（`~/GithubRepos/deepseek-harness`），当前研读基线 `dsh-v0.1.7-rc.2` = commit `477b4f42`（2026-09-25 逐条复核；旧基线 `dsh-v0.1.5-rc.3` = commit `a4c74a91e0`，两版接口差异与判定见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`）。
 > 用途：供 dsh-toolset 各插件（TUI、herdr-integration、knowledge-base、task-engine）在与 DSH 宿主集成时对齐契约；本文件为研读沉淀，只读参考，非实现。
