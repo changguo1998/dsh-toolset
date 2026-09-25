@@ -135,7 +135,7 @@ function messageLines(
 }
 
 /**
- * 历史会话面板 Box 生成器（DESIGN.md §7 / SPEC.md §7）：复用 renderHistoryPanel
+ * 历史会话面板 Box 生成器（TUI/docs/design/DESIGN.md §7 / SPEC.md §7）：复用 renderHistoryPanel
  * 的标题/正文算法（多 phase switch + 列表滚动 + 消息视图），产 styled 叶子
  * （wrap:false 精确行长；title 行 pad 保留、body 行原样）。
  */

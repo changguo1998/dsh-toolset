@@ -1,11 +1,11 @@
 # DSH TUI 实现要点（Implementation）
 
 > 职责：实现记录：命令接线、宿主服务契约、边界与降级处理
-> 不负责：设计动机（见 `TUI/docs/DESIGN.md`）
+> 不负责：设计动机（见 `TUI/docs/design/DESIGN.md`）
 > 过期条件：无
 
 > 类型：**[implementation]**——实现层关键机制记录（现状方案）。
-> 配套：`README.md`（使用与配置）、`DESIGN.md`（架构/设计）、`SPEC.md`（规格）、`COMMANDS.md` / `COMMANDS-SPEC.md`（命令面）。渲染管线重构（主线 A/B）的实施过程已归档至仓库根 `archive/TUI-RENDER-REFACTOR-RECORD.md`。
+> 配套：`README.md`（使用与配置）、`TUI/docs/design/DESIGN.md`（架构/设计）、`SPEC.md`（规格）、`COMMANDS.md` / `COMMANDS-SPEC.md`（命令面）。渲染管线重构（主线 A/B）的实施过程已归档至仓库根 `archive/TUI-RENDER-REFACTOR-RECORD.md`。
 
 ## Slash 命令路由
 
@@ -17,7 +17,7 @@
 - **接收者绑定**：caller 侧对 adapter 方法一律以 `method.call(adapter, …)` 保留实例作 `this`——提取为局部变量再调用会让方法体内 `this.xxx` 为 undefined、异步方法恒 rejected、误报「服务不可用」。
 - dispose：`App.dispose()` 透传 `adapter.dispose?.()`；adapter 实现中止在途命令的 AbortController、解绑 runtime 监听（collectUnbind）、清空监听集。
 
-**notice 通道**：`DshEvent` 的 `{ type: "notice"; text }`——命令结果 / 错误 / 提示只进 UI 缓冲（`appendNotice`，独立成行，不入流式末行），经 `notice` reducer 落地。级别与着色约定见 `NOTICE-LEVELS.md`。
+**notice 通道**：`DshEvent` 的 `{ type: "notice"; text }`——命令结果 / 错误 / 提示只进 UI 缓冲（`appendNotice`，独立成行，不入流式末行），经 `notice` reducer 落地。级别与着色约定见 `TUI/docs/design/NOTICE-LEVELS.md`。
 
 ### 命令实现落点
 
@@ -70,7 +70,7 @@
 
 ## 事件 → 状态 → 渲染
 
-完整映射与渲染语义见 `DESIGN.md`「事件接入与渲染」。实现要点：
+完整映射与渲染语义见 `TUI/docs/design/DESIGN.md`「事件接入与渲染」。实现要点：
 
 - raw 事件由 adapter 归一化为 `DshEvent` → App 事件 switch → state reducer → `buildFrame`；`DshEvent` 为封闭联合，新增成员需同步 `index.ts` 穷尽登记（否则 `npm run check` 失败）。
 - tool 行文本由 `layout/tool-line.ts` 纯函数组装（step 分组头 = `stepHeaderLine(step, time)` → `hh:mm:ss #N`，P6：本地时区 24 小时制逐段补零、时间缺失只出 `#N`；渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满）；summary / detail 启发式由 adapter（`dsh.ts`）在归一化时产出。

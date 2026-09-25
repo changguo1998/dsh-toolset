@@ -1,6 +1,6 @@
 // tests/demo-grading.test.ts — demo/mockAdapter.ts 命令分发分级与 dsh.ts 保持一致
 //
-// demo 为演示夹具（随真实通道同步，不单独列入 NOTICE-LEVELS.md），此测试防止
+// demo 为演示夹具（随真实通道同步，不单独列入 TUI/docs/design/NOTICE-LEVELS.md），此测试防止
 // runCommand 的三态分级（未知命令→error、执行出错→error、成功输出→success）漂移。
 import { test } from "node:test";
 import assert from "node:assert/strict";

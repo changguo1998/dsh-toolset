@@ -5,7 +5,7 @@
 > 过期条件：无
 
 > 类型：**[design]**——架构设计：术语与模块划分、Box 排版模型、四区域布局、DSH 事件接入、规划与边界。
-> 配套：`README.md`（使用与配置）、`SPEC.md`（规范性接口与算法）、`IMPLEMENTATION.md`（实现要点）、`COMMANDS.md` / `COMMANDS-SPEC.md`（命令面）、`REFACTOR.md`（模块拆分约定）。
+> 配套：`README.md`（使用与配置）、`SPEC.md`（规范性接口与算法）、`IMPLEMENTATION.md`（实现要点）、`COMMANDS.md` / `COMMANDS-SPEC.md`（命令面）、`TUI/docs/design/REFACTOR.md`（模块拆分约定）。
 
 ## 项目目标
 
@@ -133,7 +133,7 @@ activity 的内容 = v( 瞬态行 Box … )    // 思考/工具/notice；面板�
 | `layout/markdown.ts` | 块识别 + 行内解析，产出 `FrameSegment[]` |
 | `layout/tool-line.ts` | 工具行文本组装（summary/detail 启发式在 adapter 归一化时产出） |
 
-`layout.ts` 保留几何唯一来源 `frameGeometry` 与四区域帧组装（并派生帧段表 `frameSections`）；渲染层 `renderer/index.ts` 按序列化文本逐行比较取变化行游程（先按帧段收敛范围，段内不连续处各自成区间）、`screen.ts` 负责报文组装；`components/*` 为 Box 生成器。模块拆分原则与触发标准见 `REFACTOR.md`。
+`layout.ts` 保留几何唯一来源 `frameGeometry` 与四区域帧组装（并派生帧段表 `frameSections`）；渲染层 `renderer/index.ts` 按序列化文本逐行比较取变化行游程（先按帧段收敛范围，段内不连续处各自成区间）、`screen.ts` 负责报文组装；`components/*` 为 Box 生成器。模块拆分原则与触发标准见 `TUI/docs/design/REFACTOR.md`。
 
 ### 7. 面板：activity 内容树整体替换
 

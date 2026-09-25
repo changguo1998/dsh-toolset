@@ -1,11 +1,11 @@
 # TUI 渲染管线重构任务（Tasks）
 
-> **已归档**：本文是渲染管线重构的实施期任务清单（主线 A/B 均已完成）。当前口径见 `TUI/docs/SPEC.md`（规格）、`TUI/docs/DESIGN.md`（设计）、`TUI/docs/IMPLEMENTATION.md`（实现要点）；实施过程记录见 `TUI-RENDER-REFACTOR-RECORD.md`。文内「待实施 / 拆分中」等表述均为当时状态，不再维护。
+> **已归档**：本文是渲染管线重构的实施期任务清单（主线 A/B 均已完成）。当前口径见 `TUI/docs/SPEC.md`（规格）、`TUI/docs/design/DESIGN.md`（设计）、`TUI/docs/IMPLEMENTATION.md`（实现要点）；实施过程记录见 `TUI-RENDER-REFACTOR-RECORD.md`。文内「待实施 / 拆分中」等表述均为当时状态，不再维护。
 > 注：文中 `COMMANDS-SPEC.md` 章节号按当时版本（§0.x/§3），现已重编号为 §1..§8。
 
 > 状态：**设计草案，待实施**（2026-09）。
 > 类型：**[task]**——实施与验收清单；涵盖**主线 A（契约迁移：`RenderLine[]` → `FrameRow[]`）**与**主线 B（Box 排版模型重构）**。
-> 配套：`SPEC.md`（规格）、`DESIGN.md`（设计）、`IMPLEMENTATION.md`（实现要点）。
+> 配套：`SPEC.md`（规格）、`TUI/docs/design/DESIGN.md`（设计）、`IMPLEMENTATION.md`（实现要点）。
 
 ## 0. 重构全景（两条主线）
 
@@ -45,10 +45,10 @@
 
 1. **接口冻结（已完成 cc743d7）**：定义 `Box`/`Paragraph`/`NodeBase` 类型 + `measure/allocate` 签名（纯函数）；同步修订 `SPEC.md` §6 契约歧义（SizeTable.root / separator 仅纵向 Box / Paragraph 总宽含 indent+prefix）。
 1. **接口冻结后的有限并行**：① 契约迁移（已并入主线 A）；② measure/allocate 实现 + 单测（宽度规则/保底/比例/悬挂缩进）——**已完成 eea8196**（`layout/measure.ts` + `tests/measure.test.ts` 完整 measure/allocate 契约测试；advisor 两轮复核修复：spacer 轴显式互斥、多 ratio 归一、min>max、fill max 截断回流、v 过度约束压缩顺序）；③ 内容映射（`state.buffer` → 内容 Box 树，替换 `wrapBufferLines` 的分类处理）——**已完成**（`layout/build-box.ts`+`layout/fill.ts`+`layout/content-rules.ts`；双轨对照冻结 fixture + cutover 提交 b84d4b5，`wrapBufferLines` 已删、两处调用点走 `buildContentRows`）；④ 测试序列化辅助（`FrameRow[]` ↔ 字符串，复用旧断言）；⑤ 随子系统实现**逐步抽文件**（不再单设大规模拆文件并行道：`layout.ts` 按 DESIGN Part II §6 目标结构边做边拆，行为不变）。
-1. **接线汇合**：各区域改造为 `fill(ctx, rect)`；`FocusFrame` 实现与测试（对照现有焦点框线各焦点态的帧断言）；面板改造为 Box 生成器（`DESIGN.md` Part II §7；场景原语 `SPEC.md` §7）。——**已完成**（`layout/focus-frame.ts` 焦点框全局覆写 + `layout/panel.ts` 场景原语 + 7 面板组件改 Box 生成器 `buildXxxBox`；buildFrame 末尾单次 `focusFrame` 覆写；冻结 fixture 对照 `focus-frame-legacy.json` 16 场景逐行等价）。
+1. **接线汇合**：各区域改造为 `fill(ctx, rect)`；`FocusFrame` 实现与测试（对照现有焦点框线各焦点态的帧断言）；面板改造为 Box 生成器（`TUI/docs/design/DESIGN.md` Part II §7；场景原语 `SPEC.md` §7）。——**已完成**（`layout/focus-frame.ts` 焦点框全局覆写 + `layout/panel.ts` 场景原语 + 7 面板组件改 Box 生成器 `buildXxxBox`；buildFrame 末尾单次 `focusFrame` 覆写；冻结 fixture 对照 `focus-frame-legacy.json` 16 场景逐行等价）。
 1. **依赖基元迁移（防循环依赖，接线前必做）**：`measure.ts` 目前从 `layout.ts` import `wrapLine/truncateToWidth`、从 `layout/markdown.ts` import `displayWidth`。接线里程碑必须先把这些共享宽/折行原语迁到中立模块（如 `layout/width.ts`），再让 `layout.ts` import `measure.ts`，避免双向依赖。——**已完成 fd96d27**（抽取 `layout/primitives.ts`：seg/rowWidth2/truncateSegs/truncateToWidth/wrapLine/wrapLines；measure 改 import primitives.ts，layout.ts 改 import+re-export）。
 1. 全量回归：`npm run check/test/build` + `demo -- --smoke` + `smoke:pty`。——**已完成**（tsc 0；TUI 686/686；根级 11 包 0 fail；demo 冒烟 SMOKE_PASS 36；`smoke:pty` 真机冒烟 SMOKE OK）。
-1. 文档同步：`SPEC.md` 引用、`DESIGN.md`「四区域布局」改为「由 Box 树声明」、`REFACTOR.md` 归属登记。——**已完成**（SPEC 保留既有设计引述；DESIGN 标题注明由 Box 树声明 + 术语节「已收敛」；REFACTOR 已登记 layout/box|focus-frame|panel 等归属）。
+1. 文档同步：`SPEC.md` 引用、`TUI/docs/design/DESIGN.md`「四区域布局」改为「由 Box 树声明」、`TUI/docs/design/REFACTOR.md` 归属登记。——**已完成**（SPEC 保留既有设计引述；DESIGN 标题注明由 Box 树声明 + 术语节「已收敛」；REFACTOR 已登记 layout/box|focus-frame|panel 等归属）。
 
 ## 3. 验收
 
@@ -60,12 +60,12 @@ npm run demo -- --smoke   # 帧断言 SMOKE_PASS 不变
 npm run smoke:pty      # 真机冒烟（工具行/状态栏 usage）
 ```
 
-实施完成后文档同步：`DESIGN.md` 术语节「现状偏差」→「样式链路已收敛」、「核心接口契约」更新为 `FrameRow`；`IMPLEMENTATION.md` 增补「段序列化」要点。
+实施完成后文档同步：`TUI/docs/design/DESIGN.md` 术语节「现状偏差」→「样式链路已收敛」、「核心接口契约」更新为 `FrameRow`；`IMPLEMENTATION.md` 增补「段序列化」要点。
 
 ## 4. 不在范围（明确不做）
 
 - 不换 TUI 框架、不加事件总线/中间件、不引入样式规则引擎/布局引擎（保留「排版后扁平快照」模型）。
-- 不为 Approval/Question/ModelPicker 建共享 Panel 基类；不把控制逻辑装进 `components/` 渲染文件（REFACTOR.md 约定）。
+- 不为 Approval/Question/ModelPicker 建共享 Panel 基类；不把控制逻辑装进 `components/` 渲染文件（TUI/docs/design/REFACTOR.md 约定）。
 - 渲染层继续不量宽、不感知内容。
 - 不启用 bracketed paste / 鼠标 / 滚动区域（单独条目，另行评估）。
 

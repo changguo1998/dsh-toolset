@@ -12,7 +12,7 @@ import { panelTitle, panelExplanation } from "../layout/panel.ts";
 import { fillBoxTree } from "../layout/fill.ts";
 
 /**
- * 审批面板 Box 生成器（DESIGN.md §7 / SPEC.md §7）：输出整棵 activity
+ * 审批面板 Box 生成器（TUI/docs/design/DESIGN.md §7 / SPEC.md §7）：输出整棵 activity
  * 内容树替换，由 fill 统一摊平。叶子用 styled/text 段序（不做 markdown
  * 解析，避免 `[y]` 等被误解析）；body 在 build 内按现状 avail=width-4
  * 预折行再逐行产叶子；Box 声明显式高度使 fill 补白到恰好 height 行。

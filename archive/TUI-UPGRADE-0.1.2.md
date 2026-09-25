@@ -1,6 +1,6 @@
 # TUI 升级 DSH 0.1.2-rc.1 更新计划（审阅稿）
 
-> **已归档**：本文是 TUI 升级到 DSH 0.1.2-rc.1 的升级计划草案（当时状态，非现状）。当前 TUI 实现口径见 `TUI/docs/SPEC.md`、`TUI/docs/DESIGN.md`、`TUI/docs/IMPLEMENTATION.md`。
+> **已归档**：本文是 TUI 升级到 DSH 0.1.2-rc.1 的升级计划草案（当时状态，非现状）。当前 TUI 实现口径见 `TUI/docs/SPEC.md`、`TUI/docs/design/DESIGN.md`、`TUI/docs/IMPLEMENTATION.md`。
 
 > 状态：**计划草案，待审阅；审阅通过前不实现**。
 > 契约依据：`docs/host/DSH-CTX-API.md`（0.1.2-rc.1 版）+ `archive/DSH-CTX-API-0.1.1-rc.2.md`（旧版对照）。

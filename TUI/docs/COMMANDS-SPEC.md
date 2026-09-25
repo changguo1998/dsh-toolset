@@ -6,7 +6,7 @@
 
 > 用途：新增命令时须遵守的通用约定——落点、服务获取与降级、输出三型、共享面板契约、命名冲突、测试口径，以及已裁定排除项的索引。
 > 现状：本地 32 条命令均已实现（清单见 `COMMANDS.md` §1.1），用法见 `README.md`「Slash 命令」，逐命令落点与降级见 `IMPLEMENTATION.md`「命令实现落点」——逐条实现规格不再重复于此。
-> 上游：`COMMANDS.md`（命令来源归口与落点决策）、`DESIGN.md`（四区域布局与面板约定）、`SPEC.md`（Box 渲染与排版契约）、`NOTICE-LEVELS.md`（提示分级）。
+> 上游：`COMMANDS.md`（命令来源归口与落点决策）、`TUI/docs/design/DESIGN.md`（四区域布局与面板约定）、`SPEC.md`（Box 渲染与排版契约）、`TUI/docs/design/NOTICE-LEVELS.md`（提示分级）。
 
 ## 1. 落点（按命令取子集，最多 6 类）
 
@@ -17,7 +17,7 @@
 | 3 | `src/app/adapter/dsh.ts` | 实现该方法：调服务、归一化返回值；异常内部消化为 `undefined` / `[]` 并经 notice 上报，不抛穿 |
 | 4 | `src/app/commands.ts` | **两处**：`SlashRoute` 联合类型加 `"<name>"` **和** `LOCAL_COMMANDS` 加条目（缺一不可） |
 | 5 | `src/app/index.ts` | `case "<name>"` 分支 + `handle<Name>Command()` + 键位段（若为面板）+ `/help` 行 |
-| 6 | 测试与基线 | `tests/app.test.ts`（`FakeAdapter` 注入）用例 + 文档同步（本文件、`README.md`、`NOTICE-LEVELS.md`）；`/help` 行变化须重跑 freeze 脚本与 smoke（§5） |
+| 6 | 测试与基线 | `tests/app.test.ts`（`FakeAdapter` 注入）用例 + 文档同步（本文件、`README.md`、`TUI/docs/design/NOTICE-LEVELS.md`）；`/help` 行变化须重跑 freeze 脚本与 smoke（§5） |
 
 > 服务获取走 `ctx.get()`，**无需**改本插件的 `inject` 声明——既有做法即如此（`agentDefaultModel` / `commands` / `sessionQuery` 等均未在 `inject` 中声明，见 `src/main.ts` 注释）。
 
@@ -25,7 +25,7 @@
 
 - **服务缺失**（`ctx.get` 返回 undefined 或 `adapter.<method>` 不存在）→ `notice("<svc> 服务不可用", "warn")` 后 return，**不开空面板**（先例 `/jobs`）。
 - **调用失败**（Promise reject / 同步抛错）→ `catch` 后同一提示（warn），面板保持原状，不崩。
-- **级别**遵循 `NOTICE-LEVELS.md`：服务不可用 = warn；命令结果失败 = error；成功且重要 = success；信息展示 = info；进度 = log。新增 notice 调用点须在同一变更补入该文件 A 表。
+- **级别**遵循 `TUI/docs/design/NOTICE-LEVELS.md`：服务不可用 = warn；命令结果失败 = error；成功且重要 = success；信息展示 = info；进度 = log。新增 notice 调用点须在同一变更补入该文件 A 表。
 - 面板命令在拉取失败且面板已开时：先关面板再提示——面板占满活动区会遮住瞬态 notice。
 
 ## 3. 输出三型
@@ -103,8 +103,8 @@ commandPanel: {
 | 文档 | 关系 |
 |------|------|
 | `COMMANDS.md` | 上游：命令来源归口与现状清单 |
-| `DESIGN.md` / `SPEC.md` | 上游：布局、面板与 Box 渲染契约（§4 渲染位置与优先级以 `layout.ts` 实现为准） |
-| `NOTICE-LEVELS.md` | 双向：新增 notice 调用点须同步入 A 表 |
+| `TUI/docs/design/DESIGN.md` / `SPEC.md` | 上游：布局、面板与 Box 渲染契约（§4 渲染位置与优先级以 `layout.ts` 实现为准） |
+| `TUI/docs/design/NOTICE-LEVELS.md` | 双向：新增 notice 调用点须同步入 A 表 |
 | `README.md` / `IMPLEMENTATION.md` | 下游：命令用法与逐命令实现落点（`IMPLEMENTATION.md`「命令实现落点」） |
 | `docs/DEVELOPMENT-BACKLOG.md` | 下游：命令项以本文件为规格依据 |
 

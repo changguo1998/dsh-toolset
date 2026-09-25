@@ -5,7 +5,7 @@
 
 > 状态：**全部完成**——批次 0（5 项 API 合同门全部过门，§1）+ 批次 1/2/3/4 四批实现均已完成并审计通过归档。
 > 类型：**[task]**——实施与验收清单；范围 = `COMMANDS-SPEC.md` §1/§2 的**纯 TUI 侧命令**（7 项候选，均已过合同门；宿主服务现成，不改动任何本项目插件）。
-> 配套：`COMMANDS-SPEC.md`（规格与 API 签名核实表）、`COMMANDS.md`（命令来源归口）、`NOTICE-LEVELS.md`（提示分级）、`DESIGN.md` / `SPEC.md`（面板与渲染契约）。
+> 配套：`COMMANDS-SPEC.md`（规格与 API 签名核实表）、`COMMANDS.md`（命令来源归口）、`TUI/docs/design/NOTICE-LEVELS.md`（提示分级）、`TUI/docs/design/DESIGN.md` / `SPEC.md`（面板与渲染契约）。
 
 ## 0. 全景
 
@@ -57,7 +57,7 @@
 - **落点 4 处**：`commands.ts`（`SlashRoute` 加 `"stats"` + `LOCAL_COMMANDS` 三条别名）、`index.ts`（`case` + `handleStatsCommand()`）、测试、文档。**不改 adapter。**
 - 输出：读 `state.usage`（`{ input, output, cacheRead, contextWindow? }`）→ info 三行：tokens 分解 / 上下文 `input+cacheRead`（占窗口百分比）/ 缓存命中率。
 - 边界：`contextWindow` 缺失或 0 → 只显绝对量，不除零。
-- **新增 notice 调用点**（须同步 `NOTICE-LEVELS.md` A 表）：`暂无 token 用量数据（本回合尚未发生模型调用）` → info。
+- **新增 notice 调用点**（须同步 `TUI/docs/design/NOTICE-LEVELS.md` A 表）：`暂无 token 用量数据（本回合尚未发生模型调用）` → info。
 
 ### 2.2 `/rename`
 
@@ -68,7 +68,7 @@
 
 ### 2.3 批次 1 收尾
 
-- `NOTICE-LEVELS.md` A 表补上述调用点（共 5 条）。
+- `TUI/docs/design/NOTICE-LEVELS.md` A 表补上述调用点（共 5 条）。
 - 测试：`/stats`（有 usage / 无 usage / `contextWindow` 缺失）；`/rename`（成功 / 缺参 / 空标题拒绝 / 服务缺失 warn）。
 - 基线：`helpText` 加两行 → 重跑 `node --experimental-transform-types scripts/freeze-focus-frame.mts`（diff 审查）+ smoke（先例：`/init` 加行曾挤掉候选可视窗口并触发脆弱断言）。
 - **本批验证全绿后自动提交**（见 §8；用户已授权，无需停下等确认）。
@@ -92,7 +92,7 @@
 
 - 测试：面板渲染单测（行数恒等 `height`、空态、超宽截断、窗口平移）+ 路由/降级/过滤/键位。
 - `helpText` 加行 → freeze + smoke。
-- 文档：`README.md`、`IMPLEMENTATION.md`（`commandPanel` 机制）、`NOTICE-LEVELS.md` A 表（2 条）。
+- 文档：`README.md`、`IMPLEMENTATION.md`（`commandPanel` 机制）、`TUI/docs/design/NOTICE-LEVELS.md` A 表（2 条）。
 - **验证全绿后自动提交**（见 §8）。
 
 ## 4. 批次 3 · 面板 kind 复制（`/agents`、`/tools`）
@@ -113,7 +113,7 @@
 ### 4.3 批次 3 收尾
 
 - 测试：路由 / 降级 / Enter 调用与入参 / 缺 id 分支 / 翻页键位。
-- `helpText` 加两行 → freeze + smoke；`NOTICE-LEVELS.md` A 表（6 条）同步。
+- `helpText` 加两行 → freeze + smoke；`TUI/docs/design/NOTICE-LEVELS.md` A 表（6 条）同步。
 - **验证全绿后自动提交**（见 §8）。
 
 ## 5. 批次 4 · 收尾（`/settings`、`/fork`）
@@ -132,7 +132,7 @@
 
 ### 5.3 批次 4 收尾
 
-- `helpText` 加两行 → freeze + smoke；`NOTICE-LEVELS.md` A 表（5 条：`/settings` 2 + `/fork` 3）+ `README.md` / `IMPLEMENTATION.md` / `COMMANDS.md` 状态列同步。
+- `helpText` 加两行 → freeze + smoke；`TUI/docs/design/NOTICE-LEVELS.md` A 表（5 条：`/settings` 2 + `/fork` 3）+ `README.md` / `IMPLEMENTATION.md` / `COMMANDS.md` 状态列同步。
 - **验证全绿后自动提交**（见 §8）。
 
 ## 6. 验收

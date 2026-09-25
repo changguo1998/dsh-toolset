@@ -4,13 +4,13 @@ DSH（DeepSeek Harness）进程内集成的终端 UI 插件：复用 DSH 核心�
 
 | 文档 | 类型 | 内容 |
 |---|---|---|
-| `DESIGN.md` | design | 架构设计：术语与模块划分、Box 排版模型、四区域布局、DSH 事件接入、规划与边界 |
+| `TUI/docs/design/DESIGN.md` | design | 架构设计：术语与模块划分、Box 排版模型、四区域布局、DSH 事件接入、规划与边界 |
 | `SPEC.md` | spec | 规范性规格：Box 类型与布局算法、内容元素映射、缩进语义、面板原语、FocusFrame、渲染契约、主题契约、不变量 |
 | `IMPLEMENTATION.md` | implementation | 实现要点：命令路由、文本管线、状态/渲染机制、性能、各子系统实现记录 |
 | `COMMANDS.md` | 参考 | 命令面清单（本地 + 宿主注册）与扩展建议 |
 | `COMMANDS-SPEC.md` | 参考 | 命令扩展规格：落点矩阵、服务获取与降级硬约定、输出三型、共享面板契约 |
-| `REFACTOR.md` | 约定 | 模块拆分原则、文件归属、触发标准 |
-| `NOTICE-LEVELS.md` / `AUDIT-colors.md` | 参考 | notice 级别约定 / 灰度三语义颜色约定 |
+| `TUI/docs/design/REFACTOR.md` | 约定 | 模块拆分原则、文件归属、触发标准 |
+| `TUI/docs/design/NOTICE-LEVELS.md` / `TUI/docs/design/AUDIT-colors.md` | 参考 | notice 级别约定 / 灰度三语义颜色约定 |
 
 历史文档（已完成的重构任务与调研记录）见仓库根 `archive/`。
 

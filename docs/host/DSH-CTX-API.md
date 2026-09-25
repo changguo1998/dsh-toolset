@@ -1,10 +1,10 @@
 # DSH 核心 ctx API（跨插件共享参考）
 
-> 职责：跨插件共享的宿主 ctx 接口研读笔记
+> 职责：dsh-base 的 cordis ctx 接口研读笔记（跨插件契约；本目录 `docs/host/` 收全部宿主官方接口研读与升级文档，不限 dsh-base）
 > 不负责：包清单与升级记录（见同目录另两份）
 > 过期条件：契约变化时复核（只读参考，勿改动）
 
-> 来源：官方 `deepseek-harness` clone（`~/GithubRepos/deepseek-harness`，`dsh-v0.1.5-rc.3` = commit `a4c74a91e0`）。
+> 来源：官方 `deepseek-harness` clone（`~/GithubRepos/deepseek-harness`），研读基线 `dsh-v0.1.5-rc.3` = commit `a4c74a91e0`；**0.1.7-rc.2 的接口差异另见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`**（本文件尚未按 rc.2 整体复读）。
 > 用途：供 dsh-toolset 各插件（TUI、herdr-integration、knowledge-base、task-engine）在与 DSH 宿主集成时对齐契约；本文件为研读沉淀，只读参考，非实现。
 > 版本口径：以 `dsh-v0.1.5-rc.3` 为准。源码若演进，以仓库为准。
 

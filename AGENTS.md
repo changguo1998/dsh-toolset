@@ -59,10 +59,11 @@ scripts/install.sh --help   # --profile/--plugins/--dsh-version/--skip-dsh/--ski
 - `TUI/src/app/` 状态与纯函数层（state/layout），`TUI/src/renderer/` 终端渲染层，`TUI/src/app/adapter/` 插拔适配层，`TUI/demo/` mock demo。
 - 插件子包：`task-engine/`（任务执行引擎）、`knowledge-base/`（知识库与记忆）、`herdr-integration/`（herdr 面板桥）、`goal-contract/`（Done-when 契约起草）、`metric-loop/`（指标循环）、`output-compress/`（大输出摘要入库）、`fs-digest/`（文件摘要）、`hash-edit/`（LINE:HASH 锚定编辑）、`ast-tools/`（AST 搜索/替换/大纲）、`security-guard/`（危险命令与敏感文件防护）、`code-map/`（代码结构地图）、`context-report/`（会话上下文/用量报告）；各包的 `package.json` 带 `dsh.bundle` 集成契约与 `cordis.patch.yml`。
 - 核心契约对齐官方 deepseek-harness：根目录 `docs/host/DSH-CTX-API.md` 为跨插件共享研读笔记（只读参考，勿改动）。
-- 文档索引见 `README.md` 的「文档」一节（**唯一来源**，本文件不重复列清单）；分级：`docs/`（项目面：现状与待办）、`docs/host/`（宿主面：研读与升级，升宿主后必复核）、`TUI/docs/`（TUI 面：设计与规格）、各包 `README.md`（模块契约）、`archive/`（历史）。改动行为时同步更新 `docs/DEVELOPMENT-STATUS.md`，功能完成时同步清理 `docs/DEVELOPMENT-BACKLOG.md`。
-- `archive/` 存放**已完成任务清单与历史调研**（如 `TUI-REFACTOR-TASKS.md`、`TUI-COMMANDS-TASKS.md`、`PI-DSH-FEATURE-COMPARISON.md`、`CODEMAP-RESEARCH.md`）：仅作历史记录，不是现状来源；当前口径以 `docs/DEVELOPMENT-STATUS.md`、`TUI/docs/SPEC.md`、`TUI/docs/IMPLEMENTATION.md`、`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` 为准。
+- 文档索引见 `README.md` 的「文档」一节（**唯一来源**，本文件不重复列清单）；分级：`docs/`（项目面：跨包现状与待办）、`docs/host/`（宿主面：**所有官方接口研读**与升级文档，升宿主后必复核）、`TUI/docs/`（TUI 面：STATUS / BACKLOG / SPEC / IMPLEMENTATION / COMMANDS，内部规范在 `TUI/docs/design/`）、各包 `README.md`（模块契约）、`archive/`（历史）。
+- **TUI 的变更优先写 `TUI/docs/`**：现状 → `TUI/docs/STATUS.md`，待办与开放项 → `TUI/docs/BACKLOG.md`，规格与约定 → `TUI/docs/SPEC.md`、`TUI/docs/design/`；项目面 `docs/` 只保留跨包汇总与指针。改动行为时同步更新 `docs/DEVELOPMENT-STATUS.md`，功能完成时同步清理 `docs/DEVELOPMENT-BACKLOG.md`。
+- `archive/` 存放**已完成任务清单与历史调研**（如 `TUI-REFACTOR-TASKS.md`、`TUI-COMMANDS-TASKS.md`、`PI-DSH-FEATURE-COMPARISON.md`、`CODEMAP-RESEARCH.md`）：仅作历史记录，不是现状来源；当前口径以 `docs/DEVELOPMENT-STATUS.md`、`TUI/docs/STATUS.md`、`TUI/docs/SPEC.md`、`TUI/docs/IMPLEMENTATION.md`、`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` 为准。
 - DSH 集成契约以各包 `cordis.patch.yml` + `package.json` 的 `dsh.bundle` 为准。
-- 设计/实现讨论沉淀在 `TUI/docs/DESIGN.md`、`TUI/docs/SPEC.md` 与 `TUI/docs/IMPLEMENTATION.md`，改动行为时同步更新。
+- 设计/实现讨论沉淀在 `TUI/docs/design/DESIGN.md`、`TUI/docs/SPEC.md` 与 `TUI/docs/IMPLEMENTATION.md`，改动行为时同步更新。
 
 ## Git
 

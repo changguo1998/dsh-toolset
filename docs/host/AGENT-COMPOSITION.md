@@ -20,7 +20,7 @@
 - `dsh --profile fff --dump-config` 无 `agent-presets` 行；对照 `dsh --profile web --dump-config` 有该行（`default: standard`）。
 - 新会话首轮工具目录（会话日志 `request/header`）= base 官方 agent 面 + 本项目插件工具共 37 个；缺 preset 独有工具（如官方 `standard` 的 `present`），也缺自定义 preset 里的工具（如 liangshen 的 `skill_search`/`skill_load`）。
 - 系统提示为宿主默认 persona（composed tree 里 `personaPrefix: ''`），不是 preset 内 persona 行的前缀/后缀。
-- 因此目录式 preset 配置（`$DSH_HOME/.agent-presets/<id>/` 与 `settings.yaml` 的 `agent-presets.default`）在本 profile 下是空配置：该 settings 命名空间没有 provider。TUI 的 `/preset` 提示「agent 预设服务不可用」是 fail-safe 正常路径（装配证据见 `../TUI/docs/DESIGN.md`）。
+- 因此目录式 preset 配置（`$DSH_HOME/.agent-presets/<id>/` 与 `settings.yaml` 的 `agent-presets.default`）在本 profile 下是空配置：该 settings 命名空间没有 provider。TUI 的 `/preset` 提示「agent 预设服务不可用」是 fail-safe 正常路径（装配证据见 `../TUI/docs/design/DESIGN.md`）。
 
 ## 3. 落点：要改 agent 面就改 profile
 

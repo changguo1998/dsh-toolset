@@ -101,12 +101,14 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 
 索引只此一处（`AGENTS.md` 不再重复列清单）；每份文档开头三行写明「职责 / 不负责 / 过期条件」。
 
-**项目面（现状与推进）**
+**项目面（跨包：现状与推进）**
 
 - `docs/DEVELOPMENT-STATUS.md` — 插件与宿主基线的现状快照（状态的唯一来源）。
-- `docs/DEVELOPMENT-BACKLOG.md` — 待办全集：缺陷 + 功能（P0/P1/P2）+ 里程碑 + 插件规划 + TUI 开放项。
+- `docs/DEVELOPMENT-BACKLOG.md` — 跨包待办：缺陷 + 功能（P0/P1/P2）+ 里程碑 + 插件规划。
 
 **宿主面（`docs/host/`，升宿主后必复核）**
+
+官方接口研读与升级文档的集中地——**不限 dsh-base**：任何宿主官方接口（ctx API、各子系统与子包的契约）的研读笔记都放这里。
 
 - `docs/host/DSH-CTX-API.md` — 宿主 ctx 接口研读笔记（跨插件契约，只读参考）。
 - `docs/host/HOST-PACKAGES.md` — 宿主官方包与服务字典（生成物，升宿主后重新生成）。
@@ -114,12 +116,13 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 - `docs/host/AGENT-COMPOSITION.md` — agent 面组合现状与官方依据（TUI 走 profile 全局组合、不配 preset）。
 - `docs/host/AGENT-ARCHITECTURE-ANALOGY.md` — 官方 agent 架构与接口对照（task-engine、knowledge-base 的设计依据）。
 
-**TUI 面（`TUI/docs/`）**
+**TUI 面（`TUI/docs/`，TUI 的变更优先写这里）**
 
 - `TUI/README.md` — TUI 用法、配置项与命令行为表。
-- `TUI/docs/SPEC.md` — 渲染管线规格；`TUI/docs/DESIGN.md` — 机制与取舍；`TUI/docs/IMPLEMENTATION.md` — 实现记录。
-- `TUI/docs/COMMANDS.md` — 命令清单（按本地 / 宿主注册层归属）与扩展裁定索引；`TUI/docs/COMMANDS-SPEC.md` — 新命令的硬规格。
-- `TUI/docs/NOTICE-LEVELS.md`、`TUI/docs/AUDIT-colors.md`、`TUI/docs/REFACTOR.md` — 提示等级 / 配色语义 / 模块拆分三项约定。
+- `TUI/docs/STATUS.md`、`TUI/docs/BACKLOG.md` — TUI 现状、待办与开放项（含 herdr 外部问题取证）。
+- `TUI/docs/SPEC.md` — 渲染管线规格；`TUI/docs/IMPLEMENTATION.md` — 实现记录。
+- `TUI/docs/COMMANDS.md` — 命令清单（按本地 / 宿主注册层归属）；`TUI/docs/COMMANDS-SPEC.md` — 新命令的硬规格与排除项裁定。
+- `TUI/docs/design/` — 内部设计与规范：`DESIGN.md`（机制与取舍）、`NOTICE-LEVELS.md`（提示分级）、`AUDIT-colors.md`（配色语义）、`REFACTOR.md`（模块拆分约定）。
 
 **插件包**
 

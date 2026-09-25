@@ -149,7 +149,7 @@ function renderColumnCell(
 }
 
 /**
- * 模型选择面板 Box 生成器（DESIGN.md §7 / SPEC.md §7）：三列独立列表（provider/
+ * 模型选择面板 Box 生成器（TUI/docs/design/DESIGN.md §7 / SPEC.md §7）：三列独立列表（provider/
  * model/effort）滚动窗口 + 列宽截断补空 + 选择性着色（绿优先于黄）+ 底行按键帮助。
  * 每行产 styled 多段叶子（列段 + 间隔段），叶子 wrap:false 精确行长。
  */
