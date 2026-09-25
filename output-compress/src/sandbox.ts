@@ -1,9 +1,10 @@
 /**
- * 沙箱运行层：单一派生程序（SUMMARY_PROGRAM）的两种执行器。
+ * 沙箱运行层：单一派生程序（SUMMARY_PROGRAM）的三条执行路径。
  *
- *  - CodeRuntimeSandbox：宿主 ctx.codeRuntime 服务（worker-thread 后端，headless bundle 提供），
+ *  - CodeRuntimeSandbox：宿主沙箱服务（0.1.7 起为 `ctx.ptcRuntime`，≤0.1.5 为 `ctx.codeRuntime`），
  *    程序以 async 函数体 + 全局绑定 input 运行，返回值经 JSON 无损传递；
- *  - VmSandbox：code-runtime 缺失时的 node:vm 进程内回落，执行同一程序源。
+ *  - RuntimeWithFallback：宿主沙箱「不可用」时就地回落 vm（程序级失败不重试），摘要不中断；
+ *  - VmSandbox：宿主沙箱缺失/不可用时的 node:vm 进程内回落，执行同一程序源。
  */
 import { runInNewContext } from "node:vm";
 
@@ -19,19 +20,31 @@ export interface SandboxRunner {
   run(text: string): Promise<SummaryJson>;
 }
 
-/** 宿主 code-runtime 服务的最小结构化视图（不做 npm 依赖）。 */
+/** 派生请求：0.1.7 `resolve()` 的输入（cwd/timeoutMs/sandboxPolicy 由宿主 provider 补齐/钳位）。 */
+export interface RuntimeRunRequest {
+  program: string;
+  bindings: Array<{
+    global: string;
+    functions: Record<string, (args: unknown) => Promise<unknown>>;
+  }>;
+  /** 执行预算（ms）；`null` 表示不限，省略用 provider 默认。 */
+  timeoutMs?: number | null;
+}
+
+/** 宿主沙箱服务的最小结构化视图（不做 npm 依赖，服务名随版本变化，见 resolveSandboxRuntime）。
+ *  0.1.7 起 `ptcRuntime`：先 `resolve(request) → spec`（补 cwd/timeoutMs/sandboxPolicy）再 `run(spec)`，
+ *  缺 spec 会被 Node provider 直接拒绝；≤0.1.5 的 `codeRuntime` 只有 `run(request)`，故 `resolve` 可选。 */
 export interface CodeRuntimeLike {
-  run(req: {
-    program: string;
-    bindings: Array<{
-      global: string;
-      functions: Record<string, (args: unknown) => Promise<unknown>>;
-    }>;
-  }): Promise<{
+  /** 可选（0.1.7 起存在）：把请求解析为完整执行输入 */
+  resolve?(req: RuntimeRunRequest): unknown;
+  run(req: unknown): Promise<{
     value?: unknown;
     error?: { kind: string; message: string };
   }>;
 }
+
+/** 宿主沙箱「不可用」（服务交互失败）——仅此类错误触发 vm 回落；程序级失败不属此类。 */
+export class RuntimeUnavailableError extends Error {}
 
 /**
  * JSON round-trip 归一 + 结构校验：保证结果为可无损序列化的纯 JSON 数据，
@@ -62,27 +75,75 @@ function normalizeSummaryJson(value: unknown): SummaryJson {
   return validateSummary(parsed);
 }
 
-/** code-runtime 执行器（默认路径）。 */
+/** 宿主沙箱执行器（默认路径；服务为 0.1.7 的 `ptcRuntime` 或 ≤0.1.5 的 `codeRuntime`）。 */
 export class CodeRuntimeSandbox implements SandboxRunner {
-  /** @param runtime 宿主 ctx.codeRuntime 服务实例。 */
+  /** @param runtime 宿主 ctx.ptcRuntime / ctx.codeRuntime 服务实例。 */
   constructor(private readonly runtime: CodeRuntimeLike) {}
 
-  /** 经宿主沙箱执行派生程序；失败（含 value 非法）时抛错。 */
+  /**
+   * 经宿主沙箱执行派生程序。
+   * resolve/run 的**服务交互失败**抛 `RuntimeUnavailableError`（调用方由此回落 vm）；
+   * **程序自身失败**（result.error，含新增的 output-limit/protocol/sandbox-unavailable 类）
+   * 抛普通错误——同一程序源在 vm 下同样会失败，重试无意义。
+   */
   async run(text: string): Promise<SummaryJson> {
-    const result = await this.runtime.run({
+    const request: RuntimeRunRequest = {
       program: SUMMARY_PROGRAM,
       bindings: [
         // 程序按宿主编解码约束传一个占位参数（见 SUMMARY_PROGRAM 注释），绑定实现忽略之
         { global: "input", functions: { text: async () => text } },
       ],
-    });
+      // 与 VmSandbox 的同步段超时口径一致；宿主 provider 会按自身配置再钳位
+      timeoutMs: 30_000,
+    };
+    let result: { value?: unknown; error?: { kind: string; message: string } };
+    try {
+      // 0.1.7 起必须先 resolve：spec 才带 cwd/sandboxPolicy（缺了 Node provider 直接 throw）
+      const spec =
+        typeof this.runtime.resolve === "function"
+          ? this.runtime.resolve(request)
+          : request;
+      result = await this.runtime.run(spec);
+    } catch (error) {
+      throw new RuntimeUnavailableError(
+        `宿主沙箱不可用: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
     if (result.error !== undefined) {
       throw new Error(
-        `code-runtime 派生失败: ${result.error.kind}: ${result.error.message}`,
+        `宿主沙箱派生失败: ${result.error.kind}: ${result.error.message}`,
       );
     }
     // round-trip + 校验：保证结果可无损序列化（契约要求）且原型归一为本 realm
     return normalizeSummaryJson(result.value);
+  }
+}
+
+/**
+ * 宿主沙箱 + vm 的复合执行器：只在宿主沙箱**不可用**时回落（程序级失败原样抛出，
+ * 不重复执行同一程序源），保证摘要功能不因宿主沙箱问题中断。
+ */
+export class RuntimeWithFallback implements SandboxRunner {
+  /**
+   * @param primary 宿主沙箱执行器
+   * @param fallback vm 回落执行器
+   * @param onFallback 回落时的日志回调（记录原因，便于诊断）
+   */
+  constructor(
+    private readonly primary: SandboxRunner,
+    private readonly fallback: SandboxRunner,
+    private readonly onFallback: (message: string) => void,
+  ) {}
+
+  async run(text: string): Promise<SummaryJson> {
+    try {
+      return await this.primary.run(text);
+    } catch (error) {
+      if (!(error instanceof RuntimeUnavailableError)) throw error;
+      this.onFallback(error instanceof Error ? error.message : String(error));
+      return this.fallback.run(text);
+    }
   }
 }
 

@@ -7,7 +7,8 @@
  *  - 不做 npm 级 knowledge-base 依赖，共享面 = 同一 SQLite 库文件。
  *
  * 契约对齐 DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
- * name / Config / apply(ctx, config)（无 inject / provide，codeRuntime 经 ctx.reflect 可选读取），
+ * name / Config / apply(ctx, config)（无 inject / provide，沙箱服务经 ctx.reflect 可选读取：
+ * 0.1.7 起 `ptcRuntime`，≤0.1.5 为 `codeRuntime`），
  * Config 以类型别名给出（无运行时 schema，宿主不校验，配置原样透传给 apply；缺省/非法值
  * 沿用本包既有语义，不新增校验）。
  */
@@ -15,7 +16,11 @@ import type { HookHost } from "./hooks.ts";
 import { OutputCompressHooks } from "./hooks.ts";
 import { resolveDbPath, SharedKbWriter } from "./kb-write.ts";
 import type { CodeRuntimeLike, SandboxRunner } from "./sandbox.ts";
-import { CodeRuntimeSandbox, VmSandbox } from "./sandbox.ts";
+import {
+  CodeRuntimeSandbox,
+  RuntimeWithFallback,
+  VmSandbox,
+} from "./sandbox.ts";
 
 /** bundle 名（cordis 注册键，与 cordis.patch.yml 的 id 对应）。 */
 export const name = "output-compress";
@@ -50,14 +55,18 @@ export interface OutputCompressBundle {
 export const DEFAULT_MIN_BYTES = 16384;
 export const DEFAULT_MAX_SOURCE_BYTES = 524_288;
 
-/** reflect 层可选读取的服务值类型（本插件仅读 codeRuntime，未挂载时为 undefined）。 */
+/** reflect 层可选读取的服务值类型（本插件仅读沙箱服务，未挂载时为 undefined）。 */
 export type ServiceValue = CodeRuntimeLike | undefined;
 
-/** 宿主 ctx 的最小结构化视图（BundleHost = HookHost + 可选 codeRuntime/logger/reflect）。 */
+/** 宿主 ctx 的最小结构化视图（BundleHost = HookHost + 可选沙箱服务/logger/reflect）。 */
 export interface BundleHost extends HookHost {
   /**
-   * 宿主 code-runtime 服务（仅测试宿主直接携带；真实 cordis 代理上直接读该属性会抛错，
-   * 生产路径经 reflect 可选读取，见 resolveCodeRuntime）。
+   * 宿主沙箱服务 0.1.7 版名（仅测试宿主直接携带；真实 cordis 代理上直接读该属性会抛错，
+   * 生产路径经 reflect 可选读取，见 resolveSandboxRuntime）。
+   */
+  ptcRuntime?: CodeRuntimeLike;
+  /**
+   * 宿主沙箱服务 ≤0.1.5 版名（同上，测试宿主直接携带用）。
    */
   codeRuntime?: CodeRuntimeLike;
   /** 宿主日志服务。 */
@@ -69,19 +78,35 @@ export interface BundleHost extends HookHost {
   reflect?: { get?(name: string, strict?: boolean): ServiceValue };
 }
 
+/** 命中的沙箱服务引用（name 用于启动日志，service 用于执行）。 */
+interface RuntimeRef {
+  readonly name: "ptcRuntime" | "codeRuntime";
+  readonly service: CodeRuntimeLike;
+}
+
 /**
- * 解析宿主 code-runtime（可选依赖）：
+ * 解析宿主沙箱服务（可选依赖），服务名随宿主版本变化：
+ * 0.1.7 起为 `ptcRuntime`（PTC 运行时），≤0.1.5 为 `codeRuntime`，按序探测取首个命中。
  * 真实宿主 ctx 是 cordis 代理，直接读未 inject 的服务属性会抛
- * `cannot get property "codeRuntime" without inject`，因此生产路径必须走
- * `ctx.reflect.get('codeRuntime', false)`（未挂载返回 undefined）。
- * 普通对象测试宿主没有 reflect 层，回退直接读 `codeRuntime` 属性。
+ * `cannot get property "x" without inject`，因此生产路径必须走
+ * `ctx.reflect.get(<name>, false)`（未挂载返回 undefined）。
+ * 普通对象测试宿主没有 reflect 层，回退直接读同名属性（两种语义不混用）。
  */
-function resolveCodeRuntime(host: BundleHost): CodeRuntimeLike | undefined {
-  // 真实 cordis 宿主：有 reflect 层，只能经可选读取入口取服务（未挂载 → undefined）。
-  if (host.reflect !== undefined)
-    return host.reflect.get?.("codeRuntime", false);
-  // 普通对象宿主（测试替身）：无 reflect 层，直接读属性；两种语义不混用。
-  return host.codeRuntime;
+function resolveSandboxRuntime(host: BundleHost): RuntimeRef | undefined {
+  if (host.reflect !== undefined) {
+    const ptc = host.reflect.get?.("ptcRuntime", false);
+    if (ptc !== undefined) return { name: "ptcRuntime", service: ptc };
+    const legacy = host.reflect.get?.("codeRuntime", false);
+    return legacy === undefined
+      ? undefined
+      : { name: "codeRuntime", service: legacy };
+  }
+  if (host.ptcRuntime !== undefined) {
+    return { name: "ptcRuntime", service: host.ptcRuntime };
+  }
+  return host.codeRuntime === undefined
+    ? undefined
+    : { name: "codeRuntime", service: host.codeRuntime };
 }
 
 /**
@@ -95,10 +120,17 @@ export async function createOutputCompressBundle(
   const log = (message: string) => host.logger?.(name).info(message);
   const dbPath = resolveDbPath(config.dbPath);
   const writer = new SharedKbWriter(dbPath, (message) => log(message));
-  // 沙箱选择：宿主 code-runtime 可用走 worker 沙箱（默认），否则 node:vm 回落
-  const runtime = resolveCodeRuntime(host);
+  // 沙箱选择：宿主沙箱（0.1.7 的 ptcRuntime / ≤0.1.5 的 codeRuntime）可用时走宿主沙箱（默认），
+  // 服务缺失、或运行期「不可用」（resolve/run 抛错）时回落 node:vm
+  const runtime = resolveSandboxRuntime(host);
   const sandbox: SandboxRunner =
-    runtime !== undefined ? new CodeRuntimeSandbox(runtime) : new VmSandbox();
+    runtime === undefined
+      ? new VmSandbox()
+      : new RuntimeWithFallback(
+          new CodeRuntimeSandbox(runtime.service),
+          new VmSandbox(),
+          (message) => log(`output-compress 回落 node:vm：${message}`),
+        );
   const hooks = new OutputCompressHooks({
     minBytes: config.minBytes ?? DEFAULT_MIN_BYTES,
     maxSourceBytes: config.maxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES,
@@ -109,11 +141,7 @@ export async function createOutputCompressBundle(
     kbRetryDelays: config.kbRetryDelays,
   });
   const detach = hooks.attach(host);
-  log(
-    `output-compress ready (db=${dbPath}, sandbox=${
-      runtime !== undefined ? "code-runtime" : "vm"
-    })`,
-  );
+  log(`output-compress ready (db=${dbPath}, sandbox=${runtime?.name ?? "vm"})`);
   return {
     dispose: () => {
       detach();

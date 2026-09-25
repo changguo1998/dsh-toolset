@@ -3266,7 +3266,7 @@ test("refreshJobs：宿主未挂载 ctx.jobs → reject（不假成功）", asyn
   await assert.rejects(t.adapter.refreshJobs!(), /jobs 服务不可用/);
 });
 
-test("refreshJobs/killJob：经 list/kill 传递 caller={id: activeSessionId}", async () => {
+test("refreshJobs/killJob（旧宿主 ≤0.1.5）：无事件流 → caller={id: activeSessionId}", async () => {
   const listCallers: unknown[] = [];
   const killCalls: Array<[string, unknown]> = [];
   const jobs: JobsLike = {
@@ -3287,6 +3287,70 @@ test("refreshJobs/killJob：经 list/kill 传递 caller={id: activeSessionId}", 
   assert.deepEqual(listCallers, [{ id: "s1" }]);
   await t.adapter.killJob!("subprocess-1");
   assert.deepEqual(killCalls, [["subprocess-1", { id: "s1" }]]);
+});
+
+test("refreshJobs/killJob（0.1.7 起）：暴露事件流 → caller=裸 sessionId 字符串", async () => {
+  const listCallers: unknown[] = [];
+  const killCalls: Array<[string, unknown]> = [];
+  const jobs: JobsLike = {
+    events: { subscribe: () => () => {} },
+    list: (caller) => {
+      listCallers.push(caller);
+      return [];
+    },
+    kill: (id: string, caller?: unknown) => {
+      killCalls.push([id, caller]);
+      return "requested";
+    },
+  };
+  const t = makeAdapterFull({ jobs });
+  await t.adapter.refreshJobs!();
+  assert.deepEqual(listCallers, ["s1"], "0.1.7 owner 判定比对裸 sessionId");
+  await t.adapter.killJob!("subprocess-1");
+  assert.deepEqual(killCalls, [["subprocess-1", "s1"]]);
+});
+
+test("jobs 订阅（0.1.7 起）：events.subscribe({owner}) 触发即推送全量快照，dispose 解绑", async () => {
+  const filters: unknown[] = [];
+  let listener: (() => void) | undefined;
+  let disposers = 0;
+  const jobs: JobsLike = {
+    list: () => [
+      {
+        id: "subprocess-1",
+        kind: "subprocess",
+        label: "build",
+        status: "running",
+      },
+    ],
+    events: {
+      subscribe: (filter, cb) => {
+        filters.push(filter);
+        listener = cb as () => void;
+        return () => {
+          disposers += 1;
+        };
+      },
+    },
+  };
+  const t = makeAdapterFull({ jobs });
+  assert.deepEqual(filters, [{ owner: "s1" }], "订阅按当前会话 owner 过滤");
+  assert.equal(typeof listener, "function", "events.subscribe 应被调用");
+  listener!();
+  assert.deepEqual(t.events.filter((e) => e.type === "jobs-changed").at(-1), {
+    type: "jobs-changed",
+    sessionId: "s1",
+    jobs: [
+      {
+        id: "subprocess-1",
+        kind: "subprocess",
+        label: "build",
+        status: "running",
+      },
+    ],
+  });
+  t.adapter.dispose?.();
+  assert.equal(disposers, 1, "dispose 应解绑 jobs 事件订阅");
 });
 
 // ---------------------------------------------------------------------------
@@ -4008,7 +4072,7 @@ function panelRows(
   return rows;
 }
 
-test("真实 adapter /agents：listChildren(当前会话) + diagnostic 行无 payload", async () => {
+test("真实 adapter /agents（旧宿主 ≤0.1.5）：listChildren(当前会话) + diagnostic 行无 payload", async () => {
   const { services, calls } = makeAgentsToolsServices();
   const { adapter, events, unbind } = makeAdapter(
     new FakeRuntime(),
@@ -4031,6 +4095,117 @@ test("真实 adapter /agents：listChildren(当前会话) + diagnostic 行无 pa
   assert.equal(diag?.title, "（诊断：corrupt）");
   assert.equal(diag?.status, "diagnostic");
   assert.equal(diag?.payload, undefined, "diagnostic 行无 payload → 不可中断");
+  unbind();
+});
+
+test("真实 adapter /agents（0.1.7 起）：优先 listDescendants 并只取 depth=1 的直接子代", async () => {
+  const calls = { descendants: [] as string[], children: [] as string[] };
+  const services: AdapterServices = {
+    subagents: {
+      listDescendants(rootSessionId: string) {
+        calls.descendants.push(rootSessionId);
+        return Promise.resolve([
+          {
+            kind: "child",
+            id: "child-1",
+            mode: "continuable",
+            label: "scout",
+            activity: "running",
+            hasChildren: false,
+            depth: 1,
+            parentId: "s1",
+          },
+          {
+            kind: "child",
+            id: "grand-1",
+            mode: "one-shot",
+            label: "inner",
+            activity: "inactive",
+            hasChildren: false,
+            depth: 2,
+            parentId: "child-1",
+          },
+          {
+            kind: "diagnostic",
+            id: "child-2",
+            reason: "corrupt",
+            depth: 1,
+            parentId: "s1",
+          },
+        ]);
+      },
+      listChildren(parentSessionId: string) {
+        calls.children.push(parentSessionId);
+        return Promise.resolve([]);
+      },
+      interrupt() {},
+    },
+  };
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  await adapter.refreshAgents?.();
+  assert.deepEqual(calls.descendants, ["s1"], "rootSessionId = 当前会话 id");
+  assert.deepEqual(
+    calls.children,
+    [],
+    "有 listDescendants 时不再调 listChildren",
+  );
+  const rows = panelRows(events, "agents");
+  assert.equal(rows.length, 2, "depth=2 的后代不进 /agents 面板");
+  assert.deepEqual(rows[0], {
+    title: "scout",
+    detail: "continuable · running",
+    status: "running",
+    payload: "child-1",
+  });
+  assert.equal(rows[1]?.status, "diagnostic");
+  assert.equal(rows[1]?.payload, undefined);
+  unbind();
+});
+
+test("真实 adapter /agents（投影目录降级）：无 listDescendants 且 listChildren 只给 catalog 字段", async () => {
+  const services: AdapterServices = {
+    subagents: {
+      listChildren() {
+        return Promise.resolve([
+          { id: "child-1", createdAt: 1, mode: "continuable", label: "scout" },
+          { id: "child-2", createdAt: 2, mode: "unknown" },
+        ]);
+      },
+      interrupt() {},
+    },
+  };
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  await adapter.refreshAgents?.();
+  const rows = panelRows(events, "agents");
+  // 投影目录形态无 activity → status 退用 mode；label 缺省 → 占位标题
+  assert.deepEqual(rows, [
+    {
+      title: "scout",
+      detail: "continuable",
+      status: "continuable",
+      payload: "child-1",
+    },
+    {
+      title: "(未命名)",
+      detail: "unknown",
+      status: "unknown",
+      payload: "child-2",
+    },
+  ]);
   unbind();
 });
 

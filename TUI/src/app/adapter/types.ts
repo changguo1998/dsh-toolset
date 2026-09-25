@@ -1045,22 +1045,28 @@ export interface SkillsLike {
 
 // ---------- subagents / tools 服务结构面（批次 3：/agents、/tools） ----------
 
-/** 宿主 subagents 服务条目结构面（dsh-subagent SubagentListEntry 结构化子集） */
+/** 宿主 subagents 服务条目结构面（dsh-subagent `SubagentListEntry` / `SubagentCatalogEntry` 合并子集）。
+ *  形态随宿主版本变化：≤0.1.5 的 `listChildren` 直接返回富条目；0.1.7 起 `listChildren` 只返回投影目录
+ *  （id/createdAt/mode/label，mode 可为 unknown），富字段改由 `listDescendants` 提供（depth=1 即直接子代）。 */
 export interface SubagentEntryLike {
-  /** 判别：child = 可用条目；diagnostic = 投影失败条目（只读展示，不可中断） */
+  /** 判别：child = 可用条目；diagnostic = 投影失败条目（只读展示，不可中断）；投影目录形态无此字段 */
   kind?: string;
   /** 子会话 id（可中断目标；diagnostic 条目即使带 id 也不可中断） */
   id?: string;
-  /** 子代理类型：one-shot / continuable */
+  /** 子代理类型：one-shot / continuable / unknown */
   mode?: string;
-  /** 创建标签 */
+  /** 创建标签（continuable 恒有；投影目录形态可能缺省） */
   label?: string;
-  /** 存活态：running / inactive */
+  /** 存活态：running / inactive（仅富条目形态提供） */
   activity?: string;
-  /** 是否有子代 */
+  /** 是否有子代（仅富条目形态提供） */
   hasChildren?: boolean;
   /** diagnostic 条目的原因：corrupt / unsupported / unavailable */
   reason?: string;
+  /** `listDescendants` 条目：与请求根的距离（直接子代 = 1） */
+  depth?: number;
+  /** `listDescendants` 条目：所属父会话 id */
+  parentId?: string;
 }
 
 /** 子代理一次 one-shot run 的返回（dsh-subagent SubagentRun 结构化子集） */
@@ -1079,6 +1085,12 @@ export interface SubagentRunLike {
 /** 宿主 subagents 服务结构面（ctx.get('subagents')，@deepseek-ai/dsh-subagent）；
  *  列条目须用 `listChildren(parentSessionId)`（`list()` 返回 provider 名，不是 agent）。 */
 export interface SubagentsLike {
+  /** 0.1.7 起优先：递归目录（富条目 + parentId/depth），取 depth=1 即直接子代 */
+  listDescendants?(
+    rootSessionId: string,
+    signal?: AbortSignal,
+  ): Promise<readonly SubagentEntryLike[]>;
+  /** 直接子代列表。≤0.1.5 返回富条目；0.1.7 起返回投影目录（无 activity/hasChildren/diagnostic） */
   listChildren?(
     parentSessionId: string,
     signal?: AbortSignal,
@@ -1335,11 +1347,22 @@ export interface AgentPresetsLike {
   recompose?(agentCtx: unknown, id: string): Promise<unknown>;
 }
 
-/** ctx.get('jobs') 结构面（rc.2 JobRegistry：list/kill/onJobsChanged） */
+/** ctx.get('jobs') 结构面（dsh JobRegistry）。
+ *  caller 形态随宿主版本变化：≤0.1.5 的实现只读 `caller?.id`（故传 `{ id }`），0.1.7 起改为裸
+ *  `SessionId` 字符串（owner 判定 `job.owner.id === caller`）；`list`/`kill` 都吃同一形态。
+ *  变化订阅同理：≤0.1.5 用 `onJobsChanged(listener)`，0.1.7 起改为 `events.subscribe(filter, listener)`。 */
 export interface JobsLike {
   list(caller?: unknown): ReadonlyArray<Record<string, unknown>>;
   kill?(id: string, caller?: unknown, reason?: string): string;
+  /** ≤0.1.5：任一 jobs 变化 → 回调（无参） */
   onJobsChanged?(listener: (...args: unknown[]) => void): () => void;
+  /** 0.1.7 起：按 owner 过滤的事件流（filter 形如 `{ owner: sessionId }`） */
+  events?: {
+    subscribe?(
+      filter: unknown,
+      listener: (...args: unknown[]) => void,
+    ): () => void;
+  };
 }
 export interface RealAdapterOptions {
   runtime: DshRuntime;

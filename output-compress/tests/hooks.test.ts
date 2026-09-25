@@ -17,7 +17,11 @@ import {
   type OutputCompressConfig,
 } from "../src/index.ts";
 import type { SessionEventLike } from "../src/hooks.ts";
-import { type CodeRuntimeLike, VmSandbox } from "../src/sandbox.ts";
+import {
+  type CodeRuntimeLike,
+  type RuntimeRunRequest,
+  VmSandbox,
+} from "../src/sandbox.ts";
 import { KbNotMountedError, SharedKbWriter } from "../src/kb-write.ts";
 import { SUMMARY_PROGRAM, validateSummary } from "../src/summary-program.ts";
 
@@ -80,42 +84,59 @@ function makeHost(
   };
 }
 
-/** 模拟宿主 code-runtime：async 函数体 + input 全局绑定（worker 语义的进程内等价）。 */
-function makeSimulatedCodeRuntime(): CodeRuntimeLike {
-  return {
-    run: async ({ program, bindings }) => {
-      // 不变量：CodeRuntimeSandbox 必须传共享程序源（单一程序源契约）
-      assert.equal(program, SUMMARY_PROGRAM);
-      const globals: Record<string, unknown> = {};
-      for (const b of bindings) {
-        const wrapped: Record<string, unknown> = {};
-        for (const [fnName, fn] of Object.entries(b.functions)) {
-          wrapped[fnName] = async (...args: unknown[]) => {
-            // 对齐宿主 worker-thread 编解码：decodeWorkerJson 把空参数列表判为非法
-            // （input.length === 0 → undefined → "binding arguments must be lossless JSON"）
-            if (args.length === 0) {
-              throw new Error("binding arguments must be lossless JSON");
-            }
-            return fn(args[0]);
-          };
-        }
-        globals[b.global] = wrapped;
+/** 模拟宿主沙箱：async 函数体 + input 全局绑定（worker 语义的进程内等价）。
+ *  @param options.withResolve true 时提供 `resolve()`（0.1.7 的 ptcRuntime 形态：resolve 补 spec 再 run）；
+ *         缺省只有 `run()`（≤0.1.5 的 codeRuntime 形态）。 */
+function makeSimulatedCodeRuntime(
+  options: {
+    withResolve?: boolean;
+    onResolve?: (request: RuntimeRunRequest) => void;
+  } = {},
+): CodeRuntimeLike {
+  const execute = async (request: RuntimeRunRequest) => {
+    const { program, bindings } = request;
+    // 不变量：CodeRuntimeSandbox 必须传共享程序源（单一程序源契约）
+    assert.equal(program, SUMMARY_PROGRAM);
+    const globals: Record<string, unknown> = {};
+    for (const b of bindings) {
+      const wrapped: Record<string, unknown> = {};
+      for (const [fnName, fn] of Object.entries(b.functions)) {
+        wrapped[fnName] = async (...args: unknown[]) => {
+          // 对齐宿主 worker-thread 编解码：decodeWorkerJson 把空参数列表判为非法
+          // （input.length === 0 → undefined → "binding arguments must be lossless JSON"）
+          if (args.length === 0) {
+            throw new Error("binding arguments must be lossless JSON");
+          }
+          return fn(args[0]);
+        };
       }
-      try {
-        const source = `(async () => {\n${program}\n})()`;
-        const promise = runInNewContext(
-          source,
-          { ...globals, TextEncoder },
-          { timeout: 30_000 },
-        ) as Promise<unknown>;
-        const value = await promise;
-        validateSummary(value); // 与宿主一致：只回传合法 JSON
-        return { value };
-      } catch (error) {
-        return { error: { kind: "exception", message: String(error) } };
-      }
-    },
+      globals[b.global] = wrapped;
+    }
+    try {
+      const source = `(async () => {\n${program}\n})()`;
+      const promise = runInNewContext(
+        source,
+        { ...globals, TextEncoder },
+        { timeout: 30_000 },
+      ) as Promise<unknown>;
+      const value = await promise;
+      validateSummary(value); // 与宿主一致：只回传合法 JSON
+      return { value };
+    } catch (error) {
+      return { error: { kind: "exception", message: String(error) } };
+    }
   };
+  if (options.withResolve === true) {
+    return {
+      // 0.1.7 provider 语义：resolve 补齐 cwd/sandboxPolicy，run 只吃 spec
+      resolve: (request: RuntimeRunRequest) => {
+        options.onResolve?.(request);
+        return { ...request, cwd: "/tmp/oc-test", sandboxPolicy: {} };
+      },
+      run: async (spec) => execute(spec as RuntimeRunRequest),
+    };
+  }
+  return { run: async (request) => execute(request as RuntimeRunRequest) };
 }
 
 /** 构造 tool/result 事件（消息体形状对齐 dsh ToolResultMessage 的最小结构）。 */
@@ -174,10 +195,15 @@ function ocChunksText(dbPath: string): string {
 
 async function mount(
   dir: string,
-  opts: { codeRuntime?: CodeRuntimeLike; config?: OutputCompressConfig } = {},
+  opts: {
+    codeRuntime?: CodeRuntimeLike;
+    /** reflect 层替身（可选：用于注入 0.1.7 的 ptcRuntime 形态服务） */
+    reflect?: BundleHost["reflect"];
+    config?: OutputCompressConfig;
+  } = {},
 ) {
   const dbPath = path.join(dir, "kb.db");
-  const { host, emit } = makeHost(opts.codeRuntime);
+  const { host, emit } = makeHost(opts.codeRuntime, opts.reflect);
   const bundle = await createOutputCompressBundle(host, {
     dbPath,
     project: "oc-test",
@@ -435,7 +461,7 @@ test("reflect 宿主：reflect.get 返回 code-runtime 时经该运行时入库�
   }
 });
 
-test("cordis 代理宿主：直接读 codeRuntime 抛错时不致命，reflect 以非 strict 语义可选读取", async () => {
+test("cordis 代理宿主：直接读沙箱服务属性抛错时不致命，reflect 以非 strict 语义按序探测", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "oc-hooks-"));
   try {
     const dbPath = path.join(dir, "kb.db");
@@ -467,8 +493,9 @@ test("cordis 代理宿主：直接读 codeRuntime 抛错时不致命，reflect �
       project: "oc-test",
     });
     bundle.dispose();
-    // 抛错属性未被触碰；reflect 读取使用非 strict（未挂载返回 undefined → 回落 vm）
-    assert.deepEqual(seen, ["codeRuntime:false"]);
+    // 抛错属性未被触碰；reflect 读取使用非 strict，且按 ptcRuntime → codeRuntime 顺序探测
+    // （两者都未挂载 → 回落 vm）
+    assert.deepEqual(seen, ["ptcRuntime:false", "codeRuntime:false"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -510,4 +537,95 @@ test("VmSandbox 超时参数可注入（不破坏默认路径）", async () => {
   const r = await s.run("line1\nERROR fail\nline3", 10_000);
   assert.equal(r.stats.lines, 3);
   assert.equal(r.keyLines.length, 1);
+});
+
+test("ptcRuntime 路径（0.1.7）：resolve 补齐 spec 后 run 入库，不回落 vm", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "oc-hooks-"));
+  try {
+    makeKbDb(path.join(dir, "kb.db"));
+    const resolved: RuntimeRunRequest[] = [];
+    const seenSpecs: unknown[] = [];
+    const base = makeSimulatedCodeRuntime({ withResolve: true });
+    const runtime: CodeRuntimeLike = {
+      resolve: (request) => {
+        resolved.push(request);
+        return base.resolve?.(request);
+      },
+      run: async (spec) => {
+        seenSpecs.push(spec);
+        return base.run(spec);
+      },
+    };
+    const { dbPath, emit, bundle } = await mount(dir, {
+      reflect: { get: (name) => (name === "ptcRuntime" ? runtime : undefined) },
+    });
+    emit(toolResultEvent(80, "p".repeat(20_000)));
+    await settle(() => countOcChunks(dbPath) >= 1);
+    // 两步都被调用：resolve 收到原始请求，run 收到带 cwd 的 spec
+    assert.equal(resolved.length, 1);
+    assert.equal(resolved[0]?.program, SUMMARY_PROGRAM);
+    assert.equal(seenSpecs.length, 1);
+    assert.equal(
+      (seenSpecs[0] as { cwd?: string }).cwd,
+      "/tmp/oc-test",
+      "run 必须收到 resolve 产出的 spec（0.1.7 provider 缺 spec 直接拒绝）",
+    );
+    assert.ok(ocChunksText(dbPath).includes("## slices ("));
+    bundle.dispose();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ptcRuntime resolve 抛错：回落 vm 完成入库（宿主沙箱故障不丢摘要）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "oc-hooks-"));
+  try {
+    makeKbDb(path.join(dir, "kb.db"));
+    let runCalls = 0;
+    const failing: CodeRuntimeLike = {
+      resolve: () => {
+        throw new Error("ptc-runtime-node: cwd must be absolute");
+      },
+      run: async () => {
+        runCalls += 1;
+        return { value: {} };
+      },
+    };
+    const { dbPath, emit, bundle } = await mount(dir, {
+      reflect: { get: (name) => (name === "ptcRuntime" ? failing : undefined) },
+    });
+    emit(toolResultEvent(81, "q".repeat(20_000)));
+    await settle(() => countOcChunks(dbPath) >= 1);
+    assert.equal(runCalls, 0, "resolve 失败后不应再调用宿主 run");
+    assert.ok(
+      ocChunksText(dbPath).includes("## slices ("),
+      "回落 vm 应完成入库",
+    );
+    bundle.dispose();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ptcRuntime 程序级失败（新 kind output-limit）：转可读错误、不回落重试", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "oc-hooks-"));
+  try {
+    makeKbDb(path.join(dir, "kb.db"));
+    const failing: CodeRuntimeLike = {
+      resolve: (request) => request,
+      run: async () => ({
+        error: { kind: "output-limit", message: "超过输出上限" },
+      }),
+    };
+    const { dbPath, emit, bundle } = await mount(dir, {
+      reflect: { get: (name) => (name === "ptcRuntime" ? failing : undefined) },
+    });
+    assert.doesNotThrow(() => emit(toolResultEvent(82, "z".repeat(20_000))));
+    await new Promise((r) => setTimeout(r, 150));
+    // 程序级失败不触发 vm 回落：若回落，vm 会用同一程序源成功入库
+    assert.equal(countOcChunks(dbPath), 0);
+    bundle.dispose();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
