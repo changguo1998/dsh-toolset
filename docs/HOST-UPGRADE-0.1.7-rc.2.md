@@ -39,7 +39,7 @@
 | 组合与启动核对 | **已完成** | `--dump-config` 含 `dsh-base` + 13 个 `@dsh-toolset/*` + `tool-ask-user` + `session-title-all-prompts-llm`；关键服务条目在位：`jobs`、`subagent`、`ptc-runtime`（`@deepseek-ai/dsh-ptc-runtime-node`）、`sandbox-policy`；pty 冒烟 15s：TUI 正常渲染、**无 `did not activate` / `startup failed`** |
 | 运行时核对（自动） | **已完成** | 重启后本会话即跑在 rc.2：会话目录同时存在旧 `session.v3.jsonl.zstd` 与新 `session.v4.jsonl.zstd`（V4 writer 另存 successor、不改写前代）且会话可继续追加；插件实测：`code_map index` 建成 265 文件 / 5052 符号索引、`context_report` 正常（读的正是跨 V3→V4 迁移后的会话）、`task_engine` 正常、metric-loop 启动注册日志在位、output-compress 产生新分片（48KB / 37KB，`inline-event-text` 触发） |
 | 复核中发现的问题（与升级无关） | **已记录，待修** | `fs_digest` 工具在 0.1.5 与 rc.2 上均报 `cannot get property "cwd" without inject`：`fs-digest/src/main.ts:129` 直接读 `ctx.cwd`，但 `cwd` 不是宿主服务，cordis 代理对未 inject 的属性访问即抛错，`?? process.cwd()` 永远走不到。**既有缺陷**，不在本次升级范围内 |
-| 交互验收（`/jobs`、`/agents` 面板行为） | **待人工** | 需在终端打开面板确认：任务列表 + Enter 取消、子代理行显示 mode/activity |
+| 交互验收（`/jobs`、`/agents`） | **已通过** | `/jobs`：起一个后台任务后能列出会话自有任务，`Enter` 取消生效（任务在 ~24s 时被 SIGTERM 终止，远早于其 240s 时长）——旧代码传 `{ id }` 会因 owner 不匹配而面板恒空，故这两步同时验证了 caller 与 `kill` 改造；`/agents`：行内显示 `continuable · inactive`，即富条目的 `mode`/`activity` —— 0.1.7 的 `listChildren` 只给投影目录（无 activity），可见 `listDescendants` 优先分支生效 |
 | `HOST-PACKAGES.md` 重刷（240 → 283 个随包分发包口径） | **进行中** | 已采集 283 包 + 91 个挂载清单（`tmp/hostdoc/`），按 §6 复现命令重生成 |
 
 升级实际执行记录（2026-09-25，工作区外操作；profile 里的 `package.json` 是指向 `~/fff/config/dsh/profiles/fff/package.json` 的软链，改的是后者）：

@@ -12,7 +12,7 @@
 - 剩余 P2 插件（workflow-ext / web-ext / session-broker / command-template）与内容资产未开始。
 - 已知外部问题：herdr pane 的 PTY 尺寸与其渲染区域不一致（全宽横线右端少 1~2 列；同一构建在独立终端正常）——根因在 herdr 侧，取证与修复方向见 `DEVELOPMENT-BACKLOG.md` §5。
 - 宿主基线：本地安装 dsh **`0.1.7-rc.2`**（2026-09-25 由 0.1.5-rc.3 升级，随包分发包 283 个；npm `latest` 仍停在 0.1.5-rc.3、候选在 `next`）。官方包总量（240 个，口径绑定 0.1.5-rc.3）、分类说明与 fff 挂载清单（82 个）见 `HOST-PACKAGES.md`（**待按 283 包重刷**）；该基线内**无 worktree 隔离包、无跨会话消息包**（对应待办 #15 / #30）。
-- 0.1.7-rc.2 升级（2026-09-25）：代码侧三处破坏已修并**双栈兼容**——TUI `jobs` caller/订阅形态、TUI `/agents` 数据源（`listDescendants` 优先）、output-compress 接 `ptcRuntime`（`resolve` + `run`）；`scripts/install.sh` 默认版本、TUI `DESIGN.md` / `IMPLEMENTATION.md` / `COMMANDS-SPEC.md` 已同步；宿主与 profile 均已升级（profile 的 `dsh-session-title-all-prompts-llm` → 0.1.7-rc.2），`--dump-config` 含 13 个 `@dsh-toolset/*`，pty 冒烟无 `did not activate`，settings 已迁移（`settings.yaml` → `.imported`）。**待办**：交互验收（`/jobs`、`/agents`、`sandbox=ptcRuntime` 日志、旧会话 V3→V4 恢复）与 `HOST-PACKAGES.md` 重刷——证据与执行记录见 `HOST-UPGRADE-0.1.7-rc.2.md`（§0.1 实施状态）。
+- 0.1.7-rc.2 升级（2026-09-25）：代码侧三处破坏已修并**双栈兼容**——TUI `jobs` caller/订阅形态、TUI `/agents` 数据源（`listDescendants` 优先）、output-compress 接 `ptcRuntime`（`resolve` + `run`）；`scripts/install.sh` 默认版本、TUI `DESIGN.md` / `IMPLEMENTATION.md` / `COMMANDS-SPEC.md` 已同步；宿主与 profile 均已升级（profile 的 `dsh-session-title-all-prompts-llm` → 0.1.7-rc.2），`--dump-config` 含 13 个 `@dsh-toolset/*`，pty 冒烟无 `did not activate`，settings 已迁移（`settings.yaml` → `.imported`）。**交互验收已通过**：`/jobs` 能列出会话自有任务且 `Enter` 取消生效、`/agents` 显示 `continuable · inactive`（走 `listDescendants`），会话 V3→V4 迁移后仍可继续追加。**待办**：`HOST-PACKAGES.md` 重刷——证据与执行记录见 `HOST-UPGRADE-0.1.7-rc.2.md`（§0.1 实施状态）。
 
 ## 状态表
 
