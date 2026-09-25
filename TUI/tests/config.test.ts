@@ -90,8 +90,8 @@ test("loadTuiConfig：缺省路径读取真实文件；缺失路径回落默认�
 });
 
 test("metricsFor：footerHeight 绝对行数生效；statusDivisor 控制状态列宽（最低 20 列、历史区保底 10）", () => {
-  const def = metricsFor({ rows: 24, cols: 60 }, false, 1, 1);
-  const cfg = metricsFor({ rows: 24, cols: 60 }, false, 1, 1, {
+  const def = metricsFor({ rows: 24, cols: 60 }, 1, 1);
+  const cfg = metricsFor({ rows: 24, cols: 60 }, 1, 1, {
     footerHeight: 6,
     statusDivisor: 2,
   });
@@ -108,7 +108,7 @@ test("metricsFor：footerHeight 绝对行数生效；statusDivisor 控制状态�
     "statusDivisor=2 → cols/2=30",
   );
   // 最低 20 列：cols=40 时 1/3=13 仍被提到 20（历史区保底 10 → 历史区 20）
-  const narrow = metricsFor({ rows: 24, cols: 40 }, false, 1, 1);
+  const narrow = metricsFor({ rows: 24, cols: 40 }, 1, 1);
   assert.equal(narrow.statusColWidth, 20, "状态列最低 20 列");
   assert.equal(narrow.historyWidth, 20, "历史区 = 40 - 20");
 });

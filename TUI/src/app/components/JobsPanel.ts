@@ -12,7 +12,7 @@ import type { FrameRow } from "../../renderer/index.ts";
 import { fillBoxTree } from "../layout/fill.ts";
 import type { ColorName } from "../../renderer/theme.ts";
 import type { JobInfo } from "../adapter/dsh.ts";
-import { truncateToWidth, displayWidth } from "../layout.ts";
+import { truncateToWidth } from "../layout.ts";
 import type { Box } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
@@ -31,7 +31,7 @@ export function buildJobsPanelBox(
   const rows = Math.max(1, height);
   const leaves = [];
 
-  // 首行：标题 + 提示（双段：标题青、提示灰）
+  // 首行：标题（青）；按键提示不在面板内（统一由底部提示区显示，见 layout/hints.ts）
   const activeCount = jobs.filter(
     (j) => j.status === "running" || j.status === "stopping",
   ).length;
@@ -40,21 +40,11 @@ export function buildJobsPanelBox(
       ? `后台任务 (${jobs.length}，运行中 ${activeCount}）`
       : `后台任务 (${jobs.length}）`;
   const headerVisible = truncateToWidth(header, width);
-  const hintText = "↑/↓ 选择 · PgUp/PgDn 翻页 · Enter 取消 · Esc 关闭";
-  const hintVisible = truncateToWidth(
-    hintText,
-    Math.max(0, width - displayWidth(headerVisible) - 2),
+  leaves.push(
+    styled([{ text: headerVisible, style: { fg: "cyan" as ColorName } }], {
+      wrap: false,
+    }),
   );
-  const headSegs: {
-    text: string;
-    style?: import("../../renderer/screen.ts").FrameStyle;
-  }[] = [
-    { text: headerVisible, style: { fg: "cyan" as ColorName } },
-    ...(hintVisible
-      ? [{ text: `  ${hintVisible}`, style: { fg: "gray" as ColorName } }]
-      : []),
-  ];
-  leaves.push(styled(headSegs, { wrap: false }));
 
   // 空列表占位
   if (jobs.length === 0) {

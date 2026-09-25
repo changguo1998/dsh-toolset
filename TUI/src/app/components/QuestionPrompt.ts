@@ -1,13 +1,12 @@
 // src/app/components/QuestionPrompt.ts — 问答面板渲染（纯函数）
 //
 // 以文本面板呈现 DSH 提问（与 ApprovalPrompt 同风格）：标题行 + 单题视图
-// （header/question/detail/选项）+ 底部操作提示 + 第 n/m 题导航。
+// （header/question/detail/选项）+ 第 n/m 题导航；按键提示**不在面板内**，
+// 统一由底部提示区按状态显示（见 layout/hints.ts 的 questionHintLine）。
 // plan-review intent 以“计划卡片”突出显示 detail（决策卡片，approve 选项按
 // intent.approve 标签识别，渲染上与普通选项一致、由用户在选项中选取）。
 // “自定义回答”是固定在选项列表末尾的兜底项（无预设选项时列表仅此一项），
 // 与普通选项一样用 ↑/↓ 高亮；高亮在其上时键入字符即输入自定义文本。
-// 操作提示只列出当前实际用到的按键（Enter 文案区分“下一题/提交”，多题才显示
-// “切题”，有预设选项才显示“空格 标记”与“↑/↓ 选项”）。
 // 输出恰好 height 行；题干/detail/选项超出面板可用宽均按行 soft-wrap（题干/选项
 // 续行按正文起点缩进、选项续行无光标/标记且缩进 6 列更深（选项文字起点第 4 列 + 2），
 // 便于辨认新选项起点；见 OPTION_CONT_INDENT）、高度超出时滚动，高亮在
@@ -33,7 +32,7 @@ const OPTION_CONT_INDENT = "      ";
  * 问答面板 Box 生成器（TUI/docs/DESIGN.md §7 / SPEC.md §7）：整棵 activity 内容树
  * 替换。文本池（题干/detail/选项/自定义兜底 + 滚动窗口）在 build 内按现状
  * 算法计算，逐行产 styled 叶子（选项行选中绿 / 未选中的光标行黄、无 markdown
- * 解析）。操作提示仅列实际用到的按键（Enter 文案区分下一题/提交等）。
+ * 解析）。按键提示不在面板内（见 layout/hints.ts）。
  */
 export function buildQuestionPanelBox(
   panel: QuestionPanelState,
@@ -44,13 +43,12 @@ export function buildQuestionPanelBox(
   // 续行缩进：常规 6 列；面板极窄（avail ≤ 6）时退回 4 列，避免缩进自身被折行
   const contIndent =
     avail > OPTION_CONT_INDENT.length ? OPTION_CONT_INDENT : "    ";
-  const maxBody = Math.max(0, height - 2);
+  const maxBody = Math.max(0, height - 1); // 只剩标题行；按键提示移到底部提示区
   const item = panel.items[panel.itemIndex];
   let hl = -1;
   const total = panel.items.length;
   const isPlan = item?.intent?.kind === "plan-review";
   const multi = item?.multiSelect ?? false;
-  const hasPreset = (item?.options.length ?? 0) > 0;
 
   const pool: string[] = [];
   // 与 pool 逐行平行的着色表：选项行（含其所有折行续行）整块同色，题干/detail
@@ -152,19 +150,8 @@ export function buildQuestionPanelBox(
       ? styled([seg(line)], { wrap: false })
       : styled([seg(line, color)], { wrap: false });
   });
-  // 操作提示：仅列实际用到的按键
-  const parts: string[] = [];
-  parts.push(
-    "[Enter]" + (total > 1 && panel.itemIndex < total - 1 ? "下一题" : "提交"),
-  );
-  parts.push("[Esc]取消");
-  if (hasPreset) parts.push("[空格]标记");
-  if (hasPreset) parts.push("[↑/↓]选项");
-  if (total > 1) parts.push("[←/→]切题");
-  const hint = styled([seg(` ${parts.join(" · ")} `)], {
-    wrap: false,
-  });
-  return v([title, ...bodyLeaves, hint]);
+  // 按键提示不在面板内（统一由底部提示区按状态显示，见 layout/hints.ts）
+  return v([title, ...bodyLeaves]);
 }
 
 export function renderQuestionPanel(

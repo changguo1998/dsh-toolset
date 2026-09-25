@@ -87,6 +87,7 @@
 ### 途中新问题登记（2026-09-26，第三轮审阅）
 
 - **面板内「自定义回答」编辑无光标**：3.1.3 的 focus 判据只看 `normalInput`，面板内文本编辑焦点不被判为「允许输入」，且 `QuestionPrompt.ts` 不产出 caret。已按流程追加 BACKLOG 条目 **3.2.7**（用户裁定「加入 backlog，先不处理」），交其他 agent；本任务范围不变（不改面板渲染产出 caret）。
+- **demo 冒烟 `titlebar-mode-icons` 期望的字形码过期**（既有缺陷，与 3.1.x 无关）：`demo/main.ts` 的 `ICON.box` / `ICON.boxClosed` 仍是 `U+ED95` / `U+ED75`，而源码 `TITLE_ICON` 已是 `U+F03D7` / `U+F03D6`——该断言在冒烟中恒失败（HEAD 版 demo 亦为旧值）。已按流程追加 BACKLOG 条目 **3.5.2**，交其他 agent；本任务不改该断言（已在步骤 2 记录中标注为唯一失败项）。
 
 ## 规划
 
@@ -122,6 +123,51 @@
 - 不实现 BACKLOG 其它组条目（3.2 面板内容渲染、3.3 按键与 adapter、3.4 声音提醒、3.5-3.7）；其中 3.2.1（分窗滚动）依赖 3.1.2 的高度分配，本任务只保证接口可衔接，不改滚动算法。
 - 不改 `TUI/docs/STATUS.md`（对照文档，由用户择时更新）、不改 `docs/host/`（宿主面知识不参与本流程）。
 
+## 实施计划（步骤 2 剩余 + 步骤 3，细化）
+
+### 进行态快照（2026-09-26）
+
+- **已落地**：新增 `src/app/layout/hints.ts`（文案唯一来源 + `hintLine(state)`，优先级 approval > question > statusPanel > picker > jobs > commandPanel > history > completion > 默认）；`layout.ts` 删旧常量改 import hints；`metricsFor` 删 `hasPanel`、`footerHeight = max(1, interaction − hintRows)`、`hintRows` 默认 1；`FrameGeometry.showHint` 移除；`frameGeometry` 改 `metricsFor(size, statusLines.length, 1, state)`；`frameSections` 提示段恒取 `geom.hintHeight`；`buildFrame` 提示区恒 1 行、内容 `hintLine(state)`（删 `historyHint` 与 `const history`）。
+- **`npm run check` / `npm run build` 当前通过**（步骤 2 的 layout 侧自洽）。
+- **测试签名已同步**（中断恢复那轮）：`tests/layout4.test.ts` / `app.test.ts` / `config.test.ts` / `layout-horizontal.test.ts` / `pane-text-margin.test.ts` 的 `metricsFor(...)` 调用已按新签名更新（含「面板态 footer=3、topHeight 与输入态相同」重写）；这 5 个文件 263/263 通过；pty 侧 `/session` 面板打开正常（修掉 `HISTORY_HINTS` 未定义崩溃）。
+- **步骤 2 已完成**：5 个组件的面板内提示删除与 `maxBody` 回退（`QuestionPrompt` / `ApprovalPrompt` / `StatusPanel` / `JobsPanel` / `CommandListPanel`）；随之的断言改写（`command-panel-agents-tools` 改为直接断言 `hints.ts`；`command-panel.test.ts` 措辞；`app.test.ts` 两处窗口断言按 body +1 行重写）；冻结基线重跑并审查（仅 5 个面板场景：面板内提示行消失、底部提示行填文案，行数不变）；demo 断言改为「底部提示行含审批键位 + 面板内不再着色」；文档回写（DESIGN §布局 / SPEC §11.3 / COMMANDS-SPEC §渲染位置 / IMPLEMENTATION 补全键位 / README 输入区与面板）。详见「实现记录 · 步骤 2」。
+- **仍待办**：步骤 3（3.1.1 notice 复用输入区）；真机验证（用户执行）；提交（按询问点）。
+
+### 步骤 2 剩余改动（逐文件）
+
+1. `src/app/components/QuestionPrompt.ts`：删 hint 段（`parts` 构建与 `const hint`），返回改 `v([title, ...bodyLeaves])`；`hasPreset` 若仅被 hint 使用则删；`maxBody` 改 `Math.max(0, height - 1)`；文件头「操作提示只列出…」注释改为指向 `layout/hints.ts`。
+1. `src/app/components/ApprovalPrompt.ts`：删末行 `hint`（`[y]批准 / [n]拒绝 / [Esc]退出`）；`maxBody` 改 `height - 1`；保留 `v(..., { height: { mode: "fixed", rows: height } })` 定高。
+1. `src/app/components/StatusPanel.ts`：删 `hint` 文本与 `hintRow`，返回 `v([titleRow, ...body])`；`maxBody` 改 `height - 1`。
+1. `src/app/components/JobsPanel.ts`：删首行右侧灰字键位（`hintText` / `hintVisible` / 灰色段），首行只留标题 + 计数；`taskRows` 公式不变。
+1. `src/app/components/CommandListPanel.ts`：删 `commandPanelHint`（已迁至 `hints.ts`，文案保持一致）与首行右侧键位段；清理不再使用的 `displayWidth` / `truncateToWidth` import（按剩余用法判定）。
+1. `tests/command-panel-agents-tools.test.ts`：`hintOf` 改为从 `../src/app/layout/hints.ts` import `commandPanelHint`（`agents` 断言 `Enter 中断`、其余 `Enter 详情` 不变）。
+
+### 步骤 2 测试与基线
+
+1. `tests/layout4.test.ts`：10 处 `metricsFor(...)` 按新签名改（删第 2 参；`metricsFor(size, false, 1, 1)` → `metricsFor(size)`）；原 `metricsFor(size, true)` 的「面板态」用例按新口径重写为「面板态 footer 也 = interaction − 1，topHeight 与输入态相同」；补「任意 hintRows 下 footer + hint = interaction」断言。
+1. 面板测试核对行数与文案断言：`panel.test.ts`、`jobs-panel.test.ts`、`command-panel.test.ts`、`command-panel-*.test.ts`、`modelpicker.test.ts`、`help.test.ts`、`app.test.ts`（含 `hintRows` 读取与「hint 不带面板标签」两条）；五个面板各补「输出恰好 height 行」断言。
+1. `scripts/freeze-focus-frame.mts` 重跑 → `tests/fixtures/focus-frame-legacy.json` 变更逐条审查，diff 摘要写入本文件（禁止盲刷）。
+1. `demo/main.ts` / `demo/mockAdapter.ts`：面板帧断言与 mock 同步（提示位置与面板行数变化）。
+1. 命令：`npm run check`；单文件 `node --experimental-transform-types --test --test-force-exit <file...>`；`npm run demo -- --smoke`；收尾整包 `npm run test:tui`。
+1. 验收：任意状态下提示区恒 1 行且文案随状态切换；面板内无键位；五面板恰好 height 行；`footer + hint = interaction` 不随面板开关变化。
+
+### 步骤 3（3.1.1）改动
+
+1. `src/app/layout/build-box.ts`：抽出 notice 行排版纯函数（保留 `tone` 着色、`hanging` 悬挂缩进、`compact` / `noCompact` 语义），活动区与 footer 共用；活动区路径行为不变。
+1. `src/app/layout.ts`：`modalOpen` 分支细分——问题交互态（`state.approval || state.question`）时 footer 渲染 notice 视图：取 `state.buffer` 中 `kind === "notice"` 的行 → 按 footer 宽度折行 → 取末尾 `geom.footerHeight` 行 → 逐行 `styled(..., { wrap: false })` + tone 着色；其余模态（picker / jobs / history / commandPanel / statusPanel）保持空白占位。
+1. 交互结束：切回输入视图即可（无 buffer 需清理，活动区留痕不动）；`state.inputText`（排队输入）原样恢复。
+1. 测试：新增 `tests/footer-notice.test.ts` —— notice 出现在 footer；tone 保留；超长 notice 折行后取尾部 N 行；picker / jobs 等非问题交互面板仍空白占位；关闭后回输入视图且 `inputText` 不变。
+1. `demo`：mock 触发「面板 + notice」组合，冒烟断言输入区显示 notice。
+1. 文档：`DESIGN.md` §布局（「模态面板底部交互区空白占位」改为「问题交互态显示 notice」）、`SPEC.md`、`IMPLEMENTATION.md`、`README.md`（按需）。
+1. 验收：问答 / 审批打开期间新 notice 立即出现在输入区位置；关闭后回到空输入态且 `inputText` 恢复；活动区高度不变。
+
+### 风险与回滚点
+
+- 面板行数断言密集（`maxBody` 回退最易错）→ 逐组件改完即跑对应测试文件，再统一跑面板族。
+- 冻结基线仅允许「审查 diff 后重跑更新」；出现异常变更即回滚该夹具。
+- `hints.ts` 不得反向依赖 `components/`；`commandPanelHint` 迁移后只保留一份实现。
+- 每步先 `git diff` 自查，再按提交询问点单独询问是否提交。
+
 ## 实现记录
 
 ### 步骤 1：3.1.3 光标通道（2026-09-26，实现 + 单测通过）
@@ -145,9 +191,36 @@
 - 备注：`npm run test:tui -- <文件>` 在本机包装脚本下未按单文件跑通（报 `Could not find '<file>'`，整包运行超时后转后台），故改用直接 `node --test` 跑单文件；整包 `npm run test:tui` 留到收尾统一跑一次。
 - 待办（用户执行）：真机 `dsh --profile fff` 看三项——面板态无光标、思考中排队输入时光标停在输入框、`Ctrl+L` 后光标仍在输入框；`kill -INT` 后终端光标可见。
 
+### 中断恢复：提示区接线与历史会话载入
+
+- `layout.ts`：提示段改为恒计入帧高；`buildFrame` 改用 `hintLine(state)` 并移除旧常量/`showHint` 引用，修复 `/session` 面板触发 `HISTORY_HINTS` 未定义崩溃。
+- 测试调用按新 `metricsFor(size, statusHeight, hintRows, layout)` 签名更新；面板 footer 断言同步为 3 行 + 提示 1 行。
+- `npm run check`、`npm run build`：通过；布局 / App / config 相关 5 个测试文件：263/263 通过。
+- pty 验证：`fffdsh` 检测到源码变化并触发重建；打开 `/session` 后进程仍运行，历史面板可见，无 fatal 异常。
+- 整包 `npm test` 超过 10 分钟未结束，已停止；本次未完成整包测试。3.1.2 的面板内嵌提示迁移等后续工作仍未完成。
+
+### 步骤 2：3.1.2 按键提示统一到底部提示区（2026-09-26，实现 + 测试通过）
+
+改动（均在计划清单内）：
+
+1. 新增 `src/app/layout/hints.ts`：文案唯一来源 + `hintLine(state)`（优先级 approval > question > statusPanel > picker > jobs > commandPanel > history > completion > 默认）；`HINT_LINE` / `COMPLETION_HINT_LINE` / `HISTORY_*` / `commandPanelHint` 分别由 `layout.ts` 与 `CommandListPanel.ts` 迁入；空串仍占 1 行。
+1. `src/app/layout.ts`：删旧常量与 `FrameGeometry.showHint`；`metricsFor` 删 `hasPanel`、改为 `footerHeight = max(1, interaction − hintRows)`（`hintRows` 默认 1）；`frameGeometry` 走 `metricsFor(size, statusLines.length, 1, state)`；`frameSections` 提示段恒取 `geom.hintHeight`；`buildFrame` 提示区恒 1 行、内容取 `hintLine(state)`。
+1. 5 个组件：`QuestionPrompt.ts`（删 hint 段与已无用的 `hasPreset`，`maxBody` → `height − 1`）、`ApprovalPrompt.ts`（删末行键位行，`maxBody` → `height − 1`）、`StatusPanel.ts`（删 hint 行，`maxBody` → `height − 1`）、`JobsPanel.ts` / `CommandListPanel.ts`（首行只留标题 + 计数；删 `commandPanelHint` 与灰色键位段、清理不再使用的 `displayWidth` import）。
+1. 断言同步：`tests/command-panel-agents-tools.test.ts`（改为直接断言 `hints.ts` 的 `commandPanelHint`，并新增「面板内不再内嵌按键提示」用例）、`tests/command-panel.test.ts`（两处措辞改为「提示区换为面板键位 / 恒 1 行」）、`tests/app.test.ts`（问答与 plan-review 两处窗口断言按 body +1 行重写：初始窗口现含第二选项 / detail 正文，末位项仍被裁）。
+1. 冻结基线：重跑 `scripts/freeze-focus-frame.mts`；diff 审查结果——仅 5 个面板场景变化（approval / question / picker / statusPanel / jobsPanel）：面板内提示行消失、末行提示区填入对应文案，帧行数 24 不变；其余 10 个场景无差异。
+1. demo：审批断言由「面板内 y 红 / n 绿」改为「底部提示行含 `[y]批准 · [n]拒绝 · [Esc]退出`」+「面板内不再出现红色 `[y]批准`」。
+1. 文档：`DESIGN.md` §布局（提示区恒 1 行、hints.ts 唯一来源、面板内无键位）、`SPEC.md` §11.3（`hintHeight` 恒 1、`showHint` 字段移除）、`COMMANDS-SPEC.md` §渲染位置与接线点（footer 口径）、`IMPLEMENTATION.md`（补全键位指向 hints.ts）、`README.md`（输入区提示区、面板两节）。
+
+命令与结果：
+
+- `npm run check`：通过。
+- 整包 `node --experimental-transform-types --test --test-force-exit tests/*.test.ts`：**1047/1047 通过**（基线更新与断言改写后）。
+- `npm run demo -- --smoke`：SMOKE_OK；新断言 `approval-hint-bottom` / `approval-hint-not-colored` 通过；**唯一失败**为 `titlebar-mode-icons`——既有缺陷、与本次改动无关（已记 BACKLOG 3.5.2）。
+- 行为变化（需知悉）：面板内 `[y]` 红 / `[n]` 绿着色随提示迁移取消，底部提示行为单色普通前景；若要保留着色，需把 `hintLine` 扩为「段数组」形态，留待 3.2.4 / 3.3.1 一并考虑。
+
 ## 测试与证据
 
-（3.1.3 的测试与命令结果见「实现记录」步骤 1；待补：`npm run test:tui` 整包、真机 `dsh --profile fff` 现象与 `kill -INT` 验证；3.1.2 / 3.1.1 完成后一并补齐。）
+（3.1.3 见「实现记录 · 步骤 1」；3.1.2 见「实现记录 · 步骤 2」。整包：1047/1047 通过；demo 冒烟除既有 `titlebar-mode-icons`（BACKLOG 3.5.2）外全通过。待补：真机 `dsh --profile fff` 现象——面板态无光标 / 思考中排队输入光标停在输入框 / `Ctrl+L` 后光标仍在输入框 / 提示区文案随状态切换且面板内无键位 / `kill -INT` 后终端光标可见；3.1.1 完成后一并补齐。）
 
 ## 收尾
 

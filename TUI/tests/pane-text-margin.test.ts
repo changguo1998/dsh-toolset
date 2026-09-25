@@ -93,7 +93,7 @@ test("文字右缘留白：横向历史不留白 / 横向活动让 1 列 / 纵�
   for (const size of SIZES) {
     for (const placement of ["vertical", "horizontal"] as const) {
       const g = frameGeometry(state(placement), size);
-      const contentW = regionColumnWidth(metricsFor(size, false).historyWidth);
+      const contentW = regionColumnWidth(metricsFor(size).historyWidth);
       const tag = `${size.rows}x${size.cols}/${placement}`;
       // 区域正文宽（边框口径）不受影响
       assert.equal(g.contentW, contentW, `${tag}: 区域正文宽不变`);

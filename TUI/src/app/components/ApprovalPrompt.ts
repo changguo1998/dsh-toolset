@@ -1,6 +1,7 @@
 // src/app/components/ApprovalPrompt.ts — 审批弹窗渲染（纯函数）
 //
-// 以文本面板呈现审批请求：标题 + 说明（换行适配）+ 操作提示。
+// 以文本面板呈现审批请求：标题 + 说明（换行适配）；按键提示见 layout/hints.ts
+// （底部提示区按状态显示），面板内不再内嵌键位。
 // 输出恰好 height 行。
 
 import type { FrameRow } from "../../renderer/index.ts";
@@ -23,7 +24,7 @@ export function buildApprovalBox(
   width: number,
 ): Box {
   const avail = Math.max(4, width - 4);
-  const maxBody = Math.max(0, height - 2); // 去掉标题行和操作提示行后的可装行数
+  const maxBody = Math.max(0, height - 1); // 只剩标题行（按键提示在底部提示区）
 
   const lines: string[] = [];
   for (const part of approval.prompt.split("\n")) {
@@ -40,15 +41,8 @@ export function buildApprovalBox(
   const bodyLeaves = Array.from({ length: maxBody }, (_, i) =>
     panelExplanation(` ${body[i] ?? ""}`),
   );
-  // 末行：多色 styled 段（y=红 / n=绿）
-  const hint = styled([
-    seg(" "),
-    seg("[y]批准", { fg: "red" as const }),
-    seg(" · "),
-    seg("[n]拒绝", { fg: "green" as const }),
-    seg(" · [Esc]退出 "),
-  ]);
-  return v([title, ...bodyLeaves, hint], {
+  // 按键提示不在面板内（统一由底部提示区显示，见 layout/hints.ts）
+  return v([title, ...bodyLeaves], {
     height: { mode: "fixed", rows: height },
   });
 }

@@ -63,7 +63,7 @@ const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 /** 顶部行区域正文：取正文段（跳过状态列与分隔竖线，到右缘框列前为止；
  *  按显示宽度定位，兼容 CJK） */
 function histBody(line: string, cols: number): string {
-  const m = metricsFor({ rows: 24, cols }, false);
+  const m = metricsFor({ rows: 24, cols });
   const start = m.statusColWidth; // 区域正文起始列（状态列与分隔竖线之后）
   const contentW = m.historyWidth - 1; // 区域正文宽（右缘框列之外）
   const s = stripAnsi(line);
@@ -122,15 +122,15 @@ function frameWith(rows: number, cols: number) {
 
 test("metricsFor: 交互区(输入+提示)占 1/5 且至少 2 行；历史区 = cols - 状态列", () => {
   // rows=24 → 交互区 = floor(24/5) = 4：输入区 3 + 提示区 1
-  const m = metricsFor({ rows: 24, cols: 60 }, false);
+  const m = metricsFor({ rows: 24, cols: 60 });
   assert.equal(m.footerHeight, 3, "输入区 = 交互区 4 - 提示区 1");
-  assert.equal(m.topHeight, 24 - 1 - 3 - 2);
+  assert.equal(m.topHeight, 24 - 1 - 3 - 1 - 2);
   // 按键提示区独立计入（不进 footerHeight）：输入态 hintRows=1
-  const withHint = metricsFor({ rows: 24, cols: 60 }, false, 1, 1);
+  const withHint = metricsFor({ rows: 24, cols: 60 }, 1, 1);
   assert.equal(withHint.footerHeight, 3);
   assert.equal(withHint.hintHeight, 1);
   // 不足时每区至少 1 行：rows=10 → 交互区 max(2, floor(10/5)) = 2
-  const small = metricsFor({ rows: 10, cols: 60 }, false, 1, 1);
+  const small = metricsFor({ rows: 10, cols: 60 }, 1, 1);
   assert.equal(small.footerHeight, 1, "输入区最小 1 行");
   assert.equal(small.hintHeight, 1, "提示区最小 1 行");
   assert.equal(m.historyWidth, 60 - m.statusColWidth);
@@ -694,13 +694,10 @@ test("buildFrame: 审批弹窗时交互区高度与输入态一致（不上下�
     type: "approval",
     approval: { id: "a1", prompt: "允许?" },
   });
-  // 面板占据整个交互区：footer=交互区高度（24 行 → 4），与输入态（输入 3+提示 1）同高
-  const m = metricsFor({ rows: 24, cols: 60 }, true);
-  assert.equal(m.footerHeight, Math.max(2, Math.floor(24 / 5)));
-  assert.equal(
-    m.topHeight,
-    metricsFor({ rows: 24, cols: 60 }, false, 1, 1).topHeight,
-  );
+  // 提示区恒 1 行，面板态 footer=交互区高度−1，与输入态同高
+  const m = metricsFor({ rows: 24, cols: 60 });
+  assert.equal(m.footerHeight, 3);
+  assert.equal(m.topHeight, metricsFor({ rows: 24, cols: 60 }, 1, 1).topHeight);
   const frame = buildFrame(s, { rows: 24, cols: 60 });
   assert.equal(frame.length, 24);
 });
@@ -988,7 +985,7 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(�
     rowAnsi(line).replace(/\x1b\[[0-9;]*m/g, "");
   const visible = top.map(plain);
   // 长消息占满最大正文宽 ⟹ 左边界 = 历史宽 - userMaxBodyWidth
-  const m = metricsFor({ rows: 24, cols: 40 }, false);
+  const m = metricsFor({ rows: 24, cols: 40 });
   const hist = m.historyWidth;
   const pad = hist - userMaxBodyWidth(hist);
   assert.equal(pad, USER_MIN_LEFT_GUTTER, "长消息左边界应为 gutter");
@@ -1423,7 +1420,7 @@ test("会话流：turn 分隔线在历史区铺满宽度", () => {
 test("交错布局：模型正文右缘保留与用户块左缘对称的空位(gutter)；用户块仍贴右缘", () => {
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
   // cols=40 → historyWidth 依 metricsFor；文字排版宽再扣文字右缘留白（纵向 2 列）
-  const m = metricsFor({ rows: 16, cols: 40 }, false);
+  const m = metricsFor({ rows: 16, cols: 40 });
   const textW = paneTextWidth(regionColumnWidth(m.historyWidth), true);
   const bodyW = textW - USER_MIN_LEFT_GUTTER;
   let s = initialState();
@@ -1473,7 +1470,7 @@ test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满历
   const rows = buildFrame(s, { rows: 16, cols: 40 })
     .map((l) => strip(rowAnsi(l)))
     .filter((l) => /[0-9]/.test(l));
-  const m = metricsFor({ rows: 16, cols: 40 }, false);
+  const m = metricsFor({ rows: 16, cols: 40 });
   // gutter=0 → 正文顶满文字排版宽（区域正文宽扣文字右缘留白 2 列）
   const textW = paneTextWidth(regionColumnWidth(m.historyWidth), true);
   assert.ok(rows.length >= 2, "40 字符在窄历史宽下软换行");
@@ -1508,7 +1505,7 @@ test("交错布局：输入最长折行左缘与回复正文第 5 个字符同�
   // 屏幕列口径：区域正文起始列（状态列之后）= 0 基参照；正文首列放 ┃、
   // 自次列起为回复内容 → 回复正文起 start+1；用户块留白 gutter-1 →
   // 输入正文起 start+gutter-1，恰与回复第 5 个字符同列
-  const start = metricsFor({ rows: 24, cols }, false).statusColWidth;
+  const start = metricsFor({ rows: 24, cols }).statusColWidth;
   const uCol = colOf(uRow, "U");
   const rCol = colOf(rRow, "R");
   assert.equal(
@@ -1565,7 +1562,7 @@ test("交错布局：多行输入为一块——块内行首左对齐、块宽 =
   );
   // 块宽 = 最长行（24）+ 竖线 1 列 → 左缘 = 文字排版宽 − 25
   const textW = paneTextWidth(
-    regionColumnWidth(metricsFor({ rows: 24, cols }, false).historyWidth),
+    regionColumnWidth(metricsFor({ rows: 24, cols }).historyWidth),
     true,
   );
   assert.equal(
@@ -1618,7 +1615,7 @@ test("用户块：长输入折行后状态符号占左侧留白、正文各行�
   assert.equal(new Set(barCols).size, 1, `右缘竖线同列: ${barCols.join(",")}`);
 
   // 行元数据：符号独立成格后，块内各行仍共享 seq/blockId（滚动锚点/会话跳转依赖）
-  const m = metricsFor({ rows: 24, cols }, false);
+  const m = metricsFor({ rows: 24, cols });
   const textW = paneTextWidth(regionColumnWidth(m.historyWidth), true);
   const { dialogue } = buildContentRows(
     s.buffer,
@@ -2544,7 +2541,7 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
   const WHITE = "\x1b[38;2;255;255;255m";
   const size = { rows: 24, cols: 80 } as const;
   // 状态列在最左（col0..D，宽 statusColWidth），历史/活动区在右（宽 historyWidth）
-  const m = metricsFor(size, false);
+  const m = metricsFor(size);
   const D = m.statusColWidth - 1; // 分隔竖线列（状态列右缘/历史区左缘）
   const START = m.statusColWidth; // 区域正文起始列（标题栏与两 pane 正文首列）
   const R = size.cols - 1; // 区域外缘框列（屏幕最右）

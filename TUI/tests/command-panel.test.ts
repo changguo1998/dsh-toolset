@@ -508,7 +508,7 @@ test("键位：↑/↓ 单行移动且不越界", async () => {
 
 // ---------- 面板态 footer/focus 接线 ----------
 
-test("接线：面板态按键提示行让位（提示区消失，面板提示随首行显示）", async () => {
+test("接线：面板态提示区换为面板键位（面板内不再内嵌提示；前后都是 1 行）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSkillsAdapter();
   const app = new App({ renderer, adapter });
@@ -523,16 +523,16 @@ test("接线：面板态按键提示行让位（提示区消失，面板提示�
   const after = frames(renderer);
   assert.ok(
     !after.includes("[Alt+Enter]打断并发送"),
-    "面板态提示行让位: " + after,
+    "面板态不再显示默认提示: " + after,
   );
   assert.ok(
     after.includes("↑/↓ 选择"),
-    "面板自带提示（首行右侧，宽度不足时截断）: " + after,
+    "面板态提示区显示面板键位（见 layout/hints.ts）: " + after,
   );
   app.dispose();
 });
 
-test("接线：面板态交互区几何不变（底线位置一致、提示行让位，接线点 ②④）", () => {
+test("接线：面板态交互区几何不变（底线位置一致，提示区恒 1 行，接线点 ②④）", () => {
   const size: Size = { cols: 80, rows: 24 };
   const base = initialState();
   const open = reduceState(base, {
@@ -549,7 +549,7 @@ test("接线：面板态交互区几何不变（底线位置一致、提示行�
   assert.equal(
     openBottom,
     baseBottom,
-    "底线位置一致（footerHeight 与提示行让位）",
+    "底线位置一致（footerHeight 不变、提示区恒 1 行）",
   );
   assert.ok(
     baseRows.some((l) => l.includes("[Alt+Enter]打断并发送")),
@@ -557,7 +557,7 @@ test("接线：面板态交互区几何不变（底线位置一致、提示行�
   );
   assert.ok(
     !openRows.some((l) => l.includes("[Alt+Enter]打断并发送")),
-    "面板态提示行让位（提示区 1 行让给输入框，交互区总高不变）",
+    "面板态不再显示默认提示（提示区换为面板键位，仍是 1 行）",
   );
 });
 

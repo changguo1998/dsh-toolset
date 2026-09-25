@@ -21,6 +21,7 @@ import type {
   GoalHistory,
   ModeState,
 } from "./state.ts";
+import { hintLine } from "./layout/hints.ts";
 import {
   currentProjectCwd,
   historyVisibleRecords,
@@ -302,44 +303,16 @@ export function moveDialogueAnchor(
 /** 上/中/下三区之间的横线分隔行数 */
 export const SEPARATOR_ROWS = 2;
 
-/** 按键提示区内容（独立区域，位于输入区下方、之间不画横线；窄终端按显示宽度截断；审批/问答/选择面板自带按键提示，不显示该区） */
-export const HINT_LINE =
-  "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [Ctrl+J]输入换行 · [Ctrl+S]切换状态列 · [/help]更多命令";
-
-/** 补全候选打开时的按键提示（替换 HINT_LINE；候选面板本身不再占用活动区行放提示） */
-export const COMPLETION_HINT_LINE = "[tab]补全 · [↑/↓]选择 · [esc]收起";
-
-/** 历史会话面板各阶段的按键提示（显示于输入区下方提示区；面板标题行不再内嵌键位）。
- *  list=列表移动/批量标记（Space 标记、a 全选当前范围、c 清空）/范围切换（当前目录⇄全部）/
- *     会话切换/删除（有标记删标记、无标记删高亮）/清理空会话/关闭、
- *  view=内容滚动/翻页/返回列表、error=错误关闭；
- *  confirm-*=二次确认（y/n）、进行中阶段（deleting/cleaning）与加载类阶段无可用键位
- *  → 空白提示行保持高度稳定 */
-export const HISTORY_LIST_HINT_LINE =
-  "[↑/↓]移动 · [Space]标记 · [a]全选 · [c]清空 · [d]删除 · [Tab]范围 · [Enter]切换 · [x]清理空会话 · [Esc]关闭";
-export const HISTORY_VIEW_HINT_LINE =
-  "[↑/↓]滚动 · [PgUp/PgDn]翻页 · [Esc]返回列表";
-export const HISTORY_ERROR_HINT_LINE = "[Esc]关闭";
-export const HISTORY_CONFIRM_HINT_LINE = "[y/Enter]确认 · [n/Esc]取消";
-export const HISTORY_LOADING_HINT_LINE = "";
-
-/** 历史面板阶段 → 提示区文案（未列出的阶段按加载类处理：空白） */
-export const HISTORY_HINTS: Record<string, string> = {
-  list: HISTORY_LIST_HINT_LINE,
-  view: HISTORY_VIEW_HINT_LINE,
-  error: HISTORY_ERROR_HINT_LINE,
-  "confirm-delete": HISTORY_CONFIRM_HINT_LINE,
-  "confirm-clean": HISTORY_CONFIRM_HINT_LINE,
-};
+// 按键提示区文案见 ./layout/hints.ts（唯一来源；面板内不再画提示，全部走提示区）。
 
 export interface FrameMetrics {
   /** 顶部区域行数 = rows - 状态区 - 输入区 - 按键提示区 - 分隔行（剩余高度全给上方两个） */
   topHeight: number;
   /** 系统状态区行数（可 >1：状态内容溢出到多行时按实际行数） */
   statusHeight: number;
-  /** 输入区行数（审批弹窗时更高） */
+  /** 输入区行数 = interaction − 提示区行数（面板态与输入态同高，不随面板开关变化） */
   footerHeight: number;
-  /** 按键提示区行数（独立区域，位于输入区下方、之间不画横线；输入态 1，面板打开 0） */
+  /** 按键提示区行数（独立区域，位于输入区下方、之间不画横线；恒 1 行，空文案也占位） */
   hintHeight: number;
   /** 顶部状态列宽（详细 goal/todo；窄列约 25%，含右缘分隔竖线，状态列位于最左侧列） */
   statusColWidth: number;
@@ -349,24 +322,19 @@ export interface FrameMetrics {
 
 export function metricsFor(
   size: Size,
-  /** 是否有交互面板打开（审批/问答/模型选择） */
-  hasPanel = false,
   /** 状态区行数（默认 1；可多行溢出时按实际行数压缩顶部区域） */
   statusHeight = 1,
-  /** 按键提示区行数（独立区域，与输入区共同构成交互区；输入态 1） */
-  hintRows = 0,
+  /** 按键提示区行数（独立区域，与输入区共同构成交互区；恒 1 行——空文案也占位） */
+  hintRows = 1,
   /** 布局配置（tui.config.json；缺省某字段 → 原默认公式） */
   layout?: { footerHeight?: number; statusDivisor?: number },
 ): FrameMetrics {
-  // 「交互区」（输入框 3 行 + 按键提示区 1 行）固定为 4 行；
-  // 不足时至少 2 行（输入 1 + 提示 1）。面板态（审批/问答/选择）整体占据
-  // 交互区（面板自带最底行按键提示、无独立提示区），与输入态同高——
-  // 面板开关不改变交互区高度，避免顶部区域上下跳动
-  // 输入框固定 3 行(+按键提示 1 行 → 交互区 4 行)；矮终端按 1/5 比例收缩保底每区 ≥1 行
-  // 交互区：tui.config.json footerHeight 绝对行数优先；缺省自动 1/5 上限 4
+  // 「交互区」= 输入区 + 按键提示区，总高恒为 interaction（默认 4 行：输入 3 + 提示 1；
+  // 矮终端按 1/5 收缩、保底 2 行）。footer 由 hint 反推是**唯一事实**——面板态与输入态
+  // 同高、开关面板不让顶部区域上下跳；不再用「是否有面板」推断 footer（易传错且难察觉）
   const interaction =
     layout?.footerHeight ?? Math.min(4, Math.max(2, Math.floor(size.rows / 5)));
-  const footerHeight = hasPanel ? interaction : interaction - 1;
+  const footerHeight = Math.max(1, interaction - hintRows);
   // 状态列：窄列约 1/3（含右缘竖线），**最低 20 列**
   // （内容列宽 = cols/divisor，不足 20 时提到 20），
   // 但仍受「历史区保底 10 列」上限约束（cols < 30 时历史区优先，状态列让位）
@@ -765,8 +733,6 @@ export interface FrameGeometry {
   innerDividerCol?: number;
   /** 活动区分隔行行号（纵向 = 实线分隔行；横向 = 对话 pane 底边下一行，该行无分隔线） */
   activitySepRow: number;
-  /** 按键提示区是否显示（输入态/历史面板 1 行；模态面板 0 行） */
-  showHint: boolean;
   /** 模态面板是否打开（焦点框置空 + footer 空白占位） */
   modalOpen: boolean;
   /** 状态栏行（整屏宽；buildFrame 直接拼接，避免二次计算） */
@@ -806,7 +772,6 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     state.commandPanel !== null ||
     state.history !== null;
   const normalInput = !modalOpen;
-  const showHint = normalInput || state.history !== null;
   const statusLines = renderStatusLine(
     state.systemStatus,
     cols,
@@ -815,14 +780,8 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     state.runVirt.tokens,
     state.themeId,
   );
-  // 面板态/输入态交互区总高恒定（见 metricsFor）：开关面板不让顶部区域上下跳
-  const metrics = metricsFor(
-    size,
-    !showHint,
-    statusLines.length,
-    showHint ? 1 : 0,
-    state,
-  );
+  // 交互区总高恒定（见 metricsFor）：提示区恒 1 行（空文案也占位），面板开关不让顶部上下跳
+  const metrics = metricsFor(size, statusLines.length, 1, state);
   const contentTopH = Math.max(0, metrics.topHeight);
   // P7：垂直状态列隐藏时（Ctrl+S）该列宽归 0——状态列内容、右缘分隔竖线与
   // 左缘框格都不再绘制，历史区吃满整宽（高度分配不受影响）
@@ -880,7 +839,6 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     // 内部分隔列 = 区域正文起始列 + 历史 pane 宽（历史区在左；两 pane 等宽时才与活动 pane 同宽）
     innerDividerCol: horizontal ? statusColWidth + split.dialogueW : undefined,
     activitySepRow: split.titleRows + split.dialogueH,
-    showHint,
     modalOpen,
     statusLines,
   };
@@ -2461,7 +2419,7 @@ export function frameSections(geom: FrameGeometry): FrameSection[] {
   // 状态段含上下分隔行（视觉同属状态区边界，且底分隔行的交点列随状态栏变化）
   const status = geom.statusHeight + 2;
   const footer = geom.footerHeight;
-  const hint = geom.showHint ? geom.hintHeight : 0;
+  const hint = geom.hintHeight;
   const sections: FrameSection[] = [
     { id: "top", startLine: 0, lineCount: top },
     { id: "status", startLine: top, lineCount: status },
@@ -2500,10 +2458,8 @@ export function buildFrame(
     historyWidth,
     titleRows,
     innerDividerCol,
-    showHint,
     modalOpen,
   } = geom;
-  const history = state.history;
   const topRegion = buildTopRegion(state, geom, report);
 
   let footerLines: FrameRow[];
@@ -2534,24 +2490,12 @@ export function buildFrame(
   // 按键提示区（独立区域，与输入区之间不画横线；正常前景色；窄终端按显示宽度截断）。
   // 补全候选打开时改为补全键位（面板本身不再占活动区行放提示）；
   // 历史会话面板的按键提示也在此显示（面板标题行不再内嵌键位，避免活动区顶部堆提示）。
-  const historyHint = history
-    ? (HISTORY_HINTS[history.phase] ?? HISTORY_LOADING_HINT_LINE)
-    : null;
-  const hintLines: FrameRow[] = showHint
-    ? [
-        {
-          segments: [
-            seg(
-              truncateToWidth(
-                historyHint ??
-                  (state.completion ? COMPLETION_HINT_LINE : HINT_LINE),
-                fullWidth,
-              ),
-            ),
-          ],
-        },
-      ]
-    : [];
+  // 按键提示区恒占 1 行；当前状态文案由 hints.ts 统一提供。
+  const hintLines: FrameRow[] = [
+    {
+      segments: [seg(truncateToWidth(hintLine(state), fullWidth))],
+    },
+  ];
 
   // 分隔行（边框统一边框色：先纯文本截断再段化）。状态区上方与其余横线同为 `─`；
   // 焦点在底部为流输出/状态列时该行用亮色框（钩到面板底边）。

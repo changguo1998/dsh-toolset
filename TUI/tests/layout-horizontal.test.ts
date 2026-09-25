@@ -66,7 +66,7 @@ function cols(line: string, from: number, to: number): string {
 }
 
 const SIZE = { rows: 18, cols: 140 };
-const M = metricsFor(SIZE, false, 1, 1, {});
+const M = metricsFor(SIZE, 1, 1, {});
 /** 主分隔竖线列（状态列右缘/历史区左缘） */
 const D = M.statusColWidth - 1;
 /** 区域正文起始列（标题栏与两 pane 正文自该列起算） */
@@ -208,7 +208,7 @@ test("横向排列：内部分隔列与下划线行 ┬ / 状态区分隔行 ┴
   // 100 列（状态列 33）→ 区域正文宽 66 → 历史 pane 32 / 活动 pane 33：两 pane
   // 不等宽，正是「交汇字形取错了 pane 宽」会偏一列的情形
   const size = { rows: 18, cols: 100 };
-  const m = metricsFor(size, false, 1, 1, {});
+  const m = metricsFor(size, 1, 1, {});
   const contentW = regionColumnWidth(m.historyWidth);
   const split = topPaneSplit(m.topHeight, contentW, 2, undefined, "auto");
   assert.equal(split.mode, "horizontal");

@@ -341,7 +341,7 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 
 - `completeCommandInput(text, extra, mode)` 做前缀匹配（名称短 → 长排序，`items[0]` = 最匹配）、**不设硬上限**、同名以本地优先去重；`mode = slash` 时先把「无前导 `/` 的输入框文本」归一为字面 `/name` 再判定（slash 模式的 `/` 由 `App.submit` 提交时才补）。宿主目录经 `adapter.commandList()`（官方 `commands.list(agent)`，仅取 name / description，缺失 / 抛错 → undefined 降级为仅本地命令）。
 - 候选存入 `state.completion`，**唯一计算点在 reducer**：`input` action（`setInput`，所有编辑键的唯一漏斗）、`input-mode`（切换模式重算）、`command-catalog`（宿主目录到达）。
-- 展示复用活动区覆盖层（`components/CommandCompletion.ts`，与审批 / 问答 / picker / 各面板同一渲染链；footer **不**空白占位——补全不占输入区，输入行与光标必须可见）。面板 = 标题 1 行 + (activityH−1) 行候选，候选池足够时铺满活动区（曾设硬上限导致活动区高时底部留白，已移除）；**超出可视行的候选直接丢弃、不滚动窗口**——渲染只取前 activityH−1 项，App 侧 `completionVisibleRows()` 给 `completion-move` 传 `max`，把 `↑/↓` 与 `Tab` 接受也限定在可视范围内。键位提示不放面板内，而在输入区下方的按键提示区（`COMPLETION_HINT_LINE`；`normalInput` 保持为真故提示区仍存在）。
+- 展示复用活动区覆盖层（`components/CommandCompletion.ts`，与审批 / 问答 / picker / 各面板同一渲染链；footer **不**空白占位——补全不占输入区，输入行与光标必须可见）。面板 = 标题 1 行 + (activityH−1) 行候选，候选池足够时铺满活动区（曾设硬上限导致活动区高时底部留白，已移除）；**超出可视行的候选直接丢弃、不滚动窗口**——渲染只取前 activityH−1 项，App 侧 `completionVisibleRows()` 给 `completion-move` 传 `max`，把 `↑/↓` 与 `Tab` 接受也限定在可视范围内。键位提示不放面板内，而在输入区下方的按键提示区（`layout/hints.ts` 的 `COMPLETION_HINT_LINE`；提示区恒 1 行、任何状态都在，文案统一由 `hintLine(state)` 按状态给出）。
 - 按键：`Tab` 接受（写命令名 + 尾随空格，slash 模式不写前导 `/`）、`↑/↓` 移动（在 `handleKey` 的 normal 分支先于面板滚动）、`Esc` 收起（不打断运行）、`Enter` 保持提交语义。
 
 ## 通用状态选项面板（`/policy` `/permission` `/preset`）

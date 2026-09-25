@@ -287,7 +287,7 @@ class FakeAdapter implements DshAdapter {
 /** 顶部行历史/活动区正文：取区域正文段（跳过状态列与分隔竖线，到右缘框列前为止；
  *  按显示宽度定位，兼容 CJK） */
 function histBody(line: string, cols: number): string {
-  const m = metricsFor({ rows: 24, cols }, false);
+  const m = metricsFor({ rows: 24, cols });
   const start = m.statusColWidth; // 区域正文起始列（状态列与分隔竖线之后）
   const contentW = m.historyWidth - 1; // 区域正文宽（右缘框列之外）
   const s = line.replace(/\u001b\[[0-9;]*m/g, "");
@@ -2068,17 +2068,19 @@ const plainFrame = (renderer: FakeRenderer): string =>
 
 test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多题动态按键提示", () => {
   const { app, renderer, adapter } = makeApp();
-  // 面板显示在流输出（活动区）窗口；压矮终端让活动区面板
-  // 高度回到 4 行（选项区 2 行），保持「未导航锚定顶部、窗口裁掉更后选项」语义
+  // 面板显示在流输出（活动区）窗口；压矮终端让活动区面板高度小、正文窗口受限，
+  // 保持「未导航锚定顶部、末位项被裁」语义（面板内不再有提示行 → body = 面板高 − 1）
   renderer.size = { cols: 80, rows: 15 };
   pushQuestion(adapter);
   const plain = plainFrame(renderer);
   assert.ok(plain.includes("请回答（第 1/2 题）"), "标题含第 n/m 导航");
   assert.ok(plain.includes("选择部署环境？"), "题干渲染");
   assert.ok(plain.includes("部署：选择部署环境？"), "header 前缀渲染");
-  // 交互区固 1/5（24 行 → 4 行，选项区 body 2 行）：未导航时窗口锚定顶部
+  // 面板只剩标题行（按键提示移到底部提示区）：body = 面板高 − 1（此处 3 行）→
+  // 未导航时窗口锚定顶部，末尾的「自定义回答」兜底项被裁
   assert.ok(plain.includes(">  生产"), "选项渲染：光标 > 首个选项");
-  assert.ok(!plain.includes("    测试"), "初始窗口裁掉更后选项");
+  assert.ok(plain.includes("    测试"), "第二选项进入初始窗口（body 3 行）");
+  assert.ok(!plain.includes("自定义回答"), "初始窗口裁掉末位兜底项");
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(plainFrame(renderer).includes(">  测试"), "↓ 后第二选项带光标可见");
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
@@ -2292,10 +2294,11 @@ test("问答面板：plan-review 单题以计划卡片呈现，hints 只显示�
   assert.ok(plain.includes("待审计划"), "detail 卡片标题");
   assert.ok(plain.includes("批准该计划？"), "题干渲染");
   // 固定交互区高度（24 行终端 = 4 行，选项区 body 2 行）：未导航时窗口锚定顶部，
-  // 题干+卡片头可见、detail 正文与末位选项被裁，↓ 后选项窗口跟随高亮
+  // 面板只剩标题行（提示移到底部提示区）：body 3 行 → 题干 + 卡片头 + detail 正文
+  // 进入初始窗口，选项与末位兜底项仍被裁；↓ 后窗口跟随高亮（选项可见）
   assert.ok(
-    !plain.includes("安装依赖并运行测试"),
-    "紧凑面板下 detail 正文初始被裁",
+    plain.includes("安装依赖并运行测试"),
+    "body 3 行时 detail 正文可见",
   );
   assert.ok(!plain.includes("拒绝"), "超长时窗口未覆盖末位选项");
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });

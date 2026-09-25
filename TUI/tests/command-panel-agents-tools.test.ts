@@ -12,7 +12,6 @@ import { routeSlashCommand } from "../src/app/commands.ts";
 import { renderCommandListPanel } from "../src/app/components/CommandListPanel.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
 import type {
-  CommandPanelKind,
   CommandPanelRow,
   DshAdapter,
   DshEvent,
@@ -20,6 +19,7 @@ import type {
   SubagentEntryLike,
   ToolSchemaLike,
 } from "../src/app/adapter/dsh.ts";
+import { commandPanelHint } from "../src/app/layout/hints.ts";
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
 import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
@@ -403,18 +403,31 @@ test("渲染：agents 的 running 黄、inactive/diagnostic 灰（statusMark 口
   );
 });
 
-test("面板提示按 kind 区分：agents = Enter 中断，skills/tools = Enter 详情", () => {
-  const hintOf = (kind: CommandPanelKind): string =>
-    renderCommandListPanel(
-      { kind, index: 0, rows: [{ title: "x", payload: "y" }] },
-      4,
-      80,
-    )
-      .map(rowText)
-      .join("\n");
-  assert.ok(hintOf("agents").includes("Enter 中断"), hintOf("agents"));
-  assert.ok(hintOf("skills").includes("Enter 详情"), hintOf("skills"));
-  assert.ok(hintOf("tools").includes("Enter 详情"), hintOf("tools"));
+test("底部提示按 kind 区分：agents = Enter 中断，skills/tools = Enter 详情", () => {
+  assert.ok(
+    commandPanelHint("agents").includes("Enter 中断"),
+    commandPanelHint("agents"),
+  );
+  assert.ok(
+    commandPanelHint("skills").includes("Enter 详情"),
+    commandPanelHint("skills"),
+  );
+  assert.ok(
+    commandPanelHint("tools").includes("Enter 详情"),
+    commandPanelHint("tools"),
+  );
+});
+
+test("面板内不再内嵌按键提示（首行只留标题 + 计数）", () => {
+  const panelText = renderCommandListPanel(
+    { kind: "agents", index: 0, rows: [{ title: "x", payload: "y" }] },
+    4,
+    80,
+  )
+    .map(rowText)
+    .join("\n");
+  assert.ok(panelText.includes("子代理（1）"), "首行标题 + 计数: " + panelText);
+  assert.ok(!panelText.includes("Esc 关闭"), "面板内不含键位: " + panelText);
 });
 
 // ---- C2：/agents 事件驱动刷新（宿主无 subagent 状态事件面 → 定时 + 手动 r） ----
@@ -464,19 +477,14 @@ test("/agents：手动 r 立即刷新（面板打开时）", async () => {
   app.dispose();
 });
 
-test("/agents：面板提示含 r 刷新（agents 专属）；skills/tools 不含", () => {
-  const hintOf = (kind: CommandPanelKind): string =>
-    renderCommandListPanel(
-      { kind, index: 0, rows: [{ title: "x", payload: "y" }] },
-      4,
-      80,
-    )
-      .map(rowText)
-      .join("\n");
+test("/agents：提示含 r 刷新（agents 专属）；skills/tools 不含", () => {
   assert.ok(
-    hintOf("agents").includes("r 刷新"),
-    "agents 含 r 刷新: " + hintOf("agents"),
+    commandPanelHint("agents").includes("r 刷新"),
+    "agents 含 r 刷新: " + commandPanelHint("agents"),
   );
-  assert.ok(!hintOf("tools").includes("r 刷新"), "tools 不含 r 刷新");
-  assert.ok(!hintOf("skills").includes("r 刷新"), "skills 不含 r 刷新");
+  assert.ok(!commandPanelHint("tools").includes("r 刷新"), "tools 不含 r 刷新");
+  assert.ok(
+    !commandPanelHint("skills").includes("r 刷新"),
+    "skills 不含 r 刷新",
+  );
 });

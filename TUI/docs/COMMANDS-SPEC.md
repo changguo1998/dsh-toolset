@@ -41,9 +41,9 @@
 **渲染位置（重要）**：面板渲染在**活动区窗口**，不是底部交互区。
 
 - 选型点在 `layout.ts` `buildActivePanelBox(state, activityH, contentW)`，优先级：`approval` > `question` > `picker` > `statusPanel` > `jobsPanel` > `commandPanel` > `history` > `completion`；返回 `null` 时活动区显示瞬态行。
-- 面板用活动区高度 `activityH` 与内容宽度 `contentW` 构建并 fill 进活动区窗口；底部交互区在面板态保留完整输入行、按键提示行让位（`footerHeight = hasPanel ? interaction : interaction - 1`），面板开关不改变交互区高度（避免顶区跳动）。
+- 面板用活动区高度 `activityH` 与内容宽度 `contentW` 构建并 fill 进活动区窗口；面板态底部输入区为空白占位、提示区恒 1 行（显示该面板键位，文案见 `layout/hints.ts` 的 `hintLine(state)`），`hintRows = 1`、`footerHeight = max(1, interaction − hintRows)`——面板开关不改变交互区高度（避免顶区跳动）；**面板内不再内嵌键位提示**。
 
-**接线点（现状）**：`buildActivePanelBox` 按优先级选型（`commandPanel` 插在 `jobsPanel` 之后、`history` 之前）；`frameGeometry` 的 `modalOpen` 一次性判定 7 类面板非空（approval / question / picker / statusPanel / jobsPanel / commandPanel / history），`normalInput = !modalOpen`、`showHint` 随之派生——布局层已无独立的 `&& !commandPanel` 条件；PgUp/PgDn 页高取活动区可视行数——在 `index.ts` 按键分支内按 `frameGeometry(state, renderer.getSize()).activityH` 计算（`jobs-panel-page` 与 `command-panel-page` 同一口径）。（`fillPanelBox` / `modalPanel` 与活动区渲染由 `buildActivePanelBox` 返回值驱动，无需额外改动。）
+**接线点（现状）**：`buildActivePanelBox` 按优先级选型（`commandPanel` 插在 `jobsPanel` 之后、`history` 之前）；`frameGeometry` 的 `modalOpen` 一次性判定 7 类面板非空（approval / question / picker / statusPanel / jobsPanel / commandPanel / history），`normalInput = !modalOpen`——提示区不再随面板隐藏（`FrameGeometry.showHint` 已移除，提示文案由 `layout/hints.ts` 按状态给出），布局层已无独立的 `&& !commandPanel` 条件；PgUp/PgDn 页高取活动区可视行数——在 `index.ts` 按键分支内按 `frameGeometry(state, renderer.getSize()).activityH` 计算（`jobs-panel-page` 与 `command-panel-page` 同一口径）。（`fillPanelBox` / `modalPanel` 与活动区渲染由 `buildActivePanelBox` 返回值驱动，无需额外改动。）
 
 **共享面板模型（不复制 N 套 state/reducer）**：所有列表面板共用一个判别联合与一套实现，kind = `skills` / `agents` / `tools` / `task` / `guard` / `loop` / `workflows` / `search`：
 

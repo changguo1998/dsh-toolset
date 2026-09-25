@@ -59,14 +59,9 @@ export function buildStatusPanelBox(
     else rows.push(styled([seg(line)], { wrap: false }));
   }
 
-  // 操作提示行（末行）
-  const hint =
-    "[Enter]提交 · [空格]预选" +
-    (panel.options.length > 1 ? " · [↑/↓]选项" : "") +
-    " · [Esc]取消";
-
-  // 组装：标题 + 窗口内选项（跟随焦点滚动；不足补空行）+ 操作提示
-  const maxBody = Math.max(0, height - 2);
+  // 组装：标题 + 窗口内选项（跟随焦点滚动；不足补空行）
+  // 按键提示不在面板内（统一由底部提示区显示，见 layout/hints.ts 的 statusPanelHintLine）
+  const maxBody = Math.max(0, height - 1);
   let window: typeof rows = rows;
   if (rows.length > maxBody) {
     let start = panel.index - Math.floor(maxBody / 2);
@@ -77,11 +72,7 @@ export function buildStatusPanelBox(
     { length: maxBody },
     (_, i) => window[i] ?? styled([seg("")]),
   );
-  // 提示行与现状一致：首尾空格后按 width 截断（一字符串一行，右缘装饰补齐）
-  const hintRow = styled([seg(` ${hint} `.slice(0, Math.max(1, width)))], {
-    wrap: false,
-  });
-  return v([titleRow, ...body, hintRow]);
+  return v([titleRow, ...body]);
 }
 
 export interface StatusPanelView {

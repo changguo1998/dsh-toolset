@@ -280,16 +280,17 @@ if (smoke) {
         plain.includes("允许执行?"),
         "approval text absent from frames",
       );
-      // 面板按钮提示着色（raw 帧含 ANSI）：y 批准红、n 拒绝绿
+      // 按键提示统一到底部提示区（BACKLOG 3.1.2）：审批键位在最后一行提示区，
+      // 面板内不再内嵌键位（原先面板内的红/绿着色随迁移取消）
       ok(
-        "approval-y-red",
-        smokeOut.includes(smokeSgr("red") + "[y]批准"),
-        "approval [y] should be red",
+        "approval-hint-bottom",
+        plain.includes("[y]批准 · [n]拒绝 · [Esc]退出"),
+        "approval keys should show on the bottom hint line",
       );
       ok(
-        "approval-n-green",
-        smokeOut.includes(smokeSgr("green") + "[n]拒绝"),
-        "approval [n] should be green",
+        "approval-hint-not-colored",
+        !smokeOut.includes(smokeSgr("red") + "[y]批准"),
+        "approval [y] should no longer be an in-panel red label",
       );
       // /model 选择面板选项着色：打开时当前模型选中行绿、down 后焦点行黄
       // /model 选择面板选项着色：打开时当前模型选中行绿（焦点行黄见单测：

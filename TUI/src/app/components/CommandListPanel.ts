@@ -11,7 +11,7 @@
 import type { FrameRow } from "../../renderer/index.ts";
 import { fillBoxTree } from "../layout/fill.ts";
 import type { ColorName } from "../../renderer/theme.ts";
-import { truncateToWidth, displayWidth } from "../layout.ts";
+import { truncateToWidth } from "../layout.ts";
 import type { Box } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
@@ -43,19 +43,10 @@ const EMPTY_TEXTS: Record<CommandPanelKind, string> = {
   search: "（无结果）",
 };
 
-/** 共享面板按键提示（宽度不足时由首行右侧截断）；Enter 行为按 kind 区分：
- *  agents = 直接中断选中子代理，skills/tools = 查看详情。 */
-export function commandPanelHint(kind: CommandPanelKind): string {
-  const enter = kind === "agents" ? "Enter 中断" : "Enter 详情";
-  if (kind === "agents") {
-    return `↑/↓ 选择 · PgUp/PgDn 翻页 · ${enter} · r 刷新 · Esc 关闭`;
-  }
-  return `↑/↓ 选择 · PgUp/PgDn 翻页 · ${enter} · Esc 关闭`;
-}
-
 /**
- * 共享列表面板 Box 生成器：标题 + 计数（青）+ 按键提示（灰）头部行、
- * 行窗口（高亮 `> ` + 可选符号 + 主/副文本）、占位态。
+ * 共享列表面板 Box 生成器：标题 + 计数（青）头部行、行窗口（高亮 `> ` + 可选
+ * 符号 + 主/副文本）、占位态。按键提示不在面板内——统一由底部提示区显示
+ * （见 `layout/hints.ts` 的 `commandPanelHint`）。
  * 叶子 styled wrap:false；滚动窗口与截断算法保留在 build 内。
  */
 export function buildCommandListPanelBox(
@@ -66,23 +57,13 @@ export function buildCommandListPanelBox(
   const rows = Math.max(1, height);
   const leaves = [];
 
-  // 首行：标题 + 计数（青）与按键提示（灰，按剩余宽度截断）
+  // 首行：标题 + 计数（青）；按键提示统一由底部提示区显示（见 layout/hints.ts）
   const header = `${PANEL_TITLES[panel.kind]}（${panel.rows.length}）`;
   const headerVisible = truncateToWidth(header, width);
-  const hintVisible = truncateToWidth(
-    commandPanelHint(panel.kind),
-    Math.max(0, width - displayWidth(headerVisible) - 2),
-  );
   leaves.push(
-    styled(
-      [
-        { text: headerVisible, style: { fg: "cyan" as ColorName } },
-        ...(hintVisible
-          ? [{ text: `  ${hintVisible}`, style: { fg: "gray" as ColorName } }]
-          : []),
-      ],
-      { wrap: false },
-    ),
+    styled([{ text: headerVisible, style: { fg: "cyan" as ColorName } }], {
+      wrap: false,
+    }),
   );
 
   // 占位态优先级：数据错误 > 加载中 > 空列表（三者都输出恰 height 行）

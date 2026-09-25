@@ -556,7 +556,7 @@ interface Renderer {
 interface FrameGeometry {
   cols: number; rows: number;              // 终端尺寸
   contentTopH: number;                     // 顶部内容行数（不含状态/输入/提示/分隔行）
-  statusHeight: number; footerHeight: number; hintHeight: number;
+  statusHeight: number; footerHeight: number; hintHeight: number;  // hintHeight 恒 1；footerHeight = max(1, 交互区 − hintHeight)
   statusColWidth: number; historyWidth: number; contentW: number;  // contentW = 区域正文宽（historyWidth − 右缘框列）；Ctrl+S 隐藏状态列时 statusColWidth = 0、historyWidth = cols、dividerCol = −1（该列不存在，分隔行不画交点）
   leftFrame: boolean; rightFrame: boolean;  // 屏幕最左（状态列外缘）/最右（区域外缘）焦点框保留格是否占列
   mode: "vertical" | "horizontal"; titleRows: number;
@@ -569,7 +569,7 @@ interface FrameGeometry {
   contentStartCol: number;                 // 区域正文起始列（= dividerCol + 1，标题栏与两 pane 自该列起）
   innerDividerCol?: number;                // 横向排列内部分隔竖线列（历史右缘/活动左缘）
   activitySepRow: number;                  // 活动区分隔行（横向 = 对话 pane 底边下一行）
-  showHint: boolean; modalOpen: boolean;   // 按键提示区是否显示 / 模态面板是否打开
+  modalOpen: boolean;                      // 模态面板是否打开（提示区恒 1 行，文案见 layout/hints.ts）
   statusLines: FrameRow[];                 // 状态栏行（避免二次计算）
 }
 ```
