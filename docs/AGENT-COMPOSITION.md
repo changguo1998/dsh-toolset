@@ -23,6 +23,7 @@
 - 改工具 / 提示 / 人格：`~/.dsh/profiles/<p>/cordis.patch.yml` 的用户 patch（本项目已用它覆盖 `compaction-basic.thresholdRatio`、替换会话标题 provider）。
 - 需要多套组合：用多个 profile（`dsh --profile <p>`，`dsh --from-default-profile <模板>` 派生），或 `--patch` 叠加临时层。
 - TUI 的 `/preset` 命令保留（宿主没挂 registry 时只提示不可用，零副作用），本项目不为其挂 preset roster。
+- 配置面同理：0.1.7 起 settings 的命名空间 = **profile 插件条目 id**，写入落 profile 的 `cordis.patch.yml`（`$DSH_HOME/settings.yaml` 只作一次性导入，随后改名 `.imported`）；provider / 凭据 / 插件配置都按「条目 id」定位，细节见 `HOST-UPGRADE-0.1.7-rc.2.md` §3.6。
 
 ## 4. 版本断层（升级前必读）
 
@@ -31,6 +32,7 @@ preset 机制在官方 `0.1.7-alpha.1` 被重写（commit `d1e22a7e24`，"feat(p
 - `dsh-v0.1.5-rc.3`（本项目当前基线）是**目录式** roster：`@deepseek-ai/dsh-agent-presets` 扫 `$DSH_HOME/.agent-presets`，默认值取自 `settings.agent-presets.default`。
 - `dsh-v0.1.7-rc.2` 只剩 `agent-preset-registry` / `agent-preset` / `persona`：preset 改为 profile YAML 里的 `@deepseek-ai/dsh-agent-preset` 声明行（web-app 以 `presets/<id>.patch.yml` 分发），用户默认值是 registry 条目的 `selectedDefault`，编辑结果写回 `$DSH_HOME/profiles/<p>/cordis.patch.yml`；目录机制连同其 package 已删除（旧决策归档于官方 `.agents/notes/archived/architecture/2026-08-03-per-session-agent-presets.*`）。
 - 结论不变：TUI 仍然不用 preset。仅当将来确实需要"同一 TUI 进程内不同会话用不同组合"时，才按 web-app 模式自建（挂 registry、声明 preset 行、禁用 base 的 agent 面行）；评估项见 `DEVELOPMENT-BACKLOG.md` #37。
+- 同一断层还包含配置后端更换：`packages/settings/settings-file` 整包删除、settings 命名空间改 profile 条目 id；`agent-presets` 段不在迁移映射表内（旧段直接丢弃），对本项目无影响。
 
 ## 5. 清理记录
 

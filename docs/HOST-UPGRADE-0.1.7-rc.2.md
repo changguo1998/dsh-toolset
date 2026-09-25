@@ -28,11 +28,38 @@
 - **preset 机制**：目录式 roster（`agent-presets` 包）删除，改为 profile YAML 的 `agent-preset-registry` + `@deepseek-ai/dsh-agent-preset` 声明行；与本项目「只用 TUI、走 profile 全局组合、不配 preset」口径同向，`AGENT-COMPOSITION.md` 结论继续成立。
 - **官方新增能力面**：deliverables（`present` + `workspace-changes`）、browser-use / computer-use、PTC 运行时、SSH provider 家族、plugin-manager / config-editor / HMR、DeepSeek 账号 PKCE、Web 设置页按命名空间拆分 + 右侧栏终端/浏览器。
 
+### 0.1 实施状态（本项目，2026-09-25）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| TUI `jobs` / `/agents`、output-compress PTC 三处改造 | **已完成** | 按 §3.2 落地：能力探测择路，0.1.7 与 ≤0.1.5 都能走通（过渡期双栈） |
+| 单测与构建 | **已完成** | `npm run check` 全绿；TUI 1087 用例、output-compress 45 用例（含 3 个新增 PTC 用例）通过；`npm run build` + `npm run demo -- --smoke` 通过 |
+| `scripts/install.sh` 与 TUI 文档同步 | **已完成** | 默认版本 → `0.1.7-rc.2`；`TUI/DESIGN.md`、`TUI/IMPLEMENTATION.md`、`TUI/COMMANDS-SPEC.md` 记录新契约 |
+| 宿主安装 + profile 依赖同步 + settings 迁移 | **已完成** | `dsh --version` = 0.1.7-rc.2（随包 283 个）；profile 的 `dsh-session-title-all-prompts-llm` → 0.1.7-rc.2 且 `pnpm install` 通过（peer 期望随之变为 `cordis ~4.0.4` / `dsh-* 0.1.7-rc.2`）；首次启动完成 settings 迁移：`settings.yaml` → `.imported`、profile patch 写入 `agent-default-model` / `llm-pi-ai` 段 |
+| 组合与启动核对 | **已完成** | `--dump-config` 含 `dsh-base` + 13 个 `@dsh-toolset/*` + `tool-ask-user` + `session-title-all-prompts-llm`；关键服务条目在位：`jobs`、`subagent`、`ptc-runtime`（`@deepseek-ai/dsh-ptc-runtime-node`）、`sandbox-policy`；pty 冒烟 15s：TUI 正常渲染、**无 `did not activate` / `startup failed`** |
+| 运行时核对（自动） | **已完成** | 重启后本会话即跑在 rc.2：会话目录同时存在旧 `session.v3.jsonl.zstd` 与新 `session.v4.jsonl.zstd`（V4 writer 另存 successor、不改写前代）且会话可继续追加；插件实测：`code_map index` 建成 265 文件 / 5052 符号索引、`context_report` 正常（读的正是跨 V3→V4 迁移后的会话）、`task_engine` 正常、metric-loop 启动注册日志在位、output-compress 产生新分片（48KB / 37KB，`inline-event-text` 触发） |
+| 复核中发现的问题（与升级无关） | **已记录，待修** | `fs_digest` 工具在 0.1.5 与 rc.2 上均报 `cannot get property "cwd" without inject`：`fs-digest/src/main.ts:129` 直接读 `ctx.cwd`，但 `cwd` 不是宿主服务，cordis 代理对未 inject 的属性访问即抛错，`?? process.cwd()` 永远走不到。**既有缺陷**，不在本次升级范围内 |
+| 交互验收（`/jobs`、`/agents` 面板行为） | **待人工** | 需在终端打开面板确认：任务列表 + Enter 取消、子代理行显示 mode/activity |
+| `HOST-PACKAGES.md` 重刷（240 → 283 个随包分发包口径） | **进行中** | 已采集 283 包 + 91 个挂载清单（`tmp/hostdoc/`），按 §6 复现命令重生成 |
+
+升级实际执行记录（2026-09-25，工作区外操作；profile 里的 `package.json` 是指向 `~/fff/config/dsh/profiles/fff/package.json` 的软链，改的是后者）：
+
+```sh
+mkdir -p "$HOME/.dsh-upgrade-backup-<ts>" && cp ~/.dsh/{settings.yaml,profiles/fff/package.json,profiles/fff/cordis.patch.yml} "$HOME/.dsh-upgrade-backup-<ts>/"
+npm install -g @deepseek-ai/dsh@0.1.7-rc.2            # 88 added / 88 removed / 432 changed
+npm pkg set 'dependencies.@deepseek-ai/dsh-session-title-all-prompts-llm=0.1.7-rc.2'  # 在 profile 目录执行
+(cd "$HOME/.dsh/profiles/fff" && pnpm install)        # 通过（`pnpm peers check` 只剩「宿主包未装进 profile」的预期提示）
+dsh --profile fff --dump-config                       # 成功；rc.2 会顺带清理 profile 的 node_modules 软链投影
+dsh --profile fff                                     # 首次启动：settings.yaml → settings.yaml.imported，profile patch 落 agent-default-model / llm-pi-ai
+```
+
+仍待人工的交互验收：`/jobs`（能列当前会话任务 + Enter 取消）、`/agents`（mode/activity 列）、output-compress 启动日志的 `sandbox=ptcRuntime`、旧会话 `/session` 恢复（V3→V4 自动迁移）。
+
 ## 1. 版本事实
 
 | 项 | 值 |
 |---|---|
-| 本项目基线 | `dsh 0.1.5-rc.3`（npm `latest`，published 2026-09-22T05:55Z） |
+| 本项目基线 | 运行 `dsh 0.1.5-rc.3`（npm `latest`，published 2026-09-22T05:55Z）→ 升级目标 `0.1.7-rc.2`；代码层已双栈兼容（见 §0.1） |
 | 本文对照版本 | `dsh 0.1.7-rc.2`（npm `next`，published 2026-09-24T14:18Z） |
 | npm dist-tags | `latest` = 0.1.5-rc.3；`next` = 0.1.7-rc.2；`alpha` = 0.1.7-alpha.2 |
 | 源码 tag 顺序 | 0.1.5-rc.3 → 0.1.6-alpha.1 → 0.1.6-alpha.2 → 0.1.7-alpha.1 → 0.1.7-alpha.2 → 0.1.7-rc.1 → 0.1.7-rc.2 |

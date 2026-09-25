@@ -32,7 +32,7 @@
 | `/council` | `ctx.subagents.start("one-shot", …)` 并行拉起 N（默认 2、上限 4）个评审子代理，`Promise.allSettled` 汇总 | 服务缺失 → warn 不假启动 |
 | `/search` | 并行多 provider 聚合（见下） | 全部失败 → warn 不空开面板 |
 | `/settings` | `ctx.settings.describe()` → `ns：value` 多行 info，secret 脱敏 `<redacted>`；只读不写 | 服务缺失 → warn |
-| `/jobs` | `ctx.jobs.onJobsChanged` 增量 + 打开时全量拉取；`Enter` → `ctx.jobs.kill` | 服务缺失 → warn |
+| `/jobs` | 增量 + 打开时全量拉取：0.1.7 起 `ctx.jobs.events.subscribe({owner})` / ≤0.1.5 `ctx.jobs.onJobsChanged`（按能力择路，都缺则只拉一次）；`Enter` → `ctx.jobs.kill`（caller 形态经版本探测） | 服务缺失 → warn |
 | `/goal` | 无参：仅 notice 提示「详情见左侧信息栏」（goal/todo/jobs 常驻状态列）；带参：`adapter.runCommand(line)` → 宿主 `dsh-command-goal`（`<目标>` 新建 / `edit <目标>` / `pause` / `resume` / `clear`），结果经 notice 回报 | 注册表未命中 → warn（fail-close 不发消息） |
 
 **只读服务面（插件侧提供）**：task-engine `ctx.provide("taskEngine", { query, frameStack })`、metric-loop `ctx.provide("metricLoop", { list, status })`、security-guard `ctx.provide("guard", { recent, policy })`、knowledge-base `ctx.provide("knowledge", { getSummary, whenReady })`。`/contract` 例外：goal-contract 不 expose ctx 服务，TUI 优先用 `opts.goalContract.parseContract`（`ctx.get('goalContract')`），未挂载时走内置同构回读 `parseContractObjective`（定位独占 `Done-when:` 行 + 段后 JSON 数组）；包入口直读不可行（TUI 无跨包依赖、根无 workspaces、`file:` 依赖被项目约定禁止）。
@@ -51,7 +51,7 @@
 
 - `/search` 的**多引擎聚合是 TUI 侧职责**：`dsh-web` seam 是 provider-**selecting**（`search()` 只跑单个 provider，多 provider 无显式 id 抛 `WEB_PROVIDER_AMBIGUOUS`）。`aggregateSearchSources` 纯函数（`dsh.ts`）组装 provider 集合（`opts.web` 派生 + `options.searchProviders` 注入），`Promise.allSettled` 并行调用 → 合并记 provider → URL 去重 → query-token 关联度（title 命中 ×2 + snippet ×1）降序（同分保合并顺序）→ 截断 `maxResults`（默认 10）。
 - `/contract`、`/council` 的目标取当前会话 goal 快照 objective，无 goal 时回退 buffer 最近 user 行。
-- `/agents` 的 `kind:'diagnostic'` 条目灰显且 payload 置空（无可中断 id 时只提示、不发调用）。
+- `/agents` 数据源按宿主能力择路：0.1.7 起优先 `subagents.listDescendants(rootSessionId)`（富条目，取 `depth=1` 的直接子代），≤0.1.5 用 `listChildren(parentSessionId)`（同形富条目）；`kind:'diagnostic'` 条目灰显且 payload 置空（无可中断 id 时只提示、不发调用）。投影目录形态（0.1.7 的 `listChildren` 返回 `{id,createdAt,mode,label?}`，无 activity/hasChildren/diagnostic）下 `status` 退用 `mode`、标题缺 label 时占位 `(未命名)`。
 - `/session` 的 live 会话读取走 `Session.events` 原始事件（`readSurface` 的 surface fold 会滤掉 `surfaceOp`，`readSession` 的全量校验对 live 混合日志会抛校验错）；persisted 会话走 `readSurface`，兜底 `readSession`；`readSurface` 必须直接调用 `sq.readSurface(id)`（解构丢失 `this` 读 `_corpus` 报错）。
 - `/session` 批量删除：`Space` 标记 / 取消（标记后高亮自动下移一行）、`a` 全选当前范围可删项（替换标记集）、`c` 清空；判据 `deletableSession`（persisted + 非 live + 非当前），`deletableSession` / `markableSessionIds` 为 `state.ts` 纯函数。标记按 id 记录并跨 `Tab` 范围切换保留；`d` 有标记 = 批量（`pendingDeleteIds`，跨范围保留的标记也计入、自动剔除已不可删项），无标记 = 单条（`pendingDelete`）。批量与单条共用 `runPendingHistoryOp` 的逐条 `deleteSession` 串行删除循环，成功集经 `history-delete-done` 移除记录（`dropHistoryRecords`），**失败项保留标记**便于重试；列表重拉只一次。
 

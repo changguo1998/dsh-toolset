@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # 新机器安装脚本：装 dsh → 构建本项目插件 → 配 profile（插件挂载）。
 #
-# 默认值：profile 名 fff、dsh 版本 0.1.5-rc.3、插件取全部 13 个包。
+# 默认值：profile 名 fff、dsh 版本 0.1.7-rc.2、插件取全部 13 个包。
 # 本项目只用 TUI：agent 面由 profile 全局组合提供，脚本不配置 agent preset
 # （说明见 docs/AGENT-COMPOSITION.md）。
 # 幂等：已存在的 profile 配置文件默认原样保留（--force 才覆盖，且先备份
@@ -11,7 +11,7 @@
 # 用法：scripts/install.sh [选项]（见 --help）
 set -eu
 
-dsh_version_default="0.1.5-rc.3"
+dsh_version_default="0.1.7-rc.2"
 profile_name="fff"
 plugins_sel="all"
 skip_dsh=0
@@ -30,7 +30,7 @@ usage() {
 
   --profile <名字>      dsh profile 名（默认 fff）
   --plugins <列表|all>  要装的插件目录名，逗号或空格分隔（默认 all = 上表 13 个包）
-  --dsh-version <版本>  安装的 dsh 版本（默认 0.1.5-rc.3）
+  --dsh-version <版本>  安装的 dsh 版本（默认 0.1.7-rc.2）
   --skip-dsh            不安装 / 不校验 dsh（假设 PATH 上已有）
   --skip-build          跳过插件的 npm install 与 build（复用已有 dist/）
   --force               覆盖已存在的 profile 配置文件（覆盖前备份）
@@ -309,7 +309,9 @@ cat << EOF
   4) 改插件后：  npm run build（无需重跑 pnpm install，link: 依赖经 symlink 实时生效）
 
 提示
-  - 模型 provider 与凭据在 $dsh_home/settings.yaml（本脚本不动该文件）。
+  - 配置（provider/凭据/插件配置）由宿主按「profile 插件条目 id」命名空间写入 profile 的
+    cordis.patch.yml；0.1.7 起 $dsh_home/settings.yaml 仅作一次性导入（自动改名 .imported）。
+    本脚本不动这两处文件。
   - 本项目只用 TUI：agent 面走 profile 全局组合，不配置 agent preset；TUI 的 /preset
     提示「agent 预设服务不可用」属正常（依据见 docs/AGENT-COMPOSITION.md）。
   - 若退出码非零或启动报 patch 告警，多半是 profile 的 cordis.patch.yml 引用了未安装的条目 id。

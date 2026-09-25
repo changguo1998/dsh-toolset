@@ -109,11 +109,12 @@ commandPanel: {
 | 服务 | 精确签名 | 提供包 |
 |------|---------|--------|
 | `skills` | `list(options?)` → `SkillSummary[]`、`get(name, options?)` → `SkillDefinition`（**服务层用名字符串**；`candidate` 只在 provider 层） | `dsh-skill` |
-| `subagents` | `listChildren(parentSessionId, signal?)` → `SubagentListEntry[]`（条目含 `id`）、`interrupt(targetSessionId, authority)`（`authority` = `{ kind: 'user', parentSessionId }`）、`interruptByParent(child, parent, 'continuable')`、`start` / `sendMessage`（`list()` 返回 provider 名） | `dsh-subagent` |
+| `subagents` | `listDescendants(rootSessionId, signal?)` → `(SubagentListEntry & { parentId, depth })[]`（**0.1.7 起 `/agents` 首选**，取 `depth=1` 即直接子代）、`listChildren(parentSessionId, signal?)`（≤0.1.5 返回富条目；0.1.7 起返回投影目录 `SubagentCatalogEntry` = `{ id, createdAt, mode, label? }`，无 activity/hasChildren/diagnostic）、`interrupt(targetSessionId, authority)`（`authority` = `{ kind: 'user', parentSessionId }`）、`interruptByParent(child, parent, 'continuable')`、`start` / `sendMessage`（`list()` 返回 provider 名） | `dsh-subagent` |
+| `jobs` | `list(caller?)` / `kill(id, caller?, reason?)`（**caller 形态随版本变化**：0.1.7 起裸 `sessionId` 字符串、≤0.1.5 只读 `caller?.id` 的对象）、增量订阅 `events.subscribe(filter, listener)`（0.1.7，`filter` = `{ owner }` | `{ owners }`）/ `onJobsChanged(listener)`（≤0.1.5） | `dsh-jobs`（bundle 里由 `dsh-jobs-local` 挂载） |
 | `tools` | `schemas(scope?)` → `ToolSchema[]`、`get(name, scope?)`（**scope 省略 = 全局视图**）、`register` / `restrict`；`view()` 为 private，不属可用面 | `dsh-tools` |
 | `sessionTitle` | `get(session)`、`rename(session, title)`（**首参为 session 对象**） | `dsh-session-title` |
 | `sessions` | `list()`、`get(id)`、`create(id, options)`、`fork(source, boundary?, childSessionId?)` → `Session`（后两参可省：省 boundary = 尾事件、省 id = store 策略；错误码 5 个） | `dsh-session` |
-| `settings` | `describe(options?)` → `SettingsDescriptor[]`（枚举 ns 且带当前值）、`get(ns)` → unknown、写入 `update(ns, patch, expectedRevision?)` / `replace` / `mutate`（`write` 为 private，不可调用） | `dsh-settings` |
+| `settings` | `describe(options?)` → `SettingsDescriptor[]`（枚举 ns 且带当前值）、写入 `update(ns, patch, expectedRevision?)` / `replace` / `mutate`（`write` 为 private，不可调用）；`get(ns)` / `register` / `installSection` **在 0.1.7 已移除**（本 TUI 只用 `describe()`） | `dsh-settings` |
 | `tokenMeter` | `measure(session, requestHeader)`、`estimateMessage(message)` | `dsh-token-meter` |
 
 其他已核实事实：cordis 服务挂载 API 为 `ctx.provide(name, value)`；输入预填 action `{ type: "input", text, cursor }`；`state.usage = { input, output, cacheRead, contextWindow? }` 语义为**最近一次模型调用**（非会话累计）。
