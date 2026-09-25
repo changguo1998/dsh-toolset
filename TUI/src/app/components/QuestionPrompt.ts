@@ -30,7 +30,7 @@ import { fillBoxTree } from "../layout/fill.ts";
 const OPTION_CONT_INDENT = "      ";
 
 /**
- * 问答面板 Box 生成器（TUI/docs/design/DESIGN.md §7 / SPEC.md §7）：整棵 activity 内容树
+ * 问答面板 Box 生成器（TUI/docs/DESIGN.md §7 / SPEC.md §7）：整棵 activity 内容树
  * 替换。文本池（题干/detail/选项/自定义兜底 + 滚动窗口）在 build 内按现状
  * 算法计算，逐行产 styled 叶子（选项行选中绿 / 未选中的光标行黄、无 markdown
  * 解析）。操作提示仅列实际用到的按键（Enter 文案区分下一题/提交等）。

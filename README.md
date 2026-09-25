@@ -24,7 +24,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **code-map** | 代码结构地图：文件节点 + import 图索引，`callers`/`callees`/`cycles`/`impact` 查询与项目/模块报告（引用为候选，无 LSP 语义层）；经 `link:` 依赖 `@dsh-toolset/ast-tools`（挂载时需一并安装） |
 | **context-report** | 会话上下文与用量报告：host-only 投影 `sessionContext` 折叠会话累计（回合/步、模型与工具墙钟、首 token、token 分桶），工具 `context_report` 合成 token-meter 即时压力与模型容量读数 |
 
-各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/DEVELOPMENT-STATUS.md`。
+各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/STATUS.md`。
 
 ## 目录结构
 
@@ -99,38 +99,39 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 
 ## 文档
 
-索引只此一处（`AGENTS.md` 不再重复列清单）；每份文档开头三行写明「职责 / 不负责 / 过期条件」。
+索引只此一处（`AGENTS.md` 不重复列清单）；每份文档开头三行写明「职责 / 不负责 / 过期条件」。
 
-**项目面（跨包：现状与推进）**
+变更流程见 `docs/WORKFLOW.md`（详版）与 `AGENTS.md`「内容变更规范」（简版）：条目在 `BACKLOG.md`，过程记录写进追踪文档，关闭后移入 `archived/`。
 
-- `docs/DEVELOPMENT-STATUS.md` — 插件与宿主基线的现状快照（状态的唯一来源）。
-- `docs/DEVELOPMENT-BACKLOG.md` — 跨包待办：缺陷 + 功能（P0/P1/P2）+ 里程碑 + 插件规划。
+**项目级（`docs/`）**
 
-**宿主面（`docs/host/`，升宿主后必复核）**
+- `docs/ROADMAP.md` — 未来开发方向（**尚未建立**，见 `docs/BACKLOG.md` #41）。
+- `docs/BACKLOG.md` — 可执行条目：跨包功能与缺陷（P0/P1/P2）+ 里程碑 + 插件规划。
+- `docs/STATUS.md` — 对照文档：记录已实现的内容（由维护者择时更新）。
+- `docs/WORKFLOW.md` — 内容变更规范（详版）。
+- `docs/implementation/`、`docs/archived/` — 跨包条目的追踪文档（进行中 / 已关闭）。
+
+**宿主面（`docs/host/`，不参与变更流程，升宿主后必复核）**
 
 官方接口研读与升级文档的集中地——**不限 dsh-base**：任何宿主官方接口（ctx API、各子系统与子包的契约）的研读笔记都放这里。
 
 - `docs/host/DSH-CTX-API.md` — 宿主 ctx 接口研读笔记（跨插件契约，只读参考）。
 - `docs/host/HOST-PACKAGES.md` — 宿主官方包与服务字典（生成物，升宿主后重新生成）。
-- `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` — 当前升级对照（0.1.5-rc.3 → 0.1.7-rc.2）与实施状态；下次升级另开新文件，本份移入 `archive/`。
+- `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` — 当前升级对照（0.1.5-rc.3 → 0.1.7-rc.2）与实施状态；下次升级另开新文件，本份移入根 `archive/`。
 - `docs/host/AGENT-COMPOSITION.md` — agent 面组合现状与官方依据（TUI 走 profile 全局组合、不配 preset）。
 - `docs/host/AGENT-ARCHITECTURE-ANALOGY.md` — 官方 agent 架构与接口对照（task-engine、knowledge-base 的设计依据）。
 
-**TUI 面（`TUI/docs/`，TUI 的变更优先写这里）**
+**模块级（`TUI/docs/`、`<包>/docs/`）**
 
-- `TUI/README.md` — TUI 用法、配置项与命令行为表。
-- `TUI/docs/STATUS.md`、`TUI/docs/BACKLOG.md` — TUI 现状、待办与开放项（含 herdr 外部问题取证）。
-- `TUI/docs/SPEC.md` — 渲染管线规格；`TUI/docs/IMPLEMENTATION.md` — 实现记录。
-- `TUI/docs/COMMANDS.md` — 命令清单（按本地 / 宿主注册层归属）；`TUI/docs/COMMANDS-SPEC.md` — 新命令的硬规格与排除项裁定。
-- `TUI/docs/design/` — 内部设计与规范：`DESIGN.md`（机制与取舍）、`NOTICE-LEVELS.md`（提示分级）、`AUDIT-colors.md`（配色语义）、`REFACTOR.md`（模块拆分约定）。
-
-**插件包**
-
-- 各包 `README.md`（职责、契约、边界、测试命令）；`knowledge-base`、`output-compress`、`code-map` 另有 `DESIGN.md`。
-- 包内缺陷与待办写在该包自己的 `BACKLOG.md`（如 `fs-digest/BACKLOG.md`；TUI 的是 `TUI/docs/BACKLOG.md`）。
+- `TUI/README.md`、`<包>/README.md` — 模块入口：用法、配置、契约、边界。
+- `TUI/docs/DESIGN.md`、`<包>/docs/DESIGN.md` — 架构设计与机制取舍（`knowledge-base`、`output-compress`、`code-map` 有）。
+- `TUI/docs/SPEC.md` — 渲染管线规格；`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` — 命令清单与扩展规格。
+- `TUI/docs/design/` — TUI 内部规范：`NOTICE-LEVELS.md`（提示分级）、`AUDIT-colors.md`（配色语义）、`REFACTOR.md`（模块拆分约定）。
+- `<模块>/docs/BACKLOG.md` — 模块待办（`TUI/docs/BACKLOG.md`、`fs-digest/docs/BACKLOG.md` 已建，其余按需）；`<模块>/docs/STATUS.md` — 模块级对照文档（TUI 已有）。
+- `TUI/docs/IMPLEMENTATION.md` — 实现要点，**待按 `docs/BACKLOG.md` #40 拆分后删除**。
 
 **协作与历史**
 
-- `AGENTS.md` — 面向 agent 的协作规范（语言、命令、格式化、构建部署、变更流程、结构约定、Git）。
-- `archive/` — 已完成清单、历史调研、旧版契约快照与完成使命的升级文档；仅作历史记录，不作现状来源。
+- `AGENTS.md` — 面向 agent 的协作规范（语言、命令、格式化、构建部署、变更流程、内容变更规范简版、结构约定、Git）。
+- 根 `archive/` — 根级历史（已完成清单、历史调研、旧版契约快照、完成使命的升级文档）；模块历史进 `<模块>/docs/archived/`。
 - 不维护 `CHANGELOG.md`：变更记录以 `git log`（Conventional Commits）与 `docs/host/HOST-UPGRADE-*.md` 为准。

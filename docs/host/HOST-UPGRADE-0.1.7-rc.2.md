@@ -38,7 +38,7 @@
 |---|---|---|
 | TUI `jobs` / `/agents`、output-compress PTC 三处改造 | **已完成** | 按 §3.2 落地：能力探测择路，0.1.7 与 ≤0.1.5 都能走通（过渡期双栈） |
 | 单测与构建 | **已完成** | `npm run check` 全绿；TUI 1087 用例、output-compress 45 用例（含 3 个新增 PTC 用例）通过；`npm run build` + `npm run demo -- --smoke` 通过 |
-| `scripts/install.sh` 与 TUI 文档同步 | **已完成** | 默认版本 → `0.1.7-rc.2`；`TUI/docs/design/DESIGN.md`、`TUI/docs/IMPLEMENTATION.md`、`TUI/docs/COMMANDS-SPEC.md` 记录新契约 |
+| `scripts/install.sh` 与 TUI 文档同步 | **已完成** | 默认版本 → `0.1.7-rc.2`；`TUI/docs/DESIGN.md`、`TUI/docs/IMPLEMENTATION.md`、`TUI/docs/COMMANDS-SPEC.md` 记录新契约 |
 | 宿主安装 + profile 依赖同步 + settings 迁移 | **已完成** | `dsh --version` = 0.1.7-rc.2（随包 283 个）；profile 的 `dsh-session-title-all-prompts-llm` → 0.1.7-rc.2 且 `pnpm install` 通过（peer 期望随之变为 `cordis ~4.0.4` / `dsh-* 0.1.7-rc.2`）；首次启动完成 settings 迁移：`settings.yaml` → `.imported`、profile patch 写入 `agent-default-model` / `llm-pi-ai` 段 |
 | 组合与启动核对 | **已完成** | `--dump-config` 含 `dsh-base` + 13 个 `@dsh-toolset/*` + `tool-ask-user` + `session-title-all-prompts-llm`；关键服务条目在位：`jobs`、`subagent`、`ptc-runtime`（`@deepseek-ai/dsh-ptc-runtime-node`）、`sandbox-policy`；pty 冒烟 15s：TUI 正常渲染、**无 `did not activate` / `startup failed`** |
 | 运行时核对（自动） | **已完成** | 重启后本会话即跑在 rc.2：会话目录同时存在旧 `session.v3.jsonl.zstd` 与新 `session.v4.jsonl.zstd`（V4 writer 另存 successor、不改写前代）且会话可继续追加；插件实测：`code_map index` 建成 265 文件 / 5052 符号索引、`context_report` 正常（读的正是跨 V3→V4 迁移后的会话）、`task_engine` 正常、metric-loop 启动注册日志在位、output-compress 产生新分片（48KB / 37KB，`inline-event-text` 触发） |

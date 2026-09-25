@@ -39,7 +39,7 @@ TS API：`digest(ctx, filePath, opts, deps?)`，`deps` 可注入 `provider` / `r
 - `requireLsp: true` 对 Markdown 不生效（Markdown 有原生解析路径，不参与 LSP 可用性检查）。
 - 无法识别语言且无 LSP → `unsupported_language`，可用 `language` 提示绕过。
 - 错误分类：`invalid_option` / `file_not_found` / `not_a_file` / `too_large` / `binary` / `lsp_unavailable` / `unsupported_language`；失败返回 `{ ok: false, error, message }`，不抛未捕获异常。
-- **已知缺陷（工具当前不可用）**：会话 cwd 的取值路径不可用——`resolvePath` 直接读 `ctx.cwd`，而 `cwd` 不是宿主服务，未 `inject` 的属性访问即抛错（`?? process.cwd()` 兜底走不到），任何调用都会失败。详见 `fs-digest/BACKLOG.md` D1（待修复）。
+- **已知缺陷（工具当前不可用）**：会话 cwd 的取值路径不可用——`resolvePath` 直接读 `ctx.cwd`，而 `cwd` 不是宿主服务，未 `inject` 的属性访问即抛错（`?? process.cwd()` 兜底走不到），任何调用都会失败。详见 `fs-digest/docs/BACKLOG.md` D1（待修复）。
 - `pruned` 的切点会吸附到最近的边界行（空行、Markdown 标题/分隔线、闭合括号行、顶层语句结束行），最多偏移 5 行；文件在预算内时返回全文（`truncated: false`）。
 
 ## 测试

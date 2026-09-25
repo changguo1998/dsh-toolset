@@ -5,7 +5,7 @@
 > 过期条件：无（随实现同步更新）
 
 > 类型：**[spec]**——排版与渲染的接口与规则：Box 类型与布局算法（§2-§8）、排版管线（§9）、层间数据契约与主题契约（§11-§12）、不变量（§13）、段级序列化（§14）。可照写、可验证。
-> 配套：`TUI/docs/design/DESIGN.md`（设计与取舍）、`IMPLEMENTATION.md`（实现要点）。章节编号稳定（代码注释按号引用），新章节追加在末尾。
+> 配套：`TUI/docs/DESIGN.md`（设计与取舍）、`IMPLEMENTATION.md`（实现要点）。章节编号稳定（代码注释按号引用），新章节追加在末尾。
 
 ## 2. Box 模型 [spec]
 
@@ -51,7 +51,7 @@ interface Box extends NodeBase {
   children: (Box | Paragraph)[];    // 子节点（Box 或 Paragraph）
   separator?: Separator;            // v 排布行间横线 / h 排布列间竖线框线（结构性，随子项增删；首尾不画）
   id?: PaneId;                      // 分区身份（Pane = 带 id 的 Box）：仅可寻址区域挂
-  // 无 border：边框归 FocusFrame（`TUI/docs/design/DESIGN.md` §8）
+  // 无 border：边框归 FocusFrame（`TUI/docs/DESIGN.md` §8）
 }
 
 // 2. Paragraph = 叶子节点（内容最小单位）：不能嵌套子 Box
@@ -66,7 +66,7 @@ interface Paragraph extends NodeBase {
 //   spacer({ height }) := Paragraph({ text:"", height })（v 容器占行）——轴显式
 ```
 
-**简写与说明**：示例中 `v([...])` / `h([...])` 是 `Box(direction:"v"/"h")` 的简写，`text(...)` 是 `Paragraph(...)` 简写。`separator` 是**唯一**的"边框"机制——纵向 `v` 做兄弟项之间横线分隔（缺省 `╌`）、横向 `h` 做列间分隔（缺省 `│`+border；状态栏组内 / 组间分隔改传 `{ char:"•", color:"plain" }`，见 §3「系统状态栏分隔」，不再与上/下横线相交、无交点 `┬`），**不做盒子四边描边**（现状无此需求）；焦点框线仍归 `FocusFrame` 全局覆写（`TUI/docs/design/DESIGN.md` §8）。
+**简写与说明**：示例中 `v([...])` / `h([...])` 是 `Box(direction:"v"/"h")` 的简写，`text(...)` 是 `Paragraph(...)` 简写。`separator` 是**唯一**的"边框"机制——纵向 `v` 做兄弟项之间横线分隔（缺省 `╌`）、横向 `h` 做列间分隔（缺省 `│`+border；状态栏组内 / 组间分隔改传 `{ char:"•", color:"plain" }`，见 §3「系统状态栏分隔」，不再与上/下横线相交、无交点 `┬`），**不做盒子四边描边**（现状无此需求）；焦点框线仍归 `FocusFrame` 全局覆写（`TUI/docs/DESIGN.md` §8）。
 
 **`Spacer` 用法**：块级对齐/间距的占位项——横向 `spacer({ width: fill })` 吃剩余推位（用户块右对齐）、`spacer({ width: fixed n })` 留白（回复右缘 `messageGutter`）；纵向 `spacer({ height: fill })` 吃剩余、让内容不足时落在容器底边、`spacer({ height: fixed n })` 为固定空行。**轴必须显式给出**（`width`→h 占列、`height`→v 占行，杜绝 `{mode:"fill"}` 歧义）；允许 `fill` 与 `fixed`（±夹取界）两种形态，`auto`/`ratio` 对空内容无意义、不做（YAGNI）。
 
@@ -255,7 +255,7 @@ tableBox(table: TableSpec, width: number, themeId: ThemeId): Box | null
 
 1. **宽轴 = 自顶向下（分割）**：根矩形（终端尺寸）→ 逐层按 `Width` 意图切分宽度。该链与内容无关，纯分割（`metricsFor`/`contentW` 的活）。
 1. **高轴 = 自底向上（生长）**：**必须在宽度确定后才能计算**——段落折行必须知道可用宽（来自父链分配），折行行数即高度（`fill` 的活）。
-1. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` + 语义锚点 `anchorToIndex` 的活）。区域（历史 + 活动区，位于状态列右侧）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane 宽高比距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 `TUI/docs/design/DESIGN.md`「四区域布局」）。历史区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`dialogueWindow`），视口位置由**语义锚点**（`DialogueAnchor{line,row}`，视口顶行 = (buffer 行, 行内换行序号)）解析——两者合计使「重排/新增内容」不再移动锚定内容（见 `TUI/docs/design/DESIGN.md`「四区域布局」）。
+1. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` + 语义锚点 `anchorToIndex` 的活）。区域（历史 + 活动区，位于状态列右侧）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane 宽高比距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 `TUI/docs/DESIGN.md`「四区域布局」）。历史区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`dialogueWindow`），视口位置由**语义锚点**（`DialogueAnchor{line,row}`，视口顶行 = (buffer 行, 行内换行序号)）解析——两者合计使「重排/新增内容」不再移动锚定内容（见 `TUI/docs/DESIGN.md`「四区域布局」）。
 
 **次序不变量（长宽不可能同时自由）**：宽度分割先于高度测量；高度永远在宽度确定后计算。`measure(node, constraint)` 的 `constraint` 即「宽度来自父链」的入口——measure 并非无约束累加：宽锁（父分配）→ 高自由（内容生长）。至少一个轴被父链锁死，内容才在另一轴自由生长。
 
@@ -326,7 +326,7 @@ allocate(st: SizeTable, rect: Rect) -> Map<Node, Rect>:
     每个子项递归 allocate(child, { x: rect.x, y: 当前游标, w: rect.w, h: 分配高 })
 ```
 
-- 根矩形 = 终端尺寸（cols×rows）；`allocate` 产出的 `Map<Node, Rect>` 供 fill 阶段与 FocusFrame 使用（`TUI/docs/design/DESIGN.md` §8）。
+- 根矩形 = 终端尺寸（cols×rows）；`allocate` 产出的 `Map<Node, Rect>` 供 fill 阶段与 FocusFrame 使用（`TUI/docs/DESIGN.md` §8）。
 - 全局流程 = 宽分割（自顶向下）→ 高生长（自底向上，用已分配宽）→ 视口裁剪（自顶向下），**无迭代回环**（见 §6.1）。
 
 ### 6.5 分配优先级：越精确的指定优先级越高
@@ -420,7 +420,7 @@ setCell(row: FrameRow, col: number, ch: string, style?: FrameStyle): void
 
 ## 7. 面板场景原语 [spec]
 
-面板 = Box 生成器（`TUI/docs/design/DESIGN.md` §7），组件用下列**便捷构造**组装（非新 `kind`，均返回 `Box`/`Paragraph`，落在 `layout/panel.ts`）：
+面板 = Box 生成器（`TUI/docs/DESIGN.md` §7），组件用下列**便捷构造**组装（非新 `kind`，均返回 `Box`/`Paragraph`，落在 `layout/panel.ts`）：
 
 ```ts
 // 面板结构原语：各返回 Box 子树，由 fill 统一摊平
@@ -436,7 +436,7 @@ panelOptions(options: PanelOption[]): Box       // 选项列表（每项一行�
 
 ## 8. FocusFrame 覆写规格 [spec]
 
-焦点框 = 全局覆写，无 `box.border`（机制与理由见 `TUI/docs/design/DESIGN.md` §8）。
+焦点框 = 全局覆写，无 `box.border`（机制与理由见 `TUI/docs/DESIGN.md` §8）。
 
 ```ts
 FocusFrame(ctx: FrameContext, rects: Map<PaneId, Rect>, rows: FrameRow[]): void

@@ -30,7 +30,7 @@ export interface CommandCompletionView {
 }
 
 /**
- * 输入补全候选面板 Box 生成器（TUI/docs/design/DESIGN.md §7 / SPEC.md §7）：标题行（命令名
+ * 输入补全候选面板 Box 生成器（TUI/docs/DESIGN.md §7 / SPEC.md §7）：标题行（命令名
  * 蓝）+ 候选行（焦点`>`黄，超宽截断后着色）；超出的候选丢弃、不足补空行。
  * 叶子 styled wrap:false。
  */

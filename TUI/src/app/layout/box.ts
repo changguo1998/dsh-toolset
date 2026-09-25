@@ -89,7 +89,7 @@ export interface Box extends NodeBase {
   separator?: Separator;
   /** 分区身份（Pane = 带 id 的 Box）：仅可寻址区域挂 */
   id?: PaneId;
-  // 无 border：边框归 FocusFrame（TUI/docs/design/DESIGN.md §8）
+  // 无 border：边框归 FocusFrame（TUI/docs/DESIGN.md §8）
 }
 
 /** 2. Paragraph = 叶子节点（内容最小单位）：不能嵌套子 Box */

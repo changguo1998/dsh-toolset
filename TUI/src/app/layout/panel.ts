@@ -1,6 +1,6 @@
 // TUI/src/app/layout/panel.ts — 面板场景原语（规范见 SPEC.md §7）
 //
-// 面板组件 = 这些原语的组合函数（TUI/docs/design/DESIGN.md §7），输出整棵
+// 面板组件 = 这些原语的组合函数（TUI/docs/DESIGN.md §7），输出整棵
 // activity 内容树替换（无 Overlay）。原语均为纯组装糖：返回 Box/Paragraph，
 // 无新 kind、不改布局语义，由 measure/allocate/fill 统一摊平。
 //

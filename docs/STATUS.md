@@ -1,10 +1,10 @@
 # 插件开发状态追踪
 
 > 职责：插件与宿主基线的现状快照（状态的唯一来源）
-> 不负责：细节与待办（见 `docs/DEVELOPMENT-BACKLOG.md` 与各包 `README.md`）
+> 不负责：细节与待办（见 `docs/BACKLOG.md` 与各包 `README.md`）
 > 过期条件：无（状态变化即更新）
 
-> 本表只记状态，不记细节：功能与边界见各包 `README.md`，未完成项见 `DEVELOPMENT-BACKLOG.md`；已完成的实施清单归档在 `archive/`（如 `TUI-REFACTOR-TASKS.md`、`TUI-COMMANDS-TASKS.md`），仅作历史记录，不是现状来源。
+> 本表只记状态，不记细节：功能与边界见各包 `README.md`，未完成项见 `BACKLOG.md`；已完成的实施清单归档在 `archive/`（如 `TUI-REFACTOR-TASKS.md`、`TUI-COMMANDS-TASKS.md`），仅作历史记录，不是现状来源。
 > 状态取值：未开始 / 进行中 / 阻塞 / 完成 / 已取消 / 暂缓。状态变化时更新本表。
 > 单测数为 `npm test` 实测值（`node --test` 用例数）。
 
@@ -27,11 +27,11 @@
 | goal-contract | P1 | 完成 | interview 式 Done-when 契约起草，落 dsh-goal 事件源并回读比对，35 单测 |
 | metric-loop | P1 | 完成 | 指标循环引擎与计划续排（plateau / 轮数 / 时间 / token 边界、cadence 唤醒），35 单测 |
 | output-compress | P1 | 完成 | 大输出确定性摘要 + 切片索引入 knowledge-base 共享库，42 单测 |
-| fs-digest | P1-P2 | 完成（有 1 条待修缺陷） | outline/signatures/pruned 三模式文件摘要，42 单测；缺陷：会话 cwd 取值不可用导致工具调用必失败，见 `fs-digest/BACKLOG.md` D1 |
+| fs-digest | P1-P2 | 完成（有 1 条待修缺陷） | outline/signatures/pruned 三模式文件摘要，42 单测；缺陷：会话 cwd 取值不可用导致工具调用必失败，见 `fs-digest/docs/BACKLOG.md` D1 |
 | hash-edit | P1 | 完成 | LINE:HASH 锚定读写编辑（stale 整批拒绝），43 单测 |
 | ast-tools | P1 | 完成 | ast-grep 搜索/替换/大纲/规则执行，27 单测 |
 | security-guard | P1-P2 | 完成 | 危险命令黑名单 + 敏感文件保护策略层，37 单测 |
-| code-map | P2 | 完成 | 结构索引（符号表 + import 图）+ callers/callees/cycles/impact + 项目/模块报告，14 单测；首版边界：引用为候选（无 LSP 语义层）、callees 文件级、索引惰性构建，见 `code-map/DESIGN.md` |
+| code-map | P2 | 完成 | 结构索引（符号表 + import 图）+ callers/callees/cycles/impact + 项目/模块报告，14 单测；首版边界：引用为候选（无 LSP 语义层）、callees 文件级、索引惰性构建，见 `code-map/docs/DESIGN.md` |
 | context-report | P2 | 完成 | 会话上下文/用量报告：host-only 投影 `sessionContext`（回合/步、模型与工具墙钟、首 token、token 分桶）+ `context_report` 工具（三档 detail）+ `contextReport` 服务，42 单测；边界：客户端快照无本 key、上下文构成待宿主公开读面，见 `context-report/README.md` |
 | rate-guard | P2 | 已取消 | 不迁移，见总览 |
 | workflow-ext | P2 | 未开始 | |

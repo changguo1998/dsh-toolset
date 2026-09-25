@@ -1585,7 +1585,7 @@ function buildTopRegion(
   const statusFocused = !geom.modalOpen && state.focusedPanel === "status";
   // 焦点中性基线：活动区分隔线 / 分隔竖线 / 左缘框格 / 右缘框列全部以灰
   // 边框色或空白占位产出；亮角字/亮边由 buildFrame 末尾的 focusFrame
-  // 按焦点态覆写（TUI/docs/design/DESIGN.md §8，唯一焦点框机制）。
+  // 按焦点态覆写（TUI/docs/DESIGN.md §8，唯一焦点框机制）。
   const sepSegments = (): FrameSegment[] => [
     {
       text: ACTIVITY_SEPARATOR.repeat(Math.max(1, contentW)),
@@ -2599,7 +2599,7 @@ export function buildFrame(
   ];
   // 焦点框全局覆写：buildTopRegion/buildStatusSeparator 已产出焦点中性基线，
   // 末帧一次扫描按焦点分区矩形（帧坐标，right=x+w-1/bottom=y+h-1）覆写亮
-  // 角字/边线（TUI/docs/design/DESIGN.md §8 / SPEC.md §8 唯一焦点框机制）。模态态（面板打开）
+  // 角字/边线（TUI/docs/DESIGN.md §8 / SPEC.md §8 唯一焦点框机制）。模态态（面板打开）
   // 焦点用 null 传入：面板占活动区时无焦点框高亮。
   const underlineRow = Math.max(0, titleRows - 1);
   const diaEnd = geom.activitySepRow; // 纵向=活动区分隔行；横向=历史 pane 底边下一行

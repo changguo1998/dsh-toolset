@@ -2,7 +2,7 @@
 
 本项目为 DSH（DeepSeek Harness）进程内集成插件工具集，包含 `TUI/` 终端界面包与 12 个进程内集成插件（herdr-integration / task-engine / knowledge-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard / code-map / context-report）。
 
-> 文档分工：根目录 `README.md` 面向人（项目总览、插件功能、快速开始、文档索引），本文件面向 agent（开发协作规范）；插件功能与当前状态见 `README.md` 与 `docs/DEVELOPMENT-STATUS.md`，`docs/` 其余文档与 `docs/host/DSH-CTX-API.md` 为设计/契约参考。
+> 文档分工：根目录 `README.md` 面向人（项目总览、插件功能、快速开始、文档索引），本文件面向 agent（开发协作规范）；变更规范简版见下方「内容变更规范」、详版 `docs/WORKFLOW.md`；状态对照见 `docs/STATUS.md` 与各模块 `docs/`，宿主面知识与升级记录见 `docs/host/`。
 
 ## 语言约定
 
@@ -54,17 +54,32 @@ scripts/install.sh --help   # --profile/--plugins/--dsh-version/--skip-dsh/--ski
 
 - 任何产物性变更（代码/配置）完成后必须执行 `npm run build` 重新构建，并由**人工确认变更效果**（如运行 `npm run demo` 或实际接入验证），人工确认通过后才允许后续提交（commit）。
 
+## 内容变更规范（简版）
+
+任何改动（不论范围大小与种类：文档 / 代码 / 配置）都走同一流程；详版见 `docs/WORKFLOW.md`。
+
+分层：`docs/ROADMAP.md`（仅项目级，记方向）→ `<模块>/docs/DESIGN.md`（架构设计）→ `<层>/docs/BACKLOG.md`（可执行条目）→ `<层>/docs/implementation/<YYYY-MM-DD>-<slug>.md`（追踪文档）→ 关闭后移入 `<层>/docs/archived/`。模块 = TUI 与 12 个包；跨模块条目归项目级。
+
+1. **开工前**：对应层 `BACKLOG.md` 里要有可执行条目。
+1. **开工时**：本次接取的**每个**条目标「进行中」（此后不再切状态）；建追踪文档——**一个任务可同时接取多个条目**，文件头列出全部条目，并先写「计划改动文件清单」。
+1. **过程中**：所有文档变更只写这份追踪文档；**计划外文件一律不改**（不做「顺手改」）；途中发现的新问题记进追踪文档，并在 BACKLOG 追加新条目交其他 agent。
+1. **完成时**：所接取的每个条目标「完成」；追踪文档移入 `docs/archived/`；随后按需回写 DESIGN / README / ROADMAP。
+1. **提交询问点**：决策完成后 / 代码实现后 / 测试通过后 / 任务关闭后，各询问一次是否提交（未获同意不提交）。
+1. `STATUS.md` 是对照文档（记录已实现内容），由**用户择时更新**，流程内不改。
+
+细则与追踪文档模板见 `docs/WORKFLOW.md`。
+
 ## 结构与约定
 
 - `TUI/src/app/` 状态与纯函数层（state/layout），`TUI/src/renderer/` 终端渲染层，`TUI/src/app/adapter/` 插拔适配层，`TUI/demo/` mock demo。
 - 插件子包：`task-engine/`（任务执行引擎）、`knowledge-base/`（知识库与记忆）、`herdr-integration/`（herdr 面板桥）、`goal-contract/`（Done-when 契约起草）、`metric-loop/`（指标循环）、`output-compress/`（大输出摘要入库）、`fs-digest/`（文件摘要）、`hash-edit/`（LINE:HASH 锚定编辑）、`ast-tools/`（AST 搜索/替换/大纲）、`security-guard/`（危险命令与敏感文件防护）、`code-map/`（代码结构地图）、`context-report/`（会话上下文/用量报告）；各包的 `package.json` 带 `dsh.bundle` 集成契约与 `cordis.patch.yml`。
 - 核心契约对齐官方 deepseek-harness：根目录 `docs/host/DSH-CTX-API.md` 为跨插件共享研读笔记（只读参考，勿改动）。
-- 文档索引见 `README.md` 的「文档」一节（**唯一来源**，本文件不重复列清单）；分级：`docs/`（项目面：跨包现状与待办）、`docs/host/`（宿主面：**所有官方接口研读**与升级文档，升宿主后必复核）、`TUI/docs/`（TUI 面：STATUS / BACKLOG / SPEC / IMPLEMENTATION / COMMANDS，内部规范在 `TUI/docs/design/`）、各包 `README.md`（模块契约）、`archive/`（历史）。
-- **TUI 的变更优先写 `TUI/docs/`**：现状 → `TUI/docs/STATUS.md`，待办与开放项 → `TUI/docs/BACKLOG.md`，规格与约定 → `TUI/docs/SPEC.md`、`TUI/docs/design/`；项目面 `docs/` 只保留跨包汇总与指针。
-- **包内缺陷与待办写在该包的 `BACKLOG.md`**（如 `fs-digest/BACKLOG.md`；TUI 为 `TUI/docs/BACKLOG.md`），跨包项才写 `docs/DEVELOPMENT-BACKLOG.md`；改动行为时同步更新 `docs/DEVELOPMENT-STATUS.md`，功能完成时同步清理对应 BACKLOG。
-- `archive/` 存放**已完成任务清单与历史调研**（如 `TUI-REFACTOR-TASKS.md`、`TUI-COMMANDS-TASKS.md`、`PI-DSH-FEATURE-COMPARISON.md`、`CODEMAP-RESEARCH.md`）：仅作历史记录，不是现状来源；当前口径以 `docs/DEVELOPMENT-STATUS.md`、`TUI/docs/STATUS.md`、`TUI/docs/SPEC.md`、`TUI/docs/IMPLEMENTATION.md`、`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` 为准。
+- 文档索引见 `README.md` 的「文档」一节（**唯一来源**，本文件不重复列清单）；结构：`docs/`（项目级：`ROADMAP.md` / `BACKLOG.md` / `STATUS.md` / `WORKFLOW.md` / `implementation/` / `archived/`）、`docs/host/`（宿主面知识：所有官方接口研读与升级文档，升宿主后必复核，不参与变更流程）、`<模块>/docs/`（模块自管：`DESIGN.md` / `BACKLOG.md` / `implementation/` / `archived/`；TUI 另有 `SPEC.md`、`COMMANDS*.md` 与内部规范 `design/`）、各包 `README.md`（模块契约）、根 `archive/`（根级历史）。
+- 模块文档归模块自管；条目与过程记录按上节「内容变更规范」，跨模块条目的条目与追踪文档放项目级 `docs/`。
+- 缺陷与待办写对应层 `BACKLOG.md`（模块 → `<模块>/docs/BACKLOG.md`；跨包 → `docs/BACKLOG.md`）；`STATUS.md` 由用户择时更新，勿自动改。
+- 根 `archive/` 存放**根级已完成任务清单与历史调研**（如 `TUI-REFACTOR-TASKS.md`、`TUI-COMMANDS-TASKS.md`、`PI-DSH-FEATURE-COMPARISON.md`、`CODEMAP-RESEARCH.md`）：仅作历史记录，不是现状来源；模块历史进模块 `docs/archived/`。当前口径以各模块 `docs/DESIGN.md`、`docs/STATUS.md`、`TUI/docs/SPEC.md`、`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` 为准。
 - DSH 集成契约以各包 `cordis.patch.yml` + `package.json` 的 `dsh.bundle` 为准。
-- 设计/实现讨论沉淀在 `TUI/docs/design/DESIGN.md`、`TUI/docs/SPEC.md` 与 `TUI/docs/IMPLEMENTATION.md`，改动行为时同步更新。
+- 设计与机制讨论沉淀在对应模块 `docs/DESIGN.md`（TUI 为 `TUI/docs/DESIGN.md`）；TUI 的渲染规格在 `TUI/docs/SPEC.md`（`TUI/docs/IMPLEMENTATION.md` 待按 BACKLOG #40 拆分）。
 
 ## Git
 

@@ -1,4 +1,4 @@
-// TUI/src/app/layout/build-box.ts — buffer 内容 → Box 内容树（规范见 TUI/docs/design/DESIGN.md §6）
+// TUI/src/app/layout/build-box.ts — buffer 内容 → Box 内容树（规范见 TUI/docs/DESIGN.md §6）
 //
 // width 无关的结构分类与聚合（advisor 定案）：
 //  - tool 分组/折叠、fence 状态注解、step 头识别在 buildBox

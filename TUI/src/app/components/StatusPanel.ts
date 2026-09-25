@@ -14,7 +14,7 @@ import { fillBoxTree } from "../layout/fill.ts";
 import { seg } from "../layout/primitives.ts";
 
 /**
- * 状态选项面板 Box 生成器（TUI/docs/design/DESIGN.md §7 / SPEC.md §7）：标题行（命令名蓝
+ * 状态选项面板 Box 生成器（TUI/docs/DESIGN.md §7 / SPEC.md §7）：标题行（命令名蓝
  * + 当前生效值）+ 选项列表（预选`*`绿优先 / 未预选焦点`>`黄）+ 操作提示。选项滚动
  * 窗口算法保留在 build 内（跟随焦点滚动）；叶子 styled wrap:false 精确行长。
  */

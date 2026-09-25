@@ -1,7 +1,7 @@
 # fs-digest 待办
 
 > 职责：fs-digest 包内的缺陷与待办（包内变更优先写在本包文档）
-> 不负责：跨包待办（见 `docs/DEVELOPMENT-BACKLOG.md`）、契约与边界（见 `fs-digest/README.md`）
+> 不负责：跨包待办（见 `docs/BACKLOG.md`）、契约与边界（见 `fs-digest/README.md`）
 > 过期条件：无
 
 ## 1. 缺陷

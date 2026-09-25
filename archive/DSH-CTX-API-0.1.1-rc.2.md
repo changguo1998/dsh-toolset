@@ -100,7 +100,7 @@ usage{usage} / finish{reason, replayState?}
 
 ## 8. P2 阶段 A0+A 备注（2026-09-05，对照 dsh-v0.1.1-rc.2 源码核实）
 
-> 说明：本文件按 AGENTS.md 原为只读研读笔记；因 P2 goal 客观要求把 A0 与 9 个 P2 事件的载荷结论沉淀于此（备注性质、不改动既有正文），故追加本节。TUI 侧落地细节见 `TUI/docs/design/DESIGN.md`「P2 实现计划」。
+> 说明：本文件按 AGENTS.md 原为只读研读笔记；因 P2 goal 客观要求把 A0 与 9 个 P2 事件的载荷结论沉淀于此（备注性质、不改动既有正文），故追加本节。TUI 侧落地细节见 `TUI/docs/DESIGN.md`「P2 实现计划」。
 
 ### A0 — 审批策略会话级写路径（决定 C 形态）
 

@@ -1,9 +1,9 @@
 # pi 已安装功能 → dsh 迁移调研与对比（细粒度）
 
-> **已归档**：本文是 pi → dsh 迁移时的一次性基线快照（pi 侧证据已随上游漂移）。当前覆盖情况见 `docs/DEVELOPMENT-STATUS.md`、剩余缺口见 `docs/DEVELOPMENT-BACKLOG.md`。
+> **已归档**：本文是 pi → dsh 迁移时的一次性基线快照（pi 侧证据已随上游漂移）。当前覆盖情况见 `docs/STATUS.md`、剩余缺口见 `docs/BACKLOG.md`。
 
 > 用途：记录「把 pi-coding-agent 已安装功能迁移到 dsh-toolset」的迁移基线。**对比单位 = 功能（子功能）而非包**；含拆分建议与 dsh 落点，不含实现方案。
-> 基线：pi 侧为迁移时的安装清单与工具面（pi 包版本随上游演进，本文不记版本）；dsh 侧为 deepseek-harness `dsh-v0.1.5-rc.2`（commit `fb2c4b9e69`，274 包，包存在性经 `git ls-tree` 核实）。迁移后的覆盖情况与剩余缺口以 `DEVELOPMENT-STATUS.md`、`DEVELOPMENT-BACKLOG.md` 为准，本文不逐项追记。
+> 基线：pi 侧为迁移时的安装清单与工具面（pi 包版本随上游演进，本文不记版本）；dsh 侧为 deepseek-harness `dsh-v0.1.5-rc.2`（commit `fb2c4b9e69`，274 包，包存在性经 `git ls-tree` 核实）。迁移后的覆盖情况与剩余缺口以 `STATUS.md`、`BACKLOG.md` 为准，本文不逐项追记。
 > 状态标记：**已有** / **部分** / **缺口** / **不适用**。§3 为迁移前的裸基线差距快照，已落地项见 §5.3。
 
 ## §1 pi 已安装功能清单（包级）
@@ -272,4 +272,4 @@ pi-dsh-minimal（反向桥）、herdr 集成、pi 内部补丁、配置数据。
 | 3.6 声音提醒 | notify-sound | TUI 完成/等待声音提醒（#33） |
 | 3.2 / 3.4 代码索引与报告 | hypa code index / module_report | code-map（#21-#22：结构层索引 + 报告；LSP 语义层为增量） |
 
-仍缺关键面（未单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）；记忆 auto-consolidation（knowledge-base 已有两级写回与淘汰提升，语义接近）；MCP 脚本化（mcpScript）、活动工具交互管理（extension-tools）、会话事件自动入知识库。其余未落地项见 `DEVELOPMENT-BACKLOG.md`。
+仍缺关键面（未单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）；记忆 auto-consolidation（knowledge-base 已有两级写回与淘汰提升，语义接近）；MCP 脚本化（mcpScript）、活动工具交互管理（extension-tools）、会话事件自动入知识库。其余未落地项见 `BACKLOG.md`。

@@ -18,7 +18,7 @@ import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
 
 /**
- * 后台任务面板 Box 生成器（TUI/docs/design/DESIGN.md §7 / SPEC.md §7）：标题 + 运行中
+ * 后台任务面板 Box 生成器（TUI/docs/DESIGN.md §7 / SPEC.md §7）：标题 + 运行中
  * 计数（青）+ 按键提示（灰）头部行、任务行（高亮`>` + 状态符号着色）、
  * 空列表占位。滚动窗口与截断算法保留在 build 内；叶子 styled wrap:false。
  */

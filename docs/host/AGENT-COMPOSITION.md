@@ -20,7 +20,7 @@
 - `dsh --profile fff --dump-config` 无 `agent-presets` 行；对照 `dsh --profile web --dump-config` 有该行（`default: standard`）。
 - 新会话首轮工具目录（会话日志 `request/header`）= base 官方 agent 面 + 本项目插件工具共 37 个；缺 preset 独有工具（如官方 `standard` 的 `present`），也缺自定义 preset 里的工具（如 liangshen 的 `skill_search`/`skill_load`）。
 - 系统提示为宿主默认 persona（composed tree 里 `personaPrefix: ''`），不是 preset 内 persona 行的前缀/后缀。
-- 因此目录式 preset 配置（`$DSH_HOME/.agent-presets/<id>/` 与 `settings.yaml` 的 `agent-presets.default`）在本 profile 下是空配置：该 settings 命名空间没有 provider。TUI 的 `/preset` 提示「agent 预设服务不可用」是 fail-safe 正常路径（装配证据见 `../TUI/docs/design/DESIGN.md`）。
+- 因此目录式 preset 配置（`$DSH_HOME/.agent-presets/<id>/` 与 `settings.yaml` 的 `agent-presets.default`）在本 profile 下是空配置：该 settings 命名空间没有 provider。TUI 的 `/preset` 提示「agent 预设服务不可用」是 fail-safe 正常路径（装配证据见 `../TUI/docs/DESIGN.md`）。
 
 ## 3. 落点：要改 agent 面就改 profile
 
@@ -35,7 +35,7 @@ preset 机制在官方 `0.1.7-alpha.1` 被重写（commit `d1e22a7e24`，"feat(p
 
 - `dsh-v0.1.5-rc.3`（本项目当前基线）是**目录式** roster：`@deepseek-ai/dsh-agent-presets` 扫 `$DSH_HOME/.agent-presets`，默认值取自 `settings.agent-presets.default`。
 - `dsh-v0.1.7-rc.2` 只剩 `agent-preset-registry` / `agent-preset` / `persona`：preset 改为 profile YAML 里的 `@deepseek-ai/dsh-agent-preset` 声明行（web-app 以 `presets/<id>.patch.yml` 分发），用户默认值是 registry 条目的 `selectedDefault`，编辑结果写回 `$DSH_HOME/profiles/<p>/cordis.patch.yml`；目录机制连同其 package 已删除（旧决策归档于官方 `.agents/notes/archived/architecture/2026-08-03-per-session-agent-presets.*`）。
-- 结论不变：TUI 仍然不用 preset。仅当将来确实需要"同一 TUI 进程内不同会话用不同组合"时，才按 web-app 模式自建（挂 registry、声明 preset 行、禁用 base 的 agent 面行）；评估项见 `DEVELOPMENT-BACKLOG.md` #37。
+- 结论不变：TUI 仍然不用 preset。仅当将来确实需要"同一 TUI 进程内不同会话用不同组合"时，才按 web-app 模式自建（挂 registry、声明 preset 行、禁用 base 的 agent 面行）；评估项见 `BACKLOG.md` #37。
 - 同一断层还包含配置后端更换：`packages/settings/settings-file` 整包删除、settings 命名空间改 profile 条目 id；`agent-presets` 段不在迁移映射表内（旧段直接丢弃），对本项目无影响。
 
 ## 5. 清理记录

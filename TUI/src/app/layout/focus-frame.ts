@@ -1,4 +1,4 @@
-// TUI/src/app/layout/focus-frame.ts — 焦点框线全局覆写（规范见 SPEC.md §8 / TUI/docs/design/DESIGN.md §8）
+// TUI/src/app/layout/focus-frame.ts — 焦点框线全局覆写（规范见 SPEC.md §8 / TUI/docs/DESIGN.md §8）
 //
 // 焦点框 = 全局覆写（不引入 box.border）：布局层产出焦点中性基线（灰线/
 // 空白占位），FocusFrame 在 buildFrame 末尾对整帧一次扫描，把落在焦点

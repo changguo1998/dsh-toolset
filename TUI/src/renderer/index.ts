@@ -1,6 +1,6 @@
 // renderer/index.ts — Renderer 公共 API：terminal + input + screen 的组装
 //
-// 契约见 TUI/docs/design/DESIGN.md「核心接口契约」。退出生命周期归 renderer：
+// 契约见 TUI/docs/DESIGN.md「核心接口契约」。退出生命周期归 renderer：
 // close()/SIGINT/SIGTERM/uncaught 一律先恢复终端。
 
 import {

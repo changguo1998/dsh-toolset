@@ -5,7 +5,7 @@
 
 > 状态：**全部完成**——批次 0（5 项 API 合同门全部过门，§1）+ 批次 1/2/3/4 四批实现均已完成并审计通过归档。
 > 类型：**[task]**——实施与验收清单；范围 = `COMMANDS-SPEC.md` §1/§2 的**纯 TUI 侧命令**（7 项候选，均已过合同门；宿主服务现成，不改动任何本项目插件）。
-> 配套：`COMMANDS-SPEC.md`（规格与 API 签名核实表）、`COMMANDS.md`（命令来源归口）、`TUI/docs/design/NOTICE-LEVELS.md`（提示分级）、`TUI/docs/design/DESIGN.md` / `SPEC.md`（面板与渲染契约）。
+> 配套：`COMMANDS-SPEC.md`（规格与 API 签名核实表）、`COMMANDS.md`（命令来源归口）、`TUI/docs/design/NOTICE-LEVELS.md`（提示分级）、`TUI/docs/DESIGN.md` / `SPEC.md`（面板与渲染契约）。
 
 ## 0. 全景
 

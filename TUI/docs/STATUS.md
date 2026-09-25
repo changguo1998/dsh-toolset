@@ -1,7 +1,7 @@
 # TUI 状态
 
 > 职责：TUI 包的现状快照（完成情况、命令面、与宿主升级的适配状态）
-> 不负责：项目级状态与宿主基线（见 `docs/DEVELOPMENT-STATUS.md`）、待办与开放项（见 `TUI/docs/BACKLOG.md`）
+> 不负责：项目级状态与宿主基线（见 `docs/STATUS.md`）、待办与开放项（见 `TUI/docs/BACKLOG.md`）
 > 过期条件：无（状态变化即更新）
 
 ## 现状

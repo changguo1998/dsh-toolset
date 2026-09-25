@@ -1,12 +1,12 @@
 # TUI 待办与开放项
 
 > 职责：TUI 包的待办、开放项与已知外部问题（TUI 的变更优先写在本目录）
-> 不负责：跨包功能待办（见 `docs/DEVELOPMENT-BACKLOG.md`）、TUI 现状（见 `TUI/docs/STATUS.md`）
+> 不负责：跨包功能待办（见 `docs/BACKLOG.md`）、TUI 现状（见 `TUI/docs/STATUS.md`）
 > 过期条件：无
 
 ## 1. 命令扩展
 
-- 7 项纯 TUI 命令与 A1-A5 已完成，9 项候选当前无待办。裁定理由见 `TUI/docs/COMMANDS-SPEC.md` §7（`/clear`、`/login` `/logout` 维持排除；`/review` 搁置，可随 `docs/DEVELOPMENT-BACKLOG.md` 的 #17 一并考虑）；命令清单与层归属见 `TUI/docs/COMMANDS.md`；实施清单（已完成）见 `archive/TUI-COMMANDS-TASKS.md`。
+- 7 项纯 TUI 命令与 A1-A5 已完成，9 项候选当前无待办。裁定理由见 `TUI/docs/COMMANDS-SPEC.md` §7（`/clear`、`/login` `/logout` 维持排除；`/review` 搁置，可随 `docs/BACKLOG.md` 的 #17 一并考虑）；命令清单与层归属见 `TUI/docs/COMMANDS.md`；实施清单（已完成）见 `archive/TUI-COMMANDS-TASKS.md`。
 
 ## 2. 已完成、不再跟踪
 

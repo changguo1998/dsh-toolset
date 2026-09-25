@@ -1,10 +1,10 @@
 # 待开发功能清单
 
 > 职责：待办全集：缺陷 + 功能 + 里程碑 + 插件规划
-> 不负责：现状描述（见 `docs/DEVELOPMENT-STATUS.md`）
+> 不负责：现状描述（见 `docs/STATUS.md`）
 > 过期条件：无
 
-> 本清单只列**未完成**项；已完成项见 `DEVELOPMENT-STATUS.md` 状态表（实现与验证证据在各包源码/测试与 git 历史；已完成的实施清单归入 `archive/`），不在此重复。
+> 本清单只列**未完成**项；已完成项见 `STATUS.md` 状态表（实现与验证证据在各包源码/测试与 git 历史；已完成的实施清单归入 `archive/`），不在此重复。
 > 设计依据：`docs/host/AGENT-ARCHITECTURE-ANALOGY.md`（架构与接口对照）、`archive/PI-DSH-FEATURE-COMPARISON.md`（pi→dsh 迁移基线差距，归档调研）。实现时以根目录 `docs/host/DSH-CTX-API.md` 对齐宿主接口。
 > 基线：dsh `dsh-v0.1.5-rc.3`（commit `a4c74a91e0`）。
 > 优先级：**P0** 架构主线；**P1** 核心体验补齐；**P2** 长尾。状态标记：`[x]` 已实现（仅第 1 节索引使用）、`[~]` 部分实现（注明未含部分）、无标记 = 未实现。
@@ -35,7 +35,7 @@
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
-| 22 | `[~]` LSP 语义层：findReferences 精确确认调用关系（结构层候选索引已完成，见 code-map/DESIGN.md 混合架构） | hypa 拆项 3（对比文档 §3.2） | tool-lsp 扩展 | P2 |
+| 22 | `[~]` LSP 语义层：findReferences 精确确认调用关系（结构层候选索引已完成，见 code-map/docs/DESIGN.md 混合架构） | hypa 拆项 3（对比文档 §3.2） | tool-lsp 扩展 | P2 |
 | 23 | PDF/文档结构视图 | readseek 拆项 4（对比文档 §3.4） | 无底座，新工具 | P2 |
 
 ### 2.3 外部接入（P2）
@@ -72,6 +72,14 @@
 
 | 38 | 宿主双栈兼容垫片清理：0.1.7-rc.2 升级改造为过渡期保留了「按宿主版本择路」的分支——TUI `jobsCallerFor`（jobs caller 形态）与 `refreshAgents` 的 `listDescendants` / `listChildren` 择路、`output-compress` 的 `ptcRuntime` / `codeRuntime` 探测；待 0.1.5-rc.3 彻底退役后删除旧分支与对应旧形态测试用例，回到单一形态 | `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` §0.1 / §3.2（升级改造 2026-09-25） | 无（纯清理） | P2 |
 
+### 2.8 工程流程与文档体系
+
+| # | 功能 | 来源 | 落点 | 优先级 |
+|---|------|------|------|--------|
+| 39 | **完成（2026-09-25）** 文档体系与变更规范落地：确立「ROADMAP（仅项目级）→ DESIGN（模块）→ BACKLOG 条目 → `docs/implementation/` 追踪文档 → 关闭后移入 `docs/archived/`」的分层与流程；BACKLOG / STATUS 统一短命名（`DEVELOPMENT-BACKLOG.md` → `BACKLOG.md`、`DEVELOPMENT-STATUS.md` → `STATUS.md`）；模块（TUI 与 12 个包）各自 `docs/` 管理 DESIGN / BACKLOG；规范两份（`AGENTS.md` 简版 + `docs/WORKFLOW.md` 详版），含「一个任务可接多个条目」与四个提交询问点 | 用户 2026-09-25 讨论定稿 | 追踪文档（已关闭）`docs/archived/2026-09-25-docs-workflow-rollout.md` | P1 |
+| 40 | 待办 **`TUI/docs/IMPLEMENTATION.md` 按新规范拆分后删除**：命令路由与落点 → `TUI/docs/DESIGN.md`；渲染/排版类 → `TUI/docs/SPEC.md`；其余机制与「已评估未采用」→ DESIGN；「验证方式」并入 `AGENTS.md`；拆分后重定向 58 处引用 | #39 的决策（2026-09-25） | 独立条目，另派 agent 接取 | P2 |
+| 41 | 待办 **建立 `docs/ROADMAP.md`**：写未来开发方向，内容需维护者提供；建立后与 `docs/BACKLOG.md` §3「里程碑」的分工为「方向在 ROADMAP、进度与排期在 BACKLOG」 | #39 落地时发现（2026-09-25） | 需维护者参与 | P2 |
+
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
@@ -80,7 +88,7 @@
 
 ## 4. 插件规划（未建包）
 
-> 每个插件 = 本仓库一个包目录（以现有包为模板：`package.json` 的 `dsh.bundle` + `cordis.patch.yml` 集成契约）；命名按功能自定，不沿用 pi 插件名。已建插件与其承载清单项见 `DEVELOPMENT-STATUS.md`。
+> 每个插件 = 本仓库一个包目录（以现有包为模板：`package.json` 的 `dsh.bundle` + `cordis.patch.yml` 集成契约）；命名按功能自定，不沿用 pi 插件名。已建插件与其承载清单项见 `STATUS.md`。
 
 | 插件 | 承载清单项 | 复用（不新建） |
 |------|-----------|----------------|

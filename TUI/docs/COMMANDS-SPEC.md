@@ -6,7 +6,7 @@
 
 > 用途：新增命令时须遵守的通用约定——落点、服务获取与降级、输出三型、共享面板契约、命名冲突、测试口径，以及已裁定排除项的索引。
 > 现状：本地 32 条命令均已实现（清单见 `COMMANDS.md` §1.1），用法见 `README.md`「Slash 命令」，逐命令落点与降级见 `IMPLEMENTATION.md`「命令实现落点」——逐条实现规格不再重复于此。
-> 上游：`COMMANDS.md`（命令来源归口与落点决策）、`TUI/docs/design/DESIGN.md`（四区域布局与面板约定）、`SPEC.md`（Box 渲染与排版契约）、`TUI/docs/design/NOTICE-LEVELS.md`（提示分级）。
+> 上游：`COMMANDS.md`（命令来源归口与落点决策）、`TUI/docs/DESIGN.md`（四区域布局与面板约定）、`SPEC.md`（Box 渲染与排版契约）、`TUI/docs/design/NOTICE-LEVELS.md`（提示分级）。
 
 ## 1. 落点（按命令取子集，最多 6 类）
 
@@ -103,10 +103,10 @@ commandPanel: {
 | 文档 | 关系 |
 |------|------|
 | `COMMANDS.md` | 上游：命令来源归口与现状清单 |
-| `TUI/docs/design/DESIGN.md` / `SPEC.md` | 上游：布局、面板与 Box 渲染契约（§4 渲染位置与优先级以 `layout.ts` 实现为准） |
+| `TUI/docs/DESIGN.md` / `SPEC.md` | 上游：布局、面板与 Box 渲染契约（§4 渲染位置与优先级以 `layout.ts` 实现为准） |
 | `TUI/docs/design/NOTICE-LEVELS.md` | 双向：新增 notice 调用点须同步入 A 表 |
 | `README.md` / `IMPLEMENTATION.md` | 下游：命令用法与逐命令实现落点（`IMPLEMENTATION.md`「命令实现落点」） |
-| `docs/DEVELOPMENT-BACKLOG.md` | 下游：命令项以本文件为规格依据 |
+| `docs/BACKLOG.md` | 下游：命令项以本文件为规格依据 |
 
 ## 附：已核实的宿主服务签名（新增命令时参考）
 
