@@ -2,6 +2,7 @@
 # 新机器安装脚本：装 dsh → 构建本项目插件 → 配 profile（插件挂载）→ 配 agent preset。
 #
 # 默认值：profile 名 fff、preset 名 fff、dsh 版本 0.1.5-rc.3、插件取全部 13 个包。
+# preset 默认**复制**仓库资产（装好后本机配置不依赖仓库路径；--preset-link 可改为软链接）。
 # 幂等：已存在的 profile / preset 文件默认原样保留（--force 才覆盖，且先备份
 # `.bak.<时间戳>`）；只写 $DSH_HOME（默认 ~/.dsh）与本仓库，不 sudo、不动系统路径。
 #
@@ -14,6 +15,7 @@ preset_name="fff"
 plugins_sel="all"
 skip_dsh=0
 skip_build=0
+preset_link=0
 force=0
 dry_run=0
 
@@ -33,6 +35,8 @@ usage() {
   --dsh-version <版本>  安装的 dsh 版本（默认 0.1.5-rc.3）
   --skip-dsh            不安装 / 不校验 dsh（假设 PATH 上已有）
   --skip-build          跳过插件的 npm install 与 build（复用已有 dist/）
+  --preset-link         预设文件改为软链接到仓库资产（仓库改动即时生效，但本机配置
+                        从此依赖仓库路径；默认是复制两份文件，装好后不依赖仓库）
   --force               覆盖已存在的 profile / preset 配置文件（覆盖前备份）
   --dry-run             只打印将要执行的操作，不落盘
   -h, --help            显示本帮助
@@ -135,6 +139,10 @@ while [ $# -gt 0 ]; do
             ;;
         --skip-build)
             skip_build=1
+            shift
+            ;;
+        --preset-link)
+            preset_link=1
             shift
             ;;
         --force)
@@ -244,6 +252,9 @@ fi
 # ── 4/6 配置 profile ────────────────────────────────────────────────────────
 log "4/6 配置 profile"
 pdir="$dsh_home/profiles/$profile_name"
+if [ -e "$pdir" ] && [ ! -d "$pdir" ]; then
+    die "$pdir 已存在且不是目录，请先移走或换个 profile 名"
+fi
 run mkdir -p "$pdir"
 manifest="$pdir/package.json"
 # 生成 profile 清单：dependencies 用 link: 指向本仓库，bundles 声明要加载的层。
@@ -308,16 +319,35 @@ apdir="$dsh_home/.agent-presets/$preset_name"
 if [ -L "$apdir" ]; then
     die "$apdir 是软链接；宿主会跳过软链接形式的 preset 目录，请改成真实目录（只软链接目录内的文件）"
 fi
+if [ -e "$apdir" ] && [ ! -d "$apdir" ]; then
+    die "$apdir 已存在且不是目录，请先移走或换个 preset 名"
+fi
 run mkdir -p "$apdir"
+# 默认复制仓库资产：装好后本机配置自成一份，不再依赖仓库路径（改名/移动仓库都不会
+# 让 preset 失效）；--preset-link 才软链接回仓库（仓库改动即时生效，代价是依赖路径）。
+# 已存在的软链接一律就地换成当前模式（这正是修复悬空软链接的路径）。
 for asset in agent.cordis.yml preset.yml; do
     target="$apdir/$asset"
     if [ -f "$target" ] && [ ! -L "$target" ] && [ "$force" != 1 ]; then
-        warn "保留已有真实文件 $target（--force 可改成指向仓库资产的软链接）"
+        warn "保留已有真实文件 $target（--force 可用仓库资产覆盖）"
         continue
     fi
-    if [ -f "$target" ] && [ ! -L "$target" ]; then backup "$target"; fi
-    run ln -sfn "$preset_asset_dir/$asset" "$target"
+    if [ "$preset_link" = 1 ]; then
+        if [ -f "$target" ] && [ ! -L "$target" ]; then backup "$target"; fi
+        run ln -sfn "$preset_asset_dir/$asset" "$target"
+    else
+        # 必须先删旧软链接：cp 会跟随悬空链接去写仓库里的旧路径（仓库改名后正是这种情况）
+        if [ -L "$target" ]; then
+            run rm -f "$target"
+        elif [ -e "$target" ]; then
+            backup "$target"
+        fi
+        run cp "$preset_asset_dir/$asset" "$target"
+    fi
 done
+if [ "$dry_run" != 1 ] && [ -n "$(find "$apdir" -maxdepth 1 -type l -print -quit 2> /dev/null)" ]; then
+    log "preset 目录含软链接（--preset-link 模式）；如需脱离仓库，重跑本步不加该选项即可换成副本"
+fi
 # settings.yaml：把 agent-presets.default 指到本次安装的 preset id
 settings="$dsh_home/settings.yaml"
 if [ -f "$settings" ]; then
@@ -360,8 +390,8 @@ cat << EOF
 
 安装结果
   dsh           $(if have dsh; then dsh --version 2> /dev/null || echo "已装"; else echo "需重开终端"; fi)（目标 $dsh_version_default）
-  profile       $pdir（$(printf '%s' "$final" | wc -w) 个插件 + dsh-base）
-  preset        $apdir -> $preset_asset_dir（id：$preset_name）
+  profile       $pdir（$(printf '%s' "$final" | wc -w) 个插件 + dsh-base；插件以 link: 指向本仓库）
+  preset        $apdir（id：$preset_name；$(if [ "$preset_link" = 1 ]; then echo "软链接仓库资产 $preset_asset_dir"; else echo "真实副本，不依赖仓库路径"; fi)）
 
 后续步骤
   1) 核对组合树：dsh --profile $profile_name --dump-config
