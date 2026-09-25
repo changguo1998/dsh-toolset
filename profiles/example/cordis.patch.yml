@@ -1,0 +1,88 @@
+# 示例 profile 的用户层 patch（复制为 ~/.dsh/profiles/<名字>/cordis.patch.yml 后按需增删）。
+#
+# 组合顺序：dsh-base bundle 层 → 本 profile `dsh.profile.bundles` 各 bundle 层
+# （每个 bundle 由自己 package.json 的 `dsh.bundle.patch` 声明，多为 `- insert:` 行）
+# → 本文件（用户层）→ 命令行 `--patch <文件>` 覆盖层。后层按 id 命中前层条目。
+#
+# 两种写法：
+#   1) 改已有条目：`- id: <条目 id>` + `config` / `disabled`；name 必须与原条目一致
+#      （不一致整条跳过并告警），所以改指向要用 insert 新增，不能靠改 name。
+#   2) 新增条目：`- insert:` + 条目列表；不带 id 插到顶层，带 id 插进该 group。
+#
+# 注意：config 是整键替换（dsh-app-boot 的 composeEntries → cordis-plugin-include 的
+# applyEntryPatches 里 `target[key] = value`），未重述的字段回落到插件 schema 默认值，
+# 而不是上一层 bundle 的值——覆盖带默认表的条目（如 permission 的 presets）时尤其要记住。
+#
+# LSP 会把本文件误按 JSON Patch schema 校验；`insert` 是 dsh 官方 patch DSL，
+# 下一行内联抑制该误报（与各插件包自带的 cordis.patch.yml 同一写法）。
+# pi-lens-ignore: yaml-schema: JSONPatch:0, yaml-schema: JSONPatch:513
+
+# ── 权限预设表（沙箱模式 + 审批策略的捆绑）───────────────────────────────────
+# dsh-base 默认三项：read-only→ask / workspace-write→ask / danger-full-access→never。
+# 这里全量重述三项并追加第四项 full-ask：全盘文件访问，但每次工具调用仍询问审批。
+# 预设名不能取保留字 `custom`——那个名字由宿主用于「两个旋钮不匹配任何表项」的派生态。
+- id: permission
+  name: '@deepseek-ai/dsh-permission-presets'
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+      full-ask:
+        sandbox: danger-full-access
+        approval: ask
+        name: full-ask
+        description: 全盘文件访问，但每次工具调用仍需审批。
+    # 新会话默认预设；省略则用组合推导出的默认（本示例与 dsh-base 口径一致）。
+    defaultPreset: workspace-write
+
+# ── 插件条目配置（覆盖 bundle 层插入的同 id 条目）────────────────────────────
+# TUI：主题与布局。完整字段见 TUI/README.md「配置」。
+- id: tui
+  name: '@dsh-toolset/tui'
+  config:
+    theme: dark
+
+# 知识库：dbPath 接受 `!!js` 表达式——环境变量优先，否则落到 dshHomePath 下，
+# 避免把绝对家目录路径写进随仓库分发的配置。
+- id: knowledge-base
+  name: '@dsh-toolset/knowledge-base'
+  config:
+    dbPath: !!js process.env.KNOWLEDGE_DB_PATH || dshHomePath('knowledge-base/knowledge.db')
+
+# 宿主官方插件同样可覆盖：压缩阈值提前到上下文窗口的 0.5。
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    thresholdRatio: 0.5
+
+# ── 新增条目（insert）────────────────────────────────────────────────────────
+# 官方包随 dsh 安装分发，经 $DSH_HOME/profiles/node_modules 兜底解析，可直接挂载；
+# 第三方包需先加进本 profile package.json 的 dependencies（本项目插件用 link:）。
+# 这里以官方 schedule（会话内持久提醒：schedule_create / schedule_list / schedule_delete）为例。
+- insert:
+    - id: schedule
+      name: '@deepseek-ai/dsh-schedule'
+    # - id: mcp-filesystem       # id 自定；一个插件实例连一个 MCP server，多 server 写多行
+    #   name: '@deepseek-ai/dsh-mcp-client'
+    #   config:
+    #     transport: stdio         # stdio | streamable-http
+    #     serverName: filesystem   # 工具注册名 = mcp__<serverName>__<原工具名>
+    #     command: npx
+    #     args: ['-y', '@modelcontextprotocol/server-filesystem', '/path/to/dir']
+    # - id: session-title-all-prompts-llm
+    #   name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
+    #   config:
+    #     provider: <provider 名>  # provider 名与凭据都定义在 ~/.dsh/settings.yaml
+    #     model: <模型 id>         # 故本文件只写名字，不放凭据与私有端点
+
+# ── 其它方言（按需取消注释）──────────────────────────────────────────────────
+# 禁用某条 bundle 插入的条目，再用 insert 换成别的实现（如换掉首条消息生成标题的 provider）：
+# - id: session-title-llm
+#   disabled: true
