@@ -131,7 +131,8 @@
 - **`npm run check` / `npm run build` 当前通过**（步骤 2 的 layout 侧自洽）。
 - **测试签名已同步**（中断恢复那轮）：`tests/layout4.test.ts` / `app.test.ts` / `config.test.ts` / `layout-horizontal.test.ts` / `pane-text-margin.test.ts` 的 `metricsFor(...)` 调用已按新签名更新（含「面板态 footer=3、topHeight 与输入态相同」重写）；这 5 个文件 263/263 通过；pty 侧 `/session` 面板打开正常（修掉 `HISTORY_HINTS` 未定义崩溃）。
 - **步骤 2 已完成**：5 个组件的面板内提示删除与 `maxBody` 回退（`QuestionPrompt` / `ApprovalPrompt` / `StatusPanel` / `JobsPanel` / `CommandListPanel`）；随之的断言改写（`command-panel-agents-tools` 改为直接断言 `hints.ts`；`command-panel.test.ts` 措辞；`app.test.ts` 两处窗口断言按 body +1 行重写）；冻结基线重跑并审查（仅 5 个面板场景：面板内提示行消失、底部提示行填文案，行数不变）；demo 断言改为「底部提示行含审批键位 + 面板内不再着色」；文档回写（DESIGN §布局 / SPEC §11.3 / COMMANDS-SPEC §渲染位置 / IMPLEMENTATION 补全键位 / README 输入区与面板）。详见「实现记录 · 步骤 2」。
-- **仍待办**：步骤 3（3.1.1 notice 复用输入区）；真机验证（用户执行）；提交（按询问点）。
+- **步骤 3 已完成（3.1.1）**：`build-box.ts` 抽出 `noticeLinePresentation`（tone + hanging 口径，活动区与底部共用）；`layout.ts` 新增 `wrapWithHanging` / `noticeFooterLines`，`buildFrame` 的模态分支在问题交互态（`state.approval || state.question`）渲染活动区 buffer 里 `kind === "notice"` 的末尾 `footerHeight` 行，其余模态保持空白占位；新增 `tests/footer-notice.test.ts`（5 例）；demo 增 `approval-footer-notice` 断言；文档回写（DESIGN §布局 / SPEC §11.3 / COMMANDS-SPEC §渲染位置 / IMPLEMENTATION §排版尺寸唯一来源 / README 面板）。详见「实现记录 · 步骤 3」。
+- **仍待办**：真机验证（用户执行）；提交（按询问点）；任务关闭（三条目标「完成」+ 追踪文档移入 `TUI/docs/archived/`）。
 
 ### 步骤 2 剩余改动（逐文件）
 
@@ -218,9 +219,27 @@
 - `npm run demo -- --smoke`：SMOKE_OK；新断言 `approval-hint-bottom` / `approval-hint-not-colored` 通过；**唯一失败**为 `titlebar-mode-icons`——既有缺陷、与本次改动无关（已记 BACKLOG 3.5.2）。
 - 行为变化（需知悉）：面板内 `[y]` 红 / `[n]` 绿着色随提示迁移取消，底部提示行为单色普通前景；若要保留着色，需把 `hintLine` 扩为「段数组」形态，留待 3.2.4 / 3.3.1 一并考虑。
 
+### 步骤 3：3.1.1 问题交互态底部输入区显示 notice（2026-09-26，实现 + 测试通过）
+
+改动（均在计划清单内）：
+
+1. `src/app/layout/build-box.ts`：抽出 **`noticeLinePresentation(line, compact)`**（返回 `{ fg?, hanging? }`）作为 notice 行呈现的唯一口径（tone 着色 + `hanging` 悬挂缩进 + `noCompact` 豁免），活动区 Box 与底部 notice 视图共用；活动区路径行为不变（仍按 `compact` 压行）。
+1. `src/app/layout.ts`：新增 `wrapWithHanging(text, width, hanging)`（首行整宽、续行按 `width − hanging` 重折后补缩进）与 `noticeFooterLines(state, width, rows)`（取 `state.buffer` 中 `kind === "notice"` 的行 → 折行 → 取**末尾** `rows` 行 → 不足补空行、行宽补齐整宽）；`buildFrame` 的模态分支拆为：问题交互态（`state.approval !== null || state.question !== null`）→ notice 视图，其余模态 → 原样空白占位。
+1. 无新增 buffer、无清空动作：面板关闭即切回输入视图（`renderTextInput`），活动区留痕不动，排队中的 `inputText` 原样恢复。
+1. 测试：新增 `tests/footer-notice.test.ts`（5 例：面板期与打开前的 notice 同屏可见 / tone 保留 / 超长折行取末尾（最新可见、更早被裁）/ 其它模态面板空白占位 / 关闭后回输入视图且 inputText 不丢）。
+1. demo：审批面板打开期间补发一条 notice，新增断言 `approval-footer-notice`。
+1. 文档：`DESIGN.md` §布局（问题交互态 footer 显示 notice）、`SPEC.md` §11.3（footerHeight 注释）、`COMMANDS-SPEC.md` §渲染位置、`IMPLEMENTATION.md` §排版尺寸唯一来源（语义保持段 + notice 口径）、`README.md` §面板。
+
+命令与结果：
+
+- `npm run check`：通过。
+- 整包 `tests/*.test.ts`：**1101/1101 通过**（含新增 5 例）。
+- 冻结基线：重跑 `scripts/freeze-focus-frame.mts` 后与旧基线**逐场景比对一致**（现有 15 个场景中审批 / 问答态没有 notice 行，故无差异）——无需更新夹具。
+- `npm run demo -- --smoke`：`approval-footer-notice` / `approval-hint-bottom` / `approval-hint-not-colored` 均通过，SMOKE_OK；唯一失败仍为既有 `titlebar-mode-icons`（BACKLOG 3.5.2，与本任务无关）。
+
 ## 测试与证据
 
-（3.1.3 见「实现记录 · 步骤 1」；3.1.2 见「实现记录 · 步骤 2」。整包：1047/1047 通过；demo 冒烟除既有 `titlebar-mode-icons`（BACKLOG 3.5.2）外全通过。待补：真机 `dsh --profile fff` 现象——面板态无光标 / 思考中排队输入光标停在输入框 / `Ctrl+L` 后光标仍在输入框 / 提示区文案随状态切换且面板内无键位 / `kill -INT` 后终端光标可见；3.1.1 完成后一并补齐。）
+（3.1.3 见「实现记录 · 步骤 1」；3.1.2 见「实现记录 · 步骤 2」；3.1.1 见「实现记录 · 步骤 3」。整包：**1101/1101 通过**；demo 冒烟除既有 `titlebar-mode-icons`（BACKLOG 3.5.2）外全通过；冻结基线与 3.1.1 前逐场景一致。待补（用户执行）：真机 `dsh --profile fff` 现象——面板态无光标 / 思考中排队输入光标停在输入框 / `Ctrl+L` 后光标仍在输入框 / 提示区文案随状态切换且面板内无键位 / 问答或审批打开期间新 notice 出现在输入区位置且关闭后回到输入视图 / `kill -INT` 后终端光标可见。）
 
 ## 收尾
 

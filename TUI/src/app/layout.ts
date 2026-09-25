@@ -41,7 +41,10 @@ import { buildStatusPanelBox } from "./components/StatusPanel.ts";
 import { buildCommandCompletionBox } from "./components/CommandCompletion.ts";
 import type { ColorName, ThemeId } from "../renderer/theme.ts";
 import { buildApprovalBox } from "./components/ApprovalPrompt.ts";
-import { buildContentRows } from "./layout/build-box.ts";
+import {
+  buildContentRows,
+  noticeLinePresentation,
+} from "./layout/build-box.ts";
 import { measure } from "./layout/measure.ts";
 import { allocate } from "./layout/measure.ts";
 import { fillToList, fillBoxTree } from "./layout/fill.ts";
@@ -2443,6 +2446,61 @@ export interface FrameBuildOutput {
   focus?: FrameFocus;
 }
 
+/**
+ * 折行并让续行停靠 `hanging` 列（首行按整宽、续行按 width − hanging 重折后补空格）——
+ * 与活动区 Box 的 hanging 语义一致（BACKLOG 3.1.1 的底部 notice 视图用）。
+ */
+function wrapWithHanging(
+  text: string,
+  width: number,
+  hanging: number,
+): string[] {
+  const rows = wrapLine(text, width);
+  if (rows.length <= 1 || hanging <= 0) return rows;
+  const head = rows[0] ?? "";
+  const contWidth = Math.max(1, width - hanging);
+  const indent = " ".repeat(Math.min(hanging, Math.max(0, width - 1)));
+  return [
+    head,
+    ...wrapLine(text.slice(head.length), contWidth).map((r) => indent + r),
+  ];
+}
+
+/**
+ * 问题交互态（问答 / 审批面板打开）时底部输入区改显 notice（BACKLOG 3.1.1）：
+ * 取活动区 buffer 里最近的 `kind === "notice"` 行，按 footer 宽度折行（hanging 续行
+ * 停靠，口径与活动区一致）后取**末尾** `rows` 行；不足补空行、行宽补齐整宽。
+ * 不新增 buffer、无清空动作——面板关闭即切回输入视图，活动区留痕不动。
+ */
+function noticeFooterLines(
+  state: AppState,
+  width: number,
+  rows: number,
+): FrameRow[] {
+  const wrapped: { text: string; fg?: ColorName }[] = [];
+  for (const line of state.buffer) {
+    if (line.kind !== "notice") continue;
+    const { fg, hanging } = noticeLinePresentation(line, false);
+    const parts =
+      hanging === undefined
+        ? wrapLine(line.text, width)
+        : wrapWithHanging(line.text, width, hanging);
+    for (const part of parts) {
+      wrapped.push(fg === undefined ? { text: part } : { text: part, fg });
+    }
+  }
+  const tail = wrapped.slice(Math.max(0, wrapped.length - rows));
+  return Array.from({ length: rows }, (_, i) => {
+    const item = tail[i];
+    const text = (item?.text ?? "").padEnd(width, " ");
+    return {
+      segments: [
+        item?.fg !== undefined ? seg(text, { fg: item.fg }) : seg(text),
+      ],
+    };
+  });
+}
+
 export function buildFrame(
   state: AppState,
   size: Size,
@@ -2464,11 +2522,15 @@ export function buildFrame(
 
   let footerLines: FrameRow[];
   // 审批/问答/模型选择/状态选项/任务/历史会话面板 + 输入补全均上移到流输出（活动区）窗口显示；
-  // 输入补全不占输入区（输入行与光标必须可见），其余面板打开时 footer 以空白占位（交互区高度稳定）。
+  // 输入补全不占输入区（输入行与光标必须可见）；问题交互态（问答 / 审批）底部改显最近 notice
+  // （BACKLOG 3.1.1），其余模态面板保持空白占位（交互区高度稳定）。
   if (modalOpen) {
-    footerLines = Array.from({ length: geom.footerHeight }, () => ({
-      segments: [seg(" ".repeat(fullWidth))],
-    }));
+    footerLines =
+      state.approval !== null || state.question !== null
+        ? noticeFooterLines(state, fullWidth, geom.footerHeight)
+        : Array.from({ length: geom.footerHeight }, () => ({
+            segments: [seg(" ".repeat(fullWidth))],
+          }));
   } else {
     // 单字符提示符：当前输入模式符号（MODE_SYMBOL[inputMode]，默认前景色不着色）；
     // 上次命令结果/运行状态符号已移至水平状态栏最左侧（STATUS_SYMBOL）。

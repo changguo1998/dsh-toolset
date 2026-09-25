@@ -169,6 +169,13 @@ if (smoke) {
         prompt: "允许执行?（y/n）",
       });
       await sleep(300);
+      // 3.1.1：问题交互态（问答 / 审批）底部输入区改显最近 notice——面板期新到的提示直接可见
+      adapter.emitEvent({
+        type: "notice",
+        text: "面板期 notice 可见",
+        tone: "info",
+      });
+      await sleep(200);
       renderer.emitKey(key("escape"));
       await sleep(200);
       renderer.emitKey(key("y"));
@@ -291,6 +298,12 @@ if (smoke) {
         "approval-hint-not-colored",
         !smokeOut.includes(smokeSgr("red") + "[y]批准"),
         "approval [y] should no longer be an in-panel red label",
+      );
+      // 3.1.1：问题交互态（问答 / 审批）底部输入区显示最近 notice——面板期新到的提示直接可见
+      ok(
+        "approval-footer-notice",
+        plain.includes("面板期 notice 可见"),
+        "notice should be visible in the footer while the approval panel is open",
       );
       // /model 选择面板选项着色：打开时当前模型选中行绿、down 后焦点行黄
       // /model 选择面板选项着色：打开时当前模型选中行绿（焦点行黄见单测：

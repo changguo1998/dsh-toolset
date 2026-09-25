@@ -144,7 +144,7 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 
 - **问题**：`metricsFor` / `topPaneSplit` / `regionColumnWidth` / `renderStatusLine` 曾在 `buildFrame`、`buildTopRegion`、`inputPanelHeights`、`dialogueScrollMetrics` 各自算一遍（同一件事 4 份），口径漂移即出现「帧里看到的 pane 高度」与「滚动 / 翻页用的 pane 高度」不一致（横向排列下活动区内容仍按纵向高度排就是这类缺陷）。
 - **做法**：`frameGeometry(state, size): FrameGeometry`（纯函数，`layout.ts`）把状态栏行、模态 / 提示区判定、`metricsFor`、`topPaneSplit`、排队块行、视口高、分隔列、内部分隔列、焦点框矩形基准一次算定并返回；`buildFrame` / `buildTopRegion` / `buildStatusSeparator` 与 App（`focusedLineScroll` / `focusedPageScroll` / `userInputJump` / 补全可视行）只读这一份（字段清单见 `SPEC.md` §11.3）。
-- **语义保持**：面板开关不改变顶部内容行数（输入态 `footer = 交互相−1 + 提示 1`，面板态 `footer = 交互相 + 提示 0`，`contentTopH` 相同）；`frameGeometry` 同时产出 `statusLines`，`buildFrame` 不再重复调 `renderStatusLine`。
+- **语义保持**：面板开关不改变顶部内容行数——`footerHeight = max(1, interaction − hintRows)` 且 `hintRows` 恒 1（输入态与面板态同为「交互区 − 1 + 提示 1」，提示区恒占 1 行、空文案也占位）；**问题交互态（问答 / 审批打开）底部输入区改显最近 notice**（取活动区 buffer 的 `kind === "notice"` 行、折行后取末尾 `footerHeight` 行，tone 与 hanging 口径与活动区共用 `noticeLinePresentation`，见 BACKLOG 3.1.1），其余面板空白占位；`frameGeometry` 同时产出 `statusLines`，`buildFrame` 不再重复调 `renderStatusLine`。
 
 ## 对话左右交错留白（`messageGutter`）
 

@@ -556,7 +556,7 @@ interface Renderer {
 interface FrameGeometry {
   cols: number; rows: number;              // 终端尺寸
   contentTopH: number;                     // 顶部内容行数（不含状态/输入/提示/分隔行）
-  statusHeight: number; footerHeight: number; hintHeight: number;  // hintHeight 恒 1；footerHeight = max(1, 交互区 − hintHeight)
+  statusHeight: number; footerHeight: number; hintHeight: number;  // hintHeight 恒 1；footerHeight = max(1, 交互区 − hintHeight)；问题交互态（问答/审批）时 footer 显示最近 notice 尾行，其余面板空白占位
   statusColWidth: number; historyWidth: number; contentW: number;  // contentW = 区域正文宽（historyWidth − 右缘框列）；Ctrl+S 隐藏状态列时 statusColWidth = 0、historyWidth = cols、dividerCol = −1（该列不存在，分隔行不画交点）
   leftFrame: boolean; rightFrame: boolean;  // 屏幕最左（状态列外缘）/最右（区域外缘）焦点框保留格是否占列
   mode: "vertical" | "horizontal"; titleRows: number;

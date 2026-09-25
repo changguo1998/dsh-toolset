@@ -122,6 +122,28 @@ function toolLineSegs(line: string, tone?: string) {
  *  - notice：tone 着色
  *  - separator/plain：对话区
  */
+/**
+ * notice 行的呈现参数（tone 着色 + `hanging` 悬挂缩进）——活动区 Box 与底部
+ * notice 视图**共用**（BACKLOG 3.1.1）：两处口径必须一致，否则 `/help` 这类
+ * 双列表格 notice 在底部会丢缩进或丢色。`compact` 只影响活动区：紧凑模式把
+ * 条目压成 1 行并取消 hanging，`noCompact` 行（/help）豁免、保持完整折行。
+ */
+export function noticeLinePresentation(
+  line: BufferLine,
+  compact: boolean,
+): { fg?: ColorName; hanging?: number } {
+  const tone = line.tone;
+  const keepFull = compact && line.noCompact === true;
+  const hanging =
+    (!compact || keepFull) && line.hanging !== undefined
+      ? line.hanging
+      : undefined;
+  return {
+    ...(tone !== undefined ? { fg: NOTICE_TONE_COLOR[tone] as ColorName } : {}),
+    ...(hanging !== undefined ? { hanging } : {}),
+  };
+}
+
 export function buildBox(
   buffer: Buffer,
   opts: BuildBoxOptions,
@@ -360,23 +382,15 @@ export function buildBox(
       continue;
     }
     if (line.kind === "notice") {
-      const tone = line.tone;
-      const style =
-        tone !== undefined
-          ? { style: { fg: NOTICE_TONE_COLOR[tone] as ColorName } }
-          : {};
-      // 悬垂缩进（/help 双列表格）：折行续行停靠 hanging 列（描述列起点），
-      // 对齐工具行的悬挂机制；普通 notice 不设 hanging → 续行顶格。
-      // 紧凑模式：条目压单行 → 悬垂缩进无意义（不设 hanging）
-      // 紧凑模式默认把条目压成 1 行；noCompact 行（/help）豁免——保持完整折行 + 悬垂缩进
+      // 呈现参数（tone 色 + hanging）与底部 notice 视图共用，见 noticeLinePresentation；
+      // 紧凑模式把条目压单行（noCompact 行如 /help 豁免，保持完整折行与悬挂缩进）
       const keepFull = compact && line.noCompact === true;
+      const pres = noticeLinePresentation(line, compact);
       const node = styled(
         [{ text: compact && !keepFull ? actText(line.text) : line.text }],
         {
-          ...style,
-          ...((!compact || keepFull) && line.hanging !== undefined
-            ? { hanging: line.hanging }
-            : {}),
+          ...(pres.fg !== undefined ? { style: { fg: pres.fg } } : {}),
+          ...(pres.hanging !== undefined ? { hanging: pres.hanging } : {}),
         },
       );
       // 空文本不舍弃（notice 空行可能保留语义）
