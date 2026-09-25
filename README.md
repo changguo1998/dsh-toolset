@@ -103,6 +103,7 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 - `docs/DEVELOPMENT-STATUS.md` — 插件开发状态追踪表（状态的唯一来源）。
 - `docs/DEVELOPMENT-BACKLOG.md` — 未完成功能清单（P0/P1/P2）与里程碑。
 - `docs/AGENT-COMPOSITION.md` — agent 面组合现状：TUI 走 profile 全局组合、不用 preset（官方依据 + 本机验证 + 0.1.7 版本断层）。
+- `docs/HOST-UPGRADE-0.1.7-rc.2.md` — 宿主升级对照：`0.1.5-rc.3 → 0.1.7-rc.2` 的官方接口变更（服务注册表 diff、我方消费面逐项判定、装配机制、会话格式 V4）与重大更新，附逐包影响与行动清单。
 - `TUI/DESIGN.md`、`TUI/SPEC.md`、`TUI/IMPLEMENTATION.md`、`TUI/COMMANDS.md`、`TUI/COMMANDS-SPEC.md` — TUI 设计、渲染规格、实现记录、命令面与命令扩展规格。
 - `docs/AGENT-ARCHITECTURE-ANALOGY.md` — agent 架构与 DSH 接口对照（任务树、知识库插件的设计依据）。
 - `docs/HOST-PACKAGES.md` — 宿主官方包清单（`dsh 0.1.5-rc.3` 的 240 个包，分类 + 关键包说明 + fff 挂载清单；宿主升级后需刷新）。

@@ -59,7 +59,7 @@ scripts/install.sh --help   # --profile/--plugins/--dsh-version/--skip-dsh/--ski
 - `TUI/src/app/` 状态与纯函数层（state/layout），`TUI/src/renderer/` 终端渲染层，`TUI/src/app/adapter/` 插拔适配层，`TUI/demo/` mock demo。
 - 插件子包：`task-engine/`（任务执行引擎）、`knowledge-base/`（知识库与记忆）、`herdr-integration/`（herdr 面板桥）、`goal-contract/`（Done-when 契约起草）、`metric-loop/`（指标循环）、`output-compress/`（大输出摘要入库）、`fs-digest/`（文件摘要）、`hash-edit/`（LINE:HASH 锚定编辑）、`ast-tools/`（AST 搜索/替换/大纲）、`security-guard/`（危险命令与敏感文件防护）、`code-map/`（代码结构地图）、`context-report/`（会话上下文/用量报告）；各包的 `package.json` 带 `dsh.bundle` 集成契约与 `cordis.patch.yml`。
 - 核心契约对齐官方 deepseek-harness：根目录 `DSH-CTX-API.md` 为跨插件共享研读笔记（只读参考，勿改动）。
-- `docs/` 设计文档：`AGENT-ARCHITECTURE-ANALOGY.md`（架构与接口对照）、`AGENT-COMPOSITION.md`（agent 面组合现状：TUI 不用 preset）、`DEVELOPMENT-STATUS.md`（状态追踪）、`DEVELOPMENT-BACKLOG.md`（未完成待办）、`HOST-PACKAGES.md`（宿主官方包清单与 profile 挂载情况，宿主升级后刷新）；改动行为时同步更新状态表，功能完成时同步清理待办清单。
+- `docs/` 设计文档：`AGENT-ARCHITECTURE-ANALOGY.md`（架构与接口对照）、`AGENT-COMPOSITION.md`（agent 面组合现状：TUI 不用 preset）、`DEVELOPMENT-STATUS.md`（状态追踪）、`DEVELOPMENT-BACKLOG.md`（未完成待办）、`HOST-PACKAGES.md`（宿主官方包清单与 profile 挂载情况，宿主升级后刷新）、`HOST-UPGRADE-0.1.7-rc.2.md`（`0.1.5-rc.3 → 0.1.7-rc.2` 的官方接口变更与重大更新对照）；改动行为时同步更新状态表，功能完成时同步清理待办清单。
 - `archive/` 存放**已完成任务清单与历史调研**（如 `TUI-REFACTOR-TASKS.md`、`TUI-COMMANDS-TASKS.md`、`PI-DSH-FEATURE-COMPARISON.md`、`CODEMAP-RESEARCH.md`）：仅作历史记录，不是现状来源；当前口径以 `docs/DEVELOPMENT-STATUS.md`、`TUI/SPEC.md`、`TUI/IMPLEMENTATION.md`、`TUI/COMMANDS.md`、`TUI/COMMANDS-SPEC.md` 为准。
 - DSH 集成契约以各包 `cordis.patch.yml` + `package.json` 的 `dsh.bundle` 为准。
 - 设计/实现讨论沉淀在 `TUI/DESIGN.md`、`TUI/SPEC.md` 与 `TUI/IMPLEMENTATION.md`，改动行为时同步更新。
