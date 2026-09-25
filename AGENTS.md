@@ -26,13 +26,20 @@ npm run test:tui          # TUI 单包测试（开发迭代常用，避免全包
 
 单个子包内直接运行各自的 `npm run check / build / test / demo`（TUI 另有 `npm run bench` 排版性能基准、`npm run smoke:pty` 真机冒烟）。
 
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 13 个包 → 装 agent preset）：
+
+```sh
+scripts/install.sh          # profile/preset 名默认 fff；幂等，--force 才覆盖已存在文件
+scripts/install.sh --help   # --profile/--preset/--plugins/--dsh-version/--skip-dsh/--skip-build/--dry-run
+```
+
 修改后至少跑 `npm run check`；涉及逻辑改动跑 `npm run test`。
 
 ## 格式化
 
 - 默认用 `format` 命令（`/home/guochang/fff/scripts/format`，按扩展名选择格式化器：TS/JS → prettier、MD → mdformat、YAML → yq、JSON → jq 等）格式化改动文件；若项目引入自有格式化脚本（如 `package.json` 中的 `format`），则优先使用项目脚本。
 - 提交前对本次改动的文件执行 `format <文件...>`。
-- **例外（勿格式化）**：带注释的 YAML/JSON（`cordis.patch.yml`、`presets/**/*.yml`）与生成的夹具 JSON（`tests/fixtures/*.json`）——yq 会吞掉注释、jq 会整体重排缩进，产生大片无意义 diff（已实测）；这类文件按原格式手工编辑。
+- **例外（勿格式化）**：带注释的 YAML/JSON（`cordis.patch.yml`、`presets/**/*.yml`、`profiles/**/*.yml`）与生成的夹具 JSON（`tests/fixtures/*.json`）——yq 会吞掉注释、jq 会整体重排缩进，产生大片无意义 diff（已实测）；这类文件按原格式手工编辑。
 
 ## 构建 → 部署到 profile（本地迭代）
 

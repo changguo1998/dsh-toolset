@@ -43,7 +43,9 @@ dsh-toolset/
 ├── security-guard/       # 危险命令与敏感文件防护
 ├── code-map/             # 代码结构地图（符号/import 图、查询与报告）
 ├── context-report/       # 会话上下文/用量报告（sessionContext 投影 + context_report 工具）
-├── presets/              # agent preset 资产（fff：官方 standard 组合克隆；部署见 presets/README.md）
+├── presets/              # agent preset 资产（example：官方 standard 组合克隆，安装名由脚本给；见 presets/README.md）
+├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
+├── scripts/              # install.sh（新机器一键安装）；测试调度脚本
 ├── docs/                 # 状态表、待办清单、架构对照与宿主包清单
 ├── archive/              # 已归档：完成的任务清单与历史调研记录
 ├── AGENTS.md             # 面向 agent 的协作规范（语言/命令/格式化/构建部署/变更流程）
@@ -68,7 +70,17 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 
 ## 接入 DSH profile 使用
 
-各插件以 cordis bundle 方式挂载到 DSH profile。示例（`~/.dsh/profiles/fff`，详见 `TUI/README.md`）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 13 个包 → 装 agent preset → 设默认 preset）：
+
+```sh
+git clone <本仓库> && cd dsh-toolset
+scripts/install.sh                 # profile 与 preset 名默认都是 fff
+scripts/install.sh --help          # --profile/--preset/--plugins/--dsh-version/--force/--dry-run
+```
+
+脚本幂等：已存在的 profile / preset 文件默认保留，`--force` 才覆盖且先备份；只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。
+
+手工配置时各插件以 cordis bundle 方式挂载到 DSH profile。示例（`~/.dsh/profiles/fff`，详见 `TUI/README.md`）：
 
 ```jsonc
 // <profile>/package.json
@@ -80,9 +92,11 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 
 本地开发期使用 `link:` 依赖，构建产物经 symlink 实时可见，无需重新安装；正式发布形态为 `dsh plugin --profile <p> add <包名>`。核对组合树用 `dsh --profile <p> --dump-config`，启动用 `dsh --profile <p>`。
 
+仓库内 `profiles/example/` 是可直接复制的 profile 三件套示例（清单 + 用户层 patch + pnpm 配置），演示 `- id:` 覆盖与 `- insert:` 新增两种方言、`!!js` 表达式，以及权限预设表覆盖（自定义沙箱 + 审批捆绑预设）；部署步骤与边界见 `profiles/README.md`。
+
 ### agent preset（会话 agent 组合）
 
-`presets/` 随仓库分发 agent preset 资产（`fff` = 官方 `standard` 组合克隆，与本项目插件正交叠加：插件工具由 profile 全局注册，preset 只承载官方 agent 面）。部署（软链接三步：真实目录 + 文件软链接指向 `presets/fff/`、设 `agent-presets.default`、重启）见 `presets/README.md`。
+`presets/` 随仓库分发 agent preset 资产（`presets/example/` = 官方 `standard` 组合克隆，与本项目插件正交叠加：插件工具由 profile 全局注册，preset 只承载官方 agent 面）。**资产目录名固定为 `example`，安装后的 preset id = 安装目录名**（`scripts/install.sh --preset <名字>` 默认 `fff`）。手工部署（软链接三步：真实目录 + 文件软链接指向 `presets/example/`、设 `agent-presets.default`、重启）见 `presets/README.md`。
 
 ## 文档
 
