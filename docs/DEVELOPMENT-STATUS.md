@@ -27,7 +27,7 @@
 | goal-contract | P1 | 完成 | interview 式 Done-when 契约起草，落 dsh-goal 事件源并回读比对，35 单测 |
 | metric-loop | P1 | 完成 | 指标循环引擎与计划续排（plateau / 轮数 / 时间 / token 边界、cadence 唤醒），35 单测 |
 | output-compress | P1 | 完成 | 大输出确定性摘要 + 切片索引入 knowledge-base 共享库，42 单测 |
-| fs-digest | P1-P2 | 完成 | outline/signatures/pruned 三模式文件摘要，42 单测 |
+| fs-digest | P1-P2 | 完成（有 1 条待修缺陷） | outline/signatures/pruned 三模式文件摘要，42 单测；缺陷：会话 cwd 取值不可用导致工具调用必失败，见 `fs-digest/BACKLOG.md` D1 |
 | hash-edit | P1 | 完成 | LINE:HASH 锚定读写编辑（stale 整批拒绝），43 单测 |
 | ast-tools | P1 | 完成 | ast-grep 搜索/替换/大纲/规则执行，27 单测 |
 | security-guard | P1-P2 | 完成 | 危险命令黑名单 + 敏感文件保护策略层，37 单测 |

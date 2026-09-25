@@ -127,6 +127,7 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 **插件包**
 
 - 各包 `README.md`（职责、契约、边界、测试命令）；`knowledge-base`、`output-compress`、`code-map` 另有 `DESIGN.md`。
+- 包内缺陷与待办写在该包自己的 `BACKLOG.md`（如 `fs-digest/BACKLOG.md`；TUI 的是 `TUI/docs/BACKLOG.md`）。
 
 **协作与历史**
 
