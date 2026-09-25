@@ -1,7 +1,8 @@
-# The `fff` agent preset: clone of the official `standard` composition
-# (byte-identical), owned by the fff profile. 本项目插件工具由 fff profile
-# 全局注册（profile 平面），本 preset 只承载官方 standard 的 agent 面组合；
-# 与 standard 的差异仅在 preset 身份/元信息（见 preset.yml）。
+# The repo-distributed agent preset (installed under the id passed to
+# scripts/install.sh, default `fff`): clone of the official `standard`
+# composition (byte-identical), owned by the installed profile. 本项目插件工具由
+# profile 全局注册（profile 平面），本 preset 只承载官方 standard 的 agent 面
+# 组合；与 standard 的差异仅在 preset 身份/元信息（见 preset.yml）。
 #
 # This file is an AGENT-PLANE composition. The roster mounts it ONCE under a
 # standing scope; every session naming it joins by scope parentage, so the

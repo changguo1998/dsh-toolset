@@ -1,0 +1,2 @@
+name: example preset
+description: 随仓库分发的 agent preset（官方 standard 完整组合的克隆）：文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理与工作流；本项目插件（task-engine / goal-contract / metric-loop / hash-edit / fs-digest / ast-tools / security-guard / output-compress / knowledge-base / herdr-integration / code-map / TUI）由 profile 全局注册，会话自动携带，本 preset 无需重复声明。安装后的 preset id = 安装目录名（scripts/install.sh 默认 fff），本文件的 name 只是显示标签。

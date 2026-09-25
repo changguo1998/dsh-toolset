@@ -1,2 +1,0 @@
-name: fff 模式
-description: fff profile 配套 preset（基于官方 standard 完整组合）：文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理与工作流；本项目插件（task-engine / goal-contract / metric-loop / hash-edit / fs-digest / ast-tools / security-guard / output-compress / knowledge-base / herdr-integration / code-map / TUI）由 fff profile 全局注册，会话自动携带，本 preset 无需重复声明。
