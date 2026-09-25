@@ -3,8 +3,9 @@
 // 口径（docs/PENDING-FIXES.md P7）：
 //  - Mode 块从垂直状态列移除，改由**标题栏首行**承载：
 //    `[preset 符号+名字] [sandbox policy plan verbose symbol-unify bell] 2 空格 标题`；
-//  - 符号即变量名、颜色即取值：sandbox ro 绿 box / wr 黄 box_open / full 红 box_open /
-//    其它灰；policy ask 黄 / never 绿；开关 on 默认前景 / off 灰；permission 不再显示；
+//  - 符号即变量名、颜色即取值：sandbox ro 绿 package_variant_closed / wr 黄、full 红、
+//    其它灰（package_variant 开口包裹）；policy ask 黄 / never 绿；四个开关 on 绿 / off 灰；
+//    permission 不再显示；
 //  - 窄宽让位顺序：① 去掉 preset → ② 截断标题 → ③ 去掉整组符号；
 //  - Ctrl+S 切换垂直状态列（隐藏时列宽 0、历史区吃满整宽），随会话写入 tui-state.json。
 
@@ -142,7 +143,7 @@ test("P7 标题栏：permission 不再展示（只显示 sandbox 箱形符号）
   );
 });
 
-test("P7 标题栏：sandbox 四态 → 符号 + 颜色（ro 绿 box / wr 黄 / full 红 / 其它灰）", () => {
+test("P7 标题栏：sandbox 四态 → 符号 + 颜色（ro 绿 package_variant_closed / wr 黄 / full 红 / 其它灰）", () => {
   const cases: [string, string, string][] = [
     ["read-only", TITLE_ICON.boxClosed, "green"],
     ["workspace-write", TITLE_ICON.boxOpen, "yellow"],
@@ -155,7 +156,7 @@ test("P7 标题栏：sandbox 四态 → 符号 + 颜色（ro 绿 box / wr 黄 / 
   }
 });
 
-test("P7 标题栏：开关 on 默认前景、off 灰（plan / verbose / 符号统一 / 声音提醒）", () => {
+test("P7 标题栏：开关 on 绿、off 灰（plan / verbose / 符号统一 / 声音提醒）", () => {
   const on = stateWith({
     plan: "on",
     verbose: true,
@@ -168,7 +169,7 @@ test("P7 标题栏：开关 on 默认前景、off 灰（plan / verbose / 符号�
     TITLE_ICON.symbolUnify,
     TITLE_ICON.bell,
   ])
-    assert.equal(fgOf(on, 100, icon), undefined, `on 不着色: ${icon}`);
+    assert.equal(fgOf(on, 100, icon), "green", `on 绿: ${icon}`);
   const off = stateWith({
     plan: "off",
     verbose: false,
@@ -241,6 +242,67 @@ test("P7 Ctrl+S：切换垂直状态列显隐（隐藏 → 列宽 0、历史区�
   renderer.press({ name: "s", ctrl: true, meta: false, shift: false });
   assert.equal(st().statusColumnVisible, true, "再按一次恢复显示");
   dispose();
+});
+
+test("P7 Ctrl+S：隐藏状态列后分隔行不留旧交点（并排只剩内部分隔列）", () => {
+  const size = { rows: 30, cols: 100 };
+  const stateFor = (visible: boolean, horizontal: boolean): AppState => {
+    let s = initialState();
+    s = {
+      ...s,
+      activeSessionId: "s1",
+      sessionTitle: "会话标题",
+      statusColumnVisible: visible,
+      activityPlacement: horizontal ? "horizontal" : undefined,
+    };
+    return s;
+  };
+  /** 状态区上方分隔行的交点（`字形@显示列`，0 基） */
+  const junctions = (s: AppState): string[] => {
+    const g = frameGeometry(s, size);
+    const out: string[] = [];
+    let col = 0;
+    for (const ch of [...rowText(buildFrame(s, size)[g.contentTopH]!)]) {
+      if (ch === "┴" || ch === "┬" || ch === "┼") out.push(`${ch}@${col}`);
+      col += displayWidth(ch);
+    }
+    return out;
+  };
+  // 纵向：显示态 D 列一个 ┴；隐藏态该列不存在（几何归 -1/0，分隔行不得留旧交点）
+  const vShown = stateFor(true, false);
+  const vHidden = stateFor(false, false);
+  assert.deepEqual(
+    junctions(vShown),
+    [`┴@${frameGeometry(vShown, size).dividerCol}`],
+    "纵向显示态：D 列一个交点",
+  );
+  assert.equal(
+    frameGeometry(vHidden, size).dividerCol,
+    -1,
+    "隐藏后分隔竖线列 = -1（该列不存在）",
+  );
+  assert.equal(
+    frameGeometry(vHidden, size).contentStartCol,
+    0,
+    "隐藏后区域正文起始列 = 0",
+  );
+  assert.deepEqual(junctions(vHidden), [], "纵向隐藏态：不留旧 D 列交点");
+  // 并排：显示态两个交点（D 列 + 内部分隔列）；隐藏态只剩内部分隔列一个、列随有效正文起始列
+  const hShown = stateFor(true, true);
+  const hHidden = stateFor(false, true);
+  const gh = frameGeometry(hHidden, size);
+  assert.equal(gh.mode, "horizontal", "并排排列成立");
+  assert.equal(
+    gh.innerDividerCol,
+    gh.contentStartCol + gh.dialogueW,
+    "内部分隔列 = 有效正文起始列 + 历史 pane 宽",
+  );
+  assert.deepEqual(
+    junctions(hHidden),
+    [`┴@${gh.innerDividerCol}`],
+    "并排隐藏态：只剩内部分隔列交点",
+  );
+  assert.equal(junctions(hShown).length, 2, "并排显示态：D 列 + 内部分隔列");
 });
 
 test("P7：状态列隐藏时不画退化焦点框（Tab 跳过 status / 隐藏即移开焦点）", () => {

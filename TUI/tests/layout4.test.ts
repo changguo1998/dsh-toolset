@@ -35,7 +35,12 @@ import {
   type FrameScrollReport,
   type FrameBuildOutput,
 } from "../src/app/layout.ts";
-import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
+import {
+  DEFAULT_MESSAGE_GUTTER,
+  initialState,
+  reduceState,
+  TURN_SEPARATOR,
+} from "../src/app/state.ts";
 
 /** P6：step 分组头的固定时间戳（本地时间 03:04:05），使分组头文本可精确断言 */
 const STEP_TIME = new Date(2026, 0, 2, 3, 4, 5).getTime();
@@ -1546,11 +1551,12 @@ test("交错布局：多行输入为一块——块内行首左对齐、块宽 =
     }
     return -1;
   };
-  // 块内行首左对齐（三行同一左边界）+ 右缘竖线同列（块宽 = 最长行 + 1 列竖线）
+  // 块内**正文**行首左对齐（首行与续行正文同列）+ 右缘竖线同列（块宽 = 最长行 + 1 列竖线）；
+  // P1/P7 起首行状态符号独立成格（2 列：符号 + 空格）占左侧留白，故首行 lead 比正文列小 2
   assert.deepEqual(
     [lead(rows[1]!), lead(rows[2]!)],
-    [lead(rows[0]!), lead(rows[0]!)],
-    "块内各行行首左对齐",
+    [lead(rows[0]!) + 2, lead(rows[0]!) + 2],
+    "块内正文各行行首左对齐（符号贴在首行正文左侧的留白里）",
   );
   assert.deepEqual(
     [barCol(rows[1]!), barCol(rows[2]!)],
@@ -1567,6 +1573,71 @@ test("交错布局：多行输入为一块——块内行首左对齐、块宽 =
     textW - 25,
     "块宽取决于最长行（右对齐贴文字右缘）",
   );
+});
+
+test("用户块：长输入折行后状态符号占左侧留白、正文各行同列（符号不参与正文换行）", () => {
+  const cols = 60;
+  const text =
+    "这是一条很长的用户输入，用来把历史区用户块撑到可用宽度上限，" +
+    "看看折行之后符号和文本各自落在哪一列上。";
+  let s = initialState();
+  s = reduceState(s, { type: "user-line", text });
+  const strip = (l: FrameRow): string =>
+    rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "");
+  const rows = buildFrame(s, { rows: 24, cols })
+    .map(strip)
+    .map((l) => histContent(l, cols))
+    .filter((l) => l.includes("┃"));
+  assert.ok(rows.length >= 3, `长输入折成多行: ${rows.length}`);
+  /** 行内首个匹配字符的显示列（相对历史区正文起点，0 基） */
+  const colOf = (line: string, re: RegExp): number => {
+    const m = re.exec(line);
+    return m ? displayWidth(line.slice(0, m.index)) : -1;
+  };
+  const SYM_RE = /[?✓✗■●○△]/;
+  const bodyCols = rows.map((l) => colOf(l, /[^\s│?✓✗■●○△┃]/));
+  const barCols = rows.map((l) => colOf(l, /┃/));
+  // 正文各行同列（首行不再因符号右移 2 列）——「符号占左侧留白、不动正文对齐」
+  assert.equal(
+    new Set(bodyCols).size,
+    1,
+    `正文各行同列: ${bodyCols.join(",")}`,
+  );
+  assert.equal(
+    bodyCols[0]!,
+    DEFAULT_MESSAGE_GUTTER - 1,
+    "正文左缘 = gutter−1（不受符号影响）",
+  );
+  // 符号落在正文左侧 2 列（左侧留白内），且只在块首行出现
+  assert.equal(colOf(rows[0]!, SYM_RE), bodyCols[0]! - 2, "符号占留白 2 列");
+  assert.ok(
+    rows.slice(1).every((l) => !SYM_RE.test(l)),
+    "符号只出现在块首行",
+  );
+  // 右缘竖线同列（块右缘不因符号宽度变化）
+  assert.equal(new Set(barCols).size, 1, `右缘竖线同列: ${barCols.join(",")}`);
+
+  // 行元数据：符号独立成格后，块内各行仍共享 seq/blockId（滚动锚点/会话跳转依赖）
+  const m = metricsFor({ rows: 24, cols }, false);
+  const textW = paneTextWidth(regionColumnWidth(m.historyWidth), true);
+  const { dialogue } = buildContentRows(
+    s.buffer,
+    {
+      themeId: "dark",
+      userStatus: (l) =>
+        l.kind === "user" && !l.queued
+          ? { text: "✓", fg: "green" as const }
+          : undefined,
+    },
+    textW,
+  );
+  const userRows = dialogue.filter((r) => r.kind === "user");
+  assert.ok(userRows.length >= 3, `用户块多行: ${userRows.length}`);
+  assert.ok(
+    userRows.every((r) => r.seq !== undefined && r.blockId !== undefined),
+    "块内各行元数据（seq/blockId）不丢",
+  );
+  assert.equal(new Set(userRows.map((r) => r.seq)).size, 1, "块内 seq 一致");
 });
 
 test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代码块", () => {

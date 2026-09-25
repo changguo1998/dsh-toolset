@@ -106,6 +106,17 @@ export function fill(
 
 // ---------------- Box ----------------
 
+/** 该行是否携带语义元数据（kind/blockId/line/seq 任一存在；indent 只是排版冗余） */
+function hasRowMeta(row: ContentRow | undefined): boolean {
+  return (
+    row !== undefined &&
+    (row.kind !== undefined ||
+      row.blockId !== undefined ||
+      row.line !== undefined ||
+      row.seq !== undefined)
+  );
+}
+
 function fillBox(
   ctx: FillContext,
   box: Box,
@@ -169,9 +180,19 @@ function fillBox(
               : seg(sepChar, { fg: sepColor }),
           );
       }
-      // 合并行继承内容子项元数据（spacer 不产独立语义行）
-      const meta =
-        contentChildIdx >= 0 ? subs[contentChildIdx]![ri] : undefined;
+      // 合并行继承内容子项元数据（spacer 不产独立语义行）；首个内容子项该行缺失或
+      // 无元数据时（如用户块的符号格只占首行、语义挂在正文格）向后取第一个带元数据
+      // 的子项行，保住 kind/blockId/line/seq（滚动锚点与块归属依赖它们）
+      let meta = contentChildIdx >= 0 ? subs[contentChildIdx]![ri] : undefined;
+      if (!hasRowMeta(meta)) {
+        for (let ci = contentChildIdx + 1; ci < box.children.length; ci++) {
+          const r0 = subs[ci]?.[ri];
+          if (hasRowMeta(r0)) {
+            meta = r0;
+            break;
+          }
+        }
+      }
       append({
         segments: segs,
         kind: meta?.kind,

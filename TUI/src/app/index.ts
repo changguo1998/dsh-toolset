@@ -86,6 +86,7 @@ import {
   userInputJump,
   type FrameGeometry,
   helpTableLines,
+  sortHelpRows,
   runPhase,
 } from "./layout.ts";
 import {
@@ -3398,7 +3399,7 @@ export class App {
       },
       {
         cmd: "/session",
-        desc: "会话列表：Enter 切换到 persisted 会话(live 不可续)",
+        desc: "会话列表：Enter 切换到已持久化会话（live 会话不可续）",
       },
       {
         cmd: "/goal",
@@ -3407,7 +3408,7 @@ export class App {
       { cmd: "/copy", desc: "复制最后一条模型回复到剪贴板(OSC52)" },
       {
         cmd: "/model [provider/]model",
-        desc: "switch current-session model; bare /model: interactive picker",
+        desc: "切换当前会话模型；无参打开交互选择面板",
       },
       {
         cmd: "/provider、/effort (/thinking)",
@@ -3456,7 +3457,7 @@ export class App {
       },
       {
         cmd: "/fork",
-        desc: "分叉当前会话为新会话（success 提示 + 必要时提示用 /session 查看）",
+        desc: "分叉当前会话为新会话（成功提示 + 必要时提示用 /session 查看）",
       },
       {
         cmd: "/task",
@@ -3493,7 +3494,8 @@ export class App {
     ];
     return [
       { text: "本地命令：", noCompact: true },
-      ...helpTableLines(commands),
+      // 条目按命令名字母序展示（口径：整体字母序、不保留手写分组）
+      ...helpTableLines(sortHelpRows(commands)),
       {
         text: "其他 /name 通过 commands 注册表执行(未命中则提示未知命令)。",
         noCompact: true,

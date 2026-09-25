@@ -79,3 +79,29 @@ export function helpTableLines(rows: readonly HelpRow[]): HelpTableLine[] {
   }
   return out;
 }
+
+/** /help 条目排序键 = **首个命令名**（去前导 `/`，取到第一个空白/顿号/逗号为止）：
+ *  `/provider、/effort (/thinking)` 按 `provider` 排、`/stats (/usage /context)` 按
+ *  `stats` 排、`/clearscreen (/cls)` 按 `clearscreen` 排（别名与参数示例不参与排序）。 */
+export function helpSortKey(cmd: string): string {
+  const head =
+    cmd
+      .trim()
+      .replace(/^\//, "")
+      .split(/[\s、,，]+/)[0] ?? "";
+  const m = /^[a-z0-9_-]+/i.exec(head);
+  return (m?.[0] ?? head).toLowerCase();
+}
+
+/** /help 条目按命令名**字母序**排列（大小写不敏感；键相同者保持原相对顺序=稳定排序）。
+ *  条目在 App 侧按主题手写，展示前统一排序（口径：整体字母序，不再保留分组）。 */
+export function sortHelpRows(rows: readonly HelpRow[]): HelpRow[] {
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort(
+      (a, b) =>
+        helpSortKey(a.row.cmd).localeCompare(helpSortKey(b.row.cmd)) ||
+        a.index - b.index,
+    )
+    .map((x) => x.row);
+}

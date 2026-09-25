@@ -118,7 +118,7 @@ type Height =
 
 **结论**：内容元素 → Box 子树的映射（`buildBox` / `buildContentRows`）统一了「按类型分别处理缩进 / 前缀 / 对齐」的逻辑；新增内容类型 = 新增一个映射函数，不改布局。
 
-**顶部区域构成（结构规格）**：状态列 = **Goal / Todo / Jobs 三块**（块间虚线 `╌`，不再有 Mode 块）；标题栏首行 = `[preset 图标 + 1 空格 + 预设名] 1 空格 [状态符号组（最多 6 个，空格分隔，固定顺序：沙箱 / policy / plan / verbose / symbol-unify / bell）] 2 空格 [会话标题]`，符号取 Nerd Font 私有区字形（`TITLE_ICON`，各 1 列）、**颜色即语义值**（沙箱 `read-only` 绿 / `workspace-write` 黄 / `danger-full-access` 红 / 其它灰；policy `ask` 黄 / `never` 绿；四个开关 `on` 默认前景 / `off` 灰；preset 默认前景；`permission` 不显示），窄宽让位顺序 = ① 去掉 preset → ② 截断标题 → ③ 去掉整组符号 → ④ 既有标题栏降级。`Ctrl+S` 切换状态列显隐：隐藏时 `statusColWidth = 0`、右缘分隔竖线不画、历史区吃满整区全宽；显隐随会话写入 `tui-state.json`。
+**顶部区域构成（结构规格）**：状态列 = **Goal / Todo / Jobs 三块**（块间虚线 `╌`，不再有 Mode 块）；标题栏首行 = `[preset 图标 + 1 空格 + 预设名] 1 空格 [状态符号组（最多 6 个，空格分隔，固定顺序：沙箱 / policy / plan / verbose / symbol-unify / bell）] 2 空格 [会话标题]`，符号取 Nerd Font 私有区字形（`TITLE_ICON`，各 1 列）、**颜色即语义值**（沙箱 `read-only` 绿 / `workspace-write` 黄 / `danger-full-access` 红 / 其它灰；policy `ask` 黄 / `never` 绿；四个开关 `on` 绿 / `off` 灰；preset 默认前景；`permission` 不显示），窄宽让位顺序 = ① 去掉 preset → ② 截断标题 → ③ 去掉整组符号 → ④ 既有标题栏降级。`Ctrl+S` 切换状态列显隐：隐藏时 `statusColWidth = 0`、右缘分隔竖线不画（状态区上方分隔行该列的交点随之不画，几何上 `dividerCol = −1`）、历史区吃满整区全宽；显隐随会话写入 `tui-state.json`。
 
 **系统状态栏分隔**：组内与组间统一 `•`（U+2022，默认前景色、1 列、两侧无空格；`h` 容器的 `separator` 以 `char:"•"` / `color:"plain"` 传入），因此组间不再有边框色竖线，其上/下横线也没有组间交点 `┬`（状态列右缘 D 列的 `┴` 保留）。
 
@@ -553,7 +553,7 @@ interface FrameGeometry {
   cols: number; rows: number;              // 终端尺寸
   contentTopH: number;                     // 顶部内容行数（不含状态/输入/提示/分隔行）
   statusHeight: number; footerHeight: number; hintHeight: number;
-  statusColWidth: number; historyWidth: number; contentW: number;  // contentW = 区域正文宽（historyWidth − 右缘框列）；Ctrl+S 隐藏状态列时 statusColWidth = 0、historyWidth = cols
+  statusColWidth: number; historyWidth: number; contentW: number;  // contentW = 区域正文宽（historyWidth − 右缘框列）；Ctrl+S 隐藏状态列时 statusColWidth = 0、historyWidth = cols、dividerCol = −1（该列不存在，分隔行不画交点）
   leftFrame: boolean; rightFrame: boolean;  // 屏幕最左（状态列外缘）/最右（区域外缘）焦点框保留格是否占列
   mode: "vertical" | "horizontal"; titleRows: number;
   activityH: number; dialogueH: number;    // 两 pane 可视行数（横向等高）
@@ -586,7 +586,7 @@ state 事实("status=failure")             -- 逻辑层，不碰颜色
 色名 → 色值 → SGR("red" → hex → \x1b[…   -- 渲染层
 ```
 
-- **语义 → 色名（排版层）**：映射表为**排版层常量**——不入 `AppState`、不进 renderer。现有实例：`USER_BLOCK_SYMBOL` + `userBlockSymbolResolver`（用户输入块**首行左侧**的状态符号：success 绿 / failure 红 / aborted 灰；最新未终态块 running / waiting 黄；其余无终态块 `?` 不着色，排队块不出符号）、标题栏图标语义色（`TITLE_ICON` 在 `titleBarSegments` 内取色：沙箱 ro 绿 / wr 黄 / full 红 / 其它灰，policy ask 黄 / never 绿，开关 on 默认前景 / off 灰，preset 默认前景）、notice tone（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿）。markdown 语义同为此类（`**`→bold、`` ` ``→bg:code）：解析器在排版层，调"强调样式"只改排版层映射，state / renderer 均不动。
+- **语义 → 色名（排版层）**：映射表为**排版层常量**——不入 `AppState`、不进 renderer。现有实例：`USER_BLOCK_SYMBOL` + `userBlockSymbolResolver`（用户输入块**首行左侧留白内**的状态符号：独占 2 列格，不参与正文换行（正文与续行同列）；success 绿 / failure 红 / aborted 灰；最新未终态块 running / waiting 黄；其余无终态块 `?` 不着色，排队块不出符号）、标题栏图标语义色（`TITLE_ICON` 在 `titleBarSegments` 内取色：沙箱 ro 绿 / wr 黄 / full 红 / 其它灰，policy ask 黄 / never 绿，开关 on 绿 / off 灰，preset 默认前景）、notice tone（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿）。markdown 语义同为此类（`**`→bold、`` ` ``→bg:code）：解析器在排版层，调"强调样式"只改排版层映射，state / renderer 均不动。
 - **色名 → 色值（渲染层独占）**：`ColorName → hex → SGR`（`ansiNameToHex` / `hexSgr` 不得再被排版层 import，`theme.ts` 收口取色、`screen.ts` 的 `segStyle`/`serializeFrameRow` 收口序列化）。
 - **排版层仅持有**：`ThemeId` + 语义 `ColorName`；state 保持与呈现无关（不存颜色）。
 - 未知色名回退基底色（fail-safe，不抛异常，与现状 `ansiNameToHex` 返回 null 语义一致）。

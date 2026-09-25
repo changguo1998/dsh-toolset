@@ -10,6 +10,8 @@ import { buildContentRows } from "../src/app/layout/build-box.ts";
 import type { Buffer } from "../src/app/state.ts";
 import {
   helpTableLines,
+  helpSortKey,
+  sortHelpRows,
   HELP_MARGIN,
   HELP_GAP,
   HELP_CMD_MAX,
@@ -201,5 +203,38 @@ test("渲染层：超宽命令描述另起一行，行首缩进 = 描述列起�
     descRow.trimEnd(),
     " ".repeat(descIndent) + rows[0]!.desc,
     "描述内容紧随第二列缩进之后",
+  );
+});
+
+test("字母序：条目按首个命令名升序（别名/参数/顿号合并条目不干扰）", () => {
+  const rows = [
+    { cmd: "/verbose on|off", desc: "a" },
+    { cmd: "/stats (/usage /context)", desc: "b" },
+    { cmd: "/model [provider/]model", desc: "c" },
+    { cmd: "/provider、/effort (/thinking)", desc: "d" },
+    { cmd: "/help", desc: "e" },
+  ];
+  assert.deepEqual(
+    sortHelpRows(rows).map((r) => r.cmd),
+    [
+      "/help",
+      "/model [provider/]model",
+      "/provider、/effort (/thinking)",
+      "/stats (/usage /context)",
+      "/verbose on|off",
+    ],
+    "按首个命令名升序",
+  );
+  // 排序键：取首个命令名（去 `/`，到空白/顿号/逗号为止）
+  assert.equal(helpSortKey("/provider、/effort (/thinking)"), "provider");
+  assert.equal(helpSortKey("/clearscreen (/cls)"), "clearscreen");
+  assert.equal(helpSortKey("/theme [dark|light|toggle]"), "theme");
+  // 稳定排序：同键条目保持原相对顺序
+  assert.deepEqual(
+    sortHelpRows([
+      { cmd: "/jobs", desc: "先" },
+      { cmd: "/jobs [id]", desc: "后" },
+    ]).map((r) => r.desc),
+    ["先", "后"],
   );
 });

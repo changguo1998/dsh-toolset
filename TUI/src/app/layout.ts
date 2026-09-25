@@ -81,7 +81,7 @@ export {
   wrapLine,
   wrapLines,
 } from "./layout/primitives.ts";
-export { helpTableLines } from "./layout/help.ts";
+export { helpTableLines, sortHelpRows } from "./layout/help.ts";
 
 /** 行纯文本 = 各段 text 拼接（剥离样式；测试/宽度计算用） */
 export function rowText(row: FrameRow): string {
@@ -304,7 +304,7 @@ export const SEPARATOR_ROWS = 2;
 
 /** 按键提示区内容（独立区域，位于输入区下方、之间不画横线；窄终端按显示宽度截断；审批/问答/选择面板自带按键提示，不显示该区） */
 export const HINT_LINE =
-  "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [Ctrl+J]输入换行 · [Ctrl+S]状态列 · [/help]更多命令";
+  "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [Ctrl+J]输入换行 · [Ctrl+S]切换状态列 · [/help]更多命令";
 
 /** 补全候选打开时的按键提示（替换 HINT_LINE；候选面板本身不再占用活动区行放提示） */
 export const COMPLETION_HINT_LINE = "[tab]补全 · [↑/↓]选择 · [esc]收起";
@@ -754,9 +754,12 @@ export interface FrameGeometry {
   queuedRows: ContentRow[];
   /** 历史视口高 = dialogueH − 排队块行数（语义锚点与滚动上限按它算） */
   viewportH: number;
-  /** 分隔竖线列（状态列右缘/历史区左缘；= statusColWidth − 1，恒紧贴状态列正文右侧） */
+  /** 分隔竖线列（状态列右缘/历史区左缘；= statusColWidth − 1，恒紧贴状态列正文右侧）。
+   *  `Ctrl+S` 隐藏状态列时 statusColWidth = 0 → 本值 -1 = 该列不存在（状态区上方
+   *  分隔行不画交点、区域左缘按 0 起算），消费方须按 -1 守卫 */
   dividerCol: number;
-  /** 区域正文起始列（= dividerCol + 1；标题栏与两 pane 正文自该列起算） */
+  /** 区域正文起始列（= dividerCol + 1，即有效 statusColWidth；隐藏状态列时 = 0；
+   *  标题栏与两 pane 正文自该列起算） */
   contentStartCol: number;
   /** 横向排列的内部分隔竖线列（历史 pane 右缘/活动 pane 左缘）；纵向 undefined */
   innerDividerCol?: number;
@@ -869,12 +872,13 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     activityTextW,
     queuedRows,
     viewportH: Math.max(0, split.dialogueH - queuedRows.length),
-    dividerCol: metrics.statusColWidth - 1,
-    contentStartCol: metrics.statusColWidth,
+    // 以下三列一律取**有效**状态列宽（Ctrl+S 隐藏时 = 0）：隐藏后分隔竖线列归 -1
+    // （= 该列不存在：状态区上方分隔行不画 ┴、焦点矩形不左移一列）。若取 metrics 的
+    // 原始宽，隐藏态会残留"旧列"交点（并排排列下连同内部分隔列共两个）。
+    dividerCol: statusColWidth - 1,
+    contentStartCol: statusColWidth,
     // 内部分隔列 = 区域正文起始列 + 历史 pane 宽（历史区在左；两 pane 等宽时才与活动 pane 同宽）
-    innerDividerCol: horizontal
-      ? metrics.statusColWidth + split.dialogueW
-      : undefined,
+    innerDividerCol: horizontal ? statusColWidth + split.dialogueW : undefined,
     activitySepRow: split.titleRows + split.dialogueH,
     showHint,
     modalOpen,
@@ -1258,14 +1262,14 @@ function statusStartFor(len: number, offset: number, rows: number): number {
 }
 
 /** P7：标题栏状态符号（Nerd Font 私有区字形，宽度实测各 1 列；写成转义便于核对码位）。
- *  - 沙箱：`fa-box` U+ED75（只读）/ `fa-box_open` U+ED95（可写、全权、其它）
+ *  - 沙箱：`md-package_variant_closed` U+F03D7（只读）/ `md-package_variant` U+F03D6（可写、全权、其它）
  *  - 审批策略：`md-chat_question_outline` U+F1739（ask）/ `md-chat_remove_outline` U+F1414（never）
  *  - 开关：`fa-route` U+EDA6（plan）/ `md-text_long` U+F09AA（verbose）/
  *    `md-spellcheck` U+F04C6（符号统一）/ `md-bell_ring_outline` U+F009F（声音提醒）
  *  - 预设：`md-puzzle_outline` U+F0A66（后接预设名） */
 export const TITLE_ICON = {
-  boxClosed: "\u{ED75}",
-  boxOpen: "\u{ED95}",
+  boxClosed: "\u{F03D7}",
+  boxOpen: "\u{F03D6}",
   policyAsk: "\u{F1739}",
   policyNever: "\u{F1414}",
   plan: "\u{EDA6}",
@@ -1277,7 +1281,7 @@ export const TITLE_ICON = {
 
 /** P7：标题栏首行段数组 = [preset 符号 + 名字] 1 空格 [6 个状态符号（空格分隔）] 2 空格 [标题]。
  *  颜色即语义值：沙箱 ro 绿 / wr 黄 / full 红 / 其它灰；policy ask 黄 / never 绿；
- *  开关 on = 默认前景 / off = 灰；preset 统一默认前景。`permission` 不再显示。
+ *  四个开关 on 绿 / off 灰；preset 统一默认前景。`permission` 不再显示。
  *  窄宽让位顺序：① 去掉 preset → ② 截断标题 → ③ 去掉整组符号 → ④ 既有标题栏降级。 */
 export function titleBarSegments(
   state: AppState,
@@ -1316,12 +1320,14 @@ export function titleBarSegments(
       never ? "green" : "yellow",
     );
   }
-  const gray: ColorName = "gray";
+  // 四个开关（plan / verbose / 符号统一 / 声音提醒）：颜色即取值——on 绿 / off 灰
+  const on: ColorName = "green";
+  const off: ColorName = "gray";
   if (fields.mode?.plan)
-    push(TITLE_ICON.plan, fields.mode.plan === "on" ? undefined : gray);
-  push(TITLE_ICON.verbose, switches.verbose ? undefined : gray);
-  push(TITLE_ICON.symbolUnify, switches.symbolUnify ? undefined : gray);
-  push(TITLE_ICON.bell, switches.notifyEnabled ? undefined : gray);
+    push(TITLE_ICON.plan, fields.mode.plan === "on" ? on : off);
+  push(TITLE_ICON.verbose, switches.verbose ? on : off);
+  push(TITLE_ICON.symbolUnify, switches.symbolUnify ? on : off);
+  push(TITLE_ICON.bell, switches.notifyEnabled ? on : off);
 
   const rawTitle = (state.sessionTitle ?? "").trim();
   const title = rawTitle === "" ? "<title>" : rawTitle;
@@ -2597,10 +2603,11 @@ export function buildFrame(
   // 焦点用 null 传入：面板占活动区时无焦点框高亮。
   const underlineRow = Math.max(0, titleRows - 1);
   const diaEnd = geom.activitySepRow; // 纵向=活动区分隔行；横向=历史 pane 底边下一行
-  // 区域矩形：左缘 = 分隔竖线列 D（状态列右缘，与状态列共用该框线）、右缘 = R 列
-  // （区域外缘框列）——两 pane 正文恰在两缘之间（contentW 列）
-  const regionX = geom.dividerCol;
-  const regionW = geom.cols - geom.dividerCol;
+  // 区域矩形：左缘 = 分隔竖线列 D（状态列右缘，与状态列共用该框线；隐藏状态列时
+  // D = -1 → 左缘取 0，区域吃满整宽）、右缘 = R 列（区域外缘框列）——两 pane 正文
+  // 恰在两缘之间（contentW 列）
+  const regionX = Math.max(0, geom.dividerCol);
+  const regionW = geom.cols - regionX;
   if (geom.mode === "horizontal") {
     // 横向排列：历史 pane 在左、活动 pane 在右、两 pane 等高——顶=标题栏下划线行，
     // 底=状态区上方分隔行 contentTopH；内部分隔列 = history 右缘 / activity 左缘

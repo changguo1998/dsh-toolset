@@ -228,32 +228,48 @@ export function buildBox(
       continue;
     }
     if (line.kind === "user") {
-      // 整块右对齐 + 右缘竖线：h([spacer(fill), styled(文本, suffix 竖线)])
+      // 整块右对齐 + 右缘竖线：h([spacer(fill), 内容])
       // 排队中（尚未发出）的右缘竖线改灰色：与已发出的用户块（亮红）区分
-      // P1：首行左侧状态符号（符号 + 1 空格，2 列；块宽随之 +2、右缘位置不变，
-      // 符号因此紧贴首行文本左侧）——只作用于首行，多行输入其余物理行不受影响
+      // P1/P7：首行左侧状态符号**独立成格**（固定 2 列 = 符号 + 1 空格）与正文并排——
+      // 符号不参与正文换行，故正文首行与续行同列（不再出现"续行与符号对齐"）；符号只在
+      // 首行可见（h 合并时其余行按空格补齐该格，缩进不塌）。左侧留白同步扣掉符号宽，
+      // 正文绝对起列不因符号而变。
       const sym = opts.userStatus?.(line);
-      const bodySegs: FrameSegment[] = sym
-        ? [
-            { text: sym.text, ...(sym.fg ? { style: { fg: sym.fg } } : {}) },
-            { text: " " },
-            { text: line.text },
-          ]
-        : [{ text: line.text }];
-      const body = styled(bodySegs, {
+      const symW = 2; // 符号 + 1 空格
+      const body = styled([{ text: line.text }], {
         suffix: {
           text: "┃",
           style: { fg: line.queued ? "gray" : "brightRed" },
           minWidth: USER_MIN_LEFT_GUTTER + 2,
         },
       });
-      // 右缘保底留白 gutter 列：其中 1 列已被右竖线（suffix）占用 → 剩余 gutter-1
+      const content: Node = sym
+        ? h([
+            styled(
+              [
+                {
+                  text: sym.text,
+                  ...(sym.fg ? { style: { fg: sym.fg } } : {}),
+                },
+                { text: " " },
+              ],
+              { width: { mode: "fixed", cols: symW } },
+            ),
+            body,
+          ])
+        : body;
+      // 右缘保底留白 gutter 列：其中 1 列已被右竖线（suffix）占用 → 其余 gutter-1 留白；
+      // 有符号时符号格已占 2 列，左侧留白再扣 2（正文列与无符号时一致）
       const block = h([
-        spacer({ width: { mode: "fill", min: Math.max(0, gutter - 1) } }),
-        body,
+        spacer({
+          width: {
+            mode: "fill",
+            min: Math.max(0, gutter - 1 - (sym ? symW : 0)),
+          },
+        }),
+        content,
       ]);
-      meta.set(body, rowMeta);
-      meta.set(block, rowMeta);
+      markSubtree(block, meta, rowMeta);
       dialogueLeaves.push(block);
       continue;
     }

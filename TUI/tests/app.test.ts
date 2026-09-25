@@ -3017,9 +3017,9 @@ test("会话状态快照：/verbose 与 /model 变更在退出前落盘（含模
   );
 });
 
-test("标题栏 bell 图标按配置接线：notify.enabled → off 灰 / on 默认前景（autoclean 不显示）", async () => {
+test("标题栏 bell 图标按配置接线：notify.enabled → off 灰 / on 绿（autoclean 不显示）", async () => {
   // 接线回归：deps.notify.enabled → AppState.notifyEnabled → 标题栏 bell 符号
-  // （P7 起会话开关态改由标题栏符号承载：on = 默认前景、off = 灰）；
+  // （P7 起会话开关态改由标题栏符号承载：on = 绿、off = 灰）；
   // 只读配置项只显示当前态（autoCleanEmpty 已按要求不显示）
   const mkAppWith = async (enabled: boolean) => {
     const renderer = new FakeRenderer();
@@ -3070,7 +3070,7 @@ test("标题栏 bell 图标按配置接线：notify.enabled → off 灰 / on 默
     "gray",
     "bell 关（notify.enabled=false）→ 图标灰",
   );
-  assert.equal(bellFg(on.segs), undefined, "bell 开 → 图标默认前景（不着色）");
+  assert.equal(bellFg(on.segs), "green", "bell 开 → 图标绿");
   assert.ok(
     !off.plain.includes("bell ✓") && !off.plain.includes("bell ✗"),
     "状态列不再有 bell 单符号项: " + off.plain,
@@ -3363,6 +3363,35 @@ test("本地 slash 分级：/help 内容 info 蓝、无效命令 error 红", () 
   assert.ok(
     badLine!.includes("\x1b[38;2;253;0;19m"),
     "无效命令按 error 红着色",
+  );
+});
+
+test("帮助文案：/help 说明统一中文（命令名与参数标识符保留英文）", () => {
+  const { app, renderer } = makeApp();
+  typeAndEnter(renderer, "/help");
+  const st = (): { buffer: { text: string }[] } =>
+    (app as unknown as { state: { buffer: { text: string }[] } }).state;
+  const text = st()
+    .buffer.map((l) => l.text)
+    .join("\n");
+  assert.ok(text.includes("切换当前会话模型"), "/model 说明为中文");
+  assert.ok(!/switch current-session model/.test(text), "不留整句英文说明");
+  assert.ok(!/persisted/.test(text), "persisted 改写为中文");
+  assert.ok(!/success 提示/.test(text), "success 改写为中文");
+  // 可敲性：命令名与参数取值标识符保持英文
+  assert.ok(text.includes("/model [provider/]model"), "命令名保留原样");
+  assert.ok(text.includes("/verbose on|off"), "参数标识符保留英文");
+});
+
+test("提示区：Ctrl+S 键位文案为「切换状态列」", () => {
+  const { renderer } = makeApp();
+  renderer.size = { cols: 100, rows: 30 };
+  renderer.press({ name: "a", ctrl: false, meta: false, shift: false });
+  const hint = renderer.lastRender.find((l) => l.includes("[Ctrl+S]"));
+  assert.ok(hint, `提示区应含 Ctrl+S 键位: ${plainFrame(renderer)}`);
+  assert.ok(
+    hint!.includes("[Ctrl+S]切换状态列"),
+    `文案应说明为切换状态列: ${hint}`,
   );
 });
 
