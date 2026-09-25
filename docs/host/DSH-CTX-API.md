@@ -2,18 +2,19 @@
 
 > 职责：dsh-base 的 cordis ctx 接口研读笔记（跨插件契约；本目录 `docs/host/` 收全部宿主官方接口研读与升级文档，不限 dsh-base）
 > 不负责：包清单与升级记录（见同目录另两份）
-> 过期条件：契约变化时复核（只读参考，勿改动）
+> 过期条件：契约变化时复核（只读参考；升宿主后按升级对照复核更新）
 
-> 来源：官方 `deepseek-harness` clone（`~/GithubRepos/deepseek-harness`），研读基线 `dsh-v0.1.5-rc.3` = commit `a4c74a91e0`；**0.1.7-rc.2 的接口差异另见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`**（本文件尚未按 rc.2 整体复读）。
+> 来源：官方 `deepseek-harness` clone（`~/GithubRepos/deepseek-harness`），当前研读基线 `dsh-v0.1.7-rc.2` = commit `477b4f42`（2026-09-25 逐条复核；旧基线 `dsh-v0.1.5-rc.3` = commit `a4c74a91e0`，两版接口差异与判定见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`）。
 > 用途：供 dsh-toolset 各插件（TUI、herdr-integration、knowledge-base、task-engine）在与 DSH 宿主集成时对齐契约；本文件为研读沉淀，只读参考，非实现。
-> 版本口径：以 `dsh-v0.1.5-rc.3` 为准。源码若演进，以仓库为准。
+> 版本口径：以 `dsh-v0.1.7-rc.2` 为准。源码若演进，以仓库为准。
+> 复核范围：正文宿主事实已按 rc.2 逐条核对；§6 的 TUI 实现建议与 §8 表的 TUI 列属本仓内部契约，不在宿主核对范围内。
 
 ## 0. 运行时总览
 
 - DSH 进程内宿主 = vendored `@deepseek-ai/cordis`：`Context` + `Service` + `Fiber` + `EventsService`。
 - 插件（bundle）约定：`export { name, inject, Config, apply(ctx, config) }`，无 default export。
 - 装配：`cordis.yml`（顶层 YAML 数组，`!!js` 可用做环境变量插值）；`dsh plugin --profile <p> add <pkg>` 经 bundle patch 自动挂载。
-- **配置树机制**：`package.json` 的 `dsh.configTrees` 声明配置树挂载（如 `{ mount: "config/agent-presets", path: "../../packages/preset/agent-presets/presets", scanRoster: true }`）——agent-presets 由配置树扫描供给，不随插件内置 `config/` 目录。
+- **配置树机制（rc.2 起退役）**：`dsh.configTrees` 原为 CLI 在 `package.json` 声明 agent preset 目录树的字段，现仅由镜像打包器 `webworker-packer` 内部持有（不属公共 manifest API）；agent preset 改由 `agent-preset-registry`（`config.default` 必填）加若干 `@deepseek-ai/dsh-agent-preset` 声明行（`config.id` / `plugins`）在 profile YAML 供给，目录 roster 机制连同 `packages/preset/agent-presets` 整包删除。
 - SDK/外部桥是官方推荐的"进程外"对接面（JSON-RPC over stdio），进程内则直接 `apply(ctx)` + `ctx.on`。
 
 ## 1. 会话核心 `@deepseek-ai/dsh-session`（`packages/core/session`）
@@ -25,6 +26,7 @@
 - `get(id): Session | undefined` / `list()`
 - `flush(session): Promise<boolean>` —— 持久化屏障（await 全部监听者）
 - `fork(source, boundary?, childSessionId?): Session`
+- `registerMessageProjection(projection: SessionMessageProjection): () => Promise<void>` / `get messageProjections()` —— 注册某事件类型的**纯解释器**（该事件的模型可见消息投影），Session 在 append / restore / fork 前校验并缓存；同类型重复注册抛错，随 fiber 卸载回收（rc.2 新增）。
 - `CreateSessionOptions.meta` 支持 **`agentPreset?: string`**：会话级 agent 预设（持久化进 `SessionHeader.agentPreset`，决定该会话的工具与提示组合，保证 resume 时组合一致）。
 
 **context 事件（`ctx.on(...)`）**：`session/created` / `session/event` / `session/flush` / `session/disposed`。
@@ -32,7 +34,8 @@
 **Session 类**：
 
 - `append(type, data, opts?)` —— 追加事件
-- `events`（不可变快照）/ `seq`（逻辑序号）/ `firstLiveSeq`（构造来源前缀偏移）/ `header` / `deriveMessages()` / `surface`
+- `seq` —— **`get seq(): SessionLogOffset`**（= 日志长度，即下一事件序号；注意与事件自身的 `seq: SessionSeq` 不是同一类型）/ `firstLiveSeq`（构造来源前缀偏移）/ `header` / `deriveMessages()` / `surface`
+- **无公开 `events` 属性**（内部为私有 `eventsSnapshot` 缓存）；同步读 `eventAt` / `snapshotEvents` / `ownEvents` 自 rc.2 起标 `@deprecated`（禁止新调用，实现保留）。
 - `firstLiveSeq: SessionLogOffset`，与 `session/end-seed`（空载荷、位置+time 表义，定位最后一个）对应。
 
 **序号模型**：事件逻辑序号 `SessionSeq` 与日志偏移 `SessionLogOffset` 分离。会话事件内 `seq: SessionSeq`（会话内单调）；持久化偏移为 `SessionLogOffset`（=事件数，可含 gap/prefix/read offset）。两者均为品牌数字类型。
@@ -50,16 +53,17 @@ type SessionEvent = {
 ```
 
 - **`ignorable?: true` 兼容机制**：写方只在纯信息记录上置 true；缺省=必需——读取方遇到不认识且未标记可忽略的类型**必须拒绝重建**（防止静默丢失语义）。这是词汇增长的不依赖注册表的兼容机制。
-- surface 语义：`SurfaceOp = 'append' | { op: 'replace', start: SessionSeq, end: SessionSeq }`；`sourceEventSeqs` 引用来源事件（如 `assistant/attempt` seqs；`assistant/message` 可用空数组表已知空流）。
+- surface 语义：`SurfaceOp = 'append' | { op: 'replace', startSeq: SessionSeq, endSeq: SessionSeq }`（首尾**均含**；`startSeq === endSeq` 为单节点替换；字段名是 `startSeq`/`endSeq`，非 `start`/`end`）；`sourceEventSeqs` 引用来源事件（如 `assistant/attempt` seqs；`assistant/message` 可用空数组表已知空流）。
 
-**事件词汇表**（`KNOWN_SESSION_EVENT_TYPES`，`packages/core/session/src/known-event-types.ts`，generated；当前 53 项）：
+**事件词汇表**（`KNOWN_SESSION_EVENT_TYPES`，`packages/core/session/src/known-event-types.ts`，generated；rc.2 当前 **59 项**，旧基线 0.1.5-rc.3 为 56 项）：
 
 - **流式事件**：`assistant/attempt`（载荷 `{turn, step, stream: AssistantStreamRecord[]}`，流记录数组；早期 `assistant/chunk` 仅存于 v0 迁移器历史类型）。
 - **工具派发**：`tool/ptc-dispatch` / `tool/ptc-dispatch-start`（PTC；早期 `tool/code-dispatch*` 更名）。
+- **rc.2 新增（3 项）**：`developer/message`（agent-loop 在工具注册表增删时写入的 developer-role 公告消息，载荷含 `headerSeq`）、`image/offload`（compaction-image-offload 的图片卸载决策，载荷 `{ targets: [{ seq, imageIndexes }] }`）、`workspace/changes`（deliverables 的每轮 git 快照差公告，载荷 `{ turn }`，摘要由宿主按 seq 提供）；同文件另导出 `MESSAGE_PROJECTION_EVENT_TYPES`（模型可见效果需显式纯解释器的事件类型，当前仅 `'image/offload'`）。
 - **其余主要事件**：`assistant/message`、`turn/start` / `turn/end`、`agent/status`（agent 层，不在会话词汇表）、`goal/change`、`todo/write`、`plan/mode`、`sandbox/mode`、`permission/preset`、`step/start` / `step/end`、`subagent/descriptor`、`subagent/catalog`、`subagent/model-selection-policy`、`compaction/summary` / `compaction/prune`、`model/selection`、`session-log-deepseek/delivery-accepted`、`deliverables/presented`、`feedback/record` / `feedback/message-delete` / `feedback/message-put`、`system/message`（system role 消息，requireOpenStep）、`agent-preset/selected`、`llm/retry` / `llm/retry-started`、`tool-workflow/*`、`command/run` / `command/done`、`hook/*`、`schedule/change`、`approval/policy`、`approval/asked` / `approval/decided`、`agent/inbox/spliced`、`team/*`（实验包）、`session/end-seed`、`session/title-llm-request`、`request/header` / `request/context`、`web/deepseek-search-llm-request`。
 - `agent-preset/selected`（连字符）为正确事件名，载荷 `{ agentPreset: string }`。
-- 事件载荷要点：`assistant/message.interrupted?: true`（取消流中途已交付文本/reasoning 前缀标记）；`tool/result.meta?: JsonValue`（工具私有展示载荷，JSON-serializable，`Session.append` 运行时校验）；`turn/end` reason：`completed | aborted{reason} | blocked | error{error} | max-tokens | interrupted`；`compaction/summary` 含 `shadowedRange{start, end: SessionSeq}`、`shadowedSeqs[]`、`shadowedTokenCount`、`sourceCommandId?`。
-- `SESSION_FORMAT_VERSION = 3`：resume 历史经 v0→v1→v2→v3 迁移器后方可读。
+- 事件载荷要点：`assistant/message.interrupted?: true`（取消流中途已交付文本/reasoning 前缀标记）；`tool/result.meta?: JsonValue`（工具私有展示载荷，JSON-serializable，`Session.append` 运行时校验）；`turn/end` reason：`completed | aborted{reason} | blocked | error{error} | max-tokens | interrupted | forked`（`forked` 为 rc.2 新增，仅 fork seed 关闭源会话未闭合 turn 时携带）；`compaction/summary` 含 `shadowedRange{start, end: SessionSeq}`、`shadowedSeqs[]`、`shadowedTokenCount`、`sourceCommandId?`。
+- `SESSION_FORMAT_VERSION = 4`（rc.2 起；0.1.5-rc.3 为 3）：resume 历史经 v0→v1→v2→v3→v4 迁移器后方可读；读打开只在**内存**转换（不写盘），写打开才在旧文件旁发布 V4 successor（不改写前代）。
 
 ## 2. 流式契约 `StreamChunk`（`packages/llm/llm/src/types.ts`）
 
@@ -72,9 +76,9 @@ usage{usage} / finish{reason, replayState?}
 - 7 变体；对应会话事件为 `assistant/attempt`（`stream: AssistantStreamRecord[]`）。
 - ContentBlock **含 `FileBlock`**（`type: 'file'`，`attachment: FileAttachmentRef`）：文件以确定性句柄文本投递（名称/字节数/只读保存路径），持久化日志保留结构化引用。
 - `SystemPromptUpdate = 'in-history'` 与 `LlmCallConfig.systemPromptUpdate?`；`system` prompt 语义区分 one-shot（直接映射 system slot）与 loop-built（leading system-role message）。
-- **LLM 默认模型**：Chat Completions 默认 **DeepSeek V41 Flash**（V4 / V4 Flash Vision Exp 目录项并存）。
-- LLM 后端插件集：`llm-deepseek`、`llm-pi-ai`、`llm-replay`、`deepseek-llm-api-extensions`、`token-meter`；model discovery 复用 profile headers、provider headers 校验。
-- 消费端折叠范例参考 web client `PartialAccumulator`（`packages/client/runtime/src/client/sessions/partial.ts`）。
+- **LLM 默认模型**：`agent-default-model` 默认 `deepseek-flash`（DeepSeek-V41-Flash）；`llm-deepseek` 默认目录仅 `deepseek-flash` / `deepseek-v4-pro` 两项（旧 V4-Flash / V4-Flash-Vision-Exp 目录项已删除）；线协议由 0.1.5-rc.3 的 `/chat/completions` 改为 **Messages API**（`/messages`，附 files / images beta 头）。
+- LLM 后端插件集（`packages/llm/`）：`llm`、`llm-deepseek`、`llm-deepseek-account`（rc.2 新增）、`llm-deepseek-api-key`（rc.2 新增）、`llm-pi-ai`、`llm-retry`、`deepseek-llm-api-extensions`、`token-meter`、`plugin-package-inventory-deepseek`；`llm-replay` 已移出本目录（现 `packages/test-support/llm-replay`）；model discovery 复用 profile headers、provider headers 校验。
+- 消费端折叠范例参考 web client `PartialAccumulator`（`packages/client/ui-chat/src/client/conversation-nodes/partial.ts`）。
 
 ## 3. 审批 `@deepseek-ai/dsh-user-approval`（`packages/interaction/user-approval`）
 
@@ -83,7 +87,7 @@ usage{usage} / finish{reason, replayState?}
 - `ApprovalRequest = { agent, toolName, callId?, reason?, signal? }`；`id: ApprovalRequestId = randomUUID()`。
 - `ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'`（规范词汇；异常值统一 `unavailable`）。
 - 会话审计对：`approval/asked {id, toolName, callId?, reason?}` / `approval/decided {id, outcome}`（log-only）。
-- 策略：`ApprovalPolicy = 'ask' | 'never'`（`APPROVAL_POLICIES`）；`setApprovalPolicy(session, policy)` / `ctx.approval.setPolicy(agent, policy)`；`effectiveApprovalPolicy(events)` 折叠；`approval/policy` 会话事件。
+- 策略：`ApprovalPolicy = 'ask' | 'never'`（`APPROVAL_POLICIES`）；`setApprovalPolicy(session, policy)` / `ctx.approval.setPolicy(agent, policy)`；会话事件折叠由服务内部私有 `effectivePolicy(session)` 完成（**无公开的 `effectiveApprovalPolicy` 函数**）；`approval/policy` 会话事件。
 - **关键约束**：`approval.request()` 必须在 open turn 内（`turn/start` 未闭合前）——审计对必须 turn-enclosed（turn 间裸事件重载会成 crash-tail 垃圾），否则抛错。
 
 ## 4. Agent（`packages/core/agent` + `dsh-agent-loop`）
@@ -102,7 +106,7 @@ usage{usage} / finish{reason, replayState?}
 - JSON-RPC over stdio：stdout 全留给协议帧（**不得加载 stdout logger / approval UI / user-questions**）。
 - **Methods**：`initialize{provider, model, reasoningEffort?, maxTokens?, cwd?}`（readiness 界，await loader settle；校验 reasoningEffort 非空、maxTokens 正安全整数、provider 有注册 adapter）→ `session/prompt {sessionId, contentBlocks} → {messageId}`（sessionId 惰性创建、并发去重）→ `shutdown`（flushes、dispose 根、exit 0）。未知方法回 JSON-RPC error。
 - **Notifications**：`session.event {sessionId, event}`、`session.status {sessionId, idle|running}`、`subagent.started` / `subagent.finished`。
-- 参考实现 `examples/acp-agent/`、`examples/jsonrpc-agent/`、`examples/headless-agent/`。
+- 参考实现：根 `examples/` 目录已退役（0.1.5-rc.3 起即无此目录），对应入口为 `python/sdk/examples/`、`packages/acp`、`apps/cli`。
 
 ## 6. 对 dsh-toolset（特别是 TUI）插件的落点
 
@@ -111,19 +115,19 @@ usage{usage} / finish{reason, replayState?}
 - **未知事件处理**：TUI 只消费已知子集，词典外事件若 `ignorable` 缺省时「上游负责拒重建」，TUI 可安全忽略并旁路展示。
 - **tool/result.meta**：TUI tool 行可借用 `meta` 展示 `+N/-M` 类工具私有 diff。
 - **assistant/message.interrupted**：TUI 流式区对取消流中途前缀做中断标记展示。
-- **agent-preset/selected {agentPreset}**：per-session 预设选择事件；TUI preset 目录/当前值数据源（`agentPresetCatalog`）对应 `agent-preset/selected` 与 preset 配置树。
+- **agent-preset/selected {agentPreset}**：per-session 预设选择事件；TUI preset 目录/当前值数据源（`agentPresetCatalog`）对应 `agent-preset/selected` 与 `agent-preset-registry`（preset 配置树已随目录 roster 机制删除，改 profile YAML 的声明行）。
 - Mode 块载荷：`plan/mode {active}`、`sandbox/mode {mode, source?}`、`permission/preset {preset}`。
 - 状态标注：`session.status`(idle/running) 与 `agent/status` 用于 header。
 - **流式归一化**：消费 `assistant/attempt` 的 stream 数组；工具派发匹配 `tool/ptc-dispatch*`。`assistant/message` / `turn/start` / `turn/end` / `agent/status` 不变。
 - **FileBlock**：消息渲染按块类型分发时需覆盖 `type:'file'` 块。
 - **模型切换 notice**：0.1.5 起切模型注入 user-role notice 消息块，消息列表/流式区需容忍展示；当前模型经 `session.requestHeader()` 读取。
-- **format v3**：resume 历史经 v0→v1→v2→v3 迁移后方可读；TUI 只展示不重建。
+- **format v4**：resume 历史经 v0→…→v4 迁移后方可读（读内存转换、写发布 successor）；TUI 只展示不重建。
 
 ## 7. 验证口径
 
 - 词汇表：`grep -r "KNOWN_SESSION_EVENT_TYPES" packages/core/session/src/known-event-types.ts`（绝对数以 generated 文件为准）。
 - 审批：`grep "approval/request" packages/interaction/user-approval/src`。
-- 格式版本：`SESSION_FORMAT_VERSION`（`packages/core/session/src/types.ts`，当前 3；含 v0→v1→v2→v3 迁移器）。
+- 格式版本：`SESSION_FORMAT_VERSION`（`packages/core/session/src/types.ts`，当前 4；迁移器 `packages/session/session-format-v3-to-v4`，v0–v2 链式升级）。
 - seq/offset 品牌：`SessionSeq` / `SessionLogOffset`（同文件）。
 
 ## 8. 事件载荷与 TUI 映射
@@ -141,4 +145,4 @@ usage{usage} / finish{reason, replayState?}
 | `agent-preset/selected` | `{agentPreset: string}`，服务层另以 `ctx.emit('agent-preset/selected', sessionId, preset)` 转播 | `agent-preset {preset}` | `presetBySession` |
 
 - seq 守卫：adapter 按 sessionId 记 lastSeq（`SessionSeq`），`event.seq <= lastSeq` 丢弃；非当前活跃会话沿用丢弃。
-- 事件词汇表来源：`packages/core/session/src/known-event-types.ts`（当前 53 项）。
+- 事件词汇表来源：`packages/core/session/src/known-event-types.ts`（当前 59 项；同文件含 `MESSAGE_PROJECTION_EVENT_TYPES`）。

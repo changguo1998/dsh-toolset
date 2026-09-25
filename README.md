@@ -2,7 +2,7 @@
 
 DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方式挂载进 DSH 会话进程的一组 TypeScript 插件，补齐任务树、知识库与记忆、目标契约、指标循环等能力；另含一套自研终端 UI（TUI），是 Web UI / CLI 之外的第三种交互方式。
 
-面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `docs/host/DSH-CTX-API.md`（只读，版本口径 `dsh-v0.1.5-rc.3`）。
+面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `docs/host/DSH-CTX-API.md`（只读参考，已按当前宿主 `dsh-v0.1.7-rc.2` 逐条复核；两版接口差异见升级对照文档）。
 
 ## 组成
 
