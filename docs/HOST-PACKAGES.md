@@ -4,6 +4,7 @@
 > 用途：与 `DSH-CTX-API.md` 配套——该文件记「接口怎么用」，本文件记「有哪些包、每个包提供什么服务」；供 dsh-toolset 各插件选型与集成对齐。
 > 版本口径：只记 `0.1.5-rc.3` 实际随包分发的内容；服务名与描述由安装目录实测提取（见文末复现命令）。宿主升级后需重新生成。
 > rc.2 → rc.3 只有发布改动（版本号 + vendor 家族依赖由 `workspace:^` 改为 `workspace:*` 精确钉版），随包分发的 240 个包、描述、服务名与 fff 挂载集合均逐项实测一致，故清单内容未变。
+> 升级提示（2026-09-25 核对官方 `master` `477b4f4205` = `dsh-v0.1.7-rc.2`）：preset 机制已重写——目录式 roster（`agent-presets`）删除，改为 profile YAML 里的 `agent-preset-registry` + `@deepseek-ai/dsh-agent-preset` 声明；「TUI 不使用 preset、走 profile 全局组合」的结论不变（见 `AGENT-COMPOSITION.md`）。升级后本文件需重新生成。
 
 ## 0. 怎么读这份清单
 
@@ -11,6 +12,7 @@
 - **`（ctx.x）` 表示该包注册了这个 host 服务**，是我们插件 `inject` 的对象；没有的包是工具/后端/客户端资产，通过别的服务被消费。
 - **`已挂载`** 指 `fff` profile（`dsh-base` bundle）启动时会加载它；未标记的包虽已随 dsh 安装、但该 profile 不加载。
 - **`树外加装`** 指该包未随 dsh 分发，由 `fff` profile 自行安装（`dsh plugin add`，落到 profile 的 `node_modules`）并在其 `cordis.patch.yml` 用 `- insert:` 挂载；当前仅 `session-title-all-prompts-llm` 属此类（不随装、按需启用）。
+- **`agent-presets` 未挂载是设计结果，不是缺配置**：官方只让 Web 面（`web-app` bundle）禁用 base 的 agent 面行并挂 preset registry，TUI 这类单组合面保持 base 的进程级 agent 组合（`packages/bundle/web-app/cordis.patch.yml` 的 "composes its agent process-wide" 注释、`packages/client/ui-user-questions/README.md` 的 "the TUI composition, which has no presets"）。依据、验证与版本断层见 `AGENT-COMPOSITION.md`；要改 agent 面请落 profile 用户 patch。
 - 包名省略 `@deepseek-ai/dsh-` 前缀与作用域（`cordis-*` 来自 vendored cordis）。
 
 ## 1. 现成可用（fff 已挂载，82 个）
@@ -29,7 +31,7 @@ agent agent-default-model agent-instructions agent-loop api-gateway attachment-l
 - `agent-default-model`（`ctx.agentDefaultModel`，已挂载） — `ctx.agentDefaultModel`：各 agent 入口共享的默认模型选择（currentSelection/saveSelection）
 - `agent-instructions`（已挂载） — 工作区上下文加载器：读取 AGENTS.md / CLAUDE.md 指令文件注入提示
 - `agent-loop`（`ctx.agentLoop`，已挂载） — `ctx.agentLoop`：具体的 agent 回合驱动（create/createAgent/resume）；`create(id, options, meta?: Pick<SessionHeader,'cwd'>)` 直吃 cwd
-- `agent-presets`（`ctx.agentPresets`） — `ctx.agentPresets`：按预设 cordis.yml 做会话级 agent 组合（list/resolve/composeFrom/select/mount）
+- `agent-presets`（`ctx.agentPresets`） — `ctx.agentPresets`：按预设 cordis.yml 做会话级 agent 组合（list/resolve/composeFrom/select/mount）；本 profile 不挂载（TUI 不走 preset，见 §0），且该目录式机制自 0.1.7-alpha.1 起被 `agent-preset-registry` + `agent-preset` 的声明式取代
 - `agent-tool-presentation` — agent 面工具呈现选择器：把一个 agent 的工具组合成 PTC / native / 两者（presentAs）
 - `goal`（`ctx.goals`，已挂载） — `ctx.goals`：同会话目标状态与生命周期（create/edit/pause/resume/complete/block/clear），事件源
 - `goal-round-driver`（已挂载） — 目标轮次驱动：带竞态护栏的自主续跑（一轮一拍）

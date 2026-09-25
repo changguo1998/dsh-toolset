@@ -60,10 +60,16 @@
 
 来自 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3 的仍缺关键面，暂不单独立项，作为后续可选项：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、记忆 auto-consolidation（已有两级写回与淘汰提升，语义接近）、MCP 脚本化（mcpScript）、活动工具交互管理、会话事件自动入知识库。
 
+### 2.7 配置与部署（P2）
+
+| # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
+|---|------|------|------------------|--------|
+| 37 | preset 机制对齐（清理已完成，余迁移评估）：本项目只用 TUI，agent 面由 profile 全局组合提供，preset 配置已于 2026-09-25 从 `Projects/dsh-toolset`、`~/.dsh`、`~/fff/config/dsh` 清除（记录见 `AGENT-COMPOSITION.md` §5）。**剩余**：宿主升级到 0.1.7+ 时，若确需「同一 TUI 进程内不同会话用不同组合」，按官方声明式自建——挂 `agent-preset-registry`、以 `@deepseek-ai/dsh-agent-preset` 行声明组合、并像 `web-app` 那样禁用 base 的 agent 面行（切换只对空白会话生效）；不需要则本项直接关闭 | 官方仓库核对 2026-09-25（`master` `477b4f4205` = `dsh-v0.1.7-rc.2`；preset 重写 commit `d1e22a7e24`，TUI 包移除 commit `10bb9cbf4a`） | 现状：profile 用户 patch；若要 preset：`agent-preset-registry` + `agent-preset` | P2 |
+
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
-1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#25、#26、#28-#32，按需排期；#34 已完成；#35 已取消。
+1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#25、#26、#28-#32、#37，按需排期；#34 已完成；#35 已取消。
 1. 依赖：#17 的模板族与 #32 可共用 workflow/skill 资产；workflow-ext 建包前，工作流相关插件面依赖 task-engine 的契约与执行器；其余相互独立。
 
 ## 4. 插件规划（未建包）

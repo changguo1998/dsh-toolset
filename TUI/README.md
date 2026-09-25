@@ -239,7 +239,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 | `/provider`、`/effort`（`/thinking`） | 打开同一模型选择面板并预置焦点列；带参只提示用法 |
 | `/policy [ask\|never]` | 审批策略：无参打开状态选项面板，带参直接设置（写宿主 `approval.setPolicy`） |
 | `/permission [预设名]` | 权限预设（sandbox mode + 审批策略捆绑）：无参打开面板，带参转发宿主命令 |
-| `/preset [预设名]` | agent 预设：无参打开面板，带参经 `selectAgentPreset`（宿主 `recompose` 写路径）切换 |
+| `/preset [预设名]` | agent 预设：无参打开面板，带参经 `selectAgentPreset`（宿主 `recompose` 写路径）切换。本 TUI 按官方设计走 profile 全局组合、不挂 preset roster，故该命令提示「agent 预设服务不可用」属正常（见 `../docs/AGENT-COMPOSITION.md`） |
 | `/goal [<目标>\|edit <目标>\|pause\|resume\|clear]` | 无参：提示 goal / todo / jobs 详情常驻左侧状态列（不再打开面板）；带参：转发宿主 `dsh-command-goal` 管理当前会话 goal（`/goal <目标>` 新建、`edit`/`pause`/`resume`/`clear` 改／暂停／恢复／清除） |
 | `/stats`（`/usage` `/context`） | 最近一次模型调用的 token 用量：分解（输入/输出/缓存读）、上下文占用、缓存命中率 |
 | `/session` | 会话面板：列出持久化会话，Enter 切换（`agents.resume` 恢复后继续对话，并回填该会话的模型 / 模式与策略（plan、sandbox、审批策略）/ goal / todo / `verbose`、`symbol-unify` 开关 / 状态列显隐）；`Tab` 切换范围（当前目录 / 全部）、`Space` 批量标记（`a` 全选当前范围、`c` 清空）、`d`/Delete 删除（有标记=批量删除全部标记，无标记=删当前高亮）、`x` 清理空会话、`/session clean` 直达清理确认 |

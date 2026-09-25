@@ -224,7 +224,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 - **恢复会话按 step 概要（P9）**：恢复不还原逐条工具行，而是折叠事件——每个**含工具调用**的 step 折成一行 `╌╌ hh:mm:ss #N ╌╌ 工具名[×次数], …[ ✗失败数] ╌╌╌…`（buffer `kind = "step"`，由 `surfaceToBuffer` 注入、`build-box` 按同一形制品渲染），无工具调用的 step 不出行；参数摘要 / 结果详情 / thinking 不还原；整条空文本不再产出空行。
 - **compaction/summary**：只取首个非空文本块首行入 toast（空摘要 → 「压缩完成（无摘要）」）。
 - **后台任务 `/jobs`**：宿主 `JobRegistry.onJobsChanged` 推送全量快照；`list(caller)` / `kill(id, caller)` 为 owner-relative，故一律显式传 `{ id: activeSessionId }`；App 事件层再按活跃 sessionId 过滤一道（防迟到事件与切会话串味）。仅只读展示 + cancel，不做 job 创建 / 参数 UI。
-- **装配证据**：rc.2 bundle 默认装配含 command-compact / command-feedback / jobs-local / permission-presets / tool-jobs；**`agent-presets` 不在默认装配**——装配了该服务的环境 `/preset` 可用，未装配时提示「agent 预设服务不可用」（fail-safe 正常路径）。
+- **装配证据**：rc.2 bundle 默认装配含 command-compact / command-feedback / jobs-local / permission-presets / tool-jobs；**`agent-presets` 不在默认装配**——装配了该服务的环境 `/preset` 可用，未装配时提示「agent 预设服务不可用」（fail-safe 正常路径）。**这是官方设计而非缺配置**：TUI 是"没有 preset 的单组合面"（官方 `packages/client/ui-user-questions/README.md` 的 "the TUI composition, which has no presets"、`packages/bundle/web-app/cordis.patch.yml` 的 "composes its agent process-wide"），agent 面由 profile 的 `dsh-base` 行全局装配，改组合落 profile 用户 patch，本项目不为 TUI 挂 preset roster（依据与版本断层见 `../docs/AGENT-COMPOSITION.md`）。
 
 #### seq 守卫
 

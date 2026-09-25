@@ -2,7 +2,7 @@
 
 随仓库分发的 DSH **profile 配置示例**：`example/` 是可直接复制的 profile 三件套骨架，演示本项目插件如何挂进 profile，以及用户层如何覆盖宿主 / 插件配置（含权限预设表）。
 
-与 `presets/` 的分工：`presets/` 是 **agent preset**（会话内 agent 面组合，装到 `~/.dsh/.agent-presets/`）；本目录是 **profile**（进程装配与插件挂载层，装到 `~/.dsh/profiles/`）。两者正交，说明见根 `README.md`「接入 DSH profile 使用」。
+本目录是 **profile**（进程装配与插件挂载层，装到 `~/.dsh/profiles/`）：本项目只用 TUI，agent 面就由这里的 profile 全局组合提供，**不使用 agent preset**（说明与依据见 `../docs/AGENT-COMPOSITION.md`）。
 
 ## 内容
 
@@ -14,18 +14,17 @@
 
 ## 用法
 
-一键安装（推荐，含 dsh、全部插件构建、profile 挂载与 agent preset）：
+一键安装（推荐，含 dsh、全部插件构建与 profile 挂载）：
 
 ```sh
-scripts/install.sh                 # profile 与 preset 名默认都是 fff
+scripts/install.sh                 # profile 名默认 fff
 scripts/install.sh --profile dev   # 换 profile 名；--plugins 可只选哪些插件
-scripts/install.sh --preset-link   # preset 改软链接到仓库资产（默认是复制，不依赖仓库路径）
 scripts/install.sh --help          # 全部选项
 ```
 
 profile 侧脚本写下的都是**副本**（`package.json` / `cordis.patch.yml` / `pnpm-workspace.yaml`），只有 `package.json` 的 `link:` 依赖指向仓库里的插件包（插件代码，本地开发期靠它实时生效）；想让插件也不依赖仓库路径，用 `dsh plugin --profile <p> add <包名或 tarball>` 换成快照式安装。
 
-手工复制（等价于脚本第 4 步，不含 preset）：
+手工复制（等价于脚本的 profile 步骤）：
 
 ```sh
 # 1) 复制示例到宿主 profile 目录（目录名 = `dsh --profile <名字>` 的名字）

@@ -43,10 +43,9 @@ dsh-toolset/
 ├── security-guard/       # 危险命令与敏感文件防护
 ├── code-map/             # 代码结构地图（符号/import 图、查询与报告）
 ├── context-report/       # 会话上下文/用量报告（sessionContext 投影 + context_report 工具）
-├── presets/              # agent preset 资产（example：官方 standard 组合克隆，安装名由脚本给；见 presets/README.md）
 ├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
 ├── scripts/              # install.sh（新机器一键安装）；测试调度脚本
-├── docs/                 # 状态表、待办清单、架构对照与宿主包清单
+├── docs/                 # 状态表、待办清单、agent 面组合说明、架构对照与宿主包清单
 ├── archive/              # 已归档：完成的任务清单与历史调研记录
 ├── AGENTS.md             # 面向 agent 的协作规范（语言/命令/格式化/构建部署/变更流程）
 ├── DSH-CTX-API.md        # 跨插件共享研读笔记（只读）
@@ -70,15 +69,15 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 
 ## 接入 DSH profile 使用
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 13 个包 → 装 agent preset → 设默认 preset）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 13 个包）：
 
 ```sh
 git clone <本仓库> && cd dsh-toolset
-scripts/install.sh                 # profile 与 preset 名默认都是 fff
-scripts/install.sh --help          # --profile/--preset/--plugins/--dsh-version/--preset-link/--force/--dry-run
+scripts/install.sh                 # profile 名默认 fff
+scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/--dry-run
 ```
 
-脚本幂等：已存在的 profile / preset 文件默认保留，`--force` 才覆盖且先备份；只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。preset 默认**复制**仓库资产（装好后本机配置不依赖仓库路径），`--preset-link` 改回软链接模式。
+脚本幂等：已存在的 profile 配置文件默认保留，`--force` 才覆盖且先备份；只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。
 
 手工配置时各插件以 cordis bundle 方式挂载到 DSH profile。示例（`~/.dsh/profiles/fff`，详见 `TUI/README.md`）：
 
@@ -94,15 +93,16 @@ scripts/install.sh --help          # --profile/--preset/--plugins/--dsh-version/
 
 仓库内 `profiles/example/` 是可直接复制的 profile 三件套示例（清单 + 用户层 patch + pnpm 配置），演示 `- id:` 覆盖与 `- insert:` 新增两种方言、`!!js` 表达式，以及权限预设表覆盖（自定义沙箱 + 审批捆绑预设）；部署步骤与边界见 `profiles/README.md`。
 
-### agent preset（会话 agent 组合）
+### agent 面组合（不使用 preset）
 
-`presets/` 随仓库分发 agent preset 资产（`presets/example/` = 官方 `standard` 组合克隆，与本项目插件正交叠加：插件工具由 profile 全局注册，preset 只承载官方 agent 面）。**资产目录名固定为 `example`，安装后的 preset id = 安装目录名**（`scripts/install.sh --preset <名字>` 默认 `fff`）。安装形态两种：复制两份文件（默认，本机配置不依赖仓库路径）或软链接（`--preset-link`，仓库改动即时生效）；手工步骤与取舍见 `presets/README.md`。
+本项目只用 TUI，agent 面由 profile 的全局组合提供（`dsh-base` + 本项目 bundles + `cordis.patch.yml`），**不配置也不加载 agent preset**：官方设计里 TUI 是"没有 preset 的单组合面"，`/preset` 提示「agent 预设服务不可用」属正常。要改工具 / 提示 / 人格请落 profile 用户 patch；需要多套组合用多个 profile。官方依据、本机验证与 0.1.7 版本断层见 `docs/AGENT-COMPOSITION.md`。
 
 ## 文档
 
 - `AGENTS.md` — 面向 agent：语言约定、命令、格式化、构建部署到 profile、变更流程、结构约定、Git 规范。
 - `docs/DEVELOPMENT-STATUS.md` — 插件开发状态追踪表（状态的唯一来源）。
 - `docs/DEVELOPMENT-BACKLOG.md` — 未完成功能清单（P0/P1/P2）与里程碑。
+- `docs/AGENT-COMPOSITION.md` — agent 面组合现状：TUI 走 profile 全局组合、不用 preset（官方依据 + 本机验证 + 0.1.7 版本断层）。
 - `TUI/DESIGN.md`、`TUI/SPEC.md`、`TUI/IMPLEMENTATION.md`、`TUI/COMMANDS.md`、`TUI/COMMANDS-SPEC.md` — TUI 设计、渲染规格、实现记录、命令面与命令扩展规格。
 - `docs/AGENT-ARCHITECTURE-ANALOGY.md` — agent 架构与 DSH 接口对照（任务树、知识库插件的设计依据）。
 - `docs/HOST-PACKAGES.md` — 宿主官方包清单（`dsh 0.1.5-rc.3` 的 240 个包，分类 + 关键包说明 + fff 挂载清单；宿主升级后需刷新）。
