@@ -1,6 +1,6 @@
 # 布局与渲染管线三条待办（BACKLOG: TUI#3.1.1, TUI#3.1.2, TUI#3.1.3）
 
-状态：决策　　开启：2026-09-26　　关闭：—
+状态：实现　　开启：2026-09-26　　关闭：—
 接取条目：`TUI/docs/BACKLOG.md` §3.1 的 **3.1.1 / 3.1.2 / 3.1.3**（来源：用户 2026-09-26 反馈）
 不接取：**3.1.4（排版性能）**——用户 2026-09-26 裁定「退回不要接取」（原 TUI §3 开放项，非本任务范围；BACKLOG 中已去掉「进行中」）
 本文件是本任务**唯一**的过程记录与文档变更落点；计划外的文件不改。
@@ -124,11 +124,30 @@
 
 ## 实现记录
 
-（按时间追加，含关键命令与结果。）
+### 步骤 1：3.1.3 光标通道（2026-09-26，实现 + 单测通过）
+
+改动（均在计划清单内）：
+
+1. `src/renderer/screen.ts`：新增 `FrameFocus`（`inputFocus` + 可选 `caret`，帧内 1 基行号 / 0 基列）；`render` / `renderRanges` 加可选 `focus`，`renderRange` / `renderDelta` 透传；末尾光标收尾改为 `pushCursorTail(out, batchCaret, focus)`——未传 focus 沿用旧行为（有 caret 才定位，否则 SHOW）；`inputFocus && caret` 定位并 SHOW；其余不定位不 SHOW（沿用报文开头的 `CURSOR_HIDE`）。`reset()` 不变（异常退出保底 SHOW）。
+1. `src/renderer/index.ts`：`Renderer.render` / `refresh` 加第三参 `focus` 并透传给 `screen.renderRanges` / `screen.render`；`FrameFocus` re-export（并 import 到本地作用域供接口使用）。
+1. `src/app/layout.ts`：`FrameBuildOutput.focus` 回填 + 新增 `frameFocus(rows, inputFocus)`（扫描帧内 caret 行得 1 基行号）；`buildFrame` 末尾 `out.focus = frameFocus(rows, !modalOpen)`。
+1. `src/app/index.ts`：三处渲染调用（`paintExitNotice`、`refresh`（Ctrl+L）、`renderFrame`）改为 `render|refresh(frame, out.sections, out.focus)`。
+1. 测试：新增 `tests/focus-cursor.test.ts`（5 例）；`tests/screen.test.ts` 的 `capture` 加可选 `focus` 形参并补 3 例。
+
+命令与结果：
+
+- `npm run check`：通过（无输出错误）。
+- `node --experimental-transform-types --test --test-force-exit tests/focus-cursor.test.ts`：5/5 通过。
+- 同上跑 `tests/screen.test.ts tests/renderer.test.ts tests/renderer-diff.test.ts`：24/24 通过（含全部旧断言）。
+- 同上跑 `tests/focus-frame.test.ts tests/frame-contract.test.ts tests/layout.test.ts tests/layout4.test.ts`：146/146 通过。
+- 同上跑 `tests/app.test.ts`：157/157 通过。
+- `npm run demo -- --smoke`（仓库根）：`SMOKE_PASS ...` / `SMOKE_OK sent=[...] interrupts=1`，exit=0。
+- 备注：`npm run test:tui -- <文件>` 在本机包装脚本下未按单文件跑通（报 `Could not find '<file>'`，整包运行超时后转后台），故改用直接 `node --test` 跑单文件；整包 `npm run test:tui` 留到收尾统一跑一次。
+- 待办（用户执行）：真机 `dsh --profile fff` 看三项——面板态无光标、思考中排队输入时光标停在输入框、`Ctrl+L` 后光标仍在输入框；`kill -INT` 后终端光标可见。
 
 ## 测试与证据
 
-（关闭前补齐：`npm run check` / `npm run test:tui` / `npm run demo -- --smoke` 输出，真机 `dsh --profile fff` 现象，残留检查。3.1.3 另需：`kill -INT` 中断后终端光标可见（`reset()` 保底 `CURSOR_SHOW`，用户裁定 5）。）
+（3.1.3 的测试与命令结果见「实现记录」步骤 1；待补：`npm run test:tui` 整包、真机 `dsh --profile fff` 现象与 `kill -INT` 验证；3.1.2 / 3.1.1 完成后一并补齐。）
 
 ## 收尾
 

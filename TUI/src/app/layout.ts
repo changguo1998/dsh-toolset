@@ -10,7 +10,7 @@
 // markdown 子集渲染（行内/块级）与宽度原语见 ./layout/markdown.ts；本文件保留
 // 换行/视口/帧组装，并重导 charWidth/displayWidth/parseInlineMarkdown/wrapInlineMarkdown。
 
-import type { FrameRow, FrameSegment } from "../renderer/index.ts";
+import type { FrameFocus, FrameRow, FrameSegment } from "../renderer/index.ts";
 import type { FrameSection, Size } from "../renderer/index.ts";
 import type {
   AppState,
@@ -2481,6 +2481,8 @@ export function frameSections(geom: FrameGeometry): FrameSection[] {
 export interface FrameBuildOutput {
   /** 帧段表（行带范围；渲染层区间重写用，见 frameSections） */
   sections?: FrameSection[];
+  /** 输入焦点信息（3.1.3）：App 原样转发给 renderer，决定重写结束后光标收尾 */
+  focus?: FrameFocus;
 }
 
 export function buildFrame(
@@ -2672,5 +2674,23 @@ export function buildFrame(
   );
   // 帧段表回填（几何已算定，零额外开销）：渲染层按段切分变化区间
   if (out) out.sections = frameSections(geom);
+  // 输入焦点回填（3.1.3）：渲染器据此决定「重写结束后是否把光标定位回输入位置」——
+  // 仅输入态（!modalOpen）允许显示光标；位置从帧内输入行直接取（唯一来源）
+  if (out) out.focus = frameFocus(rows, !modalOpen);
   return rows;
+}
+
+/**
+ * 从帧行提取输入焦点信息（3.1.3）：caret 只出现在底部输入行（见 renderTextInput），
+ * 扫描帧行取第一个带 caret 的行即为输入位置（**帧内 1 基行号 + 0 基列**）。
+ * 面板态 / 无输入行时只回 inputFocus，渲染器据此保持光标隐藏。
+ */
+export function frameFocus(rows: FrameRow[], inputFocus: boolean): FrameFocus {
+  for (let i = 0; i < rows.length; i++) {
+    const col = rows[i]?.caret;
+    if (col !== undefined) {
+      return { inputFocus, caret: { row: i + 1, col } };
+    }
+  }
+  return { inputFocus };
 }

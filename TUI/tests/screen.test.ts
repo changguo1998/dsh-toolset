@@ -8,7 +8,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Screen, type FrameRow } from "../src/renderer/screen.ts";
+import {
+  Screen,
+  type FrameFocus,
+  type FrameRow,
+} from "../src/renderer/screen.ts";
 import { rowText } from "./helpers/rowText.ts";
 
 function capture(
@@ -17,12 +21,13 @@ function capture(
   rows: number,
   startLine = 1,
   delta = false,
+  focus?: FrameFocus,
 ) {
   let out = "";
   const s = new Screen({ write: (x) => (out += x) });
   s.resize(cols, rows);
-  if (delta) s.renderDelta(startLine, lines);
-  else s.render(lines);
+  if (delta) s.renderDelta(startLine, lines, focus);
+  else s.render(lines, focus);
   return out;
 }
 
@@ -186,5 +191,36 @@ test("光标管理：报文渲染期隐藏、定位 caret 后显示；reset 兜�
   assert.ok(
     writes.join("").includes("\x1b[?25h"),
     "reset 兜底恢复光标显示（防异常收尾永久隐藏）",
+  );
+});
+
+test("3.1.3 带 focus：批次不含输入行也定位回输入位置并显示光标", () => {
+  const lines: FrameRow[] = [
+    { segments: [{ text: "activity" }] },
+    { segments: [{ text: "status" }] },
+  ];
+  const out = capture(lines, 40, 24, 1, false, {
+    inputFocus: true,
+    caret: { row: 2, col: 3 },
+  });
+  assert.ok(
+    out.endsWith("\x1b[2;4H\x1b[?25h\x1b[?2026l"),
+    "应定位到第 2 行第 4 列（0 基列 3）后显示光标",
+  );
+});
+
+test("3.1.3 带 focus(inputFocus=false)：不定位、不显示光标", () => {
+  const lines: FrameRow[] = [{ segments: [{ text: "panel" }] }];
+  const out = capture(lines, 40, 24, 1, false, { inputFocus: false });
+  assert.ok(!out.includes("\x1b[?25h"), "非输入态不得显示光标");
+  assert.ok(out.includes("\x1b[?25l"), "报文开头仍隐藏光标（重写期不跳动）");
+});
+
+test("3.1.3 未传 focus：沿用旧行为（无 caret 批次也保持可见）", () => {
+  const lines: FrameRow[] = [{ segments: [{ text: "plain" }] }];
+  const out = capture(lines, 40, 24);
+  assert.ok(
+    out.includes("\x1b[?25h"),
+    "未传 focus 时保持光标可见（兼容旧调用）",
   );
 });

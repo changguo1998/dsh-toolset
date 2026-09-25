@@ -5,6 +5,7 @@
 
 import {
   Screen,
+  type FrameFocus,
   type FrameRow,
   type FrameSection,
   type RenderInterval,
@@ -29,6 +30,7 @@ export type { FrameRow, KeyEvent };
 export type {
   FrameSegment,
   FrameStyle,
+  FrameFocus,
   FrameSection,
   FrameSectionId,
   RenderInterval,
@@ -36,10 +38,15 @@ export type {
 export type { Size };
 
 export interface Renderer {
-  /** 整帧重绘；render 内含变化行游程重写（sections 提供时先按帧段切分） */
-  render(rows: FrameRow[], sections?: FrameSection[]): void;
-  /** 强制整帧重绘（绕过 delta 优化，Ctrl+L 用） */
-  refresh(rows: FrameRow[], sections?: FrameSection[]): void;
+  /** 整帧重绘；内含变化行游程重写（sections 提供时先按帧段切分）。
+   *  focus（3.1.3）：输入焦点与位置，决定重写结束后光标是否定位回输入位置。 */
+  render(rows: FrameRow[], sections?: FrameSection[], focus?: FrameFocus): void;
+  /** 强制整帧重绘（绕过 delta 优化，Ctrl+L 用）；focus 语义同 render */
+  refresh(
+    rows: FrameRow[],
+    sections?: FrameSection[],
+    focus?: FrameFocus,
+  ): void;
   onKey(cb: (k: KeyEvent) => void): void;
   /** 合成按键注入（无 TTY / 测试 / 脚本驱动用；不经 stdin 解码） */
   emitKey(k: KeyEvent): void;
@@ -144,7 +151,11 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
   passToRenderSizes();
 
   const renderer: Renderer = {
-    render(rows: FrameRow[], sections?: FrameSection[]): void {
+    render(
+      rows: FrameRow[],
+      sections?: FrameSection[],
+      focus?: FrameFocus,
+    ): void {
       if (closed) return;
       // delta 优化：与上一帧逐行比较取变化行**游程**，只重写这些区间（帧中任意位置，
       // 不限帧尾——状态栏符号/流式末行增长都只重写对应行，不清屏）。
@@ -173,19 +184,23 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
           return;
         }
         // 新帧比旧帧短：区间重写后清除下方残留行（ESC[J）
-        screen.renderRanges(intervals, rows.length < prevRows.length);
+        screen.renderRanges(intervals, rows.length < prevRows.length, focus);
         prevRows = rows;
         prevSections = sections;
         return;
       }
-      screen.render(rows);
+      screen.render(rows, focus);
       prevRows = rows;
       prevSections = sections;
     },
-    refresh(rows: FrameRow[], sections?: FrameSection[]): void {
+    refresh(
+      rows: FrameRow[],
+      sections?: FrameSection[],
+      focus?: FrameFocus,
+    ): void {
       if (closed) return;
       prevRows = null; // 强制走全帧 screen.render(清屏+重绘)
-      this.render(rows, sections);
+      this.render(rows, sections, focus);
     },
     onKey(cb: (k: KeyEvent) => void): void {
       keyCbs.add(cb);

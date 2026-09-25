@@ -65,6 +65,20 @@ export interface FrameRow {
   caret?: number;
 }
 
+/**
+ * 输入焦点信息（3.1.3）：由 App 从 `buildFrame` 的回填原样转发给渲染器；
+ * 渲染器据此决定「每批重写结束后光标如何收尾」，不依赖本批是否含输入行。
+ *  - 未传（旧调用 / 注入型实现）：沿用旧行为（本批有 caret 则定位，末尾一律 SHOW）
+ *  - inputFocus 且有 caret：定位回输入位置并 SHOW
+ *  - 其余：不定位、不 SHOW（沿用报文开头的 `CURSOR_HIDE`）
+ */
+export interface FrameFocus {
+  /** 是否允许输入（底部输入框活跃）；false = 非输入态（面板等），光标保持隐藏 */
+  inputFocus: boolean;
+  /** 输入位置（**帧内 1 基行号 + 0 基列**）；无输入行时缺省 */
+  caret?: { row: number; col: number };
+}
+
 /** 一次报文内要重写的单个区间：startLine（1 基）+ 该区间的新行 */
 export interface RenderInterval {
   startLine: number;
@@ -139,7 +153,7 @@ export class Screen {
    *
    * 擦除口径见 `eraseBeforeWrite` 注释：**每行先擦后写**，不写行尾 `ESC[K`。
    */
-  render(rows: FrameRow[]): void {
+  render(rows: FrameRow[], focus?: FrameFocus): void {
     const base = baseSgr(this.theme); // 主题基底前景+背景
     const out: string[] = [SYNC_BEGIN, CURSOR_HIDE]; // 同步开始 + 渲染期隐藏光标
     if (!this.firstRenderDone) {
@@ -172,8 +186,7 @@ export class Screen {
     const below = rows.length + 1;
     if (below <= this.rows) out.push(`\x1b[${below};1H\x1b[J`);
     // 光标必须在所有行写完后再移动，否则后续行从光标列起写
-    if (caret) out.push(`\x1b[${caret.row};${caret.col + 1}H`);
-    out.push(CURSOR_SHOW); // 定位完成后再显示光标（无 caret 时同样保持可见）
+    pushCursorTail(out, caret, focus);
     out.push(SYNC_END); // 同步结束：终端原子呈现整帧
     this.write(out.join(""));
   }
@@ -185,7 +198,11 @@ export class Screen {
    *
    * 擦除口径见 `eraseBeforeWrite` 注释。
    */
-  renderRanges(intervals: RenderInterval[], clearBelow = false): void {
+  renderRanges(
+    intervals: RenderInterval[],
+    clearBelow = false,
+    focus?: FrameFocus,
+  ): void {
     const out: string[] = [SYNC_BEGIN, CURSOR_HIDE]; // 同步开始 + 渲染期隐藏光标
     const base = baseSgr(this.theme); // 主题基底前景+背景（ESC[K 按当前背景填充）
     let caret: { row: number; col: number } | null = null; // 输入行光标(0 基列)
@@ -213,20 +230,24 @@ export class Screen {
       if (clearLine <= this.rows) out.push(`\x1b[${clearLine};1H\x1b[J`);
     }
     // 光标必须在所有行写完后再移动，否则后续行从光标列起写
-    if (caret) out.push(`\x1b[${caret.row};${caret.col + 1}H`);
-    out.push(CURSOR_SHOW); // 定位完成后再显示光标
+    pushCursorTail(out, caret, focus);
     out.push(SYNC_END); // 同步结束：终端原子呈现本批区间更新
     this.write(out.join(""));
   }
 
   /** 单区间重写（renderRanges 的特例） */
-  renderRange(startLine: number, rows: FrameRow[], clearBelow = false): void {
-    this.renderRanges([{ startLine, rows }], clearBelow);
+  renderRange(
+    startLine: number,
+    rows: FrameRow[],
+    clearBelow = false,
+    focus?: FrameFocus,
+  ): void {
+    this.renderRanges([{ startLine, rows }], clearBelow, focus);
   }
 
   /** 只重绘末尾追加的 delta 行：等价于「区间重写」的帧尾特例 */
-  renderDelta(startLine: number, rows: FrameRow[]): void {
-    this.renderRange(startLine, rows);
+  renderDelta(startLine: number, rows: FrameRow[], focus?: FrameFocus): void {
+    this.renderRange(startLine, rows, false, focus);
   }
 
   /** 恢复终端默认样式（关闭前调用，避免残留主题色） */
@@ -234,6 +255,29 @@ export class Screen {
     // 补发同步结束与光标显示：进程若在同步块/隐藏光标状态下异常收尾，
     // 防止终端保持「不刷新」或光标永久隐藏
     this.write(SYNC_END + CURSOR_SHOW + "\x1b[0m");
+  }
+}
+
+/**
+ * 光标收尾（3.1.3）：把「本批收集到的 caret」与「调用方给的输入焦点」合并为
+ * 报文末尾的定位转义与可见性——焦点优先，面板态即使本批含 caret 行也不显示光标。
+ *  - 未传 focus：旧行为（有 caret 才定位，末尾一律 SHOW）
+ *  - inputFocus 且有 caret：定位回输入位置并 SHOW
+ *  - 其余：不定位、不 SHOW（报文开头的 `CURSOR_HIDE` 保持生效）
+ */
+function pushCursorTail(
+  out: string[],
+  batchCaret: { row: number; col: number } | null,
+  focus: FrameFocus | undefined,
+): void {
+  if (focus === undefined) {
+    if (batchCaret) out.push(`\x1b[${batchCaret.row};${batchCaret.col + 1}H`);
+    out.push(CURSOR_SHOW);
+    return;
+  }
+  if (focus.inputFocus && focus.caret) {
+    out.push(`\x1b[${focus.caret.row};${focus.caret.col + 1}H`);
+    out.push(CURSOR_SHOW);
   }
 }
 

@@ -558,7 +558,7 @@ export class App {
     const frame = buildFrame(this.state, size, this.paneScrollMax, out);
     this.paneScrollMaxState = this.state;
     this.syncScrollAnchor();
-    this.deps.renderer.render(frame, out.sections);
+    this.deps.renderer.render(frame, out.sections, out.focus);
   }
 
   /**
@@ -3553,7 +3553,7 @@ export class App {
     const frame = buildFrame(this.state, size, this.paneScrollMax, out);
     this.paneScrollMaxState = this.state;
     this.syncScrollAnchor();
-    this.deps.renderer.refresh(frame, out.sections);
+    this.deps.renderer.refresh(frame, out.sections, out.focus);
   }
 
   /**
@@ -3629,7 +3629,7 @@ export class App {
     const frame = buildFrame(this.state, size, this.paneScrollMax, out);
     this.paneScrollMaxState = this.state;
     this.syncScrollAnchor();
-    this.deps.renderer.render(frame, out.sections);
+    this.deps.renderer.render(frame, out.sections, out.focus);
   }
 
   private apply(fn: (s: AppState) => AppState): void {
