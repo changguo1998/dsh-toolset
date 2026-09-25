@@ -4,7 +4,7 @@
 > 不负责：包清单（见 `docs/host/HOST-PACKAGES.md`）
 > 过期条件：下次升级时另开新文件，本份移入 `archive/`
 
-> 用途：本项目 13 个包（TUI + 12 个进程内插件）当前跑在 `dsh 0.1.5-rc.3`（npm dist-tag `latest`）。本文对照下一个 rc（npm dist-tag `next`）的**官方接口变更**与**重大更新**，供升级决策、回归测试取材。
+> 用途：记录本项目 13 个包从 `dsh 0.1.5-rc.3`（当时的 npm `latest`）升级到 `0.1.7-rc.2` 的官方接口变更与重大更新，供回归测试取材。
 > 口径：宿主源码本地克隆 `~/GithubRepos/deepseek-harness`，工作区 checkout = tag `dsh-v0.1.7-rc.2`（提交 `477b4f42`，2026-09-24，下称 NEW）；对照基线 = tag `dsh-v0.1.5-rc.3`（提交 `a4c74a91`，2026-09-22，下称 OLD）。核对时间 2026-09-25。
 > 只记**会影响本仓库**的事实，逐条带证据（`文件:行` / commit / 官方 note）。未核实项单列 §7；复现命令见 §6。
 
@@ -63,7 +63,7 @@ dsh --profile fff                                     # 首次启动：settings.
 
 | 项 | 值 |
 |---|---|
-| 本项目基线 | 运行 `dsh 0.1.5-rc.3`（npm `latest`，published 2026-09-22T05:55Z）→ 升级目标 `0.1.7-rc.2`；代码层已双栈兼容（见 §0.1） |
+| 升级前基线 | 当时运行 `dsh 0.1.5-rc.3`（npm `latest`，published 2026-09-22T05:55Z）→ 目标 `0.1.7-rc.2`；代码层已双栈兼容（见 §0.1） |
 | 本文对照版本 | `dsh 0.1.7-rc.2`（npm `next`，published 2026-09-24T14:18Z） |
 | npm dist-tags | `latest` = 0.1.5-rc.3；`next` = 0.1.7-rc.2；`alpha` = 0.1.7-alpha.2 |
 | 源码 tag 顺序 | 0.1.5-rc.3 → 0.1.6-alpha.1 → 0.1.6-alpha.2 → 0.1.7-alpha.1 → 0.1.7-alpha.2 → 0.1.7-rc.1 → 0.1.7-rc.2 |

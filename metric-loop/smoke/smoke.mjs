@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * 宿主联调 smoke（profile: dsh-toolset-metric-loop，对齐 DSH-CTX-API 0.1.5-rc.3）。
+ * 宿主联调 smoke（profile: dsh-toolset-metric-loop，对齐 DSH-CTX-API 0.1.7-rc.2）。
  *
  * 流程：
- *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.3）
+ *   0. 检查宿主 dsh 版本（要求 0.1.7-rc.2）
  *   1. profile dsh-toolset-metric-loop 引导（幂等：创建 → 挂载插件 link: → 写用户层配置）
  *   2. 缺 dist 时先构建
  *   3. 真实 dsh headless 连跑三次，每次恰好推进一轮：
@@ -39,7 +39,7 @@ const PKG_ROOT = path.resolve(
 const PROFILE = "dsh-toolset-metric-loop";
 const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
 const PKG_NAME = "@dsh-toolset/metric-loop";
-const REQUIRED_VERSION = "0.1.5-rc.3";
+const REQUIRED_VERSION = "0.1.7-rc.2";
 const LOOP_ID = "smoke";
 
 // profile 用户层配置：stateDir 优先取环境变量（smoke 重定向到临时目录），

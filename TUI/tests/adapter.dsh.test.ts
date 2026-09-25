@@ -1282,7 +1282,7 @@ test("installSessionModelSelection: 未切换时兜底读宿主实时默认(sett
       model: "deepseek-v4-flash",
     }))) as Record<string, unknown>;
   };
-  // 宿主默认已 settle(指向 settings.yaml 的 ustc) → 下一步用 ustc
+  // 宿主默认已 settle(来自当前 profile 配置的 ustc) → 下一步用 ustc
   host = { provider: "ustc", model: "deepseek-v4-flash" };
   assert.deepEqual(await request(0), {
     provider: "ustc",

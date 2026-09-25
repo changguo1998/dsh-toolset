@@ -44,7 +44,7 @@ dsh --profile myprofile
 
 ## 边界
 
-- 只放配置骨架，**不含凭据、令牌或私有端点**：模型 provider 名、访问凭据与端点都属 `~/.dsh/settings.yaml`，本目录不涉及；示例里的 `link:` 路径一律用 `/path/to/...` 占位，需自行替换。
+- 只放配置骨架，**不含凭据、令牌或私有端点**：模型 provider 名、访问凭据与端点由 profile patch 中的对应插件条目管理（如 `llm-pi-ai`），本目录不包含它们；示例里的 `link:` 路径一律用 `/path/to/...` 占位，需自行替换。
 - 用户层 patch 的 `config` 是**整键替换**（`dsh-app-boot` 的 `composeEntries` → `cordis-plugin-include` 的 `applyEntryPatches` 按顶层键赋值）：覆盖 `permission` 这类自带默认表的条目时，未重述的表项会回落到插件 schema 默认值，故示例把三项内置预设全量重述后再追加自定义项。
-- 示例按宿主 `0.1.5-rc.3` 的条目 id 编写（`permission` / `tui` / `knowledge-base` / `compaction-basic` / `schedule`）；宿主升级后若 id 变化，`dsh --profile <p> --dump-config` 与启动日志里的 patch 告警是最快的核对手段。
+- 示例按宿主 `0.1.7-rc.2` 的条目 id 编写（`permission` / `tui` / `knowledge-base` / `compaction-basic` / `schedule`）；宿主升级后若 id 变化，`dsh --profile <p> --dump-config` 与启动日志里的 patch 告警是最快的核对手段。
 - 示例不含 profile 根的 `cordis.yml`：它是宿主在**每次启动时重写**的空条目桩（只作 loader 的 anchor，手改无效），配置一律写在 `cordis.patch.yml`。同理 `node_modules/`、`.dsh-module-fallback/` 与 `$DSH_HOME/profiles/node_modules` 也由宿主每次启动自行维护。

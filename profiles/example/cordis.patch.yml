@@ -79,7 +79,7 @@
     # - id: session-title-all-prompts-llm
     #   name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
     #   config:
-    #     provider: <provider 名>  # provider 名与凭据都定义在 ~/.dsh/settings.yaml
+    #     provider: <provider 名>  # 实际 profile 的 llm-pi-ai 条目中配置
     #     model: <模型 id>         # 故本文件只写名字，不放凭据与私有端点
 
 # ── 其它方言（按需取消注释）──────────────────────────────────────────────────

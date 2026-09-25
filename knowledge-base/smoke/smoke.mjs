@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * 宿主联调 smoke（profile: dsh-toolset-knowledge-base，对齐 DSH-CTX-API 0.1.5-rc.3）。
+ * 宿主联调 smoke（profile: dsh-toolset-knowledge-base，对齐 DSH-CTX-API 0.1.7-rc.2）。
  *
  * 流程：
- *   0. 检查宿主 dsh 版本（要求 0.1.5-rc.3）
+ *   0. 检查宿主 dsh 版本（要求 0.1.7-rc.2）
  *   1. profile dsh-toolset-knowledge-base 引导（幂等：创建 → 挂载插件 link: → 写用户层配置）
  *   2. 缺 dist 时先构建
  *   3. 真实 dsh headless 一次性会话（低阈值强制压缩 + fs write 产生真实 meta）
@@ -36,7 +36,7 @@ const PKG_ROOT = path.resolve(
 const PROFILE = "dsh-toolset-knowledge-base";
 const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
 const PKG_NAME = "@dsh-toolset/knowledge-base";
-const REQUIRED_VERSION = "0.1.5-rc.3";
+const REQUIRED_VERSION = "0.1.7-rc.2";
 const KNOWLEDGE_APP_ID = 0x4b4e4f57; // schema.ts KNOWLEDGE_APPLICATION_ID ('KNOW')
 const KNOWLEDGE_SCHEMA_VERSION = 1;
 
