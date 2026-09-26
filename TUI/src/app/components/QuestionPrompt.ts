@@ -137,11 +137,16 @@ function layoutQuestionPanel(
 ): QuestionLayout {
   // 面板可用宽：右侧只留 1 列（原为 4 列，人工验收反馈「内容行右侧留白太多」）
   const avail = Math.max(4, width - 2);
-  // 续行缩进：常规 6 列；面板极窄（avail ≤ 6）时退回 4 列，避免缩进自身被折行
-  const contIndent =
-    avail > OPTION_CONT_INDENT.length ? OPTION_CONT_INDENT : "    ";
   const maxBody = Math.max(0, height - 1); // 只剩标题行；按键提示移到底部提示区
   const item = panel.items[panel.itemIndex];
+  // 选项行格式（BACKLOG 3.2.6 / 3.2.12）：` ${光标}${标记} ${编号}. ${内容}`
+  //   - 编号宽度按「最大编号位数」取（含自定义兜底项）：1 位（≤9 项）或 2 位（≥10 项）
+  //   - 内容起点 = 1(行首缩进) + 光标 + 标记 + 1(空格) + numW + `.` + 1(空格) = numW + 6
+  const numW = String((item?.options.length ?? 0) + 1).length;
+  const optTextStart = numW + 6;
+  // 续行与选项解释一律缩进到内容起点（数字悬挂：续行不重复编号）；面板极窄时退回 4 列，
+  // 避免缩进自身被折行（BACKLOG 3.2.1）
+  const contIndent = avail > optTextStart ? " ".repeat(optTextStart) : "    ";
   const total = panel.items.length;
   const isPlan = item?.intent?.kind === "plan-review";
   const multi = item?.multiSelect ?? false;
@@ -158,6 +163,19 @@ function layoutQuestionPanel(
         descRows.push({ text: r });
       }
     };
+    // 问题前正文（BACKLOG 3.2.10）：面板打开时记录的活动区正文（≤6 行），灰色置于描述窗
+    // 顶部、随描述窗一起滚动；与题干之间留一个空行分隔（缺省/空串时不占行）
+    const sourceText = (panel.source ?? "").trim();
+    if (sourceText !== "") {
+      for (const part of sourceText.split("\n")) {
+        if (part.trim() === "") continue;
+        for (const r of wrapByWidth(part, avail)) {
+          // 醒目青色（BACKLOG 3.2.10 人工反馈：灰色太暗难辨认）
+          descRows.push({ text: " " + r, color: { fg: "cyan" } });
+        }
+      }
+      descRows.push({ text: "" });
+    }
     pushDesc(`${item.header ? item.header + "：" : ""}${item.question}`);
     if (item.detail) {
       if (isPlan) pushDesc("-- 待审计划 --");
@@ -174,6 +192,10 @@ function layoutQuestionPanel(
   const optRows: PanelLine[] = [];
   const optEnd: number[] = [];
   /** 追加一个选项块：首行 ` >* 文本`（折行续行 6 列缩进），解释行缩进 4 列 */
+  /** 选项行前缀：编号 + 光标 + 标记（编号 BACKLOG 3.2.6；光标/标记沿用原语义） */
+  const optionLead = (idx: number, cursor: string, mark: string): string =>
+    `${cursor}${mark} ${String(idx + 1).padStart(numW)}.`;
+
   const pushOption = (
     idx: number,
     lead: string,
@@ -185,9 +207,10 @@ function layoutQuestionPanel(
       optRows.push({ text: r, color });
     }
     if (desc) {
-      const w = Math.max(1, avail - OPTION_DESC_INDENT.length);
+      // 解释另起一行，且与选项内容左对齐（BACKLOG 3.2.12）
+      const w = Math.max(1, avail - contIndent.length);
       for (const r of wrapByWidth(desc, w)) {
-        optRows.push({ text: OPTION_DESC_INDENT + r, color });
+        optRows.push({ text: contIndent + r, color });
       }
     }
     optEnd[idx] = optRows.length - 1;
@@ -204,7 +227,7 @@ function layoutQuestionPanel(
       const mark = selected ? markFor(multi) : " ";
       pushOption(
         i,
-        `${cursor}${mark}`,
+        optionLead(i, cursor, mark),
         opt.label,
         opt.description,
         // 已标记选中绿优先，未标记的光标行黄（对齐 ModelPicker；失焦时不着色）
@@ -220,7 +243,7 @@ function layoutQuestionPanel(
     const mark = item.custom === "" ? " " : multi ? "+" : "*";
     pushOption(
       ci,
-      `${cursor}${mark}`,
+      optionLead(ci, cursor, mark),
       `自定义回答${item.custom === "" ? "" : "：" + item.custom}`,
       undefined,
       item.custom !== ""

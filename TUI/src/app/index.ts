@@ -18,6 +18,7 @@ import {
   initialState,
   isCompacting,
   markableSessionIds,
+  recentQuestionSource,
   reduceState,
   startupCleanableIds,
 } from "./state.ts";
@@ -1003,18 +1004,39 @@ export class App {
           reduceState(s, {
             type: "approval",
             approval: { id: e.id, prompt: e.prompt },
+            // 倒计时来源（BACKLOG 3.2.5）：与 adapter 默认超时同口径
+            deadline: Date.now() + this.approvalTimeoutMs(),
           }),
         );
         // 需交互（审批）→ 立即响铃并起催促计时（BACKLOG 3.4.1 / 3.4.3）
         this.beginInteractiveBell();
         break;
+      case "approval-closed": {
+        // 3.3.2：宿主侧裁定（超时 / abort）已生效 → 面板必须同步关闭，否则用户看到的
+        // 是「面板还开着，再按 y 却毫无反应」（settle 后 pending 已删，approve 静默丢失）
+        if (this.state.approval?.id !== e.id) break;
+        this.apply((s) => reduceState(s, { type: "approval", approval: null }));
+        this.apply((s) =>
+          reduceState(s, {
+            type: "notice",
+            text:
+              e.reason === "timeout"
+                ? "审批已超时（按默认拒绝处理）"
+                : "审批已取消（连接中断）",
+            tone: "warn",
+          }),
+        );
+        break;
+      }
       case "question":
         // DSH 提问：整批题一次打开（一次 ask() 一批；面板内逐题导航，提交整批）
+        // 3.2.10：带上活动区最近一条非思考正文（通常是提问前的题干说明），面板期间展示
         this.apply((s) =>
           reduceState(s, {
             type: "question-open",
             id: e.id,
             questions: e.questions,
+            source: recentQuestionSource(s.buffer),
           }),
         );
         // 需交互（问答）→ 立即响铃并起催促计时（BACKLOG 3.4.1 / 3.4.3）

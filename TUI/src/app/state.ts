@@ -2283,8 +2283,14 @@ export type StateAction =
       effortIndex?: number;
     }
   | { type: "picker-close" }
-  | { type: "question-open"; id: string; questions: QuestionItem[] }
-  | { type: "question-move"; delta: 1 | -1 }
+  | {
+      type: "question-open";
+      id: string;
+      questions: QuestionItem[];
+      /** 问题前正文（3.2.10） */
+      source?: string;
+    }
+  | { type: "question-move"; delta: number } // 数字键直标需要跨多项跳转（BACKLOG 3.2.6）
   | { type: "question-nav"; delta: 1 | -1 }
   | { type: "question-select" }
   | { type: "question-custom"; text: string }
@@ -2721,7 +2727,13 @@ function setPickerEfforts(
 /** 打开问答面板：把一次 ask() 的整批题转为交互状态（无题则不变） */
 function openQuestion(
   state: AppState,
-  action: { type: "question-open"; id: string; questions: QuestionItem[] },
+  action: {
+    type: "question-open";
+    id: string;
+    questions: QuestionItem[];
+    /** 问题前正文（3.2.10；缺省空串 = 不显示来源段） */
+    source?: string;
+  },
 ): AppState {
   if (action.questions.length === 0) return state;
   const items: QuestionPanelItem[] = action.questions.map((q) => ({
@@ -2748,10 +2760,43 @@ function openQuestion(
       id: action.id,
       items,
       itemIndex: 0,
+      // 问题前正文（3.2.10）：面板期间展示在描述窗顶部，来源见 recentQuestionSource
+      source: action.source ?? "",
     },
     // 问答面板打开 = 等待用户决策（黄△）
     inputStatus: "waiting",
   };
+}
+
+/** 取正文时允许向前扫描的行数上限（超过即视为「本回合没有正文」，防跨轮取旧回复） */
+const SOURCE_SCAN_MAX = 40;
+
+/**
+ * 取「问题前正文」（BACKLOG 3.2.10 / 3.2.12）：自缓冲末尾**向前扫描**，收集最近的 `assistant` /
+ * `plain` 正文行（最多 6 行、**空正文行跳过而不终止**），一旦已收到正文再遇到非正文行即停止。
+ *
+ * 两个边界都来自真机反馈：`ask_user_question` 自身会留下 `tool` 行（必须能跨过），而正文尾部
+ * 常有空行（不能一遇空行就放弃）——否则面板顶部的来源段会恒为空。
+ * 扫描超过 {@link SOURCE_SCAN_MAX} 行或未收集到正文时返回空串（面板不显示来源段）。
+ */
+export function recentQuestionSource(lines: readonly BufferLine[]): string {
+  const picked: string[] = [];
+  let scanned = 0;
+  for (let i = lines.length - 1; i >= 0 && picked.length < 6; i--) {
+    const line = lines[i];
+    if (!line) continue;
+    scanned += 1;
+    if (scanned > SOURCE_SCAN_MAX) break;
+    if (line.kind === "assistant" || line.kind === "plain") {
+      // 空正文行（段落间隔 / 收尾空行）跳过而非终止
+      const text = line.text.trim();
+      if (text !== "") picked.unshift(text);
+      continue;
+    }
+    // 未收到正文时容忍工具 / 思考 / 提示 / 分隔行；已收到正文则视为段落边界
+    if (picked.length > 0) break;
+  }
+  return picked.join("\n");
 }
 
 /** Tab 切焦点窗（BACKLOG 3.2.1）：desc <-> options，按题独立记忆 */
