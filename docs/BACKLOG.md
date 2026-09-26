@@ -85,14 +85,21 @@
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
-| 42 | **规则触发的自动注入**：按设定规则（关键词 / 正则 / 自定义谓词）检测模型回复或事件流，命中后**代替用户**向下一回合注入一条内容（如检测到非推荐符号即发更正要求、检测到越界操作即发约束提醒） | 用户 2026-09-26 提出；现成先例 = TUI 的符号纠正（`symbols.ts` 判定 + turn-end 后 `followup`） | `agent.followup`（宿主消息通道；TUI `adapter/dsh.ts` 已封装，实测 turn-end 回调内同步发不落盘、需推迟一个宏任务）、`agent/inbox`、事件面 `tool/call`/`text-delta`/`turn-end` | P2 |
+| 42 | **进行中（2026-09-27）**：**规则触发的自动注入**：按设定规则（关键词 / 正则 / 自定义谓词）检测模型回复或事件流，命中后**代替用户**向下一回合注入一条内容（如检测到非推荐符号即发更正要求、检测到越界操作即发约束提醒） | 用户 2026-09-26 提出；现成先例 = TUI 的符号纠正（`symbols.ts` 判定 + turn-end 后 `followup`） | 新插件 `rule-engine`（匹配面 `assistant/message` / `tool/call` / `tool/result` / `turn/end`，动作走 `agent.followup` + `sessions.flush`）；追踪文档 `docs/implementation/2026-09-27-rule-engine.md` | P2 |
 
-> 落地形态二选一（待定）：① 新插件 `rule-trigger`（规则表 + 注入动作，跨包通用）；② 并入 TUI，把符号提醒泛化成 `tui.config.json` 里的规则表（只覆盖 TUI 会话）。
+> 落地形态已定稿（2026-09-27）：**① 新插件 `rule-engine`**（规则表 + 注入动作，跨包通用）；不并入 TUI，TUI 符号纠正改为其消费者另开条目（#43）。本轮范围、裁定与实现见 `docs/implementation/2026-09-27-rule-engine.md`。
+
+| # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
+|---|------|------|------------------|--------|
+| 43 | TUI 符号纠正改为 rule-engine 消费者：`TUI/src/app/symbols.ts` 的「规则表 + 判定 + turn-end 后 followup」泛化为调用 `rule-engine`（跨模块，交其他 agent 接取） | #42 决策（2026-09-27）：符号纠正不迁移，仅登记消费者改造 | rule-engine 规则族 + TUI adapter | P2 |
+| 44 | rule-engine 增设 `agent/pre-step` 注入路径：waterfall 面可在消息进入 step 前插入 user-role 消息（本轮只做 `agent.followup`，裁定见 #42 追踪文档） | #42 调研 §8.B / §5.7（2026-09-27） | `agent/pre-step`、`agent/inbox`（next-step） | P2 |
+| 45 | rule-engine 仓库级集成：根 `package.json`（check/build）、`scripts/install.sh`（canonical_pkgs）、`scripts/test-parallel.sh`（default_pkgs）、根 `README.md`（插件表/目录树/文档索引）、`AGENTS.md`（12 → 13 个包）——本轮受改文件范围限制未做，包目前只在自身目录内自检 | #42 实现期范围限制（2026-09-27） | 现有脚手架三处 + 两份根文档 | P2 |
+| 46 | TUI 支持 `source.form:'notice'` 渲染：插件注入消息带 `form:'notice'` + `summary` 时渲染为一行提示（不展开、不占用户消息块），使 rule-engine 的「提示人」呈现方式生效；本轮 TUI 未实现，注入内容现渲染为普通用户消息块 | #42 调研 §8.D（2026-09-27）；TUI 落地时同步登记到 `TUI/docs/BACKLOG.md` | `TUI/src/app/adapter/normalize.ts` / `dsh.ts` 事件消费面 | P2 |
 
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
-1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#25、#26、#28-#32、#37、#38，按需排期；另加 #42（规则触发的自动注入）；#34 已完成；#35 已取消。
+1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#25、#26、#28-#32、#37、#38，按需排期；另加 #42（规则触发的自动注入，进行中）与其后续项 #43-#46；#34 已完成；#35 已取消。
 1. 依赖：#17 的模板族与 #32 可共用 workflow/skill 资产；workflow-ext 建包前，工作流相关插件面依赖 task-engine 的契约与执行器；其余相互独立。
 
 ## 4. 插件规划（未建包）
