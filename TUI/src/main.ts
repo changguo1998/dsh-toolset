@@ -120,7 +120,7 @@ export interface DshTuiConfig {
   reasoningEffort?: string;
   /** 初始主题（默认 dark=fffdark；light=ffflight） */
   theme?: ThemeId;
-  /** 用户块左缘/回复右缘对称留空（列数，默认 6；合法域 0..20，非法回退默认） */
+  /** 用户块左缘/回复右缘对称留空（列数，默认 4；合法域 0..20，非法回退默认） */
   messageGutter?: number;
   /** 锚定工具引导（两阶段工具锁定-释放，移植自 dsh-anchored-standard）。
    *  仅 deepseek-v4-pro 生效；其他模型与 false 时原样透传。默认 true。 */
@@ -128,7 +128,7 @@ export interface DshTuiConfig {
 }
 
 export interface TuiDisplayConfig {
-  /** messageGutter 归一化结果（0..20，默认 6） */
+  /** messageGutter 归一化结果（0..20，默认 4） */
   messageGutter: number;
 }
 
@@ -159,7 +159,7 @@ export function normalizeTuiDisplayConfig(
     return n;
   };
   return {
-    messageGutter: num(raw?.messageGutter, 6, 0, 20, "messageGutter"),
+    messageGutter: num(raw?.messageGutter, 4, 0, 20, "messageGutter"),
   };
 }
 

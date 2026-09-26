@@ -987,10 +987,10 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(�
   // 长消息占满最大正文宽 ⟹ 左边界 = 历史宽 - userMaxBodyWidth
   const m = metricsFor({ rows: 24, cols: 40 });
   const hist = m.historyWidth;
-  const pad = hist - userMaxBodyWidth(hist);
-  assert.equal(pad, USER_MIN_LEFT_GUTTER, "长消息左边界应为 gutter");
+  const pad = hist - userMaxBodyWidth(hist, DEFAULT_MESSAGE_GUTTER);
+  assert.equal(pad, DEFAULT_MESSAGE_GUTTER, "长消息左边界应为 gutter");
   // 右侧竖线占 2 列、块整体右对齐 → 左侧可见空位 = gutter - 2
-  const userPrefix = " ".repeat(USER_MIN_LEFT_GUTTER - 1);
+  const userPrefix = " ".repeat(DEFAULT_MESSAGE_GUTTER - 1);
   const userRows = visible.filter((line) => {
     const body = histBody(line, 40);
     return body.startsWith(userPrefix) && body.slice(userPrefix.length).trim();
@@ -1284,7 +1284,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   let u = reduceState(initialState(), { type: "user-line", text: "孤立" });
   u = reduceState(u, { type: "turn-end" });
   u = reduceState(u, { type: "turn-begin" });
-  // cols=40（历史宽 20）：gutter=6 下窄窗正文宽更小，cols=30 会把「孤立」折成两行
+  // cols=40（历史宽 20）：该宽度下用户块「孤立」单行可见、与后续分隔线相邻
   plain = buildFrame(u, { rows: 20, cols: 40 }).map((l) =>
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
@@ -1422,7 +1422,7 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
   // cols=40 → historyWidth 依 metricsFor；文字排版宽再扣文字右缘留白（纵向 2 列）
   const m = metricsFor({ rows: 16, cols: 40 });
   const textW = paneTextWidth(regionColumnWidth(m.historyWidth), true);
-  const bodyW = textW - USER_MIN_LEFT_GUTTER;
+  const bodyW = textW - DEFAULT_MESSAGE_GUTTER;
   let s = initialState();
   s = reduceState(s, {
     type: "append",
@@ -1446,7 +1446,7 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
   assert.equal(
     first.length,
     bodyW + 1,
-    `默认 gutter=6：正文(含左侧竖线) = 文字排版宽 − gutter + 1（右缘留文字留白 + 焦点框列）`,
+    `默认 gutter=4：正文(含左侧竖线) = 文字排版宽 − gutter + 1（右缘留文字留白 + 焦点框列）`,
   );
   // 用户块整体靠右（右缘预留焦点框列）
   let u = initialState();
@@ -1482,7 +1482,7 @@ test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满历
   );
 });
 
-test("交错布局：输入最长折行左缘与回复正文第 5 个字符同列（gutter=6）", () => {
+test("交错布局：输入最长折行左缘与回复正文第 3 个字符同列（gutter=4）", () => {
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
   const cols = 60;
   // 输入/回复均为超长英文（无自然断点）→ 各自折到宽度上限，左缘停在最左可占据列
@@ -1504,16 +1504,16 @@ test("交错布局：输入最长折行左缘与回复正文第 5 个字符同�
   assert.ok(uRow !== undefined && rRow !== undefined, "输入/回复行都可见");
   // 屏幕列口径：区域正文起始列（状态列之后）= 0 基参照；正文首列放 ┃、
   // 自次列起为回复内容 → 回复正文起 start+1；用户块留白 gutter-1 →
-  // 输入正文起 start+gutter-1，恰与回复第 5 个字符同列
+  // 输入正文起 start+gutter-1，恰与回复第 3 个字符同列
   const start = metricsFor({ rows: 24, cols }).statusColWidth;
   const uCol = colOf(uRow, "U");
   const rCol = colOf(rRow, "R");
   assert.equal(
     uCol,
-    start + USER_MIN_LEFT_GUTTER - 1,
+    start + DEFAULT_MESSAGE_GUTTER - 1,
     "输入最长左缘 = 正文首列 + gutter−1",
   );
-  assert.equal(uCol, rCol + 4, "输入左缘与回复第 5 字符同列");
+  assert.equal(uCol, rCol + 2, "输入左缘与回复第 3 字符同列");
   assert.equal(rCol, start + 1, "回复正文自区域正文次列起（┃ 占首列）");
 });
 

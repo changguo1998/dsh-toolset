@@ -13,9 +13,9 @@ function collect(): { warns: string[]; warn: (m: string) => void } {
   return { warns, warn: (m) => warns.push(m) };
 }
 
-test("归一化默认值：gutter 6", () => {
+test("归一化默认值：gutter 4", () => {
   const c = normalizeTuiDisplayConfig(undefined);
-  assert.deepEqual(c, { messageGutter: 6 });
+  assert.deepEqual(c, { messageGutter: 4 });
 });
 
 test("归一化合法值透传：自定义 gutter", () => {
@@ -31,7 +31,7 @@ test("归一化非法值回退默认并告警", () => {
     },
     warn,
   );
-  assert.equal(c.messageGutter, 6);
+  assert.equal(c.messageGutter, 4);
   assert.ok(warns.length >= 1, "每项非法值各告警一次，实际:" + warns.length);
   assert.ok(warns.every((w) => w.includes("回退默认")));
 });
@@ -44,11 +44,12 @@ test("归一化越界/非有限数同样回退", () => {
     },
     warn,
   );
-  assert.equal(c.messageGutter, 6, "越界回退默认");
+  assert.equal(c.messageGutter, 4, "越界回退默认");
   assert.ok(warns.length >= 1);
 });
 
 test("归一化小数四舍五入并在界内", () => {
-  const c = normalizeTuiDisplayConfig({ messageGutter: 3.6 });
-  assert.equal(c.messageGutter, 4);
+  // 用非默认值（9.6 → 10）：默认值已为 4，若用 3.6 无法区分「四舍五入」与「回退默认」
+  const c = normalizeTuiDisplayConfig({ messageGutter: 9.6 });
+  assert.equal(c.messageGutter, 10);
 });

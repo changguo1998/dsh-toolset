@@ -109,6 +109,6 @@ test("常量齐全", () => {
   assert.equal(TURN_SEPARATOR_CHAR, "╌");
   assert.equal(ACTIVITY_SEPARATOR, "─");
   assert.equal(SEPARATOR, "─");
-  // 6 = 正文区留白 5 列：输入最长折行左缘对齐回复正文第 5 个字符
+  // 窄窗降级的最小左缘留白（竖线可见阈值 = 6 + 2 = 8）；与 DEFAULT_MESSAGE_GUTTER（默认 4）各自独立
   assert.equal(USER_MIN_LEFT_GUTTER, 6);
 });

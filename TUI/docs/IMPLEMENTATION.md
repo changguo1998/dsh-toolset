@@ -148,12 +148,12 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 
 ## 对话左右交错留白（`messageGutter`）
 
-- **口径**：超长（英文）输入折行时，输入的最左侧与回复正文第 5 个字符同列。
+- **口径**：超长（英文）输入折行时，输入的最左侧与回复正文第 3 个字符同列。
 - **文字右缘留白（`PANE_TEXT_MARGIN_COLS=1`，P3）**：留白只作用于**右缘贴着外框列**的文字——横向历史 pane **不留白**（用户块右缘 `┃` 紧贴内部分隔竖线）、横向活动 pane 与纵向两 pane 各让 1 列（`paneTextWidth(paneW, reserve)`：`frameGeometry.dialogueTextW/activityTextW`，`reserve` 只在右缘是外框列时为真；排队块、活动区面板同口径）。**所有横线一概不缩**：标题栏下划线、活动区分隔线、回合分隔线（`╌`，按 `ContentRow.kind === "separator"` 识别并补满）、状态栏上下边框都铺满到屏幕最右列（区域外缘框列在横线行补 `─`/`╌`）。**活动区行尾不补空格、也不画右边框**：`buildTopRegion` 对活动区行跳过 `padSegs` 与外缘框列字形；`FocusFrame` 的 activity 分支只画左缘竖线，顶/底亮线铺到最右列收尾（无角字）。回归：`tests/pane-text-margin.test.ts`。
-- **列口径**：区域右缘框列是焦点框保留格（`FRAME_RIGHT_COLS=1`），正文区自区域正文起始列（状态列与分隔竖线之后，屏幕列 = `statusColWidth`）起算——回复行 `┃` 占正文区第 0 列、正文自第 1 列起；用户块整体右对齐，左缘留白 `gutter−1` 列（`spacer(fill, min)`）、块内右缘 `┃` 贴正文区最后一列。故输入正文起列 = 正文区起始列 + `gutter−1`（屏幕列），令其等于回复第 5 字符所在列（正文区第 5 列）解得 **`gutter = 6`**。
-- **两侧同源**：`gutter` 同时是用户块左缘留白与回复右缘留白（`finalSpace` 的 `spacer(fixed gutter−1)`），故默认 6 时两侧文本上限对称各收 2 列（宽 60 时：正文区 39 列 → 回复正文 33 列、用户文本 33 列）。
-- **连带**：竖线可见阈值 `USER_MIN_LEFT_GUTTER + 2` 由 6 上移到 8（w ≤ 7 不画竖线）；`DEFAULT_MESSAGE_GUTTER` 与 `normalizeTuiDisplayConfig` 缺省同步为 6。
-- **回归**：`tests/layout4.test.ts`「输入最长折行左缘与回复正文第 5 个字符同列（gutter=6）」+ `tests/content-mapping.test.ts` 竖线阈值边界（w=6/7 关闭、w=8 开启）+ `tests/fixtures/focus-frame-legacy.json`（w20 四场景按新口径冻结）。
+- **列口径**：区域右缘框列是焦点框保留格（`FRAME_RIGHT_COLS=1`），正文区自区域正文起始列（状态列与分隔竖线之后，屏幕列 = `statusColWidth`）起算——回复行 `┃` 占正文区第 0 列、正文自第 1 列起；用户块整体右对齐，左缘留白 `gutter−1` 列（`spacer(fill, min)`）、块内右缘 `┃` 贴正文区最后一列。故输入正文起列 = 正文区起始列 + `gutter−1`（屏幕列），令其等于回复第 3 字符所在列（正文区第 3 列）解得 **`gutter = 4`**。
+- **两侧同源**：`gutter` 同时是用户块左缘留白与回复右缘留白（`finalSpace` 的 `spacer(fixed gutter−1)`），故默认 4 时两侧文本上限对称各收 4 列（宽 60 时：正文区 39 列 → 回复正文 35 列、用户文本 35 列）。
+- **连带**：竖线可见阈值 `USER_MIN_LEFT_GUTTER + 2` 由 6 上移到 8（w ≤ 7 不画竖线）——该常量是**窄列降级用的最小左缘留白**，与 `DEFAULT_MESSAGE_GUTTER` 各自独立（仍为 6，不随本条改动）；`DEFAULT_MESSAGE_GUTTER` 与 `normalizeTuiDisplayConfig` 缺省同步为 4。
+- **回归**：`tests/layout4.test.ts`「输入最长折行左缘与回复正文第 3 个字符同列（gutter=4）」+ `tests/content-mapping.test.ts` 竖线阈值边界（w=6/7 关闭、w=8 开启）+ `tests/fixtures/focus-frame-legacy.json`（w20 四场景按新口径冻结）。
 
 ## 多行用户输入 = 一块
 

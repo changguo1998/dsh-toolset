@@ -92,8 +92,8 @@ function trimBufferHead(
 }
 
 /** 用户块左缘/回复右缘对称留空默认列数（可经 initialState 配置，交错布局用）。
- *  6：两侧各留 gutter-1 = 5 列 → 输入最长折行左缘对齐回复正文第 5 个字符。 */
-export const DEFAULT_MESSAGE_GUTTER = 6;
+ *  4：两侧各留 gutter-1 = 3 列 → 输入最长折行左缘对齐回复正文第 3 个字符。 */
+export const DEFAULT_MESSAGE_GUTTER = 4;
 
 /** 输入栏临时模式（$ shell / / slash；提交后自动回退 normal，不再有 Esc 回退） */
 export type InputMode = "normal" | "shell" | "slash";
