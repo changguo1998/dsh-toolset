@@ -746,6 +746,110 @@ test("approve(true) → allowed-once", async () => {
   assert.equal(await p, "allowed-once");
 });
 
+test("审批草稿：callId 关联 tool/call 的命令全文（BACKLOG 3.3.3）", async () => {
+  const rt = new FakeRuntime();
+  const t = makeAdapter(rt);
+  const cmd = "rm -rf /tmp/probe && echo hi";
+  fire(t, "tool/call", {
+    callId: "c9",
+    name: "bash",
+    arguments: JSON.stringify({ command: cmd }),
+  });
+  const p = rt.fire(
+    "approval/request",
+    { agent: {}, toolName: "bash", callId: "c9" },
+    () => Promise.resolve<ApprovalOutcome>("unavailable"),
+  ) as unknown as Promise<ApprovalOutcome>;
+  const ev = t.events.find((e) => e.type === "approval")! as {
+    id: string;
+    prompt: string;
+  };
+  assert.ok(
+    ev.prompt.startsWith("允许工具 bash 执行?"),
+    "首行保留原文案: " + ev.prompt,
+  );
+  assert.ok(ev.prompt.includes("命令："), "含命令段: " + ev.prompt);
+  assert.ok(ev.prompt.includes(cmd), "命令全文进草稿（不截断）: " + ev.prompt);
+  // 裁定后登记表清理：同一 callId 再次审批退化为单行（不串旧参数）
+  t.adapter.approve(ev.id, true);
+  assert.equal(await p, "allowed-once");
+  const p2 = rt.fire(
+    "approval/request",
+    { agent: {}, toolName: "bash", callId: "c9" },
+    () => Promise.resolve<ApprovalOutcome>("unavailable"),
+  ) as unknown as Promise<ApprovalOutcome>;
+  const ev2 = t.events.filter((e) => e.type === "approval").at(-1) as {
+    id: string;
+    prompt: string;
+  };
+  assert.equal(ev2.prompt, "允许工具 bash 执行?", "裁定后清理 callId 明细");
+  t.adapter.cancelApproval(ev2.id);
+  assert.equal(await p2, "cancelled");
+});
+
+test("审批草稿：无 callId → 退化为单行旧文案；cancelApproval → cancelled（3.3.3 / 3.3.1）", async () => {
+  const rt = new FakeRuntime();
+  const t = makeAdapter(rt);
+  const p = rt.fire("approval/request", { agent: {}, toolName: "read" }, () =>
+    Promise.resolve<ApprovalOutcome>("unavailable"),
+  ) as unknown as Promise<ApprovalOutcome>;
+  const ev = t.events.find((e) => e.type === "approval")! as {
+    id: string;
+    prompt: string;
+  };
+  assert.equal(ev.prompt, "允许工具 read 执行?", "无明细保持单行");
+  t.adapter.cancelApproval(ev.id);
+  assert.equal(await p, "cancelled", "Esc 取消 → cancelled");
+});
+
+test("stopApprovalTimeout：用户已操作后不再自动裁定（BACKLOG 3.3.5）", async () => {
+  const rt = new FakeRuntime();
+  const t = makeAdapter(rt, new FakeAgent(), 30);
+  const p = rt.fire("approval/request", { agent: {}, toolName: "bash" }, () =>
+    Promise.resolve<ApprovalOutcome>("unavailable"),
+  ) as unknown as Promise<ApprovalOutcome>;
+  const id = (t.events.find((e) => e.type === "approval")! as { id: string })
+    .id;
+  t.adapter.stopApprovalTimeout?.(id);
+  await new Promise((r) => setTimeout(r, 70)); // 超过 30ms 超时值
+  assert.equal(
+    t.events.some((e) => e.type === "approval-closed"),
+    false,
+    "停止后不应自动裁定: " + JSON.stringify(t.events),
+  );
+  // 停止只影响自动裁定：用户仍可显式应答结束
+  t.adapter.approve(id, true);
+  assert.equal(await p, "allowed-once", "显式应答仍然生效");
+});
+
+test("审批超时：宿主侧裁定后发 approval-closed（timeout）（BACKLOG 3.3.2）", async () => {
+  const rt = new FakeRuntime();
+  const t = makeAdapter(rt, new FakeAgent(), 10); // 10ms 超时
+  const p = rt.fire("approval/request", { agent: {}, toolName: "bash" }, () =>
+    Promise.resolve<ApprovalOutcome>("unavailable"),
+  ) as unknown as Promise<ApprovalOutcome>;
+  const id = (t.events.find((e) => e.type === "approval")! as { id: string })
+    .id;
+  assert.equal(
+    await p,
+    "rejected",
+    "超时裁定 rejected（BACKLOG 3.3.5：默认拒绝）",
+  );
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(
+    t.events.find((e) => e.type === "approval-closed"),
+    { type: "approval-closed", id, reason: "timeout" },
+    "超时通知 UI: " + JSON.stringify(t.events),
+  );
+  // 超时后补按 y：pending 已删 → 不再产生第二次裁定 / 第二次通知
+  t.adapter.approve(id, true);
+  assert.equal(
+    t.events.filter((e) => e.type === "approval-closed").length,
+    1,
+    "不重复通知",
+  );
+});
+
 test("approve(false) → rejected", async () => {
   const rt = new FakeRuntime();
   const t = makeAdapter(rt);
@@ -768,13 +872,13 @@ test("approval 无订阅者 → next() fail-closed unavailable", async () => {
   void adapter;
 });
 
-test("审批超时(approvalTimeoutMs 到期) → cancelled", async () => {
+test("审批超时(approvalTimeoutMs 到期) → rejected（默认拒绝，BACKLOG 3.3.5）", async () => {
   const rt = new FakeRuntime();
   makeAdapter(rt); // makeAdapter 默认 approvalTimeoutMs = 50
   const p = rt.fire("approval/request", { agent: {}, toolName: "bash" }, () =>
     Promise.resolve<ApprovalOutcome>("unavailable"),
   ) as unknown as Promise<ApprovalOutcome>;
-  assert.equal(await p, "cancelled"); // timer ~50ms 到期 settle
+  assert.equal(await p, "rejected"); // timer ~50ms 到期 settle（无操作 = 默认拒绝）
 });
 
 test("审批 signal 中断 → cancelled", async () => {
@@ -2241,6 +2345,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
         sessionId: "s1",
         name: "read",
         summary: "/etc/hosts",
+        callId: "c1",
       },
     ]);
   });
@@ -2260,6 +2365,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
         sessionId: "s1",
         name: "bash",
         summary: "not-json{{",
+        callId: "c2",
       },
     ]);
   });
@@ -2278,8 +2384,15 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
         sessionId: "s1",
         name: "grep",
         summary: "a=b n=1",
+        callId: "c3",
       },
-      { type: "tool-call", sessionId: "s1", name: "x", summary: "(无参数)" },
+      {
+        type: "tool-call",
+        sessionId: "s1",
+        name: "x",
+        summary: "(无参数)",
+        callId: "c4",
+      },
     ]);
   });
 
@@ -2297,6 +2410,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
         sessionId: "s1",
         name: "read",
         summary: longPath,
+        callId: "c5",
       },
     ]);
   });

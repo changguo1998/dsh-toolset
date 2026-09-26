@@ -92,6 +92,7 @@ class FakePermissionAdapter implements DshAdapter {
     this.commands.push(line);
   }
   approve(): void {}
+  cancelApproval(): void {}
   answerQuestion(): void {}
   cancelQuestion(): void {}
   interrupt(): void {}

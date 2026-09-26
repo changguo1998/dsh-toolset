@@ -100,6 +100,7 @@ class FakeTaskAdapter implements DshAdapter {
   sendMessage(): void {}
   runCommand(): void {}
   approve(): void {}
+  cancelApproval(): void {}
   answerQuestion(): void {}
   cancelQuestion(): void {}
   interrupt(): void {}

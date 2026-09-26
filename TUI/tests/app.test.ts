@@ -170,7 +170,25 @@ class FakeAdapter implements DshAdapter {
   dispose(): void {
     this.disposed++;
   }
-  approve(_id: string, _allow: boolean): void {}
+  /** 审批应答记录（BACKLOG 3.2.4 / 3.3.1 断言用） */
+  approvals: { id: string; allow: boolean }[] = [];
+  approve(id: string, allow: boolean): void {
+    this.approvals.push({ id, allow });
+  }
+  cancelledApprovals: string[] = [];
+  cancelApproval(id: string): void {
+    this.cancelledApprovals.push(id);
+  }
+  /** 收到过「停止超时」通知的审批 id（BACKLOG 3.3.5） */
+  stoppedTimeouts: string[] = [];
+  stopApprovalTimeout(id: string): void {
+    this.stoppedTimeouts.push(id);
+  }
+  /** 审批超时（ms）：用例可注入，验证 App 倒计时取 adapter 值（BACKLOG 3.3.2 同源） */
+  timeoutMs?: number;
+  approvalTimeoutMs(): number {
+    return this.timeoutMs ?? 60_000;
+  }
   /** 问答提交记录（含整批答案），供测试断言 */
   answeredQuestions: { id: string; answer: QuestionAnswer }[] = [];
   cancelledQuestions: string[] = [];
@@ -609,23 +627,163 @@ test("Esc 打断运行：agent 非 idle(thinking) 时调用 interrupt 一次", (
   assert.equal(renderer.closed, 0);
 });
 
-test("审批弹窗打开时 Esc 不打断不关闭：仅 y/n 应答（审批模式不变契约）", () => {
+test("审批按键白名单：无关键提示无效键、Esc 取消审批并关闭（BACKLOG 3.3.1）", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "agent-status", sessionId: "s1", status: "tool" });
   adapter.push({ type: "approval", id: "a1", prompt: "允许执行?" });
-  // Esc 不得打断运行、不得关闭审批弹窗
-  renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
-  assert.equal(adapter.interrupts, 0, "审批弹窗 Esc 不打断");
-  const frame = renderer.lastRender.join("\n");
-  assert.ok(frame.includes("允许执行?"), "审批弹窗仍打开");
-  // 其他按键（如 Ctrl+L 之外的普通键）也吞掉，不进入输入框
+  // 白名单外按键：不落输入栏、不打断，改在提示区给出无效键提示（面板仍开着）
   renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
-  assert.equal(adapter.log.length, 0, "审批弹窗普通键被吞");
-  // y 正常应答关闭弹窗，不触发 interrupt
-  renderer.press({ name: "y", ctrl: false, meta: false, shift: false });
-  assert.equal(adapter.interrupts, 0);
+  const frame = renderer.lastRender.join("\n");
+  assert.ok(frame.includes("[无效键]"), "无关键提示无效键");
+  assert.ok(frame.includes("允许执行?"), "无效键不关闭面板");
+  assert.equal(adapter.interrupts, 0, "审批态按键不打断");
+  // Esc：取消审批（cancelApproval）→ 面板关闭；仍不触发 interrupt
+  renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(adapter.cancelledApprovals, ["a1"], "Esc 调 cancelApproval");
+  assert.equal(adapter.interrupts, 0, "Esc 取消审批但不打断");
   const frame2 = renderer.lastRender.join("\n");
-  assert.ok(!frame2.includes("允许执行?"), "y 后审批弹窗关闭");
+  assert.ok(!frame2.includes("允许执行?"), "Esc 后审批弹窗关闭");
+});
+
+test("审批无效键：提示落在用户输入区（按键提示正上方），面板内不含提示（BACKLOG 3.3.8）", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "tool" });
+  adapter.push({ type: "approval", id: "a1", prompt: "允许执行?" });
+  const rows = (): string[] =>
+    plainFrame(renderer)
+      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")
+      .split("\n");
+  renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
+  const lines = rows();
+  const titleIdx = lines.findIndex((l) => l.includes("[审批]"));
+  const hintIdx = lines.findIndex((l) => l.includes("[无效键]"));
+  const optIdx = lines.findIndex((l) => l.includes("1. 批准"));
+  assert.ok(
+    titleIdx >= 0 && hintIdx > optIdx,
+    "提示应在面板下方（用户输入区）",
+  );
+  // 用户输入区可能占多行（footerHeight > 1），按键提示区在其**下方**若干行内
+  const keysIdx = lines.findIndex((l) => l.includes("▶选项·"));
+  assert.ok(
+    keysIdx > hintIdx,
+    "按键提示区位于提示行下方（屏幕左下）: " +
+      JSON.stringify(lines.slice(hintIdx, hintIdx + 4)),
+  );
+  assert.ok(
+    !lines.slice(titleIdx, optIdx).some((l) => l.includes("[无效键]")),
+    "面板内不再显示提示",
+  );
+  assert.ok(
+    lines[hintIdx]!.includes("[无效键] 审批仅响应"),
+    "提示内容与左对齐: " + JSON.stringify(lines[hintIdx]),
+  );
+});
+
+test("审批面板：Tab 切焦点窗，↑/↓ 语义随焦点窗分派（BACKLOG 3.3.4）", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "tool" });
+  adapter.push({
+    type: "approval",
+    id: "a1",
+    prompt: "允许执行?\n命令：\necho hi",
+  });
+  // 断言用去色文本（选项行带 SGR 着色；plainFrame 仅去掉行尾填充，故此处再剥一层 SGR）
+  const frame = (): string =>
+    plainFrame(renderer).replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
+  // 缺省焦点在选项窗：↑/↓ 移动「批准 / 拒绝」
+  assert.ok(frame().includes("▶选项"), "缺省焦点窗 = 选项");
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  assert.ok(
+    / >  2\. 拒绝/.test(frame()),
+    "↓ 移到拒绝项: " + frame().slice(0, 200),
+  );
+  // Tab → 描述窗：提示前缀切换，↑/↓ 不再移动选项（改为滚草稿）
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  assert.ok(frame().includes("▶草稿"), "Tab 后焦点窗 = 草稿");
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  assert.ok(/ >  2\. 拒绝/.test(frame()), "焦点在草稿窗时 ↓ 不移动选项");
+  // Tab 切回选项窗，焦点项仍在拒绝
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  assert.ok(frame().includes("▶选项"), "Tab 切回选项窗");
+  assert.ok(/ >  2\. 拒绝/.test(frame()), "切回后选项焦点保持");
+});
+
+test("审批：按过任意键后停止超时并隐藏倒计时（BACKLOG 3.3.5）", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.timeoutMs = 30_000;
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "tool" });
+  adapter.push({ type: "approval", id: "a1", prompt: "允许执行?" });
+  const frame = (): string =>
+    plainFrame(renderer).replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
+  assert.ok(frame().includes("(30s)"), "打开时有倒计时");
+  // 无效键也算「有操作」：停止自动超时 + 隐藏倒计时 + 面板保持打开
+  renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(
+    adapter.stoppedTimeouts,
+    ["a1"],
+    "按键后通知 adapter 停止超时",
+  );
+  assert.ok(!frame().includes("(30s)"), "倒计时隐藏");
+  assert.ok(frame().includes("允许执行?"), "面板不再因超时自动关闭");
+});
+
+test("审批倒计时取 adapter 实际超时值（同源，BACKLOG 3.3.2）", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.timeoutMs = 30_000;
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "tool" });
+  adapter.push({ type: "approval", id: "a1", prompt: "允许执行?" });
+  const frame = renderer.lastRender.join("\n");
+  assert.ok(
+    frame.includes("(30s)"),
+    "倒计时应取 adapter 的超时值（而非本地常量）: " + frame.slice(0, 240),
+  );
+});
+
+test("审批超时：approval-closed 关闭面板并给提示（BACKLOG 3.3.2 App 侧）", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "tool" });
+  adapter.push({ type: "approval", id: "a1", prompt: "允许执行?" });
+  assert.ok(renderer.lastRender.join("\n").includes("允许执行?"), "面板已打开");
+  adapter.push({ type: "approval-closed", id: "a1", reason: "timeout" });
+  const frame = renderer.lastRender.join("\n");
+  assert.ok(!frame.includes("允许执行?"), "超时后面板应关闭");
+  assert.ok(
+    frame.includes("审批已超时（按默认拒绝处理）"),
+    "应给出超时提示（默认拒绝语义）",
+  );
+  // 非当前 id 的 closed 事件不得误关（例如上次请求的迟到通知）
+  adapter.push({ type: "approval", id: "a2", prompt: "允许执行?" });
+  adapter.push({ type: "approval-closed", id: "a1", reason: "timeout" });
+  assert.ok(
+    renderer.lastRender.join("\n").includes("允许执行?"),
+    "id 不匹配时不关闭当前面板",
+  );
+});
+
+test("提问上下文：流式正文跨工具行带入面板（BACKLOG 3.2.10 / 3.2.12 端到端）", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({
+    type: "stream",
+    sessionId: "s1",
+    text: "这是提问前的说明正文。",
+  });
+  // 提问工具自身会留下工具行：来源必须能跨过它（3.2.12 修复点）
+  adapter.push({
+    type: "tool-call",
+    sessionId: "s1",
+    name: "bash",
+    summary: "echo hi",
+  });
+  adapter.push({
+    type: "question",
+    id: "q1",
+    questions: [{ id: "q1", question: "选哪个?", options: [{ label: "A" }] }],
+  });
+  const frame = renderer.lastRender.join("\n");
+  assert.ok(
+    frame.includes("这是提问前的说明正文。"),
+    "面板应把提问前的正文作为来源段显示: " + frame.slice(0, 300),
+  );
 });
 
 test("审批弹窗标题 △ 等待审批 着黄（warn/等待进行中）", () => {
@@ -2078,21 +2236,27 @@ test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多�
   assert.ok(plain.includes("部署：选择部署环境？"), "header 前缀渲染");
   // 面板只剩标题行（按键提示移到底部提示区）：body = 面板高 − 1（此处 3 行）→
   // 未导航时窗口锚定顶部，末尾的「自定义回答」兜底项被裁
-  assert.ok(plain.includes(">  生产"), "选项渲染：光标 > 首个选项");
-  assert.ok(plain.includes("    测试"), "第二选项进入初始窗口（body 3 行）");
+  assert.ok(
+    plain.includes(">  1. 生产"),
+    "选项渲染：光标 + 编号（BACKLOG 3.2.6 / 3.2.12）",
+  );
+  assert.ok(plain.includes("   2. 测试"), "第二选项进入初始窗口（body 3 行）");
   assert.ok(!plain.includes("自定义回答"), "初始窗口裁掉末位兜底项");
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
-  assert.ok(plainFrame(renderer).includes(">  测试"), "↓ 后第二选项带光标可见");
+  assert.ok(
+    plainFrame(renderer).includes(">  2. 测试"),
+    "↓ 后第二选项带光标可见",
+  );
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(
-    plainFrame(renderer).includes(">  自定义回答"),
+    plainFrame(renderer).includes(">  3. 自定义回答"),
     "自定义兜底项在列表末位（继续 ↓ 带光标可见）",
   );
   // 动态按键提示：多题首题 Enter=下一题；有预设显示空格/上下；多题显示切题；
   // Tab 切焦点窗（BACKLOG 3.2.1）
   assert.ok(plain.includes("[Enter]下一题"), "非末题 Enter 显示下一题");
   assert.ok(!plain.includes("提交"), "非末题不显示提交");
-  assert.ok(plain.includes("[空格]标记"), "有预设选项显示空格标记");
+  assert.ok(plain.includes("[空格/1-9]标记"), "有预设选项显示空格/数字标记");
   assert.ok(plain.includes("[↑/↓]选项"), "有预设选项显示上下导航");
   assert.ok(plain.includes("[←/→]切题"), "多题显示切题");
   assert.ok(plain.includes("[Tab]描述"), "焦点在选项窗时提示 Tab 切到描述窗");
@@ -2104,11 +2268,11 @@ test("问答面板：↑/↓ 移动高亮，空格单选并替换，末题 Enter
   pushQuestion(adapter);
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
-  assert.ok(plainFrame(renderer).includes(">* 测试"), "单选标记 *");
+  assert.ok(/\* \d+\. 测试/.test(plainFrame(renderer)), "单选标记 *");
   renderer.press({ name: "up", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
-  assert.ok(plainFrame(renderer).includes(">* 生产"), "改选替换为生产");
-  assert.ok(!plainFrame(renderer).includes("* 测试"), "单选替换后旧项无 *");
+  assert.ok(/\* \d+\. 生产/.test(plainFrame(renderer)), "改选替换为生产");
+  assert.ok(!/\* \d+\. 测试/.test(plainFrame(renderer)), "单选替换后旧项无 *");
   // 第 1 题答完后 Enter：还有下一题 → 进入第 2 题（不提交）
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.ok(
@@ -2145,8 +2309,8 @@ test("问答面板：←/→ 切题（第 n/m），多选 toggle，提交含多�
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
-  assert.ok(plainFrame(renderer).includes("+ 日志"), "多选标记 +");
-  assert.ok(!plainFrame(renderer).includes("+ 快照"), "重选取消多选标记");
+  assert.ok(/\+ \d+\. 日志/.test(plainFrame(renderer)), "多选标记 +");
+  assert.ok(!/\+ \d+\. 快照/.test(plainFrame(renderer)), "重选取消多选标记");
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   const { answer } = adapter.answeredQuestions[0]!;
   assert.deepEqual(answer.answers, [
@@ -2180,7 +2344,7 @@ test("问答面板：↓ 到自定义兜底项键入，可追加/空格/退格�
   // 单选互斥：↑ 回“测试”并按空格选预设 → custom 被清空
   renderer.press({ name: "up", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
-  assert.ok(plainFrame(renderer).includes(">* 测试"), "单选选预设");
+  assert.ok(/\* \d+\. 测试/.test(plainFrame(renderer)), "单选选预设");
   assert.ok(
     !plainFrame(renderer).includes("自定义回答："),
     "单选选预设清空自定义文本",
@@ -2202,7 +2366,7 @@ test("问答面板：多选预设 + 自定义并存，提交同时含 selected �
   pushQuestion(adapter);
   renderer.press({ name: "right", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false }); // 选“日志”
-  assert.ok(plainFrame(renderer).includes("+ 日志"), "多选保留预设选中");
+  assert.ok(/\+ \d+\. 日志/.test(plainFrame(renderer)), "多选保留预设选中");
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "n", ctrl: false, meta: false, shift: false });
@@ -2251,7 +2415,7 @@ test("问答面板：Tab 切焦点窗（描述窗 <-> 选项窗），不落入�
   );
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(
-    plainFrame(renderer).includes(">  生产"),
+    plainFrame(renderer).includes(">  1. 生产"),
     "描述窗焦点下 ↓ 不移动选项光标",
   );
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
@@ -2349,24 +2513,24 @@ test("问答面板：选项按状态着色——已选行绿（光标同在此�
   const frame = (): string => renderer.lastRender.join("\n");
   // 光标默认在选项 0（生产）且未标记 → warn 黄
   assert.ok(
-    frame().includes("\x1b[38;2;233;201;68m >  生产"),
+    frame().includes("\x1b[38;2;233;201;68m >  1. 生产"),
     "未选中的光标行应着 warn 黄",
   );
   // 空格标记「生产」→ 光标行同时为已选行 → success 绿（选中优先于光标）
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
   assert.ok(
-    frame().includes("\x1b[38;2;97;211;131m >* 生产"),
+    frame().includes("\x1b[38;2;97;211;131m >* 1. 生产"),
     "光标+已选行应着 success 绿",
   );
   // 下移光标到「测试」→「生产」变已选非光标行 → success 绿
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(
-    frame().includes("\x1b[38;2;97;211;131m  * 生产"),
+    frame().includes("\x1b[38;2;97;211;131m  * 1. 生产"),
     "已选非光标行应着 success 绿",
   );
   // 移开后「测试」为未选中的光标行 → warn 黄
   assert.ok(
-    frame().includes("\x1b[38;2;233;201;68m >  测试"),
+    frame().includes("\x1b[38;2;233;201;68m >  2. 测试"),
     "未选中的光标行应着 warn 黄",
   );
   app.dispose();

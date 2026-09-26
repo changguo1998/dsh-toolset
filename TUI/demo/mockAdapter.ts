@@ -101,6 +101,14 @@ export class MockDshAdapter implements DshAdapter {
     });
   }
 
+  cancelApproval(id: string): void {
+    this.emit({
+      type: "stream",
+      sessionId: this.sessionId,
+      text: `[审批 ${id} → 取消 ✗]`,
+    });
+  }
+
   answerQuestion(id: string, answer: QuestionAnswer): void {
     this.answeredQuestions.push({ id, answer });
     this.emit({

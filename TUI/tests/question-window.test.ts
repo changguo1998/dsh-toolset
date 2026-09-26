@@ -90,7 +90,7 @@ test("分窗：长题干不把选项挤出可视区（描述窗 + 选项窗同�
     "题干出现在描述窗: " + JSON.stringify(lines),
   );
   assert.ok(
-    lines.some((l) => l.includes(">  生产")),
+    lines.some((l) => l.includes(">  1. 生产")),
     "首个选项仍在可视区（不再被长题干挤出）: " + JSON.stringify(lines),
   );
 });
@@ -200,8 +200,8 @@ test("选项形态：解释另起一行、缩进 4 列，标记只在选项首�
   const desc = lines.findIndex((l) => l.includes("部署到生产环境"));
   assert.ok(desc > head, "解释行紧随选项首行");
   assert.ok(
-    /^ {4}\S/.test(lines[desc]!),
-    "解释行缩进 4 列（对齐选项正文起点）: " + JSON.stringify(lines[desc]),
+    /^ {7}\S/.test(lines[desc]!),
+    "解释行与选项内容左对齐（7 列）: " + JSON.stringify(lines[desc]),
   );
   assert.ok(
     !/^ *[>*+]/.test(lines[desc]!),
@@ -374,7 +374,7 @@ test("焦点互斥：聚焦描述窗时选项光标降色，全屏只有一处�
     rowAnsi(r),
   );
   assert.ok(
-    optFrame.some((l) => l.includes(YELLOW) && l.includes(">  A")),
+    optFrame.some((l) => l.includes(YELLOW) && l.includes(">  1. A")),
     "焦点在选项窗时该行着黄: " + JSON.stringify(optFrame),
   );
   // Tab 到描述窗：选项光标降色（不再黄），题干焦点条着黄
@@ -383,7 +383,7 @@ test("焦点互斥：聚焦描述窗时选项光标降色，全屏只有一处�
     rowAnsi(r),
   );
   assert.ok(
-    !descFrame.some((l) => l.includes(YELLOW) && l.includes(">  A")),
+    !descFrame.some((l) => l.includes(YELLOW) && l.includes(">  1. A")),
     "聚焦描述窗时选项光标降色: " + JSON.stringify(descFrame),
   );
   assert.ok(
@@ -441,12 +441,12 @@ test("审批描述窗滚动条：长草稿左侧画轨道与滑块（BACKLOG 3.2
     "\n",
   );
   const approval = { id: "a1", prompt };
-  const height = 6; // 标题 1 行 + body 5 行
+  const height = 6; // 面板体 5：描述窗 ≤ floor(5×2/3) = 3 行 + 选项窗 2 行（3.2.11 规则）
   const width = 60;
   const top = plain(renderApprovalPrompt(approval, height, width, 0));
   assert.ok(
     top[1]?.startsWith("┃"),
-    "顶部时滑块在 body 首行: " + JSON.stringify(top),
+    "顶部时滑块在描述窗首行: " + JSON.stringify(top),
   );
   assert.ok(
     top.slice(1).some((l) => l.startsWith("│")),
@@ -455,15 +455,21 @@ test("审批描述窗滚动条：长草稿左侧画轨道与滑块（BACKLOG 3.2
   const max = maxApprovalScroll(approval, height, width);
   const bottom = plain(renderApprovalPrompt(approval, height, width, max));
   assert.ok(
-    bottom[height - 1]?.startsWith("┃"),
-    "滚到底时滑块在 body 末行: " + JSON.stringify(bottom),
+    bottom[3]?.startsWith("┃"),
+    "滚到底时滑块在描述窗末行（第 3 行）: " + JSON.stringify(bottom),
   );
-  // 内容不足一屏：不画滚动条，保持 ` 文本` 形态
+  // 选项窗始终可见（描述窗吃 2/3 后仍有 2 行放「批准 / 拒绝」）
+  assert.ok(
+    bottom.some((l) => l.includes("批准")) &&
+      bottom.some((l) => l.includes("拒绝")),
+    "选项窗可见: " + JSON.stringify(bottom),
+  );
+  // 内容不足一屏：描述窗不画滚动条，保持 ` 文本` 形态
   const short = plain(
     renderApprovalPrompt({ id: "a2", prompt: "允许执行?" }, height, width, 0),
   );
   assert.ok(
-    short.slice(1).every((l) => l === "" || l.startsWith(" ")),
+    short[1]?.startsWith(" "),
     "短内容不画滚动条: " + JSON.stringify(short),
   );
 });

@@ -236,3 +236,32 @@ test("topPaneSplit：divisor 同时决定纵向高与横向宽（语义一致）
   const v = topPaneSplit(20, 60, 4, undefined, "vertical");
   assert.equal(v.activityH, 5, "活动 pane 高 = floor(20/4)");
 });
+
+test("审批段：approval.timeoutMs 解析与回落（BACKLOG 3.3.7）", () => {
+  assert.equal(
+    normalizeConfig({ approval: { timeoutMs: 30_000 } }).approval?.timeoutMs,
+    30_000,
+    "正常值解析",
+  );
+  assert.equal(
+    normalizeConfig({ approval: { timeoutMs: 12_345.9 } }).approval?.timeoutMs,
+    12_345,
+    "取整",
+  );
+  assert.equal(
+    normalizeConfig({ approval: { timeoutMs: 999 } }).approval,
+    undefined,
+    "低于 1s 视为非法（回落缺省）",
+  );
+  assert.equal(
+    normalizeConfig({ approval: { timeoutMs: "30s" } }).approval,
+    undefined,
+    "非数字忽略",
+  );
+  assert.equal(
+    normalizeConfig({ approval: {} }).approval,
+    undefined,
+    "空段 → undefined（由 main 回落缺省 30s）",
+  );
+  assert.equal(normalizeConfig({}).approval, undefined, "未配置 → undefined");
+});

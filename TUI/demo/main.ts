@@ -177,8 +177,16 @@ if (smoke) {
         tone: "info",
       });
       await sleep(200);
+      // BACKLOG 3.3.1 新契约：Esc = 取消审批（应答 cancelled、关面板、不打断 turn）
       renderer.emitKey(key("escape"));
       await sleep(200);
+      // 取消后重开一条：用 y 直答（白名单两条主路径都在冒烟里走一遍）
+      adapter.emitEvent({
+        type: "approval",
+        id: "smoke-ap2",
+        prompt: "允许执行?（y/n）",
+      });
+      await sleep(250);
       renderer.emitKey(key("y"));
       await sleep(300);
 
@@ -292,8 +300,16 @@ if (smoke) {
       // 面板内不再内嵌键位（原先面板内的红/绿着色随迁移取消）
       ok(
         "approval-hint-bottom",
-        plain.includes("[y]批准 · [n]拒绝 · [Esc]退出"),
+        plain.includes(
+          "▶选项·[Enter]提交·[Esc]取消·[↑/↓]选项·[Tab]草稿·[1/2]直答",
+        ),
         "approval keys should show on the bottom hint line",
+      );
+      // Esc = 取消审批（3.3.1）：mock 适配器把取消回执打成一行流式文本
+      ok(
+        "approval-esc-cancelled",
+        plain.includes("取消 ✗"),
+        "Esc should cancel the approval request",
       );
       ok(
         "approval-hint-not-colored",
@@ -324,7 +340,7 @@ if (smoke) {
       // 问答面板选项着色：初始光标行（生产）黄
       ok(
         "question-option-focus-yellow",
-        smokeOut.includes(smokeSgr("yellow") + " >  生产"),
+        smokeOut.includes(smokeSgr("yellow") + " >  1. 生产"),
         "question option focus row should be yellow",
       );
       ok(
