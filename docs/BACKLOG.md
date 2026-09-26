@@ -85,9 +85,9 @@
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
-| 42 | **进行中（2026-09-27）**：**规则触发的自动注入**：按设定规则（关键词 / 正则 / 自定义谓词）检测模型回复或事件流，命中后**代替用户**向下一回合注入一条内容（如检测到非推荐符号即发更正要求、检测到越界操作即发约束提醒） | 用户 2026-09-26 提出；现成先例 = TUI 的符号纠正（`symbols.ts` 判定 + turn-end 后 `followup`） | 新插件 `rule-engine`（匹配面 `assistant/message` / `tool/call` / `tool/result` / `turn/end`，动作走 `agent.followup` + `sessions.flush`）；追踪文档 `docs/implementation/2026-09-27-rule-engine.md` | P2 |
+| 42 | **完成（2026-09-27）**：**规则触发的自动注入**：按设定规则（关键词 / 正则 / 自定义谓词）检测模型回复或事件流，命中后**代替用户**向下一回合注入一条内容（如检测到非推荐符号即发更正要求、检测到越界操作即发约束提醒） | 用户 2026-09-26 提出；现成先例 = TUI 的符号纠正（`symbols.ts` 判定 + turn-end 后 `followup`） | 新插件 `rule-engine`（匹配面 `assistant/message` / `tool/call` / `tool/result` / `turn/end`，动作走 `agent.followup` + `sessions.flush`）；追踪文档 `docs/archived/2026-09-27-rule-engine.md` | P2 |
 
-> 落地形态已定稿（2026-09-27）：**① 新插件 `rule-engine`**（规则表 + 注入动作，跨包通用）；不并入 TUI，TUI 符号纠正改为其消费者另开条目（#43）。本轮范围、裁定与实现见 `docs/implementation/2026-09-27-rule-engine.md`。
+> 落地形态已定稿（2026-09-27）：**① 新插件 `rule-engine`**（规则表 + 注入动作，跨包通用）；不并入 TUI，TUI 符号纠正改为其消费者另开条目（#43）。本轮范围、裁定与实现见 `docs/archived/2026-09-27-rule-engine.md`。
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
