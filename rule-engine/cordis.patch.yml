@@ -1,0 +1,3 @@
+- insert:
+    - id: rule-engine
+      name: '@dsh-toolset/rule-engine'
