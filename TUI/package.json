@@ -1,42 +1,42 @@
 {
-    "name": "@dsh-toolset/tui",
-    "version": "0.1.0",
-    "description": "DSH (DeepSeek Harness) 进程内集成终端 UI",
-    "type": "module",
-    "bin": {
-        "tui": "./bin/tui.js"
-    },
-    "main": "dist/src/main.js",
-    "scripts": {
-        "bench": "node --experimental-transform-types bench/layout-bench.mts",
-        "build": "tsc -p tsconfig.json",
-        "check": "tsc -p tsconfig.json --noEmit",
-        "demo": "npm run build && node dist/demo/main.js",
-        "gen:width-table": "node scripts/gen-width-table.mts",
-        "smoke:pty": "node demo/smokePty.mjs",
-        "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
-        "watch": "tsc -p tsconfig.json --watch"
-    },
-    "dependencies": {
-        "chalk": "^5.6.2"
-    },
-    "devDependencies": {
-        "@types/node": "^24.13.3",
-        "typescript": "^5.9.3"
-    },
-    "files": [
-        "dist",
-        "bin",
-        "LICENSE",
-        "README.md",
-        "cordis.patch.yml"
-    ],
-    "engines": {
-        "node": ">=22.19.0"
-    },
-    "dsh": {
-        "bundle": {
-            "patch": "./cordis.patch.yml"
-        }
+  "name": "@dsh-toolset/tui",
+  "version": "0.1.0",
+  "description": "DSH (DeepSeek Harness) 进程内集成终端 UI",
+  "type": "module",
+  "bin": {
+    "tui": "./bin/tui.js"
+  },
+  "main": "dist/src/main.js",
+  "scripts": {
+    "bench": "node --experimental-transform-types bench/layout-bench.mts",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "demo": "npm run build && node dist/demo/main.js",
+    "gen:width-table": "node scripts/gen-width-table.mts",
+    "smoke:pty": "node demo/smokePty.mjs",
+    "test": "sh scripts/test.sh",
+    "watch": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "chalk": "^5.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
     }
+  }
 }

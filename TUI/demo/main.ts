@@ -24,6 +24,7 @@ import {
 } from "../src/renderer/theme.ts";
 import { App } from "../src/app/index.ts";
 import { createProcessStatusQueries } from "../src/app/status.ts";
+import { TITLE_ICON } from "../src/app/layout.ts";
 import { createMockDshAdapter, type MockDshAdapter } from "./mockAdapter.ts";
 
 const tuiConfig = loadTuiConfig();
@@ -355,25 +356,15 @@ if (smoke) {
       const flatFrames = (): string =>
         smokeFrames.join("\n").replace(/[│\s]+/g, "");
       // P7：Mode 块已从状态列移除 → 会话状态符号改在**标题栏首行**（preset + 图标组 + 标题）。
-      // 图标是 Nerd Font 私有区字形，按码位断言（终端字体差异不影响判断）
+      // 图标是 Nerd Font 私有区字形，按码位断言（终端字体差异不影响判断）；期望值直接取
+      // 源码 `layout.ts` 的 TITLE_ICON（同一来源，避免 demo 硬写码位随源码漂移而假失败）
       const modeIconsPlain = flatFrames();
-      const ICON = {
-        box: "\u{ED95}",
-        boxClosed: "\u{ED75}",
-        ask: "\u{F1739}",
-        never: "\u{F1414}",
-        route: "\u{EDA6}",
-        verbose: "\u{F09AA}",
-        unify: "\u{F04C6}",
-        bell: "\u{F009F}",
-        preset: "\u{F0A66}",
-      };
       ok(
         "titlebar-mode-icons",
-        (modeIconsPlain.includes(ICON.box) ||
-          modeIconsPlain.includes(ICON.boxClosed)) &&
-          modeIconsPlain.includes(ICON.ask) &&
-          modeIconsPlain.includes(ICON.route),
+        (modeIconsPlain.includes(TITLE_ICON.boxOpen) ||
+          modeIconsPlain.includes(TITLE_ICON.boxClosed)) &&
+          modeIconsPlain.includes(TITLE_ICON.policyAsk) &&
+          modeIconsPlain.includes(TITLE_ICON.plan),
         "no title-bar status icons (sandbox / policy / plan) in frames",
       );
       ok(
@@ -532,7 +523,7 @@ if (smoke) {
       // 用 raw 帧的绿色 SGR（dark #61D383）断言 ask 为生效项（区分色而非文本）
       ok(
         "policy-badge-ask",
-        smokeOut.includes(smokeSgr("yellow") + ICON.ask),
+        smokeOut.includes(smokeSgr("yellow") + TITLE_ICON.policyAsk),
         "no yellow ask icon in the title bar",
       );
       typeLine("/policy never");
@@ -553,7 +544,7 @@ if (smoke) {
       );
       ok(
         "policy-badge-never",
-        smokeOut.includes(smokeSgr("green") + ICON.never),
+        smokeOut.includes(smokeSgr("green") + TITLE_ICON.policyNever),
         "no green never icon in the title bar after /policy never",
       );
       // P3：/preset 命令 + /jobs 面板 + 状态栏预设/任务徽标（mock 已实现新写路径）
@@ -578,7 +569,7 @@ if (smoke) {
       );
       ok(
         "preset-badge",
-        presetPlain.includes(ICON.preset + " code-review"),
+        presetPlain.includes(TITLE_ICON.preset + " code-review"),
         "no preset icon+name in the title bar",
       );
       // /jobs 面板：打开 → refreshJobs 拉取 → 任务状态行（标题 + label + 徽标计数）；Esc 关闭
