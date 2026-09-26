@@ -172,12 +172,12 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
   config:
     theme: light                # dark | light（默认 dark）
     messageGutter: 4            # 用户块左缘 / 回复右缘对称留空列数（默认 4，合法域 0..20）
-    toolBootstrap: true         # 锚定工具引导（默认 true，仅 deepseek-v4-pro 生效）
+    toolBootstrap: true         # 锚定工具引导（默认 true，全部 deepseek-* 模型生效）
 ```
 
 缺省或非法值回退默认并在启动时告警；改后需重启 `dsh --profile <p>`。默认 `messageGutter: 4` 使输入最长折行的左缘与回复正文第 3 个字符同列；要让它对齐回复的第 k 个字符，配置 `messageGutter: k+1`。
 
-**锚定工具引导（`toolBootstrap`，默认 true）**：移植 [dsh-anchored-standard](https://github.com/Jungod1121/dsh-anchored-standard) 的两阶段工具锁定-释放——按会话首个真实用户消息分类（spec / react / weak），首请求仅暴露 `bash` + `read`（spec 加 `edit`、react 加 `write`，`glob`/`grep` 永不进入）并把 persona 作为唯一 prompt section、清空 contexts；会话记录首次 `tool/call` 后解锁全量工具目录并恢复完整 sections。仅对 `deepseek-v4-pro` 生效，其它模型或 `toolBootstrap: false` 时原样透传；promotion 状态按会话记忆（resume 保留），任何异常降级为全量目录（fail-open）。
+**锚定工具引导（`toolBootstrap`，默认 true）**：移植 [dsh-anchored-standard](https://github.com/Jungod1121/dsh-anchored-standard) 的两阶段工具锁定-释放——按会话首个真实用户消息分类（spec / react / weak），首请求仅暴露 `bash` + `read`（spec 加 `edit`、react 加 `write`，`glob`/`grep` 永不进入）并把 persona 作为唯一 prompt section、清空 contexts；会话记录首次 `tool/call` 后解锁全量工具目录并恢复完整 sections。对全部 `deepseek-*` 模型生效（v4-pro / v4-flash / v4.1 / chat / reasoner / v3；门控原仅 v4-pro，2026-09-27 放宽，flash 在 weak 模式取 flash 版 persona），非 deepseek 模型或 `toolBootstrap: false` 时原样透传；promotion 状态按会话记忆（resume 保留），任何异常降级为全量目录（fail-open）。
 
 ### `TUI/tui.config.json`
 
@@ -245,7 +245,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 | `/permission [预设名]` | 权限预设（sandbox mode + 审批策略捆绑）：无参打开面板，带参转发宿主命令 |
 | `/preset [预设名]` | agent 预设：无参打开面板，带参经 `selectAgentPreset`（宿主 `recompose` 写路径）切换。本 TUI 按官方设计走 profile 全局组合、不挂 preset roster，故该命令提示「agent 预设服务不可用」属正常（见 `../docs/host/AGENT-COMPOSITION.md`） |
 | `/goal [<目标>\|edit <目标>\|pause\|resume\|clear]` | 无参：提示 goal / todo / jobs 详情常驻左侧状态列（不再打开面板）；带参：转发宿主 `dsh-command-goal` 管理当前会话 goal（`/goal <目标>` 新建、`edit`/`pause`/`resume`/`clear` 改／暂停／恢复／清除） |
-| `/stats`（`/usage` `/context`） | 最近一次模型调用的 token 用量：分解（输入/输出/缓存读）、上下文占用、缓存命中率 |
+| `/stats`（`/usage` `/context`） | token 用量**双口径**：「最近一次调用」（输入/输出/缓存读，含上下文占用与缓存命中率）与「本会话累计」（逐次调用求和，会话切换/恢复时清零，`/clearscreen` 不清） |
 | `/session` | 会话面板：列出持久化会话，Enter 切换（`agents.resume` 恢复后继续对话，并回填该会话的模型 / 模式与策略（plan、sandbox、审批策略）/ goal / todo / `verbose`、`symbol-unify` 开关 / 状态列显隐）；`Tab` 切换范围（当前目录 / 全部）、`Space` 批量标记（`a` 全选当前范围、`c` 清空）、`d`/Delete 删除（有标记=批量删除全部标记，无标记=删当前高亮）、`x` 清理空会话、`/session clean` 直达清理确认 |
 | `/rename <标题>` | 重命名当前会话标题（写宿主 `sessionTitle.rename`；空标题或含换行本地拒绝） |
 | `/copy` | 复制最后一条模型回复到系统剪贴板（OSC52，剥离 ANSI） |

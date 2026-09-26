@@ -6,11 +6,11 @@
 > 编号口径（2026-09-26 重排）：现行条目用**扁平连续 `#n`**（与项目级 `docs/BACKLOG.md` 一致）；历史上按「章节.序号」编号的条目（`3.x.y`）已于同日清理，记录见 git 提交与 `TUI/docs/archived/`，故现行编号不复用旧号段。本文件的 `#n` 与项目级 `docs/BACKLOG.md` 的 `#N` **互不关联**、各自文件内唯一，跨层引用须写明文件路径。
 > 分组口径（2026-09-26 修订，按用户要求）：按**验收方式**分两类——**需要交互**指验证时必须动手操作（敲命令、按键、输入文字、带参数启动、等超时）；**不需要交互**指看一眼结果或跑自动化即可（渲染、排版、显示、内部机制、外部依赖）。判断标准是「验证时是否需要操作」，不是「改动是否可见」。
 
-## 待办（共 11 条）
+## 待办（共 12 条）
 
 > 共同落点：`src/app/components/QuestionPrompt.ts`（问答面板渲染）、`src/app/components/ApprovalPrompt.ts`（审批面板渲染）、`src/app/index.ts` 的 `handleKey` 面板分支、`src/app/adapter/dsh.ts`（审批应答与超时）、`src/app/state.ts`（面板状态 + reducer）。
 
-### 需要交互（5 条：#1 / #2 / #5 / #7 / #10）
+### 需要交互（6 条：#1 / #2 / #5 / #7 / #10 / #12）
 
 > 验收时要动手：敲命令、按参数启动、在面板里输入或按键。
 
@@ -26,15 +26,17 @@
 
 - **#10 `/agents` 刷新方式**：宿主无 subagent 状态事件面，现为打开期间每 2s 定时刷新 + `r` 手动；宿主补事件面后可改为事件驱动。
 
+- **#12 会话切换后 `state.usage`（最近一次调用）未清零**：`history-resume-ok` / `session-switch` 现在只清零本会话累计（TUI#9 新增的 `usageTotals`），`state.usage` 仍保留**上一会话**的数值 → 切换后、下次模型调用前，状态栏 `ctx` / `cache` 段与 `/stats`「最近一次调用」行显示的是旧会话数据（恢复历史会话时该值本就不可知，显示 `—` 占位更诚实）。落点：`src/app/state.ts`（两处 reducer 与 `usage` 注释）、`tests/stats-rename.test.ts`。来源：2026-09-27 实现 TUI#9 时发现。
+
 ### 不需要交互（6 条：#3 / #4 / #6 / #8 / #9 / #11）
 
 > 验收时看结果或跑自动化即可：面板显示形态、历史区排版、状态栏显示、内部机制、外部依赖（#8 待外部修复后回归）。
 
-- **#3 历史区交错缩进减少 2 列（`messageGutter` 默认 6 → 4）**：回复右缘留白与用户块左缘缩进同步收窄；同步 `README.md` 里「与回复正文第 5 个字符同列」的示例描述（改为第 3 个）及相关断言、冻结基线。落点：`src/app/state.ts`（默认值）、`README.md`、`docs/SPEC.md`、`tests/`。来源：2026-09-26 用户规格。
+- **进行中（2026-09-27）** **#3 历史区交错缩进减少 2 列（`messageGutter` 默认 6 → 4）**：回复右缘留白与用户块左缘缩进同步收窄；同步 `README.md` 里「与回复正文第 5 个字符同列」的示例描述（改为第 3 个）及相关断言、冻结基线。落点：`src/app/state.ts`（默认值）、`README.md`、`docs/SPEC.md`、`tests/`。来源：2026-09-26 用户规格。
 
-- **#4 面板类型标识符号化（○ / □ / △）与标记统一为对勾**：问答面板不再显示 `[单选]` / `[多选]`、审批面板不再显示 `[审批]`，改用空心几何符号——单选 `○`、多选 `□`、审批 `△`，颜色均黄。**单题**时符号并入标题行；**多题**时在活动面板**最顶行单独一行**按题序列出全部问题符号，**当前题黄、其余灰**。选项标记 `*` / `+` 统一改为 **`✓`**（类型已由符号表达，标记不再区分单/多选）。待确认：符号间距、多题时标题行的题号导航是否保留。落点：`components/QuestionPrompt.ts`、`components/ApprovalPrompt.ts`、`docs/SPEC.md` §7.1、`tests/`、冻结基线。来源：2026-09-26 用户规格。
+- **进行中（2026-09-27）** **#4 面板类型标识符号化（○ / □ / △）与标记统一为对勾**：问答面板不再显示 `[单选]` / `[多选]`、审批面板不再显示 `[审批]`，改用空心几何符号——单选 `○`、多选 `□`、审批 `△`，颜色均黄。**单题**时符号并入标题行；**多题**时在活动面板**最顶行单独一行**按题序列出全部问题符号，**当前题黄、其余灰**。选项标记 `*` / `+` 统一改为 **`✓`**（类型已由符号表达，标记不再区分单/多选）。待确认：符号间距、多题时标题行的题号导航是否保留。落点：`components/QuestionPrompt.ts`、`components/ApprovalPrompt.ts`、`docs/SPEC.md` §7.1、`tests/`、冻结基线。来源：2026-09-26 用户规格。
 
-- **#6 面板题干与审批草稿渲染 markdown**：问答面板题干、审批面板描述改用既有 `layout/markdown.ts` 渲染（与历史区同口径：标题 / 列表 / 引用 / 代码 / 行内样式）；描述窗由「纯文本行 + 单一颜色」改为承载样式段行，折行 / 滚动 / 滚动条 / 焦点条逻辑不变。待确认：`detail`（计划卡片）是否一并渲染。落点：`components/QuestionPrompt.ts`、`components/ApprovalPrompt.ts`、`layout.ts`、`docs/SPEC.md`、`tests/`、冻结基线。来源：2026-09-26 用户规格。
+- **进行中（2026-09-27）** **#6 面板题干与审批草稿渲染 markdown**：问答面板题干、审批面板描述改用既有 `layout/markdown.ts` 渲染（与历史区同口径：标题 / 列表 / 引用 / 代码 / 行内样式）；描述窗由「纯文本行 + 单一颜色」改为承载样式段行，折行 / 滚动 / 滚动条 / 焦点条逻辑不变。待确认：`detail`（计划卡片）是否一并渲染。落点：`components/QuestionPrompt.ts`、`components/ApprovalPrompt.ts`、`layout.ts`、`docs/SPEC.md`、`tests/`、冻结基线。来源：2026-09-26 用户规格。
 
 - **#8 herdr pane 尺寸与其渲染区域不一致（外部问题，TUI 侧无法自行校正）**：在 herdr pane 里运行时，全宽横线（状态栏下边框等）右端比 pane 渲染区少 1~2 列、需 `Ctrl+L` 或拖动 pane 才恢复；同一构建在独立终端里正常（2026-09-24 实测确认）。取证与排查结论：
 
@@ -56,9 +58,9 @@
     EOF
     ```
 
-- **#9 `state.usage` 语义**：`/stats` 展示「最近一次模型调用」，不是会话累计；要累计值需另行采集（`tokenMeter.measure` 接入成本高）。
+- **进行中（2026-09-27）** **#9 `state.usage` 语义**：`/stats` 展示「最近一次模型调用」，不是会话累计；要累计值需另行采集（`tokenMeter.measure` 接入成本高）。
 
-- **#11 锚定引导（两阶段工具锁定-释放）门控放宽到全部 `deepseek-*` 模型**：现状 `installToolBootstrap` 的默认 `isTarget` 为 `isV4ProModel`（`/deepseek-v4.*pro/i`，即仅 V4 Pro 生效），flash 与非 deepseek 模型原样透传。改为**所有 `deepseek-*` 模型**都走两阶段（首请求 persona-only + core 工具，首个持久化 `tool/call` 后释放全量）；非 deepseek 与 `config.toolBootstrap: false` 仍零改动透传。注意：`personaFor` 已含 flash 分支（`PERSONA_WEAK_FLASH`），门控放宽后需确认 flash 取该分支；原设计前提是「V4 Pro 的能力上限由首个 API 请求所见内容决定」，放宽后应复核 flash 的实际表现，并在文档写明取舍。落点：`src/app/adapter/tool-bootstrap.ts`（门控判定与注释）、`docs/DESIGN.md`（门控口径）、`tests/tool-bootstrap.test.ts`、`TUI/README.md`（如涉及）。来源：2026-09-26 用户规格。
+- **进行中（2026-09-27）** **#11 锚定引导（两阶段工具锁定-释放）门控放宽到全部 `deepseek-*` 模型**：现状 `installToolBootstrap` 的默认 `isTarget` 为 `isV4ProModel`（`/deepseek-v4.*pro/i`，即仅 V4 Pro 生效），flash 与非 deepseek 模型原样透传。改为**所有 `deepseek-*` 模型**都走两阶段（首请求 persona-only + core 工具，首个持久化 `tool/call` 后释放全量）；非 deepseek 与 `config.toolBootstrap: false` 仍零改动透传。注意：`personaFor` 已含 flash 分支（`PERSONA_WEAK_FLASH`），门控放宽后需确认 flash 取该分支；原设计前提是「V4 Pro 的能力上限由首个 API 请求所见内容决定」，放宽后应复核 flash 的实际表现，并在文档写明取舍。落点：`src/app/adapter/tool-bootstrap.ts`（门控判定与注释）、`docs/DESIGN.md`（门控口径）、`tests/tool-bootstrap.test.ts`、`TUI/README.md`（如涉及）。来源：2026-09-26 用户规格。
 
 ## 已完成、不再跟踪
 
