@@ -655,7 +655,7 @@ test("审批无效键：提示落在用户输入区（按键提示正上方）�
       .split("\n");
   renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
   const lines = rows();
-  const titleIdx = lines.findIndex((l) => l.includes("[审批]"));
+  const titleIdx = lines.findIndex((l) => l.includes("△ 等待审批"));
   const hintIdx = lines.findIndex((l) => l.includes("[无效键]"));
   const optIdx = lines.findIndex((l) => l.includes("1. 批准"));
   assert.ok(
@@ -790,10 +790,8 @@ test("审批弹窗标题 △ 等待审批 着黄（warn/等待进行中）", () 
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "approval", id: "a1", prompt: "允许执行?" });
   assert.ok(
-    renderer.lastRender
-      .join("\n")
-      .includes("\x1b[38;2;233;201;68m △ [审批] 等待审批 "),
-    "等待审批标题应着 warn 黄（类型标识 BACKLOG 3.2.2）",
+    renderer.lastRender.join("\n").includes("\x1b[38;2;233;201;68m △ 等待审批"),
+    "等待审批标题应着 warn 黄（类型标识改为符号 △，BACKLOG TUI#4）",
   );
 });
 
@@ -2224,14 +2222,26 @@ function pushQuestion(adapter: FakeAdapter): void {
 const plainFrame = (renderer: FakeRenderer): string =>
   renderer.lastRender.join("\n");
 
+/** 帧纯文本（去 ANSI）：跨样式段的断言用（段边界处会插入转义序列） */
+const strippedFrame = (renderer: FakeRenderer): string =>
+  plainFrame(renderer).replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
+
 test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多题动态按键提示", () => {
   const { app, renderer, adapter } = makeApp();
   // 面板显示在流输出（活动区）窗口；压矮终端让活动区面板高度小、正文窗口受限，
-  // 保持「未导航锚定顶部、末位项被裁」语义（面板内不再有提示行 → body = 面板高 − 1）
-  renderer.size = { cols: 80, rows: 15 };
+  // 保持「未导航锚定顶部、末位项被裁」语义（多题标题区 2 行 = 符号行 + 标题行，
+  // 故 body = 面板高 − 2；BACKLOG TUI#4）
+  renderer.size = { cols: 80, rows: 16 };
   pushQuestion(adapter);
   const plain = plainFrame(renderer);
-  assert.ok(plain.includes("请回答（第 1/2 题）"), "标题含第 n/m 导航");
+  assert.ok(
+    strippedFrame(renderer).includes("1○ 2□"),
+    "多题顶部符号行：题号 + 类型符号，当前题黄（BACKLOG TUI#4）",
+  );
+  assert.ok(
+    plain.includes("请回答"),
+    "标题行（题号导航已移除，BACKLOG TUI#4）",
+  );
   assert.ok(plain.includes("选择部署环境？"), "题干渲染");
   assert.ok(plain.includes("部署：选择部署环境？"), "header 前缀渲染");
   // 面板只剩标题行（按键提示移到底部提示区）：body = 面板高 − 1（此处 3 行）→
@@ -2268,15 +2278,15 @@ test("问答面板：↑/↓ 移动高亮，空格单选并替换，末题 Enter
   pushQuestion(adapter);
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
-  assert.ok(/\* \d+\. 测试/.test(plainFrame(renderer)), "单选标记 *");
+  assert.ok(/✓ \d+\. 测试/.test(plainFrame(renderer)), "选中标记 ✓");
   renderer.press({ name: "up", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
-  assert.ok(/\* \d+\. 生产/.test(plainFrame(renderer)), "改选替换为生产");
-  assert.ok(!/\* \d+\. 测试/.test(plainFrame(renderer)), "单选替换后旧项无 *");
+  assert.ok(/✓ \d+\. 生产/.test(plainFrame(renderer)), "改选替换为生产");
+  assert.ok(!/✓ \d+\. 测试/.test(plainFrame(renderer)), "单选替换后旧项无 ✓");
   // 第 1 题答完后 Enter：还有下一题 → 进入第 2 题（不提交）
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.ok(
-    plainFrame(renderer).includes("请回答（第 2/2 题）"),
+    plainFrame(renderer).includes("保留哪些产物？"),
     "非末题 Enter 推进到下一题",
   );
   assert.ok(
@@ -2302,15 +2312,15 @@ test("问答面板：←/→ 切题（第 n/m），多选 toggle，提交含多�
   pushQuestion(adapter);
   renderer.press({ name: "right", ctrl: false, meta: false, shift: false });
   assert.ok(
-    plainFrame(renderer).includes("请回答（第 2/2 题）"),
-    "切到第 2 题",
+    plainFrame(renderer).includes("保留哪些产物？"),
+    "切到第 2 题（BACKLOG TUI#4 后题序由顶部符号行的当前题黄标出）",
   );
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
-  assert.ok(/\+ \d+\. 日志/.test(plainFrame(renderer)), "多选标记 +");
-  assert.ok(!/\+ \d+\. 快照/.test(plainFrame(renderer)), "重选取消多选标记");
+  assert.ok(/✓ \d+\. 日志/.test(plainFrame(renderer)), "多选标记 ✓");
+  assert.ok(!/✓ \d+\. 快照/.test(plainFrame(renderer)), "重选取消多选标记");
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   const { answer } = adapter.answeredQuestions[0]!;
   assert.deepEqual(answer.answers, [
@@ -2344,7 +2354,7 @@ test("问答面板：↓ 到自定义兜底项键入，可追加/空格/退格�
   // 单选互斥：↑ 回“测试”并按空格选预设 → custom 被清空
   renderer.press({ name: "up", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
-  assert.ok(/\* \d+\. 测试/.test(plainFrame(renderer)), "单选选预设");
+  assert.ok(/✓ \d+\. 测试/.test(plainFrame(renderer)), "单选选预设");
   assert.ok(
     !plainFrame(renderer).includes("自定义回答："),
     "单选选预设清空自定义文本",
@@ -2366,7 +2376,7 @@ test("问答面板：多选预设 + 自定义并存，提交同时含 selected �
   pushQuestion(adapter);
   renderer.press({ name: "right", ctrl: false, meta: false, shift: false });
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false }); // 选“日志”
-  assert.ok(/\+ \d+\. 日志/.test(plainFrame(renderer)), "多选保留预设选中");
+  assert.ok(/✓ \d+\. 日志/.test(plainFrame(renderer)), "多选保留预设选中");
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "n", ctrl: false, meta: false, shift: false });
@@ -2468,8 +2478,14 @@ test("问答面板：plan-review 单题以计划卡片呈现，hints 只显示�
     ],
   });
   const plain = plainFrame(renderer);
-  assert.ok(plain.includes("计划审批（第 1/1 题）"), "plan-review 标题");
-  assert.ok(plain.includes("[审批]"), "plan-review 类型标识（BACKLOG 3.2.2）");
+  assert.ok(
+    strippedFrame(renderer).includes("△  计划审批"),
+    "plan-review 标题：类型符号 △ 并入标题行（BACKLOG TUI#4）",
+  );
+  assert.ok(
+    !plain.includes("[审批]"),
+    "旧类型标识 [审批] 已移除（BACKLOG TUI#4）",
+  );
   assert.ok(plain.includes("待审计划"), "detail 卡片标题");
   assert.ok(plain.includes("批准该计划？"), "题干渲染");
   // 分窗（BACKLOG 3.2.1）：矮终端下面板 4 行 = 描述窗 2 行 + 选项窗 1 行——初始窗口
@@ -2519,13 +2535,13 @@ test("问答面板：选项按状态着色——已选行绿（光标同在此�
   // 空格标记「生产」→ 光标行同时为已选行 → success 绿（选中优先于光标）
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
   assert.ok(
-    frame().includes("\x1b[38;2;97;211;131m >* 1. 生产"),
+    frame().includes("\x1b[38;2;97;211;131m >✓ 1. 生产"),
     "光标+已选行应着 success 绿",
   );
   // 下移光标到「测试」→「生产」变已选非光标行 → success 绿
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(
-    frame().includes("\x1b[38;2;97;211;131m  * 1. 生产"),
+    frame().includes("\x1b[38;2;97;211;131m  ✓ 1. 生产"),
     "已选非光标行应着 success 绿",
   );
   // 移开后「测试」为未选中的光标行 → warn 黄

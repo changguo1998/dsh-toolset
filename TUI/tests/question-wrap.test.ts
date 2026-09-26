@@ -150,7 +150,7 @@ test("问答面板：选项折行后续行与首行同色（选中绿 / 未选�
     12,
     60,
   ).map((r) => rowAnsi(r));
-  const gi = green.findIndex((l) => l.includes(">* 1. 长"));
+  const gi = green.findIndex((l) => l.includes(">✓ 1. 长"));
   assert.ok(gi >= 0, "选中行存在: " + JSON.stringify(green));
   assert.ok(green[gi]!.includes(GREEN), "选中首行绿");
   assert.ok(

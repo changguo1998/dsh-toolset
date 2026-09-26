@@ -243,6 +243,15 @@
   - 单测：`tests/stats-rename.test.ts` 断言改双口径 + 新增「usage 双口径：会话累计 = 事件求和；会话切换/恢复清零、清屏不清零（TUI#9）」；无 usage 提示文案同步；文件头覆盖说明同步。
   - **途中发现（按流程已追加 BACKLOG）**：会话切换后 `state.usage`（最近一次调用）未清零 → 状态栏 `ctx`/`cache` 段与 `/stats` 首行在切换后会显示上一会话数值。已写入 `TUI/docs/BACKLOG.md` **#12**（归「需要交互」组，待其他 agent 接取），本任务按「计划外不改」不动它。
 
+- 2026-09-27 **#4 完成**（代码 + 断言 + 文档 + 基线）：
+
+  - `components/QuestionPrompt.ts`：`TAG_*`（旧 `[单选]` / `[多选]` / `[审批]`）→ 符号常量 `SYM_SINGLE` / `SYM_MULTI` / `SYM_PLAN` + `SYM_GAP`（符号后 2 空格）+ `OPTION_MARK`（`✓`）；新增 `typeSymOf` 与 `buildSymbolRow`（多题符号行：题号灰 + 当前题符号黄、超宽截断补灰 `…`、恒 1 行不折行）；`QuestionLayout` 增 `symbolRow` / `headerRows`（多题标题区 2 行 → `maxBody = height − headerRows`，caret 行号随之）；标题行改 ` △ ○  请回答`（单题）/ ` △ 请回答`（多题），**题号导航移除**；`markFor` 删除、选中标记统一 `✓`；本地 `chrW` / `displayWidth` 副本删除，改 import `charWidth` / `displayWidth`（列宽与 fill / 宽度探针同源）。
+  - `components/ApprovalPrompt.ts`：标题 `△ [审批] 等待审批` → ` △ 等待审批`（类型符号与状态标记 △ 合一、整行黄）；本地 `chrW` 副本删除、`wrapByWidth` 改走 `charWidth`。
+  - 断言：`tests/app.test.ts`（新增 `strippedFrame` 助手做跨样式段断言；标题 / 符号行 / plan-review 断言改新形态；`>*` / `+` 标记断言 → `>✓` / `✓`）；`tests/question-wrap.test.ts`（`>* 1. 长` → `>✓ 1. 长`）；`tests/question-window.test.ts`（类型标识用例重写为单题三符号 + 新增「多题符号行」用例：形态 / 当前题黄 / 超宽截断；审批标题断言同步）；`tests/approval-panel.test.ts`（标题断言）。
+  - 文档：`docs/SPEC.md` §7.1（「标题类型标识」「选项行形态」两条重写）、`docs/IMPLEMENTATION.md`（标题与选项形态）、`README.md`（问答面板段；模型选择面板的 `*` 属 `panelOptions`，未动）。
+  - 冻结基线：重跑脚本，差异仅 `panel-question@w60`（` △ [单选] 请回答（第 1/1 题）` → ` △ ○  请回答`）与 `panel-approval@w60`（去掉 `[审批]`）各 1 行，其余 13 场景零差异。
+  - 未做（计划内）：`layout/panel.ts` 的 `panelOptions` 标记；提问上下文 `source` 的渲染口径（随 #6 定）。
+
 ## 测试与证据
 
 **#3（已完成）**
@@ -272,7 +281,14 @@
 - `npm run build`：通过。渲染与状态栏口径未变（`state.usage` 语义保持「最近一次」），无需重跑冻结基线。
 - 未验证：真机 `/stats` 目视（人工确认环节，需用户执行）。
 
-**#4 / #6**：待实现后补齐。
+**#4（已完成）**
+
+- `npm run check`：通过；`./scripts/test.sh` 全量：**1146 通过 / 0 失败**；`npm run build`：通过；`npm run demo -- --smoke`：`SMOKE_PASS`。
+- 冻结基线差异审查：仅两处面板标题行（见「实现记录」逐场景比对结论），其余 13 场景零差异。
+- 新增/重写用例：多题符号行（形态 `1○ 2□ 3△`、当前题符号黄 / 其余灰、窄面板截断为 `…`）、单题三符号（`○` / `□` / `△`）并入标题行、旧 `[单选]`/`[多选]`/`[审批]` 与题号导航的「已移除」断言。
+- 未验证：真机面板目视（人工确认环节，需用户执行）。
+
+**#6**：待实现后补齐。
 
 ## 收尾
 

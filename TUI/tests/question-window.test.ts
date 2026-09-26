@@ -6,7 +6,7 @@
 //  2) 描述窗滚动：↑/↓ 逐行滚动，上界由 maxDescScrollFor 给出并被 reducer clamp
 //  3) 焦点窗：Tab 切换、↑/↓ 语义随之分派；焦点在描述窗时选项窗仍锚定已标记项
 //  4) 选项形态（3.2.3）：解释另起一行、缩进对齐选项正文起点、标记只在首行
-//  5) 类型标识（3.2.2）：[单选] / [多选] / [审批] 与第 n/m 题导航
+//  5) 类型标识（TUI#4）：单题符号 ○ / □ / △ 并入标题行；多题顶部符号行（题号 + 符号、当前题黄、超宽截断）；选项标记 ✓
 //  6) 编辑光标（3.2.7）：焦点在自定义兜底项时产出 caret（面板内 0 基行 + 0 基列）
 //  7) 审批描述窗（3.2.1）：长草稿可滚动查看末尾
 //  8) windowStart 共用窗口工具（3.2.1 的统一机制）
@@ -209,14 +209,18 @@ test("选项形态：解释另起一行、缩进 4 列，标记只在选项首�
   );
 });
 
-test("类型标识：单选 / 多选 / 审批（plan-review）与第 n/m 题导航（BACKLOG 3.2.2）", () => {
+test("类型标识：单题符号并入标题行（○ / □ / △），旧 [单选]/[多选]/[审批] 已移除（BACKLOG TUI#4）", () => {
   const single = questionState([
     { id: "q1", question: "问题", options: [{ label: "A" }] },
   ]);
-  const singleLines = plain(renderQuestionPanel(panelOf(single), 8, 60));
+  const singleRows = plain(renderQuestionPanel(panelOf(single), 8, 60));
   assert.ok(
-    singleLines.some((l) => l.includes("[单选]") && l.includes("第 1/1 题")),
-    "单选标识 + 题号导航: " + JSON.stringify(singleLines[0]),
+    singleRows[0]!.includes("○  请回答"),
+    "单选符号 ○ + 2 空格 + 标题: " + JSON.stringify(singleRows[0]),
+  );
+  assert.ok(
+    singleRows.every((l) => !l.includes("[单选]") && !l.includes("第 1/1 题")),
+    "旧类型标识与题号导航已移除",
   );
   const multi = questionState([
     {
@@ -226,11 +230,10 @@ test("类型标识：单选 / 多选 / 审批（plan-review）与第 n/m 题导�
       options: [{ label: "A" }],
     },
   ]);
+  const multiTitle = plain(renderQuestionPanel(panelOf(multi), 8, 60))[0]!;
   assert.ok(
-    plain(renderQuestionPanel(panelOf(multi), 8, 60)).some((l) =>
-      l.includes("[多选]"),
-    ),
-    "多选标识",
+    multiTitle.includes("□  请回答"),
+    "多选符号 □: " + JSON.stringify(multiTitle),
   );
   const plan = questionState([
     {
@@ -241,11 +244,52 @@ test("类型标识：单选 / 多选 / 审批（plan-review）与第 n/m 题导�
       options: [{ label: "批准" }],
     },
   ]);
+  const planTitle = plain(renderQuestionPanel(panelOf(plan), 8, 60))[0]!;
   assert.ok(
-    plain(renderQuestionPanel(panelOf(plan), 8, 60)).some((l) =>
-      l.includes("[审批]"),
-    ),
-    "plan-review 按审批标识",
+    planTitle.includes("△  计划审批"),
+    "plan-review 按审批符号 △: " + JSON.stringify(planTitle),
+  );
+});
+
+test("多题符号行：最顶行「题号 + 符号」（当前题黄、其余灰），超宽截断（BACKLOG TUI#4）", () => {
+  const st = questionState([
+    { id: "a", question: "问题一", options: [{ label: "A" }] },
+    {
+      id: "b",
+      question: "问题二",
+      multiSelect: true,
+      options: [{ label: "B" }],
+    },
+    {
+      id: "c",
+      question: "问题三",
+      intent: { kind: "plan-review", approve: "批准" },
+      options: [{ label: "C" }],
+    },
+  ]);
+  const rows = plain(renderQuestionPanel(panelOf(st), 10, 60));
+  assert.equal(
+    rows[0]!.trim(),
+    "1○ 2□ 3△",
+    "符号行形态: " + JSON.stringify(rows[0]),
+  );
+  assert.ok(
+    rows[1]!.includes("请回答"),
+    "标题行紧随符号行: " + JSON.stringify(rows[1]),
+  );
+  // 当前题（第 1 题）符号黄、其余灰
+  const ansi = rowAnsi(renderQuestionPanel(panelOf(st), 10, 60)[0]!);
+  assert.ok(
+    ansi.includes("233;201;68m○"),
+    "当前题符号黄: " + JSON.stringify(ansi),
+  );
+  assert.ok(!ansi.includes("233;201;68m□"), "非当前题符号不黄");
+  // 窄面板（可用宽 8 < 「 1○ 2□ 3△」所需 9 列）：截断为 `…` 收尾（恒 1 行，不折行）
+  const narrow = plain(renderQuestionPanel(panelOf(st), 10, 10));
+  assert.ok(narrow[0]!.includes("…"), "超宽截断: " + JSON.stringify(narrow[0]));
+  assert.ok(
+    !narrow[0]!.includes("3△"),
+    "截断后不出现后续题: " + JSON.stringify(narrow[0]),
   );
 });
 
@@ -295,8 +339,8 @@ test("审批描述窗：长草稿可滚动查看末尾（BACKLOG 3.2.1）", () =
     "初始可见首行",
   );
   assert.ok(
-    before.some((l) => l.includes("[审批]")),
-    "标题含类型标识（BACKLOG 3.2.2）",
+    before.some((l) => l.includes("△ 等待审批")),
+    "标题含类型符号 △（BACKLOG TUI#4）",
   );
   const after = plain(renderApprovalPrompt(approval, height, width, max));
   assert.ok(

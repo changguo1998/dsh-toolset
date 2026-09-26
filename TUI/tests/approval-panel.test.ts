@@ -50,8 +50,9 @@ test("审批面板：描述窗 + 选项窗两项（编号 + 批准项缺省焦�
     }),
   );
   assert.ok(
-    rows[0]!.includes("[审批]"),
-    "标题含类型标识: " + JSON.stringify(rows[0]),
+    rows[0]!.includes("△ 等待审批"),
+    "标题含类型符号 △（BACKLOG TUI#4；旧 `[审批]` 已移除）: " +
+      JSON.stringify(rows[0]),
   );
   assert.ok(
     rows.some((l) => l.includes("命令：")),

@@ -1,14 +1,15 @@
 // src/app/components/QuestionPrompt.ts — 问答面板渲染（纯函数）
 //
-// 以文本面板呈现 DSH 提问（与 ApprovalPrompt 同风格）：标题行 + 单题视图
-// （描述窗 + 选项窗两段）+ 第 n/m 题导航；按键提示**不在面板内**，
-// 统一由底部提示区按状态显示（见 layout/hints.ts 的 questionHintLine）。
+// 以文本面板呈现 DSH 提问（与 ApprovalPrompt 同风格）：标题区 + 单题视图
+// （描述窗 + 选项窗两段）。标题区（BACKLOG TUI#4）：单题 = 1 行（类型符号
+// ○ / □ / △ 并入标题行），多题 = 2 行（最顶行按题序列出「题号 + 符号」）。
+// 按键提示**不在面板内**，统一由底部提示区按状态显示（见 layout/hints.ts 的 questionHintLine）。
 //
 // 两窗模型（BACKLOG 3.2.1）：面板体按高度拆为
 //   - **描述窗**：题干 + detail（plan-review 追加计划卡片分隔行）；
 //   - **选项窗**：选项列表 + 自定义兜底项。
-// 选项窗行数 = min(选项总行数, max(1, floor(maxBody/2)))，描述窗拿剩余行
-// （至少 1 行）——两窗恒同屏，长题干 / 长 detail 不再把选项挤出可视区。
+// 分配为动态制（BACKLOG 3.2.11）：描述窗上限 = maxBody 的 2/3（内容不足只占实际行数），
+// 选项窗吃剩余行——两窗恒同屏，长题干 / 长 detail 不再把选项挤出可视区。
 // Tab 在 `state.question.items[i].focus` 上切焦点窗（desc <-> options）：
 // 焦点在选项窗时 ↑/↓ 移项（沿用原手感），焦点在描述窗时 ↑/↓ 逐行滚动题干。
 // 选项窗起点始终保证「焦点项」可见；焦点在描述窗时改锚定「首个已标记项」
@@ -19,8 +20,9 @@
 // “自定义回答”是固定在选项列表末尾的兜底项（无预设选项时列表仅此一项），
 // 与普通选项一样用 ↑/↓ 高亮；高亮在其上时键入字符即输入自定义文本，此时
 // 面板产出 caret（BACKLOG 3.2.7，见 questionCaretFor）。
-// 选项行形态（BACKLOG 3.2.3）：首行 ` >* 选项正文`，**解释另起一行**并按选项
-// 正文起点（4 列）缩进，`>` / `*` / `+` 标记只出现在选项首行。
+// 选项行形态（BACKLOG 3.2.3 / 3.2.12）：首行 ` >✓ 1. 选项正文`（标记统一 `✓`，
+// BACKLOG TUI#4），**解释另起一行**并按选项正文起点缩进，光标 `>` 与标记 `✓`
+// 只出现在选项首行。
 //
 // 输出恰好 height 行；题干/detail/选项超出面板可用宽均按行 soft-wrap（题干/选项
 // 续行按正文起点缩进、选项续行缩进 6 列更深（选项文字起点第 4 列 + 2），
@@ -31,12 +33,14 @@ import type {
   FrameSegment,
   FrameStyle,
 } from "../../renderer/index.ts";
-import type { QuestionPanelState } from "../state.ts";
+import type { QuestionPanelState, QuestionPanelItem } from "../state.ts";
 import type { Box, StyledText } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
 import { windowStart } from "../layout/panel.ts";
 import { fillBoxTree } from "../layout/fill.ts";
+// 列宽口径与 fill / 渲染器 / markdown 同源（吃运行时宽度探针的覆盖表；BACKLOG TUI#4）
+import { charWidth, displayWidth } from "../layout/markdown.ts";
 
 /**
  * 选项续行缩进（6 列 = 选项首行前缀 ` >* ` 4 列 + 2 列阶梯差）。选项行未选中
@@ -49,10 +53,16 @@ const OPTION_CONT_INDENT = "      ";
 /** 选项正文起点列（前缀 ` >* ` = 4 列）：解释行按此缩进（BACKLOG 3.2.3） */
 const OPTION_DESC_INDENT = "    ";
 
-/** 类型标识（BACKLOG 3.2.2）：plan-review 视同审批 */
-const TAG_PLAN = "[审批]";
-const TAG_MULTI = "[多选]";
-const TAG_SINGLE = "[单选]";
+/** 类型标识符号（BACKLOG TUI#4）：plan-review 视同审批；空心几何符号、均黄色 */
+const SYM_PLAN = "△";
+const SYM_MULTI = "□";
+const SYM_SINGLE = "○";
+
+/** 类型符号与标题文字之间的间隔（BACKLOG TUI#4 用户裁定：符号后 2 空格） */
+const SYM_GAP = "  ";
+
+/** 选项标记（BACKLOG TUI#4）：类型已由符号表达，标记不再区分单/多选，统一对勾 */
+const OPTION_MARK = "✓";
 
 /** 面板内光标位置（0 基行 + 0 基列；活动区列偏移由 layout 拼装时补上） */
 export interface PanelCaret {
@@ -71,8 +81,12 @@ interface PanelLine {
 /** 问答面板排版结果：渲染 / caret / 滚动上界共用同一份计算（单一来源） */
 interface QuestionLayout {
   title: StyledText;
+  /** 多题时最顶行的「题号 + 类型符号」行（单题 = null：符号并入标题行；BACKLOG TUI#4） */
+  symbolRow: StyledText | null;
+  /** 标题区行数（单题 1 / 多题 2）：面板体 = height − headerRows */
+  headerRows: number;
   body: PanelLine[];
-  /** 面板内 0 基 caret 行（标题行占第 0 行）；无编辑焦点或不可见时为 null */
+  /** 面板内 0 基 caret 行（标题区占开头 headerRows 行）；无编辑焦点或不可见时为 null */
   caret: PanelCaret | null;
   /** 描述窗最大首行偏移（0 = 内容不足，无需滚动） */
   maxDescScroll: number;
@@ -87,7 +101,7 @@ export function buildQuestionPanelBox(
   width: number,
 ): Box {
   const layout = layoutQuestionPanel(panel, height, width);
-  const maxBody = Math.max(0, height - 1);
+  const maxBody = Math.max(0, height - layout.headerRows);
   // body 行（着色取自排版结果：选项行含折行续行与解释行整块同色）
   const bodyLeaves = Array.from({ length: maxBody }, (_, i) => {
     const line = layout.body[i];
@@ -105,7 +119,12 @@ export function buildQuestionPanelBox(
     }
     return styled(segments, { wrap: false });
   });
-  return v([layout.title, ...bodyLeaves]);
+  // 多题：顶部独立一行列出全部题的「题号 + 类型符号」（当前题黄、其余灰；BACKLOG TUI#4）
+  return v([
+    ...(layout.symbolRow ? [layout.symbolRow] : []),
+    layout.title,
+    ...bodyLeaves,
+  ]);
 }
 
 /** 描述窗滚动上界（App 按键时算 max 进 action：state 层不知道折行宽度） */
@@ -137,7 +156,11 @@ function layoutQuestionPanel(
 ): QuestionLayout {
   // 面板可用宽：右侧只留 1 列（原为 4 列，人工验收反馈「内容行右侧留白太多」）
   const avail = Math.max(4, width - 2);
-  const maxBody = Math.max(0, height - 1); // 只剩标题行；按键提示移到底部提示区
+  // 标题区：单题 = 1 行（类型符号并入标题行）；多题 = 2 行（最顶行单独列出全部题符号）
+  // ——BACKLOG TUI#4；按键提示移到底部提示区，不占面板行
+  const total = panel.items.length;
+  const headerRows = total > 1 ? 2 : 1;
+  const maxBody = Math.max(0, height - headerRows);
   const item = panel.items[panel.itemIndex];
   // 选项行格式（BACKLOG 3.2.6 / 3.2.12）：` ${光标}${标记} ${编号}. ${内容}`
   //   - 编号宽度按「最大编号位数」取（含自定义兜底项）：1 位（≤9 项）或 2 位（≥10 项）
@@ -147,7 +170,6 @@ function layoutQuestionPanel(
   // 续行与选项解释一律缩进到内容起点（数字悬挂：续行不重复编号）；面板极窄时退回 4 列，
   // 避免缩进自身被折行（BACKLOG 3.2.1）
   const contIndent = avail > optTextStart ? " ".repeat(optTextStart) : "    ";
-  const total = panel.items.length;
   const isPlan = item?.intent?.kind === "plan-review";
   const multi = item?.multiSelect ?? false;
   /** 焦点是否在描述窗（BACKLOG 3.2.8 修订：滚动条滑块着色与选项光标降色共用同一判据） */
@@ -224,7 +246,7 @@ function layoutQuestionPanel(
       if (opt === undefined) break;
       const selected = item.selected.includes(opt.label);
       const cursor = item.optionIndex === i ? ">" : " ";
-      const mark = selected ? markFor(multi) : " ";
+      const mark = selected ? OPTION_MARK : " ";
       pushOption(
         i,
         optionLead(i, cursor, mark),
@@ -240,7 +262,7 @@ function layoutQuestionPanel(
     }
     const ci = item.options.length;
     const cursor = item.optionIndex === ci ? ">" : " ";
-    const mark = item.custom === "" ? " " : multi ? "+" : "*";
+    const mark = item.custom === "" ? " " : OPTION_MARK;
     pushOption(
       ci,
       optionLead(ci, cursor, mark),
@@ -337,27 +359,69 @@ function layoutQuestionPanel(
       const last = optRows[optEnd[customIdx]!];
       if (last) {
         caret = {
-          row: 1 + descVisible + rowInWindow,
+          row: headerRows + descVisible + rowInWindow,
           col: displayWidth(last.text),
         };
       }
     }
   }
 
-  // 8) 标题行：类型标识段黄色（BACKLOG 3.2.2），其余文字与第 n/m 题导航保持现状
-  const tag = isPlan ? TAG_PLAN : multi ? TAG_MULTI : TAG_SINGLE;
-  const head = isPlan
-    ? ` △ 计划审批（第 ${panel.itemIndex + 1}/${total} 题）`
-    : ` △ 请回答（第 ${panel.itemIndex + 1}/${total} 题）`;
+  // 8) 标题区（BACKLOG TUI#4）：类型标识符号化——单选 ○ / 多选 □ / 审批 △（均黄）；
+  //    题号导航移除。单题：符号并入标题行（` △ ○  请回答`）；多题：最顶行单独列符号
+  const typeSym = typeSymOf(item);
+  const head = isPlan ? "计划审批" : "请回答";
   const title = styled(
     [
       seg(" △ "), // 状态标记用推荐符号 △（symbols.ts 把 U+26A0 归一到 △，BACKLOG 3.2.9）
-      seg(tag, { fg: "yellow" }),
-      seg(" " + head.slice(" △ ".length)),
+      ...(headerRows === 1
+        ? [seg(typeSym, { fg: "yellow" }), seg(SYM_GAP)]
+        : []),
+      seg(head),
     ],
     { wrap: false },
   );
-  return { title, body, caret, maxDescScroll };
+  const symbolRow =
+    headerRows === 2
+      ? buildSymbolRow(panel.items, panel.itemIndex, avail)
+      : null;
+  return { title, symbolRow, headerRows, body, caret, maxDescScroll };
+}
+
+/** 单题类型符号（BACKLOG TUI#4）：plan-review 视同审批 */
+function typeSymOf(item: QuestionPanelItem | undefined): string {
+  if (item?.intent?.kind === "plan-review") return SYM_PLAN;
+  return item?.multiSelect ? SYM_MULTI : SYM_SINGLE;
+}
+
+/** 多题符号行（BACKLOG TUI#4）：` 1○ 2□ 3△`——题号灰、当前题符号黄、其余灰；
+ *  超出可用宽即截断并以灰 `…` 收尾（恒占 1 行、不折行）。width = 面板可用宽。 */
+function buildSymbolRow(
+  items: readonly QuestionPanelItem[],
+  active: number,
+  width: number,
+): StyledText {
+  const parts: FrameSegment[] = [];
+  let used = 0;
+  const push = (text: string, style?: FrameStyle): void => {
+    parts.push(style === undefined ? seg(text) : seg(text, style));
+    used += displayWidth(text);
+  };
+  push(" "); // 行首 1 列缩进（与面板其它行同口径）
+  let truncated = false;
+  for (let i = 0; i < items.length; i++) {
+    const sym = typeSymOf(items[i]);
+    const gap = i === 0 ? "" : " ";
+    // 为截断标记 `…` 预留 1 列
+    if (used + displayWidth(gap) + displayWidth(`${i + 1}${sym}`) + 1 > width) {
+      truncated = true;
+      break;
+    }
+    push(gap);
+    push(String(i + 1), { fg: "gray" });
+    push(sym, { fg: i === active ? "yellow" : "gray" });
+  }
+  if (truncated) push("…", { fg: "gray" });
+  return styled(parts, { wrap: false });
 }
 
 export function renderQuestionPanel(
@@ -374,26 +438,15 @@ export function renderQuestionPanel(
   );
 }
 
-/** 选项标记：多选 `+`，单选 `*`（嵌套已收敛为单一布尔） */
-function markFor(multi: boolean): string {
-  return multi ? "+" : "*";
-}
-
-/** 字符串显示宽度（与 chrW 同口径，caret 列用） */
-function displayWidth(text: string): number {
-  let w = 0;
-  for (const ch of text) w += chrW(ch);
-  return w;
-}
-
-/** 按列适配宽度做简单换行（与 layout.wrapLine 语义一致，避免循环依赖） */
+/** 按列适配宽度做简单换行（与 layout.wrapLine 语义一致，避免循环依赖；
+ *  列宽走 `charWidth`——与 fill / 渲染器 / 宽度探针同源，BACKLOG TUI#4） */
 function wrapByWidth(text: string, width: number): string[] {
   if (width <= 0) return [text];
   const rows: string[] = [];
   let cur = "";
   let curW = 0;
   for (const ch of text) {
-    const w = chrW(ch);
+    const w = charWidth(ch);
     if (curW > 0 && curW + w > width) {
       rows.push(cur);
       cur = ch;
@@ -421,21 +474,4 @@ function wrapPrefixed(text: string, width: number, indent: string): string[] {
     head,
     ...wrapByWidth(text.slice(head.length), contWidth).map((r) => indent + r),
   ];
-}
-
-function chrW(ch: string): number {
-  const cp = ch.codePointAt(0)!;
-  if (
-    (cp >= 0x1100 && cp <= 0x115f) ||
-    (cp >= 0x2e80 && cp <= 0xa4cf) ||
-    (cp >= 0xac00 && cp <= 0xd7a3) ||
-    (cp >= 0xf900 && cp <= 0xfaff) ||
-    (cp >= 0xfe30 && cp <= 0xfe4f) ||
-    (cp >= 0xff00 && cp <= 0xff60) ||
-    (cp >= 0x1f300 && cp <= 0x1f64f) ||
-    (cp >= 0x20000 && cp <= 0x2fffd)
-  ) {
-    return 2;
-  }
-  return 1;
 }

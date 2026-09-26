@@ -16,9 +16,12 @@ import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
 import { panelTitle, panelExplanation } from "../layout/panel.ts";
 import { fillBoxTree } from "../layout/fill.ts";
+// 列宽口径与 fill / 渲染器 / markdown 同源（吃运行时宽度探针的覆盖表；BACKLOG TUI#4）
+import { charWidth } from "../layout/markdown.ts";
 
-/** 审批标题行文案（类型标识 BACKLOG 3.2.2；plan-review 之外的审批入口仅此一个） */
-const APPROVAL_TITLE = " △ [审批] 等待审批 "; // 状态标记用推荐符号 △（BACKLOG 3.2.9）
+/** 审批标题行文案（BACKLOG TUI#4：类型标识改为符号 △ 并去掉 `[审批]`——符号与状态标记
+ *  △ 合一，整行黄） */
+const APPROVAL_TITLE = " △ 等待审批"; // 状态标记用推荐符号 △（BACKLOG 3.2.9）
 
 /** 审批选项（BACKLOG 3.2.4）：固定两项，顺序与编号 1/2、`y`/`n` 直答一致 */
 export const APPROVAL_OPTIONS = ["批准", "拒绝"] as const;
@@ -183,14 +186,15 @@ export function renderApprovalPrompt(
   );
 }
 
-/** 按列适配宽度做简单换行（与 layout.wrapLine 语义一致，避免循环依赖） */
+/** 按列适配宽度做简单换行（与 layout.wrapLine 语义一致，避免循环依赖；
+ *  列宽走 `charWidth`——与 fill / 渲染器 / 宽度探针同源，BACKLOG TUI#4） */
 function wrapByWidth(text: string, width: number): string[] {
   if (width <= 0) return [text];
   const rows: string[] = [];
   let cur = "";
   let curW = 0;
   for (const ch of text) {
-    const w = chrW(ch);
+    const w = charWidth(ch);
     if (curW > 0 && curW + w > width) {
       rows.push(cur);
       cur = ch;
@@ -202,21 +206,4 @@ function wrapByWidth(text: string, width: number): string[] {
   }
   rows.push(cur);
   return rows;
-}
-
-function chrW(ch: string): number {
-  const cp = ch.codePointAt(0)!;
-  if (
-    (cp >= 0x1100 && cp <= 0x115f) ||
-    (cp >= 0x2e80 && cp <= 0xa4cf) ||
-    (cp >= 0xac00 && cp <= 0xd7a3) ||
-    (cp >= 0xf900 && cp <= 0xfaff) ||
-    (cp >= 0xfe30 && cp <= 0xfe4f) ||
-    (cp >= 0xff00 && cp <= 0xff60) ||
-    (cp >= 0x1f300 && cp <= 0x1f64f) ||
-    (cp >= 0x20000 && cp <= 0x2fffd)
-  ) {
-    return 2;
-  }
-  return 1;
 }
