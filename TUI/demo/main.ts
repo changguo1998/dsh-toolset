@@ -334,8 +334,8 @@ if (smoke) {
       // 问答面板断言：提交整批（含第 2 题自定义 note）、取消走 cancelQuestion、Esc 不打断
       ok(
         "question-rendered",
-        plain.includes("请回答（第"),
-        "question panel title absent from frames",
+        plain.includes("1○ 2□") && plain.includes("选择部署环境？"),
+        "question panel symbol row / stem absent from frames",
       );
       // 问答面板选项着色：初始光标行（生产）黄
       ok(

@@ -1,8 +1,8 @@
 // src/app/components/QuestionPrompt.ts — 问答面板渲染（纯函数）
 //
 // 以文本面板呈现 DSH 提问（与 ApprovalPrompt 同风格）：标题区 + 单题视图
-// （描述窗 + 选项窗两段）。标题区（BACKLOG TUI#4）：单题 = 1 行（类型符号
-// ○ / □ / △ 并入标题行），多题 = 2 行（最顶行按题序列出「题号 + 符号」）。
+// （描述窗 + 选项窗两段）。标题区（BACKLOG TUI#4）：单题 = 0 行（不显示标题与
+// 类型符号，首行即题干），多题 = 1 行（按题序列出「题号 + 符号」，如 ` 1○ 2□`）。
 // 按键提示**不在面板内**，统一由底部提示区按状态显示（见 layout/hints.ts 的 questionHintLine）。
 //
 // 两窗模型（BACKLOG 3.2.1）：面板体按高度拆为
@@ -54,15 +54,12 @@ const OPTION_CONT_INDENT = "      ";
 /** 选项正文起点列（前缀 ` >* ` = 4 列）：解释行按此缩进（BACKLOG 3.2.3） */
 const OPTION_DESC_INDENT = "    ";
 
-/** 类型标识符号（BACKLOG TUI#4）：plan-review 视同审批；空心几何符号、均黄色 */
+/** 类型标识符号（BACKLOG TUI#4）：多题符号行用；plan-review 视同审批；空心几何符号、均黄色 */
 const SYM_PLAN = "△";
 const SYM_MULTI = "□";
 const SYM_SINGLE = "○";
 
-/** 类型符号与标题文字之间的间隔（BACKLOG TUI#4 用户裁定：符号后 2 空格） */
-const SYM_GAP = "  ";
-
-/** 选项标记（BACKLOG TUI#4）：类型已由符号表达，标记不再区分单/多选，统一对勾 */
+/** 选项标记（BACKLOG TUI#4）：单 / 多选不再由标记区分（多题的类型由符号行表达），统一对勾 */
 const OPTION_MARK = "✓";
 
 /** 面板内光标位置（0 基行 + 0 基列；活动区列偏移由 layout 拼装时补上） */
@@ -84,10 +81,9 @@ interface PanelLine {
 
 /** 问答面板排版结果：渲染 / caret / 滚动上界共用同一份计算（单一来源） */
 interface QuestionLayout {
-  title: StyledText;
-  /** 多题时最顶行的「题号 + 类型符号」行（单题 = null：符号并入标题行；BACKLOG TUI#4） */
+  /** 多题时最顶行的「题号 + 类型符号」行（单题 = null：不显示标题区；BACKLOG TUI#4） */
   symbolRow: StyledText | null;
-  /** 标题区行数（单题 1 / 多题 2）：面板体 = height − headerRows */
+  /** 标题区行数（单题 0 / 多题 1）：面板体 = height − headerRows */
   headerRows: number;
   body: PanelLine[];
   /** 面板内 0 基 caret 行（标题区占开头 headerRows 行）；无编辑焦点或不可见时为 null */
@@ -132,12 +128,9 @@ export function buildQuestionPanelBox(
     }
     return styled(segments, { wrap: false });
   });
-  // 多题：顶部独立一行列出全部题的「题号 + 类型符号」（当前题黄、其余灰；BACKLOG TUI#4）
-  return v([
-    ...(layout.symbolRow ? [layout.symbolRow] : []),
-    layout.title,
-    ...bodyLeaves,
-  ]);
+  // 多题：顶部独立一行列出全部题的「题号 + 类型符号」（当前题黄、其余灰；BACKLOG TUI#4）；
+  // 单题不显示标题区（标题行与类型符号均去掉，首行即题干）
+  return v([...(layout.symbolRow ? [layout.symbolRow] : []), ...bodyLeaves]);
 }
 
 /** 描述窗滚动上界（App 按键时算 max 进 action：state 层不知道折行宽度） */
@@ -172,10 +165,11 @@ function layoutQuestionPanel(
 ): QuestionLayout {
   // 面板可用宽：右侧只留 1 列（原为 4 列，人工验收反馈「内容行右侧留白太多」）
   const avail = Math.max(4, width - 2);
-  // 标题区：单题 = 1 行（类型符号并入标题行）；多题 = 2 行（最顶行单独列出全部题符号）
-  // ——BACKLOG TUI#4；按键提示移到底部提示区，不占面板行
+  // 标题区：单题 = 0 行（无标题行、无类型符号）；多题 = 1 行（该行列出全部题符号）
+  // ——BACKLOG TUI#4；2026-09-27 真机目视改判：标题行「请回答 / 计划审批」与状态 △ 一并去掉。
+  // 按键提示移到底部提示区，不占面板行
   const total = panel.items.length;
-  const headerRows = total > 1 ? 2 : 1;
+  const headerRows = total > 1 ? 1 : 0;
   const maxBody = Math.max(0, height - headerRows);
   const item = panel.items[panel.itemIndex];
   // 选项行格式（BACKLOG 3.2.6 / 3.2.12）：` ${光标}${标记} ${编号}. ${内容}`
@@ -389,24 +383,12 @@ function layoutQuestionPanel(
   }
 
   // 8) 标题区（BACKLOG TUI#4）：类型标识符号化——单选 ○ / 多选 □ / 审批 △（均黄）；
-  //    题号导航移除。单题：符号并入标题行（` △ ○  请回答`）；多题：最顶行单独列符号
-  const typeSym = typeSymOf(item);
-  const head = isPlan ? "计划审批" : "请回答";
-  const title = styled(
-    [
-      seg(" △ "), // 状态标记用推荐符号 △（symbols.ts 把 U+26A0 归一到 △，BACKLOG 3.2.9）
-      ...(headerRows === 1
-        ? [seg(typeSym, { fg: "yellow" }), seg(SYM_GAP)]
-        : []),
-      seg(head),
-    ],
-    { wrap: false },
-  );
+  //    题号导航移除；单题不显示标题区（首行即题干）。多题：最顶行单独列出全部题符号
   const symbolRow =
-    headerRows === 2
+    headerRows === 1
       ? buildSymbolRow(panel.items, panel.itemIndex, avail)
       : null;
-  return { title, symbolRow, headerRows, body, caret, maxDescScroll };
+  return { symbolRow, headerRows, body, caret, maxDescScroll };
 }
 
 /** 单题类型符号（BACKLOG TUI#4）：plan-review 视同审批 */

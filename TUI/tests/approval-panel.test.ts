@@ -323,12 +323,12 @@ test("提问上下文：来源段渲染在描述窗顶部（灰、随窗滚动�
   );
   const srcIdx = rows.findIndex((l) => l.includes("提问前的说明正文"));
   const qIdx = rows.findIndex((l) => l.includes("请选择部署环境"));
-  assert.ok(srcIdx > 0 && srcIdx < qIdx, "来源段在题干之上");
+  assert.ok(srcIdx >= 0 && srcIdx < qIdx, "来源段在题干之上");
   assert.ok(
     ansi[srcIdx]!.includes("\x1b[38;2;") && !ansi[srcIdx]!.includes("\x1b[1m"),
     "来源段为次要样式（着色但非标题）: " + JSON.stringify(ansi[srcIdx]),
   );
-  // 无来源（缺省）时不占行：题干紧跟标题
+  // 无来源（缺省）时不占行：题干即面板首行（单题无标题区）
   const bare = reduceState(initialState(), {
     type: "question-open",
     id: "q2",
@@ -339,8 +339,8 @@ test("提问上下文：来源段渲染在描述窗顶部（灰、随窗滚动�
   const bareRows = plain(renderQuestionPanel(bare.question!, 12, 60));
   assert.equal(
     bareRows.findIndex((l) => l.includes("请选择部署环境")),
-    1,
-    "无来源段时题干仍在第二行（标题之下）",
+    0,
+    "无来源段时题干在首行（无标题区）",
   );
 });
 

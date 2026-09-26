@@ -6,7 +6,7 @@
 //  2) 描述窗滚动：↑/↓ 逐行滚动，上界由 maxDescScrollFor 给出并被 reducer clamp
 //  3) 焦点窗：Tab 切换、↑/↓ 语义随之分派；焦点在描述窗时选项窗仍锚定已标记项
 //  4) 选项形态（3.2.3）：解释另起一行、缩进对齐选项正文起点、标记只在首行
-//  5) 类型标识（TUI#4）：单题符号 ○ / □ / △ 并入标题行；多题顶部符号行（题号 + 符号、当前题黄、超宽截断）；选项标记 ✓
+//  5) 类型标识（TUI#4）：单题不显示标题区（首行即题干，无类型符号）；多题顶部符号行（题号 + 符号、当前题黄、超宽截断）；选项标记 ✓
 //  6) 编辑光标（3.2.7）：焦点在自定义兜底项时产出 caret（面板内 0 基行 + 0 基列）
 //  7) 审批描述窗（3.2.1）：长草稿可滚动查看末尾
 //  8) windowStart 共用窗口工具（3.2.1 的统一机制）
@@ -209,18 +209,24 @@ test("选项形态：解释另起一行、缩进 4 列，标记只在选项首�
   );
 });
 
-test("类型标识：单题符号并入标题行（○ / □ / △），旧 [单选]/[多选]/[审批] 已移除（BACKLOG TUI#4）", () => {
+test("类型标识：单题不显示标题区（首行即题干），旧 [单选]/[多选]/[审批] 与状态 △ 已移除（BACKLOG TUI#4）", () => {
   const single = questionState([
     { id: "q1", question: "问题", options: [{ label: "A" }] },
   ]);
   const singleRows = plain(renderQuestionPanel(panelOf(single), 8, 60));
   assert.ok(
-    singleRows[0]!.includes("○  请回答"),
-    "单选符号 ○ + 2 空格 + 标题: " + JSON.stringify(singleRows[0]),
+    singleRows[0]!.includes("问题"),
+    "单题首行即题干（无标题行 / 无类型符号）: " + JSON.stringify(singleRows[0]),
   );
   assert.ok(
-    singleRows.every((l) => !l.includes("[单选]") && !l.includes("第 1/1 题")),
-    "旧类型标识与题号导航已移除",
+    singleRows.every(
+      (l) =>
+        !l.includes("请回答") &&
+        !l.includes("[单选]") &&
+        !l.includes("[多选]") &&
+        !l.includes("第 1/1 题"),
+    ),
+    "标题行、旧类型标识与题号导航均已移除",
   );
   const multi = questionState([
     {
@@ -230,10 +236,10 @@ test("类型标识：单题符号并入标题行（○ / □ / △），旧 [单
       options: [{ label: "A" }],
     },
   ]);
-  const multiTitle = plain(renderQuestionPanel(panelOf(multi), 8, 60))[0]!;
+  const multiRows = plain(renderQuestionPanel(panelOf(multi), 8, 60));
   assert.ok(
-    multiTitle.includes("□  请回答"),
-    "多选符号 □: " + JSON.stringify(multiTitle),
+    multiRows[0]!.includes("问题") && !multiRows.some((l) => l.includes("□")),
+    "单题多选同样不显示类型符号: " + JSON.stringify(multiRows),
   );
   const plan = questionState([
     {
@@ -244,14 +250,15 @@ test("类型标识：单题符号并入标题行（○ / □ / △），旧 [单
       options: [{ label: "批准" }],
     },
   ]);
-  const planTitle = plain(renderQuestionPanel(panelOf(plan), 8, 60))[0]!;
+  const planRows = plain(renderQuestionPanel(panelOf(plan), 8, 60));
   assert.ok(
-    planTitle.includes("△  计划审批"),
-    "plan-review 按审批符号 △: " + JSON.stringify(planTitle),
+    planRows[0]!.includes("批准？") &&
+      !planRows.some((l) => l.includes("计划审批")),
+    "plan-review 单题同样无标题行（首行即题干）: " + JSON.stringify(planRows),
   );
 });
 
-test("多题符号行：最顶行「题号 + 符号」（当前题黄、其余灰），超宽截断（BACKLOG TUI#4）", () => {
+test("多题符号行：最顶行「题号 + 符号」（当前题黄、其余灰），标题行已去掉，超宽截断（BACKLOG TUI#4）", () => {
   const st = questionState([
     { id: "a", question: "问题一", options: [{ label: "A" }] },
     {
@@ -274,8 +281,13 @@ test("多题符号行：最顶行「题号 + 符号」（当前题黄、其余�
     "符号行形态: " + JSON.stringify(rows[0]),
   );
   assert.ok(
-    rows[1]!.includes("请回答"),
-    "标题行紧随符号行: " + JSON.stringify(rows[1]),
+    !rows.some((l) => l.includes("请回答")),
+    "标题行「请回答」已去掉（2026-09-27 目视改判）: " +
+      JSON.stringify(rows.slice(0, 3)),
+  );
+  assert.ok(
+    rows[1]!.includes("问题一"),
+    "符号行下直接是题干: " + JSON.stringify(rows[1]),
   );
   // 当前题（第 1 题）符号黄、其余灰
   const ansi = rowAnsi(renderQuestionPanel(panelOf(st), 10, 60)[0]!);
@@ -519,22 +531,20 @@ test("审批描述窗滚动条：长草稿左侧画轨道与滑块（BACKLOG 3.2
 });
 
 test("分窗规则：描述窗上限 2/3，溢出由选项窗先承担（BACKLOG 3.2.11）", () => {
-  const height = 14; // maxBody = 13 → 描述窗上限 floor(13 × 2/3) = 8
+  const height = 14; // maxBody = 14（单题无标题区）→ 描述窗上限 floor(14 × 2/3) = 9
   const width = 60;
   const options = Array.from({ length: 12 }, (_, i) => ({
     label: `选项${i + 1}`,
   }));
   const s = questionState([
-    { id: "q1", question: "很长题干".repeat(60), options },
+    { id: "q1", question: "很长题干".repeat(80), options },
   ]);
   const lines = plain(renderQuestionPanel(panelOf(s), height, width));
-  // 描述窗固定占 8 行（带滚动条列），其后再接选项窗
-  const descPart = lines
-    .slice(1)
-    .filter((l) => l.startsWith("│") || l.startsWith("┃"));
+  // 描述窗固定占 9 行（带滚动条列），其后再接选项窗
+  const descPart = lines.filter((l) => l.startsWith("│") || l.startsWith("┃"));
   assert.equal(
     descPart.length,
-    8,
+    9,
     "描述窗 = floor(maxBody × 2/3): " + JSON.stringify(lines.slice(0, 12)),
   );
   assert.ok(
@@ -557,14 +567,14 @@ test("分窗规则：内容不足时两窗紧邻、空白落在活动区下方�
     { id: "q1", question: "短题干", options: [{ label: "A" }, { label: "B" }] },
   ]);
   const lines = plain(renderQuestionPanel(panelOf(s), 14, 60));
-  assert.ok(lines[1]?.includes("短题干"), "描述窗首行是题干");
+  assert.ok(lines[0]?.includes("短题干"), "描述窗首行是题干（无标题区）");
   assert.ok(
-    lines[2]?.includes("A") && !lines[2]!.includes("非选项"),
+    lines[1]?.includes("A") && !lines[1]!.includes("非选项"),
     "选项紧跟题干、中间无空行: " + JSON.stringify(lines.slice(0, 6)),
   );
   const lastNonEmpty = lines.filter((l) => l.trim() !== "").length;
   assert.ok(
-    lastNonEmpty <= 5,
+    lastNonEmpty <= 4,
     "内容少时空白留在下方: " + JSON.stringify(lines),
   );
 });

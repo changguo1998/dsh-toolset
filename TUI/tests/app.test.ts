@@ -2229,8 +2229,8 @@ const strippedFrame = (renderer: FakeRenderer): string =>
 test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多题动态按键提示", () => {
   const { app, renderer, adapter } = makeApp();
   // 面板显示在流输出（活动区）窗口；压矮终端让活动区面板高度小、正文窗口受限，
-  // 保持「未导航锚定顶部、末位项被裁」语义（多题标题区 2 行 = 符号行 + 标题行，
-  // 故 body = 面板高 − 2；BACKLOG TUI#4）
+  // 保持「未导航锚定顶部、末位项被裁」语义（多题标题区 1 行 = 符号行，
+  // 故 body = 面板高 − 1；BACKLOG TUI#4）
   renderer.size = { cols: 80, rows: 16 };
   pushQuestion(adapter);
   const plain = plainFrame(renderer);
@@ -2239,18 +2239,18 @@ test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多�
     "多题顶部符号行：题号 + 类型符号，当前题黄（BACKLOG TUI#4）",
   );
   assert.ok(
-    plain.includes("请回答"),
-    "标题行（题号导航已移除，BACKLOG TUI#4）",
+    !plain.includes("请回答"),
+    "标题行「请回答」已去掉（2026-09-27 目视改判，BACKLOG TUI#4）",
   );
   assert.ok(plain.includes("选择部署环境？"), "题干渲染");
   assert.ok(plain.includes("部署：选择部署环境？"), "header 前缀渲染");
-  // 面板只剩标题行（按键提示移到底部提示区）：body = 面板高 − 1（此处 3 行）→
+  // 面板只剩符号行（按键提示移到底部提示区）：body = 面板高 − 1（此处 4 行）→
   // 未导航时窗口锚定顶部，末尾的「自定义回答」兜底项被裁
   assert.ok(
     plain.includes(">  1. 生产"),
     "选项渲染：光标 + 编号（BACKLOG 3.2.6 / 3.2.12）",
   );
-  assert.ok(plain.includes("   2. 测试"), "第二选项进入初始窗口（body 3 行）");
+  assert.ok(plain.includes("   2. 测试"), "第二选项进入初始窗口（body 4 行）");
   assert.ok(!plain.includes("自定义回答"), "初始窗口裁掉末位兜底项");
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(
@@ -2456,7 +2456,10 @@ test("问答面板：Esc 仅取消问答（cancelQuestion），不打断 turn，
     ["q1"],
     "cancelQuestion 收到 id",
   );
-  assert.ok(!plainFrame(renderer).includes("请回答"), "面板已关闭");
+  assert.ok(
+    !plainFrame(renderer).includes("选择部署环境？"),
+    "面板已关闭（题干不再出现在帧中）",
+  );
   app.dispose();
 });
 
@@ -2479,8 +2482,8 @@ test("问答面板：plan-review 单题以计划卡片呈现，hints 只显示�
   });
   const plain = plainFrame(renderer);
   assert.ok(
-    strippedFrame(renderer).includes("△  计划审批"),
-    "plan-review 标题：类型符号 △ 并入标题行（BACKLOG TUI#4）",
+    !plain.includes("计划审批"),
+    "单题不显示标题行（「计划审批」与状态 △ 一并去掉；2026-09-27 目视改判）",
   );
   assert.ok(
     !plain.includes("[审批]"),
@@ -2488,17 +2491,17 @@ test("问答面板：plan-review 单题以计划卡片呈现，hints 只显示�
   );
   assert.ok(plain.includes("待审计划"), "detail 卡片标题");
   assert.ok(plain.includes("批准该计划？"), "题干渲染");
-  // 分窗（BACKLOG 3.2.1）：矮终端下面板 4 行 = 描述窗 2 行 + 选项窗 1 行——初始窗口
-  // 覆盖题干 + 卡片头，detail 正文与末位选项都需滚动查看（描述窗先 Tab 切焦点）
+  // 分窗（BACKLOG 3.2.1）：矮终端下面板 4 行 = 描述窗 2 行 + 选项窗 2 行——初始窗口
+  // 覆盖题干 + 卡片头，detail 正文需滚动查看（描述窗先 Tab 切焦点）
   assert.ok(
     !plain.includes("安装依赖并运行测试"),
     "初始描述窗未覆盖 detail 正文",
   );
-  assert.ok(!plain.includes("拒绝"), "初始选项窗未覆盖末位选项");
+  assert.ok(plain.includes("拒绝"), "选项窗 2 行覆盖末位选项");
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(
-    plainFrame(renderer).includes("拒绝"),
-    "↓ 后末位选项可见（选项窗跟随焦点）",
+    plainFrame(renderer).includes(">  2. 拒绝"),
+    "↓ 后光标落在末位选项",
   );
   renderer.press({ name: "up", ctrl: false, meta: false, shift: false });
   // Tab 切到描述窗后 ↑/↓ 改为逐行滚动
