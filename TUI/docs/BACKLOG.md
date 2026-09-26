@@ -6,7 +6,7 @@
 > 编号口径（2026-09-26 重排）：现行条目用**扁平连续 `#n`**（与项目级 `docs/BACKLOG.md` 一致）；历史上按「章节.序号」编号的条目（`3.x.y`）已于同日清理，记录见 git 提交与 `TUI/docs/archived/`，故现行编号不复用旧号段。本文件的 `#n` 与项目级 `docs/BACKLOG.md` 的 `#N` **互不关联**、各自文件内唯一，跨层引用须写明文件路径。
 > 分组口径（2026-09-26 修订，按用户要求）：按**验收方式**分两类——**需要交互**指验证时必须动手操作（敲命令、按键、输入文字、带参数启动、等超时）；**不需要交互**指看一眼结果或跑自动化即可（渲染、排版、显示、内部机制、外部依赖）。判断标准是「验证时是否需要操作」，不是「改动是否可见」。
 
-## 待办（共 14 条，其中 6 条已完成待清理）
+## 待办（共 15 条，其中 7 条已完成待清理）
 
 > 共同落点：`src/app/components/QuestionPrompt.ts`（问答面板渲染）、`src/app/components/ApprovalPrompt.ts`（审批面板渲染）、`src/app/index.ts` 的 `handleKey` 面板分支、`src/app/adapter/dsh.ts`（审批应答与超时）、`src/app/state.ts`（面板状态 + reducer）。
 
@@ -65,6 +65,8 @@
 - **完成（2026-09-27）** **#13 锚定引导解锁判定读宿主不存在的 `session.events`，rc.2 真机永不解锁**：`src/app/adapter/tool-bootstrap.ts` 的 promotion 与 `sessionMode` 兜底都读 `session.events`（移植时还把参照实现的 fail-open「读不到即全量」翻转成了 fail-closed），而 0.1.7-rc.2 的 Session **无公开 `events` 属性**（见 `docs/host/DSH-CTX-API.md` §1）→ 任何新开 / 恢复的 `deepseek-*` 会话被永久锁在首请求目录：模型拿不到 `ask_user_question` 等工具，问答面板无法拉起（真机实证：59 次工具调用后 `request/header` 全日志仅 1 条 `initial`、目录零变化）。修法：改读宿主公开的消息投影（`session.deriveMessages()`）判定首个 `tool/call` 与首个真实用户消息，保留 fail-open；补单测覆盖无 events 场景。落点：`src/app/adapter/tool-bootstrap.ts`、`src/app/adapter/dsh.ts`（重导）、`tests/tool-bootstrap.test.ts`、`README.md` / `docs/DESIGN.md`（收尾回写）。来源：2026-09-27 面板测试真机复核时发现（#11 后续缺陷）。
 
 - **#14 demo 冒烟失败信号失效（`SMOKE_OK` 无条件打印、失败不落退出码）**：`demo/main.ts` 的 `ok()` 失败只打印 `SMOKE_FAIL`，结尾仍无条件打印 `SMOKE_OK`，随后 `/quit` 以退出码 0 收尾 → 帧断言失败在 `npm run demo -- --smoke` 下「看起来通过」（2026-09-27 实测：#4 改形态后 `question-rendered` 断言陈旧失败被静默吞掉，直到人工 grep 输出才发现）。修法建议：统计失败数，有失败时改打印 `SMOKE_FAIL n=...` 且不打印 `SMOKE_OK`（退出码口径按需裁定），或在 `/quit` 前 `process.exit(1)`；另建议冒烟断言与面板形态解耦（用稳定可判据，如题干文本 + 符号行）。落点：`demo/main.ts`。来源：2026-09-27 #4 目视收口时发现。
+
+- **完成（2026-09-27）** **#15 多题符号行「题号 + 符号」同色**：多题问答面板顶部符号行原为「题号恒灰、当前题符号黄」，同一题的题号与符号颜色不一致；改为**按题同色**——当前题的题号与符号均黄、其余题均灰。符号几何、间距与超宽截断口径不变。落点：`components/QuestionPrompt.ts`（`buildSymbolRow`）、`tests/question-window.test.ts`、`docs/SPEC.md` §7.1、`README.md`。来源：2026-09-27 用户追加规格。
 
 ## 已完成、不再跟踪
 

@@ -6,7 +6,7 @@
 //  2) 描述窗滚动：↑/↓ 逐行滚动，上界由 maxDescScrollFor 给出并被 reducer clamp
 //  3) 焦点窗：Tab 切换、↑/↓ 语义随之分派；焦点在描述窗时选项窗仍锚定已标记项
 //  4) 选项形态（3.2.3）：解释另起一行、缩进对齐选项正文起点、标记只在首行
-//  5) 类型标识（TUI#4）：单题不显示标题区（首行即题干，无类型符号）；多题顶部符号行（题号 + 符号、当前题黄、超宽截断）；选项标记 ✓
+//  5) 类型标识（TUI#4）：单题不显示标题区（首行即题干，无类型符号）；多题顶部符号行（题号 + 符号、题号与符号同色（TUI#15）、当前题黄、超宽截断）；选项标记 ✓
 //  6) 编辑光标（3.2.7）：焦点在自定义兜底项时产出 caret（面板内 0 基行 + 0 基列）
 //  7) 审批描述窗（3.2.1）：长草稿可滚动查看末尾
 //  8) windowStart 共用窗口工具（3.2.1 的统一机制）
@@ -289,13 +289,28 @@ test("多题符号行：最顶行「题号 + 符号」（当前题黄、其余�
     rows[1]!.includes("问题一"),
     "符号行下直接是题干: " + JSON.stringify(rows[1]),
   );
-  // 当前题（第 1 题）符号黄、其余灰
+  // 题号与符号同色（BACKLOG TUI#15）：当前题（第 1 题）题号 + 符号皆黄、其余皆灰
   const ansi = rowAnsi(renderQuestionPanel(panelOf(st), 10, 60)[0]!);
   assert.ok(
-    ansi.includes("233;201;68m○"),
-    "当前题符号黄: " + JSON.stringify(ansi),
+    ansi.includes("233;201;68m1") && ansi.includes("233;201;68m○"),
+    "当前题题号 + 符号皆黄: " + JSON.stringify(ansi),
   );
-  assert.ok(!ansi.includes("233;201;68m□"), "非当前题符号不黄");
+  assert.ok(
+    !ansi.includes("233;201;68m2") && !ansi.includes("233;201;68m□"),
+    "非当前题题号与符号皆不黄",
+  );
+  // 切到第 2 题：第 2 题的题号 + 符号（□）皆黄，第 1 题两项皆灰
+  const st2 = reduceState(st, { type: "question-nav", delta: 1 });
+  assert.equal(panelOf(st2).itemIndex, 1, "已切到第 2 题");
+  const ansi2 = rowAnsi(renderQuestionPanel(panelOf(st2), 10, 60)[0]!);
+  assert.ok(
+    ansi2.includes("233;201;68m2") && ansi2.includes("233;201;68m□"),
+    "第 2 题题号 + 符号皆黄: " + JSON.stringify(ansi2),
+  );
+  assert.ok(
+    !ansi2.includes("233;201;68m1") && !ansi2.includes("233;201;68m○"),
+    "第 1 题题号与符号皆不黄",
+  );
   // 窄面板（可用宽 8 < 「 1○ 2□ 3△」所需 9 列）：截断为 `…` 收尾（恒 1 行，不折行）
   const narrow = plain(renderQuestionPanel(panelOf(st), 10, 10));
   assert.ok(narrow[0]!.includes("…"), "超宽截断: " + JSON.stringify(narrow[0]));

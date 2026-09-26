@@ -397,8 +397,9 @@ function typeSymOf(item: QuestionPanelItem | undefined): string {
   return item?.multiSelect ? SYM_MULTI : SYM_SINGLE;
 }
 
-/** 多题符号行（BACKLOG TUI#4）：` 1○ 2□ 3△`——题号灰、当前题符号黄、其余灰；
- *  超出可用宽即截断并以灰 `…` 收尾（恒占 1 行、不折行）。width = 面板可用宽。 */
+/** 多题符号行（BACKLOG TUI#4；题号与符号同色见 TUI#15）：` 1○ 2□ 3△`——题号与符号
+ *  同色（当前题黄、其余灰）；超出可用宽即截断并以灰 `…` 收尾（恒占 1 行、不折行）。
+ *  width = 面板可用宽。 */
 function buildSymbolRow(
   items: readonly QuestionPanelItem[],
   active: number,
@@ -421,8 +422,10 @@ function buildSymbolRow(
       break;
     }
     push(gap);
-    push(String(i + 1), { fg: "gray" });
-    push(sym, { fg: i === active ? "yellow" : "gray" });
+    // 题号与符号按题同色（BACKLOG TUI#15）：当前题均黄、其余题均灰
+    const itemColor: FrameStyle = { fg: i === active ? "yellow" : "gray" };
+    push(String(i + 1), itemColor);
+    push(sym, itemColor);
   }
   if (truncated) push("…", { fg: "gray" });
   return styled(parts, { wrap: false });
