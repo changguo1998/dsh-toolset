@@ -12,7 +12,9 @@ export type QuestionKeyDecision =
   | { kind: "cancel" } // Esc：App → cancelQuestion（reject ask + 关闭面板）
   | { kind: "submit" } // 最后一题 + Enter：App → submitQuestion（answerQuestion + 关闭面板）
   | { kind: "nav"; delta: 1 | -1 } // left/right / Enter(还有下一题)：question-nav
-  | { kind: "move"; delta: 1 | -1 } // up/down：question-move
+  | { kind: "move"; delta: 1 | -1 } // up/down（焦点在选项窗）：question-move
+  | { kind: "focus" } // Tab：切焦点窗（描述窗 <-> 选项窗）→ question-focus
+  | { kind: "desc-scroll"; delta: 1 | -1 } // up/down（焦点在描述窗）：question-desc-scroll
   | { kind: "custom"; text: string } // 自定义项文本编辑：question-custom
   | { kind: "select" } // 预设选项标记/取消标记（空格 / Ctrl+Space）：question-select
   | { kind: "none" }; // 吞掉按键（无状态变化、无重绘）
@@ -31,8 +33,10 @@ function isOnCustom(panel: QuestionPanelState): boolean {
  * - 退格 → 仅自定义项高亮时删除末字符；其余位置吞掉
  * - 空格 → 自定义项：输入空格；预设选项：标记/取消标记
  * - 其他可打印字符（无 Ctrl）→ 仅自定义项追加；预设选项上吞掉
- * - up/down → move；left/right → nav
- * - 其余（Tab 等）→ 吞掉（不落入主输入栏，也不再切焦点）
+ * - up/down → 焦点在选项窗：move；焦点在描述窗：desc-scroll（BACKLOG 3.2.1）
+ * - left/right → nav
+ * - Tab → focus（描述窗 <-> 选项窗切换，BACKLOG 3.2.1）
+ * - 其余 → 吞掉（不落入主输入栏）
  */
 export function questionKeyDecision(
   panel: QuestionPanelState,
@@ -63,8 +67,12 @@ export function questionKeyDecision(
     if (onCustom) return { kind: "custom", text: (item?.custom ?? "") + name };
     return { kind: "none" };
   }
+  if (name === "tab") return { kind: "focus" };
   if (name === "up" || name === "down") {
-    return { kind: "move", delta: name === "down" ? 1 : -1 };
+    const delta = name === "down" ? 1 : -1;
+    // 焦点窗决定 ↑/↓ 语义（BACKLOG 3.2.1）：描述窗滚行、选项窗移项
+    if (item?.focus === "desc") return { kind: "desc-scroll", delta };
+    return { kind: "move", delta };
   }
   if (name === "left" || name === "right") {
     return { kind: "nav", delta: name === "right" ? 1 : -1 };

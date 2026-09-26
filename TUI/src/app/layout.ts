@@ -34,7 +34,10 @@ import type { JobInfo, TodoItemLike, GoalSnapshotLike } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { buildModelPickerBox } from "./components/ModelPicker.ts";
 import { buildHistoryPanelBox } from "./components/HistoryPanel.ts";
-import { buildQuestionPanelBox } from "./components/QuestionPrompt.ts";
+import {
+  buildQuestionPanelBox,
+  questionCaretFor,
+} from "./components/QuestionPrompt.ts";
 import { buildJobsPanelBox, statusMark } from "./components/JobsPanel.ts";
 import { buildCommandListPanelBox } from "./components/CommandListPanel.ts";
 import { buildStatusPanelBox } from "./components/StatusPanel.ts";
@@ -1369,7 +1372,12 @@ function buildActivePanelBox(
   contentW: number,
 ): import("./layout/box.ts").Box | null {
   if (state.approval)
-    return buildApprovalBox(state.approval, activityH, contentW);
+    return buildApprovalBox(
+      state.approval,
+      activityH,
+      contentW,
+      state.approvalScroll,
+    );
   if (state.question)
     return buildQuestionPanelBox(state.question, activityH, contentW);
   if (state.picker)
@@ -1578,6 +1586,12 @@ function buildTopRegion(
   const modalPanel: ContentRow[] = activeBox
     ? fillPanelBox(activeBox, activityH, activityTextW, state.themeId)
     : [];
+  // 面板内编辑光标（BACKLOG 3.2.7）：仅问答面板的「自定义回答」编辑态产出；行号为
+  // 面板内 0 基行（与活动区行号同口径），拼帧时按活动区列偏移写入对应帧行
+  const panelCaret =
+    state.question !== null && modalPanel.length > 0
+      ? questionCaretFor(state.question, activityH, activityTextW)
+      : null;
   const divFor = (rc: number): FrameSegment[] => {
     // 焦点中性基线：活动区分隔行 D 列=连接 `├`（竖线贯穿+横线右接入，
     // 与其他框线同为边框色）；titleRows 下划线行 D 列= `├`、其余内容行 D 列= `│`
@@ -1620,6 +1634,13 @@ function buildTopRegion(
     return a < 0 || a >= act.length ? [] : [...act[a]!.segments];
   };
   for (let rc = 0; rc < contentTopH; rc++) {
+    // 活动区 pane 内行号（与面板内行号同口径；非活动区行 = -1）+ 活动区列偏移
+    const actRowIdx = horizontal
+      ? rc - diaStart
+      : activityH > 0 && rc > diaEnd
+        ? rc - diaEnd - 1
+        : -1;
+    let actColOffset = 0;
     // col0：状态列左缘框格（段数组）——焦点中性基线恒空白占位，
     // 竖线/角字由 buildFrame 末尾 focusFrame 按焦点态覆写（DESIGN §8）。
     let left: FrameSegment[] = [];
@@ -1677,12 +1698,15 @@ function buildTopRegion(
         // **活动 pane 行尾不补空格**（内容到文字右缘为止，右侧留白列不落字形、
         // 也不画外缘框列）
         const dRow = dialogueRowAt(rc - diaStart);
+        const leftSegs = padTo(
+          dialoguePaneSegs(rc - diaStart),
+          dialogueW,
+          dRow?.kind === "separator" ? TURN_SEPARATOR_CHAR : " ",
+        );
+        // 活动 pane 正文在帧内的起始列（caret 定位用）= 左 pane 补齐宽 + 竖线 1 列
+        actColOffset = rowWidth2(leftSegs) + 1;
         return [
-          ...padTo(
-            dialoguePaneSegs(rc - diaStart),
-            dialogueW,
-            dRow?.kind === "separator" ? TURN_SEPARATOR_CHAR : " ",
-          ),
+          ...leftSegs,
           seg("│", { fg: "border" }),
           ...activityPaneSegs(rc - diaStart),
         ];
@@ -1737,7 +1761,22 @@ function buildTopRegion(
       ...padSegs,
       ...(useRightFrame && !actRow ? rightGlyph(right) : []),
     ];
-    rows.push({ segments: rowSegments });
+    // 面板内编辑光标（BACKLOG 3.2.7）：命中活动区行时写 caret——列 = 活动区正文
+    // 起始列（前缀段实测宽 + 活动区列偏移）+ 面板内列（0 基），行号用帧内 1 基
+    const contentStartIdx = showStatusCol
+      ? left.length + statusBody.length + 1
+      : 0;
+    const caretCol =
+      panelCaret !== null && actRowIdx === panelCaret.row
+        ? rowWidth2(rowSegments.slice(0, contentStartIdx)) +
+          actColOffset +
+          panelCaret.col
+        : undefined;
+    rows.push(
+      caretCol === undefined
+        ? { segments: rowSegments }
+        : { segments: rowSegments, caret: caretCol },
+    );
   }
   return rows;
 }
@@ -2681,8 +2720,11 @@ export function buildFrame(
   // 帧段表回填（几何已算定，零额外开销）：渲染层按段切分变化区间
   if (out) out.sections = frameSections(geom);
   // 输入焦点回填（3.1.3）：渲染器据此决定「重写结束后是否把光标定位回输入位置」——
-  // 仅输入态（!modalOpen）允许显示光标；位置从帧内输入行直接取（唯一来源）
-  if (out) out.focus = frameFocus(rows, !modalOpen);
+  // 输入态（!modalOpen）或面板内编辑焦点（BACKLOG 3.2.7：问答自定义回答编辑）允许
+  // 显示光标：面板编辑态由帧内是否出现 caret 行判定（面板行 caret 只在编辑态产出），
+  // 位置从帧内带 caret 的行直接取（唯一来源）
+  const panelEditing = rows.some((r) => r.caret !== undefined);
+  if (out) out.focus = frameFocus(rows, !modalOpen || panelEditing);
   return rows;
 }
 

@@ -60,18 +60,27 @@ export function statusPanelHintLine(panel: StatusPanelState): string {
   );
 }
 
-/** 问答面板：只列当前实际用到的按键（多题才有切题；无预设选项则不列标记/移动） */
+/** 问答面板：只列当前实际用到的按键（多题才有切题；无预设选项则不列标记/移动）；
+ *  ↑/↓ 与 Tab 文案随焦点窗切换（BACKLOG 3.2.1：描述窗滚行 / 选项窗移项、Tab 切窗），
+ *  并以显式前缀标出**当前焦点窗**（BACKLOG 3.2.8：此前只有 ↑/↓ 文案细差，看不出焦点） */
 export function questionHintLine(panel: QuestionPanelState): string {
   const item = panel.items[panel.itemIndex];
   const total = panel.items.length;
   const hasPreset = (item?.options.length ?? 0) > 0;
+  const onDesc = item?.focus === "desc";
   const parts: string[] = [
+    onDesc ? "▶题干" : "▶选项", // 当前焦点窗（`▶` 与面板内题干首行标记同源）
     "[Enter]" + (total > 1 && panel.itemIndex < total - 1 ? "下一题" : "提交"),
     "[Esc]取消",
+    onDesc ? "[↑/↓]滚动" : "[↑/↓]选项",
   ];
-  if (hasPreset) parts.push("[空格]标记", "[↑/↓]选项");
+  if (hasPreset) {
+    parts.push("[空格]标记", "[Tab]" + (onDesc ? "选项" : "描述"));
+  }
   if (total > 1) parts.push("[←/→]切题");
-  return parts.join(" · ");
+  // 紧凑分隔符：七项全列时 80 列终端也要放得下（` · ` 会撑到 82 列、截掉尾部切题提示，
+  // 实测；`·` 两侧无空格，每处省 2 列）
+  return parts.join("·");
 }
 
 /** 共享列表面板（/agents 另有刷新键与不同的 Enter 语义） */

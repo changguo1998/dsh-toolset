@@ -11,6 +11,7 @@ import type { StatusPanelState } from "../state.ts";
 import type { Box } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
 import { fillBoxTree } from "../layout/fill.ts";
+import { windowStart } from "../layout/panel.ts";
 import { seg } from "../layout/primitives.ts";
 
 /**
@@ -59,13 +60,13 @@ export function buildStatusPanelBox(
     else rows.push(styled([seg(line)], { wrap: false }));
   }
 
-  // 组装：标题 + 窗口内选项（跟随焦点滚动；不足补空行）
+  // 组装：标题 + 窗口内选项（跟随焦点滚动；不足补空行）。窗口起点走共用工具
+  // windowStart（BACKLOG 3.2.1：三处面板局部实现统一），center = 焦点居中并 clamp。
   // 按键提示不在面板内（统一由底部提示区显示，见 layout/hints.ts 的 statusPanelHintLine）
   const maxBody = Math.max(0, height - 1);
   let window: typeof rows = rows;
   if (rows.length > maxBody) {
-    let start = panel.index - Math.floor(maxBody / 2);
-    start = Math.max(0, Math.min(start, rows.length - maxBody));
+    const start = windowStart(rows.length, maxBody, panel.index, "center");
     window = rows.slice(start, start + maxBody);
   }
   const body = Array.from(

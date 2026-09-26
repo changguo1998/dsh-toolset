@@ -24,6 +24,8 @@ function panel(
         optionIndex: 0,
         selected: [],
         custom: "",
+        focus: "options",
+        descScroll: 0,
         ...over,
       },
     ],
@@ -80,7 +82,7 @@ test("问答面板：长选项按面板宽折行，续行对齐缩进且仅首�
     "长选项的内容不应出现 4 列缩进行: " + JSON.stringify(plain),
   );
   // 每行显示宽度不超过面板可用宽（不溢出活动窗口右缘）
-  const avail = width - 4;
+  const avail = width - 2; // 面板可用宽 = width − 2（右侧留 1 列）
   for (const l of plain) {
     assert.ok(
       l === "" || displayWidth(l) <= avail,
@@ -168,10 +170,11 @@ test("问答面板：选项折行后续行与首行同色（选中绿 / 未选�
 });
 
 test("问答面板：极窄面板下续行缩进退回 4 列（缩进不被自身折行）", () => {
+  // 面板宽 8 → 可用宽 6（= 续行缩进上限）→ 退回 4 列缩进
   const rows = renderQuestionPanel(
     panel([{ label: "很长很长很长的选项文本内容" }]),
     12,
-    10,
+    8,
   );
   const plain = rows.map((r) => rowText(r).replace(/\x1b\[[0-9;]*m/g, ""));
   // 空行以外不得出现纯空白行（缩进占满整行即说明缩进被折行）
@@ -181,7 +184,7 @@ test("问答面板：极窄面板下续行缩进退回 4 列（缩进不被自�
       "不应出现纯空白行: " + JSON.stringify(plain),
     );
   }
-  // 退回 4 列缩进（面板可用宽仅 6 列）
+  // 退回 4 列缩进（面板可用宽仅 6 列，不再深于正文起点）
   assert.ok(
     plain.some((l) => /^ {4}\S/.test(l)),
     "续行为 4 列缩进: " + JSON.stringify(plain),
@@ -223,6 +226,8 @@ test("问答面板：长题干按面板宽折行，续行 1 空格缩进与正�
     optionIndex: 0,
     selected: [],
     custom: "",
+    focus: "options" as const,
+    descScroll: 0,
   };
   const rows = renderQuestionPanel(
     { id: "q", items: [item], itemIndex: 0 },
@@ -251,7 +256,7 @@ test("问答面板：长题干按面板宽折行，续行 1 空格缩进与正�
     plain.some((l) => l.includes(">  生产")),
     "选项仍在: " + JSON.stringify(plain),
   );
-  const avail = width - 4;
+  const avail = width - 2; // 面板可用宽 = width − 2（右侧留 1 列）
   for (const l of plain) {
     assert.ok(
       l === "" || displayWidth(l) <= avail,

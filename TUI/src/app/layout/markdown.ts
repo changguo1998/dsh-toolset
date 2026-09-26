@@ -374,7 +374,7 @@ function isZeroWidthChar(cp: number): boolean {
 
 /**
  * 文本呈现常见符号：虽位于宽字符区段内但按 1 列计。
- * 集合来自 TUI 源码字面使用（grep 穷举可闭合，非全量黑名单）：✓/✗/⚠/⚙/⚑/⌗/⌈⌉ 等
+ * 集合来自 TUI 源码字面使用（grep 穷举可闭合，非全量黑名单）：✓/✗/U+26A0/⚙/⚑/⌗/⌈⌉ 等
  * UI 状态标记与文本符号默认以文本呈现（窄），若随 emoji 区一并按 2 会撑宽工具行/提示行；
  * 其余落在 emoji 区段的字符仍按 2（防宽度 2 的 emoji 被低估导致整行溢出）。
  * 防线：focus-frame 等冻结基线测试会在误判方向时自动失败（本表即由此迭代收敛）。
@@ -388,7 +388,7 @@ const NARROW_TEXT_SYMBOLS = new Set<number>([
   0x2612, // ☒ BALLOT BOX WITH X
   0x2691, // ⚑ BLACK FLAG（事件/标记）
   0x2699, // ⚙ GEAR（设置标记）
-  0x26a0, // ⚠ WARNING SIGN（审批/问答面板状态标记，文本呈现按 1 列）
+  0x26a0, // U+26A0 WARNING SIGN（面板文案已改用推荐符号 △；本条目保留以防其它路径出现，按 1 列）
   0x2713, // ✓ CHECK MARK
   0x2714, // ✔ HEAVY CHECK MARK
   0x2715, // ✕ MULTIPLICATION X

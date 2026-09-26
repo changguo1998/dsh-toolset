@@ -28,6 +28,8 @@ function panel(
         optionIndex: 0,
         selected: [],
         custom: "",
+        focus: "options",
+        descScroll: 0,
         ...overrides,
       },
     ],

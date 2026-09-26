@@ -628,14 +628,14 @@ test("审批弹窗打开时 Esc 不打断不关闭：仅 y/n 应答（审批模�
   assert.ok(!frame2.includes("允许执行?"), "y 后审批弹窗关闭");
 });
 
-test("审批弹窗标题 ⚠ 等待审批 着黄（warn/等待进行中）", () => {
+test("审批弹窗标题 △ 等待审批 着黄（warn/等待进行中）", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "approval", id: "a1", prompt: "允许执行?" });
   assert.ok(
     renderer.lastRender
       .join("\n")
-      .includes("\x1b[38;2;233;201;68m ⚠ 等待审批 "),
-    "等待审批标题应着 warn 黄",
+      .includes("\x1b[38;2;233;201;68m △ [审批] 等待审批 "),
+    "等待审批标题应着 warn 黄（类型标识 BACKLOG 3.2.2）",
   );
 });
 
@@ -2088,13 +2088,14 @@ test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多�
     plainFrame(renderer).includes(">  自定义回答"),
     "自定义兜底项在列表末位（继续 ↓ 带光标可见）",
   );
-  // 动态按键提示：多题首题 Enter=下一题；有预设显示空格/上下；多题显示切题；无 Tab
+  // 动态按键提示：多题首题 Enter=下一题；有预设显示空格/上下；多题显示切题；
+  // Tab 切焦点窗（BACKLOG 3.2.1）
   assert.ok(plain.includes("[Enter]下一题"), "非末题 Enter 显示下一题");
   assert.ok(!plain.includes("提交"), "非末题不显示提交");
   assert.ok(plain.includes("[空格]标记"), "有预设选项显示空格标记");
   assert.ok(plain.includes("[↑/↓]选项"), "有预设选项显示上下导航");
   assert.ok(plain.includes("[←/→]切题"), "多题显示切题");
-  assert.ok(!plain.includes("Tab"), "不显示 Tab");
+  assert.ok(plain.includes("[Tab]描述"), "焦点在选项窗时提示 Tab 切到描述窗");
   app.dispose();
 });
 
@@ -2238,10 +2239,23 @@ test("问答面板：预设选项上键入被吞（不落入主输入栏、不�
   app.dispose();
 });
 
-test("问答面板：Tab 已释放（吞掉），不再切焦点、不落入主输入栏", () => {
+test("问答面板：Tab 切焦点窗（描述窗 <-> 选项窗），不落入主输入栏", () => {
   const { app, renderer, adapter } = makeApp();
   pushQuestion(adapter);
+  // Tab：选项窗 → 描述窗（↑/↓ 语义随焦点窗切换，BACKLOG 3.2.1）
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  assert.ok(plainFrame(renderer).includes("[↑/↓]滚动"), "Tab 切到描述窗");
+  assert.ok(
+    plainFrame(renderer).includes("▶题干"),
+    "提示区显式标出当前焦点窗（BACKLOG 3.2.8）",
+  );
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  assert.ok(
+    plainFrame(renderer).includes(">  生产"),
+    "描述窗焦点下 ↓ 不移动选项光标",
+  );
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  assert.ok(plainFrame(renderer).includes("[↑/↓]选项"), "Tab 切回选项窗");
   renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
   assert.equal(adapter.sent.length, 0, "Tab/字符不落入主输入栏");
   assert.ok(
@@ -2291,19 +2305,31 @@ test("问答面板：plan-review 单题以计划卡片呈现，hints 只显示�
   });
   const plain = plainFrame(renderer);
   assert.ok(plain.includes("计划审批（第 1/1 题）"), "plan-review 标题");
+  assert.ok(plain.includes("[审批]"), "plan-review 类型标识（BACKLOG 3.2.2）");
   assert.ok(plain.includes("待审计划"), "detail 卡片标题");
   assert.ok(plain.includes("批准该计划？"), "题干渲染");
-  // 固定交互区高度（24 行终端 = 4 行，选项区 body 2 行）：未导航时窗口锚定顶部，
-  // 面板只剩标题行（提示移到底部提示区）：body 3 行 → 题干 + 卡片头 + detail 正文
-  // 进入初始窗口，选项与末位兜底项仍被裁；↓ 后窗口跟随高亮（选项可见）
+  // 分窗（BACKLOG 3.2.1）：矮终端下面板 4 行 = 描述窗 2 行 + 选项窗 1 行——初始窗口
+  // 覆盖题干 + 卡片头，detail 正文与末位选项都需滚动查看（描述窗先 Tab 切焦点）
   assert.ok(
-    plain.includes("安装依赖并运行测试"),
-    "body 3 行时 detail 正文可见",
+    !plain.includes("安装依赖并运行测试"),
+    "初始描述窗未覆盖 detail 正文",
   );
-  assert.ok(!plain.includes("拒绝"), "超长时窗口未覆盖末位选项");
+  assert.ok(!plain.includes("拒绝"), "初始选项窗未覆盖末位选项");
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
-  assert.ok(plainFrame(renderer).includes("拒绝"), "↓ 滚动后末位选项可见");
+  assert.ok(
+    plainFrame(renderer).includes("拒绝"),
+    "↓ 后末位选项可见（选项窗跟随焦点）",
+  );
   renderer.press({ name: "up", ctrl: false, meta: false, shift: false });
+  // Tab 切到描述窗后 ↑/↓ 改为逐行滚动
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
+  assert.ok(plainFrame(renderer).includes("[↑/↓]滚动"), "描述窗提示改为滚动");
+  renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
+  assert.ok(
+    plainFrame(renderer).includes("安装依赖并运行测试"),
+    "描述窗 ↓ 后 detail 正文可见",
+  );
+  renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   // 单题提示：Enter=提交、无切题、无下一题
   assert.ok(plain.includes("[Enter]提交"), "单题 Enter 显示提交");
   assert.ok(!plain.includes("[←/→]切题"), "单题不显示切题");

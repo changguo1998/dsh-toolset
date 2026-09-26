@@ -42,6 +42,8 @@ import {
   type SymbolRulesConfig,
 } from "./symbols.ts";
 import { setWidthOverrides } from "./layout/markdown.ts";
+import { maxDescScrollFor } from "./components/QuestionPrompt.ts";
+import { maxApprovalScroll } from "./components/ApprovalPrompt.ts";
 import {
   parseSlashCommand,
   SESSION_UI_STATE_VERSION,
@@ -1799,6 +1801,22 @@ export class App {
 
   /** 问答面板按键路由（approval 之后 picker 之前，见 handleKey）：
    * 路由决策为纯函数 questionKeyDecision，副作用（adapter 调用 / paint）在此执行 */
+  /** 问答描述窗滚动上界（BACKLOG 3.2.1）：按当前几何算折行后的最大首行偏移 */
+  private questionDescScrollMax(): number {
+    const panel = this.state.question;
+    if (!panel) return 0;
+    const geom = frameGeometry(this.state, this.deps.renderer.getSize());
+    return maxDescScrollFor(panel, geom.activityH, geom.activityTextW);
+  }
+
+  /** 审批描述窗滚动上界（长草稿可滚动，BACKLOG 3.2.1） */
+  private approvalScrollMax(): number {
+    const approval = this.state.approval;
+    if (!approval) return 0;
+    const geom = frameGeometry(this.state, this.deps.renderer.getSize());
+    return maxApprovalScroll(approval, geom.activityH, geom.activityTextW);
+  }
+
   private handleQuestionKey(k: KeyEvent): void {
     const panel = this.state.question;
     if (!panel) return;
@@ -1830,8 +1848,22 @@ export class App {
       case "select":
         this.apply((s) => reduceState(s, { type: "question-select" }));
         break;
+      case "focus":
+        // Tab：描述窗 <-> 选项窗切换（BACKLOG 3.2.1）
+        this.apply((s) => reduceState(s, { type: "question-focus" }));
+        break;
+      case "desc-scroll":
+        // 描述窗逐行滚动：上界按当前几何算定（state 层不知道折行宽度）
+        this.apply((s) =>
+          reduceState(s, {
+            type: "question-desc-scroll",
+            delta: d.delta,
+            max: this.questionDescScrollMax(),
+          }),
+        );
+        break;
       case "none":
-        // Tab 等其余按键吞掉（不落入主输入栏，也不再切焦点）
+        // 其余按键吞掉（不落入主输入栏）
         return;
     }
     this.paint();

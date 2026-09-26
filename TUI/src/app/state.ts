@@ -393,6 +393,8 @@ export interface AppState {
    *  流式输出节奏交替）/ 黄△=等待交互（审批/问答面板打开）/ idle=尚无结果（渲染回退 ?） */
   inputStatus: InputStatus;
   approval: ApprovalItem | null;
+  /** 审批面板描述窗口首行偏移（BACKLOG 3.2.1 统一窗口机制；打开/关闭归零） */
+  approvalScroll: number;
   agentStatus: AgentStatus;
   /** 最新一次模型调用的 token 用量（assistant/message.usage 归一化；阶段 2 状态栏 contextLen/cacheHit 读取） */
   usage?: {
@@ -570,6 +572,10 @@ export interface QuestionPanelItem {
   selected: string[];
   /** 自定义回答文本 */
   custom: string;
+  /** 焦点窗（BACKLOG 3.2.1）：desc=描述窗（↑/↓ 滚动题干/detail），options=选项窗（↑/↓ 移项） */
+  focus: "desc" | "options";
+  /** 描述窗首行偏移（0 基；上界由渲染层按折行行数算出，App 按键时传 max 进 action） */
+  descScroll: number;
 }
 
 /** 问答面板整体状态（一次 ask() = 一批题；每屏显示一题，第 n/m 题导航） */
@@ -666,6 +672,7 @@ export function initialState(
     inputMode: "normal",
     inputStatus: "idle",
     approval: null,
+    approvalScroll: 0,
     picker: null,
     question: null,
     statusPanel: null,
@@ -1096,10 +1103,11 @@ export function setApproval(
   approval: ApprovalItem | null,
 ): AppState {
   if (!approval) {
-    const next = { ...state, approval: null };
+    const next = { ...state, approval: null, approvalScroll: 0 };
     return { ...next, inputStatus: statusFor(next, "success") };
   }
-  return { ...state, approval, inputStatus: "waiting" };
+  // 新审批请求：描述窗滚动归零（BACKLOG 3.2.1）
+  return { ...state, approval, approvalScroll: 0, inputStatus: "waiting" };
 }
 
 export function setSessions(
@@ -1252,6 +1260,12 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return selectQuestionOption(state);
       case "question-custom":
         return setQuestionCustom(state, action.text);
+      case "question-focus":
+        return focusQuestionWindow(state);
+      case "question-desc-scroll":
+        return scrollQuestionDesc(state, action.delta, action.max);
+      case "approval-scroll":
+        return scrollApproval(state, action.delta, action.max);
       case "question-close": {
         // 关闭问答面板：按 agent 活跃度恢复（运行中/上次结果），不再等待交互
         const next = { ...state, question: null };
@@ -2191,6 +2205,9 @@ export type StateAction =
   | { type: "question-nav"; delta: 1 | -1 }
   | { type: "question-select" }
   | { type: "question-custom"; text: string }
+  | { type: "question-focus" }
+  | { type: "question-desc-scroll"; delta: 1 | -1; max: number }
+  | { type: "approval-scroll"; delta: 1 | -1; max: number }
   | { type: "question-close" }
   | { type: "history-open" }
   | { type: "history-list"; records: SessionInfo[] }
@@ -2637,6 +2654,9 @@ function openQuestion(
     optionIndex: 0,
     selected: [],
     custom: "",
+    // 焦点窗缺省 options：与分窗前 ↑/↓ 直接移项的既有手感一致（BACKLOG 3.2.1）
+    focus: "options",
+    descScroll: 0,
   }));
   // 移除 unused first 引用（自定义兑底项始终存在，列表总长度 = options.length + 1）
   return {
@@ -2649,6 +2669,47 @@ function openQuestion(
     // 问答面板打开 = 等待用户决策（黄△）
     inputStatus: "waiting",
   };
+}
+
+/** Tab 切焦点窗（BACKLOG 3.2.1）：desc <-> options，按题独立记忆 */
+function focusQuestionWindow(state: AppState): AppState {
+  const panel = state.question;
+  if (!panel) return state;
+  const item = panel.items[panel.itemIndex];
+  if (!item) return state;
+  const items = [...panel.items];
+  items[panel.itemIndex] = {
+    ...item,
+    focus: item.focus === "desc" ? "options" : "desc",
+  };
+  return { ...state, question: { ...panel, items } };
+}
+
+/** 描述窗逐行滚动（↑/↓，焦点在描述窗时）：clamp 到 [0, max]（max 由 App 按折行算定） */
+function scrollQuestionDesc(
+  state: AppState,
+  delta: 1 | -1,
+  max: number,
+): AppState {
+  const panel = state.question;
+  if (!panel) return state;
+  const item = panel.items[panel.itemIndex];
+  if (!item) return state;
+  const next = Math.max(0, Math.min(item.descScroll + delta, Math.max(0, max)));
+  if (next === item.descScroll) return state;
+  const items = [...panel.items];
+  items[panel.itemIndex] = { ...item, descScroll: next };
+  return { ...state, question: { ...panel, items } };
+}
+
+/** 审批描述窗逐行滚动（BACKLOG 3.2.1；max 由 App 按折行算定） */
+function scrollApproval(state: AppState, delta: 1 | -1, max: number): AppState {
+  const next = Math.max(
+    0,
+    Math.min(state.approvalScroll + delta, Math.max(0, max)),
+  );
+  if (next === state.approvalScroll) return state;
+  return { ...state, approvalScroll: next };
 }
 
 /** 列表高亮移动：↑/↓ 在 0..options.length（末位为“自定义回答”兑底项）内 clamp */

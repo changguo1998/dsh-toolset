@@ -117,3 +117,31 @@ export function panelPlainParagraph(
 ): Paragraph {
   return text(content, { style });
 }
+
+/** 滚动窗口语义（BACKLOG 3.2.1 统一窗口机制） */
+export type WindowMode =
+  /** 焦点尽量居中（长列表跟随焦点，原 StatusPanel 语义） */
+  | "center"
+  /** 锚点行贴窗口末行（原 QuestionPrompt 选项窗口语义：起点不超过锚点） */
+  | "tail";
+
+/**
+ * 通用滚动窗口起点（纯函数）：让 anchor 行落在窗口内，并 clamp 到
+ * [0, count - windowRows]。`count <= windowRows` 时不滚动（返回 0）。
+ * 三处面板局部实现（问答选项窗口 / 状态选项面板 / 审批描述窗口）统一用它，
+ * 避免「起点算法各写一套」导致长内容下窗口行为不一致（BACKLOG 3.2.1）。
+ */
+export function windowStart(
+  count: number,
+  windowRows: number,
+  anchor: number,
+  mode: WindowMode = "center",
+): number {
+  if (windowRows <= 0 || count <= windowRows) return 0;
+  const max = count - windowRows;
+  const raw =
+    mode === "tail"
+      ? anchor - (windowRows - 1)
+      : anchor - Math.floor(windowRows / 2);
+  return Math.max(0, Math.min(raw, max));
+}
