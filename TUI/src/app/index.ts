@@ -252,11 +252,13 @@ export class App {
     refresh: (() => Promise<void>) | undefined;
     label: string;
   } | null = null;
-  /** 声音提醒：待用户输入超阈值计时器（turn-end 启动，任意键输入清除） */
-  private idleBellTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 声音提醒（3.4.3）：需交互面板打开后的「无操作超阈值」计时器（超时转每秒催促） */
+  private pendingBellTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 声音提醒（3.4.3）：需交互催促的每秒重复计时器（有操作 / 面板关闭 / dispose 停止） */
+  private repeatBellTimer: ReturnType<typeof setInterval> | null = null;
   /** 声音提醒：bell 总开关（deps.notify?.enabled ?? true） */
   private bellEnabled = true;
-  /** 声音提醒：等待输入阈值(ms)（deps.notify?.idleThresholdMs ?? 8000） */
+  /** 声音提醒：需交互「无操作」阈值(ms)（deps.notify?.idleThresholdMs ?? 8000） */
   private idleBellMs = 8000;
   /** 符号规范化规则（内置默认 + 配置合并；见 symbols.ts） */
   private readonly symbolRules: ResolvedSymbolRules;
@@ -775,7 +777,7 @@ export class App {
     for (const f of this.unbindEvents) f();
     this.unbindEvents = [];
     this.stopPanelRefresh();
-    this.clearIdleBellTimer();
+    this.clearInteractiveBell();
     this.clearFrameTimer();
     // 退出时清理其他空会话（复用 session.autoCleanEmpty 开关）：开启时先打印提示并等待
     // 清理完成，再释放 adapter/关闭渲染器退出；关闭或无可清理服务时保持同步收尾。
@@ -818,24 +820,41 @@ export class App {
 
   // ---------- 声音提醒（P2#33） ----------
 
-  /** turn-end 钩子：任务运行结束 → bell；随后启动「等待用户输入超阈值」计时（默认 8s）。
-   *  计时期间任意用户输入(handleKey)即取消；仅本次等待响一次。 */
-  private onTurnEnded(): void {
+  /** 响铃一次（bell 总开关 + 已释放双检查）：turn-end 与「需交互」事件共用（BACKLOG 3.4.1） */
+  private ringBell(): void {
     if (!this.bellEnabled || this.disposed) return;
     this.deps.renderer.bell?.();
-    this.clearIdleBellTimer();
-    this.idleBellTimer = setTimeout(() => {
-      this.idleBellTimer = null;
+  }
+
+  /** turn-end 钩子：任务运行结束只响一声（BACKLOG 3.4.2——原「随后 idle 补响一次」已去掉，
+   *  一次 run 结束不再听到两声；「需交互而未应答」的催促改由 3.4.3 的交互响铃承担）。 */
+  private onTurnEnded(): void {
+    this.ringBell();
+  }
+
+  /** 需交互开始（BACKLOG 3.4.1 + 3.4.3）：审批 / 问答面板弹出即响一声，并启动「无操作
+   *  超阈值」计时；超阈值仍无操作 → 每秒响一次，直到用户有操作或面板关闭。
+   *  一次交互内最多进入一次：任意按键（handleKey 入口）即停止且不重启。 */
+  private beginInteractiveBell(): void {
+    if (!this.bellEnabled || this.disposed) return;
+    this.ringBell();
+    this.clearInteractiveBell();
+    this.pendingBellTimer = setTimeout(() => {
+      this.pendingBellTimer = null;
       if (!this.bellEnabled || this.disposed) return;
-      this.deps.renderer.bell?.();
+      this.repeatBellTimer = setInterval(() => this.ringBell(), 1000);
     }, this.idleBellMs);
   }
 
-  /** 清除「等待输入超阈值」计时（用户输入 / dispose / 新 turn 均取消） */
-  private clearIdleBellTimer(): void {
-    if (this.idleBellTimer) {
-      clearTimeout(this.idleBellTimer);
-      this.idleBellTimer = null;
+  /** 停止需交互响铃（任意按键 / 面板关闭 / dispose）：清计时器，且同一次交互不再重启 */
+  private clearInteractiveBell(): void {
+    if (this.pendingBellTimer) {
+      clearTimeout(this.pendingBellTimer);
+      this.pendingBellTimer = null;
+    }
+    if (this.repeatBellTimer) {
+      clearInterval(this.repeatBellTimer);
+      this.repeatBellTimer = null;
     }
   }
 
@@ -983,6 +1002,8 @@ export class App {
             approval: { id: e.id, prompt: e.prompt },
           }),
         );
+        // 需交互（审批）→ 立即响铃并起催促计时（BACKLOG 3.4.1 / 3.4.3）
+        this.beginInteractiveBell();
         break;
       case "question":
         // DSH 提问：整批题一次打开（一次 ask() 一批；面板内逐题导航，提交整批）
@@ -993,6 +1014,8 @@ export class App {
             questions: e.questions,
           }),
         );
+        // 需交互（问答）→ 立即响铃并起催促计时（BACKLOG 3.4.1 / 3.4.3）
+        this.beginInteractiveBell();
         break;
       case "notice":
         // 命令通知(结果/提示/错误)只进 UI 缓冲，绝不进模型历史；
@@ -1286,19 +1309,31 @@ export class App {
   }
 
   private handleKey(k: KeyEvent): void {
-    // P2#33：任意用户输入即取消「等待输入超阈值」计时（仅在本等待内响一次）
-    this.clearIdleBellTimer();
+    // BACKLOG 3.4.3：任意用户输入（含无效键，人在终端前即算操作）即停止需交互催促响铃，
+    // 且同一次交互内不再重启
+    this.clearInteractiveBell();
     if (this.disposed) return;
     const { name, ctrl } = k;
 
-    // 审批模式：y/n + 滚动
-    // 审批模式：仅 y/n 应答；其余按键（含 Esc、Ctrl+D、Ctrl+L）一律吞掉——
-    // 不打断运行、不关闭弹窗、不改输入模式（“审批模式不变”契约）
+    // 审批模式：y/n 应答 + ↑/↓ 滚动描述窗（长草稿查看，BACKLOG 3.2.1）；
+    // 其余按键（含 Esc、Ctrl+D、Ctrl+L）一律吞掉——不打断运行、不关闭弹窗、
+    // 不改输入模式（“审批模式不变”契约；白名单与无效键提示见 BACKLOG 3.3.1）
     if (this.state.approval) {
       if (name === "y" || name === "n") {
         const allow = name === "y";
         this.deps.adapter.approve(this.state.approval.id, allow);
         this.apply((s) => reduceState(s, { type: "approval", approval: null }));
+        this.paint();
+        return;
+      }
+      if (name === "up" || name === "down") {
+        this.apply((s) =>
+          reduceState(s, {
+            type: "approval-scroll",
+            delta: name === "down" ? 1 : -1,
+            max: this.approvalScrollMax(),
+          }),
+        );
         this.paint();
       }
       return;
@@ -3665,6 +3700,16 @@ export class App {
   }
 
   private apply(fn: (s: AppState) => AppState): void {
-    this.state = fn(this.state);
+    const prev = this.state;
+    this.state = fn(prev);
+    // 需交互面板关闭（提交 / 取消 / 超时）→ 停止催促响铃（BACKLOG 3.4.3）；
+    // 统一在此判定，覆盖按键路径与事件面路径的全部关闭点
+    if (
+      (prev.approval !== null || prev.question !== null) &&
+      this.state.approval === null &&
+      this.state.question === null
+    ) {
+      this.clearInteractiveBell();
+    }
   }
 }
