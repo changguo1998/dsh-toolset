@@ -1377,6 +1377,12 @@ function buildActivePanelBox(
       activityH,
       contentW,
       state.approvalScroll,
+      // 选项焦点 + 倒计时 + 焦点窗（BACKLOG 3.2.4 / 3.2.5 / 3.3.4）
+      {
+        focus: state.approvalFocus,
+        deadline: state.approvalDeadline,
+        window: state.approvalWindow,
+      },
     );
   if (state.question)
     return buildQuestionPanelBox(state.question, activityH, contentW);
@@ -2517,15 +2523,24 @@ function noticeFooterLines(
   rows: number,
 ): FrameRow[] {
   const wrapped: { text: string; fg?: ColorName }[] = [];
-  for (const line of state.buffer) {
-    if (line.kind !== "notice") continue;
-    const { fg, hanging } = noticeLinePresentation(line, false);
-    const parts =
-      hanging === undefined
-        ? wrapLine(line.text, width)
-        : wrapWithHanging(line.text, width, hanging);
-    for (const part of parts) {
-      wrapped.push(fg === undefined ? { text: part } : { text: part, fg });
+  // 无效键提示优先占用这一行（BACKLOG 3.3.8）：它就显示在用户输入区——屏幕左下、
+  // 按键提示区正上方；下一次有效操作（清空 approvalHint）即切回 notice 视图。
+  const hint = (state.approvalHint ?? "").trim();
+  if (hint !== "") {
+    for (const part of wrapLine(hint, width)) {
+      wrapped.push({ text: part, fg: "yellow" });
+    }
+  } else {
+    for (const line of state.buffer) {
+      if (line.kind !== "notice") continue;
+      const { fg, hanging } = noticeLinePresentation(line, false);
+      const parts =
+        hanging === undefined
+          ? wrapLine(line.text, width)
+          : wrapWithHanging(line.text, width, hanging);
+      for (const part of parts) {
+        wrapped.push(fg === undefined ? { text: part } : { text: part, fg });
+      }
     }
   }
   const tail = wrapped.slice(Math.max(0, wrapped.length - rows));

@@ -34,10 +34,34 @@ export function parseSlashCommand(line: string): string | null {
   return m ? m[1]! : null;
 }
 
-/** 从 DSH ApprovalRequest 构造 app 审批提示文案 */
-export function buildApprovalPrompt(req: ApprovalRequest): string {
+/** 审批草稿明细（由 tool/call 参数抽取；3.3.3） */
+export interface ApprovalDetail {
+  /** 工具名（与 req.toolName 同源，供明细行核对） */
+  tool: string;
+  /** 命令全文（arguments.command；多行保留换行，便于审批者通读） */
+  command?: string;
+  /** 单行参数摘要（summarizeToolArguments 结果，命令缺失时兜底） */
+  summary?: string;
+}
+
+/**
+ * 从 DSH ApprovalRequest 构造 app 审批提示文案（3.3.3 起支持多行）：
+ * 首行沿用「允许工具 X 执行?<reason>」；带明细时追加「命令：」段（命令全文另起一行）
+ * 与「参数：」单行摘要。明细缺失（宿主未给 callId / 已过期）时退化为单行旧文案。
+ */
+export function buildApprovalPrompt(
+  req: ApprovalRequest,
+  detail?: ApprovalDetail,
+): string {
   const reason = req.reason ? "：" + req.reason : "";
-  return `允许工具 ${req.toolName} 执行?${reason}`;
+  const head = `允许工具 ${req.toolName} 执行?${reason}`;
+  const lines: string[] = [];
+  const command = detail?.command?.trim();
+  if (command) lines.push("命令：", command);
+  const summary = detail?.summary?.trim();
+  if (summary && summary !== command) lines.push("参数：" + summary);
+  if (lines.length === 0) return head;
+  return [head, ...lines].join("\n");
 }
 
 /**

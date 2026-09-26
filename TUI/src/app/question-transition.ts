@@ -17,6 +17,7 @@ export type QuestionKeyDecision =
   | { kind: "desc-scroll"; delta: 1 | -1 } // up/down（焦点在描述窗）：question-desc-scroll
   | { kind: "custom"; text: string } // 自定义项文本编辑：question-custom
   | { kind: "select" } // 预设选项标记/取消标记（空格 / Ctrl+Space）：question-select
+  | { kind: "digit"; n: number } // 数字键 1-9：直接标记第 n 项（不提交，BACKLOG 3.2.6）
   | { kind: "none" }; // 吞掉按键（无状态变化、无重绘）
 
 /** 高亮是否在“自定义回答”兑底项（列表末位，optionIndex = options.length） */
@@ -32,6 +33,7 @@ function isOnCustom(panel: QuestionPanelState): boolean {
  * - Enter → 还有下一题：nav +1；最后一题：submit 整批答案
  * - 退格 → 仅自定义项高亮时删除末字符；其余位置吞掉
  * - 空格 → 自定义项：输入空格；预设选项：标记/取消标记
+ * - 数字键 1-9 → 直接标记第 n 项（越界吞掉；自定义项上仍按文本输入，BACKLOG 3.2.6）
  * - 其他可打印字符（无 Ctrl）→ 仅自定义项追加；预设选项上吞掉
  * - up/down → 焦点在选项窗：move；焦点在描述窗：desc-scroll（BACKLOG 3.2.1）
  * - left/right → nav
@@ -62,6 +64,11 @@ export function questionKeyDecision(
   if (name === " " || name === "space") {
     if (onCustom) return { kind: "custom", text: (item?.custom ?? "") + " " };
     return { kind: "select" };
+  }
+  if (name.length === 1 && name >= "1" && name <= "9" && !ctrl) {
+    // 数字键 = 直接标记第 n 项（BACKLOG 3.2.6）；自定义项编辑态仍按文本输入处理
+    if (onCustom) return { kind: "custom", text: (item?.custom ?? "") + name };
+    return { kind: "digit", n: Number(name) };
   }
   if (name.length === 1 && !ctrl) {
     if (onCustom) return { kind: "custom", text: (item?.custom ?? "") + name };

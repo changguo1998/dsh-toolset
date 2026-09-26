@@ -85,6 +85,13 @@ export interface TuiConfig {
   session?: TuiSessionConfig;
   /** 模型输出符号规范化段（推荐列表/别名映射/是否提醒模型，见 src/app/symbols.ts） */
   symbols?: SymbolRulesConfig;
+  /** 审批交互段（BACKLOG 3.3.7）：超时等参数；缺省见 main.ts 的回落值 */
+  approval?: TuiApprovalConfig;
+}
+
+/** 审批交互段：`timeoutMs` = 无操作超时（ms，≥ 1000）；面板内按过任意键后不再超时（3.3.5） */
+export interface TuiApprovalConfig {
+  timeoutMs?: number;
 }
 
 const CFG_FILE = "tui.config.json";
@@ -185,6 +192,7 @@ export function normalizeConfig(raw: unknown): TuiConfig {
     theme?: unknown;
     session?: Record<string, unknown>;
     symbols?: Record<string, unknown>;
+    approval?: unknown;
   };
   const l = r.layout ?? {};
   const n = r.notify ?? {};
@@ -225,10 +233,24 @@ export function normalizeConfig(raw: unknown): TuiConfig {
         : { autoCleanEmpty: boolOr(s.autoCleanEmpty) }),
     },
     symbols: normalizeSymbolsSection(r.symbols),
+    approval: normalizeApprovalSection(r.approval),
   };
 }
 
 /** 归一化 symbols 段：recommended / aliases / warnModel / 冷却（cooldownMs、cooldownRuns 非负整数）。 */
+/**
+ * 审批段归一（BACKLOG 3.3.7）：`timeoutMs` 取整；非数字或低于 1000ms（1s）视为非法并忽略
+ * （回落 `main.ts` 的缺省值）——与其它段的「非法即忽略」口径一致，不做静默钳位。
+ */
+function normalizeApprovalSection(v: unknown): TuiApprovalConfig | undefined {
+  if (typeof v !== "object" || v === null) return undefined;
+  const raw = (v as Record<string, unknown>).timeoutMs;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 1000) {
+    return undefined;
+  }
+  return { timeoutMs: Math.floor(raw) };
+}
+
 function normalizeSymbolsSection(raw: unknown): SymbolRulesConfig | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const s = raw as Record<string, unknown>;

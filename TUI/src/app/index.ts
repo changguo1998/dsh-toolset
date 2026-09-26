@@ -44,6 +44,9 @@ import {
 import { setWidthOverrides } from "./layout/markdown.ts";
 import { maxDescScrollFor } from "./components/QuestionPrompt.ts";
 import { maxApprovalScroll } from "./components/ApprovalPrompt.ts";
+
+/** 审批超时回落值（ms）：adapter 未提供 `approvalTimeoutMs()` 时使用（BACKLOG 3.2.5 / 3.3.2） */
+const APPROVAL_TIMEOUT_FALLBACK_MS = 60_000;
 import {
   parseSlashCommand,
   SESSION_UI_STATE_VERSION,
@@ -1319,23 +1322,72 @@ export class App {
     // 其余按键（含 Esc、Ctrl+D、Ctrl+L）一律吞掉——不打断运行、不关闭弹窗、
     // 不改输入模式（“审批模式不变”契约；白名单与无效键提示见 BACKLOG 3.3.1）
     if (this.state.approval) {
-      if (name === "y" || name === "n") {
-        const allow = name === "y";
-        this.deps.adapter.approve(this.state.approval.id, allow);
+      // 用户在面板内有过任何操作 → 停止自动超时（BACKLOG 3.3.5：与问答面板「人在场就不催」
+      // 一致；此后不再自动裁定，倒计时一并隐藏）。在按键分发前统一处理，含无效键。
+      this.deps.adapter.stopApprovalTimeout?.(this.state.approval!.id);
+      if (this.state.approvalDeadline !== null) {
+        this.apply((s) => reduceState(s, { type: "approval-no-timeout" }));
+      }
+      // 审批按键白名单（BACKLOG 3.2.4 / 3.2.6 / 3.3.1）：y/n 与数字键直答、Enter 提交
+      // 焦点项、←/→ 切换焦点、↑/↓ 滚草稿、Esc 取消；白名单外按键不落输入栏，改在提示区
+      // 给出「无效键」提示（提示由 state.approvalHint 承载，任一有效键即清空）。
+      const finishApproval = (allow: boolean): void => {
+        this.deps.adapter.approve(this.state.approval!.id, allow);
+        this.apply((s) => reduceState(s, { type: "approval", approval: null }));
+        this.paint();
+      };
+      const moveApprovalFocus = (): void => {
+        const focus =
+          this.state.approvalFocus === "approve" ? "reject" : "approve";
+        this.apply((s) => reduceState(s, { type: "approval-focus", focus }));
+        this.paint();
+      };
+      if (name === "y" || name === "1") return finishApproval(true);
+      if (name === "n" || name === "2") return finishApproval(false);
+      if (name === "enter")
+        return finishApproval(this.state.approvalFocus === "approve");
+      if (name === "left" || name === "right") return moveApprovalFocus();
+      if (name === "escape") {
+        this.deps.adapter.cancelApproval(this.state.approval!.id);
         this.apply((s) => reduceState(s, { type: "approval", approval: null }));
         this.paint();
         return;
       }
-      if (name === "up" || name === "down") {
-        this.apply((s) =>
-          reduceState(s, {
-            type: "approval-scroll",
-            delta: name === "down" ? 1 : -1,
-            max: this.approvalScrollMax(),
-          }),
-        );
+      if (name === "tab") {
+        // Tab：草稿 <-> 选项焦点窗（BACKLOG 3.3.4，与问答面板同构）
+        this.apply((s) => reduceState(s, { type: "approval-tab" }));
         this.paint();
+        return;
       }
+      if (name === "up" || name === "down") {
+        // ↑/↓ 语义随焦点窗（3.3.4）：描述窗滚草稿、选项窗移动「批准 / 拒绝」
+        if (this.state.approvalWindow === "desc") {
+          this.apply((s) =>
+            reduceState(s, {
+              type: "approval-scroll",
+              delta: name === "down" ? 1 : -1,
+              max: this.approvalScrollMax(),
+            }),
+          );
+        } else {
+          this.apply((s) =>
+            reduceState(s, {
+              type: "approval-focus",
+              focus:
+                this.state.approvalFocus === "approve" ? "reject" : "approve",
+            }),
+          );
+        }
+        this.paint();
+        return;
+      }
+      this.apply((s) =>
+        reduceState(s, {
+          type: "approval-hint",
+          text: "[无效键] 审批仅响应 ←/→ · 1/2 · y/n · Enter · Esc",
+        }),
+      );
+      this.paint();
       return;
     }
 
@@ -1852,6 +1904,14 @@ export class App {
     return maxApprovalScroll(approval, geom.activityH, geom.activityTextW);
   }
 
+  /** 审批超时（ms）：优先取 adapter 实际生效值（保证倒计时与裁定同源，BACKLOG 3.3.2） */
+  private approvalTimeoutMs(): number {
+    const fromAdapter = this.deps.adapter.approvalTimeoutMs?.();
+    return typeof fromAdapter === "number" && fromAdapter > 0
+      ? fromAdapter
+      : APPROVAL_TIMEOUT_FALLBACK_MS;
+  }
+
   private handleQuestionKey(k: KeyEvent): void {
     const panel = this.state.question;
     if (!panel) return;
@@ -1883,6 +1943,20 @@ export class App {
       case "select":
         this.apply((s) => reduceState(s, { type: "question-select" }));
         break;
+      case "digit": {
+        // 数字键直接标记第 n 项（BACKLOG 3.2.6）：越界吞掉；只标记不提交（提交仍由 Enter）
+        const item = panel.items[panel.itemIndex];
+        const total = item?.options.length ?? 0;
+        if (d.n < 1 || d.n > total) return;
+        const cur = item?.optionIndex ?? 0;
+        if (cur !== d.n - 1) {
+          this.apply((s) =>
+            reduceState(s, { type: "question-move", delta: d.n - 1 - cur }),
+          );
+        }
+        this.apply((s) => reduceState(s, { type: "question-select" }));
+        break;
+      }
       case "focus":
         // Tab：描述窗 <-> 选项窗切换（BACKLOG 3.2.1）
         this.apply((s) => reduceState(s, { type: "question-focus" }));

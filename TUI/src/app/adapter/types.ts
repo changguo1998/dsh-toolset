@@ -121,12 +121,21 @@ export type DshEvent =
   | { type: "stream"; sessionId: string; text: string }
   | { type: "thinking"; sessionId: string; text: string }
   | { type: "approval"; id: string; prompt: string }
+  /** 审批已被裁定（超时 / abort）：app 关闭面板并提示，避免「面板仍开着但决议已失效」（3.3.2） */
+  | { type: "approval-closed"; id: string; reason: "timeout" | "abort" }
   | { type: "question"; id: string; questions: QuestionItem[] }
   | { type: "agent-status"; sessionId: string; status: AgentStatus }
   | { type: "notice"; text: string; error?: boolean; tone?: NoticeTone }
   /** P1：收尾原因（宿主 turn/end reason.kind）→ 用户块终态符号依据 */
   | { type: "turn-end"; reason?: TurnEndReason }
-  | { type: "tool-call"; sessionId: string; name: string; summary: string }
+  | {
+      type: "tool-call";
+      sessionId: string;
+      name: string;
+      summary: string;
+      /** 宿主工具调用 id：审批草稿据此回查命令/参数（3.3.3） */
+      callId?: string;
+    }
   | {
       type: "tool-result";
       sessionId: string;
@@ -297,6 +306,18 @@ export interface DshAdapter {
   dispose?(): void;
   /** 审批：allow=true 批准（DSH 'allowed-once'），false 拒绝（'rejected'） */
   approve(id: string, allow: boolean): void;
+  /** 取消审批（Esc / Ctrl-C 等）：settle 为 'cancelled'，面板关闭由 app 侧发起（3.3.1） */
+  cancelApproval(id: string): void;
+  /**
+   * 审批超时实际生效值（ms，BACKLOG 3.3.2）：App 侧倒计时据此显示，保证「倒计时归零」
+   * 与「宿主侧裁定」始终同源；缺省实现可不提供（App 回落 60_000）。
+   */
+  approvalTimeoutMs?(): number;
+  /**
+   * 停止该审批的超时计时（BACKLOG 3.3.5）：用户在面板内有过任何操作后调用——此后不再
+   * 自动裁定（与问答面板「人在场就不催」一致）。缺省实现可不提供（视为无此能力）。
+   */
+  stopApprovalTimeout?(id: string): void;
   /** 提交问答整批答案（id = question 事件 id；Esc 取消走 cancelQuestion） */
   answerQuestion(id: string, answer: QuestionAnswer): void;
   /** 取消问答（Esc）：reject 当前 ask，不打断 turn */

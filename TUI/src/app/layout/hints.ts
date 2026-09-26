@@ -40,8 +40,23 @@ export const HISTORY_HINTS: Record<string, string> = {
   "confirm-clean": HISTORY_CONFIRM_HINT_LINE,
 };
 
-/** 审批面板（3.3.1 落地白名单后文案随之更新） */
-export const APPROVAL_HINT_LINE = "[y]批准 · [n]拒绝 · [Esc]退出";
+/**
+ * 审批面板（BACKLOG 3.2.4 / 3.2.6 / 3.3.1 / 3.3.4）：与问答面板同构——以显式前缀标出当前
+ * 焦点窗（`▶草稿` / `▶选项`），`↑/↓` 语义随焦点窗切换（滚草稿 / 移动选项）、`Tab` 切窗；
+ * 各项用紧凑分隔符连接（与 questionHintLine 同口径，80 列内可放下）。
+ */
+export function approvalHintLine(state: AppState): string {
+  const onDesc = state.approvalWindow === "desc";
+  const parts: string[] = [
+    onDesc ? "▶草稿" : "▶选项",
+    "[Enter]提交",
+    "[Esc]取消",
+    onDesc ? "[↑/↓]滚动" : "[↑/↓]选项",
+    "[Tab]" + (onDesc ? "选项" : "草稿"),
+    "[1/2]直答",
+  ];
+  return parts.join("·");
+}
 
 /** 模型选择面板（三列焦点区；空格预选、Enter 提交） */
 export const PICKER_HINT_LINE =
@@ -75,7 +90,7 @@ export function questionHintLine(panel: QuestionPanelState): string {
     onDesc ? "[↑/↓]滚动" : "[↑/↓]选项",
   ];
   if (hasPreset) {
-    parts.push("[空格]标记", "[Tab]" + (onDesc ? "选项" : "描述"));
+    parts.push("[空格/1-9]标记", "[Tab]" + (onDesc ? "选项" : "描述"));
   }
   if (total > 1) parts.push("[←/→]切题");
   // 紧凑分隔符：七项全列时 80 列终端也要放得下（` · ` 会撑到 82 列、截掉尾部切题提示，
@@ -97,7 +112,8 @@ export function commandPanelHint(kind: CommandPanelKind): string {
  * 返回空串表示「有提示区但无可用键位」（占位空行，交互区高度不变）。
  */
 export function hintLine(state: AppState): string {
-  if (state.approval) return APPROVAL_HINT_LINE;
+  // 审批态：底部提示区始终显示常规按键（无效键提示自 3.3.6 起画在面板内容区左上）
+  if (state.approval) return approvalHintLine(state);
   if (state.question) return questionHintLine(state.question);
   if (state.statusPanel) return statusPanelHintLine(state.statusPanel);
   if (state.picker) return PICKER_HINT_LINE;

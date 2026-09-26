@@ -395,6 +395,14 @@ export interface AppState {
   approval: ApprovalItem | null;
   /** 审批面板描述窗口首行偏移（BACKLOG 3.2.1 统一窗口机制；打开/关闭归零） */
   approvalScroll: number;
+  /** 审批选项焦点（BACKLOG 3.2.4）：approve=批准项 / reject=拒绝项；打开时归 approve */
+  approvalFocus: "approve" | "reject";
+  /** 审批当前焦点窗（BACKLOG 3.3.4，与问答面板同构）：desc=草稿 / options=选项；打开时归 options */
+  approvalWindow: "desc" | "options";
+  /** 审批超时时刻（epoch ms，BACKLOG 3.2.5 倒计时来源；null = 无倒计时） */
+  approvalDeadline: number | null;
+  /** 审批态无效键提示（BACKLOG 3.3.1）：非空时提示区显示它；切换焦点/提交/关闭时清空 */
+  approvalHint: string | null;
   agentStatus: AgentStatus;
   /** 最新一次模型调用的 token 用量（assistant/message.usage 归一化；阶段 2 状态栏 contextLen/cacheHit 读取） */
   usage?: {
@@ -585,6 +593,8 @@ export interface QuestionPanelState {
   items: QuestionPanelItem[];
   /** 当前显示题号（0-based） */
   itemIndex: number;
+  /** 面板打开时的问题前正文（活动区最近一条非思考正文，BACKLOG 3.2.10；缺省/空串 = 不显示） */
+  source?: string;
 }
 
 export function initialState(
@@ -673,6 +683,10 @@ export function initialState(
     inputStatus: "idle",
     approval: null,
     approvalScroll: 0,
+    approvalFocus: "approve",
+    approvalWindow: "options",
+    approvalDeadline: null,
+    approvalHint: null,
     picker: null,
     question: null,
     statusPanel: null,
@@ -1097,17 +1111,66 @@ export function setAgentStatus(state: AppState, status: AgentStatus): AppState {
   return { ...state, agentStatus: status };
 }
 
-/** 审批面板：打开 = 等待用户决策（黄△）；关闭按 agent 活跃度恢复（运行中/上次结果） */
+/**
+ * 审批面板：打开 = 等待用户决策（黄△）；关闭按 agent 活跃度恢复（运行中/上次结果）。
+ * `deadline`（epoch ms）由调用方传入（reducer 不依赖时钟），供拒绝项倒计时显示（3.2.5）。
+ */
 export function setApproval(
   state: AppState,
   approval: ApprovalItem | null,
+  deadline: number | null = null,
 ): AppState {
   if (!approval) {
-    const next = { ...state, approval: null, approvalScroll: 0 };
+    const next = {
+      ...state,
+      approval: null,
+      approvalScroll: 0,
+      approvalFocus: "approve" as const,
+      approvalWindow: "options" as const,
+      approvalDeadline: null,
+      approvalHint: null,
+    };
     return { ...next, inputStatus: statusFor(next, "success") };
   }
-  // 新审批请求：描述窗滚动归零（BACKLOG 3.2.1）
-  return { ...state, approval, approvalScroll: 0, inputStatus: "waiting" };
+  // 新审批请求：描述窗滚动归零（3.2.1）、焦点归批准项（3.2.4）、记录超时时刻（3.2.5）
+  return {
+    ...state,
+    approval,
+    approvalScroll: 0,
+    approvalFocus: "approve",
+    approvalWindow: "options",
+    approvalDeadline: deadline,
+    approvalHint: null,
+    inputStatus: "waiting",
+  };
+}
+
+/** 审批选项焦点切换（←/→；3.2.4）：只在「批准 / 拒绝」两项间切换，不循环 */
+export function focusApproval(
+  state: AppState,
+  focus: "approve" | "reject",
+): AppState {
+  if (!state.approval || state.approvalFocus === focus) return state;
+  return { ...state, approvalFocus: focus, approvalHint: null };
+}
+
+/** Tab 切审批焦点窗（BACKLOG 3.3.4）：草稿 <-> 选项，与问答面板同为两态切换 */
+export function toggleApprovalWindow(state: AppState): AppState {
+  if (!state.approval) return state;
+  return {
+    ...state,
+    approvalWindow: state.approvalWindow === "desc" ? "options" : "desc",
+    approvalHint: null,
+  };
+}
+
+/** 审批态无效键提示（3.3.1）：切换焦点 / 提交 / 关闭面板时由调用方传 null 清空 */
+export function setApprovalHint(
+  state: AppState,
+  text: string | null,
+): AppState {
+  if (state.approvalHint === text) return state;
+  return { ...state, approvalHint: text };
 }
 
 export function setSessions(
@@ -1203,7 +1266,18 @@ export function reduceState(state: AppState, action: StateAction): AppState {
                 : state.inputStatus,
         };
       case "approval":
-        return setApproval(state, action.approval);
+        return setApproval(state, action.approval, action.deadline ?? null);
+      case "approval-focus":
+        return focusApproval(state, action.focus);
+      case "approval-tab":
+        return toggleApprovalWindow(state);
+      case "approval-no-timeout":
+        // 用户已操作 → 隐藏倒计时（BACKLOG 3.3.5；真正的计时停止在 adapter 侧）
+        return state.approval && state.approvalDeadline !== null
+          ? { ...state, approvalDeadline: null }
+          : state;
+      case "approval-hint":
+        return setApprovalHint(state, action.text);
       case "sessions":
         return setSessions(state, action.sessions);
       case "picker-open":
@@ -2187,7 +2261,16 @@ export type StateAction =
     }
   | { type: "clear-buffer" }
   | { type: "agent-status"; status: AgentStatus }
-  | { type: "approval"; approval: ApprovalItem | null }
+  | {
+      type: "approval";
+      approval: ApprovalItem | null;
+      /** 审批超时时刻（epoch ms；仅打开时有意义，3.2.5） */
+      deadline?: number | null;
+    }
+  | { type: "approval-focus"; focus: "approve" | "reject" }
+  | { type: "approval-tab" }
+  | { type: "approval-no-timeout" }
+  | { type: "approval-hint"; text: string | null }
   | { type: "picker-open"; picker: PickerState }
   | { type: "picker-move"; delta: number }
   | { type: "picker-tab" }
@@ -2715,7 +2798,7 @@ function scrollApproval(state: AppState, delta: 1 | -1, max: number): AppState {
 /** 列表高亮移动：↑/↓ 在 0..options.length（末位为“自定义回答”兑底项）内 clamp */
 function moveQuestion(
   state: AppState,
-  action: { type: "question-move"; delta: 1 | -1 },
+  action: { type: "question-move"; delta: number },
 ): AppState {
   const panel = state.question;
   if (!panel) return state;

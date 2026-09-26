@@ -309,7 +309,12 @@ export async function apply(
     sessionModel,
     // 只读兜底：会话未切换时 /model 目录/状态显示与组装默认取宿主实时值(settings 热更新生效)
     defaultModel: defaultModelSvc,
-    approvalTimeoutMs: config?.approvalTimeoutMs ?? 60_000,
+    // 审批超时优先级（BACKLOG 3.3.7）：TUI 配置文件 > 宿主插件 config > 缺省 30s
+    // （此处与插件装配不在同一作用域，故就地读取一次配置文件；启动期一次 IO，代价可忽略）
+    approvalTimeoutMs:
+      loadTuiConfig().approval?.timeoutMs ??
+      config?.approvalTimeoutMs ??
+      30_000,
     // 历史会话查询服务（ctx.get('sessionQuery')；缺失时 /session 提示不可用）
     sessionQuery: (ctx as { get?: (name: string) => unknown }).get?.(
       "sessionQuery",

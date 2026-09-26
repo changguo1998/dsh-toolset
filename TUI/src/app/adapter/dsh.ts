@@ -72,6 +72,7 @@ import type {
   JobInfo,
 } from "./types.ts";
 import {
+  type ApprovalDetail,
   buildApprovalPrompt,
   buildUserMessage,
   localTitleFromText,
@@ -1422,6 +1423,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       usage?: TokenUsage;
       name?: string;
       arguments?: string;
+      /** 3.3.3：工具调用 id（审批草稿据此回查命令/参数） */
+      callId?: string;
       error?: { name?: string; code?: string };
       reason?: unknown;
       // 0.1.2-rc.1 扩展字段（宽容读，缺省降级）
@@ -1592,13 +1595,21 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       case "tool/call": {
         // 工具调用：紧凑一行（名称 + arguments 摘要）；阶段 2 渲染 ⚙ <name> <summary>
+        // 3.3.3：同批把 callId → 参数明细登记进短期表，供审批草稿展示命令/参数
         const name = data.name;
         if (typeof name !== "string" || name === "") return;
+        const argsRaw =
+          typeof data.arguments === "string" ? data.arguments : "";
+        const summary = summarizeToolArguments(argsRaw);
+        rememberToolCall(data.callId, name, argsRaw, summary);
         emit({
           type: "tool-call",
           sessionId: sid,
           name,
-          summary: summarizeToolArguments(data.arguments ?? ""),
+          summary,
+          ...(typeof data.callId === "string" && data.callId !== ""
+            ? { callId: data.callId }
+            : {}),
         });
         return;
       }
@@ -2053,11 +2064,61 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   };
 
   // --- approval/request waterfall 应答者 ---
-  const settle = (id: string, outcome: ApprovalOutcome): void => {
+  // 3.3.3：tool/call 参数短期登记表（键 = 宿主 callId）。容量上限防长会话堆积；
+  // 审批裁定 / 超时 / abort 后立即清理（见 approvalAnswerer 的 finally）。
+  const toolCallsByCallId = new Map<string, ApprovalDetail>();
+  const TOOL_CALL_CACHE_MAX = 64;
+
+  /** 由原始 arguments 抽审批草稿明细：command 字段取全文，非 JSON 原样，摘要兜底 */
+  const approvalDetailOf = (
+    name: string,
+    argsRaw: string,
+    summary: string,
+  ): ApprovalDetail => {
+    const detail: ApprovalDetail = { tool: name, summary };
+    const raw = argsRaw.trim();
+    if (raw === "") return detail;
+    try {
+      const obj = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof obj.command === "string" && obj.command.trim() !== "") {
+        detail.command = obj.command;
+      }
+    } catch {
+      detail.command = raw;
+    }
+    return detail;
+  };
+
+  const rememberToolCall = (
+    callId: unknown,
+    name: string,
+    argsRaw: string,
+    summary: string,
+  ): void => {
+    if (typeof callId !== "string" || callId === "") return;
+    toolCallsByCallId.delete(callId); // 重放时移到队尾（LRU 近似）
+    toolCallsByCallId.set(callId, approvalDetailOf(name, argsRaw, summary));
+    while (toolCallsByCallId.size > TOOL_CALL_CACHE_MAX) {
+      const oldest = toolCallsByCallId.keys().next().value;
+      if (oldest === undefined) break;
+      toolCallsByCallId.delete(oldest);
+    }
+  };
+
+  /**
+   * 裁定并清理。reason 非空表示「由宿主侧裁定」（超时 / abort）——此时额外发
+   * approval-closed 让 app 关闭面板并提示，避免「面板仍开着但决议已失效」（3.3.2）。
+   */
+  const settle = (
+    id: string,
+    outcome: ApprovalOutcome,
+    reason?: "timeout" | "abort",
+  ): void => {
     const pending = pendingApprovals.get(id);
     if (!pending) return;
     pendingApprovals.delete(id);
     clearTimeout(pending.timer);
+    if (reason) emit({ type: "approval-closed", id, reason });
     pending.resolve(outcome);
   };
 
@@ -2067,9 +2128,15 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   ): Promise<ApprovalOutcome> => {
     if (disposed || listeners.size === 0) return next();
     const id = "approval-" + approvalSeq++;
-    const prompt = buildApprovalPrompt(req);
+    const prompt = buildApprovalPrompt(
+      req,
+      typeof req.callId === "string"
+        ? toolCallsByCallId.get(req.callId)
+        : undefined,
+    );
+    // 超时裁定为 rejected（BACKLOG 3.3.5：无操作到点 = 默认拒绝，比取消更保守）
     const timer = setTimeout(
-      () => settle(id, "cancelled"),
+      () => settle(id, "rejected", "timeout"),
       opts.approvalTimeoutMs ?? 60_000,
     );
     return new Promise<ApprovalOutcome>((resolve) => {
@@ -2081,9 +2148,15 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         resolve("cancelled");
         return;
       }
-      signal?.addEventListener("abort", () => settle(id, "cancelled"), {
-        once: true,
-      });
+      signal?.addEventListener(
+        "abort",
+        () => settle(id, "cancelled", "abort"),
+        {
+          once: true,
+        },
+      );
+    }).finally(() => {
+      if (typeof req.callId === "string") toolCallsByCallId.delete(req.callId);
     });
   };
 
@@ -2203,6 +2276,19 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     approve(id, allow) {
       if (disposed) return;
       settle(id, allow ? "allowed-once" : "rejected");
+    },
+    cancelApproval(id) {
+      if (disposed) return;
+      settle(id, "cancelled");
+    },
+    approvalTimeoutMs() {
+      // App 侧倒计时据此显示（与上面 setTimeout 同源，BACKLOG 3.3.2）
+      return opts.approvalTimeoutMs ?? 60_000;
+    },
+    stopApprovalTimeout(id) {
+      // 用户已开始操作 → 不再自动裁定（BACKLOG 3.3.5）；已裁定时 pending 不在，天然幂等
+      const pending = pendingApprovals.get(id);
+      if (pending) clearTimeout(pending.timer);
     },
     async setApprovalPolicy(policy) {
       // C 阶段：两态切换写路径 → 宿主 ctx.approval.setPolicy(agent, policy)（A0 已核实
