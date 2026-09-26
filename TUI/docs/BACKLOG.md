@@ -51,6 +51,7 @@
 
 - **3.5.1 `/help` 持续增长**：命令加行后 help 超过一屏，且既有测试存在依赖 help 行数的脆弱断言；改 help 前先检查相关断言（改动后需重跑 `scripts/freeze-focus-frame.mts` 并审查冻结基线）。（其余条目的文档、测试与 demo 收尾随各自条目进行，不在此单列。）
 - **3.5.2 demo 冒烟 `titlebar-mode-icons` 期望的字形码过期**：`demo/main.ts` 的 `ICON.box` / `ICON.boxClosed` 仍是旧码位（`U+ED95` / `U+ED75`），而 `layout.ts` 的 `TITLE_ICON` 已改为 `U+F03D7`（closed）/ `U+F03D6`（open）——该断言在 `npm run demo -- --smoke` 恒失败（2026-09-26 布局与渲染管线任务期间发现，**与本任务改动无关**；源码中已无 ED95/ED75 码位，HEAD 版 demo 亦为旧值）。修法：把 demo 期望对齐 `TITLE_ICON`（或直接按 `TITLE_ICON` 取值断言），并复核同文件其余图标码位（ask / never / route / verbose / unify / bell / preset）是否仍与源码一致。
+- **3.5.3 根 `npm run test:tui` 包装脚本在本机挂住（超时）**：`npm run test:tui`（根 `scripts/test-parallel.sh` → `TUI/scripts/test.sh`）单包全量在本机 **420s 未结束**（多个文件停在未完成状态，需手动清理进程），而直接 `node --experimental-transform-types --test --test-force-exit tests/*.test.ts` 跑全量 72 个文件约 2.5s 完成、0 失败——两者差异待查（怀疑 `--test-name-pattern` 传空模式 / 并行参数交互）。（2026-09-26 布局与渲染管线任务期间发现，与本任务改动无关。）
 
 ### 3.6 外部依赖（TUI 侧无法自修）
 

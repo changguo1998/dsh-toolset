@@ -139,17 +139,16 @@ test("渲染：长 provider 名完整显示不截断（列宽按最长选项比�
   );
 });
 
-test("最底行按键帮助：整行满宽 [按键]文字 格式，不按列宽截断", () => {
+test("面板内不再渲染按键帮助行（提示统一到底部提示区，见 layout/hints.ts）", () => {
   const rows = renderModelPicker(
     { picker: picker(), height: 6, width: 80 },
     "dark",
   );
-  const last = stripAnsi(rowAnsi(rows.at(-1)!).trim());
-  assert.equal(
-    last,
-    "[space]select · [left/right]col · [tab]next col · [enter]commit · [esc]cancel",
-    last,
-  );
+  const text = rows.map((r) => stripAnsi(rowAnsi(r))).join("\n");
+  assert.ok(!text.includes("[space]select"), "面板内不应有键位帮助行: " + text);
+  assert.ok(!text.includes("[esc]cancel"), "面板内不应有取消键位: " + text);
+  // 省下的那一行还给列表：height=6 → 标题 1 行 + 列表 5 行，输出仍恰好 height 行
+  assert.equal(rows.length, 6, "输出应恰好 height 行");
 });
 
 test("渲染：三列同屏, 头部全小写, 焦点行箭头, 当前生效值不标星", () => {
@@ -277,21 +276,21 @@ test("渲染：模型无等级时 effort 列显示 (unsupported)", () => {
 });
 
 test("渲染：列表上下有未显示项时顶/底行显示省略号, 焦点行不显示", () => {
-  // provider 6 项、数据行 listRows=4（height 6, 末行为帮助行）、内容行 2：
-  // 焦点 index=2 时 start=1，顶部省略号 + 底部省略号同时出现，焦点恒可见
+  // provider 6 项、数据行 listRows=5（height 6；提示行已移出面板，只剩标题行）、内容行 3：
+  // 焦点 index=3 时窗口下移到 start=1，顶部省略号 + 底部省略号同时出现，焦点恒可见
   const p = picker({
     providers: ["a", "b", "c", "d", "e", "f"],
-    providerIndex: 2,
+    providerIndex: 3,
     phase: 0,
   });
   const rows = renderModelPicker({ picker: p, height: 6, width: 80 }, "dark");
   const r1 = stripAnsi(rowAnsi(rows[1]!));
-  const r4 = stripAnsi(rowAnsi(rows[4]!));
+  const r5 = stripAnsi(rowAnsi(rows[5]!));
   assert.ok(r1.includes("..."), "顶部应有省略号: " + r1);
-  assert.ok(r4.includes("..."), "底部应有省略号: " + r4);
-  // 焦点行(providerIndex=2)应显示 c 而非省略号（箭头指示位置）
-  const focusRow = stripAnsi(rowAnsi(rows[3]!));
-  assert.ok(focusRow.includes("> c"), "焦点行应显示内容: " + focusRow);
+  assert.ok(r5.includes("..."), "底部应有省略号: " + r5);
+  // 焦点行(providerIndex=3)应显示 d 而非省略号（箭头指示位置）
+  const focusRow = stripAnsi(rowAnsi(rows[4]!));
+  assert.ok(focusRow.includes("> d"), "焦点行应显示内容: " + focusRow);
 });
 
 test("渲染：焦点在列表顶部时顶部不显示省略号", () => {
@@ -303,8 +302,8 @@ test("渲染：焦点在列表顶部时顶部不显示省略号", () => {
   const rows = renderModelPicker({ picker: p, height: 6, width: 80 }, "dark");
   const r1 = stripAnsi(rowAnsi(rows[1]!));
   assert.ok(r1.includes("a"), "首行应为焦点内容 a: " + r1);
-  const r4 = stripAnsi(rowAnsi(rows[4]!));
-  assert.ok(r4.includes("..."), "底部应有省略号: " + r4);
+  const r5 = stripAnsi(rowAnsi(rows[5]!));
+  assert.ok(r5.includes("..."), "底部应有省略号: " + r5);
 });
 
 test("渲染：纯 ASCII（无汉字）且各列对齐", () => {

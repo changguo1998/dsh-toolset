@@ -9,8 +9,8 @@
 // space 选中后立即变色可见）。焦点列标题用 `[ ]` 方括号包裹（如
 // `[ provider ]`），列表行不加边框。某列上方/下方有未显示项时，可视区
 // 顶部/底部对应行显示 `...` 省略号（焦点所在行不显示省略号，保证焦点
-// 恒可见）。最底行打印按键帮助：空格=选中，←/→=切换列，Tab=下一列，Enter=提交，
-// Esc=取消。
+// 恒可见）。按键提示**不在面板内**，统一由底部提示区显示（见 layout/hints.ts
+// 的 PICKER_HINT_LINE）。
 // 列宽：按三列各自「最长选项显示宽（含行前标记）」分配总可用宽度
 // （pickerColumnWidths）——空间充足时按比例分配（长 provider 名自然得宽列不截断、
 // 短 effort 列不多占），空间不足时改用水位法（短列保自然宽、只压最长列）；
@@ -150,7 +150,8 @@ function renderColumnCell(
 
 /**
  * 模型选择面板 Box 生成器（TUI/docs/DESIGN.md §7 / SPEC.md §7）：三列独立列表（provider/
- * model/effort）滚动窗口 + 列宽截断补空 + 选择性着色（绿优先于黄）+ 底行按键帮助。
+ * model/effort）滚动窗口 + 列宽截断补空 + 选择性着色（绿优先于黄）。按键提示不在
+ * 面板内（统一由底部提示区显示，见 layout/hints.ts 的 PICKER_HINT_LINE）。
  * 每行产 styled 多段叶子（列段 + 间隔段），叶子 wrap:false 精确行长。
  */
 export function buildModelPickerBox(view: ModelPickerView): Box {
@@ -183,7 +184,7 @@ export function buildModelPickerBox(view: ModelPickerView): Box {
   const modelW = widths[1]!;
   const thinkW = widths[2]!;
 
-  const listRows = Math.max(1, height - 2);
+  const listRows = Math.max(1, height - 1); // 只剩标题行（按键提示在底部提示区）
   const colContent = (len: number) =>
     len <= listRows ? listRows : Math.max(1, listRows - 2);
   const provRows = colContent(providers.length);
@@ -216,21 +217,6 @@ export function buildModelPickerBox(view: ModelPickerView): Box {
             }
           : { text: hdr("effort", phase === 2), focus: false, sel: false },
       ];
-    } else if (r === height - 1) {
-      leaves.push(
-        styled(
-          [
-            seg(
-              truncateToWidth(
-                "[space]select · [left/right]col · [tab]next col · [enter]commit · [esc]cancel",
-                width,
-              ).padEnd(width),
-            ),
-          ],
-          { wrap: false },
-        ),
-      );
-      continue;
     } else {
       const rowIdx = r - 1;
       cells[0] = renderColumnCell(

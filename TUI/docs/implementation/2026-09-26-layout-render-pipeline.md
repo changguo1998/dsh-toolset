@@ -237,9 +237,28 @@
 - 冻结基线：重跑 `scripts/freeze-focus-frame.mts` 后与旧基线**逐场景比对一致**（现有 15 个场景中审批 / 问答态没有 notice 行，故无差异）——无需更新夹具。
 - `npm run demo -- --smoke`：`approval-footer-notice` / `approval-hint-bottom` / `approval-hint-not-colored` 均通过，SMOKE_OK；唯一失败仍为既有 `titlebar-mode-icons`（BACKLOG 3.5.2，与本任务无关）。
 
+### 补漏：`/model` 面板内残留键位帮助行（2026-09-26，真机验证发现）
+
+用户真机验证问答面板时报告「model 命令的活动区还有按键提示」。定位：`ModelPicker.ts` 在**面板末行**硬编码了英文键位帮助 `[space]select · [left/right]col · [tab]next col · [enter]commit · [esc]cancel`——3.1.2 的逐文件清单当时只盘点了 QuestionPrompt / ApprovalPrompt / StatusPanel / JobsPanel / CommandListPanel 五个组件，漏了 ModelPicker。
+
+处理（仍在 3.1.2 口径内，未越出计划清单）：
+
+1. `src/app/components/ModelPicker.ts`：删末行帮助分支，`listRows` 由 `height − 2` 回到 `height − 1`（省下的一行还给列表）；文件头与 `buildModelPickerBox` 注释改为「按键提示不在面板内，见 `layout/hints.ts` 的 `PICKER_HINT_LINE`」。
+1. `tests/modelpicker.test.ts`：原「最底行按键帮助」用例改写为「面板内不再渲染按键帮助行 + 输出恰好 height 行」；两处省略号用例按新几何重算（`listRows = 5`、内容行 3，焦点 index=3 时窗口下移、上下省略号同时出现）。
+1. 冻结基线：重跑 `scripts/freeze-focus-frame.mts`，仅 `panel-picker@w60` 一行差异（帮助行 → 列表空白行），已审查；其余 14 个场景无变化。
+1. 文档口径复核：`DESIGN.md` / `COMMANDS-SPEC.md` / `README.md` 中「面板内不再内嵌键位提示」一条现在对 picker 也成立，无需再改。
+
+命令与结果：`npm run check` 通过；`modelpicker` + `focus-frame` + `footer-notice` + `command-panel` 66/66 通过；整包复跑 0 失败（见「测试与证据」）。
+
 ## 测试与证据
 
-（3.1.3 见「实现记录 · 步骤 1」；3.1.2 见「实现记录 · 步骤 2」；3.1.1 见「实现记录 · 步骤 3」。整包：**1101/1101 通过**；demo 冒烟除既有 `titlebar-mode-icons`（BACKLOG 3.5.2）外全通过；冻结基线与 3.1.1 前逐场景一致。待补（用户执行）：真机 `dsh --profile fff` 现象——面板态无光标 / 思考中排队输入光标停在输入框 / `Ctrl+L` 后光标仍在输入框 / 提示区文案随状态切换且面板内无键位 / 问答或审批打开期间新 notice 出现在输入区位置且关闭后回到输入视图 / `kill -INT` 后终端光标可见。）
+（3.1.3 见「实现记录 · 步骤 1」；3.1.2 见「实现记录 · 步骤 2」（含 `/model` 补漏）；3.1.1 见「实现记录 · 步骤 3」。
+
+- 整包（`node --experimental-transform-types --test --test-force-exit tests/*.test.ts`，72 个文件）多轮复跑：**fail 0**、cancelled 0、skipped 0；用例总数在 1021 / 1074 / 1101 间浮动（`--test-force-exit` 并行下子测试计数口径不稳，各轮均无失败）。注意：根 `npm run test:tui` 包装脚本在本机 **420s 超时**（多文件停在未完成状态、进程无残留），故本轮整包口径取直接 `node --test`（见 BACKLOG 3.5.3）。
+- `npm run check`：通过；`npm run build`：通过（全部子包）。
+- demo 冒烟：SMOKE_OK；除既有 `titlebar-mode-icons`（BACKLOG 3.5.2）外全通过。
+- 冻结基线：3.1.1 前后逐场景一致；`/model` 补漏后仅 `panel-picker@w60` 一行差异（已审查）。
+- 待补（用户执行，真机 `dsh --profile fff`）：面板态无光标 / 思考中排队输入光标停在输入框 / `Ctrl+L` 后光标仍在输入框 / `kill -INT` 后终端光标可见；提示区文案随状态切换且面板内无键位（含 `/model`）；问答或审批打开时新 notice 出现在输入区位置且关闭后回到输入视图。）
 
 ## 收尾
 
