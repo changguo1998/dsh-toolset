@@ -6,12 +6,21 @@
 //
 // 面板行语义 = 「一字符串一行」精确行长：原语基于 styled 叶子（fill wait
 // wrap:false 不折行、不做 markdown 解析，避免 `[y]`/`*` 等被误解析）。
-// 渲染字符沿用现状面板：选项行高亮游标 `>`、单选选中 `*`、多选 `+`
-// （见 IMPLEMENTATION.md「/model 命令」ModelPicker / StatusPanel / Question）。
+// **例外**（BACKLOG TUI#6）：描述窗的题干 / detail / 审批草稿走 `panelMarkdownRows`
+// ——按历史区同口径渲染 markdown 子集（样式段行）；选项行与按键提示仍不解析。
+// 渲染字符：选项行高亮游标 `>`、选中标记 `✓`（见 IMPLEMENTATION.md「/model 命令」
+// ModelPicker / StatusPanel / Question）。
 
 import type { Box, Node, Paragraph, StyledText } from "./box.ts";
 import { v, text, styled } from "./box.ts";
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
+import type { ThemeId } from "../../renderer/theme.ts";
+import {
+  FENCE_RE,
+  wrapAssistantLine,
+  wrapCodeLine,
+  wrapFrameSegments,
+} from "./markdown.ts";
 
 /** 面板单选/列表选项（面板场景原语入参） */
 export interface PanelOption {
@@ -144,4 +153,44 @@ export function windowStart(
       ? anchor - (windowRows - 1)
       : anchor - Math.floor(windowRows / 2);
   return Math.max(0, Math.min(raw, max));
+}
+
+/** 面板 markdown 行输入：一行文本 → 折行后的样式段行（PARAGRAPH 单位） */
+export type PanelMarkdownRows = FrameSegment[][];
+
+/**
+ * 面板 markdown 行（BACKLOG TUI#6）：把多行文本按**历史区同口径**渲染为样式段行数组，
+ * 供面板描述窗（问答题干 / detail、审批草稿）复用 markdown 子集。
+ *
+ * 分类（逐行，与历史区的行级路径一致）：
+ *   - fence（``` / ~~~）标记行与其内部行 → `wrapCodeLine`（灰底、内部不解析）；
+ *     fence 状态由本函数自持（面板不经过 build-box 的 fence 注解）；
+ *   - 含 `|` 的行 → 普通文本折行（**表格退回纯文本**：BACKLOG TUI#6 裁定——表格列宽是
+ *     构建期算死的跨行约束，而面板先折行再按窗口切片，会丢表头与行间横线）；
+ *   - 其余 → `wrapAssistantLine`（行内样式 / 标题 / 列表 / 引用 / `---` 分隔线）。
+ *
+ * 口径：空行不产行（沿用面板现状）；`width` = 内容可用宽（**不含**行首 bar 列，调用方
+ * 负责补 bar 列）；返回行数即描述窗行数（滚动上界同源）。
+ */
+export function panelMarkdownRows(
+  text: string,
+  width: number,
+  themeId: ThemeId,
+): PanelMarkdownRows {
+  const rows: PanelMarkdownRows = [];
+  const w = Math.max(1, width);
+  let inFence = false;
+  for (const line of text.split("\n")) {
+    if (line === "") continue;
+    const isFence = FENCE_RE.test(line);
+    if (isFence) inFence = !inFence;
+    if (isFence || inFence) {
+      rows.push(...wrapCodeLine(line, w));
+    } else if (line.includes("|")) {
+      rows.push(...wrapFrameSegments([{ text: line }], w));
+    } else {
+      rows.push(...wrapAssistantLine(line, w, themeId));
+    }
+  }
+  return rows;
 }

@@ -12,6 +12,7 @@ import {
   panelQuestion,
   panelExplanation,
   panelOptions,
+  panelMarkdownRows,
 } from "../src/app/layout/panel.ts";
 import type { Paragraph, Box, StyledText } from "../src/app/layout/box.ts";
 import { measure, allocate } from "../src/app/layout/measure.ts";
@@ -111,4 +112,29 @@ test("panelOptions：自定义焦点/选中样式透传", () => {
   );
   const f = box.children[0] as StyledText;
   assert.deepEqual(f.segments[0], { text: " >  ", style: { fg: "red" } });
+});
+
+test("panelMarkdownRows：行内样式成段 / 标题去 # / fence 内不解析 / 表格退回纯文本（BACKLOG TUI#6）", () => {
+  const rows = panelMarkdownRows(
+    "**粗** 与 `码`\n# 标题\n```sh\nls *\n```\n| a | b |",
+    24,
+    "dark",
+  );
+  const flat = rows.map((r) => r.map((s) => s.text).join("")).join("\n");
+  assert.ok(flat.includes("粗 与 码"), "行内标记去壳: " + flat);
+  assert.ok(
+    rows[0]!.some((s) => s.style?.bold === true),
+    "加粗段带 bold 样式",
+  );
+  assert.ok(
+    rows[0]!.some((s) => s.style?.bg === "code"),
+    "行内代码段带 code 底",
+  );
+  assert.ok(flat.includes("标题") && !flat.includes("# 标题"), "标题去 #");
+  assert.ok(
+    flat.includes("```sh") && flat.includes("ls *"),
+    "fence 标记行与内部原样（`*` 不当列表）: " + flat,
+  );
+  assert.ok(!flat.includes("•"), "fence 内不产生列表符号");
+  assert.ok(flat.includes("| a | b |"), "表格退回纯文本（不画网格）");
 });

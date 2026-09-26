@@ -37,8 +37,9 @@ import type { QuestionPanelState, QuestionPanelItem } from "../state.ts";
 import type { Box, StyledText } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
-import { windowStart } from "../layout/panel.ts";
+import { panelMarkdownRows, windowStart } from "../layout/panel.ts";
 import { fillBoxTree } from "../layout/fill.ts";
+import { DEFAULT_THEME, type ThemeId } from "../../renderer/theme.ts";
 // 列宽口径与 fill / 渲染器 / markdown 同源（吃运行时宽度探针的覆盖表；BACKLOG TUI#4）
 import { charWidth, displayWidth } from "../layout/markdown.ts";
 
@@ -70,10 +71,13 @@ export interface PanelCaret {
   col: number;
 }
 
-/** 面板行（文本 + 可选整行着色） */
+/** 面板行（纯文本 + 整行着色，或 markdown 样式段；BACKLOG TUI#6） */
 interface PanelLine {
+  /** 纯文本行（**含**行首 1 列占位：滚动时该列被 `bar` 覆盖） */
   text: string;
   color?: FrameStyle;
+  /** markdown 行：样式段**不含**行首 1 列（渲染时补空格 / bar） */
+  segments?: FrameSegment[];
   /** 行首 1 列的滚动条 / 焦点条：字符与样式在窗口算定后回填（占原有缩进、不增宽） */
   bar?: { char: string; style: FrameStyle };
 }
@@ -93,14 +97,16 @@ interface QuestionLayout {
 }
 
 /** 问答面板 Box 生成器（TUI/docs/DESIGN.md §7 / SPEC.md §7）：整棵 activity 内容树
- *  替换。标题行 + 描述窗 + 选项窗两段按高度分配，逐行产 styled 叶子（选项行选中绿 /
- *  未选中的光标行黄、无 markdown 解析）。按键提示不在面板内（见 layout/hints.ts）。 */
+ *  替换。标题 + 描述窗 + 选项窗按高度分配，逐行产 styled 叶子——**描述窗（题干 / detail）
+ *  走 markdown 子集**（与历史区同口径，BACKLOG TUI#6），选项行不解析（选中绿 / 未选中的
+ *  光标行黄）。按键提示不在面板内（见 layout/hints.ts）。 */
 export function buildQuestionPanelBox(
   panel: QuestionPanelState,
   height: number,
   width: number,
+  themeId: ThemeId = DEFAULT_THEME,
 ): Box {
-  const layout = layoutQuestionPanel(panel, height, width);
+  const layout = layoutQuestionPanel(panel, height, width, themeId);
   const maxBody = Math.max(0, height - layout.headerRows);
   // body 行（着色取自排版结果：选项行含折行续行与解释行整块同色）
   const bodyLeaves = Array.from({ length: maxBody }, (_, i) => {
@@ -110,10 +116,17 @@ export function buildQuestionPanelBox(
     if (line.bar) {
       // 行首 1 列 = 滚动条 / 焦点条（字符与样式已回填），其余文本按行色
       segments.push(seg(line.bar.char, line.bar.style));
-      const rest = line.text.slice(1);
-      if (rest !== "") {
-        segments.push(line.color ? seg(rest, line.color) : seg(rest));
+      if (line.segments) {
+        segments.push(...line.segments);
+      } else {
+        const rest = line.text.slice(1);
+        if (rest !== "") {
+          segments.push(line.color ? seg(rest, line.color) : seg(rest));
+        }
       }
+    } else if (line.segments) {
+      // markdown 行：行首 1 列占位（未滚动时不画 bar），其后为样式段（BACKLOG TUI#6）
+      segments.push(seg(" "), ...line.segments);
     } else {
       segments.push(line.color ? seg(line.text, line.color) : seg(line.text));
     }
@@ -132,8 +145,9 @@ export function maxDescScrollFor(
   panel: QuestionPanelState,
   height: number,
   width: number,
+  themeId: ThemeId = DEFAULT_THEME,
 ): number {
-  return layoutQuestionPanel(panel, height, width).maxDescScroll;
+  return layoutQuestionPanel(panel, height, width, themeId).maxDescScroll;
 }
 
 /** 面板内编辑光标（BACKLOG 3.2.7）：焦点在「自定义回答」且该行在选项窗内时返回位置 */
@@ -141,8 +155,9 @@ export function questionCaretFor(
   panel: QuestionPanelState,
   height: number,
   width: number,
+  themeId: ThemeId = DEFAULT_THEME,
 ): PanelCaret | null {
-  return layoutQuestionPanel(panel, height, width).caret;
+  return layoutQuestionPanel(panel, height, width, themeId).caret;
 }
 
 /**
@@ -153,6 +168,7 @@ function layoutQuestionPanel(
   panel: QuestionPanelState,
   height: number,
   width: number,
+  themeId: ThemeId,
 ): QuestionLayout {
   // 面板可用宽：右侧只留 1 列（原为 4 列，人工验收反馈「内容行右侧留白太多」）
   const avail = Math.max(4, width - 2);
@@ -171,7 +187,6 @@ function layoutQuestionPanel(
   // 避免缩进自身被折行（BACKLOG 3.2.1）
   const contIndent = avail > optTextStart ? " ".repeat(optTextStart) : "    ";
   const isPlan = item?.intent?.kind === "plan-review";
-  const multi = item?.multiSelect ?? false;
   /** 焦点是否在描述窗（BACKLOG 3.2.8 修订：滚动条滑块着色与选项光标降色共用同一判据） */
   const descFocus = item?.focus === "desc";
 
@@ -180,32 +195,39 @@ function layoutQuestionPanel(
   if (item) {
     // 描述窗内容：行首恒留 1 列占位（题干与 detail 同宽），该列在窗口算定后回填为
     // 滚动条 / 焦点条（见第 6 步）——占原有缩进、不增宽、不改折行
-    const pushDesc = (text: string): void => {
-      for (const r of wrapPrefixed(` ${text}`, avail, " ")) {
-        descRows.push({ text: r });
+    /** 描述窗内容宽（扣除行首 1 列占位） */
+    const descW = Math.max(1, avail - 1);
+    /** markdown 行（BACKLOG TUI#6）：题干 / detail 走历史区同口径解析 */
+    const pushMarkdown = (text: string): void => {
+      for (const segs of panelMarkdownRows(text, descW, themeId)) {
+        descRows.push({ text: "", segments: segs });
       }
     };
-    // 问题前正文（BACKLOG 3.2.10）：面板打开时记录的活动区正文（≤6 行），灰色置于描述窗
-    // 顶部、随描述窗一起滚动；与题干之间留一个空行分隔（缺省/空串时不占行）
+    /** 纯文本行（计划卡片分隔行等；不解析，行首含 1 列占位） */
+    const pushPlain = (text: string): void => {
+      for (const r of wrapByWidth(` ${text}`, avail))
+        descRows.push({ text: r });
+    };
+    // 问题前正文（BACKLOG 3.2.10）：面板打开时记录的活动区正文（≤6 行），青色置于描述窗
+    // 顶部、随描述窗一起滚动；与题干之间留一个空行分隔（缺省/空串时不占行）。
+    // 该段是历史区正文的复述，**保持纯文本**（BACKLOG TUI#6 裁定：只有题干 / detail /
+    // 审批草稿走 markdown）
     const sourceText = (panel.source ?? "").trim();
     if (sourceText !== "") {
       for (const part of sourceText.split("\n")) {
         if (part.trim() === "") continue;
-        for (const r of wrapByWidth(part, avail)) {
+        for (const r of wrapByWidth(part, descW)) {
           // 醒目青色（BACKLOG 3.2.10 人工反馈：灰色太暗难辨认）
           descRows.push({ text: " " + r, color: { fg: "cyan" } });
         }
       }
       descRows.push({ text: "" });
     }
-    pushDesc(`${item.header ? item.header + "：" : ""}${item.question}`);
+    pushMarkdown(`${item.header ? item.header + "：" : ""}${item.question}`);
     if (item.detail) {
-      if (isPlan) pushDesc("-- 待审计划 --");
-      for (const part of item.detail.split("\n")) {
-        if (part === "") continue;
-        pushDesc(part);
-      }
-      if (isPlan) pushDesc("--------------");
+      if (isPlan) pushPlain("-- 待审计划 --");
+      pushMarkdown(item.detail);
+      if (isPlan) pushPlain("--------------");
     }
   }
 
@@ -428,13 +450,14 @@ export function renderQuestionPanel(
   panel: QuestionPanelState,
   height: number,
   width: number,
+  themeId: ThemeId = DEFAULT_THEME,
 ): FrameRow[] {
   // 薄包装：单一数据源 buildQuestionPanelBox → fillBoxTree
   return fillBoxTree(
-    buildQuestionPanelBox(panel, height, width),
+    buildQuestionPanelBox(panel, height, width, themeId),
     height,
     width,
-    "dark" as never,
+    themeId as never,
   );
 }
 

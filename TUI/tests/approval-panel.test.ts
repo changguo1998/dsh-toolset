@@ -343,3 +343,20 @@ test("提问上下文：来源段渲染在描述窗顶部（灰、随窗滚动�
     "无来源段时题干仍在第二行（标题之下）",
   );
 });
+
+test("审批草稿：命令段按代码块渲染，内部不被行内语法改写（BACKLOG TUI#6）", () => {
+  const approval = {
+    id: "a1",
+    prompt:
+      "允许工具 bash 执行？\n命令：\nrm -rf *_cache_* `x` **not bold**\n参数：{}",
+  };
+  const text = plain(
+    renderApprovalPrompt(approval, 10, 60, 0, { focus: "approve", now: NOW }),
+  ).join("\n");
+  assert.ok(text.includes("命令："), "命令标签行保留: " + text);
+  assert.ok(
+    text.includes("rm -rf *_cache_* `x` **not bold**"),
+    "命令原文保留（`*` / 反引号 / `**` 不被行内语法改写）: " + text,
+  );
+  assert.ok(text.includes("参数：{}"), "命令段之后的草稿行照常渲染: " + text);
+});

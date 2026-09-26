@@ -252,6 +252,16 @@
   - 冻结基线：重跑脚本，差异仅 `panel-question@w60`（` △ [单选] 请回答（第 1/1 题）` → ` △ ○  请回答`）与 `panel-approval@w60`（去掉 `[审批]`）各 1 行，其余 13 场景零差异。
   - 未做（计划内）：`layout/panel.ts` 的 `panelOptions` 标记；提问上下文 `source` 的渲染口径（随 #6 定）。
 
+- 2026-09-27 **#6 完成**（代码 + 断言 + 文档；基线未变）：
+
+  - `layout/panel.ts`：新增 `panelMarkdownRows(text, width, themeId)`——fence 标记行与其内部行 → `wrapCodeLine`（面板自持 fence 状态）、含 `|` 的行 → `wrapFrameSegments` 纯文本（表格退回）、其余 → `wrapAssistantLine`；文件头「面板行不做 markdown 解析」改为「例外：描述窗走 markdown」。
+  - `components/QuestionPrompt.ts`：`PanelLine` 增 `segments`（markdown 行不含行首 1 列，渲染时补空格 / bar）；题干与 detail 改走 markdown（`descW = avail − 1`），提问前正文段（青色）与计划卡片分隔行保持纯文本；`layoutQuestionPanel` / `buildQuestionPanelBox` / `maxDescScrollFor` / `questionCaretFor` / `renderQuestionPanel` 增 `themeId`（缺省 `DEFAULT_THEME`）。
+  - `components/ApprovalPrompt.ts`：`approvalLines` → `approvalRows`（样式段行）；「命令：」段按代码块渲染（`CMD_LABEL`：标签行 + `wrapCodeLine` 命令行，兼容「命令：」同行带内容与空标签两种形态）；删除已无用的本地 `wrapByWidth` 与 `charWidth` 依赖；`buildApprovalBox` / `maxApprovalScroll` / `renderApprovalPrompt` 增 `themeId`。
+  - 调用点：`layout.ts` 三处（审批 / 问答 / caret）传 `state.themeId`；`index.ts` 两处滚动上界传 `this.state.themeId`。
+  - 文档：`docs/SPEC.md` §7.1（新增「描述窗 markdown 渲染」）、`docs/IMPLEMENTATION.md`（新增「描述窗 markdown」）、`README.md`（问答面板与审批面板两段）。
+  - 用例：`tests/panel.test.ts`（`panelMarkdownRows` 原语：行内样式成段 / 标题去 `#` / fence 内不解析 / 表格退回）、`tests/question-window.test.ts`（描述窗接入 markdown）、`tests/approval-panel.test.ts`（命令段代码块 + 原文保留）。
+  - 冻结基线：**无需重跑**——面板两场景内容为纯文本，逐场景比对零差异。
+
 ## 测试与证据
 
 **#3（已完成）**
@@ -288,7 +298,12 @@
 - 新增/重写用例：多题符号行（形态 `1○ 2□ 3△`、当前题符号黄 / 其余灰、窄面板截断为 `…`）、单题三符号（`○` / `□` / `△`）并入标题行、旧 `[单选]`/`[多选]`/`[审批]` 与题号导航的「已移除」断言。
 - 未验证：真机面板目视（人工确认环节，需用户执行）。
 
-**#6**：待实现后补齐。
+**#6（已完成）**
+
+- `npm run check`：通过；`./scripts/test.sh` 全量：**1149 通过 / 0 失败**（新增 3 条用例）；`npm run build`：通过；`npm run demo -- --smoke`：`SMOKE_PASS`。
+- 冻结基线：未重跑——面板两场景输出逐行比对零差异，说明改动对纯文本内容无影响（也印证「只在描述窗解析」的边界）。
+- 用例覆盖：行内样式成段（bold / code 底）、标题去 `#`、fence 内不解析（`*` 不当列表）、表格退回纯文本、审批「命令：」段原文保留（`*` / 反引号 / `**` 不被改写）。
+- 未验证：真机面板目视（人工确认环节，需用户执行）。
 
 ## 收尾
 

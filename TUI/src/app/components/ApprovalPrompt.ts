@@ -9,19 +9,24 @@
 // 秒数倒计时（BACKLOG 3.2.5）。
 // 输出恰好 height 行。
 
-import type { FrameRow } from "../../renderer/index.ts";
+import type { FrameRow, FrameSegment } from "../../renderer/index.ts";
 import type { ApprovalItem } from "../adapter/dsh.ts";
 import type { Box } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
 import { panelTitle, panelExplanation } from "../layout/panel.ts";
 import { fillBoxTree } from "../layout/fill.ts";
-// 列宽口径与 fill / 渲染器 / markdown 同源（吃运行时宽度探针的覆盖表；BACKLOG TUI#4）
-import { charWidth } from "../layout/markdown.ts";
+// 描述窗折行走 markdown 子集（fence 内代码行由本文件自持，命令段按代码块渲染）
+import { wrapCodeLine } from "../layout/markdown.ts";
+import { panelMarkdownRows } from "../layout/panel.ts";
+import { DEFAULT_THEME, type ThemeId } from "../../renderer/theme.ts";
 
 /** 审批标题行文案（BACKLOG TUI#4：类型标识改为符号 △ 并去掉 `[审批]`——符号与状态标记
  *  △ 合一，整行黄） */
 const APPROVAL_TITLE = " △ 等待审批"; // 状态标记用推荐符号 △（BACKLOG 3.2.9）
+
+/** 「命令：」段标签（命令全文另起一行 → 该行按代码块渲染；BACKLOG TUI#6） */
+const CMD_LABEL = "命令：";
 
 /** 审批选项（BACKLOG 3.2.4）：固定两项，顺序与编号 1/2、`y`/`n` 直答一致 */
 export const APPROVAL_OPTIONS = ["批准", "拒绝"] as const;
@@ -38,16 +43,47 @@ export interface ApprovalView {
   window?: "desc" | "options";
 }
 
-/** prompt 折行结果（渲染与滚动上界共用的单一来源） */
-function approvalLines(approval: ApprovalItem, width: number): string[] {
-  // 与问答面板同口径：右侧只留 1 列（BACKLOG 3.2.8 修订）
+/** 面板描述行（BACKLOG TUI#6）：样式段**不含**行首 1 列（渲染时补空格 / 滚动条） */
+interface ApprovalRow {
+  segments: FrameSegment[];
+}
+
+/** 描述窗各行（渲染与滚动上界共用的单一来源；BACKLOG TUI#6 起走 markdown 子集） */
+function approvalRows(
+  approval: ApprovalItem,
+  width: number,
+  themeId: ThemeId,
+): ApprovalRow[] {
+  // 与问答面板同口径：右侧只留 1 列、行首 1 列留给滚动条 / 焦点条
   const avail = Math.max(4, width - 2);
-  const lines: string[] = [];
+  const w = Math.max(1, avail - 1);
+  const rows: ApprovalRow[] = [];
+  /** 「命令：」标签之后的一行按**代码块**渲染（不解析内部） */
+  let codeNext = false;
   for (const part of approval.prompt.split("\n")) {
     if (part === "") continue;
-    lines.push(...wrapByWidth(part, avail));
+    if (codeNext) {
+      // 命令全文：代码块行（灰底、内部不解析——避免 `*` / 反引号 / `_` 被行内语法改写，
+      // 命令显示失真会误导审批判断；BACKLOG TUI#6 裁定）
+      for (const segments of wrapCodeLine(part, w)) rows.push({ segments });
+      codeNext = false;
+      continue;
+    }
+    if (part.startsWith(CMD_LABEL)) {
+      const rest = part.slice(CMD_LABEL.length);
+      rows.push({ segments: [{ text: CMD_LABEL }] });
+      if (rest === "") {
+        codeNext = true;
+      } else {
+        for (const segments of wrapCodeLine(rest, w)) rows.push({ segments });
+      }
+      continue;
+    }
+    for (const segments of panelMarkdownRows(part, w, themeId)) {
+      rows.push({ segments });
+    }
   }
-  return lines;
+  return rows;
 }
 
 /** 描述窗可见行上限（面板体 2/3，BACKLOG 3.2.11 规则） */
@@ -60,19 +96,22 @@ export function maxApprovalScroll(
   approval: ApprovalItem,
   height: number,
   width: number,
+  themeId: ThemeId = DEFAULT_THEME,
 ): number {
   const maxBody = Math.max(0, height - 1);
   return Math.max(
     0,
-    approvalLines(approval, width).length - approvalDescMaxRows(maxBody),
+    approvalRows(approval, width, themeId).length -
+      approvalDescMaxRows(maxBody),
   );
 }
 
 /**
  * 审批面板 Box 生成器（TUI/docs/DESIGN.md §7 / SPEC.md §7）：输出整棵 activity
- * 内容树替换，由 fill 统一摊平。叶子用 styled/text 段序（不做 markdown
- * 解析，避免 `[y]` 等被误解析）；草稿在 build 内按 avail=width-2 预折行再逐行
- * 产叶子；Box 声明显式高度使 fill 补白到恰好 height 行。
+ * 内容树替换，由 fill 统一摊平。**描述窗走 markdown 子集**（BACKLOG TUI#6），其中
+ * 「命令：」之后那一行按**代码块**渲染（灰底、内部不解析，避免命令里的 `*` / 反引号
+ * 被行内语法改写）；按键提示不在面板内（`[y]` 等不参与解析）。草稿在 build 内按
+ * avail=width-2 预折行再逐行产叶子；Box 声明显式高度使 fill 补白到恰好 height 行。
  */
 export function buildApprovalBox(
   approval: ApprovalItem,
@@ -80,40 +119,41 @@ export function buildApprovalBox(
   width: number,
   scroll = 0,
   view: ApprovalView = {},
+  themeId: ThemeId = DEFAULT_THEME,
 ): Box {
   const maxBody = Math.max(0, height - 1); // 只剩标题行（按键提示在底部提示区）
-  const lines = approvalLines(approval, width);
+  const rows = approvalRows(approval, width, themeId);
   // 两窗分配（BACKLOG 3.2.11 规则）：描述窗上限 = 面板体 2/3，选项窗吃剩余行
   const bodyRows = maxBody;
   const descMaxRows = approvalDescMaxRows(bodyRows);
-  const maxDescScroll = Math.max(0, lines.length - descMaxRows);
+  const maxDescScroll = Math.max(0, rows.length - descMaxRows);
   const start = Math.max(0, Math.min(scroll, maxDescScroll));
   const descVisible = Math.min(
     descMaxRows,
-    Math.max(0, lines.length - start),
+    Math.max(0, rows.length - start),
     bodyRows,
   );
-  const desc = lines.slice(start, start + descVisible);
+  const desc = rows.slice(start, start + descVisible);
   const optRows = Math.max(0, bodyRows - descVisible);
   // 描述窗左侧 1 列 = 滚动条（BACKLOG 3.2.8 修订）：轨道 `│`（border 灰）+ 滑块 `┃`（黄）；
   // 审批面板没有「描述窗焦点」概念，滑块恒亮色。内容不足一屏时保持原 ` 文本` 形态。
-  const scrolled = lines.length > descVisible;
+  const scrolled = rows.length > descVisible;
   const thumbLen = scrolled
-    ? Math.max(1, Math.round((descVisible * descVisible) / lines.length))
+    ? Math.max(1, Math.round((descVisible * descVisible) / rows.length))
     : descVisible;
   const thumbPos = scrolled
     ? Math.round(
         (start * (descVisible - thumbLen)) /
-          Math.max(1, lines.length - descVisible),
+          Math.max(1, rows.length - descVisible),
       )
     : 0;
   // 焦点窗（3.3.4）：描述窗聚焦时左侧列着黄（可滚动=滑块、不滚动=整列焦点条），
   // 选项窗聚焦时左侧列转灰、由选项光标行着黄 —— 全屏只有一处焦点黄（沿用 3.2.8 口径）
   const descFocused = view.window === "desc";
-  const descLeaves = desc.map((text, i) => {
+  const descLeaves = desc.map((row, i) => {
     if (!scrolled) {
-      if (!descFocused) return panelExplanation(` ${text}`);
-      return styled([seg("┃", { fg: "yellow" }), seg(text)], { wrap: false });
+      const lead = descFocused ? seg("┃", { fg: "yellow" }) : seg(" "); // 内容不足一屏：不解焦时保持行首 1 列缩进
+      return styled([lead, ...row.segments], { wrap: false });
     }
     const onThumb = i >= thumbPos && i < thumbPos + thumbLen;
     return styled(
@@ -121,7 +161,7 @@ export function buildApprovalBox(
         seg(onThumb ? "┃" : "│", {
           fg: onThumb ? (descFocused ? "yellow" : "border") : "border",
         }),
-        seg(text),
+        ...row.segments,
       ],
       { wrap: false },
     );
@@ -176,34 +216,13 @@ export function renderApprovalPrompt(
   width: number,
   scroll = 0,
   view: ApprovalView = {},
+  themeId: ThemeId = DEFAULT_THEME,
 ): FrameRow[] {
   // 薄包装：单一数据源 buildApprovalBox → fillBoxTree
   return fillBoxTree(
-    buildApprovalBox(approval, height, width, scroll, view),
+    buildApprovalBox(approval, height, width, scroll, view, themeId),
     height,
     width,
-    "dark" as never,
+    themeId as never,
   );
-}
-
-/** 按列适配宽度做简单换行（与 layout.wrapLine 语义一致，避免循环依赖；
- *  列宽走 `charWidth`——与 fill / 渲染器 / 宽度探针同源，BACKLOG TUI#4） */
-function wrapByWidth(text: string, width: number): string[] {
-  if (width <= 0) return [text];
-  const rows: string[] = [];
-  let cur = "";
-  let curW = 0;
-  for (const ch of text) {
-    const w = charWidth(ch);
-    if (curW > 0 && curW + w > width) {
-      rows.push(cur);
-      cur = ch;
-      curW = w;
-    } else {
-      cur += ch;
-      curW += w;
-    }
-  }
-  rows.push(cur);
-  return rows;
 }

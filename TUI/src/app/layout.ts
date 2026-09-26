@@ -1383,9 +1383,15 @@ function buildActivePanelBox(
         deadline: state.approvalDeadline,
         window: state.approvalWindow,
       },
+      state.themeId, // 描述窗 markdown 解析（BACKLOG TUI#6）
     );
   if (state.question)
-    return buildQuestionPanelBox(state.question, activityH, contentW);
+    return buildQuestionPanelBox(
+      state.question,
+      activityH,
+      contentW,
+      state.themeId, // 描述窗 markdown 解析（BACKLOG TUI#6）
+    );
   if (state.picker)
     return buildModelPickerBox({
       picker: state.picker,
@@ -1596,7 +1602,12 @@ function buildTopRegion(
   // 面板内 0 基行（与活动区行号同口径），拼帧时按活动区列偏移写入对应帧行
   const panelCaret =
     state.question !== null && modalPanel.length > 0
-      ? questionCaretFor(state.question, activityH, activityTextW)
+      ? questionCaretFor(
+          state.question,
+          activityH,
+          activityTextW,
+          state.themeId,
+        )
       : null;
   const divFor = (rc: number): FrameSegment[] => {
     // 焦点中性基线：活动区分隔行 D 列=连接 `├`（竖线贯穿+横线右接入，

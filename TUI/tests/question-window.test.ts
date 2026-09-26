@@ -586,3 +586,20 @@ test("windowStart：内容不足不滚动，center / tail 两种锚点语义一�
   assert.equal(windowStart(10, 4, 5, "center"), 3, "center：锚点居中");
   assert.equal(windowStart(10, 0, 5), 0, "窗口高 0 → 不滚动");
 });
+
+test("描述窗接入 markdown（BACKLOG TUI#6）：标题去 #、行内去壳、表格退回纯文本", () => {
+  const st = questionState([
+    {
+      id: "q1",
+      question: "# 部署问题\n**要点**：选择环境\n| a | b |",
+      options: [{ label: "A" }],
+    },
+  ]);
+  const text = plain(renderQuestionPanel(panelOf(st), 12, 60)).join("\n");
+  assert.ok(
+    text.includes("部署问题") && !text.includes("# 部署问题"),
+    "标题去 #: " + text,
+  );
+  assert.ok(text.includes("要点：选择环境"), "行内加粗去壳: " + text);
+  assert.ok(text.includes("| a | b |"), "表格退回纯文本行: " + text);
+});
