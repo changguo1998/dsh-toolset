@@ -1,9 +1,9 @@
 // tests/tool-bootstrap.test.ts — 锚定工具引导（两阶段工具锁定-释放）单测
 //
 // 覆盖：classifyTask 三分类、coreFor 三种首请求目录（不含 glob/grep）、
-// personaFor、isV4ProModel 门控、sessionMode/isPromotedFromEvents 从 durable
+// personaFor、isDeepseekModel 门控、sessionMode/isPromotedFromEvents 从 durable
 // 事件推导、applyPersona 替换、installToolBootstrap 端到端（目标模型锁定 →
-// tool/call 后解锁、非目标模型/开关关闭原样透传、fail-open 降级全量）。
+// tool/call 后解锁、非 deepseek 模型/开关关闭原样透传、fail-open 降级全量）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -13,7 +13,7 @@ import {
   personaFor,
   applyPersona,
   sessionMode,
-  isV4ProModel,
+  isDeepseekModel,
   isPromotedFromEvents,
   installToolBootstrap,
   type TaskAnchor,
@@ -114,15 +114,30 @@ test("personaFor: spec/react 固定文案，weak 按模型分 pro/flash", () => 
 
 /* -- 模型门控 --------------------------------------------------------------- */
 
-test("isV4ProModel: 仅 deepseek-v4 系的 pro 变体", () => {
-  assert.equal(isV4ProModel("deepseek-v4-pro"), true);
-  assert.equal(isV4ProModel("deepseek-v4.1-pro"), true);
-  assert.equal(isV4ProModel("deepseek/deepseek-v4-pro"), true);
-  assert.equal(isV4ProModel("deepseek-v4"), false);
-  assert.equal(isV4ProModel("deepseek-v4-flash"), false);
-  assert.equal(isV4ProModel("deepseek-chat"), false);
-  assert.equal(isV4ProModel("deepseek-reasoner"), false);
-  assert.equal(isV4ProModel(""), false);
+test("isDeepseekModel: 全部 deepseek-* 模型（含 provider 前缀形态）", () => {
+  // 命中：v4 系（pro / flash / 其它变体）、chat / reasoner / v3、带 provider 前缀
+  for (const id of [
+    "deepseek-v4-pro",
+    "deepseek-v4.1-pro",
+    "deepseek-v4",
+    "deepseek-v4-flash",
+    "deepseek-chat",
+    "deepseek-reasoner",
+    "deepseek-v3",
+    "deepseek/deepseek-v4-pro",
+  ]) {
+    assert.equal(isDeepseekModel(id), true, `${id} 应走两阶段引导`);
+  }
+  // 不命中：非 deepseek 模型与空串（原样透传）
+  for (const id of [
+    "",
+    "gpt-4o",
+    "qwen3-coder",
+    "glm-4.6",
+    "anthropic/claude-sonnet-4.5",
+  ]) {
+    assert.equal(isDeepseekModel(id), false, `${id} 应原样透传`);
+  }
 });
 
 /* -- durable 事件推导 ------------------------------------------------------- */
@@ -252,7 +267,7 @@ test("installToolBootstrap: 首次 tool/call 后解锁（进程内记忆，无�
   assert.equal(toolNames(second).length, 8);
 });
 
-test("installToolBootstrap: 非目标模型（flash）原样透传", async () => {
+test("installToolBootstrap: flash 属目标模型 → 首请求同样锁定目录 + persona-only", async () => {
   const runtime = new FakeRuntime();
   installToolBootstrap(runtime);
   const out = (await runtime.fire(
@@ -260,6 +275,50 @@ test("installToolBootstrap: 非目标模型（flash）原样透传", async () =>
     {},
     flashCtx(),
     () => seedAssembled(),
+  )) as Record<string, unknown>;
+  assert.deepEqual(sectionNames(out), ["anchored-persona"]);
+  assert.ok(
+    toolNames(out).length < 8,
+    "flash 首请求工具目录应被锁定到 core（BACKLOG TUI#11 放宽后）",
+  );
+});
+
+test("installToolBootstrap: flash + weak 任务 → 取 PERSONA_WEAK_FLASH", async () => {
+  const runtime = new FakeRuntime();
+  installToolBootstrap(runtime);
+  await runtime.fire("agent/inbox/inserted", {
+    agent: { session: { id: "s2", events: [] } },
+    message: {
+      source: { kind: "user" },
+      content: [{ type: "text", text: "你好" }],
+    },
+  });
+  const out = (await runtime.fire(
+    "system-prompt/assemble",
+    {},
+    flashCtx(),
+    () => seedAssembled(),
+  )) as Record<string, unknown>;
+  const persona = (out.sections as Array<{ text: string }>)[0]?.text ?? "";
+  assert.match(
+    persona,
+    /environment checks/,
+    "flash 在 weak 模式取 flash 文案",
+  );
+  assert.deepEqual(toolNames(out).sort(), ["bash", "read"].sort());
+});
+
+test("installToolBootstrap: 非 deepseek 模型原样透传", async () => {
+  const runtime = new FakeRuntime();
+  installToolBootstrap(runtime);
+  const ctx = () => ({
+    agent: {
+      session: { id: "s3", events: [] },
+      options: { model: "gpt-4o" },
+    },
+  });
+  const out = (await runtime.fire("system-prompt/assemble", {}, ctx(), () =>
+    seedAssembled(),
   )) as Record<string, unknown>;
   assert.deepEqual(out, seedAssembled());
 });

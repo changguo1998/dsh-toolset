@@ -10,8 +10,13 @@
 //   3. 会话记录首个 durable tool/call 后，后续请求恢复全量工具目录与完整
 //      prompt sections，persona 恒定。
 //
-// 门控：仅 deepseek-v4-pro 模型应用本逻辑；其他模型（flash、非 deepseek）
-// 与配置开关关闭时，system-prompt/assemble 原样透传（零改动）。
+// 门控：全部 deepseek-* 模型（含 flash）应用本逻辑；非 deepseek 模型与配置开关
+// 关闭时，system-prompt/assemble 原样透传（零改动）。
+//
+// 取舍（BACKLOG TUI#11，2026-09-27 放宽）：原设计前提是「V4 Pro 的能力上限由
+// 首个 API 请求所见内容决定」，故门控曾限定 v4-pro；现放宽到全部 deepseek-*，
+// flash 在 weak 模式取 PERSONA_WEAK_FLASH。flash 与 chat/reasoner 的实际表现
+// 待真机复核（单测只覆盖门控判定与人设分支）。
 //
 // 健壮性（与参考一致，fail-open）：promotion/mode 均按 session 记忆（进程内
 // Set + session.events 派生，resume-safe）；首个文本在 agent/inbox/inserted
@@ -27,7 +32,7 @@ import type { DshRuntime } from "./types.ts";
 export type ToolBootstrapOptions = {
   /** 总开关（默认 true）。false 时任何模型都原样透传 */
   enabled?: boolean;
-  /** 模型门控（默认 isV4ProModel）：返回 false 时原样透传 */
+  /** 模型门控（默认 isDeepseekModel）：返回 false 时原样透传 */
   isTarget?: (modelId: string) => boolean;
 };
 
@@ -133,11 +138,13 @@ export function coreFor(mode: TaskAnchor, shell: string): string[] {
   return common;
 }
 
-/* ── 模型门控：仅 deepseek-v4-pro ─────────────────────────────────────────── */
+/* ── 模型门控：全部 deepseek-* 模型 ───────────────────────────────────────── */
 
-/** 目标模型判定：deepseek-v4 系列中的 pro 变体（含 provider/model 前缀形态） */
-export function isV4ProModel(modelId: string): boolean {
-  return /deepseek-v4.*pro/i.test(modelId);
+/** 目标模型判定：全部 `deepseek-*` 模型（含 `provider/` 前缀形态，如
+ *  `deepseek/deepseek-v4-pro`）——v4-pro / v4-flash / v4.1 / chat / reasoner / v3
+ *  一并生效（BACKLOG TUI#11；此前仅 `/deepseek-v4.*pro/i`）。 */
+export function isDeepseekModel(modelId: string): boolean {
+  return /deepseek/i.test(modelId);
 }
 
 /* ── prompt-section 辅助 ──────────────────────────────────────────────────── */
@@ -173,7 +180,7 @@ export function isPromotedFromEvents(
 }
 
 /**
- * 挂接 agentCtx 的 system-prompt/assemble：对 deepseek-v4-pro（默认门控）在
+ * 挂接 agentCtx 的 system-prompt/assemble：对全部 deepseek-* 模型（默认门控）在
  * 首请求锁定工具目录 + persona-only，首次 durable tool/call 后恢复全量。
  * 返回解绑函数（与 installSessionModelSelection 同构）；setup 内 void 丢弃。
  */
@@ -182,7 +189,7 @@ export function installToolBootstrap(
   options?: ToolBootstrapOptions,
 ): () => void {
   const enabled = options?.enabled ?? true;
-  const isTarget = options?.isTarget ?? isV4ProModel;
+  const isTarget = options?.isTarget ?? isDeepseekModel;
   /** 进程内已提升的会话集合（append-only；跨组装记忆，resume 由 events 派生兜底） */
   const promoted = new Set<string>();
   /** 进程内已解析模式（append-only） */

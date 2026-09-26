@@ -192,7 +192,7 @@ export {
   personaFor,
   applyPersona,
   sessionMode,
-  isV4ProModel,
+  isDeepseekModel,
   isPromotedFromEvents,
   installToolBootstrap,
   type ToolBootstrapOptions,
