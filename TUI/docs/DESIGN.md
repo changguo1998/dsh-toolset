@@ -184,9 +184,9 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 
 - **目的**：模型的能力上限由**首个 API 请求**所见内容决定（原测量对象为 V4 Pro）——首请求用小而任务匹配的认知开局（2-3 工具 + 单一 persona），首次 durable `tool/call` 后解锁全量工具目录，使推理轨迹锚定在任务匹配的支架上。
 - **门控**：全部 `deepseek-*` 模型应用（含 flash——weak 模式取 `PERSONA_WEAK_FLASH`；`isDeepseekModel = /deepseek/i`，覆盖 `provider/model` 前缀形态）；非 deepseek 模型、`toolBootstrap: false` 时 `system-prompt/assemble` 原样透传（零改动）。**放宽取舍**（BACKLOG TUI#11，2026-09-27）：原设计前提基于 V4 Pro 的测量，放宽后 flash / chat / reasoner 的一阶效果待真机复核——单测只覆盖门控判定与人设分支。
-- **状态机**（按会话，resume-safe）：任务模式由首个真实 user 消息分类（spec / react / weak），文本在 `agent/inbox/inserted` 捕获、`agent/pre-step` 兜底；promotion 由会话 events 含 `tool/call` 派生，进程内 Set 记忆。
+- **状态机**（按会话，resume-safe）：任务模式由首个真实 user 消息分类（spec / react / weak），文本在 `agent/inbox/inserted` 捕获、`agent/pre-step` 兜底；promotion 与模式的 durable 兜底经宿主消息投影读取（`session.deriveMessages()`；rc.2 无公开 `session.events`，BACKLOG TUI#13），进程内 Set 记忆。
 - **首请求**：persona-only section、contexts 清空、工具目录过滤到 core（spec = bash+read+edit / react = bash+read+write / weak = bash+read；`glob`/`grep` 永不进入）。**解锁后**：全量工具目录 + 完整 sections，persona 恒定。
-- **健壮性（fail-open）**：缺失 shell、过滤器异常一律降级全量目录并 warnOnce。接入点：`main.ts` setup 中与 `installSessionModelSelection` 并列挂 `installToolBootstrap(agentCtx, { enabled })`，同一条 `system-prompt/assemble` waterfall。
+- **健壮性（fail-open）**：durable 记录不可读、缺失 shell、过滤器异常一律降级全量目录并 warnOnce。接入点：`main.ts` setup 中与 `installSessionModelSelection` 并列挂 `installToolBootstrap(agentCtx, { enabled })`，同一条 `system-prompt/assemble` waterfall。
 
 ### 事件接入与渲染
 

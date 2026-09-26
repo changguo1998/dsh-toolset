@@ -262,6 +262,8 @@
   - 用例：`tests/panel.test.ts`（`panelMarkdownRows` 原语：行内样式成段 / 标题去 `#` / fence 内不解析 / 表格退回）、`tests/question-window.test.ts`（描述窗接入 markdown）、`tests/approval-panel.test.ts`（命令段代码块 + 原文保留）。
   - 冻结基线：**无需重跑**——面板两场景内容为纯文本，逐场景比对零差异。
 
+- 2026-09-27（面板测试复核，**途中发现**）：发现 #11 的解锁判定在 rc.2 真机永不生效——`tool-bootstrap.ts` 读宿主不存在的 `session.events`（且移植翻转了参照实现的 fail-open），任何 `deepseek-*` 会话被锁在首请求目录，模型拿不到 `ask_user_question`，**#4/#6 真机目视因此受阻**（交接文档「在新会话里直接让模型用 `ask_user_question`」的步骤以解锁生效为前提）。用户裁定「先修复」：新条目 TUI#13 + 追踪文档 `2026-09-27-tool-bootstrap-unlock-fix.md`（修复后返回本批次继续面板目视）。#3/#9/#11 既有结论不变；#11 的「flash/chat/reasoner 真机表现」残留项与解锁半程验证待修复重启后一并复核。
+
 ## 测试与证据
 
 **#3（已完成）**

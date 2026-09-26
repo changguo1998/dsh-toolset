@@ -2,8 +2,9 @@
 //
 // 覆盖：classifyTask 三分类、coreFor 三种首请求目录（不含 glob/grep）、
 // personaFor、isDeepseekModel 门控、sessionMode/isPromotedFromEvents 从 durable
-// 事件推导、applyPersona 替换、installToolBootstrap 端到端（目标模型锁定 →
-// tool/call 后解锁、非 deepseek 模型/开关关闭原样透传、fail-open 降级全量）。
+// 记录推导（宿主 events 与 rc.2 消息投影两条路径）、applyPersona 替换、
+// installToolBootstrap 端到端（目标模型锁定 → tool/call 后解锁、rc.2 无 events
+// 的投影路径与 fail-open、非 deepseek 模型/开关关闭原样透传）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -15,6 +16,8 @@ import {
   sessionMode,
   isDeepseekModel,
   isPromotedFromEvents,
+  sessionMessages,
+  hasToolCallInMessages,
   installToolBootstrap,
   type TaskAnchor,
 } from "../src/app/adapter/dsh.ts";
@@ -164,6 +167,61 @@ test("isPromotedFromEvents: 存在 tool/call 即已提升", () => {
   assert.equal(isPromotedFromEvents(undefined), false);
 });
 
+/* -- rc.2 实况：无公开 events，经消息投影判定 -------------------------------- */
+
+test("sessionMode: 无 events 时经消息投影读首个真实用户消息", () => {
+  const deriveMessages = () => [
+    { role: "system", content: [{ type: "text", text: "sys" }] },
+    {
+      role: "user",
+      source: { kind: "agent-instructions" },
+      content: [{ type: "text", text: "工作区规则说明" }],
+    },
+    {
+      role: "user",
+      source: { kind: "user" },
+      content: [{ type: "text", text: "调试这个崩溃" }],
+    },
+  ];
+  assert.equal(sessionMode({ deriveMessages }), "spec");
+  // 投影不可读 → weak 兜底
+  assert.equal(sessionMode({}), "weak");
+  assert.equal(
+    sessionMode({
+      deriveMessages: () => {
+        throw new Error("boom");
+      },
+    }),
+    "weak",
+  );
+});
+
+test("sessionMessages/hasToolCallInMessages: 投影读取与 tool-call 判定", () => {
+  assert.equal(sessionMessages({}), undefined);
+  assert.equal(
+    sessionMessages({ deriveMessages: () => [{ role: "user" }] })?.length,
+    1,
+  );
+  assert.equal(
+    hasToolCallInMessages([
+      { role: "assistant", content: [{ type: "text", text: "hi" }] },
+    ]),
+    false,
+  );
+  assert.equal(
+    hasToolCallInMessages([
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "ok" },
+          { type: "tool-call", id: "c1", name: "bash" },
+        ],
+      },
+    ]),
+    true,
+  );
+});
+
 /* -- applyPersona ----------------------------------------------------------- */
 
 test("applyPersona: 替换 persona section 并保留其他", () => {
@@ -251,7 +309,7 @@ test("installToolBootstrap: 会话已有 tool/call → 直接全量目录 + pers
   assert.deepEqual(out.contexts, []);
 });
 
-test("installToolBootstrap: 首次 tool/call 后解锁（进程内记忆，无需 events）", async () => {
+test("installToolBootstrap: 首次 tool/call 后解锁（进程内记忆）", async () => {
   const runtime = new FakeRuntime();
   installToolBootstrap(runtime);
   const ctx = v4proCtx(specEvents());
@@ -306,6 +364,185 @@ test("installToolBootstrap: flash + weak 任务 → 取 PERSONA_WEAK_FLASH", asy
     "flash 在 weak 模式取 flash 文案",
   );
   assert.deepEqual(toolNames(out).sort(), ["bash", "read"].sort());
+});
+
+test("installToolBootstrap: 切模型后连续调用仍全量，状态只在进程重启时重置（BACKLOG TUI#11）", async () => {
+  // A) 进程重启（新的 install → 进程内 promoted 记忆为空）+ 旧会话已有 durable tool/call：
+  //    首请求即全量——即使此刻已切到 flash，也不重新锁定
+  const restarted = new FakeRuntime();
+  installToolBootstrap(restarted);
+  const resumed = {
+    agent: {
+      session: { id: "s-resumed", events: [{ type: "tool/call", data: {} }] },
+      options: { model: "deepseek-v4-flash" },
+    },
+  };
+  const a = (await restarted.fire("system-prompt/assemble", {}, resumed, () =>
+    seedAssembled(),
+  )) as Record<string, unknown>;
+  assert.equal(
+    toolNames(a).length,
+    8,
+    "恢复的旧会话：切换模型后仍直接全量（durable tool/call 兜底）",
+  );
+
+  // B) 重启后的新会话 + flash：首请求锁定 core → 首次 tool/call 后解锁全量
+  const fresh = new FakeRuntime();
+  installToolBootstrap(fresh);
+  const ctx = {
+    agent: {
+      session: { id: "s-fresh", events: [] as Record<string, unknown>[] },
+      options: { model: "deepseek-v4-flash" },
+    },
+  };
+  const b1 = (await fresh.fire("system-prompt/assemble", {}, ctx, () =>
+    seedAssembled(),
+  )) as Record<string, unknown>;
+  assert.deepEqual(toolNames(b1).sort(), ["bash", "read"].sort());
+  ctx.agent.session.events.push({ type: "tool/call", data: {} });
+  const b2 = (await fresh.fire("system-prompt/assemble", {}, ctx, () =>
+    seedAssembled(),
+  )) as Record<string, unknown>;
+  assert.equal(toolNames(b2).length, 8, "解锁后全量工具回归");
+  assert.ok(
+    toolNames(b2).includes("glob") && toolNames(b2).includes("grep"),
+    "core 里永不出现的 glob/grep 解锁后可用",
+  );
+
+  // C) 解锁后**切模型**（flash → pro → deepseek-chat）并连续多轮组装：
+  //    promotion 按会话记忆，每个工具调用都照常全量，不回退到锁定
+  for (const model of [
+    "deepseek-v4-pro",
+    "deepseek-chat",
+    "deepseek-v4-flash",
+  ]) {
+    ctx.agent.options.model = model;
+    for (let i = 0; i < 3; i++) {
+      ctx.agent.session.events.push({ type: "tool/call", data: { i } });
+      const out = (await fresh.fire("system-prompt/assemble", {}, ctx, () =>
+        seedAssembled(),
+      )) as Record<string, unknown>;
+      assert.equal(
+        toolNames(out).length,
+        8,
+        `${model} 第 ${i + 1} 次调用应保持全量`,
+      );
+    }
+  }
+
+  // D) 再重启一次（新 install）+ **新的空会话** → 重新两阶段（重置只由进程重启 + 会话记忆决定）
+  const again = new FakeRuntime();
+  installToolBootstrap(again);
+  const c = (await again.fire(
+    "system-prompt/assemble",
+    {},
+    {
+      agent: {
+        session: { id: "s-after-restart", events: [] },
+        options: { model: "deepseek-v4-pro" },
+      },
+    },
+    () => seedAssembled(),
+  )) as Record<string, unknown>;
+  assert.deepEqual(
+    toolNames(c).sort(),
+    ["bash", "read"].sort(),
+    "重启后的新会话重新走两阶段（锁定 core）",
+  );
+});
+
+test("installToolBootstrap: rc.2 无 events——首请求锁定，投影出现 tool-call 后解锁", async () => {
+  const runtime = new FakeRuntime();
+  installToolBootstrap(runtime);
+  // rc.2 会话形态：无 events 属性，只有消息投影；首个真实用户消息为修复类 → spec
+  const messages: Array<Record<string, unknown>> = [
+    {
+      role: "user",
+      source: { kind: "user" },
+      content: [{ type: "text", text: "修复登录页报错" }],
+    },
+  ];
+  const ctx = {
+    agent: {
+      session: { id: "s-live", deriveMessages: () => messages },
+      options: { model: "deepseek-v4-flash" },
+    },
+  };
+  const first = (await runtime.fire("system-prompt/assemble", {}, ctx, () =>
+    seedAssembled(),
+  )) as Record<string, unknown>;
+  assert.deepEqual(
+    toolNames(first).sort(),
+    ["bash", "read", "edit"].sort(),
+    "首请求按消息投影推导的 spec 目录锁定",
+  );
+  // 首个工具调用落进投影后，后续组装解锁全量
+  messages.push({
+    role: "assistant",
+    content: [{ type: "tool-call", id: "c1", name: "bash" }],
+  });
+  const second = (await runtime.fire("system-prompt/assemble", {}, ctx, () =>
+    seedAssembled(),
+  )) as Record<string, unknown>;
+  assert.equal(toolNames(second).length, 8, "投影含 tool-call 后解锁全量");
+});
+
+test("installToolBootstrap: rc.2 投影不可读 → fail-open 全量（绝不锁死）", async () => {
+  const runtime = new FakeRuntime();
+  installToolBootstrap(runtime);
+  // 既无 events 也无 deriveMessages → 不可读，fail-open
+  const bare = {
+    agent: {
+      session: { id: "s-bare" },
+      options: { model: "deepseek-v4-flash" },
+    },
+  };
+  const out = (await runtime.fire("system-prompt/assemble", {}, bare, () =>
+    seedAssembled(),
+  )) as Record<string, unknown>;
+  assert.equal(toolNames(out).length, 8, "无可读记录 → 直接全量");
+  // deriveMessages 抛错同样 fail-open
+  const broken = {
+    agent: {
+      session: {
+        id: "s-broken",
+        deriveMessages: () => {
+          throw new Error("boom");
+        },
+      },
+      options: { model: "deepseek-v4-flash" },
+    },
+  };
+  const out2 = (await runtime.fire("system-prompt/assemble", {}, broken, () =>
+    seedAssembled(),
+  )) as Record<string, unknown>;
+  assert.equal(toolNames(out2).length, 8, "投影抛错 → 直接全量");
+});
+
+test("installToolBootstrap: rc.2 恢复旧会话（投影已有 tool-call）→ 首请求即全量", async () => {
+  const runtime = new FakeRuntime();
+  installToolBootstrap(runtime);
+  const messages = [
+    {
+      role: "user",
+      source: { kind: "user" },
+      content: [{ type: "text", text: "修复登录页报错" }],
+    },
+    {
+      role: "assistant",
+      content: [{ type: "tool-call", id: "c1", name: "bash" }],
+    },
+  ];
+  const ctx = {
+    agent: {
+      session: { id: "s-resumed-live", deriveMessages: () => messages },
+      options: { model: "deepseek-v4-flash" },
+    },
+  };
+  const out = (await runtime.fire("system-prompt/assemble", {}, ctx, () =>
+    seedAssembled(),
+  )) as Record<string, unknown>;
+  assert.equal(toolNames(out).length, 8, "恢复会话首请求即全量（resume-safe）");
 });
 
 test("installToolBootstrap: 非 deepseek 模型原样透传", async () => {

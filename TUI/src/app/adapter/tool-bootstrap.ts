@@ -19,9 +19,12 @@
 // 待真机复核（单测只覆盖门控判定与人设分支）。
 //
 // 健壮性（与参考一致，fail-open）：promotion/mode 均按 session 记忆（进程内
-// Set + session.events 派生，resume-safe）；首个文本在 agent/inbox/inserted
-// 捕获（先于首组装事件），agent/pre-step 兜底；缺失 shell、过滤异常一律降级
-// 全量目录，绝不阻塞步骤管线。
+// Set + durable 记录派生，resume-safe）。durable 记录的读取顺序见下方
+// 「durable 记录读取」节：宿主提供 `session.events` 时以其为准；rc.2 宿主无
+// 公开 events 属性，改经消息投影 `session.deriveMessages()` 判定；两者都
+// 不可读时 fail-open 降级全量目录，绝不把会话锁死（BACKLOG TUI#13）。首个
+// 文本在 agent/inbox/inserted 捕获（先于首组装事件），agent/pre-step 兜底；
+// 缺失 shell、过滤异常同样降级全量目录，绝不阻塞步骤管线。
 //
 // 零运行时依赖，仅用 DshRuntime 结构面（ctx.on），与 installSessionModelSelection
 // 挂钩同一条 system-prompt/assemble waterfall，顺序无关可共存。
@@ -81,11 +84,21 @@ export function extractText(data: unknown): string {
     .join(" ");
 }
 
-/** 从 durable 事件推导会话模式（resume-safe） */
+/** 从 durable 记录推导会话模式（resume-safe）：宿主 events 优先；rc.2 无
+ *  events 时经消息投影读首个真实用户消息；两者皆不可读回落 weak。 */
 export function sessionMode(
-  session: { events?: readonly Record<string, unknown>[] } | undefined,
+  session:
+    | {
+        events?: readonly Record<string, unknown>[];
+        deriveMessages?: () => readonly BootstrapMessage[];
+      }
+    | undefined,
 ): TaskAnchor {
-  if (!session || !Array.isArray(session.events)) return "weak";
+  if (!session) return "weak";
+  if (!Array.isArray(session.events)) {
+    const messages = sessionMessages(session);
+    return messages === undefined ? "weak" : sessionModeFromMessages(messages);
+  }
   const userMsg = session.events.find((e) => e && e.type === "user/message");
   return classifyTask(extractText(userMsg && userMsg.data));
 }
@@ -169,14 +182,73 @@ export function applyPersona<T extends { name?: string; text?: string }>(
 export type BootstrapSession = {
   id: string;
   events?: readonly Record<string, unknown>[];
+  /** 宿主消息投影（rc.2 公开 API `session.deriveMessages()` 的结构面；无 events 时的主判据） */
+  deriveMessages?: () => readonly BootstrapMessage[];
 };
 
-/** 供测试/内部使用：从 durable 事件推导是否已提升（首 tool/call 后永久解锁） */
+/** 消息投影中的消息（仅声明判定所需字段；宿主可附加其它字段） */
+export type BootstrapMessage = {
+  role?: string;
+  source?: { kind?: string };
+  /** 内容块（读取用结构面；`Array.isArray` 收窄在 readonly 数组上会退化，故不标 readonly） */
+  content?: (Record<string, unknown> | string)[];
+  [key: string]: unknown;
+};
+
+/** 从 durable 事件推导是否已提升（宿主提供 events 数组时的判据；`undefined`
+ *  视为未命中——「不可读」须由调用方另行 fail-open，勿以本函数代判）。 */
 export function isPromotedFromEvents(
   events: readonly Record<string, unknown>[] | undefined,
 ): boolean {
   if (!Array.isArray(events)) return false;
   return events.some((e) => e && e.type === "tool/call");
+}
+
+/* ── durable 记录读取（rc.2 宿主无公开 `session.events`） ─────────────────── */
+
+/** 读会话消息投影快照；API 缺失 / 抛错 / 非数组返回 undefined（= 不可读，
+ *  调用方按 fail-open 处理）。来源为宿主公开 `session.deriveMessages()`
+ *  （rc.2：增量缓存、返回冻结快照，可安全反复调用）。 */
+export function sessionMessages(
+  session: { deriveMessages?: () => readonly BootstrapMessage[] } | undefined,
+): readonly BootstrapMessage[] | undefined {
+  try {
+    const derive = session?.deriveMessages;
+    if (typeof derive !== "function") return undefined;
+    const messages = derive.call(session);
+    return Array.isArray(messages) ? messages : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 消息投影里是否已出现首个工具调用（解锁判据：assistant 消息含
+ *  `tool-call` 内容块即视为已跨过首次工具使用门槛）。 */
+export function hasToolCallInMessages(
+  messages: readonly BootstrapMessage[] | undefined,
+): boolean {
+  if (!Array.isArray(messages)) return false;
+  return messages.some((m) => {
+    if (!m || !Array.isArray(m.content)) return false;
+    return m.content.some(
+      (block: Record<string, unknown> | string) =>
+        !!block &&
+        typeof block === "object" &&
+        (block as { type?: unknown }).type === "tool-call",
+    );
+  });
+}
+
+/** 从消息投影推导会话模式：取首个真实用户消息
+ *  （`source.kind === "user"`，跳过 agent-instructions / skill-catalog 等注入）。 */
+export function sessionModeFromMessages(
+  messages: readonly BootstrapMessage[] | undefined,
+): TaskAnchor {
+  if (!Array.isArray(messages)) return "weak";
+  const userMsg = messages.find(
+    (m) => m && m.role === "user" && m.source?.kind === "user",
+  );
+  return classifyTask(extractText(userMsg));
 }
 
 /**
@@ -291,7 +363,21 @@ export function installToolBootstrap(
   const isPromoted = (session: BootstrapSession | undefined): boolean => {
     if (!session) return true;
     if (promoted.has(session.id)) return true;
-    if (isPromotedFromEvents(session.events)) {
+    // 宿主提供 durable 事件数组时以其为准（参照实现的宿主形态）
+    if (Array.isArray(session.events)) {
+      if (isPromotedFromEvents(session.events)) {
+        promoted.add(session.id);
+        return true;
+      }
+      return false;
+    }
+    // rc.2 宿主无公开 events：经消息投影判定
+    const messages = sessionMessages(session);
+    if (messages === undefined) {
+      // 不可读：fail-open 降级全量目录，绝不把会话锁死在引导目录（与参照实现一致）
+      return true;
+    }
+    if (hasToolCallInMessages(messages)) {
       promoted.add(session.id);
       return true;
     }

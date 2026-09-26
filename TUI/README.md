@@ -177,7 +177,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 
 缺省或非法值回退默认并在启动时告警；改后需重启 `dsh --profile <p>`。默认 `messageGutter: 4` 使输入最长折行的左缘与回复正文第 3 个字符同列；要让它对齐回复的第 k 个字符，配置 `messageGutter: k+1`。
 
-**锚定工具引导（`toolBootstrap`，默认 true）**：移植 [dsh-anchored-standard](https://github.com/Jungod1121/dsh-anchored-standard) 的两阶段工具锁定-释放——按会话首个真实用户消息分类（spec / react / weak），首请求仅暴露 `bash` + `read`（spec 加 `edit`、react 加 `write`，`glob`/`grep` 永不进入）并把 persona 作为唯一 prompt section、清空 contexts；会话记录首次 `tool/call` 后解锁全量工具目录并恢复完整 sections。对全部 `deepseek-*` 模型生效（v4-pro / v4-flash / v4.1 / chat / reasoner / v3；门控原仅 v4-pro，2026-09-27 放宽，flash 在 weak 模式取 flash 版 persona），非 deepseek 模型或 `toolBootstrap: false` 时原样透传；promotion 状态按会话记忆（resume 保留），任何异常降级为全量目录（fail-open）。
+**锚定工具引导（`toolBootstrap`，默认 true）**：移植 [dsh-anchored-standard](https://github.com/Jungod1121/dsh-anchored-standard) 的两阶段工具锁定-释放——按会话首个真实用户消息分类（spec / react / weak），首请求仅暴露 `bash` + `read`（spec 加 `edit`、react 加 `write`，`glob`/`grep` 永不进入）并把 persona 作为唯一 prompt section、清空 contexts；会话记录首次 `tool/call` 后解锁全量工具目录并恢复完整 sections。对全部 `deepseek-*` 模型生效（v4-pro / v4-flash / v4.1 / chat / reasoner / v3；门控原仅 v4-pro，2026-09-27 放宽，flash 在 weak 模式取 flash 版 persona），非 deepseek 模型或 `toolBootstrap: false` 时原样透传；promotion 状态按会话记忆（经宿主消息投影判定，rc.2 无公开 `session.events`；resume 保留），任何异常降级为全量目录（fail-open）。
 
 ### `TUI/tui.config.json`
 
