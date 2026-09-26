@@ -318,12 +318,13 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 - **降级**：宿主未挂 `sessionQuery`、列表读取失败或无可清理项 → 静默跳过；删除失败计入失败数，不让启动 / 退出失败。
 - **测试**：`tests/session-delete.test.ts`（启动清理 3 例 + 退出清理 4 例 + `startupCleanableIds` 纯函数 1 例）+ `config.test.ts` session 归一化 1 例。
 
-## 声音提醒事件钩子
+## 声音提醒事件钩子（BACKLOG 3.4.1-3.4.3）
 
 - **输出口**：`Renderer.bell?()`（可选接口方法；真实 renderer 实现 → `Screen.beep()` 向输出流写 BEL `\x07`；注入型 renderer 可不实现，App 经 `bell?.()` 调用）。
-- **config**：`notify.enabled`（缺省 true）、`notify.idleThresholdMs`（缺省 8000、最小 1000，由 `normalizeConfig` 归一化）；AppDeps 直传（测试可用小值）。
-- **触发**：`App.onTurnEnded()` 任务结束响一次；随后 `setTimeout(idleBellMs)` 等待输入，超时补响一次。`handleKey` 任意键 → `clearIdleBellTimer()`；`dispose()` 清理计时器。`bellEnabled` / `disposed` 双检查防关闭后误响。
-- **测试**：`tests/notify-bell.test.ts` 5 例（turn-end 响一次 / enabled=false 不响 / 超阈值补响 / 输入取消 / 真实 renderer 输出 BEL）+ `config.test.ts` notify 归一化 1 例。
+- **config**：`notify.enabled`（缺省 true）、`notify.idleThresholdMs`（缺省 8000、最小 1000，由 `normalizeConfig` 归一化；3.4.3 复用它作「需交互无操作」阈值）；AppDeps 直传（测试可用小值）。
+- **turn-end**：`App.onTurnEnded()` 经 `ringBell()` **只响一声**——BACKLOG 3.4.2 去掉了原「随后 `setTimeout(idleBellMs)` 补响一次」，一次 run 结束不再听到两声（催促职责归下面的需交互响铃）。
+- **需交互（3.4.1 / 3.4.3）**：审批 / 问答事件分支调 `beginInteractiveBell()`——面板弹出即 `ringBell()` 一声，并起 `pendingBellTimer(idleBellMs)`；超阈值仍无操作 → `repeatBellTimer` 每秒 `ringBell()`，直到用户有操作或面板关闭。`handleKey` 入口（任意键，含无效键——人在终端前即算操作）与面板关闭（`apply` 里 approval/question 由有变无，覆盖提交 / 取消 / 超时全路径）调 `clearInteractiveBell()` 停止且**同一次交互不再重启**；`dispose()` 清理两个计时器。`bellEnabled` / `disposed` 双检查防关闭后误响。
+- **测试**：`tests/notify-bell.test.ts` 8 例（turn-end 只一声 / 无输入与有输入都不改次数 / enabled=false 全程不响 / 审批与问答弹出即响 / 超阈值每秒催促且按键即停 / 面板关闭停催促 / dispose 清理 / 真实 renderer 输出 BEL）+ `config.test.ts` notify 归一化 1 例。
 
 ## /model 命令
 
@@ -349,6 +350,15 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 - 无参统一打开 `statusPanel`（`components/StatusPanel.ts`，活动区窗口，与审批 / 问答 / 模型选择同区域）。状态 `StatusPanelState{kind,title,options[],index,selected}`（`state.statusPanel`）；reducer `status-panel-open/move/select/close`。提交路径：policy → `setApprovalPolicy`；permission → `runCommand("/permission <name>")` 转发宿主；preset → `selectAgentPreset`。
 - 交互：`↑/↓` 移动焦点、空格预选星号（再按取消）、`Enter` 提交预选（无预选回退焦点行）并关闭、`Esc` 取消；当前策略来自 `state.policyBySession[sid]` 事件回读。着色：预选行绿、未预选的焦点行黄，同一行兼具时绿优先。
 - plan / sandbox 无宿主写接口，暂不开放面板；goal / todo 保持只读状态列。
+
+## 问答 / 审批面板：两窗滚动与编辑光标（BACKLOG 3.2.1 / 3.2.2 / 3.2.3 / 3.2.7）
+
+- **两窗模型与分配**（3.2.1 / 3.2.11）：`components/QuestionPrompt.ts` 把面板体（`height − 1`）拆为描述窗（题干 + detail）与选项窗（选项 + 自定义兜底项）。分配：描述窗上限 `descMaxRows = max(1, floor(maxBody × 2 / 3))`，描述窗可见行 = `min(内容行数, descMaxRows, maxBody)`，选项窗 = 剩余行（不设上限）。效果：内容不足时两窗紧邻、空白落活动区下方；合计溢出时**选项窗先滚动**（描述窗仅在自身超 2/3 时滚动）；描述窗滚动上界按固定 `descMaxRows` 算，到底后反向按键即时响应。长题干 / 长 detail 不再把选项挤出可视区。
+- **焦点窗与按键**：`state.question.items[i].focus`（`desc` / `options`，缺省 `options`）+ `descScroll`；Tab 切窗（`question-focus`），焦点在描述窗时 ↑/↓ 走 `question-desc-scroll`（`max` 由 App 用 `frameGeometry` + `maxDescScrollFor` 算定后传入，state 层不感知折行宽度），选项窗时 ↑/↓ 仍走 `question-move`。选项窗起点由 `windowStart(..., "tail")` 算：焦点项优先，焦点在描述窗时锚定首个已标记项（标记不被滚出视野）。状态选项面板（`StatusPanel.ts`）改用 `windowStart(..., "center")`。
+- **标题与选项形态**：首行黄色类型标识 `[单选]` / `[多选]` / `[审批]`（plan-review 视同审批）+ 第 n/m 题导航（3.2.2）；选项解释另起一行并按选项正文起点（4 列）缩进，`>` / `*` / `+` 只在选项首行（3.2.3）。审批面板同样加 `[审批]` 标识，并把 `prompt` 的硬截断改为按 `state.approvalScroll` 滚动（↑/↓ 在审批态生效，其余按键仍吞掉）。
+- **编辑光标**：焦点在「自定义回答」兜底项且该行在窗口内时，`questionCaretFor` 产出面板内 0 基 caret；`buildFrame` 拼帧时写入对应帧行的 `caret`（列 = 活动区正文起始列 + 面板内列），`frameFocus` 的 `inputFocus` 随之为 true（`!modalOpen || 帧内出现 caret 行`），渲染器据此定位并显示光标。
+- **提示区与焦点可见性**（3.2.1 / 3.2.8）：`questionHintLine` 以**显式前缀**标出当前焦点窗（`▶选项` / `▶题干`），其后才是 `[↑/↓]滚动` / `[↑/↓]选项` 与 `[Tab]描述` / `[Tab]选项`；各项用紧凑分隔符 `·` 连接——七项全列在 80 列终端为 70 列（`·` 会撑到 82 列并截掉尾部切题提示，实测）。面板内描述窗左侧 1 列按内容是否超屏渲染：**超屏时是滚动条**（轨道 `│` 灰 + 滑块 `┃`，长度按可见/总行数比例、位置按偏移比例；聚焦时滑块黄、失焦灰），**不超屏时是纯焦点指示**（聚焦整列黄 `┃`、失焦空格）；聚焦描述窗时选项光标行降色（不再黄、已标记仍绿），全屏只有一处焦点黄。审批面板草稿滚动条同理，滑块恒黄。面板可用宽 = `width − 2`（原 −4，内容行右侧留白偏多，人工验收反馈后收紧）。
+- **测试**：`tests/question-window.test.ts` 9 例（分窗可见性 / 描述窗滚动上界与 clamp / Tab 与 ↑↓ 分派 / 已标记项可见 / 解释分行 / 类型标识 / caret 行列 / 审批滚动 / `windowStart`）、`tests/app.test.ts`（面板渲染、plan-review 分窗可见性、Tab 切窗）、`tests/focus-cursor.test.ts`（面板编辑态 caret 与反例）、`tests/question-wrap.test.ts`（选项折行回归）；冻结基线 `tests/fixtures/focus-frame-legacy.json` 已按新标题/提示重跑。
 
 ## /theme 命令
 

@@ -216,7 +216,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 ```
 
 - **layout**：`footerHeight` 省略时保持自适应，显式给出即固定绝对行数。`activityTopRow` 配置后替代比例分配——历史区与活动区的分隔行恰好落在指定行（`"half"` = `floor(rows/2)`；数字 = 绝对行号，0 基），剩余不足容纳活动区时自动让位（活动区 0 行、对话区吃满）。`activityPlacement: "auto"` 比较上下 / 左右两种排列下两个 pane 的宽高比与黄金比 φ≈1.618 的对数偏差，取较差 pane 偏差更小者，启动与 resize 时按当前帧尺寸重算；`"horizontal"` 固定左右并排（**历史区在左、活动区在右**，两 pane 等高，中间 1 列分隔竖线），此时 `activityTopRow` 不生效；不可行时回落上下（区域正文宽 < 41 列或可用行数 < 2）。判据只吃区域正文宽 + 顶部内容高，不含状态列宽。`statusColumnDivisor` 只决定状态列显示时的列宽；`Ctrl+S` 隐藏后按 0 宽处理（分隔竖线不画、历史区吃满整宽），显隐状态随会话持久化。
-- **notify**：任务运行结束（turn-end）触发终端 bell（BEL `\x07`）；随后等待输入超过 `idleThresholdMs` 未输入再补响一次（任意输入即取消）。仅终端 bell，不做桌面通知。
+- **notify**：任务运行结束（turn-end）触发终端 bell（BEL `\x07`）**一次**（不再有超时补响）；另外**出现需交互时**（审批 / 问答面板弹出）立即响一声，此后若超过 `idleThresholdMs` 无操作，则按每秒一次催促，直到任意按键或面板关闭（同一次交互只进入一次）。`enabled=false` 全程不响。仅终端 bell，不做桌面通知。
 - **session**：自动清理「空会话」（已持久化 + 非 live + 非当前 + 无用户消息，全目录范围），判据与 `/session` 面板的 `x` 清理一致。启动时后台异步执行；优雅退出（`/quit`、Ctrl+D、双击 Ctrl+C、插件 unload）先把提示渲染到活动区并等待清理完成再退出（5s 超时兜底），信号强退路径不保证。宿主未挂载会话服务、列表不可用或无可清理项时静默跳过。
 - **symbols**：见上文「符号规范化」。`aliases` 的值是替换目标（推荐符号或文字），键为被治理的变体。
 - **theme**：按「内联 `palettes.<id>` 字段 → `paletteDir/<file>.json`（上游配色单一源）→ 内置兜底快照」顺序解析；`paletteDir` 解析链为「配置值 → `$FFF_HOME/config/terminal-colortheme` → `~/fff/config/terminal-colortheme`」，显式设为 `""` 时只用内联 / 内置。语义色槽位 `gray`/`border`/`code`/`focus` 从各主题 `semantics` 解析，可经 `palettes.<id>.semantics` 覆盖。调色板在启动时读取一次（不热重载）；`/theme dark|light|toggle` 仅切换当前会话、不落盘。非法或缺失字段逐级回落并在 `[tui]` 输出告警。

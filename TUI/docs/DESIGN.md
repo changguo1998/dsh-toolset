@@ -137,7 +137,9 @@ activity 的内容 = v( 瞬态行 Box … )    // 思考/工具/notice；面板�
 
 ### 7. 面板：activity 内容树整体替换
 
-面板（审批 / 问答 / 模型选择 / 状态选项 / 各列表族 / 历史会话 / 命令补全）是 activity 的**内容树整体替换**，不是叠加层——不需要 Overlay 构造子。面板组件用 `layout/panel.ts` 的场景原语（`panelTitle` / `panelQuestion` / `panelExplanation` / `panelOptions`）组合成 Box 子树，与正文排版走同一套 fill 摊平，输出统一为段级 `FrameRow[]`。协议与接线点见 `COMMANDS-SPEC.md` §4，原语签名见 `SPEC.md` §7。
+面板（审批 / 问答 / 模型选择 / 状态选项 / 各列表族 / 历史会话 / 命令补全）是 activity 的**内容树整体替换**，不是叠加层——不需要 Overlay 构造子。面板组件用 `layout/panel.ts` 的场景原语（`panelTitle` / `panelQuestion` / `panelExplanation` / `panelOptions` / `windowStart`）组合成 Box 子树，与正文排版走同一套 fill 摊平，输出统一为段级 `FrameRow[]`。协议与接线点见 `COMMANDS-SPEC.md` §4，原语签名见 `SPEC.md` §7。
+
+**两窗与焦点窗**（BACKLOG 3.2.1）：问答面板把面板体拆成「描述窗」（题干 + detail）与「选项窗」（选项 + 自定义兜底项）两段各自的滚动窗口，`Tab` 在 `state.question.items[i].focus`（`desc` / `options`）间切焦点，`↑/↓` 语义随焦点窗分派（描述窗滚行 / 选项窗移项）；窗口起点统一由 `windowStart` 计算，选项窗恒保证焦点项与已标记项可见。面板内文本编辑（「自定义回答」）时渲染行带 `caret`，渲染器据此把硬件光标定位回面板编辑位置（BACKLOG 3.2.7，契约见 `SPEC.md` §7.1 / §13）。
 
 ### 8. 焦点框线：全局 FocusFrame 覆写
 
