@@ -1,0 +1,31 @@
+{
+  "name": "@dsh-toolset/rule-engine",
+  "version": "0.1.0",
+  "description": "DSH（DeepSeek Harness）规则触发的自动注入：按关键词/正则/内置谓词匹配模型正文、工具调用与回合边界，命中后代替用户向下一个回合注入一条 user-role 消息",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "demo": "npm run build && node dist/demo/main.js",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

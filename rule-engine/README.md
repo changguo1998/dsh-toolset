@@ -1,0 +1,131 @@
+# @dsh-toolset/rule-engine
+
+DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按设定规则（关键词 / 正则 / 内置谓词）检测模型正文、工具调用与回合边界，命中后**代替用户**向下一个回合注入一条 user-role 消息（如检测到非推荐符号即发更正要求、检测到越界操作即发约束提醒）。
+
+注册模型面工具族 `rule_*`（增删改查 + 干跑），规则可来自插件配置（只读基线）或运行时的工具调用（落状态目录）。
+
+## 能力
+
+### 匹配面（`source`，三类）
+
+| source | 判定时机 | 判定文本 |
+| --- | --- | --- |
+| `assistant-text`（缺省） | 回合结束（`turn/end`） | 该回合全部 `assistant/message` 正文按 step 顺序拼接 |
+| `turn-end` | 回合结束（`turn/end`） | 同上；`match` 可省 = **无条件命中** |
+| `tool-call` | 事件到达即判定 | 工具名 + 模型原始参数 JSON 串 |
+| `tool-result` | 事件到达即判定 | 工具结果消息的 text 块 |
+
+`turn/end` 的 `reason` 为 `aborted` / `error` / `interrupted` / `forked` 时不注入（只认 `completed` / `max-tokens`），避免对着被中断的回合追问。
+
+### 命中条件（`match`）
+
+`keywords` / `regex` / `predicates` 三档之间是「**任一档命中即命中**」；`predicates` 内部为**与**关系。
+
+| 档位 | 说明 |
+| --- | --- |
+| `keywords` | 关键词列表，大小写不敏感，任一出现即命中 |
+| `regex` + `flags` | 正则源串列表，任一匹配即命中；`flags` 缺省 `"i"`；非法正则只记 warning，该条视为不命中 |
+| `predicates` | 内置谓词名：`always`（恒真）/ `has-non-ascii` / `has-cjk` / `has-code-block` |
+
+条件为空（无任何有效档位）时：`turn-end` 视为无条件命中，其余匹配面视为**永不命中**（防误配置把每条正文都当命中）。
+
+### 动作（`action`）
+
+本期只有 `inject`：`{ type: "inject", text, summary? }`。
+
+- `text`：注入正文（代替用户发出的那条消息）；
+- `summary`：一行摘要（缺省取正文首行、截断 120 字符）；
+- 注入消息形如 `{ id: <uuid>, role: "user", content: [{type:"text", text}], source: { kind: "rule-engine", form: "notice", summary } }`。
+
+**呈现方式**：宿主侧没有「插件 → 人」的 notice 通道；`source.form:'notice'` 是官方的「一行提示」呈现形式，官方 web client 已实现，但 dsh-toolset 的 TUI 目前未实现 `form` 分支，**会按普通 user 消息块渲染**（即完全模拟用户输入）。将来 TUI 支持后自然变成一行提示，本插件无需改动（见项目 BACKLOG #46）。
+
+### 节流与去重（同一会话内）
+
+| 机制 | 默认 | 说明 |
+| --- | --- | --- |
+| `maxInjectionsPerTurn`（插件配置） | 3 | 同一会话、同一**来源回合**最多注入条数（按触发事件所属回合计数） |
+| 同内容去重 | 固定开启 | 同一回合内相同正文只注入一次（不同规则同文案也只发一条） |
+| `cooldownTurns`（规则） | 0 | 两次命中的最小回合间隔；`1` = 隔回合才允许再次命中 |
+| `cooldownMs`（规则） | 0（不限制） | 两次命中的最小毫秒间隔 |
+
+### 工具族
+
+| 工具 | 参数 | 作用 |
+| --- | --- | --- |
+| `rule_add` | `id`、`text`、`source?`、`match?`、`summary?`、`cooldownTurns?`、`cooldownMs?`、`description?`、`enabled?` | 新增规则（id 已存在则报错，指向 `rule_update`） |
+| `rule_list` | 无 | 只读列出生效规则（含来源层 `origin`）与引擎状态 |
+| `rule_update` | `id`、`patch` | 浅合并更新（可只改 `text` / `match` / `cooldownTurns` 等）；基线规则被更新后以运行时版本生效 |
+| `rule_remove` | `id` | 删除规则：运行时规则移除；基线规则进运行时屏蔽列表（配置文件不动） |
+| `rule_test` | `text`、`source?` | 干跑：列出会命中的规则 id（不注入、不改状态） |
+
+工具返回值统一 `{ ok, error, ... }`，异常转结构化错误（不向宿主抛）。
+
+## 配置
+
+| 字段 | 默认 | 说明 |
+| --- | --- | --- |
+| `stateDir` | `~/.dsh/rule-engine` | 运行时层状态目录；环境变量 `RULE_ENGINE_STATE_DIR` 优先 |
+| `rules` | `[]` | 配置基线规则（只读，结构同工具参数） |
+| `maxInjectionsPerTurn` | `3` | 同一会话同一回合注入上限 |
+
+规则两层合并（按 `id`）：配置基线按声明顺序生效 → 运行时层同 id **覆盖**（就地替换）→ 运行时新 id **追加**到末尾 → `removed` 列表屏蔽同名基线规则。
+
+状态文件 `<stateDir>/rules.json` 为 `{version, state}` 外壳 + 原子写（tmp + rename）；版本不符时**拒载且拒写**（避免旧 schema 覆盖新数据），只记 warning 后以空运行时层继续。
+
+bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬依赖，缺失则插件整体等待）/ `provide: ["ruleEngine"]` / `Config`（类型声明，无运行时 schema）/ `apply`。
+
+## 配置示例（profile `cordis.patch.yml`）
+
+```yaml
+- insert:
+    - id: rule-engine
+      name: '@dsh-toolset/rule-engine'
+      config:
+        rules:
+          - id: ascii-symbols
+            source: assistant-text
+            match:
+              regex: ['[（）【】“”]']
+            action:
+              type: inject
+              text: '[符号规范] 回复里出现了非推荐符号，请改用 ASCII 半角符号重述要点。'
+              summary: 符号规范提醒
+            cooldownTurns: 1
+          - id: no-destructive-shell
+            source: tool-call
+            match:
+              regex: ['rm\s+-rf', 'git\s+push\s+--force']
+            action:
+              type: inject
+              text: '[约束] 不要执行破坏性命令；如确需执行，先说明影响并取得确认。'
+        maxInjectionsPerTurn: 2
+```
+
+`config` 段是**整行替换、非深合并**（宿主 patch 语义），多层叠加需自行写全。
+
+## 只读服务
+
+`provide("ruleEngine")`：`list()` 返回生效规则只读清单（`id` / `enabled` / `source` / `origin` / `text` / 节流参数），`status()` 返回规则条数与状态目录。供后续宿主命令面（如 TUI `/rule` 面板）消费。
+
+## 时序约束（重要）
+
+`session/event` 监听器运行在 `Session.append` 的**同步派发窗口**内，此刻直接调用 `agent.followup()` 会撞重入保护（异常被宿主吞掉，现象是「消息不落盘」）。因此注入一律 `setTimeout(…, 0)` 推迟一个宏任务后再 `agents.get(sessionId).followup(message)`，随后 `sessions.flush(agent.session)` 确保落盘。会话非 live（`agents.get` 返回 undefined）时跳过并记 warning。
+
+## 已知限制
+
+- **「提示人」需 TUI 支持**：`form:'notice'` 目前渲染为普通 user 消息块（见上「呈现方式」），TUI 侧改动是独立条目（BACKLOG #46）。
+- 只有 `inject` 一种动作：`tag` 打标 / `abort` 中断 / `memory` 写知识库未实现。
+- 只有 `agent.followup` 一条注入路径：`agent/pre-step`（下一 step 内注入）未实现（BACKLOG #44）。
+- 节流记账是**进程内**内存态：`dsh` 重启后 cooldown 计数清零（规则本身持久化）。
+- 逐 delta 实时匹配未实现：文本类规则只在回合结束判定（实时需订阅 `agent/assistant-stream`）。
+
+## 开发
+
+```sh
+npm run check   # tsc --noEmit
+npm run build   # 编译到 dist/
+npm test        # node --test（46 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器）
+npm run demo    # mock 事件流跑「规则命中 → 注入」，不依赖 DSH
+```
+
+架构与设计取舍见 `docs/DESIGN.md`。
