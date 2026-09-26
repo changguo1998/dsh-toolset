@@ -3079,24 +3079,26 @@ export class App {
     }
   }
 
-  /** /stats（别名 /usage、`/context`）：显示最近一次模型调用的 token 用量。
-   *  usage 语义为「最近一次模型调用」（非会话累计，见 state.usage 注释）；
+  /** /stats（别名 /usage、`/context`）：token 用量**双口径**——「最近一次调用」（`state.usage`，
+   *  状态栏 ctx 段同源）与「本会话累计」（`state.usageTotals`，逐次 usage 事件求和、会话切换清零）。
    *  contextWindow 缺失或为 0 → 只显绝对量（不除零）。 */
   private handleStatsCommand(): void {
     const usage = this.state.usage;
     if (!usage) {
-      this.notice("暂无 token 用量数据（本回合尚未发生模型调用）", "info");
+      this.notice("暂无 token 用量数据（本会话尚未发生模型调用）", "info");
       return;
     }
     const { input, output, cacheRead, contextWindow } = usage;
-    // 上下文口径与状态栏 ctx 段一致：input + cacheRead
+    const totals = this.state.usageTotals;
+    // 上下文口径与状态栏 ctx 段一致：input + cacheRead（均为最近一次调用）
     const context = input + cacheRead;
     const lines = [
-      `本回合 tokens：输入 ${input} · 输出 ${output} · 缓存读 ${cacheRead}`,
+      `最近一次调用：输入 ${input} · 输出 ${output} · 缓存读 ${cacheRead}`,
+      `本会话累计：输入 ${totals.input} · 输出 ${totals.output} · 缓存读 ${totals.cacheRead}`,
       contextWindow !== undefined && contextWindow > 0
         ? `上下文：${context} / ${contextWindow}（${Math.round((context / contextWindow) * 100)}%）`
         : `上下文：${context}`,
-      `缓存命中率：${context > 0 ? `${Math.round((cacheRead / context) * 100)}%` : "n/a"}`,
+      `缓存命中率：${context > 0 ? `${Math.round((cacheRead / context) * 100)}%` : "n/a"}（最近一次）`,
     ];
     this.notice(lines.join("\n"), "info");
   }

@@ -411,6 +411,14 @@ export interface AppState {
     cacheRead: number;
     contextWindow?: number;
   };
+  /** 本会话累计 token 用量（`usage` 事件逐次累加；BACKLOG TUI#9）——与会话切换同步清零
+   *  （`history-resume-ok` / `session-switch`），`/clearscreen` 等只清显示的路径不清零。
+   *  与 `usage`（**最近一次**调用）是两个口径，`/stats` 两者并列展示。 */
+  usageTotals: {
+    input: number;
+    output: number;
+    cacheRead: number;
+  };
   systemStatus: SystemStatus;
   /** 主题（默认 dark=fffdark；/theme 运行时切换，仅当前会话） */
   themeId: ThemeId;
@@ -669,6 +677,7 @@ export function initialState(
     runVirt: emptyRunVirt(), // 运行中闪烁虚拟状态（下次用户输入时重置）
     stepEstTokens: 0, // 本 step 估算 token 累计（usage 真值到达时校准）
     tokenCalib: 1, // 估算 token 校准系数（usage 真值/估算值 EMA，跨 step 保留）
+    usageTotals: { input: 0, output: 0, cacheRead: 0 }, // 本会话累计（/stats；会话切换清零）
     buffer: [],
     followBottom: true,
     scrollOffset: 0,
@@ -1575,6 +1584,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           scrollAnchor: null,
           scrollOffset: 0,
           activityScroll: 0,
+          // TUI#9：会话恢复/切换 → 本会话累计清零（与 buffer 同步换会话）
+          usageTotals: { input: 0, output: 0, cacheRead: 0 },
         };
       case "session-switch":
         // /new：全新会话 → 缓冲、滚动、窗口、焦点与排队登记全部归零。
@@ -1594,6 +1605,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           focusedPanel: null,
           queued: [],
           stepGroup: null,
+          // TUI#9：/new 全新会话 → 本会话累计清零
+          usageTotals: { input: 0, output: 0, cacheRead: 0 },
         };
       case "history-confirm-delete": {
         const hcd = state.history;
@@ -1909,6 +1922,12 @@ export function reduceState(state: AppState, action: StateAction): AppState {
             ...(action.contextWindow === undefined
               ? {}
               : { contextWindow: action.contextWindow }),
+          },
+          // TUI#9：本会话累计 = 逐次 usage 事件求和（事件每次调用即真值，无需另采）
+          usageTotals: {
+            input: state.usageTotals.input + action.input,
+            output: state.usageTotals.output + action.output,
+            cacheRead: state.usageTotals.cacheRead + action.cacheRead,
           },
         };
       }

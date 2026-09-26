@@ -24,7 +24,7 @@
 | 命令 | 机制 | 降级 |
 |---|---|---|
 | `/init` | 检查会话语义 cwd（`state.systemStatus.cwd`，占位时回退 `process.cwd()`）下的 `AGENTS.md`；缺失则以 `sendUserText(INIT_PROMPT, "/init")` 注入初始化指令（常量在 `commands.ts`） | 已存在则 notice 提示并结束 |
-| `/stats` | 读 `state.usage`（最近一次模型调用）→ info 三行：分解 / 上下文（`input + cacheRead`，窗口缺失或为 0 时只显绝对量）/ 缓存命中率（分母 0 → `n/a`） | 无 usage → info 提示 |
+| `/stats` | 读 `state.usage`（**最近一次**模型调用）与 `state.usageTotals`（**本会话累计**：逐次 `usage` 事件求和，`history-resume-ok` / `session-switch` 清零、`clear-buffer` 不清）→ info 四行：最近一次调用分解 / 本会话累计 / 上下文（`input + cacheRead`，窗口缺失或为 0 时只显绝对量）/ 缓存命中率（分母 0 → `n/a`，最近一次调用口径） | 无 usage → info 提示 |
 | `/rename` | 纯函数 `renameCommandDecision(line)` 判 usage / invalid / apply；apply → `ctx.sessionTitle.rename(live Session, title)`；标题栏由既有 `session/title` 链路刷新，不手工改 state | 空标题 / 含换行本地拒绝；服务缺失 → warn |
 | `/model`、`/provider`、`/effort` | 见下文「/model 命令」 | 目录读取失败 → 提示 |
 | `/policy`、`/permission`、`/preset` | 见下文「通用状态选项面板」 | 服务缺失 → 提示不可用 |

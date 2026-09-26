@@ -1,8 +1,9 @@
 // tests/stats-rename.test.ts — 批次 1：/stats 与 /rename（notice 型命令）
 //
 // 覆盖：路由（stats/usage/context → stats；rename → rename）；/stats 读 state.usage
-// 输出「分解行 / 上下文行 / 命中率行」、contextWindow 缺失或为 0 时只显绝对量（不除零）、
-// 无 usage → info 提示；/rename 成功经 adapter.renameSession、缺参 → 用法 info、
+// 输出「最近一次调用行 / 本会话累计行 / 上下文行 / 命中率行」、contextWindow 缺失或为 0
+// 时只显绝对量（不除零）、无 usage → info 提示；usage 累计口径与清零边界（TUI#9：会话
+// 切换/恢复清零、清屏不清零）；/rename 成功经 adapter.renameSession、缺参 → 用法 info、
 // 空白参数 → error、服务缺失 → warn（后三者均不发服务调用）。
 
 import { test } from "node:test";
@@ -12,6 +13,7 @@ import {
   renameCommandDecision,
   routeSlashCommand,
 } from "../src/app/commands.ts";
+import { initialState, reduceState } from "../src/app/state.ts";
 import type {
   DshAdapter,
   DshEvent,
@@ -138,12 +140,61 @@ test("/stats：有 usage（含 contextWindow）→ 分解行 + 上下文占比 +
   const f = frames(renderer);
   // 上下文口径 = input + cacheRead = 5000；占比 5000/20000 = 25%；命中率 4000/5000 = 80%
   assert.ok(
-    f.includes("本回合 tokens：输入 1000 · 输出 200 · 缓存读 4000"),
-    "分解行: " + f,
+    f.includes("最近一次调用：输入 1000 · 输出 200 · 缓存读 4000"),
+    "最近一次调用行: " + f,
+  );
+  assert.ok(
+    f.includes("本会话累计：输入 1000 · 输出 200 · 缓存读 4000"),
+    "本会话累计行（首次调用时与最近一次相同）: " + f,
   );
   assert.ok(f.includes("上下文：5000 / 20000（25%）"), "上下文行: " + f);
   assert.ok(f.includes("缓存命中率：80%"), "命中率行: " + f);
   app.dispose();
+});
+
+test("usage 双口径：会话累计 = 事件求和；会话切换/恢复清零、清屏不清零（TUI#9）", () => {
+  // 逐次 usage 事件求和 = 本会话累计；usage 仍是「最近一次调用」
+  let s = initialState();
+  s = reduceState(s, {
+    type: "usage",
+    sessionId: "s1",
+    input: 100,
+    output: 10,
+    cacheRead: 900,
+    contextWindow: 2000,
+  });
+  s = reduceState(s, {
+    type: "usage",
+    sessionId: "s1",
+    input: 200,
+    output: 20,
+    cacheRead: 1800,
+    contextWindow: 2000,
+  });
+  assert.deepEqual(s.usageTotals, { input: 300, output: 30, cacheRead: 2700 });
+  assert.equal(s.usage?.input, 200, "usage 仍为最近一次调用口径");
+  // /clearscreen（clear-buffer）：只清显示 → 累计保留
+  assert.deepEqual(
+    reduceState(s, { type: "clear-buffer" }).usageTotals,
+    s.usageTotals,
+  );
+  // /new（session-switch）：换新会话 → 累计清零
+  const fresh = reduceState(s, {
+    type: "session-switch",
+    id: "s2",
+    title: "新会话",
+  });
+  assert.deepEqual(fresh.usageTotals, { input: 0, output: 0, cacheRead: 0 });
+  // /session 面板恢复（history-resume-ok）：换会话 → 累计清零
+  let r = reduceState(s, { type: "history-open" });
+  r = reduceState(r, { type: "history-resume", id: "old-1" });
+  r = reduceState(r, {
+    type: "history-resume-ok",
+    id: "old-1",
+    title: "旧会话",
+    rows: [],
+  });
+  assert.deepEqual(r.usageTotals, { input: 0, output: 0, cacheRead: 0 });
 });
 
 test("/stats：contextWindow 缺失 → 只显绝对量，不除零", async () => {
@@ -188,7 +239,7 @@ test("/stats：contextWindow 为 0 → 不除零（同缺失处理）", async ()
   app.dispose();
 });
 
-test("/stats：无 usage → info 提示（本回合尚未调用）", async () => {
+test("/stats：无 usage → info 提示（本会话尚未调用）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeCmdAdapter();
   const app = new App({ renderer, adapter });
@@ -197,7 +248,7 @@ test("/stats：无 usage → info 提示（本回合尚未调用）", async () =
   await tick();
   const f = frames(renderer);
   assert.ok(
-    f.includes("暂无 token 用量数据（本回合尚未发生模型调用）"),
+    f.includes("暂无 token 用量数据（本会话尚未发生模型调用）"),
     "提示文本: " + f,
   );
   app.dispose();

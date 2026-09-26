@@ -246,7 +246,7 @@ export const LOCAL_COMMANDS: readonly {
   {
     name: "stats",
     route: "stats",
-    desc: "本回合 token 用量与上下文占比（/usage、/context 同）",
+    desc: "token 用量：最近一次 + 会话累计（同 /usage /context）",
   },
   { name: "usage", route: "stats", desc: "同上（同 /stats）" },
   { name: "context", route: "stats", desc: "同上（同 /stats）" },
