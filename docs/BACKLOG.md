@@ -19,8 +19,9 @@
 - 代码与文件：#19 hash-edit、#20 ast-tools、#21 code-map 报告与影响面、#22 结构层索引与候选调用图；
 - 上下文报告：#34 context-report（host-only 投影 `sessionContext` 折叠会话累计 + `context_report` 三档报告）；
 - 安全与集成：#27 security-guard 策略层、#36 herdr-integration；
-- 规则触发与符号规范：#42 rule-engine、#44 next-step 注入路径、#45 仓库级集成、#47 消费者框架（`registerConsumer` + `evaluate`）、#48 symbol-normalizer 插件（TUI 符号逻辑迁出，见 #43）；真机验证记录见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`；
-- TUI：#16 /workflows 面板、#18 /council、#24 /search 多 provider 聚合、#33 声音提醒，以及 7 项纯 TUI 命令与 A1-A5（`/task` `/guard` `/memory` `/loop` `/contract`）。
+- 规则触发与符号规范：#42 rule-engine、#43 TUI 符号规则迁移（落点为 #48）、#44 next-step 注入路径、#45 仓库级集成、#46 插件注入消息 `form:'notice'` 一行提示渲染、#47 消费者框架（`registerConsumer` + `evaluate`）、#48 symbol-normalizer 插件；真机验证记录见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`；
+- TUI：#16 /workflows 面板、#18 /council、#24 /search 多 provider 聚合、#33 声音提醒，以及 7 项纯 TUI 命令与 A1-A5（`/task` `/guard` `/memory` `/loop` `/contract`）；
+- 工程流程与文档：#39 文档体系与变更规范落地（追踪文档 `docs/archived/2026-09-25-docs-workflow-rollout.md`）。
 - 已取消：#35 rate-guard（不实现，pi 侧已移除，dsh 侧由官方 `llm-retry` 覆盖，见 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1）。
 
 ## 2. 未完成项
@@ -78,28 +79,10 @@
 
 | # | 功能 | 来源 | 落点 | 优先级 |
 |---|------|------|------|--------|
-| 39 | **完成（2026-09-25）** 文档体系与变更规范落地：确立「ROADMAP（仅项目级）→ DESIGN（模块）→ BACKLOG 条目 → `docs/implementation/` 追踪文档 → 关闭后移入 `docs/archived/`」的分层与流程；BACKLOG / STATUS 统一短命名（`DEVELOPMENT-BACKLOG.md` → `BACKLOG.md`、`DEVELOPMENT-STATUS.md` → `STATUS.md`）；模块（TUI 与 12 个包）各自 `docs/` 管理 DESIGN / BACKLOG；规范两份（`AGENTS.md` 简版 + `docs/WORKFLOW.md` → 今 `docs/WORKFLOW-STANDARD.md` 详版），含「一个任务可接多个条目」与四个提交询问点 | 用户 2026-09-25 讨论定稿 | 追踪文档（已关闭）`docs/archived/2026-09-25-docs-workflow-rollout.md` | P1 |
 | 40 | 待办 **`TUI/docs/IMPLEMENTATION.md` 按新规范拆分后删除**：命令路由与落点 → `TUI/docs/DESIGN.md`；渲染/排版类 → `TUI/docs/SPEC.md`；其余机制与「已评估未采用」→ DESIGN；「验证方式」并入 `AGENTS.md`；拆分后重定向 58 处引用 | #39 的决策（2026-09-25） | 独立条目，另派 agent 接取 | P2 |
 | 41 | 待办 **建立 `docs/ROADMAP.md`**：写未来开发方向，内容需维护者提供；建立后与 `docs/BACKLOG.md` §3「里程碑」的分工为「方向在 ROADMAP、进度与排期在 BACKLOG」 | #39 落地时发现（2026-09-25） | 需维护者参与 | P2 |
 
-### 2.9 运行时行为注入（P2）
-
-| # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
-|---|------|------|------------------|--------|
-| 42 | **完成（2026-09-27）**：**规则触发的自动注入**：按设定规则（关键词 / 正则 / 自定义谓词）检测模型回复或事件流，命中后**代替用户**向下一回合注入一条内容（如检测到非推荐符号即发更正要求、检测到越界操作即发约束提醒） | 用户 2026-09-26 提出；现成先例 = TUI 的符号纠正（`symbols.ts` 判定 + turn-end 后 `followup`） | 新插件 `rule-engine`（匹配面 `assistant/message` / `tool/call` / `tool/result` / `turn/end`，动作走 `agent.followup` + `sessions.flush`）；追踪文档 `docs/archived/2026-09-27-rule-engine.md` | P2 |
-
-> 落地形态已定稿（2026-09-27）：**① 新插件 `rule-engine`**（规则表 + 注入动作，跨包通用）；不并入 TUI，TUI 符号纠正改为其消费者另开条目（#43）。本轮范围、裁定与实现见 `docs/archived/2026-09-27-rule-engine.md`。
-
-| # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
-|---|------|------|------------------|--------|
-| 43 | **完成（2026-09-27）** TUI 符号规则**迁移**为独立插件 `symbol-normalizer`（见 #48），并以 `registerConsumer` 注册接入 rule-engine；TUI 删除内置符号逻辑与 followup，改经 `symbolNormalizer` 服务消费展示归一与 notice（原「不迁移、仅消费者改造」方案作废；2026-09-27 用户定稿，过程见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`） | #42 决策 + 2026-09-27 用户定稿（符号规则迁出 TUI） | 新包 `symbol-normalizer` + TUI adapter | P2 |
-| 44 | **完成（2026-09-27）** rule-engine 增设 `agent/pre-step` 注入路径：waterfall 面可在消息进入 step 前插入 user-role 消息（本轮只做 `agent.followup`，裁定见 #42 追踪文档） | #42 调研 §8.B / §5.7（2026-09-27） | `agent/pre-step`、`agent/inbox`（next-step） | P2 |
-| 45 | **完成（2026-09-27）** rule-engine 与 symbol-normalizer 仓库级集成：根 `package.json`（check/build）、`scripts/install.sh`（canonical_pkgs）、`scripts/test-parallel.sh`（default_pkgs）、根 `README.md`（插件表/目录树/文档索引）、`AGENTS.md`（插件 12 → 14、包数 13 → 15）——rule-engine 受 #42 改文件范围限制未做，symbol-normalizer 为本批新包 | #42 实现期范围限制（2026-09-27）+ #48 新包 | 现有脚手架三处 + 两份根文档 | P2 |
-| 46 | **完成（2026-09-27）**：TUI 支持 `source.form:'notice'` 渲染——插件注入消息带 `form:'notice'` + `summary` 时渲染为**一行提示**（不展开、不占用户消息块）；实时（`agent/inbox/spliced` / `user/message`，按消息 id 去重）与恢复两条路径同口径 | #42 调研 §8.D（2026-09-27）；TUI 落地时同步登记到 `TUI/docs/BACKLOG.md` | TUI#17 实现；追踪文档 `TUI/docs/archived/2026-09-27-tui-remaining-batch.md` | P2 |
-| 47 | **完成（2026-09-27）** rule-engine 提供**消费者框架**：① 注册面 `registerConsumer({id, decide})`——`decide(ctx)` 返回**要注入的内容** `{text, summary?}`，turn-end 时按注册顺序**同步**依次询问、聚合、统一注入（可选消费者冷却）；② 只读 `evaluate(text, source)` 返回**可注入内容**（命中规则含 `action.text` / `summary`）。~~挂进 `fff` profile~~ **2026-09-27 用户裁定：新建临时 profile 做真机验证，不改 `fff`** | TUI#18 降级裁定（2026-09-27）+ 用户 2026-09-27 定稿 | `rule-engine/src/*`（provide 面扩展）、`rule-engine/README.md` / `rule-engine/docs/DESIGN.md`、`rule-engine/tests/`；新临时 profile（用户侧） | P2 |
-| 48 | **完成（2026-09-27）** 新插件 `symbol-normalizer`：TUI 符号规则（`symbols.ts` 全部算法 + 默认白名单/别名 + 配置 + 逐符号冷却）迁出为独立包；启动时经 `registerConsumer` 接入 rule-engine（框架第一个验证消费者），provide `symbolNormalizer` 服务（normalize / onReview / status）供 TUI 消费 | 2026-09-27 用户定稿（#43 的落地载体） | 新包 `symbol-normalizer/**`（模板同 rule-engine）+ 根脚手架（#45） | P2 |
-
-### 2.10 运行时与宿主交互
+### 2.9 运行时与宿主交互
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
@@ -108,7 +91,7 @@
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
-1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#25、#26、#28-#32、#37、#38，按需排期；另加 #42（规则触发的自动注入）与其后续项 #43-#48（均已完成；#46 更早完成）；#34 已完成；#35 已取消。
+1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#25、#26、#28-#32、#37、#38，按需排期；已完成项（含 #39、#42-#48）见 §1 索引，已取消项亦见 §1。
 1. 依赖：#17 的模板族与 #32 可共用 workflow/skill 资产；workflow-ext 建包前，工作流相关插件面依赖 task-engine 的契约与执行器；其余相互独立。
 
 ## 4. 插件规划（未建包）
