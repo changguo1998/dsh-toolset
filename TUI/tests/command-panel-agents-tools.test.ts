@@ -478,7 +478,7 @@ test("/agents：手动 r 立即刷新（面板打开时）", async () => {
   app.dispose();
 });
 
-test("/agents：子代理生命周期事件（subagent-activity）→ 面板打开时即时刷新、未打开不刷新", async () => {
+test("/agents：子代理生命周期事件 → 状态列即时保鲜；面板打开时同步刷新", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAgentsToolsAdapter();
   // 长间隔隔离定时器：本用例只验证事件驱动路径
@@ -486,17 +486,22 @@ test("/agents：子代理生命周期事件（subagent-activity）→ 面板打�
   app.start();
   adapter.emit({ type: "subagent-activity" });
   await tick();
-  assert.equal(adapter.refreshAgentsCalls, 0, "未打开面板 → 事件不触发刷新");
+  // TUI#39 起：该事件同时服务**状态列 Agents 块**（未打开面板也做一次静默刷新）
+  assert.equal(
+    adapter.refreshAgentsCalls,
+    1,
+    "状态列 Agents 块即时保鲜一次（未打开面板）",
+  );
   typeAndEnter(renderer, "/agents");
   await tick();
   const openCalls = adapter.refreshAgentsCalls;
-  assert.ok(openCalls >= 1, "打开至少拉一次: " + openCalls);
+  assert.ok(openCalls >= 2, "打开至少拉一次: " + openCalls);
   adapter.emit({ type: "subagent-activity" });
   await tick();
   assert.equal(
     adapter.refreshAgentsCalls,
-    openCalls + 1,
-    `subagent/start|end → 即时刷新一次: ${openCalls} → ${adapter.refreshAgentsCalls}`,
+    openCalls + 2,
+    `事件 → 状态列 + 面板各刷一次: ${openCalls} → ${adapter.refreshAgentsCalls}`,
   );
   app.dispose();
 });

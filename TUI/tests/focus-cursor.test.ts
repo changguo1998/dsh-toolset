@@ -132,7 +132,7 @@ test("真实 renderer：未传 focus 沿用旧行为（无 caret 批次也保持
   );
 });
 
-test("buildFrame 回填 focus：问答面板自定义回答编辑态给出 caret（BACKLOG 3.2.7）", (t) => {
+test("buildFrame 回填 focus：问答面板自定义回答编辑态给出 caret（BACKLOG 3.2.7 / TUI#35）", (t) => {
   // 打开问答面板 → 光标移到「自定义回答」兜底项（面板内唯一的文本编辑焦点）
   let s = reduceState(initialState(), {
     type: "question-open",
@@ -140,6 +140,14 @@ test("buildFrame 回填 focus：问答面板自定义回答编辑态给出 caret
     questions: [{ id: "q1", question: "问题", options: [{ label: "A" }] }],
   });
   s = reduceState(s, { type: "question-move", delta: 1 });
+  // TUI#35：移到自定义项但**未开始编辑**（customCaret=null）→ 不给 caret
+  assert.equal(
+    frameWith(s).out.focus?.caret ?? null,
+    null,
+    "未编辑态（仅移项高亮）不给 caret",
+  );
+  // 键入一个字符 → 进入编辑态，caret 指向插入后的光标位
+  s = reduceState(s, { type: "question-custom", text: "a", caret: 1 });
   const { rows, out } = frameWith(s);
   assert.equal(out.focus?.inputFocus, true, "面板内编辑焦点应允许显示光标");
   assert.ok(out.focus?.caret, "编辑焦点应给出 caret 位置");

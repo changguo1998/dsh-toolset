@@ -204,19 +204,13 @@ function layoutQuestionPanel(
       for (const r of wrapByWidth(` ${text}`, avail))
         descRows.push({ text: r });
     };
-    // 问题前正文（BACKLOG 3.2.10）：面板打开时记录的活动区正文（≤6 行），青色置于描述窗
-    // 顶部、随描述窗一起滚动；与题干之间留一个空行分隔（缺省/空串时不占行）。
-    // 该段是历史区正文的复述，**保持纯文本**（BACKLOG TUI#6 裁定：只有题干 / detail /
-    // 审批草稿走 markdown）
+    // 问题前正文（BACKLOG 3.2.10 / TUI#38）：面板打开时记录的活动区正文（≤6 行），
+    // 置于描述窗顶部、随描述窗一起滚动；与题干之间留一个空行分隔（缺省/空串时不占行）。
+    // 与题干**同口径**走 markdown 子集：本条改旧 TUI#6 的「保持纯文本」裁定与 3.2.10 的
+    // 硬编码青色（颜色回默认前景，行首留白 / 空行口径随 markdown 渲染统一）。
     const sourceText = (panel.source ?? "").trim();
     if (sourceText !== "") {
-      for (const part of sourceText.split("\n")) {
-        if (part.trim() === "") continue;
-        for (const r of wrapByWidth(part, descW)) {
-          // 醒目青色（BACKLOG 3.2.10 人工反馈：灰色太暗难辨认）
-          descRows.push({ text: " " + r, color: { fg: "cyan" } });
-        }
-      }
+      pushMarkdown(sourceText);
       descRows.push({ text: "" });
     }
     pushMarkdown(`${item.header ? item.header + "：" : ""}${item.question}`);
@@ -231,10 +225,36 @@ function layoutQuestionPanel(
   //    optEnd 记录每项（含末位自定义兜底项）在选项窗内的末行（窗口锚点与 caret 用）
   const optRows: PanelLine[] = [];
   const optEnd: number[] = [];
+  /** 自定义项编辑光标在选项窗内的行/列（BACKLOG TUI#35；未编辑态为 null） */
+  let customCaretPos: { row: number; col: number } | null = null;
   /** 追加一个选项块：首行 ` >* 文本`（折行续行 6 列缩进），解释行缩进 4 列 */
   /** 选项行前缀：编号 + 光标 + 标记（编号 BACKLOG 3.2.6；光标/标记沿用原语义） */
   const optionLead = (idx: number, cursor: string, mark: string): string =>
     `${cursor}${mark} ${String(idx + 1).padStart(numW)}.`;
+
+  /**
+   * 折行后定位编辑光标（BACKLOG TUI#35）：在**折行后的行**上按字符偏移累加显示宽度，
+   * 行内列 = 该行内前缀的显示宽度（含 CJK）。
+   * @returns 行号（optRows 内绝对行）与 0 基显示列；caretIndex 缺省 = 无光标
+   */
+  const caretInWrapped = (
+    rows: readonly string[],
+    caretIndex: number | undefined,
+  ): { row: number; col: number } | null => {
+    if (caretIndex === undefined) return null;
+    let offset = 0;
+    for (let r = 0; r < rows.length; r++) {
+      const rowText = rows[r]!;
+      if (caretIndex <= offset + rowText.length) {
+        return {
+          row: optRows.length - rows.length + r,
+          col: displayWidth(rowText.slice(0, caretIndex - offset)),
+        };
+      }
+      offset += rowText.length;
+    }
+    return null;
+  };
 
   const pushOption = (
     idx: number,
@@ -242,10 +262,14 @@ function layoutQuestionPanel(
     text: string,
     desc: string | undefined,
     color: FrameStyle | undefined,
-  ): void => {
-    for (const r of wrapPrefixed(` ${lead} ${text}`, avail, contIndent)) {
+    // 编辑光标在 text 内的字符偏移（BACKLOG TUI#35；缺省 = 无光标）
+    caretIndex?: number,
+  ): { row: number; col: number } | null => {
+    const rows = wrapPrefixed(` ${lead} ${text}`, avail, contIndent);
+    for (const r of rows) {
       optRows.push({ text: r, color });
     }
+    const caret = caretInWrapped(rows, caretIndex);
     if (desc) {
       // 解释另起一行，且与选项内容左对齐（BACKLOG 3.2.12）
       const w = Math.max(1, avail - contIndent.length);
@@ -254,6 +278,7 @@ function layoutQuestionPanel(
       }
     }
     optEnd[idx] = optRows.length - 1;
+    return caret;
   };
   if (item) {
     // 选项窗聚焦判据：焦点在描述窗时选项光标降色（不再着黄），避免与描述窗焦点条同时
@@ -281,10 +306,20 @@ function layoutQuestionPanel(
     const ci = item.options.length;
     const cursor = item.optionIndex === ci ? ">" : " ";
     const mark = item.custom === "" ? " " : OPTION_MARK;
-    pushOption(
+    const ciLead = optionLead(ci, cursor, mark);
+    const customPrefix = "自定义回答：";
+    const customText = `自定义回答${item.custom === "" ? "" : "：" + item.custom}`;
+    // BACKLOG TUI#35：自定义答案的编辑光标（字符偏移）→ 选项行首到**答案文本起点**的
+    // 字符偏移；未编辑（customCaret 为 null）时不给光标
+    const customCaret = item.customCaret;
+    const customCaretIndex =
+      customCaret !== undefined && customCaret !== null && customCaret > 0
+        ? ciLead.length + 1 + customPrefix.length + customCaret
+        : undefined;
+    customCaretPos = pushOption(
       ci,
-      optionLead(ci, cursor, mark),
-      `自定义回答${item.custom === "" ? "" : "：" + item.custom}`,
+      ciLead,
+      customText,
       // TUI#5：被并兜底项（「其它」等）原文作为解释行展示（与预设选项的解释同形态）
       item.customHint,
       item.custom !== ""
@@ -292,6 +327,7 @@ function layoutQuestionPanel(
         : item.optionIndex === ci && optionFocused
           ? { fg: "yellow" }
           : undefined,
+      customCaretIndex,
     );
   }
 
@@ -369,19 +405,16 @@ function layoutQuestionPanel(
     ...optRows.slice(optStartIdx, optStartIdx + optWindowRows),
   ];
 
-  // 7) caret（BACKLOG 3.2.7）：编辑焦点在自定义兜底项、且该行落在选项窗内时给出
-  //    文本末尾位置（列 = 末行显示宽度，0 基）
+  // 7) caret（BACKLOG 3.2.7 / TUI#35）：编辑焦点在自定义兜底项、且光标行落在选项窗内时给出
+  //    光标位置（行/列由 pushOption 的折行定位算出；未编辑态 = 无光标）
   let caret: PanelCaret | null = null;
-  if (item && item.optionIndex === customIdx) {
-    const rowInWindow = (optEnd[customIdx] ?? -1) - optStartIdx;
+  if (item && item.optionIndex === customIdx && customCaretPos !== null) {
+    const rowInWindow = customCaretPos.row - optStartIdx;
     if (rowInWindow >= 0 && rowInWindow < optWindowRows) {
-      const last = optRows[optEnd[customIdx]!];
-      if (last) {
-        caret = {
-          row: headerRows + descVisible + rowInWindow,
-          col: displayWidth(last.text),
-        };
-      }
+      caret = {
+        row: headerRows + descVisible + rowInWindow,
+        col: customCaretPos.col,
+      };
     }
   }
 

@@ -323,7 +323,7 @@ test("多题符号行：最顶行「题号 + 符号」（当前题黄、其余�
   );
 });
 
-test("编辑光标：焦点在自定义兜底项时产出 caret（行=该行、列=文本末尾）（BACKLOG 3.2.7）", () => {
+test("编辑光标：焦点在自定义兜底项时按编辑光标产出 caret；未编辑态无 caret（BACKLOG 3.2.7 / TUI#35）", () => {
   const st0 = questionState([
     {
       id: "q1",
@@ -338,7 +338,7 @@ test("编辑光标：焦点在自定义兜底项时产出 caret（行=该行、�
     "焦点在普通选项时无 caret",
   );
   let st = reduceState(st0, { type: "question-move", delta: 1 }); // → 自定义兜底项
-  st = reduceState(st, { type: "question-custom", text: "abc" });
+  st = reduceState(st, { type: "question-custom", text: "abc", caret: 2 });
   const caret = questionCaretFor(panelOf(st), 10, 60);
   assert.ok(caret, "编辑焦点应产出 caret");
   const lines = plain(renderQuestionPanel(panelOf(st), 10, 60));
@@ -347,10 +347,28 @@ test("编辑光标：焦点在自定义兜底项时产出 caret（行=该行、�
     row.includes("自定义回答：abc"),
     "caret 行即自定义回答行: " + JSON.stringify(row),
   );
+  // BACKLOG TUI#35：caret 列 = 光标位（此处 ab 之后），不再是文本末尾。
+  // 注：本文件的近似 displayWidth 与生产 displayWidth 对全角标点（：）宽度判定可能差 1 列，
+  //     故断言允许 ±1，只校验「光标落在 ab 之后」而非精确字形宽度
+  const prefix = "自定义回答：";
+  const caretCol = displayWidth(
+    row.slice(0, row.indexOf(prefix) + prefix.length),
+  );
+  const expected = caretCol + displayWidth("ab");
+  assert.ok(
+    Math.abs(caret!.col - expected) <= 1,
+    `caret 列 ≈ 光标处显示列（得到 ${caret!.col}，期望 ≈ ${expected}）`,
+  );
+  // 有文本但未编辑（caret=null）→ 不产出 caret
+  const st2 = reduceState(st, {
+    type: "question-custom",
+    text: "abc",
+    caret: null,
+  });
   assert.equal(
-    caret!.col,
-    displayWidth(row.trimEnd()),
-    "caret 列 = 该行文本末尾（0 基显示列）",
+    questionCaretFor(panelOf(st2), 10, 60),
+    null,
+    "未编辑态无 caret",
   );
 });
 

@@ -1,6 +1,6 @@
 # `$`（shell）模式的实际执行（接取条目：`TUI/docs/BACKLOG.md`「实现 `$`（shell）模式的实际执行」）
 
-状态：规划（决策已通过审阅，待实现）　　开启：2026-09-27　　关闭：——
+状态：测试（实现完成、机械验证通过，待用户人工确认）　　开启：2026-09-27　　关闭：——
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 审阅：用户 2026-09-27 逐条审阅第 5 条（本条），决策**通过**。
 
@@ -58,12 +58,44 @@
 
 ## 实现记录
 
-（待实现）
+**实现（2026-09-27）**
+
+1. `src/app/local-shell.ts`（新建）：`runShellCommand`（`spawn(cmd, { shell: true, stdio: ['ignore','pipe','pipe'] })`；stdout/stderr 全量收集；**stdin 关闭**以拒绝交互式命令挂死；超时缺省 **30s** → `SIGTERM`，宽限 1s → `SIGKILL`；单流输出上限 **2 万字符**截断并标记；`error`/`close` 归一为结果，不抛）、`shellResultLines`（命令回显 + stdout + stderr + 退出摘要；空行不产出）、`ShellRunner` 类型与常量。
+1. `src/app/state.ts`：`BufferKind` 增 `"shell"`；新增 `appendShellLines`（kind=shell 行入 buffer、不并历史行）与 `{type:"shell-lines"}` action。
+1. `src/app/layout/build-box.ts`：`kind === "shell"` 分支——**活动区**本地行（不进对话区），色义复用 notice 的 tone 表（回显 info / 成功绿 / stderr 与非零红 / 超时与截断黄），紧凑模式压单行。
+1. `src/app/index.ts`：`AppDeps.runShell?` 注入点（缺省真实 `runShellCommand`）；`submit()` 增 shell 分流（异步执行、不阻塞输入；提交后清输入并回退 normal）；新增 `runLocalShell()`：**回显先行**入 buffer（即时可见 + 审计），执行完成后追加输出与摘要行——结果**只进 buffer**，不经 adapter、不进会话事件流与模型上下文。cwd 取 `currentProjectCwd(state) ?? process.cwd()`（活跃会话 cwd 优先）。
+1. 测试：新增 `tests/shell-mode.test.ts`（4 例）；`tests/app.test.ts` 的 `makeApp` / `makeAppAtCwd` 注入 `noopShell` 假执行器（单测不真起子进程），并同步两条断言旧行为（「仅展示层」）的既有用例。
+
+**关键取舍**：
+
+- 执行器**不设危险命令黑名单**（决策 4）：命令回显即审计，护栏归 security-guard，避免两套口径；
+- `Esc` 终止运行中命令**留后续**（决策 4）：需新增按键语义，本轮不做；超时 kill 是当前唯一终止路径；
+- 命令**不并入**输入历史（决策 5）：与 TUI#34 解耦（历史已慢慢兼顾，但本轮不把 shell 命令写进历史，避免两条条目互相耦合）。
 
 ## 测试与证据
 
-（待补：`npm run check` / `npm run test:tui` 输出 + 真机 `$ls` 类命令回显）
+| 命令 | 结果 |
+| --- | --- |
+| `npm run check`（tsc --noEmit） | 通过 |
+| `npm test`（TUI 全量） | **1169 例全通过**（1169 pass / 0 fail，含新增 4 例与 2 例语义同步） |
+
+新增用例（`tests/shell-mode.test.ts`，注入假执行器）：
+
+1. `$` 提交走本地执行器：回显先行可见、stdout 逐行、退出摘要（耗时按实际断言）；**adapter 未收到任何消息**；提交后回退 normal（下一次普通输入才走 send）；
+1. stderr 与非零退出码 → `error` tone；shell 行不带 `final`（**不进历史区**）；
+1. 超时 + 截断 → 两条警告行（`超时` / `输出过长`，`warn` tone）；
+1. 空输入提交不执行（执行器零调用）。
+
+既有用例同步（旧「仅展示层」语义）：
+
+- `tests/app.test.ts`「shell 模式提交」改为断言本地执行（`adapter.sent` 空、buffer 出现 `$ ls` 回显行、提示符回退）；
+- `tests/app.test.ts`「模式键」一测的 `$` 段改为「提交不经模型」；
+- `makeApp` / `makeAppAtCwd` 注入 `noopShell`（避免单测真跑子进程）。
+
+真机行为待人工确认项：`$ls` 类实际命令的回显与退出摘要、长输出截断、慢命令 30s 超时。
 
 ## 收尾
 
-（待补：README / DESIGN 口径回写、是否移入 `docs/archived/`）
+- 已回写 `TUI/README.md`（输入模式一节：`$` 改为「本地命令执行」口径）与 `TUI/docs/DESIGN.md`（输入区语义补 `$` 本地执行与超时/截断参数）；
+- 计划外文件：`TUI/src/app/layout/build-box.ts`（新增 shell kind 渲染分支，属落点必需）、`tests/helpers/appFakes.ts` 未改；
+- 待办：用户人工确认（真机 `$` 命令回显/退出码/超时；确认后再定是否另开「Esc 终止」「命令入历史」条目）→ 条目转「完成」、本文档移入 `TUI/docs/archived/`。

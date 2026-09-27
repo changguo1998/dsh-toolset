@@ -370,10 +370,13 @@ export async function apply(
     (ctx as { get?: (name: string) => unknown }).get?.("sessionQuery") as
       SessionQueryLike | undefined;
   let handle: { agent: unknown; dispose(): Promise<void> };
+  /** TUI#40：本次启动是否**成功恢复**了持久化会话（--resume 命中 / -c 命中）→ 传 adapter */
+  let startedFromResume = false;
   if (startup.resume !== undefined) {
     // --resume <id>：无效 id → stderr 提示并回落新建（条目原文）
     try {
       handle = await resumeSession(startup.resume);
+      startedFromResume = true;
     } catch (err) {
       process.stderr.write(
         `[tui] warn: --resume ${startup.resume} 失败（${String(err)}），回落新建会话\n`,
@@ -403,6 +406,7 @@ export async function apply(
     } else {
       try {
         handle = await resumeSession(targetId);
+        startedFromResume = true;
       } catch (err) {
         process.stderr.write(
           `[tui] warn: --continue 恢复 ${targetId} 失败（${String(err)}），回落新建会话\n`,
@@ -443,6 +447,8 @@ export async function apply(
   const adapter = createRealDshAdapter({
     runtime,
     sessionId: agentLike.session.id,
+    // TUI#40：启动即恢复（--resume / -c）→ App 启动时补一次历史折叠
+    resumedAtLaunch: startedFromResume,
     agent: agentLike,
     commandAgent: rawAgent,
     interrupt: () => rawAgent.cancel?.({ kind: "user" }),

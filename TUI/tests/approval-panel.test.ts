@@ -201,12 +201,13 @@ test("问答数字键：1-9 直接标记第 n 项（不提交），自定义项�
     { kind: "digit", n: 9 },
     "越界编号交由 App 侧吞掉（决策层只报编号）",
   );
-  // 焦点落到「自定义回答」后，数字键是文本输入（不能被标记语义抢走）
+  // 焦点落到「自定义回答」后，数字键是文本输入（不能被标记语义抢走）；
+  // 空串插入 = 进入编辑态（BACKLOG TUI#35：caret 指向插入后的光标位）
   const onCustom = reduceState(s, { type: "question-move", delta: 2 });
   const customDecision = questionKeyDecision(onCustom.question!, "2", false);
   assert.deepEqual(
     customDecision,
-    { kind: "custom", text: "2" },
+    { kind: "custom-edit", text: "2", caret: 1 },
     "自定义项上数字是文本: " + JSON.stringify(customDecision),
   );
 });
@@ -324,9 +325,25 @@ test("提问上下文：来源段渲染在描述窗顶部（灰、随窗滚动�
   const srcIdx = rows.findIndex((l) => l.includes("提问前的说明正文"));
   const qIdx = rows.findIndex((l) => l.includes("请选择部署环境"));
   assert.ok(srcIdx >= 0 && srcIdx < qIdx, "来源段在题干之上");
+  // BACKLOG TUI#38：来源段与题干同口径走 markdown，**颜色回默认前景**（不再硬编码青色，
+  // 也不再是「着色但非标题」）——纯文本来源行不带颜色 SGR
   assert.ok(
-    ansi[srcIdx]!.includes("\x1b[38;2;") && !ansi[srcIdx]!.includes("\x1b[1m"),
-    "来源段为次要样式（着色但非标题）: " + JSON.stringify(ansi[srcIdx]),
+    !ansi[srcIdx]!.includes("\x1b[38;2;") && !ansi[srcIdx]!.includes("\x1b[1m"),
+    "来源段默认前景、非加粗: " + JSON.stringify(ansi[srcIdx]),
+  );
+  // markdown 生效：`**加粗**` 来源段按加粗渲染（与题干同口径）
+  const md = reduceState(initialState(), {
+    type: "question-open",
+    id: "q3",
+    questions: [{ id: "q3", question: "继续?", options: [{ label: "A" }] }],
+    source: "**加粗来源**",
+  });
+  const mdRows = renderQuestionPanel(md.question!, 12, 60);
+  const mdAnsi = mdRows.map((r) => rowAnsi(r));
+  const mdIdx = plain(mdRows).findIndex((l) => l.includes("加粗来源"));
+  assert.ok(
+    mdIdx >= 0 && mdAnsi[mdIdx]!.includes("\x1b[1m"),
+    "来源段按 markdown 渲染（加粗生效）: " + JSON.stringify(mdAnsi[mdIdx]),
   );
   // 无来源（缺省）时不占行：题干即面板首行（单题无标题区）
   const bare = reduceState(initialState(), {

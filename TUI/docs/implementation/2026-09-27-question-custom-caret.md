@@ -1,6 +1,6 @@
 # 问题面板自定义答案的光标移动（←/→）（接取条目：`TUI/docs/BACKLOG.md`「问题面板编辑自定义答案时，←/→ 移动光标」）
 
-状态：规划（决策已通过审阅，待实现）　　开启：2026-09-27　　关闭：——
+状态：测试（实现完成、机械验证通过，待用户人工确认）　　开启：2026-09-27　　关闭：——
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 审阅：用户 2026-09-27 逐条审阅第 3 条（本条），决策**通过**。
 
@@ -46,19 +46,49 @@
 - `TUI/src/app/question-transition.ts`
 - `TUI/src/app/index.ts`
 - `TUI/src/app/components/QuestionPrompt.ts`
-- `TUI/tests/question-*.test.ts`（按现有问答用例文件补，必要时新建 `question-custom-caret.test.ts`）
+- `TUI/tests/question-custom-caret.test.ts`（新建）+ 既有用例同步（`tests/question-window.test.ts`、`tests/focus-cursor.test.ts`、`tests/approval-panel.test.ts`）
 - 本追踪文档
 
 明确不做：不改问答面板其它按键语义；不动主输入栏光标逻辑；不做文本选择 / 剪贴板。
 
 ## 实现记录
 
-（待实现）
+**实现（2026-09-27）**
+
+1. `src/app/state.ts`：`QuestionPanelItem` 增 `customCaret?: number | null`（null/缺省 = 未编辑态）；`setQuestionCustom(state, text, caret)` 同时写文本与光标；新增 `moveCustomCaret`（clamp 到 `[0, 串长]`，无变化返回原状态）；`question-custom` action 增可选 `caret`，新增 `custom-caret` action；`moveQuestion` 移项即 `customCaret: null`；`selectQuestionOption` 单选清空 custom 时一并清光标。
+1. `src/app/question-transition.ts`：决策类型 `{kind:'custom'}` → `{kind:'custom-edit', text, caret}`，新增 `{kind:'custom-caret', delta}`；新增纯助手 `customChars` / `customCaretOf` / `customInsert`（按 **code point** 计数，与 reducer 的 clamp 口径一致）；退格改「编辑态删光标左字符（删空回 null）／未编辑态删末字符」；`←/→` 改「自定义项编辑态 → 移动光标；否则 → 切题 nav」。
+1. `src/app/index.ts`：问答按键分派 `custom` → `custom-edit`（带 caret）+ 新增 `custom-caret` 分支。
+1. `src/app/components/QuestionPrompt.ts`：`pushOption` 返回「光标在选项窗内的行/列」（新增 `caretInWrapped`，按折行后行内**字符偏移累加显示宽度**定位，含 CJK）；自定义项传 `customCaret` → 答案文本起点偏移；caret 段改为「编辑态才产出、列取光标位」（原先恒取末行行尾）。
+1. 测试：新增 `tests/question-custom-caret.test.ts`（5 例）；同步既有 caret 用例（原「恒取文本末尾 / 移项即产 caret」的断言随语义更新）。
+
+**关键取舍**：
+
+- `customCaret` 用 **null = 未编辑** 而不是「恒存在的光标」（草稿 §决策）：串光标在 0 位时 `←` 若被吞会像按键坏掉；用 null 区分「还没开始编辑」与「编辑中」，删空/移项都回到 null，避免死锁感。
+- 编辑态判定不新增状态位，由 `customCaret !== null` 直接表达；`←/→` 的两种语义因此只有一处判据。
 
 ## 测试与证据
 
-（待补：`npm run check` / `npm run test:tui` 输出）
+| 命令 | 结果 |
+| --- | --- |
+| `npm run check`（tsc --noEmit） | 通过 |
+| `npm test`（TUI 全量） | **1161 例全通过**（1161 pass / 0 fail，含新增 5 例与既有用例同步后的回归） |
+
+新增用例（`tests/question-custom-caret.test.ts`）：
+
+1. 编辑态 `←/→` 串内移动；右端到头不前进、左端到头停住且**不切题**；
+1. 中间定位的插入 / 退格（光标随编辑推进）；
+1. 退格删空 → 回未编辑态，`←/→` 恢复切题；空串退格 no-op；
+1. 移项退出编辑态但保留文本；单选选预设清空文本与光标；
+1. 决策层判据：有文本 → `custom-caret`；移回预设项 → `nav`。
+
+既有用例同步（语义变更点）：
+
+- `tests/question-window.test.ts`：caret 列改断言「光标位（ab 之后）」而非文本末尾，并补「有文本但 caret=null 时无 caret」；
+- `tests/focus-cursor.test.ts`：移到自定义项但未编辑 → 无 caret；键入一个字符后 → 有 caret；
+- `tests/approval-panel.test.ts`：数字键决策期望改为 `{kind:'custom-edit', text:'2', caret:1}`。
 
 ## 收尾
 
-（待补：`TUI/docs/DESIGN.md` 问答面板 caret 口径回写、是否移入 `docs/archived/`）
+- 已回写 `TUI/docs/DESIGN.md`（问答面板「两窗与焦点窗」一节的编辑态 caret 口径——本轮按 TUI#35 语义更新）；
+- 计划外文件：`tests/question-window.test.ts` / `tests/focus-cursor.test.ts` / `tests/approval-panel.test.ts` 为语义变更后的**既有用例同步**（已补进计划清单）；
+- 待办：用户人工确认（真机：自定义答案中间插入/退格、`←/→` 与切题分流）→ 条目转「完成」、本文档移入 `TUI/docs/archived/`。

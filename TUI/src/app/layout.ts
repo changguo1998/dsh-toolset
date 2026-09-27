@@ -30,7 +30,12 @@ import {
 import type { ActivityPlacement } from "./config.ts";
 
 import type { Buffer } from "./state.ts";
-import type { JobInfo, TodoItemLike, GoalSnapshotLike } from "./adapter/dsh.ts";
+import type {
+  JobInfo,
+  TodoItemLike,
+  GoalSnapshotLike,
+  AgentRowInfo,
+} from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { buildModelPickerBox } from "./components/ModelPicker.ts";
 import { buildHistoryPanelBox } from "./components/HistoryPanel.ts";
@@ -871,7 +876,7 @@ interface StatusRow {
 
 /** 状态列块：head=分隔线/标题等必保行；items=可按优先级折叠的条目（todo/jobs/goal 历史） */
 interface StatusBlock {
-  id: "mode" | "goal" | "todo" | "jobs";
+  id: "mode" | "goal" | "todo" | "jobs" | "agents";
   head: StatusRow[];
   items: { rows: StatusRow[]; done: boolean; active: boolean }[];
   /** goal 块专用：items[≥ historyFrom] 为历史（旧）goal 条目——L1 只保留首条，L2 起全隐藏 */
@@ -908,7 +913,7 @@ function foldAt(block: StatusBlock, level: FoldLevel): StatusRow[] {
     }
     return [...block.head, ...rows];
   }
-  if (block.id === "todo" || block.id === "jobs") {
+  if (block.id === "todo" || block.id === "jobs" || block.id === "agents") {
     let kept = block.items;
     let hidden = 0;
     if (level >= 1) {
@@ -1027,6 +1032,30 @@ function jobItemRows(job: JobInfo): StatusRow[] {
   return [{ segments: [seg(mark.symbol + " " + label, { fg: mark.color })] }];
 }
 
+/**
+ * 状态列 **Agents 块**条目行（BACKLOG TUI#39）：`符号 名称 · 状态 · 短id`（按宽折行）。
+ * 色义：**运行中黄 / 空闲灰 / 一切异常态红**（诊断条目、枚举失败；附宿主给出的 reason 短因）。
+ * 纯只读展示：不吃按键、不提供中断入口（中断仍走 `/agents` 面板）。
+ */
+function agentItemRows(a: AgentRowInfo, width: number): StatusRow[] {
+  const diag = a.diagnostic;
+  const running = a.status === "running";
+  const fg: ColorName = diag ? "red" : running ? "yellow" : "gray";
+  const sym = diag ? "! " : running ? "● " : "○ ";
+  const statusText = diag
+    ? `不可用(${diag.reason})`
+    : running
+      ? "运行中"
+      : a.status === ""
+        ? "空闲"
+        : a.status;
+  const shortId = a.id.length > 8 ? a.id.slice(0, 8) : a.id;
+  const text = `${sym}${a.label} · ${statusText} ${shortId}`.trimEnd();
+  return wrapLine(text, Math.max(1, width)).map((line) => ({
+    segments: [seg(line, { fg })],
+  }));
+}
+
 /** 状态列 Mode 块：列出会话运行模式/权限/审批策略的所有可选项，生效项着色强调、其余灰。
  *  plan=青（on/off）；sandbox、permission=ro 绿 / wr 黄 / full 红；policy=ask 绿 / auto 红；
  *  preset=洋红（动态值无可枚举，仅显示当前值）。无会话数据时整块省略。 */
@@ -1118,6 +1147,7 @@ function statusBlocks(
   goals: GoalHistory | undefined,
   todos: TodoItemLike[] | undefined,
   jobs: JobInfo[] | undefined,
+  agents: AgentRowInfo[] | undefined,
   width: number,
 ): StatusBlock[] {
   const blocks: StatusBlock[] = [];
@@ -1213,6 +1243,25 @@ function statusBlocks(
         rows: jobItemRows(j),
         done: statusMark(j.status).symbol === "✓",
         active: j.status === "running" || j.status === "stopping",
+      })),
+    });
+  }
+  // Agents 块（BACKLOG TUI#39）：只在有子代理数据时显示；标题 `Agents 运行中/总数`（蓝）。
+  // 折叠语义：运行中 = active，其余（空闲 / 异常态）= done（L1 先隐藏、L2 只留运行中）。
+  if (agents && agents.length > 0) {
+    const head: StatusRow[] = [];
+    if (blocks.length > 0) head.push(sep());
+    const running = agents.filter((a) => a.status === "running").length;
+    head.push({
+      segments: [seg(`Agents ${running}/${agents.length}`, { fg: "blue" })],
+    });
+    blocks.push({
+      id: "agents",
+      head,
+      items: agents.map((a) => ({
+        rows: agentItemRows(a, width),
+        done: a.status !== "running",
+        active: a.status === "running",
       })),
     });
   }
@@ -1331,12 +1380,14 @@ export function renderStatusColumn(
   scroll: number,
   height: number,
   width: number,
+  /** TUI#39：子代理目录快照（Agents 块；缺省 = 不显示该块，保持既有调用口径） */
+  agents?: AgentRowInfo[],
 ): FrameRow[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);
   // 状态列折叠策略：无强制行数上限——各块完整渲染，仅当总高度超过窗口高度时
   // 才折叠：高度按块尽量平均分配，块内按「已完成 → 靠后的未完成」优先级隐藏条目
-  const blocks = statusBlocks(goals, todos, jobs, w - 1);
+  const blocks = statusBlocks(goals, todos, jobs, agents, w - 1);
   // 状态列折叠策略：无强制行数上限——从 L0 到 L3 依次尝试折叠等级，
   // 首次放下即采用；全部等级用尽仍放不下（mode/goal 大头）→ 整列行级截断兜底
   let body: StatusRow[] = [];
@@ -1551,6 +1602,10 @@ function buildTopRegion(
         // − 分隔竖线(1) = statusColWidth − 2（renderStatusColumn 末位自带竖线，剥去后
         // 与 statusBodyW 同宽）——传满宽会让拼行/折行多算一列，恰好拼满的行被截掉末字符
         statusColWidth - 1,
+        // TUI#39：Agents 块数据（当前活跃会话切片；无数据时该块整块省略）
+        state.activeSessionId
+          ? state.agentsBySession[state.activeSessionId]
+          : undefined,
       );
 
   // 边框构图参数：分隔竖线列 = statusColWidth-1（状态列右缘/历史区左缘，
@@ -2287,11 +2342,12 @@ function userBlockSymbolResolver(
     return { text: "?" }; // 无终态
   };
 }
-/** 提示符 = 当前输入模式符号（normal > / shell $ / slash /；默认前景色，不着色） */
+/** 提示符 = 当前输入模式符号（normal > / shell $ / slash / / steer <；默认前景色，不着色） */
 const MODE_SYMBOL: Record<InputMode, string> = {
   normal: ">",
   shell: "$",
   slash: "/",
+  steer: "<",
 };
 
 /** 当前活跃会话的目标/todo/模式/策略/预设/运行中任务数（状态栏与整页高度共用口径） */

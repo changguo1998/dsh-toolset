@@ -1,6 +1,6 @@
 # 垂直状态栏新增 Agents 块（只读）（接取条目：`TUI/docs/BACKLOG.md`「垂直状态栏（最左状态列）显示 agents 信息（只读）」）
 
-状态：规划（决策已修订，待用户确认）　　开启：2026-09-27　　关闭：——
+状态：测试（实现完成、机械验证通过，待用户人工确认）　　开启：2026-09-27　　关闭：——
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 审阅：用户 2026-09-27 逐条审阅第 7 条（本条）：提出「需要定时更新状态」并要求澄清「诊断」含义 → 已三次修订决策（定时刷新；诊断与异常态按**红色告警**呈现），待确认。
 
@@ -62,12 +62,41 @@
 
 ## 实现记录
 
-（待实现）
+**实现（2026-09-27）**
+
+1. `src/app/adapter/types.ts`：新增 `AgentRowInfo`（id / label / status / diagnostic?）与事件 `{type:"agents-changed", sessionId, agents}`。
+1. `src/app/adapter/dsh.ts`：`refreshAgents()` 归一化结果**同时**喂两处——`/agents` 面板（原 `command-panel-data` 不动）与状态列（`agents-changed`）；枚举失败时状态列改推**异常态一行**（`label: "agents 目录不可用"` + `diagnostic.reason: "unavailable"`），不静默留旧数据。
+1. `src/app/state.ts`：`agentsBySession: Record<string, AgentRowInfo[]>`（含 initialState 初值）与 `{type:"agents-changed"}` action/reducer（last-write-wins、按会话隔离）。
+1. `src/app/index.ts`：事件透传入 reducer；`subagent-activity` 追加 `refreshAgentsQuiet()`（启停即时可见）；新增 `maybeRefreshAgents()`（挂在 StatusTicker 的 apply 回调上 → **5s 节律保鲜**；状态列隐藏或该会话无数据时不轮询）；`refreshAgentsQuiet()` 失败静默。
+1. `src/app/layout.ts`：`StatusBlock.id` 增 `"agents"`、`foldAt` 的 todo/jobs 分支并入 agents；`statusBlocks(..., agents, width)` 组装 Agents 块（标题 `Agents 运行中/总数`；折叠语义：运行中=active、其余=done）；新增 `agentItemRows`（`符号 名称 · 状态 · 短id`，**运行中黄 / 空闲灰 / 异常态红 + reason**）；`renderStatusColumn` 增可选 `agents` 尾参（既有调用零改动）。
+1. 测试：新增 `tests/status-column-agents.test.ts`（6 例）；同步 `/agents` 事件用例（旧断言「未开面板不刷新」→ 现为状态列即时保鲜）。
+
+**关键取舍**：
+
+- 轮询放在既有 `StatusTicker` 节律（5s）而非新起定时器：与 cwd/git/time 同源合批，且天然随 ticker 生命周期；
+- **空闲停止**判据 = 状态列隐藏 ∨ 该会话无数据 ∨ 无活跃会话：首个 `subagent/start` 会经 `subagent-activity` 即时补一次让块出现，轮询随之上线，故停轮询不会漏掉新代理；
+- 枚举失败呈现为**红行**（决策四次修订的「异常一律红」）而不是静默清空——宁可显示「目录不可用」也不让状态列给出错误的安全感。
 
 ## 测试与证据
 
-（待补：`npm run check` / `npm run test:tui` 输出）
+| 命令 | 结果 |
+| --- | --- |
+| `npm run check`（tsc --noEmit） | 通过 |
+| `npm test`（TUI 全量） | **1175 例全通过**（1175 pass / 0 fail，含新增 6 例 + 1 例语义同步） |
+
+新增用例（`tests/status-column-agents.test.ts`）：
+
+1. 有数据出块：标题 `Agents 1/3`、运行中黄 `●` + 「运行中」、空闲灰 `○`、异常态红 `!` + `不可用(corrupt)`、短 id 截断到 8 字符（用 `THEMES.dark` 的 `ansiNameToHex`/`hexSgr` 断言真实 SGR）；
+1. 无数据（缺省 / 空数组）**整块省略**；
+1. 折叠：超窗时先隐藏非运行中（L1）并给出 `…(+N项已隐藏)` 提示；
+1. 事件驱动：`subagent-activity` → 调 `refreshAgents()` 一次并把快照写入 `agentsBySession[sid]`；另一会话快照不串味；
+1. 定时保鲜：初始无数据时**不轮询**（空闲停止），写入数据后随 ticker（测试 20ms）持续刷新；
+1. 状态列隐藏（与用户按键同路径：`Ctrl+S`）→ 轮询立即停止。
+
+既有用例同步：`tests/command-panel-agents-tools.test.ts` 的 `/agents` 事件用例——旧断言「未打开面板 → 事件不触发刷新」已按新语义改为「状态列即时保鲜一次」，面板打开时事件触发状态列 + 面板各一次。
 
 ## 收尾
 
-（待补：DESIGN 回写、是否移入 `docs/archived/`）
+- 已回写 `TUI/docs/DESIGN.md`（四区域布局「顶部状态列」：块顺序改 Goal → Todo → Jobs → Agents，补色义、5s 保鲜与空闲停止）；
+- 计划外文件：`tests/command-panel-agents-tools.test.ts`（事件语义变更后的既有用例同步，已补进计划清单）；
+- 待办：用户人工确认（真机：跑 `subagent` 任务时 Agents 块出现/消失、运行中转空闲的 5s 内变化、异常态红）→ 条目转「完成」、本文档移入 `TUI/docs/archived/`。

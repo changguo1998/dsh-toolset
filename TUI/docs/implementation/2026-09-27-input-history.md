@@ -1,6 +1,6 @@
 # 输入历史（↑/↓ 翻看已提交输入）（接取条目：`TUI/docs/BACKLOG.md`「输入历史：记录已提交的命令/输入，输入态按 ↑/↓ 翻看前几条」）
 
-状态：规划（决策已通过审阅，待实现）　　开启：2026-09-27　　关闭：——
+状态：测试（实现完成、机械验证通过，待用户人工确认）　　开启：2026-09-27　　关闭：——
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 审阅：用户 2026-09-27 逐条审阅第 2 条（本条），决策**通过**。
 
@@ -46,12 +46,39 @@
 
 ## 实现记录
 
-（待实现）
+**实现（2026-09-27）**
+
+1. `src/app/state.ts`：`AppState` 增 `inputHistory` / `inputHistoryCursor` / `inputHistoryDraft`（含 `initialState` 初值）；新增导出 `inputHistoryPush`（去重 + 200 上限）、`isInputHistoryBrowse` / `isInputHistoryBrowseAt`、`reduceInputHistory`（push/prev/next）；`setInput` 在文本变更时退出翻看态并把编辑文本存为新草稿。
+1. `src/app/index.ts`：`↑/↓` 分派增历史分支（`focusedPanel === null` 且「输入非空或已在翻看态或下按会进入翻看」才接管，否则保持既有面板滚动）；`submit()` 在 trim 后入栈（普通输入与 `/` 命令同点）。
+1. `tests/input-history.test.ts`：7 例（App 端到端 5 + reducer 2）。
+1. `tests/helpers/appFakes.ts`：把 `app.test.ts` 的 `FakeRenderer` / `FakeAdapter` 抽为共用假件（跨文件 import 会连带把 app.test.ts 的用例再执行一遍，故抽文件而非 import），`app.test.ts` 改从该文件导入，行为不变。
+1. `TUI/docs/DESIGN.md`：输入区一节补「输入历史」条（按键分流、共用一份、slash 记提示符口径、进程内、去重与上限、草稿恢复）。
+
+**关键取舍**：
+
+- 接管条件用「`focusedPanel === null` + 输入或历史非空」而不是「无条件接管」——空输入 + 无历史时 `↑/↓` 仍是既有对话区/面板滚动（否则会把顶部面板滚动语义挤掉）。
+- 草稿在首次进入翻看时保存；翻看态下手输会经由 `setInput` 覆盖草稿为编辑后的文本，保证「下一次 ↑ 回落的是你最后写的那份」。
 
 ## 测试与证据
 
-（待补：`npm run check` / `npm run test:tui` 输出）
+| 命令 | 结果 |
+| --- | --- |
+| `npm run check`（tsc --noEmit） | 通过 |
+| `sh scripts/test.sh tests/input-history.test.ts` | **7 例全通过** |
+| `npm test`（TUI 全量） | **1156 例全通过**（1156 pass / 0 fail；含既有 app.test.ts 在假件抽文件后不回归） |
+
+用例清单（`tests/input-history.test.ts`）：
+
+1. 提交入栈：普通输入与 slash 命令共用一份（slash 记提示符口径 `zzz`）、空提交不入栈；
+1. `↑` 上翻逐条、到最早一条停住、`↓` 逐条回来并越过最新回到草稿；
+1. 翻看中手输草稿不丢（进入翻看先存草稿，`↓` 恢复）；
+1. 翻看态下编辑 → 游标归零、编辑文本成为新草稿；
+1. 无历史且输入为空：`↑/↓` 不抢既有滚动语义；
+1. reducer：相邻重复不入栈、205 条压到 200 且丢最旧；
+1. reducer：push 复位翻看态、空历史时 prev/next 为 no-op。
 
 ## 收尾
 
-（待补：`TUI/docs/DESIGN.md` 输入区口径回写、是否移入 `docs/archived/`）
+- 已回写 `TUI/docs/DESIGN.md`（输入区一节补输入历史口径）；
+- 计划外文件 `tests/helpers/appFakes.ts` 为测试假件抽取（原因：跨测试文件 import 会重复执行被导入文件的用例），已在本节说明；
+- 待办：用户人工确认（真机 `↑/↓` 翻看、与面板滚动互不干扰）→ 条目转「完成」、本文档移入 `TUI/docs/archived/`。

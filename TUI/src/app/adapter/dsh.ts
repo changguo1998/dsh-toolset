@@ -34,6 +34,7 @@ import { clockHms } from "../clock.ts";
 import type {
   DshEvent,
   DshAdapter,
+  AgentRowInfo,
   ModelInfo,
   ModelSelection,
   SessionModelSelectionRef,
@@ -124,6 +125,7 @@ export type {
   SessionEvent,
   DshRuntime,
   DshAgentLike,
+  AgentRowInfo,
   DshUserMessageLike,
   DshCommandLike,
   LlmLike,
@@ -2421,12 +2423,17 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     get sessionId() {
       return activeSessionId;
     },
+    // TUI#40：启动即恢复（--resume / -c）标记，App 据此补一次历史折叠
+    resumedAtLaunch: opts.resumedAtLaunch === true,
     onEvent(cb) {
       if (disposed) return () => {};
       listeners.add(cb);
       return () => listeners.delete(cb);
     },
-    sendMessage(text, targetSessionId) {
+    canSteer() {
+      return typeof activeAgent.steer === "function";
+    },
+    sendMessage(text, targetSessionId, target) {
       if (disposed) return;
       if (targetSessionId && targetSessionId !== activeSessionId) {
         process.stderr.write(
@@ -2434,6 +2441,12 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
             targetSessionId +
             " not active\n",
         );
+        return;
+      }
+      // steer（BACKLOG TUI#36）：官方 agent.steer = 投递到最近 step 边界；
+      // 宿主无 steer（旧版结构面）→ 回落 followup（App 侧另有 notice 提示降级）
+      if (target === "next-step" && typeof activeAgent.steer === "function") {
+        activeAgent.steer(buildUserMessage(text));
         return;
       }
       activeAgent.followup(buildUserMessage(text));
@@ -2837,9 +2850,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         return undefined;
       }
     },
-    /** 拉取子代理列表并归一化后经 command-panel-data 推送；diagnostic 条目灰显且 payload 置空
-     *  （无可中断 id）。数据源按宿主能力择路：0.1.7 起 `listDescendants`（富条目 + depth，取
-     *  depth=1 的直接子代），≤0.1.5 用 `listChildren`（同形富条目）。 */
+    /** 拉取子代理列表并归一化后推送两处：/agents 面板（command-panel-data；diagnostic 条目
+     *  灰显且 payload 置空——无可中断 id）与**状态列 Agents 块**（agents-changed，BACKLOG TUI#39）。
+     *  数据源按宿主能力择路：0.1.7 起 `listDescendants`（富条目 + depth，取 depth=1 的直接子代），
+     *  ≤0.1.5 用 `listChildren`（同形富条目）。 */
     async refreshAgents(): Promise<void> {
       const svc = opts.subagents;
       const useDescendants = typeof svc?.listDescendants === "function";
@@ -2854,6 +2868,23 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
               (entry) => (entry.depth ?? 1) === 1,
             )
           : ((await svc?.listChildren?.(activeSessionId)) ?? []);
+        // 状态列 Agents 块：与面板同源归一化（label / 状态 / 异常标记）
+        const agentRows: AgentRowInfo[] = entries.map((entry) => {
+          const diagnostic = entry.kind === "diagnostic";
+          return {
+            id: entry.id ?? "-",
+            label: diagnostic
+              ? `（诊断：${entry.reason ?? "unknown"}）`
+              : (entry.label ?? "(未命名)"),
+            // 投影目录形态无 activity → 退用 mode（one-shot/continuable/unknown）作状态语义
+            status: diagnostic
+              ? "diagnostic"
+              : (entry.activity ?? entry.mode ?? ""),
+            ...(diagnostic
+              ? { diagnostic: { reason: entry.reason ?? "unknown" } }
+              : {}),
+          };
+        });
         emit({
           type: "command-panel-data",
           kind: "agents",
@@ -2880,12 +2911,30 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
             };
           }),
         });
+        emit({
+          type: "agents-changed",
+          sessionId: activeSessionId,
+          agents: agentRows,
+        });
       } catch (err) {
         emit({
           type: "command-panel-data",
           kind: "agents",
           rows: [],
           error: err instanceof Error ? err.message : String(err),
+        });
+        // 状态列：枚举失败不静默留旧数据，以**异常态**一行呈现（渲染红 + reason）
+        emit({
+          type: "agents-changed",
+          sessionId: activeSessionId,
+          agents: [
+            {
+              id: "-",
+              label: "agents 目录不可用",
+              status: "diagnostic",
+              diagnostic: { reason: "unavailable" },
+            },
+          ],
         });
       }
     },

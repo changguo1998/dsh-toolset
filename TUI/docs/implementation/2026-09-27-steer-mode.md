@@ -1,6 +1,6 @@
 # 新增 `<` 前缀的 steer 输入模式（接取条目：`TUI/docs/BACKLOG.md`「新增 `<` 前缀触发的输入状态（steer 模式）：提交的消息进 steer 队列」）
 
-状态：规划（决策已通过审阅，待实现）　　开启：2026-09-27　　关闭：——
+状态：测试（实现完成、机械验证通过，待用户人工确认）　　开启：2026-09-27　　关闭：——
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 审阅：用户 2026-09-27 逐条审阅第 4 条（本条），决策**通过**。
 
@@ -42,7 +42,7 @@
 - `TUI/src/app/index.ts`
 - `TUI/src/app/adapter/types.ts`
 - `TUI/src/app/adapter/dsh.ts`
-- `TUI/tests/app.test.ts`（或新建 `TUI/tests/input-mode-steer.test.ts`）
+- `TUI/tests/steer-mode.test.ts`（新建）
 - `TUI/README.md`（输入模式一节口径）
 - 本追踪文档
 
@@ -50,12 +50,33 @@
 
 ## 实现记录
 
-（待实现）
+**实现（2026-09-27）**
+
+1. `src/app/state.ts`：`InputMode` 增 `"steer"`（`commands.ts` 的 `InputModeLike` 同步，避免类型不兼容）。
+1. `src/app/layout.ts`：`MODE_SYMBOL` 增 `steer: "<"`。
+1. `src/app/index.ts`：模式键分支增 `<`（空输入 + 非 ctrl → 切 `steer` 并吞键，与 `$`/`/` 同判定、同幂等）；`submit()` 增 steer 分流——`queued-push` 登记显示 + `adapter.sendMessage(text, sid, "next-step")`，宿主 `canSteer()` 为 false 时**不传 target**（真降级为 followup）并给 warn notice。
+1. `src/app/adapter/types.ts` / `dsh.ts`：`DshAgentLike` 增可选 `steer?()`；`DshAdapter.sendMessage` 增第三参 `target?: "next-step"` 与 `canSteer?()`；真机实现按 `typeof activeAgent.steer === "function"` 分派 steer / followup。
+1. `tests/helpers/appFakes.ts`：`FakeAdapter.sendMessage` 记录 `target`（新增 `steered`）并增 `steerSupported` / `canSteer()` 开关。
+1. `tests/steer-mode.test.ts`：4 例（见「测试与证据」）。
+
+**宿主口径（已核实）**：官方 `dsh-agent` 的 `AgentLoop` 提供 `steer(message)` = 「投递到最近 step 边界；空闲 driver 立即起一轮，运行中在下一 step 认领」（`dsh-agent/lib/types/runtime-types.d.ts:192-200`），不是 `send(m,'next-step',true)` 的手写等价物——直接调用官方方法，语义与宿主一致。
 
 ## 测试与证据
 
-（待补：`npm run check` / `npm run test:tui` 输出）
+| 命令 | 结果 |
+| --- | --- |
+| `npm run check`（tsc --noEmit） | 通过 |
+| `npm test`（TUI 全量） | **1165 例全通过**（1165 pass / 0 fail，含新增 4 例） |
+
+用例清单（`tests/steer-mode.test.ts`）：
+
+1. 空输入按 `<` 进 steer 模式（输入区提示符渲染为 `<`）、同符号幂等不叠加为文本；
+1. 提交走 `target='next-step'`（`adapter.steered` 命中）、本机排队显示、提交后回退 normal（下一次普通提交走 followup）；
+1. 宿主不支持 steer（`canSteer()` false）→ 消息仍发出、未走 steer 投递、给出降级提示；
+1. 空 steer 输入按 Backspace 回退 normal（与 `$`/`/` 同机制）。
 
 ## 收尾
 
-（待补：README / `TUI/docs/DESIGN.md` 输入区口径回写、是否移入 `docs/archived/`）
+- 已回写 `TUI/README.md`（输入模式一节：补 `<` steer 语义与降级口径）与 `TUI/docs/DESIGN.md`（输入区提示符表）；
+- 计划外文件：`src/app/commands.ts`（`InputModeLike` 同步 `steer`，类型兼容所需）、`tests/helpers/appFakes.ts`（`sendMessage` 增 target 记录）；
+- 待办：用户人工确认（真机：运行中 `<` 提交在下一 step 被认领、空闲时立即起一轮）→ 条目转「完成」、本文档移入 `TUI/docs/archived/`。

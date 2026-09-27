@@ -19,6 +19,7 @@ import type {
   JobInfo,
   CommandPanelRow,
   CommandPanelKind,
+  AgentRowInfo,
 } from "./adapter/dsh.ts";
 import type { ModelSelection, ModelSelectionLike } from "./adapter/dsh.ts";
 import type { ActivityPlacement } from "./config.ts";
@@ -95,8 +96,8 @@ function trimBufferHead(
  *  4：两侧各留 gutter-1 = 3 列 → 输入最长折行左缘对齐回复正文第 3 个字符。 */
 export const DEFAULT_MESSAGE_GUTTER = 4;
 
-/** 输入栏临时模式（$ shell / / slash；提交后自动回退 normal，不再有 Esc 回退） */
-export type InputMode = "normal" | "shell" | "slash";
+/** 输入栏临时模式（$ shell / / slash / < steer；提交后自动回退 normal，不再有 Esc 回退） */
+export type InputMode = "normal" | "shell" | "slash" | "steer";
 
 /** 输入状态（P1 起用于**用户块首行**符号，不再渲染在状态栏最左侧）：绿✓=成功 /
  *  红✗=失败 / 黄●/○=运行中（实心/空心圆按流式输出节奏交替，见 RUN_TOGGLE_CHARS）/
@@ -120,6 +121,8 @@ export type BufferKind =
   | "tool"
   | "separator"
   | "step"
+  /** `$` 模式本地 shell 输出（BACKLOG TUI#37）：活动区本地行，不进会话/模型上下文 */
+  | "shell"
   | "plain";
 
 /** 缓冲行:纯文本 + 类型标记(展示时决定缩进/配色) + 可选 tone（notice/tool 行着色分级）
@@ -383,6 +386,13 @@ export interface AppState {
   dialogueGeometry: DialogueGeometry;
   inputText: string;
   inputCursor: number;
+  /** 输入历史（已提交的普通输入与 `/` 命令共用一份；仅本会话生命周期，不持久化）。
+   *  末尾 = 最近一条；相邻重复不入栈；条数上限见 `inputHistoryPush` */
+  inputHistory: readonly string[];
+  /** 输入历史游标（0 = 未翻看；n = 距最新第 n 条；超过长度时夹到最早一条） */
+  inputHistoryCursor: number;
+  /** 进入翻看前的草稿（回到最新条目之下时恢复；非翻看态恒为空串） */
+  inputHistoryDraft: string;
   /** 排队消息（**已按官方流程 followup 交给核心 next-turn 队列**、但本回合尚未被
    *  认领的文本，按提交顺序；本机只用于显示——核心认领最早一条时该条转入历史流。
    *  空数组 = 无排队） */
@@ -452,6 +462,8 @@ export interface AppState {
   goalBySession: Record<string, GoalHistory>;
   /** P2：按 sessionId 隔离的 todo 列表（全量快照 last-write-wins） */
   todoBySession: Record<string, TodoItemLike[]>;
+  /** TUI#39：按 sessionId 隔离的子代理目录快照（状态列 Agents 块；last-write-wins） */
+  agentsBySession: Record<string, AgentRowInfo[]>;
   /** P2：按 sessionId 隔离的模式徽标（plan/sandbox/permission 三合一） */
   modeBySession: Record<string, ModeState>;
   /** C 阶段：按 sessionId 隔离的当前审批策略（approval/policy 事件 latest-wins；无则为 undefined=未收到省略） */
@@ -590,6 +602,9 @@ export interface QuestionPanelItem {
   selected: string[];
   /** 自定义回答文本 */
   custom: string;
+  /** 自定义回答的编辑光标（字符偏移，`0..custom.length`；null/缺省 = 未编辑态，见 BACKLOG TUI#35）。
+   *  约定：`null` ⟺ 「未编辑」——`←/→` 在未编辑时仍是切题导航，编辑态才在串内移动 */
+  customCaret?: number | null;
   /** 被并兜底项的原文（BACKLOG TUI#5）：选项文案命中语义标记（自定义/其它/…）时
    *  从预设列表摘除、原文并入自定义项作为解释文字展示；缺省 = 无合并。 */
   customHint?: string;
@@ -658,6 +673,7 @@ export function initialState(
     sessionTitle: "", // 默认标题为空，渲染层（renderStatusLine）用 <title> 占位
     goalBySession: {},
     todoBySession: {},
+    agentsBySession: {},
     modeBySession: {},
     policyBySession: {},
     compactionBySession: {},
@@ -692,6 +708,9 @@ export function initialState(
     dialogueGeometry: { rows: 0, height: 0, spans: [], topIdx: 0 },
     inputText: "",
     inputCursor: 0,
+    inputHistory: [], // 输入历史：进程内、随会话生命周期（不写入 tui-state.json）
+    inputHistoryCursor: 0,
+    inputHistoryDraft: "",
     queued: [], // 无排队（agent 运行期间 Enter 的文本登记在此，核心认领后转入历史）
     inputMode: "normal",
     inputStatus: "idle",
@@ -917,6 +936,28 @@ export function appendNoticeLines(
         ...(l.hanging !== undefined ? { hanging: l.hanging } : {}),
         ...(l.noCompact === true ? { noCompact: true } : {}),
       });
+  }
+  trimBufferHead(buffer, state.scrollAnchor);
+  return { ...state, buffer, nextSeq: seq };
+}
+
+/**
+ * 追加 `$` 模式本地 shell 输出行（BACKLOG TUI#37）：kind="shell"，活动区本地显示；
+ * **不进模型历史**（不经 adapter 发送，模型不可见）；tone 复用 notice 语义色。
+ */
+export function appendShellLines(
+  state: AppState,
+  lines: readonly { text: string; tone?: NoticeTone }[],
+): AppState {
+  const buffer = state.buffer.length ? [...state.buffer] : [];
+  let seq = state.nextSeq;
+  for (const l of lines) {
+    buffer.push({
+      text: sanitizeText(l.text).text,
+      kind: "shell",
+      seq: seq++,
+      ...(l.tone !== undefined ? { tone: l.tone } : {}),
+    });
   }
   trimBufferHead(buffer, state.scrollAnchor);
   return { ...state, buffer, nextSeq: seq };
@@ -1265,6 +1306,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         if (action.lines && action.lines.length > 0)
           return appendNoticeLines(state, action.lines, action.tone);
         return appendNotice(state, action.text, action.error, action.tone);
+      case "shell-lines":
+        return appendShellLines(state, action.lines);
       case "clear-buffer":
         return clearBuffer(state);
       case "agent-status":
@@ -1347,7 +1390,9 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "question-select":
         return selectQuestionOption(state);
       case "question-custom":
-        return setQuestionCustom(state, action.text);
+        return setQuestionCustom(state, action.text, action.caret ?? null);
+      case "custom-caret":
+        return moveCustomCaret(state, action.delta);
       case "question-focus":
         return focusQuestionWindow(state);
       case "question-desc-scroll":
@@ -1594,6 +1639,31 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           // TUI#12：最近一次调用属上一会话 → 丢弃（不可知，显示占位）
           usage: undefined,
         };
+      case "history-restore": {
+        // TUI#40：CLI 启动即恢复（--resume / -c）——把既有消息折叠成历史行。
+        // 与 history-resume-ok 的区别：**不依赖 /session 面板状态机**（启动路径没有面板），
+        // 但仍守「会话已切走」的陈旧守卫（activeSessionId 必须为空或同 id）
+        if (
+          state.activeSessionId !== null &&
+          state.activeSessionId !== action.id
+        ) {
+          return state;
+        }
+        return {
+          ...state,
+          activeSessionId: action.id,
+          sessionTitle: action.title,
+          buffer: action.rows.map((l, i) => ({
+            ...l,
+            seq: state.nextSeq + i,
+          })),
+          nextSeq: state.nextSeq + action.rows.length,
+          followBottom: true,
+          scrollAnchor: null,
+          scrollOffset: 0,
+          activityScroll: 0,
+        };
+      }
       case "session-switch":
         // /new：全新会话 → 缓冲、滚动、窗口、焦点与排队登记全部归零。
         // 按会话隔离的 mode/goal/todo/model 与 TUI 本地开关由 App 随后的
@@ -1746,6 +1816,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "input-status":
         // 活跃守卫：agent 非 idle 时绿/红结果不暴露（压回黄），空闲后才显示结果色
         return { ...state, inputStatus: statusFor(state, action.status) };
+      case "input-history":
+        return reduceInputHistory(state, action);
       case "move-cursor":
         return moveCursor(state, action);
       case "scroll":
@@ -1979,6 +2051,15 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           todoBySession: {
             ...state.todoBySession,
             [action.sessionId]: action.todos,
+          },
+        };
+      case "agents-changed":
+        // TUI#39：子代理目录全量快照 last-write-wins，按 sessionId 隔离（状态列 Agents 块）
+        return {
+          ...state,
+          agentsBySession: {
+            ...state.agentsBySession,
+            [action.sessionId]: action.agents,
           },
         };
       case "mode": {
@@ -2287,6 +2368,11 @@ export type StateAction =
       error?: boolean;
       tone?: NoticeTone;
     }
+  /** `$` 模式本地 shell 输出行（BACKLOG TUI#37）：kind="shell"，仅活动区本地显示 */
+  | {
+      type: "shell-lines";
+      lines: readonly { text: string; tone?: NoticeTone }[];
+    }
   | { type: "clear-buffer" }
   | { type: "agent-status"; status: AgentStatus }
   | {
@@ -2321,7 +2407,10 @@ export type StateAction =
   | { type: "question-move"; delta: number } // 数字键直标需要跨多项跳转（BACKLOG 3.2.6）
   | { type: "question-nav"; delta: 1 | -1 }
   | { type: "question-select" }
-  | { type: "question-custom"; text: string }
+  /** 自定义回答文本 + 编辑光标（TUI#35：caret = 字符偏移；null/缺省 = 未编辑态） */
+  | { type: "question-custom"; text: string; caret?: number | null }
+  /** 自定义回答光标左右移动（TUI#35；仅编辑态生效，越界 clamp 不动） */
+  | { type: "custom-caret"; delta: 1 | -1 }
   | { type: "question-focus" }
   | { type: "question-desc-scroll"; delta: 1 | -1; max: number }
   | { type: "approval-scroll"; delta: 1 | -1; max: number }
@@ -2350,6 +2439,17 @@ export type StateAction =
         tone?: NoticeTone;
       }[];
     }
+  /** TUI#40：启动即恢复（--resume / -c）——把既有消息折叠入 buffer（无 /session 面板参与） */
+  | {
+      type: "history-restore";
+      id: string;
+      title: string;
+      rows: {
+        text: string;
+        kind: "user" | "assistant" | "step" | "notice";
+        tone?: NoticeTone;
+      }[];
+    }
   /** 切换活跃会话（/new 新建后切过去）：缓冲/滚动/窗口按空会话重置 */
   | { type: "session-switch"; id: string; title: string }
   | { type: "history-scroll"; delta: number }
@@ -2369,6 +2469,8 @@ export type StateAction =
   | { type: "input"; text: string; cursor: number }
   | { type: "input-mode"; mode: InputMode }
   | { type: "input-status"; status: InputStatus }
+  /** 输入历史（BACKLOG TUI#34）：push 入栈（提交时）/ prev 上翻 / next 下翻（回草稿） */
+  | { type: "input-history"; action: "push" | "prev" | "next" }
   | { type: "move-cursor"; delta: number }
   | { type: "scroll"; delta: number; max?: number; geom?: DialogueGeometry }
   | { type: "scroll-to-bottom" }
@@ -2450,6 +2552,8 @@ export type StateAction =
       clearedAt?: number;
     }
   | { type: "todo-write"; sessionId: string; todos: TodoItemLike[] }
+  /** TUI#39：子代理目录快照（状态列 Agents 块；last-write-wins，按会话隔离） */
+  | { type: "agents-changed"; sessionId: string; agents: AgentRowInfo[] }
   | {
       type: "mode";
       sessionId: string;
@@ -2563,16 +2667,112 @@ function setInput(
 ): AppState {
   const cursor = Math.max(0, Math.min(action.cursor, action.text.length));
   // 输入变更的单一漏斗点：候选随文本同步重算（非命令 token 输入自动得到 null → 面板收起）
+  // 输入历史（TUI#34）：用户手动编辑 → 退出翻看态（游标归零），
+  // 并把编辑后的文本存为**新草稿**，保证下一次 ↑ 仍能回到它（不丢用户正在写的内容）
   return {
     ...state,
     inputText: action.text,
     inputCursor: cursor,
+    inputHistoryCursor: 0,
+    inputHistoryDraft: action.text,
     completion: completeCommandInput(
       action.text,
       state.registryCommands,
       state.inputMode,
     ),
   };
+}
+
+/** 输入历史上限（超出丢最旧）。200 条对进程内数组无感知成本。 */
+const INPUT_HISTORY_MAX = 200;
+
+/** 是否处于输入历史翻看态（缺省时长 = 有历史且游标 > 0） */
+export function isInputHistoryBrowse(state: AppState): boolean {
+  return isInputHistoryBrowseAt(state, state.inputHistoryCursor);
+}
+
+/** 同上，显式给游标（App 侧按键分派用「下一游标」判定，避免提前改状态）。 */
+export function isInputHistoryBrowseAt(
+  state: AppState,
+  cursor: number,
+): boolean {
+  return state.inputHistory.length > 0 && cursor > 0;
+}
+
+/** 提交入栈：空串不入栈、与栈顶相同不入栈、超上限丢最旧（原数组不改）。 */
+export function inputHistoryPush(
+  history: readonly string[],
+  text: string,
+): readonly string[] {
+  if (text === "") return history;
+  if (history[history.length - 1] === text) return history;
+  const next = [...history, text];
+  return next.length > INPUT_HISTORY_MAX
+    ? next.slice(next.length - INPUT_HISTORY_MAX)
+    : next;
+}
+
+/**
+ * 输入历史 reducer（BACKLOG TUI#34）：
+ * - push：提交时入栈（空串/相邻重复不入栈），并复位翻看态（游标归零、草稿清空）；
+ * - prev：上翻（进入翻看时先保存当前草稿）；到最早一条停住（游标夹到长度）；
+ * - next：下翻；越过最新条目 → 退出翻看并**恢复进入前的草稿**。
+ * 输入框文本与游标同步更新（文本尾 = 光标位），候选按新文本重算（与 setInput 同口径）。
+ */
+export function reduceInputHistory(
+  state: AppState,
+  action: Extract<StateAction, { type: "input-history" }>,
+): AppState {
+  const withText = (
+    inputText: string,
+    inputHistoryCursor: number,
+  ): AppState => {
+    const inputCursor = inputText.length;
+    return {
+      ...state,
+      inputText,
+      inputCursor,
+      inputHistoryCursor,
+      completion: completeCommandInput(
+        inputText,
+        state.registryCommands,
+        state.inputMode,
+      ),
+    };
+  };
+  if (action.action === "push") {
+    return {
+      ...state,
+      inputHistory: inputHistoryPush(
+        state.inputHistory,
+        state.inputText.trim(),
+      ),
+      inputHistoryCursor: 0,
+      inputHistoryDraft: "",
+    };
+  }
+  const len = state.inputHistory.length;
+  if (len === 0) return state;
+  const cur = state.inputHistoryCursor;
+  if (action.action === "prev") {
+    const target = Math.min(cur + 1, len);
+    const draft = cur === 0 ? state.inputText : state.inputHistoryDraft;
+    return {
+      ...withText(state.inputHistory[len - target]!, target),
+      inputHistoryDraft: draft,
+    };
+  }
+  // next（下翻）
+  if (cur === 0) return state; // 已不在翻看态
+  const target = cur - 1;
+  if (target === 0) {
+    // 回到最新条目之下 → 恢复草稿并退出翻看
+    return {
+      ...withText(state.inputHistoryDraft, 0),
+      inputHistoryDraft: state.inputHistoryDraft,
+    };
+  }
+  return withText(state.inputHistory[len - target]!, target);
 }
 
 function moveCursor(
@@ -2917,7 +3117,8 @@ function moveQuestion(
   const next = Math.max(0, Math.min(item.optionIndex + action.delta, max));
   if (next === item.optionIndex) return state;
   const items = [...panel.items];
-  items[panel.itemIndex] = { ...item, optionIndex: next };
+  // 移项即离开自定义项编辑：退出编辑态（TUI#35；custom 文本保留，仅光标消失）
+  items[panel.itemIndex] = { ...item, optionIndex: next, customCaret: null };
   return { ...state, question: { ...panel, items } };
 }
 
@@ -2954,20 +3155,46 @@ function selectQuestionOption(state: AppState): AppState {
           ? item.selected.filter((s) => s !== label)
           : [...item.selected, label],
       }
-    : { ...item, selected: [label], custom: "" }; // 单选选预设即覆盖自定义
+    : { ...item, selected: [label], custom: "", customCaret: null }; // 单选选预设即覆盖自定义
   return { ...state, question: { ...panel, items } };
 }
 
-/** 自定义回答文本（每次键入全量替换）；单选时输入会清空已选预设（二选一互斥） */
-function setQuestionCustom(state: AppState, text: string): AppState {
+/** 自定义回答文本 + 编辑光标（BACKLOG TUI#35：在光标处插入/删除；null = 未编辑态）。
+ *  单选时输入会清空已选预设（二选一互斥）。 */
+function setQuestionCustom(
+  state: AppState,
+  text: string,
+  caret: number | null,
+): AppState {
   const panel = state.question;
   if (!panel) return state;
   const items = [...panel.items];
   const item = items[panel.itemIndex];
   if (!item) return state;
   items[panel.itemIndex] = item.multiSelect
-    ? { ...item, custom: text }
-    : { ...item, custom: text, selected: text === "" ? item.selected : [] };
+    ? { ...item, custom: text, customCaret: caret }
+    : {
+        ...item,
+        custom: text,
+        customCaret: caret,
+        selected: text === "" ? item.selected : [],
+      };
+  return { ...state, question: { ...panel, items } };
+}
+
+/** 自定义回答光标左右移动（BACKLOG TUI#35）：仅编辑态生效（未编辑态由按键路由切题），
+ *  越界 clamp 后无变化即返回原状态。 */
+function moveCustomCaret(state: AppState, delta: 1 | -1): AppState {
+  const panel = state.question;
+  if (!panel) return state;
+  const item = panel.items[panel.itemIndex];
+  if (!item || item.customCaret === undefined || item.customCaret === null)
+    return state;
+  const caret = Array.from(item.custom).length;
+  const next = Math.min(Math.max(item.customCaret + delta, 0), caret);
+  if (next === item.customCaret) return state;
+  const items = [...panel.items];
+  items[panel.itemIndex] = { ...item, customCaret: next };
   return { ...state, question: { ...panel, items } };
 }
 

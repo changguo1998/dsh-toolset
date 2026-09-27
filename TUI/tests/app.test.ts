@@ -25,6 +25,7 @@ import {
   surfaceToBuffer,
 } from "../src/app/commands.ts";
 import { initialState, reduceState, sanitizeText } from "../src/app/state.ts";
+import type { ShellRunner } from "../src/app/local-shell.ts";
 import type { AppState } from "../src/app/state.ts";
 import {
   metricsFor,
@@ -53,254 +54,7 @@ import type { ThemeId } from "../src/renderer/theme.ts";
 import { rowAnsi } from "./helpers/rowText.ts";
 
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";
-/** 记录行为的 fake renderer */
-class FakeRenderer implements Renderer {
-  keys: KeyEvent[] = [];
-  private renderCount = 0;
-  /** 读帧前同步冲刷合帧（生产语义：同 tick 多次标脏只画一次） */
-  get renders(): number {
-    flushApp();
-    return this.renderCount;
-  }
-  private refreshCount = 0;
-  get refreshes(): number {
-    flushApp();
-    return this.refreshCount;
-  }
-  closed = 0;
-  size: Size = { cols: 80, rows: 24 };
-  /** 最近一次 render 的文本行（含 ANSI SGR，等价旧 RenderLine.text） */
-  private lastRenderRows: string[] = [];
-  get lastRender(): string[] {
-    flushApp();
-    return this.lastRenderRows;
-  }
-  /** 当前主题（初始 dark；/theme 切换经 setTheme 更新） */
-  themeId: ThemeId = "dark";
-
-  render(rows: FrameRow[]): void {
-    this.lastRenderRows = rows.map((r) => rowAnsi(r, this.themeId));
-    this.renderCount++;
-  }
-  refresh(_rows: FrameRow[]): void {
-    this.refreshCount++;
-  }
-  onKey(cb: (k: KeyEvent) => void): void {
-    this.keys.length = 0;
-    // 简单起见保留最后注册的 cb
-    this.keys.push({ name: "__cb__", ctrl: false } as KeyEvent);
-    this.press = cb;
-  }
-  emitKey(k: KeyEvent): void {
-    this.press(k);
-  }
-  onResize(cb: (cols: number, rows: number) => void): void {
-    this.resize = cb;
-  }
-  getSize(): Size {
-    return this.size;
-  }
-  /** 记录 setTheme 调用（断言初始主题与 /theme 切换用）；同时用于行序列化主题 */
-  themeCalls: ThemeId[] = [];
-  setTheme(id: ThemeId): void {
-    this.themeCalls.push(id);
-    this.themeId = id;
-  }
-  close(): void {
-    this.closed++;
-  }
-  press!: (k: KeyEvent) => void;
-  resize!: (cols: number, rows: number) => void;
-}
-
-/** 记录行为的 fake adapter */
-class FakeAdapter implements DshAdapter {
-  sessionId = "s1";
-  sent: string[] = [];
-  commands: string[] = [];
-  events: DshEvent[] = [];
-  disposed = 0;
-  private cbs: ((e: DshEvent) => void)[] = [];
-  /** 非空时 restoreSessionState 会把这些事件推给 app（模拟宿主状态回读） */
-  modeSnapshotEvents: DshEvent[] | null = null;
-  async restoreSessionState(): Promise<void> {
-    if (!this.modeSnapshotEvents) return;
-    for (const e of this.modeSnapshotEvents) this.push(e);
-  }
-  /** /new 新建会话调用次数与返回的新会话 id（模拟 agents.create 换成新会话） */
-  newSessionCalls = 0;
-  newSessionId = "s-new";
-  async newSession(): Promise<{ id: string }> {
-    this.newSessionCalls++;
-    return { id: this.newSessionId };
-  }
-  /** 会话状态快照落盘记录（saveSessionUiState；模拟写入会话目录 tui-state.json） */
-  savedUiStates: { sessionId: string; state: SessionUiState }[] = [];
-  saveSessionUiState(sessionId: string, state: SessionUiState): boolean {
-    this.savedUiStates.push({ sessionId, state });
-    return true;
-  }
-  readSessionUiState(): SessionUiState | undefined {
-    return undefined;
-  }
-
-  onEvent(cb: (e: DshEvent) => void): () => void {
-    this.cbs.push(cb);
-    return () => {
-      const i = this.cbs.indexOf(cb);
-      if (i >= 0) this.cbs.splice(i, 1);
-    };
-  }
-  /** 有序行为日志（断言互操作顺序，如打断先于发送） */
-  log: string[] = [];
-  sendMessage(text: string): void {
-    this.sent.push(text);
-    this.log.push(`send:${text}`);
-  }
-  runCommand(line: string): void {
-    this.commands.push(line);
-    this.log.push(`cmd:${line}`);
-    // 真实适配器对未命中注册表的命令回 error notice（fail-close）
-    this.push({
-      type: "notice",
-      text: "未知命令，输入 /help 查看可用命令。",
-      error: true,
-    });
-  }
-  dispose(): void {
-    this.disposed++;
-  }
-  /** 审批应答记录（BACKLOG 3.2.4 / 3.3.1 断言用） */
-  approvals: { id: string; allow: boolean }[] = [];
-  approve(id: string, allow: boolean): void {
-    this.approvals.push({ id, allow });
-  }
-  cancelledApprovals: string[] = [];
-  cancelApproval(id: string): void {
-    this.cancelledApprovals.push(id);
-  }
-  /** 收到过「停止超时」通知的审批 id（BACKLOG 3.3.5） */
-  stoppedTimeouts: string[] = [];
-  stopApprovalTimeout(id: string): void {
-    this.stoppedTimeouts.push(id);
-  }
-  /** 审批超时（ms）：用例可注入，验证 App 倒计时取 adapter 值（BACKLOG 3.3.2 同源） */
-  timeoutMs?: number;
-  approvalTimeoutMs(): number {
-    return this.timeoutMs ?? 60_000;
-  }
-  /** 问答提交记录（含整批答案），供测试断言 */
-  answeredQuestions: { id: string; answer: QuestionAnswer }[] = [];
-  cancelledQuestions: string[] = [];
-  answerQuestion(id: string, answer: QuestionAnswer): void {
-    this.answeredQuestions.push({ id, answer });
-    this.log.push(`answer:${id}`);
-  }
-  cancelQuestion(id: string): void {
-    this.cancelledQuestions.push(id);
-    this.log.push(`cancel:${id}`);
-  }
-  interrupts = 0;
-  interrupt(): void {
-    this.interrupts++;
-    this.log.push("interrupt");
-  }
-  catalogCalls = 0;
-  savedSelections: ModelSelection[] = [];
-  modelCatalogData: ModelCatalog = {
-    providers: [{ provider: "deepseek", name: "deepseek" }],
-    models: [
-      { provider: "deepseek", id: "deepseek-test-a", name: "Test A" },
-      {
-        provider: "deepseek",
-        id: "deepseek-test-b",
-        name: "Test B",
-      },
-    ],
-    current: { provider: "deepseek", model: "deepseek-test-a" },
-  };
-  async modelCatalog(): Promise<ModelCatalog> {
-    this.catalogCalls++;
-    return this.modelCatalogData;
-  }
-  async setSessionModel(sel: ModelSelection): Promise<ModelSelection> {
-    this.savedSelections.push(sel);
-    this.modelCatalogData = { ...this.modelCatalogData, current: { ...sel } };
-    return { ...sel };
-  }
-  modelEffortsCalls: { provider: string; model: string }[] = [];
-  async modelEfforts(
-    provider: string,
-    model: string,
-  ): Promise<{ id: string; name: string }[] | undefined> {
-    this.modelEffortsCalls.push({ provider, model });
-    return [
-      { id: "low", name: "low" },
-      { id: "high", name: "high" },
-      { id: "max", name: "max" },
-    ];
-  }
-  /** 模拟 provider 默认等级（未显式选择时状态栏/面板按它显示）；缺省 undefined=无默认 */
-  modelReasoningData: ModelReasoning | undefined = undefined;
-  async modelReasoning(
-    provider: string,
-    model: string,
-  ): Promise<ModelReasoning | undefined> {
-    this.modelEffortsCalls.push({ provider, model });
-    if (this.modelReasoningData) return this.modelReasoningData;
-    return {
-      efforts: [
-        { id: "low", name: "low" },
-        { id: "high", name: "high" },
-        { id: "max", name: "max" },
-      ],
-    };
-  }
-  // --- 输入补全：宿主命令注册表目录（undefined = 模拟服务未暴露 list） ---
-  commandListData: { name: string; desc: string }[] | undefined = [
-    { name: "compact", desc: "压缩会话上下文" },
-    { name: "feedback", desc: "提交反馈" },
-    { name: "model", desc: "宿主同名命令（应被本地目录去重屏蔽）" },
-  ];
-  commandList(): { name: string; desc: string }[] | undefined {
-    return this.commandListData;
-  }
-  // --- /history 历史会话（置 undefined 模拟宿主未挂载 sessionQuery） ---
-  sessionRecords: SessionInfo[] = [];
-  sessionSurfaces: Record<string, HistoryMessage[]> = {};
-  listSessionsCalls = 0;
-  readSurfaceCalls: string[] = [];
-  listSessions: (() => Promise<SessionInfo[]>) | undefined = async () => {
-    this.listSessionsCalls++;
-    return this.sessionRecords;
-  };
-  readSessionSurface:
-    ((id: string) => Promise<SessionSurfaceView>) | undefined = async (id) => {
-    this.readSurfaceCalls.push(id);
-    const m = this.sessionSurfaces[id];
-    if (!m) throw new Error('stored session "' + id + '" is corrupt');
-    return { sessionId: id, messages: m };
-  };
-  resumeCalls: string[] = [];
-  resumeReject?: string;
-  resumeTo: ((id: string) => Promise<void>) | undefined = async (id) => {
-    this.resumeCalls.push(id);
-    if (this.resumeReject) throw new Error(this.resumeReject);
-  };
-  /** 官方 session/title 标题（缺省无 → app 走 deriveTitle 本地兜底） */
-  sessionTitleValues: Record<string, string> = {};
-  sessionTitleCalls: string[] = [];
-  sessionTitle: ((id: string) => Promise<string | undefined>) | undefined =
-    async (id) => {
-      this.sessionTitleCalls.push(id);
-      return this.sessionTitleValues[id];
-    };
-
-  /** 测试辅助：注入事件 */
-  push(e: DshEvent): void {
-    for (const cb of this.cbs) cb(e);
-  }
-}
+import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 
 /** 顶部行历史/活动区正文：取区域正文段（跳过状态列与分隔竖线，到右缘框列前为止；
  *  按显示宽度定位，兼容 CJK） */
@@ -361,10 +115,25 @@ function userBlockMark(
 function makeApp(): { app: App; renderer: FakeRenderer; adapter: FakeAdapter } {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
-  const app = new TrackedApp({ renderer, adapter, notify: { enabled: false } });
+  const app = new TrackedApp({
+    renderer,
+    adapter,
+    notify: { enabled: false },
+    runShell: noopShell,
+  });
   app.start();
   return { app, renderer, adapter };
 }
+
+/** 假 shell 执行器（BACKLOG TUI#37）：单测不真起子进程，返回空成功结果 */
+const noopShell: ShellRunner = async () => ({
+  code: 0,
+  signal: null,
+  stdout: "",
+  stderr: "",
+  timedOut: false,
+  truncated: false,
+});
 
 /** 模拟在输入框输入文本并回车 */
 function typeAndEnter(renderer: FakeRenderer, text: string): void {
@@ -473,6 +242,7 @@ function makeAppAtCwd(cwd: string): {
     renderer,
     adapter,
     notify: { enabled: false },
+    runShell: noopShell,
     status: {
       queries: { time: () => "12:00", cwd: () => cwd, git: () => "main" },
       intervalMs: 60_000,
@@ -811,7 +581,7 @@ test("subagent 行 @ label os 按 info 蓝着色", () => {
   );
 });
 
-test("模式键：空输入按 $ / / 切换模式且吞键，! 为普通字符；提交后回退 normal", () => {
+test("模式键：空输入按 $ / / 切换模式且吞键，! 为普通字符；提交后回退 normal", async () => {
   const { renderer, adapter } = makeApp();
   // ! 不再切模式：空输入也作为普通字符插入
   renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
@@ -820,20 +590,21 @@ test("模式键：空输入按 $ / / 切换模式且吞键，! 为普通字符�
   assert.deepEqual(adapter.log, ["send:!x"], "! 为普通字符");
   assert.equal(adapter.interrupts, 0);
   adapter.push({ type: "turn-end" }); // 回合结束回 idle（否则后续 Enter 进排队）
-  // $ 切 shell 吞键、提交不加 $、提交后回退 normal
+  // $ 切 shell 吞键、提交走**本地执行**（BACKLOG TUI#37：不经模型）、提交后回退 normal
   renderer.press({ name: "$", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "l", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  await new Promise((r) => setTimeout(r, 0)); // 本地执行为异步链（假 runner 立即返回）
   assert.deepEqual(
     adapter.log,
-    ["send:!x", "send:l"],
-    "shell 提交不加 $，提交后回退",
+    ["send:!x"],
+    "shell 提交不经模型（本地子进程执行，adapter 未收到消息）",
   );
   adapter.push({ type: "turn-end" });
   // 回退后输入普通 z，不残留模式
   renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
-  assert.deepEqual(adapter.log, ["send:!x", "send:l", "send:z"]);
+  assert.deepEqual(adapter.log, ["send:!x", "send:z"]);
 });
 
 test("非 normal 模式空输入按 Backspace 回退至 normal（$ / 切了再退）", () => {
@@ -1151,14 +922,19 @@ test("slash 模式提交：自动补 / 前缀转发，不经 sendMessage", () =>
   assert.deepEqual(adapter.commands, ["/plan 明天"], "自动补 / 后走注册表");
 });
 
-test("shell 模式提交：仅展示层，文本原样走 sendMessage（不加 $）", () => {
-  const { renderer, adapter } = makeApp();
+test("shell 模式提交：本地执行（不经模型），回显与摘要进活动区，提示符回退 normal", async () => {
+  const { app, renderer, adapter } = makeApp();
   renderer.press({ name: "$", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "l", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "s", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
-  assert.deepEqual(adapter.sent, ["ls"], "shell 模式不加 $ 前缀");
-  assert.deepEqual(adapter.log, ["send:ls"]);
+  await new Promise((r) => setTimeout(r, 0)); // 本地执行为异步链（假 runner 立即返回）
+  assert.deepEqual(
+    adapter.sent,
+    [],
+    "shell 模式提交走本地执行（BACKLOG TUI#37：不经模型）",
+  );
+  assert.deepEqual(adapter.log, [], "adapter 未收到任何消息");
   // 单字符提示符 = 当前模式符号：提交后已回退 normal → 输入行以 "> " 开头（24 行终端输入区 3 行+提示区 1 行，输入行为倒数第 4 行）
   const lastLine = renderer.lastRender.at(-4) ?? "";
   const plain = lastLine.replace(/\u001b\[[0-9;]*m/g, "");
@@ -1170,6 +946,12 @@ test("shell 模式提交：仅展示层，文本原样走 sendMessage（不加 $
     !plain.startsWith("$> "),
     "提示符已改单字符，不再有左 $（状态符号移至状态栏最左侧）",
   );
+  // 本地输出进活动区（kind="shell"：回显 + 退出摘要），不进模型上下文
+  const shells = (app as unknown as { state: AppState }).state.buffer.filter(
+    (l) => l.kind === "shell",
+  );
+  assert.ok(shells.length >= 2, "应产生 shell 本地行（回显 + 摘要）");
+  assert.equal(shells[0]?.text, "$ ls", "首行为命令回显");
 });
 
 test("活跃任务中 slash 结果不覆盖运行中：/help、无效命令、error notice 均保持黄●/○", () => {

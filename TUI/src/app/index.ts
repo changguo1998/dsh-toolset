@@ -17,6 +17,8 @@ import {
   historyVisibleRecords,
   initialState,
   isCompacting,
+  isInputHistoryBrowse,
+  isInputHistoryBrowseAt,
   markableSessionIds,
   recentQuestionSource,
   reduceState,
@@ -92,6 +94,11 @@ import {
   contractSummaryText,
 } from "./adapter/dsh.ts";
 import { activeGoalSnapshot, currentProjectCwd } from "./state.ts";
+import {
+  runShellCommand,
+  shellResultLines,
+  type ShellRunner,
+} from "./local-shell.ts";
 import {
   INIT_PROMPT,
   buildOsc52,
@@ -264,10 +271,15 @@ export interface AppDeps {
    *  true 时 start() 异步扫描全部目录删除空会话（notice 汇报），且优雅退出时
    *  （/quit、Ctrl+D、双击 Ctrl+C、插件 unload）先打印提示并等待清理完成再关闭渲染器。 */
   autoCleanEmpty?: boolean;
+  /** `$` 模式本地执行器（BACKLOG TUI#37）：缺省走 node:child_process（local-shell.ts），
+   *  测试可注入假实现避免真起进程 */
+  runShell?: ShellRunner;
 }
 
 export class App {
   private state: AppState;
+  /** `$` 模式本地执行器（BACKLOG TUI#37；缺省真实 spawn，测试经 deps.runShell 注入假实现） */
+  private readonly shellRunner: ShellRunner;
   private unbindEvents: (() => void)[] = [];
   private disposed = false;
   /** 待绘制脏标记：同一 tick 内多次标脏合并为一次 render（见 paint/flushPaint） */
@@ -385,6 +397,7 @@ export class App {
   }
 
   constructor(private deps: AppDeps) {
+    this.shellRunner = deps.runShell ?? runShellCommand;
     // 声音提醒配置（P2#33）：不传 notify = 默认开启 + 8s 阈值
     this.bellEnabled = deps.notify?.enabled ?? true;
     // 阈值合法性：>0 有限数即可（1000ms 下限是 tui.config.json 用户配置层的职责，
@@ -458,6 +471,8 @@ export class App {
           // 可能晚于启动，早读会拿到内置兜底(如 deepseek-official)，故常驻跟随，
           // 值变化才重绘。与 /model 显示同一来源。
           this.refreshModelStatus();
+          // TUI#39：Agents 块同节律保鲜（无数据 / 状态列隐藏时自动停）
+          this.maybeRefreshAgents();
         },
       });
       this.statusTicker.start();
@@ -482,6 +497,8 @@ export class App {
     this.refreshCommandCatalog();
     // 补 Mode 块初始值（log-only 事件启动不产生，从会话日志折叠一次）
     this.restoreSessionState();
+    // TUI#40：CLI 启动即恢复（--resume / -c）→ 补一次历史折叠，历史区直接可见既有消息
+    this.restoreStartupHistory();
     // 启动自动清理空会话（session.autoCleanEmpty=true 时后台执行，不阻塞 UI）
     if (this.autoCleanEmpty) {
       void this.runStartupCleanEmptySessions();
@@ -660,6 +677,54 @@ export class App {
         this.paint();
       })
       .catch(() => {});
+  }
+
+  /**
+   * TUI#40：CLI **启动即恢复**（`--resume <id>` / `-c`）时把既有消息折叠进 buffer。
+   *
+   * 背景：启动路径只走 `main.ts` 的 `agents.resume` + `restoreSessionState()`（model/mode/
+   * goal/todo 回填），历史行折叠原先只在 `/session` 面板切换路径发生 → 启动后历史区为空、
+   * 需手动再切一次会话才可见内容（agent 侧上下文其实已恢复）。
+   *
+   * 口径：复用 `/session` 路径同一段折叠（`surfaceToBuffer` → `history-restore`），
+   * 不新建第二条渲染路径；`readSessionSurface` 缺失 / 读取失败 / 空会话 → 保持空历史并提示
+   * （不阻塞启动）；迟到结果在 disposed 或会话已切走时丢弃。
+   */
+  private restoreStartupHistory(): void {
+    const a = this.deps.adapter;
+    if (a.resumedAtLaunch !== true) return;
+    const read = a.readSessionSurface;
+    const sid = this.state.activeSessionId ?? a.sessionId;
+    if (!read || !sid) return;
+    void read
+      .call(a, sid)
+      .then((view) => {
+        if (this.disposed) return;
+        // 陈旧守卫：会话已切走（非同一 id）→ 丢弃
+        if (
+          this.state.activeSessionId !== null &&
+          this.state.activeSessionId !== sid
+        ) {
+          return;
+        }
+        if (view.messages.length === 0) return; // 空会话：保持空历史
+        const firstUser = view.messages.find((m) => m.role === "user");
+        const title =
+          this.state.sessionTitle !== ""
+            ? this.state.sessionTitle
+            : deriveTitle(firstUser?.text);
+        this.apply((s) =>
+          reduceState(s, {
+            type: "history-restore",
+            id: sid,
+            title,
+            rows: surfaceToBuffer(view.messages),
+          }),
+        );
+        this.apply((s) => reduceState(s, { type: "queued-clear" }));
+        this.paint();
+      })
+      .catch(() => this.notice("启动恢复：既有消息读取失败", "warn"));
   }
 
   /** 当前 TUI 视角的会话状态快照（宿主不掌握 verbose/symbol-unify；模型/模式作兜底） */
@@ -931,6 +996,26 @@ export class App {
       .catch(() => this.notice(`${ctx.label} 服务不可用`, "warn"));
   }
 
+  /** TUI#39：静默重拉子代理目录（喂状态列 Agents 块；方法缺失或失败都不打扰用户） */
+  private refreshAgentsQuiet(): void {
+    if (this.disposed) return;
+    void this.deps.adapter.refreshAgents?.().catch(() => {});
+  }
+
+  /**
+   * TUI#39：状态列 Agents 块的**定时**保鲜（随 StatusTicker 节律，缺省 5s）。
+   * 空闲停止：状态列被 Ctrl+S 隐藏、或该会话尚无子代理数据（块整块省略）时不轮询——
+   * 首个 `subagent/start` 事件会经 `subagent-activity` 即时补一次并让块出现，轮询随之上线。
+   */
+  private maybeRefreshAgents(): void {
+    if (this.disposed) return;
+    if (!this.state.statusColumnVisible) return;
+    const sid = this.state.activeSessionId;
+    if (!sid) return;
+    if ((this.state.agentsBySession[sid] ?? []).length === 0) return;
+    this.refreshAgentsQuiet();
+  }
+
   private handleEvent(e: DshEvent): void {
     // 启动初期 activeSessionId 尚未建立（真实 adapter 不发 session-list，全新会话
     // 的 title 要等首条用户消息）：首个带 sessionId 的事件到达即确立活跃会话，
@@ -1097,6 +1182,7 @@ export class App {
       case "retry":
       case "goal-change":
       case "todo-write":
+      case "agents-changed":
       case "mode":
       case "step":
       case "subagent":
@@ -1127,6 +1213,8 @@ export class App {
         // TUI#10：子代理生命周期变化 → /agents 面板打开时即时重拉（2s 定时仍作兜底；
         // 非 agents 面板不受影响，panelRefreshTick 自带 kind 守卫）
         if (this.state.commandPanel?.kind === "agents") this.panelRefreshTick();
+        // TUI#39：同时即时刷新状态列 Agents 块（5s 定时之外的「启停即刻可见」通道）
+        this.refreshAgentsQuiet();
         break;
       case "ui-flags": {
         // 切换会话后回填 TUI 本地开关（宿主日志不记录 verbose / symbol-unify）
@@ -1682,6 +1770,28 @@ export class App {
           this.paint();
           break;
         }
+        // 输入历史（BACKLOG TUI#34）：无面板焦点且输入区非空（或已在翻看态）时，
+        // ↑/↓ 翻看已提交输入——与焦点面板滚动 / `/history` 面板移动按焦点态分流。
+        // ↑ 优先于「面板滚动」（输入区有内容才接管，空输入保持既有焦点/滚动语义）
+        if (this.state.focusedPanel === null) {
+          const cursor = this.state.inputHistoryCursor;
+          const nextCursor = name === "up" ? cursor + 1 : cursor - 1;
+          const browseNext = isInputHistoryBrowseAt(this.state, nextCursor);
+          if (
+            this.state.inputText !== "" ||
+            isInputHistoryBrowse(this.state) ||
+            browseNext
+          ) {
+            this.apply((s) =>
+              reduceState(s, {
+                type: "input-history",
+                action: name === "up" ? "prev" : "next",
+              }),
+            );
+            this.paint();
+            break;
+          }
+        }
         // 焦点面板滚动：活动区/状态列保持现状（单行），对话区（history 焦点/
         // 无焦点默认）↑/↓ 每次半屏（方向内聚在 focusedLineScroll）
         const dir: 1 | -1 = name === "up" ? 1 : -1;
@@ -1794,14 +1904,15 @@ export class App {
         }
         break;
       default:
-        // 模式键：输入框为空时按 $ / / 切换模式并吞键（同符号幂等；提交后自动回退 >；! 为普通字符）
+        // 模式键：输入框为空时按 $ / / / < 切换模式并吞键（同符号幂等；提交后自动回退 >；! 为普通字符）
         if (
           name.length === 1 &&
           !ctrl &&
           this.state.inputText === "" &&
-          (name === "$" || name === "/")
+          (name === "$" || name === "/" || name === "<")
         ) {
-          const mode: InputMode = name === "$" ? "shell" : "slash";
+          const mode: InputMode =
+            name === "$" ? "shell" : name === "/" ? "slash" : "steer";
           if (this.state.inputMode !== mode) {
             this.apply((s) => reduceState(s, { type: "input-mode", mode }));
           }
@@ -1873,9 +1984,18 @@ export class App {
           reduceState(s, { type: "question-move", delta: d.delta }),
         );
         break;
-      case "custom":
+      case "custom-edit":
         this.apply((s) =>
-          reduceState(s, { type: "question-custom", text: d.text }),
+          reduceState(s, {
+            type: "question-custom",
+            text: d.text,
+            caret: d.caret,
+          }),
+        );
+        break;
+      case "custom-caret":
+        this.apply((s) =>
+          reduceState(s, { type: "custom-caret", delta: d.delta }),
         );
         break;
       case "select":
@@ -2002,12 +2122,51 @@ export class App {
     }
     const text = this.state.inputText.trim();
     if (!text) return;
+    // 输入历史（BACKLOG TUI#34）：普通输入与 `/` 命令共用一份；空串/相邻重复不入栈。
+    // 入栈即退出翻看态（游标归零、草稿清空，见 reduceInputHistory 的 push 分支）。
+    this.apply((s) =>
+      reduceState(s, { type: "input-history", action: "push" }),
+    );
     const mode = this.state.inputMode;
     // slash 模式：自动补 "/" 前缀走既有路由（规则：文本中不需要再在开头加 /）
     const slashLine =
       mode === "slash" && !text.startsWith("/") ? "/" + text : text;
     if (slashLine.startsWith("/")) {
       this.handleSlash(slashLine);
+      this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
+      this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
+      return;
+    }
+    // steer 模式（BACKLOG TUI#36）：提交即投递到宿主最近 step 边界（agent.steer =
+    // send(m,'next-step',true)；运行中下一 step 认领，空闲时立即起一轮）。本机排队块
+    // 与 followup 同口径登记显示；宿主 agent 无 steer → 降级 followup 并 explicitly 提示
+    if (mode === "steer") {
+      // canSteer 缺省（mock/旧 adapter 未实现）视为「不确定」→ 仍按 steer 投递，
+      // 由 adapter 侧按宿主结构面决定 steer/followup（dsh adapter 有 steer 才用）
+      const canSteer = this.deps.adapter.canSteer?.() !== false;
+      if (!canSteer) {
+        this.apply((s) =>
+          reduceState(s, {
+            type: "notice",
+            text: "宿主不支持 steer，已按普通消息发送",
+            tone: "warn",
+          }),
+        );
+      }
+      this.apply((s) => reduceState(s, { type: "queued-push", text }));
+      this.deps.adapter.sendMessage(
+        text,
+        this.state.activeSessionId ?? undefined,
+        canSteer ? "next-step" : undefined,
+      );
+      this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
+      this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
+      return;
+    }
+    // shell 模式（BACKLOG TUI#37）：提交内容按**本地命令**执行（不经模型、不进会话与模型
+    // 上下文、不占审批链）；命令回显与输出进活动区本地行。异步执行、不阻塞输入。
+    if (mode === "shell") {
+      void this.runLocalShell(text);
       this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
       this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
       return;
@@ -2028,6 +2187,35 @@ export class App {
     this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
     // 任何提交后自动回退普通模式（提示符回 >）
     this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
+  }
+
+  /**
+   * `$` 模式本地命令执行（BACKLOG TUI#37）：
+   *  1. 命令回显先行入活动区（用户即时看到「已提交了什么」，也是审计线索）；
+   *  2. 异步执行——不阻塞输入与渲染；完成后追加 stdout/stderr 与退出摘要行；
+   *  3. 结果**只进 buffer**（kind="shell"）：不经 adapter、不进会话事件流与模型上下文。
+   * 执行器已把 spawn 失败归一为结果（不抛）；disposed 后丢弃迟到结果。
+   */
+  private async runLocalShell(command: string): Promise<void> {
+    const cwd = currentProjectCwd(this.state) ?? process.cwd();
+    this.apply((s) =>
+      reduceState(s, {
+        type: "shell-lines",
+        lines: [{ text: `$ ${command}`, tone: "info" }],
+      }),
+    );
+    this.paint();
+    const started = Date.now();
+    const result = await this.shellRunner(command, { cwd });
+    if (this.disposed) return;
+    // 跳过 shellResultLines 的命令回显行（首行已在提交时入 buffer）
+    this.apply((s) =>
+      reduceState(s, {
+        type: "shell-lines",
+        lines: shellResultLines(command, result, Date.now() - started).slice(1),
+      }),
+    );
+    this.paint();
   }
 
   /**

@@ -408,6 +408,22 @@ export function buildBox(
       dialogueLeaves.push(node);
       continue;
     }
+    if (line.kind === "shell") {
+      // `$` 模式本地 shell 输出（BACKLOG TUI#37）：活动区本地行（不走对话区/模型历史）。
+      // 配色复用 notice 的 tone 语义（命令回显 info / 成功绿 / 非零与 stderr 红 / 超时黄）；
+      // 紧凑模式（/verbose off）压单行，与 notice 同口径。
+      const pres = noticeLinePresentation(line, compact);
+      const node = styled(
+        [{ text: compact ? actText(line.text) : line.text }],
+        {
+          ...(pres.fg !== undefined ? { style: { fg: pres.fg } } : {}),
+          ...(pres.hanging !== undefined ? { hanging: pres.hanging } : {}),
+        },
+      );
+      meta.set(node, rowMeta);
+      activityLeaves.push(node);
+      continue;
+    }
     // separator / plain → 对话区
     if (line.kind === "separator") {
       const node = styled([], {

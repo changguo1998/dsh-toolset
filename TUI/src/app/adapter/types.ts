@@ -115,6 +115,21 @@ export interface ToolResultMetaLike {
 /** notice/tool 行 tone——4 级语义 5 色值：log 灰=进度/状态无需关注；info 蓝=需用户了解；warn 黄=可绕开的运行错误/副作用危险警示；result 级互斥：error 红=操作失败（用户输入命令的结果一律 error、须修复继续）、success 绿=重要操作成功 */
 export type NoticeTone = "log" | "info" | "warn" | "error" | "success";
 /** 应用层收到的归一化事件（见文件头映射表） */
+/**
+ * 状态列 **Agents 块**的行（BACKLOG TUI#39）：adapter 对宿主 subagents 目录的归一化结果
+ * （`listDescendants`（0.1.7+，depth=1 直接子代）/ `listChildren`（旧宿主））。
+ * 只读展示：label + 状态 + 短 id；异常态（宿主目录投影不完整）走 `diagnostic`。
+ */
+export interface AgentRowInfo {
+  id: string;
+  /** 展示名（宿主未给时由 adapter 兜底占位） */
+  label: string;
+  /** 状态语义：`running`（运行中）/ `inactive`（空闲）；缺失时回落 mode（one-shot / continuable） */
+  status: string;
+  /** 异常态：宿主把该条目标为 diagnostic（投影不完整 / 不可续），reason 为宿主给出的短因 */
+  diagnostic?: { reason: string };
+}
+
 export type DshEvent =
   | { type: "session-list"; sessions: SessionMeta[] }
   | { type: "session-title"; sessionId: string; title: string }
@@ -162,6 +177,8 @@ export type DshEvent =
   | { type: "compaction"; phase: "start" | "end"; sessionId?: string }
   /** TUI#10：子代理生命周期变化（subagent/start · subagent/end）→ /agents 面板即时刷新 */
   | { type: "subagent-activity" }
+  /** TUI#39：子代理目录快照（adapter 归一化 subagents 目录）→ 状态列 Agents 块（按会话切片） */
+  | { type: "agents-changed"; sessionId: string; agents: AgentRowInfo[] }
   | {
       type: "retry";
       attempt: number;
@@ -293,10 +310,15 @@ export type DshEvent =
 export interface DshAdapter {
   /** 当前活跃会话 id（App 启动初期 state 未建立时，Mode 快照等按 adapter 视角取用） */
   readonly sessionId?: string;
+  /** 宿主 agent 是否支持官方 steer（BACKLOG TUI#36）：false 时 `<` 模式提交回落 followup */
+  canSteer?(): boolean;
+  /** TUI#40：本次进程启动即恢复了持久化会话（CLI `--resume` / `-c`）→ App 启动后补折叠历史 */
+  readonly resumedAtLaunch?: boolean;
   /** 订阅 DSH 会话事件；返回解绑函数 */
   onEvent(cb: (e: DshEvent) => void): () => void;
-  /** 发送用户消息 */
-  sendMessage(text: string, sessionId?: string): void;
+  /** 发送用户消息；`target:'next-step'` = 官方 steer（BACKLOG TUI#36：投递到最近 step 边界），
+   *  宿主 agent 无 steer 时回落 followup 并由 App 侧提示降级 */
+  sendMessage(text: string, sessionId?: string, target?: "next-step"): void;
   /**
    * 执行 slash 命令行(形如 /name args...)。约定：命令通过注册表调用 → 结果经
    * notice 事件回报；未命中(undefined)→ notice 提示未知命令(fail-close)，绝不
@@ -781,6 +803,9 @@ export interface DshRuntime {
 export interface DshAgentLike {
   readonly session: { readonly id: string };
   followup(message: DshUserMessageLike): void;
+  /** 官方 steer（BACKLOG TUI#36）：投递到**最近 step 边界**（运行中下一 step 认领、
+   *  空闲时立即起一轮）。宿主旧版无此方法 → 可选，调用方按 fallback 降级 */
+  steer?(message: DshUserMessageLike): void;
 }
 
 /** 结构型用户消息（真机应改用 createUserMessage 生成，字段同构） */
@@ -1413,6 +1438,9 @@ export interface JobsLike {
 export interface RealAdapterOptions {
   runtime: DshRuntime;
   sessionId: string;
+  /** TUI#40：本次进程**启动即恢复**了持久化会话（CLI `--resume` / `-c`）——
+   *  adapter 据此暴露 `resumedAtLaunch`，App 启动时补一次历史折叠（历史区直接可见既有消息） */
+  resumedAtLaunch?: boolean;
   /** app 使用的瘦 agent(用于 followup) */
   agent: DshAgentLike;
   /** 真实 Agent(注册表作用域查找用，通常与 main.ts 的 handle.agent 相同) */

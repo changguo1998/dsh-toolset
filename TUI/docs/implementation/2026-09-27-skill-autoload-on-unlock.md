@@ -1,6 +1,6 @@
 # 锚定两阶段解锁后自动加载两个 skill（rule-engine 规则路径）（接取条目：`TUI/docs/BACKLOG.md`「锚定两阶段解锁后自动加载两个 skill（`i-have-adhd` 模拟用户指令、`karpathy-guidelines`）」）
 
-状态：规划（决策已定稿：走 rule-engine 规则，待用户确认后实现）　　开启：2026-09-27　　关闭：——
+状态：测试（规则定义完成并经规则引擎契约校验；真机应用与验证待用户）　　开启：2026-09-27　　关闭：——
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 审阅：用户 2026-09-27 逐条审阅第 9 条（本条）：先问「将来增加其他 skill，两条路线哪个更方便扩展」→ 结论 rule-engine 更可扩展 → 用户选定 **rule-engine 主路径**（见决策）。
 
@@ -69,12 +69,55 @@
 
 ## 实现记录
 
-（待实现）
+**实现（2026-09-27）：规则载荷（唯一交付物，可直接 `rule_add`）**
+
+```json
+{
+  "id": "skill-autoload-on-unlock",
+  "source": "tool-call",
+  "match": { "predicates": ["always"] },
+  "delivery": "next-step",
+  "cooldownTurns": 0,
+  "action": {
+    "type": "inject",
+    "text": "首轮工具已调用、工具目录已解锁。请立即用 skill 工具加载 i-have-adhd 与 karpathy-guidelines 两个 skill 并遵循其规则：i-have-adhd 决定输出风格（首行给动作、多步编号、每回合复述状态、结尾一个具体下一步）；karpathy-guidelines 决定编码行为（先想后写、最小实现、外科手术式改动、可验证的成功标准）。加载后在本回合继续原任务，不要额外确认。",
+    "summary": "解锁后加载 i-have-adhd / karpathy-guidelines"
+  },
+  "description": "BACKLOG TUI#41：锚定两阶段解锁（首个工具调用）后自动加载两个行为 skill"
+}
+```
+
+**落地方式（二选一，均不属本仓代码改动）**：
+
+1. 运行时：在启用 rule-engine 的 dsh 会话里对该载荷执行一次 `rule_add`（规则入状态目录，随会话/进程生效，可用 `rule_remove` 撤销）；
+1. 配置基线：把同形规则写进 rule-engine 的配置（只读基线层）。
+
+**不加代码改动**：`tool-bootstrap.ts` / `main.ts` 保持现状（决策 1）；本仓只留规则定义与本文档。
+
+**扩展方式（将来加 skill）**：再 `rule_add` 一条同构规则（改 `id` / `action.text` / `summary`）即可，无需改代码、无需重启（逐条可 `rule_test` 干跑、可 `rule_remove`）。若多个 skill 想合并进同一条注入，改 `action.text` 即可；若想逐条独立开关，保持一条规则一个 skill。
 
 ## 测试与证据
 
-（待补：`rule_test` 干跑输出、`rule_list` 状态、真机四问验证记录）
+**契约校验（临时脚本 `tmp/rule-skill-autoload-verify.ts`，跑完即删；不落状态、不改运行时）**：
+
+| 校验项 | 结果 |
+| --- | --- |
+| `normalizeRule(payload)` | `ok = true`，`warnings = []` |
+| 归一化字段 | `source = tool-call`、`delivery = next-step`、`cooldownTurns = 0`、`enabled = true` |
+| `compileMatcher(match, "tool-call")` | `warnings = []`；`match(toolCallText("bash", {command:"ls"})) = true`、`match(toolCallText("read", {path:"a.ts"})) = true`（恒真，任意首个工具调用即命中） |
+
+**真机验证（待用户，在启用 rule-engine + TUI 的 profile 下）**：
+
+1. 应用规则后发一条会触发工具调用的消息 → 注入以**一行提示**出现（TUI 已支持 `source.form:'notice'`，项目级 #46）；
+1. 后续回合行为体现两个 skill；
+1. **同一会话第二次工具调用不重复注入**（`cooldownTurns: 0` 的每会话一次语义）；
+1. 新会话重新注入一次；
+1. 扩展演练：再 `rule_add` 一条同构规则，确认无需重启即生效。
+
+**已知边界（记录在案）**：① 触发时机对齐「首个工具调用」，拿不到纳秒级解锁瞬间；② 命中兜底 `next-step` 不唤醒，若回合恰在工具调用后收尾、注入挂空则宿主记 warning 跳过（不会崩）；③ 规则不判模型，非 deepseek 模型（锚定引导不生效）下也会在首个工具调用注入一次——加载 skill 本身无害，故接受。
 
 ## 收尾
 
-（待补：DESIGN 回写、是否移入 `docs/archived/`）
+- 已回写 `TUI/docs/DESIGN.md`「锚定工具引导」一节：补「解锁后自动加载」的机制、规则 id 与不加代码改动的口径；
+- 临时脚本 `tmp/rule-skill-autoload-verify.ts` 已删除；未向任何运行时状态写入规则（不污染本会话/用户 profile）；
+- 待办：用户在真机应用规则并做上面 5 步验证（若验证发现「挂空」频发，再按决策 5 的备选回到 TUI 侧挂钩方案，另开条目）→ 条目转「完成」、本文档移入 `TUI/docs/archived/`。

@@ -1,6 +1,6 @@
 # TUI 未使用的 `chalk` 依赖与「零运行时依赖」口径统一（接取条目：`TUI/docs/BACKLOG.md`「TUI 声明了未使用的 `chalk` 依赖（与「零运行时依赖」口径冲突）」）
 
-状态：规划（决策已定稿，待用户审阅）　　开启：2026-09-27　　关闭：——
+状态：测试（实现完成、机械验证通过，待用户人工确认）　　开启：2026-09-27　　关闭：——
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -51,12 +51,33 @@
 
 ## 实现记录
 
-（待实现）
+**实现（2026-09-27）**
+
+1. `TUI/package.json`：删除 `dependencies` 整个字段（`chalk` 是唯一运行时依赖）——TUI 自此 **零运行时依赖**。
+1. `README.md`（根，TUI 行）：改为「**零运行时依赖**（源码零第三方 import，颜色走 manual ANSI）」。
+1. `TUI/README.md`（首段）：同上口径，去掉「遗留 `chalk` 声明待清理」过渡措辞。
+1. `TUI/docs/DESIGN.md`（技术选型）：改为「**零运行时依赖**（源码零第三方 import；颜色走 manual ANSI，`dependencies` 为空）」。
+
+**未改动的相关文字（有意保留）**：`src/renderer/theme.ts` / `src/renderer/screen.ts` 的注释仍说明「不用 chalk」及其原因（`39m`/`49m` 复位在浅色主题不可读）——这是**设计依据**，不是遗留口径；`src/main.ts` 的「本项目零运行时依赖」注释现与事实一致。
+
+**无 lockfile 需同步**：`TUI/` 与仓库根都没有 `package-lock.json` / `pnpm-lock.yaml`（profile 以 `link:` 挂载），故只改 `package.json`。
 
 ## 测试与证据
 
-（待补：`npm run check` / `npm run build` / `npm run test:tui` 输出 + `grep -r chalk TUI/dist` 空）
+| 命令 / 检查 | 结果 |
+| --- | --- |
+| `npm run check`（tsc --noEmit） | 通过 |
+| `npm run build` | 通过（编译到 `dist/`） |
+| `npm test`（TUI 全量） | **1179 例全通过** |
+| `grep -rn 'from "chalk\|require("chalk' dist src` | 无输出（**无任何 chalk import**，含编译产物） |
+| `grep -rn chalk TUI/{src,demo,scripts,tests,bench}` | 仅剩 3 处**注释**（theme.ts ×2 / screen.ts ×1，均为「为什么不用 chalk」的设计依据） |
+
+备注（计划里写「`grep -r chalk TUI/dist` 为空」的口径修正）：编译产物会保留源码注释中的 chalk 字样，故验收改为「无 chalk **import**」+「残留仅注释」两条，语义等价且可机械校验（已如上执行）。
+
+真机确认：profile 以 `link:` 指向本包，删依赖后无需 `pnpm install`，`dsh --profile fff` 启动应无 `ERR_MODULE_NOT_FOUND`（构建→link 生效，见 `AGENTS.md`）。
 
 ## 收尾
 
-（待补：三处文档回写确认、是否移入 `docs/archived/`）
+- 三处文档口径已回写（根 `README.md` / `TUI/README.md` / `TUI/docs/DESIGN.md`）；
+- 无计划外文件；无可清理临时产物（构建产物 `dist/` 属既有流程常态）；
+- 待办：用户人工确认（真机启动一次 TUI 无模块缺失）→ 条目转「完成」、本文档移入 `TUI/docs/archived/`。

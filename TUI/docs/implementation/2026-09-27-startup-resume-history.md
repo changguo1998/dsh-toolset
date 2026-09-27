@@ -1,6 +1,6 @@
 # CLI `--resume` / `-c` 启动恢复后历史区渲染既有消息（接取条目：`TUI/docs/BACKLOG.md`「CLI `--resume` / `-c` 启动恢复后历史区为空（不渲染既有消息）」）
 
-状态：规划（决策已通过审阅，待实现）　　开启：2026-09-27　　关闭：——
+状态：测试（实现完成、机械验证通过，待用户人工确认）　　开启：2026-09-27　　关闭：——
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 审阅：用户 2026-09-27 逐条审阅第 8 条（本条），决策**通过**。
 
@@ -48,12 +48,35 @@ CLI 启动即恢复会话（`--resume <id>` / `-c`）时，历史区直接渲染
 
 ## 实现记录
 
-（待实现）
+**实现（2026-09-27）**
+
+1. `src/app/adapter/types.ts`：`DshAdapter` 增 `readonly resumedAtLaunch?: boolean`；`RealAdapterOptions` 增同名选项。
+1. `src/app/adapter/dsh.ts`：适配器实例暴露 `resumedAtLaunch: opts.resumedAtLaunch === true`。
+1. `src/main.ts`：启动分支记账 `startedFromResume`（`--resume` 成功 / `-c` 命中并成功恢复才置真，失败回落新建不算），经 `createRealDshAdapter({ resumedAtLaunch })` 下传。
+1. `src/app/state.ts`：新增 action `history-restore`（`id` / `title` / `rows`）与 reducer 分支——折叠行入 buffer + 分配 `seq` + `followBottom` + 复位滚动锚点；与 `history-resume-ok` 的区别是**不依赖 `/session` 面板状态机**（启动路径没有面板），但保留「会话已切走则丢弃」的陈旧守卫；`usage` / `usageTotals` 不在本动作里重置（启动即会话，无上一会话可言）。
+1. `src/app/index.ts`：新增 `restoreStartupHistory()`，在 `start()` 的 `restoreSessionState()` 之后调用；仅当 `adapter.resumedAtLaunch === true` 才读 `readSessionSurface`，成功后 `surfaceToBuffer` → `history-restore` + `queued-clear` + paint；`disposed` / 会话已切走 / 空会话一览早退；读取失败 → warn notice（不阻塞启动）。
+1. 测试：新增 `tests/startup-resume-history.test.ts`（4 例）；`tests/helpers/appFakes.ts` 的 `FakeAdapter` 增 `resumedAtLaunch`（缺省 false，复用既有 `readSessionSurface` / `sessionSurfaces`）。
+
+**口径说明**：折叠逻辑与 `/session` 切换共用 `surfaceToBuffer`（P9 的 step 概要折叠、空消息不产行等规则一并生效），只是入口动作不同——避免两条折叠口径分叉。
 
 ## 测试与证据
 
-（待补：`npm run check` / `npm run test:tui` 输出 + PTY 真机复现对照）
+| 命令 | 结果 |
+| --- | --- |
+| `npm run check`（tsc --noEmit） | 通过 |
+| `npm test`（TUI 全量） | **1179 例全通过**（1179 pass / 0 fail，含新增 4 例） |
+
+新增用例（`tests/startup-resume-history.test.ts`）：
+
+1. `resumedAtLaunch = true` + surface 有消息 → 启动后 buffer 出现 user / assistant 历史行、`activeSessionId` 确立为恢复的会话、标题本地兜底（首条用户消息）、`followBottom = true`；
+1. 非恢复启动（缺省 false）→ **不读** surface、历史区保持空；
+1. 恢复但会话为空 → 不折叠任何行（不产生空行）；
+1. 读取失败 → buffer 出现 warn notice「启动恢复：既有消息读取失败」、无历史行、提示上屏、不抛。
+
+真机待确认：`tui --resume <id>` / `tui -c` 启动后历史区**直接**显示既有会话内容（无需再 `/session` 切一次）。
 
 ## 收尾
 
-（待补：DESIGN / README 会话生命周期口径回写、是否移入 `docs/archived/`）
+- `TUI/docs/DESIGN.md` 已在「会话生命周期」一节记 `/session` 与 CLI 恢复口径（`pickRecentSession` / `apply()` 解析 `--resume`），本轮补齐「启动恢复也折叠历史」的差异说明（见该节末句）；
+- 计划外文件：`tests/helpers/appFakes.ts`（假件补 `resumedAtLaunch`，测试基础设施）；
+- 待办：用户人工确认（真机 `--resume` / `-c`）→ 条目转「完成」、本文档移入 `TUI/docs/archived/`。
