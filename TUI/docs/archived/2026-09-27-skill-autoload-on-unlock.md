@@ -1,6 +1,6 @@
 # 锚定两阶段解锁后自动加载两个 skill（rule-engine 规则路径）（接取条目：`TUI/docs/BACKLOG.md`「锚定两阶段解锁后自动加载两个 skill（`i-have-adhd` 模拟用户指令、`karpathy-guidelines`）」）
 
-状态：测试（规则定义完成并经规则引擎契约校验；真机应用与验证待用户）　　开启：2026-09-27　　关闭：——
+状态：关闭（真机确认通过）　　开启：2026-09-27　　关闭：2026-09-27
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 审阅：用户 2026-09-27 逐条审阅第 9 条（本条）：先问「将来增加其他 skill，两条路线哪个更方便扩展」→ 结论 rule-engine 更可扩展 → 用户选定 **rule-engine 主路径**（见决策）。
 
@@ -17,7 +17,7 @@
   - 匹配面 `tool-call`（事件到达即判定，判定文本 = 工具名 + 参数 JSON）、`tool-result`、`assistant-text`、`turn-end`；
   - 动作 `inject`：构造 **user-role** 消息（`source.kind: "rule-engine"` + `form: "notice"` + `summary`）后经 `agents.get(sessionId)` 投递；
   - 送达路径 `delivery`：`followup`（独立新回合）或 **`next-step`**（`agent.inject`，挂最近 pre-step、**不唤醒**，宿主 rc.2+）；
-  - 节流：规则级 `cooldownTurns` / `cooldownMs`，**按会话记账**（`engine.ts:627-629`）→ `cooldownTurns: 0` 即「每会话只注入一次」；
+  - 节流：规则级 `cooldownTurns` / `cooldownMs`，**按会话记账**（`engine.ts:627-629`）→ **`cooldownTurns: 0` = 不节流**（每次命中都注入；同回合内同文本只发一次、回合级条数上限 `maxInjectionsPerTurn`），要「每会话一次」需把该值设为**大于会话回合数**（本条目取 10000）——初版误按「0 = 每会话一次」配置，真机观测到每回合重复注入后修正；
   - 注意：`tool-call` 匹配面在 `match` 为空时视为**永不命中**（防误配置），故规则须带恒真条件。
   - TUI 已支持 `source.form:'notice'` 渲染为一行提示（BACKLOG #46 已完成）。
 - 两路线的扩展性对比（用户提问的结论依据）：
@@ -31,7 +31,7 @@
 
 1. **载体：rule-engine 规则**（用户 2026-09-27 定案）。理由：可扩展性最好（一 skill 一规则、可逐条开关与干跑），且 rule-engine 本就是为「规则触发自动注入」而建；TUI 侧**不挂钩**（避免两套注入面）。
 1. **触发**：`source: "tool-call"` + 恒真条件（`predicates: ["always"]`）；判定文本任意 → 首个工具调用即命中 = 对齐解锁点。
-1. **去重**：`cooldownTurns: 0`（每会话一次）。选择「每会话一次」而非「每回合一次」，与「解锁是会话级一次性事件」的语义一致。
+1. **去重**：`cooldownTurns: 10000`（每会话一次；初版 0 = 不节流，已修正）。选择「每会话一次」而非「每回合一次」，与「解锁是会话级一次性事件」的语义一致。
 1. **送达**：`delivery: "next-step"`（挂最近 pre-step，不唤醒）——注入在同回合下一 step 前生效，最贴近「解锁后立即带上约束」；若宿主 rc.2 行为异常（回合已收尾挂空，inject.ts 会 warning 跳过），回落 `followup`。
 1. **文案**：一条短指令，要求加载两个 skill（`i-have-adhd`、`karpathy-guidelines`）并遵循其规则；将来新增 skill = **新增一条同类规则**（不把新 skill 塞进本条文案），保持「一规则一 skill 组」的可审计粒度。
 1. **门控**：规则本身不限模型；因锚定引导只对 `deepseek-*` + `toolBootstrap: true` 生效，非 deepseek 模型下本规则仍会在首个工具调用时注入一次——**接受**（skill 加载与模型无关，加载本身无害），不再加模型判定（rule-engine 无模型面）。
@@ -42,7 +42,7 @@
 
 1. 规则定义（可直接 `rule_add` 的载荷）：
    - `id`: `skill-autoload-on-unlock`；`source: "tool-call"`；`match: { predicates: ["always"] }`；
-   - `cooldownTurns: 0`；`delivery: "next-step"`；
+   - `cooldownTurns: 10000`（每会话一次；0 为不节流）；`delivery: "next-step"`；
    - `summary`: `解锁后加载 i-have-adhd / karpathy-guidelines`；
    - `text`: 见下方「规则文案」。
 1. 干跑验证：`rule_test(text, "tool-call")` 断言命中；`rule_list` 确认 `origin`（配置基线或运行时层）与节流参数。
@@ -77,7 +77,7 @@
   "source": "tool-call",
   "match": { "predicates": ["always"] },
   "delivery": "next-step",
-  "cooldownTurns": 0,
+  "cooldownTurns": 10000,
   "action": {
     "type": "inject",
     "text": "首轮工具已调用、工具目录已解锁。请立即用 skill 工具加载 i-have-adhd 与 karpathy-guidelines 两个 skill 并遵循其规则：i-have-adhd 决定输出风格（首行给动作、多步编号、每回合复述状态、结尾一个具体下一步）；karpathy-guidelines 决定编码行为（先想后写、最小实现、外科手术式改动、可验证的成功标准）。加载后在本回合继续原任务，不要额外确认。",
@@ -103,14 +103,14 @@
 | 校验项 | 结果 |
 | --- | --- |
 | `normalizeRule(payload)` | `ok = true`，`warnings = []` |
-| 归一化字段 | `source = tool-call`、`delivery = next-step`、`cooldownTurns = 0`、`enabled = true` |
+| 归一化字段 | `source = tool-call`、`delivery = next-step`、`cooldownTurns = 0`（契约校验时的值，后按节流口径修正为 10000）、`enabled = true` |
 | `compileMatcher(match, "tool-call")` | `warnings = []`；`match(toolCallText("bash", {command:"ls"})) = true`、`match(toolCallText("read", {path:"a.ts"})) = true`（恒真，任意首个工具调用即命中） |
 
 **真机验证（待用户，在启用 rule-engine + TUI 的 profile 下）**：
 
 1. 应用规则后发一条会触发工具调用的消息 → 注入以**一行提示**出现（TUI 已支持 `source.form:'notice'`，项目级 #46）；
 1. 后续回合行为体现两个 skill；
-1. **同一会话第二次工具调用不重复注入**（`cooldownTurns: 0` 的每会话一次语义）；
+1. **同一会话内不重复注入**（`cooldownTurns: 10000` 的每会话一次语义）；
 1. 新会话重新注入一次；
 1. 扩展演练：再 `rule_add` 一条同构规则，确认无需重启即生效。
 
@@ -120,4 +120,5 @@
 
 - 已回写 `TUI/docs/DESIGN.md`「锚定工具引导」一节：补「解锁后自动加载」的机制、规则 id 与不加代码改动的口径；
 - 临时脚本 `tmp/rule-skill-autoload-verify.ts` 已删除；未向任何运行时状态写入规则（不污染本会话/用户 profile）；
-- 待办：用户在真机应用规则并做上面 5 步验证（若验证发现「挂空」频发，再按决策 5 的备选回到 TUI 侧挂钩方案，另开条目）→ 条目转「完成」、本文档移入 `TUI/docs/archived/`。
+- 真机确认（2026-09-27）：用户在启用 rule-engine 的会话中授权后执行 `rule_add`（runtime 层，stateDir `/home/guochang/.dsh/rule-engine`）→ **首个工具调用即触发注入**，注入内容以 `next-step` 落在同一回合的下一步被模型收到，模型随即用 `skill` 工具加载 i-have-adhd 与 karpathy-guidelines；同回合内多次工具调用只注入一次（回合级「同文本只发一次」闸门）。**后续复核（同日）**：`cooldownTurns: 0` 实为**不节流**——下一回合首个工具调用再次触发注入（会话日志亦显示注入本身以 `next-step` 投递），故按决策修正为 `cooldownTurns: 10000`（每会话一次）并更新规则 description；本节所述「每会话一次」以修正后的配置为准。**又一轮复核（同日）**：用户重启 TUI（同一会话经 `-c` 恢复）后再次观察到一次注入——`cooldownTurns` 的已触发记账在**进程内存**里（`engine.ts` 的 SessionState），重启进程即重置，故准确口径是「**每个进程生命周期内一次**」（会话保持不重启则只注入一次）；
+- 原待办：用户在真机应用规则并做上面 5 步验证（若验证发现「挂空」频发，再按决策 5 的备选回到 TUI 侧挂钩方案，另开条目）（已完成，本文档归档于 `TUI/docs/archived/`）。

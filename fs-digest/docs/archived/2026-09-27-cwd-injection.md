@@ -1,6 +1,6 @@
 # ctx.cwd 未注入导致 fs_digest 调用必失败（修复）（接取条目：`fs-digest/docs/BACKLOG.md`「`ctx.cwd` 未注入，导致 `fs_digest` 调用必失败」）
 
-状态：测试（实现完成、机械验证通过，待用户人工确认）　　开启：2026-09-27　　关闭：——
+状态：关闭（验证通过）　　开启：2026-09-27　　关闭：2026-09-27
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 审阅：用户 2026-09-27 逐条审阅第 1 条（本条），决策**通过**。
 
@@ -79,8 +79,16 @@
 
 修复前取证（对照）：同一调用在包根运行时报 `文件不存在：<仓库根>/tests/fixtures/sample.md`（= 进程 cwd 基准）；修复后会话 cwd 基准命中，dirA/dirB 交叉用例证明基准随会话变化。
 
+**插件边界取证（2026-09-27，临时脚本跑完即删）**：以假 `ctx.tools` 捕获 `apply()` 注册的工具，再按宿主调用形态直接执行，验证真实调用链而非仅单测：
+
+1. `fs_digest` 工具注册成功（名字面正确）；
+1. 会话 cwd = 仓库根 + 相对路径 `README.md` → 正常返回大纲首行 `L1 heading dsh-toolset`；
+1. **同一相对路径 `package.json`、两个不同会话 cwd（仓库根 / `TUI/`）→ 解析到不同文件**（`dsh-toolset` vs `@dsh-toolset/tui`）——D1 的「相对路径基准 = 会话 cwd」在真实边界成立；
+1. 无 `exec` 的旧调用形态 → 回落 `process.cwd()` 且不抛 cwd 异常。
+
 ## 收尾
 
 - 已回写 `fs-digest/README.md`（边界段改会话 cwd 口径，删除「工具当前不可用」过渡表述）；
 - 临时取证脚本（`tmp/fs-digest-probe.ts`、`tmp/fs-digest-live-probe.ts`）已删除；
-- 待办：用户人工确认（真机 `dsh --profile fff` 下相对路径调用 `fs_digest`）→ 条目转「完成」、本文档移入 `fs-digest/docs/archived/`。
+- 真机确认（2026-09-27）：用户在 TUI 执行 `/tools`，工具列表中**已含 `fs_digest`**（插件在真实 profile 下注册成功；配合上面的插件边界取证，D1 的「相对路径基准 = 会话 cwd」已闭环）；
+- 原待办：用户人工确认（真机 `dsh --profile fff` 下相对路径调用 `fs_digest`）（已完成，本文档归档于 `fs-digest/docs/archived/`）。
