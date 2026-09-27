@@ -3011,7 +3011,8 @@ test("/session：列表渲染——当前 live 行 [当前] [不可续]，其他
   adapter.sessionRecords = [
     {
       id: "s99",
-      createdAt: Date.now(),
+      createdAt: created99,
+      updatedAt: edited99,
       live: true,
       persisted: false,
       current: true,

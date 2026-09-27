@@ -15,8 +15,8 @@
 //
 // 取舍（BACKLOG TUI#11，2026-09-27 放宽）：原设计前提是「V4 Pro 的能力上限由
 // 首个 API 请求所见内容决定」，故门控曾限定 v4-pro；现放宽到全部 deepseek-*，
-// flash 在 weak 模式取 PERSONA_WEAK_FLASH。flash 与 chat/reasoner 的实际表现
-// 待真机复核（单测只覆盖门控判定与人设分支）。
+// flash 在 weak 模式取 PERSONA_WEAK_FLASH。其余各代/变体的实际表现待真机复核
+// （单测只覆盖门控判定与人设分支）。
 //
 // 健壮性（与参考一致，fail-open）：promotion/mode 均按 session 记忆（进程内
 // Set + durable 记录派生，resume-safe）。durable 记录的读取顺序见下方
@@ -153,9 +153,9 @@ export function coreFor(mode: TaskAnchor, shell: string): string[] {
 
 /* ── 模型门控：全部 deepseek-* 模型 ───────────────────────────────────────── */
 
-/** 目标模型判定：全部 `deepseek-*` 模型（含 `provider/` 前缀形态，如
- *  `deepseek/deepseek-v4-pro`）——v4-pro / v4-flash / v4.1 / chat / reasoner / v3
- *  一并生效（BACKLOG TUI#11；此前仅 `/deepseek-v4.*pro/i`）。 */
+/** 目标模型判定：模型 id 含 `deepseek` 即生效（含 `provider/` 前缀形态，
+ *  如 `provider/deepseek-*`）——各代与变体一并适用（BACKLOG TUI#11；
+ *  此前仅 `/deepseek-v4.*pro/i`）。 */
 export function isDeepseekModel(modelId: string): boolean {
   return /deepseek/i.test(modelId);
 }

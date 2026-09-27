@@ -404,7 +404,9 @@ export interface AppState {
   /** 审批态无效键提示（BACKLOG 3.3.1）：非空时提示区显示它；切换焦点/提交/关闭时清空 */
   approvalHint: string | null;
   agentStatus: AgentStatus;
-  /** 最新一次模型调用的 token 用量（assistant/message.usage 归一化；阶段 2 状态栏 contextLen/cacheHit 读取） */
+  /** 最新一次模型调用的 token 用量（assistant/message.usage 归一化；阶段 2 状态栏 contextLen/cacheHit 读取）。
+   *  会话切换/恢复（`history-resume-ok` / `session-switch`）**清空**——换会话后该值不可知，
+   *  状态栏与 `/stats` 相应槽位回落 `—` 占位（BACKLOG TUI#12）。 */
   usage?: {
     input: number;
     output: number;
@@ -588,6 +590,9 @@ export interface QuestionPanelItem {
   selected: string[];
   /** 自定义回答文本 */
   custom: string;
+  /** 被并兜底项的原文（BACKLOG TUI#5）：选项文案命中语义标记（自定义/其它/…）时
+   *  从预设列表摘除、原文并入自定义项作为解释文字展示；缺省 = 无合并。 */
+  customHint?: string;
   /** 焦点窗（BACKLOG 3.2.1）：desc=描述窗（↑/↓ 滚动题干/detail），options=选项窗（↑/↓ 移项） */
   focus: "desc" | "options";
   /** 描述窗首行偏移（0 基；上界由渲染层按折行行数算出，App 按键时传 max 进 action） */
@@ -1586,6 +1591,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           activityScroll: 0,
           // TUI#9：会话恢复/切换 → 本会话累计清零（与 buffer 同步换会话）
           usageTotals: { input: 0, output: 0, cacheRead: 0 },
+          // TUI#12：最近一次调用属上一会话 → 丢弃（不可知，显示占位）
+          usage: undefined,
         };
       case "session-switch":
         // /new：全新会话 → 缓冲、滚动、窗口、焦点与排队登记全部归零。
@@ -1607,6 +1614,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           stepGroup: null,
           // TUI#9：/new 全新会话 → 本会话累计清零
           usageTotals: { input: 0, output: 0, cacheRead: 0 },
+          // TUI#12：/new 换会话 → 最近一次调用不再适用，清空（显示占位）
+          usage: undefined,
         };
       case "history-confirm-delete": {
         const hcd = state.history;
@@ -2334,8 +2343,12 @@ export type StateAction =
       type: "history-resume-ok";
       id: string;
       title: string;
-      /** 恢复行（P9 起含 step 概要行）；kind 与 BufferKind 的子集一致 */
-      rows: { text: string; kind: "user" | "assistant" | "step" }[];
+      /** 恢复行（P9 起含 step 概要行、TUI#17 起含 notice 摘要行）；kind 与 BufferKind 的子集一致 */
+      rows: {
+        text: string;
+        kind: "user" | "assistant" | "step" | "notice";
+        tone?: NoticeTone;
+      }[];
     }
   /** 切换活跃会话（/new 新建后切过去）：缓冲/滚动/窗口按空会话重置 */
   | { type: "session-switch"; id: string; title: string }
@@ -2743,7 +2756,26 @@ function setPickerEfforts(
   };
 }
 
-/** 打开问答面板：把一次 ask() 的整批题转为交互状态（无题则不变） */
+/** 兜底项语义标记（BACKLOG TUI#5）：选项文案命中即并入「自定义回答」。
+ *  TUI 不调模型，只做可判定规则；对提问方的约定见 docs/SPEC.md（§7 问答面板）。 */
+const FALLBACK_OPTION_MARKERS = [
+  "自定义",
+  "其它",
+  "其他",
+  "例外",
+  "以上都不是",
+  "都不对",
+] as const;
+
+/** 是否为兜底类选项（标签命中语义标记；纯函数，供归一与单测共用）。 */
+export function isFallbackOption(label: string): boolean {
+  return FALLBACK_OPTION_MARKERS.some((m) => label.includes(m));
+}
+
+/** 打开问答面板：把一次 ask() 的整批题转为交互状态（无题则不变）。
+ *  TUI#5：兜底类预设（「其它」等）并入「自定义回答」——从预设列表摘除（不再作为
+ *  可标记项、也无空回退选中），原文记为自定义项解释文字（`customHint`），
+ *  须输入文字才算作答；无命中时列表与行为不变。 */
 function openQuestion(
   state: AppState,
   action: {
@@ -2755,23 +2787,36 @@ function openQuestion(
   },
 ): AppState {
   if (action.questions.length === 0) return state;
-  const items: QuestionPanelItem[] = action.questions.map((q) => ({
-    id: q.id,
-    question: q.question,
-    header: q.header,
-    detail: q.detail,
-    options: q.options ?? [],
-    multiSelect: q.multiSelect ?? false,
-    intent: q.intent
-      ? { kind: "plan-review", approve: q.intent.approve }
-      : undefined,
-    optionIndex: 0,
-    selected: [],
-    custom: "",
-    // 焦点窗缺省 options：与分窗前 ↑/↓ 直接移项的既有手感一致（BACKLOG 3.2.1）
-    focus: "options",
-    descScroll: 0,
-  }));
+  const items: QuestionPanelItem[] = action.questions.map((q) => {
+    const raw = q.options ?? [];
+    const merged = raw.filter((o) => isFallbackOption(o.label));
+    return {
+      id: q.id,
+      question: q.question,
+      header: q.header,
+      detail: q.detail,
+      options: raw.filter((o) => !isFallbackOption(o.label)),
+      ...(merged.length === 0
+        ? {}
+        : {
+            customHint: merged
+              .map((o) =>
+                o.description ? `${o.label}（${o.description}）` : o.label,
+              )
+              .join("、"),
+          }),
+      multiSelect: q.multiSelect ?? false,
+      intent: q.intent
+        ? { kind: "plan-review", approve: q.intent.approve }
+        : undefined,
+      optionIndex: 0,
+      selected: [],
+      custom: "",
+      // 焦点窗缺省 options：与分窗前 ↑/↓ 直接移项的既有手感一致（BACKLOG 3.2.1）
+      focus: "options",
+      descScroll: 0,
+    };
+  });
   // 移除 unused first 引用（自定义兑底项始终存在，列表总长度 = options.length + 1）
   return {
     ...state,

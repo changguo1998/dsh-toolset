@@ -28,6 +28,8 @@ import {
   createRealDshAdapter,
   installSessionModelSelection,
   installToolBootstrap,
+  listSessionRecords,
+  pickRecentSession,
   readDefaultSelection,
   type SessionModelSelectionRef,
   type DshAgentLike,
@@ -163,6 +165,54 @@ export function normalizeTuiDisplayConfig(
   };
 }
 
+/** TUI 自有启动参数（宿主启动器把自有 flag 之后的内层参数经 `ctx.cmdlineArgs` 提供） */
+export interface TuiStartupArgs {
+  /** `--resume <id>` / `--resume=<id>`：启动即恢复指定会话 */
+  resume?: string;
+  /** `-c` / `--continue`：启动即加载当前目录下最近退出的会话 */
+  continueLatest: boolean;
+}
+
+/**
+ * 解析 TUI 自有启动参数（纯函数）。多插件共享同一内层参数列表——本函数**只读取、
+ * 不消费**，未知参数一律忽略：
+ *  - `--resume <id>` / `--resume=<id>`（缺值 / 空值视为未提供）；
+ *  - `-c` / `--continue`；
+ *  - 两者同时给出时 `--resume` 优先（更具体）。
+ */
+export function parseTuiStartupArgs(args: readonly string[]): TuiStartupArgs {
+  let resume: string | undefined;
+  let continueLatest = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "--resume") {
+      const v = args[i + 1];
+      if (v !== undefined && v !== "" && !v.startsWith("-")) {
+        resume = v;
+        i++;
+      }
+    } else if (a.startsWith("--resume=")) {
+      const v = a.slice("--resume=".length);
+      if (v !== "") resume = v;
+    } else if (a === "-c" || a === "--continue") {
+      continueLatest = true;
+    }
+  }
+  return { ...(resume === undefined ? {} : { resume }), continueLatest };
+}
+
+/** 读取宿主内层参数（`ctx.cmdlineArgs.get()` 不可用/异常 → 空列表，启动不因此失败） */
+function readCmdlineArgs(svc: { get?: () => unknown } | undefined): string[] {
+  try {
+    const v = svc?.get?.();
+    return Array.isArray(v)
+      ? v.filter((x): x is string => typeof x === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * DSH 宿主加载本 bundle 时调用：创建/拉起 agent，组装真实链路并启动 TUI。
  * ctx 为 cordis Context(结构上满足 DshRuntime)，此处只做窄化。
@@ -242,8 +292,6 @@ export async function apply(
         : undefined,
   };
 
-  const { randomUUID } = await import("node:crypto");
-  const sessionId = "tui-" + randomUUID();
   // 会话钩子（模型选择 + 锚定工具引导）：create/resume 共用同一 setup。
   // 注意：返回离谱值会被宿主当 commit 处理失败，故 setup 只 void 挂载。
   const makeSetup = (): ((agentCtx: unknown) => unknown) => (agentCtx) => {
@@ -257,6 +305,81 @@ export async function apply(
       enabled: config?.toolBootstrap ?? true,
     });
   };
+  /** 新建会话（既有路径） */
+  const createNewSession = async (): Promise<{
+    agent: unknown;
+    dispose(): Promise<void>;
+  }> => {
+    const { randomUUID } = await import("node:crypto");
+    return agents.create({
+      sessionId: "tui-" + randomUUID(),
+      meta: { cwd: config?.cwd ?? process.cwd() },
+      agentOptions: route,
+      setup: makeSetup(),
+    });
+  };
+  /** 恢复持久化会话（与 /session 切换同语义：agents.resume + 同一 setup/route） */
+  const resumeSession = async (
+    id: string,
+  ): Promise<{ agent: unknown; dispose(): Promise<void> }> => {
+    if (typeof agents.resume !== "function") {
+      throw new Error("agents 未暴露 resume（宿主未配置会话持久化）");
+    }
+    return agents.resume({
+      resumeSessionId: id,
+      agentOptions: route,
+      setup: makeSetup(),
+    });
+  };
+
+  // --- 启动参数（BACKLOG TUI#2）：宿主经 ctx.cmdlineArgs 提供内层参数 -----------
+  const cmdlineArgsSvc = (ctx as { get?: (name: string) => unknown }).get?.(
+    "cmdlineArgs",
+  ) as { get?: () => unknown } | undefined;
+  const startup = parseTuiStartupArgs(readCmdlineArgs(cmdlineArgsSvc));
+  // 会话查询服务（早读一次）：宿主 provider 随插件树并发装载，此处读到即用
+  const sessionQuerySvc = (ctx as { get?: (name: string) => unknown }).get?.(
+    "sessionQuery",
+  ) as SessionQueryLike | undefined;
+  let handle: { agent: unknown; dispose(): Promise<void> };
+  if (startup.resume !== undefined) {
+    // --resume <id>：无效 id → stderr 提示并回落新建（条目原文）
+    try {
+      handle = await resumeSession(startup.resume);
+    } catch (err) {
+      process.stderr.write(
+        `[tui] warn: --resume ${startup.resume} 失败（${String(err)}），回落新建会话\n`,
+      );
+      handle = await createNewSession();
+    }
+  } else if (startup.continueLatest) {
+    // -c / --continue：当前目录下「最近退出」的会话（与 /continue 共用选择函数）；
+    // 无匹配 → 静默新建（条目原文）
+    let targetId: string | undefined;
+    try {
+      const records = sessionQuerySvc
+        ? await listSessionRecords({ sessionQuery: sessionQuerySvc })
+        : [];
+      targetId = pickRecentSession(records, config?.cwd ?? process.cwd())?.id;
+    } catch {
+      targetId = undefined;
+    }
+    if (targetId === undefined) {
+      handle = await createNewSession();
+    } else {
+      try {
+        handle = await resumeSession(targetId);
+      } catch (err) {
+        process.stderr.write(
+          `[tui] warn: --continue 恢复 ${targetId} 失败（${String(err)}），回落新建会话\n`,
+        );
+        handle = await createNewSession();
+      }
+    }
+  } else {
+    handle = await createNewSession();
+  }
+
   const handle = await agents.create({
     sessionId,
     meta: { cwd: config?.cwd ?? process.cwd() },
@@ -316,9 +439,7 @@ export async function apply(
       config?.approvalTimeoutMs ??
       30_000,
     // 历史会话查询服务（ctx.get('sessionQuery')；缺失时 /session 提示不可用）
-    sessionQuery: (ctx as { get?: (name: string) => unknown }).get?.(
-      "sessionQuery",
-    ) as SessionQueryLike | undefined,
+    sessionQuery: sessionQuerySvc,
     // 会话存储服务（ctx.get('sessions')；live 会话读取原始事件需经它，缺失时降级 readSurface/readSession）
     sessions: (ctx as { get?: (name: string) => unknown }).get?.("sessions") as
       SessionStoreLike | undefined,

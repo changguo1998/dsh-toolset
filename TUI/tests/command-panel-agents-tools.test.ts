@@ -478,6 +478,29 @@ test("/agents：手动 r 立即刷新（面板打开时）", async () => {
   app.dispose();
 });
 
+test("/agents：子代理生命周期事件（subagent-activity）→ 面板打开时即时刷新、未打开不刷新", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAgentsToolsAdapter();
+  // 长间隔隔离定时器：本用例只验证事件驱动路径
+  const app = new App({ renderer, adapter, agentsRefreshIntervalMs: 10_000 });
+  app.start();
+  adapter.emit({ type: "subagent-activity" });
+  await tick();
+  assert.equal(adapter.refreshAgentsCalls, 0, "未打开面板 → 事件不触发刷新");
+  typeAndEnter(renderer, "/agents");
+  await tick();
+  const openCalls = adapter.refreshAgentsCalls;
+  assert.ok(openCalls >= 1, "打开至少拉一次: " + openCalls);
+  adapter.emit({ type: "subagent-activity" });
+  await tick();
+  assert.equal(
+    adapter.refreshAgentsCalls,
+    openCalls + 1,
+    `subagent/start|end → 即时刷新一次: ${openCalls} → ${adapter.refreshAgentsCalls}`,
+  );
+  app.dispose();
+});
+
 test("/agents：提示含 r 刷新（agents 专属）；skills/tools 不含", () => {
   assert.ok(
     commandPanelHint("agents").includes("r 刷新"),

@@ -10,27 +10,30 @@
 
 > 共同落点：`src/app/components/QuestionPrompt.ts`（问答面板渲染）、`src/app/components/ApprovalPrompt.ts`（审批面板渲染）、`src/app/index.ts` 的 `handleKey` 面板分支、`src/app/adapter/dsh.ts`（审批应答与超时）、`src/app/state.ts`（面板状态 + reducer）。
 
-### 需要交互（8 条：#1 / #2 / #5 / #7 / #10 / #12 / #16 / #18）
+### 需要交互（11 条：#1 / #2 / #5 / #7 / #10 / #12 / #16 / #18 / #19 / #20 / #23；其中 #1 / #2 / #5 / #7 / #10 / #12 / #16 / #19 / #23 已完成）
 
 > 验收时要动手：敲命令、按参数启动、在面板里输入或按键。
 
-- **#1 新增 `/continue` 命令（加载当前目录下最近退出的会话）+ `/session` 列表改按编辑时间降序**：① `/continue`：**无参数**的新 slash 命令，等价于「`/session` + 自动选中当前目录下最近退出的那条会话」，复用同一加载路径；无匹配会话时给 notice 提示。② `/session` 面板列表排序改为**编辑时间从晚到早**（`updatedAt` 降序；现有排序口径实现时查证并补测试）。落点：`src/app/commands*`、`src/app/adapter/dsh.ts`、`docs/COMMANDS.md` / `COMMANDS-SPEC.md`、`README.md`、`tests/`。来源：2026-09-26 用户规格。
+- **完成（2026-09-27）** **#1 新增 `/continue` 命令（加载当前目录下最近退出的会话）+ `/session` 列表改按编辑时间降序**：① `/continue`：**无参数**的新 slash 命令，等价于「`/session` + 自动选中当前目录下最近退出的那条会话」，复用同一加载路径；无匹配会话时给 notice 提示。② `/session` 面板列表排序改为**编辑时间从晚到早**（`updatedAt` 降序；现有排序口径实现时查证并补测试）。落点：`src/app/commands*`、`src/app/adapter/dsh.ts`、`docs/COMMANDS.md` / `COMMANDS-SPEC.md`、`README.md`、`tests/`。来源：2026-09-26 用户规格。
+
+- **完成（2026-09-27）** **#2 CLI 启动参数：`--resume <sessionId>` 与 `-c` / `--continue`**：给 `src/main.ts` 加 argv 解析（当前完全不解析 argv）。① `--resume <id>`：启动即恢复指定会话（走既有 `agents.resume({ resumeSessionId })`，与 `/session` 选择一致），id 无效时提示并回落新建；② `-c` / `--continue`：启动即加载**当前目录下最近退出的会话**（与 #1 同语义、共用选择函数），**没有可恢复会话时静默新建**。用法：`dsh --profile fff --continue` / `dsh --profile fff --resume <id>`。落点：`src/main.ts`、`adapter/dsh.ts`、`README.md`、`tests/`。来源：2026-09-26 用户规格。
+
 
 - **#2 CLI 启动参数：`--resume <sessionId>` 与 `-c` / `--continue`**：给 `src/main.ts` 加 argv 解析（当前完全不解析 argv）。① `--resume <id>`：启动即恢复指定会话（走既有 `agents.resume({ resumeSessionId })`，与 `/session` 选择一致），id 无效时提示并回落新建；② `-c` / `--continue`：启动即加载**当前目录下最近退出的会话**（与 #1 同语义、共用选择函数），**没有可恢复会话时静默新建**。用法：`dsh --profile fff --continue` / `dsh --profile fff --resume <id>`。落点：`src/main.ts`、`adapter/dsh.ts`、`README.md`、`tests/`。来源：2026-09-26 用户规格。
 
 - 7 项纯 TUI 命令与 A1-A5 已完成，9 项候选当前无待办。裁定理由见 `TUI/docs/COMMANDS-SPEC.md` §7（`/clear`、`/login` `/logout` 维持排除；`/review` 搁置，可随 `docs/BACKLOG.md` 的 #17 一并考虑）；命令清单与层归属见 `TUI/docs/COMMANDS.md`；实施清单（已完成）见 `archive/TUI-COMMANDS-TASKS.md`。
 
-- **#5 兜底项合并（「其它」类预设并入自定义回答）**：面板最后一项预设常被当作「例外情况」说明、实际不被选中；当**自定义回答的范围可覆盖该条**时（语义包含）将其并入自定义项——合并后**只保留「自定义回答」一项**、不可直接选中（须输入文字才算作答），该项带解释文字，内容取自被合并的选项。判据落到可判定规则：该选项文案含「自定义 / 其它 / 其他 / 例外 / 以上都不是 / 都不对」等语义标记时合并（TUI 不调模型，无法真做语义判断），并在 SPEC 给提问方一条约定。落点：`components/QuestionPrompt.ts`、`state.ts`（选项归一）、`docs/SPEC.md`、`tests/`。来源：2026-09-26 用户规格。
+- **完成（2026-09-27）** **#5 兜底项合并（「其它」类预设并入自定义回答）**：面板最后一项预设常被当作「例外情况」说明、实际不被选中；当**自定义回答的范围可覆盖该条**时（语义包含）将其并入自定义项——合并后**只保留「自定义回答」一项**、不可直接选中（须输入文字才算作答），该项带解释文字，内容取自被合并的选项。判据落到可判定规则：该选项文案含「自定义 / 其它 / 其他 / 例外 / 以上都不是 / 都不对」等语义标记时合并（TUI 不调模型，无法真做语义判断），并在 SPEC 给提问方一条约定。落点：`components/QuestionPrompt.ts`、`state.ts`（选项归一）、`docs/SPEC.md`、`tests/`。来源：2026-09-26 用户规格。
 
-- **#7 `/help` 持续增长**：命令加行后 help 超过一屏，且既有测试存在依赖 help 行数的脆弱断言；改 help 前先检查相关断言（改动后需重跑 `scripts/freeze-focus-frame.mts` 并审查冻结基线）。（其余条目的文档、测试与 demo 收尾随各自条目进行，不在此单列。）
+- **完成（2026-09-27）** **#7 `/help` 持续增长**：命令加行后 help 超过一屏，且既有测试存在依赖 help 行数的脆弱断言；改 help 前先检查相关断言（改动后需重跑 `scripts/freeze-focus-frame.mts` 并审查冻结基线）。（其余条目的文档、测试与 demo 收尾随各自条目进行，不在此单列。）
 
-- **#10 `/agents` 刷新方式**：宿主无 subagent 状态事件面，现为打开期间每 2s 定时刷新 + `r` 手动；宿主补事件面后可改为事件驱动。
+- **完成（2026-09-27）** **#10 `/agents` 刷新方式**：宿主无 subagent 状态事件面，现为打开期间每 2s 定时刷新 + `r` 手动；宿主补事件面后可改为事件驱动。
 
-- **#12 会话切换后 `state.usage`（最近一次调用）未清零**：`history-resume-ok` / `session-switch` 现在只清零本会话累计（TUI#9 新增的 `usageTotals`），`state.usage` 仍保留**上一会话**的数值 → 切换后、下次模型调用前，状态栏 `ctx` / `cache` 段与 `/stats`「最近一次调用」行显示的是旧会话数据（恢复历史会话时该值本就不可知，显示 `—` 占位更诚实）。落点：`src/app/state.ts`（两处 reducer 与 `usage` 注释）、`tests/stats-rename.test.ts`。来源：2026-09-27 实现 TUI#9 时发现。
+- **完成（2026-09-27）** **#12 会话切换后 `state.usage`（最近一次调用）未清零**：`history-resume-ok` / `session-switch` 现在只清零本会话累计（TUI#9 新增的 `usageTotals`），`state.usage` 仍保留**上一会话**的数值 → 切换后、下次模型调用前，状态栏 `ctx` / `cache` 段与 `/stats`「最近一次调用」行显示的是旧会话数据（恢复历史会话时该值本就不可知，显示 `—` 占位更诚实）。落点：`src/app/state.ts`（两处 reducer 与 `usage` 注释）、`tests/stats-rename.test.ts`。来源：2026-09-27 实现 TUI#9 时发现。
 
 - **完成（2026-09-27）** **#16 批次遗留的真机复核项（#3 缩进 / #9 `/stats` 双口径 / #4 审批面板标题 / #11 模型门控表现）**：四项此前只记在归档追踪文档、未单列条目，本次补齐登记（均需重启 `dsh --profile fff` 后人工目视）：① **#11**：实际可用的 `deepseek-*` 模型（flash 已有日志证据）会话走两阶段锁定-释放的实际表现（首请求目录 2-3 工具 + persona-only、首个 `tool/call` 后解锁全量；对照既有基线）；② **#9**：`/stats` 双口径四行（最近一次调用 / 本会话累计 / 上下文 / 缓存命中率）的文案与数值；③ **#4**：审批面板标题 ` △ 等待审批`（工具审批触发时目视；问答面板已通过）；④ **#3**：历史区交错缩进（`messageGutter` 4）的左右留白观感。来源：2026-09-27 批次收尾后补登记（见 `TUI/docs/archived/2026-09-27-backlog-cleanup-and-residuals.md`）。**2026-09-27 批次**：复核清单（四步操作与观察点）已写入 `TUI/docs/archived/2026-09-27-tui-remaining-batch.md`。**复核结果（2026-09-27，全部通过）**：① #11 由真实会话日志复核（`initial tools=2` → `change tools=36` + tool-addition，409→2886）；② #9 用户确认；③ #4 用户目视审批标题 ` △ 等待审批`（提权请求触发、命令被拒未执行）；④ #3 用户确认观感无问题。记录见 `TUI/docs/archived/2026-09-27-manual-verification-closeout.md`。
 
-- **#18 TUI 符号纠正改为 rule-engine 消费者**：`src/app/symbols.ts` 的「规则表 + 判定 + turn-end 后 followup」泛化为调用 `rule-engine`（插件已合并入 main，见项目级 `docs/BACKLOG.md` #42）；符号纠正**不迁移**，仅做消费者改造。待定：plugin 未挂载时的降级（保留内置符号表 / 直连判定，实现时定）。落点：`src/app/symbols.ts`、`src/app/adapter/*`、`docs/DESIGN.md`、`tests/`、冻结基线（如涉及）。来源：项目级 `docs/BACKLOG.md` #43（2026-09-27，跨模块，交其他 agent 接取）。
+- **进行中（2026-09-27）** **#18 TUI 符号纠正改为 rule-engine 消费者**：`src/app/symbols.ts` 的「规则表 + 判定 + turn-end 后 followup」泛化为调用 `rule-engine`（插件已合并入 main，见项目级 `docs/BACKLOG.md` #42）；符号纠正**不迁移**，仅做消费者改造。待定：plugin 未挂载时的降级（保留内置符号表 / 直连判定，实现时定）。落点：`src/app/symbols.ts`、`src/app/adapter/*`、`docs/DESIGN.md`、`tests/`、冻结基线（如涉及）。来源：项目级 `docs/BACKLOG.md` #43（2026-09-27，跨模块，交其他 agent 接取）。**2026-09-27 批次裁定降级**：rule-engine provide 面只有 `list()` / `status()`，无消费者判定 / 注册 API，且未挂载进 `fff` profile → 本批不改 TUI 代码；依赖登记为项目级 `docs/BACKLOG.md` #47，待其落地后另起任务接取。
 
 ### 不需要交互（3 条：#8 / #14 / #17）
 
@@ -65,10 +68,6 @@
         termios.tcsetattr(fd,termios.TCSADRAIN,old)
     EOF
     ```
-
-- **#14 demo 冒烟失败信号失效（`SMOKE_OK` 无条件打印、失败不落退出码）**：`demo/main.ts` 的 `ok()` 失败只打印 `SMOKE_FAIL`，结尾仍无条件打印 `SMOKE_OK`，随后 `/quit` 以退出码 0 收尾 → 帧断言失败在 `npm run demo -- --smoke` 下「看起来通过」（2026-09-27 实测：#4 改形态后 `question-rendered` 断言陈旧失败被静默吞掉，直到人工 grep 输出才发现）。修法建议：统计失败数，有失败时改打印 `SMOKE_FAIL n=...` 且不打印 `SMOKE_OK`（退出码口径按需裁定），或在 `/quit` 前 `process.exit(1)`；另建议冒烟断言与面板形态解耦（用稳定可判据，如题干文本 + 符号行）。落点：`demo/main.ts`。来源：2026-09-27 #4 目视收口时发现。
-
-- **#17 TUI 支持 `source.form:'notice'` 渲染**：插件注入消息带 `form:'notice'` + `summary` 时渲染为**一行提示**（不展开、不占用户消息块），使 rule-engine 的「提示人」呈现方式生效；当前 TUI 未实现该分支，注入内容会渲染成普通用户消息块。落点：`src/app/adapter/normalize.ts` / `dsh.ts` 事件消费面、`docs/SPEC.md`、`tests/`。来源：项目级 `docs/BACKLOG.md` #46（2026-09-27，其来源栏要求 TUI 落地时同步登记）。
 
 ## 已完成、不再跟踪
 

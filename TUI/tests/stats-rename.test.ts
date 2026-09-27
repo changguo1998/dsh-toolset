@@ -152,7 +152,7 @@ test("/stats：有 usage（含 contextWindow）→ 分解行 + 上下文占比 +
   app.dispose();
 });
 
-test("usage 双口径：会话累计 = 事件求和；会话切换/恢复清零、清屏不清零（TUI#9）", () => {
+test("usage 双口径：会话累计 = 事件求和；会话切换/恢复清零（累计 TUI#9 + 最近一次 TUI#12）、清屏不清零", () => {
   // 逐次 usage 事件求和 = 本会话累计；usage 仍是「最近一次调用」
   let s = initialState();
   s = reduceState(s, {
@@ -185,6 +185,7 @@ test("usage 双口径：会话累计 = 事件求和；会话切换/恢复清零�
     title: "新会话",
   });
   assert.deepEqual(fresh.usageTotals, { input: 0, output: 0, cacheRead: 0 });
+  assert.equal(fresh.usage, undefined, "切换后最近一次调用清零（TUI#12）");
   // /session 面板恢复（history-resume-ok）：换会话 → 累计清零
   let r = reduceState(s, { type: "history-open" });
   r = reduceState(r, { type: "history-resume", id: "old-1" });
@@ -195,6 +196,7 @@ test("usage 双口径：会话累计 = 事件求和；会话切换/恢复清零�
     rows: [],
   });
   assert.deepEqual(r.usageTotals, { input: 0, output: 0, cacheRead: 0 });
+  assert.equal(r.usage, undefined, "恢复会话后最近一次调用清零（TUI#12）");
 });
 
 test("/stats：contextWindow 缺失 → 只显绝对量，不除零", async () => {
@@ -239,7 +241,7 @@ test("/stats：contextWindow 为 0 → 不除零（同缺失处理）", async ()
   app.dispose();
 });
 
-test("/stats：无 usage → info 提示（本会话尚未调用）", async () => {
+test("/stats：无 usage（新会话 / 刚切换会话）→ 四行占位（最近一次 — / 上下文 — / 命中率 n/a）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeCmdAdapter();
   const app = new App({ renderer, adapter });
@@ -247,9 +249,16 @@ test("/stats：无 usage → info 提示（本会话尚未调用）", async () =
   typeAndEnter(renderer, "/stats");
   await tick();
   const f = frames(renderer);
+  assert.ok(f.includes("最近一次调用：—"), "最近一次占位: " + f);
   assert.ok(
-    f.includes("暂无 token 用量数据（本会话尚未发生模型调用）"),
-    "提示文本: " + f,
+    f.includes("本会话累计：输入 0 · 输出 0 · 缓存读 0"),
+    "累计行仍在（双口径）: " + f,
+  );
+  assert.ok(f.includes("上下文：—"), "上下文占位: " + f);
+  assert.ok(f.includes("缓存命中率：n/a"), "命中率占位: " + f);
+  assert.ok(
+    !f.includes("暂无 token 用量数据"),
+    "不再回落单行「暂无数据」提示: " + f,
   );
   app.dispose();
 });

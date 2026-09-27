@@ -24,7 +24,7 @@
 | 命令 | 机制 | 降级 |
 |---|---|---|
 | `/init` | 检查会话语义 cwd（`state.systemStatus.cwd`，占位时回退 `process.cwd()`）下的 `AGENTS.md`；缺失则以 `sendUserText(INIT_PROMPT, "/init")` 注入初始化指令（常量在 `commands.ts`） | 已存在则 notice 提示并结束 |
-| `/stats` | 读 `state.usage`（**最近一次**模型调用）与 `state.usageTotals`（**本会话累计**：逐次 `usage` 事件求和，`history-resume-ok` / `session-switch` 清零、`clear-buffer` 不清）→ info 四行：最近一次调用分解 / 本会话累计 / 上下文（`input + cacheRead`，窗口缺失或为 0 时只显绝对量）/ 缓存命中率（分母 0 → `n/a`，最近一次调用口径） | 无 usage → info 提示 |
+| `/stats` | 读 `state.usage`（**最近一次**模型调用）与 `state.usageTotals`（**本会话累计**：逐次 `usage` 事件求和，`history-resume-ok` / `session-switch` 清零、`clear-buffer` 不清）→ info 四行：最近一次调用分解 / 本会话累计 / 上下文（`input + cacheRead`，窗口缺失或为 0 时只显绝对量）/ 缓存命中率（分母 0 → `n/a`，最近一次调用口径） | 无 usage（新会话 / 刚切换会话，**TUI#12**）→ 四行占位（最近一次 `—`、上下文 `—`、命中率 `n/a`） |
 | `/rename` | 纯函数 `renameCommandDecision(line)` 判 usage / invalid / apply；apply → `ctx.sessionTitle.rename(live Session, title)`；标题栏由既有 `session/title` 链路刷新，不手工改 state | 空标题 / 含换行本地拒绝；服务缺失 → warn |
 | `/model`、`/provider`、`/effort` | 见下文「/model 命令」 | 目录读取失败 → 提示 |
 | `/policy`、`/permission`、`/preset` | 见下文「通用状态选项面板」 | 服务缺失 → 提示不可用 |
@@ -49,7 +49,7 @@
 - 渲染为单一 `components/CommandListPanel.ts`（`buildCommandListPanelBox` + `renderCommandListPanel` 薄包装 `fillBoxTree`）：首行标题青 + 计数 + 右侧灰提示（按剩余宽截断），行 = `> ` 高亮 + 可选符号 + 主文本 — 副文本；占位态（错误红 > 加载中灰 > 空列表灰）输出恰 `height` 行。
 - **接线（现状）**：`layout.buildActivePanelBox` 按优先级选型（`commandPanel` 在 `jobsPanel` 与 `history` 之间）；`frameGeometry` 的 `modalOpen` 一次性判定 7 类面板非空（approval / question / picker / statusPanel / jobsPanel / commandPanel / history），`normalInput = !modalOpen`、`showHint` 随之派生——布局层已无独立的 `normalInput` / `modalOpen` 条件拼接；`inputPanelHeights` 提供翻页页高（与面板窗口同口径）。
 - 键位在 `handleKey` 面板段：`↑/↓`、`PgUp/PgDn`、`Enter` 主操作、`Esc` 关闭、其余吞掉（面板打开时不可输入新命令）。面板占满活动区期间瞬态输出不可见，故 Enter 类主操作若以 notice 反馈，先关面板再提示。
-- **面板保鲜**：`/agents` 与 `/workflows` 在宿主无状态事件面时于面板打开期间定时重拉（`startPanelRefresh`，默认 2s，`agentsRefreshIntervalMs` 可注入；tick 自检面板仍为自身否则停表），`/agents` 另有 `r` 手动刷新。
+- **面板保鲜**：`/agents` 与 `/workflows` 在面板打开期间定时重拉（`startPanelRefresh`，默认 2s，`agentsRefreshIntervalMs` 可注入；tick 自检面板仍为自身否则停表），`/agents` 另有 `r` 手动刷新；**TUI#10** 起 `/agents` 还订阅宿主 `subagent/start` · `subagent/end`（adapter emit `subagent-activity`）在面板打开时即时重拉，2s 定时退为兜底（老宿主无此事件时静默）。
 
 ### 非显然实现要点
 

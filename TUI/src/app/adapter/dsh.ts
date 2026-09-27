@@ -51,6 +51,8 @@ import type {
   RealAdapterOptions,
   LiveSessionHandle,
   HistoryMessage,
+  SessionInfo,
+  SessionQueryLike,
   SessionSurfaceView,
   TokenUsage,
   TaskEngineTaskLike,
@@ -75,8 +77,10 @@ import {
   type ApprovalDetail,
   buildApprovalPrompt,
   buildUserMessage,
+  extractTextBlocks,
   localTitleFromText,
   normalizeAgentStatus,
+  noticeSummaryOf,
   parseSlashCommand,
   readDefaultSelection,
 } from "./normalize.ts";
@@ -260,17 +264,6 @@ export function installSessionModelSelection(
 // 阶段 2 真实实现：createRealDshAdapter
 // ---------------------------------------------------------------------------
 
-/** 从表面事件 content 块数组提取纯文本（v1 仅取 text 块；reasoning/tool-result 省略） */
-function extractTextBlocks(content: unknown): string {
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const b of content as Array<Record<string, unknown>>) {
-    if (b && b.type === "text" && typeof b.text === "string")
-      parts.push(b.text);
-  }
-  return parts.join("\n");
-}
-
 /** 事件数组 → app 消息列表（P9：含 step 级工具概要行）。
  * 支持两种落在原始日志里的消息形态：
  *  1. user/message、assistant/message（旧/其他 backend 的完整消息事件）；
@@ -337,7 +330,10 @@ function normalizeHistoryMessages(
       // 失败判定与实时路径同口径：error 字段存在即失败
       if (step && data.error !== undefined && data.error !== null) step.fails++;
     } else if (e.type === "user/message") {
-      pushText("user", extractTextBlocks(data.content));
+      // TUI#17：插件注入的 notice 形态（source.form:'notice' + summary）→ 单行摘要行
+      const summary = noticeSummaryOf(data);
+      if (summary !== undefined) out.push({ role: "notice", text: summary });
+      else pushText("user", extractTextBlocks(data.content));
     } else if (e.type === "assistant/message") {
       const msg = data.message as Record<string, unknown> | undefined;
       pushText("assistant", extractTextBlocks(msg?.content));
@@ -345,6 +341,12 @@ function normalizeHistoryMessages(
       const inserted = data.inserted;
       if (!Array.isArray(inserted)) continue;
       for (const item of inserted as Array<Record<string, unknown>>) {
+        // TUI#17：注入 notice 项折成一行摘要；其余项按 role 走正文（现状）
+        const summary = noticeSummaryOf(item);
+        if (summary !== undefined) {
+          out.push({ role: "notice", text: summary });
+          continue;
+        }
         const role = item.role;
         if (role !== "user" && role !== "assistant") continue;
         pushText(role, extractTextBlocks(item.content));
@@ -550,6 +552,184 @@ interface SessionSurfaceProbe {
   title: string | undefined;
   hasPrompt: boolean;
   readable: boolean;
+}
+
+/** 有界并发助手（会话列表读取用，避免 180+ 会话顺序读拖慢面板） */
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const idx = cursor++;
+      if (idx >= items.length) return;
+      out[idx] = await fn(items[idx]!);
+    }
+  };
+  const n = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return out;
+}
+
+/** 官方标题：批量折叠 session/title 事件（readTitleSnapshots 优先；缺失逐条 readTitle） */
+async function officialTitles(
+  sessionQuery: SessionQueryLike | undefined,
+  ids: readonly string[],
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (!sessionQuery) return map;
+  try {
+    if (typeof sessionQuery.readTitleSnapshots === "function") {
+      const snaps = await sessionQuery.readTitleSnapshots([...ids]);
+      for (const snap of snaps) {
+        // 官方 settlement 形态：仅消费 fulfilled 的 value.title；rejected 隔离到单会话
+        if (
+          snap.status === "fulfilled" &&
+          snap.value?.title?.title &&
+          snap.sessionId
+        ) {
+          map.set(snap.sessionId, snap.value.title.title);
+        }
+      }
+    } else if (typeof sessionQuery.readTitle === "function") {
+      await mapLimit([...ids], 8, async (id) => {
+        try {
+          const t = await sessionQuery.readTitle!(id);
+          if (t?.title) map.set(id, t.title);
+        } catch {
+          /* 单个会话标题读取失败不阻断 */
+        }
+      });
+    }
+  } catch {
+    /* 标题服务不可用 → 全走本地兜底 */
+  }
+  return map;
+}
+
+/** 编辑时间（TUI#1）：会话日志末条事件 `time`（listEvents 轻量面）。
+ *  无事件 / 读取失败 / 服务缺失 → undefined（调用方回退 `createdAt`）。 */
+async function lastEventTime(
+  sessionQuery: SessionQueryLike,
+  id: string,
+): Promise<number | undefined> {
+  if (typeof sessionQuery.listEvents !== "function") return undefined;
+  try {
+    const events = await sessionQuery.listEvents(id);
+    let last: number | undefined;
+    for (const e of events) {
+      const t = (e as { time?: unknown }).time;
+      if (typeof t === "number" && Number.isFinite(t)) last = t;
+    }
+    return last;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 历史会话记录（TUI#1）：宿主 `listSessions` 归一化 + **编辑时间**（listEvents 末条
+ * 事件 time，缺失回退 createdAt）+ 标题 / 空会话探针；按编辑时间**从晚到早**排序
+ * （并列 createdAt 降序、id 兜底）。
+ *
+ * 单一来源：`adapter.listSessions`（面板）与 `main.ts` 的 `-c` / `--continue` 启动
+ * 解析共用；`readMessages` 缺省时跳过标题兜底与 isEmpty 判定（CLI 路径省 surface 读取）。
+ */
+export async function listSessionRecords(deps: {
+  sessionQuery: SessionQueryLike;
+  /** 读取某会话的归一化消息（标题兜底 + isEmpty 判定用；缺省跳过该探针） */
+  readMessages?: (id: string) => Promise<HistoryMessage[]>;
+  activeSessionId?: string;
+}): Promise<SessionInfo[]> {
+  const { sessionQuery, readMessages, activeSessionId } = deps;
+  const rs = await sessionQuery.listSessions();
+  const ids = rs.map((r) => r.header.id);
+  const official = await officialTitles(sessionQuery, ids);
+  // 编辑时间：listEvents 末条事件 time（轻量面；读取失败/缺失回退 createdAt）
+  const times = await mapLimit(ids, 8, async (id) => {
+    return [id, await lastEventTime(sessionQuery, id)] as const;
+  });
+  const updatedById = new Map<string, number>();
+  for (const [id, t] of times) if (t !== undefined) updatedById.set(id, t);
+  // 无官方标题的会话：本地兜底标题 + 空会话判定；
+      : ids.filter((id) => !official.has(id) || id === activeSessionId);
+  const probes = await mapLimit(probeIds, 8, async (id) => {
+    try {
+      const messages = await readMessages!(id);
+      const first = messages.find((m) => m.role === "user");
+      return [
+        id,
+        {
+          title: localTitleFromText(first?.text),
+          hasPrompt: first !== undefined,
+          readable: true,
+        },
+      ] as [string, SessionSurfaceProbe];
+    } catch {
+      return [id, { title: undefined, hasPrompt: true, readable: false }] as [
+        string,
+        SessionSurfaceProbe,
+      ];
+    }
+  });
+  const probeById = new Map(probes);
+  const records: SessionInfo[] = rs.map((r) => {
+    const probe = probeById.get(r.header.id);
+    const title = official.get(r.header.id) ?? probe?.title;
+    // 空会话：持久化 + 非 live + surface 确认无用户消息
+    // （有官方标题即视为有对话；读取面缺失 → 不判空）
+    const isEmpty =
+      r.persisted &&
+      !r.live &&
+      probe !== undefined &&
+      probe.readable &&
+      !probe.hasPrompt;
+    return {
+      id: r.header.id,
+      createdAt: r.header.createdAt,
+      updatedAt: updatedById.get(r.header.id) ?? r.header.createdAt,
+      cwd: r.header.cwd,
+      live: r.live,
+      persisted: r.persisted,
+      // 当前活跃判定以 adapter 视角为准（活跃会话在内存 store 中必为 live）
+      ...(r.live && r.header.id === activeSessionId ? { current: true } : {}),
+      ...(probe === undefined ? {} : { hasPrompt: probe.hasPrompt }),
+      ...(title === undefined ? {} : { title }),
+    };
+  });
+  // TUI#1：面板/选择一律按「编辑时间」从晚到早（并列 createdAt 降序、id 兜底）
+  records.sort(byUpdatedDesc);
+  return records;
+}
+
+/** 记录排序比较器（TUI#1）：编辑时间降序、并列创建时间降序、id 兜底 */
+function byUpdatedDesc(a: SessionInfo, b: SessionInfo): number {
+  return (
+    (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt) ||
+    b.createdAt - a.createdAt ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+/**
+ * 「最近退出」会话选择（TUI#1 / #2 共用）：当前目录（cwd 精确匹配，与 `/session`
+ * project 范围同口径）+ 已持久化 + 非 live（当前活跃必为 live，天然排除），
+ * 取编辑时间（`updatedAt`，缺省 `createdAt`）最大的一条；无匹配 → undefined。
+ */
+export function pickRecentSession(
+  records: readonly SessionInfo[],
+  cwd: string | undefined,
+): SessionInfo | undefined {
+  if (cwd === undefined) return undefined;
+  const candidates = records.filter(
+    (r) => r.cwd === cwd && r.persisted === true && !r.live,
+  );
+  if (candidates.length === 0) return undefined;
+  return [...candidates].sort(byUpdatedDesc)[0];
+}
 }
 
 /** 会话目录删除结果：ok=true 时 path 为实际删除的目录（realpath 解析后） */
@@ -958,6 +1138,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   // 上下文窗口缓存：provider:model → 模型上下文容量（LlmResolvedModelInfo.context.contextWindow，
   // 供状态栏 ctx 占用百分比作分母）。undefined=已解析但模型未披露（不再重试）；缺失/异常视为未知。
   const ctxWindowCache = new Map<string, number | undefined>();
+  // TUI#17：已渲染的注入 notice 消息 id（user/message 与 agent/inbox/spliced 双通道
+  // 可能携带同一条注入消息 → 去重；超上限清空，避免无界增长）
+  const renderedNoticeIds = new Set<string>();
   const resolveContextWindow = async (
     key: string,
   ): Promise<number | undefined> => {
@@ -1014,26 +1197,6 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     throw new Error(
       "sessionQuery 未暴露 readSession/readSurface，无法读取会话内容",
     );
-  };
-
-  /** 有界并发助手（列表标题本地兜底读取用，避免 180+ 会话顺序读拖慢面板） */
-  const mapLimit = async <T, R>(
-    items: T[],
-    limit: number,
-    fn: (item: T) => Promise<R>,
-  ): Promise<R[]> => {
-    const out = new Array<R>(items.length);
-    let cursor = 0;
-    const worker = async (): Promise<void> => {
-      while (true) {
-        const idx = cursor++;
-        if (idx >= items.length) return;
-        out[idx] = await fn(items[idx]!);
-      }
-    };
-    const n = Math.min(limit, items.length);
-    await Promise.all(Array.from({ length: n }, () => worker()));
-    return out;
   };
 
   /**
@@ -1241,41 +1404,6 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           : { statusColumn: uiState.statusColumn }),
       });
     }
-  };
-
-  /** 官方标题：批量折叠 session/title 事件（readTitleSnapshots 优先；缺失逐条 readTitle） */
-  const officialTitles = async (
-    ids: string[],
-  ): Promise<Map<string, string>> => {
-    const map = new Map<string, string>();
-    if (!sessionQuery) return map;
-    try {
-      if (typeof sessionQuery.readTitleSnapshots === "function") {
-        const snaps = await sessionQuery.readTitleSnapshots(ids);
-        for (const snap of snaps) {
-          // 官方 settlement 形态：仅消费 fulfilled 的 value.title；rejected 隔离到单会话
-          if (
-            snap.status === "fulfilled" &&
-            snap.value?.title?.title &&
-            snap.sessionId
-          ) {
-            map.set(snap.sessionId, snap.value.title.title);
-          }
-        }
-      } else if (typeof sessionQuery.readTitle === "function") {
-        await mapLimit(ids, 8, async (id) => {
-          try {
-            const t = await sessionQuery.readTitle!(id);
-            if (t?.title) map.set(id, t.title);
-          } catch {
-            /* 单个会话标题读取失败不阻断 */
-          }
-        });
-      }
-    } catch {
-      /* 标题服务不可用 → 全走本地兜底 */
-    }
-    return map;
   };
 
   // --- 流式块应用（实时帧与结算数组共用） ---
@@ -1604,6 +1732,35 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         const argsRaw =
           typeof data.arguments === "string" ? data.arguments : "";
         const summary = summarizeToolArguments(argsRaw);
+      case "user/message":
+      case "agent/inbox/spliced": {
+        // TUI#17：插件注入消息的 notice 形态（source.form:'notice' + summary）→
+        // 渲染为一行提示（不展开、不占用户消息块）；其余 user 消息不渲染——
+        // 用户输入由本地回显覆盖，未实现 notice 的注入维持现状（不显示），避免重复。
+        const candidates: Array<Record<string, unknown>> = [];
+        if (raw.type === "user/message") {
+          candidates.push(raw.data as Record<string, unknown>);
+        } else {
+          const inserted = (raw.data as { inserted?: unknown }).inserted;
+          if (!Array.isArray(inserted)) return;
+          for (const item of inserted)
+            if (item && typeof item === "object")
+              candidates.push(item as Record<string, unknown>);
+        }
+        for (const item of candidates) {
+          const id = typeof item["id"] === "string" ? item["id"] : undefined;
+          // 双通道（user/message 与 spliced）可能携带同一条注入消息 → 按 id 去重
+          if (id !== undefined && renderedNoticeIds.has(id)) continue;
+          const summary = noticeSummaryOf(item);
+          if (summary === undefined) continue;
+          if (id !== undefined) {
+            if (renderedNoticeIds.size > 200) renderedNoticeIds.clear();
+            renderedNoticeIds.add(id);
+          }
+          emit({ type: "notice", text: summary, tone: "log" });
+        }
+        return;
+      }
         rememberToolCall(data.callId, name, argsRaw, summary);
         emit({
           type: "tool-call",
@@ -2518,9 +2675,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         return undefined;
       }
     },
-    // 历史会话列表（宿主挂载 sessionQuery 时可用）：newest-first；
+    // 历史会话列表（宿主挂载 sessionQuery 时可用）：按**编辑时间**从晚到早（TUI#1）；
     // 标题优先官方 session/title 事件（批量折叠），缺失时本地兜底首条用户消息；
-    // 同一趟 surface 读取顺带判定 isEmpty（持久化且从未有用户消息 → 可清理）
+    // 同一趟 surface 读取顺带判定 isEmpty（持久化且从未有用户消息 → 可清理）。
+    // 归一化/排序单一来源 = 模块级 listSessionRecords（与 main.ts 的 -c 解析共用）。
     listSessions: sessionQuery
       ? async () => {
           const rs = await sessionQuery.listSessions();
@@ -3327,6 +3485,15 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     runtime.on("agent/assistant-stream", (payload) => {
       const p = payload as {
         agent?: { session?: { id?: string } };
+  // TUI#10：子代理生命周期事件（dsh-subagent：subagent/start · subagent/end）——
+  // /agents 面板打开期间据此即时刷新（2s 定时仍作兜底）；老宿主无此事件时静默。
+  for (const evt of ["subagent/start", "subagent/end"] as const) {
+    collectUnbind(
+      runtime.on(evt, () => {
+        emit({ type: "subagent-activity" });
+      }),
+    );
+  }
         frame?: Parameters<typeof onAssistantFrame>[1];
       };
       const sessionId = p?.agent?.session?.id;

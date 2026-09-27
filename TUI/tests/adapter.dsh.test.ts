@@ -47,6 +47,8 @@ import {
   type QuestionItem,
   type AgentRegistryLike,
   buildUserMessage,
+  pickRecentSession,
+  type SessionInfo,
   type AgentPresetsLike,
   type JobsLike,
 } from "../src/app/adapter/dsh.ts";
@@ -706,6 +708,16 @@ test("agent/status：非活跃 agent 状态不转发（不污染状态栏）", (
 });
 
 test("session/event：非活跃会话事件不转发（不污染活跃 buffer）", () => {
+test("TUI#10 subagent/start · subagent/end → subagent-activity 事件（/agents 面板即时刷新用）", () => {
+  const t = makeAdapter();
+  t.runtime.fire("subagent/start", { runId: "r1" });
+  t.runtime.fire("subagent/end", { runId: "r1" });
+  assert.deepEqual(t.events, [
+    { type: "subagent-activity" },
+    { type: "subagent-activity" },
+  ]);
+});
+
   const t = makeAdapter();
   t.runtime.fire(
     "session/event",
@@ -1683,6 +1695,12 @@ class FakeSessionQuery implements SessionQueryLike {
   /** 标记会话用 readSession（agent/inbox/spliced 形态）而不是 readSurface */
   usesSplicedSessions = new Set<string>(["live-1"]);
   readCalls: string[] = [];
+  /** TUI#1：listEvents 末条事件 time（编辑时间来源；缺省无记录 → 回退 createdAt） */
+  emptySessions = new Set<string>();
+  listEvents(id: string): Promise<{ time?: number }[]> {
+    const t = this.eventTimes[id];
+    return Promise.resolve(t === undefined ? [] : [{ time: t }]);
+  }
   /** 官方标题折叠（dsh-session-title 落盘日志）；缺省 undefined = 服务不可用 */
   readTitle?: (id: string) => Promise<{ title: string } | undefined>;
   /** 官方批量折叠（settlement 形态：fulfilled 携带 value.title / rejected 携带 reason） */
@@ -1715,10 +1733,15 @@ class FakeSessionQuery implements SessionQueryLike {
     if (this.usesSplicedSessions.has(id)) {
       return Promise.resolve({
         session: { id },
-        events: [...this.events, ...this.splicedEvents],
+        events: this.emptySessions.has(id)
+          ? []
+          : [...this.events, ...this.splicedEvents],
       });
     }
-    return Promise.resolve({ session: { id }, events: this.events });
+    return Promise.resolve({
+      session: { id },
+      events: this.emptySessions.has(id) ? [] : this.events,
+    });
   }
   readSurface(
     id: string,
@@ -1727,7 +1750,10 @@ class FakeSessionQuery implements SessionQueryLike {
     if (id === "corrupt-9") {
       return Promise.reject(new Error('stored session "corrupt-9" is corrupt'));
     }
-    return Promise.resolve({ session: { id }, events: this.events });
+    return Promise.resolve({
+      session: { id },
+      events: this.emptySessions.has(id) ? [] : this.events,
+    });
   }
 }
 
@@ -1744,6 +1770,7 @@ test("历史会话：listSessions 归一化（id/时间/cwd/live/persisted + 无
       live: true,
       persisted: false,
       title: "你好 第二行",
+      updatedAt: 1787290000000,
     },
     {
       id: "old-2",
@@ -1753,6 +1780,7 @@ test("历史会话：listSessions 归一化（id/时间/cwd/live/persisted + 无
       persisted: true,
       title: "你好 第二行",
     },
+      updatedAt: 1787200000000,
   ]);
 });
 
@@ -1806,8 +1834,14 @@ test("历史会话：listSessions 标记 current——live 且 id==活跃会话 
   // makeAdapterWithSessionQuery 的 adapter sessionId = "s1"
   const { adapter } = makeAdapterWithSessionQuery(sq);
   const records = await adapter.listSessions!();
-  assert.equal(records[0]!.current, true, "活跃 live 会话标记 current");
-  assert.equal("current" in records[1]!, false, "非活跃 live 会话不标 current");
+  // 排序按编辑时间（TUI#1）→ 不再依赖宿主顺序，按 id 取记录断言
+  const byId = new Map(records.map((r) => [r.id, r]));
+  assert.equal(byId.get("s1")?.current, true, "活跃 live 会话标记 current");
+  assert.equal(
+    "current" in (byId.get("s9") ?? {}),
+    false,
+    "非活跃 live 会话不标 current",
+  );
 });
 
 test("历史会话：listSessions 标题——损坏/不可读会话省略 title（渲染层显示（新会话））", async () => {
@@ -1828,6 +1862,76 @@ test("历史会话：listSessions 标题——损坏/不可读会话省略 title
 test("sessionTitle：官方 readTitle 优先；readTitle 缺失/出错 → undefined（app 层本地兜底）", async () => {
   const sq = new FakeSessionQuery();
   sq.readTitle = async () => ({ title: "官方标题" });
+test("历史会话：listSessions 编辑时间取 listEvents 末条 time 并按其降序；缺失回退 createdAt（TUI#1）", async () => {
+  const sq = new FakeSessionQuery();
+  sq.records = [
+    {
+      header: { id: "a", createdAt: 100, cwd: "/p" },
+      live: false,
+      persisted: true,
+    },
+    {
+      header: { id: "b", createdAt: 200, cwd: "/p" },
+      live: false,
+      persisted: true,
+    },
+    {
+      header: { id: "c", createdAt: 300, cwd: "/p" },
+      live: false,
+      persisted: true,
+    },
+  ];
+  sq.eventTimes = { a: 900, b: 100 }; // c 无事件记录 → 回退 createdAt=300
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const records = await adapter.listSessions!();
+  assert.deepEqual(
+    records.map((r) => r.id),
+    ["a", "c", "b"],
+    "按编辑时间降序（并列 createdAt 降序）",
+  );
+  assert.equal(records[0]!.updatedAt, 900, "updatedAt = 末条事件 time");
+  assert.equal(records[1]!.updatedAt, 300, "无事件 → 回退 createdAt");
+  assert.equal(records[2]!.updatedAt, 100);
+});
+
+test("pickRecentSession：同目录 + 非 live + 编辑时间最大；无匹配 → undefined（TUI#1/#2 共用选择）", () => {
+  const mk = (
+    id: string,
+    cwd: string,
+    live: boolean,
+    updatedAt: number,
+  ): SessionInfo => ({
+    id,
+    createdAt: updatedAt,
+    updatedAt,
+    cwd,
+    live,
+    persisted: !live,
+  });
+  const records = [
+    mk("cur", "/p", true, 9999),
+    mk("x", "/p", false, 100),
+    mk("y", "/p", false, 500),
+    mk("z", "/q", false, 99999),
+  ];
+  assert.equal(
+    pickRecentSession(records, "/p")?.id,
+    "y",
+    "排除 live、取编辑时间最大",
+  );
+  assert.equal(pickRecentSession(records, "/q")?.id, "z", "只看目标目录");
+  assert.equal(
+    pickRecentSession(records, "/none"),
+    undefined,
+    "无匹配 → undefined",
+  );
+  assert.equal(
+    pickRecentSession(records, undefined),
+    undefined,
+    "cwd 未知 → undefined",
+  );
+});
+
   const { adapter } = makeAdapterWithSessionQuery(sq);
   assert.equal(await adapter.sessionTitle!("old-2"), "官方标题");
 
@@ -3471,7 +3575,8 @@ test("jobs 订阅（0.1.7 起）：events.subscribe({owner}) 触发即推送全�
 // P2 · 0.1.2-rc.1 新事件/字段消费
 // ---------------------------------------------------------------------------
 
-/** 顶层 fire helper（既有 fireEvent 为父 test 回调内的局部函数，顶层不可见） */
+/** 顶层 fire helper（既有 fireEvent 为父 test 回调内的局部函数，顶层不可见）；
+ *  seq 可显式指定（同会话递增，避免被 adapter 的 seq 守卫丢弃） */
 function fire(
   t: TestHarness,
   type: string,
@@ -3480,7 +3585,7 @@ function fire(
 ): void {
   t.runtime.fire("session/event", { id: sid }, {
     type,
-    seq: 1,
+    seq,
     time: Date.now(),
     data,
   } as unknown as SessionEvent);
@@ -3577,6 +3682,7 @@ test("restoreSessionState：从会话日志折叠 plan/sandbox/permission/policy
     { type: "plan/mode", seq: 1, data: { active: false } },
     { type: "plan/mode", seq: 2, data: { active: true } }, // 最后一条生效
     { type: "sandbox/mode", seq: 3, data: { mode: "danger-full-access" } },
+  seq = 1,
     {
       type: "permission/preset",
       seq: 4,
@@ -5336,4 +5442,105 @@ test("真实 adapter /search：无任何 provider → reject", async () => {
   const { adapter, unbind } = makeAdapter();
   await assert.rejects(adapter.search!("q"), /web 未挂载/);
   unbind();
+});
+
+// ---------------------------------------------------------------------------
+// TUI#17：source.form:'notice' 渲染（历史路径 + live 路径）
+// ---------------------------------------------------------------------------
+
+test("TUI#17 历史归一：notice 形态注入消息 → 一行摘要（不产 user 行）", async () => {
+  const sq = new FakeSessionQuery();
+  sq.events = [
+    {
+      type: "user/message",
+      seq: 1,
+      data: {
+        role: "user",
+        content: [{ type: "text", text: "请统一符号" }],
+        source: {
+          kind: "rule-engine",
+          form: "notice",
+          summary: "已提醒模型统一符号",
+        },
+      },
+    },
+    {
+      type: "user/message",
+      seq: 2,
+      data: {
+        role: "user",
+        content: [{ type: "text", text: "普通用户消息" }],
+      },
+    },
+  ];
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const view = await adapter.readSessionSurface!("old-2");
+  assert.deepEqual(view.messages, [
+    { role: "notice", text: "已提醒模型统一符号" },
+    { role: "user", text: "普通用户消息" },
+  ]);
+});
+
+test("TUI#17 历史归一：spliced 项为 notice（summary 缺省取正文首行）；普通项仍走正文", async () => {
+  const sq = new FakeSessionQuery();
+  sq.events = [
+    {
+      type: "agent/inbox/spliced",
+      seq: 1,
+      data: {
+        inserted: [
+          {
+            id: "inj-1",
+            role: "user",
+            content: [{ type: "text", text: "首行摘要\n第二行" }],
+            source: { kind: "rule-engine", form: "notice" },
+          },
+          {
+            id: "u-2",
+            role: "user",
+            content: [{ type: "text", text: "正常消息" }],
+          },
+        ],
+      },
+    },
+  ];
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const view = await adapter.readSessionSurface!("old-2");
+  assert.deepEqual(view.messages, [
+    { role: "notice", text: "首行摘要" },
+    { role: "user", text: "正常消息" },
+  ]);
+});
+
+test("TUI#17 live：spliced 注入 notice → 单行 notice 事件（log 灰）；按 id 去重、普通消息不渲染", () => {
+  const t = makeAdapter();
+  const injected = {
+    id: "inj-9",
+    role: "user",
+    content: [{ type: "text", text: "请统一符号" }],
+    source: {
+      kind: "rule-engine",
+      form: "notice",
+      summary: "已提醒模型统一符号",
+    },
+  };
+  fire(t, "agent/inbox/spliced", { inserted: [injected] }, "s1", 1);
+  // 同一 id 再次到达（user/message 通道或重放）→ 不重复渲染
+  fire(t, "agent/inbox/spliced", { inserted: [injected] }, "s1", 2);
+  fire(t, "user/message", injected, "s1", 3);
+  // 普通用户消息（含本地回显之外的历史注入）不渲染
+  fire(
+    t,
+    "agent/inbox/spliced",
+    {
+      inserted: [
+        { id: "u-1", role: "user", content: [{ type: "text", text: "hi" }] },
+      ],
+    },
+    "s1",
+    4,
+  );
+  assert.deepEqual(t.events, [
+    { type: "notice", text: "已提醒模型统一符号", tone: "log" },
+  ]);
 });

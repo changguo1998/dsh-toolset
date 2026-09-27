@@ -160,6 +160,8 @@ export type DshEvent =
     }
   /** P8：sessionId 供「压缩中算活跃」按会话标记 */
   | { type: "compaction"; phase: "start" | "end"; sessionId?: string }
+  /** TUI#10：子代理生命周期变化（subagent/start · subagent/end）→ /agents 面板即时刷新 */
+  | { type: "subagent-activity" }
   | {
       type: "retry";
       attempt: number;
@@ -492,6 +494,7 @@ export type SessionEventType =
   | "step/start"
   | "step/end"
   | "user/message"
+  | "agent/inbox/spliced"
   | "assistant/message"
   | "assistant/attempt"
   | "tool/call"
@@ -861,6 +864,9 @@ export interface SessionInfo {
   id: string;
   /** 创建时间（Unix 毫秒） */
   createdAt: number;
+  /** 编辑时间（Unix 毫秒；TUI#1）：会话日志末条事件 `time`（listEvents），
+   *  缺失/读取失败回退 `createdAt`。列表与「最近退出」选择一律按它从晚到早。 */
+  updatedAt?: number;
   /** 会话启动时工作目录（列表展示用） */
   cwd?: string;
   /** 是否 live 会话（内存 store 中）：当前活跃标 [当前]、其余 live 标 [不可续] 不可选中 */
@@ -885,9 +891,11 @@ export type SessionDeleteResult = { ok: true } | { ok: false; reason: string };
  *  - `user` / `assistant`：正文消息；
  *  - `step`（P9）：按 step 折叠的**工具概要行**，text 形如
  *    `22:31:05 #3 ╌╌ read ×2, bash ×1`（渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满）；
- *    无工具调用的 step 不产出行，参数摘要/结果详情/thinking 均不还原。 */
+ *    无工具调用的 step 不产出行，参数摘要/结果详情/thinking 均不还原；
+ *  - `notice`（TUI#17）：插件注入消息 `source.form:'notice'` 的**一行摘要**（summary，
+ *    缺失时取正文首行）——渲染为单行提示，不展开、不占用户消息块。 */
 export interface HistoryMessage {
-  role: "user" | "assistant" | "step";
+  role: "user" | "assistant" | "step" | "notice";
   text: string;
 }
 
@@ -954,6 +962,8 @@ export interface SessionQueryLike {
    *  live 优先→persisted；无标题事件返回 undefined） */
   readTitle?(sessionId: string): Promise<{ title: string } | undefined>;
   /**
+  /** 轻量原始事件记录（升序 seq；TUI#1 仅消费末条 `time` 作「编辑时间」） */
+  listEvents?(sessionId: string): Promise<readonly { time?: number }[]>;
    * 批量折叠标题（单次 corpus 观察，比逐条 readTitle 高效；缺失服务时省略）。
    * 官方契约为 settlement 形态：每条为 fulfilled（value: {session, title?}）或
    * rejected（reason）——仅消费 fulfilled 的 value.title。

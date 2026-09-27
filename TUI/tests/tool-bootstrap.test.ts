@@ -118,7 +118,7 @@ test("personaFor: spec/react 固定文案，weak 按模型分 pro/flash", () => 
 /* -- 模型门控 --------------------------------------------------------------- */
 
 test("isDeepseekModel: 全部 deepseek-* 模型（含 provider 前缀形态）", () => {
-  // 命中：v4 系（pro / flash / 其它变体）、chat / reasoner / v3、带 provider 前缀
+  // 命中：模型 id 含 deepseek（v4 系 / v3 / 合成假名）与 provider 前缀形态
   for (const id of [
     "deepseek-v4-pro",
     "deepseek-v4.1-pro",
@@ -409,7 +409,7 @@ test("installToolBootstrap: 切模型后连续调用仍全量，状态只在进�
     "core 里永不出现的 glob/grep 解锁后可用",
   );
 
-  // C) 解锁后**切模型**（flash → pro → deepseek-chat）并连续多轮组装：
+  // C) 解锁后**切模型**（flash → 其它 deepseek-* 模型）并连续多轮组装：
   //    promotion 按会话记忆，每个工具调用都照常全量，不回退到锁定
   for (const model of [
     "deepseek-v4-pro",

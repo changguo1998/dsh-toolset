@@ -75,13 +75,14 @@ test("completeCommandInput：宿主命令并入 + 同名以本地目录优先（
     { name: "model", desc: "宿主同名命令" },
   ];
   const r = completeCommandInput("/co", host, "slash");
-  // 本地目录含 /stats 的别名 context（批次 1）、/contract（A5）、/council（P2#18）：
-  // 排序=名称长度优先、同长按字典序（compact/context/council 同 7 字符按字典序）
+  // 本地目录含 /stats 的别名 context（批次 1）、/contract（A5）、/council（P2#18）、
+  // /continue（TUI#1）：排序=名称长度优先、同长按字典序
   assert.deepEqual(names(r?.items), [
     "copy",
     "compact",
     "context",
     "council",
+    "continue",
     "contract",
   ]);
   assert.equal(

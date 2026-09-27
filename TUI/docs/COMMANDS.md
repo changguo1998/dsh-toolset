@@ -11,7 +11,7 @@
 
 ### 1.1 本地命令（app 层直接处理，不经 adapter）
 
-单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（38 条 = 33 命令 + 5 别名 `/cls` `/thinking` `/usage` `/context` `/exit`）；路由决策 `routeSlashCommand`，处理分支在 `src/app/index.ts` `handleSlash`。
+单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（39 条 = 34 命令 + 5 别名 `/cls` `/thinking` `/usage` `/context` `/exit`；`/continue` 为 TUI#1 新增）；路由决策 `routeSlashCommand`，处理分支在 `src/app/index.ts` `handleSlash`。
 
 命令的**行为、参数与键位**见 `TUI/README.md`「Slash 命令」一节；逐命令的**落点与降级**见 `TUI/docs/IMPLEMENTATION.md`。本节不重复这两者，只维护上面的「单一来源 + 路由」事实与 §1.2 的宿主注册面。
 
@@ -46,6 +46,6 @@
 | 平台/服务专属命令 | 属其他 agent 生态特有（Claude Code / 官方云与 IDE 集成等，如 `/stickers` `/pets` `/voice` `/design*` `/heapdump` `/ide` 一类，数十条），不迁移 |
 | 上游已移除 | `/vim` `/ultraplan` |
 | 无底座且收益低 | `/rewind` `/restore`（`dsh-session-checkpoint-policy` 是持久化检查点，非回退）、`/add-dir` `/directory`（会话 cwd 由宿主决定）、`/fast` `/personality`（dsh-persona 未挂载）、`/btw` `/side` |
-| 本项目已有等效 | `/compact` `/feedback` `/goal` `/policy` `/permission` `/preset` `/jobs` `/theme` `/model` `/effort` `/session` `/copy` `/init` `/help` `/quit` `/clearscreen` |
+| 本项目已有等效 | `/compact` `/feedback` `/goal` `/policy` `/permission` `/preset` `/jobs` `/theme` `/model` `/effort` `/session` `/continue` `/copy` `/init` `/help` `/quit` `/clearscreen` |
 
 另不做：`/settings` 写回（真实配置 + 乐观锁，需独立契约）、正则/高级过滤（面板过滤为大小写不敏感子串）、面板增量事件订阅（面板数据为打开时拉取）。

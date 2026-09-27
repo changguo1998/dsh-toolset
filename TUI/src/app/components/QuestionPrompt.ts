@@ -19,7 +19,9 @@
 // intent.approve 标签识别，渲染上与普通选项一致、由用户在选项中选取）。
 // “自定义回答”是固定在选项列表末尾的兜底项（无预设选项时列表仅此一项），
 // 与普通选项一样用 ↑/↓ 高亮；高亮在其上时键入字符即输入自定义文本，此时
-// 面板产出 caret（BACKLOG 3.2.7，见 questionCaretFor）。
+// 面板产出 caret（BACKLOG 3.2.7，见 questionCaretFor）。BACKLOG TUI#5：命中
+// 语义标记（其它 / 自定义 / …）的兜底类预设会被并入该项，原文作为其解释行
+// 展示（`customHint`），不再出现在预设列表中。
 // 选项行形态（BACKLOG 3.2.3 / 3.2.12）：首行 ` >✓ 1. 选项正文`（标记统一 `✓`，
 // BACKLOG TUI#4），**解释另起一行**并按选项正文起点缩进，光标 `>` 与标记 `✓`
 // 只出现在选项首行。
@@ -283,7 +285,8 @@ function layoutQuestionPanel(
       ci,
       optionLead(ci, cursor, mark),
       `自定义回答${item.custom === "" ? "" : "：" + item.custom}`,
-      undefined,
+      // TUI#5：被并兜底项（「其它」等）原文作为解释行展示（与预设选项的解释同形态）
+      item.customHint,
       item.custom !== ""
         ? { fg: "green" }
         : item.optionIndex === ci && optionFocused

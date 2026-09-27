@@ -283,7 +283,9 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       screen.reset(); // 恢复终端默认 SGR，避免残留主题色
       terminal.close();
       // DESIGN：close() = 恢复终端 + 退出事件循环
-      if (exitOnClose) process.exit(0);
+      // 尊重既有 process.exitCode（BACKLOG TUI#14：冒烟失败已置 1，不能被这里
+      // 的硬 exit(0) 覆盖成「看起来通过」；未设置时按 0 正常退出）
+      if (exitOnClose) process.exit(process.exitCode ?? 0);
     },
   };
   return renderer;

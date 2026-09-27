@@ -58,18 +58,33 @@ export function buildOsc52(text: string): string {
   return `\x1b]52;c;${b64}\x07`;
 }
 
-/** 历史会话表面消息 → buffer 行（user/assistant 正文 + P9 的 step 概要行）；
- *  历史 assistant 均为已完成回合的最终总结 → final: true（历史区展示）。
+/** 历史会话表面消息 → buffer 行（user/assistant 正文 + P9 的 step 概要行 +
+ *  TUI#17 的 notice 摘要行）；历史 assistant 均为已完成回合的最终总结 → final: true（历史区展示）。
  *  P9：整条为空的消息不再产出行（恢复后成片空行的来源），step 行原样成行。 */
 export function surfaceToBuffer(
-  messages: readonly { role: "user" | "assistant" | "step"; text: string }[],
-): { text: string; kind: "user" | "assistant" | "step"; final?: boolean }[] {
+  messages: readonly {
+    role: "user" | "assistant" | "step" | "notice";
+    text: string;
+  }[],
+): {
+  text: string;
+  kind: "user" | "assistant" | "step" | "notice";
+  tone?: "log";
+  final?: boolean;
+}[] {
   const out: {
     text: string;
-    kind: "user" | "assistant" | "step";
+    kind: "user" | "assistant" | "step" | "notice";
+    tone?: "log";
     final?: boolean;
   }[] = [];
   for (const m of messages) {
+    if (m.role === "notice") {
+      // TUI#17：注入 notice 的一行摘要 → 单行提示行（log 灰；空白行不产出）
+      const text = sanitizeText(m.text).text.trim();
+      if (text !== "") out.push({ text, kind: "notice", tone: "log" });
+      continue;
+    }
     if (m.role === "step") {
       if (m.text.trim() !== "") out.push({ text: m.text, kind: "step" });
       continue;
@@ -158,6 +173,7 @@ export type SlashRoute =
   | "verbose"
   | "symbol-unify"
   | "session"
+  | "continue"
   | "new"
   | "copy"
   | "registry"
@@ -219,6 +235,11 @@ export const LOCAL_COMMANDS: readonly {
     desc: "模型输出符号统一：on=变体替换为推荐符号并提醒 / off=原样（不替换不提醒）",
   },
   { name: "session", route: "session", desc: "历史会话浏览/恢复" },
+  {
+    name: "continue",
+    route: "continue",
+    desc: "加载当前目录下最近退出的会话（等价 /session + 自动选中）",
+  },
   {
     name: "new",
     route: "new",

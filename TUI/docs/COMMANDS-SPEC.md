@@ -70,13 +70,13 @@ commandPanel: {
 - 行样式：首行标题（青）+ 计数，右侧按键提示（灰，按剩余宽截断）；行 = `> ` 高亮前缀 + 状态符号 + 主文本，符号着色沿用 `JobsPanel.statusMark` 口径。
 - 空态：灰占位，仍输出恰 `height` 行；超宽 `truncateToWidth`，不切半个 CJK。
 - 互斥：打开时关闭 `history` / `picker` / `jobsPanel` / 其他 `commandPanel`。
-- 数据：打开时经 `adapter.refresh<Name>()` 拉一次写入 `command-panel-data`；需保鲜的 kind（`agents` / `workflows`）打开期间定时刷新，`/agents` 另有 `r` 手动刷新，其余不做增量订阅（不引入轮询）。
+- 数据：打开时经 `adapter.refresh<Name>()` 拉一次写入 `command-panel-data`；需保鲜的 kind（`agents` / `workflows`）打开期间定时刷新，`/agents` 另有 `r` 手动刷新（TUI#10 起 `agents` 还订阅宿主 `subagent/start` · `subagent/end` 即时重拉，2s 定时退为兜底），其余不做增量订阅（不引入轮询）。
 
 ## 5. 命名、冲突与 help
 
 - 命令名规则 `^/([a-z][a-z0-9_-]*)`；别名在 `LOCAL_COMMANDS` 内以独立条目指向同一 route（先例 `/clearscreen` + `/cls`）。
 - 与宿主注册命令同名时**本地优先**（先例 `/goal`、`/permission`）；本地未消费的形态应转发宿主，例外是 `/goal`——恒为本地提示、参数被忽略（不转发）。
-- `/help` 必须同步加行；help 行数变化会改变冻结基线（`tests/fixtures/focus-frame-legacy.json`）→ 重跑 `node --experimental-transform-types scripts/freeze-focus-frame.mts` 并 diff 审查，随后 `npm run demo -- --smoke` 断言 `SMOKE_PASS` 全绿（36 项）。
+- `/help` 必须同步加行；help 行数变化会改变冻结基线（`tests/fixtures/focus-frame-legacy.json`）→ 重跑 `node --experimental-transform-types scripts/freeze-focus-frame.mts` 并 diff 审查，随后 `npm run demo -- --smoke` 断言 `SMOKE_PASS` 全绿（当前 43 项，2026-09-27 实测）。
 
 ## 6. 测试口径（每条命令必备）
 

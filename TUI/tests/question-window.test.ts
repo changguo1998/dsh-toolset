@@ -30,7 +30,10 @@ import {
   maxApprovalScroll,
   renderApprovalPrompt,
 } from "../src/app/components/ApprovalPrompt.ts";
-import { questionKeyDecision } from "../src/app/question-transition.ts";
+import {
+  buildQuestionAnswers,
+  questionKeyDecision,
+} from "../src/app/question-transition.ts";
 import { windowStart } from "../src/app/layout/panel.ts";
 import { questionHintLine } from "../src/app/layout/hints.ts";
 import { rowAnsi, rowsText } from "./helpers/rowText.ts";
@@ -627,4 +630,48 @@ test("描述窗接入 markdown（BACKLOG TUI#6）：标题去 #、行内去壳�
   );
   assert.ok(text.includes("要点：选择环境"), "行内加粗去壳: " + text);
   assert.ok(text.includes("| a | b |"), "表格退回纯文本行: " + text);
+});
+
+test("兜底项合并（TUI#5）：命中语义标记的预设并入自定义回答（不可标记、原文作解释行、无空回退）", () => {
+  const st = questionState([
+    {
+      id: "sq",
+      question: "选择部署环境？",
+      options: [
+        { label: "生产" },
+        { label: "其它", description: "请说明" },
+        { label: "以上都不是" },
+      ],
+    },
+  ]);
+  const item = panelOf(st).items[0]!;
+  assert.deepEqual(
+    item.options.map((o) => o.label),
+    ["生产"],
+    "兜底类选项已从预设列表摘除",
+  );
+  assert.equal(
+    item.customHint,
+    "其它（请说明）、以上都不是",
+    "合并原文按「、」连接（带 description 时括注）",
+  );
+  const text = plain(renderQuestionPanel(panelOf(st), 14, 60)).join("\n");
+  assert.ok(text.includes("自定义回答"), "自定义兜底项仍在: " + text);
+  assert.ok(
+    text.includes("其它（请说明）、以上都不是"),
+    "解释行（被并原文）可见: " + text,
+  );
+  // 无输入直接提交：空回退只对剩余预设生效（被并项已不在列表中，不可被选中）
+  assert.deepEqual(
+    buildQuestionAnswers(panelOf(st)).answers[0]?.selected,
+    ["生产"],
+    "空提交回退到首个剩余预设，而非被并项",
+  );
+  // 无命中（普通选项列表）：不产生合并，行为不变
+  const plainState = questionState([
+    { id: "p", question: "x", options: [{ label: "A" }, { label: "B" }] },
+  ]);
+  const plainItem = panelOf(plainState).items[0]!;
+  assert.equal(plainItem.customHint, undefined, "无命中 → 无解释文字");
+  assert.equal(plainItem.options.length, 2, "无命中 → 预设不摘除");
 });

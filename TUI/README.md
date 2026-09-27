@@ -19,6 +19,7 @@ DSH（DeepSeek Harness）进程内集成的终端 UI 插件：复用 DSH 核心�
 `bin/tui.js` 是零第三方依赖的 delegating launcher：
 
 - **真实链路**：目标 profile（默认 `fff`，可用 `DSH_TUI_PROFILE` 覆盖）已安装本 bundle 时，委托 `dsh --profile <p>` 启动——profile 树内 cordis 以插件方式调用 `main.ts` 的 `apply(ctx)`，创建会话、拉起 agent 并组装 renderer + app + real adapter；argv 与退出码原样透传。
+- **TUI 自有启动参数**（宿主启动器 flag 之后的内层参数，经 `ctx.cmdlineArgs` 读取）：`--resume <id>`（启动即恢复指定会话，id 无效 → stderr 提示并回落新建）与 `-c` / `--continue`（启动即加载**当前目录下最近退出的会话**，无匹配 → 静默新建）；`--resume` 优先于 `-c`，未知参数忽略。用法：`dsh --profile fff --continue` / `dsh --profile fff --resume <id>`。
 - **无 DSH 退化**：无可用 profile 或传 `--demo` 时运行 mock demo（renderer + app + mock adapter 全栈走通，不触碰 DSH）。
 
 ```sh
@@ -255,7 +256,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 | `/init` | 生成项目 `AGENTS.md`：已存在则提示并结束，缺失则注入初始化指令由模型生成 |
 | `/jobs` | 后台任务面板：`↑/↓` 选择、`PgUp/PgDn` 翻页、Enter 取消、Esc 关闭 |
 | `/skills [过滤]`、`/tools [过滤]` | 技能 / 工具列表面板：Enter 读取正文或详情（关面板后以 notice 展示） |
-| `/agents` | 子代理面板：Enter 直接中断选中项；面板打开期间每 2s 定时刷新（`r` 手动刷新） |
+| `/agents` | 子代理面板：Enter 直接中断选中项；面板打开期间订阅 `subagent/start` · `subagent/end` 即时刷新（另有 2s 定时兜底与 `r` 手动刷新） |
 | `/task`、`/guard`、`/loop` | 任务树 / 守卫记录 / 指标循环面板，Enter 查看详情 |
 | `/workflows` | workflow 运行面板（只读，面板打开期间定时刷新） |
 | `/memory` | 知识库概要（路径与 chunk/source 计数） |

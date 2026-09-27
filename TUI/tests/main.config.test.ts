@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeTuiDisplayConfig } from "../src/main.ts";
+import { normalizeTuiDisplayConfig, parseTuiStartupArgs } from "../src/main.ts";
 
 function collect(): { warns: string[]; warn: (m: string) => void } {
   const warns: string[] = [];
@@ -53,3 +53,47 @@ test("归一化小数四舍五入并在界内", () => {
   const c = normalizeTuiDisplayConfig({ messageGutter: 9.6 });
   assert.equal(c.messageGutter, 10);
 });
+
+// --- TUI#2：CLI 启动参数（宿主内层参数 ctx.cmdlineArgs 的 TUI 自有 flag 解析） ---
+
+test("parseTuiStartupArgs：--resume 两种写法、-c/--continue、优先级与忽略项", () => {
+  assert.deepEqual(parseTuiStartupArgs([]), { continueLatest: false });
+  assert.deepEqual(parseTuiStartupArgs(["--resume", "s42"]), {
+    resume: "s42",
+    continueLatest: false,
+  });
+  assert.deepEqual(parseTuiStartupArgs(["--resume=s42"]), {
+    resume: "s42",
+    continueLatest: false,
+  });
+  assert.deepEqual(parseTuiStartupArgs(["-c"]), { continueLatest: true });
+  assert.deepEqual(parseTuiStartupArgs(["--continue"]), {
+    continueLatest: true,
+  });
+  assert.deepEqual(
+    parseTuiStartupArgs(["-c", "--resume", "x"]),
+    { resume: "x", continueLatest: true },
+    "--resume 优先于 -c（两者都记录，启动侧取 resume）",
+  );
+  assert.deepEqual(
+    parseTuiStartupArgs(["--theme", "dark", "-c"]),
+    { continueLatest: true },
+    "未知参数忽略（多插件共享、不消费）",
+  );
+  assert.deepEqual(
+    parseTuiStartupArgs(["--resume"]),
+    { continueLatest: false },
+    "--resume 缺值 → 视为未提供",
+  );
+  assert.deepEqual(
+    parseTuiStartupArgs(["--resume", "--continue"]),
+    { continueLatest: true },
+    "--resume 后紧跟其它 flag → 缺值，不吞掉 -c",
+  );
+  assert.deepEqual(
+    parseTuiStartupArgs(["--resume="]),
+    { continueLatest: false },
+    "--resume= 空值 → 视为未提供",
+  );
+});
+

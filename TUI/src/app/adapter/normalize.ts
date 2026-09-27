@@ -34,6 +34,43 @@ export function parseSlashCommand(line: string): string | null {
   return m ? m[1]! : null;
 }
 
+/** 从表面事件 content 块数组提取纯文本（v1 仅取 text 块；reasoning/tool-result 省略） */
+export function extractTextBlocks(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const b of content as Array<Record<string, unknown>>) {
+    if (b && b.type === "text" && typeof b.text === "string")
+      parts.push(b.text);
+  }
+  return parts.join("\n");
+}
+
+/** notice 摘要上限（对齐宿主 CONTEXT_SUMMARY_MAX_CHARS，超出截断） */
+const NOTICE_SUMMARY_MAX = 120;
+
+/**
+ * 注入消息的 notice 形态判定（BACKLOG TUI#17）：`source.form === "notice"` 时返回
+ * **一行摘要**——`summary` 优先；缺失或空白时取正文首个非空行（截断 ≤120 字符）。
+ * 非 notice 形态 / 无法判定 → undefined（调用方按普通消息处理）。
+ */
+export function noticeSummaryOf(message: unknown): string | undefined {
+  if (typeof message !== "object" || message === null) return undefined;
+  const msg = message as Record<string, unknown>;
+  const source = msg["source"] as Record<string, unknown> | undefined;
+  if (source?.["form"] !== "notice") return undefined;
+  const summary =
+    typeof source["summary"] === "string" ? source["summary"].trim() : "";
+  if (summary !== "") return summary;
+  const line = extractTextBlocks(msg["content"])
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l !== "");
+  if (line === undefined) return undefined;
+  return line.length > NOTICE_SUMMARY_MAX
+    ? line.slice(0, NOTICE_SUMMARY_MAX)
+    : line;
+}
+
 /** 审批草稿明细（由 tool/call 参数抽取；3.3.3） */
 export interface ApprovalDetail {
   /** 工具名（与 req.toolName 同源，供明细行核对） */

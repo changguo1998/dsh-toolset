@@ -7,7 +7,9 @@
 //                       合成按键驱动并自断言
 // 新输入交互（! 为普通字符 / $ 切模式 + shell 提交左提示符 $ / 空输入 Backspace
 // 回退 / Alt+Enter 打断并发送 / Esc idle 无操作 / 审批弹窗 Esc 不打断不关闭），
-// 产出 SMOKE_* 证据后 /quit 以退出码 0 收尾，便于无头环境演示与机械验证。
+// 冒烟信号（BACKLOG TUI#14）：全绿 → `SMOKE_OK` + 退出码 0；有失败项 → 逐项
+// `SMOKE_FAIL <label>` + 汇总 `SMOKE_FAIL n=…`（不再打印 `SMOKE_OK`），退出码非 0
+// （renderer.close 尊重 process.exitCode；此前被 process.exit(0) 覆盖为「看起来通过」）。
 
 import {
   createRenderer,
@@ -109,9 +111,11 @@ if (smoke) {
   // 等 app.start() 完成 onKey 注册与首帧渲染后再注入按键
   setTimeout(() => {
     void (async () => {
+      let failures = 0;
       const pass = (label: string): void =>
         console.error("SMOKE_PASS " + label);
       const fail = (label: string, detail = ""): void => {
+        failures += 1;
         console.error(
           "SMOKE_FAIL " + label + (detail ? " (" + detail + ")" : ""),
         );
@@ -609,12 +613,18 @@ if (smoke) {
       );
       renderer.emitKey(key("escape"));
       await sleep(200);
-      console.error(
-        "SMOKE_OK sent=" +
-          JSON.stringify(sent) +
-          " interrupts=" +
-          adapter.interrupts,
-      );
+      if (failures === 0) {
+        console.error(
+          "SMOKE_OK sent=" +
+            JSON.stringify(sent) +
+            " interrupts=" +
+            adapter.interrupts,
+        );
+      } else {
+        // 有失败项：不打印 SMOKE_OK（避免「看起来通过」），汇总失败数供 grep
+        // （退出码由 process.exitCode=1 + renderer.close 尊重它保证）
+        console.error("SMOKE_FAIL n=" + failures);
+      }
       typeLine("/quit");
     })().catch((err) => {
       console.error("SMOKE_ERROR " + String(err));

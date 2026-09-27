@@ -91,15 +91,16 @@
 
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
-| 43 | TUI 符号纠正改为 rule-engine 消费者：`TUI/src/app/symbols.ts` 的「规则表 + 判定 + turn-end 后 followup」泛化为调用 `rule-engine`（跨模块，交其他 agent 接取） | #42 决策（2026-09-27）：符号纠正不迁移，仅登记消费者改造 | rule-engine 规则族 + TUI adapter | P2 |
+| 43 | TUI 符号纠正改为 rule-engine 消费者：`TUI/src/app/symbols.ts` 的「规则表 + 判定 + turn-end 后 followup」泛化为调用 `rule-engine`（跨模块，交其他 agent 接取）。**2026-09-27 TUI 批次裁定降级**：rule-engine provide 面无消费者判定 / 注册 API 且未挂载 profile → 待 #47 落地后另起任务接取（见 `TUI/docs/BACKLOG.md` #18） | #42 决策（2026-09-27）：符号纠正不迁移，仅登记消费者改造 | rule-engine 规则族 + TUI adapter | P2 |
 | 44 | rule-engine 增设 `agent/pre-step` 注入路径：waterfall 面可在消息进入 step 前插入 user-role 消息（本轮只做 `agent.followup`，裁定见 #42 追踪文档） | #42 调研 §8.B / §5.7（2026-09-27） | `agent/pre-step`、`agent/inbox`（next-step） | P2 |
 | 45 | rule-engine 仓库级集成：根 `package.json`（check/build）、`scripts/install.sh`（canonical_pkgs）、`scripts/test-parallel.sh`（default_pkgs）、根 `README.md`（插件表/目录树/文档索引）、`AGENTS.md`（12 → 13 个包）——本轮受改文件范围限制未做，包目前只在自身目录内自检 | #42 实现期范围限制（2026-09-27） | 现有脚手架三处 + 两份根文档 | P2 |
-| 46 | TUI 支持 `source.form:'notice'` 渲染：插件注入消息带 `form:'notice'` + `summary` 时渲染为一行提示（不展开、不占用户消息块），使 rule-engine 的「提示人」呈现方式生效；本轮 TUI 未实现，注入内容现渲染为普通用户消息块 | #42 调研 §8.D（2026-09-27）；TUI 落地时同步登记到 `TUI/docs/BACKLOG.md` | `TUI/src/app/adapter/normalize.ts` / `dsh.ts` 事件消费面 | P2 |
+| 46 | **完成（2026-09-27）**：TUI 支持 `source.form:'notice'` 渲染——插件注入消息带 `form:'notice'` + `summary` 时渲染为**一行提示**（不展开、不占用户消息块）；实时（`agent/inbox/spliced` / `user/message`，按消息 id 去重）与恢复两条路径同口径 | #42 调研 §8.D（2026-09-27）；TUI 落地时同步登记到 `TUI/docs/BACKLOG.md` | TUI#17 实现；追踪文档 `TUI/docs/archived/2026-09-27-tui-remaining-batch.md` | P2 |
+| 47 | rule-engine 提供**消费者 API**（供 TUI 符号纠正等消费者调用）：如只读判定 `evaluate(text, source)`（返回命中规则）与 / 或规则注册面 + 包文档与测试；落地后把 rule-engine 挂进 `fff` profile 以便真机验证 | TUI#18 降级裁定（2026-09-27，见 `TUI/docs/archived/2026-09-27-tui-remaining-batch.md`） | `rule-engine/src/main.ts`（provide 面扩展）、`rule-engine/README.md` / `rule-engine/docs/DESIGN.md`、`rule-engine/tests/`；profile `fff`（用户侧） | P2 |
 
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
-1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#25、#26、#28-#32、#37、#38，按需排期；另加 #42（规则触发的自动注入，进行中）与其后续项 #43-#46；#34 已完成；#35 已取消。
+1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#25、#26、#28-#32、#37、#38，按需排期；另加 #42（规则触发的自动注入，进行中）与其后续项 #43-#47（#46 已完成）；#34 已完成；#35 已取消。
 1. 依赖：#17 的模板族与 #32 可共用 workflow/skill 资产；workflow-ext 建包前，工作流相关插件面依赖 task-engine 的契约与执行器；其余相互独立。
 
 ## 4. 插件规划（未建包）
