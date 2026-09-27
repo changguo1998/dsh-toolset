@@ -1737,6 +1737,21 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
 
       case "user/message":
       case "agent/inbox/spliced": {
+        // TUI#43：`removedCount > 0` = 核心摘除了**已认领**的排队项（steer 在 step 边界、
+        // followup 在回合开始）→ 通知 App 把对应排队项转入历史流（App 只处理 next-step，
+        // next-turn 的认领仍由回合开始路径处理，避免一条被认领两次）
+        const splicedData = raw.data as {
+          removedCount?: unknown;
+          target?: unknown;
+        };
+        if (
+          typeof splicedData.removedCount === "number" &&
+          splicedData.removedCount > 0 &&
+          (splicedData.target === "next-step" ||
+            splicedData.target === "next-turn")
+        ) {
+          emit({ type: "inbox-claim", target: splicedData.target });
+        }
         // TUI#17：插件注入消息的 notice 形态（source.form:'notice' + summary）→
         // 渲染为一行提示（不展开、不占用户消息块）；其余 user 消息不渲染——
         // 用户输入由本地回显覆盖，未实现 notice 的注入维持现状（不显示），避免重复。

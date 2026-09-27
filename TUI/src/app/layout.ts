@@ -729,7 +729,8 @@ export interface FrameGeometry {
   dialogueTextW: number;
   activityTextW: number;
   /** 排队块可见行（右对齐用户块，右缘竖线灰色；钉在对话 pane 底部右下角。
-   *  内容 = `AppState.queued`：已交给核心 next-turn 队列、本回合尚未认领的消息 */
+   *  内容 = `AppState.queued`：已投递核心、尚未认领的排队项（followup = 等下一回合、
+   *  steer = 等本回合下一次 step；渲染顺序 steer 在前，右缘竖线颜色按类型区分，TUI#43） */
   queuedRows: ContentRow[];
   /** 历史视口高 = dialogueH − 排队块行数（语义锚点与滚动上限按它算） */
   viewportH: number;
@@ -757,10 +758,16 @@ export interface FrameGeometry {
  */
 function queuedBlockRows(state: AppState, width: number): ContentRow[] {
   if (state.queued.length === 0) return [];
-  const lines: Buffer = state.queued.map((text) => ({
-    text,
+  // TUI#43：渲染顺序 steer 在前、followup 在后（组内各保持提交顺序）——
+  // steer 等的是本回合的下一次 step（更近），followup 等的是下一回合
+  const ordered = [
+    ...state.queued.filter((q) => q.kind === "steer"),
+    ...state.queued.filter((q) => q.kind !== "steer"),
+  ];
+  const lines: Buffer = ordered.map((item) => ({
+    text: item.text,
     kind: "user",
-    queued: true,
+    queued: item.kind,
   }));
   return buildContentRows(
     lines,

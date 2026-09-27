@@ -106,6 +106,13 @@ export interface InputHistoryEntry {
   mode: InputMode;
 }
 
+/** 排队项（BACKLOG TUI#43）：`followup` = 等下一回合认领；`steer` = 等本回合下一次 step 认领。
+ *  两类共用一条队列（按提交顺序存）；渲染时 steer 整体排在 followup 之上、右缘竖线颜色不同。 */
+export interface QueuedItem {
+  text: string;
+  kind: "followup" | "steer";
+}
+
 /** 输入状态（P1 起用于**用户块首行**符号，不再渲染在状态栏最左侧）：绿✓=成功 /
  *  红✗=失败 / 黄●/○=运行中（实心/空心圆按流式输出节奏交替，见 RUN_TOGGLE_CHARS）/
  *  黄△=等待交互（审批/问答面板打开等用户决策）/ idle=尚无结果（渲染回退 ?） */
@@ -143,8 +150,9 @@ export interface BufferLine {
   tone?: NoticeTone;
   /** 回合最终总结标记：turn-end 时由 markFinalSummary 打标；历史恢复行恒为 true */
   final?: boolean;
-  /** 排队中的用户消息（历史区右下角的待发块；右缘竖线改灰色标识未发出） */
-  queued?: boolean;
+  /** 排队中的用户消息（历史区右下角的待发块）：`followup` → 右缘竖线灰、`steer` → 黄
+   *  （TUI#43；已发出的用户块为亮红）。字符串真值，便于同时表达「排队中」与「排队类型」。 */
+  queued?: "followup" | "steer";
   /** P1：该用户块的终态（turn-end 时按 reason 打标；缺省 = 未收到终态，渲染 `?`）。
    *  - `success` 绿 ✓（completed）；`failure` 红 ✗（error）；`aborted` 灰 ■（aborted）。 */
   status?: "success" | "failure" | "aborted";
@@ -402,10 +410,10 @@ export interface AppState {
   inputHistoryDraft: string;
   /** 进入翻看前的草稿模式（随草稿一起恢复；非翻看态为 normal） */
   inputHistoryDraftMode: InputMode;
-  /** 排队消息（**已按官方流程 followup 交给核心 next-turn 队列**、但本回合尚未被
-   *  认领的文本，按提交顺序；本机只用于显示——核心认领最早一条时该条转入历史流。
-   *  空数组 = 无排队） */
-  queued: string[];
+  /** 排队项（**已投递给核心、尚未被认领**的文本，按提交顺序存；本机只用于显示）：
+   *  `followup` 等下一回合、`steer` 等本回合下一次 step（TUI#43）。核心认领时该条转入
+   *  历史流（按类型认领：`queued-claim` 取最早 followup、`queued-claim-steer` 取最早 steer）。 */
+  queued: QueuedItem[];
   /** 输入模式（符号代表模式；提交后自动回退 normal） */
   inputMode: InputMode;
   /** 输入状态（状态栏最左侧符号来源）：绿✓=成功 / 红✗=失败 / 黄●/○=运行中（按
@@ -818,6 +826,9 @@ export function appendStream(
   kind: BufferKind = "assistant",
   /** 流式事件到达时刻（ms；assistant/thinking 时驱动虚拟速度/虚拟总 token 更新） */
   time?: number,
+  /** TUI#43：true = **强制另起一行**（不与末行同类续写）。
+   *  用户行必须用它——否则连续两条用户消息会被粘成一行（排队消息认领时实测到）。 */
+  newLine = false,
 ): AppState {
   // 思考/正文分属活动区与历史区两个窗口：正文到达不清思考，思考保留显示到本
   // turn 结束，由下轮 turn-begin 统一清空（活动区瞬态整轮重置）。
@@ -851,6 +862,7 @@ export function appendStream(
       if (
         i === 0 &&
         !breakBefore &&
+        !newLine &&
         last &&
         last.kind === kind &&
         last.kind !== "separator"
@@ -1292,16 +1304,38 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "append":
         return appendStream(state, action.text, "assistant", action.time);
       case "user-line":
-        return appendStream(state, action.text, "user");
+        // 用户行一律另起一行（TUI#43：末行同为 user 时续写会把两条输入粘一起）
+        return appendStream(state, action.text, "user", undefined, true);
       case "queued-push":
         // 排队消息登记（不合并、不写 buffer）：显示由布局层按 queued 渲染，
-        // 消息本身已由 App 经 adapter.sendMessage 交给核心 next-turn 队列
-        return { ...state, queued: [...state.queued, action.text] };
-      case "queued-claim": {
-        // 核心认领最早一条（新回合开始）：该条转入历史流（灰块 → 用户行）
-        const [head, ...rest] = state.queued;
-        if (head === undefined) return state;
-        return appendStream({ ...state, queued: rest }, head, "user");
+        // 核心认领后由 queued-claim / queued-claim-steer 转入历史流；kind 缺省 followup
+        return {
+          ...state,
+          queued: [
+            ...state.queued,
+            { text: action.text, kind: action.kind ?? "followup" },
+          ],
+        };
+      case "queued-claim":
+      case "queued-claim-steer": {
+        // TUI#43：按类型认领（各自取**最早**一条）——回合开始认领 followup、
+        // 中途 step 边界认领 steer；认领即转入历史流（与既有口径一致）
+        const kind =
+          action.type === "queued-claim-steer" ? "steer" : "followup";
+        const idx = state.queued.findIndex((q) => q.kind === kind);
+        if (idx < 0) return state;
+        const item = state.queued[idx]!;
+        const rest = [
+          ...state.queued.slice(0, idx),
+          ...state.queued.slice(idx + 1),
+        ];
+        return appendStream(
+          { ...state, queued: rest },
+          item.text,
+          "user",
+          undefined,
+          true,
+        );
       }
       case "queued-clear":
         return { ...state, queued: [] };
@@ -2362,9 +2396,11 @@ export type StateAction =
   | { type: "append"; text: string; time?: number }
   | { type: "user-line"; text: string }
   /** 排队消息登记：**追加**一条（不合并；发送走官方 followup，核心逐条认领） */
-  | { type: "queued-push"; text: string }
+  | { type: "queued-push"; text: string; kind?: "followup" | "steer" }
   /** 核心认领最早一条排队消息（新回合开始）：弹出并作为用户行落历史 */
   | { type: "queued-claim" }
+  /** TUI#43：认领最早一条 steer 排队项（宿主在 step 边界摘除 steer 时触发） */
+  | { type: "queued-claim-steer" }
   | { type: "queued-clear" }
   | { type: "thinking"; text: string; time?: number }
   /** 运行中闪烁时间驱动（App 在 running 期间周期性发送）：无数据时虚拟速度

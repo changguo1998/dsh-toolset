@@ -1216,6 +1216,15 @@ export class App {
         // TUI#39：同时即时刷新状态列 Agents 块（5s 定时之外的「启停即刻可见」通道）
         this.refreshAgentsQuiet();
         break;
+      case "inbox-claim":
+        // TUI#43：steer 在**本回合的 step 边界**被核心认领 → 该条从排队块转入历史流。
+        // next-turn 的认领仍走回合开始路径（beginTurnIfNeeded → queued-claim），
+        // 这里只处理 steer，避免同一条被认领两次
+        if (e.target === "next-step") {
+          this.apply((s) => reduceState(s, { type: "queued-claim-steer" }));
+          this.paint();
+        }
+        break;
       case "ui-flags": {
         // 切换会话后回填 TUI 本地开关（宿主日志不记录 verbose / symbol-unify）
         if (
@@ -2105,7 +2114,9 @@ export class App {
    */
   private restoreQueued(): boolean {
     if (this.state.queued.length === 0) return false;
-    const text = this.state.queued.join("\n");
+    // TUI#43：队列项带类型（followup / steer）→ 退回输入框只取文本，按**提交顺序**拼接
+    // （渲染时的 steer 优先排序不影响这里，避免打乱用户实际输入顺序）
+    const text = this.state.queued.map((q) => q.text).join("\n");
     const cur = this.state.inputText;
     const next = cur === "" ? text : text + "\n" + cur;
     this.apply((s) =>
@@ -2151,9 +2162,27 @@ export class App {
       // canSteer 缺省（mock/旧 adapter 未实现）视为「不确定」→ 仍按 steer 投递，
       // 由 adapter 侧按宿主结构面决定 steer/followup（dsh adapter 有 steer 才用）
       const canSteer = this.deps.adapter.canSteer?.() !== false;
-      this.sendUserText(text, text, canSteer ? "next-step" : undefined);
-      // 降级提示放在发送**之后**：sendUserText 会开回合（turn-begin 清活动区），
-      // 先提示会被清掉（真机/用例一致的可观测顺序）
+      const target = canSteer ? "next-step" : undefined;
+      if (this.agentBusy()) {
+        // 本回合在跑 → 进排队块（TUI#43）：独立成行、steer 右缘竖线黄，等下一次 step 认领后
+        // 由 `inbox-claim` 转入历史流；宿主无 steer 时按 followup 类型排队（等下一回合）
+        this.apply((s) =>
+          reduceState(s, {
+            type: "queued-push",
+            text,
+            kind: canSteer ? "steer" : "followup",
+          }),
+        );
+        this.deps.adapter.sendMessage(
+          text,
+          this.state.activeSessionId ?? undefined,
+          target,
+        );
+      } else {
+        // 空闲：没有可插队的 step（steer 会直接起一轮）→ 直达回显，不留排队闪影
+        this.sendUserText(text, text, target);
+      }
+      // 降级提示放在发送**之后**：发送路径可能开回合（turn-begin 清活动区），先提示会被清掉
       if (!canSteer) {
         this.apply((s) =>
           reduceState(s, {

@@ -663,10 +663,16 @@ test("agent 运行中 Enter → 官方流程：立即发送给核心（逐条不
   const { app, renderer, adapter } = makeApp();
   typeAndEnter(renderer, "第一条");
   assert.deepEqual(adapter.sent, ["第一条"], "空闲直发");
-  const st = (): { queued: string[]; buffer: { text: string }[] } =>
+  const st = (): {
+    queued: { text: string; kind: "followup" | "steer" }[];
+    buffer: { text: string }[];
+  } =>
     (
       app as unknown as {
-        state: { queued: string[]; buffer: { text: string }[] };
+        state: {
+          queued: { text: string; kind: "followup" | "steer" }[];
+          buffer: { text: string }[];
+        };
       }
     ).state;
   // 运行中：后续 Enter 立即 followup（核心 next-turn 队列），逐条、不合并
@@ -677,7 +683,14 @@ test("agent 运行中 Enter → 官方流程：立即发送给核心（逐条不
     ["第一条", "第二条", "第三条"],
     "排队消息同样走官方 followup（立即发送，不由本机积压）",
   );
-  assert.deepEqual(st().queued, ["第二条", "第三条"], "本机登记两条排队显示");
+  assert.deepEqual(
+    st().queued,
+    [
+      { text: "第二条", kind: "followup" },
+      { text: "第三条", kind: "followup" },
+    ],
+    "本机登记两条排队显示（TUI#43 起带类型）",
+  );
   const bufferText = (): string =>
     st()
       .buffer.map((l) => l.text)
@@ -689,7 +702,11 @@ test("agent 运行中 Enter → 官方流程：立即发送给核心（逐条不
   // 核心开始新回合（首条正文到达）→ 认领最早一条：转入历史流
   adapter.push({ type: "turn-end" });
   adapter.push({ type: "stream", sessionId: "s1", text: "第二轮回答" });
-  assert.deepEqual(st().queued, ["第三条"], "每回合认领一条（弹出最早）");
+  assert.deepEqual(
+    st().queued,
+    [{ text: "第三条", kind: "followup" }],
+    "每回合认领一条（弹出最早）",
+  );
   assert.ok(bufferText().includes("第二条"), "被认领的排队消息成为历史用户行");
   app.dispose();
 });
@@ -774,7 +791,11 @@ test("P8：压缩期间 Enter 进排队、Ctrl+D 不退出；压缩结束恢复"
   renderer.press({ name: "d", ctrl: true, meta: false, shift: false });
   assert.equal(renderer.closed, 0, "压缩期间 Ctrl+D 不退出（视为活跃）");
   typeAndEnter(renderer, "压缩中提问");
-  assert.deepEqual(st().queued, ["压缩中提问"], "压缩期间 Enter 走排队显示");
+  assert.deepEqual(
+    st().queued,
+    [{ text: "压缩中提问", kind: "followup" }],
+    "压缩期间 Enter 走排队显示",
+  );
   adapter.push({ type: "compaction", phase: "end", sessionId: "s1" });
   assert.deepEqual(st().compactingBySession, {}, "end 后清除标记");
   renderer.press({ name: "d", ctrl: true, meta: false, shift: false });

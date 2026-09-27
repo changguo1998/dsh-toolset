@@ -23,21 +23,12 @@ import {
   renderToolNameLine,
 } from "./content-rules.ts";
 import { measure, allocate } from "./measure.ts";
-import { fillToList, type ContentRow } from "./fill.ts";
+import { fillToList, type ContentRow, type RowMeta } from "./fill.ts";
 import { displayWidth } from "./markdown.ts";
 import { truncateToWidth } from "./primitives.ts";
 
-/** 行元数据（fill 传播到 ContentRow） */
-export interface RowMeta {
-  kind?: BufferKind;
-  blockId?: number;
-  /** 来源 buffer 行号（窗口切片时为绝对行号 = lineOffset + 切片内下标；调试/分组口径） */
-  line?: number;
-  /** 来源 buffer 行的**稳定序号**（语义锚点身份；filter/裁剪后行下标会平移而序号不变） */
-  seq?: number;
-  /** 排队中的用户消息（未发出；渲染层据此把右缘竖线画成灰色） */
-  queued?: boolean;
-}
+/** 行元数据（= `fill.ts` 的 `RowMeta`，单一来源；buildBox 产出、fill 传播到 ContentRow） */
+export type { RowMeta };
 
 /** buildBox 产物：内容树 + 行元数据映射 */
 export interface BuildBoxResult {
@@ -224,7 +215,7 @@ export function buildBox(
       blockId: freshBlockId(),
       line: lineOffset + li,
       seq: line.seq,
-      ...(line.queued ? { queued: true } : {}),
+      ...(line.queued ? { queued: line.queued } : {}),
     };
     if (line.kind === "tool") {
       toolRun.push({
@@ -251,7 +242,8 @@ export function buildBox(
     }
     if (line.kind === "user") {
       // 整块右对齐 + 右缘竖线：h([spacer(fill), 内容])
-      // 排队中（尚未发出）的右缘竖线改灰色：与已发出的用户块（亮红）区分
+      // 右缘竖线三色（TUI#43）：steer 排队中黄（等本回合下一次 step）/ followup 排队中灰
+      // （等下一回合）/ 已发出亮红
       // P1/P7：首行左侧状态符号**独立成格**（固定 2 列 = 符号 + 1 空格）与正文并排——
       // 符号不参与正文换行，故正文首行与续行同列（不再出现"续行与符号对齐"）；符号只在
       // 首行可见（h 合并时其余行按空格补齐该格，缩进不塌）。左侧留白同步扣掉符号宽，
@@ -261,7 +253,14 @@ export function buildBox(
       const body = styled([{ text: line.text }], {
         suffix: {
           text: "┃",
-          style: { fg: line.queued ? "gray" : "brightRed" },
+          style: {
+            fg:
+              line.queued === "steer"
+                ? "yellow"
+                : line.queued
+                  ? "gray"
+                  : "brightRed",
+          },
           minWidth: USER_MIN_LEFT_GUTTER + 2,
         },
       });

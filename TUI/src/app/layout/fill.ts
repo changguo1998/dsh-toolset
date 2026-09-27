@@ -65,8 +65,8 @@ export type RowMeta = {
   indent?: number;
   line?: number;
   seq?: number;
-  /** 排队中的用户消息（未发出；右缘竖线灰色） */
-  queued?: boolean;
+  /** 排队中的用户消息（未发出）：`followup` 右缘竖线灰、`steer` 黄（TUI#43） */
+  queued?: "followup" | "steer";
 };
 
 /** 便捷：fill 整棵树到行数组（rects 由 allocate 输出，缺省每个节点=根 rect） */

@@ -179,6 +179,9 @@ export type DshEvent =
   | { type: "subagent-activity" }
   /** TUI#39：子代理目录快照（adapter 归一化 subagents 目录）→ 状态列 Agents 块（按会话切片） */
   | { type: "agents-changed"; sessionId: string; agents: AgentRowInfo[] }
+  /** TUI#43：核心摘除了已认领的排队项（`removedCount > 0`）。
+   *  `target` = "next-step"（steer 在 step 边界被认领）/ "next-turn"（followup 在回合开始）。 */
+  | { type: "inbox-claim"; target: "next-step" | "next-turn" }
   | {
       type: "retry";
       attempt: number;
@@ -517,6 +520,7 @@ export type SessionEventType =
   | "step/end"
   | "user/message"
   | "agent/inbox/spliced"
+  /** TUI#43：核心摘除已认领的排队项（steer 在 step 边界 / followup 在回合开始） */
   | "assistant/message"
   | "assistant/attempt"
   | "tool/call"
