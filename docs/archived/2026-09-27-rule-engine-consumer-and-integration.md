@@ -1,8 +1,8 @@
 # rule-engine 消费者框架、symbol-normalizer 插件与仓库级集成（BACKLOG: 项目级 #43 / #44 / #45 / #47 / #48）
 
-状态：进行中　　开启：2026-09-27
+状态：关闭　　开启：2026-09-27　　关闭：2026-09-27
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
-TUI 侧（TUI#18 = #43 的 TUI 侧）过程记录见 `TUI/docs/implementation/2026-09-27-symbol-consumer-change.md`。
+TUI 侧（TUI#18 = #43 的 TUI 侧）过程记录见 `TUI/docs/archived/2026-09-27-symbol-consumer-change.md`。
 
 ## 目标
 
@@ -68,7 +68,7 @@ symbol-normalizer（#48，新包，模板同 rule-engine）：
 | `demo/main.ts` | mock：正文 → 审查 → notice + 反馈内容（不依赖 DSH） |
 | `README.md` / `docs/DESIGN.md` | 模块契约与架构 |
 
-TUI（#43 / TUI#18）见 `TUI/docs/implementation/2026-09-27-symbol-consumer-change.md`。
+TUI（#43 / TUI#18）见 `TUI/docs/archived/2026-09-27-symbol-consumer-change.md`。
 
 仓库级（#45）：
 
@@ -106,7 +106,7 @@ TUI（#43 / TUI#18）见 `TUI/docs/implementation/2026-09-27-symbol-consumer-cha
 - 2026-09-27：TUI 改造（详见 TUI 追踪文档）——删除 `symbols.ts` / 冷却表 / followup；经 `ctx.get('symbolNormalizer')` 懒读服务做展示归一与 notice；`/symbol-unify` 保留；配置段删除；文档同步；TUI check + 1149 条测试全绿。
 - 2026-09-27：#45 集成——根 `package.json`（check / build）、`scripts/install.sh`（canonical_pkgs）、`scripts/test-parallel.sh`（default_pkgs）、根 `README.md`（插件表 / 目录树 / 包数）、`AGENTS.md`（插件 12→14、包 13→15）。
 - 2026-09-27：真机验证（新临时 profile，`DSH_HOME=tmp/dshhome`，不改 `fff`）：headless 与 TUI 两个临时 profile `--dump-config` 均含目标条目；headless 启动实测发现真机缺陷——rule-engine 直接访问 `ctx.tools` 触发 cordis 严格模式 `cannot get property "tools" without inject`（单测假 ctx 未覆盖），改为 `ctx.get('tools')` 读取并补测试；重跑后 rule-engine 与 symbol-normalizer 均「已加载」（消费者注册成功、无 pending），TUI profile 在 PTY 中正常起帧。
-- 2026-09-27：端到端模型回合（notice + 注入）在沙箱内无法执行——宿主报 `MISSING_CREDENTIAL: llm-deepseek … DEEPSEEK_API_KEY`；人工复核步骤见「收尾」。
+- 2026-09-27：端到端模型回合（notice + 注入）在沙箱内无法执行——宿主报 `MISSING_CREDENTIAL: llm-deepseek … DEEPSEEK_API_KEY`；转由用户在本地环境复核，用户回报注入消息原文，链路通过（见「收尾」）。
 
 ## 测试与证据
 
@@ -118,7 +118,7 @@ TUI（#43 / TUI#18）见 `TUI/docs/implementation/2026-09-27-symbol-consumer-cha
 
 ## 收尾
 
-- **待人工复核（用户环境有模型凭据）**：
-  - TUI：`DSH_HOME=~/Projects/dsh-toolset/tmp/dshhome dsh --profile rule-engine-verify-tui`，发一条会触发符号提醒的请求（如「只回复一个 ✅」）；预期：正文 ✅ 被替换为 ✓、活动区出现 notice（“符号已替换 1 处为推荐符号”），随后一条 `[符号规范] …` 注入触发模型新一轮回复；`/symbol-unify off` 时无替换、无提醒。
-  - 或 headless：`DSH_HOME=~/Projects/dsh-toolset/tmp/dshhome dsh --profile rule-engine-verify "只回复一个 ✅"`。
-- 复核通过后：BACKLOG 标完成、追踪文档归档、删除临时 profile（`tmp/dshhome`）与验证日志。
+- 人工复核（2026-09-27，用户执行并回报）：**端到端通过**——模型回复 `✅` 触发 symbol-normalizer 审查；TUI 展示归一（`✅→✓`）与 notice；反馈 `[符号规范] …` 经 rule-engine 统一注入并送达模型。
+- 关闭：`docs/BACKLOG.md` #43 / #44 / #45 / #47 / #48 标「完成」；本文件移入 `docs/archived/`；临时验证 profile（`tmp/dshhome`）与验证日志已删除；`docs/STATUS.md` 由用户择时更新。
+- 用户追加（2026-09-27，关闭后）：`fff` profile 已挂载两个插件（`package.json` 的 `link:` 依赖 + `bundles` 追加、`node_modules/@dsh-toolset` 链接；改动在用户配置目录，非本仓库）。D6 的「不改 fff」仅指本任务实施期。
+- 遗留：无（消费者框架按定稿范围交付；规则注册面 / 异步 decide / 脚本谓词面为明确不做的边界）。

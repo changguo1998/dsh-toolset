@@ -6,13 +6,11 @@
 > 编号口径（2026-09-26 重排）：现行条目用**扁平连续 `#n`**（与项目级 `docs/BACKLOG.md` 一致）；历史上按「章节.序号」编号的条目（`3.x.y`）已于同日清理，记录见 git 提交与 `TUI/docs/archived/`，故现行编号不复用旧号段。本文件的 `#n` 与项目级 `docs/BACKLOG.md` 的 `#N` **互不关联**、各自文件内唯一，跨层引用须写明文件路径。
 > 分组口径（2026-09-26 修订，按用户要求）：按**验收方式**分两类——**需要交互**指验证时必须动手操作（敲命令、按键、输入文字、带参数启动、等超时）；**不需要交互**指看一眼结果或跑自动化即可（渲染、排版、显示、内部机制、外部依赖）。判断标准是「验证时是否需要操作」，不是「改动是否可见」。
 
-## 待办（共 3 条：#18 进行中，#20 / #25 待办；另 #8 仅提醒，不做实现）
+## 待办（共 2 条：#20 / #25 待办；另 #8 仅提醒，不做实现）
 
-### 需要交互（2 条：#18 / #20）
+### 需要交互（1 条：#20）
 
 > 验收时要动手：敲命令、按参数启动、在面板里输入或按键。
-
-- **进行中（2026-09-27）** **#18 TUI 符号逻辑迁出为独立插件 `symbol-normalizer`（项目级 #43 / #48）**：TUI 删除 `src/app/symbols.ts`（含默认规则与算法）、逐符号冷却表与 turn-end followup；改经 `ctx.get('symbolNormalizer')` 服务消费——流式展示归一（`normalize`）与 notice（`onReview` 回调，口径与模型反馈的冷却一致）；插件缺席 → 原文透传（无归一、无提醒）；`/symbol-unify` 开关保留（仅控制 TUI 侧归一与订阅）。落点：`src/app/index.ts`、`src/app/config.ts`、`src/app/adapter/types.ts`、`src/main.ts`、`tests/`、`docs/DESIGN.md`、`TUI/README.md`。来源：项目级 `docs/BACKLOG.md` #43（2026-09-27 用户定稿；原「不迁移、仅消费者改造」方案作废）。
 
 - **待办** **#20 CLI `--resume` / `-c` 启动恢复后历史区为空（不渲染既有消息）**：`main.ts` 在 App 创建前走 `agents.resume`；历史行折叠只在 `/session` 切换路径（`resumeToSession` → `history-resume-ok`）发生，CLI 启动恢复只经 `restoreSessionState` 回填 model/mode/goal/todo → 活动区空，需手动 `/session` 再切一次才可见会话内容（agent 侧上下文已恢复）。落点：`src/app/index.ts`（启动后补一次 surface 折叠）/ `adapter/dsh.ts`（暴露「本次启动为恢复」或启动即 emit 历史行）/ `tests/`。来源：2026-09-27 修复 TUI#19 时隔离环境 PTY 实测（见其追踪文档「测试与证据」）。优先级 P2。
 
@@ -46,6 +44,7 @@
 
 ## 已完成、不再跟踪
 
+- 2026-09-27：**#18 符号逻辑迁出为 `symbol-normalizer` 插件**（项目级 #43 / #48）——TUI 删除内置 `symbols.ts` / 冷却表 / followup，改经 `ctx.get('symbolNormalizer')` 服务消费展示归一与 `onReview` notice；端到端真机复核通过；过程记录见 `TUI/docs/archived/2026-09-27-symbol-consumer-change.md`。
 - 排版重构（Box 模型）与符号统一（白名单 / 归一 / 同符号冷却）均已完成，机制与配置见 `TUI/README.md`、`TUI/docs/SPEC.md`、`TUI/docs/IMPLEMENTATION.md`。
 - 本地命令面：7 项纯 TUI 命令与 A1-A5 已完成，9 项候选当前无待办（裁定理由见 `TUI/docs/COMMANDS-SPEC.md` §7：`/clear`、`/login` `/logout` 维持排除；`/review` 搁置，可随 `docs/BACKLOG.md` 的 #17 一并考虑）；命令清单与层归属见 `TUI/docs/COMMANDS.md`；实施清单（已完成）见 `archive/TUI-COMMANDS-TASKS.md`。
 - 2026-09-27 批次（#1 / #2 / #5 / #7 / #10 / #12 / #14 / #17）过程记录与复核清单见 `TUI/docs/archived/2026-09-27-tui-remaining-batch.md`；#19 为该批次 #2 的回归修复，记录见 `TUI/docs/archived/2026-09-27-sessionquery-read-timing.md`。

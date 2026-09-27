@@ -1,6 +1,6 @@
 # symbol-normalizer 设计
 
-模块：`symbol-normalizer`（项目级 BACKLOG #48）。契约与用法见 `../README.md`，过程记录见项目级 `docs/implementation/2026-09-27-rule-engine-consumer-and-integration.md`。
+模块：`symbol-normalizer`（项目级 BACKLOG #48）。契约与用法见 `../README.md`，过程记录见项目级 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`。
 
 ## 目标与边界
 

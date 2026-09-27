@@ -1,8 +1,8 @@
 # TUI 符号逻辑迁出为 symbol-normalizer 插件（TUI BACKLOG #18；项目级 #43 / #48）
 
-状态：进行中　　开启：2026-09-27
+状态：关闭　　开启：2026-09-27　　关闭：2026-09-27
 本文件是本任务 TUI 侧唯一的过程记录与文档变更落点；计划外的文件不改。
-项目级侧（框架、新插件、集成与总体决策）见 `docs/implementation/2026-09-27-rule-engine-consumer-and-integration.md`。
+项目级侧（框架、新插件、集成与总体决策）见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`。
 
 ## 目标
 
@@ -61,9 +61,10 @@
 
 - `npm --prefix TUI run check` → 0 error；`npm run test:tui` → **1149 pass / 0 fail**。
 - 临时 profile（`tmp/dshhome`）PTY 启动：TUI 正常起帧（状态栏 / 输入区渲染），同屏可见 `[rule-engine] 已加载` / `[symbol-normalizer] 已加载`。
-- 端到端模型回合（notice + 注入）待人工复核（沙箱无模型凭据），步骤见项目级追踪文档「收尾」。
+- 端到端模型回合（notice + 注入）已由用户在本地环境复核通过（沙箱内无模型凭据，仅完成加载级验证；见项目级追踪文档「收尾」）。
 
 ## 收尾
 
-- 复核通过后：`docs/BACKLOG.md` #18 标完成、本文件移入 `TUI/docs/archived/`。
-- 临时 profile（`tmp/dshhome`）与验证日志在复核后删除。
+- 人工复核（2026-09-27，用户执行并回报）：端到端通过（`✅ → ✓` 展示归一、notice、`[符号规范]` 注入送达模型，见项目级追踪文档「收尾」）。
+- 关闭：`TUI/docs/BACKLOG.md` #18 标「完成」并移入「已完成、不再跟踪」；本文件移入 `TUI/docs/archived/`。
+- 遗留：无。
