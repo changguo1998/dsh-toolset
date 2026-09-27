@@ -28,6 +28,8 @@
 
 - **待办** **#44 DESIGN.md 与实现不一致（6 处，审计结论）**：① L62 `bin/tui.js` 描述过时（实为「profile 就绪 → 委托 `dsh --profile`；否则 mock demo」双态启动器）；② L118/120/129 把四区域 pane 树归给 `buildBox`，实际 `buildBox(buffer, opts)` 只产两 pane 内容树 + 行元数据，四区域分割/整帧拼装在 `layout.ts`（frameGeometry/buildTopRegion/buildFrame）；③ L142 caret 只在 `customCaret > 0` 产出（编辑态光标在串首时**无** caret、硬件光标隐藏）；④ L180 theme 由 `normalizeThemeId` 归一（非 `normalizeTuiDisplayConfig`），且 App 内仍会再归一；⑤ L250 退出路径漏了 Ctrl+D（idle+空输入）与 750ms 内双击 Ctrl+C；⑥ L257/L259 把「`model/selection` 回放」列为待做，实际已实现（会话快照 model 字段 + resume 还原）。状态：完成（2026-09-28，追踪文档已归档）。优先级 P3。
 
-- **待办** **#45 `/init` 也用状态栏显示 cwd 判 `AGENTS.md` 是否存在**：`runInit()` 取 `state.systemStatus.cwd`（`shortenHome` 缩写为 `~/…`）后 `existsSync(join(dir, "AGENTS.md"))`——家目录内的项目会误判「不存在」而注入初始化指令（`#37` cwd 归一修复的同类缺陷，`local-shell.ts` 已修但 `runInit` 未跟进）。建议复用 `resolveShellCwd()` 或改取原始会话 cwd。状态：待接取。优先级 P3。
+- **待办** **#45 `/init` 也用状态栏显示 cwd 判 `AGENTS.md` 是否存在**：`runInit()` 取 `state.systemStatus.cwd`（`shortenHome` 缩写为 `~/…`）后 `existsSync(join(dir, "AGENTS.md"))`——家目录内的项目会误判「不存在」而注入初始化指令（`#37` cwd 归一修复的同类缺陷，`local-shell.ts` 已修但 `runInit` 未跟进）。建议复用 `resolveShellCwd()` 或改取原始会话 cwd。状态：完成（2026-09-28 真机确认通过，追踪文档已归档）。优先级 P3。
 
 - **待办** **#46 BACKLOG 头部计数与在列条目不符（「共 9 条」vs 实列 12 条），且已完成条目仍留在「只列未完成项」的文件里**：`TUI/docs/BACKLOG.md` 头部写「待办（共 9 条）」，实际列表 #34–#45 共 12 条、其中 10 条已标「完成」，与本文件「只列未完成项」的定位不符。建议清理已完成条目（历史归 git 与 `TUI/docs/archived/`），头部固定计数改为动态维护或去掉。落点：`TUI/docs/BACKLOG.md`。来源：2026-09-28 修正 DESIGN.md 审计条目时核对发现。状态：待接取。优先级 P3。
+
+- **待办** **#47 mock demo 冒烟（`npm run demo -- --smoke`）在 HEAD 上两项断言失败（`compaction-summary-toast` / `shell-submit`）**：① `TUI/demo/main.ts:253` 断言 `sent.includes("ls")`，但 `$` shell 模式已改本地执行（TUI#37）不再进 `adapter.sent`；② `TUI/demo/main.ts:408` 断言帧含「压缩完成：已压缩182条历史消息」，实际未出现（文案 / payload 漂移待核）。已用 clean tree（HEAD `8671b82`）复现 `SMOKE_FAIL n=2`，与 #45 改动无关。落点：`TUI/demo/main.ts`（断言与序列同步）。来源：2026-09-28 跑 demo 冒烟做附加验证时发现。状态：待接取。优先级 P2。

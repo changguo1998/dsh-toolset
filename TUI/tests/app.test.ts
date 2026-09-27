@@ -6,8 +6,9 @@
 import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   App,
   focusedLineScroll,
@@ -281,6 +282,30 @@ test("/init：AGENTS.md 缺失 → 注入初始化指令（用户行回显 /init
   );
   app.dispose();
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("/init：状态栏缩写 cwd（~/…）仍能命中已存在的 AGENTS.md（TUI#45）", async (t) => {
+  // 家目录内的项目：状态栏 cwd 经 shortenHome 缩为 `~/…`；修复前直接 join 会误判不存在。
+  // 用仓库根（自带 AGENTS.md）构造该形态，免在家目录建临时文件；仓库不在家目录下则跳过。
+  const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+  if (!repoRoot.startsWith(homedir() + "/")) {
+    t.skip("仓库不在家目录下，无法构造 `~/…` 形态");
+    return;
+  }
+  const shown = "~" + repoRoot.slice(homedir().length);
+  const { app, renderer, adapter } = makeAppAtCwd(shown);
+  try {
+    await flush();
+    typeAndEnter(renderer, "/init");
+    assert.deepEqual(adapter.sent, [], "缩写路径展开后命中，不发送消息");
+    assert.ok(
+      renderer.lastRender.join("\n").includes("AGENTS.md 已存在"),
+      "提示已存在并结束",
+    );
+  } finally {
+    // 断言失败也要释放 App：status ticker 定时器不释放会挂住 node --test
+    app.dispose();
+  }
 });
 
 test("/exit 为 /quit 别名：关闭 renderer 且释放 adapter，不经宿主命令", () => {

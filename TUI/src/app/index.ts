@@ -95,6 +95,7 @@ import {
 } from "./adapter/dsh.ts";
 import { activeGoalSnapshot, currentProjectCwd } from "./state.ts";
 import {
+  resolveShellCwd,
   runShellCommand,
   shellResultLines,
   type ShellRunner,
@@ -2089,8 +2090,9 @@ export class App {
   /** /init：当前目录无 AGENTS.md 时注入初始化指令（模型阅读目录并生成）；
    *  已存在则提示并直接结束（不发送任何消息） */
   private runInit(): void {
-    const cwd = this.state.systemStatus.cwd;
-    const dir = cwd !== "" && cwd !== "—" ? cwd : process.cwd();
+    // BACKLOG TUI#45：状态栏 cwd 是显示用缩写（`~/…`，status.ts shortenHome），
+    // 与 `$` shell 同口径走 resolveShellCwd（`~` 展开 + 目录存在校验，失败回落进程 cwd）
+    const dir = resolveShellCwd(this.state.systemStatus.cwd) ?? process.cwd();
     if (existsSync(join(dir, "AGENTS.md"))) {
       this.notice("AGENTS.md 已存在，跳过初始化", "info");
       return;
