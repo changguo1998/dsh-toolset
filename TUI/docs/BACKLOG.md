@@ -12,7 +12,7 @@
 
 > 验收时要动手：敲命令、按参数启动、在面板里输入或按键。
 
-- **进行中（2026-09-27）** **#18 TUI 符号纠正改为 rule-engine 消费者**：`src/app/symbols.ts` 的「规则表 + 判定 + turn-end 后 followup」泛化为调用 `rule-engine`（插件已合并入 main，见项目级 `docs/BACKLOG.md` #42）；符号纠正**不迁移**，仅做消费者改造。待定：plugin 未挂载时的降级（保留内置符号表 / 直连判定，实现时定）。落点：`src/app/symbols.ts`、`src/app/adapter/*`、`docs/DESIGN.md`、`tests/`、冻结基线（如涉及）。来源：项目级 `docs/BACKLOG.md` #43（2026-09-27，跨模块，交其他 agent 接取）。**2026-09-27 批次裁定降级**：rule-engine provide 面只有 `list()` / `status()`，无消费者判定 / 注册 API，且未挂载进 `fff` profile → 本批不改 TUI 代码；依赖登记为项目级 `docs/BACKLOG.md` #47，待其落地后另起任务接取。
+- **进行中（2026-09-27）** **#18 TUI 符号逻辑迁出为独立插件 `symbol-normalizer`（项目级 #43 / #48）**：TUI 删除 `src/app/symbols.ts`（含默认规则与算法）、逐符号冷却表与 turn-end followup；改经 `ctx.get('symbolNormalizer')` 服务消费——流式展示归一（`normalize`）与 notice（`onReview` 回调，口径与模型反馈的冷却一致）；插件缺席 → 原文透传（无归一、无提醒）；`/symbol-unify` 开关保留（仅控制 TUI 侧归一与订阅）。落点：`src/app/index.ts`、`src/app/config.ts`、`src/app/adapter/types.ts`、`src/main.ts`、`tests/`、`docs/DESIGN.md`、`TUI/README.md`。来源：项目级 `docs/BACKLOG.md` #43（2026-09-27 用户定稿；原「不迁移、仅消费者改造」方案作废）。
 
 - **待办** **#20 CLI `--resume` / `-c` 启动恢复后历史区为空（不渲染既有消息）**：`main.ts` 在 App 创建前走 `agents.resume`；历史行折叠只在 `/session` 切换路径（`resumeToSession` → `history-resume-ok`）发生，CLI 启动恢复只经 `restoreSessionState` 回填 model/mode/goal/todo → 活动区空，需手动 `/session` 再切一次才可见会话内容（agent 侧上下文已恢复）。落点：`src/app/index.ts`（启动后补一次 surface 折叠）/ `adapter/dsh.ts`（暴露「本次启动为恢复」或启动即 emit 历史行）/ `tests/`。来源：2026-09-27 修复 TUI#19 时隔离环境 PTY 实测（见其追踪文档「测试与证据」）。优先级 P2。
 
