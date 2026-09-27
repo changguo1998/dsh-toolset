@@ -13,7 +13,7 @@
 
 ## 技术选型
 
-- 语言 TypeScript（与 DSH 核心一致），运行时 Node.js，**源码零第三方 import**（颜色走 manual ANSI；`package.json` 中遗留的 `chalk` 声明待清理，见 `BACKLOG.md` #25）。
+- 语言 TypeScript（与 DSH 核心一致），运行时 Node.js，**源码零第三方 import**（颜色走 manual ANSI；`package.json` 中遗留的 `chalk` 声明待清理，见 `BACKLOG.md` #42）。
 - 不采用 Ink / Solid-TUI 等框架，自研极简渲染层。理由：流式输出本质是「增量文本追加 + 偶尔整帧重绘」；渲染层以**变化行游程重写**为核心（逐行比较，连续变化行各成一段、段间独立定位重写，不清屏），无组件树与布局引擎。防闪烁机制（区间重写 / 帧段切分 / DEC 2026 同步输出 / 覆盖式全帧 / 渲染期光标隐藏）见 `IMPLEMENTATION.md`「增量渲染与防闪烁」。
 - 代价是输入解码需手写 ANSI 转义序列解析（方向键、Home/End、Ctrl 组合、bracketed paste）——node 无 stdlib 键盘解析，这是自研相对用 Ink 的真正成本。
 - **绘制节律**：`paint()` 标脏 + 同一 tick 合帧（microtask 冲刷，一 tick 一帧），事件 burst 不逐事件重绘；真实链路另有跨回合帧率上限（默认 10Hz）。排版侧折行 / 宽度走有界缓存（`TUI_LAYOUT_CACHE=0` 可关）。详见 `IMPLEMENTATION.md`「排版缓存与绘制合帧」。
