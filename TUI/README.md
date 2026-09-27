@@ -247,7 +247,8 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 | `/preset [预设名]` | agent 预设：无参打开面板，带参经 `selectAgentPreset`（宿主 `recompose` 写路径）切换。本 TUI 按官方设计走 profile 全局组合、不挂 preset roster，故该命令提示「agent 预设服务不可用」属正常（见 `../docs/host/AGENT-COMPOSITION.md`） |
 | `/goal [<目标>\|edit <目标>\|pause\|resume\|clear]` | 无参：提示 goal / todo / jobs 详情常驻左侧状态列（不再打开面板）；带参：转发宿主 `dsh-command-goal` 管理当前会话 goal（`/goal <目标>` 新建、`edit`/`pause`/`resume`/`clear` 改／暂停／恢复／清除） |
 | `/stats`（`/usage` `/context`） | token 用量**双口径**：「最近一次调用」（输入/输出/缓存读，含上下文占用与缓存命中率）与「本会话累计」（逐次调用求和，会话切换/恢复时清零，`/clearscreen` 不清） |
-| `/session` | 会话面板：列出持久化会话，Enter 切换（`agents.resume` 恢复后继续对话，并回填该会话的模型 / 模式与策略（plan、sandbox、审批策略）/ goal / todo / `verbose`、`symbol-unify` 开关 / 状态列显隐）；`Tab` 切换范围（当前目录 / 全部）、`Space` 批量标记（`a` 全选当前范围、`c` 清空）、`d`/Delete 删除（有标记=批量删除全部标记，无标记=删当前高亮）、`x` 清理空会话、`/session clean` 直达清理确认 |
+| `/session` | 会话面板：列出持久化会话（**按编辑时间从晚到早**，行首时间即编辑时间、缺省回退创建时间），Enter 切换（`agents.resume` 恢复后继续对话，并回填该会话的模型 / 模式与策略（plan、sandbox、审批策略）/ goal / todo / `verbose`、`symbol-unify` 开关 / 状态列显隐）；`Tab` 切换范围（当前目录 / 全部）、`Space` 批量标记（`a` 全选当前范围、`c` 清空）、`d`/Delete 删除（有标记=批量删除全部标记，无标记=删当前高亮）、`x` 清理空会话、`/session clean` 直达清理确认 |
+| `/continue` | 加载**当前目录下最新的会话**（等价 `/session` + 自动选中，复用同一恢复路径）：**当前会话已是最新（已有用户消息）→ 提示不切换**；刚起的新会话 → 回退到最近退出的会话；无匹配 → info 提示。CLI `-c` / `--continue` 仍按「同目录、非 live、编辑时间最大」在启动时选择 |
 | `/rename <标题>` | 重命名当前会话标题（写宿主 `sessionTitle.rename`；空标题或含换行本地拒绝） |
 | `/copy` | 复制最后一条模型回复到系统剪贴板（OSC52，剥离 ANSI） |
 | `/new` | 新建会话（不重启进程）：释放当前 agent handle → `agents.create` 新会话并切过去；原会话保留在磁盘，可经 `/session` 切回。缓冲/滚动按空会话重置，模型 / 模式与策略 / `verbose`、`symbol-unify` / 状态列显隐回默认值 |

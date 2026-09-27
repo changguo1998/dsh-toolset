@@ -879,6 +879,10 @@ export interface SessionInfo {
   /** 空会话（persisted 且从未有用户消息）：供列表标注与“清理空会话”的计数与范围判定；
    *  读取面不可用或未判定时省略（不臆断为空） */
   isEmpty?: boolean;
+  /** surface 探针确认「已有用户消息」（TUI#23）：`false` = 读取面可读且确无用户消息
+   *  （刚起的新会话）；`true` / 省略 = 有内容或未判定（保守视为已使用）。
+   *  `/continue` 用它区分「用过的当前会话」与「刚起的新会话」。 */
+  hasPrompt?: boolean;
   /** 会话标题：官方 session/title 事件标题，缺失时本地兜底（首条用户消息前 30 字符）；
    *  两者皆无 → 省略（列表渲染占位（新会话）） */
   title?: string;
@@ -958,12 +962,12 @@ export interface SessionQueryLike {
     session: { id: string };
     events: readonly Record<string, unknown>[];
   }>;
+  /** 轻量原始事件记录（升序 seq；TUI#1 仅消费末条 `time` 作「编辑时间」） */
+  listEvents?(sessionId: string): Promise<readonly { time?: number }[]>;
   /** 折叠最新 session/title 事件标题（官方 @deepseek-ai/dsh-session-title 落盘日志；
    *  live 优先→persisted；无标题事件返回 undefined） */
   readTitle?(sessionId: string): Promise<{ title: string } | undefined>;
   /**
-  /** 轻量原始事件记录（升序 seq；TUI#1 仅消费末条 `time` 作「编辑时间」） */
-  listEvents?(sessionId: string): Promise<readonly { time?: number }[]>;
    * 批量折叠标题（单次 corpus 观察，比逐条 readTitle 高效；缺失服务时省略）。
    * 官方契约为 settlement 形态：每条为 fulfilled（value: {session, title?}）或
    * rejected（reason）——仅消费 fulfilled 的 value.title。

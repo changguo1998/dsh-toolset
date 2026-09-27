@@ -3006,8 +3006,180 @@ test("/session：resume 失败 → 面板 error 态不崩溃", async () => {
   );
 });
 
+// --- TUI#1：/continue（当前目录最近退出会话，自动选中） ---
+
+test("/continue：新会话（无用户消息）→ 恢复当前目录下编辑时间最近的已退出会话（跳过 live 与其他目录）", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.sessionRecords = [
+    {
+      id: "cur",
+      createdAt: 1,
+      updatedAt: 9999,
+      live: true,
+      persisted: false,
+      current: true,
+      cwd: "/proj",
+      // TUI#23：刚起的新会话（无用户消息）不参与「最新会话」比较 → 仍回退
+      hasPrompt: false,
+    },
+    {
+      id: "old-new",
+      createdAt: 2,
+      updatedAt: 5000,
+      live: false,
+      persisted: true,
+      cwd: "/proj",
+    },
+    {
+      id: "old-old",
+      createdAt: 3,
+      updatedAt: 1000,
+      live: false,
+      persisted: true,
+      cwd: "/proj",
+    },
+    {
+      id: "other-dir",
+      createdAt: 4,
+      updatedAt: 99999,
+      live: false,
+      persisted: true,
+      cwd: "/elsewhere",
+    },
+  ];
+  adapter.sessionSurfaces["old-new"] = [
+    { role: "user", text: "上次会话内容" },
+    { role: "assistant", text: "上次回复" },
+  ];
+  typeAndEnter(renderer, "/continue");
+  await flush();
+  await flush();
+  assert.deepEqual(
+    adapter.resumeCalls,
+    ["old-new"],
+    "同目录 + 非 live + 编辑时间最大",
+  );
+  assert.equal(adapter.listSessionsCalls >= 1, true, "先拉会话列表");
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plain.some((l) => l.includes("上次会话内容")),
+    "恢复后展示历史上下文: " + plain.join("|"),
+  );
+});
+
+test("/continue：当前会话已是最新（有用户消息）→ info 提示、不切换（TUI#23）", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.sessionRecords = [
+    {
+      id: "cur",
+      createdAt: 1,
+      updatedAt: 9000,
+      live: true,
+      persisted: true,
+      current: true,
+      cwd: "/proj",
+      // 已有用户消息 → 参与「最新会话」比较，且编辑时间最大
+      hasPrompt: true,
+    },
+    {
+      id: "old",
+      createdAt: 2,
+      updatedAt: 5000,
+      live: false,
+      persisted: true,
+      cwd: "/proj",
+    },
+  ];
+  typeAndEnter(renderer, "/continue");
+  await flush();
+  await flush();
+  assert.deepEqual(adapter.resumeCalls, [], "当前会话已是最新 → 不切换");
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plain.some((l) => l.includes("当前会话已是最新")),
+    "info 提示: " + plain.join("|"),
+  );
+});
+
+test("/continue：当前会话较旧、存在更新的已退出会话 → 仍切到最新会话（TUI#23）", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.sessionRecords = [
+    {
+      id: "cur",
+      createdAt: 1,
+      updatedAt: 1000,
+      live: true,
+      persisted: true,
+      current: true,
+      cwd: "/proj",
+      hasPrompt: true,
+    },
+    {
+      id: "newer",
+      createdAt: 2,
+      updatedAt: 8000,
+      live: false,
+      persisted: true,
+      cwd: "/proj",
+    },
+  ];
+  adapter.sessionSurfaces["newer"] = [{ role: "user", text: "更新的会话" }];
+  typeAndEnter(renderer, "/continue");
+  await flush();
+  await flush();
+  assert.deepEqual(
+    adapter.resumeCalls,
+    ["newer"],
+    "最新者是已退出会话 → 切换过去",
+  );
+});
+
+test("/continue：无可恢复会话 → info 提示、不 resume；服务缺失 → warn", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.sessionRecords = [
+    {
+      id: "cur",
+      createdAt: 1,
+      live: true,
+      persisted: false,
+      current: true,
+      cwd: "/proj",
+      // 刚起的新会话（无用户消息）→ 不参与比较，且无其它可恢复会话 → 无匹配
+      hasPrompt: false,
+    },
+  ];
+  typeAndEnter(renderer, "/continue");
+  await flush();
+  assert.deepEqual(adapter.resumeCalls, [], "无匹配不 resume");
+  const plain = renderer.lastRender.map((l) =>
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plain.some((l) => l.includes("没有可恢复的会话")),
+    "info 提示: " + plain.join("|"),
+  );
+  // 服务缺失：listSessions 未挂载 → warn 且不崩
+  adapter.listSessions = undefined;
+  typeAndEnter(renderer, "/continue");
+  await flush();
+  const plain2 = renderer.lastRender.map((l) =>
+    l.replace(/\u001b\[[0-9;]*m/g, ""),
+  );
+  assert.ok(
+    plain2.some((l) => l.includes("历史会话服务不可用")),
+    "warn 提示: " + plain2.join("|"),
+  );
+});
+
 test("/session：列表渲染——当前 live 行 [当前] [不可续]，其他 live 行 [不可续]，persisted 行显示标题", async () => {
   const { renderer, adapter } = makeApp();
+  // TUI#22：行首时间为编辑时间（updatedAt），缺省回退创建时间
+  const created99 = Date.UTC(2026, 8, 27, 5, 0);
+  const edited99 = Date.UTC(2026, 8, 27, 8, 42);
   adapter.sessionRecords = [
     {
       id: "s99",
@@ -3051,6 +3223,24 @@ test("/session：列表渲染——当前 live 行 [当前] [不可续]，其他
   assert.ok(
     line42 && !line42.includes("不可续"),
     `persisted 行无不可续标记: ${line42}`,
+  );
+  // TUI#22：行首时间 = 编辑时间（updatedAt）；无 updatedAt 时回退创建时间
+  const fmt = (ms: number) => {
+    const d = new Date(ms);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  assert.ok(
+    line99 && line99.includes(fmt(edited99)),
+    `行首时间为编辑时间: ${line99}`,
+  );
+  assert.ok(
+    line99 && !line99.includes(fmt(created99)),
+    `不再显示创建时间: ${line99}`,
+  );
+  assert.ok(
+    line98 && line98.includes(fmt(2)),
+    `缺 updatedAt → 回退创建时间: ${line98}`,
   );
 });
 

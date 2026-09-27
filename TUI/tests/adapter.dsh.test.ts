@@ -47,6 +47,7 @@ import {
   type QuestionItem,
   type AgentRegistryLike,
   buildUserMessage,
+  pickContinueTarget,
   pickRecentSession,
   type SessionInfo,
   type AgentPresetsLike,
@@ -707,7 +708,6 @@ test("agent/status：非活跃 agent 状态不转发（不污染状态栏）", (
   ]);
 });
 
-test("session/event：非活跃会话事件不转发（不污染活跃 buffer）", () => {
 test("TUI#10 subagent/start · subagent/end → subagent-activity 事件（/agents 面板即时刷新用）", () => {
   const t = makeAdapter();
   t.runtime.fire("subagent/start", { runId: "r1" });
@@ -718,6 +718,7 @@ test("TUI#10 subagent/start · subagent/end → subagent-activity 事件（/agen
   ]);
 });
 
+test("session/event：非活跃会话事件不转发（不污染活跃 buffer）", () => {
   const t = makeAdapter();
   t.runtime.fire(
     "session/event",
@@ -1696,6 +1697,8 @@ class FakeSessionQuery implements SessionQueryLike {
   usesSplicedSessions = new Set<string>(["live-1"]);
   readCalls: string[] = [];
   /** TUI#1：listEvents 末条事件 time（编辑时间来源；缺省无记录 → 回退 createdAt） */
+  eventTimes: Record<string, number> = {};
+  /** 空 surface 的会话（探针读到零消息 → hasPrompt:false；TUI#23 用） */
   emptySessions = new Set<string>();
   listEvents(id: string): Promise<{ time?: number }[]> {
     const t = this.eventTimes[id];
@@ -1762,25 +1765,28 @@ test("历史会话：listSessions 归一化（id/时间/cwd/live/persisted + 无
   const { adapter } = makeAdapterWithSessionQuery(sq);
   const records = await adapter.listSessions!();
   // 无 readTitle（官方服务不可用）→ surface 首条用户消息本地兜底（两块拼接完整文本）
+  // hasPrompt：探针确认有用户消息（TUI#23；当前活跃会话也探，不因官方标题而跳过）
   assert.deepEqual(records, [
     {
       id: "live-1",
       createdAt: 1787290000000,
+      updatedAt: 1787290000000,
       cwd: "/home/x/TUI",
       live: true,
       persisted: false,
+      hasPrompt: true,
       title: "你好 第二行",
-      updatedAt: 1787290000000,
     },
     {
       id: "old-2",
       createdAt: 1787200000000,
+      updatedAt: 1787200000000,
       cwd: "/home/x/other",
       live: false,
       persisted: true,
+      hasPrompt: true,
       title: "你好 第二行",
     },
-      updatedAt: 1787200000000,
   ]);
 });
 
@@ -1859,9 +1865,6 @@ test("历史会话：listSessions 标题——损坏/不可读会话省略 title
   assert.equal("title" in records[0]!, false, "损坏会话不产生 title");
 });
 
-test("sessionTitle：官方 readTitle 优先；readTitle 缺失/出错 → undefined（app 层本地兜底）", async () => {
-  const sq = new FakeSessionQuery();
-  sq.readTitle = async () => ({ title: "官方标题" });
 test("历史会话：listSessions 编辑时间取 listEvents 末条 time 并按其降序；缺失回退 createdAt（TUI#1）", async () => {
   const sq = new FakeSessionQuery();
   sq.records = [
@@ -1932,6 +1935,75 @@ test("pickRecentSession：同目录 + 非 live + 编辑时间最大；无匹配 
   );
 });
 
+test("pickContinueTarget：当前会话已使用且最新 → current；新会话 / 较旧 → 已退出会话（TUI#23）", () => {
+  const mk = (
+    id: string,
+    cwd: string,
+    live: boolean,
+    updatedAt: number,
+    extra: Partial<SessionInfo> = {},
+  ): SessionInfo => ({
+    id,
+    createdAt: updatedAt,
+    updatedAt,
+    cwd,
+    live,
+    persisted: !live,
+    ...extra,
+  });
+  // 当前会话有用户消息且编辑时间最大 → 不切换
+  assert.deepEqual(
+    pickContinueTarget(
+      [
+        mk("cur", "/p", true, 9000, { current: true, hasPrompt: true }),
+        mk("old", "/p", false, 5000),
+      ],
+      "/p",
+    ),
+    { kind: "current" },
+  );
+  // 刚起的新会话（hasPrompt:false）不参与比较 → 回退到最近退出的会话
+  const fresh = pickContinueTarget(
+    [
+      mk("cur", "/p", true, 9000, { current: true, hasPrompt: false }),
+      mk("old", "/p", false, 5000),
+    ],
+    "/p",
+  );
+  assert.equal(fresh?.kind, "session");
+  assert.equal(
+    fresh?.kind === "session" ? fresh.record.id : undefined,
+    "old",
+    "新会话 → 回退最近退出的会话",
+  );
+  // 当前会话较旧（存在更新的已退出会话）→ 切到最新的那条
+  const newer = pickContinueTarget(
+    [
+      mk("cur", "/p", true, 100, { current: true, hasPrompt: true }),
+      mk("newer", "/p", false, 800),
+    ],
+    "/p",
+  );
+  assert.equal(newer?.kind, "session");
+  assert.equal(
+    newer?.kind === "session" ? newer.record.id : undefined,
+    "newer",
+    "当前会话较旧 → 切到更新的已退出会话",
+  );
+  // 无候选 / cwd 未知 → undefined
+  assert.equal(
+    pickContinueTarget(
+      [mk("cur", "/p", true, 1, { current: true, hasPrompt: true })],
+      "/none",
+    ),
+    undefined,
+  );
+  assert.equal(pickContinueTarget([], undefined), undefined);
+});
+
+test("sessionTitle：官方 readTitle 优先；readTitle 缺失/出错 → undefined（app 层本地兜底）", async () => {
+  const sq = new FakeSessionQuery();
+  sq.readTitle = async () => ({ title: "官方标题" });
   const { adapter } = makeAdapterWithSessionQuery(sq);
   assert.equal(await adapter.sessionTitle!("old-2"), "官方标题");
 
@@ -1950,6 +2022,34 @@ test("pickRecentSession：同目录 + 非 live + 编辑时间最大；无匹配 
     undefined as unknown as SessionQueryLike,
   ).adapter;
   assert.equal(await a4.sessionTitle!("anything"), undefined);
+});
+
+test("历史会话：当前活跃会话有官方标题也走探针 → hasPrompt 反映有无用户消息（TUI#23）", async () => {
+  const sq = new FakeSessionQuery();
+  sq.records = [
+    {
+      // 记录 id 需与 adapter 的活跃会话一致（makeAdapterWithSessionQuery 的 sessionId = "s1"）
+      header: { id: "s1", createdAt: 10, cwd: "/p" },
+      live: true,
+      persisted: true,
+    },
+  ];
+  sq.emptySessions.add("s1"); // surface 可读但零消息 → 刚起的新会话
+  sq.readTitleSnapshots = async (ids) =>
+    ids.map((id) => ({
+      sessionId: id,
+      status: "fulfilled" as const,
+      value: { title: { title: "官方标题" } },
+    }));
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const records = await adapter.listSessions!();
+  assert.equal(records[0]!.title, "官方标题", "官方标题优先（不因探针改写）");
+  assert.equal(
+    records[0]!.hasPrompt,
+    false,
+    "有官方标题仍执行探针 → 零用户消息",
+  );
+  assert.equal(records[0]!.current, true, "活跃会话标记 current");
 });
 
 test("历史会话：persisted 会话走 readSurface（普通事件归一化，reasoning/tool 省略）", async () => {
@@ -3582,6 +3682,7 @@ function fire(
   type: string,
   data: Record<string, unknown>,
   sid = "s1",
+  seq = 1,
 ): void {
   t.runtime.fire("session/event", { id: sid }, {
     type,
@@ -3682,7 +3783,6 @@ test("restoreSessionState：从会话日志折叠 plan/sandbox/permission/policy
     { type: "plan/mode", seq: 1, data: { active: false } },
     { type: "plan/mode", seq: 2, data: { active: true } }, // 最后一条生效
     { type: "sandbox/mode", seq: 3, data: { mode: "danger-full-access" } },
-  seq = 1,
     {
       type: "permission/preset",
       seq: 4,

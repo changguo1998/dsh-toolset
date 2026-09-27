@@ -655,6 +655,12 @@ export async function listSessionRecords(deps: {
   const updatedById = new Map<string, number>();
   for (const [id, t] of times) if (t !== undefined) updatedById.set(id, t);
   // 无官方标题的会话：本地兜底标题 + 空会话判定；
+  // 读取失败 → readable:false（不臆断为空，清理时跳过）
+  // 探针：无官方标题的会话（标题兜底 + 空会话判定）；另**当前活跃会话**必探（TUI#23：
+  // hasPrompt 供 /continue 区分「用过的当前会话」与「刚起的新会话」）
+  const probeIds =
+    readMessages === undefined
+      ? []
       : ids.filter((id) => !official.has(id) || id === activeSessionId);
   const probes = await mapLimit(probeIds, 8, async (id) => {
     try {
@@ -696,6 +702,7 @@ export async function listSessionRecords(deps: {
       persisted: r.persisted,
       // 当前活跃判定以 adapter 视角为准（活跃会话在内存 store 中必为 live）
       ...(r.live && r.header.id === activeSessionId ? { current: true } : {}),
+      ...(isEmpty ? { isEmpty: true } : {}),
       ...(probe === undefined ? {} : { hasPrompt: probe.hasPrompt }),
       ...(title === undefined ? {} : { title }),
     };
@@ -730,6 +737,36 @@ export function pickRecentSession(
   if (candidates.length === 0) return undefined;
   return [...candidates].sort(byUpdatedDesc)[0];
 }
+
+/** `/continue` 目标（TUI#23，用户裁定「最新会话」语义） */
+export type ContinueTarget =
+  { kind: "current" } | { kind: "session"; record: SessionInfo };
+
+/**
+ * `/continue` 目标选择（TUI#23）：候选 = 同目录已持久化且非 live 的会话 ∪ **当前会话**
+ * （仅当它已有用户消息——刚起的新会话不算，仍可回退到最近退出的会话）。取编辑时间
+ * 最大者；若它就是当前会话 → `{ kind: "current" }`（调用方提示「已是最新」、不切换）；
+ * 无候选 → undefined。CLI `-c` 仍用 `pickRecentSession`（启动时无当前会话）。
+ */
+export function pickContinueTarget(
+  records: readonly SessionInfo[],
+  cwd: string | undefined,
+): ContinueTarget | undefined {
+  if (cwd === undefined) return undefined;
+  const current = records.find((r) => r.current === true);
+  const candidates = records.filter(
+    (r) =>
+      r.cwd === cwd &&
+      ((r.persisted === true && !r.live) ||
+        (current !== undefined &&
+          r.id === current.id &&
+          current.hasPrompt !== false)),
+  );
+  if (candidates.length === 0) return undefined;
+  const top = [...candidates].sort(byUpdatedDesc)[0]!;
+  return current !== undefined && top.id === current.id
+    ? { kind: "current" }
+    : { kind: "session", record: top };
 }
 
 /** 会话目录删除结果：ok=true 时 path 为实际删除的目录（realpath 解析后） */
@@ -1101,6 +1138,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   const completedBlocks = new Set<string>();
   // P2 seq 守卫：per-session 游标，同 seq 重复/倒序丢弃（防重放），间隙接受
   const sessionSeq = new Map<string, number>();
+  // TUI#17：已渲染的注入 notice 消息 id（user/message 与 agent/inbox/spliced 双通道
+  // 可能携带同一条注入消息 → 去重；超上限清空，避免无界增长）
+  const renderedNoticeIds = new Set<string>();
   // 按 (session:turn:step) 累计已流式输出的正文（text 块；reasoning 不计）。
   // assistant/message 是每个 step 结束必发的完整正文表面事件，据此只补发缺失后缀；
   // 非流式 provider（无任何 chunk）时累计为空 → 直接输出完整正文，保证回复可见。
@@ -1138,9 +1178,6 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   // 上下文窗口缓存：provider:model → 模型上下文容量（LlmResolvedModelInfo.context.contextWindow，
   // 供状态栏 ctx 占用百分比作分母）。undefined=已解析但模型未披露（不再重试）；缺失/异常视为未知。
   const ctxWindowCache = new Map<string, number | undefined>();
-  // TUI#17：已渲染的注入 notice 消息 id（user/message 与 agent/inbox/spliced 双通道
-  // 可能携带同一条注入消息 → 去重；超上限清空，避免无界增长）
-  const renderedNoticeIds = new Set<string>();
   const resolveContextWindow = async (
     key: string,
   ): Promise<number | undefined> => {
@@ -1695,6 +1732,35 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         return;
       }
 
+      case "user/message":
+      case "agent/inbox/spliced": {
+        // TUI#17：插件注入消息的 notice 形态（source.form:'notice' + summary）→
+        // 渲染为一行提示（不展开、不占用户消息块）；其余 user 消息不渲染——
+        // 用户输入由本地回显覆盖，未实现 notice 的注入维持现状（不显示），避免重复。
+        const candidates: Array<Record<string, unknown>> = [];
+        if (raw.type === "user/message") {
+          candidates.push(raw.data as Record<string, unknown>);
+        } else {
+          const inserted = (raw.data as { inserted?: unknown }).inserted;
+          if (!Array.isArray(inserted)) return;
+          for (const item of inserted)
+            if (item && typeof item === "object")
+              candidates.push(item as Record<string, unknown>);
+        }
+        for (const item of candidates) {
+          const id = typeof item["id"] === "string" ? item["id"] : undefined;
+          // 双通道（user/message 与 spliced）可能携带同一条注入消息 → 按 id 去重
+          if (id !== undefined && renderedNoticeIds.has(id)) continue;
+          const summary = noticeSummaryOf(item);
+          if (summary === undefined) continue;
+          if (id !== undefined) {
+            if (renderedNoticeIds.size > 200) renderedNoticeIds.clear();
+            renderedNoticeIds.add(id);
+          }
+          emit({ type: "notice", text: summary, tone: "log" });
+        }
+        return;
+      }
       case "turn/start":
         // turn/start 只标记新回合，不插入历史分隔线；用户本地回显后应紧邻模型响应。
         return;
@@ -1732,35 +1798,6 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         const argsRaw =
           typeof data.arguments === "string" ? data.arguments : "";
         const summary = summarizeToolArguments(argsRaw);
-      case "user/message":
-      case "agent/inbox/spliced": {
-        // TUI#17：插件注入消息的 notice 形态（source.form:'notice' + summary）→
-        // 渲染为一行提示（不展开、不占用户消息块）；其余 user 消息不渲染——
-        // 用户输入由本地回显覆盖，未实现 notice 的注入维持现状（不显示），避免重复。
-        const candidates: Array<Record<string, unknown>> = [];
-        if (raw.type === "user/message") {
-          candidates.push(raw.data as Record<string, unknown>);
-        } else {
-          const inserted = (raw.data as { inserted?: unknown }).inserted;
-          if (!Array.isArray(inserted)) return;
-          for (const item of inserted)
-            if (item && typeof item === "object")
-              candidates.push(item as Record<string, unknown>);
-        }
-        for (const item of candidates) {
-          const id = typeof item["id"] === "string" ? item["id"] : undefined;
-          // 双通道（user/message 与 spliced）可能携带同一条注入消息 → 按 id 去重
-          if (id !== undefined && renderedNoticeIds.has(id)) continue;
-          const summary = noticeSummaryOf(item);
-          if (summary === undefined) continue;
-          if (id !== undefined) {
-            if (renderedNoticeIds.size > 200) renderedNoticeIds.clear();
-            renderedNoticeIds.add(id);
-          }
-          emit({ type: "notice", text: summary, tone: "log" });
-        }
-        return;
-      }
         rememberToolCall(data.callId, name, argsRaw, summary);
         emit({
           type: "tool-call",
@@ -2680,62 +2717,13 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     // 同一趟 surface 读取顺带判定 isEmpty（持久化且从未有用户消息 → 可清理）。
     // 归一化/排序单一来源 = 模块级 listSessionRecords（与 main.ts 的 -c 解析共用）。
     listSessions: sessionQuery
-      ? async () => {
-          const rs = await sessionQuery.listSessions();
-          const ids = rs.map((r) => r.header.id);
-          const official = await officialTitles(ids);
-          // 无官方标题的会话：本地兜底标题 + 空会话判定；
-          // 读取失败 → readable:false（不臆断为空，清理时跳过）
-          const probes = await mapLimit(
-            ids.filter((id) => !official.has(id)),
-            8,
-            async (id) => {
-              try {
-                const view = await doReadSessionSurface(id);
-                const first = view.messages.find((m) => m.role === "user");
-                return [
-                  id,
-                  {
-                    title: localTitleFromText(first?.text),
-                    hasPrompt: first !== undefined,
-                    readable: true,
-                  },
-                ] as [string, SessionSurfaceProbe];
-              } catch {
-                return [
-                  id,
-                  { title: undefined, hasPrompt: true, readable: false },
-                ] as [string, SessionSurfaceProbe];
-              }
-            },
-          );
-          const probeById = new Map(probes);
-          return rs.map((r) => {
-            const probe = probeById.get(r.header.id);
-            const title = official.get(r.header.id) ?? probe?.title;
-            // 空会话：持久化 + 非 live + surface 确认无用户消息
-            // （有官方标题即视为有对话；读取面缺失 → 不判空）
-            const isEmpty =
-              r.persisted &&
-              !r.live &&
-              probe !== undefined &&
-              probe.readable &&
-              !probe.hasPrompt;
-            return {
-              id: r.header.id,
-              createdAt: r.header.createdAt,
-              cwd: r.header.cwd,
-              live: r.live,
-              persisted: r.persisted,
-              // 当前活跃判定以 adapter 视角为准（活跃会话在内存 store 中必为 live）
-              ...(r.live && r.header.id === activeSessionId
-                ? { current: true }
-                : {}),
-              ...(isEmpty ? { isEmpty: true } : {}),
-              ...(title === undefined ? {} : { title }),
-            };
-          });
-        }
+      ? () =>
+          listSessionRecords({
+            sessionQuery,
+            readMessages: async (id) =>
+              (await doReadSessionSurface(id)).messages,
+            ...(activeSessionId === undefined ? {} : { activeSessionId }),
+          })
       : undefined,
     // 删除持久化会话（文件级）：安全 id + realpath 包含性校验后删除会话目录；
     // 当前活跃会话与内存中的 live 会话一律拒绝（面板侧另有前置守卫）
@@ -3485,15 +3473,6 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     runtime.on("agent/assistant-stream", (payload) => {
       const p = payload as {
         agent?: { session?: { id?: string } };
-  // TUI#10：子代理生命周期事件（dsh-subagent：subagent/start · subagent/end）——
-  // /agents 面板打开期间据此即时刷新（2s 定时仍作兜底）；老宿主无此事件时静默。
-  for (const evt of ["subagent/start", "subagent/end"] as const) {
-    collectUnbind(
-      runtime.on(evt, () => {
-        emit({ type: "subagent-activity" });
-      }),
-    );
-  }
         frame?: Parameters<typeof onAssistantFrame>[1];
       };
       const sessionId = p?.agent?.session?.id;
@@ -3506,6 +3485,15 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       emitAgentStatus(payload as { agent?: unknown; status?: string }),
     ),
   );
+  // TUI#10：子代理生命周期事件（dsh-subagent：subagent/start · subagent/end）——
+  // /agents 面板打开期间据此即时刷新（2s 定时仍作兜底）；老宿主无此事件时静默。
+  for (const evt of ["subagent/start", "subagent/end"] as const) {
+    collectUnbind(
+      runtime.on(evt, () => {
+        emit({ type: "subagent-activity" });
+      }),
+    );
+  }
   collectUnbind(
     runtime.on(
       "approval/request",

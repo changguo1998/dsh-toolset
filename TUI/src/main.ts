@@ -411,13 +411,6 @@ export async function apply(
     handle = await createNewSession();
   }
 
-  const handle = await agents.create({
-    sessionId,
-    meta: { cwd: config?.cwd ?? process.cwd() },
-    agentOptions: route,
-    setup: makeSetup(),
-  });
-
   const rawAgent = handle.agent as {
     session: { id: string };
     followup(m: DshUserMessageLike): void;

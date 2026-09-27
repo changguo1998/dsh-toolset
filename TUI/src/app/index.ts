@@ -51,7 +51,8 @@ const APPROVAL_TIMEOUT_FALLBACK_MS = 60_000;
 import {
   parseSlashCommand,
   SESSION_UI_STATE_VERSION,
-  pickRecentSession,
+  pickContinueTarget,
+  type ContinueTarget,
   type CommandPanelKind,
   type SessionUiState,
   contractSummaryText,
@@ -1104,12 +1105,12 @@ export class App {
           this.scheduleSessionStateSave();
         }
         break;
-      case "ui-flags": {
       case "subagent-activity":
         // TUI#10：子代理生命周期变化 → /agents 面板打开时即时重拉（2s 定时仍作兜底；
         // 非 agents 面板不受影响，panelRefreshTick 自带 kind 守卫）
         if (this.state.commandPanel?.kind === "agents") this.panelRefreshTick();
         break;
+      case "ui-flags": {
         // 切换会话后回填 TUI 本地开关（宿主日志不记录 verbose / symbol-unify）
         if (
           this.state.activeSessionId &&
@@ -2201,11 +2202,11 @@ export class App {
           void this.openHistory();
         }
         return;
-      case "goal":
       case "continue":
         // TUI#1：加载当前目录下最近退出的会话（复用 /session 的加载路径）
         void this.continueRecentSession();
         return;
+      case "goal":
         // 无参：goal/todo 详情常驻左侧顶部状态列；带参数（<objective> / edit <objective> /
         // pause / resume / clear）→ 交宿主 dsh-command-goal 执行，结果经 notice 回报
         if (line.slice("/goal".length).trim() === "") {
@@ -2627,15 +2628,17 @@ export class App {
     return title ? title : id.slice(0, 8);
   }
 
-  /** /continue（TUI#1）：恢复当前目录下**编辑时间最近**的已退出会话；无匹配 → notice。
-   *  选择规则与 CLI `-c` 共用 `pickRecentSession`，加载走 /session 的 resumeToSession。 */
+  /** /continue（TUI#1/#23）：恢复当前目录下**最新的会话**——候选含当前会话
+   *  （仅当它已有用户消息）；若当前会话就是最新 → 提示不切换。刚起的新会话
+   *  仍回退到最近退出的会话；选择规则见 `pickContinueTarget`，加载走 /session 的
+   *  `resumeToSession`。 */
   private async continueRecentSession(): Promise<void> {
     const list = this.deps.adapter.listSessions;
     if (!list || !this.deps.adapter.resumeTo) {
       this.notice("历史会话服务不可用（宿主未挂载 sessionQuery）", "warn");
       return;
     }
-    let target: SessionInfo | undefined;
+    let target: ContinueTarget | undefined;
     try {
       const records = await list.call(this.deps.adapter);
       // cwd 口径与 /session project 范围一致：活跃会话记录优先（创建时 meta.cwd
@@ -2644,7 +2647,7 @@ export class App {
         records.find((r) => r.current === true)?.cwd ??
         currentProjectCwd(this.state) ??
         process.cwd();
-      target = pickRecentSession(records, cwd);
+      target = pickContinueTarget(records, cwd);
     } catch (err) {
       this.notice("会话列表读取失败：" + String(err), "warn");
       return;
@@ -2653,9 +2656,13 @@ export class App {
       this.notice("当前目录下没有可恢复的会话", "info");
       return;
     }
+    if (target.kind === "current") {
+      this.notice("当前会话已是最新，无需恢复", "info");
+      return;
+    }
     // 复用 /session 切换路径（resuming 态一闪而过；成功后 history-resume-ok 自动关面板）
     this.apply((s) => reduceState(s, { type: "history-open" }));
-    await this.resumeToSession(target.id);
+    await this.resumeToSession(target.record.id);
   }
 
   /** /session：打开历史会话面板（宿主未挂载会话查询服务时提示不可用） */
@@ -3135,6 +3142,10 @@ export class App {
    *  contextWindow 缺失或为 0 → 只显绝对量（不除零）。 */
   private handleStatsCommand(): void {
     const usage = this.state.usage;
+    const totals = this.state.usageTotals;
+    const totalsLine = `本会话累计：输入 ${totals.input} · 输出 ${totals.output} · 缓存读 ${totals.cacheRead}`;
+    // usage 缺失（新会话 / 刚切换会话）：最近一次调用不可知 → `—` / `n/a` 占位，
+    // 双口径恒四行（BACKLOG TUI#12：不再回落「暂无数据」单行提示）
     if (!usage) {
       this.notice(
         ["最近一次调用：—", totalsLine, "上下文：—", "缓存命中率：n/a"].join(
@@ -3146,10 +3157,6 @@ export class App {
     }
     const { input, output, cacheRead, contextWindow } = usage;
     // 上下文口径与状态栏 ctx 段一致：input + cacheRead（均为最近一次调用）
-    const totals = this.state.usageTotals;
-    const totalsLine = `本会话累计：输入 ${totals.input} · 输出 ${totals.output} · 缓存读 ${totals.cacheRead}`;
-    // usage 缺失（新会话 / 刚切换会话）：最近一次调用不可知 → `—` / `n/a` 占位，
-    // 双口径恒四行（BACKLOG TUI#12：不再回落「暂无数据」单行提示）
     const context = input + cacheRead;
     const lines = [
       `最近一次调用：输入 ${input} · 输出 ${output} · 缓存读 ${cacheRead}`,
@@ -3626,16 +3633,16 @@ export class App {
         desc: "会话列表：Enter 切换到已持久化会话（live 会话不可续）",
       },
       {
+        cmd: "/continue",
+        desc: "加载当前目录下最近退出的会话（等价 /session + 自动选中；无匹配给提示）",
+      },
+      {
         cmd: "/goal",
         desc: "无参：goal/todo 详情常驻左侧状态列（不打开面板）；带参：交宿主新建/编辑/暂停/恢复/清除当前 goal",
       },
       { cmd: "/copy", desc: "复制最后一条模型回复到剪贴板(OSC52)" },
       {
         cmd: "/model [provider/]model",
-      {
-        cmd: "/continue",
-        desc: "加载当前目录下最近退出的会话（等价 /session + 自动选中；无匹配给提示）",
-      },
         desc: "切换当前会话模型；无参打开交互选择面板",
       },
       {

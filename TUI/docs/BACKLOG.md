@@ -6,7 +6,9 @@
 > 编号口径（2026-09-26 重排）：现行条目用**扁平连续 `#n`**（与项目级 `docs/BACKLOG.md` 一致）；历史上按「章节.序号」编号的条目（`3.x.y`）已于同日清理，记录见 git 提交与 `TUI/docs/archived/`，故现行编号不复用旧号段。本文件的 `#n` 与项目级 `docs/BACKLOG.md` 的 `#N` **互不关联**、各自文件内唯一，跨层引用须写明文件路径。
 > 分组口径（2026-09-26 修订，按用户要求）：按**验收方式**分两类——**需要交互**指验证时必须动手操作（敲命令、按键、输入文字、带参数启动、等超时）；**不需要交互**指看一眼结果或跑自动化即可（渲染、排版、显示、内部机制、外部依赖）。判断标准是「验证时是否需要操作」，不是「改动是否可见」。
 
-## 待办（共 11 条）
+## 待办（共 15 条，其中 13 条已完成待清理；另 #8 仅提醒，不做实现）
+
+> 2026-09-27 批次（#1 / #2 / #5 / #7 / #10 / #12 / #14 / #17）过程记录与复核清单见 `TUI/docs/archived/2026-09-27-tui-remaining-batch.md`；#19 为该批次 #2 的回归修复，记录见 `TUI/docs/archived/2026-09-27-sessionquery-read-timing.md`。
 
 > 共同落点：`src/app/components/QuestionPrompt.ts`（问答面板渲染）、`src/app/components/ApprovalPrompt.ts`（审批面板渲染）、`src/app/index.ts` 的 `handleKey` 面板分支、`src/app/adapter/dsh.ts`（审批应答与超时）、`src/app/state.ts`（面板状态 + reducer）。
 
@@ -18,9 +20,9 @@
 
 - **完成（2026-09-27）** **#2 CLI 启动参数：`--resume <sessionId>` 与 `-c` / `--continue`**：给 `src/main.ts` 加 argv 解析（当前完全不解析 argv）。① `--resume <id>`：启动即恢复指定会话（走既有 `agents.resume({ resumeSessionId })`，与 `/session` 选择一致），id 无效时提示并回落新建；② `-c` / `--continue`：启动即加载**当前目录下最近退出的会话**（与 #1 同语义、共用选择函数），**没有可恢复会话时静默新建**。用法：`dsh --profile fff --continue` / `dsh --profile fff --resume <id>`。落点：`src/main.ts`、`adapter/dsh.ts`、`README.md`、`tests/`。来源：2026-09-26 用户规格。
 
+- **完成（2026-09-27）** **#19 #2 回归：重启后历史会话不可用（宿主未挂载 sessionQuery）+ `-c` 静默新建**：`apply()` 把 `ctx.get('sessionQuery')` 提前到 `agents.create()` 之前读并把早读值复用给 adapter；宿主服务随插件树**并发装载**（`session-query-sqlite` 的 provider 需 `sessions` 先就绪），早读为 undefined → `/session`、`/continue` 提示「历史会话服务不可用」、`--resume` 后历史面全缺席；`-c` 决策同源读空被当「无匹配」→ 静默新建而非恢复。修法：adapter 读点回到 handle 就绪后（与其它服务同批）；`-c` 决策改 `waitForHostService` 有界等待（3s，超时按未挂载）。落点：`src/main.ts`、`tests/main.config.test.ts`、`docs/IMPLEMENTATION.md`。来源：2026-09-27 用户真机报告（批次 #2 引入）。过程记录见 `TUI/docs/archived/2026-09-27-sessionquery-read-timing.md`。
 
 - **待办** **#20 CLI `--resume` / `-c` 启动恢复后历史区为空（不渲染既有消息）**：`main.ts` 在 App 创建前走 `agents.resume`；历史行折叠只在 `/session` 切换路径（`resumeToSession` → `history-resume-ok`）发生，CLI 启动恢复只经 `restoreSessionState` 回填 model/mode/goal/todo → 活动区空，需手动 `/session` 再切一次才可见会话内容（agent 侧上下文已恢复）。落点：`src/app/index.ts`（启动后补一次 surface 折叠）/ `adapter/dsh.ts`（暴露「本次启动为恢复」或启动即 emit 历史行）/ `tests/`。来源：2026-09-27 修复 TUI#19 时隔离环境 PTY 实测（见其追踪文档「测试与证据」）。优先级 P2。
-- **完成（2026-09-27）** **#19 #2 回归：重启后历史会话不可用（宿主未挂载 sessionQuery）+ `-c` 静默新建**：`apply()` 把 `ctx.get('sessionQuery')` 提前到 `agents.create()` 之前读并把早读值复用给 adapter；宿主服务随插件树**并发装载**（`session-query-sqlite` 的 provider 需 `sessions` 先就绪），早读为 undefined → `/session`、`/continue` 提示「历史会话服务不可用」、`--resume` 后历史面全缺席；`-c` 决策同源读空被当「无匹配」→ 静默新建而非恢复。修法：adapter 读点回到 handle 就绪后（与其它服务同批）；`-c` 决策改 `waitForHostService` 有界等待（3s，超时按未挂载）。落点：`src/main.ts`、`tests/main.config.test.ts`、`docs/IMPLEMENTATION.md`。来源：2026-09-27 用户真机报告（批次 #2 引入）。过程记录见 `TUI/docs/archived/2026-09-27-sessionquery-read-timing.md`。
 
 - 7 项纯 TUI 命令与 A1-A5 已完成，9 项候选当前无待办。裁定理由见 `TUI/docs/COMMANDS-SPEC.md` §7（`/clear`、`/login` `/logout` 维持排除；`/review` 搁置，可随 `docs/BACKLOG.md` 的 #17 一并考虑）；命令清单与层归属见 `TUI/docs/COMMANDS.md`；实施清单（已完成）见 `archive/TUI-COMMANDS-TASKS.md`。
 
@@ -36,7 +38,9 @@
 
 - **进行中（2026-09-27）** **#18 TUI 符号纠正改为 rule-engine 消费者**：`src/app/symbols.ts` 的「规则表 + 判定 + turn-end 后 followup」泛化为调用 `rule-engine`（插件已合并入 main，见项目级 `docs/BACKLOG.md` #42）；符号纠正**不迁移**，仅做消费者改造。待定：plugin 未挂载时的降级（保留内置符号表 / 直连判定，实现时定）。落点：`src/app/symbols.ts`、`src/app/adapter/*`、`docs/DESIGN.md`、`tests/`、冻结基线（如涉及）。来源：项目级 `docs/BACKLOG.md` #43（2026-09-27，跨模块，交其他 agent 接取）。**2026-09-27 批次裁定降级**：rule-engine provide 面只有 `list()` / `status()`，无消费者判定 / 注册 API，且未挂载进 `fff` profile → 本批不改 TUI 代码；依赖登记为项目级 `docs/BACKLOG.md` #47，待其落地后另起任务接取。
 
-### 不需要交互（3 条：#8 / #14 / #17）
+- **完成（2026-09-27）** **#23 `/continue` 改「最新会话」语义（当前会话已是最新时不切换）**：原规则「同目录 + persisted + 非 live + 编辑时间最大」把当前活跃会话天然排除 → 连按 `/continue` 会依次往前回退（用户 2026-09-27 真机反馈「本会话已经是最新时还是会切到其他会话」）。按用户裁定方案 C 改：候选并入**当前会话**（仅当它已有用户消息——刚起的新会话不算），最新者即当前会话 → info 提示「当前会话已是最新」、不切换；CLI `-c` 语义不变（启动时无当前会话）。落点：`src/app/adapter/dsh.ts`（新增 `pickContinueTarget`；探针覆盖活跃会话 + `SessionInfo.hasPrompt`）、`src/app/adapter/types.ts`、`src/app/index.ts`（`continueRecentSession`）、`tests/adapter.dsh.test.ts`、`tests/app.test.ts`、`README.md`、`docs/IMPLEMENTATION.md`。来源：2026-09-27 用户真机确认批次行为时发现。
+
+### 不需要交互（4 条：#14 / #17 / #21 / #22；均已完成）
 
 > 验收时看结果或跑自动化即可：面板显示形态、历史区排版、状态栏显示、内部机制、外部依赖（#8 待外部修复后回归）。
 

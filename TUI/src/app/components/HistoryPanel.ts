@@ -7,7 +7,8 @@
 // （删除二次确认，单条或批量）、deleting（删除中）、confirm-clean（清理空会话二次确认）、
 // cleaning（清理中）、error（错误消息）。
 // 列表行格式：`[>| ]* MM-DD HH:mm  <8位短id>  <标题>  .../cwd  [当前]|[不可续]|[空]`
-// （第 2 列 * = 批量删除标记，Space 切换；可删项标红不涉及，见 index.ts 键位）。
+// （行首时间为**编辑时间** `updatedAt`，缺省回退创建时间——与列表排序同口径，TUI#22；
+// 第 2 列 * = 批量删除标记，Space 切换；可删项标红不涉及，见 index.ts 键位）。
 // 按键提示不放面板内（位于输入区下方提示区，见 layout.ts HISTORY_*_HINT_LINE）；
 // 标题按显示宽补齐，避免 CJK 顶开活动区右缘框线。
 // 无 ANSI 着色（与模型选择面板同风格），中文界面文本按显示宽度截断。
@@ -58,6 +59,7 @@ function tailCwd(cwd: string, w: number): string {
 
 /**
  * 列表行：`[>| ]* MM-DD HH:mm  <短id>  <标题>  .../cwd  [当前]|[不可续]|[空]`。
+ * 行首时间为**编辑时间**（`updatedAt`，缺省回退 `createdAt`；TUI#22），与列表排序同口径。
  * 第 1 列为焦点（>）、第 2 列为批量标记（*），无则空格（列宽恒 2，行宽稳定）。
  * 标题优先官方 session/title 事件，缺失本地兜底；两者皆无显示（新会话）。
  * live 会话：当前活跃标 [当前]，其余 live 标 [不可续]（不可选中/标记）；
@@ -71,7 +73,7 @@ function listLine(
   width: number,
 ): string {
   const marker = `${isFocus ? ">" : " "}${marked ? "*" : " "}`;
-  const time = fmtTime(rec.createdAt);
+  const time = fmtTime(rec.updatedAt ?? rec.createdAt); // TUI#22：编辑时间（缺省创建时间）
   const id = rec.id.slice(0, 8);
   // 当前活跃 live 行双标（[当前] 活跃 + [不可续] 不可选中）；其余 live 仅 [不可续]；空会话 [空]
   let tag = "";
