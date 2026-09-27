@@ -1,6 +1,6 @@
 # ctx.cwd 未注入导致 fs_digest 调用必失败（修复）（接取条目：`fs-digest/docs/BACKLOG.md`「`ctx.cwd` 未注入，导致 `fs_digest` 调用必失败」）
 
-状态：规划（决策已通过审阅，待实现）　　开启：2026-09-27　　关闭：——
+状态：测试（实现完成、机械验证通过，待用户人工确认）　　开启：2026-09-27　　关闭：——
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 审阅：用户 2026-09-27 逐条审阅第 1 条（本条），决策**通过**。
 
@@ -49,12 +49,38 @@
 
 ## 实现记录
 
-（待实现）
+**实现（2026-09-27）**
+
+1. `src/main.ts`：
+   - 新增 `ToolExecCtx` 结构面与 `resolveExecCwd(exec)`：取 `exec.agent.session.header.cwd`，非空字符串才采用，否则回退 `process.cwd()`；
+   - `PluginCtx` **删除** `cwd?: string`（无人赋值，且正是 D1 的读取陷阱）；
+   - `ToolsCtx.register` 的 `execute` 签名增第二形参 `exec?: unknown`（对应宿主 `tool.execute(exec.arguments, exec)`）；
+   - `apply()` 内 `sessionCwd` 在每次 `execute` 开头用 `resolveExecCwd(exec)` 更新，`resolvePath` 闭包以它为相对路径基准（`digest` 层传空 cwd，基准在闭包内定；会话内工具调用串行，故单值即本次调用基准）。
+1. `tests/digest.test.ts`：`mockCtx()` **去掉 cwd 属性**（对齐 cordis 语义，避免再被当兜底），新增 5 例（见「测试与证据」）。
+1. `README.md`：删除「已知缺陷（工具当前不可用）」段，改为「相对路径基准 = 调用方会话 cwd」的边界条目（含不可读 `ctx.cwd` 的根因说明）。
+
+**关键结论**：相对路径基准与会话 cwd 一致，与宿主 `dsh-tool-fs` 的 `sessionCwd(exec)` 完全同口径；无会话上下文时回退进程 cwd（裸进程语义）。
 
 ## 测试与证据
 
-（待补：`npm run check` / `npm run test` 输出 + 现场取证脚本对照）
+| 命令 | 结果 |
+| --- | --- |
+| `npm run check`（tsc --noEmit） | 通过 |
+| `npm run test` | **46 例全通过**（46 pass / 0 fail，13 suites） |
+| `npm run build` | 通过（编译到 `dist/`） |
+
+新增 / 调整用例（`tests/digest.test.ts`，均通过）：
+
+1. `execute：工具签名可接收 exec`——断言 `execute.length === 2`（宿主调用形态 `execute(args, exec)` 的护栏）；
+1. `execute：相对路径以会话 cwd 为基准（D1 回归）`——同一相对路径 `nested/a.ts` 在两个会话 cwd（内容 alpha / beta）下解析到各自文件，**证明基准不再是进程 cwd 单一值**；
+1. `execute：signatures 与 pruned 同样认会话 cwd`——三模式口径一致；
+1. `execute：无 exec / 无会话 cwd 时回退进程 cwd`——不抛 cwd 异常、明确 `file_not_found`；
+1. 既有 `mockCtx` 用例（注册 / 缺 config / 缺参）在「假 ctx 无 cwd 属性」下仍通过。
+
+修复前取证（对照）：同一调用在包根运行时报 `文件不存在：<仓库根>/tests/fixtures/sample.md`（= 进程 cwd 基准）；修复后会话 cwd 基准命中，dirA/dirB 交叉用例证明基准随会话变化。
 
 ## 收尾
 
-（待补：README 回写、临时脚本清理、是否移入 `docs/archived/`）
+- 已回写 `fs-digest/README.md`（边界段改会话 cwd 口径，删除「工具当前不可用」过渡表述）；
+- 临时取证脚本（`tmp/fs-digest-probe.ts`、`tmp/fs-digest-live-probe.ts`）已删除；
+- 待办：用户人工确认（真机 `dsh --profile fff` 下相对路径调用 `fs_digest`）→ 条目转「完成」、本文档移入 `fs-digest/docs/archived/`。

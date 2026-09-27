@@ -23,12 +23,19 @@ export interface Config {
 }
 
 /** dsh plugin apply 面（结构类型，避免编译期依赖 @deepseek-ai/*）。 */
+/** 宿主工具执行上下文的最小形态（结构面：只取当前会话 cwd，见 resolveExecCwd）。 */
+interface ToolExecCtx {
+  agent?: { session?: { header?: { cwd?: unknown } } };
+}
 interface ToolsCtx {
   register(t: {
     name: string;
     description: string;
     parameters: Record<string, unknown>;
-    execute: (args: Record<string, unknown>) => Promise<unknown>;
+    execute: (
+      args: Record<string, unknown>,
+      exec?: unknown,
+    ) => Promise<unknown>;
     output: {
       schema: Record<string, unknown>;
       render: (result: unknown) => string;
@@ -36,10 +43,24 @@ interface ToolsCtx {
   }): void;
 }
 interface PluginCtx {
-  cwd?: string;
   tools?: ToolsCtx;
   lsp?: unknown;
   get?: (name: string) => unknown;
+}
+
+/**
+ * 本次工具调用的会话 cwd（相对路径解析基准）。
+ * 口径对齐宿主 dsh-tool-fs：`exec.agent.session.header.cwd`（0.1.7 起官方同为
+ * `exec.agent?.session.header.cwd`）。宿主未传 exec / 非 agent 调用方 / 会话无
+ * cwd → 回退 `process.cwd()`（裸进程语义，仅在无会话上下文时生效）。
+ * 注意：不可读 `ctx.cwd`——cordis 上下文代理上未 inject 的属性读取会直接抛错
+ * （BACKLOG D1 的根因，旧实现的 `ctx.cwd ?? process.cwd()` 兜底永远走不到）。
+ */
+function resolveExecCwd(exec: unknown): string {
+  const agent = (exec as ToolExecCtx | undefined)?.agent;
+  const session = agent?.session;
+  const cwd = session?.header?.cwd;
+  return typeof cwd === "string" && cwd !== "" ? cwd : process.cwd();
 }
 
 /** 结果渲染：outline 渲染缩进树（最多 60 行）；signatures 渲染 L<n> 签名；pruned 渲染正文（最多 80 行）。 */
@@ -120,13 +141,19 @@ function parseArgs(
  * apply：注册 fs_digest 工具。
  * 文件读取走 node:fs（tool-fs 底座职责的进程内复用），
  * 符号数据走 ctx 结构面 LSP（tool-lsp 底座职责的进程内复用），不可用时降级。
+ * 相对路径基准 = **调用方会话 cwd**（工具执行上下文第二实参，见 resolveExecCwd）。
  */
 export function apply(ctx: PluginCtx, config: Config = {}): void {
   const tools = ctx.tools;
   if (tools === undefined) return; // inject 未满足时静默跳过（对齐 dsh 插件惯例）
+  /**
+   * 本次调用的相对路径基准（execute 内按最新 exec 更新；digest 层不掌握会话）。
+   * 会话内工具调用串行（宿主逐步调度），故此单值即为「本次调用」的基准。
+   */
+  let sessionCwd = process.cwd();
   const deps: DigestDeps = {
     maxBytes: config.maxBytes,
-    resolvePath: (input) => resolve(ctx.cwd ?? process.cwd(), input),
+    resolvePath: (input, cwd) => resolve(cwd === "" ? sessionCwd : cwd, input),
   };
   tools.register({
     name: "fs_digest",
@@ -174,7 +201,7 @@ export function apply(ctx: PluginCtx, config: Config = {}): void {
         },
       },
     },
-    execute: async (args: Record<string, unknown>) => {
+    execute: async (args: Record<string, unknown>, exec?: unknown) => {
       const parsed = parseArgs(args);
       if (parsed === null) {
         return {
@@ -185,6 +212,7 @@ export function apply(ctx: PluginCtx, config: Config = {}): void {
           message: "须提供 path（string）与 mode（outline|signatures|pruned）",
         } satisfies DigestResult;
       }
+      sessionCwd = resolveExecCwd(exec);
       return digest(ctx, parsed.filePath, parsed.opts, deps);
     },
     output: {

@@ -1,7 +1,7 @@
 // tests/digest.test.ts — digest 编排层端到端：错误路径 / LSP 降级 / 工具注册
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -186,17 +186,21 @@ describe("宿主 ctx 结构面 LSP 解析", () => {
 });
 
 describe("工具注册（mock ctx）", () => {
-  function mockCtx(cwd = "/tmp") {
+  // 假 ctx **无 cwd 属性**：对齐 cordis 语义（未 inject 的 `ctx.cwd` 读取会直接抛错，
+  // 旧实现曾靠它兜底 → D1）；相对路径基准改为工具执行上下文（第二个实参）。
+  function mockCtx() {
     const registered: Array<{
       name: string;
-      execute: (args: Record<string, unknown>) => Promise<unknown>;
+      execute: (
+        args: Record<string, unknown>,
+        exec?: unknown,
+      ) => Promise<unknown>;
       output: {
         schema: Record<string, unknown>;
         render: (r: unknown) => string;
       };
     }> = [];
     const ctx = {
-      cwd,
       tools: {
         register: (t: (typeof registered)[number]) => registered.push(t),
       },
@@ -214,7 +218,7 @@ describe("工具注册（mock ctx）", () => {
   });
 
   it("无 tools 面时 apply 不抛错", () => {
-    apply({ cwd: "/tmp" } as never, {});
+    apply({} as never, {});
   });
 
   it("config 缺省（profile 未声明 config → undefined）时 apply 不抛错且注册工具", () => {
@@ -301,5 +305,125 @@ describe("工具注册（mock ctx）", () => {
     } else {
       throw new Error(`非预期结果：${JSON.stringify(result)}`);
     }
+  });
+
+  it("execute：工具签名可接收 exec（宿主调用形态 execute(args, exec)）", () => {
+    const { ctx, registered } = mockCtx();
+    apply(ctx as never, {});
+    const tool = registered[0];
+    assert.ok(tool !== undefined);
+    assert.equal(
+      tool.execute.length,
+      2,
+      "第二个形参为宿主传入的工具执行上下文（会话 cwd 来源）",
+    );
+  });
+
+  it("execute：相对路径以会话 cwd 为基准（D1 回归：同一输入在两个基准下解析到不同文件）", async () => {
+    const { ctx, registered } = mockCtx();
+    apply(ctx as never, {});
+    const tool = registered[0];
+    assert.ok(tool !== undefined);
+    const dirA = await mkdtemp(join(tmpdir(), "fs-digest-cwd-a-"));
+    const dirB = await mkdtemp(join(tmpdir(), "fs-digest-cwd-b-"));
+    try {
+      const rel = join("nested", "a.ts");
+      await mkdir(join(dirA, "nested"), { recursive: true });
+      await mkdir(join(dirB, "nested"), { recursive: true });
+      await writeFile(join(dirA, rel), "export function alpha(): void {}\n");
+      await writeFile(join(dirB, rel), "export function beta(): void {}\n");
+      const run = async (cwd: string) =>
+        (await tool.execute(
+          { path: rel, mode: "outline" },
+          {
+            agent: { session: { header: { cwd } } },
+          },
+        )) as DigestResult;
+      const ra = await run(dirA);
+      const rb = await run(dirB);
+      assert.equal(ra.ok, true, JSON.stringify(ra));
+      assert.equal(rb.ok, true, JSON.stringify(rb));
+      assert.equal(ra.path, rel);
+      const namesOf = (
+        nodes: readonly { name: string; children: readonly unknown[] }[],
+      ): string[] =>
+        nodes.flatMap((n) => [
+          n.name,
+          ...namesOf(
+            n.children as readonly {
+              name: string;
+              children: readonly unknown[];
+            }[],
+          ),
+        ]);
+      if (ra.ok && ra.mode === "outline") {
+        const names = namesOf(ra.nodes);
+        assert.ok(names.includes("alpha"), "dirA 基准应读到 alpha");
+        assert.ok(!names.includes("beta"), "不应读到另一个基准的文件");
+      }
+      if (rb.ok && rb.mode === "outline") {
+        assert.ok(namesOf(rb.nodes).includes("beta"), "dirB 基准应读到 beta");
+      }
+    } finally {
+      await rm(dirA, { recursive: true, force: true });
+      await rm(dirB, { recursive: true, force: true });
+    }
+  });
+
+  it("execute：signatures 与 pruned 同样认会话 cwd（相对路径，三模式口径一致）", async () => {
+    const { ctx, registered } = mockCtx();
+    apply(ctx as never, {});
+    const tool = registered[0];
+    assert.ok(tool !== undefined);
+    const dir = await mkdtemp(join(tmpdir(), "fs-digest-cwd-"));
+    try {
+      await writeFile(
+        join(dir, "mod.py"),
+        [
+          "def alpha(x):",
+          "    return x",
+          "",
+          "class Box:",
+          "    pass",
+          "",
+        ].join("\n"),
+      );
+      const exec = { agent: { session: { header: { cwd: dir } } } };
+      const sig = (await tool.execute(
+        { path: "mod.py", mode: "signatures" },
+        exec,
+      )) as DigestResult;
+      assert.equal(sig.ok, true, JSON.stringify(sig));
+      if (sig.ok && sig.mode === "signatures") {
+        assert.ok(sig.signatures.some((s) => s.name === "alpha"));
+      }
+      const pruned = (await tool.execute(
+        { path: "mod.py", mode: "pruned" },
+        exec,
+      )) as DigestResult;
+      assert.equal(pruned.ok, true, JSON.stringify(pruned));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("execute：无 exec / 无会话 cwd 时回退进程 cwd（明确失败，不抛 cwd 异常）", async () => {
+    const { ctx, registered } = mockCtx();
+    apply(ctx as never, {});
+    const tool = registered[0];
+    assert.ok(tool !== undefined);
+    // 进程 cwd（包根）下不存在该相对路径；断言「不抛错 + 明确 file_not_found」
+    const noExec = (await tool.execute({
+      path: ".tmp-no-such-file.ts",
+      mode: "outline",
+    })) as DigestResult;
+    assert.equal(noExec.ok, false);
+    if (!noExec.ok) assert.equal(noExec.error, "file_not_found");
+    const emptyCwd = (await tool.execute(
+      { path: ".tmp-no-such-file.ts", mode: "outline" },
+      { agent: { session: { header: {} } } },
+    )) as DigestResult;
+    assert.equal(emptyCwd.ok, false);
+    if (!emptyCwd.ok) assert.equal(emptyCwd.error, "file_not_found");
   });
 });
