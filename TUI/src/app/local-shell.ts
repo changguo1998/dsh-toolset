@@ -9,6 +9,9 @@
 // 本模块是纯 IO 边界：只做 spawn 封装与输出聚合，渲染/状态变更由调用方（App）负责。
 
 import { spawn } from "node:child_process";
+import { statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 /** 一次本地命令的结果（与渲染无关的原始事实） */
 export interface ShellRunResult {
@@ -39,6 +42,38 @@ export type ShellRunner = (
   options?: ShellRunOptions,
 ) => Promise<ShellRunResult>;
 
+/** 展开 `~`：状态栏 cwd 是**显示用缩写**（`~/Projects/x`，见 status.ts `shortenHome`），
+ *  不能直接当文件系统路径用（`~` 不展开 → spawn ENOENT，真机 2026-09-27 踩到）。 */
+function expandTilde(path: string): string {
+  if (path === "~") return homedir();
+  if (path.startsWith("~/")) return join(homedir(), path.slice(2));
+  return path;
+}
+
+/**
+ * 归一可用的工作目录（BACKLOG TUI#37 真机缺陷修复）：
+ * `~` 展开 → 必须是**存在的目录** → 否则回落 `process.cwd()` → 仍不可用则 undefined。
+ * 传入显示占位（`—`/空）或已消失的目录时不再让 spawn 报出误导性的
+ * `spawn /bin/sh ENOENT`，而是走可用目录或明确报错。
+ */
+export function resolveShellCwd(cwd?: string): string | undefined {
+  const candidates = [
+    cwd === undefined || cwd === "" || cwd === "—"
+      ? undefined
+      : expandTilde(cwd),
+    process.cwd(),
+  ];
+  for (const c of candidates) {
+    if (c === undefined) continue;
+    try {
+      if (statSync(c).isDirectory()) return c;
+    } catch {
+      // 不存在 / 不可访问 → 试下一个候选
+    }
+  }
+  return undefined;
+}
+
 /** 缺省超时：30s（BACKLOG TUI#37 决策） */
 export const SHELL_TIMEOUT_MS = 30_000;
 /** 缺省单流输出上限（字符）：约 2 万，超出截断并标注 */
@@ -58,11 +93,23 @@ function capText(
 export const runShellCommand: ShellRunner = (command, options = {}) => {
   const timeoutMs = options.timeoutMs ?? SHELL_TIMEOUT_MS;
   const maxOutputChars = options.maxOutputChars ?? SHELL_MAX_OUTPUT_CHARS;
+  const cwd = resolveShellCwd(options.cwd);
+  // 无可用目录（传入目录已消失且进程 cwd 也不可用）→ 明确失败，不进 spawn
+  if (cwd === undefined) {
+    return Promise.resolve({
+      code: null,
+      signal: null,
+      stdout: "",
+      stderr: "无可用工作目录（传入目录与进程 cwd 均不可访问）",
+      timedOut: false,
+      truncated: false,
+    });
+  }
   return new Promise<ShellRunResult>((resolveRun) => {
     let timedOut = false;
     const child = spawn(command, {
       shell: true,
-      cwd: options.cwd,
+      cwd,
       // 交互式命令（如 vim）在本项不支持：stdin 直接关闭，避免挂死
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -81,10 +128,11 @@ export const runShellCommand: ShellRunner = (command, options = {}) => {
       setTimeout(() => child.kill("SIGKILL"), 1000).unref?.();
     }, timeoutMs);
     timer.unref?.();
-    // spawn 失败（如 shell 不在 PATH）：保守返回失败结果，不抛
+    // spawn 失败（如 shell 不在 PATH）：保守返回失败结果，不抛；带上 cwd 便于定位
+    // （`spawn … ENOENT` 的报错指向命令名，实际常是 cwd 不可用）
     child.on("error", (err: Error) => {
       clearTimeout(timer);
-      const msg = `spawn 失败：${err.message}`;
+      const msg = `spawn 失败：${err.message}（cwd=${cwd}）`;
       const out = capText(stdout, maxOutputChars);
       resolveRun({
         code: null,
@@ -143,6 +191,9 @@ export function shellResultLines(
     });
   } else if (result.code === 0) {
     lines.push({ text: `→ 退出码 0 · ${ms}ms`, tone: "success" });
+  } else if (result.code === null && result.signal === null) {
+    // 进程没起来（spawn 失败）→ 别说「被信号 ? 终止」（误导），直接报启动失败
+    lines.push({ text: `→ 启动失败（未执行） · ${ms}ms`, tone: "error" });
   } else {
     const how =
       result.code !== null
