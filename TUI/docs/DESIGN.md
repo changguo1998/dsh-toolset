@@ -59,7 +59,7 @@ DSH 适配层接口以**官方源码研读与升级对照**为准（`docs/host/D
 TUI/
   package.json           # type: module, bin: tui.js
   tsconfig.json
-  bin/tui.js             # shebang + import('../dist/main.js')
+  bin/tui.js             # 双态启动器：profile 就绪 → 委托 dsh --profile；否则 mock demo
   src/
     main.ts              # 组装: renderer + app + DSH adapter；插件参数归一化与注入
     renderer/            # 框架层：不感知 DSH、不 import app
@@ -115,9 +115,9 @@ history 的内容 = v( 消息 Box … )      // 由 state.buffer 派生
 activity 的内容 = v( 瞬态行 Box … )    // 思考/工具/notice；面板打开时整体替换
 ```
 
-- **pane 树**结构固定（四区域）：分区层硬编码于 `buildBox`，尺寸由 `metricsFor` 预算转成 `Width`/`Height` 意图；内容层走「内容元素类型 → Box 构建函数」映射表，新增内容类型 = 加一条映射、不改布局主体（`SPEC.md` §3）。
+- **pane 树**结构固定（四区域）：分区层硬编码于 `layout.ts`（`frameGeometry` 唯一尺寸来源 + `buildTopRegion` / `buildFrame` 分区拼帧），尺寸由 `metricsFor` 预算转成 `Width`/`Height` 意图；`buildBox` 只产两 pane 内容树 + 行元数据，内容层走「内容元素类型 → Box 构建函数」映射表，新增内容类型 = 加一条映射、不改布局主体（`SPEC.md` §3）。
 - **内容树**每帧从 state 派生（纯函数），挂在 pane 的叶子上；在 pane 的 fill 阶段摊平为 `FrameRow[]`，滚动 / 裁剪在行级进行。
-- 排版管线：`state --buildBox--> Box 树 --measure/allocate--> rects --fill--> FrameRow[] --renderer--> 终端`（每帧全量重建，纯函数、可复现，见 `SPEC.md` §9）。
+- 排版管线：`state --buildFrame(layout.ts 分区拼帧 + buildBox 两 pane 内容树)--> Box 树 --measure/allocate--> rects --fill--> FrameRow[] --renderer--> 终端`（每帧全量重建，纯函数、可复现，见 `SPEC.md` §9）。
 
 ### 6. 模块归属
 
@@ -126,7 +126,7 @@ activity 的内容 = v( 瞬态行 Box … )    // 思考/工具/notice；面板�
 | `layout/box.ts` | 类型：`NodeBase`/`Box`/`Paragraph`/`Width`/`Height`/`Separator`/`PaneId`（纯类型，无行为） |
 | `layout/measure.ts` | `measure(node, constraint) -> SizeTable` + `allocate(SizeTable, rect) -> Map<Node, Rect>`（`SPEC.md` §6） |
 | `layout/fill.ts` | `fill(ctx, rect)` 摊平：Paragraph 折行 → 行内解析 → 补白 / valign；Box 递归 + separator；`setCell` 切段 |
-| `layout/build-box.ts` | `buildBox(state) -> Box`：四分区 pane 树 + 内容映射清单 |
+| `layout/build-box.ts` | `buildBox(buffer, opts) -> BuildBoxResult`：两 pane 内容树（dialogue / activity）+ 行元数据映射 |
 | `layout/focus-frame.ts` | `FocusFrame(ctx, rects)` 段级覆写（整帧一次扫描） |
 | `layout/table.ts` | 表格构建器（解析 + 列宽求解 + 压缩/分隔/对齐），产出 Box 子树（`SPEC.md` §3.2） |
 | `layout/panel.ts` | 面板场景原语 `panelTitle`/`panelQuestion`/`panelExplanation`/`panelOptions` |
@@ -139,7 +139,7 @@ activity 的内容 = v( 瞬态行 Box … )    // 思考/工具/notice；面板�
 
 面板（审批 / 问答 / 模型选择 / 状态选项 / 各列表族 / 历史会话 / 命令补全）是 activity 的**内容树整体替换**，不是叠加层——不需要 Overlay 构造子。面板组件用 `layout/panel.ts` 的场景原语（`panelTitle` / `panelQuestion` / `panelExplanation` / `panelOptions` / `windowStart`）组合成 Box 子树，与正文排版走同一套 fill 摊平，输出统一为段级 `FrameRow[]`。协议与接线点见 `COMMANDS-SPEC.md` §4，原语签名见 `SPEC.md` §7。
 
-**两窗与焦点窗**（BACKLOG 3.2.1）：问答面板把面板体拆成「描述窗」（题干 + detail）与「选项窗」（选项 + 自定义兜底项）两段各自的滚动窗口，`Tab` 在 `state.question.items[i].focus`（`desc` / `options`）间切焦点，`↑/↓` 语义随焦点窗分派（描述窗滚行 / 选项窗移项）；窗口起点统一由 `windowStart` 计算，选项窗恒保证焦点项与已标记项可见。面板内文本编辑（「自定义回答」）时渲染行带 `caret`，渲染器据此把硬件光标定位回面板编辑位置（BACKLOG 3.2.7，契约见 `SPEC.md` §7.1 / §13）。**编辑光标（BACKLOG TUI#35）**：`item.customCaret`（`null` = 未编辑态）标记编辑态——编辑态下 `←/→` 在答案串内移动光标、插入与退格发生在光标处（列 = 该行内前缀的显示宽度，含 CJK），右端到头不切题；未编辑态（含空串 / 移项后）`←/→` 仍是切题导航，退格把串删空即回未编辑态。
+**两窗与焦点窗**（BACKLOG 3.2.1）：问答面板把面板体拆成「描述窗」（题干 + detail）与「选项窗」（选项 + 自定义兜底项）两段各自的滚动窗口，`Tab` 在 `state.question.items[i].focus`（`desc` / `options`）间切焦点，`↑/↓` 语义随焦点窗分派（描述窗滚行 / 选项窗移项）；窗口起点统一由 `windowStart` 计算，选项窗恒保证焦点项与已标记项可见。面板内文本编辑（「自定义回答」）时渲染行带 `caret`，渲染器据此把硬件光标定位回面板编辑位置（BACKLOG 3.2.7，契约见 `SPEC.md` §7.1 / §13）；caret 仅当 `customCaret > 0` 产出——光标在答案串首（`customCaret === 0`）时无 caret、硬件光标保持隐藏。**编辑光标（BACKLOG TUI#35）**：`item.customCaret`（`null` = 未编辑态）标记编辑态——编辑态下 `←/→` 在答案串内移动光标、插入与退格发生在光标处（列 = 该行内前缀的显示宽度，含 CJK），右端到头不切题；未编辑态（含空串 / 移项后）`←/→` 仍是切题导航，退格把串删空即回未编辑态。
 
 ### 8. 焦点框线：全局 FocusFrame 覆写
 
@@ -177,7 +177,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 
 ### 展示类配置
 
-展示类配置在 `apply()` 边界由 `normalizeTuiDisplayConfig` 一次性归一化（非法值告警 + 回退默认），经 `main()` → `App` → `initialState` 下传，app 内不再校验：`messageGutter`、`theme`。`toolBootstrap` 属行为开关，在 `apply()` 直接读 `config.toolBootstrap` 透传，不参与 display 归一化。配置项与默认值见 `README.md`。
+展示类配置在 `apply()` 边界归一化（非法值告警 + 回退默认）后经 `main()` → `App` → `initialState` 下传：`messageGutter` 走 `normalizeTuiDisplayConfig`，`theme` 单独走 `normalizeThemeId`（App 侧对 `initialTheme` 仍会再归一一次）。`toolBootstrap` 属行为开关，在 `apply()` 直接读 `config.toolBootstrap` 透传，不参与 display 归一化。配置项与默认值见 `README.md`。
 
 ### 锚定工具引导（两阶段工具锁定-释放）
 
@@ -247,13 +247,12 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 
 ## 信号与退出契约
 
-终端 raw mode 开/关与终端恢复由 `renderer/terminal.ts` 负责，对所有退出路径生效（正常 `close()`、SIGINT / SIGTERM、`uncaughtException` / `unhandledRejection`）；进程退出生命周期归 renderer 拥有，app 只在 renderer 分发的事件里做自己的清理。按键层面 `Esc` 与 `Ctrl+C` 不触发退出（避免误触丢会话），退出走 `/quit`。
+终端 raw mode 开/关与终端恢复由 `renderer/terminal.ts` 负责，对所有退出路径生效（正常 `close()`、SIGINT / SIGTERM、`uncaughtException` / `unhandledRejection`）；进程退出生命周期归 renderer 拥有，app 只在 renderer 分发的事件里做自己的清理。按键层面 `Esc` 与单次 `Ctrl+C` 不触发退出（避免误触丢会话）；退出路径为 `/quit`、`Ctrl+D`（agent 空闲且输入区为空）与 750ms 内双击 `Ctrl+C`。
 
 ## 规划与边界
 
 - **待做**：
   - `session fork` 面板联动（宿主 `sessions.fork` 已接入 `/fork`，进一步的面板形态待定）。
   - tool `meta` diff 展示（+N / −M）——复用 `tool/result.meta` 工具私有展示载荷。
-  - `model/selection` 模型切换回放：TUI 切换的模型不落盘，会话仅按次记录 `request/header`（含 provider / model / effort），无 `model/selection` 事件、折叠状态无模型行 → resume 不还原该会话最后模型且可能串味。修复需 TUI 侧自存「会话→模型」映射（核心无 per-session 持久化 API）。详见 `IMPLEMENTATION.md`「/model 命令」。
 - **明确不做**：多会话并行（维持单活跃会话）；thinking 展开 / 收起；flex / grid / 自动布局引擎 / 样式继承 / 嵌套滚动；可复用 Panel 基类或带行为的组件节点；Overlay 覆盖层构造子（面板走内容替换）；renderer 侧承载排版职责。
-- **deferred（已评估暂缓，非缺失）**：feedback 评价（低频）；嵌套 markdown 与上下标（低频）；`compaction/summary` 持久化（若要做可读历史另立条目）；`session/end-seed`、`session/title-llm-request`、`request/header`、`request/context`（低价值调试向且 payload 复杂，待调试视图需求出现再做）；`team/*`（实验包依赖）；`web/deepseek-search-llm-request`（log-only）；`model/selection`、`subagent/model-selection-policy`、session-log 交付确认（低频 / 内部日志）。
+- **deferred（已评估暂缓，非缺失）**：feedback 评价（低频）；嵌套 markdown 与上下标（低频）；`compaction/summary` 持久化（若要做可读历史另立条目）；`session/end-seed`、`session/title-llm-request`、`request/header`、`request/context`（低价值调试向且 payload 复杂，待调试视图需求出现再做）；`team/*`（实验包依赖）；`web/deepseek-search-llm-request`（log-only）；`subagent/model-selection-policy`、session-log 交付确认（低频 / 内部日志）。
