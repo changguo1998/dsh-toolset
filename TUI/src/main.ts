@@ -213,6 +213,29 @@ function readCmdlineArgs(svc: { get?: () => unknown } | undefined): string[] {
   }
 }
 
+/** sessionQuery 等待上限（ms）：宿主服务随插件树**并发装载**（`-c` 决策早于 handle
+ *  就绪，早读可能为空）；超时按「未挂载」处理，不阻断启动。 */
+const SESSION_QUERY_WAIT_MS = 3_000;
+
+/**
+ * 有界等待宿主服务挂载：`read()` 读到即返回；超时（始终未挂载）→ undefined。
+ * 依赖以参数注入（read + 超时），便于单测；用于「读点早于服务就绪」的启动决策
+ * （`-c` 需先拿会话列表才能定 resume/新建）。
+ */
+export async function waitForHostService<T>(
+  read: () => T | undefined,
+  timeoutMs: number,
+  stepMs = 50,
+): Promise<T | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const svc = read();
+    if (svc !== undefined) return svc;
+    if (Date.now() >= deadline) return undefined;
+    await new Promise((resolve) => setTimeout(resolve, stepMs));
+  }
+}
+
 /**
  * DSH 宿主加载本 bundle 时调用：创建/拉起 agent，组装真实链路并启动 TUI。
  * ctx 为 cordis Context(结构上满足 DshRuntime)，此处只做窄化。
@@ -337,10 +360,12 @@ export async function apply(
     "cmdlineArgs",
   ) as { get?: () => unknown } | undefined;
   const startup = parseTuiStartupArgs(readCmdlineArgs(cmdlineArgsSvc));
-  // 会话查询服务（早读一次）：宿主 provider 随插件树并发装载，此处读到即用
-  const sessionQuerySvc = (ctx as { get?: (name: string) => unknown }).get?.(
-    "sessionQuery",
-  ) as SessionQueryLike | undefined;
+  // 会话查询服务读取闭包：服务随插件树**并发装载**，读点不同结果不同——
+  // 此处只服务 `-c` 决策（需等待就绪）；adapter 选项一律在 handle 就绪后读
+  // （「历史会话不可用」回归根因：apply 早期读到 undefined 后被复用给 adapter）。
+  const readSessionQuery = (): SessionQueryLike | undefined =>
+    (ctx as { get?: (name: string) => unknown }).get?.("sessionQuery") as
+      SessionQueryLike | undefined;
   let handle: { agent: unknown; dispose(): Promise<void> };
   if (startup.resume !== undefined) {
     // --resume <id>：无效 id → stderr 提示并回落新建（条目原文）
@@ -357,8 +382,14 @@ export async function apply(
     // 无匹配 → 静默新建（条目原文）
     let targetId: string | undefined;
     try {
-      const records = sessionQuerySvc
-        ? await listSessionRecords({ sessionQuery: sessionQuerySvc })
+      // 服务未就绪（provider 与 TUI 并发装载）→ 有界等待，避免「本可恢复」被当作
+      // 「无匹配」而静默新建；始终未挂载/超时 → 按无匹配处理（条目原文）
+      const sessionQuery = await waitForHostService(
+        readSessionQuery,
+        SESSION_QUERY_WAIT_MS,
+      );
+      const records = sessionQuery
+        ? await listSessionRecords({ sessionQuery })
         : [];
       targetId = pickRecentSession(records, config?.cwd ?? process.cwd())?.id;
     } catch {
@@ -438,8 +469,9 @@ export async function apply(
       loadTuiConfig().approval?.timeoutMs ??
       config?.approvalTimeoutMs ??
       30_000,
-    // 历史会话查询服务（ctx.get('sessionQuery')；缺失时 /session 提示不可用）
-    sessionQuery: sessionQuerySvc,
+    // 历史会话查询服务（ctx.get('sessionQuery')；缺失时 /session 提示不可用）。
+    // 读点必须在此（handle 就绪之后）：provider 与 TUI 并发装载，apply 早期读为空
+    sessionQuery: readSessionQuery(),
     // 会话存储服务（ctx.get('sessions')；live 会话读取原始事件需经它，缺失时降级 readSurface/readSession）
     sessions: (ctx as { get?: (name: string) => unknown }).get?.("sessions") as
       SessionStoreLike | undefined,

@@ -6,7 +6,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeTuiDisplayConfig, parseTuiStartupArgs } from "../src/main.ts";
+import {
+  normalizeTuiDisplayConfig,
+  parseTuiStartupArgs,
+  waitForHostService,
+} from "../src/main.ts";
 
 function collect(): { warns: string[]; warn: (m: string) => void } {
   const warns: string[] = [];
@@ -97,3 +101,49 @@ test("parseTuiStartupArgs：--resume 两种写法、-c/--continue、优先级与
   );
 });
 
+// --- 服务就绪等待（回归：「历史会话不可用（宿主未挂载 sessionQuery）」根因修复） ---
+//
+// 宿主服务随插件树并发装载，apply 早期 ctx.get('sessionQuery') 可能为空；
+// waitForHostService 供启动决策有界等待，超时按未挂载处理。
+
+test("waitForHostService：服务已就绪 → 立即返回，不等待", async () => {
+  const svc = { name: "ready" };
+  let calls = 0;
+  const got = await waitForHostService<{ name: string }>(() => {
+    calls++;
+    return svc;
+  }, 1_000);
+  assert.equal(got, svc);
+  assert.equal(calls, 1, "就绪时只读一次");
+});
+
+test("waitForHostService：等待期内就绪 → 返回服务实例", async () => {
+  const svc = { name: "late" };
+  let calls = 0;
+  const got = await waitForHostService<{ name: string }>(
+    () => {
+      calls++;
+      return calls >= 3 ? svc : undefined;
+    },
+    1_000,
+    5,
+  );
+  assert.equal(got, svc);
+  assert.ok(calls >= 3, "轮询到就绪为止，实际读 " + calls + " 次");
+});
+
+test("waitForHostService：始终未挂载 → 超时返回 undefined（有界）", async () => {
+  let calls = 0;
+  const started = Date.now();
+  const got = await waitForHostService<{ name: string }>(
+    () => {
+      calls++;
+      return undefined;
+    },
+    30,
+    5,
+  );
+  assert.equal(got, undefined);
+  assert.ok(calls >= 1, "至少读一次");
+  assert.ok(Date.now() - started < 1_000, "超时后有界返回，不永久挂起");
+});
