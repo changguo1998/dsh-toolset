@@ -16,7 +16,7 @@
 
 - **待办** **#38 问题面板的「上一条消息」段改走 markdown 渲染并取消青色**：面板描述窗顶部的问题前正文（`panel.source`，活动区正文复述，≤6 行）当前是**纯文本 + 醒目青色**（`QuestionPrompt.ts` 的 `sourceText` 段；青色为 3.2.10 人工反馈所加），与题干 / detail 的 markdown 口径不一致（旧 TUI#6 曾裁定该段保持纯文本——本条即改该裁定）。改为：与题干同口径走 markdown 子集（`panelMarkdownRows`，样式段不含行首 1 列，渲染时补空格 / bar），颜色回默认前景（去掉 `fg:"cyan"`），空行与折行口径随 markdown 渲染统一。落点：`src/app/components/QuestionPrompt.ts`。来源：用户 2026-09-27 提出。状态：完成（2026-09-27 真机确认通过，追踪文档已归档）。优先级 P2。
 
-- **待办** **#39 垂直状态栏（最左状态列）显示 agents 信息（只读）**：状态列现有 **Goal → Todo → Jobs** 三块，新增 **Agents** 块，只读展示当前会话的 agents（子代理）信息（label / id / depth / 运行中·空闲等状态），沿用既有块样式、块间虚线 `╌`、折叠分级（L0-L3）与「无数据时整块省略」口径；纯展示，不接受按键、不提供中断/关闭入口。落点：数据源候选 `src/app/adapter/dsh.ts`（既有 agents 列举路径已按宿主能力择路 `listDescendants` / `listChildren`）+ 状态列内容树与 state。来源：用户 2026-09-27 提出。状态：进行中（追踪文档见 docs/implementation/）。优先级 P2。
+- **待办** **#39 垂直状态栏（最左状态列）显示 agents 信息（只读）**：状态列现有 **Goal → Todo → Jobs** 三块，新增 **Agents** 块，只读展示当前会话的 agents（子代理）信息（label / id / depth / 运行中·空闲等状态），沿用既有块样式、块间虚线 `╌`、折叠分级（L0-L3）与「无数据时整块省略」口径；纯展示，不接受按键、不提供中断/关闭入口。落点：数据源候选 `src/app/adapter/dsh.ts`（既有 agents 列举路径已按宿主能力择路 `listDescendants` / `listChildren`）+ 状态列内容树与 state。来源：用户 2026-09-27 提出。状态：完成（2026-09-27 真机确认通过，追踪文档已归档）。优先级 P2。
 
 - **待办** **#40 CLI `--resume` / `-c` 启动恢复后历史区为空（不渲染既有消息）**：`main.ts` 在 App 创建前走 `agents.resume`；历史行折叠只在 `/session` 切换路径（`resumeToSession` → `history-resume-ok`）发生，CLI 启动恢复只经 `restoreSessionState` 回填 model/mode/goal/todo → 活动区空，需手动 `/session` 再切一次才可见会话内容（agent 侧上下文已恢复）。落点：`src/app/index.ts`（启动后补一次 surface 折叠）/ `adapter/dsh.ts`（暴露「本次启动为恢复」或启动即 emit 历史行）/ `tests/`。来源：2026-09-27 修复旧 TUI#19 时隔离环境 PTY 实测（见其追踪文档「测试与证据」）。状态：进行中（追踪文档见 docs/implementation/）。优先级 P2。
 

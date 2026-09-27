@@ -99,6 +99,13 @@ export const DEFAULT_MESSAGE_GUTTER = 4;
 /** 输入栏临时模式（$ shell / / slash / < steer；提交后自动回退 normal，不再有 Esc 回退） */
 export type InputMode = "normal" | "shell" | "slash" | "steer";
 
+/** 输入历史条目（BACKLOG TUI#34）：提交时的**提示符口径文本** + 当时的输入模式。
+ *  模式必须随条目保存——否则 `/agents` 回溯后会变成普通输入（真机缺陷修复，2026-09-27）。 */
+export interface InputHistoryEntry {
+  text: string;
+  mode: InputMode;
+}
+
 /** 输入状态（P1 起用于**用户块首行**符号，不再渲染在状态栏最左侧）：绿✓=成功 /
  *  红✗=失败 / 黄●/○=运行中（实心/空心圆按流式输出节奏交替，见 RUN_TOGGLE_CHARS）/
  *  黄△=等待交互（审批/问答面板打开等用户决策）/ idle=尚无结果（渲染回退 ?） */
@@ -386,13 +393,15 @@ export interface AppState {
   dialogueGeometry: DialogueGeometry;
   inputText: string;
   inputCursor: number;
-  /** 输入历史（已提交的普通输入与 `/` 命令共用一份；仅本会话生命周期，不持久化）。
-   *  末尾 = 最近一条；相邻重复不入栈；条数上限见 `inputHistoryPush` */
-  inputHistory: readonly string[];
+  /** 输入历史（已提交输入连同**提交时的输入模式**；仅本会话生命周期，不持久化）。
+   *  末尾 = 最近一条；相邻重复（文本 + 模式均相同）不入栈；条数上限见 `inputHistoryPush` */
+  inputHistory: readonly InputHistoryEntry[];
   /** 输入历史游标（0 = 未翻看；n = 距最新第 n 条；超过长度时夹到最早一条） */
   inputHistoryCursor: number;
   /** 进入翻看前的草稿（回到最新条目之下时恢复；非翻看态恒为空串） */
   inputHistoryDraft: string;
+  /** 进入翻看前的草稿模式（随草稿一起恢复；非翻看态为 normal） */
+  inputHistoryDraftMode: InputMode;
   /** 排队消息（**已按官方流程 followup 交给核心 next-turn 队列**、但本回合尚未被
    *  认领的文本，按提交顺序；本机只用于显示——核心认领最早一条时该条转入历史流。
    *  空数组 = 无排队） */
@@ -711,6 +720,7 @@ export function initialState(
     inputHistory: [], // 输入历史：进程内、随会话生命周期（不写入 tui-state.json）
     inputHistoryCursor: 0,
     inputHistoryDraft: "",
+    inputHistoryDraftMode: "normal",
     queued: [], // 无排队（agent 运行期间 Enter 的文本登记在此，核心认领后转入历史）
     inputMode: "normal",
     inputStatus: "idle",
@@ -2675,6 +2685,7 @@ function setInput(
     inputCursor: cursor,
     inputHistoryCursor: 0,
     inputHistoryDraft: action.text,
+    inputHistoryDraftMode: state.inputMode,
     completion: completeCommandInput(
       action.text,
       state.registryCommands,
@@ -2699,14 +2710,20 @@ export function isInputHistoryBrowseAt(
   return state.inputHistory.length > 0 && cursor > 0;
 }
 
-/** 提交入栈：空串不入栈、与栈顶相同不入栈、超上限丢最旧（原数组不改）。 */
+/** 提交入栈：空串不入栈、与栈顶完全相同（文本 + 模式）不入栈、超上限丢最旧（原数组不改）。 */
 export function inputHistoryPush(
-  history: readonly string[],
-  text: string,
-): readonly string[] {
-  if (text === "") return history;
-  if (history[history.length - 1] === text) return history;
-  const next = [...history, text];
+  history: readonly InputHistoryEntry[],
+  entry: InputHistoryEntry,
+): readonly InputHistoryEntry[] {
+  if (entry.text === "") return history;
+  const last = history[history.length - 1];
+  if (
+    last !== undefined &&
+    last.text === entry.text &&
+    last.mode === entry.mode
+  )
+    return history;
+  const next = [...history, entry];
   return next.length > INPUT_HISTORY_MAX
     ? next.slice(next.length - INPUT_HISTORY_MAX)
     : next;
@@ -2714,17 +2731,23 @@ export function inputHistoryPush(
 
 /**
  * 输入历史 reducer（BACKLOG TUI#34）：
- * - push：提交时入栈（空串/相邻重复不入栈），并复位翻看态（游标归零、草稿清空）；
- * - prev：上翻（进入翻看时先保存当前草稿）；到最早一条停住（游标夹到长度）；
- * - next：下翻；越过最新条目 → 退出翻看并**恢复进入前的草稿**。
- * 输入框文本与游标同步更新（文本尾 = 光标位），候选按新文本重算（与 setInput 同口径）。
+ * - push：提交时入栈（空串 / 相邻重复不入栈），并复位翻看态（游标归零、草稿清空）；
+ * - prev：上翻（进入翻看时先保存当前草稿**与其模式**）；到最早一条停住（游标夹到长度）；
+ * - next：下翻；越过最新条目 → 退出翻看并**恢复进入前的草稿与模式**。
+ *
+ * **模式随条目恢复**（真机缺陷修复 2026-09-27）：条目保存提交时的 `InputMode`，回溯时
+ * 一并写回 `inputMode`——否则 `/agents` 这类 slash 提交回溯后变成普通输入
+ * （提示符 `>` + 文本 `agents`，提交语义也变了）；`$` shell、`<` steer 同理。
+ * 输入框文本与游标同步更新（文本尾 = 光标位），候选按「新文本 + 新模式」重算。
  */
 export function reduceInputHistory(
   state: AppState,
   action: Extract<StateAction, { type: "input-history" }>,
 ): AppState {
-  const withText = (
+  /** 恢复一条历史（文本 + 模式）或草稿；游标置 0 表示退出翻看 */
+  const restore = (
     inputText: string,
+    inputMode: InputMode,
     inputHistoryCursor: number,
   ): AppState => {
     const inputCursor = inputText.length;
@@ -2732,23 +2755,25 @@ export function reduceInputHistory(
       ...state,
       inputText,
       inputCursor,
+      inputMode,
       inputHistoryCursor,
       completion: completeCommandInput(
         inputText,
         state.registryCommands,
-        state.inputMode,
+        inputMode,
       ),
     };
   };
   if (action.action === "push") {
     return {
       ...state,
-      inputHistory: inputHistoryPush(
-        state.inputHistory,
-        state.inputText.trim(),
-      ),
+      inputHistory: inputHistoryPush(state.inputHistory, {
+        text: state.inputText.trim(),
+        mode: state.inputMode,
+      }),
       inputHistoryCursor: 0,
       inputHistoryDraft: "",
+      inputHistoryDraftMode: "normal",
     };
   }
   const len = state.inputHistory.length;
@@ -2756,23 +2781,29 @@ export function reduceInputHistory(
   const cur = state.inputHistoryCursor;
   if (action.action === "prev") {
     const target = Math.min(cur + 1, len);
-    const draft = cur === 0 ? state.inputText : state.inputHistoryDraft;
+    const entry = state.inputHistory[len - target]!;
+    const firstEnter = cur === 0;
     return {
-      ...withText(state.inputHistory[len - target]!, target),
-      inputHistoryDraft: draft,
+      ...restore(entry.text, entry.mode, target),
+      inputHistoryDraft: firstEnter ? state.inputText : state.inputHistoryDraft,
+      inputHistoryDraftMode: firstEnter
+        ? state.inputMode
+        : state.inputHistoryDraftMode,
     };
   }
   // next（下翻）
   if (cur === 0) return state; // 已不在翻看态
   const target = cur - 1;
   if (target === 0) {
-    // 回到最新条目之下 → 恢复草稿并退出翻看
-    return {
-      ...withText(state.inputHistoryDraft, 0),
-      inputHistoryDraft: state.inputHistoryDraft,
-    };
+    // 回到最新条目之下 → 恢复进入前的草稿（文本 + 模式）并退出翻看
+    return restore(state.inputHistoryDraft, state.inputHistoryDraftMode, 0);
   }
-  return withText(state.inputHistory[len - target]!, target);
+  const entry = state.inputHistory[len - target]!;
+  return {
+    ...restore(entry.text, entry.mode, target),
+    inputHistoryDraft: state.inputHistoryDraft,
+    inputHistoryDraftMode: state.inputHistoryDraftMode,
+  };
 }
 
 function moveCursor(
