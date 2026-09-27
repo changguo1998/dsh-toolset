@@ -99,6 +99,12 @@
 | 47 | **完成（2026-09-27）** rule-engine 提供**消费者框架**：① 注册面 `registerConsumer({id, decide})`——`decide(ctx)` 返回**要注入的内容** `{text, summary?}`，turn-end 时按注册顺序**同步**依次询问、聚合、统一注入（可选消费者冷却）；② 只读 `evaluate(text, source)` 返回**可注入内容**（命中规则含 `action.text` / `summary`）。~~挂进 `fff` profile~~ **2026-09-27 用户裁定：新建临时 profile 做真机验证，不改 `fff`** | TUI#18 降级裁定（2026-09-27）+ 用户 2026-09-27 定稿 | `rule-engine/src/*`（provide 面扩展）、`rule-engine/README.md` / `rule-engine/docs/DESIGN.md`、`rule-engine/tests/`；新临时 profile（用户侧） | P2 |
 | 48 | **完成（2026-09-27）** 新插件 `symbol-normalizer`：TUI 符号规则（`symbols.ts` 全部算法 + 默认白名单/别名 + 配置 + 逐符号冷却）迁出为独立包；启动时经 `registerConsumer` 接入 rule-engine（框架第一个验证消费者），provide `symbolNormalizer` 服务（normalize / onReview / status）供 TUI 消费 | 2026-09-27 用户定稿（#43 的落地载体） | 新包 `symbol-normalizer/**`（模板同 rule-engine）+ 根脚手架（#45） | P2 |
 
+### 2.10 运行时与宿主交互
+
+| # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
+|---|------|------|------------------|--------|
+| 49 | **tmux 断连后 dsh 退出**：在 tmux 中打开 dsh 后，断开 tmux 客户端连接（`detach`，tmux 会话仍在后台运行），该 pane 内的 dsh 会退出。预期：dsh 不受客户端连接状态影响，会话保留在后台，重新 attach 后仍在原状态（tmux 持久化的意义所在）。待定位：TUI 的终端生命周期 / 信号处理（SIGHUP、stdin EOF）或宿主侧行为。修复另开追踪文档 | 用户 2026-09-27 反馈（真机） | 待定位（TUI 侧优先排查，必要时上报宿主面） | P1 |
+
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
