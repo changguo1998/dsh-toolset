@@ -6,7 +6,7 @@
 > 编号口径（2026-09-26 重排）：现行条目用**扁平连续 `#n`**（与项目级 `docs/BACKLOG.md` 一致）；历史上按「章节.序号」编号的条目（`3.x.y`）已于同日清理，记录见 git 提交与 `TUI/docs/archived/`，故现行编号不复用旧号段。本文件的 `#n` 与项目级 `docs/BACKLOG.md` 的 `#N` **互不关联**、各自文件内唯一，跨层引用须写明文件路径。
 > 分组口径（2026-09-26 修订，按用户要求）：按**验收方式**分两类——**需要交互**指验证时必须动手操作（敲命令、按键、输入文字、带参数启动、等超时）；**不需要交互**指看一眼结果或跑自动化即可（渲染、排版、显示、内部机制、外部依赖）。判断标准是「验证时是否需要操作」，不是「改动是否可见」。
 
-## 待办（共 15 条，其中 13 条已完成待清理；另 #8 仅提醒，不做实现）
+## 待办（共 18 条，其中 15 条已完成待清理；另 #8 仅提醒，不做实现）
 
 > 2026-09-27 批次（#1 / #2 / #5 / #7 / #10 / #12 / #14 / #17）过程记录与复核清单见 `TUI/docs/archived/2026-09-27-tui-remaining-batch.md`；#19 为该批次 #2 的回归修复，记录见 `TUI/docs/archived/2026-09-27-sessionquery-read-timing.md`。
 
@@ -40,9 +40,15 @@
 
 - **完成（2026-09-27）** **#23 `/continue` 改「最新会话」语义（当前会话已是最新时不切换）**：原规则「同目录 + persisted + 非 live + 编辑时间最大」把当前活跃会话天然排除 → 连按 `/continue` 会依次往前回退（用户 2026-09-27 真机反馈「本会话已经是最新时还是会切到其他会话」）。按用户裁定方案 C 改：候选并入**当前会话**（仅当它已有用户消息——刚起的新会话不算），最新者即当前会话 → info 提示「当前会话已是最新」、不切换；CLI `-c` 语义不变（启动时无当前会话）。落点：`src/app/adapter/dsh.ts`（新增 `pickContinueTarget`；探针覆盖活跃会话 + `SessionInfo.hasPrompt`）、`src/app/adapter/types.ts`、`src/app/index.ts`（`continueRecentSession`）、`tests/adapter.dsh.test.ts`、`tests/app.test.ts`、`README.md`、`docs/IMPLEMENTATION.md`。来源：2026-09-27 用户真机确认批次行为时发现。
 
-### 不需要交互（4 条：#14 / #17 / #21 / #22；均已完成）
+### 不需要交互（7 条：#14 / #17 / #21 / #22 / #24 / #25 / #26；其中 #14 / #17 / #21 / #22 / #24 / #26 已完成）
 
 > 验收时看结果或跑自动化即可：面板显示形态、历史区排版、状态栏显示、内部机制、外部依赖（#8 待外部修复后回归）。
+
+- **完成（2026-09-27）** **#24 文档过时检查与回写（批次收尾）**：逐份核对活文档与当前实现，修 4 处过时点——① `IMPLEMENTATION.md` 本地命令计数（36 项 = 32 命令 + 4 别名 → 39 项 = 34 命令 + 5 别名）；② `README.md` 已知限制补 TUI#20（CLI 启动恢复只回填 agent 侧，历史行需再切一次 `/session` 才渲染）；③ `DESIGN.md` 会话生命周期补 TUI#22/#23 口径（行首时间 = 编辑时间；`/continue`「最新会话」语义 + `hasPrompt` 探针）；④ `AGENTS.md` 去掉「`IMPLEMENTATION.md` 待按 BACKLOG #40 拆分」的失效引用（TUI BACKLOG 已扁平重编号、无该条目）。落点：`TUI/docs/IMPLEMENTATION.md`、`TUI/README.md`、`TUI/docs/DESIGN.md`、`AGENTS.md`。来源：用户 2026-09-27 指令。**说明**：两份 `STATUS.md` 属用户择时更新，本次只报告不修改。
+
+- **完成（2026-09-27）** **#26 按当前代码复核并更新剩余过时文档（含 `STATUS.md`）**：延续 #24（用户指令「以当前的代码为准，更新过时内容」）——① `TUI/docs/STATUS.md` 现状段滞后：命令面缺 `/continue`、CLI 启动参数（`--resume` / `-c`）、notice 渲染、`/stats` 双口径、`/agents` 事件驱动保鲜，且「见 `TUI/docs/BACKLOG.md` §3」引用随扁平编号失效（改 `#8`）；② 根 `README.md` TUI 行「运行时唯一依赖 `chalk`」与源码不符（全仓零 import，见 #25）→ 改零依赖口径并注记待清理的声明；③ `TUI/docs/COMMANDS.md` §2.2 等效清单漏 `/stats`（含别名 `/usage` `/context`）。落点：`TUI/docs/STATUS.md`、`README.md`、`TUI/docs/COMMANDS.md`。来源：用户 2026-09-27 指令。
+
+- **待办** **#25 TUI 声明了未使用的 `chalk` 依赖（与「零运行时依赖」口径冲突）**：`TUI/package.json` 的 `dependencies` 含 `chalk`，但 `src/`、`demo/`、`scripts/` 无任何 import（renderer 有意改 manual ANSI）；同时 `src/main.ts` 注释称「本项目零运行时依赖」、根 `README.md` TUI 行称「运行时唯一依赖 `chalk`」——三处口径需统一（建议删依赖 + 同步注释/文档；若确有用途则改注释口径）。落点：`TUI/package.json`、`TUI/src/main.ts`（注释）、`README.md`（TUI 行）。来源：2026-09-27 文档过时检查（#24）途中发现。优先级 P2。
 
 - **完成（2026-09-27）** **#14 demo 冒烟失败信号失效（`SMOKE_OK` 无条件打印、失败不落退出码）**：`demo/main.ts` 的 `ok()` 失败只打印 `SMOKE_FAIL`，结尾仍无条件打印 `SMOKE_OK`，随后 `/quit` 以退出码 0 收尾 → 帧断言失败在 `npm run demo -- --smoke` 下「看起来通过」（2026-09-27 实测：#4 改形态后 `question-rendered` 断言陈旧失败被静默吞掉，直到人工 grep 输出才发现）。修法建议：统计失败数，有失败时改打印 `SMOKE_FAIL n=...` 且不打印 `SMOKE_OK`（退出码口径按需裁定），或在 `/quit` 前 `process.exit(1)`；另建议冒烟断言与面板形态解耦（用稳定可判据，如题干文本 + 符号行）。落点：`demo/main.ts`。来源：2026-09-27 #4 目视收口时发现。
 

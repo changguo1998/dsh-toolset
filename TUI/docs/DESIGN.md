@@ -13,7 +13,7 @@
 
 ## 技术选型
 
-- 语言 TypeScript（与 DSH 核心一致），运行时 Node.js，依赖仅 `chalk`（ANSI 颜色控制）。
+- 语言 TypeScript（与 DSH 核心一致），运行时 Node.js，**源码零第三方 import**（颜色走 manual ANSI；`package.json` 中遗留的 `chalk` 声明待清理，见 `BACKLOG.md` #25）。
 - 不采用 Ink / Solid-TUI 等框架，自研极简渲染层。理由：流式输出本质是「增量文本追加 + 偶尔整帧重绘」；渲染层以**变化行游程重写**为核心（逐行比较，连续变化行各成一段、段间独立定位重写，不清屏），无组件树与布局引擎。防闪烁机制（区间重写 / 帧段切分 / DEC 2026 同步输出 / 覆盖式全帧 / 渲染期光标隐藏）见 `IMPLEMENTATION.md`「增量渲染与防闪烁」。
 - 代价是输入解码需手写 ANSI 转义序列解析（方向键、Home/End、Ctrl 组合、bracketed paste）——node 无 stdlib 键盘解析，这是自研相对用 Ink 的真正成本。
 - **绘制节律**：`paint()` 标脏 + 同一 tick 合帧（microtask 冲刷，一 tick 一帧），事件 burst 不逐事件重绘；真实链路另有跨回合帧率上限（默认 10Hz）。排版侧折行 / 宽度走有界缓存（`TUI_LAYOUT_CACHE=0` 可关）。详见 `IMPLEMENTATION.md`「排版缓存与绘制合帧」。
@@ -166,7 +166,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 - **turn 分隔**：`turn-begin` 时清掉上一轮瞬态活动行并在 buffer 追加横线行；`turn-end` 不画线、不清思考（思考保留至下回合统一清空）。
 - **用户块状态符号（P1）**：每条用户块在**首行左侧留白里**渲染 `符号 + 1 空格`（**独立 2 列格**：符号不参与正文换行，故正文首行与续行同列、正文列不受符号影响；块右缘位置不变；排队块不显示符号）——终态绿 `✓`（success）/ 红 `✗`（failure）/ 灰 `■`（aborted，turn 被中止），由 `turn/end` 的 reason 打标（`BufferLine.status` / `markUserBlockStatus`）；**最新未终态块**在忙时显示黄 `●`/`○`（实心/空心圆按**虚拟总 token** 相位交替）、审批/问答面板打开时显示黄 `△`；其余无终态块（恢复的历史、未收到 turn/end 的块）回退默认前景 `?`。相位机制沿用原状态栏口径（`VIRT_*` 参数与 `RUN_TOGGLE_TOKENS` 不变，只换显示位置）：每次流式更新用**指数加权窗口**（`VIRT_RATE_TAU`，数据量与时长分子分母分别衰减，抗单帧噪声且与 chunk 频率无关）估计真实传输速率，经 **slew 速率限制**（`VIRT_SLEW_RATE`，变化率而非每帧绝对量）逼近并 clamp 到 `[VIRT_SPEED_MIN, VIRT_SPEED_MAX]`（= 切换率范围 `RUN_TOGGLE_FREQ_MIN/MAX`（toggle/s）× `RUN_TOGGLE_TOKENS`）得虚拟速度，估算 token 用流末 usage 真值经 `tokenCalib` 校准，虚拟总 token = ∫虚拟速度 dt，每 `RUN_TOGGLE_TOKENS` 个虚拟 token 切一次（切换率有界、与真实 tps 解耦；无流式数据时虚拟速度按 `VIRT_DECAY_TAU` 衰减回落、虚拟总 token 按衰减中的速度**持续积分**——闪烁频率渐降到最低而不断；run 边界 = 两次用户输入之间，下次用户输入时置 0）。**压缩期间算忙（P8）**：`compaction/start` → `compaction/end` 之间该会话按活跃处理——符号显示运行中 `●`/`○`、新消息走排队、`Ctrl+D` 退出守卫不触发（`Esc` 中断语义不变）。
 - **会话流**：模型正文靠左、右缘留 `messageGutter`（默认 4，与用户块左缘对称）；用户消息为整体靠右的收缩块（一次输入 = 一条 buffer 行，显式换行保留在行内，按物理行折行取最大行宽作块宽，块内行首左对齐）。用户块与随后回答之间空一行。每条消息一个 Box 子树，markdown 块各自独立排版。
-- **会话生命周期**：`/session` 面板做会话切换（`agents.resume`）、删除与清理；面板为十阶段状态机（`loading-list → list ⇄ loading-view → view`，另接删除 / 清理确认链），每个异步结果带 stale guard（phase 不匹配则 no-op），失败入 error 态不崩溃。清理判据与文件级删除护栏见 `README.md` 与 `IMPLEMENTATION.md`。**TUI#1/#2**：会话列表按**编辑时间**（`sessionQuery.listEvents` 末条事件 time，缺失回退 `createdAt`）从晚到早；`/continue` 与 CLI `-c` / `--continue` 共用选择函数 `pickRecentSession`（同目录 + persisted + 非 live + 编辑时间最大）走同一 resume 路径；CLI `--resume <id>` / `-c` 在 `apply()` 经 `ctx.cmdlineArgs` 解析，失败回落新建。
+- **会话生命周期**：`/session` 面板做会话切换（`agents.resume`）、删除与清理；面板为十阶段状态机（`loading-list → list ⇄ loading-view → view`，另接删除 / 清理确认链），每个异步结果带 stale guard（phase 不匹配则 no-op），失败入 error 态不崩溃。清理判据与文件级删除护栏见 `README.md` 与 `IMPLEMENTATION.md`。**TUI#1/#2**：会话列表按**编辑时间**（`sessionQuery.listEvents` 末条事件 time，缺失回退 `createdAt`）从晚到早；`/continue` 与 CLI `-c` / `--continue` 共用选择函数 `pickRecentSession`（同目录 + persisted + 非 live + 编辑时间最大）走同一 resume 路径；CLI `--resume <id>` / `-c` 在 `apply()` 经 `ctx.cmdlineArgs` 解析，失败回落新建。**TUI#22/#23**：列表**行首时间显示该编辑时间**（缺省回退 `createdAt`），与排序同口径；`/continue` 改「最新会话」语义——候选并入当前会话（仅当 `hasPrompt !== false`，即探针确认已有用户消息），最新者即当前会话时提示「当前会话已是最新」不切换；CLI `-c` 仍按「最近退出的会话」在启动时选择（无当前会话）。
 
 ### 状态区数据流
 

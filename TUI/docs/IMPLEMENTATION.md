@@ -9,7 +9,7 @@
 
 ## Slash 命令路由
 
-- 命令分两路：本地命令目录（`LOCAL_COMMANDS`，`commands.ts`，现 36 项 = 32 命令 + 4 别名）由 app 层直接处理；目录未命中者 `/name` → `adapter.runCommand(line)` → `ctx.commands.execute(agent, line, [], signal)`（官方注册表）。
+- 命令分两路：本地命令目录（`LOCAL_COMMANDS`，`commands.ts`，现 39 项 = 34 命令 + 5 别名）由 app 层直接处理；目录未命中者 `/name` → `adapter.runCommand(line)` → `ctx.commands.execute(agent, line, [], signal)`（官方注册表）。
 - `App.submit()` 对以 `/` 开头的输入走 `handleSlash()`，不进 `agent.followup`、不占模型 token / 历史。未命中注册表（execute 返回 `undefined`）→ notice 提示未知命令（**官方 fail-close**，绝不把 slash 行发给模型）。demo 模式无注册表，非本地 `/xxx` 直接提示。
 - 命令名语法与官方 client 一致：`/^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/`（`parseSlashCommand`）。
 - 本地命令目录 `LOCAL_COMMANDS`（`commands.ts`）是**路由与补全目录的单一来源**（`routeSlashCommand` 查表，未知名落 registry 转发）；帮助文本与 `/help` 双列表格同源。

@@ -1,6 +1,6 @@
 # @dsh-toolset/tui
 
-DSH（DeepSeek Harness）进程内集成的终端 UI 插件：复用 DSH 核心服务（会话、Agent 驱动、审批链等），提供 Web UI / CLI 之外的第三种交互方式。自研极简渲染层驱动，不依赖 Ink / Solid-TUI / node-pty，运行时唯一依赖 `chalk`。
+DSH（DeepSeek Harness）进程内集成的终端 UI 插件：复用 DSH 核心服务（会话、Agent 驱动、审批链等），提供 Web UI / CLI 之外的第三种交互方式。自研极简渲染层驱动，不依赖 Ink / Solid-TUI / node-pty，源码零第三方 import（`package.json` 中遗留的 `chalk` 声明待清理，见 `docs/BACKLOG.md` #25）。
 
 | 文档 | 类型 | 内容 |
 |---|---|---|
@@ -322,6 +322,7 @@ npm run watch # tsc --watch 常驻编译到 dist/（仍需重启 dsh 生效）
 ## 已知限制
 
 - **模型与 TUI 本地开关随会话恢复**：resume / 启动时按「宿主日志 → TUI 侧快照（`<会话目录>/tui-state.json`）→ 宿主默认」恢复模型、模式与策略（plan / sandbox / permission 预设 / 审批策略）、`verbose` / `symbol-unify` 与状态列显隐；仅内存会话（无持久化目录）没有快照，模型退化为宿主日志口径。**恢复会话按 step 概要恢复工具记录**（每个含工具调用的 step 折成一行），不还原逐条工具行 / 参数摘要 / 结果详情 / thinking。详见 `IMPLEMENTATION.md`「会话状态恢复」。
+- **CLI 启动恢复不重放历史行**（BACKLOG #20）：`--resume <id>` / `-c` 启动只完成 agent 侧恢复（model / mode / goal / todo 等状态回填），既有消息不折叠进活动区——需再切一次 `/session`（或直接发消息）才显示会话内容。TUI 内 `/session` / `/continue` 切换路径不受影响。
 - **标题栏图标依赖 Nerd Font 字体**：状态符号组与 preset 图标取自 Nerd Font 私有区字形（各占 1 列，实测确认），终端字体不含这些字形时会显示豆腐块（本机验证字体为 Maple Mono NF CN）；该依赖只影响标题栏这一行，不影响其余界面。
 - 多会话并行不支持（维持单活跃会话设计）。
 - 思考不提供展开 / 收起交互。

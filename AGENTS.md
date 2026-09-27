@@ -79,7 +79,7 @@ scripts/install.sh --help   # --profile/--plugins/--dsh-version/--skip-dsh/--ski
 - 缺陷与待办写对应层 `BACKLOG.md`（模块 → `<模块>/docs/BACKLOG.md`；跨包 → `docs/BACKLOG.md`）；`STATUS.md` 由用户择时更新，勿自动改。
 - 根 `archive/` 存放**根级已完成任务清单与历史调研**（如 `TUI-REFACTOR-TASKS.md`、`TUI-COMMANDS-TASKS.md`、`PI-DSH-FEATURE-COMPARISON.md`、`CODEMAP-RESEARCH.md`）：仅作历史记录，不是现状来源；模块历史进模块 `docs/archived/`。当前口径以各模块 `docs/DESIGN.md`、`docs/STATUS.md`、`TUI/docs/SPEC.md`、`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` 为准。
 - DSH 集成契约以各包 `cordis.patch.yml` + `package.json` 的 `dsh.bundle` 为准。
-- 设计与机制讨论沉淀在对应模块 `docs/DESIGN.md`（TUI 为 `TUI/docs/DESIGN.md`）；TUI 的渲染规格在 `TUI/docs/SPEC.md`（`TUI/docs/IMPLEMENTATION.md` 待按 BACKLOG #40 拆分）。
+- 设计与机制讨论沉淀在对应模块 `docs/DESIGN.md`（TUI 为 `TUI/docs/DESIGN.md`）；TUI 的渲染规格在 `TUI/docs/SPEC.md`。
 
 ## Git
 

@@ -10,7 +10,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 
 | 包 | 功能 |
 |----|------|
-| **TUI**（`TUI/`，`@dsh-toolset/tui`） | 终端 UI：会话/活动区/状态列/输入区四区布局，事件化渲染、slash 命令、会话切换与清理、模型/审批面板；运行时唯一依赖 `chalk` |
+| **TUI**（`TUI/`，`@dsh-toolset/tui`） | 终端 UI：会话/活动区/状态列/输入区四区布局，事件化渲染、slash 命令、会话切换与清理、模型/审批面板；运行时不 import 第三方依赖（`package.json` 中遗留的 `chalk` 声明待清理，见 `TUI/docs/BACKLOG.md` #25） |
 | **herdr-integration** | herdr 面板桥：agent 状态经 unix socket 上报 herdr 面板，并桥接 blocked 事件（ask-user 提问、approval 审批、turn 阻塞三类信号源） |
 | **task-engine** | 任务树引擎：Frame 状态机、`decompose`/`implement`/`stop`/`status` 工具族、机械+语义双重门禁与 RET 验收路由 |
 | **knowledge-base** | 跨会话知识库与持久记忆：`sources`/`chunks` 两张基表 + 两张 FTS5 虚表，两级写策略与淘汰提升，供其他插件经宿主共享面读写 |

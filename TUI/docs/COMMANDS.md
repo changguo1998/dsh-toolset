@@ -46,6 +46,6 @@
 | 平台/服务专属命令 | 属其他 agent 生态特有（Claude Code / 官方云与 IDE 集成等，如 `/stickers` `/pets` `/voice` `/design*` `/heapdump` `/ide` 一类，数十条），不迁移 |
 | 上游已移除 | `/vim` `/ultraplan` |
 | 无底座且收益低 | `/rewind` `/restore`（`dsh-session-checkpoint-policy` 是持久化检查点，非回退）、`/add-dir` `/directory`（会话 cwd 由宿主决定）、`/fast` `/personality`（dsh-persona 未挂载）、`/btw` `/side` |
-| 本项目已有等效 | `/compact` `/feedback` `/goal` `/policy` `/permission` `/preset` `/jobs` `/theme` `/model` `/effort` `/session` `/continue` `/copy` `/init` `/help` `/quit` `/clearscreen` |
+| 本项目已有等效 | `/compact` `/feedback` `/goal` `/policy` `/permission` `/preset` `/jobs` `/theme` `/model` `/effort` `/stats`（`/usage` `/context`） `/session` `/continue` `/copy` `/init` `/help` `/quit` `/clearscreen` |
 
 另不做：`/settings` 写回（真实配置 + 乐观锁，需独立契约）、正则/高级过滤（面板过滤为大小写不敏感子串）、面板增量事件订阅（面板数据为打开时拉取）。
