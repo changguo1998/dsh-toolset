@@ -8,3 +8,5 @@ TUI/dist/
 
 # 临时文件与排查留档目录（见 AGENTS.md「文件位置」）
 tmp/
+.agents/
+skills-lock.json
