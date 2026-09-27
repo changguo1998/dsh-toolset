@@ -135,7 +135,7 @@ if (smoke) {
       // 2. ! 为普通字符：空输入按 ! 不切模式，直接发送 "!hello"
       typeLine("!hello");
       await sleep(2600); // 等 mock 回复 + turn-end（把上次模式落回 normal）
-      // 3. $ 切 shell 模式 + 提交 → 不加 $ 前缀发送 "ls"；提示符单字符（状态符号在状态栏）
+      // 3. $ 切 shell 模式 + 提交 → 本地执行 `ls`（TUI#37：不走模型、不进 sent）；提示符单字符
       renderer.emitKey(key("$"));
       typeText("ls");
       renderer.emitKey(key("enter"));
@@ -250,7 +250,15 @@ if (smoke) {
         sent.includes("!hello"),
         "sent=" + JSON.stringify(sent),
       );
-      ok("shell-submit", sent.includes("ls"), "sent=" + JSON.stringify(sent));
+      // TUI#37：`$ls` 本地执行（不进模型）→ 断言未进 sent + 回显行与退出摘要
+      const shellPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
+      ok(
+        "shell-submit",
+        !sent.includes("ls") &&
+          shellPlain.includes("$ ls") &&
+          shellPlain.includes("→ 退出码 0"),
+        "sent=" + JSON.stringify(sent),
+      );
       ok(
         "backspace-revert",
         sent.includes("x") && !sent.includes("/x"),
@@ -406,7 +414,9 @@ if (smoke) {
       );
       ok(
         "compaction-summary-toast",
-        flatFrames().includes("压缩完成：已压缩182条历史消息"),
+        // 整串会按 pane 宽折行、两半之间夹另一 pane 文本 → 同 preset-notice 口径断言可容纳片段
+        flatFrames().includes("压缩完成：已压缩") &&
+          flatFrames().includes("182条历史"),
         "no compaction-summary toast in frames",
       );
       ok(
