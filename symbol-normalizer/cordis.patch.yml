@@ -1,0 +1,3 @@
+- insert:
+    - id: symbol-normalizer
+      name: '@dsh-toolset/symbol-normalizer'

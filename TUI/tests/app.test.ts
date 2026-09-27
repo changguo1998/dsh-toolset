@@ -4263,192 +4263,137 @@ class TrackedApp extends App {
   }
 }
 
-// ---- 模型输出符号规范化（symbols） ----
+// ---- 符号服务消费（symbol-normalizer 插件；TUI 只做展示归一与 notice） ----
 
-/** 可注入 symbol 规则的 makeApp 变体（默认规则 / 自定义）。 */
-function makeSymbolApp(
-  symbols?: ConstructorParameters<typeof App>[0]["symbols"],
-) {
+/** 假符号服务：记录 normalize 调用；可手动触发审查事件。 */
+function fakeSymbolService() {
+  const normalizeCalls: string[] = [];
+  const listeners = new Set<
+    (event: {
+      sessionId: string;
+      notice: string;
+      feedback: string | null;
+    }) => void
+  >();
+  return {
+    normalizeCalls,
+    listenerCount: (): number => listeners.size,
+    service: {
+      normalize(text: string): { text: string } {
+        normalizeCalls.push(text);
+        return { text: text.replaceAll("✔", "✓") };
+      },
+      onReview(
+        listener: (event: {
+          sessionId: string;
+          notice: string;
+          feedback: string | null;
+        }) => void,
+      ): () => void {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    },
+    review(event: {
+      sessionId: string;
+      notice: string;
+      feedback: string | null;
+    }): void {
+      for (const listener of listeners) listener(event);
+    },
+  };
+}
+
+type FakeSymbolsService = ReturnType<typeof fakeSymbolService>["service"];
+
+/** makeApp 变体：注入符号服务读取器（缺省 = 未挂载）。 */
+function makeSymbolApp(getSymbols?: () => FakeSymbolsService | undefined) {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
   const app = new TrackedApp({
     renderer,
     adapter,
     notify: { enabled: false },
-    symbols,
+    getSymbols,
   });
   app.start();
   return { app, renderer, adapter };
 }
 
-test("symbols：stream 中别名符号替换、无替代符号保留原文（展示层）", () => {
-  const { renderer, adapter } = makeSymbolApp();
+test("symbols 服务：stream 经服务 normalize 替换；未挂载时原文透传", () => {
+  const fake = fakeSymbolService();
+  const { renderer, adapter } = makeSymbolApp(() => fake.service);
   adapter.push({ type: "stream", sessionId: "s1", text: "本轮 ✔ 与 🚀" });
   adapter.push({ type: "turn-end" });
-  // 正文行限定：notice 的合并消息含替换明细（✔→✓），不能拿全屏找"无 ✔"
   const row = renderer.lastRender.find((l) => l.includes("本轮"));
-  assert.ok(row && row.includes("✓"), "正文行 ✔ 被替换为 ✓");
-  assert.ok(row && !row.includes("✔"), "正文行无原 ✔ 残留");
-  assert.ok(row && row.includes("🚀"), "无替代符号保留原文");
+  assert.ok(row && row.includes("✓"), "正文行经服务替换为 ✓");
+  assert.ok(row && row.includes("🚀"), "服务未替换的符号原样保留");
+  assert.deepEqual(fake.normalizeCalls, ["本轮 ✔ 与 🚀"], "服务被调用一次");
+
+  const none = makeSymbolApp();
+  none.adapter.push({ type: "stream", sessionId: "s1", text: "无服务 ✔" });
+  none.adapter.push({ type: "turn-end" });
+  const row2 = none.renderer.lastRender.find((l) => l.includes("无服务"));
+  assert.ok(row2 && row2.includes("✔"), "未挂载时原文透传");
 });
 
-test("symbols：turn-end 发 notice（替换数 + 未推荐符号，合并一条）", () => {
-  const { renderer, adapter } = makeSymbolApp();
-  adapter.push({ type: "stream", sessionId: "s1", text: "✔ 成功 ✖ 失败 🚀" });
-  adapter.push({ type: "turn-end" });
-  const joined = renderer.lastRender.join("\n");
-  assert.ok(joined.includes("符号已替换"), "替换提示");
-  assert.ok(joined.includes("已替换 2 处"), "替换计数提示（不罗列明细）");
-  assert.ok(joined.includes("未推荐符号"), "未推荐符号提示");
-  assert.ok(joined.includes("🚀"), "列出的未推荐符号");
-});
-
-test("symbols：warnModel 默认 → turn-end 检测到即直接发送反馈", async () => {
-  const { renderer, adapter } = makeSymbolApp();
-  adapter.push({ type: "stream", sessionId: "s1", text: "用了 🚀" });
-  adapter.push({ type: "turn-end" });
-  await new Promise((r) => setTimeout(r, 5)); // 直发为宏任务推迟，等待落定
-  assert.ok(adapter.sent.length >= 1, "turn-end 后直接发送（不等用户输入）");
-  const fb = adapter.sent[0]!;
-  assert.ok(fb.includes("[符号规范]"), `规范反馈已发送（${fb.slice(0, 30)}）`);
-  assert.ok(fb.includes("重新选择"), "警示段要求重新选择");
-  assert.ok(fb.includes("符号选择规则"), "警示段复述选择规则");
-});
-
-test("symbols：仅替换（无未推荐）也反馈模型——emoji 罗列要求更换、变体只报计数", async () => {
-  const { renderer, adapter } = makeSymbolApp();
-  adapter.push({ type: "stream", sessionId: "s1", text: "进度 ✔ 与 ⚠ 注意" });
-  adapter.push({ type: "turn-end" });
-  // notice 合并一条：只报替换计数、无未推荐项
-  const joined = renderer.lastRender.join("\n");
-  assert.ok(joined.includes("符号已替换"), "替换提示存在");
-  assert.ok(joined.includes("已替换 2 处"), "替换计数（不罗列明细）");
-  assert.ok(!joined.includes("未推荐符号"), "本回合无未推荐项");
-  // 反馈（宏任务推迟后）直接发送：emoji（⚠）罗列「X→Y」要求更换；变体（✔）只报计数
-  await new Promise((r) => setTimeout(r, 5));
-  const fb = adapter.sent.find((s) => s.includes("[符号规范]"));
-  assert.ok(
-    fb && fb.includes("请将「⚠」改为「△」"),
-    "emoji 起源替换列为要求更换",
-  );
-  assert.ok(fb && fb.includes("另有 1 处变体符号"), "非 emoji 变体只报计数");
-  assert.ok(fb && !fb.includes("✔"), "普通细线变体不罗列明细");
-  assert.ok(fb && !fb.includes("重新选择"), "无警示时不要求重新选择");
-});
-
-test("symbols：warnModel:false 只 notice 不发送反馈", () => {
-  const { renderer, adapter } = makeSymbolApp({ warnModel: false });
-  adapter.push({ type: "stream", sessionId: "s1", text: "用了 🚀" });
-  adapter.push({ type: "turn-end" });
-  assert.equal(adapter.sent.length, 0, "warnModel=false 不发送反馈");
-  const joined = renderer.lastRender.join("\n");
-  assert.ok(joined.includes("未推荐符号"), "notice 仍给人看");
-});
-
-test("symbols：recommended 扩展后该符号不再提醒，alias 仍替换", () => {
-  const { renderer, adapter } = makeSymbolApp({
-    recommended: ["🚀"],
+test("symbols 服务：onReview 事件渲染为 notice（按活跃会话过滤）", () => {
+  const fake = fakeSymbolService();
+  const { renderer, adapter } = makeSymbolApp(() => fake.service);
+  adapter.push({ type: "session-title", sessionId: "s1", title: "T" });
+  adapter.push({ type: "stream", sessionId: "s1", text: "正文" });
+  fake.review({
+    sessionId: "s1",
+    notice: "符号已替换 2 处为推荐符号",
+    feedback: null,
   });
-  adapter.push({ type: "stream", sessionId: "s1", text: "火箭 🚀 成功 ✔" });
-  adapter.push({ type: "turn-end" });
-  const joined = renderer.lastRender.join("\n");
-  assert.ok(joined.includes("✓"), "✔ 被替换为 ✓（配置不改 alias）");
-  assert.ok(!joined.includes("未推荐符号"), "🚀 已在推荐列表内，不提醒");
-});
-
-test("symbol-unify 开关：off 原样不替换不提醒，on 恢复", () => {
-  const { renderer, adapter } = makeSymbolApp();
-  // off：关闭替换与提醒
-  typeAndEnter(renderer, "/symbol-unify off");
-  adapter.push({ type: "stream", sessionId: "s1", text: "原样 ✔ 与 🚀" });
-  adapter.push({ type: "turn-end" });
-  let joined = renderer.lastRender.join("\n");
-  assert.ok(joined.includes("✔"), "off 时 ✔ 原样保留（不替换）");
-  assert.ok(!joined.includes("未推荐符号"), "off 时不提醒");
-  // on：恢复替换与提醒
-  typeAndEnter(renderer, "/symbol-unify on");
-  adapter.push({ type: "stream", sessionId: "s1", text: "再试 ✔ 与 🚀" });
-  adapter.push({ type: "turn-end" });
-  joined = renderer.lastRender.join("\n");
-  assert.ok(joined.includes("✓"), "on 时 ✔ 被替换为 ✓");
-  // 本回合行不再含原 ✔（历史区仍有 off 回合的行，故限定本回合）
-  const onRow = renderer.lastRender.find((l) => l.includes("再试"));
-  assert.ok(onRow && !onRow.includes("✔"), "on 时本回合行无原 ✔");
-  assert.ok(joined.includes("未推荐符号"), "on 时无替代符号提醒");
-});
-
-test("symbol-unify：无参给出 usage 提示、状态不变", () => {
-  const { renderer, adapter } = makeSymbolApp();
-  typeAndEnter(renderer, "/symbol-unify");
-  const joined = renderer.lastRender.join("\n");
-  assert.ok(joined.includes("usage: /symbol-unify on|off"), "usage 提示");
-  // 状态仍为默认 on：后续 stream 正常替换
-  adapter.push({ type: "stream", sessionId: "s1", text: "✔" });
-  adapter.push({ type: "turn-end" });
-  const j2 = renderer.lastRender.join("\n");
-  assert.ok(j2.includes("✓"), "默认 on 仍替换");
-});
-
-// ---- 同符号冷却（反馈过一次后冷却期内不再反馈，打破反复提醒循环） ----
-
-test("symbols：冷却 run 次数——同一符号反馈一次后若干 run 内不再反馈，解冻后再反馈", async () => {
-  const { adapter } = makeSymbolApp({ cooldownRuns: 2, cooldownMs: 0 });
-  const push = (text: string) => {
-    adapter.push({ type: "stream", sessionId: "s1", text });
-    adapter.push({ type: "turn-end" });
-  };
-  const feedbacks = () => adapter.sent.filter((s) => s.includes("[符号规范]"));
-  push("第一次 🚀");
-  await new Promise((r) => setTimeout(r, 5));
-  assert.equal(feedbacks().length, 1, "首次出现即反馈（含警示段）");
-  push("第二次 🚀");
-  await new Promise((r) => setTimeout(r, 5));
-  assert.equal(feedbacks().length, 1, "冷却期内同一符号不再反馈");
-  push("第三次 🚀");
-  await new Promise((r) => setTimeout(r, 5));
-  assert.equal(feedbacks().length, 2, "run 次数耗尽解冻后再反馈");
-});
-
-test("symbols：冷却不误伤其它符号；时间窗维度未过时仍冷却（双维任一未过即冷却）", async () => {
-  const { adapter } = makeSymbolApp({ cooldownRuns: 2, cooldownMs: 60_000 });
-  const push = (text: string) => {
-    adapter.push({ type: "stream", sessionId: "s1", text });
-    adapter.push({ type: "turn-end" });
-  };
-  const feedbacks = () => adapter.sent.filter((s) => s.includes("[符号规范]"));
-  push("第一个 🚀");
-  await new Promise((r) => setTimeout(r, 5));
-  assert.equal(feedbacks().length, 1, "🚀 首次反馈并进入冷却");
-  push("第二个 ⚠");
-  await new Promise((r) => setTimeout(r, 5));
-  assert.equal(feedbacks().length, 2, "不同符号不受冷却影响、照常反馈");
-  push("第三个 🚀");
-  await new Promise((r) => setTimeout(r, 5));
-  assert.equal(
-    feedbacks().length,
-    2,
-    "🚀 次数已跑完但 60s 时间窗未过 → 仍冷却静默",
+  assert.ok(
+    renderer.lastRender.join("\n").includes("符号已替换 2 处"),
+    "本会话 notice 显示",
   );
-  push("第四个 ⚠");
-  await new Promise((r) => setTimeout(r, 5));
-  assert.equal(feedbacks().length, 2, "⚠ 反馈后进入冷却 → 第四 run 静默");
+  fake.review({ sessionId: "s2", notice: "其它会话提示", feedback: null });
+  assert.ok(
+    !renderer.lastRender.join("\n").includes("其它会话提示"),
+    "其它会话 notice 被过滤",
+  );
 });
 
-test("symbols：变体（非 emoji）替换也按符号冷却", async () => {
-  const { adapter } = makeSymbolApp({ cooldownRuns: 2, cooldownMs: 0 });
-  const push = (text: string) => {
-    adapter.push({ type: "stream", sessionId: "s1", text });
-    adapter.push({ type: "turn-end" });
-  };
-  const feedbacks = () => adapter.sent.filter((s) => s.includes("[符号规范]"));
-  push("细线变体 ✔ 一次");
-  await new Promise((r) => setTimeout(r, 5));
-  assert.equal(feedbacks().length, 1, "首次报「另有 1 处变体」");
-  assert.ok(feedbacks()[0]!.includes("另有 1 处变体"), "变体只报计数");
-  push("细线变体 ✔ 二次");
-  await new Promise((r) => setTimeout(r, 5));
-  assert.equal(feedbacks().length, 1, "同一变体符号冷却期内静默");
-  push("细线变体 ✔ 三次");
-  await new Promise((r) => setTimeout(r, 5));
-  assert.equal(feedbacks().length, 2, "解冻后再报变体");
+test("symbol-unify off：不调用服务、不显示 notice；on 恢复", () => {
+  const fake = fakeSymbolService();
+  const { renderer, adapter } = makeSymbolApp(() => fake.service);
+  typeAndEnter(renderer, "/symbol-unify off");
+  adapter.push({ type: "stream", sessionId: "s1", text: "原样 ✔" });
+  adapter.push({ type: "turn-end" });
+  assert.equal(fake.normalizeCalls.length, 0, "off 时不调用 normalize");
+  const row = renderer.lastRender.find((l) => l.includes("原样"));
+  assert.ok(row && row.includes("✔"), "off 时原文透传");
+  fake.review({ sessionId: "s1", notice: "off 期间不应显示", feedback: null });
+  assert.ok(
+    !renderer.lastRender.join("\n").includes("off 期间不应显示"),
+    "off 时 notice 抑制",
+  );
+  typeAndEnter(renderer, "/symbol-unify on");
+  adapter.push({ type: "stream", sessionId: "s1", text: "再试 ✔" });
+  adapter.push({ type: "turn-end" });
+  assert.equal(fake.normalizeCalls.length, 1, "on 时调用 normalize");
+  const row2 = renderer.lastRender.find((l) => l.includes("再试"));
+  assert.ok(row2 && row2.includes("✓"), "on 时替换恢复");
+});
+
+test("symbols 服务：懒挂载（后到可用）与 dispose 注销订阅", () => {
+  const fake = fakeSymbolService();
+  let available = false;
+  const { app, adapter } = makeSymbolApp(() =>
+    available ? fake.service : undefined,
+  );
+  adapter.push({ type: "stream", sessionId: "s1", text: "先 ✔" });
+  adapter.push({ type: "turn-end" });
+  assert.equal(fake.normalizeCalls.length, 0, "未挂载时不调用");
+  available = true;
+  adapter.push({ type: "stream", sessionId: "s1", text: "后 ✔" });
+  adapter.push({ type: "turn-end" });
+  assert.equal(fake.normalizeCalls.length, 1, "挂载后调用");
+  assert.equal(fake.listenerCount(), 1, "订阅了审查事件");
+  app.dispose();
+  assert.equal(fake.listenerCount(), 0, "dispose 后注销订阅");
 });

@@ -7,8 +7,10 @@ import { test } from "node:test";
 
 import {
   effectiveRules,
+  isRuleDelivery,
   isRuleSource,
   normalizeRule,
+  RULE_DELIVERIES,
   RULE_SOURCES,
 } from "../src/rules.ts";
 import type { Rule, RuntimeLayer } from "../src/types.ts";
@@ -32,6 +34,7 @@ test("normalizeRule：补齐缺省值", () => {
     id: "r1",
     enabled: true,
     source: "assistant-text",
+    delivery: "followup",
     match: {},
     action: { type: "inject", text: "请遵守规范" },
     cooldownTurns: 0,
@@ -45,6 +48,7 @@ test("normalizeRule：显式字段覆盖缺省", () => {
     ruleInput({
       enabled: false,
       source: "tool-call",
+      delivery: "next-step",
       match: { regex: ["rm -rf"], flags: "" },
       cooldownTurns: 2,
       cooldownMs: 5000,
@@ -56,6 +60,7 @@ test("normalizeRule：显式字段覆盖缺省", () => {
   if (!result.ok) return;
   assert.equal(result.rule.enabled, false);
   assert.equal(result.rule.source, "tool-call");
+  assert.equal(result.rule.delivery, "next-step");
   assert.deepEqual(result.rule.match, { regex: ["rm -rf"], flags: "" });
   assert.equal(result.rule.cooldownTurns, 2);
   assert.equal(result.rule.cooldownMs, 5000);
@@ -76,6 +81,7 @@ test("normalizeRule：非法输入逐条报错", () => {
       /text 必须是非空字符串/,
     ],
     [ruleInput({ source: "nope" }), /source 非法/],
+    [ruleInput({ delivery: "later" }), /delivery 非法/],
   ];
   for (const [input, pattern] of cases) {
     const result = normalizeRule(input);
@@ -183,4 +189,12 @@ test("isRuleSource：合法匹配面枚举", () => {
   for (const source of RULE_SOURCES) assert.equal(isRuleSource(source), true);
   assert.equal(isRuleSource("turn_end"), false);
   assert.equal(isRuleSource(undefined), false);
+});
+
+test("isRuleDelivery：合法送达路径枚举", () => {
+  for (const delivery of RULE_DELIVERIES) {
+    assert.equal(isRuleDelivery(delivery), true);
+  }
+  assert.equal(isRuleDelivery("next_step"), false);
+  assert.equal(isRuleDelivery(undefined), false);
 });

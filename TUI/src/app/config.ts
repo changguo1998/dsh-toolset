@@ -22,7 +22,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SymbolRulesConfig } from "./symbols.ts";
 
 export interface TuiLayoutConfig {
   /** 交互区绝对行数（输入框+按键提示；缺省自动 1/5 上限 4） */
@@ -83,8 +82,6 @@ export interface TuiConfig {
   theme?: TuiThemeConfig;
   /** 会话维护段（启动自动清理空会话等） */
   session?: TuiSessionConfig;
-  /** 模型输出符号规范化段（推荐列表/别名映射/是否提醒模型，见 src/app/symbols.ts） */
-  symbols?: SymbolRulesConfig;
   /** 审批交互段（BACKLOG 3.3.7）：超时等参数；缺省见 main.ts 的回落值 */
   approval?: TuiApprovalConfig;
 }
@@ -115,12 +112,6 @@ const intGe = (v: unknown, min: number): number | undefined =>
 
 const boolOr = (v: unknown): boolean | undefined =>
   typeof v === "boolean" ? v : undefined;
-
-/** 非负有限数字段（cooldown 用；非法/负数/小数取整后 → undefined）。 */
-const nonNegIntOr = (v: unknown): number | undefined =>
-  typeof v === "number" && Number.isFinite(v) && v >= 0
-    ? Math.floor(v)
-    : undefined;
 
 const isNonEmptyStr = (v: unknown): v is string =>
   typeof v === "string" && v !== "";
@@ -232,12 +223,10 @@ export function normalizeConfig(raw: unknown): TuiConfig {
         ? {}
         : { autoCleanEmpty: boolOr(s.autoCleanEmpty) }),
     },
-    symbols: normalizeSymbolsSection(r.symbols),
     approval: normalizeApprovalSection(r.approval),
   };
 }
 
-/** 归一化 symbols 段：recommended / aliases / warnModel / 冷却（cooldownMs、cooldownRuns 非负整数）。 */
 /**
  * 审批段归一（BACKLOG 3.3.7）：`timeoutMs` 取整；非数字或低于 1000ms（1s）视为非法并忽略
  * （回落 `main.ts` 的缺省值）——与其它段的「非法即忽略」口径一致，不做静默钳位。
@@ -249,43 +238,6 @@ function normalizeApprovalSection(v: unknown): TuiApprovalConfig | undefined {
     return undefined;
   }
   return { timeoutMs: Math.floor(raw) };
-}
-
-function normalizeSymbolsSection(raw: unknown): SymbolRulesConfig | undefined {
-  if (typeof raw !== "object" || raw === null) return undefined;
-  const s = raw as Record<string, unknown>;
-  const recommended = Array.isArray(s.recommended)
-    ? s.recommended.filter(
-        (x): x is string => typeof x === "string" && x !== "",
-      )
-    : undefined;
-  let aliases: Record<string, string> | undefined;
-  if (typeof s.aliases === "object" && s.aliases !== null) {
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(s.aliases as Record<string, unknown>)) {
-      if (typeof v === "string" && v !== "") out[k] = v;
-    }
-    if (Object.keys(out).length > 0) aliases = out;
-  }
-  const warnModel = boolOr(s.warnModel);
-  const cooldownMs = nonNegIntOr(s.cooldownMs);
-  const cooldownRuns = nonNegIntOr(s.cooldownRuns);
-  if (
-    !recommended &&
-    !aliases &&
-    warnModel === undefined &&
-    cooldownMs === undefined &&
-    cooldownRuns === undefined
-  ) {
-    return undefined;
-  }
-  return {
-    ...(recommended ? { recommended } : {}),
-    ...(aliases ? { aliases } : {}),
-    ...(warnModel === undefined ? {} : { warnModel }),
-    ...(cooldownMs === undefined ? {} : { cooldownMs }),
-    ...(cooldownRuns === undefined ? {} : { cooldownRuns }),
-  };
 }
 
 /** 载入配置文件：缺失/读取失败/JSON 非法 → 默认（空配置） */

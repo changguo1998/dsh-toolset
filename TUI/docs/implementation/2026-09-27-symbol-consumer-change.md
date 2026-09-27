@@ -53,12 +53,17 @@
 
 ## 实现记录
 
-（按时间追加）
+- 2026-09-27：删除 `src/app/symbols.ts`（迁入 symbol-normalizer）与 `tests/symbols.test.ts`；`config.ts` 移除 `symbols` 段解析（含仅此一处使用的 `nonNegIntOr`）；`index.ts` 移除 `symbolRules` / `symbolTurn` / `symbolCooldown` / `accumulateSymbolTurn` / `flushSymbolTurn`，改为 `deps.getSymbols`（懒读，容忍装载顺序）+ `symbols().normalize()` 展示归一 + `onReview` notice（会话过滤；`/symbol-unify` off 时抑制）；`adapter/types.ts` 增 `SymbolNormalizerLike`；`main.ts` 注入 `ctx.get('symbolNormalizer')` 懒读函数；启动宽度探测改用 TUI 本地常量 `WIDTH_PROBE_SYMBOLS`（渲染关注点，避免引用已迁出的规则表）。
+- 2026-09-27：`README.md` / `docs/IMPLEMENTATION.md` 符号段改写（规则表迁至插件 README；选型判据保留为历史记录）。
+- 2026-09-27：`tests/app.test.ts` 新增「符号服务消费」4 例（服务归一 / notice 与会话过滤 / off 抑制与恢复 / 懒挂载与 dispose 注销）。
 
 ## 测试与证据
 
-（命令与结果）
+- `npm --prefix TUI run check` → 0 error；`npm run test:tui` → **1149 pass / 0 fail**。
+- 临时 profile（`tmp/dshhome`）PTY 启动：TUI 正常起帧（状态栏 / 输入区渲染），同屏可见 `[rule-engine] 已加载` / `[symbol-normalizer] 已加载`。
+- 端到端模型回合（notice + 注入）待人工复核（沙箱无模型凭据），步骤见项目级追踪文档「收尾」。
 
 ## 收尾
 
-（关闭时填）
+- 复核通过后：`docs/BACKLOG.md` #18 标完成、本文件移入 `TUI/docs/archived/`。
+- 临时 profile（`tmp/dshhome`）与验证日志在复核后删除。

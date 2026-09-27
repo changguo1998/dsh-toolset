@@ -79,7 +79,7 @@ function createPrintInjector(): {
           content: Array<{ text: string }>;
         };
         console.log(
-          `  → 注入[${request.ruleId}] source=${message.source.kind}/${message.source.form} ` +
+          `  → 注入[${request.sourceId}] source=${message.source.kind}/${message.source.form} ` +
             `summary=${JSON.stringify(message.source.summary)}\n` +
             `    ${message.content[0]?.text ?? ""}`,
         );

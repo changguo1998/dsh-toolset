@@ -29,7 +29,7 @@ TUI 侧（TUI#18 = #43 的 TUI 侧）过程记录见 `TUI/docs/implementation/20
 | D2 | 暴露面 | `RuleEngine.{evaluate, registerConsumer}` + `ruleEngine` 服务（同面）+ 具名导出 | 消费者经 `ctx.get('ruleEngine')` 注册 / 查询 |
 | D3 | next-step 路径 | 规则字段 `delivery: "followup"（默认）| "next-step"`；next-step 走官方 `agent.inject` | 官方 next-step inbox 即该语义；不另注册 waterfall listener |
 | D4 | 旧宿主缺 `agent.inject` | 记 warning 并跳过（不回退 followup） | 不静默改变语义；基线 rc.2 具备该 API |
-| D5 | 符号规则归属（2026-09-27 定稿） | **迁出 TUI** → 新插件 `symbol-normalizer`（暂名，可改）；TUI 删除 `symbols.ts` / 冷却表 / followup | 用户定稿：框架 + 第一个验证消费者插件 |
+| D5 | 符号规则归属（2026-09-27 定稿） | **迁出 TUI** → 新插件 `symbol-normalizer`（暂名，可改）：插件注册消费者（id `symbol-normalizer`），`decide` 内复用迁入的符号算法与逐符号冷却；TUI 只经服务 `normalize` / `onReview` 消费（未挂载 → 原文透传、无提醒）；TUI 删除 `symbols.ts` / 冷却表 / followup | 用户定稿：框架 + 第一个验证消费者插件 |
 | D6 | 插件接入方式 | `inject: ["ruleEngine"]` 硬依赖；apply 时 `registerConsumer`；rule-engine 缺席 → 插件不加载（TUI 回退原文透传） | 插件职责就是注册为消费者，硬依赖语义清楚 |
 | D7 | 触发与通知链路 | 插件在消费者 `decide` 内做回合审查（逐符号冷却）→ 反馈内容交 rule-engine 注入；人类 notice 经服务 `onReview` 回调推给 TUI | 冷却只消费一次、口径统一 |
 | D8 | 冷却归属 | 插件逐符号冷却（10min / 3run，配置可调，按会话记账）；引擎级按消费者冷却可选（本插件不设） | 动态文案 + 领域语义 |
@@ -100,12 +100,25 @@ TUI（#43 / TUI#18）见 `TUI/docs/implementation/2026-09-27-symbol-consumer-cha
 
 ## 实现记录
 
-（按时间追加）
+- 2026-09-27：决策复述获用户通过；文档提交 `91e9d46`（BACKLOG #43/#44/#45/#47/#48 与两份追踪文档、TUI#18）。
+- 2026-09-27：rule-engine 框架与 #44 落地——`RuleDelivery` / `delivery` 归一与校验、`evaluate()`（返回可注入内容）、`registerConsumer()` + turn-end 调度（同步按注册顺序询问、聚合、统一注入、可选消费者冷却）、注入器 `followup` / `inject` 双路径、注入请求 `ruleId` → `sourceId`、工具族与 README / DESIGN 同步；包内 check / 59 条单测 / demo / build 全绿。
+- 2026-09-27：新包 `symbol-normalizer` 落地——`symbols.ts` 自 TUI 迁入、`review.ts`（逐符号冷却按会话记账 + notice / 反馈文案）、`main.ts`（`inject: ["ruleEngine"]`，注册消费者 + provide `symbolNormalizer`）、demo、README / DESIGN 与 29 条测试（含迁入的纯函数用例）。
+- 2026-09-27：TUI 改造（详见 TUI 追踪文档）——删除 `symbols.ts` / 冷却表 / followup；经 `ctx.get('symbolNormalizer')` 懒读服务做展示归一与 notice；`/symbol-unify` 保留；配置段删除；文档同步；TUI check + 1149 条测试全绿。
+- 2026-09-27：#45 集成——根 `package.json`（check / build）、`scripts/install.sh`（canonical_pkgs）、`scripts/test-parallel.sh`（default_pkgs）、根 `README.md`（插件表 / 目录树 / 包数）、`AGENTS.md`（插件 12→14、包 13→15）。
+- 2026-09-27：真机验证（新临时 profile，`DSH_HOME=tmp/dshhome`，不改 `fff`）：headless 与 TUI 两个临时 profile `--dump-config` 均含目标条目；headless 启动实测发现真机缺陷——rule-engine 直接访问 `ctx.tools` 触发 cordis 严格模式 `cannot get property "tools" without inject`（单测假 ctx 未覆盖），改为 `ctx.get('tools')` 读取并补测试；重跑后 rule-engine 与 symbol-normalizer 均「已加载」（消费者注册成功、无 pending），TUI profile 在 PTY 中正常起帧。
+- 2026-09-27：端到端模型回合（notice + 注入）在沙箱内无法执行——宿主报 `MISSING_CREDENTIAL: llm-deepseek … DEEPSEEK_API_KEY`；人工复核步骤见「收尾」。
 
 ## 测试与证据
 
-（验证命令与结果，收尾时汇总）
+- `npm run check`（15 包）→ 0 error；`npm run build` → 全部成功。
+- `npm test`（并行 15 包）→ 全绿：TUI 1149 / rule-engine 59 / symbol-normalizer 29 / 其余 11 包 35–45 条，fail 0。
+- `npm --prefix rule-engine run demo` → 各路径输出正常（规则列表含 `delivery`）。
+- `npm --prefix symbol-normalizer run demo` → notice + 反馈文案输出符合预期（同会话第二次全冷却跳过）。
+- 临时 profile：`dsh --profile rule-engine-verify --dump-config` 与 `--profile rule-engine-verify-tui --dump-config` 均含 `rule-engine` / `symbol-normalizer` 条目；headless 启动日志 `[rule-engine] 已加载` + `[symbol-normalizer] 已加载`；TUI PTY 起帧正常（插件日志同屏）。
 
 ## 收尾
 
-（关闭时填：回写文档、遗留项、归档）
+- **待人工复核（用户环境有模型凭据）**：
+  - TUI：`DSH_HOME=~/Projects/dsh-toolset/tmp/dshhome dsh --profile rule-engine-verify-tui`，发一条会触发符号提醒的请求（如「只回复一个 ✅」）；预期：正文 ✅ 被替换为 ✓、活动区出现 notice（“符号已替换 1 处为推荐符号”），随后一条 `[符号规范] …` 注入触发模型新一轮回复；`/symbol-unify off` 时无替换、无提醒。
+  - 或 headless：`DSH_HOME=~/Projects/dsh-toolset/tmp/dshhome dsh --profile rule-engine-verify "只回复一个 ✅"`。
+- 复核通过后：BACKLOG 标完成、追踪文档归档、删除临时 profile（`tmp/dshhome`）与验证日志。

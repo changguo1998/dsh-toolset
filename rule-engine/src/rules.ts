@@ -15,6 +15,7 @@ import type {
   NormalizedRule,
   PredicateName,
   Rule,
+  RuleDelivery,
   RuleOrigin,
   RuleSource,
   RuntimeLayer,
@@ -32,6 +33,19 @@ export const RULE_SOURCES: readonly RuleSource[] = [
 export function isRuleSource(value: unknown): value is RuleSource {
   return (
     typeof value === "string" && RULE_SOURCES.includes(value as RuleSource)
+  );
+}
+
+/** 合法送达路径（工具面入参校验与错误提示用）。 */
+export const RULE_DELIVERIES: readonly RuleDelivery[] = [
+  "followup",
+  "next-step",
+];
+
+/** 送达路径是否合法。 */
+export function isRuleDelivery(value: unknown): value is RuleDelivery {
+  return (
+    typeof value === "string" && RULE_DELIVERIES.includes(value as RuleDelivery)
   );
 }
 
@@ -137,6 +151,12 @@ export function normalizeRule(input: unknown): NormalizeResult {
       error: `规则 "${id}" 的 source 非法（可选：${RULE_SOURCES.join(" / ")}）`,
     };
   }
+  if (raw.delivery !== undefined && !isRuleDelivery(raw.delivery)) {
+    return {
+      ok: false,
+      error: `规则 "${id}" 的 delivery 非法（可选：${RULE_DELIVERIES.join(" / ")}）`,
+    };
+  }
   const warnings: string[] = [];
   const { spec, provided } = normalizeMatch(raw.match, warnings);
   if (!provided && raw.match !== undefined) {
@@ -157,6 +177,7 @@ export function normalizeRule(input: unknown): NormalizeResult {
       id,
       enabled: raw.enabled !== false,
       source: isRuleSource(raw.source) ? raw.source : "assistant-text",
+      delivery: isRuleDelivery(raw.delivery) ? raw.delivery : "followup",
       match: spec,
       action: {
         type: "inject",

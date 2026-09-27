@@ -31,23 +31,57 @@ import type {
   HistoryMessage,
   SessionInfo,
   SessionSurfaceView,
+  SymbolNormalizerLike,
 } from "./adapter/dsh.ts";
 import type { NoticeTone } from "./adapter/types.ts";
-import {
-  DEFAULT_RECOMMENDED,
-  normalizeSymbols,
-  resolveSymbolRules,
-  type NormalizeResult,
-  type ResolvedSymbolRules,
-  type SymbolRemap,
-  type SymbolRulesConfig,
-} from "./symbols.ts";
 import { setWidthOverrides } from "./layout/markdown.ts";
 import { maxDescScrollFor } from "./components/QuestionPrompt.ts";
 import { maxApprovalScroll } from "./components/ApprovalPrompt.ts";
 
 /** 审批超时回落值（ms）：adapter 未提供 `approvalTimeoutMs()` 时使用（BACKLOG 3.2.5 / 3.3.2） */
 const APPROVAL_TIMEOUT_FALLBACK_MS = 60_000;
+
+/**
+ * 启动宽度探测字符集（EAW 歧义区常用符号）：仅用于 `probeWidths` 实测终端列宽，
+ * 与符号治理规则解耦（规则已迁至 symbol-normalizer 插件，见 BACKLOG #48）。
+ */
+const WIDTH_PROBE_SYMBOLS = [
+  "✓",
+  "✗",
+  "△",
+  "→",
+  "←",
+  "↑",
+  "↓",
+  "↔",
+  "↕",
+  "↖",
+  "↗",
+  "↘",
+  "↙",
+  "▶",
+  "◀",
+  "▲",
+  "▼",
+  "▷",
+  "◁",
+  "▽",
+  "⟸",
+  "⟹",
+  "⟺",
+  "•",
+  "◦",
+  "○",
+  "●",
+  "◯",
+  "■",
+  "□",
+  "◇",
+  "◆",
+  "ⓘ",
+  "〜",
+  "…",
+] as const;
 import {
   parseSlashCommand,
   SESSION_UI_STATE_VERSION,
@@ -223,8 +257,9 @@ export interface AppDeps {
     /** 等待用户输入超时(ms)；缺省 8000。最小 1000（由 config 归一化兜底） */
     idleThresholdMs?: number;
   };
-  /** 模型输出符号规范化规则（tui.config.json `symbols`；不传用内置默认，见 symbols.ts） */
-  symbols?: SymbolRulesConfig;
+  /** 符号服务读取器（懒读，容忍插件装载顺序）：返回 undefined = symbol-normalizer 未挂载，
+   *  此时展示层原文透传、无 notice（BACKLOG TUI#18 / 项目级 #48） */
+  getSymbols?: () => SymbolNormalizerLike | undefined;
   /** 自动清理空会话（tui.config.json `session.autoCleanEmpty`；main.ts 接线缺省 true）。
    *  true 时 start() 异步扫描全部目录删除空会话（notice 汇报），且优雅退出时
    *  （/quit、Ctrl+D、双击 Ctrl+C、插件 unload）先打印提示并等待清理完成再关闭渲染器。 */
@@ -266,20 +301,10 @@ export class App {
   private bellEnabled = true;
   /** 声音提醒：需交互「无操作」阈值(ms)（deps.notify?.idleThresholdMs ?? 8000） */
   private idleBellMs = 8000;
-  /** 符号规范化规则（内置默认 + 配置合并；见 symbols.ts） */
-  private readonly symbolRules: ResolvedSymbolRules;
-  /** 本回合符号报告累积（已替换/未推荐符号），turn-end 后清 */
-  private symbolTurn: {
-    replacedCount: number;
-    remaps: SymbolRemap[];
-    emojiRemaps: SymbolRemap[];
-    unrecommended: string[];
-  } | null = null;
-  /** 同符号冷却表：symbol → { dueAtMs, remainingRuns }——反馈过一次后冷却期内不再反馈 */
-  private symbolCooldown = new Map<
-    string,
-    { dueAtMs: number; remainingRuns: number }
-  >();
+  /** 符号服务（懒读；首次可用时解析并订阅审查事件） */
+  private symbolService: SymbolNormalizerLike | null = null;
+  /** 审查事件订阅注销函数（dispose 时调用） */
+  private symbolUnsubscribe: (() => void) | null = null;
   /** 启动自动清理空会话开关（deps.autoCleanEmpty ?? false） */
   private autoCleanEmpty = false;
   /** 上次 Ctrl+C 时间戳；双击窗口内再次按下则退出（含输入为空时计数） */
@@ -360,8 +385,6 @@ export class App {
   }
 
   constructor(private deps: AppDeps) {
-    // 符号规范化规则（tui.config.json symbols；缺省内置默认）
-    this.symbolRules = resolveSymbolRules(deps.symbols);
     // 声音提醒配置（P2#33）：不传 notify = 默认开启 + 8s 阈值
     this.bellEnabled = deps.notify?.enabled ?? true;
     // 阈值合法性：>0 有限数即可（1000ms 下限是 tui.config.json 用户配置层的职责，
@@ -409,7 +432,7 @@ export class App {
     const probe = this.deps.renderer.probeSymbolWidths;
     if (typeof probe !== "function") return;
     void probe
-      .call(this.deps.renderer, DEFAULT_RECOMMENDED)
+      .call(this.deps.renderer, WIDTH_PROBE_SYMBOLS)
       .then((widths) => {
         if (this.disposed || widths.size === 0) return;
         if (setWidthOverrides(widths)) this.paint(); // 宽度变了：重排重绘
@@ -782,6 +805,8 @@ export class App {
     this.paintScheduled = false;
     for (const f of this.unbindEvents) f();
     this.unbindEvents = [];
+    this.symbolUnsubscribe?.();
+    this.symbolUnsubscribe = null;
     this.stopPanelRefresh();
     this.clearInteractiveBell();
     this.clearFrameTimer();
@@ -955,17 +980,11 @@ export class App {
           break;
         }
         this.beginTurnIfNeeded();
-        // 符号统一（/symbol-unify 开关）：on=变体替换为推荐符号并记提醒（展示层）；
-        // off=原样透传（不替换不提醒）
-        const unified = this.state.symbolUnify
-          ? normalizeSymbols(e.text, this.symbolRules)
-          : null;
-        if (unified !== null) {
-          if (unified.replacedCount > 0 || unified.unrecommended.length > 0) {
-            this.accumulateSymbolTurn(unified);
-          }
-        }
-        const streamText = unified !== null ? unified.text : e.text;
+        // 符号统一（/symbol-unify 开关）：on=经 symbol-normalizer 服务做展示层替换；
+        // off 或服务未挂载=原文透传（审查 / notice / 模型反馈均在插件侧，经 onReview 订阅）
+        const symbols = this.state.symbolUnify ? this.symbols() : undefined;
+        const streamText =
+          symbols !== undefined ? symbols.normalize(e.text).text : e.text;
         this.apply((s) =>
           reduceState(s, {
             type: "append",
@@ -1069,7 +1088,6 @@ export class App {
           reduceState(s, { type: "turn-end", reason: e.reason }),
         );
         this.warnStrippedChars();
-        this.flushSymbolTurn();
         break;
       case "tool-call":
       case "model-selection":
@@ -1189,155 +1207,36 @@ export class App {
   }
 
   /**
-   * 同符号冷却：某符号反馈过一次后进入冷却，冷却期内不再反馈该符号，
-   * 打破「助手讨论符号本身 → 每轮反复提醒」的循环。时间窗与 run 次数双维：
-   * 任一维度未过期即视为仍冷却；都过期才解冻（可再次反馈）。展示层替换照常进行。
+   * 符号服务懒读：首次可用时解析并订阅审查事件（notice 展示）。
+   * 容忍插件装载顺序（symbol-normalizer 可能在 TUI 之后 provide）；未挂载返回 undefined。
+   * 审查（冷却 / 文案生成 / 模型反馈）全在插件侧，TUI 只负责展示归一与 notice。
    */
-  private isSymbolCooling(ch: string): boolean {
-    const rec = this.symbolCooldown.get(ch);
-    if (!rec) return false;
-    const inTime = this.symbolRules.cooldownMs > 0 && Date.now() < rec.dueAtMs;
-    const inRuns = this.symbolRules.cooldownRuns > 0 && rec.remainingRuns > 0;
-    return inTime || inRuns;
-  }
-
-  /** 对已反馈（列入本次提醒）的符号登记或重置冷却。 */
-  private enterSymbolCooldown(ch: string): void {
-    if (
-      this.symbolRules.cooldownMs <= 0 &&
-      this.symbolRules.cooldownRuns <= 0
-    ) {
-      return;
+  private symbols(): SymbolNormalizerLike | undefined {
+    if (this.symbolService !== null) return this.symbolService;
+    let service: SymbolNormalizerLike | undefined;
+    try {
+      service = this.deps.getSymbols?.();
+    } catch {
+      service = undefined;
     }
-    const rec = this.symbolCooldown.get(ch) ?? {
-      dueAtMs: 0,
-      remainingRuns: 0,
-    };
-    rec.dueAtMs = Date.now() + Math.max(this.symbolRules.cooldownMs, 0);
-    rec.remainingRuns = Math.max(this.symbolRules.cooldownRuns, 0);
-    this.symbolCooldown.set(ch, rec);
-  }
-
-  /** 每 turn 推进冷却 run 计数；两个维度都过期后清出记录（解冻）。 */
-  private tickSymbolCooldown(): void {
-    if (this.symbolRules.cooldownRuns > 0) {
-      for (const rec of this.symbolCooldown.values()) {
-        if (rec.remainingRuns > 0) rec.remainingRuns -= 1;
-      }
+    if (service === undefined) return undefined;
+    this.symbolService = service;
+    try {
+      this.symbolUnsubscribe = service.onReview((event) => {
+        // /symbol-unify off 时不提示；会话过滤与其它事件同口径
+        if (!this.state.symbolUnify) return;
+        if (
+          this.state.activeSessionId &&
+          event.sessionId !== this.state.activeSessionId
+        ) {
+          return;
+        }
+        this.notice(event.notice, "warn");
+      });
+    } catch {
+      this.symbolUnsubscribe = null;
     }
-    for (const [ch, rec] of this.symbolCooldown) {
-      const inTime =
-        this.symbolRules.cooldownMs > 0 && Date.now() < rec.dueAtMs;
-      if (!inTime && rec.remainingRuns <= 0) {
-        this.symbolCooldown.delete(ch);
-      }
-    }
-  }
-
-  /** 累积本回合符号报告（多次 stream 段汇总；替换明细 + 无替代符号去重）。 */
-  private accumulateSymbolTurn(nr: NormalizeResult): void {
-    const t = this.symbolTurn ?? {
-      replacedCount: 0,
-      remaps: [],
-      emojiRemaps: [],
-      unrecommended: [],
-    };
-    t.replacedCount += nr.replacedCount;
-    t.remaps.push(...nr.remaps);
-    t.emojiRemaps.push(...nr.emojiRemaps);
-    for (const ch of nr.unrecommended) {
-      if (!t.unrecommended.includes(ch)) t.unrecommended.push(ch);
-    }
-    this.symbolTurn = t;
-  }
-
-  /**
-   * turn 结束收尾：本回合有「替换（归一）」或「未推荐（警示）」时——
-   * notice 给人（合并一条）；warnModel 开启时生成一条合并反馈（替换+警示），
-   * 随下一条用户消息提交给模型（不单独发空回合）。
-   */
-  private flushSymbolTurn(): void {
-    this.tickSymbolCooldown(); // 每 turn 推进冷却 run 计数（解冻判定）
-    const t = this.symbolTurn;
-    this.symbolTurn = null;
-    if (!this.state.symbolUnify) return; // 开关关闭：既不提示也不注入
-    if (!t) return;
-    // 冷却过滤：反馈过一次的符号在冷却期内不再反馈（展示层替换照常）；
-    // 本轮真正列入提醒的符号在此登记冷却。三组（emoji 罗列/变体计数/警示）独立计数。
-    const emojiSeen = new Set<string>();
-    const emojiInstrs: string[] = [];
-    for (const { from, to } of t.emojiRemaps) {
-      if (emojiSeen.has(from)) continue;
-      emojiSeen.add(from);
-      if (this.isSymbolCooling(from)) continue; // emoji 罗列跳过冷却中的符号
-      emojiInstrs.push(
-        to === "" ? `请删除「${from}」` : `请将「${from}」改为「${to}」`,
-      );
-      this.enterSymbolCooldown(from);
-    }
-    const emojiFroms = new Set(t.emojiRemaps.map((r) => r.from));
-    let variantCount = 0;
-    const variantSeen = new Set<string>();
-    for (const { from } of t.remaps) {
-      if (emojiFroms.has(from) || variantSeen.has(from)) continue;
-      variantSeen.add(from);
-      if (this.isSymbolCooling(from)) continue; // 变体只统计未冷却的
-      variantCount++;
-      this.enterSymbolCooldown(from);
-    }
-    const warnList: string[] = [];
-    for (const ch of t.unrecommended) {
-      if (this.isSymbolCooling(ch)) continue; // 警示跳过冷却中的符号
-      warnList.push(ch);
-      this.enterSymbolCooldown(ch);
-    }
-    const hasEmoji = emojiInstrs.length > 0;
-    const hasVariant = variantCount > 0;
-    const hasWarn = warnList.length > 0;
-    if (!hasEmoji && !hasVariant && !hasWarn) return; // 全部处于冷却：本轮静默
-    // notice（人：替换只报计数、不罗列被替换符号；警示列未推荐符号——均只含未冷却的新内容）
-    let noticeText = "";
-    if (hasEmoji || hasVariant) {
-      noticeText += `符号已替换 ${emojiInstrs.length + variantCount} 处为推荐符号`;
-    }
-    if (hasWarn) {
-      noticeText +=
-        (noticeText !== "" ? "；" : "") + `未推荐符号：${warnList.join("")}`;
-    }
-    this.notice(noticeText + "（建议用推荐符号或文字）", "warn");
-    // 模型反馈（合并一条）：
-    //   emoji 起源替换 = 先要求更换（罗列「X→Y」）；普通变体替换 = 只报计数；
-    //   警示 = 复述规则 + 要求重新选择
-    if (this.symbolRules.warnModel) {
-      const parts: string[] = [];
-      if (hasEmoji) {
-        parts.push(
-          `你使用了 emoji 符号，展示层已替换为推荐符号——请更换为推荐符号或文字：${emojiInstrs.join("；")}。`,
-        );
-      }
-      if (hasVariant) {
-        parts.push(
-          `另有 ${variantCount} 处变体符号已按推荐替换（不逐一列示，请直接用推荐符号）。`,
-        );
-      }
-      if (hasWarn) {
-        parts.push(
-          `你使用的符号「${warnList.join("」 「")}」无推荐替代，请按符号选择规则重新选择：` +
-            `1）状态/方向/几何类符号用推荐符号（✓ ✗ △ → ← ↑ ↓ ↔ ↕ ↖ ↗ ↘ ↙ ▶ ◀ ▲ ▼ ▷ ◁ ▽ ⟸ ⟹ ⟺ • ◦ ○ ● ◯ ■ □ ◇ ◆ ⓘ 〜 …）或文字；` +
-            `2）有推荐对应关系的变体符号必须使用推荐对应符；` +
-            `3）避免 emoji、带颜色/填色符号及终端宽度不确定的字符。`,
-        );
-      }
-      // turn-end 回调内同步 followup 宿主不接（实测不落盘）；推迟一个宏任务再发，
-      // 待宿主完成 run 收尾进入等待态（实测送达模型并自动开新回合）
-      const fb = `[符号规范] ${parts.join(" ")}`;
-      const sid = this.state.activeSessionId ?? undefined;
-      setTimeout(() => {
-        if (this.disposed) return;
-        this.deps.adapter.sendMessage(fb, sid);
-      }, 0);
-    }
-    this.paint();
+    return service;
   }
 
   private handleKey(k: KeyEvent): void {

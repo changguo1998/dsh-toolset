@@ -118,8 +118,9 @@ test("assistant-text：回合结束时对整回合正文（多 step 聚合）判
       engine.handle(SESSION, turnEnd(1));
       assert.deepEqual(injected, [
         {
-          ruleId: "sym",
+          sourceId: "sym",
           sessionId: "s1",
+          delivery: "followup",
           text: "改用 ASCII",
           summary: "改用 ASCII",
         },
@@ -168,7 +169,7 @@ test("turn-end：带条件的边界规则按整回合正文判定", () => {
       engine.handle(SESSION, assistantMessage(2, "还没完成"));
       engine.handle(SESSION, turnEnd(2));
       assert.deepEqual(
-        injected.map((item) => item.ruleId),
+        injected.map((item) => item.sourceId),
         ["b"],
       );
     },
@@ -204,7 +205,7 @@ test("tool-call / tool-result：事件到达即判定", () => {
       engine.handle(SESSION, toolResult(1, "line1\nstack trace here"));
       assert.equal(injected.length, 2);
       assert.deepEqual(
-        injected.map((item) => item.ruleId),
+        injected.map((item) => item.sourceId),
         ["danger", "failure"],
       );
     },
@@ -294,7 +295,7 @@ test("每回合注入上限与同内容去重（跨规则）", () => {
     ({ engine, injected }) => {
       engine.handle(SESSION, toolCall(1, "x", "hit"));
       assert.deepEqual(
-        injected.map((item) => item.ruleId),
+        injected.map((item) => item.sourceId),
         ["a", "b"],
         "第三条与第一条同文案 → 同回合去重",
       );
@@ -433,7 +434,7 @@ test("运行时层跨实例生效（模拟进程重启后加载）", () => {
     second.handle(SESSION, assistantMessage(1, "随便"));
     second.handle(SESSION, turnEnd(1));
     assert.deepEqual(
-      injected.map((item) => item.ruleId),
+      injected.map((item) => item.sourceId),
       ["persisted"],
     );
   } finally {
@@ -469,4 +470,169 @@ test("注入器抛错只记 warning，不向上抛", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("evaluate()：只读判定返回命中规则与可注入内容（不注入、不改状态）", () => {
+  bench(
+    [
+      rule({
+        id: "sym",
+        match: { keywords: ["符号"] },
+        action: { type: "inject", text: "改用 ASCII", summary: "符号规范" },
+      }),
+      rule({ id: "off", enabled: false, match: { keywords: ["符号"] } }),
+      rule({ id: "tool", source: "tool-call", match: { regex: ["rm -rf"] } }),
+    ],
+    ({ engine, injected }) => {
+      const result = engine.evaluate({ text: "出现符号问题" });
+      assert.equal(result.source, "assistant-text");
+      assert.deepEqual(result.matched, [
+        {
+          id: "sym",
+          origin: "config",
+          source: "assistant-text",
+          delivery: "followup",
+          description: null,
+          text: "改用 ASCII",
+          summary: "符号规范",
+        },
+      ]);
+      assert.deepEqual(result.disabled, ["off"]);
+      assert.equal(injected.length, 0, "evaluate 不注入");
+      // summary 缺省时由正文派生
+      const derived = engine.evaluate({
+        text: "rm -rf /",
+        source: "tool-call" as RuleSource,
+      });
+      assert.equal(derived.matched[0]?.summary, "请遵守规范");
+    },
+  );
+});
+
+test("registerConsumer：turn-end 同步按注册顺序询问，聚合反馈并统一注入（含注销）", () => {
+  bench([], ({ engine, injected }) => {
+    const calls: string[] = [];
+    let seen = "";
+    const disposeA = engine.registerConsumer({
+      id: "a",
+      decide: (ctx) => {
+        calls.push(`${ctx.trigger}:${ctx.turn}:${ctx.text}`);
+        seen = ctx.text;
+        return { text: "来自 A 的反馈", summary: "A 提醒" };
+      },
+    });
+    engine.registerConsumer({ id: "b", decide: () => null });
+    const disposeC = engine.registerConsumer({
+      id: "c",
+      decide: () => ({ text: "来自 C 的反馈" }),
+    });
+    engine.handle(SESSION, assistantMessage(1, "正文"));
+    engine.handle(SESSION, turnEnd(1));
+    assert.deepEqual(calls, ["turn-end:1:正文"]);
+    assert.equal(seen, "正文", "无文本规则时消费者也能拿到回合正文");
+    assert.deepEqual(injected, [
+      {
+        sourceId: "consumer:a",
+        sessionId: "s1",
+        delivery: "followup",
+        text: "来自 A 的反馈",
+        summary: "A 提醒",
+      },
+      {
+        sourceId: "consumer:c",
+        sessionId: "s1",
+        delivery: "followup",
+        text: "来自 C 的反馈",
+        summary: "来自 C 的反馈",
+      },
+    ]);
+    // 注销后不再询问
+    disposeA();
+    disposeC();
+    engine.handle(SESSION, assistantMessage(2, "正文"));
+    engine.handle(SESSION, turnEnd(2));
+    assert.equal(injected.length, 2);
+  });
+});
+
+test("registerConsumer：decide 抛错与空反馈只告警跳过，其余消费者照常", () => {
+  bench([], ({ engine, injected, warnings }) => {
+    engine.registerConsumer({
+      id: "boom",
+      decide: () => {
+        throw new Error("boom");
+      },
+    });
+    engine.registerConsumer({ id: "empty", decide: () => ({ text: "   " }) });
+    engine.registerConsumer({ id: "ok", decide: () => ({ text: "正常反馈" }) });
+    engine.handle(SESSION, assistantMessage(1, "x"));
+    engine.handle(SESSION, turnEnd(1));
+    assert.deepEqual(
+      injected.map((item) => item.sourceId),
+      ["consumer:ok"],
+    );
+    assert.ok(warnings.some((w) => /"boom" decide 抛错/.test(w)));
+    assert.ok(warnings.some((w) => /"empty" 反馈正文为空/.test(w)));
+  });
+});
+
+test("registerConsumer：cooldownTurns / cooldownMs 按注入记账", () => {
+  let now = 1_000;
+  bench(
+    [],
+    ({ engine, injected }) => {
+      engine.registerConsumer({
+        id: "cd",
+        cooldownTurns: 2,
+        cooldownMs: 5_000,
+        decide: () => ({ text: "冷却反馈" }),
+      });
+      const fire = (turn: number): void => {
+        engine.handle(SESSION, assistantMessage(turn, "x"));
+        engine.handle(SESSION, turnEnd(turn));
+      };
+      fire(1);
+      assert.equal(injected.length, 1);
+      now = 2_000;
+      fire(3);
+      assert.equal(injected.length, 1, "毫秒冷却未过 → 跳过");
+      now = 7_000;
+      fire(5);
+      assert.equal(injected.length, 2, "两个维度都过 → 允许");
+    },
+    { now: () => now },
+  );
+});
+
+test("registerConsumer：注册校验、同文本去重与规则共用闸门", () => {
+  bench(
+    [
+      rule({
+        id: "r",
+        source: "tool-call",
+        match: { keywords: ["hit"] },
+        action: { type: "inject", text: "同一条" },
+      }),
+    ],
+    ({ engine, injected, warnings }) => {
+      const disposeC1 = engine.registerConsumer({
+        id: "c1",
+        decide: () => ({ text: "同一条" }),
+      });
+      engine.registerConsumer({ id: "c1", decide: () => null });
+      assert.ok(warnings.some((w) => /已注册/.test(w)));
+      engine.registerConsumer({ id: "c2", decide: () => ({ text: "另一条" }) });
+      engine.registerConsumer({ id: "", decide: () => null });
+      assert.ok(warnings.some((w) => /id 必须是非空字符串/.test(w)));
+      engine.handle(SESSION, toolCall(1, "x", "hit"));
+      engine.handle(SESSION, assistantMessage(1, "x"));
+      engine.handle(SESSION, turnEnd(1));
+      assert.deepEqual(
+        injected.map((item) => item.sourceId),
+        ["r", "consumer:c2"],
+        "c1 与规则同文案 → 同回合去重",
+      );
+      assert.equal(typeof disposeC1, "function");
+    },
+  );
 });

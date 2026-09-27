@@ -8,6 +8,9 @@
  *
  * 消息构造三项硬要求（缺失会导致 append/resume 校验抛 `lacks an identified message`）：
  * `id` 非空 string、`content` 为数组、`source.kind` 非空 string。
+ *
+ * 两条送达路径（`delivery`）：`followup`（缺省）= 独立新回合（`agent.followup`）；
+ * `next-step` = 挂到最近 pre-step（`agent.inject`，不唤醒；宿主 rc.2+）。
  */
 
 import { randomUUID } from "node:crypto";
@@ -20,6 +23,8 @@ export interface AgentLike {
   session?: unknown;
   /** 追加一条 user-role 消息到下一回合（同步 void）。 */
   followup?(message: unknown): void;
+  /** 把一条 user-role 消息挂到最近 pre-step（同步 void；宿主 rc.2+）。 */
+  inject?(message: unknown): void;
 }
 
 /** 宿主 ctx 的注入相关最小形态。 */
@@ -64,7 +69,8 @@ export function defaultWarn(message: string): void {
 }
 
 /**
- * 真实注入器：推迟一个宏任务 → `agents.get(sessionId)` → `followup(message)` →
+ * 真实注入器：推迟一个宏任务 → `agents.get(sessionId)` → 按 `delivery` 走
+ * `followup(message)`（新回合）或 `inject(message)`（最近 pre-step）→
  * `sessions.flush(agent.session)` 确保落盘。会话非 live / 宿主面缺失 / 宿主抛错
  * 一律记 warning 后跳过（不向宿主抛，避免打断 run 收尾）。
  */
@@ -91,25 +97,41 @@ function deliver(
 ): void {
   const agents = host.agents;
   if (agents === undefined || typeof agents.get !== "function") {
-    warn(`ctx.agents 不可用，规则 "${request.ruleId}" 的注入跳过`);
+    warn(`ctx.agents 不可用，来源 "${request.sourceId}" 的注入跳过`);
     return;
   }
   const agent = agents.get(request.sessionId);
   if (agent === undefined || agent === null) {
     warn(
-      `会话 ${request.sessionId} 非 live，规则 "${request.ruleId}" 的注入跳过`,
+      `会话 ${request.sessionId} 非 live，来源 "${request.sourceId}" 的注入跳过`,
     );
     return;
   }
-  if (typeof agent.followup !== "function") {
-    warn(`agent 不支持 followup，规则 "${request.ruleId}" 的注入跳过`);
-    return;
-  }
-  try {
-    agent.followup(buildInjectionMessage(request.text, request.summary));
-  } catch (err) {
-    warn(`规则 "${request.ruleId}" followup 失败：${String(err)}`);
-    return;
+  const message = buildInjectionMessage(request.text, request.summary);
+  if (request.delivery === "next-step") {
+    if (typeof agent.inject !== "function") {
+      warn(
+        `agent 不支持 inject（宿主 rc.2+ 才有），来源 "${request.sourceId}" 的 next-step 注入跳过`,
+      );
+      return;
+    }
+    try {
+      agent.inject(message);
+    } catch (err) {
+      warn(`来源 "${request.sourceId}" inject 失败：${String(err)}`);
+      return;
+    }
+  } else {
+    if (typeof agent.followup !== "function") {
+      warn(`agent 不支持 followup，来源 "${request.sourceId}" 的注入跳过`);
+      return;
+    }
+    try {
+      agent.followup(message);
+    } catch (err) {
+      warn(`来源 "${request.sourceId}" followup 失败：${String(err)}`);
+      return;
+    }
   }
   const sessions = host.sessions;
   if (sessions === undefined || typeof sessions.flush !== "function") {
@@ -119,10 +141,10 @@ function deliver(
   try {
     void Promise.resolve(sessions.flush(agent.session)).catch(
       (err: unknown) => {
-        warn(`规则 "${request.ruleId}" flush 失败：${String(err)}`);
+        warn(`来源 "${request.sourceId}" flush 失败：${String(err)}`);
       },
     );
   } catch (err) {
-    warn(`规则 "${request.ruleId}" flush 抛错：${String(err)}`);
+    warn(`来源 "${request.sourceId}" flush 抛错：${String(err)}`);
   }
 }

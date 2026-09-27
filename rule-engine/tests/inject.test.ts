@@ -1,6 +1,6 @@
 /**
  * 注入器单测：消息构造合规（id / content / source.kind 三项硬要求）、推迟宏任务、
- * followup + flush 调用、宿主面缺失与异常兜底（只 warning 不抛）。
+ * 两条送达路径（followup / next-step）、宿主面缺失与异常兜底（只 warning 不抛）。
  */
 
 import assert from "node:assert/strict";
@@ -11,20 +11,36 @@ import {
   createAgentInjector,
   SOURCE_KIND,
 } from "../src/inject.ts";
+import type { InjectionRequest } from "../src/types.ts";
 
-/** 造一个记录调用的假宿主。 */
+/** 造一个记录调用的假宿主（followup 与 inject 分开记账）。 */
 function fakeHost(
-  options: { followupThrows?: boolean; noAgent?: boolean } = {},
+  options: {
+    followupThrows?: boolean;
+    injectThrows?: boolean;
+    noAgent?: boolean;
+    noInject?: boolean;
+  } = {},
 ) {
-  const calls: { message: unknown }[] = [];
+  const calls: { method: "followup" | "inject"; message: unknown }[] = [];
   const flushed: unknown[] = [];
-  const agent = {
+  const agent: {
+    session: unknown;
+    followup?(message: unknown): void;
+    inject?(message: unknown): void;
+  } = {
     session: { id: "s1" },
     followup(message: unknown): void {
       if (options.followupThrows === true) throw new Error("boom");
-      calls.push({ message });
+      calls.push({ method: "followup", message });
     },
   };
+  if (options.noInject !== true) {
+    agent.inject = (message: unknown): void => {
+      if (options.injectThrows === true) throw new Error("boom");
+      calls.push({ method: "inject", message });
+    };
+  }
   return {
     calls,
     flushed,
@@ -40,6 +56,18 @@ function fakeHost(
         },
       },
     },
+  };
+}
+
+/** 构造注入请求。 */
+function request(overrides: Partial<InjectionRequest> = {}): InjectionRequest {
+  return {
+    sourceId: "r1",
+    sessionId: "s1",
+    delivery: "followup",
+    text: "正文",
+    summary: "摘要",
+    ...overrides,
   };
 }
 
@@ -74,33 +102,54 @@ test("buildInjectionMessage：id 非空 / content 数组 / source.kind 非空 + 
 
 test("createAgentInjector：同步不调用宿主，宏任务后 followup + flush", async () => {
   const { host, calls, flushed } = fakeHost();
-  const injector = createAgentInjector(host, { warn: () => {} });
-  injector.inject({
-    ruleId: "r1",
-    sessionId: "s1",
-    text: "正文",
-    summary: "摘要",
-  });
+  createAgentInjector(host, { warn: () => {} }).inject(request());
   assert.equal(
     calls.length,
     0,
-    "同步阶段不得调用 followup（Session.append 窗口内会撞重入保护）",
+    "同步阶段不得调用宿主（Session.append 窗口内会撞重入保护）",
   );
   await tick();
   assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.method, "followup");
   assert.equal(flushed.length, 1);
   assert.deepEqual(flushed[0], { id: "s1" });
+});
+
+test("createAgentInjector：next-step 走 agent.inject（不调 followup）并 flush", async () => {
+  const { host, calls, flushed } = fakeHost();
+  createAgentInjector(host, { warn: () => {} }).inject(
+    request({ delivery: "next-step" }),
+  );
+  await tick();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.method, "inject");
+  assert.equal(flushed.length, 1);
+  const message = calls[0]?.message as {
+    source: { kind: string; form: string };
+  };
+  assert.equal(message.source.kind, SOURCE_KIND);
+  assert.equal(message.source.form, "notice");
+});
+
+test("createAgentInjector：宿主无 inject 时 next-step 跳过并记 warning", async () => {
+  const { host, calls, flushed } = fakeHost({ noInject: true });
+  const warnings: string[] = [];
+  createAgentInjector(host, { warn: (m) => warnings.push(m) }).inject(
+    request({ delivery: "next-step" }),
+  );
+  await tick();
+  assert.equal(calls.length, 0);
+  assert.equal(flushed.length, 0);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /不支持 inject/);
 });
 
 test("createAgentInjector：会话非 live 时跳过并记 warning", async () => {
   const { host, calls } = fakeHost({ noAgent: true });
   const warnings: string[] = [];
-  createAgentInjector(host, { warn: (m) => warnings.push(m) }).inject({
-    ruleId: "r1",
-    sessionId: "s1",
-    text: "正文",
-    summary: "摘要",
-  });
+  createAgentInjector(host, { warn: (m) => warnings.push(m) }).inject(
+    request(),
+  );
   await tick();
   assert.equal(calls.length, 0);
   assert.equal(warnings.length, 1);
@@ -109,13 +158,7 @@ test("createAgentInjector：会话非 live 时跳过并记 warning", async () =>
 
 test("createAgentInjector：宿主面缺失只 warning 不抛", async () => {
   const warnings: string[] = [];
-  const injector = createAgentInjector({}, { warn: (m) => warnings.push(m) });
-  injector.inject({
-    ruleId: "r1",
-    sessionId: "s1",
-    text: "正文",
-    summary: "摘要",
-  });
+  createAgentInjector({}, { warn: (m) => warnings.push(m) }).inject(request());
   await tick();
   assert.equal(warnings.length, 1);
   assert.match(warnings[0] ?? "", /ctx\.agents 不可用/);
@@ -124,31 +167,39 @@ test("createAgentInjector：宿主面缺失只 warning 不抛", async () => {
 test("createAgentInjector：followup 抛错被吞并记 warning", async () => {
   const { host } = fakeHost({ followupThrows: true });
   const warnings: string[] = [];
-  createAgentInjector(host, { warn: (m) => warnings.push(m) }).inject({
-    ruleId: "r1",
-    sessionId: "s1",
-    text: "正文",
-    summary: "摘要",
-  });
+  createAgentInjector(host, { warn: (m) => warnings.push(m) }).inject(
+    request(),
+  );
   await tick();
   assert.equal(warnings.length, 1);
   assert.match(warnings[0] ?? "", /followup 失败/);
 });
 
-test("createAgentInjector：sessions 缺失时仍完成 followup 并记 warning", async () => {
-  const { calls } = fakeHost();
+test("createAgentInjector：inject 抛错被吞并记 warning", async () => {
+  const { host } = fakeHost({ injectThrows: true });
+  const warnings: string[] = [];
+  createAgentInjector(host, { warn: (m) => warnings.push(m) }).inject(
+    request({ delivery: "next-step" }),
+  );
+  await tick();
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /inject 失败/);
+});
+
+test("createAgentInjector：sessions 缺失时仍完成注入并记 warning", async () => {
+  const calls: unknown[] = [];
   const warnings: string[] = [];
   createAgentInjector(
     {
       agents: {
         get: () => ({
           session: {},
-          followup: (m) => calls.push({ message: m }),
+          followup: (m: unknown) => calls.push(m),
         }),
       },
     },
     { warn: (m) => warnings.push(m) },
-  ).inject({ ruleId: "r1", sessionId: "s1", text: "正文", summary: "摘要" });
+  ).inject(request());
   await tick();
   assert.equal(calls.length, 1);
   assert.match(warnings[0] ?? "", /未等待落盘/);

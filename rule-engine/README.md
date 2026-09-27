@@ -37,7 +37,16 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 - `summary`：一行摘要（缺省取正文首行、截断 120 字符）；
 - 注入消息形如 `{ id: <uuid>, role: "user", content: [{type:"text", text}], source: { kind: "rule-engine", form: "notice", summary } }`。
 
-**呈现方式**：宿主侧没有「插件 → 人」的 notice 通道；`source.form:'notice'` 是官方的「一行提示」呈现形式，官方 web client 已实现，但 dsh-toolset 的 TUI 目前未实现 `form` 分支，**会按普通 user 消息块渲染**（即完全模拟用户输入）。将来 TUI 支持后自然变成一行提示，本插件无需改动（见项目 BACKLOG #46）。
+**呈现方式**：宿主侧没有「插件 → 人」的 notice 通道；`source.form:'notice'` 是官方的「一行提示」呈现形式。dsh-toolset 的 TUI 已支持（按一行提示渲染，BACKLOG #46 已完成）。
+
+### 送达路径（`delivery`）
+
+| 值 | 行为 | 宿主面 |
+| --- | --- | --- |
+| `followup`（缺省） | 作为**独立新回合**的消息注入（会唤醒 agent） | `agent.followup` |
+| `next-step` | 挂到**最近一个 pre-step**（同回合内模型可见；不唤醒；空闲时挂起到下次唤醒） | `agent.inject`（宿主 rc.2+） |
+
+两条路径的消息构造一致（`source: { kind: "rule-engine", form: "notice", summary }`）；旧宿主无 `agent.inject` 时 `next-step` 记 warning 并跳过。
 
 ### 节流与去重（同一会话内）
 
@@ -52,13 +61,15 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 
 | 工具 | 参数 | 作用 |
 | --- | --- | --- |
-| `rule_add` | `id`、`text`、`source?`、`match?`、`summary?`、`cooldownTurns?`、`cooldownMs?`、`description?`、`enabled?` | 新增规则（id 已存在则报错，指向 `rule_update`） |
+| `rule_add` | `id`、`text`、`source?`、`delivery?`、`match?`、`summary?`、`cooldownTurns?`、`cooldownMs?`、`description?`、`enabled?` | 新增规则（id 已存在则报错，指向 `rule_update`） |
 | `rule_list` | 无 | 只读列出生效规则（含来源层 `origin`）与引擎状态 |
 | `rule_update` | `id`、`patch` | 浅合并更新（可只改 `text` / `match` / `cooldownTurns` 等）；基线规则被更新后以运行时版本生效 |
 | `rule_remove` | `id` | 删除规则：运行时规则移除；基线规则进运行时屏蔽列表（配置文件不动） |
 | `rule_test` | `text`、`source?` | 干跑：列出会命中的规则 id（不注入、不改状态） |
 
 工具返回值统一 `{ ok, error, ... }`，异常转结构化错误（不向宿主抛）。
+
+`tools` 不在 `inject` 声明中，经 `ctx.get('tools')` 读取（cordis 严格模式禁止未注入服务的直接属性访问；2026-09-27 真机实测踩坑）；缺失时工具族降级告警，事件面照常。
 
 ## 配置
 
@@ -103,19 +114,28 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 
 `config` 段是**整行替换、非深合并**（宿主 patch 语义），多层叠加需自行写全。
 
-## 只读服务
+## 消费者面
 
-`provide("ruleEngine")`：`list()` 返回生效规则只读清单（`id` / `enabled` / `source` / `origin` / `text` / 节流参数），`status()` 返回规则条数与状态目录。供后续宿主命令面（如 TUI `/rule` 面板）消费。
+`provide("ruleEngine")` 面向其他插件：
+
+| 方法 | 说明 |
+| --- | --- |
+| `list()` | 生效规则只读清单（`id` / `enabled` / `source` / `delivery` / `origin` / `text` / 节流参数） |
+| `status()` | 规则条数、运行时条数、状态目录、每回合注入上限 |
+| `evaluate({ text, source? })` | 只读判定：返回命中规则（含**可注入内容** `text` / `summary`）与未启用规则 id；不注入、不改状态 |
+| `registerConsumer({ id, delivery?, cooldownTurns?, cooldownMs?, decide })` | 注册消费者：turn-end 时按注册顺序**同步**询问，`decide(ctx)` 返回要注入的内容 `{ text, summary? }`（null = 不反馈），反馈由本引擎统一注入；返回注销函数 |
+
+消费者与规则共用闸门：每回合注入上限、同文本去重；消费者级 `cooldownTurns` / `cooldownMs` 可选（按注入记账），更细粒度冷却由消费者自理。`decide` 运行在 `session/event` 的同步派发窗口内：须廉价，且不得调用宿主 API（注入一律由本引擎推迟宏任务）。
 
 ## 时序约束（重要）
 
-`session/event` 监听器运行在 `Session.append` 的**同步派发窗口**内，此刻直接调用 `agent.followup()` 会撞重入保护（异常被宿主吞掉，现象是「消息不落盘」）。因此注入一律 `setTimeout(…, 0)` 推迟一个宏任务后再 `agents.get(sessionId).followup(message)`，随后 `sessions.flush(agent.session)` 确保落盘。会话非 live（`agents.get` 返回 undefined）时跳过并记 warning。
+`session/event` 监听器运行在 `Session.append` 的**同步派发窗口**内，此刻直接调用 `agent.followup()` 会撞重入保护（异常被宿主吞掉，现象是「消息不落盘」）。因此注入一律 `setTimeout(…, 0)` 推迟一个宏任务后再 `agents.get(sessionId)`，按 `delivery` 调 `followup(message)`（新回合）或 `inject(message)`（最近 pre-step），随后 `sessions.flush(agent.session)` 确保落盘。会话非 live（`agents.get` 返回 undefined）时跳过并记 warning。
 
 ## 已知限制
 
-- **「提示人」需 TUI 支持**：`form:'notice'` 目前渲染为普通 user 消息块（见上「呈现方式」），TUI 侧改动是独立条目（BACKLOG #46）。
+- **「提示人」已由 TUI 支持**：TUI 按 `form:'notice'` 渲染为一行提示（BACKLOG #46 已完成）；未实现 `form` 分支的客户端仍会按普通 user 消息块渲染。
 - 只有 `inject` 一种动作：`tag` 打标 / `abort` 中断 / `memory` 写知识库未实现。
-- 只有 `agent.followup` 一条注入路径：`agent/pre-step`（下一 step 内注入）未实现（BACKLOG #44）。
+- `next-step` 路径需要宿主 rc.2+（`agent.inject`）；旧宿主上记 warning 跳过（不回退 followup）。
 - 节流记账是**进程内**内存态：`dsh` 重启后 cooldown 计数清零（规则本身持久化）。
 - 逐 delta 实时匹配未实现：文本类规则只在回合结束判定（实时需订阅 `agent/assistant-stream`）。
 
@@ -124,7 +144,7 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # 编译到 dist/
-npm test        # node --test（46 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器）
+npm test        # node --test（59 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 插件入口）
 npm run demo    # mock 事件流跑「规则命中 → 注入」，不依赖 DSH
 ```
 

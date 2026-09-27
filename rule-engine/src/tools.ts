@@ -7,7 +7,7 @@
  */
 
 import { predicateNames } from "./match.ts";
-import { RULE_SOURCES } from "./rules.ts";
+import { RULE_DELIVERIES, RULE_SOURCES } from "./rules.ts";
 import type { RuleEngine } from "./engine.ts";
 import type { RuleSource } from "./types.ts";
 
@@ -64,6 +64,12 @@ const RULE_PARAMS = {
     description:
       "匹配面，缺省 assistant-text：assistant-text 回合结束时对整回合正文判定 / tool-call 工具调用 / tool-result 工具结果 / turn-end 回合边界",
   },
+  delivery: {
+    type: "string",
+    enum: [...RULE_DELIVERIES],
+    description:
+      "注入送达路径，缺省 followup：followup=作为独立新回合（agent.followup）；next-step=挂到最近 pre-step（agent.inject，同回合内模型可见、不唤醒；宿主 rc.2+）",
+  },
   match: MATCH_SCHEMA,
   text: TEXT_PARAM,
   summary: {
@@ -100,6 +106,7 @@ function ruleFromArgs(args: Record<string, unknown>): Record<string, unknown> {
   const rule: Record<string, unknown> = { id: args["id"], action };
   for (const key of [
     "source",
+    "delivery",
     "match",
     "description",
     "enabled",
@@ -141,7 +148,7 @@ export function toToolDefs(engine: RuleEngine): ToolDef[] {
   const list: ToolDef = {
     name: "rule_list",
     description:
-      "只读列出生效规则（配置基线 + 运行时层，含来源层 origin 与节流参数）与引擎状态。",
+      "只读列出生效规则（配置基线 + 运行时层，含来源层 origin、送达路径 delivery 与节流参数）与引擎状态。",
     parameters: { type: "object", properties: {} },
     async execute() {
       try {
@@ -168,7 +175,7 @@ export function toToolDefs(engine: RuleEngine): ToolDef[] {
         patch: {
           type: "object",
           description:
-            "要覆盖的字段（text / summary / match / source / enabled / cooldownTurns / cooldownMs / description / action）",
+            "要覆盖的字段（text / summary / match / source / delivery / enabled / cooldownTurns / cooldownMs / description / action）",
           properties: RULE_PARAMS,
           additionalProperties: false,
         },

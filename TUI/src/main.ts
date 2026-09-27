@@ -54,6 +54,7 @@ import {
   type GoalContractServiceLike,
   type WorkflowEngineLike,
   type WebSearchLike,
+  type SymbolNormalizerLike,
 } from "./app/adapter/dsh.ts";
 
 /** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
@@ -69,6 +70,8 @@ export function main(opts: {
   renderer?: Renderer;
   /** 测试注入：替代真实状态查询（缺省 createProcessStatusQueries()） */
   statusQueries?: StatusQueries;
+  /** 符号服务读取器（懒读，容忍插件装载顺序；symbol-normalizer 未挂载时返回 undefined） */
+  getSymbols?: () => SymbolNormalizerLike | undefined;
 }): () => void {
   // 主题调色板配置解析（tui.config.json theme 段；告警经 logger 输出，避免"改了未生效"）
   const tuiConfig = loadTuiConfig();
@@ -88,7 +91,7 @@ export function main(opts: {
     notify: tuiConfig.notify,
     // 自动清理空会话：缺省开启（未配置 session.autoCleanEmpty → true）；显式 false 关闭
     autoCleanEmpty: tuiConfig.session?.autoCleanEmpty ?? true,
-    symbols: tuiConfig.symbols,
+    getSymbols: opts.getSymbols,
     // 跨回合帧率上限：真实接线压到 10Hz（窗口内跨宏任务标脏合并到窗口末统一出帧），
     // 防事件洪峰时每回合全量排版过热；测试/演示不传（缺省 0=立即出帧）
     frameIntervalMs: 100,
@@ -526,6 +529,12 @@ export async function apply(
       WebSearchLike | undefined,
   });
 
+  // 符号服务（ctx.get('symbolNormalizer')，symbol-normalizer 插件 provide）：
+  // 插件树并发装载，读点可能晚于 TUI 启动 → 传懒读函数，App 首次用到时再解析
+  const getSymbolNormalizer = (): SymbolNormalizerLike | undefined =>
+    (ctx as { get?: (name: string) => unknown }).get?.("symbolNormalizer") as
+      SymbolNormalizerLike | undefined;
+
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）
   const display = normalizeTuiDisplayConfig(config);
   const disposeApp = main({
@@ -534,6 +543,7 @@ export async function apply(
       config?.theme === undefined ? undefined : normalizeThemeId(config.theme),
     logger: (msg) => process.stderr.write("[tui] " + msg + "\n"),
     messageGutter: display.messageGutter,
+    getSymbols: getSymbolNormalizer,
   });
   // Cordis 插件生命周期：pause/unload 时释放 App/adapter——
   // adapter.dispose 释放当前活跃 handle（含 resume 后由 adapter 持有的新 handle）。

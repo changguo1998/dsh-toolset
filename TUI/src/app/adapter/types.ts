@@ -1277,6 +1277,17 @@ export interface MetricLoopLike {
   list?(): readonly LoopSummaryLike[];
 }
 
+/** ctx.get('symbolNormalizer') 服务面（symbol-normalizer 插件 provide；缺失时 TUI 原文透传、
+ *  无 notice——插件可能在 TUI 之后装载，消费侧懒读，见 index.ts App.symbols()）。 */
+export interface SymbolNormalizerLike {
+  /** 展示层归一：返回替换后的文本（TUI 只消费 text 字段）。 */
+  normalize(text: string): { text: string };
+  /** 订阅回合审查事件（notice 展示用）；返回注销函数。 */
+  onReview(
+    listener: (event: { sessionId: string; notice: string }) => void,
+  ): () => void;
+}
+
 /** tool-workflow 运行视图（/workflows 只读面板行数据源；runId 分组，增量事件维护） */
 export interface WorkflowRunLike {
   /** tool-workflow run id */

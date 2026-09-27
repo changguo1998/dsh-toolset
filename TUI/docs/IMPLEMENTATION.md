@@ -225,26 +225,16 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 - **元数据**：表格子树整棵挂同一 `rowMeta`（`markSubtree`）——`fill` 后各行 `kind` / `blockId` 必须与所在回复一致，否则回复组折叠（`dialogueWindow` 按连续 assistant 行切组）与块内空行判定会把表格当成新块。
 - **回归**：`tests/table.test.ts`（21 例：解析 / 转义 / 列宽 / 压缩 / 截断 / 对齐 / 加粗 / 网格与交叉字 / 左缘竖线连续 + 间隔空格 / 行高 / fence 保护 / 窄宽回退 / 元数据传播）。
 
-## 模型输出符号规范化
+## 模型输出符号规范化（已迁出为 symbol-normalizer 插件）
 
-- **纯函数**（`app/symbols.ts`）：`resolveSymbolRules`（内置默认 + 配置合并）与 `normalizeSymbols`（逐码点：孤立代理 / 零宽跳过 → **正文内容性排版字符放行**（`TEXTUAL_RANGES` / `TEXTUAL_POINTS`：框线 2500-259F、数学括号 2308-230B、键盘按键 `⌃⌘⌥⌦⌧⌨⌫⇧⇪`，置于别名之前、不参与任何治理）→ 别名映射替换 → 治理区 `[2190-21FF, 2300-23FF, 2500-27BF, 2B00-2BFF, 1F000-1FAFF, FFE0-FFE6]` 内查推荐白名单 → 文字 / 标点放行 → 其余放行）。输出替换后文本 + `replacedCount / remaps / emojiRemaps / unrecommended`（emojiRemaps = 仅 emoji 呈现起源的替换明细，供反馈按「要求更换」罗列）。推荐符号与别名清单见 `README.md`「符号规范化」。
+> 2026-09-27（BACKLOG TUI#18 / 项目级 #48）：符号规则与算法（`app/symbols.ts`）整体迁出为独立插件 `symbol-normalizer`；算法细节与规则表见该包 `README.md` / `docs/DESIGN.md`。TUI 侧接入：`case "stream"` 经 `ctx.get('symbolNormalizer')` 服务 `normalize`（`/symbol-unify on|off` 控制）；notice 经 `onReview` 回调渲染为 warn 行；模型提醒由插件在 rule-engine 消费者 `decide` 中返回、rule-engine 统一注入。插件未挂载 → 原文透传、无提醒。配置迁至插件 config（`tui.config.json` 的 `symbols` 段不再读取）；纯函数 / 冷却用例迁至 `symbol-normalizer/tests/`，TUI 侧保留服务消费用例（`tests/app.test.ts`「符号服务消费」组）。启动宽度探测的字符集改为 TUI 本地常量 `WIDTH_PROBE_SYMBOLS`（渲染关注点，与治理规则解耦）。
 
-**选型判据**（用于后续扩展推荐 / 别名对齐）：
+**选型判据**（随实现迁至插件，历史记录保留于此）：
 
 1. 归一依据 = **形状身份（几何部件组合）**；功能、语义、宽度一律不参与。
 1. 同一形状身份内只容**修饰性变体**归一：粗细、大小、重复数量、emoji 上色、内缀细节；**明暗 / 填充（空心 vs 实心）不是修饰**——空心、实心各为独立一族。
 1. 触发**拆分**（不归一，按几何各自独立）：明暗 / 填充、新增独立部件（方框）、核心形状变化（圆环 vs 实盘、勾 vs 根号）、方向 / 对称变化（反向、双向 vs 单向）。
    - 校准点：`☑` / `☒` 与追加符号区 `🗹` / `🗷` 为**特例**（虽带独立方框，不各自成族也不拆分提醒，并入无框的 `✓` / `✗` 族）；`√`（根号）治理区外放行；`⏩⏫⏬`（双三角 = 数量 / 速度修饰）归入 `▶` / `▲` / `▼`；C 族短双线 `⇒⇐⇔` 按方向归一到长双线代表 `⟸⟹⟺`；空心三角族 `▷◁△▽` 四向代表入白名单、族内尺寸 / 指针变体归一到该向代表，与实心族不互相归一。
-
-**接入**（`app/index.ts`）：`case "stream"` 对每段正文 `normalizeSymbols`（slowStream 的 `pendingStream` 与直发两条路径都走），结果累积到 `symbolTurn`（跨段去重）；`turn-end` 两个分支后 `flushSymbolTurn()` —— 有替换 / 未推荐则 notice（给人）+ 按需生成 `[符号规范]` 反馈。反馈在 turn-end 检测到后**宏任务推迟直发**（`setTimeout(0)` + `adapter.sendMessage`；turn-end 回调内同步 followup 宿主不接，实测不送达 / 不落盘），不经 `sendUserText`（避免清空活动区刷掉 notice），发送前检查 `disposed`。
-
-**同符号冷却**：`flushSymbolTurn` 开头 `tickSymbolCooldown()` 推进 run 计数；emoji 罗列 / 变体计数 / 警示列表三组各自按 `isSymbolCooling(from)` 过滤冷却中的符号，本轮真正列入提醒的符号 `enterSymbolCooldown` 登记——三组全部被冷却时该 turn 完全静默（无 notice 无反馈）；不随用户下一条消息合并。
-
-**配置**（`app/config.ts`）：`tui.config.json` 的 `symbols.{recommended[],aliases{},warnModel,cooldownMs,cooldownRuns}`，`main.ts` 经 `new App({ symbols })` 注入，缺省走内置默认（冷却 10 分钟 / 3 run，传 `0` 关闭对应维度）。
-
-**开关**：`/symbol-unify on|off`（缺省 on，会话级）——`off` 时 `stream` 不规范化、`flushSymbolTurn` 直接跳过（不提醒不注入）；`state.symbolUnify` 由 reducer `symbol-unify` 切换。
-
-**回归**：`tests/symbols.test.ts`（纯函数 7 例）+ `tests/app.test.ts`「symbols」组（展示层替换 / notice / warnModel 注入与关闭 / recommended 扩展 / 开关 / 同符号冷却：run 次数解冻、时间窗维度、跨符号互不影响、变体冷却）。
 
 ## 字符宽度（EAW 精确表 + 启动探测）
 

@@ -9,7 +9,7 @@
 明确的边界（本期）：
 
 - 动作只做 `inject`；`tag` / `abort` / `memory` 不做。
-- 注入路径只用 `agent.followup`（新回合）；`agent/pre-step`（下一 step 内注入）不做。
+- 注入路径两条：`delivery: followup`（新回合，`agent.followup`）与 `delivery: next-step`（最近 pre-step，`agent.inject`；宿主 rc.2+）。不自行注册 `agent/pre-step` waterfall 监听者。
 - 匹配面只做三类：模型正文文本、工具调用、工具结果；逐 delta 实时匹配不做（正文在回合结束判定）。
 - 不改 TUI：符号纠正迁移与 `form:'notice'` 渲染分别是独立条目。
 
@@ -19,8 +19,9 @@
 main.ts       插件入口：name / inject / provide / Config / apply
               ├─ ctx.on('session/event') → engine.handle(session, event)
               ├─ ctx.tools.register(...) ← tools.ts（缺 tools 时降级告警）
-              └─ ctx.provide('ruleEngine', { list, status })
+              └─ ctx.provide('ruleEngine', { list, status, evaluate, registerConsumer })
 engine.ts     编排：事件分流 → 回合正文聚合 → 匹配 → 节流去重 → 交付注入器
+              + turn-end 消费者调度（按注册顺序同步询问 / 聚合 / 统一注入）
               ├─ match.ts    纯匹配：keyword / regex / 内置谓词 + 消息文本抽取
               ├─ rules.ts    规则归一化 + 两层合并（config 基线 + runtime 层）
               └─ persist.ts  运行时层落盘（{version, state} + tmp/rename 原子写）
@@ -38,7 +39,7 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 
 - `engine` 可以同步调 `Injector.inject()`（它不认识时序），**推迟由注入器负责**（`inject.ts` 用 `setTimeout(…, 0)`）；
 - 微任务（`queueMicrotask`）在源码机制上可行，但只有 TUI 的宏任务路径有真机实证，本期只用宏任务；
-- `followup` 之后 `sessions.flush(agent.session)` 确保落盘（官方 schedule / goal-round-driver 的标准写法）。
+- `followup` / `inject` 之后 `sessions.flush(agent.session)` 确保落盘（官方 schedule / goal-round-driver 的标准写法）。
 
 ### 2. 消息构造三项硬要求
 
@@ -82,4 +83,15 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 ### 9. 可观测性
 
 - apply 内 stderr 自证日志（`已加载：规则 N 条…`）：cordis 的 `inject` 不可用是「等待」而非报错，插件静默不加载时靠它排查。
-- 所有异常路径（状态文件损坏、非法正则、会话非 live、followup/flush 抛错）只 warning，不向宿主抛。
+- 所有异常路径（状态文件损坏、非法正则、会话非 live、followup / inject / flush 抛错、消费者 decide 抛错）只 warning，不向宿主抛。
+
+### 10. 消费者面：简单注册 + 同步调度（2026-09-27 定稿）
+
+- 只做简单注册：`registerConsumer({ id, delivery?, cooldownTurns?, cooldownMs?, decide })`；`decide(ctx)` 同步返回要注入的内容 `{ text, summary? }`（null = 跳过）。
+- turn-end 时按注册顺序**同步**依次询问；聚合后交同一注入器（与规则共用每回合上限 / 同文本去重；消费者冷却可选、按注入记账）。
+- 异常隔离：`decide` 抛错 / 空反馈只记 warning 并跳过该消费者，其余照常；注册返回注销函数（消费者 dispose 时调用）。
+- 复杂度边界：不做异步、priority、脚本谓词注册面；`evaluate` 作为轻量只读判定另备。
+
+### 11. 注入路径两条（delivery）
+
+`followup`（缺省，新回合）与 `next-step`（`agent.inject`：挂到最近 pre-step、不唤醒；旧宿主无此 API → warning 跳过）。语义与取舍：官方 next-step inbox 就是「消息进入 step 前」的正规出口，不自行注册 `agent/pre-step` 监听者，避免与官方 prepend 监听者（model-selection）的顺序和空 step 语义纠缠。

@@ -1,6 +1,6 @@
 /**
- * 插件入口端到端单测：apply 的结构面接线（事件订阅 / 工具族注册 / provide 只读面）
- * 与真实注入器链路（session/event → 推迟宏任务 → followup → flush）。
+ * 插件入口端到端单测：apply 的结构面接线（事件订阅 / 工具族注册 / provide 服务与消费者注册）
+ * 与真实注入器链路（session/event → 推迟宏任务 → followup/inject → flush）。
  *
  * 用假 ctx（结构面对象）覆盖 main.ts，无需 DSH 宿主。
  */
@@ -43,11 +43,15 @@ function fakeCtx() {
       ) => {
         listener = cb;
       },
-      tools: {
-        register: (def: unknown) => {
-          registered.push(def as { name?: string });
-        },
-      },
+      // tools 不在 inject 声明中：apply 经 ctx.get('tools') 读取（严格模式安全路径）
+      get: (name: string) =>
+        name === "tools"
+          ? {
+              register: (def: unknown) => {
+                registered.push(def as { name?: string });
+              },
+            }
+          : undefined,
       agents: {
         get: (id: string) => (id === "s1" ? agent : undefined),
       },
@@ -69,13 +73,19 @@ function tick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 5));
 }
 
-test("apply：注册事件监听、5 个工具与 ruleEngine 只读服务", async () => {
+test("apply：注册事件监听、5 个工具与 ruleEngine 服务（查询 + 注册面）", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-test-"));
   try {
     const fake = fakeCtx();
     await apply(fake.ctx, {
       stateDir: dir,
-      rules: [{ id: "r1", action: { type: "inject", text: "正文" } }],
+      rules: [
+        {
+          id: "r1",
+          match: { keywords: ["符号"] },
+          action: { type: "inject", text: "正文", summary: "提醒" },
+        },
+      ],
     } satisfies Config);
     assert.equal(typeof fake.listener, "function");
     assert.deepEqual(
@@ -85,6 +95,13 @@ test("apply：注册事件监听、5 个工具与 ruleEngine 只读服务", asyn
     const service = fake.provided.get("ruleEngine") as {
       list(): Array<{ id: string }>;
       status(): { rules: number; stateDir: string };
+      evaluate(input: { text: string }): {
+        matched: Array<{ id: string; text: string; summary: string }>;
+      };
+      registerConsumer(input: {
+        id: string;
+        decide(): { text: string } | null;
+      }): () => void;
     };
     assert.deepEqual(
       service.list().map((item) => item.id),
@@ -92,6 +109,64 @@ test("apply：注册事件监听、5 个工具与 ruleEngine 只读服务", asyn
     );
     assert.equal(service.status().rules, 1);
     assert.equal(service.status().stateDir, dir);
+    // 消费者 API：evaluate 返回可注入内容
+    const hits = service.evaluate({ text: "提到符号" }).matched;
+    assert.deepEqual(
+      hits.map((hit) => [hit.id, hit.text, hit.summary]),
+      [["r1", "正文", "提醒"]],
+    );
+    // 消费者注册面：注册返回注销函数
+    const dispose = service.registerConsumer({
+      id: "c1",
+      decide: () => ({ text: "反馈" }),
+    });
+    assert.equal(typeof dispose, "function");
+    dispose();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("apply：消费者经服务注册 → turn-end 反馈由注入器注入（同步窗口不调宿主）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-test-"));
+  try {
+    const fake = fakeCtx();
+    await apply(fake.ctx, { stateDir: dir });
+    const service = fake.provided.get("ruleEngine") as {
+      registerConsumer(input: {
+        id: string;
+        decide(): { text: string; summary?: string } | null;
+      }): () => void;
+    };
+    service.registerConsumer({
+      id: "c1",
+      decide: () => ({ text: "消费者的反馈", summary: "消费者提醒" }),
+    });
+    fake.listener?.(
+      { id: "s1" },
+      {
+        type: "assistant/message",
+        data: {
+          turn: 1,
+          step: 0,
+          message: { content: [{ type: "text", text: "正文" }] },
+        },
+      },
+    );
+    fake.listener?.(
+      { id: "s1" },
+      { type: "turn/end", data: { turn: 1, reason: "completed" } },
+    );
+    assert.equal(fake.followups.length, 0, "同步窗口内不得调用 followup");
+    await tick();
+    assert.equal(fake.followups.length, 1);
+    const message = fake.followups[0] as {
+      content: Array<{ text: string }>;
+      source: { kind: string; summary: string };
+    };
+    assert.equal(message.content[0]?.text, "消费者的反馈");
+    assert.equal(message.source.summary, "消费者提醒");
+    assert.deepEqual(fake.flushed, [{ id: "s1" }]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

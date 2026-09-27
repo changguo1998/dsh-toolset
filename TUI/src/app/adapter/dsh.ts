@@ -154,6 +154,7 @@ export type {
   KnowledgeBundleSummaryLike,
   MetricLoopLike,
   LoopSummaryLike,
+  SymbolNormalizerLike,
   ContractParseResult,
   ContractClauseLike,
   GoalContractServiceLike,

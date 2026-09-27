@@ -7,7 +7,10 @@
  * 匹配面与判定时机：
  * - `assistant-text`：`assistant/message` 累积该回合正文，`turn/end` 时对整回合正文判定；
  * - `turn-end`：`turn/end` 时判定（match 可省 = 无条件命中）；
- * - `tool-call` / `tool-result`：事件到达即判定（此时注入仍由注入器推迟，落下一个回合）。
+ * - `tool-call` / `tool-result`：事件到达即判定（注入仍由注入器推迟；送达路径由 delivery 决定）。
+ *
+ * 消费者面（registerConsumer）：turn-end 时按注册顺序**同步**依次询问，聚合其反馈
+ * （返回 `{text, summary?}`）并统一注入。
  *
  * 节流与去重（同一会话内）：每规则 `cooldownTurns` / `cooldownMs`；每回合注入条数上限
  * `maxInjectionsPerTurn`；同一回合内相同正文只注入一次（不同规则同文案也只发一条）。
@@ -31,12 +34,19 @@ import {
 } from "./rules.ts";
 import { emptyLayer, loadLayer, saveLayer } from "./persist.ts";
 import type {
+  ConsumerContext,
+  ConsumerFeedback,
+  ConsumerRegistration,
   EffectiveRule,
   EngineStatus,
+  EvaluateInput,
+  EvaluateResult,
   Injector,
   MatchTestResult,
   NormalizedRule,
   Rule,
+  RuleDelivery,
+  RuleHit,
   RuleOrigin,
   RuleSource,
   RuleSummary,
@@ -67,6 +77,15 @@ interface CompiledRule {
   matcher: CompiledMatcher;
 }
 
+/** 归一化后的消费者注册项。 */
+interface CompiledConsumer {
+  id: string;
+  delivery: RuleDelivery;
+  cooldownTurns: number;
+  cooldownMs: number;
+  decide(context: ConsumerContext): ConsumerFeedback | null;
+}
+
 /** 单会话内存态（回合号、节流记账、正文缓冲）。 */
 interface SessionState {
   /** 最近一次见到的回合号。 */
@@ -75,6 +94,8 @@ interface SessionState {
   injected: Map<number, TurnUsage>;
   /** 每规则最近一次命中（回合号 + 时刻）。 */
   fired: Map<string, { turn: number; time: number }>;
+  /** 每消费者最近一次反馈（回合号 + 时刻）。 */
+  consumerFired: Map<string, { turn: number; time: number }>;
   /** 回合正文缓冲：turn → 各 step 正文。 */
   buffers: Map<number, string[]>;
 }
@@ -117,6 +138,8 @@ export class RuleEngine {
   readonly #warn: (message: string) => void;
   readonly #baseline: readonly Rule[];
   readonly #sessions = new Map<string, SessionState>();
+  /** 已注册消费者（按注册顺序依次询问）。 */
+  #consumers: CompiledConsumer[] = [];
   #layer: RuntimeLayer;
   #readOnly: boolean;
   #compiled: CompiledRule[];
@@ -182,12 +205,59 @@ export class RuleEngine {
       id: rule.id,
       enabled: rule.enabled,
       source: rule.source,
+      delivery: rule.delivery,
       origin,
       description: rule.description,
       text: rule.action.text,
       cooldownTurns: rule.cooldownTurns,
       cooldownMs: rule.cooldownMs,
     }));
+  }
+
+  /**
+   * 简单消费者注册面：turn-end 时按注册顺序**同步**询问 `decide`，返回的反馈内容
+   * 由本引擎统一注入（每回合上限 / 同文本去重 / 可选消费者冷却）。返回注销函数；
+   * 重复 id / 非法注册记 warning 并返回 noop。
+   */
+  registerConsumer(input: ConsumerRegistration): () => void {
+    const noop = (): void => {};
+    if (input === null || typeof input !== "object") {
+      this.#warn("[rule-engine] warn: registerConsumer 入参必须是对象");
+      return noop;
+    }
+    const id = typeof input.id === "string" ? input.id.trim() : "";
+    if (id.length === 0) {
+      this.#warn("[rule-engine] warn: registerConsumer 的 id 必须是非空字符串");
+      return noop;
+    }
+    if (typeof input.decide !== "function") {
+      this.#warn(`[rule-engine] warn: 消费者 "${id}" 的 decide 必须是函数`);
+      return noop;
+    }
+    if (this.#consumers.some((item) => item.id === id)) {
+      this.#warn(`[rule-engine] warn: 消费者 "${id}" 已注册，重复注册被忽略`);
+      return noop;
+    }
+    if (
+      input.delivery !== undefined &&
+      input.delivery !== "followup" &&
+      input.delivery !== "next-step"
+    ) {
+      this.#warn(
+        `[rule-engine] warn: 消费者 "${id}" 的 delivery ${JSON.stringify(input.delivery)} 非法，按 followup 处理`,
+      );
+    }
+    const consumer: CompiledConsumer = {
+      id,
+      delivery: input.delivery === "next-step" ? "next-step" : "followup",
+      cooldownTurns: normalizeCooldown(input.cooldownTurns),
+      cooldownMs: normalizeCooldown(input.cooldownMs),
+      decide: input.decide,
+    };
+    this.#consumers = [...this.#consumers, consumer];
+    return () => {
+      this.#consumers = this.#consumers.filter((item) => item !== consumer);
+    };
   }
 
   /** 新增规则（id 已存在则报错，指向 rule_update）。 */
@@ -223,6 +293,7 @@ export class RuleEngine {
     for (const key of [
       "enabled",
       "source",
+      "delivery",
       "match",
       "cooldownTurns",
       "cooldownMs",
@@ -272,13 +343,13 @@ export class RuleEngine {
     return this.#commit(null, []);
   }
 
-  /** 干跑：对给定文本按指定匹配面判定，返回命中/未启用规则 id。 */
-  test(input: { text: string; source?: RuleSource }): MatchTestResult {
+  /** 只读判定（消费者 API）：返回命中规则（含可注入内容）与未启用规则；不注入、不改状态。 */
+  evaluate(input: EvaluateInput): EvaluateResult {
     const source: RuleSource =
       input.source !== undefined && isRuleSource(input.source)
         ? input.source
         : "assistant-text";
-    const matched: string[] = [];
+    const matched: RuleHit[] = [];
     const disabled: string[] = [];
     for (const item of this.#compiled) {
       if (item.rule.source !== source) continue;
@@ -286,9 +357,29 @@ export class RuleEngine {
         disabled.push(item.rule.id);
         continue;
       }
-      if (item.matcher.match(input.text)) matched.push(item.rule.id);
+      if (!item.matcher.match(input.text)) continue;
+      const text = item.rule.action.text;
+      matched.push({
+        id: item.rule.id,
+        origin: item.origin,
+        source: item.rule.source,
+        delivery: item.rule.delivery,
+        description: item.rule.description,
+        text,
+        summary: item.rule.action.summary ?? boundSummary(text),
+      });
     }
     return { source, matched, disabled };
+  }
+
+  /** 干跑（工具面）：evaluate 的薄包装，输出命中 / 未启用规则 id。 */
+  test(input: EvaluateInput): MatchTestResult {
+    const result = this.evaluate(input);
+    return {
+      source: result.source,
+      matched: result.matched.map((hit) => hit.id),
+      disabled: result.disabled,
+    };
   }
 
   /** 落盘 + 重编译 + 组装结果。 */
@@ -323,6 +414,7 @@ export class RuleEngine {
       turn: 0,
       injected: new Map(),
       fired: new Map(),
+      consumerFired: new Map(),
       buffers: new Map(),
     };
     this.#sessions.set(sessionId, state);
@@ -383,6 +475,7 @@ export class RuleEngine {
         if (INJECTABLE_TURN_REASONS.has(reason)) {
           this.#evaluate("assistant-text", text, sessionId, turn);
           this.#evaluate("turn-end", text, sessionId, turn);
+          this.#askConsumers(text, sessionId, turn, state);
         }
         this.#pruneCounters(state, turn);
         return;
@@ -401,8 +494,9 @@ export class RuleEngine {
     state.buffers.set(turn, list);
   }
 
-  /** 是否存在文本类规则（无则完全不缓冲正文，省内存）。 */
+  /** 是否需要回合正文（文本类规则或已注册消费者都要；无则完全不缓冲，省内存）。 */
   #needsText(): boolean {
+    if (this.#consumers.length > 0) return true;
     return this.#compiled.some(
       (item) =>
         item.rule.enabled &&
@@ -442,6 +536,83 @@ export class RuleEngine {
     }
   }
 
+  /** turn-end 调度：按注册顺序同步询问消费者，聚合反馈并统一注入。 */
+  #askConsumers(
+    text: string,
+    sessionId: string,
+    turn: number,
+    state: SessionState,
+  ): void {
+    if (this.#consumers.length === 0) return;
+    const context: ConsumerContext = {
+      sessionId,
+      turn,
+      text,
+      trigger: "turn-end",
+    };
+    for (const consumer of this.#consumers) {
+      const now = this.#now();
+      const last = state.consumerFired.get(consumer.id);
+      if (last !== undefined) {
+        if (
+          consumer.cooldownTurns > 0 &&
+          turn - last.turn < consumer.cooldownTurns
+        )
+          continue;
+        if (consumer.cooldownMs > 0 && now - last.time < consumer.cooldownMs)
+          continue;
+      }
+      let feedback: ConsumerFeedback | null = null;
+      try {
+        feedback = consumer.decide(context);
+      } catch (err) {
+        this.#warn(
+          `[rule-engine] warn: 消费者 "${consumer.id}" decide 抛错：${String(err)}`,
+        );
+        continue;
+      }
+      if (feedback === null || feedback === undefined) continue;
+      const feedbackText =
+        typeof feedback.text === "string" ? feedback.text.trim() : "";
+      if (feedbackText.length === 0) {
+        this.#warn(
+          `[rule-engine] warn: 消费者 "${consumer.id}" 反馈正文为空，已跳过`,
+        );
+        continue;
+      }
+      // 与规则共用通用闸门：每回合上限 + 同正文去重
+      const usage = state.injected.get(turn) ?? {
+        count: 0,
+        texts: new Set<string>(),
+      };
+      if (usage.count >= this.#maxInjectionsPerTurn) continue;
+      if (usage.texts.has(feedbackText)) continue;
+      const summary =
+        typeof feedback.summary === "string" &&
+        feedback.summary.trim().length > 0
+          ? feedback.summary
+          : boundSummary(feedbackText);
+      try {
+        this.#injector.inject({
+          sourceId: `consumer:${consumer.id}`,
+          sessionId,
+          delivery: consumer.delivery,
+          text: feedbackText,
+          summary,
+        });
+      } catch (err) {
+        this.#warn(
+          `[rule-engine] warn: 消费者 "${consumer.id}" 注入失败：${String(err)}`,
+        );
+        continue;
+      }
+      usage.count += 1;
+      usage.texts.add(feedbackText);
+      state.injected.set(turn, usage);
+      state.consumerFired.set(consumer.id, { turn, time: now });
+    }
+  }
+
   /** 节流与去重闸门；通过则交付注入器并记账。 */
   #fire(
     rule: NormalizedRule,
@@ -468,7 +639,13 @@ export class RuleEngine {
     // 3) 交付注入器（其内部负责推迟宏任务；抛错只记 warning）
     const summary = rule.action.summary ?? boundSummary(text);
     try {
-      this.#injector.inject({ ruleId: rule.id, sessionId, text, summary });
+      this.#injector.inject({
+        sourceId: rule.id,
+        sessionId,
+        delivery: rule.delivery,
+        text,
+        summary,
+      });
     } catch (err) {
       this.#warn(
         `[rule-engine] warn: 规则 "${rule.id}" 注入失败：${String(err)}`,
@@ -485,4 +662,11 @@ export class RuleEngine {
 /** 数值字段兜底（非有限数取 fallback）。 */
 function numberOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/** 冷却参数兜底（非正有限数取 0）。 */
+function normalizeCooldown(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : 0;
 }

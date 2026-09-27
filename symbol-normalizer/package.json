@@ -1,0 +1,31 @@
+{
+  "name": "@dsh-toolset/symbol-normalizer",
+  "version": "0.1.0",
+  "description": "DSH（DeepSeek Harness）符号规范插件：模型正文符号的展示层归一 + 回合审查（notice / 模型反馈），以 rule-engine 消费者形式接入",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "demo": "npm run build && node dist/demo/main.js",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

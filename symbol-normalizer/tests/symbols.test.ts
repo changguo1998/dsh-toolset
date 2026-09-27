@@ -8,7 +8,7 @@ import {
   DEFAULT_RECOMMENDED,
   normalizeSymbols,
   resolveSymbolRules,
-} from "../src/app/symbols.ts";
+} from "../src/symbols.ts";
 
 test("resolveSymbolRules：内置默认白名单与 warnModel", () => {
   const rules = resolveSymbolRules();

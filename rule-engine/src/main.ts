@@ -22,6 +22,9 @@ import { defaultStateDir } from "./persist.ts";
 import { toToolDefs } from "./tools.ts";
 import type {
   Config,
+  ConsumerRegistration,
+  EvaluateInput,
+  EvaluateResult,
   RuleSummary,
   SessionEventLike,
   SessionLike,
@@ -32,7 +35,7 @@ export const name = "rule-engine";
 /** 硬依赖：事件面（sessions）与注入面（agents）。 */
 export const inject = ["agents", "sessions"];
 
-/** 提供的服务名（宿主命令经 ctx.get('ruleEngine') 访问只读查询面）。 */
+/** 提供的服务名（宿主命令 / 其他插件经 ctx.get('ruleEngine') 访问查询与注册面）。 */
 export const provide = ["ruleEngine"];
 
 export type { Config } from "./types.ts";
@@ -63,8 +66,10 @@ export {
 } from "./persist.ts";
 export {
   effectiveRules,
+  isRuleDelivery,
   isRuleSource,
   normalizeRule,
+  RULE_DELIVERIES,
   RULE_SOURCES,
 } from "./rules.ts";
 export { toToolDefs } from "./tools.ts";
@@ -87,7 +92,8 @@ interface ToolsRegistrar {
 /** ctx 结构面（只声明本插件用到的成员）。 */
 interface PluginContext {
   on?: EventBus["on"];
-  tools?: ToolsRegistrar;
+  /** 可选服务读取（cordis 严格模式禁止未注入服务的直接属性访问，须经 ctx.get）。 */
+  get?: (name: string) => unknown;
   agents?: {
     get(
       id: string,
@@ -100,12 +106,16 @@ interface PluginContext {
   provide?: (name: string, value: unknown) => unknown;
 }
 
-/** 只读查询面（供将来 TUI `/rule` 面板等宿主命令消费）。 */
+/** 消费者面（供 TUI 等插件注册 / 查询；规则清单与状态为只读）。 */
 export interface RuleEngineService {
   /** 生效规则清单（只读子集）。 */
   list(): RuleSummary[];
   /** 引擎状态（规则条数、状态目录、注入上限）。 */
   status(): ReturnType<RuleEngine["status"]>;
+  /** 只读判定：返回命中规则（含可注入内容），不注入、不改状态。 */
+  evaluate(input: EvaluateInput): EvaluateResult;
+  /** 简单消费者注册：turn-end 询问 decide，反馈由本引擎统一注入；返回注销函数。 */
+  registerConsumer(input: ConsumerRegistration): () => void;
 }
 
 /** 默认注入上限。 */
@@ -144,8 +154,10 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       });
     }
 
-    // 工具族：缺 tools 时降级（核心事件订阅已生效）
-    const tools = c.tools;
+    // 工具族：缺 tools 时降级（核心事件订阅已生效）。
+    // 注意：tools 不在 inject 声明中——cordis 严格模式对未注入服务的直接属性访问会抛
+    // `cannot get property "tools" without inject`（2026-09-27 真机实测），故经 ctx.get 读取。
+    const tools = readOptional<ToolsRegistrar>(c, "tools");
     if (tools === undefined || typeof tools.register !== "function") {
       warn("ctx.tools 不可用，规则工具族未注册（规则仍按事件触发）");
     } else {
@@ -162,6 +174,10 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
         c.provide("ruleEngine", {
           list: () => engine.summaries(),
           status: () => engine.status(),
+          evaluate: (input: EvaluateInput): EvaluateResult =>
+            engine.evaluate(input),
+          registerConsumer: (input: ConsumerRegistration): (() => void) =>
+            engine.registerConsumer(input),
         } satisfies RuleEngineService);
       } catch (err) {
         warn(`提供 ruleEngine 服务失败：${String(err)}`);
@@ -174,5 +190,14 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     );
   } catch (err) {
     warn(`初始化失败：${String(err)}`);
+  }
+}
+
+/** 可选服务的严格安全读取（未注入服务的直接属性访问在 cordis 严格模式下抛错）。 */
+function readOptional<T>(ctx: PluginContext, name: string): T | undefined {
+  try {
+    return ctx.get?.(name) as T | undefined;
+  } catch {
+    return undefined;
   }
 }
