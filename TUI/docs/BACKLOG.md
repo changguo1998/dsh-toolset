@@ -28,7 +28,7 @@
 
 - **#12 会话切换后 `state.usage`（最近一次调用）未清零**：`history-resume-ok` / `session-switch` 现在只清零本会话累计（TUI#9 新增的 `usageTotals`），`state.usage` 仍保留**上一会话**的数值 → 切换后、下次模型调用前，状态栏 `ctx` / `cache` 段与 `/stats`「最近一次调用」行显示的是旧会话数据（恢复历史会话时该值本就不可知，显示 `—` 占位更诚实）。落点：`src/app/state.ts`（两处 reducer 与 `usage` 注释）、`tests/stats-rename.test.ts`。来源：2026-09-27 实现 TUI#9 时发现。
 
-- **#16 批次遗留的真机复核项（#3 缩进 / #9 `/stats` 双口径 / #4 审批面板标题 / #11 模型门控表现）**：四项此前只记在归档追踪文档、未单列条目，本次补齐登记（均需重启 `dsh --profile fff` 后人工目视）：① **#11**：flash / chat / reasoner 会话走两阶段锁定-释放的实际表现（首请求目录 2-3 工具 + persona-only、首个 `tool/call` 后解锁全量；对照 v4-pro 既有结论）；② **#9**：`/stats` 双口径四行（最近一次调用 / 本会话累计 / 上下文 / 缓存命中率）的文案与数值；③ **#4**：审批面板标题 ` △ 等待审批`（工具审批触发时目视；问答面板已通过）；④ **#3**：历史区交错缩进（`messageGutter` 4）的左右留白观感。来源：2026-09-27 批次收尾后补登记（见 `TUI/docs/archived/2026-09-27-backlog-cleanup-and-residuals.md`）。
+- **完成（2026-09-27）** **#16 批次遗留的真机复核项（#3 缩进 / #9 `/stats` 双口径 / #4 审批面板标题 / #11 模型门控表现）**：四项此前只记在归档追踪文档、未单列条目，本次补齐登记（均需重启 `dsh --profile fff` 后人工目视）：① **#11**：实际可用的 `deepseek-*` 模型（flash 已有日志证据）会话走两阶段锁定-释放的实际表现（首请求目录 2-3 工具 + persona-only、首个 `tool/call` 后解锁全量；对照既有基线）；② **#9**：`/stats` 双口径四行（最近一次调用 / 本会话累计 / 上下文 / 缓存命中率）的文案与数值；③ **#4**：审批面板标题 ` △ 等待审批`（工具审批触发时目视；问答面板已通过）；④ **#3**：历史区交错缩进（`messageGutter` 4）的左右留白观感。来源：2026-09-27 批次收尾后补登记（见 `TUI/docs/archived/2026-09-27-backlog-cleanup-and-residuals.md`）。**2026-09-27 批次**：复核清单（四步操作与观察点）已写入 `TUI/docs/archived/2026-09-27-tui-remaining-batch.md`。**复核结果（2026-09-27，全部通过）**：① #11 由真实会话日志复核（`initial tools=2` → `change tools=36` + tool-addition，409→2886）；② #9 用户确认；③ #4 用户目视审批标题 ` △ 等待审批`（提权请求触发、命令被拒未执行）；④ #3 用户确认观感无问题。记录见 `TUI/docs/archived/2026-09-27-manual-verification-closeout.md`。
 
 - **#18 TUI 符号纠正改为 rule-engine 消费者**：`src/app/symbols.ts` 的「规则表 + 判定 + turn-end 后 followup」泛化为调用 `rule-engine`（插件已合并入 main，见项目级 `docs/BACKLOG.md` #42）；符号纠正**不迁移**，仅做消费者改造。待定：plugin 未挂载时的降级（保留内置符号表 / 直连判定，实现时定）。落点：`src/app/symbols.ts`、`src/app/adapter/*`、`docs/DESIGN.md`、`tests/`、冻结基线（如涉及）。来源：项目级 `docs/BACKLOG.md` #43（2026-09-27，跨模块，交其他 agent 接取）。
 
@@ -36,7 +36,17 @@
 
 > 验收时看结果或跑自动化即可：面板显示形态、历史区排版、状态栏显示、内部机制、外部依赖（#8 待外部修复后回归）。
 
-- **#8 herdr pane 尺寸与其渲染区域不一致（外部问题，TUI 侧无法自行校正）**：在 herdr pane 里运行时，全宽横线（状态栏下边框等）右端比 pane 渲染区少 1~2 列、需 `Ctrl+L` 或拖动 pane 才恢复；同一构建在独立终端里正常（2026-09-24 实测确认）。取证与排查结论：
+- **完成（2026-09-27）** **#14 demo 冒烟失败信号失效（`SMOKE_OK` 无条件打印、失败不落退出码）**：`demo/main.ts` 的 `ok()` 失败只打印 `SMOKE_FAIL`，结尾仍无条件打印 `SMOKE_OK`，随后 `/quit` 以退出码 0 收尾 → 帧断言失败在 `npm run demo -- --smoke` 下「看起来通过」（2026-09-27 实测：#4 改形态后 `question-rendered` 断言陈旧失败被静默吞掉，直到人工 grep 输出才发现）。修法建议：统计失败数，有失败时改打印 `SMOKE_FAIL n=...` 且不打印 `SMOKE_OK`（退出码口径按需裁定），或在 `/quit` 前 `process.exit(1)`；另建议冒烟断言与面板形态解耦（用稳定可判据，如题干文本 + 符号行）。落点：`demo/main.ts`。来源：2026-09-27 #4 目视收口时发现。
+
+- **完成（2026-09-27）** **#17 TUI 支持 `source.form:'notice'` 渲染**：插件注入消息带 `form:'notice'` + `summary` 时渲染为**一行提示**（不展开、不占用户消息块），使 rule-engine 的「提示人」呈现方式生效；当前 TUI 未实现该分支，注入内容会渲染成普通用户消息块。落点：`src/app/adapter/normalize.ts` / `dsh.ts` 事件消费面、`docs/SPEC.md`、`tests/`。来源：项目级 `docs/BACKLOG.md` #46（2026-09-27，其来源栏要求 TUI 落地时同步登记）。
+
+- **完成（2026-09-27）** **#21 清理已取消旧代模型名的硬编码引用（两款）**：两款已取消的旧代模型名不再出现在源码注释 / 测试夹具 / 活文档中——注释与文档改中性表述（「模型 id 含 `deepseek`」），测试夹具统一改**合成假名**（`deepseek-test-a` / `deepseek-test-b`，显示名 `Test A` / `Test B`）；归档文档保留历史原样。落点：`src/app/adapter/tool-bootstrap.ts`、`src/app/state.ts`、`tests/tool-bootstrap.test.ts`、`tests/adapter.dsh.test.ts`、`tests/app.test.ts`、`tests/session-ui-state.test.ts`、`tests/modelpicker.test.ts`、`tests/layout4.test.ts`、`docs/BACKLOG.md`（#16 表述）。来源：用户 2026-09-27 指令（字面量见本次改动 diff）。
+
+- **完成（2026-09-27）** **#22 `/session` 行内时间改显示编辑时间（`updatedAt`）**：列表排序已按编辑时间（#1），但行首时间一直显示创建时间（`HistoryPanel.ts` 的 `fmtTime(rec.createdAt)`）→ 同一行两个时间口径不一致，活跃会话看起来「时间不对」（2026-09-27 用户真机发现）。改：行内时间显示 `updatedAt`，缺失回退 `createdAt`；落点：`src/app/components/HistoryPanel.ts`（行渲染与注释）、`tests/app.test.ts`（列表渲染用例补时间断言）、`README.md`（`/session` 行）、`docs/IMPLEMENTATION.md`（编辑时间条目）。来源：2026-09-27 用户真机确认批次行为时发现（用户裁定方案 A）。
+
+### 仅提醒（#8，仅记录、不做实现）
+
+- **#8 herdr pane 尺寸与其渲染区域不一致（外部问题，TUI 侧无法自行校正；2026-09-27 用户裁定：仅作提醒、不做实现）**：在 herdr pane 里运行时，全宽横线（状态栏下边框等）右端比 pane 渲染区少 1~2 列、需 `Ctrl+L` 或拖动 pane 才恢复；同一构建在独立终端里正常（2026-09-24 实测确认）。取证与排查结论：
 
   - 抓帧解析（`script -qec "dsh --profile fff" <cap>`）首帧：帧在它**自己的列数**下满宽（标题下划线 / 状态栏上下边框都到最后一列），活动区行按口径不补空格，布局无缺列；
   - 真机 PTY 假应答实验：`CSI 18t`（终端自报网格）确实由 TUI 发出，但终端的应答**到不了插件**（被宿主按键解码消费）→ 无法用终端查询校正尺寸；

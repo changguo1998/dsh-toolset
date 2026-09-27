@@ -64,15 +64,15 @@ function picker(partial: Partial<PickerState> = {}): PickerState {
     providers: ["deepseek", "ustc"],
     providerIndex: 1,
     providerModels: {
-      deepseek: ["chat", "reasoner"],
+      deepseek: ["test-a", "test-b"],
       ustc: ["glm", "mi"],
     },
-    models: ["chat", "reasoner"],
+    models: ["test-a", "test-b"],
     modelIndex: 1,
     phase: 0,
     efforts: [],
     effortIndex: 0,
-    current: { provider: "deepseek", model: "chat", reasoningEffort: "low" },
+    current: { provider: "deepseek", model: "test-a", reasoningEffort: "low" },
     ...partial,
   };
 }
@@ -131,7 +131,7 @@ test("渲染：长 provider 名完整显示不截断（列宽按最长选项比�
   );
   // model 与 effort 列仍同屏且内容可见（无整列消失）
   const r2 = stripAnsi(rowAnsi(rows[2]!));
-  assert.ok(r2.includes("reasoner"), "model 列内容可见: " + r2);
+  assert.ok(r2.includes("test-b"), "model 列内容可见: " + r2);
   assert.ok(
     stripAnsi(rowAnsi(rows[1]!)).includes("low") ||
       stripAnsi(rowAnsi(rows[2]!)).includes("max"),
@@ -174,7 +174,7 @@ test("渲染：三列同屏, 头部全小写, 焦点行箭头, 当前生效值�
   assert.ok(r2.includes("> ustc"), r2);
   assert.ok(!r2.includes("["), "列表行不应有边框: " + r2);
   // model 列与 effort 列也同屏且 effort 列有内容
-  assert.ok(r2.includes("reasoner"), r2);
+  assert.ok(r2.includes("test-b"), r2);
   assert.ok(
     rowAnsi(rows[1]!).includes("low") || rowAnsi(rows[1]!).includes("max"),
     "effort 列同屏",
@@ -205,7 +205,7 @@ test("渲染：星号标各列选中值（独立于焦点/当前），可与箭�
     providerIndex: 2, // 焦点行 = ali
     phase: 0,
     selectedProvider: "deepseek", // 星号在 deepseek
-    selectedModel: "reasoner",
+    selectedModel: "test-b",
     efforts: [
       { id: "low", name: "low" },
       { id: "max", name: "max" },
@@ -219,8 +219,8 @@ test("渲染：星号标各列选中值（独立于焦点/当前），可与箭�
   // provider 列: 行1 = deepseek(星号)、行2 = ustc、行3 = ali(焦点箭头)
   assert.ok(r1.includes("* deepseek"), "provider 选中标星: " + r1);
   assert.ok(r3.includes("> ali"), "焦点行箭头: " + r3);
-  // model 列: 行2 = reasoner 标星（models=["chat","reasoner"]）
-  assert.ok(r2.includes("* reasoner"), "model 选中标星: " + r2);
+  // model 列: 行2 = test-b 标星（models=["test-a","test-b"]）
+  assert.ok(r2.includes("* test-b"), "model 选中标星: " + r2);
   // effort 列 max 标星
   assert.ok(r2.includes("* max"), "effort 选中标星: " + r2);
 });
@@ -233,14 +233,14 @@ test("渲染：当前 model 与 effort 值只以浅绿方式呈现（不标星�
     ],
   });
   const rows = renderModelPicker({ picker: p, height: 5, width: 80 }, "dark");
-  // 行1: provider 第1行 deepseek、model 第1行 chat、effort 第1行 low
+  // 行1: provider 第1行 deepseek、model 第1行 test-a、effort 第1行 low
   // phase=0 焦点在 provider 列(providerIndex=1=ustc)，所以 providerIndex=0=deepseek
   // 非焦点 → 当前值行无星号
   const r1 = stripAnsi(rowAnsi(rows[1]!));
   assert.ok(r1.includes("deepseek"), r1);
   assert.ok(!r1.includes("* deepseek"), "当前值不标星: " + r1);
-  assert.ok(r1.includes("chat"), "model 当前值: " + r1);
-  assert.ok(!r1.includes("* chat"), "model 当前值不标星: " + r1);
+  assert.ok(r1.includes("test-a"), "model 当前值: " + r1);
+  assert.ok(!r1.includes("* test-a"), "model 当前值不标星: " + r1);
   assert.ok(r1.includes("low"), "effort 当前值: " + r1);
   assert.ok(!r1.includes("* low"), "effort 当前值不标星: " + r1);
 });
@@ -258,9 +258,9 @@ test("渲染：焦点在 model 列时 model 标题加边框, model 焦点行 > �
     rowAnsi(rows[0]!).includes("[ model ]"),
     "model 标题应加边框: " + rowAnsi(rows[0]!),
   );
-  // model 列焦点行(行2, modelIndex=1=reasoner) 箭头 > 且无边框
+  // model 列焦点行(行2, modelIndex=1=test-b) 箭头 > 且无边框
   const r2 = stripAnsi(rowAnsi(rows[2]!));
-  assert.ok(r2.includes("> reasoner"), r2);
+  assert.ok(r2.includes("> test-b"), r2);
   assert.ok(!r2.includes("["), "列表行不应有边框: " + r2);
 });
 
@@ -338,12 +338,12 @@ test("reducer：picker-open 激活 / 各列 clamp / tab 三区循环 / efforts /
   // provider 列焦点移动只移动 > 焦点, model 列跟随星号(选中)不变
   const s2 = reduceState(s1, { type: "picker-move", delta: -3 });
   assert.equal(s2.picker!.providerIndex, 0);
-  assert.deepEqual(s2.picker!.models, ["chat", "reasoner"]);
+  assert.deepEqual(s2.picker!.models, ["test-a", "test-b"]);
   assert.equal(s2.picker!.modelIndex, 1);
   // 再移动 provider 到 ustc → model 列仍不变
   const s2b = reduceState(s2, { type: "picker-move", delta: 1 });
   assert.equal(s2b.picker!.providerIndex, 1);
-  assert.deepEqual(s2b.picker!.models, ["chat", "reasoner"]);
+  assert.deepEqual(s2b.picker!.models, ["test-a", "test-b"]);
   assert.equal(s2b.picker!.modelIndex, 1);
   // Tab -> model 区
   const s3 = reduceState(s2b, { type: "picker-tab" });
@@ -386,7 +386,7 @@ test("reducer：picker-select 星号移到新 provider → model 列同步, 旧 
     type: "picker-open",
     picker: picker({
       selectedProvider: "deepseek",
-      selectedModel: "chat",
+      selectedModel: "test-a",
       selectedEffort: "low",
     }),
   });

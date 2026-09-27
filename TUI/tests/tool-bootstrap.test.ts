@@ -124,8 +124,8 @@ test("isDeepseekModel: 全部 deepseek-* 模型（含 provider 前缀形态）",
     "deepseek-v4.1-pro",
     "deepseek-v4",
     "deepseek-v4-flash",
-    "deepseek-chat",
-    "deepseek-reasoner",
+    "deepseek-test-a",
+    "deepseek-test-b",
     "deepseek-v3",
     "deepseek/deepseek-v4-pro",
   ]) {
@@ -413,7 +413,7 @@ test("installToolBootstrap: 切模型后连续调用仍全量，状态只在进�
   //    promotion 按会话记忆，每个工具调用都照常全量，不回退到锁定
   for (const model of [
     "deepseek-v4-pro",
-    "deepseek-chat",
+    "deepseek-test-a",
     "deepseek-v4-flash",
   ]) {
     ctx.agent.options.model = model;

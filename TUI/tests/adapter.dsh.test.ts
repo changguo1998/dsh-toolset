@@ -1151,13 +1151,13 @@ test("modelCatalog: 聚合 llm listProviders/listModels + 当前默认选择", a
     listModels: async (p) => [
       {
         provider: p,
-        id: p === "deepseek" ? "deepseek-chat" : "pi-4o",
+        id: p === "deepseek" ? "deepseek-test-a" : "pi-4o",
         name: p,
       },
     ],
   };
   const sessionModel: SessionModelSelectionRef = {
-    current: { provider: "deepseek", model: "deepseek-chat" },
+    current: { provider: "deepseek", model: "deepseek-test-a" },
   };
   const adapter = createRealDshAdapter({
     runtime: new FakeRuntime(),
@@ -1174,13 +1174,13 @@ test("modelCatalog: 聚合 llm listProviders/listModels + 当前默认选择", a
   assert.deepEqual(
     catalog.models.map((m) => [m.provider, m.id]),
     [
-      ["deepseek", "deepseek-chat"],
+      ["deepseek", "deepseek-test-a"],
       ["pi", "pi-4o"],
     ],
   );
   assert.deepEqual(catalog.current, {
     provider: "deepseek",
-    model: "deepseek-chat",
+    model: "deepseek-test-a",
   });
 });
 
@@ -1198,7 +1198,7 @@ test("modelCatalog: 无 sessionModel 时 current 为空(不抛错)", async () =>
 
 test("setSessionModel: 只改会话内 ref，不写宿主设置", async () => {
   const sessionModel: SessionModelSelectionRef = {
-    current: { provider: "deepseek", model: "deepseek-chat" },
+    current: { provider: "deepseek", model: "deepseek-test-a" },
   };
   // 宿主侧绝不落盘：选项里不注入任何 settings/saveSelection 服务
   const adapter = createRealDshAdapter({
@@ -1209,7 +1209,7 @@ test("setSessionModel: 只改会话内 ref，不写宿主设置", async () => {
   });
   const sel: ModelSelection = {
     provider: "deepseek",
-    model: "deepseek-reasoner",
+    model: "deepseek-test-b",
   };
   const out = await adapter.setSessionModel(sel);
   assert.deepEqual(sessionModel.current, sel);
@@ -1325,7 +1325,7 @@ test("installSessionModelSelection: agent/request 覆盖 provider/model 并移�
   const ref: SessionModelSelectionRef = {
     current: {
       provider: "deepseek",
-      model: "deepseek-reasoner",
+      model: "deepseek-test-b",
       reasoningEffort: "high",
     },
   };
@@ -1336,7 +1336,7 @@ test("installSessionModelSelection: agent/request 覆盖 provider/model 并移�
     seed: () => Record<string, unknown>,
   ): Promise<Record<string, unknown>> => {
     await runtime.fire("system-prompt/assemble", {}, {}, () => ({
-      variables: { provider: "deepseek", model: "deepseek-chat" },
+      variables: { provider: "deepseek", model: "deepseek-test-a" },
     }));
     return (await runtime.fire("agent/request", payload, seed)) as Record<
       string,
@@ -1345,26 +1345,26 @@ test("installSessionModelSelection: agent/request 覆盖 provider/model 并移�
   };
   const cfg = await step({ turn: 1, step: 0 }, () => ({
     provider: "deepseek",
-    model: "deepseek-chat",
+    model: "deepseek-test-a",
     maxTokens: 4096,
   }));
   assert.deepEqual(cfg, {
     provider: "deepseek",
-    model: "deepseek-reasoner",
+    model: "deepseek-test-b",
     reasoningEffort: "high",
     maxTokens: 4096,
   });
   // 选择了无 effort 的模型时，移除 seed 中继承的 effort
-  ref.current = { provider: "deepseek", model: "deepseek-chat" };
+  ref.current = { provider: "deepseek", model: "deepseek-test-a" };
   const cfg2 = await step({ turn: 1, step: 1 }, () => ({
     provider: "deepseek",
-    model: "deepseek-chat",
+    model: "deepseek-test-a",
     reasoningEffort: "low",
     maxTokens: 4096,
   }));
   assert.deepEqual(cfg2, {
     provider: "deepseek",
-    model: "deepseek-chat",
+    model: "deepseek-test-a",
     maxTokens: 4096,
   });
 });
@@ -1393,10 +1393,10 @@ test("installSessionModelSelection: 未切换时兜底读宿主实时默认(sett
     model: "deepseek-v4-flash",
   });
   // 会话内切换后压过兜底
-  ref.current = { provider: "deepseek", model: "deepseek-reasoner" };
+  ref.current = { provider: "deepseek", model: "deepseek-test-b" };
   assert.deepEqual(await request(1), {
     provider: "deepseek",
-    model: "deepseek-reasoner",
+    model: "deepseek-test-b",
   });
   // 切换回 undefined → 恢复宿主兜底
   ref.current = undefined;

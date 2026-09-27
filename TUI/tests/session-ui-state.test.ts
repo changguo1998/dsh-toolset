@@ -49,7 +49,7 @@ test("写→读往返：全部字段（含可选 reasoningEffort / modes）", ()
       version: 1,
       model: {
         provider: "deepseek",
-        model: "deepseek-reasoner",
+        model: "deepseek-test-b",
         reasoningEffort: "high",
       },
       verbose: false,

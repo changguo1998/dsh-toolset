@@ -564,7 +564,7 @@ export interface PickerState {
 /** 选择面板单个选项 */
 /** 选择面板单个选项 */
 export interface PickerOption {
-  /** 纯 ASCII 展示文本，如 "deepseek/deepseek-chat" */
+  /** 纯 ASCII 展示文本，如 "<provider>/<model>" */
   label: string;
   /** 确认后应用的模型选择 */
   selection: ModelSelection;

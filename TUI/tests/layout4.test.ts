@@ -2744,13 +2744,17 @@ test("焦点面板四边框：白/黑亮色 + 角字；焦点切换/面板态空
     picker: {
       providers: ["deepseek", "ustc"],
       providerIndex: 1,
-      providerModels: { deepseek: ["chat", "reasoner"], ustc: ["glm", "mi"] },
-      models: ["chat", "reasoner"],
+      providerModels: { deepseek: ["test-a", "test-b"], ustc: ["glm", "mi"] },
+      models: ["test-a", "test-b"],
       modelIndex: 1,
       phase: 0,
       efforts: [],
       effortIndex: 0,
-      current: { provider: "deepseek", model: "chat", reasoningEffort: "low" },
+      current: {
+        provider: "deepseek",
+        model: "test-a",
+        reasoningEffort: "low",
+      },
     },
   });
   rows = rowsOf(st);

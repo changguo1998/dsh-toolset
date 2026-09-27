@@ -210,14 +210,14 @@ class FakeAdapter implements DshAdapter {
   modelCatalogData: ModelCatalog = {
     providers: [{ provider: "deepseek", name: "deepseek" }],
     models: [
-      { provider: "deepseek", id: "deepseek-chat", name: "DeepSeek Chat" },
+      { provider: "deepseek", id: "deepseek-test-a", name: "Test A" },
       {
         provider: "deepseek",
-        id: "deepseek-reasoner",
-        name: "DeepSeek Reasoner",
+        id: "deepseek-test-b",
+        name: "Test B",
       },
     ],
-    current: { provider: "deepseek", model: "deepseek-chat" },
+    current: { provider: "deepseek", model: "deepseek-test-a" },
   };
   async modelCatalog(): Promise<ModelCatalog> {
     this.catalogCalls++;
@@ -1381,13 +1381,13 @@ test("formatModelCatalog ASCII 紧凑格式: -> 标记当前, 空格缩进其他
   const text = formatModelCatalog({
     providers: [{ provider: "deepseek", name: "deepseek" }],
     models: [
-      { provider: "deepseek", id: "deepseek-chat", name: "chat" },
-      { provider: "deepseek", id: "deepseek-reasoner", name: "reasoner" },
+      { provider: "deepseek", id: "deepseek-test-a", name: "test-a" },
+      { provider: "deepseek", id: "deepseek-test-b", name: "test-b" },
     ],
-    current: { provider: "deepseek", model: "deepseek-chat" },
+    current: { provider: "deepseek", model: "deepseek-test-a" },
   });
-  assert.match(text, /^ {2}-> deepseek\/deepseek-chat$/m);
-  assert.match(text, /^ {5}deepseek\/deepseek-reasoner$/m);
+  assert.match(text, /^ {2}-> deepseek\/deepseek-test-a$/m);
+  assert.match(text, /^ {5}deepseek\/deepseek-test-b$/m);
   // 无中文（纯 ASCII）
   assert.ok(!/[一-鿿]/.test(text), `不应含汉字: ${text}`);
 });
@@ -1395,11 +1395,11 @@ test("formatModelCatalog ASCII 紧凑格式: -> 标记当前, 空格缩进其他
 test("formatModelCatalog 当前模型不在列表中也以 -> 显示", () => {
   const text = formatModelCatalog({
     providers: [{ provider: "deepseek", name: "deepseek" }],
-    models: [{ provider: "deepseek", id: "deepseek-chat", name: "chat" }],
-    current: { provider: "deepseek", model: "deepseek-reasoner" },
+    models: [{ provider: "deepseek", id: "deepseek-test-a", name: "test-a" }],
+    current: { provider: "deepseek", model: "deepseek-test-b" },
   });
-  assert.match(text, /^ {2}-> deepseek\/deepseek-reasoner$/m);
-  assert.match(text, /^ {5}deepseek\/deepseek-chat$/m);
+  assert.match(text, /^ {2}-> deepseek\/deepseek-test-b$/m);
+  assert.match(text, /^ {5}deepseek\/deepseek-test-a$/m);
 });
 
 test("resolveModelSpec 裸 id 唯一匹配 / 未匹配 / 歧义", () => {
@@ -1409,22 +1409,22 @@ test("resolveModelSpec 裸 id 唯一匹配 / 未匹配 / 歧义", () => {
       { provider: "p2", name: "p2" },
     ],
     models: [
-      { provider: "p1", id: "chat", name: "chat" },
-      { provider: "p2", id: "chat", name: "chat" },
-      { provider: "p1", id: "reasoner", name: "reasoner" },
+      { provider: "p1", id: "test-a", name: "test-a" },
+      { provider: "p2", id: "test-a", name: "test-a" },
+      { provider: "p1", id: "test-b", name: "test-b" },
     ],
-    current: { provider: "p1", model: "chat" },
+    current: { provider: "p1", model: "test-a" },
   };
-  const uniq = resolveModelSpec(catalog, "reasoner");
+  const uniq = resolveModelSpec(catalog, "test-b");
   assert.ok(!("error" in uniq));
-  assert.deepEqual(uniq.selection, { provider: "p1", model: "reasoner" });
+  assert.deepEqual(uniq.selection, { provider: "p1", model: "test-b" });
   assert.equal(uniq.same, false);
 
   const missing = resolveModelSpec(catalog, "nope");
   assert.ok("error" in missing);
   assert.match(missing.error, /not found/);
 
-  const amb = resolveModelSpec(catalog, "chat");
+  const amb = resolveModelSpec(catalog, "test-a");
   assert.ok("error" in amb);
   assert.match(amb.error, /multiple providers/);
 });
@@ -1433,7 +1433,7 @@ test("/model 面板: 三列独立, 切 model 区选模型 + thinking 区选等�
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/model");
   await flush();
-  // 初始焦点在 model 区：↓ 移动到 deepseek-reasoner，space 写入选中
+  // 初始焦点在 model 区：↓ 移动到 deepseek-test-b，space 写入选中
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "space", ctrl: false, meta: false, shift: false });
   await flush(); // 触发 reload efforts(low/high/max)
@@ -1447,7 +1447,7 @@ test("/model 面板: 三列独立, 切 model 区选模型 + thinking 区选等�
   assert.ok(adapter.savedSelections.length >= 1, "应有切换");
   assert.deepEqual(adapter.savedSelections[0], {
     provider: "deepseek",
-    model: "deepseek-reasoner",
+    model: "deepseek-test-b",
     reasoningEffort: "high",
   });
 });
@@ -1675,19 +1675,19 @@ test("/model 面板: 空格(真实字符)记录选中不提交, 方向键移动�
   adapter.modelCatalogData = {
     providers: [{ provider: "deepseek", name: "deepseek" }],
     models: [
-      { provider: "deepseek", id: "deepseek-chat", name: "chat" },
-      { provider: "deepseek", id: "deepseek-reasoner", name: "reasoner" },
+      { provider: "deepseek", id: "deepseek-test-a", name: "test-a" },
+      { provider: "deepseek", id: "deepseek-test-b", name: "test-b" },
     ],
-    current: { provider: "deepseek", model: "deepseek-chat" },
+    current: { provider: "deepseek", model: "deepseek-test-a" },
   };
   typeAndEnter(renderer, "/model");
-  await flush(); // 初始焦点在 model 区, modelIndex0=chat(当前模型)
-  // ↓ 移动焦点箭头（位置指示）到 reasoner：星号仍 chat，不提交
+  await flush(); // 初始焦点在 model 区, modelIndex0=test-a(当前模型)
+  // ↓ 移动焦点箭头（位置指示）到 test-b：星号仍 test-a，不提交
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
-  await flush(); // modelIndex=1=reasoner
+  await flush(); // modelIndex=1=test-b
   assert.equal(adapter.savedSelections.length, 0, "方向键不提交");
-  // 空格把选中改到焦点行 reasoner
+  // 空格把选中改到焦点行 test-b
   renderer.press({ name: " ", ctrl: false, meta: false, shift: false });
   await flush();
   assert.equal(adapter.savedSelections.length, 0, "空格不提交");
@@ -1697,7 +1697,7 @@ test("/model 面板: 空格(真实字符)记录选中不提交, 方向键移动�
   assert.ok(adapter.savedSelections.length >= 1, "应有提交");
   assert.deepEqual(adapter.savedSelections[0], {
     provider: "deepseek",
-    model: "deepseek-reasoner",
+    model: "deepseek-test-b",
     reasoningEffort: "low",
   });
 });
@@ -1803,7 +1803,7 @@ test("/model 面板: ←/→ 左右切换焦点区,clamp 不循环", async () =>
 test("/model 面板: 同模型改等级不触发 already-on, 应用 max", async () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/model");
-  await flush(); // 模型焦点区 index0 = current 行(deepseek-chat)
+  await flush(); // 模型焦点区 index0 = current 行(deepseek-test-a)
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   await flush(); // Tab 一次 → thinking 区焦点
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
@@ -1814,7 +1814,7 @@ test("/model 面板: 同模型改等级不触发 already-on, 应用 max", async 
   await flush();
   assert.deepEqual(adapter.savedSelections[0], {
     provider: "deepseek",
-    model: "deepseek-chat",
+    model: "deepseek-test-a",
     reasoningEffort: "max",
   });
 });
@@ -1841,20 +1841,20 @@ test("/model 无参 → 调用 modelCatalog（不经 sendMessage）", async () =
 
 test("/model <id> → setSessionModel + 更新", async () => {
   const { renderer, adapter } = makeApp();
-  typeAndEnter(renderer, "/model deepseek-reasoner");
+  typeAndEnter(renderer, "/model deepseek-test-b");
   await flush();
   assert.deepEqual(adapter.savedSelections, [
-    { provider: "deepseek", model: "deepseek-reasoner" },
+    { provider: "deepseek", model: "deepseek-test-b" },
   ]);
   assert.deepEqual(adapter.sent, []);
 
   test("/model 切换后状态栏显示新模型", async () => {
     const { renderer, adapter } = makeApp();
-    typeAndEnter(renderer, "/model deepseek-reasoner");
+    typeAndEnter(renderer, "/model deepseek-test-b");
     await flush();
     const joined = renderer.lastRender.join("\n");
     assert.ok(
-      joined.includes("deepseek-reasoner"),
+      joined.includes("deepseek-test-b"),
       `状态栏应含新模型，实际:\n${joined}`,
     );
     assert.ok(adapter.savedSelections.length === 1); // 确认确实切换了
@@ -1871,7 +1871,7 @@ test("/model 未知模型 → 不调用 setSessionModel", async () => {
 
 test("/model 当前模型 → 不重复切换", async () => {
   const { renderer, adapter } = makeApp();
-  typeAndEnter(renderer, "/model deepseek-chat");
+  typeAndEnter(renderer, "/model deepseek-test-a");
   await flush();
   assert.deepEqual(adapter.savedSelections, []);
   assert.deepEqual(adapter.sent, []);
@@ -1893,7 +1893,7 @@ test("交互选择：无参 /model 打开面板；模式下普通字符不插入
   assert.deepEqual(adapter.savedSelections, [
     {
       provider: "deepseek",
-      model: "deepseek-chat",
+      model: "deepseek-test-a",
       reasoningEffort: "low",
     },
   ]);
@@ -1906,13 +1906,13 @@ test("交互选择：↑/↓ 移动，Enter 确认持久切换并保留当前 re
     ...adapter.modelCatalogData,
     current: {
       provider: "deepseek",
-      model: "deepseek-chat",
+      model: "deepseek-test-a",
       reasoningEffort: "high",
     },
   };
   typeAndEnter(renderer, "/model");
   await flush();
-  // 初始焦点在 model 区：↓ 移动焦点到 deepseek-reasoner, space 记录选中
+  // 初始焦点在 model 区：↓ 移动焦点到 deepseek-test-b, space 记录选中
   // （effort 列初始选中 = 当前 high，未动则保持；验证选中与焦点分离）
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "space", ctrl: false, meta: false, shift: false });
@@ -1922,7 +1922,7 @@ test("交互选择：↑/↓ 移动，Enter 确认持久切换并保留当前 re
   assert.deepEqual(adapter.savedSelections, [
     {
       provider: "deepseek",
-      model: "deepseek-reasoner",
+      model: "deepseek-test-b",
       reasoningEffort: "high",
     },
   ]);
@@ -1933,7 +1933,7 @@ test("交互选择：↑/↓ 移动，Enter 确认持久切换并保留当前 re
     .join("\n");
   assert.ok(
     statusJoined.includes(":high"),
-    "多等级开启应按实际等级名显示 (deepseek-reasoner:high)",
+    "多等级开启应按实际等级名显示 (deepseek-test-b:high)",
   );
 });
 
@@ -1948,17 +1948,17 @@ test("状态栏：未显式选择等级时按 provider 默认等级(defaultEffor
     ],
     defaultEffort: "max",
   };
-  typeAndEnter(renderer, "/model deepseek-reasoner");
+  typeAndEnter(renderer, "/model deepseek-test-b");
   await flush();
   const statusJoined = renderer.lastRender
     .map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""))
     .join("\n");
   assert.ok(
-    statusJoined.includes("deepseek-reasoner:max"),
-    `未显式选择等级应按 provider 默认等级显示 (deepseek-reasoner:max): ${statusJoined}`,
+    statusJoined.includes("deepseek-test-b:max"),
+    `未显式选择等级应按 provider 默认等级显示 (deepseek-test-b:max): ${statusJoined}`,
   );
   assert.ok(
-    !statusJoined.includes("deepseek-reasoner:off"),
+    !statusJoined.includes("deepseek-test-b:off"),
     `不应再以 off 显示（后台实际生效 max）: ${statusJoined}`,
   );
 });
@@ -1966,13 +1966,13 @@ test("状态栏：未显式选择等级时按 provider 默认等级(defaultEffor
 test("状态栏：无 provider 默认等级且未显式选择时显示 off", async () => {
   const { renderer } = makeApp();
   // modelReasoningData 缺省：有等级但无 defaultEffort → 保持 off 语义
-  typeAndEnter(renderer, "/model deepseek-reasoner");
+  typeAndEnter(renderer, "/model deepseek-test-b");
   await flush();
   const statusJoined = renderer.lastRender
     .map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""))
     .join("\n");
   assert.ok(
-    statusJoined.includes("deepseek-reasoner:off"),
+    statusJoined.includes("deepseek-test-b:off"),
     `无默认等级且未显式选择应显示 off: ${statusJoined}`,
   );
 });
@@ -1995,18 +1995,16 @@ test("交互选择：当前模型不在候选目录中时补行，Enter 确认�
   const { renderer, adapter } = makeApp();
   adapter.modelCatalogData = {
     providers: [{ provider: "deepseek", name: "deepseek" }],
-    models: [
-      { provider: "deepseek", id: "deepseek-chat", name: "DeepSeek Chat" },
-    ],
+    models: [{ provider: "deepseek", id: "deepseek-test-a", name: "Test A" }],
     current: {
       provider: "deepseek",
-      model: "deepseek-reasoner",
+      model: "deepseek-test-b",
       reasoningEffort: "low", // 不在 models 里, 且等级与面板默认(低)一致
     },
   };
   typeAndEnter(renderer, "/model");
   await flush();
-  // index 0 = 补行的当前模型 deepseek-reasoner, 等级 low == 默认等级 → 不重复切换
+  // index 0 = 补行的当前模型 deepseek-test-b, 等级 low == 默认等级 → 不重复切换
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await flush();
   assert.deepEqual(adapter.savedSelections, []);
@@ -3214,7 +3212,7 @@ test("会话状态回填：ui-flags 恢复 verbose/symbol-unify，model-selectio
 test("会话状态快照：/verbose 与 /model 变更在退出前落盘（含模型与 TUI 本地开关）", async () => {
   const { app, renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/verbose off");
-  typeAndEnter(renderer, "/model deepseek/deepseek-reasoner");
+  typeAndEnter(renderer, "/model deepseek/deepseek-test-b");
   await flush();
   await flush();
   app.dispose(); // 退出前 flush 待落盘快照（合并窗口内的变更不丢）
@@ -3224,7 +3222,7 @@ test("会话状态快照：/verbose 与 /model 变更在退出前落盘（含模
   assert.equal(rec.state.verbose, false, "verbose 记入快照");
   assert.deepEqual(
     rec.state.model,
-    { provider: "deepseek", model: "deepseek-reasoner" },
+    { provider: "deepseek", model: "deepseek-test-b" },
     "会话模型记入快照",
   );
 });
