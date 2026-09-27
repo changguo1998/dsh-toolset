@@ -77,7 +77,7 @@
 
 | # | 功能 | 来源 | 落点 | 优先级 |
 |---|------|------|------|--------|
-| 39 | **完成（2026-09-25）** 文档体系与变更规范落地：确立「ROADMAP（仅项目级）→ DESIGN（模块）→ BACKLOG 条目 → `docs/implementation/` 追踪文档 → 关闭后移入 `docs/archived/`」的分层与流程；BACKLOG / STATUS 统一短命名（`DEVELOPMENT-BACKLOG.md` → `BACKLOG.md`、`DEVELOPMENT-STATUS.md` → `STATUS.md`）；模块（TUI 与 12 个包）各自 `docs/` 管理 DESIGN / BACKLOG；规范两份（`AGENTS.md` 简版 + `docs/WORKFLOW.md` 详版），含「一个任务可接多个条目」与四个提交询问点 | 用户 2026-09-25 讨论定稿 | 追踪文档（已关闭）`docs/archived/2026-09-25-docs-workflow-rollout.md` | P1 |
+| 39 | **完成（2026-09-25）** 文档体系与变更规范落地：确立「ROADMAP（仅项目级）→ DESIGN（模块）→ BACKLOG 条目 → `docs/implementation/` 追踪文档 → 关闭后移入 `docs/archived/`」的分层与流程；BACKLOG / STATUS 统一短命名（`DEVELOPMENT-BACKLOG.md` → `BACKLOG.md`、`DEVELOPMENT-STATUS.md` → `STATUS.md`）；模块（TUI 与 12 个包）各自 `docs/` 管理 DESIGN / BACKLOG；规范两份（`AGENTS.md` 简版 + `docs/WORKFLOW.md` → 今 `docs/WORKFLOW-STANDARD.md` 详版），含「一个任务可接多个条目」与四个提交询问点 | 用户 2026-09-25 讨论定稿 | 追踪文档（已关闭）`docs/archived/2026-09-25-docs-workflow-rollout.md` | P1 |
 | 40 | 待办 **`TUI/docs/IMPLEMENTATION.md` 按新规范拆分后删除**：命令路由与落点 → `TUI/docs/DESIGN.md`；渲染/排版类 → `TUI/docs/SPEC.md`；其余机制与「已评估未采用」→ DESIGN；「验证方式」并入 `AGENTS.md`；拆分后重定向 58 处引用 | #39 的决策（2026-09-25） | 独立条目，另派 agent 接取 | P2 |
 | 41 | 待办 **建立 `docs/ROADMAP.md`**：写未来开发方向，内容需维护者提供；建立后与 `docs/BACKLOG.md` §3「里程碑」的分工为「方向在 ROADMAP、进度与排期在 BACKLOG」 | #39 落地时发现（2026-09-25） | 需维护者参与 | P2 |
 

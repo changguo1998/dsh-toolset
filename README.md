@@ -101,14 +101,15 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 
 索引只此一处（`AGENTS.md` 不重复列清单）；每份文档开头三行写明「职责 / 不负责 / 过期条件」。
 
-变更流程见 `docs/WORKFLOW.md`（详版）与 `AGENTS.md`「内容变更规范」（简版）：条目在 `BACKLOG.md`，过程记录写进追踪文档，关闭后移入 `archived/`。
+变更流程分两条：标准流程见 `docs/WORKFLOW-STANDARD.md`（详版）、小改动快速流程见 `docs/WORKFLOW-FAST.md`，简版见 `AGENTS.md`「内容变更规范」：条目在 `BACKLOG.md`，过程记录写进追踪文档，关闭后移入 `archived/`（快速流程免条目与追踪文档）。
 
 **项目级（`docs/`）**
 
 - `docs/ROADMAP.md` — 未来开发方向（**尚未建立**，见 `docs/BACKLOG.md` #41）。
 - `docs/BACKLOG.md` — 可执行条目：跨包功能与缺陷（P0/P1/P2）+ 里程碑 + 插件规划。
 - `docs/STATUS.md` — 对照文档：记录已实现的内容（由维护者择时更新）。
-- `docs/WORKFLOW.md` — 内容变更规范（详版）。
+- `docs/WORKFLOW-STANDARD.md` — 内容变更规范 · 标准流程（详版）。
+- `docs/WORKFLOW-FAST.md` — 内容变更规范 · 快速流程（小改动）。
 - `docs/implementation/`、`docs/archived/` — 跨包条目的追踪文档（进行中 / 已关闭）。
 
 **宿主面（`docs/host/`，不参与变更流程，升宿主后必复核）**

@@ -2,7 +2,7 @@
 
 本项目为 DSH（DeepSeek Harness）进程内集成插件工具集，包含 `TUI/` 终端界面包与 12 个进程内集成插件（herdr-integration / task-engine / knowledge-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard / code-map / context-report）。
 
-> 文档分工：根目录 `README.md` 面向人（项目总览、插件功能、快速开始、文档索引），本文件面向 agent（开发协作规范）；变更规范简版见下方「内容变更规范」、详版 `docs/WORKFLOW.md`；状态对照见 `docs/STATUS.md` 与各模块 `docs/`，宿主面知识与升级记录见 `docs/host/`。
+> 文档分工：根目录 `README.md` 面向人（项目总览、插件功能、快速开始、文档索引），本文件面向 agent（开发协作规范）；变更规范简版见下方「内容变更规范」，详版分两份：标准流程 `docs/WORKFLOW-STANDARD.md`、小改动快速流程 `docs/WORKFLOW-FAST.md`；状态对照见 `docs/STATUS.md` 与各模块 `docs/`，宿主面知识与升级记录见 `docs/host/`。
 
 ## 语言约定
 
@@ -56,7 +56,7 @@ scripts/install.sh --help   # --profile/--plugins/--dsh-version/--skip-dsh/--ski
 
 ## 内容变更规范（简版）
 
-任何改动（不论范围大小与种类：文档 / 代码 / 配置）都走同一流程；详版见 `docs/WORKFLOW.md`。
+任何改动（不论范围大小与种类：文档 / 代码 / 配置）默认走**标准流程**（本节各项）；**改动量少、逻辑简单直接**的小改动走**快速流程**——免条目与追踪文档（唯一记录是 commit message），验证不减（文档类 `format` + 自查 diff，代码类 `check` + `build` + `test`），提交前复核硬阈值（文件 ≤ 3 且增删合计 ≤ 50 行；不达标用三选一询问：转标准流程 / 维持快速流程 / 停手），完成后问一次是否提交；agent 判定后须先用 `ask_user_question` 是非题问用户，同意才走，入口答否则不做处理、等用户新指示。详版见 `docs/WORKFLOW-STANDARD.md`（标准）与 `docs/WORKFLOW-FAST.md`（快速）。
 
 分层：`docs/ROADMAP.md`（仅项目级，记方向）→ `<模块>/docs/DESIGN.md`（架构设计）→ `<层>/docs/BACKLOG.md`（可执行条目）→ `<层>/docs/implementation/<YYYY-MM-DD>-<slug>.md`（追踪文档）→ 关闭后移入 `<层>/docs/archived/`。模块 = TUI 与 12 个包；跨模块条目归项目级。
 
@@ -64,17 +64,17 @@ scripts/install.sh --help   # --profile/--plugins/--dsh-version/--skip-dsh/--ski
 1. **开工时**：本次接取的**每个**条目标「进行中」（此后不再切状态）；建追踪文档——**一个任务可同时接取多个条目**，文件头列出全部条目，并先写「计划改动文件清单」。
 1. **过程中**：所有文档变更只写这份追踪文档；**计划外文件一律不改**（不做「顺手改」）；途中发现的新问题记进追踪文档，并在 BACKLOG 追加新条目交其他 agent。
 1. **完成时**：所接取的每个条目标「完成」；追踪文档移入 `docs/archived/`；随后按需回写 DESIGN / README / ROADMAP。
-1. **提交询问点**：决策完成后 / 代码实现后 / 测试通过后 / 任务关闭后，各询问一次是否提交（未获同意不提交）。
+1. **提交询问点**：决策完成后 / 代码实现后 / 测试通过后 / 任务关闭后，各用 `ask_user_question` 以是非题**阻塞**询问一次是否提交（未获同意不提交；答否则合并到关闭后）。各点范围与门禁：决策后仅提交文档；实现后先 `npm run check` + `npm run build` 再提交代码；测试后（人工确认通过之后）提交代码与测试用例；关闭后提交剩余全部相关变更，且为本次变更的**最后一次提交**（之后不得再有相关提交，残留另开条目）。详见 `docs/WORKFLOW-STANDARD.md` §5。
 1. `STATUS.md` 是对照文档（记录已实现内容），由**用户择时更新**，流程内不改。
 
-细则与追踪文档模板见 `docs/WORKFLOW.md`。
+细则与追踪文档模板见 `docs/WORKFLOW-STANDARD.md`（快速流程见 `docs/WORKFLOW-FAST.md`）。
 
 ## 结构与约定
 
 - `TUI/src/app/` 状态与纯函数层（state/layout），`TUI/src/renderer/` 终端渲染层，`TUI/src/app/adapter/` 插拔适配层，`TUI/demo/` mock demo。
 - 插件子包：`task-engine/`（任务执行引擎）、`knowledge-base/`（知识库与记忆）、`herdr-integration/`（herdr 面板桥）、`goal-contract/`（Done-when 契约起草）、`metric-loop/`（指标循环）、`output-compress/`（大输出摘要入库）、`fs-digest/`（文件摘要）、`hash-edit/`（LINE:HASH 锚定编辑）、`ast-tools/`（AST 搜索/替换/大纲）、`security-guard/`（危险命令与敏感文件防护）、`code-map/`（代码结构地图）、`context-report/`（会话上下文/用量报告）；各包的 `package.json` 带 `dsh.bundle` 集成契约与 `cordis.patch.yml`。
 - 核心契约对齐官方 deepseek-harness：根目录 `docs/host/DSH-CTX-API.md` 为跨插件共享研读笔记（只读参考，勿改动）。
-- 文档索引见 `README.md` 的「文档」一节（**唯一来源**，本文件不重复列清单）；结构：`docs/`（项目级：`ROADMAP.md` / `BACKLOG.md` / `STATUS.md` / `WORKFLOW.md` / `implementation/` / `archived/`）、`docs/host/`（宿主面知识：所有官方接口研读与升级文档，升宿主后必复核，不参与变更流程）、`<模块>/docs/`（模块自管：`DESIGN.md` / `BACKLOG.md` / `implementation/` / `archived/`；TUI 另有 `SPEC.md`、`COMMANDS*.md` 与内部规范 `design/`）、各包 `README.md`（模块契约）、根 `archive/`（根级历史）。
+- 文档索引见 `README.md` 的「文档」一节（**唯一来源**，本文件不重复列清单）；结构：`docs/`（项目级：`ROADMAP.md` / `BACKLOG.md` / `STATUS.md` / `WORKFLOW-STANDARD.md` / `WORKFLOW-FAST.md` / `implementation/` / `archived/`）、`docs/host/`（宿主面知识：所有官方接口研读与升级文档，升宿主后必复核，不参与变更流程）、`<模块>/docs/`（模块自管：`DESIGN.md` / `BACKLOG.md` / `implementation/` / `archived/`；TUI 另有 `SPEC.md`、`COMMANDS*.md` 与内部规范 `design/`）、各包 `README.md`（模块契约）、根 `archive/`（根级历史）。
 - 模块文档归模块自管；条目与过程记录按上节「内容变更规范」，跨模块条目的条目与追踪文档放项目级 `docs/`。
 - 缺陷与待办写对应层 `BACKLOG.md`（模块 → `<模块>/docs/BACKLOG.md`；跨包 → `docs/BACKLOG.md`）；`STATUS.md` 由用户择时更新，勿自动改。
 - 根 `archive/` 存放**根级已完成任务清单与历史调研**（如 `TUI-REFACTOR-TASKS.md`、`TUI-COMMANDS-TASKS.md`、`PI-DSH-FEATURE-COMPARISON.md`、`CODEMAP-RESEARCH.md`）：仅作历史记录，不是现状来源；模块历史进模块 `docs/archived/`。当前口径以各模块 `docs/DESIGN.md`、`docs/STATUS.md`、`TUI/docs/SPEC.md`、`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` 为准。
