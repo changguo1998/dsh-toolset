@@ -2431,7 +2431,14 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       return () => listeners.delete(cb);
     },
     canSteer() {
-      return typeof activeAgent.steer === "function";
+      // TUI#36：**优先看原始宿主 agent**（activeCommandAgent，随 resume/new 同步切换）。
+      // 瘦 agent（opts.agent / resume 时新建）只转发 followup，早期实现只看它 → 真实会话里
+      // 恒 false、`<` 提交静默降级成 followup（真机缺陷，2026-09-27）。
+      const raw = activeCommandAgent as { steer?: unknown } | undefined;
+      return (
+        typeof raw?.steer === "function" ||
+        typeof activeAgent.steer === "function"
+      );
     },
     sendMessage(text, targetSessionId, target) {
       if (disposed) return;
@@ -2443,11 +2450,20 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         );
         return;
       }
-      // steer（BACKLOG TUI#36）：官方 agent.steer = 投递到最近 step 边界；
-      // 宿主无 steer（旧版结构面）→ 回落 followup（App 侧另有 notice 提示降级）
-      if (target === "next-step" && typeof activeAgent.steer === "function") {
-        activeAgent.steer(buildUserMessage(text));
-        return;
+      // steer（BACKLOG TUI#36）：官方 agent.steer = 投递到最近 step 边界。
+      // 走原始宿主 agent；两者都没有 steer（旧宿主）→ 回落 followup（App 侧另有降级提示）
+      if (target === "next-step") {
+        const message = buildUserMessage(text);
+        const raw = activeCommandAgent as
+          { steer?: (m: typeof message) => void } | undefined;
+        if (typeof raw?.steer === "function") {
+          raw.steer(message);
+          return;
+        }
+        if (typeof activeAgent.steer === "function") {
+          activeAgent.steer(message);
+          return;
+        }
       }
       activeAgent.followup(buildUserMessage(text));
     },

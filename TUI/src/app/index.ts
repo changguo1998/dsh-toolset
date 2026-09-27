@@ -2055,9 +2055,14 @@ export class App {
     this.paint();
   }
 
-  /** 发送用户文本（状态置运行 + 本地回显 + adapter 分发）：普通提交与 /init 注入共用。
-   *  echoText 为缓冲回显文本（默认同发送文本）；/init 回显命令名、发送初始化指令。 */
-  private sendUserText(sendText: string, echoText: string = sendText): void {
+  /** 发送用户文本（状态置运行 + 本地回显 + adapter 分发）：普通提交、`<` steer 与 /init 共用。
+   *  echoText 为缓冲回显文本（默认同发送文本）；/init 回显命令名、发送初始化指令。
+   *  target=`next-step` = 官方 steer（BACKLOG TUI#36：投递到最近 step 边界，仍属当前回合）。 */
+  private sendUserText(
+    sendText: string,
+    echoText: string = sendText,
+    target?: "next-step",
+  ): void {
     this.apply((s) =>
       reduceState(s, { type: "input-status", status: "running" }),
     );
@@ -2068,6 +2073,7 @@ export class App {
     this.deps.adapter.sendMessage(
       sendText,
       this.state.activeSessionId ?? undefined,
+      target,
     );
   }
 
@@ -2137,13 +2143,17 @@ export class App {
       this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
       return;
     }
-    // steer 模式（BACKLOG TUI#36）：提交即投递到宿主最近 step 边界（agent.steer =
-    // send(m,'next-step',true)；运行中下一 step 认领，空闲时立即起一轮）。本机排队块
-    // 与 followup 同口径登记显示；宿主 agent 无 steer → 降级 followup 并 explicitly 提示
+    // steer 模式（BACKLOG TUI#36）：投递到宿主最近 step 边界（官方 agent.steer =
+    // send(m,'next-step',true)；运行中下一 step 认领，空闲时立即起一轮）。语义上仍属**当前
+    // 回合**，故与直发同路径（立即回显用户块、开回合分隔），**不登记排队块**
+    // （排队语义 = 等下一回合）。宿主 agent 无 steer（旧宿主）→ 降级 followup 并明确提示
     if (mode === "steer") {
       // canSteer 缺省（mock/旧 adapter 未实现）视为「不确定」→ 仍按 steer 投递，
       // 由 adapter 侧按宿主结构面决定 steer/followup（dsh adapter 有 steer 才用）
       const canSteer = this.deps.adapter.canSteer?.() !== false;
+      this.sendUserText(text, text, canSteer ? "next-step" : undefined);
+      // 降级提示放在发送**之后**：sendUserText 会开回合（turn-begin 清活动区），
+      // 先提示会被清掉（真机/用例一致的可观测顺序）
       if (!canSteer) {
         this.apply((s) =>
           reduceState(s, {
@@ -2153,12 +2163,6 @@ export class App {
           }),
         );
       }
-      this.apply((s) => reduceState(s, { type: "queued-push", text }));
-      this.deps.adapter.sendMessage(
-        text,
-        this.state.activeSessionId ?? undefined,
-        canSteer ? "next-step" : undefined,
-      );
       this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
       this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
       return;
