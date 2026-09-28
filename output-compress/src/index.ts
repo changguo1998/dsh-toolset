@@ -8,7 +8,7 @@
  *
  * 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
  * name / Config / apply(ctx, config)（无 inject / provide，沙箱服务经 ctx.reflect 可选读取：
- * 0.1.7 起 `ptcRuntime`，≤0.1.5 为 `codeRuntime`），
+ * `ptcRuntime`），
  * Config 以类型别名给出（无运行时 schema，宿主不校验，配置原样透传给 apply；缺省/非法值
  * 沿用本包既有语义，不新增校验）。
  */
@@ -61,14 +61,10 @@ export type ServiceValue = CodeRuntimeLike | undefined;
 /** 宿主 ctx 的最小结构化视图（BundleHost = HookHost + 可选沙箱服务/logger/reflect）。 */
 export interface BundleHost extends HookHost {
   /**
-   * 宿主沙箱服务 0.1.7 版名（仅测试宿主直接携带；真实 cordis 代理上直接读该属性会抛错，
+   * 宿主沙箱服务 `ptcRuntime`（仅测试宿主直接携带；真实 cordis 代理上直接读该属性会抛错，
    * 生产路径经 reflect 可选读取，见 resolveSandboxRuntime）。
    */
   ptcRuntime?: CodeRuntimeLike;
-  /**
-   * 宿主沙箱服务 ≤0.1.5 版名（同上，测试宿主直接携带用）。
-   */
-  codeRuntime?: CodeRuntimeLike;
   /** 宿主日志服务。 */
   logger?(ns: string): { info(message: string): void };
   /**
@@ -80,13 +76,12 @@ export interface BundleHost extends HookHost {
 
 /** 命中的沙箱服务引用（name 用于启动日志，service 用于执行）。 */
 interface RuntimeRef {
-  readonly name: "ptcRuntime" | "codeRuntime";
+  readonly name: "ptcRuntime";
   readonly service: CodeRuntimeLike;
 }
 
 /**
- * 解析宿主沙箱服务（可选依赖），服务名随宿主版本变化：
- * 0.1.7 起为 `ptcRuntime`（PTC 运行时），≤0.1.5 为 `codeRuntime`，按序探测取首个命中。
+ * 解析宿主沙箱服务（可选依赖）：服务名为 `ptcRuntime`（0.1.7-rc.2 单一形态）。
  * 真实宿主 ctx 是 cordis 代理，直接读未 inject 的服务属性会抛
  * `cannot get property "x" without inject`，因此生产路径必须走
  * `ctx.reflect.get(<name>, false)`（未挂载返回 undefined）。
@@ -95,18 +90,11 @@ interface RuntimeRef {
 function resolveSandboxRuntime(host: BundleHost): RuntimeRef | undefined {
   if (host.reflect !== undefined) {
     const ptc = host.reflect.get?.("ptcRuntime", false);
-    if (ptc !== undefined) return { name: "ptcRuntime", service: ptc };
-    const legacy = host.reflect.get?.("codeRuntime", false);
-    return legacy === undefined
-      ? undefined
-      : { name: "codeRuntime", service: legacy };
+    return ptc === undefined ? undefined : { name: "ptcRuntime", service: ptc };
   }
-  if (host.ptcRuntime !== undefined) {
-    return { name: "ptcRuntime", service: host.ptcRuntime };
-  }
-  return host.codeRuntime === undefined
+  return host.ptcRuntime === undefined
     ? undefined
-    : { name: "codeRuntime", service: host.codeRuntime };
+    : { name: "ptcRuntime", service: host.ptcRuntime };
 }
 
 /**
@@ -120,7 +108,7 @@ export async function createOutputCompressBundle(
   const log = (message: string) => host.logger?.(name).info(message);
   const dbPath = resolveDbPath(config.dbPath);
   const writer = new SharedKbWriter(dbPath, (message) => log(message));
-  // 沙箱选择：宿主沙箱（0.1.7 的 ptcRuntime / ≤0.1.5 的 codeRuntime）可用时走宿主沙箱（默认），
+  // 沙箱选择：宿主沙箱（`ptcRuntime`）可用时走宿主沙箱（默认），
   // 服务缺失、或运行期「不可用」（resolve/run 抛错）时回落 node:vm
   const runtime = resolveSandboxRuntime(host);
   const sandbox: SandboxRunner =

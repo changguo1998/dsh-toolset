@@ -1,7 +1,7 @@
 /**
  * 沙箱运行层：单一派生程序（SUMMARY_PROGRAM）的三条执行路径。
  *
- *  - CodeRuntimeSandbox：宿主沙箱服务（0.1.7 起为 `ctx.ptcRuntime`，≤0.1.5 为 `ctx.codeRuntime`），
+ *  - CodeRuntimeSandbox：宿主沙箱服务 `ctx.ptcRuntime`，
  *    程序以 async 函数体 + 全局绑定 input 运行，返回值经 JSON 无损传递；
  *  - RuntimeWithFallback：宿主沙箱「不可用」时就地回落 vm（程序级失败不重试），摘要不中断；
  *  - VmSandbox：宿主沙箱缺失/不可用时的 node:vm 进程内回落，执行同一程序源。
@@ -31,12 +31,12 @@ export interface RuntimeRunRequest {
   timeoutMs?: number | null;
 }
 
-/** 宿主沙箱服务的最小结构化视图（不做 npm 依赖，服务名随版本变化，见 resolveSandboxRuntime）。
- *  0.1.7 起 `ptcRuntime`：先 `resolve(request) → spec`（补 cwd/timeoutMs/sandboxPolicy）再 `run(spec)`，
- *  缺 spec 会被 Node provider 直接拒绝；≤0.1.5 的 `codeRuntime` 只有 `run(request)`，故 `resolve` 可选。 */
+/** 宿主沙箱服务的最小结构化视图（不做 npm 依赖）。
+ *  `ptcRuntime`：先 `resolve(request) → spec`（补 cwd/timeoutMs/sandboxPolicy）再 `run(spec)`，
+ *  缺 spec 会被 Node provider 直接拒绝。 */
 export interface CodeRuntimeLike {
-  /** 可选（0.1.7 起存在）：把请求解析为完整执行输入 */
-  resolve?(req: RuntimeRunRequest): unknown;
+  /** 把请求解析为完整执行输入（spec 带 cwd/sandboxPolicy） */
+  resolve(req: RuntimeRunRequest): unknown;
   run(req: unknown): Promise<{
     value?: unknown;
     error?: { kind: string; message: string };
@@ -75,9 +75,9 @@ function normalizeSummaryJson(value: unknown): SummaryJson {
   return validateSummary(parsed);
 }
 
-/** 宿主沙箱执行器（默认路径；服务为 0.1.7 的 `ptcRuntime` 或 ≤0.1.5 的 `codeRuntime`）。 */
+/** 宿主沙箱执行器（默认路径；服务为 `ptcRuntime`）。 */
 export class CodeRuntimeSandbox implements SandboxRunner {
-  /** @param runtime 宿主 ctx.ptcRuntime / ctx.codeRuntime 服务实例。 */
+  /** @param runtime 宿主 ctx.ptcRuntime 服务实例。 */
   constructor(private readonly runtime: CodeRuntimeLike) {}
 
   /**
@@ -98,11 +98,8 @@ export class CodeRuntimeSandbox implements SandboxRunner {
     };
     let result: { value?: unknown; error?: { kind: string; message: string } };
     try {
-      // 0.1.7 起必须先 resolve：spec 才带 cwd/sandboxPolicy（缺了 Node provider 直接 throw）
-      const spec =
-        typeof this.runtime.resolve === "function"
-          ? this.runtime.resolve(request)
-          : request;
+      // 必须先 resolve：spec 才带 cwd/sandboxPolicy（缺了 Node provider 直接 throw）
+      const spec = this.runtime.resolve(request);
       result = await this.runtime.run(spec);
     } catch (error) {
       throw new RuntimeUnavailableError(
@@ -148,8 +145,8 @@ export class RuntimeWithFallback implements SandboxRunner {
 }
 
 /**
- * node:vm 进程内回落执行器（code-runtime 缺失时使用）。
- * 与 code-runtime 共享同一程序源，保证「同一输入 → 同一摘要」。
+ * node:vm 进程内回落执行器（宿主沙箱不可用时使用）。
+ * 与宿主沙箱共享同一程序源，保证「同一输入 → 同一摘要」。
  * 上下文仅注入 input 与 TextEncoder（程序内用到的全部外部符号）。
  */
 export class VmSandbox implements SandboxRunner {

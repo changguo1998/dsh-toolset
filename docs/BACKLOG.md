@@ -43,17 +43,11 @@
 
 ### 2.3 外部接入（P2）
 
-| # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
-|---|------|------|------------------|--------|
-| 25 | GitHub 仓库克隆 | web-access 拆项 3（对比文档 §3.4） | 可先经 shell | P2 |
-| 26 | PDF 提取、视频理解 | web-access 拆项 4/5（对比文档 §3.4） | 无底座，新工具 | P2 |
+（当前无未完成项）
 
 ### 2.4 安全治理（P2）
 
-| # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
-|---|------|------|------------------|--------|
-| 28 | 密文扫描 | hermes-memory 拆项 4（对比文档 §3.2） | credentials 面扩展 | P2 |
-| 29 | 安全 issue 上报 | pi-defender（对比文档 §3.5） | 无对应 | P2 |
+（当前无未完成项）
 
 ### 2.5 交互与资产（P2）
 
@@ -72,8 +66,6 @@
 | # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
 |---|------|------|------------------|--------|
 | 37 | preset 机制对齐（清理已完成，余迁移评估）：本项目只用 TUI，agent 面由 profile 全局组合提供，preset 配置已于 2026-09-25 从 `Projects/dsh-toolset`、`~/.dsh`、`~/fff/config/dsh` 清除（记录见 `docs/host/AGENT-COMPOSITION.md` §5）。**剩余**：宿主升级到 0.1.7+ 时，若确需「同一 TUI 进程内不同会话用不同组合」，按官方声明式自建——挂 `agent-preset-registry`、以 `@deepseek-ai/dsh-agent-preset` 行声明组合、并像 `web-app` 那样禁用 base 的 agent 面行（切换只对空白会话生效）；不需要则本项直接关闭 | 官方仓库核对 2026-09-25（`master` `477b4f4205` = `dsh-v0.1.7-rc.2`；preset 重写 commit `d1e22a7e24`，TUI 包移除 commit `10bb9cbf4a`） | 现状：profile 用户 patch；若要 preset：`agent-preset-registry` + `agent-preset` | P2 |
-
-| 38 | 宿主双栈兼容垫片清理：0.1.7-rc.2 升级改造为过渡期保留了「按宿主版本择路」的分支——TUI `jobsCallerFor`（jobs caller 形态）与 `refreshAgents` 的 `listDescendants` / `listChildren` 择路、`output-compress` 的 `ptcRuntime` / `codeRuntime` 探测；待 0.1.5-rc.3 彻底退役后删除旧分支与对应旧形态测试用例，回到单一形态 | `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` §0.1 / §3.2（升级改造 2026-09-25） | 无（纯清理） | P2 |
 
 ### 2.8 工程流程与文档体系
 

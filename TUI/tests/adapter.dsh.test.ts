@@ -3596,51 +3596,27 @@ test("refreshJobs：宿主未挂载 ctx.jobs → reject（不假成功）", asyn
   await assert.rejects(t.adapter.refreshJobs!(), /jobs 服务不可用/);
 });
 
-test("refreshJobs/killJob（旧宿主 ≤0.1.5）：无事件流 → caller={id: activeSessionId}", async () => {
-  const listCallers: unknown[] = [];
-  const killCalls: Array<[string, unknown]> = [];
+test("refreshJobs/killJob：caller = 裸 sessionId 字符串（0.1.7-rc.2 单一形态）", async () => {
+  const listCallers: Array<string | undefined> = [];
+  const killCalls: Array<[string, string | undefined]> = [];
   const jobs: JobsLike = {
     list: (caller) => {
       listCallers.push(caller);
       return [];
     },
-    kill: (id: string, caller?: unknown) => {
-      killCalls.push([id, caller]);
-      return "requested";
-    },
-    onJobsChanged: (_cb: () => void) => {
-      return () => {};
-    },
-  };
-  const t = makeAdapterFull({ jobs });
-  await t.adapter.refreshJobs!();
-  assert.deepEqual(listCallers, [{ id: "s1" }]);
-  await t.adapter.killJob!("subprocess-1");
-  assert.deepEqual(killCalls, [["subprocess-1", { id: "s1" }]]);
-});
-
-test("refreshJobs/killJob（0.1.7 起）：暴露事件流 → caller=裸 sessionId 字符串", async () => {
-  const listCallers: unknown[] = [];
-  const killCalls: Array<[string, unknown]> = [];
-  const jobs: JobsLike = {
-    events: { subscribe: () => () => {} },
-    list: (caller) => {
-      listCallers.push(caller);
-      return [];
-    },
-    kill: (id: string, caller?: unknown) => {
+    kill: (id: string, caller?: string) => {
       killCalls.push([id, caller]);
       return "requested";
     },
   };
   const t = makeAdapterFull({ jobs });
   await t.adapter.refreshJobs!();
-  assert.deepEqual(listCallers, ["s1"], "0.1.7 owner 判定比对裸 sessionId");
+  assert.deepEqual(listCallers, ["s1"], "owner 判定比对裸 sessionId");
   await t.adapter.killJob!("subprocess-1");
   assert.deepEqual(killCalls, [["subprocess-1", "s1"]]);
 });
 
-test("jobs 订阅（0.1.7 起）：events.subscribe({owner}) 触发即推送全量快照，dispose 解绑", async () => {
+test("jobs 订阅：events.subscribe({owner}) 触发即推送全量快照，dispose 解绑", async () => {
   const filters: unknown[] = [];
   let listener: (() => void) | undefined;
   let disposers = 0;
@@ -4322,14 +4298,14 @@ test("会话删除：deleteSession 拒绝当前活跃与内存 live 会话；per
 });
 
 // ---------- 批次 3：/agents 与 /tools 的真实 adapter 接线契约 ----------
-// 断言落地契约面：listChildren 收到 parentSessionId、diagnostic 行无 payload 且 status=diagnostic、
+// 断言落地契约面：listDescendants 收到 rootSessionId、diagnostic 行无 payload 且 status=diagnostic、
 // interrupt 的 authority = {kind:'user', parentSessionId}、schemas() 不带 scope 参数（全局视图）、
 // Enter 详情走 get(name)、filter 只匹配工具名子串。
 
 function makeAgentsToolsServices(): {
   services: AdapterServices;
   calls: {
-    listChildren: string[];
+    listDescendants: string[];
     interrupts: {
       id: string;
       authority: { kind: "user"; parentSessionId: string };
@@ -4339,7 +4315,7 @@ function makeAgentsToolsServices(): {
   };
 } {
   const calls = {
-    listChildren: [] as string[],
+    listDescendants: [] as string[],
     interrupts: [] as {
       id: string;
       authority: { kind: "user"; parentSessionId: string };
@@ -4351,8 +4327,8 @@ function makeAgentsToolsServices(): {
     calls,
     services: {
       subagents: {
-        listChildren(parentSessionId: string) {
-          calls.listChildren.push(parentSessionId);
+        listDescendants(rootSessionId: string) {
+          calls.listDescendants.push(rootSessionId);
           return Promise.resolve([
             {
               kind: "child",
@@ -4361,8 +4337,16 @@ function makeAgentsToolsServices(): {
               label: "scout",
               activity: "running",
               hasChildren: false,
+              depth: 1,
+              parentId: "s1",
             },
-            { kind: "diagnostic", id: "child-2", reason: "corrupt" },
+            {
+              kind: "diagnostic",
+              id: "child-2",
+              reason: "corrupt",
+              depth: 1,
+              parentId: "s1",
+            },
           ]);
         },
         interrupt(
@@ -4404,7 +4388,7 @@ function panelRows(
   return rows;
 }
 
-test("真实 adapter /agents（旧宿主 ≤0.1.5）：listChildren(当前会话) + diagnostic 行无 payload", async () => {
+test("真实 adapter /agents：listDescendants(当前会话) 只取 depth=1，diagnostic 行无 payload", async () => {
   const { services, calls } = makeAgentsToolsServices();
   const { adapter, events, unbind } = makeAdapter(
     new FakeRuntime(),
@@ -4415,8 +4399,13 @@ test("真实 adapter /agents（旧宿主 ≤0.1.5）：listChildren(当前会话
     services,
   );
   await adapter.refreshAgents?.();
-  assert.deepEqual(calls.listChildren, ["s1"], "parentSessionId = 当前会话 id");
+  assert.deepEqual(
+    calls.listDescendants,
+    ["s1"],
+    "rootSessionId = 当前会话 id",
+  );
   const rows = panelRows(events, "agents");
+  assert.equal(rows.length, 2, "仅 depth=1 直接子代进 /agents 面板");
   assert.deepEqual(rows[0], {
     title: "scout",
     detail: "continuable · running",
@@ -4430,12 +4419,11 @@ test("真实 adapter /agents（旧宿主 ≤0.1.5）：listChildren(当前会话
   unbind();
 });
 
-test("真实 adapter /agents（0.1.7 起）：优先 listDescendants 并只取 depth=1 的直接子代", async () => {
-  const calls = { descendants: [] as string[], children: [] as string[] };
+test("真实 adapter /agents：只取 depth=1 的直接子代（depth=2 后代不进面板）", async () => {
   const services: AdapterServices = {
     subagents: {
       listDescendants(rootSessionId: string) {
-        calls.descendants.push(rootSessionId);
+        void rootSessionId;
         return Promise.resolve([
           {
             kind: "child",
@@ -4457,57 +4445,6 @@ test("真实 adapter /agents（0.1.7 起）：优先 listDescendants 并只取 d
             depth: 2,
             parentId: "child-1",
           },
-          {
-            kind: "diagnostic",
-            id: "child-2",
-            reason: "corrupt",
-            depth: 1,
-            parentId: "s1",
-          },
-        ]);
-      },
-      listChildren(parentSessionId: string) {
-        calls.children.push(parentSessionId);
-        return Promise.resolve([]);
-      },
-      interrupt() {},
-    },
-  };
-  const { adapter, events, unbind } = makeAdapter(
-    new FakeRuntime(),
-    new FakeAgent(),
-    50,
-    undefined,
-    undefined,
-    services,
-  );
-  await adapter.refreshAgents?.();
-  assert.deepEqual(calls.descendants, ["s1"], "rootSessionId = 当前会话 id");
-  assert.deepEqual(
-    calls.children,
-    [],
-    "有 listDescendants 时不再调 listChildren",
-  );
-  const rows = panelRows(events, "agents");
-  assert.equal(rows.length, 2, "depth=2 的后代不进 /agents 面板");
-  assert.deepEqual(rows[0], {
-    title: "scout",
-    detail: "continuable · running",
-    status: "running",
-    payload: "child-1",
-  });
-  assert.equal(rows[1]?.status, "diagnostic");
-  assert.equal(rows[1]?.payload, undefined);
-  unbind();
-});
-
-test("真实 adapter /agents（投影目录降级）：无 listDescendants 且 listChildren 只给 catalog 字段", async () => {
-  const services: AdapterServices = {
-    subagents: {
-      listChildren() {
-        return Promise.resolve([
-          { id: "child-1", createdAt: 1, mode: "continuable", label: "scout" },
-          { id: "child-2", createdAt: 2, mode: "unknown" },
         ]);
       },
       interrupt() {},
@@ -4523,21 +4460,8 @@ test("真实 adapter /agents（投影目录降级）：无 listDescendants 且 l
   );
   await adapter.refreshAgents?.();
   const rows = panelRows(events, "agents");
-  // 投影目录形态无 activity → status 退用 mode；label 缺省 → 占位标题
-  assert.deepEqual(rows, [
-    {
-      title: "scout",
-      detail: "continuable",
-      status: "continuable",
-      payload: "child-1",
-    },
-    {
-      title: "(未命名)",
-      detail: "unknown",
-      status: "unknown",
-      payload: "child-2",
-    },
-  ]);
+  assert.equal(rows.length, 1, "depth=2 的后代不进 /agents 面板");
+  assert.equal(rows[0]?.payload, "child-1");
   unbind();
 });
 

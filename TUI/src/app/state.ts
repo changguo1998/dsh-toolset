@@ -509,7 +509,7 @@ export interface AppState {
   permissionOptions: string[];
   /** agent 预设目录（ctx.agentPresets.list 的 id；状态列 Mode 块 preset 可选项；[]=未同步降级当前值） */
   presetOptions: string[];
-  /** P3：最近一次后台任务快照（adapter 经 onJobsChanged 推送；[]=无任务） */
+  /** P3：最近一次后台任务快照（adapter 经 jobs-changed 事件推送；[]=无任务） */
   jobs: JobInfo[];
   /** P3：/jobs 任务面板（null=未打开；index=高亮行，Enter 取消） */
   jobsPanel: { index: number } | null;
@@ -2270,7 +2270,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         // P4：agent 预设目录 id 列表（ctx.agentPresets.list）——状态列 Mode 块 preset 可选项
         return { ...state, presetOptions: action.ids };
       case "jobs-changed":
-        // P3：jobs 快照 last-write-wins（adapter onJobsChanged + 打开时刷新推送）
+        // P3：jobs 快照 last-write-wins（adapter events.subscribe 推送 + 打开时刷新）
         return { ...state, jobs: action.jobs };
       case "jobs-panel-open":
         return { ...state, jobsPanel: { index: 0 } };

@@ -63,6 +63,6 @@ npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'
 npm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话，需 dsh CLI 与模型凭据）
 ```
 
-42 例单测（trigger 9 + summary 9 + kb-write 9 + hooks 15），含真实临时 SQLite 库的写入与去重用例。
+45 例单测（trigger 9 + summary 9 + kb-write 9 + hooks 18），含真实临时 SQLite 库的写入与去重用例。
 
 设计决策见 `DESIGN.md`。

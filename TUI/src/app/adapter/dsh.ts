@@ -492,15 +492,6 @@ function turnEndNotice(
   }
 }
 /** 构造真实 DSH adapter：注册应答者 + 订阅会话事件，归一化为 DshEvent。 */
-/**
- * jobs 服务的 caller 形态探测（双栈）：
- * 0.1.7 起 JobRegistry 的 caller 是裸 SessionId 字符串（owner 判定 `job.owner.id === caller`）；
- * ≤0.1.5 的实现只读 `caller?.id`，必须包成 `{ id }`。以「是否暴露事件流」为版本特征
- * （0.1.7 用 jobs.events 取代 onJobsChanged）；无事件流一律按旧形态传值。
- */
-function jobsCallerFor(svc: { events?: unknown }, sessionId: string): unknown {
-  return svc.events !== undefined ? sessionId : { id: sessionId };
-}
 
 /**
  * 宽松读取 ctx.jobs.list() 快照 → JobInfo（JobView 字段；缺失项降级，绝不崩）。
@@ -2706,9 +2697,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       if (!svc || typeof svc.list !== "function") {
         throw new Error("jobs 服务不可用");
       }
-      // SAFETY: caller 形态随宿主版本变化——≤0.1.5 的实现只读 caller.id，0.1.7 起比对裸
-      // sessionId；经 jobsCallerFor 探测后显式传值（缺 caller 只返回 unowned，当前会话任务不可见）。
-      const jobs = collectJobs(svc.list(jobsCallerFor(svc, activeSessionId)));
+      // caller = 当前会话 id（0.1.7 起 `JobRegistry` 的 caller 为裸 SessionId 字符串）
+      const jobs = collectJobs(svc.list(activeSessionId));
       emit({ type: "jobs-changed", sessionId: activeSessionId, jobs });
     },
     async killJob(id) {
@@ -2719,7 +2709,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       if (!svc || typeof svc.kill !== "function") {
         throw new Error("jobs 服务不可用");
       }
-      svc.kill(id, jobsCallerFor(svc, activeSessionId));
+      svc.kill(id, activeSessionId);
     },
     answerQuestion(id, answer) {
       if (disposed) return;
@@ -2914,22 +2904,16 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     },
     /** 拉取子代理列表并归一化后推送两处：/agents 面板（command-panel-data；diagnostic 条目
      *  灰显且 payload 置空——无可中断 id）与**状态列 Agents 块**（agents-changed，BACKLOG TUI#39）。
-     *  数据源按宿主能力择路：0.1.7 起 `listDescendants`（富条目 + depth，取 depth=1 的直接子代），
-     *  ≤0.1.5 用 `listChildren`（同形富条目）。 */
+     *  数据源：`listDescendants`（富条目 + depth），取 depth=1 的直接子代。 */
     async refreshAgents(): Promise<void> {
       const svc = opts.subagents;
-      const useDescendants = typeof svc?.listDescendants === "function";
-      if (!useDescendants && typeof svc?.listChildren !== "function") {
+      if (typeof svc?.listDescendants !== "function") {
         throw new Error("subagents 未挂载（宿主无子代理服务）");
       }
       try {
-        // 0.1.7 起 listChildren 只返回投影目录（无 activity/hasChildren/diagnostic），富字段需经
-        // listDescendants 取（depth=1 即直接子代）；旧宿主两者同形，优先用 listDescendants。
-        const entries = useDescendants
-          ? ((await svc?.listDescendants?.(activeSessionId)) ?? []).filter(
-              (entry) => (entry.depth ?? 1) === 1,
-            )
-          : ((await svc?.listChildren?.(activeSessionId)) ?? []);
+        const entries = (
+          (await svc.listDescendants(activeSessionId)) ?? []
+        ).filter((entry) => (entry.depth ?? 1) === 1);
         // 状态列 Agents 块：与面板同源归一化（label / 状态 / 异常标记）
         const agentRows: AgentRowInfo[] = entries.map((entry) => {
           const diagnostic = entry.kind === "diagnostic";
@@ -3613,9 +3597,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     ),
   );
 
-  // P3：jobs 增量订阅——任务变化 → 推送全量快照（/jobs 面板实时刷新）。按宿主能力择路：
-  // 0.1.7 起走 jobs.events.subscribe({owner})（按 owner 过滤的事件流），≤0.1.5 走 onJobsChanged；
-  // 两者都不可用或订阅抛错 → 退化为打开面板时的 refreshJobs() 主动拉取一次（不崩）。
+  // P3：jobs 增量订阅——任务变化 → 推送全量快照（/jobs 面板实时刷新）。
+  // 0.1.7 起走 jobs.events.subscribe({owner})（按 owner 过滤的事件流）；订阅不可用或抛错
+  // → 退化为打开面板时的 refreshJobs() 主动拉取一次（不崩）。
   const jobsSvc = opts.jobs;
   if (jobsSvc !== undefined) {
     const pushJobs = (): void => {
@@ -3623,9 +3607,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       emit({
         type: "jobs-changed",
         sessionId: activeSessionId,
-        jobs: collectJobs(
-          jobsSvc.list(jobsCallerFor(jobsSvc, activeSessionId)),
-        ),
+        jobs: collectJobs(jobsSvc.list(activeSessionId)),
       });
     };
     try {
@@ -3633,9 +3615,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       const off =
         typeof events?.subscribe === "function"
           ? events.subscribe({ owner: activeSessionId }, pushJobs)
-          : typeof jobsSvc.onJobsChanged === "function"
-            ? jobsSvc.onJobsChanged(pushJobs)
-            : undefined;
+          : undefined;
       if (typeof off === "function") runtimeUnbinds.push(off);
     } catch {
       /* 订阅异常 → 打开面板时 refreshJobs() 兜底拉取 */

@@ -58,9 +58,9 @@ function makeKbDb(dbPath: string): void {
   db.close();
 }
 
-/** mock 宿主：捕获 session/event 回调；可注入模拟 code-runtime / reflect 层。 */
+/** mock 宿主：捕获 session/event 回调；可注入模拟 ptcRuntime / reflect 层。 */
 function makeHost(
-  codeRuntime?: CodeRuntimeLike,
+  ptcRuntime?: CodeRuntimeLike,
   reflect?: BundleHost["reflect"],
 ): { host: BundleHost; emit: (event: SessionEventLike) => void } {
   let callback:
@@ -72,7 +72,7 @@ function makeHost(
         callback = null;
       };
     },
-    codeRuntime,
+    ptcRuntime,
     reflect,
   };
   return {
@@ -84,12 +84,10 @@ function makeHost(
   };
 }
 
-/** 模拟宿主沙箱：async 函数体 + input 全局绑定（worker 语义的进程内等价）。
- *  @param options.withResolve true 时提供 `resolve()`（0.1.7 的 ptcRuntime 形态：resolve 补 spec 再 run）；
- *         缺省只有 `run()`（≤0.1.5 的 codeRuntime 形态）。 */
+/** 模拟宿主沙箱（`ptcRuntime` 形态）：`resolve(request) → spec` 再 `run(spec)`，
+ *  async 函数体 + input 全局绑定（worker 语义的进程内等价）。 */
 function makeSimulatedCodeRuntime(
   options: {
-    withResolve?: boolean;
     onResolve?: (request: RuntimeRunRequest) => void;
   } = {},
 ): CodeRuntimeLike {
@@ -126,17 +124,14 @@ function makeSimulatedCodeRuntime(
       return { error: { kind: "exception", message: String(error) } };
     }
   };
-  if (options.withResolve === true) {
-    return {
-      // 0.1.7 provider 语义：resolve 补齐 cwd/sandboxPolicy，run 只吃 spec
-      resolve: (request: RuntimeRunRequest) => {
-        options.onResolve?.(request);
-        return { ...request, cwd: "/tmp/oc-test", sandboxPolicy: {} };
-      },
-      run: async (spec) => execute(spec as RuntimeRunRequest),
-    };
-  }
-  return { run: async (request) => execute(request as RuntimeRunRequest) };
+  return {
+    // provider 语义：resolve 补齐 cwd/sandboxPolicy，run 只吃 spec
+    resolve: (request: RuntimeRunRequest) => {
+      options.onResolve?.(request);
+      return { ...request, cwd: "/tmp/oc-test", sandboxPolicy: {} };
+    },
+    run: async (spec) => execute(spec as RuntimeRunRequest),
+  };
 }
 
 /** 构造 tool/result 事件（消息体形状对齐 dsh ToolResultMessage 的最小结构）。 */
@@ -196,14 +191,14 @@ function ocChunksText(dbPath: string): string {
 async function mount(
   dir: string,
   opts: {
-    codeRuntime?: CodeRuntimeLike;
-    /** reflect 层替身（可选：用于注入 0.1.7 的 ptcRuntime 形态服务） */
+    ptcRuntime?: CodeRuntimeLike;
+    /** reflect 层替身（可选：用于注入 ptcRuntime 服务） */
     reflect?: BundleHost["reflect"];
     config?: OutputCompressConfig;
   } = {},
 ) {
   const dbPath = path.join(dir, "kb.db");
-  const { host, emit } = makeHost(opts.codeRuntime, opts.reflect);
+  const { host, emit } = makeHost(opts.ptcRuntime, opts.reflect);
   const bundle = await createOutputCompressBundle(host, {
     dbPath,
     project: "oc-test",
@@ -420,7 +415,7 @@ test("code-runtime 路径：宿主沙箱可用时经 CodeRuntimeSandbox 入库",
   try {
     makeKbDb(path.join(dir, "kb.db"));
     const { dbPath, emit, bundle } = await mount(dir, {
-      codeRuntime: makeSimulatedCodeRuntime(),
+      ptcRuntime: makeSimulatedCodeRuntime(),
     });
     emit(toolResultEvent(50, "c".repeat(20_000)));
     await settle(() => countOcChunks(dbPath) >= 1);
@@ -431,7 +426,7 @@ test("code-runtime 路径：宿主沙箱可用时经 CodeRuntimeSandbox 入库",
   }
 });
 
-test("reflect 宿主：reflect.get 返回 code-runtime 时经该运行时入库（不回落 vm）", async () => {
+test("reflect 宿主：reflect.get 返回 ptcRuntime 时经该运行时入库（不回落 vm）", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "oc-hooks-"));
   try {
     const dbPath = path.join(dir, "kb.db");
@@ -439,13 +434,14 @@ test("reflect 宿主：reflect.get 返回 code-runtime 时经该运行时入库�
     let sandboxCalls = 0;
     const base = makeSimulatedCodeRuntime();
     const runtime: CodeRuntimeLike = {
-      run: async (req) => {
+      resolve: (req) => base.resolve(req),
+      run: async (spec) => {
         sandboxCalls += 1;
-        return base.run(req);
+        return base.run(spec);
       },
     };
     const { host, emit } = makeHost(undefined, {
-      get: (name) => (name === "codeRuntime" ? runtime : undefined),
+      get: (name) => (name === "ptcRuntime" ? runtime : undefined),
     });
     const bundle = await createOutputCompressBundle(host, {
       dbPath,
@@ -454,14 +450,14 @@ test("reflect 宿主：reflect.get 返回 code-runtime 时经该运行时入库�
     });
     emit(toolResultEvent(70, "r".repeat(20_000)));
     await settle(() => countOcChunks(dbPath) >= 1);
-    assert.ok(sandboxCalls >= 1, "reflect 提供的 code-runtime 应被沙箱调用");
+    assert.ok(sandboxCalls >= 1, "reflect 提供的 ptcRuntime 应被沙箱调用");
     bundle.dispose();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("cordis 代理宿主：直接读沙箱服务属性抛错时不致命，reflect 以非 strict 语义按序探测", async () => {
+test("cordis 代理宿主：直接读沙箱服务属性抛错时不致命，reflect 以非 strict 语义读 ptcRuntime", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "oc-hooks-"));
   try {
     const dbPath = path.join(dir, "kb.db");
@@ -476,8 +472,8 @@ test("cordis 代理宿主：直接读沙箱服务属性抛错时不致命，refl
     };
     const host = new Proxy(inner, {
       get(target, prop) {
-        if (prop === "codeRuntime") {
-          throw new Error('cannot get property "codeRuntime" without inject');
+        if (prop === "ptcRuntime") {
+          throw new Error('cannot get property "ptcRuntime" without inject');
         }
         return Reflect.get(target, prop);
       },
@@ -493,22 +489,24 @@ test("cordis 代理宿主：直接读沙箱服务属性抛错时不致命，refl
       project: "oc-test",
     });
     bundle.dispose();
-    // 抛错属性未被触碰；reflect 读取使用非 strict，且按 ptcRuntime → codeRuntime 顺序探测
-    // （两者都未挂载 → 回落 vm）
-    assert.deepEqual(seen, ["ptcRuntime:false", "codeRuntime:false"]);
+    // 抛错属性未被触碰；reflect 读取使用非 strict；未挂载 → 回落 vm
+    assert.deepEqual(seen, ["ptcRuntime:false"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("code-runtime 失败：error 返回被转为可读错误，管线 skipped 不崩溃", async () => {
+test("ptcRuntime 失败：error 返回被转为可读错误，管线 skipped 不崩溃", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "oc-hooks-"));
   try {
     makeKbDb(path.join(dir, "kb.db"));
     const failing: CodeRuntimeLike = {
+      resolve: (req) => req,
       run: async () => ({ error: { kind: "timeout", message: "worker 超时" } }),
     };
-    const { dbPath, emit, bundle } = await mount(dir, { codeRuntime: failing });
+    const { dbPath, emit, bundle } = await mount(dir, {
+      ptcRuntime: failing,
+    });
     assert.doesNotThrow(() => emit(toolResultEvent(60, "e".repeat(20_000))));
     await new Promise((r) => setTimeout(r, 150));
     assert.equal(countOcChunks(dbPath), 0);
@@ -545,7 +543,7 @@ test("ptcRuntime 路径（0.1.7）：resolve 补齐 spec 后 run 入库，不回
     makeKbDb(path.join(dir, "kb.db"));
     const resolved: RuntimeRunRequest[] = [];
     const seenSpecs: unknown[] = [];
-    const base = makeSimulatedCodeRuntime({ withResolve: true });
+    const base = makeSimulatedCodeRuntime();
     const runtime: CodeRuntimeLike = {
       resolve: (request) => {
         resolved.push(request);
