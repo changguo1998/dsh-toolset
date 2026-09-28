@@ -16,7 +16,7 @@
 
 - 任务控制：#1-#5 task-engine（Frame 状态机、工具族、双重门禁、RET 三级路由、step 裁决）、#13 fan-out 就绪池、#6 goal-contract、#7 metric-loop；
 - 知识库与记忆：#8 knowledge-base（两张基表 + 两张 FTS5 虚表）、#9 两级写策略与淘汰提升、#10 持久记忆 CRUD、#11 output-compress、#12 fs-digest；
-- 代码与文件：#19 hash-edit、#20 ast-tools、#21 code-map 报告与影响面、#22 结构层索引与候选调用图；
+- 代码与文件：#19 hash-edit、#20 ast-tools、#21 code-map 报告与影响面、#22 结构层索引与候选调用图 + LSP 语义层（callers 的 findReferences 精确裁决，`precision:lsp/structural`；追踪文档 `docs/archived/2026-09-29-codemap-lsp-semantic.md`）；
 - 上下文报告：#34 context-report（host-only 投影 `sessionContext` 折叠会话累计 + `context_report` 三档报告）；
 - 安全与集成：#27 security-guard 策略层、#36 herdr-integration；
 - 规则触发与符号规范：#42 rule-engine、#43 TUI 符号规则迁移（落点为 #48）、#44 next-step 注入路径、#45 仓库级集成、#46 插件注入消息 `form:'notice'` 一行提示渲染、#47 消费者框架（`registerConsumer` + `evaluate`）、#48 symbol-normalizer 插件；真机验证记录见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`；
@@ -34,7 +34,6 @@
 | 14 | 工作流内模型路由与成本核算 | dynamic-workflows 拆项 2/3（对比文档 §3.1） | agent-default-model、token-meter | P2 |
 | 15 | `[~]` git-worktree 完整隔离（resume 已由 task-engine `resumeFromSnapshot` 覆盖；隔离未实现） | dynamic-workflows 拆项 5 | 本机本地插件 `dsh-git-worktree` 补完整隔离（当前仅有 disabled-git-hooks） | P2 |
 | 17 | 模板化 pattern 五族（deep-research / code-review / multi-perspective / adversarial-review / codebase-audit） | dynamic-workflows 拆项 7（对比文档 §3.1）；pi-simplify/ponytail 工具族可并入 | workflow 脚本 + skill 内容资产 | P2 |
-| 22 | `[~]` LSP 语义层：findReferences 精确确认调用关系（结构层候选索引已完成，见 code-map/docs/DESIGN.md 混合架构） | hypa 拆项 3（对比文档 §3.2） | tool-lsp 扩展 | P2 |
 | 23 | PDF/文档结构视图 | readseek 拆项 4（对比文档 §3.4） | 无底座，新工具 | P2 |
 | 30 | 跨会话 broker（消息/委托/状态同步） | pi-intercom（对比文档 §3.3） | 无底座；webhook/acp/sdk 均非等效，新建 unix socket 通道 | P2 |
 | 31 | slash 命令模板（pre-steps/chain/best-of-N）+ 模板级模型选择 | pi-prompt-template-model（对比文档 §3.4） | commands + workflow | P2 |
@@ -45,10 +44,12 @@
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
+| 53 | **`fs-digest` 的 `ctx.lsp` 直读缺陷**：`fs-digest/src/lsp.ts` 的 `c?.lsp ?? …` 先直读服务属性——真实 cordis ctx 上未 inject 的服务属性直读抛 `cannot get property "lsp" without inject`，使 `fs_digest` 工具（outline/signatures）整调用失败而非降级启发式（2026-09-29 实测一次）。修法：改受保护读取（`ctx.get("lsp")` 优先 + try/catch，参考 code-map `src/semantic/lsp.ts` 的 `readLspSurface`） | #22 实现时发现（2026-09-29） | fs-digest 模块自管 | P1 |
+
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
-1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#30、#31、#41、#50、#51、#52，按需排期；已完成项（含 #39、#40、#42-#49）见 §1 索引，已取消 / 不再立项项亦见 §1。
+1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#23、#30、#31、#41、#50、#51、#52、#53（P1，fs-digest 缺陷），按需排期；已完成项（含 #21-#22、#39、#40、#42-#49）见 §1 索引，已取消 / 不再立项项亦见 §1。
 1. 依赖：#17 的模板族（含原 #32 的代码审查能力）可复用 workflow/skill 资产；workflow-ext 建包前，工作流相关插件面依赖 task-engine 的契约与执行器；其余相互独立。
 
 ## 4. 插件规划（未建包）

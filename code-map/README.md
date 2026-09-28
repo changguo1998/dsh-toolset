@@ -10,7 +10,7 @@ DSH（DeepSeek Harness）进程内插件：代码结构地图——基于 ast-gr
 | --- | --- | --- |
 | `index` | `root?` | 建立结构索引（符号表 + import 图）；已建则不重复扫描，直接返回概要 |
 | `refresh` | `root?` | 全量重建索引 |
-| `callers` | `symbol`, `file?` | 符号的同名候选引用（排除定义行本身） |
+| `callers` | `symbol`, `file?` | 符号引用（排除定义行本身）：宿主 LSP 可用时 `findReferences` 精确结果（`precision:"lsp"`），否则同名候选（`precision:"structural"`） |
 | `callees` | `symbol`, `file?` | 符号所在文件的直接 import 目标（文件级） |
 | `impact` | `file`（必填） | 目标文件的影响面：反向 import 传递闭包，聚合到模块 |
 | `cycles` | — | 文件级依赖环（Tarjan 强连通分量，`size>=2`） |
@@ -61,7 +61,7 @@ profile 挂载（`~/.dsh/profiles/<p>`）：
 
 ## 边界与限制
 
-- **候选语义**：`callers` 是同名标识符匹配（ast-grep `search`，`strictness: "smart"`），无类型解析——同名不同实体、动态语言（Python 元类/JS 宏）会失真；符号级精确 `callees`/`resolve`（LSP 语义层）尚未提供。
+- **引用精度**：`callers` 默认走结构层同名标识符匹配（ast-grep `search`，`strictness: "smart"`，`precision:"structural"`）——同名不同实体、动态语言（Python 元类/JS 宏）会失真；宿主挂载 LSP（`ctx.lsp`，官方 `lsp`/`lsp-stdio`/`tool-lsp` 三件套）时改走 `findReferences` 精确裁决（`precision:"lsp"`，失败/超时自动回落）。符号级 `callees` 与 `resolve` 仍为增量。
 - **文件级粒度**：`callees` 返回文件而非符号；`cycles` 建在文件 import 图上。
 - **无持久化**：无索引快照、无 mtime 增量（`refresh` 即全量重扫）、无文件系统监听；进程退出即丢。
 - **扫描范围**：按扩展名白名单收集源码，跳过固定噪音目录集合（不解析 `.gitignore`）；import 只解析相对/绝对路径说明符，裸模块与 `node:` 内置记为外部（`unresolved`）。细节见 `DESIGN.md` §4。

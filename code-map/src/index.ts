@@ -9,21 +9,30 @@
  * - `provide: ["codeMap"]`：只读查询面，宿主命令/插件经 `ctx.get('codeMap')` 访问；
  * - 核心工厂 `createCodeMapBundle`（可测/可复用），apply 为宿主挂载入口。
  *
- * 首版边界：引用为候选（同名近似，无 LSP 精确层）；callees 为文件级；
- * 索引惰性——首次查询时构建，不做启动期全量扫描。
+ * 分层：结构层（recall，ast-grep）恒定可用；语义层（precision）按需——callers 在宿主
+ * `ctx.lsp` 可用时经 findReferences 精确裁决（`precision:"lsp"`），否则回落同名候选
+ * （`precision:"structural"`）。callees 为文件级；索引惰性（首次查询时构建）。
  */
 
 import {
   createAstToolsBundle,
   type AstToolsBundle,
 } from "@dsh-toolset/ast-tools";
+import { fileURLToPath } from "node:url";
 import { scanProject } from "./indexer/scan.ts";
-import { candidateRefs } from "./indexer/refs.ts";
+import { candidateRefs, excludeDefinitionRange } from "./indexer/refs.ts";
 import { CodeGraph } from "./graph/graph.ts";
 import { callers, calleesFiles, impact as impactQuery } from "./graph/query.ts";
 import { buildReport } from "./report/builder.ts";
+import {
+  resolveLspReferences,
+  type LspLocation,
+  type LspReferencesProvider,
+} from "./semantic/lsp.ts";
+import { symbolPositionAt } from "./semantic/locate.ts";
 import type {
   CallersResult,
+  CandidateRef,
   CodeMapReport,
   CodeMapService,
   CodeMapSymbol,
@@ -61,6 +70,8 @@ export interface CodeMapConfig {
   root?: string;
   /** 注入 ast-tools bundle（可测）；缺省自建（ast-grep 缺失时降级为不可用）。 */
   ast?: AstToolsBundle;
+  /** 注入 LSP 引用提供器（可测/嵌入）；缺省由 `apply()` 从宿主 `ctx.lsp` 解析。 */
+  lsp?: LspReferencesProvider;
 }
 
 /**
@@ -78,14 +89,16 @@ export interface CodeMapBundle extends CodeMapService {
 class CodeMapServiceCore implements CodeMapService {
   private ast: AstToolsBundle;
   private root: string;
+  private lsp: LspReferencesProvider | undefined;
   private graph = new CodeGraph();
   private unresolved = 0;
   private indexedRoot = "";
   private inflight: Promise<IndexResult> | null = null;
 
-  constructor(ast: AstToolsBundle, root: string) {
+  constructor(ast: AstToolsBundle, root: string, lsp?: LspReferencesProvider) {
     this.ast = ast;
     this.root = root;
+    this.lsp = lsp;
   }
 
   private async doIndex(r: string): Promise<IndexResult> {
@@ -165,10 +178,46 @@ class CodeMapServiceCore implements CodeMapService {
   ): Promise<CallersResult> {
     await this.ensureIndexed();
     const sym = this.resolveSymbol(symbol, opts.file);
-    if (!sym) return { symbol, refs: [], files: [] };
-    return callers(this.graph, sym, {
+    if (!sym) return { symbol, refs: [], files: [], precision: "structural" };
+    const precise = await this.preciseCallers(sym);
+    if (precise !== null) return precise;
+    const fallback = await callers(this.graph, sym, {
       refsOf: (s) => candidateRefs(this.ast, this.indexedRoot, s),
     });
+    return { ...fallback, precision: "structural" };
+  }
+
+  /** 语义层：经宿主 LSP findReferences 精确确认引用；不可用/失败/超时 → null（回落结构层）。 */
+  private async preciseCallers(
+    sym: CodeMapSymbol,
+  ): Promise<CallersResult | null> {
+    const provider = this.lsp;
+    if (provider === undefined) return null;
+    try {
+      const position = await symbolPositionAt(
+        sym.file,
+        sym.startLine,
+        sym.name,
+      );
+      if (position === undefined) return null;
+      const locations = await provider.findReferences(sym.file, position);
+      if (locations === null) return null;
+      const refs = excludeDefinitionRange(
+        locations
+          .map(locationToRef)
+          .filter((r): r is CandidateRef => r !== undefined)
+          .sort(byFileLine),
+        sym,
+      );
+      return {
+        symbol: sym.name,
+        refs,
+        files: [...new Set(refs.map((r) => r.file))].sort(),
+        precision: "lsp",
+      };
+    } catch {
+      return null;
+    }
   }
 
   async callees(
@@ -226,7 +275,7 @@ export function createCodeMapBundle(config: CodeMapConfig = {}): CodeMapBundle {
     }
   }
   if (ast === null) return degradedBundle(root);
-  return new CodeMapServiceCore(ast, root);
+  return new CodeMapServiceCore(ast, root, config.lsp);
 }
 
 /** ast-grep 缺失时的降级 bundle：所有操作返回降级结果，不抛出。 */
@@ -242,7 +291,12 @@ function degradedBundle(root: string): CodeMapBundle {
       error: "ast-grep 不可用（code-map 降级）",
     }),
     refresh: async () => degraded.index(),
-    callers: async (s) => ({ symbol: s, refs: [], files: [] }),
+    callers: async (s) => ({
+      symbol: s,
+      refs: [],
+      files: [],
+      precision: "structural",
+    }),
     callees: async () => ({ files: [] }),
     impact: async (t) => ({ target: t, files: [], modules: [] }),
     cycles: () => [],
@@ -258,7 +312,7 @@ function toToolDef(service: CodeMapService) {
     name: "code_map",
     description:
       "代码结构地图：index/refresh 建立项目结构索引（符号表 + import 图）；" +
-      "callers 查某符号的同名候选引用（近似，无 LSP 语义确认）；callees 查符号所在文件的直接 import 目标（文件级）；" +
+      "callers 查某符号的引用（宿主 LSP 可用时 findReferences 精确结果 precision=lsp，否则同名候选 precision=structural）；callees 查符号所在文件的直接 import 目标（文件级）；" +
       "impact 查改动某文件的影响面（反向 import 闭包聚合到模块）；cycles 查文件级依赖环；" +
       "report 出项目/模块报告（统计/模块依赖/环/未引用导出）；summary 查索引就绪状态。",
     parameters: {
@@ -349,7 +403,10 @@ export function apply(
   const warn = (msg: string): void => {
     ctx.logger?.(name).info(msg) ?? process.stderr.write(`[code-map] ${msg}\n`);
   };
-  const bundle = createCodeMapBundle(config);
+  const bundle = createCodeMapBundle({
+    ...config,
+    lsp: config.lsp ?? resolveLspReferences(ctx, config.root ?? process.cwd()),
+  });
   activeBundle = bundle;
   const tools = (ctx as { tools?: { register(def: unknown): unknown } }).tools;
   if (tools && typeof tools.register === "function") {
@@ -368,4 +425,32 @@ export function apply(
       getBundle: () => getCodeMapBundle(),
     });
   }
+}
+
+/** LSP 位置 → 候选引用（uri 非 file: / 相对路径 → 跳过；text 不读取，置空串）。 */
+function locationToRef(loc: LspLocation): CandidateRef | undefined {
+  const file = uriToPath(loc.uri);
+  if (file === undefined) return undefined;
+  return {
+    file,
+    line: loc.range.start.line,
+    column: loc.range.start.character,
+    text: "",
+  };
+}
+
+/** `file:` URI → 本地路径（非 file: 且非绝对路径 → undefined）。 */
+function uriToPath(uri: string): string | undefined {
+  if (uri.startsWith("file:")) {
+    try {
+      return fileURLToPath(uri);
+    } catch {
+      return undefined;
+    }
+  }
+  return uri.startsWith("/") ? uri : undefined;
+}
+
+function byFileLine(a: CandidateRef, b: CandidateRef): number {
+  return a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1;
 }

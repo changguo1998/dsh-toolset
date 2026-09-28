@@ -22,12 +22,12 @@ export interface QueryDeps {
   refsOf(symbol: CodeMapSymbol): Promise<CandidateRef[]>;
 }
 
-/** callers：候选引用（排除定义行）。 */
+/** callers：候选引用（排除定义行）。精度字段由上层（core）按是否走 LSP 语义层补。 */
 export async function callers(
   graph: CodeGraph,
   symbol: CodeMapSymbol,
   deps: QueryDeps,
-): Promise<CallersResult> {
+): Promise<Omit<CallersResult, "precision">> {
   const refs = excludeDefinitionRange(await deps.refsOf(symbol), symbol);
   const files = [...new Set(refs.map((r) => r.file))].sort();
   return { symbol: symbol.name, refs, files };

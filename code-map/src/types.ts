@@ -74,6 +74,8 @@ export interface CallersResult {
   refs: CandidateRef[];
   /** 引用去重后的文件列表。 */
   files: string[];
+  /** 精度来源：`lsp` = 宿主 LSP findReferences 精确结果；`structural` = 结构层同名候选（回落）。 */
+  precision: "lsp" | "structural";
 }
 
 export interface ImpactResult {
