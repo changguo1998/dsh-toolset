@@ -36,12 +36,16 @@ export interface InjectionHost {
 /** 注入消息来源标识（merge-extensible：官方无通用 'plugin' kind，生产者各自声明）。 */
 export const SOURCE_KIND = "rule-engine";
 
+/** 注入正文前缀：与 TUI 的启动自检 `[AUTO]` 同口径，用于区分「自动注入 / 真实用户输入」。 */
+export const INJECTION_PREFIX = "[RULE] ";
+
 /**
  * 构造注入消息。
  *
- * 带 `source.form:'notice'` + `summary` 元数据：宿主侧语义是「一次性事件的一行提示」。
- * dsh-toolset 的 TUI 目前未实现 `form` 分支，会按普通 user 消息块渲染（= 完全模拟用户
- * 输入）；将来 TUI 支持后自然变成一行提示，插件无需改动（BACKLOG #46）。
+ * 不带 `source.form:'notice'`：TUI 按**用户输入块**显示（与启动自检 kickoff 同口径）、
+ * 历史恢复后仍在；正文统一以 `[RULE] ` 开头，供人区分自动注入。`summary` 保留作元数据
+ * （非 TUI 面 / 日志用）。注意：TUI 的实时路径不渲染非 notice 注入，由 adapter 识别
+ * `source.kind` 后按 `rule-injection` 事件走用户行通道（BACKLOG TUI#49）。
  */
 export function buildInjectionMessage(
   text: string,
@@ -50,8 +54,8 @@ export function buildInjectionMessage(
   return {
     id: randomUUID(),
     role: "user",
-    content: [{ type: "text", text }],
-    source: { kind: SOURCE_KIND, form: "notice", summary },
+    content: [{ type: "text", text: INJECTION_PREFIX + text }],
+    source: { kind: SOURCE_KIND, summary },
   };
 }
 

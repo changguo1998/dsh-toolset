@@ -71,6 +71,20 @@ export function noticeSummaryOf(message: unknown): string | undefined {
     : line;
 }
 
+/**
+ * rule-engine 注入消息判定（BACKLOG TUI#49）：`source.kind === "rule-engine"` 时返回
+ * 正文文本（用户块显示用，保留原样不截断）；非该来源 / 无可读正文 → undefined。
+ * 与 `noticeSummaryOf` 独立：rule-engine 自 #49 起不再走 notice 形态。
+ */
+export function ruleInjectionTextOf(message: unknown): string | undefined {
+  if (typeof message !== "object" || message === null) return undefined;
+  const msg = message as Record<string, unknown>;
+  const source = msg["source"] as Record<string, unknown> | undefined;
+  if (source?.["kind"] !== "rule-engine") return undefined;
+  const text = extractTextBlocks(msg["content"]).trim();
+  return text === "" ? undefined : text;
+}
+
 /** 审批草稿明细（由 tool/call 参数抽取；3.3.3） */
 export interface ApprovalDetail {
   /** 工具名（与 req.toolName 同源，供明细行核对） */

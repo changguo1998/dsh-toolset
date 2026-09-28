@@ -182,6 +182,9 @@ export type DshEvent =
   /** TUI#43：核心摘除了已认领的排队项（`removedCount > 0`）。
    *  `target` = "next-step"（steer 在 step 边界被认领）/ "next-turn"（followup 在回合开始）。 */
   | { type: "inbox-claim"; target: "next-step" | "next-turn" }
+  /** BACKLOG TUI#49：rule-engine 注入消息（`source.kind:'rule-engine'`，正文 `[RULE]` 开头）
+   *  的实时显示通道——按用户块追加（历史路径自然折叠为用户消息；`id` 供去重）。 */
+  | { type: "rule-injection"; id: string; text: string }
   | {
       type: "retry";
       attempt: number;

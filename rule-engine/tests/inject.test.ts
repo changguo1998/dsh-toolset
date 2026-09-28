@@ -9,6 +9,7 @@ import { test } from "node:test";
 import {
   buildInjectionMessage,
   createAgentInjector,
+  INJECTION_PREFIX,
   SOURCE_KIND,
 } from "../src/inject.ts";
 import type { InjectionRequest } from "../src/types.ts";
@@ -84,16 +85,25 @@ test("buildInjectionMessage：id 非空 / content 数组 / source.kind 非空 + 
     id: string;
     role: string;
     content: Array<{ type: string; text: string }>;
-    source: { kind: string; form: string; summary: string };
+    source: { kind: string; form?: string; summary: string };
   };
   assert.equal(typeof message.id, "string");
   assert.ok(message.id.length > 0);
   assert.equal(message.role, "user");
   assert.deepEqual(message.content, [
-    { type: "text", text: "请改用 ASCII 符号" },
+    { type: "text", text: INJECTION_PREFIX + "请改用 ASCII 符号" },
   ]);
   assert.equal(message.source.kind, SOURCE_KIND);
-  assert.equal(message.source.form, "notice");
+  assert.match(
+    message.content[0]!.text,
+    /^\[RULE\]/,
+    "正文以 [RULE] 前缀开头（区分自动注入）",
+  );
+  assert.equal(
+    message.source.form,
+    undefined,
+    "不带 notice form——TUI 按用户输入块显示（BACKLOG TUI#49）",
+  );
   assert.equal(message.source.summary, "符号规范提醒");
   // 两次构造 id 不同（唯一性）
   const other = buildInjectionMessage("x", "x") as { id: string };
@@ -125,10 +135,16 @@ test("createAgentInjector：next-step 走 agent.inject（不调 followup）并 f
   assert.equal(calls[0]?.method, "inject");
   assert.equal(flushed.length, 1);
   const message = calls[0]?.message as {
-    source: { kind: string; form: string };
+    source: { kind: string; form?: string };
+    content: Array<{ type: string; text: string }>;
   };
   assert.equal(message.source.kind, SOURCE_KIND);
-  assert.equal(message.source.form, "notice");
+  assert.equal(
+    message.source.form,
+    undefined,
+    "next-step 同样不带 notice form",
+  );
+  assert.match(message.content[0]!.text, /^\[RULE\]/);
 });
 
 test("createAgentInjector：宿主无 inject 时 next-step 跳过并记 warning", async () => {

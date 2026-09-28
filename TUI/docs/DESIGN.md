@@ -211,6 +211,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 | `turn/end` 的 `reason` | `notice` 增加可选 `tone` | error → 红；max-tokens → 黄「输出达 token 上限」；blocked → 黄「已阻塞」；aborted / interrupted → 蓝；completed 静默 |
 | `compaction/start` + `compaction/end` | `compaction` `{phase}` | toast「正在压缩上下文…」/「压缩完成」 |
 | `llm/retry` `{retry, maxRetries, delayMs, failure, provider}` | `retry` `{attempt, max, delayMs, code, message?}` | toast「重试 1/2 (1.5s): <code> <message>」 |
+| `user/message` / `agent/inbox/spliced` 的 `source.kind:'rule-engine'` 注入（BACKLOG TUI#49） | `rule-injection` `{id, text}` | 按**用户块**实时追加（正文 `[RULE] ` 前缀）；按 id 去重（双通道 / 重放）；历史恢复由 surface 自然折叠为用户消息。与 `source.form:'notice'`（其它插件注入）的一行提示路径并列 |
 
 #### 状态事件映射
 

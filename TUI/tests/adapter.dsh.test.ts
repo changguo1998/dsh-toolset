@@ -5570,7 +5570,8 @@ test("TUI#17 历史归一：notice 形态注入消息 → 一行摘要（不产 
         role: "user",
         content: [{ type: "text", text: "请统一符号" }],
         source: {
-          kind: "rule-engine",
+          // 通用 notice 机制（非 rule-engine：#49 起 rule-engine 不再走 notice 形态）
+          kind: "symbol-normalizer",
           form: "notice",
           summary: "已提醒模型统一符号",
         },
@@ -5605,7 +5606,7 @@ test("TUI#17 历史归一：spliced 项为 notice（summary 缺省取正文首�
             id: "inj-1",
             role: "user",
             content: [{ type: "text", text: "首行摘要\n第二行" }],
-            source: { kind: "rule-engine", form: "notice" },
+            source: { kind: "symbol-normalizer", form: "notice" },
           },
           {
             id: "u-2",
@@ -5631,7 +5632,7 @@ test("TUI#17 live：spliced 注入 notice → 单行 notice 事件（log 灰）�
     role: "user",
     content: [{ type: "text", text: "请统一符号" }],
     source: {
-      kind: "rule-engine",
+      kind: "symbol-normalizer",
       form: "notice",
       summary: "已提醒模型统一符号",
     },
@@ -5654,5 +5655,62 @@ test("TUI#17 live：spliced 注入 notice → 单行 notice 事件（log 灰）�
   );
   assert.deepEqual(t.events, [
     { type: "notice", text: "已提醒模型统一符号", tone: "log" },
+  ]);
+});
+
+test("TUI#49 live：rule-engine 注入（无 notice form）→ rule-injection 事件（用户块通道）、按 id 去重", () => {
+  const t = makeAdapter();
+  const injected = {
+    id: "rule-1",
+    role: "user",
+    content: [{ type: "text", text: "[RULE] 请立即加载两个 skill" }],
+    source: { kind: "rule-engine", summary: "解锁后加载 skill" },
+  };
+  fire(t, "agent/inbox/spliced", { inserted: [injected] }, "s1", 1);
+  // 同一 id 再次到达（user/message 通道或重放）→ 不重复渲染
+  fire(t, "user/message", injected, "s1", 2);
+  // 其它来源的普通 user 消息仍不渲染（本地回显覆盖）
+  fire(
+    t,
+    "user/message",
+    { id: "u-1", role: "user", content: [{ type: "text", text: "hi" }] },
+    "s1",
+    3,
+  );
+  assert.deepEqual(t.events, [
+    {
+      type: "rule-injection",
+      id: "rule-1",
+      text: "[RULE] 请立即加载两个 skill",
+    },
+  ]);
+});
+
+test("TUI#49 历史归一：rule-engine 注入 → 用户消息块（非 notice 行）", async () => {
+  const sq = new FakeSessionQuery();
+  sq.events = [
+    {
+      type: "user/message",
+      seq: 1,
+      data: {
+        role: "user",
+        content: [{ type: "text", text: "[RULE] 请立即加载两个 skill" }],
+        source: { kind: "rule-engine", summary: "解锁后加载 skill" },
+      },
+    },
+    {
+      type: "user/message",
+      seq: 2,
+      data: {
+        role: "user",
+        content: [{ type: "text", text: "真实用户消息" }],
+      },
+    },
+  ];
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const view = await adapter.readSessionSurface!("old-2");
+  assert.deepEqual(view.messages, [
+    { role: "user", text: "[RULE] 请立即加载两个 skill" },
+    { role: "user", text: "真实用户消息" },
   ]);
 });

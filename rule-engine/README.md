@@ -34,10 +34,10 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 本期只有 `inject`：`{ type: "inject", text, summary? }`。
 
 - `text`：注入正文（代替用户发出的那条消息）；
-- `summary`：一行摘要（缺省取正文首行、截断 120 字符）；
-- 注入消息形如 `{ id: <uuid>, role: "user", content: [{type:"text", text}], source: { kind: "rule-engine", form: "notice", summary } }`。
+- `summary`：一行摘要（元数据；TUI 之外的呈现面与日志可用）；
+- 注入消息形如 `{ id: <uuid>, role: "user", content: [{type:"text", text: "[RULE] " + text}], source: { kind: "rule-engine", summary } }`。
 
-**呈现方式**：宿主侧没有「插件 → 人」的 notice 通道；`source.form:'notice'` 是官方的「一行提示」呈现形式。dsh-toolset 的 TUI 已支持（按一行提示渲染，BACKLOG #46 已完成）。
+**呈现方式**（BACKLOG TUI#49，2026-09-29 起）：**不带 `source.form:'notice'`**——dsh-toolset 的 TUI 按**用户输入块**显示（实时经 `rule-injection` 事件追加用户行、历史恢复折叠为用户消息块），正文统一以 `[RULE] ` 前缀标明自动注入（与启动自检的 `[AUTO]` 同口径）。早期版本的 `form:'notice'` 一行提示形态已弃用（#46 的通用 notice 机制仍保留给其它插件来源）。
 
 ### 送达路径（`delivery`）
 
@@ -46,7 +46,7 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 | `followup`（缺省） | 作为**独立新回合**的消息注入（会唤醒 agent） | `agent.followup` |
 | `next-step` | 挂到**最近一个 pre-step**（同回合内模型可见；不唤醒；空闲时挂起到下次唤醒） | `agent.inject`（宿主 rc.2+） |
 
-两条路径的消息构造一致（`source: { kind: "rule-engine", form: "notice", summary }`）；旧宿主无 `agent.inject` 时 `next-step` 记 warning 并跳过。
+两条路径的消息构造一致（`source: { kind: "rule-engine", summary }`，正文带 `[RULE] ` 前缀）；旧宿主无 `agent.inject` 时 `next-step` 记 warning 并跳过。
 
 ### 节流与去重（同一会话内）
 
@@ -133,7 +133,7 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 
 ## 已知限制
 
-- **「提示人」已由 TUI 支持**：TUI 按 `form:'notice'` 渲染为一行提示（BACKLOG #46 已完成）；未实现 `form` 分支的客户端仍会按普通 user 消息块渲染。
+- **「提示人」已由 TUI 支持**：注入消息按**用户输入块**渲染（正文 `[RULE] ` 前缀标明自动注入，BACKLOG TUI#49）；未实现该分支的客户端按普通 user 消息块渲染（行为退化为默认，不丢消息）。
 - 只有 `inject` 一种动作：`tag` 打标 / `abort` 中断 / `memory` 写知识库未实现。
 - `next-step` 路径需要宿主 rc.2+（`agent.inject`）；旧宿主上记 warning 跳过（不回退 followup）。
 - 节流记账是**进程内**内存态：`dsh` 重启后 cooldown 计数清零（规则本身持久化）。

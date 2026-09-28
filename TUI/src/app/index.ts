@@ -296,6 +296,8 @@ export class App {
   /** 退出确认面板已打开（合成问答面板 `EXIT_CONFIRM_PANEL_ID`）：确认「退出 dsh」才 dispose，
    *  取消/Esc 只关面板；防止单字节误触（BACKLOG「tmux 断连后 dsh 退出」）直接结束会话 */
   private exitConfirmOpen = false;
+  /** 已实时渲染的 rule-engine 注入消息 id（BACKLOG TUI#49；双通道去重，容量上限同 adapter 口径） */
+  private renderedRuleInjections = new Set<string>();
   /** 待绘制脏标记：同一 tick 内多次标脏合并为一次 render（见 paint/flushPaint） */
   private paintDirty = false;
   /** 已排队待冲刷的合帧标志（与 paintDirty 成对；dispose 时清零使排队帧变 no-op） */
@@ -1240,6 +1242,18 @@ export class App {
         if (this.state.commandPanel?.kind === "agents") this.panelRefreshTick();
         // TUI#39：同时即时刷新状态列 Agents 块（5s 定时之外的「启停即刻可见」通道）
         this.refreshAgentsQuiet();
+        break;
+      case "rule-injection":
+        // BACKLOG TUI#49：rule-engine 注入消息（正文 `[RULE]` 前缀）按用户块实时显示；
+        // 历史恢复路径由 adapter 折叠为用户消息，无需 App 额外处理。id 去重防双通道重复
+        if (e.id !== "" && this.renderedRuleInjections.has(e.id)) break;
+        if (e.id !== "") {
+          if (this.renderedRuleInjections.size > 200)
+            this.renderedRuleInjections.clear();
+          this.renderedRuleInjections.add(e.id);
+        }
+        this.apply((s) => reduceState(s, { type: "user-line", text: e.text }));
+        this.paint();
         break;
       case "inbox-claim":
         // TUI#43：steer 在**本回合的 step 边界**被核心认领 → 该条从排队块转入历史流。

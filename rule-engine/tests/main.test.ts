@@ -164,7 +164,7 @@ test("apply：消费者经服务注册 → turn-end 反馈由注入器注入（�
       content: Array<{ text: string }>;
       source: { kind: string; summary: string };
     };
-    assert.equal(message.content[0]?.text, "消费者的反馈");
+    assert.equal(message.content[0]?.text, "[RULE] 消费者的反馈");
     assert.equal(message.source.summary, "消费者提醒");
     assert.deepEqual(fake.flushed, [{ id: "s1" }]);
   } finally {
@@ -217,15 +217,19 @@ test("apply：事件 → 回合结束命中 → 宏任务后 followup + flush（
       id: string;
       role: string;
       content: Array<{ type: string; text: string }>;
-      source: { kind: string; form: string; summary: string };
+      source: { kind: string; form?: string; summary: string };
     };
     assert.equal(message.role, "user");
     assert.ok(typeof message.id === "string" && message.id.length > 0);
     assert.deepEqual(message.content, [
-      { type: "text", text: "请改用 ASCII 符号" },
+      { type: "text", text: "[RULE] 请改用 ASCII 符号" },
     ]);
     assert.equal(message.source.kind, "rule-engine");
-    assert.equal(message.source.form, "notice");
+    assert.equal(
+      message.source.form,
+      undefined,
+      "按用户输入块显示（无 notice form，BACKLOG TUI#49）",
+    );
     assert.equal(message.source.summary, "符号规范提醒");
     assert.deepEqual(fake.flushed, [{ id: "s1" }]);
   } finally {

@@ -84,6 +84,7 @@ import {
   noticeSummaryOf,
   parseSlashCommand,
   readDefaultSelection,
+  ruleInjectionTextOf,
 } from "./normalize.ts";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
@@ -189,8 +190,10 @@ export {
   buildApprovalPrompt,
   buildUserMessage,
   normalizeAgentStatus,
+  noticeSummaryOf,
   parseSlashCommand,
   readDefaultSelection,
+  ruleInjectionTextOf,
 } from "./normalize.ts";
 
 // 启动自检 kickoff：本文件只在适配器方法里构造该消息（其余纯函数经下方重导暴露）
@@ -1777,6 +1780,17 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           const id = typeof item["id"] === "string" ? item["id"] : undefined;
           // 双通道（user/message 与 spliced）可能携带同一条注入消息 → 按 id 去重
           if (id !== undefined && renderedNoticeIds.has(id)) continue;
+          // TUI#49：rule-engine 注入（无 notice form）→ 走用户块实时通道；
+          // 历史路径（surface）自然折叠为用户消息，故只处理实时显示
+          const ruleText = ruleInjectionTextOf(item);
+          if (ruleText !== undefined) {
+            if (id !== undefined) {
+              if (renderedNoticeIds.size > 200) renderedNoticeIds.clear();
+              renderedNoticeIds.add(id);
+            }
+            emit({ type: "rule-injection", id: id ?? "", text: ruleText });
+            continue;
+          }
           const summary = noticeSummaryOf(item);
           if (summary === undefined) continue;
           if (id !== undefined) {
