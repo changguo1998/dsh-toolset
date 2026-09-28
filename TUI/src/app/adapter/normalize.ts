@@ -71,16 +71,26 @@ export function noticeSummaryOf(message: unknown): string | undefined {
     : line;
 }
 
+/** 按「用户输入块」显示的插件注入来源（各自在正文前加前缀以示区分：`[RULE] ` / `[CHANNEL] `）。 */
+const USER_BLOCK_INJECTION_KINDS: readonly string[] = [
+  "rule-engine",
+  "session-channel",
+];
+
 /**
- * rule-engine 注入消息判定（BACKLOG TUI#49）：`source.kind === "rule-engine"` 时返回
- * 正文文本（用户块显示用，保留原样不截断）；非该来源 / 无可读正文 → undefined。
- * 与 `noticeSummaryOf` 独立：rule-engine 自 #49 起不再走 notice 形态。
+ * 插件注入消息判定（BACKLOG TUI#49；session-channel 见 #30）：来源 kind 属于
+ * `USER_BLOCK_INJECTION_KINDS` 时返回正文文本（用户块显示用，保留原样不截断）；
+ * 非该来源 / 无可读正文 → undefined。
+ * 与 `noticeSummaryOf` 独立：这些来源不走 notice 形态（rule-engine 自 #49 起）。
  */
 export function ruleInjectionTextOf(message: unknown): string | undefined {
   if (typeof message !== "object" || message === null) return undefined;
   const msg = message as Record<string, unknown>;
   const source = msg["source"] as Record<string, unknown> | undefined;
-  if (source?.["kind"] !== "rule-engine") return undefined;
+  const kind = source?.["kind"];
+  if (typeof kind !== "string" || !USER_BLOCK_INJECTION_KINDS.includes(kind)) {
+    return undefined;
+  }
   const text = extractTextBlocks(msg["content"]).trim();
   return text === "" ? undefined : text;
 }

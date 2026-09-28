@@ -1,0 +1,3 @@
+- insert:
+    - id: session-channel
+      name: '@dsh-toolset/session-channel'

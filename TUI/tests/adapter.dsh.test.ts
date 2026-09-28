@@ -5610,6 +5610,41 @@ test("TUI#49 live：rule-engine 注入（无 notice form）→ rule-injection �
   ]);
 });
 
+test("session-channel 注入（#30）：source.kind=session-channel → 同一用户块通道（rule-injection 事件）", () => {
+  const t = makeAdapter();
+  const injected = {
+    id: "ic-1",
+    role: "user",
+    content: [{ type: "text", text: "[CHANNEL] 来自 sess-a：构建已完成" }],
+    source: { kind: "session-channel", summary: "session-channel 来自 sess-a" },
+  };
+  fire(t, "agent/inbox/spliced", { inserted: [injected] }, "s1", 1);
+  // 未知来源仍不渲染（只有白名单内的插件注入走用户块）
+  fire(
+    t,
+    "agent/inbox/spliced",
+    {
+      inserted: [
+        {
+          id: "other-1",
+          role: "user",
+          content: [{ type: "text", text: "x" }],
+          source: { kind: "other-plugin" },
+        },
+      ],
+    },
+    "s1",
+    2,
+  );
+  assert.deepEqual(t.events, [
+    {
+      type: "rule-injection",
+      id: "ic-1",
+      text: "[CHANNEL] 来自 sess-a：构建已完成",
+    },
+  ]);
+});
+
 test("TUI#49 历史归一：rule-engine 注入 → 用户消息块（非 notice 行）", async () => {
   const sq = new FakeSessionQuery();
   sq.events = [

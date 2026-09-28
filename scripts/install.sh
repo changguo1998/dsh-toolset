@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # 新机器安装脚本：装 dsh → 构建本项目插件 → 配 profile（插件挂载）。
 #
-# 默认值：profile 名 fff、dsh 版本 0.1.7-rc.2、插件取全部 13 个包。
+# 默认值：profile 名 fff、dsh 版本 0.1.7-rc.2、插件取全部 14 个包。
 # 本项目只用 TUI：agent 面由 profile 全局组合提供，脚本不配置 agent preset
 # （说明见 docs/host/AGENT-COMPOSITION.md）。
 # 幂等：已存在的 profile 配置文件默认原样保留（--force 才覆盖，且先备份
@@ -22,14 +22,14 @@ dry_run=0
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 profile_asset_dir="$repo_root/profiles/example"
 # 插件处理顺序（与根 package.json 的 check/build 顺序一致；子包名从各自 package.json 读）
-canonical_pkgs="TUI herdr-integration knowledge-base task-engine ast-tools fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine symbol-normalizer"
+canonical_pkgs="TUI herdr-integration knowledge-base task-engine ast-tools fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine symbol-normalizer session-channel"
 
 usage() {
     cat << 'EOF'
 用法：scripts/install.sh [选项]
 
   --profile <名字>      dsh profile 名（默认 fff）
-  --plugins <列表|all>  要装的插件目录名，逗号或空格分隔（默认 all = 上表 13 个包）
+  --plugins <列表|all>  要装的插件目录名，逗号或空格分隔（默认 all = 上表 14 个包）
   --dsh-version <版本>  安装的 dsh 版本（默认 0.1.7-rc.2）
   --skip-dsh            不安装 / 不校验 dsh（假设 PATH 上已有）
   --skip-build          跳过插件的 npm install 与 build（复用已有 dist/）

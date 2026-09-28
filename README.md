@@ -6,7 +6,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 
 ## 组成
 
-仓库含 `TUI/` 终端界面包与 14 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
+仓库含 `TUI/` 终端界面包与 15 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
 
 | 包 | 功能 |
 |----|------|
@@ -25,6 +25,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **context-report** | 会话上下文与用量报告：host-only 投影 `sessionContext` 折叠会话累计（回合/步、模型与工具墙钟、首 token、token 分桶），工具 `context_report` 合成 token-meter 即时压力与模型容量读数 |
 | **rule-engine** | 规则触发的自动注入：按关键词/正则/内置谓词匹配模型正文、工具调用与回合边界，命中后向下一回合（`followup`）或最近 pre-step（`next-step`）注入 user-role 消息；提供消费者注册面（`registerConsumer`，turn-end 同步询问并统一注入）与只读 `evaluate` |
 | **symbol-normalizer** | 符号规范：模型正文符号的展示层归一（别名替换）+ 回合审查（人类 notice / 模型反馈），以 rule-engine 消费者形式接入；provide `symbolNormalizer` 服务供 TUI 消费 |
+| **session-channel** | 跨会话消息通道（专用 Redis 实例 + unix socket）：`peers`/`send`/`inbox`/`status`，消息注入目标会话的下一回合（前缀 `[CHANNEL] `）；provide `sessionChannel` 服务 |
 
 各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/STATUS.md`。
 
@@ -47,6 +48,7 @@ dsh-toolset/
 ├── context-report/       # 会话上下文/用量报告（sessionContext 投影 + context_report 工具）
 ├── rule-engine/          # 规则触发的自动注入（规则 / 消费者面 + 注入器）
 ├── symbol-normalizer/    # 符号规范（展示归一 + 回合审查，rule-engine 消费者）
+├── session-channel/      # 跨会话消息通道（专用 Redis 实例 + unix socket）
 ├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
 ├── scripts/              # install.sh（新机器一键安装）；测试调度脚本
 ├── docs/                 # 状态表、待办清单、agent 面组合说明、架构对照与宿主包清单
@@ -73,7 +75,7 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 
 ## 接入 DSH profile 使用
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 15 个包）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 16 个包）：
 
 ```sh
 git clone <本仓库> && cd dsh-toolset
@@ -129,7 +131,7 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 **模块级（`TUI/docs/`、`<包>/docs/`）**
 
 - `TUI/README.md`、`<包>/README.md` — 模块入口：用法、配置、契约、边界。
-- `TUI/docs/DESIGN.md`、`<包>/docs/DESIGN.md` — 架构设计与机制取舍（`knowledge-base`、`output-compress`、`code-map` 有）。
+- `TUI/docs/DESIGN.md`、`<包>/docs/DESIGN.md` — 架构设计与机制取舍（`knowledge-base`、`output-compress`、`code-map`、`session-channel` 有）。
 - `TUI/docs/SPEC.md` — 渲染管线规格；`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` — 命令清单与扩展规格。
 - `TUI/docs/design/` — TUI 内部规范：`NOTICE-LEVELS.md`（提示分级）、`AUDIT-colors.md`（配色语义）、`REFACTOR.md`（模块拆分约定）。
 - `<模块>/docs/BACKLOG.md` — 模块待办（`TUI/docs/BACKLOG.md`、`fs-digest/docs/BACKLOG.md` 已建，其余按需）；`<模块>/docs/STATUS.md` — 模块级对照文档（TUI 已有）。

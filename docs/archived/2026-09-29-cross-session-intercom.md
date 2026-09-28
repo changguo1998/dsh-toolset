@@ -1,7 +1,9 @@
 # 跨会话消息通道（intercom 插件）（接取条目：docs/BACKLOG.md「跨会话 broker（消息/委托/状态同步）」）
 
-状态：实现（决策已成文，等用户复核后开工；代码未动）　　开启：2026-09-29　　关闭：
-本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
+状态：关闭　　开启：2026-09-29　　关闭：2026-09-29
+
+> 后续记录：插件关闭后按命名规范由 `intercom` 更名为 **`session-channel`**（功能、结构、键位语义不变；键前缀 `dsh:session-channel:`、工具 `session_channel`、服务 `sessionChannel`、socket `dsh-session-channel.sock`、unit `dsh-session-channel-redis.service`、注入前缀 `[CHANNEL] `）。本文件内文按当时名称保留。
+> 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
 
@@ -86,11 +88,31 @@
 - 已装依赖：`npm --cache tmp/npm-cache install --prefix intercom` → 10 个包，生成 `package-lock.json`（待入库）。
 - 已完成 API 探针（结论见「调研」；临时脚本在 `tmp/`，收尾清理）。
 - 本追踪文档已按决策 B 更新。
+- 实现（同日）：
+  - `intercom/src/{keys,types,constants,client,broker,inject,index}.ts`：键位 / 类型与错误码 / 常量 / 连接层（地址解析、双连接、健康自检、超时快速失败、失败路径关连接）/ 消息层（在线 + 懒清理、寻址、发送、收件箱、回执、阻塞读）/ 注入层（宏任务推迟 + 消息构造）/ 服务与接入面（会话跟踪、心跳、reader 循环、工具、provide、apply）。
+  - 游标语义修正：新跟踪会话从 `0` 起读（发送方可能先入队、接收方后启动），已投递消息按回执照跳过（重启不重复注入）。
+  - `intercom/scripts/setup-redis.sh`：路 B 安装（配置 + 用户级 unit + enable/linger + PING 验证；`--uninstall` / `--purge` / `--manual` / `--dry-run`）；补 socket 父目录创建（`$XDG_RUNTIME_DIR` 缺失时）。
+  - TUI：`TUI/src/app/adapter/normalize.ts` 白名单泛化（`rule-engine` + `intercom` 走用户块通道）+ 用例。
+  - 接入：根 `package.json`（check/build）、`scripts/test-parallel.sh`、`scripts/install.sh`（canonical 列表 + 计数文案）、根 `README.md`、`AGENTS.md`、`intercom/README.md`、`intercom/docs/DESIGN.md`。
+- 途中发现（已修）：`connectIntercom` 在健康自检失败时未关闭已建立连接 → 句柄残留拖住进程（测试实测）；`setup-redis.sh --manual` 仍等待 socket；`setup-redis.sh` 未创建 `$XDG_RUNTIME_DIR`。
+- **真机缺陷与修复**（最重的一条）：`inject` 只声明了 `["tools"]`，注入时直读 `ctx.agents` 在真实 cordis ctx 上抛 `cannot get property "agents" without inject` → 读循环反复重试、消息无回执、发送方 `delivered:false`。修法三处：① `inject = ["tools", "agents", "sessions"]`（与 rule-engine 同口径）；② 服务读取改为受保护访问器 `readService`（`ctx.get(name)` 优先、直读与其自身 `get` 读取均包 try/catch）；③ 注入后调 `sessions.flush(agent.session)` 落盘，并把单条投递失败与整批读取解耦。回归用例 3 例（`tests/inject.test.ts`：受保护读取三态、flush 调用、代理宿主端到端）。
 
 ## 测试与证据
 
-（实现时追加）
+- 单测 18 例（`npm --prefix intercom run test`）：`client` 5（地址解析三态 / 连通自检写 meta / schema 不兼容 / 连不上快速失败）+ `broker` 6（在线与死 pid 懒清理 / 寻址精确与 cwd 多命中 / 发送错误码三态与成功入库 / 回执等待 / 阻塞读游标）+ `service` 5（端到端注入与回执 / 停止清在线键 / 重启不重复注入 / disabled 与连不上降级 / 键前缀 sanity）+ `apply` 2（工具与 provide 面全链 / 无 tools 面不抛）。集成用例在临时 `redis-server 7.0.15`（unix socket）上跑，无该二进制的机器自动 skip。
+- 安装脚本实测：`--manual` 生成配置 → 手动起实例 → `PING` = PONG；`maxmemory-policy=noeviction` / `port=0` / `appendonly=yes` 生效；socket 权限 `srwx------`；SIGTERM 干净退出（AOF/RDB 落盘）。
+- 门禁：根 `npm run check` 0 error（16 包）、`npm run build` 0 error；全仓 `npm run test` 全 OK——intercom 18、TUI 1206（+1 为 intercom 显示用例）、其余 14 包无回归。
+- 真机（**已通过**，2026-09-29）：用户级服务安装成功（`setup-redis.sh --linger`：配置 + unit + enable + linger + PING=PONG，socket 0700，`DBSIZE 0`）；跨进程联调（两个 dsh 会话）四段全通——① 重启补投：首条失败消息在接收方重启后按游标 0 补投并写回执（`ack:1790637235680-0`）；② live 实时投递：`send` 返回 `delivered: true`；③ 注入显示：接收方界面出现 `[INTERCOM] 跨进程测试` / `[INTERCOM] 实时第二条` 用户块；④ 在线项两条（pid / cwd / startedAt 正确）。
+- 真机发现并修复（见下「途中发现」）：`ctx.agents` 直读抛错导致注入失败、回执缺失——修复后 21 例单测（+3 回归）全绿。
 
 ## 收尾
 
-（关闭时补齐；含：委托/协调与状态同步两条后续条目立项、DESIGN/README 回写、#30 清理）
+- 回写 `intercom/README.md`（能力 / 前置 / 配置 / 键位 / 用法 / 边界 / 测试）与 `intercom/docs/DESIGN.md`（定位 / 取舍 / 模型 / 管线 / 生命周期 / 运维 / 接入面 / 边界 / 明确不做）。
+- 回写根 `README.md`（插件表 + 目录树 + 文档索引 + 计数）与 `AGENTS.md`（包清单 + 计数 + 插件子包说明）。
+- `docs/BACKLOG.md`：#30 清理；新增两条后续条目——跨会话委托/协调、扩展状态同步（本条范围外，用户 2026-09-29 裁定的拆分）。
+- 本文件移入 `docs/archived/`。
+- 遗留项：无；`vm.overcommit_memory` WARNING 可忽略（要消除需 root）。
+- **改名（关闭后按命名规范执行）**：`intercom` → `session-channel`。范围 = 包目录、包名 `@dsh-toolset/session-channel`、工具 `session_channel`、服务 `sessionChannel`、键前缀 `dsh:session-channel:`、socket `dsh-session-channel.sock`、unit `dsh-session-channel-redis.service`、env `DSH_SESSION_CHANNEL_REDIS_URL`、注入前缀 `[CHANNEL] `（源码 kind `"session-channel"`）、根脚本清单 / README / AGENTS / TUI 白名单 / BACKLOG 引用 / 本文件顶部注记。
+- **改名后真机复验（2026-09-29）**：旧 unit 与 `~/.dsh/intercom` 卸载、新 unit 安装（`--linger`）、profile 依赖与 bundle 换成新名并 `pnpm install`、两会话重启后互发——接收方界面出现 `[CHANNEL] 改名后验证`，发送方 `delivered: true`；新实例 socket 0700 + PONG + meta=1，旧 socket 已消失。
+- 门禁（改名后）：根 `check` / `build` 0 error；全仓 `test` 16 包全 OK（session-channel 21、TUI 1206）。
+- 临时文件：`tmp/probe-redis.mjs`、`tmp/probe-teardown*.mjs`、`tmp/probe-ours.mjs`、`tmp/npm-cache/`（收尾已清理）。
