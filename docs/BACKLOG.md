@@ -35,7 +35,7 @@
 | 15 | `[~]` git-worktree 完整隔离（resume 已由 task-engine `resumeFromSnapshot` 覆盖；隔离未实现） | dynamic-workflows 拆项 5 | 本机本地插件 `dsh-git-worktree` 补完整隔离（当前仅有 disabled-git-hooks） | P2 |
 | 17 | 模板化 pattern 五族（deep-research / code-review / multi-perspective / adversarial-review / codebase-audit） | dynamic-workflows 拆项 7（对比文档 §3.1）；pi-simplify/ponytail 工具族可并入 | workflow 脚本 + skill 内容资产 | P2 |
 | 23 | PDF/文档结构视图 | readseek 拆项 4（对比文档 §3.4） | 无底座，新工具 | P2 |
-| 30 | 跨会话 broker（消息/委托/状态同步） | pi-intercom（对比文档 §3.3） | 无底座；webhook/acp/sdk 均非等效，新建 unix socket 通道 | P2 |
+| 30 | 进行中（2026-09-29，追踪文档 `docs/implementation/2026-09-29-cross-session-intercom.md`）跨会话 broker（消息/委托/状态同步）——**2026-09-29 决策**：本次只做**消息通道 MVP**（委托/协调、状态同步另立后续条目）；离线策略=目标不在线直接报错（不做 spool）；寻址=`sessionId` / `cwd:<path>`；入站 `source.kind:"intercom"` + 正文前缀 `[INTERCOM] ` 经 `agent.followup()` 注入，TUI 泛化 `ruleInjectionTextOf` 按用户块显示；传输拓扑=**专用 Redis 实例（路 B：unix socket + 独立配置 + 用户级 systemd 开机自启）**；Redis 客户端自写最小 RESP（零新增依赖）；键位 `dsh:intercom:*`；委托/协调与状态同步关闭时另立条目 | pi-intercom（对比文档 §3.3） | 无底座；webhook/acp/sdk 均非等效，新建 unix socket 通道 | P2 |
 | 31 | slash 命令模板（pre-steps/chain/best-of-N）+ 模板级模型选择 | pi-prompt-template-model（对比文档 §3.4） | commands + workflow | P2 |
 | 41 | 待办 **建立 `docs/ROADMAP.md`**：写未来开发方向，内容需维护者提供；建立后与 `docs/BACKLOG.md` §3「里程碑」的分工为「方向在 ROADMAP、进度与排期在 BACKLOG」 | #39 落地时发现（2026-09-25） | 需维护者参与 | P2 |
 | 51 | **记忆 auto-consolidation（自动巩固）**：把高频 / 高重要度记忆自动提升、合并相似条目、淘汰陈旧项（现状 knowledge-base 已有两级写回与淘汰提升，语义接近但需自动化巩固策略） | `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3（原 §2.6 观察项，用户 2026-09-29 立项） | knowledge-base 记忆层扩展（复用两级写策略 / 淘汰提升机制） | P2 |
