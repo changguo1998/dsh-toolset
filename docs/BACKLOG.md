@@ -44,12 +44,10 @@
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
-| 53 | **`fs-digest` 的 `ctx.lsp` 直读缺陷**：`fs-digest/src/lsp.ts` 的 `c?.lsp ?? …` 先直读服务属性——真实 cordis ctx 上未 inject 的服务属性直读抛 `cannot get property "lsp" without inject`，使 `fs_digest` 工具（outline/signatures）整调用失败而非降级启发式（2026-09-29 实测一次）。修法：改受保护读取（`ctx.get("lsp")` 优先 + try/catch，参考 code-map `src/semantic/lsp.ts` 的 `readLspSurface`） | #22 实现时发现（2026-09-29） | fs-digest 模块自管 | P1 |
-
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
-1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#23、#30、#31、#41、#50、#51、#52、#53（P1，fs-digest 缺陷），按需排期；已完成项（含 #21-#22、#39、#40、#42-#49）见 §1 索引，已取消 / 不再立项项亦见 §1。
+1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#23、#30、#31、#41、#50、#51、#52，按需排期；已完成项（含 #21-#22、#39、#40、#42-#49）见 §1 索引，已取消 / 不再立项项亦见 §1。
 1. 依赖：#17 的模板族（含原 #32 的代码审查能力）可复用 workflow/skill 资产；workflow-ext 建包前，工作流相关插件面依赖 task-engine 的契约与执行器；其余相互独立。
 
 ## 4. 插件规划（未建包）

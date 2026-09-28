@@ -18,18 +18,39 @@ export interface SymbolProvider {
 }
 
 /**
+ * 受保护地读宿主 lsp 服务面：`ctx.get("lsp")` 优先，直接属性读兜底。
+ * 真实 cordis ctx 上未 inject 的服务属性**直读会抛错**
+ * （`cannot get property "lsp" without inject`），故两路都包 try/catch——
+ * 读取失败一律视为「服务不可用」（调用方降级启发式），绝不透传抛出。
+ */
+function readLspSurface(ctx: unknown): unknown {
+  if (ctx === null || typeof ctx !== "object") return undefined;
+  const c = ctx as { lsp?: unknown; get?: (name: string) => unknown };
+  if (typeof c.get === "function") {
+    try {
+      const svc = c.get("lsp");
+      if (svc !== undefined) return svc;
+    } catch {
+      /* 严格模式读取异常 → 尝试直接属性读 */
+    }
+  }
+  try {
+    return c.lsp;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * 解析符号提供器：优先显式注入（deps.provider，单测/嵌入用），
- * 其次宿主 ctx 结构面（ctx.lsp 或 ctx.get("lsp") 的 duck-typed 方法）。
+ * 其次宿主 ctx 结构面（`ctx.get("lsp")` 或 `ctx.lsp` 的 duck-typed 方法）。
  */
 export function resolveSymbolProvider(
   ctx: unknown,
   injected?: SymbolProvider,
 ): SymbolProvider | undefined {
   if (injected !== undefined) return injected;
-  const c = ctx as
-    { lsp?: unknown; get?: (name: string) => unknown } | null | undefined;
-  const surface =
-    c?.lsp ?? (typeof c?.get === "function" ? c.get("lsp") : undefined);
+  const surface = readLspSurface(ctx);
   if (typeof surface !== "object" || surface === null) return undefined;
   const s = surface as { documentSymbols?: unknown; symbols?: unknown };
   const method =

@@ -183,6 +183,19 @@ describe("宿主 ctx 结构面 LSP 解析", () => {
     if (!r.ok || r.mode !== "outline") throw new Error("unreachable");
     assert.equal(r.source, "lsp");
   });
+
+  it("cordis 代理语义：直读 ctx.lsp 抛错时不透传，降级启发式（#53）", async () => {
+    // 模拟真实 cordis ctx：未 inject 的服务属性直读抛错，get() 返回 undefined
+    const ctx = {
+      get: (_k: string) => undefined,
+      get lsp(): never {
+        throw new Error('cannot get property "lsp" without inject');
+      },
+    };
+    const r = await digest(ctx, TS_FILE, { mode: "outline" });
+    if (!r.ok || r.mode !== "outline") throw new Error("unreachable");
+    assert.equal(r.source, "heuristic", "LSP 不可读 → 启发式，不抛错");
+  });
 });
 
 describe("工具注册（mock ctx）", () => {
