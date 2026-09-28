@@ -944,6 +944,18 @@ test("sendMessage 忽略不匹配的 sessionId（写 stderr 不崩溃）", () =>
   assert.equal(agent.followups.length, 0);
 });
 
+test("sendBootstrapKickoff → agent.followup 自检消息（source.kind=tool-bootstrap）", () => {
+  const agent = new FakeAgent();
+  const t = makeAdapter(new FakeRuntime(), agent);
+  t.adapter.sendBootstrapKickoff?.();
+  assert.equal(agent.followups.length, 1);
+  const msg = agent.followups[0]!;
+  assert.equal(msg.role, "user");
+  assert.match(msg.content[0]!.text, /^\[AUTO\]/);
+  assert.deepEqual(msg.source, { kind: "tool-bootstrap" });
+  assert.match(msg.id ?? "", /^[0-9a-f-]{36}$/i);
+});
+
 test("onEvent 返回解绑函数；unbind 后不再收到事件", () => {
   const t = makeAdapter();
   t.unbind();

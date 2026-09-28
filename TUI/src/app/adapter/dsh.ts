@@ -193,6 +193,9 @@ export {
   readDefaultSelection,
 } from "./normalize.ts";
 
+// 启动自检 kickoff：本文件只在适配器方法里构造该消息（其余纯函数经下方重导暴露）
+import { buildBootstrapKickoffMessage } from "./tool-bootstrap.ts";
+
 export {
   classifyTask,
   coreFor,
@@ -204,6 +207,11 @@ export {
   sessionMessages,
   hasToolCallInMessages,
   sessionModeFromMessages,
+  firstUserText,
+  shouldAutoKickoff,
+  BOOTSTRAP_KICKOFF_TEXT,
+  buildBootstrapKickoffMessage,
+  type BootstrapKickoffMessage,
   installToolBootstrap,
   type ToolBootstrapOptions,
   type TaskAnchor,
@@ -2481,6 +2489,15 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         }
       }
       activeAgent.followup(buildUserMessage(text));
+    },
+    /**
+     * 启动自检 kickoff（锚定解锁）：以 `source.kind:"tool-bootstrap"` 发一条 user 消息
+     * （正文 `[AUTO]` 开头），驱动模型发起首个工具调用完成解锁。真实 DSH 不回显非 notice
+     * 的注入 user 消息，故回显由 App 侧负责；仅启动期由 App 门控后调用一次。
+     */
+    sendBootstrapKickoff() {
+      if (disposed) return;
+      activeAgent.followup(buildBootstrapKickoffMessage());
     },
     runCommand(line, targetSessionId) {
       if (disposed) return;

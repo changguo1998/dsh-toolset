@@ -323,6 +323,12 @@ export interface DshAdapter {
    *  宿主 agent 无 steer 时回落 followup 并由 App 侧提示降级 */
   sendMessage(text: string, sessionId?: string, target?: "next-step"): void;
   /**
+   * 启动自检（锚定解锁，BACKLOG TUI「启动后自动触发首轮工具调用」）：代替用户发一条
+   * `[AUTO]` 自检消息（`source.kind:"tool-bootstrap"`），驱动模型发起首个工具调用完成
+   * 解锁。仅启动期在门控通过后由 App 调用；未接线（mock / 旧接线）时缺省不下发。
+   */
+  sendBootstrapKickoff?(): void;
+  /**
    * 执行 slash 命令行(形如 /name args...)。约定：命令通过注册表调用 → 结果经
    * notice 事件回报；未命中(undefined)→ notice 提示未知命令(fail-close)，绝不
    * 作为用户消息发送给模型。渲染类命令(/help /clearscreen /cls /quit)由 app 层本地表处理，
@@ -818,7 +824,9 @@ export interface DshUserMessageLike {
   readonly id?: string;
   readonly role: "user";
   readonly content: readonly { type: "text"; text: string }[];
-  readonly source: { kind: "user" } | { kind: "plugin"; plugin: string };
+  /** 消息 source：`user` = 真实用户输入；`plugin` 及其余 kind = 注入消息（如
+   *  `tool-bootstrap` 启动自检）——注入消息不参与任务模式分类 */
+  readonly source: { kind: string; plugin?: string };
 }
 
 /**

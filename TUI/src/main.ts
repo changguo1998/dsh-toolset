@@ -28,6 +28,8 @@ import {
   createRealDshAdapter,
   installSessionModelSelection,
   installToolBootstrap,
+  shouldAutoKickoff,
+  BOOTSTRAP_KICKOFF_TEXT,
   listSessionRecords,
   pickRecentSession,
   readDefaultSelection,
@@ -72,6 +74,9 @@ export function main(opts: {
   statusQueries?: StatusQueries;
   /** 符号服务读取器（懒读，容忍插件装载顺序；symbol-normalizer 未挂载时返回 undefined） */
   getSymbols?: () => SymbolNormalizerLike | undefined;
+  /** 启动自检 kickoff 正文（门控通过时传入，App 代替用户发出以完成锚定解锁）；
+   *  不传 = 不发送（非 deepseek 模型 / toolBootstrap 关闭 / 会话已解锁 / 记录不可读） */
+  bootstrapKickoffText?: string;
 }): () => void {
   // 主题调色板配置解析（tui.config.json theme 段；告警经 logger 输出，避免"改了未生效"）
   const tuiConfig = loadTuiConfig();
@@ -97,6 +102,7 @@ export function main(opts: {
     frameIntervalMs: 100,
     initialTheme: opts.initialTheme ?? resolvedThemes.active,
     messageGutter: opts.messageGutter,
+    bootstrapKickoffText: opts.bootstrapKickoffText,
   });
   app.setLogger(opts.logger ?? ((msg) => void msg));
   app.start();
@@ -543,8 +549,20 @@ export async function apply(
 
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）
   const display = normalizeTuiDisplayConfig(config);
+  // 启动自检门控（BACKLOG TUI「启动后自动触发首轮工具调用」）：开关未关 + 模型命中
+  // deepseek + 会话未解锁 → 把正文交给 App，由其代替用户发出以完成锚定解锁；判据不可读
+  // → 不发并 warn（与锚定 filter 的 fail-open 方向相反，见 shouldAutoKickoff）。
+  const kickoffText = shouldAutoKickoff({
+    enabled: config?.toolBootstrap ?? true,
+    modelId: route.model ?? "",
+    session: rawAgent.session,
+    warn: (msg) => process.stderr.write("[tui] warn: " + msg + "\n"),
+  })
+    ? BOOTSTRAP_KICKOFF_TEXT
+    : undefined;
   const disposeApp = main({
     adapter,
+    bootstrapKickoffText: kickoffText,
     initialTheme:
       config?.theme === undefined ? undefined : normalizeThemeId(config.theme),
     logger: (msg) => process.stderr.write("[tui] " + msg + "\n"),

@@ -268,6 +268,9 @@ export interface AppDeps {
   /** 符号服务读取器（懒读，容忍插件装载顺序）：返回 undefined = symbol-normalizer 未挂载，
    *  此时展示层原文透传、无 notice（BACKLOG TUI#18 / 项目级 #48） */
   getSymbols?: () => SymbolNormalizerLike | undefined;
+  /** 启动自检 kickoff 正文（门控通过时由 main.ts 传入；App 代替用户发出以完成锚定解锁）。
+   *  不传 / adapter 未实现 sendBootstrapKickoff = 不发送 */
+  bootstrapKickoffText?: string;
   /** 自动清理空会话（tui.config.json `session.autoCleanEmpty`；main.ts 接线缺省 true）。
    *  true 时 start() 异步扫描全部目录删除空会话（notice 汇报），且优雅退出时
    *  （/quit、Ctrl+D、双击 Ctrl+C、插件 unload）先打印提示并等待清理完成再关闭渲染器。 */
@@ -283,6 +286,9 @@ export class App {
   private readonly shellRunner: ShellRunner;
   private unbindEvents: (() => void)[] = [];
   private disposed = false;
+  /** 启动自检 kickoff 正文（门控通过时由 main.ts 传入）：恢复会话先挂起，等启动历史折叠
+   *  落定后再发（history-restore 会整表替换 buffer，早发会被替换掉）；null = 无待发内容 */
+  private kickoffPending: string | null = null;
   /** 待绘制脏标记：同一 tick 内多次标脏合并为一次 render（见 paint/flushPaint） */
   private paintDirty = false;
   /** 已排队待冲刷的合帧标志（与 paintDirty 成对；dispose 时清零使排队帧变 no-op） */
@@ -498,6 +504,9 @@ export class App {
     this.refreshCommandCatalog();
     // 补 Mode 块初始值（log-only 事件启动不产生，从会话日志折叠一次）
     this.restoreSessionState();
+    // 启动自检 kickoff（BACKLOG TUI「启动后自动触发首轮工具调用」）：先挂起，再由下面的
+    // 历史折叠决定发送时机（新会话走启动宏任务；恢复会话等折叠落定，见 flushKickoffPending）
+    this.startBootstrapKickoff();
     // TUI#40：CLI 启动即恢复（--resume / -c）→ 补一次历史折叠，历史区直接可见既有消息
     this.restoreStartupHistory();
     // 启动自动清理空会话（session.autoCleanEmpty=true 时后台执行，不阻塞 UI）
@@ -693,10 +702,16 @@ export class App {
    */
   private restoreStartupHistory(): void {
     const a = this.deps.adapter;
-    if (a.resumedAtLaunch !== true) return;
+    if (a.resumedAtLaunch !== true) {
+      this.flushKickoffPending();
+      return;
+    }
     const read = a.readSessionSurface;
     const sid = this.state.activeSessionId ?? a.sessionId;
-    if (!read || !sid) return;
+    if (!read || !sid) {
+      this.flushKickoffPending();
+      return;
+    }
     void read
       .call(a, sid)
       .then((view) => {
@@ -725,7 +740,9 @@ export class App {
         this.apply((s) => reduceState(s, { type: "queued-clear" }));
         this.paint();
       })
-      .catch(() => this.notice("启动恢复：既有消息读取失败", "warn"));
+      .catch(() => this.notice("启动恢复：既有消息读取失败", "warn"))
+      // 无论折叠成功与否都补发挂起的 kickoff（读取失败不该吞掉启动自检）
+      .finally(() => this.flushKickoffPending());
   }
 
   /** 当前 TUI 视角的会话状态快照（宿主不掌握 verbose/symbol-unify；模型/模式作兜底） */
@@ -2063,6 +2080,41 @@ export class App {
     this.apply((s) => reduceState(s, { type: "question-close" }));
     this.deps.adapter.cancelQuestion(panel.id);
     this.paint();
+  }
+
+  /** 启动自检 kickoff 调度（BACKLOG TUI「启动后自动触发首轮工具调用」）：门控（开关 /
+   *  模型 / 会话未解锁）已在 main.ts 判过，这里只管时机——新会话在启动宏任务里发（先出
+   *  首帧）；恢复会话先挂起，等 restoreStartupHistory 折叠落定后由 flushKickoffPending 发。 */
+  private startBootstrapKickoff(): void {
+    const text = this.deps.bootstrapKickoffText;
+    if (typeof text !== "string" || text.trim() === "") return;
+    if (typeof this.deps.adapter.sendBootstrapKickoff !== "function") return;
+    if (this.deps.adapter.resumedAtLaunch === true) {
+      this.kickoffPending = text;
+      return;
+    }
+    setTimeout(() => this.submitBootstrapKickoff(text), 0);
+  }
+
+  /** 启动历史折叠已落定（或不会发生）→ 补发挂起的 kickoff；无挂起则无操作 */
+  private flushKickoffPending(): void {
+    const text = this.kickoffPending;
+    this.kickoffPending = null;
+    if (text !== null) this.submitBootstrapKickoff(text);
+  }
+
+  /** 发出启动自检消息：与用户提交同路径回显（状态置运行 + 回合开始 + 用户行），消息本体
+   *  由 adapter 构造（正文 `[AUTO]` 开头，`source.kind:"tool-bootstrap"` 不进模式分类）。 */
+  private submitBootstrapKickoff(text: string): void {
+    if (this.disposed) return;
+    const send = this.deps.adapter.sendBootstrapKickoff;
+    if (typeof send !== "function") return;
+    this.apply((s) =>
+      reduceState(s, { type: "input-status", status: "running" }),
+    );
+    this.beginTurnIfNeeded(true);
+    this.apply((s) => reduceState(s, { type: "user-line", text }));
+    send.call(this.deps.adapter);
   }
 
   /** 发送用户文本（状态置运行 + 本地回显 + adapter 分发）：普通提交、`<` steer 与 /init 共用。

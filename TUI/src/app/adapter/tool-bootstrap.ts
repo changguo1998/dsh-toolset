@@ -26,8 +26,16 @@
 // 文本在 agent/inbox/inserted 捕获（先于首组装事件），agent/pre-step 兜底；
 // 缺失 shell、过滤异常同样降级全量目录，绝不阻塞步骤管线。
 //
+// 启动自检（BACKLOG TUI「启动后自动触发首轮工具调用」）：未解锁的会话在 TUI 启动时由
+// App 代替用户发一条 `source.kind:"tool-bootstrap"` 的自检消息（正文以 `[AUTO]` 开头，
+// 并声明不作为会话标题参考），驱动模型发起首个工具调用完成解锁。该消息不参与任务模式
+// 分类（firstUserText 按 source.kind 过滤），模式仍由首个真实 user 消息落定；门控与
+// 消息构造为纯函数：shouldAutoKickoff / buildBootstrapKickoffMessage。
+//
 // 零运行时依赖，仅用 DshRuntime 结构面（ctx.on），与 installSessionModelSelection
 // 挂钩同一条 system-prompt/assemble waterfall，顺序无关可共存。
+
+import { randomUUID } from "node:crypto";
 
 import type { DshRuntime } from "./types.ts";
 
@@ -84,8 +92,51 @@ export function extractText(data: unknown): string {
     .join(" ");
 }
 
-/** 从 durable 记录推导会话模式（resume-safe）：宿主 events 优先；rc.2 无
- *  events 时经消息投影读首个真实用户消息；两者皆不可读回落 weak。 */
+/** 首个真实用户消息文本（宿主 events 优先；rc.2 无 events 时经消息投影读）；
+ *  注入消息按 `source.kind` 跳过（kickoff / agent-instructions / skill-catalog 等）；
+ *  无真实消息 / 不可读 → undefined。 */
+export function firstUserText(
+  session:
+    | {
+        events?: readonly Record<string, unknown>[];
+        deriveMessages?: () => readonly BootstrapMessage[];
+      }
+    | undefined,
+): string | undefined {
+  if (!session) return undefined;
+  if (Array.isArray(session.events)) {
+    for (const e of session.events) {
+      if (!e || e.type !== "user/message") continue;
+      const kind = eventMessageKind(e.data);
+      if (typeof kind === "string" && kind !== "user") continue; // 注入消息不参与
+      const text = extractText(e.data).trim();
+      if (text !== "") return text;
+    }
+    return undefined;
+  }
+  const messages = sessionMessages(session);
+  if (messages === undefined) return undefined;
+  const msg = messages.find(
+    (m) => m && m.role === "user" && m.source?.kind === "user",
+  );
+  if (msg === undefined) return undefined;
+  const text = extractText(msg).trim();
+  return text === "" ? undefined : text;
+}
+
+/** 从 durable 事件 data 读消息 source.kind（防御性形状；不可读 → undefined）。 */
+function eventMessageKind(data: unknown): unknown {
+  if (!data || typeof data !== "object") return undefined;
+  const message =
+    "message" in data ? (data as { message?: unknown }).message : data;
+  if (!message || typeof message !== "object") return undefined;
+  const source = (message as { source?: unknown }).source;
+  if (!source || typeof source !== "object") return undefined;
+  return (source as { kind?: unknown }).kind;
+}
+
+/** 从 durable 记录推导会话模式（resume-safe）：首个真实用户消息分类；
+ *  无真实消息 / 不可读 → weak。 */
 export function sessionMode(
   session:
     | {
@@ -94,13 +145,7 @@ export function sessionMode(
       }
     | undefined,
 ): TaskAnchor {
-  if (!session) return "weak";
-  if (!Array.isArray(session.events)) {
-    const messages = sessionMessages(session);
-    return messages === undefined ? "weak" : sessionModeFromMessages(messages);
-  }
-  const userMsg = session.events.find((e) => e && e.type === "user/message");
-  return classifyTask(extractText(userMsg && userMsg.data));
+  return classifyTask(firstUserText(session) ?? "");
 }
 
 /* ── personas（逐字对齐 dsh-anchored-standard） ──────────────────────────── */
@@ -251,6 +296,65 @@ export function sessionModeFromMessages(
   return classifyTask(extractText(userMsg));
 }
 
+/* ── 启动自检 kickoff（代替用户完成锚定解锁） ─────────────────────────────── */
+
+/** 启动自检消息正文：`[AUTO]` 前缀标明非用户输入；正文声明不作为会话标题参考
+ *  （本地标题兜底仍可能读到本条，属已知边界，不另做规避）。 */
+export const BOOTSTRAP_KICKOFF_TEXT =
+  "[AUTO] 启动自检（本条不作为会话标题的参考内容）：请立即调用一次命令行工具" +
+  "（bash 或 pwsh）执行 pwd，然后回一行「已就绪」；不要提问、不要展开。";
+
+/** 启动自检消息（生产者自定义 source.kind；与 createUserMessage 同构） */
+export type BootstrapKickoffMessage = {
+  id: string;
+  role: "user";
+  content: { type: "text"; text: string }[];
+  source: { kind: "tool-bootstrap" };
+};
+
+/** 构造启动自检消息（每次生成唯一 id：缺 id 会让宿主持久化校验在 resume 时报
+ *  `lacks an identified message`） */
+export function buildBootstrapKickoffMessage(): BootstrapKickoffMessage {
+  return {
+    id: randomUUID(),
+    role: "user",
+    content: [{ type: "text", text: BOOTSTRAP_KICKOFF_TEXT }],
+    source: { kind: "tool-bootstrap" },
+  };
+}
+
+/** 启动自检门控：开关未关 + 模型命中 deepseek + 会话**未解锁**（durable 记录可读
+ *  且未见 `tool/call`）。判据不可读 → 不发并 warn（与锚定 filter 的 fail-open 方向
+ *  相反：filter 放行全量目录、kickoff 不发）。 */
+export function shouldAutoKickoff(options: {
+  enabled?: boolean;
+  modelId: string;
+  session: BootstrapSession | undefined;
+  warn?: (message: string) => void;
+}): boolean {
+  if ((options.enabled ?? true) === false) return false;
+  if (!isDeepseekModel(options.modelId)) return false;
+  const session = options.session;
+  if (!session) {
+    options.warn?.(
+      "tool-bootstrap: session is unreadable at startup — skipping the self-check kickoff",
+    );
+    return false;
+  }
+  // 宿主提供 durable 事件数组时以其为准；rc.2 无公开 events，经消息投影判定
+  if (Array.isArray(session.events)) {
+    return !isPromotedFromEvents(session.events);
+  }
+  const messages = sessionMessages(session);
+  if (messages === undefined) {
+    options.warn?.(
+      "tool-bootstrap: durable records are unreadable — skipping the self-check kickoff",
+    );
+    return false;
+  }
+  return !hasToolCallInMessages(messages);
+}
+
 /**
  * 挂接 agentCtx 的 system-prompt/assemble：对全部 deepseek-* 模型（默认门控）在
  * 首请求锁定工具目录 + persona-only，首次 durable tool/call 后恢复全量。
@@ -351,11 +455,11 @@ export function installToolBootstrap(
   const resolveMode = (session: BootstrapSession | undefined): TaskAnchor => {
     if (!session) return "weak";
     if (modes.has(session.id)) return modes.get(session.id)!;
-    const cached = firstTexts.get(session.id);
-    const mode =
-      cached !== undefined && cached.trim() !== ""
-        ? classifyTask(cached)
-        : sessionMode(session);
+    // 真实首消息未到达（如启动自检那一次请求）→ 临时 weak，且**不写缓存**：
+    // 模式由首个真实 user 消息决定，到那时才落定（此后 persona 恒定）。
+    const text = firstTexts.get(session.id) ?? firstUserText(session);
+    if (text === undefined || text.trim() === "") return "weak";
+    const mode = classifyTask(text);
     modes.set(session.id, mode);
     return mode;
   };

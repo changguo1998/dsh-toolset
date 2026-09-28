@@ -4,16 +4,22 @@
 // personaFor、isDeepseekModel 门控、sessionMode/isPromotedFromEvents 从 durable
 // 记录推导（宿主 events 与 rc.2 消息投影两条路径）、applyPersona 替换、
 // installToolBootstrap 端到端（目标模型锁定 → tool/call 后解锁、rc.2 无 events
-// 的投影路径与 fail-open、非 deepseek 模型/开关关闭原样透传）。
+// 的投影路径与 fail-open、非 deepseek 模型/开关关闭原样透传）、
+// 启动自检 kickoff（消息形状、shouldAutoKickoff 门控矩阵、firstUserText 的
+// source.kind 过滤、kickoff 请求不落定模式缓存）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  BOOTSTRAP_KICKOFF_TEXT,
+  buildBootstrapKickoffMessage,
   classifyTask,
   coreFor,
   personaFor,
   applyPersona,
+  firstUserText,
   sessionMode,
+  shouldAutoKickoff,
   isDeepseekModel,
   isPromotedFromEvents,
   sessionMessages,
@@ -238,6 +244,29 @@ test("applyPersona: 替换 persona section 并保留其他", () => {
 });
 
 /* -- installToolBootstrap 端到端 ------------------------------------------- */
+
+/** 真实用户消息事件（source.kind = user） */
+const realEvent = {
+  type: "user/message",
+  data: {
+    message: {
+      source: { kind: "user" },
+      content: [{ type: "text", text: "修复登录页报错" }],
+    },
+  },
+};
+
+/** kickoff 的 durable 事件形态（source.kind = tool-bootstrap，带 message 包裹） */
+const kickoffEvent = (): Record<string, unknown> => ({
+  type: "user/message",
+  data: {
+    message: {
+      role: "user",
+      source: { kind: "tool-bootstrap" },
+      content: [{ type: "text", text: BOOTSTRAP_KICKOFF_TEXT }],
+    },
+  },
+});
 
 const v4proCtx = (events: Record<string, unknown>[] = []) => ({
   agent: {
@@ -624,3 +653,238 @@ test("installToolBootstrap: 解绑后不再响应", async () => {
   // 未绑定 assemble → fire 无 listener → undefined
   assert.equal(out, undefined);
 });
+
+/* -- 启动自检 kickoff（BEGIN：BACKLOG TUI「启动后自动触发首轮工具调用」） ----- */
+
+test("buildBootstrapKickoffMessage: 消息形状（唯一 id / user / [AUTO] / 注入 kind）", () => {
+  const msg = buildBootstrapKickoffMessage();
+  assert.equal(msg.role, "user");
+  assert.deepEqual(msg.source, { kind: "tool-bootstrap" });
+  assert.deepEqual(msg.content[0]!.text, BOOTSTRAP_KICKOFF_TEXT);
+  assert.match(msg.content[0]!.text, /^\[AUTO\]/);
+  assert.match(msg.content[0]!.text, /不作为会话标题的参考内容/);
+  // 每次唯一 id：缺 id 会让宿主持久化校验在 resume 时报 lacks an identified message
+  assert.match(msg.id, /^[0-9a-f-]{36}$/i);
+  assert.notEqual(msg.id, buildBootstrapKickoffMessage().id);
+});
+
+test("firstUserText: events 分支按 source.kind 跳过注入消息，只取真实用户文本", () => {
+  // 注入消息在前 + 真实消息在后 → 取真实消息
+  assert.equal(
+    firstUserText({
+      events: [kickoffEvent(), { type: "turn/start", data: {} }, realEvent],
+    }),
+    "修复登录页报错",
+  );
+  // 只有注入消息 → undefined（kickoff 不参与分类）
+  assert.equal(firstUserText({ events: [kickoffEvent()] }), undefined);
+  assert.equal(firstUserText({ events: [] }), undefined);
+  assert.equal(firstUserText(undefined), undefined);
+  // 真实消息但正文为空串 → undefined（不落定模式）
+  assert.equal(
+    firstUserText({
+      events: [
+        {
+          type: "user/message",
+          data: {
+            message: {
+              source: { kind: "user" },
+              content: [{ type: "text", text: "   " }],
+            },
+          },
+        },
+      ],
+    }),
+    undefined,
+  );
+});
+
+test("firstUserText: 投影分支同口径（source.kind 过滤）", () => {
+  const deriveMessages = () => [
+    { role: "system", content: [{ type: "text", text: "sys" }] },
+    {
+      role: "user",
+      source: { kind: "agent-instructions" },
+      content: [{ type: "text", text: "工作区规则说明" }],
+    },
+    {
+      role: "user",
+      source: { kind: "tool-bootstrap" },
+      content: [{ type: "text", text: BOOTSTRAP_KICKOFF_TEXT }],
+    },
+    {
+      role: "user",
+      source: { kind: "user" },
+      content: [{ type: "text", text: "调试这个崩溃" }],
+    },
+  ];
+  assert.equal(firstUserText({ deriveMessages }), "调试这个崩溃");
+  assert.equal(
+    firstUserText({
+      deriveMessages: () => [
+        {
+          role: "user",
+          source: { kind: "tool-bootstrap" },
+          content: [{ type: "text", text: BOOTSTRAP_KICKOFF_TEXT }],
+        },
+      ],
+    }),
+    undefined,
+  );
+  // 不可读 → undefined（sessionMessages 已抛错返回 undefined）
+  assert.equal(firstUserText({}), undefined);
+});
+
+test("shouldAutoKickoff: 门控矩阵（开关 / 模型 / 未解锁 / 不可读）", () => {
+  const warnings: string[] = [];
+  const warn = (m: string) => warnings.push(m);
+  // 已解锁（events 有 tool/call）但开关要求也满足：不满足的是解锁判据
+  assert.equal(
+    shouldAutoKickoff({
+      enabled: true,
+      modelId: "deepseek-v4-flash",
+      session: { id: "g1", events: [{ type: "tool/call", data: {} }] },
+      warn,
+    }),
+    false,
+  );
+  // 开关关闭
+  assert.equal(
+    shouldAutoKickoff({
+      enabled: false,
+      modelId: "deepseek-v4-pro",
+      session: { id: "g2", events: [] },
+      warn,
+    }),
+    false,
+  );
+  // 非 deepseek 模型
+  assert.equal(
+    shouldAutoKickoff({
+      enabled: true,
+      modelId: "gpt-4o",
+      session: { id: "g3", events: [] },
+      warn,
+    }),
+    false,
+  );
+  // 干净的未解锁会话 → 发
+  assert.equal(
+    shouldAutoKickoff({
+      enabled: true,
+      modelId: "deepseek-v4-pro",
+      session: { id: "g4", events: [] },
+      warn,
+    }),
+    true,
+  );
+  // 会话不可读 → 不发，且 warn
+  assert.equal(
+    shouldAutoKickoff({
+      enabled: true,
+      modelId: "deepseek-v4-pro",
+      session: undefined,
+      warn,
+    }),
+    false,
+  );
+  // rc.2 投影路径：无可读记录 → 不发，且 warn
+  assert.equal(
+    shouldAutoKickoff({
+      enabled: true,
+      modelId: "deepseek-v4-pro",
+      session: { id: "g5" },
+      warn,
+    }),
+    false,
+  );
+  // rc.2 投影路径：仅注入消息（未解锁）→ 发；出现 tool-call → 不发
+  const messages: Array<Record<string, unknown>> = [
+    {
+      role: "user",
+      source: { kind: "tool-bootstrap" },
+      content: [{ type: "text", text: BOOTSTRAP_KICKOFF_TEXT }],
+    },
+  ];
+  assert.equal(
+    shouldAutoKickoff({
+      enabled: true,
+      modelId: "deepseek-v4-flash",
+      session: { id: "g6", deriveMessages: () => messages },
+      warn,
+    }),
+    true,
+  );
+  messages.push({
+    role: "assistant",
+    content: [{ type: "tool-call", id: "c1", name: "bash" }],
+  });
+  assert.equal(
+    shouldAutoKickoff({
+      enabled: true,
+      modelId: "deepseek-v4-flash",
+      session: { id: "g7", deriveMessages: () => messages },
+      warn,
+    }),
+    false,
+  );
+  assert.equal(warnings.length, 2, "仅两条不可读分支告警");
+});
+
+test("installToolBootstrap: kickoff 请求不落定模式（真实首消息到达才分类）", async () => {
+  const runtime = new FakeRuntime();
+  installToolBootstrap(runtime);
+  // 会话里只有 kickoff 注入消息（且已持久化）→ 首次组装不得按 kickoff 文本落定模式
+  const events: Record<string, unknown>[] = [kickoffEvent()];
+  const ctx = {
+    agent: {
+      session: { id: "s-kickoff", events },
+      options: { model: "deepseek-v4-pro" },
+    },
+  };
+  const first = (await runtime.fire("system-prompt/assemble", {}, ctx, () =>
+    seedAssembled(),
+  )) as Record<string, unknown>;
+  const firstPersona =
+    (first.sections as Array<{ text: string }>)[0]?.text ?? "";
+  assert.match(
+    firstPersona,
+    /decide the task type/,
+    "无真实消息 → 临时 weak persona",
+  );
+  assert.deepEqual(
+    toolNames(first).sort(),
+    ["bash", "read"].sort(),
+    "kickoff 文本中的「开发」等词不得把模式拉成 react",
+  );
+  // 第二次组装：kickoff 那次未写缓存，仍走临时 weak（若缓存被注入文本污染 → react）
+  const second = (await runtime.fire("system-prompt/assemble", {}, ctx, () =>
+    seedAssembled(),
+  )) as Record<string, unknown>;
+  assert.match(
+    ((second.sections as Array<{ text: string }>)[0]?.text ?? "") as string,
+    /decide the task type/,
+    "kickoff 不写模式缓存，第二次组装仍为临时 weak",
+  );
+  // 真实首消息（react 类）到达 → 才落定 react，且 persona 随之落定
+  events.push({
+    type: "user/message",
+    data: {
+      message: {
+        source: { kind: "user" },
+        content: [{ type: "text", text: "从零开发一个网页游戏" }],
+      },
+    },
+  });
+  const third = (await runtime.fire("system-prompt/assemble", {}, ctx, () =>
+    seedAssembled(),
+  )) as Record<string, unknown>;
+  assert.deepEqual(toolNames(third).sort(), ["bash", "read", "write"].sort());
+  assert.match(
+    ((third.sections as Array<{ text: string }>)[0]?.text ?? "") as string,
+    /hands-on/,
+    "真实首消息分类为 react 后 persona 落定",
+  );
+});
+
+/* -- 启动自检 kickoff（END） ------------------------------------------------- */
