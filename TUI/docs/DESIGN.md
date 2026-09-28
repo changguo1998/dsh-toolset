@@ -1,11 +1,11 @@
 # DSH TUI 插件设计
 
 > 职责：TUI 的机制取舍与设计依据（为什么这样实现）
-> 不负责：逐条实现细节（见 `TUI/docs/IMPLEMENTATION.md`）
+> 不负责：渲染 / 排版实现细节（见 `TUI/docs/SPEC.md` §15）
 > 过期条件：无
 
 > 类型：**[design]**——架构设计：术语与模块划分、Box 排版模型、四区域布局、DSH 事件接入、规划与边界。
-> 配套：`README.md`（使用与配置）、`SPEC.md`（规范性接口与算法）、`IMPLEMENTATION.md`（实现要点）、`COMMANDS.md` / `COMMANDS-SPEC.md`（命令面）、`TUI/docs/design/REFACTOR.md`（模块拆分约定）。
+> 配套：`README.md`（使用与配置）、`SPEC.md`（规范性接口与算法）、`COMMANDS.md` / `COMMANDS-SPEC.md`（命令面）、`TUI/docs/design/REFACTOR.md`（模块拆分约定）。
 
 ## 项目目标
 
@@ -14,9 +14,9 @@
 ## 技术选型
 
 - 语言 TypeScript（与 DSH 核心一致），运行时 Node.js，**零运行时依赖**（源码零第三方 import；颜色走 manual ANSI，`dependencies` 为空）。
-- 不采用 Ink / Solid-TUI 等框架，自研极简渲染层。理由：流式输出本质是「增量文本追加 + 偶尔整帧重绘」；渲染层以**变化行游程重写**为核心（逐行比较，连续变化行各成一段、段间独立定位重写，不清屏），无组件树与布局引擎。防闪烁机制（区间重写 / 帧段切分 / DEC 2026 同步输出 / 覆盖式全帧 / 渲染期光标隐藏）见 `IMPLEMENTATION.md`「增量渲染与防闪烁」。
+- 不采用 Ink / Solid-TUI 等框架，自研极简渲染层。理由：流式输出本质是「增量文本追加 + 偶尔整帧重绘」；渲染层以**变化行游程重写**为核心（逐行比较，连续变化行各成一段、段间独立定位重写，不清屏），无组件树与布局引擎。防闪烁机制（区间重写 / 帧段切分 / DEC 2026 同步输出 / 覆盖式全帧 / 渲染期光标隐藏）见 `SPEC.md` §15.9「增量渲染与防闪烁」。
 - 代价是输入解码需手写 ANSI 转义序列解析（方向键、Home/End、Ctrl 组合、bracketed paste）——node 无 stdlib 键盘解析，这是自研相对用 Ink 的真正成本。
-- **绘制节律**：`paint()` 标脏 + 同一 tick 合帧（microtask 冲刷，一 tick 一帧），事件 burst 不逐事件重绘；真实链路另有跨回合帧率上限（默认 10Hz）。排版侧折行 / 宽度走有界缓存（`TUI_LAYOUT_CACHE=0` 可关）。详见 `IMPLEMENTATION.md`「排版缓存与绘制合帧」。
+- **绘制节律**：`paint()` 标脏 + 同一 tick 合帧（microtask 冲刷，一 tick 一帧），事件 burst 不逐事件重绘；真实链路另有跨回合帧率上限（默认 10Hz）。排版侧折行 / 宽度走有界缓存（`TUI_LAYOUT_CACHE=0` 可关）。详见 `SPEC.md` §15.8。
 - `node-pty` 已评估、暂不引入（除非 TUI 需直接开 shell，否则会话由 DSH 管理）。
 
 DSH 适配层接口以**官方源码研读与升级对照**为准（`docs/host/DSH-CTX-API.md` 已按当前宿主 `dsh-v0.1.7-rc.2` 逐条复核；`0.1.5-rc.3` → rc.2 的接口差异与判定见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`）：
@@ -167,7 +167,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 - **turn 分隔**：`turn-begin` 时清掉上一轮瞬态活动行并在 buffer 追加横线行；`turn-end` 不画线、不清思考（思考保留至下回合统一清空）。
 - **用户块状态符号（P1）**：每条用户块在**首行左侧留白里**渲染 `符号 + 1 空格`（**独立 2 列格**：符号不参与正文换行，故正文首行与续行同列、正文列不受符号影响；块右缘位置不变；排队块不显示符号）——终态绿 `✓`（success）/ 红 `✗`（failure）/ 灰 `■`（aborted，turn 被中止），由 `turn/end` 的 reason 打标（`BufferLine.status` / `markUserBlockStatus`）；**最新未终态块**在忙时显示黄 `●`/`○`（实心/空心圆按**虚拟总 token** 相位交替）、审批/问答面板打开时显示黄 `△`；其余无终态块（恢复的历史、未收到 turn/end 的块）回退默认前景 `?`。相位机制沿用原状态栏口径（`VIRT_*` 参数与 `RUN_TOGGLE_TOKENS` 不变，只换显示位置）：每次流式更新用**指数加权窗口**（`VIRT_RATE_TAU`，数据量与时长分子分母分别衰减，抗单帧噪声且与 chunk 频率无关）估计真实传输速率，经 **slew 速率限制**（`VIRT_SLEW_RATE`，变化率而非每帧绝对量）逼近并 clamp 到 `[VIRT_SPEED_MIN, VIRT_SPEED_MAX]`（= 切换率范围 `RUN_TOGGLE_FREQ_MIN/MAX`（toggle/s）× `RUN_TOGGLE_TOKENS`）得虚拟速度，估算 token 用流末 usage 真值经 `tokenCalib` 校准，虚拟总 token = ∫虚拟速度 dt，每 `RUN_TOGGLE_TOKENS` 个虚拟 token 切一次（切换率有界、与真实 tps 解耦；无流式数据时虚拟速度按 `VIRT_DECAY_TAU` 衰减回落、虚拟总 token 按衰减中的速度**持续积分**——闪烁频率渐降到最低而不断；run 边界 = 两次用户输入之间，下次用户输入时置 0）。**压缩期间算忙（P8）**：`compaction/start` → `compaction/end` 之间该会话按活跃处理——符号显示运行中 `●`/`○`、新消息走排队、`Ctrl+D` 退出守卫不触发（`Esc` 中断语义不变）。
 - **会话流**：模型正文靠左、右缘留 `messageGutter`（默认 4，与用户块左缘对称）；用户消息为整体靠右的收缩块（一次输入 = 一条 buffer 行，显式换行保留在行内，按物理行折行取最大行宽作块宽，块内行首左对齐）。用户块与随后回答之间空一行。每条消息一个 Box 子树，markdown 块各自独立排版。
-- **会话生命周期**：`/session` 面板做会话切换（`agents.resume`）、删除与清理；面板为十阶段状态机（`loading-list → list ⇄ loading-view → view`，另接删除 / 清理确认链），每个异步结果带 stale guard（phase 不匹配则 no-op），失败入 error 态不崩溃。清理判据与文件级删除护栏见 `README.md` 与 `IMPLEMENTATION.md`。**TUI#1/#2**：会话列表按**编辑时间**（`sessionQuery.listEvents` 末条事件 time，缺失回退 `createdAt`）从晚到早；`/continue` 与 CLI `-c` / `--continue` 共用选择函数 `pickRecentSession`（同目录 + persisted + 非 live + 编辑时间最大）走同一 resume 路径；CLI `--resume <id>` / `-c` 在 `apply()` 经 `ctx.cmdlineArgs` 解析，失败回落新建。**TUI#22/#23**：列表**行首时间显示该编辑时间**（缺省回退 `createdAt`），与排序同口径；`/continue` 改「最新会话」语义——候选并入当前会话（仅当 `hasPrompt !== false`，即探针确认已有用户消息），最新者即当前会话时提示「当前会话已是最新」不切换；CLI `-c` 仍按「最近退出的会话」在启动时选择（无当前会话）。**TUI#40**：CLI 启动即恢复（`--resume <id>` / `-c` 成功）时，adapter 以 `resumedAtLaunch` 标记下传，App 在 `restoreSessionState()` 之后补一次 `surfaceToBuffer` → `history-restore` 折叠——历史区**直接**显示既有消息（此前需手动再 `/session` 切一次）；折叠口径与面板切换共用（只是入口动作不同，`history-restore` 不依赖 `/session` 面板状态机），读取失败给 warn notice 且不阻塞启动。
+- **会话生命周期**：`/session` 面板做会话切换（`agents.resume`）、删除与清理；面板为十阶段状态机（`loading-list → list ⇄ loading-view → view`，另接删除 / 清理确认链），每个异步结果带 stale guard（phase 不匹配则 no-op），失败入 error 态不崩溃。清理判据与文件级删除护栏见 `README.md` 与本文件「实现要点（机制与命令）」。**TUI#1/#2**：会话列表按**编辑时间**（`sessionQuery.listEvents` 末条事件 time，缺失回退 `createdAt`）从晚到早；`/continue` 与 CLI `-c` / `--continue` 共用选择函数 `pickRecentSession`（同目录 + persisted + 非 live + 编辑时间最大）走同一 resume 路径；CLI `--resume <id>` / `-c` 在 `apply()` 经 `ctx.cmdlineArgs` 解析，失败回落新建。**TUI#22/#23**：列表**行首时间显示该编辑时间**（缺省回退 `createdAt`），与排序同口径；`/continue` 改「最新会话」语义——候选并入当前会话（仅当 `hasPrompt !== false`，即探针确认已有用户消息），最新者即当前会话时提示「当前会话已是最新」不切换；CLI `-c` 仍按「最近退出的会话」在启动时选择（无当前会话）。**TUI#40**：CLI 启动即恢复（`--resume <id>` / `-c` 成功）时，adapter 以 `resumedAtLaunch` 标记下传，App 在 `restoreSessionState()` 之后补一次 `surfaceToBuffer` → `history-restore` 折叠——历史区**直接**显示既有消息（此前需手动再 `/session` 切一次）；折叠口径与面板切换共用（只是入口动作不同，`history-restore` 不依赖 `/session` 面板状态机），读取失败给 warn notice 且不阻塞启动。
 
 ### 状态区数据流
 
@@ -258,3 +258,214 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
   - tool `meta` diff 展示（+N / −M）——复用 `tool/result.meta` 工具私有展示载荷。
 - **明确不做**：多会话并行（维持单活跃会话）；thinking 展开 / 收起；flex / grid / 自动布局引擎 / 样式继承 / 嵌套滚动；可复用 Panel 基类或带行为的组件节点；Overlay 覆盖层构造子（面板走内容替换）；renderer 侧承载排版职责。
 - **deferred（已评估暂缓，非缺失）**：feedback 评价（低频）；嵌套 markdown 与上下标（低频）；`compaction/summary` 持久化（若要做可读历史另立条目）；`session/end-seed`、`session/title-llm-request`、`request/header`、`request/context`（低价值调试向且 payload 复杂，待调试视图需求出现再做）；`team/*`（实验包依赖）；`web/deepseek-search-llm-request`（log-only）；`subagent/model-selection-policy`、session-log 交付确认（低频 / 内部日志）。
+
+## 实现要点（机制与命令）
+
+> 本节承接原 `IMPLEMENTATION.md` 的机制 / 命令类实现记录（2026-09-29 按 BACKLOG #40 拆分迁入）；
+> 架构与取舍见本文件前文各节，渲染 / 排版实现细节见 `SPEC.md` §15。
+
+### Slash 命令路由
+
+- 命令分两路：本地命令目录（`LOCAL_COMMANDS`，`commands.ts`，现 39 项 = 34 命令 + 5 别名）由 app 层直接处理；目录未命中者 `/name` → `adapter.runCommand(line)` → `ctx.commands.execute(agent, line, [], signal)`（官方注册表）。
+- `App.submit()` 对以 `/` 开头的输入走 `handleSlash()`，不进 `agent.followup`、不占模型 token / 历史。未命中注册表（execute 返回 `undefined`）→ notice 提示未知命令（**官方 fail-close**，绝不把 slash 行发给模型）。demo 模式无注册表，非本地 `/xxx` 直接提示。
+- 命令名语法与官方 client 一致：`/^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/`（`parseSlashCommand`）。
+- 本地命令目录 `LOCAL_COMMANDS`（`commands.ts`）是**路由与补全目录的单一来源**（`routeSlashCommand` 查表，未知名落 registry 转发）；帮助文本与 `/help` 双列表格同源。
+- 服务解析：`main.ts` 经 `ctx.get("commands")` 取注册表（cordis 严格模式不允许未注入服务直接属性访问），`commandAgent` 传真实 Agent（注册表作用域查找需要完整 agent，而非 app 的瘦 `DshAgentLike`）。
+- **接收者绑定**：caller 侧对 adapter 方法一律以 `method.call(adapter, …)` 保留实例作 `this`——提取为局部变量再调用会让方法体内 `this.xxx` 为 undefined、异步方法恒 rejected、误报「服务不可用」。
+- dispose：`App.dispose()` 透传 `adapter.dispose?.()`；adapter 实现中止在途命令的 AbortController、解绑 runtime 监听（collectUnbind）、清空监听集。
+
+**notice 通道**：`DshEvent` 的 `{ type: "notice"; text }`——命令结果 / 错误 / 提示只进 UI 缓冲（`appendNotice`，独立成行，不入流式末行），经 `notice` reducer 落地。级别与着色约定见 `TUI/docs/design/NOTICE-LEVELS.md`。
+
+### 命令实现落点
+
+| 命令 | 机制 | 降级 |
+|---|---|---|
+| `/init` | 检查会话语义 cwd（`state.systemStatus.cwd`，占位时回退 `process.cwd()`）下的 `AGENTS.md`；缺失则以 `sendUserText(INIT_PROMPT, "/init")` 注入初始化指令（常量在 `commands.ts`） | 已存在则 notice 提示并结束 |
+| `/stats` | 读 `state.usage`（**最近一次**模型调用）与 `state.usageTotals`（**本会话累计**：逐次 `usage` 事件求和，`history-resume-ok` / `session-switch` 清零、`clear-buffer` 不清）→ info 四行：最近一次调用分解 / 本会话累计 / 上下文（`input + cacheRead`，窗口缺失或为 0 时只显绝对量）/ 缓存命中率（分母 0 → `n/a`，最近一次调用口径） | 无 usage（新会话 / 刚切换会话，**TUI#12**）→ 四行占位（最近一次 `—`、上下文 `—`、命中率 `n/a`） |
+| `/rename` | 纯函数 `renameCommandDecision(line)` 判 usage / invalid / apply；apply → `ctx.sessionTitle.rename(live Session, title)`；标题栏由既有 `session/title` 链路刷新，不手工改 state | 空标题 / 含换行本地拒绝；服务缺失 → warn |
+| `/model`、`/provider`、`/effort` | 见下文「/model 命令」 | 目录读取失败 → 提示 |
+| `/policy`、`/permission`、`/preset` | 见下文「通用状态选项面板」 | 服务缺失 → 提示不可用 |
+| `/session`、`/new`、`/fork` | `listSessions()` / `readSessionSurface(id)` / `deleteSession(id)`；`/new` = `adapter.newSession()`（dispose 旧 handle → `agents.create` 同一 setup/agentOptions/meta 的新会话 → `session-switch` 切过去 + `restoreSessionState` 回默认值）；`/fork` = `ctx.sessions.fork(activeSessionId)`（后两参省略 = 源会话最后事件 + store id 策略） | `/new` 宿主未暴露 `agents.create` → warn 不动作；fork 错误码映射中文 → warn；面板失败入 error 态 |
+| `/continue` | **TUI#1/#23**：`listSessions()` → 纯函数 `pickContinueTarget(records, cwd)`（候选 = 同目录非 live 已退出会话 ∪ **当前会话**（仅当 `hasPrompt !== false`）；最新者即当前会话 → `{kind:"current"}` 提示不切换）→ 复用 `/session` 的 `resumeToSession` 路径（先 `history-open` 建面板状态，成功后自动关面板）；CLI `-c` 仍用 `pickRecentSession`（同目录 + 非 live + 编辑时间最大） | 服务缺失 → warn；无匹配 / 已是最新 → info 提示；列表读取失败 → warn |
+| `/skills`、`/agents`、`/tools` | 共享列表面板（`refreshSkills` / `refreshAgents` / `refreshTools`）；`Enter` 经 `skillDetail` / `interruptAgent` / `toolDetail` | 服务缺失 → warn 且不空开面板 |
+| `/task`、`/guard`、`/loop`、`/workflows` | 共享列表面板；`Enter` 经 `taskDetail` / `guardPolicy` / `loopDetail` 取详情；workflows 为只读 | 同上 |
+| `/memory` | `ctx.knowledge.getSummary()`（同步优先，否则 `whenReady()` 等待）→ info notice | 服务缺失 / 失败 → warn |
+| `/contract` | 取当前会话 goal 快照 objective → `adapter.contractSummary()` 解析 `Done-when:` 段 → ≤4 行 info | 无目标 / 解析失败 → warn |
+| `/council` | `ctx.subagents.start("one-shot", …)` 并行拉起 N（默认 2、上限 4）个评审子代理，`Promise.allSettled` 汇总 | 服务缺失 → warn 不假启动 |
+| `/search` | 并行多 provider 聚合（见下） | 全部失败 → warn 不空开面板 |
+| `/settings` | `ctx.settings.describe()` → `ns：value` 多行 info，secret 脱敏 `<redacted>`；只读不写 | 服务缺失 → warn |
+| `/jobs` | 增量 + 打开时全量拉取：0.1.7 起 `ctx.jobs.events.subscribe({owner})` / ≤0.1.5 `ctx.jobs.onJobsChanged`（按能力择路，都缺则只拉一次）；`Enter` → `ctx.jobs.kill`（caller 形态经版本探测） | 服务缺失 → warn |
+| `/goal` | 无参：仅 notice 提示「详情见左侧信息栏」（goal/todo/jobs 常驻状态列）；带参：`adapter.runCommand(line)` → 宿主 `dsh-command-goal`（`<目标>` 新建 / `edit <目标>` / `pause` / `resume` / `clear`），结果经 notice 回报 | 注册表未命中 → warn（fail-close 不发消息） |
+
+**只读服务面（插件侧提供）**：task-engine `ctx.provide("taskEngine", { query, frameStack })`、metric-loop `ctx.provide("metricLoop", { list, status })`、security-guard `ctx.provide("guard", { recent, policy })`、knowledge-base `ctx.provide("knowledge", { getSummary, whenReady })`。`/contract` 例外：goal-contract 不 expose ctx 服务，TUI 优先用 `opts.goalContract.parseContract`（`ctx.get('goalContract')`），未挂载时走内置同构回读 `parseContractObjective`（定位独占 `Done-when:` 行 + 段后 JSON 数组）；包入口直读不可行（TUI 无跨包依赖、根无 workspaces、`file:` 依赖被项目约定禁止）。
+
+### 共享列表面板（`commandPanel`）
+
+`/skills` `/agents` `/tools` `/task` `/guard` `/loop` `/workflows` `/search` `/jobs`（会话面板另有自己的一套）共用一套 state / reducer / 渲染：
+
+- `state.commandPanel: CommandPanelState | null`（`kind` / `index` / `rows` / `loading?` / `error?`）；reducer 四件套 `command-panel-open` / `-move`（clamp + 窗口平移）/ `-page`（PgUp/PgDn 整页，页高由调用方按活动区可视行数给出）/ `-close`；数据经 `command-panel-data` 事件推送（kind 匹配才写入，挡迟到数据覆盖新面板；`index` 随数据缩短收敛）。
+- 渲染为单一 `components/CommandListPanel.ts`（`buildCommandListPanelBox` + `renderCommandListPanel` 薄包装 `fillBoxTree`）：首行标题青 + 计数 + 右侧灰提示（按剩余宽截断），行 = `> ` 高亮 + 可选符号 + 主文本 — 副文本；占位态（错误红 > 加载中灰 > 空列表灰）输出恰 `height` 行。
+- **接线（现状）**：`layout.buildActivePanelBox` 按优先级选型（`commandPanel` 在 `jobsPanel` 与 `history` 之间）；`frameGeometry` 的 `modalOpen` 一次性判定 7 类面板非空（approval / question / picker / statusPanel / jobsPanel / commandPanel / history），`normalInput = !modalOpen`、`showHint` 随之派生——布局层已无独立的 `normalInput` / `modalOpen` 条件拼接；`inputPanelHeights` 提供翻页页高（与面板窗口同口径）。
+- 键位在 `handleKey` 面板段：`↑/↓`、`PgUp/PgDn`、`Enter` 主操作、`Esc` 关闭、其余吞掉（面板打开时不可输入新命令）。面板占满活动区期间瞬态输出不可见，故 Enter 类主操作若以 notice 反馈，先关面板再提示。
+- **面板保鲜**：`/agents` 与 `/workflows` 在面板打开期间定时重拉（`startPanelRefresh`，默认 2s，`agentsRefreshIntervalMs` 可注入；tick 自检面板仍为自身否则停表），`/agents` 另有 `r` 手动刷新；**TUI#10** 起 `/agents` 还订阅宿主 `subagent/start` · `subagent/end`（adapter emit `subagent-activity`）在面板打开时即时重拉，2s 定时退为兜底（老宿主无此事件时静默）。
+
+### 非显然实现要点
+
+- `/search` 的**多引擎聚合是 TUI 侧职责**：`dsh-web` seam 是 provider-**selecting**（`search()` 只跑单个 provider，多 provider 无显式 id 抛 `WEB_PROVIDER_AMBIGUOUS`）。`aggregateSearchSources` 纯函数（`dsh.ts`）组装 provider 集合（`opts.web` 派生 + `options.searchProviders` 注入），`Promise.allSettled` 并行调用 → 合并记 provider → URL 去重 → query-token 关联度（title 命中 ×2 + snippet ×1）降序（同分保合并顺序）→ 截断 `maxResults`（默认 10）。
+- `/contract`、`/council` 的目标取当前会话 goal 快照 objective，无 goal 时回退 buffer 最近 user 行。
+- `/agents` 数据源按宿主能力择路：0.1.7 起优先 `subagents.listDescendants(rootSessionId)`（富条目，取 `depth=1` 的直接子代），≤0.1.5 用 `listChildren(parentSessionId)`（同形富条目）；`kind:'diagnostic'` 条目灰显且 payload 置空（无可中断 id 时只提示、不发调用）。投影目录形态（0.1.7 的 `listChildren` 返回 `{id,createdAt,mode,label?}`，无 activity/hasChildren/diagnostic）下 `status` 退用 `mode`、标题缺 label 时占位 `(未命名)`。
+- `/session` 的 live 会话读取走 `Session.events` 原始事件（`readSurface` 的 surface fold 会滤掉 `surfaceOp`，`readSession` 的全量校验对 live 混合日志会抛校验错）；persisted 会话走 `readSurface`，兜底 `readSession`；`readSurface` 必须直接调用 `sq.readSurface(id)`（解构丢失 `this` 读 `_corpus` 报错）。
+- `/session` 批量删除：`Space` 标记 / 取消（标记后高亮自动下移一行）、`a` 全选当前范围可删项（替换标记集）、`c` 清空；判据 `deletableSession`（persisted + 非 live + 非当前），`deletableSession` / `markableSessionIds` 为 `state.ts` 纯函数。标记按 id 记录并跨 `Tab` 范围切换保留；`d` 有标记 = 批量（`pendingDeleteIds`，跨范围保留的标记也计入、自动剔除已不可删项），无标记 = 单条（`pendingDelete`）。批量与单条共用 `runPendingHistoryOp` 的逐条 `deleteSession` 串行删除循环，成功集经 `history-delete-done` 移除记录（`dropHistoryRecords`），**失败项保留标记**便于重试；列表重拉只一次。
+- **编辑时间与列表顺序（TUI#1；行内时间口径见 TUI#22）**：`listSessions` 归一化抽为模块级 `listSessionRecords`（单一来源，adapter 与 CLI 启动解析共用）——每条记录 `updatedAt` = `sessionQuery.listEvents(id)` 末条事件 `time`（轻量面；无事件 / 读取失败回退 `createdAt`），记录按 `updatedAt` 降序（并列 `createdAt` 降序、id 兜底）；`/session` 面板与 `/continue` / CLI `-c` 共用该顺序，选择函数 `pickRecentSession(records, cwd)`（同目录 + persisted + 非 live + 编辑时间最大）。**列表行首时间显示该 `updatedAt`（缺省回退 `createdAt`，TUI#22）**，与排序同口径；`hasPrompt` 探针（TUI#23）覆盖**当前活跃会话**（有官方标题也不跳过），供 `/continue` 的「最新会话」判定。
+- **TUI 自有启动参数（TUI#2）**：`apply()` 经 `ctx.cmdlineArgs.get()` 读取宿主内层参数（只读不消费），纯函数 `parseTuiStartupArgs` 解析 `--resume <id>` / `--resume=<id>` / `-c` / `--continue`（`--resume` 优先；未知参数与缺值忽略）；命中即走 `agents.resume`（同一 `setup` / `agentOptions`），失败或 id 无效 → stderr `[tui] warn` + 回落 `agents.create`；`-c` 无匹配 → 静默新建。**读点约束（TUI#19 回归修复）**：宿主服务随插件树**并发装载**，`sessionQuery`（`dsh-session-query-sqlite`，`inject:["sessions"]`）的 provider 常晚于本插件（`inject:["agents"]`）就绪——adapter 选项一律在 handle（create/resume）就绪后经 `readSessionQuery()` 读取，绝不复用 apply 早期读值（否则历史会话整体不可用）；`-c` 决策读点无法后移，改用 `waitForHostService(read, 3000ms)` 有界等待（超时按未挂载 → 无匹配处理，不阻断启动）。回归：`tests/main.config.test.ts` 的 `waitForHostService` 三例。
+
+### 文本管线（流式 / 清洗 / 补发）
+
+- **sanitizeText（渲染保护）**：流式文本进 buffer 前清洗——CRLF / 孤立 CR 归一为换行（否则 `\r` 残留被终端当回车、抹掉整行造成大段空白），其余 C0/C1 控制字符（含 Tab、孤立 ESC）剔除，完整 ANSI 转义序列（CSI / OSC）保留（渲染着色功能，`/copy` 时再剥离）。剔除计数入 `state.strippedChars`（turn-begin 清零），turn-end 后以黄色 notice 提示。恢复历史（`surfaceToBuffer`，P9 起由事件折叠产出 step 概要行）同样走清洗，整条纯空白文本直接丢弃。
+- **非流式回复补发**：`assistant/message` 是每个 step 结束必发的完整正文 surface 事件。adapter 按 `(session:turn:step)` 累计已流式输出的正文（reasoning 不计），该事件只补发缺失后缀；非流式 / 无思考 provider（无任何 chunk）累计为空 → 直接输出完整正文。`surfaceOp: replace` 的影子覆盖事件跳过（append-only 无法安全重写）；`turn/end` 与 dispose 清空累计。
+- **消息 identified**：`buildUserMessage` 用 `crypto.randomUUID()` 生成稳定消息 `id`——`agent/inbox/spliced` 与 `user/message` 均带 identified 标记；缺 id 会导致后续 `agents.resume` 全量校验抛 `SessionPersistenceCorruptionError`（会话永久不可 resume）。
+- **空白分片丢弃（P5）**：宿主每个 step 末尾常补发「只有换行」的文本块（实测 190 个文本分片里 154 个是 `"\n\n"`），逐行落 buffer 会在思考 / 工具行之后留下成片空行。判据：整段仅空白 **且**（上一行是异 kind 或 buffer 为空）才丢弃；同 kind 内部的空白分片维持现状（软换行与段落空行语义不变），也不做段尾空行清理。丢弃后置 `streamBreak`，使下一条流式分片另起一行（不并入末行、不粘行：否则两个思考分片会被粘成一行、原本的空行变成缺空格）；流式分片消费后清位、非流式分片不动。回归：`tests/p5-blank-chunk.test.ts`。
+- **恢复会话按 step 概要（P9）**：resume 不还原逐条工具行，而是折叠事件流（`adapter/dsh.ts` 的 `normalizeHistoryMessages`）——每个**含工具调用**的 step 收口成一行 `[hh:mm:ss ]#N ╌╌ 工具名[×次数], …[ ✗失败数]`（时间缺失省略时间片段；失败判定与实时路径同口径——`tool/result.error` 存在即失败），无工具调用的 step 不出行；参数摘要 / 结果详情 / thinking 不还原。整条纯空白文本直接丢弃，不再产出空行。`commands.ts` 的 `surfaceToBuffer` 把 role `"step"` 原样转成 buffer `kind:"step"`，`build-box` 按 `╌╌ <文本> ` + 尾部 `╌` 铺满渲染（与 P6 实时 step 头同形制、同落历史区）。回归：`tests/resume-summary.test.ts`。
+- **零宽字符宽度**：`charWidth` 对组合附加符 / 变体选择符 / ZWJ / ZWSP / emoji 肤色修饰符等计 0 列（对齐 Markus Kuhn wcwidth 零宽表），避免工具内容夹带特殊字符时总宽度虚高或提前换行。
+
+### 事件 → 状态 → 渲染
+
+完整映射与渲染语义见 `TUI/docs/DESIGN.md`「事件接入与渲染」。实现要点：
+
+- raw 事件由 adapter 归一化为 `DshEvent` → App 事件 switch → state reducer → `buildFrame`；`DshEvent` 为封闭联合，新增成员需同步 `index.ts` 穷尽登记（否则 `npm run check` 失败）。
+- tool 行文本由 `layout/tool-line.ts` 纯函数组装（step 分组头 = `stepHeaderLine(step, time)` → `hh:mm:ss #N`，P6：本地时区 24 小时制逐段补零、时间缺失只出 `#N`；渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满）；summary / detail 启发式由 adapter（`dsh.ts`）在归一化时产出。
+- **压缩期间算活跃（P8）**：`compaction/start` → `compaction/end` 期间按会话记 `compactingBySession`，`isCompacting(state)` 供 `index.ts` 的 `agentBusy()` 判定——该会话视为忙：用户块符号显示运行中 `●`/`○`、Enter 提交走排队、`Ctrl+D` 退出守卫不触发（`Esc` 中断语义不变）。回归：`tests/p8-compaction-active.test.ts`。
+- **状态符号渲染位置（P1）**：符号在排版层算定（`userBlockSymbolResolver` → `USER_BLOCK_SYMBOL`；终态由 `turn/end` 的 reason 经 `markUserBlockStatus` 打标到 `BufferLine.status`），`build-box` 只负责把 `符号 + 1 空格` 拼到用户块首行左侧（在块内部，块右缘位置不变；排队块不出符号）。水平状态栏不再有符号段。回归：`tests/app.test.ts`（用户块首行符号与 SGR / turn-end reason 打标）/ `tests/layout4.test.ts`。
+- **seq 守卫**（per-session 游标）：`event.seq <= lastSeq` 丢弃；间隙接受不补缺；非活跃会话丢弃。
+
+### 会话状态恢复（模式与策略 / 模型 / goal / todo / TUI 本地开关）
+
+切换会话（`/session` Enter → `agents.resume`）与启动时都不重放历史事件，故 `App.start` /
+`resumeToSession` 成功后调用 `adapter.restoreSessionState?(id)`（adapter 侧 `restoreSessionState`），
+折叠**宿主日志**与 **TUI 侧快照**两份来源并 emit 对应事件：
+
+- **宿主日志**（live 内存事件优先，其次 `sessionQuery.readSession`；**不能用 `readSurface`**——
+  log-only 事件被 surface fold 滤掉）：
+  - `plan/mode` / `sandbox/mode` / `permission/preset` / `approval/policy` 末条 → `mode` /
+    `approval-policy`（原 `emitSessionModeSnapshot` 能力）。P7 起这批值渲染为**标题栏符号组**
+    （plan / sandbox / 审批策略各出图标；`permission` 不再显示，仅随快照保存与兜底）；
+  - **模型**：末条 `model/selection`（显式意图）→ 末条 `request/header.header.config`
+    （该会话最近一次**实际使用**的 provider / model / effort；TUI 的 `/model` 也记在这里）；
+  - **goal**：按 seq 顺序回放**全部** `goal/change`（state 侧按会话累积成 goal 历史：index 0 =
+    当前 goal、其后为旧 goal）；**todo**：末条 `todo/write`（全量快照事件，latest-wins）→ 回填状态列。
+- **TUI 侧会话状态快照**（`<会话目录>/tui-state.json`，`adapter/session-ui-state.ts`）：
+  `/model` 结果、`/verbose`、`/symbol-unify`、模式兜底值与 **`statusColumn`（P7：垂直状态列
+  显隐，`Ctrl+S` 切换）**。宿主不认识 TUI 本地开关，「已选但尚未发起请求」的模型也不在日志里
+  ——这两类只有快照能恢复。
+
+`/new` 走同一条回填路径：新会话既无日志事件也无快照 → 各旋钮回默认值（plan off、
+sandbox/permission 取宿主默认预设、模型回到 config 种子），无需额外重置逻辑。
+
+每项取值优先级 = 宿主日志 → 快照 → 宿主默认（`permissionPresets.defaultPreset` 捆绑；
+plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent/request` 钩子的生效源，
+也是 `/model` 面板与状态栏的显示源）；三者皆无则**清空**该引用回落宿主实时默认——顺带修掉
+「同进程内 A 会话的模型选择泄漏进 resumed 的 B 会话」。
+
+落盘时机：`/model`、`/verbose`、`/symbol-unify`、`Ctrl+S` 状态列显隐与 mode / policy 事件 → 400ms 合并写
+（`SESSION_STATE_SAVE_MS`）；切换会话前与 `dispose()` 前 `flushSessionStateSave()` 立即写。
+快照随会话目录走（会话删除即随之清理）；仅内存会话（无持久化目录）静默跳过；文件损坏 /
+版本不符 / 字段类型不符按「无快照」或逐项丢弃处理，绝不影响渲染。回归：`tests/session-ui-state.test.ts`（含 `statusColumn` 字段的读写与类型不符丢弃）+ `tests/status-column.test.ts`（垂直状态列三块渲染）。
+
+### 滚动偏移收敛（越界假死）
+
+- **现象**：上滚历史（或按 `Home` / `End`）后按 `↓` 画面纹丝不动；发送消息后更容易撞上。
+- **根因**：`scrollOffset`（对话区）/ `activityScroll`（活动区）无上限——连续上滚越顶会一直累加，`End` 曾直接置 `Number.MAX_SAFE_INTEGER`；渲染层只在显示侧 clamp，状态里留着越界值。此后下滚每按一次只是「还债」一格，差额大时等于永久卡住。
+- **修复**：状态里的偏移恒在真实范围内——`buildFrame` 出帧时顺带回填 `FrameScrollReport{dialogueMaxScroll, activityMaxScroll}`（零额外排版开销；对话区上限取**未折叠**全量行数 − 可视行数，上滚会解除折叠，折叠态上限偏小不能作上界）；App 侧 `paneMaxes()` 取上限（出帧回填过就直接用，否则就地补算一次同口径帧）；`scrollBy(state, delta, maxOffset?)` 与 `activity-scroll` action 先收敛当前偏移再叠加 delta、结果不超上限；`End` 改为真实上限。
+- **回归**：`tests/app.test.ts`（上滚越顶后 `↓` 立即响应 / `End` 后 `↓` 立即响应 / 活动区同理）+ `tests/layout4.test.ts`（回填值在折叠态下仍为未折叠全量）。
+
+### 排队消息（agent 运行中 Enter）
+
+- **发送完全走官方流程**：`App.submit` 在 agent 忙（`agentStatus !== "idle"` 或本地 `inputStatus === "running"`，覆盖「刚提交、核心状态事件未到」窗口）时仍立即 `adapter.sendMessage(text)` → 核心 `followup`（`next-turn` 队列，durable）——逐条、不合并、不由 TUI 积压；空闲时走 `sendUserText`（本地回显 + 直接发送）。两条路径发送语义一致，**差别只在显示**。
+- **显示登记**：`state.queued: string[]`（按提交顺序）+ action `queued-push` / `queued-claim`（弹出最早一条并落入历史）/ `queued-clear`。登记只用于渲染，不代表 TUI 持有消息（消息已在核心队列里）。
+- **认领时机**：`beginTurnIfNeeded()` 在 `turn-begin` 之后 `queued-claim`——核心每开一个新回合从 `next-turn` 认领一条，UI 因此「每回合转正一条」；转正后按普通用户行渲染（亮红右缘竖线）。
+- **渲染**：`queuedBlockRows` 以 `BufferLine{kind:"user", queued:true}` 走同一套 `buildContentRows`（右对齐 + 灰竖线），得 `geom.queuedRows`；对话 pane 最后 `queuedRows.length` 行渲染排队块（钉在右下角、不随历史滚动），历史视口高 = `dialogueH − queuedRows.length`（至少留 1 行历史；超长取尾部）。
+- **Esc / Alt+Enter**：Esc 先 `restoreQueued()`（登记按顺序并回输入框，核心 `cancel` 会清自己的队列，本机留底不丢输入）再 `interrupt()`；Alt+Enter 同样先并回输入框、打断，然后整条发送（避免「新文本先发、排队内容后发」顺序颠倒；空输入且无登记仍为 no-op）。切换会话（`history-resume-ok`）时 `queued-clear`。
+- **回归**：`tests/app.test.ts`（运行中 Enter 立即发送且逐条不合并、登记不写 buffer、新回合认领一条转正、Esc 退回输入框 + 清登记 + 打断、Alt+Enter 按序并入）+ `tests/layout-horizontal.test.ts`（排队块位置 / 灰竖线 / 视口高收缩）。
+
+### 模型输出符号规范化（已迁出为 symbol-normalizer 插件）
+
+> 2026-09-27（BACKLOG TUI#18 / 项目级 #48）：符号规则与算法（`app/symbols.ts`）整体迁出为独立插件 `symbol-normalizer`；算法细节与规则表见该包 `README.md` / `docs/DESIGN.md`。TUI 侧接入：`case "stream"` 经 `ctx.get('symbolNormalizer')` 服务 `normalize`（`/symbol-unify on|off` 控制）；notice 经 `onReview` 回调渲染为 warn 行；模型提醒由插件在 rule-engine 消费者 `decide` 中返回、rule-engine 统一注入。插件未挂载 → 原文透传、无提醒。配置迁至插件 config（`tui.config.json` 的 `symbols` 段不再读取）；纯函数 / 冷却用例迁至 `symbol-normalizer/tests/`，TUI 侧保留服务消费用例（`tests/app.test.ts`「符号服务消费」组）。启动宽度探测的字符集改为 TUI 本地常量 `WIDTH_PROBE_SYMBOLS`（渲染关注点，与治理规则解耦）。
+
+**选型判据**（随实现迁至插件，历史记录保留于此）：
+
+1. 归一依据 = **形状身份（几何部件组合）**；功能、语义、宽度一律不参与。
+1. 同一形状身份内只容**修饰性变体**归一：粗细、大小、重复数量、emoji 上色、内缀细节；**明暗 / 填充（空心 vs 实心）不是修饰**——空心、实心各为独立一族。
+1. 触发**拆分**（不归一，按几何各自独立）：明暗 / 填充、新增独立部件（方框）、核心形状变化（圆环 vs 实盘、勾 vs 根号）、方向 / 对称变化（反向、双向 vs 单向）。
+   - 校准点：`☑` / `☒` 与追加符号区 `🗹` / `🗷` 为**特例**（虽带独立方框，不各自成族也不拆分提醒，并入无框的 `✓` / `✗` 族）；`√`（根号）治理区外放行；`⏩⏫⏬`（双三角 = 数量 / 速度修饰）归入 `▶` / `▲` / `▼`；C 族短双线 `⇒⇐⇔` 按方向归一到长双线代表 `⟸⟹⟺`；空心三角族 `▷◁△▽` 四向代表入白名单、族内尺寸 / 指针变体归一到该向代表，与实心族不互相归一。
+
+### 自动清理空会话
+
+- **config**：`tui.config.json` 的 `session.autoCleanEmpty`（缺省 true，显式 `false` 关闭）；`normalizeConfig` 归一化（非法回落 undefined，默认由消费方应用）；`main.ts` 取 `loadTuiConfig().session?.autoCleanEmpty ?? true` → `AppDeps.autoCleanEmpty`（需 `=== true` 才生效）。同一开关覆盖**启动**与**优雅退出**两个时机。
+- **判据**：`startupCleanableIds(records)`（`state.ts` 纯函数）——已持久化 + 非 live + 非当前 + `isEmpty`（无用户消息），全目录范围，与面板 `cleanableSessionIds` 同语义但不依赖面板状态。
+- **共享核心**：`cleanableSessionIdsViaAdapter()`（`listSessions()` 全量 → 判据过滤；列表缺失 / 读取失败返回空）+ `deleteSessionIds()`（逐个 `deleteSession()` 串行删除，复用 `/session` 面板同一守卫，返回成功 / 失败计数）。
+- **启动执行**：`App.start()` 末尾 `if (this.autoCleanEmpty) void this.runStartupCleanEmptySessions()`（后台异步，不阻塞首帧）——notice 汇报「已自动清理 N 个（M 个失败）」。
+- **退出执行**：`App.dispose()` 开启时走 `disposeWithExitClean()`——先 `runExitCleanEmptySessions()`：有可清理项时把提示渲染到活动区（`paintExitNotice`：dispose 已置 `disposed = true`，常规 notice / paint 被守卫拦截，且 10Hz 合帧可能把标脏推迟到关终端之后——故同步 apply + render 直接落屏）并等待完成，结果与耗时同样渲染到活动区，完成后才释放 adapter / 关闭渲染器；无清理项静默。等待受 `EXIT_CLEAN_TIMEOUT_MS`（5s）兜底，超时渲染提示并继续退出。
+- **降级**：宿主未挂 `sessionQuery`、列表读取失败或无可清理项 → 静默跳过；删除失败计入失败数，不让启动 / 退出失败。
+- **测试**：`tests/session-delete.test.ts`（启动清理 3 例 + 退出清理 4 例 + `startupCleanableIds` 纯函数 1 例）+ `config.test.ts` session 归一化 1 例。
+
+### 声音提醒事件钩子（BACKLOG 3.4.1-3.4.3）
+
+- **输出口**：`Renderer.bell?()`（可选接口方法；真实 renderer 实现 → `Screen.beep()` 向输出流写 BEL `\x07`；注入型 renderer 可不实现，App 经 `bell?.()` 调用）。
+- **config**：`notify.enabled`（缺省 true）、`notify.idleThresholdMs`（缺省 8000、最小 1000，由 `normalizeConfig` 归一化；3.4.3 复用它作「需交互无操作」阈值）；AppDeps 直传（测试可用小值）。
+- **turn-end**：`App.onTurnEnded()` 经 `ringBell()` **只响一声**——BACKLOG 3.4.2 去掉了原「随后 `setTimeout(idleBellMs)` 补响一次」，一次 run 结束不再听到两声（催促职责归下面的需交互响铃）。
+- **需交互（3.4.1 / 3.4.3）**：审批 / 问答事件分支调 `beginInteractiveBell()`——面板弹出即 `ringBell()` 一声，并起 `pendingBellTimer(idleBellMs)`；超阈值仍无操作 → `repeatBellTimer` 每秒 `ringBell()`，直到用户有操作或面板关闭。`handleKey` 入口（任意键，含无效键——人在终端前即算操作）与面板关闭（`apply` 里 approval/question 由有变无，覆盖提交 / 取消 / 超时全路径）调 `clearInteractiveBell()` 停止且**同一次交互不再重启**；`dispose()` 清理两个计时器。`bellEnabled` / `disposed` 双检查防关闭后误响。
+- **测试**：`tests/notify-bell.test.ts` 8 例（turn-end 只一声 / 无输入与有输入都不改次数 / enabled=false 全程不响 / 审批与问答弹出即响 / 超阈值每秒催促且按键即停 / 面板关闭停催促 / dispose 清理 / 真实 renderer 输出 BEL）+ `config.test.ts` notify 归一化 1 例。
+
+### /model 命令
+
+- 能力：查询可用模型 + 切换当前会话模型（写回会话内引用 + 记入会话状态快照，切回该会话时恢复）。
+- `/model` 无参 → 交互选择面板（渲染在活动区窗口）：`↑/↓` 移动高亮、`←/→`（或 Tab）切换 provider / model / effort 三列焦点（clamp 不循环）、`Enter` 确认、`Esc` 取消；普通字符键被忽略（不进入输入框）。`/model <provider>/<model>` 直接切换；`/model <modelId>` 跨全部 provider 唯一匹配（未匹配或歧义 → 错误提示，不落盘）。`/provider` `/effort`（`/thinking`）无参调用同一面板并预置焦点列（0 = provider、2 = effort）；带参仅提示 usage。
+- **状态与 reducer**：`state.picker`（`PickerState`：options + index + phase + efforts + effortIndex）+ `picker-open` / `-move` / `-tab` / `-phase` / `-efforts` / `-close`。渲染为 `components/ModelPicker.ts` 纯函数（输出恰活动区可视行）：三列独立列表同屏，头部全小写；当前模型恒为首行标 `*` 附 `[current]`，焦点行标 `>` 并加粗。等级列表经 adapter `modelEfforts(provider, model)`（宿主 `llm.resolveModelInfo` → `reasoning.efforts`；非思考模型返回 undefined，面板显示 `effort: (unsupported)`）异步加载；`metricsFor` 的 picker 高度预算取模型列表与等级列表较大者；宿主等级名首字母大写，adapter 归一为小写再展示（与状态栏 `model:<等级>` 后缀同源）。
+- **列宽分配**（`pickerColumnWidths`）：三列自然宽 = 各自最长选项显示宽（含行前标记 2 列，effort 无选项时按标题宽兜底）。空间充足时按自然宽比例分配（余数按最长列依次补 1），不出现大片留白；空间不足改用水位法（同 `table.ts`）——短列保持自然宽、只有超宽列被压到共同水位线；极窄（可用宽 < 3）退化为「首列吃其余、后两列各 1」。
+- **星号选中语义**：phase 0 仅移动 `providerIndex`；`selectPicker` 在星号移到新 provider 时才把 model 列表切到该 provider、`modelIndex = 0`、旧 `selectedModel` 失效（effort 列表清空由 App 重载；思考等级星号在新列表中存在才显示），重选同一 provider 幂等；phase 1 选中保留 `selectedEffort`。`App.reloadPickerEfforts()` 目标为选中（星号）的 model / provider（未选中回退焦点行）。`Enter` 提交走 `resolvePickerSelection`「星号优先、焦点兜底」。
+- **切换语义**：只改会话内 `SessionModelSelectionRef.current`（经 `installSessionModelSelection` 挂到 agentCtx 的 `system-prompt/assemble` + `agent/request` 双钩子，下一 step 生效，快照保证不撕裂当步请求）；**绝不调用宿主 `agentDefaultModel.saveSelection()`**（避免覆盖配置中的默认模型）。有效选择 = 会话内切换 ?? 宿主实时默认（`currentSelection()` 只读兜底，不做一次性快照以免异步 publish 时序吞掉设置）。切换时保留当前 `reasoningEffort`，不提供 effort 参数。
+- **接线**：`main.ts` 的 `apply()` 在 `agents.create({ setup })` 中把 `installSessionModelSelection(agentCtx, sessionModel, () => readDefaultSelection(defaultModelSvc))` 挂上，并把同一 `sessionModel` 引用 + 只读 `defaultModel` 兜底传入 `createRealDshAdapter`（结构面 `LlmLike` / `AgentDefaultModelLike`，零运行时依赖）。
+- **状态回显**：切换成功后 `systemStatus.model` 更新为 `provider/model` 并写入 notice；`App.start()` 读取 `modelCatalog().current` 写入 `systemStatus.model`。宿主 `agentDefaultModel` 需等 LLM provider 注册后才返回真实路由，故改为常驻跟随 `StatusTicker` 的 5s 周期（值变更才重绘）。
+- **持久化与恢复**：`/model` 只改会话内 `sessionModel.current`（**绝不写宿主 `agentDefaultModel.saveSelection()`**，避免覆盖配置默认模型），同时记入 `state.modelBySession` 供会话状态快照落盘；resume / 启动时按「宿主 `model/selection` → 快照 → 最近 `request/header.config`」恢复并写回引用（详见「会话状态恢复」）。仅内存会话（无持久化目录）没有快照，此时退化为宿主日志口径。
+
+### 命令输入补全
+
+- `completeCommandInput(text, extra, mode)` 做前缀匹配（名称短 → 长排序，`items[0]` = 最匹配）、**不设硬上限**、同名以本地优先去重；`mode = slash` 时先把「无前导 `/` 的输入框文本」归一为字面 `/name` 再判定（slash 模式的 `/` 由 `App.submit` 提交时才补）。宿主目录经 `adapter.commandList()`（官方 `commands.list(agent)`，仅取 name / description，缺失 / 抛错 → undefined 降级为仅本地命令）。
+- 候选存入 `state.completion`，**唯一计算点在 reducer**：`input` action（`setInput`，所有编辑键的唯一漏斗）、`input-mode`（切换模式重算）、`command-catalog`（宿主目录到达）。
+- 展示复用活动区覆盖层（`components/CommandCompletion.ts`，与审批 / 问答 / picker / 各面板同一渲染链；footer **不**空白占位——补全不占输入区，输入行与光标必须可见）。面板 = 标题 1 行 + (activityH−1) 行候选，候选池足够时铺满活动区（曾设硬上限导致活动区高时底部留白，已移除）；**超出可视行的候选直接丢弃、不滚动窗口**——渲染只取前 activityH−1 项，App 侧 `completionVisibleRows()` 给 `completion-move` 传 `max`，把 `↑/↓` 与 `Tab` 接受也限定在可视范围内。键位提示不放面板内，而在输入区下方的按键提示区（`layout/hints.ts` 的 `COMPLETION_HINT_LINE`；提示区恒 1 行、任何状态都在，文案统一由 `hintLine(state)` 按状态给出）。
+- 按键：`Tab` 接受（写命令名 + 尾随空格，slash 模式不写前导 `/`）、`↑/↓` 移动（在 `handleKey` 的 normal 分支先于面板滚动）、`Esc` 收起（不打断运行）、`Enter` 保持提交语义。
+
+### 通用状态选项面板（`/policy` `/permission` `/preset`）
+
+- 无参统一打开 `statusPanel`（`components/StatusPanel.ts`，活动区窗口，与审批 / 问答 / 模型选择同区域）。状态 `StatusPanelState{kind,title,options[],index,selected}`（`state.statusPanel`）；reducer `status-panel-open/move/select/close`。提交路径：policy → `setApprovalPolicy`；permission → `runCommand("/permission <name>")` 转发宿主；preset → `selectAgentPreset`。
+- 交互：`↑/↓` 移动焦点、空格预选星号（再按取消）、`Enter` 提交预选（无预选回退焦点行）并关闭、`Esc` 取消；当前策略来自 `state.policyBySession[sid]` 事件回读。着色：预选行绿、未预选的焦点行黄，同一行兼具时绿优先。
+- plan / sandbox 无宿主写接口，暂不开放面板；goal / todo 保持只读状态列。
+
+### 问答 / 审批面板：两窗滚动、编辑光标与审批交互（BACKLOG 3.2.1 / 3.2.2 / 3.2.3 / 3.2.4 / 3.2.5 / 3.2.6 / 3.2.7 / 3.2.10 / 3.2.12 / 3.3.1 / 3.3.2 / 3.3.3 / 3.3.4 / 3.3.5 / 3.3.6 / 3.3.7 / 3.3.8）
+
+- **两窗模型与分配**（3.2.1 / 3.2.11）：`components/QuestionPrompt.ts` 把面板体（`height − 1`）拆为描述窗（题干 + detail）与选项窗（选项 + 自定义兜底项）。分配：描述窗上限 `descMaxRows = max(1, floor(maxBody × 2 / 3))`，描述窗可见行 = `min(内容行数, descMaxRows, maxBody)`，选项窗 = 剩余行（不设上限）。效果：内容不足时两窗紧邻、空白落活动区下方；合计溢出时**选项窗先滚动**（描述窗仅在自身超 2/3 时滚动）；描述窗滚动上界按固定 `descMaxRows` 算，到底后反向按键即时响应。长题干 / 长 detail 不再把选项挤出可视区。
+- **焦点窗与按键**：`state.question.items[i].focus`（`desc` / `options`，缺省 `options`）+ `descScroll`；Tab 切窗（`question-focus`），焦点在描述窗时 ↑/↓ 走 `question-desc-scroll`（`max` 由 App 用 `frameGeometry` + `maxDescScrollFor` 算定后传入，state 层不感知折行宽度），选项窗时 ↑/↓ 仍走 `question-move`。选项窗起点由 `windowStart(..., "tail")` 算：焦点项优先，焦点在描述窗时锚定首个已标记项（标记不被滚出视野）。状态选项面板（`StatusPanel.ts`）改用 `windowStart(..., "center")`。
+- **标题与选项形态**（BACKLOG TUI#4；2026-09-27 真机目视改判）：问答面板不显示标题行——单题标题区 0 行（首行即题干），多题 1 行「题号 + 符号」（如 ` 1○ 2□ 3△`，当前题黄、超宽截断补 `…`，其下直接是题干）；**题号导航已移除**。列宽改走 `charWidth`（与 fill / 渲染器 / 宽度探针同源，两处本地 `chrW` 副本已删）。选项解释另起一行并与选项正文左对齐（内容起点 = 编号宽 + 6 列、数字悬挂；3.2.3 / 3.2.12），光标 `>` 与标记 `✓` 只在选项首行（标记统一为 `✓`，不再区分单 / 多选）。审批面板标题 ` △ 等待审批`（类型符号与状态标记 △ 合一、整行黄），并把 `prompt` 的硬截断改为按 `state.approvalScroll` 滚动（↑/↓ 在审批态生效，其余按键仍吞掉）。
+- **描述窗 markdown**（BACKLOG TUI#6）：`panelMarkdownRows`（`layout/panel.ts`）按行分类渲染——fence 标记行与其内部行 → `wrapCodeLine`（面板自持 fence 状态）、含 `|` 的行 → 普通文本折行（**表格退回纯文本**）、其余 → `wrapAssistantLine`；产出**样式段行**（不含行首 1 列，渲染时补空格 / 滚动条），由 `PanelLine.segments` 承载（题干 / detail / 审批草稿；提问前正文段与选项行仍纯文本）。面板 API 增 `themeId`（缺省 `dark`）：`buildQuestionPanelBox` / `maxDescScrollFor` / `questionCaretFor` / `renderQuestionPanel`、`buildApprovalBox` / `maxApprovalScroll` / `renderApprovalPrompt`，调用点由 `layout.ts`（`state.themeId`）与 `index.ts` 传入。审批草稿的「命令：」段走代码块（`CMD_LABEL`，命令原文不被行内语法改写）。
+- **编辑光标**：焦点在「自定义回答」兜底项且该行在窗口内时，`questionCaretFor` 产出面板内 0 基 caret；`buildFrame` 拼帧时写入对应帧行的 `caret`（列 = 活动区正文起始列 + 面板内列），`frameFocus` 的 `inputFocus` 随之为 true（`!modalOpen || 帧内出现 caret 行`），渲染器据此定位并显示光标。
+- **提示区与焦点可见性**（3.2.1 / 3.2.8）：`questionHintLine` 以**显式前缀**标出当前焦点窗（`▶选项` / `▶题干`），其后才是 `[↑/↓]滚动` / `[↑/↓]选项` 与 `[Tab]描述` / `[Tab]选项`；各项用紧凑分隔符 `·` 连接——七项全列在 80 列终端为 70 列（`·` 会撑到 82 列并截掉尾部切题提示，实测）。面板内描述窗左侧 1 列按内容是否超屏渲染：**超屏时是滚动条**（轨道 `│` 灰 + 滑块 `┃`，长度按可见/总行数比例、位置按偏移比例；聚焦时滑块黄、失焦灰），**不超屏时是纯焦点指示**（聚焦整列黄 `┃`、失焦空格）；聚焦描述窗时选项光标行降色（不再黄、已标记仍绿），全屏只有一处焦点黄。审批面板草稿滚动条同理，滑块恒黄。面板可用宽 = `width − 2`（原 −4，内容行右侧留白偏多，人工验收反馈后收紧）。
+- **测试**：`tests/question-window.test.ts` 9 例（分窗可见性 / 描述窗滚动上界与 clamp / Tab 与 ↑↓ 分派 / 已标记项可见 / 解释分行 / 类型标识 / caret 行列 / 审批滚动 / `windowStart`）、`tests/app.test.ts`（面板渲染、plan-review 分窗可见性、Tab 切窗）、`tests/focus-cursor.test.ts`（面板编辑态 caret 与反例）、`tests/question-wrap.test.ts`（选项折行回归）；冻结基线 `tests/fixtures/focus-frame-legacy.json` 已按新标题/提示重跑。
+
+**审批交互族与提问上下文（3.2.4 / 3.2.5 / 3.2.6 / 3.2.10 / 3.3.1 / 3.3.2 / 3.3.3 / 3.3.4 / 3.3.5 / 3.3.6）**
+
+- `adapter/dsh.ts`：`tool/call` 归一额外登记 `callId → { tool, command, summary }`（LRU 上限 64；裁定 / 超时 / abort 后清理）；超时裁定为 `rejected`（3.3.5）并提供 `stopApprovalTimeout(id)`（用户已操作后停止计时）；`approvalAnswerer` 用 `buildApprovalPrompt(req, detail)` 生成多行草稿；`settle(id, outcome, reason?)` 在宿主侧裁定（超时 / abort）时补发 `approval-closed`；新增 `cancelApproval(id)`（Esc → `cancelled`）。
+- `adapter/normalize.ts`：`buildApprovalPrompt` 支持 `ApprovalDetail`（「命令：」全文 + 「参数：」摘要），无明细退化为单行旧文案。
+- `state.ts`：审批态新增 `approvalFocus` / `approvalWindow`（焦点窗，3.3.4）/ `approvalDeadline` / `approvalHint` 与 `focusApproval` / `toggleApprovalWindow` / `setApprovalHint`；`question.source` 与纯函数 `recentQuestionSource(buffer)`；`question-move.delta` 放宽为 number（数字键跨多项跳转）。
+- `components/ApprovalPrompt.ts`：描述窗 + 选项窗两窗（2/3 规则）、选项固定「批准 / 拒绝」带编号与焦点标记、拒绝项倒计时；`ApprovalView`（focus / deadline / now / window（焦点窗 3.3.4）/ hint（面板内提示 3.3.6））为渲染参数；焦点窗决定左侧列与选项光标着色（3.2.8 口径），`hint` 行先占 1 行再分配两窗（面板总高不变）。
+- `layout/hints.ts`：`approvalHintLine(state)` 以 `▶草稿` / `▶选项` 前缀标出焦点窗（3.3.4）；无效键提示不占用按键提示区。
+- `layout.ts`：`noticeFooterLines`（3.1.1 的输入区 notice 视图）在 `state.approvalHint` 非空时**优先**用该行显示 `[无效键] …`（黄、左对齐），有效键清空后自动切回 notice 视图（BACKLOG 3.3.8：落点为用户输入区＝屏幕左下、按键提示正上方）。
+- 超时语义（3.3.5）：无操作到点 → `rejected`；面板内按过任意键 → `adapter.stopApprovalTimeout(id)` 停止计时、倒计时隐藏；`Esc` 仍为 `cancelled`。
+- `components/QuestionPrompt.ts`：选项行格式 `${光标}${标记} ${编号}. ${正文}`（BACKLOG 3.2.12：编号居中靠左、内容起点 = numW + 6，续行与 `description` 对齐内容起点即数字悬挂）；描述窗顶部来源段（灰、`panel.source`）。审批面板选项同格式。`state.ts` 的 `recentQuestionSource` 取正文前先自末尾跳过后缀非正文行（`tool` / `step` / `notice` / `separator` / `thinking`，上限 12 行）。
+- `question-transition.ts`：数字键 → `{ kind: "digit", n }`（自定义项上仍 `custom`）。
+- `index.ts`：审批按键白名单（y/1、n/2、Enter、Tab 切焦点窗、←/→、↑/↓ 按焦点窗分派、Esc；其余置 `approval-hint`）；按键分发前统一停止超时计时（3.3.5）；、`approval-closed` 处理（关面板 + notice）、`question-open` 带 `recentQuestionSource`、数字键标记（move + select，不提交）。
+
+### /theme 命令
+
+- 配色方案：启动时解析 `tui.config.json` 的 theme 段（`renderer/theme-config.ts`：内联 `palettes.<id>` → `paletteDir/<file>.json`（上游单一源，默认 `~/fff/config/terminal-colortheme/`）→ 内置兜底快照）。`theme.ts` 的 `THEMES` 仅是兜底快照（= 当前上游配色）；语义色槽位 `gray` / `border` / `code` / `focus` 从各主题 `semantics` 解析（不再按主题名 / ID 分支）。定义 16 个 ANSI 槽位 + 基底前景 / 背景，全部 truecolor。
+- 槽位映射：`black..white` → `ansi[]`，`brightBlack..brightWhite` → `bright[]`；`ansiNameToHex(theme, name)` 解析。段级 `style` 由 `segStyle` / `serializeFrameRow`（`screen.ts`）按 Manual-ANSI 处理（fg/bg 分别 `38;2` / `48;2`，bold 用 `1m` / `22m`），着色一律**以主题基底前景 / 背景收尾**（不用 chalk：其 `39m` / `49m` 会复位到终端默认，浅色主题下不可读）。
+- 基底色：`Screen` 持有当前主题（`setTheme(id)`），报文在清屏/定位之前写出基底前景 / 背景（truecolor 背景 → `ESC[2J` 首帧清屏即以主题色填充；覆盖式全帧与每个增量区间行同样带基底），保证 `ESC[K` / `ESC[J` 擦除以主题背景填充（擦除一律发生在行首/列 1，见上「先擦后写」口径）。`setTheme` 同时清掉帧缓存（`prevRows = null`），切换后必然全帧重绘。`close()` 前 `Screen.reset()` 输出同步结束 + 光标显示 + `ESC[0m` 恢复终端默认。

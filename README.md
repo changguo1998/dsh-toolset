@@ -133,7 +133,6 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 - `TUI/docs/SPEC.md` — 渲染管线规格；`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` — 命令清单与扩展规格。
 - `TUI/docs/design/` — TUI 内部规范：`NOTICE-LEVELS.md`（提示分级）、`AUDIT-colors.md`（配色语义）、`REFACTOR.md`（模块拆分约定）。
 - `<模块>/docs/BACKLOG.md` — 模块待办（`TUI/docs/BACKLOG.md`、`fs-digest/docs/BACKLOG.md` 已建，其余按需）；`<模块>/docs/STATUS.md` — 模块级对照文档（TUI 已有）。
-- `TUI/docs/IMPLEMENTATION.md` — 实现要点，**待按 `docs/BACKLOG.md` #40 拆分后删除**。
 
 **协作与历史**
 

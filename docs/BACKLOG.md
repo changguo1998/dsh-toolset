@@ -21,8 +21,9 @@
 - 安全与集成：#27 security-guard 策略层、#36 herdr-integration；
 - 规则触发与符号规范：#42 rule-engine、#43 TUI 符号规则迁移（落点为 #48）、#44 next-step 注入路径、#45 仓库级集成、#46 插件注入消息 `form:'notice'` 一行提示渲染、#47 消费者框架（`registerConsumer` + `evaluate`）、#48 symbol-normalizer 插件；真机验证记录见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`；
 - TUI：#16 /workflows 面板、#18 /council、#24 /search 多 provider 聚合、#33 声音提醒，以及 7 项纯 TUI 命令与 A1-A5（`/task` `/guard` `/memory` `/loop` `/contract`）；
-- 工程流程与文档：#39 文档体系与变更规范落地（追踪文档 `docs/archived/2026-09-25-docs-workflow-rollout.md`）。
-- 已取消：#35 rate-guard（不实现，pi 侧已移除，dsh 侧由官方 `llm-retry` 覆盖，见 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1）。
+- 工程流程与文档：#39 文档体系与变更规范落地（追踪文档 `docs/archived/2026-09-25-docs-workflow-rollout.md`）、#40 `TUI/docs/IMPLEMENTATION.md` 拆分删除（命令/机制 → `TUI/docs/DESIGN.md`「实现要点（机制与命令）」、渲染/排版 → `TUI/docs/SPEC.md` §15、验证 → `TUI/README.md`；追踪文档 `docs/archived/2026-09-29-tui-implementation-doc-split.md`）。
+- 运行时与宿主：#38 宿主双栈兼容垫片清理（0.1.7-rc.2 单一形态；追踪文档 `docs/archived/2026-09-29-host-single-stack-cleanup.md`）、#49 tmux 断连后 dsh 退出 → 退出前问题面板确认（追踪文档 `docs/archived/2026-09-29-exit-confirm-panel.md`）。
+- 已取消/不再立项：#35 rate-guard（不实现，pi 侧已移除，dsh 侧由官方 `llm-retry` 覆盖，见 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1）；#25 GitHub 仓库克隆、#26 PDF 提取 / 视频理解、#28 密文扫描、#29 安全 issue 上报（用户 2026-09-29 裁定移除，不立项）。
 
 ## 2. 未完成项
 
@@ -71,8 +72,8 @@
 
 | # | 功能 | 来源 | 落点 | 优先级 |
 |---|------|------|------|--------|
-| 40 | 待办 **`TUI/docs/IMPLEMENTATION.md` 按新规范拆分后删除**：命令路由与落点 → `TUI/docs/DESIGN.md`；渲染/排版类 → `TUI/docs/SPEC.md`；其余机制与「已评估未采用」→ DESIGN；「验证方式」并入 `AGENTS.md`；拆分后重定向 58 处引用 | #39 的决策（2026-09-25） | 独立条目，另派 agent 接取 | P2 |
 | 41 | 待办 **建立 `docs/ROADMAP.md`**：写未来开发方向，内容需维护者提供；建立后与 `docs/BACKLOG.md` §3「里程碑」的分工为「方向在 ROADMAP、进度与排期在 BACKLOG」 | #39 落地时发现（2026-09-25） | 需维护者参与 | P2 |
+| 50 | **`knowledge-base/README.md` 两处断链**：正文「断言口径见 `IMPLEMENTATION.md` §6」与「实现落点与踩坑见 `IMPLEMENTATION.md`」指向该包 `docs/` 下**不存在**的文件（该目录只有 `DESIGN.md`）——需补建 `knowledge-base/docs/IMPLEMENTATION.md` 或把两处指向 `DESIGN.md` / smoke 说明 | #40 拆分时发现（2026-09-29） | knowledge-base 模块自管 | P2 |
 
 ### 2.9 运行时与宿主交互
 
@@ -81,7 +82,7 @@
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
-1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#25、#26、#28-#32、#37、#38，按需排期；已完成项（含 #39、#42-#48）见 §1 索引，已取消项亦见 §1。
+1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#30-#32、#37、#41、#50，按需排期；已完成项（含 #39、#42-#49）见 §1 索引，已取消项亦见 §1。
 1. 依赖：#17 的模板族与 #32 可共用 workflow/skill 资产；workflow-ext 建包前，工作流相关插件面依赖 task-engine 的契约与执行器；其余相互独立。
 
 ## 4. 插件规划（未建包）

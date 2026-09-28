@@ -259,7 +259,7 @@ export interface AppDeps {
   /** 状态列宽分母（tui.config.json layout.statusColumnDivisor；1/3 → 3） */
   statusColumnDivisor?: number;
   /** /agents 面板定时刷新间隔(ms)；缺省 2000。宿主无 subagent 状态事件面，由
-   *  打开期间定时 + 手动 `r` 双路保鲜（C2；评估结论见 IMPLEMENTATION.md） */
+   *  打开期间定时 + 手动 `r` 双路保鲜（C2；评估结论见 TUI/docs/DESIGN.md「非显然实现要点」） */
   agentsRefreshIntervalMs?: number;
   /** 声音提醒（P2#33）：任务运行结束 / 等待用户输入超阈值 → 终端 BEL（\x07）。
    *  可选；不传=默认开启。配置源 tui.config.json `notify`（见 config.ts）。 */

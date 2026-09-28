@@ -8,7 +8,7 @@
 // wrap:false 不折行、不做 markdown 解析，避免 `[y]`/`*` 等被误解析）。
 // **例外**（BACKLOG TUI#6）：描述窗的题干 / detail / 审批草稿走 `panelMarkdownRows`
 // ——按历史区同口径渲染 markdown 子集（样式段行）；选项行与按键提示仍不解析。
-// 渲染字符：选项行高亮游标 `>`、选中标记 `✓`（见 IMPLEMENTATION.md「/model 命令」
+// 渲染字符：选项行高亮游标 `>`、选中标记 `✓`（见 TUI/docs/DESIGN.md「/model 命令」
 // ModelPicker / StatusPanel / Question）。
 
 import type { Box, Node, Paragraph, StyledText } from "./box.ts";

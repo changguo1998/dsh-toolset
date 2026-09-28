@@ -5,7 +5,7 @@
 > 过期条件：无
 
 > 用途：记录命令面现状（本地命令 + 宿主注册命令）与「值得添加的命令」建议。
-> 命令用法与键位见 `README.md`「Slash 命令」，逐命令实现落点见 `IMPLEMENTATION.md`「命令实现落点」，扩展规格（落点、服务降级、面板契约）见 `COMMANDS-SPEC.md`。
+> 命令用法与键位见 `README.md`「Slash 命令」，逐命令实现落点见 `DESIGN.md`「命令实现落点」，扩展规格（落点、服务降级、面板契约）见 `COMMANDS-SPEC.md`。
 
 ## 1. 现状
 
@@ -13,7 +13,7 @@
 
 单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（39 条 = 34 命令 + 5 别名 `/cls` `/thinking` `/usage` `/context` `/exit`；`/continue` 为 TUI#1 新增）；路由决策 `routeSlashCommand`，处理分支在 `src/app/index.ts` `handleSlash`。
 
-命令的**行为、参数与键位**见 `TUI/README.md`「Slash 命令」一节；逐命令的**落点与降级**见 `TUI/docs/IMPLEMENTATION.md`。本节不重复这两者，只维护上面的「单一来源 + 路由」事实与 §1.2 的宿主注册面。
+命令的**行为、参数与键位**见 `TUI/README.md`「Slash 命令」一节；逐命令的**落点与降级**见 `TUI/docs/DESIGN.md`「命令实现落点」。本节不重复这两者，只维护上面的「单一来源 + 路由」事实与 §1.2 的宿主注册面。
 
 ### 1.2 宿主注册命令
 
@@ -32,7 +32,7 @@
 
 ### 2.1 已实现（索引）
 
-已实现命令的用法与键位见 `README.md`「Slash 命令」，逐命令落点与降级见 `IMPLEMENTATION.md`「命令实现落点」。落点统一：插件侧只提供只读查询面，命令仍在 TUI 侧实现（`ctx.get("<svc>")` → adapter → 本地命令）；`/contract` 例外——goal-contract 只读面优先、缺失时内置同构回读兜底。
+已实现命令的用法与键位见 `README.md`「Slash 命令」，逐命令落点与降级见 `DESIGN.md`「命令实现落点」。落点统一：插件侧只提供只读查询面，命令仍在 TUI 侧实现（`ctx.get("<svc>")` → adapter → 本地命令）；`/contract` 例外——goal-contract 只读面优先、缺失时内置同构回读兜底。
 
 - 工具性质、命令入口价值低（模型直接用即可）：fs-digest、hash-edit、ast-tools、output-compress、code-map。
 
