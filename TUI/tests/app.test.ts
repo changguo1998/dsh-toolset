@@ -797,7 +797,7 @@ test("P1：活跃块只看最后一条用户输入——更早的未终态块不
   app.dispose();
 });
 
-test("P8：压缩期间 Enter 进排队、Ctrl+D 不退出；压缩结束恢复", () => {
+test("P8：压缩期间 Enter 进排队、Ctrl+D 不请求退出确认；压缩结束恢复", () => {
   const { app, renderer, adapter } = makeApp();
   const st = (): {
     queued: string[];
@@ -815,6 +815,10 @@ test("P8：压缩期间 Enter 进排队、Ctrl+D 不退出；压缩结束恢复"
   assert.ok(st().compactingBySession["s1"], "start 后按会话标记压缩中");
   renderer.press({ name: "d", ctrl: true, meta: false, shift: false });
   assert.equal(renderer.closed, 0, "压缩期间 Ctrl+D 不退出（视为活跃）");
+  assert.ok(
+    !strippedFrame(renderer).includes("确认退出 dsh？"),
+    "压缩期间 Ctrl+D 连退出确认面板也不弹（守卫不通过）",
+  );
   typeAndEnter(renderer, "压缩中提问");
   assert.deepEqual(
     st().queued,
@@ -824,7 +828,24 @@ test("P8：压缩期间 Enter 进排队、Ctrl+D 不退出；压缩结束恢复"
   adapter.push({ type: "compaction", phase: "end", sessionId: "s1" });
   assert.deepEqual(st().compactingBySession, {}, "end 后清除标记");
   renderer.press({ name: "d", ctrl: true, meta: false, shift: false });
-  assert.equal(renderer.closed, 1, "空闲后 Ctrl+D 正常退出");
+  assert.equal(renderer.closed, 0, "空闲后 Ctrl+D 先弹退出确认（不直接退出）");
+  assert.ok(
+    strippedFrame(renderer).includes("确认退出 dsh？"),
+    "空闲后 Ctrl+D 弹退出确认面板",
+  );
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.equal(renderer.closed, 0, "确认面板默认项「取消」→ Enter 后留在 TUI");
+  adapter.push({ type: "compaction", phase: "start", sessionId: "s1" });
+  renderer.press({ name: "d", ctrl: true, meta: false, shift: false });
+  assert.ok(
+    !strippedFrame(renderer).includes("确认退出 dsh？"),
+    "压缩重新开始后 Ctrl+D 再次被守卫拦住",
+  );
+  adapter.push({ type: "compaction", phase: "end", sessionId: "s1" });
+  renderer.press({ name: "d", ctrl: true, meta: false, shift: false });
+  renderer.press({ name: "2", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.equal(renderer.closed, 1, "确认「退出 dsh」后才退出");
   app.dispose();
 });
 
@@ -1112,7 +1133,7 @@ test("空输入时单次 Ctrl+C 不触发退出(close 不被调用)，后续仍�
   assert.deepEqual(adapter.sent, ["x"]);
 });
 
-test("Ctrl+C 清空输入区（不发送）；紧接再按一次退出", () => {
+test("Ctrl+C 清空输入区（不发送）；紧接再按一次请求退出确认", () => {
   const { renderer, adapter } = makeApp();
   for (const ch of "hi") {
     renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
@@ -1124,16 +1145,27 @@ test("Ctrl+C 清空输入区（不发送）；紧接再按一次退出", () => {
   assert.ok(!inputRow().includes("hi"), "Ctrl+C 应清空输入区");
   assert.equal(renderer.closed, 0);
   assert.deepEqual(adapter.sent, []);
-  // 750ms 双击窗口内第二次 Ctrl+C → 退出
+  // 750ms 双击窗口内第二次 Ctrl+C → 退出确认面板（不直接退出）；选「退出 dsh」才退
   renderer.press({ name: "c", ctrl: true, meta: false, shift: false });
+  assert.equal(renderer.closed, 0, "双击 Ctrl+C 先弹确认，不直接退出");
+  assert.ok(
+    strippedFrame(renderer).includes("确认退出 dsh？"),
+    "退出确认面板弹出",
+  );
+  renderer.press({ name: "2", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.equal(renderer.closed, 1);
   assert.deepEqual(adapter.sent, []);
 });
 
-test("空输入双击 Ctrl+C 退出", () => {
+test("空输入双击 Ctrl+C → 先确认，确认后退出", () => {
   const { renderer, adapter } = makeApp();
   renderer.press({ name: "c", ctrl: true, meta: false, shift: false });
   renderer.press({ name: "c", ctrl: true, meta: false, shift: false });
+  assert.equal(renderer.closed, 0, "弹确认面板，不直接退出");
+  assert.ok(strippedFrame(renderer).includes("确认退出 dsh？"));
+  renderer.press({ name: "2", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.equal(renderer.closed, 1);
   assert.deepEqual(adapter.sent, []);
 });
@@ -1183,11 +1215,15 @@ test("main(): 返回 disposer——调用后关闭 renderer 并释放 adapter（
   assert.equal(renderer.closed, 1, "disposer 关闭 renderer");
 });
 
-test("Ctrl+D 且 idle+输入区空 → 退出(走 dispose：close + 释放 adapter)", () => {
+test("Ctrl+D 且 idle+输入区空 → 先弹退出确认，确认后走 dispose（close + 释放 adapter）", () => {
   const { renderer, adapter } = makeApp();
   renderer.press({ name: "d", ctrl: true, meta: false, shift: false });
+  assert.equal(renderer.closed, 0, "Ctrl+D 先弹确认，不直接退出");
+  assert.ok(strippedFrame(renderer).includes("确认退出 dsh？"));
+  renderer.press({ name: "2", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.equal(renderer.closed, 1);
-  assert.equal(adapter.disposed, 1, "Ctrl+D 释放 adapter");
+  assert.equal(adapter.disposed, 1, "确认退出后释放 adapter");
   assert.deepEqual(adapter.sent, []);
 });
 

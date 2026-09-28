@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type {
   AppState,
   InputMode,
+  QuestionPanelState,
   StateAction,
   StatusPanelState,
 } from "./state.ts";
@@ -159,6 +160,9 @@ export function canExitOnCtrlD(state: AppState): boolean {
 
 /** Ctrl+C 双击退出窗口(毫秒)：窗口内第二次 Ctrl+C 退出程序 */
 const CTRL_C_DOUBLE_MS = 750;
+/** 退出确认面板的合成问答面板 id（非宿主 ask；`submitQuestion`/`cancelQuestion` 按它分支，
+ *  绝不调用 adapter 的 answerQuestion/cancelQuestion）。普通 id 不会与之冲突（宿主 id 为 uuid 类） */
+const EXIT_CONFIRM_PANEL_ID = "exit-confirm";
 /** 退出时清理空会话的最长等待(ms)：防会话服务挂起把退出卡死。
  *  正常清理毫秒级即可完成，超时仅放弃清理并继续退出。 */
 const EXIT_CLEAN_TIMEOUT_MS = 5000;
@@ -289,6 +293,9 @@ export class App {
   /** 启动自检 kickoff 正文（门控通过时由 main.ts 传入）：恢复会话先挂起，等启动历史折叠
    *  落定后再发（history-restore 会整表替换 buffer，早发会被替换掉）；null = 无待发内容 */
   private kickoffPending: string | null = null;
+  /** 退出确认面板已打开（合成问答面板 `EXIT_CONFIRM_PANEL_ID`）：确认「退出 dsh」才 dispose，
+   *  取消/Esc 只关面板；防止单字节误触（BACKLOG「tmux 断连后 dsh 退出」）直接结束会话 */
+  private exitConfirmOpen = false;
   /** 待绘制脏标记：同一 tick 内多次标脏合并为一次 render（见 paint/flushPaint） */
   private paintDirty = false;
   /** 已排队待冲刷的合帧标志（与 paintDirty 成对；dispose 时清零使排队帧变 no-op） */
@@ -1700,11 +1707,11 @@ export class App {
       return;
     }
 
-    // Ctrl+D：仅 idle 且输入区为空时退出（输入非空时按无操作忽略）；
-    // 走 App.dispose 释放 adapter 与当前活跃 handle
+    // Ctrl+D：仅 idle 且输入区为空时**请求退出确认**（输入非空时按无操作忽略）；
+    // 确认走 App.dispose——单字节误触（如终端/复用器注入的 0x04）不再直接结束会话
     if (ctrl && name === "d") {
       if (canExitOnCtrlD(this.state)) {
-        this.dispose();
+        this.requestExitConfirm();
       }
       return;
     }
@@ -1731,12 +1738,12 @@ export class App {
       return;
     }
 
-    // Ctrl+C：清空输入区（不发送）；750ms 双击窗口内再次 Ctrl+C 退出程序
-    // （输入为空时首次只计数不退出，第二次退出；输入非空时首次清空并计入）
+    // Ctrl+C：清空输入区（不发送）；750ms 双击窗口内再次 Ctrl+C **请求退出确认**
+    // （输入为空时首次只计数不清空，第二次请求；输入非空时首次清空并计入）
     if (ctrl && name === "c") {
       const now = Date.now();
       if (now - this.lastCtrlCAt <= CTRL_C_DOUBLE_MS) {
-        this.dispose();
+        this.requestExitConfirm();
         return;
       }
       this.lastCtrlCAt = now;
@@ -2063,10 +2070,53 @@ export class App {
     this.paint();
   }
 
+  /** 退出确认（BACKLOG「tmux 断连后 dsh 退出」）：以合成问答面板请求确认——默认高亮
+   *  「取消/留在 TUI」，Esc 取消，Enter 确认高亮项；仅在确认「退出 dsh」后 `dispose()`。
+   *  复用问答面板机制（零新增按键路由），不调用 adapter（合成面板无宿主 ask）。
+   *  已打开时幂等（不叠面板）；已 dispose 时无操作。 */
+  private requestExitConfirm(): void {
+    if (this.disposed || this.exitConfirmOpen) return;
+    this.exitConfirmOpen = true;
+    this.apply((s) =>
+      reduceState(s, {
+        type: "question-open",
+        id: EXIT_CONFIRM_PANEL_ID,
+        questions: [
+          {
+            id: EXIT_CONFIRM_PANEL_ID,
+            question: "确认退出 dsh？",
+            header: "退出",
+            options: [
+              { label: "取消", description: "留在 TUI（默认）" },
+              { label: "退出 dsh", description: "关闭会话并退出" },
+            ],
+          },
+        ],
+      }),
+    );
+    this.paint();
+  }
+
+  /** 合成退出确认面板的收尾：确认「退出 dsh」才走原 dispose，否则仅关面板 */
+  private finishExitConfirm(panel: QuestionPanelState): void {
+    this.exitConfirmOpen = false;
+    const answer = buildQuestionAnswers(panel);
+    this.apply((s) => reduceState(s, { type: "question-close" }));
+    if (answer.answers[0]?.selected[0] !== "退出 dsh") {
+      this.paint();
+      return;
+    }
+    this.dispose();
+  }
+
   /** 提交问答：整批 answer 交给 adapter（answerQuestion → resolve ask）并关闭面板 */
   private submitQuestion(): void {
     const panel = this.state.question;
     if (!panel) return;
+    if (panel.id === EXIT_CONFIRM_PANEL_ID) {
+      this.finishExitConfirm(panel);
+      return;
+    }
     const answer = buildQuestionAnswers(panel);
     this.apply((s) => reduceState(s, { type: "question-close" }));
     this.deps.adapter.answerQuestion(panel.id, answer);
@@ -2077,6 +2127,12 @@ export class App {
   private cancelQuestion(): void {
     const panel = this.state.question;
     if (!panel) return;
+    if (panel.id === EXIT_CONFIRM_PANEL_ID) {
+      this.exitConfirmOpen = false;
+      this.apply((s) => reduceState(s, { type: "question-close" }));
+      this.paint();
+      return;
+    }
     this.apply((s) => reduceState(s, { type: "question-close" }));
     this.deps.adapter.cancelQuestion(panel.id);
     this.paint();
