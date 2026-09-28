@@ -23,67 +23,33 @@
 - TUI：#16 /workflows 面板、#18 /council、#24 /search 多 provider 聚合、#33 声音提醒，以及 7 项纯 TUI 命令与 A1-A5（`/task` `/guard` `/memory` `/loop` `/contract`）；
 - 工程流程与文档：#39 文档体系与变更规范落地（追踪文档 `docs/archived/2026-09-25-docs-workflow-rollout.md`）、#40 `TUI/docs/IMPLEMENTATION.md` 拆分删除（命令/机制 → `TUI/docs/DESIGN.md`「实现要点（机制与命令）」、渲染/排版 → `TUI/docs/SPEC.md` §15、验证 → `TUI/README.md`；追踪文档 `docs/archived/2026-09-29-tui-implementation-doc-split.md`）。
 - 运行时与宿主：#38 宿主双栈兼容垫片清理（0.1.7-rc.2 单一形态；追踪文档 `docs/archived/2026-09-29-host-single-stack-cleanup.md`）、#49 tmux 断连后 dsh 退出 → 退出前问题面板确认（追踪文档 `docs/archived/2026-09-29-exit-confirm-panel.md`）。
-- 已取消/不再立项：#35 rate-guard（不实现，pi 侧已移除，dsh 侧由官方 `llm-retry` 覆盖，见 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1）；#25 GitHub 仓库克隆、#26 PDF 提取 / 视频理解、#28 密文扫描、#29 安全 issue 上报（用户 2026-09-29 裁定移除，不立项）。
+- 已取消/不再立项：#35 rate-guard（不实现，pi 侧已移除，dsh 侧由官方 `llm-retry` 覆盖，见 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1）；#25 GitHub 仓库克隆、#26 PDF 提取 / 视频理解、#28 密文扫描、#29 安全 issue 上报（用户 2026-09-29 裁定移除，不立项）；#32 近期改动代码审查、#37 preset 机制迁移评估（用户 2026-09-29 裁定直接关闭，不立项）。
 
 ## 2. 未完成项
 
-### 2.1 子代理与编排（P1-P2）
+> 扁平清单，按编号升序（2026-09-29 整理：不再设功能分区）；编号仅在本文件内唯一，仅供阅读。优先级：P0 > P1 > P2。
 
-| # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
-|---|------|------|------------------|--------|
+| # | 功能 | 来源 | 落点（复用） | 优先级 |
+|---|------|------|--------------|--------|
 | 14 | 工作流内模型路由与成本核算 | dynamic-workflows 拆项 2/3（对比文档 §3.1） | agent-default-model、token-meter | P2 |
 | 15 | `[~]` git-worktree 完整隔离（resume 已由 task-engine `resumeFromSnapshot` 覆盖；隔离未实现） | dynamic-workflows 拆项 5 | 本机本地插件 `dsh-git-worktree` 补完整隔离（当前仅有 disabled-git-hooks） | P2 |
 | 17 | 模板化 pattern 五族（deep-research / code-review / multi-perspective / adversarial-review / codebase-audit） | dynamic-workflows 拆项 7（对比文档 §3.1）；pi-simplify/ponytail 工具族可并入 | workflow 脚本 + skill 内容资产 | P2 |
-
-### 2.2 代码与文件（P2）
-
-| # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
-|---|------|------|------------------|--------|
 | 22 | `[~]` LSP 语义层：findReferences 精确确认调用关系（结构层候选索引已完成，见 code-map/docs/DESIGN.md 混合架构） | hypa 拆项 3（对比文档 §3.2） | tool-lsp 扩展 | P2 |
 | 23 | PDF/文档结构视图 | readseek 拆项 4（对比文档 §3.4） | 无底座，新工具 | P2 |
-
-### 2.3 外部接入（P2）
-
-（当前无未完成项）
-
-### 2.4 安全治理（P2）
-
-（当前无未完成项）
-
-### 2.5 交互与资产（P2）
-
-| # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
-|---|------|------|------------------|--------|
 | 30 | 跨会话 broker（消息/委托/状态同步） | pi-intercom（对比文档 §3.3） | 无底座；webhook/acp/sdk 均非等效，新建 unix socket 通道 | P2 |
 | 31 | slash 命令模板（pre-steps/chain/best-of-N）+ 模板级模型选择 | pi-prompt-template-model（对比文档 §3.4） | commands + workflow | P2 |
-| 32 | 近期改动代码审查 | pi-simplify（对比文档 §3.6） | 可并入 #17 模板族 | P2 |
-
-### 2.6 其他观察项（未单独立项）
-
-来自 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3 的仍缺关键面，暂不单独立项，作为后续可选项：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、记忆 auto-consolidation（已有两级写回与淘汰提升，语义接近）、MCP 脚本化（mcpScript）、活动工具交互管理、会话事件自动入知识库。
-
-### 2.7 配置与部署（P2）
-
-| # | 功能 | 来源 | dsh 落点（复用） | 优先级 |
-|---|------|------|------------------|--------|
-| 37 | preset 机制对齐（清理已完成，余迁移评估）：本项目只用 TUI，agent 面由 profile 全局组合提供，preset 配置已于 2026-09-25 从 `Projects/dsh-toolset`、`~/.dsh`、`~/fff/config/dsh` 清除（记录见 `docs/host/AGENT-COMPOSITION.md` §5）。**剩余**：宿主升级到 0.1.7+ 时，若确需「同一 TUI 进程内不同会话用不同组合」，按官方声明式自建——挂 `agent-preset-registry`、以 `@deepseek-ai/dsh-agent-preset` 行声明组合、并像 `web-app` 那样禁用 base 的 agent 面行（切换只对空白会话生效）；不需要则本项直接关闭 | 官方仓库核对 2026-09-25（`master` `477b4f4205` = `dsh-v0.1.7-rc.2`；preset 重写 commit `d1e22a7e24`，TUI 包移除 commit `10bb9cbf4a`） | 现状：profile 用户 patch；若要 preset：`agent-preset-registry` + `agent-preset` | P2 |
-
-### 2.8 工程流程与文档体系
-
-| # | 功能 | 来源 | 落点 | 优先级 |
-|---|------|------|------|--------|
 | 41 | 待办 **建立 `docs/ROADMAP.md`**：写未来开发方向，内容需维护者提供；建立后与 `docs/BACKLOG.md` §3「里程碑」的分工为「方向在 ROADMAP、进度与排期在 BACKLOG」 | #39 落地时发现（2026-09-25） | 需维护者参与 | P2 |
 | 50 | **`knowledge-base/README.md` 两处断链**：正文「断言口径见 `IMPLEMENTATION.md` §6」与「实现落点与踩坑见 `IMPLEMENTATION.md`」指向该包 `docs/` 下**不存在**的文件（该目录只有 `DESIGN.md`）——需补建 `knowledge-base/docs/IMPLEMENTATION.md` 或把两处指向 `DESIGN.md` / smoke 说明 | #40 拆分时发现（2026-09-29） | knowledge-base 模块自管 | P2 |
+| 51 | **记忆 auto-consolidation（自动巩固）**：把高频 / 高重要度记忆自动提升、合并相似条目、淘汰陈旧项（现状 knowledge-base 已有两级写回与淘汰提升，语义接近但需自动化巩固策略） | `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3（原 §2.6 观察项，用户 2026-09-29 立项） | knowledge-base 记忆层扩展（复用两级写策略 / 淘汰提升机制） | P2 |
+| 52 | **会话事件自动入知识库**：会话事件（tool 结果 / 决策 / 结论等）按规则自动入库并可检索（需定义过滤、去重、容量与隐私边界） | `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3（原 §2.6 观察项，用户 2026-09-29 立项） | knowledge-base + TUI/host 事件面（复用 output-compress 的入库与去重模式） | P2 |
 
-### 2.9 运行时与宿主交互
-
-（当前无未完成项）
+**未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
-1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#30-#32、#37、#41、#50，按需排期；已完成项（含 #39、#42-#49）见 §1 索引，已取消项亦见 §1。
-1. 依赖：#17 的模板族与 #32 可共用 workflow/skill 资产；workflow-ext 建包前，工作流相关插件面依赖 task-engine 的契约与执行器；其余相互独立。
+1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#22（LSP 语义层）、#23、#30、#31、#41、#50、#51、#52，按需排期；已完成项（含 #39、#40、#42-#49）见 §1 索引，已取消 / 不再立项项亦见 §1。
+1. 依赖：#17 的模板族（含原 #32 的代码审查能力）可复用 workflow/skill 资产；workflow-ext 建包前，工作流相关插件面依赖 task-engine 的契约与执行器；其余相互独立。
 
 ## 4. 插件规划（未建包）
 
