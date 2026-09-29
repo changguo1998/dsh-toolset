@@ -16,13 +16,18 @@
 
 import { SymbolReviewer } from "./review.ts";
 import { normalizeSymbols, resolveSymbolRules } from "./symbols.ts";
-import { GUIDE_SUMMARY, SymbolGuideGate, buildSymbolGuide } from "./guide.ts";
+import {
+  GUIDE_SUMMARY,
+  SymbolGuideGate,
+  buildSymbolGuide,
+  hasGuideMessage,
+} from "./guide.ts";
 import type { Config, ReviewEvent, SymbolNormalizerService } from "./types.ts";
 
 export const name = "symbol-normalizer";
 
-/** 硬依赖：消费者注册面（rule-engine provide `ruleEngine`）。 */
-export const inject = ["ruleEngine"];
+/** 硬依赖：消费者注册面（rule-engine provide `ruleEngine`）；sessions 供指南跨重启去重读历史。 */
+export const inject = ["ruleEngine", "sessions"];
 
 /** 提供的服务名（TUI 等展示层经 `ctx.get('symbolNormalizer')` 消费）。 */
 export const provide = ["symbolNormalizer"];
@@ -66,11 +71,34 @@ interface ConsumerRegistrar {
   }): () => void;
 }
 
+/** 宿主会话存储最小形态（结构面：只取 `get`）。 */
+interface SessionStoreLike {
+  get?: (id: string) => unknown;
+}
+
 /** ctx 结构面（只声明本插件用到的成员）。 */
 interface PluginContext {
   ruleEngine?: ConsumerRegistrar;
+  /** 会话存储（`inject: ["sessions"]`；缺面时跨重启去重降级为进程内记账）。 */
+  sessions?: SessionStoreLike;
   provide?: (name: string, value: unknown) => unknown;
   effect?: (fn: () => unknown) => unknown;
+}
+
+/** 会话的模型可见消息（结构面；不可读 / 抛错 → 空数组，退回进程内记账）。 */
+function sessionMessagesOf(
+  sessions: SessionStoreLike | undefined,
+  sessionId: string,
+): readonly unknown[] {
+  try {
+    const session = sessions?.get?.(sessionId);
+    const messages = (
+      session as { deriveMessages?: () => unknown } | undefined
+    )?.deriveMessages?.();
+    return Array.isArray(messages) ? messages : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -124,7 +152,8 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       }
     }
 
-    // 会话开局指南（BACKLOG F2）：每会话一次注入「推荐白名单 + 使用标准」
+    // 会话开局指南（BACKLOG F2）：每会话一次注入「推荐白名单 + 使用标准」；
+    // F3：跨重启去重——会话历史里已有本指南（resume / 重启后）则只记账、不再注入
     let disposeGuide: (() => void) | undefined;
     if (
       engine !== undefined &&
@@ -132,13 +161,22 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       rules.injectGuide
     ) {
       const gate = new SymbolGuideGate();
+      const sessions = c.sessions;
       try {
         disposeGuide = engine.registerConsumer({
           id: "symbol-normalizer-guide",
-          decide: (context) =>
-            gate.take(context.sessionId)
+          decide: (context) => {
+            if (gate.has(context.sessionId)) return null;
+            if (
+              hasGuideMessage(sessionMessagesOf(sessions, context.sessionId))
+            ) {
+              gate.take(context.sessionId);
+              return null;
+            }
+            return gate.take(context.sessionId)
               ? { text: buildSymbolGuide(rules), summary: GUIDE_SUMMARY }
-              : null,
+              : null;
+          },
         });
       } catch (err) {
         warn(`开局指南消费者注册失败：${String(err)}`);

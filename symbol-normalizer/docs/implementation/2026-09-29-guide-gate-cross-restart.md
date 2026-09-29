@@ -40,11 +40,17 @@
 
 ## 实现记录
 
-（待补）
+- 2026-09-29：`src/guide.ts` —— 新增 `RULE_ENGINE_SOURCE_KIND` 常量与纯函数 `hasGuideMessage(messages)`（按 `source.kind + summary` 识别）；`SymbolGuideGate` 新增只读 `has()`。
+- 2026-09-29：`src/main.ts` —— `inject` 增加 `"sessions"`；`PluginContext` 增加 `SessionStoreLike`；新增 `sessionMessagesOf(sessions, id)`（try/catch 取 `deriveMessages()`，异常 → 空数组）；指南消费者 `decide` 改为「内存记账快路径 → 历史判定 → 注入」，历史命中时只记账不注入。
+- 2026-09-29：测试 —— `tests/guide.test.ts` 加 `hasGuideMessage`（命中 / 空 / 异源异摘要）与 `gate.has` 用例；`tests/main.test.ts` 假 ctx 支持 sessions，新增「历史已有 → 跳过且不重复」「历史抛错 → fail-open 仍注入」用例，`injectGuide: false` 原用例保持不变。
+- 2026-09-29：`README.md` —— §3 每会话一次口径、`injectGuide` 配置行、`inject` 依赖行、`decide` 时序约束（允许每会话一次同步只读）同步。
+- 时序说明：历史判定在 `decide` 内做一次**同步只读**（`sessions.get` + `deriveMessages`），不做注入/写事件；记账后走内存快路径，故每会话至多一次。
 
 ## 测试与证据
 
-（待补）
+- `npm --prefix symbol-normalizer run check` ✓；`build` ✓。
+- `npm --prefix symbol-normalizer run test`：43 例全通过（新增 F3 用例在内）。
+- **真机验证（2026-09-29，通过）**：重启后进程（pid 2386145，启动 22:20:03）完成首个回合边界时——rule-engine 通道正常（同边界 Skill 规则正常注入），而本指南**未再注入**：会话日志中指南条目仍止于重启前的 seq 1979（`source.kind=rule-engine` + `summary=符号规范（会话开局指南）`），跨重启去重生效 ✓。
 
 ## 收尾
 

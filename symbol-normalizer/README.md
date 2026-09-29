@@ -40,7 +40,7 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 
 - 会话开局注入一次「推荐符号白名单 + 符号使用标准」（禁用 emoji/列宽不定字符、变体必须用推荐对应符、使用场景口径、代码段豁免说明），让模型开局即按规范输出；
 - 文本**由 config 生成**（白名单取自 `recommended`、变体映射取自 `aliases`，最多列 20 条），改配置即改注入内容；
-- 每会话一次（进程内记账，容量 256 FIFO 淘汰）；`injectGuide: false` 关闭；
+- 每会话一次：先查进程内记账（容量 256 FIFO 淘汰），未记账时查**会话历史**（`Session.deriveMessages()`，识别 `source.kind=rule-engine` + 本指南摘要）——resume / 重启后不重复注入；历史不可读时降级为进程内记账（fail-open）；`injectGuide: false` 关闭；
 - 通道同为 rule-engine 消费者；**已知时序边界**：注入发生在首个可行回合边界（宿主指令面 `@deepseek-ai/dsh-agent-instructions` 只读取固定候选路径的指令文件，无插件注册口，故无法早于首个请求）。
 
 ### 4. 服务（`provide("symbolNormalizer")`）
@@ -58,7 +58,7 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 | `recommended` | `[]` | 追加推荐字符（治理区放行白名单） |
 | `aliases` | `{}` | 别名映射追加（覆盖同键内置） |
 | `warnModel` | `true` | 是否向模型发提醒（false = 只提示人） |
-| `injectGuide` | `true` | 会话开局是否注入「推荐白名单 + 使用标准」指南（每会话一次；文本由 config 生成） |
+| `injectGuide` | `true` | 会话开局是否注入「推荐白名单 + 使用标准」指南（每会话一次，跨重启去重见 §3；文本由 config 生成） |
 | `cooldownMs` | `600000` | 同符号冷却时间窗（ms；`0` 关闭） |
 | `cooldownRuns` | `3` | 同符号冷却 run 次数（`0` 关闭） |
 
@@ -78,8 +78,8 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 
 ## 依赖与时序
 
-- `inject: ["ruleEngine"]` 硬依赖：rule-engine 未挂载时本插件不加载（TUI 回退原文透传、无提醒）。
-- `decide` 运行在 `session/event` 的同步派发窗口内：纯计算、不得调用宿主 API；注入由 rule-engine 推迟宏任务。
+- `inject: ["ruleEngine", "sessions"]` 硬依赖：rule-engine 未挂载时本插件不加载（TUI 回退原文透传、无提醒）；`sessions` 供开局指南读会话历史做跨重启去重（缺面时降级为进程内记账）。
+- `decide` 运行在 `session/event` 的同步派发窗口内：不注入、不写事件（注入由 rule-engine 推迟宏任务）；F3 起允许一次**同步只读**（`sessions.get` + `deriveMessages`）用于历史去重，且每会话至多一次（记账后走内存快路径）。
 - 消费者面依据（宿主 rc.2）：`registerConsumer` 由 rule-engine 提供（见 `rule-engine/README.md`）。
 
 ## 已知限制

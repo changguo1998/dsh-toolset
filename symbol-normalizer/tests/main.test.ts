@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { apply } from "../src/main.ts";
+import { GUIDE_SUMMARY } from "../src/guide.ts";
 
 /** 消费者注册记录。 */
 interface ConsumerRecord {
@@ -20,7 +21,13 @@ interface ConsumerRecord {
 }
 
 /** 假 ctx：记录注册的消费者、provide 的服务与 effect 清理函数。 */
-function fakeCtx(options: { noRuleEngine?: boolean } = {}): {
+function fakeCtx(
+  options: {
+    noRuleEngine?: boolean;
+    /** 会话存储替身：id → 会话对象（F3 历史判定用；缺省 = 无 sessions 面）。 */
+    sessions?: Record<string, unknown>;
+  } = {},
+): {
   consumers: ConsumerRecord[];
   disposed: () => number;
   provided: Map<string, unknown>;
@@ -35,6 +42,11 @@ function fakeCtx(options: { noRuleEngine?: boolean } = {}): {
     provide: (name: string, value: unknown) => provided.set(name, value),
     effect: (fn: () => unknown) => effects.push(fn),
   };
+  if (options.sessions !== undefined) {
+    ctx["sessions"] = {
+      get: (id: string) => options.sessions?.[id],
+    };
+  }
   if (options.noRuleEngine !== true) {
     ctx["ruleEngine"] = {
       registerConsumer: (input: ConsumerRecord) => {
@@ -144,5 +156,72 @@ test("apply：injectGuide=false 时不注册指南消费者", async () => {
     fake.consumers.map((c) => c.id),
     ["symbol-normalizer"],
     "关闭后只剩审查消费者",
+  );
+});
+
+test("F3：历史已有指南（重启/resume）→ 跳过注入；未注入过的会话仍注入", async () => {
+  const fake = fakeCtx({
+    sessions: {
+      s1: {
+        deriveMessages: () => [
+          { role: "user" },
+          {
+            role: "user",
+            source: { kind: "rule-engine", summary: GUIDE_SUMMARY },
+          },
+        ],
+      },
+    },
+  });
+  await apply(fake.ctx, { cooldownMs: 0, cooldownRuns: 0 });
+  const guide = fake.consumers.find((c) => c.id === "symbol-normalizer-guide");
+  assert.ok(guide !== undefined);
+  assert.equal(
+    guide.decide({ sessionId: "s1", turn: 1, text: "", trigger: "turn-end" }),
+    null,
+    "历史已有 → 不重复注入",
+  );
+  assert.ok(
+    guide.decide({
+      sessionId: "s2",
+      turn: 1,
+      text: "",
+      trigger: "turn-end",
+    }) !== null,
+    "不同会话各自一次",
+  );
+  assert.equal(
+    guide.decide({ sessionId: "s1", turn: 2, text: "", trigger: "turn-end" }),
+    null,
+    "记账后同会话仍跳过",
+  );
+});
+
+test("F3：历史读取抛错 → fail-open 仍注入（退回进程内记账）", async () => {
+  const fake = fakeCtx({
+    sessions: {
+      s1: {
+        deriveMessages: () => {
+          throw new Error("boom");
+        },
+      },
+    },
+  });
+  await apply(fake.ctx, { cooldownMs: 0, cooldownRuns: 0 });
+  const guide = fake.consumers.find((c) => c.id === "symbol-normalizer-guide");
+  assert.ok(guide !== undefined);
+  assert.ok(
+    guide.decide({
+      sessionId: "s1",
+      turn: 1,
+      text: "",
+      trigger: "turn-end",
+    }) !== null,
+    "读不到历史时不阻断指南",
+  );
+  assert.equal(
+    guide.decide({ sessionId: "s1", turn: 2, text: "", trigger: "turn-end" }),
+    null,
+    "进程内记账仍生效",
   );
 });

@@ -13,6 +13,25 @@ import type { ResolvedSymbolRules } from "./symbols.ts";
 /** 摘要行（rule-engine notice 呈现用）。 */
 export const GUIDE_SUMMARY = "符号规范（会话开局指南）";
 
+/** rule-engine 注入消息的来源标识（识别历史指南用；结构面常量，不引跨包依赖）。 */
+export const RULE_ENGINE_SOURCE_KIND = "rule-engine";
+
+/**
+ * 会话历史里是否已有本指南消息（F3 跨重启去重）：按 `source.kind + summary` 识别，
+ * 与 rule-engine 的注入形态一致（`rule-engine/src/inject.ts` 的 `source`）。
+ */
+export function hasGuideMessage(messages: readonly unknown[]): boolean {
+  return messages.some((message) => {
+    const source = (
+      message as { source?: { kind?: unknown; summary?: unknown } } | null
+    )?.source;
+    return (
+      source?.kind === RULE_ENGINE_SOURCE_KIND &&
+      source?.summary === GUIDE_SUMMARY
+    );
+  });
+}
+
 /** 别名映射最多列出的条数（正文长度可控）。 */
 const MAX_ALIAS_ENTRIES = 20;
 
@@ -52,6 +71,11 @@ export class SymbolGuideGate {
       if (oldest !== undefined) this.#seen.delete(oldest);
     }
     return true;
+  }
+
+  /** 是否已记账（只读；F3：历史判定命中后记账、后续走快路径）。 */
+  has(sessionId: string): boolean {
+    return this.#seen.has(sessionId);
   }
 
   /** 当前记账的会话数（测试与诊断用）。 */
