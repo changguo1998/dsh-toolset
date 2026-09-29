@@ -307,15 +307,16 @@ function layoutQuestionPanel(
     const cursor = item.optionIndex === ci ? ">" : " ";
     const mark = item.custom === "" ? " " : OPTION_MARK;
     const ciLead = optionLead(ci, cursor, mark);
-    const customPrefix = "自定义回答：";
-    const customText = `自定义回答${item.custom === "" ? "" : "：" + item.custom}`;
-    // BACKLOG TUI#35：自定义答案的编辑光标（字符偏移）→ 选项行首到**答案文本起点**的
-    // 字符偏移；未编辑（customCaret 为 null）时不给光标
+    // 冒号仅在自定义文本非空时渲染（TUI#49：光标列按渲染文本折算）
+    const customPrefix = `自定义回答${item.custom === "" ? "" : "："}`;
+    const customText = `${customPrefix}${item.custom}`;
+    // TUI#35 光标（字符偏移）→ 行内偏移：行 = ` ${lead} ${文本}`，文本前有 1+lead+1 个字符；
+    // TUI#49：补行首空格（原列压在末字符上）、caret=0 也显示（原被 `>0` 吞）；null = 未编辑。
     const customCaret = item.customCaret;
     const customCaretIndex =
-      customCaret !== undefined && customCaret !== null && customCaret > 0
-        ? ciLead.length + 1 + customPrefix.length + customCaret
-        : undefined;
+      customCaret === undefined || customCaret === null
+        ? undefined
+        : ciLead.length + 2 + customPrefix.length + customCaret;
     customCaretPos = pushOption(
       ci,
       ciLead,

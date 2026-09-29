@@ -35,6 +35,7 @@ import {
   questionKeyDecision,
 } from "../src/app/question-transition.ts";
 import { windowStart } from "../src/app/layout/panel.ts";
+import { displayWidth as prodDisplayWidth } from "../src/app/layout/markdown.ts";
 import { questionHintLine } from "../src/app/layout/hints.ts";
 import { rowAnsi, rowsText } from "./helpers/rowText.ts";
 
@@ -369,6 +370,40 @@ test("编辑光标：焦点在自定义兜底项时按编辑光标产出 caret�
     questionCaretFor(panelOf(st2), 10, 60),
     null,
     "未编辑态无 caret",
+  );
+});
+
+test("TUI#49：caret=0 可见、末位插入后列在末字符之后（生产 displayWidth 精确比对）", () => {
+  const st0 = questionState([
+    {
+      id: "q1",
+      question: "问题",
+      header: "头",
+      options: [{ label: "A" }],
+    },
+  ]);
+  const base = reduceState(st0, { type: "question-move", delta: 1 }); // → 自定义兜底项
+  const stateFor = (text: string, caret: number | null): AppState =>
+    reduceState(base, { type: "question-custom", text, caret });
+  const caret0 = questionCaretFor(panelOf(stateFor("abc", 0)), 10, 60);
+  assert.ok(caret0, "caret=0（串首）应产出光标（原先被 >0 判断吞掉）");
+  const caret3 = questionCaretFor(panelOf(stateFor("abc", 3)), 10, 60);
+  assert.ok(caret3, "末位（串尾）应产出光标");
+  const lines = plain(renderQuestionPanel(panelOf(stateFor("abc", 3)), 10, 60));
+  const row = lines[caret3!.row] ?? "";
+  const label = "自定义回答：abc";
+  const expectedEnd = prodDisplayWidth(
+    row.slice(0, row.indexOf("自定义回答：") + label.length),
+  );
+  assert.equal(
+    caret3!.col,
+    expectedEnd,
+    "串尾光标列 = 末字符之后（曾因漏算行首空格压到末字符上）",
+  );
+  assert.equal(
+    caret0!.col,
+    expectedEnd - prodDisplayWidth("abc"),
+    "caret=0 落在答案文本起点列",
   );
 });
 
