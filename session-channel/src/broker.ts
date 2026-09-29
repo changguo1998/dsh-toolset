@@ -16,6 +16,8 @@ import {
   ackKey,
   ALIVE_PATTERN,
   aliveKey,
+  CURSOR_PATTERN,
+  cursorKey,
   inboxKey,
   sessionIdFromAliveKey,
 } from "./keys.ts";
@@ -172,12 +174,56 @@ export async function ackMessage(
   await client.set(ackKey(messageId), "injected", { EX: ttlSec });
 }
 
-/** 该消息是否已写回执（接收方重启后跳过已投递消息用）。 */
-export async function isAcked(
+/** 读投递游标（无 TTL 键；缺失 / 形状不符 → undefined）。 */
+export async function readCursor(
   client: RedisClientType,
-  messageId: string,
-): Promise<boolean> {
-  return (await client.get(ackKey(messageId))) === "injected";
+  sessionId: string,
+): Promise<string | undefined> {
+  return parseCursor(await client.get(cursorKey(sessionId)))?.id;
+}
+
+/** 写投递游标（**注入成功后**调用；无 TTL，接收方重启据此续读）。 */
+export async function writeCursor(
+  client: RedisClientType,
+  sessionId: string,
+  id: string,
+  now: number = Date.now(),
+): Promise<void> {
+  await client.set(cursorKey(sessionId), JSON.stringify({ id, ts: now }));
+}
+
+/** 懒清理：删除 `ts` 超过 ttlMs 的游标键（探活不参与判定，避免误删活跃会话游标）。 */
+export async function cleanupCursors(
+  client: RedisClientType,
+  ttlMs: number,
+  now: number = Date.now(),
+): Promise<number> {
+  let removed = 0;
+  for await (const keys of client.scanIterator({ MATCH: CURSOR_PATTERN })) {
+    for (const key of keys as unknown as string[]) {
+      const parsed = parseCursor(await client.get(key));
+      if (parsed !== undefined && now - parsed.ts <= ttlMs) continue;
+      await client.del(key);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+/** 游标值解析（形状不符返回 undefined）。 */
+function parseCursor(
+  raw: string | null,
+): { id: string; ts: number } | undefined {
+  if (raw === null) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as { id?: unknown; ts?: unknown };
+    if (typeof parsed.id !== "string" || parsed.id === "") return undefined;
+    if (typeof parsed.ts !== "number" || !Number.isFinite(parsed.ts))
+      return undefined;
+    return { id: parsed.id, ts: parsed.ts };
+  } catch {
+    return undefined;
+  }
 }
 
 /** 等待回执（发送方可选；轮询间隔 100ms）。 */

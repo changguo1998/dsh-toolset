@@ -25,6 +25,14 @@ export function aliveKey(sessionId: string): string {
 /** 在线键扫描模式（listPeers / 懒清理用）。 */
 export const ALIVE_PATTERN = `${KEY_PREFIX}alive:*`;
 
+/** 投递游标键：值 = JSON `{id, ts}`，**无 TTL**（接收方重启后从游标续读，避免重复注入）。 */
+export function cursorKey(sessionId: string): string {
+  return `${KEY_PREFIX}cursor:${sessionId}`;
+}
+
+/** 游标键扫描模式（懒清理用）。 */
+export const CURSOR_PATTERN = `${KEY_PREFIX}cursor:*`;
+
 /** 回执键：值 = `"injected"`，短 TTL（发送方可选等待）。 */
 export function ackKey(messageId: string): string {
   return `${KEY_PREFIX}ack:${messageId}`;

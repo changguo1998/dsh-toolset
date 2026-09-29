@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { SessionChannelService } from "../src/index.ts";
 import { closeConnection, connectIntercom } from "../src/client.ts";
+import { ackKey } from "../src/keys.ts";
 import { announcePresence, listPeers } from "../src/broker.ts";
 import {
   makeFakeHost,
@@ -118,7 +119,7 @@ redisTest("停止：本进程在线键被清除（对端不再看到）", async 
   }
 });
 
-redisTest("重启不重复注入：已写回执的消息在下次启动被跳过", async () => {
+redisTest("重启不重复注入：持久游标续读（回执键过期也不重复）", async () => {
   const redis = await startTempRedis();
   const hostA = makeFakeHost();
   const hostB1 = makeFakeHost();
@@ -158,7 +159,14 @@ redisTest("重启不重复注入：已写回执的消息在下次启动被跳过
     await waitUntil(() => first.length === 1);
     await b1.stop();
 
-    // 重启同会话：邮箱流里那条消息已带回执 → 不重复注入
+    // 模拟回执键 TTL 过期（旧实现正是靠它去重，过期后重启会重复注入 → BACKLOG D1）
+    const messageId = res.messageId;
+    if (messageId === undefined) throw new Error("send 未返回 messageId");
+    const raw = await connectIntercom({ url: redis.socketPath });
+    await raw.main.del(ackKey(messageId));
+    await closeConnection(raw);
+
+    // 重启同会话：从持久游标续读 → 不重复注入（与回执键无关）
     const hostB2 = makeFakeHost();
     const second = registerAgent(hostB2, "sess-b");
     const b2 = new SessionChannelService(
@@ -208,7 +216,7 @@ test("降级：disabled 与连不上实例都不抛，工具面返回错误文�
   await offline.stop();
 });
 
-redisTest("回执键与消息共存：isAcked 之外的键前缀完整（sanity）", async () => {
+redisTest("键前缀完整（sanity）：在线键可被 listPeers 命中", async () => {
   const redis = await startTempRedis();
   const conn = await connectIntercom({ url: redis.socketPath });
   try {

@@ -19,6 +19,7 @@ import {
 } from "./client.ts";
 import {
   ACK_TTL_SEC,
+  CURSOR_TTL_MS,
   DEFAULT_HEARTBEAT_MS,
   DEFAULT_MAX_TEXT_BYTES,
   DEFAULT_PRESENCE_TTL_SEC,
@@ -30,12 +31,14 @@ import {
 import {
   ackMessage,
   announcePresence,
-  isAcked,
+  cleanupCursors,
   clearPresence,
   listPeers,
+  readCursor,
   readInbox,
   readNew,
   sendMessage,
+  writeCursor,
 } from "./broker.ts";
 import {
   buildInjectionMessage,
@@ -110,8 +113,10 @@ interface SessionState {
   sessionId: string;
   cwd: string;
   lastSeenAt: number;
-  /** 阻塞读游标（`"0"` = 从最旧读起；已投递过的靠回执键跳过）。 */
+  /** 读取起点：持久游标（重启续读）；载入前为 `"0"`（从最旧读起）。 */
   lastId: string;
+  /** 持久游标是否已载入（未载入不进 reader 读取集合，避免「先用 0 读一次」的重复窗口）。 */
+  cursorReady: boolean;
 }
 
 /** 可注入依赖（测试替身用；缺省取真实实现）。 */
@@ -191,6 +196,12 @@ export class SessionChannelService {
     this.#log(
       `已连接 ${this.#status.address}（Redis ${this.#status.version}）`,
     );
+    const cleanupConn = this.#conn;
+    void cleanupCursors(cleanupConn.main, CURSOR_TTL_MS)
+      .then((removed) => {
+        if (removed > 0) this.#log(`清理过期投递游标 ${removed} 个`);
+      })
+      .catch((err: unknown) => this.#log(`游标清理失败：${describe(err)}`));
     this.#host.on?.("session/event", (session) => this.noteSession(session));
     this.#heartbeatTimer = setInterval(
       () => void this.#heartbeat(),
@@ -259,8 +270,10 @@ export class SessionChannelService {
       cwd,
       lastSeenAt: now,
       lastId: "0",
+      cursorReady: false,
     });
     this.#status.sessions = [...this.#sessions.keys()];
+    void this.#loadCursor(sessionId);
     void this.#announce(sessionId);
   }
 
@@ -345,11 +358,14 @@ export class SessionChannelService {
     if (conn === undefined) return;
     const blockMs = this.#config.readBlockMs ?? DEFAULT_READ_BLOCK_MS;
     while (this.#running && this.#conn !== undefined) {
-      if (this.#sessions.size === 0) {
+      const ready = [...this.#sessions.values()].filter(
+        (state) => state.cursorReady,
+      );
+      if (ready.length === 0) {
         await sleep(IDLE_POLL_MS);
         continue;
       }
-      const streams = [...this.#sessions.values()].map((state) => ({
+      const streams = ready.map((state) => ({
         key: inboxKeyOf(state.sessionId),
         id: state.lastId,
       }));
@@ -360,16 +376,21 @@ export class SessionChannelService {
           const sessionId = sessionIdOfInboxKey(stream.name);
           if (sessionId === undefined) continue;
           for (const message of stream.messages) {
-            // 单条失败不拖垮整批：记日志、推进游标（消息留在流里，可用 inbox 复查）
+            let delivered = false;
+            // 单条失败不拖垮整批：记日志、内存游标照进（消息留在流里，可用 inbox 复查）
             try {
-              if (!(await isAcked(conn.main, message.id))) {
-                this.#deliver(sessionId, message);
-              }
+              delivered = this.#deliver(sessionId, message);
             } catch (err) {
               this.#log(`单条投递失败（跳过）：${describe(err)}`);
             }
             const state = this.#sessions.get(sessionId);
             if (state !== undefined) state.lastId = message.id;
+            if (delivered) {
+              // 持久游标只在注入成功后推进：失败的消息重启后仍会补投
+              void writeCursor(conn.main, sessionId, message.id).catch(
+                (err: unknown) => this.#log(`游标写入失败：${describe(err)}`),
+              );
+            }
           }
         }
       } catch (err) {
@@ -381,9 +402,9 @@ export class SessionChannelService {
   }
 
   /** 投递单条：注入本进程会话（失败则留流中，不写回执）。 */
-  #deliver(sessionId: string, message: InboxMessage): void {
+  #deliver(sessionId: string, message: InboxMessage): boolean {
     const conn = this.#conn;
-    if (conn === undefined) return;
+    if (conn === undefined) return false;
     const injected = injectUserMessage(
       this.#injection,
       sessionId,
@@ -392,12 +413,35 @@ export class SessionChannelService {
     );
     if (!injected) {
       this.#log(`注入失败（会话不在本进程）：${sessionId} ← ${message.from}`);
-      return;
+      return false;
     }
     void ackMessage(conn.main, message.id, ACK_TTL_SEC).catch((err: unknown) =>
       this.#log(`回执写入失败：${describe(err)}`),
     );
     this.#log(`已注入 ${sessionId} ← ${message.from}（${message.id}）`);
+    return true;
+  }
+
+  /** 载入持久投递游标（无 TTL）；失败以 `"0"` 兜底并放行读取（宁可补投、不漏投）。 */
+  async #loadCursor(sessionId: string): Promise<void> {
+    const state = this.#sessions.get(sessionId);
+    if (state === undefined) return;
+    const conn = this.#conn;
+    if (conn === undefined) {
+      state.cursorReady = true;
+      return;
+    }
+    try {
+      const cursor = await readCursor(conn.main, sessionId);
+      const current = this.#sessions.get(sessionId);
+      if (current === undefined) return;
+      if (cursor !== undefined) current.lastId = cursor;
+      current.cursorReady = true;
+    } catch (err) {
+      this.#log(`游标读取失败（从头读）：${describe(err)}`);
+      const current = this.#sessions.get(sessionId);
+      if (current !== undefined) current.cursorReady = true;
+    }
   }
 
   /** 连接可用性检查：返回连接或错误文案。 */

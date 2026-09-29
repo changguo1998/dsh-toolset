@@ -8,23 +8,25 @@ import {
   ackMessage,
   announcePresence,
   cwdOf,
-  isAcked,
   isProcessAlive,
   listPeers,
   normalizeDir,
   parsePeer,
+  cleanupCursors,
+  readCursor,
   readInbox,
   readNew,
   resolveTarget,
   sendMessage,
   waitForAck,
+  writeCursor,
 } from "../src/broker.ts";
 import {
   closeConnection,
   connectIntercom,
   type SessionChannelConnection,
 } from "../src/client.ts";
-import { aliveKey, inboxKey } from "../src/keys.ts";
+import { ackKey, aliveKey, cursorKey, inboxKey } from "../src/keys.ts";
 import { SessionChannelError, type PeerInfo } from "../src/types.ts";
 import { redisTest, startTempRedis, sleep } from "./helpers.ts";
 
@@ -163,9 +165,9 @@ redisTest(
       const res = await sendMessage(conn.main, { to: "s1", text: "need-ack" });
       assert.equal(res.ok, true);
       const msgId = res.messageId ?? "";
-      assert.equal(await isAcked(conn.main, msgId), false);
+      assert.equal(await conn.main.get(ackKey(msgId)), null);
       await ackMessage(conn.main, msgId);
-      assert.equal(await isAcked(conn.main, msgId), true);
+      assert.equal(await conn.main.get(ackKey(msgId)), "injected");
       assert.equal(await waitForAck(conn.main, msgId, 200), true);
 
       const res2 = await sendMessage(conn.main, {
@@ -217,6 +219,35 @@ redisTest(
         500,
       );
       assert.equal(second?.[0]?.messages[0]?.text, "m2");
+    });
+  },
+);
+
+redisTest(
+  "投递游标：写入 / 读取 / 懒清理（无 TTL，按 ts 过期删除）",
+  async () => {
+    await withConnection(async (conn) => {
+      assert.equal(
+        await readCursor(conn.main, "s1"),
+        undefined,
+        "未写入时无游标",
+      );
+      await writeCursor(conn.main, "s1", "100-0");
+      assert.equal(await readCursor(conn.main, "s1"), "100-0");
+      assert.equal(await conn.main.ttl(cursorKey("s1")), -1, "游标键无 TTL");
+
+      await writeCursor(
+        conn.main,
+        "old",
+        "1-0",
+        Date.now() - 8 * 24 * 60 * 60 * 1000,
+      );
+      await conn.main.set(cursorKey("broken"), "not-json");
+      const removed = await cleanupCursors(conn.main, 7 * 24 * 60 * 60 * 1000);
+      assert.equal(removed, 2, "过期与形状不符的游标都应清理");
+      assert.equal(await readCursor(conn.main, "s1"), "100-0", "新游标保留");
+      assert.equal(await conn.main.get(cursorKey("old")), null);
+      assert.equal(await conn.main.get(cursorKey("broken")), null);
     });
   },
 );

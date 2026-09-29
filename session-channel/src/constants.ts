@@ -15,6 +15,9 @@ export const DEFAULT_MAX_TEXT_BYTES = 8192;
 /** 邮箱流长度上限（XADD MAXLEN ~）。 */
 export const MAX_STREAM_LEN = 1000;
 
+/** 游标键保留期（ms）：超过则懒清理（7 天）。 */
+export const CURSOR_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** 回执键 TTL（秒）。 */
 export const ACK_TTL_SEC = 60;
 

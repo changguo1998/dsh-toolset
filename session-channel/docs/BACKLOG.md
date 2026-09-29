@@ -21,3 +21,13 @@
 - **状态**：待办（2026-09-29 用户提出）。
 
 > 同一模块的后续扩展（跨会话委托/协调、扩展状态同步）登记在项目级 `docs/BACKLOG.md` 的 #54 / #55。
+
+## 2. 缺陷
+
+### D2. 改名遗漏：`connectIntercom` 等大写 `Intercom` 标识符未跟随更名
+
+- **现象**：`intercom` → `session-channel` 更名时，替换表覆盖了小写 `intercom` 与一批已知 PascalCase 名（`IntercomService` / `IntercomConfig` / …），但漏掉 `connectIntercom`（含「Intercom」大写而未被小写规则命中）——现 `src/client.ts:64` 导出 `connectIntercom`，被 `src/index.ts` 与 4 个测试文件引用（共 17 处）。
+- **影响**：命名不一致；对外可见的函数名仍是旧名（`ctx.get("sessionChannel")` 的服务面不受影响，因为服务面方法名与它无关）。功能无缺陷。
+- **修法**：`connectIntercom` → `connectSessionChannel`（`src/client.ts` 定义 + `src/index.ts` 2 处 + 4 个测试文件全部引用）。
+- **验收**：`grep -rn "Intercom" session-channel/src session-channel/tests` 无结果（历史文档除外）；`check` / `build` / `test` 全绿。
+- **状态**：待接取（2026-09-29 修 D1 时发现）。优先级 P3。
