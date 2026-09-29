@@ -6,7 +6,11 @@
  * 纯逻辑、无宿主依赖，便于单测。
  */
 
-import { normalizeSymbols, type ResolvedSymbolRules } from "./symbols.ts";
+import {
+  maskCodeSpans,
+  normalizeSymbols,
+  type ResolvedSymbolRules,
+} from "./symbols.ts";
 import type { ReviewResult } from "./types.ts";
 
 /** 单个符号的冷却记录。 */
@@ -42,7 +46,8 @@ export class SymbolReviewer {
   review(sessionId: string, text: string): ReviewResult | null {
     const state = this.#state(sessionId);
     this.#tick(state);
-    const report = normalizeSymbols(text, this.#rules);
+    // 掩码代码段/内联代码：其中的符号是「引用示例」，不参与违规判定（见 BACKLOG F1）
+    const report = normalizeSymbols(maskCodeSpans(text), this.#rules);
     // emoji 起源替换：罗列「X→Y」，要求更换
     const emojiSeen = new Set<string>();
     const emojiInstrs: string[] = [];

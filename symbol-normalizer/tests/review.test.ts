@@ -71,3 +71,20 @@ test("review：clearSession 清空冷却记账", () => {
   assert.equal(r.sessionCount(), 0);
   assert.ok(r.review("s1", "失败 ❌。") !== null, "清空后重新可提醒");
 });
+
+test("review：代码段与内联代码里的引用示例不判违规（F1）", () => {
+  const r = reviewer();
+  assert.equal(
+    r.review("s1", "别名替换（`✔→✓`、`❌→✗`）如下。"),
+    null,
+    "内联代码里的示例不算违规",
+  );
+  assert.equal(
+    r.review("s1", "示例：\n```\n❌ ✔ ⭐\n```\n以上是替换表。"),
+    null,
+    "围栏块里的示例不算违规",
+  );
+  const real = r.review("s1", "失败 ❌。");
+  assert.ok(real !== null, "散文里的真实使用仍提醒");
+  assert.match(real.feedback ?? "", /请将「❌」改为「✗」/);
+});

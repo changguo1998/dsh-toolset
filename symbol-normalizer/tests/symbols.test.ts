@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_RECOMMENDED,
+  maskCodeSpans,
   normalizeSymbols,
   resolveSymbolRules,
 } from "../src/symbols.ts";
@@ -476,4 +477,37 @@ test("实机反馈回归：￦ 全角韩元归一、👉💡 图形族警告—�
     "✅",
     "仅 ✅ 属 emoji 呈现（￦ 全角、👉💡 图形族非替换）",
   );
+});
+
+test("maskCodeSpans：围栏块与内联代码等长掩码，散文保留", () => {
+  const src = '前 `❌` 中\n```ts\nconst a = "✔";\n```\n尾';
+  const masked = maskCodeSpans(src);
+  assert.equal([...masked].length, [...src].length, "码点长度不变");
+  assert.ok(!masked.includes("❌"), "内联代码里的符号被掩码");
+  assert.ok(!masked.includes("✔"), "围栏块里的符号被掩码");
+  assert.ok(masked.startsWith("前 ") && masked.endsWith("尾"), "散文保留");
+  assert.equal(
+    maskCodeSpans("正常文本 ✔"),
+    "正常文本 ✔",
+    "无代码段 → 原样返回",
+  );
+});
+
+test("maskCodeSpans：未闭合围栏掩到文末，围栏前散文保留", () => {
+  const src = "散文 ❌\n```\n❌ ✔";
+  const masked = maskCodeSpans(src);
+  assert.equal([...masked].length, [...src].length, "码点长度不变");
+  assert.equal(
+    [...masked].filter((c) => c === "❌").length,
+    1,
+    "只剩围栏前那一处 ❌",
+  );
+  assert.ok(masked.startsWith("散文 ❌"), "围栏前散文不动");
+});
+
+test("maskCodeSpans：多反引号与波浪号围栏同样掩码", () => {
+  const src = "``a ❌ b`` 与\n~~~\n✔\n~~~\n尾";
+  const masked = maskCodeSpans(src);
+  assert.ok(!masked.includes("❌") && !masked.includes("✔"), "两种围栏都掩码");
+  assert.ok(masked.endsWith("尾"), "尾部散文保留");
 });

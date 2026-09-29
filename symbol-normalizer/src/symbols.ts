@@ -401,6 +401,21 @@ function isZeroWidth(cp: number): boolean {
   );
 }
 
+/**
+ * 掩码围栏代码块与内联代码：以**等长空格**替换，供回合审查跳过其中的符号引用示例
+ * （如正文写「别名替换（`✔→✓`、`❌→✗`）」不该被当成违规）。
+ *
+ * 处理顺序：闭合围栏（```…``` / ~~~…~~~）→ 未闭合围栏（掩到文末）→ 内联代码（`…`）。
+ * 只用码点等长替换，保证下游按码点扫描时的偏移口径不错位。
+ */
+export function maskCodeSpans(text: string): string {
+  const blank = (matched: string): string => " ".repeat([...matched].length);
+  return text
+    .replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, blank)
+    .replace(/```[\s\S]*$|~~~[\s\S]*$/g, blank)
+    .replace(/`+[^`\n]*`+/g, blank);
+}
+
 /** 逐字符规范化（对外主入口；纯函数、可按段调用）。 */
 export function normalizeSymbols(
   text: string,
