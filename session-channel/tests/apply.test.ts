@@ -16,7 +16,10 @@ import {
 /** 工具定义（测试用最小形态）。 */
 interface ToolDef {
   name?: string;
-  execute: (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  execute: (
+    args: Record<string, unknown>,
+    exec?: unknown,
+  ) => Promise<Record<string, unknown>>;
 }
 
 /** 服务面（provide 值）。 */
@@ -131,6 +134,37 @@ redisTest(
       };
       assert.equal(inbox.ok, true);
       assert.equal(inbox.messages?.[0]?.text, "自测");
+
+      // D4：agent 调用方发出的消息应带发送方会话 id（此前工具层固定传 from: ""）
+      const sentByTool = (await tools[0]!.execute(
+        { action: "send", to: "sess-x", text: "带来源", waitMs: 3000 },
+        { agent: { session: { id: "sess-x" } } },
+      )) as { ok: boolean };
+      assert.equal(sentByTool["ok"], true);
+      await waitUntil(() => received.length === 2);
+      const injected2 = received[1] as { source?: { summary?: string } };
+      assert.match(
+        String(injected2.source?.summary ?? ""),
+        /sess-x/,
+        "接收侧注入应带发送方会话 id",
+      );
+      const inboxD4 = (await tools[0]!.execute({
+        action: "inbox",
+        sessionId: "sess-x",
+      })) as { messages?: { text: string; from: string }[] };
+      assert.equal(
+        inboxD4.messages?.find((m) => m.text === "带来源")?.from,
+        "sess-x",
+        "邮箱流应带发送方会话 id",
+      );
+      // 非 agent 调用方（无 exec）→ from 仍为空串，发送不受影响
+      const noExec = (await tools[0]!.execute({
+        action: "send",
+        to: "sess-x",
+        text: "无来源",
+        waitMs: 3000,
+      })) as { ok: boolean };
+      assert.equal(noExec["ok"], true, "非 agent 调用方仍可用");
 
       // 参数缺失与未知 action 的兜底
       assert.deepEqual(

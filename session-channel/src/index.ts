@@ -619,7 +619,7 @@ function toToolDef(service: SessionChannelService) {
             return { ok: false, error: "send 需要 to 与 text" };
           const waitMs =
             typeof args.waitMs === "number" ? args.waitMs : undefined;
-          return service.send({ to, text, waitMs, from: "" });
+          return service.send({ to, text, waitMs, from: callerSessionId });
         }
         case "inbox": {
           const sessionId = String(args.sessionId ?? "");
