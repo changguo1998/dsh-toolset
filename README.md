@@ -111,7 +111,7 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 
 **项目级（`docs/`）**
 
-- `docs/ROADMAP.md` — 未来开发方向（**尚未建立**，见 `docs/BACKLOG.md` #41）。
+- `docs/ROADMAP.md` — 未来开发方向与完成判据（进度、排期与条目见 `docs/BACKLOG.md` §3 里程碑）。
 - `docs/BACKLOG.md` — 可执行条目：跨包功能与缺陷（P0/P1/P2）+ 里程碑 + 插件规划。
 - `docs/STATUS.md` — 对照文档：记录已实现的内容（由维护者择时更新）。
 - `docs/WORKFLOW-STANDARD.md` — 内容变更规范 · 标准流程（详版）。
