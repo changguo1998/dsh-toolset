@@ -23,7 +23,7 @@ import {
 } from "../src/broker.ts";
 import {
   closeConnection,
-  connectIntercom,
+  connectSessionChannel,
   type SessionChannelConnection,
 } from "../src/client.ts";
 import { ackKey, aliveKey, cursorKey, inboxKey } from "../src/keys.ts";
@@ -48,7 +48,7 @@ async function withConnection(
   fn: (conn: SessionChannelConnection) => Promise<void>,
 ): Promise<void> {
   const redis = await startTempRedis();
-  const conn = await connectIntercom({ url: redis.socketPath });
+  const conn = await connectSessionChannel({ url: redis.socketPath });
   try {
     await fn(conn);
   } finally {

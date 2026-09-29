@@ -14,7 +14,7 @@ import {
 } from "../src/inject.ts";
 import { SessionChannelService } from "../src/index.ts";
 import { announcePresence, sendMessage } from "../src/broker.ts";
-import { closeConnection, connectIntercom } from "../src/client.ts";
+import { closeConnection, connectSessionChannel } from "../src/client.ts";
 import { redisTest, startTempRedis, waitUntil } from "./helpers.ts";
 
 /** 代理型宿主：直读 `agents`/`sessions` 抛错（cordis 未 inject 语义），`get()` 正常。 */
@@ -100,7 +100,7 @@ redisTest("服务级回归：代理宿主（直读抛错）仍能注入并回执
     },
     host,
   );
-  const raw = await connectIntercom({ url: redis.socketPath });
+  const raw = await connectSessionChannel({ url: redis.socketPath });
   try {
     await service.start();
     assert.equal(service.status().connected, true, "代理宿主不应影响连接");

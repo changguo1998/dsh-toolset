@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import {
   closeConnection,
-  connectIntercom,
+  connectSessionChannel,
   parseAddress,
   resolveAddress,
 } from "../src/client.ts";
@@ -59,48 +59,51 @@ test("parseAddress：redis:// = URL，其余按 unix socket 路径（支持 unix
   });
 });
 
-redisTest("connectIntercom：连通并自检（写入命名空间标记键）", async () => {
-  const redis = await startTempRedis();
-  const conn = await connectIntercom({ url: redis.socketPath });
-  try {
-    assert.equal(conn.address.label, `unix:${redis.socketPath}`);
-    assert.match(conn.version, /^\d+\./);
-    assert.equal(
-      Number.parseInt(conn.version.split(".")[0] ?? "0", 10) >= 5,
-      true,
-    );
-    assert.equal(
-      await conn.main.get(META_KEY),
-      "1",
-      "标记键应被写入 schema 版本",
-    );
-  } finally {
-    await closeConnection(conn);
-    await redis.stop();
-  }
-});
+redisTest(
+  "connectSessionChannel：连通并自检（写入命名空间标记键）",
+  async () => {
+    const redis = await startTempRedis();
+    const conn = await connectSessionChannel({ url: redis.socketPath });
+    try {
+      assert.equal(conn.address.label, `unix:${redis.socketPath}`);
+      assert.match(conn.version, /^\d+\./);
+      assert.equal(
+        Number.parseInt(conn.version.split(".")[0] ?? "0", 10) >= 5,
+        true,
+      );
+      assert.equal(
+        await conn.main.get(META_KEY),
+        "1",
+        "标记键应被写入 schema 版本",
+      );
+    } finally {
+      await closeConnection(conn);
+      await redis.stop();
+    }
+  },
+);
 
 redisTest("healthCheck：命名空间 schema 不兼容 → schema_mismatch", async () => {
   const redis = await startTempRedis();
-  const first = await connectIntercom({ url: redis.socketPath });
+  const first = await connectSessionChannel({ url: redis.socketPath });
   await first.main.set(META_KEY, "99");
   await closeConnection(first);
   await assert.rejects(
-    () => connectIntercom({ url: redis.socketPath }),
+    () => connectSessionChannel({ url: redis.socketPath }),
     (err: unknown) =>
       err instanceof SessionChannelError && err.code === "schema_mismatch",
   );
   await redis.stop();
 });
 
-test("connectIntercom：实例连不上 → unavailable（快速失败，不无限重连）", async () => {
+test("connectSessionChannel：实例连不上 → unavailable（快速失败，不无限重连）", async () => {
   const missing = join(
     "/tmp",
     `session-channel-absent-${Date.now()}`,
     "redis.sock",
   );
   await assert.rejects(
-    () => connectIntercom({ url: missing }),
+    () => connectSessionChannel({ url: missing }),
     (err: unknown) =>
       err instanceof SessionChannelError && err.code === "unavailable",
   );

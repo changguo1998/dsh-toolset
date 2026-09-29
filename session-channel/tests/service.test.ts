@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { SessionChannelService } from "../src/index.ts";
-import { closeConnection, connectIntercom } from "../src/client.ts";
+import { closeConnection, connectSessionChannel } from "../src/client.ts";
 import { ackKey } from "../src/keys.ts";
 import { announcePresence, listPeers } from "../src/broker.ts";
 import {
@@ -162,7 +162,7 @@ redisTest("重启不重复注入：持久游标续读（回执键过期也不重
     // 模拟回执键 TTL 过期（旧实现正是靠它去重，过期后重启会重复注入 → BACKLOG D1）
     const messageId = res.messageId;
     if (messageId === undefined) throw new Error("send 未返回 messageId");
-    const raw = await connectIntercom({ url: redis.socketPath });
+    const raw = await connectSessionChannel({ url: redis.socketPath });
     await raw.main.del(ackKey(messageId));
     await closeConnection(raw);
 
@@ -218,7 +218,7 @@ test("降级：disabled 与连不上实例都不抛，工具面返回错误文�
 
 redisTest("键前缀完整（sanity）：在线键可被 listPeers 命中", async () => {
   const redis = await startTempRedis();
-  const conn = await connectIntercom({ url: redis.socketPath });
+  const conn = await connectSessionChannel({ url: redis.socketPath });
   try {
     await announcePresence(
       conn.main,

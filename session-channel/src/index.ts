@@ -13,7 +13,7 @@
 import { randomUUID } from "node:crypto";
 import {
   closeConnection,
-  connectIntercom,
+  connectSessionChannel,
   describe,
   type SessionChannelConnection,
 } from "./client.ts";
@@ -121,7 +121,7 @@ interface SessionState {
 
 /** 可注入依赖（测试替身用；缺省取真实实现）。 */
 export interface SessionChannelDeps {
-  connect?: typeof connectIntercom;
+  connect?: typeof connectSessionChannel;
   now?: () => number;
 }
 
@@ -181,7 +181,7 @@ export class SessionChannelService {
       return;
     }
     try {
-      this.#conn = await (this.#deps.connect ?? connectIntercom)(
+      this.#conn = await (this.#deps.connect ?? connectSessionChannel)(
         this.#config,
         (m) => this.#log(m),
       );

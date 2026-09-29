@@ -61,7 +61,7 @@ export function parseAddress(raw: string): SessionChannelAddress {
 }
 
 /** 建立 main + reader 两条连接（失败抛 `SessionChannelError("unavailable")`）。 */
-export async function connectIntercom(
+export async function connectSessionChannel(
   config: SessionChannelConfig = {},
   onError?: (message: string) => void,
 ): Promise<SessionChannelConnection> {
