@@ -210,7 +210,10 @@ describe("工具注册（mock ctx）", () => {
       ) => Promise<unknown>;
       output: {
         schema: Record<string, unknown>;
-        render: (r: unknown) => string;
+        render: (
+          args: unknown,
+          value: unknown,
+        ) => Array<{ type: string; text: string }>;
       };
     }> = [];
     const ctx = {
@@ -259,7 +262,7 @@ describe("工具注册（mock ctx）", () => {
       const lines = result.text.split("\n");
       assert.ok(lines.length <= 40);
       assert.ok(result.text.includes("... ["));
-      const rendered = tool.output.render(result);
+      const rendered = tool.output.render({}, result)[0]?.text ?? "";
       assert.ok(rendered.includes("... ["), "render 应包含省略标记");
       assert.ok(
         rendered.length <= result.text.length + 5,
@@ -292,12 +295,30 @@ describe("工具注册（mock ctx）", () => {
     assert.equal(result.ok, true);
     if (result.ok && result.mode === "outline") {
       assert.equal(result.source, "markdown");
-      const rendered = tool.output.render(result);
+      const rendered = tool.output.render({}, result)[0]?.text ?? "";
       assert.ok(rendered.includes("标题一"));
       assert.ok(rendered.includes("L1 heading"));
     } else {
       throw new Error(`非预期结果：${JSON.stringify(result)}`);
     }
+  });
+
+  it("output.render 返回内容块数组（宿主契约，防 content.some 报错）", async () => {
+    // 回归 D2：render 曾返回字符串，宿主对 content 调 .some 抛
+    // `content.some is not a function`，工具在本机完全不可用。
+    const { ctx, registered } = mockCtx();
+    apply(ctx as never, {});
+    const tool = registered[0];
+    assert.ok(tool !== undefined);
+    const result = (await tool.execute({
+      path: MD_FILE,
+      mode: "outline",
+    })) as DigestResult;
+    const blocks = tool.output.render({}, result);
+    assert.ok(Array.isArray(blocks), "render 应返回数组");
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0]?.type, "text");
+    assert.ok((blocks[0]?.text ?? "").includes("标题一"));
   });
 
   it("execute：python signatures 启发式", async () => {

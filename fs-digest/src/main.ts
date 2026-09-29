@@ -38,7 +38,10 @@ interface ToolsCtx {
     ) => Promise<unknown>;
     output: {
       schema: Record<string, unknown>;
-      render: (result: unknown) => string;
+      render: (
+        args: unknown,
+        value: unknown,
+      ) => Array<{ type: string; text: string }>;
     };
   }): void;
 }
@@ -217,7 +220,9 @@ export function apply(ctx: PluginCtx, config: Config = {}): void {
     },
     output: {
       schema: { type: "object", additionalProperties: true },
-      render: (result: unknown) => renderResult(result as DigestResult),
+      render: (_args: unknown, result: unknown) => [
+        { type: "text", text: renderResult(result as DigestResult) },
+      ],
     },
   });
 }
