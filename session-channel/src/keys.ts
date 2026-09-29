@@ -25,6 +25,23 @@ export function aliveKey(sessionId: string): string {
 /** 在线键扫描模式（listPeers / 懒清理用）。 */
 export const ALIVE_PATTERN = `${KEY_PREFIX}alive:*`;
 
+/** 别名键：alias → sessionId（**无 TTL**：别名是用户意图，不随会话离线过期）。 */
+export function aliasKey(alias: string): string {
+  return `${KEY_PREFIX}alias:${alias}`;
+}
+
+/** 从别名键反解别名（非别名键 → undefined）。 */
+export function aliasFromAliasKey(key: string): string | undefined {
+  const prefix = `${KEY_PREFIX}alias:`;
+  return key.startsWith(prefix) ? key.slice(prefix.length) : undefined;
+}
+
+/** 别名键扫描模式（列举 / 清理用）。 */
+export const ALIAS_PATTERN = `${KEY_PREFIX}alias:*`;
+
+/** 别名合法字符集：1-32 位 `[A-Za-z0-9_-]`（避开终端宽度与寻址前缀歧义）。 */
+export const ALIAS_RE = /^[A-Za-z0-9_-]{1,32}$/;
+
 /** 投递游标键：值 = JSON `{id, ts}`，**无 TTL**（接收方重启后从游标续读，避免重复注入）。 */
 export function cursorKey(sessionId: string): string {
   return `${KEY_PREFIX}cursor:${sessionId}`;

@@ -31,12 +31,17 @@ import {
 import {
   ackMessage,
   announcePresence,
+  type AliasSetResult,
+  clearAlias,
+  clearAliasesOf,
   cleanupCursors,
   clearPresence,
   listPeers,
+  listAliases,
   readCursor,
   readInbox,
   readNew,
+  setAlias,
   sendMessage,
   writeCursor,
 } from "./broker.ts";
@@ -320,6 +325,69 @@ export class SessionChannelService {
     }
   }
 
+  /** 设别名（一会话一别名）。 */
+  async aliasSet(
+    alias: string,
+    sessionId: string,
+    opts: { force?: boolean } = {},
+  ): Promise<AliasSetResult | { ok: false; error: string }> {
+    const conn = this.#requireConnection();
+    if (typeof conn === "string") return { ok: false, error: conn };
+    try {
+      return await setAlias(conn.main, alias, sessionId, opts);
+    } catch (err) {
+      return { ok: false, error: describe(err) };
+    }
+  }
+
+  /** 别名清单（带在线标记）。 */
+  async aliasList(): Promise<{
+    ok: boolean;
+    aliases?: Array<{ alias: string; sessionId: string; online: boolean }>;
+    error?: string;
+  }> {
+    const conn = this.#requireConnection();
+    if (typeof conn === "string") return { ok: false, error: conn };
+    try {
+      const [aliases, peers] = await Promise.all([
+        listAliases(conn.main),
+        listPeers(conn.main),
+      ]);
+      const online = new Set(peers.map((peer) => peer.sessionId));
+      return {
+        ok: true,
+        aliases: aliases.map((a) => ({
+          ...a,
+          online: online.has(a.sessionId),
+        })),
+      };
+    } catch (err) {
+      return { ok: false, error: describe(err) };
+    }
+  }
+
+  /** 清别名：按别名或按会话（传哪个清哪个；两个都传则两个都清）。 */
+  async aliasClear(opts: {
+    alias?: string;
+    sessionId?: string;
+  }): Promise<{ ok: boolean; cleared?: string[]; error?: string }> {
+    const conn = this.#requireConnection();
+    if (typeof conn === "string") return { ok: false, error: conn };
+    try {
+      const cleared: string[] = [];
+      if (opts.alias !== undefined && opts.alias !== "") {
+        if ((await clearAlias(conn.main, opts.alias)) !== undefined)
+          cleared.push(opts.alias);
+      }
+      if (opts.sessionId !== undefined && opts.sessionId !== "") {
+        cleared.push(...(await clearAliasesOf(conn.main, opts.sessionId)));
+      }
+      return { ok: true, cleared };
+    } catch (err) {
+      return { ok: false, error: describe(err) };
+    }
+  }
+
   /** 状态快照。 */
   status(): SessionChannelStatus {
     return { ...this.#status, sessions: [...this.#sessions.keys()] };
@@ -495,12 +563,16 @@ function toToolDef(service: SessionChannelService) {
     name: "session_channel",
     description:
       "跨会话消息通道（本机专用 Redis）：peers 列在线会话；" +
-      "send 发消息到目标会话（to = 会话 id 或 cwd:<绝对路径>，正文注入目标会话的下一回合，前缀 [INTERCOM]）；" +
-      "inbox 查某会话最近收到的消息（只读）；status 查连接与已跟踪会话。",
+      "send 发消息到目标会话（to = 会话 id、别名或 cwd:<绝对路径>，正文注入目标会话的下一回合，前缀 [CHANNEL]）；" +
+      "inbox 查某会话最近收到的消息（只读）；alias 管理会话别名（op=set/list/clear，name=别名，" +
+      "to 缺省为调用方所在会话）；status 查连接与已跟踪会话。",
     parameters: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["peers", "send", "inbox", "status"] },
+        action: {
+          type: "string",
+          enum: ["peers", "send", "inbox", "alias", "status"],
+        },
         to: {
           type: "string",
           description: "send 用：目标会话 id，或 cwd:<绝对路径>",
@@ -511,12 +583,32 @@ function toToolDef(service: SessionChannelService) {
           description: "send 用：等待「已注入」回执的毫秒数（缺省不等）",
         },
         sessionId: { type: "string", description: "inbox 用：目标会话 id" },
+        op: {
+          type: "string",
+          enum: ["set", "list", "clear"],
+          description: "alias 用：set 设别名 / list 列别名 / clear 清别名",
+        },
+        name: {
+          type: "string",
+          description: "alias 用：别名（1-32 位 [A-Za-z0-9_-]，非保留字）",
+        },
+        force: {
+          type: "boolean",
+          description: "alias set 用：别名被别人占用时是否覆盖（缺省 false）",
+        },
         count: { type: "number", description: "inbox 用：返回条数（缺省 20）" },
       },
       required: ["action"],
     },
-    async execute(args: Record<string, unknown>) {
+    async execute(args: Record<string, unknown>, exec?: unknown) {
       const action = String(args.action ?? "");
+      // 调用方所在会话（宿主在 exec.agent.session 传入；非 agent 调用方 → undefined）
+      const callerAgent = (exec as { agent?: { session?: { id?: unknown } } })
+        ?.agent;
+      const callerSessionId =
+        typeof callerAgent?.session?.id === "string"
+          ? callerAgent.session.id
+          : "";
       switch (action) {
         case "peers":
           return service.peers();
@@ -535,6 +627,36 @@ function toToolDef(service: SessionChannelService) {
             return { ok: false, error: "inbox 需要 sessionId" };
           const count = typeof args.count === "number" ? args.count : 20;
           return service.inbox(sessionId, count);
+        }
+        case "alias": {
+          const op = String(args.op ?? "list");
+          const name = String(args.name ?? "");
+          const to = String(args.to ?? "") || callerSessionId;
+          if (op === "list") return service.aliasList();
+          if (op === "set") {
+            if (name === "" || to === "")
+              return {
+                ok: false,
+                error:
+                  "alias set 需要 name；to 缺省为调用方会话（非 agent 调用方须显式传 to）",
+              };
+            return service.aliasSet(name, to, { force: args.force === true });
+          }
+          if (op === "clear") {
+            return service.aliasClear({
+              alias: name === "" ? undefined : name,
+              sessionId:
+                String(args.to ?? "") === "" && callerSessionId === ""
+                  ? undefined
+                  : to === ""
+                    ? undefined
+                    : to,
+            });
+          }
+          return {
+            ok: false,
+            error: `未知 alias op: ${op}（须为 set|list|clear）`,
+          };
         }
         case "status":
           return service.status();

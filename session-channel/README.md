@@ -46,6 +46,7 @@ cd <repo> && sh session-channel/scripts/setup-redis.sh --linger
 | `inbox:<sessionId>` | 邮箱流（`XADD MAXLEN ~ 1000`） |
 | `alive:<sessionId>` | 在线键（PeerInfo JSON，TTL） |
 | `cursor:<sessionId>` | 投递游标（`{"id":"<最后成功注入的流条目 id>","ts":<ms>}`，**无 TTL**，7 天懒清理） |
+| `alias:<alias>` | 别名 → `sessionId`（**无 TTL**；`alias set/list/clear` 管理，不随会话离线过期） |
 | `ack:<messageId>` | 回执键（`"injected"`，TTL 60s；只服务发送方 `waitMs` 等待窗口） |
 | `meta` | 命名空间 schema 版本（不兼容时拒绝写入） |
 
@@ -54,9 +55,12 @@ cd <repo> && sh session-channel/scripts/setup-redis.sh --linger
 ```jsonc
 // 1) 看谁在线
 { "action": "peers" }
-// 2) 发消息（等回执 3 秒）
-{ "action": "send", "to": "cwd:/home/me/proj", "text": "构建完成，可以继续了", "waitMs": 3000 }
-// 3) 查收件箱
+// 2) 给当前会话起别名（to 缺省即调用方会话）
+{ "action": "alias", "op": "set", "name": "docs" }
+// 3) 发消息（to 支持会话 id / 别名 / cwd:<绝对路径>；等回执 3 秒）
+{ "action": "send", "to": "docs", "text": "构建完成，可以继续了", "waitMs": 3000 }
+// 4) 查别名清单 / 查收件箱
+{ "action": "alias", "op": "list" }
 { "action": "inbox", "sessionId": "<sessionId>", "count": 10 }
 ```
 
@@ -73,6 +77,7 @@ profile 挂载（与其他插件同法）：
 - **仅本机**：unix socket + 文件权限（0700）；不跨机（跨机需换 store/网络后端，属后续条目）。
 - **离线直接报错**：目标心跳过期或 pid 已死 → `target_offline`（不做 spool / 离线队列）。
 - **不重复注入**：投递位置记在无 TTL 的 `cursor:<sessionId>` 里——接收方启动/重启从游标续读，**且只在该条注入成功后推进**；已投递过的消息（即便回执键早已过期）不会重复注入，注入失败的消息仍会补投。游标按 `ts` 懒清理（7 天），过期后该会话重来会从流起点重读（历史消息可能重投）。消息本身留在邮箱流里（`inbox` 可查）。
+- **别名**：`[A-Za-z0-9_-]{1,32}`，保留字（`inbox/alive/ack/cursor/alias/meta/peers/send/status`）不可用；一会话一别名（设新的顶掉旧的）；被别的会话占用需 `force`；别名键无 TTL，`alias clear` 手工清理。
 - **不做限流**：本地单用户场景；单条正文上限 8 KB。
 - **范围外**（后续条目）：跨会话委托/协调、扩展状态同步、消息历史检索。
 - 注入即「用户消息」：会开新回合、模型可能据此调用工具——发消息方须是可信会话（本机同用户）。

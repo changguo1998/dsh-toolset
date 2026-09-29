@@ -24,12 +24,14 @@
 dsh:session-channel:inbox:<sessionId>   Stream  投递目标（XADD MAXLEN ~ 1000）
   字段：id / from / fromCwd / text / ts        （id 字段占位，真 id = 流条目 id）
 dsh:session-channel:alive:<sessionId>   String  PeerInfo JSON：sessionId/pid/instanceId/cwd/profile/startedAt（TTL 15s）
+dsh:session-channel:alias:<alias>        String  sessionId（**无 TTL**：用户意图，不随会话离线过期）
 dsh:session-channel:cursor:<sessionId>  String  {"id":"<最后成功注入的流条目 id>","ts":<epoch ms>}（**无 TTL**，7 天懒清理）
 dsh:session-channel:ack:<messageId>     String  "injected"（TTL 60s，仅发送方 waitMs 等待窗口）
 dsh:session-channel:meta                String  schema 版本（不兼容 → 拒绝写入）
 ```
 
 - **在线 = 在线键存在（TTL 内）且 `process.kill(pid, 0)` 不抛 ESRCH**；形状不符或 pid 已死的残留键由 `listPeers` 懒清理（无额外守护进程）。
+- **寻址解析**（`resolveTarget`）优先级：**会话 id 精确匹配 → 别名（`alias:<alias>`）→ `cwd:<绝对路径>`**；都不命中返回空，由发送侧报 `target_offline`。别名由 `setAlias` 写入（校验字符集与保留字 → 冲突需 `force` → 顶掉同会话旧别名 → 写入）。
 - **游标语义**：投递位置记在**无 TTL** 的 `cursor:<sessionId>`（值 `{id, ts}`）里——接收方跟踪会话或重启时读该键作为读取起点（**读不到才退化为 `0`**：发送方可能先入队、接收方后启动），且**只在注入成功后推进**（失败不推进 → 重启补投）。读取完成前该会话不进 reader 读取集合（`cursorReady` 门），避免「先用 `0` 读一次」的重复窗口面。`start()` 时按 `ts` 懒清理超过 7 天（`CURSOR_TTL_MS`）的游标键。
 - **回执**：接收方注入成功才写回执（`ack:<messageId>`，TTL 60s），**只服务发送方 `send --wait` 的等待窗口**（100ms 轮询）——**不作为去重依据**（去重靠游标，回执过期不影响去重）。注入失败（会话不在本进程）不写回执，消息留在流里（`inbox` 可查）。
 
@@ -63,6 +65,8 @@ reader 循环 ──▶ XREAD BLOCK（多流单次读，id = 各流游标）
 ## 7. DSH 接入面（`src/index.ts`）
 
 `export { name, inject, provide, apply }`：`name = "session-channel"`、`inject = ["tools", "agents", "sessions"]`、`provide = ["sessionChannel"]`。`apply` 内 `createSessionChannelService` + `service.start()`（异步、不阻塞）+ `tools.register` + `provide("sessionChannel", …)`。
+
+工具 `session_channel` 动作：`peers` / `send` / `inbox` / `alias`（`op=set|list|clear`，`name`=别名，`to` 缺省为调用方会话，`force` 覆盖占用）/ `status`。`execute(args, exec)` 从宿主 `exec.agent.session.id` 取调用方会话（非 agent 调用方 → 须显式传 `to`）。
 
 ## 8. 约束与已知边界
 

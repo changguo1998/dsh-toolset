@@ -14,6 +14,10 @@ import {
 } from "./constants.ts";
 import {
   ackKey,
+  ALIAS_PATTERN,
+  ALIAS_RE,
+  aliasFromAliasKey,
+  aliasKey,
   ALIVE_PATTERN,
   aliveKey,
   CURSOR_PATTERN,
@@ -69,7 +73,122 @@ export async function listPeers(client: RedisClientType): Promise<PeerInfo[]> {
   return peers.sort((a, b) => a.sessionId.localeCompare(b.sessionId));
 }
 
-/** 解析寻址目标：会话 id 精确匹配，或 `cwd:<路径>` 前缀匹配。 */
+/** 别名保留字（与键命名空间 / 工具动作名冲突）。 */
+const RESERVED_ALIASES = new Set([
+  "inbox",
+  "alive",
+  "ack",
+  "cursor",
+  "alias",
+  "meta",
+  "peers",
+  "send",
+  "status",
+]);
+
+/** 别名解析结果：`ok` 表示写入成功（`replaced` 为被顶掉的自身旧别名）。 */
+export type AliasSetResult =
+  | { ok: true; alias: string; sessionId: string; replaced?: string }
+  | {
+      ok: false;
+      error: "alias_invalid" | "alias_reserved" | "alias_taken";
+      message: string;
+      holder?: string;
+    };
+
+/** 别名 → sessionId（未设置 → undefined）。 */
+export async function resolveAlias(
+  client: RedisClientType,
+  alias: string,
+): Promise<string | undefined> {
+  const value = await client.get(aliasKey(alias));
+  return value === null || value === "" ? undefined : value;
+}
+
+/** 列出全部别名（按别名排序；值形状不符的键跳过）。 */
+export async function listAliases(
+  client: RedisClientType,
+): Promise<Array<{ alias: string; sessionId: string }>> {
+  const out: Array<{ alias: string; sessionId: string }> = [];
+  for await (const keys of client.scanIterator({ MATCH: ALIAS_PATTERN })) {
+    for (const key of keys as unknown as string[]) {
+      const alias = aliasFromAliasKey(key);
+      const sessionId = await client.get(key);
+      if (alias === undefined || alias === "" || sessionId === null) continue;
+      out.push({ alias, sessionId });
+    }
+  }
+  return out.sort((a, b) => a.alias.localeCompare(b.alias));
+}
+
+/** 设别名：一会话一别名（自动移除自身旧别名）；被别人占用时需 `force: true`。 */
+export async function setAlias(
+  client: RedisClientType,
+  alias: string,
+  sessionId: string,
+  opts: { force?: boolean } = {},
+): Promise<AliasSetResult> {
+  if (!ALIAS_RE.test(alias)) {
+    return {
+      ok: false,
+      error: "alias_invalid",
+      message: `别名须为 1-32 位 [A-Za-z0-9_-]：${alias}`,
+    };
+  }
+  if (RESERVED_ALIASES.has(alias)) {
+    return {
+      ok: false,
+      error: "alias_reserved",
+      message: `别名是保留字（与键命名空间/动作名冲突）：${alias}`,
+    };
+  }
+  const holder = await resolveAlias(client, alias);
+  if (holder !== undefined && holder !== sessionId && opts.force !== true) {
+    return {
+      ok: false,
+      error: "alias_taken",
+      message: `别名已被占用：${alias}`,
+      holder,
+    };
+  }
+  const own = await clearAliasesOf(client, sessionId);
+  await client.set(aliasKey(alias), sessionId);
+  const replaced = own.filter((a) => a !== alias).join(",");
+  return {
+    ok: true,
+    alias,
+    sessionId,
+    ...(replaced === "" ? {} : { replaced }),
+  };
+}
+
+/** 清别名（按别名）；返回被清除的 sessionId（未设置 → undefined）。 */
+export async function clearAlias(
+  client: RedisClientType,
+  alias: string,
+): Promise<string | undefined> {
+  const holder = await resolveAlias(client, alias);
+  if (holder === undefined) return undefined;
+  await client.del(aliasKey(alias));
+  return holder;
+}
+
+/** 清某会话的全部别名；返回被清除的别名列表。 */
+export async function clearAliasesOf(
+  client: RedisClientType,
+  sessionId: string,
+): Promise<string[]> {
+  const own = (await listAliases(client))
+    .filter((a) => a.sessionId === sessionId)
+    .map((a) => a.alias);
+  for (const alias of own) await client.del(aliasKey(alias));
+  return own;
+}
+
+/**
+ * 解析寻址目标，优先级：**会话 id 精确匹配 → 别名 → `cwd:<路径>`**。
+ * （`cwd:` 前缀显式指定路径匹配；别名与 id 都不命中时按 id 处理 → 上方报 `target_offline`。）
+ */
 export async function resolveTarget(
   client: RedisClientType,
   to: string,
@@ -79,7 +198,11 @@ export async function resolveTarget(
     const want = normalizeDir(to.slice("cwd:".length));
     return peers.filter((p) => normalizeDir(p.cwd) === want);
   }
-  return peers.filter((p) => p.sessionId === to);
+  const exact = peers.filter((p) => p.sessionId === to);
+  if (exact.length > 0) return exact;
+  const aliased = await resolveAlias(client, to);
+  if (aliased === undefined) return [];
+  return peers.filter((p) => p.sessionId === aliased);
 }
 
 /**
