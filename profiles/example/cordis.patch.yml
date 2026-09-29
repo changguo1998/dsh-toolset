@@ -81,6 +81,17 @@
     #   config:
     #     provider: <provider 名>  # 实际 profile 的 llm-pi-ai 条目中配置
     #     model: <模型 id>         # 故本文件只写名字，不放凭据与私有端点
+    #
+    # 本仓库另有 @dsh-toolset/session-title-cutoff（all-prompts 触发不变，参考窗口改为
+    # 「最近一次 git commit 之后」的人类消息）。宿主只允许注册一个标题 provider，二选一；
+    # 挂本仓库实现时需禁用官方条目，并显式给出 provider/model（首条消息时通常尚无已记录路由）：
+    # - id: session-title-all-prompts-llm
+    #   disabled: true
+    # - id: session-title-cutoff
+    #   config:
+    #     provider: <provider 名>
+    #     model: <模型 id>
+    # （scripts/install.sh --sync 会自动完成这两步并复制 provider/model。）
 
 # ── 其它方言（按需取消注释）──────────────────────────────────────────────────
 # 禁用某条 bundle 插入的条目，再用 insert 换成别的实现（如换掉首条消息生成标题的 provider）：

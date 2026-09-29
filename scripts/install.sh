@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # 新机器安装脚本：装 dsh → 构建本项目插件 → 配 profile（插件挂载）。
 #
-# 默认值：profile 名 fff、dsh 版本 0.1.7-rc.2、插件取全部 14 个包。
+# 默认值：profile 名 fff、dsh 版本 0.1.7-rc.2、插件取 canonical_pkgs 全部包。
 # 本项目只用 TUI：agent 面由 profile 全局组合提供，脚本不配置 agent preset
 # （说明见 docs/host/AGENT-COMPOSITION.md）。
 # 幂等：已存在的 profile 配置文件默认原样保留（--force 才覆盖，且先备份
@@ -17,23 +17,26 @@ plugins_sel="all"
 skip_dsh=0
 skip_build=0
 force=0
+sync=0
 dry_run=0
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 profile_asset_dir="$repo_root/profiles/example"
 # 插件处理顺序（与根 package.json 的 check/build 顺序一致；子包名从各自 package.json 读）
-canonical_pkgs="TUI herdr-integration knowledge-base task-engine ast-tools fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine symbol-normalizer session-channel"
+canonical_pkgs="TUI herdr-integration knowledge-base task-engine ast-tools fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine symbol-normalizer session-channel session-title-cutoff"
 
 usage() {
     cat << 'EOF'
 用法：scripts/install.sh [选项]
 
   --profile <名字>      dsh profile 名（默认 fff）
-  --plugins <列表|all>  要装的插件目录名，逗号或空格分隔（默认 all = 上表 14 个包）
+  --plugins <列表|all>  要装的插件目录名，逗号或空格分隔（默认 all = canonical_pkgs 全部包）
   --dsh-version <版本>  安装的 dsh 版本（默认 0.1.7-rc.2）
   --skip-dsh            不安装 / 不校验 dsh（假设 PATH 上已有）
   --skip-build          跳过插件的 npm install 与 build（复用已有 dist/）
   --force               覆盖已存在的 profile 配置文件（覆盖前备份）
+  --sync                更新已存在的 profile：合并式补挂本仓库插件、必要时禁用官方
+                        all-prompts 标题 provider（追加 patch 片段），再跑 pnpm install
   --dry-run             只打印将要执行的操作，不落盘
   -h, --help            显示本帮助
 
@@ -133,6 +136,10 @@ while [ $# -gt 0 ]; do
             force=1
             shift
             ;;
+        --sync)
+            sync=1
+            shift
+            ;;
         --dry-run)
             dry_run=1
             shift
@@ -151,6 +158,9 @@ dsh_home="${DSH_HOME:-$HOME/.dsh}"
 # ── 1/5 前置检查 ────────────────────────────────────────────────────────────
 log "1/5 前置检查"
 [ -f "$repo_root/package.json" ] || die "仓库根不对：$repo_root"
+# 后续有相对路径（`*/package.json` 发现插件、is_bundle/pkg_name），统一切到仓库根，
+# 这样从 scripts/ 目录直接 `./install.sh` 运行也可用。
+cd "$repo_root" || die "无法进入仓库根：$repo_root"
 have node || die "需要 node（脚本用它读 package.json / 生成 manifest）"
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
 [ "$node_major" -ge 20 ] || die "node 版本过低（$node_major），本项目要求 20+，建议 22+"
@@ -257,8 +267,40 @@ render_manifest() {
     done
     printf '\n      ]\n    }\n  }\n}\n'
 }
-if [ -f "$manifest" ] && [ "$force" != 1 ]; then
-    log "保留已有 $manifest（--force 可覆盖）"
+if [ -f "$manifest" ] && [ "$sync" = 1 ]; then
+    # --sync：合并式更新既有 manifest——本仓库插件的依赖与 bundles 按当前选择刷新，
+    # 用户自行添加的其它依赖 / bundle 原样保留（例：官方标题 provider）。
+    log "合并更新 $manifest（--sync：保留非本仓库条目）"
+    if [ "$dry_run" = 1 ]; then
+        printf '[dry-run] 合并更新 %s\n' "$manifest"
+    else
+        backup "$manifest"
+        node -e '
+const fs = require("fs");
+const [file, repoRoot, prefix, ...dirs] = process.argv.slice(1);
+const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+const ours = new Set();
+manifest.dependencies ??= {};
+for (const dir of dirs) {
+  const pkg = JSON.parse(fs.readFileSync(`${repoRoot}/${dir}/package.json`, "utf8"));
+  ours.add(pkg.name);
+  manifest.dependencies[pkg.name] = `link:${repoRoot}/${dir}`;
+}
+manifest.dsh ??= {};
+manifest.dsh.profile ??= {};
+const existing = Array.isArray(manifest.dsh.profile.bundles) ? manifest.dsh.profile.bundles : [];
+const extras = existing.filter((name) => !ours.has(name) && name !== "@deepseek-ai/dsh-base");
+manifest.dsh.profile.bundles = ["@deepseek-ai/dsh-base", ...dirs.map((dir) => {
+  const pkg = JSON.parse(fs.readFileSync(`${repoRoot}/${dir}/package.json`, "utf8"));
+  return pkg.name;
+}), ...extras];
+fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+' "$manifest" "$repo_root" link $final ||
+            die "合并更新 $manifest 失败"
+        log "已更新 $manifest（bundle 数：$(printf '%s' "$final" | wc -w) + dsh-base + 已保留的额外 bundle）"
+    fi
+elif [ -f "$manifest" ] && [ "$force" != 1 ]; then
+    log "保留已有 $manifest（--force 覆盖 / --sync 合并更新）"
 elif [ "$dry_run" = 1 ]; then
     printf '[dry-run] 写入 %s：\n' "$manifest"
     render_manifest
@@ -278,6 +320,47 @@ for asset in pnpm-workspace.yaml cordis.patch.yml; do
     backup "$target"
     run cp "$profile_asset_dir/$asset" "$target"
 done
+# --sync：既有 profile 若挂了官方 all-prompts 标题 provider，追加禁用片段（幂等：带标记跳过）。
+# 宿主只允许一个标题 provider；本仓库 session-title-cutoff 接管后必须禁用官方实现。
+patch_file="$pdir/cordis.patch.yml"
+if [ "$sync" = 1 ] && [ -f "$patch_file" ]; then
+    if grep -q "session-title-cutoff 接管标题 provider" "$patch_file"; then
+        log "标题 provider 禁用片段已存在，跳过"
+    elif grep -v '^[[:space:]]*#' "$patch_file" | grep -q "dsh-session-title-all-prompts-llm"; then
+        if [ "$dry_run" = 1 ]; then
+            printf '[dry-run] 追加禁用片段到 %s\n' "$patch_file"
+        else
+            backup "$patch_file"
+            cat >> "$patch_file" << 'EOF'
+
+# 追加（scripts/install.sh --sync）：session-title-cutoff 接管标题 provider 后，禁用官方
+# all-prompts 实现（宿主 ctx.sessionTitle 只允许注册一个 provider，二次注册会抛错）。
+- id: session-title-all-prompts-llm
+  disabled: true
+EOF
+            log "已追加：禁用官方 all-prompts 标题 provider"
+            # 顺手把官方条目的 provider/model 复制给本仓库实现（all-prompts 在首条消息时
+            # 可能尚无「已记录路由」，显式配对最稳）。仅当原条目同时给出两者时才生成覆盖块。
+            title_provider="$(awk '/dsh-session-title-all-prompts-llm/{f=1} f&&/^[[:space:]]*provider:/{print $2; exit}' "$patch_file")"
+            title_model="$(awk '/dsh-session-title-all-prompts-llm/{f=1} f&&/^[[:space:]]*model:/{print $2; exit}' "$patch_file")"
+            if [ -n "$title_provider" ] && [ -n "$title_model" ]; then
+                cat >> "$patch_file" << EOF
+
+# 由 install.sh --sync 复制自官方 all-prompts 条目：显式路由（provider/model 必须成对）。
+- id: session-title-cutoff
+  config:
+    provider: $title_provider
+    model: $title_model
+EOF
+                log "已追加：session-title-cutoff 显式路由（provider=$title_provider model=$title_model）"
+            else
+                warn "未能在官方 all-prompts 条目中读到 provider/model；请手工为 session-title-cutoff 配置（否则首条消息可能因无已记录路由失败）"
+            fi
+        fi
+    else
+        log "profile 未挂载官方 all-prompts 标题 provider（跳过：无需禁用；如你另行挂载，请手工加 disabled: true 或重跑 --sync）"
+    fi
+fi
 case " $final " in
     *" TUI "*) ;;
     *) warn "未选中 TUI：profiles/example/cordis.patch.yml 里针对 - id: tui 的配置会被跳过（启动日志有 patch 告警）" ;;
