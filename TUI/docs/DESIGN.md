@@ -251,18 +251,49 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 
 终端 raw mode 开/关与终端恢复由 `renderer/terminal.ts` 负责，对所有退出路径生效（正常 `close()`、SIGINT / SIGTERM、`uncaughtException` / `unhandledRejection`）；进程退出生命周期归 renderer 拥有，app 只在 renderer 分发的事件里做自己的清理。按键层面 `Esc` 与单次 `Ctrl+C` 不触发退出（避免误触丢会话）；退出路径为 `/quit`、`Ctrl+D`（agent 空闲且输入区为空）与 750ms 内双击 `Ctrl+C`。`Ctrl+D` 与双击 `Ctrl+C` **不直接退出**，先弹**退出确认面板**（复用问答面板机制的合成面板，id `exit-confirm`）——默认高亮「取消/留在 TUI」，Esc 取消、Enter 确认高亮项，仅确认「退出 dsh」才走 `dispose()`；合成面板不触达 adapter 的 `answerQuestion` / `cancelQuestion`。该面板防「单字节误触/注入」直接结束会话（BACKLOG「tmux 断连后 dsh 退出」：终端/复用器注入的单个 `0x04` 不再致退）；`/quit` 为显式输入，保持直接退出。
 
-### 退出确认 ·「重启」可行性（2026-09-29 调研，BACKLOG「退出确认增加『重启』选项（仅探讨可行性）」）
+### 退出确认 ·「重启」方案（2026-09-29 调研 + 定稿：启动器循环）
 
-- **结论**：可行，推荐 tmux 场景先行；无宿主「重启」原语，须由 CLI `--resume` + 进程 / 窗格替换组合实现。本次只出结论，实现另立条目（TUI `BACKLOG.md`）。
-- **依据**：
-  1. CLI：`dsh` 启动器把 app 参数透传（官方示例 `dsh tui --resume <session>`）；TUI 自 TUI#40 起支持 `--resume` / `-c` 启动即恢复（`state.ts` 的启动恢复路径 `history-resume-*`）。
-  1. 信息可得：adapter 持有活跃会话 id（`dsh.ts` 的 `activeSessionId`），`process.argv` 可重建「同 profile + 同会话」命令行。
-  1. 恢复语义：退出前的会话落盘由现有 `dispose()` 收尾链路保证；重启应在 flush 完成后启动新进程 / 窗格。
-- **实现路线**：
-  - **A（推荐）tmux 优先**：`$TMUX` 存在时 `tmux respawn-pane -k -t <pane> <同 profile + --resume 命令>` 原地重启 —— 无 TTY 交接与孤儿进程问题；失败则回退到界面提示（不退出）。
-  - **B（通用 spawn）**：`spawn(process.argv[0], [...原参数, "--resume", id], { detached: true, stdio: "inherit" })` 后延迟退出；需处理 TTY 交接、子进程与父进程的会话打开竞争、失败回退，复杂度与风险明显更高。
-- **交互**：退出确认面板加第三项「重启 dsh（保留会话）」；默认仍高亮「取消」，沿用现有合成面板语义（回车确认高亮项，不做二次确认——原「退出 dsh」亦无）。多实例互不影响（respawn 仅当前窗格；spawn 各自独立）。
-- **边界**：非 tmux 且非 TTY 环境不提供重启；未提交输入按既有退出语义丢弃；重启后仅会话内容保留，滚动缓冲 / 输入历史不保留。
+- **结论**：重启由**启动器**（用户的 `fffdsh` 之类的包装函数）完成，TUI 只负责「发出重启信号」。宿主没有重启原语；早期调研结论是 tmux `respawn-pane -k` 原地重启（路线 A），现改为「退出码 + 交接文件 + 外层循环」：不依赖 tmux、无 TTY 交接与孤儿进程问题，且旧进程完全退出后新进程才启动（不存在两个进程并发打开同一会话的竞争）。
+
+- **契约（TUI 与启动器之间，两个通道各司一职）**：
+
+  1. **触发 = 退出码 `75`**：启动器每轮启动前 `export DSH_RESTART_FILE=<唯一路径>`（建议 `$XDG_RUNTIME_DIR/dsh-restart-<pid>-<rand>`；退回 `/tmp` 时文件 `0600`、名字含 pid 与随机数）；子进程退出码为 `75` 即重启，其它码原样返回；每轮读完或非 75 退出都 `rm -f` 清理。
+  1. **载荷 = 交接文件**：TUI 仅在 `DSH_RESTART_FILE` 存在时，于退出确认面板显示第三项「重启 dsh（保留会话）」；选中后把**当前活跃会话 id** 单行同步写入该文件（`mode 0600`），随后 `process.exit(75)`；写失败只打 stderr 仍退 75。
+  1. **重启轮命令** = 启动器原参数 + `--resume <id>`；读不到 id（文件缺失 / 为空 / 写入失败）退回 `-c`（加载当前目录下最近退出的会话，TUI#40 已支持）。
+
+- **为什么两个通道都要**：退出码与进程退出原子绑定 —— 写文件失败时仍是「重启并退回 `-c`」，而不是静默变成普通退出；文件只回答「恢复哪条会话」。
+  **备选（不采用，仅记录）**：单通道「文件非空即重启」更简，但需额外哨兵表达「要重启但拿不到 id」，且写失败会静默丢失重启请求。
+
+- **交互**：沿用现有合成问答面板语义（`EXIT_CONFIRM_PANEL_ID`；回车确认高亮项，不做二次确认）；默认仍高亮「取消」；「取消 / 退出 dsh」既有路径与按键语义不变；多实例互不影响（每轮路径唯一）。
+
+- **边界**：直接 `dsh ...` 启动（无启动器、无该环境变量）时不显示重启项；用户选「退出 dsh」绝不写文件；未提交输入按既有退出语义丢弃；重启后仅会话内容保留（滚动缓冲 / 输入历史不保留）；`75` 与既有退出码无冲突。
+
+- **启动器片段（用户侧，项目外，不进本仓；完整版见 `TUI/README.md`）**：
+
+  ```sh
+  # 重启循环：TUI 以退出码 75 请求重启，会话 id 经 DSH_RESTART_FILE 交接（每轮唯一路径）
+  local -a pfx base extra
+  base=("$@")
+  if [[ $has_profile == yes ]]; then pfx=(); else pfx=(--profile fff); fi
+  extra=()
+  local code file id
+  while :; do
+      file="${XDG_RUNTIME_DIR:-/tmp}/dsh-restart-$$-$RANDOM"
+      export DSH_RESTART_FILE="$file"
+      dsh "${pfx[@]}" "${base[@]}" "${extra[@]}"
+      code=$?
+      unset DSH_RESTART_FILE
+      if [[ $code != 75 ]]; then
+          rm -f "$file"
+          return $code
+      fi
+      id=$(cat "$file" 2>/dev/null)
+      rm -f "$file"
+      if [[ -n $id ]]; then extra=(--resume "$id"); else extra=(-c); fi
+  done
+  ```
+
+- **历史结论（路线 A，已降为可选）**：`$TMUX` 存在时用 `tmux respawn-pane -k -t <pane> <同 profile + --resume 命令>` 原地重启，失败回退界面提示且不退出；通用 spawn（路线 B）需处理 TTY 交接与会话打开竞争，风险更高，不采用。
 
 ## 规划与边界
 
