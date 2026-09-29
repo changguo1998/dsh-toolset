@@ -1,6 +1,6 @@
 # 开局指南记账跨重启去重（接取条目：`symbol-normalizer/docs/BACKLOG.md`「开局指南记账跨重启去重（可选增强）」）
 
-状态：规划　　开启：2026-09-29
+状态：关闭　　开启：2026-09-29　　关闭：2026-09-29
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -30,11 +30,11 @@
 计划改动文件清单：
 
 1. `symbol-normalizer/src/guide.ts`：`SymbolGuideGate` 加只读 `has()`；新增纯函数 `hasGuideMessage(messages)` 与规则来源常量。
-2. `symbol-normalizer/src/main.ts`：`inject` 增加 `sessions`；指南消费者 decide 接入历史判定（含 `sessionMessagesOf` 结构面读法，异常降级）。
-3. `symbol-normalizer/tests/guide.test.ts`：`hasGuideMessage` 用例（命中 / 不命中 / 空）、`gate.has` 用例。
-4. `symbol-normalizer/tests/main.test.ts`：假 ctx 增加 sessions；新增「历史已有 → 跳过（resume 语义）」「历史为空 → 注入一次」「历史读取抛错 → 仍注入（fail-open）」用例。
-5. `symbol-normalizer/README.md`：`inject` 硬依赖与「每会话一次」口径更新（跨重启去重）。
-6. 本追踪文档。
+1. `symbol-normalizer/src/main.ts`：`inject` 增加 `sessions`；指南消费者 decide 接入历史判定（含 `sessionMessagesOf` 结构面读法，异常降级）。
+1. `symbol-normalizer/tests/guide.test.ts`：`hasGuideMessage` 用例（命中 / 不命中 / 空）、`gate.has` 用例。
+1. `symbol-normalizer/tests/main.test.ts`：假 ctx 增加 sessions；新增「历史已有 → 跳过（resume 语义）」「历史为空 → 注入一次」「历史读取抛错 → 仍注入（fail-open）」用例。
+1. `symbol-normalizer/README.md`：`inject` 硬依赖与「每会话一次」口径更新（跨重启去重）。
+1. 本追踪文档。
 
 明确不做：不改 rule-engine；不写自定义会话事件；不动 TUI；不做 `sessionProjections` 接入（无必要，历史判定已足够）。
 
@@ -54,4 +54,7 @@
 
 ## 收尾
 
-（待补）
+- 提交：`f7ca13c`（feat：开局指南记账跨重启去重；6 文件，+190/-14）。
+- 回写：`symbol-normalizer/README.md`（§3 每会话一次口径、`injectGuide` 行、`inject` 依赖行、`decide` 时序约束）。
+- BACKLOG：`symbol-normalizer/docs/BACKLOG.md` F3 条目标完成并移除；本追踪文档移入 `symbol-normalizer/docs/archived/`。
+- 遗留：无；已知边界（指南消息被 compaction 剪除后可再注入一次；历史不可读时 fail-open）已在决策与 README 记录。
