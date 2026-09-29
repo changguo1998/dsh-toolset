@@ -16,6 +16,7 @@
 
 import { SymbolReviewer } from "./review.ts";
 import { normalizeSymbols, resolveSymbolRules } from "./symbols.ts";
+import { GUIDE_SUMMARY, SymbolGuideGate, buildSymbolGuide } from "./guide.ts";
 import type { Config, ReviewEvent, SymbolNormalizerService } from "./types.ts";
 
 export const name = "symbol-normalizer";
@@ -123,6 +124,27 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       }
     }
 
+    // 会话开局指南（BACKLOG F2）：每会话一次注入「推荐白名单 + 使用标准」
+    let disposeGuide: (() => void) | undefined;
+    if (
+      engine !== undefined &&
+      typeof engine.registerConsumer === "function" &&
+      rules.injectGuide
+    ) {
+      const gate = new SymbolGuideGate();
+      try {
+        disposeGuide = engine.registerConsumer({
+          id: "symbol-normalizer-guide",
+          decide: (context) =>
+            gate.take(context.sessionId)
+              ? { text: buildSymbolGuide(rules), summary: GUIDE_SUMMARY }
+              : null,
+        });
+      } catch (err) {
+        warn(`开局指南消费者注册失败：${String(err)}`);
+      }
+    }
+
     // 展示层服务：normalize / onReview / status
     if (typeof c.provide === "function") {
       try {
@@ -151,6 +173,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     // cordis 生命周期：插件卸载时注销消费者（disposer 归 cordis 管理）
     c.effect?.(() => () => {
       dispose?.();
+      disposeGuide?.();
     });
 
     process.stderr.write(

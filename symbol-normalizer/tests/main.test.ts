@@ -51,8 +51,11 @@ function fakeCtx(options: { noRuleEngine?: boolean } = {}): {
 test("apply：注册消费者 + provide 服务；decide 审查 → notice 事件 + 反馈内容", async () => {
   const fake = fakeCtx();
   await apply(fake.ctx, { cooldownMs: 0, cooldownRuns: 0 });
-  assert.equal(fake.consumers.length, 1);
-  assert.equal(fake.consumers[0]?.id, "symbol-normalizer");
+  assert.equal(fake.consumers.length, 2, "审查消费者 + 开局指南消费者");
+  assert.deepEqual(
+    fake.consumers.map((c) => c.id),
+    ["symbol-normalizer", "symbol-normalizer-guide"],
+  );
 
   const service = fake.provided.get("symbolNormalizer") as {
     normalize(text: string): { text: string; unrecommended: string[] };
@@ -73,7 +76,9 @@ test("apply：注册消费者 + provide 服务；decide 审查 → notice 事件
     text: "失败 ❌。",
     trigger: "turn-end",
   });
-  assert.ok(feedback !== null);
+  if (feedback === null || feedback === undefined) {
+    throw new Error("审查消费者应返回反馈");
+  }
   assert.match(feedback.text, /\[符号规范\]/);
   assert.equal(feedback.summary, "符号规范提醒");
   assert.equal(events.length, 1);
@@ -85,7 +90,7 @@ test("apply：注册消费者 + provide 服务；decide 审查 → notice 事件
   const cleanup = fake.effects[0]?.();
   assert.equal(typeof cleanup, "function");
   (cleanup as () => void)();
-  assert.equal(fake.disposed(), 1);
+  assert.equal(fake.disposed(), 2, "两个消费者（审查 + 指南）都要注销");
   assert.equal(service.status().warnModel, true);
   assert.equal(service.status().sessions, 1);
 });
@@ -113,4 +118,31 @@ test("apply：rule-engine 缺席时只告警不抛，展示服务仍可用", asy
     normalize(text: string): { text: string };
   };
   assert.equal(service.normalize("失败 ❌").text, "失败 ✗");
+});
+
+test("apply：开局指南消费者每会话只注入一次（内容含白名单与使用标准）", async () => {
+  const fake = fakeCtx();
+  await apply(fake.ctx, { cooldownMs: 0, cooldownRuns: 0 });
+  const guide = fake.consumers.find((c) => c.id === "symbol-normalizer-guide");
+  assert.ok(guide !== undefined);
+  const context = { sessionId: "s1", turn: 1, text: "", trigger: "turn-end" };
+  const first = guide.decide(context);
+  assert.ok(first !== null, "首回合应注入");
+  assert.match(first.text, /推荐符号白名单/);
+  assert.equal(first.summary, "符号规范（会话开局指南）");
+  assert.equal(guide.decide(context), null, "同会话第二次 → 跳过");
+  assert.ok(
+    guide.decide({ ...context, sessionId: "s2" }) !== null,
+    "另一会话不受影响",
+  );
+});
+
+test("apply：injectGuide=false 时不注册指南消费者", async () => {
+  const fake = fakeCtx();
+  await apply(fake.ctx, { injectGuide: false });
+  assert.deepEqual(
+    fake.consumers.map((c) => c.id),
+    ["symbol-normalizer"],
+    "关闭后只剩审查消费者",
+  );
 });

@@ -36,7 +36,14 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 
 `warnModel: false` 时只提示人、不提醒模型。
 
-### 3. 服务（`provide("symbolNormalizer")`）
+### 3. 会话开局指南（消费者 `symbol-normalizer-guide`）
+
+- 会话开局注入一次「推荐符号白名单 + 符号使用标准」（禁用 emoji/列宽不定字符、变体必须用推荐对应符、使用场景口径、代码段豁免说明），让模型开局即按规范输出；
+- 文本**由 config 生成**（白名单取自 `recommended`、变体映射取自 `aliases`，最多列 20 条），改配置即改注入内容；
+- 每会话一次（进程内记账，容量 256 FIFO 淘汰）；`injectGuide: false` 关闭；
+- 通道同为 rule-engine 消费者；**已知时序边界**：注入发生在首个可行回合边界（宿主指令面 `@deepseek-ai/dsh-agent-instructions` 只读取固定候选路径的指令文件，无插件注册口，故无法早于首个请求）。
+
+### 4. 服务（`provide("symbolNormalizer")`）
 
 | 方法 | 说明 |
 | --- | --- |
@@ -51,6 +58,7 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 | `recommended` | `[]` | 追加推荐字符（治理区放行白名单） |
 | `aliases` | `{}` | 别名映射追加（覆盖同键内置） |
 | `warnModel` | `true` | 是否向模型发提醒（false = 只提示人） |
+| `injectGuide` | `true` | 会话开局是否注入「推荐白名单 + 使用标准」指南（每会话一次；文本由 config 生成） |
 | `cooldownMs` | `600000` | 同符号冷却时间窗（ms；`0` 关闭） |
 | `cooldownRuns` | `3` | 同符号冷却 run 次数（`0` 关闭） |
 

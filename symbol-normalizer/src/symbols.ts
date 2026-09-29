@@ -258,6 +258,8 @@ export interface SymbolRulesConfig {
   aliases?: Record<string, string>;
   /** 是否随下一条用户消息向模型发提醒（缺省 true）。 */
   warnModel?: boolean;
+  /** 是否在会话开局注入「推荐白名单 + 使用标准」指南（缺省 true；见 BACKLOG F2）。 */
+  injectGuide?: boolean;
   /**
    * 同符号冷却时间窗（毫秒，缺省 10 分钟；显式 0 = 关闭时间维度）。
    * 某符号被反馈过一次后进入冷却，冷却期内不再对该符号反馈（打破循环）。
@@ -279,6 +281,7 @@ export interface ResolvedSymbolRules {
   recommendedSet: ReadonlySet<string>;
   aliases: Readonly<Record<string, string>>;
   warnModel: boolean;
+  injectGuide: boolean;
   cooldownMs: number;
   cooldownRuns: number;
 }
@@ -294,6 +297,7 @@ export function resolveSymbolRules(
     recommendedSet: recommended,
     aliases,
     warnModel: cfg?.warnModel ?? true,
+    injectGuide: cfg?.injectGuide ?? true,
     cooldownMs: cfg?.cooldownMs ?? DEFAULT_SYMBOL_COOLDOWN_MS,
     cooldownRuns: cfg?.cooldownRuns ?? DEFAULT_SYMBOL_COOLDOWN_RUNS,
   };
