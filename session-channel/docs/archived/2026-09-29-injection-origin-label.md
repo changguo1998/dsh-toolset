@@ -1,6 +1,6 @@
 # session-channel 注入正文带来源标识（接取条目：`session-channel/docs/BACKLOG.md`「注入正文不显示发送方（视觉层缺来源，D4 的遗留面）」）
 
-状态：规划　　开启：2026-09-29
+状态：关闭　　开启：2026-09-29　　关闭：2026-09-29
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -30,13 +30,13 @@
 计划改动文件清单：
 
 1. `session-channel/src/inject.ts`：正文格式、前缀常量与注释。
-2. `session-channel/src/broker.ts`：新增 `aliasOfSession` 反查。
-3. `session-channel/src/index.ts`：`#deliver` 改 async + 解析来源标签 + reader loop 改 `await`；工具描述里的前缀说明。
-4. `session-channel/src/types.ts`：`prefix` 注释。
-5. `session-channel/tests/inject.test.ts`、`tests/service.test.ts`、`tests/apply.test.ts`：存量断言更新 + 新增（别名优先 / 无别名回退 id / 空来源）用例。
-6. `session-channel/README.md`：`send` 行与 `prefix` 默认值。
-7. 本追踪文档。
-8. 根 `README.md`（计划外，用户 2026-09-29 裁定后追加）：插件表前缀描述同步。
+1. `session-channel/src/broker.ts`：新增 `aliasOfSession` 反查。
+1. `session-channel/src/index.ts`：`#deliver` 改 async + 解析来源标签 + reader loop 改 `await`；工具描述里的前缀说明。
+1. `session-channel/src/types.ts`：`prefix` 注释。
+1. `session-channel/tests/inject.test.ts`、`tests/service.test.ts`、`tests/apply.test.ts`：存量断言更新 + 新增（别名优先 / 无别名回退 id / 空来源）用例。
+1. `session-channel/README.md`：`send` 行与 `prefix` 默认值。
+1. 本追踪文档。
+1. 根 `README.md`（计划外，用户 2026-09-29 裁定后追加）：插件表前缀描述同步。
 
 明确不做：不改宿主 `source` 渲染；不动 TUI 代码与测试夹具；不做别名反查缓存（消息量低，SCAN 成本可接受）。
 
@@ -44,7 +44,7 @@
 
 - 2026-09-29：`inject.ts` —— `INJECTION_PREFIX` 改 `"[CHANNEL]"`（去尾空格），`buildInjectionMessage` 正文改为 `${prefix}(${origin}) ${text}`，空来源仍显示「未知会话」；注释同步。
 - 2026-09-29：`broker.ts` —— 新增 `aliasOfSession(client, sessionId)`（复用 `listAliases` 扫全表取首个匹配；会话无别名或入参空串 → undefined）。
-- 2026-09-29：`index.ts` —— `#deliver` 改 async，新增 `#originLabel`（别名优先 → 会话 id，反查异常记日志并回退 id）；reader loop 改为 `await this.#deliver(...)`；工具描述改为「形如 [CHANNEL](来源) 正文」。
+- 2026-09-29：`index.ts` —— `#deliver` 改 async，新增 `#originLabel`（别名优先 → 会话 id，反查异常记日志并回退 id）；reader loop 改为 `await this.#deliver(...)`；工具描述改为「形如 [CHANNEL](%E6%9D%A5%E6%BA%90) 正文」。
 - 2026-09-29：`types.ts` —— `prefix` 注释更新（正文 = `<prefix>(<来源>) <正文>`）。
 - 2026-09-29：测试更新与新增 —— `inject.test.ts` 加 `buildInjectionMessage` 形态用例（带来源 / 空来源 / 自定义 prefix），代理宿主用例断言改为 `[CHANNEL](未知会话) 代理注入`；`service.test.ts` 端到端断言改为 `[CHANNEL](sess-a) hello B`，新增「别名优先」用例（无别名 → 会话 id；设别名 → 别名）；`apply.test.ts` 断言改为 `[CHANNEL](sess-x) 自测`。
 - 2026-09-29：`README.md` —— `send` 行与 `prefix` 默认值同步。
@@ -58,4 +58,7 @@
 
 ## 收尾
 
-（待补）
+- 提交：`da8e26c`（feat：注入正文带来源标识；10 文件，+135/-18）。
+- 回写：`session-channel/README.md`（`send` 行与 `prefix` 默认值）、根 `README.md`（插件表前缀描述，经用户裁定后追加进清单）。
+- BACKLOG：`session-channel/docs/BACKLOG.md` D6 条目标完成并移除；本追踪文档移入 `session-channel/docs/archived/`。
+- 遗留：无；`[CHANNEL](<来源>)` 属用户可见文案变更，已在 README / DESIGN 记录，仓内无按正文前缀解析的消费方。
