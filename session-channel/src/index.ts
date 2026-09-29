@@ -674,6 +674,21 @@ function toToolDef(service: SessionChannelService) {
 }
 
 /**
+ * 服务面（`provide("sessionChannel", …)`）暴露的方法键清单：新增公开方法时须同步进服务面
+ * （D5 根因：别名三件套曾只加在类上、漏进服务面，消费方调用即抛错），由 `tests/apply.test.ts` 守卫。
+ * `start` / `stop` / `noteSession` 属宿主生命周期 / 内部面，故意不暴露。
+ */
+export const SERVICE_FACE_METHODS = [
+  "peers",
+  "send",
+  "inbox",
+  "aliasSet",
+  "aliasList",
+  "aliasClear",
+  "status",
+] as const;
+
+/**
  * DSH 宿主按 bundle 契约调用：惰性、防御；连接失败只降级（工具返回错误提示），不抛。
  */
 export function apply(

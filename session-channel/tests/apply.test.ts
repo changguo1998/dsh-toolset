@@ -4,7 +4,12 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { apply, getSessionChannelService } from "../src/index.ts";
+import {
+  apply,
+  getSessionChannelService,
+  SERVICE_FACE_METHODS,
+  SessionChannelService,
+} from "../src/index.ts";
 import {
   makeFakeHost,
   redisTest,
@@ -193,4 +198,29 @@ test("apply：无 tools 面时不抛（仅告警），服务面仍可用（未�
   const service = getSessionChannelService();
   assert.equal(service?.status().enabled, false);
   assert.ok(fake.logs.some((line) => line.includes("tools 未挂载")));
+});
+
+test("D5 守卫：服务面键集合与类公开方法对齐（漏暴露即失败）", () => {
+  const fake = makeFakeHost();
+  const provided = new Map<string, unknown>();
+  fake.host["provide"] = (key: string, value: unknown) =>
+    void provided.set(key, value);
+  apply(fake.host as never, { disabled: true });
+  const face = provided.get("sessionChannel") as
+    Record<string, unknown> | undefined;
+  assert.ok(face, "apply 应提供 sessionChannel 服务面");
+  assert.deepEqual(
+    Object.keys(face).sort(),
+    [...SERVICE_FACE_METHODS].sort(),
+    "服务面键集合应与 SERVICE_FACE_METHODS 一致（新增/删除方法时同步清单）",
+  );
+  // 类上公开方法 = 服务面清单 + 故意不暴露的内部面（新方法漏进服务面时此处失败）
+  const internalOnly = ["start", "stop", "noteSession"];
+  assert.deepEqual(
+    Object.getOwnPropertyNames(SessionChannelService.prototype)
+      .filter((key) => key !== "constructor")
+      .sort(),
+    [...SERVICE_FACE_METHODS, ...internalOnly].sort(),
+    "新增公开方法必须同步进服务面或 internalOnly 白名单",
+  );
 });
