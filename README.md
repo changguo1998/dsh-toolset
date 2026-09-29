@@ -134,7 +134,7 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 - `TUI/docs/DESIGN.md`、`<包>/docs/DESIGN.md` — 架构设计与机制取舍（`knowledge-base`、`output-compress`、`code-map`、`session-channel` 有）。
 - `TUI/docs/SPEC.md` — 渲染管线规格；`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` — 命令清单与扩展规格。
 - `TUI/docs/design/` — TUI 内部规范：`NOTICE-LEVELS.md`（提示分级）、`AUDIT-colors.md`（配色语义）、`REFACTOR.md`（模块拆分约定）。
-- `<模块>/docs/BACKLOG.md` — 模块待办（`TUI/docs/BACKLOG.md`、`fs-digest/docs/BACKLOG.md` 已建，其余按需）；`<模块>/docs/STATUS.md` — 模块级对照文档（TUI 已有）。
+- `<模块>/docs/BACKLOG.md` — 模块待办（`TUI/docs/BACKLOG.md`、`fs-digest/docs/BACKLOG.md`、`session-channel/docs/BACKLOG.md`、`symbol-normalizer/docs/BACKLOG.md` 已建，其余按需）；`<模块>/docs/STATUS.md` — 模块级对照文档（TUI 已有）。
 
 **协作与历史**
 
