@@ -83,4 +83,9 @@
 
 ## 收尾
 
-（待补）
+- 状态：**完成**（条目 `docs/BACKLOG.md` #56 已从 §2 移除并记入 §1 索引）。
+- 回写：根 `README.md` 插件表（本次实现提交内）；`session-title-cutoff/README.md` 为本包契约
+  来源；`profiles/example/cordis.patch.yml` 注释给出两种 provider 的二选一示例。
+- 代码提交：`f6e1dcd`（实现 + 脚本 + 测试 + 本文档）；本文档随收尾提交移入 `docs/archived/`。
+- 遗留与边界：进程重启后首个标题触发若查不到提交（`sessionQuery` 不可用）则按「无提交」回退
+  全量；`gh pr merge` 等其它提交动作暂不纳入；不处理 compaction 与 cutoff 的耦合。
