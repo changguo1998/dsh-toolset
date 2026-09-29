@@ -28,6 +28,19 @@ interface ServiceFace {
     from?: string;
     waitMs?: number;
   }): Promise<Record<string, unknown>>;
+  aliasSet(
+    alias: string,
+    sessionId: string,
+    opts?: { force?: boolean },
+  ): Promise<{ ok: boolean }>;
+  aliasList(): Promise<{
+    ok: boolean;
+    aliases?: { alias: string; sessionId: string; online: boolean }[];
+  }>;
+  aliasClear(opts: {
+    alias?: string;
+    sessionId?: string;
+  }): Promise<{ ok: boolean; cleared?: string[] }>;
   status(): { connected: boolean; sessions: string[] };
 }
 
@@ -75,6 +88,16 @@ redisTest(
         return res.peers?.some((p) => p.sessionId === "sess-x") === true;
       });
       const face = provided.get("sessionChannel") as ServiceFace;
+      // 回归（TUI#48）：别名方法必须在服务面上，否则消费方（TUI 状态栏）调用即抛错
+      for (const method of ["aliasSet", "aliasList", "aliasClear"] as const) {
+        assert.equal(
+          typeof (face as unknown as Record<string, unknown>)[method],
+          "function",
+          `服务面应暴露 ${method}`,
+        );
+      }
+      const aliases = await face.aliasList();
+      assert.equal(aliases.ok, true, "aliasList 经服务面可用");
       const peers = await face.peers();
       assert.deepEqual(
         peers.peers?.map((p) => p.sessionId),

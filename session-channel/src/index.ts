@@ -706,6 +706,12 @@ export function apply(
       send: (req: SendRequest) => service.send(req),
       inbox: (sessionId: string, count?: number) =>
         service.inbox(sessionId, count),
+      // 别名三件套：TUI 状态栏（TUI#48）等消费方经此只读/管理别名
+      aliasSet: (alias: string, sessionId: string, opts?: { force?: boolean }) =>
+        service.aliasSet(alias, sessionId, opts),
+      aliasList: () => service.aliasList(),
+      aliasClear: (opts: { alias?: string; sessionId?: string }) =>
+        service.aliasClear(opts),
       status: () => service.status(),
     });
   }
