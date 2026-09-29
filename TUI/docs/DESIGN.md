@@ -251,6 +251,19 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 
 终端 raw mode 开/关与终端恢复由 `renderer/terminal.ts` 负责，对所有退出路径生效（正常 `close()`、SIGINT / SIGTERM、`uncaughtException` / `unhandledRejection`）；进程退出生命周期归 renderer 拥有，app 只在 renderer 分发的事件里做自己的清理。按键层面 `Esc` 与单次 `Ctrl+C` 不触发退出（避免误触丢会话）；退出路径为 `/quit`、`Ctrl+D`（agent 空闲且输入区为空）与 750ms 内双击 `Ctrl+C`。`Ctrl+D` 与双击 `Ctrl+C` **不直接退出**，先弹**退出确认面板**（复用问答面板机制的合成面板，id `exit-confirm`）——默认高亮「取消/留在 TUI」，Esc 取消、Enter 确认高亮项，仅确认「退出 dsh」才走 `dispose()`；合成面板不触达 adapter 的 `answerQuestion` / `cancelQuestion`。该面板防「单字节误触/注入」直接结束会话（BACKLOG「tmux 断连后 dsh 退出」：终端/复用器注入的单个 `0x04` 不再致退）；`/quit` 为显式输入，保持直接退出。
 
+### 退出确认 ·「重启」可行性（2026-09-29 调研，BACKLOG「退出确认增加『重启』选项（仅探讨可行性）」）
+
+- **结论**：可行，推荐 tmux 场景先行；无宿主「重启」原语，须由 CLI `--resume` + 进程 / 窗格替换组合实现。本次只出结论，实现另立条目（TUI `BACKLOG.md`）。
+- **依据**：
+  1. CLI：`dsh` 启动器把 app 参数透传（官方示例 `dsh tui --resume <session>`）；TUI 自 TUI#40 起支持 `--resume` / `-c` 启动即恢复（`state.ts` 的启动恢复路径 `history-resume-*`）。
+  1. 信息可得：adapter 持有活跃会话 id（`dsh.ts` 的 `activeSessionId`），`process.argv` 可重建「同 profile + 同会话」命令行。
+  1. 恢复语义：退出前的会话落盘由现有 `dispose()` 收尾链路保证；重启应在 flush 完成后启动新进程 / 窗格。
+- **实现路线**：
+  - **A（推荐）tmux 优先**：`$TMUX` 存在时 `tmux respawn-pane -k -t <pane> <同 profile + --resume 命令>` 原地重启 —— 无 TTY 交接与孤儿进程问题；失败则回退到界面提示（不退出）。
+  - **B（通用 spawn）**：`spawn(process.argv[0], [...原参数, "--resume", id], { detached: true, stdio: "inherit" })` 后延迟退出；需处理 TTY 交接、子进程与父进程的会话打开竞争、失败回退，复杂度与风险明显更高。
+- **交互**：退出确认面板加第三项「重启 dsh（保留会话）」；默认仍高亮「取消」，沿用现有合成面板语义（回车确认高亮项，不做二次确认——原「退出 dsh」亦无）。多实例互不影响（respawn 仅当前窗格；spawn 各自独立）。
+- **边界**：非 tmux 且非 TTY 环境不提供重启；未提交输入按既有退出语义丢弃；重启后仅会话内容保留，滚动缓冲 / 输入历史不保留。
+
 ## 规划与边界
 
 - **待做**：
