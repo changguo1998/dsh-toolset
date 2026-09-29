@@ -56,6 +56,7 @@ import {
   type GoalContractServiceLike,
   type WorkflowEngineLike,
   type WebSearchLike,
+  type SessionChannelLike,
   type SymbolNormalizerLike,
 } from "./app/adapter/dsh.ts";
 
@@ -74,6 +75,8 @@ export function main(opts: {
   statusQueries?: StatusQueries;
   /** 符号服务读取器（懒读，容忍插件装载顺序；symbol-normalizer 未挂载时返回 undefined） */
   getSymbols?: () => SymbolNormalizerLike | undefined;
+  /** 会话通道读取器（懒读；session-channel 未挂载时返回 undefined → 状态栏不显示别名段，TUI#48） */
+  getSessionChannel?: () => SessionChannelLike | undefined;
   /** 启动自检 kickoff 正文（门控通过时传入，App 代替用户发出以完成锚定解锁）；
    *  不传 = 不发送（非 deepseek 模型 / toolBootstrap 关闭 / 会话已解锁 / 记录不可读） */
   bootstrapKickoffText?: string;
@@ -97,6 +100,8 @@ export function main(opts: {
     // 自动清理空会话：缺省开启（未配置 session.autoCleanEmpty → true）；显式 false 关闭
     autoCleanEmpty: tuiConfig.session?.autoCleanEmpty ?? true,
     getSymbols: opts.getSymbols,
+    getSessionChannel: opts.getSessionChannel,
+    logger: opts.logger,
     // 跨回合帧率上限：真实接线压到 10Hz（窗口内跨宏任务标脏合并到窗口末统一出帧），
     // 防事件洪峰时每回合全量排版过热；测试/演示不传（缺省 0=立即出帧）
     frameIntervalMs: 100,
@@ -547,6 +552,12 @@ export async function apply(
     (ctx as { get?: (name: string) => unknown }).get?.("symbolNormalizer") as
       SymbolNormalizerLike | undefined;
 
+  // 会话通道服务（ctx.get('sessionChannel')，session-channel 插件 provide）：
+  // 同上，懒读以容忍插件装载顺序；未挂载时状态栏不显示别名段（BACKLOG TUI#48）
+  const getSessionChannel = (): SessionChannelLike | undefined =>
+    (ctx as { get?: (name: string) => unknown }).get?.("sessionChannel") as
+      SessionChannelLike | undefined;
+
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）
   const display = normalizeTuiDisplayConfig(config);
   // 启动自检门控（BACKLOG TUI「启动后自动触发首轮工具调用」）：开关未关 + 模型命中
@@ -568,6 +579,7 @@ export async function apply(
     logger: (msg) => process.stderr.write("[tui] " + msg + "\n"),
     messageGutter: display.messageGutter,
     getSymbols: getSymbolNormalizer,
+    getSessionChannel,
   });
   // Cordis 插件生命周期：pause/unload 时释放 App/adapter——
   // adapter.dispose 释放当前活跃 handle（含 resume 后由 adapter 持有的新 handle）。

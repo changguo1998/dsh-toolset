@@ -175,6 +175,8 @@ export interface SystemStatus {
   modelThinking?: string;
   contextLen: string;
   cacheHit: string;
+  /** 会话别名（session-channel 插件的 `alias`；缺省不显示。TUI#48） */
+  alias?: string;
 }
 
 /** turn 分隔线（横线占位；实际宽度由历史区换行决定） */

@@ -23,6 +23,7 @@ import {
   markableSessionIds,
   recentQuestionSource,
   reduceState,
+  setSystemStatus,
   startupCleanableIds,
 } from "./state.ts";
 import type {
@@ -33,6 +34,7 @@ import type {
   ModelReasoning,
   HistoryMessage,
   SessionInfo,
+  SessionChannelLike,
   SessionSurfaceView,
   SymbolNormalizerLike,
 } from "./adapter/dsh.ts";
@@ -272,6 +274,11 @@ export interface AppDeps {
   /** 符号服务读取器（懒读，容忍插件装载顺序）：返回 undefined = symbol-normalizer 未挂载，
    *  此时展示层原文透传、无 notice（BACKLOG TUI#18 / 项目级 #48） */
   getSymbols?: () => SymbolNormalizerLike | undefined;
+  /** 会话通道读取器（懒读）：返回 undefined = session-channel 未挂载，状态栏不显示别名段
+   *  （BACKLOG TUI#48） */
+  getSessionChannel?: () => SessionChannelLike | undefined;
+  /** 运行期告警出口（缺省静默；真实接线由 main.ts 写 stderr，格式 `warn: …`） */
+  logger?: (message: string) => void;
   /** 启动自检 kickoff 正文（门控通过时由 main.ts 传入；App 代替用户发出以完成锚定解锁）。
    *  不传 / adapter 未实现 sendBootstrapKickoff = 不发送 */
   bootstrapKickoffText?: string;
@@ -310,6 +317,10 @@ export class App {
   /** 窗口末出帧定时器（帧率上限用） */
   private frameTimer: ReturnType<typeof setTimeout> | null = null;
   private statusTicker: StatusTicker | null = null;
+  /** 已渲染的会话别名（TUI#48：值变化才重绘；undefined = 不显示别名段） */
+  private aliasCache: string | undefined;
+  /** 别名读取失败是否已告警（每进程一次，避免刷屏） */
+  private aliasWarned = false;
   /** 运行中闪烁时间驱动定时器（running 期间周期性发 virt-tick：无数据时虚拟速度
    *  衰减回落、虚拟总 token 持续积分——闪烁频率渐降到最低而不断） */
   private virtTimer: ReturnType<typeof setInterval> | null = null;
@@ -489,6 +500,8 @@ export class App {
           this.refreshModelStatus();
           // TUI#39：Agents 块同节律保鲜（无数据 / 状态列隐藏时自动停）
           this.maybeRefreshAgents();
+          // TUI#48：会话别名同节律保鲜（无插件 / 无别名时不动状态）
+          void this.maybeRefreshSessionAlias();
         },
       });
       this.statusTicker.start();
@@ -1034,6 +1047,46 @@ export class App {
    * 空闲停止：状态列被 Ctrl+S 隐藏、或该会话尚无子代理数据（块整块省略）时不轮询——
    * 首个 `subagent/start` 事件会经 `subagent-activity` 即时补一次并让块出现，轮询随之上线。
    */
+  /** 会话别名保鲜（TUI#48）：懒读 session-channel 别名清单，值变化才重绘。
+   *  插件未挂载 / 未设别名 / 读取失败 → 静默跳过（状态栏增强项，不影响主流程）。 */
+  private async maybeRefreshSessionAlias(): Promise<void> {
+    const get = this.deps.getSessionChannel;
+    if (get === undefined) return;
+    const sessionId =
+      this.state.activeSessionId ?? this.deps.adapter.sessionId ?? "";
+    if (sessionId === "") return;
+    try {
+      const service = get();
+      if (service === undefined) return;
+      const result = await service.aliasList();
+      if (!result.ok) {
+        // 增强项失败不阻塞主流程，但首故障要留痕（每进程一次）
+        if (!this.aliasWarned) {
+          this.aliasWarned = true;
+          this.deps.logger?.(
+            `warn: 会话别名读取失败（状态栏不显示别名段）：${result.error ?? "未知原因"}`,
+          );
+        }
+        return;
+      }
+      const alias = result.aliases?.find(
+        (entry: { sessionId: string; alias: string }) =>
+          entry.sessionId === sessionId,
+      )?.alias;
+      if (alias === this.aliasCache) return;
+      this.aliasCache = alias;
+      this.apply((s) =>
+        setSystemStatus(s, alias === undefined ? {} : { alias }),
+      );
+      this.paint();
+    } catch (err) {
+      if (!this.aliasWarned) {
+        this.aliasWarned = true;
+        this.deps.logger?.(`warn: 会话别名刷新异常：${String(err)}`);
+      }
+    }
+  }
+
   private maybeRefreshAgents(): void {
     if (this.disposed) return;
     if (!this.state.statusColumnVisible) return;

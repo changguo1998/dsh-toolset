@@ -1322,6 +1322,17 @@ export interface SymbolNormalizerLike {
   ): () => void;
 }
 
+/** ctx.get('sessionChannel') 只读面（session-channel 插件 provide；缺失或未设别名时
+ *  状态栏不显示别名段，见 BACKLOG TUI#48）。消费侧懒读，容忍插件装载顺序。 */
+export interface SessionChannelLike {
+  /** 别名清单（含在线标记）；插件未连接等失败情形返回 `{ ok: false, error }`。 */
+  aliasList(): Promise<{
+    ok: boolean;
+    aliases?: Array<{ alias: string; sessionId: string; online: boolean }>;
+    error?: string;
+  }>;
+}
+
 /** tool-workflow 运行视图（/workflows 只读面板行数据源；runId 分组，增量事件维护） */
 export interface WorkflowRunLike {
   /** tool-workflow run id */

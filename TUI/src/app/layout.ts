@@ -2020,10 +2020,16 @@ export function renderStatusLine(
   const maxSegW = Math.max(1, cols - 2); // 留首尾各 1 列
   // 段配色：time 默认 / git 洋红 / cwd 蓝 / title 青 / provider 紫 / model 青
   //          / 后缀 正常前景 / ctx 蓝 / cache 默认
+  // 会话别名段（TUI#48）：仅在 session-channel 已设别名时出现，`@<别名>` 以示区别
+  const aliasSeg: FrameSegment[][] =
+    status.alias === undefined || status.alias === ""
+      ? []
+      : [[{ text: `@${status.alias}`, style: { fg: "cyan" } }]];
   const envFull: FrameSegment[][] = [
     [{ text: status.time }],
     [{ text: status.git, style: { fg: "magenta" } }],
     [{ text: status.cwd, style: { fg: "blue" } }],
+    ...aliasSeg,
   ];
   const llmFull: FrameSegment[][] = [
     [...colorModel(modelSeg)],
@@ -2033,14 +2039,19 @@ export function renderStatusLine(
   // 各组超宽兜底（单组放不满一行时组内压缩）
   const envFit = (w: number): FrameSegment[][] => {
     const gitS = fitGit(status.git, GIT_FIT_WIDTH);
+    const aliasW =
+      status.alias === undefined || status.alias === ""
+        ? 0
+        : displayWidth(`@${status.alias}`) + 3; // 段间 `•` 与留白
     const budget = Math.max(
       1,
-      w - displayWidth(status.time) - displayWidth(gitS) - 2 - 1,
+      w - displayWidth(status.time) - displayWidth(gitS) - 2 - 1 - aliasW,
     );
     return [
       [{ text: status.time }],
       [{ text: gitS, style: { fg: "magenta" } }],
       [{ text: fitTail(status.cwd, budget), style: { fg: "blue" } }],
+      ...aliasSeg,
     ];
   };
   const llmFit = (w: number): FrameSegment[][] => {
