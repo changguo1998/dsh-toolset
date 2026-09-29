@@ -42,6 +42,30 @@ export const ALIAS_PATTERN = `${KEY_PREFIX}alias:*`;
 /** 别名合法字符集：1-32 位 `[A-Za-z0-9_-]`（避开终端宽度与寻址前缀歧义）。 */
 export const ALIAS_RE = /^[A-Za-z0-9_-]{1,32}$/;
 
+/** 共享 KV：payload 键（值 = JSON `{value, version, updatedAt}`）。 */
+export function kvKey(key: string): string {
+  return `${KEY_PREFIX}kv:${key}`;
+}
+
+/** 共享 KV：版本键（`INCR` 单调计数；独立命名空间，避免被 `kv:*` 扫描命中）。 */
+export function kvVersionKey(key: string): string {
+  return `${KEY_PREFIX}kvver:${key}`;
+}
+
+/** 共享 KV 键扫描模式（`listKv` 用）。 */
+export const KV_PATTERN = `${KEY_PREFIX}kv:*`;
+
+/** 共享 KV 键合法字符集：1-64 位 `[A-Za-z0-9_.-]`（避开 `:` 与通配符歧义）。 */
+export const KV_KEY_RE = /^[A-Za-z0-9_.-]{1,64}$/;
+
+/** 从 Redis 键反解共享 KV 键名（非本前缀 → undefined）。 */
+export function kvKeyFromRedisKey(redisKey: string): string | undefined {
+  const prefix = `${KEY_PREFIX}kv:`;
+  return redisKey.startsWith(prefix)
+    ? redisKey.slice(prefix.length)
+    : undefined;
+}
+
 /** 投递游标键：值 = JSON `{id, ts}`，**无 TTL**（接收方重启后从游标续读，避免重复注入）。 */
 export function cursorKey(sessionId: string): string {
   return `${KEY_PREFIX}cursor:${sessionId}`;

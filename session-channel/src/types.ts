@@ -88,7 +88,55 @@ export type SessionChannelErrorCode =
   | "schema_mismatch"
   | "text_too_large"
   | "target_offline"
-  | "target_ambiguous";
+  | "target_ambiguous"
+  | "kv_key_invalid"
+  | "kv_value_invalid"
+  | "kv_value_too_large"
+  | "kv_conflict";
+
+/** 共享 KV 条目（last-value + 单调版本号，跨会话 / 跨进程共见）。 */
+export interface KvEntry {
+  /** KV 键名（`[A-Za-z0-9_.-]{1,64}`）。 */
+  key: string;
+  /** 任意 JSON 可序列化值。 */
+  value: unknown;
+  /** 单调递增版本号（每次成功写入 +1；键删除后从 1 重新计）。 */
+  version: number;
+  /** 最近写入时刻（epoch ms）。 */
+  updatedAt: number;
+}
+
+/** 共享 KV 写入选项。 */
+export interface KvPutOptions {
+  /** 期望的当前版本（提供时做 CAS：不匹配 → `kv_conflict`）。 */
+  expectedVersion?: number;
+  /** > 0 时设置过期秒数（缺省不过期）。 */
+  ttlSec?: number;
+  /** 值字节上限（UTF-8，缺省 8192，取自插件配置 `maxTextBytes`）。 */
+  maxBytes?: number;
+}
+
+/** 共享 KV 写入结果。 */
+export interface KvSetResult {
+  ok: boolean;
+  /** 成功时的条目快照。 */
+  entry?: KvEntry;
+  /** 版本冲突时的当前值（供调用方合并后重试）。 */
+  current?: KvEntry;
+  /** 失败原因（ok=false；稳定码，见 `SessionChannelErrorCode` 的 `kv_*`）。 */
+  error?: string;
+  /** 人类可读说明（ok=false）。 */
+  message?: string;
+}
+
+/** 共享 KV 删除结果。 */
+export interface KvDeleteResult {
+  ok: boolean;
+  /** 是否确实删除了已有键（false = 键本就不存在）。 */
+  deleted?: boolean;
+  error?: string;
+  message?: string;
+}
 
 /** 结构化错误。 */
 export class SessionChannelError extends Error {

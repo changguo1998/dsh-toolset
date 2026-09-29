@@ -36,8 +36,13 @@ import {
   clearAliasesOf,
   cleanupCursors,
   clearPresence,
+  deleteKv,
+  getKv,
+  kvKeyError,
+  listKv,
   listPeers,
   listAliases,
+  putKv,
   readCursor,
   readInbox,
   readNew,
@@ -53,6 +58,10 @@ import {
 } from "./inject.ts";
 import type {
   InboxMessage,
+  KvDeleteResult,
+  KvEntry,
+  KvPutOptions,
+  KvSetResult,
   SessionChannelConfig,
   PeerInfo,
   SendRequest,
@@ -393,6 +402,69 @@ export class SessionChannelService {
     return { ...this.#status, sessions: [...this.#sessions.keys()] };
   }
 
+  /** 共享 KV 写入（last-value + 版本号；`expectedVersion` 做 CAS，BACKLOG #55）。 */
+  async kvSet(
+    key: string,
+    value: unknown,
+    opts: KvPutOptions = {},
+  ): Promise<KvSetResult> {
+    const conn = this.#requireConnection();
+    if (typeof conn === "string") return { ok: false, error: conn };
+    try {
+      return await putKv(conn.main, key, value, {
+        ...opts,
+        maxBytes: this.#config.maxTextBytes ?? DEFAULT_MAX_TEXT_BYTES,
+      });
+    } catch (err) {
+      return { ok: false, error: describe(err) };
+    }
+  }
+
+  /** 共享 KV 读单键（不存在 → `{ok:true}` 且 `entry` 缺省）。 */
+  async kvGet(key: string): Promise<{
+    ok: boolean;
+    entry?: KvEntry;
+    error?: string;
+    message?: string;
+  }> {
+    const conn = this.#requireConnection();
+    if (typeof conn === "string") return { ok: false, error: conn };
+    const keyError = kvKeyError(key);
+    if (keyError !== undefined)
+      return { ok: false, error: "kv_key_invalid", message: keyError };
+    try {
+      return { ok: true, entry: await getKv(conn.main, key) };
+    } catch (err) {
+      return { ok: false, error: describe(err) };
+    }
+  }
+
+  /** 共享 KV 列全量（按键名排序）。 */
+  async kvList(): Promise<{
+    ok: boolean;
+    entries?: KvEntry[];
+    error?: string;
+  }> {
+    const conn = this.#requireConnection();
+    if (typeof conn === "string") return { ok: false, error: conn };
+    try {
+      return { ok: true, entries: await listKv(conn.main) };
+    } catch (err) {
+      return { ok: false, error: describe(err) };
+    }
+  }
+
+  /** 共享 KV 删除（payload + 版本键）。 */
+  async kvDelete(key: string): Promise<KvDeleteResult> {
+    const conn = this.#requireConnection();
+    if (typeof conn === "string") return { ok: false, error: conn };
+    try {
+      return await deleteKv(conn.main, key);
+    } catch (err) {
+      return { ok: false, error: describe(err) };
+    }
+  }
+
   /** 心跳：刷新本进程所有已知会话的在线键。 */
   async #heartbeat(): Promise<void> {
     for (const sessionId of this.#sessions.keys())
@@ -685,6 +757,10 @@ export const SERVICE_FACE_METHODS = [
   "aliasSet",
   "aliasList",
   "aliasClear",
+  "kvSet",
+  "kvGet",
+  "kvList",
+  "kvDelete",
   "status",
 ] as const;
 
@@ -727,6 +803,12 @@ export function apply(
       aliasList: () => service.aliasList(),
       aliasClear: (opts: { alias?: string; sessionId?: string }) =>
         service.aliasClear(opts),
+      // 共享 KV（BACKLOG #55）：插件状态同步用；读写面与类方法一一对应（D5 守卫）
+      kvSet: (key: string, value: unknown, opts?: KvPutOptions) =>
+        service.kvSet(key, value, opts),
+      kvGet: (key: string) => service.kvGet(key),
+      kvList: () => service.kvList(),
+      kvDelete: (key: string) => service.kvDelete(key),
       status: () => service.status(),
     });
   }

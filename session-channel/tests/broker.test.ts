@@ -8,11 +8,15 @@ import {
   ackMessage,
   announcePresence,
   cwdOf,
+  deleteKv,
+  getKv,
   isProcessAlive,
+  listKv,
   listPeers,
   normalizeDir,
   parsePeer,
   cleanupCursors,
+  putKv,
   readCursor,
   readInbox,
   readNew,
@@ -26,7 +30,13 @@ import {
   connectSessionChannel,
   type SessionChannelConnection,
 } from "../src/client.ts";
-import { ackKey, aliveKey, cursorKey, inboxKey } from "../src/keys.ts";
+import {
+  ackKey,
+  aliveKey,
+  cursorKey,
+  inboxKey,
+  kvVersionKey,
+} from "../src/keys.ts";
 import { SessionChannelError, type PeerInfo } from "../src/types.ts";
 import { redisTest, startTempRedis, sleep } from "./helpers.ts";
 
@@ -251,3 +261,89 @@ redisTest(
     });
   },
 );
+
+redisTest("共享 KV：写入/读取/版本自增/CAS 冲突（#55）", async () => {
+  await withConnection(async (conn) => {
+    assert.equal(
+      await getKv(conn.main, "nope"),
+      undefined,
+      "未写入 → undefined",
+    );
+    const first = await putKv(conn.main, "app.state", { step: 1 });
+    assert.equal(first.ok, true);
+    assert.equal(first.entry?.version, 1);
+    assert.equal(first.entry?.key, "app.state");
+    assert.deepEqual(await getKv(conn.main, "app.state"), first.entry);
+    // last-value：后写覆盖 + 版本自增
+    const second = await putKv(conn.main, "app.state", { step: 2 });
+    assert.equal(second.entry?.version, 2);
+    assert.deepEqual(
+      (await getKv(conn.main, "app.state"))?.value,
+      { step: 2 },
+      "last-value 语义",
+    );
+    // CAS：期望版本不匹配 → kv_conflict 且带当前值
+    const conflict = await putKv(
+      conn.main,
+      "app.state",
+      { step: 3 },
+      {
+        expectedVersion: 1,
+      },
+    );
+    assert.equal(conflict.ok, false);
+    assert.equal(conflict.error, "kv_conflict");
+    assert.equal(conflict.current?.version, 2);
+    // CAS：匹配 → 成功
+    const cas = await putKv(
+      conn.main,
+      "app.state",
+      { step: 3 },
+      {
+        expectedVersion: 2,
+      },
+    );
+    assert.equal(cas.ok, true);
+    assert.equal(cas.entry?.version, 3);
+    // 版本键独立命名空间：listKv 不会把版本键当条目
+    assert.equal(await conn.main.exists(kvVersionKey("app.state")), 1);
+    const list = await listKv(conn.main);
+    assert.deepEqual(
+      list.map((e) => e.key),
+      ["app.state"],
+      "版本键不混入列表",
+    );
+  });
+});
+
+redisTest("共享 KV：校验与 TTL、删除（#55）", async () => {
+  await withConnection(async (conn) => {
+    const badKey = await putKv(conn.main, "bad key!", 1);
+    assert.equal(badKey.error, "kv_key_invalid");
+    const badValue = await putKv(conn.main, "k1", undefined);
+    assert.equal(badValue.error, "kv_value_invalid");
+    const cyclic: Record<string, unknown> = {};
+    cyclic["self"] = cyclic;
+    assert.equal(
+      (await putKv(conn.main, "k1", cyclic)).error,
+      "kv_value_invalid",
+    );
+    const big = await putKv(conn.main, "k1", "x".repeat(64), { maxBytes: 8 });
+    assert.equal(big.error, "kv_value_too_large");
+    // TTL：>0 时写入过期
+    const ttl = await putKv(conn.main, "ttl.key", 1, { ttlSec: 60 });
+    assert.equal(ttl.ok, true);
+    assert.ok((await conn.main.ttl("dsh:session-channel:kv:ttl.key")) > 0);
+    // 删除：payload 与版本键一并清理
+    const deleted = await deleteKv(conn.main, "ttl.key");
+    assert.equal(deleted.ok, true);
+    assert.equal(deleted.deleted, true);
+    assert.equal(await getKv(conn.main, "ttl.key"), undefined);
+    assert.equal(await conn.main.exists(kvVersionKey("ttl.key")), 0);
+    assert.equal((await deleteKv(conn.main, "ttl.key")).deleted, false);
+    assert.equal(
+      (await deleteKv(conn.main, "bad key!")).error,
+      "kv_key_invalid",
+    );
+  });
+});

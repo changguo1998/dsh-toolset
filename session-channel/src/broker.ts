@@ -23,11 +23,20 @@ import {
   CURSOR_PATTERN,
   cursorKey,
   inboxKey,
+  KV_KEY_RE,
+  KV_PATTERN,
+  kvKey,
+  kvKeyFromRedisKey,
+  kvVersionKey,
   sessionIdFromAliveKey,
 } from "./keys.ts";
 import {
   SessionChannelError,
   type InboxMessage,
+  type KvDeleteResult,
+  type KvEntry,
+  type KvPutOptions,
+  type KvSetResult,
   type PeerInfo,
   type SendRequest,
   type SendResult,
@@ -183,6 +192,162 @@ export async function clearAliasesOf(
     .map((a) => a.alias);
   for (const alias of own) await client.del(aliasKey(alias));
   return own;
+}
+
+// ---------------------------------------------------------------------------
+// 共享 KV（last-value + 单调版本号；跨会话 / 跨进程共见，BACKLOG #55）
+// ---------------------------------------------------------------------------
+
+/**
+ * 写入脚本：单条 EVAL 内完成「读旧版本 → CAS 校验 → INCR 版本 → SET payload」。
+ * KEYS = [payload, version]；ARGV = [expectedVersion（空串 = 不做 CAS）, valueJson, updatedAt, ttlSec（0 = 不过期）]。
+ * 返回 `{'ok', payloadJson}` 或 `{'conflict', 旧 payload}`。
+ */
+const KV_PUT_SCRIPT = `
+local cur = redis.call('GET', KEYS[1])
+local curVer = 0
+if cur then
+  local ok, data = pcall(cjson.decode, cur)
+  if ok and type(data) == 'table' then curVer = tonumber(data['version']) or 0 end
+end
+if ARGV[1] ~= '' and tonumber(ARGV[1]) ~= curVer then
+  return {'conflict', cur or ''}
+end
+local nextVer = redis.call('INCR', KEYS[2])
+local record = { value = cjson.decode(ARGV[2]), version = nextVer, updatedAt = tonumber(ARGV[3]) }
+local encoded = cjson.encode(record)
+local ttl = tonumber(ARGV[4])
+if ttl and ttl > 0 then
+  redis.call('SET', KEYS[1], encoded, 'EX', ttl)
+else
+  redis.call('SET', KEYS[1], encoded)
+end
+return {'ok', encoded}
+`;
+
+/** 校验共享 KV 键；非法 → 错误文案（undefined = 合法）。 */
+export function kvKeyError(key: string): string | undefined {
+  return KV_KEY_RE.test(key)
+    ? undefined
+    : `KV 键须为 1-64 位 [A-Za-z0-9_.-]：${key}`;
+}
+
+/** 解析 KV payload（形状不符 / 解析失败 → undefined）。 */
+function parseKvEntry(key: string, raw: string): KvEntry | undefined {
+  if (raw === "") return undefined;
+  try {
+    const data = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof data["version"] !== "number") return undefined;
+    return {
+      key,
+      value: data["value"],
+      version: data["version"],
+      updatedAt: typeof data["updatedAt"] === "number" ? data["updatedAt"] : 0,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 共享 KV 写入（last-value；`expectedVersion` 提供时做 CAS）。
+ * 键 / 值 / 冲突校验失败返回结果对象（稳定码），不抛错；Redis 故障仍抛错，由上层兜底。
+ */
+export async function putKv(
+  client: RedisClientType,
+  key: string,
+  value: unknown,
+  opts: KvPutOptions = {},
+): Promise<KvSetResult> {
+  const keyError = kvKeyError(key);
+  if (keyError !== undefined)
+    return { ok: false, error: "kv_key_invalid", message: keyError };
+  let valueJson: string;
+  try {
+    const encoded = JSON.stringify(value);
+    if (encoded === undefined)
+      return {
+        ok: false,
+        error: "kv_value_invalid",
+        message: "值不可 JSON 序列化（undefined / 函数 / Symbol）",
+      };
+    valueJson = encoded;
+  } catch {
+    return {
+      ok: false,
+      error: "kv_value_invalid",
+      message: "值不可 JSON 序列化（循环引用等）",
+    };
+  }
+  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_TEXT_BYTES;
+  if (Buffer.byteLength(valueJson, "utf8") > maxBytes)
+    return {
+      ok: false,
+      error: "kv_value_too_large",
+      message: `值超过上限（${maxBytes} 字节）`,
+    };
+  const reply = (await client.eval(KV_PUT_SCRIPT, {
+    keys: [kvKey(key), kvVersionKey(key)],
+    arguments: [
+      opts.expectedVersion === undefined ? "" : String(opts.expectedVersion),
+      valueJson,
+      String(Date.now()),
+      String(opts.ttlSec ?? 0),
+    ],
+  })) as unknown[];
+  const tag = String(reply[0] ?? "");
+  const payload = typeof reply[1] === "string" ? reply[1] : "";
+  if (tag === "conflict") {
+    const current = parseKvEntry(key, payload);
+    return {
+      ok: false,
+      error: "kv_conflict",
+      message: "版本不匹配（CAS 失败）",
+      ...(current === undefined ? {} : { current }),
+    };
+  }
+  const entry = parseKvEntry(key, payload);
+  return entry === undefined
+    ? { ok: false, error: "kv_value_invalid", message: "写入后回读失败" }
+    : { ok: true, entry };
+}
+
+/** 读共享 KV（不存在 / 键非法 / 形状不符 → undefined）。 */
+export async function getKv(
+  client: RedisClientType,
+  key: string,
+): Promise<KvEntry | undefined> {
+  if (kvKeyError(key) !== undefined) return undefined;
+  const raw = await client.get(kvKey(key));
+  return raw === null ? undefined : parseKvEntry(key, raw);
+}
+
+/** 列共享 KV（按键名排序；形状不符的条目跳过）。 */
+export async function listKv(client: RedisClientType): Promise<KvEntry[]> {
+  const out: KvEntry[] = [];
+  for await (const keys of client.scanIterator({ MATCH: KV_PATTERN })) {
+    for (const redisKey of keys as unknown as string[]) {
+      const key = kvKeyFromRedisKey(redisKey);
+      if (key === undefined || key === "") continue;
+      const raw = await client.get(redisKey);
+      if (raw === null) continue;
+      const entry = parseKvEntry(key, raw);
+      if (entry !== undefined) out.push(entry);
+    }
+  }
+  return out.sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/** 删共享 KV（payload + 版本键）；返回是否删除了已有 payload。 */
+export async function deleteKv(
+  client: RedisClientType,
+  key: string,
+): Promise<KvDeleteResult> {
+  const keyError = kvKeyError(key);
+  if (keyError !== undefined)
+    return { ok: false, error: "kv_key_invalid", message: keyError };
+  const deleted = await client.del([kvKey(key), kvVersionKey(key)]);
+  return { ok: true, deleted: deleted > 0 };
 }
 
 /**

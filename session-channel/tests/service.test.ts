@@ -239,3 +239,61 @@ redisTest("键前缀完整（sanity）：在线键可被 listPeers 命中", asyn
     await redis.stop();
   }
 });
+
+redisTest("#55 共享 KV：A 写 B 读（跨实例/跨会话）、CAS 与删除", async () => {
+  const redis = await startTempRedis();
+  const hostA = makeFakeHost();
+  const hostB = makeFakeHost();
+  const a = new SessionChannelService(
+    { url: redis.socketPath, heartbeatMs: 200, presenceTtlSec: 4 },
+    hostA.host,
+  );
+  const b = new SessionChannelService(
+    { url: redis.socketPath, heartbeatMs: 200, presenceTtlSec: 4 },
+    hostB.host,
+  );
+  try {
+    await a.start();
+    await b.start();
+    const set = await a.kvSet("sync.token", { n: 1 });
+    assert.equal(set.ok, true, JSON.stringify(set));
+    assert.equal(set.entry?.version, 1, "首个版本为 1");
+    // 跨实例（= 跨 dsh 进程 / 跨会话）可见
+    const read = await b.kvGet("sync.token");
+    assert.equal(read.ok, true);
+    assert.deepEqual(read.entry?.value, { n: 1 });
+    // 过期版本写 → 冲突并回带当前值；按当前版本重试 → 成功且版本 +1
+    const conflict = await b.kvSet(
+      "sync.token",
+      { n: 2 },
+      { expectedVersion: 0 },
+    );
+    assert.equal(conflict.error, "kv_conflict");
+    assert.equal(conflict.current?.version, 1);
+    const retry = await b.kvSet(
+      "sync.token",
+      { n: 2 },
+      {
+        expectedVersion: conflict.current?.version,
+      },
+    );
+    assert.equal(retry.ok, true);
+    assert.equal(retry.entry?.version, 2);
+    // 列表与键校验
+    const listed = await a.kvList();
+    assert.deepEqual(
+      listed.entries?.map((e) => e.key),
+      ["sync.token"],
+    );
+    const bad = await a.kvGet("bad key!");
+    assert.equal(bad.error, "kv_key_invalid");
+    // 删除后两侧都读不到
+    assert.equal((await a.kvDelete("sync.token")).deleted, true);
+    assert.equal(await b.kvGet("sync.token").then((r) => r.entry), undefined);
+    assert.equal((await b.kvList()).entries?.length, 0);
+  } finally {
+    await a.stop();
+    await b.stop();
+    await redis.stop();
+  }
+});

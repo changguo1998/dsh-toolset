@@ -27,6 +27,8 @@ dsh:session-channel:alive:<sessionId>   String  PeerInfo JSON：sessionId/pid/in
 dsh:session-channel:alias:<alias>        String  sessionId（**无 TTL**：用户意图，不随会话离线过期）
 dsh:session-channel:cursor:<sessionId>  String  {"id":"<最后成功注入的流条目 id>","ts":<epoch ms>}（**无 TTL**，7 天懒清理）
 dsh:session-channel:ack:<messageId>     String  "injected"（TTL 60s，仅发送方 waitMs 等待窗口）
+dsh:session-channel:kv:<key>            String  {"value":…,"version":N,"updatedAt":ms}（共享 KV，可选 TTL；无默认过期）
+dsh:session-channel:kvver:<key>         String  单调版本计数（INCR；独立命名空间，`kv:*` 扫描不命中）
 dsh:session-channel:meta                String  schema 版本（不兼容 → 拒绝写入）
 ```
 
@@ -34,6 +36,7 @@ dsh:session-channel:meta                String  schema 版本（不兼容 → �
 - **寻址解析**（`resolveTarget`）优先级：**会话 id 精确匹配 → 别名（`alias:<alias>`）→ `cwd:<绝对路径>`**；都不命中返回空，由发送侧报 `target_offline`。别名由 `setAlias` 写入（校验字符集与保留字 → 冲突需 `force` → 顶掉同会话旧别名 → 写入）。
 - **游标语义**：投递位置记在**无 TTL** 的 `cursor:<sessionId>`（值 `{id, ts}`）里——接收方跟踪会话或重启时读该键作为读取起点（**读不到才退化为 `0`**：发送方可能先入队、接收方后启动），且**只在注入成功后推进**（失败不推进 → 重启补投）。读取完成前该会话不进 reader 读取集合（`cursorReady` 门），避免「先用 `0` 读一次」的重复窗口面。`start()` 时按 `ts` 懒清理超过 7 天（`CURSOR_TTL_MS`）的游标键。
 - **回执**：接收方注入成功才写回执（`ack:<messageId>`，TTL 60s），**只服务发送方 `send --wait` 的等待窗口**（100ms 轮询）——**不作为去重依据**（去重靠游标，回执过期不影响去重）。注入失败（会话不在本进程）不写回执，消息留在流里（`inbox` 可查）。
+- **共享 KV**（#55）：`kv:<key>` 存 last-value（JSON 可序列化，UTF-8 上限取 `maxTextBytes`），`kvver:<key>` 用 `INCR` 提供**单调版本号**；写入在单条 Lua 脚本内完成「读旧版本 → CAS 校验 → 版本 +1 → SET」，`expectedVersion` 不匹配返回 `kv_conflict` + 当前值（供合并重试）；`ttlSec > 0` 时带过期；`kvDelete` 同时删两个键（版本归零）。键名 `[A-Za-z0-9_.-]{1,64}`。语义：last-value + 版本号，供插件跨会话 / 跨进程同步状态；不做订阅 / 通知（拉取式）。
 
 ## 4. 投递管线（`src/index.ts` / `src/inject.ts`）
 
@@ -66,6 +69,8 @@ reader 循环 ──▶ XREAD BLOCK（多流单次读，id = 各流游标）
 
 `export { name, inject, provide, apply }`：`name = "session-channel"`、`inject = ["tools", "agents", "sessions"]`、`provide = ["sessionChannel"]`。`apply` 内 `createSessionChannelService` + `service.start()`（异步、不阻塞）+ `tools.register` + `provide("sessionChannel", …)`。
 
+服务面方法（键集合由 `SERVICE_FACE_METHODS` 声明，`tests/apply.test.ts` 守卫：新增公开方法漏暴露即测试失败）：`peers` / `send` / `inbox` / `aliasSet` / `aliasList` / `aliasClear` / `kvSet` / `kvGet` / `kvList` / `kvDelete` / `status`；`start` / `stop` / `noteSession` 为宿主生命周期 / 内部面，不暴露。
+
 工具 `session_channel` 动作：`peers` / `send` / `inbox` / `alias`（`op=set|list|clear`，`name`=别名，`to` 缺省为调用方会话，`force` 覆盖占用）/ `status`。`execute(args, exec)` 从宿主 `exec.agent.session.id` 取调用方会话（非 agent 调用方 → 须显式传 `to`）。
 
 ## 8. 约束与已知边界
@@ -79,4 +84,4 @@ reader 循环 ──▶ XREAD BLOCK（多流单次读，id = 各流游标）
 
 ## 9. 明确不做
 
-跨机传输、离线队列 / spool、委托与状态同步语义、消息内容过滤/审批闸门（注入即用户消息，信任边界 = 本机同用户）、限流、历史检索与归档。
+跨机传输、离线队列 / spool、跨会话委托（#54 待办；KV 也不承担任务语义）、消息内容过滤/审批闸门（注入即用户消息，信任边界 = 本机同用户）、限流、历史检索与归档；KV 不做订阅 / 通知 / 跨机。
