@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  buildInjectionMessage,
   injectUserMessage,
   readService,
   type AgentLike,
@@ -53,6 +54,23 @@ test("readService：get 优先、直读兜底、两路不可用返回 undefined"
     agentsSvc,
     "直读抛错时仍应经 get 取到服务",
   );
+});
+
+test("buildInjectionMessage：正文形如 <prefix>(来源) 正文（空来源 → 未知会话）", () => {
+  const withFrom = buildInjectionMessage("hi", "sess-a") as {
+    content: { text: string }[];
+    source: { summary: string };
+  };
+  assert.equal(withFrom.content[0]?.text, "[CHANNEL](sess-a) hi");
+  assert.equal(withFrom.source.summary, "session-channel 来自 sess-a");
+  const empty = buildInjectionMessage("hi", "") as {
+    content: { text: string }[];
+  };
+  assert.equal(empty.content[0]?.text, "[CHANNEL](未知会话) hi");
+  const custom = buildInjectionMessage("hi", "sess-a", "[MSG]") as {
+    content: { text: string }[];
+  };
+  assert.equal(custom.content[0]?.text, "[MSG](sess-a) hi");
 });
 
 test("injectUserMessage：推宏任务投递 + 调 flush；无 agent 返回 false", async () => {
@@ -131,7 +149,7 @@ redisTest("服务级回归：代理宿主（直读抛错）仍能注入并回执
     assert.equal(sent.ok, true);
     await waitUntil(() => received.length === 1, 5000);
     const msg = received[0] as { content?: { text: string }[] };
-    assert.equal(msg.content?.[0]?.text, "[CHANNEL] 代理注入");
+    assert.equal(msg.content?.[0]?.text, "[CHANNEL](未知会话) 代理注入");
     await waitUntil(() => flushed.length === 1);
   } finally {
     await service.stop();

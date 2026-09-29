@@ -71,7 +71,7 @@ redisTest("端到端：A 发送 → B 注入并回执 → A 收到 delivered", a
       source?: { kind?: string };
     };
     assert.equal(injected.role, "user");
-    assert.equal(injected.content?.[0]?.text, "[CHANNEL] hello B");
+    assert.equal(injected.content?.[0]?.text, "[CHANNEL](sess-a) hello B");
     assert.equal(injected.source?.kind, "session-channel");
 
     // cwd 寻址同样可达（两个会话同目录 → 歧义，故用精确 id 之外的路径单独验证）
@@ -236,6 +236,64 @@ redisTest("键前缀完整（sanity）：在线键可被 listPeers 命中", asyn
     assert.equal(keys.length, 1);
   } finally {
     await closeConnection(conn);
+    await redis.stop();
+  }
+});
+
+redisTest("D6：注入来源标签别名优先（无别名回退会话 id）", async () => {
+  const redis = await startTempRedis();
+  const host = makeFakeHost();
+  const received = registerAgent(host, "sess-a");
+  const svc = new SessionChannelService(
+    {
+      url: redis.socketPath,
+      heartbeatMs: 200,
+      presenceTtlSec: 4,
+      readBlockMs: 300,
+    },
+    host.host,
+  );
+  try {
+    await svc.start();
+    host.emitSession(session("sess-a", "/tmp/label"));
+    await waitUntil(async () => (await svc.peers()).peers?.length === 1);
+    // 无别名 → 显示发送方会话 id
+    const first = await svc.send({
+      to: "sess-a",
+      text: "no-alias",
+      from: "sess-a",
+      waitMs: 3000,
+    });
+    assert.equal(
+      (first as { delivered?: boolean }).delivered,
+      true,
+      JSON.stringify(first),
+    );
+    await waitUntil(() => received.length === 1);
+    assert.equal(
+      (received[0] as { content?: { text: string }[] }).content?.[0]?.text,
+      "[CHANNEL](sess-a) no-alias",
+    );
+    // 设别名后 → 显示别名
+    assert.equal((await svc.aliasSet("me", "sess-a")).ok, true);
+    const second = await svc.send({
+      to: "sess-a",
+      text: "with-alias",
+      from: "sess-a",
+      waitMs: 3000,
+    });
+    assert.equal(
+      (second as { delivered?: boolean }).delivered,
+      true,
+      JSON.stringify(second),
+    );
+    await waitUntil(() => received.length === 2);
+    assert.equal(
+      (received[1] as { content?: { text: string }[] }).content?.[0]?.text,
+      "[CHANNEL](me) with-alias",
+    );
+  } finally {
+    await svc.stop();
     await redis.stop();
   }
 });

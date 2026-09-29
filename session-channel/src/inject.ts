@@ -12,8 +12,8 @@ import { randomUUID } from "node:crypto";
 /** 注入消息来源标识（生产者各自声明；TUI 按此识别并按用户块显示）。 */
 export const SOURCE_KIND = "session-channel";
 
-/** 注入正文前缀（与 `[AUTO]` / `[RULE]` 同口径：供人区分自动注入与真实输入）。 */
-export const INJECTION_PREFIX = "[CHANNEL] ";
+/** 注入正文前缀（与 `[AUTO]` / `[RULE]` 同口径：供人区分自动注入与真实输入）；来源紧跟其后：`[CHANNEL](来源) 正文`。 */
+export const INJECTION_PREFIX = "[CHANNEL]";
 
 /** 宿主 agent 的最小形态（结构面访问，不引宿主类型依赖）。 */
 export interface AgentLike {
@@ -62,7 +62,10 @@ export function readService<T>(ctx: unknown, name: string): T | undefined {
   }
 }
 
-/** 构造注入消息（user 角色 + `[CHANNEL] ` 前缀 + 来源元数据）。 */
+/**
+ * 构造注入消息（user 角色 + `<prefix>(<来源>) ` 前缀 + 来源元数据）。
+ * `from` 为发送方展示标签（调用方已按「别名优先、其次会话 id」解析）；空串显示「未知会话」。
+ */
 export function buildInjectionMessage(
   text: string,
   from: string,
@@ -72,7 +75,7 @@ export function buildInjectionMessage(
   return {
     id: randomUUID(),
     role: "user",
-    content: [{ type: "text", text: prefix + text }],
+    content: [{ type: "text", text: `${prefix}(${origin}) ${text}` }],
     source: { kind: SOURCE_KIND, summary: `session-channel 来自 ${origin}` },
   };
 }

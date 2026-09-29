@@ -7,7 +7,7 @@ DSH 进程内插件：**本机跨会话消息通道**——把消息从一个 ds
 | action | 参数 | 说明 |
 | --- | --- | --- |
 | `peers` | — | 列在线会话（sessionId / pid / cwd / profile / 启动时刻） |
-| `send` | `to`, `text`, `waitMs?` | 发消息：`to` = 会话 id 或 `cwd:<绝对路径>`；正文注入目标会话（前缀 `[CHANNEL] `） |
+| `send` | `to`, `text`, `waitMs?` | 发消息：`to` = 会话 id 或 `cwd:<绝对路径>`；正文注入目标会话（形如 `[CHANNEL](来源) 正文`，来源 = 发送方别名，无别名时用会话 id） |
 | `inbox` | `sessionId`, `count?` | 查某会话最近收到的消息（只读，新→旧，缺省 20 条） |
 | `status` | — | 连接状态、服务端版本、已跟踪会话、错误信息 |
 
@@ -34,7 +34,7 @@ cd <repo> && sh session-channel/scripts/setup-redis.sh --linger
 | `heartbeatMs` | `5000` | 心跳间隔（刷新在线键） |
 | `presenceTtlSec` | `15` | 在线键 TTL（应大于心跳间隔） |
 | `maxTextBytes` | `8192` | 单条正文上限（UTF-8 字节） |
-| `prefix` | `"[CHANNEL] "` | 注入正文前缀 |
+| `prefix` | `"[CHANNEL]"` | 注入正文前缀（正文 = `<prefix>(<来源>) <正文>`） |
 | `readBlockMs` | `15000` | 阻塞读单次等待上限 |
 | `instanceId` / `profile` | 随机 / `$DSH_PROFILE` | 在线元数据（排障用） |
 | `disabled` | `false` | `true` = 只加载不连接 |

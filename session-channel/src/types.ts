@@ -12,7 +12,7 @@ export interface SessionChannelConfig {
   presenceTtlSec?: number;
   /** 单条正文上限（UTF-8 字节，缺省 8192）。 */
   maxTextBytes?: number;
-  /** 注入正文前缀（缺省 `[CHANNEL] `）。 */
+  /** 注入正文前缀（缺省 `[CHANNEL]`；正文形如 `<prefix>(<来源>) <正文>`）。 */
   prefix?: string;
   /** 本实例标识（缺省随机生成；测试注入用）。 */
   instanceId?: string;

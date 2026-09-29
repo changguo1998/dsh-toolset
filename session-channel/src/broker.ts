@@ -130,6 +130,16 @@ export async function listAliases(
   return out.sort((a, b) => a.alias.localeCompare(b.alias));
 }
 
+/** 反查会话的别名（「一会话一别名」，无 → undefined）；用于注入正文的来源标签。 */
+export async function aliasOfSession(
+  client: RedisClientType,
+  sessionId: string,
+): Promise<string | undefined> {
+  if (sessionId === "") return undefined;
+  const aliases = await listAliases(client);
+  return aliases.find((entry) => entry.sessionId === sessionId)?.alias;
+}
+
 /** 设别名：一会话一别名（自动移除自身旧别名）；被别人占用时需 `force: true`。 */
 export async function setAlias(
   client: RedisClientType,

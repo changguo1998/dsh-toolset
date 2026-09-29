@@ -36,16 +36,25 @@
 5. `session-channel/tests/inject.test.ts`、`tests/service.test.ts`、`tests/apply.test.ts`：存量断言更新 + 新增（别名优先 / 无别名回退 id / 空来源）用例。
 6. `session-channel/README.md`：`send` 行与 `prefix` 默认值。
 7. 本追踪文档。
+8. 根 `README.md`（计划外，用户 2026-09-29 裁定后追加）：插件表前缀描述同步。
 
 明确不做：不改宿主 `source` 渲染；不动 TUI 代码与测试夹具；不做别名反查缓存（消息量低，SCAN 成本可接受）。
 
 ## 实现记录
 
-（待补）
+- 2026-09-29：`inject.ts` —— `INJECTION_PREFIX` 改 `"[CHANNEL]"`（去尾空格），`buildInjectionMessage` 正文改为 `${prefix}(${origin}) ${text}`，空来源仍显示「未知会话」；注释同步。
+- 2026-09-29：`broker.ts` —— 新增 `aliasOfSession(client, sessionId)`（复用 `listAliases` 扫全表取首个匹配；会话无别名或入参空串 → undefined）。
+- 2026-09-29：`index.ts` —— `#deliver` 改 async，新增 `#originLabel`（别名优先 → 会话 id，反查异常记日志并回退 id）；reader loop 改为 `await this.#deliver(...)`；工具描述改为「形如 [CHANNEL](来源) 正文」。
+- 2026-09-29：`types.ts` —— `prefix` 注释更新（正文 = `<prefix>(<来源>) <正文>`）。
+- 2026-09-29：测试更新与新增 —— `inject.test.ts` 加 `buildInjectionMessage` 形态用例（带来源 / 空来源 / 自定义 prefix），代理宿主用例断言改为 `[CHANNEL](未知会话) 代理注入`；`service.test.ts` 端到端断言改为 `[CHANNEL](sess-a) hello B`，新增「别名优先」用例（无别名 → 会话 id；设别名 → 别名）；`apply.test.ts` 断言改为 `[CHANNEL](sess-x) 自测`。
+- 2026-09-29：`README.md` —— `send` 行与 `prefix` 默认值同步。
+- 2026-09-29：根 `README.md`（计划外文件，经用户裁定后追加进清单）—— 插件表中 session-channel 行的前缀描述同步为 `[CHANNEL](来源) 正文`。
 
 ## 测试与证据
 
-（待补）
+- `npm --prefix session-channel run check` ✓；`build` ✓。
+- `npm --prefix session-channel run test`：32 例全通过（含新增 D6 别名优先用例；Redis 真链路未 skip）。
+- **真机验证（2026-09-29，通过）**：重启后以 `session_channel` 自发消息，接收侧注入正文为 `[CHANNEL](tui-4a7f65c3-2c35-4d89-9a2c-e4410aa03ba6) D6 真机验证（自动测试可忽略）`——来源可见 ✓（D4 已解决的数据层保持正确）。
 
 ## 收尾
 

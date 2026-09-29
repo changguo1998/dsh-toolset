@@ -126,7 +126,7 @@ redisTest(
         content?: { text: string }[];
         source?: { kind?: string };
       };
-      assert.equal(injected.content?.[0]?.text, "[CHANNEL] 自测");
+      assert.equal(injected.content?.[0]?.text, "[CHANNEL](sess-x) 自测");
       assert.equal(injected.source?.kind, "session-channel");
 
       // inbox（工具，只读）

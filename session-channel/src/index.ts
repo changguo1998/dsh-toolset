@@ -32,6 +32,7 @@ import {
   ackMessage,
   announcePresence,
   type AliasSetResult,
+  aliasOfSession,
   clearAlias,
   clearAliasesOf,
   cleanupCursors,
@@ -519,7 +520,7 @@ export class SessionChannelService {
             let delivered = false;
             // 单条失败不拖垮整批：记日志、内存游标照进（消息留在流里，可用 inbox 复查）
             try {
-              delivered = this.#deliver(sessionId, message);
+              delivered = await this.#deliver(sessionId, message);
             } catch (err) {
               this.#log(`单条投递失败（跳过）：${describe(err)}`);
             }
@@ -541,14 +542,18 @@ export class SessionChannelService {
     }
   }
 
-  /** 投递单条：注入本进程会话（失败则留流中，不写回执）。 */
-  #deliver(sessionId: string, message: InboxMessage): boolean {
+  /**
+   * 投递单条：注入本进程会话（失败则留流中，不写回执）。
+   * 来源标签按「别名优先、其次会话 id」解析（D6：正文需可见来源）。
+   */
+  async #deliver(sessionId: string, message: InboxMessage): Promise<boolean> {
     const conn = this.#conn;
     if (conn === undefined) return false;
+    const origin = await this.#originLabel(conn.main, message.from);
     const injected = injectUserMessage(
       this.#injection,
       sessionId,
-      buildInjectionMessage(message.text, message.from, this.#config.prefix),
+      buildInjectionMessage(message.text, origin, this.#config.prefix),
       (msg) => this.#log(msg),
     );
     if (!injected) {
@@ -560,6 +565,20 @@ export class SessionChannelService {
     );
     this.#log(`已注入 ${sessionId} ← ${message.from}（${message.id}）`);
     return true;
+  }
+
+  /** 注入正文的来源标签：别名优先，其次会话 id；空来源交给 buildInjectionMessage 显示「未知会话」。 */
+  async #originLabel(
+    client: SessionChannelConnection["main"],
+    from: string,
+  ): Promise<string> {
+    if (from === "") return "";
+    try {
+      return (await aliasOfSession(client, from)) ?? from;
+    } catch (err) {
+      this.#log(`别名反查失败（回退会话 id）：${describe(err)}`);
+      return from;
+    }
   }
 
   /** 载入持久投递游标（无 TTL）；失败以 `"0"` 兜底并放行读取（宁可补投、不漏投）。 */
@@ -635,7 +654,7 @@ function toToolDef(service: SessionChannelService) {
     name: "session_channel",
     description:
       "跨会话消息通道（本机专用 Redis）：peers 列在线会话；" +
-      "send 发消息到目标会话（to = 会话 id、别名或 cwd:<绝对路径>，正文注入目标会话的下一回合，前缀 [CHANNEL]）；" +
+      "send 发消息到目标会话（to = 会话 id、别名或 cwd:<绝对路径>，正文注入目标会话的下一回合，形如 [CHANNEL](来源) 正文）；" +
       "inbox 查某会话最近收到的消息（只读）；alias 管理会话别名（op=set/list/clear，name=别名，" +
       "to 缺省为调用方所在会话）；status 查连接与已跟踪会话。",
     parameters: {
