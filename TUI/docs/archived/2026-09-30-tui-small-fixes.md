@@ -1,6 +1,6 @@
 # TUI 小问题批修（接取条目：`TUI/docs/BACKLOG.md`「/help 输出按普通文本显示（不要信息提示的蓝色）」「/agents 面板的「取消」动作无效」「垂直状态栏未自动显示 Agents 列表」「状态列 Agents 块把陈旧子代理显示为「不可用(unavailable)」」「/new 新建会话未接入启动自检（`[AUTO]` kickoff）」）
 
-状态：测试　　开启：2026-09-30
+状态：完成（2026-09-30）　　开启：2026-09-30
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -81,4 +81,8 @@
 
 ## 收尾
 
-（待写）
+- 状态：**完成**（2026-09-30）。所接条目 #53-#57：BACKLOG 已标完成并清理移除（#52 仍暂停，未动）。
+- 提交：`480db99 fix(TUI): 小问题批修（…）`（代码 + 测试 + 本追踪文档）；BACKLOG 状态与 #52 记录随关闭后提交。
+- 文档回写：`TUI/docs/DESIGN.md`（状态列 Agents 块轮询/条目口径 TUI#55/#56、启动自检 kickoff 补 `/new` 场景 TUI#57、`/agents` Enter 语义 TUI#54）；`TUI/README.md`（`/agents` 行）。`STATUS.md` 未动（用户择时更新）。
+- 遗留（非本任务）：⑤ 真机「重启后无 `unavailable` 陈旧条目」机械用例已覆盖，真机留待下次自然重启观察；`command-template` 修复另行提交（`e646ca1` / `0afd460`）并复验通过；`rule-engine` 告警噪音条目见 `rule-engine/docs/BACKLOG.md` #1。
+- 归档：本文件移入 `TUI/docs/archived/`（原名保留）。

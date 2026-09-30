@@ -279,7 +279,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 | `/init` | 生成项目 `AGENTS.md`：已存在则提示并结束，缺失则注入初始化指令由模型生成 |
 | `/jobs` | 后台任务面板：`↑/↓` 选择、`PgUp/PgDn` 翻页、Enter 取消、Esc 关闭 |
 | `/skills [过滤]`、`/tools [过滤]` | 技能 / 工具列表面板：Enter 读取正文或详情（关面板后以 notice 展示） |
-| `/agents` | 子代理面板：Enter 直接中断选中项；面板打开期间订阅 `subagent/start` · `subagent/end` 即时刷新（另有 2s 定时兜底与 `r` 手动刷新） |
+| `/agents` | 子代理面板：Enter 对 continuable 子代理发中断、一次性（one-shot）条目给不可中断原因；面板打开期间订阅 `subagent/start` · `subagent/end` 即时刷新（另有 2s 定时兜底与 `r` 手动刷新） |
 | `/task`、`/guard`、`/loop` | 任务树 / 守卫记录 / 指标循环面板，Enter 查看详情 |
 | `/workflows` | workflow 运行面板（只读，面板打开期间定时刷新） |
 | `/memory` | 知识库概要（路径与 chunk/source 计数） |

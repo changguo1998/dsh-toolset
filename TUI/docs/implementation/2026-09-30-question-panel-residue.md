@@ -134,6 +134,37 @@ const timer = setInterval(async () => {
 1. 是否「开面板后不按键」也会出现；
 1. 复制行的行号与内容（以及是否 `stty size` 与 herdr 窗口尺寸不一致）。
 
+## 第四次复现与取证通道（2026-09-30 晚）
+
+- 用户报告（本轮为重启 `fffdsh` 复验 command-template 修复期间）：「刚刚又出现退出面板排版重复了」。
+- **新增取证通道（herdr CLI；本会话即在 herdr 窗格内，`HERDR_ENV=1`、`HERDR_PANE_ID=wP1:p1`）**：
+  - `herdr pane read wP1:p1 --source visible [--ansi|--raw]`：读窗格**合成后**可见屏（本窗格 43 行）——可直接抓残留行实屏证据；
+  - `herdr pane read --source recent --lines N`：读最近帧；`herdr pane get`：窗格几何/滚动；
+  - `herdr pane send-keys wP1:p1 <KEY>...`：向窗格发键（受控复现用；**待用户许可**）。
+  - `herdr status`：client 0.9.3 / **server 0.9.1（`server_binary_stale: yes`）** —— 合成层在 server，版本落后记为嫌疑（重启 server 有破坏性，另行评估）。
+- 基线已采集：窗格 `wP1:p1`（dsh / focused / viewport_rows=43），当前屏正常；`tmp/pane-visible.{ansi,raw}` 为基线快照（任务结束前清理）。
+- 受控复现计划（待许可）：`Ctrl+D` 开面板 → 抓屏（回答「不按键是否出现」）→ `↓`（已知触发动作）→ 抓屏（比对残留行）→ `esc` 关面板 → 抓屏（「关面板后残留是否清除」）。全程不按 Enter（不会触发退出）。
+- 待用户补：① 当时是否有命令/子代理流式输出；② 是否本窗格（wP1:p1）；③ 残留是否持续到面板关闭；④ 当时窗格尺寸是否变化。
+
+### 受控复现（2026-09-30 晚，经用户许可，由 agent 经 `herdr pane send-keys` 操作）
+
+- 机制确认（读码）：`Ctrl+D` 仅 `agentStatus==="idle" && 未压缩 && inputText===""` 才开面板（`canExitOnCtrlD`）——忙碌时忽略；**「750ms 内双击 Ctrl+C」无 idle 守卫**，面板可随时打开（受控复现改用它）。
+- 试次 1（busy 态 `C-c C-c` 开面板；右列渲染 `退出：确认退出 dsh？` + 4 项）→ `Down`/`Down`/`Up` 各抓屏：**面板移动干净，无复制行**。
+- 试次 2（面板开着 + 逐次工具调用使活动区逐步刷新，近似流式头部）→ `Down`/`Down`/`Up`：**仍无复制行**。
+- 附带确认：退出面板渲染在**活动区（右列）**；`esc` 在面板打开态只关面板（安全）；无面板的 busy 态 `esc` = `interrupt()`（首轮受控操作曾因此中止 agent 回合——此后避免在 busy 态发面板外按键）。
+- 结论：静态/近静态条件不复现。已布秒级抓屏（`herdr pane read --ansi`，~1.4 帧/秒 × 480s，落 `tmp/cap/`，任务结束前清理）由用户在真实条件下复现取帧。
+- 另记嫌疑：`herdr status` → client 0.9.3 / server 0.9.1（`server_binary_stale: yes`），合成层在 server；重启 server 会波及所有窗格进程，需用户单独决定，不在本任务内做。
+
+## 再次暂停（2026-09-30 晚，用户裁定）
+
+- 用户决定「先不管了，以后再说」→ 本条回「暂停」。
+- 暂停前新增的取证结论：
+  1. **pane 侧全干净**：受控两轮 + 高帧率抓屏（共 1600+ 帧；其中面板帧 135 + 102 帧）逐帧结构扫描**零重复行**——重复行不在 pane 内容 / 服务端渲染视口里。
+  1. 用户报告在受控两轮中**肉眼看到复现**，与 1 冲突 ⇒ 现象进一步收窄到 **herdr 客户端（0.9.3）把 pane 画到真实终端的那一步**（或极短瞬态，超出抓屏采样）。
+  1. herdr 侧线索：client 0.9.3 / server 0.9.1（`server_binary_stale: yes`）；client 日志含大量 `flushing lone escape after input timeout … may reach the pane as plain esc bytes=[27]`（与渲染无直接关系，另记）。
+- 恢复入口：① 请用户提供**拍屏/截图**（重复行的行号 / 列 / 持续性或瞬态）；② 可选：在受控尺寸虚拟终端挂第二个 herdr 客户端录制**客户端渲染**（会改 pane 尺寸，需用户同意）；③ 或评估重启 herdr（server stale，波及所有窗格进程）。
+- 清理：本轮临时产物（`tmp/cap*/`、`tmp/hi/`、`tmp/r*.txt`、`tmp/s*.txt`、`tmp/pane-visible.*`）已删；仓库代码零改动（`TUI/src/**` 未动），只有本追踪文档与 BACKLOG 状态。
+
 ## 规划
 
 （待定位后补「计划改动文件清单」）

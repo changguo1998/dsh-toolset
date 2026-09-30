@@ -68,7 +68,7 @@ steps:
 
 ## 边界
 
-- 不实现执行器：`agent` 步骤走宿主 `ctx.subagents` provider（一次性运行，模型覆盖仅本次）；
+- 不实现执行器：`agent` 步骤走宿主 `ctx.subagents` **服务面** `start(name, request)`（一次性运行；宿主写父会话 catalog 并发生命周期事件，模型覆盖仅本次）；
   task-engine 的叶子 `executor` 声明（BACKLOG #58）落地后，改为经该声明选择后端。
 - 不改 TUI：模板命令经宿主命令注册表自动出现在补全里（TUI 本地命令同名时本地优先）。
 - 不做模板市场 / 版本管理 / 参数类型校验（参数一律按文本展开）。
