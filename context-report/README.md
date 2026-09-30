@@ -1,6 +1,6 @@
 # @dsh-toolset/context-report
 
-DSH（DeepSeek Harness）进程内插件：会话级上下文与 token 报告（BACKLOG #34，pi `supi-context` 等效面）。
+DSH（DeepSeek Harness）进程内插件：会话级上下文与 token 报告（项目级「context-report」项，pi `supi-context` 等效面）。
 
 承载两件事：
 

@@ -655,7 +655,7 @@ segStyle(seg: FrameSegment, theme: Theme): string
 
 ## 15. 排版与渲染实现要点 [impl]
 
-> 本节承接原 `IMPLEMENTATION.md` 的渲染 / 排版类实现记录（2026-09-29 按 BACKLOG #40 拆分迁入）；
+> 本节承接原 `IMPLEMENTATION.md` 的渲染 / 排版类实现记录（2026-09-29 按「`IMPLEMENTATION.md` 拆分」项迁入）；
 > 规则性内容以本文件前文 §2-§14 为准，本节记录实现口径、取舍与回归索引。
 
 ### 15.1 顶部状态列与标题栏（P1 / P2 / P7）

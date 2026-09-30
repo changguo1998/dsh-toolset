@@ -79,7 +79,7 @@ TUI/
       question-transition.ts / model-transition.ts   # 问答 / 模型选择纯状态转换
       components/        # Box 生成器：TextInput、审批、问答、ModelPicker、各列表面板…
       adapter/           # 插拔边界：dsh.ts（ctx 订阅与归一化）、types.ts、normalize.ts
-      stderr-bridge.ts   # 运行期 stderr 桥：按行转交活动区（项目级 #61 方案 A）
+      stderr-bridge.ts   # 运行期 stderr 桥：按行转交活动区（项目级「插件告警改道活动区」方案 A）
       index.ts           # App：组装层，副作用（adapter 调用 / paint / notice / 异步）都在此
   demo/                  # mock adapter 喂模拟流式文本 + 审批，不接 DSH
   tests/                 # node --test；renderer 解码 / 排版 / adapter fake-ctx
@@ -311,7 +311,7 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 
 ## 实现要点（机制与命令）
 
-> 本节承接原 `IMPLEMENTATION.md` 的机制 / 命令类实现记录（2026-09-29 按 BACKLOG #40 拆分迁入）；
+> 本节承接原 `IMPLEMENTATION.md` 的机制 / 命令类实现记录（2026-09-29 按「`IMPLEMENTATION.md` 拆分」项迁入）；
 > 架构与取舍见本文件前文各节，渲染 / 排版实现细节见 `SPEC.md` §15。
 
 ### Slash 命令路由
@@ -439,7 +439,7 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 
 ### 模型输出符号规范化（已迁出为 symbol-normalizer 插件）
 
-> 2026-09-27（BACKLOG TUI#18 / 项目级 #48）：符号规则与算法（`app/symbols.ts`）整体迁出为独立插件 `symbol-normalizer`；算法细节与规则表见该包 `README.md` / `docs/DESIGN.md`。TUI 侧接入：`case "stream"` 经 `ctx.get('symbolNormalizer')` 服务 `normalize`（`/symbol-unify on|off` 控制）；notice 经 `onReview` 回调渲染为 warn 行；模型提醒由插件在 rule-engine 消费者 `decide` 中返回、rule-engine 统一注入。插件未挂载 → 原文透传、无提醒。配置迁至插件 config（`tui.config.json` 的 `symbols` 段不再读取）；纯函数 / 冷却用例迁至 `symbol-normalizer/tests/`，TUI 侧保留服务消费用例（`tests/app.test.ts`「符号服务消费」组）。启动宽度探测的字符集改为 TUI 本地常量 `WIDTH_PROBE_SYMBOLS`（渲染关注点，与治理规则解耦）。
+> 2026-09-27（原 TUI 待办「符号规则归一」/ 项目级「symbol-normalizer 插件」）：符号规则与算法（`app/symbols.ts`）整体迁出为独立插件 `symbol-normalizer`；算法细节与规则表见该包 `README.md` / `docs/DESIGN.md`。TUI 侧接入：`case "stream"` 经 `ctx.get('symbolNormalizer')` 服务 `normalize`（`/symbol-unify on|off` 控制）；notice 经 `onReview` 回调渲染为 warn 行；模型提醒由插件在 rule-engine 消费者 `decide` 中返回、rule-engine 统一注入。插件未挂载 → 原文透传、无提醒。配置迁至插件 config（`tui.config.json` 的 `symbols` 段不再读取）；纯函数 / 冷却用例迁至 `symbol-normalizer/tests/`，TUI 侧保留服务消费用例（`tests/app.test.ts`「符号服务消费」组）。启动宽度探测的字符集改为 TUI 本地常量 `WIDTH_PROBE_SYMBOLS`（渲染关注点，与治理规则解耦）。
 
 **选型判据**（随实现迁至插件，历史记录保留于此）：
 

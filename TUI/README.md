@@ -27,7 +27,7 @@ tui --demo     # 强制 mock demo（无 DSH 依赖）
 tui --help
 ```
 
-### 「重启 dsh（保留会话）」与启动器约定（BACKLOG #51）
+### 「重启 dsh（保留会话）」与启动器约定（「退出确认 · 重启 dsh」项）
 
 退出确认面板（Ctrl+D / 双击 Ctrl+C）在**由启动器启动**时提供第三项「重启 dsh（保留会话）」：
 TUI 自身不 respawn，只发出信号 —— 写交接文件 + 置退出码 `75`，由外层启动器循环重启下一轮。
@@ -182,7 +182,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 
 ## 符号规范化
 
-对**模型正文**做符号治理，`/symbol-unify on|off` 控制（缺省 on）——关闭时正文原样展示、不替换不提示。**实现已迁至独立插件 `symbol-normalizer`**（BACKLOG TUI#18 / 项目级 #48）：
+对**模型正文**做符号治理，`/symbol-unify on|off` 控制（缺省 on）——关闭时正文原样展示、不替换不提示。**实现已迁至独立插件 `symbol-normalizer`**（原 TUI 待办「符号规则归一」/ 项目级「symbol-normalizer 插件」）：
 
 - **展示层归一**（TUI 侧）：流式正文经服务 `normalize(text)` 做别名替换（如 `✔→✓`、`❌→✗`），不改会话记录；服务未挂载时原文透传。
 - **回合审查**（插件侧）：整回合正文检测替换与警示（三态口径：放行 / 归一 / 警示），逐符号冷却（`cooldownMs` 默认 10 分钟、`cooldownRuns` 默认 3）；命中时向 TUI 推一行 notice，并把 `[符号规范]` 反馈交 rule-engine 注入模型（`warnModel: false` 只提示人）。
@@ -346,7 +346,7 @@ npm run watch # tsc --watch 常驻编译到 dist/（仍需重启 dsh 生效）
 ## 已知限制
 
 - **模型与 TUI 本地开关随会话恢复**：resume / 启动时按「宿主日志 → TUI 侧快照（`<会话目录>/tui-state.json`）→ 宿主默认」恢复模型、模式与策略（plan / sandbox / permission 预设 / 审批策略）、`verbose` / `symbol-unify` 与状态列显隐；仅内存会话（无持久化目录）没有快照，模型退化为宿主日志口径。**恢复会话按 step 概要恢复工具记录**（每个含工具调用的 step 折成一行），不还原逐条工具行 / 参数摘要 / 结果详情 / thinking。详见 `docs/DESIGN.md`「实现要点（机制与命令）· 会话状态恢复」。
-- **CLI 启动恢复不重放历史行**（BACKLOG #40）：`--resume <id>` / `-c` 启动只完成 agent 侧恢复（model / mode / goal / todo 等状态回填），既有消息不折叠进活动区——需再切一次 `/session`（或直接发消息）才显示会话内容。TUI 内 `/session` / `/continue` 切换路径不受影响。
+- **CLI 启动恢复不重放历史行**（`IMPLEMENTATION.md` 拆分项）：`--resume <id>` / `-c` 启动只完成 agent 侧恢复（model / mode / goal / todo 等状态回填），既有消息不折叠进活动区——需再切一次 `/session`（或直接发消息）才显示会话内容。TUI 内 `/session` / `/continue` 切换路径不受影响。
 - **标题栏图标依赖 Nerd Font 字体**：状态符号组与 preset 图标取自 Nerd Font 私有区字形（各占 1 列，实测确认），终端字体不含这些字形时会显示豆腐块（本机验证字体为 Maple Mono NF CN）；该依赖只影响标题栏这一行，不影响其余界面。
 - 多会话并行不支持（维持单活跃会话设计）。
 - 思考不提供展开 / 收起交互。

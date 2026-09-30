@@ -14,7 +14,7 @@
 
 | 文档 | 项目级 | 模块级 | 作用 |
 | --- | --- | --- | --- |
-| ROADMAP.md | `docs/ROADMAP.md`（待建，见 `docs/BACKLOG.md` #41） | 无（仅项目级） | 未来开发方向 |
+| ROADMAP.md | `docs/ROADMAP.md`（待建） | 无（仅项目级） | 未来开发方向 |
 | DESIGN.md | 无（架构分布在模块 DESIGN 与 `docs/host/`） | `<模块>/docs/DESIGN.md` | 架构设计 |
 | BACKLOG.md | `docs/BACKLOG.md`（跨包条目） | `<模块>/docs/BACKLOG.md` | 可执行条目 |
 | STATUS.md | `docs/STATUS.md` | `<模块>/docs/STATUS.md`（按需） | 对照文档：记录已实现内容 |

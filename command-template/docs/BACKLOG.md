@@ -2,7 +2,7 @@
 
 > 职责：command-template 包内的缺陷与待办（包内变更优先写在本包文档）
 > 不负责：跨包待办（见 `docs/BACKLOG.md`）、模板与契约（见 `command-template/README.md`）
-> 编号口径：扁平连续 `#n`，本文件内唯一，**仅供阅读**；与其它层 BACKLOG 的编号互不关联
+> 编号口径：扁平连续 `#n`，**仅供阅读**——不用于追踪文档的命名与引用；**每次整理时按当前顺序从 1 起重新编号**；与其它层 BACKLOG 的编号互不关联
 > 过期条件：无
 > 本文件只列未完成项；已完成项见 git 历史与 `command-template/docs/archived/`，不在此重复。
 
