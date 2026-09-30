@@ -14,6 +14,7 @@ import { createRenderer, type Renderer } from "./renderer/index.ts";
 import { normalizeThemeId, type ThemeId } from "./renderer/theme.ts";
 import { resolveThemes } from "./renderer/theme-config.ts";
 import { App } from "./app/index.ts";
+import { installStderrBridge } from "./app/stderr-bridge.ts";
 import { loadTuiConfig } from "./app/config.ts";
 import {
   createProcessStatusQueries,
@@ -59,6 +60,7 @@ import {
   type WebSearchLike,
   type SessionChannelLike,
   type SymbolNormalizerLike,
+  type RuleEngineLike,
 } from "./app/adapter/dsh.ts";
 
 /** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
@@ -78,6 +80,8 @@ export function main(opts: {
   getSymbols?: () => SymbolNormalizerLike | undefined;
   /** 会话通道读取器（懒读；session-channel 未挂载时返回 undefined → 状态栏不显示别名段，TUI#48） */
   getSessionChannel?: () => SessionChannelLike | undefined;
+  /** rule-engine 服务读取器（懒读；未挂载 / 未实现 onNotice 时告警不经总线，走 stderr 兜底） */
+  getRuleEngine?: () => RuleEngineLike | undefined;
   /** 启动自检 kickoff 正文（门控通过时传入，App 代替用户发出以完成锚定解锁）；
    *  不传 = 不发送（非 deepseek 模型 / toolBootstrap 关闭 / 会话已解锁 / 记录不可读） */
   bootstrapKickoffText?: string;
@@ -108,6 +112,7 @@ export function main(opts: {
     autoCleanEmpty: tuiConfig.session?.autoCleanEmpty ?? true,
     getSymbols: opts.getSymbols,
     getSessionChannel: opts.getSessionChannel,
+    getRuleEngine: opts.getRuleEngine,
     logger: opts.logger,
     // 跨回合帧率上限：真实接线压到 10Hz（窗口内跨宏任务标脏合并到窗口末统一出帧），
     // 防事件洪峰时每回合全量排版过热；测试/演示不传（缺省 0=立即出帧）
@@ -119,11 +124,19 @@ export function main(opts: {
     restartHandoffPath: opts.restartHandoffPath,
   });
   app.setLogger(opts.logger ?? ((msg) => void msg));
+  // 运行期 stderr 桥（BACKLOG「rule-engine 的用户提示应显示在活动区」方案 A）：安装后
+  // 运行期告警按行进入活动区（避免裸写落在输入区光标处）；启动前写入不受影响，dispose 时还原。
+  const stderrBridge = installStderrBridge((line, tone) =>
+    app.appendExternalLog(line, tone),
+  );
   app.start();
   void renderer;
   // 返回 disposer：Cordis pause/unload 与信号/退出均经它释放 App/adapter
   // （adapter.dispose 释放当前活跃 handle，含 resume 后由 adapter 持有的新 handle）
-  return () => app.dispose();
+  return () => {
+    stderrBridge.restore();
+    app.dispose();
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -567,6 +580,12 @@ export async function apply(
     (ctx as { get?: (name: string) => unknown }).get?.("sessionChannel") as
       SessionChannelLike | undefined;
 
+  // rule-engine 服务（ctx.get('ruleEngine')，rule-engine 插件 provide）：同上懒读；
+  // 未挂载 / 未实现 onNotice 时告警总线不接，插件侧仍走 stderr 兜底
+  const getRuleEngine = (): RuleEngineLike | undefined =>
+    (ctx as { get?: (name: string) => unknown }).get?.("ruleEngine") as
+      RuleEngineLike | undefined;
+
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）
   const display = normalizeTuiDisplayConfig(config);
   // 启动自检门控（BACKLOG TUI「启动后自动触发首轮工具调用」）：开关未关 + 模型命中
@@ -603,6 +622,7 @@ export async function apply(
     messageGutter: display.messageGutter,
     getSymbols: getSymbolNormalizer,
     getSessionChannel,
+    getRuleEngine,
   });
   // Cordis 插件生命周期：pause/unload 时释放 App/adapter——
   // adapter.dispose 释放当前活跃 handle（含 resume 后由 adapter 持有的新 handle）。

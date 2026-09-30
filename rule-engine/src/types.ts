@@ -141,6 +141,13 @@ export interface Injector {
   inject(request: InjectionRequest): void;
 }
 
+/** 插件告警事件（告警总线；`text` = 完整展示行，含 `[rule-engine] ` 前缀）。
+ *  消费侧（TUI）按 tone 渲染进活动区；经 provide("ruleEngine") 的 `onNotice` 订阅。 */
+export interface NoticeEvent {
+  text: string;
+  tone: "log" | "warn" | "error";
+}
+
 /** 只读清单条目（provide("ruleEngine") 查询面用）。 */
 export interface RuleSummary {
   id: string;

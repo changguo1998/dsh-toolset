@@ -12,6 +12,9 @@
  * 数据流：`ctx.on("session/event")` → 引擎（聚合/匹配/节流） → 注入器（推迟宏任务 →
  * `agents.get(sessionId).followup(...)` → `sessions.flush(...)`）。时序红线见 inject.ts 文件头。
  *
+ * 告警出口：缺省写 stderr；`provide("ruleEngine")` 上出现 `onNotice` 订阅者（TUI）后改发
+ * 总线（活动区展示，项目级 #61 方案 B）；无订阅者（headless）回退 stderr。
+ *
  * 规则来源两层：apply 的 `config.rules`（只读基线）+ 模型面工具族运行时增删改
  * （落 `~/.dsh/rule-engine/rules.json`，可用 `RULE_ENGINE_STATE_DIR` 覆盖目录）。
  */
@@ -26,6 +29,7 @@ import type {
   EvaluateInput,
   EvaluateResult,
   RuleSummary,
+  NoticeEvent,
   SessionEventLike,
   SessionLike,
 } from "./types.ts";
@@ -116,6 +120,8 @@ export interface RuleEngineService {
   evaluate(input: EvaluateInput): EvaluateResult;
   /** 简单消费者注册：turn-end 询问 decide，反馈由本引擎统一注入；返回注销函数。 */
   registerConsumer(input: ConsumerRegistration): () => void;
+  /** 订阅插件告警（完整展示行 + tone；项目级 #61 方案 B）；返回注销函数。 */
+  onNotice(listener: (event: NoticeEvent) => void): () => void;
 }
 
 /** 默认注入上限。 */
@@ -126,8 +132,22 @@ export const DEFAULT_MAX_INJECTIONS_PER_TURN = 3;
  * 自证日志写 stderr（cordis 的 inject 缺失是「等待」而非报错，插件静默不加载时靠它排查）。
  */
 export async function apply(ctx: unknown, config?: Config): Promise<void> {
+  // 告警总线：有订阅者（TUI 经 provide("ruleEngine").onNotice）时发总线、不写 stderr；
+  // 无订阅者（headless）回退 stderr。展示通道失败不回流、不向宿主抛（项目级 #61 方案 B）。
+  const noticeListeners = new Set<(event: NoticeEvent) => void>();
   const warn = (message: string): void => {
-    process.stderr.write(`[rule-engine] warn: ${message}\n`);
+    const line = `[rule-engine] warn: ${message}`;
+    if (noticeListeners.size === 0) {
+      process.stderr.write(`${line}\n`);
+      return;
+    }
+    for (const listener of [...noticeListeners]) {
+      try {
+        listener({ text: line, tone: "warn" });
+      } catch {
+        // 订阅者自身出错：忽略（展示通道，不影响告警链路与宿主 run 收尾）
+      }
+    }
   };
   const c = (ctx ?? {}) as PluginContext;
   try {
@@ -178,6 +198,12 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
             engine.evaluate(input),
           registerConsumer: (input: ConsumerRegistration): (() => void) =>
             engine.registerConsumer(input),
+          onNotice: (listener: (event: NoticeEvent) => void): (() => void) => {
+            noticeListeners.add(listener);
+            return () => {
+              noticeListeners.delete(listener);
+            };
+          },
         } satisfies RuleEngineService);
       } catch (err) {
         warn(`提供 ruleEngine 服务失败：${String(err)}`);

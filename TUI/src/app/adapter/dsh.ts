@@ -159,6 +159,8 @@ export type {
   LoopSummaryLike,
   SessionChannelLike,
   SymbolNormalizerLike,
+  RuleEngineLike,
+  RuleEngineNotice,
   ContractParseResult,
   ContractClauseLike,
   GoalContractServiceLike,

@@ -1324,6 +1324,20 @@ export interface SymbolNormalizerLike {
   ): () => void;
 }
 
+/** ctx.get('ruleEngine') 服务面（rule-engine 插件 provide；缺失或未实现 onNotice 时 TUI
+ *  不订阅，告警仍走插件侧 stderr 兜底。消费侧懒读，容忍插件装载顺序，见 index.ts
+ *  App.ruleEngine()；BACKLOG #61 方案 B）。 */
+export interface RuleEngineLike {
+  /** 订阅插件告警（完整展示行 + tone）；返回注销函数。 */
+  onNotice?(listener: (event: RuleEngineNotice) => void): () => void;
+}
+
+/** 插件告警事件：`text` = 完整展示行（含 `[rule-engine] ` 前缀），tone 三档。 */
+export interface RuleEngineNotice {
+  text: string;
+  tone?: "log" | "warn" | "error";
+}
+
 /** ctx.get('sessionChannel') 只读面（session-channel 插件 provide；缺失或未设别名时
  *  状态栏不显示别名段，见 BACKLOG TUI#48）。消费侧懒读，容忍插件装载顺序。 */
 export interface SessionChannelLike {

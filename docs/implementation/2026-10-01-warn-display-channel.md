@@ -1,6 +1,6 @@
-# 插件告警显示改道活动区（接取条目：`docs/BACKLOG.md` #61「rule-engine 的用户提示应显示在活动区」）
+# 插件告警显示改道活动区（接取条目：`docs/BACKLOG.md`「rule-engine 的用户提示应显示在活动区」）
 
-状态：进行中　　开启：2026-10-01
+状态：实现　　开启：2026-10-01
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -33,7 +33,7 @@
 
 ### notice 通道现状
 
-- TUI#17 已支持**注入消息** `source.form:'notice'` 的一行摘要渲染（`adapter/normalize.ts` 的 `noticeSummaryOf`），但**当前无生产者**；且该写法会把人类告警写进会话/模型上下文。
+- TUI 已支持**注入消息** `source.form:'notice'` 的一行摘要渲染（`adapter/normalize.ts` 的 `noticeSummaryOf`），但**当前无生产者**；且该写法会把人类告警写进会话/模型上下文。
 - 既有先例：`symbol-normalizer` 以**服务订阅**推人类 notice —— `provide("symbolNormalizer", { onReview })`，TUI 订阅后 `this.notice(event.notice, "warn")` 进活动区（`app/index.ts:1431` 附近）。B 采用同构写法。
 
 ## 决策
@@ -42,12 +42,12 @@
 1. **B（rule-engine 结构化通道）**：`rule-engine` 在 `ruleEngine` 服务上增 `onNotice(listener) => dispose`（形状同 `symbolNormalizer.onReview`）；插件 `warn` 路由——**有订阅者 → 只发总线（不写 stderr）**，无订阅者 → stderr（headless 兜底）。TUI 以 `getRuleEngine` 依赖懒读服务并订阅，渲染进活动区（带 `[rule-engine] ` 前缀与 warn tone）。
    - 细化说明：不采用「会话消息 `form:'notice'`」写法（会把人类告警写进模型上下文；且已关闭句柄场景——本条告警的原始场景——投不进已关闭会话）；服务订阅同 symbol-normalizer 先例，且对「告警所涉会话已关闭」同样可送达 TUI。
    - **用户确认（2026-10-01）**：A + B 都做；B 采用**服务订阅**写法（会话消息写法弃用）。
-1. **不抑制**：rule-engine 的告警内容与产生条件不变（`rule-engine/docs/BACKLOG.md` #1 维持「暂缓」）。
+1. **不抑制**：rule-engine 的告警内容与产生条件不变（`rule-engine/docs/BACKLOG.md`「子代理会话参与消费者评估 → 已关闭句柄 flush 告警」条目维持「暂缓」）。
 1. 审计发现：其他插件无需逐个改（A 已覆盖显示）；登记一条项目级条目评估「统一走结构化通道 / 降噪」（P3）。
 
 ## 规划
 
-任务顺序：文档（本文件 + #61 状态 + 审计条目）→ 实现 → `check`/`build` → 测试 → 真机复验（触发一次 rule-engine 告警：子代理被中止后观察活动区；输入区无残留）→ 收尾。
+任务顺序：文档（本文件 + 条目状态 + 审计条目）→ 实现 → `check`/`build` → 测试 → 真机复验（触发一次 rule-engine 告警：子代理被中止后观察活动区；输入区无残留）→ 收尾。
 
 计划改动文件清单（**只改这些**）：
 
@@ -55,22 +55,29 @@
 1. `TUI/src/main.ts`：安装与回收桥；`getRuleEngine` 接线（懒读 `ruleEngine` 服务）。
 1. `TUI/src/app/index.ts`：公开 `appendExternalLog(line, tone?)`；订阅 `ruleEngine.onNotice`（按 `getSymbols` 同款接法）。
 1. `TUI/src/app/adapter/types.ts`（按需）：`RuleEngineLike` 最小形状（`onNotice` 订阅）。
+1. `TUI/src/app/adapter/dsh.ts`（**补入**，2026-10-01 实现中发现）：类型 re-export 面——`index.ts` / `main.ts` 的 `*Like` 类型均从本文件导入，需转出 `RuleEngineLike` / `RuleEngineNotice`（1 行 re-export，无运行时行为）。
 1. `TUI/tests/stderr-bridge.test.ts`（新增）+ 订阅渲染用例（并入现有 TUI 测试文件之一）。
 1. `rule-engine/src/main.ts`：notice 总线 + `warn` 路由；`rule-engine/src/types.ts`：NoticeEvent 形状与 `RuleEngineService.onNotice`。
 1. `rule-engine/tests/main.test.ts`：有订阅者走总线（stderr 无输出）/ 无订阅者 stderr 兜底。
-1. `docs/BACKLOG.md`：#61 完成清理 + 新增「插件运行期 stderr 告警统一（评估）」条目（含审计清单）。
+1. `docs/BACKLOG.md`：本条目标「完成」并清理移除 + 新增「插件运行期 stderr 告警统一（评估）」条目（含审计清单；已于实现期登记）。
 1. `TUI/docs/DESIGN.md`、`rule-engine/DESIGN.md`：回写（stderr 桥口径 / notice 总线）。
 1. 本追踪文档。
 
-明确不做：不改告警产生条件与文案；不改渲染器主链路；不做「子代理会话过滤」（rule-engine #1 暂缓）；不做顺手改。
+明确不做：不改告警产生条件与文案；不改渲染器主链路；不做「子代理会话过滤」（rule-engine「子代理会话参与消费者评估 → 已关闭句柄 flush 告警」条目暂缓）；不做顺手改。
 
 ## 实现记录
 
-（待写）
+1. 2026-10-01 桥模块（方案 A）：新增 `TUI/src/app/stderr-bridge.ts`——`installStderrBridge(sink, target?)` 接管 `target.write`（缺省 `process.stderr`）：按 `\n` 行缓冲；`externalLogTone()` 定 tone（`error|fatal` → error；`warn(ing)|警告` → warn；其余 log）；交付期写入直通原流（防递归）、多参调用透传、`restore()` 还原并把残行透传原流。
+1. TUI 接线：`app/index.ts` 新增公开 `appendExternalLog(line, tone?)`（`notice(line, tone ?? "log")`）与私有 `ruleEngine()`（懒读服务 → 订阅 `onNotice`；`start()` 接线、`dispose()` 注销；新增 `AppDeps.getRuleEngine`）；`main.ts` 在 `new App(...)` 后、`app.start()` 前安装桥，disposer 内先 `restore()` 再 `app.dispose()`，并接入 `getRuleEngine`（`ctx.get("ruleEngine")` 懒读）；`adapter/types.ts` 增 `RuleEngineLike` / `RuleEngineNotice`（经 `adapter/dsh.ts` 转出）。
+1. rule-engine 接线（方案 B）：`src/types.ts` 增 `NoticeEvent`；`src/main.ts` 增告警总线——`warn` 在有订阅者时发总线（`{ text: "[rule-engine] warn: …", tone: "warn" }`）、无订阅者回退 stderr；`provide("ruleEngine")` 增 `onNotice`（订阅 / 注销）；文件头补「告警出口」口径。
+1. 测试：`TUI/tests/stderr-bridge.test.ts`（新增 5 例：行缓冲 / tone / 防递归 / 多参透传 / restore）、`TUI/tests/app.test.ts`（新增 2 例：总线告警渲染进活动区 + dispose 注销；`appendExternalLog` 路径）、`rule-engine/tests/main.test.ts`（新增 1 例：有订阅者走总线且 stderr 无输出 / 注销后回退 stderr）。
 
 ## 测试与证据
 
-（待写）
+- 机械门禁：`npm run check` exit 0；`npm run build` exit 0（2026-10-01）。
+- 单测：`npm --prefix rule-engine run test` → 60 pass / 0 fail（含新增「告警总线」例）；`npm run test:tui` → 1224 pass / 0 fail（含 `stderr-bridge.test.ts` 5 例与 `app.test.ts` 新增 2 例）。
+- 真机复验（点 3 前，待做）：重启 fffdsh 载入新构建 → 跑一次 playbook（子代理会话结束会触发消费侧 flush）→ 观察告警出现在**活动区**、输入区无残留；同时确认用户会话注入行为（含 next-step）不变。
+- 残留检查（待做）：`git status` 无计划外文件残留；`tmp/` 无任务临时文件。
 
 ## 收尾
 

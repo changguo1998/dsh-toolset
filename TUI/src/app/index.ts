@@ -37,6 +37,7 @@ import type {
   SessionChannelLike,
   SessionSurfaceView,
   SymbolNormalizerLike,
+  RuleEngineLike,
 } from "./adapter/dsh.ts";
 import type { NoticeTone } from "./adapter/types.ts";
 import { setWidthOverrides } from "./layout/markdown.ts";
@@ -283,6 +284,9 @@ export interface AppDeps {
   /** 会话通道读取器（懒读）：返回 undefined = session-channel 未挂载，状态栏不显示别名段
    *  （BACKLOG TUI#48） */
   getSessionChannel?: () => SessionChannelLike | undefined;
+  /** rule-engine 服务读取器（懒读）：返回 undefined（或未实现 onNotice）= 告警不经总线，
+   *  由插件侧 stderr 兜底（BACKLOG「rule-engine 的用户提示应显示在活动区」） */
+  getRuleEngine?: () => RuleEngineLike | undefined;
   /** 运行期告警出口（缺省静默；真实接线由 main.ts 写 stderr，格式 `warn: …`） */
   logger?: (message: string) => void;
   /** 启动自检 kickoff 正文（门控通过时由 main.ts 传入；App 代替用户发出以完成锚定解锁）。
@@ -361,6 +365,10 @@ export class App {
   private symbolService: SymbolNormalizerLike | null = null;
   /** 审查事件订阅注销函数（dispose 时调用） */
   private symbolUnsubscribe: (() => void) | null = null;
+  /** rule-engine 服务（懒读；首次可用时订阅告警总线） */
+  private ruleEngineService: RuleEngineLike | null = null;
+  /** 告警总线订阅注销函数（dispose 时调用） */
+  private ruleEngineUnsubscribe: (() => void) | null = null;
   /** 启动自动清理空会话开关（deps.autoCleanEmpty ?? false） */
   private autoCleanEmpty = false;
   /** 上次 Ctrl+C 时间戳；双击窗口内再次按下则退出（含输入为空时计数） */
@@ -498,6 +506,8 @@ export class App {
   }
 
   start(): void {
+    // 告警总线懒接线（未挂载则 no-op；见 ruleEngine()）
+    this.ruleEngine();
     this.deps.renderer.onKey((k) => this.handleKey(k));
     this.deps.renderer.onResize(() => this.paint());
     this.unbindEvents.push(
@@ -929,6 +939,8 @@ export class App {
     this.unbindEvents = [];
     this.symbolUnsubscribe?.();
     this.symbolUnsubscribe = null;
+    this.ruleEngineUnsubscribe?.();
+    this.ruleEngineUnsubscribe = null;
     this.stopPanelRefresh();
     this.clearInteractiveBell();
     this.clearFrameTimer();
@@ -1441,6 +1453,42 @@ export class App {
       });
     } catch {
       this.symbolUnsubscribe = null;
+    }
+    return service;
+  }
+
+  /**
+   * 外部告警行入口（stderr 桥 / 插件 notice 总线）：进活动区、可回溯（tone 缺省 log）。
+   * 接线见 main.ts（桥）与 ruleEngine()（总线）。
+   */
+  appendExternalLog(line: string, tone?: NoticeTone): void {
+    this.notice(line, tone ?? "log");
+  }
+
+  /**
+   * rule-engine 服务懒读：首次可用时订阅告警总线（`onNotice` → 活动区）。
+   * 容忍插件装载顺序；未挂载 / 未实现 onNotice → undefined（插件侧 stderr 兜底）。
+   */
+  private ruleEngine(): RuleEngineLike | undefined {
+    if (this.ruleEngineService !== null) return this.ruleEngineService;
+    let service: RuleEngineLike | undefined;
+    try {
+      service = this.deps.getRuleEngine?.();
+    } catch {
+      service = undefined;
+    }
+    if (service === undefined) return undefined;
+    this.ruleEngineService = service;
+    try {
+      if (typeof service.onNotice === "function") {
+        this.ruleEngineUnsubscribe = service.onNotice((event) => {
+          this.appendExternalLog(event.text, event.tone);
+        });
+      } else {
+        this.ruleEngineUnsubscribe = null;
+      }
+    } catch {
+      this.ruleEngineUnsubscribe = null;
     }
     return service;
   }
