@@ -51,7 +51,7 @@ import type {
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
 import type { SessionUiState } from "../src/app/adapter/session-ui-state.ts";
 import type { FrameRow, Size } from "../src/renderer/screen.ts";
-import type { ThemeId } from "../src/renderer/theme.ts";
+import { THEMES, hexSgr, type ThemeId } from "../src/renderer/theme.ts";
 import { rowAnsi } from "./helpers/rowText.ts";
 
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";
@@ -369,6 +369,54 @@ test("/new：不重启进程新建会话 → 切换活跃会话、缓冲清空�
     plainFrame(renderer).includes("已新建会话 s-new2"),
     "提示新会话 id 与切回方式",
   );
+  app.dispose();
+});
+
+test("/new：门控通过时补发启动自检（[AUTO] 回显；切换完成后宏任务发送）", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const app = new TrackedApp({
+    renderer,
+    adapter,
+    notify: { enabled: false },
+    runShell: noopShell,
+    bootstrapKickoffForNewSession: () => "[AUTO] 启动自检（测试用例）",
+  });
+  app.start();
+  adapter.newSessionId = "s-new3";
+  typeAndEnter(renderer, "/new");
+  await flush();
+  await flush();
+  await flush();
+  assert.equal(adapter.newSessionCalls, 1, "新建会话已调用");
+  assert.equal(adapter.bootstrapKickoffs, 1, "切换完成后补发一次 kickoff");
+  const st = (): { buffer: { text: string }[] } =>
+    (app as unknown as { state: { buffer: { text: string }[] } }).state;
+  assert.ok(
+    st().buffer.some((l) => l.text === "[AUTO] 启动自检（测试用例）"),
+    "kickoff 以用户行回显: " + JSON.stringify(st().buffer.map((l) => l.text)),
+  );
+  app.dispose();
+});
+
+test("/new：门控返回 undefined 时不发 kickoff", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const app = new TrackedApp({
+    renderer,
+    adapter,
+    notify: { enabled: false },
+    runShell: noopShell,
+    bootstrapKickoffForNewSession: () => undefined,
+  });
+  app.start();
+  adapter.newSessionId = "s-new4";
+  typeAndEnter(renderer, "/new");
+  await flush();
+  await flush();
+  await flush();
+  assert.equal(adapter.newSessionCalls, 1, "新建会话已调用");
+  assert.equal(adapter.bootstrapKickoffs, 0, "门控不通过不发");
   app.dispose();
 });
 
@@ -3606,18 +3654,24 @@ test("notice tone → 4 级语义着色（log 灰 / info 蓝 / warn 黄 / result
   assert.ok(joined.includes("\x1b[38;2;97;211;131m完成"), "success tone → 绿");
 });
 
-test("本地 slash 分级：/help 内容 info 蓝、无效命令 error 红", () => {
+test("本地 slash 分级：/help 内容普通前景（不再 info 蓝）、无效命令 error 红", () => {
   const { renderer } = makeApp();
-  // /help → info 蓝（主动索取的信息展示）
+  // /help → 普通文本色（信息提示蓝与正文难区分，改默认前景）
   typeAndEnter(renderer, "/help");
   // 活动区 8 行窗口只显示帮助列表尾部行（最后一行必可见）
   const helpLine = renderer.lastRender.find((l) =>
     l.includes("其他 /name 通过 commands 注册表执行"),
   );
   assert.ok(helpLine, "/help 内容出现在帧中");
-  assert.ok(
-    helpLine!.includes("\x1b[38;2;90;152;243m"),
-    "帮助行按 info 蓝着色",
+  // 取帮助文本前最后一个 SGR = 该文本的**有效前景色**（行内另有焦点框竖线，属框色不参与）：
+  // 期望默认前景（不再是 info 蓝）
+  const at = helpLine!.indexOf("其他 /name");
+  const lastSgr =
+    [...helpLine!.slice(0, at).matchAll(/\x1b\[[0-9;]*m/g)].at(-1)?.[0] ?? "";
+  assert.equal(
+    lastSgr,
+    hexSgr(THEMES.dark.foreground, true),
+    "帮助文本按默认前景色（不再 info 蓝）",
   );
   // 无效 slash → error 红
   renderer.press({ name: "/", ctrl: false, meta: false, shift: false });

@@ -4347,6 +4347,23 @@ function makeAgentsToolsServices(): {
               depth: 1,
               parentId: "s1",
             },
+            {
+              kind: "child",
+              id: "child-3",
+              mode: "one-shot",
+              label: "pb-one",
+              activity: "inactive",
+              hasChildren: false,
+              depth: 1,
+              parentId: "s1",
+            },
+            {
+              kind: "diagnostic",
+              id: "child-4",
+              reason: "unavailable",
+              depth: 1,
+              parentId: "s1",
+            },
           ]);
         },
         interrupt(
@@ -4388,7 +4405,7 @@ function panelRows(
   return rows;
 }
 
-test("真实 adapter /agents：listDescendants(当前会话) 只取 depth=1，diagnostic 行无 payload", async () => {
+test("真实 adapter /agents：只取 depth=1；diagnostic / 一次性行无 payload；状态列过滤 unavailable", async () => {
   const { services, calls } = makeAgentsToolsServices();
   const { adapter, events, unbind } = makeAdapter(
     new FakeRuntime(),
@@ -4405,7 +4422,7 @@ test("真实 adapter /agents：listDescendants(当前会话) 只取 depth=1，di
     "rootSessionId = 当前会话 id",
   );
   const rows = panelRows(events, "agents");
-  assert.equal(rows.length, 2, "仅 depth=1 直接子代进 /agents 面板");
+  assert.equal(rows.length, 4, "仅 depth=1 直接子代进 /agents 面板");
   assert.deepEqual(rows[0], {
     title: "scout",
     detail: "continuable · running",
@@ -4416,6 +4433,26 @@ test("真实 adapter /agents：listDescendants(当前会话) 只取 depth=1，di
   assert.equal(diag?.title, "（诊断：corrupt）");
   assert.equal(diag?.status, "diagnostic");
   assert.equal(diag?.payload, undefined, "diagnostic 行无 payload → 不可中断");
+  const oneShot = rows[2];
+  assert.equal(oneShot?.title, "pb-one");
+  assert.equal(oneShot?.status, "inactive");
+  assert.equal(
+    oneShot?.payload,
+    undefined,
+    "一次性行无 payload（宿主 interrupt 为 no-op）",
+  );
+  assert.equal(
+    oneShot?.blockedReason,
+    "一次性子代理不支持中断（宿主仅支持 continuable）",
+  );
+  // 状态列（agents-changed）：unavailable 诊断被过滤；corrupt 与一次性条目保留
+  const statusEvents = events.filter((e) => e.type === "agents-changed");
+  const snapshot = statusEvents.at(-1)?.agents ?? [];
+  assert.deepEqual(
+    snapshot.map((a) => a.id),
+    ["child-1", "child-2", "child-3"],
+    "状态列过滤 unavailable、保留其余条目",
+  );
   unbind();
 });
 

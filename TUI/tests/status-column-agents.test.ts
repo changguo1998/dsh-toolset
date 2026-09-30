@@ -2,7 +2,7 @@
 //
 // 覆盖：有数据出块（标题 `Agents 运行中/总数`；运行中黄 ● / 空闲灰 ○ / 异常态红 ! + reason）、
 // 无数据整块省略、折叠分级（超窗时先隐藏非运行中）、按会话隔离、事件驱动即时刷新
-// （`subagent-activity`）与定时保鲜（随 StatusTicker；无数据 / 状态列隐藏时停止轮询）。
+// （`subagent-activity`）与定时保鲜（随 StatusTicker；空数据也轮询、状态列隐藏时停止轮询）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -188,21 +188,28 @@ test("事件驱动：agents-changed 入按会话切片；subagent-activity 触�
   assert.equal(st().agentsBySession["s-other"]?.length, 1);
 });
 
-test("定时保鲜：无数据不轮询；有数据后随 ticker 周期刷新", async () => {
-  const { adapter, app } = makeApp({ status: { intervalMs: 20 } });
+test("定时保鲜：无数据也轮询（不依赖事件面即可自动出块）", async () => {
+  const { adapter, st, app } = makeApp({ status: { intervalMs: 20 } });
   try {
-    await sleep(70);
-    assert.equal(adapter.refreshAgentsCalls, 0, "块为空时不轮询（空闲停止）");
-    adapter.agentsRows = [{ id: "s1", label: "w", status: "running" }];
+    // 先用一条带 sessionId 的常规事件确立活跃会话（轮询需要活跃会话；不再需要 agents 事件）
     adapter.push({
-      type: "agents-changed",
+      type: "mode",
       sessionId: "s1",
-      agents: adapter.agentsRows,
+      kind: "plan",
+      value: "off",
     });
     await sleep(70);
     assert.ok(
       adapter.refreshAgentsCalls > 0,
-      "有数据后定时保鲜（测试间隔 20ms）",
+      "空数据也按节律轮询（TUI#55：首个快照靠轮询到达）",
+    );
+    // 不推任何 subagent-activity / agents-changed 事件：下一次 tick 的轮询即写入切片
+    adapter.agentsRows = [{ id: "s1", label: "w", status: "running" }];
+    await sleep(70);
+    assert.equal(
+      st().agentsBySession["s1"]?.[0]?.label,
+      "w",
+      "轮询自动写入切片（块随之出现）",
     );
   } finally {
     app.dispose();

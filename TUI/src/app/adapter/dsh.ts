@@ -2903,8 +2903,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         return undefined;
       }
     },
-    /** 拉取子代理列表并归一化后推送两处：/agents 面板（command-panel-data；diagnostic 条目
-     *  灰显且 payload 置空——无可中断 id）与**状态列 Agents 块**（agents-changed，BACKLOG TUI#39）。
+    /** 拉取子代理列表并归一化后推送两处：/agents 面板（command-panel-data；diagnostic 与
+     *  一次性条目不可中断——payload 置空，后者附 `blockedReason` 原因）与**状态列 Agents 块**
+     *  （agents-changed，BACKLOG TUI#39；过滤 `unavailable` 诊断，见 TUI#56）。
      *  数据源：`listDescendants`（富条目 + depth），取 depth=1 的直接子代。 */
     async refreshAgents(): Promise<void> {
       const svc = opts.subagents;
@@ -2915,28 +2916,36 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         const entries = (
           (await svc.listDescendants(activeSessionId)) ?? []
         ).filter((entry) => (entry.depth ?? 1) === 1);
-        // 状态列 Agents 块：与面板同源归一化（label / 状态 / 异常标记）
-        const agentRows: AgentRowInfo[] = entries.map((entry) => {
-          const diagnostic = entry.kind === "diagnostic";
-          return {
-            id: entry.id ?? "-",
-            label: diagnostic
-              ? `（诊断：${entry.reason ?? "unknown"}）`
-              : (entry.label ?? "(未命名)"),
-            // 投影目录形态无 activity → 退用 mode（one-shot/continuable/unknown）作状态语义
-            status: diagnostic
-              ? "diagnostic"
-              : (entry.activity ?? entry.mode ?? ""),
-            ...(diagnostic
-              ? { diagnostic: { reason: entry.reason ?? "unknown" } }
-              : {}),
-          };
-        });
+        // 状态列 Agents 块：与面板同源归一化（label / 状态 / 异常标记）；过滤 `unavailable`
+        // 诊断（重启后不可物化的陈旧子代）——状态列只呈现当前活动，诊断详情仍可在
+        // /agents 面板查看（BACKLOG TUI#56）
+        const agentRows: AgentRowInfo[] = entries
+          .filter(
+            (entry) =>
+              !(entry.kind === "diagnostic" && entry.reason === "unavailable"),
+          )
+          .map((entry) => {
+            const diagnostic = entry.kind === "diagnostic";
+            return {
+              id: entry.id ?? "-",
+              label: diagnostic
+                ? `（诊断：${entry.reason ?? "unknown"}）`
+                : (entry.label ?? "(未命名)"),
+              // 投影目录形态无 activity → 退用 mode（one-shot/continuable/unknown）作状态语义
+              status: diagnostic
+                ? "diagnostic"
+                : (entry.activity ?? entry.mode ?? ""),
+              ...(diagnostic
+                ? { diagnostic: { reason: entry.reason ?? "unknown" } }
+                : {}),
+            };
+          });
         emit({
           type: "command-panel-data",
           kind: "agents",
           rows: entries.map((entry) => {
             const diagnostic = entry.kind === "diagnostic";
+            const oneShot = entry.mode === "one-shot";
             const title = diagnostic
               ? `（诊断：${entry.reason ?? "unknown"}）`
               : (entry.label ?? "(未命名)");
@@ -2954,7 +2963,15 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
               status: diagnostic
                 ? "diagnostic"
                 : (entry.activity ?? entry.mode ?? ""),
-              payload: diagnostic ? undefined : entry.id,
+              // 可中断载荷：诊断条目无可用 id；一次性条目宿主的 interrupt 是 accepted
+              // no-op（只支持 live continuable）→ 同样不给载荷，改以 blockedReason 说明
+              payload: diagnostic || oneShot ? undefined : entry.id,
+              ...(oneShot && !diagnostic
+                ? {
+                    blockedReason:
+                      "一次性子代理不支持中断（宿主仅支持 continuable）",
+                  }
+                : {}),
             };
           }),
         });

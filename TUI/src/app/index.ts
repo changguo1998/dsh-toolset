@@ -288,6 +288,10 @@ export interface AppDeps {
   /** 启动自检 kickoff 正文（门控通过时由 main.ts 传入；App 代替用户发出以完成锚定解锁）。
    *  不传 / adapter 未实现 sendBootstrapKickoff = 不发送 */
   bootstrapKickoffText?: string;
+  /** `/new` 的启动自检惰性门控（BACKLOG TUI#57；main.ts 接线）：每次新建会话**切换完成后**
+   *  调用，返回正文则补发 kickoff，undefined = 不发。不能复用 `bootstrapKickoffText`——
+   *  那是按启动会话判定的静态值（启动会话已解锁时为空） */
+  bootstrapKickoffForNewSession?: () => string | undefined;
   /** 自动清理空会话（tui.config.json `session.autoCleanEmpty`；main.ts 接线缺省 true）。
    *  true 时 start() 异步扫描全部目录删除空会话（notice 汇报），且优雅退出时
    *  （/quit、Ctrl+D、双击 Ctrl+C、插件 unload）先打印提示并等待清理完成再关闭渲染器。 */
@@ -511,7 +515,7 @@ export class App {
           // 可能晚于启动，早读会拿到内置兜底(如 deepseek-official)，故常驻跟随，
           // 值变化才重绘。与 /model 显示同一来源。
           this.refreshModelStatus();
-          // TUI#39：Agents 块同节律保鲜（无数据 / 状态列隐藏时自动停）
+          // TUI#39：Agents 块同节律保鲜（状态列隐藏时自动停；不依赖事件面，空数据也轮询）
           this.maybeRefreshAgents();
           // TUI#48：会话别名同节律保鲜（无插件 / 无别名时不动状态）
           void this.maybeRefreshSessionAlias();
@@ -1058,8 +1062,9 @@ export class App {
 
   /**
    * TUI#39：状态列 Agents 块的**定时**保鲜（随 StatusTicker 节律，缺省 5s）。
-   * 空闲停止：状态列被 Ctrl+S 隐藏、或该会话尚无子代理数据（块整块省略）时不轮询——
-   * 首个 `subagent/start` 事件会经 `subagent-activity` 即时补一次并让块出现，轮询随之上线。
+   * 停止条件只留「状态列被 Ctrl+S 隐藏 / 无活跃会话」：不依赖 `subagent-activity` 事件面
+   * （真机 playbook 场景事件不可靠），空数据也轮询——首个有效快照到达即出块（≤5s）；
+   * 事件路径仍作即时加速（见 `subagent-activity` 分支；BACKLOG TUI#55）。
    */
   /** 会话别名保鲜（TUI#48）：懒读 session-channel 别名清单，值变化才重绘。
    *  插件未挂载 / 未设别名 / 读取失败 → 静默跳过（状态栏增强项，不影响主流程）。 */
@@ -1104,9 +1109,7 @@ export class App {
   private maybeRefreshAgents(): void {
     if (this.disposed) return;
     if (!this.state.statusColumnVisible) return;
-    const sid = this.state.activeSessionId;
-    if (!sid) return;
-    if ((this.state.agentsBySession[sid] ?? []).length === 0) return;
+    if (!this.state.activeSessionId) return;
     this.refreshAgentsQuiet();
   }
 
@@ -1679,13 +1682,14 @@ export class App {
           // 守卫行恒无 payload：Enter 统一展示策略快照（policy()）
           void this.showGuardPolicy();
         } else if (!row.payload) {
-          // 无可中断 id 的条目（如 agents 的 diagnostic）：灰显 + 说明，不发服务调用；
+          // 无可中断 id 的条目（agents 的 diagnostic / 一次性等）：灰显 + 说明，不发服务调用；
           // 与其它 Enter 行为一致先关面板——否则说明 notice 会被面板占用的活动区遮住
           this.apply((s) => reduceState(s, { type: "command-panel-close" }));
           this.notice(
-            panel.kind === "agents"
-              ? "该条目不可中断（无可用会话 id）"
-              : "该条目无详情载荷",
+            row.blockedReason ??
+              (panel.kind === "agents"
+                ? "该条目不可中断（无可用会话 id）"
+                : "该条目无详情载荷"),
             "info",
           );
         } else if (panel.kind === "agents") {
@@ -2515,7 +2519,6 @@ export class App {
             type: "notice",
             text: "",
             lines: this.helpLines(),
-            tone: "info",
           }),
         );
         return;
@@ -3605,6 +3608,12 @@ export class App {
         this.restoreSessionState();
         this.notice(`已新建会话 ${id}（原会话可用 /session 切回）`, "success");
         this.paint();
+        // 启动自检补发（BACKLOG TUI#57）：与启动路径同款时序（先出切换后的首帧，宏任务再发；
+        // 消息回显与提交同路径）。门控惰性求值——按当前有效模型判定，全新会话必未解锁。
+        const kickoff = this.deps.bootstrapKickoffForNewSession?.();
+        if (typeof kickoff === "string" && kickoff.trim() !== "") {
+          setTimeout(() => this.submitBootstrapKickoff(kickoff), 0);
+        }
       },
       (err: unknown) =>
         this.notice(
@@ -3902,8 +3911,12 @@ export class App {
     try {
       await interrupt.call(adapter, childSessionId);
       this.notice(`已请求中断子代理 ${childSessionId}`, "success");
-    } catch {
-      this.notice("中断失败（子代理可能已结束或不可中断）", "error");
+    } catch (err) {
+      // 带出宿主/适配器给出的原因（如 authority 不匹配的 UNAUTHORIZED），不再只给笼统文案
+      this.notice(
+        `中断失败：${err instanceof Error ? err.message : String(err)}`,
+        "error",
+      );
     }
   }
 

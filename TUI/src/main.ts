@@ -30,6 +30,7 @@ import {
   installToolBootstrap,
   shouldAutoKickoff,
   BOOTSTRAP_KICKOFF_TEXT,
+  isDeepseekModel,
   listSessionRecords,
   pickRecentSession,
   readDefaultSelection,
@@ -80,6 +81,9 @@ export function main(opts: {
   /** 启动自检 kickoff 正文（门控通过时传入，App 代替用户发出以完成锚定解锁）；
    *  不传 = 不发送（非 deepseek 模型 / toolBootstrap 关闭 / 会话已解锁 / 记录不可读） */
   bootstrapKickoffText?: string;
+  /** `/new` 的启动自检惰性门控（BACKLOG TUI#57）：每次新建会话切换完成后调用，返回正文
+   *  则补发 kickoff；不传 / 返回 undefined = 不发 */
+  bootstrapKickoffForNewSession?: () => string | undefined;
   /** 重启交接文件路径（`process.env.DSH_RESTART_FILE`；非空 = 由处理退出码 75 的启动器启动，
    *  退出确认面板才提供「重启 dsh（保留会话）」；BACKLOG #51 / DESIGN「退出确认 ·「重启」方案」） */
   restartHandoffPath?: string;
@@ -111,6 +115,7 @@ export function main(opts: {
     initialTheme: opts.initialTheme ?? resolvedThemes.active,
     messageGutter: opts.messageGutter,
     bootstrapKickoffText: opts.bootstrapKickoffText,
+    bootstrapKickoffForNewSession: opts.bootstrapKickoffForNewSession,
     restartHandoffPath: opts.restartHandoffPath,
   });
   app.setLogger(opts.logger ?? ((msg) => void msg));
@@ -575,9 +580,21 @@ export async function apply(
   })
     ? BOOTSTRAP_KICKOFF_TEXT
     : undefined;
+  // `/new` 的启动自检门控（BACKLOG TUI#57）：惰性求值——每次新建会话时按**当前**有效模型
+  // 判定（不能复用启动时的 kickoffText：那是按启动会话判定的静态值）；全新会话必未解锁，
+  // 无需读 durable 记录。
+  const kickoffForNewSession = (): string | undefined => {
+    if ((config?.toolBootstrap ?? true) === false) return undefined;
+    const modelId =
+      sessionModel.current?.model ??
+      readDefaultSelection(defaultModelSvc)?.model ??
+      "";
+    return isDeepseekModel(modelId) ? BOOTSTRAP_KICKOFF_TEXT : undefined;
+  };
   const disposeApp = main({
     adapter,
     bootstrapKickoffText: kickoffText,
+    bootstrapKickoffForNewSession: kickoffForNewSession,
     // 启动器（如用户的 fffdsh 循环）经此变量声明「会处理退出码 75」（BACKLOG #51）
     restartHandoffPath: process.env.DSH_RESTART_FILE,
     initialTheme:

@@ -1094,6 +1094,8 @@ export interface CommandPanelRow {
   status?: string;
   /** 主操作载荷（Enter 时回传，如 skill 名称） */
   payload?: string;
+  /** Enter 被禁用时的原因说明（如 agents 的一次性条目不可中断）：设置时 Enter 只提示不改状态 */
+  blockedReason?: string;
 }
 
 /** 宿主 skills 服务条目结构面（dsh-skill SkillSummary 子集） */

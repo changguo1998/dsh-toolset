@@ -103,6 +103,12 @@ export class FakeAdapter implements DshAdapter {
     this.newSessionCalls++;
     return { id: this.newSessionId };
   }
+  /** 启动自检 kickoff 发送次数（BACKLOG TUI#57：/new 补发断言用） */
+  bootstrapKickoffs = 0;
+  sendBootstrapKickoff(): void {
+    this.bootstrapKickoffs++;
+    this.log.push("bootstrap-kickoff");
+  }
   /** 会话状态快照落盘记录（saveSessionUiState；模拟写入会话目录 tui-state.json） */
   savedUiStates: { sessionId: string; state: SessionUiState }[] = [];
   saveSessionUiState(sessionId: string, state: SessionUiState): boolean {

@@ -87,12 +87,14 @@ class FakeAgentsToolsAdapter implements DshAdapter {
   refreshAgents: (() => Promise<void>) | undefined =
     async (): Promise<void> => {
       this.refreshAgentsCalls++;
-      // 与 adapter/dsh.ts 相同的归一化：diagnostic 灰显且 payload 置空（不可中断）
+      // 与 adapter/dsh.ts 相同的归一化：diagnostic 灰显且 payload 置空（不可中断）；
+      // 一次性条目宿主 interrupt 为 no-op → 同样无 payload，附 blockedReason 原因
       this.emit({
         type: "command-panel-data",
         kind: "agents",
         rows: this.agents.map((entry) => {
           const diagnostic = entry.kind === "diagnostic";
+          const oneShot = entry.mode === "one-shot";
           return {
             title: diagnostic
               ? `（诊断：${entry.reason ?? "unknown"}）`
@@ -105,7 +107,13 @@ class FakeAgentsToolsAdapter implements DshAdapter {
               .filter((p) => p !== "")
               .join(" · "),
             status: diagnostic ? "diagnostic" : (entry.activity ?? ""),
-            payload: diagnostic ? undefined : entry.id,
+            payload: diagnostic || oneShot ? undefined : entry.id,
+            ...(oneShot && !diagnostic
+              ? {
+                  blockedReason:
+                    "一次性子代理不支持中断（宿主仅支持 continuable）",
+                }
+              : {}),
           };
         }),
       });
@@ -243,6 +251,40 @@ test("/agents：diagnostic 条目（无可用 id）→ 不调服务 + info 说�
   const f = frames(renderer);
   assert.ok(!f.includes("子代理（"), "关面板使说明可见: " + f);
   assert.ok(f.includes("该条目不可中断（无可用会话 id）"), "info 说明: " + f);
+  app.dispose();
+});
+
+test("/agents：一次性条目不可中断 → 不调服务 + 原因说明", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAgentsToolsAdapter();
+  adapter.agents = [
+    {
+      kind: "child",
+      id: "child-os",
+      mode: "one-shot",
+      label: "pb-one",
+      activity: "running",
+      hasChildren: false,
+    },
+  ];
+  const app = new App({ renderer, adapter });
+  app.start();
+  typeAndEnter(renderer, "/agents");
+  await tick();
+  press(renderer, "enter");
+  await tick();
+  await tick();
+  assert.equal(
+    adapter.interruptCalls.length,
+    0,
+    "一次性条目不应调用 interrupt",
+  );
+  const f = frames(renderer);
+  assert.ok(!f.includes("子代理（"), "关面板使说明可见: " + f);
+  assert.ok(
+    f.includes("一次性子代理不支持中断（宿主仅支持 continuable）"),
+    "给出不可中断原因: " + f,
+  );
   app.dispose();
 });
 
