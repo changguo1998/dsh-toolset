@@ -1,6 +1,6 @@
 # 会话别名自动生成（≤8 字符名词性单词或名字）（接取条目：`session-channel/docs/BACKLOG.md`「F1 会话别名自动生成（≤8 字符名词性单词或名字）」）
 
-状态：决策　　开启：2026-10-01
+状态：关闭　　开启：2026-10-01　　关闭：2026-10-01
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -43,8 +43,12 @@
 - 单测：`cd session-channel && npm run test` → 45 pass / 0 fail（含新增 4 例；集成例走真实临时 Redis）。
 - 全量：`npm run test`（根）→ 16 包全绿（session-channel 45 / TUI 1228 / 0 fail）。
 - 机械门禁：`npm run check` exit 0；`npm run build` exit 0（session-channel 包内）。
-- 真机确认（点 3 前）：重启后本会话应得 `ui-…` 别名（状态栏 `@别名` 段 + `alias list` 可见）；起一个子代理 → 其会话得 `sub-…` 别名（状态列 Agents 行显示别名）。
+- 真机确认（2026-10-01，点 3 前）：重启后状态栏出现 `@ui-iris`；起 20 秒验证子代理 → 状态列 Agents 行显示 `● sub-comet · bash sleep 20`（`sub-` 别名取代原名 + 工作内容）→ 用户确认「通过」。
 
 ## 收尾
 
-（待写）
+- 回写：无需（`session-channel/docs/DESIGN.md` 未描述别名生成——别名能力本体未变，属新增行为；本次以追踪文档 + 代码注释为准）。
+- BACKLOG 清理：session-channel 条目「F1 会话别名自动生成（≤8 字符名词性单词或名字）」已标「完成」（2026-10-01）并移除。
+- 归档：本追踪文档移入 `session-channel/docs/archived/`。
+- 残留检查：`git status` 无计划外文件；`tmp/` 无任务临时文件。
+- 遗留项：无（词表冲突 / TTL / 清理策略按决策「明确不做」）。
