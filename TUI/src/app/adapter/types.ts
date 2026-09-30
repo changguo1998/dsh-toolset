@@ -126,6 +126,10 @@ export interface AgentRowInfo {
   label: string;
   /** 状态语义：`running`（运行中）/ `inactive`（空闲）；缺失时回落 mode（one-shot / continuable） */
   status: string;
+  /** 会话别名（session-channel；状态列 Agents 块显示名 = 别名 ?? label） */
+  alias?: string;
+  /** 工作内容：该会话最近一次工具调用摘要（adapter 按会话记录；无记录时省略） */
+  work?: string;
   /** 异常态：宿主把该条目标为 diagnostic（投影不完整 / 不可续），reason 为宿主给出的短因 */
   diagnostic?: { reason: string };
 }
@@ -1542,4 +1546,7 @@ export interface RealAdapterOptions {
   web?: WebSearchLike;
   /** TUI 本地可配置搜索 provider 集合（多引擎聚合管线 inputs；可与 web 派生 provider 并存） */
   searchProviders?: readonly SearchProviderLike[];
+  /** ctx.get('sessionChannel') 只读面（session-channel 插件 provide）；状态列 Agents 块取
+   *  会话别名用，缺失 / 失败静默（不阻塞目录刷新） */
+  sessionChannel?: () => SessionChannelLike | undefined;
 }

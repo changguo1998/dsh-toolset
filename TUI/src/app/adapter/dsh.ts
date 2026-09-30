@@ -374,6 +374,18 @@ function normalizeHistoryMessages(
   return out;
 }
 
+/** 状态列 Agents 块「工作内容」：`name 参数摘要`（截 ≤40 字符；空参数只留 name） */
+function workSummary(name: string, args: unknown): string {
+  const detail =
+    typeof args === "string" && args.trim() !== ""
+      ? summarizeToolArguments(args)
+      : "";
+  const text = (detail === "" ? name : `${name} ${detail}`)
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > 40 ? text.slice(0, 39) + "…" : text;
+}
+
 /** 单行摘要最大长度（超出截断，避免工具行撑爆窄终端） */
 /**
  * tool/call.arguments（原始 JSON 字符串）→ 单行摘要：优先关键字段启发式
@@ -1146,6 +1158,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   const completedBlocks = new Set<string>();
   // P2 seq 守卫：per-session 游标，同 seq 重复/倒序丢弃（防重放），间隙接受
   const sessionSeq = new Map<string, number>();
+  /** 状态列 Agents 块「工作内容」：各会话（含子代理会话）最近一次工具调用摘要。
+   *  随 `refreshAgents` 清理离场会话（见 BACKLOG「Agents 列表显示别名 + 工作内容」）。 */
+  const lastToolBySession = new Map<string, string>();
   // TUI#17：已渲染的注入 notice 消息 id（user/message 与 agent/inbox/spliced 双通道
   // 可能携带同一条注入消息 → 去重；超上限清空，避免无界增长）
   const renderedNoticeIds = new Set<string>();
@@ -1578,6 +1593,14 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   // --- session/event 归一化 ---
   const onSessionEvent = (session: unknown, raw: SessionEvent): void => {
     const sid = (session as { id?: string } | null)?.id ?? activeSessionId;
+    // 状态列 Agents 块「工作内容」：**全会话**记录最近一次工具调用（先于活跃会话过滤；
+    // 子代理会话的事件只用于状态列，不进本会话 buffer）
+    if (raw.type === "tool/call") {
+      const call = raw.data as { name?: unknown; arguments?: unknown };
+      if (typeof call.name === "string" && call.name !== "") {
+        lastToolBySession.set(sid, workSummary(call.name, call.arguments));
+      }
+    }
     // 单活跃会话：非当前活跃会话的事件一律丢弃——其他 live 会话（列表标 [不可续]）
     // 不可注入输出/思考/标题到本会话 buffer 或状态栏
     if (sid !== activeSessionId) return;
@@ -2915,6 +2938,17 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         throw new Error("subagents 未挂载（宿主无子代理服务）");
       }
       try {
+        // 会话别名（状态列 Agents 块显示名 = 别名 ?? label）：增强项，读取失败静默
+        const aliasById = new Map<string, string>();
+        try {
+          const list = await opts.sessionChannel?.()?.aliasList();
+          if (list?.ok === true) {
+            for (const e of list.aliases ?? [])
+              aliasById.set(e.sessionId, e.alias);
+          }
+        } catch {
+          // 别名读取失败不阻塞目录刷新
+        }
         const entries = (
           (await svc.listDescendants(activeSessionId)) ?? []
         ).filter((entry) => (entry.depth ?? 1) === 1);
@@ -2928,8 +2962,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           )
           .map((entry) => {
             const diagnostic = entry.kind === "diagnostic";
+            const id = entry.id ?? "-";
+            const alias = aliasById.get(id);
+            const work = lastToolBySession.get(id);
             return {
-              id: entry.id ?? "-",
+              id,
               label: diagnostic
                 ? `（诊断：${entry.reason ?? "unknown"}）`
                 : (entry.label ?? "(未命名)"),
@@ -2937,11 +2974,19 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
               status: diagnostic
                 ? "diagnostic"
                 : (entry.activity ?? entry.mode ?? ""),
+              // 状态列 Agents 块：别名 + 工作内容（无别名 / 无记录时省略该段）
+              ...(alias !== undefined ? { alias } : {}),
+              ...(work !== undefined ? { work } : {}),
               ...(diagnostic
                 ? { diagnostic: { reason: entry.reason ?? "unknown" } }
                 : {}),
             };
           });
+        // 清理已离场会话的工具摘要（防无界增长）
+        const liveIds = new Set(agentRows.map((r) => r.id));
+        for (const id of lastToolBySession.keys()) {
+          if (!liveIds.has(id)) lastToolBySession.delete(id);
+        }
         emit({
           type: "command-panel-data",
           kind: "agents",

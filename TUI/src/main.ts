@@ -543,6 +543,10 @@ export async function apply(
     taskEngine: (ctx as { get?: (name: string) => unknown }).get?.(
       "taskEngine",
     ) as TaskEngineLike | undefined,
+    // 会话通道只读面（ctx.get('sessionChannel')）：状态列 Agents 块取会话别名，缺失/失败静默
+    sessionChannel: (): SessionChannelLike | undefined =>
+      (ctx as { get?: (name: string) => unknown }).get?.("sessionChannel") as
+        SessionChannelLike | undefined,
     // 安全守卫只读查询面（ctx.get('guard')，security-guard provide；缺失时 /guard 提示不可用）
     guard: (ctx as { get?: (name: string) => unknown }).get?.("guard") as
       SecurityGuardLike | undefined,

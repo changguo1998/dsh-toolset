@@ -1,6 +1,7 @@
 // tests/status-column-agents.test.ts — 状态列 Agents 块（BACKLOG TUI#39）
 //
-// 覆盖：有数据出块（标题 `Agents 运行中/总数`；运行中黄 ● / 空闲灰 ○ / 异常态红 ! + reason）、
+// 覆盖：有数据出块（标题 `Agents 运行中/总数`；运行中黄 ● / 空闲灰 ○ / 异常态红 !）、
+// 行文本 = 别名 ?? label（+ 工作内容；不带状态词与短 id）、
 // 无数据整块省略、折叠分级（超窗时先隐藏非运行中）、按会话隔离、事件驱动即时刷新
 // （`subagent-activity`）与定时保鲜（随 StatusTicker；空数据也轮询、状态列隐藏时停止轮询）。
 
@@ -126,17 +127,37 @@ test("Agents 块：标题统计 + 运行中黄 ● / 空闲灰 ○ / 异常态�
     running.includes(sgrOf("yellow")),
     "运行中黄: " + JSON.stringify(running),
   );
-  assert.ok(running.includes("运行中"));
+  // BACKLOG「Agents 列表显示别名 + 工作内容」：不加状态词、不带短 id（状态由符号/配色表达）
+  assert.ok(!running.includes("运行中"), "不带状态词: " + running);
+  assert.ok(!running.includes("s-aaaa11"), "不带短 id: " + running);
   const idle = rowOf("worker-b");
   assert.ok(idle.includes("○ "), "空闲符号 ○");
   assert.ok(idle.includes(sgrOf("gray")), "空闲灰: " + JSON.stringify(idle));
+  assert.ok(!idle.includes("inactive"), "不带状态词（inactive）: " + idle);
   const diag = rowOf("broken");
   assert.ok(diag.includes("! "), "异常态符号 !");
   assert.ok(diag.includes(sgrOf("red")), "异常态红: " + JSON.stringify(diag));
-  assert.ok(diag.includes("不可用(corrupt)"), "附宿主 reason: " + diag);
-  // 短 id：超过 8 字符截断
-  assert.ok(running.includes("s-aaaa11"), "短 id 展示: " + running);
-  assert.ok(!running.includes("s-aaaa1111"), "id 截断到 8 字符");
+  assert.ok(diag.includes("broken"), "诊断名保留: " + diag);
+});
+
+test("Agents 块：显示别名 + 工作内容（别名优先于 label；无 work 不占位）", () => {
+  const withMeta: AgentRowInfo[] = [
+    {
+      id: "s-a",
+      label: "worker-a",
+      status: "running",
+      alias: "otter",
+      work: "bash npm run test",
+    },
+    { id: "s-b", label: "worker-b", status: "inactive" },
+  ];
+  const text = rows(withMeta, 10, 40).join("\n");
+  assert.ok(
+    text.includes("● otter · bash npm run test"),
+    "别名 + 工作内容: " + text,
+  );
+  assert.ok(text.includes("○ worker-b"), "无别名回落 label: " + text);
+  assert.ok(!text.includes("worker-b ·"), "无工作内容不占位: " + text);
 });
 
 test("Agents 块：无数据（缺省 / 空数组）整块省略", () => {

@@ -1049,15 +1049,10 @@ function agentItemRows(a: AgentRowInfo, width: number): StatusRow[] {
   const running = a.status === "running";
   const fg: ColorName = diag ? "red" : running ? "yellow" : "gray";
   const sym = diag ? "! " : running ? "● " : "○ ";
-  const statusText = diag
-    ? `不可用(${diag.reason})`
-    : running
-      ? "运行中"
-      : a.status === ""
-        ? "空闲"
-        : a.status;
-  const shortId = a.id.length > 8 ? a.id.slice(0, 8) : a.id;
-  const text = `${sym}${a.label} · ${statusText} ${shortId}`.trimEnd();
+  // BACKLOG「Agents 列表显示别名 + 工作内容」：显示名 = 别名 ?? label；工作内容 = 最近一次
+  // 工具调用摘要（无记录省略）；不再输出状态词与短 id（状态由符号/配色表达，详细见 /agents 面板）。
+  const text =
+    `${sym}${a.alias ?? a.label}${a.work ? ` · ${a.work}` : ""}`.trimEnd();
   return wrapLine(text, Math.max(1, width)).map((line) => ({
     segments: [seg(line, { fg })],
   }));

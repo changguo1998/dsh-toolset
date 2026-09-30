@@ -18,6 +18,8 @@ import {
   type DshAgentLike,
   type DshCommandLike,
   type SubagentsLike,
+  type SessionChannelLike,
+  type AgentRowInfo,
   type ToolsLike,
   type SettingsLike,
   type TaskEngineLike,
@@ -140,6 +142,7 @@ interface AdapterServices {
   workflowEngine?: { present?: true };
   web?: WebSearchLike;
   searchProviders?: readonly SearchProviderLike[];
+  sessionChannel?: () => SessionChannelLike | undefined;
 }
 
 interface TestHarness {
@@ -4500,6 +4503,80 @@ test("真实 adapter /agents：只取 depth=1 的直接子代（depth=2 后代�
   assert.equal(rows.length, 1, "depth=2 的后代不进 /agents 面板");
   assert.equal(rows[0]?.payload, "child-1");
   unbind();
+});
+
+test("真实 adapter /agents：状态列行带别名与工作内容（子会话 tool/call；离场清理）", async () => {
+  type Entry = Awaited<
+    ReturnType<NonNullable<SubagentsLike["listDescendants"]>>
+  >[number];
+  const child: Entry = {
+    kind: "child",
+    id: "child-1",
+    mode: "continuable",
+    label: "scout",
+    activity: "running",
+    hasChildren: false,
+    depth: 1,
+    parentId: "s1",
+  };
+  let children: Entry[] = [child];
+  const services: AdapterServices = {
+    subagents: {
+      listDescendants: () => Promise.resolve(children),
+      interrupt() {},
+    },
+    sessionChannel: () => ({
+      aliasList: () =>
+        Promise.resolve({
+          ok: true,
+          aliases: [{ alias: "otter", sessionId: "child-1", online: true }],
+        }),
+    }),
+  };
+  const t = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  // 子代理会话（非活跃 s1）的工具调用也进「工作内容」记录
+  t.runtime.fire(
+    "session/event",
+    { id: "child-1" },
+    {
+      type: "tool/call",
+      seq: 1,
+      time: Date.now(),
+      data: {
+        callId: "c1",
+        name: "bash",
+        arguments: '{"command":"npm run test"}',
+      },
+    },
+  );
+  const snapshot = (): AgentRowInfo[] => {
+    const e = t.events.filter((ev) => ev.type === "agents-changed").at(-1);
+    return e?.type === "agents-changed" ? e.agents : [];
+  };
+  await t.adapter.refreshAgents?.();
+  const first = snapshot().find((a) => a.id === "child-1");
+  assert.equal(first?.alias, "otter", "别名取自 sessionChannel.aliasList");
+  assert.equal(
+    first?.work,
+    "bash npm run test",
+    "工作内容 = 最近一次工具调用摘要",
+  );
+  // 离场清理：目录不含该 id 时摘要被清理，重现不再带旧工作内容
+  children = [];
+  await t.adapter.refreshAgents?.();
+  children = [child];
+  await t.adapter.refreshAgents?.();
+  const again = snapshot().find((a) => a.id === "child-1");
+  assert.equal(again?.work, undefined, "离场后摘要清理（重现不带旧工作内容）");
+  assert.equal(again?.alias, "otter", "别名仍按清单回填");
+  t.unbind();
 });
 
 test("真实 adapter /agents：interrupt 的 authority 契约（user + parentSessionId）", async () => {
