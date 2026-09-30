@@ -233,25 +233,33 @@ function layoutQuestionPanel(
     `${cursor}${mark} ${String(idx + 1).padStart(numW)}.`;
 
   /**
-   * 折行后定位编辑光标（BACKLOG TUI#35）：在**折行后的行**上按字符偏移累加显示宽度，
-   * 行内列 = 该行内前缀的显示宽度（含 CJK）。
+   * 折行后定位编辑光标（BACKLOG TUI#35；续行坐标修正见「自定义输入换行后光标与字符错位」）：
+   * caretIndex 是**文本坐标**（首行含前缀、续行不含 contIndent），视觉行首行无缩进、
+   * 续行有 contIndent——故逐行扣掉该缩进再折算列，避免续行 caret 少算缩进宽度。
    * @returns 行号（optRows 内绝对行）与 0 基显示列；caretIndex 缺省 = 无光标
    */
   const caretInWrapped = (
     rows: readonly string[],
     caretIndex: number | undefined,
+    contIndentLen: number,
   ): { row: number; col: number } | null => {
     if (caretIndex === undefined) return null;
     let offset = 0;
     for (let r = 0; r < rows.length; r++) {
       const rowText = rows[r]!;
-      if (caretIndex <= offset + rowText.length) {
+      const contentStart =
+        r === 0 ? 0 : Math.min(contIndentLen, rowText.length);
+      const contentLen = rowText.length - contentStart;
+      if (caretIndex <= offset + contentLen) {
+        const inRow = caretIndex - offset;
         return {
           row: optRows.length - rows.length + r,
-          col: displayWidth(rowText.slice(0, caretIndex - offset)),
+          col:
+            displayWidth(rowText.slice(0, contentStart)) +
+            displayWidth(rowText.slice(contentStart, contentStart + inRow)),
         };
       }
-      offset += rowText.length;
+      offset += contentLen;
     }
     return null;
   };
@@ -269,7 +277,7 @@ function layoutQuestionPanel(
     for (const r of rows) {
       optRows.push({ text: r, color });
     }
-    const caret = caretInWrapped(rows, caretIndex);
+    const caret = caretInWrapped(rows, caretIndex, contIndent.length);
     if (desc) {
       // 解释另起一行，且与选项内容左对齐（BACKLOG 3.2.12）
       const w = Math.max(1, avail - contIndent.length);

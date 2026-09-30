@@ -407,6 +407,37 @@ test("TUI#49：caret=0 可见、末位插入后列在末字符之后（生产 di
   );
 });
 
+test("折行后 caret：续行按视觉行定位、列含续行缩进（「问答面板自定义输入换行后光标与字符错位」）", () => {
+  const st = questionState([
+    { id: "q1", question: "问题", header: "头", options: [{ label: "A" }] },
+  ]);
+  const base = reduceState(st, { type: "question-move", delta: 1 }); // → 自定义兜底项
+  const custom = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const caretAt = 30; // custom[30] = "E"，落在折行后的续行
+  const width = 40;
+  const panel = panelOf(
+    reduceState(base, {
+      type: "question-custom",
+      text: custom,
+      caret: caretAt,
+    }),
+  );
+  const caret = questionCaretFor(panel, 10, width);
+  assert.ok(caret, "编辑焦点应产出 caret");
+  const lines = plain(renderQuestionPanel(panel, 10, width));
+  const row = lines[caret!.row] ?? "";
+  const at = row.indexOf("E");
+  assert.ok(
+    at >= 0,
+    "caret 行应为折行后的续行（含 custom[30] 的 E）: " + JSON.stringify(row),
+  );
+  assert.equal(
+    caret!.col,
+    prodDisplayWidth(row.slice(0, at)),
+    `caret 列应落在续行「E」字符处（得到 ${caret!.col}，期望 ${prodDisplayWidth(row.slice(0, at))}）`,
+  );
+});
+
 test("审批描述窗：长草稿可滚动查看末尾（BACKLOG 3.2.1）", () => {
   const prompt = Array.from({ length: 10 }, (_, i) => `审批第${i + 1}行`).join(
     "\n",
