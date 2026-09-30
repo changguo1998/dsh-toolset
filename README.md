@@ -1,36 +1,38 @@
+English | [中文](README.zh.md)
+
 # dsh-toolset
 
-DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方式挂载进 DSH 会话进程的一组 TypeScript 插件，补齐任务树、知识库与记忆、目标契约、指标循环等能力；另含一套自研终端 UI（TUI），是 Web UI / CLI 之外的第三种交互方式。
+An in-process plugin toolset for DSH (DeepSeek Harness): a set of TypeScript plugins mounted into the DSH session process as cordis bundles, filling in capabilities such as task trees, a knowledge base with persistent memory, goal contracts, and metric loops. It also ships a homegrown terminal UI (TUI) — a third way to interact with DSH alongside the Web UI and the CLI.
 
-面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `docs/host/DSH-CTX-API.md`（只读参考，已按当前宿主 `dsh-v0.1.7-rc.2` 逐条复核；两版接口差异见升级对照文档）。
+For agent-facing collaboration rules, see `AGENTS.md` in the repository root. For DSH contract notes shared across plugins, see `docs/host/DSH-CTX-API.md` (read-only reference, re-checked clause by clause against the current host `dsh-v0.1.7-rc.2`; for the differences between the two interface versions, see the upgrade comparison doc).
 
-## 组成
+## Composition
 
-仓库含 `TUI/` 终端界面包与 15 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
+The repository contains the `TUI/` terminal UI package and 16 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
 
-| 包 | 功能 |
+| Package | What it does |
 |----|------|
-| **TUI**（`TUI/`，`@dsh-toolset/tui`） | 终端 UI：会话/活动区/状态列/输入区四区布局，事件化渲染、slash 命令、会话切换与清理、模型/审批面板；**零运行时依赖**（源码零第三方 import，颜色走 manual ANSI） |
-| **herdr-integration** | herdr 面板桥：agent 状态经 unix socket 上报 herdr 面板，并桥接 blocked 事件（ask-user 提问、approval 审批、turn 阻塞三类信号源） |
-| **task-engine** | 任务树引擎：Frame 状态机、`decompose`/`implement`/`stop`/`status` 工具族、机械+语义双重门禁与 RET 验收路由 |
-| **knowledge-base** | 跨会话知识库与持久记忆：`sources`/`chunks` 两张基表 + 两张 FTS5 虚表，两级写策略与淘汰提升，供其他插件经宿主共享面读写 |
-| **goal-contract** | goal 会话契约起草：interview 式提问导出「目标 + Done-when 验证条款」（schema 对齐 task-engine 三级验收），落 dsh-goal 事件源 |
-| **metric-loop** | 指标驱动自动循环：测量命令解析单个数字、plateau 平稳停止、轮数/时间/token 边界、cadence 自动唤醒 |
-| **output-compress** | 大输出压缩入库：超阈值命令/工具输出的确定性摘要 + 切片索引写入 knowledge-base 共享库，原始大输出不进模型上下文 |
-| **fs-digest** | 上下文感知文件读取：`outline`/`signatures`/`pruned` 三模式返回最小充分上下文，替代整文件 `read` |
-| **hash-edit** | LINE:HASH 锚定编辑：读取得到每行内容哈希锚点，编辑按锚点定位，内容过期（stale）整批拒绝、防脏写 |
-| **ast-tools** | 基于 ast-grep 的 AST 结构搜索、结构化替换、文件大纲与 YAML 规则执行（经系统 CLI 子进程，零运行时依赖） |
-| **security-guard** | 安全守卫：危险命令黑名单 + 敏感文件保护策略层，挂在宿主 `tools/pre-execute` 水位线，命令下发前拦截 |
-| **code-map** | 代码结构地图：文件节点 + import 图索引，`callers`/`callees`/`cycles`/`impact` 查询与项目/模块报告（引用为候选，无 LSP 语义层）；经 `link:` 依赖 `@dsh-toolset/ast-tools`（挂载时需一并安装） |
-| **context-report** | 会话上下文与用量报告：host-only 投影 `sessionContext` 折叠会话累计（回合/步、模型与工具墙钟、首 token、token 分桶），工具 `context_report` 合成 token-meter 即时压力与模型容量读数 |
-| **rule-engine** | 规则触发的自动注入：按关键词/正则/内置谓词匹配模型正文、工具调用与回合边界，命中后向下一回合（`followup`）或最近 pre-step（`next-step`）注入 user-role 消息；提供消费者注册面（`registerConsumer`，turn-end 同步询问并统一注入）与只读 `evaluate` |
-| **symbol-normalizer** | 符号规范：模型正文符号的展示层归一（别名替换）+ 回合审查（人类 notice / 模型反馈），以 rule-engine 消费者形式接入；provide `symbolNormalizer` 服务供 TUI 消费 |
-| **session-channel** | 跨会话消息通道（专用 Redis 实例 + unix socket）：`peers`/`send`/`inbox`/`status`，消息注入目标会话的下一回合（形如 `[CHANNEL](来源) 正文`）；provide `sessionChannel` 服务（含别名与共享 KV：last-value + 版本号） |
-| **session-title-cutoff** | 会话标题 provider：触发保持 all-prompts，参考窗口改为「最近一次 `git commit` 之后」的人类消息（无提交/窗口为空回退全量）；接管 `ctx.sessionTitle` 唯一 provider，需在 profile 禁用官方 all-prompts 实现 |
+| **TUI** (`TUI/`, `@dsh-toolset/tui`) | Terminal UI: four-region layout (conversation / activity / status column / input), event-driven rendering, slash commands, session switching and cleanup, model and approval panels; **zero runtime dependencies** (no third-party imports in the source, colors via manual ANSI) |
+| **herdr-integration** | herdr panel bridge: agent state is reported to the herdr panel over a unix socket, and blocked events are bridged across three signal sources (ask-user questions, approvals, turn blocking) |
+| **task-engine** | Task tree engine: Frame state machine, the `decompose`/`implement`/`stop`/`status` tool family, mechanical + semantic dual gating, and RET acceptance routing |
+| **knowledge-base** | Cross-session knowledge base and persistent memory: two base tables (`sources`/`chunks`) plus two FTS5 virtual tables, a two-level write policy with eviction and promotion, readable and writable by other plugins through the host's shared surface |
+| **goal-contract** | Goal session contract drafting: interview-style questioning produces a goal plus Done-when acceptance clauses (schema aligned with task-engine's three-level acceptance), persisted to the dsh-goal event source |
+| **metric-loop** | Metric-driven automatic loop: a measure command parses a single number, plateau stop, round/time/token bounds, cadence auto-wake |
+| **output-compress** | Large-output compression into the store: deterministic digests of over-threshold command/tool output plus a slice index written to the shared knowledge-base store, so raw large output never enters the model context |
+| **fs-digest** | Context-aware file reading: `outline`/`signatures`/`pruned` modes return the minimum sufficient context instead of a whole-file `read` |
+| **hash-edit** | LINE:HASH anchored editing: reads return a content hash anchor for every line, edits locate lines by anchor, and stale content rejects the whole batch — no dirty writes |
+| **ast-tools** | AST structural search, structured replacement, file outlines and YAML rule execution on top of ast-grep (through the system CLI as a subprocess, zero runtime dependencies) |
+| **security-guard** | Security guard: a dangerous-command blacklist plus a sensitive-file protection policy layer, hooked into the host's `tools/pre-execute` watermark to intercept commands before they are dispatched |
+| **code-map** | Code structure map: file nodes plus an import graph index, with `callers`/`callees`/`cycles`/`impact` queries and project/module reports (references are candidates, no LSP semantic layer); depends on `@dsh-toolset/ast-tools` via `link:`, so install both when mounting |
+| **context-report** | Session context and usage report: the host-only `sessionContext` projection folds session totals (turns/steps, model and tool wall clock, first token, token buckets), and the `context_report` tool combines token-meter live pressure with model capacity readings |
+| **rule-engine** | Rule-triggered automatic injection: matches model text, tool calls and turn boundaries by keyword/regex/built-in predicate, then injects a user-role message into the next turn (`followup`) or the nearest pre-step (`next-step`); exposes a consumer registration surface (`registerConsumer`, turn-end synchronous query with unified injection) and a read-only `evaluate` |
+| **symbol-normalizer** | Symbol normalization: presentation-layer normalization of symbols in model text (alias substitution) plus turn review (human notice / model feedback), plugged in as a rule-engine consumer; provides the `symbolNormalizer` service for the TUI to consume |
+| **session-channel** | Cross-session message channel (dedicated Redis instance + unix socket): `peers`/`send`/`inbox`/`status`, with messages injected into the target session's next turn (as `[CHANNEL](来源) 正文`); provides the `sessionChannel` service (aliases plus shared KV: last-value + version number) |
+| **session-title-cutoff** | Session title provider: keeps the all-prompts trigger but narrows the reference window to human messages after the most recent `git commit` (falls back to the full set when there are no commits or the window is empty); takes over as the sole provider of `ctx.sessionTitle`, so the official all-prompts implementation must be disabled in the profile |
 
-各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/STATUS.md`。
+Every package's `package.json` carries the `dsh.bundle` integration contract along with a `cordis.patch.yml`; see each package's `README.md` for feature details and `docs/STATUS.md` for development status.
 
-## 目录结构
+## Directory layout
 
 ```
 dsh-toolset/
@@ -50,6 +52,7 @@ dsh-toolset/
 ├── rule-engine/          # 规则触发的自动注入（规则 / 消费者面 + 注入器）
 ├── symbol-normalizer/    # 符号规范（展示归一 + 回合审查，rule-engine 消费者）
 ├── session-channel/      # 跨会话消息通道（专用 Redis 实例 + unix socket）
+├── session-title-cutoff/ # 会话标题 provider（all-prompts 触发不变，参考窗口=最近一次 git commit 之后）
 ├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
 ├── scripts/              # install.sh（新机器一键安装）；测试调度脚本
 ├── docs/                 # 状态表、待办清单、agent 面组合说明、架构对照与宿主包清单
@@ -59,9 +62,9 @@ dsh-toolset/
 └── package.json          # 根脚本：委托全部子包的 check/build/test
 ```
 
-## 快速开始（构建与测试）
+## Quick start (build and test)
 
-仓库根 `package.json` 委托全部子包：
+The repository root `package.json` delegates to all subpackages:
 
 ```sh
 npm run check   # 全部子包类型检查（tsc --noEmit）
@@ -72,11 +75,11 @@ npm run demo -- --smoke   # TUI 冒烟检查（帧断言 SMOKE_PASS）
 npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/文件名过滤）
 ```
 
-单个子包内直接运行各自的 `npm run check / build / test / demo`（TUI 另有 `bench`、`smoke:pty`）。命令细节、并行调度参数与过滤用法见 `AGENTS.md`。
+Inside a single subpackage you can run its own `npm run check / build / test / demo` directly (the TUI also has `bench` and `smoke:pty`). For command details, parallel scheduling flags and filter usage, see `AGENTS.md`.
 
-## 接入 DSH profile 使用
+## Wiring into a DSH profile
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 16 个包）：
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 16 packages):
 
 ```sh
 git clone <本仓库> && cd dsh-toolset
@@ -84,9 +87,9 @@ scripts/install.sh                 # profile 名默认 fff
 scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/--dry-run
 ```
 
-脚本幂等：已存在的 profile 配置文件默认保留，`--force` 才覆盖且先备份；只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。
+The script is idempotent: existing profile config files are kept by default, and only `--force` overwrites them (backing them up first). It writes only to `$DSH_HOME` (default `~/.dsh`) and this repository.
 
-手工配置时各插件以 cordis bundle 方式挂载到 DSH profile。示例（`~/.dsh/profiles/fff`，详见 `TUI/README.md`）：
+For manual setup, mount each plugin into a DSH profile as a cordis bundle. Example (`~/.dsh/profiles/fff`, see `TUI/README.md` for details):
 
 ```jsonc
 // <profile>/package.json
@@ -96,49 +99,49 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 }
 ```
 
-本地开发期使用 `link:` 依赖，构建产物经 symlink 实时可见，无需重新安装；正式发布形态为 `dsh plugin --profile <p> add <包名>`。核对组合树用 `dsh --profile <p> --dump-config`，启动用 `dsh --profile <p>`。
+During local development, use `link:` dependencies: build artifacts are visible through the symlink immediately, with no reinstall. The release form is `dsh plugin --profile <p> add <包名>`. Inspect the composition tree with `dsh --profile <p> --dump-config`, and start with `dsh --profile <p>`.
 
-仓库内 `profiles/example/` 是可直接复制的 profile 三件套示例（清单 + 用户层 patch + pnpm 配置），演示 `- id:` 覆盖与 `- insert:` 新增两种方言、`!!js` 表达式，以及权限预设表覆盖（自定义沙箱 + 审批捆绑预设）；部署步骤与边界见 `profiles/README.md`。
+`profiles/example/` in this repository is a ready-to-copy three-file profile example (manifest + user-layer patch + pnpm config); it demonstrates both dialects — `- id:` overriding and `- insert:` adding — as well as `!!js` expressions and permission preset table overrides (custom sandbox + approval-bundled presets). For deployment steps and boundaries, see `profiles/README.md`.
 
-### agent 面组合（不使用 preset）
+### Agent-side composition (no preset)
 
-本项目只用 TUI，agent 面由 profile 的全局组合提供（`dsh-base` + 本项目 bundles + `cordis.patch.yml`），**不配置也不加载 agent preset**：官方设计里 TUI 是"没有 preset 的单组合面"，`/preset` 提示「agent 预设服务不可用」属正常。要改工具 / 提示 / 人格请落 profile 用户 patch；需要多套组合用多个 profile。官方依据、本机验证与 0.1.7 版本断层见 `docs/host/AGENT-COMPOSITION.md`。
+This project uses the TUI only, and the agent side comes from the profile's global composition (`dsh-base` + this project's bundles + `cordis.patch.yml`). **No agent preset is configured or loaded**: in the official design the TUI is "a single composition surface without a preset", so `/preset` reporting that the agent preset service is unavailable is expected. To change tools, prompts or persona, put it in the profile user patch; for multiple compositions, use multiple profiles. See `docs/host/AGENT-COMPOSITION.md` for the official basis, local verification, and the 0.1.7 version gap.
 
-## 文档
+## Documentation
 
-索引只此一处（`AGENTS.md` 不重复列清单）；每份文档开头三行写明「职责 / 不负责 / 过期条件」。
+This is the only index (`AGENTS.md` does not repeat the list); every document opens with three lines stating "what it owns / what it does not own / when it expires".
 
-变更流程分两条：标准流程见 `docs/WORKFLOW-STANDARD.md`（详版）、小改动快速流程见 `docs/WORKFLOW-FAST.md`，简版见 `AGENTS.md`「内容变更规范」：条目在 `BACKLOG.md`，过程记录写进追踪文档，关闭后移入 `archived/`（快速流程免条目与追踪文档）。
+There are two change flows: the standard flow in `docs/WORKFLOW-STANDARD.md` (full version) and the fast flow for small changes in `docs/WORKFLOW-FAST.md`, with the short version in `AGENTS.md` under "Content change policy": items live in `BACKLOG.md`, process records go into a tracking document, and closed ones move into `archived/` (the fast flow skips items and tracking documents).
 
-**项目级（`docs/`）**
+**Project-level (`docs/`)**
 
-- `docs/ROADMAP.md` — 未来开发方向与完成判据（进度、排期与条目见 `docs/BACKLOG.md` §3 里程碑）。
-- `docs/BACKLOG.md` — 可执行条目：跨包功能与缺陷（P0/P1/P2）+ 里程碑 + 插件规划。
-- `docs/STATUS.md` — 对照文档：记录已实现的内容（由维护者择时更新）。
-- `docs/WORKFLOW-STANDARD.md` — 内容变更规范 · 标准流程（详版）。
-- `docs/WORKFLOW-FAST.md` — 内容变更规范 · 快速流程（小改动）。
-- `docs/implementation/`、`docs/archived/` — 跨包条目的追踪文档（进行中 / 已关闭）。
+- `docs/ROADMAP.md` — future development directions and completion criteria (progress, schedule and items live in `docs/BACKLOG.md` §3 milestones).
+- `docs/BACKLOG.md` — actionable items: cross-package features and defects (P0/P1/P2) + milestones + plugin roadmap.
+- `docs/STATUS.md` — reference document recording what has been implemented (updated by maintainers as needed).
+- `docs/WORKFLOW-STANDARD.md` — content change policy · standard flow (full version).
+- `docs/WORKFLOW-FAST.md` — content change policy · fast flow (small changes).
+- `docs/implementation/`, `docs/archived/` — tracking documents for cross-package items (in progress / closed).
 
-**宿主面（`docs/host/`，不参与变更流程，升宿主后必复核）**
+**Host surface (`docs/host/`, outside the change process — always re-check after a host upgrade)**
 
-官方接口研读与升级文档的集中地——**不限 dsh-base**：任何宿主官方接口（ctx API、各子系统与子包的契约）的研读笔记都放这里。
+The home for official interface study notes and upgrade documents — **not limited to dsh-base**: notes on any official host interface (the ctx API, the contracts of subsystems and subpackages) belong here.
 
-- `docs/host/DSH-CTX-API.md` — 宿主 ctx 接口研读笔记（跨插件契约，只读参考）。
-- `docs/host/HOST-PACKAGES.md` — 宿主官方包与服务字典（生成物，升宿主后重新生成）。
-- `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` — 当前升级对照（0.1.5-rc.3 → 0.1.7-rc.2）与实施状态；下次升级另开新文件，本份移入根 `archive/`。
-- `docs/host/AGENT-COMPOSITION.md` — agent 面组合现状与官方依据（TUI 走 profile 全局组合、不配 preset）。
-- `docs/host/AGENT-ARCHITECTURE-ANALOGY.md` — 官方 agent 架构与接口对照（task-engine、knowledge-base 的设计依据）。
+- `docs/host/DSH-CTX-API.md` — host ctx interface study notes (cross-plugin contract, read-only reference).
+- `docs/host/HOST-PACKAGES.md` — dictionary of official host packages and services (generated; regenerate after a host upgrade).
+- `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` — current upgrade comparison (0.1.5-rc.3 → 0.1.7-rc.2) and implementation status; the next upgrade opens a new file and moves this one into the root `archive/`.
+- `docs/host/AGENT-COMPOSITION.md` — current agent-side composition and its official basis (the TUI uses profile-wide composition, with no preset).
+- `docs/host/AGENT-ARCHITECTURE-ANALOGY.md` — official agent architecture and interface comparison (the design basis for task-engine and knowledge-base).
 
-**模块级（`TUI/docs/`、`<包>/docs/`）**
+**Module-level (`TUI/docs/`, `<package>/docs/`)**
 
-- `TUI/README.md`、`<包>/README.md` — 模块入口：用法、配置、契约、边界。
-- `TUI/docs/DESIGN.md`、`<包>/docs/DESIGN.md` — 架构设计与机制取舍（`knowledge-base`、`output-compress`、`code-map`、`session-channel` 有）。
-- `TUI/docs/SPEC.md` — 渲染管线规格；`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` — 命令清单与扩展规格。
-- `TUI/docs/design/` — TUI 内部规范：`NOTICE-LEVELS.md`（提示分级）、`AUDIT-colors.md`（配色语义）、`REFACTOR.md`（模块拆分约定）。
-- `<模块>/docs/BACKLOG.md` — 模块待办（`TUI/docs/BACKLOG.md`、`fs-digest/docs/BACKLOG.md`、`session-channel/docs/BACKLOG.md`、`symbol-normalizer/docs/BACKLOG.md` 已建，其余按需）；`<模块>/docs/STATUS.md` — 模块级对照文档（TUI 已有）。
+- `TUI/README.md`, `<package>/README.md` — module entry points: usage, configuration, contracts, boundaries.
+- `TUI/docs/DESIGN.md`, `<package>/docs/DESIGN.md` — architecture design and mechanism tradeoffs (present for `knowledge-base`, `output-compress`, `code-map`, `session-channel`).
+- `TUI/docs/SPEC.md` — rendering pipeline spec; `TUI/docs/COMMANDS.md`, `TUI/docs/COMMANDS-SPEC.md` — command inventory and extension spec.
+- `TUI/docs/design/` — TUI-internal conventions: `NOTICE-LEVELS.md` (notice levels), `AUDIT-colors.md` (color semantics), `REFACTOR.md` (module split conventions).
+- `<module>/docs/BACKLOG.md` — module backlog (`TUI/docs/BACKLOG.md`, `fs-digest/docs/BACKLOG.md`, `session-channel/docs/BACKLOG.md`, `symbol-normalizer/docs/BACKLOG.md` already exist, the rest as needed); `<module>/docs/STATUS.md` — module-level reference document (TUI has one).
 
-**协作与历史**
+**Collaboration and history**
 
-- `AGENTS.md` — 面向 agent 的协作规范（语言、命令、格式化、构建部署、变更流程、内容变更规范简版、结构约定、Git）。
-- 根 `archive/` — 根级历史（已完成清单、历史调研、旧版契约快照、完成使命的升级文档）；模块历史进 `<模块>/docs/archived/`。
-- 不维护 `CHANGELOG.md`：变更记录以 `git log`（Conventional Commits）与 `docs/host/HOST-UPGRADE-*.md` 为准。
+- `AGENTS.md` — agent-facing collaboration rules (language, commands, formatting, build and deployment, change process, short content change policy, structural conventions, Git).
+- Root `archive/` — root-level history (completed lists, historical research, old contract snapshots, upgrade documents that have served their purpose); module history goes into `<module>/docs/archived/`.
+- No `CHANGELOG.md` is maintained: change records live in `git log` (Conventional Commits) and `docs/host/HOST-UPGRADE-*.md`.
