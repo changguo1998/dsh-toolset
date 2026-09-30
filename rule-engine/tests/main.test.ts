@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { apply } from "../src/main.ts";
+import { apply, isSubagentSession } from "../src/main.ts";
 import type { Config, SessionEventLike, SessionLike } from "../src/types.ts";
 
 /** 假 ctx：记录监听器、注册的工具、provide 的服务，并提供 agents / sessions。 */
@@ -167,6 +167,70 @@ test("apply：消费者经服务注册 → turn-end 反馈由注入器注入（�
     assert.equal(message.content[0]?.text, "[RULE] 消费者的反馈");
     assert.equal(message.source.summary, "消费者提醒");
     assert.deepEqual(fake.flushed, [{ id: "s1" }]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("isSubagentSession：origin=subagent 或 delegationDepth>0 判为子代理会话", () => {
+  assert.equal(
+    isSubagentSession({ id: "u", header: { origin: "user" } }),
+    false,
+  );
+  assert.equal(isSubagentSession({ id: "u" }), false);
+  assert.equal(isSubagentSession(null), false);
+  assert.equal(
+    isSubagentSession({ id: "s", header: { origin: "subagent" } }),
+    true,
+  );
+  assert.equal(
+    isSubagentSession({ id: "s", header: { delegationDepth: 1 } }),
+    true,
+  );
+  assert.equal(
+    isSubagentSession({ id: "s", header: { delegationDepth: 0 } }),
+    false,
+  );
+});
+
+test("apply：子代理会话事件被跳过（无评估 / 无注入）；用户会话注入不变", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-test-"));
+  try {
+    const fake = fakeCtx();
+    await apply(fake.ctx, { stateDir: dir });
+    const service = fake.provided.get("ruleEngine") as {
+      registerConsumer(input: {
+        id: string;
+        decide(): { text: string; summary?: string } | null;
+      }): () => void;
+    };
+    service.registerConsumer({ id: "c1", decide: () => ({ text: "反馈" }) });
+    const message = {
+      type: "assistant/message",
+      data: {
+        turn: 1,
+        step: 0,
+        message: { content: [{ type: "text", text: "正文" }] },
+      },
+    };
+    const sub = {
+      id: "s-sub",
+      header: { origin: "subagent", delegationDepth: 1 },
+    } as unknown as SessionLike;
+    fake.listener?.(sub, message);
+    fake.listener?.(sub, {
+      type: "turn/end",
+      data: { turn: 1, reason: "completed" },
+    });
+    await tick();
+    assert.equal(fake.followups.length, 0, "子代理会话不评估、不注入");
+    fake.listener?.({ id: "s1" }, message);
+    fake.listener?.(
+      { id: "s1" },
+      { type: "turn/end", data: { turn: 1, reason: "completed" } },
+    );
+    await tick();
+    assert.equal(fake.followups.length, 1, "用户会话注入行为不变");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

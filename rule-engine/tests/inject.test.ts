@@ -11,6 +11,7 @@ import {
   createAgentInjector,
   INJECTION_PREFIX,
   SOURCE_KIND,
+  type InjectionHost,
 } from "../src/inject.ts";
 import type { InjectionRequest } from "../src/types.ts";
 
@@ -219,4 +220,36 @@ test("createAgentInjector：sessions 缺失时仍完成注入并记 warning", as
   await tick();
   assert.equal(calls.length, 1);
   assert.match(warnings[0] ?? "", /未等待落盘/);
+});
+
+test("createAgentInjector：flush 关闭句柄（SessionHandleClosed）静默；其它失败仍 warn", async () => {
+  const warnings: string[] = [];
+  const closed = Object.assign(new Error("handle closed"), {
+    name: "SessionHandleClosedError",
+  });
+  const hostWith = (flush: () => Promise<unknown>): InjectionHost => ({
+    agents: {
+      get: () => ({ session: { id: "s1" }, inject: () => undefined }),
+    },
+    sessions: { flush },
+  });
+  createAgentInjector(
+    hostWith(() => Promise.reject(closed)),
+    {
+      warn: (m) => warnings.push(m),
+    },
+  ).inject(request({ delivery: "next-step" }));
+  await tick();
+  assert.deepEqual(warnings, [], "关闭句柄 flush 失败不告警");
+  // 另一组警告账本（避免上一断言的 asserts 收窄把 warnings 变 never[]）
+  const warnings2: string[] = [];
+  createAgentInjector(
+    hostWith(() => Promise.reject(new Error("disk full"))),
+    {
+      warn: (m) => warnings2.push(m),
+    },
+  ).inject(request({ delivery: "next-step" }));
+  await tick();
+  assert.equal(warnings2.length, 1, "其它 flush 失败仍 warn");
+  assert.match(warnings2[0] ?? "", /flush 失败/);
 });

@@ -34,6 +34,21 @@ import type {
   SessionLike,
 } from "./types.ts";
 
+/** 宿主子代理会话判据（`session.header.origin === "subagent"` 或 `delegationDepth > 0`）：
+ *  本引擎面向用户会话（消费者 / 注入面），子代理不参与（见 BACKLOG「子代理会话参与
+ *  消费者评估 → 已关闭句柄 flush 告警（SessionHandleClosedError）」）。 */
+export function isSubagentSession(session: unknown): boolean {
+  const header = (
+    session as {
+      header?: { origin?: unknown; delegationDepth?: unknown };
+    } | null
+  )?.header;
+  if (header === undefined || header === null) return false;
+  if (header.origin === "subagent") return true;
+  const depth = header.delegationDepth;
+  return typeof depth === "number" && depth > 0;
+}
+
 export const name = "rule-engine";
 
 /** 硬依赖：事件面（sessions）与注入面（agents）。 */
@@ -170,6 +185,9 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       warn("ctx.on 不可用，规则不会随事件触发（工具族仍可管理规则）");
     } else {
       c.on("session/event", (session, event) => {
+        // 子代理会话不参与本引擎（消费者 / 注入面面向用户会话）：跳过其全部事件，
+        // 避免子代理结束后的延迟 flush 打到已关闭句柄（BACKLOG「子代理会话参与消费者评估」）。
+        if (isSubagentSession(session)) return;
         engine.handle(session, event);
       });
     }

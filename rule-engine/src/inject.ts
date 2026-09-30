@@ -93,6 +93,18 @@ export function createAgentInjector(
   };
 }
 
+/**
+ * 会话句柄已关闭（子代理结束 / 会话被弃）属正常竞态：flush 失败静默降噪
+ * （BACKLOG「子代理会话参与消费者评估 → 已关闭句柄 flush 告警」）。
+ */
+function isClosedHandleError(err: unknown): boolean {
+  const e = err as { name?: unknown; message?: unknown } | null;
+  const text = `${typeof e?.name === "string" ? e.name : ""} ${
+    typeof e?.message === "string" ? e.message : String(err)
+  }`;
+  return text.includes("SessionHandleClosed");
+}
+
 /** 单次送达（在推迟后的宏任务里执行）。 */
 function deliver(
   host: InjectionHost,
@@ -145,7 +157,10 @@ function deliver(
   try {
     void Promise.resolve(sessions.flush(agent.session)).catch(
       (err: unknown) => {
-        warn(`来源 "${request.sourceId}" flush 失败：${String(err)}`);
+        // 会话句柄已关闭属正常竞态（如子代理已结束）：静默；其它失败照常告警
+        if (!isClosedHandleError(err)) {
+          warn(`来源 "${request.sourceId}" flush 失败：${String(err)}`);
+        }
       },
     );
   } catch (err) {
