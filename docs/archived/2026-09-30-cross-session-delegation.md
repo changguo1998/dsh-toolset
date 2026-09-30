@@ -50,6 +50,8 @@
   自动回收）+ 通知注入（`RESULT <id>: …` / 失败与超时文案）+ 三个工具的定义与注册 +
   `SERVICE_FACE_METHODS` 与 provide 同步。
 - 2026-09-30：README（包 + 根中英）契约、能力表、键位表与边界更新；`tests/task.test.ts` 新增 6 例。
+- 2026-09-30：真机验证发现工具注册缺 `output` 元数据 → 修复（提交 `116d5d3`）并加回归断言；
+  真机复测：自动回收、显式回传、三个工具可用、跨进程 RESULT 注入全部通过。
 
 ## 测试与证据
 
@@ -60,8 +62,23 @@
   `turn/end` 自动回收最终回答（`resultSource:"auto"`、`triggerSeq` 记录）→ A 收到 `RESULT <id>:` 通知；
   显式 `taskResult` 后 auto 不覆盖；`taskCancel` 终态锁定；`to` 离线返回 `target_offline`。
 - 全仓 `npm run check` ✓。
-- 真机：待人工验证（两个会话：一个委托、一个执行后回传通知）。
+- **真机验证（2026-09-30，通过）**：
+  1. 自动回收：本会话经 `delegate` 委托另一 dsh 进程的会话（`delivered:true`），
+     worker 注入 seq 46 → 状态 `running` → 轮末自动回收，`resultSource:"auto"`、结果「委托链路 OK」；
+     委托方会话收到注入 `[CHANNEL](tui-34ffeca8…) RESULT 9afdfd9f…: 委托链路 OK` ✓。
+  1. 显式回传：同会话内自测（`to` = 自身）→ `channel_task_result` 回传 → `status:"done"`、
+     `resultSource:"tool"`、结果「显式回传 OK（真机）」✓（验证 worker 侧工具可用与 tool 优先）。
+  1. 工具面：`channel_delegate` / `channel_task` / `channel_task_result` 三个工具在会话内可见可调 ✓。
+- **真机发现并修复的缺陷**（`116d5d3`）：三个新工具缺少 `output: {schema, render}` 元数据 →
+  宿主 `tools.register` 拒绝注册（单测假 register 不校验，故此前未暴露）；补齐元数据并加回归断言
+  （每个工具的 `output.render` 必须是函数）。
 
 ## 收尾
 
-（待补）
+- 状态：**完成**（`docs/BACKLOG.md` #54 从 §2 移除并记入 §1 索引；§3 里程碑剩余列表同步）。
+- 落点：`session-channel/src/{types,keys,tasks,broker,index}.ts`、`tests/task.test.ts`（新增）、
+  `tests/apply.test.ts`、`session-channel/README.md`、根 `README.md` / `README.zh.md`；
+  本文档随收尾提交移入 `docs/archived/`。
+- 提交：`8df3693`（实现 + 测试 + 文档）、`116d5d3`（工具 output 元数据修复）、本收尾提交为最后一次。
+- 遗留：任务表无「订阅 / 推送」面（拉取式，`taskStatus`/`taskList` 查询）；跨机不覆盖（#30 边界）；
+  任务正文与结果不落知识库（如需另立条目）。
