@@ -38,6 +38,10 @@
 | 51 | **记忆 auto-consolidation（自动巩固）**：把高频 / 高重要度记忆自动提升、合并相似条目、淘汰陈旧项（现状 knowledge-base 已有两级写回与淘汰提升，语义接近但需自动化巩固策略） | `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3（原 §2.6 观察项，用户 2026-09-29 立项） | knowledge-base 记忆层扩展（复用两级写策略 / 淘汰提升机制） | 1.5 h | P2 |
 | 23 | PDF/文档结构视图 | readseek 拆项 4（对比文档 §3.4） | 无底座，新工具 | 4 h+（解析方案待选型） | P2 |
 
+| 59 | **slash 命令命名规范：不用缩写**（缩写难理解）：盘点现有本地命令 / 宿主命令 / 插件命令的缩写与晦涩名（如 `/tpl`、`/cls`、`/preset` 之类），给出改名清单与兼容策略（旧名是否留别名、何时移除） | 用户 2026-09-30 口述（命令可读性） | TUI `LOCAL_COMMANDS`（`src/app/commands.ts`）+ 各插件命令注册 + `TUI/docs/COMMANDS.md` | P2 |
+
+| 61 | **rule-engine 的用户提示应显示在活动区**（现在落到输入区，且不在历史区）：`[rule-engine] warn: …` 这类提示经插件告警通道（`engine.ts` `#warn`）输出，TUI 把它渲染在输入区附近：期望进活动区并可回溯（或改走会话 notice 通道：`source.form:'notice'` + summary，TUI#17 已支持折行摘要） | 用户 2026-09-30 口述（显示位置） | `rule-engine`（提示产生通道：`src/engine.ts` `#warn`）+ TUI 通知/日志渲染 | P2 |
+
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
 ## 3. 里程碑

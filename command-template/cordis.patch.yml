@@ -1,0 +1,9 @@
+# 本包插入自身（bundle 层）：模板命令与 `/tpl` 管理命令由本包注册。
+# dirs 缺省 = 随包 templates/；userDir 缺省 = $DSH_HOME/command-templates（同名模板用户优先）。
+- insert:
+    - id: command-template
+      name: '@dsh-toolset/command-template'
+      config:
+        maxSteps: 12
+        maxBestOf: 8
+        stepTimeoutMs: 600000

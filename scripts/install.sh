@@ -23,7 +23,7 @@ dry_run=0
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 profile_asset_dir="$repo_root/profiles/example"
 # 插件处理顺序（与根 package.json 的 check/build 顺序一致；子包名从各自 package.json 读）
-canonical_pkgs="TUI herdr-integration knowledge-base task-engine ast-tools fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine symbol-normalizer session-channel session-title-cutoff"
+canonical_pkgs="TUI herdr-integration knowledge-base task-engine ast-tools fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine symbol-normalizer session-channel session-title-cutoff command-template"
 
 usage() {
     cat << 'EOF'
