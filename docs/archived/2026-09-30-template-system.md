@@ -1,6 +1,6 @@
 # 模板体系（接取条目：docs/BACKLOG.md「模板体系」）
 
-状态：实现　　开启：2026-09-30　　关闭：
+状态：关闭　　开启：2026-09-30　　关闭：2026-09-30
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -118,5 +118,15 @@ codebase-audit）。执行机制复用宿主（commands / workflow / subagents /
 - 项目 #61 rule-engine 的用户提示（`[rule-engine] warn: …`）显示在输入区、不在历史区；期望进活动区并可回溯（或改走会话 notice 通道）。
 
 ## 收尾
+
+- 状态：**完成**（BACKLOG 移除「模板体系」并记入 §1 索引；§3 剩余列表同步）。
+- 落点：新包 `command-template/`（8 源文件 + 5 模板 + 8 例测试 + README + cordis.patch.yml）、
+  `scripts/install.sh`、`AGENTS.md`、根 `README.md` / `README.zh.md`、`docs/ROADMAP.md` §2.A。
+- 提交：`0efbdfc`（决策文档）、`32ecff7`（实现 + 测试 + 文档 + 本轮条目）；本收尾提交为最后一次。
+- 遗留（另立条目）：项目 #62 命令悬挂/超时终态；并入条目的处理：#60 已并入本任务（入口 = `/playbook`）。
+- 真机证据：`/playbook list` 子命令写法生效；`code-review` 全链路 `review → verify` 成功；
+  模板双源、`/playbook reload`、`bestOf`/裁判路径见测试与真机日志。
+
+## 收尾（模板）
 
 （待补）
