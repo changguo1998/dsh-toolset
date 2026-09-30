@@ -51,7 +51,7 @@
 - `npm --prefix command-template run check`（tsc --noEmit）✓。
 - `npm --prefix command-template run build` ✓。
 - `npm --prefix command-template run test`：**13 pass / 0 fail**（新增 5 例 + 既有 8 例）。
-- 真机复验（**待用户**）：重启 `fffdsh` → 跑一个 `/playbook`（含 agent 步骤）→ ① 子代理出现在 `/agents` 列表；② 右侧状态列 Agents 块自动出现；③ 顺带复验 TUI 批的 ③④（一次性条目 Enter 提示、状态列自动出现）与 ⑤。
+- 真机复验 ✓（2026-09-30 21:26-21:32，TUI 干净重启后 pid 404769）：`/playbook list`（21:26:29，success）→ `/playbook code-review README.md`（21:26:41 起，21:32:05 success「已完成 2 步（review → verify）」）。**父会话新增 2 条 `subagent/catalog`**（`154ac44e` 评审 / `1df5f59f` 验证，均 `mode=one-shot`、`label=command-template`）；**状态列自动出现 Agents 块**（`Agents 0/2`，两条 command-template 子代，无需开面板）。修复前同一命令 0 条 catalog 记录（对照见 TUI 追踪文档）。
 
 ## 收尾
 
