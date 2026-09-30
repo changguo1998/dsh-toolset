@@ -79,6 +79,7 @@ TUI/
       question-transition.ts / model-transition.ts   # 问答 / 模型选择纯状态转换
       components/        # Box 生成器：TextInput、审批、问答、ModelPicker、各列表面板…
       adapter/           # 插拔边界：dsh.ts（ctx 订阅与归一化）、types.ts、normalize.ts
+      stderr-bridge.ts   # 运行期 stderr 桥：按行转交活动区（项目级 #61 方案 A）
       index.ts           # App：组装层，副作用（adapter 调用 / paint / notice / 异步）都在此
   demo/                  # mock adapter 喂模拟流式文本 + 审批，不接 DSH
   tests/                 # node --test；renderer 解码 / 排版 / adapter fake-ctx
@@ -239,6 +240,11 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 #### seq 守卫
 
 adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 丢弃（防重复 / 倒序重放）；`event.seq > lastSeq + 1` → 只是间隙（宿主用 `session/end-seed` 标识 seed 边界，TUI 不做补缺，直接接受并更新游标）；非当前活跃会话的事件丢弃。测试覆盖同 seq 重复、倒序、间隙接受、非当前 sessionId 各至少 1 例。
+
+### 运行期告警显示（2026-10-01，项目级「rule-engine 的用户提示应显示在活动区」）
+
+- **A · 运行期 stderr 桥**（`app/stderr-bridge.ts`）：`main()` 在 `App` 创建后、`start()` 前接管 `process.stderr.write`——按 `\n` 行缓冲，完整行交 `App.appendExternalLog(line, tone)`（`notice` 通道进**活动区**；tone 按 `error|fatal` / `warn(ing)|警告` 判定）；启动前写入与 `dispose()` 后照旧直写，桥内再写 stderr 直通原流防递归，多参调用（encoding / callback）透传。原因：渲染器是 delta 重绘且光标停在输入区，裸 stderr 字节会残留在输入区。
+- **B · rule-engine 告警总线**：`App` 经 `getRuleEngine`（`ctx.get('ruleEngine')` 懒读、`start()` 接线、`dispose()` 注销）订阅 `onNotice`，事件经同一 `appendExternalLog` 进活动区；插件侧有订阅者时不写 stderr（headless 兜底）。
 
 ### 审批：界面与审计（审计未接入）
 

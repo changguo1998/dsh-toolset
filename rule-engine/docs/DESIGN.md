@@ -95,3 +95,9 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 ### 11. 注入路径两条（delivery）
 
 `followup`（缺省，新回合）与 `next-step`（`agent.inject`：挂到最近 pre-step、不唤醒；旧宿主无此 API → warning 跳过）。语义与取舍：官方 next-step inbox 就是「消息进入 step 前」的正规出口，不自行注册 `agent/pre-step` 监听者，避免与官方 prepend 监听者（model-selection）的顺序和空 step 语义纠缠。
+
+### 12. 告警出口：总线优先、stderr 兜底（2026-10-01，「rule-engine 的用户提示应显示在活动区」方案 B）
+
+- `provide("ruleEngine")` 增 `onNotice(listener)`：插件 `warn` 在**有订阅者**（TUI 启动后订阅）时把完整展示行 + tone 发总线（展示层渲染进活动区），**无订阅者**（headless）回退 `process.stderr.write`。
+- 理由：告警是给人看的、不该写进会话/模型上下文（对比 `source.form:'notice'` 会话消息写法）；且对「告警所涉会话已关闭」的场景同样可送达（进程内推送，不经会话句柄）。
+- 引擎（规则归一 / 消费者）/ 注入器（followup / inject / flush 失败）/ 入口三处告警共用同一 `warn`，总线一并覆盖。

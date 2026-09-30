@@ -39,8 +39,6 @@
 
 | 59 | **slash 命令命名规范：不用缩写**（缩写难理解）：盘点现有本地命令 / 宿主命令 / 插件命令的缩写与晦涩名（如 `/tpl`、`/cls`、`/preset` 之类），给出改名清单与兼容策略（旧名是否留别名、何时移除） | 用户 2026-09-30 口述（命令可读性） | TUI `LOCAL_COMMANDS`（`src/app/commands.ts`）+ 各插件命令注册 + `TUI/docs/COMMANDS.md` | P2 |
 
-| 61 | **rule-engine 的用户提示应显示在活动区**（现在落到输入区，且不在历史区）：`[rule-engine] warn: …` 这类提示经插件告警通道（`engine.ts` `#warn`）输出，TUI 把它渲染在输入区附近：期望进活动区并可回溯（或改走会话 notice 通道：`source.form:'notice'` + summary，TUI#17 已支持折行摘要） | 用户 2026-09-30 口述（显示位置） | `rule-engine`（提示产生通道：`src/engine.ts` `#warn`）+ TUI 通知/日志渲染 | P2（进行中 2026-10-01） |
-
 | 62 | **命令模板的取消/超时终态**：真机发现 `playbook` 命令在子代理死亡或取消后可能**无 `command/done`**（命令悬挂）；且 `stepTimeoutMs`（缺省 600s）触发的 abort 是否真的中止子代理未经真机验证。期望：命令任何路径都回终态（成功/失败/取消），并在子会话结束时回收 | #31 真机观察（追踪文档 2026-09-30 第三轮） | `command-template`（`src/{steps,subagent,main}.ts`） | P2 |
 | 63 | **插件运行期 stderr 告警显示统一（评估）**：各插件运行期告警均裸写 `process.stderr.write`（清单：command-template / session-title-cutoff / task-engine / goal-contract / session-channel / metric-loop / hash-edit / symbol-normalizer / code-map（stderr 兜底）/ TUI 自身；无 `console.*` 与 stdout 写点）。经 #61 方案 A 兜底后显示位置已正确（活动区）；本条评估是否统一改**结构化通知通道**（同 rule-engine `onNotice` / symbol-normalizer `onReview` 模式：tone 结构化 + headless 兜底 stderr）与降噪。 | #61 实施期审计（2026-10-01） | 各插件 `src/`（告警出口）+ `TUI`（桥） | P3 |
 
@@ -49,7 +47,7 @@
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
-1. 里程碑三（P2）剩余（按依赖与工作量排序）：#58（执行扩展）、#52、#51、#59、#61、#62、#23，按需排期；已完成项（含 #21-#22、#39、#40、#42-#50、#55）见 §1 索引，已取消 / 不再立项项亦见 §1。
+1. 里程碑三（P2）剩余（按依赖与工作量排序）：#58（执行扩展）、#52、#51、#59、#62、#23，按需排期；已完成项（含 #21-#22、#39、#40、#42-#50、#55）见 §1 索引，已取消 / 不再立项项亦见 §1。
 1. 依赖：**模板格式先行**（#31① 定稿后，#31③ 内容与 #58① 的 executor 声明才有统一落点）；#58①② 依赖宿主 `subagents` / `workflow` / `llm` / `token-meter` 面（均已挂载），③ 依赖本机 `dsh-git-worktree`；原 #32 的代码审查能力并入 #31③；其余相互独立。
 
 ## 4. 插件规划（未建包）
