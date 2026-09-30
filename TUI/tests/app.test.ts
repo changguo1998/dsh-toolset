@@ -4315,3 +4315,72 @@ test("symbols 服务：懒挂载（后到可用）与 dispose 注销订阅", () 
   app.dispose();
   assert.equal(fake.listenerCount(), 0, "dispose 后注销订阅");
 });
+
+// ---- rule-engine 告警总线消费（BACKLOG #61 方案 B；TUI 只做活动区渲染） ----
+
+/** 告警事件最小形态（与 AppDeps.getRuleEngine 的 RuleEngineNotice 同构）。 */
+type FakeRuleNotice = { text: string; tone?: "log" | "warn" | "error" };
+
+/** 假 rule-engine 服务：记录订阅者；可手动推告警。 */
+function fakeRuleEngineService() {
+  const listeners = new Set<(event: FakeRuleNotice) => void>();
+  return {
+    service: {
+      onNotice(listener: (event: FakeRuleNotice) => void) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    },
+    listenerCount: () => listeners.size,
+    push(event: FakeRuleNotice): void {
+      for (const listener of listeners) listener(event);
+    },
+  };
+}
+
+type FakeRuleEngineService = ReturnType<
+  typeof fakeRuleEngineService
+>["service"];
+
+/** makeApp 变体：注入 rule-engine 服务读取器（缺省 = 未挂载）。 */
+function makeRuleEngineApp(
+  getRuleEngine?: () => FakeRuleEngineService | undefined,
+) {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const app = new TrackedApp({
+    renderer,
+    adapter,
+    notify: { enabled: false },
+    getRuleEngine,
+  });
+  app.start();
+  return { app, renderer, adapter };
+}
+
+test("ruleEngine 服务：onNotice 告警渲染进活动区；dispose 注销订阅", () => {
+  const fake = fakeRuleEngineService();
+  const { app, renderer } = makeRuleEngineApp(() => fake.service);
+  assert.equal(fake.listenerCount(), 1, "start 时订阅告警总线");
+  fake.push({
+    text: '[rule-engine] warn: 来源 "consumer:x" flush 失败：SessionHandleClosedError',
+    tone: "warn",
+  });
+  assert.ok(
+    renderer.lastRender.join("\n").includes("flush 失败"),
+    "总线告警渲染进活动区",
+  );
+  app.dispose();
+  assert.equal(fake.listenerCount(), 0, "dispose 注销订阅");
+});
+
+test("appendExternalLog：外部告警行进活动区；未挂载服务不抛错（stderr 桥路径）", () => {
+  const none = makeRuleEngineApp();
+  none.app.appendExternalLog("[rule-engine] warn: 桥兜底告警", "warn");
+  assert.ok(
+    none.renderer.lastRender.join("\n").includes("桥兜底告警"),
+    "外部行渲染进活动区",
+  );
+});

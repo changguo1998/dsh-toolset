@@ -75,10 +75,16 @@
 ## 测试与证据
 
 - 机械门禁：`npm run check` exit 0；`npm run build` exit 0（2026-10-01）。
-- 单测：`npm --prefix rule-engine run test` → 60 pass / 0 fail（含新增「告警总线」例）；`npm run test:tui` → 1224 pass / 0 fail（含 `stderr-bridge.test.ts` 5 例与 `app.test.ts` 新增 2 例）。
-- 真机复验（点 3 前，待做）：重启 fffdsh 载入新构建 → 跑一次 playbook（子代理会话结束会触发消费侧 flush）→ 观察告警出现在**活动区**、输入区无残留；同时确认用户会话注入行为（含 next-step）不变。
-- 残留检查（待做）：`git status` 无计划外文件残留；`tmp/` 无任务临时文件。
+- 单测：`npm run test`（全仓）exit 0——TUI 1224 / rule-engine 60 / 其余包全绿；含 `TUI/tests/stderr-bridge.test.ts` 5 例、`TUI/tests/app.test.ts` 新增 2 例、`rule-engine/tests/main.test.ts` 新增「告警总线」1 例。
+- 真机复验（2026-10-01，人工确认通过）：
+  - 重启 fffdsh 载入新构建（新 pid 835246）；用探针规则（`rule_add` / `rule_update` 传非法 `cooldownTurns` → 引擎归一告警）触发。
+  - 窗格核对（`herdr pane read wP1:p1 --source visible`）：告警行 `[rule-engine] warn: [rule-engine] warn: 规则 "zzprobe0412"` 出现在**活动区**；底部输入区干净（仅状态行 + `> Type a message...` + 按键提示）。文案双前缀 = 引擎文案经 `main.ts` warn → 总线（未接总线才是单前缀裸 stderr）。
+  - 探针规则已删，规则集回到 1 条基线（`skill-autoload-on-unlock`）；用户会话注入行为（含 next-step）未见变化。
+- 覆盖说明：方案 A 的 stderr 接管段（拦截 / 分行 / tone / restore）由 5 例单测覆盖；真机未另造非 rule-engine 的运行期 stderr 写入——显示落点（`appendExternalLog` → 活动区）由本次告警实证（A 的 sink 与 B 的订阅共用同一入口）。
+- 残留检查：`git status` 仅本次任务文件；`tmp/` 无任务临时文件（收尾复核）。
 
 ## 收尾
 
-（待写）
+（关闭时补齐；先记遗留项）
+
+- 遗留项：引擎告警文案自带 `[rule-engine] warn: ` 前缀，插件侧 `warn` 再加一层 → 双前缀（既有格式问题，本次未动）；如需修正另开条目。

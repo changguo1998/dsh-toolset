@@ -266,3 +266,41 @@ test("apply：ctx 缺面时只告警不抛（空 ctx / 仅 on / 非 live 会话�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("apply：告警总线——有 onNotice 订阅者时走总线（不写 stderr）；注销后回退 stderr", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-test-"));
+  const fake = fakeCtx();
+  await apply(fake.ctx, { stateDir: dir });
+  // 加载自证行（真实 stderr）已写出；从这里起接管 stderr 以断言告警出口
+  const chunks: string[] = [];
+  const originalWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    const service = fake.provided.get("ruleEngine") as {
+      registerConsumer(input: { id: string; decide(): null }): () => void;
+      onNotice(
+        listener: (event: { text: string; tone?: string }) => void,
+      ): () => void;
+    };
+    const notices: Array<{ text: string; tone?: string }> = [];
+    const dispose = service.onNotice((event) => notices.push(event));
+    // 触发一条真实告警：非法消费者注册（id 为空 → 引擎 warn）
+    service.registerConsumer({ id: "", decide: () => null });
+    assert.equal(notices.length, 1, "有订阅者 → 告警发总线");
+    assert.match(notices[0]?.text ?? "", /registerConsumer/);
+    assert.equal(notices[0]?.tone, "warn");
+    assert.deepEqual(chunks, [], "有订阅者时不写 stderr");
+
+    dispose();
+    service.registerConsumer({ id: "", decide: () => null });
+    assert.equal(notices.length, 1, "注销后总线不再收到");
+    assert.equal(chunks.length, 1, "无订阅者 → 回退 stderr");
+    assert.match(chunks[0] ?? "", /^\[rule-engine\] warn: /);
+  } finally {
+    process.stderr.write = originalWrite;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
