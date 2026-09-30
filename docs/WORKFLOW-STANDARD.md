@@ -8,7 +8,7 @@
 
 - 适用于**任何**改动：不论范围大小、不论种类（文档、代码、配置、目录结构）；其中**改动量少、逻辑简单直接**的小改动走快速流程（见 `docs/WORKFLOW-FAST.md`），其余走本文的标准流程。
 - 执行者可以是人，也可以是 agent；多 agent 可并行，每个**任务**由一份追踪文档承载。
-- 「模块」= `TUI` 与 12 个插件包（herdr-integration / task-engine / knowledge-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard / code-map / context-report）；跨模块的改动归**项目级**。
+- 「模块」= `TUI` 与 17 个插件包（herdr-integration / task-engine / knowledge-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / security-guard / code-map / context-report / rule-engine / symbol-normalizer / session-channel / session-title-cutoff / command-template；以 `AGENTS.md`「结构与约定」为单一来源）；跨模块的改动归**项目级**。
 
 ## 2. 分层与目录
 
