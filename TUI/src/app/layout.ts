@@ -1053,9 +1053,13 @@ function agentItemRows(a: AgentRowInfo, width: number): StatusRow[] {
   // 工具调用摘要（无记录省略）；不再输出状态词与短 id（状态由符号/配色表达，详细见 /agents 面板）。
   const text =
     `${sym}${a.alias ?? a.label}${a.work ? ` · ${a.work}` : ""}`.trimEnd();
-  return wrapLine(text, Math.max(1, width)).map((line) => ({
-    segments: [seg(line, { fg })],
-  }));
+  // BACKLOG「Agents 条目改列表式悬挂对齐」：续行停在首行**文字**起点（跳过符号宽度），
+  // 与活动区 Box 的 hanging 语义一致（复用 wrapWithHanging）。
+  return wrapWithHanging(text, Math.max(1, width), displayWidth(sym)).map(
+    (line) => ({
+      segments: [seg(line, { fg })],
+    }),
+  );
 }
 
 /** 状态列 Mode 块：列出会话运行模式/权限/审批策略的所有可选项，生效项着色强调、其余灰。

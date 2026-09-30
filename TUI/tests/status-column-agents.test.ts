@@ -9,6 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { renderStatusColumn } from "../src/app/layout.ts";
+import { displayWidth as prodDisplayWidth } from "../src/app/layout/markdown.ts";
 import { THEMES, ansiNameToHex, hexSgr } from "../src/renderer/theme.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
 import { App } from "../src/app/index.ts";
@@ -158,6 +159,42 @@ test("Agents 块：显示别名 + 工作内容（别名优先于 label；无 wor
   );
   assert.ok(text.includes("○ worker-b"), "无别名回落 label: " + text);
   assert.ok(!text.includes("worker-b ·"), "无工作内容不占位: " + text);
+});
+
+test("Agents 块：续行悬挂对齐（续行停在首行文字起点）", () => {
+  // 窄列触发折行（宽 20）：续行应停在首行文字列（符号宽），而不是 0 列。
+  const text = rows(
+    [
+      {
+        id: "s-a",
+        label: "worker-a",
+        status: "running",
+        alias: "otter",
+        work: "bash npm run test -- --reporter=spec",
+      },
+    ],
+    10,
+    20,
+  );
+  const idx = text.findIndex((l) => l.includes("otter"));
+  assert.ok(idx >= 0, "应出条目首行: " + JSON.stringify(text));
+  const first = text[idx] ?? "";
+  const textCol = prodDisplayWidth(first.slice(0, first.indexOf("otter")));
+  assert.ok(textCol > 0, "首行文字起点 = 符号宽: " + JSON.stringify(first));
+  const cont: string[] = [];
+  for (const l of text.slice(idx + 1)) {
+    // 列右框线（仅 "│" 的填充行）即条目已结束
+    if (l.trim() === "" || l.trim() === "│") break;
+    cont.push(l);
+  }
+  assert.ok(cont.length >= 1, "窄列应有续行: " + JSON.stringify(text));
+  for (const l of cont) {
+    assert.equal(
+      l.length - l.trimStart().length,
+      textCol,
+      `续行前导空格 = 首行文字列（悬挂）: ${JSON.stringify(l)}`,
+    );
+  }
 });
 
 test("Agents 块：无数据（缺省 / 空数组）整块省略", () => {
