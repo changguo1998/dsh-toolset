@@ -27,26 +27,24 @@
 
 ## 2. 未完成项
 
-> 扁平清单，按编号升序（2026-09-29 整理：不再设功能分区）；编号仅在本文件内唯一，仅供阅读。优先级：P0 > P1 > P2。
+> 扁平清单，**按依赖与工作量排序**（2026-09-30 调整：先解锁项、同层先小后大；编号仅作引用，不代表顺序）。
+> 顺序依据：#31① 是 #31③ 与 #58① 的前置（先定模板格式）；#52 / #51 相互独立、工作量小；#58 中等；#23 无依赖但工作量最大、需解析方案选型。优先级：P0 > P1 > P2。
 
-| # | 功能 | 来源 | 落点（复用） | 优先级 |
-|---|------|------|--------------|--------|
-| 14 | 工作流内模型路由与成本核算 | dynamic-workflows 拆项 2/3（对比文档 §3.1） | agent-default-model、token-meter | P2 |
-| 15 | `[~]` git-worktree 完整隔离（resume 已由 task-engine `resumeFromSnapshot` 覆盖；隔离未实现） | dynamic-workflows 拆项 5 | 本机本地插件 `dsh-git-worktree` 补完整隔离（当前仅有 disabled-git-hooks） | P2 |
-| 17 | 模板化 pattern 五族（deep-research / code-review / multi-perspective / adversarial-review / codebase-audit） | dynamic-workflows 拆项 7（对比文档 §3.1）；pi-simplify/ponytail 工具族可并入 | workflow 脚本 + skill 内容资产 | P2 |
-| 23 | PDF/文档结构视图 | readseek 拆项 4（对比文档 §3.4） | 无底座，新工具 | P2 |
-| 31 | slash 命令模板（pre-steps/chain/best-of-N）+ 模板级模型选择 | pi-prompt-template-model（对比文档 §3.4） | commands + workflow | P2 |
-| 51 | **记忆 auto-consolidation（自动巩固）**：把高频 / 高重要度记忆自动提升、合并相似条目、淘汰陈旧项（现状 knowledge-base 已有两级写回与淘汰提升，语义接近但需自动化巩固策略） | `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3（原 §2.6 观察项，用户 2026-09-29 立项） | knowledge-base 记忆层扩展（复用两级写策略 / 淘汰提升机制） | P2 |
-| 52 | **会话事件自动入知识库**：会话事件（tool 结果 / 决策 / 结论等）按规则自动入库并可检索（需定义过滤、去重、容量与隐私边界） | `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3（原 §2.6 观察项，用户 2026-09-29 立项） | knowledge-base + TUI/host 事件面（复用 output-compress 的入库与去重模式） | P2 |
-| 58 | task-engine executor 策略与后端适配（叶子声明 `executor`，复用宿主 subagent / workflow / llm 面；引擎只做发起 / 证据回填 / 验收） | 边界决策（task-engine/README「边界与外包」2026-09-30） | task-engine（宿主 subagents、workflow、llm 面） | P2 |
+| # | 功能 | 来源 | 落点（复用） | 工作量（估） | 优先级 |
+|---|------|------|--------------|--------------|--------|
+| 31 | **模板体系**：① 共用格式（steps / model / args / 触发词 / 输出落点）② 入口 = slash 命令模板（pre-steps / chain / best-of-N + 模板级模型选择）③ 内容 = pattern 五族（deep-research / code-review / multi-perspective / adversarial-review / codebase-audit）〔并入原 #17〕 | pi-prompt-template-model（对比文档 §3.4）、dynamic-workflows 拆项 7（§3.1）；pi-simplify/ponytail 工具族可并入 | commands（宿主，入口）+ workflow 脚本与 skill 内容资产（内容） | 3 h（①0.5 / ②1 / ③1.5+） | P2 |
+| 58 | **task-engine 执行扩展**：① 叶子 `executor` 声明与后端适配（model / subagent / workflow / command；引擎只做发起 / 证据回填 / 验收）② 模型与预算声明 → 接宿主 `agentDefaultModel` 与 `token-meter` 计量（原 #14）③ 隔离落地（git worktree，经本机 `dsh-git-worktree`；原 #15） | 边界决策（task-engine/README「边界与外包」2026-09-30）、dynamic-workflows 拆项 2/3/5 | task-engine（宿主 subagents / workflow / llm / token-meter 面；本机 `dsh-git-worktree`） | 3 h（①1.5 / ②0.5 / ③1） | P2 |
+| 52 | **会话事件自动入知识库**：会话事件（tool 结果 / 决策 / 结论等）按规则自动入库并可检索（需定义过滤、去重、容量与隐私边界） | `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3（原 §2.6 观察项，用户 2026-09-29 立项） | knowledge-base + TUI/host 事件面（复用 output-compress 的入库与去重模式） | 1.5 h | P2 |
+| 51 | **记忆 auto-consolidation（自动巩固）**：把高频 / 高重要度记忆自动提升、合并相似条目、淘汰陈旧项（现状 knowledge-base 已有两级写回与淘汰提升，语义接近但需自动化巩固策略） | `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3（原 §2.6 观察项，用户 2026-09-29 立项） | knowledge-base 记忆层扩展（复用两级写策略 / 淘汰提升机制） | 1.5 h | P2 |
+| 23 | PDF/文档结构视图 | readseek 拆项 4（对比文档 §3.4） | 无底座，新工具 | 4 h+（解析方案待选型） | P2 |
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：#5-#7、#9-#11、#13、#19-#20、#27、#36）均已完成。
-1. 里程碑三（P2）剩余：#14、#15（git-worktree）、#17、#23、#31、#51、#52，按需排期；已完成项（含 #21-#22、#39、#40、#42-#50、#55）见 §1 索引，已取消 / 不再立项项亦见 §1。
-1. 依赖：#17 的模板族（含原 #32 的代码审查能力）可复用 workflow/skill 资产；workflow-ext 建包前，工作流相关插件面依赖 task-engine 的契约与执行器；其余相互独立。
+1. 里程碑三（P2）剩余（按依赖与工作量排序）：#31（模板体系）、#58（执行扩展）、#52、#51、#23，按需排期；已完成项（含 #21-#22、#39、#40、#42-#50、#55）见 §1 索引，已取消 / 不再立项项亦见 §1。
+1. 依赖：**模板格式先行**（#31① 定稿后，#31③ 内容与 #58① 的 executor 声明才有统一落点）；#58①② 依赖宿主 `subagents` / `workflow` / `llm` / `token-meter` 面（均已挂载），③ 依赖本机 `dsh-git-worktree`；原 #32 的代码审查能力并入 #31③；其余相互独立。
 
 ## 4. 插件规划（未建包）
 
@@ -54,11 +52,11 @@
 
 | 插件 | 承载清单项 | 复用（不新建） |
 |------|-----------|----------------|
-| `workflow-ext` | #14-#15、#17 | agent-default-model、token-meter、workflow-run；本机本地插件 `dsh-git-worktree` 补完整隔离 |
+| `task-engine`（既有包扩展，非新包） | #58 | 宿主 subagents / workflow / llm / token-meter 面；本机本地插件 `dsh-git-worktree` 补隔离 |
 | `web-ext` | #23、#25-#26 | search provider 扩充、web-fetch-http、shell（git 克隆先行） |
 | `session-broker` | #30 | 无等效底座，新建 unix socket 通道 |
-| `command-template` | #31 | commands、workflow |
-| 内容资产（非插件） | #17、#32 | workflow 脚本 + skill 内容 |
+| `command-template` | #31①② | commands（宿主入口）、workflow（宿主执行） |
+| 内容资产（非插件） | #31③ | workflow 脚本 + skill 内容 |
 
 ## 5. TUI 侧
 
