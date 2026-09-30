@@ -76,21 +76,31 @@ redisTest(
       const service = getSessionChannelService();
       assert.ok(service, "apply 应登记 activeService");
       await waitUntil(() => service!.status().connected === true);
-      assert.equal(tools.length, 1);
-      assert.equal(tools[0]?.name, "session_channel");
+      assert.equal(tools.length, 4);
+      assert.deepEqual(
+        tools.map((t) => t.name).sort(),
+        [
+          "channel_delegate",
+          "channel_task",
+          "channel_task_result",
+          "session_channel",
+        ],
+        "四个工具：消息通道 + 委托三件套（BACKLOG #54）",
+      );
+      const channelTool = tools.find((t) => t.name === "session_channel")!;
       assert.ok(
         provided.has("sessionChannel"),
         "provide 面应暴露 session-channel",
       );
 
       // status（工具）
-      const status = await tools[0]!.execute({ action: "status" });
+      const status = await channelTool.execute({ action: "status" });
       assert.equal(status["connected"], true);
 
       // 会话注册 → peers（工具 + 服务面各一次）
       fake.emitSession({ id: "sess-x", header: { cwd: "/tmp/apply" } });
       await waitUntil(async () => {
-        const res = (await tools[0]!.execute({ action: "peers" })) as {
+        const res = (await channelTool.execute({ action: "peers" })) as {
           peers?: { sessionId: string }[];
         };
         return res.peers?.some((p) => p.sessionId === "sess-x") === true;
@@ -130,7 +140,7 @@ redisTest(
       assert.equal(injected.source?.kind, "session-channel");
 
       // inbox（工具，只读）
-      const inbox = (await tools[0]!.execute({
+      const inbox = (await channelTool.execute({
         action: "inbox",
         sessionId: "sess-x",
       })) as {
@@ -141,7 +151,7 @@ redisTest(
       assert.equal(inbox.messages?.[0]?.text, "自测");
 
       // D4：agent 调用方发出的消息应带发送方会话 id（此前工具层固定传 from: ""）
-      const sentByTool = (await tools[0]!.execute(
+      const sentByTool = (await channelTool.execute(
         { action: "send", to: "sess-x", text: "带来源", waitMs: 3000 },
         { agent: { session: { id: "sess-x" } } },
       )) as { ok: boolean };
@@ -153,7 +163,7 @@ redisTest(
         /sess-x/,
         "接收侧注入应带发送方会话 id",
       );
-      const inboxD4 = (await tools[0]!.execute({
+      const inboxD4 = (await channelTool.execute({
         action: "inbox",
         sessionId: "sess-x",
       })) as { messages?: { text: string; from: string }[] };
@@ -163,7 +173,7 @@ redisTest(
         "邮箱流应带发送方会话 id",
       );
       // 非 agent 调用方（无 exec）→ from 仍为空串，发送不受影响
-      const noExec = (await tools[0]!.execute({
+      const noExec = (await channelTool.execute({
         action: "send",
         to: "sess-x",
         text: "无来源",
@@ -173,17 +183,17 @@ redisTest(
 
       // 参数缺失与未知 action 的兜底
       assert.deepEqual(
-        await tools[0]!.execute({ action: "send", to: "sess-x" }),
+        await channelTool.execute({ action: "send", to: "sess-x" }),
         {
           ok: false,
           error: "send 需要 to 与 text",
         },
       );
-      assert.deepEqual(await tools[0]!.execute({ action: "inbox" }), {
+      assert.deepEqual(await channelTool.execute({ action: "inbox" }), {
         ok: false,
         error: "inbox 需要 sessionId",
       });
-      const unknown = await tools[0]!.execute({ action: "nope" });
+      const unknown = await channelTool.execute({ action: "nope" });
       assert.match(String(unknown["error"] ?? ""), /未知 action/);
     } finally {
       await getSessionChannelService()?.stop();

@@ -84,3 +84,40 @@ export function sessionIdFromAliveKey(key: string): string | undefined {
   const prefix = `${KEY_PREFIX}alive:`;
   return key.startsWith(prefix) ? key.slice(prefix.length) : undefined;
 }
+
+/** 委托任务记录键（值 = `TaskRecord` JSON；带 TTL）。 */
+export function taskKey(id: string): string {
+  return `${KEY_PREFIX}task:${id}`;
+}
+
+/** 委托任务索引键：某会话相关任务 id 列表（LPUSH + LTRIM，新→旧）。 */
+export function taskIndexKey(sessionId: string): string {
+  return `${KEY_PREFIX}tasks:${sessionId}`;
+}
+
+/** 任务记录键扫描模式（列举 / 清理用）。 */
+export const TASK_PATTERN = `${KEY_PREFIX}task:*`;
+
+/** 任务索引键扫描模式（列举 / 清理用）。 */
+export const TASK_INDEX_PATTERN = `${KEY_PREFIX}tasks:*`;
+
+/** 任务 id 合法字符集：8-64 位 `[A-Za-z0-9_-]`（UUID 天然满足）。 */
+export const TASK_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+/** 从任务记录键反解任务 id（非本前缀 → undefined）。 */
+export function taskIdFromRedisKey(redisKey: string): string | undefined {
+  const prefix = `${KEY_PREFIX}task:`;
+  return redisKey.startsWith(prefix)
+    ? redisKey.slice(prefix.length)
+    : undefined;
+}
+
+/** 从任务索引键反解会话 id（非本前缀 → undefined）。 */
+export function sessionIdFromTaskIndexKey(
+  redisKey: string,
+): string | undefined {
+  const prefix = `${KEY_PREFIX}tasks:`;
+  return redisKey.startsWith(prefix)
+    ? redisKey.slice(prefix.length)
+    : undefined;
+}

@@ -29,6 +29,11 @@ import {
   kvKeyFromRedisKey,
   kvVersionKey,
   sessionIdFromAliveKey,
+  TASK_ID_RE,
+  TASK_PATTERN,
+  taskIndexKey,
+  taskKey,
+  taskIdFromRedisKey,
 } from "./keys.ts";
 import {
   SessionChannelError,
@@ -40,7 +45,15 @@ import {
   type PeerInfo,
   type SendRequest,
   type SendResult,
+  type TaskRecord,
+  type TaskStatus,
 } from "./types.ts";
+import {
+  applyTaskPatch,
+  DEFAULT_TASK_RESULT_MAX_BYTES,
+  TASK_INDEX_MAX,
+  truncateUtf8,
+} from "./tasks.ts";
 
 /** 心跳/在线：写入（或刷新）本会话的在线键。 */
 export async function announcePresence(
@@ -612,4 +625,145 @@ export async function cwdOf(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ---------- 委托任务表（`task:<id>` + 每会话索引 `tasks:<sid>`） ----------
+
+/** 任务 id 校验；非法 → 错误文案（undefined = 合法）。 */
+export function taskIdError(id: string): string | undefined {
+  if (typeof id !== "string" || !TASK_ID_RE.test(id)) {
+    return "任务 id 非法（须 8-64 位 [A-Za-z0-9_-]）";
+  }
+  return undefined;
+}
+
+/** 解析任务记录（形状不符 / 解析失败 → undefined）。 */
+export function parseTask(raw: string | null): TaskRecord | undefined {
+  if (raw === null) return undefined;
+  try {
+    const value = JSON.parse(raw) as Partial<TaskRecord>;
+    if (
+      typeof value.id !== "string" ||
+      typeof value.to !== "string" ||
+      typeof value.text !== "string" ||
+      typeof value.status !== "string"
+    ) {
+      return undefined;
+    }
+    return value as TaskRecord;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 写任务记录（覆盖）并维护「委托方 / 目标」两侧索引。
+ * @param client - Redis 主连接。
+ * @param record - 完整记录。
+ * @param ttlSec - 记录 TTL 秒（> 0；索引键不带 TTL，靠 LTRIM 控量）。
+ */
+export async function putTask(
+  client: RedisClientType,
+  record: TaskRecord,
+  ttlSec: number,
+): Promise<void> {
+  const payload = JSON.stringify(record);
+  await client.set(taskKey(record.id), payload, { EX: Math.max(1, ttlSec) });
+  for (const sessionId of new Set([record.from, record.to])) {
+    if (sessionId === "") continue;
+    const indexKey = taskIndexKey(sessionId);
+    await client.lPush(indexKey, record.id);
+    await client.lTrim(indexKey, 0, TASK_INDEX_MAX - 1);
+  }
+}
+
+/** 读任务记录（不存在 / 形状不符 → undefined）。 */
+export async function getTask(
+  client: RedisClientType,
+  id: string,
+): Promise<TaskRecord | undefined> {
+  if (taskIdError(id) !== undefined) return undefined;
+  return parseTask(await client.get(taskKey(id)));
+}
+
+/**
+ * 读改写任务记录（保留原 TTL）。
+ * @returns 更新后的记录；任务不存在时 undefined。
+ */
+export async function patchTask(
+  client: RedisClientType,
+  id: string,
+  patch: Partial<TaskRecord>,
+  now: number = Date.now(),
+): Promise<TaskRecord | undefined> {
+  const current = await getTask(client, id);
+  if (current === undefined) return undefined;
+  const next = applyTaskPatch(current, patch, now);
+  await client.set(taskKey(id), JSON.stringify(next), { KEEPTTL: true });
+  return next;
+}
+
+/** 列某会话相关的任务（按索引新→旧；索引缺失时退化为扫任务表）。 */
+export async function listTasksOfSession(
+  client: RedisClientType,
+  sessionId: string,
+  limit = 20,
+): Promise<TaskRecord[]> {
+  const ids = (await client.lRange(
+    taskIndexKey(sessionId),
+    0,
+    Math.max(0, limit - 1),
+  )) as string[];
+  const out: TaskRecord[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const task = await getTask(client, id);
+    if (task !== undefined) out.push(task);
+  }
+  return out;
+}
+
+/** 扫全部任务（任务量小；`limit` 上限 100）。 */
+export async function listAllTasks(
+  client: RedisClientType,
+  limit = 20,
+): Promise<TaskRecord[]> {
+  const out: TaskRecord[] = [];
+  for await (const keys of client.scanIterator({ MATCH: TASK_PATTERN })) {
+    for (const redisKey of keys as unknown as string[]) {
+      if (out.length >= Math.min(100, Math.max(1, limit))) break;
+      const id = taskIdFromRedisKey(redisKey);
+      if (id === undefined) continue;
+      const task = parseTask(await client.get(redisKey));
+      if (task !== undefined) out.push(task);
+    }
+  }
+  return out;
+}
+
+/** 任务表统计（诊断用：总数 + 各状态计数）。 */
+export async function countTasks(
+  client: RedisClientType,
+): Promise<{ total: number; byStatus: Record<TaskStatus, number> }> {
+  const byStatus: Record<string, number> = {};
+  let total = 0;
+  for await (const keys of client.scanIterator({ MATCH: TASK_PATTERN })) {
+    for (const redisKey of keys as unknown as string[]) {
+      const task = parseTask(await client.get(redisKey));
+      if (task === undefined) continue;
+      total += 1;
+      byStatus[task.status] = (byStatus[task.status] ?? 0) + 1;
+    }
+  }
+  return { total, byStatus: byStatus as Record<TaskStatus, number> };
+}
+
+/** 结果正文入库前的截断（纯函数包装，便于调用方复用同一上限）。 */
+export function truncateTaskResult(
+  text: string,
+  maxBytes: number = DEFAULT_TASK_RESULT_MAX_BYTES,
+): { text: string; truncated: boolean } {
+  return truncateUtf8(text, maxBytes);
 }

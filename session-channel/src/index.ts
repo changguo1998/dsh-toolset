@@ -47,8 +47,16 @@ import {
   readCursor,
   readInbox,
   readNew,
+  resolveTarget,
+  getTask,
+  listAllTasks,
+  listTasksOfSession,
+  patchTask,
+  putTask,
   setAlias,
   sendMessage,
+  taskIdError,
+  truncateTaskResult,
   writeCursor,
 } from "./broker.ts";
 import {
@@ -57,7 +65,23 @@ import {
   readService,
   type InjectionHost,
 } from "./inject.ts";
+import {
+  DEFAULT_TASK_NOTIFY_MAX_BYTES,
+  DEFAULT_TASK_RESULT_MAX_BYTES,
+  DEFAULT_TASK_TEXT_MAX_BYTES,
+  DEFAULT_TASK_TIMEOUT_SEC,
+  DEFAULT_TASK_TTL_SEC,
+  failureNotificationText,
+  isTerminalTaskStatus,
+  resultNotificationText,
+  taskInjectionText,
+  truncateUtf8,
+  withTimeoutCheck,
+} from "./tasks.ts";
+import { SessionChannelError } from "./types.ts";
 import type {
+  DelegateRequest,
+  DelegateResult,
   InboxMessage,
   KvDeleteResult,
   KvEntry,
@@ -67,6 +91,10 @@ import type {
   PeerInfo,
   SendRequest,
   SendResult,
+  TaskListResult,
+  TaskQueryOptions,
+  TaskRecord,
+  TaskResultInput,
 } from "./types.ts";
 
 export type {
@@ -87,6 +115,25 @@ export const name = "session-channel";
  * 读取仍走受保护访问器（`readService`），兼容测试宿主与「服务读到一半消失」的边缘情况。
  */
 export const inject = ["tools", "agents", "sessions"];
+/** 从 `user/message` 事件取文本（形状容错；取不到 → 空串）。 */
+function textOfUserMessage(data: unknown): string {
+  const d = data as { content?: unknown; text?: unknown } | undefined;
+  if (typeof d?.text === "string") return d.text;
+  return textOfContent(d?.content);
+}
+
+/** 从内容块取纯文本（`{type:"text",text}`；非数组 → 尝试字符串）。 */
+function textOfContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const block of content) {
+    const b = block as { type?: unknown; text?: unknown } | undefined;
+    if (b?.type === "text" && typeof b.text === "string") parts.push(b.text);
+  }
+  return parts.join("");
+}
+
 /** 提供的服务名（宿主命令/插件经 `ctx.get("sessionChannel")` 使用）。 */
 export const provide = ["sessionChannel"];
 
@@ -158,6 +205,8 @@ export class SessionChannelService {
   #heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   #status: SessionChannelStatus;
   #sessions = new Map<string, SessionState>();
+  /** 委托任务：worker 会话 id → 待回收任务 id 列表（FIFO；`turn/end` 自动回收用）。 */
+  #workerTasks = new Map<string, string[]>();
 
   constructor(
     config: SessionChannelConfig = {},
@@ -217,7 +266,10 @@ export class SessionChannelService {
         if (removed > 0) this.#log(`清理过期投递游标 ${removed} 个`);
       })
       .catch((err: unknown) => this.#log(`游标清理失败：${describe(err)}`));
-    this.#host.on?.("session/event", (session) => this.noteSession(session));
+    this.#host.on?.("session/event", (session, event) => {
+      this.noteSession(session);
+      this.#onTaskEvent(session, event);
+    });
     this.#heartbeatTimer = setInterval(
       () => void this.#heartbeat(),
       this.#config.heartbeatMs,
@@ -467,6 +519,389 @@ export class SessionChannelService {
   }
 
   /** 心跳：刷新本进程所有已知会话的在线键。 */
+  // ---------- 委托任务（BACKLOG #54：跨会话委托/协调，planner-worker 语义） ----------
+
+  /**
+   * 委托任务：解析目标（会话 id / 别名 / `cwd:`）→ 建任务记录（任务表）→ 经既有消息通道
+   * 把任务注入 worker 会话的下一回合。结果回收两条路：显式工具（`taskResult`）优先，
+   * 轮末（`turn/end`）自动回收兜底。
+   */
+  async delegate(req: DelegateRequest): Promise<DelegateResult> {
+    const conn = this.#requireConnection();
+    if (typeof conn === "string") return { ok: false, error: conn };
+    const text = typeof req?.text === "string" ? req.text : "";
+    const to = typeof req?.to === "string" ? req.to : "";
+    if (to === "" || text.trim() === "") {
+      return {
+        ok: false,
+        error: "task_invalid",
+        message: "delegate 需要非空 to 与 text",
+      };
+    }
+    const maxText = this.#config.maxTextBytes ?? DEFAULT_TASK_TEXT_MAX_BYTES;
+    if (Buffer.byteLength(text, "utf8") > maxText) {
+      return {
+        ok: false,
+        error: "text_too_large",
+        message: `任务正文超过上限（${maxText} 字节）`,
+      };
+    }
+    try {
+      const targets = await resolveTarget(conn.main, to);
+      if (targets.length === 0) {
+        return {
+          ok: false,
+          error: "target_offline",
+          message: `目标不在线：${to}（在线对端见 peers）`,
+        };
+      }
+      if (targets.length > 1) {
+        return {
+          ok: false,
+          error: "target_ambiguous",
+          message: `目标命中多个会话（${targets.length}）`,
+          candidates: targets,
+        };
+      }
+      const target = targets[0]!;
+      const now = this.#now();
+      const record: TaskRecord = {
+        id: randomUUID(),
+        from: req?.from ?? "",
+        to: target.sessionId,
+        text,
+        createdAt: now,
+        updatedAt: now,
+        status: "pending",
+        deadline:
+          now + Math.max(1, req?.timeoutSec ?? DEFAULT_TASK_TIMEOUT_SEC) * 1000,
+      };
+      await putTask(conn.main, record, req?.ttlSec ?? DEFAULT_TASK_TTL_SEC);
+      // 注入走既有 send 路径：本进程 / 跨进程统一由目标实例的 reader 注入
+      const sent = await sendMessage(
+        conn.main,
+        {
+          from: record.from,
+          to: target.sessionId,
+          text: taskInjectionText(record),
+          ...(req?.waitMs === undefined ? {} : { waitMs: req.waitMs }),
+        },
+        { maxTextBytes: maxText + DEFAULT_TASK_NOTIFY_MAX_BYTES },
+      );
+      const updated =
+        (await patchTask(
+          conn.main,
+          record.id,
+          { messageId: sent.messageId },
+          now,
+        )) ?? record;
+      const queue = this.#workerTasks.get(target.sessionId) ?? [];
+      queue.push(record.id);
+      this.#workerTasks.set(target.sessionId, queue);
+      this.#log(`已委托任务 ${record.id} → ${target.sessionId}`);
+      return {
+        ok: true,
+        task: updated,
+        ...(sent.messageId === undefined ? {} : { messageId: sent.messageId }),
+        ...(sent.delivered === undefined ? {} : { delivered: sent.delivered }),
+        ...(sent.target === undefined ? {} : { target: sent.target }),
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        ...(err instanceof SessionChannelError ? { error: err.code } : {}),
+        message: describe(err),
+      };
+    }
+  }
+
+  /** 查单个任务（懒判定超时；超时状态落回任务表并通知委托方）。 */
+  async taskStatus(
+    taskId: string,
+  ): Promise<{ ok: boolean; task?: TaskRecord; error?: string }> {
+    const conn = this.#requireConnection();
+    if (typeof conn === "string") return { ok: false, error: conn };
+    if (taskIdError(taskId) !== undefined) {
+      return { ok: false, error: "task_invalid" };
+    }
+    try {
+      const found = await getTask(conn.main, taskId);
+      if (found === undefined) return { ok: false, error: "task_not_found" };
+      const checked = withTimeoutCheck(found, this.#now());
+      if (checked !== found) {
+        await patchTask(
+          conn.main,
+          taskId,
+          {
+            status: checked.status,
+            ...(checked.error === undefined ? {} : { error: checked.error }),
+          },
+          checked.updatedAt,
+        );
+        await this.#notifyPlanner(conn.main, checked);
+      }
+      return { ok: true, task: checked };
+    } catch (err) {
+      return { ok: false, error: describe(err) };
+    }
+  }
+
+  /** 列任务（会话索引；无 sessionId 时扫任务表；按建立时刻新→旧）。 */
+  async taskList(opts: TaskQueryOptions = {}): Promise<TaskListResult> {
+    const conn = this.#requireConnection();
+    if (typeof conn === "string") return { ok: false, error: conn };
+    const limit = Math.min(100, Math.max(1, opts.limit ?? 20));
+    try {
+      const raw =
+        opts.sessionId === undefined || opts.sessionId === ""
+          ? await listAllTasks(conn.main, limit)
+          : await listTasksOfSession(conn.main, opts.sessionId, limit);
+      const now = this.#now();
+      const checked = raw.map((task) => withTimeoutCheck(task, now));
+      for (let i = 0; i < checked.length; i += 1) {
+        const task = checked[i]!;
+        if (task === raw[i]) continue;
+        await patchTask(
+          conn.main,
+          task.id,
+          {
+            status: task.status,
+            ...(task.error === undefined ? {} : { error: task.error }),
+          },
+          task.updatedAt,
+        );
+      }
+      const filtered =
+        opts.status === undefined
+          ? checked
+          : checked.filter((task) => task.status === opts.status);
+      filtered.sort((a, b) => b.createdAt - a.createdAt);
+      return { ok: true, tasks: filtered.slice(0, limit) };
+    } catch (err) {
+      return { ok: false, error: describe(err) };
+    }
+  }
+
+  /** 取消任务（终态不可取消；返回当前记录）。 */
+  async taskCancel(
+    taskId: string,
+  ): Promise<{ ok: boolean; task?: TaskRecord; error?: string }> {
+    const conn = this.#requireConnection();
+    if (typeof conn === "string") return { ok: false, error: conn };
+    if (taskIdError(taskId) !== undefined) {
+      return { ok: false, error: "task_invalid" };
+    }
+    try {
+      const current = await getTask(conn.main, taskId);
+      if (current === undefined) return { ok: false, error: "task_not_found" };
+      if (isTerminalTaskStatus(current.status))
+        return { ok: true, task: current };
+      const next = await patchTask(
+        conn.main,
+        taskId,
+        { status: "canceled", error: "已被委托方取消" },
+        this.#now(),
+      );
+      if (next === undefined) return { ok: false, error: "task_not_found" };
+      this.#dropWorkerTask(next.to, taskId);
+      return { ok: true, task: next };
+    } catch (err) {
+      return { ok: false, error: describe(err) };
+    }
+  }
+
+  /** 显式回传结果（worker 侧工具 / 服务调用；`tool` 来源优先于自动回收）。 */
+  async taskResult(input: TaskResultInput): Promise<{
+    ok: boolean;
+    task?: TaskRecord;
+    error?: string;
+    message?: string;
+  }> {
+    const conn = this.#requireConnection();
+    if (typeof conn === "string") return { ok: false, error: conn };
+    const taskId = typeof input?.taskId === "string" ? input.taskId : "";
+    if (taskIdError(taskId) !== undefined) {
+      return { ok: false, error: "task_invalid", message: "任务 id 非法" };
+    }
+    const text = typeof input?.text === "string" ? input.text : "";
+    if (text === "") {
+      return { ok: false, error: "task_invalid", message: "结果正文为空" };
+    }
+    try {
+      const current = await getTask(conn.main, taskId);
+      if (current === undefined) return { ok: false, error: "task_not_found" };
+      const truncated = truncateTaskResult(text, DEFAULT_TASK_RESULT_MAX_BYTES);
+      const failed = input?.failed === true;
+      const next = await patchTask(
+        conn.main,
+        taskId,
+        {
+          status: failed ? "failed" : "done",
+          result: truncated.text,
+          resultTruncated: truncated.truncated,
+          resultSource: "tool",
+          ...(failed ? { error: input?.error ?? "worker 报告失败" } : {}),
+        },
+        this.#now(),
+      );
+      if (next === undefined) return { ok: false, error: "task_not_found" };
+      this.#dropWorkerTask(next.to, taskId);
+      await this.#notifyPlanner(conn.main, next);
+      return { ok: true, task: next };
+    } catch (err) {
+      return { ok: false, error: describe(err) };
+    }
+  }
+
+  /** 会话事件：任务注入对位（user/message）与轮末自动回收（turn/end）。 */
+  #onTaskEvent(session: unknown, event: unknown): void {
+    const sessionId =
+      typeof (session as { id?: unknown })?.id === "string"
+        ? (session as { id: string }).id
+        : "";
+    if (sessionId === "") return;
+    const e = event as { type?: unknown; seq?: unknown; data?: unknown };
+    if (e.type === "user/message") {
+      const text = textOfUserMessage(e.data);
+      const match = /TASK ([A-Za-z0-9_-]{8,64}):/.exec(text);
+      if (match === null) return;
+      const seq = Number(e.seq);
+      if (!Number.isFinite(seq)) return;
+      void this.#markTaskRunning(sessionId, match[1]!, seq);
+      return;
+    }
+    if (e.type === "turn/end") {
+      void this.#captureTaskResult(sessionId, session);
+    }
+  }
+
+  /** 注入对位：把触发 seq 落表并挂入待回收队列（仅当任务确实指向该会话）。 */
+  async #markTaskRunning(
+    workerSessionId: string,
+    taskId: string,
+    seq: number,
+  ): Promise<void> {
+    const conn = this.#conn;
+    if (conn === undefined) return;
+    try {
+      const task = await getTask(conn.main, taskId);
+      if (task === undefined || task.to !== workerSessionId) return;
+      if (isTerminalTaskStatus(task.status)) return;
+      await patchTask(
+        conn.main,
+        taskId,
+        { status: "running", triggerSeq: seq },
+        this.#now(),
+      );
+      const queue = this.#workerTasks.get(workerSessionId) ?? [];
+      if (!queue.includes(taskId)) queue.push(taskId);
+      this.#workerTasks.set(workerSessionId, queue);
+    } catch (err) {
+      this.#log(`任务对位失败（${taskId}）：${describe(err)}`);
+    }
+  }
+
+  /** 轮末自动回收：取该会话最旧的非终态任务，把本轮最终回答回写为结果并通知委托方。 */
+  async #captureTaskResult(
+    workerSessionId: string,
+    session: unknown,
+  ): Promise<void> {
+    const conn = this.#conn;
+    if (conn === undefined) return;
+    const queue = this.#workerTasks.get(workerSessionId) ?? [];
+    while (queue.length > 0) {
+      const taskId = queue[0]!;
+      const task = await getTask(conn.main, taskId).catch(() => undefined);
+      if (
+        task === undefined ||
+        isTerminalTaskStatus(task.status) ||
+        task.status !== "running"
+      ) {
+        queue.shift();
+        continue;
+      }
+      const text = this.#lastAssistantText(session);
+      if (text === "") {
+        this.#log(`任务 ${taskId} 轮末未取到回答，保留待下次回收`);
+        return;
+      }
+      const truncated = truncateTaskResult(text, DEFAULT_TASK_RESULT_MAX_BYTES);
+      const next = await patchTask(
+        conn.main,
+        taskId,
+        {
+          status: "done",
+          result: truncated.text,
+          resultTruncated: truncated.truncated,
+          resultSource: "auto",
+        },
+        this.#now(),
+      );
+      queue.shift();
+      if (next === undefined) continue;
+      this.#log(`任务 ${next.id} 已自动回收`);
+      await this.#notifyPlanner(conn.main, next);
+      return;
+    }
+    if (queue.length === 0) this.#workerTasks.delete(workerSessionId);
+  }
+
+  /** 从会话读取最后一条 assistant 文本（结构面；不可读 → 空串）。 */
+  #lastAssistantText(session: unknown): string {
+    try {
+      const derive = (session as { deriveMessages?: () => unknown })
+        ?.deriveMessages;
+      if (typeof derive !== "function") return "";
+      const messages = derive.call(session);
+      if (!Array.isArray(messages)) return "";
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const m = messages[i] as
+          { role?: unknown; content?: unknown } | undefined;
+        if (m?.role !== "assistant") continue;
+        return textOfContent(m.content);
+      }
+      return "";
+    } catch {
+      return "";
+    }
+  }
+
+  /** 结果/失败通知：经消息通道发给委托方（离线则留在流里，任务表仍可查）。 */
+  async #notifyPlanner(
+    client: SessionChannelConnection["main"],
+    task: TaskRecord,
+  ): Promise<void> {
+    if (task.from === "") return;
+    const text =
+      task.status !== "done" && isTerminalTaskStatus(task.status)
+        ? failureNotificationText(task)
+        : resultNotificationText(task);
+    try {
+      await sendMessage(
+        client,
+        { from: task.to, to: task.from, text },
+        { maxTextBytes: DEFAULT_TASK_NOTIFY_MAX_BYTES * 2 },
+      );
+      this.#log(`已回传任务 ${task.id} 结果 → ${task.from}`);
+    } catch (err) {
+      this.#log(`结果通知未送达（${task.id}）：${describe(err)}`);
+    }
+  }
+
+  /** 把任务从待回收队列移除。 */
+  #dropWorkerTask(workerSessionId: string, taskId: string): void {
+    const queue = this.#workerTasks.get(workerSessionId);
+    if (queue === undefined) return;
+    const index = queue.indexOf(taskId);
+    if (index >= 0) queue.splice(index, 1);
+    if (queue.length === 0) this.#workerTasks.delete(workerSessionId);
+  }
+
+  /** 当前时刻（依赖注入，测试可控）。 */
+  #now(): number {
+    return (this.#deps.now ?? Date.now)();
+  }
+
   async #heartbeat(): Promise<void> {
     for (const sessionId of this.#sessions.keys())
       await this.#announce(sessionId);
@@ -764,6 +1199,138 @@ function toToolDef(service: SessionChannelService) {
   };
 }
 
+/** 调用方会话 id（宿主在 `exec.agent.session` 传入；非 agent 调用方 → undefined）。 */
+function callerSessionIdOf(exec: unknown): string | undefined {
+  const agent = (exec as { agent?: { session?: { id?: unknown } } })?.agent;
+  return typeof agent?.session?.id === "string" ? agent.session.id : undefined;
+}
+
+/** `channel_delegate` 工具：把任务委托给另一个会话（planner-worker）。 */
+function toDelegateTool(service: SessionChannelService) {
+  return {
+    name: "channel_delegate",
+    description:
+      "把一个任务委托给本机另一个会话执行并回收结果（planner-worker 语义）：" +
+      "任务正文作为一条 [CHANNEL] 消息注入目标会话的下一回合；worker 本轮结束时会自动" +
+      "回传最终回答（worker 也可调用 channel_task_result 显式回传，显式优先）。" +
+      "返回 task_id，用 channel_task 查状态 / 列任务 / 取消。",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        to: {
+          type: "string",
+          description: "目标：会话 id、别名，或 cwd:<绝对路径>（须唯一命中）",
+        },
+        task: { type: "string", description: "任务正文（≤ 8 KB）" },
+        timeoutSec: {
+          type: "number",
+          description: "超时秒数（缺省 1800；超时按读取时懒判定）",
+        },
+        waitMs: {
+          type: "number",
+          description: "等待「已注入」回执的毫秒数（缺省不等）",
+        },
+      },
+      required: ["to", "task"],
+    },
+    async execute(args: Record<string, unknown>, exec?: unknown) {
+      const result = await service.delegate({
+        ...(callerSessionIdOf(exec) === undefined
+          ? {}
+          : { from: callerSessionIdOf(exec)! }),
+        to: String(args.to ?? ""),
+        text: String(args.task ?? ""),
+        ...(typeof args.timeoutSec === "number"
+          ? { timeoutSec: args.timeoutSec }
+          : {}),
+        ...(typeof args.waitMs === "number" ? { waitMs: args.waitMs } : {}),
+      });
+      return result;
+    },
+  };
+}
+
+/** `channel_task` 工具：查状态 / 列任务 / 取消任务。 */
+function toTaskTool(service: SessionChannelService) {
+  return {
+    name: "channel_task",
+    description:
+      "委托任务管理：action=status 查单个任务（taskId）；action=list 列任务" +
+      "（sessionId 缺省=调用方会话；可选 status / limit）；action=cancel 取消任务（taskId）。" +
+      "任务记录在 Redis 任务表（`task:<id>`，TTL 7 天），跨会话 / 跨进程共见。",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { type: "string", enum: ["status", "list", "cancel"] },
+        taskId: { type: "string", description: "status / cancel 用：任务 id" },
+        sessionId: {
+          type: "string",
+          description: "list 用：只列与该会话相关的任务（缺省=调用方会话）",
+        },
+        status: {
+          type: "string",
+          enum: ["pending", "running", "done", "failed", "canceled", "timeout"],
+          description: "list 用：只看该状态",
+        },
+        limit: { type: "number", description: "list 用：条数上限（缺省 20）" },
+      },
+      required: ["action"],
+    },
+    async execute(args: Record<string, unknown>, exec?: unknown) {
+      const action = String(args.action ?? "");
+      if (action === "status" || action === "cancel") {
+        const taskId = String(args.taskId ?? "");
+        return action === "status"
+          ? await service.taskStatus(taskId)
+          : await service.taskCancel(taskId);
+      }
+      const sessionId =
+        typeof args.sessionId === "string" && args.sessionId !== ""
+          ? args.sessionId
+          : callerSessionIdOf(exec);
+      return await service.taskList({
+        ...(sessionId === undefined ? {} : { sessionId }),
+        ...(typeof args.status === "string"
+          ? { status: args.status as TaskRecord["status"] }
+          : {}),
+        ...(typeof args.limit === "number" ? { limit: args.limit } : {}),
+      });
+    },
+  };
+}
+
+/** `channel_task_result` 工具：worker 侧显式回传结果（优先于轮末自动回收）。 */
+function toTaskResultTool(service: SessionChannelService) {
+  return {
+    name: "channel_task_result",
+    description:
+      "回传委托任务的结果（worker 侧用；显式回传优先于轮末自动回收）：" +
+      "taskId 取自注入正文的 `TASK <id>:`；text 为结果正文（≤ 64 KB，超出截断并标注）；" +
+      "failed=true 时标记失败（可带 error）。",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        taskId: { type: "string", description: "任务 id" },
+        text: { type: "string", description: "结果正文" },
+        failed: { type: "boolean", description: "true = 标记失败" },
+        error: { type: "string", description: "失败原因（failed 时）" },
+      },
+      required: ["taskId", "text"],
+    },
+    async execute(args: Record<string, unknown>) {
+      return await service.taskResult({
+        taskId: String(args.taskId ?? ""),
+        text: String(args.text ?? ""),
+        ...(args.failed === true ? { failed: true } : {}),
+        ...(typeof args.error === "string" ? { error: args.error } : {}),
+      });
+    },
+  };
+}
+
 /**
  * 服务面（`provide("sessionChannel", …)`）暴露的方法键清单：新增公开方法时须同步进服务面
  * （D5 根因：别名三件套曾只加在类上、漏进服务面，消费方调用即抛错），由 `tests/apply.test.ts` 守卫。
@@ -780,6 +1347,12 @@ export const SERVICE_FACE_METHODS = [
   "kvGet",
   "kvList",
   "kvDelete",
+  // 委托任务（BACKLOG #54）
+  "delegate",
+  "taskStatus",
+  "taskList",
+  "taskCancel",
+  "taskResult",
   "status",
 ] as const;
 
@@ -799,10 +1372,17 @@ export function apply(
   void service.start();
   const tools = (ctx as { tools?: { register(def: unknown): unknown } }).tools;
   if (tools && typeof tools.register === "function") {
-    try {
-      tools.register(toToolDef(service));
-    } catch (err) {
-      warn(`session-channel 工具注册失败：${describe(err)}`);
+    for (const build of [
+      toToolDef,
+      toDelegateTool,
+      toTaskTool,
+      toTaskResultTool,
+    ]) {
+      try {
+        tools.register(build(service));
+      } catch (err) {
+        warn(`${build.name} 工具注册失败：${describe(err)}`);
+      }
     }
   } else {
     warn("tools 未挂载：session-channel 工具不可用（服务面仍提供）");
@@ -817,8 +1397,11 @@ export function apply(
       inbox: (sessionId: string, count?: number) =>
         service.inbox(sessionId, count),
       // 别名三件套：TUI 状态栏（TUI#48）等消费方经此只读/管理别名
-      aliasSet: (alias: string, sessionId: string, opts?: { force?: boolean }) =>
-        service.aliasSet(alias, sessionId, opts),
+      aliasSet: (
+        alias: string,
+        sessionId: string,
+        opts?: { force?: boolean },
+      ) => service.aliasSet(alias, sessionId, opts),
       aliasList: () => service.aliasList(),
       aliasClear: (opts: { alias?: string; sessionId?: string }) =>
         service.aliasClear(opts),
@@ -828,6 +1411,12 @@ export function apply(
       kvGet: (key: string) => service.kvGet(key),
       kvList: () => service.kvList(),
       kvDelete: (key: string) => service.kvDelete(key),
+      // 委托任务（BACKLOG #54）：planner-worker 语义，结果回收见 README 契约
+      delegate: (req: DelegateRequest) => service.delegate(req),
+      taskStatus: (taskId: string) => service.taskStatus(taskId),
+      taskList: (opts?: TaskQueryOptions) => service.taskList(opts),
+      taskCancel: (taskId: string) => service.taskCancel(taskId),
+      taskResult: (input: TaskResultInput) => service.taskResult(input),
       status: () => service.status(),
     });
   }

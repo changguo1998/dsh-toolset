@@ -38,7 +38,7 @@
 | 31 | slash 命令模板（pre-steps/chain/best-of-N）+ 模板级模型选择 | pi-prompt-template-model（对比文档 §3.4） | commands + workflow | P2 |
 | 51 | **记忆 auto-consolidation（自动巩固）**：把高频 / 高重要度记忆自动提升、合并相似条目、淘汰陈旧项（现状 knowledge-base 已有两级写回与淘汰提升，语义接近但需自动化巩固策略） | `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3（原 §2.6 观察项，用户 2026-09-29 立项） | knowledge-base 记忆层扩展（复用两级写策略 / 淘汰提升机制） | P2 |
 | 52 | **会话事件自动入知识库**：会话事件（tool 结果 / 决策 / 结论等）按规则自动入库并可检索（需定义过滤、去重、容量与隐私边界） | `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3（原 §2.6 观察项，用户 2026-09-29 立项） | knowledge-base + TUI/host 事件面（复用 output-compress 的入库与去重模式） | P2 |
-| 54 | **跨会话委托/协调**（planner-worker 语义）：把一个任务交给另一个会话执行并回收结果——在 #30 消息通道之上加任务语义（消息类型 + 任务表 + 结果回传） | #30 拆分（2026-09-29 用户裁定） | `session-channel` 之上扩展 | P2 |
+| 54 | **跨会话委托/协调**（planner-worker 语义）：把一个任务交给另一个会话执行并回收结果——在 #30 消息通道之上加任务语义（消息类型 + 任务表 + 结果回传） | #30 拆分（2026-09-29 用户裁定） | `session-channel` 之上扩展（2026-09-30 接取，追踪文档 `docs/implementation/2026-09-30-cross-session-delegation.md`） | P2 |
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 

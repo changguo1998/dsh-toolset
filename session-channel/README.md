@@ -10,8 +10,11 @@ DSH 进程内插件：**本机跨会话消息通道**——把消息从一个 ds
 | `send` | `to`, `text`, `waitMs?` | 发消息：`to` = 会话 id 或 `cwd:<绝对路径>`；正文注入目标会话（形如 `[CHANNEL](来源) 正文`，来源 = 发送方别名，无别名时用会话 id） |
 | `inbox` | `sessionId`, `count?` | 查某会话最近收到的消息（只读，新→旧，缺省 20 条） |
 | `status` | — | 连接状态、服务端版本、已跟踪会话、错误信息 |
+| `delegate`（工具 `channel_delegate`） | `to`, `task`, `timeoutSec?`, `waitMs?` | 把任务委托给另一个会话执行（planner-worker）；返回 `task_id`，结果自动 / 显式回传 |
+| `task`（工具 `channel_task`） | `action` = `status`/`list`/`cancel`, `taskId?`, `sessionId?`, `status?`, `limit?` | 任务管理：查状态 / 列任务 / 取消 |
+| `task_result`（工具 `channel_task_result`） | `taskId`, `text`, `failed?`, `error?` | worker 侧显式回传结果（优先于轮末自动回收） |
 
-服务面：`ctx.get("sessionChannel")` → `{ peers, send, inbox, aliasSet, aliasList, aliasClear, kvSet, kvGet, kvList, kvDelete, status }`（供 TUI / 其他插件调用；方法与语义见「键位」后的服务面表）。
+服务面：`ctx.get("sessionChannel")` → `{ peers, send, inbox, aliasSet, aliasList, aliasClear, kvSet, kvGet, kvList, kvDelete, delegate, taskStatus, taskList, taskCancel, taskResult, status }`（供 TUI / 其他插件调用；方法与语义见「键位」后的服务面表）。
 
 接收侧：注入消息带 `source.kind:"session-channel"`，TUI 按**用户输入块**显示（与 `[RULE]` / `[AUTO]` 同通道）；历史恢复后仍在。
 
@@ -50,6 +53,8 @@ cd <repo> && sh session-channel/scripts/setup-redis.sh --linger
 | `ack:<messageId>` | 回执键（`"injected"`，TTL 60s；只服务发送方 `waitMs` 等待窗口） |
 | `kv:<key>` | 共享 KV 条目（`{"value":…,"version":N,"updatedAt":ms}`；可选 TTL，无默认过期） |
 | `kvver:<key>` | 共享 KV 版本计数（`INCR` 单调；独立命名空间，`kv:*` 扫描不命中） |
+| `task:<id>` | 委托任务记录（`TaskRecord` JSON，TTL 7 天；状态 + 结果 + 触发 seq） |
+| `tasks:<sessionId>` | 每会话任务索引（`LPUSH` + `LTRIM 0..49`，新→旧；委托方与目标两侧都记） |
 | `meta` | 命名空间 schema 版本（不兼容时拒绝写入） |
 
 服务面（`ctx.get("sessionChannel")`，供 TUI / 其他插件调用）：
@@ -61,6 +66,9 @@ cd <repo> && sh session-channel/scripts/setup-redis.sh --linger
 | `aliasSet(alias, sessionId, opts?)` / `aliasList()` / `aliasClear(opts)` | 别名管理 |
 | `kvSet(key, value, opts?)` | 共享 KV 写入（last-value + 版本号；`{expectedVersion, ttlSec}` 可选，CAS 冲突 → `kv_conflict` + `current`） |
 | `kvGet(key)` / `kvList()` / `kvDelete(key)` | 共享 KV 读单键 / 列全量（按键名排序）/ 删除（payload + 版本键） |
+| `delegate(req)` | 委托任务（`{from?, to, text, timeoutSec?, ttlSec?, waitMs?}`）；目标唯一命中后建任务表记录并把任务注入 worker |
+| `taskStatus(taskId)` / `taskList(opts?)` / `taskCancel(taskId)` | 查单个任务（懒判定超时）/ 列任务（`{sessionId?, status?, limit?}`，缺省按会话索引）/ 取消 |
+| `taskResult(input)` | 显式回传结果（`{taskId, text, failed?, error?}`；`resultSource:"tool"` 优先于自动回收） |
 
 ## 使用示例
 
@@ -92,7 +100,13 @@ profile 挂载（与其他插件同法）：
 - **别名**：`[A-Za-z0-9_-]{1,32}`，保留字（`inbox/alive/ack/cursor/alias/meta/peers/send/status`）不可用；一会话一别名（设新的顶掉旧的）；被别的会话占用需 `force`；别名键无 TTL，`alias clear` 手工清理。
 - **共享 KV**（#55）：`kvSet` / `kvGet` / `kvList` / `kvDelete`，last-value + 单调版本号（CAS 用 `expectedVersion`），键 `[A-Za-z0-9_.-]{1,64}`、值 JSON 可序列化且 ≤ `maxTextBytes`；**拉取式**（无订阅 / 通知）、仅本机共享。
 - **不做限流**：本地单用户场景；单条正文上限 8 KB。
-- **范围外**（后续条目）：跨会话委托/协调（#54）、消息历史检索。
+- **委托任务**（#54，planner-worker 语义）：`delegate` 建任务表记录（`task:<id>`，TTL 7 天）并把任务以
+  `TASK <id>: <正文>` 注入 worker 会话的下一回合；worker 本轮结束（`turn/end`）时**自动回收**最终回答
+  作为结果，worker 也可调 `channel_task_result` **显式回传**（`resultSource:"tool"` 优先于 `auto`）；
+  结果全文 ≤ 64 KB（超出截断并标注），回传给委托方的通知正文截断到 8 KB；状态机
+  `pending → running → done / failed / canceled / timeout`（超时按**读取时懒判定**，缺省 1800 秒）；
+  终态不可回退；委托方 / 目标离线时通知留在流里（任务表仍可查）。
+- **范围外**（后续条目）：消息历史检索。
 - 注入即「用户消息」：会开新回合、模型可能据此调用工具——发消息方须是可信会话（本机同用户）。
 
 ## 测试
@@ -100,7 +114,7 @@ profile 挂载（与其他插件同法）：
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # tsc → dist/
-npm run test    # node --test（35 例；无 redis-server 的机器上集成用例自动 skip）
+npm run test    # node --test（41 例；无 redis-server 的机器上集成用例自动 skip）
 ```
 
 设计决策见 `docs/DESIGN.md`。
