@@ -320,7 +320,7 @@ export class CommandTemplateService {
     }
   }
 
-  /** agent 步骤：宿主 subagents provider 一次性运行（模型覆盖仅本次）。 */
+  /** agent 步骤：宿主 subagents 服务面一次性运行（写父会话 catalog + 生命周期事件；模型覆盖仅本次）。 */
   async #runAgent(
     invocation: InvocationLike,
     prompt: string,

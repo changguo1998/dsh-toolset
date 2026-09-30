@@ -1,19 +1,23 @@
-// src/subagent.ts — agent 步骤的一次性子代理运行（宿主 subagents provider 面）。
+// src/subagent.ts — agent 步骤的一次性子代理运行（宿主 subagents 服务面）。
 //
-// 走宿主 sanctioned 路径：`ctx.subagents` 选 provider（优先 spawn）→ `provider.start(...)`
-// （携带 parent agent 与 provider/model 覆盖，**仅本次运行**）→ `settleRun` 等终态 →
-// 取子代理报告文本。宿主包 `@deepseek-ai/dsh-subagent` 运行时按 `$DSH_HOME` 解析，
-// 本包不声明宿主依赖（与 session-title-cutoff 的宿主助手同法）。
+// 走宿主 sanctioned 路径：`ctx.subagents` 选 provider（优先 spawn）→ **服务面**
+// `start(name, request)`（携带 parent agent 与 provider/model 覆盖，仅本次运行）——
+// 服务面内宿主会写父会话 `subagent/catalog` 并发出 `subagent/start` · `subagent/end`
+// 生命周期事件（raw `provider.start` 调用两者皆无，曾致子代理在 /agents 与 TUI 状态列
+// 不可见）→ `settleRun` 等终态 → 取子代理报告文本。宿主包 `@deepseek-ai/dsh-subagent`
+// 运行时按 `$DSH_HOME` 解析，本包不声明宿主依赖（与 session-title-cutoff 的宿主助手同法）。
 //
 // 失败一律抛错：上层（steps.ts）转 `step_failed` 并给出可读原因；不静默降级为「忽略模型覆盖」。
 
 import { describe, importHostModule, readService } from "./host.ts";
 import type { ModelRef } from "./types.ts";
 
-/** 宿主 `SubagentRuntime` 的最小形态。 */
+/** 宿主 `SubagentRuntime` 的最小形态（服务面；一次性运行走 `start(name, request)`）。 */
 interface SubagentRuntimeLike {
   list?(): string[];
   getProvider?(name: string): SubagentProviderLike | undefined;
+  /** 服务面一次性运行（宿主内写父会话 catalog + 生命周期事件）；返回 run 句柄。 */
+  start?(name: string, request: unknown): Promise<unknown> | unknown;
 }
 
 /** 宿主 `SubagentProvider` 的最小形态。 */
@@ -36,12 +40,40 @@ export interface OneShotAgentOptions {
   timeoutMs?: number;
   /** 调用方取消信号（命令 handler 的 signal）。 */
   signal?: AbortSignal;
+  /** 测试注入：宿主模块读取器（缺省 `importHostModule`；测试避免依赖本机宿主安装）。 */
+  loadHostModule?: (
+    specifier: string,
+  ) => Promise<Record<string, unknown> | undefined>;
 }
 
 /** 结果文本上限（超出截断并标注，避免命令结果体量失控）。 */
 const MAX_RESULT_BYTES = 32 * 1024;
 
-/** 跑一次一次性子代理，返回其报告文本。 */
+/** 组装服务面一次性运行请求（纯函数；`descriptor` 由宿主构建，故不在此自建）。 */
+export function buildOneShotRequest(input: {
+  prompt: string;
+  signal: AbortSignal;
+  parent?: unknown;
+  model?: ModelRef;
+}): Record<string, unknown> {
+  const request: Record<string, unknown> = {
+    label: "command-template",
+    prompt: [{ type: "text", text: input.prompt }],
+    signal: input.signal,
+  };
+  if (input.parent !== undefined) request["parent"] = input.parent;
+  if (input.model !== undefined) {
+    request["agentOptions"] = {
+      ...(input.model.provider === undefined
+        ? {}
+        : { provider: input.model.provider }),
+      ...(input.model.model === undefined ? {} : { model: input.model.model }),
+    };
+  }
+  return request;
+}
+
+/** 跑一次一次性子代理，返回其报告文本（经宿主服务面 start：写父会话 catalog + 生命周期事件）。 */
 export async function runOneShotAgent(
   options: OneShotAgentOptions,
 ): Promise<string> {
@@ -54,49 +86,34 @@ export async function runOneShotAgent(
     throw new Error("无可用 subagent provider（宿主未注册 spawn/fork？）");
   }
   const providerName = picked.name;
-  const start = picked.provider.start;
-  if (typeof start !== "function") {
+  if (typeof picked.provider.start !== "function") {
     throw new Error(`subagent provider 不支持一次性运行：${providerName}`);
+  }
+  const start = runtime.start;
+  if (typeof start !== "function") {
+    throw new Error("subagents 服务未暴露 start（宿主版本不匹配？）");
   }
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs ?? 600_000;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const signal = fuseSignals(options.signal, controller.signal);
   try {
-    const host = await importHostModule("@deepseek-ai/dsh-subagent");
+    const loadHost = options.loadHostModule ?? importHostModule;
+    const host = await loadHost("@deepseek-ai/dsh-subagent");
     const settleRun = host?.["settleRun"];
     if (typeof settleRun !== "function") {
       throw new Error("宿主未导出 settleRun（dsh-subagent 版本不匹配？）");
     }
-    const version =
-      typeof host?.["SUBAGENT_DESCRIPTOR_VERSION"] === "number"
-        ? (host["SUBAGENT_DESCRIPTOR_VERSION"] as number)
-        : 3;
-    const request: Record<string, unknown> = {
-      label: "command-template",
-      prompt: [{ type: "text", text: options.prompt }],
-      signal,
-      // 子代理身份载荷：宿主把 descriptor 原样写入 subagent/descriptor 事件，
-      // 必须 JSON 可序列化（缺它会以「carries non-JSON-serializable data」在子会话首轮失败）
-      descriptor: {
-        version,
-        mode: "one-shot",
-        provider: providerName,
-        label: "command-template",
-      },
-    };
-    if (options.parent !== undefined) request["parent"] = options.parent;
-    if (options.model !== undefined) {
-      request["agentOptions"] = {
-        ...(options.model.provider === undefined
-          ? {}
-          : { provider: options.model.provider }),
-        ...(options.model.model === undefined
-          ? {}
-          : { model: options.model.model }),
-      };
-    }
-    const run = await start.call(picked.provider, request);
+    const run = await start.call(
+      runtime,
+      providerName,
+      buildOneShotRequest({
+        prompt: options.prompt,
+        signal,
+        ...(options.parent === undefined ? {} : { parent: options.parent }),
+        ...(options.model === undefined ? {} : { model: options.model }),
+      }),
+    );
     const outcome = await (settleRun as (run: unknown) => Promise<unknown>)(
       run,
     );
