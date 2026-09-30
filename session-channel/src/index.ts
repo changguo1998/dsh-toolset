@@ -1248,6 +1248,12 @@ function toDelegateTool(service: SessionChannelService) {
       });
       return result;
     },
+    output: {
+      schema: { type: "object", additionalProperties: true, properties: {} },
+      render: (_args: unknown, value: unknown) => [
+        { type: "text", text: JSON.stringify(value, null, 2) },
+      ],
+    },
   };
 }
 
@@ -1298,6 +1304,12 @@ function toTaskTool(service: SessionChannelService) {
         ...(typeof args.limit === "number" ? { limit: args.limit } : {}),
       });
     },
+    output: {
+      schema: { type: "object", additionalProperties: true, properties: {} },
+      render: (_args: unknown, value: unknown) => [
+        { type: "text", text: JSON.stringify(value, null, 2) },
+      ],
+    },
   };
 }
 
@@ -1327,6 +1339,12 @@ function toTaskResultTool(service: SessionChannelService) {
         ...(args.failed === true ? { failed: true } : {}),
         ...(typeof args.error === "string" ? { error: args.error } : {}),
       });
+    },
+    output: {
+      schema: { type: "object", additionalProperties: true, properties: {} },
+      render: (_args: unknown, value: unknown) => [
+        { type: "text", text: JSON.stringify(value, null, 2) },
+      ],
     },
   };
 }

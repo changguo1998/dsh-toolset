@@ -87,6 +87,14 @@ redisTest(
         ],
         "四个工具：消息通道 + 委托三件套（BACKLOG #54）",
       );
+      for (const t of tools) {
+        // 宿主 tools.register 需要 output 元数据（缺了真机会拒绝注册，单测假 register 不校验）
+        assert.equal(
+          typeof (t as { output?: { render?: unknown } }).output?.render,
+          "function",
+          `${t.name} 缺 output.render`,
+        );
+      }
       const channelTool = tools.find((t) => t.name === "session_channel")!;
       assert.ok(
         provided.has("sessionChannel"),
