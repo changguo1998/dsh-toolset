@@ -41,6 +41,7 @@
 
 | 62 | **命令模板的取消/超时终态**：真机发现 `playbook` 命令在子代理死亡或取消后可能**无 `command/done`**（命令悬挂）；且 `stepTimeoutMs`（缺省 600s）触发的 abort 是否真的中止子代理未经真机验证。期望：命令任何路径都回终态（成功/失败/取消），并在子会话结束时回收 | #31 真机观察（追踪文档 2026-09-30 第三轮） | `command-template`（`src/{steps,subagent,main}.ts`） | P2 |
 | 63 | **插件运行期 stderr 告警显示统一（评估）**：各插件运行期告警均裸写 `process.stderr.write`（清单：command-template / session-title-cutoff / task-engine / goal-contract / session-channel / metric-loop / hash-edit / symbol-normalizer / code-map（stderr 兜底）/ TUI 自身；无 `console.*` 与 stdout 写点）。经 #61 方案 A 兜底后显示位置已正确（活动区）；本条评估是否统一改**结构化通知通道**（同 rule-engine `onNotice` / symbol-normalizer `onReview` 模式：tone 结构化 + headless 兜底 stderr）与降噪。 | #61 实施期审计（2026-10-01） | 各插件 `src/`（告警出口）+ `TUI`（桥） | P3 |
+| 64 | **流程文档陈旧行修正**：`docs/WORKFLOW-STANDARD.md` §1「模块」列表写「TUI 与 12 个插件包」（罗列至 context-report），实际为 17 个插件包（缺 rule-engine / symbol-normalizer / session-channel / session-title-cutoff / command-template），与 `AGENTS.md` 的「TUI 与 17 个包」不一致。期望：更新列表（或改为引用 `AGENTS.md` 口径）。 | #61 收尾遗留（2026-10-01） | `docs/WORKFLOW-STANDARD.md` §1 | P3 |
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
