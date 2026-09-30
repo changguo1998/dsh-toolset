@@ -144,7 +144,11 @@ redisTest(
         content?: { text: string }[];
         source?: { kind?: string };
       };
-      assert.equal(injected.content?.[0]?.text, "[CHANNEL](sess-x) 自测");
+      // F1 起：会话首见自动生成别名（ui- 前缀）→ 来源标签用别名而非会话 id
+      assert.match(
+        injected.content?.[0]?.text ?? "",
+        /^\[CHANNEL\]\(ui-[a-z]+\) 自测$/,
+      );
       assert.equal(injected.source?.kind, "session-channel");
 
       // inbox（工具，只读）
@@ -168,8 +172,8 @@ redisTest(
       const injected2 = received[1] as { source?: { summary?: string } };
       assert.match(
         String(injected2.source?.summary ?? ""),
-        /sess-x/,
-        "接收侧注入应带发送方会话 id",
+        /来自 ui-[a-z]+$/,
+        "接收侧注入应带发送方别名（F1 起为自动别名）",
       );
       const inboxD4 = (await channelTool.execute({
         action: "inbox",

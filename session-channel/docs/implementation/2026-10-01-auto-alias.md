@@ -25,8 +25,8 @@
 
 计划改动文件清单（**只改这些**）：
 
-1. `session-channel/src/index.ts`：词表 + `pickAutoAlias`（纯函数，随机源可注入）+ `#autoAlias` + `noteSession` 首见处触发。
-1. `session-channel/tests/alias.test.ts`（+ 按需 helpers）：词表合法性 / 生成与去重重试 / 既有别名不动 / `alias set` 可覆盖。
+1. `session-channel/src/index.ts`：词表（96 词）+ `aliasPrefixFor` / `pickAutoAlias`（纯函数，随机源可注入）+ `#autoAlias` + `noteSession` 首见处触发 + `SessionChannelDeps.random`。
+1. `session-channel/tests/alias.test.ts`：词表合法性 / 前缀 / 取词 / 首见生成（集成，真实临时 Redis）/ 既有别名不动 / 不重复写。**另改**（预期行为变化）：`tests/apply.test.ts`、`tests/service.test.ts`——来源标签由「回退会话 id」改为自动别名，D6 用例加「等别名写入后清掉」以保留 id 回退分支。
 1. `session-channel/docs/BACKLOG.md`：条目「完成」标记与收尾清理。
 1. 本追踪文档。
 
@@ -34,11 +34,16 @@
 
 ## 实现记录
 
-（待写）
+1. 2026-10-01 `src/index.ts`：新增 `AUTO_ALIAS_WORDS`（96 词，≤8 字符）、`AUTO_ALIAS_TRIES = 8`、`aliasPrefixFor`（`origin === "subagent"` / `delegationDepth > 0` → `sub-`，否则 `ui-`）、`pickAutoAlias`（随机源可注入）与 `#autoAlias`（首见且无别名 → `setAlias`；`alias_taken` 重试 ≤8，其它静默）；`noteSession` 首见分支挂 `void this.#autoAlias(session, sessionId)`；`SessionChannelDeps` 增 `random?`。
+1. 2026-10-01 测试：`tests/alias.test.ts` 增 4 例（词表 / 前缀 / 取词 / 首见生成集成）；按预期行为变化更新 `tests/apply.test.ts`（D4 来源标签 → `来自 ui-…`）与 `tests/service.test.ts`（端到端来源标签 → `ui-…`；D6 的「无别名回退」前先等别名写入再清掉）。
+1. 途中：首见生成的异步写入与测试清别名存在竞态 → D6 用例改为「等别名出现 → 清 → 等清空」，确定性 ✓。
 
 ## 测试与证据
 
-（待写）
+- 单测：`cd session-channel && npm run test` → 45 pass / 0 fail（含新增 4 例；集成例走真实临时 Redis）。
+- 全量：`npm run test`（根）→ 16 包全绿（session-channel 45 / TUI 1228 / 0 fail）。
+- 机械门禁：`npm run check` exit 0；`npm run build` exit 0（session-channel 包内）。
+- 真机确认（点 3 前）：重启后本会话应得 `ui-…` 别名（状态栏 `@别名` 段 + `alias list` 可见）；起一个子代理 → 其会话得 `sub-…` 别名（状态列 Agents 行显示别名）。
 
 ## 收尾
 

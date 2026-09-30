@@ -182,9 +182,147 @@ interface SessionState {
 }
 
 /** 可注入依赖（测试替身用；缺省取真实实现）。 */
+/**
+ * 自动别名词表（F1「会话别名自动生成」）：≤8 字符 ASCII 名词 / 名字。
+ * 测试强制：长度 ≤8、`[A-Za-z]`、不与保留字冲突、无重复。
+ */
+export const AUTO_ALIAS_WORDS = [
+  "otter",
+  "lyra",
+  "comet",
+  "falcon",
+  "heron",
+  "lynx",
+  "marten",
+  "osprey",
+  "panda",
+  "quokka",
+  "raven",
+  "robin",
+  "stork",
+  "tapir",
+  "viper",
+  "walrus",
+  "zebra",
+  "bison",
+  "cobra",
+  "dingo",
+  "egret",
+  "finch",
+  "gecko",
+  "hare",
+  "ibis",
+  "jaguar",
+  "koala",
+  "lemur",
+  "moose",
+  "newt",
+  "okapi",
+  "puffin",
+  "quail",
+  "rhino",
+  "seal",
+  "toucan",
+  "urchin",
+  "vole",
+  "weasel",
+  "wombat",
+  "yak",
+  "alpaca",
+  "beetle",
+  "coral",
+  "dolphin",
+  "eagle",
+  "ferret",
+  "gazelle",
+  "hedgehog",
+  "impala",
+  "jackal",
+  "lobster",
+  "magpie",
+  "narwhal",
+  "ocelot",
+  "parrot",
+  "rabbit",
+  "salmon",
+  "vulture",
+  "weevil",
+  "xerus",
+  "beaver",
+  "badger",
+  "cricket",
+  "donkey",
+  "ember",
+  "flint",
+  "grove",
+  "hazel",
+  "iris",
+  "juno",
+  "luna",
+  "mira",
+  "nebula",
+  "nova",
+  "orion",
+  "pluto",
+  "quasar",
+  "rhea",
+  "terra",
+  "umbra",
+  "vega",
+  "virgo",
+  "willow",
+  "zephyr",
+  "birch",
+  "cedar",
+  "delta",
+  "echo",
+  "atlas",
+  "aurora",
+  "basil",
+  "clover",
+  "dune",
+  "frost",
+  "reef",
+] as const;
+
+/** 自动别名重试上限（仅 `alias_taken` 重试）。 */
+const AUTO_ALIAS_TRIES = 8;
+
+/**
+ * 按会话类型取别名前缀（F1）：子代理会话 `sub-`（`header.origin === "subagent"`
+ * 或 `delegationDepth > 0`），其余（用户启动会话）`ui-`。宽容读取，缺字段按用户会话。
+ */
+export function aliasPrefixFor(session: unknown): "ui-" | "sub-" {
+  const header = (
+    session as {
+      header?: { origin?: unknown; delegationDepth?: unknown };
+    } | null
+  )?.header;
+  if (header !== null && header !== undefined) {
+    if (header.origin === "subagent") return "sub-";
+    const depth = header.delegationDepth;
+    if (typeof depth === "number" && depth > 0) return "sub-";
+  }
+  return "ui-";
+}
+
+/** 取一个自动别名（前缀 + 随机词；随机源可注入，便于测试）。 */
+export function pickAutoAlias(
+  prefix: "ui-" | "sub-",
+  random: () => number = Math.random,
+): string {
+  const idx = Math.min(
+    AUTO_ALIAS_WORDS.length - 1,
+    Math.max(0, Math.floor(random() * AUTO_ALIAS_WORDS.length)),
+  );
+  return `${prefix}${AUTO_ALIAS_WORDS[idx]}`;
+}
+
 export interface SessionChannelDeps {
   connect?: typeof connectSessionChannel;
   now?: () => number;
+  /** 自动别名的随机源（缺省 `Math.random`；测试注入用）。 */
+  random?: () => number;
 }
 
 /** session-channel 服务（bundle 内部实现）。 */
@@ -303,6 +441,30 @@ export class SessionChannelService {
     this.#sessions.clear();
   }
 
+  /**
+   * 自动别名（F1）：会话**首次见到**且尚无别名时写入（`ui-` / `sub-` + 词）。
+   * 占用重试 ≤ AUTO_ALIAS_TRIES；其它错误 / 异常静默（别名是增强项，不影响通道）。
+   */
+  async #autoAlias(session: unknown, sessionId: string): Promise<void> {
+    try {
+      const conn = this.#conn;
+      if (conn === undefined) return;
+      if ((await aliasOfSession(conn.main, sessionId)) !== undefined) return;
+      const prefix = aliasPrefixFor(session);
+      for (let i = 0; i < AUTO_ALIAS_TRIES; i++) {
+        const result = await setAlias(
+          conn.main,
+          pickAutoAlias(prefix, this.#deps.random ?? Math.random),
+          sessionId,
+        );
+        if (result.ok) return;
+        if (result.error !== "alias_taken") return;
+      }
+    } catch {
+      /* 别名是增强项：生成失败静默 */
+    }
+  }
+
   /** 记录（或刷新）一个活跃会话；首次见到立即写在线键。 */
   noteSession(session: unknown): void {
     const sessionId =
@@ -342,6 +504,7 @@ export class SessionChannelService {
     this.#status.sessions = [...this.#sessions.keys()];
     void this.#loadCursor(sessionId);
     void this.#announce(sessionId);
+    void this.#autoAlias(session, sessionId);
   }
 
   /** 在线对端列表。 */

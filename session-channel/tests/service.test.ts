@@ -71,7 +71,11 @@ redisTest("端到端：A 发送 → B 注入并回执 → A 收到 delivered", a
       source?: { kind?: string };
     };
     assert.equal(injected.role, "user");
-    assert.equal(injected.content?.[0]?.text, "[CHANNEL](sess-a) hello B");
+    // F1 起：会话首见自动生成别名（ui- 前缀）→ 来源标签用别名而非会话 id
+    assert.match(
+      injected.content?.[0]?.text ?? "",
+      /^\[CHANNEL\]\(ui-[a-z]+\) hello B$/,
+    );
     assert.equal(injected.source?.kind, "session-channel");
 
     // cwd 寻址同样可达（两个会话同目录 → 歧义，故用精确 id 之外的路径单独验证）
@@ -257,6 +261,10 @@ redisTest("D6：注入来源标签别名优先（无别名回退会话 id）", a
     await svc.start();
     host.emitSession(session("sess-a", "/tmp/label"));
     await waitUntil(async () => (await svc.peers()).peers?.length === 1);
+    // F1 起：会话首见会自动生成别名 → 等它写入后清掉，验证「无别名回退发送方会话 id」
+    await waitUntil(async () => (await svc.aliasList()).aliases?.length === 1);
+    await svc.aliasClear({ sessionId: "sess-a" });
+    await waitUntil(async () => (await svc.aliasList()).aliases?.length === 0);
     // 无别名 → 显示发送方会话 id
     const first = await svc.send({
       to: "sess-a",

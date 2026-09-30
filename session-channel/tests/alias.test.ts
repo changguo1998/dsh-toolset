@@ -4,6 +4,7 @@
  */
 
 import assert from "node:assert/strict";
+import { test } from "node:test";
 
 import {
   announcePresence,
@@ -21,9 +22,22 @@ import {
   connectSessionChannel,
   type SessionChannelConnection,
 } from "../src/client.ts";
+import {
+  aliasPrefixFor,
+  apply,
+  AUTO_ALIAS_WORDS,
+  getSessionChannelService,
+  pickAutoAlias,
+} from "../src/index.ts";
 import { aliasKey } from "../src/keys.ts";
 import type { PeerInfo } from "../src/types.ts";
-import { redisTest, startTempRedis } from "./helpers.ts";
+import {
+  makeFakeHost,
+  redisTest,
+  sleep,
+  startTempRedis,
+  waitUntil,
+} from "./helpers.ts";
 
 /** 造一个在线项（可覆盖字段）。 */
 function peer(sessionId: string, over: Partial<PeerInfo> = {}): PeerInfo {
@@ -167,3 +181,120 @@ redisTest("clearAliasesOf：按会话清空其全部别名", async () => {
     ]);
   });
 });
+
+// ---------- F1：会话别名自动生成（≤8 字符名词 / 名字 + 类型前缀） ----------
+
+test("F1 词表：≤8 字符 ASCII 名词 / 名字，无重复、不与保留字冲突", () => {
+  assert.ok(
+    AUTO_ALIAS_WORDS.length >= 64,
+    `词表规模: ${AUTO_ALIAS_WORDS.length}`,
+  );
+  // 与 broker 的 RESERVED_ALIASES 同口径（该表未导出，此处硬编码校验）
+  const reserved = new Set([
+    "inbox",
+    "alive",
+    "ack",
+    "cursor",
+    "alias",
+    "meta",
+    "peers",
+    "send",
+    "status",
+  ]);
+  const seen = new Set<string>();
+  for (const word of AUTO_ALIAS_WORDS) {
+    assert.match(word, /^[A-Za-z]{2,8}$/, `词不合法: ${word}`);
+    assert.ok(!seen.has(word), `词重复: ${word}`);
+    assert.ok(!reserved.has(word), `与保留字冲突: ${word}`);
+    seen.add(word);
+  }
+});
+
+test("F1 前缀：子代理会话 sub-，其余（用户启动）ui-", () => {
+  assert.equal(aliasPrefixFor({ id: "u" }), "ui-");
+  assert.equal(aliasPrefixFor({ id: "u", header: { cwd: "/x" } }), "ui-");
+  assert.equal(aliasPrefixFor({ id: "u", header: { origin: "user" } }), "ui-");
+  assert.equal(
+    aliasPrefixFor({ id: "s", header: { origin: "subagent" } }),
+    "sub-",
+  );
+  assert.equal(
+    aliasPrefixFor({ id: "s", header: { delegationDepth: 1 } }),
+    "sub-",
+  );
+  assert.equal(
+    aliasPrefixFor({ id: "s", header: { delegationDepth: 0 } }),
+    "ui-",
+  );
+  assert.equal(aliasPrefixFor(null), "ui-");
+});
+
+test("F1 取词：前缀 + 词表随机项（随机源注入；越界 clamp）", () => {
+  assert.equal(
+    pickAutoAlias("ui-", () => 0),
+    `ui-${AUTO_ALIAS_WORDS[0]}`,
+  );
+  assert.equal(
+    pickAutoAlias("sub-", () => 0.999999),
+    `sub-${AUTO_ALIAS_WORDS.at(-1)}`,
+  );
+  assert.equal(
+    pickAutoAlias("ui-", () => 1),
+    `ui-${AUTO_ALIAS_WORDS.at(-1)}`,
+    "随机源返回 1 不越界",
+  );
+});
+
+redisTest(
+  "F1：会话首见自动生成别名（ui- / sub-；既有别名不动、不重复写）",
+  async () => {
+    const redis = await startTempRedis();
+    const conn = await connectSessionChannel({ url: redis.socketPath });
+    const fake = makeFakeHost();
+    apply(fake.host, {
+      url: redis.socketPath,
+      heartbeatMs: 60_000,
+      presenceTtlSec: 60,
+    });
+    try {
+      await waitUntil(
+        () => getSessionChannelService()?.status().connected === true,
+        5000,
+      );
+      fake.emitSession({ id: "s-user", header: { cwd: "/tmp/x" } });
+      fake.emitSession({
+        id: "s-sub",
+        header: { origin: "subagent", delegationDepth: 1 },
+      });
+      await waitUntil(async () => (await listAliases(conn.main)).length >= 2);
+      const byId = new Map(
+        (await listAliases(conn.main)).map((a) => [a.sessionId, a.alias]),
+      );
+      const userAlias = byId.get("s-user") ?? "";
+      const subAlias = byId.get("s-sub") ?? "";
+      assert.match(userAlias, /^ui-[a-z]+$/, `用户会话别名: ${userAlias}`);
+      assert.match(subAlias, /^sub-[a-z]+$/, `子代理别名: ${subAlias}`);
+      assert.ok(
+        (AUTO_ALIAS_WORDS as readonly string[]).includes(userAlias.slice(3)),
+        `词来自内置词表: ${userAlias}`,
+      );
+      // 既有显式别名不被自动覆盖
+      await setAlias(conn.main, "docs", "s-pre");
+      fake.emitSession({ id: "s-pre" });
+      await sleep(60);
+      assert.equal(await resolveAlias(conn.main, "docs"), "s-pre");
+      // 重复见到同一会话不重复写
+      fake.emitSession({ id: "s-user", header: { cwd: "/tmp/x" } });
+      await sleep(60);
+      assert.equal(
+        (await listAliases(conn.main)).length,
+        3,
+        "docs + 两条自动别名",
+      );
+    } finally {
+      await getSessionChannelService()?.stop();
+      await closeConnection(conn);
+      await redis.stop();
+    }
+  },
+);
