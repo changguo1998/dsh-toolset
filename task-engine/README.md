@@ -58,8 +58,19 @@ profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` �
 
 ## 边界与限制
 
+- **边界与外包**（2026-09-30 决策）：引擎自研「语义与不变量」——帧栈与状态机（decompose / implement /
+  stop / join / retry / 快照恢复）、拆解门禁（粒度 + coverage + deps）、RET 验收路由、事件溯源与查询面；
+  「机制与资源」一律复用宿主，不重复造：
+  - 执行与隔离：叶子可声明 `executor`（`model` = 本会话执行，缺省；后续增补 `subagent` / `workflow`
+    / `command` 后端，由模板或叶子显式声明，引擎不替模型生成脚本）；
+  - 模型路由与计量：`llm` / `agent-default-model`（不自研路由）；
+  - 审批与语义验收：`approval`、`audit` / `entail` 注入 hook（宿主 fork run）；
+  - 工具注册与会话面：`tools` / `agents` / `sessions`（需要时的 jobs / schedule 只用于等待，不作调度器）。
+  - **明确不替换**：宿主 `todo`（模型面清单，无契约 / deps / 验收 / 溯源，不能当帧栈）、
+    `experimental-agent-team` 任务板（跨执行器调度板，可作呈现或辅助，不作 Frame 底座）。
 - 引擎内核零 DSH 依赖：`audit`（semantic 验收）与 `entail`（语义蕴含）都是**注入式 hook**，真实链路（`ctx.subagents` fork audit run / 语义模型判定）由宿主侧接线；缺 hook 时分别降级为 fail-closed 与跳过。
-- fan-out 有界并发只是引擎侧 claim 语义；真实多执行器并行（agent-team DAG）属宿主编排层。
+- fan-out 有界并发只是引擎侧 claim 语义；真实多执行器并行（agent-team DAG）属宿主编排层，
+  引擎侧只保证「帧在途」的记账与上限。
 - 单会话实例：一个引擎持有一棵任务树。
 - 快照持久化依赖 `snapshotPath`；未配置时跨进程恢复不可用。
 - mechanical 验收命令由插件以 `/bin/sh -c` 执行，信任契约内命令、无额外沙箱（进程级沙箱由宿主策略承载）。
