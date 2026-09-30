@@ -27,6 +27,49 @@ tui --demo     # 强制 mock demo（无 DSH 依赖）
 tui --help
 ```
 
+### 「重启 dsh（保留会话）」与启动器约定（BACKLOG #51）
+
+退出确认面板（Ctrl+D / 双击 Ctrl+C）在**由启动器启动**时提供第三项「重启 dsh（保留会话）」：
+TUI 自身不 respawn，只发出信号 —— 写交接文件 + 置退出码 `75`，由外层启动器循环重启下一轮。
+语义与取舍见 `TUI/docs/DESIGN.md`「退出确认 ·「重启」方案」。
+
+契约（两个通道各司一职）：
+
+1. **触发 = 退出码 `75`**：启动器每轮启动前 `export DSH_RESTART_FILE=<唯一路径>`（建议
+   `$XDG_RUNTIME_DIR/dsh-restart-<pid>-<rand>`；退回 `/tmp` 时用 `0600`）。子进程退出码为 `75`
+   即重启，其它码原样返回；每轮读完或非 75 退出都删掉该文件。
+1. **载荷 = 交接文件**：TUI 仅在 `DSH_RESTART_FILE` 非空时显示重启项；选中后把当前活跃会话 id
+   单行写入该文件（`0600`），随后按 75 退出。写失败只告警，启动器读不到 id 时退回 `-c`。
+1. **重启轮命令** = 启动器原参数 + `--resume <id>`（读不到 id → `-c`，即「当前目录最近退出的会话」）。
+   选了「重启」时不会执行退出清理（不动其它空会话）；「取消 / 退出 dsh」语义不变。
+
+zsh / bash 启动器片段（放进你自己的 shell 配置或包装函数；本仓不安装它）：
+
+```sh
+# 重启循环：TUI 以退出码 75 请求重启，会话 id 经 DSH_RESTART_FILE 交接（每轮唯一路径）
+local -a pfx base extra
+base=("$@")
+if [[ $has_profile == yes ]]; then pfx=(); else pfx=(--profile fff); fi
+extra=()
+local code file id
+while :; do
+    file="${XDG_RUNTIME_DIR:-/tmp}/dsh-restart-$$-$RANDOM"
+    export DSH_RESTART_FILE="$file"
+    dsh "${pfx[@]}" "${base[@]}" "${extra[@]}"
+    code=$?
+    unset DSH_RESTART_FILE
+    if [[ $code != 75 ]]; then
+        rm -f "$file"
+        return $code
+    fi
+    id=$(cat "$file" 2> /dev/null)
+    rm -f "$file"
+    if [[ -n $id ]]; then extra=(--resume "$id"); else extra=(-c); fi
+done
+```
+
+直接 `dsh ...` 启动（无该环境变量）时不显示重启项 —— 那里没有进程接住 75，选了只会退出。
+
 ### 作为 bundle 挂载到 profile
 
 ```jsonc

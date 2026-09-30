@@ -80,6 +80,9 @@ export function main(opts: {
   /** 启动自检 kickoff 正文（门控通过时传入，App 代替用户发出以完成锚定解锁）；
    *  不传 = 不发送（非 deepseek 模型 / toolBootstrap 关闭 / 会话已解锁 / 记录不可读） */
   bootstrapKickoffText?: string;
+  /** 重启交接文件路径（`process.env.DSH_RESTART_FILE`；非空 = 由处理退出码 75 的启动器启动，
+   *  退出确认面板才提供「重启 dsh（保留会话）」；BACKLOG #51 / DESIGN「退出确认 ·「重启」方案」） */
+  restartHandoffPath?: string;
 }): () => void {
   // 主题调色板配置解析（tui.config.json theme 段；告警经 logger 输出，避免"改了未生效"）
   const tuiConfig = loadTuiConfig();
@@ -108,6 +111,7 @@ export function main(opts: {
     initialTheme: opts.initialTheme ?? resolvedThemes.active,
     messageGutter: opts.messageGutter,
     bootstrapKickoffText: opts.bootstrapKickoffText,
+    restartHandoffPath: opts.restartHandoffPath,
   });
   app.setLogger(opts.logger ?? ((msg) => void msg));
   app.start();
@@ -574,6 +578,8 @@ export async function apply(
   const disposeApp = main({
     adapter,
     bootstrapKickoffText: kickoffText,
+    // 启动器（如用户的 fffdsh 循环）经此变量声明「会处理退出码 75」（BACKLOG #51）
+    restartHandoffPath: process.env.DSH_RESTART_FILE,
     initialTheme:
       config?.theme === undefined ? undefined : normalizeThemeId(config.theme),
     logger: (msg) => process.stderr.write("[tui] " + msg + "\n"),

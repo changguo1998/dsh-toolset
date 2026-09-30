@@ -6,7 +6,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { App } from "../src/app/index.ts";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { App, DSH_RESTART_EXIT_CODE } from "../src/app/index.ts";
 import type { KeyEvent } from "../src/renderer/index.ts";
 import type { ShellRunner } from "../src/app/local-shell.ts";
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";
@@ -29,7 +32,7 @@ const noopShell: ShellRunner = async () => ({
   truncated: false,
 });
 
-function makeApp(): {
+function makeApp(overrides: Record<string, unknown> = {}): {
   app: App;
   renderer: FakeRenderer;
   adapter: FakeAdapter;
@@ -41,7 +44,8 @@ function makeApp(): {
     adapter,
     notify: { enabled: false },
     runShell: noopShell,
-  });
+    ...overrides,
+  } as ConstructorParameters<typeof App>[0]);
   app.start();
   return { app, renderer, adapter };
 }
@@ -141,4 +145,65 @@ test("/quit 保持直接退出（不弹确认面板）", () => {
     !frameText(renderer).includes("确认退出 dsh？"),
     "显式命令不弹面板",
   );
+});
+
+test("重启项：无 DSH_RESTART_FILE（直接启动）时不显示第三项", () => {
+  const { renderer } = makeApp();
+  ctrlD(renderer);
+  const text = frameText(renderer);
+  assert.ok(text.includes("2. 退出 dsh"), "既有两项不受影响");
+  assert.ok(!text.includes("重启 dsh"), "无启动器声明 → 不提供重启项");
+});
+
+test("重启项：启动器声明后显示；选中写会话 id 并置退出码 75、跳过空会话清理", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tui-restart-"));
+  const file = join(dir, "handoff");
+  try {
+    const { renderer, adapter } = makeApp({
+      restartHandoffPath: file,
+      autoCleanEmpty: true,
+    });
+    ctrlD(renderer);
+    assert.ok(
+      frameText(renderer).includes("重启 dsh（保留会话）"),
+      "第三项可见",
+    );
+    // start() 自身的空会话扫描计一次；重启路径不应再触发「退出清理」扫描
+    const scansAtStart = adapter.listSessionsCalls;
+    renderer.press(key("3"));
+    renderer.press(key("enter"));
+    assert.equal(
+      readFileSync(file, "utf8"),
+      "s1\n",
+      "交接文件写入活跃会话 id（单行）",
+    );
+    assert.equal(
+      process.exitCode,
+      DSH_RESTART_EXIT_CODE,
+      "退出码 75 交由启动器重启",
+    );
+    assert.equal(renderer.closed, 1, "走既有收尾关闭 renderer");
+    assert.equal(adapter.disposed, 1, "释放 adapter");
+    assert.equal(
+      adapter.listSessionsCalls,
+      scansAtStart,
+      "重启路径跳过空会话清理",
+    );
+    assert.equal(adapter.answeredQuestions.length, 0, "合成面板不调 adapter");
+  } finally {
+    process.exitCode = 0;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("重启项：交接文件写入失败只告警，仍置退出码 75", () => {
+  const { renderer } = makeApp({
+    restartHandoffPath: join(tmpdir(), "tui-restart-missing-dir", "handoff"),
+  });
+  ctrlD(renderer);
+  renderer.press(key("3"));
+  renderer.press(key("enter"));
+  assert.equal(process.exitCode, DSH_RESTART_EXIT_CODE, "写失败仍请求重启");
+  assert.equal(renderer.closed, 1, "照常收尾退出");
+  process.exitCode = 0;
 });

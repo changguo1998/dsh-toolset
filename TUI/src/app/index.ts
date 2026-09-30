@@ -4,7 +4,7 @@
 // 处理按键、接收事件、重绘。
 
 import type { Renderer, KeyEvent } from "../renderer/index.ts";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
   AppState,
@@ -165,6 +165,12 @@ const CTRL_C_DOUBLE_MS = 750;
 /** 退出确认面板的合成问答面板 id（非宿主 ask；`submitQuestion`/`cancelQuestion` 按它分支，
  *  绝不调用 adapter 的 answerQuestion/cancelQuestion）。普通 id 不会与之冲突（宿主 id 为 uuid 类） */
 const EXIT_CONFIRM_PANEL_ID = "exit-confirm";
+/** 退出确认面板「重启 dsh」项与启动器的约定退出码（BACKLOG #51）：
+ *  TUI 置 `process.exitCode = 75` 后正常收尾退出，启动器看到 75 即重启下一轮
+ *  （会话 id 经 `DSH_RESTART_FILE` 交接；语义见 `TUI/docs/DESIGN.md`「退出确认 ·「重启」方案」） */
+export const DSH_RESTART_EXIT_CODE = 75;
+/** 「重启 dsh（保留会话）」选项文案：`finishExitConfirm` 按它分支，测试与文案同源 */
+export const EXIT_CONFIRM_RESTART_LABEL = "重启 dsh（保留会话）";
 /** 退出时清理空会话的最长等待(ms)：防会话服务挂起把退出卡死。
  *  正常清理毫秒级即可完成，超时仅放弃清理并继续退出。 */
 const EXIT_CLEAN_TIMEOUT_MS = 5000;
@@ -286,6 +292,10 @@ export interface AppDeps {
    *  true 时 start() 异步扫描全部目录删除空会话（notice 汇报），且优雅退出时
    *  （/quit、Ctrl+D、双击 Ctrl+C、插件 unload）先打印提示并等待清理完成再关闭渲染器。 */
   autoCleanEmpty?: boolean;
+  /** 重启交接文件路径（main.ts 从 `process.env.DSH_RESTART_FILE` 接线；BACKLOG #51）。
+   *  非空 = 由会处理退出码 75 的启动器启动：退出确认面板才提供「重启 dsh（保留会话）」，
+   *  选中后把当前活跃会话 id 写进该文件并置退出码 75（不自己 respawn）。 */
+  restartHandoffPath?: string;
   /** `$` 模式本地执行器（BACKLOG TUI#37）：缺省走 node:child_process（local-shell.ts），
    *  测试可注入假实现避免真起进程 */
   runShell?: ShellRunner;
@@ -303,6 +313,9 @@ export class App {
   /** 退出确认面板已打开（合成问答面板 `EXIT_CONFIRM_PANEL_ID`）：确认「退出 dsh」才 dispose，
    *  取消/Esc 只关面板；防止单字节误触（BACKLOG「tmux 断连后 dsh 退出」）直接结束会话 */
   private exitConfirmOpen = false;
+  /** 退出确认面板选的是「重启 dsh（保留会话）」（BACKLOG #51）：退出收尾跳过空会话清理
+   *  ——重启场景不该改动其它会话，且要继续用同一个会话；见 DESIGN「退出确认 ·「重启」方案」 */
+  private restartPending = false;
   /** 已实时渲染的 rule-engine 注入消息 id（BACKLOG TUI#49；双通道去重，容量上限同 adapter 口径） */
   private renderedRuleInjections = new Set<string>();
   /** 待绘制脏标记：同一 tick 内多次标脏合并为一次 render（见 paint/flushPaint） */
@@ -919,7 +932,8 @@ export class App {
     // 清理完成，再释放 adapter/关闭渲染器退出；关闭或无可清理服务时保持同步收尾。
     // 注意：仅优雅退出路径（/quit、Ctrl+D、双击 Ctrl+C、插件 unload）覆盖——信号强退
     // （SIGINT/SIGTERM）与崩溃路径由 renderer 直接 process.exit，无法可靠等待异步 IO。
-    if (!this.autoCleanEmpty) {
+    // 「重启 dsh」路径（restartPending）跳过清理：重启不该改动其它会话（BACKLOG #51）。
+    if (!this.autoCleanEmpty || this.restartPending) {
       this.finishDispose();
       return;
     }
@@ -2144,6 +2158,17 @@ export class App {
   private requestExitConfirm(): void {
     if (this.disposed || this.exitConfirmOpen) return;
     this.exitConfirmOpen = true;
+    // 第三项仅在「有人接住退出码 75」时提供（启动器经 DSH_RESTART_FILE 声明；BACKLOG #51）
+    const options = [
+      { label: "取消", description: "留在 TUI（默认）" },
+      { label: "退出 dsh", description: "关闭会话并退出" },
+    ];
+    if (this.restartAvailable()) {
+      options.push({
+        label: EXIT_CONFIRM_RESTART_LABEL,
+        description: "保留会话，由启动器重启 dsh",
+      });
+    }
     this.apply((s) =>
       reduceState(s, {
         type: "question-open",
@@ -2153,10 +2178,7 @@ export class App {
             id: EXIT_CONFIRM_PANEL_ID,
             question: "确认退出 dsh？",
             header: "退出",
-            options: [
-              { label: "取消", description: "留在 TUI（默认）" },
-              { label: "退出 dsh", description: "关闭会话并退出" },
-            ],
+            options,
           },
         ],
       }),
@@ -2164,12 +2186,44 @@ export class App {
     this.paint();
   }
 
+  /** 重启可用性：启动器已给出交接文件路径（空串/缺省 = 直接启动，不提供重启项） */
+  private restartAvailable(): boolean {
+    const path = this.deps.restartHandoffPath;
+    return typeof path === "string" && path !== "";
+  }
+
+  /** 写重启交接文件：当前活跃会话 id 单行（`0600`）。写失败只告警——退出码 75 不变，
+   *  启动器读不到 id 会自动退回 `-c`（见 DESIGN 契约）。无活跃会话时不写文件。 */
+  private writeRestartHandoff(): void {
+    const path = this.deps.restartHandoffPath;
+    if (typeof path !== "string" || path === "") return;
+    const sessionId =
+      this.state.activeSessionId ?? this.deps.adapter.sessionId ?? "";
+    if (sessionId === "") return;
+    try {
+      writeFileSync(path, `${sessionId}\n`, { mode: 0o600 });
+    } catch (err) {
+      process.stderr.write(
+        `[tui] warn: 重启交接文件写入失败（${String(err)}），启动器将退回 -c\n`,
+      );
+    }
+  }
+
   /** 合成退出确认面板的收尾：确认「退出 dsh」才走原 dispose，否则仅关面板 */
   private finishExitConfirm(panel: QuestionPanelState): void {
     this.exitConfirmOpen = false;
     const answer = buildQuestionAnswers(panel);
     this.apply((s) => reduceState(s, { type: "question-close" }));
-    if (answer.answers[0]?.selected[0] !== "退出 dsh") {
+    const picked = answer.answers[0]?.selected[0];
+    if (picked === EXIT_CONFIRM_RESTART_LABEL) {
+      // 重启：写交接文件 → 置退出码（renderer.close 尊重既有 exitCode）→ 跳过空会话清理收尾
+      this.writeRestartHandoff();
+      process.exitCode = DSH_RESTART_EXIT_CODE;
+      this.restartPending = true;
+      this.dispose();
+      return;
+    }
+    if (picked !== "退出 dsh") {
       this.paint();
       return;
     }
