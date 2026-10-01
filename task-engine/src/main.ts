@@ -107,7 +107,13 @@ interface SubagentsLike {
 /** 宿主 workflow 面（`ctx.workflowEngine`，@deepseek-ai/dsh-workflow[-ptc]）最小形态 */
 interface WorkflowEngineLike {
   start(request: Record<string, unknown>): {
-    result: Promise<{ value?: unknown; stopReason?: string; error?: string }>;
+    result: Promise<{
+      value?: unknown;
+      stopReason?: string;
+      error?: string;
+      /** 本次 run 启动的子代理数（失败反馈里带上，便于定位） */
+      agentsStarted?: number;
+    }>;
     dispose(): Promise<void>;
   };
 }
@@ -143,14 +149,29 @@ function blocksToText(blocks: unknown): string {
   return parts.join("\n").trim();
 }
 
-/** 值 → 证据文本（workflow `value` 可能是对象；JSON 化，失败回退 String） */
+/** 值 → 证据文本（workflow `value` 可能是对象；JSON 缩进化，失败回退 String） */
 function valueToText(value: unknown): string {
   if (typeof value === "string") return value;
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value, null, 2);
   } catch {
     return String(value);
   }
+}
+
+/** 证据正文上限（字符）：三类后端统一截断，防超大产出撑爆事件流与模型上下文 */
+export const MAX_EVIDENCE_CHARS = 8000;
+
+/** 截断证据正文（保留头部 + 标注原始长度；未超限原样返回） */
+export function truncateEvidence(text: string): string {
+  return text.length <= MAX_EVIDENCE_CHARS
+    ? text
+    : `${text.slice(0, MAX_EVIDENCE_CHARS)}…（已截断，原始 ${text.length} 字符）`;
+}
+
+/** 是否值得记入 `plan/frame-executed.structured`（对象 / 数组；字符串与空值走证据正文） */
+function isStructured(value: unknown): boolean {
+  return typeof value === "object" && value !== null;
 }
 
 /**
@@ -193,10 +214,14 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
     if (spec.kind === "command") {
       const command = spec.command;
       if (command === undefined || command.trim() === "") {
-        return { ok: false, feedback: "command 后端缺少 command" };
+        return {
+          ok: false,
+          retryable: false,
+          feedback: "command 后端缺少 command（声明问题，不计重试）",
+        };
       }
       const out = await opts.runShell(command, spec.cwd);
-      const text = (out.output ?? "").trim();
+      const text = truncateEvidence((out.output ?? "").trim());
       if (out.code !== 0) {
         return {
           ok: false,
@@ -211,12 +236,15 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
       if (svc === undefined || typeof svc.start !== "function") {
         return {
           ok: false,
-          feedback: "宿主 ctx.subagents 不可用，subagent 后端无法发起",
+          retryable: false,
+          feedback:
+            "宿主 ctx.subagents 不可用，subagent 后端无法发起（环境问题，不计重试）",
         };
       }
       if (opts.agent === undefined) {
         return {
           ok: false,
+          retryable: false,
           feedback:
             "拿不到当前 agent（工具执行上下文缺失），subagent 后端无法发起",
         };
@@ -227,7 +255,8 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
       if (wantsOptions && caps?.agentOptions === false) {
         return {
           ok: false,
-          feedback: `provider ${SUBAGENT_PROVIDER} 不支持模型/预算覆盖（缺 agentOptions 能力位）`,
+          retryable: false,
+          feedback: `provider ${SUBAGENT_PROVIDER} 不支持模型/预算覆盖（缺 agentOptions 能力位，不计重试）`,
         };
       }
       // ② 模型：未声明时读宿主默认选择记录事实（不显式传，保持宿主合并语义）
@@ -295,12 +324,14 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
       if (stopReason !== "completed" && stopReason !== "max-tokens") {
         return {
           ok: false,
+          // aborted = 用户中止：不打回重试；error / refusal 交 bounded retry
+          retryable: stopReason !== "aborted",
           feedback: `子代理未正常完成（stopReason=${stopReason}）${result.diagnostic === undefined ? "" : `：${result.diagnostic}`}`,
           ...model,
           ...(tokens === undefined ? {} : { tokens }),
         };
       }
-      const text = blocksToText(result.output);
+      const text = truncateEvidence(blocksToText(result.output));
       return {
         ok: true,
         result: text === "" ? "（子代理未返回文本产出）" : text,
@@ -313,35 +344,45 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
     if (wf === undefined || typeof wf.start !== "function") {
       return {
         ok: false,
-        feedback: "宿主 ctx.workflowEngine 不可用，workflow 后端无法发起",
+        retryable: false,
+        feedback:
+          "宿主 ctx.workflowEngine 不可用，workflow 后端无法发起（环境问题，不计重试）",
       };
     }
     const script = spec.script;
     if (script === undefined || script.trim() === "") {
       return {
         ok: false,
-        feedback: "workflow 后端缺少 script（引擎不生成脚本）",
+        retryable: false,
+        feedback:
+          "workflow 后端缺少 script（引擎不生成脚本，声明问题不计重试）",
       };
     }
     if (opts.agent === undefined) {
       return {
         ok: false,
+        retryable: false,
         feedback:
           "拿不到当前 agent（工具执行上下文缺失），workflow 后端无法发起",
       };
     }
+    // 默认 meta 生成：`name` / `description` 由帧补齐，叶子声明的字段覆盖之
+    // （无效值的 META_INVALID 已在门禁前置拒绝）
+    const meta = {
+      name: `task:${req.frame}`,
+      description: req.title,
+      ...(spec.meta ?? {}),
+    };
     let handle: ReturnType<WorkflowEngineLike["start"]>;
     try {
-      handle = wf.start({
-        script,
-        meta: spec.meta ?? {
-          name: `task:${req.frame}`,
-          description: req.title,
-        },
-        parent: opts.agent,
-      });
+      handle = wf.start({ script, meta, parent: opts.agent });
     } catch (err) {
-      return { ok: false, feedback: `workflow 发起失败：${String(err)}` };
+      // 同步抛错 = 请求根本无法开始（META_INVALID / SCRIPT_PARSE）→ 声明问题，重试无用
+      return {
+        ok: false,
+        retryable: false,
+        feedback: `workflow 无法开始（请修 script / meta 声明）：${String(err)}`,
+      };
     }
     let outcome: Awaited<typeof handle.result>;
     try {
@@ -353,16 +394,24 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
         opts.warn(`workflow dispose 失败（忽略）：${String(err)}`);
       }
     }
-    if (outcome.stopReason !== "completed") {
+    const stopReason = outcome.stopReason ?? "unknown";
+    if (stopReason !== "completed") {
+      const agents =
+        typeof outcome.agentsStarted === "number" && outcome.agentsStarted > 0
+          ? `（已启动子代理 ${outcome.agentsStarted} 个）`
+          : "";
       return {
         ok: false,
-        feedback: `workflow ${outcome.stopReason}${outcome.error === undefined ? "" : `：${outcome.error}`}`,
+        // cancelled = 用户取消：不打回重试；error 等运行期失败交 bounded retry
+        retryable: stopReason !== "cancelled",
+        feedback: `workflow ${stopReason}${outcome.error === undefined ? "" : `：${outcome.error}`}${agents}`,
       };
     }
-    const text = valueToText(outcome.value);
+    const text = truncateEvidence(valueToText(outcome.value));
     return {
       ok: true,
       result: text === "" ? "（workflow 无返回值）" : text,
+      ...(isStructured(outcome.value) ? { structured: outcome.value } : {}),
     };
   };
 }

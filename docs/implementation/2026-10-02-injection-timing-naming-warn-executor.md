@@ -111,17 +111,19 @@
 
 **#1（2026-10-02 调研 + 裁定后细化）**——叶子执行后端（① 发起 / ② 模型与计量；③ 不做）：
 
+**增量（2026-10-02 用户裁定「重启后先实现 workflow」→ 澄清为「补完 workflow 后端本身」、指令「按标准流程完成 workflow 的实现」）**：把 workflow 后端从「透传 script/meta」补到完整实现——① 默认 meta 生成与合并（`name` / `description` 缺省由帧补齐）② 结果结构化（`value` 为对象时记入 `plan/frame-executed.structured`，不进证据正文）③ 失败分类（同步抛错 = 声明错误 → 不打回不计重试；`cancelled` = 用户取消 → 不打回；`error` = 运行期失败 → 可重试）④ 输出截断（三类后端统一证据上限）。落点见下表（`types` / `engine` / `gate` / `main` + 测试 + 冒烟 + README）。
+
 | 文件 | 改动 |
 |------|------|
 | `task-engine/src/types.ts` | `ExecutorKind` / `ExecutorSpec`；`ChildSpec.executor` / `Frame.executor` / `RootSpec.executor`；`PlanEvent` 新增 `plan/frame-executed`；`NestedTaskItem.executorKind` |
-| `task-engine/src/gate.ts` | `EXECUTOR_KINDS` + `validateExecutor()`；`GateRule` 增 `"executor"`（只允许叶子声明、kind 白名单、`command` 必给 command、`workflow` 必给 script、`model` 覆盖须给全 provider/model、`budget.maxTokens` 须为正数） |
+| `task-engine/src/gate.ts` | `EXECUTOR_KINDS` + `validateExecutor()`；`GateRule` 增 `"executor"`（只允许叶子声明、kind 白名单、`command` 必给 command、`workflow` 必给 script、`meta.name` / `meta.description` 非空、`model` 覆盖须给全 provider/model、`budget.maxTokens` 须为正数） |
 | `task-engine/src/events.ts` | 物化 `executor` 到 `Frame`；`toNested` 带 `executorKind`；`plan/frame-executed` 审计分支（不落树字段） |
-| `task-engine/src/engine.ts` | `ExecutorRunner` / `ExecuteRequest` / `ExecuteOutcome` / `ExecuteResult`；`execute()`（发起 → 证据回填 `plan/frame-implemented` → 失败走 `rejectFrame` bounded retry → 用量 / `overBudget` 标注） |
+| `task-engine/src/engine.ts` | `ExecutorRunner` / `ExecuteRequest` / `ExecuteOutcome`（含 `structured` / `retryable`）/ `ExecuteResult`；`execute()`（发起 → 证据回填 `plan/frame-implemented` → 失败按 `retryable` 分流：可重试走 `rejectFrame` bounded retry，声明 / 环境问题不打回不计重试不改状态 → 用量 / `overBudget` / `structured` 记入事件） |
 | `task-engine/src/tools.ts` | 新增 `task_execute`；children 解析 `executor`（非法给精确反馈）；`ToolExecuteCtx.makeExecutor`（按当前工具调用的 agent 构造适配器） |
-| `task-engine/src/main.ts` | 三类后端接线：`ctx.subagents.start`（`spawn` + `agentOptions` + `parent` + `signal`，取 `result.output` 后 `dispose`）、`ctx.workflowEngine.start`（script / meta / parent → `result.value`）、command 走 `/bin/sh -c`；`agentDefaultModel` 取默认事实、`tokenMeter` 计量；缺面一律 fail-closed + 告警 |
-| `task-engine/tests/{gate,engine}.test.ts`、新增 `tests/tools.test.ts` | 门禁 executor 规则 7 例；engine execute 6 例（成功 / fail-closed / model 拒绝 / 打回与 failed / 超预算 / 非叶子）；工具面 3 例（解析反馈、证据与用量透出、缺参） |
+| `task-engine/src/main.ts` | 三类后端接线：`ctx.subagents.start`（`spawn` + `agentOptions` + `parent` + `signal`，取 `result.output` 后 `dispose`）、`ctx.workflowEngine.start`（script / **meta 合并** / parent → `result.value` + `agentsStarted`）、command 走 `/bin/sh -c`；`agentDefaultModel` 取默认事实、`tokenMeter` 计量；**证据统一截断**；缺面 / 能力位不足 / 用户取消 fail-closed 且不耗重试 |
+| `task-engine/tests/{gate,engine}.test.ts`、新增 `tests/tools.test.ts` | 门禁 executor 规则（含 meta 校验）；engine execute（成功 / fail-closed / model 拒绝 / 打回与 failed / 超预算 / 非叶子 / **`retryable:false` 不改状态** / **`structured` 入事件**）；工具面（解析反馈、证据与用量透出、缺参） |
 | `task-engine/demo/main.ts` | 演示 13：executor 发起 → 证据回填 → 用量标注 → RET 验收 |
-| `task-engine/README.md` | 能力新增「叶子执行后端」段、工具表加 `task_execute`、事件表加 `plan/frame-executed`、配置示例带 `executor`、边界与外包标注 ③ 未实现、测试计数 42 → 58 |
+| `task-engine/README.md` | 能力「叶子执行后端」（含 workflow 的 meta / 结构化 / 失败分类 / 截断口径）、工具表、事件表、配置示例、边界与外包（③ 未实现）、测试计数 |
 | `docs/BACKLOG.md` | 追加「executor 隔离落地（git worktree）」条目；里程碑三剩余项更新 |
 | （无 `task-engine/docs/*`） | 该包**没有** `docs/` 目录（原计划清单里的 `docs/{DESIGN,BACKLOG}.md` 不存在），文档落点为包根 `README.md` |
 
@@ -154,6 +156,7 @@
 1. **#7 评估（2026-10-02）**：核实运行期告警写点 28 处、方案 A 的 tone 启发式判定、既有结构化通道（rule-engine `onNotice` / symbol-normalizer `onReview`）；收益 / 成本对比与结论见「调研 §7」，**建议不实施**逐插件改造 → 待用户裁定（实施 or 关闭条目）。
 1. **#1 调研（2026-10-02）**：读码确认 `executor` 目前零代码（只有 README 的口径）；宿主签名由子代理并行调研并回报（`subagents.start` 的 `agentOptions` / `parent` / `signal` / `capabilities.agentOptions`、`SubagentRun.result` + `dispose`、`workflowEngine.start`（**本机已挂载**）、`tokenMeter.measure`（**无预算字段**）、`agentDefaultModel.currentSelection`、**subagent 无 `cwd` 入参**）——据此定稿 D9-D13，并把 ③ 依赖缺失写实。
 1. **#1 实施（2026-10-02）**：按 D9-D13 落地叶子执行后端（文件清单见「规划」）：类型 / 门禁 / 事件物化 / `engine.execute()` / `task_execute` 工具 / `main.ts` 三类后端接线 / 测试 / demo 演示 13 / README；③ 未做并另开条目。
+1. **#1 workflow 后端补完（2026-10-02，用户裁定「补完 workflow 后端本身」并指令「按标准流程完成」）**：① 默认 meta 生成 / 合并（叶子只给 `name` 时 `description` 由帧补齐）② `value` 为对象 / 数组 → 记入 `plan/frame-executed.structured`，证据文本改缩进 JSON ③ 失败分类（`start` 同步抛错 / `stoppedReason: cancelled` → `retryable: false`：不打回、不计重试、不改状态；`error` → bounded retry，反馈附 `agentsStarted`）④ 三类后端证据统一截断（`MAX_EVIDENCE_CHARS = 8000`，超出标注原始长度）⑤ 门禁补 `meta.name` / `meta.description` 非空校验（把宿主 `META_INVALID` 前置为可读打回）。测试 / 冒烟 / README 同步。
 
 ## 测试与证据
 
@@ -205,10 +208,10 @@
 | 命令 | 结果 |
 | --- | --- |
 | `cd task-engine && npm run check` / `npm run build` | 0 error（含门禁 / 引擎 / 工具 / 宿主接线的全部新增类型） |
-| `cd task-engine && npm test` | `tests 58 / pass 58 / fail 0`（原 42：+7 门禁 executor 规则、+6 engine execute、+3 工具面） |
+| `cd task-engine && npm test` | `tests 61 / pass 61 / fail 0`（原 42：+8 门禁 executor 规则（含 `meta.name` / `meta.description` 校验）、+8 engine execute（含 `retryable:false` 不改状态、`structured` 入事件）、+3 工具面） |
 | `cd task-engine && npm run demo` | `DEMO_OK`（新增演示 13：executor 发起 → 证据回填 → 超预算标注 → RET 验收完成整树） |
-| `node tmp/task-executor-smoke.mjs`（dist 级：真实 `task-engine/dist` 的 `apply()` + 假宿主面 `subagents` / `workflowEngine` / `agentDefaultModel` / `tokenMeter`） | `SMOKE_PASS`（9 步：工具族含 `task_execute` / 四叶子声明 executor 过门禁 / subagent 模型覆盖 + 预算 → `agentOptions{provider,model,maxTokens}` 且证据 + 用量（`overBudget:false`）回填 / 未声明模型**不传** `agentOptions` / command 真跑 `/bin/sh -c` / workflow 的 `script`+`meta`+`parent` 透传并回填 `value` / `execute → stop → join` 整树 done 且 status 暴露 `executorKind` / provider 能力位不足 fail-closed（不静默降级）/ 执行失败带反馈打回且 `next` 指本帧） |
-| 根 `npm run check` / 根 `npm run test` | `exit 0`（`error TS` 计数 0）/ `exit 0`（16 包全 `OK`，`fail 0`；含 task-engine `pass 58`） |
+| `node tmp/task-executor-smoke.mjs`（dist 级：真实 `task-engine/dist` 的 `apply()` + 假宿主面 `subagents` / `workflowEngine` / `agentDefaultModel` / `tokenMeter`） | `SMOKE_PASS`（**13 步**：工具族含 `task_execute` / 四叶子声明 executor 过门禁 / subagent 模型覆盖 + 预算 → `agentOptions{provider,model,maxTokens}` 且证据 + 用量（`overBudget:false`）回填 / 未声明模型**不传** `agentOptions` / command 真跑 `/bin/sh -c` / workflow 的 `script`+`meta`+`parent` 透传并回填 `value` / `execute → stop → join` 整树 done 且 status 暴露 `executorKind` / provider 能力位不足 fail-closed（不静默降级）/ 执行失败带反馈打回且 `next` 指本帧 / **workflow 默认 meta 合并** / **同步抛错（声明错误）不打回不计重试** / **`cancelled` 反馈可读** / **证据截断（超限标注 + 未超限原样）**） |
+| 根 `npm run check` / 根 `npm run test` | `exit 0`（`error TS` 计数 0）/ `exit 0`（16 包全 `OK`，`fail 0`；含 task-engine `pass 61`） |
 
 未做（交接给后续）：
 

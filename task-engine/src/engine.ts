@@ -58,17 +58,25 @@ export interface ExecuteRequest {
   feedback?: string;
 }
 
-/** executor 执行结果（证据回填；ok=false 走打回通道） */
+/** executor 执行结果（证据回填；ok=false 走打回通道，除非 `retryable === false`） */
 export interface ExecuteOutcome {
   ok: boolean;
   /** 证据正文（ok=true 时写回 `plan/frame-implemented`） */
   result?: string;
   /** 失败反馈（ok=false 时打回给模型） */
   feedback?: string;
+  /** 结构化产出（workflow `value` 等；记入 `plan/frame-executed`，不进证据正文） */
+  structured?: unknown;
   /** 事后计量 / 后端自报的 token 用量（②） */
   tokens?: number;
   /** 实际使用的模型（`provider/model`；未覆盖时为空 = 随宿主默认） */
   model?: string;
+  /**
+   * 失败是否可重试（缺省 true = 走 bounded retry 打回）。
+   * `false` = 声明 / 环境问题（脚本语法错、宿主面缺失、能力位不足、用户取消）：
+   * 引擎**不打回、不计重试、不改帧状态**，只把反馈交给模型去改声明。
+   */
+  retryable?: boolean;
 }
 
 /** executor 后端适配器（宿主侧接线；未注入时 execute fail-closed 打回） */
@@ -433,10 +441,22 @@ export class TaskEngine {
         : { model: out.model }),
       ...(out.tokens === undefined ? {} : { tokens: out.tokens }),
       ...(overBudget === undefined ? {} : { overBudget }),
+      ...(out.structured === undefined ? {} : { structured: out.structured }),
       ...(summary === "" ? {} : { evidence: summary }),
+      ...(out.ok ? {} : { retryable: out.retryable !== false }),
     });
     if (!out.ok) {
       const feedback = out.feedback ?? `${spec.kind} 后端执行失败（未给反馈）`;
+      // 声明 / 环境问题（retryable=false）：重试无用 —— 不打回、不计重试、不改帧状态，
+      // 只落 step 裁决事件（审计留痕）并把反馈交给模型去改声明
+      if (out.retryable === false) {
+        this.emitStepVerdict(frameId, {
+          accepted: false,
+          next: frameId,
+          feedback,
+        });
+        return { ok: false, accepted: false, next: frameId, feedback };
+      }
       this.rejectFrame(frameId, "executor", feedback);
       const now = this.tree.frames.get(frameId);
       const next: FrameId | null = now?.status === "failed" ? null : frameId;

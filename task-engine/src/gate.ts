@@ -107,6 +107,16 @@ export function validateExecutor(spec: unknown): string | null {
   ) {
     return "meta 必须是对象";
   }
+  if (typeof o["meta"] === "object" && o["meta"] !== null) {
+    // workflow 的 META_INVALID 前移到门禁：name / description 缺失或无效在这里就拒绝
+    const meta = o["meta"] as Record<string, unknown>;
+    if (meta["name"] !== undefined && !nonEmpty(meta["name"])) {
+      return "meta.name 必须是非空字符串";
+    }
+    if (meta["description"] !== undefined && !nonEmpty(meta["description"])) {
+      return "meta.description 必须是非空字符串";
+    }
+  }
   return null;
 }
 

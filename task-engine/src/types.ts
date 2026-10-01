@@ -136,8 +136,12 @@ export type PlanEvent =
       tokens?: number;
       /** 是否超出声明的 `budget.maxTokens`（只标注，不据此打回） */
       overBudget?: boolean;
+      /** 结构化产出（workflow `value` 为对象时原样记录；供审计 / 下游消费） */
+      structured?: unknown;
       /** 证据摘要（截断；不含全文） */
       evidence?: string;
+      /** 是否可重试（false = 声明 / 环境问题：不打回、不计重试、不改帧状态） */
+      retryable?: boolean;
     }
   | {
       /** abort 路径（turn/end reason=aborted）：在途帧回收为 pending，不增重试计数 */

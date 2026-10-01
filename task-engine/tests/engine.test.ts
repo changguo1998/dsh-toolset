@@ -161,6 +161,42 @@ describe("executor 执行扩展（① 发起 / ② 计量）", () => {
     assert.equal(ev?.overBudget, true);
   });
 
+  it("retryable=false（声明 / 环境问题）：不打回、不计重试、不改状态", async () => {
+    const e = newEngine();
+    await e.decompose("root", [
+      leafWith("c1", { kind: "workflow", script: "return 1" }),
+    ]);
+    const r = await e.execute("c1", async () => ({
+      ok: false,
+      retryable: false,
+      feedback: "workflow 无法开始（请修 script / meta 声明）：META_INVALID",
+    }));
+    assert.equal(r.ok, false);
+    assert.equal(r.next, "c1");
+    assert.equal(e.frames().get("c1")?.retryCount, 0, "不计重试");
+    assert.equal(e.frames().get("c1")?.status, "pending", "帧状态不变");
+    const ev = e.log.find((x) => x.type === "plan/frame-executed") as
+      { retryable?: boolean } | undefined;
+    assert.equal(ev?.retryable, false, "事件留痕 retryable=false");
+  });
+
+  it("structured：结构化产出记入 frame-executed（证据正文仍为文本）", async () => {
+    const e = newEngine();
+    await e.decompose("root", [
+      leafWith("c1", { kind: "workflow", script: "return { a: 1 }" }),
+    ]);
+    const r = await e.execute("c1", async () => ({
+      ok: true,
+      result: '{\n  "a": 1\n}',
+      structured: { a: 1 },
+    }));
+    assert.equal(r.ok, true);
+    assert.equal(e.frames().get("c1")?.result, '{\n  "a": 1\n}');
+    const ev = e.log.find((x) => x.type === "plan/frame-executed") as
+      { structured?: unknown } | undefined;
+    assert.deepEqual(ev?.structured, { a: 1 });
+  });
+
   it("非叶子 execute → 拒绝", async () => {
     const e = newEngine(async () => ({ ok: true, result: "x" }));
     const r = await e.execute("root");

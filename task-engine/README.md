@@ -16,11 +16,13 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
 
 - **叶子执行后端（① 执行扩展，2026-10-02）**：叶子（或 `needDecompose:false` 的根）可声明 `executor`，由 `task_execute` 交给**注入式适配器**发起（引擎只做发起 / 证据回填 / 验收，提示词与脚本都由声明方给，引擎不替模型生成）：
   - `model`（缺省语义）= 本会话执行，等价模型自己调 `task_implement`（`task_execute` 会拒绝并指向 `task_implement`）；
-  - `subagent` / `workflow` / `command` = 独立执行面；`command` 走 `/bin/sh -c`（退出码非 0 = 失败）；
-  - 可选字段：`model`（`{provider, model}` 覆盖，缺省随宿主 `agentDefaultModel`）、`budget.maxTokens`（② 事后计量并标注 `overBudget`，**只标注不据此打回**）、`cwd`（透传后端）、`prompt` / `script` / `meta`（按后端取用）；
-  - 校验收在**机械门禁**（`rule: "executor"`，带反馈打回）：只允许叶子声明、kind 白名单、`command` 后端必给 `command`、`workflow` 后端必给 `script`、`model` 覆盖须给全 provider/model；
-  - 执行记录落 `plan/frame-executed`（`executor` / `model` / `tokens` / `overBudget` / 证据摘要），**证据全文**仍走 `plan/frame-implemented`（既有验收链不看新事件）；
-  - 失败走既有 bounded retry（`maxRetries` 后置 `failed`）；**适配器未注入**（宿主面缺失）→ fail-closed 打回、不增重试计数。
+  - **`subagent`**：`ctx.subagents.start(provider='spawn', {label, prompt, parent, signal, agentOptions})` —— `prompt` 缺省由引擎按「标题 + spec + 验收清单 + 上次反馈」拼装；只有声明了 `model` / `budget` 才传 `agentOptions`（`{provider, model, maxTokens}`），未声明则**不传** = 保持宿主「合并父 agent 选项」的语义；取 `result.output` 文本为证据后 `dispose`；`stopReason` 非 `completed` / `max-tokens` 视为失败（`aborted` = 用户中止，不打回）；
+  - **`workflow`**：`ctx.workflowEngine.start({script, meta, parent})` —— `script` 必给（引擎不生成脚本）；`meta` 由引擎生成默认值（`name = task:<frame>`、`description = 帧标题`）并与声明**浅合并**（叶子给谁覆盖谁）；`value` 为对象 / 数组时记入 `plan/frame-executed.structured`，文本证据为缩进 JSON；失败分类：`start` 同步抛错（META_INVALID / SCRIPT_PARSE）= **声明错误 → 不打回不计重试**，`cancelled`（用户取消）= 不打回，`error` = 交 bounded retry（反馈附 `已启动子代理 N 个`）；
+  - **`command`**：`/bin/sh -c`（可带 `cwd`），退出码非 0 = 失败（可重试）；证据 = stdout + stderr；
+  - 可选字段：`model`（`{provider, model}` 覆盖）、`budget.maxTokens`（映射宿主 `agentOptions.maxTokens`，并事后经 `tokenMeter.measure(子会话)` 标注 `overBudget`——**只标注不据此打回**）、`cwd`、`prompt` / `script` / `meta`（按后端取用）；
+  - 校验收在**机械门禁**（`rule: "executor"`，带反馈打回）：只允许叶子声明、kind 白名单、`command` 必给 `command`、`workflow` 必给 `script`、`meta.name` / `meta.description` 非空、`model` 覆盖须给全 provider/model、`budget.maxTokens` 须为正数；
+  - 执行记录落 `plan/frame-executed`（`executor` / `model` / `tokens` / `overBudget` / `structured` / 证据摘要 / `retryable`），**证据全文**仍走 `plan/frame-implemented`（既有验收链不看新事件）；三类后端证据统一**截断**到 8000 字符（超出标注原始长度）；
+  - 失败分流：`retryable` 缺省 true → 走 bounded retry（`maxRetries` 后置 `failed`）；`retryable: false`（宿主面缺失 / 能力位不足 / 脚本声明错 / 用户取消）→ **不打回、不计重试、不改帧状态**，只把反馈交给模型改声明。
 - **分解双重门禁**：先跑机械门禁——粒度四规则（越级 / 过粗 / 过细 / 数量）+ coverage 完备性（父每条验收须有本次子任务覆盖）+ `deps` 前置传递（只允许引用前序兄弟，自引用/前向引用/未知 id 拒绝）+ `executor` 声明校验；通过后若配置 `entail` hook，再跑语义蕴含（合取是否蕴含父契约）。任一拒绝都带反馈打回并记 `retryCount`，达 `maxRetries` 置 `failed`。
 - **RET 验收路由**：mechanical → `/bin/sh -c` 退出码 0；human → `ctx.approval.request`（`allowed-once` 视为通过，拒绝 / 无人应答 / 抛错一律 fail-closed）；semantic → 注入式 `audit` hook 的独立 audit run（缺 hook，或声明了 `outputSchema` 却无 `structured`，均 fail-closed 打回）。
 - **完成与 join**：一个帧的全部验收通过才弹栈，并向上 join（全部子任务 done 后复核父契约）。
@@ -110,7 +112,7 @@ tests/          # node:test 单测
 ```sh
 npm run check   # 类型检查（tsc --noEmit）
 npm run build   # 编译到 dist/
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（58 例：engine / events / gate / query / tools）
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（61 例：engine / events / gate / query / tools）
 npm run demo    # npm run build && node dist/demo/main.js；脚本化模型跑步骤 0-7 + 演示 8-12，
                 # 覆盖全链路（门禁打回→implement→stop→join）、fan-out 有界并发、
                 # 语义验收 audit、step 裁决、语义蕴含门、abort 恢复；输出 DEMO_OK / DEMO_FAIL，退出码 0/1

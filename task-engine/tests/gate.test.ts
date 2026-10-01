@@ -196,6 +196,35 @@ describe("gate executor（① 执行后端声明）", () => {
     assert.match(badBudget.feedback, /maxTokens 必须是正数/);
   });
 
+  it("workflow meta：name / description 无效 → 拒绝（META_INVALID 前置）", () => {
+    const badName = checkDecomposition(parent, [
+      {
+        ...leaf("c1", "做 C1", { q1: ["c1"] }),
+        executor: {
+          kind: "workflow",
+          script: "return 1",
+          meta: { name: "  " },
+        },
+      },
+    ]);
+    assert.equal(badName.ok, false);
+    assert.equal(badName.rule, "executor");
+    assert.match(badName.feedback, /meta.name 必须是非空字符串/);
+
+    const badDesc = checkDecomposition(parent, [
+      {
+        ...leaf("c2", "做 C2", { q1: ["c2"] }),
+        executor: {
+          kind: "workflow",
+          script: "return 1",
+          meta: { name: "n", description: "" },
+        },
+      },
+    ]);
+    assert.equal(badDesc.ok, false);
+    assert.match(badDesc.feedback, /meta.description 必须是非空字符串/);
+  });
+
   it("validateExecutor：非对象 / 合法缺省 分别返回原因与 null", () => {
     assert.equal(validateExecutor(null), "executor 必须是对象");
     assert.equal(validateExecutor("subagent"), "executor 必须是对象");
