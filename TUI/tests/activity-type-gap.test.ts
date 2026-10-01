@@ -96,6 +96,39 @@ test("#5 notice / step 概要行不算类型边界（不新增空行）", () => 
   );
 });
 
+test("#5 正文 / 思考的拖尾空行 → 工具：吸收后紧排（不靠 step 头也吸收）", () => {
+  // 宿主补发 "\n\n" 后 buffer 里的正文空段（同 kind 空白分片不丢弃）→ 正文与工具紧排
+  const withBlankLine = act([
+    L("正文一", "assistant"),
+    L("", "assistant"),
+    L("○ bash ls", "tool"),
+    L("✓ 输出", "tool"),
+  ]);
+  assert.deepEqual(blanks(withBlankLine), [], "正文后的空段被吸收");
+  // 拖尾换行锚点（thinking 以 \n 结尾）同理：剥掉尾随换行后不留空行
+  const withTrailingNewline = act([
+    L("思考一\n", "thinking"),
+    L("○ bash ls", "tool"),
+    L("✓ 输出", "tool"),
+  ]);
+  assert.deepEqual(blanks(withTrailingNewline), [], "思考拖尾换行被吸收");
+  // 但正文内部的段落空行（其后还有正文）不算拖尾 → 保留
+  // （该行可能带「块内空行竖线连排」的 ┃，故按剥掉竖线与空白后是否为空判断）
+  const innerBlank = act([
+    L("正文一", "assistant"),
+    L("", "assistant"),
+    L("正文二", "assistant"),
+  ]);
+  assert.equal(innerBlank.length, 3, "段内空行保留为 1 行");
+  assert.equal(
+    (innerBlank[1] ?? "").replace(/[┃│\s]/g, ""),
+    "",
+    "段内空行属内容，保留（实际第 2 行：" +
+      JSON.stringify(innerBlank[1]) +
+      "）",
+  );
+});
+
 test("#5 活动区开头（无前一类）不插空行", () => {
   const rows = act([L("提示行", "notice"), L("思考一", "thinking")]);
   assert.deepEqual(blanks(rows), []);

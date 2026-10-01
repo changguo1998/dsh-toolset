@@ -236,6 +236,10 @@ export function buildBox(
     [];
   const flushToolRun = (): void => {
     if (toolRun.length === 0) return;
+    // 2026-10-02：工具 run 落盘前先吸收前文拖尾空行——正文节点拖尾换行锚点 /
+    // 宿主补发 "\n\n" 留下的空白行（同 kind 分片）会让「正文 → 工具」多 1 行空行，
+    // 与「工具类不插空行」口径冲突；此处与 step 分割行的吸收同语义。
+    absorbActivityBlank(activityLeaves);
     // 分组：无状态符号前缀行 = 调用（新组起点）
     const groups: { text: string; tone?: string }[][] = [[]];
     for (const item of toolRun) {
