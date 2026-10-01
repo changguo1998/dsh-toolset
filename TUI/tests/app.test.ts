@@ -86,7 +86,9 @@ function pickerColumnText(frame: string): string {
 /** 活动区分隔行判定：区域正文段为整行横线——焦点活动区/历史区时两端被焦点框
  *  角字覆写（┌/└/┐/┘），故允许边框类字形收尾，只要足够长的横线主体仍在 */
 function isSepRow(line: string, cols: number): boolean {
-  const c = histBody(line, cols).trim();
+  const c = histBody(line, cols)
+    .replace(/-- (Session|Turn|Tool) --/, "") // #5 起分隔行左端带窗口标题
+    .trim();
   return /^[─┬┴┌┐└┘├┤]+$/.test(c) && (c.match(/─/g)?.length ?? 0) >= 10;
 }
 
@@ -2045,8 +2047,11 @@ function barRowCount(renderer: FakeRenderer): number {
   return renderer.lastRender.filter((l) => {
     // 只看历史区（左侧状态列可能把占位/标题混进同一行，误伤分隔判定）
     const t = histBody(l, renderer.size.cols);
-    // #3 起回合分隔线带标签 `╌╌ hh:mm:ss #N `——数字/冒号/井号/空白属标签，不改变"横线行"判定
-    const rest = t.replace(/[-=·─╌|│┐┘└┌┴┬0-9:#\s]/g, "");
+    // #3/#5 起分隔行带标签（回合线 `╌╌ hh:mm:ss #N `、窗口标题 `-- Session --` 等）：
+    // 去掉标签后再判「是否为纯横线行」，不把标签当内容
+    const rest = t
+      .replace(/-- (Session|Turn|Tool) --/g, "")
+      .replace(/[-=·─╌|│┐┘└┌┴┬0-9:#\s]/g, "");
     return /[-=·─╌]/.test(t) && rest === "";
   }).length;
 }

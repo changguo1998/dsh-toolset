@@ -1,6 +1,6 @@
 # 三区域命名与窗口标题（接取条目：`TUI/docs/BACKLOG.md`「三区域改名（Session / Turn / Tool pane）+ 窗口左上角标题（聚焦青色）」）
 
-状态：规划　　开启：2026-10-01
+状态：测试　　开启：2026-10-01
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -34,6 +34,22 @@ UI 呈现层改名并加窗口标题：session 区（原历史区）→ **Sessio
 1. `TUI/src/renderer/theme.ts`：`semantics.focus` → 青（与 #4 共用）。
 1. `TUI/tests/`：标题渲染与聚焦变色用例（含窄窗降级、状态列隐藏）。
 1. `TUI/docs/SPEC.md`：窗口标题规格（标题文本、位置、配色）。
+
+## 实现记录
+
+2026-10-01：
+
+1. `layout.ts`（`buildTopRegion`）：新增 `sessionFocused` / `lowerFocused` / `toolPaneShowing`（approval|question|picker|statusPanel）与 `titledRow(width, title, focused)`——把 `-- <title> --` 写进**既有边框行左端**并用边框线补满，放不下（标题后不足 1 列线）时返回 null 表示整条省略。
+1. 落点：垂直排列——Session 标题写标题栏下划线行左端、Turn/Tool 标题写活动区分隔行左端（下半区顶边）；横向排列——同一行两 pane 各自左端（`-- Session --┬-- Turn --`）。
+1. 配色与「焦点框只改颜色」同源：未聚焦 `fg: "border"`，聚焦取 `focusColor()`（主题 `semantics.focus`，现为青）。
+1. 不加标题的对象保持无标题：水平状态栏、垂直状态栏（状态列）、输入栏。
+1. 测试：新增 `tests/pane-titles.test.ts`（位置/左端、未聚焦=边框色、聚焦=青、面板态写 Tool、窄窗省略、输入栏无标题）；受影响的既有用例改为"先剥标题再判定"——`app.test.ts`/`layout4.test.ts` 的 `isSepRow`、`barRowCount`、下划线行正则；冻结基线 `fixtures/focus-frame-legacy.json` 15 个场景全部按新实现重新冻结（临时 FREEZE_FOCUS 钩子，用完已还原）。
+
+## 测试与证据
+
+- `npm run check` ✓、`npm run build` ✓。
+- **全量 `npm run test:tui` 1238/1238 pass**（含新增 4 条）。
+- 待人工确认（真机）：三窗左上角显示 `-- Session --` / `-- Turn --` / `-- Tool --`；未聚焦与边框同色、聚焦转青；状态栏与输入栏不出现标题；窄窗（\<16 列）标题整条消失且不破版。
 
 ## 验收口径
 

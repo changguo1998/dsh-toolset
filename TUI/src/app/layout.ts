@@ -1536,6 +1536,31 @@ function buildTopRegion(
   // 承担；横向：两 pane 等高，中间 1 列内部分隔竖线）。
   const horizontal = geom.mode === "horizontal";
   const diaStart = titleRows; // 内容行中历史区起点（标题栏之后）
+  // #5 窗口标题：Session / Turn / Tool 三窗左上角写名字。Turn 与 Tool 共用下半区标题位
+  // （谁在显示写谁）：活动区内显示交互面板（问答 / 审批 / 模型选择 / 命令面板）时写 Tool。
+  // 配色：未聚焦 = 边框色，聚焦 = 焦点色；放不下则整条省略（不折行、不占内容列）。
+  const sessionFocused = !geom.modalOpen && state.focusedPanel === "history";
+  const lowerFocused = !geom.modalOpen && state.focusedPanel === "activity";
+  const toolPaneShowing =
+    state.approval !== null ||
+    state.question !== null ||
+    state.picker !== null ||
+    state.statusPanel !== null;
+  const lowerTitle = toolPaneShowing ? "Tool" : "Turn";
+  /** 标题行：`-- <title> --` + 边框线补满；宽度放不下（标题后不足 1 列线）返回 null（省略） */
+  const titledRow = (
+    width: number,
+    title: string,
+    focused: boolean,
+  ): FrameSegment[] | null => {
+    const label = `-- ${title} --`;
+    const w = displayWidth(label);
+    if (w + 1 > width) return null;
+    return [
+      seg(label, { fg: focused ? focusColor() : "border" }),
+      seg(SEPARATOR.repeat(width - w), { fg: "border" }),
+    ];
+  };
   const diaEnd = geom.activitySepRow; // 活动区分隔行（横向无分隔行，此值 = 历史 pane 底边下一行）
   // 渐进窗口：只物化最近 windowGroups 个回合组（缺省 3），更早部分以顶部占位行示意；
   // 上滚接近窗口顶部时由 App 增大 windowGroups 再扩窗（不再每帧全量重排历史）
@@ -1760,15 +1785,27 @@ function buildTopRegion(
             contentW,
           );
         }
-        // 下划线行：横向排列时内部竖线自此下行 → 该列让位 `┬`
+        // 下划线行：横向排列时内部竖线自此下行 → 该列让位 `┬`；
+        // #5：两 pane 各在自己左端写窗口标题（并排即 `-- Session --|-- Turn --` 形态）
         if (horizontal) {
+          const dTitle = titledRow(dialogueW, "Session", sessionFocused);
+          const aTitle = titledRow(activityW, lowerTitle, lowerFocused);
           return [
-            seg(SEPARATOR.repeat(Math.max(1, dialogueW)), { fg: "border" }),
+            ...(dTitle ?? [
+              seg(SEPARATOR.repeat(Math.max(1, dialogueW)), { fg: "border" }),
+            ]),
             seg("┬", { fg: "border" }),
-            seg(SEPARATOR.repeat(Math.max(1, activityW)), { fg: "border" }),
+            ...(aTitle ?? [
+              seg(SEPARATOR.repeat(Math.max(1, activityW)), { fg: "border" }),
+            ]),
           ];
         }
-        return [seg(SEPARATOR.repeat(Math.max(1, contentW)), { fg: "border" })];
+        // 垂直：本行即 Session pane 顶边，标题写在其左端
+        return (
+          titledRow(contentW, "Session", sessionFocused) ?? [
+            seg(SEPARATOR.repeat(Math.max(1, contentW)), { fg: "border" }),
+          ]
+        );
       }
       if (horizontal) {
         // 横向：历史 pane（左）| 内部分隔竖线 | 活动 pane（右）——历史 pane 补齐到
@@ -1794,8 +1831,8 @@ function buildTopRegion(
         return dialoguePaneSegs(rc - diaStart);
       }
       if (rc === diaEnd && activityH > 0) {
-        // 活动区分隔行
-        return sepSegments();
+        // 活动区分隔行 = 下半区（Turn / Tool）顶边：#5 标题写在其左端
+        return titledRow(contentW, lowerTitle, lowerFocused) ?? sepSegments();
       }
       if (activityH > 0) {
         // 活动区行：交互面板存在时显示面板，否则按滚动偏移取瞬态窗口
