@@ -62,7 +62,7 @@ const RULE_PARAMS = {
     type: "string",
     enum: [...RULE_SOURCES],
     description:
-      "匹配面，缺省 assistant-text：assistant-text 回合结束时对整回合正文判定 / tool-call 工具调用 / tool-result 工具结果 / turn-end 回合边界",
+      "匹配面，缺省 assistant-text：assistant-text 回合结束时对整回合正文判定 / tool-call 工具调用 / tool-result 工具结果 / turn-end 回合边界 / compaction 上下文压缩完成（`compaction/end`，文本为空，只作边界触发）",
   },
   delivery: {
     type: "string",
@@ -85,6 +85,11 @@ const RULE_PARAMS = {
   cooldownMs: {
     type: "number",
     description: "同一会话两次命中的最小毫秒间隔，缺省 0（不限制）",
+  },
+  dedupeInRecord: {
+    type: "boolean",
+    description:
+      "按记录去重，缺省 false：会话可见投影里已有同 summary 的本引擎注入时跳过（重载会话不重复注入，压缩后投影里没了才补）",
   },
 } as const;
 
@@ -112,6 +117,7 @@ function ruleFromArgs(args: Record<string, unknown>): Record<string, unknown> {
     "enabled",
     "cooldownTurns",
     "cooldownMs",
+    "dedupeInRecord",
   ] as const) {
     if (args[key] !== undefined) rule[key] = args[key];
   }
@@ -124,7 +130,7 @@ export function toToolDefs(engine: RuleEngine): ToolDef[] {
     name: "rule_add",
     description:
       "新增一条注入规则：命中条件（关键词/正则/内置谓词）成立时，代替用户向下一个回合注入一条 user-role 消息。" +
-      "source=tool-call/tool-result 时命中即注入（落下一个回合）；assistant-text/turn-end 在回合结束时对整回合正文判定。" +
+      "source=tool-call/tool-result 时命中即注入（落下一个回合）；assistant-text/turn-end 在回合结束时对整回合正文判定；compaction 在上下文压缩完成（compaction/end）时判定。" +
       "id 已存在会报错（改用 rule_update）。",
     parameters: {
       type: "object",
@@ -175,7 +181,7 @@ export function toToolDefs(engine: RuleEngine): ToolDef[] {
         patch: {
           type: "object",
           description:
-            "要覆盖的字段（text / summary / match / source / delivery / enabled / cooldownTurns / cooldownMs / description / action）",
+            "要覆盖的字段（text / summary / match / source / delivery / enabled / cooldownTurns / cooldownMs / dedupeInRecord / description / action）",
           properties: RULE_PARAMS,
           additionalProperties: false,
         },

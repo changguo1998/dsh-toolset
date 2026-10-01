@@ -7,18 +7,22 @@
  * 匹配面与判定时机：
  * - `assistant-text`：`assistant/message` 累积该回合正文，`turn/end` 时对整回合正文判定；
  * - `turn-end`：`turn/end` 时判定（match 可省 = 无条件命中）；
+ * - `compaction`：`compaction/end`（一次上下文压缩的终态）时判定，文本入参为空串
+ *   （match 可省 = 无条件命中，与 turn-end 同口径）；
  * - `tool-call` / `tool-result`：事件到达即判定（注入仍由注入器推迟；送达路径由 delivery 决定）。
  *
  * 消费者面（registerConsumer）：turn-end 时按注册顺序**同步**依次询问，聚合其反馈
  * （返回 `{text, summary?}`）并统一注入。
  *
  * 节流与去重（同一会话内）：每规则 `cooldownTurns` / `cooldownMs`；每回合注入条数上限
- * `maxInjectionsPerTurn`；同一回合内相同正文只注入一次（不同规则同文案也只发一条）。
+ * `maxInjectionsPerTurn`；同一回合内相同正文只注入一次（不同规则同文案也只发一条）；
+ * `dedupeInRecord` 规则再按**会话可见投影**去重（重载不重复注入，压缩后投影里没了才补）。
  *
  * **红线**：本层可能在 `Session.append` 的同步派发窗口内被调用，因此不得在此同步调用
  * `agent.followup()`（会撞重入保护导致消息不落盘）——推迟由注入器负责。
  */
 
+import { SOURCE_KIND } from "./inject.ts";
 import {
   boundSummary,
   compileMatcher,
@@ -116,6 +120,8 @@ export interface EngineOptions {
   injector: Injector;
   /** 同一会话同一来源回合的注入上限，缺省 3。 */
   maxInjectionsPerTurn?: number;
+  /** 会话可见投影读取（`dedupeInRecord` 判据）；缺省或读不到 → 去重失效、照旧注入。 */
+  messagesOf?: (sessionId: string) => readonly unknown[];
   /** 时钟（测试缝），缺省 Date.now。 */
   now?: () => number;
   /** 告警出口，缺省 stderr。**注入方负责加前缀**（引擎只给正文）；缺省兜底自带 `[rule-engine] warn: `。 */
@@ -136,6 +142,7 @@ export class RuleEngine {
   readonly #maxInjectionsPerTurn: number;
   readonly #now: () => number;
   readonly #warn: (message: string) => void;
+  readonly #messagesOf: ((sessionId: string) => readonly unknown[]) | undefined;
   readonly #baseline: readonly Rule[];
   readonly #sessions = new Map<string, SessionState>();
   /** 已注册消费者（按注册顺序依次询问）。 */
@@ -152,6 +159,7 @@ export class RuleEngine {
       Math.floor(options.maxInjectionsPerTurn ?? 3),
     );
     this.#now = options.now ?? Date.now;
+    this.#messagesOf = options.messagesOf;
     this.#warn =
       options.warn ??
       // 宿主未注入时的兜底：自带一层前缀（注入方负责加前缀，见 EngineOptions.warn）
@@ -297,6 +305,7 @@ export class RuleEngine {
       "match",
       "cooldownTurns",
       "cooldownMs",
+      "dedupeInRecord",
       "description",
     ] as const) {
       if (p[key] !== undefined) merged[key] = p[key];
@@ -478,6 +487,15 @@ export class RuleEngine {
         this.#pruneCounters(state, turn);
         return;
       }
+      case "compaction/end": {
+        // 上下文压缩完成（一次压缩一条：summary / prune 都在 start→end 之内，只认终态，
+        // 避免同一次压缩触发多次）
+        const state = this.#session(sessionId);
+        const turn = numberOr(data["turn"], state.turn);
+        state.turn = Math.max(state.turn, turn);
+        this.#evaluate("compaction", "", sessionId, turn);
+        return;
+      }
       default:
         return;
     }
@@ -605,6 +623,18 @@ export class RuleEngine {
     }
   }
 
+  /** 会话可见投影里是否已有同 summary 的本引擎注入（`dedupeInRecord` 判据；读不到 = false）。 */
+  #inRecord(sessionId: string, summary: string): boolean {
+    const messages = this.#messagesOf?.(sessionId);
+    if (!Array.isArray(messages)) return false;
+    return messages.some((message) => {
+      const source = (
+        message as { source?: { kind?: unknown; summary?: unknown } } | null
+      )?.source;
+      return source?.kind === SOURCE_KIND && source?.summary === summary;
+    });
+  }
+
   /** 节流与去重闸门；通过则交付注入器并记账。 */
   #fire(
     rule: NormalizedRule,
@@ -628,8 +658,14 @@ export class RuleEngine {
     };
     if (usage.count >= this.#maxInjectionsPerTurn) return;
     if (usage.texts.has(text)) return;
-    // 3) 交付注入器（其内部负责推迟宏任务；抛错只记 warning）
+    // 3) 按记录去重（`dedupeInRecord`）：会话可见投影里已有同 summary 的注入 → 不注入，
+    //    仍记本次命中（避免每次工具调用都重读投影）；投影不可读 → 照旧注入（fail-open）
     const summary = rule.action.summary ?? boundSummary(text);
+    if (rule.dedupeInRecord && this.#inRecord(sessionId, summary)) {
+      state.fired.set(rule.id, { turn, time: now });
+      return;
+    }
+    // 4) 交付注入器（其内部负责推迟宏任务；抛错只记 warning）
     try {
       this.#injector.inject({
         sourceId: rule.id,

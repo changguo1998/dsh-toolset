@@ -45,8 +45,8 @@ export interface CompiledMatcher {
 /**
  * 编译命中条件。
  *
- * 缺省语义：条件为空（无 keywords / regex / predicates）时，`turn-end` 视为无条件命中
- * （纯边界规则），其余匹配面视为永不命中（防误配置把每条正文都当命中）。
+ * 缺省语义：条件为空（无 keywords / regex / predicates）时，边界类匹配面（`turn-end` /
+ * `compaction`，无文本）视为无条件命中，其余匹配面视为永不命中（防误配置把每条正文都当命中）。
  */
 export function compileMatcher(
   spec: MatchSpec | undefined,
@@ -72,7 +72,7 @@ export function compileMatcher(
   const isEmpty =
     keywords.length === 0 && regexes.length === 0 && predicates.length === 0;
   if (isEmpty) {
-    const unconditional = source === "turn-end";
+    const unconditional = source === "turn-end" || source === "compaction";
     return { match: () => unconditional, warnings };
   }
   return {

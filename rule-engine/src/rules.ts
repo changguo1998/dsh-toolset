@@ -27,6 +27,7 @@ export const RULE_SOURCES: readonly RuleSource[] = [
   "tool-call",
   "tool-result",
   "turn-end",
+  "compaction",
 ];
 
 /** 匹配面是否合法。 */
@@ -189,6 +190,7 @@ export function normalizeRule(input: unknown): NormalizeResult {
       },
       cooldownTurns: int(raw.cooldownTurns, "cooldownTurns", 0),
       cooldownMs: int(raw.cooldownMs, "cooldownMs", 0),
+      dedupeInRecord: raw.dedupeInRecord === true,
       description:
         typeof raw.description === "string" && raw.description.trim().length > 0
           ? raw.description

@@ -121,7 +121,11 @@ interface PluginContext {
       | undefined
       | null;
   };
-  sessions?: { flush(session: unknown): unknown };
+  sessions?: {
+    flush(session: unknown): unknown;
+    /** 会话句柄读取（`dedupeInRecord` 判据用；缺省 → 去重失效、照旧注入）。 */
+    get?(id: string): unknown;
+  };
   provide?: (name: string, value: unknown) => unknown;
 }
 
@@ -184,6 +188,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       injector,
       maxInjectionsPerTurn:
         config?.maxInjectionsPerTurn ?? DEFAULT_MAX_INJECTIONS_PER_TURN,
+      messagesOf: (sessionId) => sessionMessagesOf(c.sessions, sessionId),
       warn,
     });
 
@@ -253,6 +258,18 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   } catch (err) {
     warn(`初始化失败：${String(err)}`);
   }
+}
+
+/** 会话可见投影读取（`dedupeInRecord` 判据）：读不到 / 未实现 → 空数组（照旧注入）。 */
+function sessionMessagesOf(
+  sessions: PluginContext["sessions"],
+  sessionId: string,
+): readonly unknown[] {
+  const session = sessions?.get?.(sessionId);
+  const messages = (
+    session as { deriveMessages?: () => unknown } | null | undefined
+  )?.deriveMessages?.();
+  return Array.isArray(messages) ? messages : [];
 }
 
 /** 可选服务的严格安全读取（未注入服务的直接属性访问在 cordis 严格模式下抛错）。 */

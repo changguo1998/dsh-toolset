@@ -39,6 +39,7 @@ test("normalizeRule：补齐缺省值", () => {
     action: { type: "inject", text: "请遵守规范" },
     cooldownTurns: 0,
     cooldownMs: 0,
+    dedupeInRecord: false,
     description: null,
   });
 });
@@ -52,6 +53,7 @@ test("normalizeRule：显式字段覆盖缺省", () => {
       match: { regex: ["rm -rf"], flags: "" },
       cooldownTurns: 2,
       cooldownMs: 5000,
+      dedupeInRecord: true,
       description: "越界操作提醒",
       action: { type: "inject", text: "不要删库", summary: "约束提醒" },
     }),
@@ -64,6 +66,7 @@ test("normalizeRule：显式字段覆盖缺省", () => {
   assert.deepEqual(result.rule.match, { regex: ["rm -rf"], flags: "" });
   assert.equal(result.rule.cooldownTurns, 2);
   assert.equal(result.rule.cooldownMs, 5000);
+  assert.equal(result.rule.dedupeInRecord, true);
   assert.equal(result.rule.description, "越界操作提醒");
   assert.equal(result.rule.action.summary, "约束提醒");
 });
@@ -187,6 +190,7 @@ test("effectiveRules：运行时层被 removed 屏蔽的 id 若同时出现在 r
 
 test("isRuleSource：合法匹配面枚举", () => {
   for (const source of RULE_SOURCES) assert.equal(isRuleSource(source), true);
+  assert.equal(isRuleSource("compaction"), true);
   assert.equal(isRuleSource("turn_end"), false);
   assert.equal(isRuleSource(undefined), false);
 });

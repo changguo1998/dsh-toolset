@@ -37,7 +37,11 @@ function bench(
     warnings: string[];
     dir: string;
   }) => void,
-  options: { maxInjectionsPerTurn?: number; now?: () => number } = {},
+  options: {
+    maxInjectionsPerTurn?: number;
+    now?: () => number;
+    messagesOf?: (sessionId: string) => readonly unknown[];
+  } = {},
 ): void {
   const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-test-"));
   const injected: InjectionRequest[] = [];
@@ -52,6 +56,9 @@ function bench(
         ? {}
         : { maxInjectionsPerTurn: options.maxInjectionsPerTurn }),
       ...(options.now === undefined ? {} : { now: options.now }),
+      ...(options.messagesOf === undefined
+        ? {}
+        : { messagesOf: options.messagesOf }),
     });
     fn({ engine, injected, warnings, dir });
   } finally {
@@ -634,5 +641,117 @@ test("registerConsumer：注册校验、同文本去重与规则共用闸门", (
       );
       assert.equal(typeof disposeC1, "function");
     },
+  );
+});
+
+/* ── compaction 匹配面与按记录去重（dedupeInRecord） ─────────────────────── */
+
+/** compaction/end 事件（一次压缩的终态）。 */
+function compactionEnd(turn: number): SessionEventLike {
+  return { type: "compaction/end", data: { compactionId: "c1", turn } };
+}
+
+test("compaction：`compaction/end` 到达即判定；start / summary / prune 不触发", () => {
+  bench(
+    [
+      rule({
+        id: "after-compact",
+        source: "compaction",
+        action: { type: "inject", text: "补上约束" },
+      }),
+    ],
+    ({ engine, injected }) => {
+      for (const type of [
+        "compaction/start",
+        "compaction/summary",
+        "compaction/prune",
+      ]) {
+        engine.handle(SESSION, { type, data: { turn: 5 } });
+      }
+      assert.equal(injected.length, 0, "只认终态，避免同一次压缩重复触发");
+      engine.handle(SESSION, compactionEnd(5));
+      assert.deepEqual(
+        injected.map((item) => item.sourceId),
+        ["after-compact"],
+      );
+    },
+  );
+});
+
+test("dedupeInRecord：投影里已有同 summary 注入则跳过；没有 / 读不到则照旧注入", () => {
+  const text = "解锁后加载行为 skill";
+  const cases: Array<{
+    label: string;
+    messages?: readonly unknown[];
+    expected: number;
+  }> = [
+    {
+      label: "投影里已有同 summary → 跳过",
+      messages: [{ source: { kind: "rule-engine", summary: text } }],
+      expected: 0,
+    },
+    {
+      label: "投影里只有别的注入 → 注入",
+      messages: [{ source: { kind: "rule-engine", summary: "别的注入" } }],
+      expected: 1,
+    },
+    { label: "读不到投影 → 照旧注入", messages: undefined, expected: 1 },
+  ];
+  for (const item of cases) {
+    bench(
+      [
+        rule({
+          id: "unlock",
+          source: "tool-call",
+          match: { predicates: ["always"] },
+          dedupeInRecord: true,
+          action: { type: "inject", text, summary: text },
+        }),
+      ],
+      ({ engine, injected }) => {
+        engine.handle(SESSION, toolCall(1, "bash", "{}"));
+        assert.equal(injected.length, item.expected, item.label);
+      },
+      item.messages === undefined
+        ? {}
+        : { messagesOf: () => item.messages as readonly unknown[] },
+    );
+  }
+});
+
+test("dedupeInRecord：压缩把注入挤出投影后，由 compaction 规则补回一次", () => {
+  const messages: unknown[] = [];
+  bench(
+    [
+      rule({
+        id: "unlock",
+        source: "tool-call",
+        match: { predicates: ["always"] },
+        dedupeInRecord: true,
+        action: { type: "inject", text: "T", summary: "S" },
+      }),
+      rule({
+        id: "after-compact",
+        source: "compaction",
+        dedupeInRecord: true,
+        action: { type: "inject", text: "T", summary: "S" },
+      }),
+    ],
+    ({ engine, injected }) => {
+      engine.handle(SESSION, toolCall(1, "bash", "{}"));
+      assert.equal(injected.length, 1, "首次工具调用注入");
+      // 注入落盘后进入可见投影
+      messages.push({ source: { kind: "rule-engine", summary: "S" } });
+      engine.handle(SESSION, toolCall(2, "bash", "{}"));
+      assert.equal(injected.length, 1, "投影里还在 → 不重复注入");
+      // 压缩把该注入挤出可见投影
+      messages.length = 0;
+      engine.handle(SESSION, compactionEnd(3));
+      assert.equal(injected.length, 2, "压缩后补回一次");
+      messages.push({ source: { kind: "rule-engine", summary: "S" } });
+      engine.handle(SESSION, compactionEnd(4));
+      assert.equal(injected.length, 2, "补回后仍在投影里 → 不再补");
+    },
+    { messagesOf: () => messages },
   );
 });

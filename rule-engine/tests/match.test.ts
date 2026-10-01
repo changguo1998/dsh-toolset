@@ -76,9 +76,11 @@ test("predicates：内部为与关系，与其他档为或关系", () => {
   assert.equal(nonAscii.match("全角：，"), true);
 });
 
-test("空条件：turn-end 无条件命中，其余匹配面永不命中", () => {
-  assert.equal(compileMatcher(undefined, "turn-end").match("任意文本"), true);
-  assert.equal(compileMatcher({}, "turn-end").match(""), true);
+test("空条件：turn-end / compaction 无条件命中，其余匹配面永不命中", () => {
+  for (const source of ["turn-end", "compaction"] as const) {
+    assert.equal(compileMatcher(undefined, source).match("任意文本"), true);
+    assert.equal(compileMatcher({}, source).match(""), true);
+  }
   for (const source of [
     "assistant-text",
     "tool-call",

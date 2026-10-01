@@ -3,15 +3,16 @@
  *
  * 语义对齐 rule-engine/README.md：
  * - 规则 = 匹配面（source）+ 命中条件（match）+ 动作（action，本期只有 inject）+ 节流
- * - 匹配面三类：模型正文文本（assistant-text，回合结束时对整回合正文判定）、
+ * - 匹配面四类：模型正文文本（assistant-text，回合结束时对整回合正文判定）、
  *   工具调用与结果（tool-call / tool-result，事件到达即判定）、回合边界（turn-end，
- *   match 可省 = 无条件命中）
+ *   match 可省 = 无条件命中）、上下文压缩（compaction，`compaction/end` 到达即判定，
+ *   与 turn-end 同口径：空条件 = 无条件命中，文本入参为空串）
  * - 规则来源两层：插件配置（config，只读基线）+ 运行时层（工具族增删改，落状态目录）
  */
 
-/** 匹配面：文本 / 工具调用 / 工具结果 / 回合边界。 */
+/** 匹配面：文本 / 工具调用 / 工具结果 / 回合边界 / 上下文压缩。 */
 export type RuleSource =
-  "assistant-text" | "tool-call" | "tool-result" | "turn-end";
+  "assistant-text" | "tool-call" | "tool-result" | "turn-end" | "compaction";
 
 /** 注入送达路径：新回合（followup）或最近 pre-step（next-step）。 */
 export type RuleDelivery = "followup" | "next-step";
@@ -66,6 +67,9 @@ export interface Rule {
   cooldownTurns?: number;
   /** 同一会话内两次命中之间的最小毫秒间隔，缺省 0（不限制）。 */
   cooldownMs?: number;
+  /** 按记录去重，缺省 false：会话可见投影里已有同 summary 的本引擎注入则跳过
+   *  （重载会话不重复注入；压缩把注入挤出投影后才重新注入）。 */
+  dedupeInRecord?: boolean;
   /** 说明（工具面只读展示）。 */
   description?: string | null;
 }
@@ -80,6 +84,7 @@ export interface NormalizedRule {
   action: InjectAction;
   cooldownTurns: number;
   cooldownMs: number;
+  dedupeInRecord: boolean;
   description: string | null;
 }
 
