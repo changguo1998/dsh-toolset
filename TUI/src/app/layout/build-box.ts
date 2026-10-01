@@ -137,7 +137,8 @@ export function noticeLinePresentation(
 }
 
 /** #2：代码块软换行的行尾标记（弯箭头；占 1 列） */
-const CODE_WRAP_ARROW = "↳";
+const CODE_WRAP_END = "↩"; // 折行标记：上一行行尾
+const CODE_WRAP_LEAD = "↪"; // 折行标记：下一行行首
 
 /** 取按显示宽度不超过 w 的最长前缀（CJK 不切半） */
 function takeWidth(text: string, w: number): string {
@@ -149,29 +150,32 @@ function takeWidth(text: string, w: number): string {
   return cur;
 }
 
-/** #2：代码块软折行——按显示宽度折（首行 firstW、续行 contW），
- *  需要继续的行**预留 1 列**给行尾弯箭头（`cont=true`），保证加箭头后不再多折一行。 */
+/** #2：代码块软折行——按显示宽度折（首行 firstW、续行 contW）。
+ *  标记位一律**先扣**：需要继续的行尾留 1 列给 `↩`（`cont=true`），
+ *  续行行首留 1 列给 `↪`（`lead=true`）——保证加标记后不会再被挤到下一行。 */
 function wrapCodeRows(
   text: string,
   firstW: number,
   contW: number,
-): { text: string; cont: boolean }[] {
-  const out: { text: string; cont: boolean }[] = [];
+): { text: string; cont: boolean; lead: boolean }[] {
+  const out: { text: string; cont: boolean; lead: boolean }[] = [];
   let rest = text;
-  let limit = Math.max(2, firstW);
+  let first = true;
   while (rest !== "") {
-    // 先按「留出箭头列」取一段；取不完说明要换行 → 该行带箭头
-    const cut = takeWidth(rest, Math.max(1, limit - 1));
-    if (cut.length < rest.length) {
-      out.push({ text: cut, cont: true });
-      rest = rest.slice(cut.length);
-      limit = Math.max(2, contW);
-    } else {
-      out.push({ text: rest, cont: false });
+    const rowW = Math.max(2, first ? firstW : contW);
+    const leadW = first ? 0 : 1; // 续行行首 `↪`
+    if (displayWidth(rest) <= rowW - leadW) {
+      // 放得下：不需要行尾标记
+      out.push({ text: rest, cont: false, lead: !first });
       break;
     }
+    // 放不下 → 本行带行尾标记，正文再减 1 列
+    const cut = takeWidth(rest, Math.max(1, rowW - leadW - 1));
+    out.push({ text: cut, cont: true, lead: !first });
+    rest = rest.slice(cut.length);
+    first = false;
   }
-  if (out.length === 0) out.push({ text: "", cont: false });
+  if (out.length === 0) out.push({ text: "", cont: false, lead: false });
   return out;
 }
 
@@ -440,17 +444,21 @@ export function buildBox(
           const contW = Math.max(2, firstW - 4);
           const chunks = wrapCodeRows(src, firstW, contW);
           for (let k = 0; k < chunks.length; k++) {
-            const { text: piece, cont } = chunks[k]!;
+            const { text: piece, cont, lead } = chunks[k]!;
             const rowW = k === 0 ? firstW : contW;
-            const arrow = cont ? CODE_WRAP_ARROW : "";
-            // 续行靠右对齐；有箭头时把行尾 1 列让给箭头
+            const endMark = cont ? CODE_WRAP_END : "";
+            const leadMark = lead ? CODE_WRAP_LEAD : "";
+            // 续行靠右对齐；标记位已由折行阶段预留（行尾 `↩` / 行首 `↪`）
             const pad = Math.max(
               0,
-              rowW - displayWidth(piece) - (cont ? 1 : 0),
+              rowW -
+                displayWidth(piece) -
+                displayWidth(leadMark) -
+                displayWidth(endMark),
             );
-            const lead = k === 0 ? num + "" : " ".repeat(numW + 4);
+            const indent = k === 0 ? num + "" : " ".repeat(numW + 4);
             const padStr = k === 0 && !cont ? "" : " ".repeat(pad);
-            const node = barLine(lead + padStr + piece + arrow);
+            const node = barLine(indent + padStr + leadMark + piece + endMark);
             meta.set(node, rowMeta);
             target.push(node);
           }

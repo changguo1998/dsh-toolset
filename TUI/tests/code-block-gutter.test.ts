@@ -92,7 +92,7 @@ test("#2 窄窗降级：宽 < 24 时省略行号列", () => {
   assert.ok(!/\d/.test(stripRight(code!).slice(0, 6)), "窄窗不显示行号");
 });
 
-test("#2 软折行：行尾带弯箭头，且加箭头后不再多折一行", () => {
+test("#2 软折行：折行处成对标记（上一行尾 ↩ / 下一行首 ↪），且不再多折一行", () => {
   const width = 60;
   const out = rows(
     [a("```"), a(`echo ${"这一行很长".repeat(30)}需要折三行以上`), a("```")],
@@ -102,7 +102,7 @@ test("#2 软折行：行尾带弯箭头，且加箭头后不再多折一行", ()
   const idx = code.findIndex((r) => r.includes("echo"));
   assert.ok(idx >= 0, `找到代码首行：${JSON.stringify(out)}`);
   const first = stripRight(code[idx]!);
-  assert.ok(first.endsWith("↳"), `首行行尾带弯箭头：${first}`);
+  assert.ok(first.endsWith("↩"), `断行处行尾带 ↩：${first}`);
   // 每一行（含续行）都不得超过可用宽——箭头已预留 1 列，不会再被挤到下一行
   for (const r of out) {
     assert.ok(
@@ -113,6 +113,8 @@ test("#2 软折行：行尾带弯箭头，且加箭头后不再多折一行", ()
   // 续行也带箭头；末行不带（末尾是正文）
   const conts = code.slice(idx + 1);
   assert.ok(conts.length >= 2, `至少两行续行：${JSON.stringify(conts)}`);
-  assert.ok(conts[0]!.includes("↳"), "中间续行带弯箭头");
-  assert.ok(!stripRight(conts.at(-1)!).endsWith("↳"), "末行不带弯箭头");
+  assert.ok(conts[0]!.includes("↪"), "续行行首带 ↪");
+  assert.ok(conts[0]!.endsWith("↩"), "中间续行仍在断行处带 ↩");
+  assert.ok(!stripRight(conts.at(-1)!).endsWith("↩"), "末行不带行尾标记");
+  assert.ok(conts.at(-1)!.includes("↪"), "末行行首仍带 ↪");
 });
