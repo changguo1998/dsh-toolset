@@ -19,7 +19,8 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
   - **`subagent`**：`ctx.subagents.start(provider='spawn', {label, prompt, parent, signal, agentOptions})` —— `prompt` 缺省由引擎按「标题 + spec + 验收清单 + 上次反馈」拼装；只有声明了 `model` / `budget` 才传 `agentOptions`（`{provider, model, maxTokens}`），未声明则**不传** = 保持宿主「合并父 agent 选项」的语义；取 `result.output` 文本为证据后 `dispose`；`stopReason` 非 `completed` / `max-tokens` 视为失败（`aborted` = 用户中止，不打回）；
   - **`workflow`**：`ctx.workflowEngine.start({script, meta, parent})` —— `script` 必给（引擎不生成脚本）；`meta` 由引擎生成默认值（`name = task:<frame>`、`description = 帧标题`）并与声明**浅合并**（叶子给谁覆盖谁）；`value` 为对象 / 数组时记入 `plan/frame-executed.structured`，文本证据为缩进 JSON；失败分类：`start` 同步抛错（META_INVALID / SCRIPT_PARSE）= **声明错误 → 不打回不计重试**，`cancelled`（用户取消）= 不打回，`error` = 交 bounded retry（反馈附 `已启动子代理 N 个`）；
   - **`command`**：`/bin/sh -c`（可带 `cwd`），退出码非 0 = 失败（可重试）；证据 = stdout + stderr；
-  - 可选字段：`model`（`{provider, model}` 覆盖）、`budget.maxTokens`（映射宿主 `agentOptions.maxTokens`，并事后经 `tokenMeter.measure(子会话)` 标注 `overBudget`——**只标注不据此打回**）、`cwd`、`prompt` / `script` / `meta`（按后端取用）；
+  - 可选字段：`model`（`{provider, model}` 覆盖）、`budget.maxTokens`（映射宿主 `agentOptions.maxTokens`，即输出上限语义）、`cwd`、`prompt` / `script` / `meta`（按后端取用）；
+  - 用量计量（②）：subagent 事后经 `tokenMeter.measure(子会话)` 记录 `tokens` 并标 `tokensKind: "pressure"`（上下文压力口径，含系统提示词 / 工具定义，真机实测 1.9 万量级）；**只有 `usage` 口径参与 `overBudget` 判定**（pressure 不与输出预算比较——真机曾因此误报），且无论哪种口径都**只标注、不据此打回**；
   - 校验收在**机械门禁**（`rule: "executor"`，带反馈打回）：只允许叶子声明、kind 白名单、`command` 必给 `command`、`workflow` 必给 `script`、`meta.name` / `meta.description` 非空、`model` 覆盖须给全 provider/model、`budget.maxTokens` 须为正数；
   - 执行记录落 `plan/frame-executed`（`executor` / `model` / `tokens` / `overBudget` / `structured` / 证据摘要 / `retryable`），**证据全文**仍走 `plan/frame-implemented`（既有验收链不看新事件）；三类后端证据统一**截断**到 8000 字符（超出标注原始长度）；
   - 宿主服务（`subagents` / `workflowEngine` / `agentDefaultModel` / `tokenMeter`）在**执行期惰性解析**（当前工具执行 ctx 优先 → 回退插件 ctx）：apply 期服务 fiber 未激活时 `ctx.get` 会返回 undefined（真机实测），故装载期不缓存句柄，只在发起时按名读取，apply 期探测仅打印告警；
@@ -113,7 +114,7 @@ tests/          # node:test 单测
 ```sh
 npm run check   # 类型检查（tsc --noEmit）
 npm run build   # 编译到 dist/
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（61 例：engine / events / gate / query / tools）
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（62 例：engine / events / gate / query / tools）
 npm run demo    # npm run build && node dist/demo/main.js；脚本化模型跑步骤 0-7 + 演示 8-12，
                 # 覆盖全链路（门禁打回→implement→stop→join）、fan-out 有界并发、
                 # 语义验收 audit、step 裁决、语义蕴含门、abort 恢复；输出 DEMO_OK / DEMO_FAIL，退出码 0/1

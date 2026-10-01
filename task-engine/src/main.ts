@@ -175,6 +175,17 @@ function isStructured(value: unknown): boolean {
 }
 
 /**
+ * 计量字段（②）：subagent 经 `tokenMeter.measure(子会话)` 拿到的是 **pressure 口径**
+ * （含系统提示词 / 工具定义的上下文压力），故带 `tokensKind` 标记，不参与 `overBudget` 判定。
+ */
+function tokenFields(tokens: number | undefined): {
+  tokens?: number;
+  tokensKind?: "pressure";
+} {
+  return tokens === undefined ? {} : { tokens, tokensKind: "pressure" };
+}
+
+/**
  * 叶子未声明 `prompt` 时的提示词拼装（引擎只拼「要什么」，不生成「怎么做」）。
  */
 function defaultPrompt(req: ExecuteRequest): string {
@@ -334,7 +345,7 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
           retryable: stopReason !== "aborted",
           feedback: `子代理未正常完成（stopReason=${stopReason}）${result.diagnostic === undefined ? "" : `：${result.diagnostic}`}`,
           ...model,
-          ...(tokens === undefined ? {} : { tokens }),
+          ...tokenFields(tokens),
         };
       }
       const text = truncateEvidence(blocksToText(result.output));
@@ -342,7 +353,7 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
         ok: true,
         result: text === "" ? "（子代理未返回文本产出）" : text,
         ...model,
-        ...(tokens === undefined ? {} : { tokens }),
+        ...tokenFields(tokens),
       };
     }
     // —— workflow：ctx.workflowEngine.start（脚本由叶子显式声明，引擎不生成）——

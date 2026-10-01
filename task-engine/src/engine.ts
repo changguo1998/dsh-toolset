@@ -29,6 +29,7 @@ import type {
   PlanEvent,
   StepVerdict,
   TaskTree,
+  TokenKind,
 } from "./types.ts";
 import { toNested } from "./events.ts";
 
@@ -69,6 +70,12 @@ export interface ExecuteOutcome {
   structured?: unknown;
   /** 事后计量 / 后端自报的 token 用量（②） */
   tokens?: number;
+  /**
+   * 计量口径：`pressure` = 会话上下文压力（`tokenMeter.measure` 的 totalTokens，含系统
+   * 提示词与工具定义，真机实测远大于输出预算）；`usage` = 计费用量口径。
+   * 缺省按 `usage` 处理；`pressure` 不与 `budget.maxTokens`（宿主输出上限语义）比较。
+   */
+  tokensKind?: TokenKind;
   /** 实际使用的模型（`provider/model`；未覆盖时为空 = 随宿主默认） */
   model?: string;
   /**
@@ -92,7 +99,7 @@ export interface ExecuteResult {
   /** 证据摘要（截断，供工具返回值直接展示） */
   evidence?: string;
   /** 用量与预算标注（②；超预算只标注、不据此打回） */
-  usage?: { tokens?: number; overBudget?: boolean };
+  usage?: { tokens?: number; tokensKind?: TokenKind; overBudget?: boolean };
 }
 
 /** 语义蕴含（第二道门）hook：独立 entail run 判定 ∧Qᵢ ⟹ Q_parent（§17.2）。宿主侧实现。 */
@@ -425,8 +432,11 @@ export class TaskEngine {
       out = { ok: false, feedback: `executor 适配器抛错：${String(err)}` };
     }
     const max = spec.budget?.maxTokens;
+    // 预算判定只在**同口径**下进行：pressure（上下文压力）不与输出上限比较（真机实测误报）
     const overBudget =
-      max === undefined || out.tokens === undefined
+      max === undefined ||
+      out.tokens === undefined ||
+      out.tokensKind === "pressure"
         ? undefined
         : out.tokens > max;
     const summary = summarize(
@@ -440,6 +450,7 @@ export class TaskEngine {
         ? {}
         : { model: out.model }),
       ...(out.tokens === undefined ? {} : { tokens: out.tokens }),
+      ...(out.tokensKind === undefined ? {} : { tokensKind: out.tokensKind }),
       ...(overBudget === undefined ? {} : { overBudget }),
       ...(out.structured === undefined ? {} : { structured: out.structured }),
       ...(summary === "" ? {} : { evidence: summary }),
@@ -471,6 +482,7 @@ export class TaskEngine {
     this.recompute();
     const usage = {
       ...(out.tokens === undefined ? {} : { tokens: out.tokens }),
+      ...(out.tokensKind === undefined ? {} : { tokensKind: out.tokensKind }),
       ...(overBudget === undefined ? {} : { overBudget }),
     };
     return {

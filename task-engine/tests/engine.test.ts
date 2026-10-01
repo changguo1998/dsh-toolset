@@ -197,6 +197,26 @@ describe("executor 执行扩展（① 发起 / ② 计量）", () => {
     assert.deepEqual(ev?.structured, { a: 1 });
   });
 
+  it("pressure 口径不参与 overBudget 判定（真机误报修复）", async () => {
+    const e = newEngine();
+    await e.decompose("root", [
+      leafWith("c1", { kind: "subagent", budget: { maxTokens: 256 } }),
+    ]);
+    const r = await e.execute("c1", async () => ({
+      ok: true,
+      result: "子代理可用。",
+      tokens: 19413,
+      tokensKind: "pressure" as const,
+      model: "ustc/deepseek-flash（宿主默认）",
+    }));
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.usage, { tokens: 19413, tokensKind: "pressure" });
+    const ev = e.log.find((x) => x.type === "plan/frame-executed") as
+      { tokensKind?: string; overBudget?: boolean } | undefined;
+    assert.equal(ev?.tokensKind, "pressure");
+    assert.equal(ev?.overBudget, undefined, "pressure 口径不判超预算");
+  });
+
   it("非叶子 execute → 拒绝", async () => {
     const e = newEngine(async () => ({ ok: true, result: "x" }));
     const r = await e.execute("root");

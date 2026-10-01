@@ -158,6 +158,8 @@
 1. **#1 实施（2026-10-02）**：按 D9-D13 落地叶子执行后端（文件清单见「规划」）：类型 / 门禁 / 事件物化 / `engine.execute()` / `task_execute` 工具 / `main.ts` 三类后端接线 / 测试 / demo 演示 13 / README；③ 未做并另开条目。
 1. **#1 workflow 后端补完（2026-10-02，用户裁定「补完 workflow 后端本身」并指令「按标准流程完成」）**：① 默认 meta 生成 / 合并（叶子只给 `name` 时 `description` 由帧补齐）② `value` 为对象 / 数组 → 记入 `plan/frame-executed.structured`，证据文本改缩进 JSON ③ 失败分类（`start` 同步抛错 / `stoppedReason: cancelled` → `retryable: false`：不打回、不计重试、不改状态；`error` → bounded retry，反馈附 `agentsStarted`）④ 三类后端证据统一截断（`MAX_EVIDENCE_CHARS = 8000`，超出标注原始长度）⑤ 门禁补 `meta.name` / `meta.description` 非空校验（把宿主 `META_INVALID` 前置为可读打回）。测试 / 冒烟 / README 同步。
 1. **#1 真机验证第一轮（2026-10-02，会话内真实调用工具面）**：`task_decompose` 建三个叶子（`command` / `workflow` / `subagent`）✓；`task_execute v-command` **通过**（证据 = 真实 `/bin/sh` 输出 `hello-from-executor`）✓；`task_execute v-workflow` / `v-subagent` 返回「宿主 ctx.workflowEngine / ctx.subagents 不可用」✗。**定位**：cordis 的 `ctx.get(name)` 是不要求 `inject` 的读取，但 `_getImpl` 在服务 fiber 未激活（`state !== 2`）或 `isolate` 映射缺该名时**静默返回 undefined**；apply 期这两条服务尚不可见（`dsh-base` 的 `subagent` / `workflow-ptc` 行虽在 patch 中、包也在磁盘上），执行期才可读。**修复**：`main.ts` 改为**执行期惰性解析** —— `makeExecutor` 每次发起时按 `resolve(name)` 读服务（当前工具执行 ctx（agent 侧）优先 → 回退插件 ctx），apply 期探测只用于告警、结果不缓存；回归用例见冒烟实例 14（插件 ctx 全不可见 + exec ctx 可见 → `workflow` / `subagent` 均发起成功）。
+1. **#1 真机验证第二轮（2026-10-02，重启后复验）**：三后端全部发起成功——`v-command` 证据 = 真实 `/bin/sh` 输出 `hello-from-executor`；`v-workflow` 证据 = PTC run 返回值对象 `{ "ok": true, "note": "workflow-ok", "value": 42 }`；`v-subagent` 证据 = 子代理文本「子代理可用。」+ `usage: { tokens: 19413, overBudget: true }`；`task_stop` × 3 全部 accepted，`task_status` 整树 `done`（`executorKind` 正常暴露）✓ —— **惰性解析修复真机确认有效**。
+1. **#1 计量口径收紧（2026-10-02，用户裁定「先修 overBudget 口径」+「完整口径另开条目」）**：第二轮暴露 subagent 的 `tokens` 是 `tokenMeter.measure` 的 **pressure 口径**（含系统提示词 / 工具定义，1.9 万量级），与 `budget.maxTokens`（宿主输出上限语义）不可比 → `overBudget` 稳定误报。本次最小修正：新增 `TokenKind`（`pressure` / `usage`）与 `ExecuteOutcome.tokensKind`、事件记 `tokensKind`，**只有 `usage` 口径参与 `overBudget` 判定**（pressure 不判），两种口径都仍只标注、不据此打回。完整 usage 口径计量（接 `sessionProjections.snapshot(session, ["tokenUsage"])` 或 `deriveTurnTokenUsage` 取 `outputTokens`）按裁定**另开条目**（`docs/BACKLOG.md` 当前 #7）。
 
 ## 测试与证据
 
@@ -209,17 +211,18 @@
 | 命令 | 结果 |
 | --- | --- |
 | `cd task-engine && npm run check` / `npm run build` | 0 error（含门禁 / 引擎 / 工具 / 宿主接线的全部新增类型） |
-| `cd task-engine && npm test` | `tests 61 / pass 61 / fail 0`（原 42：+8 门禁 executor 规则（含 `meta.name` / `meta.description` 校验）、+8 engine execute（含 `retryable:false` 不改状态、`structured` 入事件）、+3 工具面） |
+| `cd task-engine && npm test` | `tests 62 / pass 62 / fail 0`（原 42：+8 门禁 executor 规则（含 `meta.name` / `meta.description` 校验）、+9 engine execute（含 `retryable:false` 不改状态、`structured` 入事件、pressure 口径不判 `overBudget`）、+3 工具面） |
 | `cd task-engine && npm run demo` | `DEMO_OK`（新增演示 13：executor 发起 → 证据回填 → 超预算标注 → RET 验收完成整树） |
-| `node tmp/task-executor-smoke.mjs`（dist 级：真实 `task-engine/dist` 的 `apply()` + 假宿主面 `subagents` / `workflowEngine` / `agentDefaultModel` / `tokenMeter`） | `SMOKE_PASS`（**13 步**：工具族含 `task_execute` / 四叶子声明 executor 过门禁 / subagent 模型覆盖 + 预算 → `agentOptions{provider,model,maxTokens}` 且证据 + 用量（`overBudget:false`）回填 / 未声明模型**不传** `agentOptions` / command 真跑 `/bin/sh -c` / workflow 的 `script`+`meta`+`parent` 透传并回填 `value` / `execute → stop → join` 整树 done 且 status 暴露 `executorKind` / provider 能力位不足 fail-closed（不静默降级）/ 执行失败带反馈打回且 `next` 指本帧 / **workflow 默认 meta 合并** / **同步抛错（声明错误）不打回不计重试** / **`cancelled` 反馈可读** / **证据截断（超限标注 + 未超限原样）**） |
-| 根 `npm run check` / 根 `npm run test` | `exit 0`（`error TS` 计数 0）/ `exit 0`（16 包全 `OK`，`fail 0`；含 task-engine `pass 61`） |
-| **真机验证第一轮**（会话内真实调用工具面，2026-10-02） | `task_decompose` 三叶子挂树 ✓；`task_execute v-command` ✓（证据 = 真实 `/bin/sh` 输出 `hello-from-executor`）；`task_execute v-workflow` / `v-subagent` ✗（「宿主面不可用」）→ 定位为 **apply 期服务不可见**，**已修复**（执行期惰性解析）→ 待重启后第二轮复验 |
-| 惰性解析修复的回归（dist 冒烟实例 14） | 插件 ctx 全不可见、exec ctx 可见 → `workflow` / `subagent` 均发起成功（本轮 `SMOKE_PASS`，共 14 步） |
+| `node tmp/task-executor-smoke.mjs`（dist 级：真实 `task-engine/dist` 的 `apply()` + 假宿主面 `subagents` / `workflowEngine` / `agentDefaultModel` / `tokenMeter`） | `SMOKE_PASS`（**14 步**：工具族含 `task_execute` / 四叶子声明 executor 过门禁 / subagent 模型覆盖 + 预算 → `agentOptions{provider,model,maxTokens}` 且证据 + 用量（`{tokens, tokensKind:"pressure"}`，**不判超预算**）回填 / 未声明模型**不传** `agentOptions` / command 真跑 `/bin/sh -c` / workflow 的 `script`+`meta`+`parent` 透传并回填 `value` / `execute → stop → join` 整树 done 且 status 暴露 `executorKind` / provider 能力位不足 fail-closed（不静默降级）/ 执行失败带反馈打回且 `next` 指本帧 / workflow 默认 meta 合并 / 同步抛错（声明错误）不打回不计重试 / `cancelled` 反馈可读 / 证据截断（超限标注 + 未超限原样） / **惰性服务解析（插件 ctx 全不可见 + exec ctx 可见 → 两条后端均发起成功）**） |
+| 根 `npm run check` / 根 `npm run test` | `exit 0`（`error TS` 计数 0）/ `exit 0`（16 包全 `OK`，`fail 0`；含 task-engine `pass 62`） |
+| **真机验证第一轮**（会话内真实调用工具面，2026-10-02） | `task_decompose` 三叶子挂树 ✓；`task_execute v-command` ✓（证据 = 真实 `/bin/sh` 输出 `hello-from-executor`）；`task_execute v-workflow` / `v-subagent` ✗（「宿主面不可用」）→ 定位为 **apply 期服务不可见**，已修复（执行期惰性解析）→ 第二轮复验通过 |
+| **真机验证第二轮**（重启后复验，2026-10-02） | 三后端全绿——`v-command` ✓（真实 `/bin/sh` 输出）、`v-workflow` ✓（PTC run 返回值对象）、`v-subagent` ✓（子代理文本「子代理可用。」+ `usage`）；`task_stop` × 3 全 accepted → `task_status` 整树 `done`（`executorKind` 正常暴露）✓ |
+| 计量口径修正（真机第二轮的误报修复） | 引入 `TokenKind`（`pressure` / `usage`）：压力口径不与输出预算比较 → 单测 `pressure 口径不参与 overBudget 判定` 通过；冒烟断言 `sub.usage = {tokens, tokensKind:"pressure"}`（无 `overBudget`）；完整 usage 口径计量另开 BACKLOG #7 |
 
 未做（交接给后续）：
 
 1. `rule-engine/demo` 未跑（可选）。
-1. **#1 真机第二轮（待重启 `dsh --profile fff`）**：复验 `workflow` / `subagent` 两条后端 + `execute → stop → join` 全流程；**通过后才收尾 #1**（不通过则继续调试，用户 2026-10-02 裁定）。
+1. **#1 真机第三轮（待重启 `dsh --profile fff`，用户裁定「先修口径再复验，通过后收尾」）**：复验计量口径修正——`task_execute v-subagent` 预期 `usage: { tokens, tokensKind: "pressure" }`（**无 `overBudget`**）；通过后收尾 #1，不通过继续调试。真机第二轮的 `execute → stop → join` 全流程与三后端已通过 ✓。
 
 ## 交接（2026-10-02 中断点）
 

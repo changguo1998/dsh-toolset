@@ -26,6 +26,15 @@ export type FrameStatus = "pending" | "active" | "done" | "failed";
  */
 export type ExecutorKind = "model" | "subagent" | "workflow" | "command";
 
+/**
+ * executor 用量的计量口径（②）：
+ * - `pressure` = 会话上下文压力（`tokenMeter.measure` 的 `totalTokens`：含系统提示词与工具定义，
+ *   真机实测 1.9 万量级，与「输出上限」类预算不可比）；
+ * - `usage` = 计费用量口径（如 outputTokens）。
+ * 只有 `usage` 口径参与 `budget.maxTokens` 的 `overBudget` 判定。
+ */
+export type TokenKind = "pressure" | "usage";
+
 /** executor 声明：由模板或叶子显式声明，**引擎不替模型生成脚本**（README「边界与外包」）。 */
 export interface ExecutorSpec {
   kind: ExecutorKind;
@@ -134,7 +143,9 @@ export type PlanEvent =
       model?: string;
       /** 事后计量 / 后端自报的 token 用量 */
       tokens?: number;
-      /** 是否超出声明的 `budget.maxTokens`（只标注，不据此打回） */
+      /** 计量口径（`pressure` = 会话上下文压力；`usage` = 计费用量口径） */
+      tokensKind?: TokenKind;
+      /** 是否超出声明的 `budget.maxTokens`（只标注，不据此打回；**仅 usage 口径参与判定**） */
       overBudget?: boolean;
       /** 结构化产出（workflow `value` 为对象时原样记录；供审计 / 下游消费） */
       structured?: unknown;
