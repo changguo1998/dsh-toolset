@@ -208,7 +208,7 @@ test("渲染层：超宽命令描述另起一行，行首缩进 = 描述列起�
 
 test("字母序：条目按首个命令名升序（别名/参数/顿号合并条目不干扰）", () => {
   const rows = [
-    { cmd: "/verbose on|off", desc: "a" },
+    { cmd: "/collapse on|off", desc: "a" },
     { cmd: "/stats (/usage /context)", desc: "b" },
     { cmd: "/model [provider/]model", desc: "c" },
     { cmd: "/provider、/effort (/thinking)", desc: "d" },
@@ -217,11 +217,11 @@ test("字母序：条目按首个命令名升序（别名/参数/顿号合并条
   assert.deepEqual(
     sortHelpRows(rows).map((r) => r.cmd),
     [
+      "/collapse on|off",
       "/help",
       "/model [provider/]model",
       "/provider、/effort (/thinking)",
       "/stats (/usage /context)",
-      "/verbose on|off",
     ],
     "按首个命令名升序",
   );

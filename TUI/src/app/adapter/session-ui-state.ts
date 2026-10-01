@@ -1,7 +1,7 @@
 // app/adapter/session-ui-state.ts — TUI 侧会话状态快照（tui-state.json）
 //
 // 宿主只在会话日志里记它自己掌握的状态（模型选择、plan/sandbox/permission/policy、
-// goal/todo）。TUI 本地开关（活动区详略 /verbose、符号统一 /symbol-unify）与
+// goal/todo）。TUI 本地开关（活动区详略 /collapse、符号统一 /symbol-unify）与
 // 「已选但尚未发起请求」的模型选择宿主并不知情，重启后无法恢复——这里把它们
 // **按会话**落一份小快照到会话目录旁（`<会话目录>/tui-state.json`）：
 //  - 随会话目录删除一起清理（`deleteSessionDir` 删的是整个目录）；
@@ -23,7 +23,7 @@ export interface SessionUiState {
   version: number;
   /** 会话内模型选择（模型面板/`/model` 的结果；宿主日志无 model/selection 时兜底） */
   model?: { provider: string; model: string; reasoningEffort?: string };
-  /** 活动区详略（/verbose on|off；TUI 本地） */
+  /** 活动区详略（/collapse on|off；TUI 本地） */
   verbose?: boolean;
   /** 模型输出符号统一（/symbol-unify on|off；TUI 本地） */
   symbolUnify?: boolean;

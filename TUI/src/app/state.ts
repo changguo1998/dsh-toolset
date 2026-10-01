@@ -158,7 +158,7 @@ export interface BufferLine {
   status?: "success" | "failure" | "aborted";
   /** 悬垂缩进（notice 用，/help 双列表格）：本行折行时续行停靠列（描述列起点） */
   hanging?: number;
-  /** 紧凑模式（/verbose off）豁免：本行仍完整折行显示（/help 用，不被压成 1 行隐藏） */
+  /** 紧凑模式（/collapse off）豁免：本行仍完整折行显示（/help 用，不被压成 1 行隐藏） */
   noCompact?: boolean;
   /** #1：落 buffer 时的活动 step 号（取自 `state.stepGroup.step`；无活动组时缺省）。
    *  历史区正文分块（边界 = `[step 变化 | 工具调用行]`）与问答来源段共用该标。 */
@@ -541,7 +541,7 @@ export interface AppState {
   /** 活动区（流输出）滚动偏移（距活动区底部行数；0=跟随最新，渲染层 clamp） */
   activityScroll: number;
   /** 活动区是否完整显示（verbose）：true=每条目完整折行显示（缺省）；
-   *  false=紧凑模式（SPEC §6.8 状态 2：每条目压 1 行 + 行尾省略号）。`/verbose on|off` 切换 */
+   *  false=紧凑模式（SPEC §6.8 状态 2：每条目压 1 行 + 行尾省略号）。`/collapse on|off` 切换 */
   activityVerbose: boolean;
   /** 模型输出符号统一（symbol-unify）：true=把变体符号替换为推荐符号并提醒（缺省）；
    *  false=关闭（原样展示，不替换不提醒）。`/symbol-unify on|off` 切换 */
@@ -725,7 +725,7 @@ export function initialState(
     statusColumnScroll: 0,
     focusedPanel: null, // 无焦点；Tab 进入焦点循环
     activityScroll: 0,
-    activityVerbose: true, // 活动区完整显示（缺省）；/verbose off 切紧凑
+    activityVerbose: true, // 活动区完整显示（缺省）；/collapse off 切紧凑
     symbolUnify: true, // 模型输出符号统一（缺省开）；/symbol-unify off 切原样
     notifyEnabled: opts?.notifyEnabled ?? true, // 声音提醒（配置项，只读展示）
     statusColumnVisible: true, // P7：垂直状态列默认显示（Ctrl+S 切换）
@@ -959,7 +959,7 @@ export function appendNotice(
 export interface NoticeLine {
   text: string;
   hanging?: number;
-  /** 紧凑模式（/verbose off）豁免：仍完整折行显示（如 /help 双列表格），不被压成 1 行 */
+  /** 紧凑模式（/collapse off）豁免：仍完整折行显示（如 /help 双列表格），不被压成 1 行 */
   noCompact?: boolean;
 }
 

@@ -228,7 +228,7 @@ export type DshEvent =
       /** TUI 本地开关回填（切换会话时由 TUI 侧快照恢复；宿主日志不记录这两项） */
       type: "ui-flags";
       sessionId: string;
-      /** 活动区详略（/verbose）；缺省 = 该会话无记录 */
+      /** 活动区详略（/collapse）；缺省 = 该会话无记录 */
       verbose?: boolean;
       /** 模型输出符号统一（/symbol-unify）；缺省 = 该会话无记录 */
       symbolUnify?: boolean;

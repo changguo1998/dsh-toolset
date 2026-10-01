@@ -329,7 +329,7 @@ test("/new：不重启进程新建会话 → 切换活跃会话、缓冲清空�
   // 旧会话留内容 + 一个待落盘的开关变更（切走前应 flush 给旧会话）
   typeAndEnter(renderer, "旧会话的问题");
   adapter.push({ type: "stream", sessionId: "s1", text: "旧会话的回答" });
-  typeAndEnter(renderer, "/verbose off");
+  typeAndEnter(renderer, "/collapse off");
   await flush();
   typeAndEnter(renderer, "/new");
   await flush();
@@ -1968,37 +1968,37 @@ test("/theme 非法参数 → notice usage,不调用 renderer.setTheme", () => {
   );
 });
 
-test("/verbose on|off 切换活动区详略；无参/非法参数只提示用法不动状态", () => {
+test("/collapse on|off 切换活动区详略；无参/非法参数只提示用法不动状态", () => {
   const { app, renderer } = makeApp();
   // 状态不可变（apply 替换 state 对象）：每次重新取，避免持有陈旧引用
   const verbose = (): boolean =>
     (app as unknown as { state: { activityVerbose: boolean } }).state
       .activityVerbose;
   assert.equal(verbose(), true, "缺省完整显示（verbose on）");
-  typeAndEnter(renderer, "/verbose off");
+  typeAndEnter(renderer, "/collapse off");
   assert.equal(verbose(), false, "off → 紧凑模式");
   assert.ok(
     renderer.lastRender.join("\n").includes("verbose off"),
     "切换成功有 notice 回执",
   );
-  typeAndEnter(renderer, "/verbose on");
+  typeAndEnter(renderer, "/collapse on");
   assert.equal(verbose(), true, "on → 完整模式");
   // 无参 / 非法参数：只提示用法，不改变当前状态
-  typeAndEnter(renderer, "/verbose");
+  typeAndEnter(renderer, "/collapse");
   assert.equal(verbose(), true, "无参不切换");
   assert.ok(
-    renderer.lastRender.join("\n").includes("usage: /verbose on|off"),
+    renderer.lastRender.join("\n").includes("usage: /collapse on|off"),
     `应有 usage 提示，实际:\n${renderer.lastRender.join("\n")}`,
   );
-  typeAndEnter(renderer, "/verbose 也许");
+  typeAndEnter(renderer, "/collapse 也许");
   assert.equal(verbose(), true, "非法参数不切换");
 });
 
-test("/verbose off（紧凑）下 /help 仍完整显示，不被压成单行省略号隐藏", () => {
+test("/collapse off（紧凑）下 /help 仍完整显示，不被压成单行省略号隐藏", () => {
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/help");
   const fullText = renderer.lastRender.join("\n");
-  typeAndEnter(renderer, "/verbose off");
+  typeAndEnter(renderer, "/collapse off");
   typeAndEnter(renderer, "/help");
   const compactText = renderer.lastRender.join("\n");
   // /help 块在活动区底部对齐，可见尾部应包含最后一行脚注（首部与靠前条目
@@ -3319,9 +3319,9 @@ test("会话状态回填：ui-flags 恢复 verbose/symbol-unify，model-selectio
   app.dispose();
 });
 
-test("会话状态快照：/verbose 与 /model 变更在退出前落盘（含模型与 TUI 本地开关）", async () => {
+test("会话状态快照：/collapse 与 /model 变更在退出前落盘（含模型与 TUI 本地开关）", async () => {
   const { app, renderer, adapter } = makeApp();
-  typeAndEnter(renderer, "/verbose off");
+  typeAndEnter(renderer, "/collapse off");
   typeAndEnter(renderer, "/model deepseek/deepseek-test-b");
   await flush();
   await flush();
@@ -3706,7 +3706,7 @@ test("帮助文案：/help 说明统一中文（命令名与参数标识符保�
   assert.ok(!/success 提示/.test(text), "success 改写为中文");
   // 可敲性：命令名与参数取值标识符保持英文
   assert.ok(text.includes("/model [provider/]model"), "命令名保留原样");
-  assert.ok(text.includes("/verbose on|off"), "参数标识符保留英文");
+  assert.ok(text.includes("/collapse on|off"), "参数标识符保留英文");
 });
 
 test("提示区：Ctrl+S 键位文案为「切换状态列」", () => {

@@ -1,4 +1,4 @@
-// tests/activity-verbose.test.ts — 活动区详略两态（SPEC §6.8；/verbose on|off）
+// tests/activity-verbose.test.ts — 活动区详略两态（SPEC §6.8；/collapse on|off）
 //
 // 状态 1（verbose on，缺省）：每条目完整折行显示
 // 状态 2（verbose off，紧凑）：每条目压成 1 行 + 行尾省略号
@@ -91,7 +91,7 @@ test("活动区紧凑模式：短条目不加省略号（原样）", () => {
   assert.equal(rowText(panes.activity[0]!), "┃短");
 });
 
-test("端到端：/verbose off 后 buildFrame 活动区行数收敛且不越宽", () => {
+test("端到端：/collapse off 后 buildFrame 活动区行数收敛且不越宽", () => {
   let s = initialState();
   s = reduceState(s, { type: "turn-begin" });
   for (const line of buf) {

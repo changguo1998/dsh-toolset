@@ -149,7 +149,7 @@ const EXIT_CLEAN_TIMEOUT_MS = 5000;
 /** 运行中闪烁时间驱动的 tick 周期(ms)：running 期间周期性推进虚拟状态
  *  （无数据时虚拟速度衰减回落、虚拟总 token 持续积分，闪烁频率渐降到最低而不断） */
 const VIRT_TICK_MS = 250;
-/** 会话状态快照落盘合并窗口(ms)：/model、/verbose、模式事件等连续变更只写一次文件 */
+/** 会话状态快照落盘合并窗口(ms)：/model、/collapse、模式事件等连续变更只写一次文件 */
 const SESSION_STATE_SAVE_MS = 400;
 
 /**
@@ -2661,8 +2661,8 @@ export class App {
       case "theme":
         this.handleThemeCommand(line);
         return;
-      case "verbose":
-        this.handleVerboseCommand(line);
+      case "collapse":
+        this.handleCollapseCommand(line);
         return;
       case "symbol-unify":
         this.handleSymbolUnifyCommand(line);
@@ -2828,19 +2828,19 @@ export class App {
   }
 
   /**
-   * /verbose on|off：活动区详略切换（SPEC §6.8 两态）。
+   * /collapse on|off：活动区详略切换（SPEC §6.8 两态）。
    * on = 每条目完整折行（状态 1，缺省）；off = 紧凑（状态 2：每条目 1 行 + 行尾省略号）。
    * 无参数/非法参数 → 只提示用法与当前状态，不切换。
    */
-  private handleVerboseCommand(line: string): void {
-    const arg = line.slice("/verbose".length).trim().toLowerCase();
+  private handleCollapseCommand(line: string): void {
+    const arg = line.slice("/collapse".length).trim().toLowerCase();
     const cur = this.state.activityVerbose;
     let next: boolean;
     if (arg === "on" || arg === "true") next = true;
     else if (arg === "off" || arg === "false") next = false;
     else {
       this.notice(
-        `usage: /verbose on|off（当前：${cur ? "on(完整)" : "off(紧凑)"}）`,
+        `usage: /collapse on|off（当前：${cur ? "on(完整)" : "off(紧凑)"}）`,
         "info",
       );
       return;
@@ -4105,7 +4105,7 @@ export class App {
         desc: "切换主题(默认 dark=fffdark, light=ffflight)",
       },
       {
-        cmd: "/verbose on|off",
+        cmd: "/collapse on|off",
         desc: "活动区详略：on=完整折行 / off=紧凑（每条目 1 行 + 行尾省略号）",
       },
       {

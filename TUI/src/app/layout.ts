@@ -1160,7 +1160,7 @@ function wrapSegs(
 /** P7 起：会话开关态（verbose / symbol-unify / 声音提醒）不再由状态列 Mode 块展示，
  *  而是作为**标题栏状态符号**的取值来源（on = 默认前景，off = 灰）。 */
 export interface StatusSwitches {
-  /** 活动区详略（`/verbose on|off`） */
+  /** 活动区详略（`/collapse on|off`） */
   verbose: boolean;
   /** 输出符号统一（`/symbol-unify on|off`） */
   symbolUnify: boolean;
@@ -1588,7 +1588,7 @@ function buildTopRegion(
     {
       themeId: state.themeId,
       gutter: state.messageGutter,
-      // 活动区详略两态（SPEC §6.8）：verbose=false → 紧凑（每条目 1 行 + 省略号，/verbose off）
+      // 活动区详略两态（SPEC §6.8）：verbose=false → 紧凑（每条目 1 行 + 省略号，/collapse off）
       activityCompact: !state.activityVerbose,
       lineOffset: win.start,
       // P1：用户块首行左侧状态符号（✓/✗/■/? 与活跃块 ●/○/△）

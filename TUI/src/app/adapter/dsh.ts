@@ -1275,7 +1275,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
    *    捆绑（= pinInitialPermission 会给全新会话钉上的组合），plan 无记录即 off。
    *  - goal：按 seq 顺序回放全部 `goal/change`（累积成会话 goal 历史，当前 + 旧 goal 一并展示）；
    *    todo：末条 `todo/write`（全量快照事件，latest-wins）。
-   *  - TUI 本地开关（`/verbose`、`/symbol-unify`）宿主不认识，只在快照里 → ui-flags。
+   *  - TUI 本地开关（`/collapse`、`/symbol-unify`）宿主不认识，只在快照里 → ui-flags。
    *
    * 读取源：live 会话优先读内存 events（全量原始，最省事）；否则走
    * `sessionQuery.readSession`（readSurface 做 surface fold 会滤掉 log-only 事件）。

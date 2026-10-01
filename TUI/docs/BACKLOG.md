@@ -8,21 +8,11 @@
 ## 待办
 
 > 临时分组（2026-10-01 收尾整理后：已完成条目已清理，余项按当前顺序从 1 起重编）：
-> ② 结构与行为 #7、#8　③ 暂停 / 待取证 #3。
+> ② 结构与行为 #8　③ 暂停 / 待取证 #3。
 
 ### ② 结构与行为
 
 > 改数据产生方式、投递通道或快捷键
-
-#### 命令命名
-
-- **待办** **#7 `/verbose` 更名为 `/collapse`（活动区详略两态命令改名）**：
-  - **现状**：活动区详略两态命令是 `/verbose on|off`（缺省 on；off = 紧凑模式，每条目压 1 行 + 行尾 `…`）。旧名散布在：命令表 `commands.ts`（`name: "verbose"` / `route: "verbose"` + 命令联合类型）、分发与文案 `index.ts`（`case "verbose"` → `handleVerboseCommand`、`usage: /verbose on|off`、结果提示、`/help` 条目 `cmd: "/verbose on|off"`）、文档（`README.md`、`DESIGN.md`、`SPEC.md` §6.8 / §15.5.1、`COMMANDS.md`、`docs/design/NOTICE-LEVELS.md`）与测试（`app.test.ts`、`activity-verbose.test.ts`、`help.test.ts`）。
-  - **期望（用户 2026-10-01 指令）**：命令更名为 **`/collapse`**，语义与参数不变（`on|off`；缺省 on；off = 紧凑）；内部状态字段（`activityVerbose` / action `activity-verbose`）与 `tui-state.json` 快照键**不动**（跨会话快照与恢复路径兼容）。
-  - **旧名归属**：`/verbose` **不删除**——改指**活动区输出内容过滤**（`think` / `tool` / `step` 三档，见 **#8**）；本条只负责把「活动区详略」改名为 `/collapse`，旧名保留占位、**不**归为未知命令。
-  - **落点**：`TUI/src/app/commands.ts`（name / route / 联合类型）、`TUI/src/app/index.ts`（分发 case、`handleVerboseCommand` 与用法/结果文案、`/help` 条目）、文档同步（`TUI/README.md`、`TUI/docs/DESIGN.md`、`TUI/docs/SPEC.md`、`TUI/docs/COMMANDS.md`、`TUI/docs/design/NOTICE-LEVELS.md`；`TUI/docs/STATUS.md` 由用户择时更新、流程内不改）、测试同步（`TUI/tests/{app,activity-verbose,help}.test.ts`）。
-  - **验收**：真机——① `/collapse off` 进紧凑、`/collapse on` 回完整，无参 / 非法参数只提示用法且不动状态；② `/help` 与命令补全只列新名；③ 会话状态快照仍按原键读写（切会话 / 重启后详略状态恢复正常）；④ 旧名 `/verbose` 按「待定」口径处理（暂不报未知命令），新功能定义补入后一并核对。单测：命令分发与用法文案断言改名、既有详略两态用例回归。
-  - **来源·状态·优先级**：用户 2026-10-01 指令（「现有的 `/verbose` 命令改成 `/collapse` 命令」；旧名新用途见下一条说明）。**未接取**。优先级 P2，工作量约 0.5 h。
 
 #### 输出内容档位
 

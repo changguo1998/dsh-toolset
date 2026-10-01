@@ -170,7 +170,7 @@ export type SlashRoute =
   | "provider"
   | "effort"
   | "theme"
-  | "verbose"
+  | "collapse"
   | "symbol-unify"
   | "session"
   | "continue"
@@ -225,8 +225,8 @@ export const LOCAL_COMMANDS: readonly {
   },
   { name: "theme", route: "theme", desc: "主题切换 dark/light" },
   {
-    name: "verbose",
-    route: "verbose",
+    name: "collapse",
+    route: "collapse",
     desc: "活动区详略：on=完整折行 / off=紧凑（每条目 1 行 + 省略号）",
   },
   {

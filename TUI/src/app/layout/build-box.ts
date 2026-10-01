@@ -64,7 +64,7 @@ export interface BuildBoxOptions {
   /** buffer 切片在原始 buffer 中的起始行号（渐进窗口按尾部切片时传入，
    *  使 RowMeta.line 保持绝对行号；缺省 0 = 未切片） */
   lineOffset?: number;
-  /** 活动区紧凑模式（SPEC §6.8 状态 2，`/verbose off`）：每条目压成 1 行 + 行尾省略号
+  /** 活动区紧凑模式（SPEC §6.8 状态 2，`/collapse off`）：每条目压成 1 行 + 行尾省略号
    *  （内部换行折叠为空格；宽度按活动 pane 宽，扣该条目前缀占列）。缺省 false=完整折行 */
   activityCompact?: boolean;
   /** P1：用户块**首行**左侧状态符号（2 列前缀 = 符号 + 1 空格；由 layout 依会话状态算定）。
@@ -194,7 +194,7 @@ export function buildBox(
   const activityLeaves: Node[] = [];
   const gutter = opts.gutter ?? USER_MIN_LEFT_GUTTER;
   const width = opts.width;
-  // 紧凑模式（/verbose off）：活动 pane 条目压单行——宽度取活动 pane 可用宽
+  // 紧凑模式（/collapse off）：活动 pane 条目压单行——宽度取活动 pane 可用宽
   // （横向两 pane 不同宽；纵向 activityWidth 缺省 = width），前缀占列由各分支自扣
   const compact = opts.activityCompact === true;
   const actPaneW = opts.activityWidth ?? width ?? 0;
@@ -402,7 +402,7 @@ export function buildBox(
           inFence = false;
           continue;
         }
-        // 紧凑模式（活动区 /verbose off）：保持旧形态（语言标记单独成行、不加行号）
+        // 紧凑模式（活动区 /collapse off）：保持旧形态（语言标记单独成行、不加行号）
         if (compact) {
           inFence = true;
           const lang = fence[2] ?? "";
@@ -573,7 +573,7 @@ export function buildBox(
     if (line.kind === "shell") {
       // `$` 模式本地 shell 输出（BACKLOG TUI#37）：活动区本地行（不走对话区/模型历史）。
       // 配色复用 notice 的 tone 语义（命令回显 info / 成功绿 / 非零与 stderr 红 / 超时黄）；
-      // 紧凑模式（/verbose off）压单行，与 notice 同口径。
+      // 紧凑模式（/collapse off）压单行，与 notice 同口径。
       const pres = noticeLinePresentation(line, compact);
       const node = styled(
         [{ text: compact ? actText(line.text) : line.text }],
