@@ -1717,6 +1717,8 @@ function buildTopRegion(
     // 与其他框线同为边框色）；titleRows 下划线行 D 列= `├`、其余内容行 D 列= `│`
     // 同为边框色；亮角字/亮边由 focusFrame 按焦点态覆写（status 焦点顶边此处 rc0 给空白占位）。
     if (rc === diaEnd && activityH > 0) return [seg("├", { fg: "border" })];
+    // 状态列顶边（rc0）与分隔竖线相接：左来横线 + 竖线贯穿 → `┤`
+    if (rc === 0 && showStatusCol) return [seg("┤", { fg: "border" })];
     if (titleRows > 1 && rc === diaStart - 1)
       return [seg("├", { fg: "border" })];
     return [seg("│", { fg: "border" })];
@@ -1768,8 +1770,13 @@ function buildTopRegion(
     // 正文截到 statusBodyW 定宽、右补空格，保证分隔竖线恒位于 D 列。
     const statusBody: FrameSegment[] = (() => {
       if (!showStatusCol) return [];
-      // #4：状态列聚焦**不再自画顶边**（也不下移内容）——焦点只改既有框线颜色
-      const cell = statusCells[rc];
+      // 状态列顶边（rc0）：恒画中性灰横线（焦点时由 focusFrame 改色，不新增边框）
+      if (rc === 0) {
+        return statusBodyW > 0
+          ? [seg(SEPARATOR.repeat(statusBodyW), { fg: "border" })]
+          : [];
+      }
+      const cell = statusCells[rc - 1];
       if (!cell) return [seg(" ".repeat(Math.max(0, statusBodyW)))];
       // 剥末段竖线 → 截断到 statusBodyW → 右补空格
       const inner = truncateSegs(cell.segments.slice(0, -1), statusBodyW);
