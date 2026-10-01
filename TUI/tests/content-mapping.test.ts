@@ -178,14 +178,36 @@ test("双轨：assistant 折行 + 宽边界", () => {
     assertEquivalent(`assistant-wrap@w${w}g4`, buf, w, 4);
 });
 
-test("双轨：thinking + notice + 非 final assistant（活动区）", () => {
+test("双轨（已偏离）：thinking + notice + 非 final assistant（活动区）——#5 新增「思考↔正文」类型间隔空行", () => {
   const buf: Buffer = [
     { text: "reasoning...", kind: "thinking" },
     { text: "", kind: "thinking" }, // 空思考行跳过
     { text: "tool notice", kind: "notice", tone: "log" },
     { text: "streaming partial", kind: "assistant", final: false },
   ];
-  assertEquivalent("thinking-notice@w40g4", buf, 40, 4);
+  // 冻结基线是旧实现（无类型间隔）。#5 起「思考 → 正文」处多 1 行空行，
+  // 故对比时两侧同样剔除空行，并显式断言多出的空行数（差异方向 = 只多空行）。
+  const fresh = newRows(buf, 40, 4);
+  const legacy = baselineRows("thinking-notice@w40g4", "activity");
+  const nonBlank = (rows: FixtureRow[]): FixtureRow[] =>
+    rows.filter((r) => r.text.trim() !== "");
+  const blanks = (rows: FixtureRow[]): number =>
+    rows.filter((r) => r.text.trim() === "").length;
+  assert.deepEqual(
+    fresh.dialogue,
+    baselineRows("thinking-notice@w40g4", "dialogue"),
+    "dialogue 等价",
+  );
+  assert.deepEqual(
+    nonBlank(fresh.activity),
+    nonBlank(legacy),
+    "activity 除类型间隔空行外逐行等价",
+  );
+  assert.equal(
+    blanks(fresh.activity),
+    blanks(legacy) + 1,
+    "恰好多 1 行类型间隔空行（思考 → 正文）",
+  );
 });
 
 test("双轨（已偏离）：tool 行分组 + step 结果（P6 起分组头带时间戳）", () => {

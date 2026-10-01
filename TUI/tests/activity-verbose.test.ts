@@ -43,9 +43,15 @@ test("活动区紧凑模式：每条目 1 行 + 行尾省略号", () => {
     W,
     W,
   );
-  assert.equal(panes.activity.length, buf.length, "每条目压成 1 行");
-  for (const row of panes.activity) {
-    const t = rowText(row);
+  const rows = panes.activity.map(rowText);
+  const texts = rows.filter((t) => t.trim() !== "");
+  assert.equal(texts.length, buf.length, "每条目压成 1 行（类型间隔空行另计）");
+  assert.equal(
+    rows.length,
+    buf.length + 2,
+    "#5：思考→工具、工具→正文各 1 行类型间隔（4 条目 + 2 空行）",
+  );
+  for (const t of texts) {
     assert.ok(
       displayWidth(t) <= W,
       `行宽 ≤ ${W}（实际 ${displayWidth(t)}）: ${t}`,
@@ -53,7 +59,6 @@ test("活动区紧凑模式：每条目 1 行 + 行尾省略号", () => {
     assert.ok(t.endsWith("…"), `超宽条目行尾省略号: ${t}`);
   }
   // 前缀（思考/非 final 的 ┃、工具行的 ○/✓）保留，便于区分条目类型
-  const texts = panes.activity.map(rowText);
   assert.ok(texts[0]!.startsWith("┃"), "思考保留前缀");
   assert.ok(texts[1]!.startsWith("○ bash"), "工具调用保留工具名");
   assert.ok(texts[2]!.startsWith("✓"), "工具结果保留状态符");

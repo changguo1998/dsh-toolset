@@ -201,6 +201,22 @@ export function buildBox(
   /** 活动区条目文本：紧凑模式压单行 + 行尾省略号（prefixCols = 该条目前缀占列） */
   const actText = (s: string, prefixCols = 0): string =>
     compact ? compactActivityLine(s, actPaneW, prefixCols) : s;
+  /** #5：活动区**类型间隔**——「思考 / 正文 / 工具」三类相邻互切时插 1 行空行；
+   *  notice / step 头 / shell / 空行**不算**类型边界（不改现有紧排），同类连续只插一次。 */
+  type ActKind = "thinking" | "assistant" | "tool";
+  let lastActKind: ActKind | undefined;
+  /** 刚插入的间隔空行（step 分割行吸收拖尾空行时须跳过它，见 flushToolRun） */
+  let gapBlank: Node | undefined;
+  const noteActKind = (kind: ActKind, rowMeta: RowMeta): void => {
+    if (lastActKind !== undefined && lastActKind !== kind) {
+      const blank = text("", {});
+      // 行元数据取新类型那一行的（kind 用 "plain"：不参与回复组 / 工具组分组）
+      meta.set(blank, { ...rowMeta, kind: "plain" });
+      activityLeaves.push(blank);
+      gapBlank = blank;
+    }
+    lastActKind = kind;
+  };
   // fence 跨行状态（结构注解：fence 内行 → fillBg 代码块）
   let inFence = false;
   // tool 连续 run 缓冲（flushToolRun 时分组/折叠/step）
@@ -225,8 +241,11 @@ export function buildBox(
         const isStep = isStepHeader(l.text);
         if (isStep) {
           // step 分割行吸收前文拖尾空活动行（notice/thinking 换行锚点等）——
-          // 对齐 legacy：分割行前积的视觉空行直接吞掉，不渲染
-          absorbActivityBlank(activityLeaves);
+          // 对齐 legacy：分割行前积的视觉空行直接吞掉，不渲染。
+          // #5：但刚插入的「类型间隔空行」要保留（它分隔上一个类型块与本类型块）
+          if (activityLeaves[activityLeaves.length - 1] !== gapBlank) {
+            absorbActivityBlank(activityLeaves);
+          }
         }
         let node: Node;
         if (isStep) {
@@ -262,6 +281,8 @@ export function buildBox(
       ...(line.queued ? { queued: line.queued } : {}),
     };
     if (line.kind === "tool") {
+      // #5：思考 / 正文 / 工具 三类互切 → 本行前插 1 行空行（step 头与结果行不算边界）
+      noteActKind("tool", rowMeta);
       toolRun.push({
         line: { text: line.text, tone: line.tone },
         meta: rowMeta,
@@ -280,6 +301,8 @@ export function buildBox(
           minWidth: USER_MIN_LEFT_GUTTER + 2,
         },
       });
+      // #5：本行属「思考」类 → 与上一类（正文 / 工具）之间插 1 行空行
+      noteActKind("thinking", rowMeta);
       meta.set(node, rowMeta);
       activityLeaves.push(node);
       continue;
@@ -346,6 +369,8 @@ export function buildBox(
     }
     if (line.kind === "assistant") {
       const target = line.final ? dialogueLeaves : activityLeaves;
+      // #5：非 final 正文进活动区 → 与上一类（思考 / 工具）之间插 1 行空行
+      if (!line.final) noteActKind("assistant", rowMeta);
       // 含显式换行的单条行：旧 FENCE_RE 对整串不匹配（^…$ 需整行），
       // 整段交 wrapAssistantLine 解析；fill 的 Paragraph 按 \n 拆物理行。直接产单节点。
       if (line.text.includes("\n")) {

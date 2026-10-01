@@ -720,6 +720,13 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **问答面板来源段同口径**：`recentQuestionSource` 取本回合最近一块含正文的 `assistant` / `plain` 行（整块、不再限 6 行、不再设扫描上限）；本回合取不到 → 回退取**上一回合**的最近一块（先回退、不加相关性闸门）；仍无 → 空串。面板显示时在该段前加 `- 上文 -` 标记（纯文本行、不经 markdown 解析）、与题干之间保留空行。
 - **回归**：`tests/state-history-blocks.test.ts`（step 变化切 / 工具行切 / thinking-notice-空行不切 / 空锚点回退 / 跨回合回退 / 幂等）+ `tests/approval-panel.test.ts`（来源段整块与回退）。
 
+#### 活动区类型间隔（#5）
+
+- **语义**：活动区内「**思考 / 正文（非 final `assistant`）/ 工具**」三类**相邻互切**时插 **1 行空行**（例：reasoning → assistant）；同类连续只在边界插一次；活动区开头（无前一类）不插。
+- **不算边界**：notice / step 头 / shell / 已有空行既不引发间隔也不阻断判断。step 头属工具 run 的一部分 →「思考 → step 头」按「思考 → 工具」处理，**空行落在分割行之前**（step 分割行原有的「吸收拖尾空行」跳过刚插入的类型间隔空行）。
+- **实现**：`build-box.ts` 活动区叶子组装期的 `noteActKind()`（三类各一处调用；间隔空行取新类型行的 meta、`kind:"plain"`）。活动 pane 可视行数与滚动上限按**实际渲染行数**计（`activityMaxScroll`），间隔空行自动计入。
+- **回归**：`tests/activity-type-gap.test.ts`（互切矩阵 / 同类连续 / notice 与 step 不新增 / 开头不插）+ `tests/activity-verbose.test.ts`（紧凑模式行数 = 条目数 + 间隔数）+ `tests/layout4.test.ts`（思考与下一个 step 分割行之间为空行）+ `tests/content-mapping.test.ts`（已偏离项：只多空行）。
+
 #### 活动区详略两态
 
 - **语义**：状态 1（`verbose on`，缺省）每条目完整折行；状态 2（`verbose off`）每条目压成 1 行 + 行尾 `…`，条目内换行折叠为空格。触发方式为**用户显式命令**（不做「按 fill 高度预算自动降级」——自动降级会让同一份内容在不同窗口高度下详略跳变，阅读位置不稳定）。
