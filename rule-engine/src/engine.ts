@@ -118,7 +118,7 @@ export interface EngineOptions {
   maxInjectionsPerTurn?: number;
   /** 时钟（测试缝），缺省 Date.now。 */
   now?: () => number;
-  /** 告警出口，缺省 stderr。 */
+  /** 告警出口，缺省 stderr。**注入方负责加前缀**（引擎只给正文）；缺省兜底自带 `[rule-engine] warn: `。 */
   warn?: (message: string) => void;
 }
 
@@ -153,11 +153,12 @@ export class RuleEngine {
     );
     this.#now = options.now ?? Date.now;
     this.#warn =
-      options.warn ?? ((message) => process.stderr.write(`${message}\n`));
+      options.warn ??
+      // 宿主未注入时的兜底：自带一层前缀（注入方负责加前缀，见 EngineOptions.warn）
+      ((message) => process.stderr.write(`[rule-engine] warn: ${message}\n`));
     this.#baseline = options.baseline;
     const loaded = loadLayer(this.#stateDir);
-    for (const warning of loaded.warnings)
-      this.#warn(`[rule-engine] warn: ${warning}`);
+    for (const warning of loaded.warnings) this.#warn(`${warning}`);
     this.#layer = loaded.layer;
     this.#readOnly = loaded.readOnly;
     this.#compiled = this.#compile();
@@ -166,13 +167,12 @@ export class RuleEngine {
   /** 重新编译生效规则集（构造与每次变更后调用）。 */
   #compile(): CompiledRule[] {
     const { rules, warnings } = effectiveRules(this.#baseline, this.#layer);
-    for (const warning of warnings)
-      this.#warn(`[rule-engine] warn: ${warning}`);
+    for (const warning of warnings) this.#warn(`${warning}`);
     const compiled: CompiledRule[] = [];
     for (const { rule, origin } of rules) {
       const matcher = compileMatcher(rule.match, rule.source);
       for (const warning of matcher.warnings) {
-        this.#warn(`[rule-engine] warn: 规则 "${rule.id}"：${warning}`);
+        this.#warn(`规则 "${rule.id}"：${warning}`);
       }
       compiled.push({ rule, origin, matcher });
     }
@@ -222,20 +222,20 @@ export class RuleEngine {
   registerConsumer(input: ConsumerRegistration): () => void {
     const noop = (): void => {};
     if (input === null || typeof input !== "object") {
-      this.#warn("[rule-engine] warn: registerConsumer 入参必须是对象");
+      this.#warn("registerConsumer 入参必须是对象");
       return noop;
     }
     const id = typeof input.id === "string" ? input.id.trim() : "";
     if (id.length === 0) {
-      this.#warn("[rule-engine] warn: registerConsumer 的 id 必须是非空字符串");
+      this.#warn("registerConsumer 的 id 必须是非空字符串");
       return noop;
     }
     if (typeof input.decide !== "function") {
-      this.#warn(`[rule-engine] warn: 消费者 "${id}" 的 decide 必须是函数`);
+      this.#warn(`消费者 "${id}" 的 decide 必须是函数`);
       return noop;
     }
     if (this.#consumers.some((item) => item.id === id)) {
-      this.#warn(`[rule-engine] warn: 消费者 "${id}" 已注册，重复注册被忽略`);
+      this.#warn(`消费者 "${id}" 已注册，重复注册被忽略`);
       return noop;
     }
     if (
@@ -244,7 +244,7 @@ export class RuleEngine {
       input.delivery !== "next-step"
     ) {
       this.#warn(
-        `[rule-engine] warn: 消费者 "${id}" 的 delivery ${JSON.stringify(input.delivery)} 非法，按 followup 处理`,
+        `消费者 "${id}" 的 delivery ${JSON.stringify(input.delivery)} 非法，按 followup 处理`,
       );
     }
     const consumer: CompiledConsumer = {
@@ -384,13 +384,11 @@ export class RuleEngine {
 
   /** 落盘 + 重编译 + 组装结果。 */
   #commit(rule: NormalizedRule | null, warnings: string[]): MutationResult {
-    for (const warning of warnings)
-      this.#warn(`[rule-engine] warn: ${warning}`);
+    for (const warning of warnings) this.#warn(`${warning}`);
     const saved = saveLayer(this.#stateDir, this.#layer, {
       readOnly: this.#readOnly,
     });
-    if (saved.warning !== null)
-      this.#warn(`[rule-engine] warn: ${saved.warning}`);
+    if (saved.warning !== null) this.#warn(`${saved.warning}`);
     this.#compiled = this.#compile();
     if (!saved.ok) {
       return {
@@ -566,18 +564,14 @@ export class RuleEngine {
       try {
         feedback = consumer.decide(context);
       } catch (err) {
-        this.#warn(
-          `[rule-engine] warn: 消费者 "${consumer.id}" decide 抛错：${String(err)}`,
-        );
+        this.#warn(`消费者 "${consumer.id}" decide 抛错：${String(err)}`);
         continue;
       }
       if (feedback === null || feedback === undefined) continue;
       const feedbackText =
         typeof feedback.text === "string" ? feedback.text.trim() : "";
       if (feedbackText.length === 0) {
-        this.#warn(
-          `[rule-engine] warn: 消费者 "${consumer.id}" 反馈正文为空，已跳过`,
-        );
+        this.#warn(`消费者 "${consumer.id}" 反馈正文为空，已跳过`);
         continue;
       }
       // 与规则共用通用闸门：每回合上限 + 同正文去重
@@ -601,9 +595,7 @@ export class RuleEngine {
           summary,
         });
       } catch (err) {
-        this.#warn(
-          `[rule-engine] warn: 消费者 "${consumer.id}" 注入失败：${String(err)}`,
-        );
+        this.#warn(`消费者 "${consumer.id}" 注入失败：${String(err)}`);
         continue;
       }
       usage.count += 1;
@@ -647,9 +639,7 @@ export class RuleEngine {
         summary,
       });
     } catch (err) {
-      this.#warn(
-        `[rule-engine] warn: 规则 "${rule.id}" 注入失败：${String(err)}`,
-      );
+      this.#warn(`规则 "${rule.id}" 注入失败：${String(err)}`);
       return;
     }
     state.fired.set(rule.id, { turn, time: now });

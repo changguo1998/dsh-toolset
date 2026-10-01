@@ -354,7 +354,11 @@ test("apply：告警总线——有 onNotice 订阅者时走总线（不写 stde
     // 触发一条真实告警：非法消费者注册（id 为空 → 引擎 warn）
     service.registerConsumer({ id: "", decide: () => null });
     assert.equal(notices.length, 1, "有订阅者 → 告警发总线");
-    assert.match(notices[0]?.text ?? "", /registerConsumer/);
+    assert.equal(
+      notices[0]?.text,
+      "[rule-engine] warn: registerConsumer 的 id 必须是非空字符串",
+      "只有一层前缀（引擎文案不带前缀）",
+    );
     assert.equal(notices[0]?.tone, "warn");
     assert.deepEqual(chunks, [], "有订阅者时不写 stderr");
 
@@ -362,7 +366,11 @@ test("apply：告警总线——有 onNotice 订阅者时走总线（不写 stde
     service.registerConsumer({ id: "", decide: () => null });
     assert.equal(notices.length, 1, "注销后总线不再收到");
     assert.equal(chunks.length, 1, "无订阅者 → 回退 stderr");
-    assert.match(chunks[0] ?? "", /^\[rule-engine\] warn: /);
+    assert.equal(
+      chunks[0],
+      "[rule-engine] warn: registerConsumer 的 id 必须是非空字符串\n",
+      "stderr 也只有一层前缀",
+    );
   } finally {
     process.stderr.write = originalWrite;
     rmSync(dir, { recursive: true, force: true });
