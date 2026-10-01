@@ -788,7 +788,88 @@ test("dedupeInRecord：压缩把注入挤出投影后，由 compaction 规则补
   );
 });
 
-/* ── 节点派发与尺度双 flag（统一节点 / 对齐合并） ─────────────────────── */
+/* ── 多节点（source 数组）与直写节点（directWrite） ─────────────────────── */
+
+test("规则多节点 + 直写：session-start / compaction 命中，投影已有也照发", () => {
+  const messages: Array<Record<string, unknown>> = [
+    { source: { kind: "rule-engine", summary: "指南" } },
+  ];
+  bench(
+    [
+      rule({
+        id: "multi",
+        source: ["session-start", "compaction"],
+        directWrite: ["session-start", "compaction"],
+        delivery: "steer",
+        dedupeInRecord: 1,
+        action: { type: "inject", text: "指南正文", summary: "指南" },
+      }),
+      rule({
+        id: "judged",
+        source: ["session-start", "compaction"],
+        delivery: "inject",
+        dedupeInRecord: 1,
+        action: { type: "inject", text: "判断后写", summary: "指南" },
+      }),
+    ],
+    ({ engine, injected }) => {
+      engine.sessionCreated("s1", { id: "s1" });
+      assert.deepEqual(
+        injected.map((item) => item.sourceId),
+        ["multi"],
+        "直写规则照发；未声明直写的规则被投影挡下",
+      );
+      engine.handle(SESSION, stepEnd(1, 1));
+      assert.equal(injected.length, 1, "step-end 不在匹配面内 → 不触发");
+      engine.handle(SESSION, compactionEnd(1));
+      assert.equal(injected.length, 2, "compaction 在匹配面内 → 再直写一条");
+    },
+    { messagesOf: () => messages },
+  );
+});
+
+test("消费者直写：session-start / compaction 跳过投影判断，step-end 仍判断", () => {
+  const messages: Array<Record<string, unknown>> = [
+    { source: { kind: "rule-engine", summary: "键" } },
+  ];
+  bench(
+    [],
+    ({ engine, injected }) => {
+      engine.registerConsumer({
+        id: "guide",
+        sources: ["session-start", "compaction", "step-end"],
+        delivery: "steer",
+        dedupeInRecord: 1,
+        directWrite: ["session-start", "compaction"],
+        decide: () => ({ text: "指南", summary: "键" }),
+      });
+      engine.sessionCreated("s1", { id: "s1" });
+      assert.equal(injected.length, 1, "session-start 直写（投影已有也发）");
+      engine.handle(SESSION, compactionEnd(1));
+      assert.equal(injected.length, 2, "compaction 直写");
+      engine.handle(SESSION, stepEnd(1, 1));
+      assert.equal(injected.length, 2, "step-end 仍按投影判断 → 跳过");
+      messages.length = 0;
+      engine.handle(SESSION, turnStart(2));
+      engine.handle(SESSION, stepEnd(2, 1));
+      assert.equal(injected.length, 3, "投影清空后 step-end 补一次");
+    },
+    { messagesOf: () => messages },
+  );
+});
+
+test("消费者 directWrite：越界 / 非法项丢弃并告警", () => {
+  bench([], ({ engine, warnings }) => {
+    engine.registerConsumer({
+      id: "w",
+      sources: ["session-start"],
+      directWrite: ["step-end", "nope"] as unknown as RuleSource[],
+      decide: () => ({ text: "提示", summary: "键" }),
+    });
+    assert.match(warnings.join("\n"), /"step-end" 不在唤醒时机内/);
+    assert.match(warnings.join("\n"), /非法节点 "nope"/);
+  });
+});
 
 test("节点派发：turn-start / step-start / step-end / user-message 按注册唤醒", () => {
   const calls: string[] = [];
@@ -932,7 +1013,12 @@ test("对齐合并：reset 指定值放行下一层 end（step-end 后 turn-end 
     engine.handle(SESSION, stepStart(1, 1));
     engine.handle(SESSION, stepEnd(1, 1));
     engine.handle(SESSION, turnEnd(1));
-    assert.deepEqual(calls, ["turn-start", "step-start", "step-end", "turn-end"]);
+    assert.deepEqual(calls, [
+      "turn-start",
+      "step-start",
+      "step-end",
+      "turn-end",
+    ]);
     assert.equal(injected.length, 1, "step-end 的反馈注入一次");
   });
 });

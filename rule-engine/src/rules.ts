@@ -152,19 +152,21 @@ export function normalizeRule(input: unknown): NormalizeResult {
   if (text.trim().length === 0) {
     return { ok: false, error: `规则 "${id}" 的 action.text 必须是非空字符串` };
   }
-  if (raw.source !== undefined && !isRuleSource(raw.source)) {
-    return {
-      ok: false,
-      error: `规则 "${id}" 的 source 非法（可选：${RULE_SOURCES.join(" / ")}）`,
-    };
-  }
   if (raw.delivery !== undefined && !isRuleDelivery(raw.delivery)) {
     return {
       ok: false,
       error: `规则 "${id}" 的 delivery 非法（可选：${RULE_DELIVERIES.join(" / ")}）`,
     };
   }
-  const warnings: string[] = [];
+  const sourcesResult = normalizeRuleSources(raw.source, raw.sources, id);
+  if (!sourcesResult.ok) return { ok: false, error: sourcesResult.error };
+  const warnings: string[] = [...sourcesResult.warnings];
+  const directWrite = normalizeDirectWrite(
+    raw.directWrite,
+    sourcesResult.list,
+    id,
+    warnings,
+  );
   const { spec, provided } = normalizeMatch(raw.match, warnings);
   if (!provided && raw.match !== undefined) {
     warnings.push(`规则 "${id}" 的 match 未提供有效条件`);
@@ -190,7 +192,8 @@ export function normalizeRule(input: unknown): NormalizeResult {
     rule: {
       id,
       enabled: raw.enabled !== false,
-      source: isRuleSource(raw.source) ? raw.source : "assistant-text",
+      sources: sourcesResult.list,
+      directWrite,
       delivery: isRuleDelivery(raw.delivery) ? raw.delivery : "followup",
       match: spec,
       action: {
@@ -210,6 +213,83 @@ export function normalizeRule(input: unknown): NormalizeResult {
           : null,
     },
   };
+}
+
+/**
+ * 归一化匹配面：接受单节点 / 节点数组 / 持久化回流的 `sources` 写法（`source` 优先）。
+ * 非法项、空数组一律报错（与旧版单值入参的严格度一致）；重复项去重并记 warning。
+ */
+function normalizeRuleSources(
+  source: unknown,
+  sources: unknown,
+  id: string,
+):
+  | { ok: true; list: RuleSource[]; warnings: string[] }
+  | { ok: false; error: string } {
+  const provided = source !== undefined ? source : sources;
+  if (provided === undefined) {
+    return { ok: true, list: ["assistant-text"], warnings: [] };
+  }
+  const raw = Array.isArray(provided) ? provided : [provided];
+  const list: RuleSource[] = [];
+  const invalid: unknown[] = [];
+  for (const item of raw) {
+    if (!isRuleSource(item)) invalid.push(item);
+    else if (!list.includes(item)) list.push(item);
+  }
+  if (invalid.length > 0) {
+    return {
+      ok: false,
+      error: `规则 "${id}" 的 source 非法（非法项：${invalid
+        .map((item) => JSON.stringify(item))
+        .join(" / ")}；可选：${RULE_SOURCES.join(" / ")}）`,
+    };
+  }
+  if (list.length === 0) {
+    return {
+      ok: false,
+      error: `规则 "${id}" 的 source 非法（不能是空数组；可选：${RULE_SOURCES.join(" / ")}）`,
+    };
+  }
+  return {
+    ok: true,
+    list,
+    warnings:
+      raw.length > list.length
+        ? [`规则 "${id}" 的 source 含重复节点，已去重`]
+        : [],
+  };
+}
+
+/** 归一化直写节点：须落在匹配面内；非法 / 越界项丢弃并记 warning。 */
+function normalizeDirectWrite(
+  value: unknown,
+  sources: readonly RuleSource[],
+  id: string,
+  warnings: string[],
+): RuleSource[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    warnings.push(`规则 "${id}" 的 directWrite 不是数组，已忽略`);
+    return [];
+  }
+  const list: RuleSource[] = [];
+  for (const item of value) {
+    if (!isRuleSource(item)) {
+      warnings.push(
+        `规则 "${id}" 的 directWrite 含非法节点 ${JSON.stringify(item)}，已忽略`,
+      );
+      continue;
+    }
+    if (!sources.includes(item)) {
+      warnings.push(
+        `规则 "${id}" 的 directWrite 节点 "${item}" 不在匹配面内，已忽略`,
+      );
+      continue;
+    }
+    if (!list.includes(item)) list.push(item);
+  }
+  return list;
 }
 
 /** 归一化规则列表：非法项跳过并记 warning（不因单条坏配置拒绝整层）。 */

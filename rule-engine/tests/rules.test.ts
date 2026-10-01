@@ -33,7 +33,8 @@ test("normalizeRule：补齐缺省值", () => {
   assert.deepEqual(result.rule, {
     id: "r1",
     enabled: true,
-    source: "assistant-text",
+    sources: ["assistant-text"],
+    directWrite: [],
     delivery: "followup",
     match: {},
     action: { type: "inject", text: "请遵守规范" },
@@ -61,7 +62,7 @@ test("normalizeRule：显式字段覆盖缺省", () => {
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.rule.enabled, false);
-  assert.equal(result.rule.source, "tool-call");
+  assert.deepEqual(result.rule.sources, ["tool-call"]);
   assert.equal(result.rule.delivery, "steer");
   assert.deepEqual(result.rule.match, { regex: ["rm -rf"], flags: "" });
   assert.equal(result.rule.cooldownTurns, 2);
@@ -85,6 +86,33 @@ test("normalizeRule：dedupeInRecord 整型语义（0 = 无限制；N → N；�
   }
 });
 
+test("normalizeRule：source 接受节点数组（多时机）并按匹配面收窄 directWrite", () => {
+  const multi = normalizeRule(
+    ruleInput({
+      source: ["session-start", "compaction", "session-start"],
+      directWrite: ["session-start", "compaction", "tool-call", "nope"],
+    }),
+  );
+  assert.equal(multi.ok, true);
+  if (!multi.ok) return;
+  assert.deepEqual(multi.rule.sources, ["session-start", "compaction"]);
+  assert.deepEqual(multi.rule.directWrite, ["session-start", "compaction"]);
+  // 重复节点 / 越界与非法直写项都记 warning
+  assert.match(multi.warnings.join("\n"), /重复节点/);
+  assert.match(multi.warnings.join("\n"), /"tool-call" 不在匹配面内/);
+  assert.match(multi.warnings.join("\n"), /非法节点 "nope"/);
+
+  // 持久化回流形态：`sources` 数组直接读入；`source` 优先于 `sources`
+  const persisted = normalizeRule(ruleInput({ sources: ["step-end"] }));
+  assert.equal(persisted.ok, true);
+  if (persisted.ok) assert.deepEqual(persisted.rule.sources, ["step-end"]);
+  const both = normalizeRule(
+    ruleInput({ source: "tool-call", sources: ["step-end"] }),
+  );
+  assert.equal(both.ok, true);
+  if (both.ok) assert.deepEqual(both.rule.sources, ["tool-call"]);
+});
+
 test("normalizeRule：非法输入逐条报错", () => {
   const cases: Array<[unknown, RegExp]> = [
     [null, /必须是对象/],
@@ -98,6 +126,8 @@ test("normalizeRule：非法输入逐条报错", () => {
       /text 必须是非空字符串/,
     ],
     [ruleInput({ source: "nope" }), /source 非法/],
+    [ruleInput({ source: ["tool-call", "nope"] }), /source 非法/],
+    [ruleInput({ source: [] }), /source 非法/],
     [ruleInput({ delivery: "later" }), /delivery 非法/],
   ];
   for (const [input, pattern] of cases) {

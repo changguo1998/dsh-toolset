@@ -8,6 +8,8 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 
 ### 节点表（`source`，规则与消费者共用）
 
+`source` 可给**单个节点**或**节点数组**（一条规则挂多时机，2026-10-02 起；消费者的对应字段一直是数组 `sources`）。
+
 | source | 判定时机 | 判定文本 |
 | --- | --- | --- |
 | `assistant-text`（缺省） | 回合结束（`turn/end`） | 该回合全部 `assistant/message` 正文按 step 顺序拼接 |
@@ -35,7 +37,7 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 | `regex` + `flags` | 正则源串列表，任一匹配即命中；`flags` 缺省 `"i"`；非法正则只记 warning，该条视为不命中 |
 | `predicates` | 内置谓词名：`always`（恒真）/ `has-non-ascii` / `has-cjk` / `has-code-block` |
 
-条件为空（无任何有效档位）时：**边界类节点**（`turn-start` / `turn-end` / `step-start` / `step-end` / `session-start` / `compaction`，文本载荷为空）视为无条件命中，其余节点视为**永不命中**（防误配置把每条正文都当命中）。
+条件为空（无任何有效档位）时：**边界类节点**（`turn-start` / `turn-end` / `step-start` / `step-end` / `session-start` / `compaction`，文本载荷为空）视为无条件命中，其余节点视为**永不命中**（防误配置把每条正文都当命中）。该判定在**判定期按触发节点**裁决，故一条规则挂多节点时各节点语义独立。
 
 ### 动作（`action`）
 
@@ -66,12 +68,13 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 | `cooldownTurns`（规则） | 0 | 两次命中的最小回合间隔；`1` = 隔回合才允许再次命中 |
 | `cooldownMs`（规则） | 0（不限制） | 两次命中的最小毫秒间隔 |
 | `dedupeInRecord`（规则 / 消费者） | `0` | **整型**：会话可见投影里最多允许 N 条本注入。`0` = 无限制；`1` = 已有就跳过（重载会话不重复注入；压缩把注入挤出投影后才补）；`N≥2` = 允许最多 N 条。计数按 `source.summary` 或合并消息的 `source.summaries` 命中该 key 的**条数**。投影不可读 → 照旧注入（fail-open）。旧布尔值兼容归一：`true → 1`、`false → 0` |
+| `directWrite`（规则 / 消费者） | `[]` | **直写节点**：命中发生在这些节点时**跳过 `dedupeInRecord` 投影判断**、直接写入（项须是匹配面 / `sources` 的子集，越界项归一化时丢弃并记 warning）。用于「会话建立 + 压缩完成必须出现、不等步末」：`session-start`（含恢复）不判断 → 恢复会话会再注入一次；`step-end` 仍按投影判断兜底 |
 
 ### 工具族
 
 | 工具 | 参数 | 作用 |
 | --- | --- | --- |
-| `rule_add` | `id`、`text`、`source?`、`delivery?`、`match?`、`summary?`、`cooldownTurns?`、`cooldownMs?`、`dedupeInRecord?`、`description?`、`enabled?` | 新增规则（id 已存在则报错，指向 `rule_update`） |
+| `rule_add` | `id`、`text`、`source?`（节点或节点数组）、`delivery?`、`match?`、`summary?`、`cooldownTurns?`、`cooldownMs?`、`dedupeInRecord?`、`directWrite?`、`description?`、`enabled?` | 新增规则（id 已存在则报错，指向 `rule_update`） |
 | `rule_list` | 无 | 只读列出生效规则（含来源层 `origin`）与引擎状态 |
 | `rule_update` | `id`、`patch` | 浅合并更新（可只改 `text` / `match` / `cooldownTurns` 等）；基线规则被更新后以运行时版本生效 |
 | `rule_remove` | `id` | 删除规则：运行时规则移除；基线规则进运行时屏蔽列表（配置文件不动） |
@@ -119,6 +122,15 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
             action:
               type: inject
               text: '[约束] 不要执行破坏性命令；如确需执行，先说明影响并取得确认。'
+          - id: session-guide
+            source: ['session-start', 'compaction', 'step-end']
+            directWrite: ['session-start', 'compaction']
+            delivery: steer
+            dedupeInRecord: 1
+            action:
+              type: inject
+              text: '[指南] 本会话的规范要点：…'
+              summary: 会话开局指南
         maxInjectionsPerTurn: 2
 ```
 
@@ -133,7 +145,7 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 | `list()` | 生效规则只读清单（`id` / `enabled` / `source` / `delivery` / `origin` / `text` / 节流参数） |
 | `status()` | 规则条数、运行时条数、状态目录、每回合注入上限 |
 | `evaluate({ text, source? })` | 只读判定：返回命中规则（含**可注入内容** `text` / `summary`）与未启用规则 id；不注入、不改状态 |
-| `registerConsumer({ id, sources?, delivery?, cooldownTurns?, cooldownMs?, dedupeInRecord?, decide })` | 注册消费者：在注册的**节点**（`sources`，缺省 `["turn-end"]`）按注册顺序**同步**询问，`decide(ctx)` 返回要注入的内容 `{ text, summary?, reset? }`（null = 不反馈），反馈由本引擎统一注入；返回注销函数 |
+| `registerConsumer({ id, sources?, delivery?, cooldownTurns?, cooldownMs?, dedupeInRecord?, directWrite?, decide })` | 注册消费者：在注册的**节点**（`sources`，缺省 `["turn-end"]`）按注册顺序**同步**询问，`decide(ctx)` 返回要注入的内容 `{ text, summary?, reset? }`（null = 不反馈），反馈由本引擎统一注入；`directWrite` 列出的节点跳过投影去重判断；返回注销函数 |
 | `onNotice(listener)` | 订阅插件告警（完整展示行 + tone） |
 
 消费者与规则共用闸门：逐段上限（`maxInjectionsPerTurn` 以「**段**」计）、同文本去重、`dedupeInRecord` 判空；消费者级 `cooldownTurns` / `cooldownMs` 可选（按注入记账），更细粒度冷却由消费者自理。`decide` 运行在 `session/event` 的同步派发窗口内：须廉价，且不得调用宿主 API（注入一律由本引擎推迟宏任务）。`ctx.trigger` 是实际触发的节点 id，`ctx.event` 是原始宿主事件。
@@ -167,7 +179,7 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # 编译到 dist/
-npm test        # node --test（76 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 插件入口）
+npm test        # node --test（83 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 插件入口）
 npm run demo    # mock 事件流跑「规则命中 → 注入」，不依赖 DSH
 ```
 

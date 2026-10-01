@@ -59,6 +59,8 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 
 内置谓词只做无参数的纯性质判定（`always` / `has-non-ascii` / `has-cjk` / `has-code-block`），不做 JS 表达式求值（避免任意代码执行面）。
 
+**多节点（2026-10-02）**：匹配面 `source` 可给单节点或**节点数组**（一条规则挂多时机，不拆两条规则；归一化后字段为 `sources`）。空条件语义随之从「编译期按 source 定死」改为**判定期按触发节点**裁决（`match(text, source)`）——同一条规则在边界节点无条件命中、在文本节点永不命中，互不影响。
+
 ### 5. 判定时机：正文在回合结束，工具在事件到达
 
 - `assistant/message` 累积该回合正文（按 step 顺序），`turn/end` 时统一判定 `assistant-text` 与 `turn-end` 规则——与符号纠正先例一致，且天然避免「同一段正文被判多次」。
@@ -74,6 +76,7 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 - 原设计的 `oncePerTurn` 开关在「同回合同正文去重」落地后成为冗余（同一规则同回合的正文恒定），已删除，避免无用旋钮。
 - 记账是进程内内存态（`Map<sessionId, SessionState>`，超 64 会话淘汰最早者、回合缓冲只留最近 4 回合）：`dsh` 重启后 cooldown 清零，规则本身仍在状态目录里。
 - `dedupeInRecord`（2026-10-01，整型化 + 对消费者开放）：值 = 「会话可见投影里最多允许 N 条本注入」，`0` = 无限制（缺省）。注入前读**会话可见投影**（`sessions.get(id).deriveMessages()`），按 `source.summary` 或合并消息的 `source.summaries` 命中该 key 的**条数**与 N 比较，已达上限则跳过（仍记命中以免每次触发都重读投影）——跨重启不重复注入；压缩把注入挤出投影后计数下降，自然恢复可注入（配合 `compaction` 节点即「压缩后补一次」）。投影不可读 → 照旧注入（fail-open：宁可重复，不可永久丢注入）。旧布尔值兼容归一 `true → 1` / `false → 0`。
+- `directWrite`（2026-10-02，规则与消费者同口径）：声明的节点**跳过 `dedupeInRecord` 投影判断**、直接写入（项须是匹配面 / 消费者的 `sources` 子集，越界项归一化时丢弃并 warning）。用于「会话建立 + 压缩完成必须出现、不等步末」的场景：`session-start`（含恢复）不判断 → 恢复会话会再注入一次，`step-end` 仍按投影判断兜底。
 
 ### 7. Config 用类型声明、不做运行时 schema
 
@@ -91,7 +94,7 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 ### 10. 消费者面：声明式注册（节点 + 闸门）+ 同步调度（2026-10-01 扩展）
 
 - 只做简单注册：`registerConsumer({ id, delivery?, cooldownTurns?, cooldownMs?, decide })`；`decide(ctx)` 同步返回要注入的内容 `{ text, summary? }`（null = 跳过）。
-- 注册时声明 `sources`（唤醒节点，缺省 `["turn-end"]`）与 `dedupeInRecord`（与规则同口径）；在对应节点按注册顺序**同步**询问 `decide`，与规则命中**合并**后交同一注入器（共用逐段上限 / 同文本去重；消费者冷却可选、按注入记账）。
+- 注册时声明 `sources`（唤醒节点，缺省 `["turn-end"]`）、`dedupeInRecord`（与规则同口径）与 `directWrite`（这些节点跳过投影判断，2026-10-02）；在对应节点按注册顺序**同步**询问 `decide`，与规则命中**合并**后交同一注入器（共用逐段上限 / 同文本去重；消费者冷却可选、按注入记账）。
 - **对齐点合并（尺度双 flag）**：尺度层级 `session ⊃ turn ⊃ step ⊃ tool`，每消费者 × 每会话 × 每尺度一对 `startFired` / `endFired`；`*-start` 清本尺度及更细的 `endFired` 与更细的 `startFired`（注册才置位/唤醒，`session-start` 无幂等）；`*-end` 查本尺度及更细 `endFired` 的或（注册且全假才唤醒并置位），无论是否唤醒都清本尺度 `startFired`。`reset: true` 清空本消费者 flag。`compaction` 不参与合并。
 - 异常隔离：`decide` 抛错 / 空反馈只记 warning 并跳过该消费者，其余照常；注册返回注销函数（消费者 dispose 时调用）。
 - 复杂度边界：不做异步、priority、脚本谓词注册面；`evaluate` 作为轻量只读判定另备。

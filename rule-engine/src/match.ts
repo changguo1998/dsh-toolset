@@ -36,8 +36,8 @@ export function predicateNames(): PredicateName[] {
 
 /** 编译后的匹配器。 */
 export interface CompiledMatcher {
-  /** 给定文本是否命中。 */
-  match(text: string): boolean;
+  /** 给定文本与**触发节点**，是否命中（空条件语义按节点裁决，见 compileMatcher）。 */
+  match(text: string, source: RuleSource): boolean;
   /** 编译期警告（非法正则等），空数组 = 无警告。 */
   warnings: string[];
 }
@@ -59,11 +59,10 @@ export const BOUNDARY_SOURCES: ReadonlySet<RuleSource> = new Set([
  * `turn-start` / `turn-end` / `step-start` / `step-end` / `session-start` / `compaction`）
  * 视为无条件命中，文本类节点（`assistant-text` / `user-message` / `tool-call` / `tool-result`）
  * 视为永不命中（防误配置把每条正文都当命中）。
+ *
+ * 一条规则可挂多节点（`sources`），故该判定在**判定期**按触发节点裁决（`match(text, source)`）。
  */
-export function compileMatcher(
-  spec: MatchSpec | undefined,
-  source: RuleSource,
-): CompiledMatcher {
+export function compileMatcher(spec: MatchSpec | undefined): CompiledMatcher {
   const warnings: string[] = [];
   const keywords = (spec?.keywords ?? [])
     .filter((k): k is string => typeof k === "string" && k.length > 0)
@@ -84,8 +83,7 @@ export function compileMatcher(
   const isEmpty =
     keywords.length === 0 && regexes.length === 0 && predicates.length === 0;
   if (isEmpty) {
-    const unconditional = BOUNDARY_SOURCES.has(source);
-    return { match: () => unconditional, warnings };
+    return { match: (_text, source) => BOUNDARY_SOURCES.has(source), warnings };
   }
   return {
     match: (text: string): boolean => {

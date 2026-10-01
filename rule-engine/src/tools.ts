@@ -59,10 +59,10 @@ const MATCH_SCHEMA = {
 const RULE_PARAMS = {
   id: { type: "string", description: "规则标识（唯一，两层合并与节流记账用）" },
   source: {
-    type: "string",
-    enum: [...RULE_SOURCES],
+    type: ["string", "array"],
+    items: { type: "string", enum: [...RULE_SOURCES] },
     description:
-      "节点（匹配面），缺省 assistant-text：assistant-text 回合结束时对整回合正文判定 / user-message 用户消息落盘 / tool-call 工具调用 / tool-result 工具结果 / turn-start 回合开始 / turn-end 回合边界 / step-start、step-end 步边界 / session-start 会话建立（含恢复）/ compaction 上下文压缩完成（边界类节点文本为空，match 可省 = 无条件命中）",
+      "节点（匹配面）：单个节点或节点数组（一条规则挂多时机），缺省 assistant-text：assistant-text 回合结束时对整回合正文判定 / user-message 用户消息落盘 / tool-call 工具调用 / tool-result 工具结果 / turn-start 回合开始 / turn-end 回合边界 / step-start、step-end 步边界 / session-start 会话建立（含恢复）/ compaction 上下文压缩完成（边界类节点文本为空，match 可省 = 无条件命中）",
   },
   delivery: {
     type: "string",
@@ -91,6 +91,12 @@ const RULE_PARAMS = {
     description:
       "按记录去重，缺省 0 = 无限制：会话可见投影里最多允许 N 条本注入（1 = 已有就跳过，重载不重复、被压缩挤出投影后才补；N≥2 = 允许最多 N 条）",
   },
+  directWrite: {
+    type: "array",
+    items: { type: "string", enum: [...RULE_SOURCES] },
+    description:
+      "直写节点（须是 source 的子集）：命中发生在这些节点时跳过 dedupeInRecord 投影判断、直接写入；缺省 [] = 所有节点都按投影判断",
+  },
 } as const;
 
 /** 输出契约：JSON 安全 + 文本渲染（与 metric-loop 一致）。 */
@@ -118,6 +124,7 @@ function ruleFromArgs(args: Record<string, unknown>): Record<string, unknown> {
     "cooldownTurns",
     "cooldownMs",
     "dedupeInRecord",
+    "directWrite",
   ] as const) {
     if (args[key] !== undefined) rule[key] = args[key];
   }

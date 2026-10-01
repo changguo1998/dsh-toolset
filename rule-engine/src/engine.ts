@@ -17,7 +17,8 @@
  *
  * 节流与去重（同一会话内）：每规则 `cooldownTurns` / `cooldownMs`；每回合注入条数上限
  * `maxInjectionsPerTurn`；同一回合内相同正文只注入一次（不同规则同文案也只发一条）；
- * `dedupeInRecord` 规则再按**会话可见投影**去重（重载不重复注入，压缩后投影里没了才补）。
+ * `dedupeInRecord` 规则再按**会话可见投影**去重（重载不重复注入，压缩后投影里没了才补）；
+ * 声明在 `directWrite` 里的节点**跳过该投影判断**直接写入（规则与消费者同口径）。
  *
  * **红线**：本层可能在 `Session.append` 的同步派发窗口内被调用，因此不得在此同步调用
  * `agent.followup()`（会撞重入保护导致消息不落盘）——推迟由注入器负责。
@@ -93,6 +94,8 @@ interface CompiledConsumer {
   cooldownMs: number;
   /** 按记录去重：投影里最多允许 N 条本反馈（0 = 无限制）。 */
   dedupeInRecord: number;
+  /** 直写节点：这些节点跳过投影去重判断。 */
+  directWrite: readonly RuleSource[];
   decide(context: ConsumerContext): ConsumerFeedback | null;
 }
 
@@ -221,7 +224,7 @@ export class RuleEngine {
     for (const warning of warnings) this.#warn(`${warning}`);
     const compiled: CompiledRule[] = [];
     for (const { rule, origin } of rules) {
-      const matcher = compileMatcher(rule.match, rule.source);
+      const matcher = compileMatcher(rule.match);
       for (const warning of matcher.warnings) {
         this.#warn(`规则 "${rule.id}"：${warning}`);
       }
@@ -255,7 +258,8 @@ export class RuleEngine {
     return this.#compiled.map(({ rule, origin }) => ({
       id: rule.id,
       enabled: rule.enabled,
-      source: rule.source,
+      sources: rule.sources,
+      directWrite: rule.directWrite,
       delivery: rule.delivery,
       origin,
       description: rule.description,
@@ -294,13 +298,20 @@ export class RuleEngine {
         `消费者 "${id}" 的 delivery ${JSON.stringify(input.delivery)} 非法，按 followup 处理`,
       );
     }
+    const sources = normalizeSources(input.sources);
     const consumer: CompiledConsumer = {
       id,
-      sources: normalizeSources(input.sources),
+      sources,
       delivery: isRuleDelivery(input.delivery) ? input.delivery : "followup",
       cooldownTurns: normalizeCooldown(input.cooldownTurns),
       cooldownMs: normalizeCooldown(input.cooldownMs),
       dedupeInRecord: normalizeCount(input.dedupeInRecord),
+      directWrite: normalizeDirectWriteNodes(
+        input.directWrite,
+        sources,
+        `消费者 "${id}"`,
+        this.#warn,
+      ),
       decide: input.decide,
     };
     this.#consumers = [...this.#consumers, consumer];
@@ -341,15 +352,20 @@ export class RuleEngine {
     const merged: Record<string, unknown> = { ...current.rule };
     for (const key of [
       "enabled",
-      "source",
       "delivery",
       "match",
       "cooldownTurns",
       "cooldownMs",
       "dedupeInRecord",
+      "directWrite",
       "description",
     ] as const) {
       if (p[key] !== undefined) merged[key] = p[key];
+    }
+    // 匹配面：patch 的 source / sources 覆盖（并清掉另一个键，避免归一化读到旧值）
+    if (p["source"] !== undefined || p["sources"] !== undefined) {
+      delete merged["sources"];
+      merged["source"] = p["source"] !== undefined ? p["source"] : p["sources"];
     }
     // action 浅合并（text / summary 可单独改）
     if (p["action"] !== undefined) {
@@ -402,17 +418,17 @@ export class RuleEngine {
     const matched: RuleHit[] = [];
     const disabled: string[] = [];
     for (const item of this.#compiled) {
-      if (item.rule.source !== source) continue;
+      if (!item.rule.sources.includes(source)) continue;
       if (!item.rule.enabled) {
         disabled.push(item.rule.id);
         continue;
       }
-      if (!item.matcher.match(input.text)) continue;
+      if (!item.matcher.match(input.text, source)) continue;
       const text = item.rule.action.text;
       matched.push({
         id: item.rule.id,
         origin: item.origin,
-        source: item.rule.source,
+        source,
         delivery: item.rule.delivery,
         description: item.rule.description,
         text,
@@ -580,8 +596,8 @@ export class RuleEngine {
     return this.#compiled.some(
       (item) =>
         item.rule.enabled &&
-        (item.rule.source === "assistant-text" ||
-          item.rule.source === "turn-end"),
+        (item.rule.sources.includes("assistant-text") ||
+          item.rule.sources.includes("turn-end")),
     );
   }
 
@@ -652,8 +668,8 @@ export class RuleEngine {
   ): void {
     for (const item of this.#compiled) {
       const rule = item.rule;
-      if (!rule.enabled || rule.source !== trigger) continue;
-      if (!item.matcher.match(text)) continue;
+      if (!rule.enabled || !rule.sources.includes(trigger)) continue;
+      if (!item.matcher.match(text, trigger)) continue;
       const now = this.#now();
       const last = state.fired.get(rule.id);
       if (last !== undefined) {
@@ -662,8 +678,10 @@ export class RuleEngine {
         if (rule.cooldownMs > 0 && now - last.time < rule.cooldownMs) continue;
       }
       const summary = rule.action.summary ?? boundSummary(rule.action.text);
-      // 按记录去重：投影里已有 N 条本注入 → 不产出，仍记本次命中（避免每次触发都重读投影）
+      // 按记录去重：投影里已有 N 条本注入 → 不产出，仍记本次命中（避免每次触发都重读投影）；
+      // 直写节点（directWrite）跳过该判断、直接写入
       if (
+        !rule.directWrite.includes(trigger) &&
         rule.dedupeInRecord > 0 &&
         this.#countInRecord(sessionId, summary) >= rule.dedupeInRecord
       ) {
@@ -735,6 +753,7 @@ export class RuleEngine {
           ? feedback.summary
           : boundSummary(feedbackText);
       if (
+        !consumer.directWrite.includes(trigger) &&
         consumer.dedupeInRecord > 0 &&
         this.#countInRecord(sessionId, summary) >= consumer.dedupeInRecord
       ) {
@@ -920,6 +939,35 @@ function normalizeCount(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? Math.floor(value)
     : 0;
+}
+
+/** 消费者直写节点兜底：须落在唤醒时机内；非法 / 越界项丢弃并告警。 */
+function normalizeDirectWriteNodes(
+  value: unknown,
+  sources: readonly RuleSource[],
+  owner: string,
+  warn: (message: string) => void,
+): readonly RuleSource[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    warn(`${owner} 的 directWrite 不是数组，已忽略`);
+    return [];
+  }
+  const out: RuleSource[] = [];
+  for (const item of value) {
+    if (!isRuleSource(item)) {
+      warn(
+        `${owner} 的 directWrite 含非法节点 ${JSON.stringify(item)}，已忽略`,
+      );
+      continue;
+    }
+    if (!sources.includes(item)) {
+      warn(`${owner} 的 directWrite 节点 "${item}" 不在唤醒时机内，已忽略`);
+      continue;
+    }
+    if (!out.includes(item)) out.push(item);
+  }
+  return out;
 }
 
 /** 消费者唤醒时机兜底：缺省 `["turn-end"]`；过滤非法值，全非法同样退回缺省。 */

@@ -63,6 +63,8 @@ interface ConsumerRegistrar {
     delivery?: string;
     /** 按记录去重：投影里最多允许 N 条本反馈（0 = 无限制，缺省）。 */
     dedupeInRecord?: number;
+    /** 直写节点：这些节点跳过投影去重判断（须是 `sources` 的子集）。 */
+    directWrite?: readonly string[];
     decide(context: {
       sessionId: string;
       turn: number;
@@ -131,8 +133,9 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     }
 
     // 会话开局指南（BACKLOG F2）：每会话一次注入「推荐白名单 + 使用标准」。
-    // 触发与去重全交 rule-engine 统一标准：`step-end` 每次步末判定 + `dedupeInRecord: 1`
-    // （可见投影里最多 1 条）——开局注入一次，压缩把注入挤出投影后自然补一次；不再自管 gate。
+    // 触发与去重全交 rule-engine 统一标准：`session-start` + `compaction` **直写**
+    // （跳过可见投影判断；`session-start` 含恢复，故恢复会话也会再注入一次）、
+    // `step-end` 按 `dedupeInRecord: 1` 判断（投影里已有就跳过，压缩把注入挤出投影后自然补回）。
     // `delivery: "steer"` 与 skill 自加载规则同节点同组 → 同一次触发合并为一条注入。
     let disposeGuide: (() => void) | undefined;
     if (
@@ -143,9 +146,10 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       try {
         disposeGuide = engine.registerConsumer({
           id: "symbol-normalizer-guide",
-          sources: ["step-end"],
+          sources: ["session-start", "compaction", "step-end"],
           delivery: "steer",
           dedupeInRecord: 1,
+          directWrite: ["session-start", "compaction"],
           decide: () => ({
             text: buildSymbolGuide(rules),
             summary: GUIDE_SUMMARY,

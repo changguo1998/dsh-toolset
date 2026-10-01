@@ -2,7 +2,8 @@
  * 规则引擎的类型定义。
  *
  * 语义对齐 rule-engine/README.md：
- * - 规则 = 匹配面（source）+ 命中条件（match）+ 动作（action，本期只有 inject）+ 节流
+ * - 规则 = 匹配面（`source`：单节点或节点数组）+ 命中条件（match）+ 动作（action，本期只有 inject）
+ *   + 节流 + 直写节点（`directWrite`：命中发生在这些节点时跳过投影去重判断）
  * - 节点表（匹配面，规则与消费者共用）：assistant-text / user-message / tool-call /
  *   tool-result / turn-start / turn-end / step-start / step-end / session-start / compaction。
  *   边界类节点（turn-end / turn-start / step-start / step-end / session-start / compaction）
@@ -70,8 +71,11 @@ export interface Rule {
   id: string;
   /** 是否启用，缺省 true。 */
   enabled?: boolean;
-  /** 匹配面，缺省 "assistant-text"。 */
-  source?: RuleSource;
+  /** 匹配面：单个节点，或节点数组（一个规则挂多时机）；缺省 "assistant-text"。
+   *  持久化回流时可能是数组形态的 `sources`（见下），两者都给时以 `source` 为准。 */
+  source?: RuleSource | readonly RuleSource[];
+  /** 匹配面的数组写法（与 `source` 同义；归一化后的规则以此字段存储）。 */
+  sources?: readonly RuleSource[];
   /** 注入送达路径，缺省 "followup"（"inject" / "steer" 走宿主 next-step 队列）。 */
   delivery?: RuleDelivery;
   /** 命中条件；缺省（或空对象）仅对 turn-end 表示无条件命中，其余匹配面视为永不命中。 */
@@ -86,6 +90,9 @@ export interface Rule {
    *  0 = 不限制；1 = 已有 1 条就跳过（重载会话不重复、被压缩挤出后才补）；
    *  N ≥ 2 = 允许最多 N 条。兼容旧布尔值：true → 1、false → 0。 */
   dedupeInRecord?: number;
+  /** 直写节点：命中发生在这些节点时**跳过 `dedupeInRecord` 投影判断**、直接写入
+   *  （缺省 `[]` = 所有节点都按投影判断）。不在匹配面内的项会被丢弃并告警。 */
+  directWrite?: readonly RuleSource[];
   /** 说明（工具面只读展示）。 */
   description?: string | null;
 }
@@ -94,7 +101,10 @@ export interface Rule {
 export interface NormalizedRule {
   id: string;
   enabled: boolean;
-  source: RuleSource;
+  /** 匹配面（至少一个节点；字符串入参在归一化时收成数组）。 */
+  sources: readonly RuleSource[];
+  /** 直写节点（`sources` 的子集；空数组 = 所有节点都按投影去重判断）。 */
+  directWrite: readonly RuleSource[];
   delivery: RuleDelivery;
   match: MatchSpec;
   action: InjectAction;
@@ -175,7 +185,9 @@ export interface NoticeEvent {
 export interface RuleSummary {
   id: string;
   enabled: boolean;
-  source: RuleSource;
+  sources: readonly RuleSource[];
+  /** 直写节点（这些节点跳过 `dedupeInRecord` 投影判断）。 */
+  directWrite: readonly RuleSource[];
   delivery: RuleDelivery;
   origin: RuleOrigin;
   description: string | null;
@@ -247,6 +259,8 @@ export interface ConsumerRegistration {
   delivery?: RuleDelivery;
   /** 按记录去重（与规则侧同口径）：投影里最多允许 N 条本反馈，缺省 0 = 无限制。 */
   dedupeInRecord?: number;
+  /** 直写节点：在这些节点跳过 `dedupeInRecord` 投影判断、直接写入（须是 `sources` 的子集）。 */
+  directWrite?: readonly RuleSource[];
   /** 同一会话两次反馈之间的最小回合间隔，缺省 0。 */
   cooldownTurns?: number;
   /** 同一会话两次反馈之间的最小毫秒间隔，缺省 0（不限制）。 */
