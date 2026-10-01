@@ -40,54 +40,25 @@ import type {
   RuleEngineLike,
 } from "./adapter/dsh.ts";
 import type { NoticeTone } from "./adapter/types.ts";
-import { setWidthOverrides } from "./layout/markdown.ts";
+import {
+  setWidthOverrides,
+  setWidthProbeEnabled,
+  takePendingWidthProbes,
+  widthOverrideEntries,
+} from "./layout/markdown.ts";
+import {
+  readWidthTable,
+  terminalKey,
+  writeWidthTable,
+} from "./layout/width-table.ts";
 import { maxDescScrollFor } from "./components/QuestionPrompt.ts";
 import { maxApprovalScroll } from "./components/ApprovalPrompt.ts";
 
 /** 审批超时回落值（ms）：adapter 未提供 `approvalTimeoutMs()` 时使用（BACKLOG 3.2.5 / 3.3.2） */
 const APPROVAL_TIMEOUT_FALLBACK_MS = 60_000;
 
-/**
- * 启动宽度探测字符集（EAW 歧义区常用符号）：仅用于 `probeWidths` 实测终端列宽，
- * 与符号治理规则解耦（规则已迁至 symbol-normalizer 插件，见 BACKLOG #48）。
- */
-const WIDTH_PROBE_SYMBOLS = [
-  "✓",
-  "✗",
-  "△",
-  "→",
-  "←",
-  "↑",
-  "↓",
-  "↔",
-  "↕",
-  "↖",
-  "↗",
-  "↘",
-  "↙",
-  "▶",
-  "◀",
-  "▲",
-  "▼",
-  "▷",
-  "◁",
-  "▽",
-  "⟸",
-  "⟹",
-  "⟺",
-  "•",
-  "◦",
-  "○",
-  "●",
-  "◯",
-  "■",
-  "□",
-  "◇",
-  "◆",
-  "ⓘ",
-  "〜",
-  "…",
-] as const;
+/** 帧前实测的超时上限(ms)：探测期间不出帧，故取小值；整批无回包即判定不支持 CPR */
+const WIDTH_PROBE_TIMEOUT_MS = 150;
 import {
   parseSlashCommand,
   SESSION_UI_STATE_VERSION,
@@ -307,6 +278,10 @@ export interface AppDeps {
   /** `$` 模式本地执行器（BACKLOG TUI#37）：缺省走 node:child_process（local-shell.ts），
    *  测试可注入假实现避免真起进程 */
   runShell?: ShellRunner;
+  /** profile 目录（main.ts 从 `ctx.get('profileContext').dir` 接线）：实测宽度表
+   *  落盘位置（`<profile 目录>/tui-width-table.json`）。缺省 / 空串 = 不落盘
+   *  （仍按需实测，只是不跨会话复用）；见 layout/width-table.ts。 */
+  profileDir?: string;
 }
 
 export class App {
@@ -333,6 +308,12 @@ export class App {
   private renderedRuleInjections = new Set<string>();
   /** 待绘制脏标记：同一 tick 内多次标脏合并为一次 render（见 paint/flushPaint） */
   private paintDirty = false;
+  /** 实测宽度表落盘目录（`profileDir`；"" = 不落盘，见 layout/width-table.ts） */
+  private profileDir = "";
+  /** 宽度实测在途：同一时刻只发一批，在途期间不再登记新批（避免探测字节叠发） */
+  private widthProbeInFlight = false;
+  /** 终端不支持 CPR（整批无回包）→ 关闭后续实测，一律沿用静态表 */
+  private widthProbeUnavailable = false;
   /** 已排队待冲刷的合帧标志（与 paintDirty 成对；dispose 时清零使排队帧变 no-op） */
   private paintScheduled = false;
   /** 跨回合最小帧间隔(ms)：0=不限帧（缺省，测试/演示保持立即出帧）；
@@ -470,6 +451,8 @@ export class App {
     }
     // 启动自动清理空会话（tui.config.json session.autoCleanEmpty；缺省关闭）
     this.autoCleanEmpty = deps.autoCleanEmpty === true;
+    // 实测宽度表落盘目录（缺省 "" = 不落盘；见 layout/width-table.ts）
+    this.profileDir = deps.profileDir ?? "";
     this.state = initialState(
       normalizeThemeId(this.deps.initialTheme ?? DEFAULT_THEME),
       {
@@ -489,25 +472,68 @@ export class App {
   setLogger(_fn: (msg: string) => void): void {}
 
   /**
-   * 启动宽度探测：对推荐符号集做一次终端实测（`CSI 6n` 光标列差），把 EAW 歧义
-   * （A 类）字符的真实列数写入宽度覆盖表——不同终端/字体对 A 类的解析不同
-   * （1 或 2 列），静态表只能保守取值（见 `layout/eaw-table.ts`）。
+   * 载入实测宽度表（`<profile 目录>/tui-width-table.json`，见 layout/width-table.ts）：
+   * 上次会话实测过的字符直接按实测值排版，本会话不再探测。表缺失 / 换终端（term 标识
+   * 不匹配）→ 空表，回落静态表。
    *
-   * 时序：首帧渲染**前**发起（探测字符画在原点，首帧清屏覆盖它）；响应到达后若
-   * 宽度确有变化则重绘一帧。终端不支持 CPR 时超时（500ms）后静默沿用静态表。
-   * `TUI_WIDTH_PROBE=0` 可整体关闭（排查用）。
+   * `TUI_WIDTH_PROBE=0`：整体关闭按需实测（不载表、不登记、不探测），用于对照排查
+   * 「静态表基线」。
    */
-  private probeWidths(): void {
-    if (process.env.TUI_WIDTH_PROBE === "0") return;
+  private loadWidthTable(): void {
+    if (process.env.TUI_WIDTH_PROBE === "0") {
+      setWidthProbeEnabled(false);
+      return;
+    }
+    if (this.profileDir === "") return;
+    const entries = readWidthTable(this.profileDir, terminalKey());
+    if (entries.size > 0) setWidthOverrides(entries);
+  }
+
+  /** 实测宽度表落盘（profile 目录；写失败静默——排版已按实测值生效，落盘只是复用手段） */
+  private saveWidthTable(): void {
+    if (this.profileDir === "") return;
+    writeWidthTable(this.profileDir, terminalKey(), widthOverrideEntries());
+  }
+
+  /**
+   * 帧前按需实测（用户 2026-10-01 裁定「帧绘制前计算宽度时」）：本帧排版期间登记的
+   * 「呈现不确定」字符（markdown.ts `takePendingWidthProbes`）在**写屏前**发一次终端
+   * 实测（`CSI 6n` 列差，见 renderer.probeSymbolWidths）。实测值写入覆盖表并重新排版，
+   * 随后以**整帧重绘**出帧——探测字符画在屏幕原点，由这一帧覆盖；且这一帧即按实测宽度排版。
+   *
+   * 整批无回包 → 判定终端不支持 CPR，关闭后续实测（否则每个新字符都要白等一次超时）。
+   * 探测期间不出帧（上限 `WIDTH_PROBE_TIMEOUT_MS`），故只在出现新字符的帧上发生。
+   */
+  private probeThenRender(batch: readonly string[]): void {
     const probe = this.deps.renderer.probeSymbolWidths;
     if (typeof probe !== "function") return;
+    this.widthProbeInFlight = true;
     void probe
-      .call(this.deps.renderer, WIDTH_PROBE_SYMBOLS)
+      .call(this.deps.renderer, batch, WIDTH_PROBE_TIMEOUT_MS)
       .then((widths) => {
-        if (this.disposed || widths.size === 0) return;
-        if (setWidthOverrides(widths)) this.paint(); // 宽度变了：重排重绘
+        this.widthProbeInFlight = false;
+        if (this.disposed) return;
+        if (widths.size === 0) {
+          this.widthProbeUnavailable = true; // 无 CPR 支持：沿用静态表，不再实测
+        } else if (setWidthOverrides(widths)) {
+          this.saveWidthTable(); // 新实测值落盘（跨会话复用）
+        }
+        this.refresh(); // 重排 + 整帧重绘：按实测宽度出这一帧并覆盖探测残留
+        this.maybeProbePendingWidths(); // 重排可能登记了新字符（已测过的不再登记）
       })
-      .catch(() => {});
+      .catch(() => {
+        this.widthProbeInFlight = false;
+        if (!this.disposed) this.refresh();
+      });
+  }
+
+  /** 取走待实测字符并探测（无待测 / 在途 / 终端不支持 → 不动） */
+  private maybeProbePendingWidths(): void {
+    if (this.widthProbeInFlight || this.widthProbeUnavailable) return;
+    if (typeof this.deps.renderer.probeSymbolWidths !== "function") return;
+    const batch = takePendingWidthProbes();
+    if (batch.length === 0) return;
+    this.probeThenRender(batch);
   }
 
   start(): void {
@@ -550,8 +576,9 @@ export class App {
       if (this.virtTimer) clearInterval(this.virtTimer);
       this.virtTimer = null;
     });
-    // 首帧前发起终端宽度探测（异步、不阻塞首帧；首帧清屏覆盖探测残留）
-    this.probeWidths();
+    // 首帧前载入实测宽度表（profile 目录；缺表 / 换终端 → 空表，回落静态表）。
+    // 本次会话新出现的「呈现不确定」字符在帧绘制前按需实测（见 probeThenRender）
+    this.loadWidthTable();
     // 首帧前同步 renderer 主题（基底色/词槽位随 /theme 切换）
     this.deps.renderer.setTheme(this.state.themeId);
     this.paintNow();
@@ -4321,6 +4348,18 @@ export class App {
     const frame = buildFrame(this.state, size, this.paneScrollMax, out);
     this.paneScrollMaxState = this.state;
     this.syncScrollAnchor();
+    // 帧前按需实测：本次排版登记了「呈现不确定」字符 → 先实测再出帧（探测字节写在原点，
+    // 由随后的整帧重绘覆盖），见 probeThenRender
+    if (!this.widthProbeInFlight && !this.widthProbeUnavailable) {
+      const batch = takePendingWidthProbes();
+      if (
+        batch.length > 0 &&
+        typeof this.deps.renderer.probeSymbolWidths === "function"
+      ) {
+        this.probeThenRender(batch);
+        return; // 本帧由 probeThenRender 的整帧重绘产出（已按实测宽度排版）
+      }
+    }
     this.deps.renderer.render(frame, out.sections, out.focus);
   }
 

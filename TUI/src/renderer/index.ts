@@ -53,10 +53,10 @@ export interface Renderer {
   /** 合成 CPR 响应注入（无 TTY / 测试 / 脚本驱动用；实现可选） */
   emitCpr?(row: number, col: number): void;
   /**
-   * 终端字符宽度探测（EAW 歧义字符的实测取值）：批量写「字符 + `CSI 6n`」，
-   * 再按序读回光标位置（CPR），列差即该字符占用的列数——一次往返完成整批。
-   * 终端不支持 CPR 时在 `timeoutMs` 后返回已收集结果（可能为空 Map）。
-   * 探测字符会短暂出现在屏幕原点：调用方应在首帧渲染前调用（首帧清屏覆盖）。
+   * 终端字符宽度探测（呈现不确定字符的实测取值）：批量写「字符 + `CSI 6n`」，
+   * 再按序读回光标位置（CPR），列差即该字符占用的列数——一次往返完成一块，
+   * 超宽批次按终端宽度分块。终端不支持 CPR 时在 `timeoutMs` 后返回已收集结果（可能为空 Map）。
+   * 探测字符会短暂出现在屏幕原点：调用方必须在探测之后出帧，且该帧走整帧重绘（覆盖残留）。
    * 注入型 renderer 可不实现（App 侧判空后跳过探测，沿用静态表）。
    */
   probeSymbolWidths?(
@@ -218,41 +218,53 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       const widths = new Map<string, number>();
       if (closed || chars.length === 0) return widths;
       const unique = [...new Set(chars)];
-      // 批量探测：一次报文写完全部「字符 + CSI 6n」，响应按序到达
-      const responses: Array<{ row: number; col: number }> = [];
-      const collected = new Promise<void>((resolve) => {
-        const onCpr = (row: number, col: number): void => {
-          responses.push({ row, col });
-          if (responses.length >= unique.length) {
-            clearTimeout(timer);
+      // 按终端宽度分块：一块写入的字符总宽必须落在同一行内（自动换行会让列差作废）。
+      // 按每字符最多 2 列估算，留 1 列余量；典型 80/120 列下一次容纳 39/59 个字符。
+      const cols = Math.max(8, screen.getSize().cols);
+      const perChunk = Math.max(1, Math.floor((cols - 1) / 2));
+      const chunks: string[][] = [];
+      for (let i = 0; i < unique.length; i += perChunk) {
+        chunks.push(unique.slice(i, i + perChunk));
+      }
+      const budgetMs = Math.max(30, Math.floor(timeoutMs / chunks.length));
+      for (const chunk of chunks) {
+        // 单块探测：一次报文写完全部「字符 + CSI 6n」，响应按序到达
+        const responses: Array<{ row: number; col: number }> = [];
+        const collected = new Promise<void>((resolve) => {
+          const onCpr = (row: number, col: number): void => {
+            responses.push({ row, col });
+            if (responses.length >= chunk.length) {
+              clearTimeout(timer);
+              cprWaiters.delete(onCpr);
+              resolve();
+            }
+          };
+          const timer = setTimeout(() => {
             cprWaiters.delete(onCpr);
             resolve();
+          }, budgetMs);
+          cprWaiters.add(onCpr);
+        });
+        let payload = "\x1b[1;1H";
+        for (const ch of chunk) payload += ch + "\x1b[6n";
+        write(payload);
+        await collected;
+        // 解析：同一行内相邻 CPR 的列差即字符宽度；跨行（自动换行）跳过该字符
+        let prevRow = 1;
+        let prevCol = 1;
+        for (let i = 0; i < responses.length; i++) {
+          const { row, col } = responses[i]!;
+          const ch = chunk[i]!;
+          if (row === prevRow) {
+            const w = col - prevCol;
+            if (w === 1 || w === 2) widths.set(ch, w); // 仅接受合理值，异常跳过
           }
-        };
-        const timer = setTimeout(() => {
-          cprWaiters.delete(onCpr);
-          resolve();
-        }, timeoutMs);
-        cprWaiters.add(onCpr);
-      });
-      let payload = "\x1b[1;1H";
-      for (const ch of unique) payload += ch + "\x1b[6n";
-      write(payload);
-      await collected;
-      // 解析：同一行内相邻 CPR 的列差即字符宽度；跨行（自动换行）跳过该字符
-      let prevRow = 1;
-      let prevCol = 1;
-      for (let i = 0; i < responses.length; i++) {
-        const { row, col } = responses[i]!;
-        const ch = unique[i]!;
-        if (row === prevRow) {
-          const w = col - prevCol;
-          if (w === 1 || w === 2) widths.set(ch, w); // 仅接受合理值，异常跳过
+          prevRow = row;
+          prevCol = col;
         }
-        prevRow = row;
-        prevCol = col;
+        if (closed) break;
       }
-      write("\x1b[1;1H"); // 复位光标（首帧会重绘并覆盖探测残留）
+      write("\x1b[1;1H"); // 复位光标（调用方随后整帧重绘覆盖探测残留）
       return widths;
     },
     onResize(cb: (cols: number, rows: number) => void): void {

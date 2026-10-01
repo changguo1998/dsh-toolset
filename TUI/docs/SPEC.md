@@ -759,17 +759,19 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **元数据**：表格子树整棵挂同一 `rowMeta`（`markSubtree`）——`fill` 后各行 `kind` / `blockId` 必须与所在回复一致，否则回复组折叠（`dialogueWindow` 按连续 assistant 行切组）与块内空行判定会把表格当成新块。
 - **回归**：`tests/table.test.ts`（21 例：解析 / 转义 / 列宽 / 压缩 / 截断 / 对齐 / 加粗 / 网格与交叉字 / 左缘竖线连续 + 间隔空格 / 行高 / fence 保护 / 窄宽回退 / 元数据传播）。
 
-### 15.7 字符宽度（EAW 精确表 + 启动探测）
+### 15.7 字符宽度（EAW 精确表 + 按需实测 + profile 落盘）
 
-- **静态表**（`layout/eaw-table.ts`，生成物）：`scripts/gen-width-table.mts` 生成——EAW（UAX #11）取自 `scripts/eaw-dump.py`（Python `unicodedata`），emoji 属性取自 Node `\p{Emoji}` / `\p{Emoji_Presentation}`（UTS #51）。三张扁平区间表（每两个数字一对 `[lo, hi]`，运行期二分）：
+- **静态表**（`layout/eaw-table.ts`，生成物）：`scripts/gen-width-table.mts` 生成——EAW（UAX #11）取自 `scripts/eaw-dump.py`（Python `unicodedata`），emoji 属性取自 Node `\p{Emoji}` / `\p{Emoji_Presentation}`（UTS #51）。四张扁平区间表（每两个数字一对 `[lo, hi]`，运行期二分）：
   - `EAW_WIDE_RANGES`：EAW ∈ {W, F} → 2 列（CJK/全角/多数 emoji）；
   - `EAW_AMBIGUOUS_CONSERVATIVE`：EAW = A 且落在几何/符号/CJK/emoji 保守区间 → 2 列（这些符号可能被 CJK 字体按全角设计，防低估撑破）；
-  - `EMOJI_CONSERVATIVE`：EAW = N/A 但带 emoji 属性且 ≥ U+2190 → 2 列（多数终端按 emoji 呈现；排除箭头区与 ™/©/® 等 1 列字符）。
+  - `EMOJI_CONSERVATIVE`：EAW = N/A 但带 emoji 属性且 ≥ U+2190 → 2 列（多数终端按 emoji 呈现；排除箭头区与 ™/©/® 等 1 列字符）；
+  - `WIDTH_UNCERTAIN_RANGES`：**呈现不确定区**（EAW = A ∪ 带 emoji 属性且 ≥ U+2190 ∪ 符号块 `0x2600-0x27BF` / `0x2B00-0x2BFF`，再减去 W/F）——不进宽度判定，只用于筛「可能判错、值得实测」的字符。
   - 重新生成：`TUI` 内 `npm run gen:width-table`，随后跑 `format` 对齐数组换行。
-- **判定顺序**（`layout/markdown.ts` `computeCharWidth`）：实测覆盖 → 零宽 → 文本符号例外（`NARROW_TEXT_SYMBOLS`）→ W/F → A(保守) → emoji 保守集 → 默认 1 列。
-- **启动探测**（`Renderer.probeSymbolWidths` + `App.probeWidths`）：A 类（歧义）字符的实际列数由终端/字体解析决定（1 或 2 列），静态表只能保守取值。启动时（首帧渲染**前**）对推荐符号集（`DEFAULT_RECOMMENDED`）批量写「字符 + `CSI 6n`」，按序读回 CPR 光标位置，列差即实测列宽——**一次往返**完成整批；结果经 `setWidthOverrides` 写入覆盖表并清排版缓存，宽度确有变化则重绘一帧（探测字符画在原点，被首帧清屏覆盖）。终端不支持 CPR → 500ms 超时后静默沿用静态表；`TUI_WIDTH_PROBE=0` 整体关闭。
-- **修复背景**：旧实现把 `0x2B00-0x2BFF`、`0x2600-0x27BF` 等区间**整段**按 2 列，使 EAW=N（中性、无歧义 1 列）字符（如 U+2B24、U+2B00）在屏幕上多留一格；现按 EAW 精确判定，N 类归 1 列，emoji 保守集仍按 2 列防低估撑破。
-- **回归**：`tests/width-eaw.test.ts`（N/W/A/emoji 分层与优先级）、`tests/width-probe.test.ts`（CPR 解码不产按键、批量列差解析、超时回退、跨行跳过、覆盖表失效）。
+- **判定顺序**（`layout/markdown.ts` `computeCharWidth`）：实测覆盖 → 零宽 → 待实测登记（仅不确定字符）→ 文本符号例外（`NARROW_TEXT_SYMBOLS`）→ W/F → A(保守) → emoji 保守集 → 默认 1 列。
+- **按需实测**（`App.probeThenRender` + `Renderer.probeSymbolWidths`）：呈现不确定字符的真实列数由终端/字体解析决定（1 或 2 列），静态表只能保守取值。排版遇到「不确定且无实测值」的字符即登记（`takePendingWidthProbes`；单批上限 64、去重、同一码点只发起一次）；**该帧写屏前**发起批量实测——每块写「字符 + `CSI 6n`」后按序读回 CPR 光标位置，列差即实测列宽，块大小按终端宽度切分（避免自动换行让列差作废）；实测值经 `setWidthOverrides` 写入覆盖表并清排版缓存，随后**重新排版 + 整帧重绘**出这一帧（探测字符画在屏幕原点，由该帧覆盖，不留残留）。整批无回包 → 判定终端不支持 CPR，本次会话不再实测（如实按静态宽度出帧）；`TUI_WIDTH_PROBE=0` 整体关闭（不载表、不登记、不探测）。
+- **落盘复用**（`layout/width-table.ts`）：实测值写入 `<profile 目录>/tui-width-table.json`（目录取自 `ctx.get('profileContext').dir`；内容 `{version, term, widths:{<码点 hex>:1|2}}`，临时文件 + rename 原子替换、权限 0600）。启动时载入（`App.loadWidthTable`），已有实测值的字符不再探测；`term`（`TERM|TERM_PROGRAM|COLORTERM`）不匹配 → 整表作废重测（换终端/字体后旧值不可信）。无 profile 目录 / 读写失败 → 静默回落静态表。
+- **修复背景**：旧实现把 `0x2B00-0x2BFF`、`0x2600-0x27BF` 等区间**整段**按 2 列，使 EAW=N（中性、无歧义 1 列）字符（如 U+2B24、U+2B00）在屏幕上多留一格；现按 EAW 精确判定，N 类归 1 列，emoji 保守集仍按 2 列防低估撑破。符号规则表里的 `➡`(U+27A1) / `⬅`(U+2B05)（静态判 2 列、多数终端实为 1 列）由按需实测纠正。
+- **回归**：`tests/width-eaw.test.ts`（N/W/A/emoji 分层与优先级）、`tests/width-probe.test.ts`（CPR 解码不产按键、批量列差解析与分块、超时回退、跨行跳过、覆盖表失效、候选判定与登记、帧前实测时序、无 CPR 关闭、`TUI_WIDTH_PROBE=0`、启动载表）、`tests/width-table.test.ts`（落盘往返 / 终端标识作废 / 非法值与损坏文件回落）。
 
 ### 15.8 排版缓存与绘制合帧（性能）
 

@@ -85,6 +85,25 @@ const isEmojiConserved = (cp: number): boolean => {
   return /\p{Emoji}/u.test(ch) && inRanges(cp, EMOJI_DENSE_RANGES);
 };
 
+/** 符号块：块内字符即便 EAW=N 且无 emoji 属性，各终端/字体的呈现宽度也不一致
+ *  （例：➠ U+27A0 / ➢ U+27A2 / ➣ U+27A3 / ✓ U+2713 在部分终端按 2 列渲染），
+ *  故整块纳入「呈现不确定」。 */
+const SYMBOL_UNCERTAIN_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x2600, 0x27bf], // 杂项符号 + Dingbats
+  [0x2b00, 0x2bff], // 杂项符号与箭头
+];
+
+/** 呈现不确定：EAW=A（歧义）、emoji 属性字符（≥ U+2190）或落在符号块内——同一码点
+ *  可能被终端按 1 列或 2 列呈现，静态表只能保守取值，运行时按需实测（见 layout/width-table.ts）。
+ *  不含 EAW ∈ {W, F}（无歧义宽）与零宽区（后者由运行期 ZERO_WIDTH_RANGES 排除）。 */
+const isWidthUncertain = (cp: number): boolean => {
+  if (inRanges(cp, dump.wide as ReadonlyArray<readonly [number, number]>)) return false;
+  if (inRanges(cp, dump.ambiguous as ReadonlyArray<readonly [number, number]>)) return true;
+  if (inRanges(cp, SYMBOL_UNCERTAIN_RANGES)) return true;
+  if (cp < 0x2190) return false;
+  return /\p{Emoji}/u.test(String.fromCodePoint(cp));
+};
+
 /** 由判定函数收集连续区间 */
 function buildRanges(pred: (cp: number) => boolean): number[][] {
   const out: number[][] = [];
@@ -112,6 +131,7 @@ const ambiguousConserved = buildRanges(
   (cp) => inRanges(cp, dump.ambiguous as ReadonlyArray<readonly [number, number]>) && inRanges(cp, CONSERVATIVE_RANGES),
 );
 const emojiConserved = buildRanges(isEmojiConserved);
+const uncertain = buildRanges(isWidthUncertain);
 
 function fmt(name: string, ranges: number[][], comment: string): string {
   const flat = ranges.map(([lo, hi]) => `0x${lo.toString(16)}, 0x${hi.toString(16)}`);
@@ -129,6 +149,8 @@ const header = `// layout/eaw-table.ts — 字符宽度静态表（生成物，�
 // emoji 属性: Node \\p{Emoji} / \\p{Emoji_Presentation}）。
 // 每两个数字为一对 [lo, hi] 闭区间，按 lo 升序；运行期二分查找。
 // 判定顺序见 markdown.ts computeCharWidth：零宽 → 文本符号例外 → 本表三张 → 默认 1 列。
+// 第四张 WIDTH_UNCERTAIN_RANGES 不进宽度判定，只用于「运行时按需实测」的字符筛选
+// （见 layout/width-table.ts）。
 
 `;
 
@@ -146,11 +168,17 @@ const content =
     "EMOJI_CONSERVATIVE",
     emojiConserved,
     "emoji 保守集（EAW=N/A 但带 emoji 属性，且 ≥ U+2190）：多数终端按 emoji 呈现 2 列，防低估撑破",
+  ) +
+  "\n" +
+  fmt(
+    "WIDTH_UNCERTAIN_RANGES",
+    uncertain,
+    "呈现不确定区（EAW=A、emoji 属性字符 ≥ U+2190 或符号块，已减去 W/F）：不进宽度判定，仅供运行时按需实测筛选",
   );
 
 const outPath = path.join(root, "src/app/layout/eaw-table.ts");
 writeFileSync(outPath, content, "utf8");
 console.log(
   `写入 src/app/layout/eaw-table.ts：W/F ${wide.length} 区间、A(保守) ${ambiguousConserved.length}、` +
-    `emoji(保守) ${emojiConserved.length}；Unicode ${dump.unicode}`,
+    `emoji(保守) ${emojiConserved.length}、不确定 ${uncertain.length}；Unicode ${dump.unicode}`,
 );

@@ -91,6 +91,9 @@ export function main(opts: {
   /** 重启交接文件路径（`process.env.DSH_RESTART_FILE`；非空 = 由处理退出码 75 的启动器启动，
    *  退出确认面板才提供「重启 dsh（保留会话）」；BACKLOG #51 / DESIGN「退出确认 ·「重启」方案」） */
   restartHandoffPath?: string;
+  /** profile 目录（`ctx.get('profileContext').dir`）：实测宽度表落盘位置；缺省不落盘
+   *  （不落盘时仍按需实测，只是不跨会话复用；见 layout/width-table.ts） */
+  profileDir?: string;
 }): () => void {
   // 主题调色板配置解析（tui.config.json theme 段；告警经 logger 输出，避免"改了未生效"）
   const tuiConfig = loadTuiConfig();
@@ -122,6 +125,7 @@ export function main(opts: {
     bootstrapKickoffText: opts.bootstrapKickoffText,
     bootstrapKickoffForNewSession: opts.bootstrapKickoffForNewSession,
     restartHandoffPath: opts.restartHandoffPath,
+    profileDir: opts.profileDir,
   });
   app.setLogger(opts.logger ?? ((msg) => void msg));
   // 运行期 stderr 桥（BACKLOG「rule-engine 的用户提示应显示在活动区」方案 A）：安装后
@@ -246,6 +250,20 @@ function readCmdlineArgs(svc: { get?: () => unknown } | undefined): string[] {
       : [];
   } catch {
     return [];
+  }
+}
+
+/** 读取宿主 profile 目录（`ctx.get('profileContext').dir`）：
+ *  实测宽度表落盘位置；服务缺失 / 取值异常 → undefined（App 侧不落盘，仍按需实测）。 */
+function readProfileDir(ctx: unknown): string | undefined {
+  try {
+    const svc = (ctx as { get?: (name: string) => unknown }).get?.(
+      "profileContext",
+    ) as { dir?: unknown } | undefined;
+    const dir = svc?.dir;
+    return typeof dir === "string" && dir !== "" ? dir : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -620,6 +638,9 @@ export async function apply(
     bootstrapKickoffForNewSession: kickoffForNewSession,
     // 启动器（如用户的 fffdsh 循环）经此变量声明「会处理退出码 75」（BACKLOG #51）
     restartHandoffPath: process.env.DSH_RESTART_FILE,
+    // profile 目录（实测宽度表落盘位置，见 layout/width-table.ts）：宿主启动器提供
+    // profileContext（`dsh --profile` 启动恒有）；独立 main() 启动时无此服务 → 不落盘
+    profileDir: readProfileDir(ctx),
     initialTheme:
       config?.theme === undefined ? undefined : normalizeThemeId(config.theme),
     logger: (msg) => process.stderr.write("[tui] " + msg + "\n"),

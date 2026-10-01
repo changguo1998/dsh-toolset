@@ -21,6 +21,7 @@ import {
   EAW_AMBIGUOUS_CONSERVATIVE,
   EAW_WIDE_RANGES,
   EMOJI_CONSERVATIVE,
+  WIDTH_UNCERTAIN_RANGES,
 } from "./eaw-table.ts";
 
 // ---------- 宽度原语（由 layout.ts 重导 charWidth/displayWidth） ----------
@@ -402,9 +403,10 @@ const CHAR_WIDTH_TABLE = new Uint8Array(0x110000);
 registerCacheReset(() => CHAR_WIDTH_TABLE.fill(0));
 
 /**
- * 终端实测宽度覆盖表（码点 → 列数）：启动探测（`Renderer.probeSymbolWidths`）
- * 对 EAW 歧义字符（A 类）测得的真实列数——不同终端对 A 类的解析不同（1 或 2 列），
- * 静态表只能保守取值，实测值优先于全部静态判定。
+ * 终端实测宽度覆盖表（码点 → 列数）：来源有二——① profile 目录内的实测表
+ * （`layout/width-table.ts`，上次会话实测结果复用，启动时载入）；② 运行中按需实测
+ * （`Renderer.probeSymbolWidths`，见 `takePendingWidthProbes`）。不同终端对
+ * 「呈现不确定」字符的解析不同（1 或 2 列），静态表只能保守取值，实测值优先于全部静态判定。
  */
 const WIDTH_OVERRIDES = new Map<number, number>();
 
@@ -428,11 +430,74 @@ export function setWidthOverrides(
   return changed;
 }
 
-/** 清空实测覆盖（测试用；同时清排版缓存） */
+/** 当前实测覆盖条目快照（字符 → 列数）：供落盘复用（见 layout/width-table.ts） */
+export function widthOverrideEntries(): Array<readonly [string, number]> {
+  const out: Array<readonly [string, number]> = [];
+  for (const [cp, width] of WIDTH_OVERRIDES) {
+    out.push([String.fromCodePoint(cp), width] as const);
+  }
+  return out;
+}
+
+/** 清空实测覆盖与待实测队列（测试用；同时清排版缓存） */
 export function clearWidthOverrides(): void {
+  clearPendingWidthProbes();
   if (WIDTH_OVERRIDES.size === 0) return;
   WIDTH_OVERRIDES.clear();
   clearLayoutCaches();
+}
+
+/** 单批待实测字符上限（排版期间陆续登记，App 在帧写屏前取走批量实测） */
+const WIDTH_PROBE_QUEUE_MAX = 64;
+
+/** 待实测字符（码点）：排版遇到「呈现不确定且无实测值」的字符时登记 */
+const WIDTH_PROBE_QUEUE = new Set<number>();
+
+/** 已发起过实测的码点（含未回包的）：同一码点只测一次，避免无 CPR 终端反复超时 */
+const WIDTH_PROBE_ATTEMPTED = new Set<number>();
+
+/** 按需实测总开关（`TUI_WIDTH_PROBE=0` 关闭后不再登记字符，沿用静态表） */
+let widthProbeEnabled = true;
+
+/** 开/关按需实测（关闭时已生效的实测覆盖仍保留） */
+export function setWidthProbeEnabled(enabled: boolean): void {
+  widthProbeEnabled = enabled;
+}
+
+/**
+ * 该码点是否「呈现不确定」——静态表可能判错、值得实测：EAW 歧义（A 类）、
+ * emoji 属性字符（≥ U+2190）、符号块，且非零宽。ASCII/CJK/全角等无歧义字符 → false
+ * （既不实测也不记账，见 scripts/gen-width-table.mts 的 WIDTH_UNCERTAIN_RANGES）。
+ */
+export function isWidthUncertainChar(cp: number): boolean {
+  if (isZeroWidthChar(cp)) return false;
+  return inFlatRanges(cp, WIDTH_UNCERTAIN_RANGES);
+}
+
+/** 登记待实测字符（去重、限量；已发起过的不再登记） */
+function noteWidthProbeCandidate(cp: number): void {
+  if (!widthProbeEnabled) return;
+  if (WIDTH_PROBE_ATTEMPTED.has(cp)) return;
+  if (WIDTH_PROBE_QUEUE.size >= WIDTH_PROBE_QUEUE_MAX) return;
+  WIDTH_PROBE_QUEUE.add(cp);
+}
+
+/** 取走待实测字符（字符形式，供终端实测）；取走的码点记为「已发起」 */
+export function takePendingWidthProbes(): string[] {
+  if (WIDTH_PROBE_QUEUE.size === 0) return [];
+  const out: string[] = [];
+  for (const cp of WIDTH_PROBE_QUEUE) {
+    WIDTH_PROBE_ATTEMPTED.add(cp);
+    out.push(String.fromCodePoint(cp));
+  }
+  WIDTH_PROBE_QUEUE.clear();
+  return out;
+}
+
+/** 清空待实测队列与「已发起」记录（测试用） */
+export function clearPendingWidthProbes(): void {
+  WIDTH_PROBE_QUEUE.clear();
+  WIDTH_PROBE_ATTEMPTED.clear();
 }
 
 /** 按字符显示宽度计算（CJK/全角 = 2 列，组合符/零宽 = 0，其余 = 1 列） */
@@ -445,13 +510,16 @@ export function charWidth(ch: string): number {
   return width;
 }
 
-/** charWidth 的直算路径（无缓存；含实测覆盖、零宽、文本符号例外与 EAW 表判定） */
+/** charWidth 的直算路径（无缓存；含实测覆盖、零宽、待实测登记、文本符号例外与 EAW 表判定） */
 function computeCharWidth(cp: number): number {
-  // 终端实测覆盖（启动探测；最权威，优先于所有静态判定；未探测时表为空）
+  // 终端实测覆盖（实测值最权威，优先于所有静态判定；未实测时表为空）
   const probed = WIDTH_OVERRIDES.get(cp);
   if (probed !== undefined) return probed;
   // 零宽字符：组合附加符/变体选择符/ZWJ 等（占 0 列，避免提前换行与总宽虚高）
   if (isZeroWidthChar(cp)) return 0;
+  // 呈现不确定（EAW 歧义 / emoji 呈现 / 符号块）→ 登记待实测：App 在本帧写屏前
+  // 批量实测（CPR 列差），实测值下一帧起生效（见 width-table.ts）
+  if (isWidthUncertainChar(cp)) noteWidthProbeCandidate(cp);
   // 文本呈现符号例外（✓/✗ 等 UI 状态标记按 1 列，见 NARROW_TEXT_SYMBOLS）
   if (NARROW_TEXT_SYMBOLS.has(cp)) return 1;
   // EAW 精确表（scripts/gen-width-table.mts 生成，替代原「粗粒度区间整段按 2 列」）：
