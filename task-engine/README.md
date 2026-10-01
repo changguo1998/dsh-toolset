@@ -97,17 +97,21 @@ profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` �
 
 ```
 src/
-  types.ts      # Frame / Acceptance / PlanEvent / TaskTree / StepVerdict
+  types.ts      # Frame / Acceptance / ExecutorSpec / PlanEvent / TaskTree / StepVerdict
   events.ts     # 事件溯源：materialize 折叠、嵌套视图、快照/恢复
-  gate.ts       # 分解门禁：粒度四规则 + coverage + deps（DEFAULT_GATE）
+  gate.ts       # 分解门禁：粒度四规则 + coverage + deps + executor 校验（DEFAULT_GATE）
   acceptance.ts # RET 裁决：mechanical / human / semantic
-  engine.ts     # TaskEngine：decompose / implement / stop、有界就绪池、join、bounded retry、查询面
+  engine.ts     # TaskEngine：decompose / implement / execute / stop、有界就绪池、join、bounded retry、查询面
   tools.ts      # 模型侧工具族（纯数据 + 处理器，零 DSH 依赖）
-  main.ts       # cordis 插件入口（结构面适配，防御降级）
+  main.ts       # cordis 插件入口（结构面适配、宿主服务惰性解析、executor 后端接线）
 index.ts        # 包入口：re-export src/main（编译产出 dist/index.js）
+scripts/        # executor-smoke.mjs：主机适配层冒烟（dist 级 + 假宿主面）
 demo/main.ts    # mock demo（脚本化模型，自断言）
 tests/          # node:test 单测
+docs/           # DESIGN.md（架构与设计取舍）、BACKLOG.md（模块待办）、implementation/、archived/
 ```
+
+架构与设计取舍见 `docs/DESIGN.md`；模块待办见 `docs/BACKLOG.md`；过程记录见 `docs/archived/`。
 
 ## 测试
 

@@ -22,7 +22,7 @@
 | 插件 | 阶段 | 状态 | 备注 |
 |------|------|------|------|
 | herdr-integration | P1 | 完成 | herdr 面板桥：agent 状态上报 + ask-user/approval/turn 三类 blocked 事件桥接，35 单测 |
-| task-engine | P0 | 完成 | Frame 状态机、decompose/implement/stop/status 工具族、机械+语义门禁、RET 三级路由、fan-out 就绪池，42 单测 |
+| task-engine | P0 | 完成 | Frame 状态机、decompose/implement/execute/stop/status 工具族、机械门禁（语义蕴含为可选注入 hook）、RET 三级路由、fan-out 就绪池、叶子执行后端（`executor`：subagent / workflow / command，2026-10-02）、常驻冒烟 `smoke:executor`，62 单测 |
 | knowledge-base | P0 | 完成 | sources/chunks 两张基表 + 两张 FTS5 虚表（porter/trigram，external content 影子表，共 4 张表）、两级写策略与淘汰提升、持久记忆 CRUD，39 单测 |
 | goal-contract | P1 | 完成 | interview 式 Done-when 契约起草，落 dsh-goal 事件源并回读比对，35 单测 |
 | metric-loop | P1 | 完成 | 指标循环引擎与计划续排（plateau / 轮数 / 时间 / token 边界、cadence 唤醒），35 单测 |
