@@ -42,12 +42,14 @@
 
 | 6 | **executor 用量计量接 usage 口径**：`budget.maxTokens` 已映射宿主 `agentOptions.maxTokens`（输出上限），但 subagent 目前只报 `tokensKind: "pressure"`（`tokenMeter.measure` 的上下文压力），故 `overBudget` 对 subagent 一律不判（2026-10-02 真机第二轮发现误报后收紧，用户裁定「另开条目」）。期望：接 `ctx.sessionProjections.snapshot(session, ["tokenUsage"])`（或 `deriveTurnTokenUsage`）取 `outputTokens`，与 `budget.maxTokens` 同口径比较并标 `tokensKind: "usage"` | 「task-engine 执行扩展」真机验证第二轮（2026-10-02） | `task-engine`（`src/main.ts` 计量段 + `src/engine.ts` 判定） | 1 h | P2 |
 
+| 7 | **`docs/STATUS.md` 对齐现状**：该表为用户择时更新的对照文档，当前多处过期——① 「总览」称「12 个插件全部完成」，而状态表缺 `rule-engine` / `symbol-normalizer` / `session-channel` / `session-title-cutoff`（`command-template` 的模板体系也已落地）；② 「剩余 P2 插件（workflow-ext / web-ext / session-broker / command-template）未开始」中 `command-template` 已完成；③ `fs-digest` 行注记「缺陷见 `fs-digest/docs/BACKLOG.md` D1」，而该文件现为「当前无未完成项」；④ 各行单测数为 2026-09 快照。期望：逐包核对后整表回写（含新增包行与单测数），或明确该表只维护 P0/P1 子集 | 「task-engine 执行扩展」收尾审计 + 用户 2026-10-02 指示「更新 backlog」 | `docs/STATUS.md`（用户择时更新；本次仅登记） | 1 h | P2 |
+
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：goal-contract / metric-loop、知识库记忆层与淘汰提升、fan-out 就绪池、hash-edit / ast-tools、security-guard / herdr-integration 等）均已完成。
-1. 里程碑三（P2）剩余（按依赖与工作量排序）：会话事件自动入知识库、记忆 auto-consolidation、命令模板取消/超时终态、executor 隔离落地（git worktree）、executor 用量计量接 usage 口径、PDF/文档结构视图，按需排期；已完成项与已取消 / 不再立项项见 §1 索引。
+1. 里程碑三（P2）剩余（按依赖与工作量排序）：会话事件自动入知识库、记忆 auto-consolidation、命令模板取消/超时终态、executor 隔离落地（git worktree）、executor 用量计量接 usage 口径、`docs/STATUS.md` 对齐现状、PDF/文档结构视图，按需排期；已完成项与已取消 / 不再立项项见 §1 索引。
 1. 依赖：「executor 隔离落地」依赖本机 `dsh-git-worktree` 插件就绪（本机当前不存在实现）；「executor 用量计量接 usage 口径」依赖宿主 `ctx.sessionProjections` 的 `tokenUsage` 投影面；原「近期改动代码审查」能力并入命令模板体系③；其余相互独立。
 
 ## 4. 插件规划（未建包）
