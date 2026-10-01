@@ -4408,7 +4408,7 @@ function panelRows(
   return rows;
 }
 
-test("真实 adapter /agents：只取 depth=1；diagnostic / 一次性行无 payload；状态列过滤 unavailable", async () => {
+test("真实 adapter /agents：只取 depth=1；diagnostic / 一次性行无 payload；状态列只留存活且无诊断", async () => {
   const { services, calls } = makeAgentsToolsServices();
   const { adapter, events, unbind } = makeAdapter(
     new FakeRuntime(),
@@ -4448,13 +4448,14 @@ test("真实 adapter /agents：只取 depth=1；diagnostic / 一次性行无 pay
     oneShot?.blockedReason,
     "一次性子代理不支持中断（宿主仅支持 continuable）",
   );
-  // 状态列（agents-changed）：unavailable 诊断被过滤；corrupt 与一次性条目保留
+  // 状态列（agents-changed）：只留存活且无诊断的行——诊断（child-2 corrupt / child-4
+  // unavailable）与已结束（child-3 一次性、activity=inactive）都不显示
   const statusEvents = events.filter((e) => e.type === "agents-changed");
   const snapshot = statusEvents.at(-1)?.agents ?? [];
   assert.deepEqual(
     snapshot.map((a) => a.id),
-    ["child-1", "child-2", "child-3"],
-    "状态列过滤 unavailable、保留其余条目",
+    ["child-1"],
+    "状态列只留存活且无诊断的条目",
   );
   unbind();
 });

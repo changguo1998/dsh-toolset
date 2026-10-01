@@ -2954,13 +2954,14 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         const entries = (
           (await svc.listDescendants(activeSessionId)) ?? []
         ).filter((entry) => (entry.depth ?? 1) === 1);
-        // 状态列 Agents 块：与面板同源归一化（label / 状态 / 异常标记）；过滤 `unavailable`
-        // 诊断（重启后不可物化的陈旧子代）——状态列只呈现当前活动，诊断详情仍可在
-        // /agents 面板查看（BACKLOG TUI#56）
+        // 状态列 Agents 块：与面板同源归一化（label / 状态 / 异常标记），但**只保留当前活跃
+        // 的行**——已结束子代（`activity: "inactive"` = 会话已不在）与全部诊断条目都不上
+        // 状态列（详情仍在 /agents 面板；BACKLOG「状态列 Agents 块只列运行中 / 存活且无
+        // 诊断的子代理」，含 TUI#56 的 unavailable 口径）
         const agentRows: AgentRowInfo[] = entries
           .filter(
             (entry) =>
-              !(entry.kind === "diagnostic" && entry.reason === "unavailable"),
+              entry.kind !== "diagnostic" && entry.activity === "running",
           )
           .map((entry) => {
             const diagnostic = entry.kind === "diagnostic";
