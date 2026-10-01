@@ -1,6 +1,6 @@
 # /restart 命令：显式重启（接取条目：TUI/docs/BACKLOG.md「`/restart` 命令：显式重启（等价退出确认面板第三项）」）
 
-状态：规划　　开启：2026-10-02　　关闭：
+状态：关闭　　开启：2026-10-02　　关闭：2026-10-02
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -64,8 +64,12 @@
 - `npm run test:tui -- exit-confirm.test.ts`：9 pass / 0 fail（较改动前 +2 条）。
 - `npm run test:tui`（全量）：1293 pass / 0 fail。
 - `npm --prefix TUI run build`：通过（`tsc -p tsconfig.json`）。
-- 真机（待用户确认）：由启动器（`fffdsh` 之类）启动后输入 `/restart` → 进程以退出码 75 结束、外层循环以 `--resume <id>` 拉起同会话；直接 `dsh --profile fff` 启动时 `/restart` 只提示「重启不可用」。
+- 真机（2026-10-02 用户确认通过）：由启动器（`fffdsh` 之类）启动后输入 `/restart` → 进程以退出码 75 结束、外层循环以 `--resume <id>` 拉起同会话；直接 `dsh --profile fff` 启动时 `/restart` 只提示「重启不可用」。
 
 ## 收尾
 
-（待填）
+- 回写：`TUI/docs/DESIGN.md`（「信号与退出契约」段 + 「退出确认 ·「重启」方案」交互段）、`TUI/docs/COMMANDS.md`（§1.1 本地命令计数 40 条 = 35 命令 + 5 别名）、`TUI/README.md`（「重启 dsh（保留会话）」段、本地命令表、退出契约段）——已随 `ce74daa` 提交。
+- BACKLOG：`TUI/docs/BACKLOG.md`「`/restart` 命令：显式重启（等价退出确认面板第三项）」标完成并从待办清理移除（条目已不再列于该文件，历史见本追踪文档与 git 历史）。
+- 遗留项：无。真机确认通过（2026-10-02），未发现新问题。
+- 临时文件：无（本轮未产生 `tmp/` 产物）。
+- 本文件移入 `TUI/docs/archived/2026-10-02-restart-command.md`。
