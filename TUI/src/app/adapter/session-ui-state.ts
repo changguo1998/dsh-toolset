@@ -10,6 +10,7 @@
 
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { ActivityLevel } from "../state.ts";
 import { locateSessionDir, sessionRoots } from "./session-paths.ts";
 
 /** 快照文件名（会话目录内；同一目录还有宿主的 session.v3.jsonl.zstd / session.lock） */
@@ -23,8 +24,11 @@ export interface SessionUiState {
   version: number;
   /** 会话内模型选择（模型面板/`/model` 的结果；宿主日志无 model/selection 时兜底） */
   model?: { provider: string; model: string; reasoningEffort?: string };
-  /** 活动区详略（/collapse on|off；TUI 本地） */
-  verbose?: boolean;
+  /** 活动区详略（`/collapse on|off`；TUI 本地） */
+  collapse?: boolean;
+  /** 活动区输出内容档位（`/verbose think|tool|step`；TUI 本地，BACKLOG #8）。
+   *  注：该键在 #8 之前是**布尔**（详略）——旧值在 parse 时迁移到 `collapse`（取反）。 */
+  verbose?: ActivityLevel;
   /** 模型输出符号统一（/symbol-unify on|off；TUI 本地） */
   symbolUnify?: boolean;
   /** P7：垂直状态列是否显示（Ctrl+S 切换；TUI 本地。缺省 = 显示） */
@@ -68,7 +72,11 @@ function parseSessionUiState(raw: unknown): SessionUiState | undefined {
       };
     }
   }
-  if (typeof o.verbose === "boolean") out.verbose = o.verbose;
+  // #8：`verbose` 键迁移——旧值为布尔（详略两态）→ 取反写入 `collapse`；新值是档位字符串
+  if (typeof o.collapse === "boolean") out.collapse = o.collapse;
+  else if (typeof o.verbose === "boolean") out.collapse = !o.verbose;
+  if (o.verbose === "think" || o.verbose === "tool" || o.verbose === "step")
+    out.verbose = o.verbose;
   if (typeof o.symbolUnify === "boolean") out.symbolUnify = o.symbolUnify;
   if (typeof o.statusColumn === "boolean") out.statusColumn = o.statusColumn;
   const modes = o.modes as Record<string, unknown> | undefined;

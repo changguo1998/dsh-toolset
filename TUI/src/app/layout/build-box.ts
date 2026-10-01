@@ -10,7 +10,12 @@
 import type { Box, Node } from "./box.ts";
 import { v, h, text, styled, spacer } from "./box.ts";
 import { hasCellPipe, isTableStart, parseTableAt, tableBox } from "./table.ts";
-import type { Buffer, BufferKind, BufferLine } from "../state.ts";
+import type {
+  ActivityLevel,
+  Buffer,
+  BufferKind,
+  BufferLine,
+} from "../state.ts";
 import type { ColorName, ThemeId } from "../../renderer/theme.ts";
 import type { FrameSegment, FrameStyle } from "../../renderer/index.ts";
 import {
@@ -67,6 +72,9 @@ export interface BuildBoxOptions {
   /** 活动区紧凑模式（SPEC §6.8 状态 2，`/collapse off`）：每条目压成 1 行 + 行尾省略号
    *  （内部换行折叠为空格；宽度按活动 pane 宽，扣该条目前缀占列）。缺省 false=完整折行 */
   activityCompact?: boolean;
+  /** BACKLOG #8：活动区**输出内容档位**（`/verbose think|tool|step`；缺省 `think`=全量）：
+   *  `tool` 去思考行；`step` 只留工具调用的调用行（step 头与 notice 保留） */
+  activityLevel?: ActivityLevel;
   /** P1：用户块**首行**左侧状态符号（2 列前缀 = 符号 + 1 空格；由 layout 依会话状态算定）。
    *  返回 undefined = 该行不显示符号（非用户块 / 排队块 / 无状态）。 */
   userStatus?: (
@@ -197,6 +205,8 @@ export function buildBox(
   // 紧凑模式（/collapse off）：活动 pane 条目压单行——宽度取活动 pane 可用宽
   // （横向两 pane 不同宽；纵向 activityWidth 缺省 = width），前缀占列由各分支自扣
   const compact = opts.activityCompact === true;
+  /** BACKLOG #8：活动区输出内容档位（think=全量 / tool=去思考 / step=只留工具调用行） */
+  const actLevel: ActivityLevel = opts.activityLevel ?? "think";
   const actPaneW = opts.activityWidth ?? width ?? 0;
   /** 活动区条目文本：紧凑模式压单行 + 行尾省略号（prefixCols = 该条目前缀占列） */
   const actText = (s: string, prefixCols = 0): string =>
@@ -281,10 +291,18 @@ export function buildBox(
       ...(line.queued ? { queued: line.queued } : {}),
     };
     if (line.kind === "tool") {
+      // #8：step 档只留「工具调用的第一行」——结果行 / 辅助行（带状态前缀）整条去掉，
+      // 调用行只取**首个物理行**（去参数续行）；step 头照常显示（活动区时间轴）
+      const isStep = isStepHeader(line.text);
+      if (actLevel === "step" && !isStep && !isToolCall(line.text)) continue;
+      const toolText =
+        actLevel === "step" && !isStep
+          ? (line.text.split("\n")[0] ?? line.text)
+          : line.text;
       // #5：思考 / 正文 / 工具 三类互切 → 本行前插 1 行空行（step 头与结果行不算边界）
       noteActKind("tool", rowMeta);
       toolRun.push({
-        line: { text: line.text, tone: line.tone },
+        line: { text: toolText, tone: line.tone },
         meta: rowMeta,
       });
       continue;
@@ -293,6 +311,8 @@ export function buildBox(
     if (line.kind === "thinking") {
       // 空思考行跳过（流式增量换行锚点）
       if (line.text === "") continue;
+      // #8：tool / step 档不显示思考过程
+      if (actLevel !== "think") continue;
       // 紧凑模式：单行（扣 ┃ 前缀 1 列）
       const node = styled([{ text: actText(line.text, 1) }], {
         prefix: {

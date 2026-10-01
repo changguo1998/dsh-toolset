@@ -329,7 +329,7 @@ test("/new：不重启进程新建会话 → 切换活跃会话、缓冲清空�
   // 旧会话留内容 + 一个待落盘的开关变更（切走前应 flush 给旧会话）
   typeAndEnter(renderer, "旧会话的问题");
   adapter.push({ type: "stream", sessionId: "s1", text: "旧会话的回答" });
-  typeAndEnter(renderer, "/collapse off");
+  typeAndEnter(renderer, "/collapse on");
   await flush();
   typeAndEnter(renderer, "/new");
   await flush();
@@ -337,7 +337,7 @@ test("/new：不重启进程新建会话 → 切换活跃会话、缓冲清空�
   const st = (): {
     activeSessionId: string | null;
     buffer: unknown[];
-    activityVerbose: boolean;
+    activityCompact: boolean;
     modeBySession: Record<string, { plan?: string }>;
   } => (app as unknown as { state: never }).state;
   assert.equal(adapter.newSessionCalls, 1, "调用 adapter.newSession");
@@ -358,9 +358,9 @@ test("/new：不重启进程新建会话 → 切换活跃会话、缓冲清空�
     "切走前把旧会话的 TUI 侧状态落盘",
   );
   assert.equal(
-    adapter.savedUiStates.at(-1)?.state.verbose,
-    false,
-    "落盘内容含 verbose off",
+    adapter.savedUiStates.at(-1)?.state.collapse,
+    true,
+    "落盘内容含 collapse on（紧凑）",
   );
   assert.equal(
     st().modeBySession["s-new2"]?.plan,
@@ -1971,34 +1971,34 @@ test("/theme 非法参数 → notice usage,不调用 renderer.setTheme", () => {
 test("/collapse on|off 切换活动区详略；无参/非法参数只提示用法不动状态", () => {
   const { app, renderer } = makeApp();
   // 状态不可变（apply 替换 state 对象）：每次重新取，避免持有陈旧引用
-  const verbose = (): boolean =>
-    (app as unknown as { state: { activityVerbose: boolean } }).state
-      .activityVerbose;
-  assert.equal(verbose(), true, "缺省完整显示（verbose on）");
-  typeAndEnter(renderer, "/collapse off");
-  assert.equal(verbose(), false, "off → 紧凑模式");
+  const compact = (): boolean =>
+    (app as unknown as { state: { activityCompact: boolean } }).state
+      .activityCompact;
+  assert.equal(compact(), false, "缺省完整折行（collapse off）");
+  typeAndEnter(renderer, "/collapse on");
+  assert.equal(compact(), true, "on → 紧凑模式");
   assert.ok(
-    renderer.lastRender.join("\n").includes("verbose off"),
+    renderer.lastRender.join("\n").includes("collapse on"),
     "切换成功有 notice 回执",
   );
-  typeAndEnter(renderer, "/collapse on");
-  assert.equal(verbose(), true, "on → 完整模式");
+  typeAndEnter(renderer, "/collapse off");
+  assert.equal(compact(), false, "off → 完整折行");
   // 无参 / 非法参数：只提示用法，不改变当前状态
   typeAndEnter(renderer, "/collapse");
-  assert.equal(verbose(), true, "无参不切换");
+  assert.equal(compact(), false, "无参不切换");
   assert.ok(
     renderer.lastRender.join("\n").includes("usage: /collapse on|off"),
     `应有 usage 提示，实际:\n${renderer.lastRender.join("\n")}`,
   );
   typeAndEnter(renderer, "/collapse 也许");
-  assert.equal(verbose(), true, "非法参数不切换");
+  assert.equal(compact(), false, "非法参数不切换");
 });
 
-test("/collapse off（紧凑）下 /help 仍完整显示，不被压成单行省略号隐藏", () => {
+test("/collapse on（紧凑）下 /help 仍完整显示，不被压成单行省略号隐藏", () => {
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/help");
   const fullText = renderer.lastRender.join("\n");
-  typeAndEnter(renderer, "/collapse off");
+  typeAndEnter(renderer, "/collapse on");
   typeAndEnter(renderer, "/help");
   const compactText = renderer.lastRender.join("\n");
   // /help 块在活动区底部对齐，可见尾部应包含最后一行脚注（首部与靠前条目
@@ -3288,26 +3288,38 @@ test("启动即刷 Mode 快照：state 未建立会话时按 adapter.sessionId �
   assert.equal(rec?.state.statusColumn, true, "快照含 P7 statusColumn 字段");
 });
 
-test("会话状态回填：ui-flags 恢复 verbose/symbol-unify，model-selection 恢复会话模型", async () => {
+test("会话状态回填：ui-flags 恢复 collapse / verbose 档位 / symbol-unify，model-selection 恢复会话模型", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
   adapter.sessionId = "s1";
   adapter.modeSnapshotEvents = [
-    { type: "ui-flags", sessionId: "s1", verbose: false, symbolUnify: false },
+    {
+      type: "ui-flags",
+      sessionId: "s1",
+      collapse: true,
+      verbose: "tool",
+      symbolUnify: false,
+    },
     { type: "model-selection", sessionId: "s1", provider: "p2", model: "m2" },
   ];
   const app = new TrackedApp({ renderer, adapter, notify: { enabled: false } });
   app.start();
   await flush();
   const st = (): {
-    activityVerbose: boolean;
+    activityCompact: boolean;
+    activityVerbose: string;
     symbolUnify: boolean;
     modelBySession: Record<string, { provider?: string; model?: string }>;
   } => (app as unknown as { state: never }).state;
   assert.equal(
+    st().activityCompact,
+    true,
+    "详略由 ui-flags 回填（宿主日志不记录）",
+  );
+  assert.equal(
     st().activityVerbose,
-    false,
-    "verbose 由 ui-flags 回填（宿主日志不记录）",
+    "tool",
+    "输出内容档位由 ui-flags 回填（BACKLOG #8）",
   );
   assert.equal(st().symbolUnify, false, "symbol-unify 由 ui-flags 回填");
   const got = st().modelBySession["s1"];
@@ -3321,7 +3333,8 @@ test("会话状态回填：ui-flags 恢复 verbose/symbol-unify，model-selectio
 
 test("会话状态快照：/collapse 与 /model 变更在退出前落盘（含模型与 TUI 本地开关）", async () => {
   const { app, renderer, adapter } = makeApp();
-  typeAndEnter(renderer, "/collapse off");
+  typeAndEnter(renderer, "/collapse on");
+  typeAndEnter(renderer, "/verbose step");
   typeAndEnter(renderer, "/model deepseek/deepseek-test-b");
   await flush();
   await flush();
@@ -3329,7 +3342,12 @@ test("会话状态快照：/collapse 与 /model 变更在退出前落盘（含�
   const rec = adapter.savedUiStates.at(-1);
   assert.ok(rec, "退出前已落盘会话状态快照");
   assert.equal(rec.sessionId, "s1", "快照记在活跃会话上");
-  assert.equal(rec.state.verbose, false, "verbose 记入快照");
+  assert.equal(rec.state.collapse, true, "详略（collapse）记入快照");
+  assert.equal(
+    rec.state.verbose,
+    "step",
+    "输出内容档位（verbose，BACKLOG #8）记入快照",
+  );
   assert.deepEqual(
     rec.state.model,
     { provider: "deepseek", model: "deepseek-test-b" },
@@ -3367,7 +3385,7 @@ test("标题栏 bell 图标按配置接线：notify.enabled → off 灰 / on 绿
           preset: st.presetBySession["s1"],
         },
         {
-          verbose: st.activityVerbose,
+          verbose: !st.activityCompact,
           symbolUnify: st.symbolUnify,
           notifyEnabled: st.notifyEnabled,
         },

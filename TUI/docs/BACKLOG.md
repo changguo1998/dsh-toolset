@@ -8,24 +8,9 @@
 ## 待办
 
 > 临时分组（2026-10-01 收尾整理后：已完成条目已清理，余项按当前顺序从 1 起重编）：
-> ② 结构与行为 #8　③ 暂停 / 待取证 #3。
+> ② 暂停 / 待取证 #3。
 
-### ② 结构与行为
-
-> 改数据产生方式、投递通道或快捷键
-
-#### 输出内容档位
-
-- **待办** **#8 `/verbose` 改为活动区输出内容过滤：`think` / `tool` / `step` 三档**：
-  - **现状**：活动区**按时间顺序混合显示**全部过程行（thinking / 工具调用与结果 / notice / 非 final 正文 / step 头 / shell / subagent 等，见 `layout.ts` 活动区构建与 `build-box.ts` 各分支），没有任何「按内容类型过滤」的开关；`/verbose` 现名仍指详略两态（改名见 #7）。
-  - **期望（用户 2026-10-01 指令 + 三问三答裁定）**：① `/verbose think` = **思考过程 + 正文 + 工具调用**（调用行 / 参数摘要 / 结果行 / 辅助行全显示，即现状全量）；② `/verbose tool` = **正文 + 工具调用**（同上，**去掉思考行**）；③ `/verbose step` = **正文 + 工具调用的第一行**（**去掉**参数摘要 / 结果行 / 辅助行）；④ 作用范围**只活动区**（历史区始终只显示最终正文，不变）；⑤ **缺省档 = `think`**；无参 / 非法参数只提示用法 + 当前档位、不动状态（沿用现有口径）；⑥ 档位随会话状态快照持久化（沿用 `tui-state.json` 口径）。
-  - **与 `/collapse` 的关系**：正交（`/collapse` = 每条目是否压成 1 行；`/verbose` = 显示哪些内容类型），可叠加；实现时确认叠加表现（如 `step` 档 + 紧凑）。
-  - **实现细则（建议口径）**：`state.ts` 的 `activityVerbose: boolean` 现表示紧凑开关 → 语义归 `/collapse`（键建议改名为 `collapse` 并兼容读旧键 `verbose`）；新 `/verbose` 档位另开字段（如 `activityVerbose: "think" | "tool" | "step"`），旧布尔快照按「`true`→`think`、`false`→`think` + 紧凑」迁移。
-  - **落点**：`TUI/src/app/commands.ts`（参数面）、`TUI/src/app/index.ts`（分发 `verbose think|tool|step`、用法/结果文案、`/help` 条目）、`TUI/src/app/state.ts`（新档位字段 + action + 快照读写与迁移）、`TUI/src/app/layout.ts`（活动区构建按档位过滤行类型）、`TUI/src/app/layout/build-box.ts`（`step` 档「工具调用首行」裁剪）、文档（`TUI/README.md`、`TUI/docs/DESIGN.md`、`TUI/docs/SPEC.md` §6.8 / §15.5.1、`TUI/docs/COMMANDS.md`、`TUI/docs/design/NOTICE-LEVELS.md`）、测试（`TUI/tests/{app,activity-verbose,help,session-ui-state}.test.ts`）。
-  - **验收**：真机——① 三档切换后活动区分别是「思考 + 正文 + 全部工具行」「正文 + 全部工具行」「正文 + 工具调用首行」；② 历史区不受影响；③ 无参 / 非法参数只提示用法与当前档位；④ 快照兼容（旧布尔值可读、切会话 / 重启后档位恢复）；⑤ 与 `/collapse` 叠加无异常。单测：三档过滤矩阵（思考行 / 工具参数 / 结果行 / 辅助行的取舍）、快照迁移、命令分发与用法文案。
-  - **来源·状态·优先级**：用户 2026-10-01 指令（「verbose 命令改为控制输出内容。/verbose think 输出思考过程，正文和工具调用，/verbose tool 输出正文和工具调用，/verbose step 输出正文和\<工具调用的第一行>」）。**未接取**。优先级 P2，工作量约 1.5 h。
-
-### ③ 暂停 / 待取证
+### ② 暂停 / 待取证
 
 > 需拍屏或第二客户端取证，暂不接取
 

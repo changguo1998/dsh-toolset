@@ -1,4 +1,4 @@
-// tests/activity-verbose.test.ts — 活动区详略两态（SPEC §6.8；/collapse on|off）
+// tests/activity-compact.test.ts — 活动区详略两态（SPEC §6.8；/collapse on|off）
 //
 // 状态 1（verbose on，缺省）：每条目完整折行显示
 // 状态 2（verbose off，紧凑）：每条目压成 1 行 + 行尾省略号
@@ -108,13 +108,13 @@ test("端到端：/collapse off 后 buildFrame 活动区行数收敛且不越宽
     return rows.filter((r) => /[┃○✓]/.test(r)).length;
   };
   const verboseRows = countAct(s);
-  const compactState = reduceState(s, { type: "activity-verbose", on: false });
+  const compactState = reduceState(s, { type: "activity-compact", on: true });
   const compactRows = countAct(compactState);
   assert.ok(
     verboseRows > compactRows,
     `紧凑后活动区行数应减少（${verboseRows} → ${compactRows}）`,
   );
-  assert.equal(compactState.activityVerbose, false);
+  assert.equal(compactState.activityCompact, true);
   assert.ok(g.activityH > 0);
 });
 

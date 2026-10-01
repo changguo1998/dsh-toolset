@@ -171,6 +171,7 @@ export type SlashRoute =
   | "effort"
   | "theme"
   | "collapse"
+  | "verbose"
   | "symbol-unify"
   | "session"
   | "continue"
@@ -228,6 +229,11 @@ export const LOCAL_COMMANDS: readonly {
     name: "collapse",
     route: "collapse",
     desc: "活动区详略：on=完整折行 / off=紧凑（每条目 1 行 + 省略号）",
+  },
+  {
+    name: "verbose",
+    route: "verbose",
+    desc: "活动区输出内容：think=思考+正文+工具 / tool=正文+工具 / step=正文+工具调用行",
   },
   {
     name: "symbol-unify",

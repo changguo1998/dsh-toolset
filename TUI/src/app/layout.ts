@@ -1588,8 +1588,10 @@ function buildTopRegion(
     {
       themeId: state.themeId,
       gutter: state.messageGutter,
-      // 活动区详略两态（SPEC §6.8）：verbose=false → 紧凑（每条目 1 行 + 省略号，/collapse off）
-      activityCompact: !state.activityVerbose,
+      // 活动区详略两态（SPEC §6.8）：activityCompact=true → 紧凑（每条目 1 行 + 省略号，/collapse on）
+      activityCompact: state.activityCompact,
+      // BACKLOG #8：活动区输出内容档位（think / tool / step；缺省 think）
+      activityLevel: state.activityVerbose,
       lineOffset: win.start,
       // P1：用户块首行左侧状态符号（✓/✗/■/? 与活跃块 ●/○/△）
       userStatus: userBlockSymbolResolver(state),
@@ -1788,7 +1790,7 @@ function buildTopRegion(
             state,
             { mode, policy, preset },
             {
-              verbose: state.activityVerbose,
+              verbose: !state.activityCompact,
               symbolUnify: state.symbolUnify,
               notifyEnabled: state.notifyEnabled,
             },

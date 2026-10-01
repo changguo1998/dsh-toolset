@@ -4030,7 +4030,7 @@ test("restoreSessionState：goal 按序回放全部事件（历史）+ todo 折�
   try {
     writeSessionUiState(
       "s1",
-      { version: 1, verbose: false, symbolUnify: false },
+      { version: 1, collapse: true, verbose: "tool", symbolUnify: false },
       [root],
     );
     const sq = new FakeSessionQuery();
@@ -4131,7 +4131,8 @@ test("restoreSessionState：goal 按序回放全部事件（历史）+ todo 折�
       {
         type: "ui-flags",
         sessionId: "s1",
-        verbose: false,
+        collapse: true,
+        verbose: "tool" as const,
         symbolUnify: false,
       },
       "TUI 本地开关来自快照",
@@ -4183,7 +4184,8 @@ test("saveSessionUiState/readSessionUiState：会话目录旁挂 tui-state.json�
     const state = {
       version: 1 as const,
       model: { provider: "p", model: "m", reasoningEffort: "high" },
-      verbose: false,
+      collapse: true,
+      verbose: "tool" as const,
       symbolUnify: true,
       modes: { plan: "on" as const, sandbox: "ro", policy: "ask" as const },
     };

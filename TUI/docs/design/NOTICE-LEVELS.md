@@ -46,7 +46,7 @@
 | goal/todo 详情见左侧信息栏 | handleSlash（/goal） |
 | usage: /\<name> (no argument; opens the picker) | handleModelFocus（/provider、/effort 带参） |
 | usage: /theme [light|dark|toggle] | handleThemeCommand（/theme 非法参数） |
-| usage: /collapse on|off（当前：…） / usage: /symbol-unify on|off（当前：…） | handleCollapseCommand / handleSymbolUnifyCommand（无参或非法参数） |
+| usage: /collapse on|off（当前：…） / usage: /symbol-unify on|off（当前：…） / usage: /verbose think|tool|step（当前：…） | handleCollapseCommand / handleSymbolUnifyCommand / handleVerboseLevelCommand（无参或非法参数） |
 | 用法：/policy [ask|never] | handlePolicyCommand |
 | 用法：/rename \<标题> | handleRenameCommand（缺参） |
 | already on current model \<label> | handleModelCommand（/model 带参） |
@@ -68,7 +68,8 @@
 | 已切换到会话「\<title>」 | resumeToSession（/session Enter） | success |
 | 已复制最后一条回复到剪贴板 | handleCopy（/copy） | success |
 | theme: \<id> (\<palette>) | handleThemeCommand | success |
-| 活动区：verbose on（完整折行）/ off（紧凑…） | handleCollapseCommand | success |
+| 活动区：collapse on（紧凑：每条目 1 行 + 省略号）/ collapse off（完整折行） | handleCollapseCommand | success |
+| 活动区内容：think（思考+正文+工具）/ tool（正文+工具）/ step（正文+工具调用行） | handleVerboseLevelCommand | success |
 | 模型输出符号统一：on（替换 + 提醒）/ off（原样） | handleSymbolUnifyCommand | success |
 | current model -> \<label> | handleModelCommand | success |
 | 审批策略：ask（每次工具调用询问）/ never（工具调用自动放行） | handlePolicyCommand | success |

@@ -1449,6 +1449,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
 
     // —— TUI 本地开关（宿主日志没有，只有快照） ——
     if (
+      uiState?.collapse !== undefined ||
       uiState?.verbose !== undefined ||
       uiState?.symbolUnify !== undefined ||
       uiState?.statusColumn !== undefined ||
@@ -1457,6 +1458,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       emit({
         type: "ui-flags",
         sessionId: id,
+        // #8：详略（/collapse）与内容档位（/verbose）分列两个字段
+        ...(uiState.collapse === undefined
+          ? {}
+          : { collapse: uiState.collapse }),
         ...(uiState.verbose === undefined ? {} : { verbose: uiState.verbose }),
         ...(uiState.symbolUnify === undefined
           ? {}

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type {
   AppState,
   InputMode,
+  ActivityLevel,
   QuestionPanelState,
   StateAction,
   StatusPanelState,
@@ -848,6 +849,7 @@ export class App {
             },
           }
         : {}),
+      collapse: this.state.activityCompact,
       verbose: this.state.activityVerbose,
       symbolUnify: this.state.symbolUnify,
       // P7：垂直状态列显隐（TUI 本地开关，随会话持久化）
@@ -1398,9 +1400,14 @@ export class App {
         ) {
           break;
         }
+        if (e.collapse !== undefined) {
+          this.apply((s) =>
+            reduceState(s, { type: "activity-compact", on: e.collapse! }),
+          );
+        }
         if (e.verbose !== undefined) {
           this.apply((s) =>
-            reduceState(s, { type: "activity-verbose", on: e.verbose! }),
+            reduceState(s, { type: "activity-verbose", level: e.verbose! }),
           );
         }
         if (e.symbolUnify !== undefined) {
@@ -2664,6 +2671,10 @@ export class App {
       case "collapse":
         this.handleCollapseCommand(line);
         return;
+      case "verbose":
+        // BACKLOG #8：/verbose 改为活动区**输出内容**档位（think / tool / step）
+        this.handleVerboseLevelCommand(line);
+        return;
       case "symbol-unify":
         this.handleSymbolUnifyCommand(line);
         return;
@@ -2829,29 +2840,58 @@ export class App {
 
   /**
    * /collapse on|off：活动区详略切换（SPEC §6.8 两态）。
-   * on = 每条目完整折行（状态 1，缺省）；off = 紧凑（状态 2：每条目 1 行 + 行尾省略号）。
+   * on = 紧凑（状态 2：每条目 1 行 + 行尾省略号）；off = 每条目完整折行（状态 1，缺省）。
    * 无参数/非法参数 → 只提示用法与当前状态，不切换。
    */
   private handleCollapseCommand(line: string): void {
     const arg = line.slice("/collapse".length).trim().toLowerCase();
-    const cur = this.state.activityVerbose;
-    let next: boolean;
-    if (arg === "on" || arg === "true") next = true;
-    else if (arg === "off" || arg === "false") next = false;
+    const curCompact = this.state.activityCompact; // true = 紧凑
+    let nextCompact: boolean;
+    if (arg === "on" || arg === "true") nextCompact = true;
+    else if (arg === "off" || arg === "false") nextCompact = false;
     else {
       this.notice(
-        `usage: /collapse on|off（当前：${cur ? "on(完整)" : "off(紧凑)"}）`,
+        `usage: /collapse on|off（当前：${curCompact ? "on(紧凑)" : "off(完整折行)"}）`,
         "info",
       );
       return;
     }
-    if (next !== cur) {
-      this.apply((s) => reduceState(s, { type: "activity-verbose", on: next }));
+    if (nextCompact !== curCompact) {
+      this.apply((s) =>
+        reduceState(s, { type: "activity-compact", on: nextCompact }),
+      );
       this.paint();
       this.scheduleSessionStateSave();
     }
     this.notice(
-      `活动区：${next ? "verbose on（完整折行）" : "verbose off（紧凑：每条目 1 行 + 省略号）"}`,
+      `活动区：${nextCompact ? "collapse on（紧凑：每条目 1 行 + 省略号）" : "collapse off（完整折行）"}`,
+      "success",
+    );
+  }
+
+  /**
+   * `/verbose think|tool|step`：活动区**输出内容**档位（BACKLOG #8；只作用于活动区）。
+   * think = 思考 + 正文 + 工具调用（全量，缺省）；tool = 正文 + 工具调用（去思考）；
+   * step = 正文 + 工具调用的**调用行**（去结果行 / 辅助行；step 头与 notice 保留）。
+   * 无参数 / 非法参数 → 只提示用法与当前档位，不切换（沿用既有口径）。
+   */
+  private handleVerboseLevelCommand(line: string): void {
+    const arg = line.slice("/verbose".length).trim().toLowerCase();
+    const cur = this.state.activityVerbose;
+    if (arg !== "think" && arg !== "tool" && arg !== "step") {
+      this.notice(`usage: /verbose think|tool|step（当前：${cur}）`, "info");
+      return;
+    }
+    const next: ActivityLevel = arg;
+    if (next !== cur) {
+      this.apply((s) =>
+        reduceState(s, { type: "activity-verbose", level: next }),
+      );
+      this.paint();
+      this.scheduleSessionStateSave();
+    }
+    this.notice(
+      `活动区内容：${next}（think=思考+正文+工具 / tool=正文+工具 / step=正文+工具调用行）`,
       "success",
     );
   }
@@ -4107,6 +4147,10 @@ export class App {
       {
         cmd: "/collapse on|off",
         desc: "活动区详略：on=完整折行 / off=紧凑（每条目 1 行 + 行尾省略号）",
+      },
+      {
+        cmd: "/verbose think|tool|step",
+        desc: "活动区输出内容：think=思考+正文+工具 / tool=正文+工具 / step=正文+工具调用行",
       },
       {
         cmd: "/symbol-unify on|off",

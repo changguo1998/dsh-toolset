@@ -99,6 +99,12 @@ export const DEFAULT_MESSAGE_GUTTER = 4;
 /** 输入栏临时模式（$ shell / / slash / < steer；提交后自动回退 normal，不再有 Esc 回退） */
 export type InputMode = "normal" | "shell" | "slash" | "steer";
 
+/** 活动区**输出内容档位**（BACKLOG #8，`/verbose think|tool|step`；缺省 `think`）：
+ *  - `think`：思考 + 正文 + 工具调用（调用行 / 参数 / 结果 / 辅助行全显示）；
+ *  - `tool`：正文 + 工具调用（去思考行）；
+ *  - `step`：正文 + 工具调用的**调用行**（去结果行 / 辅助行；step 头与 notice 保留）。 */
+export type ActivityLevel = "think" | "tool" | "step";
+
 /** 输入历史条目（BACKLOG TUI#34）：提交时的**提示符口径文本** + 当时的输入模式。
  *  模式必须随条目保存——否则 `/agents` 回溯后会变成普通输入（真机缺陷修复，2026-09-27）。 */
 export interface InputHistoryEntry {
@@ -540,9 +546,12 @@ export interface AppState {
   focusedPanel: "history" | "activity" | "status" | null;
   /** 活动区（流输出）滚动偏移（距活动区底部行数；0=跟随最新，渲染层 clamp） */
   activityScroll: number;
-  /** 活动区是否完整显示（verbose）：true=每条目完整折行显示（缺省）；
-   *  false=紧凑模式（SPEC §6.8 状态 2：每条目压 1 行 + 行尾省略号）。`/collapse on|off` 切换 */
-  activityVerbose: boolean;
+  /** 活动区**紧凑模式**（详略两态）：true=每条目压 1 行 + 行尾省略号；
+   *  false=每条目完整折行（缺省）。`/collapse on|off` 切换（on = 紧凑） */
+  activityCompact: boolean;
+  /** 活动区**输出内容档位**（BACKLOG #8，`/verbose think|tool|step`）：与「详略两态」
+   *  （`/collapse`）正交——一个决定显示哪些内容类型，一个决定每条目是否压成 1 行 */
+  activityVerbose: ActivityLevel;
   /** 模型输出符号统一（symbol-unify）：true=把变体符号替换为推荐符号并提醒（缺省）；
    *  false=关闭（原样展示，不替换不提醒）。`/symbol-unify on|off` 切换 */
   symbolUnify: boolean;
@@ -725,7 +734,8 @@ export function initialState(
     statusColumnScroll: 0,
     focusedPanel: null, // 无焦点；Tab 进入焦点循环
     activityScroll: 0,
-    activityVerbose: true, // 活动区完整显示（缺省）；/collapse off 切紧凑
+    activityCompact: false, // 活动区完整折行（缺省）；/collapse on 切紧凑
+    activityVerbose: "think", // 活动区内容档位（缺省最全）；/verbose tool|step 逐步精简
     symbolUnify: true, // 模型输出符号统一（缺省开）；/symbol-unify off 切原样
     notifyEnabled: opts?.notifyEnabled ?? true, // 声音提醒（配置项，只读展示）
     statusColumnVisible: true, // P7：垂直状态列默认显示（Ctrl+S 切换）
@@ -2102,9 +2112,12 @@ export function reduceState(state: AppState, action: StateAction): AppState {
               : state.focusedPanel,
         };
       }
+      case "activity-compact":
+        // 活动区详略（SPEC §6.8 两态）：true=紧凑（每条目 1 行 + 省略号）；false=完整折行
+        return { ...state, activityCompact: action.on };
       case "activity-verbose":
-        // 活动区显示详略（SPEC §6.8 两态）：true=完整折行；false=紧凑（每条目 1 行 + 省略号）
-        return { ...state, activityVerbose: action.on };
+        // 活动区输出内容档位（BACKLOG #8）：think / tool / step
+        return { ...state, activityVerbose: action.level };
       case "symbol-unify":
         // 模型输出符号统一开关：true=变体替换为推荐并提醒；false=原样（不替换不提醒）
         return { ...state, symbolUnify: action.on };
@@ -2680,7 +2693,9 @@ export type StateAction =
   | { type: "clear-stripped" }
   | { type: "status"; status: Partial<SystemStatus> }
   | { type: "set-theme"; themeId: ThemeId }
-  | { type: "activity-verbose"; on: boolean }
+  | { type: "activity-compact"; on: boolean }
+  /** BACKLOG #8：活动区输出内容档位（think / tool / step） */
+  | { type: "activity-verbose"; level: ActivityLevel }
   /** P7：垂直状态列显隐（visible 缺省 = 取反，供 Ctrl+S 切换） */
   | { type: "status-column"; visible?: boolean }
   /** #9：下半区（Turn 流 + Tool 面板区）显隐（visible 缺省 = 取反，供 Ctrl+T 切换） */

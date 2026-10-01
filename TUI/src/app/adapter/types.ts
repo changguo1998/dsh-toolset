@@ -4,7 +4,7 @@
 // 外部消费方（app/demo/tests）继续从 ./adapter/dsh.ts 的显式重导取得。
 
 import type { SessionUiState } from "./session-ui-state.ts";
-import type { TurnEndReason } from "../state.ts";
+import type { ActivityLevel, TurnEndReason } from "../state.ts";
 
 export type AgentStatus = "idle" | "thinking" | "tool" | "done";
 
@@ -228,8 +228,10 @@ export type DshEvent =
       /** TUI 本地开关回填（切换会话时由 TUI 侧快照恢复；宿主日志不记录这两项） */
       type: "ui-flags";
       sessionId: string;
-      /** 活动区详略（/collapse）；缺省 = 该会话无记录 */
-      verbose?: boolean;
+      /** 活动区详略（`/collapse on|off`）；缺省 = 该会话无记录 */
+      collapse?: boolean;
+      /** 活动区输出内容档位（`/verbose think|tool|step`，BACKLOG #8）；缺省 = 该会话无记录（think） */
+      verbose?: ActivityLevel;
       /** 模型输出符号统一（/symbol-unify）；缺省 = 该会话无记录 */
       symbolUnify?: boolean;
       /** P7：垂直状态列是否显示（Ctrl+S 切换）；缺省 = 该会话无记录（默认显示） */

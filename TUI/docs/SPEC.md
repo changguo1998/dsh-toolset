@@ -408,7 +408,7 @@ setCell(row: FrameRow, col: number, ch: string, style?: FrameStyle): void
 
 - **状态列分级折叠**（L0–L3）：按 rect 高逐级尝试、首次放下即采用；必保行与可折叠条目及其优先级由现状块结构（`head`/`items`）自然携带，**不发明“可折叠标注”**（现 `foldAt`）。Goal 块额外携带 `historyFrom`（`items[≥historyFrom]` 为旧 goal 条目）：L1 只保留最近 1 条历史并提示隐藏数，L2 起压成标题行
 - **历史区组折叠**：仅保最近 N 回复组，更早替换为灰占位（`dialogueWindow` 在 buffer 层切片 + 占位行）
-- **活动区两态**：状态 1（`/collapse on`，缺省）每条完全显示、溢出按行截断 + 可滚动；状态 2（`/collapse off`，紧凑）每条目压为 1 行、行尾省略号。**触发方式已定：显式命令切换**（不做按高度预算自动降级；实现见 §15.5.1）
+- **活动区两态**：状态 1（`/collapse off`，缺省）每条完全显示、溢出按行截断 + 可滚动；状态 2（`/collapse on`，紧凑）每条目压为 1 行、行尾省略号。**触发方式已定：显式命令切换**（不做按高度预算自动降级；实现见 §15.5.1）。另有**输出内容三档** `/verbose think|tool|step`（BACKLOG #8，见 §15.5）
 - 滚动 viewport：按矩形高裁行 + 行级滚动偏移（= 现状 `computeViewport` 语义）
 
 **适配落点**（均为 `(内容, rect) → 行` 的纯函数，同输入同输出，支撑 §9 的摊平可复现不变量）：
@@ -727,12 +727,18 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **实现**：`build-box.ts` 活动区叶子组装期的 `noteActKind()`（三类各一处调用；间隔空行取新类型行的 meta、`kind:"plain"`）。活动 pane 可视行数与滚动上限按**实际渲染行数**计（`activityMaxScroll`），间隔空行自动计入。
 - **回归**：`tests/activity-type-gap.test.ts`（互切矩阵 / 同类连续 / notice 与 step 不新增 / 开头不插）+ `tests/activity-verbose.test.ts`（紧凑模式行数 = 条目数 + 间隔数）+ `tests/layout4.test.ts`（思考与下一个 step 分割行之间为空行）+ `tests/content-mapping.test.ts`（已偏离项：只多空行）。
 
-#### 活动区详略两态
+#### 活动区详略两态（`/collapse`）
 
-- **语义**：状态 1（`verbose on`，缺省）每条目完整折行；状态 2（`verbose off`）每条目压成 1 行 + 行尾 `…`，条目内换行折叠为空格。触发方式为**用户显式命令**（不做「按 fill 高度预算自动降级」——自动降级会让同一份内容在不同窗口高度下详略跳变，阅读位置不稳定）。
-- **实现**：`state.activityVerbose: boolean`（缺省 true）+ action `activity-verbose{on}`；`buildTopRegion` 传 `activityCompact: !state.activityVerbose` → `BuildBoxOptions.activityCompact`，全部落在 `build-box.ts` 构建期（`compactActivityLine` 单行压缩：按显示宽截断时预留 1 列放 `…`，宽度 = 活动 pane 宽扣该条目前缀列数）。各分支：thinking、tool（调用 / 结果 / 辅助行，用压缩后文本再上色，工具名前缀保持）、notice（紧凑下不再设 `hanging`）、非 final assistant（紧凑下不建 markdown 表格，因其天然多行）。
+- **语义**：状态 1（`/collapse off`，缺省）每条目完整折行；状态 2（`/collapse on`）每条目压成 1 行 + 行尾 `…`，条目内换行折叠为空格。触发方式为**用户显式命令**（不做「按 fill 高度预算自动降级」——自动降级会让同一份内容在不同窗口高度下详略跳变，阅读位置不稳定）。
+- **实现**：`state.activityCompact: boolean`（缺省 false；true = 紧凑）+ action `activity-compact{on}`；`buildTopRegion` 传 `activityCompact: state.activityCompact` → `BuildBoxOptions.activityCompact`，全部落在 `build-box.ts` 构建期（`compactActivityLine` 单行压缩：按显示宽截断时预留 1 列放 `…`，宽度 = 活动 pane 宽扣该条目前缀列数）。各分支：thinking、tool（调用 / 结果 / 辅助行，用压缩后文本再上色，工具名前缀保持）、notice（紧凑下不再设 `hanging`）、非 final assistant（紧凑下不建 markdown 表格，因其天然多行）。
 - **与 pane 高度 / 滚动的关系**：紧凑只改条目行数，`activityH` 与 `activityScroll` 口径不变；行数变少后 `activityMaxScroll` 自动收敛。
 - **回归**：`tests/activity-verbose.test.ts`（完整模式折行多行 / 紧凑每条目 1 行且 ≤ pane 宽 + 行尾 `…` / 换行折叠 / 短条目不加省略号 / 端到端 buildFrame 行数收敛）+ `tests/app.test.ts`（切换与无参 / 非法参数只提示用法不动状态）。
+
+#### 活动区输出内容三档（`/verbose think|tool|step`；BACKLOG #8）
+
+- **语义**：只作用于活动区（历史区不变），与「详略两态」**正交**、可叠加：`think`（缺省）= 思考 + 正文 + 工具调用（调用行 / 参数 / 结果 / 辅助行全显示）；`tool` = 正文 + 工具调用（**去思考行**）；`step` = 正文 + 工具调用的**第一行**（结果行 / 辅助行整条去掉，调用行只取**首个物理行**＝去参数续行；**step 头与 notice 保留**）。
+- **实现**：`state.activityVerbose: ActivityLevel`（缺省 `"think"`）+ action `activity-verbose{level}`；`buildTopRegion` 传 `activityLevel` → `BuildBoxOptions.activityLevel`，过滤在 `build-box.ts` 构建期（thinking 分支跳过；tool 分支按 `isToolCall` / `isStepHeader` 取舍）。无参 / 非法参数只提示用法与当前档位、不切换；档位随会话状态快照持久化（键 `verbose`；旧布尔值按「详略」语义迁移到 `collapse`）。
+- **回归**：`tests/activity-level.test.ts`（三档过滤矩阵 / step 取首行 / 命令切换与正交性）+ `tests/session-ui-state.test.ts`（快照迁移）+ `tests/app.test.ts`（ui-flags 回填与快照落盘）。
 
 #### 活动区排列：黄金分割比自动选上下 / 左右
 
