@@ -2073,7 +2073,7 @@ test("buildFrame: step 分割行前吸收空活动行（前文结束即接分割
   );
 });
 
-test("buildFrame: 思考块与下一个 step 分割行之间是「类型间隔空行」（#5）", () => {
+test("buildFrame: 思考块与下一个 step 分割行紧排（#5 收窄后不留空行）", () => {
   let s = initialState();
   s = reduceState(s, {
     type: "step",
@@ -2123,11 +2123,11 @@ test("buildFrame: 思考块与下一个 step 分割行之间是「类型间隔�
   const blank = (l: string): boolean => l.replace(/[│|\s]/g, "") === "";
   const sep = lines.findIndex((l) => l.includes(stepHead(2)));
   assert.ok(sep >= 0, "step 2 分割行存在: " + lines.join("|"));
-  // #5：思考（类型 1）→ 工具（step 头起，类型 3）之间插 1 行空行，空行留在分割行之前
-  assert.ok(blank(lines[sep - 1]!), "思考块与分割行之间为类型间隔空行");
+  // 2026-10-02 收窄：思考（类型 1）→ 工具（step 头起）不插类型间隔空行 → 分割行紧贴思考行
+  assert.ok(!blank(lines[sep - 1]!), "思考块与分割行之间不留空行");
   assert.ok(
-    (lines[sep - 2] ?? "").includes("好的，下一步执行"),
-    "空行之上即思考行: " + JSON.stringify(lines[sep - 2]),
+    (lines[sep - 1] ?? "").includes("好的，下一步执行"),
+    "分割行之上即思考行: " + JSON.stringify(lines[sep - 1]),
   );
 });
 

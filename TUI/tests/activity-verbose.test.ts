@@ -48,8 +48,8 @@ test("活动区紧凑模式：每条目 1 行 + 行尾省略号", () => {
   assert.equal(texts.length, buf.length, "每条目压成 1 行（类型间隔空行另计）");
   assert.equal(
     rows.length,
-    buf.length + 2,
-    "#5：思考→工具、工具→正文各 1 行类型间隔（4 条目 + 2 空行）",
+    buf.length,
+    "#5：思考↔工具、工具↔正文均不插类型间隔（4 条目 = 4 行）",
   );
   for (const t of texts) {
     assert.ok(
