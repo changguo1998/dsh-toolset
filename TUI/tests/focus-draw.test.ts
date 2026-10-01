@@ -147,6 +147,25 @@ test("focusFrame：history 焦点只给既有框线上色（字形不变）", ()
       `${why} 转焦点色`,
     );
   }
+  // 顶边**整行**都要转色（曾只染标签/角字，线体仍是边框色）
+  {
+    const plain = rowPlain(rows[1]!);
+    assert.ok(plain.includes("─"), "顶边有横线字形");
+    // 逐字形核对：每个 ─ 所在段都应是 focus 样式
+    let w = 0;
+    for (const seg of rows[1]!.segments) {
+      for (const ch of seg.text) {
+        if (ch === "─") {
+          assert.equal(
+            seg.style?.fg,
+            "focus",
+            `顶边第 ${w} 列的 ─ 应为焦点色（实际 ${seg.style?.fg}）`,
+          );
+        }
+        w += 1;
+      }
+    }
+  }
   // 内容列（中段空白列）不受影响
   assert.equal(rowPlain(rows[2]!).at(left + 3), " ", "内容列不被覆写");
 });

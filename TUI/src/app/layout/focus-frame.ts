@@ -227,8 +227,8 @@ export function focusFrame(
     case "history": {
       // 顶边（标题栏下划线行）：左缘 D 列 + 右缘（横向 = 内部分隔列、纵向 = 外框列）
       const rEdge = horizontal ? divCol : right;
-      emphasize(rows, top, dCol, style);
-      emphasize(rows, top, rEdge, style);
+      // 顶边框**整行**染色（含标题文字两侧的边框线；只染既有框线字形）
+      emphasizeH(rows, top, dCol, rEdge + 1, style);
       // 左右缘竖线（历史区行）
       for (let r = top + 1; r < bottom; r++) {
         emphasize(rows, r, dCol, style);
