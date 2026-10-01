@@ -19,7 +19,16 @@
  *   不消费事件 seq / 日志偏移 → N/A（0.1.5-rc.2 序号模型拆分对本插件无影响）。
  */
 
+import { enforceBudget, type BudgetEnforcement } from "./budget.ts";
 import type { KnowledgeService } from "./knowledge.ts";
+import {
+  allowsType,
+  checkContent,
+  compileRules,
+  type CompiledRules,
+  type PersistRules,
+  type SkipReason,
+} from "./rules.ts";
 
 /** 默认写直达白名单：仅这些类型的事件实时沉淀进知识库。 */
 export const DEFAULT_PERSIST_TYPES: ReadonlySet<string> = new Set([
@@ -191,6 +200,44 @@ export interface HooksOptions {
   project: string | (() => string);
   /** 白名单覆盖；null 表示不过滤（全部事件尝试沉淀）。 */
   persistTypes?: ReadonlySet<string> | null;
+  /** 入库过滤规则（类型 / 最小长度 / 拒绝模式）；`types` 缺省时沿用 `persistTypes`。 */
+  rules?: PersistRules;
+  /** 容量守卫（写入路径即时生效）：`maxTokens ≤ 0` 或缺省 = 不设限。 */
+  budget?: { maxTokens: number; batch?: number };
+}
+
+/** 跳过原因（`no-summary` = 白名单内但摘要化后无内容）。 */
+export type IngestSkip = SkipReason | "type" | "no-summary";
+
+/** 单条事件的摄入结果（可观测性：为什么没入库）。 */
+export interface IngestOutcome {
+  /** 真正新建了 chunk（`false` 也可能是被去重吃掉，见 `deduped`）。 */
+  accepted: boolean;
+  reason?: IngestSkip;
+  /** 本次新建 chunk 数（0 = 全部命中 `content_hash` 去重） */
+  created?: number;
+  deduped?: boolean;
+  /** 触发了容量守卫时的压缩 / 淘汰结果 */
+  budget?: BudgetEnforcement;
+}
+
+/** 进程内累计计数（`SessionHooks.stats` 读取，`resetStats()` 清零）。 */
+export interface IngestStats {
+  accepted: number;
+  deduped: number;
+  skipped: Record<IngestSkip, number>;
+  compressed: number;
+  evicted: number;
+}
+
+function emptyStats(): IngestStats {
+  return {
+    accepted: 0,
+    deduped: 0,
+    skipped: { type: 0, "no-summary": 0, empty: 0, short: 0, pattern: 0 },
+    compressed: 0,
+    evicted: 0,
+  };
 }
 
 /** session/event → 知识库 的写直达适配器。 */
@@ -198,6 +245,9 @@ export class SessionHooks {
   readonly #kb: KnowledgeService;
   readonly #project: string | (() => string);
   readonly #types: ReadonlySet<string> | null;
+  readonly #rules: CompiledRules;
+  readonly #budget: { maxTokens: number; batch?: number } | undefined;
+  #stats: IngestStats = emptyStats();
 
   constructor(kb: KnowledgeService, options: HooksOptions) {
     this.#kb = kb;
@@ -206,6 +256,25 @@ export class SessionHooks {
       options.persistTypes === undefined
         ? DEFAULT_PERSIST_TYPES
         : options.persistTypes;
+    this.#rules = compileRules(options.rules, this.#types);
+    this.#budget = options.budget;
+  }
+
+  /** 编译后的规则（含非法模式清单，供入口记 warning）。 */
+  get rules(): CompiledRules {
+    return this.#rules;
+  }
+
+  /** 进程内摄入计数（只读快照）。 */
+  get stats(): IngestStats {
+    return {
+      ...this.#stats,
+      skipped: { ...this.#stats.skipped },
+    };
+  }
+
+  resetStats(): void {
+    this.#stats = emptyStats();
   }
 
   /** 订阅宿主 `session/event`；返回解绑函数。 */
@@ -216,16 +285,28 @@ export class SessionHooks {
     return typeof disposer === "function" ? disposer : () => {};
   }
 
-  /** 处理单条事件：过滤 → 摘要 → put。非白名单/畸形事件安全跳过（过滤先于写入，put 事务化不半写）。 */
-  handle(sessionId: string, event: SessionEventLike): void {
-    if (event === undefined || event === null || typeof event.type !== "string")
-      return;
-    if (this.#types !== null && !this.#types.has(event.type)) return;
+  /**
+   * 处理单条事件：类型闸门 → 摘要 → 内容闸门（长度 / 隐私模式）→ put → 容量守卫。
+   * 非白名单 / 畸形 / 被规则拒绝的事件安全跳过（过滤先于写入，`put` 事务化不半写），
+   * 并计入 `stats`——静默跳过不可排查。
+   */
+  handle(sessionId: string, event: SessionEventLike): IngestOutcome {
+    if (
+      event === undefined ||
+      event === null ||
+      typeof event.type !== "string"
+    ) {
+      return this.#skip("type");
+    }
+    if (!allowsType(this.#rules, event.type)) return this.#skip("type");
     const summary = summarizeEvent(event.type, event.data);
-    if (summary === null) return;
-    this.#kb.put({
-      project:
-        typeof this.#project === "function" ? this.#project() : this.#project,
+    if (summary === null) return this.#skip("no-summary");
+    const verdict = checkContent(this.#rules, summary.content);
+    if (!verdict.accept) return this.#skip(verdict.reason ?? "empty");
+    const project =
+      typeof this.#project === "function" ? this.#project() : this.#project;
+    const result = this.#kb.put({
+      project,
       title: summary.title,
       category: summary.category,
       content: summary.content,
@@ -233,5 +314,28 @@ export class SessionHooks {
       sessionId,
       source: { kind: "session", ref: sessionId },
     });
+    if (result.created === 0) {
+      this.#stats.deduped += 1;
+      return { accepted: false, created: 0, deduped: true };
+    }
+    this.#stats.accepted += 1;
+    if (this.#budget === undefined || this.#budget.maxTokens <= 0) {
+      return { accepted: true, created: result.created };
+    }
+    const budget = enforceBudget(this.#kb, {
+      project,
+      maxTokens: this.#budget.maxTokens,
+      ...(this.#budget.batch === undefined
+        ? {}
+        : { batch: this.#budget.batch }),
+    });
+    this.#stats.compressed += budget.compressed;
+    this.#stats.evicted += budget.evicted;
+    return { accepted: true, created: result.created, budget };
+  }
+
+  #skip(reason: IngestSkip): IngestOutcome {
+    this.#stats.skipped[reason] += 1;
+    return { accepted: false, reason };
   }
 }

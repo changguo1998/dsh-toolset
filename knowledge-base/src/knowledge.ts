@@ -398,6 +398,100 @@ export class KnowledgeService {
     return Number(row.tokens);
   }
 
+  /** 提升候选（巩固用）：被检索命中过（`last_referenced > created_at`）且还能提权（importance < 5）。 */
+  boostCandidates(opts: {
+    project: string;
+    limit?: number;
+    now?: number;
+  }): Array<{
+    id: number;
+    importance: number;
+    lastReferenced: number;
+    createdAt: number;
+  }> {
+    const limit = Math.max(1, Math.min(opts.limit ?? 50, 1000));
+    const rows = this.#db
+      .prepare(
+        `SELECT id, importance, last_referenced, created_at FROM chunks
+         WHERE project = ? AND importance < 5 AND last_referenced > created_at
+         ORDER BY importance DESC, last_referenced DESC, id ASC
+         LIMIT ?`,
+      )
+      .all(opts.project, limit) as Array<{
+      id: number;
+      importance: number;
+      last_referenced: number;
+      created_at: number;
+    }>;
+    return rows.map((row) => ({
+      id: Number(row.id),
+      importance: Number(row.importance),
+      lastReferenced: Number(row.last_referenced),
+      createdAt: Number(row.created_at),
+    }));
+  }
+
+  /** 设置 importance（clamp 1..5）；返回是否有变更。 */
+  setImportance(id: number, importance: number): boolean {
+    const value = Math.max(1, Math.min(5, Math.trunc(importance)));
+    const result = this.#db
+      .prepare("UPDATE chunks SET importance = ? WHERE id = ?")
+      .run(value, id);
+    return Number(result.changes) > 0;
+  }
+
+  /** 具名记忆条目（`target` 非空）快照，供合并判据分组（按 target / importance / 最近引用排序）。 */
+  targetRows(opts: { project: string; limit?: number }): Array<{
+    id: number;
+    target: string | null;
+    content: string;
+    importance: number;
+    lastReferenced: number;
+  }> {
+    const limit = Math.max(1, Math.min(opts.limit ?? 500, 5000));
+    const rows = this.#db
+      .prepare(
+        `SELECT id, target, content, importance, last_referenced FROM chunks
+         WHERE project = ? AND target IS NOT NULL
+         ORDER BY target ASC, importance DESC, last_referenced DESC, id ASC
+         LIMIT ?`,
+      )
+      .all(opts.project, limit) as Array<{
+      id: number;
+      target: string | null;
+      content: string;
+      importance: number;
+      last_referenced: number;
+    }>;
+    return rows.map((row) => ({
+      id: Number(row.id),
+      target: row.target === null ? null : String(row.target),
+      content: String(row.content),
+      importance: Number(row.importance),
+      lastReferenced: Number(row.last_referenced),
+    }));
+  }
+
+  /**
+   * 超预算淘汰候选（容量守卫用）：importance 升序 → 最近引用时间升序（未引用过用创建时间）。
+   * 与 `staleCandidates` 的区别：后者按 TTL + 重要度上限筛「已经陈旧」的条目，本方法**不设门槛**，
+   * 只给「先牺牲谁」的稳定顺序，由调用方按预算决定淘汰到哪。
+   */
+  budgetCandidates(opts: { project: string; limit?: number }): number[] {
+    const limit = Math.max(1, Math.min(opts.limit ?? 50, 1000));
+    const rows = this.#db
+      .prepare(
+        `SELECT id FROM chunks
+         WHERE project = ?
+         ORDER BY importance ASC,
+                  CASE WHEN last_referenced > 0 THEN last_referenced ELSE created_at END ASC,
+                  id ASC
+         LIMIT ?`,
+      )
+      .all(opts.project, limit) as Array<{ id: number }>;
+    return rows.map((row) => Number(row.id));
+  }
+
   /** resume top-K 提升：last_referenced 倒序 × importance 加权（§12.4），供注入 L0/回填。 */
   promote(opts: {
     project: string;

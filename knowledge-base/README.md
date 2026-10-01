@@ -21,16 +21,35 @@ DSH（DeepSeek Harness）进程内插件：跨会话知识库与持久记忆—�
 
 写直达的默认事件白名单：`tool/result`、`feedback/record`、`plan/mode`、`goal/change`、`todo/write`、`approval/decided`、`compaction/summary`。
 
+**入库过滤与容量（2026-10-02，条目「会话事件自动入知识库」）**：
+
+- 过滤规则（`persistRules`）：`types`（缺省沿用 `persistTypes`，`null` = 不按类型过滤）、`minChars`（最小正文长度）、`denyPatterns`（追加拒绝模式，大小写不敏感）；非法正则只记 warning 不抛。
+- **隐私边界**：内置拒绝模式（PEM 私钥、`sk-` / GitHub / AWS 凭据、`Bearer …`、`password|token|api_key =` 形态）**命中即整条不入库**（不打码）；与 security-guard 的命令 / 文件级防护不重叠——这里是写库前的最后一道闸。
+- **容量边界**（`maxTokensPerProject`）：每次入库后若 project 估算 token 超限，按「低重要度 → 最旧」先 `compress` 降级（正文降为 ≤300 字符摘要行），仍超预算再小步硬淘汰。
+- **可观测**：`hooks.stats` 给出 `accepted` / `deduped` / `skipped{type,no-summary,empty,short,pattern}` / `compressed` / `evicted` 计数；`handle()` 返回单条结果（含跳过原因与容量守卫结果），`resetStats()` 清零。
+
+**自动巩固（2026-10-02，条目「记忆 auto-consolidation」）**：`bundle.consolidate`（`ConsolidationService`）
+
+| 接口 | 说明 |
+| --- | --- |
+| `plan(opts)` / `run(opts)` | 只读预演 / 执行一次巩固；返回报告（`promoted` / `merged` / `compressed` / `evicted` / `tokensBefore→After`） |
+| 三段策略 | **提升**：被检索命中过（`last_referenced > created_at`）且 `importance < 5` 的条目 +1；**合并**：同 `target` 分组内归一化后相同、或短者是长者子串且长度占比 ≥ 0.8 → 保留 importance 高者；**淘汰**：`staleCandidates`（TTL + 重要度上限）先压缩再删除 |
+| 自动触发 | `autoConsolidate{enabled,onStart,afterCompaction,minIntervalMs,options}`：apply 后一次 + `compaction/end`（或 `compaction/summary`）后一次，进程内按 `minIntervalMs`（缺省 10 min）节流；失败只 warning |
+| 只读面 | `ctx.get('knowledge').consolidate(opts?)` 手动触发、`.lastConsolidation()` 取最近报告 |
+
 ## 配置
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
 | `dbPath` | `KNOWLEDGE_DB_PATH` → `:memory:` | 库路径；`:memory:` 表示不落盘 |
 | `journalMode` | `"wal"` | `wal` / `delete` / `truncate` / `persist` |
-| `project` | `"default"` | 写直达事件的项目作用域（字符串或按事件求值函数） |
+| `project` | `"default"` | 写直达事件的项目作用域（字符串或按事件求值函数；自动巩固只在静态字符串下生效） |
 | `persistTypes` | 内置白名单 | 替换白名单；传 `null` 表示不过滤 |
+| `persistRules` | 无 | `{types?, minChars?, denyPatterns?}`：类型 / 最小长度 / 拒绝模式（内置隐私模式始终生效） |
+| `maxTokensPerProject` | `0`（不设限） | 入库容量守卫：超限先压缩降级再淘汰 |
+| `autoConsolidate` | 全开 | `{enabled?, onStart?, afterCompaction?, minIntervalMs?, options?}`：自动巩固触发与参数 |
 
-淘汰、提升、截断的阈值都不是配置项，而是各接口的调用参数。
+淘汰、提升、截断的阈值多数不是配置项，而是各接口的调用参数（`maxTokensPerProject` 与 `autoConsolidate.options` 是写入路径上的例外）。
 
 ## 使用示例
 
@@ -64,7 +83,9 @@ profile 挂载（`~/.dsh/profiles/<p>`）以 `link:` 依赖指向本包，并在
 
 - **检索兜底**：porter 按连续串分词（`构建通过` 匹配不到 `构建`），trigram 需 ≥3 字符子串；故「结果不足 `limit` 且查询含 CJK」或「FTS 语法错误（如 `-`）」时改用 `LIKE` 子串兜底，`fuzzy:false` 不额外召回模糊结果。
 - **去重是全局的**：`put` 按 `content_hash` 去重，不区分 `project`。
-- **写策略不自动调度**：`writeBack`/`backfill`/`evictStale`/`promote` 均为显式接口，本插件内无启动 / compaction / 定时触发；`pending` 为内存态，进程退出即丢；`ConsolidationLock` 不跨进程。
+- **写策略本身仍不自动调度**：`writeBack` / `backfill` / `evictStale` / `promote` 保持显式接口；本插件内唯一自动的是「自动巩固」（`autoConsolidate`：启动后一次 + compaction 后，进程内节流），它调用 `consolidate.plan/run`。`pending` 为内存态，进程退出即丢；`ConsolidationLock` 不跨进程。
+- **合并判据是机械的**：只合并「同 `target` 下归一化后完全相同，或短者是长者子串且长度占比 ≥ 0.8」的条目，不做语义相似（留待后续条目）；跨 `target`、跨 `project` 不合并。
+- **隐私边界是形态匹配**：内置模式按常见凭据 / 私钥形态识别，无熵检测、无规则语言；命中即**整条拒绝**（不打码），故「正文里混了一段密钥」的条目会整体丢弃——宁可丢，不可泄漏。自定义 `denyPatterns` 只做追加，不能关闭内置模式。
 - token 预算按「1 token ≈ 3 字符」估算（分块上限 2000 token ≈ 6000 字符），非精确分词。
 - `[tool/meta]`、`[compaction]` 尾注只写进知识库 chunk 文本，**不会**改写会话上下文；本插件不注入 system prompt。
 - 库文件 0o600、父目录 0o700；`application_id` / `user_version` 不匹配的库会被拒绝或整库重置。
@@ -80,8 +101,8 @@ npm run demo    # node --experimental-transform-types demo/main.ts（末行 demo
 npm run smoke   # node smoke/smoke.mjs（需本机 dsh 0.1.7-rc.2 与模型凭据）
 ```
 
-39 例测试（schema 3 + knowledge 8 + hooks 12 + writepolicy 8 + memory 6 + exposure 2）。
+57 例测试（schema 3 + knowledge 8 + hooks 12 + writepolicy 8 + memory 6 + exposure 2 + rules 4 + budget 3 + hooks-rules 6 + consolidate 5）。
 
 `smoke` 幂等引导独立 profile `dsh-toolset-knowledge-base`（`link:` 挂载、缺 `dist/` 自动构建），跑一次性真实 headless 会话强制触发 compaction 与 fs 写入，再断言库 schema 指纹与 `[tool/meta]`/`shadowedRange` 摄取行，最后对 dist 产物做 put / search / touch / evict 往返（profile 属机器级配置，不入库）。断言口径见 `smoke/smoke.mjs` 头注释（流程 4-6）。
 
-设计决策与实现落点见 `docs/DESIGN.md`（各节标注对应 `src/` 文件）；已知边界见其 §7。
+设计决策与实现落点见 `docs/DESIGN.md`（各节标注对应 `src/` 文件）；已知边界见其 §9。

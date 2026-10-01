@@ -14,6 +14,12 @@ import { KnowledgeService } from "./knowledge.ts";
 import { MemoryService } from "./memory.ts";
 import { WritePolicy } from "./writepolicy.ts";
 import { SessionHooks, type HookHost } from "./hooks.ts";
+import {
+  ConsolidationService,
+  type ConsolidationOptions,
+  type ConsolidationReport,
+} from "./consolidate.ts";
+import type { PersistRules } from "./rules.ts";
 
 export {
   openKnowledgeDatabase,
@@ -21,6 +27,7 @@ export {
   MemoryService,
   WritePolicy,
   SessionHooks,
+  ConsolidationService,
 };
 export type {
   SearchHit,
@@ -30,6 +37,13 @@ export type {
 } from "./knowledge.ts";
 export type { MemoryHit, MemorySearchResult, MemoryTarget } from "./memory.ts";
 export type { WriteBackResult, EvictResult } from "./writepolicy.ts";
+export type { PersistRules, SkipReason, RuleVerdict } from "./rules.ts";
+export type { BudgetEnforcement, BudgetGuardOptions } from "./budget.ts";
+export type {
+  ConsolidationOptions,
+  ConsolidationReport,
+} from "./consolidate.ts";
+export type { IngestOutcome, IngestStats, IngestSkip } from "./hooks.ts";
 
 export const name = "knowledge-base";
 /** 只读查询面挂载声明（BACKLOG C4 补全：TUI /memory 经 ctx.get('knowledge') 接线） */
@@ -47,6 +61,26 @@ export interface KnowledgeConfig {
   /** 写直达事件的项目作用域（静态或按事件求值）。 */
   project?: string | (() => string);
   persistTypes?: ReadonlySet<string> | null;
+  /** 入库过滤规则（类型 / 最小长度 / 拒绝模式，含内置隐私模式）：见 `rules.ts`。 */
+  persistRules?: PersistRules;
+  /** 入库容量守卫：project 估算 token 超限时先压缩降级再淘汰（缺省 0 = 不设限）。 */
+  maxTokensPerProject?: number;
+  /** 自动巩固（BACKLOG「记忆 auto-consolidation」）：见 `AutoConsolidateConfig`。 */
+  autoConsolidate?: AutoConsolidateConfig;
+}
+
+/** 自动巩固触发配置（巩固内容为「提升 + 合并相似 + 淘汰陈旧 + 容量守卫」）。 */
+export interface AutoConsolidateConfig {
+  /** 总开关（缺省 true）。 */
+  enabled?: boolean;
+  /** apply 后跑一次（缺省 true）。 */
+  onStart?: boolean;
+  /** `compaction` 完成后跑一次（缺省 true，受 `minIntervalMs` 节流）。 */
+  afterCompaction?: boolean;
+  /** 节流窗口（ms，缺省 10 分钟）：窗口内的触发只跳过，不排队。 */
+  minIntervalMs?: number;
+  /** 传给巩固的段参数（`limit` / `ttlMs` / `maxImportance` / `maxTokens` / 段开关）。 */
+  options?: Omit<ConsolidationOptions, "project">;
 }
 
 /**
@@ -61,6 +95,10 @@ export interface KnowledgeBundle {
   memory: MemoryService;
   policy: WritePolicy;
   hooks: SessionHooks;
+  /** 巩固服务（提升 / 合并 / 淘汰 + 容量守卫），`plan()` 可只读预演。 */
+  consolidate: ConsolidationService;
+  /** 静态项目作用域；`project` 配成函数时为 `"default"`（自动巩固只用静态值）。 */
+  project: string;
   /** 实际数据库路径（:memory: 或文件路径）。 */
   dbPath: string;
   /** 概要：就绪状态 + 库路径 + 条目统计（当前活跃实例）。 */
@@ -90,16 +128,69 @@ export async function createKnowledgeBundle(
   const kb = new KnowledgeService(db);
   const memory = new MemoryService(db);
   const policy = new WritePolicy(kb);
+  const consolidate = new ConsolidationService(kb);
+  const log = (message: string): void => {
+    host.logger?.(name).info(message);
+  };
   const hooks = new SessionHooks(kb, {
     project: config.project ?? "default",
     persistTypes: config.persistTypes,
+    ...(config.persistRules === undefined
+      ? {}
+      : { rules: config.persistRules }),
+    ...(config.maxTokensPerProject === undefined ||
+    config.maxTokensPerProject <= 0
+      ? {}
+      : { budget: { maxTokens: config.maxTokensPerProject } }),
   });
   const detach = hooks.attach(host);
-  host
-    .logger?.(name)
-    .info(
-      `knowledge-base 已就绪（db=${dbPath === ":memory:" ? ":memory:" : dbPath}）`,
-    );
+  if (hooks.rules.invalid.length > 0) {
+    log(`knowledge-base 非法拒绝模式已忽略：${hooks.rules.invalid.join(", ")}`);
+  }
+
+  // —— 自动巩固：启动后一次 + compaction 完成后（进程内节流；只对静态 project 生效）——
+  const projectName =
+    typeof config.project === "string" ? config.project : "default";
+  const auto = config.autoConsolidate ?? {};
+  const minIntervalMs = Math.max(0, auto.minIntervalMs ?? 10 * 60 * 1000);
+  let lastConsolidateAt = 0;
+  const maybeConsolidate = (
+    reason: string,
+  ): ConsolidationReport | undefined => {
+    if (auto.enabled === false) return undefined;
+    const at = Date.now();
+    if (at - lastConsolidateAt < minIntervalMs) return undefined;
+    lastConsolidateAt = at;
+    try {
+      const report = consolidate.run({
+        project: projectName,
+        maxTokens: config.maxTokensPerProject ?? 0,
+        ...(auto.options ?? {}),
+      });
+      log(
+        `knowledge-base 自动巩固（${reason}）：提升 ${report.promoted.length} / 合并 ${report.merged.length} / 压缩 ${report.compressed} / 淘汰 ${report.evicted}`,
+      );
+      return report;
+    } catch (error: unknown) {
+      log(`knowledge-base 自动巩固失败（忽略）：${String(error)}`);
+      return undefined;
+    }
+  };
+  const consolidateDisposer = host.on("session/event", (_session, event) => {
+    if (auto.afterCompaction === false) return;
+    if (
+      event?.type === "compaction/end" ||
+      event?.type === "compaction/summary"
+    ) {
+      maybeConsolidate("compaction");
+    }
+  });
+  const detachConsolidate =
+    typeof consolidateDisposer === "function" ? consolidateDisposer : () => {};
+  if (auto.onStart !== false) maybeConsolidate("start");
+  log(
+    `knowledge-base 已就绪（db=${dbPath === ":memory:" ? ":memory:" : dbPath}）`,
+  );
   const summary = (): KnowledgeBundleSummary => {
     const chunks = db.prepare("SELECT COUNT(*) AS n FROM chunks").get() as {
       n: number;
@@ -119,10 +210,13 @@ export async function createKnowledgeBundle(
     memory,
     policy,
     hooks,
+    consolidate,
+    project: projectName,
     dbPath,
     summary,
     dispose: () => {
       detach();
+      detachConsolidate();
       db.close();
     },
   };
@@ -179,6 +273,16 @@ export function apply(ctx: BundleHost, config: KnowledgeConfig = {}): void {
     provideSvc("knowledge", {
       getSummary: () => getKnowledgeBundleSummary(),
       whenReady: () => whenKnowledgeReady(),
+      /** 手动触发一次巩固（缺省按 bundle 的静态 project；可传段参数覆盖）。 */
+      consolidate: async (opts?: Partial<ConsolidationOptions>) => {
+        const bundle = await whenKnowledgeReady();
+        return bundle.consolidate.run({
+          project: bundle.project,
+          ...(opts ?? {}),
+        } as ConsolidationOptions);
+      },
+      /** 最近一次自动 / 手动巩固的报告。 */
+      lastConsolidation: () => getKnowledgeBundle()?.consolidate.last,
     });
   }
 }

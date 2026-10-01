@@ -56,7 +56,24 @@ DSH 进程内集成的**跨会话知识库 + 持久记忆**。三个取舍：
 - `replace` / `remove` 用 `target` + 内容子串（`content`/`summary` 的 `LIKE`，转义 `\`、`%`、`_`）定位，因此同一域内**首个**匹配项被改动。
 - `search` 在过滤之上做 token-aware 截断：逐条累加估算 token，若追加下一条会超 `tokenBudget` 且已有至少一条命中则停止，返回 `usedTokens` 与 `truncated`——把「预算」这件事从调用方挪进服务内。
 
-## 7. 已知边界
+## 7. 入库规则与容量边界（2026-10-02）
+
+- **规则三段**（`src/rules.ts`）：类型（沿用 `persistTypes` 语义，`null` = 不过滤）→ 最小长度（`minChars`）→ 拒绝模式（内置隐私 + `denyPatterns` 追加）。三段都在**摘要化之后、`put` 之前**判定，保持「过滤先于写入、不半写」。
+- **隐私边界用形态匹配、整条拒绝**：PEM 私钥 / `sk-` / GitHub / AWS / `Bearer` / `key = value` 六类内置模式；命中即整条不入库（不打码）——半脱敏的内容写进库等于没防，宁可丢不可泄。非法自定义正则只 warning（沿用本包「不崩」口径）。
+- **容量守卫**（`src/budget.ts`）：由 `maxTokensPerProject` 触发，顺序是**先压缩降级、再小步硬淘汰**；候选顺序固定「低重要度 → 最旧」（`budgetCandidates`）。与 `staleCandidates` 的口径区分：后者筛「已陈旧」（TTL + 重要度上限），前者只给牺牲顺序、不设门槛。每轮最多 10 条（`EVICT_STEP`）且累计不超过 `batch`——避免一次删掉整片内容。
+- **可观测**：`SessionHooks.handle()` 返回单条结果（`accepted` / `reason` / `deduped` / `budget`），`stats` 累计计数。取舍：自动类功能没有计数就无法排查「这条为什么没进库」。
+
+## 8. 自动巩固（2026-10-02）
+
+`ConsolidationService`（`src/consolidate.ts`）= 三段机械策略的编排，`plan()` 与 `run()` 共用同一判据（前者只读、零副作用）：
+
+1. **提升**：`boostCandidates` 取「被检索命中过（`last_referenced > created_at`）且 `importance < 5`」的条目 +1 —— 「高频」用 `search` 会刷新 `last_referenced` 作机械代理（README 已述该副作用）。
+1. **合并**：同 `target` 分组，归一化（压空白 + 小写）后「完全相同」或「短者是长者子串且长度占比 ≥ 0.8」→ 保留排序靠前者（importance → 最近引用 → id 小），删除其余。
+1. **淘汰**：`staleCandidates`（TTL + 重要度上限）先 `compress` 再 `evict`，随后按 `maxTokens` 走容量守卫。
+
+**触发**在入口（`src/index.ts`）：启动后一次 + `compaction/end`（或 `compaction/summary`）后一次，进程内 `minIntervalMs`（缺省 10 min）节流；`project` 配成函数时自动巩固不启用（没有稳定作用域可巩固）。取舍：知识库天然在 compaction 后进入低谷，是巩固的低廉时机；不做跨进程调度（无守护进程 / 定时器），需要时由宿主或上层显式 `consolidate.run()`。
+
+## 9. 已知边界
 
 - CJK 检索需经 `LIKE` 兜底（分词器限制，非实现缺陷）；`fuzzy:false` 不额外召回模糊结果。
 - `pending` 为内存态，进程重启丢失；`ConsolidationLock` 不跨进程。
