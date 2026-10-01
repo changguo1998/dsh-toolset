@@ -6,7 +6,7 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 
 ## 能力
 
-### 匹配面（`source`，三类）
+### 匹配面（`source`，四类）
 
 | source | 判定时机 | 判定文本 |
 | --- | --- | --- |
@@ -14,6 +14,9 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 | `turn-end` | 回合结束（`turn/end`） | 同上；`match` 可省 = **无条件命中** |
 | `tool-call` | 事件到达即判定 | 工具名 + 模型原始参数 JSON 串 |
 | `tool-result` | 事件到达即判定 | 工具结果消息的 text 块 |
+| `compaction` | 上下文压缩完成（`compaction/end`） | 空串（只作边界触发）；`match` 可省 = **无条件命中** |
+
+`compaction` 只认一次压缩的**终态** `compaction/end`（`compaction/start` / `compaction/summary` / `compaction/prune` 不触发），避免同一次压缩重复判定。
 
 `turn/end` 的 `reason` 为 `aborted` / `error` / `interrupted` / `forked` 时不注入（只认 `completed` / `max-tokens`），避免对着被中断的回合追问。
 
@@ -27,7 +30,7 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 | `regex` + `flags` | 正则源串列表，任一匹配即命中；`flags` 缺省 `"i"`；非法正则只记 warning，该条视为不命中 |
 | `predicates` | 内置谓词名：`always`（恒真）/ `has-non-ascii` / `has-cjk` / `has-code-block` |
 
-条件为空（无任何有效档位）时：`turn-end` 视为无条件命中，其余匹配面视为**永不命中**（防误配置把每条正文都当命中）。
+条件为空（无任何有效档位）时：边界类匹配面（`turn-end` / `compaction`）视为无条件命中，其余匹配面视为**永不命中**（防误配置把每条正文都当命中）。
 
 ### 动作（`action`）
 
@@ -56,12 +59,13 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 | 同内容去重 | 固定开启 | 同一回合内相同正文只注入一次（不同规则同文案也只发一条） |
 | `cooldownTurns`（规则） | 0 | 两次命中的最小回合间隔；`1` = 隔回合才允许再次命中 |
 | `cooldownMs`（规则） | 0（不限制） | 两次命中的最小毫秒间隔 |
+| `dedupeInRecord`（规则） | `false` | 开启后按**会话可见投影**去重：投影里已有同 `summary` 的本引擎注入则跳过（重载会话不重复注入；压缩把注入挤出投影后才重新注入）。投影不可读 → 照旧注入（fail-open） |
 
 ### 工具族
 
 | 工具 | 参数 | 作用 |
 | --- | --- | --- |
-| `rule_add` | `id`、`text`、`source?`、`delivery?`、`match?`、`summary?`、`cooldownTurns?`、`cooldownMs?`、`description?`、`enabled?` | 新增规则（id 已存在则报错，指向 `rule_update`） |
+| `rule_add` | `id`、`text`、`source?`、`delivery?`、`match?`、`summary?`、`cooldownTurns?`、`cooldownMs?`、`dedupeInRecord?`、`description?`、`enabled?` | 新增规则（id 已存在则报错，指向 `rule_update`） |
 | `rule_list` | 无 | 只读列出生效规则（含来源层 `origin`）与引擎状态 |
 | `rule_update` | `id`、`patch` | 浅合并更新（可只改 `text` / `match` / `cooldownTurns` 等）；基线规则被更新后以运行时版本生效 |
 | `rule_remove` | `id` | 删除规则：运行时规则移除；基线规则进运行时屏蔽列表（配置文件不动） |
@@ -136,7 +140,7 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 - **「提示人」已由 TUI 支持**：注入消息按**用户输入块**渲染（正文 `[RULE] ` 前缀标明自动注入，BACKLOG TUI#49）；未实现该分支的客户端按普通 user 消息块渲染（行为退化为默认，不丢消息）。
 - 只有 `inject` 一种动作：`tag` 打标 / `abort` 中断 / `memory` 写知识库未实现。
 - `next-step` 路径需要宿主 rc.2+（`agent.inject`）；旧宿主上记 warning 跳过（不回退 followup）。
-- 节流记账是**进程内**内存态：`dsh` 重启后 cooldown 计数清零（规则本身持久化）。
+- 节流记账是**进程内**内存态：`dsh` 重启后 cooldown 计数清零（规则本身持久化）；需要跨重启不重复的规则用 `dedupeInRecord`（按会话可见投影去重）。
 - 逐 delta 实时匹配未实现：文本类规则只在回合结束判定（实时需订阅 `agent/assistant-stream`）。
 
 ## 开发
@@ -144,7 +148,7 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # 编译到 dist/
-npm test        # node --test（59 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 插件入口）
+npm test        # node --test（67 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 插件入口）
 npm run demo    # mock 事件流跑「规则命中 → 注入」，不依赖 DSH
 ```
 

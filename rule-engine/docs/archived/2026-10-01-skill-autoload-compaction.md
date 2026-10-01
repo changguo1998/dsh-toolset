@@ -1,6 +1,6 @@
 # skill 自动加载的触发条件改为「会话记录被压缩后」（接取条目：`rule-engine/docs/BACKLOG.md`「skill 自动加载的触发条件改为「会话记录被压缩后」（当前为「首个工具调用」）」）
 
-状态：进行中　　开启：2026-10-01
+状态：完成　　开启：2026-10-01　　关闭：2026-10-01
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -38,16 +38,34 @@
 1. `rule-engine/docs/DESIGN.md`：§4（空条件口径）/ §5（判定时机）/ §6（节流与去重：跨重启去重与压缩重置）同步。
 1. `TUI/docs/DESIGN.md`：「解锁后自动加载行为 skill」小节补新触发面与去重口径（规则重建依据）。
 1. `rule-engine/tests/`：压缩事件分派、去重命中（跳过）/ 未命中（注入）、投影不可读（照旧注入）、空条件无条件命中。
-1. 运行时（非仓库，写出需用户同意）：`~/.dsh/rule-engine/rules.json` —— 新增 `skill-autoload-after-compaction`（`source: "compaction"`、`predicates: ["always"]`、`cooldownTurns: 0`、`delivery: "next-step"`、正文同 `skill-autoload-on-unlock`），并给 `skill-autoload-on-unlock` 的 `description` 补去重口径说明。
+1. 运行时（非仓库，写出需用户同意）：`~/.dsh/rule-engine/rules.json` —— ① 给 `skill-autoload-on-unlock` 开 `dedupeInRecord: true`（这是「重载不重复注入」的开关）并在 `description` 记明；② 新增 `skill-autoload-after-compaction`（`source: "compaction"`、`predicates: ["always"]`、`dedupeInRecord: true`、`cooldownTurns: 0`、`delivery: "next-step"`、正文与 summary 同 `skill-autoload-on-unlock`）。
 
-## 实现记录
+## 实现记录（2026-10-01）
 
-（待实现）
+按方案 B 落地：6 个源文件 + 3 个测试文件 + 3 份文档。
+
+1. `src/types.ts`：`RuleSource` 增 `"compaction"`；`Rule` / `NormalizedRule` 增 `dedupeInRecord`（缺省 `false`）。
+1. `src/rules.ts`：`RULE_SOURCES` 同步；`normalizeRule` 归一 `dedupeInRecord`。
+1. `src/match.ts`：空条件对 `compaction` 与 `turn-end` 同口径（无条件命中）。
+1. `src/engine.ts`：`handle` 增 `compaction/end` → `#evaluate("compaction", "", …)`；`EngineOptions.messagesOf` + `#inRecord()` 实现按投影去重（命中则跳过注入、仍记本次命中以免每次工具调用重读投影；投影不可读 → 照旧注入）；`update()` 的 patch 白名单补 `dedupeInRecord`；头部注释同步两条口径。
+1. `src/main.ts`：`PluginContext.sessions` 增只读 `get?`；新增 `sessionMessagesOf()`（`deriveMessages()`），经 EngineOptions 注入引擎。
+1. `src/tools.ts`：`rule_add` / `rule_update` 的参数与描述补 `compaction` 匹配面与 `dedupeInRecord`。
+1. 文档：`README.md`（匹配面四类 + `dedupeInRecord` 行 + 工具参数 + 已知限制）、`docs/DESIGN.md`（边界 / 分层依赖 / §4 空条件 / §5 判定时机 / §6 节流与去重）、`TUI/docs/DESIGN.md`「解锁后自动加载行为 skill」（补两条规则与去重口径）。
+
+**实现期细化（仍在计划文件清单内）**：去重做成**规则级开关** `dedupeInRecord`，而非对所有注入无条件生效——symbol-normalizer 的回合审查反馈 summary 固定（`符号规范提醒`），无条件去重会让「模型再次违规」的新提醒被历史里的旧注入永久压制。
 
 ## 测试与证据
 
-（待实现）
+- `rule-engine`：`npm run check` ✓、`npm run build` ✓、`npm run test` ✓ **67/67 通过**。新增 3 条单测：`compaction` 只认终态 `compaction/end`（start / summary / prune 不触发）、`dedupeInRecord` 三态（投影已有同 summary → 跳过 / 只有别的注入 → 注入 / 读不到投影 → 注入）、「压缩把注入挤出投影后由 compaction 规则补回一次」；并同步 `rules.test.ts` 缺省值断言与 `match.test.ts` 空条件口径。
+- **真机验证（2026-10-01，用户重启 + `/compact` 后核对会话记录 `~/.dsh/sessions/--home-guochang-Projects-dsh-toolset--/tui-9c0c2a21-…/session.v4.jsonl.zstd`）**：
+  1. 恢复会话（记录里的 skill 注入在 8054，晚于上次压缩 7660，仍在投影内）→ 新进程首个工具调用**不再**注入：历史里「每次重启后必经一次注入」的链条（… 6594 / 7168 / 7630 / 7675 / 8054）中断，新进程开工直到用户触发压缩前无任何新注入。
+  1. `/compact`（`compaction/start` 8194 → `compaction/summary` 8195 → `compaction/end` 8197）→ **恰好补一次**：`agent/inbox/spliced` seq 8198，`target: next-step`，summary「解锁后加载 i-have-adhd / karpathy-guidelines」。
+  1. 补注入之后的工具调用（turn 113 连续多次 `tool/call`）未再触发注入：压缩把旧注入挤出投影时补一次，补完即被去重拦住，无重复。
+  1. 全程无异常告警：记录内无 warning 类事件，活动区无用户可见异常提示。
 
 ## 收尾
 
-（待关闭）
+- 结论：按方案 B 落地并验证通过——触发机会保留「首个工具调用」（锚定解锁点），真正判据改为「会话可见投影里是否还看得见本规则的注入」；新增 `compaction` 匹配面用于压缩后补一次。
+- 代码 + 测试用例：commit `1995793`（6 个源文件 + 3 个测试文件）。
+- 剩余文档（`README.md` / `docs/DESIGN.md` / `TUI/docs/DESIGN.md` / 本文件 / BACKLOG 清理）随关闭后的最后一次提交。
+- 仓库外运行时规则 `~/.dsh/rule-engine/rules.json`：`skill-autoload-on-unlock` 补 `dedupeInRecord: true`；新增 `skill-autoload-after-compaction`（`source: "compaction"` + `predicates: ["always"]` + `delivery: "next-step"` + `dedupeInRecord: true`）。重建口径已回写 `TUI/docs/DESIGN.md`「解锁后自动加载行为 skill」。

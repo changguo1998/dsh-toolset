@@ -10,7 +10,7 @@
 
 - 动作只做 `inject`；`tag` / `abort` / `memory` 不做。
 - 注入路径两条：`delivery: followup`（新回合，`agent.followup`）与 `delivery: next-step`（最近 pre-step，`agent.inject`；宿主 rc.2+）。不自行注册 `agent/pre-step` waterfall 监听者。
-- 匹配面只做三类：模型正文文本、工具调用、工具结果；逐 delta 实时匹配不做（正文在回合结束判定）。
+- 匹配面只做四类：模型正文文本、工具调用、工具结果、上下文压缩边界（`compaction`）；逐 delta 实时匹配不做（正文在回合结束判定）。
 - 不改 TUI：符号纠正迁移与 `form:'notice'` 渲染分别是独立条目。
 
 ## 分层
@@ -29,7 +29,7 @@ inject.ts     注入动作：推迟宏任务 → agents.get → followup → ses
 tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_remove / rule_test
 ```
 
-依赖方向单向：`main → engine → {match, rules, persist}`、`main → {inject, tools}`；`engine` 只依赖 `Injector` 接口，不认识宿主（可注入假实现单测）。
+依赖方向单向：`main → engine → {match, rules, persist}`（另取 `inject` 的 `SOURCE_KIND` 常量做去重判据）、`main → {inject, tools}`；`engine` 只依赖 `Injector` 接口与会话投影读取函数，不认识宿主（可注入假实现单测）。
 
 ## 关键设计取舍
 
@@ -55,7 +55,7 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 
 ### 4. 匹配语义：三档或关系、空条件按匹配面区分
 
-`keywords`（大小写不敏感包含）/ `regex` / `predicates` 三档任一命中即命中，`predicates` 内部与关系。空条件时 `turn-end` = 无条件命中，其余匹配面 = 永不命中——「文本类空条件」若也算无条件，会把每条正文都变成命中，属误配置。
+`keywords`（大小写不敏感包含）/ `regex` / `predicates` 三档任一命中即命中，`predicates` 内部与关系。空条件时边界类匹配面（`turn-end` / `compaction`，无文本）= 无条件命中，其余匹配面 = 永不命中——「文本类空条件」若也算无条件，会把每条正文都变成命中，属误配置。
 
 内置谓词只做无参数的纯性质判定（`always` / `has-non-ascii` / `has-cjk` / `has-code-block`），不做 JS 表达式求值（避免任意代码执行面）。
 
@@ -64,6 +64,7 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 - `assistant/message` 累积该回合正文（按 step 顺序），`turn/end` 时统一判定 `assistant-text` 与 `turn-end` 规则——与符号纠正先例一致，且天然避免「同一段正文被判多次」。
 - `tool/call` / `tool/result` 到达即判定（越界操作提醒不必等回合结束）；注入仍由注入器推迟，落下一个回合。
 - `turn/end` 的 `reason` 不在 `completed` / `max-tokens` 时跳过（用户中断/报错/分叉的回合不该被追问）。
+- 上下文压缩面 `compaction` 在 `compaction/end`（一次压缩的终态）判定、文本入参为空串：只作「记录可能已被裁掉」的边界触发；`start` / `summary` / `prune` 不触发（一次压缩只判一次）。
 
 ### 6. 节流与去重
 
@@ -71,6 +72,7 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 - 回合级：`maxInjectionsPerTurn` 上限 + 同回合同正文只发一次（跨规则去重，防止两条规则发同一句话）。
 - 原设计的 `oncePerTurn` 开关在「同回合同正文去重」落地后成为冗余（同一规则同回合的正文恒定），已删除，避免无用旋钮。
 - 记账是进程内内存态（`Map<sessionId, SessionState>`，超 64 会话淘汰最早者、回合缓冲只留最近 4 回合）：`dsh` 重启后 cooldown 清零，规则本身仍在状态目录里。
+- `dedupeInRecord`（2026-10-01，「触发条件改为记录压缩后」）：注入前读**会话可见投影**（`sessions.get(id).deriveMessages()`，与 symbol-normalizer 开局指南同一模式），投影里已有同 `summary` 的 `rule-engine` 注入则跳过——跨重启不重复注入；压缩把注入挤出投影后自然恢复可注入（配合 `compaction` 面即可「压缩后补一次」）。投影不可读 → 照旧注入（fail-open：宁可重复，不可永久丢注入）。
 
 ### 7. Config 用类型声明、不做运行时 schema
 
