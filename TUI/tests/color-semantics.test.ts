@@ -65,8 +65,8 @@ test("槽位层：gray=次要、border=正文/边框、强调=端头（双主题
     );
     assert.equal(
       ansiNameToHex(THEMES[t], focusFrameColor()),
-      t === "dark" ? THEMES[t].bright[7] : THEMES[t].ansi[0],
-      `${t} 强调=端头`,
+      t === "dark" ? THEMES[t].bright[6] : THEMES[t].ansi[6],
+      `${t} 强调=端头（#4 起青色）`,
     );
   }
 });
@@ -92,39 +92,21 @@ test("帧层：底部全宽分隔（makeSep）恒边框色（border），四种�
   }
 });
 
-test("帧层：焦点窗口边框转强调色（fc），非焦点回边框色", () => {
+test("帧层：焦点只改颜色——强调色落在聚焦 pane 的既有框线上，非焦点框线仍边框色", () => {
   for (const t of ["dark", "light"] as const) {
-    const border = rgb(borderHex(t));
     const accent = rgb(FC(t));
-    // 非焦点：状态区上方分隔（┴ 行）含边框色（行内另有基底前景收尾色）
-    const none = frame(t, "none");
+    for (const f of ["history", "activity", "status"] as const) {
+      const rows = frame(t, f);
+      assert.ok(
+        rows.join("\n").includes(accent),
+        `${t} ${f} 既有框线转为强调色`,
+      );
+    }
+    // 非焦点：状态区上方分隔行恒为边框色
     assert.ok(
-      lineColors(none, "┴").includes(border),
+      lineColors(frame(t, "none"), "┴").includes(rgb(borderHex(t))),
       `${t} none 状态区分隔=边框色`,
     );
-    // history 焦点：顶框含强调色（区域右缘角 ┐）；状态区分隔仍边框色（状态栏未聚焦）
-    const hist = frame(t, "history");
-    assert.ok(
-      lineColors(hist, "┐").includes(accent),
-      `${t} history 顶框=强调色`,
-    );
-    assert.ok(
-      lineColors(hist, "┴").includes(border),
-      `${t} history 状态区分隔仍边框色`,
-    );
-    // activity 焦点：状态区上方分隔亮左段+┴（强调色）
-    const act = frame(t, "activity");
-    assert.ok(
-      lineColors(act, "┴").includes(accent),
-      `${t} activity 状态区分隔钩边=强调色`,
-    );
-    // status 焦点：状态区分隔亮（┴/右段）且顶框强调
-    const st = frame(t, "status");
-    assert.ok(
-      lineColors(st, "┴").includes(accent),
-      `${t} status 状态区分隔=强调色`,
-    );
-    assert.ok(lineColors(st, "┌").includes(accent), `${t} status 顶框=强调色`);
   }
 });
 

@@ -17,24 +17,17 @@ import type {
 import type { ColorName, ThemeId } from "../../renderer/theme.ts";
 import type { PaneId, Rect } from "./box.ts";
 import { displayWidth } from "./markdown.ts";
-import { strokeDown, strokeUp, teeGlyph } from "./content-rules.ts";
 
 /** 焦点框覆写上下文（不 import layout.ts / AppState，防循环依赖） */
 export interface FocusFrameContext {
   themeId: ThemeId;
   focusedPanel: PaneId | null;
-  /** 标题栏下划线行（=diaStart-1；无下划线时 0/-1）——该行 D 列在 status 焦点保持灰 ┤ */
+  /** 标题栏下划线行（=diaStart-1；无下划线时 0/-1）——该行 D 列归属 history 顶边，
+   *  status 焦点时不强调（保持灰） */
   titleUnderlineRow?: number;
-  /** 活动区分隔行（=diaEnd；横向排列无此行）——该行 D 列为连接字形 `┤`，status 焦点覆写亮 ┤ */
-  activitySepRow?: number;
   /** 横向排列（历史区在左、活动区在右）时的内部分隔竖线列：
    *  history 右缘 / activity 左缘改为此列，底边不再有纵向分隔行（缺省 = 纵向排列） */
   innerDividerCol?: number;
-  /** 状态区上方分隔行行号（=contentTopH，buildStatusSeparator 所在行）——
-   *  该行被焦点 coverH 覆写为 ─ 时恢复状态栏框线竖线交点（┬），保持相接结构 */
-  statusSepRow?: number;
-  /** 状态栏框线竖线列（buildStatusSeparator 行的 ┬ 交点列，0 基） */
-  statusSeamCols?: number[];
 }
 
 /** 焦点框亮色（语义色名 "focus"，取色由渲染层经主题 semantics 解析）；不再按主题 ID 推断（旧 dark=brightWhite / light=black） */
@@ -139,89 +132,59 @@ export function rowPlain(row: FrameRow): string {
   return row.segments.map((s) => s.text).join("");
 }
 
-/** 覆写某行指定显示列（rowIndex 越界或 col 越界 → no-op） */
-export function cover(
+/** 框线字形集合（只对这些字形改色；正文/空白一律不碰） */
+const FRAME_GLYPHS = new Set([
+  "─",
+  "│",
+  "┌",
+  "┐",
+  "└",
+  "┘",
+  "├",
+  "┤",
+  "┬",
+  "┴",
+  "┼",
+  "╌",
+  "═",
+  "╪",
+]);
+
+/** #4：焦点强调——只把**既有**框线字形的颜色改为焦点色（主题 `semantics.focus`）。
+ *  目标位置不是框线字形（正文 / 空白 / 内容列）时 no-op：这是"焦点只改颜色、
+ *  不新增边框、不覆写内容列"的保证——隐藏状态列时左缘退化到内容列也不会被覆盖。 */
+function emphasize(
   rows: FrameRow[],
   rowIndex: number,
   col: number,
-  ch: string,
-  style?: FrameStyle,
+  style: FrameStyle,
 ): void {
   if (rowIndex < 0 || rowIndex >= rows.length) return;
+  const ch = cellAt(rows, rowIndex, col);
+  if (!FRAME_GLYPHS.has(ch)) return;
   setCell(rows[rowIndex]!, col, ch, style);
 }
 
-/** 合并一行中相邻同样式段（serializeFrameRow 前统一，消除逐字符分段） */
-
-/** 覆写一行 [c0, c1) 显示列区间（含 c0 不含 c1）：统一替换为 ch。
- * 只重建与区间相交的段；未相交段原样保留（不与其邻段合并）——
- * 保留冻结基线（旧 divFor/segN 独立产出）的段边界。 */
-export function coverH(
+/** 区间版强调（[c0, c1) 逐列；同样只命中既有框线字形） */
+function emphasizeH(
   rows: FrameRow[],
   rowIndex: number,
   c0: number,
   c1: number,
-  ch: string,
-  style?: FrameStyle,
+  style: FrameStyle,
 ): void {
-  if (rowIndex < 0 || rowIndex >= rows.length || c1 <= c0) return;
-  if (displayWidth(ch) !== 1) return;
-  const row = rows[rowIndex]!;
-  const segs = row.segments;
-  const out: FrameSegment[] = [];
-  let w = 0;
-  for (const s of segs) {
-    const tw = displayWidth(s.text);
-    const segStart = w;
-    const segEnd = w + tw;
-    if (segEnd > c0 && segStart < c1) {
-      // 与区间相交：段内逐字形重建（跨界处替换为 ch；区间内相邻同 style 合并）
-      let segW = segStart;
-      const touched: { ch: string; style?: FrameStyle }[] = [];
-      for (const segCh of s.text) {
-        const cw = displayWidth(segCh);
-        const segCol = segW;
-        segW += cw;
-        if (segCol >= c0 && segCol < c1 && cw === 1) {
-          touched.push({ ch, style });
-        } else {
-          touched.push({ ch: segCh, style: s.style });
-        }
-      }
-      let cur: { text: string; style?: FrameStyle } | null = null;
-      for (const tch of touched) {
-        if (
-          cur &&
-          cur.style?.fg === tch.style?.fg &&
-          cur.style?.bg === tch.style?.bg
-        ) {
-          cur.text += tch.ch;
-        } else {
-          if (cur) out.push(cur);
-          cur = { text: tch.ch, style: tch.style };
-        }
-      }
-      if (cur) out.push(cur);
-    } else {
-      // 未相交段：原样保留（独立段，不并入相邻）
-      out.push({ ...s });
-    }
-    w = segEnd;
-  }
-  row.segments = out;
+  for (let c = c0; c < c1; c++) emphasize(rows, rowIndex, c, style);
 }
 
 /**
- * 焦点框覆写入口：整帧一次扫描，把焦点分区边界网格点亮。
+ * 焦点框入口：整帧一次扫描，把焦点 pane 的**既有**框线（边框 + 分隔线）改为焦点色；
+ * **不落新字形、不覆写内容列**（#4）。
  * rects 由布局层构造（帧坐标，right=x+w-1、bottom=y+h-1）：
  *   status 矩形 = 状态列（x=0, w=statusColWidth，右缘即分隔竖线 D 列）
  *   history/activity 矩形 = 区域（x=区域正文起始列，w=historyWidth，横向两 pane 以
  *   内部分隔列切开）
- * focusedPanel=null 时不覆写。
+ * focusedPanel=null 时不强调。
  */
-
-/** coverH 把状态区上方分隔行整段覆写为 ─ 后，恢复状态栏框线竖线交点（┬），
- *  保持竖线与横线相接的结构（交点随焦点 body 变亮）。仅作用于该行 */
 /** 读 (row, col) 处字形（按显示列定位；越界/无字返回空格） */
 function cellAt(rows: FrameRow[], row: number, col: number): string {
   const r = rows[row];
@@ -238,27 +201,6 @@ function cellAt(rows: FrameRow[], row: number, col: number): string {
   return " ";
 }
 
-/**
- * 恢复状态栏上横线的段分隔竖线交点。**按上下行取并集字形**：同列上方的竖线
- * （如 D 列的状态列右边框）与下方的段分隔竖线都存在时写 `┼`，否则只按一侧选字
- * 会把另一侧切断（表现为水平线上方出现空白、交线断开）。
- */
-function restoreStatusSeams(
-  rows: FrameRow[],
-  bottom: number,
-  c0: number,
-  c1: number,
-  style: FrameStyle | undefined,
-  ctx: FocusFrameContext,
-): void {
-  if (ctx.statusSepRow === undefined || bottom !== ctx.statusSepRow) return;
-  for (const c of ctx.statusSeamCols ?? []) {
-    if (c < c0 || c >= c1) continue;
-    const up = strokeUp(cellAt(rows, bottom - 1, c));
-    const down = strokeDown(cellAt(rows, bottom + 1, c));
-    cover(rows, bottom, c, teeGlyph(up, down), style);
-  }
-}
 export function focusFrame(
   ctx: FocusFrameContext,
   rects: Map<PaneId, Rect>,
@@ -283,68 +225,37 @@ export function focusFrame(
 
   switch (panel) {
     case "history": {
-      // 顶边 = 标题栏下划线行（rect.top）：连接字/角字亮、body 灰（基线 ─ 灰保留）。
-      // 左缘恒为 D 列（`├`：竖线上下贯穿 + 横线右接入）；右缘横向 = 内部分隔列
-      // （`┬`）、纵向 = 区域外缘框列（`┐`）。
+      // 顶边（标题栏下划线行）：左缘 D 列 + 右缘（横向 = 内部分隔列、纵向 = 外框列）
       const rEdge = horizontal ? divCol : right;
-      cover(rows, top, dCol, "├", style);
-      cover(rows, top, rEdge, horizontal ? "┬" : "┐", style);
-      // 左缘（D 列）+ 右缘竖线（历史区行）
+      emphasize(rows, top, dCol, style);
+      emphasize(rows, top, rEdge, style);
+      // 左右缘竖线（历史区行）
       for (let r = top + 1; r < bottom; r++) {
-        cover(rows, r, dCol, "│", style);
-        cover(rows, r, rEdge, "│", style);
+        emphasize(rows, r, dCol, style);
+        emphasize(rows, r, rEdge, style);
       }
-      // 底边：纵向 = 活动区分隔行（D 列 `├`、右端 `┘`）、横向 = 状态区分隔行
-      // （D 列 `┴`、内部列 `┴`）；正文 ─ 亮后两端连接字/角字（coverH 先 body、
-      // cover 后角，保留 body 与角字独立段）；分隔行被覆写后恢复状态栏交点（┬）
-      coverH(rows, bottom, dCol + 1, rEdge, "─", style);
-      restoreStatusSeams(rows, bottom, dCol + 1, rEdge, style, ctx);
-      cover(rows, bottom, dCol, horizontal ? "┴" : "├", style);
-      cover(rows, bottom, rEdge, horizontal ? "┴" : "┘", style);
+      // 底边 = 活动区分隔行（纵向）/ 状态区分隔行（横向）：只强调既有横线
+      emphasizeH(rows, bottom, dCol, rEdge + 1, style);
       break;
     }
     case "activity": {
-      // 顶边 = 纵向：活动区分隔行（左缘 D 列 `├`）；横向：标题栏下划线行
-      // （左缘 = 内部分隔列 → `┬`）。**不画右边框**：区域右缘留白列不落字形
-      // （顶/底边横向亮线仍铺满到屏幕最右列，行尾也不补空格，见 buildTopRegion）。
+      // 左缘（纵向 = D 列、横向 = 内部分隔列）；顶/底既有横线一并强调（本 pane 无右边框）
       const lEdge = horizontal ? divCol : dCol;
-      // 顶/底亮线一律铺到屏幕最右列（含该列；活动区不画右边框，无角字收尾）
-      coverH(rows, top, lEdge + 1, right + 1, "─", style);
-      cover(rows, top, lEdge, horizontal ? "┬" : "├", style);
-      // 左缘竖线（活动区行）；右缘不画
-      for (let r = top + 1; r < bottom; r++) {
-        cover(rows, r, lEdge, "│", style);
-      }
-      // 底边 = 状态区上方分隔行：正文 ─ 亮后左缘 ┴（左缘竖线在此收束）；右端不画角字。
-      // 覆写后恢复框线竖线列交点（┬）
-      coverH(rows, bottom, lEdge + 1, right + 1, "─", style);
-      restoreStatusSeams(rows, bottom, lEdge + 1, right, style, ctx);
-      cover(rows, bottom, lEdge, "┴", style);
+      emphasizeH(rows, top, lEdge, right + 1, style);
+      for (let r = top + 1; r < bottom; r++) emphasize(rows, r, lEdge, style);
+      emphasizeH(rows, bottom, lEdge, right + 1, style);
       break;
     }
     case "status": {
-      // 状态列在最左：左缘 = 屏幕首列（外缘框列）、右缘 = D 列（分隔竖线）
-      // 顶边 = 状态列顶行（rc0）：正文 ─ 亮后左缘 ┌、右缘 D 列 ┐
-      coverH(rows, top, left + 1, right, "─", style);
-      cover(rows, top, left, "┌", style);
-      cover(rows, top, right, "┐", style);
-      // D 列竖线（状态列右缘=历史/活动区左缘，status 焦点全列亮；下划线行
-      // diaStart-1 保持灰 ├——标题栏顶边归属 history，不归 status）
-      for (let r = top + 1; r <= bottom; r++) {
+      // 右缘 D 列（下划线行归属 history 顶边 → 跳过）+ 顶/底既有横线；
+      // 左缘（屏幕首列）无既有框线 → 不强调（不新增边框），也不覆写内容列
+      for (let r = top; r <= bottom; r++) {
         if (ctx.titleUnderlineRow !== undefined && r === ctx.titleUnderlineRow)
           continue;
-        if (ctx.activitySepRow !== undefined && r === ctx.activitySepRow)
-          cover(rows, r, right, "├", style);
-        else cover(rows, r, right, "│", style);
+        emphasize(rows, r, right, style);
       }
-      // 左缘竖线（状态列行）
-      for (let r = top + 1; r <= bottom; r++) cover(rows, r, left, "│", style);
-      // 底边 = 状态区上方分隔行：正文 ─ 亮后左缘 └、右缘 D 列 ┴；
-      // 覆写后恢复框线竖线交点（┬）——状态列位于最左，状态栏框线竖线列在其底边范围内
-      coverH(rows, bottom, left + 1, right, "─", style);
-      restoreStatusSeams(rows, bottom, left + 1, right, style, ctx);
-      cover(rows, bottom, left, "└", style);
-      cover(rows, bottom, right, "┴", style);
+      emphasizeH(rows, top, left, right + 1, style);
+      emphasizeH(rows, bottom, left, right + 1, style);
       break;
     }
   }

@@ -55,7 +55,7 @@ test("内置两套配色与 fff terminal-colortheme JSON 一致（含语义槽�
       gray: "#80878E", // bright.0
       border: "#5A98F3", // ansi.4
       code: "#272336", // ansi.0
-      focus: "#FFFFFF", // bright.7
+      focus: "#9FEEFA", // bright.6（#4：焦点改青）
     },
   });
   assert.deepEqual(THEMES.light, {
@@ -86,7 +86,7 @@ test("内置两套配色与 fff terminal-colortheme JSON 一致（含语义槽�
       gray: "#475863", // bright.0（新配色下保证米色底可读）
       border: "#1256B2", // ansi.4
       code: "#E9EBEE", // ansi.7
-      focus: "#121418", // ansi.0
+      focus: "#007784", // ansi.6（#4：焦点改青）
     },
   });
   assert.equal(DEFAULT_THEME, "dark");
@@ -126,12 +126,12 @@ test("ANSI 槽位映射:基础色 → ansi[],bright* → bright[],四种语义�
     THEMES.light.ansi[7],
     "light code=ansi[7]",
   );
-  // 焦点框 focus：dark=bright[7] / light=ansi[0]
-  assert.equal(ansiNameToHex(d, "focus"), d.bright[7], "dark focus=bright[7]");
+  // 焦点框 focus：dark=bright[6] / light=ansi[6]（#4 起青色）
+  assert.equal(ansiNameToHex(d, "focus"), d.bright[6], "dark focus=bright[6]");
   assert.equal(
     ansiNameToHex(THEMES.light, "focus"),
-    THEMES.light.ansi[0],
-    "light focus=ansi[0]",
+    THEMES.light.ansi[6],
+    "light focus=ansi[6]",
   );
   assert.equal(ansiNameToHex(d, "notacolor"), null);
   // 浅色主题同槽位取 ffflight 调色板

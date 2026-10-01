@@ -2804,14 +2804,10 @@ export function buildFrame(
         : state.focusedPanel === "status" && statusColWidth === 0
           ? null
           : state.focusedPanel,
-      // 结构行号：status 焦点 D 列竖线区分下划线行（灰）与活动分隔行（亮 ├）
+      // 结构行号：status 焦点 D 列竖线在下划线行保持灰（该处归属 history 顶边）
       titleUnderlineRow: underlineRow,
-      activitySepRow: diaEnd,
       // 横向排列：history 右缘/activity 左缘 = 内部分隔列（缺省走 D 列）
       innerDividerCol,
-      // 状态区上方分隔行（buildStatusSeparator）：被焦点覆写为 ─ 后恢复框线交点
-      statusSepRow: contentTopH,
-      statusSeamCols: topSeams,
     },
     rects,
     rows,

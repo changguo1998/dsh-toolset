@@ -3971,15 +3971,15 @@ test("Esc（idle+空输入）退出顶部焦点循环：有焦点 → 无焦点"
     meta: false,
     shift: false,
   });
-  // dark 主题 history 焦点：对话区左缘框格亮白（focusFrameColor=brightWhite #FFFFFF=255;255;255）；
-  // 无焦点：框格灰（L3 边框=dark ansi[7] #C9DCDE=201;220;222）
+  // dark 主题 history 焦点：对话区**既有**框线（分隔竖线等）转焦点色（#4 起青色
+  // #9FEEFA=159;238;250）；无焦点：框线为边框色（dark ansi[4] #5A98F3=90;152;243）
   const hasFocusVBar = (): boolean =>
-    renderer.lastRender.some((l) => l.includes("\x1b[38;2;255;255;255m│"));
-  assert.ok(!hasFocusVBar(), "初始无焦点：框格灰");
+    renderer.lastRender.some((l) => l.includes("\x1b[38;2;159;238;250m│"));
+  assert.ok(!hasFocusVBar(), "初始无焦点：框线为边框色");
   renderer.press(key("tab")); // null → history
-  assert.ok(hasFocusVBar(), "Tab 后 history 焦点（左缘框格亮白）");
+  assert.ok(hasFocusVBar(), "Tab 后 history 焦点（既有竖线转焦点色）");
   renderer.press(key("escape")); // idle + 空输入 → 无焦点
-  assert.ok(!hasFocusVBar(), "Esc 后回无焦点（框格灰）");
+  assert.ok(!hasFocusVBar(), "Esc 后回无焦点（框线回边框色）");
   app.dispose();
 });
 

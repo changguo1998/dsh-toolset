@@ -1,6 +1,6 @@
 # 焦点框只改颜色（接取条目：`TUI/docs/BACKLOG.md`「焦点框只改颜色：不得覆写内容列、不得新增边框（含状态列）」）
 
-状态：规划　　开启：2026-10-01
+状态：测试　　开启：2026-10-01
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -18,7 +18,7 @@
 
 ## 决策（2026-10-01 定稿）
 
-1. `focusFrame()` 从「画框器」改为「**样式覆写器**」：只改既有边框/标题段（含分隔线）的**颜色与线宽**——聚焦时换**更粗字形**（`─`→`━`、`│`→`┃`、角字/交叉字按等价重线族派生），字形仍落在**既有列**上；不再 `cover` 出新字形。
+1. `focusFrame()` 从「画框器」改为「**只改颜色**」（用户 2026-10-01 追加裁定：「别搞那么复杂，用主题里的颜色就行」）：只把该 pane **既有**框线（边框 + 分隔线）的 fg 改为主题语义色 `focus`；**不改字形**（不换重线字形）、不落新字形。
 1. **退化情形**（无既有边框列，如状态列隐藏时的 session 区左缘）：只改可用的边框/标题段的口径，不落新字形、不占内容列。
 1. `status` 分支不再新增左缘竖线与顶边横线。
 1. `semantics.focus` → 青色（与「三区域命名与窗口标题」共用改动点）。
@@ -36,6 +36,21 @@
 1. `TUI/src/renderer/theme.ts`：`semantics.focus` → 青色（与 #5 共用）。
 1. `TUI/tests/`：帧断言——聚焦切换前后**字形完全一致**、仅样式不同；含状态列隐藏与状态列聚焦两组。
 1. `TUI/docs/SPEC.md` / `DESIGN.md`：焦点框口径（§8）。
+
+## 实现记录
+
+2026-10-01：
+
+1. `focus-frame.ts`：`focusFrame()` 改「只改颜色」——新增 `FRAME_GLYPHS` 框线字形集合 + `emphasize()/emphasizeH()`（目标位置不是框线字形则 no-op），三分支改为对既有框线改色；删除 `restoreStatusSeams`/`cover`/`coverH` 与 `strokeUp/strokeDown/teeGlyph` 依赖；`FocusFrameContext` 去掉 `activitySepRow`/`statusSepRow`/`statusSeamCols`（`layout.ts` 侧同步删除构造）。
+1. `theme.ts`：`semantics.focus` → dark `#9FEEFA`(bright.6) / light `#007784`(ansi.6)。
+1. 测试：`focus-draw.test.ts` 三条焦点用例重写为「空白帧不落字形 / 既有框线只改色」；`color-semantics.test.ts` 帧层用例改为「强调色出现且非焦点框线保持边框色」；`layout4.test.ts`「焦点面板四边框」重写为「区域 pane 字形与无焦点态逐行一致 + 宽度不变 + 非焦点框线仍边框色」；`tee-glyph.test.ts` 删掉焦点恢复段分隔的用例（该路径已不存在）；`theme.test.ts`、`app.test.ts` 焦点色期望更新。
+1. 冻结基线 `tests/fixtures/focus-frame-legacy.json`：按用户裁定**重新冻结** 6 条焦点场景（null 焦点 2 条未变），用临时脚本 `tmp/regen-focus-baseline.mts` 生成（已删）。
+
+## 测试与证据
+
+- `npm run check` ✓、`npm run build` ✓。
+- **全量 `npm run test:tui` 1234/1234 pass**。
+- 待人工确认（真机）：`Ctrl+S` 隐藏垂直状态栏 + Tab 聚焦各 pane——任何内容列都不被覆盖；状态列聚焦时左缘/顶边不出现新边框；聚焦只体现为既有框线颜色变青（深浅两主题各核对一次）。
 
 ## 验收口径
 

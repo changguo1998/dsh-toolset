@@ -107,67 +107,95 @@ test("focusFrame：null 不覆写", () => {
   assert.deepEqual(rows.map(rowPlain), before);
 });
 
-test("focusFrame：history 焦点覆写（顶边/左右缘竖线/底边）", () => {
+test("focusFrame：空白帧上不落字形（#4：焦点不新增边框）", () => {
   const cols = 12;
-  const sepRow = 3; // 活动区分隔行
-  const statusRow = 5; // 状态区上方分隔
   const rows = frameOf(7, cols);
-  const rects = stdRects(cols, sepRow, statusRow);
-  focusFrame({ themeId: "dark", focusedPanel: "history" }, rects, rows);
+  const before = rows.map(rowPlain);
+  const rects = stdRects(cols, 3, 5);
+  for (const panel of ["history", "activity", "status"] as const) {
+    focusFrame({ themeId: "dark", focusedPanel: panel }, rects, rows);
+  }
+  assert.deepEqual(rows.map(rowPlain), before, "空白帧保持空白（不画新框）");
+});
+
+test("focusFrame：history 焦点只给既有框线上色（字形不变）", () => {
+  const cols = 12;
+  const rows = frameOf(7, cols);
+  const rects = stdRects(cols, 3, 5);
   const r = rects.get("history")!;
-  const left = r.x; // 分隔竖线列 D（区域左缘，与状态列共用）
+  const left = r.x; // 分隔竖线列 D（区域左缘）
   const right = r.x + r.w - 1; // 区域外缘框列
-  // 顶边（行 1=rect.top）：├ 左（竖线贯穿 + 横线接入）、─ 中、┐ 右
-  const top = rowPlain(rows[1]!);
-  assert.equal(top[left], "├");
-  assert.equal(top[right], "┐");
-  // 历史区行（2）：左右缘竖线
-  const mid = rowPlain(rows[2]!);
-  assert.equal(mid[left], "│");
-  assert.equal(mid[right], "│");
-  // 底边（行 3=sepRow，活动区分隔行）：├（竖线贯穿）/ ┘
-  const bot = rowPlain(rows[3]!);
-  assert.equal(bot[left], "├");
-  assert.equal(bot[right], "┘");
-  // 行数与行序不变
-  assert.equal(rows.length, 7);
+  // 既有框线（模拟布局层的中性基线）：左右缘竖线 + 顶/底横线
+  for (let i = 1; i <= 3; i++) {
+    setCell(rows[i]!, left, "│");
+    setCell(rows[i]!, right, "│");
+  }
+  for (let c = left; c <= right; c++) {
+    setCell(rows[1]!, c, "─");
+    setCell(rows[3]!, c, "─");
+  }
+  const before = rows.map(rowPlain);
+  focusFrame({ themeId: "dark", focusedPanel: "history" }, rects, rows);
+  assert.deepEqual(rows.map(rowPlain), before, "字形不变（只改颜色）");
+  for (const [row, why] of [
+    [rows[1]!, "顶边（标题栏下划线行）"],
+    [rows[2]!, "左缘竖线"],
+    [rows[3]!, "底边（活动区分隔行）"],
+  ] as const) {
+    assert.ok(
+      row.segments.some((s) => s.style?.fg === "focus"),
+      `${why} 转焦点色`,
+    );
+  }
+  // 内容列（中段空白列）不受影响
+  assert.equal(rowPlain(rows[2]!).at(left + 3), " ", "内容列不被覆写");
 });
 
-test("focusFrame：activity 焦点覆写（顶边 ├/─、左缘竖线、底边 ┴；不画右边框）", () => {
+test("focusFrame：activity 焦点只给既有框线上色（不画右边框）", () => {
   const cols = 12;
   const rows = frameOf(7, cols);
   const rects = stdRects(cols, 3, 5);
-  focusFrame({ themeId: "dark", focusedPanel: "activity" }, rects, rows);
   const r = rects.get("activity")!;
-  const right = r.x + r.w - 1;
-  const top = rowPlain(rows[3]!); // 活动区分隔行 = activity 顶边
-  assert.equal(top[r.x], "├", "左缘 D 列竖线贯穿（横线右接入）");
-  assert.equal(top[right], "─", "顶边亮线铺到最右列，不画右角 ┐");
-  const mid = rowPlain(rows[4]!); // 活动区行：只有左缘竖线
-  assert.equal(mid[r.x], "│", "活动区行左缘竖线");
-  assert.equal(mid[right], " ", "活动区不画右边框（右缘无竖线）");
-  const bot = rowPlain(rows[5]!); // 状态区上方分隔行 = activity 底边
-  assert.equal(bot[r.x], "┴", "左缘 D 列竖线收束");
-  assert.equal(bot[right], "─", "底边亮线铺到最右列，不画右角 ┘");
+  const lEdge = r.x; // 纵向排列：左缘 = D 列
+  // 既有框线：左缘竖线（活动区行）+ 顶/底横线；右边框本就不存在（留白）
+  for (let i = 4; i < 5; i++) setCell(rows[i]!, lEdge, "│");
+  for (let c = lEdge; c <= r.x + r.w - 1; c++) {
+    setCell(rows[3]!, c, "─");
+    setCell(rows[5]!, c, "─");
+  }
+  const before = rows.map(rowPlain);
+  focusFrame({ themeId: "dark", focusedPanel: "activity" }, rects, rows);
+  assert.deepEqual(rows.map(rowPlain), before, "字形不变");
+  assert.ok(
+    rows[3]!.segments.some((s) => s.style?.fg === "focus"),
+    "顶边既有横线转焦点色",
+  );
+  assert.equal(
+    rowPlain(rows[4]!).at(r.x + r.w - 1),
+    " ",
+    "不画右边框（右缘保持留白）",
+  );
 });
 
-test("focusFrame：status 焦点覆写（顶边 ┌/┐、左缘竖线、底边 └/┴）", () => {
+test("focusFrame：status 焦点只给既有框线上色（不新增左缘/顶边）", () => {
   const cols = 12;
   const rows = frameOf(7, cols);
   const rects = stdRects(cols, 3, 5);
-  focusFrame({ themeId: "dark", focusedPanel: "status" }, rects, rows);
   const r = rects.get("status")!;
-  const left = r.x; // 0：屏幕最左 = 状态列外缘框列
+  const left = r.x; // 0：屏幕最左（本无框线）
   const right = r.x + r.w - 1; // 状态列右缘 = 分隔竖线列
-  const top = rowPlain(rows[0]!); // statusRect.top=0
-  assert.equal(top[left], "┌", "状态列顶边左缘 ┌");
-  assert.equal(top[right], "┐", "状态列顶边右缘 ┐");
-  const mid = rowPlain(rows[2]!);
-  assert.equal(mid[left], "│", "状态列左缘竖线");
-  assert.equal(mid[right], "│", "分隔竖线（status 焦点全列亮）");
-  const bot = rowPlain(rows[5]!); // 状态区上方分隔行（status 底边）
-  assert.equal(bot[left], "└", "状态列底边左缘 └");
-  assert.equal(bot[right], "┴", "状态列底边右缘与分隔竖线相接 ┴");
+  // 既有框线：右缘竖线 + 状态区分隔横线（底边）
+  for (let i = 0; i <= 5; i++) setCell(rows[i]!, right, "│");
+  for (let c = left; c <= right; c++) setCell(rows[5]!, c, "─");
+  const before = rows.map(rowPlain);
+  focusFrame({ themeId: "dark", focusedPanel: "status" }, rects, rows);
+  assert.deepEqual(rows.map(rowPlain), before, "字形不变");
+  assert.ok(
+    rows[2]!.segments.some((s) => s.style?.fg === "focus"),
+    "右缘既有竖线转焦点色",
+  );
+  assert.equal(rowPlain(rows[2]!).at(left), " ", "左缘不新增竖线（#4）");
+  assert.equal(rowPlain(rows[0]!).at(left), " ", "顶边不新增横线（#4）");
 });
 
 test("setCell：surrogate pair emoji 不切两半（code point 安全）", () => {

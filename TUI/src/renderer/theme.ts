@@ -71,7 +71,7 @@ export const THEMES: Record<ThemeId, ColorTheme> = {
       gray: "#80878E", // bright.0
       border: "#5A98F3", // ansi.4
       code: "#272336", // ansi.0（旧硬编码 #434343 已随新配色改为槽位引用）
-      focus: "#FFFFFF", // bright.7
+      focus: "#9FEEFA", // bright.6（#4：焦点改青，与 border ansi.4 #5A98F3 区分）
     },
   },
   light: {
@@ -102,7 +102,7 @@ export const THEMES: Record<ThemeId, ColorTheme> = {
       gray: "#475863", // bright.0（旧按 ansi[7] #F4F4F4，新配色下与米色底近同色）
       border: "#1256B2", // ansi.4
       code: "#E9EBEE", // ansi.7（旧 #E8E8E8；ansi.0 是近黑会成刺眼黑块）
-      focus: "#121418", // ansi.0
+      focus: "#007784", // ansi.6（#4：焦点改青；浅底上取深青保对比）
     },
   },
 };
