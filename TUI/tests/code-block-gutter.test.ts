@@ -91,3 +91,28 @@ test("#2 窄窗降级：宽 < 24 时省略行号列", () => {
   assert.match(stripRight(code!), /^┃ ?echo 1/, "窄窗代码紧跟前缀（无行号列）");
   assert.ok(!/\d/.test(stripRight(code!).slice(0, 6)), "窄窗不显示行号");
 });
+
+test("#2 软折行：行尾带弯箭头，且加箭头后不再多折一行", () => {
+  const width = 60;
+  const out = rows(
+    [a("```"), a(`echo ${"这一行很长".repeat(30)}需要折三行以上`), a("```")],
+    width,
+  );
+  const code = out.filter((r) => r.trim() !== "");
+  const idx = code.findIndex((r) => r.includes("echo"));
+  assert.ok(idx >= 0, `找到代码首行：${JSON.stringify(out)}`);
+  const first = stripRight(code[idx]!);
+  assert.ok(first.endsWith("↳"), `首行行尾带弯箭头：${first}`);
+  // 每一行（含续行）都不得超过可用宽——箭头已预留 1 列，不会再被挤到下一行
+  for (const r of out) {
+    assert.ok(
+      displayWidth(stripRight(r)) <= width,
+      `行宽不超 ${width}：${JSON.stringify(r)}`,
+    );
+  }
+  // 续行也带箭头；末行不带（末尾是正文）
+  const conts = code.slice(idx + 1);
+  assert.ok(conts.length >= 2, `至少两行续行：${JSON.stringify(conts)}`);
+  assert.ok(conts[0]!.includes("↳"), "中间续行带弯箭头");
+  assert.ok(!stripRight(conts.at(-1)!).endsWith("↳"), "末行不带弯箭头");
+});
