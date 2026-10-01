@@ -2334,6 +2334,29 @@ export class App {
     }
   }
 
+  /** 请求重启（单一来源）：写交接文件 → 置退出码（renderer.close 尊重既有 exitCode）→
+   *  跳过空会话清理收尾。退出确认面板第三项与 `/restart` 共用（BACKLOG TUI「/restart 命令」）。 */
+  private requestRestart(): void {
+    this.writeRestartHandoff();
+    process.exitCode = DSH_RESTART_EXIT_CODE;
+    this.restartPending = true;
+    this.dispose();
+  }
+
+  /** `/restart`：显式命令直接执行（不弹确认面板，与 `/quit` 同口径）。无启动器声明
+   *  （`DSH_RESTART_FILE` 未设，见 DESIGN「退出确认 ·「重启」方案」）时只提示、不退出——
+   *  没有接收方的退出码 75 会退化成「静默普通退出」。 */
+  private handleRestartCommand(): void {
+    if (!this.restartAvailable()) {
+      this.notice(
+        "重启不可用：需由启动器启动（未设置 DSH_RESTART_FILE）",
+        "warn",
+      );
+      return;
+    }
+    this.requestRestart();
+  }
+
   /** 合成退出确认面板的收尾：确认「退出 dsh」才走原 dispose，否则仅关面板 */
   private finishExitConfirm(panel: QuestionPanelState): void {
     this.exitConfirmOpen = false;
@@ -2341,11 +2364,7 @@ export class App {
     this.apply((s) => reduceState(s, { type: "question-close" }));
     const picked = answer.answers[0]?.selected[0];
     if (picked === EXIT_CONFIRM_RESTART_LABEL) {
-      // 重启：写交接文件 → 置退出码（renderer.close 尊重既有 exitCode）→ 跳过空会话清理收尾
-      this.writeRestartHandoff();
-      process.exitCode = DSH_RESTART_EXIT_CODE;
-      this.restartPending = true;
-      this.dispose();
+      this.requestRestart();
       return;
     }
     if (picked !== "退出 dsh") {
@@ -2656,6 +2675,10 @@ export class App {
         // 走 App.dispose：释放 adapter 与当前活跃 handle（含 resume 后由 adapter
         // 持有的新 handle），再恢复终端退出
         this.dispose();
+        return;
+      case "restart":
+        // /restart：与退出确认面板第三项同路径（写交接文件 → 退出码 75 → 收尾）
+        this.handleRestartCommand();
         return;
       case "model":
         void this.handleModelCommand(line);
@@ -4137,6 +4160,10 @@ export class App {
         desc: "清空缓冲(只清显示，不动上下文)",
       },
       { cmd: "/quit", desc: "退出" },
+      {
+        cmd: "/restart",
+        desc: "重启 dsh（保留会话；需由启动器启动，未设置 DSH_RESTART_FILE 时只提示）",
+      },
       {
         cmd: "/theme [dark|light|toggle]",
         desc: "切换主题(默认 dark=fffdark, light=ffflight)",

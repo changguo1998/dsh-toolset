@@ -51,11 +51,20 @@
 
 ## 实现记录
 
-（待填）
+2026-10-02：
+
+- `TUI/src/app/commands.ts`：`SlashRoute` 增 `"restart"`；`LOCAL_COMMANDS` 在 `/exit` 后增 `{ name: "restart", route: "restart", desc: "重启 dsh（保留会话；需由启动器启动）" }`。
+- `TUI/src/app/index.ts`：`handleSlash` 增 `case "restart"` → `handleRestartCommand()`；新增 `requestRestart()`（把面板第三项原三步收尾抽为单一来源：`writeRestartHandoff()` → `process.exitCode = DSH_RESTART_EXIT_CODE` → `restartPending = true` → `dispose()`）与 `handleRestartCommand()`（`restartAvailable()` 为否 → notice warn 且不退出；为是 → `requestRestart()`）；`finishExitConfirm` 的重启分支改调 `requestRestart()`（行为不变）；`helpLines()` 增 `/restart` 行。
+- `TUI/tests/exit-confirm.test.ts`：文件头注释补 `/restart` 口径；新增两条用例——① 有交接文件路径：写活跃会话 id `s1\n`、退出码 `75`、关 renderer、释放 adapter、不触发空会话清理、不弹确认面板；② 无路径：notice「重启不可用」、不退出、未释放 adapter、不置退出码 75。
+- 文档：`TUI/docs/DESIGN.md`（退出契约段 + 重启方案「交互」段）、`TUI/docs/COMMANDS.md`（§1.1 计数 40 条 = 35 命令 + 5 别名）、`TUI/README.md`（「重启 dsh（保留会话）」段 + 本地命令表 + 退出契约段）。
 
 ## 测试与证据
 
-（待填）
+- `npm --prefix TUI run check`：通过（无 `error TS`）。
+- `npm run test:tui -- exit-confirm.test.ts`：9 pass / 0 fail（较改动前 +2 条）。
+- `npm run test:tui`（全量）：1293 pass / 0 fail。
+- `npm --prefix TUI run build`：通过（`tsc -p tsconfig.json`）。
+- 真机（待用户确认）：由启动器（`fffdsh` 之类）启动后输入 `/restart` → 进程以退出码 75 结束、外层循环以 `--resume <id>` 拉起同会话；直接 `dsh --profile fff` 启动时 `/restart` 只提示「重启不可用」。
 
 ## 收尾
 

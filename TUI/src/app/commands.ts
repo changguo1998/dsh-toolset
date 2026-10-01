@@ -166,6 +166,7 @@ export type SlashRoute =
   | "help"
   | "clearscreen"
   | "quit"
+  | "restart"
   | "model"
   | "provider"
   | "effort"
@@ -212,6 +213,11 @@ export const LOCAL_COMMANDS: readonly {
   { name: "cls", route: "clearscreen", desc: "清屏（同 /clearscreen）" },
   { name: "quit", route: "quit", desc: "退出 TUI" },
   { name: "exit", route: "quit", desc: "退出 TUI（同 /quit）" },
+  {
+    name: "restart",
+    route: "restart",
+    desc: "重启 dsh（保留会话；需由启动器启动）",
+  },
   { name: "model", route: "model", desc: "切换模型：无参打开选择面板" },
   {
     name: "provider",

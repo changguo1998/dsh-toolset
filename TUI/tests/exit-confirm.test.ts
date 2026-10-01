@@ -2,7 +2,8 @@
 //
 // 语义：Ctrl+D（idle 且输入区为空）与 750ms 双击 Ctrl+C 不再直接退出，改为弹出合成问答
 // 面板确认——默认高亮「取消/留在 TUI」，Esc 取消，Enter 确认高亮项；仅确认「退出 dsh」
-// 才走 App.dispose。/quit 保持直接退出。合成面板不调用 adapter（无宿主 ask）。
+// 才走 App.dispose。/quit 保持直接退出；/restart 同为显式命令、直接执行（等价面板第三项，
+// 不弹面板）。合成面板不调用 adapter（无宿主 ask）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -206,4 +207,58 @@ test("重启项：交接文件写入失败只告警，仍置退出码 75", () =>
   assert.equal(process.exitCode, DSH_RESTART_EXIT_CODE, "写失败仍请求重启");
   assert.equal(renderer.closed, 1, "照常收尾退出");
   process.exitCode = 0;
+});
+
+test("/restart：启动器声明后直接执行（等价第三项）——写会话 id、退出码 75、跳过空会话清理", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tui-restart-cmd-"));
+  const file = join(dir, "handoff");
+  try {
+    const { renderer, adapter } = makeApp({
+      restartHandoffPath: file,
+      autoCleanEmpty: true,
+    });
+    // start() 自身的空会话扫描计一次；重启路径不应再触发「退出清理」扫描
+    const scansAtStart = adapter.listSessionsCalls;
+    for (const ch of Array.from("/restart")) renderer.press(key(ch));
+    renderer.press(key("enter"));
+    assert.equal(
+      readFileSync(file, "utf8"),
+      "s1\n",
+      "交接文件写入活跃会话 id（单行）",
+    );
+    assert.equal(
+      process.exitCode,
+      DSH_RESTART_EXIT_CODE,
+      "退出码 75 交由启动器重启",
+    );
+    assert.equal(renderer.closed, 1, "走既有收尾关闭 renderer");
+    assert.equal(adapter.disposed, 1, "释放 adapter");
+    assert.equal(
+      adapter.listSessionsCalls,
+      scansAtStart,
+      "重启路径跳过空会话清理",
+    );
+    assert.ok(
+      !frameText(renderer).includes("确认退出 dsh？"),
+      "显式命令不弹确认面板",
+    );
+  } finally {
+    process.exitCode = 0;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("/restart：无 DSH_RESTART_FILE（直接启动）时只提示不可用、不退出", () => {
+  process.exitCode = 0;
+  const { renderer, adapter } = makeApp();
+  for (const ch of Array.from("/restart")) renderer.press(key(ch));
+  renderer.press(key("enter"));
+  assert.ok(frameText(renderer).includes("重启不可用"), "给出不可用提示");
+  assert.equal(renderer.closed, 0, "留在 TUI");
+  assert.equal(adapter.disposed, 0, "未释放 adapter");
+  assert.notEqual(
+    process.exitCode,
+    DSH_RESTART_EXIT_CODE,
+    "不置重启退出码（无接收方）",
+  );
 });

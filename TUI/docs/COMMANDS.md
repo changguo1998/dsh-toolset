@@ -11,7 +11,7 @@
 
 ### 1.1 本地命令（app 层直接处理，不经 adapter）
 
-单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（39 条 = 34 命令 + 5 别名 `/cls` `/thinking` `/usage` `/context` `/exit`；`/continue` 为 TUI#1 新增）；路由决策 `routeSlashCommand`，处理分支在 `src/app/index.ts` `handleSlash`。
+单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（40 条 = 35 命令 + 5 别名 `/cls` `/thinking` `/usage` `/context` `/exit`；`/continue` 为 TUI#1 新增，`/restart` 为显式重启命令新增）；路由决策 `routeSlashCommand`，处理分支在 `src/app/index.ts` `handleSlash`。
 
 命令的**行为、参数与键位**见 `TUI/README.md`「Slash 命令」一节；逐命令的**落点与降级**见 `TUI/docs/DESIGN.md`「命令实现落点」。本节不重复这两者，只维护上面的「单一来源 + 路由」事实与 §1.2 的宿主注册面。
 

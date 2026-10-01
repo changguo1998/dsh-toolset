@@ -255,7 +255,7 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 
 ## 信号与退出契约
 
-终端 raw mode 开/关与终端恢复由 `renderer/terminal.ts` 负责，对所有退出路径生效（正常 `close()`、SIGINT / SIGTERM、`uncaughtException` / `unhandledRejection`）；进程退出生命周期归 renderer 拥有，app 只在 renderer 分发的事件里做自己的清理。按键层面 `Esc` 与单次 `Ctrl+C` 不触发退出（避免误触丢会话）；退出路径为 `/quit`、`Ctrl+D`（agent 空闲且输入区为空）与 750ms 内双击 `Ctrl+C`。`Ctrl+D` 与双击 `Ctrl+C` **不直接退出**，先弹**退出确认面板**（复用问答面板机制的合成面板，id `exit-confirm`）——默认高亮「取消/留在 TUI」，Esc 取消、Enter 确认高亮项，仅确认「退出 dsh」才走 `dispose()`；合成面板不触达 adapter 的 `answerQuestion` / `cancelQuestion`。该面板防「单字节误触/注入」直接结束会话（BACKLOG「tmux 断连后 dsh 退出」：终端/复用器注入的单个 `0x04` 不再致退）；`/quit` 为显式输入，保持直接退出。
+终端 raw mode 开/关与终端恢复由 `renderer/terminal.ts` 负责，对所有退出路径生效（正常 `close()`、SIGINT / SIGTERM、`uncaughtException` / `unhandledRejection`）；进程退出生命周期归 renderer 拥有，app 只在 renderer 分发的事件里做自己的清理。按键层面 `Esc` 与单次 `Ctrl+C` 不触发退出（避免误触丢会话）；退出路径为 `/quit`、`Ctrl+D`（agent 空闲且输入区为空）与 750ms 内双击 `Ctrl+C`。`Ctrl+D` 与双击 `Ctrl+C` **不直接退出**，先弹**退出确认面板**（复用问答面板机制的合成面板，id `exit-confirm`）——默认高亮「取消/留在 TUI」，Esc 取消、Enter 确认高亮项，仅确认「退出 dsh」才走 `dispose()`；合成面板不触达 adapter 的 `answerQuestion` / `cancelQuestion`。该面板防「单字节误触/注入」直接结束会话（BACKLOG「tmux 断连后 dsh 退出」：终端/复用器注入的单个 `0x04` 不再致退）；`/quit` 为显式输入，保持直接退出。本地命令 `/restart` 同为显式命令、不弹面板——等价面板第三项（写交接文件 → 退出码 `75` → 收尾退出，跳过空会话清理）；未声明 `DSH_RESTART_FILE` 时只给 notice 提示不可用、留在 TUI。
 
 ### 退出确认 ·「重启」方案（2026-09-29 调研 + 定稿：启动器循环）
 
@@ -270,7 +270,7 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 - **为什么两个通道都要**：退出码与进程退出原子绑定 —— 写文件失败时仍是「重启并退回 `-c`」，而不是静默变成普通退出；文件只回答「恢复哪条会话」。
   **备选（不采用，仅记录）**：单通道「文件非空即重启」更简，但需额外哨兵表达「要重启但拿不到 id」，且写失败会静默丢失重启请求。
 
-- **交互**：沿用现有合成问答面板语义（`EXIT_CONFIRM_PANEL_ID`；回车确认高亮项，不做二次确认）；默认仍高亮「取消」；「取消 / 退出 dsh」既有路径与按键语义不变；多实例互不影响（每轮路径唯一）。
+- **交互**：沿用现有合成问答面板语义（`EXIT_CONFIRM_PANEL_ID`；回车确认高亮项，不做二次确认）；默认仍高亮「取消」；「取消 / 退出 dsh」既有路径与按键语义不变；多实例互不影响（每轮路径唯一）。本地命令 `/restart` 与面板第三项共用同一收尾方法（`requestRestart()`），但不经面板（显式命令直接执行）。
 
 - **边界**：直接 `dsh ...` 启动（无启动器、无该环境变量）时不显示重启项；用户选「退出 dsh」绝不写文件；未提交输入按既有退出语义丢弃；重启后仅会话内容保留（滚动缓冲 / 输入历史不保留）；`75` 与既有退出码无冲突。
 
