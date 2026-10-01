@@ -41,8 +41,6 @@
 
 | 6 | **命令模板的取消/超时终态**：真机发现 `playbook` 命令在子代理死亡或取消后可能**无 `command/done`**（命令悬挂）；且 `stepTimeoutMs`（缺省 600s）触发的 abort 是否真的中止子代理未经真机验证。期望：命令任何路径都回终态（成功/失败/取消），并在子会话结束时回收 | 「模板体系」真机观察（追踪文档 2026-09-30 第三轮） | `command-template`（`src/{steps,subagent,main}.ts`） | P2 |
 | 7 | **插件运行期 stderr 告警显示统一（评估）**：各插件运行期告警均裸写 `process.stderr.write`（清单：command-template / session-title-cutoff / task-engine / goal-contract / session-channel / metric-loop / hash-edit / symbol-normalizer / code-map（stderr 兜底）/ TUI 自身；无 `console.*` 与 stdout 写点）。经「插件告警改道活动区」方案 A 兜底后显示位置已正确（活动区）；本条评估是否统一改**结构化通知通道**（同 rule-engine `onNotice` / symbol-normalizer `onReview` 模式：tone 结构化 + headless 兜底 stderr）与降噪。 | 「插件告警改道活动区」实施期审计（2026-10-01） | 各插件 `src/`（告警出口）+ `TUI`（桥） | P3 |
-| 8 | **注入标准统一与合并**：① **注入时机统一**——消费者与规则走同一套评估点（含 `compaction/end`），一律按**会话可见投影**判定「看不见就补一次」，据此修掉「同一进程内的压缩不补注入开局指南」（`symbol-normalizer`，gate 记账后短路）② **同一次评估点的多条命中合并为一条注入消息**（按 `delivery` 分组，正文分节）③ `dedupeInRecord` 对消费者同样生效，`symbol-normalizer` 不再自管判空 | 用户 2026-10-01 指令（把 `rule-engine` BACKLOG「同一次触发的多条注入合并为一条」与 `symbol-normalizer` BACKLOG「同一进程内的压缩不会补注入开局指南」两条**合并为本条**，一并做「两个注入采用同一标准」） | `rule-engine/src/{engine,inject,types}.ts` + `symbol-normalizer/src/{main,guide}.ts`；口径回写两包 `README.md` / `docs/DESIGN.md` | 待估（设计裁定后） | P2 |
-**进行中**（2026-10-01 接取；追踪文档 `docs/implementation/2026-10-01-unified-injection-timing-and-merge.md`）。
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 

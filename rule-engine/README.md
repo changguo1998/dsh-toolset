@@ -52,9 +52,10 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 | 值 | 行为 | 宿主面 |
 | --- | --- | --- |
 | `followup`（缺省） | 作为**独立新回合**的消息注入（会唤醒 agent） | `agent.followup` |
-| `next-step` | 挂到**最近一个 pre-step**（同回合内模型可见；不唤醒；空闲时挂起到下次唤醒） | `agent.inject`（宿主 rc.2+） |
+| `steer` | 挂到**最近一个 pre-step**（同回合内模型可见）并**唤醒**：会话空闲时立刻开新回合，不必等下一条输入 | `agent.steer` |
+| `inject` | 挂到**最近一个 pre-step**、**不唤醒**（会话空闲时挂起到下次唤醒） | `agent.inject`（宿主 rc.2+） |
 
-两条路径的消息构造一致（`source: { kind: "rule-engine", summary }`，正文带 `[RULE] ` 前缀）；旧宿主无 `agent.inject` 时 `next-step` 记 warning 并跳过。
+三条路径的消息构造一致（`source: { kind: "rule-engine", summary }`，正文带 `[RULE] ` 前缀）；旧宿主无 `agent.steer` 时 `steer` 记 warning 并**回退 `inject`**（不唤醒，内容不丢），无 `agent.inject` 时 `inject` 记 warning 并跳过。
 
 ### 节流与去重（同一会话内）
 
@@ -151,13 +152,13 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 
 ## 时序约束（重要）
 
-`session/event` 监听器运行在 `Session.append` 的**同步派发窗口**内，此刻直接调用 `agent.followup()` 会撞重入保护（异常被宿主吞掉，现象是「消息不落盘」）。因此注入一律 `setTimeout(…, 0)` 推迟一个宏任务后再 `agents.get(sessionId)`，按 `delivery` 调 `followup(message)`（新回合）或 `inject(message)`（最近 pre-step），随后 `sessions.flush(agent.session)` 确保落盘。会话非 live（`agents.get` 返回 undefined）时跳过并记 warning。
+`session/event` 监听器运行在 `Session.append` 的**同步派发窗口**内，此刻直接调用 `agent.followup()` 会撞重入保护（异常被宿主吞掉，现象是「消息不落盘」）。因此注入一律 `setTimeout(…, 0)` 推迟一个宏任务后再 `agents.get(sessionId)`，按 `delivery` 调 `followup(message)`（新回合）/ `steer(message)` / `inject(message)`（最近 pre-step），随后 `sessions.flush(agent.session)` 确保落盘。会话非 live（`agents.get` 返回 undefined）时跳过并记 warning。
 
 ## 已知限制
 
 - **「提示人」已由 TUI 支持**：注入消息按**用户输入块**渲染（正文 `[RULE] ` 前缀标明自动注入，BACKLOG TUI#49）；未实现该分支的客户端按普通 user 消息块渲染（行为退化为默认，不丢消息）。
 - 只有 `inject` 一种动作：`tag` 打标 / `abort` 中断 / `memory` 写知识库未实现。
-- `next-step` 路径需要宿主 rc.2+（`agent.inject`）；旧宿主上记 warning 跳过（不回退 followup）。
+- `inject` 路径需要宿主 rc.2+（`agent.inject`）；旧宿主上记 warning 跳过（不回退 followup）。`steer` 缺 API 时回退 `inject` 并记 warning（内容不丢，只是不唤醒）。
 - 节流记账是**进程内**内存态：`dsh` 重启后 cooldown 计数清零（规则本身持久化）；需要跨重启不重复的规则用 `dedupeInRecord`（按会话可见投影去重）。
 - 逐 delta 实时匹配未实现：文本类规则只在回合结束判定（实时需订阅 `agent/assistant-stream`）。
 

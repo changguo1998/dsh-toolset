@@ -9,7 +9,7 @@
 明确的边界（本期）：
 
 - 动作只做 `inject`；`tag` / `abort` / `memory` 不做。
-- 注入路径两条：`delivery: followup`（新回合，`agent.followup`）与 `delivery: next-step`（最近 pre-step，`agent.inject`；宿主 rc.2+）。不自行注册 `agent/pre-step` waterfall 监听者。
+- 注入路径三条（与宿主 `Agent` 方法同名）：`followup`（新回合，`agent.followup`）、`steer`（最近 pre-step + 唤醒，`agent.steer`）、`inject`（最近 pre-step 不唤醒，`agent.inject`；宿主 rc.2+）。不自行注册 `agent/pre-step` waterfall 监听者。
 - 节点表（规则与消费者共用）共十项：`assistant-text` / `user-message` / `tool-call` / `tool-result` / `turn-start` / `turn-end` / `step-start` / `step-end` / `session-start` / `compaction`；逐 delta 实时匹配不做（正文在回合结束判定）。
 - 不改 TUI：符号纠正迁移与 `form:'notice'` 渲染分别是独立条目。
 
@@ -96,9 +96,9 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 - 异常隔离：`decide` 抛错 / 空反馈只记 warning 并跳过该消费者，其余照常；注册返回注销函数（消费者 dispose 时调用）。
 - 复杂度边界：不做异步、priority、脚本谓词注册面；`evaluate` 作为轻量只读判定另备。
 
-### 11. 注入路径两条（delivery）
+### 11. 注入路径三条（delivery）
 
-`followup`（缺省，新回合）与 `next-step`（`agent.inject`：挂到最近 pre-step、不唤醒；旧宿主无此 API → warning 跳过）。语义与取舍：官方 next-step inbox 就是「消息进入 step 前」的正规出口，不自行注册 `agent/pre-step` 监听者，避免与官方 prepend 监听者（model-selection）的顺序和空 step 语义纠缠。
+`followup`（缺省，新回合）、`steer`（`agent.steer`：最近 pre-step + 唤醒，会话空闲时立刻开新回合）与 `inject`（`agent.inject`：最近 pre-step、不唤醒；旧宿主无此 API → warning 跳过；`steer` 缺 API 时回退它并记 warning）。语义与取舍：官方 next-step inbox 就是「消息进入 step 前」的正规出口，不自行注册 `agent/pre-step` 监听者，避免与官方 prepend 监听者（model-selection）的顺序和空 step 语义纠缠；`steer` 与 `inject` 共用该队列，差别只在**唤醒**——不唤醒时条目会一直挂到下次有回合开启（实测：`step-end` 注入撞上回合收尾时会滞留到下一条用户输入）。
 
 ### 12. 告警出口：总线优先、stderr 兜底（2026-10-01，「rule-engine 的用户提示应显示在活动区」方案 B）
 
