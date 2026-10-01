@@ -1451,7 +1451,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     if (
       uiState?.verbose !== undefined ||
       uiState?.symbolUnify !== undefined ||
-      uiState?.statusColumn !== undefined
+      uiState?.statusColumn !== undefined ||
+      uiState?.lowerPanes !== undefined
     ) {
       emit({
         type: "ui-flags",
@@ -1464,6 +1465,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         ...(uiState.statusColumn === undefined
           ? {}
           : { statusColumn: uiState.statusColumn }),
+        // #9：下半区（Turn/Tool）显隐（缺省显示）
+        ...(uiState.lowerPanes === undefined
+          ? {}
+          : { lowerPanes: uiState.lowerPanes }),
       });
     }
   };

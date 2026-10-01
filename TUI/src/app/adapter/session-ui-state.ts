@@ -29,6 +29,8 @@ export interface SessionUiState {
   symbolUnify?: boolean;
   /** P7：垂直状态列是否显示（Ctrl+S 切换；TUI 本地。缺省 = 显示） */
   statusColumn?: boolean;
+  /** #9：下半区（Turn 流 + Tool 面板区）是否显示（Ctrl+T 切换；TUI 本地。缺省 = 显示） */
+  lowerPanes?: boolean;
   /** Mode 块兜底值（宿主日志无对应事件时使用；plan/sandbox/permission + 审批策略） */
   modes?: {
     plan?: "on" | "off";

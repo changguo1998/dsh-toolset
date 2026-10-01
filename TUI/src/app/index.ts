@@ -825,6 +825,8 @@ export class App {
       symbolUnify: this.state.symbolUnify,
       // P7：垂直状态列显隐（TUI 本地开关，随会话持久化）
       statusColumn: this.state.statusColumnVisible,
+      // #9：下半区（Turn/Tool）显隐（TUI 本地开关，随会话持久化）
+      lowerPanes: this.state.lowerPanesVisible,
       modes: {
         ...(mode.plan === undefined ? {} : { plan: mode.plan }),
         ...(mode.sandbox === undefined ? {} : { sandbox: mode.sandbox }),
@@ -1384,6 +1386,12 @@ export class App {
             reduceState(s, { type: "status-column", visible: e.statusColumn! }),
           );
         }
+        // #9：恢复下半区（Turn/Tool）显隐
+        if (e.lowerPanes !== undefined) {
+          this.apply((s) =>
+            reduceState(s, { type: "lower-panes", visible: e.lowerPanes! }),
+          );
+        }
         break;
       }
       case "agent-preset":
@@ -1875,6 +1883,15 @@ export class App {
     // 显隐状态随会话持久化（tui-state.json）。
     if (ctrl && name === "s") {
       this.apply((s) => reduceState(s, { type: "status-column" }));
+      this.scheduleSessionStateSave();
+      this.paint();
+      return;
+    }
+
+    // Ctrl+T：切换下半区（Turn 流 + Tool 面板区）显隐（#9）。隐藏后对话区变高，
+    // 需要整帧重排；显隐状态随会话持久化（tui-state.json）。
+    if (ctrl && name === "t") {
+      this.apply((s) => reduceState(s, { type: "lower-panes" }));
       this.scheduleSessionStateSave();
       this.paint();
       return;

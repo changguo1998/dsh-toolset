@@ -814,6 +814,17 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     activityTopRowToLine(state.activityTopRow, size.rows),
     state.activityPlacement,
   );
+  // #9：Ctrl+T 隐藏下半区（Turn 流 + Tool 面板区）时尺寸归零、空间并入对话区；
+  // 活动区内有交互面板打开时仍照常显示（面板临时显示，不改用户的可见性状态）
+  if (!state.lowerPanesVisible && !panelShownInActivity(state)) {
+    if (split.mode === "horizontal") {
+      split.dialogueW += split.activityW;
+      split.activityW = 0;
+    } else {
+      split.dialogueH += split.activityH + (split.activityH > 0 ? 1 : 0);
+      split.activityH = 0;
+    }
+  }
   const horizontal = split.mode === "horizontal";
   // 文字排版宽（P3）：横向历史 pane 不留白（`┃` 紧贴内部分隔竖线）；活动 pane 与
   // 纵向两 pane 各让 1 列（右缘贴外缘框列，字形宽度估算偏差落在留白里）
@@ -860,6 +871,17 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     modalOpen,
     statusLines,
   };
+}
+
+/** #9：活动区内是否正在显示交互面板（问答 / 审批 / 模型选择 / 命令面板）——
+ *  隐藏下半区时这些面板仍照常显示（临时显示，不改用户的可见性状态）。 */
+function panelShownInActivity(state: AppState): boolean {
+  return (
+    state.approval !== null ||
+    state.question !== null ||
+    state.picker !== null ||
+    state.statusPanel !== null
+  );
 }
 
 /** goal 阶段 → 标题 phase 状态色：active/complete 绿、paused 黄、blocked 红 */
@@ -1541,12 +1563,7 @@ function buildTopRegion(
   // 配色：未聚焦 = 边框色，聚焦 = 焦点色；放不下则整条省略（不折行、不占内容列）。
   const sessionFocused = !geom.modalOpen && state.focusedPanel === "history";
   const lowerFocused = !geom.modalOpen && state.focusedPanel === "activity";
-  const toolPaneShowing =
-    state.approval !== null ||
-    state.question !== null ||
-    state.picker !== null ||
-    state.statusPanel !== null;
-  const lowerTitle = toolPaneShowing ? "Tool" : "Turn";
+  const lowerTitle = panelShownInActivity(state) ? "Tool" : "Turn";
   /** 标题行：`-- <title> --` + 边框线补满；宽度放不下（标题后不足 1 列线）返回 null（省略） */
   const titledRow = (
     width: number,

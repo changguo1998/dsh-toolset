@@ -540,6 +540,10 @@ export interface AppState {
   /** P7：垂直状态列是否显示（`Ctrl+S` 切换；随会话持久化 tui-state.json；缺省显示）。
    *  隐藏时状态列宽 0、分隔竖线不绘制、历史区变宽 */
   statusColumnVisible: boolean;
+  /** #9：下半区（Turn 流 + Tool 面板区）是否显示（`Ctrl+T` 切换；随会话持久化；缺省显示）。
+   *  隐藏时活动区高度/宽度归零、空间并入对话区；输入栏不受影响，
+   *  活动区内的交互面板（问答/审批等）仍照常弹出。 */
+  lowerPanesVisible: boolean;
   /** 声音提醒总开关（tui.config.json `notify.enabled`；启动时接线）。无会话内切换路径，
    *  状态列 Mode 块按其当前值只读展示（勾绿 / 叉灰） */
   notifyEnabled: boolean;
@@ -716,6 +720,7 @@ export function initialState(
     symbolUnify: true, // 模型输出符号统一（缺省开）；/symbol-unify off 切原样
     notifyEnabled: opts?.notifyEnabled ?? true, // 声音提醒（配置项，只读展示）
     statusColumnVisible: true, // P7：垂直状态列默认显示（Ctrl+S 切换）
+    lowerPanesVisible: true, // #9：下半区（Turn/Tool）默认显示（Ctrl+T 切换）
     strippedChars: 0, // 本回合剔除的非打印控制字符计数（turn-begin 清零）
     streamBreak: false, // P5：上一分片是否为被丢弃的纯空白块
     runVirt: emptyRunVirt(), // 运行中闪烁虚拟状态（下次用户输入时重置）
@@ -1984,6 +1989,19 @@ export function reduceState(state: AppState, action: StateAction): AppState {
               : state.focusedPanel,
         };
       }
+      case "lower-panes": {
+        // #9：Ctrl+T 切换下半区（Turn 流 + Tool 面板区）显隐（缺省取反）；
+        // 隐藏时把焦点从下半区移开（隐藏即不聚焦），输入栏不受影响
+        const visible = action.visible ?? !state.lowerPanesVisible;
+        return {
+          ...state,
+          lowerPanesVisible: visible,
+          focusedPanel:
+            !visible && state.focusedPanel === "activity"
+              ? null
+              : state.focusedPanel,
+        };
+      }
       case "activity-verbose":
         // 活动区显示详略（SPEC §6.8 两态）：true=完整折行；false=紧凑（每条目 1 行 + 省略号）
         return { ...state, activityVerbose: action.on };
@@ -2377,9 +2395,11 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         // 顶部三面板焦点循环：无焦点(null) → history → activity → status → history；
         // P7：状态列隐藏（Ctrl+S）时跳过 status——该列宽 0，聚焦会画出退化焦点框并占掉内容首列
         const cycle: readonly ("history" | "activity" | "status")[] =
-          state.statusColumnVisible
-            ? PANEL_CYCLE
-            : PANEL_CYCLE.filter((p) => p !== "status");
+          PANEL_CYCLE.filter(
+            (p) =>
+              (state.statusColumnVisible || p !== "status") &&
+              (state.lowerPanesVisible || p !== "activity"),
+          );
         const cur = state.focusedPanel;
         return {
           ...state,
@@ -2563,6 +2583,8 @@ export type StateAction =
   | { type: "activity-verbose"; on: boolean }
   /** P7：垂直状态列显隐（visible 缺省 = 取反，供 Ctrl+S 切换） */
   | { type: "status-column"; visible?: boolean }
+  /** #9：下半区（Turn 流 + Tool 面板区）显隐（visible 缺省 = 取反，供 Ctrl+T 切换） */
+  | { type: "lower-panes"; visible?: boolean }
   | { type: "symbol-unify"; on: boolean }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }
   | {
