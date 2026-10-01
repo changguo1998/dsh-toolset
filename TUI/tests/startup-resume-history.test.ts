@@ -131,3 +131,36 @@ test("启动即恢复读取失败：给提示且不抛（不阻塞启动）", as
     app.dispose();
   }
 });
+
+test("启动期外部日志：恢复启动时先挂起，折叠落定后补发（BACKLOG TUI#9）", async () => {
+  const { st, app } = makeApp(true, {
+    s1: [{ role: "assistant", text: "昨天的回答" }],
+  });
+  try {
+    // start() 已置挂起态：此刻到达的外部日志进队列，不直接落 buffer
+    app.appendExternalLog("[rule-engine] warn: 装载期告警", "warn");
+    assert.ok(
+      !st().buffer.some((l) => l.kind === "notice"),
+      "折叠落定前不直接入 buffer: " + JSON.stringify(st().buffer),
+    );
+    for (
+      let i = 0;
+      i < 20 && !st().buffer.some((l) => l.kind === "notice");
+      i++
+    ) {
+      await sleep(0);
+    }
+    const notice = st().buffer.find((l) => l.kind === "notice");
+    assert.ok(notice, "折叠落定后补发进活动区: " + JSON.stringify(st().buffer));
+    assert.equal(notice?.text, "[rule-engine] warn: 装载期告警");
+    assert.equal(notice?.tone, "warn", "tone 保留");
+    // 落定后新到的日志直接入 buffer
+    app.appendExternalLog("后续日志");
+    assert.ok(
+      st().buffer.some((l) => l.kind === "notice" && l.text === "后续日志"),
+      "落定后直接入 buffer",
+    );
+  } finally {
+    app.dispose();
+  }
+});

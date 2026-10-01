@@ -150,9 +150,16 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   // 告警总线：有订阅者（TUI 经 provide("ruleEngine").onNotice）时发总线、不写 stderr；
   // 无订阅者（headless）回退 stderr。展示通道失败不回流、不向宿主抛（项目级 #61 方案 B）。
   const noticeListeners = new Set<(event: NoticeEvent) => void>();
+  // 装载期告警缓冲（BACKLOG TUI「装载期告警不进活动区」）：插件装载早于 TUI 的 stderr 桥 /
+  // 总线的订阅，此时直写 stderr 的告警在活动区看不到；先挂起，首个订阅者注册时重放。
+  // headless 兜底不变：无订阅者时仍写 stderr。
+  const pendingNotices: string[] = [];
+  const MAX_PENDING_NOTICES = 64;
   const warn = (message: string): void => {
     const line = `[rule-engine] warn: ${message}`;
     if (noticeListeners.size === 0) {
+      pendingNotices.push(line);
+      if (pendingNotices.length > MAX_PENDING_NOTICES) pendingNotices.shift();
       process.stderr.write(`${line}\n`);
       return;
     }
@@ -217,7 +224,18 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
           registerConsumer: (input: ConsumerRegistration): (() => void) =>
             engine.registerConsumer(input),
           onNotice: (listener: (event: NoticeEvent) => void): (() => void) => {
+            const first = noticeListeners.size === 0;
             noticeListeners.add(listener);
+            // 首个订阅者：重放装载期挂起的告警（重放仅发生一次）
+            if (first && pendingNotices.length > 0) {
+              for (const text of pendingNotices.splice(0)) {
+                try {
+                  listener({ text, tone: "warn" });
+                } catch {
+                  // 订阅者自身出错：忽略（展示通道，不影响告警链路）
+                }
+              }
+            }
             return () => {
               noticeListeners.delete(listener);
             };

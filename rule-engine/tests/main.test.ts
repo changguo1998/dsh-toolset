@@ -6,7 +6,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -371,6 +371,43 @@ test("apply：告警总线——有 onNotice 订阅者时走总线（不写 stde
       "[rule-engine] warn: registerConsumer 的 id 必须是非空字符串\n",
       "stderr 也只有一层前缀",
     );
+  } finally {
+    process.stderr.write = originalWrite;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("apply：装载期告警挂起——首个 onNotice 订阅者注册时重放（stderr 兜底不变）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-test-"));
+  // 造损坏状态文件：apply 期间（尚无订阅者）产生装载告警 → 挂起
+  writeFileSync(path.join(dir, "rules.json"), "{ not json");
+  const chunks: string[] = [];
+  const originalWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    const fake = fakeCtx();
+    await apply(fake.ctx, { stateDir: dir });
+    assert.match(
+      chunks[0] ?? "",
+      /^\[rule-engine\] warn: 状态文件损坏/,
+      "无订阅者：装载告警仍写 stderr（headless 兜底）",
+    );
+    const service = fake.provided.get("ruleEngine") as {
+      onNotice(
+        listener: (event: { text: string; tone?: string }) => void,
+      ): () => void;
+    };
+    const notices: Array<{ text: string; tone?: string }> = [];
+    service.onNotice((event) => notices.push(event));
+    assert.equal(notices.length, 1, "首个订阅者 → 重放装载期告警");
+    assert.equal(notices[0]?.text, (chunks[0] ?? "").trimEnd());
+    assert.equal(notices[0]?.tone, "warn");
+    const notices2: Array<{ text: string }> = [];
+    service.onNotice((event) => notices2.push(event));
+    assert.equal(notices2.length, 0, "非首个订阅者不重放");
   } finally {
     process.stderr.write = originalWrite;
     rmSync(dir, { recursive: true, force: true });

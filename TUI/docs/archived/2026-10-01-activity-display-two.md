@@ -1,6 +1,6 @@
 # 活动区显示两项（接取条目：`TUI/docs/BACKLOG.md`「模型可见正文未进历史区、内容像是全落在「思考」列」+「启动期（插件装载 / 解析）告警不进活动区」）
 
-状态：决策　　开启：2026-10-01
+状态：关闭　　开启：2026-10-01　　关闭：2026-10-01
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -46,12 +46,25 @@
 
 ## 实现记录
 
-（待写）
+1. `rule-engine/src/main.ts`：`warn` 增装载期缓冲 `pendingNotices`（上限 64 条；无订阅者时仍写 stderr）；`onNotice` 首个订阅者注册时重放缓冲（仅一次，重放后清空）。
+1. `rule-engine/tests/main.test.ts`：新增用例「apply：装载期告警挂起——首个 onNotice 订阅者注册时重放（stderr 兜底不变）」。
+1. `TUI/src/app/index.ts`：新增 `bootLogPending` 挂起队列——恢复启动（`resumedAtLaunch`）时 `start()` 先置挂起态，`appendExternalLog` 入队；启动历史折叠落定（`flushKickoffPending`）后补发，且**排在 kickoff 之后**（kickoff 开新回合会清活动区）。
+1. `TUI/tests/startup-resume-history.test.ts`：新增用例「启动期外部日志：恢复启动时先挂起，折叠落定后补发」。
+1. 真机首验发现新问题并当场补完：仅 rule-engine 侧缓冲时，告警**出现但随后被冲掉**——`history-restore` 启动历史折叠会**整表替换 buffer**（既有机制，代码注释已明示）；TUI 侧按既有先例（`kickoffPending`）补完。
+1. 条目一为结论项，**无代码改动**。
 
 ## 测试与证据
 
-（待写）
+- 单测：`cd rule-engine && npm run test` → 64 pass / 0 fail（新增 1 例：订阅前挂起 + 首个订阅者重放 + 非首个不重放 + stderr 兜底断言）。
+- 单测：`npm run test:tui` → 1229 pass / 0 fail（新增 1 例：启动期外部日志挂起 / 落定后补发 / 落定后直入）。
+- 机械门禁：根 `npm run check` / `npm run build` exit 0。
+- 全量：`npm run test`（根）→ 16 包全绿（TUI 1229 / rule-engine 64 / 0 fail）。
+- 真机：第一轮（仅 rule-engine 侧）→ 告警出现在活动区但折叠落定后被冲掉（用户观察）；第二轮（TUI 侧补完后）→ 告警**常驻可见**，用户确认「可以了」；随后已还原 `rules.json`（1122 字节）。
 
 ## 收尾
 
-（待写）
+- 回写：无需（口径已落在代码注释与本追踪文档；`DESIGN.md` 未描述启动期日志时序）。
+- BACKLOG 清理：TUI 两条目「模型可见正文未进历史区、内容像是全落在「思考」列」与「启动期（插件装载 / 解析）告警不进活动区」已按「完成」清理移除（空章节「渲染与活动区」一并清理）。
+- 归档：本追踪文档移入 `TUI/docs/archived/`。
+- 残留检查：`git status` 无计划外文件；`tmp/rules.json.bak-tui9` 保留至用户重启确认规则恢复后清理。
+- 遗留项：条目一的可选体验改进（思考列折叠 / 收窄）**未立项**——如需另开条目。

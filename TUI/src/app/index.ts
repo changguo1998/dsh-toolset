@@ -318,6 +318,11 @@ export class App {
   /** 启动自检 kickoff 正文（门控通过时由 main.ts 传入）：恢复会话先挂起，等启动历史折叠
    *  落定后再发（history-restore 会整表替换 buffer，早发会被替换掉）；null = 无待发内容 */
   private kickoffPending: string | null = null;
+  /** 启动期外部日志（stderr 桥 / 插件告警总线的早到行）：恢复会话时先挂起，等启动历史
+   *  折叠落定后补发——`history-restore` 会整表替换 buffer，早发会被替换掉（BACKLOG TUI#9）。
+   *  null = 非挂起态（未恢复会话或已落定）。 */
+  private bootLogPending: Array<{ text: string; tone?: NoticeTone }> | null =
+    null;
   /** 退出确认面板已打开（合成问答面板 `EXIT_CONFIRM_PANEL_ID`）：确认「退出 dsh」才 dispose，
    *  取消/Esc 只关面板；防止单字节误触（BACKLOG「tmux 断连后 dsh 退出」）直接结束会话 */
   private exitConfirmOpen = false;
@@ -506,6 +511,9 @@ export class App {
   }
 
   start(): void {
+    // 恢复会话：启动历史折叠会整表替换 buffer → 早到的外部日志先挂起（落定后补发，见
+    // flushKickoffPending）。必须在总线接线（会触发插件侧重放）之前置位。
+    if (this.deps.adapter.resumedAtLaunch === true) this.bootLogPending = [];
     // 告警总线懒接线（未挂载则 no-op；见 ruleEngine()）
     this.ruleEngine();
     this.deps.renderer.onKey((k) => this.handleKey(k));
@@ -1462,6 +1470,10 @@ export class App {
    * 接线见 main.ts（桥）与 ruleEngine()（总线）。
    */
   appendExternalLog(line: string, tone?: NoticeTone): void {
+    if (this.bootLogPending !== null) {
+      this.bootLogPending.push({ text: line, tone });
+      return;
+    }
     this.notice(line, tone ?? "log");
   }
 
@@ -2325,11 +2337,17 @@ export class App {
     setTimeout(() => this.submitBootstrapKickoff(text), 0);
   }
 
-  /** 启动历史折叠已落定（或不会发生）→ 补发挂起的 kickoff；无挂起则无操作 */
+  /** 启动历史折叠已落定（或不会发生）→ 补发挂起的 kickoff，随后补发挂起的启动期告警行
+   *  （顺序固定：kickoff 先——它开新回合会清活动区，先补发告警会被清掉）；无挂起则无操作。 */
   private flushKickoffPending(): void {
     const text = this.kickoffPending;
     this.kickoffPending = null;
     if (text !== null) this.submitBootstrapKickoff(text);
+    const logs = this.bootLogPending;
+    this.bootLogPending = null;
+    if (logs !== null) {
+      for (const l of logs) this.notice(l.text, l.tone ?? "log");
+    }
   }
 
   /** 发出启动自检消息：与用户提交同路径回显（状态置运行 + 回合开始 + 用户行），消息本体
