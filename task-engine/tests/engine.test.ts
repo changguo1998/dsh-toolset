@@ -7,9 +7,15 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { TaskEngine, resumeFromSnapshot } from "../src/engine.ts";
+import {
+  TaskEngine,
+  resumeFromSnapshot,
+  type ExecuteOutcome,
+  type ExecuteRequest,
+  type ExecutorRunner,
+} from "../src/engine.ts";
 import type { AcceptanceHooks } from "../src/acceptance.ts";
-import type { ChildSpec, FrameId } from "../src/types.ts";
+import type { ChildSpec, FrameId, LoggedPlanEvent } from "../src/types.ts";
 
 const mech = (
   id: string,
@@ -45,6 +51,124 @@ function leafChild(
     coverage: coverage ?? {},
   };
 }
+describe("executor 执行扩展（① 发起 / ② 计量）", () => {
+  const leafWith = (
+    id: FrameId,
+    executor: ChildSpec["executor"],
+  ): ChildSpec => ({ ...leafChild(id, "做 C1", { "r-q": [id] }), executor });
+
+  const newEngine = (executor?: ExecutorRunner): TaskEngine =>
+    new TaskEngine({
+      root: { id: "root", title: "R", spec: "s", acceptance: [mech("r-q")] },
+      ...makeHooks(),
+      ...(executor === undefined ? {} : { executor }),
+    });
+
+  it("成功：证据回填 + frame-executed 记录 + 随后 stop 完成整树", async () => {
+    const e = newEngine();
+    await e.decompose("root", [
+      leafWith("c1", { kind: "command", command: "echo hi" }),
+    ]);
+    assert.equal(e.nextReady(), "c1");
+    const r = await e.execute("c1", async (req: ExecuteRequest) => {
+      assert.equal(req.executor.kind, "command");
+      assert.equal(req.spec, "做 C1");
+      return {
+        ok: true,
+        result: "命令输出：hi",
+        tokens: 1200,
+        model: "deepseek/deepseek-chat",
+      };
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.next, "c1", "回填证据后仍需对本帧 stop 验收");
+    assert.match(r.evidence ?? "", /命令输出/);
+    assert.deepEqual(r.usage, { tokens: 1200 });
+    assert.equal(e.frames().get("c1")?.result, "命令输出：hi");
+    const executed = e.log.filter((ev) => ev.type === "plan/frame-executed");
+    assert.equal(executed.length, 1);
+    const ev = executed[0] as Extract<
+      LoggedPlanEvent,
+      { type: "plan/frame-executed" }
+    >;
+    assert.equal(ev.executor, "command");
+    assert.equal(ev.model, "deepseek/deepseek-chat");
+    assert.equal(ev.tokens, 1200);
+    assert.equal(e.nested()[0]?.children[0]?.executorKind, "command");
+    assert.ok((await e.stop("c1")).ok);
+    assert.ok(e.isComplete());
+  });
+
+  it("未注入适配器 → fail-closed（不打回、不增重试计数）", async () => {
+    const e = newEngine();
+    await e.decompose("root", [leafWith("c1", { kind: "subagent" })]);
+    const r = await e.execute("c1");
+    assert.equal(r.ok, false);
+    assert.match(r.feedback ?? "", /未注入 executor 适配器/);
+    assert.equal(e.frames().get("c1")?.retryCount, 0);
+  });
+
+  it("未声明 executor / 声明 model → 提示改用 task_implement", async () => {
+    const e = newEngine(async () => ({ ok: true, result: "x" }));
+    await e.decompose("root", [
+      leafChild("c1", "做 C1", { "r-q": ["c1"] }),
+      {
+        ...leafChild("c2", "做 C2", { "r-q": ["c2"] }),
+        executor: { kind: "model" },
+      },
+    ]);
+    const r1 = await e.execute("c1");
+    assert.equal(r1.ok, false);
+    assert.match(r1.feedback ?? "", /task_implement/);
+    const r2 = await e.execute("c2");
+    assert.equal(r2.ok, false);
+    assert.match(r2.feedback ?? "", /task_implement/);
+  });
+
+  it("执行失败 → 带反馈打回；达 maxRetries 置 failed 且 next=null", async () => {
+    const e = newEngine();
+    await e.decompose("root", [
+      leafWith("c1", { kind: "command", command: "false" }),
+    ]);
+    const fail = async (): Promise<ExecuteOutcome> => ({
+      ok: false,
+      feedback: "命令退出码 1",
+    });
+    const r1 = await e.execute("c1", fail);
+    assert.equal(r1.ok, false);
+    assert.equal(r1.next, "c1", "打回：本帧重做");
+    assert.equal(e.frames().get("c1")?.retryCount, 1);
+    await e.execute("c1", fail);
+    const r3 = await e.execute("c1", fail);
+    assert.equal(e.frames().get("c1")?.status, "failed");
+    assert.equal(r3.next, null);
+  });
+
+  it("超预算只标注不打回（usage.overBudget）", async () => {
+    const e = newEngine();
+    await e.decompose("root", [
+      leafWith("c1", { kind: "subagent", budget: { maxTokens: 100 } }),
+    ]);
+    const r = await e.execute("c1", async () => ({
+      ok: true,
+      result: "产出",
+      tokens: 150,
+    }));
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.usage, { tokens: 150, overBudget: true });
+    const ev = e.log.find((x) => x.type === "plan/frame-executed") as
+      { overBudget?: boolean } | undefined;
+    assert.equal(ev?.overBudget, true);
+  });
+
+  it("非叶子 execute → 拒绝", async () => {
+    const e = newEngine(async () => ({ ok: true, result: "x" }));
+    const r = await e.execute("root");
+    assert.equal(r.ok, false);
+    assert.match(r.feedback ?? "", /非叶子/);
+  });
+});
+
 describe("TaskEngine 全链路", () => {
   it("decompose → implement → stop(mechanical) → join 整树完成", async () => {
     const hooks = makeHooks();

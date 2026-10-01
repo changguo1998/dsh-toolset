@@ -20,6 +20,8 @@ import { checkDecomposition, DEFAULT_GATE, type GateConfig } from "./gate.ts";
 import type {
   Acceptance,
   ChildSpec,
+  ExecutorKind,
+  ExecutorSpec,
   Frame,
   FrameId,
   LoggedPlanEvent,
@@ -38,6 +40,51 @@ export interface RootSpec {
   acceptance: Acceptance[];
   /** 根是否需要再拆（默认 true；false = 根即叶子） */
   needDecompose?: boolean;
+  /** 根即叶子时的执行后端声明（同 ChildSpec.executor） */
+  executor?: ExecutorSpec;
+}
+
+/**
+ * executor 执行请求（引擎 → 后端适配器，`main.ts` 接线真实宿主面）。
+ * 引擎只做发起：拼装请求、回填证据、交给既有 RET 验收。
+ */
+export interface ExecuteRequest {
+  frame: FrameId;
+  title: string;
+  spec: string;
+  acceptance: Acceptance[];
+  executor: ExecutorSpec;
+  /** 上一次打回反馈（重试时带上，便于后端修正） */
+  feedback?: string;
+}
+
+/** executor 执行结果（证据回填；ok=false 走打回通道） */
+export interface ExecuteOutcome {
+  ok: boolean;
+  /** 证据正文（ok=true 时写回 `plan/frame-implemented`） */
+  result?: string;
+  /** 失败反馈（ok=false 时打回给模型） */
+  feedback?: string;
+  /** 事后计量 / 后端自报的 token 用量（②） */
+  tokens?: number;
+  /** 实际使用的模型（`provider/model`；未覆盖时为空 = 随宿主默认） */
+  model?: string;
+}
+
+/** executor 后端适配器（宿主侧接线；未注入时 execute fail-closed 打回） */
+export type ExecutorRunner = (req: ExecuteRequest) => Promise<ExecuteOutcome>;
+
+/** execute 结果（与 stop 同口径的 step 级裁决 + 证据摘要 + 用量） */
+export interface ExecuteResult {
+  ok: boolean;
+  accepted: boolean;
+  /** 建议下一步：成功 = 本帧（待 stop 验收）；失败 = 本帧（重做）或 null（已 failed） */
+  next: FrameId | null;
+  feedback?: string;
+  /** 证据摘要（截断，供工具返回值直接展示） */
+  evidence?: string;
+  /** 用量与预算标注（②；超预算只标注、不据此打回） */
+  usage?: { tokens?: number; overBudget?: boolean };
 }
 
 /** 语义蕴含（第二道门）hook：独立 entail run 判定 ∧Qᵢ ⟹ Q_parent（§17.2）。宿主侧实现。 */
@@ -57,6 +104,8 @@ export interface TaskEngineOptions {
   audit?: (req: AuditRequest) => Promise<AuditVerdict>;
   /** 语义蕴含第二道门（§17.2）。未配置时只做机械门禁（结构蕴含跳过）。 */
   entail?: EntailHook;
+  /** executor 后端适配器（①）。未配置时声明了非 model 后端的帧 execute fail-closed。 */
+  executor?: ExecutorRunner;
   /** 配置后每次变更自动写快照（周期快照，§15.1 L3） */
   snapshotPath?: string;
 }
@@ -103,6 +152,7 @@ export class TaskEngine {
   private auditFallback:
     ((req: AuditRequest) => Promise<AuditVerdict>) | undefined;
   private entail: EntailHook | undefined;
+  private executorFallback: ExecutorRunner | undefined;
   private snapshotPath?: string;
   /** 周期快照写盘串行链：避免并发 fire-and-forget 写乱序（新快照覆盖旧快照） */
   private snapshotChain: Promise<void> = Promise.resolve();
@@ -113,6 +163,7 @@ export class TaskEngine {
     this.runCommandFallback = opts.runCommand;
     this.auditFallback = opts.audit;
     this.entail = opts.entail;
+    this.executorFallback = opts.executor;
     this.snapshotPath = opts.snapshotPath;
     if (opts.log && opts.log.length > 0) {
       this.log.push(...opts.log);
@@ -125,6 +176,9 @@ export class TaskEngine {
         spec: opts.root.spec,
         acceptance: opts.root.acceptance,
         needDecompose: opts.root.needDecompose ?? true,
+        ...(opts.root.executor === undefined
+          ? {}
+          : { executor: opts.root.executor }),
       };
       logEvent(this.log, { type: "plan/root-created", frame: rootFrame });
     }
@@ -298,6 +352,115 @@ export class TaskEngine {
     this.append({ type: "plan/frame-implemented", frame: frameId, result });
     this.recompute();
     return { ok: true };
+  }
+
+  /**
+   * execute(frame, runner?)：按叶子声明的 `executor` 发起独立执行面（①），
+   * 成功后把证据写回 `plan/frame-implemented` 并落 `plan/frame-executed` 记录（② 计量）。
+   *
+   * 边界：`model` 语义 = 本会话执行（等价模型自己调 `task_implement`），不走此路径；
+   * 引擎只做「发起 / 证据回填 / 验收」——脚本、提示词与命令都由叶子显式声明。
+   */
+  async execute(
+    frameId: FrameId,
+    runner?: ExecutorRunner,
+  ): Promise<ExecuteResult> {
+    const f = this.tree.frames.get(frameId);
+    if (f === undefined)
+      return {
+        ok: false,
+        accepted: false,
+        next: null,
+        feedback: `未知帧 ${frameId}`,
+      };
+    if (f.needDecompose)
+      return {
+        ok: false,
+        accepted: false,
+        next: frameId,
+        feedback: `帧 ${frameId} 非叶子，不允许 execute（请先 decompose）。`,
+      };
+    if (f.status === "done" || f.status === "failed")
+      return {
+        ok: false,
+        accepted: false,
+        next: null,
+        feedback: `帧 ${frameId} 状态 ${f.status}，不可 execute`,
+      };
+    const spec = f.executor;
+    if (spec === undefined || spec.kind === "model")
+      return {
+        ok: false,
+        accepted: false,
+        next: frameId,
+        feedback: `帧 ${frameId} 未声明非 model 执行后端（model = 本会话执行，请用 task_implement 写产出）。`,
+      };
+    const run = runner ?? this.executorFallback;
+    if (typeof run !== "function")
+      return {
+        ok: false,
+        accepted: false,
+        next: frameId,
+        feedback: `帧 ${frameId} 声明了 ${spec.kind} 后端，但引擎未注入 executor 适配器（fail-closed）。`,
+      };
+    let out: ExecuteOutcome;
+    try {
+      out = await run({
+        frame: frameId,
+        title: f.title,
+        spec: f.spec,
+        acceptance: f.acceptance,
+        executor: spec,
+        ...(f.feedback === undefined ? {} : { feedback: f.feedback }),
+      });
+    } catch (err) {
+      out = { ok: false, feedback: `executor 适配器抛错：${String(err)}` };
+    }
+    const max = spec.budget?.maxTokens;
+    const overBudget =
+      max === undefined || out.tokens === undefined
+        ? undefined
+        : out.tokens > max;
+    const summary = summarize(
+      out.ok ? (out.result ?? "") : (out.feedback ?? ""),
+    );
+    this.append({
+      type: "plan/frame-executed",
+      frame: frameId,
+      executor: spec.kind,
+      ...(out.model === undefined || out.model === ""
+        ? {}
+        : { model: out.model }),
+      ...(out.tokens === undefined ? {} : { tokens: out.tokens }),
+      ...(overBudget === undefined ? {} : { overBudget }),
+      ...(summary === "" ? {} : { evidence: summary }),
+    });
+    if (!out.ok) {
+      const feedback = out.feedback ?? `${spec.kind} 后端执行失败（未给反馈）`;
+      this.rejectFrame(frameId, "executor", feedback);
+      const now = this.tree.frames.get(frameId);
+      const next: FrameId | null = now?.status === "failed" ? null : frameId;
+      this.emitStepVerdict(frameId, { accepted: false, next, feedback });
+      return { ok: false, accepted: false, next, feedback };
+    }
+    const result =
+      typeof out.result === "string" && out.result.trim().length > 0
+        ? out.result
+        : `（${spec.kind} 后端未返回证据正文）`;
+    this.append({ type: "plan/frame-implemented", frame: frameId, result });
+    this.recompute();
+    const usage = {
+      ...(out.tokens === undefined ? {} : { tokens: out.tokens }),
+      ...(overBudget === undefined ? {} : { overBudget }),
+    };
+    return {
+      ok: true,
+      accepted: true,
+      // 证据已回填但尚未验收：下一步仍是本帧（对它 task_stop）
+      next: frameId,
+      evidence: summarize(result),
+      ...(Object.keys(usage).length === 0 ? {} : { usage }),
+    };
   }
 
   /**
@@ -552,6 +715,12 @@ export class TaskEngine {
 
 function reject(feedback: string): ActionResult {
   return { ok: false, feedback };
+}
+
+/** 证据摘要（折叠空白 + 截断；供事件与工具返回值展示，非全文） */
+function summarize(text: string, max = 240): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 3)}...`;
 }
 
 /** 从快照恢复引擎（resume 加速，§15.1 L3；在途帧回收为 pending） */

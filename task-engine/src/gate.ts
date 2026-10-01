@@ -4,7 +4,14 @@
 // 越级 / 过粗 / 过细 / 数量 四规则，加 coverage 完备性 + 前置传递（机械拒绝，带反馈打回）。
 // 语义蕴含（合取是否真蕴含父 Q）属第二道门，在 engine.decompose 内经 entail hook 裁决。
 
-import type { Acceptance, ChildSpec, Frame, FrameId } from "./types.ts";
+import type {
+  Acceptance,
+  ChildSpec,
+  ExecutorKind,
+  ExecutorSpec,
+  Frame,
+  FrameId,
+} from "./types.ts";
 
 export interface GateConfig {
   /** 一次 decompose 的子任务数量上限（默认 7，§10 ③） */
@@ -22,7 +29,86 @@ export const DEFAULT_GATE: GateConfig = {
 };
 
 export type GateRule =
-  "overshoot" | "too-coarse" | "too-fine" | "too-many" | "coverage" | "deps";
+  | "overshoot"
+  | "too-coarse"
+  | "too-fine"
+  | "too-many"
+  | "coverage"
+  | "deps"
+  | "executor";
+
+/** 合法 executor 后端（BACKLOG「task-engine 执行扩展」①） */
+export const EXECUTOR_KINDS: readonly ExecutorKind[] = [
+  "model",
+  "subagent",
+  "workflow",
+  "command",
+];
+
+/**
+ * executor 声明校验（机械门禁的一环）：kind 白名单 + 各 kind 必填字段。
+ * 返回 null = 合法；否则返回可读原因（原样进打回反馈）。
+ */
+export function validateExecutor(spec: unknown): string | null {
+  if (typeof spec !== "object" || spec === null || Array.isArray(spec)) {
+    return "executor 必须是对象";
+  }
+  const o = spec as Record<string, unknown>;
+  const kind = o["kind"];
+  if (
+    typeof kind !== "string" ||
+    !EXECUTOR_KINDS.includes(kind as ExecutorKind)
+  ) {
+    return `kind 必须是 ${EXECUTOR_KINDS.join(" / ")} 之一`;
+  }
+  const nonEmpty = (v: unknown): boolean =>
+    typeof v === "string" && v.trim().length > 0;
+  if (kind === "command" && !nonEmpty(o["command"])) {
+    return "command 后端必须给 command（经 /bin/sh -c 执行）";
+  }
+  if (kind === "workflow" && !nonEmpty(o["script"])) {
+    return "workflow 后端必须给 script（引擎不替模型生成脚本）";
+  }
+  if (o["model"] !== undefined) {
+    const m = o["model"] as Record<string, unknown> | null;
+    if (
+      typeof m !== "object" ||
+      m === null ||
+      !nonEmpty(m["provider"]) ||
+      !nonEmpty(m["model"])
+    ) {
+      return "model 覆盖需同时给 provider 与 model（非空字符串）";
+    }
+  }
+  if (o["budget"] !== undefined) {
+    const b = o["budget"] as Record<string, unknown> | null;
+    if (typeof b !== "object" || b === null || Array.isArray(b)) {
+      return "budget 必须是对象";
+    }
+    const max = b["maxTokens"];
+    if (
+      max !== undefined &&
+      !(typeof max === "number" && Number.isFinite(max) && max > 0)
+    ) {
+      return "budget.maxTokens 必须是正数";
+    }
+  }
+  if (o["cwd"] !== undefined && !nonEmpty(o["cwd"])) {
+    return "cwd 必须是非空字符串";
+  }
+  if (o["prompt"] !== undefined && !nonEmpty(o["prompt"])) {
+    return "prompt 必须是非空字符串";
+  }
+  if (
+    o["meta"] !== undefined &&
+    (typeof o["meta"] !== "object" ||
+      o["meta"] === null ||
+      Array.isArray(o["meta"]))
+  ) {
+    return "meta 必须是对象";
+  }
+  return null;
+}
 
 export interface GateResult {
   ok: boolean;
@@ -119,6 +205,24 @@ export function checkDecomposition(
         rule: "overshoot",
         feedback: `子任务「${c.title}」含实现细节/代码，越级了：请再抽象一层，只描述要做的事，不要写怎么做。`,
       };
+    }
+    // executor 声明（①）：只允许叶子声明，且各 kind 的必填字段齐备（机械拒绝带反馈）
+    if (c.executor !== undefined) {
+      if (c.needDecompose) {
+        return {
+          ok: false,
+          rule: "executor",
+          feedback: `子任务「${c.title}」非叶子却声明了 executor：执行后端只能声明在叶子上（它还会被继续拆）。`,
+        };
+      }
+      const bad = validateExecutor(c.executor);
+      if (bad !== null) {
+        return {
+          ok: false,
+          rule: "executor",
+          feedback: `子任务「${c.title}」的 executor 非法：${bad}。`,
+        };
+      }
     }
     if (c.needDecompose) {
       // 非叶子无需再查过粗/过细（它还会被继续拆）

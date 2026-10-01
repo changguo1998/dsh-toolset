@@ -65,6 +65,7 @@ export function materialize(log: LoggedPlanEvent[]): TaskTree {
             spec: c.spec,
             acceptance: c.acceptance,
             needDecompose: c.needDecompose,
+            ...(c.executor === undefined ? {} : { executor: c.executor }),
             status: "pending",
             children: [],
             retryCount: 0,
@@ -98,6 +99,11 @@ export function materialize(log: LoggedPlanEvent[]): TaskTree {
       }
       case "plan/step-verdict": {
         // step 级裁决（#5）：事件流携带 accepted/next 供宿主/审计消费；物化树不落字段
+        void ev;
+        break;
+      }
+      case "plan/frame-executed": {
+        // 执行记录（executor / 模型 / 用量）：审计证据，物化树不额外落字段
         void ev;
         break;
       }
@@ -138,6 +144,7 @@ export function toNested(tree: TaskTree): NestedTaskItem[] {
       title: f.title,
       status: f.status,
       needDecompose: f.needDecompose,
+      ...(f.executor === undefined ? {} : { executorKind: f.executor.kind }),
       children: f.children.map(build),
     };
   };

@@ -6,11 +6,13 @@
 // 第二迭代（BACKLOG #5/#13）：decompose 解析 deps/output_schema；
 // stop 输出 step 级 accepted/next 裁决（打回 next 指向本帧，终态 null）。
 
-import type { TaskEngine } from "./engine.ts";
+import type { ExecutorRunner, TaskEngine } from "./engine.ts";
+import { validateExecutor } from "./gate.ts";
 import type {
   Acceptance,
   AcceptanceLevel,
   ChildSpec,
+  ExecutorSpec,
   FrameId,
 } from "./types.ts";
 
@@ -19,6 +21,8 @@ export interface ToolExecuteCtx {
   makeApprove?: (
     exec: unknown,
   ) => (req: { frame: FrameId; reason: string }) => Promise<boolean>;
+  /** 真实链路：executor 适配器构造器（按当前工具调用的 agent 构造；缺省 = engine 内建适配器） */
+  makeExecutor?: (exec: unknown) => ExecutorRunner | undefined;
 }
 
 export interface TaskToolDef {
@@ -67,6 +71,20 @@ function parseAcceptance(raw: unknown): Acceptance[] | undefined {
   return out;
 }
 
+/** 子任务列表里第一个非法 executor 的可读原因（用于精确打回反馈）；全合法返回 null */
+function executorRejection(raw: unknown): string | null {
+  if (!Array.isArray(raw)) return null;
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null) continue;
+    const o = item as Record<string, unknown>;
+    if (o["executor"] === undefined) continue;
+    const id = asString(o.id) ?? "?";
+    const bad = validateExecutor(o["executor"]);
+    if (bad !== null) return `子任务「${id}」的 executor 非法：${bad}`;
+  }
+  return null;
+}
+
 /** 把工具入参转成 ChildSpec[]；格式非法返回 undefined（打回带格式反馈） */
 function parseChildren(raw: unknown): ChildSpec[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
@@ -104,6 +122,13 @@ function parseChildren(raw: unknown): ChildSpec[] | undefined {
         return undefined;
       deps = depsRaw as FrameId[];
     }
+    // executor 声明（①）：结构校验在此（值域校验由门禁统一裁决）
+    const executorRaw = o.executor;
+    let executor: ExecutorSpec | undefined;
+    if (executorRaw !== undefined) {
+      if (validateExecutor(executorRaw) !== null) return undefined;
+      executor = executorRaw as ExecutorSpec;
+    }
     out.push({
       id,
       title,
@@ -112,6 +137,7 @@ function parseChildren(raw: unknown): ChildSpec[] | undefined {
       needDecompose,
       coverage,
       ...(deps === undefined ? {} : { deps }),
+      ...(executor === undefined ? {} : { executor }),
     });
   }
   return out;
@@ -181,8 +207,10 @@ export function createTools(
           const parentId = asString(args.parent_id);
           const children = parseChildren(args.children);
           if (parentId === undefined || children === undefined) {
+            const detail = executorRejection(args.children);
             return fail(
-              "task_decompose 参数非法：需 parent_id 与合法 children（含 id/title/spec/acceptance）。",
+              "task_decompose 参数非法：需 parent_id 与合法 children（含 id/title/spec/acceptance）" +
+                (detail === null ? "。" : `；${detail}。`),
             );
           }
           const r = await engine.decompose(parentId, children);
@@ -227,12 +255,47 @@ export function createTools(
     },
   });
 
+  /** ① 发起 executor 后端（引擎只做发起 / 证据回填；验收仍走 task_stop） */
+  const execute: TaskToolDef = {
+    name: "task_execute",
+    description:
+      "发起叶子任务声明的 executor 后端（subagent / workflow / command）并把执行证据回填到该帧；" +
+      "model 后端 = 本会话执行，请改用 task_implement。回填后仍需 task_stop 做 RET 验收。",
+    parameters: {
+      task_id: {
+        type: "string",
+        required: true,
+        description: "叶子任务 id（须声明非 model 的 executor）",
+      },
+    },
+    async execute(args, exec) {
+      const taskId = asString(args.task_id);
+      if (taskId === undefined)
+        return fail("task_execute 参数非法：需 task_id。");
+      const r = await engine.execute(taskId, ctx.makeExecutor?.(exec));
+      return r.ok
+        ? ok({
+            accepted: r.accepted,
+            next: r.next,
+            ...(r.evidence === undefined ? {} : { evidence: r.evidence }),
+            ...(r.usage === undefined ? {} : { usage: r.usage }),
+          })
+        : {
+            ok: false,
+            accepted: r.accepted,
+            next: r.next,
+            feedback: r.feedback ?? "",
+          };
+    },
+  };
+
   return [
     decompose(
       "decompose",
       "把一个待细化任务拆成子任务（每次只细化一层；机械+语义蕴含双门禁通过才挂树）",
     ),
     decompose("implement", "完成一个叶子任务并写入产出"),
+    execute,
     decompose(
       "stop",
       "对任务执行 RET 验收（mechanical/human/semantic），通过则完成并向上 join，返回 accepted/next",

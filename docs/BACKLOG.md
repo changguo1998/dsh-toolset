@@ -39,12 +39,14 @@
 
 | 5 | **命令模板的取消/超时终态**：真机发现 `playbook` 命令在子代理死亡或取消后可能**无 `command/done`**（命令悬挂）；且 `stepTimeoutMs`（缺省 600s）触发的 abort 是否真的中止子代理未经真机验证。期望：命令任何路径都回终态（成功/失败/取消），并在子会话结束时回收 | 「模板体系」真机观察（追踪文档 2026-09-30 第三轮） | `command-template`（`src/{steps,subagent,main}.ts`） | P2 |
 
+| 6 | **executor 隔离落地（git worktree）**：叶子 `executor` 已支持 `cwd` 透传，但无隔离；原计划经本机插件 `dsh-git-worktree`，而该插件在本机**不存在实现**（`~/.dsh/plugins/dsh-git-worktree` 只有空目录、profile 未挂载；npm registry 有 `dsh-git-worktree@0.3.1`）。期望：装上 / 实现该插件后，executor 增补 `isolate: "worktree"`（引擎建 / 回收 worktree，路径作为 `cwd` 传给 subagent / command 后端） | 「task-engine 执行扩展」实施期裁定（2026-10-02，用户：③ 另开条目） | `task-engine`（`src/{types,gate,engine,main}.ts`）+ 本机 `dsh-git-worktree` 插件 | 1 h（依赖插件就绪） | P2 |
+
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：goal-contract / metric-loop、知识库记忆层与淘汰提升、fan-out 就绪池、hash-edit / ast-tools、security-guard / herdr-integration 等）均已完成。
-1. 里程碑三（P2）剩余（按依赖与工作量排序）：task-engine 执行扩展、会话事件自动入知识库、记忆 auto-consolidation、slash 命令命名规范、命令模板取消/超时终态、PDF/文档结构视图，按需排期；已完成项与已取消 / 不再立项项见 §1 索引。
+1. 里程碑三（P2）剩余（按依赖与工作量排序）：会话事件自动入知识库、记忆 auto-consolidation、命令模板取消/超时终态、executor 隔离落地（git worktree）、PDF/文档结构视图，按需排期；已完成项与已取消 / 不再立项项见 §1 索引。
 1. 依赖：**模板格式先行**（命令模板体系① 定稿后，其③ 内容与执行扩展① 的 executor 声明才有统一落点）；执行扩展①② 依赖宿主 `subagents` / `workflow` / `llm` / `token-meter` 面（均已挂载），③ 依赖本机 `dsh-git-worktree`；原「近期改动代码审查」能力并入命令模板体系③；其余相互独立。
 
 ## 4. 插件规划（未建包）

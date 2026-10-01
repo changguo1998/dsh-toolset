@@ -19,6 +19,32 @@ export interface Acceptance {
 
 export type FrameStatus = "pending" | "active" | "done" | "failed";
 
+/**
+ * 叶子任务的执行后端（BACKLOG「task-engine 执行扩展」①）：
+ * `model` = 本会话执行（缺省语义，等价于模型自己调 `task_implement`）；
+ * `subagent` / `workflow` / `command` = 由引擎发起的独立执行面（引擎只做发起 / 证据回填 / 验收）。
+ */
+export type ExecutorKind = "model" | "subagent" | "workflow" | "command";
+
+/** executor 声明：由模板或叶子显式声明，**引擎不替模型生成脚本**（README「边界与外包」）。 */
+export interface ExecutorSpec {
+  kind: ExecutorKind;
+  /** 模型覆盖（`subagent` 后端用；缺省随宿主 `agentDefaultModel` 的当前选择） */
+  model?: { provider: string; model: string };
+  /** 预算声明（②）：后端自报 / 事后 `tokenMeter` 计量的 token 上限；超限只**标注**不打回 */
+  budget?: { maxTokens?: number };
+  /** `subagent`：提示词（缺省由引擎按 frame spec + 验收清单拼装） */
+  prompt?: string;
+  /** `workflow`：编排脚本（宿主 workflow 词汇，引擎不生成） */
+  script?: string;
+  /** `workflow`：脚本 meta（`WorkflowMeta` 形状，原样透传宿主） */
+  meta?: Record<string, unknown>;
+  /** `command`：命令（`/bin/sh -c`；退出码非 0 视为执行失败） */
+  command?: string;
+  /** 工作目录（`command` / `subagent` 透传；缺省继承当前会话 cwd） */
+  cwd?: string;
+}
+
 /** decompose 参数中的子任务描述（模型提议，经门禁裁决后才挂树） */
 export interface ChildSpec {
   id: FrameId;
@@ -31,6 +57,8 @@ export interface ChildSpec {
   coverage: Record<string, FrameId[]>;
   /** 前置传递（§17.2 顺序依赖显式化）：只允许引用前序兄弟 id */
   deps?: FrameId[];
+  /** 叶子执行后端声明（仅叶子合法，门禁校验；缺省 = model 语义） */
+  executor?: ExecutorSpec;
 }
 
 /** 树上的帧（物化视图节点） */
@@ -50,6 +78,8 @@ export interface Frame {
   retryCount: number;
   /** 最近一次打回反馈（带反馈重试） */
   feedback?: string;
+  /** 叶子执行后端声明（树上种子字段；缺省 = model 语义） */
+  executor?: ExecutorSpec;
 }
 
 /** step 级裁决（BACKLOG #5）：本步是否通过 + 建议下一步帧 + 打回反馈 */
@@ -96,6 +126,20 @@ export type PlanEvent =
       feedback?: string;
     }
   | {
+      /** 引擎发起 executor 的执行记录（① 发起 / ② 计量；证据全文走 `plan/frame-implemented`） */
+      type: "plan/frame-executed";
+      frame: FrameId;
+      executor: ExecutorKind;
+      /** 实际使用的模型（`provider/model`；未覆盖时为空串 = 随宿主默认） */
+      model?: string;
+      /** 事后计量 / 后端自报的 token 用量 */
+      tokens?: number;
+      /** 是否超出声明的 `budget.maxTokens`（只标注，不据此打回） */
+      overBudget?: boolean;
+      /** 证据摘要（截断；不含全文） */
+      evidence?: string;
+    }
+  | {
       /** abort 路径（turn/end reason=aborted）：在途帧回收为 pending，不增重试计数 */
       type: "plan/frame-interrupted";
       frame: FrameId;
@@ -120,5 +164,7 @@ export interface NestedTaskItem {
   title: string;
   status: FrameStatus;
   needDecompose: boolean;
+  /** 叶子执行后端（未声明时不带此字段；供模型 / 展示层判断该叶子该走哪条路） */
+  executorKind?: ExecutorKind;
   children: NestedTaskItem[];
 }

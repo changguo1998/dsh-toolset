@@ -44,9 +44,14 @@
 
 **评估结论（建议「不实施」）**：方案 A 已覆盖显示正确性与 headless 兜底，逐插件结构化通道的净增量只有「tone 精确」与「装载期重放」——后者各插件的装载期自证日志本就设计为直写终端（用户可见），前者在现有告警措辞下已被启发式覆盖。若日后出现具体 tone 误判点或需要结构化字段（跨客户端消费），**单点升级**（先例 rule-engine `onNotice`）即可，不必全仓铺开。
 
-### #1 现状
+### #1 现状（2026-10-02 读码）
 
-待读 task-engine 源码与 README「边界与外包」段；依赖宿主 `subagents` / `workflow` / `llm` / `token-meter` 面与本机 `dsh-git-worktree`。
+- **`executor` 至今零代码**：`task-engine/src`、`tests`、`demo` 全无该字段；只有 `README.md`「边界与外包」把它写成**决策口径**（「叶子可声明 `executor`（`model` = 本会话执行，缺省；后续增补 `subagent` / `workflow` / `command` 后端，由模板或叶子显式声明，引擎不替模型生成脚本）」）。故本条目是绿field 实现，不是改参数。
+- **现状可复用的机制**：叶子产出走 `engine.implement(frameId, result)` → `plan/frame-implemented{result}` 事件；验收走 `stop()` → RET（`acceptance.ts`：mechanical 用 `runCommand`、semantic 走 `audit` hook、human 走 `approval`）；`main.ts` 只 `inject: ["tools"]`，其余服务经 `ctx.get()` 读（先例：`approval`）。
+- **门禁不含 executor 校验**：`gate.ts#checkDecomposition` 只查粒度四规则 + coverage + deps；新增 `executor` 后其合法性校验（kind 白名单、必填字段、与 `needDecompose: false` 一致）需新增一处，并接入「机械拒绝带反馈打回」通道。
+- **计划清单需修正**：`task-engine/docs/{DESIGN,BACKLOG}.md` **不存在**（本包只有根 `README.md`），故 #1 文档落点改为 `README.md`。
+- **宿主面**（`docs/host/HOST-PACKAGES.md`）：`subagents`（`start` / `startContinuable` / `registerProvider`…）、`tokenMeter`（`measure` / `estimateMessage`）、`llm` 含 `agentDefaultModel`、`workflowEngine`（该文档一处标「未挂载」，需以 profile 实际装配为准）；逐项调用签名与「能否传模型 / cwd / 取用量」由子代理调研回报后补入（`fac61e62`，2026-10-02）。
+- **隔离依赖缺失（重要）**：本机 `dsh-git-worktree` **只有空目录**（`~/.dsh/plugins/dsh-git-worktree/disabled-git-hooks/`，无 `package.json` / 无源码 / 非 git 仓库；profile `fff` 的 dependencies 与 bundles 均未引用）。③「经本机 `dsh-git-worktree`」当前**没有可用底座**，需用户裁定替代方案（见「决策」D13）。
 
 ## 决策
 
@@ -60,6 +65,11 @@
 | D6 | slash 命令命名盘点结果（用户 2026-10-02 裁定） | **只删 `/preset`**，其余名字全部保留（`/cls` `/guard` `/contract` `/loop` `/task` `/memory` `/council` `/agents` 均不动） | 用户口述「删掉 preset，其他不变」；盘点清单与理由见「实现记录」 |
 | D7 | 改名后的旧名兼容（用户 2026-10-02 裁定） | **立即移除旧名**、不留别名（`/preset` 删后落 registry，未命中即提示「未知命令」） | 用户选定该策略 |
 | D8 | `/preset` 删除范围（用户 2026-10-02 裁定） | **只删命令**（条目 / 路由 / case 与处理器 / `selectAgentPreset` 写路径 / help 行 / 文档 / 测试 / demo 断言）；**保留**标题栏 preset 段、状态列可选项等被动展示 | 该 preset 为死路径（AGENTS.md：本项目按 profile 全局组合、不配置 agent preset），而展示链路仍由宿主事件驱动、与本命令无关 |
+| D9 | ① executor 后端集合（用户 2026-10-02 裁定） | **`subagent` + `command` + `workflow` 三条都做**（`model` = 现有本会话执行路径，不算新后端） | 用户勾选全量；宿主调研确认 `ctx.workflowEngine` 在本机 profile **已挂载**（`dsh-base` 的 `workflow-ptc` + `tool-workflow` 行，用户层无覆盖） |
+| D10 | ① 发起入口（用户 2026-10-02 裁定） | 新增工具 **`task_execute(task_id)`**；`task_implement` 保持 model / 手写路径 | 语义清晰：有无 `result` 不再混两种含义；`model` 后端由 `task_execute` 拒绝并指向 `task_implement` |
+| D11 | ③ 隔离落地（用户 2026-10-02 裁定） | **本次不做**，另开 BACKLOG 条目（已追加为 `docs/BACKLOG.md` 当前 #6「executor 隔离落地（git worktree）」） | 本机 `dsh-git-worktree` 不存在实现（空目录 + profile 未挂载；npm registry 有 0.3.1）；本包只留 `cwd` 透传 |
+| D12 | executor 声明落点（实现裁定） | `executor` 随 `ChildSpec`（`task_decompose` 的 children 项）与根契约声明 → 物化为 `Frame.executor`；门禁新增 `rule: "executor"`（只允许叶子 + kind 白名单 + 后端必填字段） | 与既有 `deps` / coverage 同通道：机械拒绝带反馈打回，规则随事件流留痕 |
+| D13 | ② 模型与预算语义（实现裁定，用户可否决） | 声明了 `model` 才显式传 `agentOptions`（未声明**不传** = 保持宿主「合并父 agent 选项」语义，只把 `agentDefaultModel.currentSelection()` 记进事件事实）；`budget.maxTokens` 映射宿主 `agentOptions.maxTokens`（输出上限语义）＋ 事后 `tokenMeter.measure(子会话)` 计量并标注 `overBudget`，**只标注不据此打回** | BACKLOG ② 原文只要求「接 agentDefaultModel 与 token-meter 计量」；宿主 `tokenMeter` 无预算字段（实测），强制中断无底座；显式传默认值会覆盖宿主按 agent 的合并语义 |
 
 ## 规划
 
@@ -99,7 +109,21 @@
 
 **#7（2026-10-02 评估完成）**：建议**不实施**逐插件结构化改造（理由见「调研 §7」），故无计划改动文件；若用户裁定实施，落点为各插件 `src/main.ts`（`onNotice` 式总线 + 装载期缓冲）＋ `TUI/src/main.ts`（逐插件订阅接线）＋ 各包 README / DESIGN ＋ 测试。
 
-**#1（待读码后细化）**：`task-engine/src/*`、`task-engine/README.md`、`task-engine/docs/{DESIGN,BACKLOG}.md`、`task-engine/tests/*`。
+**#1（2026-10-02 调研 + 裁定后细化）**——叶子执行后端（① 发起 / ② 模型与计量；③ 不做）：
+
+| 文件 | 改动 |
+|------|------|
+| `task-engine/src/types.ts` | `ExecutorKind` / `ExecutorSpec`；`ChildSpec.executor` / `Frame.executor` / `RootSpec.executor`；`PlanEvent` 新增 `plan/frame-executed`；`NestedTaskItem.executorKind` |
+| `task-engine/src/gate.ts` | `EXECUTOR_KINDS` + `validateExecutor()`；`GateRule` 增 `"executor"`（只允许叶子声明、kind 白名单、`command` 必给 command、`workflow` 必给 script、`model` 覆盖须给全 provider/model、`budget.maxTokens` 须为正数） |
+| `task-engine/src/events.ts` | 物化 `executor` 到 `Frame`；`toNested` 带 `executorKind`；`plan/frame-executed` 审计分支（不落树字段） |
+| `task-engine/src/engine.ts` | `ExecutorRunner` / `ExecuteRequest` / `ExecuteOutcome` / `ExecuteResult`；`execute()`（发起 → 证据回填 `plan/frame-implemented` → 失败走 `rejectFrame` bounded retry → 用量 / `overBudget` 标注） |
+| `task-engine/src/tools.ts` | 新增 `task_execute`；children 解析 `executor`（非法给精确反馈）；`ToolExecuteCtx.makeExecutor`（按当前工具调用的 agent 构造适配器） |
+| `task-engine/src/main.ts` | 三类后端接线：`ctx.subagents.start`（`spawn` + `agentOptions` + `parent` + `signal`，取 `result.output` 后 `dispose`）、`ctx.workflowEngine.start`（script / meta / parent → `result.value`）、command 走 `/bin/sh -c`；`agentDefaultModel` 取默认事实、`tokenMeter` 计量；缺面一律 fail-closed + 告警 |
+| `task-engine/tests/{gate,engine}.test.ts`、新增 `tests/tools.test.ts` | 门禁 executor 规则 7 例；engine execute 6 例（成功 / fail-closed / model 拒绝 / 打回与 failed / 超预算 / 非叶子）；工具面 3 例（解析反馈、证据与用量透出、缺参） |
+| `task-engine/demo/main.ts` | 演示 13：executor 发起 → 证据回填 → 用量标注 → RET 验收 |
+| `task-engine/README.md` | 能力新增「叶子执行后端」段、工具表加 `task_execute`、事件表加 `plan/frame-executed`、配置示例带 `executor`、边界与外包标注 ③ 未实现、测试计数 42 → 58 |
+| `docs/BACKLOG.md` | 追加「executor 隔离落地（git worktree）」条目；里程碑三剩余项更新 |
+| （无 `task-engine/docs/*`） | 该包**没有** `docs/` 目录（原计划清单里的 `docs/{DESIGN,BACKLOG}.md` 不存在），文档落点为包根 `README.md` |
 
 ### 明确不做
 
@@ -128,6 +152,8 @@
 1. **#5 盘点（2026-10-02）**：命令面全量盘点——TUI 本地 `LOCAL_COMMANDS` 41 条（36 路由 + 5 别名 `/cls` `/exit` `/thinking` `/usage` `/context`）、宿主注册 6 条（`/compact` `/feedback` `/goal` `/permission` `/plan` `/export`）、插件注册 1 条（`command-template` 的 `/playbook` + 5 个模板子命令 `adversarial-review` / `codebase-audit` / `code-review` / `deep-research` / `multi-perspective`）。缩写 / 晦涩候选 9 项（`/cls`、`/preset`、`/agents`、`/guard`、`/contract`、`/loop`、`/task`、`/memory`、`/council`）连同建议名提交用户裁定 → D6 / D7 / D8。
 1. **#5 实施（2026-10-02）**：按 D6 / D7 / D8 删除 `/preset` 命令与 `selectAgentPreset` 写路径（文件清单见「规划」）；`/help` 少一行 → 重跑冻结基线脚本（无 diff）+ smoke（断言项数 43 → 40，全绿）；`command-template` 的 `/tpl` 残留（注释、用户可见错误文案、`reservedNames` 缺省描述）一并修正。
 1. **#7 评估（2026-10-02）**：核实运行期告警写点 28 处、方案 A 的 tone 启发式判定、既有结构化通道（rule-engine `onNotice` / symbol-normalizer `onReview`）；收益 / 成本对比与结论见「调研 §7」，**建议不实施**逐插件改造 → 待用户裁定（实施 or 关闭条目）。
+1. **#1 调研（2026-10-02）**：读码确认 `executor` 目前零代码（只有 README 的口径）；宿主签名由子代理并行调研并回报（`subagents.start` 的 `agentOptions` / `parent` / `signal` / `capabilities.agentOptions`、`SubagentRun.result` + `dispose`、`workflowEngine.start`（**本机已挂载**）、`tokenMeter.measure`（**无预算字段**）、`agentDefaultModel.currentSelection`、**subagent 无 `cwd` 入参**）——据此定稿 D9-D13，并把 ③ 依赖缺失写实。
+1. **#1 实施（2026-10-02）**：按 D9-D13 落地叶子执行后端（文件清单见「规划」）：类型 / 门禁 / 事件物化 / `engine.execute()` / `task_execute` 工具 / `main.ts` 三类后端接线 / 测试 / demo 演示 13 / README；③ 未做并另开条目。
 
 ## 测试与证据
 
@@ -174,10 +200,20 @@
 
 **#7（评估条目）证据**：评估为**只读分析**——无代码改动、无新增测试；写点盘点（28 处）与收益 / 成本对比见「调研 §7」，用户 2026-10-02 裁定「可以」= 采纳「不实施」建议。
 
+**#1（叶子执行后端 ① ②）证据（2026-10-02）**：
+
+| 命令 | 结果 |
+| --- | --- |
+| `cd task-engine && npm run check` / `npm run build` | 0 error（含门禁 / 引擎 / 工具 / 宿主接线的全部新增类型） |
+| `cd task-engine && npm test` | `tests 58 / pass 58 / fail 0`（原 42：+7 门禁 executor 规则、+6 engine execute、+3 工具面） |
+| `cd task-engine && npm run demo` | `DEMO_OK`（新增演示 13：executor 发起 → 证据回填 → 超预算标注 → RET 验收完成整树） |
+| `node tmp/task-executor-smoke.mjs`（dist 级：真实 `task-engine/dist` 的 `apply()` + 假宿主面 `subagents` / `workflowEngine` / `agentDefaultModel` / `tokenMeter`） | `SMOKE_PASS`（9 步：工具族含 `task_execute` / 四叶子声明 executor 过门禁 / subagent 模型覆盖 + 预算 → `agentOptions{provider,model,maxTokens}` 且证据 + 用量（`overBudget:false`）回填 / 未声明模型**不传** `agentOptions` / command 真跑 `/bin/sh -c` / workflow 的 `script`+`meta`+`parent` 透传并回填 `value` / `execute → stop → join` 整树 done 且 status 暴露 `executorKind` / provider 能力位不足 fail-closed（不静默降级）/ 执行失败带反馈打回且 `next` 指本帧） |
+| 根 `npm run check` / 根 `npm run test` | `exit 0`（`error TS` 计数 0）/ `exit 0`（16 包全 `OK`，`fail 0`；含 task-engine `pass 58`） |
+
 未做（交接给后续）：
 
 1. `rule-engine/demo` 未跑（可选）。
-1. 条目 #1「task-engine 执行扩展」未开始（本任务继续接取）。
+1. **#1 真机未验**：`task_execute` 的三条后端在真机上需模型在一次会话里主动调用才会触发（dist 冒烟已用假宿主面覆盖调用链）；若要真机复核，建议在会话里对叶子声明 `executor` 后让模型 `task_decompose` → `task_execute`。
 
 ## 交接（2026-10-02 中断点）
 

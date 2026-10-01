@@ -445,6 +445,71 @@ log("[演示 12] abort 恢复：在途帧回收为 pending");
   check("abort 事件入流（审计证据链）", interrupted.length === 1);
 }
 
+// 演示 13：叶子执行后端（① 发起 / ② 计量）
+log("[演示 13] executor：subagent 后端发起 → 证据回填 → 用量标注 → RET 验收");
+{
+  const ex = new TaskEngine({
+    root: {
+      id: "root",
+      title: "R",
+      spec: "s",
+      acceptance: [
+        { id: "r-q", check: "q", level: "mechanical", command: "true" },
+      ],
+    },
+    runCommand,
+  });
+  const d = await ex.decompose("root", [
+    {
+      id: "c1",
+      title: "c1",
+      spec: "写一份调研结论",
+      acceptance: [],
+      needDecompose: false,
+      coverage: { "r-q": ["c1"] },
+      executor: {
+        kind: "subagent",
+        prompt: "调研并给结论",
+        model: { provider: "deepseek", model: "deepseek-chat" },
+        budget: { maxTokens: 1000 },
+      },
+    },
+  ]);
+  check("带 executor 的叶子过门禁并挂树", d.ok === true);
+  ex.nextReady();
+  const reqs: string[] = [];
+  const r = await ex.execute("c1", async (req) => {
+    reqs.push(`${req.executor.kind}:${req.executor.prompt ?? ""}`);
+    return {
+      ok: true,
+      result: "调研结论：……",
+      tokens: 1500,
+      model: "deepseek/deepseek-chat",
+    };
+  });
+  check(
+    "回填证据 + 超预算只标注（overBudget）",
+    r.ok === true && r.usage?.overBudget === true,
+  );
+  check(
+    "发起请求带叶子声明的 prompt（引擎不生成脚本）",
+    reqs[0] === "subagent:调研并给结论",
+  );
+  check(
+    "证据写回帧（plan/frame-implemented）",
+    ex.frames().get("c1")?.result === "调研结论：……",
+  );
+  check(
+    "执行记录入流（plan/frame-executed，审计证据链）",
+    ex.log.some((ev) => ev.type === "plan/frame-executed"),
+  );
+  const stop = await ex.stop("c1");
+  check(
+    "execute 后仍走 RET 验收并完成整树",
+    stop.ok === true && ex.isComplete() === true,
+  );
+}
+
 log(failures === 0 ? "DEMO_OK" : `DEMO_FAIL failures=${failures}`);
 if (failures > 0) process.exitCode = 1;
 

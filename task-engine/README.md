@@ -8,15 +8,23 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
 
 | 工具 | 参数 | 返回 |
 | --- | --- | --- |
-| `task_decompose` | `parent_id`、`children`（`{id, title, spec, acceptance, need_decompose, coverage, deps}`） | `{ok, accepted, next, feedback?}` |
+| `task_decompose` | `parent_id`、`children`（`{id, title, spec, acceptance, need_decompose, coverage, deps, executor}`） | `{ok, accepted, next, feedback?}` |
 | `task_implement` | `task_id`、`result` | `{ok, feedback?}` |
+| `task_execute` | `task_id` | `{ok, accepted, next, evidence?, usage?, feedback?}` |
 | `task_stop` | `task_id` | `{ok, accepted, next, feedback?}` |
-| `task_status` | — | `{ok, tree}`（嵌套任务列表，`parent_id` + `order`，先序） |
+| `task_status` | — | `{ok, tree}`（嵌套任务列表，`parent_id` + `order` + `executorKind?`，先序） |
 
-- **分解双重门禁**：先跑机械门禁——粒度四规则（越级 / 过粗 / 过细 / 数量）+ coverage 完备性（父每条验收须有本次子任务覆盖）+ `deps` 前置传递（只允许引用前序兄弟，自引用/前向引用/未知 id 拒绝）；通过后若配置 `entail` hook，再跑语义蕴含（合取是否蕴含父契约）。任一拒绝都带反馈打回并记 `retryCount`，达 `maxRetries` 置 `failed`。
+- **叶子执行后端（① 执行扩展，2026-10-02）**：叶子（或 `needDecompose:false` 的根）可声明 `executor`，由 `task_execute` 交给**注入式适配器**发起（引擎只做发起 / 证据回填 / 验收，提示词与脚本都由声明方给，引擎不替模型生成）：
+  - `model`（缺省语义）= 本会话执行，等价模型自己调 `task_implement`（`task_execute` 会拒绝并指向 `task_implement`）；
+  - `subagent` / `workflow` / `command` = 独立执行面；`command` 走 `/bin/sh -c`（退出码非 0 = 失败）；
+  - 可选字段：`model`（`{provider, model}` 覆盖，缺省随宿主 `agentDefaultModel`）、`budget.maxTokens`（② 事后计量并标注 `overBudget`，**只标注不据此打回**）、`cwd`（透传后端）、`prompt` / `script` / `meta`（按后端取用）；
+  - 校验收在**机械门禁**（`rule: "executor"`，带反馈打回）：只允许叶子声明、kind 白名单、`command` 后端必给 `command`、`workflow` 后端必给 `script`、`model` 覆盖须给全 provider/model；
+  - 执行记录落 `plan/frame-executed`（`executor` / `model` / `tokens` / `overBudget` / 证据摘要），**证据全文**仍走 `plan/frame-implemented`（既有验收链不看新事件）；
+  - 失败走既有 bounded retry（`maxRetries` 后置 `failed`）；**适配器未注入**（宿主面缺失）→ fail-closed 打回、不增重试计数。
+- **分解双重门禁**：先跑机械门禁——粒度四规则（越级 / 过粗 / 过细 / 数量）+ coverage 完备性（父每条验收须有本次子任务覆盖）+ `deps` 前置传递（只允许引用前序兄弟，自引用/前向引用/未知 id 拒绝）+ `executor` 声明校验；通过后若配置 `entail` hook，再跑语义蕴含（合取是否蕴含父契约）。任一拒绝都带反馈打回并记 `retryCount`，达 `maxRetries` 置 `failed`。
 - **RET 验收路由**：mechanical → `/bin/sh -c` 退出码 0；human → `ctx.approval.request`（`allowed-once` 视为通过，拒绝 / 无人应答 / 抛错一律 fail-closed）；semantic → 注入式 `audit` hook 的独立 audit run（缺 hook，或声明了 `outputSchema` 却无 `structured`，均 fail-closed 打回）。
 - **完成与 join**：一个帧的全部验收通过才弹栈，并向上 join（全部子任务 done 后复核父契约）。
-- **事件溯源**：所有变更 append 事件流（`plan/root-created`、`plan/node-expanded`、`plan/frame-activated`、`plan/frame-implemented`、`plan/acceptance-verdict`、`plan/step-verdict`、`plan/frame-rejected`、`plan/frame-completed`、`plan/frame-interrupted`、`plan/frame-failed`），树由事件流折叠重建；配置 `snapshotPath` 后每次事件串行写盘（unload 时再写一次），`resumeFromSnapshot` 可恢复。
+- **事件溯源**：所有变更 append 事件流（`plan/root-created`、`plan/node-expanded`、`plan/frame-activated`、`plan/frame-implemented`、`plan/frame-executed`、`plan/acceptance-verdict`、`plan/step-verdict`、`plan/frame-rejected`、`plan/frame-completed`、`plan/frame-interrupted`、`plan/frame-failed`），树由事件流折叠重建；配置 `snapshotPath` 后每次事件串行写盘（unload 时再写一次），`resumeFromSnapshot` 可恢复。
 - **有界并发（fan-out）**：就绪池是 DFS 栈，active 帧数达 `maxConcurrent` 时不再弹栈；`activeCount()` 统计在途帧。
 - **step 级裁决**：`decompose` / `stop` 结果带 `accepted` / `next`，并写入 `plan/step-verdict` 事件。`next` 语义：`stop` 打回时指向本帧（重做）、帧置 `failed` 时为 `null`、通过时取就绪池候选（不消费）；`decompose` 成功时为第一个子任务 id，拒绝时为 `null`（事件内记为父帧，供审计）。
 - **只读查询面**：`provide('taskEngine')`，暴露 `query()`（任务清单 / 帧栈 / active 计数 / 是否完成）与 `frameStack()`，纯读取、零副作用。
@@ -39,9 +47,11 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
 ```jsonc
 { "parent_id": "root", "children": [{ "id": "c1", "title": "…", "spec": "…",
   "acceptance": [{ "id": "a1", "check": "…", "level": "mechanical", "command": "npm run check" }],
-  "need_decompose": false, "coverage": { "r1": ["c1"] } }] }
+  "need_decompose": false, "coverage": { "r1": ["c1"] },
+  "executor": { "kind": "subagent", "prompt": "…", "budget": { "maxTokens": 4000 } } }] }
+{ "task_id": "c1" }              // 未声明 executor（model 语义）→ 模型自己写产出
 { "task_id": "c1", "result": "实现产出" }
-{ "task_id": "c1" }
+{ "task_id": "c1" }              // 声明了 executor → 用 task_execute 发起后端（此处为 subagent）
 ```
 
 profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` 加
@@ -61,8 +71,10 @@ profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` �
 - **边界与外包**（2026-09-30 决策）：引擎自研「语义与不变量」——帧栈与状态机（decompose / implement /
   stop / join / retry / 快照恢复）、拆解门禁（粒度 + coverage + deps）、RET 验收路由、事件溯源与查询面；
   「机制与资源」一律复用宿主，不重复造：
-  - 执行与隔离：叶子可声明 `executor`（`model` = 本会话执行，缺省；后续增补 `subagent` / `workflow`
-    / `command` 后端，由模板或叶子显式声明，引擎不替模型生成脚本）；
+  - 执行与隔离：叶子可声明 `executor`（`model` = 本会话执行，缺省；`subagent` / `workflow` / `command`
+    后端由模板或叶子显式声明，引擎不替模型生成脚本）——**已实现**（2026-10-02，见上「叶子执行后端」）；
+    **隔离（git worktree）未实现**：原计划经本机插件 `dsh-git-worktree`，而该插件当前在本机
+    不存在实现（只有空目录、profile 未挂载），已另开 BACKLOG 条目，本包只做 `cwd` 透传；
   - 模型路由与计量：`llm` / `agent-default-model`（不自研路由）；
   - 审批与语义验收：`approval`、`audit` / `entail` 注入 hook（宿主 fork run）；
   - 工具注册与会话面：`tools` / `agents` / `sessions`（需要时的 jobs / schedule 只用于等待，不作调度器）。
@@ -98,7 +110,7 @@ tests/          # node:test 单测
 ```sh
 npm run check   # 类型检查（tsc --noEmit）
 npm run build   # 编译到 dist/
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（42 例：engine / events / gate / query）
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（58 例：engine / events / gate / query / tools）
 npm run demo    # npm run build && node dist/demo/main.js；脚本化模型跑步骤 0-7 + 演示 8-12，
                 # 覆盖全链路（门禁打回→implement→stop→join）、fan-out 有界并发、
                 # 语义验收 audit、step 裁决、语义蕴含门、abort 恢复；输出 DEMO_OK / DEMO_FAIL，退出码 0/1
