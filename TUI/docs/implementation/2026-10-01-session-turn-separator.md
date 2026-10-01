@@ -31,6 +31,7 @@ session 区（原历史区）的**回合分隔线**采用 turn 区（原活动�
 1. `TUI/src/app/layout/content-rules.ts`：如需要，抽出共用前缀/字形常量。
 1. `TUI/tests/`：separator 渲染用例（有无时间的降级）。
 1. `TUI/docs/SPEC.md`：分隔线规格。
+1. 实现口径：`adapter/dsh.ts` 的 `turn/start` 由「忽略」改为转发 `{type:"turn-start", turn}`（现状注释见 `:17`）；`index.ts` 记录当前回合号并在 `beginTurnIfNeeded` 透传给 `turn-begin`；`time` 取落行时刻（宿主事件不带时间）。
 
 ## 验收口径
 

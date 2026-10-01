@@ -31,6 +31,7 @@ turn 区（原活动区）里 assistant 正文在**换行、段间空行**处左
 1. `TUI/src/app/layout/build-box.ts`：assistant 分支 + 块级连排后处理（挂 `┃`）。
 1. `TUI/tests/`：帧断言用例（块内空行带 `┃`；块尾空行不带；思考行不变）。
 1. `TUI/docs/SPEC.md`（如需写明口径）。
+1. 实现口径：块级连排做成 `buildBox` 产出后对**该 pane 叶节点**的一次遍历（按 `meta.kind` 与行序判定「块内空行」），不改 `fill.ts`；turn 区与 session 区各按各自 pane 判定。
 
 ## 验收口径
 
