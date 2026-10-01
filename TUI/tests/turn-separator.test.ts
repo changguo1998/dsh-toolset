@@ -28,9 +28,9 @@ function dialogueRows(
 }
 
 test("#3 turnHeaderLine：时间/回合号任一缺失时降级", () => {
-  assert.equal(turnHeaderLine(7, T0), "03:04:05 #7");
+  assert.equal(turnHeaderLine(7, T0), "03:04:05 ♺7");
   assert.equal(turnHeaderLine(undefined, T0), "03:04:05");
-  assert.equal(turnHeaderLine(7, undefined), "#7");
+  assert.equal(turnHeaderLine(7, undefined), "♺7");
   assert.equal(turnHeaderLine(undefined, undefined), "");
 });
 
@@ -64,18 +64,18 @@ test("#3 重复 turn-begin 不重复画线，但补齐缺失字段", () => {
   assert.equal(seps[0]?.turn, 5, "缺号时补齐");
 });
 
-test("#3 渲染形态：`╌╌ 03:04:05 #164 ` + 尾部 ╌ 铺满", () => {
+test("#3 渲染形态：`╌╌ 03:04:05 ♺164 ` + 尾部 ╌ 铺满", () => {
   let s = initialState();
   s = reduceState(s, { type: "user-line", text: "第一百六十四问" });
   s = reduceState(s, { type: "turn-begin", clearActivity: true, time: T0 });
   s = reduceState(s, { type: "turn-number", turn: 164 });
   const rows = dialogueRows(s);
-  const line = rows.find((r) => r.includes("#164"));
+  const line = rows.find((r) => r.includes("♺164"));
   assert.ok(
     line !== undefined,
     `应渲染出带回合号的回合线：${JSON.stringify(rows)}`,
   );
-  assert.match(line, /^╌╌ 03:04:05 #164 /);
+  assert.match(line, /^╌╌ 03:04:05 ♺164 /);
   assert.match(line, /╌$/);
 });
 

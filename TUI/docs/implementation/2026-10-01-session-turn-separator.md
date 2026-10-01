@@ -38,10 +38,16 @@ session 区（原历史区）的**回合分隔线**采用 turn 区（原活动�
 2026-10-01：
 
 1. `state.ts`：`BufferLine` 增 `time?` / `turn?`（回合分隔线用）；`turn-begin` 动作增 `time?` / `turn?` 并透传给 `appendTurnSeparator`（已画的线按缺省补齐字段）；新增动作 `turn-number` + `numberTurnSeparator()` 从尾部回填最近一条分隔线的回合号（已有号不覆盖）。
+
 1. `tool-line.ts`：新增 `turnHeaderLine(turn?, time?)` → `hh:mm:ss #N`（任一片段缺失即省略）。
+
 1. `build-box.ts`：separator 分支改为 `╌╌ <label> ` + 尾部 `╌` 铺满；label 为空（旧会话 / mock）时退回纯线。
+
 1. `adapter/dsh.ts` + `adapter/types.ts`：`turn/start` 不再被忽略，转发 `{type:"turn-start", turn}`；`index.ts` 收到后派发 `turn-number`，`beginTurnIfNeeded` 落线时带 `time: Date.now()`。
+
 1. 测试：新增 `tests/turn-separator.test.ts`（标签降级、时间落行、回填与不覆盖、重复 turn-begin 不重复画线、渲染形态、退回纯线）；更新 `tests/app.test.ts` 的横线行计数（标签不再当内容）与 `tests/adapter.dsh.test.ts` 的 turn/start 期望。
+
+1. 人工确认反馈：回合号标记由 `#` 改为 `♺`（转圈双箭头）——`╌╌ hh:mm:ss ♺164 ╌╌`，与 step 线的 `#N` 区分；`turnHeaderLine` 降级口径不变（`♺N` / `hh:mm:ss` / 空串）。
 
 ## 测试与证据
 
