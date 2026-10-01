@@ -33,3 +33,4 @@ symbols.ts  纯函数：治理区段 / 推荐白名单 / 别名表 / normalizeSy
 1. **硬依赖 rule-engine**（`inject: ["ruleEngine"]`）：插件职责就是消费者接入；rule-engine 缺席时本插件不加载（TUI 回退原文透传）。
 1. **无运行时 schema**：沿用本仓松口径（宿主原样透传配置，缺省由 `resolveSymbolRules` 收敛）。
 1. **可观测性**：apply 写 stderr 自证日志（推荐 / 别名 / 冷却 / warnModel）；`decide` 内异常不外抛（rule-engine 侧也会隔离）。
+1. **开局指南（F2）每会话一次、跨重启去重（F3）按「可见投影」判定**：`SymbolGuideGate`（进程内）+ `hasGuideMessage(sessions.get(id).deriveMessages())`（跨重启）——投影里还看得见旧指南 → 只记账不注入；投影里已被压缩挤出 → 在新进程的评估点补注入一次。**注意**：进程内 gate 一旦记账即短路，故同一进程内的压缩不会立即补注入（需下次重启），与 rule-engine 侧 `dedupeInRecord`（每次 `compaction/end` 重新判定）尚有差异，见 BACKLOG。`提醒` 类回合反馈不走去重（每次违规都该说）。
