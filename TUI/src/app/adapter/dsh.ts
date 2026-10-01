@@ -159,6 +159,8 @@ export type {
   LoopSummaryLike,
   SessionChannelLike,
   SymbolNormalizerLike,
+  // 规则提示的消费面（app / main）统一从 adapter 面取类型，避免同一类型出现两条
+  // 导入路径；2026-10-01 追认保留（见 TUI/docs/archived/2026-10-01-dsh-reexport-ratify.md）
   RuleEngineLike,
   RuleEngineNotice,
   ContractParseResult,
