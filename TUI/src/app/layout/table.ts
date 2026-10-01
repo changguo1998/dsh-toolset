@@ -18,7 +18,7 @@ import { v, h, styled, spacer } from "./box.ts";
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
 import type { ThemeId } from "../../renderer/theme.ts";
 import { displayWidth, parseInlineMarkdown } from "./markdown.ts";
-import { seg, truncateSegs } from "./primitives.ts";
+import { seg } from "./primitives.ts";
 import { measure } from "./measure.ts";
 
 /** 列对齐：`:---` 左（缺省）/ `:--:` 中 / `---:` 右 */
@@ -245,29 +245,23 @@ function waterLevel(natural: number[], avail: number): number {
 }
 
 /**
- * 列宽求解：自然宽放得下 → 原样；否则压缩（水位线 + 下限 minW）；连 minW 都放不下 →
- * 退到「minW 比例分配 + 格内省略号截断」（truncate=true）。
+ * 列宽求解：自然宽放得下 → 原样；否则压缩（水位线 + 下限 minW）；
+ * 连 minW 也放不下 → **放弃表格**（返回 null，调用方退回普通文本行渲染）。
+ * #6：不再做「minW 比例分配 + 格内省略号截断」——内容一律不截断（用户 2026-10-01 裁定）。
  */
-function fitCols(
-  natural: number[],
-  avail: number,
-): { cols: number[]; truncate: boolean } {
+function fitCols(natural: number[], avail: number): number[] | null {
   const sum = natural.reduce((a, b) => a + b, 0);
-  if (sum <= avail) return { cols: natural, truncate: false };
+  if (sum <= avail) return natural;
   const min = natural.map(minColWidth);
   const minSum = min.reduce((a, b) => a + b, 0);
-  if (minSum > avail) {
-    // minW 也放不下：按 minW 比例分配，格内省略号截断
-    const floor = min.map(() => 1);
-    return { cols: fitTo(min, floor, min, avail), truncate: true };
-  }
+  if (minSum > avail) return null; // 容不下最小列宽：退回普通文本行（内容完整、无表格线）
   const level = waterLevel(natural, avail);
   // 各列以水位线为上限，并尽量不低于 minW（窄列保持自然宽，只有超宽列被压）
   const fair = natural.map((n, j) => Math.min(n, Math.max(min[j]!, level)));
   const fairSum = fair.reduce((a, b) => a + b, 0);
   // 抬到 minW 后超预算（ΣminW 本身仍放得下）→ 以纯水位线为准（不牺牲窄列）
   const base = fairSum <= avail ? fair : natural.map((n) => Math.min(n, level));
-  return { cols: fitTo(base, base, natural, avail), truncate: false };
+  return fitTo(base, base, natural, avail);
 }
 
 // ---------------- 构建 ----------------
@@ -279,14 +273,13 @@ function cellPlainText(cell: string, themeId: ThemeId): string {
     .join("");
 }
 
-/** 单元格叶子：行内 markdown 解析 + 固定列宽 + 列对齐（表头加粗、截断加省略号） */
+/** 单元格叶子：行内 markdown 解析 + 固定列宽 + 列对齐（表头加粗；#6 起**不做格内截断**） */
 function cellLeaf(
   cell: string,
   colW: number,
   align: TableAlign,
   themeId: ThemeId,
   header: boolean,
-  truncate: boolean,
 ): StyledText {
   let segs: FrameSegment[] = parseInlineMarkdown(cell, themeId);
   if (header)
@@ -294,10 +287,6 @@ function cellLeaf(
       text: s.text,
       style: { ...(s.style ?? {}), bold: true },
     }));
-  if (truncate && displayWidth(segs.map((s) => s.text).join("")) > colW) {
-    // 格内省略号截断：留 1 列给 `…`（列宽 1 时只剩 `…`）
-    segs = colW > 1 ? [...truncateSegs(segs, colW - 1), seg("…")] : [seg("…")];
-  }
   return styled(segs, {
     width: { mode: "fixed", cols: colW },
     align,
@@ -350,10 +339,9 @@ function rowBox(
   aligns: TableAlign[],
   themeId: ThemeId,
   header: boolean,
-  truncate: boolean,
 ): Box {
   const leaves = cells.map((c, j) =>
-    cellLeaf(c, cols[j]!, aligns[j] ?? "left", themeId, header, truncate),
+    cellLeaf(c, cols[j]!, aligns[j] ?? "left", themeId, header),
   );
   // 行高 = 各格在本格列宽下的自身行数最大值（用引擎同口径 measure 算得）
   let rowH = 1;
@@ -406,16 +394,15 @@ export function tableBox(
       w = Math.max(w, displayWidth(cellPlainText(row[j] ?? "", themeId)));
     return w;
   });
-  const { cols, truncate } = fitCols(natural, width - overhead);
+  const cols = fitCols(natural, width - overhead);
+  if (cols === null) return null; // #6：容不下最小列宽 → 退回普通文本行（不截断内容）
   const body: Node[] = [
-    rowBox(table.header, cols, table.aligns, themeId, true, truncate),
+    rowBox(table.header, cols, table.aligns, themeId, true),
     ruleRow(cols, HEAD_RULE, HEAD_CROSS),
   ];
   for (let i = 0; i < table.rows.length; i++) {
     if (i > 0) body.push(ruleRow(cols, ROW_RULE, ROW_CROSS));
-    body.push(
-      rowBox(table.rows[i]!, cols, table.aligns, themeId, false, truncate),
-    );
+    body.push(rowBox(table.rows[i]!, cols, table.aligns, themeId, false));
   }
   return v(body);
 }

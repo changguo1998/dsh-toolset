@@ -275,18 +275,32 @@ test("超宽：压缩列宽 + 格内折行，总宽不超可用宽、列分隔�
   assert.ok(dataLines(out).length > 4, "长格折成多行");
 });
 
-test("极窄：minW 也放不下 → 格内省略号截断（不溢出、不折行）", () => {
+test("#6 极窄：minW 也放不下 → 放弃表格（不再格内截断），调用方退回普通文本行", () => {
   const spec = parse([
     "| 名称 | 说明 | 数量 |",
     "| --- | --- | --- |",
     "| a | 中文说明 | 12 |",
   ]);
   const budget = 15; // overhead 10 → 可用 5 < ΣminW 9
-  const out = rows(spec, budget);
-  for (const line of out) assert.ok(widthOf(line) <= budget);
+  assert.equal(
+    tableBox(spec, budget, THEME),
+    null,
+    "容不下最小列宽 → 不构建表格（无 `…` 截断）",
+  );
+  // 集成：buildContentRows 退回普通文本行——内容完整、不出现省略号
+  const buf: Buffer = [
+    a("| 名称 | 说明 | 数量 |"),
+    a("| --- | --- | --- |"),
+    a("| a | 中文说明 | 12 |"),
+  ];
+  const { dialogue } = buildContentRows(buf, { themeId: THEME }, budget);
+  const text = dialogue.map(rowText).join("\n");
+  assert.ok(!text.includes("…"), "无格内省略号：" + JSON.stringify(text));
+  // 退回普通文本行后按窗宽折行（每行带 `┃` 前缀），故把各行拼起来再找（内容不丢）
+  const flat = text.replace(/[┃\s]+/g, "");
   assert.ok(
-    out.some((l) => l.includes("…")),
-    "超宽格以省略号截断：" + JSON.stringify(out),
+    flat.includes("中文说明"),
+    "被截断的内容现在完整可读：" + JSON.stringify(text),
   );
 });
 
