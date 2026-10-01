@@ -15,7 +15,7 @@
 ### A. 工作流能力成为一等公民
 
 - **目标**：把「多步 / 多角色 / 可复用」的工作流，从临时编排变成可声明、可复用、可观测的能力。
-- **判据**：pattern 模板族可声明并复用（**#31 已落地**：`/playbook` 统一入口 + 五族模板）；命令模板可组合（pre-steps / chain / best-of-N，已支持）；每步可指定模型并核算成本（模型覆盖已支持，成本核算待 #58）；需要时能隔离执行（git worktree，待 #58）。
+- **判据**：pattern 模板族可声明并复用（**#31 已落地**：`/playbook` 统一入口 + 五族模板）；命令模板可组合（pre-steps / chain / best-of-N，已支持）；每步可指定模型并记账用量（模型覆盖 + 叶子 `executor` 的 `subagent` / `workflow` / `command` 后端与用量标注**已落地** 2026-10-02，同口径成本核算见 `docs/BACKLOG.md` 「executor 用量计量接 usage 口径」）；需要时能隔离执行（git worktree，**未落地**，见 `docs/BACKLOG.md` 「executor 隔离落地」）。
 - **边界**（2026-09-30 决策）：执行机制（并发 / 隔离 / 模型路由 / 计量）复用宿主 `workflow` / `subagents` / `llm` / `token-meter`；本仓只补「不变量与声明」——task-engine 自研帧栈、拆解门禁、验收与事件溯源，模板负责入口与内容，叶子用 `executor` 声明执行后端（见 `task-engine/README`「边界与外包」）。
 - **依据**：#31（入口 + 内容 + 共用格式）、#58（task-engine 执行扩展，含原 #14 / #15）。
 

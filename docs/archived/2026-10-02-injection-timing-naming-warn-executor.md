@@ -1,6 +1,6 @@
 # 注入时机直写 + slash 命名规范 + 插件告警通道 + task-engine 执行扩展（接取条目：`docs/BACKLOG.md`「注入时机调整：会话开始 / 压缩完成后直写，不等步末」；「slash 命令命名规范：不用缩写」；「插件运行期 stderr 告警显示统一（评估）」；「task-engine 执行扩展」）
 
-状态：实现　　开启：2026-10-02　　关闭：
+状态：完成　　开启：2026-10-02　　关闭：2026-10-02
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -159,7 +159,8 @@
 1. **#1 workflow 后端补完（2026-10-02，用户裁定「补完 workflow 后端本身」并指令「按标准流程完成」）**：① 默认 meta 生成 / 合并（叶子只给 `name` 时 `description` 由帧补齐）② `value` 为对象 / 数组 → 记入 `plan/frame-executed.structured`，证据文本改缩进 JSON ③ 失败分类（`start` 同步抛错 / `stoppedReason: cancelled` → `retryable: false`：不打回、不计重试、不改状态；`error` → bounded retry，反馈附 `agentsStarted`）④ 三类后端证据统一截断（`MAX_EVIDENCE_CHARS = 8000`，超出标注原始长度）⑤ 门禁补 `meta.name` / `meta.description` 非空校验（把宿主 `META_INVALID` 前置为可读打回）。测试 / 冒烟 / README 同步。
 1. **#1 真机验证第一轮（2026-10-02，会话内真实调用工具面）**：`task_decompose` 建三个叶子（`command` / `workflow` / `subagent`）✓；`task_execute v-command` **通过**（证据 = 真实 `/bin/sh` 输出 `hello-from-executor`）✓；`task_execute v-workflow` / `v-subagent` 返回「宿主 ctx.workflowEngine / ctx.subagents 不可用」✗。**定位**：cordis 的 `ctx.get(name)` 是不要求 `inject` 的读取，但 `_getImpl` 在服务 fiber 未激活（`state !== 2`）或 `isolate` 映射缺该名时**静默返回 undefined**；apply 期这两条服务尚不可见（`dsh-base` 的 `subagent` / `workflow-ptc` 行虽在 patch 中、包也在磁盘上），执行期才可读。**修复**：`main.ts` 改为**执行期惰性解析** —— `makeExecutor` 每次发起时按 `resolve(name)` 读服务（当前工具执行 ctx（agent 侧）优先 → 回退插件 ctx），apply 期探测只用于告警、结果不缓存；回归用例见冒烟实例 14（插件 ctx 全不可见 + exec ctx 可见 → `workflow` / `subagent` 均发起成功）。
 1. **#1 真机验证第二轮（2026-10-02，重启后复验）**：三后端全部发起成功——`v-command` 证据 = 真实 `/bin/sh` 输出 `hello-from-executor`；`v-workflow` 证据 = PTC run 返回值对象 `{ "ok": true, "note": "workflow-ok", "value": 42 }`；`v-subagent` 证据 = 子代理文本「子代理可用。」+ `usage: { tokens: 19413, overBudget: true }`；`task_stop` × 3 全部 accepted，`task_status` 整树 `done`（`executorKind` 正常暴露）✓ —— **惰性解析修复真机确认有效**。
-1. **#1 计量口径收紧（2026-10-02，用户裁定「先修 overBudget 口径」+「完整口径另开条目」）**：第二轮暴露 subagent 的 `tokens` 是 `tokenMeter.measure` 的 **pressure 口径**（含系统提示词 / 工具定义，1.9 万量级），与 `budget.maxTokens`（宿主输出上限语义）不可比 → `overBudget` 稳定误报。本次最小修正：新增 `TokenKind`（`pressure` / `usage`）与 `ExecuteOutcome.tokensKind`、事件记 `tokensKind`，**只有 `usage` 口径参与 `overBudget` 判定**（pressure 不判），两种口径都仍只标注、不据此打回。完整 usage 口径计量（接 `sessionProjections.snapshot(session, ["tokenUsage"])` 或 `deriveTurnTokenUsage` 取 `outputTokens`）按裁定**另开条目**（`docs/BACKLOG.md` 当前 #7）。
+1. **#1 计量口径收紧（2026-10-02，用户裁定「先修 overBudget 口径」+「完整口径另开条目」）**：第二轮暴露 subagent 的 `tokens` 是 `tokenMeter.measure` 的 **pressure 口径**（含系统提示词 / 工具定义，1.9 万量级），与 `budget.maxTokens`（宿主输出上限语义）不可比 → `overBudget` 稳定误报。本次最小修正：新增 `TokenKind`（`pressure` / `usage`）与 `ExecuteOutcome.tokensKind`、事件记 `tokensKind`，**只有 `usage` 口径参与 `overBudget` 判定**（pressure 不判），两种口径都仍只标注、不据此打回。完整 usage 口径计量按裁定**另开条目**（BACKLOG「executor 用量计量接 usage 口径」，收尾重编后为 #6）。
+1. **#1 真机验证第三轮（2026-10-02，重启后复验口径修正）**：`task_decompose` 单叶子（`subagent` 声明 + `budget.maxTokens: 256`）→ `task_execute` 返回 `usage: { tokens: 19413, tokensKind: "pressure" }`（**无 `overBudget`**）✓，证据 = 子代理文本「子代理可用。」—— 口径修正真机确认有效；三轮真机验证全部通过，随之收尾。
 
 ## 测试与证据
 
@@ -217,22 +218,22 @@
 | 根 `npm run check` / 根 `npm run test` | `exit 0`（`error TS` 计数 0）/ `exit 0`（16 包全 `OK`，`fail 0`；含 task-engine `pass 62`） |
 | **真机验证第一轮**（会话内真实调用工具面，2026-10-02） | `task_decompose` 三叶子挂树 ✓；`task_execute v-command` ✓（证据 = 真实 `/bin/sh` 输出 `hello-from-executor`）；`task_execute v-workflow` / `v-subagent` ✗（「宿主面不可用」）→ 定位为 **apply 期服务不可见**，已修复（执行期惰性解析）→ 第二轮复验通过 |
 | **真机验证第二轮**（重启后复验，2026-10-02） | 三后端全绿——`v-command` ✓（真实 `/bin/sh` 输出）、`v-workflow` ✓（PTC run 返回值对象）、`v-subagent` ✓（子代理文本「子代理可用。」+ `usage`）；`task_stop` × 3 全 accepted → `task_status` 整树 `done`（`executorKind` 正常暴露）✓ |
-| 计量口径修正（真机第二轮的误报修复） | 引入 `TokenKind`（`pressure` / `usage`）：压力口径不与输出预算比较 → 单测 `pressure 口径不参与 overBudget 判定` 通过；冒烟断言 `sub.usage = {tokens, tokensKind:"pressure"}`（无 `overBudget`）；完整 usage 口径计量另开 BACKLOG #7 |
+| 计量口径修正（真机第二轮的误报修复） | 引入 `TokenKind`（`pressure` / `usage`）：压力口径不与输出预算比较 → 单测 `pressure 口径不参与 overBudget 判定` 通过；冒烟断言 `sub.usage = {tokens, tokensKind:"pressure"}`（无 `overBudget`）；完整 usage 口径计量另开 BACKLOG「executor 用量计量接 usage 口径」（收尾重编后 #6） |
+| **真机验证第三轮**（重启后复验口径修正，2026-10-02） | 单叶子（`subagent` + `budget.maxTokens: 256`）→ `task_execute` 返回 `usage: { tokens: 19413, tokensKind: "pressure" }`（**无 `overBudget`**）✓，证据 = 子代理文本「子代理可用。」—— 口径修正真机确认有效 |
 
 未做（交接给后续）：
 
 1. `rule-engine/demo` 未跑（可选）。
-1. **#1 真机第三轮（待重启 `dsh --profile fff`，用户裁定「先修口径再复验，通过后收尾」）**：复验计量口径修正——`task_execute v-subagent` 预期 `usage: { tokens, tokensKind: "pressure" }`（**无 `overBudget`**）；通过后收尾 #1，不通过继续调试。真机第二轮的 `execute → stop → join` 全流程与三后端已通过 ✓。
+1. **遗留项已转 BACKLOG 条目**（不在本任务内）：③ 隔离落地 → 「executor 隔离落地（git worktree）」；完整 usage 口径计量 → 「executor 用量计量接 usage 口径」。
+1. **真机三轮全部通过**：第一轮发现 apply 期服务不可见（已修）→ 第二轮三后端 + `execute → stop → join` 全绿 → 第三轮口径修正复验通过。
 
-## 交接（2026-10-02 中断点）
+## 交接（2026-10-02 任务关闭）
 
-**当前状态**：条目 #8「注入时机调整」、#5「slash 命令命名规范」、#7「插件运行期 stderr 告警显示统一（评估）」**均已关闭并清理**；#1「task-engine 执行扩展」（叶子执行后端 ① ②）**实现完成并已提交**，**收尾被真机验证阻塞**——第一轮发现 apply 期宿主服务不可见（已改为执行期惰性解析），待重启复验 `workflow` / `subagent` 通过后关闭（用户 2026-10-02 裁定「验证通过才能收尾，否则继续调试」）。
+**最终状态**：四条接取条目（#8「注入时机调整」/ #5「slash 命令命名规范」/ #7「插件运行期 stderr 告警显示统一（评估）」/ #1「task-engine 执行扩展」）**全部完成并关闭**；本文件已移入 `docs/archived/`。遗留项按裁定转 BACKLOG 条目（`executor 隔离落地`、`executor 用量计量接 usage 口径`）。
 
-**工作区**：提交历史——`510e2ec`（#8 多节点 + 直写）、`59a916b`（#8 关闭）、`577fd0b`（#5 删 `/preset`）、`0a32713`（#5 / #7 关闭）、`f2c065a`（#1 执行扩展）、`6a22adc`（workflow 后端补完），加本次「真机修复 + 追踪文档」提交。`tmp/` 保留 `rules.json.orig`（运行时规则原件备份，勿删）与 `task-executor-smoke.mjs`（验证脚本，收尾时清理）。
+**工作区**：提交历史——`510e2ec`（#8 多节点 + 直写）、`59a916b`（#8 关闭）、`577fd0b`（#5 删 `/preset`）、`0a32713`（#5 / #7 关闭）、`f2c065a`（#1 执行扩展）、`6a22adc`（workflow 后端补完）、`c945a1a`（真机修复：执行期惰性解析）、`7bdf9cc`（计量口径分开标注），加本次关闭提交。`tmp/` 保留 `rules.json.orig`（运行时规则原件备份，勿删）。
 
-**下一步**：重启 `dsh --profile fff` → 会话内跑 `task_decompose`（三叶子：`command` / `workflow` / `subagent`）→ `task_execute` × 3 → `task_stop` × 3 → `task_status` 确认整树 done；通过后收尾 #1（BACKLOG 清理 + 追踪文档归档 + 关闭提交）。
-
-**注意**：本任务接取的是四条（BACKLOG 均已标「进行中（2026-10-02）」），关闭时四条一起处理；`STATUS.md` 不由流程改；提交按 `docs/WORKFLOW-STANDARD.md` §5 的四个询问点征得同意。
+**注意**：`STATUS.md` 不由流程改；提交按 `docs/WORKFLOW-STANDARD.md` §5 的四个询问点征得同意（本任务四个点均已征得同意）。
 
 ## 收尾
 
@@ -241,10 +242,10 @@
 - 「注入时机调整：会话开始 / 压缩完成后直写，不等步末」：标「完成」并清理（记录见「实现记录」「测试与证据」；实现落点 commit `feat(rule-engine,symbol-normalizer): 注入时机支持多节点与直写`，运行时规则改动在仓库外 `~/.dsh/rule-engine/rules.json`）。
 - 「slash 命令命名规范：不用缩写」：标「完成」并清理。裁定 D6 / D7 / D8（只删 `/preset`、旧名不留别名、只删命令面）→ 实施落点 commit `feat(TUI)!: 删除 /preset 命令（旧名不留别名）`；盘点覆盖 TUI 本地 41 条 + 宿主 6 条 + 插件 1 条；同条目清理了 `command-template` 的 `/tpl` 残留。
 - 「插件运行期 stderr 告警显示统一（评估）」：标「完成」并清理。结论 = **不实施**（「调研 §7」：方案 A 已覆盖显示位置与 headless 兜底；逐插件结构化通道净增量仅 tone 精确与装载期重放，成本为 300-500 行重复机制 + TUI 逐插件耦合）——用户 2026-10-02 裁定「可以」采纳。
-- 「task-engine 执行扩展」：**本任务继续接取**，BACKLOG 保持「进行中（2026-10-02）」；本文件**不归档**（留 `docs/implementation/`），待其完成后一并关闭。
+- 「task-engine 执行扩展」：标「完成」并清理（① 叶子 `executor` 声明 + `task_execute` + `subagent` / `workflow` / `command` 后端 + ② 模型与用量计量已落地；③ 隔离按裁定另开条目）。落点 commits：`feat(task-engine): 叶子 executor 后端（subagent / workflow / command）与执行扩展`、`feat(task-engine): 补完 workflow 执行后端（meta 合并 / 结构化 / 失败分类 / 截断）`、`fix(task-engine): executor 宿主服务改为执行期惰性解析（真机修复）`、`fix(task-engine): 计量口径分开标注（pressure 不参与 overBudget 判定）`。真机三轮验证通过（三后端 + `execute → stop → join` + 口径复验）；另开条目「executor 隔离落地（git worktree）」「executor 用量计量接 usage 口径」。
 
-**中途范围说明**（流程要求）：2026-10-02 用户两次裁定——「只关 #8，然后继续做下一个」、「可以，收尾 #5 和 #7」：在开放任务内逐条关闭，未新增 / 移除条目。
+**中途范围说明**（流程要求）：2026-10-02 用户多次裁定——「只关 #8，然后继续做下一个」、「可以，收尾 #5 和 #7」、「设定 goal 做完 #1」、「重启后先实现 workflow（澄清为「补完 workflow 后端本身」）、按标准流程完成」、「先提交，然后真机验证，验证通过才能收尾，否则继续调试」、「先修 overBudget 口径（完整口径另开条目）」：在开放任务内逐条关闭并追加同条目范围内的补完（workflow 后端 / 真机修复 / 计量口径），未新增接取条目；③ 隔离与完整 usage 口径计量按裁定转为新 BACKLOG 条目。
 
-**回写**：`rule-engine/README.md`、`rule-engine/docs/DESIGN.md`、`symbol-normalizer/{README.md,docs/DESIGN.md}`、`TUI/docs/DESIGN.md`（#8）；`TUI/{README.md,docs/DESIGN.md,docs/COMMANDS.md,docs/COMMANDS-SPEC.md,docs/design/NOTICE-LEVELS.md}`、`command-template/{README.md,src/types.ts}`（#5）；#7 无代码改动、无需回写；`STATUS.md` 不由流程改。
+**回写**：`rule-engine/README.md`、`rule-engine/docs/DESIGN.md`、`symbol-normalizer/{README.md,docs/DESIGN.md}`、`TUI/docs/DESIGN.md`（#8）；`TUI/{README.md,docs/DESIGN.md,docs/COMMANDS.md,docs/COMMANDS-SPEC.md,docs/design/NOTICE-LEVELS.md}`、`command-template/{README.md,src/types.ts}`（#5）；`task-engine/README.md`（#1：能力 / 工具表 / 事件表 / 计量口径 / 边界与外包 / 测试计数 42 → 62）；`docs/BACKLOG.md`（#1 关闭清理 + 追加「executor 隔离落地」「executor 用量计量接 usage 口径」两条 + 里程碑与依赖同步）；#7 无代码改动、无需回写；`STATUS.md` 不由流程改。
 
-**临时物清理**：`tmp/session-latest.jsonl`、`tmp/session-evidence.mjs`、`tmp/rules.json.proposed`、`tmp/check.log`、`tmp/test-all.log`、`tmp/injection-timing-smoke.mjs` 已删；保留 `tmp/rules.json.orig`（运行时规则原件备份，用于回退对照）。
+**临时物清理**：`tmp/session-latest.jsonl`、`tmp/session-evidence.mjs`、`tmp/rules.json.proposed`、`tmp/check.log`、`tmp/test-all.log`、`tmp/injection-timing-smoke.mjs`、`tmp/task-executor-smoke.mjs`（#1 的 dist 级冒烟脚本，14 步检查见「测试与证据」）、`tmp/check{4,5,6}.log`、`tmp/test{4,5,6}.log` 已删；保留 `tmp/rules.json.orig`（运行时规则原件备份，用于回退对照）。
