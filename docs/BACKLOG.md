@@ -15,43 +15,44 @@
 `[x]` 已实现并合入 main，落点如下（单测数与首版边界见状态表）：
 
 - 任务控制：task-engine（Frame 状态机、工具族、双重门禁、RET 三级路由、step 裁决、**叶子执行后端**：`executor` 声明 + `task_execute` 工具 + `subagent` / `workflow` / `command` 后端 + 用量计量，追踪文档 `docs/archived/2026-10-02-injection-timing-naming-warn-executor.md`）、fan-out 就绪池、goal-contract、metric-loop；
+
 - 知识库与记忆：knowledge-base（两张基表 + 两张 FTS5 虚表、两级写策略与淘汰提升、持久记忆 CRUD、**入库规则与隐私 / 容量边界**、**自动巩固**（提升 / 合并 / 淘汰，启动后与 compaction 后触发），追踪文档 `docs/archived/2026-10-02-knowledge-events-and-memory-consolidation.md`）、output-compress、fs-digest；
+
 - 代码与文件：hash-edit、ast-tools、code-map 报告与影响面、结构层索引与候选调用图 + LSP 语义层（callers 的 findReferences 精确裁决，`precision:lsp/structural`；追踪文档 `docs/archived/2026-09-29-codemap-lsp-semantic.md`）；
+
 - 上下文报告：context-report（host-only 投影 `sessionContext` 折叠会话累计 + `context_report` 三档报告）；
+
 - 安全与集成：security-guard 策略层、herdr-integration；
+
 - 规则触发与符号规范：rule-engine、TUI 符号规则迁移（落点为 symbol-normalizer 插件）、next-step 注入路径、仓库级集成、插件注入消息 `form:'notice'` 一行提示渲染、消费者框架（`registerConsumer` + `evaluate`）、symbol-normalizer 插件；真机验证记录见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`；
+
 - TUI：/workflows 面板、/council、/search 多 provider 聚合、声音提醒，以及 7 项纯 TUI 命令与 A1-A5（`/task` `/guard` `/memory` `/loop` `/contract`）；
+
 - 工程流程与文档：文档体系与变更规范落地（追踪文档 `docs/archived/2026-09-25-docs-workflow-rollout.md`）、`TUI/docs/IMPLEMENTATION.md` 拆分删除（命令/机制 → `TUI/docs/DESIGN.md`「实现要点（机制与命令）」、渲染/排版 → `TUI/docs/SPEC.md` §15、验证 → `TUI/README.md`；追踪文档 `docs/archived/2026-09-29-tui-implementation-doc-split.md`）、根 README 英文化（英文主档 `README.md` + 中文版 `README.zh.md`，`AGENTS.md` 语言约定例外与口径同步；追踪文档 `docs/archived/2026-09-30-readme-i18n.md`）。
+
 - 运行时与宿主：宿主双栈兼容垫片清理（0.1.7-rc.2 单一形态；追踪文档 `docs/archived/2026-09-29-host-single-stack-cleanup.md`）、tmux 断连后 dsh 退出 → 退出前问题面板确认（追踪文档 `docs/archived/2026-09-29-exit-confirm-panel.md`）、跨会话消息通道 `session-channel` 插件（专用 Redis 实例 + unix socket；追踪文档 `docs/archived/2026-09-29-cross-session-intercom.md`）、跨会话共享 KV（session-channel 服务面扩展，last-value + 版本号；追踪文档 `session-channel/docs/archived/2026-09-29-shared-kv.md`）、会话标题参考窗口改为「最近一次 `git commit` 之后」（新包 `session-title-cutoff`，接管 `ctx.sessionTitle` 唯一 provider；追踪文档 `session-title-cutoff/docs/archived/2026-09-29-title-cutoff-provider.md`）、跨会话委托/协调（`session-channel` 任务语义：任务表 + 结果自动/显式回传 + `channel_delegate`/`channel_task`/`channel_task_result` 三工具；追踪文档 `docs/archived/2026-09-30-cross-session-delegation.md`）、模板体系（`command-template`：预案 `/playbook` 统一入口 + 五族模板 + 双源目录 + 模板级模型选择；追踪文档 `docs/archived/2026-09-30-template-system.md`）。
+
 - 已取消/不再立项：rate-guard（不实现，pi 侧已移除，dsh 侧由官方 `llm-retry` 覆盖，见 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1）；GitHub 仓库克隆、PDF 提取 / 视频理解、密文扫描、安全 issue 上报（用户 2026-09-29 裁定移除，不立项）；近期改动代码审查、preset 机制迁移评估（用户 2026-09-29 裁定直接关闭，不立项）。
+
+- 宿主面知识：官方 **0.2.0-rc.2 对照汇总**（`docs/host/HOST-UPGRADE-0.2.0-rc.2.md`；工具 / 事件 / 服务面零增删，`docs/host/HOST-PACKAGES.md` 同期刷到 0.2.0 口径，审阅记录见 `docs/archived/2026-10-02-host-upgrade-0.2.0-rc.2.md`）。
 
 ## 2. 未完成项
 
 > 扁平清单，**按条目间逻辑依赖排序**（2026-10-02 依赖重排：编号即先后顺序；同层先小后大。编号仅供阅读，随整理重编）。
-> 顺序依据（2026-10-02 依赖重排）：**① 基线链 `#1 → #2 → #3`**——#1 定宿主接口 / 包清单基线 → #2 依 #1 落挂载清单并产出「实际可用官方面」→ #3 依 #1 + #2 才有可审计的真实面（结论才不会是「对着一张过期清单做取舍」）。**② 结构能力线 `#4 → #5 → #6 → #7`**——#5 / #6 / #7 都要等 #3 的「改用 / 保留 / 并存」结论（否则可能做白工）；#4（`fs-digest` 轻量增强）成本最小、零新增依赖、不依赖 #3，故排该线最前；#7 复用 #6 的解析与结构模型，故在 #6 之后。**③ 独立修复项 `#8` / `#9`**——仅弱依赖 #1（宿主接口可能变更），彼此无依赖。**④ `#10`** 阻塞于本机 `dsh-git-worktree` 就绪（外部条件，非本仓可控）。**⑤ `#11`** 为收尾类，需前面状态定稿后才能一次写准。优先级：P0 > P1 > P2。
+> 顺序依据（2026-10-02 依赖重排）：**① 基线链 `#1 → #2 → #3`**——对照汇总（已完成，见 §1）定宿主接口 / 包清单基线 → #1 执行宿主升级并真机验证 → #2 依实测落挂载清单并产出「实际可用官方面」→ #3 依基线 + 挂载面才有可审计的真实面（结论才不会是「对着一张过期清单做取舍」）。**② 结构能力线 `#4 → #5 → #6 → #7`**——#5 / #6 / #7 都要等 #3 的「改用 / 保留 / 并存」结论（否则可能做白工）；#4（`fs-digest` 轻量增强）成本最小、零新增依赖、不依赖 #3，故排该线最前；#7 复用 #6 的解析与结构模型，故在 #6 之后。**③ 独立修复项 `#8` / `#9`**——仅弱依赖 #1（宿主接口可能变更），彼此无依赖。**④ `#10`** 阻塞于本机 `dsh-git-worktree` 就绪（外部条件，非本仓可控）。**⑤ `#11`** 为收尾类，需前面状态定稿后才能一次写准。优先级：P0 > P1 > P2。
 
 | # | 功能 | 来源 | 落点（复用） | 工作量（估） | 优先级 |
 |---|------|------|--------------|--------------|--------|
-| 1 | **官方 0.2.0-rc.2 对照汇总（接口 / 工具变更）**：读本地已拉取的官方源码 `~/GithubRepos/deepseek-harness`（HEAD `639ed01539`，2026-09-29，`package.json` version = `0.2.0-rc.2`，`packages/` 顶层 61 项），产出**相对本机基线 `0.1.7-rc.2`** 的变更汇总：① **接口面**——服务名新增 / 改名 / 删除、方法签名与事件名变化、`inject` 与 bundle 契约变化；② **工具面**——新增 / 改名 / 参数与默认值变化（含工具描述与模型侧选择成本）；③ **破坏性变更与我们的落点**——逐条对照本仓 17 包与 `docs/host/HOST-PACKAGES.md`（该笔记是 0.1.7-rc.2 口径，需同时刷新到 0.2.0）。体例参照 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`，产出落 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`（并刷新 `HOST-PACKAGES.md` 的官方包清单与挂载标记） | 用户 2026-10-02 裁定 | `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`（新）、`docs/host/HOST-PACKAGES.md`（刷新）；官方源码只读 | 2-3 h | P1 |
-
+| 1 | **宿主升级到 0.2.0-rc.2 的执行与验证**：对照结论见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`（服务面 +2 无删除、工具面零增删、事件面零增删、会话格式仍 V4、本仓 17 包无需改代码）。执行面：① `npm i -g @deepseek-ai/dsh@0.2.0-rc.2`（先备份 `~/.dsh` 关键文件；**不用 `npm update -g`**）；② 树外加装包 `session-title-all-prompts-llm` 手动升版（profile 目录 `npm pkg set` + `pnpm install`）；③ `scripts/install.sh` 的 `dsh_version_default` 与提示文案同步到 `0.2.0-rc.2`；④ 重启 + 健康检查（stderr 无 `did not activate`，`--dump-config` 断言 `dsh-base` 新行 `otel` 在位）；⑤ 真机验证清单：失败步补写合成 `tool/result`（TUI 无孤立结果行、output-compress 不误分片、knowledge-base 不写噪声条目）、`schedule_*` 工具在本组合仍不存在（交 #2 处置）、`/jobs` `/agents` / `context_report` / `code_map` 抽查 | 用户 2026-10-02 指示「按序完成全部条目」+ 对照结论 D4（`docs/archived/2026-10-02-host-upgrade-0.2.0-rc.2.md`） | 仓库外（全局安装 + `~/.dsh/profiles/fff`）+ `scripts/install.sh`；回滚 = 装回 `0.1.7-rc.2` | 1.5-2 h | P1 |
 | 2 | **profile 挂载面扩张（排除客户端 UI / Web / 运维面 / 实验编排）**：按用户 2026-10-02 裁定「profile 尽量挂载所有官方包，web / 客户端这类不用挂载」，分四步推进：**① 挂载状态实测**（只读，不改 profile）——从 `dsh-base` 的 `cordis.patch.yml` + profile 用户 patch 静态推导真实挂载集，与 `docs/host/HOST-PACKAGES.md` 的「已挂载」标记比对并修正笔记（已知偏差：`workflowEngine` / `ptcRuntime` 真机可用，`jobs` / `tool-ask-user` 疑似也已挂）。**② 第一批挂载候选**（待实测确认，低风险高价值）：`session-query` / `session-reference` / `session-stats` / `session-turn-outline` / `session-log-export` / `session-persistence` / `spill` / `workspace-changes` / `attachment` / `chunked-list` / `message-feedback` / `fs` / `fs-local` / `shell` / `subprocess` / `sandbox` / `bash-local` / `pwsh-local` / `tool-present` / `tool-str-replace-editor` / `llm-deepseek`。**③ 明确排除**（要单独裁定才能挂）：客户端 UI（62）、Web 类、运维面（`plugin-manager` / `config-editor` / `hmr`）、实验编排（`experimental-agent-team` / `experimental-tool-agent-team`）、preset 家族（`agent-preset` / `agent-preset-registry`，本仓不用 preset）、会话格式迁移库（`session-format*`）、API 控制面（9）、`win32-process`。**④ 执行方式**：每批改 `~/.dsh/profiles/fff/cordis.patch.yml`（仓库外，改前备份 + 征得同意）→ 重启 → 健康检查（stderr 无 `did not activate`、工具面 sanity）→ 可回滚（删行）。候选池口径（笔记，实测后修正）：会话 / 上下文 / 存储 21、技能 / 命令 15、文件 / 进程 / 沙箱 10、agent 与编排 9、API 控制面 9、工具与工具基建 7、权限 / 安全 / 设置 4、LLM 1（约 76） | 用户 2026-10-02 裁定（含「先加到条目里」的补充指示） | `~/.dsh/profiles/fff/cordis.patch.yml`（仓库外）+ `docs/host/HOST-PACKAGES.md`（实测修正） | 2-3 h（分 2-3 批） | P1 |
-
 | 3 | **本仓插件复用官方包审计**：按同一裁定「本项目的插件也尽量使用官方包而不是自己造新的」，盘点 17 包与官方包的重叠并给改造候选——例如 `hash-edit`（LINE:HASH）vs 官方 `tool-str-replace-editor`；`fs-digest` vs 官方 `fs` / `fs-local` / `tool-fs`；`session-title-cutoff` vs 官方 `session-title-llm` / `session-title-all-prompts-llm`；`command-template` vs 官方 `workflow` + `tool-workflow`；`context-report` vs 官方 `session-stats` / `session-telemetry` / `session-turn-outline`；`session-channel` vs 官方 `session-query` / `session-reference`（跨会话仍无官方实现）。产出每项「改用 / 保留 / 并存」结论与理由 | 用户 2026-10-02 裁定 | 审计落点待定（建议 `docs/ARCHITECTURE-REUSE.md`） | 2 h | P2 |
-
 | 4 | **Markdown 结构视图（只做 Markdown；纯文本与 PDF 均不做）**：在 `fs_digest` 现有标题树（`outline`，Markdown = 最大标题级）之上补**块级结构**——列表 / 表格 / 代码块 / 引用——并给每节**行范围**，让模型按节读而不是整篇读。**不做**：纯文本启发式分节（`fs_digest` 对未知语言仍返回 `unsupported_language`）、PDF 与其它二进制文档（本条经两次收窄：先移除 PDF，再移除纯文本）。**与条目 6（`md-logic`）的分工**：本条 = **轻量通用入口**（只读、零新增依赖、与 `outline` / `signatures` / `pruned` 三模式统一），补到「块级 + 行范围」为止；`md-logic` = Markdown 专用深能力（精确解析 / 可查询 / 可选改写）——两者**并存不合并**（先例：`fs-digest.signatures` 与 `ast-tools.outlineFile` 服务同一「代码结构」诉求也未合并，仓库模式是「轻量入口 + 专用深能力」并存） | readseek 拆项 4（对比文档 §3.4，原写「文档结构视图（PDF 等）」）+ 用户 2026-10-02 两次裁定（「先从纯文本 / markdown 开始，不做 pdf」→「纯文本也不做了，只做 markdown」） | `fs-digest`（扩展 `outline` 的 Markdown 解析：块级结构 + 每节行范围；复用现成工具面、LSP 降级链与渲染上限） | 1.5 h | P2 |
-
 | 5 | **`ast-tools` 注册模型侧工具（把语法级结构归纳交到模型手上）**：现状只有库 / 服务面（`searchAst` / `replaceAst` / `outlineFile` / `runRules`），**不注册模型侧工具**——模型够不着语法级查询（「所有 `foo(` 调用点」「某 AST 形态」），只能经 `code-map` 间接用。期望：注册模型侧工具（建议单工具 + action 分派，与 `code_map` 同风格：搜索 / 大纲 / 规则；`replace` 单独且默认 dry-run），保留 `language` / `path` / `strictness` 参数；缺 ast-grep 二进制按现成 `INSTALL_GUIDANCE` fail-closed；工具描述须写清「AST 形态 vs 文本 grep」的选择成本 | 用户 2026-10-02 裁定（代码逻辑结构能力盘点） | `ast-tools/src/main.ts`（+ 工具定义文件与 README） | 1-1.5 h | P2 |
-
 | 6 | **新建 markdown 逻辑结构插件（对标 `ast-tools`，单文件粒度）**：给 Markdown 一份「语法 / 块级结构」能力——标题层级（可参照 `fs-digest` 的原生解析）、列表、表格、代码块、引用、链接、frontmatter，输出**带行范围的结构树**（供模型按节读、按节改）。**与条目 4 的分工**：条目 4 = `fs-digest` 的轻量增强（只读、零依赖、快览，与既有三模式统一）；本条 = 专用深能力（精确解析 / 查询 / 可选改写）——两者**并存不合并**。**模型面选择成本**：`ast-tools` 与 `fs-digest` 不打架的部分原因是它**不注册模型侧工具**；若本条注册模型侧工具，须在工具描述里互相指路（快览 → `fs_digest`，深查 → 本条），否则先只提供服务面（像 `ast-tools` 那样由上层消费）。选型约束：优先复用现成解析器（remark / marked）或标准库，自研轻量解析需说明理由（`AGENTS.md`：不随意新增依赖）；包名定为 `md-logic`（2026-10-02 用户裁定，原名 `md-tools`） | 用户 2026-10-02 裁定「新建一个插件用来处理 markdown 的逻辑结构，与 ast-tools 对标」 | 新包 `md-logic/`（`package.json` 的 `dsh.bundle` + `cordis.patch.yml`，以 `ast-tools` 为模板）+ 文档 | 3-4 h（含解析选型） | P2 |
-
 | 7 | **新建 markdown 项目级结构分析插件（对标 `code-map`）**：索引项目内 `.md` 文件的结构与**关系**——标题锚点、文档间链接（`[x](path#anchor)`）、wiki 链接、对代码 / 文件的引用、被引用计数；查询面建议 `callers`（谁引用了本文档 / 本锚点）、`impact`（改这份文档会波及哪些文档 / 章节）、`orphans`（无人引用的文档）、`report`（文档结构 + 断链报告）。与 `code-map` 的分工须写清（代码 vs 文档；跨类型引用可后续打通）；包名定为 `md-map`（2026-10-02 用户裁定） | 用户 2026-10-02 裁定「分析项目内 markdown 文件的逻辑结构分析、引用和影响面等，对标 code-map」 | 新包 `md-map/`（模板同条目 6）+ 文档 | 3-4 h | P2 |
-
 | 8 | **executor 用量计量接 usage 口径**：`budget.maxTokens` 已映射宿主 `agentOptions.maxTokens`（输出上限），但 subagent 目前只报 `tokensKind: "pressure"`（`tokenMeter.measure` 的上下文压力），故 `overBudget` 对 subagent 一律不判（2026-10-02 真机第二轮发现误报后收紧，用户裁定「另开条目」）。期望：接 `ctx.sessionProjections.snapshot(session, ["tokenUsage"])`（或 `deriveTurnTokenUsage`）取 `outputTokens`，与 `budget.maxTokens` 同口径比较并标 `tokensKind: "usage"` | 「task-engine 执行扩展」真机验证第二轮（2026-10-02） | `task-engine`（`src/main.ts` 计量段 + `src/engine.ts` 判定） | 1 h | P2 |
-
 | 9 | **命令模板的取消/超时终态**：真机发现 `playbook` 命令在子代理死亡或取消后可能**无 `command/done`**（命令悬挂）；且 `stepTimeoutMs`（缺省 600s）触发的 abort 是否真的中止子代理未经真机验证。期望：命令任何路径都回终态（成功/失败/取消），并在子会话结束时回收 | 「模板体系」真机观察（追踪文档 2026-09-30 第三轮） | `command-template`（`src/{steps,subagent,main}.ts`） | P2 |
-
 | 10 | **executor 隔离落地（git worktree）**：叶子 `executor` 已支持 `cwd` 透传，但无隔离；原计划经本机插件 `dsh-git-worktree`，而该插件在本机**不存在实现**（`~/.dsh/plugins/dsh-git-worktree` 只有空目录、profile 未挂载；npm registry 有 `dsh-git-worktree@0.3.1`）。期望：装上 / 实现该插件后，executor 增补 `isolate: "worktree"`（引擎建 / 回收 worktree，路径作为 `cwd` 传给 subagent / command 后端） | 「task-engine 执行扩展」实施期裁定（2026-10-02，用户：③ 另开条目） | `task-engine`（`src/{types,gate,engine,main}.ts`）+ 本机 `dsh-git-worktree` 插件 | 1 h（依赖插件就绪） | P2 |
-
 | 11 | **`docs/STATUS.md` 对齐现状**：该表为用户择时更新的对照文档，当前多处过期——① 「总览」称「12 个插件全部完成」，而状态表缺 `rule-engine` / `symbol-normalizer` / `session-channel` / `session-title-cutoff`（`command-template` 的模板体系也已落地）；② 「剩余 P2 插件（workflow-ext / web-ext / session-broker / command-template）未开始」中 `command-template` 已完成；③ `fs-digest` 行注记「缺陷见 `fs-digest/docs/BACKLOG.md` D1」，而该文件现为「当前无未完成项」；④ 各行单测数为 2026-09 快照（如 knowledge-base 已 39 → 57）。期望：逐包核对后整表回写（含新增包行与单测数），或明确该表只维护 P0/P1 子集 | 「task-engine 执行扩展」收尾审计 + 用户 2026-10-02 指示「更新 backlog」 | `docs/STATUS.md`（用户择时更新；本次仅登记） | 1 h | P2 |
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
@@ -59,7 +60,7 @@
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：goal-contract / metric-loop、知识库记忆层与淘汰提升、fan-out 就绪池、hash-edit / ast-tools、security-guard / herdr-integration 等）均已完成。
-1. 里程碑三（P1/P2）剩余（2026-10-02 按依赖重排，编号即顺序）：官方 0.2.0-rc.2 对照汇总（P1）→ profile 挂载面扩张（P1）→ 本仓插件复用官方包审计 → Markdown 结构视图（与 `md-logic` 分工并存）→ `ast-tools` 模型侧工具 → 新建 `md-logic` → 新建 `md-map` → executor 用量计量接 usage 口径 → 命令模板取消/超时终态 → executor 隔离落地（阻塞于外部插件）→ `docs/STATUS.md` 对齐现状，按需排期；已完成项与已取消 / 不再立项项见 §1 索引。
+1. 里程碑三（P1/P2）剩余（2026-10-02 按依赖重排，编号即顺序）：宿主升级到 0.2.0-rc.2 的执行与验证（P1）→ profile 挂载面扩张（P1）→ 本仓插件复用官方包审计 → Markdown 结构视图（与 `md-logic` 分工并存）→ `ast-tools` 模型侧工具 → 新建 `md-logic` → 新建 `md-map` → executor 用量计量接 usage 口径 → 命令模板取消/超时终态 → executor 隔离落地（阻塞于外部插件）→ `docs/STATUS.md` 对齐现状，按需排期；已完成项与已取消 / 不再立项项见 §1 索引。
 1. 依赖：「executor 隔离落地」依赖本机 `dsh-git-worktree` 插件就绪（本机当前不存在实现）；「executor 用量计量接 usage 口径」依赖宿主 `ctx.sessionProjections` 的 `tokenUsage` 投影面；原「近期改动代码审查」能力并入命令模板体系③；其余相互独立。
 
 ## 4. 插件规划（未建包）
