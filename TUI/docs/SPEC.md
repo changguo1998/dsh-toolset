@@ -720,12 +720,14 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **问答面板来源段同口径**：`recentQuestionSource` 取本回合最近一块含正文的 `assistant` / `plain` 行（整块、不再限 6 行、不再设扫描上限）；本回合取不到 → 回退取**上一回合**的最近一块（先回退、不加相关性闸门）；仍无 → 空串。面板显示时在该段前加 `- 上文 -` 标记（纯文本行、不经 markdown 解析）、与题干之间保留空行。
 - **回归**：`tests/state-history-blocks.test.ts`（step 变化切 / 工具行切 / thinking-notice-空行不切 / 空锚点回退 / 跨回合回退 / 幂等）+ `tests/approval-panel.test.ts`（来源段整块与回退）。
 
-#### 活动区类型间隔（#5）
+#### 活动区类型间隔（#5；2026-10-02 收窄）
 
-- **语义**：活动区内「**思考 / 正文（非 final `assistant`）/ 工具**」三类**相邻互切**时插 **1 行空行**（例：reasoning → assistant）；同类连续只在边界插一次；活动区开头（无前一类）不插。
-- **不算边界**：notice / step 头 / shell / 已有空行既不引发间隔也不阻断判断。step 头属工具 run 的一部分 →「思考 → step 头」按「思考 → 工具」处理，**空行落在分割行之前**（step 分割行原有的「吸收拖尾空行」跳过刚插入的类型间隔空行）。
-- **实现**：`build-box.ts` 活动区叶子组装期的 `noteActKind()`（三类各一处调用；间隔空行取新类型行的 meta、`kind:"plain"`）。活动 pane 可视行数与滚动上限按**实际渲染行数**计（`activityMaxScroll`），间隔空行自动计入。
-- **回归**：`tests/activity-type-gap.test.ts`（互切矩阵 / 同类连续 / notice 与 step 不新增 / 开头不插）+ `tests/activity-verbose.test.ts`（紧凑模式行数 = 条目数 + 间隔数）+ `tests/layout4.test.ts`（思考与下一个 step 分割行之间为空行）+ `tests/content-mapping.test.ts`（已偏离项：只多空行）。
+- **语义**：活动区内仅「**思考 ↔ 正文（非 final `assistant`）**」互切时插 **1 行空行**（双向：思考→正文、正文→思考）；同类连续只在边界插一次；活动区开头（无前一类）不插。
+- **工具类不插**：工具行（step 头 / 调用行 / 结果行 / 辅助行）与任何类型相邻都不插空行——工具把思考与正文隔开时二者不再成对，故「思考 → 工具 → 正文」全程紧排（2026-10-02 用户裁定：只保留思考与正文之间的空行）。
+- **step 分割线与内容紧排**：step 头属工具类，分割行原有的「吸收拖尾空行」照常生效（旧 #5 为保住类型间隔空行而设的 `gapBlank` 豁免判据随本口径删除）→ 分割行与前后内容之间不留视觉空行。
+- **不算边界**：notice / shell / 已有空行既不引发间隔也不阻断判断。
+- **实现**：`build-box.ts` 活动区叶子组装期的 `noteActKind()`（思考 / 正文 / 工具各一处调用；仅新类与旧类同属 `{思考, 正文}` 且不同时插间隔空行，空行取新类型行的 meta、`kind:"plain"`）。活动 pane 可视行数与滚动上限按**实际渲染行数**计（`activityMaxScroll`），间隔空行自动计入。
+- **回归**：`tests/activity-type-gap.test.ts`（思考↔正文双向 / 同类连续 / 工具互切不插 / notice 与 step 不新增 / 开头不插）+ `tests/activity-verbose.test.ts`（紧凑模式行数 = 条目数）+ `tests/layout4.test.ts`（思考与下一个 step 分割行紧排）+ `tests/content-mapping.test.ts`（已偏离项：只多空行）。
 
 #### 活动区详略两态（`/collapse`）
 
