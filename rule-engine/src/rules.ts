@@ -45,7 +45,8 @@ export function isRuleSource(value: unknown): value is RuleSource {
 /** 合法送达路径（工具面入参校验与错误提示用）。 */
 export const RULE_DELIVERIES: readonly RuleDelivery[] = [
   "followup",
-  "next-step",
+  "inject",
+  "steer",
 ];
 
 /** 送达路径是否合法。 */

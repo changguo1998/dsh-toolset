@@ -12,6 +12,7 @@ import { apply } from "../src/main.ts";
 interface ConsumerRecord {
   id: string;
   sources?: readonly string[];
+  delivery?: string;
   dedupeInRecord?: number;
   decide(context: {
     sessionId: string;
@@ -126,22 +127,24 @@ test("apply：rule-engine 缺席时只告警不抛，展示服务仍可用", asy
   assert.equal(service.normalize("失败 ❌").text, "失败 ✗");
 });
 
-test("apply：开局指南消费者按统一标准注册（sources + dedupeInRecord），decide 恒返回指南内容", async () => {
+test("apply：开局指南消费者按统一标准注册（sources + delivery + dedupeInRecord），decide 恒返回指南内容", async () => {
   const fake = fakeCtx();
   await apply(fake.ctx, { cooldownMs: 0, cooldownRuns: 0 });
   const guide = fake.consumers.find((c) => c.id === "symbol-normalizer-guide");
   assert.ok(guide !== undefined);
-  // 去重/补注入由 rule-engine 统一负责：投影里最多 1 条，被压缩挤出后由 compaction 节点补一次
-  assert.deepEqual(guide.sources, ["turn-end", "compaction"]);
+  // 触发与去重由 rule-engine 统一负责：每次 step-end 判定、投影里最多 1 条；
+  // 与 skill 自加载规则同节点同 delivery → 同一次触发合并成一条注入
+  assert.deepEqual(guide.sources, ["step-end"]);
+  assert.equal(guide.delivery, "steer");
   assert.equal(guide.dedupeInRecord, 1);
-  const context = { sessionId: "s1", turn: 1, text: "", trigger: "turn-end" };
+  const context = { sessionId: "s1", turn: 1, text: "", trigger: "step-end" };
   const content = guide.decide(context);
   assert.ok(content !== null);
   assert.match(content.text, /推荐符号白名单/);
   assert.equal(content.summary, "符号规范（会话开局指南）");
   assert.ok(
-    guide.decide({ ...context, trigger: "compaction" }) !== null,
-    "压缩节点同样返回内容（是否注入由 rule-engine 按投影判定）",
+    guide.decide({ ...context, trigger: "turn-end" }) !== null,
+    "decide 不做节点判断（唤醒时机全在注册面，判空由 rule-engine 负责）",
   );
 });
 

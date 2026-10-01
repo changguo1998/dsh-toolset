@@ -1,6 +1,7 @@
 /**
  * 注入器单测：消息构造合规（id / content / source.kind 三项硬要求）、推迟宏任务、
- * 两条送达路径（followup / next-step）、宿主面缺失与异常兜底（只 warning 不抛）。
+ * 三条送达路径（followup / inject / steer；宿主缺 steer 时回退 inject）、
+ * 宿主面缺失与异常兜底（只 warning 不抛）。
  */
 
 import assert from "node:assert/strict";
@@ -15,21 +16,25 @@ import {
 } from "../src/inject.ts";
 import type { InjectionRequest } from "../src/types.ts";
 
-/** 造一个记录调用的假宿主（followup 与 inject 分开记账）。 */
+/** 造一个记录调用的假宿主（followup / inject / steer 分开记账）。 */
 function fakeHost(
   options: {
     followupThrows?: boolean;
     injectThrows?: boolean;
+    steerThrows?: boolean;
     noAgent?: boolean;
     noInject?: boolean;
+    noSteer?: boolean;
   } = {},
 ) {
-  const calls: { method: "followup" | "inject"; message: unknown }[] = [];
+  const calls: { method: "followup" | "inject" | "steer"; message: unknown }[] =
+    [];
   const flushed: unknown[] = [];
   const agent: {
     session: unknown;
     followup?(message: unknown): void;
     inject?(message: unknown): void;
+    steer?(message: unknown): void;
   } = {
     session: { id: "s1" },
     followup(message: unknown): void {
@@ -41,6 +46,12 @@ function fakeHost(
     agent.inject = (message: unknown): void => {
       if (options.injectThrows === true) throw new Error("boom");
       calls.push({ method: "inject", message });
+    };
+  }
+  if (options.noSteer !== true) {
+    agent.steer = (message: unknown): void => {
+      if (options.steerThrows === true) throw new Error("boom");
+      calls.push({ method: "steer", message });
     };
   }
   return {
@@ -126,10 +137,10 @@ test("createAgentInjector：同步不调用宿主，宏任务后 followup + flus
   assert.deepEqual(flushed[0], { id: "s1" });
 });
 
-test("createAgentInjector：next-step 走 agent.inject（不调 followup）并 flush", async () => {
+test("createAgentInjector：inject 走 agent.inject（不调 followup / steer）并 flush", async () => {
   const { host, calls, flushed } = fakeHost();
   createAgentInjector(host, { warn: () => {} }).inject(
-    request({ delivery: "next-step" }),
+    request({ delivery: "inject" }),
   );
   await tick();
   assert.equal(calls.length, 1);
@@ -140,19 +151,39 @@ test("createAgentInjector：next-step 走 agent.inject（不调 followup）并 f
     content: Array<{ type: string; text: string }>;
   };
   assert.equal(message.source.kind, SOURCE_KIND);
-  assert.equal(
-    message.source.form,
-    undefined,
-    "next-step 同样不带 notice form",
-  );
+  assert.equal(message.source.form, undefined, "inject 同样不带 notice form");
   assert.match(message.content[0]!.text, /^\[RULE\]/);
 });
 
-test("createAgentInjector：宿主无 inject 时 next-step 跳过并记 warning", async () => {
+test("createAgentInjector：steer 走 agent.steer（同 next-step 队列 + 唤醒；不调 inject / followup）", async () => {
+  const { host, calls, flushed } = fakeHost();
+  createAgentInjector(host, { warn: () => {} }).inject(
+    request({ delivery: "steer" }),
+  );
+  await tick();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.method, "steer");
+  assert.equal(flushed.length, 1);
+});
+
+test("createAgentInjector：宿主无 steer 时回退 inject 并记 warning", async () => {
+  const { host, calls } = fakeHost({ noSteer: true });
+  const warnings: string[] = [];
+  createAgentInjector(host, { warn: (m) => warnings.push(m) }).inject(
+    request({ delivery: "steer" }),
+  );
+  await tick();
+  assert.equal(calls.length, 1, "内容不丢：回退 inject");
+  assert.equal(calls[0]?.method, "inject");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /回退 inject/);
+});
+
+test("createAgentInjector：宿主无 inject 时 inject 跳过并记 warning", async () => {
   const { host, calls, flushed } = fakeHost({ noInject: true });
   const warnings: string[] = [];
   createAgentInjector(host, { warn: (m) => warnings.push(m) }).inject(
-    request({ delivery: "next-step" }),
+    request({ delivery: "inject" }),
   );
   await tick();
   assert.equal(calls.length, 0);
@@ -196,11 +227,22 @@ test("createAgentInjector：inject 抛错被吞并记 warning", async () => {
   const { host } = fakeHost({ injectThrows: true });
   const warnings: string[] = [];
   createAgentInjector(host, { warn: (m) => warnings.push(m) }).inject(
-    request({ delivery: "next-step" }),
+    request({ delivery: "inject" }),
   );
   await tick();
   assert.equal(warnings.length, 1);
   assert.match(warnings[0] ?? "", /inject 失败/);
+});
+
+test("createAgentInjector：steer 抛错被吞并记 warning", async () => {
+  const { host } = fakeHost({ steerThrows: true });
+  const warnings: string[] = [];
+  createAgentInjector(host, { warn: (m) => warnings.push(m) }).inject(
+    request({ delivery: "steer" }),
+  );
+  await tick();
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /steer 失败/);
 });
 
 test("createAgentInjector：sessions 缺失时仍完成注入并记 warning", async () => {
@@ -238,7 +280,7 @@ test("createAgentInjector：flush 关闭句柄（SessionHandleClosed）静默；
     {
       warn: (m) => warnings.push(m),
     },
-  ).inject(request({ delivery: "next-step" }));
+  ).inject(request({ delivery: "inject" }));
   await tick();
   assert.deepEqual(warnings, [], "关闭句柄 flush 失败不告警");
   // 另一组警告账本（避免上一断言的 asserts 收窄把 warnings 变 never[]）
@@ -248,7 +290,7 @@ test("createAgentInjector：flush 关闭句柄（SessionHandleClosed）静默；
     {
       warn: (m) => warnings2.push(m),
     },
-  ).inject(request({ delivery: "next-step" }));
+  ).inject(request({ delivery: "inject" }));
   await tick();
   assert.equal(warnings2.length, 1, "其它 flush 失败仍 warn");
   assert.match(warnings2[0] ?? "", /flush 失败/);

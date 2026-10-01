@@ -49,7 +49,7 @@ test("normalizeRule：显式字段覆盖缺省", () => {
     ruleInput({
       enabled: false,
       source: "tool-call",
-      delivery: "next-step",
+      delivery: "steer",
       match: { regex: ["rm -rf"], flags: "" },
       cooldownTurns: 2,
       cooldownMs: 5000,
@@ -62,7 +62,7 @@ test("normalizeRule：显式字段覆盖缺省", () => {
   if (!result.ok) return;
   assert.equal(result.rule.enabled, false);
   assert.equal(result.rule.source, "tool-call");
-  assert.equal(result.rule.delivery, "next-step");
+  assert.equal(result.rule.delivery, "steer");
   assert.deepEqual(result.rule.match, { regex: ["rm -rf"], flags: "" });
   assert.equal(result.rule.cooldownTurns, 2);
   assert.equal(result.rule.cooldownMs, 5000);

@@ -24,8 +24,13 @@ export type RuleSource =
   | "session-start"
   | "compaction";
 
-/** 注入送达路径：新回合（followup）或最近 pre-step（next-step）。 */
-export type RuleDelivery = "followup" | "next-step";
+/**
+ * 注入送达路径（与宿主 `Agent` 方法同名）：
+ * `inject` = 挂到最近 pre-step、不唤醒（`agent.inject`；宿主 rc.2+）；
+ * `steer` = 同 next-step 队列 + 唤醒（`agent.steer`：空闲时立刻开新回合）；
+ * `followup` = 独立新回合（`agent.followup`，缺省）。
+ */
+export type RuleDelivery = "inject" | "steer" | "followup";
 
 /** 内置谓词名（纯函数性质判定，无参数）。 */
 export type PredicateName =
@@ -67,7 +72,7 @@ export interface Rule {
   enabled?: boolean;
   /** 匹配面，缺省 "assistant-text"。 */
   source?: RuleSource;
-  /** 注入送达路径，缺省 "followup"（新回合；"next-step" = 挂到最近 pre-step）。 */
+  /** 注入送达路径，缺省 "followup"（"inject" / "steer" 走宿主 next-step 队列）。 */
   delivery?: RuleDelivery;
   /** 命中条件；缺省（或空对象）仅对 turn-end 表示无条件命中，其余匹配面视为永不命中。 */
   match?: MatchSpec;

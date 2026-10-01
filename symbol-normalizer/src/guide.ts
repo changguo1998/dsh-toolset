@@ -3,8 +3,9 @@
  * - `buildSymbolGuide`：**全部文本由 config 生成**（推荐白名单与别名映射取自 `ResolvedSymbolRules`，不硬编码符号表）。
  *
  * 注入路径：rule-engine 消费者（与回合审查同一通道，受 `maxInjectionsPerTurn` 保护）。
- * 去重与补注入按 rule-engine 的统一标准：注册 `sources: ["turn-end", "compaction"]` +
- * `dedupeInRecord: 1`（可见投影里最多 1 条；被压缩挤出后由 `compaction` 节点补一次）。
+ * 触发与去重按 rule-engine 的统一标准：注册 `sources: ["step-end"]` + `dedupeInRecord: 1`
+ * （可见投影里最多 1 条）——开局注入一次，压缩把注入挤出投影后自然补一次。
+ * `delivery: "steer"` 与 skill 自加载规则同节点同组：同一次 `step-end` 触发下合并为一条注入。
  * 注：宿主指令面（`@deepseek-ai/dsh-agent-instructions`）只读取固定候选路径的指令文件，
  * 无插件注册口，故「严格早于首个请求」不可达；本指南在首个可行回合边界注入（见追踪文档）。
  */

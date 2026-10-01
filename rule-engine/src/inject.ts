@@ -9,8 +9,10 @@
  * 消息构造三项硬要求（缺失会导致 append/resume 校验抛 `lacks an identified message`）：
  * `id` 非空 string、`content` 为数组、`source.kind` 非空 string。
  *
- * 两条送达路径（`delivery`）：`followup`（缺省）= 独立新回合（`agent.followup`）；
- * `next-step` = 挂到最近 pre-step（`agent.inject`，不唤醒；宿主 rc.2+）。
+ * 三条送达路径（`delivery`，与宿主 `Agent` 方法同名）：
+ * `followup`（缺省）= 独立新回合（`agent.followup`）；
+ * `steer` = 挂到最近 pre-step 且唤醒（`agent.steer`：会话空闲时立刻开新回合，不等下一条输入）；
+ * `inject` = 挂到最近 pre-step、不唤醒（`agent.inject`；宿主 rc.2+）。
  */
 
 import { randomUUID } from "node:crypto";
@@ -25,6 +27,8 @@ export interface AgentLike {
   followup?(message: unknown): void;
   /** 把一条 user-role 消息挂到最近 pre-step（同步 void；宿主 rc.2+）。 */
   inject?(message: unknown): void;
+  /** 同 `inject` 的 next-step 队列 + 唤醒（空闲时立刻开新回合；同步 void）。 */
+  steer?(message: unknown): void;
 }
 
 /** 宿主 ctx 的注入相关最小形态。 */
@@ -136,20 +140,7 @@ function deliver(
     request.summary,
     request.summaries,
   );
-  if (request.delivery === "next-step") {
-    if (typeof agent.inject !== "function") {
-      warn(
-        `agent 不支持 inject（宿主 rc.2+ 才有），来源 "${request.sourceId}" 的 next-step 注入跳过`,
-      );
-      return;
-    }
-    try {
-      agent.inject(message);
-    } catch (err) {
-      warn(`来源 "${request.sourceId}" inject 失败：${String(err)}`);
-      return;
-    }
-  } else {
+  if (request.delivery === "followup") {
     if (typeof agent.followup !== "function") {
       warn(`agent 不支持 followup，来源 "${request.sourceId}" 的注入跳过`);
       return;
@@ -158,6 +149,30 @@ function deliver(
       agent.followup(message);
     } catch (err) {
       warn(`来源 "${request.sourceId}" followup 失败：${String(err)}`);
+      return;
+    }
+  } else {
+    // inject / steer 共用宿主 next-step 队列，差别只在唤醒：steer 让空闲会话立刻开新回合
+    const useSteer =
+      request.delivery === "steer" && typeof agent.steer === "function";
+    const send = useSteer ? agent.steer : agent.inject;
+    if (typeof send !== "function") {
+      warn(
+        `agent 不支持 inject（宿主 rc.2+ 才有），来源 "${request.sourceId}" 的 ${request.delivery} 注入跳过`,
+      );
+      return;
+    }
+    if (request.delivery === "steer" && !useSteer) {
+      warn(
+        `agent 不支持 steer，来源 "${request.sourceId}" 的注入回退 inject（不唤醒）`,
+      );
+    }
+    try {
+      send.call(agent, message);
+    } catch (err) {
+      warn(
+        `来源 "${request.sourceId}" ${request.delivery} 失败：${String(err)}`,
+      );
       return;
     }
   }

@@ -59,6 +59,8 @@ interface ConsumerRegistrar {
     id: string;
     /** 唤醒时机（节点表）；缺省 `["turn-end"]`。 */
     sources?: readonly string[];
+    /** 投递方式（`inject` / `steer` / `followup`）；缺省 `followup`。同节点同值才会合并为一条。 */
+    delivery?: string;
     /** 按记录去重：投影里最多允许 N 条本反馈（0 = 无限制，缺省）。 */
     dedupeInRecord?: number;
     decide(context: {
@@ -129,8 +131,9 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     }
 
     // 会话开局指南（BACKLOG F2）：每会话一次注入「推荐白名单 + 使用标准」。
-    // 去重与补注入交给 rule-engine 统一标准：`dedupeInRecord: 1`（可见投影里最多 1 条，
-    // 被压缩挤出后由 `compaction` 节点补一次；`turn-end` 用于跨重启判空），不再自管 gate。
+    // 触发与去重全交 rule-engine 统一标准：`step-end` 每次步末判定 + `dedupeInRecord: 1`
+    // （可见投影里最多 1 条）——开局注入一次，压缩把注入挤出投影后自然补一次；不再自管 gate。
+    // `delivery: "steer"` 与 skill 自加载规则同节点同组 → 同一次触发合并为一条注入。
     let disposeGuide: (() => void) | undefined;
     if (
       engine !== undefined &&
@@ -140,7 +143,8 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       try {
         disposeGuide = engine.registerConsumer({
           id: "symbol-normalizer-guide",
-          sources: ["turn-end", "compaction"],
+          sources: ["step-end"],
+          delivery: "steer",
           dedupeInRecord: 1,
           decide: () => ({
             text: buildSymbolGuide(rules),

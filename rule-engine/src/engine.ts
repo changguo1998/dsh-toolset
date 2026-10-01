@@ -33,6 +33,7 @@ import {
 } from "./match.ts";
 import {
   effectiveRules,
+  isRuleDelivery,
   isRuleSource,
   normalizeRule,
   RULE_SOURCES,
@@ -288,11 +289,7 @@ export class RuleEngine {
       this.#warn(`消费者 "${id}" 已注册，重复注册被忽略`);
       return noop;
     }
-    if (
-      input.delivery !== undefined &&
-      input.delivery !== "followup" &&
-      input.delivery !== "next-step"
-    ) {
+    if (input.delivery !== undefined && !isRuleDelivery(input.delivery)) {
       this.#warn(
         `消费者 "${id}" 的 delivery ${JSON.stringify(input.delivery)} 非法，按 followup 处理`,
       );
@@ -300,7 +297,7 @@ export class RuleEngine {
     const consumer: CompiledConsumer = {
       id,
       sources: normalizeSources(input.sources),
-      delivery: input.delivery === "next-step" ? "next-step" : "followup",
+      delivery: isRuleDelivery(input.delivery) ? input.delivery : "followup",
       cooldownTurns: normalizeCooldown(input.cooldownTurns),
       cooldownMs: normalizeCooldown(input.cooldownMs),
       dedupeInRecord: normalizeCount(input.dedupeInRecord),

@@ -68,7 +68,7 @@ const RULE_PARAMS = {
     type: "string",
     enum: [...RULE_DELIVERIES],
     description:
-      "注入送达路径，缺省 followup：followup=作为独立新回合（agent.followup）；next-step=挂到最近 pre-step（agent.inject，同回合内模型可见、不唤醒；宿主 rc.2+）",
+      "注入送达路径，缺省 followup：followup=作为独立新回合（agent.followup）；steer=挂到最近 pre-step 并唤醒（agent.steer，空闲时立刻开新回合）；inject=挂到最近 pre-step 不唤醒（agent.inject，会话空闲时要等到下一条输入；宿主 rc.2+）",
   },
   match: MATCH_SCHEMA,
   text: TEXT_PARAM,
