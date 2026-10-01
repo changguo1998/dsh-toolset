@@ -666,7 +666,7 @@ test("assistant/attempt 复用 index 的 block 不继承上轮累计", () => {
   assert.equal(joinStreams(t.events), "abzz");
 });
 
-test("turn/start 忽略；turn/end → turn-end 事件", () => {
+test("turn/start → turn-start（回合号）；turn/end → turn-end 事件", () => {
   const t = makeAdapter();
   t.runtime.fire(
     "session/event",
@@ -683,7 +683,11 @@ test("turn/start 忽略；turn/end → turn-end 事件", () => {
       data: { turn: 1, reason: "completed" },
     },
   );
-  assert.deepEqual(t.events, [{ type: "turn-end", reason: "completed" }]);
+  // #3：turn/start 不再被忽略——回合号转给上层，用于回填回合分隔线的 `#N`
+  assert.deepEqual(t.events, [
+    { type: "turn-start", turn: 1 },
+    { type: "turn-end", reason: "completed" },
+  ]);
 });
 
 test("agent/status payload → agent-status 事件", () => {

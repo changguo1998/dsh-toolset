@@ -146,6 +146,8 @@ export type DshEvent =
   | { type: "agent-status"; sessionId: string; status: AgentStatus }
   | { type: "notice"; text: string; error?: boolean; tone?: NoticeTone }
   /** P1：收尾原因（宿主 turn/end reason.kind）→ 用户块终态符号依据 */
+  /** #3：宿主的 `turn/start`（携带回合号）——会话区回合分隔线要显示 `#N` */
+  | { type: "turn-start"; turn?: number }
   | { type: "turn-end"; reason?: TurnEndReason }
   | {
       type: "tool-call";

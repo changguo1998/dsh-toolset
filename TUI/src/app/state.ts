@@ -160,6 +160,10 @@ export interface BufferLine {
   hanging?: number;
   /** 紧凑模式（/verbose off）豁免：本行仍完整折行显示（/help 用，不被压成 1 行隐藏） */
   noCompact?: boolean;
+  /** #3：回合分隔线（kind="separator"）的时间戳（epoch ms）与回合号，供渲染
+   *  `╌╌ hh:mm:ss #N ╌╌` 同族格式；回合号可能在 turn-begin 后才由 `turn/start` 回填。 */
+  time?: number;
+  turn?: number;
 }
 
 export type Buffer = BufferLine[];
@@ -1112,6 +1116,7 @@ export function markUserBlockStatus(
 export function appendTurnSeparator(
   state: AppState,
   clearActivity = true,
+  meta: { time?: number; turn?: number } = {},
 ): AppState {
   let buffer = state.buffer.length ? [...state.buffer] : [];
   if (clearActivity) {
@@ -1130,16 +1135,44 @@ export function appendTurnSeparator(
     : { ...state, buffer };
   if (buffer.length === 0) return next;
   const last = buffer[buffer.length - 1];
-  if (last && last.kind === "separator" && last.text === TURN_SEPARATOR)
+  if (last && last.kind === "separator" && last.text === TURN_SEPARATOR) {
+    // 已画则不重复；#3：缺时间/回合号时补上（先落行、后由 turn/start 回填的路径）
+    if (meta.time !== undefined || meta.turn !== undefined) {
+      buffer[buffer.length - 1] = {
+        ...last,
+        ...(last.time === undefined && meta.time !== undefined
+          ? { time: meta.time }
+          : {}),
+        ...(last.turn === undefined && meta.turn !== undefined
+          ? { turn: meta.turn }
+          : {}),
+      };
+    }
     return next;
+  }
   buffer.push({
     text: TURN_SEPARATOR,
     kind: "separator",
     seq: state.nextSeq,
+    ...(meta.time !== undefined ? { time: meta.time } : {}),
+    ...(meta.turn !== undefined ? { turn: meta.turn } : {}),
   });
   next.nextSeq = state.nextSeq + 1;
   trimBufferHead(buffer, state.scrollAnchor);
   return next;
+}
+
+/** #3：把回合号回填到**本回合的分隔线**（尾部向前找第一条 separator；已有号则不覆盖）。 */
+function numberTurnSeparator(state: AppState, turn: number): AppState {
+  const buffer = state.buffer.slice();
+  for (let i = buffer.length - 1; i >= 0; i--) {
+    const line = buffer[i]!;
+    if (line.kind !== "separator") continue;
+    if (line.turn !== undefined) return state;
+    buffer[i] = { ...line, turn };
+    return { ...state, buffer };
+  }
+  return state;
 }
 
 /** 合并更新系统状态区（StatusTicker 每 tick 调用；缺失字段保持原值） */
@@ -1909,8 +1942,12 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return appendTurnSeparator(
           { ...state, strippedChars: 0, stepEstTokens: 0, ...virt },
           clearActivity,
+          { time: action.time, turn: action.turn },
         );
       }
+      case "turn-number":
+        // #3：宿主 turn/start 的回合号回填到本回合的分隔线（本地 turn-begin 早于该事件）
+        return numberTurnSeparator(state, action.turn);
       case "clear-stripped":
         return { ...state, strippedChars: 0 };
         // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容
@@ -1956,9 +1993,14 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "tool-call":
         // 工具调用：紧凑工具行（○ <name> <summary> 由 tool-line.ts 组装），不进模型历史。
         // #7 起 step 分割线在 step/start 已画，工具行不再插分组头。
-        return appendToolLine(state, toolCallLine(action.name, action.summary), undefined, {
-          keepLineBreaks: true,
-        });
+        return appendToolLine(
+          state,
+          toolCallLine(action.name, action.summary),
+          undefined,
+          {
+            keepLineBreaks: true,
+          },
+        );
       case "tool-result":
         // 工具结果：✓ 成功 / ✗ 失败（失败红色，tone=error）
         return appendToolLine(
@@ -2505,7 +2547,14 @@ export type StateAction =
   | { type: "window-groups"; groups: number }
   | { type: "user-jump"; anchor: DialogueAnchor | null }
   /** clearActivity：是否清空活动区内容（缺省 true；核心自发回合传 false，见 appendTurnSeparator） */
-  | { type: "turn-begin"; clearActivity?: boolean }
+  | {
+      type: "turn-begin";
+      clearActivity?: boolean;
+      time?: number;
+      turn?: number;
+    }
+  /** #3：宿主 `turn/start` 的回合号回填（本地 turn-begin 早于该事件，分隔线先落行后补号） */
+  | { type: "turn-number"; turn: number }
   /** P1：reason 决定最新用户块的终态符号（completed→✓ / aborted→■ / error→✗ / 其余→?） */
   | { type: "turn-end"; reason?: TurnEndReason }
   | { type: "clear-stripped" }

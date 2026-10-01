@@ -1278,6 +1278,13 @@ export class App {
           }),
         );
         break;
+      case "turn-start":
+        // #3：把宿主回合号回填到本回合的分隔线（分隔线已在本地 turn-begin 落行、暂时无号）
+        if (typeof e.turn === "number") {
+          const turn = e.turn;
+          this.apply((s) => reduceState(s, { type: "turn-number", turn }));
+        }
+        break;
       case "turn-end":
         // turn 结束：不再画分隔线(下个回合开始时画)。
         // P2#33 声音提醒：任务结束 bell + 启动「等待用户输入超阈值」计时（输入即清）
@@ -1413,7 +1420,10 @@ export class App {
     if (this.turnOpen) return;
     this.turnOpen = true;
     const clearActivity = userInput || this.state.queued.length > 0;
-    this.apply((s) => reduceState(s, { type: "turn-begin", clearActivity }));
+    // #3：回合分隔线要显示时间（`hh:mm:ss`）；回合号由随后的宿主 `turn/start` 回填
+    this.apply((s) =>
+      reduceState(s, { type: "turn-begin", clearActivity, time: Date.now() }),
+    );
     this.apply((s) => reduceState(s, { type: "queued-claim" }));
   }
 

@@ -1820,9 +1820,16 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         }
         return;
       }
-      case "turn/start":
-        // turn/start 只标记新回合，不插入历史分隔线；用户本地回显后应紧邻模型响应。
+      case "turn/start": {
+        // turn/start 本身不插入历史分隔线（用户本地回显后应紧邻模型响应），但把**回合号**
+        // 转给上层（#3）：会话区回合分隔线要显示 `hh:mm:ss #N`，而本地 turn-begin 早于本事件。
+        const turn = (data as { turn?: unknown }).turn;
+        emit({
+          type: "turn-start",
+          turn: typeof turn === "number" ? turn : undefined,
+        });
         return;
+      }
       case "turn/end": {
         // turn 结束：清空流式累计，block index 跨 turn 复用不残留
         emittedByBlock.clear();

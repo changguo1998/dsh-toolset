@@ -2045,7 +2045,9 @@ function barRowCount(renderer: FakeRenderer): number {
   return renderer.lastRender.filter((l) => {
     // 只看历史区（左侧状态列可能把占位/标题混进同一行，误伤分隔判定）
     const t = histBody(l, renderer.size.cols);
-    return /[-=·─╌]/.test(t) && t.replace(/[-=·─╌|│┐┘└┌┴┬]/g, "").trim() === "";
+    // #3 起回合分隔线带标签 `╌╌ hh:mm:ss #N `——数字/冒号/井号/空白属标签，不改变"横线行"判定
+    const rest = t.replace(/[-=·─╌|│┐┘└┌┴┬0-9:#\s]/g, "");
+    return /[-=·─╌]/.test(t) && rest === "";
   }).length;
 }
 

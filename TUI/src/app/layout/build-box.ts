@@ -26,6 +26,7 @@ import { measure, allocate } from "./measure.ts";
 import { fillToList, type ContentRow, type RowMeta } from "./fill.ts";
 import { displayWidth } from "./markdown.ts";
 import { truncateToWidth } from "./primitives.ts";
+import { turnHeaderLine } from "./tool-line.ts";
 
 /** 行元数据（= `fill.ts` 的 `RowMeta`，单一来源；buildBox 产出、fill 传播到 ContentRow） */
 export type { RowMeta };
@@ -425,8 +426,11 @@ export function buildBox(
     }
     // separator / plain → 对话区
     if (line.kind === "separator") {
-      const node = styled([], {
-        tail: { char: "╌" }, // legacy：turn 分隔线无样式（默认前景）
+      // #3：回合分隔线用 step 线同族格式——`╌╌ <hh:mm:ss #N> ` + 尾部 `╌` 铺满；
+      // 时间/回合号都缺失时退回纯线（旧会话与 mock 合成事件）。
+      const label = turnHeaderLine(line.turn, line.time);
+      const node = styled(label === "" ? [] : [{ text: `╌╌ ${label} ` }], {
+        tail: { char: "╌" }, // turn 分隔线无样式（默认前景）
       });
       meta.set(node, rowMeta);
       dialogueLeaves.push(node);

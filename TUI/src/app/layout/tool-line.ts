@@ -45,6 +45,15 @@ export function stepHeaderLine(step: number, time?: number): string {
   return hms ? `${hms} #${step}` : `#${step}`;
 }
 
+/** #3 会话区回合分隔线标签：与 step 线同族格式 `hh:mm:ss #N`（`N` = 回合号）。
+ *  任一片段缺失即省略（时间缺 → `#N`；回合号缺 → `hh:mm:ss`；都缺 → 空串，
+ *  调用方退回纯 `╌` 铺满线）。 */
+export function turnHeaderLine(turn?: number, time?: number): string {
+  const hms = clockHms(time);
+  const no = turn === undefined ? undefined : `#${turn}`;
+  return [hms, no].filter((s): s is string => s !== undefined).join(" ");
+}
+
 /**
  * subagent 行：`@ <label> <os|ct>`（B4，append-only 不配对不折叠）。
  * label 由 adapter 归一化时保证非空（无 label 回落 provider）；mode 缩略 one-shot→os / continuable→ct。

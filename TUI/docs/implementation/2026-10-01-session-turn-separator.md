@@ -1,6 +1,6 @@
 # 会话区回合分隔线格式（接取条目：`TUI/docs/BACKLOG.md`「会话区回合分隔线改用回合区 step 线的格式」）
 
-状态：规划　　开启：2026-10-01
+状态：测试　　开启：2026-10-01
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -32,6 +32,22 @@ session 区（原历史区）的**回合分隔线**采用 turn 区（原活动�
 1. `TUI/tests/`：separator 渲染用例（有无时间的降级）。
 1. `TUI/docs/SPEC.md`：分隔线规格。
 1. 实现口径：`adapter/dsh.ts` 的 `turn/start` 由「忽略」改为转发 `{type:"turn-start", turn}`（现状注释见 `:17`）；`index.ts` 记录当前回合号并在 `beginTurnIfNeeded` 透传给 `turn-begin`；`time` 取落行时刻（宿主事件不带时间）。
+
+## 实现记录
+
+2026-10-01：
+
+1. `state.ts`：`BufferLine` 增 `time?` / `turn?`（回合分隔线用）；`turn-begin` 动作增 `time?` / `turn?` 并透传给 `appendTurnSeparator`（已画的线按缺省补齐字段）；新增动作 `turn-number` + `numberTurnSeparator()` 从尾部回填最近一条分隔线的回合号（已有号不覆盖）。
+1. `tool-line.ts`：新增 `turnHeaderLine(turn?, time?)` → `hh:mm:ss #N`（任一片段缺失即省略）。
+1. `build-box.ts`：separator 分支改为 `╌╌ <label> ` + 尾部 `╌` 铺满；label 为空（旧会话 / mock）时退回纯线。
+1. `adapter/dsh.ts` + `adapter/types.ts`：`turn/start` 不再被忽略，转发 `{type:"turn-start", turn}`；`index.ts` 收到后派发 `turn-number`，`beginTurnIfNeeded` 落线时带 `time: Date.now()`。
+1. 测试：新增 `tests/turn-separator.test.ts`（标签降级、时间落行、回填与不覆盖、重复 turn-begin 不重复画线、渲染形态、退回纯线）；更新 `tests/app.test.ts` 的横线行计数（标签不再当内容）与 `tests/adapter.dsh.test.ts` 的 turn/start 期望。
+
+## 测试与证据
+
+- `npm run check`（TUI 包 tsc）✓。
+- **全量 `npm run test:tui` 1234/1234 pass**（含新增用例；无回归）。
+- 待人工确认（真机）：会话区每个回合边界显示 `╌╌ hh:mm:ss #N ╌╌╌…`，与 turn 区 step 线视觉同款；断网/旧会话（无 turn/start）退回纯线。
 
 ## 验收口径
 
