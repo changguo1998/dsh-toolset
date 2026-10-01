@@ -47,7 +47,7 @@ session 区（原历史区）的**回合分隔线**采用 turn 区（原活动�
 
 1. 测试：新增 `tests/turn-separator.test.ts`（标签降级、时间落行、回填与不覆盖、重复 turn-begin 不重复画线、渲染形态、退回纯线）；更新 `tests/app.test.ts` 的横线行计数（标签不再当内容）与 `tests/adapter.dsh.test.ts` 的 turn/start 期望。
 
-1. 人工确认反馈：回合号标记由 `#` 改为 `♺`（转圈双箭头）——`╌╌ hh:mm:ss ♺164 ╌╌`，与 step 线的 `#N` 区分；`turnHeaderLine` 降级口径不变（`♺N` / `hh:mm:ss` / 空串）。
+1. 人工确认反馈：回合号标记由 `#` 改为 `⇆`（水平双箭头、左箭头在上；中间试过 `♺`，用户看效果后改定 `⇆`）——`╌╌ hh:mm:ss ⇆164 ╌╌`，与 step 线的 `#N` 区分；`turnHeaderLine` 降级口径不变（`⇆N` / `hh:mm:ss` / 空串）。
 
 ## 测试与证据
 

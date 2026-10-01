@@ -45,12 +45,12 @@ export function stepHeaderLine(step: number, time?: number): string {
   return hms ? `${hms} #${step}` : `#${step}`;
 }
 
-/** #3 会话区回合分隔线标签：与 step 线同族格式，但回合号标记用 `♺`（转圈双箭头，
- *  与 step 的 `#N` 区分）：`hh:mm:ss ♺N`。任一片段缺失即省略（时间缺 → `♺N`；
- *  回合号缺 → `hh:mm:ss`；都缺 → 空串，调用方退回纯 `╌` 铺满线）。 */
+/** #3 会话区回合分隔线标签：与 step 线同族格式，但回合号标记用 `⇆`（水平双箭头、
+ *  左箭头在上，与 step 的 `#N` 区分）：`hh:mm:ss ⇆N`。任一片段缺失即省略
+ *  （时间缺 → `⇆N`；回合号缺 → `hh:mm:ss`；都缺 → 空串，调用方退回纯 `╌` 铺满线）。 */
 export function turnHeaderLine(turn?: number, time?: number): string {
   const hms = clockHms(time);
-  const no = turn === undefined ? undefined : `♺${turn}`;
+  const no = turn === undefined ? undefined : `⇆${turn}`;
   return [hms, no].filter((s): s is string => s !== undefined).join(" ");
 }
 

@@ -2051,7 +2051,7 @@ function barRowCount(renderer: FakeRenderer): number {
     // 去掉标签后再判「是否为纯横线行」，不把标签当内容
     const rest = t
       .replace(/── (Session|Turn|Tool) ──/g, "")
-      .replace(/[-=·─╌|│┐┘└┌┴┬0-9:#♺\s]/g, "");
+      .replace(/[-=·─╌|│┐┘└┌┴┬0-9:#♺⇆\s]/g, "");
     return /[-=·─╌]/.test(t) && rest === "";
   }).length;
 }
