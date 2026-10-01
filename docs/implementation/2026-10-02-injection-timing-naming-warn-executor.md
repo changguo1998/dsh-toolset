@@ -22,13 +22,27 @@
 - 运行时（仓库外）`~/.dsh/rule-engine/rules.json` 现有 1 条 `skill-autoload`（`source: "step-end"` + `delivery: "steer"` + `dedupeInRecord: 1`）；`symbol-normalizer` 的指南消费者注册为 `sources: ["step-end"]` + `dedupeInRecord: 1`（`src/main.ts`）。
 - 会话日志取证（BACKLOG 记录）：`compaction/end` 后第一步没有注入、第二步才补——因为 `compaction` 不是指南与 skill 规则的节点，只能等下一次 `step-end`。
 
-### #5 现状
+### #5 现状（2026-10-02 盘点完成）
 
-待盘点：`TUI/src/app/commands.ts` 的 `LOCAL_COMMANDS`、宿主命令、各插件注册的命令（`command-template` 模板命令族等），对照 `TUI/docs/COMMANDS.md`。
+命令面全量：TUI 本地 `LOCAL_COMMANDS` 41 条（36 路由 + 5 别名 `/cls` `/exit` `/thinking` `/usage` `/context`）、宿主注册 6 条（`/compact` `/feedback` `/goal` `/permission` `/plan` `/export`，dsh-base 装配）、插件注册 1 条（`command-template` 的 `/playbook`，模板作为子命令）。缩写 / 晦涩候选 9 项提交用户裁定 → D6 / D7 / D8（只删 `/preset`，其余保留；旧名不留别名；只删命令面）。另发现 `command-template` 的 `/tpl` 残留（注释 + 用户可见错误文案 + `reservedNames` 缺省描述）。
 
-### #7 现状
+### #7 现状与评估（2026-10-02）
 
-BACKLOG 已列清单：command-template / session-title-cutoff / task-engine / goal-contract / session-channel / metric-loop / hash-edit / symbol-normalizer / code-map（stderr 兜底）/ TUI 自身均裸写 `process.stderr.write`；rule-engine 已改结构化总线（`onNotice` + headless 兜底），symbol-normalizer 有 `onReview`（消费者审查 notice）。
+**盘点**：运行期 `process.stderr.write` 写点共 28 处——TUI 13 / rule-engine 4 / metric-loop 2 / symbol-normalizer 2 / session-channel 2 / command-template 2 / task-engine・goal-contract・hash-edit・code-map・session-title-cutoff 各 1；无 `console.*` 写点。
+
+**方案 A 已落地**（2026-10-01）：`TUI/src/app/stderr-bridge.ts`（75 行）接管 `process.stderr.write`，按行交 `App.appendExternalLog` 进活动区；tone 由 `externalLogTone()` 按文本**启发式**判定（`error|fatal` → error；`warn(ing)|警告` → warn；其余 log）；含防递归、多参透传、`restore` 残行透传。
+
+**既有结构化通道**：rule-engine 的 `provide("ruleEngine").onNotice(listener)`（tone 结构化 + 装载期缓冲重放 + 无订阅者回退 stderr）、symbol-normalizer 的 `onReview`（消费者审查事件，非通用告警出口）。
+
+| 维度 | 方案 A（现状） | 逐插件结构化通道 |
+| --- | --- | --- |
+| 显示位置 | 全部插件已进活动区 ✓ | 同 ✓ |
+| tone 准确性 | 启发式（措辞不含关键词时误判） | 精确（结构化 tone） |
+| 装载期告警 | 桥安装前的行直写终端（rule-engine 另有自缓冲重放补齐） | 每插件自行缓冲重放 |
+| 代码量 | 75 行，一处 | 每插件 15-40 行 + TUI 逐服务接线（10 插件约 300-500 行重复机制） |
+| 耦合 | TUI 不需知道插件服务名 | TUI 需逐插件订阅；新增插件都要改 TUI |
+
+**评估结论（建议「不实施」）**：方案 A 已覆盖显示正确性与 headless 兜底，逐插件结构化通道的净增量只有「tone 精确」与「装载期重放」——后者各插件的装载期自证日志本就设计为直写终端（用户可见），前者在现有告警措辞下已被启发式覆盖。若日后出现具体 tone 误判点或需要结构化字段（跨客户端消费），**单点升级**（先例 rule-engine `onNotice`）即可，不必全仓铺开。
 
 ### #1 现状
 
@@ -83,7 +97,7 @@ BACKLOG 已列清单：command-template / session-title-cutoff / task-engine / g
 | `TUI/README.md`、`TUI/docs/DESIGN.md`、`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md`、`TUI/docs/design/NOTICE-LEVELS.md` | 删 `/preset` 行与提及；smoke 断言项数 43 → 40 |
 | `command-template/{src/main.ts,src/registry.ts,src/types.ts,README.md,tests/template.test.ts}` | 同条目的命令注册面清理：源码注释与**用户可见错误文案**仍写废弃缩写 `/tpl`（真实入口 `/playbook`），`reservedNames` 缺省描述与实际不符 → 一并修正 |
 
-**#7（评估，结论出来后细化）**：追踪文档的评估结论；如实施则涉及各插件告警出口 + TUI 桥。
+**#7（2026-10-02 评估完成）**：建议**不实施**逐插件结构化改造（理由见「调研 §7」），故无计划改动文件；若用户裁定实施，落点为各插件 `src/main.ts`（`onNotice` 式总线 + 装载期缓冲）＋ `TUI/src/main.ts`（逐插件订阅接线）＋ 各包 README / DESIGN ＋ 测试。
 
 **#1（待读码后细化）**：`task-engine/src/*`、`task-engine/README.md`、`task-engine/docs/{DESIGN,BACKLOG}.md`、`task-engine/tests/*`。
 
@@ -113,6 +127,7 @@ BACKLOG 已列清单：command-template / session-title-cutoff / task-engine / g
 1. **#8 关闭（2026-10-02）**：用户重启 `dsh --profile fff` 后确认「已自动注入」，真机证据见「测试与证据」；条目标「完成」并从 `docs/BACKLOG.md` 清理，本追踪文档继续承载 #5 / #7 / #1（按用户裁定「只关 #8，然后继续做下一个」）。
 1. **#5 盘点（2026-10-02）**：命令面全量盘点——TUI 本地 `LOCAL_COMMANDS` 41 条（36 路由 + 5 别名 `/cls` `/exit` `/thinking` `/usage` `/context`）、宿主注册 6 条（`/compact` `/feedback` `/goal` `/permission` `/plan` `/export`）、插件注册 1 条（`command-template` 的 `/playbook` + 5 个模板子命令 `adversarial-review` / `codebase-audit` / `code-review` / `deep-research` / `multi-perspective`）。缩写 / 晦涩候选 9 项（`/cls`、`/preset`、`/agents`、`/guard`、`/contract`、`/loop`、`/task`、`/memory`、`/council`）连同建议名提交用户裁定 → D6 / D7 / D8。
 1. **#5 实施（2026-10-02）**：按 D6 / D7 / D8 删除 `/preset` 命令与 `selectAgentPreset` 写路径（文件清单见「规划」）；`/help` 少一行 → 重跑冻结基线脚本（无 diff）+ smoke（断言项数 43 → 40，全绿）；`command-template` 的 `/tpl` 残留（注释、用户可见错误文案、`reservedNames` 缺省描述）一并修正。
+1. **#7 评估（2026-10-02）**：核实运行期告警写点 28 处、方案 A 的 tone 启发式判定、既有结构化通道（rule-engine `onNotice` / symbol-normalizer `onReview`）；收益 / 成本对比与结论见「调研 §7」，**建议不实施**逐插件改造 → 待用户裁定（实施 or 关闭条目）。
 
 ## 测试与证据
 
@@ -155,19 +170,22 @@ BACKLOG 已列清单：command-template / session-title-cutoff / task-engine / g
 | `cd command-template && npm run check` / `npm run build` / `npm test` | 通过 / 通过 / `tests 13 / pass 13 / fail 0` |
 | 根 `npm run check` / 根 `npm run test` | `exit 0`（`error TS` 计数 0）/ `exit 0`，16 包全 `OK`（含 TUI `pass 1290`） |
 
+**#5 真机确认（2026-10-02）**：用户重启 `dsh --profile fff` 后裁定「可以，收尾 #5 和 #7」→ 视为真机行为通过。留证说明：本会话日志（解压到 `tmp/session-latest.jsonl`，1170 事件）未出现用户手输 `/preset` 的记录，命令行为由用户口头确认替代（非机械证据）。
+
+**#7（评估条目）证据**：评估为**只读分析**——无代码改动、无新增测试；写点盘点（28 处）与收益 / 成本对比见「调研 §7」，用户 2026-10-02 裁定「可以」= 采纳「不实施」建议。
+
 未做（交接给后续）：
 
 1. `rule-engine/demo` 未跑（可选）。
-1. **#5 真机确认未做**：重启 `dsh --profile fff` 后确认 `/preset` 提示「未知命令」、`/help` 无该行、标题栏 preset 段与其余本地命令不受影响——agent 无法重启自身宿主，留用户执行。
-1. 条目 #7 / #1 未开始（本任务继续接取）。
+1. 条目 #1「task-engine 执行扩展」未开始（本任务继续接取）。
 
 ## 交接（2026-10-02 中断点）
 
-**当前状态**：条目 #8「注入时机调整」**已完成并关闭**；条目 #5「slash 命令命名规范」**实现与机械验证完成**（删 `/preset` + 文档/测试/demo 同步），待真机确认后关闭；#7（插件告警通道评估）/ #1（task-engine 执行扩展）未开工（BACKLOG 三条仍标「进行中（2026-10-02）」）。
+**当前状态**：条目 #8「注入时机调整」、#5「slash 命令命名规范」、#7「插件运行期 stderr 告警显示统一（评估）」**均已关闭并清理**；仅 #1「task-engine 执行扩展」未开工（BACKLOG 仍标「进行中（2026-10-02）」，本文件不归档）。
 
-**工作区**：#8 的代码与关闭文档已提交（`feat(rule-engine,symbol-normalizer): 注入时机支持多节点与直写`、`docs(rule-engine): 关闭「注入时机调整」条目并补真机复盘证据`）；#5 的改动（TUI 源码 / 测试 / demo / 文档 + command-template 残留修正）随本次提交落盘（提交信息 `feat(TUI)!: 删除 /preset 命令（旧名不留别名）`，提交顺序见 `git log`）。`tmp/` 仅保留 `rules.json.orig`（运行时规则原件备份，勿删）与本次日志。
+**工作区**：三次提交已落盘——`feat(rule-engine,symbol-normalizer): 注入时机支持多节点与直写`、`docs(rule-engine): 关闭「注入时机调整」条目并补真机复盘证据`、`feat(TUI)!: 删除 /preset 命令（旧名不留别名）`；#5 / #7 的关闭文档变更随本次收尾提交。`tmp/` 仅保留 `rules.json.orig`（运行时规则原件备份，勿删）。
 
-**下一步**（用户 2026-10-02 指示「只关 #8，然后继续做下一个」）：#5 真机确认（见上「未做」）→ 关闭 #5（BACKLOG 标完成并清理）→ 接 #7「插件运行期 stderr 告警显示统一（评估）」。
+**下一步**：接 #1「task-engine 执行扩展」——读 `task-engine` 源码与 README「边界与外包」段，细化三段（叶子 `executor` 声明与后端适配 / 模型与预算声明 / git worktree 隔离），经用户裁定后实施。
 
 **注意**：本任务接取的是四条（BACKLOG 均已标「进行中（2026-10-02）」），关闭时四条一起处理；`STATUS.md` 不由流程改；提交按 `docs/WORKFLOW-STANDARD.md` §5 的四个询问点征得同意。
 
@@ -175,11 +193,13 @@ BACKLOG 已列清单：command-template / session-title-cutoff / task-engine / g
 
 **条目状态变更（2026-10-02）**：
 
-- 「注入时机调整：会话开始 / 压缩完成后直写，不等步末」：标「完成」并已从 `docs/BACKLOG.md` 清理（记录见本文件「实现记录」「测试与证据」；实现落点 commit `feat(rule-engine,symbol-normalizer): 注入时机支持多节点与直写`，运行时规则改动在仓库外 `~/.dsh/rule-engine/rules.json`）。
-- 其余三条（slash 命令命名规范 / 插件运行期 stderr 告警显示统一（评估）/ task-engine 执行扩展）：**本任务继续接取**，BACKLOG 保持「进行中（2026-10-02）」，待完成后一并关闭；本文件**不归档**（留 `docs/implementation/`）。
+- 「注入时机调整：会话开始 / 压缩完成后直写，不等步末」：标「完成」并清理（记录见「实现记录」「测试与证据」；实现落点 commit `feat(rule-engine,symbol-normalizer): 注入时机支持多节点与直写`，运行时规则改动在仓库外 `~/.dsh/rule-engine/rules.json`）。
+- 「slash 命令命名规范：不用缩写」：标「完成」并清理。裁定 D6 / D7 / D8（只删 `/preset`、旧名不留别名、只删命令面）→ 实施落点 commit `feat(TUI)!: 删除 /preset 命令（旧名不留别名）`；盘点覆盖 TUI 本地 41 条 + 宿主 6 条 + 插件 1 条；同条目清理了 `command-template` 的 `/tpl` 残留。
+- 「插件运行期 stderr 告警显示统一（评估）」：标「完成」并清理。结论 = **不实施**（「调研 §7」：方案 A 已覆盖显示位置与 headless 兜底；逐插件结构化通道净增量仅 tone 精确与装载期重放，成本为 300-500 行重复机制 + TUI 逐插件耦合）——用户 2026-10-02 裁定「可以」采纳。
+- 「task-engine 执行扩展」：**本任务继续接取**，BACKLOG 保持「进行中（2026-10-02）」；本文件**不归档**（留 `docs/implementation/`），待其完成后一并关闭。
 
-**中途范围说明**（流程要求）：2026-10-02 用户裁定「只关 #8，然后继续做下一个」——本次先在开放任务内关闭 #8，剩余三条按原接取范围继续，未新增/移除条目。
+**中途范围说明**（流程要求）：2026-10-02 用户两次裁定——「只关 #8，然后继续做下一个」、「可以，收尾 #5 和 #7」：在开放任务内逐条关闭，未新增 / 移除条目。
 
-**回写**：DESIGN / README 已随实现同步（`rule-engine/README.md`、`rule-engine/docs/DESIGN.md`、`symbol-normalizer/{README.md,docs/DESIGN.md}`、`TUI/docs/DESIGN.md`），关闭 #8 无需额外回写；`STATUS.md` 不由流程改。
+**回写**：`rule-engine/README.md`、`rule-engine/docs/DESIGN.md`、`symbol-normalizer/{README.md,docs/DESIGN.md}`、`TUI/docs/DESIGN.md`（#8）；`TUI/{README.md,docs/DESIGN.md,docs/COMMANDS.md,docs/COMMANDS-SPEC.md,docs/design/NOTICE-LEVELS.md}`、`command-template/{README.md,src/types.ts}`（#5）；#7 无代码改动、无需回写；`STATUS.md` 不由流程改。
 
 **临时物清理**：`tmp/session-latest.jsonl`、`tmp/session-evidence.mjs`、`tmp/rules.json.proposed`、`tmp/check.log`、`tmp/test-all.log`、`tmp/injection-timing-smoke.mjs` 已删；保留 `tmp/rules.json.orig`（运行时规则原件备份，用于回退对照）。

@@ -37,10 +37,7 @@
 | 3 | **记忆 auto-consolidation（自动巩固）**：把高频 / 高重要度记忆自动提升、合并相似条目、淘汰陈旧项（现状 knowledge-base 已有两级写回与淘汰提升，语义接近但需自动化巩固策略） | `archive/PI-DSH-FEATURE-COMPARISON.md` §5.3（原 §2.6 观察项，用户 2026-09-29 立项） | knowledge-base 记忆层扩展（复用两级写策略 / 淘汰提升机制） | 1.5 h | P2 |
 | 4 | PDF/文档结构视图 | readseek 拆项 4（对比文档 §3.4） | 无底座，新工具 | 4 h+（解析方案待选型） | P2 |
 
-| 5 | **进行中（2026-10-02）**　**slash 命令命名规范：不用缩写**（缩写难理解）：盘点现有本地命令 / 宿主命令 / 插件命令的缩写与晦涩名（如 `/tpl`、`/cls`、`/preset` 之类），给出改名清单与兼容策略（旧名是否留别名、何时移除） | 用户 2026-09-30 口述（命令可读性） | TUI `LOCAL_COMMANDS`（`src/app/commands.ts`）+ 各插件命令注册 + `TUI/docs/COMMANDS.md` | P2 |
-
-| 6 | **命令模板的取消/超时终态**：真机发现 `playbook` 命令在子代理死亡或取消后可能**无 `command/done`**（命令悬挂）；且 `stepTimeoutMs`（缺省 600s）触发的 abort 是否真的中止子代理未经真机验证。期望：命令任何路径都回终态（成功/失败/取消），并在子会话结束时回收 | 「模板体系」真机观察（追踪文档 2026-09-30 第三轮） | `command-template`（`src/{steps,subagent,main}.ts`） | P2 |
-| 7 | **进行中（2026-10-02）**　**插件运行期 stderr 告警显示统一（评估）**：各插件运行期告警均裸写 `process.stderr.write`（清单：command-template / session-title-cutoff / task-engine / goal-contract / session-channel / metric-loop / hash-edit / symbol-normalizer / code-map（stderr 兜底）/ TUI 自身；无 `console.*` 与 stdout 写点）。经「插件告警改道活动区」方案 A 兜底后显示位置已正确（活动区）；本条评估是否统一改**结构化通知通道**（同 rule-engine `onNotice` / symbol-normalizer `onReview` 模式：tone 结构化 + headless 兜底 stderr）与降噪。 | 「插件告警改道活动区」实施期审计（2026-10-01） | 各插件 `src/`（告警出口）+ `TUI`（桥） | P3 |
+| 5 | **命令模板的取消/超时终态**：真机发现 `playbook` 命令在子代理死亡或取消后可能**无 `command/done`**（命令悬挂）；且 `stepTimeoutMs`（缺省 600s）触发的 abort 是否真的中止子代理未经真机验证。期望：命令任何路径都回终态（成功/失败/取消），并在子会话结束时回收 | 「模板体系」真机观察（追踪文档 2026-09-30 第三轮） | `command-template`（`src/{steps,subagent,main}.ts`） | P2 |
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
