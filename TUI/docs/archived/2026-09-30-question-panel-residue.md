@@ -203,14 +203,27 @@ const timer = setInterval(async () => {
 **下次复现时请采集**（按此顺序，30 秒内可完成）：`stty -F /dev/pts/<n> size`（复现前后各一次，判断是否伴随
 resize）、当时是否有流式输出/命令在跑、是哪一个面板、切换的是哪个条目、以及残留行的截图或 `cat -A` 抓屏。
 
-## 测试与证据
+## 定位结论与修复（2026-10-01）
 
-（待补）
+**新事实（用户补充，推翻旧结论）**：① tmux 里同样复现 → 不是 herdr 合成层专属；② 不止方向键，**空格**也触发。
 
-## 测试与证据
+**复现（离线，改用带触底滚屏语义的模拟器）**：旧复现台的 `tests/helpers/screenEmu.ts` 在底行收到 `\n` 只做钳位、**不模拟滚动**，所以「屏 == 帧」恒成立、长期查不出。换成带滚屏语义后复现：
 
-（待补）
+- 帧行数 > 终端行数（多路复用器里 pane resize 上报滞后时必现）→ 渲染器把多出的行定位到终端末行（被终端钳位），该行之后的 `\r\n` 触发**终端滚屏**，整屏上移一行；
+- 而帧间逐行 diff 认为这些行已经写对 → **残留永久保留**（表现就是「首项上方被复制出一行」）；
+- 80x24（TUI 认为 25 行）、154x43（认为 44 行）均复现；尺寸一致时不复现。`↓` / 空格 / 打开面板都能触发——任何一次「超长帧写入」都会。
+
+**修复（渲染层，最小改动）**：
+
+1. `TUI/src/renderer/screen.ts`：`render()` 与 `renderRanges()` 把写入行钳在 `this.rows` 内——帧比终端高时**整段丢弃超出行**，绝不在最后一行之后再发 `\r\n`（从源头杜绝触底滚屏）。
+1. `TUI/src/renderer/index.ts`：帧高**变短**（= 几何刚缩过）时强制**整帧重写**，自愈任何已发生的滚屏错位；帧高变长仍走 delta 增量（常见于追加，不会滚屏）。
+
+**测试**：`tests/helpers/screenEmu.ts` 新增 `{ scroll: true }` 触底滚屏语义与 `scrollCount`（缺省关，既有断言不受影响）；`tests/screen-residue.test.ts` 新增回归用例（超长帧不滚屏 + 注入外部滚屏后帧高变短即整帧自愈）；`tests/renderer-diff.test.ts` 两处按新口径更新。
+
+**验证**：`npm run check` ✓、`npm run test:tui` 1291 通过 / 0 失败、`npm run build` ✓；原复现场景（帧高于终端）滚动次数 1 → 0。
 
 ## 收尾
 
-（待补）
+- 改动文件：`TUI/src/renderer/screen.ts`、`TUI/src/renderer/index.ts`、`TUI/tests/helpers/screenEmu.ts`、`TUI/tests/screen-residue.test.ts`、`TUI/tests/renderer-diff.test.ts`、本追踪文档、`TUI/docs/BACKLOG.md`（条目清理）。
+- 真机验证项（待人工确认）：herdr / tmux 里开面板后按 `↓`、空格，首项上方不再多一行；调整窗格大小（横竖各一次）后重开面板同样干净。
+- 未覆盖：残留若来自 multiplexer 客户端合成（非 pane 内容），本次修复不涉及——出现时按「pane 侧抓屏是否为净」继续二分。

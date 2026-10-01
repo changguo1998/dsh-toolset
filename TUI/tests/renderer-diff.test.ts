@@ -29,8 +29,9 @@ function collector(): {
 
 test("区间 diff：中部单行变化只重写该行（状态栏符号，无清屏）", () => {
   const { chunks, renderer } = collector();
+  // 帧高需 ≤ 渲染器认为的终端高度（#3 起超高行会被钳掉，杜绝触底滚屏）
   const frame = (sym: string): FrameRow[] => [
-    ...Array.from({ length: 34 }, (_, i) => row(`content ${i}`)),
+    ...Array.from({ length: 18 }, (_, i) => row(`content ${i}`)),
     row(`status ${sym}`),
     row("> input"),
   ];
@@ -40,11 +41,11 @@ test("区间 diff：中部单行变化只重写该行（状态栏符号，无清
   const out = chunks.slice(mark).join("");
   assert.ok(!out.includes("\x1b[2J"), "增量帧不得清屏");
   assert.ok(
-    out.startsWith("\x1b[?2026h\x1b[?25l\x1b[35;1H"),
-    "应绝对定位到第 35 行（状态行）",
+    out.startsWith("\x1b[?2026h\x1b[?25l\x1b[19;1H"),
+    "应绝对定位到第 19 行（状态行）",
   );
   assert.ok(out.includes("status ○"), "应重写变化行");
-  assert.ok(!out.includes("content 33"), "未变化行不重写");
+  assert.ok(!out.includes("content 17"), "未变化行不重写");
   assert.ok(!out.includes("> input"), "变化行之后的未变化行不重写");
   renderer.close();
 });
@@ -87,7 +88,7 @@ test("区间 diff：纯追加新行只写追加行", () => {
   renderer.close();
 });
 
-test("区间 diff：行数减少时清除下方残留（ESC[J）", () => {
+test("区间 diff：行数减少时清除下方残留（ESC[J；#3 起整帧重写）", () => {
   const { chunks, renderer } = collector();
   const frame = (n: number): FrameRow[] =>
     Array.from({ length: n }, (_, i) => row(`line ${i}`));
@@ -96,15 +97,12 @@ test("区间 diff：行数减少时清除下方残留（ESC[J）", () => {
   renderer.render(frame(5)); // 删除第 6、7 行
   const out = chunks.slice(mark).join("");
   assert.ok(!out.includes("\x1b[2J"), "增量帧不得清屏");
-  assert.ok(out.includes("\x1b[J"), "应清除区间下方残留行");
-  assert.ok(
-    out.startsWith("\x1b[?2026h\x1b[?25l\x1b[6;1H"),
-    "变化区间自第 6 行起（原第 6 行起被删除）",
-  );
-  assert.ok(
-    out.includes("\x1b[6;1H\x1b[J"),
-    "区间为空时清除定位即残留首行（第 6 行）",
-  );
+  assert.ok(out.includes("\x1b[J"), "应清除帧下方残留行");
+  // #3：帧高变短 = 几何刚缩过（多路复用器里 resize 上报可能滞后，期间可能已触底滚屏
+  // 把整屏顶掉一行）→ 改走整帧重写自愈，而不是只重写变化区间。
+  assert.ok(out.includes("\x1b[1;1H"), "帧高变短时自首行整帧重写");
+  assert.ok(out.includes("line 0"), "首行也被重写（整帧而非区间）");
+  assert.ok(out.includes("\x1b[6;1H\x1b[J"), "残留首行（第 6 行）被清除");
   renderer.close();
 });
 

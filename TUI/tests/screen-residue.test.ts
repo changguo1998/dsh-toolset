@@ -133,6 +133,34 @@ test("活动区清空（真实帧）：屏幕不得残留上一回合活动行",
   renderer.close();
 });
 
+test("#3 尺寸滞后：超长帧不滚屏；帧高变短时整帧重写治愈错位", () => {
+  // 真实终端在末行收到换行会**整屏上滚**，而逐行 diff 认为已写对 → 残留永不消失
+  // （多路复用器里 pane resize 上报滞后时必现；旧模拟器不模拟滚动故长期查不出）
+  let emu!: ScreenEmu;
+  const renderer = createRenderer({
+    write: (s) => emu?.feed(s),
+    rawMode: false,
+    exitOnClose: false,
+  });
+  // 模拟终端与渲染器认为的尺寸一致（随后注入「帧比终端高」的滞后场景）
+  const size = renderer.getSize();
+  emu = new ScreenEmu(size.cols, size.rows, { scroll: true });
+  const H = size.rows;
+  const tall = Array.from({ length: H + 2 }, (_, i) => row(`tall-${i + 1}`));
+  renderer.render(tall);
+  assert.equal(emu.scrollCount, 0, "超出行数的行应整段丢弃，绝不滚屏");
+  for (let i = 0; i < H; i++)
+    assert.equal(emu.line(i), `tall-${i + 1}`, `第 ${i + 1} 行应是本帧内容`);
+  // 注入一次外部滚屏（等价于残留成因：整屏被顶掉一行）
+  emu.feed(`\x1b[${H};1H\r\n`);
+  assert.ok(emu.scrollCount > 0, "外部滚屏已注入");
+  // 帧高变短 → 整帧重写：屏幕与帧重新一致（自愈，不再永久残留）
+  const ok = Array.from({ length: H }, (_, i) => row(`ok-${i + 1}`));
+  renderer.render(ok);
+  assertScreenMatches(emu, ok, "帧高变短后整帧重写");
+  renderer.close();
+});
+
 test("屏幕行宽与帧一致：宽字符行不因估计偏差错位（冒烟）", () => {
   const { renderer, emu } = harness();
   const rows = [

@@ -12,14 +12,31 @@ export class ScreenEmu {
   private row = 0;
   private col = 0;
   private pendingWrap = false;
+  /** 触底滚屏次数（`scroll: true` 时统计；能发现「帧比终端高」把整屏顶掉一行） */
+  scrollCount = 0;
 
   constructor(
     public cols: number,
     public rows: number,
+    /** `scroll: true` = 按真实 VT 语义处理触底换行/自动换行（整屏上滚一格）。
+     *  缺省 false 保留旧行为（底行钳位），既有断言不受影响。 */
+    private opts: { scroll?: boolean } = {},
   ) {
     this.cells = Array.from({ length: rows }, () =>
       Array.from({ length: cols }, () => " "),
     );
+  }
+
+  /** 下移一行；到末行则按需滚屏（`scroll` 关时钳位，与旧行为一致） */
+  private nextRow(): void {
+    if (this.row < this.rows - 1) {
+      this.row++;
+      return;
+    }
+    if (this.opts.scroll !== true) return; // 旧行为：底行钳位
+    this.cells.shift();
+    this.cells.push(Array.from({ length: this.cols }, () => " "));
+    this.scrollCount++;
   }
 
   /** 喂入渲染层输出报文（逐**码点**解析 CSI / 文本）——
@@ -62,14 +79,14 @@ export class ScreenEmu {
         continue;
       }
       if (ch === "\n") {
-        this.row = Math.min(this.rows - 1, this.row + 1);
+        this.nextRow();
         i += step;
         continue;
       }
       if (ch >= " ") {
         const w = displayWidth(ch);
         if (this.pendingWrap || this.col + w > this.cols) {
-          this.row = Math.min(this.rows - 1, this.row + 1);
+          this.nextRow();
           this.col = 0;
           this.pendingWrap = false;
         }

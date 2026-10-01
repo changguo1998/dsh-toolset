@@ -161,7 +161,11 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       // 不限帧尾——状态栏符号/流式末行增长都只重写对应行，不清屏）。
       // sections 提供且与上一帧段表一致时按**帧段**切分：多段同时变化只重写各段内
       // 变化行，不跨越中间未变化的段；段内不连续的变化行再各自成区间（见 changedRuns）。
-      if (delta && prevRows) {
+      // #3：**帧高变短一律走整帧重写**——变短意味着几何刚缩过（多路复用器里 resize
+      // 上报可能滞后，期间帧比终端高就会触底滚屏、把整屏顶掉一行），逐行 diff 会
+      // 认为「没变」而留下永久残留（「首项上方多一行」）；整帧重写从首行覆盖即自愈。
+      // 帧高变长仍走 delta（常见于内容追加，且不会滚屏）。
+      if (delta && prevRows && rows.length >= prevRows.length) {
         let intervals = changedIntervals(
           prevRows,
           rows,

@@ -165,7 +165,10 @@ export class Screen {
       out.push(base + "\x1b[1;1H");
     }
     let caret: { row: number; col: number } | null = null; // 输入行光标(0 基列)
-    for (let i = 0; i < rows.length; i++) {
+    // #3：帧比终端高（resize 上报滞后）时只写看得见的行——写到最后一行后再 CRLF
+    // 会让真实终端滚屏，整屏顶掉一行且残留无法自愈
+    const visible = Math.min(rows.length, this.rows);
+    for (let i = 0; i < visible; i++) {
       const row = rows[i]!;
       // 每行前缀主题基底色：行内样式段只改前景/背景并恢复到主题基底，
       // 但 bold 用 22m 收尾可能留下中间态，统一每行重设基底最稳妥
@@ -178,12 +181,12 @@ export class Screen {
       // 硬件光标落在显示内容下方一行；光标由末尾转义精确定位。
       // （按键提示区加入后输入行不再占末行、须 CRLF 换行；此前无 caret 行的
       // 面板帧末行会写 CRLF 同样触底上滚 1 行，此处一并修正）
-      if (i < rows.length - 1) out.push("\r\n");
+      if (i < visible - 1) out.push("\r\n");
     }
     // 清除帧下方可能残留的旧行（尺寸/行数变化时）：定位到**帧下一行行首**再
     // `ESC[J` 擦到屏尾。不在末行行尾就地 `ESC[J`——末行写满整行时（状态栏/提示区
     // 等）光标停在右缘「待折行」状态，此处 ESC[J 会连带擦掉末行最后一格。
-    const below = rows.length + 1;
+    const below = visible + 1;
     if (below <= this.rows) out.push(`\x1b[${below};1H\x1b[J`);
     // 光标必须在所有行写完后再移动，否则后续行从光标列起写
     pushCursorTail(out, caret, focus);
@@ -209,19 +212,27 @@ export class Screen {
     let lastLine = 0; // 已写内容的最末行（1 基；残留清除起点据此推算）
     for (const iv of intervals) {
       if (iv.rows.length === 0) continue;
+      // #3：尺寸未及同步（多路复用器 resize 上报滞后）时，超出行数的行整段丢弃——
+      // 写到最后一行后再发 `\r\n` 会让真实终端**滚屏**，把整屏顶掉一行，
+      // 而帧间 diff 认为这些行已写对 → 残留（「首项上方多一行」）永远不会自愈。
+      const rows =
+        iv.startLine > this.rows
+          ? []
+          : iv.rows.slice(0, this.rows - iv.startLine + 1);
+      if (rows.length === 0) continue;
       // 绝对定位到区间首行（不依赖前一区间的落点）
       out.push(`\x1b[${iv.startLine};1H`);
-      for (let i = 0; i < iv.rows.length; i++) {
-        const row = iv.rows[i]!;
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]!;
         // 先擦整行再写：活动区行不补齐整行，新内容变短/变空时必须擦掉旧字
         out.push(base + eraseBeforeWrite + serializeFrameRow(row, this.theme));
         if (row.caret !== undefined) {
           caret = { row: iv.startLine + i, col: row.caret };
         }
         // 非末行 CRLF 换行、末行省略 CRLF（防满高帧触底上滚）
-        if (i < iv.rows.length - 1) out.push("\r\n");
+        if (i < rows.length - 1) out.push("\r\n");
       }
-      lastLine = Math.max(lastLine, iv.startLine + iv.rows.length - 1);
+      lastLine = Math.max(lastLine, iv.startLine + rows.length - 1);
     }
     if (clearBelow) {
       // 残留首行（1 基）：无任何区间写入时取首区间起点
