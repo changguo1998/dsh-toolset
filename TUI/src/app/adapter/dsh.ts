@@ -2542,7 +2542,25 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
      */
     sendBootstrapKickoff() {
       if (disposed) return;
-      activeAgent.followup(buildBootstrapKickoffMessage());
+      const message = buildBootstrapKickoffMessage();
+      // BACKLOG #2：kickoff 优先走 steer（next-step 队列 —— 投递到最近 step 边界，启动竞态下
+      // 已有回合在跑也能被**当前回合**领取；空闲时立刻起回合），查找次序与 sendMessage 的
+      // next-step 分支一致（优先原始宿主 agent，见 canSteer 的两层判据）；
+      // 无 steer 的宿主（旧宿主）→ 回落 followup（降级不丢，日志可见）。
+      const raw = activeCommandAgent as
+        { steer?: (m: typeof message) => void } | undefined;
+      if (typeof raw?.steer === "function") {
+        raw.steer(message);
+        return;
+      }
+      if (typeof activeAgent.steer === "function") {
+        activeAgent.steer(message);
+        return;
+      }
+      process.stderr.write(
+        "[dsh adapter] sendBootstrapKickoff: 宿主无 steer，回落 followup\n",
+      );
+      activeAgent.followup(message);
     },
     runCommand(line, targetSessionId) {
       if (disposed) return;

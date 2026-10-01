@@ -951,7 +951,7 @@ test("sendMessage 忽略不匹配的 sessionId（写 stderr 不崩溃）", () =>
   assert.equal(agent.followups.length, 0);
 });
 
-test("sendBootstrapKickoff → agent.followup 自检消息（source.kind=tool-bootstrap）", () => {
+test("sendBootstrapKickoff：无 steer 宿主 → agent.followup 自检消息（source.kind=tool-bootstrap；#2 降级分支）", () => {
   const agent = new FakeAgent();
   const t = makeAdapter(new FakeRuntime(), agent);
   t.adapter.sendBootstrapKickoff?.();

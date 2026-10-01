@@ -8,21 +8,11 @@
 ## 待办
 
 > 临时分组（2026-10-01 收尾整理后：已完成条目已清理，余项按当前顺序从 1 起重编）：
-> ② 结构与行为 #2、#4、#7、#8　③ 渲染与排版 #5、#6　④ 暂停 / 待取证 #3。
+> ② 结构与行为 #4、#7、#8　③ 渲染与排版 #5、#6　④ 暂停 / 待取证 #3。
 
 ### ② 结构与行为
 
 > 改数据产生方式、投递通道或快捷键
-
-#### 启动自检 kickoff
-
-- **待办** **#2 启动自检 kickoff 的发送通道由 `followup` 改为 `steer`**：
-  - **现状**：三种场景——启动新会话、启动恢复会话（`-c` / `--resume`）、`/new` 补发——都汇到 `App.submitBootstrapKickoff()` → `adapter.sendBootstrapKickoff()` → `activeAgent.followup(...)`（`TUI/src/app/adapter/dsh.ts:2531`），即 **next-turn 队列 + 唤醒**：kickoff 要等一个**新回合**才被领取；启动竞态下若已有回合在跑，还要排到当前回合之后。
-  - **期望**：kickoff 改走 `steer`（next-step 队列 + 唤醒，投递到最近 step 边界——当前回合的下一步；会话空闲时立刻起回合），与「尽快驱动模型发起首个工具调用完成解锁」的意图一致；宿主无 `steer`（旧宿主）时回退 `followup`（降级不丢，日志可见）。
-  - **落点**：`TUI/src/app/adapter/dsh.ts` 的 `sendBootstrapKickoff()`（口径可复用 `canSteer()`：优先原始宿主 agent、回退 `followup`）；必要时 `TUI/src/main.ts:455-465` 的瘦 `agentLike` 补 `steer` 转发；`TUI/src/app/adapter/types.ts:337` 契约注释同步。App 侧回显（`user-line`）与门控（`shouldAutoKickoff` / `kickoffForNewSession`）不变。
-  - **范围**：仅启动自检 kickoff 这一条链；`/init` 是用户命令、走普通输入通道，不在本条。
-  - **验收**：三种场景真机核对——会话记录里 kickoff 走 next-step 队列（`agent/inbox/spliced{target:"next-step"}`）且在当前回合内被领取（空闲时立刻起回合）；无 `steer` 的宿主上仍能发出（回退 `followup`）；适配器单测断言调用 `steer` 并覆盖回退分支。
-  - **来源·状态·优先级**：用户 2026-10-01 指令（「不同场景下的 kickoff 全部改成 steer」）。**未接取**。优先级 P2，工作量约 0.5 h。
 
 #### steering 排队输入
 

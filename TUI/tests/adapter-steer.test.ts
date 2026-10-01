@@ -70,6 +70,55 @@ test("steer：宿主无 steer（旧版）→ canSteer() false，next-step 降级
   adapter.dispose?.();
 });
 
+test("kickoff：原始宿主 agent 有 steer → 自检消息走 steer 而非 followup（BACKLOG #2）", () => {
+  const calls: string[] = [];
+  const steered: unknown[] = [];
+  const adapter = createRealDshAdapter({
+    runtime: stubRuntime(),
+    sessionId: "s1",
+    agent: thinAgent(calls),
+    commandAgent: {
+      session: { id: "s1" },
+      followup: () => calls.push("raw-followup"),
+      steer: (m: unknown) => {
+        calls.push("raw-steer");
+        steered.push(m);
+      },
+    },
+    handleDispose: () => Promise.resolve(),
+  });
+  adapter.sendBootstrapKickoff?.();
+  assert.deepEqual(
+    calls,
+    ["raw-steer"],
+    "kickoff 走 steer（投递到最近 step 边界）",
+  );
+  const msg = steered[0] as { source?: { kind?: string } };
+  assert.equal(
+    msg.source?.kind,
+    "tool-bootstrap",
+    "仍是启动自检消息（source.kind 不变）",
+  );
+  adapter.dispose?.();
+});
+
+test("kickoff：宿主无 steer → 回落 followup，消息不丢（BACKLOG #2 降级分支）", () => {
+  const calls: string[] = [];
+  const adapter = createRealDshAdapter({
+    runtime: stubRuntime(),
+    sessionId: "s1",
+    agent: thinAgent(calls),
+    commandAgent: {
+      session: { id: "s1" },
+      followup: () => calls.push("raw-followup"),
+    },
+    handleDispose: () => Promise.resolve(),
+  });
+  adapter.sendBootstrapKickoff?.();
+  assert.deepEqual(calls, ["thin-followup"], "无 steer 的宿主回落到 followup");
+  adapter.dispose?.();
+});
+
 test("steer：只有瘦 agent 暴露 steer（无原始 agent）时仍可用（兼容口径）", () => {
   const calls: string[] = [];
   const thin: DshAgentLike = {

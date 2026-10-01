@@ -337,6 +337,8 @@ export interface DshAdapter {
    * 启动自检（锚定解锁，BACKLOG TUI「启动后自动触发首轮工具调用」）：代替用户发一条
    * `[AUTO]` 自检消息（`source.kind:"tool-bootstrap"`），驱动模型发起首个工具调用完成
    * 解锁。仅启动期在门控通过后由 App 调用；未接线（mock / 旧接线）时缺省不下发。
+   * 通道（BACKLOG #2）：优先 `steer`（next-step：当前回合即可领取；空闲时立刻起回合），
+   * 宿主无 `steer` 时回落 `followup`（降级不丢）。
    */
   sendBootstrapKickoff?(): void;
   /**
