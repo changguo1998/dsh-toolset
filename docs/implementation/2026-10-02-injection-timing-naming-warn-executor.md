@@ -94,6 +94,7 @@ BACKLOG 已列清单：command-template / session-title-cutoff / task-engine / g
    - 测试：`rule-engine/tests/{match,rules,engine}.test.ts`（空条件按节点裁决、多节点 + 直写、消费者直写、越界告警）、`symbol-normalizer/tests/main.test.ts`（sources + directWrite 断言）。
 1. **仓库外运行时（用户 2026-10-02 同意，改前已贴 diff）**：`~/.dsh/rule-engine/rules.json` 的 `skill-autoload` 改为 `source: ["session-start", "compaction"]` + `directWrite: ["session-start", "compaction"]`（保留 `dedupeInRecord: 1` 作无直写节点时的兜底，`description` 重写，**正文未改**）。原件备份 `tmp/rules.json.orig`，拟稿 `tmp/rules.json.proposed`。首次 `cp` 被只读沙箱拒绝，经用户授权以 `danger-full-access` 重试成功（2026-10-02 02:34）。
 1. `format` 跑过全部改动文件（其中 `rule-engine/tests/engine.test.ts`、`rule-engine/tests/match.test.ts` 被 prettier 整形）。
+1. **#8 关闭（2026-10-02）**：用户重启 `dsh --profile fff` 后确认「已自动注入」，真机证据见「测试与证据」；条目标「完成」并从 `docs/BACKLOG.md` 清理，本追踪文档继续承载 #5 / #7 / #1（按用户裁定「只关 #8，然后继续做下一个」）。
 
 ## 测试与证据
 
@@ -117,24 +118,38 @@ BACKLOG 已列清单：command-template / session-title-cutoff / task-engine / g
 | `node tmp/injection-timing-smoke.mjs`（dist 级：真实 `rule-engine/dist` + `symbol-normalizer/dist` 接线） | `SMOKE_PASS`，exit 0，告警 0。四步：① `session-start` 合并直写一条（`sourceId = skill-autoload+consumer:symbol-normalizer-guide`）② `step-end` 不注入 ③ `compaction` 直写（投影已有仍发）④ 投影清空后步末补回一条 |
 | 根 `npm run test`（`scripts/test-parallel.sh`） | `exit 0`；16 包全 `OK`，合计 `pass 1910 / fail 0` |
 
-未做（交接给下一会话）：
+**真机复盘（2026-10-02，用户重启 `dsh --profile fff` 后「已自动注入」）**：
 
-1. **真机复盘未做**：需重启 `dsh --profile fff`（新 dist + 新运行时规则才生效），观测「新会话开局即注入合并消息」「压缩完成后第一步即带注入」——agent 无法重启自身宿主，留用户执行。
+- 证据路径：`~/.dsh/sessions/--home-guochang-Projects-dsh-toolset--/tui-8a585495-e038-4fbd-a1cf-fe764d3a6021/session.v4.jsonl.zstd`（`zstd -dc` 解到 `tmp/session-latest.jsonl`，623 事件；临时探针 `tmp/session-evidence.mjs` 跑完已删）。
+- 两条 rule-engine 注入（`#27` / `#575`）均为**合并消息**：`source.summaries = ["解锁后加载 i-have-adhd / karpathy-guidelines", "符号规范（会话开局指南）"]`。
+- 触发节点判定为 `session-start`：`skill-autoload` 此刻只挂 `session-start` / `compaction`，而本会话日志无 `compaction/end`——若触发点是 `step-end`（指南的兜底节点），合并消息里不会出现该 skill 规则。
+- `#575` 出现在 `session/end-seed` 之后的又一段会话建立（恢复 / 再建）→ 与「`session-start` 含恢复、直写不判断，故会再注入一次」口径一致。
+- **未覆盖**：压缩面（`compaction/end` 后第一步即带注入）本会话未发生，该路径由 dist 冒烟（第 ③ 步）覆盖。
+
+未做（交接给后续）：
+
 1. `rule-engine/demo` 未跑（可选）。
-1. 条目 #5 / #7 / #1 未开始。
+1. 条目 #5 / #7 / #1 未开始（本任务继续接取）。
 
 ## 交接（2026-10-02 中断点）
 
-**当前状态**：条目 #8「注入时机调整」的代码、文档、单测、构建、运行时规则落盘已完成，机械验证全绿（含 dist 级冒烟与根测试全量）；只差真机复盘。#5 / #7 / #1 尚未动。
+**当前状态**：条目 #8「注入时机调整」**已完成并关闭**（机械验证 + 真机复盘通过，条目已从 `docs/BACKLOG.md` 清理）；本追踪文档继续承载未开工的三条（#5 slash 命名规范 / #7 插件告警通道评估 / #1 task-engine 执行扩展，BACKLOG 仍标「进行中（2026-10-02）」）。
 
-**工作区**：17 个文件 + 本追踪文档已按用户 2026-10-02 指令提交（提交信息 `feat(rule-engine,symbol-normalizer): 注入时机支持多节点与直写`，body 含测试结论与「未收尾」说明；另含 `docs/BACKLOG.md` 四条「进行中」标记）；**未做收尾**——条目未标「完成」、未从 BACKLOG 清理、本文件未归档、DESIGN/README 回写未做。`tmp/` 内为临时物（git 已忽略）：`rules.json.orig`（运行时原件备份，勿删）、`rules.json.proposed`、`injection-timing-smoke.mjs`（可重跑）、`check.log`、`test-all.log`。
+**工作区**：代码 + 测试 + 文档已提交（`feat(rule-engine,symbol-normalizer): 注入时机支持多节点与直写`）；#8 关闭的文档变更按用户 2026-10-02 指示单独提交（BACKLOG 条目清理 + 本文件真机证据与收尾记录）。`tmp/` 内已清理临时物（`session-latest.jsonl` / `session-evidence.mjs` / `rules.json.proposed` / 日志 / 冒烟脚本），仅保留 `rules.json.orig`（运行时规则原件备份，勿删）。
 
-**下一会话建议顺序**：
-
-1. 重启 `dsh --profile fff` 做真机复盘（见上「未做」）→ 2. 继续 #5（slash 命名规范盘点）→ #7（告警通道评估）→ #1（task-engine 执行扩展）→ 3. 关闭：BACKLOG 四条标「完成」并清理、本文件移入 `docs/archived/`、按需回写 DESIGN / README。
+**下一步**（用户 2026-10-02 指示「只关 #8，然后继续做下一个」）：接 #5「slash 命令命名规范：不用缩写」——先盘点本地 / 宿主 / 插件命令的缩写与晦涩名，产出改名清单 + 兼容策略（旧名是否留别名、何时移除），经用户裁定后实施。
 
 **注意**：本任务接取的是四条（BACKLOG 均已标「进行中（2026-10-02）」），关闭时四条一起处理；`STATUS.md` 不由流程改；提交按 `docs/WORKFLOW-STANDARD.md` §5 的四个询问点征得同意。
 
 ## 收尾
 
-（关闭时补齐：回写文档、遗留项、归档、BACKLOG 已完成条目清理）
+**条目状态变更（2026-10-02）**：
+
+- 「注入时机调整：会话开始 / 压缩完成后直写，不等步末」：标「完成」并已从 `docs/BACKLOG.md` 清理（记录见本文件「实现记录」「测试与证据」；实现落点 commit `feat(rule-engine,symbol-normalizer): 注入时机支持多节点与直写`，运行时规则改动在仓库外 `~/.dsh/rule-engine/rules.json`）。
+- 其余三条（slash 命令命名规范 / 插件运行期 stderr 告警显示统一（评估）/ task-engine 执行扩展）：**本任务继续接取**，BACKLOG 保持「进行中（2026-10-02）」，待完成后一并关闭；本文件**不归档**（留 `docs/implementation/`）。
+
+**中途范围说明**（流程要求）：2026-10-02 用户裁定「只关 #8，然后继续做下一个」——本次先在开放任务内关闭 #8，剩余三条按原接取范围继续，未新增/移除条目。
+
+**回写**：DESIGN / README 已随实现同步（`rule-engine/README.md`、`rule-engine/docs/DESIGN.md`、`symbol-normalizer/{README.md,docs/DESIGN.md}`、`TUI/docs/DESIGN.md`），关闭 #8 无需额外回写；`STATUS.md` 不由流程改。
+
+**临时物清理**：`tmp/session-latest.jsonl`、`tmp/session-evidence.mjs`、`tmp/rules.json.proposed`、`tmp/check.log`、`tmp/test-all.log`、`tmp/injection-timing-smoke.mjs` 已删；保留 `tmp/rules.json.orig`（运行时规则原件备份，用于回退对照）。
