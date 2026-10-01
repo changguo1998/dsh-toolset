@@ -69,7 +69,7 @@
 | 已复制最后一条回复到剪贴板 | handleCopy（/copy） | success |
 | theme: \<id> (\<palette>) | handleThemeCommand | success |
 | 活动区：collapse on（紧凑：每条目 1 行 + 省略号）/ collapse off（完整折行） | handleCollapseCommand | success |
-| 活动区内容：think（思考+正文+工具）/ tool（正文+工具）/ step（正文+工具调用行） | handleVerboseLevelCommand | success |
+| verbose → think/tool/step | handleVerboseLevelCommand | success |
 | 模型输出符号统一：on（替换 + 提醒）/ off（原样） | handleSymbolUnifyCommand | success |
 | current model -> \<label> | handleModelCommand | success |
 | 审批策略：ask（每次工具调用询问）/ never（工具调用自动放行） | handlePolicyCommand | success |

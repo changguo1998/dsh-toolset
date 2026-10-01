@@ -2890,10 +2890,7 @@ export class App {
       this.paint();
       this.scheduleSessionStateSave();
     }
-    this.notice(
-      `活动区内容：${next}（think=思考+正文+工具 / tool=正文+工具 / step=正文+工具调用行）`,
-      "success",
-    );
+    this.notice(`verbose → ${next}`, "success");
   }
 
   /** `/symbol-unify on|off`：模型输出符号统一开关（变体替换为推荐 + 未推荐提醒）。 */

@@ -108,8 +108,8 @@ test("#8 命令：/verbose think|tool|step 切换档位；无参 / 非法参数�
     typeAndEnter(renderer, "/verbose tool");
     assert.equal(level(), "tool", "切到 tool");
     assert.ok(
-      renderer.lastRender.join("\n").includes("活动区内容：tool"),
-      "切换有 notice 回执",
+      renderer.lastRender.join("\n").includes("verbose → tool"),
+      "切换有简短回执 `verbose → tool`",
     );
     typeAndEnter(renderer, "/verbose step");
     assert.equal(level(), "step", "切到 step");
