@@ -24,11 +24,10 @@ import {
 } from "../src/client.ts";
 import {
   aliasPrefixFor,
-  apply,
   AUTO_ALIAS_WORDS,
-  getSessionChannelService,
   pickAutoAlias,
-} from "../src/index.ts";
+} from "../src/alias-words.ts";
+import { apply, getSessionChannelService } from "../src/index.ts";
 import { aliasKey } from "../src/keys.ts";
 import type { PeerInfo } from "../src/types.ts";
 import {
