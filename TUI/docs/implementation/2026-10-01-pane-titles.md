@@ -40,10 +40,16 @@ UI 呈现层改名并加窗口标题：session 区（原历史区）→ **Sessio
 2026-10-01：
 
 1. `layout.ts`（`buildTopRegion`）：新增 `sessionFocused` / `lowerFocused` / `toolPaneShowing`（approval|question|picker|statusPanel）与 `titledRow(width, title, focused)`——把 `-- <title> --` 写进**既有边框行左端**并用边框线补满，放不下（标题后不足 1 列线）时返回 null 表示整条省略。
+
 1. 落点：垂直排列——Session 标题写标题栏下划线行左端、Turn/Tool 标题写活动区分隔行左端（下半区顶边）；横向排列——同一行两 pane 各自左端（`-- Session --┬-- Turn --`）。
+
 1. 配色与「焦点框只改颜色」同源：未聚焦 `fg: "border"`，聚焦取 `focusColor()`（主题 `semantics.focus`，现为青）。
+
 1. 不加标题的对象保持无标题：水平状态栏、垂直状态栏（状态列）、输入栏。
+
 1. 测试：新增 `tests/pane-titles.test.ts`（位置/左端、未聚焦=边框色、聚焦=青、面板态写 Tool、窄窗省略、输入栏无标题）；受影响的既有用例改为"先剥标题再判定"——`app.test.ts`/`layout4.test.ts` 的 `isSepRow`、`barRowCount`、下划线行正则；冻结基线 `fixtures/focus-frame-legacy.json` 15 个场景全部按新实现重新冻结（临时 FREEZE_FOCUS 钩子，用完已还原）。
+
+1. 人工确认反馈：标题两侧改用**边框线字形**（`── Session ──`）——用户原话里的 `--` 只是输入不便的示意；横线补满与标题连成一体。
 
 ## 测试与证据
 

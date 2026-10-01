@@ -42,9 +42,14 @@
 2026-10-01：
 
 1. `focus-frame.ts`：`focusFrame()` 改「只改颜色」——新增 `FRAME_GLYPHS` 框线字形集合 + `emphasize()/emphasizeH()`（目标位置不是框线字形则 no-op），三分支改为对既有框线改色；删除 `restoreStatusSeams`/`cover`/`coverH` 与 `strokeUp/strokeDown/teeGlyph` 依赖；`FocusFrameContext` 去掉 `activitySepRow`/`statusSepRow`/`statusSeamCols`（`layout.ts` 侧同步删除构造）。
+
 1. `theme.ts`：`semantics.focus` → dark `#9FEEFA`(bright.6) / light `#007784`(ansi.6)。
+
 1. 测试：`focus-draw.test.ts` 三条焦点用例重写为「空白帧不落字形 / 既有框线只改色」；`color-semantics.test.ts` 帧层用例改为「强调色出现且非焦点框线保持边框色」；`layout4.test.ts`「焦点面板四边框」重写为「区域 pane 字形与无焦点态逐行一致 + 宽度不变 + 非焦点框线仍边框色」；`tee-glyph.test.ts` 删掉焦点恢复段分隔的用例（该路径已不存在）；`theme.test.ts`、`app.test.ts` 焦点色期望更新。
+
 1. 冻结基线 `tests/fixtures/focus-frame-legacy.json`：按用户裁定**重新冻结** 6 条焦点场景（null 焦点 2 条未变），用临时脚本 `tmp/regen-focus-baseline.mts` 生成（已删）。
+
+1. 人工确认反馈：状态列聚焦时布局自画的**顶边横线**（rc0 `─` 占位 + 内容下移一行）已移除——焦点只改既有框线颜色；冻结基线随之重新冻结。
 
 ## 测试与证据
 

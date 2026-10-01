@@ -51,7 +51,7 @@ test("#9 隐藏时几何：活动区高度归零、空间并入对话区", () =>
     `对话区吃掉腾出的高度（${shown.dialogueH} → ${hidden.dialogueH}）`,
   );
   assert.ok(
-    !rowsOf(st).some((r) => r.includes("-- Turn --")),
+    !rowsOf(st).some((r) => r.includes("── Turn ──")),
     "隐藏后不再有 Turn 标题（活动区分隔行消失）",
   );
 });
@@ -76,7 +76,7 @@ test("#9 隐藏状态下交互面板仍照常显示（临时显示，不改可�
     "面板打开时活动区恢复高度（面板可见）",
   );
   assert.ok(
-    rowsOf(st).some((r) => r.includes("-- Tool --")),
-    "标题位写 `-- Tool --`",
+    rowsOf(st).some((r) => r.includes("── Tool ──")),
+    "标题位写 `── Tool ──`",
   );
 });

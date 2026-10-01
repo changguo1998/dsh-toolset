@@ -1570,7 +1570,8 @@ function buildTopRegion(
     title: string,
     focused: boolean,
   ): FrameSegment[] | null => {
-    const label = `-- ${title} --`;
+    // 用**边框线字形**包夹标题（`── Session ──`），与既有横线同族、连成一体
+    const label = `── ${title} ──`;
     const w = displayWidth(label);
     if (w + 1 > width) return null;
     return [
@@ -1664,9 +1665,8 @@ function buildTopRegion(
     0,
     statusColWidth - 1 - (useLeftFrame ? FRAME_LEFT_COLS : 0),
   );
-  // 仅 statusFocused 保留（状态列内容偏移 statusCells[rc-1] 与 rc0 顶边占位）；
-  // history/activity 焦点态不再影响顶部构图（框线由 focusFrame 统一覆写）
-  const statusFocused = !geom.modalOpen && state.focusedPanel === "status";
+  // #4 起焦点态不再影响顶部构图：状态列不因聚焦自画顶边、history/activity 同样只由
+  // focusFrame 改既有框线颜色（无布局差异）
   // 焦点中性基线：活动区分隔线 / 分隔竖线 / 左缘框格 / 右缘框列全部以灰
   // 边框色或空白占位产出；亮角字/亮边由 buildFrame 末尾的 focusFrame
   // 按焦点态覆写（TUI/docs/DESIGN.md §8，唯一焦点框机制）。
@@ -1717,7 +1717,6 @@ function buildTopRegion(
     // 与其他框线同为边框色）；titleRows 下划线行 D 列= `├`、其余内容行 D 列= `│`
     // 同为边框色；亮角字/亮边由 focusFrame 按焦点态覆写（status 焦点顶边此处 rc0 给空白占位）。
     if (rc === diaEnd && activityH > 0) return [seg("├", { fg: "border" })];
-    if (rc === 0 && statusFocused) return [seg(" ")];
     if (titleRows > 1 && rc === diaStart - 1)
       return [seg("├", { fg: "border" })];
     return [seg("│", { fg: "border" })];
@@ -1769,14 +1768,8 @@ function buildTopRegion(
     // 正文截到 statusBodyW 定宽、右补空格，保证分隔竖线恒位于 D 列。
     const statusBody: FrameSegment[] = (() => {
       if (!showStatusCol) return [];
-      if (statusFocused && rc === 0) {
-        // 状态列顶边：焦点中性基线以灰 `─` 铺占位（亮色由 focusFrame 覆写）；
-        // D 列交点 ┌ 由 focusFrame 覆写，此处 rc0 顶边只画状态列横线部分
-        return statusBodyW > 0
-          ? [seg(SEPARATOR.repeat(statusBodyW), { fg: "border" })]
-          : [];
-      }
-      const cell = statusCells[statusFocused ? rc - 1 : rc];
+      // #4：状态列聚焦**不再自画顶边**（也不下移内容）——焦点只改既有框线颜色
+      const cell = statusCells[rc];
       if (!cell) return [seg(" ".repeat(Math.max(0, statusBodyW)))];
       // 剥末段竖线 → 截断到 statusBodyW → 右补空格
       const inner = truncateSegs(cell.segments.slice(0, -1), statusBodyW);

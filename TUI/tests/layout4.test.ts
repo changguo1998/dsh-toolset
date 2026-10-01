@@ -96,7 +96,7 @@ function activitySepIdx(lines: string[], cols: number): number {
  *  角字覆写（┌/└/┐/┘），故允许边框类字形收尾，只要足够长的横线主体仍在 */
 function isSepRow(line: string, cols: number): boolean {
   const c = histContent(line, cols)
-    .replace(/-- (Session|Turn|Tool) --/, "") // #5 起分隔行左端带窗口标题
+    .replace(/── (Session|Turn|Tool) ──/, "") // #5 起分隔行左端带窗口标题
     .trim();
   return /^[─┬┴┌┐└┘├┤]+$/.test(c) && (c.match(/─/g)?.length ?? 0) >= 10;
 }
@@ -165,7 +165,7 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     "顶部首行为标题栏（会话标题占位）",
   );
   assert.ok(
-    /^(-- Session --)?─+$/.test(histContent(rowAnsi(top[1]!), 60)),
+    /^(── Session ──)?─+$/.test(histContent(rowAnsi(top[1]!), 60)),
     "标题栏下为实线下划线（#5 起左端为窗口标题）",
   );
   assert.ok(
