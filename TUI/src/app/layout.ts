@@ -817,13 +817,13 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
   // #9：Ctrl+T 隐藏下半区（Turn 流 + Tool 面板区）时尺寸归零、空间并入对话区；
   // 活动区内有交互面板打开时仍照常显示（面板临时显示，不改用户的可见性状态）
   if (!state.lowerPanesVisible && !panelShownInActivity(state)) {
-    if (split.mode === "horizontal") {
-      split.dialogueW += split.activityW;
-      split.activityW = 0;
-    } else {
-      split.dialogueH += split.activityH + (split.activityH > 0 ? 1 : 0);
-      split.activityH = 0;
-    }
+    // 视作「只有会话 pane」：整宽 + 整高，且按纵向出图（横向排列下若只把 activityW
+    // 归零，内部分隔竖线会紧贴正文、行尾框线不与其它行对齐）
+    split.activityW = 0;
+    split.activityH = 0;
+    split.dialogueW = contentW;
+    split.dialogueH = Math.max(0, contentTopH - split.titleRows);
+    split.mode = "vertical";
   }
   const horizontal = split.mode === "horizontal";
   // 文字排版宽（P3）：横向历史 pane 不留白（`┃` 紧贴内部分隔竖线）；活动 pane 与

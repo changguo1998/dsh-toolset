@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildFrame, frameGeometry } from "../src/app/layout.ts";
+import { displayWidth } from "../src/app/layout/markdown.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { rowAnsi } from "./helpers/rowText.ts";
 
@@ -53,6 +54,21 @@ test("#9 隐藏时几何：活动区高度归零、空间并入对话区", () =>
   assert.ok(
     !rowsOf(st).some((r) => r.includes("── Turn ──")),
     "隐藏后不再有 Turn 标题（活动区分隔行消失）",
+  );
+  // 视作「只有会话 pane」：活动区宽归零、会话 pane 吃满区域宽（横向排列下也不会
+  // 残留内部分隔竖线贴正文）
+  assert.equal(hidden.activityW, 0, "活动区宽归零");
+  assert.equal(hidden.dialogueW, hidden.contentW, "会话 pane 整宽");
+  assert.equal(hidden.mode, "vertical", "隐藏态按纵向出图");
+  // 隐藏态：内容行都补齐到整屏宽（右缘框线恒在固定列，不贴正文）
+  const cols = 80;
+  const short = rowsOf(st)
+    .map((r, i) => [i, displayWidth(r)] as const)
+    .filter(([, w]) => w !== cols && w !== 0 && w > 30);
+  assert.deepEqual(
+    short,
+    [],
+    `隐藏态无未补齐的内容行：${JSON.stringify(short)}`,
   );
 });
 

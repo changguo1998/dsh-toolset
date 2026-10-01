@@ -38,10 +38,16 @@
 2026-10-01：
 
 1. `state.ts`：新增字段 `lowerPanesVisible`（缺省 true）与动作 `{type:"lower-panes"; visible?}`（visible 缺省取反）——隐藏时若焦点落在 activity 则移开（隐藏即不聚焦）；`focus-panel-cycle` 在隐藏时把 `activity` 从循环里过滤掉（与 P7 状态列的 skip 同写法）。
+
 1. `layout.ts`：`frameGeometry` 里在 `topPaneSplit` 之后按 `!state.lowerPanesVisible && !panelShownInActivity(state)` 把活动区尺寸归零、空间并入对话区（纵向并入高度、横向并入宽度）；抽出 `panelShownInActivity()` 供标题位（#5）与几何共用——**面板打开时仍照常显示**（临时显示，不改用户可见性状态）。
+
 1. `index.ts`：`Ctrl+T` 分支（镜像 `Ctrl+S`：apply → `scheduleSessionStateSave()` → `paint()`）；快照写入 `lowerPanes` 字段、恢复路径新增 `ui-flags.lowerPanes` 处理。
+
 1. `adapter/dsh.ts` + `adapter/types.ts`：`ui-flags` 事件带上 `lowerPanes`（快照 → 事件的透传字段）；`session-ui-state.ts` 的 `SessionUiState` 增 `lowerPanes?`。
+
 1. 输入栏不受影响（隐藏的只是 Turn 流与 Tool 面板区）。
+
+1. 人工确认反馈：隐藏时改为**按单 pane 出图**——`activityW/activityH` 归零、`dialogueW = contentW`、`dialogueH = contentTopH - titleRows`、`mode = "vertical"`（横向排列下若只把 activityW 归零，会残留内部分隔竖线紧贴正文、行尾框线不与其它行对齐）。
 
 ## 测试与证据
 
