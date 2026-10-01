@@ -21,9 +21,11 @@ function fakeCtx() {
   const registered: Array<{ name?: string }> = [];
   const provided = new Map<string, unknown>();
   let listener:
-    | ((session: SessionLike, event: SessionEventLike) => void)
-    | null = null;
-  const listeners = new Map<string, (session: unknown, event: unknown) => void>();
+    ((session: SessionLike, event: SessionEventLike) => void) | null = null;
+  const listeners = new Map<
+    string,
+    (session: unknown, event: unknown) => void
+  >();
   const agent = {
     session: { id: "s1" },
     followup: (message: unknown) => {
@@ -41,8 +43,7 @@ function fakeCtx() {
     get createdListener() {
       // 统一按「单参（session）」形态暴露给测试
       return (listeners.get("session/created") ?? null) as
-        | ((session: unknown) => void)
-        | null;
+        ((session: unknown) => void) | null;
     },
     ctx: {
       on: (
@@ -211,10 +212,15 @@ test("apply：子代理会话事件被跳过（无评估 / 无注入）；用户
     const service = fake.provided.get("ruleEngine") as {
       registerConsumer(input: {
         id: string;
+        sources?: readonly string[];
         decide(): { text: string; summary?: string } | null;
       }): () => void;
     };
-    service.registerConsumer({ id: "c1", decide: () => ({ text: "反馈" }) });
+    service.registerConsumer({
+      id: "c1",
+      sources: ["turn-end", "session-start"],
+      decide: () => ({ text: "反馈" }),
+    });
     const message = {
       type: "assistant/message",
       data: {
@@ -232,6 +238,7 @@ test("apply：子代理会话事件被跳过（无评估 / 无注入）；用户
       type: "turn/end",
       data: { turn: 1, reason: "completed" },
     });
+    fake.createdListener?.(sub);
     await tick();
     assert.equal(fake.followups.length, 0, "子代理会话不评估、不注入");
     fake.listener?.({ id: "s1" }, message);

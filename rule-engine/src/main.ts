@@ -208,6 +208,8 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       // 回滚会话 attach，故监听器永不抛（引擎侧 sessionCreated 已兜底）。
       try {
         c.on("session/created", (session: unknown) => {
+          // 与 `session/event` 同口径：子代理会话不参与本引擎
+          if (isSubagentSession(session)) return;
           const id = (session as { id?: unknown } | null)?.id;
           engine.sessionCreated(typeof id === "string" ? id : "", session);
         });
