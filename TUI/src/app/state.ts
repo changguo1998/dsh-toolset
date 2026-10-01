@@ -160,6 +160,9 @@ export interface BufferLine {
   hanging?: number;
   /** 紧凑模式（/verbose off）豁免：本行仍完整折行显示（/help 用，不被压成 1 行隐藏） */
   noCompact?: boolean;
+  /** #1：落 buffer 时的活动 step 号（取自 `state.stepGroup.step`；无活动组时缺省）。
+   *  历史区正文分块（边界 = `[step 变化 | 工具调用行]`）与问答来源段共用该标。 */
+  step?: number;
   /** #3：回合分隔线（kind="separator"）的时间戳（epoch ms）与回合号，供渲染
    *  `╌╌ hh:mm:ss #N ╌╌` 同族格式；回合号可能在 turn-begin 后才由 `turn/start` 回填。 */
   time?: number;
@@ -881,8 +884,14 @@ export function appendStream(
         if (part !== "")
           buffer[lastIndex] = { ...last, text: last.text + part };
       } else {
-        // 新行分配稳定序号（同块续写沿用原行序号）
-        buffer.push({ text: part, kind, seq: seq++ });
+        // 新行分配稳定序号（同块续写沿用原行序号）；#1：一并落当前 step 标（无活动组则缺省）
+        const stepNo = state.stepGroup?.step;
+        buffer.push({
+          text: part,
+          kind,
+          seq: seq++,
+          ...(stepNo === undefined ? {} : { step: stepNo }),
+        });
       }
     }
   }
@@ -1049,31 +1058,88 @@ function statusFor(state: AppState, fallback: InputStatus): InputStatus {
   return state.agentStatus === "idle" ? fallback : "running";
 }
 
+/** #1：正文分块——边界 = `[step 变化 | 工具调用行]`（step 分割线 / 回合分隔线同为硬边界）；
+ *  thinking / notice / 空行**不**切割。返回各块内的**正文行**（assistant / plain）下标，块序 = 行序。 */
+function textBlocks(
+  lines: readonly BufferLine[],
+  from: number,
+  to: number,
+): number[][] {
+  const blocks: number[][] = [];
+  let cur: number[] = [];
+  const flush = (): void => {
+    if (cur.length > 0) blocks.push(cur);
+    cur = [];
+  };
+  for (let i = from; i < to; i++) {
+    const line = lines[i]!;
+    const prev = i > from ? lines[i - 1] : undefined;
+    const boundary =
+      line.kind === "tool" ||
+      line.kind === "step" ||
+      line.kind === "separator" ||
+      (line.step !== undefined &&
+        prev?.step !== undefined &&
+        line.step !== prev.step);
+    if (boundary) flush();
+    if (line.kind === "assistant" || line.kind === "plain") cur.push(i);
+  }
+  flush();
+  return blocks;
+}
+
+/** 向前找 `before` 之前的最后一个 `separator` 下标；无 → -1（段首 = 该下标 + 1） */
+function prevSeparator(lines: readonly BufferLine[], before: number): number {
+  for (let i = before - 1; i >= 0; i--) {
+    if (lines[i]!.kind === "separator") return i;
+  }
+  return -1;
+}
+
+/** 区间内**最近一块含正文**（非空白正文行）的行下标；无 → null */
+function lastTextBlock(
+  lines: readonly BufferLine[],
+  from: number,
+  to: number,
+): number[] | null {
+  const blocks = textBlocks(lines, from, to);
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const block = blocks[i]!;
+    if (block.some((k) => (lines[k]?.text ?? "").trim() !== "")) return block;
+  }
+  return null;
+}
+
+/** 块内正文文本（非空行按行序拼接） */
+function blockText(
+  lines: readonly BufferLine[],
+  block: readonly number[],
+): string {
+  return block
+    .map((i) => (lines[i]?.text ?? "").trim())
+    .filter((t) => t !== "")
+    .join("\n");
+}
+
 /**
- * 回合结束：把当前回合（最后一个分隔线之后）最后一段连续 assistant 行标记为
- * final（最终总结，历史区展示）。无分隔线（首回合）则从 buffer 开头起算。
- * 幂等：已 final 的行不再重复标记。
+ * 回合结束：把当前回合（最后一个分隔线之后）**最近一块正文**的全部 assistant 行标记为
+ * final（最终总结，历史区展示）。分块口径见 {@link textBlocks}——边界 = `[step 变化 |
+ * 工具调用行]`、thinking / notice / 空行不切割，被思考行打断的正文段不再被丢在活动区。
+ * 无分隔线（首回合）则从 buffer 开头起算；幂等：已 final 的行不重复标记。
  */
 export function markFinalSummary(state: AppState): AppState {
   const buffer = state.buffer;
   if (buffer.length === 0) return state;
-  // 当前回合起点 = 最后一个 separator 之后
-  let start = 0;
-  for (let i = buffer.length - 1; i >= 0; i--) {
-    if (buffer[i]!.kind === "separator") {
-      start = i + 1;
-      break;
-    }
-  }
-  // 回合内最后一段连续 assistant 行（从尾部向前找最近的 assistant 块）
-  let end = buffer.length;
-  while (end > start && buffer[end - 1]!.kind !== "assistant") end--;
-  if (end === start) return state; // 本回合无模型正文
-  let begin = end;
-  while (begin > start && buffer[begin - 1]!.kind === "assistant") begin--;
-  if (buffer.slice(begin, end).every((l) => l.final)) return state;
+  const block = lastTextBlock(
+    buffer,
+    prevSeparator(buffer, buffer.length) + 1,
+    buffer.length,
+  );
+  if (block === null) return state; // 本回合无模型正文
+  const marks = block.filter((i) => buffer[i]!.kind === "assistant");
+  if (marks.length === 0 || marks.every((i) => buffer[i]!.final)) return state;
   const next = [...buffer];
-  for (let i = begin; i < end; i++) next[i] = { ...next[i]!, final: true };
+  for (const i of marks) next[i] = { ...next[i]!, final: true };
   return { ...state, buffer: next };
 }
 
@@ -3145,35 +3211,22 @@ function openQuestion(
   };
 }
 
-/** 取正文时允许向前扫描的行数上限（超过即视为「本回合没有正文」，防跨轮取旧回复） */
-const SOURCE_SCAN_MAX = 40;
-
 /**
- * 取「问题前正文」（BACKLOG 3.2.10 / 3.2.12）：自缓冲末尾**向前扫描**，收集最近的 `assistant` /
- * `plain` 正文行（最多 6 行、**空正文行跳过而不终止**），一旦已收到正文再遇到非正文行即停止。
+ * 取「问题前正文」（BACKLOG 3.2.10 / 3.2.12；#1 起改为**分块口径**）：按 {@link textBlocks}
+ * 把回合切块，取**最近一块含正文**的全部 `assistant` / `plain` 行（整块，不再限 6 行、
+ * thinking / notice 不切割）。
  *
- * 两个边界都来自真机反馈：`ask_user_question` 自身会留下 `tool` 行（必须能跨过），而正文尾部
- * 常有空行（不能一遇空行就放弃）——否则面板顶部的来源段会恒为空。
- * 扫描超过 {@link SOURCE_SCAN_MAX} 行或未收集到正文时返回空串（面板不显示来源段）。
+ * 本回合取不到正文（正文还没开始 / 只有工具与思考）→ **先回退**取「上一回合的最近一块」
+ * （用户 2026-10-01 裁定：先回退、不加相关性闸门）；两回合都没有 → 空串（面板不显示来源段）。
  */
 export function recentQuestionSource(lines: readonly BufferLine[]): string {
-  const picked: string[] = [];
-  let scanned = 0;
-  for (let i = lines.length - 1; i >= 0 && picked.length < 6; i--) {
-    const line = lines[i];
-    if (!line) continue;
-    scanned += 1;
-    if (scanned > SOURCE_SCAN_MAX) break;
-    if (line.kind === "assistant" || line.kind === "plain") {
-      // 空正文行（段落间隔 / 收尾空行）跳过而非终止
-      const text = line.text.trim();
-      if (text !== "") picked.unshift(text);
-      continue;
-    }
-    // 未收到正文时容忍工具 / 思考 / 提示 / 分隔行；已收到正文则视为段落边界
-    if (picked.length > 0) break;
-  }
-  return picked.join("\n");
+  if (lines.length === 0) return "";
+  const sep = prevSeparator(lines, lines.length);
+  const found = lastTextBlock(lines, sep + 1, lines.length);
+  if (found !== null) return blockText(lines, found);
+  if (sep < 0) return ""; // 没有更早的回合
+  const older = lastTextBlock(lines, prevSeparator(lines, sep) + 1, sep);
+  return older === null ? "" : blockText(lines, older);
 }
 
 /** Tab 切焦点窗（BACKLOG 3.2.1）：desc <-> options，按题独立记忆 */

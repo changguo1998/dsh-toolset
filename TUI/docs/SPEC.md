@@ -713,6 +713,13 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **打字机不丢内容**：正文到达或延迟 `turn-end` 接管时，未放完的思考由 `drainThinking()` 整段放入缓冲；`dropThinking` 仅留给 `dispose`。
 - **回归**：`tests/app.test.ts`「活动区生命周期：核心自发回合不清空」+ `tests/layout4.test.ts`「工具历史不按组数折叠，只受活动 pane 可视行数约束」。
 
+#### 历史区正文分块（`final` 标记口径；#1）
+
+- **分块边界 = `[step 变化 | 工具调用行]`**：按此把行切成块——step 分割线 / 回合分隔线同为硬边界，**thinking / notice / 空行不切割**；buffer 行由 `appendStream` 落 `step` 标（取自 `state.stepGroup.step`）以支持「step 变化」判定。
+- **取「最近一块含正文」整块**：`markFinalSummary`（`turn-end`）把本回合最近一块含正文的**全部 assistant 行**标 `final`（不再只标「最后一段连续 assistant 行」——被思考行打断的前段不再被丢在活动区）；最近一块无正文（只剩宿主补发的 `"\n\n"` 空锚点）→ **回退取本回合更早的含正文块**（用户 2026-10-01 追加裁定：空块不吞正文）。
+- **问答面板来源段同口径**：`recentQuestionSource` 取本回合最近一块含正文的 `assistant` / `plain` 行（整块、不再限 6 行、不再设扫描上限）；本回合取不到 → 回退取**上一回合**的最近一块（先回退、不加相关性闸门）；仍无 → 空串。面板显示时在该段前加 `- 上文 -` 标记（纯文本行、不经 markdown 解析）、与题干之间保留空行。
+- **回归**：`tests/state-history-blocks.test.ts`（step 变化切 / 工具行切 / thinking-notice-空行不切 / 空锚点回退 / 跨回合回退 / 幂等）+ `tests/approval-panel.test.ts`（来源段整块与回退）。
+
 #### 活动区详略两态
 
 - **语义**：状态 1（`verbose on`，缺省）每条目完整折行；状态 2（`verbose off`）每条目压成 1 行 + 行尾 `…`，条目内换行折叠为空格。触发方式为**用户显式命令**（不做「按 fill 高度预算自动降级」——自动降级会让同一份内容在不同窗口高度下详略跳变，阅读位置不稳定）。

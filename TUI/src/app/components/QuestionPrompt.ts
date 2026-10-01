@@ -204,12 +204,15 @@ function layoutQuestionPanel(
       for (const r of wrapByWidth(` ${text}`, avail))
         descRows.push({ text: r });
     };
-    // 问题前正文（BACKLOG 3.2.10 / TUI#38）：面板打开时记录的活动区正文（≤6 行），
-    // 置于描述窗顶部、随描述窗一起滚动；与题干之间留一个空行分隔（缺省/空串时不占行）。
+    // 问题前正文（BACKLOG 3.2.10 / TUI#38；#1 起为「最近一块正文」口径，见
+    // `state.recentQuestionSource`）：置于描述窗顶部、随描述窗一起滚动，行首加 `- 上文 -`
+    // 标记、与题干之间留一个空行分隔（缺省/空串时不占行）。
     // 与题干**同口径**走 markdown 子集：本条改旧 TUI#6 的「保持纯文本」裁定与 3.2.10 的
     // 硬编码青色（颜色回默认前景，行首留白 / 空行口径随 markdown 渲染统一）。
     const sourceText = (panel.source ?? "").trim();
     if (sourceText !== "") {
+      // 标记走纯文本行：markdown 会把 `- …` 解析成列表项，不能经 pushMarkdown
+      pushPlain("- 上文 -");
       pushMarkdown(sourceText);
       descRows.push({ text: "" });
     }

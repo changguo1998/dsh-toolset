@@ -256,7 +256,7 @@ test("审批按键白名单：Esc 取消、非白名单键由决策层吞掉（B
   assert.equal(closed.approvalHint, null);
 });
 
-test("recentQuestionSource：跨过工具行收集最近正文，尾部空行不终止（BACKLOG 3.2.10 / 3.2.12）", () => {
+test("recentQuestionSource：按分块口径取最近一块正文（工具行切块、空行与思考不切、整块不限行数；#1）", () => {
   const line = (text: string, kind: BufferLine["kind"]): BufferLine => ({
     text,
     kind,
@@ -289,8 +289,8 @@ test("recentQuestionSource：跨过工具行收集最近正文，尾部空行不
       line("很早以前的一条回复", "assistant"),
       ...Array.from({ length: 40 }, (_, i) => line(`工具行 ${i}`, "tool")),
     ]),
-    "",
-    "向前扫描超过上限 → 视为本回合无正文（不跨轮取旧回复）",
+    "很早以前的一条回复",
+    "工具行只切块、不再设扫描上限 → 同一回合的最近一块正文照取（#1）",
   );
   assert.equal(
     recentQuestionSource([line("思考内容", "thinking")]),
@@ -302,8 +302,8 @@ test("recentQuestionSource：跨过工具行收集最近正文，尾部空行不
   );
   assert.equal(
     recentQuestionSource(many).split("\n").length,
-    6,
-    "至多保留 6 行（不挤掉题干）",
+    10,
+    "整块保留（#1 起不再限 6 行；超长由描述窗滚动承接）",
   );
 });
 
