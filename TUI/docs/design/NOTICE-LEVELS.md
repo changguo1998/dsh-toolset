@@ -31,7 +31,6 @@
 | no available models (llm service missing or no adapter registered) | openModelPicker（/model） |
 | 审批策略服务不可用 | handlePolicy / commitStatusPanel（/policy） |
 | 权限预设服务不可用 | handlePermission / commitStatusPanel（/permission） |
-| agent 预设服务不可用 / agent 预设服务不可用：\<id> | handlePreset / commitStatusPanel（/preset 无参与带参失败） |
 | jobs 服务不可用 | handleJobsCommand（/jobs 打开与取消路径） |
 | sessionTitle 服务不可用 | handleRenameCommand（/rename） |
 | \<label> 服务不可用（label = skills / tools / subagents / taskEngine / guard / knowledge / metricLoop / workflowEngine / settings / sessions / web） | 列表面板命令的入口、详情、定时刷新路径（openListPanel / showPanelDetail / showGuardPolicy / startPanelRefresh） |

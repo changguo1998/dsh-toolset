@@ -182,7 +182,6 @@ export type SlashRoute =
   | "goal"
   | "policy"
   | "permission"
-  | "preset"
   | "jobs"
   | "init"
   | "stats"
@@ -269,7 +268,6 @@ export const LOCAL_COMMANDS: readonly {
     route: "permission",
     desc: "权限预设（sandbox+审批捆绑）",
   },
-  { name: "preset", route: "preset", desc: "agent 预设目录" },
   { name: "jobs", route: "jobs", desc: "后台任务面板（Enter 取消）" },
   {
     name: "init",

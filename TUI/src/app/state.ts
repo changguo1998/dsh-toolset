@@ -492,7 +492,7 @@ export interface AppState {
   question: QuestionPanelState | null;
   /** /history 历史会话面板（只读浏览 + resume 切换）；null = 未打开 */
   history: HistoryPanelState | null;
-  /** 通用状态选项面板（/policy /permission /preset 无参打开；↑/↓ 选、空格预选、Enter 提交关闭） */
+  /** 通用状态选项面板（/policy /permission 无参打开；↑/↓ 选、空格预选、Enter 提交关闭） */
   statusPanel: StatusPanelState | null;
   /** 当前会话标题（resume 后由 surface 首条用户消息生成；新会话为空，状态栏以 <title> 占位） */
   sessionTitle: string;
@@ -582,10 +582,10 @@ export interface AppState {
 
 /** /model 交互选择面板状态：三列列表（provider/model/effort）+ 高亮索引 */
 
-/** 通用状态选项面板（/policy /permission /preset）：单列选项 + 预选星号。
+/** 通用状态选项面板（/policy /permission）：单列选项 + 预选星号。
  *  index=焦点行（>）；selected=预选值（空格写入/同值取消；Enter 提交它，回退焦点行）。 */
 export interface StatusPanelState {
-  kind: "policy" | "permission" | "preset";
+  kind: "policy" | "permission";
   /** 标题（命令名 + 说明） */
   title: string;
   /** 选项列表（id=提交值；label 显示名；desc 后缀说明） */

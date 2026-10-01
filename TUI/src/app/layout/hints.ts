@@ -66,7 +66,7 @@ export const PICKER_HINT_LINE =
 export const JOBS_HINT_LINE =
   "[↑/↓]选择 · [PgUp/PgDn]翻页 · [Enter]取消 · [Esc]关闭";
 
-/** 通用状态选项面板（/policy /permission /preset）：选项多于 1 个才提示移动键 */
+/** 通用状态选项面板（/policy /permission）：选项多于 1 个才提示移动键 */
 export function statusPanelHintLine(panel: StatusPanelState): string {
   return (
     "[Enter]提交 · [空格]预选" +

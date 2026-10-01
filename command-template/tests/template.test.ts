@@ -272,7 +272,7 @@ test("steps：上限与注入失败的错误码", async () => {
   assert.equal(noSession.code, "session_unavailable");
 });
 
-test("服务：注册命令 + /tpl 管理 + 运行（prompt 模板注入当前会话）", async () => {
+test("服务：注册命令 + /playbook 管理 + 运行（prompt 模板注入当前会话）", async () => {
   const base = mkdtempSync(join(tmpdir(), "ct-svc-"));
   writeFileSync(
     join(base, "hello.md"),

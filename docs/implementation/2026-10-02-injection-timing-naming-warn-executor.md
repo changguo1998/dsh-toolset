@@ -43,6 +43,9 @@ BACKLOG 已列清单：command-template / session-title-cutoff / task-engine / g
 | D3 | 空条件（`match` 省略）语义 | 由编译期判定改为**判定期按触发节点**判定：节点属 `BOUNDARY_SOURCES` 才「无条件命中」 | 一条规则挂多节点时，各节点语义必须独立 |
 | D4 | 仓库外运行时 `rules.json`（用户 2026-10-02 裁定） | **现在就改**：`skill-autoload` 改 `sources: ["session-start", "compaction"]` + `directWrite` 两节点；改前把 diff 贴给用户确认 | ③ 是真机复盘的前提；该文件在仓库外，属用户环境配置 |
 | D5 | `session-start` 含恢复（`session/created`） | 按需求**不判断、直写** → 恢复会话会再注入一次 | BACKLOG 注记明确要求「不判断」 |
+| D6 | slash 命令命名盘点结果（用户 2026-10-02 裁定） | **只删 `/preset`**，其余名字全部保留（`/cls` `/guard` `/contract` `/loop` `/task` `/memory` `/council` `/agents` 均不动） | 用户口述「删掉 preset，其他不变」；盘点清单与理由见「实现记录」 |
+| D7 | 改名后的旧名兼容（用户 2026-10-02 裁定） | **立即移除旧名**、不留别名（`/preset` 删后落 registry，未命中即提示「未知命令」） | 用户选定该策略 |
+| D8 | `/preset` 删除范围（用户 2026-10-02 裁定） | **只删命令**（条目 / 路由 / case 与处理器 / `selectAgentPreset` 写路径 / help 行 / 文档 / 测试 / demo 断言）；**保留**标题栏 preset 段、状态列可选项等被动展示 | 该 preset 为死路径（AGENTS.md：本项目按 profile 全局组合、不配置 agent preset），而展示链路仍由宿主事件驱动、与本命令无关 |
 
 ## 规划
 
@@ -65,7 +68,20 @@ BACKLOG 已列清单：command-template / session-title-cutoff / task-engine / g
 | `docs/BACKLOG.md`（条目状态）、本追踪文档 | 流程记录 |
 | （仓库外，用户已同意）`~/.dsh/rule-engine/rules.json` | `skill-autoload` 改 `sources` + `directWrite`（改前贴 diff） |
 
-**#5（待盘点后细化）**：`TUI/src/app/commands.ts`、各插件命令注册、`TUI/docs/COMMANDS.md`（+ `COMMANDS-SPEC.md`）、相关测试。
+**#5（2026-10-02 盘点后细化）**——按 D6/D7/D8 删除 `/preset` 命令：
+
+| 文件 | 改动 |
+|------|------|
+| `TUI/src/app/commands.ts` | 删 `SlashRoute` 的 `"preset"` 与 `LOCAL_COMMANDS` 条目（余 40 条 = 35 命令 + 5 别名） |
+| `TUI/src/app/state.ts` | `StatusPanelState.kind` 去掉 `"preset"`；相关注释同步 |
+| `TUI/src/app/index.ts` | 删 `case "preset"` 与 `handlePresetCommand`；`commitStatusPanel` 去 preset 分支；help 去 `/preset` 行；注释同步 |
+| `TUI/src/app/adapter/types.ts`、`dsh.ts` | 删 `selectAgentPreset`（接口声明 + 实现）；`agentPresets` 目录服务保留（状态列可选项仍用） |
+| `TUI/src/app/components/StatusPanel.ts`、`TUI/src/app/layout/hints.ts`、`TUI/src/main.ts` | 注释同步 |
+| `TUI/demo/main.ts`、`TUI/demo/mockAdapter.ts` | 删 `/preset` 场景与 3 项断言（`preset-catalog` / `preset-select-call` / `preset-notice`）；`preset-badge` 改由 mock 回发 `agent-preset/selected` 事件驱动（`emitPresetSelected`），删除 mock 的 `selectAgentPreset` 与计数器 |
+| `TUI/tests/agent-preset.test.ts` | 删 App 命令路径三例与 fake adapter 命令面；保留 reducer 隔离 + DshEvent 归一化；路由断言改为「`/preset` 落 registry」 |
+| `TUI/tests/adapter.dsh.test.ts` | 删两条 `selectAgentPreset` 用例 |
+| `TUI/README.md`、`TUI/docs/DESIGN.md`、`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md`、`TUI/docs/design/NOTICE-LEVELS.md` | 删 `/preset` 行与提及；smoke 断言项数 43 → 40 |
+| `command-template/{src/main.ts,src/registry.ts,src/types.ts,README.md,tests/template.test.ts}` | 同条目的命令注册面清理：源码注释与**用户可见错误文案**仍写废弃缩写 `/tpl`（真实入口 `/playbook`），`reservedNames` 缺省描述与实际不符 → 一并修正 |
 
 **#7（评估，结论出来后细化）**：追踪文档的评估结论；如实施则涉及各插件告警出口 + TUI 桥。
 
@@ -95,6 +111,8 @@ BACKLOG 已列清单：command-template / session-title-cutoff / task-engine / g
 1. **仓库外运行时（用户 2026-10-02 同意，改前已贴 diff）**：`~/.dsh/rule-engine/rules.json` 的 `skill-autoload` 改为 `source: ["session-start", "compaction"]` + `directWrite: ["session-start", "compaction"]`（保留 `dedupeInRecord: 1` 作无直写节点时的兜底，`description` 重写，**正文未改**）。原件备份 `tmp/rules.json.orig`，拟稿 `tmp/rules.json.proposed`。首次 `cp` 被只读沙箱拒绝，经用户授权以 `danger-full-access` 重试成功（2026-10-02 02:34）。
 1. `format` 跑过全部改动文件（其中 `rule-engine/tests/engine.test.ts`、`rule-engine/tests/match.test.ts` 被 prettier 整形）。
 1. **#8 关闭（2026-10-02）**：用户重启 `dsh --profile fff` 后确认「已自动注入」，真机证据见「测试与证据」；条目标「完成」并从 `docs/BACKLOG.md` 清理，本追踪文档继续承载 #5 / #7 / #1（按用户裁定「只关 #8，然后继续做下一个」）。
+1. **#5 盘点（2026-10-02）**：命令面全量盘点——TUI 本地 `LOCAL_COMMANDS` 41 条（36 路由 + 5 别名 `/cls` `/exit` `/thinking` `/usage` `/context`）、宿主注册 6 条（`/compact` `/feedback` `/goal` `/permission` `/plan` `/export`）、插件注册 1 条（`command-template` 的 `/playbook` + 5 个模板子命令 `adversarial-review` / `codebase-audit` / `code-review` / `deep-research` / `multi-perspective`）。缩写 / 晦涩候选 9 项（`/cls`、`/preset`、`/agents`、`/guard`、`/contract`、`/loop`、`/task`、`/memory`、`/council`）连同建议名提交用户裁定 → D6 / D7 / D8。
+1. **#5 实施（2026-10-02）**：按 D6 / D7 / D8 删除 `/preset` 命令与 `selectAgentPreset` 写路径（文件清单见「规划」）；`/help` 少一行 → 重跑冻结基线脚本（无 diff）+ smoke（断言项数 43 → 40，全绿）；`command-template` 的 `/tpl` 残留（注释、用户可见错误文案、`reservedNames` 缺省描述）一并修正。
 
 ## 测试与证据
 
@@ -126,18 +144,30 @@ BACKLOG 已列清单：command-template / session-title-cutoff / task-engine / g
 - `#575` 出现在 `session/end-seed` 之后的又一段会话建立（恢复 / 再建）→ 与「`session-start` 含恢复、直写不判断，故会再注入一次」口径一致。
 - **未覆盖**：压缩面（`compaction/end` 后第一步即带注入）本会话未发生，该路径由 dist 冒烟（第 ③ 步）覆盖。
 
+**#5（删除 `/preset` 命令）证据（2026-10-02）**：
+
+| 命令 | 结果 |
+| --- | --- |
+| `cd TUI && npm run check` | 通过（删除后剩 2 处测试侧编译错，随用例删除一并消除） |
+| `cd TUI && npm test` | `tests 1290 / pass 1290 / fail 0`（原 1295：删 3 例命令用例 + 2 例 adapter 用例；路由断言改为「落 registry」） |
+| `cd TUI && node --experimental-transform-types scripts/freeze-focus-frame.mts` + `git diff -- tests/fixtures/focus-frame-legacy.json` | 冻结基线**无 diff**（`/help` 行变化不影响该 fixture） |
+| `cd TUI && npm run demo -- --smoke` | `exit 0`，40 项全 `SMOKE_PASS`（先删 3 项 `/preset` 断言、`preset-badge` 改由 mock 回发 `agent-preset/selected` 驱动；修复前为 `SMOKE_FAIL n=4`） |
+| `cd command-template && npm run check` / `npm run build` / `npm test` | 通过 / 通过 / `tests 13 / pass 13 / fail 0` |
+| 根 `npm run check` / 根 `npm run test` | `exit 0`（`error TS` 计数 0）/ `exit 0`，16 包全 `OK`（含 TUI `pass 1290`） |
+
 未做（交接给后续）：
 
 1. `rule-engine/demo` 未跑（可选）。
-1. 条目 #5 / #7 / #1 未开始（本任务继续接取）。
+1. **#5 真机确认未做**：重启 `dsh --profile fff` 后确认 `/preset` 提示「未知命令」、`/help` 无该行、标题栏 preset 段与其余本地命令不受影响——agent 无法重启自身宿主，留用户执行。
+1. 条目 #7 / #1 未开始（本任务继续接取）。
 
 ## 交接（2026-10-02 中断点）
 
-**当前状态**：条目 #8「注入时机调整」**已完成并关闭**（机械验证 + 真机复盘通过，条目已从 `docs/BACKLOG.md` 清理）；本追踪文档继续承载未开工的三条（#5 slash 命名规范 / #7 插件告警通道评估 / #1 task-engine 执行扩展，BACKLOG 仍标「进行中（2026-10-02）」）。
+**当前状态**：条目 #8「注入时机调整」**已完成并关闭**；条目 #5「slash 命令命名规范」**实现与机械验证完成**（删 `/preset` + 文档/测试/demo 同步），待真机确认后关闭；#7（插件告警通道评估）/ #1（task-engine 执行扩展）未开工（BACKLOG 三条仍标「进行中（2026-10-02）」）。
 
-**工作区**：代码 + 测试 + 文档已提交（`feat(rule-engine,symbol-normalizer): 注入时机支持多节点与直写`）；#8 关闭的文档变更按用户 2026-10-02 指示单独提交（BACKLOG 条目清理 + 本文件真机证据与收尾记录）。`tmp/` 内已清理临时物（`session-latest.jsonl` / `session-evidence.mjs` / `rules.json.proposed` / 日志 / 冒烟脚本），仅保留 `rules.json.orig`（运行时规则原件备份，勿删）。
+**工作区**：#8 的代码与关闭文档已提交（`feat(rule-engine,symbol-normalizer): 注入时机支持多节点与直写`、`docs(rule-engine): 关闭「注入时机调整」条目并补真机复盘证据`）；#5 的改动（TUI 源码 / 测试 / demo / 文档 + command-template 残留修正）随本次提交落盘（提交信息 `feat(TUI)!: 删除 /preset 命令（旧名不留别名）`，提交顺序见 `git log`）。`tmp/` 仅保留 `rules.json.orig`（运行时规则原件备份，勿删）与本次日志。
 
-**下一步**（用户 2026-10-02 指示「只关 #8，然后继续做下一个」）：接 #5「slash 命令命名规范：不用缩写」——先盘点本地 / 宿主 / 插件命令的缩写与晦涩名，产出改名清单 + 兼容策略（旧名是否留别名、何时移除），经用户裁定后实施。
+**下一步**（用户 2026-10-02 指示「只关 #8，然后继续做下一个」）：#5 真机确认（见上「未做」）→ 关闭 #5（BACKLOG 标完成并清理）→ 接 #7「插件运行期 stderr 告警显示统一（评估）」。
 
 **注意**：本任务接取的是四条（BACKLOG 均已标「进行中（2026-10-02）」），关闭时四条一起处理；`STATUS.md` 不由流程改；提交按 `docs/WORKFLOW-STANDARD.md` §5 的四个询问点征得同意。
 

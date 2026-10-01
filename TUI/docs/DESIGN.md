@@ -199,7 +199,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 - **工具与用量域**：`tool/call` + `tool/result` → 紧凑工具行（编码代理 TUI 的第一可见性）；usage 状态栏槽位（usage chunk 已解析，零新事件）；`finish` reason 挂 turn-end notice；`compaction/start` + `compaction/end` toast（P8：该区间内会话按活跃处理）；`llm/retry` + `llm/retry-started` 重试透明化。另外，宿主每 step 末补发的纯空白文本块（`"\n\n"`）在「上一行是异 kind 或 buffer 为空」时丢弃（P5），不再在活动区/历史区留下成片空行。
 - **状态域**：`goal/change`、`todo/write` → **状态列**详显；`plan/mode`、`sandbox/mode`、审批策略、agent 预设 → **标题栏符号组**（`permission/preset` 只入会话快照、不再显示）；`step/start` | `step/end` turn 内分步（分组头带时间戳）；`subagent/descriptor` 子代理行；`compaction/summary` 摘要 toast。
 - **生态域**：`tool-workflow/*`（workflow 行 + 结束 toast）、`command/run` | `command/done`（执行流）、`tool/ptc-dispatch*`（子派发行）、`hook/*`（调用行）、`schedule/change`（到点 toast）、`feedback/record`（确认 toast）、`compaction/prune`（剪除计数 toast）。接入均为 append-only 活动区行 / notice，不引入配对状态。
-- **命令域**：`/policy`（审批策略 ask / never 两态切换，写 `ctx.approval.setPolicy`）、`/permission`（预设目录 + 转发宿主写路径）、`/preset`（`agent-preset/selected` 归一化 + `selectAgentPreset` 写路径）、宿主自带 `/compact` 等走 registry 转发。
+- **命令域**：`/policy`（审批策略 ask / never 两态切换，写 `ctx.approval.setPolicy`）、`/permission`（预设目录 + 转发宿主写路径）、宿主自带 `/compact` 等走 registry 转发。（`/preset` 命令 2026-10-02 删除，见项目级 BACKLOG「slash 命令命名规范：不用缩写」；agent 预设仍由 `agent-preset/selected` 事件在标题栏显示。）
 - **交互请求域**：审批经 `ctx.on('approval/request', …)` 应答链返回 `ApprovalOutcome`；用户提问经 `runtime.on("user-questions/request", answerer)` 注册 waterfall 应答者，归一化为 `DshEvent{type:'question'}` 后在活动区弹问答面板（`Esc` 走 reject ask，不打断运行）。
 
 #### 核心事件映射
@@ -334,7 +334,7 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 | `/stats` | 读 `state.usage`（**最近一次**模型调用）与 `state.usageTotals`（**本会话累计**：逐次 `usage` 事件求和，`history-resume-ok` / `session-switch` 清零、`clear-buffer` 不清）→ info 四行：最近一次调用分解 / 本会话累计 / 上下文（`input + cacheRead`，窗口缺失或为 0 时只显绝对量）/ 缓存命中率（分母 0 → `n/a`，最近一次调用口径） | 无 usage（新会话 / 刚切换会话，**TUI#12**）→ 四行占位（最近一次 `—`、上下文 `—`、命中率 `n/a`） |
 | `/rename` | 纯函数 `renameCommandDecision(line)` 判 usage / invalid / apply；apply → `ctx.sessionTitle.rename(live Session, title)`；标题栏由既有 `session/title` 链路刷新，不手工改 state | 空标题 / 含换行本地拒绝；服务缺失 → warn |
 | `/model`、`/provider`、`/effort` | 见下文「/model 命令」 | 目录读取失败 → 提示 |
-| `/policy`、`/permission`、`/preset` | 见下文「通用状态选项面板」 | 服务缺失 → 提示不可用 |
+| `/policy`、`/permission` | 见下文「通用状态选项面板」 | 服务缺失 → 提示不可用 |
 | `/session`、`/new`、`/fork` | `listSessions()` / `readSessionSurface(id)` / `deleteSession(id)`；`/new` = `adapter.newSession()`（dispose 旧 handle → `agents.create` 同一 setup/agentOptions/meta 的新会话 → `session-switch` 切过去 + `restoreSessionState` 回默认值）；`/fork` = `ctx.sessions.fork(activeSessionId)`（后两参省略 = 源会话最后事件 + store id 策略） | `/new` 宿主未暴露 `agents.create` → warn 不动作；fork 错误码映射中文 → warn；面板失败入 error 态 |
 | `/continue` | **TUI#1/#23**：`listSessions()` → 纯函数 `pickContinueTarget(records, cwd)`（候选 = 同目录非 live 已退出会话 ∪ **当前会话**（仅当 `hasPrompt !== false`）；最新者即当前会话 → `{kind:"current"}` 提示不切换）→ 复用 `/session` 的 `resumeToSession` 路径（先 `history-open` 建面板状态，成功后自动关面板）；CLI `-c` 仍用 `pickRecentSession`（同目录 + 非 live + 编辑时间最大） | 服务缺失 → warn；无匹配 / 已是最新 → info 提示；列表读取失败 → warn |
 | `/skills`、`/agents`、`/tools` | 共享列表面板（`refreshSkills` / `refreshAgents` / `refreshTools`）；`Enter` 经 `skillDetail` / `interruptAgent` / `toolDetail`（`interruptAgent` 仅对 continuable 发中断；一次性条目给不可中断原因，TUI#54） | 服务缺失 → warn 且不空开面板 |
@@ -485,9 +485,9 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 - 展示复用活动区覆盖层（`components/CommandCompletion.ts`，与审批 / 问答 / picker / 各面板同一渲染链；footer **不**空白占位——补全不占输入区，输入行与光标必须可见）。面板 = 标题 1 行 + (activityH−1) 行候选，候选池足够时铺满活动区（曾设硬上限导致活动区高时底部留白，已移除）；**超出可视行的候选直接丢弃、不滚动窗口**——渲染只取前 activityH−1 项，App 侧 `completionVisibleRows()` 给 `completion-move` 传 `max`，把 `↑/↓` 与 `Tab` 接受也限定在可视范围内。键位提示不放面板内，而在输入区下方的按键提示区（`layout/hints.ts` 的 `COMPLETION_HINT_LINE`；提示区恒 1 行、任何状态都在，文案统一由 `hintLine(state)` 按状态给出）。
 - 按键：`Tab` 接受（写命令名 + 尾随空格，slash 模式不写前导 `/`）、`↑/↓` 移动（在 `handleKey` 的 normal 分支先于面板滚动）、`Esc` 收起（不打断运行）、`Enter` 保持提交语义。
 
-### 通用状态选项面板（`/policy` `/permission` `/preset`）
+### 通用状态选项面板（`/policy` `/permission`）
 
-- 无参统一打开 `statusPanel`（`components/StatusPanel.ts`，活动区窗口，与审批 / 问答 / 模型选择同区域）。状态 `StatusPanelState{kind,title,options[],index,selected}`（`state.statusPanel`）；reducer `status-panel-open/move/select/close`。提交路径：policy → `setApprovalPolicy`；permission → `runCommand("/permission <name>")` 转发宿主；preset → `selectAgentPreset`。
+- 无参统一打开 `statusPanel`（`components/StatusPanel.ts`，活动区窗口，与审批 / 问答 / 模型选择同区域）。状态 `StatusPanelState{kind,title,options[],index,selected}`（`state.statusPanel`）；reducer `status-panel-open/move/select/close`。提交路径：policy → `setApprovalPolicy`；permission → `runCommand("/permission <name>")` 转发宿主。（原第三条路径 preset → `selectAgentPreset` 随 `/preset` 命令 2026-10-02 删除。）
 - 交互：`↑/↓` 移动焦点、空格预选星号（再按取消）、`Enter` 提交预选（无预选回退焦点行）并关闭、`Esc` 取消；当前策略来自 `state.policyBySession[sid]` 事件回读。着色：预选行绿、未预选的焦点行黄，同一行兼具时绿优先。
 - plan / sandbox 无宿主写接口，暂不开放面板；goal / todo 保持只读状态列。
 

@@ -3568,36 +3568,6 @@ test("agent-preset/selected 归一化：seq 递增/重复丢弃/非法值丢弃"
   ]);
 });
 
-test("selectAgentPreset：recompose 收到 agentCtx 与目标预设 id", async () => {
-  const rec: Array<[unknown, string]> = [];
-  const t = makeAdapterFull({
-    agentPresets: {
-      defaultId: "default",
-      recompose: async (ctx: unknown, id: string) => {
-        rec.push([ctx, id]);
-      },
-      list: async () => [],
-    },
-  });
-  await t.adapter.selectAgentPreset!("code-review");
-  assert.equal(rec.length, 1);
-  const [ctx, id] = rec[0]!;
-  assert.equal(id, "code-review");
-  // FakeAgent 无 ctx 字段 → 宽松回退为 handle 本身（session.id=s1 可验证）
-  const agentCtx = ctx as { agent?: unknown };
-  const session = (ctx as { session?: { id?: string } }).session;
-  assert.equal(session?.id, "s1");
-  void agentCtx;
-});
-
-test("selectAgentPreset：宿主未挂载/未暴露 recompose → reject", async () => {
-  const t = makeAdapterFull(); // 无 agentPresets
-  await assert.rejects(
-    t.adapter.selectAgentPreset!("x"),
-    /agent 预设服务不可用/,
-  );
-});
-
 test("refreshJobs：宿主未挂载 ctx.jobs → reject（不假成功）", async () => {
   const t = makeAdapterFull(); // 无 jobs
   await assert.rejects(t.adapter.refreshJobs!(), /jobs 服务不可用/);

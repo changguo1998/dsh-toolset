@@ -49,8 +49,6 @@ export class MockDshAdapter implements DshAdapter {
   /** C 阶段冒烟断言：setApprovalPolicy 调用次数与最后一次策略 */
   setApprovalPolicyCalls = 0;
   lastPolicy: "ask" | "never" | undefined = undefined;
-  selectPresetCalls = 0;
-  lastPreset = "";
   killJobCalls = 0;
   lastKillId = "";
   /** 冒烟驱动：向 app 推送任意事件 */
@@ -220,10 +218,8 @@ export class MockDshAdapter implements DshAdapter {
     };
   }
 
-  async selectAgentPreset(id: string): Promise<void> {
-    // 模拟宿主 ctx.agentPresets.recompose：记录 + 回发 agent-preset/selected 事件（状态栏回读）
-    this.selectPresetCalls = (this.selectPresetCalls ?? 0) + 1;
-    this.lastPreset = id;
+  /** 模拟宿主回发 agent-preset/selected 事件（标题栏 preset 段回读；`/preset` 命令已删） */
+  emitPresetSelected(id: string): void {
     this.emit({ type: "agent-preset", sessionId: this.sessionId, preset: id });
   }
 

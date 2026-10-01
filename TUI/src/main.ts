@@ -533,7 +533,7 @@ export async function apply(
     permissionPresets: (ctx as { get?: (name: string) => unknown }).get?.(
       "permissionPresets",
     ) as PermissionPresetServiceLike | undefined,
-    // agent 预设服务（ctx.get('agentPresets')，dsh-agent-presets；缺失时 /preset 提示不可用）
+    // agent 预设服务（ctx.get('agentPresets')，dsh-agent-presets；缺失时目录同步降级）
     agentPresets: (ctx as { get?: (name: string) => unknown }).get?.(
       "agentPresets",
     ) as AgentPresetsLike | undefined,

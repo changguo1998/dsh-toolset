@@ -533,20 +533,6 @@ if (smoke) {
           (mixedSepIdx < 0 || aSum < mixedSepIdx),
         "idx=" + [aT, aM, aTool, aN, aSum, mixedSepIdx].join(","),
       );
-      // /preset 无参：读目录 → 打开状态选项面板（标题 + agent 预设选项）
-      typeLine("/preset");
-      await sleep(400);
-      const presNoArgPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
-      ok(
-        "preset-catalog",
-        presNoArgPlain.includes("/preset agent 预设") &&
-          presNoArgPlain.includes("code-review") &&
-          presNoArgPlain.includes("[Enter]提交"),
-        "no /preset status panel in frames",
-      );
-      renderer.emitKey(key("escape")); // 关闭面板
-      await sleep(100);
-
       // C 阶段：/policy 审批策略。启动注入 approval/policy(ask) → 状态栏 ask 徽标；
       // `/policy never` → notice + mock 回发 approval/policy(never) → 徽标变 auto
       // ask 生效时 policy 行文本恒为 "policy ask auto"，当前项以绿色高亮——
@@ -577,26 +563,11 @@ if (smoke) {
         smokeOut.includes(smokeSgr("green") + TITLE_ICON.policyNever),
         "no green never icon in the title bar after /policy never",
       );
-      // P3：/preset 命令 + /jobs 面板 + 状态栏预设/任务徽标（mock 已实现新写路径）
-      typeLine("/preset code-review");
-      await sleep(400);
+      // P3：/jobs 面板 + 标题栏 preset / 任务徽标（`/preset` 命令 2026-10-02 已删；
+      // preset 段仍由宿主 agent-preset/selected 事件驱动 → 由 mock 直接回发事件验证渲染）
+      adapter.emitPresetSelected("code-review");
+      await sleep(300);
       const presetPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
-      ok(
-        "preset-select-call",
-        adapter.selectPresetCalls >= 1 && adapter.lastPreset === "code-review",
-        "selectPresetCalls=" +
-          adapter.selectPresetCalls +
-          " last=" +
-          adapter.lastPreset,
-      );
-      ok(
-        "preset-notice",
-        // 通知整串（`agent 预设：已切换为 code-review`）在 80 列下会被 pane 宽折行，
-        // 且左右排列时两半之间夹着另一 pane 的行文本（无法拼接）→ 断言可容纳的前缀片段
-        flatFrames().includes("agent预设：已切换为") &&
-          flatFrames().includes("code-review"),
-        "no /preset notice fragment in frames",
-      );
       ok(
         "preset-badge",
         presetPlain.includes(TITLE_ICON.preset + " code-review"),

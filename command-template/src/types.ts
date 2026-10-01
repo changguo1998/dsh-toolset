@@ -44,7 +44,7 @@ export interface TemplateSpec {
   model?: ModelRef;
   /** 步骤序列（正文未声明 steps 时 = 单个 prompt 步骤）。 */
   steps: StepSpec[];
-  /** 模板文件路径（诊断 / `/tpl show` 用）。 */
+  /** 模板文件路径（诊断 / `/playbook show` 用）。 */
   source: string;
 }
 
@@ -93,7 +93,7 @@ export interface CommandTemplateConfig {
   maxBestOf?: number;
   /** 单个 agent 步骤的超时 ms（缺省 600000）。 */
   stepTimeoutMs?: number;
-  /** 尊重保留命令名（缺省 `["tpl"]`；命名冲突时跳过并告警）。 */
+  /** 尊重保留命令名（缺省 = 入口子命令 `list` / `show` / `reload`；模板与之同名时跳过并告警）。 */
   reservedNames?: string[];
   /** 只加载不注册命令（离线排障用）。 */
   disabled?: boolean;

@@ -2739,19 +2739,6 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       const defaultId = typeof svc.defaultId === "string" ? svc.defaultId : "";
       return { current, defaultId, presets };
     },
-    async selectAgentPreset(id) {
-      // P3：切换会话 agent 预设 → ctx.agentPresets.recompose(agentCtx, id)。
-      // SAFETY: recompose 为服务结构面外方法（rc.2 AgentPresets）；宿主缺失/活跃 agent
-      // 无 ctx 时 reject（调用方 notice「agent 预设服务不可用」）。agentCtx 宽松取自
-      // agent handle 的 ctx，缺省回退 handle 本身。
-      if (disposed) return;
-      const svc = opts.agentPresets;
-      if (!svc || typeof svc.recompose !== "function" || !activeAgent) {
-        throw new Error("agent 预设服务不可用");
-      }
-      const agentCtx = (activeAgent as { ctx?: unknown }).ctx ?? activeAgent;
-      await svc.recompose(agentCtx, id);
-    },
     async refreshJobs() {
       // P3：读 ctx.jobs.list() 全量快照（caller=当前会话，owner-relative），经 jobs-changed
       // 推送（reducer 更新 /jobs 面板）。宿主未挂载 ctx.jobs / list 缺失 → reject

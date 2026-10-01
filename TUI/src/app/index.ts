@@ -708,7 +708,7 @@ export class App {
 
   /**
    * 拉取权限/agent 预设目录写入 state（状态列 Mode 块 permission/preset 列出可选值；
-   * 目录变化低频，start + /permission /preset 命令时刷新已足够）。目录服务缺失或
+   * 目录变化低频，start + /permission 命令时刷新已足够）。目录服务缺失或
    * 读失败静默降级（state 保持 [] → Mode 块回退标准三档/当前值），不崩溃。
    */
   private refreshCatalogs(): void {
@@ -1700,7 +1700,7 @@ export class App {
       return;
     }
 
-    // 通用状态选项面板（/policy /permission /preset）：↑/↓ 移动焦点、空格预选
+    // 通用状态选项面板（/policy /permission）：↑/↓ 移动焦点、空格预选
     // （星号，再按取消）、Enter 提交预选（无预选回退焦点）并关闭、Esc 取消
     if (this.state.statusPanel) {
       if (name === "up" || name === "down") {
@@ -2729,9 +2729,6 @@ export class App {
       case "permission":
         this.handlePermissionCommand(line);
         return;
-      case "preset":
-        this.handlePresetCommand(line);
-        return;
       case "jobs":
         this.handleJobsCommand();
         return;
@@ -3552,67 +3549,10 @@ export class App {
   }
 
   /**
-   * /preset：agent 预设目录（可用预设 + 当前选中 + 未来默认）。
-   * 无参 → 从 ctx.agentPresets 读目录提示；带参 <id> → selectAgentPreset（宿主缺失 fail-safe）。
+   * /policy：审批策略 ask / never。
    */
-  private handlePresetCommand(line: string): void {
-    const arg = line.slice("/preset".length).trim();
-    const adapter = this.deps.adapter;
-    const catalog = adapter.agentPresetCatalog;
-    if (arg === "") {
-      if (!catalog) {
-        this.notice("agent 预设服务不可用", "warn");
-        return;
-      }
-      void catalog()
-        .then((info) => {
-          if (this.disposed) return;
-          if (!info) {
-            this.notice("agent 预设服务不可用", "warn");
-            return;
-          }
-          // 同步目录进 state（状态列 Mode 块 preset 列出可选值）
-          this.apply((s) =>
-            reduceState(s, {
-              type: "agent-preset-catalog",
-              ids: info.presets.map((pp) => pp.id),
-            }),
-          );
-          this.paint();
-          // 打开状态选项面板：选项 = agent 预设（空格预选、Enter 提交 selectAgentPreset）
-          this.openStatusPanel({
-            kind: "preset",
-            title: "/preset agent 预设",
-            options: info.presets.map((pp) => ({
-              id: pp.id,
-              label: pp.name,
-              ...(pp.description ? { desc: pp.description } : {}),
-            })),
-            index: 0,
-            selected: info.current === "" ? null : info.current,
-          });
-        })
-        .catch(() => {
-          this.notice("agent 预设服务不可用", "warn");
-        });
-      return;
-    }
-    const select = adapter.selectAgentPreset;
-    if (!select) {
-      this.notice("agent 预设服务不可用", "warn");
-      return;
-    }
-    void select
-      .call(adapter, arg)
-      .then(() => {
-        this.notice("agent 预设：已切换为 " + arg, "success");
-      })
-      .catch(() => {
-        this.notice("agent 预设服务不可用：" + arg, "warn");
-      });
-  }
 
-  /** 打开通用状态选项面板（/policy /permission /preset 无参路径） */
+  /** 打开通用状态选项面板（/policy /permission 无参路径） */
   private openStatusPanel(panel: StatusPanelState): void {
     if (this.disposed) return;
     this.apply((s) => reduceState(s, { type: "status-panel-open", panel }));
@@ -3656,18 +3596,6 @@ export class App {
         this.state.activeSessionId ?? undefined,
       );
       return;
-    }
-    // preset：selectAgentPreset（宿主缺失 fail-safe）
-    const select = adapter.selectAgentPreset;
-    if (!select) {
-      this.notice("agent 预设服务不可用", "warn");
-      return;
-    }
-    try {
-      await select.call(adapter, id);
-      this.notice("agent 预设：已切换为 " + id, "success");
-    } catch {
-      this.notice("agent 预设服务不可用：" + id, "warn");
     }
   }
 
@@ -4208,10 +4136,6 @@ export class App {
       {
         cmd: "/permission [预设名]",
         desc: "权限预设（sandbox+审批捆绑；无参列当前与可用，带参切换）",
-      },
-      {
-        cmd: "/preset [预设名]",
-        desc: "agent 预设目录（无参列当前/可用/默认，带参切换）",
       },
       {
         cmd: "/jobs",

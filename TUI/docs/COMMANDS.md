@@ -28,7 +28,7 @@
 
 **机制前提**：dsh 的「服务」与「slash 命令」是两套独立注册面——服务（cordis Service）只提供编程 API（`ctx.<svc>`），不会自动变成命令；命令须显式 `ctx.commands.register`，官方当前仅 6 条（§1.2）。
 
-**落点决策**：命令一律走 TUI 本地命令（`LOCAL_COMMANDS` + `index.ts` case），不新建宿主命令插件包——可复用面板骨架（ModelPicker / JobsPanel / HistoryPanel）与 FakeAdapter 测试基建，与既有 `/session` `/preset` `/permission` `/jobs` 同路径；代价是命令仅 TUI 可用。需要跨客户端可见时再考虑宿主命令插件路线（`dsh-command-toolset`）。
+**落点决策**：命令一律走 TUI 本地命令（`LOCAL_COMMANDS` + `index.ts` case），不新建宿主命令插件包——可复用面板骨架（ModelPicker / JobsPanel / HistoryPanel）与 FakeAdapter 测试基建，与既有 `/session` `/policy` `/permission` `/jobs` 同路径；代价是命令仅 TUI 可用。需要跨客户端可见时再考虑宿主命令插件路线（`dsh-command-toolset`）。
 
 ### 2.1 已实现（索引）
 
@@ -46,6 +46,6 @@
 | 平台/服务专属命令 | 属其他 agent 生态特有（Claude Code / 官方云与 IDE 集成等，如 `/stickers` `/pets` `/voice` `/design*` `/heapdump` `/ide` 一类，数十条），不迁移 |
 | 上游已移除 | `/vim` `/ultraplan` |
 | 无底座且收益低 | `/rewind` `/restore`（`dsh-session-checkpoint-policy` 是持久化检查点，非回退）、`/add-dir` `/directory`（会话 cwd 由宿主决定）、`/fast` `/personality`（dsh-persona 未挂载）、`/btw` `/side` |
-| 本项目已有等效 | `/compact` `/feedback` `/goal` `/policy` `/permission` `/preset` `/jobs` `/theme` `/model` `/effort` `/stats`（`/usage` `/context`） `/session` `/continue` `/copy` `/init` `/help` `/quit` `/clearscreen` |
+| 本项目已有等效 | `/compact` `/feedback` `/goal` `/policy` `/permission` `/jobs` `/theme` `/model` `/effort` `/stats`（`/usage` `/context`） `/session` `/continue` `/copy` `/init` `/help` `/quit` `/clearscreen` |
 
 另不做：`/settings` 写回（真实配置 + 乐观锁，需独立契约）、正则/高级过滤（面板过滤为大小写不敏感子串）、面板增量事件订阅（面板数据为打开时拉取）。

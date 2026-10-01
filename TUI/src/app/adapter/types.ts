@@ -425,8 +425,6 @@ export interface DshAdapter {
   permissionCatalog?(): Promise<PermissionPresetInfo | undefined>;
   /** agent 预设目录（可用预设 + 当前选中 + 默认）；宿主未挂载 ctx.agentPresets → undefined */
   agentPresetCatalog?(): Promise<AgentPresetInfo | undefined>;
-  /** 切换会话 agent 预设（经 ctx.agentPresets.recompose）；宿主缺失/未暴露 → reject */
-  selectAgentPreset?(id: string): Promise<void>;
   /** 请求刷新 jobs 快照（读 ctx.jobs.list 后经 jobs-changed 事件推送） */
   refreshJobs?(): Promise<void>;
   /** 拉取 skills 列表并按 `filter`（名称/描述/适用场景子串，不区分大小写）过滤后
@@ -1523,7 +1521,7 @@ export interface RealAdapterOptions {
   handleDispose?: () => Promise<void>;
   /** ctx.get('permissionPresets') 服务（dsh-permission-presets）；缺失时 /permission 提示不可用 */
   permissionPresets?: PermissionPresetServiceLike;
-  /** ctx.get('agentPresets') 服务（dsh-agent-presets）；缺失时 /preset 提示不可用 */
+  /** ctx.get('agentPresets') 服务（dsh-agent-presets）；缺失时目录同步降级（状态列无 preset 可选项） */
   agentPresets?: AgentPresetsLike;
   /** ctx.get('jobs') 服务（dsh-jobs，dsh-base 默认装配 jobs-local）；缺失时 /jobs 提示不可用 */
   jobs?: JobsLike;

@@ -1,4 +1,4 @@
-// src/app/components/StatusPanel.ts — 通用状态选项面板（/policy /permission /preset）
+// src/app/components/StatusPanel.ts — 通用状态选项面板（/policy /permission）
 //
 // 以文本面板呈现一组状态选项（活动区窗口，与审批/问答/模型选择同区域）：
 // 标题行 + 选项列表 + 操作提示行。↑/↓ 移动焦点（>），空格预选（*，再按取消），

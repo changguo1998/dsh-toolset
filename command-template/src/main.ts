@@ -3,7 +3,7 @@
 // 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, provide, Config, apply }）：
 // - `inject: ["commands"]`：命令注册面（缺失则告警，不使加载失败）；
 // - `provide: ["commandTemplate"]`：只读查询面（list / get / errors / reload）；
-// - `apply(ctx, config)`：扫描模板目录并注册命令（每个模板一条 + `/tpl` 管理命令）。
+// - `apply(ctx, config)`：扫描模板目录并注册命令（统一入口 `/playbook`，子命令 list / show / reload / <模板>）。
 //
 // 执行机制全部外包：`prompt` 步骤经 `invocation.agent.followup` 注入当前会话；
 // `agent` 步骤经宿主 `subagents` provider 一次性子代理运行（模型覆盖仅作用于该次运行）。
@@ -189,7 +189,7 @@ export class CommandTemplateService {
     if (template === undefined) {
       return {
         kind: "error",
-        text: `模板不存在：${templateName}（/tpl list 查看）`,
+        text: `模板不存在：${templateName}（/${ENTRY_COMMAND} list 查看）`,
       };
     }
     const rawInput = rawInputOverride ?? invocation.rawInput ?? "";

@@ -76,7 +76,7 @@ commandPanel: {
 
 - 命令名规则 `^/([a-z][a-z0-9_-]*)`；别名在 `LOCAL_COMMANDS` 内以独立条目指向同一 route（先例 `/clearscreen` + `/cls`）。
 - 与宿主注册命令同名时**本地优先**（先例 `/goal`、`/permission`）；本地未消费的形态应转发宿主，例外是 `/goal`——恒为本地提示、参数被忽略（不转发）。
-- `/help` 必须同步加行；help 行数变化会改变冻结基线（`tests/fixtures/focus-frame-legacy.json`）→ 重跑 `node --experimental-transform-types scripts/freeze-focus-frame.mts` 并 diff 审查，随后 `npm run demo -- --smoke` 断言 `SMOKE_PASS` 全绿（当前 43 项，2026-09-27 实测）。
+- `/help` 必须同步加行；help 行数变化会改变冻结基线（`tests/fixtures/focus-frame-legacy.json`）→ 重跑 `node --experimental-transform-types scripts/freeze-focus-frame.mts` 并 diff 审查，随后 `npm run demo -- --smoke` 断言 `SMOKE_PASS` 全绿（当前 40 项，2026-10-02 实测：删除 `/preset` 命令的三项断言后）。
 
 ## 6. 测试口径（每条命令必备）
 
