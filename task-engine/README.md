@@ -22,6 +22,7 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
   - 可选字段：`model`（`{provider, model}` 覆盖）、`budget.maxTokens`（映射宿主 `agentOptions.maxTokens`，并事后经 `tokenMeter.measure(子会话)` 标注 `overBudget`——**只标注不据此打回**）、`cwd`、`prompt` / `script` / `meta`（按后端取用）；
   - 校验收在**机械门禁**（`rule: "executor"`，带反馈打回）：只允许叶子声明、kind 白名单、`command` 必给 `command`、`workflow` 必给 `script`、`meta.name` / `meta.description` 非空、`model` 覆盖须给全 provider/model、`budget.maxTokens` 须为正数；
   - 执行记录落 `plan/frame-executed`（`executor` / `model` / `tokens` / `overBudget` / `structured` / 证据摘要 / `retryable`），**证据全文**仍走 `plan/frame-implemented`（既有验收链不看新事件）；三类后端证据统一**截断**到 8000 字符（超出标注原始长度）；
+  - 宿主服务（`subagents` / `workflowEngine` / `agentDefaultModel` / `tokenMeter`）在**执行期惰性解析**（当前工具执行 ctx 优先 → 回退插件 ctx）：apply 期服务 fiber 未激活时 `ctx.get` 会返回 undefined（真机实测），故装载期不缓存句柄，只在发起时按名读取，apply 期探测仅打印告警；
   - 失败分流：`retryable` 缺省 true → 走 bounded retry（`maxRetries` 后置 `failed`）；`retryable: false`（宿主面缺失 / 能力位不足 / 脚本声明错 / 用户取消）→ **不打回、不计重试、不改帧状态**，只把反馈交给模型改声明。
 - **分解双重门禁**：先跑机械门禁——粒度四规则（越级 / 过粗 / 过细 / 数量）+ coverage 完备性（父每条验收须有本次子任务覆盖）+ `deps` 前置传递（只允许引用前序兄弟，自引用/前向引用/未知 id 拒绝）+ `executor` 声明校验；通过后若配置 `entail` hook，再跑语义蕴含（合取是否蕴含父契约）。任一拒绝都带反馈打回并记 `retryCount`，达 `maxRetries` 置 `failed`。
 - **RET 验收路由**：mechanical → `/bin/sh -c` 退出码 0；human → `ctx.approval.request`（`allowed-once` 视为通过，拒绝 / 无人应答 / 抛错一律 fail-closed）；semantic → 注入式 `audit` hook 的独立 audit run（缺 hook，或声明了 `outputSchema` 却无 `structured`，均 fail-closed 打回）。

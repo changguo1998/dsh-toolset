@@ -157,6 +157,7 @@
 1. **#1 调研（2026-10-02）**：读码确认 `executor` 目前零代码（只有 README 的口径）；宿主签名由子代理并行调研并回报（`subagents.start` 的 `agentOptions` / `parent` / `signal` / `capabilities.agentOptions`、`SubagentRun.result` + `dispose`、`workflowEngine.start`（**本机已挂载**）、`tokenMeter.measure`（**无预算字段**）、`agentDefaultModel.currentSelection`、**subagent 无 `cwd` 入参**）——据此定稿 D9-D13，并把 ③ 依赖缺失写实。
 1. **#1 实施（2026-10-02）**：按 D9-D13 落地叶子执行后端（文件清单见「规划」）：类型 / 门禁 / 事件物化 / `engine.execute()` / `task_execute` 工具 / `main.ts` 三类后端接线 / 测试 / demo 演示 13 / README；③ 未做并另开条目。
 1. **#1 workflow 后端补完（2026-10-02，用户裁定「补完 workflow 后端本身」并指令「按标准流程完成」）**：① 默认 meta 生成 / 合并（叶子只给 `name` 时 `description` 由帧补齐）② `value` 为对象 / 数组 → 记入 `plan/frame-executed.structured`，证据文本改缩进 JSON ③ 失败分类（`start` 同步抛错 / `stoppedReason: cancelled` → `retryable: false`：不打回、不计重试、不改状态；`error` → bounded retry，反馈附 `agentsStarted`）④ 三类后端证据统一截断（`MAX_EVIDENCE_CHARS = 8000`，超出标注原始长度）⑤ 门禁补 `meta.name` / `meta.description` 非空校验（把宿主 `META_INVALID` 前置为可读打回）。测试 / 冒烟 / README 同步。
+1. **#1 真机验证第一轮（2026-10-02，会话内真实调用工具面）**：`task_decompose` 建三个叶子（`command` / `workflow` / `subagent`）✓；`task_execute v-command` **通过**（证据 = 真实 `/bin/sh` 输出 `hello-from-executor`）✓；`task_execute v-workflow` / `v-subagent` 返回「宿主 ctx.workflowEngine / ctx.subagents 不可用」✗。**定位**：cordis 的 `ctx.get(name)` 是不要求 `inject` 的读取，但 `_getImpl` 在服务 fiber 未激活（`state !== 2`）或 `isolate` 映射缺该名时**静默返回 undefined**；apply 期这两条服务尚不可见（`dsh-base` 的 `subagent` / `workflow-ptc` 行虽在 patch 中、包也在磁盘上），执行期才可读。**修复**：`main.ts` 改为**执行期惰性解析** —— `makeExecutor` 每次发起时按 `resolve(name)` 读服务（当前工具执行 ctx（agent 侧）优先 → 回退插件 ctx），apply 期探测只用于告警、结果不缓存；回归用例见冒烟实例 14（插件 ctx 全不可见 + exec ctx 可见 → `workflow` / `subagent` 均发起成功）。
 
 ## 测试与证据
 
@@ -212,19 +213,21 @@
 | `cd task-engine && npm run demo` | `DEMO_OK`（新增演示 13：executor 发起 → 证据回填 → 超预算标注 → RET 验收完成整树） |
 | `node tmp/task-executor-smoke.mjs`（dist 级：真实 `task-engine/dist` 的 `apply()` + 假宿主面 `subagents` / `workflowEngine` / `agentDefaultModel` / `tokenMeter`） | `SMOKE_PASS`（**13 步**：工具族含 `task_execute` / 四叶子声明 executor 过门禁 / subagent 模型覆盖 + 预算 → `agentOptions{provider,model,maxTokens}` 且证据 + 用量（`overBudget:false`）回填 / 未声明模型**不传** `agentOptions` / command 真跑 `/bin/sh -c` / workflow 的 `script`+`meta`+`parent` 透传并回填 `value` / `execute → stop → join` 整树 done 且 status 暴露 `executorKind` / provider 能力位不足 fail-closed（不静默降级）/ 执行失败带反馈打回且 `next` 指本帧 / **workflow 默认 meta 合并** / **同步抛错（声明错误）不打回不计重试** / **`cancelled` 反馈可读** / **证据截断（超限标注 + 未超限原样）**） |
 | 根 `npm run check` / 根 `npm run test` | `exit 0`（`error TS` 计数 0）/ `exit 0`（16 包全 `OK`，`fail 0`；含 task-engine `pass 61`） |
+| **真机验证第一轮**（会话内真实调用工具面，2026-10-02） | `task_decompose` 三叶子挂树 ✓；`task_execute v-command` ✓（证据 = 真实 `/bin/sh` 输出 `hello-from-executor`）；`task_execute v-workflow` / `v-subagent` ✗（「宿主面不可用」）→ 定位为 **apply 期服务不可见**，**已修复**（执行期惰性解析）→ 待重启后第二轮复验 |
+| 惰性解析修复的回归（dist 冒烟实例 14） | 插件 ctx 全不可见、exec ctx 可见 → `workflow` / `subagent` 均发起成功（本轮 `SMOKE_PASS`，共 14 步） |
 
 未做（交接给后续）：
 
 1. `rule-engine/demo` 未跑（可选）。
-1. **#1 真机未验**：`task_execute` 的三条后端在真机上需模型在一次会话里主动调用才会触发（dist 冒烟已用假宿主面覆盖调用链）；若要真机复核，建议在会话里对叶子声明 `executor` 后让模型 `task_decompose` → `task_execute`。
+1. **#1 真机第二轮（待重启 `dsh --profile fff`）**：复验 `workflow` / `subagent` 两条后端 + `execute → stop → join` 全流程；**通过后才收尾 #1**（不通过则继续调试，用户 2026-10-02 裁定）。
 
 ## 交接（2026-10-02 中断点）
 
-**当前状态**：条目 #8「注入时机调整」、#5「slash 命令命名规范」、#7「插件运行期 stderr 告警显示统一（评估）」**均已关闭并清理**；仅 #1「task-engine 执行扩展」未开工（BACKLOG 仍标「进行中（2026-10-02）」，本文件不归档）。
+**当前状态**：条目 #8「注入时机调整」、#5「slash 命令命名规范」、#7「插件运行期 stderr 告警显示统一（评估）」**均已关闭并清理**；#1「task-engine 执行扩展」（叶子执行后端 ① ②）**实现完成并已提交**，**收尾被真机验证阻塞**——第一轮发现 apply 期宿主服务不可见（已改为执行期惰性解析），待重启复验 `workflow` / `subagent` 通过后关闭（用户 2026-10-02 裁定「验证通过才能收尾，否则继续调试」）。
 
-**工作区**：三次提交已落盘——`feat(rule-engine,symbol-normalizer): 注入时机支持多节点与直写`、`docs(rule-engine): 关闭「注入时机调整」条目并补真机复盘证据`、`feat(TUI)!: 删除 /preset 命令（旧名不留别名）`；#5 / #7 的关闭文档变更随本次收尾提交。`tmp/` 仅保留 `rules.json.orig`（运行时规则原件备份，勿删）。
+**工作区**：提交历史——`510e2ec`（#8 多节点 + 直写）、`59a916b`（#8 关闭）、`577fd0b`（#5 删 `/preset`）、`0a32713`（#5 / #7 关闭）、`f2c065a`（#1 执行扩展）、`6a22adc`（workflow 后端补完），加本次「真机修复 + 追踪文档」提交。`tmp/` 保留 `rules.json.orig`（运行时规则原件备份，勿删）与 `task-executor-smoke.mjs`（验证脚本，收尾时清理）。
 
-**下一步**：接 #1「task-engine 执行扩展」——读 `task-engine` 源码与 README「边界与外包」段，细化三段（叶子 `executor` 声明与后端适配 / 模型与预算声明 / git worktree 隔离），经用户裁定后实施。
+**下一步**：重启 `dsh --profile fff` → 会话内跑 `task_decompose`（三叶子：`command` / `workflow` / `subagent`）→ `task_execute` × 3 → `task_stop` × 3 → `task_status` 确认整树 done；通过后收尾 #1（BACKLOG 清理 + 追踪文档归档 + 关闭提交）。
 
 **注意**：本任务接取的是四条（BACKLOG 均已标「进行中（2026-10-02）」），关闭时四条一起处理；`STATUS.md` 不由流程改；提交按 `docs/WORKFLOW-STANDARD.md` §5 的四个询问点征得同意。
 

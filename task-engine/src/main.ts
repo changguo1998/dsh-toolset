@@ -190,10 +190,13 @@ function defaultPrompt(req: ExecuteRequest): string {
 }
 
 interface ExecutorWireOptions {
-  subagents?: SubagentsLike | undefined;
-  workflow?: WorkflowEngineLike | undefined;
-  defaultModel?: AgentDefaultModelLike | undefined;
-  tokenMeter?: TokenMeterLike | undefined;
+  /**
+   * 宿主服务**惰性**解析（① 发起 / ② 计量）：执行期按名解析，而不是 apply 期快照。
+   * 真机 2026-10-02 观察：`subagents` / `workflowEngine` 在 apply 期 `ctx.get` 返回 undefined
+   * （cordis 的 `get` 是不要求 inject 的读取，但服务 fiber 未激活 / 作用域不同时为 undefined），
+   * 到工具执行期（agent 侧 ctx）才可读 —— 故这里把「读服务」推迟到每次发起时。
+   */
+  resolve<T>(name: string): T | undefined;
   runShell: (
     cmd: string,
     cwd?: string,
@@ -232,7 +235,7 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
     }
     // —— subagent：ctx.subagents.start（模型覆盖走 agentOptions 能力位）——
     if (spec.kind === "subagent") {
-      const svc = opts.subagents;
+      const svc = opts.resolve<SubagentsLike>("subagents");
       if (svc === undefined || typeof svc.start !== "function") {
         return {
           ok: false,
@@ -260,15 +263,17 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
         };
       }
       // ② 模型：未声明时读宿主默认选择记录事实（不显式传，保持宿主合并语义）
+      const defaultModel =
+        opts.resolve<AgentDefaultModelLike>("agentDefaultModel");
       const declaredModel =
         spec.model === undefined
           ? undefined
           : `${spec.model.provider}/${spec.model.model}`;
       const modelFact =
         declaredModel ??
-        (opts.defaultModel?.currentSelection === undefined
+        (defaultModel?.currentSelection === undefined
           ? undefined
-          : `${opts.defaultModel.currentSelection().provider ?? "?"}/${opts.defaultModel.currentSelection().model ?? "?"}（宿主默认）`);
+          : `${defaultModel.currentSelection().provider ?? "?"}/${defaultModel.currentSelection().model ?? "?"}（宿主默认）`);
       const controller = new AbortController();
       let run: Awaited<ReturnType<SubagentsLike["start"]>>;
       try {
@@ -308,10 +313,11 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
       }
       // ① 计量：子会话终态 pressure（近似口径，非账单）
       let tokens: number | undefined;
+      const tokenMeter = opts.resolve<TokenMeterLike>("tokenMeter");
       const childSession = run.localAgent?.session;
-      if (childSession !== undefined && opts.tokenMeter !== undefined) {
+      if (childSession !== undefined && tokenMeter !== undefined) {
         try {
-          const measured = opts.tokenMeter.measure(childSession).totalTokens;
+          const measured = tokenMeter.measure(childSession).totalTokens;
           if (typeof measured === "number" && Number.isFinite(measured)) {
             tokens = measured;
           }
@@ -340,7 +346,7 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
       };
     }
     // —— workflow：ctx.workflowEngine.start（脚本由叶子显式声明，引擎不生成）——
-    const wf = opts.workflow;
+    const wf = opts.resolve<WorkflowEngineLike>("workflowEngine");
     if (wf === undefined || typeof wf.start !== "function") {
       return {
         ok: false,
@@ -553,23 +559,26 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       }
     };
   };
-  // 叶子执行后端（① 发起 / ② 模型与计量）：宿主面结构读取，缺面 fail-closed
+  // 叶子执行后端（① 发起 / ② 模型与计量）：宿主面**惰性**解析（执行期按名重试）+ 缺面 fail-closed
   const runShell = makeRunCommand(config?.commandTimeoutMs ?? 30_000);
-  const subagents = readService<SubagentsLike>(ctx, "subagents");
-  const workflow = readService<WorkflowEngineLike>(ctx, "workflowEngine");
-  const defaultModel = readService<AgentDefaultModelLike>(
-    ctx,
+  /** 执行期服务解析：工具执行 ctx（agent 侧）优先 → 回退插件 ctx */
+  const serviceResolver =
+    (exec: unknown) =>
+    <T>(name: string): T | undefined =>
+      readService<T>(exec, name) ?? readService<T>(ctx, name);
+  // apply 期探测只用于告警（结果**不缓存**）：真机 2026-10-02 观察到此时读不到
+  // subagents / workflowEngine（服务 fiber 未激活），执行期才可读
+  for (const name of [
+    "subagents",
+    "workflowEngine",
     "agentDefaultModel",
-  );
-  const tokenMeter = readService<TokenMeterLike>(ctx, "tokenMeter");
-  if (subagents === undefined) {
-    warn("ctx.subagents 不可用：executor 的 subagent 后端将 fail-closed");
-  }
-  if (workflow === undefined) {
-    warn("ctx.workflowEngine 不可用：executor 的 workflow 后端将 fail-closed");
-  }
-  if (tokenMeter === undefined) {
-    warn("ctx.tokenMeter 不可用：executor 用量只由后端自报");
+    "tokenMeter",
+  ]) {
+    if (readService(ctx, name) === undefined) {
+      warn(
+        `宿主服务 ${name} 在 apply 期不可见：将在工具执行期重试解析（对应 executor 后端按需 fail-closed）`,
+      );
+    }
   }
 
   const toolCtx: ToolExecuteCtx = {
@@ -577,10 +586,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     makeExecutor: (exec) => {
       const agent = (exec as { agent?: unknown } | undefined)?.agent;
       return makeExecutor({
-        subagents,
-        workflow,
-        defaultModel,
-        tokenMeter,
+        resolve: serviceResolver(exec),
         runShell,
         ...(agent === undefined ? {} : { agent }),
         warn,
