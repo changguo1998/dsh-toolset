@@ -89,6 +89,40 @@ function turnEnd(turn: number, reason = "completed"): SessionEventLike {
   return { type: "turn/end", data: { turn, reason } };
 }
 
+/** turn/start 事件（真实宿主每回合必发；对齐 flag 的清零点）。 */
+function turnStart(turn: number): SessionEventLike {
+  return { type: "turn/start", data: { turn } };
+}
+
+/** step/start 事件。 */
+function stepStart(turn: number, step: number): SessionEventLike {
+  return { type: "step/start", data: { turn, step } };
+}
+
+/** user/message 事件。 */
+function userMessage(
+  turn: number,
+  text: string,
+  source?: Record<string, unknown>,
+): SessionEventLike {
+  return {
+    type: "user/message",
+    data: {
+      turn,
+      message: {
+        role: "user",
+        ...(source === undefined ? {} : { source }),
+        content: [{ type: "text", text }],
+      },
+    },
+  };
+}
+
+/** step/end 事件。 */
+function stepEnd(turn: number, step: number): SessionEventLike {
+  return { type: "step/end", data: { turn, step } };
+}
+
 /** tool/call 事件。 */
 function toolCall(turn: number, name: string, args: string): SessionEventLike {
   return {
@@ -303,11 +337,12 @@ test("每回合注入上限与同内容去重（跨规则）", () => {
       engine.handle(SESSION, toolCall(1, "x", "hit"));
       assert.deepEqual(
         injected.map((item) => item.sourceId),
-        ["a", "b"],
-        "第三条与第一条同文案 → 同回合去重",
+        ["a+b"],
+        "同一次触发内的多条命中合并为一条；第三条与第一条同文案 → 同回合去重",
       );
+      assert.equal(injected[0]?.text, "A\n\nB", "合并正文按段拼接");
       engine.handle(SESSION, toolCall(1, "x", "hit again"));
-      assert.equal(injected.length, 2, "回合内已去重的文案不再注入");
+      assert.equal(injected.length, 1, "回合内已去重的文案不再注入");
     },
   );
   bench(
@@ -533,32 +568,28 @@ test("registerConsumer：turn-end 同步按注册顺序询问，聚合反馈并�
       id: "c",
       decide: () => ({ text: "来自 C 的反馈" }),
     });
+    engine.handle(SESSION, turnStart(1));
     engine.handle(SESSION, assistantMessage(1, "正文"));
     engine.handle(SESSION, turnEnd(1));
     assert.deepEqual(calls, ["turn-end:1:正文"]);
     assert.equal(seen, "正文", "无文本规则时消费者也能拿到回合正文");
     assert.deepEqual(injected, [
       {
-        sourceId: "consumer:a",
+        sourceId: "consumer:a+consumer:c",
         sessionId: "s1",
         delivery: "followup",
-        text: "来自 A 的反馈",
+        text: "来自 A 的反馈\n\n来自 C 的反馈",
         summary: "A 提醒",
-      },
-      {
-        sourceId: "consumer:c",
-        sessionId: "s1",
-        delivery: "followup",
-        text: "来自 C 的反馈",
-        summary: "来自 C 的反馈",
+        summaries: ["A 提醒", "来自 C 的反馈"],
       },
     ]);
     // 注销后不再询问
     disposeA();
     disposeC();
+    engine.handle(SESSION, turnStart(2));
     engine.handle(SESSION, assistantMessage(2, "正文"));
     engine.handle(SESSION, turnEnd(2));
-    assert.equal(injected.length, 2);
+    assert.equal(injected.length, 1);
   });
 });
 
@@ -595,6 +626,7 @@ test("registerConsumer：cooldownTurns / cooldownMs 按注入记账", () => {
         decide: () => ({ text: "冷却反馈" }),
       });
       const fire = (turn: number): void => {
+        engine.handle(SESSION, turnStart(turn));
         engine.handle(SESSION, assistantMessage(turn, "x"));
         engine.handle(SESSION, turnEnd(turn));
       };
@@ -751,6 +783,190 @@ test("dedupeInRecord：压缩把注入挤出投影后，由 compaction 规则补
       messages.push({ source: { kind: "rule-engine", summary: "S" } });
       engine.handle(SESSION, compactionEnd(4));
       assert.equal(injected.length, 2, "补回后仍在投影里 → 不再补");
+    },
+    { messagesOf: () => messages },
+  );
+});
+
+/* ── 节点派发与尺度双 flag（统一节点 / 对齐合并） ─────────────────────── */
+
+test("节点派发：turn-start / step-start / step-end / user-message 按注册唤醒", () => {
+  const calls: string[] = [];
+  bench([], ({ engine }) => {
+    engine.registerConsumer({
+      id: "n",
+      sources: ["turn-start", "step-start", "step-end", "user-message"],
+      decide: (ctx) => {
+        calls.push(ctx.trigger);
+        return null;
+      },
+    });
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, stepStart(1, 1));
+    engine.handle(SESSION, stepEnd(1, 1));
+    engine.handle(SESSION, turnEnd(1));
+    // user/message 在真实宿主里是下一回合的前导（turn 尺度 start）
+    engine.handle(SESSION, userMessage(2, "真人消息"));
+    assert.deepEqual(calls, [
+      "turn-start",
+      "step-start",
+      "step-end",
+      "user-message",
+    ]);
+  });
+});
+
+test("user-message：本引擎自己的注入不触发该节点（防自触发）", () => {
+  const calls: string[] = [];
+  bench([], ({ engine }) => {
+    engine.registerConsumer({
+      id: "u",
+      sources: ["user-message"],
+      decide: (ctx) => {
+        calls.push(ctx.text);
+        return null;
+      },
+    });
+    engine.handle(SESSION, {
+      type: "user/message",
+      data: {
+        turn: 1,
+        message: {
+          role: "user",
+          source: { kind: "rule-engine", summary: "注入" },
+          content: [{ type: "text", text: "自动注入" }],
+        },
+      },
+    });
+    engine.handle(SESSION, {
+      type: "user/message",
+      data: {
+        turn: 1,
+        message: { role: "user", content: [{ type: "text", text: "真人" }] },
+      },
+    });
+    assert.deepEqual(calls, ["真人"]);
+  });
+});
+
+test("session-start：sessionCreated 唤醒；compaction 不参与对齐合并", () => {
+  const calls: string[] = [];
+  bench([], ({ engine }) => {
+    engine.registerConsumer({
+      id: "s",
+      sources: ["session-start", "compaction"],
+      decide: (ctx) => {
+        calls.push(ctx.trigger);
+        return null;
+      },
+    });
+    engine.sessionCreated("s1", { id: "s1" });
+    engine.handle(SESSION, compactionEnd(1));
+    engine.sessionCreated("s1", { id: "s1" });
+    assert.deepEqual(calls, ["session-start", "compaction", "session-start"]);
+  });
+});
+
+test("对齐合并：末步的 step-end 先唤醒，随后的 turn-end 被吞", () => {
+  const calls: string[] = [];
+  bench([], ({ engine }) => {
+    engine.registerConsumer({
+      id: "m",
+      sources: ["turn-start", "step-start", "step-end", "turn-end"],
+      decide: (ctx) => {
+        calls.push(ctx.trigger);
+        return null;
+      },
+    });
+    for (const turn of [1, 2]) {
+      engine.handle(SESSION, turnStart(turn));
+      engine.handle(SESSION, stepStart(turn, 1));
+      engine.handle(SESSION, stepEnd(turn, 1));
+      engine.handle(SESSION, turnEnd(turn));
+    }
+    assert.deepEqual(calls, [
+      "turn-start",
+      "step-start",
+      "step-end",
+      "turn-start",
+      "step-start",
+      "step-end",
+    ]);
+  });
+});
+
+test("对齐合并：只注册 turn-end 时每回合都能唤醒（清零与注册无关）", () => {
+  let count = 0;
+  bench([], ({ engine }) => {
+    engine.registerConsumer({
+      id: "t",
+      sources: ["turn-end"],
+      decide: () => {
+        count += 1;
+        return null;
+      },
+    });
+    for (const turn of [1, 2, 3]) {
+      engine.handle(SESSION, turnStart(turn));
+      engine.handle(SESSION, stepEnd(turn, 1));
+      engine.handle(SESSION, turnEnd(turn));
+    }
+    assert.equal(count, 3, "第二个回合起不能被永久吞");
+  });
+});
+
+test("对齐合并：reset 指定值放行下一层 end（step-end 后 turn-end 仍唤醒）", () => {
+  const calls: string[] = [];
+  bench([], ({ engine, injected }) => {
+    engine.registerConsumer({
+      id: "r",
+      sources: ["turn-start", "step-start", "step-end", "turn-end"],
+      decide: (ctx) => {
+        calls.push(ctx.trigger);
+        if (ctx.trigger !== "step-end") return null;
+        // 先注入内容，再声明「这次唤醒不算吞并」
+        return { text: "末步提示", reset: true };
+      },
+    });
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, stepStart(1, 1));
+    engine.handle(SESSION, stepEnd(1, 1));
+    engine.handle(SESSION, turnEnd(1));
+    assert.deepEqual(calls, ["turn-start", "step-start", "step-end", "turn-end"]);
+    assert.equal(injected.length, 1, "step-end 的反馈注入一次");
+  });
+});
+
+test("消费者 dedupeInRecord：投影计数 0（无限制）/ 1 / N", () => {
+  const messages: Array<Record<string, unknown>> = [];
+  bench(
+    [],
+    ({ engine, injected }) => {
+      engine.registerConsumer({
+        id: "one",
+        dedupeInRecord: 1,
+        decide: () => ({ text: "提示", summary: "键" }),
+      });
+      engine.handle(SESSION, turnStart(1));
+      engine.handle(SESSION, turnEnd(1));
+      assert.equal(injected.length, 1, "投影为空 → 注入");
+      messages.push({ source: { kind: "rule-engine", summary: "键" } });
+      engine.handle(SESSION, turnStart(2));
+      engine.handle(SESSION, turnEnd(2));
+      assert.equal(injected.length, 1, "投影里已有 1 条 → 跳过");
+
+      engine.registerConsumer({
+        id: "two",
+        dedupeInRecord: 2,
+        decide: () => ({ text: "提示二", summary: "键二" }),
+      });
+      engine.handle(SESSION, turnStart(3));
+      engine.handle(SESSION, turnEnd(3));
+      assert.equal(injected.length, 2, "N=2 且已有 0 条 → 注入");
+      messages.push({ source: { kind: "rule-engine", summaries: ["键二"] } });
+      engine.handle(SESSION, turnStart(4));
+      engine.handle(SESSION, turnEnd(4));
+      assert.equal(injected.length, 3, "计数 1 < 2 → 再注入一条");
     },
     { messagesOf: () => messages },
   );

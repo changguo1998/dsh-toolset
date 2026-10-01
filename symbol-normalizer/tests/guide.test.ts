@@ -6,12 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import {
-  GUIDE_SUMMARY,
-  SymbolGuideGate,
-  buildSymbolGuide,
-  hasGuideMessage,
-} from "../src/guide.ts";
+import { GUIDE_SUMMARY, buildSymbolGuide } from "../src/guide.ts";
 import {
   DEFAULT_RECOMMENDED,
   maskCodeSpans,
@@ -53,43 +48,4 @@ test("buildSymbolGuide：别名映射条数有上限（正文长度可控）", (
   assert.ok(line !== undefined);
   const pairs = (line.match(/`/g) ?? []).length / 2;
   assert.ok(pairs > 0 && pairs <= 20, `映射列出条数应受限（实际 ${pairs}）`);
-});
-
-test("SymbolGuideGate：每会话一次、按会话隔离、容量 FIFO 淘汰", () => {
-  const gate = new SymbolGuideGate(2);
-  assert.equal(gate.take("s1"), true, "首次 → 注入");
-  assert.equal(gate.take("s1"), false, "同会话再次 → 跳过");
-  assert.equal(gate.take("s2"), true, "另一会话 → 注入");
-  assert.equal(gate.size(), 2);
-  assert.equal(gate.take("s3"), true, "超过容量仍注入（淘汰最旧）");
-  assert.equal(gate.size(), 2, "容量上限生效");
-  assert.equal(gate.take("s1"), true, "最旧会话被淘汰 → 可再次注入");
-});
-
-test("hasGuideMessage：按 source.kind + summary 识别历史指南（F3）", () => {
-  const guideMessage = {
-    role: "user",
-    content: [{ type: "text", text: "[符号规范] …" }],
-    source: { kind: "rule-engine", summary: GUIDE_SUMMARY },
-  };
-  assert.equal(hasGuideMessage([guideMessage]), true);
-  assert.equal(hasGuideMessage([]), false, "空历史 → 未注入过");
-  assert.equal(
-    hasGuideMessage([
-      { source: { kind: "rule-engine", summary: "符号规范提醒" } },
-      { source: { kind: "session-channel", summary: GUIDE_SUMMARY } },
-      { role: "user" },
-      null,
-    ]),
-    false,
-    "其他摘要 / 其他来源 / 无 source 均不算命中",
-  );
-});
-
-test("SymbolGuideGate.has：只读判定，不改变记账（F3 快路径用）", () => {
-  const gate = new SymbolGuideGate(2);
-  assert.equal(gate.has("s1"), false);
-  assert.equal(gate.take("s1"), true);
-  assert.equal(gate.has("s1"), true);
-  assert.equal(gate.size(), 1, "has 不应新增记账");
 });

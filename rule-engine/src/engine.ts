@@ -4,15 +4,16 @@
  * 与宿主解耦：事件按结构面形态传入（SessionLike / SessionEventLike），注入经 `Injector`
  * 抽象（真实实现见 inject.ts，负责推迟宏任务与 host 调用），单测可塞假实现。
  *
- * 匹配面与判定时机：
- * - `assistant-text`：`assistant/message` 累积该回合正文，`turn/end` 时对整回合正文判定；
- * - `turn-end`：`turn/end` 时判定（match 可省 = 无条件命中）；
- * - `compaction`：`compaction/end`（一次上下文压缩的终态）时判定，文本入参为空串
- *   （match 可省 = 无条件命中，与 turn-end 同口径）；
- * - `tool-call` / `tool-result`：事件到达即判定（注入仍由注入器推迟；送达路径由 delivery 决定）。
+ * 节点表（规则与消费者共用）：assistant-text / user-message / tool-call / tool-result /
+ * turn-start / turn-end / step-start / step-end / session-start / compaction。
+ * 判定时机：文本类节点在事件到达时取文本载荷（assistant-text 由 `assistant/message` 缓冲、
+ * `turn/end` 时判定；tool-call / tool-result / user-message 即时判定）；边界类节点
+ * （turn-start / step-start / step-end / session-start / compaction）文本为空串，match 可省 =
+ * 无条件命中。
  *
- * 消费者面（registerConsumer）：turn-end 时按注册顺序**同步**依次询问，聚合其反馈
- * （返回 `{text, summary?}`）并统一注入。
+ * 消费者面（registerConsumer）：按注册的 `sources` 在对应节点被唤醒（缺省 `["turn-end"]`），
+ * 返回 `{text, summary?, reset?}`；与规则命中统一走「逐段闸门 → 按 delivery 分组 → 合并成
+ * 一条注入」。对齐点合并（尺度 session / turn / step / tool 的双 flag）见 README。
  *
  * 节流与去重（同一会话内）：每规则 `cooldownTurns` / `cooldownMs`；每回合注入条数上限
  * `maxInjectionsPerTurn`；同一回合内相同正文只注入一次（不同规则同文案也只发一条）；
@@ -84,10 +85,49 @@ interface CompiledRule {
 /** 归一化后的消费者注册项。 */
 interface CompiledConsumer {
   id: string;
+  /** 唤醒时机（节点表）。 */
+  sources: readonly RuleSource[];
   delivery: RuleDelivery;
   cooldownTurns: number;
   cooldownMs: number;
+  /** 按记录去重：投影里最多允许 N 条本反馈（0 = 无限制）。 */
+  dedupeInRecord: number;
   decide(context: ConsumerContext): ConsumerFeedback | null;
+}
+
+/** 对齐尺度（越靠后越细）。 */
+type Scale = "session" | "turn" | "step" | "tool";
+
+const SCALE_ORDER: readonly Scale[] = ["session", "turn", "step", "tool"];
+
+/** 节点 → 尺度与类（不在此表 = 不参与对齐合并，如 `compaction`）。 */
+const NODE_SCALES: ReadonlyMap<
+  RuleSource,
+  { scale: Scale; kind: "start" | "end" }
+> = new Map([
+  ["session-start", { scale: "session", kind: "start" }],
+  ["user-message", { scale: "turn", kind: "start" }],
+  ["turn-start", { scale: "turn", kind: "start" }],
+  ["assistant-text", { scale: "turn", kind: "end" }],
+  ["turn-end", { scale: "turn", kind: "end" }],
+  ["step-start", { scale: "step", kind: "start" }],
+  ["step-end", { scale: "step", kind: "end" }],
+  ["tool-call", { scale: "tool", kind: "start" }],
+  ["tool-result", { scale: "tool", kind: "end" }],
+]);
+
+/** 每消费者的对齐 flag（Set 成员 = true，缺省 = false）。 */
+interface ScaleFlags {
+  startFired: Set<Scale>;
+  endFired: Set<Scale>;
+}
+
+/** 待注入的一段（规则命中或消费者反馈）。 */
+interface Segment {
+  sourceId: string;
+  delivery: RuleDelivery;
+  text: string;
+  summary: string;
 }
 
 /** 单会话内存态（回合号、节流记账、正文缓冲）。 */
@@ -100,6 +140,8 @@ interface SessionState {
   fired: Map<string, { turn: number; time: number }>;
   /** 每消费者最近一次反馈（回合号 + 时刻）。 */
   consumerFired: Map<string, { turn: number; time: number }>;
+  /** 每消费者的对齐 flag（尺度 × start / end）。 */
+  consumerFlags: Map<string, ScaleFlags>;
   /** 回合正文缓冲：turn → 各 step 正文。 */
   buffers: Map<number, string[]>;
 }
@@ -257,9 +299,11 @@ export class RuleEngine {
     }
     const consumer: CompiledConsumer = {
       id,
+      sources: normalizeSources(input.sources),
       delivery: input.delivery === "next-step" ? "next-step" : "followup",
       cooldownTurns: normalizeCooldown(input.cooldownTurns),
       cooldownMs: normalizeCooldown(input.cooldownMs),
+      dedupeInRecord: normalizeCount(input.dedupeInRecord),
       decide: input.decide,
     };
     this.#consumers = [...this.#consumers, consumer];
@@ -422,6 +466,7 @@ export class RuleEngine {
       injected: new Map(),
       fired: new Map(),
       consumerFired: new Map(),
+      consumerFlags: new Map(),
       buffers: new Map(),
     };
     this.#sessions.set(sessionId, state);
@@ -447,27 +492,50 @@ export class RuleEngine {
         this.#buffer(state, turn, messageText(data["message"]));
         return;
       }
+      case "turn/start": {
+        this.#entry(sessionId, data, "turn-start", "", event);
+        return;
+      }
+      case "user/message": {
+        // 排除本引擎自己的注入（避免 `user-message` 节点自触发）
+        const message = data["message"];
+        const kind = (message as { source?: { kind?: unknown } } | null)?.source
+          ?.kind;
+        if (kind === SOURCE_KIND) return;
+        this.#entry(
+          sessionId,
+          data,
+          "user-message",
+          messageText(message),
+          event,
+        );
+        return;
+      }
+      case "step/start": {
+        this.#entry(sessionId, data, "step-start", "", event);
+        return;
+      }
+      case "step/end": {
+        this.#entry(sessionId, data, "step-end", "", event);
+        return;
+      }
       case "tool/call": {
-        const state = this.#session(sessionId);
-        const turn = numberOr(data["turn"], state.turn);
-        state.turn = Math.max(state.turn, turn);
-        this.#evaluate(
+        this.#entry(
+          sessionId,
+          data,
           "tool-call",
           toolCallText(data["name"], data["arguments"]),
-          sessionId,
-          turn,
+          event,
         );
         return;
       }
       case "tool/result": {
-        const state = this.#session(sessionId);
-        const turn = numberOr(data["turn"], state.turn);
-        state.turn = Math.max(state.turn, turn);
-        this.#evaluate(
+        this.#entry(
+          sessionId,
+          data,
           "tool-result",
           messageText(data["message"]),
-          sessionId,
-          turn,
+          event,
         );
         return;
       }
@@ -480,9 +548,11 @@ export class RuleEngine {
         const text = (state.buffers.get(turn) ?? []).join("\n");
         this.#pruneBuffers(state, turn);
         if (INJECTABLE_TURN_REASONS.has(reason)) {
-          this.#evaluate("assistant-text", text, sessionId, turn);
-          this.#evaluate("turn-end", text, sessionId, turn);
-          this.#askConsumers(text, sessionId, turn, state);
+          this.#dispatch("assistant-text", text, sessionId, turn, event);
+          this.#dispatch("turn-end", text, sessionId, turn, event);
+        } else {
+          // 异常收尾：不唤醒，但仍按「窗口关闭」清 startFired（时机表「被吞时」列）
+          this.#touchScale(sessionId, "turn-end", turn);
         }
         this.#pruneCounters(state, turn);
         return;
@@ -490,10 +560,7 @@ export class RuleEngine {
       case "compaction/end": {
         // 上下文压缩完成（一次压缩一条：summary / prune 都在 start→end 之内，只认终态，
         // 避免同一次压缩触发多次）
-        const state = this.#session(sessionId);
-        const turn = numberOr(data["turn"], state.turn);
-        state.turn = Math.max(state.turn, turn);
-        this.#evaluate("compaction", "", sessionId, turn);
+        this.#entry(sessionId, data, "compaction", "", event);
         return;
       }
       default:
@@ -536,38 +603,110 @@ export class RuleEngine {
     }
   }
 
-  /** 对某匹配面判定并逐条派发（命中 → 节流 → 注入）。 */
-  #evaluate(
-    source: RuleSource,
+  /** 对某节点判定并派发（统一入口；内部不抛）。 */
+  #dispatch(
+    trigger: RuleSource,
     text: string,
     sessionId: string,
     turn: number,
+    event?: unknown,
   ): void {
-    if (RULE_SOURCES.indexOf(source) < 0) return;
-    const state = this.#session(sessionId);
-    for (const item of this.#compiled) {
-      if (!item.rule.enabled || item.rule.source !== source) continue;
-      if (!item.matcher.match(text)) continue;
-      this.#fire(item.rule, sessionId, turn, state);
+    try {
+      const state = this.#session(sessionId);
+      const segments: Segment[] = [];
+      this.#collectRules(trigger, text, sessionId, turn, state, segments);
+      this.#collectConsumers(
+        trigger,
+        text,
+        sessionId,
+        turn,
+        state,
+        segments,
+        event,
+      );
+      this.#write(segments, sessionId, turn, state);
+    } catch (err) {
+      this.#warn(`节点 "${trigger}" 派发失败：${String(err)}`);
     }
   }
 
-  /** turn-end 调度：按注册顺序同步询问消费者，聚合反馈并统一注入。 */
-  #askConsumers(
+  /** 事件入口统一形态：取回合号 → 派发。 */
+  #entry(
+    sessionId: string,
+    data: Record<string, unknown>,
+    trigger: RuleSource,
+    text: string,
+    event: unknown,
+  ): void {
+    const state = this.#session(sessionId);
+    const turn = numberOr(data["turn"], state.turn);
+    state.turn = Math.max(state.turn, turn);
+    this.#dispatch(trigger, text, sessionId, turn, event);
+  }
+
+  /** 规则命中收集：规则级节流 → 投影计数去重 → 产出段。 */
+  #collectRules(
+    trigger: RuleSource,
     text: string,
     sessionId: string,
     turn: number,
     state: SessionState,
+    segments: Segment[],
+  ): void {
+    for (const item of this.#compiled) {
+      const rule = item.rule;
+      if (!rule.enabled || rule.source !== trigger) continue;
+      if (!item.matcher.match(text)) continue;
+      const now = this.#now();
+      const last = state.fired.get(rule.id);
+      if (last !== undefined) {
+        if (rule.cooldownTurns > 0 && turn - last.turn < rule.cooldownTurns)
+          continue;
+        if (rule.cooldownMs > 0 && now - last.time < rule.cooldownMs) continue;
+      }
+      const summary = rule.action.summary ?? boundSummary(rule.action.text);
+      // 按记录去重：投影里已有 N 条本注入 → 不产出，仍记本次命中（避免每次触发都重读投影）
+      if (
+        rule.dedupeInRecord > 0 &&
+        this.#countInRecord(sessionId, summary) >= rule.dedupeInRecord
+      ) {
+        state.fired.set(rule.id, { turn, time: now });
+        continue;
+      }
+      state.fired.set(rule.id, { turn, time: now });
+      segments.push({
+        sourceId: rule.id,
+        delivery: rule.delivery,
+        text: rule.action.text,
+        summary,
+      });
+    }
+  }
+
+  /** 消费者唤醒收集：对齐 flag → 冷却 → decide → 投影计数去重 → 产出段。 */
+  #collectConsumers(
+    trigger: RuleSource,
+    text: string,
+    sessionId: string,
+    turn: number,
+    state: SessionState,
+    segments: Segment[],
+    event: unknown,
   ): void {
     if (this.#consumers.length === 0) return;
-    const context: ConsumerContext = {
-      sessionId,
-      turn,
-      text,
-      trigger: "turn-end",
-    };
+    const node = NODE_SCALES.get(trigger);
+    const now = this.#now();
     for (const consumer of this.#consumers) {
-      const now = this.#now();
+      const registered = consumer.sources.includes(trigger);
+      let wake = registered;
+      if (node !== undefined) {
+        const flags = this.#flagsOf(state, consumer.id);
+        wake =
+          node.kind === "start"
+            ? this.#bookkeepStart(flags, node.scale, registered)
+            : this.#bookkeepEnd(flags, node.scale, registered);
+      }
+      if (!wake) continue;
       const last = state.consumerFired.get(consumer.id);
       if (last !== undefined) {
         if (
@@ -580,108 +719,188 @@ export class RuleEngine {
       }
       let feedback: ConsumerFeedback | null = null;
       try {
-        feedback = consumer.decide(context);
+        feedback = consumer.decide({ sessionId, turn, text, trigger, event });
       } catch (err) {
         this.#warn(`消费者 "${consumer.id}" decide 抛错：${String(err)}`);
         continue;
       }
       if (feedback === null || feedback === undefined) continue;
+      if (feedback.reset === true) this.#clearFlags(state, consumer.id);
       const feedbackText =
         typeof feedback.text === "string" ? feedback.text.trim() : "";
       if (feedbackText.length === 0) {
         this.#warn(`消费者 "${consumer.id}" 反馈正文为空，已跳过`);
         continue;
       }
-      // 与规则共用通用闸门：每回合上限 + 同正文去重
-      const usage = state.injected.get(turn) ?? {
-        count: 0,
-        texts: new Set<string>(),
-      };
-      if (usage.count >= this.#maxInjectionsPerTurn) continue;
-      if (usage.texts.has(feedbackText)) continue;
       const summary =
         typeof feedback.summary === "string" &&
         feedback.summary.trim().length > 0
           ? feedback.summary
           : boundSummary(feedbackText);
-      try {
-        this.#injector.inject({
-          sourceId: `consumer:${consumer.id}`,
-          sessionId,
-          delivery: consumer.delivery,
-          text: feedbackText,
-          summary,
-        });
-      } catch (err) {
-        this.#warn(`消费者 "${consumer.id}" 注入失败：${String(err)}`);
+      if (
+        consumer.dedupeInRecord > 0 &&
+        this.#countInRecord(sessionId, summary) >= consumer.dedupeInRecord
+      ) {
+        state.consumerFired.set(consumer.id, { turn, time: now });
         continue;
       }
-      usage.count += 1;
-      usage.texts.add(feedbackText);
-      state.injected.set(turn, usage);
       state.consumerFired.set(consumer.id, { turn, time: now });
+      segments.push({
+        sourceId: `consumer:${consumer.id}`,
+        delivery: consumer.delivery,
+        text: feedbackText,
+        summary,
+      });
     }
   }
 
-  /** 会话可见投影里是否已有同 summary 的本引擎注入（`dedupeInRecord` 判据；读不到 = false）。 */
-  #inRecord(sessionId: string, summary: string): boolean {
-    const messages = this.#messagesOf?.(sessionId);
-    if (!Array.isArray(messages)) return false;
-    return messages.some((message) => {
-      const source = (
-        message as { source?: { kind?: unknown; summary?: unknown } } | null
-      )?.source;
-      return source?.kind === SOURCE_KIND && source?.summary === summary;
-    });
-  }
-
-  /** 节流与去重闸门；通过则交付注入器并记账。 */
-  #fire(
-    rule: NormalizedRule,
+  /** 逐段闸门（段数上限 + 同正文去重）→ 按 delivery 分组 → 合并为一条写入。 */
+  #write(
+    segments: Segment[],
     sessionId: string,
     turn: number,
     state: SessionState,
   ): void {
-    // 1) 规则级节流：回合间隔与毫秒间隔
-    const now = this.#now();
-    const last = state.fired.get(rule.id);
-    if (last !== undefined) {
-      if (rule.cooldownTurns > 0 && turn - last.turn < rule.cooldownTurns)
-        return;
-      if (rule.cooldownMs > 0 && now - last.time < rule.cooldownMs) return;
+    if (segments.length === 0) return;
+    const groups = new Map<RuleDelivery, Segment[]>();
+    for (const segment of segments) {
+      const list = groups.get(segment.delivery) ?? [];
+      list.push(segment);
+      groups.set(segment.delivery, list);
     }
-    // 2) 回合级闸门：条数上限 + 同内容只发一次
-    const text = rule.action.text;
-    const usage = state.injected.get(turn) ?? {
-      count: 0,
-      texts: new Set<string>(),
-    };
-    if (usage.count >= this.#maxInjectionsPerTurn) return;
-    if (usage.texts.has(text)) return;
-    // 3) 按记录去重（`dedupeInRecord`）：会话可见投影里已有同 summary 的注入 → 不注入，
-    //    仍记本次命中（避免每次工具调用都重读投影）；投影不可读 → 照旧注入（fail-open）
-    const summary = rule.action.summary ?? boundSummary(text);
-    if (rule.dedupeInRecord && this.#inRecord(sessionId, summary)) {
-      state.fired.set(rule.id, { turn, time: now });
-      return;
+    for (const [delivery, list] of groups) {
+      const usage = state.injected.get(turn) ?? {
+        count: 0,
+        texts: new Set<string>(),
+      };
+      const kept: Segment[] = [];
+      for (const segment of list) {
+        if (usage.count >= this.#maxInjectionsPerTurn) {
+          this.#warn(
+            `回合 ${turn} 注入段数已达上限 ${this.#maxInjectionsPerTurn}，来源 "${segment.sourceId}" 的注入跳过`,
+          );
+          continue;
+        }
+        if (usage.texts.has(segment.text)) continue;
+        usage.count += 1;
+        usage.texts.add(segment.text);
+        kept.push(segment);
+      }
+      state.injected.set(turn, usage);
+      if (kept.length === 0) continue;
+      const sourceId = kept.map((item) => item.sourceId).join("+");
+      try {
+        this.#injector.inject({
+          sourceId,
+          sessionId,
+          delivery,
+          text: kept.map((item) => item.text).join("\n\n"),
+          summary: kept[0]?.summary ?? "",
+          // 合并注入（多段）时才带各段摘要；单段与 `summary` 相同，省略
+          ...(kept.length > 1
+            ? { summaries: kept.map((item) => item.summary) }
+            : {}),
+        });
+      } catch (err) {
+        this.#warn(`来源 "${sourceId}" 注入失败：${String(err)}`);
+      }
     }
-    // 4) 交付注入器（其内部负责推迟宏任务；抛错只记 warning）
+  }
+
+  /** 只做窗口账簿（不唤醒）：异常收尾的 `turn/end` 等场景。 */
+  #touchScale(sessionId: string, trigger: RuleSource, turn: number): void {
+    const node = NODE_SCALES.get(trigger);
+    if (node === undefined) return;
+    const state = this.#session(sessionId);
+    state.turn = Math.max(state.turn, turn);
+    for (const consumer of this.#consumers) {
+      const flags = this.#flagsOf(state, consumer.id);
+      if (node.kind === "start") this.#bookkeepStart(flags, node.scale, false);
+      else this.#bookkeepEnd(flags, node.scale, false);
+    }
+  }
+
+  /** `session/created`（含恢复）→ `session-start` 节点；监听器永不抛。 */
+  sessionCreated(sessionId: string, event?: unknown): void {
+    if (typeof sessionId !== "string" || sessionId.length === 0) return;
     try {
-      this.#injector.inject({
-        sourceId: rule.id,
-        sessionId,
-        delivery: rule.delivery,
-        text,
-        summary,
-      });
+      const state = this.#session(sessionId);
+      this.#dispatch("session-start", "", sessionId, state.turn, event);
     } catch (err) {
-      this.#warn(`规则 "${rule.id}" 注入失败：${String(err)}`);
-      return;
+      this.#warn(`session-start 派发失败：${String(err)}`);
     }
-    state.fired.set(rule.id, { turn, time: now });
-    usage.count += 1;
-    usage.texts.add(text);
-    state.injected.set(turn, usage);
+  }
+
+  /** 消费者对齐 flag（按需创建）。 */
+  #flagsOf(state: SessionState, consumerId: string): ScaleFlags {
+    let flags = state.consumerFlags.get(consumerId);
+    if (flags === undefined) {
+      flags = { startFired: new Set(), endFired: new Set() };
+      state.consumerFlags.set(consumerId, flags);
+    }
+    return flags;
+  }
+
+  /** 清空消费者的对齐 flag（`reset` 指定值）。 */
+  #clearFlags(state: SessionState, consumerId: string): void {
+    state.consumerFlags.delete(consumerId);
+  }
+
+  /**
+   * 时机表 `*-start`：清本尺度及更细的 endFired、清更细的 startFired；只有注册的节点才置位并唤醒。
+   * `session` 尺度没有 end 节点 → 不设窗口幂等（每次到达都唤醒）。
+   */
+  #bookkeepStart(
+    flags: ScaleFlags,
+    scale: Scale,
+    registered: boolean,
+  ): boolean {
+    for (const item of scalesFrom(scale)) {
+      flags.endFired.delete(item);
+      if (item !== scale) flags.startFired.delete(item);
+    }
+    if (!registered) return false;
+    if (scale === "session") return true;
+    if (flags.startFired.has(scale)) return false;
+    flags.startFired.add(scale);
+    return true;
+  }
+
+  /**
+   * 时机表 `*-end`：查本尺度及更细的 endFired（注册的节点才唤醒）→ 置位；
+   * 「清 startFired[本尺度]」与是否唤醒无关（窗口关闭即清）。
+   */
+  #bookkeepEnd(flags: ScaleFlags, scale: Scale, registered: boolean): boolean {
+    const duplicated = scalesFrom(scale).some((item) =>
+      flags.endFired.has(item),
+    );
+    const wake = registered && !duplicated;
+    flags.startFired.delete(scale);
+    if (wake) flags.endFired.add(scale);
+    return wake;
+  }
+
+  /** 会话可见投影里本引擎注入的条数（`summary` 或 `summaries` 命中该 key）。 */
+  #countInRecord(sessionId: string, key: string): number {
+    const messages = this.#messagesOf?.(sessionId);
+    if (!Array.isArray(messages)) return 0;
+    let count = 0;
+    for (const message of messages) {
+      const source = (
+        message as {
+          source?: { kind?: unknown; summary?: unknown; summaries?: unknown };
+        } | null
+      )?.source;
+      if (source?.kind !== SOURCE_KIND) continue;
+      if (source.summary === key) {
+        count += 1;
+        continue;
+      }
+      if (Array.isArray(source.summaries) && source.summaries.includes(key)) {
+        count += 1;
+      }
+    }
+    return count;
   }
 }
 
@@ -695,4 +914,25 @@ function normalizeCooldown(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? Math.floor(value)
     : 0;
+}
+
+/** 去重计数兜底（布尔兼容：true → 1、false → 0；非正 / 非法取 0 = 无限制）。 */
+function normalizeCount(value: unknown): number {
+  if (value === true) return 1;
+  if (value === false || value === undefined) return 0;
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : 0;
+}
+
+/** 消费者唤醒时机兜底：缺省 `["turn-end"]`；过滤非法值，全非法同样退回缺省。 */
+function normalizeSources(value: unknown): readonly RuleSource[] {
+  if (!Array.isArray(value)) return ["turn-end"];
+  const list = value.filter((item) => isRuleSource(item));
+  return list.length > 0 ? list : ["turn-end"];
+}
+
+/** 本尺度及更细尺度（含自身，从粗到细）。 */
+function scalesFrom(scale: Scale): Scale[] {
+  return SCALE_ORDER.slice(SCALE_ORDER.indexOf(scale));
 }

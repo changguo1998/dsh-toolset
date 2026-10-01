@@ -21,7 +21,9 @@ function fakeCtx() {
   const registered: Array<{ name?: string }> = [];
   const provided = new Map<string, unknown>();
   let listener:
-    ((session: SessionLike, event: SessionEventLike) => void) | null = null;
+    | ((session: SessionLike, event: SessionEventLike) => void)
+    | null = null;
+  const listeners = new Map<string, (session: unknown, event: unknown) => void>();
   const agent = {
     session: { id: "s1" },
     followup: (message: unknown) => {
@@ -36,12 +38,20 @@ function fakeCtx() {
     get listener() {
       return listener;
     },
+    get createdListener() {
+      // 统一按「单参（session）」形态暴露给测试
+      return (listeners.get("session/created") ?? null) as
+        | ((session: unknown) => void)
+        | null;
+    },
     ctx: {
       on: (
-        _event: string,
+        event: string,
         cb: (session: SessionLike, event: SessionEventLike) => void,
       ) => {
-        listener = cb;
+        // 真实宿主按事件名分发（可注册多个）；测试里按名保存，`listener` 仅暴露 session/event
+        listeners.set(event, cb as (session: unknown, event: unknown) => void);
+        if (event === "session/event") listener = cb;
       },
       // tools 不在 inject 声明中：apply 经 ctx.get('tools') 读取（严格模式安全路径）
       get: (name: string) =>
@@ -410,6 +420,38 @@ test("apply：装载期告警挂起——首个 onNotice 订阅者注册时重�
     assert.equal(notices2.length, 0, "非首个订阅者不重放");
   } finally {
     process.stderr.write = originalWrite;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("apply：session/created → session-start 节点唤醒消费者（含恢复）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-test-"));
+  try {
+    const fake = fakeCtx();
+    await apply(fake.ctx, { stateDir: dir });
+    const service = fake.provided.get("ruleEngine") as {
+      registerConsumer(input: {
+        id: string;
+        sources: readonly string[];
+        decide(ctx: { trigger: string }): { text: string } | null;
+      }): () => void;
+    };
+    const triggers: string[] = [];
+    service.registerConsumer({
+      id: "s1",
+      sources: ["session-start"],
+      decide: (ctx) => {
+        triggers.push(ctx.trigger);
+        return { text: "开局提醒" };
+      },
+    });
+    assert.equal(typeof fake.createdListener, "function");
+    fake.createdListener?.({ id: "s1" });
+    assert.equal(fake.followups.length, 0, "同步窗口内不得调用 followup");
+    await tick();
+    assert.deepEqual(triggers, ["session-start"]);
+    assert.equal(fake.followups.length, 1);
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

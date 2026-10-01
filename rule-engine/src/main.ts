@@ -101,6 +101,8 @@ interface EventBus {
     event: "session/event",
     listener: (session: SessionLike, event: SessionEventLike) => void,
   ): unknown;
+  /** 会话建立（含恢复）事件：载荷为 session 句柄。 */
+  on(event: "session/created", listener: (session: unknown) => void): unknown;
 }
 
 /** 工具注册面最小形态。 */
@@ -137,7 +139,7 @@ export interface RuleEngineService {
   status(): ReturnType<RuleEngine["status"]>;
   /** 只读判定：返回命中规则（含可注入内容），不注入、不改状态。 */
   evaluate(input: EvaluateInput): EvaluateResult;
-  /** 简单消费者注册：turn-end 询问 decide，反馈由本引擎统一注入；返回注销函数。 */
+  /** 消费者注册：按注册的 `sources` 在对应节点唤醒 decide，反馈由本引擎统一注入；返回注销函数。 */
   registerConsumer(input: ConsumerRegistration): () => void;
   /** 订阅插件告警（完整展示行 + tone；项目级 #61 方案 B）；返回注销函数。 */
   onNotice(listener: (event: NoticeEvent) => void): () => void;
@@ -202,6 +204,16 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
         if (isSubagentSession(session)) return;
         engine.handle(session, event);
       });
+      // `session/created`（含恢复）→ `session-start` 节点。宿主注释：throwing listener 会
+      // 回滚会话 attach，故监听器永不抛（引擎侧 sessionCreated 已兜底）。
+      try {
+        c.on("session/created", (session: unknown) => {
+          const id = (session as { id?: unknown } | null)?.id;
+          engine.sessionCreated(typeof id === "string" ? id : "", session);
+        });
+      } catch (err) {
+        warn(`session/created 订阅失败：${String(err)}`);
+      }
     }
 
     // 工具族：缺 tools 时降级（核心事件订阅已生效）。

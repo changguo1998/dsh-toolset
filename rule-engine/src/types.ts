@@ -3,16 +3,26 @@
  *
  * 语义对齐 rule-engine/README.md：
  * - 规则 = 匹配面（source）+ 命中条件（match）+ 动作（action，本期只有 inject）+ 节流
- * - 匹配面四类：模型正文文本（assistant-text，回合结束时对整回合正文判定）、
- *   工具调用与结果（tool-call / tool-result，事件到达即判定）、回合边界（turn-end，
- *   match 可省 = 无条件命中）、上下文压缩（compaction，`compaction/end` 到达即判定，
- *   与 turn-end 同口径：空条件 = 无条件命中，文本入参为空串）
+ * - 节点表（匹配面，规则与消费者共用）：assistant-text / user-message / tool-call /
+ *   tool-result / turn-start / turn-end / step-start / step-end / session-start / compaction。
+ *   边界类节点（turn-end / turn-start / step-start / step-end / session-start / compaction）
+ *   的 match 可省 = 无条件命中（文本入参为空串）；文本类节点（assistant-text / user-message /
+ *   tool-call / tool-result）空条件 = 永不命中。
  * - 规则来源两层：插件配置（config，只读基线）+ 运行时层（工具族增删改，落状态目录）
  */
 
-/** 匹配面：文本 / 工具调用 / 工具结果 / 回合边界 / 上下文压缩。 */
+/** 节点（匹配面）：文本 / 消息 / 工具 / 回合与步的边界 / 压缩。 */
 export type RuleSource =
-  "assistant-text" | "tool-call" | "tool-result" | "turn-end" | "compaction";
+  | "assistant-text"
+  | "user-message"
+  | "tool-call"
+  | "tool-result"
+  | "turn-start"
+  | "turn-end"
+  | "step-start"
+  | "step-end"
+  | "session-start"
+  | "compaction";
 
 /** 注入送达路径：新回合（followup）或最近 pre-step（next-step）。 */
 export type RuleDelivery = "followup" | "next-step";
@@ -67,9 +77,10 @@ export interface Rule {
   cooldownTurns?: number;
   /** 同一会话内两次命中之间的最小毫秒间隔，缺省 0（不限制）。 */
   cooldownMs?: number;
-  /** 按记录去重，缺省 false：会话可见投影里已有同 summary 的本引擎注入则跳过
-   *  （重载会话不重复注入；压缩把注入挤出投影后才重新注入）。 */
-  dedupeInRecord?: boolean;
+  /** 按记录去重，缺省 0（= 无限制）：会话可见投影里**最多允许 N 条**本注入。
+   *  0 = 不限制；1 = 已有 1 条就跳过（重载会话不重复、被压缩挤出后才补）；
+   *  N ≥ 2 = 允许最多 N 条。兼容旧布尔值：true → 1、false → 0。 */
+  dedupeInRecord?: number;
   /** 说明（工具面只读展示）。 */
   description?: string | null;
 }
@@ -84,7 +95,7 @@ export interface NormalizedRule {
   action: InjectAction;
   cooldownTurns: number;
   cooldownMs: number;
-  dedupeInRecord: boolean;
+  dedupeInRecord: number;
   description: string | null;
 }
 
@@ -137,8 +148,10 @@ export interface InjectionRequest {
   delivery: RuleDelivery;
   /** 注入正文。 */
   text: string;
-  /** 一行摘要。 */
+  /** 一行摘要（合并注入时取首段摘要）。 */
   summary: string;
+  /** 合并注入的各段摘要（单段时可省略，与 `summary` 相同）。 */
+  summaries?: readonly string[];
 }
 
 /** 注入器：把一条注入请求送达宿主（真实实现推迟宏任务后 followup；测试用假实现）。 */
@@ -196,15 +209,17 @@ export interface EvaluateResult {
   disabled: string[];
 }
 
-/** 消费者回调上下文（本期触发点 = 模型回复后的整回合正文）。 */
+/** 消费者回调上下文（触发点 = 注册声明的节点）。 */
 export interface ConsumerContext {
   sessionId: string;
-  /** 来源回合号。 */
+  /** 来源回合号（未知时沿用最近已知值）。 */
   turn: number;
-  /** 该回合全部 `assistant/message` 正文按 step 顺序拼接。 */
+  /** 该节点的文本载荷（边界类节点为空串）。 */
   text: string;
-  /** 触发点标识（本期固定 `turn-end`）。 */
-  trigger: "turn-end";
+  /** 实际触发的节点 id。 */
+  trigger: RuleSource;
+  /** 原始宿主事件（结构面访问，供需要额外字段的消费者使用）。 */
+  event?: unknown;
 }
 
 /** 消费者反馈（由 rule-engine 统一注入的内容）。 */
@@ -213,14 +228,20 @@ export interface ConsumerFeedback {
   text: string;
   /** 一行摘要（notice 呈现用），缺省取正文截断。 */
   summary?: string;
+  /** 置 true = 清空本消费者在本会话的对齐 flag（「这次唤醒不算吞并」）。 */
+  reset?: boolean;
 }
 
 /** 消费者注册项（简单注册面：同步 decide，返回 null = 本轮不反馈）。 */
 export interface ConsumerRegistration {
   /** 消费者标识（唯一；日志与冷却记账用）。 */
   id: string;
+  /** 唤醒时机（节点表）；缺省 `["turn-end"]`（向后兼容）。 */
+  sources?: readonly RuleSource[];
   /** 反馈注入路径，缺省 followup。 */
   delivery?: RuleDelivery;
+  /** 按记录去重（与规则侧同口径）：投影里最多允许 N 条本反馈，缺省 0 = 无限制。 */
+  dedupeInRecord?: number;
   /** 同一会话两次反馈之间的最小回合间隔，缺省 0。 */
   cooldownTurns?: number;
   /** 同一会话两次反馈之间的最小毫秒间隔，缺省 0（不限制）。 */

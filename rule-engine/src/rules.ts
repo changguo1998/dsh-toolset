@@ -24,9 +24,14 @@ import type {
 /** 合法匹配面（工具面入参校验与错误提示用）。 */
 export const RULE_SOURCES: readonly RuleSource[] = [
   "assistant-text",
+  "user-message",
   "tool-call",
   "tool-result",
+  "turn-start",
   "turn-end",
+  "step-start",
+  "step-end",
+  "session-start",
   "compaction",
 ];
 
@@ -171,6 +176,13 @@ export function normalizeRule(input: unknown): NormalizeResult {
     }
     return Math.floor(value);
   };
+  // 去重计数：缺省 0 = 无限制；兼容旧布尔值 true → 1、false → 0。
+  const count = (value: unknown, field: string): number => {
+    if (value === undefined) return 0;
+    if (value === true) return 1;
+    if (value === false) return 0;
+    return int(value, field, 0);
+  };
   return {
     ok: true,
     warnings,
@@ -190,7 +202,7 @@ export function normalizeRule(input: unknown): NormalizeResult {
       },
       cooldownTurns: int(raw.cooldownTurns, "cooldownTurns", 0),
       cooldownMs: int(raw.cooldownMs, "cooldownMs", 0),
-      dedupeInRecord: raw.dedupeInRecord === true,
+      dedupeInRecord: count(raw.dedupeInRecord, "dedupeInRecord"),
       description:
         typeof raw.description === "string" && raw.description.trim().length > 0
           ? raw.description

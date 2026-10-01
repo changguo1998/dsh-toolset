@@ -39,7 +39,7 @@ test("normalizeRule：补齐缺省值", () => {
     action: { type: "inject", text: "请遵守规范" },
     cooldownTurns: 0,
     cooldownMs: 0,
-    dedupeInRecord: false,
+    dedupeInRecord: 0,
     description: null,
   });
 });
@@ -66,9 +66,23 @@ test("normalizeRule：显式字段覆盖缺省", () => {
   assert.deepEqual(result.rule.match, { regex: ["rm -rf"], flags: "" });
   assert.equal(result.rule.cooldownTurns, 2);
   assert.equal(result.rule.cooldownMs, 5000);
-  assert.equal(result.rule.dedupeInRecord, true);
+  assert.equal(result.rule.dedupeInRecord, 1, "旧布尔 true → 1（兼容）");
   assert.equal(result.rule.description, "越界操作提醒");
   assert.equal(result.rule.action.summary, "约束提醒");
+});
+
+test("normalizeRule：dedupeInRecord 整型语义（0 = 无限制；N → N；非法取 0）", () => {
+  const withCount = normalizeRule(ruleInput({ dedupeInRecord: 2 }));
+  assert.equal(withCount.ok, true);
+  if (withCount.ok) assert.equal(withCount.rule.dedupeInRecord, 2);
+  const legacyFalse = normalizeRule(ruleInput({ dedupeInRecord: false }));
+  if (legacyFalse.ok) assert.equal(legacyFalse.rule.dedupeInRecord, 0);
+  const bad = normalizeRule(ruleInput({ dedupeInRecord: -1 }));
+  assert.equal(bad.ok, true);
+  if (bad.ok) {
+    assert.equal(bad.rule.dedupeInRecord, 0);
+    assert.match(bad.warnings.join("\n"), /dedupeInRecord 非法/);
+  }
 });
 
 test("normalizeRule：非法输入逐条报错", () => {

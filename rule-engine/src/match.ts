@@ -42,11 +42,23 @@ export interface CompiledMatcher {
   warnings: string[];
 }
 
+/** 边界类节点（无文本载荷；空条件 = 无条件命中）。 */
+export const BOUNDARY_SOURCES: ReadonlySet<RuleSource> = new Set([
+  "turn-start",
+  "turn-end",
+  "step-start",
+  "step-end",
+  "session-start",
+  "compaction",
+] as const);
+
 /**
  * 编译命中条件。
  *
- * 缺省语义：条件为空（无 keywords / regex / predicates）时，边界类匹配面（`turn-end` /
- * `compaction`，无文本）视为无条件命中，其余匹配面视为永不命中（防误配置把每条正文都当命中）。
+ * 缺省语义：条件为空（无 keywords / regex / predicates）时，**边界类节点**（无文本载荷：
+ * `turn-start` / `turn-end` / `step-start` / `step-end` / `session-start` / `compaction`）
+ * 视为无条件命中，文本类节点（`assistant-text` / `user-message` / `tool-call` / `tool-result`）
+ * 视为永不命中（防误配置把每条正文都当命中）。
  */
 export function compileMatcher(
   spec: MatchSpec | undefined,
@@ -72,7 +84,7 @@ export function compileMatcher(
   const isEmpty =
     keywords.length === 0 && regexes.length === 0 && predicates.length === 0;
   if (isEmpty) {
-    const unconditional = source === "turn-end" || source === "compaction";
+    const unconditional = BOUNDARY_SOURCES.has(source);
     return { match: () => unconditional, warnings };
   }
   return {

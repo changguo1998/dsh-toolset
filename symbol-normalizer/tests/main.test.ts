@@ -7,25 +7,24 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { apply } from "../src/main.ts";
-import { GUIDE_SUMMARY } from "../src/guide.ts";
 
 /** 消费者注册记录。 */
 interface ConsumerRecord {
   id: string;
+  sources?: readonly string[];
+  dedupeInRecord?: number;
   decide(context: {
     sessionId: string;
     turn: number;
     text: string;
     trigger: string;
-  }): { text: string; summary?: string } | null;
+  }): { text: string; summary?: string; reset?: boolean } | null;
 }
 
 /** 假 ctx：记录注册的消费者、provide 的服务与 effect 清理函数。 */
 function fakeCtx(
   options: {
     noRuleEngine?: boolean;
-    /** 会话存储替身：id → 会话对象（F3 历史判定用；缺省 = 无 sessions 面）。 */
-    sessions?: Record<string, unknown>;
   } = {},
 ): {
   consumers: ConsumerRecord[];
@@ -42,11 +41,6 @@ function fakeCtx(
     provide: (name: string, value: unknown) => provided.set(name, value),
     effect: (fn: () => unknown) => effects.push(fn),
   };
-  if (options.sessions !== undefined) {
-    ctx["sessions"] = {
-      get: (id: string) => options.sessions?.[id],
-    };
-  }
   if (options.noRuleEngine !== true) {
     ctx["ruleEngine"] = {
       registerConsumer: (input: ConsumerRecord) => {
@@ -132,20 +126,22 @@ test("apply：rule-engine 缺席时只告警不抛，展示服务仍可用", asy
   assert.equal(service.normalize("失败 ❌").text, "失败 ✗");
 });
 
-test("apply：开局指南消费者每会话只注入一次（内容含白名单与使用标准）", async () => {
+test("apply：开局指南消费者按统一标准注册（sources + dedupeInRecord），decide 恒返回指南内容", async () => {
   const fake = fakeCtx();
   await apply(fake.ctx, { cooldownMs: 0, cooldownRuns: 0 });
   const guide = fake.consumers.find((c) => c.id === "symbol-normalizer-guide");
   assert.ok(guide !== undefined);
+  // 去重/补注入由 rule-engine 统一负责：投影里最多 1 条，被压缩挤出后由 compaction 节点补一次
+  assert.deepEqual(guide.sources, ["turn-end", "compaction"]);
+  assert.equal(guide.dedupeInRecord, 1);
   const context = { sessionId: "s1", turn: 1, text: "", trigger: "turn-end" };
-  const first = guide.decide(context);
-  assert.ok(first !== null, "首回合应注入");
-  assert.match(first.text, /推荐符号白名单/);
-  assert.equal(first.summary, "符号规范（会话开局指南）");
-  assert.equal(guide.decide(context), null, "同会话第二次 → 跳过");
+  const content = guide.decide(context);
+  assert.ok(content !== null);
+  assert.match(content.text, /推荐符号白名单/);
+  assert.equal(content.summary, "符号规范（会话开局指南）");
   assert.ok(
-    guide.decide({ ...context, sessionId: "s2" }) !== null,
-    "另一会话不受影响",
+    guide.decide({ ...context, trigger: "compaction" }) !== null,
+    "压缩节点同样返回内容（是否注入由 rule-engine 按投影判定）",
   );
 });
 
@@ -156,72 +152,5 @@ test("apply：injectGuide=false 时不注册指南消费者", async () => {
     fake.consumers.map((c) => c.id),
     ["symbol-normalizer"],
     "关闭后只剩审查消费者",
-  );
-});
-
-test("F3：历史已有指南（重启/resume）→ 跳过注入；未注入过的会话仍注入", async () => {
-  const fake = fakeCtx({
-    sessions: {
-      s1: {
-        deriveMessages: () => [
-          { role: "user" },
-          {
-            role: "user",
-            source: { kind: "rule-engine", summary: GUIDE_SUMMARY },
-          },
-        ],
-      },
-    },
-  });
-  await apply(fake.ctx, { cooldownMs: 0, cooldownRuns: 0 });
-  const guide = fake.consumers.find((c) => c.id === "symbol-normalizer-guide");
-  assert.ok(guide !== undefined);
-  assert.equal(
-    guide.decide({ sessionId: "s1", turn: 1, text: "", trigger: "turn-end" }),
-    null,
-    "历史已有 → 不重复注入",
-  );
-  assert.ok(
-    guide.decide({
-      sessionId: "s2",
-      turn: 1,
-      text: "",
-      trigger: "turn-end",
-    }) !== null,
-    "不同会话各自一次",
-  );
-  assert.equal(
-    guide.decide({ sessionId: "s1", turn: 2, text: "", trigger: "turn-end" }),
-    null,
-    "记账后同会话仍跳过",
-  );
-});
-
-test("F3：历史读取抛错 → fail-open 仍注入（退回进程内记账）", async () => {
-  const fake = fakeCtx({
-    sessions: {
-      s1: {
-        deriveMessages: () => {
-          throw new Error("boom");
-        },
-      },
-    },
-  });
-  await apply(fake.ctx, { cooldownMs: 0, cooldownRuns: 0 });
-  const guide = fake.consumers.find((c) => c.id === "symbol-normalizer-guide");
-  assert.ok(guide !== undefined);
-  assert.ok(
-    guide.decide({
-      sessionId: "s1",
-      turn: 1,
-      text: "",
-      trigger: "turn-end",
-    }) !== null,
-    "读不到历史时不阻断指南",
-  );
-  assert.equal(
-    guide.decide({ sessionId: "s1", turn: 2, text: "", trigger: "turn-end" }),
-    null,
-    "进程内记账仍生效",
   );
 });

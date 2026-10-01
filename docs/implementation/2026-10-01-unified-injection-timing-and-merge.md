@@ -134,13 +134,30 @@ agent 工厂发布顺序（`dsh-agent-loop/lib/index.js:1729-1737`）：会话 e
    - `dedupeInRecord` 计数 = 会话可见投影中命中该 key（`summary` 或 `summaries` 命中）的消息**条数**；
    - 每回合上限以「**段**」计（`maxInjectionsPerTurn` 缺省 3）；超限的段丢弃并记 warning，其余段照常合并写入；同回合同正文去重仍逐段。
 
-## 实现记录
+## 实现记录（2026-10-01）
 
-（待实现后填）
+`rule-engine`：
 
-## 测试与证据
+1. `src/types.ts`：`RuleSource` 扩为十项节点；`dedupeInRecord` 改整型（`Rule` / `NormalizedRule`）；`InjectionRequest.summaries`；`ConsumerContext.trigger` 扩为 `RuleSource` 并新增 `event?`；`ConsumerFeedback.reset`；`ConsumerRegistration.sources` / `dedupeInRecord`。
+1. `src/rules.ts`：`RULE_SOURCES` 同步十项；`normalizeRule` 的 `dedupeInRecord` 走整型归一（旧布尔 `true → 1` / `false → 0`，非法取 0 并记 warning）。
+1. `src/match.ts`：新增 `BOUNDARY_SOURCES`（六项边界节点），空条件 = 无条件命中的口径按它判定。
+1. `src/engine.ts`：事件 → 节点映射（`turn/start` / `user/message` / `step/start` / `step/end` / `tool/call` / `tool/result` / `turn/end` → `assistant-text` + `turn-end` / `compaction/end`）；`#dispatch` 统一派发（规则 + 消费者）→ 逐段闸门 → 按 `delivery` 分组 → 合并写入（多段 `source.summaries`）；`#countInRecord` 计数版判空（支持 `summaries`）；尺度双 flag 状态机（清与注册无关、置只在注册节点、`session-start` 无幂等、`reset` 全清）；`sessionCreated()` 供 `session/created` 挂点。
+1. `src/inject.ts`：`buildInjectionMessage(text, summary, summaries?)`，多段时写 `source.summaries`。
+1. `src/main.ts`：订阅 `session/created`（含恢复）→ `engine.sessionCreated`；`EventBus` 增加该事件签名。
+1. `src/tools.ts`：`source` 描述改为节点表；`dedupeInRecord` 入参布尔 → 整型。
 
-（待实现后填）
+`symbol-normalizer`：
+
+1. `src/main.ts`：指南改声明式注册（`sources: ["turn-end", "compaction"]` + `dedupeInRecord: 1`），删除进程内 gate 与 `hasGuideMessage` 判空；`inject` 依赖由 `["ruleEngine", "sessions"]` 收敛为 `["ruleEngine"]`。
+1. `src/guide.ts`：删除 `SymbolGuideGate` / `hasGuideMessage` / `RULE_ENGINE_SOURCE_KIND`，头注释改述统一标准。
+
+文档：`rule-engine/README.md`（节点表 / 空条件 / `dedupeInRecord` 整型 / 消费者面 + 合并与对齐点小节 / 单测条数）、`rule-engine/docs/DESIGN.md`（边界 / 分层 / §4 / §5 / §6 / §10）、`symbol-normalizer/README.md` 与 `docs/DESIGN.md`（指南去重口径与依赖）。
+
+## 测试与证据（2026-10-01）
+
+- `npm run check`（全仓）✓、`npm run build`（全仓）✓、`npm run test`（全仓并行）✓——16 个包全绿；`rule-engine` **76/76**（原 67 + 新 9）、`symbol-normalizer` **38/38**（删除 gate / 历史判空用例 5 条）。
+- 新增/改写的单测（`rule-engine/tests/`）：节点派发（四种按注册唤醒）；`user-message` 排除本引擎注入；`session-start` 经 `sessionCreated` 唤醒 + `compaction` 不参与合并；对齐合并三条（末步 `step-end` 先唤醒而 `turn-end` 被吞 / 只注册 `turn-end` 每回合都能唤醒 / `reset` 放行下一层 end）；消费者 `dedupeInRecord` 0 / 1 / N；合并写入（多条命中 → 一条消息、正文按段拼接、多段 `summaries`）；`apply` 层 `session/created` 端到端。
+- **待人工确认（真机）**：重启后 ① 压缩时指南由 `compaction` 节点补一次（不再依赖重启）；② 同一次触发的多条命中在记录里只有一条注入；③ 活动区无异常告警。
 
 ## 收尾
 

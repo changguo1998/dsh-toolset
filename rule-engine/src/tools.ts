@@ -62,7 +62,7 @@ const RULE_PARAMS = {
     type: "string",
     enum: [...RULE_SOURCES],
     description:
-      "匹配面，缺省 assistant-text：assistant-text 回合结束时对整回合正文判定 / tool-call 工具调用 / tool-result 工具结果 / turn-end 回合边界 / compaction 上下文压缩完成（`compaction/end`，文本为空，只作边界触发）",
+      "节点（匹配面），缺省 assistant-text：assistant-text 回合结束时对整回合正文判定 / user-message 用户消息落盘 / tool-call 工具调用 / tool-result 工具结果 / turn-start 回合开始 / turn-end 回合边界 / step-start、step-end 步边界 / session-start 会话建立（含恢复）/ compaction 上下文压缩完成（边界类节点文本为空，match 可省 = 无条件命中）",
   },
   delivery: {
     type: "string",
@@ -87,9 +87,9 @@ const RULE_PARAMS = {
     description: "同一会话两次命中的最小毫秒间隔，缺省 0（不限制）",
   },
   dedupeInRecord: {
-    type: "boolean",
+    type: "number",
     description:
-      "按记录去重，缺省 false：会话可见投影里已有同 summary 的本引擎注入时跳过（重载会话不重复注入，压缩后投影里没了才补）",
+      "按记录去重，缺省 0 = 无限制：会话可见投影里最多允许 N 条本注入（1 = 已有就跳过，重载不重复、被压缩挤出投影后才补；N≥2 = 允许最多 N 条）",
   },
 } as const;
 

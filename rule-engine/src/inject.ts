@@ -50,12 +50,20 @@ export const INJECTION_PREFIX = "[RULE] ";
 export function buildInjectionMessage(
   text: string,
   summary: string,
+  summaries?: readonly string[],
 ): Record<string, unknown> {
   return {
     id: randomUUID(),
     role: "user",
     content: [{ type: "text", text: INJECTION_PREFIX + text }],
-    source: { kind: SOURCE_KIND, summary },
+    source: {
+      kind: SOURCE_KIND,
+      summary,
+      // 合并注入（多段）时保留各段摘要，供 `dedupeInRecord` 计数与展示
+      ...(summaries !== undefined && summaries.length > 1
+        ? { summaries: [...summaries] }
+        : {}),
+    },
   };
 }
 
@@ -123,7 +131,11 @@ function deliver(
     );
     return;
   }
-  const message = buildInjectionMessage(request.text, request.summary);
+  const message = buildInjectionMessage(
+    request.text,
+    request.summary,
+    request.summaries,
+  );
   if (request.delivery === "next-step") {
     if (typeof agent.inject !== "function") {
       warn(

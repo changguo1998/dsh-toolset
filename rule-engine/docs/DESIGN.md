@@ -10,7 +10,7 @@
 
 - 动作只做 `inject`；`tag` / `abort` / `memory` 不做。
 - 注入路径两条：`delivery: followup`（新回合，`agent.followup`）与 `delivery: next-step`（最近 pre-step，`agent.inject`；宿主 rc.2+）。不自行注册 `agent/pre-step` waterfall 监听者。
-- 匹配面只做四类：模型正文文本、工具调用、工具结果、上下文压缩边界（`compaction`）；逐 delta 实时匹配不做（正文在回合结束判定）。
+- 节点表（规则与消费者共用）共十项：`assistant-text` / `user-message` / `tool-call` / `tool-result` / `turn-start` / `turn-end` / `step-start` / `step-end` / `session-start` / `compaction`；逐 delta 实时匹配不做（正文在回合结束判定）。
 - 不改 TUI：符号纠正迁移与 `form:'notice'` 渲染分别是独立条目。
 
 ## 分层
@@ -21,7 +21,7 @@ main.ts       插件入口：name / inject / provide / Config / apply
               ├─ ctx.tools.register(...) ← tools.ts（缺 tools 时降级告警）
               └─ ctx.provide('ruleEngine', { list, status, evaluate, registerConsumer })
 engine.ts     编排：事件分流 → 回合正文聚合 → 匹配 → 节流去重 → 交付注入器
-              + turn-end 消费者调度（按注册顺序同步询问 / 聚合 / 统一注入）
+              + 节点派发：规则命中 + 消费者唤醒（按注册的 sources）→ 逐段闸门 → 按 delivery 合并写入
               ├─ match.ts    纯匹配：keyword / regex / 内置谓词 + 消息文本抽取
               ├─ rules.ts    规则归一化 + 两层合并（config 基线 + runtime 层）
               └─ persist.ts  运行时层落盘（{version, state} + tmp/rename 原子写）
@@ -53,9 +53,9 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 
 不用宿主 `ctx.storage` / `storageDomain`：需 profile 配必填 `backend`，对单文件状态属过度设计；沿用 metric-loop 的 `{version, state}` + 原子写 + 版本不符拒载惯例。
 
-### 4. 匹配语义：三档或关系、空条件按匹配面区分
+### 4. 匹配语义：三档或关系、空条件按节点区分
 
-`keywords`（大小写不敏感包含）/ `regex` / `predicates` 三档任一命中即命中，`predicates` 内部与关系。空条件时边界类匹配面（`turn-end` / `compaction`，无文本）= 无条件命中，其余匹配面 = 永不命中——「文本类空条件」若也算无条件，会把每条正文都变成命中，属误配置。
+`keywords`（大小写不敏感包含）/ `regex` / `predicates` 三档任一命中即命中，`predicates` 内部与关系。空条件时边界类节点（`turn-start` / `turn-end` / `step-start` / `step-end` / `session-start` / `compaction`，无文本）= 无条件命中，其余节点 = 永不命中——「文本类空条件」若也算无条件，会把每条正文都变成命中，属误配置。
 
 内置谓词只做无参数的纯性质判定（`always` / `has-non-ascii` / `has-cjk` / `has-code-block`），不做 JS 表达式求值（避免任意代码执行面）。
 
@@ -65,6 +65,7 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 - `tool/call` / `tool/result` 到达即判定（越界操作提醒不必等回合结束）；注入仍由注入器推迟，落下一个回合。
 - `turn/end` 的 `reason` 不在 `completed` / `max-tokens` 时跳过（用户中断/报错/分叉的回合不该被追问）。
 - 上下文压缩面 `compaction` 在 `compaction/end`（一次压缩的终态）判定、文本入参为空串：只作「记录可能已被裁掉」的边界触发；`start` / `summary` / `prune` 不触发（一次压缩只判一次）。
+- 其余边界节点（`turn-start` / `step-start` / `step-end` 由对应事件到达、`session-start` 由 `session/created`（含恢复）经入口的第二个挂点派发、`user-message` 由 `user/message` 到达，且排除本引擎自己的注入消息）文本入参同样为空串。
 
 ### 6. 节流与去重
 
@@ -72,7 +73,7 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 - 回合级：`maxInjectionsPerTurn` 上限 + 同回合同正文只发一次（跨规则去重，防止两条规则发同一句话）。
 - 原设计的 `oncePerTurn` 开关在「同回合同正文去重」落地后成为冗余（同一规则同回合的正文恒定），已删除，避免无用旋钮。
 - 记账是进程内内存态（`Map<sessionId, SessionState>`，超 64 会话淘汰最早者、回合缓冲只留最近 4 回合）：`dsh` 重启后 cooldown 清零，规则本身仍在状态目录里。
-- `dedupeInRecord`（2026-10-01，「触发条件改为记录压缩后」）：注入前读**会话可见投影**（`sessions.get(id).deriveMessages()`，与 symbol-normalizer 开局指南同一模式），投影里已有同 `summary` 的 `rule-engine` 注入则跳过——跨重启不重复注入；压缩把注入挤出投影后自然恢复可注入（配合 `compaction` 面即可「压缩后补一次」）。投影不可读 → 照旧注入（fail-open：宁可重复，不可永久丢注入）。
+- `dedupeInRecord`（2026-10-01，整型化 + 对消费者开放）：值 = 「会话可见投影里最多允许 N 条本注入」，`0` = 无限制（缺省）。注入前读**会话可见投影**（`sessions.get(id).deriveMessages()`），按 `source.summary` 或合并消息的 `source.summaries` 命中该 key 的**条数**与 N 比较，已达上限则跳过（仍记命中以免每次触发都重读投影）——跨重启不重复注入；压缩把注入挤出投影后计数下降，自然恢复可注入（配合 `compaction` 节点即「压缩后补一次」）。投影不可读 → 照旧注入（fail-open：宁可重复，不可永久丢注入）。旧布尔值兼容归一 `true → 1` / `false → 0`。
 
 ### 7. Config 用类型声明、不做运行时 schema
 
@@ -87,10 +88,11 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 - apply 内 stderr 自证日志（`已加载：规则 N 条…`）：cordis 的 `inject` 不可用是「等待」而非报错，插件静默不加载时靠它排查。
 - 所有异常路径（状态文件损坏、非法正则、会话非 live、followup / inject / flush 抛错、消费者 decide 抛错）只 warning，不向宿主抛。
 
-### 10. 消费者面：简单注册 + 同步调度（2026-09-27 定稿）
+### 10. 消费者面：声明式注册（节点 + 闸门）+ 同步调度（2026-10-01 扩展）
 
 - 只做简单注册：`registerConsumer({ id, delivery?, cooldownTurns?, cooldownMs?, decide })`；`decide(ctx)` 同步返回要注入的内容 `{ text, summary? }`（null = 跳过）。
-- turn-end 时按注册顺序**同步**依次询问；聚合后交同一注入器（与规则共用每回合上限 / 同文本去重；消费者冷却可选、按注入记账）。
+- 注册时声明 `sources`（唤醒节点，缺省 `["turn-end"]`）与 `dedupeInRecord`（与规则同口径）；在对应节点按注册顺序**同步**询问 `decide`，与规则命中**合并**后交同一注入器（共用逐段上限 / 同文本去重；消费者冷却可选、按注入记账）。
+- **对齐点合并（尺度双 flag）**：尺度层级 `session ⊃ turn ⊃ step ⊃ tool`，每消费者 × 每会话 × 每尺度一对 `startFired` / `endFired`；`*-start` 清本尺度及更细的 `endFired` 与更细的 `startFired`（注册才置位/唤醒，`session-start` 无幂等）；`*-end` 查本尺度及更细 `endFired` 的或（注册且全假才唤醒并置位），无论是否唤醒都清本尺度 `startFired`。`reset: true` 清空本消费者 flag。`compaction` 不参与合并。
 - 异常隔离：`decide` 抛错 / 空反馈只记 warning 并跳过该消费者，其余照常；注册返回注销函数（消费者 dispose 时调用）。
 - 复杂度边界：不做异步、priority、脚本谓词注册面；`evaluate` 作为轻量只读判定另备。
 
