@@ -1,6 +1,6 @@
 # 活动区 step 分割线改为 step/start 时画（接取条目：`TUI/docs/BACKLOG.md`「活动区 step 分割线改为真分割线：`step/start` 时画」）
 
-状态：规划　　开启：2026-10-01
+状态：测试　　开启：2026-10-01
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -29,6 +29,20 @@ turn 区（原活动区）的 step 分割线改成**真分割线**：宿主 `ste
 1. `TUI/src/app/state.ts`：`case "step"` 直接产线；`appendStepToolLine` 去掉 `headerEmitted` 逻辑。
 1. `TUI/tests/`：用例——`step/start` 立即产线（含无工具调用的 step）、`step/end` 不开新组、活动区清空语义不变。
 1. `TUI/docs/SPEC.md`：step 线时机口径。
+
+## 实现记录
+
+2026-10-01：
+
+1. `state.ts`：`case "step"` 的 `phase === "start"` 分支**直接** `appendToolLine(stepHeaderLine(step, time))` 后落 `stepGroup`（时间取事件时间，缺省 `Date.now()`）；`step/end` 关组。
+1. `state.ts`：删除 `appendStepToolLine` 及其实现，`tool-call` / `tool-result` 两个调用点改为直接 `appendToolLine`；`stepGroup` 去掉 `headerEmitted`（保留 `sessionId` / `step` / `time`，供后续「buffer 行带 step 标」使用）。
+1. `tests/step.test.ts`：文件头语义说明与用例改写——「每步都画（含无工具步）」「step/start 各自产线」「step/end 后工具行不再产线」「无 step 事件仍不产线」。
+
+## 测试与证据
+
+- `npm run check`（TUI 包 tsc）✓。
+- `npm run test:tui -- step` ✓；**全量 `npm run test:tui` 1229/1229 pass**（与改动前同数，无回归）。
+- 待人工确认（真机）：任意回合（含纯思考步、纯正文末步）在 `step/start` 时刻立即出现 `╌╌ hh:mm:ss #N`；同一 step 不重复；思考/正文不再落在线上方；resume 后 session 区折叠行不变。
 
 ## 验收口径
 

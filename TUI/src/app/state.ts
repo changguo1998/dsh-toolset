@@ -492,13 +492,13 @@ export interface AppState {
     string,
     { raw: CompactionSummaryPayloadLike; text: string }
   >;
-  /** B3：step 分组（当前活动工具组；headerEmitted=分组头已插入，供步内首条工具行插头） */
+  /** B3：step 分组（当前活动 step 组；step/start 落组、step/end 关组）。
+   *  分割线自 #7 起在 `step/start` 时直接画，本字段保留供"buffer 行带 step 标"等后续用途。 */
   stepGroup: {
     sessionId: string;
     step: number;
     /** P6：分组头时间戳（epoch ms；渲染为 `hh:mm:ss #N`） */
     time?: number;
-    headerEmitted: boolean;
   } | null;
   /** P8：按 sessionId 隔离的「上下文压缩中」标记——压缩期间该会话算活跃
    *  （用户块显示运行中、新消息走排队、Ctrl+D 不退出）；compaction/end 清除 */
@@ -1011,30 +1011,6 @@ export function appendToolLine(
   });
   trimBufferHead(buffer, state.scrollAnchor);
   return { ...state, buffer, nextSeq: state.nextSeq + 1 };
-}
-
-/**
- * B3：step 分组工具行——当前活动 step 组尚未插分组头时先插入 `step N`，再追加工具行。
- * 无 step 上下文（旧会话 / mock 无 step 事件）时不插头，保持既有 append-only 行为。
- */
-export function appendStepToolLine(
-  state: AppState,
-  sessionId: string,
-  text: string,
-  tone?: NoticeTone,
-  params?: { keepLineBreaks?: boolean },
-): AppState {
-  const group = state.stepGroup;
-  if (!group || group.sessionId !== sessionId)
-    return appendToolLine(state, text, tone, params);
-  // 分组头先插（组内首条工具行前），随后标记已发头，避免重复插头
-  const next = group.headerEmitted
-    ? state
-    : appendToolLine(state, stepHeaderLine(group.step, group.time));
-  return {
-    ...appendToolLine(next, text, tone, params),
-    stepGroup: { ...group, headerEmitted: true },
-  };
 }
 
 /**
@@ -1978,20 +1954,15 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         // 模型输出符号统一开关：true=变体替换为推荐并提醒；false=原样（不替换不提醒）
         return { ...state, symbolUnify: action.on };
       case "tool-call":
-        // 工具调用：紧凑工具行（○ <name> <summary> 由 tool-line.ts 组装），不进模型历史；
-        // B3：当前 step 组首条工具行前先插分组头 `step N`（无 step 上下文不插头）
-        return appendStepToolLine(
-          state,
-          action.sessionId,
-          toolCallLine(action.name, action.summary),
-          undefined,
-          { keepLineBreaks: true },
-        );
+        // 工具调用：紧凑工具行（○ <name> <summary> 由 tool-line.ts 组装），不进模型历史。
+        // #7 起 step 分割线在 step/start 已画，工具行不再插分组头。
+        return appendToolLine(state, toolCallLine(action.name, action.summary), undefined, {
+          keepLineBreaks: true,
+        });
       case "tool-result":
-        // 工具结果：✓ 成功 / ✗ 失败（失败红色，tone=error）；B3：同 tool-call 参与 step 分组
-        return appendStepToolLine(
+        // 工具结果：✓ 成功 / ✗ 失败（失败红色，tone=error）
+        return appendToolLine(
           state,
-          action.sessionId,
           toolResultLine(action.ok, action.detail, action.meta),
           action.ok ? undefined : "error",
         );
@@ -2126,19 +2097,21 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         };
       }
       case "step":
-        // B3：step/start 打开新工具组（append-only，旧组既有行即“flush”）；step/end 关闭分组
-        return action.phase === "start"
-          ? {
-              ...state,
-              stepGroup: {
-                sessionId: action.sessionId,
-                step: action.step,
-                // P6：分组头时间戳取事件时间；mock/合成事件缺 time 时回退当前时刻
-                time: action.time ?? Date.now(),
-                headerEmitted: false,
-              },
-            }
-          : { ...state, stepGroup: null };
+        // #7：step/start **即画真分割线** `hh:mm:ss #N`（其后思考/工具/正文都归入该步；
+        // 每步都画，含首个 step 与无工具调用的 step）；step/end 关组。
+        if (action.phase === "start") {
+          // P6：时间取事件时间；mock/合成事件缺 time 时回退当前时刻
+          const time = action.time ?? Date.now();
+          return {
+            ...appendToolLine(state, stepHeaderLine(action.step, time)),
+            stepGroup: {
+              sessionId: action.sessionId,
+              step: action.step,
+              time,
+            },
+          };
+        }
+        return { ...state, stepGroup: null };
       case "subagent":
         // B4：subagent 行（`@ <label> <os|ct>`，append-only 不配对不折叠）入 buffer，不进模型历史
         return appendToolLine(

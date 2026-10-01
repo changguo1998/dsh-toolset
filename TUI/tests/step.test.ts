@@ -1,12 +1,11 @@
-// tests/step.test.ts — P2 阶段 B3：step 分步（工具行分组头）
+// tests/step.test.ts — step 分步分割线（#7 起：step/start 即画）
 //
-// 直接驱动 reducer 断言 buffer 内容（工具行 ○/✓/✗ 与 `hh:mm:ss #N` 分组头均为
+// 直接驱动 reducer 断言 buffer 内容（工具行 ○/✓/✗ 与 `hh:mm:ss #N` 分割线均为
 // kind="tool" 的纯文本行，不依赖渲染）。覆盖四类语义：
-//   1. 分组头插入：step 内首条工具行前插 `hh:mm:ss #N`（P6），且不重复
-//   2. 无工具 step 静默：不产生任何输出
-//   3. step/end 关组：结束后工具行不再有分组头
-//   4. 防御 flush：活动组未关又到 step/start 时，新组另起分组头
-// 另含向后兼容：无 step 上下文（旧会话/mock）时不插头。
+//   1. 分割线时机：`step/start` 到达即产线（每步都画，含首个 step 与无工具调用的 step）
+//   2. 同一步不重复：组内工具行不再插头
+//   3. step/end 关组；防御：前一 step 未关又到 step/start 时新线照产
+//   4. 无 step 事件（旧会话 / mock）时工具行不产线，保持 append-only
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -72,12 +71,12 @@ test("B3 分组头插入：step 内首条工具行前插 `hh:mm:ss #N`，同组�
   ]);
 });
 
-test("B3 无工具 step 静默：step/start→end 无工具调用不产生任何行", () => {
+test("B3 每步都画：无工具调用的 step 也产线（#7 的真分割线口径）", () => {
   const lines = run([stepStart(5), stepEnd(5)]);
-  assert.equal(lines.length, 0);
+  assert.deepEqual(lines, ["03:04:05 #5"]);
 });
 
-test("B3 分组头跟随 step/end 关闭：结束后工具行不再插头", () => {
+test("B3 分割线跟随 step/end 关闭：结束后工具行不再产线", () => {
   const lines = run([
     stepStart(1),
     toolCall("ls"),
@@ -112,14 +111,14 @@ test("B3 失败工具结果也参与分组：分组头先行", () => {
   assert.deepEqual(lines, ["03:04:05 #2", "✗ EACCES: 13"]);
 });
 
-test("B3 会话隔离：旧会话 step 组不误插当前会话工具行分组头", () => {
-  // s1 的活动 step 组未关；s2 首条工具行不得插入分组头（stepGroup 带 sessionId）
+test("B3 每步一条线：step/start 各自产线，工具行不产线", () => {
+  // 无 step 上下文的会话，工具行照旧不产线（append-only 兼容）
   const lines = run([
-    stepStart(1), // s1 组
+    stepStart(1), // s1 的 step
     { type: "tool-call", sessionId: "s2", name: "bash", summary: "whoami" },
   ]);
-  assert.deepEqual(lines, ["bash whoami"]);
-  // s2 自己有 step 上下文时才正常分组
+  assert.deepEqual(lines, ["03:04:05 #1", "bash whoami"]);
+  // 两个会话各自 step/start → 各产一条线（线与 step 一一对应）
   const lines2 = run([
     stepStart(1), // s1 组
     {
@@ -132,15 +131,15 @@ test("B3 会话隔离：旧会话 step 组不误插当前会话工具行分组�
     },
     { type: "tool-call", sessionId: "s2", name: "bash", summary: "pwd" },
   ]);
-  assert.deepEqual(lines2, ["03:04:05 #3", "bash pwd"]);
-  // s1 的 step/end 只关 s1 组，不影响 s2
+  assert.deepEqual(lines2, ["03:04:05 #1", "03:04:05 #3", "bash pwd"]);
+  // s1 的 step/end 后进行下一个 step：新线照产
   const lines3 = run([
     stepStart(1),
     { type: "step", sessionId: "s1", turn: 1, step: 1, phase: "end" },
-    stepStart(2), // s1 新组
+    stepStart(2), // s1 新 step
     { type: "tool-call", sessionId: "s1", name: "bash", summary: "env" },
   ]);
-  assert.deepEqual(lines3, ["03:04:05 #2", "bash env"]);
+  assert.deepEqual(lines3, ["03:04:05 #1", "03:04:05 #2", "bash env"]);
 });
 
 test("B3 思考拖尾换行保留下一个「换行锚点」空段（渲染层跳过空思考行）", () => {
