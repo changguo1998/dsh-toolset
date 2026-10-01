@@ -115,9 +115,14 @@ tests/          # node:test 单测
 npm run check   # 类型检查（tsc --noEmit）
 npm run build   # 编译到 dist/
 npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（62 例：engine / events / gate / query / tools）
-npm run demo    # npm run build && node dist/demo/main.js；脚本化模型跑步骤 0-7 + 演示 8-12，
+npm run demo    # npm run build && node dist/demo/main.js；脚本化模型跑步骤 0-7 + 演示 8-13，
                 # 覆盖全链路（门禁打回→implement→stop→join）、fan-out 有界并发、
-                # 语义验收 audit、step 裁决、语义蕴含门、abort 恢复；输出 DEMO_OK / DEMO_FAIL，退出码 0/1
+                # 语义验收 audit、step 裁决、语义蕴含门、abort 恢复、叶子执行后端；输出 DEMO_OK / DEMO_FAIL，退出码 0/1
+npm run smoke:executor  # npm run build && node scripts/executor-smoke.mjs；dist 级 + 假宿主面冒烟，
+                # 覆盖**主机适配层**（单测与 demo 都踩不到的部分）：subagent 的 `agentOptions` 映射与
+                # pressure 口径用量、未声明模型不传 `agentOptions`、command 真跑 `/bin/sh`、
+                # workflow 默认 meta 合并与对象证据、同步抛错不打回不计重试、`cancelled` 反馈、
+                # 宿主服务惰性解析、证据截断边界、`execute → stop → join`；输出 SMOKE_PASS / SMOKE_FAIL，退出码 0/1
 ```
 
 架构对照见 `docs/host/AGENT-ARCHITECTURE-ANALOGY.md`。

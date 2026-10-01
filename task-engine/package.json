@@ -8,6 +8,7 @@
         "build": "tsc -p tsconfig.json",
         "check": "tsc -p tsconfig.json --noEmit",
         "demo": "npm run build && node dist/demo/main.js",
+        "smoke:executor": "npm run build && node scripts/executor-smoke.mjs",
         "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
     },
     "devDependencies": {

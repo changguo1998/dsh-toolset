@@ -226,6 +226,7 @@
 1. ~~`rule-engine/demo` 未跑（可选）~~ → **关闭后补跑（2026-10-02）：`npm run demo` → `exit 0`**（多回合命中注入 4 条 / `rule_test` 干跑不注入 / 工具族 `rule_add` → `rule_list` → `rule_remove` 全通；`rule_add` 回显已含 `sources` 与 `directWrite`，与 #8 的多节点 + 直写口径一致）。
 1. **遗留项已转 BACKLOG 条目**（不在本任务内）：③ 隔离落地 → 「executor 隔离落地（git worktree）」；完整 usage 口径计量 → 「executor 用量计量接 usage 口径」。
 1. **真机三轮全部通过**：第一轮发现 apply 期服务不可见（已修）→ 第二轮三后端 + `execute → stop → join` 全绿 → 第三轮口径修正复验通过。
+1. **临时冒烟已转常驻（2026-10-02，用户裁定）**：`tmp/task-executor-smoke.mjs` 删除后主机适配层无永久回归 → 转为包内 `task-engine/scripts/executor-smoke.mjs` + `npm run smoke:executor`（22 项断言，覆盖 subagent `agentOptions` 与用量口径 / command 真跑 / workflow meta 合并与失败分类 / 惰性服务解析 / 截断 / `execute → stop → join`）；本任务的适配层证据自此可重复执行，过程见 `task-engine/docs/archived/2026-10-02-executor-smoke.md`。
 
 ## 交接（2026-10-02 任务关闭）
 
