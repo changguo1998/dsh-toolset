@@ -452,7 +452,9 @@ export function buildBox(
   dialogue = lineUpBlockBars(dialogue, meta, opts);
 
   const dialogueBox = v(dialogue);
-  const activityBox = v(activityLeaves);
+  // #1：活动区同样做「块内空行竖线连排」——正文在段间空行处左缘 `┃` 不断口
+  // （与历史区同口径；块首/块尾空行仍不挂竖线）
+  const activityBox = v(lineUpBlockBars(activityLeaves, meta, opts));
   return {
     root: dialogueBox,
     panes: { dialogue: dialogueBox, activity: activityBox },
