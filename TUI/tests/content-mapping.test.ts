@@ -316,7 +316,10 @@ test("双轨：全部 notice tone 着色", () => {
   assertEquivalent("notice-tones@w40g4", buf, 40, 4);
 });
 
-test("双轨：真实多 BufferLine fence 开/内容/关", () => {
+test("双轨（已偏离）：真实多 BufferLine fence 开/内容/关——#2 起整块加行号", () => {
+  // #2 起代码块改为「整块右缩进 + 左侧行号」：语言标记行并入块首（带 ┃ 前缀）、
+  // 围栏行本身不渲染、代码行前缀 `┃ <行号> `。冻结基线记录的是旧管线（无行号），
+  // 故此处按「已偏离」断言差异方向而非等价（同下方 tool-step 用例）。
   const buf: Buffer = [
     { text: "```ts", kind: "assistant", final: true },
     { text: "const x = 1;", kind: "assistant", final: true },
@@ -324,8 +327,19 @@ test("双轨：真实多 BufferLine fence 开/内容/关", () => {
     { text: "```", kind: "assistant", final: true },
     { text: "after", kind: "assistant", final: true },
   ];
-  for (const w of [30, 18, 10])
-    assertEquivalent(`fence-lines@w${w}g4`, buf, w, 4);
+  const textOf = (rows: FixtureRow[]): string =>
+    rows.map((r) => r.text).join("\n");
+  const fresh = textOf(newRows(buf, 30, 4).dialogue);
+  assert.ok(
+    fresh.includes("┃ 1 const x = 1;"),
+    `新实现第 1 行带行号：${fresh}`,
+  );
+  assert.ok(fresh.includes("┃ 2 const y = 2;"), "新实现第 2 行带行号");
+  assert.ok(fresh.includes("ts"), "语言标记并入块首");
+  assert.ok(!fresh.includes("```"), "围栏行不渲染");
+  const legacy = textOf(baselineRows("fence-lines@w30g4", "dialogue"));
+  assert.ok(!legacy.includes("┃ 1 const x = 1;"), "基线（旧管线）无行号");
+  assert.ok(legacy.includes("const x = 1;"), "基线仍有代码正文");
 });
 
 test("双轨：内部空格与续行（wrap 折行空白保留）", () => {

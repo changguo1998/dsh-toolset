@@ -136,6 +136,24 @@ export function noticeLinePresentation(
   };
 }
 
+/** #2：按显示宽度切分代码文本（首行 firstW、续行 contW；CJK 不切半） */
+function wrapByWidth(text: string, firstW: number, contW: number): string[] {
+  const rows: string[] = [];
+  let cur = "";
+  let limit = Math.max(1, firstW);
+  for (const ch of text) {
+    const w = displayWidth(ch);
+    if (cur !== "" && displayWidth(cur) + w > limit) {
+      rows.push(cur);
+      cur = "";
+      limit = Math.max(1, contW);
+    }
+    cur += ch;
+  }
+  rows.push(cur);
+  return rows;
+}
+
 export function buildBox(
   buffer: Buffer,
   opts: BuildBoxOptions,
@@ -326,7 +344,10 @@ export function buildBox(
       if (fence && fence[1]!.length >= 3) {
         if (inFence) {
           inFence = false;
-        } else {
+          continue;
+        }
+        // 紧凑模式（活动区 /verbose off）：保持旧形态（语言标记单独成行、不加行号）
+        if (compact) {
           inFence = true;
           const lang = fence[2] ?? "";
           if (lang) {
@@ -334,7 +355,85 @@ export function buildBox(
             meta.set(langNode, rowMeta);
             target.push(langNode);
           }
+          continue;
         }
+        // #2：整块代码右缩进 + 左侧行号（`<行号 2 列><空白 1 列><代码>`）。
+        // 语言标记行并入块首：带 ┃ 前缀、与代码列对齐、不占行号（颜色条不断口）。
+        // 软折行在**这里预折**：续行再缩进 4 列并靠右对齐正文右缘（每物理行一个节点，
+        // 避免与 fill 的折行/底色补齐二次叠加）。窄窗降级：不足时省略行号列。
+        const bar = {
+          text: "┃",
+          style: { fg: "brightBlue" as const },
+          minWidth: USER_MIN_LEFT_GUTTER + 2,
+        };
+        const lang = fence[2] ?? "";
+        // 可用正文宽（`width` 缺省时退化为"交给 fill 折行"的单节点形态）
+        const avail = width === undefined ? undefined : Math.max(8, width - 1);
+        const numW = avail === undefined || avail >= 23 ? 3 : 0;
+        const barLine = (t: string, style?: FrameStyle) =>
+          text(t, {
+            fillBg: true,
+            width: { mode: "fill" as const },
+            prefix: bar,
+            ...(style === undefined ? {} : { style }),
+          });
+        if (lang !== "") {
+          const langNode = styled(
+            [{ text: " ".repeat(numW) + lang, style: { italic: true } }],
+            { prefix: bar },
+          );
+          meta.set(langNode, rowMeta);
+          target.push(langNode);
+        }
+        // 收集围栏内代码行（同为 assistant 行；遇闭栅或非 assistant 行停止）
+        const code: string[] = [];
+        let j = li + 1;
+        let closed = false;
+        for (; j < buffer.length; j++) {
+          const l = buffer[j]!;
+          if (l.kind !== "assistant") break;
+          const inner = /^ {0,3}(`{3,}|~{3,})[ \t]*[\w.+-]*[ \t]*$/.exec(
+            l.text,
+          );
+          if (inner) {
+            closed = true;
+            break;
+          }
+          code.push(l.text);
+        }
+        for (let i = 0; i < code.length; i++) {
+          // 行号：只数代码正文行、从 1 起、固定 2 列（>99 显示 `99+`）
+          const num =
+            numW === 0
+              ? ""
+              : (i + 1 > 99 ? "99+" : String(i + 1)).padStart(2) + " ";
+          const src = code[i]!;
+          if (avail === undefined) {
+            // 宽未知：交给 fill 折行（自动换行、续行缩进 = 行号列 + 4，不保证右对齐）
+            const node = barLine(num + src);
+            meta.set(node, rowMeta);
+            target.push(node);
+            continue;
+          }
+          const firstW = Math.max(4, avail - numW);
+          const contW = Math.max(2, firstW - 4);
+          const chunks = wrapByWidth(src, firstW, contW);
+          for (let k = 0; k < chunks.length; k++) {
+            const piece = chunks[k]!;
+            const lead =
+              k === 0
+                ? num + ""
+                : " ".repeat(
+                    numW + 4 + Math.max(0, firstW - 4 - displayWidth(piece)),
+                  );
+            const node = barLine(lead + piece);
+            meta.set(node, rowMeta);
+            target.push(node);
+          }
+        }
+        // 消费：闭栅行归循环下一轮（inFence=false）；未闭栅（流式中）保持 inFence
+        li = closed ? j : buffer.length - 1;
+        inFence = !closed;
         continue;
       }
       // markdown 表格（fence 外）：表头行 + 分隔行成对时（O(1) 预筛）收集连续表格行，
