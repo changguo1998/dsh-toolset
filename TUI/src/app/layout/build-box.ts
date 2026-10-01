@@ -285,6 +285,12 @@ export function buildBox(
       continue;
     }
     if (line.kind === "user") {
+      // #4：steer 认领转入历史的用户块 → 上方留一个空行（与上一条输入分隔；渲染期留白）
+      if (line.spaceBefore === true) {
+        const blank = text("", {});
+        meta.set(blank, { ...rowMeta, kind: "plain" });
+        dialogueLeaves.push(blank);
+      }
       // 整块右对齐 + 右缘竖线：h([spacer(fill), 内容])
       // 右缘竖线三色（TUI#43）：steer 排队中黄（等本回合下一次 step）/ followup 排队中灰
       // （等下一回合）/ 已发出亮红

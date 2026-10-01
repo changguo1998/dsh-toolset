@@ -2398,6 +2398,8 @@ function userBlockSymbolResolver(
   const runSymbol = runningSymbol(state.runVirt.tokens);
   return (line) => {
     if (line.kind !== "user" || line.queued) return undefined;
+    // #4：被 steer 续接过的输入 → 永久 `←`（优先于终态与运行态；用户 2026-10-01 裁定）
+    if (line.steerContinued === true) return { text: "←" };
     if (line.status) return USER_BLOCK_SYMBOL[line.status];
     if (activeSeq !== undefined && line.seq === activeSeq) {
       if (waiting) return { text: "△", fg: "yellow" as ColorName };

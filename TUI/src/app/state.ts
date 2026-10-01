@@ -163,6 +163,12 @@ export interface BufferLine {
   /** #1：落 buffer 时的活动 step 号（取自 `state.stepGroup.step`；无活动组时缺省）。
    *  历史区正文分块（边界 = `[step 变化 | 工具调用行]`）与问答来源段共用该标。 */
   step?: number;
+  /** #4：本行与上一条输入之间留一个空行（渲染期留白，不入 buffer 空行）——steer 排队项
+   *  被认领转入历史时打；仅 steer 适用（followup 认领是下一回合的自然续接，不留白）。 */
+  spaceBefore?: boolean;
+  /** #4：该用户输入的回合被后续 steer 续接过 → 状态符号**永久**显示 `←`（优先于终态
+   *  ✓/✗/■ 与运行态 ●/○，turn-end 后也不恢复）。 */
+  steerContinued?: boolean;
   /** #3：回合分隔线（kind="separator"）的时间戳（epoch ms）与回合号，供渲染
    *  `╌╌ hh:mm:ss #N ╌╌` 同族格式；回合号可能在 turn-begin 后才由 `turn/start` 回填。 */
   time?: number;
@@ -1176,6 +1182,31 @@ export function markUserBlockStatus(
 }
 
 /**
+ * #4：steer 排队项被认领转入历史后落两处标记（用户 2026-10-01 裁定）：
+ *  - 新落的 steer 用户行 `spaceBefore` → 渲染期在其上方留一个空行（与上一条输入分隔）；
+ *  - 其上**最近一条用户输入** `steerContinued` → 状态符号永久 `←`（不随终态覆盖）。
+ * 没有上一条用户输入（会话首条即 steer）→ 两个标记都不落（无参照物）。
+ */
+export function markSteerClaim(state: AppState): AppState {
+  const buffer = state.buffer;
+  const last = buffer.length - 1;
+  const claimed = buffer[last];
+  if (claimed === undefined || claimed.kind !== "user") return state;
+  let prev = -1;
+  for (let i = last - 1; i >= 0; i--) {
+    if (buffer[i]!.kind === "user") {
+      prev = i;
+      break;
+    }
+  }
+  if (prev < 0) return state;
+  const next = [...buffer];
+  next[last] = { ...claimed, spaceBefore: true };
+  next[prev] = { ...next[prev]!, steerContinued: true };
+  return { ...state, buffer: next };
+}
+
+/**
  * turn 开始：在历史末尾追加分隔线；`clearActivity` 为真时先清掉活动区内容
  * （思考/工具调用/notice/非 final 中间输出——**整类一起清**，不做单类清除）。
  *
@@ -1411,13 +1442,16 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           ...state.queued.slice(0, idx),
           ...state.queued.slice(idx + 1),
         ];
-        return appendStream(
+        const next = appendStream(
           { ...state, queued: rest },
           item.text,
           "user",
           undefined,
           true,
         );
+        // #4：steer 认领＝插队送达 → 该行与上一条输入之间留白 + 上一条输入打「被 steer
+        // 续接」标（状态符号永久 `←`）；followup 认领走原路径，不加任何标记
+        return kind === "steer" ? markSteerClaim(next) : next;
       }
       case "queued-clear":
         return { ...state, queued: [] };

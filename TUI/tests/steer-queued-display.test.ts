@@ -188,6 +188,77 @@ test("核心在 step 边界认领（inbox-claim / next-step）→ 该条转入�
   }
 });
 
+test("#4 reducer：steer 认领给上一条输入打「被续接」标 + 认领行留白；followup/首条不标", () => {
+  // steer 认领：上一条输入 steerContinued + 认领行 spaceBefore
+  let s: AppState = initialState();
+  s = reduceState(s, { type: "user-line", text: "第一条" });
+  s = reduceState(s, {
+    type: "queued-push",
+    text: "steer 插队",
+    kind: "steer",
+  });
+  const claimed = reduceState(s, { type: "queued-claim-steer" });
+  assert.equal(
+    claimed.buffer.find((l) => l.text === "第一条")?.steerContinued,
+    true,
+    "上一条输入标「被 steer 续接」",
+  );
+  assert.equal(
+    claimed.buffer.find((l) => l.text === "steer 插队")?.spaceBefore,
+    true,
+    "steer 行上方留白",
+  );
+
+  // followup 认领：两个标记都不落
+  let f: AppState = initialState();
+  f = reduceState(f, { type: "user-line", text: "第一条" });
+  f = reduceState(f, { type: "queued-push", text: "普通排队" });
+  const follow = reduceState(f, { type: "queued-claim" });
+  assert.ok(
+    !follow.buffer.some((l) => l.steerContinued || l.spaceBefore),
+    "followup 认领不加任何标记",
+  );
+
+  // 会话首条即 steer：无参照物 → 不标不留白
+  let e: AppState = initialState();
+  e = reduceState(e, {
+    type: "queued-push",
+    text: "首条 steer",
+    kind: "steer",
+  });
+  const first = reduceState(e, { type: "queued-claim-steer" });
+  assert.ok(
+    !first.buffer.some((l) => l.steerContinued || l.spaceBefore),
+    "无上一条输入时不标符号、不留白",
+  );
+});
+
+test("#4 渲染：被 steer 续接的用户块显示 ←，steer 块与上一条输入之间留空行", async () => {
+  const { renderer, adapter, app } = makeApp();
+  typeAndEnter(renderer, "先发一条");
+  renderer.press(key("<"));
+  typeAndEnter(renderer, "steer 排队");
+  adapter.push({ type: "inbox-claim", target: "next-step" });
+  await tick();
+  try {
+    const row = rawRowOf(renderer, "先发一条");
+    assert.ok(
+      row.includes("←"),
+      "上一条输入的状态符号为 ←: " + JSON.stringify(row),
+    );
+    const prevIdx = renderer.lastRender.findIndex((l) =>
+      l.includes("先发一条"),
+    );
+    const idx = renderer.lastRender.findIndex((l) => l.includes("steer 排队"));
+    assert.ok(
+      idx > prevIdx + 1,
+      `steer 块与上一条输入之间应留一个空行（行距 ${idx - prevIdx}）`,
+    );
+  } finally {
+    app.dispose();
+  }
+});
+
 test("空闲时 `<` 提交：直达回显（不留排队闪影），投递仍为 next-step", () => {
   const { renderer, adapter, st, app } = makeApp();
   try {
