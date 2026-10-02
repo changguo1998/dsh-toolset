@@ -148,7 +148,8 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
     另有**值面**兜底：非 watched 键下以 `cwd:` 前缀或 `/`、`~/`、`$HOME` 开头的字符串值也按路径判定（覆盖 `session_channel.to = "cwd:…"` 这类）。
     两层放行面（`commandBlacklist.allowPatterns` / `sensitiveFiles.allowedPaths`）在 check 下与已登记工具同口径生效。
   - `unknownToolPolicy: "deny"`：整工具拦，且**只拦「携带潜在路径/命令/代码参数」的未登记工具**（键名启发，键集同上；**键深上限 3 层**：顶层键 → 数组元素键 → 其对象成员键 → 再一层数组元素键，**数组层不计数**、数组透明不消费键深 —— 详见下方「键发现深度与遍历上限」），
-    其余未登记工具仍放行（防误伤）；回执的命中参数给**完整键路径**——对象键接 `.name`、数组元素接 `[]`，与登记表 `commandPaths` **同形**（如 `children[].acceptance[].command`，不再是叶子键名 `command`；顶层键的路径即键名）——路径去重保序（同一路径多处命中只报一次，多路径按遍历顺序以 `/` 串联）；
+    其余未登记工具仍放行（防误伤）；回执的命中参数给**完整键路径**——对象键接 `.name`、数组元素接 `[]`，与登记表 `commandPaths` **同形**（如 `children[].acceptance[].command`，不再是叶子键名 `command`；顶层键的路径即键名）——路径去重保序（同一路径多处命中只报一次，多路径按遍历顺序以 `/` 串联，**超过 12 条、或累计超 240 字符时折叠为「等 N 处」**，避免超大参数面把回执撑爆；**N 的口径**：已收集条数减去实际列出的条数（遍历被截断时，已收集集合本身就不完整，故 N 可能小于真实命中数——回执此时另带「超出遍历上限」说明））；
+    **展示形态的三条边界**：① 回执路径**只是一个不参与判定的形态**——下标不参与（`[]` 不带序号）；② **多级数组**（如 `a[][].path`）能渲染但登记表解析器 `commandPathValues` **只支持一层 `[]`**，故**不可回读**（外层宿主的嵌套数组同样漏检）；③ 键名里**字面含 `.` / `[]`** 时与结构路径**同形**，路径去重会把两者合并成一条（已知行为）。**勿把回执里的键路径直接抄进登记表 `commandPaths`** —— 登记路径只支持一层 `[]`（有防呆用例钉住）。
     回执另给三条**可行动作**（改 `"check"` / 加 `unknownToolAllowlist` / 按参数面登记进代码），不再只说「改源码」。
   - `unknownToolAllowlist: string[]`：工具名**精确匹配** + `*` 结尾**前缀通配**（如 `mcp__*`），在**三态策略之前**判定，命中即无条件放行
     （`deny` 下的显式例外 / MCP 工具名）；只作用于未登记工具，已登记工具的敏感参数照拦。
@@ -180,12 +181,12 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
 
 ```sh
 npm run check   # tsc -p tsconfig.json --noEmit
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（108 例）
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（113 例）
 npm run build   # tsc -p tsconfig.json → dist/
 npm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话拦截验证）
 ```
 
-108 例单测（blacklist 9 + guard 79 + script 13 + sensitive 7）。
+113 例单测（blacklist 9 + guard 84 + script 13 + sensitive 7）。
 
 `tests/script.test.ts` 用假宿主树（`dsh-tool-fixture-*` 包）覆盖 `scripts/tool-surface-check.mjs` 的逐工具三分类、
 「名称未解析」行与退出码纪律（0 / 1 / 2，含 `--root` 指到 scope 层的纠正提示），并覆盖**发布形态**

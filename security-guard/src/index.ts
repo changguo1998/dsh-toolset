@@ -435,17 +435,40 @@ function unknownToolSensitiveKeys(
   return { paths, truncated };
 }
 
+/** 回执里最多列出的命中键路径条数：超出部分折叠为「等 N 处」（避免超大参数面把回执撑爆）。 */
+const MAX_RECEIPT_KEY_PATHS = 12;
+
+/** 命中键路径列表的字符预算（在条数上限之外再兜一层，防「12 条超长键名」撑爆回执）。 */
+const MAX_RECEIPT_LIST_CHARS = 240;
+
+/**
+ * 命中键路径列表的展示形态：最多 `MAX_RECEIPT_KEY_PATHS` 条，超出折叠为「等 N 处」。
+ * 不改变判定（仅文案上限）；≤ 上限时与旧版逐字一致。
+ */
+function formatKeyPathList(keyPaths: readonly string[]): string {
+  // 先按条数截断，再按字符预算收敛（两条上限取更严者），被折叠的条数写进「等 N 处」
+  const kept: string[] = [];
+  let budget = MAX_RECEIPT_LIST_CHARS;
+  for (const path of keyPaths.slice(0, MAX_RECEIPT_KEY_PATHS)) {
+    if (kept.length > 0 && budget - path.length < 0) break;
+    kept.push(path);
+    budget -= path.length;
+  }
+  const rest = keyPaths.length - kept.length;
+  return rest > 0 ? `${kept.join(" / ")} 等 ${rest} 处` : kept.join(" / ");
+}
+
 /**
  * 未登记工具拦截回执（unknownToolPolicy="deny"）：放行方式给配置级可行动作，不再只说「改源码」；
  * 命中参数给**完整键路径**（与登记表 `commandPaths` 同形，如 `children[].acceptance[].command`），
- * 便于定位是哪个嵌套位置的键命中。
+ * 便于定位是哪个嵌套位置的键命中；列表超过 `MAX_RECEIPT_KEY_PATHS` 条时折叠为「等 N 处」。
  */
 function formatUnknownToolReceipt(
   toolName: string,
   keyPaths: string[],
 ): string {
   return [
-    `[security-guard] 已拦截：未登记工具「${toolName}」携带潜在路径/命令参数（${keyPaths.join(" / ")}）。`,
+    `[security-guard] 已拦截：未登记工具「${toolName}」携带潜在路径/命令参数（${formatKeyPathList(keyPaths)}）。`,
     "原因：该工具不在 security-guard 的登记表内，无法确认其路径/命令是否经过敏感文件层与命令黑名单层。",
     "放行方式（三选一）：",
     '  ① 配 unknownToolPolicy: "check"：放行安全值，仍拦敏感路径 / 危险命令；',

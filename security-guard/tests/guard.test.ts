@@ -11,7 +11,13 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -2300,4 +2306,100 @@ test("unknownToolPolicy=check 截断 + 早已收完的无害值 —— 仍保守
   } finally {
     console.warn = original;
   }
+});
+
+test("键路径展示口径 —— 多级数组渲染 a[][].path / 环引用给 node.command / 小列表逐字不变", () => {
+  const guard = new GuardEngine({ homeDir: HOME, unknownToolPolicy: "deny" });
+  // ① 多级数组：渲染为 a[][].path（展示形态如此；登记表解析器只支持一层 []，不可回读）
+  const multi = guard.inspect("multi_array_unknown", {
+    a: [[{ path: "/tmp/x.md" }]],
+  });
+  assert.ok(typeof multi === "string", "多级数组命中路径键应拦");
+  assert.match(multi as string, keyPathRegExp("（a[][].path）"));
+  // ② 环引用：自引用对象里的键照常给路径
+  const holder: Record<string, unknown> = {};
+  holder.self = holder;
+  holder.command = CHECK_BLACKLIST_COMMAND;
+  const cyclic = guard.inspect("cycle_unknown", { node: holder });
+  assert.ok(typeof cyclic === "string", "环引用对象命中命令键应拦");
+  assert.match(cyclic as string, keyPathRegExp("（node.command）"));
+  // ③ 单条 / 恰好 12 条：与旧版逐字一致（不出现「等 N 处」）
+  const one = guard.inspect("one_unknown", { path: "/tmp/one.md" });
+  assert.match(one as string, keyPathRegExp("（path）"));
+  assert.doesNotMatch(one as string, /等 \d+ 处/);
+  const twelve: Record<string, unknown> = {};
+  for (let i = 0; i < 12; i += 1) twelve[`k${i}`] = { path: `/tmp/p${i}.md` };
+  const twelveHit = guard.inspect("twelve_unknown", twelve);
+  assert.ok(typeof twelveHit === "string");
+  assert.doesNotMatch(
+    twelveHit as string,
+    /等 \d+ 处/,
+    "12 条恰好等于上限，不折叠",
+  );
+});
+
+test("键路径回执体积上限 —— 300 条折叠为 12 条 + 「等 288 处」，整条 ≤ 1000 字符", () => {
+  const guard = new GuardEngine({ homeDir: HOME, unknownToolPolicy: "deny" });
+  const big: Record<string, unknown> = {};
+  for (let i = 0; i < 300; i += 1) big[`k${i}`] = { path: `/tmp/p${i}.md` };
+  const hit = guard.inspect("bulk_unknown", big);
+  assert.ok(typeof hit === "string", "300 条命中应拦");
+  const receipt = hit as string;
+  assert.match(receipt, /等 288 处/, "应折叠为「等 288 处」（300 − 12）");
+  const listed = receipt.match(/k\d+\.path/g) ?? [];
+  assert.equal(listed.length, 12, "回执里最多列 12 条键路径");
+  assert.ok(
+    receipt.length <= 1000,
+    `整条回执应 ≤ 1000 字符（实得 ${receipt.length}）`,
+  );
+});
+
+test("登记表 commandPaths 防呆 —— 不得出现多级数组（[][] 不可被解析器回读）", () => {
+  const source = readFileSync(
+    new URL("../src/index.ts", import.meta.url),
+    "utf8",
+  );
+  const literals: string[] = [];
+  for (const m of source.matchAll(/commandPaths:\s*\[([\s\S]*?)\],/g)) {
+    for (const q of (m[1] ?? "").matchAll(/"([^"]+)"/g)) literals.push(q[1]!);
+  }
+  assert.ok(
+    literals.length >= 2,
+    `应至少解析出 2 条登记路径（实得 ${literals.length}）`,
+  );
+  for (const path of literals) {
+    assert.doesNotMatch(
+      path,
+      /\[\]\[\]/,
+      `登记路径「${path}」含多级数组：commandPathValues 只支持一层 []，运行时会漏检`,
+    );
+  }
+});
+
+test("键路径回执 —— 字面键名与结构路径同形时被去重合并（特征化，已知行为）", () => {
+  const guard = new GuardEngine({ homeDir: HOME, unknownToolPolicy: "deny" });
+  const hit = guard.inspect("literal_dot_unknown", {
+    a: { b: { path: "/tmp/x.md" } },
+    "a.b": { path: "/tmp/y.md" },
+  });
+  assert.ok(typeof hit === "string", "命中路径键应拦");
+  const receipt = hit as string;
+  const listed = receipt.match(/a\.b\.path/g) ?? [];
+  assert.equal(listed.length, 1, "字面键与结构路径同形 → 去重后只报一条");
+});
+
+test("键路径回执体积 —— 12 条超长键名时按字符预算收敛（不是只限条数）", () => {
+  const guard = new GuardEngine({ homeDir: HOME, unknownToolPolicy: "deny" });
+  const big: Record<string, unknown> = {};
+  const long = "k".repeat(120);
+  for (let i = 0; i < 30; i += 1)
+    big[`${long}${i}`] = { path: `/tmp/p${i}.md` };
+  const hit = guard.inspect("long_keys_unknown", big);
+  assert.ok(typeof hit === "string", "超长键名命中应拦");
+  const receipt = hit as string;
+  assert.match(receipt, /等 \d+ 处/, "超预算时应折叠");
+  assert.ok(
+    receipt.length <= 1200,
+    `整条回执应受字符预算约束（实得 ${receipt.length}）`,
+  );
 });
