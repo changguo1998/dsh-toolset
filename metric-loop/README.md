@@ -57,6 +57,9 @@ npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau �
 - 轮内做什么改进动作（循环载体）由宿主 workflow / 会话编排，插件不感知。
 - 跨进程语义依赖状态文件：每次 `dsh` 启动或 schedule 唤醒加载状态推进一轮；文件缺失视为循环不存在（`tick`/`stop` 报错，`status` 返回 `exists: false`）。
 - 测量命令经 `/bin/sh -c` 执行，取 stdout 中最后一个数字（容忍 `score: 0.87` 等噪声）；信任契约内命令，不做沙箱隔离。
+- **命令执行前的安全复查**（2026-10-02）：`tick` 执行的命令取自状态文件，执行前经**可选服务**
+  `ctx.get("guard")` 复查（与 `bash` 同一套命令黑名单/敏感层，`allowPatterns` 生效）；**未挂载 guard 时
+  fail-open（告警一次）**，与修复前一致；`createController()` 直连路径默认不带复查器。
 - metricless 循环不判 plateau，只按轮数/时间/token 边界或手动停止。
 
 ## 测试
