@@ -69,7 +69,7 @@ interface DshTool {
       additionalProperties: boolean;
       properties: Record<string, never>;
     };
-    render: (value: unknown) => ContentBlock[];
+    render: (args: unknown, value: unknown) => ContentBlock[];
   };
 }
 
@@ -83,11 +83,19 @@ function toDshTool(def: ToolDef): DshTool {
     output: {
       // dsh ToolOutputDefinition 强制 output.schema（对照 task-engine/metric-loop 对齐形态）
       schema: { type: "object", additionalProperties: true, properties: {} },
-      render: (value: unknown): ContentBlock[] => [
-        { type: "text", text: JSON.stringify(value, null, 2) },
+      // 宿主契约：`output.render(exec.arguments, value)`（args 第一、value 第二；
+      // 单形参会让模型只拿到入参回显——本包曾因此让 LINE:HASH 锚点到不了模型）
+      render: (_args: unknown, value: unknown): ContentBlock[] => [
+        { type: "text", text: jsonText(value) },
       ],
     },
   };
+}
+
+/** JSON 文本；`JSON.stringify` 对 `undefined` / 函数等返回 `undefined`，退化为 `String`（render 必须全函数）。 */
+function jsonText(value: unknown): string {
+  const text = JSON.stringify(value, null, 2);
+  return typeof text === "string" ? text : String(value);
 }
 
 function asString(v: unknown): string | undefined {

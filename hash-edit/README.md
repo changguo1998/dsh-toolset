@@ -6,6 +6,8 @@ DSH（DeepSeek Harness）进程内插件：基于 `LINE:HASH` 锚点的文件编
 
 注册两个模型侧工具。
 
+> 工具面渲染口径：`output.render(args, value)` 输出 **value** 的 JSON 文本块（参数不参与渲染）——形参顺序与宿主 `dsh-tools` 的 `render(exec.arguments, value)` 一致；`value` 无 JSON 形态（如 `undefined`）时退化为 `String(value)`，保证内容块 `text` 恒为字符串。
+
 ### `hash_read`
 
 | 参数 | 必填 | 默认 | 说明 |
@@ -75,6 +77,6 @@ bundle 契约：`name` / `inject: ["tools"]` / `Config` / `apply`；`ctx.tools` 
 ```sh
 npm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
 npm run build   # 编译到 dist/
-npm run test    # node --test（43 例：hashline / edit / fs）
+npm run test    # node --test（50 例：hashline / edit / fs / tool）
 npm run demo    # 冒烟：多锚点编辑 + stale 拒绝，输出 SMOKE_PASS
 ```
