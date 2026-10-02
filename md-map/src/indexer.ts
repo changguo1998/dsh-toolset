@@ -10,7 +10,9 @@ import { parseMarkdownDocument } from "@dsh-toolset/md-logic";
 import {
   buildAnchors,
   candidateDocPaths,
+  dirOf,
   fenceLines,
+  scanInlineRefs,
   isExternal,
   resolveDocPath,
   scanWikiLinks,
@@ -81,9 +83,7 @@ export async function findMarkdownFiles(
 /** 入口文档启发式（`README*` / `index*` / 根目录文档）。 */
 function isEntryDoc(path: string): boolean {
   const name = path.split("/").pop() ?? path;
-  return (
-    /^(readme|index)\b/i.test(name) || !path.includes("/")
-  );
+  return /^(readme|index)\b/i.test(name) || !path.includes("/");
 }
 
 /** 构建项目级索引。 */
@@ -157,14 +157,22 @@ export async function buildIndex(
     for (const link of parsed.links) {
       // `definition` 是引用式定义的**目标声明**、`image` 是资源引用：都不计为文档关系边
       if (link.kind !== "link") continue;
-      edges.push(
-        await classify({
-          from: path,
-          target: link.href,
-          line: link.line,
-          ...(link.text === "" ? {} : { text: link.text }),
-        }),
-      );
+      const linkEdge = await classify({
+        from: path,
+        target: link.href,
+        line: link.line,
+        ...(link.text === "" ? {} : { text: link.text }),
+      });
+      if (linkEdge !== undefined) edges.push(linkEdge);
+    }
+    for (const ref of scanInlineRefs(normalizedLines, codeLines)) {
+      const refEdge = await classify({
+        from: path,
+        target: ref.token,
+        line: ref.line,
+        ref: true,
+      });
+      if (refEdge !== undefined) edges.push(refEdge);
     }
     for (const wiki of scanWikiLinks(normalizedLines, codeLines)) {
       const edge = await classify({
@@ -193,6 +201,7 @@ export async function buildIndex(
   let edges = 0;
   let externalEdges = 0;
   let fileEdges = 0;
+  let refEdges = 0;
   for (const doc of docs) {
     for (const edge of doc.edges) {
       if (edge.kind === "external") {
@@ -204,6 +213,7 @@ export async function buildIndex(
         continue;
       }
       if (edge.kind === "broken") continue;
+      if (edge.kind === "ref") refEdges += 1;
       edges += 1;
       if (edge.anchor !== undefined && edge.to !== undefined) {
         const known = anchorsByPath.get(edge.to);
@@ -233,9 +243,27 @@ export async function buildIndex(
     anchor?: string;
     text?: string;
     wiki?: boolean;
-  }): Promise<MdEdge> {
+    /** 行内代码路径引用（BACKLOG #1）：只认唯一命中索引内文档的 token */
+    ref?: boolean;
+  }): Promise<MdEdge | undefined> {
     const { from, target, line, text, anchor } = input;
     const isWiki = input.wiki === true;
+    if (input.ref === true) {
+      const hits: string[] = [];
+      for (const candidate of wikiCandidates(from, target)) {
+        if (indexed.has(candidate) && !hits.includes(candidate))
+          hits.push(candidate);
+      }
+      // 0 = 未命中（不产边、不计断链）；多个命中优先**源目录**形态（模块 README 指本模块 BACKLOG），
+      // 否则取候选序首个（root 相对优先）——与 wiki 同串同解，避免「行内代码写法丢边」
+      if (hits.length === 0) return undefined;
+      const fromDir = dirOf(from);
+      const own = hits.find(
+        (hit) =>
+          hit !== from && (fromDir === "" || hit.startsWith(`${fromDir}/`)),
+      );
+      return { kind: "ref", target, to: own ?? hits[0], line };
+    }
     if (isWiki) {
       for (const candidate of wikiCandidates(from, target)) {
         if (!indexed.has(candidate)) continue;
@@ -277,8 +305,7 @@ export async function buildIndex(
       };
     }
     const { path: pathPart, anchor: hrefAnchor } = splitHref(target);
-    const resolved =
-      pathPart === "" ? from : resolveDocPath(from, pathPart);
+    const resolved = pathPart === "" ? from : resolveDocPath(from, pathPart);
     if (resolved === null) {
       broken.push({ from, line, target, reason: "outside-root" });
       return { kind: "broken", target, line };
@@ -337,6 +364,7 @@ export async function buildIndex(
     edges,
     externalEdges,
     fileEdges,
+    refEdges,
     broken,
   };
 }

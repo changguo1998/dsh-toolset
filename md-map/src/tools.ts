@@ -36,7 +36,9 @@ function str(args: Record<string, unknown>, key: string): string | undefined {
 /** 整数参数（非法返回 undefined）。 */
 function int(args: Record<string, unknown>, key: string): number | undefined {
   const value = args[key];
-  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
+  return typeof value === "number" && Number.isInteger(value)
+    ? value
+    : undefined;
 }
 
 const ACTIONS = [
@@ -57,7 +59,7 @@ export function mdMapTool(service: MdMapService): unknown {
       "Markdown 项目级结构与引用分析（对象是文档，对标 code_map）：action=index / refresh 建立索引" +
       "（默认扫当前工作目录下的 `**/*.md`，跳过 node_modules / dist / tmp 等；也可用 root 指定），" +
       "action=callers 查谁引用了某文档或某锚点（path + 可选 anchor），action=impact 查改这份文档会波及" +
-      "哪些文档（反向引用闭包，depth 缺省 2），action=orphans 查零入边文档，action=report 出总览" +
+      "哪些文档（反向引用闭包，depth 缺省 2），（边含**行内代码路径引用** kind:ref：如 docs/BACKLOG.md，按候选序解析、未命中不计断链）action=orphans 查零入边文档，action=report 出总览" +
       "（文档 / 锚点 / 内部边 / 断链 / 孤儿 / 被引最多），action=summary 查索引状态。" +
       "分工：**代码结构 → code_map；单文件 Markdown 结构（节树 / 块 / 链接清单）→ md_logic；" +
       "项目级文档关系 / 影响面 / 断链 → 本工具**。行号 1 基；path 相对 root。",
@@ -75,7 +77,10 @@ export function mdMapTool(service: MdMapService): unknown {
           description:
             "callers / impact 用：目标文档（相对 root 的路径，也支持唯一后缀或文件名）",
         },
-        anchor: { type: "string", description: "callers 用：只看指向该锚点的引用" },
+        anchor: {
+          type: "string",
+          description: "callers 用：只看指向该锚点的引用",
+        },
         depth: {
           type: "integer",
           minimum: 1,
@@ -141,7 +146,9 @@ export function mdMapTool(service: MdMapService): unknown {
 
       if (action === "callers") {
         if (!service.hasDoc(pathArg ?? "")) {
-          return { error: `索引内没有该文档：${String(pathArg)}（先用 action=index）` };
+          return {
+            error: `索引内没有该文档：${String(pathArg)}（先用 action=index）`,
+          };
         }
         const anchor = str(args, "anchor");
         const rows = service.callers(pathArg ?? "", {
@@ -156,7 +163,9 @@ export function mdMapTool(service: MdMapService): unknown {
       }
       if (action === "impact") {
         if (!service.hasDoc(pathArg ?? "")) {
-          return { error: `索引内没有该文档：${String(pathArg)}（先用 action=index）` };
+          return {
+            error: `索引内没有该文档：${String(pathArg)}（先用 action=index）`,
+          };
         }
         const layers = service.impact(pathArg ?? "", { depth });
         return { action, path: pathArg, depth, layers };

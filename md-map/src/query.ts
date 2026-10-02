@@ -28,7 +28,8 @@ export function callers(
   for (const doc of index.docs) {
     for (const edge of doc.edges) {
       if (edge.to !== target) continue;
-      if (options.anchor !== undefined && edge.anchor !== options.anchor) continue;
+      if (options.anchor !== undefined && edge.anchor !== options.anchor)
+        continue;
       out.push({
         from: doc.path,
         line: edge.line,
@@ -117,6 +118,7 @@ export function report(index: MdMapIndex): MdMapReport {
     edges: index.edges,
     externalEdges: index.externalEdges,
     fileEdges: index.fileEdges,
+    refEdges: index.refEdges,
     broken: index.broken,
     orphans: orphans(index),
     topBacklinks: topBacklinks(index),

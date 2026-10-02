@@ -60,7 +60,9 @@ export function renderImpact(target: string, layers: MdImpactLayer[]): string {
       layer.docs.length > shown.length
         ? ` …其余 ${layer.docs.length - shown.length} 个`
         : "";
-    lines.push(`  L${layer.depth}（${layer.docs.length}）：${shown.join("、")}${rest}`);
+    lines.push(
+      `  L${layer.depth}（${layer.docs.length}）：${shown.join("、")}${rest}`,
+    );
   }
   return cap(lines).join("\n");
 }
@@ -92,6 +94,7 @@ export function renderReport(reportData: MdMapReport): string {
   const head = [
     `文档地图报告（root：${reportData.root}，${reportData.elapsedMs} ms${reportData.truncated ? "，已截断" : ""}）`,
     `文档 ${reportData.docs} / 锚点 ${reportData.anchors} / 内部边 ${reportData.edges} / 文件引用 ${reportData.fileEdges} / 站外链接 ${reportData.externalEdges}`,
+    `另有 ${reportData.refEdges ?? 0} 条行内代码路径引用（kind=ref，已计入内部边，不计断链）`,
   ];
   // 报告里只预览前若干个孤儿（真实仓库动辄上百个，整行输出会撑爆上下文）
   const orphanPreview = reportData.orphans.slice(0, 15);

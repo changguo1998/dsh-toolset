@@ -31,7 +31,12 @@ export type MdEdgeKind =
   /** `http(s)` / `mailto` / `tel` 等站外目标。 */
   | "external"
   /** 目标路径或锚点不存在。 */
-  | "broken";
+  | "broken"
+  /**
+   * 行内代码里的**路径引用**（如 `` `docs/BACKLOG.md` ``）：命中索引内文档才成边；
+   * 未命中不计（示例路径不该变噪声），多解跳过。
+   */
+  | "ref";
 
 /** 一条引用边（出边）。 */
 export interface MdEdge {
@@ -85,6 +90,8 @@ export interface MdMapIndex {
   edges: number;
   externalEdges: number;
   fileEdges: number;
+  /** 行内代码路径引用边数（`kind:"ref"`，已计入 `edges`） */
+  refEdges: number;
   broken: MdBrockenLink[];
 }
 
@@ -122,6 +129,8 @@ export interface MdMapReport {
   edges: number;
   externalEdges: number;
   fileEdges: number;
+  /** 行内代码路径引用边数（`kind:"ref"`，已计入 `edges`） */
+  refEdges: number;
   broken: MdBrockenLink[];
   orphans: string[];
   /** 被引最多的文档（top 10）。 */
