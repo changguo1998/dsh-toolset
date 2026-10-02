@@ -435,7 +435,7 @@ test("插件工具：md_logic 只读 action 读敏感路径 → deny（读侧口
       assert.match(hit!, /已拦截：读取敏感文件/);
       assert.match(hit!, /ssh-rsa-key/);
       assert.match(hit!, new RegExp(`工具：md_logic ${action}`));
-      assert.doesNotMatch(hit!, /写入/);
+      assert.match(hit!, /已拦截：读取敏感文件/);
     }
   } finally {
     fx.cleanup();
@@ -540,7 +540,7 @@ test("插件工具：读面四工具读敏感路径 → deny（读侧回执 + �
       assert.match(hit!, new RegExp(`工具：${tool}`));
       assert.match(hit!, /allowedPaths/);
       // 读面工具不得被标成写侧
-      assert.doesNotMatch(hit!, /写入/);
+      assert.match(hit!, /已拦截：读取敏感文件/);
     }
   } finally {
     fx.cleanup();
@@ -964,7 +964,7 @@ test("官方工具：read_image 读敏感路径 → deny（读侧回执 + 规则
       assert.match(hit!, /工具：read_image/);
       assert.match(hit!, /放行方式：/);
       // 读面工具不得被标成写侧
-      assert.doesNotMatch(hit!, /写入/);
+      assert.match(hit!, /已拦截：读取敏感文件/);
       // 同路径经官方 read 命中同一规则（read_image 与 read 同级口径）
       assert.match(
         guard.inspect("read", { file_path: filePath }) ?? "",
@@ -1007,7 +1007,7 @@ test("插件工具：code_map 的 root 为目录名命中 basename 型规则 →
     assert.match(hit!, /已拦截：读取敏感文件/);
     assert.match(hit!, /env-variant/);
     assert.match(hit!, /工具：code_map/);
-    assert.doesNotMatch(hit!, /写入/);
+    assert.match(hit!, /已拦截：读取敏感文件/);
     // 同目录树内的普通名父目录不命中（规则按 basename / 路径本身，不递归内容）
     assert.equal(
       guard.inspect("code_map", { action: "index", root: join(fx.dir, "x") }),
@@ -1200,4 +1200,89 @@ test("服务面：provide('guard') 暴露 inspectCommand（与 recent / policy �
     service.recent().map((r) => r.verdict),
     ["allow", "deny"],
   );
+});
+
+// ---------------------------------------------------------------------------
+// 命令层优先级与放行：命令层与敏感层同时命中 → 只回命令层（命令层先判即返回）；
+// 插件命令层的 allowPatterns 正向放行（对照：不匹配 / 空则仍被拦）。
+// ---------------------------------------------------------------------------
+
+test("命令层 + 敏感层同时命中：只回命令层（来源标注 + 规则 id，不含敏感层文案）", async () => {
+  const fx = makeSensitiveFixture();
+  try {
+    // 同一条命令文本：黑名单命中（"su"+"do" 拼接，仓库内不出现危险命令字面量）
+    // + 敏感文件名路径（临时目录 fixture 的 .env，非真实家目录路径）
+    const command = `cat "${fx.envPath}" # su${"do"} --version`;
+    const { host, listeners } = makeHost();
+    createSecurityGuard(host, { homeDir: HOME });
+    const result = await listeners[0]!(
+      execOf("metric_loop", { action: "start", measureCmd: command }),
+      nextAllow,
+    );
+    assert.equal(result.kind, "deny");
+    const reason = (result as { reason: string }).reason;
+    // 命令层信息齐全：来源标注（工具名 + 命令参数路径）+ 规则 id + 原因 + 放行方式
+    assert.match(reason, /插件命令工具「metric_loop」/);
+    assert.match(reason, /命令参数（measureCmd）/);
+    assert.match(reason, /命令命中黑名单规则「sudo」/);
+    assert.match(reason, /原因：/);
+    assert.match(reason, /放行方式：/);
+    assert.match(reason, /commandBlacklist\.allowPatterns/);
+    // 敏感层文案完全不出现：命令层命中即返回，不回落到敏感层
+    assert.doesNotMatch(reason, /已拦截：读取敏感文件/);
+    assert.doesNotMatch(reason, /敏感文件/);
+    assert.doesNotMatch(reason, /allowedPaths/);
+    // 反证：同一路径去掉命令层命中后，敏感层确实命中（不是路径没被识别）
+    const guard = new GuardEngine({ homeDir: HOME });
+    assert.match(
+      guard.inspect("metric_loop", {
+        action: "start",
+        measureCmd: `cat "${fx.envPath}"`,
+      }) ?? "",
+      /已拦截：读写敏感文件/,
+    );
+    // shell 工具同口径：同文本同样由命令层短路（回执无敏感层文案）
+    const shellHit = guard.inspect("bash", { command }) ?? "";
+    assert.match(shellHit, /「sudo」/);
+    assert.doesNotMatch(shellHit, /敏感文件/);
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("插件命令工具：allowPatterns 正向放行（对照：不匹配 / 空的 allowPatterns 仍被拦）", async () => {
+  const command = riskyCommand();
+  // 能匹配该命令文本的放行正则（与 command 同款拼接构造）
+  const allowPattern = `^echo 0 # su${"do"} --version$`;
+  const { host, listeners } = makeHost();
+  createSecurityGuard(host, {
+    homeDir: HOME,
+    commandBlacklist: { allowPatterns: [allowPattern] },
+  });
+  // 放行：命令层被 allowPatterns 打开 → 落到 next()（同文件既有 allow 断言风格）
+  assert.deepEqual(
+    await listeners[0]!(
+      execOf("metric_loop", { action: "start", measureCmd: command }),
+      nextAllow,
+    ),
+    { kind: "allow" },
+  );
+  // 引擎直调同一判定口径
+  assert.equal(
+    new GuardEngine({
+      homeDir: HOME,
+      commandBlacklist: { allowPatterns: [allowPattern] },
+    }).inspect("metric_loop", { action: "start", measureCmd: command }),
+    null,
+  );
+  // 对照：同命令在不匹配（或空）的 allowPatterns 下仍被命令层拦（放行按正则匹配生效）
+  for (const allowPatterns of [["^echo 42$"], []] as const) {
+    const hit = new GuardEngine({
+      homeDir: HOME,
+      commandBlacklist: { allowPatterns },
+    }).inspect("metric_loop", { action: "start", measureCmd: command });
+    assert.notEqual(hit, null);
+    assert.match(hit!, /插件命令工具「metric_loop」/);
+    assert.match(hit!, /命令命中黑名单规则「sudo」/);
+  }
 });

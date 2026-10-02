@@ -20,7 +20,7 @@ DSH（DeepSeek Harness）进程内安全守卫插件：危险命令黑名单拦�
 - **官方读面工具 `read_image`**（图片读取，参数 `file_path`）：与 `read` 同级过敏感文件层读侧口径——读敏感名路径（`.env` / `id_rsa` / `~/.ssh` 等）被拦，回执为读侧措辞 + 规则 id + 工具名；读普通路径放行。
 - **插件命令面**（`src/index.ts` 的 `PLUGIN_COMMAND_TOOLS` 登记表，按各包**真实参数面**读码登记）：`metric_loop` 的 `measureCmd`（`action=start` 时经 `/bin/sh -c` 执行，`metric-loop/src/measure.ts`）；`task_decompose` 的 `children[].executor.command`（command 后端的执行命令）与 `children[].acceptance[].command`（mechanical 验收命令）。命令文本走与 `bash` **同一**命令黑名单层与路径抽取（`allowPatterns` 同样生效），命令层回执前置一行来源标注（工具名 + 命令参数路径），敏感层回执按 shell 同口径标「读写」。命令的**执行**在 `task_execute` / `task_stop`，但**检查点**落在声明处 `task_decompose`（前两者的入参只有 `task_id`，不含命令文本）。
 - **未登记工具仍不拦**（当前已知边界）：覆盖范围是显式白名单——官方文件工具、shell 工具与两张插件登记表（`PLUGIN_FILE_TOOLS` 路径面 / `PLUGIN_COMMAND_TOOLS` 命令面）里的插件工具；其他工具名（含本仓其它只读插件工具，如 `context_report` / `rule_list`）不参与判定。登记表只覆盖**登记的参数键**：`metric_loop` 仅 `measureCmd` 参与，`task_decompose` 仅上述两条嵌套命令路径参与（`executor.cwd` / `spec` 等参数不参与）。未识别的工具名或参数缺失一律放行（不猜测语义）。工具名按自身属性查表（`Object.hasOwn`），故 `constructor` / `toString` / `valueOf` 这类原型链属性名视同未登记 → 放行。新增插件工具需按真实参数面在对应登记表登记。
-- 只读查询面 `provide('guard')`：`recent()` 返回最近拦截记录（上限 200，新在前），`policy()` 返回当前开关、生效规则（id / reason）与放行正则源，供 TUI `/guard` 等接线方消费。
+- 只读查询面 `provide('guard')`：`recent()` 返回最近拦截记录（上限 200，新在前），`policy()` 返回当前开关、生效规则（id / reason）与放行正则源，供 TUI `/guard` 等接线方消费。（服务面另暴露 `inspectCommand(command, source?)`：命令层复查入口，供其它插件在执行前自助复查）
 
 ### 回执示例
 
@@ -109,7 +109,7 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
   `allowedPaths` 同样生效），命中即不测量、不落盘。**未挂载 guard 时 fail-open（告警一次）**，与修复前行为一致
   （不回归）；`metric-loop` 直连 `createController()` 的路径默认不带复查器。
 - **未登记工具仍不拦**是当前已知边界：插件工具靠 `PLUGIN_FILE_TOOLS`（路径面：写面 `hash_edit` / `md_logic` / `ast_replace`，读面 `ast_query` / `hash_read` / `fs_digest` / `code_map` / `md_map`）与 `PLUGIN_COMMAND_TOOLS`（命令面：`metric_loop` / `task_decompose`）两张白名单登记，未登记的插件工具（如 `context_report` / `rule_list`）不会被拦；新增工具时需按**真实参数面**同步登记。
-- **命令执行侧的检查点边界**：task-engine 的命令（`children[].executor.command` 与 mechanical 验收 `children[].acceptance[].command`）在 `task_decompose` **声明处**检查，而执行工具 `task_execute` / `task_stop` 的入参只有 `task_id`、命令文本不在其中。因此**绕过声明工具**进入帧契约的命令不受本层覆盖：从 `snapshotPath` 快照恢复的既有帧、配置侧 `root.acceptance[].command`（引擎直接执行、不经 `task_decompose`），以及其它直接写引擎状态/旁路的路径。此外 `workflow` 后端的 `script` 是 JS 编排脚本（非 shell 命令串），也不在命令黑名单层覆盖范围内。
+- **命令执行侧的检查点边界**：task-engine 的命令（`children[].executor.command` 与 mechanical 验收 `children[].acceptance[].command`）在 `task_decompose` **声明处**检查，而执行工具 `task_execute` / `task_stop` 的入参只有 `task_id`、命令文本不在其中。因此**绕过声明工具**进入帧契约的命令不受本层覆盖：经导出 API `resumeFromSnapshot` 恢复的帧（本仓插件**当前未接线**：只写快照、不读回）、配置侧 `root.acceptance[].command`（引擎直接执行、不经 `task_decompose`），以及其它直接写引擎状态/旁路的路径。此外 `workflow` 后端的 `script` 是 JS 编排脚本（非 shell 命令串），也不在命令黑名单层覆盖范围内。
 - **插件命令参数按参数键检查、不区分 action**：`metric_loop` 的 `measureCmd` 只在 `action=start` 时执行，但登记表按参数键判定——`action=status` 等调用若带上会命中黑名单的 `measureCmd` 同样被拦（宁可误拦不可漏拦；可用 `commandBlacklist.allowPatterns` 放行）。
 - `run_code` 只过命令层，不做路径层检查；文件工具的路径参数只过敏感层，不做命令层检查。
 - 拦截是**策略层**，不是沙箱：放行后命令以宿主既有权限执行，进程级隔离由宿主策略承载。

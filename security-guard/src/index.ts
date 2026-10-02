@@ -686,11 +686,12 @@ export function createSecurityGuard(
   const detach = host.on("tools/pre-execute", (exec, next) => {
     const receipt = guard.inspect(exec.name, exec.arguments);
     if (receipt !== null) {
-      // 一行日志（首行即规则命中摘要），完整回执在工具结果文本里
-      const firstLine = receipt.split("\n")[0] ?? receipt;
+      // 日志取回执**前两行**（插件命令工具的首行是来源标注行，规则摘要紧随其后；
+      // 只取首行会让日志丢掉规则 id），完整回执在工具结果文本里
+      const logHead = receipt.split("\n").slice(0, 2).join(" ");
       host
         .logger?.(name)
-        .info(`security-guard blocked tool=${exec.name}: ${firstLine}`);
+        .info(`security-guard blocked tool=${exec.name}: ${logHead}`);
       return { kind: "deny", reason: receipt };
     }
     return next();
