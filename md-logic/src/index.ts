@@ -30,8 +30,16 @@ export {
   RENDER_LIMIT,
   renderBlocks,
   renderLinks,
+  renderReplace,
   renderStructure,
 } from "./render.ts";
+export {
+  replaceSections,
+  replaceSectionsFile,
+  type EditFailureCode,
+  type ReplaceOutcome,
+  type SectionEdit,
+} from "./edit.ts";
 export type {
   FrontmatterInfo,
   MarkdownDocument,

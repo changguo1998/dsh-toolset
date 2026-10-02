@@ -75,7 +75,7 @@
 | `security-guard` | inject `tools`；事件 `tools/pre-execute`（拦截点） |
 | `code-map` / `fs-digest` | inject `tools`；get `lsp`（**当前不可达**，见 §5） |
 | `hash-edit` / `ast-tools` | inject `tools`（`ast-tools` 2026-10-02 起注册 `ast_query` / `ast_replace`，同时保留库 / 服务面） |
-| `md-logic` | inject `tools`（注册 `md_logic`：structure / blocks / links）；解析用 `marked` 实例，不消费宿主服务 |
+| `md-logic` | inject `tools`（注册 `md_logic`：structure / blocks / links / replace）；解析用 `marked` 实例，不消费宿主服务 |
 | `md-map` | inject `tools` / provide `mdMap`（注册 `md_map`：index / refresh / callers / impact / orphans / report / summary）；组合 `md-logic` 的解析，不做解析本身 |
 | `metric-loop` / `herdr-integration` / `symbol-normalizer` | inject `tools` / `agents` / —（`symbol-normalizer` 消费本仓 `ruleEngine` 服务） |
 

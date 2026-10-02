@@ -2,14 +2,21 @@
 //
 // 契约同 ast-tools：def = { name, description, parameters, execute(args, exec), output{schema, render(_args, value)} }；
 // render 形参顺序是「args 第一、value 第二」；render 全函数（畸形值不抛）。
-// 只读：不写文件、不改宿主状态；路径相对**调用方会话 cwd**（与 fs_digest / 宿主 tool-fs 同口径）。
+// 读面只读、不改宿主状态；`replace` 是本包唯一的写面（按节整节替换 / 删除，安全语义见 edit.ts）。
+// 路径相对**调用方会话 cwd**（与 fs_digest / 宿主 tool-fs 同口径）。
 
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 
 import { listLinks, queryBlocks, findSections } from "./query.ts";
 import { parseMarkdownDocument } from "./parse.ts";
-import { renderBlocks, renderLinks, renderStructure } from "./render.ts";
+import { replaceSectionsFile, type SectionEdit } from "./edit.ts";
+import {
+  renderBlocks,
+  renderLinks,
+  renderReplace,
+  renderStructure,
+} from "./render.ts";
 import type { MdBlockKind, MdLinkKind, MarkdownDocument } from "./types.ts";
 
 /** 默认文件尺寸上限（1MB；超限报错而不截断，避免给出错误行号）。 */
@@ -75,6 +82,32 @@ function num(args: Record<string, unknown>, key: string): number | undefined {
     : undefined;
 }
 
+/** replace 用 edits 入参 → `SectionEdit[]`（纯校验；非法返回 undefined）。 */
+function parseEdits(raw: unknown): SectionEdit[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out: SectionEdit[] = [];
+  for (const item of raw) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      return undefined;
+    }
+    const o = item as Record<string, unknown>;
+    const heading = o["heading"];
+    const start = o["start_line"];
+    const end = o["end_line"];
+    const content = o["content"];
+    if (typeof heading !== "string" || heading === "") return undefined;
+    if (typeof start !== "number" || !Number.isInteger(start) || start < 1) {
+      return undefined;
+    }
+    if (typeof end !== "number" || !Number.isInteger(end) || end < start) {
+      return undefined;
+    }
+    if (typeof content !== "string") return undefined;
+    out.push({ heading, startLine: start, endLine: end, content });
+  }
+  return out;
+}
+
 const BLOCK_KINDS: MdBlockKind[] = [
   "frontmatter",
   "code",
@@ -91,11 +124,11 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
   return {
     name: "md_logic",
     description:
-      "Markdown 逻辑结构（单文件、只读）：action=structure 出节树（标题层级 + 每节 `L{起}-{止}` 行范围）," +
+      "Markdown 逻辑结构（单文件，读 + 按节改写）：action=structure 出节树（标题层级 + 每节 `L{起}-{止}` 行范围）," +
       "action=blocks 按类型 / 节 / 行范围列块（list / table / code / quote / frontmatter / html / hr，" +
       "带列表条目数与嵌套层数、表格行列数、代码围栏语言），action=links 列链接、图片与引用式定义（[tag]: url）。" +
       "选择成本：只要标题 + 块快览用 fs_digest（轻量、与三模式统一）；要节行范围配 read 按节读、" +
-      "要链接清单 / 块细节 / 嵌套信息用本工具；改 Markdown 用 hash_edit（行级锚点 + 整批原子拒绝）。" +
+      "要链接清单 / 块细节 / 嵌套信息用本工具；action=replace 按节**整节替换 / 删除**（edits 带 heading + start_line / end_line，均来自 structure；替换前重新解析校验「同标题 + 同范围」仍成立，漂移即拒；整批原子写、失败不落盘）。改写分工：本工具 replace = 按节（标题 + 行范围漂移检测）；hash_edit = 行级 LINE:HASH 锚点；官方 edit = 文件级字符串替换 + 版本守卫。" +
       "行号 1 基；path 相对会话 cwd。",
     parameters: {
       type: "object",
@@ -104,8 +137,9 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
       properties: {
         action: {
           type: "string",
-          enum: ["structure", "blocks", "links"],
-          description: "structure=节树；blocks=块清单；links=链接与定义清单",
+          enum: ["structure", "blocks", "links", "replace"],
+          description:
+            "structure=节树；blocks=块清单；links=链接与定义清单；replace=按节整节替换 / 删除（写盘）",
         },
         path: {
           type: "string",
@@ -148,6 +182,32 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
           description:
             "links 用：按 href / 文本 / title 子串过滤（大小写不敏感）",
         },
+        edits: {
+          type: "array",
+          description:
+            "replace 用：改写指令数组——heading 为目标节标题文本（与 structure 输出一致，不含 #）、start_line / end_line 为该节行范围（来自 structure）、content 为整节新文本（含标题行；空串 = 删除该节）",
+          items: {
+            type: "object",
+            required: ["heading", "start_line", "end_line", "content"],
+            properties: {
+              heading: { type: "string", description: "目标节标题文本" },
+              start_line: {
+                type: "integer",
+                minimum: 1,
+                description: "节起始行（来自 structure）",
+              },
+              end_line: {
+                type: "integer",
+                minimum: 1,
+                description: "节结束行（来自 structure）",
+              },
+              content: {
+                type: "string",
+                description: "整节新文本（含标题行；空串 = 删除该节）",
+              },
+            },
+          },
+        },
       },
     },
     async execute(
@@ -160,13 +220,18 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
       const action = str(args, "action") ?? "";
       const rawPath = str(args, "path");
       const cwd = resolveExecCwd(exec);
-      if (action === "structure" || action === "blocks" || action === "links") {
+      if (
+        action === "structure" ||
+        action === "blocks" ||
+        action === "links" ||
+        action === "replace"
+      ) {
         if (rawPath === undefined) {
           return { error: `${action} 需要 path 参数` };
         }
       } else {
         return {
-          error: `未知 action：${action}（可选 structure / blocks / links）`,
+          error: `未知 action：${action}（可选 structure / blocks / links / replace）`,
         };
       }
       // 先校验参数（不触达磁盘），再做读取与解析
@@ -194,6 +259,39 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
       const absPath = isAbsolute(rawPath ?? "")
         ? (rawPath ?? "")
         : resolve(cwd, rawPath ?? "");
+      if (action === "replace") {
+        const edits = parseEdits(args["edits"]);
+        if (edits === undefined) {
+          return {
+            action,
+            path: rawPath ?? "",
+            error:
+              "edits 非法：需非空数组，每项 {heading, start_line, end_line, content}（heading 为标题文本、范围来自 structure）",
+            code: "edits_invalid",
+          };
+        }
+        const result = await replaceSectionsFile(
+          rawPath ?? "",
+          edits,
+          cwd,
+          maxBytes,
+        );
+        return {
+          action,
+          path: result.path ?? rawPath ?? "",
+          ok: result.ok,
+          ...(result.ok
+            ? { applied: result.applied }
+            : {
+                code: result.code,
+                error: result.error,
+                ...(result.details === undefined
+                  ? {}
+                  : { details: result.details }),
+              }),
+        };
+      }
+
       const read = await readMarkdown(absPath, maxBytes);
       if (!read.ok) return { error: read.error };
       const doc = parseMarkdownDocument(read.text);
@@ -256,11 +354,39 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
                 error?: string;
                 action?: string;
                 depth?: number;
+                ok?: boolean;
+                path?: string;
+                applied?: number;
+                code?: string;
+                details?: unknown;
                 doc?: MarkdownDocument;
                 blocks?: MarkdownDocument["blocks"];
                 links?: MarkdownDocument["links"];
               })
             : {};
+        if (result.action === "replace") {
+          return [
+            {
+              type: "text",
+              text: renderReplace({
+                ok: result.ok === true,
+                path: result.path ?? "",
+                ...(typeof result.applied === "number"
+                  ? { applied: result.applied }
+                  : {}),
+                ...(typeof result.code === "string"
+                  ? { code: result.code }
+                  : {}),
+                ...(typeof result.error === "string"
+                  ? { error: result.error }
+                  : {}),
+                ...(result.details === undefined
+                  ? {}
+                  : { details: result.details }),
+              }),
+            },
+          ];
+        }
         if (typeof result.error === "string") {
           return [{ type: "text", text: `md_logic 失败：${result.error}` }];
         }

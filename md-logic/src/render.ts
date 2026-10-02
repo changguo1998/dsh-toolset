@@ -71,3 +71,27 @@ export function renderLinks(links: MdLink[]): string {
   });
   return cap(lines).join("\n");
 }
+
+/** replace 结果：成功报处数；失败给原因 + 「重新 structure」的下一步。 */
+export function renderReplace(result: {
+  ok: boolean;
+  path: string;
+  applied?: number;
+  code?: string;
+  error?: string;
+  details?: unknown;
+}): string {
+  if (result.ok) {
+    return `已按节替换：${result.path}（${result.applied ?? 0} 处，整批原子写）`;
+  }
+  const details =
+    result.details === undefined
+      ? ""
+      : `\n当前范围：${JSON.stringify(result.details)}`;
+  return (
+    [
+      `md_logic replace 失败（${result.code ?? "unknown"}）：${result.error ?? ""}`,
+      "下一步：先 action=structure 取最新节范围，再用新范围重发 edits。",
+    ].join("\n") + details
+  );
+}
