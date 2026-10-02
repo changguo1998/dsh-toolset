@@ -124,7 +124,10 @@ export interface GuardHost {
   logger?(ns: string): { info(message: string): void };
 }
 
-/** 拦截面：shell 工具 → command 文本；run_code → code 文本；文件工具 → 路径参数。 */
+/**
+ * 拦截面：shell 工具 → command 文本；run_code → code 文本；文件工具 → 路径参数；
+ * 插件文件工具 → 登记路径参数；插件命令工具 → 登记命令参数（见 PLUGIN_COMMAND_TOOLS）。
+ */
 const SHELL_TOOLS = new Set(["bash", "shell", "pwsh"]);
 const RUN_CODE_TOOLS = new Set(["run_code"]);
 const FILE_TOOLS = new Set(["read", "write", "edit", "patch", "grep", "glob"]);
@@ -180,6 +183,101 @@ function pluginFileTool(toolName: string): PluginFileTool | undefined {
   return Object.hasOwn(PLUGIN_FILE_TOOLS, toolName)
     ? PLUGIN_FILE_TOOLS[toolName]
     : undefined;
+}
+
+/** 插件命令工具描述符：登记入参里带 shell 命令文本的插件工具。 */
+interface PluginCommandTool {
+  /** 顶层命令参数名（取 string 值），如 metric_loop 的 measureCmd。 */
+  commandKeys?: readonly string[];
+  /**
+   * 嵌套命令路径（点号分隔；段名带 `[]` 表示该值是数组、逐元素展开），
+   * 如 `children[].executor.command`。
+   */
+  commandPaths?: readonly string[];
+}
+
+/**
+ * 插件命令工具登记表：登记会把**模型给的命令串**交给系统 shell 执行的插件工具
+ * （实现时按各包读码核实的真实参数面登记）：
+ * - `metric_loop`：`measureCmd`（action=start 时经 /bin/sh -c 执行，见 metric-loop/src/measure.ts）；
+ * - `task_decompose`：`children[].executor.command`（command 后端的执行命令）与
+ *   `children[].acceptance[].command`（mechanical 验收命令）——两者都由模型在本工具写进
+ *   帧契约，执行发生在 `task_execute` / `task_stop`（那两个工具的入参只有 task_id，
+ *   不含命令文本），故检查点落在声明处（残留边界见 README「边界与限制」）。
+ * 未登记的工具仍走「未知工具不拦」的既有边界（见 README「边界与限制」）。
+ */
+const PLUGIN_COMMAND_TOOLS: Record<string, PluginCommandTool> = {
+  metric_loop: { commandKeys: ["measureCmd"] },
+  task_decompose: {
+    commandPaths: [
+      "children[].executor.command",
+      "children[].acceptance[].command",
+    ],
+  },
+};
+
+/** 命令工具登记表查表（与文件表同口径：Object.hasOwn，原型链属性名视同未登记）。 */
+function pluginCommandTool(toolName: string): PluginCommandTool | undefined {
+  return Object.hasOwn(PLUGIN_COMMAND_TOOLS, toolName)
+    ? PLUGIN_COMMAND_TOOLS[toolName]
+    : undefined;
+}
+
+/**
+ * 按点号路径取嵌套命令文本：逐段取对象键值；段名带 `[]` 时把该值按数组逐元素展开
+ * （非数组不做隐式包装，缺键即空）。只收非空 string，其余类型忽略。
+ */
+function commandPathValues(
+  args: Record<string, unknown>,
+  path: string,
+): string[] {
+  let nodes: unknown[] = [args];
+  for (const segment of path.split(".")) {
+    const isArray = segment.endsWith("[]");
+    const key = isArray ? segment.slice(0, -2) : segment;
+    const next: unknown[] = [];
+    for (const node of nodes) {
+      const value = asStringRecord(node)[key];
+      if (value === undefined) continue;
+      if (isArray) {
+        if (Array.isArray(value)) next.push(...value);
+      } else {
+        next.push(value);
+      }
+    }
+    nodes = next;
+  }
+  return nodes.filter(
+    (v): v is string => typeof v === "string" && v.length > 0,
+  );
+}
+
+/** 插件命令工具的命令文本提取：顶层 commandKeys + 嵌套 commandPaths（各带来源参数路径）。 */
+function pluginCommands(
+  args: Record<string, unknown>,
+  tool: PluginCommandTool,
+): { keyPath: string; text: string }[] {
+  const out: { keyPath: string; text: string }[] = [];
+  for (const key of tool.commandKeys ?? []) {
+    const v = args[key];
+    if (typeof v === "string" && v.length > 0) {
+      out.push({ keyPath: key, text: v });
+    }
+  }
+  for (const path of tool.commandPaths ?? []) {
+    for (const text of commandPathValues(args, path)) {
+      out.push({ keyPath: path, text });
+    }
+  }
+  return out;
+}
+
+/**
+ * 插件命令工具的来源标注行：标准命令回执（规则 id / 命令 / 原因 / 放行方式）不变，
+ * 仅前置一行来源——模型据此知道被拦的是哪个工具的哪个命令参数。
+ */
+function formatPluginCommandSource(toolName: string, keyPath: string): string {
+  return `[security-guard] 拦截来源：插件命令工具「${toolName}」的命令参数（${keyPath}）。`;
 }
 
 /** 解析后的内部配置（编译后，构造一次）。 */
@@ -257,13 +355,15 @@ function pluginFilePaths(
 }
 
 /**
- * 文件工具的敏感文件操作面：插件登记表（writeWhen 为真 → write；read-write 非写 action
- * → read）→ shell 读写两面 → 写类官方工具 write → 其余 read。官方工具语义不变。
+ * 文件工具的敏感文件操作面：命令登记表（命令经 shell 执行，读写两面都可能）→ 插件文件
+ * 登记表（writeWhen 为真 → write；read-write 非写 action → read）→ shell 读写两面 →
+ * 写类官方工具 write → 其余 read。官方工具语义不变。
  */
 function toolOperation(
   toolName: string,
   args: Record<string, unknown>,
 ): "read" | "write" | "read-write" {
+  if (pluginCommandTool(toolName) !== undefined) return "read-write";
   const plugin = pluginFileTool(toolName);
   if (plugin !== undefined) {
     if (plugin.writeWhen?.(args) === true) return "write";
@@ -422,19 +522,22 @@ export class GuardEngine {
     const cfg = this.#cfg;
     if (!cfg.enabled) return null;
     const args = asStringRecord(rawArguments);
-    let commandText: string | undefined;
+    // 待过命令黑名单层的命令文本（sourceLine = 插件命令工具的来源标注行）
+    const commands: { text: string; sourceLine?: string }[] = [];
     const paths: string[] = [];
     if (SHELL_TOOLS.has(toolName)) {
       // shell 工具：命令文本过黑名单层；文本中的路径 + workdir 过敏感文件层
-      commandText = firstString(args, ["command", "script"]);
+      const commandText = firstString(args, ["command", "script"]);
       if (commandText !== undefined) {
+        commands.push({ text: commandText });
         paths.push(...extractCommandPaths(commandText));
       }
       const workdir = firstString(args, ["workdir"]);
       if (workdir !== undefined) paths.push(workdir);
     } else if (RUN_CODE_TOOLS.has(toolName)) {
       // run_code：代码文本整体过黑名单层（其子分发工具调用会再走一遍管线）
-      commandText = firstString(args, ["code", "program"]);
+      const codeText = firstString(args, ["code", "program"]);
+      if (codeText !== undefined) commands.push({ text: codeText });
     } else if (FILE_TOOLS.has(toolName)) {
       // 内置文件工具：路径参数过敏感文件层
       for (const key of FILE_PATH_KEYS) {
@@ -443,17 +546,37 @@ export class GuardEngine {
       }
     } else {
       const plugin = pluginFileTool(toolName);
+      const commandTool = pluginCommandTool(toolName);
       // 未登记工具：不拦（已知边界，见 README「边界与限制」）
-      if (plugin === undefined) return null;
+      if (plugin === undefined && commandTool === undefined) return null;
       // 插件文件工具（登记表）：按各自 pathKeys / pathArrayKeys 提取路径，
       // 与官方文件工具同一路径解析与敏感文件层口径
-      paths.push(...pluginFilePaths(args, plugin));
+      if (plugin !== undefined) paths.push(...pluginFilePaths(args, plugin));
+      // 插件命令工具（登记表）：按 commandKeys / commandPaths 提取命令文本，
+      // 与 shell 工具同一命令黑名单层 + 路径抽取口径（同登记文件表时两套都走，互不覆盖）
+      if (commandTool !== undefined) {
+        for (const c of pluginCommands(args, commandTool)) {
+          commands.push({
+            text: c.text,
+            sourceLine: formatPluginCommandSource(toolName, c.keyPath),
+          });
+          paths.push(...extractCommandPaths(c.text));
+        }
+      }
     }
-    // 命令黑名单层（allowPatterns 仅放开本层）
-    if (commandText !== undefined && cfg.commandBlacklist.enabled) {
-      if (!isCommandAllowed(commandText, cfg.commandBlacklist.allowPatterns)) {
-        const hit = matchCommand(commandText, cfg.commandBlacklist.rules);
-        if (hit !== null) return formatCommandReceipt(hit);
+    // 命令黑名单层（allowPatterns 仅放开本层）：逐条命令文本同一口径判定
+    if (cfg.commandBlacklist.enabled) {
+      for (const c of commands) {
+        if (isCommandAllowed(c.text, cfg.commandBlacklist.allowPatterns)) {
+          continue;
+        }
+        const hit = matchCommand(c.text, cfg.commandBlacklist.rules);
+        if (hit !== null) {
+          const receipt = formatCommandReceipt(hit);
+          return c.sourceLine === undefined
+            ? receipt
+            : `${c.sourceLine}\n${receipt}`;
+        }
       }
     }
     // 敏感文件层（allowedPaths 仅放开本层）

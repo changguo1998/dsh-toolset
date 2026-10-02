@@ -2,7 +2,8 @@
  * GuardEngine + 宿主挂接单测：pre-execute 的 deny/allow 分流、
  * 配置覆盖（enabled / allowPatterns / allowedPaths / 追加规则）、
  * 插件文件工具登记表（写面 hash_edit / md_logic / ast_replace；读面 ast_query /
- * hash_read / fs_digest / code_map / md_map）与未登记工具边界。
+ * hash_read / fs_digest / code_map / md_map）、插件命令工具登记表
+ * （metric_loop.measureCmd / task_decompose 的嵌套命令）与未登记工具边界。
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -629,6 +630,254 @@ test("插件工具：登记工具读写普通路径 → 放行（不误伤）", 
   } finally {
     fx.cleanup();
   }
+});
+
+test("插件命令工具：metric_loop{measureCmd} 命中黑名单 → deny（回执含工具名、参数与规则 id）", async () => {
+  const { host, listeners } = makeHost();
+  createSecurityGuard(host, { homeDir: HOME });
+  const result = await listeners[0]!(
+    execOf("metric_loop", { action: "start", measureCmd: "sudo ls /" }),
+    nextAllow,
+  );
+  assert.equal(result.kind, "deny");
+  const reason = (result as { reason: string }).reason;
+  // 来源标注（工具名 + 命令参数路径）+ 标准命令回执（规则 id / 原因 / 放行方式）
+  assert.match(reason, /插件命令工具「metric_loop」/);
+  assert.match(reason, /命令参数（measureCmd）/);
+  assert.match(reason, /命令命中黑名单规则「sudo」/);
+  assert.match(reason, /原因：/);
+  assert.match(reason, /放行方式：/);
+  // 引擎直调：与 bash 同文本走同一条规则（同一命令黑名单层）
+  const guard = new GuardEngine({ homeDir: HOME });
+  assert.match(
+    guard.inspect("metric_loop", {
+      action: "start",
+      measureCmd: "sudo ls /",
+    }) ?? "",
+    /「sudo」/,
+  );
+});
+
+test("插件命令工具：task_decompose 的嵌套命令（executor / mechanical 验收）→ deny", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  // children[].executor.command（command 后端，执行在 task_execute）
+  const executorHit = guard.inspect("task_decompose", {
+    parent_id: "root",
+    children: [
+      {
+        id: "c1",
+        title: "跑测量",
+        spec: "跑测量命令",
+        acceptance: [{ id: "a1", check: "输出数字", level: "mechanical" }],
+        need_decompose: false,
+        executor: { kind: "command", command: "sudo ls /" },
+      },
+    ],
+  });
+  assert.notEqual(executorHit, null);
+  assert.match(executorHit!, /插件命令工具「task_decompose」/);
+  assert.match(executorHit!, /children\[\]\.executor\.command/);
+  assert.match(executorHit!, /「sudo」/);
+  // children[].acceptance[].command（mechanical 验收，执行在 task_stop；文本在声明处检查）
+  const acceptanceHit = guard.inspect("task_decompose", {
+    parent_id: "root",
+    children: [
+      {
+        id: "c1",
+        title: "跑测量",
+        spec: "跑测量命令",
+        acceptance: [
+          {
+            id: "a1",
+            check: "输出数字",
+            level: "mechanical",
+            command: "rm -rf .",
+          },
+        ],
+        need_decompose: false,
+      },
+    ],
+  });
+  assert.match(acceptanceHit ?? "", /children\[\]\.acceptance\[\]\.command/);
+  assert.match(acceptanceHit ?? "", /rm-recursive-root/);
+});
+
+test("插件命令工具：普通命令 / 无命令声明 / model 后端 → 放行（不误伤）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  for (const [tool, args] of [
+    // metric_loop：普通测量命令与不带命令的 action
+    ["metric_loop", { action: "start", measureCmd: "echo 42" }],
+    ["metric_loop", { action: "tick", id: "default", wake: "auto" }],
+    ["task_decompose", { parent_id: "root" }],
+    // task_decompose：model 后端 + 普通验收命令
+    [
+      "task_decompose",
+      {
+        parent_id: "root",
+        children: [
+          {
+            id: "c1",
+            title: "写文档",
+            spec: "更新文档",
+            acceptance: [
+              {
+                id: "a1",
+                check: "命令通过",
+                level: "mechanical",
+                command: "npm run check",
+              },
+            ],
+            need_decompose: false,
+            executor: { kind: "model" },
+          },
+        ],
+      },
+    ],
+    // task_decompose：command 后端 + 普通命令
+    [
+      "task_decompose",
+      {
+        parent_id: "root",
+        children: [
+          {
+            id: "c2",
+            title: "跑检查",
+            spec: "跑检查命令",
+            acceptance: [
+              { id: "a1", check: "退出码 0", level: "mechanical" },
+            ],
+            need_decompose: false,
+            executor: { kind: "command", command: "npm run test" },
+          },
+        ],
+      },
+    ],
+    // 执行侧工具入参只有 task_id（命令文本不在入参里，见 README 边界）
+    ["task_execute", { task_id: "c2" }],
+    ["task_stop", { task_id: "c2" }],
+  ] as const) {
+    assert.equal(guard.inspect(tool, args), null, `expected allow for ${tool}`);
+  }
+});
+
+test("插件命令工具：命令文本含敏感文件名路径 → deny（敏感层，读写口径）", async () => {
+  const fx = makeSensitiveFixture();
+  try {
+    const { host, listeners } = makeHost();
+    createSecurityGuard(host, { homeDir: HOME });
+    const result = await listeners[0]!(
+      execOf("metric_loop", {
+        action: "start",
+        measureCmd: `cat "${fx.envPath}"`,
+      }),
+      nextAllow,
+    );
+    assert.equal(result.kind, "deny");
+    const reason = (result as { reason: string }).reason;
+    // 命令经 shell 执行：与 shell 工具同口径标「读写」，回执含工具名与规则 id
+    assert.match(reason, /已拦截：读写敏感文件/);
+    assert.match(reason, /env-file/);
+    assert.match(reason, /工具：metric_loop/);
+    assert.match(reason, /allowedPaths/);
+    // 嵌套命令文本同样过路径抽取（fixture 目录下的敏感文件名，非真实家目录路径）
+    const guard = new GuardEngine({ homeDir: HOME });
+    const nested = guard.inspect("task_decompose", {
+      parent_id: "root",
+      children: [
+        {
+          id: "c1",
+          title: "检查文件",
+          spec: "检查文件存在",
+          acceptance: [
+            {
+              id: "a1",
+              check: "文件存在",
+              level: "mechanical",
+              command: `test -f ${fx.keyPath}`,
+            },
+          ],
+          need_decompose: false,
+        },
+      ],
+    });
+    assert.match(nested ?? "", /已拦截：读写敏感文件/);
+    assert.match(nested ?? "", /工具：task_decompose/);
+    assert.match(nested ?? "", /ssh-rsa-key/);
+    // allowPatterns 只放开命令层，不放开敏感层（与 shell 工具同口径）
+    const allowed = new GuardEngine({
+      homeDir: HOME,
+      commandBlacklist: { allowPatterns: ["^cat "] },
+    });
+    assert.notEqual(
+      allowed.inspect("metric_loop", {
+        action: "start",
+        measureCmd: `cat "${fx.envPath}"`,
+      }),
+      null,
+    );
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("插件命令工具：命令参数缺失 / 非 string / 空串 → 放行（不猜测语义）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  for (const [tool, args] of [
+    ["metric_loop", {}],
+    ["metric_loop", { action: "status" }],
+    ["metric_loop", { action: "start", measureCmd: 42 }],
+    ["metric_loop", { action: "start", measureCmd: "" }],
+    ["metric_loop", { action: "start", measureCmd: ["sudo ls /"] }],
+    ["metric_loop", { action: "start", measureCmd: null }],
+    ["task_decompose", {}],
+    // children 非数组 / 空数组 / 元素非对象：嵌套路径取不到 string，按缺失处理
+    ["task_decompose", { parent_id: "root", children: "sudo ls /" }],
+    ["task_decompose", { parent_id: "root", children: [] }],
+    ["task_decompose", { parent_id: "root", children: [null, 42] }],
+    [
+      "task_decompose",
+      { parent_id: "root", children: [{ executor: { kind: "command" } }] },
+    ],
+    [
+      "task_decompose",
+      { parent_id: "root", children: [{ executor: { command: 42, kind: "command" } }] },
+    ],
+    [
+      "task_decompose",
+      { parent_id: "root", children: [{ acceptance: [{ command: null }] }] },
+    ],
+    // 非数组的嵌套值不做隐式包装
+    [
+      "task_decompose",
+      { parent_id: "root", children: { executor: { command: "sudo ls /" } } },
+    ],
+  ] as const) {
+    assert.equal(guard.inspect(tool, args), null, `expected allow for ${tool}`);
+  }
+});
+
+test("回归：命令工具登记不影响 shell / run_code / 官方文件工具与未登记工具语义", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  // shell 工具回执保持原样（无插件来源标注行），规则命中不变
+  const shell = guard.inspect("bash", { command: "sudo ls /" });
+  assert.match(shell ?? "", /命令命中黑名单规则「sudo」/);
+  assert.doesNotMatch(shell ?? "", /拦截来源/);
+  assert.equal(guard.inspect("bash", { command: "echo ok" }), null);
+  assert.match(
+    guard.inspect("run_code", { code: "rm -rf /" }) ?? "",
+    /rm-recursive-root/,
+  );
+  assert.match(
+    guard.inspect("read", { file_path: "~/.ssh/id_rsa" }) ?? "",
+    /ssh-directory/,
+  );
+  // 未登记工具即使入参形态与登记工具相同也不参与判定（白名单语义）
+  assert.equal(
+    guard.inspect("todo_write", {
+      children: [{ executor: { kind: "command", command: "sudo ls /" } }],
+    }),
+    null,
+  );
 });
 
 test("回归：官方 write / edit / read / bash 语义不变（插件登记表不影响）", () => {
