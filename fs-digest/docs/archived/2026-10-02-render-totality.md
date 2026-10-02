@@ -77,13 +77,18 @@
 - [ ] 验证：`fs-digest` check / build / test；根 check / test（20 包）/ build；`format` 改动文件；`git diff --name-only` 核查无变异残留
 - [ ] 报告父代理（BACKLOG 标记 / README / git 提交留给用户）
 
-## 实现记录
+## 实现记录（补填，2026-10-02）
 
-（待填）
+- `fs-digest/src/main.ts`：`renderResult(result: unknown)` + 新增 `renderDigestResult`（四分支形状守卫）/`asRecord`/`asArray`/`jsonText`（string 原样 → `JSON.stringify(v,null,2)` → `String(v)` → 「（无法序列化的值）」，与 `code-map` 逐字同口径）；render 调用点去掉 `as DigestResult`。守卫拦非对象 / 缺必填 / 顶层类型错 → `jsonText`；最外层 try/catch 覆盖守卫够不到的深层畸形（`nodes:[null]`、BigInt、循环引用）。
+- 四分支形状要求（读码）：失败态需 `error`/`message` 皆 string；`outline` 需 `nodes` 数组（`blocks` 选填）；`signatures` 需数组；`pruned` 需 `text` string；`mode` 非三模式 → 兜底。
+- 方案取舍：否决「统一 jsonText」（丢排版价值、会改既有断言）与递归结构校验（复制 `render.ts` 结构知识、易分叉）。
 
-## 测试与证据
+## 测试与证据（补填，2026-10-02）
 
-（待填）
+- 包内：`npm run check` exit 0、`build` exit 0、`npm run test` **66/66 pass**（改前 62，+4）。
+- 反向验证两态：临时换回旧抛错实现 → **3 fail**（失败恰为新增的 ①②③ 用例，有鉴别力）；还原后 66/66（`cmp` 校验实现与提交版逐字一致，无变异残留）。
+- 独立验证子代理（只读、/tmp 副本上做变异）：**有条件通过、无必修项** —— 32 种畸形形状直调 render 均不抛且 `text` 恒为 string；旧/新两态差分 11 个真实 digest 结果**0 差异**（正常形状逐字不变）；既有断言无删除（仅删 5 行过期注释）；`fs-digest` check/test 与全仓 20 包 check/test 全绿；`prettier`/`mdformat` 检查通过。其记录的差异仅为**契约外手工构造值**（未知 mode、`blocks:null`、`{ok:false}` 缺字段）如今走 JSON 兜底，生产不可达（`digest.ts` 仅在 `blocks !== undefined` 时赋值）。
+- 全仓：`npm run check` exit 0、`npm run build` exit 0、`npm run test` 20 包全 `fail 0`。
 
 ## 收尾记录（2026-10-02，父会话）
 
