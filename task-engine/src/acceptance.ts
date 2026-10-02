@@ -5,6 +5,11 @@
 // 独立 audit run（宿主侧子代跑/裁判模型，经可注入 audit hook，§16.2 outputSchema
 // 结构化裁决）。全部通过才弹栈，任一失败带反馈打回。缺 audit hook 时语义级
 // fail-closed（不假通过）。
+//
+// 结构化裁决口径（2026-10-02 接线）：hook 向宿主请求一个**信封 schema**
+// （`{pass: boolean, feedback?: string, structured?: <声明的 outputSchema>}`，见 main.ts
+// `verdictEnvelope`），子会话经 `structured_output` 工具上报、**宿主按该 schema 校验**；
+// verdict 优先取校验后的结果，缺用时才回退文本 JSON 解析（模型自报不作保证）。
 
 import type { Acceptance, FrameId } from "./types.ts";
 

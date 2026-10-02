@@ -19,9 +19,16 @@ import {
   type ExecuteRequest,
   type ExecutorRunner,
   type RootSpec,
+  type EntailHook,
 } from "./engine.ts";
 import { createTools, type TaskToolDef, type ToolExecuteCtx } from "./tools.ts";
-import type { Acceptance, AcceptanceLevel, TokenKind } from "./types.ts";
+import type { AuditRequest, AuditVerdict } from "./acceptance.ts";
+import type {
+  Acceptance,
+  AcceptanceLevel,
+  ChildSpec,
+  TokenKind,
+} from "./types.ts";
 
 export const name = "task-engine";
 export const inject = ["tools"];
@@ -47,6 +54,19 @@ export interface Config {
   commandTimeoutMs?: number;
   /** fan-out 并发上限（BACKLOG #13，默认 4）：active 帧数达上限时不再弹栈 */
   maxConcurrent?: number;
+  /**
+   * 语义面（audit / entail）开关与超时：两者各跑一次**裁决子代理**（经 `ctx.subagents`）。
+   * 缺省都开（`audit` 关掉 → semantic 验收仍 fail-closed；`entail` 关掉 → 该门跳过，回到旧行为）；
+   * 任一次裁决 run 失败 / 超时 / 输出不可解析 → fail-closed 打回（不假通过）。
+   */
+  semantic?: {
+    /** 语义级验收的独立 audit run（缺省 true） */
+    audit?: boolean;
+    /** 拆解第二道门的 entail run（缺省 true） */
+    entail?: boolean;
+    /** 单次裁决 run 超时 ms（缺省 120000） */
+    timeoutMs?: number;
+  };
 }
 
 const LEVELS: readonly AcceptanceLevel[] = ["mechanical", "semantic", "human"];
@@ -98,10 +118,14 @@ interface SubagentsLike {
       output?: unknown;
       stopReason?: string;
       diagnostic?: string;
+      /** 请求了 `outputSchema` 时宿主校验后的结构化产出 */
+      structured?: unknown;
     }>;
     dispose(): Promise<void>;
   }>;
-  getProvider?(name: string): { capabilities?: { agentOptions?: boolean } };
+  getProvider?(name: string): {
+    capabilities?: { agentOptions?: boolean; outputSchema?: boolean };
+  };
 }
 
 /** 宿主 workflow 面（`ctx.workflowEngine`，@deepseek-ai/dsh-workflow[-ptc]）最小形态 */
@@ -244,6 +268,359 @@ export function measureChildTokens(opts: {
   return {};
 }
 
+/** 一次子代理运行的结果（executor 与裁决 run 共用）。 */
+export type ChildRunOutcome =
+  | {
+      ok: true;
+      text: string;
+      stopReason: string;
+      /** 子会话句柄（executor 侧用于计量；裁决 run 不用） */
+      session: unknown;
+      /** 请求了 `outputSchema` 时宿主校验后的结构化产出（裁决 run 用它，避免自报假保证） */
+      structured?: unknown;
+    }
+  | {
+      ok: false;
+      retryable: boolean;
+      feedback: string;
+      /** 已发起过的 run 才带（供 executor 失败路径继续计量 / 标注） */
+      session?: unknown;
+      stopReason?: string;
+    };
+
+/**
+ * 发起一次子代理运行并等终态（`ctx.subagents.start` + 宿主 `settleRun`）。
+ * executor 后端与 audit / entail 裁决 run 共用：能力位检查、父 agent、可选模型/预算覆盖、
+ * 超时中止（`timeoutMs` 到点 abort，防止 gate 悬挂）、终态判定与文本提取。
+ * 缺 `parent` 且 `requireParent` 时 fail-closed（executor 需要归属；裁决 run 允许省略）。
+ */
+export async function runChildOnce(
+  opts: {
+    resolve<T>(name: string): T | undefined;
+    agent?: unknown;
+    warn(message: string): void;
+  },
+  req: {
+    label: string;
+    prompt: string;
+    model?: { provider: string; model: string };
+    maxTokens?: number;
+    timeoutMs?: number;
+    requireParent?: boolean;
+    /** 结构化产出 schema（宿主 `assertObjectJsonSchema` 校验 + 子会话 `structured_output` 工具） */
+    outputSchema?: unknown;
+  },
+): Promise<ChildRunOutcome> {
+  const svc = opts.resolve<SubagentsLike>("subagents");
+  if (svc === undefined || typeof svc.start !== "function") {
+    return {
+      ok: false,
+      retryable: false,
+      feedback:
+        "宿主 ctx.subagents 不可用，subagent 后端无法发起（环境问题，不计重试）",
+    };
+  }
+  const requireParent = req.requireParent === true;
+  if (requireParent && opts.agent === undefined) {
+    return {
+      ok: false,
+      retryable: false,
+      feedback: "拿不到当前 agent（工具执行上下文缺失），subagent 后端无法发起",
+    };
+  }
+  const caps = svc.getProvider?.(SUBAGENT_PROVIDER)?.capabilities;
+  if (req.outputSchema !== undefined && caps?.outputSchema === false) {
+    return {
+      ok: false,
+      retryable: false,
+      feedback: `provider ${SUBAGENT_PROVIDER} 不支持 outputSchema（声明问题，不计重试）`,
+    };
+  }
+  const wantsOptions = req.model !== undefined || req.maxTokens !== undefined;
+  if (wantsOptions && caps?.agentOptions === false) {
+    return {
+      ok: false,
+      retryable: false,
+      feedback: `provider ${SUBAGENT_PROVIDER} 不支持模型/预算覆盖（缺 agentOptions 能力位，不计重试）`,
+    };
+  }
+  const timeoutMs = req.timeoutMs ?? 600_000;
+  let timedOut = false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  try {
+    let run: Awaited<ReturnType<SubagentsLike["start"]>>;
+    try {
+      run = await svc.start(SUBAGENT_PROVIDER, {
+        label: req.label,
+        prompt: [{ type: "text", text: req.prompt }],
+        ...(opts.agent === undefined ? {} : { parent: opts.agent }),
+        ...(req.outputSchema === undefined
+          ? {}
+          : { outputSchema: req.outputSchema }),
+        signal: controller.signal,
+        ...(wantsOptions
+          ? {
+              agentOptions: {
+                ...(req.model === undefined
+                  ? {}
+                  : { provider: req.model.provider, model: req.model.model }),
+                ...(req.maxTokens === undefined
+                  ? {}
+                  : { maxTokens: req.maxTokens }),
+              },
+            }
+          : {}),
+      });
+    } catch (err) {
+      return {
+        ok: false,
+        retryable: true,
+        feedback: `subagent 发起失败：${String(err)}`,
+      };
+    }
+    // 等终态：与超时/取消信号竞速（宿主 `run.result` 可能无界；见 command-template 同类教训），
+    // 竞速落败时发起回收但不等待（in-process dispose 内部同样 await result）
+    const settled = await Promise.race([
+      run.result.then((result) => ({ kind: "settled" as const, result })),
+      abortPromise(controller.signal),
+    ]).catch((err: unknown) => ({ kind: "aborted" as const, err }));
+    if (settled.kind === "aborted") {
+      reclaimRun(run, opts.warn);
+      // 三态区分：超时 / 调用方取消（都不计重试）vs `run.result` 基础设施 reject（可重试）
+      if (timedOut) {
+        return {
+          ok: false,
+          retryable: false,
+          feedback: `子代理运行超时（${timeoutMs} ms）后中止`,
+        };
+      }
+      if (controller.signal.aborted) {
+        return {
+          ok: false,
+          retryable: false,
+          feedback: `子代理运行被取消：${String(settled.err)}`,
+        };
+      }
+      return {
+        ok: false,
+        retryable: true,
+        feedback: `子代理运行失败：${String(settled.err)}`,
+      };
+    }
+    const result = settled.result;
+    try {
+      await run.dispose();
+    } catch (err) {
+      opts.warn(`subagent dispose 失败（忽略）：${String(err)}`);
+    }
+    const stopReason = result.stopReason ?? "unknown";
+    if (stopReason !== "completed" && stopReason !== "max-tokens") {
+      return {
+        ok: false,
+        retryable: stopReason !== "aborted",
+        feedback: `子代理未正常完成（stopReason=${stopReason}）${result.diagnostic === undefined ? "" : `：${result.diagnostic}`}`,
+        session: run.localAgent?.session,
+        stopReason,
+      };
+    }
+    return {
+      ok: true,
+      text: blocksToText(result.output),
+      stopReason,
+      session: run.localAgent?.session,
+      ...(result.structured === undefined
+        ? {}
+        : { structured: result.structured }),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** abort 竞速用的永挂 promise（abort 时 reject）。 */
+function abortPromise(signal: AbortSignal): Promise<never> {
+  return new Promise<never>((_resolve, reject) => {
+    const onAbort = (): void => reject(new Error("aborted"));
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** 发起回收但不等待（失败只告警；宿主 in-process dispose 可能随 result 一起悬挂）。 */
+function reclaimRun(run: unknown, warn: (message: string) => void): void {
+  const dispose = (run as { dispose?: unknown } | undefined)?.dispose;
+  if (typeof dispose !== "function") return;
+  try {
+    void (dispose as () => Promise<unknown>)
+      .call(run)
+      .catch((err: unknown) =>
+        warn(`subagent dispose 失败（忽略）：${String(err)}`),
+      );
+  } catch (err) {
+    warn(`subagent dispose 失败（忽略）：${String(err)}`);
+  }
+}
+
+/** 从裁决文本取 JSON 对象（先剥 ``` 围栏）；不可解析返回 undefined。 */
+export function parseVerdictJson(text: string): Record<string, unknown> | undefined {
+  const trimmed = text.trim();
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+  const body = fenced?.[1] ?? trimmed;
+  const direct = asJsonObject(body);
+  if (direct !== undefined) return direct;
+  // 回退：扫第一个平衡括号对象（容忍「说明 + 围栏 + JSON」/ 前后缀散文）
+  const braceStart = body.indexOf("{");
+  if (braceStart < 0) return undefined;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = braceStart; i < body.length; i += 1) {
+    const ch = body[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return asJsonObject(body.slice(braceStart, i + 1));
+    }
+  }
+  return undefined;
+}
+
+/** JSON 文本 → 对象（非对象 / 坏 JSON → undefined）。 */
+function asJsonObject(text: string): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(text);
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 裁决信封 schema（交给宿主 `outputSchema` 校验；子会话经 `structured_output` 工具上报）：
+ * `{ <kind>: boolean, feedback?: string, structured?: <声明 schema> }`。
+ */
+export function verdictEnvelope(
+  kind: "pass" | "ok",
+  schema?: unknown,
+): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      [kind]: { type: "boolean" },
+      feedback: { type: "string" },
+      ...(schema === undefined ? {} : { structured: schema }),
+    },
+    required: schema === undefined ? [kind] : [kind, "structured"],
+  };
+}
+
+/** 裁决值：优先宿主校验过的 `structured`（避免自报假保证），否则回退文本解析。 */
+export function readVerdictValue(
+  out: ChildRunOutcome,
+): Record<string, unknown> | undefined {
+  if (!out.ok) return undefined;
+  const structured = out.structured;
+  if (
+    structured !== null &&
+    typeof structured === "object" &&
+    !Array.isArray(structured)
+  ) {
+    return structured as Record<string, unknown>;
+  }
+  return parseVerdictJson(out.text);
+}
+
+/** audit run 提示词（§16.2）：只输出一个 JSON 对象。 */
+export function auditPrompt(req: AuditRequest): string {
+  const lines = [
+    "你是独立验收裁决者。请只依据下面给出的产出判断该验收项是否通过，不要调用工具。",
+    "",
+    `验收项：${req.check}`,
+    "",
+    "被审产出：",
+    req.result === undefined ? "（无产出文本）" : truncateEvidence(req.result),
+  ];
+  if (req.outputSchema !== undefined) {
+    lines.push(
+      "",
+      "结构化裁决要求：在 JSON 中额外给出 `structured` 字段，其形状必须严格符合下面的 JSON Schema：",
+      JSON.stringify(req.outputSchema),
+    );
+  }
+  lines.push(
+    "",
+    '只输出一个 JSON 对象，形如 {"pass": true, "feedback": "理由"}（pass 为布尔值，feedback 为简洁理由' +
+      (req.outputSchema === undefined ? "）" : '，另加 "structured"）'),
+  );
+  return lines.join("\n");
+}
+
+/** entail run 提示词（§17.2）：只输出一个 JSON 对象。 */
+export function entailPrompt(
+  parent: {
+    id: string;
+    title?: string;
+    spec?: string;
+    acceptance: Acceptance[];
+  },
+  children: ChildSpec[],
+): string {
+  const lines = [
+    "你是拆解门禁的语义裁决者。请判断：若下面每个子任务的验收都通过，父任务的验收是否必然成立？",
+    "只做逻辑判断，不要调用工具。",
+    "",
+    `父任务：${parent.title ?? parent.id}`,
+    ...(parent.spec === undefined || parent.spec === ""
+      ? []
+      : [`父任务规格：${parent.spec}`]),
+    "父任务验收：",
+    ...parent.acceptance.map((a) => `- [${a.level}] ${a.check}`),
+    "",
+    "子任务：",
+  ];
+  for (const child of children) {
+    lines.push(`- ${child.id}：${child.title}`);
+    lines.push(`  规格：${child.spec}`);
+    for (const a of child.acceptance)
+      lines.push(`  验收 [${a.level}]：${a.check}`);
+  }
+  lines.push(
+    "",
+    '只输出一个 JSON 对象，形如 {"ok": true, "feedback": "理由"}（ok 为布尔值：true 表示蕴含成立）',
+  );
+  return lines.join("\n");
+}
+
+/** ② 模型事实：声明了就记声明值，否则读宿主默认选择（不显式传，保持宿主合并语义）。 */
+function modelFactOf(
+  resolve: <T>(name: string) => T | undefined,
+  model: { provider: string; model: string } | undefined,
+): { model?: string } {
+  if (model !== undefined) return { model: `${model.provider}/${model.model}` };
+  const defaultModel = resolve<AgentDefaultModelLike>("agentDefaultModel");
+  const current = defaultModel?.currentSelection?.();
+  if (current === undefined) return {};
+  return {
+    model: `${current.provider ?? "?"}/${current.model ?? "?"}（宿主默认）`,
+  };
+}
+
 /**
  * 叶子未声明 `prompt` 时的提示词拼装（引擎只拼「要什么」，不生成「怎么做」）。
  */
@@ -303,111 +680,52 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
       }
       return { ok: true, result: text === "" ? "（命令无输出）" : text };
     }
-    // —— subagent：ctx.subagents.start（模型覆盖走 agentOptions 能力位）——
+    // —— subagent：ctx.subagents.start（模型覆盖走 agentOptions 能力位；与裁决 run 共用 runChildOnce）——
     if (spec.kind === "subagent") {
-      const svc = opts.resolve<SubagentsLike>("subagents");
-      if (svc === undefined || typeof svc.start !== "function") {
-        return {
-          ok: false,
-          retryable: false,
-          feedback:
-            "宿主 ctx.subagents 不可用，subagent 后端无法发起（环境问题，不计重试）",
-        };
-      }
-      if (opts.agent === undefined) {
-        return {
-          ok: false,
-          retryable: false,
-          feedback:
-            "拿不到当前 agent（工具执行上下文缺失），subagent 后端无法发起",
-        };
-      }
-      const caps = svc.getProvider?.(SUBAGENT_PROVIDER)?.capabilities;
-      const wantsOptions =
-        spec.model !== undefined || spec.budget?.maxTokens !== undefined;
-      if (wantsOptions && caps?.agentOptions === false) {
-        return {
-          ok: false,
-          retryable: false,
-          feedback: `provider ${SUBAGENT_PROVIDER} 不支持模型/预算覆盖（缺 agentOptions 能力位，不计重试）`,
-        };
-      }
-      // ② 模型：未声明时读宿主默认选择记录事实（不显式传，保持宿主合并语义）
-      const defaultModel =
-        opts.resolve<AgentDefaultModelLike>("agentDefaultModel");
-      const declaredModel =
-        spec.model === undefined
-          ? undefined
-          : `${spec.model.provider}/${spec.model.model}`;
-      const modelFact =
-        declaredModel ??
-        (defaultModel?.currentSelection === undefined
-          ? undefined
-          : `${defaultModel.currentSelection().provider ?? "?"}/${defaultModel.currentSelection().model ?? "?"}（宿主默认）`);
-      const controller = new AbortController();
-      let run: Awaited<ReturnType<SubagentsLike["start"]>>;
-      try {
-        run = await svc.start(SUBAGENT_PROVIDER, {
-          label: `task:${req.frame}`,
-          prompt: [{ type: "text", text: spec.prompt ?? defaultPrompt(req) }],
-          parent: opts.agent,
-          signal: controller.signal,
-          ...(spec.model === undefined && spec.budget?.maxTokens === undefined
-            ? {}
-            : {
-                agentOptions: {
-                  ...(spec.model === undefined
-                    ? {}
-                    : {
-                        provider: spec.model.provider,
-                        model: spec.model.model,
-                      }),
-                  ...(spec.budget?.maxTokens === undefined
-                    ? {}
-                    : { maxTokens: spec.budget.maxTokens }),
-                },
-              }),
+      const started = await runChildOnce(opts, {
+        label: `task:${req.frame}`,
+        prompt: spec.prompt ?? defaultPrompt(req),
+        ...(spec.model === undefined ? {} : { model: spec.model }),
+        ...(spec.budget?.maxTokens === undefined
+          ? {}
+          : { maxTokens: spec.budget.maxTokens }),
+        requireParent: true,
+      });
+      const model = modelFactOf(opts.resolve, spec.model);
+      if (!started.ok) {
+        // 失败路径仍带回计量与超预算标注（与重接前一致）
+        const tokenFields = measureChildTokens({
+          session: started.session,
+          resolve: opts.resolve,
+          warn: opts.warn,
         });
-      } catch (err) {
-        return { ok: false, feedback: `subagent 发起失败：${String(err)}` };
-      }
-      let result: Awaited<typeof run.result>;
-      try {
-        result = await run.result;
-      } finally {
-        try {
-          await run.dispose();
-        } catch (err) {
-          opts.warn(`subagent dispose 失败（忽略）：${String(err)}`);
-        }
+        const overBudget =
+          spec.budget?.maxTokens === undefined
+            ? undefined
+            : started.stopReason === "max-tokens";
+        return {
+          ok: false,
+          retryable: started.retryable,
+          feedback: started.feedback,
+          ...model,
+          ...tokenFields,
+          ...(overBudget === undefined ? {} : { overBudget }),
+        };
       }
       // ① 计量：优先 usage 投影（provider 上报输出 token 累计）；投影不可用时回退 pressure
       const tokenFields = measureChildTokens({
-        session: run.localAgent?.session,
+        session: started.session,
         resolve: opts.resolve,
         warn: opts.warn,
       });
-      const stopReason = result.stopReason ?? "unknown";
       // ② 超预算：只认宿主权威信号——声明了预算且 `stopReason === "max-tokens"`（宿主因**每次请求**
       //    的输出上限截断了子代理）。不用 tokens 数值比较：usage 投影是跨请求累计，口径不同
       //    （真机实测会把 10/12 个子会话恒判超预算）
       const overBudget =
         spec.budget?.maxTokens === undefined
           ? undefined
-          : stopReason === "max-tokens";
-      const model = modelFact === undefined ? {} : { model: modelFact };
-      if (stopReason !== "completed" && stopReason !== "max-tokens") {
-        return {
-          ok: false,
-          // aborted = 用户中止：不打回重试；error / refusal 交 bounded retry
-          retryable: stopReason !== "aborted",
-          feedback: `子代理未正常完成（stopReason=${stopReason}）${result.diagnostic === undefined ? "" : `：${result.diagnostic}`}`,
-          ...model,
-          ...tokenFields,
-          ...(overBudget === undefined ? {} : { overBudget }),
-        };
-      }
-      const text = truncateEvidence(blocksToText(result.output));
+          : started.stopReason === "max-tokens";
+      const text = truncateEvidence(started.text);
       return {
         ok: true,
         result: text === "" ? "（子代理未返回文本产出）" : text,
@@ -632,28 +950,112 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   };
   // 叶子执行后端（① 发起 / ② 模型与计量）：宿主面**惰性**解析（执行期按名重试）+ 缺面 fail-closed
   const runShell = makeRunCommand(config?.commandTimeoutMs ?? 30_000);
-  /** 执行期服务解析：工具执行 ctx（agent 侧）优先 → 回退插件 ctx */
+  // 语义面（audit / entail）：**按次构造**——hook 闭包捕获本次工具执行的 exec（父 agent 与
+  // 执行期服务解析都从它取）。宿主 `SubagentStartRequest.parent` 是必填（宿主无条件解引用
+  // `parent.session`），故 requireParent=true：拿不到 agent 时 fail-closed 而不是省略 parent。
+  const semantic = config?.semantic ?? {};
+  /** 执行期服务解析：工具执行 ctx 优先 → 回退插件 ctx（apply 期服务 fiber 常未激活） */
   const serviceResolver =
     (exec: unknown) =>
-    <T>(name: string): T | undefined =>
+    <T,>(name: string): T | undefined =>
       readService<T>(exec, name) ?? readService<T>(ctx, name);
-  // apply 期探测只用于告警（结果**不缓存**）：真机 2026-10-02 观察到此时读不到
-  // subagents / workflowEngine（服务 fiber 未激活），执行期才可读
-  for (const name of [
-    "subagents",
-    "workflowEngine",
-    "agentDefaultModel",
-    "tokenMeter",
-    "sessionProjections",
-  ]) {
-    if (readService(ctx, name) === undefined) {
-      warn(
-        `宿主服务 ${name} 在 apply 期不可见：将在工具执行期重试解析（对应 executor 后端按需 fail-closed）`,
+  const semanticHooksFor = (
+    exec: unknown,
+  ): {
+    audit?: (req: AuditRequest) => Promise<AuditVerdict>;
+    entail?: EntailHook;
+  } => {
+    const resolve = <T,>(name: string): T | undefined =>
+      readService<T>(exec, name) ?? readService<T>(ctx, name);
+    const parent = (exec as { agent?: unknown } | undefined)?.agent;
+    const timeoutMs = semantic.timeoutMs ?? 120_000;
+    const audit: (req: AuditRequest) => Promise<AuditVerdict> = async (req) => {
+      const out = await runChildOnce(
+        { resolve, agent: parent, warn },
+        {
+          label: `task:audit:${req.frame}`,
+          prompt: auditPrompt(req),
+          requireParent: true,
+          timeoutMs,
+          ...(req.outputSchema === undefined
+            ? {}
+            : { outputSchema: verdictEnvelope("pass", req.outputSchema) }),
+        },
       );
-    }
-  }
-
+      if (!out.ok) {
+        return { pass: false, feedback: `audit run 不可用：${out.feedback}` };
+      }
+      const verdict = readVerdictValue(out);
+      if (verdict === undefined) {
+        return {
+          pass: false,
+          feedback: `audit run 输出不可解析（需 {"pass": boolean, "feedback": string}）：${truncateEvidence(out.text).slice(0, 300)}`,
+        };
+      }
+      return {
+        pass: verdict["pass"] === true,
+        ...(typeof verdict["feedback"] === "string"
+          ? { feedback: String(verdict["feedback"]).slice(0, 500) }
+          : {}),
+        ...(verdict["structured"] === undefined
+          ? {}
+          : { structured: verdict["structured"] }),
+      };
+    };
+    const entail: EntailHook = async (parentFrame, children) => {
+      const out = await runChildOnce(
+        { resolve, agent: parent, warn },
+        {
+          label: `task:entail:${parentFrame.id}`,
+          prompt: entailPrompt(
+            {
+              id: parentFrame.id,
+              title: parentFrame.title,
+              spec: parentFrame.spec,
+              acceptance: parentFrame.acceptance,
+            },
+            children,
+          ),
+          requireParent: true,
+          timeoutMs,
+          outputSchema: verdictEnvelope("ok"),
+        },
+      );
+      if (!out.ok) {
+        // 裁决 run 跑不起来 ≠ 模型判出不成立：跳过该门（不烧重试预算），并在告警里留痕
+        warn(`entail run 不可用，已跳过语义蕴含门：${out.feedback}`);
+        return {
+          ok: true,
+          skipped: true,
+          feedback: `entail run 不可用，已跳过语义蕴含门：${out.feedback}`,
+        };
+      }
+      const verdict = readVerdictValue(out);
+      if (verdict === undefined) {
+        warn("entail run 输出不可解析，已跳过语义蕴含门");
+        return {
+          ok: true,
+          skipped: true,
+          feedback: `entail run 输出不可解析，已跳过语义蕴含门：${truncateEvidence(out.text).slice(0, 300)}`,
+        };
+      }
+      return {
+        ok: verdict["ok"] === true,
+        feedback:
+          typeof verdict["feedback"] === "string"
+            ? String(verdict["feedback"]).slice(0, 500)
+            : verdict["ok"] === true
+              ? "语义蕴含成立"
+              : "子项验收不能推出父验收",
+      };
+    };
+    return {
+      ...(semantic.audit === false ? {} : { audit }),
+      ...(semantic.entail === false ? {} : { entail }),
+    };
+  };
   const toolCtx: ToolExecuteCtx = {
+    makeSemanticHooks: (exec: unknown) => semanticHooksFor(exec),
     makeApprove: approveVia,
     makeExecutor: (exec) => {
       const agent = (exec as { agent?: unknown } | undefined)?.agent;
@@ -677,6 +1079,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
           : { maxConcurrent: config.maxConcurrent }),
       },
       snapshotPath: config?.snapshotPath,
+      // 语义 hook 走**按次注入**（tools 层用本次 exec 构造）；实例级不注入，避免跨会话串线
     });
   } catch (err) {
     warn(`引擎初始化失败：${String(err)}`);

@@ -111,7 +111,15 @@ export interface ExecuteResult {
 export type EntailHook = (
   parent: Frame,
   children: ChildSpec[],
-) => Promise<{ ok: boolean; feedback: string }>;
+) => Promise<{
+  ok: boolean;
+  feedback: string;
+  /**
+   * 裁决 run **不可用**（环境 / 超时 / 输出不可解析）而跳过该门：不据此打回、不烧重试预算
+   * （区分「模型判出不成立」与「跑不起来」——后者不该把可拆解变成整树 failed）。
+   */
+  skipped?: boolean;
+}>;
 
 export interface TaskEngineOptions {
   root: RootSpec;
@@ -292,7 +300,10 @@ export class TaskEngine {
   async decompose(
     parentId: FrameId,
     children: ChildSpec[],
+    /** 按次注入的语义蕴含 hook（缺省用实例级） */
+    entail?: EntailHook,
   ): Promise<DecomposeResult> {
+    const entailHook = entail ?? this.entail;
     const parent = this.tree.frames.get(parentId);
     if (parent === undefined)
       return this.finishDecompose(parentId, {
@@ -328,10 +339,10 @@ export class TaskEngine {
       });
     }
 
-    // 第二道：语义蕴含 ∧Qᵢ ⟹ Q_parent（§17.2，独立 entail run；未配置则跳过）
-    if (typeof this.entail === "function") {
-      const ent = await this.entail(parent, children);
-      if (!ent.ok) {
+    // 第二道：语义蕴含 ∧Qᵢ ⟹ Q_parent（§17.2，独立 entail run；未配置 / 父帧无验收则跳过）
+    if (typeof entailHook === "function" && parent.acceptance.length > 0) {
+      const ent = await entailHook(parent, children);
+      if (!ent.ok && ent.skipped !== true) {
         this.rejectFrame(parentId, "gate:entail", ent.feedback);
         return this.finishDecompose(parentId, {
           ok: false,
@@ -503,7 +514,11 @@ export class TaskEngine {
    */
   async stop(
     frameId: FrameId,
-    hooks?: { approve?: AcceptanceHooks["approve"] },
+    hooks?: {
+      approve?: AcceptanceHooks["approve"];
+      /** 按次注入的语义 audit hook（缺省用实例级；见 apply 的按次构造） */
+      audit?: (req: AuditRequest) => Promise<AuditVerdict>;
+    },
   ): Promise<StopResult> {
     const f = this.tree.frames.get(frameId);
     if (f === undefined)
@@ -528,7 +543,7 @@ export class TaskEngine {
         feedback: `帧 ${frameId} 尚未 implement，无法 stop`,
       };
     const approve = hooks?.approve ?? this.approveFallback;
-    const result = await this.audit(frameId, approve);
+    const result = await this.audit(frameId, approve, hooks?.audit);
     if (!result.ok) {
       // 打回：带反馈重试；终态(failed)无下一步，否则下一步 = 本帧（重做）
       const now = this.tree.frames.get(frameId);
@@ -540,7 +555,7 @@ export class TaskEngine {
       });
       return { ok: false, accepted: false, next, feedback: result.feedback };
     }
-    await this.completeUp(frameId, approve);
+    await this.completeUp(frameId, approve, hooks?.audit);
     const next = this.peekNextReady();
     this.emitStepVerdict(frameId, { accepted: true, next });
     return { ok: true, accepted: true, next };
@@ -575,9 +590,29 @@ export class TaskEngine {
   }
 
   /** 依序裁决一个帧的全部验收条目；任一失败 → 打回（bounded retry） */
+  /**
+   * 语义裁决的证据文本：叶子用自身产出；**父帧没有自身产出**（父验收在子任务 join 后才判），
+   * 故汇总子帧结论——否则语义级 audit run 对父验收「无产出可审」，语义门形同虚设。
+   */
+  private evidenceFor(f: Frame): string | undefined {
+    if (f.result !== undefined && f.result.trim() !== "") return f.result;
+    if (f.children.length === 0) return f.result;
+    const parts: string[] = [];
+    for (const childId of f.children) {
+      const child = this.tree.frames.get(childId);
+      if (child === undefined) continue;
+      const text = child.result ?? "";
+      parts.push(
+        `- ${child.id}（${child.title}）：${text === "" ? "（无产出）" : text}`,
+      );
+    }
+    return parts.length === 0 ? f.result : parts.join("\n");
+  }
+
   private async audit(
     frameId: FrameId,
     approve: AcceptanceHooks["approve"],
+    perCallAudit?: (req: AuditRequest) => Promise<AuditVerdict>,
   ): Promise<ActionResult> {
     const f = this.tree.frames.get(frameId);
     if (f === undefined) return reject(`未知帧 ${frameId}`);
@@ -591,9 +626,11 @@ export class TaskEngine {
             this.runCommandFallback ??
             (async () => ({ code: 1, output: "未配置 runCommand" })),
           approve,
-          ...(this.auditFallback ? { audit: this.auditFallback } : {}),
+          ...((perCallAudit ?? this.auditFallback)
+            ? { audit: perCallAudit ?? this.auditFallback }
+            : {}),
         },
-        f.result,
+        this.evidenceFor(f),
       );
       this.append({
         type: "plan/acceptance-verdict",
@@ -644,17 +681,19 @@ export class TaskEngine {
   private async completeUp(
     frameId: FrameId,
     approve: AcceptanceHooks["approve"],
+    perCallAudit?: (req: AuditRequest) => Promise<AuditVerdict>,
   ): Promise<void> {
     this.append({ type: "plan/frame-completed", frame: frameId });
     this.recompute();
     const f = this.tree.frames.get(frameId);
     if (f === undefined || f.parentId === null) return;
-    await this.tryJoinParent(f.parentId, approve);
+    await this.tryJoinParent(f.parentId, approve, perCallAudit);
   }
 
   private async tryJoinParent(
     parentId: FrameId,
     approve: AcceptanceHooks["approve"],
+    perCallAudit?: (req: AuditRequest) => Promise<AuditVerdict>,
   ): Promise<void> {
     const parent = this.tree.frames.get(parentId);
     if (
@@ -668,9 +707,9 @@ export class TaskEngine {
       (c) => this.tree.frames.get(c)?.status === "done",
     );
     if (!allDone) return;
-    const result = await this.audit(parentId, approve);
+    const result = await this.audit(parentId, approve, perCallAudit);
     if (!result.ok) return; // 打回已完成：父帧 pending + 反馈，等待模型重新 stop
-    await this.completeUp(parentId, approve);
+    await this.completeUp(parentId, approve, perCallAudit);
   }
 
   // -------------------------------------------------------------------------

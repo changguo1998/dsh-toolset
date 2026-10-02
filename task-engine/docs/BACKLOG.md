@@ -10,4 +10,4 @@
 
 | # | 事项 | 来源 | 落点 | 工作量（估） | 优先级 |
 |---|------|------|------|--------------|--------|
-| 1 | **语义面接线（`audit` / `entail`）**：插件形态只接 `runCommand` / `snapshotPath` / `maxConcurrent` —— semantic 验收缺 `audit` hook → 一律 fail-closed；`entail` 语义蕴含门缺 hook → 跳过。即「双重门禁」的语义半边与 semantic 验收在真机**不生效**（README「边界与外包」记为注入式 hook 边界，但此前无接线计划）。期望：用 `ctx.subagents` fork 一个 audit run（或等价机制）接上，并定 prompt / `outputSchema` 口径 | 撰写 `docs/DESIGN.md` 时发现（2026-10-02） | `task-engine/src/main.ts`（hook 接线）、`src/acceptance.ts`（`AuditRequest` / `AuditVerdict` 已就位） | 1.5 h | P2 |
+| 1 | **裁决子代理可见 `task_*` 工具**：audit / entail 的裁决子代理与执行子代理同为完整 agent（prompt 只说「不要调用工具」），理论上可反向操作同一引擎/树（重入 `task_stop` / `task_decompose`）；建议用宿主 `agentOptions.toolFilter`（spawn 支持）剥掉 `task_*`，或在文档明确该边界 | 2026-10-02 语义面接线条目的子代理审阅（漏项） | `task-engine/src/main.ts`（裁决 run 的 `toolFilter`）+ README | 0.5 h | P3 |

@@ -6,7 +6,8 @@
 // 第二迭代（BACKLOG #5/#13）：decompose 解析 deps/output_schema；
 // stop 输出 step 级 accepted/next 裁决（打回 next 指向本帧，终态 null）。
 
-import type { ExecutorRunner, TaskEngine } from "./engine.ts";
+import type { AuditRequest, AuditVerdict } from "./acceptance.ts";
+import type { EntailHook, ExecutorRunner, TaskEngine } from "./engine.ts";
 import { validateExecutor } from "./gate.ts";
 import type {
   Acceptance,
@@ -23,6 +24,11 @@ export interface ToolExecuteCtx {
   ) => (req: { frame: FrameId; reason: string }) => Promise<boolean>;
   /** 真实链路：executor 适配器构造器（按当前工具调用的 agent 构造；缺省 = engine 内建适配器） */
   makeExecutor?: (exec: unknown) => ExecutorRunner | undefined;
+  /** 真实链路：按当前工具执行构造语义面 hook（audit / entail；见 main.ts 的按次构造） */
+  makeSemanticHooks?: (exec: unknown) => {
+    audit?: (req: AuditRequest) => Promise<AuditVerdict>;
+    entail?: EntailHook;
+  };
 }
 
 export interface TaskToolDef {
@@ -201,7 +207,7 @@ export function createTools(
                 },
               }),
     },
-    async execute(args) {
+    async execute(args, exec) {
       switch (name) {
         case "decompose": {
           const parentId = asString(args.parent_id);
@@ -213,7 +219,12 @@ export function createTools(
                 (detail === null ? "。" : `；${detail}。`),
             );
           }
-          const r = await engine.decompose(parentId, children);
+          const semantic = ctx.makeSemanticHooks?.(exec);
+          const r = await engine.decompose(
+            parentId,
+            children,
+            semantic?.entail,
+          );
           // step 级裁决（#5）：accepted/next 原样透出给模型（打回时 next 指向重做目标）
           return r.ok
             ? ok({ accepted: r.accepted, next: r.next })
@@ -236,8 +247,10 @@ export function createTools(
           const taskId = asString(args.task_id);
           if (taskId === undefined)
             return fail("task_stop 参数非法：需 task_id。");
+          const semantic = ctx.makeSemanticHooks?.(exec);
           const r = await engine.stop(taskId, {
-            approve: approveFor(undefined),
+            approve: approveFor(exec),
+            ...(semantic?.audit === undefined ? {} : { audit: semantic.audit }),
           });
           // step 级裁决（#5）：accepted/next 透出；打回 next 指向本帧（重做）
           return r.ok

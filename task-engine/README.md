@@ -42,6 +42,9 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
 | `snapshotPath` | 未配置（纯内存运行） | 事件流快照路径；配置后每次变更近实时写盘 |
 | `commandTimeoutMs` | `30000` | mechanical 验收命令超时（ms） |
 | `maxConcurrent` | `4` | 有界并发上限 |
+| `semantic.audit` | `true` | semantic 级验收的独立 audit run（经 `ctx.subagents` 裁决子代理；`false` → 回到 fail-closed 文案） |
+| `semantic.entail` | `true` | 拆解第二道门的 entail run（`false` → 该门跳过，回到旧行为） |
+| `semantic.timeoutMs` | `120000` | 单次裁决 run 超时（超时/失败：audit **fail-closed** 打回；entail **跳过该门**并告警——不烧重试预算） |
 
 门禁默认值 `maxChildren=7`、`maxRetries=3`、`maxConcurrent=4` 定义在 `DEFAULT_GATE`；插件 config 只暴露 `maxConcurrent`（其余两项供引擎级调用覆盖）。
 
@@ -81,11 +84,11 @@ profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` �
     **隔离（git worktree）未实现**：原计划经本机插件 `dsh-git-worktree`，而该插件当前在本机
     不存在实现（只有空目录、profile 未挂载），已另开 BACKLOG 条目，本包只做 `cwd` 透传；
   - 模型路由与计量：`llm` / `agent-default-model`（不自研路由）；
-  - 审批与语义验收：`approval`、`audit` / `entail` 注入 hook（宿主 fork run）；
+  - 审批与语义验收：`approval`、`audit` / `entail` —— **已接线**（2026-10-02）：两者各跑一次**裁决子代理**（经 `ctx.subagents`，与 `subagent` 执行后端共用 `runChildOnce`；prompt 只输出一个 JSON 对象，`{"pass"|"ok": boolean, "feedback": string}`，声明了 `outputSchema` 时另带 `structured`）；开关与超时见 Config `semantic`（缺省都开，`timeoutMs` 120s）；**任一次裁决 run 失败 / 超时 / 输出不可解析 → fail-closed 打回**（不假通过）；
   - 工具注册与会话面：`tools` / `agents` / `sessions`（需要时的 jobs / schedule 只用于等待，不作调度器）。
   - **明确不替换**：宿主 `todo`（模型面清单，无契约 / deps / 验收 / 溯源，不能当帧栈）、
     `experimental-agent-team` 任务板（跨执行器调度板，可作呈现或辅助，不作 Frame 底座）。
-- 引擎内核零 DSH 依赖：`audit`（semantic 验收）与 `entail`（语义蕴含）都是**注入式 hook**，真实链路（`ctx.subagents` fork audit run / 语义模型判定）由宿主侧接线；缺 hook 时分别降级为 fail-closed 与跳过。
+- 引擎内核零 DSH 依赖：`audit`（semantic 验收）与 `entail`（语义蕴含）在**引擎侧**仍是注入式 hook，插件形态（`apply`）已按上条接线（裁决 run 经 `ctx.subagents`）；显式关掉（`semantic.audit=false` / `semantic.entail=false`）时分别回到 fail-closed 与跳过。父帧（无自身产出）的裁决证据由**子帧结论汇总**（§17.3），否则语义门对父验收无产出可审。
 - fan-out 有界并发只是引擎侧 claim 语义；真实多执行器并行（agent-team DAG）属宿主编排层，
   引擎侧只保证「帧在途」的记账与上限。
 - 单会话实例：一个引擎持有一棵任务树。

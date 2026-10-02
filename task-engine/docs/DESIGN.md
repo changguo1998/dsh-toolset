@@ -12,7 +12,7 @@
 - **不替换宿主 `todo`**：模型面清单没有契约、deps、验收与溯源，不能当帧栈。
 - **单会话一棵树**：一个引擎实例持有一棵 `TaskTree`；跨会话协作由 session-channel 承担。
 - **机械命令信任契约**：mechanical 验收以 `/bin/sh -c` 执行声明里的命令，引擎不加沙箱（进程级策略归宿主）。
-- **语义面未接线**：插件形态只接 `runCommand` + `snapshotPath` + `maxConcurrent`；`audit`（semantic 验收）缺 hook 时 **fail-closed**，`entail`（语义蕴含门）缺 hook 时**跳过**——真链路接线已记 `./BACKLOG.md`。
+- **语义面已接线（2026-10-02）**：插件形态经 `ctx.subagents` 跑独立**裁决子代理**（与 subagent 执行后端共用 `runChildOnce`）——`audit`（semantic 验收）与 `entail`（拆解第二道门）都**按次构造**（hook 闭包捕获本次工具执行的 `exec`：宿主 `SubagentStartRequest.parent` 必填，且避免跨会话串线）；裁决走宿主 `outputSchema` 信封（`{pass|ok: boolean, feedback?: string, structured?: …}`，子会话经 `structured_output` 上报、宿主校验 → 不再依赖模型自报）；`unavailable`（环境/超时/不可解析）分流：audit **fail-closed**、entail **跳过该门**（不烧重试预算）；父帧无验收跳过 entail；开关见 Config `semantic`。
 
 ## 分层
 
@@ -45,7 +45,7 @@ scripts/      executor-smoke.mjs：主机适配层冒烟（dist 级 + 假宿主�
 
 机械门禁（`gate.ts`）判**可机械判定的坏拆解**：越级（父帧已可执行却下钻）、过粗（子帧粒度超过父）、过细（子帧自身还需拆）、数量（0 或超 `maxChildren = 7`）、coverage 完备（父每条验收 id 必须有本次子帧覆盖）、deps 前置（只允许引用前序兄弟）、executor 声明合法。任一命中即带反馈打回并记 `retryCount`。
 
-`entail`（合取是否蕴含父契约）是**语义**问题，做成注入 hook：没有 hook 就跳过（不做「假装判过」）。见上「语义面未接线」。
+`entail`（合取是否蕴含父契约）是**语义**问题，做成注入 hook：未接线 / 关掉 / 裁决 run 不可用时**跳过该门**（不做「假装判过」，也不因环境故障烧重试预算）；模型明确判 `{"ok": false}` 才打回。见上「语义面已接线」。
 
 ### 3. RET 三级路由，缺能力 fail-closed
 
