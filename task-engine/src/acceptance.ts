@@ -33,19 +33,30 @@ export interface AuditRequest {
 }
 
 export type AcceptanceVerdict =
-  | { pass: true; structured?: unknown }
-  | { pass: false; feedback: string; structured?: unknown };
+  | { pass: true; structured?: unknown; guardSkipped?: true }
+  | {
+      pass: false;
+      feedback: string;
+      structured?: unknown;
+      guardSkipped?: true;
+    };
 
 export interface AcceptanceHooks {
   /**
    * mechanical 级：执行验收命令，返回退出码（0 = 通过）。
    * `frame` 仅供执行方标注复查来源；`blocked: true` = 命令在执行前被安全复查拦下
-   * （**未执行**，`output` 为拦截回执原文）。
+   * （**未执行**，`output` 为拦截回执原文）；`guardSkipped: true` = 复查**本身被跳过**
+   * （guard 不可用 / 抛错 → fail-open 放行：命令已执行，但没复查过 —— 须向上留痕）。
    */
   runCommand(
     cmd: string,
     frame?: FrameId,
-  ): Promise<{ code: number; output?: string; blocked?: boolean }>;
+  ): Promise<{
+    code: number;
+    output?: string;
+    blocked?: boolean;
+    guardSkipped?: boolean;
+  }>;
   /** human 级：人工审批，返回是否批准（无人应答 fail-closed = false） */
   approve(req: { frame: FrameId; reason: string }): Promise<boolean>;
   /** semantic 级：独立 audit run（宿主侧）。未配置时语义级 fail-closed。 */
@@ -70,10 +81,13 @@ export async function judgeAcceptance(
           feedback: `验收「${acc.check}」为 mechanical 级但缺 command，无法执行。`,
         };
       }
-      const { code, output, blocked } = await hooks.runCommand(
+      const { code, output, blocked, guardSkipped } = await hooks.runCommand(
         acc.command,
         frameId,
       );
+      // 复查被跳过（guard 不可用 / 抛错 → fail-open 放行）：结论照旧按退出码，但留痕
+      const skipMark =
+        guardSkipped === true ? { guardSkipped: true as const } : {};
       // 执行前复查命中（命令未执行）：回执原文即失败原因，不按退出码措辞（避免误导）
       if (blocked === true) {
         return {
@@ -81,12 +95,13 @@ export async function judgeAcceptance(
           feedback: `验收「${acc.check}」的命令被 security-guard 执行前复查拦截（未执行）：${(output ?? "").trim()}`,
         };
       }
-      if (code === 0) return { pass: true };
+      if (code === 0) return { pass: true, ...skipMark };
       return {
         pass: false,
         feedback: `验收「${acc.check}」命令退出码 ${code}：${(output ?? "")
           .trim()
           .slice(0, 500)}`,
+        ...skipMark,
       };
     }
     case "human": {

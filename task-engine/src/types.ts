@@ -127,6 +127,11 @@ export type PlanEvent =
       evidence?: string;
       /** semantic 级：audit run 的 outputSchema 结构化裁决（宿主校验） */
       structured?: unknown;
+      /**
+       * 机械级验收命令的**执行前复查被跳过**（guard 不可用 / 抛错 → fail-open 放行，
+       * 命令未复查即执行）：不可见 → 可见（D1），不静默。
+       */
+      guardSkipped?: true;
     }
   | {
       type: "plan/frame-rejected";
@@ -167,6 +172,11 @@ export type PlanEvent =
       evidence?: string;
       /** 是否可重试（false = 声明 / 环境问题：不打回、不计重试、不改帧状态） */
       retryable?: boolean;
+      /**
+       * 执行前命令复查（security-guard）**被跳过**（服务不可用 / 抛错 → fail-open 放行，
+       * 即命令未复查就已执行）：复查不可用必须可见（D1），不静默。
+       */
+      guardSkipped?: true;
     }
   | {
       /** abort 路径（turn/end reason=aborted）：在途帧回收为 pending，不增重试计数 */

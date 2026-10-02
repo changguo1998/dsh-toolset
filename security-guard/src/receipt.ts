@@ -41,17 +41,20 @@ export function formatCommandReceipt(hit: CommandHit): string {
   ].join("\n");
 }
 
-/** 敏感文件命中回执。operation 区分读/写/读写（shell 命令两面都可能）。 */
+/**
+ * 敏感文件命中回执。`label` 是工具/来源的**标签行**（`工具：<工具名>` 或 `来源：<来源标注>`，
+ * 由调用方按标签种类渲染）；operation 区分读/写/读写（shell 命令两面都可能）。
+ */
 export function formatSensitiveReceipt(
   hit: SensitiveHit,
-  toolName: string,
+  label: string,
   operation: "read" | "write" | "read-write",
 ): string {
   const opLabel =
     operation === "read" ? "读取" : operation === "write" ? "写入" : "读写";
   return [
     `[security-guard] 已拦截：${opLabel}敏感文件「${truncate(hit.path)}」命中规则「${hit.rule.id}」。`,
-    `工具：${toolName}`,
+    label,
     `原因：${hit.rule.reason}。`,
     `放行方式：${PATH_ALLOW_HINT}`,
   ].join("\n");

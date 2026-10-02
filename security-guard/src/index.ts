@@ -652,7 +652,10 @@ interface ResolvedConfig {
 
 /** 一次判定的审计记录（recent() 返回，新在前）。 */
 export interface GuardRecord {
-  /** 被检查的工具名。 */
+  /**
+   * 工具名**或**来源标注：常规判定记工具名（`bash` / `md_logic replace` …）；
+   * 外部命令复查（`inspectCommand(command, source)`）记 `source`（如 `metric_loop{tick} id=x`）。
+   */
   toolName: string;
   /** 判定结果：放行 / 拦截。 */
   verdict: "allow" | "deny";
@@ -695,14 +698,20 @@ export interface PolicySnapshot {
  * 只读查询（TUI /guard） + 外部命令复查（插件自查，如 metric-loop 的 tick）。
  */
 export interface GuardService {
-  /** 最近判定记录（新→旧）。 */
+  /**
+   * 最近判定记录（新→旧）。记录里的 `toolName` = **工具名或来源标注**
+   * （语义见 `GuardRecord.toolName`）：外部命令复查 `inspectCommand` 记的是 `source`，不是工具名。
+   */
   recent(): readonly GuardRecord[];
-  /** 当前策略/规则快照。 */
+  /**
+   * 当前策略/规则快照（开关 / 未登记工具策略 / 规则 id+原因 / 放行正则源）。
+   * 这是**策略面**视图，不含逐次判定的工具名/来源标注（那在 `recent()` 里）。
+   */
   policy(): PolicySnapshot;
   /**
    * 复查一条**不在工具入参里**的命令文本（与 shell 工具同口径：命令黑名单层 +
    * 命令内路径的敏感文件层）。返回 null = 放行；字符串 = deny 回执。
-   * `source` 标注命令来源（回执首行 + `recent()` 的 toolName）。
+   * `source` 标注命令来源（回执首行 + 敏感层标签行「来源：<source>」 + `recent()` 的 `toolName`）。
    */
   inspectCommand(command: string, source?: string): string | null;
 }
@@ -768,6 +777,22 @@ function receiptToolName(
   return typeof action === "string" && action.length > 0
     ? `${toolName} ${action}`
     : toolName;
+}
+
+/**
+ * 回执里的**标签行**（D3）：按标签种类渲染 ——
+ * - `"tool"`（真工具调用）→ `工具：<工具名>`（读写面随 action 变的插件工具带 action）；
+ * - `"source"`（命令/路径来自工具入参之外，如 `inspectCommand(command, source)` 的 `source`）→
+ *   `来源：<来源标注>` —— 不再借「工具：」字段渲染（字段名会误导成工具名）。
+ */
+function receiptLabelLine(
+  toolName: string,
+  args: Record<string, unknown>,
+  kind: "tool" | "source",
+): string {
+  return kind === "source"
+    ? `来源：${toolName}`
+    : `工具：${receiptToolName(toolName, args)}`;
 }
 
 function firstString(
@@ -869,7 +894,7 @@ export class GuardEngine {
   }
 
   /**
-   * 检查一次工具调用。
+   * 检查一次工具调用（判定记入缓冲时 `toolName` 就是**本次工具名**）。
    * 返回 null = 放行；返回字符串 = deny 回执（含原因 + 放行方式）。
    * 检查顺序：命令黑名单层 → 敏感文件层（两层独立、独立放行）。
    * 每次判定都会记入缓冲（recent() 可查），不改变判定逻辑与返回值。
@@ -880,7 +905,10 @@ export class GuardEngine {
     return receipt;
   }
 
-  /** 最近判定记录（新→旧），返回副本，外部修改不影响内部缓冲。 */
+  /**
+   * 最近判定记录（新→旧），返回副本，外部修改不影响内部缓冲。
+   * 记录里的 `toolName` = 工具名**或**来源标注（见 `GuardRecord.toolName`）。
+   */
   recent(): readonly GuardRecord[] {
     return [...this.#records].reverse();
   }
@@ -1072,10 +1100,12 @@ export class GuardEngine {
 
   /**
    * 复查一条**不在工具入参里**的命令文本——给「命令来自状态文件 / 契约」这类旁路补执行前检查点
-   * （调用方：metric-loop 的 tick 执行 `spec.measureCmd` 前）。与 shell 工具同一口径：
-   * 命令黑名单层 + 命令内路径的敏感文件层（`allowPatterns` / `allowedPaths` 同样生效），
-   * 判定同样记入 `recent()`（toolName = `source`，TUI /guard 可审计）。
-   * 返回 null = 放行；字符串 = deny 回执（首行为来源标注）。
+   * （调用方：metric-loop 的 tick 执行 `spec.measureCmd` 前；task-engine 的 executor / 验收执行期）。
+   * 与 shell 工具同一口径：命令黑名单层 + 命令内路径的敏感文件层（`allowPatterns` / `allowedPaths`
+   * 同样生效）；判定同样记入 `recent()` —— 记录的 `toolName` 存的是**来源标注** `source`
+   * （如 `metric_loop{tick} id=x`；字段语义见 `GuardRecord.toolName`）。
+   * 回执首行是来源标注；敏感层命中的标签行渲染为「来源：<source>」（D3，不再借「工具：」字段）。
+   * 返回 null = 放行；字符串 = deny 回执。
    */
   inspectCommand(command: string, source = "external-command"): string | null {
     // 防御：服务面经跨包结构调用，非字符串按「无命令」处理（类型由调用方保证）
@@ -1096,6 +1126,8 @@ export class GuardEngine {
       extractCommandPaths(command),
       // 命令面读写都可能（与 shell 工具同款措辞），避免误标成「读取」
       "read-write",
+      // 标签行用「来源：」形态：这条命令不来自工具入参，写「工具：」会误导
+      "source",
     );
     this.#record(label, receipt);
     return receipt;
@@ -1105,7 +1137,8 @@ export class GuardEngine {
    * 「命令文本 + 路径」收集完成后的最终判定：命令黑名单层 → 敏感文件层（两层独立、独立放行）。
    * 官方 shell 工具、插件命令工具、`check` 模式的未登记工具与 `inspectCommand`（外部命令复查）
    * 共用同一口径；`sourceLine` 非空时前置一行来源标注（回执首行）；
-   * `operation` 缺省按工具/参数推导（命令面为 read-write），供外部复查标注操作面。
+   * `operation` 缺省按工具/参数推导（命令面为 read-write），供外部复查标注操作面；
+   * `labelKind` 决定敏感层回执的标签行：「工具：」（缺省）还是「来源：」（外部复查）。
    */
   #decideCollected(
     toolName: string,
@@ -1113,6 +1146,7 @@ export class GuardEngine {
     commands: readonly { text: string; sourceLine?: string }[],
     paths: readonly (string | { path: string; sourceLine?: string })[],
     operation?: "read" | "write" | "read-write",
+    labelKind: "tool" | "source" = "tool",
   ): string | null {
     const cfg = this.#cfg;
     if (!cfg.enabled) return null;
@@ -1146,7 +1180,7 @@ export class GuardEngine {
         if (hit !== null) {
           const receipt = formatSensitiveReceipt(
             hit,
-            receiptToolName(toolName, args),
+            receiptLabelLine(toolName, args, labelKind),
             operation ?? toolOperation(toolName, args),
           );
           return candidate.sourceLine === undefined

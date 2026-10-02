@@ -252,9 +252,14 @@ export function createTools(
             approve: approveFor(exec),
             ...(semantic?.audit === undefined ? {} : { audit: semantic.audit }),
           });
-          // step 级裁决（#5）：accepted/next 透出；打回 next 指向本帧（重做）
+          // step 级裁决（#5）：accepted/next 透出；打回 next 指向本帧（重做）。
+          // 成功路径也可能带 feedback 注记（如「复查不可用，验收命令未复查即执行」的留痕）→ 不吞掉。
           return r.ok
-            ? ok({ accepted: r.accepted, next: r.next })
+            ? ok({
+                accepted: r.accepted,
+                next: r.next,
+                ...(r.feedback === undefined ? {} : { feedback: r.feedback }),
+              })
             : {
                 ok: false,
                 accepted: r.accepted,

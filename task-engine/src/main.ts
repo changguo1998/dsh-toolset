@@ -711,26 +711,33 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
       }
       // 执行前复查（D1①）：命令来自契约声明（不在工具入参里，声明处检查覆盖不到）——
       // 命中即不执行，回执原文作为失败原因（声明问题，不计重试）
-      const receipt = opts.checkCommand(
+      const check = opts.checkCommand(
         command,
         `task-engine{executor} ${req.frame}`,
       );
-      if (receipt !== null) {
+      if (check.receipt !== null) {
         return {
           ok: false,
           retryable: false,
-          feedback: `命令被 security-guard 执行前复查拦截（未执行）：\n${receipt}`,
+          feedback: `命令被 security-guard 执行前复查拦截（未执行）：\n${check.receipt}`,
         };
       }
+      // 复查被跳过（guard 不可用 / 抛错）→ fail-open 照常执行，但结果里标出来（D1：不静默）
+      const guardSkipped = check.skipped ? { guardSkipped: true as const } : {};
       const out = await opts.runShell(command, cwd);
       const text = truncateEvidence((out.output ?? "").trim());
       if (out.code !== 0) {
         return {
           ok: false,
           feedback: `命令退出码 ${out.code}${text === "" ? "" : `：${text.slice(0, 500)}`}${retainedNote}`,
+          ...guardSkipped,
         };
       }
-      return { ok: true, result: text === "" ? "（命令无输出）" : text };
+      return {
+        ok: true,
+        result: text === "" ? "（命令无输出）" : text,
+        ...guardSkipped,
+      };
     }
     // —— subagent：ctx.subagents.start（模型覆盖走 agentOptions 能力位；与裁决 run 共用 runChildOnce）——
     if (spec.kind === "subagent") {
@@ -978,11 +985,26 @@ function readService<T>(ctx: unknown, name: string): T | undefined {
 }
 
 /**
- * 命令复查器（security-guard 服务面）：返回 null = 放行；字符串 = 拦截回执（多行，
- * 首行为来源标注）。真实实现由 security-guard 插件经 `ctx.get('guard')` 提供；
- * 未挂载即不复查（fail-open 放行）。
+ * 一次命令复查的结论（D1 口径，与 metric-loop 同形）：
+ * - `receipt` 非空 = 拦截回执（多行，首行来源标注）；null = 放行；
+ * - `skipped` = 本次复查**被跳过**（服务不可用 / 形状不符 / 抛错 → fail-open 放行）——必须可见，
+ *   调用方据此在事件流（`plan/frame-executed.guardSkipped`）与反馈里留痕。
  */
-export type CommandChecker = (command: string, source: string) => string | null;
+export interface CommandCheckResult {
+  /** 非空 = 拦截回执（多行，首行来源标注）；null = 放行。 */
+  receipt: string | null;
+  /** true = 本次复查被跳过（fail-open 放行；命令未复查即执行）。 */
+  skipped: boolean;
+}
+
+/**
+ * 命令复查器（security-guard 服务面）。真实实现由 security-guard 插件经 `ctx.get('guard')`
+ * 提供；未挂载即不复查（fail-open 放行 + 留痕）。
+ */
+export type CommandChecker = (
+  command: string,
+  source: string,
+) => CommandCheckResult;
 
 /** security-guard 服务面（结构子集；不 import 对方代码、不进 inject，避免跨包硬依赖）。 */
 interface GuardServiceLike {
@@ -994,9 +1016,9 @@ interface GuardServiceLike {
  * 构造命令复查器（executor 命令后端与 mechanical 验收共用的执行期检查点）：
  * 按名**惰性**解析 security-guard 的复查 API（apply 期服务 fiber 常未激活，执行期才可读）。
  *
- * fail-open 粒度（D2）：服务缺失 / 形状不符 / 复查自身抛错一律**放行**（不得让既有流程失败），
- * 且每种失效模式**只告警一次**（不刷屏）。返回非字符串 / 空串一律按放行，
- * 只有明确的非空回执才算拦截。
+ * fail-open 粒度（D1/D2）：服务缺失 / 形状不符 / 复查自身抛错一律**放行**（不得让既有流程失败），
+ * 且每种失效模式**只告警一次**（不刷屏）；同时返回 `skipped: true` 让调用方**留痕**（不可见 → 可见）。
+ * 返回非字符串 / 空串一律按放行（复查确实跑过 → `skipped: false`），只有明确的非空回执才算拦截。
  */
 export function makeCommandGuard(
   ctx: unknown,
@@ -1012,22 +1034,27 @@ export function makeCommandGuard(
         warnedMissing = true;
         warn(
           "security-guard 服务不可用（ctx.get('guard') 无 inspectCommand）：" +
-            "执行期命令复查已跳过（fail-open，已知残余边界）",
+            "执行期命令复查已跳过（fail-open；事件流标 guardSkipped，已知残余边界）",
         );
       }
-      return null;
+      return { receipt: null, skipped: true };
     }
     try {
       const receipt = inspect.call(svc, command, source);
-      return typeof receipt === "string" && receipt.length > 0 ? receipt : null;
+      return {
+        receipt:
+          typeof receipt === "string" && receipt.length > 0 ? receipt : null,
+        skipped: false,
+      };
     } catch (err) {
       if (!warnedThrow) {
         warnedThrow = true;
         warn(
-          `security-guard 复查异常（按放行处理，同类异常不再重复告警）：${String(err)}`,
+          `security-guard 复查异常（按放行处理，同类异常不再重复告警；` +
+            `事件流标 guardSkipped）：${String(err)}`,
         );
       }
-      return null;
+      return { receipt: null, skipped: true };
     }
   };
 }
@@ -1142,9 +1169,9 @@ function makeWorktreeIsolator(opts: {
     cwd: string,
     source: string,
   ): Promise<GitResult> => {
-    const receipt = opts.checkCommand(["git", ...args].join(" "), source);
-    if (receipt !== null) {
-      return { code: -1, stdout: receipt, stderr: "", blocked: true };
+    const check = opts.checkCommand(["git", ...args].join(" "), source);
+    if (check.receipt !== null) {
+      return { code: -1, stdout: check.receipt, stderr: "", blocked: true };
     }
     try {
       const { stdout, stderr } = await execFileAsync("git", args, {
@@ -1494,18 +1521,24 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   const worktrees = makeWorktreeIsolator({ checkCommand, warn });
   /**
    * 验收命令（mechanical 级）：执行前复查（D1②）——命中即**不执行**，回执原文随
-   * `blocked` 标志交给裁决层当失败原因（不按退出码措辞，避免误导）。
+   * `blocked` 标志交给裁决层当失败原因（不按退出码措辞，避免误导）；
+   * 复查被**跳过**（guard 不可用 / 抛错 → fail-open 放行）时照常执行，但随 `guardSkipped` 留痕（D1）。
    */
   const runCommand = async (
     cmd: string,
     frame?: FrameId,
-  ): Promise<{ code: number; output?: string; blocked?: boolean }> => {
-    const receipt = checkCommand(
-      cmd,
-      `task-engine{acceptance} ${frame ?? "?"}`,
-    );
-    if (receipt !== null) return { code: 1, output: receipt, blocked: true };
-    return runShell(cmd);
+  ): Promise<{
+    code: number;
+    output?: string;
+    blocked?: boolean;
+    guardSkipped?: true;
+  }> => {
+    const check = checkCommand(cmd, `task-engine{acceptance} ${frame ?? "?"}`);
+    if (check.receipt !== null) {
+      return { code: 1, output: check.receipt, blocked: true };
+    }
+    const out = await runShell(cmd);
+    return check.skipped ? { ...out, guardSkipped: true } : out;
   };
   // 语义面（audit / entail）：**按次构造**——hook 闭包捕获本次工具执行的 exec（父 agent 与
   // 执行期服务解析都从它取）。宿主 `SubagentStartRequest.parent` 是必填（宿主无条件解引用

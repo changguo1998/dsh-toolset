@@ -21,7 +21,7 @@ DSH（DeepSeek Harness）进程内插件：指标驱动的自动循环。注册�
 - 轮前边界检查：已达 `maxRounds` / `timeBoundMs` / `tokenBound` 时本轮不执行、直接停止（结果 `round: null`）。
 - `wake: "auto"` 受 cadence 节流：距上次成功不足 `cadenceSec` 返回 `deferred: true`，不消耗轮次、不落盘；显式 start/tick 不受限。
 - 测量失败（超时、非零退出、stdout 无数字）按本轮无改进处理，不更新最优值、不中断循环。
-- 结果含 `schedule` 提示（运行中为 `schedule_create` 的 `after_seconds` + `prompt`，已停止为 `null`）与一句话 `summary`。
+- 结果含 `schedule` 提示（运行中为 `schedule_create` 的 `after_seconds` + `prompt`，已停止为 `null`）与一句话 `summary`；另有复查相关标注：`guardScope`（本轮复查范围）与（仅复查不可用时）`guardSkipped: true`。
 
 只读服务 `metricLoop`（`provide("metricLoop")`）：`list()` 返回活动/历史循环清单（只读子集，`updatedAt` 倒序，单个状态文件损坏则跳过），`status(id)` 查单循环或返回 `null`。
 
@@ -57,9 +57,18 @@ npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau �
 - 轮内做什么改进动作（循环载体）由宿主 workflow / 会话编排，插件不感知。
 - 跨进程语义依赖状态文件：每次 `dsh` 启动或 schedule 唤醒加载状态推进一轮；文件缺失视为循环不存在（`tick`/`stop` 报错，`status` 返回 `exists: false`）。
 - 测量命令经 `/bin/sh -c` 执行，取 stdout 中最后一个数字（容忍 `score: 0.87` 等噪声）；信任契约内命令，不做沙箱隔离。
-- **命令执行前的安全复查**（2026-10-02）：`tick` 执行的命令取自状态文件，执行前经**可选服务**
-  `ctx.get("guard")` 复查（与 `bash` 同一套命令黑名单/敏感层，`allowPatterns` 生效）；**未挂载 guard 时
-  fail-open（告警一次）**，与修复前一致；`createController()` 直连路径默认不带复查器。
+- **命令执行前的安全复查**（2026-10-02；分工与留痕口径同日硬化）：复查按**命令来源**分工，结果里的
+  `guardScope` 标明本轮走的是哪一侧 ——
+  - `measureCmd` 来自**工具入参**（`action=start`）：已由 security-guard 的 `tools/pre-execute` 覆盖 →
+    工具层显式声明 `guardScope: "tool-args"`，引擎内**不重复判定**（同一命令不会在 guard 的 `recent()` 里
+    落两条记录）；
+  - 命令来自**状态文件**（`tick` 执行 `spec.measureCmd`）：pre-execute 看不到它 → 引擎内复查
+    （`guardScope: "engine-side"`；与 `bash` 同一套命令黑名单 / 敏感层，`allowPatterns` 生效），命中即不测量、不落盘。
+    直连 `MetricLoopController.start()` / `createController()`（不经工具面）时 `guardScope` 缺省仍是
+    `engine-side` —— 有复查器就复查，不给 D2 留空洞（`createController()` 默认不接线复查器）。
+    **复查不可用时可见（D1）**：guard 未挂载 / 复查抛错 → **fail-open 照常测量**（每种失效模式只告警一次，
+    原先抛错是每轮都告警），但结果会标 `guardSkipped: true` 且 `summary` 写明「本轮命令未复查即执行」；
+    未接线（无复查器）的路径不标 `guardSkipped`（那属于「没接线」，不是「复查失败」）。
 - metricless 循环不判 plateau，只按轮数/时间/token 边界或手动停止。
 
 ## 测试
@@ -67,7 +76,7 @@ npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau �
 ```sh
 npm run check   # 类型检查（tsc --noEmit，strict）
 npm run build   # 编译到 dist/
-npm run test    # node --test（35 例：engine / persist / controller，注入时钟与测量）
+npm run test    # node --test（44 例：engine / persist / controller，注入时钟与测量）
 npm run smoke   # 宿主联调：profile 引导 + headless 连跑三轮 + 状态文件断言
 ```
 

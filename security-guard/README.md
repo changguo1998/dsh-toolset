@@ -20,7 +20,7 @@ DSH（DeepSeek Harness）进程内安全守卫插件：危险命令黑名单拦�
 - **官方读面工具 `read_image`**（图片读取，参数 `file_path`）：与 `read` 同级过敏感文件层读侧口径——读敏感名路径（`.env` / `id_rsa` / `~/.ssh` 等）被拦，回执为读侧措辞 + 规则 id + 工具名；读普通路径放行。
 - **插件命令面**（`src/index.ts` 的 `PLUGIN_COMMAND_TOOLS` 登记表，按各包**真实参数面**读码登记）：`metric_loop` 的 `measureCmd`（`action=start` 时经 `/bin/sh -c` 执行，`metric-loop/src/measure.ts`）；`task_decompose` 的 `children[].executor.command`（command 后端的执行命令）与 `children[].acceptance[].command`（mechanical 验收命令）。命令文本走与 `bash` **同一**命令黑名单层与路径抽取（`allowPatterns` 同样生效），命令层回执前置一行来源标注（工具名 + 命令参数路径），敏感层回执按 shell 同口径标「读写」。命令的**执行**在 `task_execute` / `task_stop`，但**检查点**落在声明处 `task_decompose`（前两者的入参只有 `task_id`，不含命令文本）。
 - **未登记工具缺省不拦**：覆盖范围是显式白名单——官方文件工具、shell 工具与两张插件登记表（`PLUGIN_FILE_TOOLS` 路径面 / `PLUGIN_COMMAND_TOOLS` 命令面）里的插件工具；其他工具名（含本仓其它只读插件工具，如 `context_report` / `rule_list`）缺省不参与判定，可用 `unknownToolPolicy: "check"` / `"deny"` + `unknownToolAllowlist` 收紧（见「边界与限制」）。登记表只覆盖**登记的参数键**：`metric_loop` 仅 `measureCmd` 参与，`task_decompose` 仅上述两条嵌套命令路径参与（`executor.cwd` / `spec` 等参数不参与）。未识别的工具名或参数缺失一律放行（不猜测语义）。工具名按自身属性查表（`Object.hasOwn`），故 `constructor` / `toString` / `valueOf` 这类原型链属性名视同未登记 → 放行。新增插件工具需按真实参数面在对应登记表登记。
-- 只读查询面 `provide('guard')`：`recent()` 返回最近拦截记录（上限 200，新在前），`policy()` 返回当前开关、**未登记工具策略快照**（`unknownToolPolicy` 的原始值 / 生效值 / 是否非法 + `unknownToolAllowlist`）、生效规则（id / reason）与放行正则源，供 TUI `/guard` 等接线方消费（TUI 尚未渲染策略字段，服务面已暴露）。（服务面另暴露 `inspectCommand(command, source?)`：命令层复查入口，供其它插件在执行前自助复查）
+- 只读查询面 `provide('guard')`：`recent()` 返回最近判定记录（上限 200，新在前）—— 记录里的 **`toolName` = 工具名或来源标注**（常规判定记工具名，如 `bash` / `md_logic replace`；外部命令复查 `inspectCommand(command, source)` 记的是 `source`，如 `metric_loop{tick} id=x`，不是工具名），`policy()` 返回当前开关、**未登记工具策略快照**（`unknownToolPolicy` 的原始值 / 生效值 / 是否非法 + `unknownToolAllowlist`）、生效规则（id / reason）与放行正则源（策略面视图，不含逐次判定的工具名 / 来源标注），供 TUI `/guard` 等接线方消费（TUI 尚未渲染策略字段，服务面已暴露）。（服务面另暴露 `inspectCommand(command, source?)`：命令层复查入口，供其它插件在执行前自助复查；来源形态回执的标签行是「来源：<source>」）
 
 ### 回执示例
 
@@ -48,6 +48,16 @@ DSH（DeepSeek Harness）进程内安全守卫插件：危险命令黑名单拦�
 ```
 [security-guard] 已拦截：读取敏感文件「/home/user/.ssh/id_rsa」命中规则「ssh-directory」。
 工具：read
+原因：OpenSSH 凭据目录（私钥、known_hosts、配置）。
+放行方式：在该 profile 的 cordis.patch.yml 的 security-guard 条目 config 下，向 sensitiveFiles.allowedPaths 追加该路径（或其父目录前缀），重载/重启会话后生效。
+```
+
+来源形态（命令不在工具入参里，如 `inspectCommand`；标签行是「来源：<source>」，**不写**「工具：」）：
+
+```
+[security-guard] 命令复查来源：metric_loop{tick} id=auto。
+[security-guard] 已拦截：读写敏感文件「/home/user/.ssh/id_rsa」命中规则「ssh-directory」。
+来源：metric_loop{tick} id=auto
 原因：OpenSSH 凭据目录（私钥、known_hosts、配置）。
 放行方式：在该 profile 的 cordis.patch.yml 的 security-guard 条目 config 下，向 sensitiveFiles.allowedPaths 追加该路径（或其父目录前缀），重载/重启会话后生效。
 ```
@@ -107,11 +117,20 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
 - 路径提取是保守超集（裸 token 也参与 basename 规则匹配），故可能比真实语义多拦。
 - 规则只覆盖显式列出的工具与参数键；其他工具、其他参数名不参与判定。
 - `root` 类目录参数只按传入路径**本身**过敏感层，不扫描目录内容：`code_map` / `md_map` 的 `root` 指向普通目录时放行（即使该目录下含 `.env`），指向 `~/.ssh` 这类敏感目录本身则拦。
-- **命令来自状态文件时：执行前复查（2026-10-02 收口）**：`metric_loop` 的 `tick` 执行的命令取自状态文件
-  （不在工具入参里），现在由 `metric_loop` 在**执行之前**经可选服务 `ctx.get("guard")` 复查 —— 走
+- **命令不在工具入参里时：执行前复查（2026-10-02 收口；措辞与留痕同日硬化）**：`metric_loop` 的 `tick` 执行的命令取自状态文件
+  （不在工具入参里），由 `metric_loop` 在**执行之前**经可选服务 `ctx.get("guard")` 复查 —— 走
   `GuardEngine.inspectCommand(command, source)`，与 `bash` 同一套命令黑名单与命令内路径敏感层（`allowPatterns` /
-  `allowedPaths` 同样生效），命中即不测量、不落盘（调用方：`metric-loop` 的 tick 复查、`task-engine` 的 executor/验收执行期复查）。**未挂载 guard 时 fail-open（告警一次）**，与修复前行为一致
-  （不回归）；`metric-loop` 直连 `createController()` 的路径默认不带复查器。
+  `allowedPaths` 同样生效），命中即不测量、不落盘（调用方：`metric-loop` 的 tick 复查、`task-engine` 的 executor / 验收 /
+  worktree git 执行期复查）。
+  - **检查点分工（D2）**：命令来自**工具入参**时由 guard 自己的 `tools/pre-execute` 覆盖，插件引擎内**不重复判定**
+    （同一命令不会在 `recent()` 里落两条记录）；只有 guard 看不到的命令（状态文件 / 契约声明）才由调用方显式复查。
+  - **不可用时可见（D1）**：guard 未挂载 / 形状不符 / 调用抛错 → **fail-open 放行**（判定策略与修复前一致，不回归；
+    每种失效模式只告警一次），但调用方会**留痕**：`metric-loop` 结果标 `guardSkipped` + `summary` 写明；
+    `task-engine` 落 `plan/frame-executed.guardSkipped` / `plan/acceptance-verdict.guardSkipped` 并随 `task_stop` 反馈透出。
+    非字符串 / 空串回执视为「复查跑过 = 放行」，不算跳过。`metric-loop` 直连 `createController()` 的路径默认不带复查器
+    （未接线，不标 `guardSkipped`）。
+  - **回执标签行（D3）**：来源形态的回执渲染「来源：<source>」行（首行仍是「命令复查来源：…」），**真工具名**的回执
+    仍是「工具：\<工具名>」——两者不混用。
 - **未登记工具：三态策略 + 放行名单**（2026-10-02）：覆盖是**显式白名单**（官方 shell / run_code / 文件工具 + 两张插件登记表）。
   - `unknownToolPolicy: "allow"`（缺省）= 与历史行为逐字一致（未登记工具一律放行）。
   - `unknownToolPolicy: "check"`：**不整工具硬拦**，把 watched 键下的字符串值（含数组元素）**按键类定向**送既有两层，命中才拦：

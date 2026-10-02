@@ -89,6 +89,11 @@ export interface ExecuteOutcome {
    * 引擎**不打回、不计重试、不改帧状态**，只把反馈交给模型去改声明。
    */
   retryable?: boolean;
+  /**
+   * 执行前命令复查（security-guard）**被跳过**（服务不可用 / 抛错 → fail-open 放行，未复查即执行）：
+   * 记入 `plan/frame-executed.guardSkipped`（D1：复查不可用要可见，不静默）。
+   */
+  guardSkipped?: boolean;
 }
 
 /** executor 后端适配器（宿主侧接线；未注入时 execute fail-closed 打回） */
@@ -151,7 +156,9 @@ export interface TaskEngineOptions {
   snapshotPath?: string;
 }
 
-export type ActionResult = { ok: true } | { ok: false; feedback: string };
+export type ActionResult =
+  | { ok: true; guardSkipped?: true }
+  | { ok: false; feedback: string; guardSkipped?: true };
 
 /** decompose 结果（BACKLOG #5：step 级 accepted/next） */
 export type DecomposeResult =
@@ -491,6 +498,9 @@ export class TaskEngine {
       ...(out.structured === undefined ? {} : { structured: out.structured }),
       ...(summary === "" ? {} : { evidence: summary }),
       ...(out.ok ? {} : { retryable: out.retryable !== false }),
+      // 复查不可用（guard 缺失 / 抛错 → fail-open 放行）时的**可见留痕**：命令照常执行，
+      // 但事件流标明「这一条没复查过」（D1，不静默）
+      ...(out.guardSkipped === true ? { guardSkipped: true as const } : {}),
     });
     if (!out.ok) {
       const feedback = out.feedback ?? `${spec.kind} 后端执行失败（未给反馈）`;
@@ -569,6 +579,7 @@ export class TaskEngine {
     const result = await this.audit(frameId, approve, hooks?.audit);
     if (!result.ok) {
       // 打回：带反馈重试；终态(failed)无下一步，否则下一步 = 本帧（重做）
+      // （反馈里的复查留痕由 audit 统一附上，此处不重复拼接）
       const now = this.tree.frames.get(frameId);
       const next: FrameId | null = now?.status === "failed" ? null : frameId;
       this.emitStepVerdict(frameId, {
@@ -579,8 +590,14 @@ export class TaskEngine {
       return { ok: false, accepted: false, next, feedback: result.feedback };
     }
     const notices = await this.completeUp(frameId, approve, hooks?.audit);
+    // 成功路径同样留痕：否则「验收命令没复查过却通过了」会静默
+    if (result.guardSkipped === true) notices.push(GUARD_SKIPPED_NOTICE);
     const next = this.peekNextReady();
-    this.emitStepVerdict(frameId, { accepted: true, next });
+    this.emitStepVerdict(frameId, {
+      accepted: true,
+      next,
+      ...(notices.length === 0 ? {} : { feedback: notices.join("；") }),
+    });
     return {
       ok: true,
       accepted: true,
@@ -645,6 +662,8 @@ export class TaskEngine {
     const f = this.tree.frames.get(frameId);
     if (f === undefined) return reject(`未知帧 ${frameId}`);
     if (f.acceptance.length === 0) return { ok: true };
+    // 本轮验收里是否有「命令复查被跳过」（guard 不可用 / 抛错 → fail-open）：留痕给事件与 stop 反馈
+    let guardSkipped = false;
     for (const acc of f.acceptance) {
       const verdict = await judgeAcceptance(
         frameId,
@@ -660,6 +679,7 @@ export class TaskEngine {
         },
         this.evidenceFor(f),
       );
+      if (verdict.guardSkipped === true) guardSkipped = true;
       this.append({
         type: "plan/acceptance-verdict",
         frame: frameId,
@@ -670,17 +690,28 @@ export class TaskEngine {
         ...(verdict.structured === undefined
           ? {}
           : { structured: verdict.structured }),
+        ...(verdict.guardSkipped === true
+          ? { guardSkipped: true as const }
+          : {}),
       });
       if (!verdict.pass) {
-        await this.rejectFrame(
-          frameId,
-          `acceptance:${acc.id}`,
-          verdict.feedback,
-        );
-        return { ok: false, feedback: verdict.feedback };
+        // 复查被跳过（guard 不可用 / 抛错 → fail-open）：失败反馈里同口径留痕（D1，不静默）
+        const feedback =
+          verdict.guardSkipped === true
+            ? `${verdict.feedback}\n${GUARD_SKIPPED_NOTICE}`
+            : verdict.feedback;
+        await this.rejectFrame(frameId, `acceptance:${acc.id}`, feedback);
+        return {
+          ok: false,
+          feedback,
+          ...(guardSkipped ? { guardSkipped: true as const } : {}),
+        };
       }
     }
-    return { ok: true };
+    return {
+      ok: true,
+      ...(guardSkipped ? { guardSkipped: true as const } : {}),
+    };
   }
 
   /** 打回：记事件、计数、超限即 failed（进终态前先过终态钩子，回收失败不静默） */
@@ -774,8 +805,14 @@ export class TaskEngine {
     );
     if (!allDone) return [];
     const result = await this.audit(parentId, approve, perCallAudit);
-    if (!result.ok) return []; // 打回已完成：父帧 pending + 反馈，等待模型重新 stop
-    return await this.completeUp(parentId, approve, perCallAudit);
+    if (!result.ok) {
+      // 打回已完成：父帧 pending + 反馈（含留痕），等待模型重新 stop；
+      // 父帧验收由**本次 stop** 的 join 续体触发 → 复查被跳过时把留痕透给本次反馈（不静默）
+      return result.guardSkipped === true ? [GUARD_SKIPPED_NOTICE] : [];
+    }
+    const notices = await this.completeUp(parentId, approve, perCallAudit);
+    if (result.guardSkipped === true) notices.push(GUARD_SKIPPED_NOTICE);
+    return notices;
   }
 
   // -------------------------------------------------------------------------
@@ -855,6 +892,13 @@ export class TaskEngine {
 function reject(feedback: string): ActionResult {
   return { ok: false, feedback };
 }
+
+/**
+ * 复查被跳过时的留痕文案（`task_stop` 反馈；与事件流的 `guardSkipped` 同口径）。
+ * fail-open 策略不变（命令照常执行），但「这条命令没复查过」必须写出来（D1：不可见 → 可见）。
+ */
+const GUARD_SKIPPED_NOTICE =
+  "复查留痕：security-guard 执行前复查不可用（fail-open 放行），验收命令未复查即执行（guardSkipped）";
 
 /** 证据摘要（折叠空白 + 截断；供事件与工具返回值展示，非全文） */
 function summarize(text: string, max = 240): string {

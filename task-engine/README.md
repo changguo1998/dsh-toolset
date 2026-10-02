@@ -121,8 +121,10 @@ profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` �
 - 单会话实例：一个引擎持有一棵任务树。
 - 快照持久化依赖 `snapshotPath`；未配置时跨进程恢复不可用。
 - mechanical 验收命令由插件以 `/bin/sh -c` 执行，信任契约内命令、无额外沙箱（进程级沙箱由宿主策略承载）。
-- **执行期复查**（2026-10-02）：命令**执行之前**各过一次 security-guard —— ① `executor` 的 `command` 后端（`task_execute` 发起前）、② mechanical 验收命令（含不在 `task_decompose` 登记表里的 `root.acceptance[].command`）。复查经 `ctx.get('guard').inspectCommand(command, source)`，`source` 形如 `task-engine{executor} <frameId>` / `task-engine{acceptance} <frameId>`；命中即**不执行**，回执原文作为失败原因（`task_execute` → `ok:false`；验收 → 不通过）。
-  该检查点**需 guard 挂载**（security-guard 插件经 `provide('guard')` 暴露，本包惰性读取、不进 `inject`）：**未挂载或复查抛错 → fail-open 放行 + 只告警一次**（不刷屏、不让既有流程失败）——即未挂载 security-guard 时执行期无复查，与声明处检查（`task_decompose`）的覆盖一起构成纵深。**隔离的 git 调用**（`rev-parse` / `worktree add` / `prune` / `list` / `status` / `remove` / `branch -D`）走同一复查面，`source` 形如 `task-engine{worktree} <leafId> cwd=<repo>`；该 `source` 只是回执首行的来源标注（便于审计定位），**不参与判定**。
+- **执行期复查**（2026-10-02；留痕口径同日硬化）：命令**执行之前**各过一次 security-guard —— ① `executor` 的 `command` 后端（`task_execute` 发起前）、② mechanical 验收命令（含不在 `task_decompose` 登记表里的 `root.acceptance[].command`）。复查经 `ctx.get('guard').inspectCommand(command, source)`，`source` 形如 `task-engine{executor} <frameId>` / `task-engine{acceptance} <frameId>`；命中即**不执行**，回执原文作为失败原因（`task_execute` → `ok:false`；验收 → 不通过）。
+  该检查点**需 guard 挂载**（security-guard 插件经 `provide('guard')` 暴露，本包惰性读取、不进 `inject`）：**未挂载或复查抛错 → fail-open 放行 + 每种失效模式只告警一次**（不刷屏、不让既有流程失败）——即未挂载 security-guard 时执行期无复查，与声明处检查（`task_decompose`）的覆盖一起构成纵深。
+  **复查不可用要可见（D1，不静默）**：fail-open 照旧，但「这条命令没复查过」写进事件流与反馈 —— 命令缝落 `plan/frame-executed.guardSkipped`，验收缝落 `plan/acceptance-verdict.guardSkipped` 并随 `task_stop` 反馈透出（「复查留痕：security-guard 执行前复查不可用（fail-open 放行），验收命令未复查即执行（guardSkipped）」，成功路径也带 feedback）。
+  **隔离的 git 调用**（`rev-parse` / `worktree add` / `prune` / `list` / `status` / `remove` / `branch -D`）走同一复查面与同一 `makeCommandGuard` 实例，`source` 形如 `task-engine{worktree} <leafId> cwd=<repo>`；该 `source` 只是回执首行的来源标注（便于审计定位），**不参与判定**。隔离只对 `command` 后端生效 → 隔离执行必经命令缝，`guardSkipped` 已在同一 `plan/frame-executed` 上留痕；**回收期**（终态钩子）的 git 调用不走事件流，属已知残余（仅告警可见）。
 - abort 语义：宿主中止 turn 后重启，`resumeFromSnapshot` 为每个在途 active 帧补记 `plan/frame-interrupted`，回收为 pending 且不增 `retryCount`；有隔离工作区的帧在这一路径上**不回收**（保留现场，重入按注册表复用），跨进程残留属已知残余。
 - `ctx.tools` 缺失时告警并跳过工具注册；`ctx.approval` 缺失或 `request` 抛错时静默 fail-closed（human 级一律视为未批准），保证 bundle 加载不崩。
 
@@ -151,7 +153,7 @@ docs/           # DESIGN.md（架构与设计取舍）、BACKLOG.md（模块待�
 ```sh
 npm run check   # 类型检查（tsc --noEmit）
 npm run build   # 编译到 dist/
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（109 例：engine / events / gate /
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（112 例：engine / events / gate /
                 # query / tools / semantic / usage / exec-guard / exec-isolate（隔离 14 例：建 / 回收 / 脏树取舍 /
                 # id 安全化 / id 规则 / 崩后残留 / 卸载兜底 / guard 命中 / 幂等 / 非 git 仓库 / 声明面）等）
 npm run demo    # npm run build && node dist/demo/main.js；脚本化模型跑步骤 0-7 + 演示 8-13，

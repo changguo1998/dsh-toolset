@@ -8,10 +8,14 @@
  * 与 task-engine 同模式：零 DSH 运行时依赖、结构面访问 ctx；ctx.tools 缺失时降级告警而非抛错，
  * 保证 dsh 加载不崩。
  *
- * 状态文件命令复查（可选）：`tick` 执行的 `measureCmd` 取自状态文件、不在工具入参里，
- * security-guard 的 `tools/pre-execute` 看不到 —— 故本轮在**测量命令执行前**经
+ * 命令执行前复查（可选，D1/D2 口径）：`tick` 执行的 `measureCmd` 取自状态文件、不在工具入参里，
+ * security-guard 的 `tools/pre-execute` 看不到 —— 故在**测量命令执行前**经
  * `ctx.get('guard').inspectCommand` 复查（与 shell 工具同口径）；命中即拒绝本轮（状态不变）。
- * guard 未挂载或形状不符时不复查（fail-open，只告警一次）：本包不硬依赖 security-guard。
+ * 复查找谁做按**命令来源**分工（`guardScope`）：工具入参侧的命令已由 pre-execute 覆盖 →
+ * 工具层显式传 `tool-args`，引擎内不再重复判定（避免 `recent()` 双记录）；直连
+ * `controller.start()` 缺省仍按 `engine-side` 复查（不给 D2 留出复查空洞）。
+ * 复查不可用（服务缺失 / 抛错）→ fail-open 放行 + 每种失效模式**只告警一次** + 结果标
+ * `guardSkipped`（可见，不静默）：本包不硬依赖 security-guard。
  *
  * 循环载体与宿主面复用（「复用底座，不新建」）：
  * - 周期唤醒 = 宿主 schedule（model-facing schedule_create after 提醒链式续排）；
@@ -42,6 +46,7 @@ import {
 import { runMeasureCommand } from "./measure.ts";
 import { loadState, saveState } from "./persist.ts";
 import type {
+  GuardScope,
   LoopState,
   LoopSpec,
   LoopSummary,
@@ -115,13 +120,26 @@ interface ToolArgs {
 }
 
 /**
- * 命令复查器（security-guard 服务面）：返回 null = 放行；字符串 = 拦截回执（多行）。
- * 真实实现由 security-guard 插件经 `ctx.get('guard')` 提供；缺省（未配置）即不复查。
+ * 一次复查的结论（D1 口径，与 task-engine 同形）：
+ * - `receipt` 非空 = 拦截回执（多行）；null = 放行；
+ * - `skipped` = 本次复查**被跳过**（服务不可用 / 形状不符 / 抛错 → fail-open 放行）——必须可见，
+ *   调用方据此在结果里标 `guardSkipped`，不静默。
+ */
+export interface CommandCheckResult {
+  /** 非空 = 拦截回执（多行）；null = 放行。 */
+  receipt: string | null;
+  /** true = 本次复查被跳过（fail-open 放行；命令未复查即执行）。 */
+  skipped: boolean;
+}
+
+/**
+ * 命令复查器（security-guard 服务面）。真实实现由 security-guard 插件经 `ctx.get('guard')`
+ * 提供；缺省（未注入）即不复查（未接线，不标 `guardSkipped`）。
  */
 export type CommandChecker = (
   command: string,
   source?: string,
-) => string | null;
+) => CommandCheckResult;
 
 /** security-guard 服务面（结构子集；不 import 对方代码、不进 inject，避免跨包硬依赖）。 */
 interface GuardServiceLike {
@@ -140,34 +158,46 @@ function readService<T>(ctx: unknown, name: string): T | undefined {
 }
 
 /**
- * 构造「状态文件命令」复查器：按名惰性解析 security-guard 的复查 API。
- * 服务缺失 / 形状不符 → 放行（fail-open，只告警一次）；复查自身抛错也按放行处理（不拖垮 tick）。
- * 返回非字符串/空串一律按放行，只有明确的非空回执才算拦截。
+ * 构造命令复查器：按名惰性解析 security-guard 的复查 API。
+ * 服务缺失 / 形状不符 / 复查自身抛错 → 放行（fail-open，每种失效模式**只告警一次**，不刷屏），
+ * 但返回 `skipped: true` 让调用方留痕（D1：复查不可用要可见）。
+ * 返回非字符串/空串一律按放行（复查确实跑过 → `skipped: false`），只有明确的非空回执才算拦截。
  */
 function makeCommandGuard(
   ctx: unknown,
   warn: (msg: string) => void,
 ): CommandChecker {
-  let warned = false;
+  let warnedMissing = false;
+  let warnedThrow = false;
   return (command, source) => {
     const svc = readService<GuardServiceLike>(ctx, "guard");
     const inspect = svc?.inspectCommand;
     if (typeof inspect !== "function") {
-      if (!warned) {
-        warned = true;
+      if (!warnedMissing) {
+        warnedMissing = true;
         warn(
           "security-guard 服务不可用（ctx.get('guard') 无 inspectCommand）：" +
-            "状态文件里的命令不做执行前复查（已知残余边界）",
+            "状态文件里的命令不做执行前复查（fail-open；结果标 guardSkipped，已知残余边界）",
         );
       }
-      return null;
+      return { receipt: null, skipped: true };
     }
     try {
       const receipt = inspect.call(svc, command, source);
-      return typeof receipt === "string" && receipt.length > 0 ? receipt : null;
+      return {
+        receipt:
+          typeof receipt === "string" && receipt.length > 0 ? receipt : null,
+        skipped: false,
+      };
     } catch (err) {
-      warn(`security-guard 复查异常（按放行处理）：${String(err)}`);
-      return null;
+      if (!warnedThrow) {
+        warnedThrow = true;
+        warn(
+          `security-guard 复查异常（按放行处理，同类异常不再重复告警；` +
+            `结果标 guardSkipped）：${String(err)}`,
+        );
+      }
+      return { receipt: null, skipped: true };
     }
   };
 }
@@ -175,7 +205,7 @@ function makeCommandGuard(
 /**
  * 循环控制器：持有状态目录，编排 start/tick/status/stop，并提供 list 只读清单。
  * clock / measure / commandGuard 均可注入（测试缝）：前两者为时钟与测量，后者为
- * security-guard 的命令复查（见 runRound 的执行前检查点）。
+ * security-guard 的命令复查（见 runRound 的执行前检查点——只对 `engine-side` 的命令生效）。
  */
 export class MetricLoopController {
   private readonly stateDir: string;
@@ -208,12 +238,26 @@ export class MetricLoopController {
     this.commandGuard = opts.commandGuard;
   }
 
-  /** 新建循环（重置同名旧状态）并跑第一轮。 */
-  async start(spec: LoopSpec): Promise<TickResult> {
+  /**
+   * 新建循环（重置同名旧状态）并跑第一轮。
+   * `guardScope` 缺省 `engine-side`（**直连调用照旧做引擎内复查**，不给 D2 留出复查空洞）；
+   * 工具层已知命令来自工具入参、已过 `tools/pre-execute` → 显式传 `tool-args` 跳过重复判定。
+   */
+  async start(
+    spec: LoopSpec,
+    opts?: { guardScope?: GuardScope },
+  ): Promise<TickResult> {
     const now = this.now();
     const state = createInitialState(spec, now);
     saveState(this.stateDir, state);
-    return this.runRound(state, now, "explicit", 0, "metric_loop{start}");
+    return this.runRound(
+      state,
+      now,
+      "explicit",
+      0,
+      "metric_loop{start}",
+      opts?.guardScope === "tool-args" ? "tool-args" : "engine-side",
+    );
   }
 
   /** 推进一轮；循环不存在时抛错（工具层转结构化错误）。 */
@@ -222,12 +266,14 @@ export class MetricLoopController {
     if (state === null) {
       throw new Error(`循环 "${id}" 不存在（先调用 metric_loop start）`);
     }
+    // 命令取自**状态文件**（不在任何工具入参里 → pre-execute 看不到）→ 引擎内复查
     return this.runRound(
       state,
       this.now(),
       wake,
       tokensUsed,
       `metric_loop{tick} id=${id}`,
+      "engine-side",
     );
   }
 
@@ -280,9 +326,10 @@ export class MetricLoopController {
   }
 
   /**
-   * 单轮编排：cadence 节流（auto）→ 命令复查 → 测量 → advance → 落盘 → 组装结果。
+   * 单轮编排：cadence 节流（auto）→ 命令复查（仅 `engine-side` 的命令）→ 测量 → advance → 落盘。
    * deferred 不落盘（无状态变化）；已停止的 tick 原样返回；
-   * 复查命中即抛错——本轮不测量、不落盘（状态文件保持原样），由工具层转结构化错误。
+   * 复查命中即抛错——本轮不测量、不落盘（状态文件保持原样），由工具层转结构化错误；
+   * 复查**被跳过**（guard 不可用 / 抛错）→ fail-open 照常执行，但结果标 `guardSkipped`（不静默）。
    */
   private async runRound(
     state: ReturnType<typeof loadState> & object,
@@ -290,28 +337,46 @@ export class MetricLoopController {
     wake: WakeKind,
     tokensUsed: number,
     source: string,
+    guardScope: GuardScope,
   ): Promise<TickResult> {
     const s = state as NonNullable<ReturnType<typeof loadState>>;
     if (s.status === "stopped") {
-      return this.buildResult({ deferred: false, round: null, state: s, now });
+      return this.buildResult({
+        deferred: false,
+        round: null,
+        state: s,
+        now,
+        guardScope,
+      });
     }
     if (shouldDefer(s, now, wake)) {
-      return this.buildResult({ deferred: true, round: null, state: s, now });
+      return this.buildResult({
+        deferred: true,
+        round: null,
+        state: s,
+        now,
+        guardScope,
+      });
     }
 
     // 测量（仅带测量命令的循环）
     let value: number | null = null;
     let measureFailed = false;
+    let guardSkipped = false;
     if (hasMeasure(s.spec)) {
       const cmd = String(s.spec.measureCmd);
-      // 执行前复查：状态文件里的命令不在任何工具入参里（guard 的 pre-execute 看不到它），
-      // 故在此补一道与 shell 工具同口径的检查（可选服务；未挂 guard 时不复查）
-      const denial = this.commandGuard?.(cmd, source) ?? null;
-      if (denial !== null) {
-        throw new Error(
-          `[metric-loop] 本轮未执行：状态文件中的测量命令被 security-guard 拦截` +
-            `（循环 "${s.id}" 状态未变更；修正命令或按回执放行后重试 tick）：\n${denial}`,
-        );
+      // 执行前复查只对**引擎侧带入**的命令生效：状态文件里的命令不在任何工具入参里
+      // （guard 的 pre-execute 看不到它），故在此补一道与 shell 工具同口径的检查；
+      // 工具入参侧的命令已由 pre-execute 复查 → `tool-args` 时不再重复判定（D2）
+      if (guardScope === "engine-side") {
+        const check = this.commandGuard?.(cmd, source) ?? null;
+        if (check !== null && check.receipt !== null) {
+          throw new Error(
+            `[metric-loop] 本轮未执行：状态文件中的测量命令被 security-guard 拦截` +
+              `（循环 "${s.id}" 状态未变更；修正命令或按回执放行后重试 tick）：\n${check.receipt}`,
+          );
+        }
+        guardSkipped = check?.skipped === true;
       }
       const outcome = await this.measure(cmd);
       value = outcome.value;
@@ -325,24 +390,36 @@ export class MetricLoopController {
       round: out.round,
       state: out.state,
       now,
+      guardSkipped,
+      guardScope,
     });
   }
 
-  /** 组装 TickResult（含 schedule 提示与摘要）。 */
+  /** 组装 TickResult（含 schedule 提示、复查范围与摘要；`guardSkipped` 同时写进摘要文案）。 */
   private buildResult(result: {
     deferred: boolean;
     round: TickResult["round"];
     state: NonNullable<ReturnType<typeof loadState>>;
     now: number;
+    /** true = 本轮复查被跳过（fail-open 放行）→ 结果与摘要都标注 */
+    guardSkipped?: boolean;
+    guardScope: GuardScope;
   }): TickResult {
     const nextWakeSec = Math.ceil(nextWakeMs(result.state, result.now) / 1000);
+    const base = summarize(result);
     return {
       deferred: result.deferred,
       round: result.round,
       state: result.state,
       nextWakeSec,
       schedule: scheduleHint(result.state, result.now),
-      summary: summarize(result),
+      // 复查被跳过 → 摘要显式标注（模型 / 审计都看得见，不静默放行）
+      summary:
+        result.guardSkipped === true
+          ? `${base}（security-guard 复查不可用，本轮命令未复查即执行：guardSkipped）`
+          : base,
+      ...(result.guardSkipped === true ? { guardSkipped: true as const } : {}),
+      guardScope: result.guardScope,
     };
   }
 }
@@ -401,7 +478,11 @@ function makeExecute(controller: MetricLoopController) {
     try {
       const action = args.action;
       if (action === "start") {
-        const result = await controller.start(specFromArgs(args));
+        // 工具入参侧已由 security-guard 的 tools/pre-execute 复查（measureCmd 就在入参里）→
+        // 显式声明复查范围 `tool-args`，引擎内不再重复判定（D2：避免 recent() 双记录）
+        const result = await controller.start(specFromArgs(args), {
+          guardScope: "tool-args",
+        });
         return { ok: true, ...JSON.parse(JSON.stringify(result)) };
       }
       const id =

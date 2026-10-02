@@ -7,7 +7,7 @@
 //
 // 危险词一律分片拼接：仓库内不出现真实危险命令 / 提权词字面量。
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -61,6 +61,8 @@ interface ToolLike {
 async function bench(opts: {
   rootAcceptanceCommand: string;
   guardFace?: (command: string, source?: string) => string | null;
+  /** 事件流快照落点（给了才能读 `plan/frame-executed` 等事件） */
+  snapshotPath?: string;
 }): Promise<{
   call(
     name: string,
@@ -96,6 +98,9 @@ async function bench(opts: {
           },
         ],
       },
+      ...(opts.snapshotPath === undefined
+        ? {}
+        : { snapshotPath: opts.snapshotPath }),
     },
   );
   return {
@@ -142,6 +147,32 @@ async function captureStderr(fn: () => Promise<void>): Promise<string> {
     stream.write = original;
   }
   return chunks.join("");
+}
+
+/**
+ * 事件流快照里等一条事件出现（周期快照是 fire-and-forget 串行写的 → 轮询到出现为止）。
+ * 引擎的事件流只经快照可读（工具面不暴露 log）。
+ */
+async function waitForEvent(
+  snapshotPath: string,
+  type: string,
+): Promise<Record<string, unknown>> {
+  for (let i = 0; i < 100; i += 1) {
+    if (existsSync(snapshotPath)) {
+      try {
+        const log = JSON.parse(readFileSync(snapshotPath, "utf8")) as Record<
+          string,
+          unknown
+        >[];
+        const hit = log.find((e) => e["type"] === type);
+        if (hit !== undefined) return hit;
+      } catch {
+        // 写盘进行中（读到半截 JSON）→ 重试
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`快照里没等到事件 ${type}（${snapshotPath}）`);
 }
 
 describe("执行期复查：executor command 后端（D1①）", () => {
@@ -310,13 +341,19 @@ describe("执行期复查：mechanical 验收路径（D1②）", () => {
 });
 
 describe("执行期复查：fail-open 粒度（D2）", () => {
-  it("guard 未挂载 → 放行 + 只告警一次（多次调用不刷屏）", () => {
+  it("guard 未挂载 → 放行 + 只告警一次 + 每次标 skipped（留痕，不静默）", () => {
     const warns: string[] = [];
     const check = makeCommandGuard({ get: () => undefined }, (m) =>
       warns.push(m),
     );
-    assert.equal(check("echo 1", "task-engine{executor} c1"), null);
-    assert.equal(check("echo 2", "task-engine{acceptance} root"), null);
+    for (const source of [
+      "task-engine{executor} c1",
+      "task-engine{acceptance} root",
+    ]) {
+      const r = check("echo 1", source);
+      assert.equal(r.receipt, null);
+      assert.equal(r.skipped, true, "服务不可用 → 必须留痕（可见）");
+    }
     assert.equal(warns.length, 1, `应只告警一次：${JSON.stringify(warns)}`);
     assert.match(warns[0] ?? "", /security-guard 服务不可用/);
   });
@@ -336,7 +373,9 @@ describe("执行期复查：fail-open 粒度（D2）", () => {
       (m) => warns.push(m),
     );
     for (let i = 0; i < 3; i += 1) {
-      assert.equal(check("echo 1", "task-engine{executor} c1"), null);
+      const r = check("echo 1", "task-engine{executor} c1");
+      assert.equal(r.receipt, null);
+      assert.equal(r.skipped, true, "抛错 → 每次都标 skipped（可见）");
     }
     assert.equal(calls, 3, "每次都要真复查（只是告警不重复）");
     assert.equal(warns.length, 1);
@@ -353,7 +392,8 @@ describe("执行期复查：fail-open 粒度（D2）", () => {
       },
       (m) => warns.push(m),
     );
-    assert.equal(strict("echo 1", "s"), null);
+    assert.equal(strict("echo 1", "s").receipt, null);
+    assert.equal(strict("echo 1", "s").skipped, true, "get 抛错 → 复查没跑成");
     assert.equal(warns.length, 1, "get 抛错也只告警一次");
 
     const noWarn = (): void => {
@@ -363,7 +403,13 @@ describe("执行期复查：fail-open 粒度（D2）", () => {
       { get: () => ({ inspectCommand: () => "" }) },
       noWarn,
     );
-    assert.equal(empty("echo 1", "s"), null);
+    const emptyOut = empty("echo 1", "s");
+    assert.equal(emptyOut.receipt, null);
+    assert.equal(
+      emptyOut.skipped,
+      false,
+      "复查跑过（空回执 = 放行）→ 不标 skipped",
+    );
     const wrongType = makeCommandGuard(
       {
         get: () => ({
@@ -372,7 +418,9 @@ describe("执行期复查：fail-open 粒度（D2）", () => {
       },
       noWarn,
     );
-    assert.equal(wrongType("echo 1", "s"), null);
+    const wrongOut = wrongType("echo 1", "s");
+    assert.equal(wrongOut.receipt, null);
+    assert.equal(wrongOut.skipped, false, "形状不符的回执按放行，但复查跑过");
   });
 
   it("命中 → 回执原文透传，且 inspectCommand 拿到 (command, source)", () => {
@@ -383,8 +431,12 @@ describe("执行期复查：fail-open 粒度（D2）", () => {
         throw new Error("命中 / 放行都不该告警");
       },
     );
-    assert.equal(check("echo ok", "s1"), null);
-    assert.equal(check(riskyCommand("/tmp/never"), "s2"), receiptFor("s2"));
+    const allowed = check("echo ok", "s1");
+    assert.equal(allowed.receipt, null);
+    assert.equal(allowed.skipped, false, "复查跑过 → 不标 skipped");
+    const denied = check(riskyCommand("/tmp/never"), "s2");
+    assert.equal(denied.receipt, receiptFor("s2"));
+    assert.equal(denied.skipped, false);
     assert.deepEqual(calls, [
       { command: "echo ok", source: "s1" },
       { command: riskyCommand("/tmp/never"), source: "s2" },
@@ -470,6 +522,121 @@ describe("执行期复查：fail-open 粒度（D2）", () => {
         `只告警一次：${JSON.stringify(warnings)}`,
       );
       assert.match(warnings[0] ?? "", /按放行处理/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("集成：guard 复查抛错 → 命令照常执行 + plan/frame-executed 标 guardSkipped（D1 留痕）", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "task-engine-guard-skip-"));
+    try {
+      const probe = join(dir, "skipped.probe");
+      const snapshotPath = join(dir, "snapshot.json");
+      const b = await bench({
+        rootAcceptanceCommand: "true",
+        snapshotPath,
+        guardFace: () => {
+          throw new Error("guard 崩了");
+        },
+      });
+      await b.call("task_decompose", {
+        parent_id: "root",
+        children: [leaf("c1", { kind: "command", command: `touch ${probe}` })],
+      });
+
+      const r = await b.call("task_execute", { task_id: "c1" });
+      assert.equal(r.ok, true, JSON.stringify(r));
+      assert.equal(
+        existsSync(probe),
+        true,
+        "复查不可用时命令照常执行（fail-open 不变）",
+      );
+
+      // 事件流留痕：复查被跳过这件事写进 plan/frame-executed（不可见 → 可见）
+      const ev = await waitForEvent(snapshotPath, "plan/frame-executed");
+      assert.equal(ev["frame"], "c1");
+      assert.equal(
+        ev["guardSkipped"],
+        true,
+        `事件须标 guardSkipped：${JSON.stringify(ev)}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("集成：guard 未挂载 → 命令照常执行 + 事件同样标 guardSkipped（服务缺失也留痕）", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "task-engine-guard-nog-skip-"));
+    try {
+      const probe = join(dir, "nog-skip.probe");
+      const snapshotPath = join(dir, "snapshot.json");
+      // 无 guardFace = ctx.get("guard") 取不到服务（缺挂载）
+      const b = await bench({ rootAcceptanceCommand: "true", snapshotPath });
+      await b.call("task_decompose", {
+        parent_id: "root",
+        children: [leaf("c1", { kind: "command", command: `touch ${probe}` })],
+      });
+
+      const r = await b.call("task_execute", { task_id: "c1" });
+      assert.equal(r.ok, true, JSON.stringify(r));
+      assert.equal(
+        existsSync(probe),
+        true,
+        "无 guard 时命令照常执行（fail-open）",
+      );
+
+      const ev = await waitForEvent(snapshotPath, "plan/frame-executed");
+      assert.equal(
+        ev["guardSkipped"],
+        true,
+        `服务缺失也要留痕：${JSON.stringify(ev)}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("集成：验收缝复查抛错 → 命令照常执行 + task_stop 反馈与 acceptance-verdict 事件留痕", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "task-engine-guard-skip-acc-"));
+    try {
+      const probe = join(dir, "acc-skip.probe");
+      const snapshotPath = join(dir, "snapshot.json");
+      const b = await bench({
+        rootAcceptanceCommand: `touch ${probe}`,
+        snapshotPath,
+        guardFace: () => {
+          throw new Error("guard 崩了");
+        },
+      });
+      await b.call("task_decompose", {
+        parent_id: "root",
+        children: [leaf("c1")],
+      });
+      await b.call("task_implement", { task_id: "c1", result: "产出" });
+
+      // 子帧 stop → join 续体判父帧 mechanical 验收（执行前复查被跳过 → fail-open 执行）
+      const stopChild = await b.call("task_stop", { task_id: "c1" });
+      assert.equal(stopChild.ok, true, JSON.stringify(stopChild));
+      assert.equal(
+        existsSync(probe),
+        true,
+        "复查不可用时验收命令照常执行（fail-open 不变）",
+      );
+      assert.match(
+        String(stopChild.feedback ?? ""),
+        /复查留痕/,
+        "task_stop 反馈须留痕（同事件流口径）",
+      );
+      assert.match(String(stopChild.feedback ?? ""), /guardSkipped/);
+
+      // 事件流：机械级验收裁决标 guardSkipped（结论本身照旧）
+      const ev = await waitForEvent(snapshotPath, "plan/acceptance-verdict");
+      assert.equal(ev["pass"], true, JSON.stringify(ev));
+      assert.equal(
+        ev["guardSkipped"],
+        true,
+        `acceptance-verdict 须标 guardSkipped：${JSON.stringify(ev)}`,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

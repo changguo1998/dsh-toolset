@@ -18,6 +18,7 @@ import {
   saveState,
   statePathFor,
   STATE_VERSION,
+  type CommandCheckResult,
   type MetricLoopService,
 } from "../src/index.ts";
 
@@ -488,7 +489,7 @@ function riskyCommand(): string {
 
 /** 假复查器（与 guard 服务面同契约）：命中危险文本 → 回执；记录每次调用的命令与来源。 */
 function makeFakeGuard(): {
-  checker: (command: string, source?: string) => string | null;
+  checker: (command: string, source?: string) => CommandCheckResult;
   calls: { command: string; source?: string }[];
 } {
   const calls: { command: string; source?: string }[] = [];
@@ -497,9 +498,12 @@ function makeFakeGuard(): {
     calls,
     checker: (command, source) => {
       calls.push({ command, source });
-      return command.includes(marker)
-        ? "[security-guard] 已拦截：命令命中黑名单规则「sudo」。"
-        : null;
+      return {
+        receipt: command.includes(marker)
+          ? "[security-guard] 已拦截：命令命中黑名单规则「sudo」。"
+          : null,
+        skipped: false,
+      };
     },
   };
 }
@@ -517,7 +521,7 @@ test("tick 前复查：状态文件里的危险命令被执行前拦下（不测
         return { value: 1, error: null };
       },
     });
-    // ① start：命令来自入参（guard 的 pre-execute 已覆盖），引擎内复查为第二道 → 放行
+    // ① start：**直连控制器**缺省仍按 engine-side 复查（不留空洞）→ 放行
     await controller.start({ id: "g1", measureCmd: "echo 1" });
     assert.equal(measureCalls, 1);
 
@@ -663,7 +667,7 @@ test("apply 接线：ctx.get('guard').inspectCommand 在 tick 生效（拦危险
       args: Record<string, unknown>,
     ) => Promise<Record<string, unknown>>;
 
-    // ① start：入参命令经引擎内复查放行，真实 /bin/sh -c 执行 echo 3
+    // ① start：measureCmd 来自**工具入参**（已由 pre-execute 覆盖）→ 引擎内不再重复判定（D2）
     const started = await execute({
       action: "start",
       id: "ap",
@@ -671,6 +675,12 @@ test("apply 接线：ctx.get('guard').inspectCommand 在 tick 生效（拦危险
     });
     assert.equal(started.ok, true);
     assert.equal((started.round as { value?: number } | null)?.value, 3);
+    assert.equal(started.guardScope, "tool-args");
+    assert.equal(
+      calls.filter((c) => c.source === "metric_loop{start}").length,
+      0,
+      `start 不得进引擎内复查（否则 recent() 双记录）：${JSON.stringify(calls)}`,
+    );
 
     // ② 手改状态文件为危险命令 → tick 被拦，回执透出在结构化错误里
     const loaded = loadState(dir, "ap");
@@ -690,9 +700,13 @@ test("apply 接线：ctx.get('guard').inspectCommand 在 tick 生效（拦危险
     assert.match(String(blocked.error), /「sudo」/);
     assert.equal(calls.at(-1)?.command, riskyCommand());
     assert.equal(calls.at(-1)?.source, "metric_loop{tick} id=ap");
-    // start 那次也走同一复查缝（来源标注区分 start / tick）
-    assert.equal(calls[0]?.source, "metric_loop{start}");
-    assert.equal(calls[0]?.command, "echo 3");
+    // 成对断言（D5）：tick 仍走引擎内复查 —— 只断言「start 没跑」的话，把缝整条删掉也能过
+    assert.equal(
+      calls.length,
+      1,
+      `只有 tick 进引擎内复查：${JSON.stringify(calls)}`,
+    );
+    assert.equal(calls[0]?.source, "metric_loop{tick} id=ap");
 
     // ③ 改回普通命令 → tick 恢复（真实执行，轮次推进）
     const fixed = loadState(dir, "ap");
@@ -702,6 +716,144 @@ test("apply 接线：ctx.get('guard').inspectCommand 在 tick 生效（拦危险
     const ok = await execute({ action: "tick", id: "ap", wake: "explicit" });
     assert.equal(ok.ok, true);
     assert.equal((ok.round as { value?: number } | null)?.value, 4);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 复查不可用（服务缺失 / 复查抛错）：fail-open 口径不变，但必须**可见**（D1）——
+// 告警收敛为**一次**（原先每次抛错都告警）+ 结果标 `guardSkipped` + 摘要写明。
+// ---------------------------------------------------------------------------
+
+/** 捕获区间内写往 stderr 的文本（apply 注册提示与 guard 告警都走 stderr）。 */
+async function captureStderr(fn: () => Promise<void>): Promise<string> {
+  const chunks: string[] = [];
+  const stream = process.stderr as unknown as {
+    write: (chunk: string) => boolean;
+  };
+  const original = stream.write;
+  stream.write = (chunk: string): boolean => {
+    chunks.push(String(chunk));
+    return true;
+  };
+  try {
+    await fn();
+  } finally {
+    stream.write = original;
+  }
+  return chunks.join("");
+}
+
+/** 经 apply 建工具台（`guard` 服务面由 getGuard 提供；返回 undefined = 未挂载）。 */
+async function makeToolBench(
+  dir: string,
+  getGuard: () => unknown,
+): Promise<{
+  execute: (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
+}> {
+  const registered: Array<Record<string, unknown>> = [];
+  await apply(
+    {
+      tools: {
+        register: (def: unknown) =>
+          void registered.push(def as Record<string, unknown>),
+      },
+      provide: () => {},
+      get: (name: string): unknown =>
+        name === "guard" ? getGuard() : undefined,
+    },
+    { stateDir: dir },
+  );
+  const def = registered[0];
+  assert.ok(def !== undefined);
+  return {
+    execute: def["execute"] as (
+      args: Record<string, unknown>,
+    ) => Promise<Record<string, unknown>>,
+  };
+}
+
+test("tick 复查抛错：fail-open 照常测量 + 告警一次 + 结果标 guardSkipped（可见）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "metric-loop-guard-throw-"));
+  const inspected: string[] = [];
+  try {
+    const bench = await makeToolBench(dir, () => ({
+      inspectCommand: (_command: string, source?: string): string | null => {
+        inspected.push(source ?? "");
+        throw new Error("guard 崩了");
+      },
+    }));
+    // start 走入参侧声明（tool-args）→ 不经引擎缝、不告警、不标 skipped
+    const started = await bench.execute({
+      action: "start",
+      id: "gt",
+      measureCmd: "echo 5",
+    });
+    assert.equal(started.ok, true, JSON.stringify(started));
+    assert.equal(started.guardScope, "tool-args");
+    assert.equal(started.guardSkipped, undefined);
+
+    const results: Array<Record<string, unknown>> = [];
+    const text = await captureStderr(async () => {
+      for (let i = 0; i < 3; i += 1) {
+        results.push(
+          await bench.execute({ action: "tick", id: "gt", wake: "explicit" }),
+        );
+      }
+    });
+
+    // fail-open 不变：三轮都真测量（真实 /bin/sh 执行 echo 5）
+    assert.deepEqual(
+      results.map((r) => (r["round"] as { value?: number } | null)?.value),
+      [5, 5, 5],
+    );
+    assert.equal(inspected.length, 3, "每次 tick 都要真复查（只是告警不重复）");
+    // 留痕（D1）：每轮结果标 guardSkipped + 摘要写明
+    for (const r of results) {
+      assert.equal(r["guardSkipped"], true, JSON.stringify(r));
+      assert.equal(r["guardScope"], "engine-side");
+      assert.match(String(r["summary"]), /guardSkipped/);
+    }
+    const warnings = text
+      .split("\n")
+      .filter((line) => line.includes("security-guard 复查异常"));
+    assert.equal(
+      warnings.length,
+      1,
+      `抛错只告警一次（原先每轮一条）：${JSON.stringify(warnings)}`,
+    );
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("tick 复查不可用（未挂 guard 服务）：fail-open + 告警一次 + 结果标 guardSkipped", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "metric-loop-guard-nosvc-"));
+  try {
+    const bench = await makeToolBench(dir, () => undefined);
+    await bench.execute({ action: "start", id: "ns", measureCmd: "echo 7" });
+    const results: Array<Record<string, unknown>> = [];
+    const text = await captureStderr(async () => {
+      for (let i = 0; i < 2; i += 1) {
+        results.push(
+          await bench.execute({ action: "tick", id: "ns", wake: "explicit" }),
+        );
+      }
+    });
+    assert.equal(
+      (results[0]?.["round"] as { value?: number } | null)?.value,
+      7,
+      "复查不可用时照常测量（fail-open）",
+    );
+    for (const r of results) {
+      assert.equal(r["guardSkipped"], true, JSON.stringify(r));
+      assert.match(String(r["summary"]), /复查不可用/);
+    }
+    const warnings = text
+      .split("\n")
+      .filter((line) => line.includes("security-guard 服务不可用"));
+    assert.equal(warnings.length, 1, `只告警一次：${JSON.stringify(warnings)}`);
   } finally {
     cleanup(dir);
   }

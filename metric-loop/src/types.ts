@@ -137,6 +137,13 @@ export interface AdvanceOutput {
   stopReason: StopReason | null;
 }
 
+/**
+ * 引擎内复查范围（命令来源决定「谁复查」，D2）：
+ * - `tool-args`：命令来自**工具入参**（已由 security-guard 的 `tools/pre-execute` 覆盖）→ 引擎内不重复判定；
+ * - `engine-side`：命令由**引擎侧**带入执行（状态文件里的 `measureCmd` / 直连控制器调用）→ 引擎内复查。
+ */
+export type GuardScope = "tool-args" | "engine-side";
+
 /** start/tick 的统一返回。 */
 export interface TickResult {
   /** true = cadence 未满足，本轮跳过（auto 唤醒被节流）。 */
@@ -154,4 +161,11 @@ export interface TickResult {
   } | null;
   /** 供 agent 阅读的一句话摘要。 */
   summary: string;
+  /**
+   * true = 本轮的**执行前复查被跳过**（security-guard 服务不可用 / 复查抛错 → fail-open 放行）：
+   * 命令照常执行，但「没复查过」必须可见（同一事实也会写进 `summary` 文案）。仅 tick 路径可能出现。
+   */
+  guardSkipped?: true;
+  /** 本轮的引擎内复查范围（D2；`tool-args` = 入参侧已由 pre-execute 覆盖，引擎未重复判定）。 */
+  guardScope?: GuardScope;
 }

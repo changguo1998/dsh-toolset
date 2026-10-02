@@ -1158,15 +1158,23 @@ test("命令复查：allowPatterns / 关层 / 敏感路径 / 非字符串防御�
     ),
     null,
   );
-  // 敏感文件层同口径（命令内路径；命令面按读写措辞，工具名 = 来源标注）
+  // 敏感文件层同口径（命令内路径；命令面按读写措辞，标签行 = 来源标注）
   const fx = makeSensitiveFixture();
   try {
-    const hit = new GuardEngine({ homeDir: HOME }).inspectCommand(
+    const sensitiveGuard = new GuardEngine({ homeDir: HOME });
+    const hit = sensitiveGuard.inspectCommand(
       `cat ${fx.envPath}`,
       "metric_loop{tick} id=p1",
     );
     assert.match(hit ?? "", /读写敏感文件/);
-    assert.match(hit ?? "", /工具：metric_loop\{tick\} id=p1/);
+    // D3 措辞：来源形态渲染「来源：<source>」行，不再借「工具：」字段（字段名会误导成工具名）
+    assert.match(hit ?? "", /来源：metric_loop\{tick\} id=p1/);
+    assert.doesNotMatch(hit ?? "", /工具：/);
+    // 反向断言（D3）：同一命令走**真工具名**时仍是「工具：」——来源形态不得污染工具形态
+    assert.match(
+      sensitiveGuard.inspect("bash", { command: `cat ${fx.envPath}` }) ?? "",
+      /工具：bash/,
+    );
   } finally {
     fx.cleanup();
   }
