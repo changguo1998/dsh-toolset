@@ -2,13 +2,15 @@
  * ast-tools 插件入口（DSH bundle 集成面）。
  *
  * 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
- * name / apply（无 inject / provide），Config 以类型别名给出（无运行时 schema，宿主不校验，
+ * name / inject / apply，Config 以类型别名给出（无运行时 schema，宿主不校验，
  * 配置原样透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。
  * cordis 加载器识别 named apply 导出；与 knowledge-base/TUI 同款挂载形态。
  *
  * 四个操作 search/replace/outline/rules 均委托系统 ast-grep CLI 子进程
  * （选型依据见 README「二进制选型」）；二进制缺失时 apply 走降级：
- * 记录含安装路径的日志而不抛出，宿主不受影响。
+ * 记录含安装路径的日志，并注册**降级版工具**——每次调用返回含 `INSTALL_GUIDANCE` 的错误值，
+ * 不假装成功（fail-closed），但模型侧仍可发现该能力并读到安装指引（口径对齐 code-map）。
+ * 模型侧工具面：`ast_query`（search/outline/rules）+ `ast_replace`（默认 dry-run），见 src/tools.ts。
  */
 
 import {
@@ -31,6 +33,7 @@ import { searchAst } from "./search.ts";
 import { replaceAst } from "./replace.ts";
 import { outlineFile } from "./outline.ts";
 import { runRules } from "./rules.ts";
+import { toToolDefs, unavailableOps } from "./tools.ts";
 
 export {
   AstGrepError,
@@ -45,6 +48,18 @@ export {
   runCliJson,
 } from "./binary.ts";
 export type { CliResult } from "./binary.ts";
+export {
+  RENDER_LIMIT,
+  astQueryTool,
+  astReplaceTool,
+  renderMatches,
+  renderOutlineFiles,
+  renderReplace,
+  renderRuleHits,
+  toToolDefs,
+  unavailableOps,
+} from "./tools.ts";
+export type { AstOperations } from "./tools.ts";
 export { normalizeLanguage } from "./langs.ts";
 export { searchAst } from "./search.ts";
 export { replaceAst } from "./replace.ts";
@@ -74,9 +89,13 @@ export type {
 /** 插件名（bundle 标识，cordis.patch.yml insert 条目同名）。 */
 export const name = "ast-tools";
 
-/** 结构化宿主 ctx（最小 DSH cordis 形态）：可选 logger。 */
+/** 注入面：tools（注册 ast_query / ast_replace；二进制缺失时注册降级版，调用返回安装指引）。 */
+export const inject = ["tools"];
+
+/** 结构化宿主 ctx（最小 DSH cordis 形态）：可选 logger 与工具注册面。 */
 export interface BundleHost {
   logger?(ns: string): { info(message: string): void };
+  tools?: { register(def: unknown): unknown };
 }
 
 /** 插件配置（Config 契约名）。 */
@@ -136,17 +155,23 @@ export function createAstToolsBundle(
 
 /**
  * DSH 宿主挂载入口（bundle 约定调用）。
- * 降级行为：二进制缺失时记录含安装路径的日志并禁用插件，不抛出。
+ * 降级行为：二进制缺失时记录含安装路径的日志，并注册降级版工具（调用返回含安装指引的错误），
+ * 不抛出、不使宿主崩溃。
  */
 export function apply(ctx: BundleHost, config: AstToolsConfig = {}): void {
+  let bundle: AstToolsBundle;
   try {
-    const bundle = createAstToolsBundle(config);
-    ctx.logger?.(name).info(`ast-tools ready (ast-grep=${bundle.bin})`);
+    bundle = createAstToolsBundle(config);
   } catch (error) {
     if (error instanceof AstGrepMissingError) {
-      ctx.logger?.(name).info(`ast-tools 降级禁用：${error.message}`);
+      ctx.logger?.(name).info(`ast-tools 降级（ast-grep 不可用）：${error.message}`);
+      for (const def of toToolDefs(unavailableOps(error.message))) {
+        ctx.tools?.register(def);
+      }
       return;
     }
     throw error;
   }
+  for (const def of toToolDefs(bundle)) ctx.tools?.register(def);
+  ctx.logger?.(name).info(`ast-tools ready (ast-grep=${bundle.bin})`);
 }

@@ -4,7 +4,18 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 
 ## 能力
 
-本包不注册模型侧工具，以 bundle + TS API 形式供宿主与其他插件（如 code-map）调用：
+**模型侧工具**（挂载后模型可用；`inject: ["tools"]`）：
+
+| 工具 | 说明 |
+| --- | --- |
+| `ast_query` | 单工具 + `action` 分派：`search`（AST 模式搜索，`$VAR` / `$$$VAR` 元变量）、`outline`（语法骨架）、`rules`（跑 YAML 规则：`rulePath` 或内联 `rules` + `paths[]`）。参数缺失 / 互斥冲突 / 未知 action → 返回 `{ error }`，不抛。 |
+| `ast_replace` | 结构化替换，**默认 dry-run**（只返回预览与命中，不写文件）；写回需 `write: true`（整文件重写）。 |
+
+渲染口径（`output.render` 输出紧凑文本，不是 JSON dump）：坐标**转 1 基**（`path:行:列`，而库 API 与 ast-grep 输出均为 **0 基**）；`search` 附元变量摘要 `{$ARG=…, $$ARGS=n节点}`；`outline` 缩进到成员；`rules` 形如 `path:行:列 severity ruleId: message`；每类渲染上限 **80 行**，超出以「…（其余 N 条略）」收尾。
+
+选择成本：**文本 / 正则检索用宿主 `grep` / `glob`**（更快，但会命中字符串与注释里的同名文本）；要「所有 `foo(` 调用点」「某语法形态」「按结构批量定位」时用 `ast_query`。改代码：单点精确改写用 `hash_edit`（LINE:HASH 锚点 + 整批原子拒绝），按语法形态批量改同一写法用 `ast_replace`。
+
+**库 / 服务面**（供宿主与其他插件调用）：
 
 | 导出 | 说明 |
 | --- | --- |
@@ -14,7 +25,7 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 | `runRules(params, opts?)` | YAML 规则执行 → `AstRuleHit[]`（`ruleId` / `severity` / `message`，fix 规则附 `replacement`） |
 | `createAstToolsBundle(config?)` | 核心工厂：绑定二进制与超时，返回 `search` / `replace` / `outline` / `rules` / `dispose` 服务对象 |
 | `findAstGrepBin` / `ensureAstGrepBin` | 二进制探测（未找到返回 `null` / 抛 `AstGrepMissingError`） |
-| `name` / `Config` / `apply(ctx, config?)` | DSH bundle 契约 |
+| `name` / `inject` / `Config` / `apply(ctx, config?)` | DSH bundle 契约（`inject: ["tools"]`，注册上表的两个模型侧工具） |
 
 各操作的参数（`opts` 为通用选项 `bin` / `timeoutMs`）：
 
@@ -34,7 +45,7 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 
 二进制探测顺序：显式 `bin` → `AST_GREP_BIN` 环境变量 → `PATH` 中的 `ast-grep` → `PATH` 中的 `sg` → 本地 `node_modules/.bin/ast-grep`。
 
-探测失败抛 `AstGrepMissingError`，报错内含安装方式：`npm install -g @ast-grep/cli`、`brew install ast-grep`、`cargo install ast-grep`、预编译二进制下载，或用 `AST_GREP_BIN` / `bin` 指定路径。bundle 的 `apply` 捕获该错误后记录日志并禁用插件，不使宿主崩溃；其他错误照常抛出。
+探测失败抛 `AstGrepMissingError`，报错内含安装方式：`npm install -g @ast-grep/cli`、`brew install ast-grep`、`cargo install ast-grep`、预编译二进制下载，或用 `AST_GREP_BIN` / `bin` 指定路径。bundle 的 `apply` 捕获该错误后记录日志，并注册**降级版模型侧工具**：工具可见，但每次调用都返回含 `INSTALL_GUIDANCE` 的错误值——不假装成功（fail-closed），模型侧仍能读到安装指引（口径与 `code-map` 的降级 bundle 一致）。其他错误照常抛出，不使宿主崩溃。
 
 ## 使用示例
 
@@ -97,13 +108,16 @@ npm run example:replace   # 输出 REPLACE_EXAMPLE_PASS
 - 替换文本中 `$VAR` 引用单节点捕获，`$$$VAR` 按原文展开整个序列。
 - CLI 退出码不作为判据：`run` 无命中与 `scan` 的 error 级命中都可能非零退出而 stdout 为纯 JSON；仅在「无 JSON 且非零退出」时抛 `AstGrepProcessError`，无命中返回空数组。
 - 语言名支持别名（`js` → `javascript`、`py` → `python` 等），未知值原样透传给 CLI 校验；`replace` 要求具体文件路径，不支持目录输入。
+- 模型侧工具的渲染把 0 基坐标转 1 基（与宿主 `read` / `grep` 的行号口径一致）；要原始 0 基坐标与字节偏移，直接读工具返回值或用库 API。
+- `ast_replace` 的写回是**整文件重写**（CLI 语义）且直接 `node:fs` 写入：既不做行级锚点校验，也**绕开**官方 `fs-observation-policy` 的文件级版本守卫与 `ctx.fs` 沙箱——写回前请确认目标文件未被并发修改。需要「读后改前 + 漂移检测」用 `hash_edit`，需要文件级版本守卫用宿主 `edit`。
+- 两类错误分界：**入参问题**（缺参 / 互斥冲突 / 空 `paths` / 未知 action）返回 `{ error }` 值，不抛；**执行期问题**（模式或语言非法、规则 YAML 解析失败、子进程超时 / 崩溃）由库抛出，宿主转成模型可见的工具错误（含 ast-grep stderr）。`exec.signal` 取消暂未转发（与 `code-map` / `fs-digest` 同现状）。
 
 ## 测试
 
 ```sh
 npm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
 npm run build   # 编译到 dist/
-npm run test    # node --test（27 例：多语言匹配/替换/大纲/规则 + 降级路径）
+npm run test    # node --test（37 例：多语言匹配/替换/大纲/规则 + 降级路径 + 模型侧工具面）
 ```
 
 依赖二进制的用例在缺 ast-grep 的机器上自动 skip，降级路径用例恒跑。

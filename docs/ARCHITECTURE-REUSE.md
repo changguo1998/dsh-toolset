@@ -28,7 +28,7 @@
 | `security-guard` | `sandbox-policy`、`permission-presets`、`experimental-auto-review` | 中 | **并存** | 官方管「沙箱等级 + 审批预设（+ 实验性逐工具 LLM 审查，未挂）」；我们在 `tools/pre-execute` 做**命令 / 路径模式拦截**（该点官方无竞争监听，deny 可达；「先于官方策略」是当前实现事实，无显式顺序契约） |
 | `herdr-integration` | 无 | 无 | **保留** | 本机 herdr 面板桥，官方无对应物 |
 | `TUI` | `client-ui-*`（53 包，Web / 桌面） | 低 | **保留** | 官方客户端是浏览器 / 桌面面；终端 TUI 是不同形态，且本项目「只用 TUI、走 profile 全局组合」是既定口径 |
-| `ast-tools` | `tool-fs-search`（`grep` / `glob`）、`code-map` | 中 | **保留** | 官方检索是**文本级**，AST 形态查询（ast-grep）官方没有；当前无 inject / provide（纯库 + 服务面），条目 #3 计划注册模型侧工具 |
+| `ast-tools` | `tool-fs-search`（`grep` / `glob`）、`code-map` | 中 | **保留** | 官方检索是**文本级**，AST 形态查询（ast-grep）官方没有；**已注册模型侧工具** `ast_query`（search / outline / rules）+ `ast_replace`（默认 dry-run），`inject: ["tools"]`（2026-10-02 落地） |
 | `code-map` | `lsp`、`tool-fs-search` | 低 | **保留** | 项目级结构索引 / 影响面 / 候选调用图官方没有；**LSP 语义层已接线但当前不可达**（LSP 三件套不随包分发，见 §5） |
 
 ## 1. 保留项（12）的共同理由
@@ -68,7 +68,7 @@
 | `output-compress` | reflect 可选读 `ptcRuntime`（宿主沙箱后端）；事件 `session/event` 的 `tool/result`（只读，不回写） |
 | `security-guard` | inject `tools`；事件 `tools/pre-execute`（拦截点） |
 | `code-map` / `fs-digest` | inject `tools`；get `lsp`（**当前不可达**，见 §5） |
-| `hash-edit` / `ast-tools` | inject `tools`（`ast-tools` 当前无 inject，纯库 + 服务面） |
+| `hash-edit` / `ast-tools` | inject `tools`（`ast-tools` 2026-10-02 起注册 `ast_query` / `ast_replace`，同时保留库 / 服务面） |
 | `metric-loop` / `herdr-integration` / `symbol-normalizer` | inject `tools` / `agents` / —（`symbol-normalizer` 消费本仓 `ruleEngine` 服务） |
 
 ## 4. 可执行改造清单（未立项，用户择时）
