@@ -95,8 +95,20 @@ export async function runOneShotAgent(
   }
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs ?? 600_000;
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const signal = fuseSignals(options.signal, controller.signal);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const fused = fuseSignals(options.signal, controller.signal);
+  const signal = fused.signal;
+  /** 中止原因文案（调用方取消优先于超时——两者可能几乎同时触发）。 */
+  const abortReason = (): string =>
+    options.signal?.aborted === true
+      ? "子代理运行被调用方取消"
+      : timedOut
+        ? `子代理步骤超时（${timeoutMs} ms）后中止`
+        : "子代理运行被中止";
   try {
     const loadHost = options.loadHostModule ?? importHostModule;
     const host = await loadHost("@deepseek-ai/dsh-subagent");
@@ -104,29 +116,102 @@ export async function runOneShotAgent(
     if (typeof settleRun !== "function") {
       throw new Error("宿主未导出 settleRun（dsh-subagent 版本不匹配？）");
     }
-    const run = await start.call(
-      runtime,
-      providerName,
-      buildOneShotRequest({
-        prompt: options.prompt,
+    // start 也可能悬挂（宿主发布子会话期）：一并纳入 abort 竞速（此时还没有 run 句柄，无可回收）
+    const run = await raceAbort(
+      Promise.resolve(
+        start.call(
+          runtime,
+          providerName,
+          buildOneShotRequest({
+            prompt: options.prompt,
+            signal,
+            ...(options.parent === undefined ? {} : { parent: options.parent }),
+            ...(options.model === undefined ? {} : { model: options.model }),
+          }),
+        ),
+      ),
+      signal,
+      abortReason,
+    );
+    const childId = (run as { id?: unknown } | undefined)?.id;
+    const suffix = typeof childId === "string" ? `（子会话 ${childId}）` : "";
+    let outcome: unknown;
+    try {
+      outcome = await settleOrAbort(
+        run,
+        settleRun as (run: unknown) => Promise<unknown>,
         signal,
-        ...(options.parent === undefined ? {} : { parent: options.parent }),
-        ...(options.model === undefined ? {} : { model: options.model }),
-      }),
-    );
-    const outcome = await (settleRun as (run: unknown) => Promise<unknown>)(
-      run,
-    );
+        abortReason,
+      );
+    } catch (err) {
+      throw new Error(`${describe(err)}${suffix}`);
+    }
     try {
       return textOfOutcome(outcome);
     } catch (err) {
-      const childId = (run as { id?: unknown } | undefined)?.id;
-      throw new Error(
-        `${describe(err)}${typeof childId === "string" ? `（子会话 ${childId}）` : ""}`,
-      );
+      throw new Error(`${describe(err)}${suffix}`);
     }
   } finally {
     clearTimeout(timer);
+    fused.dispose();
+  }
+}
+
+/** 与 abort 竞速的通用形态（abort 已触发则立即拒绝）。 */
+async function raceAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  abortReason: () => string,
+): Promise<T> {
+  if (signal.aborted) throw new Error(abortReason());
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => {
+      void reject(new Error(abortReason()));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([promise, aborted]);
+  } finally {
+    if (onAbort !== undefined) signal.removeEventListener("abort", onAbort);
+  }
+}
+
+/**
+ * 等子代理终态，但用 abort 信号**兜底**：宿主 `settleRun` 内部是 `await run.result`，
+ * 该 promise 在子代理卡住 / 会话被拆时可能永不落定 → 命令悬挂（宿主因此不发 `command/done`）。
+ * 这里与 abort 竞速，保证调用方**必有终态**。
+ *
+ * 竞速落败（取消 / 超时）时**发起**回收但**不等它**：宿主 in-process provider 的 `dispose()`
+ * 内部 `await run.result`（`dsh-subagent-in-process-driver`），与 settle 同生共死——等它等于把
+ * 无界等待换个地方（子代理代理审阅实测 `[host] HUNG`）。故 fire-and-forget，失败只吞掉。
+ */
+async function settleOrAbort(
+  run: unknown,
+  settleRun: (run: unknown) => Promise<unknown>,
+  signal: AbortSignal,
+  abortReason: () => string,
+): Promise<unknown> {
+  const settle = settleRun(run);
+  // 竞速落败后它若迟到 reject，不能变成未处理拒绝（进程级告警）
+  settle.catch(() => {});
+  try {
+    return await raceAbort(settle, signal, abortReason);
+  } catch (err) {
+    if (signal.aborted) reclaimInBackground(run);
+    throw err;
+  }
+}
+
+/** 发起回收但不等待（宿主 dispose 可能随 `run.result` 一起悬挂）；失败静默。 */
+function reclaimInBackground(run: unknown): void {
+  const dispose = (run as { dispose?: unknown } | undefined)?.dispose;
+  if (typeof dispose !== "function") return;
+  try {
+    void (dispose as () => Promise<unknown>).call(run).catch(() => {});
+  } catch {
+    // 同步抛错同样忽略：这里只保证「发起回收」
   }
 }
 
@@ -153,18 +238,24 @@ function pickProvider(
   return undefined;
 }
 
-/** 合并调用方信号与超时信号。 */
+/** 合并调用方信号与超时信号；`dispose` 摘掉监听（否则每步在外层 signal 上累积一个）。 */
 function fuseSignals(
   outer: AbortSignal | undefined,
   inner: AbortSignal,
-): AbortSignal {
-  if (outer === undefined) return inner;
-  if (outer.aborted) return outer;
+): { signal: AbortSignal; dispose: () => void } {
+  if (outer === undefined) return { signal: inner, dispose: () => {} };
+  if (outer.aborted) return { signal: outer, dispose: () => {} };
   const controller = new AbortController();
   const abort = (): void => controller.abort();
   outer.addEventListener("abort", abort, { once: true });
   inner.addEventListener("abort", abort, { once: true });
-  return controller.signal;
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      outer.removeEventListener("abort", abort);
+      inner.removeEventListener("abort", abort);
+    },
+  };
 }
 
 /** 从 JobOutcome 提取文本（形状容错；取不到 → JSON 摘要）。 */

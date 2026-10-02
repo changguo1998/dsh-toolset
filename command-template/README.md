@@ -70,6 +70,8 @@ steps:
 
 - 不实现执行器：`agent` 步骤走宿主 `ctx.subagents` **服务面** `start(name, request)`（一次性运行；宿主写父会话 catalog 并发生命周期事件，模型覆盖仅本次）；
   task-engine 的叶子 `executor` 声明（项目级「task-engine 执行扩展」）落地后，改为经该声明选择后端。
+- **终态与回收**：`start` 与「等宿主结算（`settleRun`）」都放在取消信号**竞速**里——宿主结算面可能**无界**（`await run.result`；已确认：真机出现过 `command/run` 无 `command/done` 的悬挂；未确认：具体触发条件）。竞速落败（调用方取消 / `stepTimeoutMs` 超时）时**抛可读文案**（区分「被调用方取消」与「步骤超时（N ms）后中止」，带子会话 id）→ `steps.ts` 转 `step_failed` → `run()` 返回 `kind:"error"`；同时**发起**回收但**不等待**（宿主 in-process `dispose()` 内部 `await run.result`，等它等于换个地方无界等待）。据此**本仓侧任何路径都回终态**（宿主侧 `subagent/end` 等生命周期事件仍取决于 `run.result`，本仓补不了）；
+  - 最坏耗时＝`maxSteps(12) × stepTimeoutMs(600s) ≈ 2 h` 才回终态（无全局预算，见 `docs/BACKLOG.md`）；
 - 不改 TUI：模板命令经宿主命令注册表自动出现在补全里（TUI 本地命令同名时本地优先）。
 - 不做模板市场 / 版本管理 / 参数类型校验（参数一律按文本展开）。
 
