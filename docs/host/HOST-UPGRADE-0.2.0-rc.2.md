@@ -19,8 +19,8 @@
 
 | # | 项 | 说明 |
 |---|---|---|
-| 1 | `bundle/base` 新增 `- id: otel` 行 | 升级后 fff 组合自动多挂一个官方包 `@deepseek-ai/dsh-otel`（新服务 `ctx.otel`）。挂了不报错，但挂载面计数、`HOST-PACKAGES.md` 的「已挂载」标记要跟着更新（条目 #2 步骤①一并实测） |
-| 2 | `metric-loop` 的 `schedule_create` 提示指向当前组合里不存在的工具 | 官方 4 个 `schedule_*` 工具两版都在 catalog 内，但既不在 `dsh-base` 也不在 fff 的 bundles / patch；`metric-loop/src/engine.ts:227` 的 `scheduleHint()` 却让模型用它排唤醒。**既有问题**（0.1.7 也一样），0.2.0 只把 schedule 从 Web 组合搬进 optional bundle，与我们无关；修法归条目 #2（挂载面）决定 |
+| 1 | `bundle/base` 新增 `- id: otel` 行 | 升级后 fff 组合自动多挂一个官方包 `@deepseek-ai/dsh-otel`（新服务 `ctx.otel`）。挂了不报错，但挂载面计数、`HOST-PACKAGES.md` 的「已挂载」标记要跟着更新（条目 #1 步骤①一并实测） |
+| 2 | `metric-loop` 的 `schedule_create` 提示指向当前组合里不存在的工具 | 官方 4 个 `schedule_*` 工具两版都在 catalog 内，但既不在 `dsh-base` 也不在 fff 的 bundles / patch；`metric-loop/src/engine.ts:227` 的 `scheduleHint()` 却让模型用它排唤醒。**既有问题**（0.1.7 也一样），0.2.0 只把 schedule 从 Web 组合搬进 optional bundle，与我们无关；修法归条目 #1（挂载面）决定 |
 | 3 | `agent-loop` 失败步补写合成 `tool/result`（**活路径**） | 步骤失败收尾时，未回结果的工具调用会得到合成 error 结果（`TOOL_OUTCOME_UNKNOWN` / `TOOL_NOT_STARTED`），实时 `session/event` 因此多出工具结果；我方 5 处消费（TUI 渲染 / `output-compress` / `knowledge-base` / `rule-engine` / `context-report`）。不破坏接口，但升级后要真机确认无副作用（§3.7 末条、§5） |
 
 **其余结论**
@@ -37,8 +37,8 @@
 | 项 | 状态 | 说明 |
 |---|---|---|
 | 对照文档产出 | **已完成** | 本文件 |
-| `docs/host/HOST-PACKAGES.md` 刷新 | **已完成（定点）** | 标题版本 / 口径行 / 采集时间 / 差异行 / 新增 4 包 / base 新增 `otel` 行提示；全表挂载实测归条目 #2 |
-| 宿主升级执行（装 `0.2.0-rc.2`、profile 依赖同步、真机验证） | **未开始** | 独立动作，另立 BACKLOG 条目并排在条目 #2 之前（本条目只产出对照） |
+| `docs/host/HOST-PACKAGES.md` 刷新 | **已完成** | 标题 / 口径 / 采集时间 / 差异行 / 新增 4 包 / 服务索引 84 → 86；升级后按 `--dump-config` 实测回写包数（288，`dsh-*` 277）与挂载数（92，另有 TUI 自插的 `tool-ask-user`）；逐行标记复核归条目 #1 |
+| 宿主升级执行 | **已执行（2026-10-02）** | `npm i -g @deepseek-ai/dsh@0.2.0-rc.2`（+30 / -13 / 改 508）；profile 树外加装包 `session-title-all-prompts-llm` 升 `0.2.0-rc.2` + `pnpm install`；`dsh --version` = `0.2.0-rc.2`；`--dump-config` 退出码 0、stderr 空、`otel` 行在位；备份在 `~/.dsh-upgrade-backup-2026-10-02/`；进程内真机验证**已完成**（重启后宿主确为 0.2.0；`context_report` / `fs_digest` / `code_map` / `task_engine` 全部通过——见 `docs/archived/2026-10-02-host-upgrade-execution.md`） |
 | 我方代码改造 | **不需要** | 见 §0 首段与 §3.2 |
 | 子代理审阅（决策后，用户流程要求） | **已完成** | 独立复现 10 项检查，「有条件通过」；5 处事实修正 + 5 处补漏已并入本文件：timed 是行 config 而非模型可见参数、`plugin-manager` / `hmr` 净零 diff、证据路径改仓根 `vendor/include`、投影消费方更正、`sandbox-windows-acl` 非新增包，补 `agent-loop` 活路径 / `loader/volatile-update` / `ui-settings-session-log` / `agentDefaultModel`+`profileContext` / fff 硬钉版本 |
 
@@ -48,10 +48,11 @@
 |---|---|
 | 本文对照版本 | OLD `dsh 0.1.7-rc.2`（tag `477b4f4205`，2026-09-24）→ NEW `dsh 0.2.0-rc.2`（tag `639ed01539`，2026-09-29） |
 | 中间 tag | `dsh-v0.2.0-rc.1`（commit `4878cdabd8`，2026-09-28） |
-| 本机现状 | 运行 `dsh 0.1.7-rc.2`；源码 clone 工作区 = NEW（`HEAD` = `639ed01539`） |
+| 本机现状 | 已升级：`dsh 0.2.0-rc.2`（2026-10-02 执行）；源码 clone 工作区 = NEW（`HEAD` = `639ed01539`） |
 | cordis 版本 | `vendor/cordis` 两版都是 `4.0.4`（无变化） |
-| npm dist-tags | **未采集**：本机 npm cache 只读（`EROFS`），无法 `npm view`（§7） |
+| npm dist-tags（2026-10-02 实测） | `latest` = `0.2.0-rc.2`、`next` = `0.2.0-rc.2`、`alpha` = `0.1.7-alpha.2`；0.2 线只发布过 `0.2.0-rc.1` / `0.2.0-rc.2`。查询用 `npm view --cache /tmp/<dir>` 绕开只读的 `~/.npm` |
 | 源码包数 | 321 → 325（public 312 → 316；private 9 → 9） |
+| 随包分发（安装树口径，2026-10-02 实测） | 283 → 288（其中 `dsh-*` 272 → 277）；新增 5 个 = 4 个新包 + `host-product-telemetry-otel` 转为随包分发 |
 | `packages/` 顶层目录 | 60 → 61（新增 `telemetry/`） |
 
 ## 2. 区间规模与包清单变更
@@ -190,9 +191,9 @@ OLD 130 / NEW 132。
 | 对象 | 影响 | 升级前需做 |
 |---|---|---|
 | 17 个插件包（含 TUI） | **无需改代码**（消费的服务面实现零 diff、工具注册契约未变）；唯一行为面变化是失败步多出的合成 `tool/result`（5 处消费，§3.7） | 真机复现一次「工具中断 / 步骤失败」：TUI 不出现孤立结果行、`output-compress` 不误生成分片、`knowledge-base` 不写入噪声条目 |
-| `metric-loop` | `scheduleHint()` 让模型调 `schedule_create`，而当前组合无该工具（既有问题，非本次引入） | 挂载面决定（条目 #2）：挂 `schedule` 相关行，或把提示改为不依赖宿主 schedule |
+| `metric-loop` | `scheduleHint()` 让模型调 `schedule_create`，而当前组合无该工具（既有问题，非本次引入）——2026-10-02 真机确认：`dsh-base` 无 schedule 行、fff patch 无、重启后工具清单也没有 `schedule_create` / `_delete` / `_list` / `_update` | 挂载面决定（条目 #1）：挂 `schedule` 相关行，或把提示改为不依赖宿主 schedule |
 | 部署 / profile | `bundle/base` 新增 `otel` 行 → 升级后自动多挂 `@deepseek-ai/dsh-otel` | ① 升级动作本身另立条目（安装 + profile 依赖 + 真机验证）；② `scripts/install.sh` 的 `dsh_version_default="0.1.7-rc.2"` 与提示文案同步到 `0.2.0-rc.2`；③ 升级后跑 `--dump-config` 断言 stderr 无 `did not activate`；④ 树外加装包 `session-title-all-prompts-llm` 在 `~/.dsh/profiles/fff/package.json` 里**硬钉 `0.1.7-rc.2`**，升级 CLI 不会自动跟随，要 `npm pkg set` + `pnpm install` 手动升版 |
-| 文档 | `HOST-PACKAGES.md` 是 0.1.7-rc.2 口径（283 包 / 91 挂载） | 本次已定点刷新（新增 4 包 + 口径行 + `otel` 行提示）；全量挂载标记实测归条目 #2 |
+| 文档 | `HOST-PACKAGES.md` 是 0.1.7-rc.2 口径（283 包 / 91 挂载） | 本次已定点刷新（新增 4 包 + 口径行 + `otel` 行提示）；全量挂载标记实测归条目 #1 |
 | 将来可选 | 若采用 `ask_user_question` timed 模式：需处理 `user-question-reply` 迟到消息与 `userQuestions` 投影 | 不立项，记为观察项 |
 
 ## 6. 复现命令
@@ -235,10 +236,9 @@ git -C $R ls-tree -r --name-only $NEW -- docs/upgrade-guide
 
 ## 7. 未确认项
 
-1. **npm dist-tags 与随包分发口径**：本机 npm cache 只读（`EROFS`），未能 `npm view`；`HOST-PACKAGES.md` 的「283 个随包分发包」是 0.1.7-rc.2 的**已安装树**实测值，0.2.0 的对应值要在装好 0.2.0 后重新采集（本文只给源码口径 321 → 325 / public 312 → 316）。
-1. **`schedule_*` 工具在当前组合的真实可用性**：静态推导为「不可用」（`dsh-base` 无 schedule 行、fff patch 无 schedule 行），未真机确认；归条目 #2 步骤①。
 1. **timed 模式的客户端行为**：迟到 `user-question-reply` 消息在 TUI 的呈现、`userQuestions` 投影在非 Web 客户端的行为未实测（我们不启用 timed，暂不影响）。
 1. **`repair.ts` 重做的行为差异**：`ToolCallRecovery` 对「旧会话断点续跑 / 打断的工具调用」的具体差异未实测。
 1. **事件载荷级差异**：事件名与消费者集合已核对，字段级未逐项比对（`user/message`、`developer/message`、`agent/inbox/spliced` 的 shape hash 变化已记录，来源是新增的 `user-question-reply`）。
 1. **Web / Desktop 面**：新增与变更（product analytics、CLI 内置、设置页拆分等）未逐项核对——本项目不使用，仅记入 §4。
 1. **性能基线**：区间净减 3 万行、包数 +4，对装配耗时的影响未测量。
+1. **`agent-loop` 失败步合成 `tool/result` 的行为未真机复现**：升级后没有构造「工具中断 / 步骤失败」场景，5 处消费点（`TUI/src/app/adapter/dsh.ts:1889`、`output-compress/src/hooks.ts:255`、`knowledge-base/src/hooks.ts:155`、`rule-engine/src/engine.ts:545`、`context-report/src/fold.ts:297`）的「不误分片 / 不写噪声条目」未断言（§3.7 末条、§5）。

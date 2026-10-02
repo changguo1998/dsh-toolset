@@ -4,7 +4,7 @@
 
 DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方式挂载进 DSH 会话进程的一组 TypeScript 插件，补齐任务树、知识库与记忆、目标契约、指标循环等能力；另含一套自研终端 UI（TUI），是 Web UI / CLI 之外的第三种交互方式。
 
-面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `docs/host/DSH-CTX-API.md`（只读参考，已按当前宿主 `dsh-v0.1.7-rc.2` 逐条复核；两版接口差异见升级对照文档）。
+面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `docs/host/DSH-CTX-API.md`（只读参考，按 `dsh-v0.1.7-rc.2` 基线逐条复核；0.2.0 对照确认本项目消费面无变化，差异与判定见升级对照文档）。
 
 ## 组成
 
@@ -130,7 +130,7 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 
 - `docs/host/DSH-CTX-API.md` — 宿主 ctx 接口研读笔记（跨插件契约，只读参考）。
 - `docs/host/HOST-PACKAGES.md` — 宿主官方包与服务字典（生成物，升宿主后重新生成）。
-- `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` — 当前升级对照（0.1.5-rc.3 → 0.1.7-rc.2）与实施状态；下次升级另开新文件，本份移入根 `archive/`。
+- `docs/host/HOST-UPGRADE-0.2.0-rc.2.md` — 当前升级对照（0.1.7-rc.2 → 0.2.0-rc.2）与实施状态；上一份 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`（0.1.5-rc.3 → 0.1.7-rc.2）。
 - `docs/host/AGENT-COMPOSITION.md` — agent 面组合现状与官方依据（TUI 走 profile 全局组合、不配 preset）。
 - `docs/host/AGENT-ARCHITECTURE-ANALOGY.md` — 官方 agent 架构与接口对照（task-engine、knowledge-base 的设计依据）。
 

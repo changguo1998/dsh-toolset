@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # 新机器安装脚本：装 dsh → 构建本项目插件 → 配 profile（插件挂载）。
 #
-# 默认值：profile 名 fff、dsh 版本 0.1.7-rc.2、插件取 canonical_pkgs 全部包。
+# 默认值：profile 名 fff、dsh 版本 0.2.0-rc.2、插件取 canonical_pkgs 全部包。
 # 本项目只用 TUI：agent 面由 profile 全局组合提供，脚本不配置 agent preset
 # （说明见 docs/host/AGENT-COMPOSITION.md）。
 # 幂等：已存在的 profile 配置文件默认原样保留（--force 才覆盖，且先备份
@@ -11,7 +11,7 @@
 # 用法：scripts/install.sh [选项]（见 --help）
 set -eu
 
-dsh_version_default="0.1.7-rc.2"
+dsh_version_default="0.2.0-rc.2"
 profile_name="fff"
 plugins_sel="all"
 skip_dsh=0
@@ -31,7 +31,7 @@ usage() {
 
   --profile <名字>      dsh profile 名（默认 fff）
   --plugins <列表|all>  要装的插件目录名，逗号或空格分隔（默认 all = canonical_pkgs 全部包）
-  --dsh-version <版本>  安装的 dsh 版本（默认 0.1.7-rc.2）
+  --dsh-version <版本>  安装的 dsh 版本（默认 0.2.0-rc.2）
   --skip-dsh            不安装 / 不校验 dsh（假设 PATH 上已有）
   --skip-build          跳过插件的 npm install 与 build（复用已有 dist/）
   --force               覆盖已存在的 profile 配置文件（覆盖前备份）

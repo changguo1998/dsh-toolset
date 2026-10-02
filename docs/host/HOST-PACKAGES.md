@@ -4,12 +4,12 @@
 > 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）
 > 过期条件：**升宿主后必须重新生成**
 
-> 来源：本地安装的官方 deepseek-harness（全局 dsh `0.1.7-rc.2`，`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai/`，下文称**安装树口径**）；源码 clone（`~/GithubRepos/deepseek-harness`）本地 checkout 已是 `dsh-v0.2.0-rc.2`（commit `639ed015`），「本版新增 / 计数」按该 tag 的源码树采集。
+> 来源：本地安装的官方 deepseek-harness（全局 dsh `0.2.0-rc.2`（2026-10-02 升级），`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai/`，下文称**安装树口径**）；源码 clone（`~/GithubRepos/deepseek-harness`）checkout = tag `dsh-v0.2.0-rc.2`（commit `639ed015`）。两处同版本。
 > 用途：与 `docs/host/DSH-CTX-API.md` 配套——该文件记「接口怎么用」，本文件记「有哪些包、每个包提供什么服务」；供 dsh-toolset 各插件选型与集成对齐。
-> 版本口径：**包清单**按 `0.2.0-rc.2` 源码树记（316 个 public `@deepseek-ai/dsh-*` 包 = 0.1.7 的 312 个 + 本次新增 4 个）；**挂载标记与服务名**仍是 0.1.7-rc.2 安装树实测（安装树口径的「随包分发」计数 = 283，装好 0.2.0 后重新采集）。描述取自各包 `package.json`。宿主升级后需整体重生成。
-> 采集时间：包清单部分 **2026-10-02**（源码 checkout = `dsh-v0.2.0-rc.2`）；挂载标记部分仍为 2026-09-25（宿主 `dsh --version` = `0.1.7-rc.2`）。接口与包增删的逐项对照：本次见同目录 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`，上一次见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`。
-> 与上一版清单（`0.1.5-rc.3`）的差异：随包分发包 240 → 283、fff 已挂载 82 → 91；分类结构沿用旧版，逐行按新数据重写。
-> 与 `0.1.7-rc.2` 的差异（2026-10-02，源码口径）：源码包 321 → 325（public 312 → 316），新增 4 个——`otel`、`client-product-analytics`、`client-ui-settings-session-log`、`experimental-schedule-bundle`；无删除 / 改名 / 移目录。挂载面预期增量：`dsh-base` 新增一行 `otel`（升级后自动多挂 1 包；挂载实测归 `docs/BACKLOG.md`「profile 挂载面扩张」步骤①）。
+> 版本口径：**以 `0.2.0-rc.2` 实际随包分发的安装树为准**——`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai` 下共 **288** 个包（其中 `dsh-*` 277 个；0.1.7-rc.2 时为 283 / 272），§2 的行清单与之一一对应。描述取自各包 `package.json`，服务名可由安装树主入口复算，**挂载集合由 `dsh --profile fff --dump-config` 实测**（见文末复现命令）。宿主升级后需整体重生成。
+> 采集时间：**2026-10-02**（宿主 `dsh --version` = `0.2.0-rc.2`；随包分发 288 包、fff 挂载集合 93 个名字项，其中 92 个计入 §1、1 个是 TUI 自插的 `tool-ask-user`）。接口与包增删的逐项对照：本次见同目录 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`，上一次见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`。
+> 与上一版清单（`0.1.5-rc.3`）的差异（历史记录，0.1.5-rc.3 → 0.1.7-rc.2 当时）：随包分发包 240 → 283、fff 已挂载 82 → 91；分类结构沿用旧版，逐行按新数据重写。
+> 与 `0.1.7-rc.2` 的差异（2026-10-02 实测）：源码包 321 → 325（public 312 → 316），新增 4 个——`otel`、`client-product-analytics`、`client-ui-settings-session-log`、`experimental-schedule-bundle`，无删除 / 改名 / 移目录；随包分发 283 → 288（多出的第 5 个是转为分发的 `host-product-telemetry-otel`）；fff 挂载 91 → 92（`dsh-base` 新增 `otel` 行）；服务面 +2、工具面与事件面零增删、会话格式仍 V4，**本仓 17 包无需改代码**。
 
 ## 0. 怎么读这份清单
 
@@ -20,9 +20,9 @@
 - **`agent-preset` 家族未挂载是设计结果，不是缺配置**：官方只让 Web 面（`web-app` bundle）禁用 base 的 agent 面行并挂 preset registry，TUI 这类单组合面保持 base 的进程级 agent 组合（`packages/bundle/web-app/cordis.patch.yml` 的 "for the TUI, which is single-session and composes its agent process-wide" 注释、`packages/client/ui-user-questions/README.md` 的 "the TUI composition, which has no presets"）。依据、验证与版本断层见 `docs/host/AGENT-COMPOSITION.md`；要改 agent 面请落 profile 用户 patch。
 - **包名省略 `@deepseek-ai/dsh-` 前缀与作用域**。少数包本就不带该前缀：`cordis` / `cordis-plugin-*` / `cosmokit` / `schemastery` 来自 vendored cordis 生态，`libreoffice-kit*` / `node-addon-system*` 是预编译资产包——这 11 个 + `web-frontend`（构建产物）共 12 个包在 `packages/` 下没有源码目录，行内已注明 vendor / 构建产物。
 - **归类与计数口径**：分组沿用旧版 12 个分类，按宿主源码目录（`packages/` 下路径）归口，少数跨面包沿用旧版口径（`command-*` 归「技能 / 命令 / Web / 集成」；编排类 `tool-*`（goal / jobs / subagent / workflow / agent-team）归「agent 与编排」；`client-*` 全部归「客户端 UI」；`util-*` 与 vendor 归「插件 / 启动 / 基础设施」）；`experimental-` 前缀包剥掉前缀后按同一规则落位。
-- **小计自洽性**：各分类包数之和 = **287**（0.1.7 的 283 + 本次新增 4）；各分类「已挂载」之和 = **91**（0.1.7 安装树实测；升级后预期 92，多出的 1 个是 `dsh-base` 新行 `otel`），其中 90 个在 §2 之内，另 1 个是树外加装包 `session-title-all-prompts-llm`（归入「会话 / 上下文 / 存储」，不占该分类的 41 个名额）。
+- **小计自洽性**：各分类包数之和 = **288**（= 随包分发实测 288；其中 287 个在安装树内、1 个是树外加装包 `session-title-all-prompts-llm`，后者归入「会话 / 上下文 / 存储」且不占该分类名额）；各分类「已挂载」之和 = **92**（2026-10-02 `--dump-config` 实测，含 `dsh-base` 新行 `otel`），其中 91 个在 §2 之内、另 1 个是树外加装包。
 
-## 1. 现成可用（fff 已挂载，91 个；升级后预期 92）
+## 1. 现成可用（fff 已挂载，92 个，2026-10-02 实测）
 
 ```
 cordis-plugin-timer agent agent-default-model agent-instructions agent-loop api-gateway
@@ -30,7 +30,7 @@ attachment-local authorization bash-sandbox command-compact command-feedback com
 commands compaction-basic compaction-image-offload compaction-tool-result-pruner config-editor
 credentials-local deepseek-account-platform deepseek-llm-api-extensions fs-observation-policy
 fs-sandbox goal goal-round-driver hmr jobs-local llm llm-deepseek-account llm-deepseek-api-key
-llm-pi-ai llm-retry mcp-resources permission-presets plan-mode plugin-manager
+llm-pi-ai llm-retry mcp-resources otel permission-presets plan-mode plugin-manager
 plugin-package-inventory-deepseek ptc-runtime-node pwsh-sandbox repeat-tool-reminder
 sandbox-local sandbox-policy session session-checkpoint-policy session-log-deepseek
 session-persistence-jsonl session-projection session-projection-cache session-query-sqlite
@@ -43,11 +43,11 @@ tool-skill tool-subagent tool-subagent-control tool-todo tool-web tool-workflow 
 typert-registry user-approval user-questions web web-fetch-http web-search-deepseek workflow-ptc
 ```
 
-其中 **90 个**随 dsh 分发（在 §2 之内），**1 个**是树外加装包 `session-title-all-prompts-llm`（会话标题 provider，见 §2「会话 / 上下文 / 存储」）。上表不含本项目 18 个 `@dsh-toolset/*` 包与 TUI bundle 自行 `- insert:` 的 `tool-ask-user`（口径见 §6）。
+其中 **91 个**随 dsh 分发（在 §2 之内），**1 个**是树外加装包 `session-title-all-prompts-llm`（会话标题 provider，见 §2「会话 / 上下文 / 存储」）。上表不含本项目 18 个 `@dsh-toolset/*` 包与 TUI bundle 自行 `- insert:` 的 `tool-ask-user`（后者在 `--dump-config` 里也出现，故实测名字项为 93 = 92 + 1；口径见 §6）。
 
-> 升级到 `0.2.0-rc.2` 后预期多出 1 个：`dsh-base` 新增 `- id: otel`（`@deepseek-ai/dsh-otel`，服务 `ctx.otel`）；本次未实测（宿主尚未升级）。
+> 2026-10-02 已升级到 `0.2.0-rc.2` 并实测：比 0.1.7 多出的正是 `otel`（`dsh-base` 新增 `- id: otel`，服务 `ctx.otel`），其余 91 个逐项不变。
 
-## 2. 全部分组清单（287 个）
+## 2. 全部分组清单（288 个）
 
 ### agent 与编排（27，已挂载 18）
 
@@ -300,7 +300,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - `experimental-client-ui-agent-team` — 实验 Web UI：Agent Teams 花名册、任务板与队友导航
 - `experimental-client-ui-voice-input` — 实验 Web UI：录音并把可编辑文本插入对话草稿
 
-### 插件 / 启动 / 基础设施（55，已挂载 7）
+### 插件 / 启动 / 基础设施（56，已挂载 7）
 
 - `acp` — ACP（Agent Client Protocol）服务端：经 JSON-RPC stdio 驱动宿主 agent（进程外对接面）
 - `acp-app` — `@deepseek-ai/dsh-acp-app` bundle：dsh-base 之上的 ACP profile 层（JSON-RPC stdio + 进程生命周期）
@@ -329,6 +329,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - `host-frontend-static` — Web 外壳的 SPA dist 服务（占用 webserver 回落席位，拒绝路径穿越）
 - `host-open-in-app` — open-in-app 宿主半：解析出的应用目录、图标与三个 webServer 路由
 - `host-plugin-inventory`（`ctx.pluginInventory`） — 只读的当前 Cordis Loader 插件状态 Remote 投影
+- `host-product-telemetry-otel`（`ctx.productTelemetry`，0.2.0 起随包分发） — `ctx.productTelemetry`：把显式提交的产品分析事件经 OTLP/HTTP 导出（仅挂载不采集；本 profile 未挂载）
 - `host-webserver`（`ctx.webServer`） — `ctx.webServer`：宿主内嵌 web 服务器（HTTP/upgrade 路由、index 变换、静态回落）
 - `http-proxy` — 进程级出站 HTTP 代理策略（从启动环境解析并装为 undici 全局 dispatcher）
 - `launch-environment` — 不可变的启动环境快照（记录每个值由哪一层提供）
@@ -336,7 +337,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - `native-command` — 宿主原生命令与路径打开（免 shell 执行、取消、桌面探测、WSL 交接）
 - `node-addon-system` — Node 原生插件系统入口（预编译系统原语：Linux Landlock launcher 与异步 POSIX flock）——vendor 预编译产物，无 `packages/` 源码
 - `node-addon-system-linux-x64` — 同上 linux-x64 二进制（静态 Landlock launcher + glibc/musl flock addon）——vendor 预编译产物，无 `packages/` 源码
-- `otel`（`ctx.otel`，0.2.0 新增） — `ctx.otel`：产品遥测与会话遥测适配器共享的 OTel 上报通道（**base 组合新增该行**，升级后自动挂载）
+- `otel`（`ctx.otel`，0.2.0 新增，已挂载） — `ctx.otel`：产品遥测与会话遥测适配器共享的 OTel 上报通道（`dsh-base` 新增该行）
 - `package-manifest` — package.json 的 `dsh` 配置字段共享类型声明
 - `plugin-manager`（`ctx.pluginManager`，已挂载） — 当前 profile 的插件与 bundle 管理（CLI / Web / agent 工具共用）
 - `schemastery` — 类型驱动的 schema 校验库（cordis 生态，vendor）
@@ -471,7 +472,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - **仍然没有跨进程 subagent provider（成立）**：283 个里 `packages/subagent/` 只分发 6 个包——`subagent`（缝）+ `subagent-fork-in-process` + `subagent-spawn-in-process` + `subagent-in-process-driver` + 2 个工具包；provider 仍只有 `spawn` / `fork` 两个**进程内**实现。`subagent-acp` / `subagent-dsh-sdk` / `subagent-claude-code` / `subagent-codex` 仍只存在于官方源码仓库（`packages/subagent/` 下共 10 个包），不在随包分发里。
 - **0.2.0 新增能力面（4 个新包 + 2 个新服务）**：`otel`（共享 OTel 通道，base 已挂）、`client-product-analytics`、`client-ui-settings-session-log`、`experimental-schedule-bundle`（Automation tasks，缺省关闭）；另有官方 `tool-ask-user` 行的 config `mode: timed`（默认 `legacy`；打开后该工具多一个 `timeout` 参数并支持迟到回复）与会话日志新消息来源 `user-question-reply`，以及 `agent-loop` 失败步补写合成工具结果（活路径）。逐条说明与证据见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`。
 - **0.1.7 新增能力面（可选清单）**：deliverables（`tool-present` 交付声明 + `workspace-changes` 每轮变更记录，客户端有 `client-ui-deliverables` 变更卡）、PTC 运行时（`ptc-runtime` + `ptc-runtime-node`，取代 `code-runtime` 家族）、Agent Teams 与语音输入（均 experimental）、宿主运维面（`plugin-manager` / `config-editor` / `hmr`）、`compaction-image-offload`（图片卸载）、`session-format-v3-to-v4`（V3→V4 迁移库）、`mcp-resources`、`schedule`、`office-to-pdf` + `skill-office` + `libreoffice-kit*` 文档链、`deepseek-account-platform`（PKCE 登录）。逐条说明与证据见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` §4。
-- **官方源码有、随包分发没有的（想要得自己找）**：SSH 家族（`ssh` / `fs-ssh` / `sandbox-ssh` / `subprocess-ssh`）、`browser-use` / `computer-use` 及 6 个实验 provider、LSP 三件套（`lsp` / `lsp-stdio` / `tool-lsp`）、`subagent-acp` / `subagent-claude-code` / `subagent-codex` / `subagent-dsh-sdk`、`storage-sqlite`、`tool-terminal`、`tool-session-query`、`web-search-exa` / `web-search-perplexity`、`session-snapshot`、`experimental-ptc-runtime-python` 等（官方源码 316 个 public `@deepseek-ai/dsh-*` 包 vs 随包分发 272 个（0.1.7 实测口径））。`session-title-all-prompts-llm` 同属这一类，但它是 fff 自己装进 profile 的——本清单 §1 的 91 个里唯一一个不随 dsh 分发。
+- **官方源码有、随包分发没有的（想要得自己找）**：SSH 家族（`ssh` / `fs-ssh` / `sandbox-ssh` / `subprocess-ssh`）、`browser-use` / `computer-use` 及 6 个实验 provider、LSP 三件套（`lsp` / `lsp-stdio` / `tool-lsp`）、`subagent-acp` / `subagent-claude-code` / `subagent-codex` / `subagent-dsh-sdk`、`storage-sqlite`、`tool-terminal`、`tool-session-query`、`web-search-exa` / `web-search-perplexity`、`session-snapshot`、`experimental-ptc-runtime-python` 等（官方源码 316 个 public `@deepseek-ai/dsh-*` 包 vs 随包分发 277 个（2026-10-02 实测）；0.1.7 时该数为 272）。`session-title-all-prompts-llm` 同属这一类，但它是 fff 自己装进 profile 的——本清单 §1 的 91 个里唯一一个不随 dsh 分发。
 
 ## 5. 对本项目的落点
 
@@ -485,7 +486,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
   - preset 机制改声明式：目录式 roster（`agent-presets` 包）删除，改为 profile YAML 的 `agent-preset-registry`（服务名 `agentPresets` 不变）+ `agent-preset` 声明行。「TUI 不用 preset、走 profile 全局组合」的结论不变（见 `docs/host/AGENT-COMPOSITION.md`）；两包在本 profile 均不挂载，属预期。
   - 启动失败语义反转：只有 7 个硬编码 id 是必需条目，其余 `inject` 未满足只打 stderr warning 后继续启动——升级后建议断言启动 stderr 无 `did not activate`（本次实测无）。
   - 会话格式 V3 → V4（读旧会话在内存转换、写入时才在旧文件旁发布 successor）；`Session.eventAt/snapshotEvents/ownEvents` 标 `@deprecated`（我方未使用）。
-- **升级方式**：目标版本 `0.2.0-rc.2`（`npm i -g @deepseek-ai/dsh@0.2.0-rc.2`）；**升级尚未执行**——`scripts/install.sh` 的默认版本仍是 `0.1.7-rc.2`，执行动作另立 BACKLOG 条目「宿主升级到 0.2.0-rc.2 的执行与验证」。**不要用 `npm update -g`**——npm 的 `latest` 仍停在 `0.1.5-rc.3`（dist-tags：`next` = `0.1.7-rc.2`、`alpha` = `0.1.7-alpha.2`），`npm update -g` 只会把 CLI 停在/拉回 0.1.5-rc.3。升级 CLI 后 fff 的官方包软链随安装树整体换版本，但**树外加装包（`session-title-all-prompts-llm`）要自己升版**（profile 目录里 `npm pkg set` 后 `pnpm install`）。
+- **升级方式**：**已于 2026-10-02 升到 `0.2.0-rc.2`**（`npm i -g @deepseek-ai/dsh@0.2.0-rc.2`；`scripts/install.sh` 默认版本同步为 `0.2.0-rc.2`）。当时 npm dist-tags：`latest` = `next` = `0.2.0-rc.2`、`alpha` = `0.1.7-alpha.2`。**不要用 `npm update -g`**做升级（它按 semver 解析，可能把 CLI 拉到与 profile 期望不一致的线）。升级 CLI 后 fff 的官方包软链随安装树整体换版本，但**树外加装包（`session-title-all-prompts-llm`）要自己升版**（profile 目录里 `npm pkg set` 后 `pnpm install`；本次已升到 `0.2.0-rc.2`）。
 
 ## 6. 复现命令（宿主升级后重新生成）
 
@@ -499,7 +500,7 @@ grep -rhoE 'super\([a-zA-Z_]+, *"[a-zA-Z,]+"' "$D"/*/lib/index.js | sed -E 's/.*
 { grep -rhoE "name: '@deepseek-ai/[^']+'" ~/.dsh/profiles/fff/cordis.patch.yml "$D/dsh-base/cordis.patch.yml"; } | sed "s/name: '//;s/'$//" | sed -E 's#^(@deepseek-ai/[^/]+).*#\1#' | sort -u
 ```
 
-包清单部分由 **2026-10-02** 采集（源码 checkout = tag `dsh-v0.2.0-rc.2`，321 → 325 个源码包）；挂载标记与服务索引仍来自 **2026-09-25** 那次安装树采集：宿主 `dsh --version` = `0.1.7-rc.2`，`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai` 下共 283 个包。**装好 0.2.0-rc.2 后必须整体重跑本节**。
+本文件由 **2026-10-02** 的采集生成：宿主 `dsh --version` = `0.2.0-rc.2`（当日从 0.1.7-rc.2 升级），`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai` 下共 288 个包（`dsh-*` 277），fff 挂载集合用 `dsh --profile fff --dump-config` 实测得 93 个名字项（92 计入 §1 + TUI 自插的 `tool-ask-user`）。逐行的挂载标记复核归 `docs/BACKLOG.md`「profile 挂载面扩张」步骤①。
 
 核对口径：
 

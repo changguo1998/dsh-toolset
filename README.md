@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 An in-process plugin toolset for DSH (DeepSeek Harness): a set of TypeScript plugins mounted into the DSH session process as cordis bundles, filling in capabilities such as task trees, a knowledge base with persistent memory, goal contracts, and metric loops. It also ships a homegrown terminal UI (TUI) — a third way to interact with DSH alongside the Web UI and the CLI.
 
-For agent-facing collaboration rules, see `AGENTS.md` in the repository root. For DSH contract notes shared across plugins, see `docs/host/DSH-CTX-API.md` (read-only reference, re-checked clause by clause against the current host `dsh-v0.1.7-rc.2`; for the differences between the two interface versions, see the upgrade comparison doc).
+For agent-facing collaboration rules, see `AGENTS.md` in the repository root. For DSH contract notes shared across plugins, see `docs/host/DSH-CTX-API.md` (read-only reference, re-checked clause by clause against `dsh-v0.1.7-rc.2`; the 0.2.0 comparison found no change on the surfaces this project consumes, and the differences are recorded in the upgrade comparison doc).
 
 ## Composition
 
@@ -130,7 +130,7 @@ The home for official interface study notes and upgrade documents — **not limi
 
 - `docs/host/DSH-CTX-API.md` — host ctx interface study notes (cross-plugin contract, read-only reference).
 - `docs/host/HOST-PACKAGES.md` — dictionary of official host packages and services (generated; regenerate after a host upgrade).
-- `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` — current upgrade comparison (0.1.5-rc.3 → 0.1.7-rc.2) and implementation status; the next upgrade opens a new file and moves this one into the root `archive/`.
+- `docs/host/HOST-UPGRADE-0.2.0-rc.2.md` — current upgrade comparison (0.1.7-rc.2 → 0.2.0-rc.2) and implementation status; the previous one is `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` (0.1.5-rc.3 → 0.1.7-rc.2).
 - `docs/host/AGENT-COMPOSITION.md` — current agent-side composition and its official basis (the TUI uses profile-wide composition, with no preset).
 - `docs/host/AGENT-ARCHITECTURE-ANALOGY.md` — official agent architecture and interface comparison (the design basis for task-engine and knowledge-base).
 
