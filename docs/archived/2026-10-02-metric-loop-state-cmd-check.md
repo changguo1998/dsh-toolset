@@ -1,6 +1,6 @@
 # `metric_loop` 状态文件命令复查（接取条目：`docs/BACKLOG.md`「`metric_loop` 状态文件命令复查」）
 
-状态：实现　　开启：2026-10-02　　关闭：—
+状态：关闭　　开启：2026-10-02　　关闭：2026-10-02
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -106,21 +106,95 @@
 
 `README.md` / `README.zh.md` / `docs/BACKLOG.md` / 其它包的源码与测试（README 与本条目的收尾由用户处理）。
 
-## 实现记录
+## 实现记录（2026-10-02）
 
-（见下方「测试与证据」；按时间追加关键命令与结果。）
+1. `security-guard/src/index.ts`：把 `#decide` 的命令层 + 敏感层尾部抽为 `#decideCollected`
+   （多一个可选 `operation` 覆盖，缺省仍按工具/参数推导）；新增
+   `GuardEngine.inspectCommand(command, source?)`（非字符串防御、回执首行来源标注、`recent()` 记账、
+   `allowPatterns` / `allowedPaths` 同样生效）；新增 `GuardService` 接口，`apply` 的
+   `provide("guard")` 暴露 `inspectCommand`（TUI /guard 的既有 `recent` / `policy` 不受影响）。
+1. `metric-loop/src/index.ts`：新增 `CommandChecker` 类型 + `GuardServiceLike` / `readService` /
+   `makeCommandGuard`（惰性解析 `ctx.get('guard')`；服务缺失或形状不符 → 告警一次并放行；
+   只有非空字符串回执才算拦截）；`MetricLoopController` 构造项加 `commandGuard?`；
+   `runRound` 在 `this.measure(cmd)` **之前**复查（来源标注 `metric_loop{start}` /
+   `metric_loop{tick} id=<id>`），命中即抛错 —— 本轮不测量、不落盘；`apply` 接线。
+1. `metric-loop/src/persist.ts`：`loadState` 补 `spec` 段（要求对象）与 `spec.measureCmd`
+   （要求 string）的形状校验 —— 形状异常给清晰错误，不进入命令执行路径。
+1. `metric-loop/src/engine.ts`：`normalizeSpec` 补 `measureCmd` 类型校验（`start` 入参路径同源问题；
+   原实现会先抛 `trim is not a function` 这类隐蔽错）。
+1. 测试：`security-guard/tests/guard.test.ts` +4 例、`metric-loop/tests/controller.test.ts` +3 例、
+   `metric-loop/tests/engine.test.ts` +1 例、`metric-loop/tests/persist.test.ts` +1 例。
 
-## 测试与证据
+## 测试与证据（2026-10-02）
 
-待补。
+### 单包
+
+```sh
+cd metric-loop && npm run check     # exit 0
+cd metric-loop && npm run test      # tests 42 / pass 42 / fail 0
+cd security-guard && npm run check  # exit 0
+cd security-guard && npm run test   # tests 65 / pass 65 / fail 0
+```
+
+（改前：metric-loop 37 例、security-guard 61 例 → 新增 5 + 4 例，既有用例零回归。）
+
+### 反向验证（两态）
+
+- **红态（临时撤掉检查）**：
+  - `metric-loop`：把 `runRound` 的 `denial` 恒置 `null` → `tests 42 / pass 40 / fail 2`：
+    「tick 前复查：状态文件里的危险命令被执行前拦下」→ `AssertionError: Missing expected rejection`
+    （期望 `/状态文件中的测量命令被 security-guard 拦截/`）；「apply 接线：ctx.get('guard')…」
+    → `true !== false`（`blocked.ok`）。
+  - `security-guard`：把 `inspectCommand` 改为恒 `return null` → `tests 65 / pass 61 / fail 4`
+    （4 个新增用例全失败，既有 61 例全绿）。
+- **绿态（还原）**：metric-loop 42/42、security-guard 65/65 全绿；
+  `grep -rn "REVERSE-VERIFY-TEMP"`（排除 `node_modules` / `dist`）无残留。
+
+### 端到端复核（真实 `GuardEngine` + 真实控制器；临时脚本，已删除）
+
+临时目录写状态文件（命令为「命中 `sudo` 规则的无害等价形态」：`echo 0 # su<拼接>do --version`，
+`#` 之后是注释、真跑也只 `echo 0`），把 `GuardEngine.inspectCommand` 接到
+`MetricLoopController.commandGuard`：
+
+```json
+{
+  "verdictOnTickArgs": null,
+  "blocked": true,
+  "blockedReceiptHasSudoRule": true,
+  "blockedMessage": "[metric-loop] 本轮未执行：状态文件中的测量命令被 security-guard 拦截（循环 \"probe\" 状态未变更…） | [security-guard] 命令复查来源：metric_loop{tick} id=probe。",
+  "stateRoundsAfterBlock": [0, 0],
+  "stateUpdatedAtUnchanged": true,
+  "stateFileExists": true,
+  "fixedTickOk": true,
+  "fixedTickValue": 7
+}
+```
+
+解读：`verdictOnTickArgs: null` = 工具面判定仍看不到状态文件里的命令（旁路本身成立）；
+`blocked: true` + 回执含规则 id + 来源标注 = 执行前复查生效；`stateRoundsAfterBlock`/`UpdatedAt`
+= 被拦轮次不落盘；`fixedTick*` = 换回普通命令后照常执行。
+
+### 仓库级
+
+```sh
+npm run check   # exit 0
+npm run test    # exit 0，20 包全 OK（metric-loop pass 42 / security-guard pass 65）
+npm run build   # exit 0
+format <改动文件>   # 已格式化（index.ts / persist.ts / engine.ts / controller.test.ts / guard.test.ts 有 reflow）
+git diff --name-only | grep src/   # 本次相关：metric-loop/src/{engine,index,persist}.ts、security-guard/src/index.ts
+```
+
+> 注：验证期间工作树内另有 `fs-digest/src/main.ts`、`fs-digest/tests/digest.test.ts` 与
+> `fs-digest/docs/implementation/` 的改动，属**并发 agent**（16:09 时间戳，另一条目「render 全函数化」），
+> 不在本次改动面内。
 
 ## 待办
 
 - `security-guard/README.md`「边界与限制」的「命令来自状态文件时不经过本层」条目需改为
   「已在 tick 执行前复查（需 security-guard 挂载）」；`metric-loop/README.md`「边界与限制」可补一句复查说明。
-- 项目级 `docs/BACKLOG.md` 本条目标「完成」并清理（由用户收尾）。
 - 真机验证（可选）：`dsh --profile fff` 下把状态文件改成命中黑名单的命令 → `metric_loop tick`
   应返回 `ok:false` 且回执含 `[security-guard]`；本次未跑（无 headless 凭据环境）。
+- 项目级 `docs/BACKLOG.md` 条目已由父会话清理；本追踪文档已移入 `docs/archived/`。
 
 ## 收尾记录（2026-10-02，父会话）
 
