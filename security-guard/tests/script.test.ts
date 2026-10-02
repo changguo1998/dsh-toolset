@@ -9,6 +9,9 @@
  *   口径来源缺失）；
  * - 键集/登记集来自引擎单一来源（`TOOL_SURFACE`），输出标注来源：发布形态（只有 `dist` + `scripts`）
  *   读 `dist`，仓库形态回退 `src`；两者都不可用 → 提示先 build 并 exit 2。
+ * - 覆盖边界（2026-10-02 条目）：摘要**固定一行**边界（只扫 `dsh-tool-*` 包；其它官方包 / MCP /
+ *   第三方运行时注册的工具均不在面内；`exit 0` 不等于全覆盖），`--json` 的 `boundary` 同文案且另有
+ *   稳定布尔字段 `coversMcpTools` / `exitZeroMeansFullCoverage`（均 false）；USAGE 里「0」的限定同口径。
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -222,6 +225,57 @@ test("tool-surface-check：逐工具三分类 + 名称未解析，有「需关�
   }
 });
 
+test("tool-surface-check：摘要固定输出覆盖边界行（MCP / 第三方 / 非 dsh-tool-* 官方包均不在面内）", () => {
+  const fixture = makeFixture([SOURCES.read, SOURCES.plain]);
+  try {
+    const run = runScript(["--root", fixture.root]);
+    assert.equal(run.status, 0, run.output);
+    // 固定一行且只一行（与结果无关）：面 = dsh-tool-*，MCP / 第三方 / 非该命名的官方包都不在面内
+    const lines = run.output
+      .split("\n")
+      .filter((line) => line.includes("覆盖边界："));
+    assert.equal(lines.length, 1, run.output);
+    const boundary = lines[0] ?? "";
+    assert.match(boundary, /只扫 dsh-tool-\* 包/);
+    assert.match(
+      boundary,
+      /其它官方包（如 dsh-plan-mode \/ dsh-schedule \/ dsh-experimental-tool-agent-team）/,
+    );
+    assert.match(boundary, /MCP 与第三方运行时注册的工具均不在面内/);
+    assert.match(boundary, /unknownToolAllowlist（如 mcp__\*）/);
+    assert.match(boundary, /exit 0 不等于全覆盖/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("tool-surface-check：--json 输出 boundary 文案 + 稳定布尔字段（coversMcpTools / exitZeroMeansFullCoverage）", () => {
+  const fixture = makeFixture([SOURCES.read, SOURCES.plain]);
+  try {
+    const run = runScript(["--root", fixture.root, "--json"]);
+    assert.equal(run.status, 0, run.output);
+    const parsed = JSON.parse(run.output) as {
+      boundary?: string;
+      coversMcpTools?: boolean;
+      exitZeroMeansFullCoverage?: boolean;
+    };
+    // 稳定语义：布尔字段一眼可读，机器消费不该整串比对 boundary 文案
+    assert.equal(parsed.coversMcpTools, false);
+    assert.equal(parsed.exitZeroMeansFullCoverage, false);
+    assert.equal(typeof parsed.boundary, "string");
+    const boundary = parsed.boundary ?? "";
+    assert.match(boundary, /mcp/i);
+    assert.match(boundary, /只扫 dsh-tool-\* 包/);
+    assert.match(boundary, /dsh-plan-mode/);
+    assert.match(boundary, /exit 0 不等于全覆盖/);
+    // 摘要行 = 固定前缀 + 该字段内容（同一份文案，不分叉）
+    const human = runScript(["--root", fixture.root]);
+    assert.ok(human.output.includes(`覆盖边界：${boundary}`), human.output);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("tool-surface-check：--json 结构化输出（三分类 + 未解析名 + 包/工具计数）", () => {
   const fixture = makeFixture([
     SOURCES.read,
@@ -278,7 +332,7 @@ test("tool-surface-check：--json 结构化输出（三分类 + 未解析名 + �
   }
 });
 
-test("tool-surface-check：无 --root 且无 DSH_INSTALL → 用法提示 + exit 2（不回退 cwd）", () => {
+test("tool-surface-check：无 --root 且无 DSH_INSTALL → 用法提示（含 0 的限定）+ exit 2（不回退 cwd）", () => {
   const fixture = makeFixture([SOURCES.read, SOURCES.future]);
   try {
     // cwd 特意指到「有工具包的宿主树」，证明不再按 cwd 回退
@@ -290,6 +344,17 @@ test("tool-surface-check：无 --root 且无 DSH_INSTALL → 用法提示 + exit
     assert.match(run.output, /缺少宿主目录/);
     assert.match(run.output, /用法：/);
     assert.doesNotMatch(run.output, /已覆盖/);
+    // 用法文案里 0 的限定：0 只覆盖 dsh-tool-* 面（P5）
+    assert.match(run.output, /0 仅指 dsh-tool-\* 面内/);
+    assert.match(
+      run.output,
+      /不覆盖 MCP \/ 第三方运行时注册的工具，\s*也不覆盖宿主内非 dsh-tool-\* 的其它官方包/,
+    );
+    // --help 走同一份 USAGE（同一条限定）
+    const help = runScript(["--help"]);
+    assert.equal(help.status, 0, help.output);
+    assert.match(help.output, /0 仅指 dsh-tool-\* 面内/);
+    assert.match(help.output, /不覆盖 MCP \/ 第三方运行时注册的工具/);
   } finally {
     fixture.cleanup();
   }

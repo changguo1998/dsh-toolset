@@ -4,6 +4,12 @@
 // 用途：宿主升版后跑一次，找出「security-guard 未登记、但携带路径/命令参数」的工具
 // （这类工具会绕过敏感文件层 / 命令黑名单层，属需要关注的缺口）。
 //
+// **覆盖边界**：只扫 `@deepseek-ai/dsh-tool-*` 包。**不在面内**的三类：其它官方包（非 `dsh-tool-*` 命名，
+// 如 `dsh-plan-mode` / `dsh-schedule` / `dsh-experimental-tool-agent-team`，实测它们的 `exit_plan_mode` /
+// `schedule_create` / `spawn_teammate` 扫不到）、MCP 工具、第三方运行时注册的工具（后两类宿主不可静态枚举）；
+// 故**不提供** `--include-mcp` 之类开关（只会产生假覆盖率）——摘要**固定输出**这行边界（`--json` 的
+// `boundary` 字段同内容 + 布尔字段 `coversMcpTools` / `exitZeroMeansFullCoverage`），`exit 0` **不等于**全覆盖。
+//
 // 用法：
 //   node security-guard/scripts/tool-surface-check.mjs --root <dsh 包目录 | 安装树根> [--json]
 //   DSH_INSTALL=<同上> node security-guard/scripts/tool-surface-check.mjs
@@ -39,7 +45,24 @@ const USAGE = [
   "用法：node security-guard/scripts/tool-surface-check.mjs --root <dsh 包目录 | 安装树根> [--json]",
   "      或设 DSH_INSTALL=<同上>；不再回退当前目录。",
   "      退出码：0 无「需关注」项 / 1 有「需关注」项 / 2 用法或环境错误。",
+  "      0 仅指 dsh-tool-* 面内无「需关注」项：不覆盖 MCP / 第三方运行时注册的工具，",
+  "      也不覆盖宿主内非 dsh-tool-* 的其它官方包（如 dsh-plan-mode / dsh-schedule）。",
 ].join("\n");
+
+/**
+ * **覆盖边界**（固定一行输出；`--json` 的 `boundary` 字段同内容）：
+ * 脚本只扫宿主安装树里的 `@deepseek-ai/dsh-tool-*`；**其它官方包**（非 `dsh-tool-*` 命名，如
+ * `dsh-plan-mode` / `dsh-schedule` / `dsh-experimental-tool-agent-team`）与 MCP / 第三方工具名一样
+ * **不在面内**（后者来自运行时注册、宿主不可静态枚举），故**不提供** `--include-mcp` 之类开关
+ * （给了也只会产生**假覆盖率**）。使用者要按需用 `unknownToolAllowlist`（如 `mcp__*`）或按真实参数面登记。
+ *
+ * 文案只供人读、措辞可能变：机器判**稳定语义**请用 `--json` 的布尔字段
+ * `coversMcpTools: false` / `exitZeroMeansFullCoverage: false`，勿整串比对 `boundary`。
+ */
+const BOUNDARY =
+  "只扫 dsh-tool-* 包；其它官方包（如 dsh-plan-mode / dsh-schedule / " +
+  "dsh-experimental-tool-agent-team）、MCP 与第三方运行时注册的工具均不在面内，" +
+  "需用 unknownToolAllowlist（如 mcp__*）或按真实参数面登记；exit 0 不等于全覆盖。";
 
 /** schema 元键（逐工具解析参数键时要跳过的非参数键）。 */
 const SCHEMA_META = new Set([
@@ -749,6 +772,10 @@ if (args.json === true) {
     JSON.stringify(
       {
         root: absRoot,
+        boundary: BOUNDARY,
+        // 稳定语义（勿整串比对上面的中文文案）：本脚本不覆盖 MCP 工具、exit 0 也不代表全覆盖
+        coversMcpTools: false,
+        exitZeroMeansFullCoverage: false,
         surfaceOrigin: surface.origin,
         surfacePath: surface.path,
         packages: packages.length,
@@ -773,6 +800,8 @@ if (args.json === true) {
         ? "　注意：dist 早于 src，已改用 src 解析，建议先 npm run build"
         : ""),
   );
+  // 固定一行覆盖边界（不随结果变化）：扫不到 MCP / 第三方工具，exit 0 不等于全覆盖
+  console.log(`[tool-surface-check] 覆盖边界：${BOUNDARY}`);
   console.log(
     `已覆盖 ${coveredList.length}：${coveredList.join(", ") || "无"}`,
   );
