@@ -150,12 +150,25 @@ test("render 全函数且形参顺序为 (args, value)", () => {
     assert.equal(blocks[0]?.type, "text");
     assert.equal(typeof blocks[0]?.text, "string");
   }
-  const value = { action: "orphans", orphans: ["a.md"] };
-  assert.notEqual(
-    textOf(value),
-    (tool.output.render as unknown as (only: unknown) => Array<{ text: string }>)(
-      value,
-    )[0]?.text,
-    "把 value 当第一参传入必须得不到同一结果——防 render 形参写反",
+  // 哨兵探针（有鉴别力）：第一参是 args、第二参是 value，渲染文本只由第二参决定。
+  // 哨兵放 **value 形状的第二参**，第一参用 args 形状并带一个「不该被渲染」的标记：
+  // 形参写反 / 少参（单形参实现）时渲染器拿到的是第一参 → 文本不含哨兵 → 断言必失败。
+  // （本包 render 签名是 `(_args, value)`：args 不参与输出，故哨兵只有放 value 位才可能出现。）
+  // 原先的 `textOf(value) !== render(value)` 无鉴别力：两种实现下两个文本本来就不同。
+  // args 形状与 value **同形**，标记放在渲染器会回显的字段里（放 `path` 这类不读的字段会变死断言）
+  const argsShaped = {
+    action: "orphans",
+    orphans: ["ARGS_MARKER_NOT_RENDERED"],
+  };
+  const valueShaped = { action: "orphans", orphans: ["SENTINEL_VALUE_MARKER"] };
+  const text = tool.output.render(argsShaped, valueShaped)[0]?.text ?? "";
+  assert.equal(typeof text, "string");
+  assert.ok(
+    text.includes("SENTINEL_VALUE_MARKER"),
+    "渲染的必须是第二参（value）",
+  );
+  assert.ok(
+    !text.includes("ARGS_MARKER_NOT_RENDERED"),
+    "第一参（args）不该被当成 value 渲染",
   );
 });
