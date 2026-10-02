@@ -118,6 +118,28 @@ ctx.tools.register(defineTool({
     parameters: { todos: { type: "array", items: { type: "object", properties: { content: { type: "string" } } } } },
 }));
 `,
+  /** 未登记 + 命令键在**第 3 层**（数组元素键 → 其对象成员键）→「需关注」（command）。 */
+  level3: `
+ctx.tools.register(defineTool({
+    name: "level3_tool",
+    description: "fixture 未登记工具（第 3 层 command）",
+    parameters: { children: { type: "array", required: true, items: { type: "object", properties: {
+        executor: { type: "object", properties: { command: { type: "string" } } }
+    } } } },
+}));
+`,
+  /** 未登记 + 命令键要到**第 4 层**才出现（再深一层对象成员）→ 不计入「需关注」（锁 3 层上限）。 */
+  level4: `
+ctx.tools.register(defineTool({
+    name: "level4_tool",
+    description: "fixture 未登记工具（命令键在第 4 层）",
+    parameters: { children: { type: "array", required: true, items: { type: "object", properties: {
+        acceptance: { type: "array", items: { type: "object", properties: {
+            executor: { type: "object", properties: { command: { type: "string" } } }
+        } } }
+    } } } },
+}));
+`,
 };
 
 /**
@@ -328,6 +350,37 @@ test("tool-surface-check：干净宿主（无「需关注」）→ exit 0（门�
     assert.match(run.output, /需关注 0：无/);
     assert.match(run.output, /名称未解析 0：无/);
     assert.match(run.output, /已覆盖 1：read/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("tool-surface-check 参数发现深度：第 3 层形态（children[].executor.command）计入「需关注」", () => {
+  const fixture = makeFixture([SOURCES.level3]);
+  try {
+    const run = runScript(["--root", fixture.root]);
+    assert.equal(run.status, 1, run.output);
+    assert.match(
+      run.output,
+      /level3_tool（command，dsh-tool-fixture-0：command）/,
+    );
+    // 深度来自引擎单一来源（TOOL_SURFACE.keyDepth），脚本不自维护深度数字
+    assert.match(
+      run.output,
+      /参数发现深度上限 3 层（引擎 TOOL_SURFACE\.keyDepth 单一来源/,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("tool-surface-check 参数发现深度：第 4 层形态不计入「需关注」（锁引擎 3 层上限）", () => {
+  const fixture = makeFixture([SOURCES.level4]);
+  try {
+    const run = runScript(["--root", fixture.root]);
+    assert.equal(run.status, 0, run.output);
+    assert.match(run.output, /需关注 0：无/);
+    assert.match(run.output, /未覆盖但无路径\/命令参数 1：level4_tool/);
   } finally {
     fixture.cleanup();
   }

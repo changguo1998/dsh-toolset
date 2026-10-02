@@ -300,8 +300,17 @@ const UNKNOWN_TOOL_WATCHED: ReadonlySet<string> = new Set<string>([
 ]);
 
 /**
+ * 键名启发 / check 值面扫描的**键深上限**（**单一来源**：`TOOL_SURFACE.keyDepth` 供
+ * `scripts/tool-surface-check.mjs` 复用，脚本与引擎不各维护一份）。
+ * **3 层**：顶层 → 数组元素 → 其对象成员 → 再一层数组元素 —— **数组透明、不消费键深**
+ * （数组元素对象与数组自身同键深）；更深处的同形嵌套不再纳入（**语义**上限，避免深层误伤）。
+ */
+const UNKNOWN_TOOL_KEY_DEPTH = 3;
+
+/**
  * 工具覆盖面快照：给 `scripts/tool-surface-check.mjs` 复用的**机器可读单一来源**
- * （已登记工具名 + 三类 watched 键集）。登记表本身仍是本文件内的常量，此处只是只读快照。
+ * （已登记工具名 + 三类 watched 键集 + 键深上限）。登记表本身仍是本文件内的常量，
+ * 此处只是只读快照。
  */
 export const TOOL_SURFACE = {
   /** 已登记的工具名（官方 shell / run_code / 文件工具 + 两张插件登记表）。 */
@@ -318,6 +327,8 @@ export const TOOL_SURFACE = {
   commandKeys: UNKNOWN_TOOL_COMMAND_KEYS,
   /** 未登记工具的代码键（小写归一，值是代码文本，check 模式只做路径提取）。 */
   codeKeys: UNKNOWN_TOOL_CODE_KEYS,
+  /** 未登记工具的**键深上限**（数组透明、不消费键深；脚本的参数发现深度与本字段同源）。 */
+  keyDepth: UNKNOWN_TOOL_KEY_DEPTH,
 } as const;
 
 /** 键名归一：小写比较（`filePath` → `filepath`、`measureCmd` → `measurecmd`）。 */
@@ -333,25 +344,80 @@ function watchedKeyKind(key: string): "path" | "command" | "code" | null {
   return UNKNOWN_TOOL_CODE_KEY_SET.has(lower) ? "code" : null;
 }
 
-/** 未登记工具是否携带潜在路径/命令参数：返回命中的键名（原样、去重、保序）。 */
-function unknownToolSensitiveKeys(args: Record<string, unknown>): string[] {
-  const hits: string[] = [];
-  const consider = (key: string): void => {
-    if (watchedKeyKind(key) !== null && !hits.includes(key)) hits.push(key);
-  };
-  for (const [key, value] of Object.entries(args)) {
-    consider(key);
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (item !== null && typeof item === "object" && !Array.isArray(item)) {
-          for (const inner of Object.keys(item)) consider(inner);
-        }
-      }
-    } else if (value !== null && typeof value === "object") {
-      for (const inner of Object.keys(value)) consider(inner);
+/**
+ * 遍历**容器节点**上限（对象 / 数组各算 1 个节点，**标量不计**）。
+ * 与语义上限 `UNKNOWN_TOOL_KEY_DEPTH` 分工：键深锁**语义**（3 层），节点数锁**工作量**。
+ * 上限取**节点级**量级：真实工具参数面远小于它；「无害填充 + 更深处危险键」的规避得先填到
+ * 4096 个容器才会触发截断，而**截断本身按保守口径拦截**（见 `UnknownToolWalk.truncated`）——
+ * 故既不会被打爆，也不会被填充绕过。
+ */
+const MAX_WALK_NODES = 4096;
+
+/**
+ * 遍历**嵌套深度**上限（容器层数）。数组透明不消费**键深**，但深数组照样加深**递归栈**：
+ * 实测本遍历器约 3500 层即 `RangeError`，故单列一条栈深上限（64 层远超任何真实参数面）。
+ */
+const MAX_WALK_DEPTH = 64;
+
+/** 遍历结果：是否被资源上限（`MAX_WALK_NODES` / `MAX_WALK_DEPTH`）截断。 */
+interface UnknownToolWalk {
+  /** 截断 ⇒ 调用方**必须保守处理**（deny 直接拦 / check 告警 + 拦），绝不能当成「没查到 = 放行」。 */
+  truncated: boolean;
+}
+
+/**
+ * 深度优先遍历参数结构，对每个「对象层」的键调用 `visit(key, value)`（键名原样）。
+ * - 数组透明：数组元素在数组自身那一层继续下钻（故 `files[].path` 的 `path` 与 `files` 同键深）；
+ *   数组层照常**计节点**（只是不吃键深）；
+ * - 标量：不计节点、不占栈（其键值已由所在对象层的 `visit` 看过）；
+ * - 环引用经 `WeakSet` 跳过（自引用 / 共享引用都保证终止）；
+ * - 资源上限耗尽即**停止下探**并置 `truncated = true`（不抛错；「还有没查的」交由调用方保守处置）。
+ */
+function walkUnknownToolArgs(
+  args: Record<string, unknown>,
+  visit: (key: string, value: unknown) => void,
+): UnknownToolWalk {
+  const seen = new WeakSet<object>();
+  let nodes = MAX_WALK_NODES;
+  let truncated = false;
+  const walk = (value: unknown, keyDepth: number, depth: number): void => {
+    if (keyDepth > UNKNOWN_TOOL_KEY_DEPTH) return;
+    if (value === null || typeof value !== "object") return;
+    if (depth > MAX_WALK_DEPTH || nodes <= 0) {
+      truncated = true;
+      return;
     }
-  }
-  return hits;
+    nodes -= 1;
+    if (seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, keyDepth, depth + 1);
+      return;
+    }
+    for (const [key, inner] of Object.entries(value)) {
+      visit(key, inner);
+      walk(inner, keyDepth + 1, depth + 1);
+    }
+  };
+  walk(args, 1, 1);
+  return { truncated };
+}
+
+/** 键名启发结果：命中键名（原样、去重、保序）+ 是否被资源上限截断。 */
+interface UnknownToolKeyScan {
+  keys: string[];
+  truncated: boolean;
+}
+
+/** 未登记工具是否携带潜在路径/命令参数：返回命中的键名与截断标记。 */
+function unknownToolSensitiveKeys(
+  args: Record<string, unknown>,
+): UnknownToolKeyScan {
+  const keys: string[] = [];
+  const { truncated } = walkUnknownToolArgs(args, (key) => {
+    if (watchedKeyKind(key) !== null && !keys.includes(key)) keys.push(key);
+  });
+  return { keys, truncated };
 }
 
 /** 未登记工具拦截回执（unknownToolPolicy="deny"）：放行方式给配置级可行动作，不再只说「改源码」。 */
@@ -361,6 +427,21 @@ function formatUnknownToolReceipt(toolName: string, keys: string[]): string {
     "原因：该工具不在 security-guard 的登记表内，无法确认其路径/命令是否经过敏感文件层与命令黑名单层。",
     "放行方式（三选一）：",
     '  ① 配 unknownToolPolicy: "check"：放行安全值，仍拦敏感路径 / 危险命令；',
+    `  ② 配 unknownToolAllowlist: ["${toolName}"]：该工具整体放行（工具名支持 * 结尾的前缀通配）；`,
+    "  ③ 按真实参数面登记进 FILE_TOOLS / PLUGIN_FILE_TOOLS / PLUGIN_COMMAND_TOOLS（改源码，最彻底）。",
+  ].join("\n");
+}
+
+/**
+ * 参数面超出遍历资源上限时的拦截回执（deny / check 共用）。
+ * 口径：**截断 = 拦**（宁可误拦不可漏拦）——安全策略层只做有界检查，「没查完」不能当成「没查到」。
+ */
+function formatUnknownToolTruncatedReceipt(toolName: string): string {
+  return [
+    `[security-guard] 已拦截：未登记工具「${toolName}」的参数面超出遍历上限（${MAX_WALK_NODES} 个容器节点 / ${MAX_WALK_DEPTH} 层嵌套）。`,
+    "原因：本层只做有界检查，参数面被截断时无法确认更深处是否藏着敏感路径 / 危险命令，按保守口径拦截。",
+    "放行方式（三选一）：",
+    "  ① 缩小参数面：把超大数组 / 深层嵌套拆成多次调用；",
     `  ② 配 unknownToolAllowlist: ["${toolName}"]：该工具整体放行（工具名支持 * 结尾的前缀通配）；`,
     "  ③ 按真实参数面登记进 FILE_TOOLS / PLUGIN_FILE_TOOLS / PLUGIN_COMMAND_TOOLS（改源码，最彻底）。",
   ].join("\n");
@@ -409,6 +490,8 @@ interface UnknownToolScan {
   commands: { text: string; key: string }[];
   /** 待过敏感文件层的路径。 */
   paths: { path: string; key: string }[];
+  /** 遍历是否被资源上限截断（截断 ⇒ check 必须告警 + 拦，绝不能静默放行）。 */
+  truncated: boolean;
 }
 
 /** 取「可作命令/路径文本的值」：非空字符串，或数组里的非空字符串元素。 */
@@ -436,17 +519,19 @@ function pathLikeValue(text: string): string | null {
 
 /**
  * 未登记工具的键面 + 值面扫描（`unknownToolPolicy: "check"` 用）：
- * 遍历深度与键名启发一致（顶层键 + 数组元素键 / 嵌套对象一层键），命中 watched 键时把该键下的
- * 字符串值（含数组元素）**按键类定向**：
+ * 遍历深度与键名启发一致（同一遍历器 `walkUnknownToolArgs`，`UNKNOWN_TOOL_KEY_DEPTH` 上限 3 层：
+ * 顶层键 → 数组元素键 → 其对象成员键 → 再一层数组元素键；深度口径不分叉），
+ * 命中 watched 键时把该键下的字符串值（含数组元素）**按键类定向**：
  * - 路径键 → 直接作路径候选（敏感文件层）；
  * - 命令键 → 作命令文本（命令黑名单层）；
  * - 代码键（`script` / `code` / `program`）→ 只做**路径类提取**（`extractCommandPaths`），
  *   不整段送命令层（代码里的危险词字面不算执行该命令，避免误拦）；
  * - 非 watched 键 → 字符串值再过一次值面判定（`cwd:` 前缀 / 绝对路径）。
+ * 返回的 `truncated` 由同一遍历器的资源上限给出：截断时调用方**不得**静默放行。
  */
 function scanUnknownToolArgs(args: Record<string, unknown>): UnknownToolScan {
-  const scan: UnknownToolScan = { commands: [], paths: [] };
-  const consider = (key: string, value: unknown): void => {
+  const scan: UnknownToolScan = { commands: [], paths: [], truncated: false };
+  const { truncated } = walkUnknownToolArgs(args, (key, value) => {
     const kind = watchedKeyKind(key);
     for (const text of textValues(value)) {
       if (kind === "command") scan.commands.push({ text, key });
@@ -460,23 +545,8 @@ function scanUnknownToolArgs(args: Record<string, unknown>): UnknownToolScan {
         if (like !== null) scan.paths.push({ path: like, key });
       }
     }
-  };
-  for (const [key, value] of Object.entries(args)) {
-    consider(key, value);
-    const nested: Record<string, unknown>[] = Array.isArray(value)
-      ? value.filter(
-          (item): item is Record<string, unknown> =>
-            item !== null && typeof item === "object" && !Array.isArray(item),
-        )
-      : value !== null && typeof value === "object"
-        ? [value as Record<string, unknown>]
-        : [];
-    for (const item of nested) {
-      for (const [innerKey, innerValue] of Object.entries(item)) {
-        consider(innerKey, innerValue);
-      }
-    }
-  }
+  });
+  scan.truncated = truncated;
   return scan;
 }
 
@@ -789,6 +859,10 @@ export function resolveGuardConfig(
 export class GuardEngine {
   #cfg: ResolvedConfig;
   #records: GuardRecord[] = [];
+  /** 未登记工具的参数扫描失败（畸形参数）是否已告警（只告警一次，避免被刷屏）。 */
+  #unknownToolScanWarned = false;
+  /** 未登记工具的参数面超出遍历上限（截断 → 保守拦）是否已告警（只告警一次）。 */
+  #unknownToolTruncationWarned = false;
 
   constructor(config: SecurityGuardConfig = {}) {
     this.#cfg = resolveGuardConfig(config);
@@ -888,20 +962,32 @@ export class GuardEngine {
       const commandTool = pluginCommandTool(toolName);
       // 未登记工具：先过放行名单（命中即无条件放行），再按 unknownToolPolicy 三态判定
       if (plugin === undefined && commandTool === undefined) {
-        if (unknownToolAllowed(toolName, cfg.unknownToolAllowlistRules)) {
+        // 未登记工具的键面/值面扫描对**模型给的任意 JSON** 做递归：结构可能畸形（超深数组 / 环 /
+        // 枚举即抛错的 Proxy 等）。任何异常一律 fail-open（告警一次 + 按放行处理，与「guard 缺失」
+        // 同口径），绝不让 inspect 抛到宿主 listener —— 否则一个畸形参数就能把 pre-execute 打崩。
+        try {
+          if (unknownToolAllowed(toolName, cfg.unknownToolAllowlistRules)) {
+            return null;
+          }
+          if (cfg.unknownToolPolicy === "allow") return null;
+          if (cfg.unknownToolPolicy === "deny") {
+            // deny：整工具拦「携带潜在路径/命令参数」的未登记工具（键名启发：
+            // walkUnknownToolArgs 深度递归，键深上限 UNKNOWN_TOOL_KEY_DEPTH = 3 层，键名小写归一）
+            const scanned = unknownToolSensitiveKeys(args);
+            if (scanned.keys.length > 0) {
+              return formatUnknownToolReceipt(toolName, scanned.keys);
+            }
+            // 资源上限截断：键没查完 ≠ 没查到 → 保守拦（宁可误拦不可漏拦）
+            return scanned.truncated
+              ? formatUnknownToolTruncatedReceipt(toolName)
+              : null;
+          }
+          // check：不整工具硬拦，把 watched 键下的字符串值按语义派发到既有两层
+          return this.#checkUnknownTool(toolName, args);
+        } catch (error) {
+          this.#warnUnknownToolScanFailure(toolName, error);
           return null;
         }
-        if (cfg.unknownToolPolicy === "allow") return null;
-        if (cfg.unknownToolPolicy === "deny") {
-          // deny：整工具拦「携带潜在路径/命令参数」的未登记工具（键名启发：
-          // 顶层 + 数组元素/嵌套对象一层，键名小写归一）
-          const watched = unknownToolSensitiveKeys(args);
-          return watched.length === 0
-            ? null
-            : formatUnknownToolReceipt(toolName, watched);
-        }
-        // check：不整工具硬拦，把 watched 键下的字符串值按语义派发到既有两层
-        return this.#checkUnknownTool(toolName, args);
       }
       // 插件文件工具（登记表）：按各自 pathKeys / pathArrayKeys 提取路径，
       // 与官方文件工具同一路径解析与敏感文件层口径
@@ -922,18 +1008,52 @@ export class GuardEngine {
   }
 
   /**
+   * 未登记工具的参数扫描失败（畸形参数：超深结构、抛错的 Proxy 等）：
+   * `console.warn` **一次**（不随调用重复，避免刷屏）+ 按**放行**处理 —— fail-open 口径与
+   * 「guard 缺失」一致（安全策略层不该把可用性一起赔进去），且绝不让异常抛到宿主 listener。
+   */
+  #warnUnknownToolScanFailure(toolName: string, error: unknown): void {
+    if (this.#unknownToolScanWarned) return;
+    this.#unknownToolScanWarned = true;
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[security-guard] 未登记工具「${toolName}」的参数扫描失败（${detail}），已按放行处理` +
+        "（fail-open；本次会话只告警一次）。",
+    );
+  }
+
+  /**
+   * 参数面超出遍历资源上限（超深 / 超大）：`console.warn` **一次** + **按拦处理**。
+   * 「截断」不是放行理由 —— 查不完就保守拦（宁可误拦不可漏拦），与 deny 口径一致。
+   */
+  #warnUnknownToolScanTruncated(toolName: string): void {
+    if (this.#unknownToolTruncationWarned) return;
+    this.#unknownToolTruncationWarned = true;
+    console.warn(
+      `[security-guard] 未登记工具「${toolName}」的参数面超出遍历上限` +
+        `（${MAX_WALK_NODES} 个容器节点 / ${MAX_WALK_DEPTH} 层嵌套），已按保守口径拦截` +
+        "（fail-closed；本次会话只告警一次）。",
+    );
+  }
+
+  /**
    * `unknownToolPolicy: "check"`：未登记工具**不整工具硬拦**——把携带的 watched 键下的字符串值
    * （含数组元素）**按键类定向**派发：命令键（`command` / `measureCmd` / `cmd`）→ 命令黑名单层
    * （`commandBlacklist.allowPatterns` 可放行）；路径键与值面绝对路径（`cwd:` 前缀 / `/`、`~/`）→
    * 敏感文件层（`sensitiveFiles.allowedPaths` 可放行）；代码键（`script` / `code` / `program`）只做
-   * 路径提取后过敏感文件层、**不整段送命令层**。命中才拦（标准回执前置一行来源标注），否则放行。
+   * 路径提取后过敏感文件层、**不整段送命令层**。命中才拦（标准回执前置一行来源标注），否则放行；
+   * 参数面被资源上限**截断**时按保守口径处置：告警一次 + 拦（绝不静默放行）。
    */
   #checkUnknownTool(
     toolName: string,
     args: Record<string, unknown>,
   ): string | null {
     const scan = scanUnknownToolArgs(args);
-    if (scan.commands.length === 0 && scan.paths.length === 0) return null;
+    if (scan.commands.length === 0 && scan.paths.length === 0) {
+      if (!scan.truncated) return null;
+      this.#warnUnknownToolScanTruncated(toolName);
+      return formatUnknownToolTruncatedReceipt(toolName);
+    }
     return this.#decideCollected(
       toolName,
       args,

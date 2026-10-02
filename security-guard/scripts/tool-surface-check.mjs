@@ -14,13 +14,16 @@
 // 1) **逐工具**解析工具包源码的 `defineTool({ ... })`：
 //    - `name: "x"` → 工具名；`name` 为计算值（`toolName` / `run.meta.name`）→ 计入「名称未解析」；
 //    - `parameters` 对象字面量的键 = 工具参数键；`parameters.properties`（JSON-schema 形态）取其键；
-//    - 第 2 层（参数值为对象时的键 / `items.properties` 数组元素键）也纳入 —— 与引擎
-//      `unknownToolSensitiveKeys` 的键名启发深度一致（顶层 + 一层嵌套）。
-// 2) **键集单一来源**：路径 / 命令 / 代码三类键与已登记工具名取自本包 `src/index.ts` 的
-//    `UNKNOWN_TOOL_PATH_KEYS` / `UNKNOWN_TOOL_COMMAND_KEYS` / `UNKNOWN_TOOL_CODE_KEYS` /
-//    `TOOL_SURFACE`（发布形态优先读已构建的 `dist/src/index.js`，`src` 作仓库内回退；
-//    dist 早于 src 时改用 src 并提示，避免读到过期键集）——脚本不再自维护一份键表
-//    （旧版两处键集互不一致）。两者都读不到 → **提示先 build 并 exit 2**，不静默当作无规则。
+//    - 递归下钻**上限 = 引擎的键深上限**（`TOOL_SURFACE.keyDepth`，即 `UNKNOWN_TOOL_KEY_DEPTH`；
+//      顶层 → 数组元素键 → 其对象成员键 → 再一层数组元素键；数组经 `items` 透明、不额外消费深度）
+//      ——脚本不再自维护深度数字；另设**分析步数上限**（`MAX_PARAM_KEY_STEPS`）防病态深层嵌套
+//      把递归栈打爆、耗尽即停止下探。
+// 2) **键集 + 键深单一来源**：路径 / 命令 / 代码三类键、已登记工具名与**键深上限**取自本包
+//    `src/index.ts` 的 `UNKNOWN_TOOL_PATH_KEYS` / `UNKNOWN_TOOL_COMMAND_KEYS` /
+//    `UNKNOWN_TOOL_CODE_KEYS` / `UNKNOWN_TOOL_KEY_DEPTH` / `TOOL_SURFACE`
+//    （发布形态优先读已构建的 `dist/src/index.js`，`src` 作仓库内回退；dist 早于 src 时改用 src
+//    并提示，避免读到过期口径）——脚本不再自维护一份键表（旧版两处键集互不一致）。
+//    两者都读不到（含缺 `keyDepth`）→ **提示先 build 并 exit 2**，不静默当作无规则 / 无深度。
 // 3) 计算值的 `name` 无法静态解析：单列「名称未解析」行；若其参数键命中 watched 键（如 `workflow`
 //    的 `script`），同时计入「需关注」（宁可多报，人工复核）。
 // 4) 默认根**不再回退** $HOME / 当前目录：缺 `--root` 与 `DSH_INSTALL` 时打印用法并 exit 2
@@ -276,34 +279,55 @@ function literalEntries(text) {
 }
 
 /**
- * 取参数值里的**第 2 层**参数键（模拟引擎的键名启发深度）：
- * `properties` 子对象优先（JSON-schema 形态）→ `items`（数组元素，递归一层）→ 直接对象字面量的键。
+ * 参数发现键深上限：**来自引擎单一来源** `TOOL_SURFACE.keyDepth`（此处只是载入前的占位缺省；
+ * 载入失败会 `exit 2`，绝不会拿占位值继续跑）。与引擎 `UNKNOWN_TOOL_KEY_DEPTH` 同源。
  */
-function nestedKeys(valueText, budget) {
+let paramKeyDepth = 3;
+
+/**
+ * 参数发现**分析步数**上限（防炸栈）：每个递归帧递减、耗尽即**停止下探**（不抛错）。
+ * `items` 与数组同层（不吃键深），病态的深层嵌套源码同样能把递归栈打爆 —— 与引擎同款防护
+ * （引擎侧为 `MAX_WALK_DEPTH = 64` 层嵌套 + `MAX_WALK_NODES` 节点上限）；脚本只分析已安装包的
+ * schema 文本（非模型输入），故只保留防炸栈这一个上限。
+ */
+const MAX_PARAM_KEY_STEPS = 64;
+
+/**
+ * 取参数值里第 `level` 层起的参数键（模拟引擎的键名启发深度，上限 `paramKeyDepth`）：
+ * `properties` 子对象优先（JSON-schema 形态）→ 其余直接对象字面量的键（cordis/schemastery）→
+ * 每层再对**参数值**下钻一层（`level + 1`）；`items`（数组元素）**与数组同层**、递归时 `level` 不变，
+ * 故 `children[].acceptance[].command` 这类两层嵌套能发现、再深一层即停（与引擎同口径）。
+ * `budget` 为本次顶层调用的步数预算（省略即新建，递归时透传）：耗尽只**停止下探**、不抛错。
+ */
+function nestedKeys(valueText, level, budget = { left: MAX_PARAM_KEY_STEPS }) {
   const out = new Set();
   const trimmed = valueText.trim();
-  if (budget <= 0 || !trimmed.startsWith("{"))
+  if (budget.left <= 0 || level > paramKeyDepth || !trimmed.startsWith("{")) {
     return { keys: out, spread: false };
+  }
+  budget.left -= 1;
   const { items, spread } = literalEntries(valueText);
   const byKey = new Map(items.map((e) => [e.key, e.valueText]));
+  let seenSpread = spread;
   const props = byKey.get("properties");
-  if (props !== undefined && props.trim().startsWith("{")) {
-    const inner = literalEntries(props);
-    for (const e of inner.items) out.add(e.key);
-    return { keys: out, spread: spread || inner.spread };
+  const entries =
+    props !== undefined && props.trim().startsWith("{")
+      ? literalEntries(props).items
+      : items.filter((e) => !SCHEMA_META.has(e.key));
+  for (const e of entries) {
+    out.add(e.key);
+    const inner = nestedKeys(e.valueText, level + 1, budget);
+    for (const key of inner.keys) out.add(key);
+    seenSpread = seenSpread || inner.spread;
   }
+  // 数组透明：`{ type: "array", items: { properties: {...} } }` 的 items 与数组同层
   const itemsValue = byKey.get("items");
   if (itemsValue !== undefined && itemsValue.trim().startsWith("{")) {
-    const inner = nestedKeys(itemsValue, budget - 1);
+    const inner = nestedKeys(itemsValue, level, budget);
     for (const key of inner.keys) out.add(key);
-    return { keys: out, spread: spread || inner.spread };
+    seenSpread = seenSpread || inner.spread;
   }
-  // 直接对象字面量（cordis/schemastery 的对象子参数）
-  for (const e of items) {
-    if (SCHEMA_META.has(e.key)) continue;
-    out.add(e.key);
-  }
-  return { keys: out, spread };
+  return { keys: out, spread: seenSpread };
 }
 
 /**
@@ -328,6 +352,7 @@ function parseTools(text) {
     const keys = new Set();
     for (const entry of entries.items) {
       keys.add(entry.key);
+      // 顶层键 = 第 1 层；参数值里的键从第 2 层起递归发现（上限 paramKeyDepth，来自引擎）
       const nested = nestedKeys(entry.valueText, 2);
       for (const key of nested.keys) keys.add(key);
     }
@@ -370,6 +395,8 @@ function surfaceFromDist(mod) {
     !Array.isArray(surface.pathKeys) ||
     !Array.isArray(surface.commandKeys) ||
     !Array.isArray(surface.codeKeys) ||
+    !Number.isInteger(surface.keyDepth) ||
+    surface.keyDepth < 1 ||
     surface.pathKeys.length === 0 ||
     surface.commandKeys.length === 0 ||
     surface.registered.length === 0
@@ -381,6 +408,7 @@ function surfaceFromDist(mod) {
     pathKeys: surface.pathKeys,
     commandKeys: surface.commandKeys,
     codeKeys: surface.codeKeys,
+    keyDepth: surface.keyDepth,
   };
 }
 
@@ -411,6 +439,12 @@ function surfaceFromSource(text) {
   const pathKeys = listOf("UNKNOWN_TOOL_PATH_KEYS");
   const commandKeys = listOf("UNKNOWN_TOOL_COMMAND_KEYS");
   const codeKeys = listOf("UNKNOWN_TOOL_CODE_KEYS");
+  /** 键深上限（键名启发 / check 扫描同源）：`const UNKNOWN_TOOL_KEY_DEPTH = N;`。 */
+  const keyDepthOf = () => {
+    const m = /const\s+UNKNOWN_TOOL_KEY_DEPTH\s*=\s*(\d+)\s*;/.exec(text);
+    return m === null ? null : Number(m[1]);
+  };
+  const keyDepth = keyDepthOf();
   const registered = [
     ...(setOf("SHELL_TOOLS") ?? []),
     ...(setOf("RUN_CODE_TOOLS") ?? []),
@@ -422,11 +456,13 @@ function surfaceFromSource(text) {
     pathKeys === null ||
     commandKeys === null ||
     codeKeys === null ||
+    keyDepth === null ||
+    keyDepth < 1 ||
     registered.length === 0
   ) {
     return null;
   }
-  return { registered, pathKeys, commandKeys, codeKeys };
+  return { registered, pathKeys, commandKeys, codeKeys, keyDepth };
 }
 
 /**
@@ -574,10 +610,14 @@ if (surface === null) {
   );
   console.error(
     "→ 先跑 `npm --prefix security-guard run build` 生成 dist；若已构建仍失败，检查引擎常量是否改名" +
-      "（UNKNOWN_TOOL_PATH_KEYS / UNKNOWN_TOOL_COMMAND_KEYS / UNKNOWN_TOOL_CODE_KEYS / TOOL_SURFACE）。",
+      "（UNKNOWN_TOOL_PATH_KEYS / UNKNOWN_TOOL_COMMAND_KEYS / UNKNOWN_TOOL_CODE_KEYS / " +
+      "UNKNOWN_TOOL_KEY_DEPTH / TOOL_SURFACE）。",
   );
   process.exit(2);
 }
+
+// 参数发现深度与引擎**同源**（`TOOL_SURFACE.keyDepth`；缺失时上面已 exit 2，不会用占位值继续跑）
+paramKeyDepth = surface.keyDepth;
 
 if (isScopeLayer(absRoot)) {
   console.error(
@@ -727,7 +767,8 @@ if (args.json === true) {
     `[tool-surface-check] 宿主目录：${absRoot}（${packages.length} 个 dsh-tool 包，解析出 ${toolCount} 个工具）`,
   );
   console.log(
-    `[tool-surface-check] 键集/登记集来源：${surface.origin}（${surface.path}；逐工具解析 parameters，键名小写归一）` +
+    `[tool-surface-check] 键集/登记集来源：${surface.origin}（${surface.path}；逐工具解析 parameters，键名小写归一，` +
+      `参数发现深度上限 ${paramKeyDepth} 层（引擎 TOOL_SURFACE.keyDepth 单一来源，数组透明））` +
       (surface.fallbackFromStaleDist
         ? "　注意：dist 早于 src，已改用 src 解析，建议先 npm run build"
         : ""),

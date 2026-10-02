@@ -1321,26 +1321,62 @@ test("unknownToolPolicy:deny —— 只拦携带潜在路径/命令参数的未�
   assert.equal(guard.inspect("empty_unknown", {}), null);
 });
 
-test("unknownToolPolicy:deny —— 已登记与官方工具判定与缺省一致", () => {
-  const strict = new GuardEngine({ homeDir: HOME, unknownToolPolicy: "deny" });
-  const loose = new GuardEngine({ homeDir: HOME });
-  const cases: Array<[string, Record<string, unknown>]> = [
-    ["read", { file_path: "/tmp/notes.txt" }],
-    ["bash", { command: "echo ok" }],
-    ["hash_read", { path: "/tmp/notes.txt" }],
-    ["metric_loop", { action: "start", measureCmd: "echo 42" }],
-  ];
-  for (const [tool, args] of cases) {
-    assert.equal(
-      strict.inspect(tool, args),
-      loose.inspect(tool, args),
-      `${tool} 的判定不应受 unknownToolPolicy 影响`,
-    );
+/** 对照 / 嵌套用例用：黑名单命中命令按拼接构造（不在测试文件里写危险命令字面量）。 */
+const CHECK_BLACKLIST_COMMAND = `echo ${["su", "do ls /"].join("")}`;
+
+test("unknownToolPolicy：三态下已登记与官方工具判定一致（含敏感参数 + 同规则 id，有区分度）", () => {
+  const fixture = makeSensitiveFixture();
+  try {
+    // 三态引擎：缺省（allow 生效）/ check / deny —— 已登记与官方工具都不该受策略影响
+    const loose = new GuardEngine({ homeDir: HOME });
+    const checking = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "check",
+    });
+    const strict = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "deny",
+    });
+    // 四个 case 都带敏感参数（敏感路径 / 黑名单命中命令），并给出各自应命中的规则 id
+    const cases: Array<[string, Record<string, unknown>, RegExp]> = [
+      ["read", { file_path: fixture.envPath }, /规则「env-file」/],
+      ["hash_read", { path: fixture.envPath }, /规则「env-file」/],
+      ["bash", { command: CHECK_BLACKLIST_COMMAND }, /规则「sudo」/],
+      [
+        "metric_loop",
+        { action: "start", measureCmd: CHECK_BLACKLIST_COMMAND },
+        /规则「sudo」/,
+      ],
+    ];
+    for (const [tool, args, ruleId] of cases) {
+      const verdicts = [loose, checking, strict].map((engine) =>
+        engine.inspect(tool, args),
+      );
+      // 区分度自检：缺省（宽松）模式必须**确实拦**，否则三态相等只会是「都没拦」的假一致
+      assert.ok(
+        typeof verdicts[0] === "string",
+        `${tool} 的敏感参数在缺省模式下应被拦（用例区分度）`,
+      );
+      // 三态同判（已登记 / 官方工具不受 unknownToolPolicy 影响）
+      assert.equal(
+        verdicts[1],
+        verdicts[0],
+        `${tool} 在 allow/check 下判定应一致`,
+      );
+      assert.equal(
+        verdicts[2],
+        verdicts[1],
+        `${tool} 在 check/deny 下判定应一致`,
+      );
+      // 同判之外还要同**规则 id**（证明走的是同一层、同一规则）
+      for (const verdict of verdicts) {
+        assert.match(verdict as string, ruleId, `${tool} 回执应含同一规则 id`);
+      }
+    }
+  } finally {
+    fixture.cleanup();
   }
 });
-
-/** check 模式的命令键用例：黑名单命中命令按拼接构造（不在测试文件里写危险命令字面量）。 */
-const CHECK_BLACKLIST_COMMAND = `echo ${["su", "do ls /"].join("")}`;
 
 // ---------------------------------------------------------------- check 模式（D1）
 // 键类定向：命令键（command / measureCmd / cmd）→ 命令黑名单层；
@@ -1543,42 +1579,273 @@ test("unknownToolPolicy:check —— allowPatterns / allowedPaths 两层放行�
   }
 });
 
-test("unknownToolPolicy：三态下已登记/官方工具判定一致（含敏感参数，有区分度）", () => {
+// ------------------------------------------- 键发现深度（D1：深度递归，上限 3 层）
+// 键名启发与 check 扫描共用 walkUnknownToolArgs：顶层键 → 数组元素键 → 其对象成员键 →
+// 再一层数组元素键（数组透明、不额外消费深度）；更深的同形嵌套不纳入（锁上限语义）。
+
+test("unknownToolPolicy 深度 3 层 —— 两层嵌套（数组元素 → 对象成员）在 check 与 deny 下都拦", () => {
   const fixture = makeSensitiveFixture();
   try {
-    const engines = ["allow", "check", "deny"].map(
-      (policy) =>
-        new GuardEngine({
-          homeDir: HOME,
-          unknownToolPolicy: policy as "allow" | "check" | "deny",
+    for (const method of ["check", "deny"] as const) {
+      const guard = new GuardEngine({
+        homeDir: HOME,
+        unknownToolPolicy: method,
+      });
+      // 命中形态：deny 报携带的 watched 键名；check 前置来源键 + 标准回执（含规则 id）
+      const commandExpect =
+        method === "deny"
+          ? /携带潜在路径\/命令参数（command）/
+          : /命令命中黑名单规则「sudo」/;
+      const pathExpect =
+        method === "deny"
+          ? /携带潜在路径\/命令参数（path）/
+          : /规则「env-file」/;
+      const expectHit = (
+        hit: string | null,
+        expect: RegExp,
+        label: string,
+      ): void => {
+        assert.ok(typeof hit === "string", `${method}：${label} 应被拦`);
+        assert.match(hit as string, expect, `${method}：${label} 的回执`);
+      };
+      // children[].executor.command（task_decompose 的真实形态：数组元素 → 对象成员）
+      expectHit(
+        guard.inspect("unknown_declarer", {
+          children: [{ executor: { command: CHECK_BLACKLIST_COMMAND } }],
         }),
-    );
-    const cases: Array<[string, Record<string, unknown>]> = [
-      ["read", { file_path: fixture.envPath }],
-      ["bash", { command: `cat ${fixture.envPath}` }],
-      ["hash_read", { path: fixture.envPath }],
-      ["metric_loop", { action: "start", measureCmd: CHECK_BLACKLIST_COMMAND }],
-    ];
-    for (const [tool, args] of cases) {
-      // 区分度自检：该参数面本来就该被拦（否则三态相等只是「都没拦」的假一致）
-      assert.ok(
-        typeof engines[0]!.inspect(tool, args) === "string",
-        `${tool} 的敏感参数应被拦（用例区分度）`,
+        commandExpect,
+        "children[].executor.command",
       );
-      const verdicts = engines.map((engine) => engine.inspect(tool, args));
-      assert.equal(
-        verdicts[0],
-        verdicts[1],
-        `${tool} 在 allow/check 下判定应一致`,
+      // children[].acceptance[].command（数组元素 → 对象成员 → 再一层数组元素）
+      expectHit(
+        guard.inspect("unknown_declarer", {
+          children: [{ acceptance: [{ command: CHECK_BLACKLIST_COMMAND }] }],
+        }),
+        commandExpect,
+        "children[].acceptance[].command",
       );
-      assert.equal(
-        verdicts[1],
-        verdicts[2],
-        `${tool} 在 check/deny 下判定应一致`,
+      // files[].meta.path（数组元素 → 对象成员，路径键）
+      expectHit(
+        guard.inspect("unknown_reader", {
+          files: [{ meta: { path: fixture.envPath } }],
+        }),
+        pathExpect,
+        "files[].meta.path",
       );
     }
   } finally {
     fixture.cleanup();
+  }
+});
+
+test("unknownToolPolicy 深度上限 —— 第 4 层的同形嵌套不误伤（锁定 3 层上限）", () => {
+  const fixture = makeSensitiveFixture();
+  try {
+    for (const method of ["check", "deny"] as const) {
+      const guard = new GuardEngine({
+        homeDir: HOME,
+        unknownToolPolicy: method,
+      });
+      // 命令键要到第 4 层才出现：children[].acceptance[].executor.command
+      assert.equal(
+        guard.inspect("depth4_unknown", {
+          children: [
+            {
+              acceptance: [{ executor: { command: CHECK_BLACKLIST_COMMAND } }],
+            },
+          ],
+        }),
+        null,
+        `${method}：第 4 层的命令键不应纳入（上限 3 层）`,
+      );
+      // 路径键同形：files[].meta.inner.path
+      assert.equal(
+        guard.inspect("depth4_unknown", {
+          files: [{ meta: { inner: { path: fixture.envPath } } }],
+        }),
+        null,
+        `${method}：第 4 层的路径键不应纳入（上限 3 层）`,
+      );
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("unknownToolPolicy 深度递归 —— 环引用（自引用）遍历终止且环上 watched 键照常命中", () => {
+  const cyclic: Record<string, unknown> = { command: CHECK_BLACKLIST_COMMAND };
+  cyclic.loop = cyclic; // 自引用：WeakSet 去重后遍历必须终止（不依赖深度上限兜底）
+  for (const method of ["check", "deny"] as const) {
+    const guard = new GuardEngine({ homeDir: HOME, unknownToolPolicy: method });
+    assert.ok(
+      typeof guard.inspect("cyclic_unknown", { node: cyclic }) === "string",
+      `${method}：环上第 2 层的 command 键应被拦（且不炸栈）`,
+    );
+  }
+  // 无 watched 键的自引用结构：正常放行（终止 + 不误拦）
+  const plain: Record<string, unknown> = { id: "x" };
+  plain.self = plain;
+  assert.equal(
+    new GuardEngine({ homeDir: HOME, unknownToolPolicy: "deny" }).inspect(
+      "cyclic_plain_unknown",
+      { node: plain },
+    ),
+    null,
+  );
+});
+
+// ------------------------ 遍历资源上限（P1：不炸栈 / 截断保守拦 / 无害填充不规避）
+
+/** 构造 `depth` 层嵌套数组（最内层为 `leaf`）：循环构造，不写长字面量。 */
+function nestedArray(depth: number, leaf: unknown = "leaf"): unknown {
+  let node: unknown = leaf;
+  for (let i = 0; i < depth; i += 1) node = [node];
+  return node;
+}
+
+/** 构造 `count` 个无害填充对象（各 1 个标量成员 → 各占 1 个容器节点）。 */
+function fillerEntries(count: number): Record<string, unknown>[] {
+  return Array.from({ length: count }, (_, i) => ({ id: `x${i}` }));
+}
+
+test("unknownToolPolicy 遍历上限 —— 无害填充（35 / 200 个容器）不规避后面的危险键", () => {
+  for (const method of ["check", "deny"] as const) {
+    const guard = new GuardEngine({ homeDir: HOME, unknownToolPolicy: method });
+    for (const count of [35, 200]) {
+      const hit = guard.inspect("filler_unknown", {
+        children: [
+          ...fillerEntries(count),
+          { executor: { command: CHECK_BLACKLIST_COMMAND } },
+        ],
+      });
+      assert.ok(
+        typeof hit === "string",
+        `${method}：${count} 个无害填充后仍应拦（填充不得挤掉检查预算）`,
+      );
+      // 必须是**真命中**回执（不是截断兜底）：填充量远小于节点上限，检查跑完了
+      assert.doesNotMatch(
+        hit as string,
+        /超出遍历上限/,
+        `${method}：${count} 个填充不该触发截断`,
+      );
+      assert.match(
+        hit as string,
+        method === "deny" ? /（command）/ : /命令命中黑名单规则「sudo」/,
+      );
+    }
+  }
+});
+
+test("unknownToolPolicy 遍历上限 —— 深嵌套数组（~5000 层）不炸栈，截断按保守口径拦", () => {
+  const fixture = makeSensitiveFixture();
+  const warns: unknown[][] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]): void => {
+    warns.push(args);
+  };
+  try {
+    const deep = nestedArray(5000);
+    for (const method of ["check", "deny"] as const) {
+      warns.length = 0;
+      const guard = new GuardEngine({
+        homeDir: HOME,
+        unknownToolPolicy: method,
+      });
+      // ① 纯超深（无 watched 键）：遍历在资源上限处截断 → **保守拦**（截断不是放行理由）；
+      //    关键点是**不抛**（无界递归时这里是 RangeError）
+      const truncatedHit = guard.inspect("deep_unknown", { deep });
+      assert.ok(
+        typeof truncatedHit === "string",
+        `${method}：截断应保守拦且不抛`,
+      );
+      assert.match(truncatedHit as string, /超出遍历上限/);
+      assert.match(truncatedHit as string, /4096 个容器节点 \/ 64 层嵌套/);
+      if (method === "check") {
+        // check 模式额外要求：不得**静默**放行 —— 告警一次（同引擎重复调用不重复告警）
+        assert.equal(warns.length, 1, "check 截断应告警一次");
+        assert.match(String(warns[0]?.[0]), /超出遍历上限/);
+        assert.match(String(warns[0]?.[0]), /fail-closed/);
+        assert.ok(typeof guard.inspect("deep_unknown", { deep }) === "string");
+        assert.equal(warns.length, 1, "重复调用不重复告警");
+      }
+      // ② 超深数组在前、watched 键在后：截断只停止**下探**，不吞掉已进入对象层的键 → 标准命中回执
+      const commandHit = guard.inspect("deep_unknown", {
+        wrapper: { deep, command: CHECK_BLACKLIST_COMMAND },
+      });
+      assert.ok(
+        typeof commandHit === "string",
+        `${method}：浅层 watched 键应照拦`,
+      );
+      assert.doesNotMatch(commandHit as string, /超出遍历上限/);
+      // ③ 路径键同理（敏感文件层）
+      const pathHit = guard.inspect("deep_unknown", {
+        wrapper: { deep, path: fixture.envPath },
+      });
+      assert.ok(typeof pathHit === "string", `${method}：浅层路径键应照拦`);
+      assert.doesNotMatch(pathHit as string, /超出遍历上限/);
+    }
+  } finally {
+    console.warn = original;
+    fixture.cleanup();
+  }
+});
+
+test("unknownToolPolicy 遍历上限 —— 深且含 watched 键的畸形结构（深数组 + 环）不抛、不静默放行", () => {
+  // 5000 层链：watched 键只在最内层出现（远超资源上限），最内层再挂一个自引用环
+  const head: unknown[] = [];
+  let node = head;
+  for (let i = 0; i < 5000; i += 1) {
+    const next: unknown[] = [];
+    node.push(next);
+    node = next;
+  }
+  node.push({ command: CHECK_BLACKLIST_COMMAND });
+  node.push(node);
+  for (const method of ["check", "deny"] as const) {
+    const guard = new GuardEngine({ homeDir: HOME, unknownToolPolicy: method });
+    // 环去重 + 资源上限：既不抛，也不因为「深处没查完」而放行（保守拦）
+    const hit = guard.inspect("deep_cyclic_unknown", { deep: head });
+    assert.ok(typeof hit === "string", `${method}：深且带环应保守拦且不抛`);
+    assert.match(hit as string, /超出遍历上限/);
+  }
+});
+
+test("unknownToolPolicy —— 畸形参数（枚举即抛错的 Proxy）不抛，fail-open 放行 + 告警一次", () => {
+  const warns: unknown[][] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]): void => {
+    warns.push(args);
+  };
+  try {
+    const poison = new Proxy(
+      { command: CHECK_BLACKLIST_COMMAND },
+      {
+        ownKeys(): string[] {
+          throw new Error("poisoned ownKeys");
+        },
+      },
+    );
+    for (const method of ["check", "deny"] as const) {
+      warns.length = 0;
+      const guard = new GuardEngine({
+        homeDir: HOME,
+        unknownToolPolicy: method,
+      });
+      // 不得把异常抛到调用方（宿主 listener）：按放行处理 + 告警一次
+      assert.equal(
+        guard.inspect("poisoned_unknown", poison),
+        null,
+        `${method}：扫描失败应 fail-open`,
+      );
+      assert.equal(warns.length, 1, `${method}：应告警一次`);
+      assert.match(String(warns[0]?.[0]), /参数扫描失败/);
+      assert.match(String(warns[0]?.[0]), /fail-open/);
+      // 同一引擎重复调用：仍 fail-open，且不重复告警（不刷屏）
+      assert.equal(guard.inspect("poisoned_unknown", poison), null);
+      assert.equal(warns.length, 1, `${method}：重复调用不重复告警`);
+    }
+  } finally {
+    console.warn = original;
   }
 });
 
