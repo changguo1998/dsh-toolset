@@ -131,6 +131,50 @@ const FILE_TOOLS = new Set(["read", "write", "edit", "patch", "grep", "glob"]);
 const FILE_PATH_KEYS = ["file_path", "path", "target", "file"] as const;
 const WRITE_FILE_TOOLS = new Set(["write", "edit", "patch"]);
 
+/** 插件文件工具描述符：登记本仓插件工具的读写面与路径参数名。 */
+interface PluginFileTool {
+  /** 工具默认操作面；read-write 表示读写面随 action 变化（配合 writeWhen）。 */
+  operation: "read" | "write" | "read-write";
+  /** 单值路径参数名（取 string 值）。 */
+  pathKeys: readonly string[];
+  /** 多值路径参数名（数组中取 string 元素）。 */
+  pathArrayKeys?: readonly string[];
+  /** 写面判定（如 md_logic 仅 action=replace 写）；缺省按 operation。 */
+  writeWhen?: (args: Record<string, unknown>) => boolean;
+}
+
+/**
+ * 插件文件工具登记表：登记会读写文件的插件工具——
+ * hash_edit（整文件重写，写侧）、md_logic（action=replace 写，其余只读）、
+ * ast_replace（单文件写回，写侧，参数面只有 path）、ast_query（path / paths，只读）。
+ * 未登记的工具仍走「未知工具不拦」的既有边界（见 README「边界与限制」）。
+ */
+const PLUGIN_FILE_TOOLS: Record<string, PluginFileTool> = {
+  hash_edit: { operation: "write", pathKeys: ["path"] },
+  md_logic: {
+    operation: "read-write",
+    pathKeys: ["path"],
+    writeWhen: (args) => args.action === "replace",
+  },
+  ast_replace: { operation: "write", pathKeys: ["path"] },
+  ast_query: {
+    operation: "read",
+    pathKeys: ["path"],
+    pathArrayKeys: ["paths"],
+  },
+};
+
+/**
+ * 登记表查表：按自身属性判定（Object.hasOwn）。
+ * 工具名可能是 constructor / toString / valueOf 等原型链属性名，直接下标会命中
+ * Object.prototype 上的成员（非本表条目），故未登记一律返回 undefined → 放行不抛。
+ */
+function pluginFileTool(toolName: string): PluginFileTool | undefined {
+  return Object.hasOwn(PLUGIN_FILE_TOOLS, toolName)
+    ? PLUGIN_FILE_TOOLS[toolName]
+    : undefined;
+}
+
 /** 解析后的内部配置（编译后，构造一次）。 */
 interface ResolvedConfig {
   enabled: boolean;
@@ -185,11 +229,56 @@ function asStringRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-/** 文件工具的敏感文件操作面：写类工具 → write；shell → 读写两面；其余 → read。 */
-function toolOperation(toolName: string): "read" | "write" | "read-write" {
+/** 插件工具的路径提取：pathKeys 取 string 值，pathArrayKeys 取数组中的 string 元素。 */
+function pluginFilePaths(
+  args: Record<string, unknown>,
+  tool: PluginFileTool,
+): string[] {
+  const paths: string[] = [];
+  for (const key of tool.pathKeys) {
+    const v = args[key];
+    if (typeof v === "string" && v.length > 0) paths.push(v);
+  }
+  for (const key of tool.pathArrayKeys ?? []) {
+    const v = args[key];
+    if (!Array.isArray(v)) continue;
+    for (const item of v) {
+      if (typeof item === "string" && item.length > 0) paths.push(item);
+    }
+  }
+  return paths;
+}
+
+/**
+ * 文件工具的敏感文件操作面：插件登记表（writeWhen 为真 → write；read-write 非写 action
+ * → read）→ shell 读写两面 → 写类官方工具 write → 其余 read。官方工具语义不变。
+ */
+function toolOperation(
+  toolName: string,
+  args: Record<string, unknown>,
+): "read" | "write" | "read-write" {
+  const plugin = pluginFileTool(toolName);
+  if (plugin !== undefined) {
+    if (plugin.writeWhen?.(args) === true) return "write";
+    if (plugin.operation === "read-write") return "read";
+    return plugin.operation;
+  }
   if (SHELL_TOOLS.has(toolName)) return "read-write";
   if (WRITE_FILE_TOOLS.has(toolName)) return "write";
   return "read";
+}
+
+/** 回执里展示的工具名：读写面随 action 变的插件工具补上 action（如「md_logic replace」）。 */
+function receiptToolName(
+  toolName: string,
+  args: Record<string, unknown>,
+): string {
+  const plugin = pluginFileTool(toolName);
+  if (plugin?.writeWhen === undefined) return toolName;
+  const action = args.action;
+  return typeof action === "string" && action.length > 0
+    ? `${toolName} ${action}`
+    : toolName;
 }
 
 function firstString(
@@ -346,8 +435,12 @@ export class GuardEngine {
         if (typeof v === "string" && v.length > 0) paths.push(v);
       }
     } else {
-      // 未知工具：不拦
-      return null;
+      const plugin = pluginFileTool(toolName);
+      // 未登记工具：不拦（已知边界，见 README「边界与限制」）
+      if (plugin === undefined) return null;
+      // 插件文件工具（登记表）：按各自 pathKeys / pathArrayKeys 提取路径，
+      // 与官方文件工具同一路径解析与敏感文件层口径
+      paths.push(...pluginFilePaths(args, plugin));
     }
     // 命令黑名单层（allowPatterns 仅放开本层）
     if (commandText !== undefined && cfg.commandBlacklist.enabled) {
@@ -364,7 +457,11 @@ export class GuardEngine {
           continue;
         const hit = checkSensitivePath(raw, cfg.sensitiveFiles.rules, cfg.home);
         if (hit !== null) {
-          return formatSensitiveReceipt(hit, toolName, toolOperation(toolName));
+          return formatSensitiveReceipt(
+            hit,
+            receiptToolName(toolName, args),
+            toolOperation(toolName, args),
+          );
         }
       }
     }
