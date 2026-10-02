@@ -472,11 +472,13 @@ describe("工具注册（mock ctx）", () => {
     );
     const tool = registered[0];
     assert.ok(tool !== undefined);
-    // 本包 render 只回显错误正文（error/message）或 mode 专有字段：不能用「任意最小结构」
-    // ——`render({}, undefined)` 与 `{ok:true, mode:"pruned"}` 都会直接抛 TypeError。
-    // 两组同形 args/value 分别覆盖失败分支与 pruned 分支，哨兵都放 **value 位**、
-    // 嵌在会被回显的字段里，args 标记放同一字段（③因此有牙）；
-    // 形参写反 / 少参（单形参实现）时渲染器拿到 args → 两分支下 ②③ 双双失败。
+    // 本包 render 只回显错误正文（error/message）或 mode 专有字段：探针仍取**合法形状**两组，
+    // 分别覆盖失败分支与 pruned 分支。（旧实现下 `render({}, undefined)` 与 `{ok:true, mode:"pruned"}`
+    // 会抛 TypeError，故当时不能用「任意最小结构」；该抛错已按 BACKLOG #1 修掉，
+    // 全函数性另见下方「render 全函数性」用例。）
+    // 两组同形 args/value 的哨兵都放 **value 位**、嵌在会被回显的字段里，
+    // args 标记放同一字段（③因此有牙）；形参写反 / 少参（单形参实现）时渲染器拿到 args
+    // → 两分支下 ②③ 双双失败。
     const probes = [
       {
         label: "失败分支",
@@ -525,5 +527,179 @@ describe("工具注册（mock ctx）", () => {
         `${probe.label}：第一参（args）不该被当成 value 渲染`,
       );
     }
+  });
+
+  // ---- render 全函数性（BACKLOG #1）：任意 value 都返回可读文本，绝不抛错 ----
+
+  /** 注册工具并调用 render({}, value)（第二参才是结果值），校验内容块契约后返回 text。 */
+  function renderOf(value: unknown): string {
+    const { ctx, registered } = mockCtx();
+    apply(ctx as never, {});
+    const tool = registered[0];
+    assert.ok(tool !== undefined);
+    const blocks = tool.output.render({}, value);
+    assert.ok(Array.isArray(blocks), "render 必须返回内容块数组");
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0]?.type, "text");
+    const text = blocks[0]?.text;
+    assert.equal(typeof text, "string", "render 的 text 必须恒为 string");
+    return String(text);
+  }
+
+  it("render({}, undefined) → text 是 string（旧实现抛 TypeError）", () => {
+    // 兜底口径与同批 7 包一致（jsonText）：undefined → String(undefined)
+    assert.equal(renderOf(undefined), "undefined");
+    // 非对象 / 空对象同样不抛
+    assert.equal(typeof renderOf(null), "string");
+    assert.equal(typeof renderOf({}), "string");
+  });
+
+  it("四分支缺字段 / 字段类型错 → 不抛，退回 JSON 原文（可读且可定位）", () => {
+    const probes: Array<{ label: string; value: unknown; marker: string }> = [
+      {
+        label: "失败分支缺 error/message",
+        value: { ok: false },
+        marker: '"ok"',
+      },
+      {
+        label: "outline 缺 nodes",
+        value: { ok: true, mode: "outline" },
+        marker: '"outline"',
+      },
+      {
+        label: "outline nodes 非数组",
+        value: { ok: true, mode: "outline", nodes: "x" },
+        marker: '"nodes"',
+      },
+      {
+        label: "outline blocks 类型错",
+        value: { ok: true, mode: "outline", nodes: [], blocks: "x" },
+        marker: '"blocks"',
+      },
+      {
+        label: "signatures 缺 signatures",
+        value: { ok: true, mode: "signatures" },
+        marker: '"signatures"',
+      },
+      {
+        label: "signatures 非数组",
+        value: { ok: true, mode: "signatures", signatures: "x" },
+        marker: '"signatures"',
+      },
+      {
+        label: "pruned 缺 text",
+        value: { ok: true, mode: "pruned" },
+        marker: '"pruned"',
+      },
+      {
+        label: "pruned text 非字符串",
+        value: { ok: true, mode: "pruned", text: 42 },
+        marker: '"text"',
+      },
+      {
+        label: "mode 非三模式",
+        value: { ok: true, mode: "weird", text: "x" },
+        marker: '"weird"',
+      },
+    ];
+    for (const probe of probes) {
+      const text = renderOf(probe.value);
+      assert.ok(
+        text.includes(probe.marker),
+        `${probe.label}：兜底文本应含原值（${probe.marker}），实得 ${JSON.stringify(text)}`,
+      );
+    }
+  });
+
+  it("守卫够不到的深层畸形走异常兜底（不抛）", () => {
+    // nodes 元素非对象 → renderOutline 读 node.line 抛错；blocks 元素为 null → formatBlock 读 block.section 抛错
+    const deepNodes = renderOf({ ok: true, mode: "outline", nodes: [null] });
+    assert.ok(
+      deepNodes.includes('"nodes"'),
+      `实得 ${JSON.stringify(deepNodes)}`,
+    );
+    const deepBlocks = renderOf({
+      ok: true,
+      mode: "outline",
+      nodes: [],
+      blocks: [null],
+    });
+    assert.ok(
+      deepBlocks.includes('"blocks"'),
+      `实得 ${JSON.stringify(deepBlocks)}`,
+    );
+    // jsonText 自身的兜底路径：BigInt / 循环引用不可序列化
+    assert.equal(renderOf(1n), "1");
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    assert.equal(typeof renderOf(cyclic), "string");
+  });
+
+  it("正常形状输出逐字不变（四分支；既有断言不改数字）", () => {
+    // 失败分支
+    assert.equal(
+      renderOf({
+        ok: false,
+        mode: "outline",
+        path: "p.ts",
+        error: "too_large",
+        message: "文件过大",
+      }),
+      "fs_digest 失败：too_large — 文件过大",
+    );
+    // outline：标题树 + 块清单（同一渲染器、同一预算与文案）
+    assert.equal(
+      renderOf({
+        ok: true,
+        mode: "outline",
+        path: "p.md",
+        language: "markdown",
+        source: "markdown",
+        depth: 3,
+        nodes: [
+          {
+            kind: "heading",
+            name: "标题一",
+            line: 1,
+            endLine: 2,
+            children: [],
+          },
+        ],
+        blocks: [{ kind: "list", line: 3, endLine: 5, section: 1, count: 2 }],
+      }),
+      "L1-2 heading 标题一\n块结构（1 个）：\n§L1 L3-5 list·2项",
+    );
+    // outline 空节点列表 → 既有文案
+    assert.equal(
+      renderOf({ ok: true, mode: "outline", nodes: [] }),
+      "(空大纲)",
+    );
+    // signatures：L<n> kind signature；空列表 → 既有文案
+    assert.equal(
+      renderOf({
+        ok: true,
+        mode: "signatures",
+        path: "p.ts",
+        language: "typescript",
+        source: "heuristic",
+        signatures: [
+          { kind: "function", name: "f", line: 3, signature: "f(): void" },
+        ],
+      }),
+      "L3 function f(): void",
+    );
+    assert.equal(
+      renderOf({ ok: true, mode: "signatures", signatures: [] }),
+      "(无函数签名)",
+    );
+    // pruned：正文截断 80 行 + 省略行；空串 → 空串（既有语义）
+    const longText = Array.from({ length: 90 }, (_, i) => `L${i + 1}`).join(
+      "\n",
+    );
+    assert.equal(
+      renderOf({ ok: true, mode: "pruned", text: longText }),
+      `${Array.from({ length: 80 }, (_, i) => `L${i + 1}`).join("\n")}\n…（其余 10 行）`,
+    );
+    assert.equal(renderOf({ ok: true, mode: "pruned", text: "" }), "");
   });
 });

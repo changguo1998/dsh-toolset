@@ -10,6 +10,9 @@ import {
   DIGEST_MODES,
   type DigestOptions,
   type DigestResult,
+  type MdBlock,
+  type OutlineNode,
+  type SignatureEntry,
 } from "./types.ts";
 
 export const name = "fs-digest";
@@ -67,27 +70,95 @@ function resolveExecCwd(exec: unknown): string {
   return typeof cwd === "string" && cwd !== "" ? cwd : process.cwd();
 }
 
-/** 结果渲染：outline 走共享渲染器（标题树 ≤45 行 + 块清单 ≤15 行）；signatures 渲染 L<n> 签名；pruned 渲染正文（最多 80 行）。 */
-function renderResult(result: DigestResult): string {
-  if (!result.ok) {
-    return `fs_digest 失败：${result.error} — ${result.message}`;
+/**
+ * 结果渲染：outline 走共享渲染器（标题树 ≤45 行 + 块清单 ≤15 行）；signatures 渲染 L<n> 签名；
+ * pruned 渲染正文（最多 80 行）。
+ * 全函数：任意 value 都返回可读文本（BACKLOG #1）——四分支形状守卫拦下非法 / 缺字段形态，
+ * 退回 jsonText(value)；最外层再兜一次异常（守卫够不到的深层畸形），使「render 不抛」成为不变量。
+ */
+function renderResult(result: unknown): string {
+  try {
+    return renderDigestResult(result);
+  } catch {
+    // 深层畸形（如 nodes 元素非对象、异常 getter）：退回 JSON 文本，绝不抛错
+    return jsonText(result);
   }
-  if (result.mode === "outline") {
-    return renderOutline(result.nodes, result.blocks);
+}
+
+/** 结构化渲染：逐分支形状守卫；任一必填字段缺失 / 类型错 → 退 jsonText 兜底文本（不改合法形状的输出）。 */
+function renderDigestResult(result: unknown): string {
+  const rec = asRecord(result);
+  if (rec === undefined) return jsonText(result); // undefined / null / 原始值
+  if (rec.ok === false) {
+    // 失败分支：error / message 齐备（string）才用原文案，否则退 JSON（不渲染 "undefined — undefined"）
+    if (typeof rec.error !== "string" || typeof rec.message !== "string") {
+      return jsonText(result);
+    }
+    return `fs_digest 失败：${rec.error} — ${rec.message}`;
   }
-  if (result.mode === "signatures") {
-    if (result.signatures.length === 0) return "(无函数签名)";
-    return result.signatures
+  if (rec.ok !== true) return jsonText(result); // ok 缺失 / 非布尔（含 {} 与 mode 缺失）
+  if (rec.mode === "outline") {
+    const nodes = asArray<OutlineNode>(rec.nodes);
+    const blocks = asArray<MdBlock>(rec.blocks);
+    // nodes 必填；blocks 选填（缺省不渲染块清单），present 但非数组 = 字段类型错 → 兜底
+    if (
+      nodes === undefined ||
+      (rec.blocks !== undefined && blocks === undefined)
+    ) {
+      return jsonText(result);
+    }
+    return renderOutline(nodes, blocks);
+  }
+  if (rec.mode === "signatures") {
+    const signatures = asArray<SignatureEntry>(rec.signatures);
+    if (signatures === undefined) return jsonText(result);
+    if (signatures.length === 0) return "(无函数签名)";
+    return signatures
       .map((s) => `L${s.line} ${s.kind} ${s.signature}`)
       .slice(0, 60)
       .join("\n");
   }
-  // pruned
-  const lines = result.text.split("\n");
-  const shown = lines.slice(0, 80);
-  if (lines.length > shown.length)
-    shown.push(`…（其余 ${lines.length - shown.length} 行）`);
-  return shown.join("\n");
+  if (rec.mode === "pruned") {
+    if (typeof rec.text !== "string") return jsonText(result);
+    const lines = rec.text.split("\n");
+    const shown = lines.slice(0, 80);
+    if (lines.length > shown.length)
+      shown.push(`…（其余 ${lines.length - shown.length} 行）`);
+    return shown.join("\n");
+  }
+  return jsonText(result); // mode 非三模式之一
+}
+
+/** 对象视图：非对象（undefined / null / 原始值）→ undefined；数组走对象视图（缺 ok / mode 自然落兜底）。 */
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/** 数组视图：非数组（含 undefined）→ undefined。 */
+function asArray<T>(value: unknown): T[] | undefined {
+  return Array.isArray(value) ? (value as T[]) : undefined;
+}
+
+/**
+ * JSON 文本（render 必须全函数，`text` 恒为 string）：字符串原样返回（避免二次编码），
+ * 其余 `JSON.stringify(value, null, 2)`；`undefined` / 函数 / symbol 结果为非字符串，
+ * 循环引用 / BigInt 直接抛错——两种情况退化为 `String(value)`，`String` 仍抛则给占位。
+ */
+function jsonText(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    const text = JSON.stringify(value, null, 2);
+    if (typeof text === "string") return text;
+  } catch {
+    // 循环引用 / BigInt：序列化抛错，落到下方 String 兜底
+  }
+  try {
+    return String(value);
+  } catch {
+    return "（无法序列化的值）";
+  }
 }
 
 /** 校验工具入参，返回选项或 null（非法入参）。 */
@@ -195,7 +266,7 @@ export function apply(ctx: PluginCtx, config: Config = {}): void {
     output: {
       schema: { type: "object", additionalProperties: true },
       render: (_args: unknown, result: unknown) => [
-        { type: "text", text: renderResult(result as DigestResult) },
+        { type: "text", text: renderResult(result) },
       ],
     },
   });
