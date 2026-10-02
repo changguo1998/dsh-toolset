@@ -153,7 +153,7 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
     回执另给三条**可行动作**（改 `"check"` / 加 `unknownToolAllowlist` / 按参数面登记进代码），不再只说「改源码」。
   - `unknownToolAllowlist: string[]`：工具名**精确匹配** + `*` 结尾**前缀通配**（如 `mcp__*`），在**三态策略之前**判定，命中即无条件放行
     （`deny` 下的显式例外 / MCP 工具名）；只作用于未登记工具，已登记工具的敏感参数照拦。
-    **注意（与差异检查脚本同一条边界）**：只扫 `dsh-tool-*` 包；其它官方包（如 `dsh-plan-mode` / `dsh-schedule` / `dsh-experimental-tool-agent-team`）、MCP 与第三方运行时注册的工具均不在面内，需用 `unknownToolAllowlist`（如 `mcp__*`）或按真实参数面登记；`exit 0` 不等于全覆盖。
+    **注意（与差异检查脚本同一条边界）**：扫 `dsh-tool-*` 包 + 其它含 `defineTool(` 的 `@deepseek-ai/dsh-*` 包（如 `dsh-plan-mode` / `dsh-schedule`）；仅含 `parameters:` 的包与 MCP / 第三方运行时注册的工具不在面内，需用 `unknownToolAllowlist`（如 `mcp__*`）或按真实参数面登记；`exit 0` 不等于全覆盖。
     这类名字请在此登记（如 `mcp__*`）或按真实参数面登记进两张插件表。
   - 非法 `unknownToolPolicy` 值（如 `"Deny"` / `true`）→ `console.warn` 一次 + 按 `"allow"` 生效（fail-open 语义不变），
     `policy()` 快照标 `invalid: true`（TUI 侧尚未渲染该字段，服务面已暴露供后续消费）。
@@ -168,9 +168,9 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
   / 未覆盖但无相关参数」。退出码：有「需关注」→ 1（可作门禁），干净 → 0，用法 / 环境错误（缺 `--root`、指到 scope 层、root 下无工具包）→ 2。
   键集与登记集来自 `src/index.ts` 的 `TOOL_SURFACE` 快照（发布形态读 `dist`，`src` 作仓库内回退；`dist` 早于 `src` 时提示并改读 `src`），
   与引擎**单一来源**、不再各自维护一份键表（旧版脚本与引擎键集互不一致）。仍按「宁可多报」口径，需人工复核。
-  **覆盖边界**：只扫 `dsh-tool-*` 包；其它官方包（如 `dsh-plan-mode` / `dsh-schedule` / `dsh-experimental-tool-agent-team`）、MCP 与第三方运行时注册的工具均不在面内，需用 `unknownToolAllowlist`（如 `mcp__*`）或按真实参数面登记；`exit 0` 不等于全覆盖。
+  **覆盖边界（2026-10-02 放宽）**：脚本扫 **`dsh-tool-*` 包 + 其它 `lib/index.js` 含 `defineTool(` 的 `@deepseek-ai/dsh-*` 包**（后者曾整体漏扫，如 `dsh-plan-mode` 的 `exit_plan_mode`、`dsh-schedule` 的 `schedule_create`，现已在面内；真实宿主由 21 包/33 工具 → **27 包/49 工具**、「需关注」3 → 8）；**仅含 `parameters:` 而无 `defineTool(` 的包不纳入**（如 `dsh-mcp-client`），摘要会单列「另有 N 个包只见 parameters:…未纳入」。**仍在面外**：MCP / 第三方运行时注册的工具（`mcp__<server>__<raw>`，宿主不可静态枚举）与 profile 侧第三方插件工具（含本仓 19 插件），需用 `unknownToolAllowlist`（如 `mcp__*`）或按真实参数面登记；`exit 0 不等于全覆盖`。
   摘要**固定输出**这行边界；`--json` 的 `boundary` 字段同文案（**措辞可能变、勿整串比对**），机器判**稳定语义**请用布尔字段 `coversMcpTools: false` / `exitZeroMeansFullCoverage: false`；
-  脚本也**不提供** `--include-mcp` 之类开关（非 `dsh-tool-*` 官方包与运行时注册的 MCP / 第三方工具都无从静态枚举，给了开关只会产生**假覆盖率**）。`--help` / 用法错误的 USAGE 里「0」同样限定为「仅 `dsh-tool-*` 面内无『需关注』项」。
+  脚本也**不提供** `--include-mcp` 之类开关（运行时注册的 MCP / 第三方工具名无从静态枚举，给了开关只会产生**假覆盖率**；其它官方包已按 `defineTool(` 内容判定纳入，不需要开关）。`--help` / 用法错误的 USAGE 里「0」同样限定为「仅 `dsh-tool-*` 面内无『需关注』项」。
 - **命令执行侧的检查点边界**：task-engine 的命令（`children[].executor.command` 与 mechanical 验收 `children[].acceptance[].command`）在 `task_decompose` **声明处**检查，而执行工具 `task_execute` / `task_stop` 的入参只有 `task_id`、命令文本不在其中。因此**绕过声明工具**进入帧契约的命令不受本层覆盖：经导出 API `resumeFromSnapshot` 恢复的帧（本仓插件**当前未接线**：只写快照、不读回）、配置侧 `root.acceptance[].command`（引擎直接执行、不经 `task_decompose`），以及其它直接写引擎状态/旁路的路径。此外 `workflow` 后端的 `script` 是 JS 编排脚本（非 shell 命令串），不在命令黑名单层覆盖范围内——未登记工具策略取 `"check"` 时对代码键（`script` / `code` / `program`）也只做路径提取、不整段送命令层（同一口径）。
   **2026-10-02 更新**：`task-engine` 已在**执行期**补复查 —— executor 命令后端与 mechanical 验收两处都在命令执行**之前**调用 `GuardEngine.inspectCommand(command, source)`（`source` 形如 `task-engine{executor} <frame>` / `task-engine{acceptance} <frame>`）；guard 未挂载或调用抛错 → 告警一次 + 放行（fail-open）。**已知边界**：真机上 executor 缝通常在 `task_decompose` 声明处已被拦（同一命令文本），执行期复查属**纵深防御**；`inspectCommand` 的敏感层按命令文本里的路径解析，**看不到 executor 的 `cwd`**。
 - **插件命令参数按参数键检查、不区分 action**：`metric_loop` 的 `measureCmd` 只在 `action=start` 时执行，但登记表按参数键判定——`action=status` 等调用若带上会命中黑名单的 `measureCmd` 同样被拦（宁可误拦不可漏拦；可用 `commandBlacklist.allowPatterns` 放行）。
@@ -181,12 +181,12 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
 
 ```sh
 npm run check   # tsc -p tsconfig.json --noEmit
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（113 例）
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（114 例）
 npm run build   # tsc -p tsconfig.json → dist/
 npm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话拦截验证）
 ```
 
-113 例单测（blacklist 9 + guard 84 + script 13 + sensitive 7）。
+114 例单测（blacklist 9 + guard 84 + script 14 + sensitive 7）。
 
 `tests/script.test.ts` 用假宿主树（`dsh-tool-fixture-*` 包）覆盖 `scripts/tool-surface-check.mjs` 的逐工具三分类、
 「名称未解析」行与退出码纪律（0 / 1 / 2，含 `--root` 指到 scope 层的纠正提示），并覆盖**发布形态**

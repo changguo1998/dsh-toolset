@@ -5,8 +5,9 @@
 // （这类工具会绕过敏感文件层 / 命令黑名单层，属需要关注的缺口）。
 //
 // **覆盖边界**：只扫 `@deepseek-ai/dsh-tool-*` 包。**不在面内**的三类：其它官方包（非 `dsh-tool-*` 命名，
-// 如 `dsh-plan-mode` / `dsh-schedule` / `dsh-experimental-tool-agent-team`，实测它们的 `exit_plan_mode` /
-// `schedule_create` / `spawn_teammate` 扫不到）、MCP 工具、第三方运行时注册的工具（后两类宿主不可静态枚举）；
+// 已纳入面内 —— `dsh-tool-*` 无条件纳入；其它 `dsh-*` 官方包按内容判定（`lib/index.js` 含 `defineTool(`），如 `dsh-plan-mode` /
+// `dsh-experimental-tool-agent-team`；仅含 `parameters:` 的包（含 MCP 客户端）**不纳入**并在摘要单列提示）、
+// MCP 工具与第三方运行时注册的工具（宿主不可静态枚举）；
 // 故**不提供** `--include-mcp` 之类开关（只会产生假覆盖率）——摘要**固定输出**这行边界（`--json` 的
 // `boundary` 字段同内容 + 布尔字段 `coversMcpTools` / `exitZeroMeansFullCoverage`），`exit 0` **不等于**全覆盖。
 //
@@ -14,7 +15,8 @@
 //   node security-guard/scripts/tool-surface-check.mjs --root <dsh 包目录 | 安装树根> [--json]
 //   DSH_INSTALL=<同上> node security-guard/scripts/tool-surface-check.mjs
 // 退出码：0 = 无「需关注」项（可作门禁通过）；1 = 有「需关注」项；
-//         2 = 用法 / 环境 / 口径错误（缺 --root、根下找不到 dsh-tool-* 包、键集单一来源解析失败）。
+//         2 = 用法 / 环境 / 口径错误（缺 --root、根下找不到含 defineTool( 的 @deepseek-ai/dsh-* 包、
+//             键集单一来源解析失败）。
 //
 // 口径（对齐引擎，不再整包文本 grep）：
 // 1) **逐工具**解析工具包源码的 `defineTool({ ... })`：
@@ -45,23 +47,23 @@ const USAGE = [
   "用法：node security-guard/scripts/tool-surface-check.mjs --root <dsh 包目录 | 安装树根> [--json]",
   "      或设 DSH_INSTALL=<同上>；不再回退当前目录。",
   "      退出码：0 无「需关注」项 / 1 有「需关注」项 / 2 用法或环境错误。",
-  "      0 仅指 dsh-tool-* 面内无「需关注」项：不覆盖 MCP / 第三方运行时注册的工具，",
-  "      也不覆盖宿主内非 dsh-tool-* 的其它官方包（如 dsh-plan-mode / dsh-schedule）。",
+  "      0 仅指上述面内无「需关注」项：不覆盖仅含 parameters: 的包、",
+  "      也不覆盖 MCP / 第三方运行时注册的工具。",
 ].join("\n");
 
 /**
  * **覆盖边界**（固定一行输出；`--json` 的 `boundary` 字段同内容）：
- * 脚本只扫宿主安装树里的 `@deepseek-ai/dsh-tool-*`；**其它官方包**（非 `dsh-tool-*` 命名，如
- * `dsh-plan-mode` / `dsh-schedule` / `dsh-experimental-tool-agent-team`）与 MCP / 第三方工具名一样
- * **不在面内**（后者来自运行时注册、宿主不可静态枚举），故**不提供** `--include-mcp` 之类开关
- * （给了也只会产生**假覆盖率**）。使用者要按需用 `unknownToolAllowlist`（如 `mcp__*`）或按真实参数面登记。
+ * 脚本扫宿主安装树里的 `@deepseek-ai/dsh-tool-*`（**无条件**）+ **其它 `@deepseek-ai/dsh-*` 包中
+ * `lib/index.js` 含 `defineTool(` 的**（如 `dsh-plan-mode` / `dsh-schedule` / `dsh-experimental-tool-agent-team`）；
+ * 仅含 `parameters:` 的包**不纳入**（摘要单列提示，`--json` 见 `parametersOnly`）。**仍在面外**：MCP / 第三方
+ * 运行时注册的工具名（宿主不可静态枚举）与 profile 侧第三方插件，用 `unknownToolAllowlist`（如 `mcp__*`）或按真实参数面登记。
  *
  * 文案只供人读、措辞可能变：机器判**稳定语义**请用 `--json` 的布尔字段
  * `coversMcpTools: false` / `exitZeroMeansFullCoverage: false`，勿整串比对 `boundary`。
  */
 const BOUNDARY =
-  "只扫 dsh-tool-* 包；其它官方包（如 dsh-plan-mode / dsh-schedule / " +
-  "dsh-experimental-tool-agent-team）、MCP 与第三方运行时注册的工具均不在面内，" +
+  "扫 dsh-tool-* 包 + 其它含 defineTool( 的 @deepseek-ai/dsh-* 包（如 dsh-plan-mode / dsh-schedule）；" +
+  "仅含 parameters: 的包（如 MCP 客户端）与第三方运行时注册的工具不在面内，" +
   "需用 unknownToolAllowlist（如 mcp__*）或按真实参数面登记；exit 0 不等于全覆盖。";
 
 /** schema 元键（逐工具解析参数键时要跳过的非参数键）。 */
@@ -526,8 +528,13 @@ async function loadSurface(pkgDir) {
 
 // ---------------------------------------------------------------- 宿主工具包发现
 
-/** 收录一个 scope 目录（`@deepseek-ai`）下的 dsh-tool-* 包。 */
-function collectScope(scopeDir, found) {
+/**
+ * 收录一个 scope 目录（`@deepseek-ai`）下的 `dsh-*` 包，**按内容分类**：
+ * - `lib/index.js` 里出现 `defineTool(` → 纳入扫描面（found）；
+ * - 只有 `parameters:` 而无 `defineTool(` → 记入 `parametersOnly`（摘要单列提示，不纳入面 —— 避免噪声与假覆盖）；
+ * - 两者都无 → 忽略（宿主里绝大多数包属此类）。
+ */
+function collectScope(scopeDir, found, parametersOnly, seenPkgs) {
   let entries;
   try {
     entries = readdirSync(scopeDir, { withFileTypes: true });
@@ -535,9 +542,27 @@ function collectScope(scopeDir, found) {
     return;
   }
   for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith("dsh-tool-")) continue;
+    if (!entry.isDirectory() || !entry.name.startsWith("dsh-")) continue;
     const file = join(scopeDir, entry.name, "lib", "index.js");
-    if (isFile(file)) found.push({ pkg: entry.name, file });
+    if (!isFile(file)) continue;
+    if (seenPkgs.has(entry.name)) continue;
+    seenPkgs.add(entry.name);
+    const text = readText(file);
+    // `dsh-tool-*` 是历史命名面，**无条件**纳入；其它官方包按内容判定（放宽面时避免噪声）
+    if (entry.name.startsWith("dsh-tool-") || text.includes("defineTool(")) {
+      found.push({ pkg: entry.name, file });
+    } else if (text.includes("parameters:")) {
+      parametersOnly.push(entry.name);
+    }
+  }
+}
+
+/** 读文本文件（读不到按空串 —— 内容判定失败时不误纳入面）。 */
+function readText(file) {
+  try {
+    return readFileSync(file, "utf8");
+  } catch {
+    return "";
   }
 }
 
@@ -548,6 +573,8 @@ function collectScope(scopeDir, found) {
  */
 function findToolPackages(root, maxDepth = 8) {
   const found = [];
+  const parametersOnly = [];
+  const seenPkgs = new Set();
   const seen = new Set();
   const visit = (dir, depth) => {
     if (depth > maxDepth || seen.has(dir)) return;
@@ -555,7 +582,7 @@ function findToolPackages(root, maxDepth = 8) {
     const scope =
       basename(dir) === "@deepseek-ai" ? dir : join(dir, "@deepseek-ai");
     if (isDir(scope)) {
-      collectScope(scope, found);
+      collectScope(scope, found, parametersOnly, seenPkgs);
       // 宿主插件包内嵌的 node_modules（如 <dsh>/node_modules/@deepseek-ai/dsh-tool-*/）
       let entries = [];
       try {
@@ -569,15 +596,24 @@ function findToolPackages(root, maxDepth = 8) {
         if (isDir(nested)) visit(nested, depth + 1);
       }
     }
-    if (basename(dir).startsWith("dsh-tool-")) {
+    if (basename(dir).startsWith("dsh-")) {
+      const name = basename(dir);
       const file = join(dir, "lib", "index.js");
-      if (isFile(file)) found.push({ pkg: basename(dir), file });
+      if (isFile(file) && !seenPkgs.has(name)) {
+        seenPkgs.add(name);
+        const text = readText(file);
+        if (name.startsWith("dsh-tool-") || text.includes("defineTool(")) {
+          found.push({ pkg: name, file });
+        } else if (text.includes("parameters:")) {
+          parametersOnly.push(name);
+        }
+      }
     }
     const nested = join(dir, "node_modules");
     if (isDir(nested)) visit(nested, depth + 1);
   };
   visit(root, 0);
-  return found;
+  return { found, parametersOnly };
 }
 
 /** scope 层判定：`@deepseek-ai` 目录，或直接含 `dsh-tool-*` 子目录的目录（--root 应指 dsh 包目录）。 */
@@ -586,7 +622,7 @@ function isScopeLayer(dir) {
   if (isDir(join(dir, "node_modules"))) return false;
   try {
     return readdirSync(dir, { withFileTypes: true }).some(
-      (entry) => entry.isDirectory() && entry.name.startsWith("dsh-tool-"),
+      (entry) => entry.isDirectory() && entry.name.startsWith("dsh-"),
     );
   } catch {
     return false;
@@ -657,13 +693,13 @@ if (isScopeLayer(absRoot)) {
   process.exit(2);
 }
 
-const packages = findToolPackages(absRoot);
+const { found: packages, parametersOnly } = findToolPackages(absRoot);
 if (packages.length === 0) {
   console.error(
-    `[tool-surface-check] 未找到 dsh-tool-* 工具包（root：${absRoot}）。`,
+    `[tool-surface-check] 未找到含工具定义的 @deepseek-ai/dsh-* 包（root：${absRoot}）。`,
   );
   console.error(
-    "→ --root 要指 dsh 包目录（其下含 node_modules/@deepseek-ai/dsh-tool-*）或安装树根。",
+    "→ --root 要指 dsh 包目录（其下含 node_modules/@deepseek-ai/dsh-*）或安装树根。",
   );
   console.error(USAGE);
   process.exit(2);
@@ -774,6 +810,7 @@ if (args.json === true) {
         root: absRoot,
         boundary: BOUNDARY,
         // 稳定语义（勿整串比对上面的中文文案）：本脚本不覆盖 MCP 工具、exit 0 也不代表全覆盖
+        parametersOnly: [...parametersOnly].sort(),
         coversMcpTools: false,
         exitZeroMeansFullCoverage: false,
         surfaceOrigin: surface.origin,
@@ -791,8 +828,15 @@ if (args.json === true) {
   );
 } else {
   console.log(
-    `[tool-surface-check] 宿主目录：${absRoot}（${packages.length} 个 dsh-tool 包，解析出 ${toolCount} 个工具）`,
+    `[tool-surface-check] 宿主目录：${absRoot}（${packages.length} 个含工具定义的 @deepseek-ai/dsh-* 包，解析出 ${toolCount} 个工具）`,
   );
+  if (parametersOnly.length > 0) {
+    console.log(
+      `[tool-surface-check] 另有 ${parametersOnly.length} 个包只见 parameters: 未见 defineTool(，未纳入` +
+        `（如 MCP 客户端等运行时注册面）：${parametersOnly.slice(0, 6).join(" / ")}` +
+        (parametersOnly.length > 6 ? " …" : ""),
+    );
+  }
   console.log(
     `[tool-surface-check] 键集/登记集来源：${surface.origin}（${surface.path}；逐工具解析 parameters，键名小写归一，` +
       `参数发现深度上限 ${paramKeyDepth} 层（引擎 TOOL_SURFACE.keyDepth 单一来源，数组透明））` +

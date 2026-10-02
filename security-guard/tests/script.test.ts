@@ -9,7 +9,7 @@
  *   口径来源缺失）；
  * - 键集/登记集来自引擎单一来源（`TOOL_SURFACE`），输出标注来源：发布形态（只有 `dist` + `scripts`）
  *   读 `dist`，仓库形态回退 `src`；两者都不可用 → 提示先 build 并 exit 2。
- * - 覆盖边界（2026-10-02 条目）：摘要**固定一行**边界（只扫 `dsh-tool-*` 包；其它官方包 / MCP /
+ * - 覆盖边界（2026-10-02 条目）：摘要**固定一行**边界（`dsh-tool-*` 包 + 其它含 `defineTool(` 的
  *   第三方运行时注册的工具均不在面内；`exit 0` 不等于全覆盖），`--json` 的 `boundary` 同文案且另有
  *   稳定布尔字段 `coversMcpTools` / `exitZeroMeansFullCoverage`（均 false）；USAGE 里「0」的限定同口径。
  */
@@ -236,12 +236,18 @@ test("tool-surface-check：摘要固定输出覆盖边界行（MCP / 第三方 /
       .filter((line) => line.includes("覆盖边界："));
     assert.equal(lines.length, 1, run.output);
     const boundary = lines[0] ?? "";
-    assert.match(boundary, /只扫 dsh-tool-\* 包/);
     assert.match(
       boundary,
-      /其它官方包（如 dsh-plan-mode \/ dsh-schedule \/ dsh-experimental-tool-agent-team）/,
+      /扫 dsh-tool-\* 包 \+ 其它含 defineTool\( 的 @deepseek-ai\/dsh-\* 包/,
     );
-    assert.match(boundary, /MCP 与第三方运行时注册的工具均不在面内/);
+    assert.match(
+      boundary,
+      /其它含 defineTool\( 的 @deepseek-ai\/dsh-\* 包（如 dsh-plan-mode \/ dsh-schedule）/,
+    );
+    assert.match(
+      boundary,
+      /仅含 parameters: 的包（如 MCP 客户端）与第三方运行时注册的工具不在面内/,
+    );
     assert.match(boundary, /unknownToolAllowlist（如 mcp__\*）/);
     assert.match(boundary, /exit 0 不等于全覆盖/);
   } finally {
@@ -265,7 +271,10 @@ test("tool-surface-check：--json 输出 boundary 文案 + 稳定布尔字段（
     assert.equal(typeof parsed.boundary, "string");
     const boundary = parsed.boundary ?? "";
     assert.match(boundary, /mcp/i);
-    assert.match(boundary, /只扫 dsh-tool-\* 包/);
+    assert.match(
+      boundary,
+      /扫 dsh-tool-\* 包 \+ 其它含 defineTool\( 的 @deepseek-ai\/dsh-\* 包/,
+    );
     assert.match(boundary, /dsh-plan-mode/);
     assert.match(boundary, /exit 0 不等于全覆盖/);
     // 摘要行 = 固定前缀 + 该字段内容（同一份文案，不分叉）
@@ -344,16 +353,16 @@ test("tool-surface-check：无 --root 且无 DSH_INSTALL → 用法提示（含 
     assert.match(run.output, /缺少宿主目录/);
     assert.match(run.output, /用法：/);
     assert.doesNotMatch(run.output, /已覆盖/);
-    // 用法文案里 0 的限定：0 只覆盖 dsh-tool-* 面（P5）
-    assert.match(run.output, /0 仅指 dsh-tool-\* 面内/);
+    // 用法文案里 0 的限定：0 只覆盖「含 defineTool( 的 @deepseek-ai/dsh-* 包」面（P5）
+    assert.match(run.output, /0 仅指上述面内/);
     assert.match(
       run.output,
-      /不覆盖 MCP \/ 第三方运行时注册的工具，\s*也不覆盖宿主内非 dsh-tool-\* 的其它官方包/,
+      /不覆盖仅含 parameters: 的包、\s*也不覆盖 MCP \/ 第三方运行时注册的工具/,
     );
     // --help 走同一份 USAGE（同一条限定）
     const help = runScript(["--help"]);
     assert.equal(help.status, 0, help.output);
-    assert.match(help.output, /0 仅指 dsh-tool-\* 面内/);
+    assert.match(help.output, /0 仅指上述面内/);
     assert.match(help.output, /不覆盖 MCP \/ 第三方运行时注册的工具/);
   } finally {
     fixture.cleanup();
@@ -398,7 +407,10 @@ test("tool-surface-check：--root 指到安装树 node_modules 层 / --root 缺�
     try {
       const noPackages = runScript(["--root", emptyDir]);
       assert.equal(noPackages.status, 2);
-      assert.match(noPackages.output, /未找到 dsh-tool-\* 工具包/);
+      assert.match(
+        noPackages.output,
+        /未找到含工具定义的 @deepseek-ai\/dsh-\* 包/,
+      );
     } finally {
       rmSync(emptyDir, { recursive: true, force: true });
     }
@@ -510,3 +522,70 @@ test(
     }
   },
 );
+
+test("tool-surface-check：非 dsh-tool-* 命名但含 defineTool( 的官方包纳入面内；仅 parameters: 的包不纳入并单列提示", () => {
+  const base = mkdtempSync(join(tmpdir(), "sg-surface-face-"));
+  try {
+    const host = join(base, "host");
+    const scope = join(host, "node_modules", "@deepseek-ai");
+    const write = (pkg: string, source: string): void => {
+      const dir = join(scope, pkg, "lib");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "index.js"), source);
+    };
+    // ① 非 dsh-tool-* 命名、但含 defineTool( → 应纳入（此前整体漏扫）
+    write(
+      "dsh-plan-mode",
+      [
+        "ctx.tools.register(defineTool({",
+        "  name: 'exit_plan_mode',",
+        "  parameters: { path: { type: 'string', required: true } },",
+        "}));",
+      ].join("\n"),
+    );
+    // ② 只有 parameters: 无 defineTool(（形如 MCP 客户端）→ 不纳入，但要在提示行里报出来
+    write(
+      "dsh-noise-client",
+      [
+        "export const config = {",
+        "  parameters: { serverName: 'string' },",
+        "};",
+      ].join("\n"),
+    );
+    const root = host;
+    mkdirSync(join(root, "lib"), { recursive: true });
+
+    const run = runScript(["--root", root]);
+    assert.doesNotMatch(run.output, /未找到/, "有力包在面内，不应报未找到");
+    assert.match(
+      run.output,
+      /含工具定义的 @deepseek-ai\/dsh-\* 包/,
+      "摘要应说明面内包数口径",
+    );
+    assert.match(
+      run.output,
+      /exit_plan_mode/,
+      "非 dsh-tool-* 包的工具应被解析并出现在输出里",
+    );
+    assert.match(
+      run.output,
+      /另有 1 个包只见 parameters: 未见 defineTool\(，未纳入/,
+      "仅 parameters: 的包应单列提示",
+    );
+    assert.match(run.output, /dsh-noise-client/, "提示行应点名该包");
+    // --json 也要有该信息（否则机器消费者看不到被排除的包）
+    const json = runScript(["--root", root, "--json"]);
+    const parsed = JSON.parse(json.output) as {
+      packages: number;
+      parametersOnly?: string[];
+    };
+    assert.ok(
+      Array.isArray(parsed.parametersOnly),
+      "--json 应给出 parametersOnly 字段",
+    );
+    assert.deepEqual(parsed.parametersOnly, ["dsh-noise-client"]);
+    assert.equal(parsed.packages, 1, "面内包数仍只算含 defineTool( 的包");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
