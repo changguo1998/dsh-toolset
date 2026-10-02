@@ -103,11 +103,11 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
 - 路径提取是保守超集（裸 token 也参与 basename 规则匹配），故可能比真实语义多拦。
 - 规则只覆盖显式列出的工具与参数键；其他工具、其他参数名不参与判定。
 - `root` 类目录参数只按传入路径**本身**过敏感层，不扫描目录内容：`code_map` / `md_map` 的 `root` 指向普通目录时放行（即使该目录下含 `.env`），指向 `~/.ssh` 这类敏感目录本身则拦。
-- **命令来自状态文件时不经过本层**（已知边界）：`metric_loop` 的 `tick` 执行的命令取自状态文件
-  （`~/.dsh/metric-loop/metric-loop-<id>.json`），不在任何工具入参里 → 本层只在 `measureCmd` 声明处
-  （`action=start`）与 `task_decompose` 的 children 契约上判定。同一命令若先经 `write` 落地状态文件再
-  `tick`，本层看不到（同类固有局限：「写脚本再执行」亦如此，但那条至少经 `bash` 工具可见）。加固方向：
-  执行前对 `spec.measureCmd` 复查黑名单（待办见 `docs/BACKLOG.md`）。
+- **命令来自状态文件时：执行前复查（2026-10-02 收口）**：`metric_loop` 的 `tick` 执行的命令取自状态文件
+  （不在工具入参里），现在由 `metric_loop` 在**执行之前**经可选服务 `ctx.get("guard")` 复查 —— 走
+  `GuardEngine.inspectCommand(command, source)`，与 `bash` 同一套命令黑名单与命令内路径敏感层（`allowPatterns` /
+  `allowedPaths` 同样生效），命中即不测量、不落盘。**未挂载 guard 时 fail-open（告警一次）**，与修复前行为一致
+  （不回归）；`metric-loop` 直连 `createController()` 的路径默认不带复查器。
 - **未登记工具仍不拦**是当前已知边界：插件工具靠 `PLUGIN_FILE_TOOLS`（路径面：写面 `hash_edit` / `md_logic` / `ast_replace`，读面 `ast_query` / `hash_read` / `fs_digest` / `code_map` / `md_map`）与 `PLUGIN_COMMAND_TOOLS`（命令面：`metric_loop` / `task_decompose`）两张白名单登记，未登记的插件工具（如 `context_report` / `rule_list`）不会被拦；新增工具时需按**真实参数面**同步登记。
 - **命令执行侧的检查点边界**：task-engine 的命令（`children[].executor.command` 与 mechanical 验收 `children[].acceptance[].command`）在 `task_decompose` **声明处**检查，而执行工具 `task_execute` / `task_stop` 的入参只有 `task_id`、命令文本不在其中。因此**绕过声明工具**进入帧契约的命令不受本层覆盖：从 `snapshotPath` 快照恢复的既有帧、配置侧 `root.acceptance[].command`（引擎直接执行、不经 `task_decompose`），以及其它直接写引擎状态/旁路的路径。此外 `workflow` 后端的 `script` 是 JS 编排脚本（非 shell 命令串），也不在命令黑名单层覆盖范围内。
 - **插件命令参数按参数键检查、不区分 action**：`metric_loop` 的 `measureCmd` 只在 `action=start` 时执行，但登记表按参数键判定——`action=status` 等调用若带上会命中黑名单的 `measureCmd` 同样被拦（宁可误拦不可漏拦；可用 `commandBlacklist.allowPatterns` 放行）。
