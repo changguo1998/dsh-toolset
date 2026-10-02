@@ -5,6 +5,7 @@
 
 import { resolve } from "node:path";
 import { digest, type DigestDeps } from "./digest.ts";
+import { renderOutline } from "./render.ts";
 import {
   DIGEST_MODES,
   type DigestOptions,
@@ -66,42 +67,13 @@ function resolveExecCwd(exec: unknown): string {
   return typeof cwd === "string" && cwd !== "" ? cwd : process.cwd();
 }
 
-/** 结果渲染：outline 渲染缩进树（最多 60 行）；signatures 渲染 L<n> 签名；pruned 渲染正文（最多 80 行）。 */
+/** 结果渲染：outline 走共享渲染器（标题树 ≤45 行 + 块清单 ≤15 行）；signatures 渲染 L<n> 签名；pruned 渲染正文（最多 80 行）。 */
 function renderResult(result: DigestResult): string {
   if (!result.ok) {
     return `fs_digest 失败：${result.error} — ${result.message}`;
   }
   if (result.mode === "outline") {
-    const lines: string[] = [];
-    const walk = (
-      nodes: Array<{
-        kind: string;
-        name: string;
-        line: number;
-        children: unknown[];
-      }>,
-      depth: number,
-    ): void => {
-      for (const n of nodes) {
-        if (lines.length >= 60) {
-          lines.push("…（其余略）");
-          return;
-        }
-        lines.push(`${"  ".repeat(depth - 1)}L${n.line} ${n.kind} ${n.name}`);
-        walk(n.children as typeof nodes, depth + 1);
-      }
-    };
-    walk(
-      result.nodes as Array<{
-        kind: string;
-        name: string;
-        line: number;
-        children: unknown[];
-      }>,
-      1,
-    );
-    if (lines.length === 0) return "(空大纲)";
-    return lines.join("\n");
+    return renderOutline(result.nodes, result.blocks);
   }
   if (result.mode === "signatures") {
     if (result.signatures.length === 0) return "(无函数签名)";
@@ -161,7 +133,8 @@ export function apply(ctx: PluginCtx, config: Config = {}): void {
   tools.register({
     name: "fs_digest",
     description:
-      "上下文感知文件读取：outline（章节/符号大纲）、signatures（函数/方法签名）、" +
+      "上下文感知文件读取：outline（章节/符号大纲；Markdown 额外给每节行范围与块结构清单" +
+      "——列表/表格/代码块/引用，便于按节读而不是整篇读）、signatures（函数/方法签名）、" +
       "pruned（大文件头尾裁剪）。相对路径相对会话 cwd；只读，不改文件。",
     parameters: {
       type: "object",
@@ -180,7 +153,7 @@ export function apply(ctx: PluginCtx, config: Config = {}): void {
           type: "integer",
           minimum: 1,
           description:
-            "outline 专用：最大嵌套深度（Markdown = 最大标题级），缺省 3",
+            "outline 专用：最大嵌套深度（Markdown = 最大标题级，同时决定行范围与块归属的分辨率），缺省 3",
         },
         maxLines: {
           type: "integer",

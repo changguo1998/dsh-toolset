@@ -297,7 +297,8 @@ describe("工具注册（mock ctx）", () => {
       assert.equal(result.source, "markdown");
       const rendered = tool.output.render({}, result)[0]?.text ?? "";
       assert.ok(rendered.includes("标题一"));
-      assert.ok(rendered.includes("L1 heading"));
+      // Markdown 标题行带节行范围（L{起始}-{结束}）
+      assert.match(rendered, /L1-\d+ heading 标题一/);
     } else {
       throw new Error(`非预期结果：${JSON.stringify(result)}`);
     }

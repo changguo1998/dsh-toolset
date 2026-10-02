@@ -172,7 +172,12 @@ export async function digest(
 
   if (opts.mode === "outline") {
     const depth = opts.depth ?? DEFAULT_OUTLINE_DEPTH;
-    const { source, nodes } = buildOutline(text, language, depth, symbols);
+    const { source, nodes, blocks } = buildOutline(
+      text,
+      language,
+      depth,
+      symbols,
+    );
     return {
       ok: true,
       mode: "outline",
@@ -181,6 +186,7 @@ export async function digest(
       source,
       depth,
       nodes,
+      ...(blocks === undefined ? {} : { blocks }),
     };
   }
 

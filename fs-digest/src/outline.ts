@@ -4,13 +4,15 @@
 
 import type { Language } from "./languages.ts";
 import type { LspDocumentSymbol } from "./lsp.ts";
-import type { OutlineNode, SymbolKind } from "./types.ts";
+import type { MdBlock, OutlineNode, SymbolKind } from "./types.ts";
 
 export type OutlineSource = "lsp" | "heuristic" | "markdown";
 
 export interface OutlineData {
   source: OutlineSource;
   nodes: OutlineNode[];
+  /** Markdown 块级结构清单（仅 `source: "markdown"` 且检出块时存在）。 */
+  blocks?: MdBlock[];
 }
 
 /** outline 默认深度。 */
@@ -71,51 +73,249 @@ export function countBraces(code: string): number {
 // Markdown 大纲
 // ---------------------------------------------------------------------------
 
-/** Markdown ATX 标题大纲（跳过围栏代码块内行；深度 = 最大标题级）。 */
+/** Markdown 结构扫描结果：标题树（带行范围）+ 平铺块清单。 */
+export interface MarkdownScan {
+  nodes: OutlineNode[];
+  blocks: MdBlock[];
+}
+
+const MD_HEADING_RE = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
+const MD_FENCE_RE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+const MD_LIST_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])\s+/;
+const MD_QUOTE_RE = /^ {0,3}>/;
+const MD_TABLE_SEP_RE = /^ {0,3}\|?[\s:|-]*-[\s:|-]*\|?\s*$/;
+const MD_FM_KEY_RE = /^[A-Za-z0-9_.-]+\s*:/;
+
+/**
+ * Markdown 结构与块扫描（单遍）。口径：
+ * - **标题集**：只有 `level <= depth` 的 ATX 标题进树；`endLine` 与块 `section` 一律以**输出中的标题**为准，
+ *   depth 以下的标题不建节点，其正文（含块）归入最近的输出祖先节。
+ * - **行范围**：节范围 = 标题行 → 下一个输出标题前一行（末节到文件最后一个非空行），**尾部空行不计**；
+ *   父子范围是**包含关系**（父 ⊇ 子），不是分区。
+ * - **块**：frontmatter（仅文件首行、需配对，区间内不认标题）、围栏代码块、GFM 表格、列表、引用，平铺输出。
+ * - 不做 setext 标题 / HTML 块 / 嵌套引用；围栏按 CommonMark 的 `^ {0,3}` 缩进上限与「闭合串不短于开启串」。
+ */
+export function scanMarkdown(text: string, depth: number): MarkdownScan {
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+  const roots: OutlineNode[] = [];
+  const blocks: MdBlock[] = [];
+  const stack: Array<{ node: OutlineNode; level: number }> = [];
+  /** 输出节点 → 标题层级（行范围计算用）。 */
+  const levels = new Map<OutlineNode, number>();
+  let lastContent = 0;
+  let i = 0;
+
+  /** 追加块（`section` 取当前活动标题，保证只指向输出中的标题行）。 */
+  const pushBlock = (block: Omit<MdBlock, "section">): void => {
+    const top = stack[stack.length - 1];
+    blocks.push(
+      top === undefined ? block : { ...block, section: top.node.line },
+    );
+  };
+
+  // frontmatter：仅文件首行开始、需在有界范围内配对收尾，且内部**只含 YAML 键 / 注释 / 空行**
+  // （这样 `---` 起始的水平线 + 正文不会被误判，`# yaml 注释` 也不会被当成标题）。
+  if ((lines[0] ?? "").trim() === "---") {
+    let end = -1;
+    const limit = Math.min(lines.length, 41);
+    for (let k = 1; k < limit; k += 1) {
+      if ((lines[k] ?? "").trim() === "---") {
+        end = k;
+        break;
+      }
+    }
+    const inner = end > 0 ? lines.slice(1, end) : [];
+    const looksYaml =
+      inner.length > 0 &&
+      inner.every(
+        (l) =>
+          (l ?? "").trim() === "" ||
+          MD_FM_KEY_RE.test(l ?? "") ||
+          /^\s*#/.test(l ?? ""),
+      );
+    if (end > 0 && looksYaml) {
+      const keys = inner.filter((l) => MD_FM_KEY_RE.test(l)).length;
+      pushBlock({
+        kind: "frontmatter",
+        line: 1,
+        endLine: end + 1,
+        count: keys,
+      });
+      lastContent = end + 1;
+      i = end + 1;
+    }
+  }
+
+  for (; i < lines.length; i += 1) {
+    const raw = lines[i] ?? "";
+    if (raw.trim() !== "") lastContent = i + 1;
+
+    const fence = raw.match(MD_FENCE_RE);
+    if (fence !== null) {
+      const opener = fence[1] ?? "```";
+      const info = (fence[2] ?? "").trim();
+      let end = lines.length - 1;
+      for (let k = i + 1; k < lines.length; k += 1) {
+        const cur = lines[k] ?? "";
+        if (cur.trim() !== "") lastContent = k + 1;
+        const close = cur.match(MD_FENCE_RE);
+        if (
+          close !== null &&
+          (close[1] ?? "").startsWith(opener) &&
+          (close[2] ?? "").trim() === ""
+        ) {
+          end = k;
+          break;
+        }
+      }
+      const lang = info.split(/\s+/)[0] ?? "";
+      pushBlock({
+        kind: "code",
+        line: i + 1,
+        endLine: end + 1,
+        ...(lang === "" ? {} : { lang }),
+      });
+      i = end;
+      continue;
+    }
+
+    const heading = raw.match(MD_HEADING_RE);
+    if (heading !== null) {
+      const level = heading[1]?.length ?? 0;
+      if (level <= depth) {
+        const node: OutlineNode = {
+          kind: "heading",
+          name: heading[2] ?? "",
+          line: i + 1,
+          children: [],
+        };
+        while (stack.length > 0) {
+          const top = stack[stack.length - 1];
+          if (top === undefined || top.level < level) break;
+          stack.pop();
+        }
+        const parent = stack[stack.length - 1]?.node;
+        if (parent !== undefined) parent.children.push(node);
+        else roots.push(node);
+        stack.push({ node, level });
+        levels.set(node, level);
+      }
+      continue;
+    }
+
+    // GFM 表格：表头行 + 分隔行
+    const next = lines[i + 1] ?? "";
+    if (raw.includes("|") && MD_TABLE_SEP_RE.test(next) && next.includes("-")) {
+      let end = i + 1;
+      while (
+        end + 1 < lines.length &&
+        (lines[end + 1] ?? "").includes("|") &&
+        (lines[end + 1] ?? "").trim() !== ""
+      ) {
+        end += 1;
+      }
+      pushBlock({
+        kind: "table",
+        line: i + 1,
+        endLine: end + 1,
+        count: Math.max(0, end - i - 1),
+      });
+      lastContent = end + 1;
+      i = end;
+      continue;
+    }
+
+    // 引用块（连续 `>` 行，尾随空行不计）
+    if (MD_QUOTE_RE.test(raw)) {
+      let end = i;
+      while (end + 1 < lines.length && MD_QUOTE_RE.test(lines[end + 1] ?? "")) {
+        end += 1;
+      }
+      pushBlock({
+        kind: "quote",
+        line: i + 1,
+        endLine: end + 1,
+        count: end - i + 1,
+      });
+      lastContent = Math.max(lastContent, end + 1);
+      i = end;
+      continue;
+    }
+
+    // 列表块（允许条目间空行与缩进续行）
+    if (MD_LIST_RE.test(raw)) {
+      let end = i;
+      let count = 1;
+      for (let k = i + 1; k < lines.length; k += 1) {
+        const cur = lines[k] ?? "";
+        if (MD_FENCE_RE.test(cur)) break;
+        if (MD_LIST_RE.test(cur)) {
+          end = k;
+          count += 1;
+          continue;
+        }
+        if (cur.trim() === "") {
+          let nk = k + 1;
+          while (nk < lines.length && (lines[nk] ?? "").trim() === "") nk += 1;
+          if (nk < lines.length && MD_LIST_RE.test(lines[nk] ?? "")) {
+            k = nk - 1;
+            continue;
+          }
+          break;
+        }
+        if (/^\s{2,}\S/.test(cur)) {
+          end = k;
+          continue;
+        }
+        break;
+      }
+      pushBlock({
+        kind: "list",
+        line: i + 1,
+        endLine: end + 1,
+        count,
+      });
+      lastContent = Math.max(lastContent, end + 1);
+      i = end;
+    }
+  }
+
+  // 行范围：节 = 标题行 → 下一个「层级 ≤ 本节」的标题前一行（末节到文件末非空行），尾部空行不计；
+  // 随后按子树扩展，保证父子是**包含关系**（父 ⊇ 子），而不是分区。
+  const allHeadings: Array<{ level: number; line: number }> = [];
+  for (let k = 0; k < lines.length; k += 1) {
+    const h = (lines[k] ?? "").match(MD_HEADING_RE);
+    if (h !== null) allHeadings.push({ level: h[1]?.length ?? 0, line: k + 1 });
+  }
+  const extend = (node: OutlineNode): number => {
+    const level = levels.get(node) ?? 0;
+    let end = lastContent;
+    for (const h of allHeadings) {
+      if (h.line > node.line && h.level <= level) {
+        end = h.line - 1;
+        break;
+      }
+    }
+    while (end > node.line && (lines[end - 1] ?? "").trim() === "") end -= 1;
+    let childEnd = node.line;
+    for (const child of node.children) {
+      childEnd = Math.max(childEnd, extend(child));
+    }
+    const finalEnd = Math.max(node.line, end, childEnd);
+    node.endLine = finalEnd;
+    return finalEnd;
+  };
+  for (const root of roots) extend(root);
+
+  return { nodes: roots, blocks };
+}
+
+/** Markdown ATX 标题大纲（`scanMarkdown` 的树部分，保留旧签名）。 */
 export function parseMarkdownOutline(
   text: string,
   depth: number,
 ): OutlineNode[] {
-  const roots: OutlineNode[] = [];
-  const stack: Array<{ node: OutlineNode; level: number }> = [];
-  let inFence = false;
-  let fenceChar = "";
-  const lines = text.split("\n");
-  for (let i = 0; i < lines.length; i += 1) {
-    const raw = lines[i] ?? "";
-    const fence = raw.trimStart().match(/^(`{3,}|~{3,})/);
-    if (fence !== null) {
-      const marker = fence[1]?.[0] ?? "";
-      if (!inFence) {
-        inFence = true;
-        fenceChar = marker;
-      } else if (marker === fenceChar) {
-        inFence = false;
-      }
-      continue;
-    }
-    if (inFence) continue;
-    const m = raw.match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
-    if (m === null) continue;
-    const level = m[1]?.length ?? 0;
-    if (level > depth) continue;
-    const node: OutlineNode = {
-      kind: "heading",
-      name: m[2] ?? "",
-      line: i + 1,
-      children: [],
-    };
-    while (stack.length > 0) {
-      const top = stack[stack.length - 1];
-      if (top === undefined || top.level < level) break;
-      stack.pop();
-    }
-    const parent = stack.length > 0 ? stack[stack.length - 1]?.node : undefined;
-    if (parent !== undefined) parent.children.push(node);
-    else roots.push(node);
-    stack.push({ node, level });
-  }
-  return roots;
+  return scanMarkdown(text, depth).nodes;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +544,8 @@ export function buildOutline(
   symbols: LspDocumentSymbol[] | null | undefined,
 ): OutlineData {
   if (language === "markdown") {
-    return { source: "markdown", nodes: parseMarkdownOutline(text, depth) };
+    const scan = scanMarkdown(text, depth);
+    return { source: "markdown", nodes: scan.nodes, blocks: scan.blocks };
   }
   if (symbols !== null && symbols !== undefined && symbols.length > 0) {
     const nodes = symbols

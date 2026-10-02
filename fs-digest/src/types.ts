@@ -31,9 +31,29 @@ export type SymbolKind =
 export interface OutlineNode {
   kind: SymbolKind;
   name: string;
-  /** 1 基行号。 */
+  /** 1 基行号（节点起始行）。 */
   line: number;
+  /** 1 基行号（该节结束行，含）；仅 Markdown 标题节点有。 */
+  endLine?: number;
   children: OutlineNode[];
+}
+
+/** Markdown 块级结构种类（仅 Markdown 的 outline 产出）。 */
+export type MdBlockKind = "frontmatter" | "code" | "table" | "list" | "quote";
+
+/** Markdown 块级结构（平铺清单，不污染标题树的层级语义）。 */
+export interface MdBlock {
+  kind: MdBlockKind;
+  /** 块起始行（1 基，含）。 */
+  line: number;
+  /** 块结束行（1 基，含）。 */
+  endLine: number;
+  /** 所属标题的起始行（1 基）；块位于首个标题之前时省略。 */
+  section?: number;
+  /** 分种类计数：列表=条目数、表格=数据行数（不含表头与分隔行）、引用=行数、frontmatter=键数。 */
+  count?: number;
+  /** 代码块围栏语言标注（`code` 专有）。 */
+  lang?: string;
 }
 
 export interface OutlineResult {
@@ -46,6 +66,8 @@ export interface OutlineResult {
   /** 生效的深度上限。 */
   depth: number;
   nodes: OutlineNode[];
+  /** Markdown 块级结构清单（仅 Markdown 且检出块时存在）。 */
+  blocks?: MdBlock[];
 }
 
 export interface SignatureEntry {

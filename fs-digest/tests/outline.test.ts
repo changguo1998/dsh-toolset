@@ -7,7 +7,9 @@ import {
   parseMarkdownOutline,
   parsePythonOutline,
   parseTsOutline,
+  scanMarkdown,
 } from "../src/outline.ts";
+import { renderOutline } from "../src/render.ts";
 
 const mdText = [
   "# 标题一",
@@ -55,6 +57,151 @@ describe("markdown 大纲", () => {
     const data = buildOutline(mdText, "markdown", 3, null);
     assert.equal(data.source, "markdown");
     assert.ok(data.nodes.length >= 2);
+  });
+});
+
+describe("markdown 结构视图（行范围 + 块）", () => {
+  it("节行范围：尾部空行不计，父节覆盖子节（包含关系）", () => {
+    const { nodes } = scanMarkdown("# A\nbody\n\n## B\nbody2\n", 6);
+    // 父 A 的子树到文件末（含子节 B），子 B 到自己节末
+    assert.equal(nodes[0]?.endLine, 5);
+    assert.equal(nodes[0]?.children[0]?.endLine, 5);
+  });
+
+  it("连续标题 / 无尾换行 / 全空尾行", () => {
+    const a = scanMarkdown("# A\n# B\n", 6).nodes;
+    assert.equal(a[0]?.endLine, 1);
+    assert.equal(a[1]?.endLine, 2);
+    assert.equal(scanMarkdown("# A", 6).nodes[0]?.endLine, 1);
+    assert.equal(scanMarkdown("# A\n\n\n\n", 6).nodes[0]?.endLine, 1);
+  });
+
+  it("跳级时父子是包含关系（非分区）", () => {
+    const { nodes } = scanMarkdown("# A\n### C\n## B\n", 6);
+    assert.equal(nodes[0]?.endLine, 3);
+    assert.equal(nodes[0]?.children[0]?.name, "C");
+    assert.equal(nodes[0]?.children[0]?.endLine, 2);
+    assert.equal(nodes[0]?.children[1]?.endLine, 3);
+  });
+
+  it("depth 截断：depth 以下的正文归入最近的输出祖先节", () => {
+    const { nodes, blocks } = scanMarkdown("# A\n### C\n正文\n#### D\n", 2);
+    assert.equal(nodes.length, 1);
+    assert.equal(nodes[0]?.endLine, 4);
+    const outputLines = new Set(nodes.map((n) => n.line));
+    for (const b of blocks) {
+      assert.ok(b.section === undefined || outputLines.has(b.section));
+    }
+  });
+
+  it("围栏代码块：含围栏行、内部不产出标题", () => {
+    const { nodes, blocks } = scanMarkdown("# A\n```ts\n## X\n```\n## B\n", 6);
+    assert.equal(blocks[0]?.kind, "code");
+    assert.equal(blocks[0]?.line, 2);
+    assert.equal(blocks[0]?.endLine, 4);
+    assert.equal(blocks[0]?.lang, "ts");
+    assert.equal(nodes[0]?.children[0]?.name, "B");
+    assert.equal(nodes[0]?.children[0]?.line, 5);
+  });
+
+  it("4 空格缩进的围栏不算围栏（后续标题仍在）", () => {
+    const { nodes } = scanMarkdown(
+      "# A\n\n    ```\n    code\n    ```\n\n# B\n",
+      6,
+    );
+    assert.deepEqual(
+      nodes.map((n) => n.name),
+      ["A", "B"],
+    );
+  });
+
+  it("frontmatter：仅文件首行且需配对；区间内不认标题", () => {
+    const { nodes, blocks } = scanMarkdown(
+      "---\ntitle: x\n# a yaml comment\n---\n# T\n",
+      6,
+    );
+    assert.deepEqual(
+      blocks.map((b) => [b.kind, b.line, b.endLine]),
+      [["frontmatter", 1, 4]],
+    );
+    assert.deepEqual(
+      nodes.map((n) => n.name),
+      ["T"],
+    );
+    // 未配对：不产出 frontmatter，也不吞掉后续内容
+    const unclosed = scanMarkdown("---\ntitle: x\n", 6);
+    assert.equal(unclosed.blocks.length, 0);
+  });
+
+  it("表格：含表头与分隔行；`段落 + ---` 不误判为表格", () => {
+    const { blocks } = scanMarkdown(
+      "| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n",
+      6,
+    );
+    assert.deepEqual(
+      blocks.map((b) => [b.kind, b.line, b.endLine, b.count]),
+      [["table", 1, 4, 2]],
+    );
+    assert.equal(scanMarkdown("段落\n---\n| a | b |\n", 6).blocks.length, 0);
+  });
+
+  it("列表：条目间空行合并、缩进条目计数；`-no-space` 不成块", () => {
+    const flat = scanMarkdown("- a\n\n- b\n", 6).blocks;
+    assert.deepEqual(
+      flat.map((b) => [b.kind, b.line, b.endLine, b.count]),
+      [["list", 1, 3, 2]],
+    );
+    const nested = scanMarkdown("- a\n  - b\n", 6).blocks;
+    assert.deepEqual(
+      nested.map((b) => [b.kind, b.count]),
+      [["list", 2]],
+    );
+    assert.equal(scanMarkdown("-no-space\n", 6).blocks.length, 0);
+  });
+
+  it("引用块：连续 `>` 行合并计数", () => {
+    const { blocks } = scanMarkdown("> a\n> b\n\n正文\n", 6);
+    assert.deepEqual(
+      blocks.map((b) => [b.kind, b.line, b.endLine, b.count]),
+      [["quote", 1, 2, 2]],
+    );
+  });
+
+  it("块归属：section 指向输出中的标题行", () => {
+    const { blocks } = scanMarkdown("# A\n\n- x\n\n## B\n\n> q\n", 6);
+    assert.deepEqual(
+      blocks.map((b) => [b.section, b.kind]),
+      [
+        [1, "list"],
+        [5, "quote"],
+      ],
+    );
+  });
+
+  it("非 Markdown 不产出 endLine / blocks", () => {
+    const ts = buildOutline(
+      "export function f(): void {}\n",
+      "typescript",
+      3,
+      null,
+    );
+    assert.equal(ts.nodes[0]?.endLine, undefined);
+    assert.equal(ts.blocks, undefined);
+  });
+
+  it("渲染：标题带范围、块清单带节点归属，且预算独立", () => {
+    const { nodes, blocks } = scanMarkdown("# A\n\n- x\n", 6);
+    const out = renderOutline(nodes, blocks);
+    assert.match(out, /^L1-3 heading A$/m);
+    assert.match(out, /^§L1 L3 list·1项$/m);
+
+    // 标题树超预算时仍保留块清单（独立预算）
+    const many = Array.from({ length: 60 }, (_, i) => `# H${i + 1}`).join("\n");
+    const scan = scanMarkdown(`${many}\n\n- only-block\n`, 6);
+    const rendered = renderOutline(scan.nodes, scan.blocks);
+    assert.ok(rendered.includes("…（其余标题略）"));
+    assert.ok(rendered.includes("块结构（1 个）"));
+    assert.ok(rendered.includes("list·1项"));
   });
 });
 
