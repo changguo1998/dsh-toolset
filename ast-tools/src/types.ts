@@ -152,6 +152,9 @@ export interface RunRulesParams {
   paths: string[];
   /** JSON 输出中附带规则元数据。 */
   includeMetadata?: boolean;
-  /** 最低严重度过滤：info | warning | error | help。 */
-  minSeverity?: "info" | "warning" | "error" | "help";
+  /**
+   * 最低严重度过滤（CLI 真值域；大小写不敏感）：`hint` < `info` < `warning` < `error`，
+   * `off` = 不过滤（也是 CLI 默认，等价于省略）。
+   */
+  minSeverity?: "hint" | "info" | "warning" | "error" | "off";
 }

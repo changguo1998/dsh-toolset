@@ -32,7 +32,7 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 - `search`：`pattern`、`language`、`path`（文件或目录）、`strictness?`
 - `replace`：`pattern`、`replacement`、`language`、`path`（仅具体文件）、`strictness?`、`write?`（缺省 false，仅内存返回）
 - `outline`：`path`、`language?`、`items?`（缺省 `auto`：文件取 `structure`，目录取 `exports`）、`types?`
-- `rules`：`rule`（`{ kind: "file", rulePath }` 或 `{ kind: "inline", rules }`）、`paths`、`includeMetadata?`、`minSeverity?`
+- `rules`：`rule`（`{ kind: "file", rulePath }` 或 `{ kind: "inline", rules }`）、`paths`、`includeMetadata?`、`minSeverity?`（`hint` | `info` | `warning` | `error` 阶梯过滤，`off` = 不过滤（默认，等价省略）；非法值由 CLI 报错。**类型按 CLI 真值域含 `off`；模型侧工具 schema 只列四级阶梯**——对模型而言「省略」已是不过滤）
 
 另导出 `normalizeLanguage`、`runCli` / `runCliJson`、`DEFAULT_TIMEOUT_MS`、`INSTALL_GUIDANCE` 与错误类型 `AstGrepError` / `AstGrepMissingError` / `AstGrepProcessError` / `AstGrepJsonError`（含 `exitCode` / `stderr`）。
 

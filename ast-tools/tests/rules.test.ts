@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { AstGrepProcessError } from "../src/binary.ts";
 import { runRules } from "../src/rules.ts";
+import type { RunRulesParams } from "../src/types.ts";
 import { astTest, withTempDir, writeFixture } from "./helpers.ts";
 
 /** 写规则文件 fixture。 */
@@ -14,6 +15,58 @@ function writeRule(dir: string, yaml: string): string {
   const file = writeFixture(dir, "rule.yml", yaml);
   return file;
 }
+
+/**
+ * 类型层守护：`help` 不是 ast-grep 的 severity（旧类型曾错列该值 → CLI exit 2
+ * `Invalid severity level: help`）。`@ts-expect-error` 由 `npm run check` 守护。
+ */
+const LEGACY_ILLEGAL_SEVERITY: RunRulesParams = {
+  rule: { kind: "inline", rules: "" },
+  paths: [],
+  // @ts-expect-error `help` 不在真值域（hint | info | warning | error）内
+  minSeverity: "help",
+};
+void LEGACY_ILLEGAL_SEVERITY;
+
+astTest("minSeverity：hint 不过滤 / warning 过滤掉 info 级命中", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    const rule = {
+      kind: "inline" as const,
+      rules: [
+        "id: probe",
+        "language: typescript",
+        "message: m",
+        "severity: info",
+        "rule:",
+        "  pattern: const $X = $Y",
+        "",
+      ].join("\n"),
+    };
+    const target = writeFixture(dir, "a.ts", "const a = 1;\n");
+    const loosened = await runRules({
+      rule,
+      paths: [target],
+      minSeverity: "hint",
+    });
+    assert.equal(loosened.length, 1, "info 级命中在 hint 过滤线下保留");
+    assert.equal(loosened[0]?.ruleId, "probe", "命中来自本用例的规则");
+    const tightened = await runRules({
+      rule,
+      paths: [target],
+      minSeverity: "warning",
+    });
+    assert.deepEqual(tightened, [], "info 级命中被 warning 过滤线滤掉");
+    const off = await runRules({
+      rule,
+      paths: [target],
+      minSeverity: "off",
+    });
+    assert.equal(off.length, 1, "off（CLI 默认值）= 不过滤，且在类型内");
+  } finally {
+    cleanup();
+  }
+});
 
 astTest("规则文件：fix 规则的命中带 replacement", async () => {
   const { dir, cleanup } = withTempDir();
