@@ -542,18 +542,28 @@ function collectScope(scopeDir, found, parametersOnly, seenPkgs) {
     return;
   }
   for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith("dsh-")) continue;
+    if (!entry.name.startsWith("dsh-") || !isDir(join(scopeDir, entry.name)))
+      continue;
     const file = join(scopeDir, entry.name, "lib", "index.js");
     if (!isFile(file)) continue;
-    if (seenPkgs.has(entry.name)) continue;
-    seenPkgs.add(entry.name);
     const text = readText(file);
-    // `dsh-tool-*` 是历史命名面，**无条件**纳入；其它官方包按内容判定（放宽面时避免噪声）
-    if (entry.name.startsWith("dsh-tool-") || text.includes("defineTool(")) {
-      found.push({ pkg: entry.name, file });
-    } else if (text.includes("parameters:")) {
+    const inFace =
+      entry.name.startsWith("dsh-tool-") || text.includes("defineTool(");
+    // 同名多副本：**按内容择优**（含 defineTool( 的副本优先）——外层 stub 不得遮蔽内层真包
+    if (inFace) {
+      if (!found.some((f) => f.pkg === entry.name)) {
+        found.push({ pkg: entry.name, file });
+      }
+      const i = parametersOnly.indexOf(entry.name);
+      if (i >= 0) parametersOnly.splice(i, 1);
+    } else if (
+      text.includes("parameters:") &&
+      !seenPkgs.has(entry.name) &&
+      !found.some((f) => f.pkg === entry.name)
+    ) {
       parametersOnly.push(entry.name);
     }
+    seenPkgs.add(entry.name);
   }
 }
 
@@ -591,22 +601,31 @@ function findToolPackages(root, maxDepth = 8) {
         entries = [];
       }
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+        if (!isDir(join(scope, entry.name))) continue;
         const nested = join(scope, entry.name, "node_modules");
         if (isDir(nested)) visit(nested, depth + 1);
       }
     }
-    if (basename(dir).startsWith("dsh-")) {
+    if (basename(dir).startsWith("dsh-") && isDir(dir)) {
       const name = basename(dir);
       const file = join(dir, "lib", "index.js");
-      if (isFile(file) && !seenPkgs.has(name)) {
-        seenPkgs.add(name);
+      if (isFile(file)) {
         const text = readText(file);
-        if (name.startsWith("dsh-tool-") || text.includes("defineTool(")) {
+        const inFace =
+          name.startsWith("dsh-tool-") || text.includes("defineTool(");
+        if (inFace && !found.some((f) => f.pkg === name)) {
           found.push({ pkg: name, file });
-        } else if (text.includes("parameters:")) {
+          const i = parametersOnly.indexOf(name);
+          if (i >= 0) parametersOnly.splice(i, 1);
+        } else if (
+          !inFace &&
+          text.includes("parameters:") &&
+          !seenPkgs.has(name) &&
+          !found.some((f) => f.pkg === name)
+        ) {
           parametersOnly.push(name);
         }
+        seenPkgs.add(name);
       }
     }
     const nested = join(dir, "node_modules");
@@ -622,7 +641,7 @@ function isScopeLayer(dir) {
   if (isDir(join(dir, "node_modules"))) return false;
   try {
     return readdirSync(dir, { withFileTypes: true }).some(
-      (entry) => entry.isDirectory() && entry.name.startsWith("dsh-"),
+      (entry) => entry.name.startsWith("dsh-") && isDir(join(dir, entry.name)),
     );
   } catch {
     return false;

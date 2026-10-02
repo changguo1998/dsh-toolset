@@ -171,6 +171,7 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
   **覆盖边界（2026-10-02 放宽）**：脚本扫 **`dsh-tool-*` 包 + 其它 `lib/index.js` 含 `defineTool(` 的 `@deepseek-ai/dsh-*` 包**（后者曾整体漏扫，如 `dsh-plan-mode` 的 `exit_plan_mode`、`dsh-schedule` 的 `schedule_create`，现已在面内；真实宿主由 21 包/33 工具 → **27 包/49 工具**、「需关注」3 → 8）；**仅含 `parameters:` 而无 `defineTool(` 的包不纳入**（如 `dsh-mcp-client`），摘要会单列「另有 N 个包只见 parameters:…未纳入」。**仍在面外**：MCP / 第三方运行时注册的工具（`mcp__<server>__<raw>`，宿主不可静态枚举）与 profile 侧第三方插件工具（含本仓 19 插件），需用 `unknownToolAllowlist`（如 `mcp__*`）或按真实参数面登记；`exit 0 不等于全覆盖`。
   摘要**固定输出**这行边界；`--json` 的 `boundary` 字段同文案（**措辞可能变、勿整串比对**），机器判**稳定语义**请用布尔字段 `coversMcpTools: false` / `exitZeroMeansFullCoverage: false`；
   脚本也**不提供** `--include-mcp` 之类开关（运行时注册的 MCP / 第三方工具名无从静态枚举，给了开关只会产生**假覆盖率**；其它官方包已按 `defineTool(` 内容判定纳入，不需要开关）。`--help` / 用法错误的 USAGE 里「0」同样限定为「仅 `dsh-tool-*` 面内无『需关注』项」。
+  **两条实现细节（2026-10-02）**：① **跟随符号链接** —— 包目录判定用 `statSync().isDirectory()`（pnpm / workspace 树里 `@deepseek-ai/<pkg>` 常是软链，`Dirent.isDirectory()` 会整棵树漏扫）；② **同名多副本按内容择优** —— 同一包名出现多次时，含 `defineTool(` 的副本优先，且同名只报一次；**已知两条窄边界**：(a) 择优只覆盖「非面内 stub」（外层副本若**文本里出现** `defineTool(` 字样，如注释或再导出，仍会遮蔽内层真包）；(b) **异名同实体**（真目录 + 指向它的软链）会各计一次（未按 realpath 去重）。
   **已知多报（无需登记，2026-10-02 逐项裁定）**：真实宿主「需关注」8 项**均不需要登记** ——
   **新增 5 项**：`send_message` / `interrupt_agent`（`dsh-experimental-tool-agent-team`）：`target` 是**团队成员标识**、不是文件路径
   （键名启发误报；参数面不含路径/命令键，工具也不经 shell）；`schedule_create` / `schedule_update`（`dsh-schedule`）：实测参数面

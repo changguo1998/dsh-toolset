@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   cpSync,
+  symlinkSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -585,6 +586,94 @@ test("tool-surface-check：非 dsh-tool-* 命名但含 defineTool( 的官方包�
     );
     assert.deepEqual(parsed.parametersOnly, ["dsh-noise-client"]);
     assert.equal(parsed.packages, 1, "面内包数仍只算含 defineTool( 的包");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("tool-surface-check：符号链接包目录被跟随（pnpm 风格软链树不再整体漏扫）", () => {
+  const base = mkdtempSync(join(tmpdir(), "sg-surface-link-"));
+  try {
+    const host = join(base, "host");
+    const scope = join(host, "node_modules", "@deepseek-ai");
+    // 真包放别处，scope 里放软链（Dirent.isDirectory() 对软链为 false —— 旧实现会漏扫）
+    const realDir = join(base, "store", "dsh-linked-tool", "lib");
+    mkdirSync(realDir, { recursive: true });
+    writeFileSync(
+      join(realDir, "index.js"),
+      [
+        "ctx.tools.register(defineTool({",
+        "  name: 'linked_tool',",
+        "  parameters: { path: { type: 'string', required: true } },",
+        "}));",
+      ].join("\n"),
+    );
+    mkdirSync(scope, { recursive: true });
+    symlinkSync(
+      join(base, "store", "dsh-linked-tool"),
+      join(scope, "dsh-linked-tool"),
+      "dir",
+    );
+    mkdirSync(join(host, "lib"), { recursive: true });
+
+    const run = runScript(["--root", host]);
+    assert.doesNotMatch(run.output, /未找到/, "软链包应被计入面内");
+    assert.match(run.output, /linked_tool/, "软链包里的工具应被解析出来");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("tool-surface-check：同名多副本按内容择优（外层 stub 不得遮蔽内层真包）", () => {
+  const base = mkdtempSync(join(tmpdir(), "sg-surface-dupe-"));
+  try {
+    const host = join(base, "host");
+    const scope = join(host, "node_modules", "@deepseek-ai");
+    // 外层：同名包但是 stub（只有 parameters:，无 defineTool(）
+    const stubDir = join(scope, "dsh-dupe", "lib");
+    mkdirSync(stubDir, { recursive: true });
+    writeFileSync(
+      join(stubDir, "index.js"),
+      ["export const config = {", "  parameters: { n: 'number' },", "};"].join(
+        "\n",
+      ),
+    );
+    // 内层：同名包的真身（含 defineTool(）
+    const realDir = join(
+      scope,
+      "dsh-dupe",
+      "node_modules",
+      "@deepseek-ai",
+      "dsh-dupe",
+      "lib",
+    );
+    mkdirSync(realDir, { recursive: true });
+    writeFileSync(
+      join(realDir, "index.js"),
+      [
+        "ctx.tools.register(defineTool({",
+        "  name: 'dupe_real_tool',",
+        "  parameters: { path: { type: 'string', required: true } },",
+        "}));",
+      ].join("\n"),
+    );
+    mkdirSync(join(host, "lib"), { recursive: true });
+
+    const run = runScript(["--root", host]);
+    assert.match(
+      run.output,
+      /dupe_real_tool/,
+      "内层真包的工具应被解析（旧实现被 stub 遮蔽）",
+    );
+    const json = JSON.parse(runScript(["--root", host, "--json"]).output) as {
+      packages: number;
+      parametersOnly?: string[];
+    };
+    assert.equal(json.packages, 1, "同名包只报一次");
+    assert.ok(
+      !(json.parametersOnly ?? []).includes("dsh-dupe"),
+      "已被择优升级为面内包，不应再出现在 parametersOnly",
+    );
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
