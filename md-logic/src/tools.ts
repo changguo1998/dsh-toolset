@@ -1,0 +1,297 @@
+// src/tools.ts — md-logic 的模型侧工具面（唯一工具 `md_logic`，action 分派）。
+//
+// 契约同 ast-tools：def = { name, description, parameters, execute(args, exec), output{schema, render(_args, value)} }；
+// render 形参顺序是「args 第一、value 第二」；render 全函数（畸形值不抛）。
+// 只读：不写文件、不改宿主状态；路径相对**调用方会话 cwd**（与 fs_digest / 宿主 tool-fs 同口径）。
+
+import { readFile, stat } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
+
+import { listLinks, queryBlocks, findSections } from "./query.ts";
+import { parseMarkdownDocument } from "./parse.ts";
+import { renderBlocks, renderLinks, renderStructure } from "./render.ts";
+import type { MdBlockKind, MdLinkKind, MarkdownDocument } from "./types.ts";
+
+/** 默认文件尺寸上限（1MB；超限报错而不截断，避免给出错误行号）。 */
+export const DEFAULT_MAX_BYTES = 1_048_576;
+
+/** 二进制探测窗口（前 8KB 内出现 NUL 判定为二进制）。 */
+const BINARY_PROBE_BYTES = 8192;
+
+/** 工具执行上下文（宿主 `exec`，只读鸭子类型）。 */
+interface ToolExecCtx {
+  agent?: { session?: { header?: { cwd?: string } } };
+}
+
+/** 本次调用的相对路径基准：会话 cwd 优先，缺省进程 cwd。 */
+export function resolveExecCwd(exec: unknown): string {
+  const cwd = (exec as ToolExecCtx | undefined)?.agent?.session?.header?.cwd;
+  return typeof cwd === "string" && cwd !== "" ? cwd : process.cwd();
+}
+
+/** 读取文本文件（存在性 / 常规文件 / 尺寸 / 二进制守卫）。 */
+async function readMarkdown(
+  absPath: string,
+  maxBytes: number,
+): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  let info;
+  try {
+    info = await stat(absPath);
+  } catch {
+    return { ok: false, error: `文件不存在：${absPath}` };
+  }
+  if (!info.isFile()) return { ok: false, error: `非常规文件：${absPath}` };
+  if (info.size > maxBytes) {
+    return {
+      ok: false,
+      error: `文件大小 ${info.size}B 超过上限 ${maxBytes}B`,
+    };
+  }
+  const buffer = await readFile(absPath);
+  const probe = buffer.subarray(0, BINARY_PROBE_BYTES);
+  if (probe.includes(0)) return { ok: false, error: `二进制文件：${absPath}` };
+  return { ok: true, text: buffer.toString("utf8") };
+}
+
+/** 字符串参数读取（空串视为缺省）。 */
+function str(args: Record<string, unknown>, key: string): string | undefined {
+  const value = args[key];
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+/** 字符串数组参数读取。 */
+function strArray(args: Record<string, unknown>, key: string): string[] {
+  const value = args[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+/** 数字参数读取（非法值返回 undefined）。 */
+function num(args: Record<string, unknown>, key: string): number | undefined {
+  const value = args[key];
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+const BLOCK_KINDS: MdBlockKind[] = [
+  "frontmatter",
+  "code",
+  "table",
+  "list",
+  "quote",
+  "html",
+  "hr",
+];
+const LINK_KINDS: MdLinkKind[] = ["link", "image", "definition"];
+
+/** `md_logic` 工具定义。 */
+export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
+  return {
+    name: "md_logic",
+    description:
+      "Markdown 逻辑结构（单文件、只读）：action=structure 出节树（标题层级 + 每节 `L{起}-{止}` 行范围）," +
+      "action=blocks 按类型 / 节 / 行范围列块（list / table / code / quote / frontmatter / html / hr，" +
+      "带列表条目数与嵌套层数、表格行列数、代码围栏语言），action=links 列链接、图片与引用式定义（[tag]: url）。" +
+      "选择成本：只要标题 + 块快览用 fs_digest（轻量、与三模式统一）；要节行范围配 read 按节读、" +
+      "要链接清单 / 块细节 / 嵌套信息用本工具；改 Markdown 用 hash_edit（行级锚点 + 整批原子拒绝）。" +
+      "行号 1 基；path 相对会话 cwd。",
+    parameters: {
+      type: "object",
+      required: ["action", "path"],
+      additionalProperties: true,
+      properties: {
+        action: {
+          type: "string",
+          enum: ["structure", "blocks", "links"],
+          description: "structure=节树；blocks=块清单；links=链接与定义清单",
+        },
+        path: {
+          type: "string",
+          description: "Markdown 文件路径（相对会话 cwd 或绝对路径）",
+        },
+        depth: {
+          type: "integer",
+          minimum: 1,
+          description: "structure 用：展示到第几层标题（缺省 3）",
+        },
+        kind: {
+          type: "array",
+          items: { type: "string", enum: BLOCK_KINDS },
+          description: "blocks 用：只看这些块类型",
+        },
+        section: {
+          type: "integer",
+          minimum: 1,
+          description:
+            "blocks 用：只看归属该标题行（`L{n}`，来自 structure）的节内块",
+        },
+        from: {
+          type: "integer",
+          minimum: 1,
+          description: "blocks 用：只看与 `[from, to]` 有交集的块",
+        },
+        to: { type: "integer", minimum: 1, description: "blocks 用：见 from" },
+        line: {
+          type: "integer",
+          minimum: 1,
+          description: "blocks 用：只看覆盖该行的块",
+        },
+        linkKind: {
+          type: "array",
+          items: { type: "string", enum: LINK_KINDS },
+          description: "links 用：只看这些链接类型",
+        },
+        pattern: {
+          type: "string",
+          description:
+            "links 用：按 href / 文本 / title 子串过滤（大小写不敏感）",
+        },
+      },
+    },
+    async execute(
+      args: Record<string, unknown>,
+      exec?: unknown,
+    ): Promise<unknown> {
+      if (args === null || typeof args !== "object") {
+        return { error: "入参必须是对象（含 action 与 path）" };
+      }
+      const action = str(args, "action") ?? "";
+      const rawPath = str(args, "path");
+      const cwd = resolveExecCwd(exec);
+      if (action === "structure" || action === "blocks" || action === "links") {
+        if (rawPath === undefined) {
+          return { error: `${action} 需要 path 参数` };
+        }
+      } else {
+        return {
+          error: `未知 action：${action}（可选 structure / blocks / links）`,
+        };
+      }
+      // 先校验参数（不触达磁盘），再做读取与解析
+      const depth = num(args, "depth") ?? 3;
+      if (action === "structure" && (!Number.isInteger(depth) || depth < 1)) {
+        return { error: `depth 须为 >=1 的整数，收到：${String(args.depth)}` };
+      }
+      const blockKinds = strArray(args, "kind") as MdBlockKind[];
+      if (action === "blocks") {
+        const invalid = blockKinds.filter(
+          (kind) => !BLOCK_KINDS.includes(kind),
+        );
+        if (invalid.length > 0) {
+          return { error: `未知块类型：${invalid.join(", ")}` };
+        }
+      }
+      const linkKinds = strArray(args, "linkKind") as MdLinkKind[];
+      if (action === "links") {
+        const invalid = linkKinds.filter((kind) => !LINK_KINDS.includes(kind));
+        if (invalid.length > 0) {
+          return { error: `未知链接类型：${invalid.join(", ")}` };
+        }
+      }
+
+      const absPath = isAbsolute(rawPath ?? "")
+        ? (rawPath ?? "")
+        : resolve(cwd, rawPath ?? "");
+      const read = await readMarkdown(absPath, maxBytes);
+      if (!read.ok) return { error: read.error };
+      const doc = parseMarkdownDocument(read.text);
+
+      if (action === "structure") {
+        const sections = findSections(doc);
+        return {
+          action,
+          path: absPath,
+          depth,
+          lines: doc.lines,
+          sections,
+          doc,
+        };
+      }
+
+      if (action === "blocks") {
+        const blocks = queryBlocks(doc, {
+          ...(blockKinds.length === 0 ? {} : { kind: blockKinds }),
+          ...(num(args, "section") === undefined
+            ? {}
+            : { section: num(args, "section") }),
+          ...(num(args, "from") === undefined
+            ? {}
+            : { from: num(args, "from") }),
+          ...(num(args, "to") === undefined ? {} : { to: num(args, "to") }),
+          ...(num(args, "line") === undefined
+            ? {}
+            : { line: num(args, "line") }),
+        });
+        return {
+          action,
+          path: absPath,
+          blocks,
+          totalBlocks: doc.blocks.length,
+          doc,
+        };
+      }
+
+      const links = listLinks(doc, {
+        ...(linkKinds.length === 0 ? {} : { kind: linkKinds }),
+        ...(str(args, "pattern") === undefined
+          ? {}
+          : { pattern: str(args, "pattern") }),
+      });
+      return {
+        action,
+        path: absPath,
+        links,
+        totalLinks: doc.links.length,
+        doc,
+      };
+    },
+    output: {
+      schema: { type: "object", additionalProperties: true, properties: {} },
+      render: (_args: unknown, value: unknown) => {
+        const result =
+          value !== null && typeof value === "object"
+            ? (value as {
+                error?: string;
+                action?: string;
+                depth?: number;
+                doc?: MarkdownDocument;
+                blocks?: MarkdownDocument["blocks"];
+                links?: MarkdownDocument["links"];
+              })
+            : {};
+        if (typeof result.error === "string") {
+          return [{ type: "text", text: `md_logic 失败：${result.error}` }];
+        }
+        if (result.action === "structure" && result.doc !== undefined) {
+          return [
+            {
+              type: "text",
+              text: renderStructure(result.doc, result.depth ?? 3),
+            },
+          ];
+        }
+        if (result.action === "blocks") {
+          const blocks = result.blocks ?? [];
+          return [
+            {
+              type: "text",
+              text: blocks.length === 0 ? "(无块)" : renderBlocks(blocks),
+            },
+          ];
+        }
+        if (result.action === "links") {
+          const links = result.links ?? [];
+          return [
+            {
+              type: "text",
+              text: links.length === 0 ? "(无链接)" : renderLinks(links),
+            },
+          ];
+        }
+        return [{ type: "text", text: "(空结果)" }];
+      },
+    },
+  };
+}

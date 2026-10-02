@@ -1,0 +1,3 @@
+- insert:
+    - id: md-logic
+      name: '@dsh-toolset/md-logic'

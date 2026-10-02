@@ -135,7 +135,8 @@ export function apply(ctx: PluginCtx, config: Config = {}): void {
     description:
       "上下文感知文件读取：outline（章节/符号大纲；Markdown 额外给每节行范围与块结构清单" +
       "——列表/表格/代码块/引用，便于按节读而不是整篇读）、signatures（函数/方法签名）、" +
-      "pruned（大文件头尾裁剪）。相对路径相对会话 cwd；只读，不改文件。",
+      "pruned（大文件头尾裁剪）。Markdown 深查（链接 / 引用式定义 / 嵌套层数 / 表格维度）用 md_logic；" +
+      "相对路径相对会话 cwd；只读，不改文件。",
     parameters: {
       type: "object",
       required: ["path", "mode"],

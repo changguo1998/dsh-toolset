@@ -50,6 +50,7 @@ TS API：`digest(ctx, filePath, opts, deps?)`，`deps` 可注入 `provider` / `r
 ## 边界与限制
 
 - `outline` / `signatures` 优先消费宿主 LSP（duck-typed：`ctx.lsp` 或 `ctx.get("lsp")` 的 `documentSymbols` / `symbols`）；不可用时 Markdown 走原生标题解析，TypeScript/JavaScript 与 Python 走启发式（多行签名配平、注释剥离、缩进层级）。
+- Markdown **深查**（链接 / 引用式定义 / 嵌套层数 / 表格行列数）用 `md_logic`（`@dsh-toolset/md-logic`）：本包是轻量启发式入口（零依赖、与三模式统一），行范围口径两者一致，但在 setext 标题 / HTML 块 / 缩进代码块 / 懒续行等情形会有差异（**以 `md_logic` 的真实解析为准**，差异清单见其 README「与 fs_digest 的口径差异」）。
 - `requireLsp: true` 对 Markdown 不生效（Markdown 有原生解析路径，不参与 LSP 可用性检查）。
 - 无法识别语言且无 LSP → `unsupported_language`，可用 `language` 提示绕过。
 - 错误分类：`invalid_option` / `file_not_found` / `not_a_file` / `too_large` / `binary` / `lsp_unavailable` / `unsupported_language`；失败返回 `{ ok: false, error, message }`，不抛未捕获异常。

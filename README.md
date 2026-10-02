@@ -8,7 +8,7 @@ For agent-facing collaboration rules, see `AGENTS.md` in the repository root. Fo
 
 ## Composition
 
-The repository contains the `TUI/` terminal UI package and 17 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
+The repository contains the `TUI/` terminal UI package and 18 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
 
 | Package | What it does |
 |----|------|
@@ -22,6 +22,7 @@ The repository contains the `TUI/` terminal UI package and 17 in-process plugins
 | **fs-digest** | Context-aware file reading: `outline`/`signatures`/`pruned` modes return the minimum sufficient context instead of a whole-file `read` |
 | **hash-edit** | LINE:HASH anchored editing: reads return a content hash anchor for every line, edits locate lines by anchor, and stale content rejects the whole batch — no dirty writes |
 | **ast-tools** | AST structural search, structured replacement, file outlines and YAML rule execution on top of ast-grep (through the system CLI as a subprocess, zero runtime dependencies); registers the model-facing `ast_query` (AST search / outline / rules) and `ast_replace` (dry-run by default) |
+| **md-logic** | Markdown logical structure (single file, read-only): a section tree with per-section line ranges, a block inventory (list / table / code / quote / frontmatter / html / hr, with nesting depth and table dimensions) and a link / image / reference-definition inventory; registers the model-facing `md_logic` tool (`structure` / `blocks` / `links`), built on `marked` |
 | **security-guard** | Security guard: a dangerous-command blacklist plus a sensitive-file protection policy layer, hooked into the host's `tools/pre-execute` watermark to intercept commands before they are dispatched |
 | **code-map** | Code structure map: file nodes plus an import graph index, with `callers`/`callees`/`cycles`/`impact` queries and project/module reports (references are candidates, no LSP semantic layer); depends on `@dsh-toolset/ast-tools` via `link:`, so install both when mounting |
 | **context-report** | Session context and usage report: the host-only `sessionContext` projection folds session totals (turns/steps, model and tool wall clock, first token, token buckets), and the `context_report` tool combines token-meter live pressure with model capacity readings |
@@ -47,6 +48,7 @@ dsh-toolset/
 ├── fs-digest/            # 文件摘要（outline/signatures/pruned）
 ├── hash-edit/            # LINE:HASH 锚定编辑
 ├── ast-tools/            # AST 搜索/替换/大纲/规则
+├── md-logic/            # Markdown 逻辑结构（节树 + 块 + 链接，带行范围，模型工具 md_logic）
 ├── security-guard/       # 危险命令与敏感文件防护
 ├── code-map/             # 代码结构地图（符号/import 图、查询与报告）
 ├── context-report/       # 会话上下文/用量报告（sessionContext 投影 + context_report 工具）
@@ -81,7 +83,7 @@ Inside a single subpackage you can run its own `npm run check / build / test / d
 
 ## Wiring into a DSH profile
 
-One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 16 packages):
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 18 packages):
 
 ```sh
 git clone <本仓库> && cd dsh-toolset

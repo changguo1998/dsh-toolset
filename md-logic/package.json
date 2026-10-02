@@ -1,0 +1,34 @@
+{
+  "name": "@dsh-toolset/md-logic",
+  "version": "0.1.0",
+  "description": "DSH (DeepSeek Harness) 进程内集成插件：Markdown 逻辑结构（标题/列表/表格/代码块/引用/链接/frontmatter，带行范围）",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+  },
+  "dependencies": {
+    "marked": "^18.0.14"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # 本仓插件与官方包的复用审计（基线 DSH 0.2.0-rc.2）
 
-> 职责：回答「本仓 18 个包（TUI + 17 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」
+> 职责：回答「本仓 18 个包（TUI + 17 插件；`md-logic` 于 2026-10-02 晚于本审计新增，未纳入下表）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」
 > 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）
 > 过期条件：官方发布新的「文件摘要 / 知识记忆 / 行级锚定编辑」类能力，或本仓新增 / 删除包时重做
 
@@ -26,6 +26,7 @@
 | `goal-contract` | `goal` / `tool-goal`、`userQuestions` | 中 | **保留** | 官方 goal 只有状态与生命周期；「Done-when 契约起草 + 可验证条款」是扩展，且已复用官方 goals / userQuestions |
 | `metric-loop` | **`tool-ralph`**、**`goal-round-driver`**、`schedule`（未挂）、`workflow` | 中 | **保留（有缺口）** | 官方已有**循环 / 自主续跑**面：`tool-ralph`（模型面 fresh-agent 循环，直到完成 / 受阻 / 轮数上限）与 `goal-round-driver`（带竞态护栏的自主续跑），两者 fff 均已挂载；`metric-loop` 不可替代的是**测量命令驱动的指标循环 + plateau / 边界停止 + 状态文件跨进程** |
 | `security-guard` | `sandbox-policy`、`permission-presets`、`experimental-auto-review` | 中 | **并存** | 官方管「沙箱等级 + 审批预设（+ 实验性逐工具 LLM 审查，未挂）」；我们在 `tools/pre-execute` 做**命令 / 路径模式拦截**（该点官方无竞争监听，deny 可达；「先于官方策略」是当前实现事实，无显式顺序契约） |
+| `md-logic`（2026-10-02 新增包） | `tool-fs`（`read`）、`tool-fs-search`、官方无「文件结构视图」类包 | 低 | **保留** | Markdown 逻辑结构（节树 / 块 / 链接清单，带行范围），官方无等价物；与 `fs-digest` 的分工是「轻量快览 vs 真实解析深查」 |
 | `herdr-integration` | 无 | 无 | **保留** | 本机 herdr 面板桥，官方无对应物 |
 | `TUI` | `client-ui-*`（53 包，Web / 桌面） | 低 | **保留** | 官方客户端是浏览器 / 桌面面；终端 TUI 是不同形态，且本项目「只用 TUI、走 profile 全局组合」是既定口径 |
 | `ast-tools` | `tool-fs-search`（`grep` / `glob`）、`code-map` | 中 | **保留** | 官方检索是**文本级**，AST 形态查询（ast-grep）官方没有；**已注册模型侧工具** `ast_query`（search / outline / rules）+ `ast_replace`（默认 dry-run），`inject: ["tools"]`（2026-10-02 落地） |
@@ -48,7 +49,9 @@
 | `security-guard` ⇄ `sandbox-policy` / `permission-presets` | 官方：沙箱等级与审批预设；我们：危险命令 / 敏感文件的模式拦截（`tools/pre-execute`，命中即 deny） | 若将来启用 `experimental-auto-review`，需先划界（谁拥有最终否决权，见 §5） |
 | `session-title-cutoff` ⇄ `session-title-*` | 官方 provider：全量 / 首条消息；我们：裁剪窗口后的 provider | `ctx.sessionTitle` 只允许一个 provider → fff 显式 `disabled: true` 关掉官方 all-prompts（设计结果，不是冲突） |
 
-**内部边界补充**：`knowledge-base` ⇄ `output-compress` **共用同一个 `dbPath`**（profile patch 指定），`output-compress` 经共享写入器直写知识库、不经过 `knowledge-base` 的入库规则与隐私过滤（`persistRules`）。这是设计取舍（避免依赖循环），但两包写入口径必须同步——见 §4 观察项。
+**内部边界补充（二）**：`md-logic` ⇄ `fs-digest`（同一文件的结构视图，2026-10-02 起两处并存）——范围口径一致，分歧仅在解析精度（setext / HTML 块 / 缩进代码块 / 懒续行 / `html`·`hr` 两种新 kind），两个 README 互相指路：快览用 `fs_digest`，深查（链接 / 定义 / 嵌套 / 表格维度）用 `md_logic`；改 Markdown 仍用 `hash_edit`。
+
+**内部边界补充（一）**：`knowledge-base` ⇄ `output-compress` **共用同一个 `dbPath`**（profile patch 指定），`output-compress` 经共享写入器直写知识库、不经过 `knowledge-base` 的入库规则与隐私过滤（`persistRules`）。这是设计取舍（避免依赖循环），但两包写入口径必须同步——见 §4 观察项。
 
 ## 3. 已复用的官方面（按代码实测重写，2026-10-02）
 
@@ -69,6 +72,7 @@
 | `security-guard` | inject `tools`；事件 `tools/pre-execute`（拦截点） |
 | `code-map` / `fs-digest` | inject `tools`；get `lsp`（**当前不可达**，见 §5） |
 | `hash-edit` / `ast-tools` | inject `tools`（`ast-tools` 2026-10-02 起注册 `ast_query` / `ast_replace`，同时保留库 / 服务面） |
+| `md-logic` | inject `tools`（注册 `md_logic`：structure / blocks / links）；解析用 `marked` 实例，不消费宿主服务 |
 | `metric-loop` / `herdr-integration` / `symbol-normalizer` | inject `tools` / `agents` / —（`symbol-normalizer` 消费本仓 `ruleEngine` 服务） |
 
 ## 4. 可执行改造清单（未立项，用户择时）
