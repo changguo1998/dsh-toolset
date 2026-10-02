@@ -145,8 +145,10 @@ interface PluginFileTool {
 
 /**
  * 插件文件工具登记表：登记会读写文件的插件工具——
- * hash_edit（整文件重写，写侧）、md_logic（action=replace 写，其余只读）、
- * ast_replace（单文件写回，写侧，参数面只有 path）、ast_query（path / paths，只读）。
+ * 写面：hash_edit（整文件重写）、md_logic（action=replace）、ast_replace（单文件写回，
+ * 参数面只有 path）；
+ * 读面（与官方 read / grep / glob 同口径）：ast_query（path / paths）、hash_read（path）、
+ * fs_digest（path）、code_map（root，缺省 cwd）、md_map（root / path）。
  * 未登记的工具仍走「未知工具不拦」的既有边界（见 README「边界与限制」）。
  */
 const PLUGIN_FILE_TOOLS: Record<string, PluginFileTool> = {
@@ -162,6 +164,11 @@ const PLUGIN_FILE_TOOLS: Record<string, PluginFileTool> = {
     pathKeys: ["path"],
     pathArrayKeys: ["paths"],
   },
+  // 读面登记（读工具返回文件内容/结构，此前不过敏感文件层，与官方 read/grep 不对称）
+  hash_read: { operation: "read", pathKeys: ["path"] },
+  fs_digest: { operation: "read", pathKeys: ["path"] },
+  code_map: { operation: "read", pathKeys: ["root"] },
+  md_map: { operation: "read", pathKeys: ["root", "path"] },
 };
 
 /**

@@ -1,7 +1,8 @@
 /**
  * GuardEngine + 宿主挂接单测：pre-execute 的 deny/allow 分流、
  * 配置覆盖（enabled / allowPatterns / allowedPaths / 追加规则）、
- * 插件文件工具登记表（hash_edit / md_logic / ast_replace / ast_query）与未登记工具边界。
+ * 插件文件工具登记表（写面 hash_edit / md_logic / ast_replace；读面 ast_query /
+ * hash_read / fs_digest / code_map / md_map）与未登记工具边界。
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -513,6 +514,98 @@ test("插件工具：ast_query 的 path / paths（读侧）读敏感路径 → d
   }
 });
 
+test("插件工具：读面四工具读敏感路径 → deny（读侧回执 + 工具名）", () => {
+  const fx = makeSensitiveFixture();
+  try {
+    const guard = new GuardEngine({ homeDir: HOME });
+    for (const [tool, args, ruleId] of [
+      // hash_read / fs_digest：单值 path（读工具，返回行内容 / 摘要）
+      ["hash_read", { path: fx.envPath, offset: 1, limit: 50 }, "env-file"],
+      ["fs_digest", { path: fx.keyPath, mode: "outline" }, "ssh-rsa-key"],
+      // code_map：root（缺省 cwd），此处指向凭据目录
+      ["code_map", { action: "index", root: "~/.ssh" }, "ssh-directory"],
+      // md_map：root 建索引 / path 查文档（path 相对 root，basename 语义同样命中）
+      ["md_map", { action: "index", root: "~/.ssh" }, "ssh-directory"],
+      ["md_map", { action: "callers", path: ".env", root: fx.dir }, "env-file"],
+    ] as const) {
+      const hit = guard.inspect(tool, args);
+      assert.notEqual(hit, null, `expected deny for ${tool}`);
+      assert.match(hit!, /已拦截：读取敏感文件/);
+      assert.match(hit!, new RegExp(ruleId));
+      assert.match(hit!, new RegExp(`工具：${tool}`));
+      assert.match(hit!, /allowedPaths/);
+      // 读面工具不得被标成写侧
+      assert.doesNotMatch(hit!, /写入/);
+    }
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("插件工具：hash_read 读敏感路径 → deny（pre-execute 回执为读侧措辞）", async () => {
+  const fx = makeSensitiveFixture();
+  try {
+    const { host, listeners } = makeHost();
+    createSecurityGuard(host, { homeDir: HOME });
+    const result = await listeners[0]!(
+      execOf("hash_read", { path: fx.keyPath, offset: 1, limit: 50 }),
+      nextAllow,
+    );
+    assert.equal(result.kind, "deny");
+    const reason = (result as { reason: string }).reason;
+    assert.match(reason, /已拦截：读取敏感文件/);
+    assert.match(reason, /ssh-rsa-key/);
+    assert.match(reason, /工具：hash_read/);
+    assert.match(reason, /放行方式：/);
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("插件工具：读面四工具读普通路径 → 放行（不误伤）", () => {
+  const fx = makeSensitiveFixture();
+  try {
+    const guard = new GuardEngine({ homeDir: HOME });
+    for (const [tool, args] of [
+      ["hash_read", { path: fx.normalPath, offset: 1, limit: 50 }],
+      ["fs_digest", { path: fx.normalPath, mode: "pruned" }],
+      ["code_map", { action: "index", root: fx.dir }],
+      ["code_map", { action: "summary" }],
+      ["md_map", { action: "index", root: fx.dir }],
+      ["md_map", { action: "callers", path: "notes.md", root: fx.dir }],
+      // 非 string 值被忽略，不因类型异常误拦
+      ["hash_read", { path: 42 }],
+    ] as const) {
+      assert.equal(
+        guard.inspect(tool, args),
+        null,
+        `expected allow for ${tool}`,
+      );
+    }
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("插件工具：读面工具参数缺失 / root 缺省 → 放行（不产路径，不猜测语义）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  for (const [tool, args] of [
+    ["hash_read", {}],
+    ["hash_read", { offset: 1, limit: 10 }],
+    ["fs_digest", { mode: "outline" }],
+    // root 缺省 = 会话 cwd（不在入参里）→ 不产路径
+    ["code_map", { action: "index" }],
+    ["code_map", { action: "summary" }],
+    ["md_map", { action: "index" }],
+    ["md_map", { action: "report" }],
+    // 相对路径且普通名 → 放行；空串不产路径
+    ["md_map", { action: "callers", path: "notes.md" }],
+    ["md_map", { action: "index", root: "" }],
+  ] as const) {
+    assert.equal(guard.inspect(tool, args), null, `expected allow for ${tool}`);
+  }
+});
+
 test("插件工具：登记工具读写普通路径 → 放行（不误伤）", () => {
   const fx = makeSensitiveFixture();
   try {
@@ -567,13 +660,17 @@ test("边界回归：未登记工具（含其它只读插件工具）仍不拦",
   const fx = makeSensitiveFixture();
   try {
     const guard = new GuardEngine({ homeDir: HOME });
-    // ast_query 已登记（读侧）→ 不在本清单；此处只列未登记工具名
+    // ast_query 与读面四工具（hash_read / fs_digest / code_map / md_map）均已登记
+    // → 不在本清单；此处只列未登记工具名
     for (const [tool, args] of [
-      ["fs_digest", { path: fx.keyPath }],
-      ["md_map", { action: "index", root: fx.dir }],
+      ["context_report", { session_id: "s1", detail: "summary" }],
+      ["rule_list", {}],
+      ["metric_loop", { action: "status" }],
       ["todo_write", { todos: [] }],
       ["read", {}],
       ["bash", {}],
+      // 未登记工具的入参完全不参与判定：即使塞进敏感路径文本也放行（白名单语义）
+      ["session_channel", { action: "peers", path: fx.keyPath }],
     ] as const) {
       assert.equal(
         guard.inspect(tool, args),
