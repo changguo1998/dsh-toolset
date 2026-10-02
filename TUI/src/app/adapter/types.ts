@@ -1286,6 +1286,9 @@ export interface PolicySnapshotLike {
 export interface SecurityGuardLike {
   recent?(): readonly GuardRecordLike[];
   policy?(): PolicySnapshotLike;
+  /** 命令复查入口（不在工具入参里的命令，如 TUI 的 `$` 模式手输命令）：null = 放行，字符串 = deny 回执。
+   *  `source` 标注命令来源（TUI 传 `"tui:$"`）。 */
+  inspectCommand?(command: string, source?: string): string | null;
 }
 
 /** knowledge-base 概要（C4 前置；`KnowledgeBundleSummary` 的 TUI 侧宽松子集） */

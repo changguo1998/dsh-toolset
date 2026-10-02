@@ -68,12 +68,17 @@ import {
   type CommandPanelKind,
   type SessionUiState,
   contractSummaryText,
+  type SecurityGuardLike,
 } from "./adapter/dsh.ts";
 import { activeGoalSnapshot, currentProjectCwd } from "./state.ts";
 import {
+  makeShellGuardChecker,
   resolveShellCwd,
   runShellCommand,
+  SHELL_GUARD_SKIPPED_LINE,
+  shellGuardBlockedLines,
   shellResultLines,
+  type ShellGuardChecker,
   type ShellRunner,
 } from "./local-shell.ts";
 import {
@@ -279,6 +284,11 @@ export interface AppDeps {
   /** `$` 模式本地执行器（BACKLOG TUI#37）：缺省走 node:child_process（local-shell.ts），
    *  测试可注入假实现避免真起进程 */
   runShell?: ShellRunner;
+  /** `$` 模式执行前复查的 security-guard 服务读取器（懒读，容忍插件装载顺序；BACKLOG
+   *  「TUI `$` 模式执行面不经 guard」）：main.ts 接 `ctx.get("guard")`；返回 undefined /
+   *  无 inspectCommand / 读取或调用抛错 → fail-open 照常执行 + 每种失效模式告警一次。
+   *  缺省（不传）= 未接线：不复查也不告警（测试与无 guard 的嵌入方保持原行为）。 */
+  getGuard?: () => SecurityGuardLike | undefined;
   /** profile 目录（main.ts 从 `ctx.get('profileContext').dir` 接线）：实测宽度表
    *  落盘位置（`<profile 目录>/tui-width-table.json`）。缺省 / 空串 = 不落盘
    *  （仍按需实测，只是不跨会话复用）；见 layout/width-table.ts。 */
@@ -289,6 +299,9 @@ export class App {
   private state: AppState;
   /** `$` 模式本地执行器（BACKLOG TUI#37；缺省真实 spawn，测试经 deps.runShell 注入假实现） */
   private readonly shellRunner: ShellRunner;
+  /** `$` 模式执行前复查器（BACKLOG「TUI `$` 模式执行面不经 guard」）：缺省 = 未接线（不复查、
+   *  不告警）；main.ts 传 getGuard（惰性 `ctx.get("guard")`）时由复查器兜 fail-open 与告警去重 */
+  private readonly shellGuard: ShellGuardChecker | undefined;
   private unbindEvents: (() => void)[] = [];
   private disposed = false;
   /** 启动自检 kickoff 正文（门控通过时由 main.ts 传入）：恢复会话先挂起，等启动历史折叠
@@ -437,6 +450,15 @@ export class App {
 
   constructor(private deps: AppDeps) {
     this.shellRunner = deps.runShell ?? runShellCommand;
+    // `$` 模式执行前 security-guard 复查（BACKLOG「TUI `$` 模式执行面不经 guard」）：
+    // 未接线 getGuard → undefined（不复查、不告警）；告警出口走 deps.logger（真实接线 = stderr 桥），
+    // 带 `warn: ` 前缀才会被判成 warn 色（见 stderr-bridge.ts externalLogTone / 既有别名告警同款）
+    this.shellGuard =
+      deps.getGuard === undefined
+        ? undefined
+        : makeShellGuardChecker(deps.getGuard, (msg) =>
+            deps.logger?.("warn: " + msg),
+          );
     // 声音提醒配置（P2#33）：不传 notify = 默认开启 + 8s 阈值
     this.bellEnabled = deps.notify?.enabled ?? true;
     // 阈值合法性：>0 有限数即可（1000ms 下限是 tui.config.json 用户配置层的职责，
@@ -2608,6 +2630,8 @@ export class App {
    *  1. 命令回显先行入活动区（用户即时看到「已提交了什么」，也是审计线索）；
    *  2. 异步执行——不阻塞输入与渲染；完成后追加 stdout/stderr 与退出摘要行；
    *  3. 结果**只进 buffer**（kind="shell"）：不经 adapter、不进会话事件流与模型上下文。
+   * 执行前经 security-guard 复查一次（命中即不执行、回执进输出区；guard 不可用 fail-open，
+   * 见 `shellGuard` 与 local-shell.ts 的 makeShellGuardChecker）。
    * 执行器已把 spawn 失败归一为结果（不抛）；disposed 后丢弃迟到结果。
    */
   private async runLocalShell(command: string): Promise<void> {
@@ -2619,6 +2643,32 @@ export class App {
       }),
     );
     this.paint();
+    // 执行前复查一次（BACKLOG「TUI `$` 模式执行面不经 guard」）：命中即**不执行**，回执
+    // （含来源标注与规则 id）进输出区；guard 不可用 → 复查器内每种失效模式告警一次 + 留痕后
+    // fail-open 照常执行。
+    const check = this.shellGuard?.(command) ?? null;
+    const receipt = check?.receipt ?? null;
+    if (receipt !== null) {
+      this.apply((s) =>
+        reduceState(s, {
+          type: "shell-lines",
+          lines: shellGuardBlockedLines(command, receipt).slice(1),
+        }),
+      );
+      this.paint();
+      return;
+    }
+    // 复查被跳过（guard 未挂载 / 抛错）→ fail-open 照常执行，但输出区**留痕**（不静默；
+    // 与 metric-loop / task-engine 的 guardSkipped 同口径）。未接线（checker=null）不留痕。
+    if (check?.skipped === true) {
+      this.apply((s) =>
+        reduceState(s, {
+          type: "shell-lines",
+          lines: [SHELL_GUARD_SKIPPED_LINE],
+        }),
+      );
+      this.paint();
+    }
     const started = Date.now();
     const result = await this.shellRunner(command, { cwd });
     if (this.disposed) return;

@@ -121,7 +121,7 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
   （不在工具入参里），由 `metric_loop` 在**执行之前**经可选服务 `ctx.get("guard")` 复查 —— 走
   `GuardEngine.inspectCommand(command, source)`，与 `bash` 同一套命令黑名单与命令内路径敏感层（`allowPatterns` /
   `allowedPaths` 同样生效），命中即不测量、不落盘（调用方：`metric-loop` 的 tick 复查、`task-engine` 的 executor / 验收 /
-  worktree git 执行期复查）。
+  worktree git 执行期复查、`TUI` 的 `$` 模式手输命令）。
   - **检查点分工（D2）**：命令来自**工具入参**时由 guard 自己的 `tools/pre-execute` 覆盖，插件引擎内**不重复判定**
     （同一命令不会在 `recent()` 里落两条记录）；只有 guard 看不到的命令（状态文件 / 契约声明）才由调用方显式复查。
   - **不可用时可见（D1）**：guard 未挂载 / 形状不符 / 调用抛错 → **fail-open 放行**（判定策略与修复前一致，不回归；
@@ -131,6 +131,12 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
     （未接线，不标 `guardSkipped`）。
   - **回执标签行（D3）**：来源形态的回执渲染「来源：<source>」行（首行仍是「命令复查来源：…」），**真工具名**的回执
     仍是「工具：\<工具名>」——两者不混用。
+  - **TUI `$` 模式（用户输入面，2026-10-02）**：TUI 的 `$` 模式（手输命令、不经模型）在**挂载 guard 时**也走同一复查入口
+    `inspectCommand(command, "tui:$")`（来源标注固定 `tui:$`，与模型侧工具名区分）；命中即**不执行**，回执（含来源标注与
+    规则 id）连同一行「→ 已拦截（未执行） · security-guard」渲染到活动区；guard 未挂载 / 抛错 → **每种失效模式各告警一次**
+    - 照常执行（**fail-open**，TUI 不因 guard 缺失而不可用），且该次执行在活动区留一行「→ 未复查」（留痕，不静默）。
+      **已知边界**：`inspectCommand` 的敏感层按**命令文本里的路径**解析，**看不到 TUI 的 `cwd`**（状态栏 cwd）——只有命令里
+      出现的路径才参与判定，仅「在敏感目录下执行」不会命中。
 - **未登记工具：三态策略 + 放行名单**（2026-10-02）：覆盖是**显式白名单**（官方 shell / run_code / 文件工具 + 两张插件登记表）。
   - `unknownToolPolicy: "allow"`（缺省）= 与历史行为逐字一致（未登记工具一律放行）。
   - `unknownToolPolicy: "check"`：**不整工具硬拦**，把 watched 键下的字符串值（含数组元素）**按键类定向**送既有两层，命中才拦：

@@ -82,6 +82,9 @@ export function main(opts: {
   getSessionChannel?: () => SessionChannelLike | undefined;
   /** rule-engine 服务读取器（懒读；未挂载 / 未实现 onNotice 时告警不经总线，走 stderr 兜底） */
   getRuleEngine?: () => RuleEngineLike | undefined;
+  /** security-guard 服务读取器（懒读；`$` 模式执行前复查用）。未挂载 / 形状不符 / 抛错 →
+   *  fail-open 照常执行 + 每种失效模式告警一次（BACKLOG「TUI `$` 模式执行面不经 guard」） */
+  getGuard?: () => SecurityGuardLike | undefined;
   /** 启动自检 kickoff 正文（门控通过时传入，App 代替用户发出以完成锚定解锁）；
    *  不传 = 不发送（非 deepseek 模型 / toolBootstrap 关闭 / 会话已解锁 / 记录不可读） */
   bootstrapKickoffText?: string;
@@ -116,6 +119,7 @@ export function main(opts: {
     getSymbols: opts.getSymbols,
     getSessionChannel: opts.getSessionChannel,
     getRuleEngine: opts.getRuleEngine,
+    getGuard: opts.getGuard,
     logger: opts.logger,
     // 跨回合帧率上限：真实接线压到 10Hz（窗口内跨宏任务标脏合并到窗口末统一出帧），
     // 防事件洪峰时每回合全量排版过热；测试/演示不传（缺省 0=立即出帧）
@@ -608,6 +612,13 @@ export async function apply(
     (ctx as { get?: (name: string) => unknown }).get?.("ruleEngine") as
       RuleEngineLike | undefined;
 
+  // security-guard 服务（ctx.get('guard')，security-guard 插件 provide）：同上懒读；
+  // `$` 模式执行前复查一次（命中不执行、回执进输出区；未挂载 fail-open + 告警一次，
+  // 见 local-shell.ts 的 makeShellGuardChecker 与 BACKLOG「TUI `$` 模式执行面不经 guard」）
+  const getGuard = (): SecurityGuardLike | undefined =>
+    (ctx as { get?: (name: string) => unknown }).get?.("guard") as
+      SecurityGuardLike | undefined;
+
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）
   const display = normalizeTuiDisplayConfig(config);
   // 启动自检门控（BACKLOG TUI「启动后自动触发首轮工具调用」）：开关未关 + 模型命中
@@ -648,6 +659,7 @@ export async function apply(
     getSymbols: getSymbolNormalizer,
     getSessionChannel,
     getRuleEngine,
+    getGuard,
   });
   // Cordis 插件生命周期：pause/unload 时释放 App/adapter——
   // adapter.dispose 释放当前活跃 handle（含 resume 后由 adapter 持有的新 handle）。
