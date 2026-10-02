@@ -71,3 +71,14 @@
 
 - 条目从项目级 `docs/BACKLOG.md` 清理并重编号；追踪文档移入 `docs/archived/`。
 - 残余：① **跨进程残留不回收**（reclaim 只认内存 held；进程重启后终态 worktree 不回收）→ 建议后续条目按 `worktree list --porcelain` 重算；② **abort / interrupted / 卸载**路径无清扫 → 孤儿；③ worktree 内**无 `node_modules`**（叶子命令依赖它会失败）；④ 目标仓未忽略 `.worktree` 时主树 `git status` 会多出 `?? .worktree/`（本仓已忽略）；⑤ git 全局配置（hooks / 别名 / 签名）仍是隐式依赖；⑥ **真机未跑**（沙箱对 `~/.dsh/profiles/fff` 只读）→ 建议 `dsh headless --patch <overlay>` 或重启后实测；⑦ 实现者**收尾终报未到**即由父会话按已复核状态关闭（pkg/repo 全绿 + 反向验证已观察）。
+
+## 补记：实现者终报要点（2026-10-02，归档后回填）
+
+- **diff 规模**：`src/types.ts` +24/-1；`src/engine.ts` +104/-41（新增 `TerminalHook` + `TaskEngineOptions.onFrameTerminal`，`rejectFrame` 改 async，`completeUp/tryJoinParent` 回传注记，`stop` 成功路径可带终态注记）；`src/main.ts` +461（`makeWorktreeIsolator` ensure/reclaim/reclaimAll + `worktreeSegment` + `checkIsolateDecl`，command 分支覆盖 `cwd`，unload 兜底 async disposer）；`src/gate.ts` +89（isolate 规则 + `validateIsolateId` + `GateRule "isolate-id"`，**计划外文件**：id 规则只能落此处，且与 `tools.ts` 入参校验共用一个门禁）；`README.md` +51、`docs/DESIGN.md` +25（新增「executor 隔离」段与取舍 12）；`tests/exec-isolate.test.ts` 新增 950 行 / 14 例。
+- **14 例清单**：① 不隔离回归；② 隔离生效（探针落 worktree、主树 status 空 + HEAD 不变、分支 `dsh/c1`）；③ 回收（stop→done：目录消失 + 分支删除 + 注册表清）；④ 回收失败保留现场（`git worktree lock`）；⑤ 假 guard 命中（不建不执行 + 建前调用序列 `[rev-parse, add]` 即止）；⑥ 幂等（注册表 porcelain：3 条注册 = 主树 + c1 + c2）；⑦ 非 git 仓库清晰报错；⑧ source 串含 cwd；⑨ 声明面（非叶子/非法值/`subagent`/`workflow`/缺 cwd）；⑩ 非终态失败不回收；⑪ 脏树取舍（提示 + 不删目录/分支）；⑫ id 穿越/非法引用名（`../../evil`、`frame.lock` → 安全化 + 注册表全在 `.worktree/` 内、仓库外无残留）；⑬ 卸载孤儿（干净删、脏留 + 告警给路径）；⑭ id 禁词（危险词与 `id_rsa` 形状 → 声明期拒绝 + 改 id 指引；不隔离叶子不受影响）；⑮ 崩后残留 prune（断言 prune 索引 < `-B` 索引）。
+- **反向验证三处变异**：撤建（ensure 直通）→ **11 例失败**（②③④⑤⑥⑦⑩⑪⑫⑬⑮），3 例通过（①⑨⑭ 不依赖建）；撤终态钩子（`terminalNotice` 返回 undefined）→ ③④⑪ 失败（⑬ 仍绿＝卸载走 `reclaimAll` 独立入口）；`reclaim` 整体置空 → ③④⑪⑬ 失败。三态均已还原，还原后 109/109。
+- **补充命令结论**：`task-engine` `smoke:executor` → **25 PASS + SMOKE_PASS**；`format` 已对 5 个改动文件 + 2 个 md 执行。
+- **安全化规则（最终）**：leafId 非 `[A-Za-z0-9_-]` → `_`；被清洗过则追加 sha1 前 8 位防撞名；建前断言 `resolve(root, seg)` 落在 `<repo>/.worktree/` 之内（前缀 + sep 校验），不满足拒绝执行。
+- **回收顺序（最终）**：注册表 `worktree list --porcelain`（不在册＝已回收，幂等）→ 目录不在但注册残留 → `prune` → 目录在 → `status --porcelain` 非空＝**保留现场**（路径 + 取回提示 + 跳过 `branch -D`）→ 干净才 `remove`（**永不 `--force`**）→ 成功才 `branch -D`（分支不在＝视为成功，不依赖本地化文本）。guard 命中（含回收命令被拦）一律回执原文 + 保留现场。
+- **未覆盖的终止路径（口径修正）**：abort/resume 把在途帧回收为 `pending` 时**不回收**（重入按注册表复用现场，**属设计而非遗漏**）；跨进程重启后内存 `held` 丢失、不主动回收（靠注册表复用 + prune）；回收失败/脏树现场不自动清理；unload 有 best-effort 兜底（干净删、脏留并告警）。
+- **补充残余**：隔离区**无 `node_modules`**（未做软链/安装）；真机 DSH（真宿主 + 真 subagent）未跑 —— 验证方式是「真实 git + 临时仓库 + 假宿主面 `apply` 接线」+ dist 级 smoke。
