@@ -171,6 +171,17 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
   **覆盖边界（2026-10-02 放宽）**：脚本扫 **`dsh-tool-*` 包 + 其它 `lib/index.js` 含 `defineTool(` 的 `@deepseek-ai/dsh-*` 包**（后者曾整体漏扫，如 `dsh-plan-mode` 的 `exit_plan_mode`、`dsh-schedule` 的 `schedule_create`，现已在面内；真实宿主由 21 包/33 工具 → **27 包/49 工具**、「需关注」3 → 8）；**仅含 `parameters:` 而无 `defineTool(` 的包不纳入**（如 `dsh-mcp-client`），摘要会单列「另有 N 个包只见 parameters:…未纳入」。**仍在面外**：MCP / 第三方运行时注册的工具（`mcp__<server>__<raw>`，宿主不可静态枚举）与 profile 侧第三方插件工具（含本仓 19 插件），需用 `unknownToolAllowlist`（如 `mcp__*`）或按真实参数面登记；`exit 0 不等于全覆盖`。
   摘要**固定输出**这行边界；`--json` 的 `boundary` 字段同文案（**措辞可能变、勿整串比对**），机器判**稳定语义**请用布尔字段 `coversMcpTools: false` / `exitZeroMeansFullCoverage: false`；
   脚本也**不提供** `--include-mcp` 之类开关（运行时注册的 MCP / 第三方工具名无从静态枚举，给了开关只会产生**假覆盖率**；其它官方包已按 `defineTool(` 内容判定纳入，不需要开关）。`--help` / 用法错误的 USAGE 里「0」同样限定为「仅 `dsh-tool-*` 面内无『需关注』项」。
+  **已知多报（无需登记，2026-10-02 逐项裁定）**：真实宿主「需关注」8 项**均不需要登记** ——
+  **新增 5 项**：`send_message` / `interrupt_agent`（`dsh-experimental-tool-agent-team`）：`target` 是**团队成员标识**、不是文件路径
+  （键名启发误报；参数面不含路径/命令键，工具也不经 shell）；`schedule_create` / `schedule_update`（`dsh-schedule`）：实测参数面
+  （含 `SELECTOR_PARAMETERS` 展开）为 `prompt` / `title` / `after_seconds`（create）与 `id` / `title` / `prompt`（update）
+  \+ `every_seconds` / `daily` / `weekly` / `cron` / `at` —— **无路径/命令面**（脚本报「参数面含展开」= 源码用
+  `...SELECTOR_PARAMETERS`，属保守多报）；`（名称未解析）`（`dsh-tools`）：实为 `run_code`、**已在 `RUN_CODE_TOOLS`**
+  （工具名走常量解析不出，属重复报）。
+  **既有 3 项（历史口径，重述于此）**：`present` —— `dsh-tool-present` 的 `files[].path`（读面，**已在读面登记口径内**，
+  脚本按叶子键名 `path` 展示）；`str_replace_editor` —— `command` + `path`（**命令面 + 写面均需登记**，历史已知项，待补登记或裁定）；
+  `（名称未解析）`（`dsh-tool-workflow`）—— `script` 代码键，按「不外送命令层、只做路径提取」的既有口径处理。
+  遇到「需关注」里的 `target` 类键名请**人工复核语义**；「需关注」行里的键名是**叶子键名**（如 `path`），完整键路径见引擎回执。
 - **命令执行侧的检查点边界**：task-engine 的命令（`children[].executor.command` 与 mechanical 验收 `children[].acceptance[].command`）在 `task_decompose` **声明处**检查，而执行工具 `task_execute` / `task_stop` 的入参只有 `task_id`、命令文本不在其中。因此**绕过声明工具**进入帧契约的命令不受本层覆盖：经导出 API `resumeFromSnapshot` 恢复的帧（本仓插件**当前未接线**：只写快照、不读回）、配置侧 `root.acceptance[].command`（引擎直接执行、不经 `task_decompose`），以及其它直接写引擎状态/旁路的路径。此外 `workflow` 后端的 `script` 是 JS 编排脚本（非 shell 命令串），不在命令黑名单层覆盖范围内——未登记工具策略取 `"check"` 时对代码键（`script` / `code` / `program`）也只做路径提取、不整段送命令层（同一口径）。
   **2026-10-02 更新**：`task-engine` 已在**执行期**补复查 —— executor 命令后端与 mechanical 验收两处都在命令执行**之前**调用 `GuardEngine.inspectCommand(command, source)`（`source` 形如 `task-engine{executor} <frame>` / `task-engine{acceptance} <frame>`）；guard 未挂载或调用抛错 → 告警一次 + 放行（fail-open）。**已知边界**：真机上 executor 缝通常在 `task_decompose` 声明处已被拦（同一命令文本），执行期复查属**纵深防御**；`inspectCommand` 的敏感层按命令文本里的路径解析，**看不到 executor 的 `cwd`**。
 - **插件命令参数按参数键检查、不区分 action**：`metric_loop` 的 `measureCmd` 只在 `action=start` 时执行，但登记表按参数键判定——`action=status` 等调用若带上会命中黑名单的 `measureCmd` 同样被拦（宁可误拦不可漏拦；可用 `commandBlacklist.allowPatterns` 放行）。
