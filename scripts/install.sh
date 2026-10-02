@@ -23,7 +23,7 @@ dry_run=0
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 profile_asset_dir="$repo_root/profiles/example"
 # 插件处理顺序（与根 package.json 的 check/build 顺序一致；子包名从各自 package.json 读）
-canonical_pkgs="TUI herdr-integration knowledge-base task-engine ast-tools md-logic fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine symbol-normalizer session-channel session-title-cutoff command-template"
+canonical_pkgs="TUI herdr-integration knowledge-base task-engine ast-tools md-logic md-map fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine symbol-normalizer session-channel session-title-cutoff command-template"
 
 usage() {
     cat << 'EOF'
@@ -229,8 +229,18 @@ if [ "$skip_build" = 1 ]; then
 else
     for d in $final; do
         if [ ! -d "$repo_root/$d/node_modules" ]; then
-            log "安装依赖：$d"
-            run_in "$repo_root/$d" npm install --no-audit --no-fund
+            # npm 不支持 `link:` 协议（code-map → ast-tools、md-map → md-logic）：这些包改用 pnpm
+            if grep -q '"link:' "$repo_root/$d/package.json"; then
+                if command -v pnpm >/dev/null 2>&1; then
+                    log "安装依赖（pnpm；含 link: 本地依赖）：$d"
+                    run_in "$repo_root/$d" pnpm install
+                else
+                    die "$d 声明了 link: 本地依赖，需要 pnpm（npm install 不支持该协议）：请先安装 pnpm"
+                fi
+            else
+                log "安装依赖：$d"
+                run_in "$repo_root/$d" npm install --no-audit --no-fund
+            fi
         fi
         log "构建：$d"
         run_in "$repo_root/$d" npm run build

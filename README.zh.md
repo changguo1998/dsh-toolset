@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 
 ## 组成
 
-仓库含 `TUI/` 终端界面包与 18 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
+仓库含 `TUI/` 终端界面包与 19 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
 
 | 包 | 功能 |
 |----|------|
@@ -23,6 +23,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **hash-edit** | LINE:HASH 锚定编辑：读取得到每行内容哈希锚点，编辑按锚点定位，内容过期（stale）整批拒绝、防脏写 |
 | **ast-tools** | 基于 ast-grep 的 AST 结构搜索、结构化替换、文件大纲与 YAML 规则执行（经系统 CLI 子进程，零运行时依赖）；注册模型侧工具 `ast_query`（AST 搜索 / 大纲 / 规则）与 `ast_replace`（默认 dry-run） |
 | **md-logic** | Markdown 逻辑结构（单文件、只读）：节树（每节带 `L{起}-{止}` 行范围）、块清单（列表 / 表格 / 代码块 / 引用 / frontmatter / html / hr，带嵌套层数与表格行列数）与链接 / 图片 / 引用式定义清单；注册模型侧工具 `md_logic`（`structure` / `blocks` / `links`），解析基于 `marked` |
+| **md-map** | Markdown 项目级结构与引用分析（文档版的 `code-map`）：索引 `**/*.md` 的标题锚点、文档间链接、wiki 链接、代码 / 文件引用与被引计数，查询面 `callers` / `impact` / `orphans` / `report`（含断链与断锚点）；注册模型侧工具 `md_map`，单文件解析复用 `md-logic` |
 | **security-guard** | 安全守卫：危险命令黑名单 + 敏感文件保护策略层，挂在宿主 `tools/pre-execute` 水位线，命令下发前拦截 |
 | **code-map** | 代码结构地图：文件节点 + import 图索引，`callers`/`callees`/`cycles`/`impact` 查询与项目/模块报告（引用为候选，无 LSP 语义层）；经 `link:` 依赖 `@dsh-toolset/ast-tools`（挂载时需一并安装） |
 | **context-report** | 会话上下文与用量报告：host-only 投影 `sessionContext` 折叠会话累计（回合/步、模型与工具墙钟、首 token、token 分桶），工具 `context_report` 合成 token-meter 即时压力与模型容量读数 |
@@ -49,6 +50,7 @@ dsh-toolset/
 ├── hash-edit/            # LINE:HASH 锚定编辑
 ├── ast-tools/            # AST 搜索/替换/大纲/规则
 ├── md-logic/            # Markdown 逻辑结构（节树 + 块 + 链接，带行范围，模型工具 md_logic）
+├── md-map/              # 文档版 code-map（锚点 / 引用 / 影响面 / 断链，模型工具 md_map）
 ├── security-guard/       # 危险命令与敏感文件防护
 ├── code-map/             # 代码结构地图（符号/import 图、查询与报告）
 ├── context-report/       # 会话上下文/用量报告（sessionContext 投影 + context_report 工具）
@@ -83,7 +85,7 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 
 ## 接入 DSH profile 使用
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 18 个包）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 19 个包）：
 
 ```sh
 git clone <本仓库> && cd dsh-toolset
@@ -122,7 +124,7 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/-
 - `docs/ROADMAP.md` — 未来开发方向与完成判据（进度、排期与条目见 `docs/BACKLOG.md` §3 里程碑）。
 - `docs/BACKLOG.md` — 可执行条目：跨包功能与缺陷（P0/P1/P2）+ 里程碑 + 插件规划。
 - `docs/STATUS.md` — 对照文档：记录已实现的内容（由维护者择时更新）。
-- `docs/ARCHITECTURE-REUSE.md` — 复用审计：18 个包逐项「官方是否有等价物」与「改用 / 保留 / 并存」结论及理由。
+- `docs/ARCHITECTURE-REUSE.md` — 复用审计：逐包（审计时 18 个；`md-logic` / `md-map` 为后加）「官方是否有等价物」与「改用 / 保留 / 并存」结论及理由。
 - `docs/WORKFLOW-STANDARD.md` — 内容变更规范 · 标准流程（详版）。
 - `docs/WORKFLOW-FAST.md` — 内容变更规范 · 快速流程（小改动）。
 - `docs/implementation/`、`docs/archived/` — 跨包条目的追踪文档（进行中 / 已关闭）。

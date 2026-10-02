@@ -1,0 +1,3 @@
+- insert:
+    - id: md-map
+      name: '@dsh-toolset/md-map'

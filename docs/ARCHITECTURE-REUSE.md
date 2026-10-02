@@ -1,10 +1,10 @@
 # 本仓插件与官方包的复用审计（基线 DSH 0.2.0-rc.2）
 
-> 职责：回答「本仓 18 个包（TUI + 17 插件；`md-logic` 于 2026-10-02 晚于本审计新增，未纳入下表）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」
+> 职责：回答「本仓 18 个包（TUI + 17 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（`md-logic` / `md-map` 为审计后 2026-10-02 新增，已在 §0 总表与 §3 补行）
 > 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）
 > 过期条件：官方发布新的「文件摘要 / 知识记忆 / 行级锚定编辑」类能力，或本仓新增 / 删除包时重做
 
-> 口径：官方基线 `dsh 0.2.0-rc.2`（安装树 277 个 `dsh-*`；fff 已挂 102 个官方行，2026-10-02 实测）；本仓 18 包 = TUI + ast-tools / code-map / command-template / context-report / fs-digest / goal-contract / hash-edit / herdr-integration / knowledge-base / metric-loop / output-compress / rule-engine / security-guard / session-channel / session-title-cutoff / symbol-normalizer / task-engine。
+> 口径：官方基线 `dsh 0.2.0-rc.2`（安装树 277 个 `dsh-*`；fff 已挂 102 个官方行，2026-10-02 实测）；本仓 19 包（`md-logic` / `md-map` 为 2026-10-02 审计后新增，表中已补行） = TUI + ast-tools / code-map / command-template / context-report / fs-digest / goal-contract / hash-edit / herdr-integration / knowledge-base / metric-loop / output-compress / rule-engine / security-guard / session-channel / session-title-cutoff / symbol-normalizer / task-engine。
 > 判据：① 能力是否重合（同一诉求）；② 官方是否有等价物；③ 我们是否已在复用官方底座。三者交叉后给「改用 / 保留 / 并存」。
 > 结论分布（2026-10-02）：**改用 0 / 保留 12 / 并存 6**。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
 
@@ -27,6 +27,7 @@
 | `metric-loop` | **`tool-ralph`**、**`goal-round-driver`**、`schedule`（未挂）、`workflow` | 中 | **保留（有缺口）** | 官方已有**循环 / 自主续跑**面：`tool-ralph`（模型面 fresh-agent 循环，直到完成 / 受阻 / 轮数上限）与 `goal-round-driver`（带竞态护栏的自主续跑），两者 fff 均已挂载；`metric-loop` 不可替代的是**测量命令驱动的指标循环 + plateau / 边界停止 + 状态文件跨进程** |
 | `security-guard` | `sandbox-policy`、`permission-presets`、`experimental-auto-review` | 中 | **并存** | 官方管「沙箱等级 + 审批预设（+ 实验性逐工具 LLM 审查，未挂）」；我们在 `tools/pre-execute` 做**命令 / 路径模式拦截**（该点官方无竞争监听，deny 可达；「先于官方策略」是当前实现事实，无显式顺序契约） |
 | `md-logic`（2026-10-02 新增包） | `tool-fs`（`read`）、`tool-fs-search`、官方无「文件结构视图」类包 | 低 | **保留** | Markdown 逻辑结构（节树 / 块 / 链接清单，带行范围），官方无等价物；与 `fs-digest` 的分工是「轻量快览 vs 真实解析深查」 |
+| `md-map`（2026-10-02 新增包） | `tool-fs-search`、官方无「文档引用图 / 影响面」类包 | 低 | **保留** | 项目级 Markdown 引用图（锚点 / 跨文档链接 / wiki / 断链 / 影响面），官方无等价物；复用 `md-logic` 做单文件解析 |
 | `herdr-integration` | 无 | 无 | **保留** | 本机 herdr 面板桥，官方无对应物 |
 | `TUI` | `client-ui-*`（53 包，Web / 桌面） | 低 | **保留** | 官方客户端是浏览器 / 桌面面；终端 TUI 是不同形态，且本项目「只用 TUI、走 profile 全局组合」是既定口径 |
 | `ast-tools` | `tool-fs-search`（`grep` / `glob`）、`code-map` | 中 | **保留** | 官方检索是**文本级**，AST 形态查询（ast-grep）官方没有；**已注册模型侧工具** `ast_query`（search / outline / rules）+ `ast_replace`（默认 dry-run），`inject: ["tools"]`（2026-10-02 落地） |
@@ -48,6 +49,8 @@
 | `command-template` ⇄ `commands` / `workflow` / `tool-workflow` | 官方：命令注册表 + 模型侧 JS 编排；我们：**人面** `/playbook` 模板目录、模板级模型选择、步骤编排 | 模型面 `workflow` 官方独占；我们不注册同名工具，只注册 slash 命令 |
 | `security-guard` ⇄ `sandbox-policy` / `permission-presets` | 官方：沙箱等级与审批预设；我们：危险命令 / 敏感文件的模式拦截（`tools/pre-execute`，命中即 deny） | 若将来启用 `experimental-auto-review`，需先划界（谁拥有最终否决权，见 §5） |
 | `session-title-cutoff` ⇄ `session-title-*` | 官方 provider：全量 / 首条消息；我们：裁剪窗口后的 provider | `ctx.sessionTitle` 只允许一个 provider → fff 显式 `disabled: true` 关掉官方 all-prompts（设计结果，不是冲突） |
+
+**内部边界补充（三）**：`md-map` ⇄ `md-logic` ——前者复用后者的单文件解析做**项目级**引用图（`md-map` 依赖 `md-logic`，`link:../md-logic`）；两者与 `code_map` 的分工写进三个工具描述：代码结构 → `code_map`，单文件 Markdown 结构 → `md_logic`，项目级文档关系 / 影响面 / 断链 → `md_map`。
 
 **内部边界补充（二）**：`md-logic` ⇄ `fs-digest`（同一文件的结构视图，2026-10-02 起两处并存）——范围口径一致，分歧仅在解析精度（setext / HTML 块 / 缩进代码块 / 懒续行 / `html`·`hr` 两种新 kind），两个 README 互相指路：快览用 `fs_digest`，深查（链接 / 定义 / 嵌套 / 表格维度）用 `md_logic`；改 Markdown 仍用 `hash_edit`。
 
@@ -73,6 +76,7 @@
 | `code-map` / `fs-digest` | inject `tools`；get `lsp`（**当前不可达**，见 §5） |
 | `hash-edit` / `ast-tools` | inject `tools`（`ast-tools` 2026-10-02 起注册 `ast_query` / `ast_replace`，同时保留库 / 服务面） |
 | `md-logic` | inject `tools`（注册 `md_logic`：structure / blocks / links）；解析用 `marked` 实例，不消费宿主服务 |
+| `md-map` | inject `tools` / provide `mdMap`（注册 `md_map`：index / refresh / callers / impact / orphans / report / summary）；组合 `md-logic` 的解析，不做解析本身 |
 | `metric-loop` / `herdr-integration` / `symbol-normalizer` | inject `tools` / `agents` / —（`symbol-normalizer` 消费本仓 `ruleEngine` 服务） |
 
 ## 4. 可执行改造清单（未立项，用户择时）

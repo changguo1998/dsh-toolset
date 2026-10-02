@@ -479,7 +479,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 
 ## 5. 对本项目的落点
 
-- **本项目 19 个包不在这 287 个里**：`@dsh-toolset/*`（TUI + 18 个进程内插件）以 `link:` 依赖 + bundle 行挂进 profile（`package.json` 的 `dsh.profile.bundles` + 各自的 `cordis.patch.yml`），与官方包「已装但未挂载」的形态不同。
+- **本项目 20 个包不在这 287 个里**：`@dsh-toolset/*`（TUI + 19 个进程内插件）以 `link:` 依赖 + bundle 行挂进 profile（`package.json` 的 `dsh.profile.bundles` + 各自的 `cordis.patch.yml`），与官方包「已装但未挂载」的形态不同。
 - **我们 inject / 读取的宿主服务**：`inject` 里显式声明 6 个——`tools`（全部工具注册）、`agents`、`sessions`、`sessionProjections`（context-report 的 `sessionContext` 投影）、`userQuestions`、`goals`；其余经 `ctx.get()` 读取——`jobs`、`commands`、`sessionQuery`、`sessionTitle`、`skills`、`subagents`、`llm`（含 `agentDefaultModel`）、`agentPresets`、`settings`、`permissionPresets`、`web`、`workflowEngine`、`lsp`；另有事件面消费（TUI 订 `approval/policy`、`skill/*` 等）。`slots` 零引用（客户端面）。接口怎么用见 `docs/host/DSH-CTX-API.md`；0.1.7 的逐项兼容判定见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` §3.2。
 - **启用未挂载的官方包不需要安装**：包已随 dsh 装在共享 `node_modules`，在 profile 的 `cordis.patch.yml` 加一行（或 `dsh plugin --profile <p> add <包名>`）即可。例外是 §4 的「源码有、不分发」包与树外加装包——那些要自己装。
 - **升级注意（0.2.0 的事实，2026-10-02 核对）**：服务面 +2（`ctx.otel`、`ctx.productAnalytics`）、无删除改名；模型可见工具零增删（默认组合下 `ask_user_question` 的 schema 未变——timed 是官方行 config，不是模型参数；`bash` / `pwsh` / `cordis_inspect_query` 仅描述变化）；事件面零增删；会话格式仍为 V4；`dsh-base` 新增 `otel` 行。本仓 17 个插件**不需要改代码**（消费的服务面实现零 diff），只需部署面动作。逐条对照见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`。

@@ -51,15 +51,14 @@
 ## 2. 未完成项
 
 > 扁平清单，**按条目间逻辑依赖排序**（2026-10-02 依赖重排：编号即先后顺序；同层先小后大。编号仅供阅读，随整理重编）。
-> 顺序依据（2026-10-02 `md-logic` 建包完成后重编）：**① 基线链已完成**——接口对照汇总、宿主升级、profile 挂载面扩张、复用官方包审计、Markdown 结构视图、`ast-tools` 模型侧工具、`md-logic` 建包七件工作均已落地（见 §1）。**② 结构能力线收尾 `#1`**——`md-map`（项目级 Markdown 结构分析）直接复用 `md-logic` 的单文件结构模型与 `code-map` 的索引模式，前置全部就绪，可独立推进。**③ 独立修复项 `#2` / `#3`**——仅弱依赖基线，彼此无依赖。**④ `#4`** 阻塞于本机 `dsh-git-worktree` 就绪（外部条件，非本仓可控）。**⑤ `#5`** 为收尾类，需前面状态定稿后才能一次写准。优先级：P0 > P1 > P2。
+> 顺序依据（2026-10-02 `md-map` 建包完成后重编）：**① 结构能力线已完成**——接口对照汇总、宿主升级、profile 挂载面扩张、复用官方包审计、Markdown 结构视图、`ast-tools` 模型侧工具、`md-logic` 建包、`md-map` 建包八件工作均已落地（见 §1）。**② 独立修复项 `#1` / `#2`**——仅弱依赖基线，彼此无依赖。**③ `#3`** 阻塞于本机 `dsh-git-worktree` 就绪（外部条件，非本仓可控）。**④ `#4`** 为收尾类，需前面状态定稿后才能一次写准。优先级：P0 > P1 > P2。
 
 | # | 功能 | 来源 | 落点（复用） | 工作量（估） | 优先级 |
 |---|------|------|--------------|--------------|--------|
-| 1 | **新建 markdown 项目级结构分析插件（对标 `code-map`）**：索引项目内 `.md` 文件的结构与**关系**——标题锚点、文档间链接（`[x](path#anchor)`）、wiki 链接、对代码 / 文件的引用、被引用计数；查询面建议 `callers`（谁引用了本文档 / 本锚点）、`impact`（改这份文档会波及哪些文档 / 章节）、`orphans`（无人引用的文档）、`report`（文档结构 + 断链报告）。与 `code-map` 的分工须写清（代码 vs 文档；跨类型引用可后续打通）；**单文件结构解析复用 `md-logic`（已落地）的模型，本条只做项目级关系与影响面**；包名定为 `md-map`（2026-10-02 用户裁定） | 用户 2026-10-02 裁定「分析项目内 markdown 文件的逻辑结构分析、引用和影响面等，对标 code-map」 | 新包 `md-map/`（模板：已落地的 `md-logic` 包）+ 文档 | 3-4 h | P2 |
-| 2 | **executor 用量计量接 usage 口径**：`budget.maxTokens` 已映射宿主 `agentOptions.maxTokens`（输出上限），但 subagent 目前只报 `tokensKind: "pressure"`（`tokenMeter.measure` 的上下文压力），故 `overBudget` 对 subagent 一律不判（2026-10-02 真机第二轮发现误报后收紧，用户裁定「另开条目」）。期望：接 `ctx.sessionProjections.snapshot(session, ["tokenUsage"])`（或 `deriveTurnTokenUsage`）取 `outputTokens`，与 `budget.maxTokens` 同口径比较并标 `tokensKind: "usage"` | 「task-engine 执行扩展」真机验证第二轮（2026-10-02） | `task-engine`（`src/main.ts` 计量段 + `src/engine.ts` 判定） | 1 h | P2 |
-| 3 | **命令模板的取消/超时终态**：真机发现 `playbook` 命令在子代理死亡或取消后可能**无 `command/done`**（命令悬挂）；且 `stepTimeoutMs`（缺省 600s）触发的 abort 是否真的中止子代理未经真机验证。期望：命令任何路径都回终态（成功/失败/取消），并在子会话结束时回收 | 「模板体系」真机观察（追踪文档 2026-09-30 第三轮） | `command-template`（`src/{steps,subagent,main}.ts`） | P2 |
-| 4 | **executor 隔离落地（git worktree）**：叶子 `executor` 已支持 `cwd` 透传，但无隔离；原计划经本机插件 `dsh-git-worktree`，而该插件在本机**不存在实现**（`~/.dsh/plugins/dsh-git-worktree` 只有空目录、profile 未挂载；npm registry 有 `dsh-git-worktree@0.3.1`）。期望：装上 / 实现该插件后，executor 增补 `isolate: "worktree"`（引擎建 / 回收 worktree，路径作为 `cwd` 传给 subagent / command 后端） | 「task-engine 执行扩展」实施期裁定（2026-10-02，用户：③ 另开条目） | `task-engine`（`src/{types,gate,engine,main}.ts`）+ 本机 `dsh-git-worktree` 插件 | 1 h（依赖插件就绪） | P2 |
-| 5 | **`docs/STATUS.md` 对齐现状**：该表为用户择时更新的对照文档，当前多处过期——① 「总览」称「12 个插件全部完成」，而状态表缺 `rule-engine` / `symbol-normalizer` / `session-channel` / `session-title-cutoff`（`command-template` 的模板体系也已落地）；② 「剩余 P2 插件（workflow-ext / web-ext / session-broker / command-template）未开始」中 `command-template` 已完成；③ `fs-digest` 行注记「缺陷见 `fs-digest/docs/BACKLOG.md` D1」，而该文件现为「当前无未完成项」；④ 各行单测数为 2026-09 快照（如 knowledge-base 已 39 → 57）。期望：逐包核对后整表回写（含新增包行与单测数），或明确该表只维护 P0/P1 子集 | 「task-engine 执行扩展」收尾审计 + 用户 2026-10-02 指示「更新 backlog」 | `docs/STATUS.md`（用户择时更新；本次仅登记） | 1 h | P2 |
+| 1 | **executor 用量计量接 usage 口径**：`budget.maxTokens` 已映射宿主 `agentOptions.maxTokens`（输出上限），但 subagent 目前只报 `tokensKind: "pressure"`（`tokenMeter.measure` 的上下文压力），故 `overBudget` 对 subagent 一律不判（2026-10-02 真机第二轮发现误报后收紧，用户裁定「另开条目」）。期望：接 `ctx.sessionProjections.snapshot(session, ["tokenUsage"])`（或 `deriveTurnTokenUsage`）取 `outputTokens`，与 `budget.maxTokens` 同口径比较并标 `tokensKind: "usage"` | 「task-engine 执行扩展」真机验证第二轮（2026-10-02） | `task-engine`（`src/main.ts` 计量段 + `src/engine.ts` 判定） | 1 h | P2 |
+| 2 | **命令模板的取消/超时终态**：真机发现 `playbook` 命令在子代理死亡或取消后可能**无 `command/done`**（命令悬挂）；且 `stepTimeoutMs`（缺省 600s）触发的 abort 是否真的中止子代理未经真机验证。期望：命令任何路径都回终态（成功/失败/取消），并在子会话结束时回收 | 「模板体系」真机观察（追踪文档 2026-09-30 第三轮） | `command-template`（`src/{steps,subagent,main}.ts`） | P2 |
+| 3 | **executor 隔离落地（git worktree）**：叶子 `executor` 已支持 `cwd` 透传，但无隔离；原计划经本机插件 `dsh-git-worktree`，而该插件在本机**不存在实现**（`~/.dsh/plugins/dsh-git-worktree` 只有空目录、profile 未挂载；npm registry 有 `dsh-git-worktree@0.3.1`）。期望：装上 / 实现该插件后，executor 增补 `isolate: "worktree"`（引擎建 / 回收 worktree，路径作为 `cwd` 传给 subagent / command 后端） | 「task-engine 执行扩展」实施期裁定（2026-10-02，用户：③ 另开条目） | `task-engine`（`src/{types,gate,engine,main}.ts`）+ 本机 `dsh-git-worktree` 插件 | 1 h（依赖插件就绪） | P2 |
+| 4 | **`docs/STATUS.md` 对齐现状**：该表为用户择时更新的对照文档，当前多处过期——① 「总览」称「12 个插件全部完成」，而状态表缺 `rule-engine` / `symbol-normalizer` / `session-channel` / `session-title-cutoff`（`command-template` 的模板体系也已落地）；② 「剩余 P2 插件（workflow-ext / web-ext / session-broker / command-template）未开始」中 `command-template` 已完成；③ `fs-digest` 行注记「缺陷见 `fs-digest/docs/BACKLOG.md` D1」，而该文件现为「当前无未完成项」；④ 各行单测数为 2026-09 快照（如 knowledge-base 已 39 → 57）。期望：逐包核对后整表回写（含新增包行与单测数），或明确该表只维护 P0/P1 子集 | 「task-engine 执行扩展」收尾审计 + 用户 2026-10-02 指示「更新 backlog」 | `docs/STATUS.md`（用户择时更新；本次仅登记） | 1 h | P2 |
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
@@ -68,7 +67,7 @@
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：goal-contract / metric-loop、知识库记忆层与淘汰提升、fan-out 就绪池、hash-edit / ast-tools、security-guard / herdr-integration 等）均已完成。
-1. 里程碑三（P1/P2）剩余（2026-10-02 `md-logic` 建包完成后重编，编号即顺序）：新建 `md-map` → executor 用量计量接 usage 口径 → 命令模板取消/超时终态 → executor 隔离落地（阻塞于外部插件）→ `docs/STATUS.md` 对齐现状，按需排期；已完成项与已取消 / 不再立项项见 §1 索引。
+1. 里程碑三（P1/P2）剩余（2026-10-02 `md-map` 建包完成后重编，编号即顺序）：executor 用量计量接 usage 口径 → 命令模板取消/超时终态 → executor 隔离落地（阻塞于外部插件）→ `docs/STATUS.md` 对齐现状，按需排期；已完成项与已取消 / 不再立项项见 §1 索引。
 1. 依赖：「executor 隔离落地」依赖本机 `dsh-git-worktree` 插件就绪（本机当前不存在实现）；「executor 用量计量接 usage 口径」依赖宿主 `ctx.sessionProjections` 的 `tokenUsage` 投影面；原「近期改动代码审查」能力并入命令模板体系③；其余相互独立。
 
 ## 4. 插件规划（未建包）
