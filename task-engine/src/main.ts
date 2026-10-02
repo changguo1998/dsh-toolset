@@ -469,7 +469,9 @@ function reclaimRun(run: unknown, warn: (message: string) => void): void {
 }
 
 /** 从裁决文本取 JSON 对象（先剥 ``` 围栏）；不可解析返回 undefined。 */
-export function parseVerdictJson(text: string): Record<string, unknown> | undefined {
+export function parseVerdictJson(
+  text: string,
+): Record<string, unknown> | undefined {
   const trimmed = text.trim();
   const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
   const body = fenced?.[1] ?? trimmed;
@@ -867,6 +869,26 @@ function compileParameters(spec: unknown): TaskToolParametersSchema {
   };
 }
 
+/**
+ * JSON 文本（render 必须全函数，`text` 恒为 string）：字符串原样返回（避免二次编码），
+ * 其余 `JSON.stringify(value, null, 2)`；`undefined` / 函数 / symbol 结果为非字符串，
+ * 循环引用 / BigInt 直接抛错——两种情况退化为 `String(value)`，`String` 仍抛则给占位。
+ */
+function jsonText(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    const text = JSON.stringify(value, null, 2);
+    if (typeof text === "string") return text;
+  } catch {
+    // 循环引用 / BigInt：序列化抛错，落到下方 String 兜底
+  }
+  try {
+    return String(value);
+  } catch {
+    return "（无法序列化的值）";
+  }
+}
+
 /** 结构面适配：把纯工具定义转成 dsh tools.register 接受的形态 */
 function toDshTool(def: TaskToolDef) {
   return {
@@ -880,9 +902,12 @@ function toDshTool(def: TaskToolDef) {
       schema: { type: "object", additionalProperties: true, properties: {} },
       // dsh 0.1.5 ToolOutputDefinition 强制要求 render（args/value → ContentBlock[]）；
       // 结构面最小实现：把规范化 JSON 值序列化为文本块。（SAFETY: value 为
-      // JsonValue，JSON.stringify 不会抛循环引用；超大值由宿主 materialize 截断。）
+      // JsonValue，JSON.stringify 不会抛循环引用；但**可能返回非字符串**——
+      // `undefined` / 函数 / symbol 时返回 `undefined`，宿主会拒畸形块
+      // `{type:"text", text:undefined}`；故统一走 jsonText 兜底，text 恒为 string。
+      // 超大值由宿主 materialize 截断。）
       render: (_args: unknown, value: unknown) => [
-        { type: "text", text: JSON.stringify(value) },
+        { type: "text", text: jsonText(value) },
       ],
     },
   };
@@ -957,7 +982,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   /** 执行期服务解析：工具执行 ctx 优先 → 回退插件 ctx（apply 期服务 fiber 常未激活） */
   const serviceResolver =
     (exec: unknown) =>
-    <T,>(name: string): T | undefined =>
+    <T>(name: string): T | undefined =>
       readService<T>(exec, name) ?? readService<T>(ctx, name);
   const semanticHooksFor = (
     exec: unknown,
@@ -965,7 +990,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     audit?: (req: AuditRequest) => Promise<AuditVerdict>;
     entail?: EntailHook;
   } => {
-    const resolve = <T,>(name: string): T | undefined =>
+    const resolve = <T>(name: string): T | undefined =>
       readService<T>(exec, name) ?? readService<T>(ctx, name);
     const parent = (exec as { agent?: unknown } | undefined)?.agent;
     const timeoutMs = semantic.timeoutMs ?? 120_000;

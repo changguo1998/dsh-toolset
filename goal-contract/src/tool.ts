@@ -88,6 +88,26 @@ function positiveInteger(value: unknown): number | undefined {
     : undefined;
 }
 
+/**
+ * JSON 文本（render 必须全函数，`text` 恒为 string）：字符串原样返回（避免二次编码），
+ * 其余 `JSON.stringify(value, null, 2)`；`undefined` / 函数 / symbol 结果为非字符串，
+ * 循环引用 / BigInt 直接抛错——两种情况退化为 `String(value)`，`String` 仍抛则给占位。
+ */
+function jsonText(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    const text = JSON.stringify(value, null, 2);
+    if (typeof text === "string") return text;
+  } catch {
+    // 循环引用 / BigInt：序列化抛错，落到下方 String 兜底
+  }
+  try {
+    return String(value);
+  } catch {
+    return "（无法序列化的值）";
+  }
+}
+
 /** 构建 goal_contract_draft 工具定义（不触碰宿主运行时）。 */
 export function createGoalContractTool(deps: GoalContractDeps) {
   const { userQuestions, goals, warn } = deps;
@@ -281,11 +301,13 @@ export function createGoalContractTool(deps: GoalContractDeps) {
       };
     },
     // dsh 0.1.5 ToolOutputDefinition 强制要求 output（schema + render）；
-    // 结构面最小实现：把工具结果 JSON 序列化为文本块（宿主 materialize 负责截断）
+    // 结构面最小实现：把工具结果 JSON 序列化为文本块（宿主 materialize 负责截断）；
+    // `JSON.stringify` 的返回类型是 `string | undefined`（`undefined` / 函数 / symbol
+    // 时非字符串，宿主拒畸形块），故走 jsonText 兜底，text 恒为 string。
     output: {
       schema: { type: "object", additionalProperties: true, properties: {} },
       render: (_args: unknown, value: unknown) => [
-        { type: "text", text: JSON.stringify(value) },
+        { type: "text", text: jsonText(value) },
       ],
     },
   };

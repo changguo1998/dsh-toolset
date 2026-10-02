@@ -119,3 +119,42 @@ astTest("apply：config 透传（root 生效；缺省沿用 cwd）", async () =>
     cleanup();
   }
 });
+
+/** 工具输出面（render 全函数契约用）。 */
+interface RenderFace {
+  name?: string;
+  output: {
+    render(args: unknown, value: unknown): { type?: string; text?: unknown }[];
+  };
+}
+
+test("工具 render 全函数：text 恒为 string（undefined / 对象 / 字符串 / 不可序列化）", () => {
+  const registered: RenderFace[] = [];
+  apply({
+    tools: {
+      register: (def: unknown) => void registered.push(def as RenderFace),
+    },
+  } as never);
+  assert.equal(registered.length, 1, "code_map 单工具注册");
+  const render = registered[0]!.output.render;
+
+  // 裸 JSON.stringify(undefined, null, 2) === undefined：旧实现下此断言必失败
+  const undef = render({}, undefined);
+  assert.equal(typeof undef[0]?.text, "string");
+  assert.equal(undef[0]?.text, "undefined");
+
+  // 对象走 JSON 分支
+  assert.match(String(render({}, { a: 1 })[0]?.text), /"a": 1/);
+
+  // 字符串原样返回（不二次编码）
+  assert.equal(render({}, "s")[0]?.text, "s");
+
+  // 循环引用 / BigInt：JSON.stringify 抛错 → String 兜底
+  const circular: Record<string, unknown> = {};
+  circular["self"] = circular;
+  assert.equal(render({}, circular)[0]?.text, "[object Object]");
+  assert.equal(render({}, 1n)[0]?.text, "1");
+
+  // 复位共享状态（后续用例不应看到本用例的 bundle）
+  apply({} as never);
+});

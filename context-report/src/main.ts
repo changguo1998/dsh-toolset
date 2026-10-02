@@ -431,6 +431,26 @@ interface ToolArgs {
 }
 
 /**
+ * JSON 文本（render 必须全函数，`text` 恒为 string）：字符串原样返回（避免二次编码），
+ * 其余 `JSON.stringify(value, null, 2)`；`undefined` / 函数 / symbol 结果为非字符串，
+ * 循环引用 / BigInt 直接抛错——两种情况退化为 `String(value)`，`String` 仍抛则给占位。
+ */
+function jsonText(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    const text = JSON.stringify(value, null, 2);
+    if (typeof text === "string") return text;
+  } catch {
+    // 循环引用 / BigInt：序列化抛错，落到下方 String 兜底
+  }
+  try {
+    return String(value);
+  } catch {
+    return "（无法序列化的值）";
+  }
+}
+
+/**
  * 构造 `context_report` 工具定义（结构面：name/description/parameters/execute/output）。
  * @param collect - 组装一次报告输入（会话解析 + 状态 + 压力读数）。
  * @param service - 报告服务面（供 action=list 复用会话清单）。
@@ -517,7 +537,7 @@ export function createContextReportTool(
             typeof value === "object" &&
             typeof (value as { text?: unknown }).text === "string"
               ? String((value as { text: string }).text)
-              : JSON.stringify(value, null, 2),
+              : jsonText(value),
         },
       ],
     },

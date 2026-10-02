@@ -45,7 +45,8 @@ function fakeSubagents(
           ? {}
           : { outputSchema: request["outputSchema"] }),
       });
-      const reply = replies[Math.min(runs.length - 1, replies.length - 1)] ?? "";
+      const reply =
+        replies[Math.min(runs.length - 1, replies.length - 1)] ?? "";
       return {
         id: `child-${runs.length}`,
         localAgent: { session: { id: `child-${runs.length}` } },
@@ -257,7 +258,7 @@ describe("entail 语义蕴含门（经 apply 真接线）", () => {
       children: [child("c1")],
     });
     assert.equal(r2["ok"], true, JSON.stringify(r2));
-  });;
+  });
 
   it("Config.semantic.entail=false → 回到旧行为（该门跳过，decompose 直接过）", async () => {
     const b = await bench({
@@ -330,5 +331,56 @@ describe("audit 语义验收（经 apply 真接线）", () => {
     const r = await b.call("task_stop", { task_id: "root" });
     assert.equal(r["ok"], false, JSON.stringify(r));
     assert.match(String(r["feedback"]), /未配置独立 audit run/);
+  });
+});
+
+describe("工具注册面：render 全函数（text 恒为 string）", () => {
+  it("全部 5 个注册工具：render({}, undefined) 给 string；对象走 JSON、字符串原样", async () => {
+    // output.render 只在注册面（toDshTool）产出 → 经 apply 真接线逐个收集
+    type RegisteredTool = {
+      output?: {
+        render?: (
+          args: unknown,
+          value: unknown,
+        ) => Array<{ type: string; text: unknown }>;
+      };
+    };
+    const registered = new Map<string, RegisteredTool>();
+    await apply({
+      tools: {
+        register: (def: unknown) => {
+          const tool = def as RegisteredTool & { name: string };
+          registered.set(tool.name, tool);
+        },
+      },
+      provide: () => {},
+      get: () => undefined,
+    });
+    const names = [
+      "task_decompose",
+      "task_implement",
+      "task_execute",
+      "task_stop",
+      "task_status",
+    ];
+    assert.equal(registered.size, names.length, "应注册全部 5 个工具");
+    for (const name of names) {
+      const render = registered.get(name)?.output?.render;
+      if (render === undefined)
+        throw new Error(`工具未注册或缺 output.render：${name}`);
+      // 裸 JSON.stringify(value) 在 value === undefined 时返回非字符串（宿主拒畸形块）
+      const blocks = render({}, undefined);
+      assert.equal(
+        typeof blocks[0]?.text,
+        "string",
+        `${name}：render({}, undefined) 的 text 应为 string`,
+      );
+      assert.equal(
+        render({}, { a: 1 })[0]?.text,
+        '{\n  "a": 1\n}',
+        `${name}：对象走 JSON 分支`,
+      );
+      assert.equal(render({}, "s")[0]?.text, "s", `${name}：字符串原样返回`);
+    }
   });
 });

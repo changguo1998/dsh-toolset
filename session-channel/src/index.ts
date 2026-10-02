@@ -1115,6 +1115,26 @@ export function getSessionChannelService(): SessionChannelService | undefined {
   return activeService;
 }
 
+/**
+ * JSON 文本（render 必须全函数，`text` 恒为 string）：字符串原样返回（避免二次编码），
+ * 其余 `JSON.stringify(value, null, 2)`；`undefined` / 函数 / symbol 结果为非字符串，
+ * 循环引用 / BigInt 直接抛错——两种情况退化为 `String(value)`，`String` 仍抛则给占位。
+ */
+function jsonText(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    const text = JSON.stringify(value, null, 2);
+    if (typeof text === "string") return text;
+  } catch {
+    // 循环引用 / BigInt：序列化抛错，落到下方 String 兜底
+  }
+  try {
+    return String(value);
+  } catch {
+    return "（无法序列化的值）";
+  }
+}
+
 /** `session-channel` 工具定义（action 分派）。 */
 function toToolDef(service: SessionChannelService) {
   return {
@@ -1225,7 +1245,7 @@ function toToolDef(service: SessionChannelService) {
     output: {
       schema: { type: "object", additionalProperties: true, properties: {} },
       render: (_args: unknown, value: unknown) => [
-        { type: "text", text: JSON.stringify(value, null, 2) },
+        { type: "text", text: jsonText(value) },
       ],
     },
   };
@@ -1283,7 +1303,7 @@ function toDelegateTool(service: SessionChannelService) {
     output: {
       schema: { type: "object", additionalProperties: true, properties: {} },
       render: (_args: unknown, value: unknown) => [
-        { type: "text", text: JSON.stringify(value, null, 2) },
+        { type: "text", text: jsonText(value) },
       ],
     },
   };
@@ -1339,7 +1359,7 @@ function toTaskTool(service: SessionChannelService) {
     output: {
       schema: { type: "object", additionalProperties: true, properties: {} },
       render: (_args: unknown, value: unknown) => [
-        { type: "text", text: JSON.stringify(value, null, 2) },
+        { type: "text", text: jsonText(value) },
       ],
     },
   };
@@ -1375,7 +1395,7 @@ function toTaskResultTool(service: SessionChannelService) {
     output: {
       schema: { type: "object", additionalProperties: true, properties: {} },
       render: (_args: unknown, value: unknown) => [
-        { type: "text", text: JSON.stringify(value, null, 2) },
+        { type: "text", text: jsonText(value) },
       ],
     },
   };

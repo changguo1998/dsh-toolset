@@ -245,6 +245,50 @@ test("apply(无 tools 的 ctx)：不抛错、静默降级", async () => {
   }
 });
 
+/** 工具输出面（render 全函数契约用）。 */
+interface RenderFace {
+  name?: unknown;
+  output: {
+    render(args: unknown, value: unknown): { type?: string; text?: unknown }[];
+  };
+}
+
+test("工具 render 全函数：text 恒为 string（undefined / 对象 / 字符串 / 不可序列化）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "metric-loop-render-"));
+  const registered: RenderFace[] = [];
+  try {
+    await apply(
+      {
+        tools: {
+          register: (def: unknown) => void registered.push(def as RenderFace),
+        },
+      },
+      { stateDir: dir },
+    );
+    assert.equal(registered.length, 1, "metric_loop 单工具注册");
+    assert.equal(registered[0]?.name, "metric_loop");
+    const render = registered[0]!.output.render;
+
+    // 裸 JSON.stringify(undefined, null, 2) === undefined：旧实现下此断言必失败
+    const undef = render({}, undefined);
+    assert.equal(typeof undef[0]?.text, "string");
+    assert.equal(undef[0]?.text, "undefined");
+
+    // 对象走 JSON 分支
+    assert.match(String(render({}, { a: 1 })[0]?.text), /"a": 1/);
+
+    // 字符串原样返回（不二次编码）
+    assert.equal(render({}, "s")[0]?.text, "s");
+
+    // 循环引用：JSON.stringify 抛错 → String 兜底
+    const circular: Record<string, unknown> = {};
+    circular["self"] = circular;
+    assert.equal(render({}, circular)[0]?.text, "[object Object]");
+  } finally {
+    cleanup(dir);
+  }
+});
+
 test("list()：无循环返回空数组；活动/已停循环均入清单（只读子集、updatedAt 倒序）", async () => {
   const h = makeHarness();
   try {

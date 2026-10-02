@@ -462,3 +462,52 @@ test("apply：session/created → session-start 节点唤醒消费者（含恢�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/** 工具输出面（render 全函数契约用）。 */
+interface RenderFace {
+  name?: string;
+  output: {
+    render(args: unknown, value: unknown): { type?: string; text?: unknown }[];
+  };
+}
+
+test("工具 render 全函数：5 个注册点逐个覆盖，text 恒为 string（undefined / 对象 / 字符串）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-render-"));
+  const expected = [
+    "rule_add",
+    "rule_list",
+    "rule_update",
+    "rule_remove",
+    "rule_test",
+  ];
+  try {
+    const fake = fakeCtx();
+    await apply(fake.ctx, { stateDir: dir });
+    assert.deepEqual(
+      fake.registered.map((def) => def.name),
+      expected,
+      "注册面清单（逐个覆盖）",
+    );
+    for (const def of fake.registered) {
+      const tool = def as unknown as RenderFace;
+      const render = tool.output.render;
+
+      // 裸 JSON.stringify(undefined, null, 2) === undefined：旧实现下此断言必失败
+      const undef = render({}, undefined);
+      assert.equal(
+        typeof undef[0]?.text,
+        "string",
+        `${tool.name} 的 text 必须是 string`,
+      );
+      assert.equal(undef[0]?.text, "undefined");
+
+      // 对象走 JSON 分支
+      assert.match(String(render({}, { a: 1 })[0]?.text), /"a": 1/);
+
+      // 字符串原样返回（不二次编码）
+      assert.equal(render({}, "s")[0]?.text, "s");
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

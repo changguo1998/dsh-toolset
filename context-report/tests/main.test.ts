@@ -362,6 +362,39 @@ test("工具 render：非文本值退回 JSON", () => {
   );
 });
 
+test("工具 render 全函数：text 恒为 string（undefined / 对象 / 字符串 / 文本分支 / 不可序列化）", () => {
+  const tool = createContextReportTool((options) => options, {
+    listSessions: () => [],
+  }) as {
+    output: {
+      render(
+        args: unknown,
+        value: unknown,
+      ): { type?: string; text?: unknown }[];
+    };
+  };
+  const render = tool.output.render;
+
+  // 裸 JSON.stringify(undefined, null, 2) === undefined：旧实现下此断言必失败
+  const undef = render({}, undefined);
+  assert.equal(typeof undef[0]?.text, "string");
+  assert.equal(undef[0]?.text, "undefined");
+
+  // 对象走 JSON 分支
+  assert.match(String(render({}, { a: 1 })[0]?.text), /"a": 1/);
+
+  // 字符串原样返回（不二次编码）
+  assert.equal(render({}, "s")[0]?.text, "s");
+
+  // 保留分支：value.text 是 string 时原样使用（不二次编码）
+  assert.equal(render({}, { text: "x", other: 1 })[0]?.text, "x");
+
+  // 循环引用：JSON.stringify 抛错 → String 兜底
+  const circular: Record<string, unknown> = {};
+  circular["self"] = circular;
+  assert.equal(render({}, circular)[0]?.text, "[object Object]");
+});
+
 test("cordis 语义：未 inject 的服务属性访问会抛错——apply 不得因此崩", () => {
   // 模拟宿主 ctx 代理：未声明的服务属性一律抛错（cordis 实测行为）
   const provided = new Map<string, unknown>();

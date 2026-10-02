@@ -302,3 +302,24 @@ test("parameters 编译为标准 JSON Schema（网关 type:null 回归）", () =
   // 全可选字段 → 不生成顶层 required 数组
   assert.equal(params.required, undefined);
 });
+
+test("output.render：全函数（undefined 也给 string；对象走 JSON、字符串原样）", () => {
+  const tool = createGoalContractTool({});
+  const render = tool.output.render as (
+    args: unknown,
+    value: unknown,
+  ) => Array<{ type: string; text: unknown }>;
+  // 裸 JSON.stringify(value) 在 value === undefined 时返回非字符串（宿主拒畸形块）
+  const blocks = render({}, undefined);
+  assert.equal(
+    typeof blocks[0]?.text,
+    "string",
+    "render({}, undefined) 的 text 应为 string",
+  );
+  assert.equal(
+    render({}, { a: 1 })[0]?.text,
+    '{\n  "a": 1\n}',
+    "对象走 JSON 分支",
+  );
+  assert.equal(render({}, "s")[0]?.text, "s", "字符串原样返回");
+});

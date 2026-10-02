@@ -246,3 +246,48 @@ test("D5 守卫：服务面键集合与类公开方法对齐（漏暴露即失�
     "新增公开方法必须同步进服务面或 internalOnly 白名单",
   );
 });
+
+/** 工具输出面（render 全函数契约用）。 */
+interface RenderFace {
+  name?: string;
+  output: {
+    render(args: unknown, value: unknown): { type?: string; text?: unknown }[];
+  };
+}
+
+test("工具 render 全函数：4 个注册点逐个覆盖，text 恒为 string（undefined / 对象 / 字符串）", () => {
+  const fake = makeFakeHost();
+  const tools: RenderFace[] = [];
+  fake.host["tools"] = {
+    register: (def: unknown) => void tools.push(def as RenderFace),
+  };
+  apply(fake.host as never, { disabled: true });
+  assert.deepEqual(
+    tools.map((t) => t.name).sort(),
+    [
+      "channel_delegate",
+      "channel_task",
+      "channel_task_result",
+      "session_channel",
+    ],
+    "注册面清单（逐个覆盖）",
+  );
+  for (const tool of tools) {
+    const render = tool.output.render;
+
+    // 裸 JSON.stringify(undefined, null, 2) === undefined：旧实现下此断言必失败
+    const undef = render({}, undefined);
+    assert.equal(
+      typeof undef[0]?.text,
+      "string",
+      `${tool.name} 的 text 必须是 string`,
+    );
+    assert.equal(undef[0]?.text, "undefined");
+
+    // 对象走 JSON 分支
+    assert.match(String(render({}, { a: 1 })[0]?.text), /"a": 1/);
+
+    // 字符串原样返回（不二次编码）
+    assert.equal(render({}, "s")[0]?.text, "s");
+  }
+});
