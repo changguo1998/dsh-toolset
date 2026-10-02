@@ -1431,7 +1431,10 @@ test("unknownToolPolicy:check —— 普通路径放行、敏感路径经敏感�
     });
     assert.ok(typeof hit === "string", "check 下敏感路径应被拦");
     const receipt = hit as string;
-    assert.match(receipt, /路径复查来源：未登记工具「present」的 path。/);
+    assert.match(
+      receipt,
+      /路径复查来源：未登记工具「present」的 files\[\]\.path。/,
+    );
     assert.match(receipt, /读写敏感文件/);
     assert.match(receipt, /env-file/);
     assert.match(receipt, /放行方式：/);
@@ -1591,6 +1594,11 @@ test("unknownToolPolicy:check —— allowPatterns / allowedPaths 两层放行�
 // 键名启发与 check 扫描共用 walkUnknownToolArgs：顶层键 → 数组元素键 → 其对象成员键 →
 // 再一层数组元素键（数组透明、不额外消费深度）；更深的同形嵌套不纳入（锁上限语义）。
 
+/** 键路径 → 正则（`[` / `]` / `.` 等是元字符，**不能**直接把路径拼进 RegExp 字面量）。 */
+function keyPathRegExp(keyPath: string): RegExp {
+  return new RegExp(keyPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+}
+
 test("unknownToolPolicy 深度 3 层 —— 两层嵌套（数组元素 → 对象成员）在 check 与 deny 下都拦", () => {
   const fixture = makeSensitiveFixture();
   try {
@@ -1599,14 +1607,14 @@ test("unknownToolPolicy 深度 3 层 —— 两层嵌套（数组元素 → 对�
         homeDir: HOME,
         unknownToolPolicy: method,
       });
-      // 命中形态：deny 报携带的 watched 键名；check 前置来源键 + 标准回执（含规则 id）
-      const commandExpect =
+      // 命中形态：deny 报携带的 watched **键路径**（不再只报叶子键名）；check 前置来源键路径 + 标准回执（含规则 id）
+      const commandExpect = (keyPath: string): RegExp =>
         method === "deny"
-          ? /携带潜在路径\/命令参数（command）/
+          ? keyPathRegExp(`携带潜在路径/命令参数（${keyPath}）`)
           : /命令命中黑名单规则「sudo」/;
-      const pathExpect =
+      const pathExpect = (keyPath: string): RegExp =>
         method === "deny"
-          ? /携带潜在路径\/命令参数（path）/
+          ? keyPathRegExp(`携带潜在路径/命令参数（${keyPath}）`)
           : /规则「env-file」/;
       const expectHit = (
         hit: string | null,
@@ -1621,7 +1629,7 @@ test("unknownToolPolicy 深度 3 层 —— 两层嵌套（数组元素 → 对�
         guard.inspect("unknown_declarer", {
           children: [{ executor: { command: CHECK_BLACKLIST_COMMAND } }],
         }),
-        commandExpect,
+        commandExpect("children[].executor.command"),
         "children[].executor.command",
       );
       // children[].acceptance[].command（数组元素 → 对象成员 → 再一层数组元素）
@@ -1629,7 +1637,7 @@ test("unknownToolPolicy 深度 3 层 —— 两层嵌套（数组元素 → 对�
         guard.inspect("unknown_declarer", {
           children: [{ acceptance: [{ command: CHECK_BLACKLIST_COMMAND }] }],
         }),
-        commandExpect,
+        commandExpect("children[].acceptance[].command"),
         "children[].acceptance[].command",
       );
       // files[].meta.path（数组元素 → 对象成员，路径键）
@@ -1637,13 +1645,140 @@ test("unknownToolPolicy 深度 3 层 —— 两层嵌套（数组元素 → 对�
         guard.inspect("unknown_reader", {
           files: [{ meta: { path: fixture.envPath } }],
         }),
-        pathExpect,
+        pathExpect("files[].meta.path"),
         "files[].meta.path",
       );
     }
   } finally {
     fixture.cleanup();
   }
+});
+
+// --------------------- 回执 / 来源标注的完整键路径（D1/D2：与登记表 commandPaths 同形）
+// 命中参数不再只报叶子键名：对象键接 `.name`、数组元素接 `[]`，顶层键的路径即键名。
+
+test("unknownToolPolicy:deny —— 回执给完整键路径（children[].acceptance[].command），不再只报叶子键名", () => {
+  const guard = new GuardEngine({ homeDir: HOME, unknownToolPolicy: "deny" });
+  const hit = guard.inspect("unknown_declarer", {
+    children: [{ acceptance: [{ command: CHECK_BLACKLIST_COMMAND }] }],
+  });
+  assert.ok(typeof hit === "string", "嵌套命令键应被拦");
+  const receipt = hit as string;
+  // 完整键路径（与 task_decompose 登记表的 commandPaths 同形）
+  assert.match(
+    receipt,
+    keyPathRegExp("携带潜在路径/命令参数（children[].acceptance[].command）"),
+  );
+  // 反向锁：不得回退成「只报叶子键名」的旧形态
+  assert.doesNotMatch(
+    receipt,
+    /（command）/,
+    "回执不应只报叶子键名 command（须给完整键路径）",
+  );
+  // 回执其余要素不变：工具名 / 原因 / 放行方式三选一
+  assert.match(receipt, /未登记工具「unknown_declarer」/);
+  assert.match(receipt, /原因：该工具不在 security-guard 的登记表内/);
+  assert.match(receipt, /放行方式（三选一）：/);
+  assert.match(receipt, /unknownToolAllowlist: \["unknown_declarer"\]/);
+});
+
+test("unknownToolPolicy:check —— 来源标注行给完整键路径（同一嵌套形态）+ 规则 id", () => {
+  const guard = new GuardEngine({ homeDir: HOME, unknownToolPolicy: "check" });
+  const hit = guard.inspect("unknown_declarer", {
+    children: [{ acceptance: [{ command: CHECK_BLACKLIST_COMMAND }] }],
+  });
+  assert.ok(typeof hit === "string", "check 下嵌套命令键应被拦");
+  const receipt = hit as string;
+  assert.match(
+    receipt,
+    keyPathRegExp(
+      "命令复查来源：未登记工具「unknown_declarer」的 children[].acceptance[].command。",
+    ),
+  );
+  assert.match(receipt, /命令命中黑名单规则「sudo」/);
+  // 反向锁：来源标注行不得只给叶子键名
+  assert.doesNotMatch(
+    receipt,
+    /未登记工具「unknown_declarer」的 command。/,
+    "来源标注行不应只报叶子键名 command",
+  );
+});
+
+test("键路径形态 —— 顶层键即键名，一层数组 files[].path / 一层对象 spec.command 各按路径展示", () => {
+  const fixture = makeSensitiveFixture();
+  try {
+    const deny = new GuardEngine({ homeDir: HOME, unknownToolPolicy: "deny" });
+    // 顶层键：路径就是键名本身
+    const top = deny.inspect("unknown_reader", { path: fixture.normalPath });
+    assert.ok(typeof top === "string");
+    assert.match(top as string, keyPathRegExp("（path）"));
+    // 一层数组：数组元素接 `[]`
+    const arr = deny.inspect("unknown_reader", {
+      files: [{ path: fixture.normalPath }],
+    });
+    assert.ok(typeof arr === "string");
+    assert.match(arr as string, keyPathRegExp("（files[].path）"));
+    // 一层对象：对象成员接 `.name`
+    const obj = deny.inspect("unknown_declarer", {
+      spec: { command: CHECK_BLACKLIST_COMMAND },
+    });
+    assert.ok(typeof obj === "string");
+    assert.match(obj as string, keyPathRegExp("（spec.command）"));
+    // watched 键自身是数组时按**键名**（元素不各占一条路径；与「顶层键路径即键名」同口径）
+    const arrValue = deny.inspect("unknown_reader", {
+      paths: [fixture.normalPath, fixture.keyPath],
+    });
+    assert.ok(typeof arrValue === "string");
+    assert.match(arrValue as string, keyPathRegExp("（paths）"));
+    // check：同一形态的路径面来源标注行（敏感路径 → 敏感层）
+    const check = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "check",
+    });
+    const checkTop = check.inspect("unknown_reader", { path: fixture.envPath });
+    assert.match(
+      checkTop as string,
+      keyPathRegExp("路径复查来源：未登记工具「unknown_reader」的 path。"),
+    );
+    const checkArr = check.inspect("unknown_reader", {
+      files: [{ path: fixture.envPath }],
+    });
+    assert.match(
+      checkArr as string,
+      keyPathRegExp(
+        "路径复查来源：未登记工具「unknown_reader」的 files[].path。",
+      ),
+    );
+    const checkObj = check.inspect("unknown_reader", {
+      spec: { path: fixture.envPath },
+    });
+    assert.match(
+      checkObj as string,
+      keyPathRegExp("路径复查来源：未登记工具「unknown_reader」的 spec.path。"),
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("键路径去重保序 —— 同路径多元素只报一次，跨路径按遍历顺序串联", () => {
+  const guard = new GuardEngine({ homeDir: HOME, unknownToolPolicy: "deny" });
+  const receipt = guard.inspect("unknown_mixed", {
+    files: [{ path: "/tmp/a" }, { path: "/tmp/b" }],
+    spec: { command: "echo ok" },
+  }) as string;
+  assert.ok(typeof receipt === "string", "混合形态应被拦");
+  // 同一键路径（files[].path）出现两次 → 只报一次
+  assert.equal(
+    (receipt.match(/files\[\]\.path/g) ?? []).length,
+    1,
+    "同一键路径只应报一次（去重）",
+  );
+  // 保序：按遍历顺序（文件插入序）串联，数组路径在前、对象路径在后
+  assert.match(
+    receipt,
+    keyPathRegExp("携带潜在路径/命令参数（files[].path / spec.command）"),
+  );
 });
 
 test("unknownToolPolicy 深度上限 —— 第 4 层的同形嵌套不误伤（锁定 3 层上限）", () => {
@@ -1738,7 +1873,11 @@ test("unknownToolPolicy 遍历上限 —— 无害填充（35 / 200 个容器）
       );
       assert.match(
         hit as string,
-        method === "deny" ? /（command）/ : /命令命中黑名单规则「sudo」/,
+        method === "deny"
+          ? keyPathRegExp(
+              "携带潜在路径/命令参数（children[].executor.command）",
+            )
+          : /命令命中黑名单规则「sudo」/,
       );
     }
   }
@@ -1795,6 +1934,45 @@ test("unknownToolPolicy 遍历上限 —— 深嵌套数组（~5000 层）不炸
   } finally {
     console.warn = original;
     fixture.cleanup();
+  }
+});
+
+test("键路径升级不影响截断回执 —— 仍只报「超出遍历上限」+ 放行方式，不掺命中参数 / 来源标注", () => {
+  const warns: unknown[][] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]): void => {
+    warns.push(args);
+  };
+  try {
+    const deep = nestedArray(5000);
+    for (const method of ["check", "deny"] as const) {
+      warns.length = 0;
+      const guard = new GuardEngine({
+        homeDir: HOME,
+        unknownToolPolicy: method,
+      });
+      const hit = guard.inspect("deep_unknown", { deep });
+      assert.ok(typeof hit === "string", `${method}：截断应保守拦`);
+      const receipt = hit as string;
+      // 截断回执与键路径无关（截断 = 拦，不给「命中参数」/ 来源标注——那些是命中的产物）
+      assert.match(
+        receipt,
+        /参数面超出遍历上限（4096 个容器节点 \/ 64 层嵌套）/,
+      );
+      assert.doesNotMatch(receipt, /携带潜在路径\/命令参数/);
+      assert.doesNotMatch(receipt, /复查来源/);
+      assert.match(receipt, /放行方式（三选一）：/);
+      assert.match(
+        receipt,
+        keyPathRegExp('unknownToolAllowlist: ["deep_unknown"]'),
+      );
+      if (method === "check") {
+        // check 截断仍告警一次（截断不是放行理由，口径不变）
+        assert.equal(warns.length, 1, "check 截断应告警一次");
+      }
+    }
+  } finally {
+    console.warn = original;
   }
 });
 

@@ -135,19 +135,20 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
   - `unknownToolPolicy: "allow"`（缺省）= 与历史行为逐字一致（未登记工具一律放行）。
   - `unknownToolPolicy: "check"`：**不整工具硬拦**，把 watched 键下的字符串值（含数组元素）**按键类定向**送既有两层，命中才拦：
     路径键（`file_path` / `path` / `target` / `file` / `paths` / `dir` / `directory` / `root` / `workdir` / `cwd` / `filePath`，键名按小写归一）
-    → 敏感文件层，回执前置一行「路径复查来源：未登记工具「X」的 \<键名>」；
-    命令键（`command` / `measureCmd` / `cmd`，值是 shell 命令串）→ 命令黑名单层，前置「命令复查来源」行；
+    → 敏感文件层，回执前置一行「路径复查来源：未登记工具「X」的 \<完整键路径>」（如 `files[].path`；顶层键的路径就是键名）；
+    命令键（`command` / `measureCmd` / `cmd`，值是 shell 命令串）→ 命令黑名单层，前置「命令复查来源」行（同用完整键路径，如 `children[].acceptance[].command`）；
     代码键（`script` / `code` / `program`，值是 JS/Python 代码）→ **只做路径提取**后过敏感文件层、**不整段送命令层**
     （代码里的危险词字面不算执行该命令，避免把 `workflow.script` / `run_code.code` 这类正常代码误拦）；
     另有**值面**兜底：非 watched 键下以 `cwd:` 前缀或 `/`、`~/`、`$HOME` 开头的字符串值也按路径判定（覆盖 `session_channel.to = "cwd:…"` 这类）。
     两层放行面（`commandBlacklist.allowPatterns` / `sensitiveFiles.allowedPaths`）在 check 下与已登记工具同口径生效。
   - `unknownToolPolicy: "deny"`：整工具拦，且**只拦「携带潜在路径/命令/代码参数」的未登记工具**（键名启发，键集同上；**键深上限 3 层**：顶层键 → 数组元素键 → 其对象成员键 → 再一层数组元素键，**数组层不计数**、数组透明不消费键深 —— 详见下方「键发现深度与遍历上限」），
-    其余未登记工具仍放行（防误伤）；回执给三条**可行动作**（改 `"check"` / 加 `unknownToolAllowlist` / 按参数面登记进代码），不再只说「改源码」。
+    其余未登记工具仍放行（防误伤）；回执的命中参数给**完整键路径**——对象键接 `.name`、数组元素接 `[]`，与登记表 `commandPaths` **同形**（如 `children[].acceptance[].command`，不再是叶子键名 `command`；顶层键的路径即键名）——路径去重保序（同一路径多处命中只报一次，多路径按遍历顺序以 `/` 串联）；
+    回执另给三条**可行动作**（改 `"check"` / 加 `unknownToolAllowlist` / 按参数面登记进代码），不再只说「改源码」。
   - `unknownToolAllowlist: string[]`：工具名**精确匹配** + `*` 结尾**前缀通配**（如 `mcp__*`），在**三态策略之前**判定，命中即无条件放行
     （`deny` 下的显式例外 / MCP 工具名）；只作用于未登记工具，已登记工具的敏感参数照拦。
   - 非法 `unknownToolPolicy` 值（如 `"Deny"` / `true`）→ `console.warn` 一次 + 按 `"allow"` 生效（fail-open 语义不变），
     `policy()` 快照标 `invalid: true`（TUI 侧尚未渲染该字段，服务面已暴露供后续消费）。
-  - **键发现深度与遍历上限**：键深上限 **3 层**（顶层键 → 数组元素键 → 其对象成员键 → 再一层数组元素键；**数组层不计数** —— 数组透明、不消费键深；`WeakSet` 跳过环引用）：`children[].executor.command` 与 `children[].acceptance[].command` 都在覆盖内，第 4 层起的同形嵌套不纳入（锁上限语义，避免深层误伤）。键发现递归与 `check` 模式的值面扫描共用同一遍历器（深度口径不分叉），并另设**资源上限**（与键深是两个维度）：**容器节点 ≤ 4096**（对象 / 数组各算 1 个节点，**标量不计**）+ **嵌套层数 ≤ 64**（数组透明不消费键深，但深数组照样加深递归栈，实测本遍历器 ~3500 层即 `RangeError`）。`TOOL_SURFACE.keyDepth` 暴露键深上限，脚本与引擎同源。
+  - **键发现深度与遍历上限**：键深上限 **3 层**（顶层键 → 数组元素键 → 其对象成员键 → 再一层数组元素键；**数组层不计数** —— 数组透明、不消费键深；`WeakSet` 跳过环引用）：`children[].executor.command` 与 `children[].acceptance[].command` 都在覆盖内，第 4 层起的同形嵌套不纳入（锁上限语义，避免深层误伤）。键发现递归与 `check` 模式的值面扫描共用同一遍历器（深度口径不分叉），并另设**资源上限**（与键深是两个维度）：**容器节点 ≤ 4096**（对象 / 数组各算 1 个节点，**标量不计**）+ **嵌套层数 ≤ 64**（数组透明不消费键深，但深数组照样加深递归栈，实测本遍历器 ~3500 层即 `RangeError`）。`TOOL_SURFACE.keyDepth` 暴露键深上限，脚本与引擎同源。命中的键在回执 / 来源标注行里按**完整键路径**展示（同一形态，`deny` 去重保序、`check` 逐值给来源行）。
   - **上限耗尽时保守（不是放行）**：遍历被截断时**绝不**当成「没查到 = 放行」—— `deny` 直接拦、`check` **告警一次 + 按拦处理**（回执说明「参数面超出遍历上限」并给放行方式）；因此「无害填充 + 更深处危险键」的规避不成立（填充量远小于节点上限，且截断本身也拦）。仅**扫描抛异常**（畸形参数，如枚举即抛错的 `Proxy`）才 fail-open：`console.warn` 一次 + 放行，绝不让 `inspect` 把异常抛到宿主 listener（否则一个畸形参数就能把 `pre-execute` 打崩）。
 - **差异检查（宿主升版后跑一次）**：`node security-guard/scripts/tool-surface-check.mjs --root <dsh 包目录> [--json]`
   （也认 `DSH_INSTALL=<同上>`）。**要指 dsh 包目录**（其下含 `node_modules/@deepseek-ai/dsh-tool-*`）；指到 `@deepseek-ai` scope 层
@@ -167,12 +168,12 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
 
 ```sh
 npm run check   # tsc -p tsconfig.json --noEmit
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（99 例）
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（104 例）
 npm run build   # tsc -p tsconfig.json → dist/
 npm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话拦截验证）
 ```
 
-99 例单测（blacklist 9 + guard 72 + script 11 + sensitive 7）。
+104 例单测（blacklist 9 + guard 77 + script 11 + sensitive 7）。
 
 `tests/script.test.ts` 用假宿主树（`dsh-tool-fixture-*` 包）覆盖 `scripts/tool-surface-check.mjs` 的逐工具三分类、
 「名称未解析」行与退出码纪律（0 / 1 / 2，含 `--root` 指到 scope 层的纠正提示），并覆盖**发布形态**
