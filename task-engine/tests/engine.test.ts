@@ -144,7 +144,7 @@ describe("executor 执行扩展（① 发起 / ② 计量）", () => {
     assert.equal(r3.next, null);
   });
 
-  it("超预算只标注不打回（usage.overBudget）", async () => {
+  it("超预算只标注不打回（后端权威信号 → usage.overBudget）", async () => {
     const e = newEngine();
     await e.decompose("root", [
       leafWith("c1", { kind: "subagent", budget: { maxTokens: 100 } }),
@@ -153,8 +153,9 @@ describe("executor 执行扩展（① 发起 / ② 计量）", () => {
       ok: true,
       result: "产出",
       tokens: 150,
+      overBudget: true,
     }));
-    assert.equal(r.ok, true);
+    assert.equal(r.ok, true, "超预算不打回");
     assert.deepEqual(r.usage, { tokens: 150, overBudget: true });
     const ev = e.log.find((x) => x.type === "plan/frame-executed") as
       { overBudget?: boolean } | undefined;
@@ -215,6 +216,75 @@ describe("executor 执行扩展（① 发起 / ② 计量）", () => {
       { tokensKind?: string; overBudget?: boolean } | undefined;
     assert.equal(ev?.tokensKind, "pressure");
     assert.equal(ev?.overBudget, undefined, "pressure 口径不判超预算");
+  });
+
+  it("overBudget 只认后端权威信号（声明预算时采纳 / 未超不标）", async () => {
+    const over = newEngine();
+    await over.decompose("root", [
+      leafWith("c1", { kind: "subagent", budget: { maxTokens: 256 } }),
+    ]);
+    const r1 = await over.execute("c1", async () => ({
+      ok: true,
+      result: "产出。",
+      tokens: 3210,
+      tokensKind: "usage" as const,
+      overBudget: true,
+    }));
+    assert.deepEqual(r1.usage, {
+      tokens: 3210,
+      tokensKind: "usage",
+      overBudget: true,
+    });
+    const ev1 = over.log.find((x) => x.type === "plan/frame-executed") as
+      { tokensKind?: string; overBudget?: boolean } | undefined;
+    assert.equal(ev1?.tokensKind, "usage");
+    assert.equal(ev1?.overBudget, true);
+
+    const under = newEngine();
+    await under.decompose("root", [
+      leafWith("c1", { kind: "subagent", budget: { maxTokens: 256 } }),
+    ]);
+    const r2 = await under.execute("c1", async () => ({
+      ok: true,
+      result: "产出。",
+      tokens: 999,
+      tokensKind: "usage" as const,
+      overBudget: false,
+    }));
+    assert.equal(
+      r2.usage?.overBudget,
+      false,
+      "未触顶：后端给 false 就记 false",
+    );
+  });
+
+  it("tokens 数值不参与判定（大字面量也不判）/ 未声明预算不采纳信号", async () => {
+    const e = newEngine();
+    await e.decompose("root", [
+      leafWith("c1", { kind: "subagent", budget: { maxTokens: 256 } }),
+    ]);
+    const r = await e.execute("c1", async () => ({
+      ok: true,
+      result: "产出。",
+      tokens: 999999,
+      tokensKind: "usage" as const,
+    }));
+    const ev = e.log.find((x) => x.type === "plan/frame-executed") as
+      { overBudget?: boolean } | undefined;
+    assert.equal(
+      ev?.overBudget,
+      undefined,
+      "无权威信号不判（tokens 只是信息量）",
+    );
+
+    const noBudget = newEngine();
+    await noBudget.decompose("root", [leafWith("c1", { kind: "subagent" })]);
+    const r2 = await noBudget.execute("c1", async () => ({
+      ok: true,
+      result: "产出。",
+      overBudget: true,
+    }));
+    assert.equal(r2.usage?.overBudget, undefined, "未声明预算 → 不采纳信号");
   });
 
   it("非叶子 execute → 拒绝", async () => {

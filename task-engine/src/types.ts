@@ -27,11 +27,12 @@ export type FrameStatus = "pending" | "active" | "done" | "failed";
 export type ExecutorKind = "model" | "subagent" | "workflow" | "command";
 
 /**
- * executor 用量的计量口径（②）：
+ * executor 用量的计量口径（②）——两者都是**信息量**，均不参与数值比较：
  * - `pressure` = 会话上下文压力（`tokenMeter.measure` 的 `totalTokens`：含系统提示词与工具定义，
- *   真机实测 1.9 万量级，与「输出上限」类预算不可比）；
- * - `usage` = 计费用量口径（如 outputTokens）。
- * 只有 `usage` 口径参与 `budget.maxTokens` 的 `overBudget` 判定。
+ *   真机实测 1.9 万量级）；
+ * - `usage` = provider 实际上报的输出 token（`tokenUsage` 投影的 `totals`，**跨请求累计**）。
+ * `overBudget` 走**权威信号**（subagent = 宿主 `stopReason === "max-tokens"`）：`pressure` 与
+ * 上下文相关、`usage` 的 totals 与「每次请求输出上限」口径不同（真机 12 个子会话实测恒真）。
  */
 export type TokenKind = "pressure" | "usage";
 
@@ -40,7 +41,7 @@ export interface ExecutorSpec {
   kind: ExecutorKind;
   /** 模型覆盖（`subagent` 后端用；缺省随宿主 `agentDefaultModel` 的当前选择） */
   model?: { provider: string; model: string };
-  /** 预算声明（②）：后端自报 / 事后 `tokenMeter` 计量的 token 上限；超限只**标注**不打回 */
+  /** 预算声明（②）：**每次请求**的输出 token 上限（subagent 映射宿主 `agentOptions.maxTokens`，触顶表现为 `stopReason === "max-tokens"`）；超限只**标注**不打回 */
   budget?: { maxTokens?: number };
   /** `subagent`：提示词（缺省由引擎按 frame spec + 验收清单拼装） */
   prompt?: string;

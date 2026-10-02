@@ -21,7 +21,7 @@ import {
   type RootSpec,
 } from "./engine.ts";
 import { createTools, type TaskToolDef, type ToolExecuteCtx } from "./tools.ts";
-import type { Acceptance, AcceptanceLevel } from "./types.ts";
+import type { Acceptance, AcceptanceLevel, TokenKind } from "./types.ts";
 
 export const name = "task-engine";
 export const inject = ["tools"];
@@ -123,9 +123,14 @@ interface AgentDefaultModelLike {
   currentSelection(): { provider?: string; model?: string };
 }
 
-/** 宿主 token 计量面（`ctx.tokenMeter`）最小形态 */
+/** 宿主 token 计量面（`ctx.tokenMeter`）最小形态（pressure 口径：上下文压力） */
 interface TokenMeterLike {
   measure(session: unknown): { totalTokens?: number };
+}
+
+/** 宿主会话投影注册表（`ctx.sessionProjections`）最小形态：只读某会话的投影状态 */
+interface ProjectionRegistryLike {
+  stateOf(session: unknown, key: string): unknown;
 }
 
 /** 子代理 provider（一次性、不继承父上下文；fork 非本包职责） */
@@ -175,14 +180,68 @@ function isStructured(value: unknown): boolean {
 }
 
 /**
- * 计量字段（②）：subagent 经 `tokenMeter.measure(子会话)` 拿到的是 **pressure 口径**
- * （含系统提示词 / 工具定义的上下文压力），故带 `tokensKind` 标记，不参与 `overBudget` 判定。
+ * 从 `tokenUsage` 投影状态里取 provider 上报的输出 token 累计（结构子集；取不到返回 undefined）。
+ * `last === null` 表示该会话**还没有任何 usage 样本**（此时 `totals` 全 0 是初值，不是「用量为 0」），
+ * 故按不可用处理 → 由调用方回退 pressure 口径。
  */
-function tokenFields(tokens: number | undefined): {
+export function readUsageOutputTokens(state: unknown): number | undefined {
+  if (state === null || typeof state !== "object") return undefined;
+  const { totals, last } = state as { totals?: unknown; last?: unknown };
+  if (last === null || last === undefined) return undefined;
+  if (totals === null || typeof totals !== "object") return undefined;
+  const output = (totals as { outputTokens?: unknown }).outputTokens;
+  return typeof output === "number" && Number.isFinite(output)
+    ? output
+    : undefined;
+}
+
+/** subagent 计量字段（②） */
+export interface ChildTokenFields {
   tokens?: number;
-  tokensKind?: "pressure";
-} {
-  return tokens === undefined ? {} : { tokens, tokensKind: "pressure" };
+  tokensKind?: TokenKind;
+}
+
+/**
+ * 子会话计量（②）：**优先 usage 口径**（`sessionProjections` 的 `tokenUsage` 投影 =
+ * provider 实际上报的**输出 token 累计**），投影不可用时**回退 pressure**（`tokenMeter.measure`
+ * 的上下文压力，含系统提示词 / 工具定义）。
+ *
+ * 注意：本函数只负责**记录用量**，不判超预算——投影的 `totals` 是**跨请求累计**，而
+ * `budget.maxTokens`（宿主 `agentOptions.maxTokens`）是**每次请求**的输出上限，两者不可比
+ * （真机 12 个 spawn 子会话实测：totals 6–81,955，而实际声明的预算是 256/512/4000）。
+ * 是否触顶改用宿主的**权威信号** `stopReason === "max-tokens"`（见调用处）。
+ */
+export function measureChildTokens(opts: {
+  session: unknown;
+  resolve<T>(name: string): T | undefined;
+  warn(message: string): void;
+}): ChildTokenFields {
+  const { session, resolve, warn } = opts;
+  if (session === undefined) return {};
+  const projections = resolve<ProjectionRegistryLike>("sessionProjections");
+  if (projections !== undefined) {
+    try {
+      const usage = readUsageOutputTokens(
+        projections.stateOf(session, "tokenUsage"),
+      );
+      if (usage !== undefined) return { tokens: usage, tokensKind: "usage" };
+    } catch (err) {
+      warn(
+        `sessionProjections.stateOf 失败（回退 pressure 口径）：${String(err)}`,
+      );
+    }
+  }
+  const tokenMeter = resolve<TokenMeterLike>("tokenMeter");
+  if (tokenMeter === undefined) return {};
+  try {
+    const measured = tokenMeter.measure(session).totalTokens;
+    if (typeof measured === "number" && Number.isFinite(measured)) {
+      return { tokens: measured, tokensKind: "pressure" };
+    }
+  } catch (err) {
+    warn(`tokenMeter.measure 失败（忽略）：${String(err)}`);
+  }
+  return {};
 }
 
 /**
@@ -322,21 +381,20 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
           opts.warn(`subagent dispose 失败（忽略）：${String(err)}`);
         }
       }
-      // ① 计量：子会话终态 pressure（近似口径，非账单）
-      let tokens: number | undefined;
-      const tokenMeter = opts.resolve<TokenMeterLike>("tokenMeter");
-      const childSession = run.localAgent?.session;
-      if (childSession !== undefined && tokenMeter !== undefined) {
-        try {
-          const measured = tokenMeter.measure(childSession).totalTokens;
-          if (typeof measured === "number" && Number.isFinite(measured)) {
-            tokens = measured;
-          }
-        } catch (err) {
-          opts.warn(`tokenMeter.measure 失败（忽略）：${String(err)}`);
-        }
-      }
+      // ① 计量：优先 usage 投影（provider 上报输出 token 累计）；投影不可用时回退 pressure
+      const tokenFields = measureChildTokens({
+        session: run.localAgent?.session,
+        resolve: opts.resolve,
+        warn: opts.warn,
+      });
       const stopReason = result.stopReason ?? "unknown";
+      // ② 超预算：只认宿主权威信号——声明了预算且 `stopReason === "max-tokens"`（宿主因**每次请求**
+      //    的输出上限截断了子代理）。不用 tokens 数值比较：usage 投影是跨请求累计，口径不同
+      //    （真机实测会把 10/12 个子会话恒判超预算）
+      const overBudget =
+        spec.budget?.maxTokens === undefined
+          ? undefined
+          : stopReason === "max-tokens";
       const model = modelFact === undefined ? {} : { model: modelFact };
       if (stopReason !== "completed" && stopReason !== "max-tokens") {
         return {
@@ -345,7 +403,8 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
           retryable: stopReason !== "aborted",
           feedback: `子代理未正常完成（stopReason=${stopReason}）${result.diagnostic === undefined ? "" : `：${result.diagnostic}`}`,
           ...model,
-          ...tokenFields(tokens),
+          ...tokenFields,
+          ...(overBudget === undefined ? {} : { overBudget }),
         };
       }
       const text = truncateEvidence(blocksToText(result.output));
@@ -353,7 +412,8 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
         ok: true,
         result: text === "" ? "（子代理未返回文本产出）" : text,
         ...model,
-        ...tokenFields(tokens),
+        ...tokenFields,
+        ...(overBudget === undefined ? {} : { overBudget }),
       };
     }
     // —— workflow：ctx.workflowEngine.start（脚本由叶子显式声明，引擎不生成）——
@@ -584,6 +644,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     "workflowEngine",
     "agentDefaultModel",
     "tokenMeter",
+    "sessionProjections",
   ]) {
     if (readService(ctx, name) === undefined) {
       warn(

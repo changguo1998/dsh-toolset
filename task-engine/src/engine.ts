@@ -72,10 +72,15 @@ export interface ExecuteOutcome {
   tokens?: number;
   /**
    * 计量口径：`pressure` = 会话上下文压力（`tokenMeter.measure` 的 totalTokens，含系统
-   * 提示词与工具定义，真机实测远大于输出预算）；`usage` = 计费用量口径。
-   * 缺省按 `usage` 处理；`pressure` 不与 `budget.maxTokens`（宿主输出上限语义）比较。
+   * 提示词与工具定义）；`usage` = provider 上报的输出 token（投影 `totals`，跨请求累计）。
+   * 两者都只是**信息量**，不参与数值比较（见 `overBudget`）。
    */
   tokensKind?: TokenKind;
+  /**
+   * 后端给出的**超预算权威信号**（subagent = 宿主 `stopReason === "max-tokens"`：输出被
+   * **每次请求**的上限截断）。引擎只在叶子声明了 `budget.maxTokens` 时采纳；不是数值比较。
+   */
+  overBudget?: boolean;
   /** 实际使用的模型（`provider/model`；未覆盖时为空 = 随宿主默认） */
   model?: string;
   /**
@@ -432,13 +437,10 @@ export class TaskEngine {
       out = { ok: false, feedback: `executor 适配器抛错：${String(err)}` };
     }
     const max = spec.budget?.maxTokens;
-    // 预算判定只在**同口径**下进行：pressure（上下文压力）不与输出上限比较（真机实测误报）
-    const overBudget =
-      max === undefined ||
-      out.tokens === undefined ||
-      out.tokensKind === "pressure"
-        ? undefined
-        : out.tokens > max;
+    // 预算判定只认后端给出的**权威信号**（`out.overBudget`，subagent = 宿主 `stopReason === "max-tokens"`）。
+    // 不做 tokens 数值比较：pressure 是上下文压力（真机稳定误报），usage 投影的 totals 是跨请求累计
+    // 而 `maxTokens` 是每次请求上限（真机 12 个子会话实测恒真）——两者都不是同口径。
+    const overBudget = max === undefined ? undefined : out.overBudget;
     const summary = summarize(
       out.ok ? (out.result ?? "") : (out.feedback ?? ""),
     );

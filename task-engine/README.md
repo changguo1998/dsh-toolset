@@ -20,10 +20,11 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
   - **`workflow`**：`ctx.workflowEngine.start({script, meta, parent})` —— `script` 必给（引擎不生成脚本）；`meta` 由引擎生成默认值（`name = task:<frame>`、`description = 帧标题`）并与声明**浅合并**（叶子给谁覆盖谁）；`value` 为对象 / 数组时记入 `plan/frame-executed.structured`，文本证据为缩进 JSON；失败分类：`start` 同步抛错（META_INVALID / SCRIPT_PARSE）= **声明错误 → 不打回不计重试**，`cancelled`（用户取消）= 不打回，`error` = 交 bounded retry（反馈附 `已启动子代理 N 个`）；
   - **`command`**：`/bin/sh -c`（可带 `cwd`），退出码非 0 = 失败（可重试）；证据 = stdout + stderr；
   - 可选字段：`model`（`{provider, model}` 覆盖）、`budget.maxTokens`（映射宿主 `agentOptions.maxTokens`，即输出上限语义）、`cwd`、`prompt` / `script` / `meta`（按后端取用）；
-  - 用量计量（②）：subagent 事后经 `tokenMeter.measure(子会话)` 记录 `tokens` 并标 `tokensKind: "pressure"`（上下文压力口径，含系统提示词 / 工具定义，真机实测 1.9 万量级）；**只有 `usage` 口径参与 `overBudget` 判定**（pressure 不与输出预算比较——真机曾因此误报），且无论哪种口径都**只标注、不据此打回**；
+  - 用量计量（②）：subagent 事后**优先读宿主 `tokenUsage` 投影**（`sessionProjections.stateOf(子会话, "tokenUsage")` → `totals.outputTokens`＝provider 实际上报的**输出 token 累计**），记 `tokens` 并标 `tokensKind: "usage"`；投影不可用（服务缺失 / 子会话**尚无 usage 样本**（`last === null`）/ 字段非法 / 抛错）时**回退** `tokenMeter.measure(子会话)` 的 `tokensKind: "pressure"`（上下文压力，含系统提示词 / 工具定义）；
+  - 超预算（②）：**不做 tokens 数值比较**——`pressure` 与上下文相关、`usage` 的 `totals` 是跨请求累计，而 `budget.maxTokens`（宿主 `agentOptions.maxTokens`）是**每次请求**的输出上限（真机 12 个 spawn 子会话实测：totals 6–81,955，实际声明预算 256/512/4000 → 数值比较会把 10/12 恒判超预算）。判定改用宿主的**权威信号**：叶子声明了 `budget.maxTokens` 且子代理 `stopReason === "max-tokens"`（因输出上限被截断）→ `overBudget: true`；未声明预算或后端没给信号 → 不写该字段；无论哪种都**只标注、不据此打回**；
   - 校验收在**机械门禁**（`rule: "executor"`，带反馈打回）：只允许叶子声明、kind 白名单、`command` 必给 `command`、`workflow` 必给 `script`、`meta.name` / `meta.description` 非空、`model` 覆盖须给全 provider/model、`budget.maxTokens` 须为正数；
   - 执行记录落 `plan/frame-executed`（`executor` / `model` / `tokens` / `overBudget` / `structured` / 证据摘要 / `retryable`），**证据全文**仍走 `plan/frame-implemented`（既有验收链不看新事件）；三类后端证据统一**截断**到 8000 字符（超出标注原始长度）；
-  - 宿主服务（`subagents` / `workflowEngine` / `agentDefaultModel` / `tokenMeter`）在**执行期惰性解析**（当前工具执行 ctx 优先 → 回退插件 ctx）：apply 期服务 fiber 未激活时 `ctx.get` 会返回 undefined（真机实测），故装载期不缓存句柄，只在发起时按名读取，apply 期探测仅打印告警；
+  - 宿主服务（`subagents` / `workflowEngine` / `agentDefaultModel` / `tokenMeter` / `sessionProjections`）在**执行期惰性解析**（当前工具执行 ctx 优先 → 回退插件 ctx）：apply 期服务 fiber 未激活时 `ctx.get` 会返回 undefined（真机实测），故装载期不缓存句柄，只在发起时按名读取，apply 期探测仅打印告警；
   - 失败分流：`retryable` 缺省 true → 走 bounded retry（`maxRetries` 后置 `failed`）；`retryable: false`（宿主面缺失 / 能力位不足 / 脚本声明错 / 用户取消）→ **不打回、不计重试、不改帧状态**，只把反馈交给模型改声明。
 - **分解双重门禁**：先跑机械门禁——粒度四规则（越级 / 过粗 / 过细 / 数量）+ coverage 完备性（父每条验收须有本次子任务覆盖）+ `deps` 前置传递（只允许引用前序兄弟，自引用/前向引用/未知 id 拒绝）+ `executor` 声明校验；通过后若配置 `entail` hook，再跑语义蕴含（合取是否蕴含父契约）。任一拒绝都带反馈打回并记 `retryCount`，达 `maxRetries` 置 `failed`。
 - **RET 验收路由**：mechanical → `/bin/sh -c` 退出码 0；human → `ctx.approval.request`（`allowed-once` 视为通过，拒绝 / 无人应答 / 抛错一律 fail-closed）；semantic → 注入式 `audit` hook 的独立 audit run（缺 hook，或声明了 `outputSchema` 却无 `structured`，均 fail-closed 打回）。
@@ -118,13 +119,13 @@ docs/           # DESIGN.md（架构与设计取舍）、BACKLOG.md（模块待�
 ```sh
 npm run check   # 类型检查（tsc --noEmit）
 npm run build   # 编译到 dist/
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（62 例：engine / events / gate / query / tools）
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（72 例：engine / events / gate / query / tools）
 npm run demo    # npm run build && node dist/demo/main.js；脚本化模型跑步骤 0-7 + 演示 8-13，
                 # 覆盖全链路（门禁打回→implement→stop→join）、fan-out 有界并发、
                 # 语义验收 audit、step 裁决、语义蕴含门、abort 恢复、叶子执行后端；输出 DEMO_OK / DEMO_FAIL，退出码 0/1
 npm run smoke:executor  # npm run build && node scripts/executor-smoke.mjs；dist 级 + 假宿主面冒烟，
                 # 覆盖**主机适配层**（单测与 demo 都踩不到的部分）：subagent 的 `agentOptions` 映射与
-                # pressure 口径用量、未声明模型不传 `agentOptions`、command 真跑 `/bin/sh`、
+                # usage 投影口径用量 + 无投影回退 pressure + `max-tokens` → `overBudget`、未声明模型不传 `agentOptions`、command 真跑 `/bin/sh`、
                 # workflow 默认 meta 合并与对象证据、同步抛错不打回不计重试、`cancelled` 反馈、
                 # 宿主服务惰性解析、证据截断边界、`execute → stop → join`；输出 SMOKE_PASS / SMOKE_FAIL，退出码 0/1
 ```

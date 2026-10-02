@@ -28,7 +28,12 @@ const baseRoot = {
 
 /** 造一个「假宿主面 + 已注册工具族」的 apply 实例；services 为 undefined 的项模拟 apply 期不可见 */
 async function harness({ services = {}, config = {} } = {}) {
-  const seen = { subagentStarts: [], workflowStarts: [], measures: 0 };
+  const seen = {
+    subagentStarts: [],
+    workflowStarts: [],
+    measures: 0,
+    projectionReads: 0,
+  };
   const registry = {
     subagents: {
       getProvider: () => ({ capabilities: { agentOptions: true } }),
@@ -39,7 +44,7 @@ async function harness({ services = {}, config = {} } = {}) {
           localAgent: { session: { child: true } },
           result: Promise.resolve({
             output: [{ type: "text", text: "子代理产出：调研完成" }],
-            stopReason: "completed",
+            stopReason: services.stopReason ?? "completed",
           }),
           dispose: async () => {},
         };
@@ -64,6 +69,16 @@ async function harness({ services = {}, config = {} } = {}) {
       measure: () => {
         seen.measures += 1;
         return { totalTokens: 1234 };
+      },
+    },
+    sessionProjections: {
+      stateOf: (session, key) => {
+        seen.projectionReads += 1;
+        if (key !== "tokenUsage") return undefined;
+        return {
+          totals: { uncachedInputTokens: 900, outputTokens: 4321 },
+          last: { turn: 1, step: 1, buckets: { outputTokens: 4321 } },
+        };
       },
     },
     ...services,
@@ -139,10 +154,12 @@ const leaf = (id, executor, title = id) => ({
       }),
   );
   check(
-    "subagent：用量为 pressure 口径且不判超预算",
-    r.usage?.tokens === 1234 &&
-      r.usage?.tokensKind === "pressure" &&
-      r.usage?.overBudget === undefined,
+    "subagent：用量走 usage 投影（刷到 totals.outputTokens，不读 tokenMeter）",
+    r.usage?.tokens === 4321 &&
+      r.usage?.tokensKind === "usage" &&
+      r.usage?.overBudget === false &&
+      seen.measures === 0 &&
+      seen.projectionReads > 0,
   );
   check(
     "subagent：parent / prompt 透传",
@@ -155,6 +172,47 @@ const leaf = (id, executor, title = id) => ({
   check(
     "未声明模型：不传 agentOptions（保持宿主合并语义）",
     r2.ok === true && seen.subagentStarts[1].request.agentOptions === undefined,
+  );
+}
+
+// ── 1b）超预算只认权威信号（stopReason=max-tokens）/ 无投影回退 pressure ──
+{
+  const { tools } = await harness({ services: { stopReason: "max-tokens" } });
+  await call(tools, "task_decompose", {
+    parent_id: "root",
+    children: [
+      leaf("c1", { kind: "subagent", budget: { maxTokens: 256 } }),
+      leaf("c2", { kind: "subagent" }),
+    ],
+  });
+  const hit = await call(tools, "task_execute", { task_id: "c1" });
+  check(
+    "subagent：声明预算 + max-tokens → overBudget=true（用法与量都标注）",
+    hit.ok === true &&
+      hit.usage?.tokensKind === "usage" &&
+      hit.usage?.overBudget === true,
+  );
+  const noBudget = await call(tools, "task_execute", { task_id: "c2" });
+  check(
+    "subagent：未声明预算 → 不采纳超预算信号",
+    noBudget.ok === true && noBudget.usage?.overBudget === undefined,
+  );
+
+  const fallback = await harness({
+    services: { sessionProjections: undefined },
+  });
+  await call(fallback.tools, "task_decompose", {
+    parent_id: "root",
+    children: [leaf("c1", { kind: "subagent", budget: { maxTokens: 256 } })],
+  });
+  const r = await call(fallback.tools, "task_execute", { task_id: "c1" });
+  check(
+    "subagent：无 sessionProjections → 回退 pressure 且不判超预算",
+    r.ok === true &&
+      r.usage?.tokens === 1234 &&
+      r.usage?.tokensKind === "pressure" &&
+      r.usage?.overBudget === false &&
+      fallback.seen.measures === 1,
   );
 }
 

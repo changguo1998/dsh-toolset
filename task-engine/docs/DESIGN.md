@@ -78,9 +78,19 @@ scripts/      executor-smoke.mjs：主机适配层冒烟（dist 级 + 假宿主�
 
 适配器返回 `retryable: false` 时（宿主面缺失、能力位不足、脚本 / meta 声明错、用户取消），引擎**不打回、不计重试、不改帧状态**，只落 `step-verdict` 把反馈交给模型改声明——重试这类错误没有意义，反而会烧掉重试预算并让帧进 `failed`。执行期失败（命令非零退出、子代理 `error` 等）才走 bounded retry。
 
-### 8. 计量口径必须与预算同口径
+### 8. 用量只记信息量；超预算只认权威信号
 
-`budget.maxTokens` 映射宿主 `agentOptions.maxTokens`（输出上限语义）。subagent 侧只能用 `tokenMeter.measure(子会话).totalTokens`（**pressure 口径**，含系统提示词与工具定义，真机实测 1.9 万量级），与输出预算不可比 → 记 `tokensKind: "pressure"` 并**不参与** `overBudget` 判定（真机曾因此稳定误报）。同口径计量（接 `sessionProjections` 的 `tokenUsage`）已记 BACKLOG。
+`budget.maxTokens` 映射宿主 `agentOptions.maxTokens`，语义是**每次请求**的输出上限。三个候选读数都不是同口径：
+
+| 读数 | 口径 | 为何不能与 `budget.maxTokens` 比较 |
+| --- | --- | --- |
+| `tokenMeter.measure(子会话).totalTokens`（`pressure`） | 上下文压力（含系统提示词 / 工具定义，真机 1.9 万量级） | 与输出无关，真机曾稳定误报 |
+| `sessionProjections.stateOf(子会话, "tokenUsage").totals.outputTokens`（`usage`） | provider 上报的**输出 token 累计**（跨 turn / 跨请求，含重试尝试） | 累计 vs 每请求上限：真机 12 个 spawn 子会话 totals 6–81,955，实际声明预算 256/512/4000 → 数值比较会把 10/12 恒判超预算 |
+| `last.buckets.outputTokens` | 最后一次请求的输出 | 「最后一次」不等于「触顶的那次」 |
+
+因此：**用量只作信息量**（优先 `usage` 投影、回退 `pressure`，用 `tokensKind` 区分），**超预算判定改用宿主权威信号** `stopReason === "max-tokens"`（叶子声明了预算时才采纳），`overBudget` 仍只标注、不据此打回。事件同时给 `tokens` / `tokensKind` / `overBudget`，读的人按需取。
+
+宿主投影坐标（2026-10-02 真机核对）：`stateOf` 返回宿主 **state**（`{totals, last}`；未注册 key → `undefined`），而 `snapshot()` 的 wire view 是**裸 4 桶**（`view = state => state.totals`）——两者不同构，别混用；key `tokenUsage` 由 `dsh-token-meter` 自己注册（它在组合里就有）。子会话可读：registry 按会话缓存（`WeakMap<Session>`），宿主 UI（`dsh-client-ui-subagent`）自己就这么读子会话；`spawn` 无 seed（totals 只含子会话自身），若改用 `fork` 则会含父会话前缀。
 
 ### 9. 宿主访问：结构面 + 执行期惰性解析
 
