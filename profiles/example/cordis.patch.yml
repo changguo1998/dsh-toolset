@@ -97,3 +97,29 @@
 # 禁用某条 bundle 插入的条目，再用 insert 换成别的实现（如换掉首条消息生成标题的 provider）：
 # - id: session-title-llm
 #   disabled: true
+
+# ── 可挂官方行（2026-10-02 挂载面扩张：投影 / 服务 / 事件面扩展，不改模型工具面）──────
+# 新增行必须走 `- insert:`：直接写 `- id:/name:` 会被当成「覆盖既有行」，未命中时只打
+# `patch: entry "x" not found` 且退出码仍为 0（静默失败）。候选池、排除口径与第二批选题见
+# `docs/archived/2026-10-02-profile-mount-expansion.md`。
+- insert:
+    - id: session-stats
+      name: '@deepseek-ai/dsh-session-stats'
+    - id: session-turn-outline
+      name: '@deepseek-ai/dsh-session-turn-outline'
+    - id: session-reference
+      name: '@deepseek-ai/dsh-session-reference'
+    - id: message-feedback
+      name: '@deepseek-ai/dsh-message-feedback'
+    - id: workspace-changes
+      name: '@deepseek-ai/dsh-workspace-changes'
+    - id: file-reference-local
+      name: '@deepseek-ai/dsh-file-reference-local'
+    - id: terminal
+      name: '@deepseek-ai/dsh-terminal'
+    - id: terminal-bash
+      name: '@deepseek-ai/dsh-terminal-bash'
+    - id: invariants
+      name: '@deepseek-ai/dsh-invariants'
+    - id: workspace
+      name: '@deepseek-ai/dsh-workspace'

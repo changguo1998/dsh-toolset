@@ -17,12 +17,13 @@
 - **`（ctx.x）` 表示该包注册了这个 host 服务**，是我们插件 `inject` 的对象；没有的包是工具/后端/客户端资产，通过别的服务被消费。
 - **`已挂载`** 指 `fff` profile 启动时会加载它（等价于 `dsh-base` bundle 行 + profile 用户 patch 行）；未标记的包虽已随 dsh 安装、但该 profile 不加载。
 - **`树外加装`** 指该包未随 dsh 分发，由 `fff` profile 自行安装（`dsh plugin add` 或 profile 的 `package.json` + `pnpm install`，落到 profile 的 `node_modules`）并在 profile 的 `cordis.patch.yml` 挂载；当前仅 `session-title-all-prompts-llm` 属此类（不随装、按需启用）。
+- **挂载面扩张的排除口径（2026-10-02 用户裁定）**：客户端 UI（`dsh-client*`）、Web 类（`host-webserver` / `web-frontend` / `web-app`）、运维面（`plugin-manager` / `config-editor` / `hmr`）、实验编排（`experimental-*`）、preset 家族、会话格式迁移库（`session-format*`）、API 控制面（`api-*`）、`win32-process` / `schedule` / `time-context`；另本次补充排除替代 app 入口（`acp` / `acp-app` / `headless` / `sdk-*`）、Web/Desktop 面（`host-directory-picker-auto` / `host-open-in-app` / `host-plugin-inventory` / `host-product-telemetry-otel` / `session-log-export`）与 cordis 开发者面（`cordis-client-runner` / `cordis-host-runner` / `tool-cordis`）。**缝包（如 `fs` / `shell` / `subprocess` / `sandbox` / `spill` / `attachment` / `session-query` / `session-persistence`）不挂**：它们虽是合法插件，但任何官方组合都没把它们选作行，且会与已挂的持有行重复注册同名服务。候选池推导与第二批选题见 `docs/archived/2026-10-02-profile-mount-expansion.md`。
 - **`agent-preset` 家族未挂载是设计结果，不是缺配置**：官方只让 Web 面（`web-app` bundle）禁用 base 的 agent 面行并挂 preset registry，TUI 这类单组合面保持 base 的进程级 agent 组合（`packages/bundle/web-app/cordis.patch.yml` 的 "for the TUI, which is single-session and composes its agent process-wide" 注释、`packages/client/ui-user-questions/README.md` 的 "the TUI composition, which has no presets"）。依据、验证与版本断层见 `docs/host/AGENT-COMPOSITION.md`；要改 agent 面请落 profile 用户 patch。
 - **包名省略 `@deepseek-ai/dsh-` 前缀与作用域**。少数包本就不带该前缀：`cordis` / `cordis-plugin-*` / `cosmokit` / `schemastery` 来自 vendored cordis 生态，`libreoffice-kit*` / `node-addon-system*` 是预编译资产包——这 11 个 + `web-frontend`（构建产物）共 12 个包在 `packages/` 下没有源码目录，行内已注明 vendor / 构建产物。
 - **归类与计数口径**：分组沿用旧版 12 个分类，按宿主源码目录（`packages/` 下路径）归口，少数跨面包沿用旧版口径（`command-*` 归「技能 / 命令 / Web / 集成」；编排类 `tool-*`（goal / jobs / subagent / workflow / agent-team）归「agent 与编排」；`client-*` 全部归「客户端 UI」；`util-*` 与 vendor 归「插件 / 启动 / 基础设施」）；`experimental-` 前缀包剥掉前缀后按同一规则落位。
-- **小计自洽性**：各分类包数之和 = **288**（= 随包分发实测 288；其中 287 个在安装树内、1 个是树外加装包 `session-title-all-prompts-llm`，后者归入「会话 / 上下文 / 存储」且不占该分类名额）；各分类「已挂载」之和 = **92**（2026-10-02 `--dump-config` 实测，含 `dsh-base` 新行 `otel`），其中 91 个在 §2 之内、另 1 个是树外加装包。
+- **小计自洽性**：各分类包数之和 = **288**（= 随包分发实测 288；其中 287 个在安装树内、1 个是树外加装包 `session-title-all-prompts-llm`，后者归入「会话 / 上下文 / 存储」且不占该分类名额）；各分类「已挂载」之和 = **102**（2026-10-02 两步实测：`dsh-base` 新行 `otel` → 92，同日挂载面扩张再 +10 → 102），另加 1 个树外加装包。
 
-## 1. 现成可用（fff 已挂载，92 个，2026-10-02 实测）
+## 1. 现成可用（fff 已挂载，102 个，2026-10-02 实测）
 
 ```
 cordis-plugin-timer agent agent-default-model agent-instructions agent-loop api-gateway
@@ -41,11 +42,13 @@ subagent-spawn-in-process subprocess-local system-prompt token-meter tool-bash
 tool-call-timeout-policy tool-fs tool-fs-search tool-goal tool-jobs tool-pwsh tool-ralph tools
 tool-skill tool-subagent tool-subagent-control tool-todo tool-web tool-workflow typert-loader
 typert-registry user-approval user-questions web web-fetch-http web-search-deepseek workflow-ptc
+# 2026-10-02 挂载面扩张 +10：file-reference-local invariants message-feedback session-reference session-stats session-turn-outline terminal terminal-bash workspace workspace-changes
 ```
 
-其中 **91 个**随 dsh 分发（在 §2 之内），**1 个**是树外加装包 `session-title-all-prompts-llm`（会话标题 provider，见 §2「会话 / 上下文 / 存储」）。上表不含本项目 18 个 `@dsh-toolset/*` 包与 TUI bundle 自行 `- insert:` 的 `tool-ask-user`（后者在 `--dump-config` 里也出现，故实测名字项为 93 = 92 + 1；口径见 §6）。
+其中 **101 个**随 dsh 分发（在 §2 之内），**1 个**是树外加装包 `session-title-all-prompts-llm`（会话标题 provider，见 §2「会话 / 上下文 / 存储」）。上表不含本项目 18 个 `@dsh-toolset/*` 包与 TUI bundle 自行 `- insert:` 的 `tool-ask-user`（后者在 `--dump-config` 里也出现，故 2026-10-02 扩张后实测名字项为 103 = 102 + 1；口径见 §6）。
 
 > 2026-10-02 已升级到 `0.2.0-rc.2` 并实测：比 0.1.7 多出的正是 `otel`（`dsh-base` 新增 `- id: otel`，服务 `ctx.otel`），其余 91 个逐项不变。
+> 同日挂载面扩张（`~/.dsh/profiles/fff/cordis.patch.yml` 追加一个 `- insert:` 块）再 +10 个：`session-stats` / `session-turn-outline` / `session-reference` / `message-feedback` / `workspace-changes` / `file-reference-local` / `terminal` / `terminal-bash` / `invariants` / `workspace`（全部为投影 / 服务 / 事件面扩展，不改模型工具面；健康检查：dump 124 行、0 条 `patch: entry` 告警、PTY 真机启动无激活告警）。
 
 ## 2. 全部分组清单（288 个）
 
@@ -79,7 +82,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - `experimental-agent-team`（`ctx.agentTeams`） — 实验包：单会话内的 Agent Teams 花名册、持久 peer mailbox 与共享任务 DAG（需持久会话存储；不提供 worktree / 跨进程）
 - `experimental-tool-agent-team` — 实验包：模型面 Agent Teams 工具（建 teammate / 发消息 / 任务板，走 ctx.agentTeams）
 
-### 会话 / 上下文 / 存储（41，已挂载 21）
+### 会话 / 上下文 / 存储（41，已挂载 27）
 
 - `attachment`（`ctx.attachments`） — `ctx.attachments`：不可变附件存储缝
 - `attachment-local`（已挂载） — 附件存储的本机实现（DSH_HOME 下内容寻址）
@@ -88,8 +91,8 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - `compaction-basic`（已挂载） — token-meter 驱动的压缩策略 + LLM 摘要后端；fff 把 thresholdRatio 覆盖为 0.5
 - `compaction-image-offload`（已挂载） — 图片卸载：超预算的请求图片换成占位并重试（面向支持图片的路由）
 - `compaction-tool-result-pruner`（`ctx.toolResultPruner`，已挂载） — `ctx.toolResultPruner`：工具结果 surface 节点的 head/middle/tail 裁剪（免模型、可重放安全）
-- `invariants`（`ctx.invariants`） — `ctx.invariants`：各包自有的运行时不变量注册表（register）
-- `message-feedback`（`ctx.messageFeedback`） — `ctx.messageFeedback`：对已定稿 assistant 消息的会话日志评分/备注
+- `invariants`（`ctx.invariants`，已挂载） — `ctx.invariants`：各包自有的运行时不变量注册表（register；当前无注册方——真实注册方是 `*/invariant` 子路径行，见第二批选题）
+- `message-feedback`（`ctx.messageFeedback`，已挂载） — `ctx.messageFeedback`：对已定稿 assistant 消息的会话日志评分/备注
 - `session`（`ctx.sessions`，已挂载） — `ctx.sessions`：事件源会话仓库（create/prepare/enter/announce/flush/get/list/fork）；`Session.append(type,data)` + `header`（含 cwd）
 - `session-checkpoint-policy`（已挂载） — 会话持久化检查点策略：在模型请求与工具有副作用前打语义检查点
 - `session-format` — 会话日志格式迁移机制
@@ -106,15 +109,15 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - `session-projection-cache`（`ctx.sessionProjectionCache`，已挂载） — `ctx.sessionProjectionCache`：投影落盘缓存（session_projcache 存储域、节流写回与缓存列表读）
 - `session-query`（`ctx.sessionQuery`） — `ctx.sessionQuery`：会话查询服务（searchSessions/searchEvents/listEvents/traceSession/readSession/readSurface）
 - `session-query-sqlite`（已挂载） — 会话查询的 SQLite FTS5 后端
-- `session-reference`（`ctx.sessionReferenceResolver`） — `ctx.sessionReferenceResolver`：跨会话快照引用与持久化的不可信模型上下文（只读）
-- `session-stats` — 整日志统计投影 `sessionStats`：对话轮次与墙钟时间
+- `session-reference`（`ctx.sessionReferenceResolver`，已挂载） — `ctx.sessionReferenceResolver`：跨会话快照引用与持久化的不可信模型上下文（只读）
+- `session-stats`（已挂载） — 整日志统计投影 `sessionStats`：对话轮次与墙钟时间
 - `session-telemetry`（`ctx.sessionTelemetry`） — `ctx.sessionTelemetry`：会话事件采集/投影/脱敏与上报缝
 - `session-telemetry-otel`（已挂载） — 遥测的 OpenTelemetry 后端（交给 OTel JS SDK 日志管道）
 - `session-title`（`ctx.sessionTitle`，已挂载） — `ctx.sessionTitle`：基于日志的会话标题服务与 provider 注册（get/rename/refresh/register）
 - `session-title-all-prompts-llm`（已挂载，树外加装） — 标题 provider：聚合**全部**符合条件的用户消息经 LLM 生成/更新标题（每条用户消息触发一次修订）；fff 以 `provider: ustc` / `model: deepseek-v4-flash` / `maxInputBytes: 32768` 覆盖——聚合输入超 `maxInputBytes` 即请求失败并**保留旧标题**（不截断历史），`ctx.sessionTitle.refresh()` 为显式重试；不随 dsh 分发，由 profile 自行安装（不计入 283）
 - `session-title-first-prompt-llm`（已挂载，fff 禁用） — 标题 provider：用首条消息经 LLM 生成标题（只在首条人类消息时触发一次）；因 `ctx.sessionTitle` 只允许注册一个 provider（二次注册抛错），fff 在 patch 层置 `disabled: true` 后改挂 all-prompts 变体
 - `session-title-llm` — 标题 provider 共享的 LLM 生成策略
-- `session-turn-outline` — 整日志投影 `turnOutline`：回合大纲
+- `session-turn-outline`（已挂载） — 整日志投影 `turnOutline`：回合大纲
 - `spill`（`ctx.spillStore`） — `ctx.spillStore`：超大输出的落盘存储缝（saveText → 取回定位符）
 - `spill-local`（已挂载） — spill 缝的本机实现（会话私有文件）
 - `spill-policy`（已挂载） — 工具结果保留策略：超 token 预算的文本/图片结果转为可恢复路径（带预览）
@@ -122,7 +125,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - `storage-domain`（已挂载） — `ctx.storage.domain`：schema 校验、可发事件的 KV 数据域
 - `storage-json`（已挂载） — 存储 hub 的 JSON 文件 KV 后端
 - `token-meter`（`ctx.tokenMeter`，已挂载） — `ctx.tokenMeter`：可重放的 token/上下文计量（measure/estimateMessage，返回 surface/pressure/nodes）
-- `workspace-changes` — 每轮工作区文件变更（从 git 工作树快照 + 整文件捕获记录，带逐文件对比）——deliverables 的数据面
+- `workspace-changes`（已挂载） — 每轮工作区文件变更（从 git 工作树快照 + 整文件捕获记录，带逐文件对比）——deliverables 的数据面
 
 ### 工具与工具基建（16，已挂载 9）
 
@@ -300,7 +303,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - `experimental-client-ui-agent-team` — 实验 Web UI：Agent Teams 花名册、任务板与队友导航
 - `experimental-client-ui-voice-input` — 实验 Web UI：录音并把可编辑文本插入对话草稿
 
-### 插件 / 启动 / 基础设施（56，已挂载 7）
+### 插件 / 启动 / 基础设施（56，已挂载 8）
 
 - `acp` — ACP（Agent Client Protocol）服务端：经 JSON-RPC stdio 驱动宿主 agent（进程外对接面）
 - `acp-app` — `@deepseek-ai/dsh-acp-app` bundle：dsh-base 之上的 ACP profile 层（JSON-RPC stdio + 进程生命周期）
@@ -355,19 +358,19 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - `util-time` — 线边界共用的时间词汇（IANA 时区校验与规范化）
 - `util-values` — 防重复安装的值原语
 - `util-workspace-path` — 浏览器安全的工作区路径与展示助手
-- `workspace`（`ctx.workspaceRegistry`） — `ctx.workspaceRegistry`：工作区实体注册表与归档（create/list/archive/resolveByPath）
+- `workspace`（`ctx.workspaceRegistry`，已挂载） — `ctx.workspaceRegistry`：工作区实体注册表与归档（create/list/archive/resolveByPath）
 - `experimental-agent-team-profile` — 实验 bundle：Agent Teams 协作、工具与 Web UI 打包一处（默认关闭，仅显式启用）
 - `experimental-schedule-bundle`（0.2.0 新增） — 实验 bundle：把 `time-context` / `schedule` / `ui-schedule` 三行从 Web 组合搬到一起（插件页「Automation tasks」，缺省关闭）
 
-### 终端（2，已挂载 0）
+### 终端（2，已挂载 2）
 
-- `terminal`（`ctx.terminals`） — `ctx.terminals`：持久 PTY 会话缝（owner 作用域 id、后端注册、交互发送/读/信号/等待清理）
-- `terminal-bash` — 基于 subprocess 终端原语的持久 shell PTY 后端
+- `terminal`（`ctx.terminals`，已挂载） — `ctx.terminals`：持久 PTY 会话缝（owner 作用域 id、后端注册、交互发送/读/信号/等待清理）
+- `terminal-bash`（已挂载） — 基于 subprocess 终端原语的持久 shell PTY 后端
 
-### 其他（7，已挂载 0）
+### 其他（7，已挂载 1）
 
 - `file-reference`（`ctx.fileReferences`） — 文件引用发现契约与共享 @file 语法
-- `file-reference-local` — 本机文件系统的 ctx.fileReferences provider（有界模糊索引）
+- `file-reference-local`（已挂载） — 本机文件系统的 ctx.fileReferences provider（有界模糊索引）
 - `output-retention` — 零依赖有界保留原语（ItemRetainer/TextRetainer + 中性提示：留了什么、略了什么）
 - `tmux-context`（`ctx.llm`） — 每步注入本 agent 的 tmux pane/window 位置（需显式开启）
 - `experimental-speech-to-text`（`ctx.speechToText`） — 实验包：语音识别（provider 可独立选择）
@@ -400,17 +403,17 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - `directoryPicker`（`host-directory-picker`，未挂载） — 目录选择宿主能力缝
 - `directoryPickerController`（`api-workspace-controller`，未挂载） — 客户端侧目录选择控制
 - `dynamicCordisRunner`（`cordis-host-runner`，未挂载） — 动态 cordis 包加载
-- `fileReferences`（`file-reference`，未挂载） — 文件引用解析（@文件提及）
+- `fileReferences`（`file-reference` / `file-reference-local`，已挂载） — 文件引用解析（@文件提及）
 - `fileUploads`（`client-file-upload`，未挂载） — 客户端文件上传
 - `fs`（`fs`，未挂载） — 文件系统缝
 - `goals`（`goal`，已挂载） — 同会话目标状态与生命周期
 - `hmr`（`hmr`，已挂载） — 模块与 profile 配置热重载
-- `invariants`（`invariants`，未挂载） — 包自有运行时不变量注册表
+- `invariants`（`invariants`，已挂载） — 包自有运行时不变量注册表
 - `jobController`（`api-job-controller`，未挂载） — 作业 Remote 观察流与客户端输出服务
 - `jobs`（`jobs`，未挂载） — 后台作业注册表
 - `llm`（`llm`，已挂载；`repeat-tool-reminder`，已挂载；`tmux-context`，未挂载） — 模型运行时；后两者在其上挂 hook/上下文
 - `mcpResources`（`mcp-resources`，已挂载） — MCP 资源发现与读取
-- `messageFeedback`（`message-feedback`，未挂载） — 已定稿消息的评分/备注
+- `messageFeedback`（`message-feedback`，已挂载） — 已定稿消息的评分/备注
 - `officeToPdf`（`office-to-pdf`，未挂载） — Office → PDF 转换
 - `otel`（`otel`，0.2.0 新增；升级后自动挂载） — 共享 OTel 上报通道
 - `permissionPresets`（`permission-presets`，已挂载） — 权限预设（含 0.1.7 的 `catalog()`/`registerAuto()`）
@@ -431,7 +434,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - `sessionProjectionCache`（`session-projection-cache`，已挂载） — 投影落盘缓存
 - `sessionProjections`（`session-projection`，已挂载） — 会话状态投影注册表
 - `sessionQuery`（`session-query`，未挂载） — 会话查询服务
-- `sessionReferenceResolver`（`session-reference`，未挂载） — 跨会话快照引用（只读）
+- `sessionReferenceResolver`（`session-reference`，已挂载） — 跨会话快照引用（只读）
 - `sessionSkillCatalog`（`api-session-controller`，未挂载） — 客户端侧技能目录
 - `sessionTelemetry`（`session-telemetry`，未挂载） — 会话事件采集/脱敏/上报缝
 - `sessionTitle`（`session-title`，已挂载） — 会话标题服务与 provider 注册
@@ -449,7 +452,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - `subprocess`（`subprocess`，未挂载） — 子进程能力缝
 - `systemPrompt`（`system-prompt`，已挂载） — 系统提示与上下文贡献面
 - `terminalController`（`api-terminal-controller`，未挂载） — 会话私有交互终端控制面
-- `terminals`（`terminal`，未挂载） — 持久 PTY 会话服务
+- `terminals`（`terminal`，已挂载） — 持久 PTY 会话服务
 - `timer`（`cordis-plugin-timer`，已挂载） — cordis 定时器
 - `tokenMeter`（`token-meter`，已挂载） — 可重放的 token/上下文计量
 - `toolResultPruner`（`compaction-tool-result-pruner`，已挂载） — 工具结果 head/middle/tail 裁剪
@@ -463,7 +466,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 - `workflowEngine`（`workflow`，未挂载） — workflow 运行缝
 - `workspaceController`（`api-workspace-controller`，未挂载） — 客户端侧工作区操作
 - `workspaceFiles`（`api-workspace-files`，未挂载） — 客户端侧工作区文件读取与变更
-- `workspaceRegistry`（`workspace`，未挂载） — 工作区实体注册表
+- `workspaceRegistry`（`workspace`，已挂载） — 工作区实体注册表
 
 ## 4. 0.2.0-rc.2 里没有的（与我们的待办相关）
 
