@@ -130,7 +130,16 @@ export interface GuardHost {
  */
 const SHELL_TOOLS = new Set(["bash", "shell", "pwsh"]);
 const RUN_CODE_TOOLS = new Set(["run_code"]);
-const FILE_TOOLS = new Set(["read", "write", "edit", "patch", "grep", "glob"]);
+// read_image 是官方读面工具（参数 file_path），与 read 同级：只过敏感文件层读侧
+const FILE_TOOLS = new Set([
+  "read",
+  "read_image",
+  "write",
+  "edit",
+  "patch",
+  "grep",
+  "glob",
+]);
 const FILE_PATH_KEYS = ["file_path", "path", "target", "file"] as const;
 const WRITE_FILE_TOOLS = new Set(["write", "edit", "patch"]);
 

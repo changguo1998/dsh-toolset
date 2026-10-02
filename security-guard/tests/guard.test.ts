@@ -1,13 +1,14 @@
 /**
  * GuardEngine + 宿主挂接单测：pre-execute 的 deny/allow 分流、
  * 配置覆盖（enabled / allowPatterns / allowedPaths / 追加规则）、
+ * 官方文件工具（read / write / edit / patch / grep / glob 与读面 read_image）、
  * 插件文件工具登记表（写面 hash_edit / md_logic / ast_replace；读面 ast_query /
  * hash_read / fs_digest / code_map / md_map）、插件命令工具登记表
  * （metric_loop.measureCmd / task_decompose 的嵌套命令）与未登记工具边界。
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -743,9 +744,7 @@ test("插件命令工具：普通命令 / 无命令声明 / model 后端 → 放
             id: "c2",
             title: "跑检查",
             spec: "跑检查命令",
-            acceptance: [
-              { id: "a1", check: "退出码 0", level: "mechanical" },
-            ],
+            acceptance: [{ id: "a1", check: "退出码 0", level: "mechanical" }],
             need_decompose: false,
             executor: { kind: "command", command: "npm run test" },
           },
@@ -840,7 +839,10 @@ test("插件命令工具：命令参数缺失 / 非 string / 空串 → 放行�
     ],
     [
       "task_decompose",
-      { parent_id: "root", children: [{ executor: { command: 42, kind: "command" } }] },
+      {
+        parent_id: "root",
+        children: [{ executor: { command: 42, kind: "command" } }],
+      },
     ],
     [
       "task_decompose",
@@ -941,5 +943,130 @@ test("边界回归：原型链属性名（constructor / toString / valueOf）作
       null,
       `expected allow (no throw) for ${tool}`,
     );
+  }
+});
+
+test("官方工具：read_image 读敏感路径 → deny（读侧回执 + 规则 id，与 read 同级）", () => {
+  const fx = makeSensitiveFixture();
+  try {
+    const guard = new GuardEngine({ homeDir: HOME });
+    for (const [filePath, ruleId] of [
+      [fx.envPath, "env-file"],
+      [fx.keyPath, "ssh-rsa-key"],
+    ] as const) {
+      const hit = guard.inspect("read_image", { file_path: filePath });
+      assert.notEqual(hit, null, `expected deny for read_image ${filePath}`);
+      assert.match(hit!, /已拦截：读取敏感文件/);
+      assert.match(hit!, new RegExp(`规则「${ruleId}」`));
+      assert.match(hit!, /工具：read_image/);
+      assert.match(hit!, /放行方式：/);
+      // 读面工具不得被标成写侧
+      assert.doesNotMatch(hit!, /写入/);
+      // 同路径经官方 read 命中同一规则（read_image 与 read 同级口径）
+      assert.match(
+        guard.inspect("read", { file_path: filePath }) ?? "",
+        new RegExp(`规则「${ruleId}」`),
+      );
+    }
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("官方工具：read_image 读普通路径 / 参数缺失 → 放行（不误伤）", () => {
+  const fx = makeSensitiveFixture();
+  try {
+    const guard = new GuardEngine({ homeDir: HOME });
+    // 守卫只按路径判定：普通名文件放行；缺省 / 非 string 的 file_path 不产路径
+    assert.equal(
+      guard.inspect("read_image", { file_path: fx.normalPath }),
+      null,
+    );
+    assert.equal(guard.inspect("read_image", {}), null);
+    assert.equal(guard.inspect("read_image", { file_path: 42 }), null);
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("插件工具：code_map 的 root 为目录名命中 basename 型规则 → deny（宁可误拦口径）", () => {
+  const fx = makeSensitiveFixture();
+  try {
+    // 目录名本身命中 basename 型 glob 规则（.env.*）：只按传入路径本身判定，不扫目录内容
+    const sensitiveDir = join(fx.dir, "x", ".env.d");
+    mkdirSync(sensitiveDir, { recursive: true });
+    const guard = new GuardEngine({ homeDir: HOME });
+    const hit = guard.inspect("code_map", {
+      action: "index",
+      root: sensitiveDir,
+    });
+    assert.notEqual(hit, null);
+    assert.match(hit!, /已拦截：读取敏感文件/);
+    assert.match(hit!, /env-variant/);
+    assert.match(hit!, /工具：code_map/);
+    assert.doesNotMatch(hit!, /写入/);
+    // 同目录树内的普通名父目录不命中（规则按 basename / 路径本身，不递归内容）
+    assert.equal(
+      guard.inspect("code_map", { action: "index", root: join(fx.dir, "x") }),
+      null,
+    );
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("配置覆盖：allowedPaths 放行读面四工具（hash_read / fs_digest / code_map / md_map）", () => {
+  const fx = makeSensitiveFixture();
+  try {
+    const sensitiveDir = join(fx.dir, "x", ".env.d");
+    mkdirSync(sensitiveDir, { recursive: true });
+    // 各工具的登记路径参数指向敏感名路径（读侧），放行清单逐条命中该路径
+    const cases = [
+      [
+        "hash_read",
+        { path: fx.envPath, offset: 1, limit: 50 },
+        fx.envPath,
+        /env-file/,
+      ],
+      [
+        "fs_digest",
+        { path: fx.keyPath, mode: "outline" },
+        fx.keyPath,
+        /ssh-rsa-key/,
+      ],
+      [
+        "code_map",
+        { action: "index", root: sensitiveDir },
+        sensitiveDir,
+        /env-variant/,
+      ],
+      [
+        "md_map",
+        { action: "index", root: sensitiveDir },
+        sensitiveDir,
+        /env-variant/,
+      ],
+    ] as const;
+    for (const [tool, args, allowedPath, ruleId] of cases) {
+      // 未放行时仍被拦（放行清单是唯一变量）
+      const denied = new GuardEngine({ homeDir: HOME });
+      assert.match(
+        denied.inspect(tool, args) ?? "",
+        ruleId,
+        `expected deny for ${tool}`,
+      );
+      // allowedPaths 命中该路径 → 放行
+      const allowed = new GuardEngine({
+        homeDir: HOME,
+        sensitiveFiles: { allowedPaths: [allowedPath] },
+      });
+      assert.equal(
+        allowed.inspect(tool, args),
+        null,
+        `expected allow for ${tool}`,
+      );
+    }
+  } finally {
+    fx.cleanup();
   }
 });
