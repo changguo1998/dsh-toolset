@@ -338,7 +338,7 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 | `/session`、`/new`、`/fork` | `listSessions()` / `readSessionSurface(id)` / `deleteSession(id)`；`/new` = `adapter.newSession()`（dispose 旧 handle → `agents.create` 同一 setup/agentOptions/meta 的新会话 → `session-switch` 切过去 + `restoreSessionState` 回默认值）；`/fork` = `ctx.sessions.fork(activeSessionId)`（后两参省略 = 源会话最后事件 + store id 策略） | `/new` 宿主未暴露 `agents.create` → warn 不动作；fork 错误码映射中文 → warn；面板失败入 error 态 |
 | `/continue` | **TUI#1/#23**：`listSessions()` → 纯函数 `pickContinueTarget(records, cwd)`（候选 = 同目录非 live 已退出会话 ∪ **当前会话**（仅当 `hasPrompt !== false`）；最新者即当前会话 → `{kind:"current"}` 提示不切换）→ 复用 `/session` 的 `resumeToSession` 路径（先 `history-open` 建面板状态，成功后自动关面板）；CLI `-c` 仍用 `pickRecentSession`（同目录 + 非 live + 编辑时间最大） | 服务缺失 → warn；无匹配 / 已是最新 → info 提示；列表读取失败 → warn |
 | `/skills`、`/agents`、`/tools` | 共享列表面板（`refreshSkills` / `refreshAgents` / `refreshTools`）；`Enter` 经 `skillDetail` / `interruptAgent` / `toolDetail`（`interruptAgent` 仅对 continuable 发中断；一次性条目给不可中断原因，TUI#54） | 服务缺失 → warn 且不空开面板 |
-| `/task`、`/guard`、`/loop`、`/workflows` | 共享列表面板；`Enter` 经 `taskDetail` / `guardPolicy` / `loopDetail` 取详情；workflows 为只读 | 同上 |
+| `/task`、`/guard`、`/loop`、`/workflows` | 共享列表面板；`Enter` 经 `taskDetail` / `guardPolicy` / `loopDetail` 取详情（guard 服务**惰读**，见 main.ts 的 `get guard()`）；workflows 为只读 | 同上 |
 | `/memory` | `ctx.knowledge.getSummary()`（同步优先，否则 `whenReady()` 等待）→ info notice | 服务缺失 / 失败 → warn |
 | `/contract` | 取当前会话 goal 快照 objective → `adapter.contractSummary()` 解析 `Done-when:` 段 → ≤4 行 info | 无目标 / 解析失败 → warn |
 | `/council` | `ctx.subagents.start("one-shot", …)` 并行拉起 N（默认 2、上限 4）个评审子代理，`Promise.allSettled` 汇总 | 服务缺失 → warn 不假启动 |

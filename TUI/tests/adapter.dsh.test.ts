@@ -5764,3 +5764,37 @@ test("TUI#49 历史归一：rule-engine 注入 → 用户消息块（非 notice 
     { role: "user", text: "真实用户消息" },
   ]);
 });
+
+test("真实 adapter /guard：opts.guard 按次读取（apply 期未挂载、之后 provide 也能读到）", async () => {
+  // 惰读口径（BACKLOG「TUI 两处 guard 读法不一致」）：本用例只覆盖**适配层一侧**——
+  // 每次调用按次读 `opts.guard`（装配期缓存的实现会在第二步失败）；
+  // main.ts 一侧（getter 提供）由 main.config.test.ts 的结构防呆用例守。
+  let current: { recent: () => unknown[]; policy: () => unknown } | undefined;
+  const agent = new FakeAgent();
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent,
+    approvalTimeoutMs: 50,
+    get guard(): never {
+      return current as never;
+    },
+  });
+  const events: DshEvent[] = [];
+  adapter.onEvent((e) => events.push(e));
+  // ① 服务尚未 provide → 面板提示不可用（既有降级行为不变）
+  await assert.rejects(() => adapter.refreshGuard?.() as Promise<unknown>);
+  // ② 之后服务才出现 → 同一适配器应立即读到（惰读）
+  current = {
+    recent: () => [{ toolName: "bash", verdict: "deny", time: 1 }],
+    policy: () => ({
+      enabled: true,
+      commandBlacklist: { enabled: true, rules: [], allowPatterns: [] },
+      sensitiveFiles: { enabled: true, rules: [], allowedPaths: [] },
+    }),
+  };
+  await adapter.refreshGuard?.();
+  const rows = panelRows(events, "guard");
+  assert.equal(rows.length, 1, "服务出现后应渲染面板行");
+  assert.equal(rows[0]?.title, "bash");
+});

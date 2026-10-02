@@ -570,8 +570,12 @@ export async function apply(
       (ctx as { get?: (name: string) => unknown }).get?.("sessionChannel") as
         SessionChannelLike | undefined,
     // 安全守卫只读查询面（ctx.get('guard')，security-guard provide；缺失时 /guard 提示不可用）
-    guard: (ctx as { get?: (name: string) => unknown }).get?.("guard") as
-      SecurityGuardLike | undefined,
+    // **惰读**（getter，与 `$` 复查的 getGuard / 上面 sessionChannel 同口径，BACKLOG「TUI 两处 guard
+    // 读法不一致」）：apply 期快照会在「TUI 先于 security-guard 装载」时误报不可用。
+    get guard(): SecurityGuardLike | undefined {
+      return (ctx as { get?: (name: string) => unknown }).get?.("guard") as
+        SecurityGuardLike | undefined;
+    },
     // 知识库只读查询面（ctx.get('knowledge')，knowledge-base provide；缺失时 /memory 提示不可用）
     knowledge: (ctx as { get?: (name: string) => unknown }).get?.(
       "knowledge",
