@@ -51,8 +51,16 @@ export interface ExecutorSpec {
   meta?: Record<string, unknown>;
   /** `command`：命令（`/bin/sh -c`；退出码非 0 视为执行失败） */
   command?: string;
-  /** 工作目录（`command` / `subagent` 透传；缺省继承当前会话 cwd） */
+  /** 工作目录（`command` 透传；缺省继承当前会话 cwd；声明 `isolate` 时被 worktree 路径覆盖） */
   cwd?: string;
+  /**
+   * 执行隔离（BACKLOG「executor 隔离落地（自建简易 worktree）」）：`worktree` = 引擎在执行前
+   * 建一个 git worktree（`<repo>/.worktree/<leafId>`，分支 `dsh/<leafId>`），把该路径作为
+   * `cwd` 交给后端，帧进入终态时回收。**缺省不隔离（既有行为逐字不变）**。
+   * 简单版边界：不自动 merge、不做审查 / checkpoint、不处理远程；回收失败保留现场不静默。
+   * 仅 `command` 后端支持（宿主 subagent / workflow 面没有 cwd 参数，声明时不静默忽略而是报错）。
+   */
+  isolate?: "worktree";
 }
 
 /** decompose 参数中的子任务描述（模型提议，经门禁裁决后才挂树） */
@@ -126,7 +134,12 @@ export type PlanEvent =
       reason: string;
       feedback: string;
     }
-  | { type: "plan/frame-completed"; frame: FrameId }
+  | {
+      /** 帧 completed；`notice` = 终态注记（如隔离 worktree 回收失败保留现场的路径，不静默） */
+      type: "plan/frame-completed";
+      frame: FrameId;
+      notice?: string;
+    }
   | {
       /** step 级裁决（BACKLOG #5）：事件流携带 accepted/next，供宿主/审计消费 */
       type: "plan/step-verdict";
@@ -161,7 +174,12 @@ export type PlanEvent =
       frame: FrameId;
       reason?: string;
     }
-  | { type: "plan/frame-failed"; frame: FrameId };
+  | {
+      /** 帧 failed（重试耗尽）；`notice` = 终态注记（同 completed） */
+      type: "plan/frame-failed";
+      frame: FrameId;
+      notice?: string;
+    };
 
 /** 带序号的持久化事件 */
 export type LoggedPlanEvent = PlanEvent & { seq: number; time: number };

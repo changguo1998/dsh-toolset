@@ -94,6 +94,17 @@ export interface ExecuteOutcome {
 /** executor 后端适配器（宿主侧接线；未注入时 execute fail-closed 打回） */
 export type ExecutorRunner = (req: ExecuteRequest) => Promise<ExecuteOutcome>;
 
+/**
+ * 帧进入**终态**（done / failed）时的钩子（executor 隔离据此回收 worktree）：
+ * 在帧被标记终态**之前**调用，返回非空字符串 = 终态注记（原样写进 `plan/frame-completed` /
+ * `plan/frame-failed` 的 `notice` 字段，并随 `stop` 的返回透出）。抛错不冒泡：转成注记文本。
+ * 缺省不注入 → 既有行为逐字不变。
+ */
+export type TerminalHook = (
+  frame: FrameId,
+  status: "done" | "failed",
+) => Promise<string | undefined> | string | undefined;
+
 /** execute 结果（与 stop 同口径的 step 级裁决 + 证据摘要 + 用量） */
 export interface ExecuteResult {
   ok: boolean;
@@ -134,6 +145,8 @@ export interface TaskEngineOptions {
   entail?: EntailHook;
   /** executor 后端适配器（①）。未配置时声明了非 model 后端的帧 execute fail-closed。 */
   executor?: ExecutorRunner;
+  /** 帧进入终态时的钩子（executor 隔离的 worktree 回收走这里） */
+  onFrameTerminal?: TerminalHook;
   /** 配置后每次变更自动写快照（周期快照，§15.1 L3） */
   snapshotPath?: string;
 }
@@ -152,6 +165,10 @@ export interface StopResult {
   accepted: boolean;
   /** 建议下一步帧：打回指向本帧（重做），终态指向 null，通过指向就绪池候选 */
   next: FrameId | null;
+  /**
+   * 打回反馈**或终态注记**：通过路径也可能带（如隔离 worktree 回收失败保留现场的路径，
+   * 走 `plan/frame-completed.notice` 同一份文本；不静默）。
+   */
   feedback?: string;
 }
 
@@ -181,6 +198,7 @@ export class TaskEngine {
     ((req: AuditRequest) => Promise<AuditVerdict>) | undefined;
   private entail: EntailHook | undefined;
   private executorFallback: ExecutorRunner | undefined;
+  private onFrameTerminal: TerminalHook | undefined;
   private snapshotPath?: string;
   /** 周期快照写盘串行链：避免并发 fire-and-forget 写乱序（新快照覆盖旧快照） */
   private snapshotChain: Promise<void> = Promise.resolve();
@@ -192,6 +210,7 @@ export class TaskEngine {
     this.auditFallback = opts.audit;
     this.entail = opts.entail;
     this.executorFallback = opts.executor;
+    this.onFrameTerminal = opts.onFrameTerminal;
     this.snapshotPath = opts.snapshotPath;
     if (opts.log && opts.log.length > 0) {
       this.log.push(...opts.log);
@@ -330,7 +349,11 @@ export class TaskEngine {
     // 第一道：机械门禁（§17.2 第一道：粒度四规则 + coverage + 前置传递）
     const gate = checkDecomposition(parent, children, this.config);
     if (!gate.ok) {
-      this.rejectFrame(parentId, `gate:${String(gate.rule)}`, gate.feedback);
+      await this.rejectFrame(
+        parentId,
+        `gate:${String(gate.rule)}`,
+        gate.feedback,
+      );
       return this.finishDecompose(parentId, {
         ok: false,
         accepted: false,
@@ -343,7 +366,7 @@ export class TaskEngine {
     if (typeof entailHook === "function" && parent.acceptance.length > 0) {
       const ent = await entailHook(parent, children);
       if (!ent.ok && ent.skipped !== true) {
-        this.rejectFrame(parentId, "gate:entail", ent.feedback);
+        await this.rejectFrame(parentId, "gate:entail", ent.feedback);
         return this.finishDecompose(parentId, {
           ok: false,
           accepted: false,
@@ -481,7 +504,7 @@ export class TaskEngine {
         });
         return { ok: false, accepted: false, next: frameId, feedback };
       }
-      this.rejectFrame(frameId, "executor", feedback);
+      await this.rejectFrame(frameId, "executor", feedback);
       const now = this.tree.frames.get(frameId);
       const next: FrameId | null = now?.status === "failed" ? null : frameId;
       this.emitStepVerdict(frameId, { accepted: false, next, feedback });
@@ -555,10 +578,15 @@ export class TaskEngine {
       });
       return { ok: false, accepted: false, next, feedback: result.feedback };
     }
-    await this.completeUp(frameId, approve, hooks?.audit);
+    const notices = await this.completeUp(frameId, approve, hooks?.audit);
     const next = this.peekNextReady();
     this.emitStepVerdict(frameId, { accepted: true, next });
-    return { ok: true, accepted: true, next };
+    return {
+      ok: true,
+      accepted: true,
+      next,
+      ...(notices.length === 0 ? {} : { feedback: notices.join("；") }),
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -644,19 +672,23 @@ export class TaskEngine {
           : { structured: verdict.structured }),
       });
       if (!verdict.pass) {
-        this.rejectFrame(frameId, `acceptance:${acc.id}`, verdict.feedback);
+        await this.rejectFrame(
+          frameId,
+          `acceptance:${acc.id}`,
+          verdict.feedback,
+        );
         return { ok: false, feedback: verdict.feedback };
       }
     }
     return { ok: true };
   }
 
-  /** 打回：记事件、计数、超限即 failed */
-  private rejectFrame(
+  /** 打回：记事件、计数、超限即 failed（进终态前先过终态钩子，回收失败不静默） */
+  private async rejectFrame(
     frameId: FrameId,
     reason: string,
     feedback: string,
-  ): void {
+  ): Promise<void> {
     this.append({
       type: "plan/frame-rejected",
       frame: frameId,
@@ -666,11 +698,36 @@ export class TaskEngine {
     this.recompute();
     const f = this.tree.frames.get(frameId);
     if (f !== undefined && f.retryCount >= this.config.maxRetries) {
-      this.append({ type: "plan/frame-failed", frame: frameId });
+      const notice = await this.terminalNotice(frameId, "failed");
+      this.append({
+        type: "plan/frame-failed",
+        frame: frameId,
+        ...(notice === undefined ? {} : { notice }),
+      });
       this.recompute();
     } else {
       // 打回后放回就绪池顶部等待重新处理（带反馈）
       this.pushPoolFront(frameId);
+    }
+  }
+
+  /**
+   * 终态钩子（帧 done / failed 之前调用；executor 隔离在此回收 worktree）。
+   * 未注入 = 无注记；钩子抛错**不冒泡**（终态照常落地），抛错文本本身作为注记。
+   */
+  private async terminalNotice(
+    frameId: FrameId,
+    status: "done" | "failed",
+  ): Promise<string | undefined> {
+    const hook = this.onFrameTerminal;
+    if (typeof hook !== "function") return undefined;
+    try {
+      const notice = await hook(frameId, status);
+      return typeof notice === "string" && notice.trim() !== ""
+        ? notice.trim()
+        : undefined;
+    } catch (err) {
+      return `终态钩子抛错（现场未回收，需人工处理）：${String(err)}`;
     }
   }
 
@@ -682,34 +739,43 @@ export class TaskEngine {
     frameId: FrameId,
     approve: AcceptanceHooks["approve"],
     perCallAudit?: (req: AuditRequest) => Promise<AuditVerdict>,
-  ): Promise<void> {
-    this.append({ type: "plan/frame-completed", frame: frameId });
+  ): Promise<string[]> {
+    const notice = await this.terminalNotice(frameId, "done");
+    this.append({
+      type: "plan/frame-completed",
+      frame: frameId,
+      ...(notice === undefined ? {} : { notice }),
+    });
     this.recompute();
+    const notices = notice === undefined ? [] : [notice];
     const f = this.tree.frames.get(frameId);
-    if (f === undefined || f.parentId === null) return;
-    await this.tryJoinParent(f.parentId, approve, perCallAudit);
+    if (f === undefined || f.parentId === null) return notices;
+    notices.push(
+      ...(await this.tryJoinParent(f.parentId, approve, perCallAudit)),
+    );
+    return notices;
   }
 
   private async tryJoinParent(
     parentId: FrameId,
     approve: AcceptanceHooks["approve"],
     perCallAudit?: (req: AuditRequest) => Promise<AuditVerdict>,
-  ): Promise<void> {
+  ): Promise<string[]> {
     const parent = this.tree.frames.get(parentId);
     if (
       parent === undefined ||
       parent.status === "done" ||
       parent.status === "failed"
     )
-      return;
+      return [];
     // 全部子任务 done 才激活父帧续体（fan-out：最后一个完成子任务触发）
     const allDone = parent.children.every(
       (c) => this.tree.frames.get(c)?.status === "done",
     );
-    if (!allDone) return;
+    if (!allDone) return [];
     const result = await this.audit(parentId, approve, perCallAudit);
-    if (!result.ok) return; // 打回已完成：父帧 pending + 反馈，等待模型重新 stop
-    await this.completeUp(parentId, approve, perCallAudit);
+    if (!result.ok) return []; // 打回已完成：父帧 pending + 反馈，等待模型重新 stop
+    return await this.completeUp(parentId, approve, perCallAudit);
   }
 
   // -------------------------------------------------------------------------

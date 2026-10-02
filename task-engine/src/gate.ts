@@ -35,7 +35,8 @@ export type GateRule =
   | "too-many"
   | "coverage"
   | "deps"
-  | "executor";
+  | "executor"
+  | "isolate-id";
 
 /** 合法 executor 后端（BACKLOG「task-engine 执行扩展」①） */
 export const EXECUTOR_KINDS: readonly ExecutorKind[] = [
@@ -96,6 +97,20 @@ export function validateExecutor(spec: unknown): string | null {
   if (o["cwd"] !== undefined && !nonEmpty(o["cwd"])) {
     return "cwd 必须是非空字符串";
   }
+  // 隔离声明（executor 隔离落地）：只认 worktree + 只对 command 后端生效 + 必须给 cwd。
+  // 声明期就挡（否则帧已挂树、模型改不了声明，只能拿到执行期的死结）——宿主 subagent /
+  // workflow 面没有 cwd 参数，隔离无处落地，故宁可报错也不「假装隔离」。
+  if (o["isolate"] !== undefined) {
+    if (o["isolate"] !== "worktree") {
+      return 'isolate 目前只支持 "worktree"';
+    }
+    if (kind !== "command") {
+      return `isolate:"worktree" 只对 command 后端生效（宿主 ${kind} 面没有 cwd 参数）：请改用 command 后端，或去掉 isolate`;
+    }
+    if (!nonEmpty(o["cwd"])) {
+      return 'isolate:"worktree" 必须同时声明 cwd（隔离仓库内的起点目录：引擎在它下面跑 git rev-parse --show-toplevel，不猜 process.cwd()）';
+    }
+  }
   if (o["prompt"] !== undefined && !nonEmpty(o["prompt"])) {
     return "prompt 必须是非空字符串";
   }
@@ -115,6 +130,71 @@ export function validateExecutor(spec: unknown): string | null {
     }
     if (meta["description"] !== undefined && !nonEmpty(meta["description"])) {
       return "meta.description 必须是非空字符串";
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// 隔离 id 规则（executor 隔离落地）
+//
+// 为什么需要：隔离工作区的**目录名 / 分支名**由 leafId 派生，并原样出现在 git 命令文本里；
+// 而 security-guard 的复查面正是**命令文本**（命令黑名单层 + 命令内路径的敏感文件层）——
+// 于是 leafId 含「提权 / 磁盘 / 关机类危险词」或形似敏感文件名时，建与回收隔离区的 git 命令
+// 都会被拦（连回收命令一起被拦）。这类 id 在**声明期**拒绝，比让模型在执行期撞回执好收敛
+// （改 id 即可）；`source` 串只是回执首行的来源标注，不参与判定，不能当缓解措施。
+//
+// 词表是 security-guard 默认规则集的**最小投影**（本包不 import 对方代码、不进 inject，
+// 跨包零硬依赖）：只投影「会命中**命令文本里的 id 片段**」的那些形状。危险词按仓库惯例
+// **分片拼接**（仓库内不出现真实危险词字面量）。
+// ---------------------------------------------------------------------------
+
+/** 危险词（分片拼接）：提权 / 文件系统格式化 / 清签名 / 关机断电类。 */
+const BANNED_ID_WORDS: readonly string[] = [
+  "su" + "do",
+  "mk" + "fs",
+  "wipe" + "fs",
+  "shut" + "down",
+  "re" + "boot",
+  "ha" + "lt",
+  "power" + "off",
+];
+
+/** 敏感文件名形状（凭据 / 私钥 / env 类；`id_` 家族用交替写法，整词不连续落盘）。 */
+const SENSITIVE_ID_SHAPES: readonly RegExp[] = [
+  /^\.(?:netrc|git-credentials|npmrc|pypirc)$/,
+  /^\.(?:env)(?:\..*)?$/,
+  /\.(?:pem|key|p12|pfx|jks|keystore)$/,
+  /^id_(?:rsa|ed25519|ecdsa|dsa)$/,
+  /^(?:credentials\.json|service-account.*\.json)$/,
+];
+
+/** 危险词命中（词边界口径与 security-guard 的 `\b` 一致）；返回命中的词，未命中返回 null。 */
+function bannedWordHit(text: string): string | null {
+  for (const word of BANNED_ID_WORDS) {
+    if (new RegExp(`\\b${word}\\b`).test(text)) return word;
+  }
+  return null;
+}
+
+/**
+ * 隔离 id 复查（声明期门禁与执行期兜底共用）：返回 null = 放行；非空 = 可读原因
+ * （原样进打回反馈，文案含「改 id」指引）。只对声明了 `isolate` 的叶子生效。
+ */
+export function validateIsolateId(frameId: string): string | null {
+  const word = bannedWordHit(frameId);
+  if (word !== null) {
+    return (
+      `叶任务 id ${JSON.stringify(frameId)} 含危险词「${word}」：隔离工作区的目录名 / 分支名会写进 git 命令文本，` +
+      "会命中 security-guard 黑名单（建与回收都会被拦）——请改用不含危险词的 id（语义化英文或编号）。"
+    );
+  }
+  for (const shape of SENSITIVE_ID_SHAPES) {
+    if (shape.test(frameId)) {
+      return (
+        `叶任务 id ${JSON.stringify(frameId)} 形似敏感文件名（凭据 / 私钥 / env 类）：` +
+        "隔离路径会命中 security-guard 敏感文件层——请改用不形似凭据文件的 id。"
+      );
     }
   }
   return null;
@@ -232,6 +312,13 @@ export function checkDecomposition(
           rule: "executor",
           feedback: `子任务「${c.title}」的 executor 非法：${bad}。`,
         };
+      }
+      // 隔离 id 规则（见上）：隔离目录名 / 分支名派生自 id，危险词与敏感形状在声明期就挡住
+      if (c.executor.isolate !== undefined) {
+        const badId = validateIsolateId(c.id);
+        if (badId !== null) {
+          return { ok: false, rule: "isolate-id", feedback: badId };
+        }
       }
     }
     if (c.needDecompose) {
