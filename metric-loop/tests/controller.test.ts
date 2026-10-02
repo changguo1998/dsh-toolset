@@ -426,3 +426,47 @@ test("apply(无 provide 的 ctx)：不抛错、仍注册工具", async () => {
     cleanup(dir);
   }
 });
+
+test("render 形参顺序哨兵：渲染的必须是第二参（变异回单形参必失败）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "metric-loop-render-order-"));
+  const registered: RenderFace[] = [];
+  try {
+    await apply(
+      {
+        tools: {
+          register: (def: unknown) => void registered.push(def as RenderFace),
+        },
+      },
+      { stateDir: dir },
+    );
+    assert.equal(
+      registered.length,
+      1,
+      "metric_loop 单工具注册（探针须覆盖全部）",
+    );
+    // 本包 render 是 jsonText(value)：整个 value 进 JSON 文本，任意字段都会回显 →
+    // 最小结构即可。哨兵放 **value 位**；args 用同形结构、标记放同一可回显字段，
+    // 形参写反 / 少参（单形参实现）时渲染器拿到的是 args → ②③ 双失败。
+    const argsShaped = { marker: "ARGS_MARKER_NOT_RENDERED" };
+    const valueShaped = { marker: "SENTINEL_VALUE_MARKER" };
+    for (const tool of registered) {
+      const label = String(tool.name ?? "metric_loop");
+      const text = tool.output.render(argsShaped, valueShaped)[0]?.text;
+      assert.equal(
+        typeof text,
+        "string",
+        `${label}：blocks[0].text 必须是 string`,
+      );
+      assert.ok(
+        String(text).includes("SENTINEL_VALUE_MARKER"),
+        `${label}：渲染的必须是第二参（value）`,
+      );
+      assert.ok(
+        !String(text).includes("ARGS_MARKER_NOT_RENDERED"),
+        `${label}：第一参（args）不该被当成 value 渲染`,
+      );
+    }
+  } finally {
+    cleanup(dir);
+  }
+});

@@ -461,4 +461,69 @@ describe("工具注册（mock ctx）", () => {
     assert.equal(emptyCwd.ok, false);
     if (!emptyCwd.ok) assert.equal(emptyCwd.error, "file_not_found");
   });
+
+  it("render 形参顺序哨兵：渲染的必须是第二参（变异回单形参必失败）", () => {
+    const { ctx, registered } = mockCtx();
+    apply(ctx as never, {});
+    assert.equal(
+      registered.length,
+      1,
+      "fs_digest 单工具注册（探针须覆盖全部）",
+    );
+    const tool = registered[0];
+    assert.ok(tool !== undefined);
+    // 本包 render 只回显错误正文（error/message）或 mode 专有字段：不能用「任意最小结构」
+    // ——`render({}, undefined)` 与 `{ok:true, mode:"pruned"}` 都会直接抛 TypeError。
+    // 两组同形 args/value 分别覆盖失败分支与 pruned 分支，哨兵都放 **value 位**、
+    // 嵌在会被回显的字段里，args 标记放同一字段（③因此有牙）；
+    // 形参写反 / 少参（单形参实现）时渲染器拿到 args → 两分支下 ②③ 双双失败。
+    const probes = [
+      {
+        label: "失败分支",
+        argsShaped: {
+          ok: false,
+          error: "ARGS_MARKER_NOT_RENDERED",
+          message: "m",
+        },
+        valueShaped: {
+          ok: false,
+          error: "SENTINEL_VALUE_MARKER",
+          message: "m",
+        },
+      },
+      {
+        label: "pruned 分支",
+        argsShaped: {
+          ok: true,
+          mode: "pruned",
+          text: "ARGS_MARKER_NOT_RENDERED",
+        },
+        valueShaped: {
+          ok: true,
+          mode: "pruned",
+          text: "SENTINEL_VALUE_MARKER",
+        },
+      },
+    ];
+    for (const probe of probes) {
+      const blocks = tool.output.render(
+        probe.argsShaped,
+        probe.valueShaped,
+      ) as Array<{ type?: string; text?: unknown }>;
+      const text = blocks[0]?.text;
+      assert.equal(
+        typeof text,
+        "string",
+        `${probe.label}：blocks[0].text 必须是 string`,
+      );
+      assert.ok(
+        String(text).includes("SENTINEL_VALUE_MARKER"),
+        `${probe.label}：渲染的必须是第二参（value）`,
+      );
+      assert.ok(
+        !String(text).includes("ARGS_MARKER_NOT_RENDERED"),
+        `${probe.label}：第一参（args）不该被当成 value 渲染`,
+      );
+    }
+  });
 });

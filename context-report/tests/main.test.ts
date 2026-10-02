@@ -449,3 +449,51 @@ test("optionalService：属性存在但取值抛错时返回 undefined", () => {
   assert.equal(optionalService(throwing, "anything"), undefined);
   assert.equal(optionalService({}, "missing"), undefined);
 });
+
+test("render 形参顺序哨兵：两条分支都渲染第二参（变异回单形参必失败）", () => {
+  const tool = createContextReportTool((options) => options, {
+    listSessions: () => [],
+  }) as {
+    name: string;
+    output: {
+      render(
+        args: unknown,
+        value: unknown,
+      ): { type?: string; text?: unknown }[];
+    };
+  };
+  assert.equal(tool.name, "context_report", "单工具注册（探针须覆盖全部）");
+  // 本包 render 有两条分支：`value.text` 是 string 时**原样直通**，否则 jsonText(value)。
+  // 两组同形 args/value 把两条分支都覆盖；哨兵都放 **value 位**、嵌在会被回显的字段里，
+  // args 标记放同一字段（③因此有牙）。形参写反 / 少参（单形参实现）时渲染器拿到 args
+  // → 两分支下 ②③ 双双失败。
+  const probes = [
+    {
+      label: "value.text 直通分支",
+      argsShaped: { text: "ARGS_MARKER_NOT_RENDERED" },
+      valueShaped: { text: "SENTINEL_VALUE_MARKER" },
+    },
+    {
+      label: "JSON 分支",
+      argsShaped: { marker: "ARGS_MARKER_NOT_RENDERED" },
+      valueShaped: { marker: "SENTINEL_VALUE_MARKER" },
+    },
+  ];
+  for (const probe of probes) {
+    const text = tool.output.render(probe.argsShaped, probe.valueShaped)[0]
+      ?.text;
+    assert.equal(
+      typeof text,
+      "string",
+      `${probe.label}：blocks[0].text 必须是 string`,
+    );
+    assert.ok(
+      String(text).includes("SENTINEL_VALUE_MARKER"),
+      `${probe.label}：渲染的必须是第二参（value）`,
+    );
+    assert.ok(
+      !String(text).includes("ARGS_MARKER_NOT_RENDERED"),
+      `${probe.label}：第一参（args）不该被当成 value 渲染`,
+    );
+  }
+});

@@ -291,3 +291,43 @@ test("工具 render 全函数：4 个注册点逐个覆盖，text 恒为 string�
     assert.equal(render({}, "s")[0]?.text, "s");
   }
 });
+
+test("render 形参顺序哨兵：4 个注册点逐个覆盖（变异回单形参必失败）", () => {
+  const fake = makeFakeHost();
+  const tools: RenderFace[] = [];
+  fake.host["tools"] = {
+    register: (def: unknown) => void tools.push(def as RenderFace),
+  };
+  apply(fake.host as never, { disabled: true });
+  assert.deepEqual(
+    tools.map((t) => t.name).sort(),
+    [
+      "channel_delegate",
+      "channel_task",
+      "channel_task_result",
+      "session_channel",
+    ],
+    "注册面清单（探针逐个覆盖）",
+  );
+  // 本包 render 是 jsonText(value)：整个 value 进 JSON 文本，任意字段都会回显 →
+  // 最小结构即可。哨兵放 **value 位**；args 用同形结构、标记放同一可回显字段，
+  // 形参写反 / 少参（单形参实现）时渲染器拿到的是 args → ②③ 双失败。
+  const argsShaped = { marker: "ARGS_MARKER_NOT_RENDERED" };
+  const valueShaped = { marker: "SENTINEL_VALUE_MARKER" };
+  for (const tool of tools) {
+    const text = tool.output.render(argsShaped, valueShaped)[0]?.text;
+    assert.equal(
+      typeof text,
+      "string",
+      `${tool.name}：blocks[0].text 必须是 string`,
+    );
+    assert.ok(
+      String(text).includes("SENTINEL_VALUE_MARKER"),
+      `${tool.name}：渲染的必须是第二参（value）`,
+    );
+    assert.ok(
+      !String(text).includes("ARGS_MARKER_NOT_RENDERED"),
+      `${tool.name}：第一参（args）不该被当成 value 渲染`,
+    );
+  }
+});

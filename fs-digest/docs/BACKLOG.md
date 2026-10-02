@@ -1,18 +1,7 @@
-# fs-digest 待办
+# fs-digest 待办（模块级）
 
-> 职责：fs-digest 包内的缺陷与待办（包内变更优先写在本包文档）
-> 不负责：跨包待办（见 `docs/BACKLOG.md`）、契约与边界（见 `fs-digest/README.md`）
-> 编号口径：扁平连续 `#n`，**仅供阅读**——不用于追踪文档的命名与引用；**每次整理时按当前顺序从 1 起重新编号**；与其它层 BACKLOG 的编号互不关联
-> 过期条件：无
-> 本文件只列未完成项；已完成项见 git 历史与 `fs-digest/tests/`，不在此重复。
+跨模块条目见项目级 `docs/BACKLOG.md`；本文件只收本模块条目。
 
-## 1. 缺陷
-
-## 1. 缺陷
-
-（当前无未完成项）
-
-## 2. 记录在案（判定为不做）
-
-- **`scanMarkdown` 与 `md-logic` 的结构口径差异**（2026-10-02 `md-logic` 建包条目的子代理审阅发现）：同一 fixture 实测，两工具**范围口径一致**，但解析精度有 5 类分歧——setext 标题（`md-logic` 认、本包不认，且本包会把上一个 ATX 节的 `endLine` 拉到文件末）、HTML 块（本包会把块内 `# x` 当标题）、缩进代码块（本包无该块）、懒续行（本包会切成两段）、`hr` / `html` 两种 kind（本包没有）。
-  **判定：不对齐**——本包定位是「零依赖轻量启发式入口」（快览），差异已写进 `fs-digest/README.md` 边界段与 `md-logic/README.md`「与 fs_digest 的口径差异」节，两个工具描述互相指路。若将来要精确口径，走「Markdown 路径改为复用 `md-logic` 的解析」，而不是继续加正则。
+| # | 条目 | 来源 | 落点 | 工作量 | 优先级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | **`render` 非全函数**：`render({}, undefined)` 抛 `TypeError`、`{ok:true, mode:"signatures"/"pruned"}` 抛 `TypeError`、`{ok:true, mode:"outline"}` 抛 "list is not iterable" —— 与 `#3 render 全函数性` 同类但形态是「对非法形状抛错」；建议按 `hash-edit` 的 `jsonText` 口径兜底（或对每个 mode 分支做形状守卫），并补「非法 / 缺字段形状不抛」用例 | 2026-10-02 其余包 render 顺序探针条目的子代理审阅（漏项） | `fs-digest/src/main.ts` + 测试 | 0.5-1 h | P2 |

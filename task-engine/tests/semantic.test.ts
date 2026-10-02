@@ -384,3 +384,59 @@ describe("工具注册面：render 全函数（text 恒为 string）", () => {
     }
   });
 });
+
+describe("工具注册面：render 形参顺序哨兵（渲染的必须是第二参）", () => {
+  it("全部 5 个注册工具：变异回单形参必失败", async () => {
+    type RegisteredTool = {
+      output?: {
+        render?: (
+          args: unknown,
+          value: unknown,
+        ) => Array<{ type: string; text: unknown }>;
+      };
+    };
+    const registered = new Map<string, RegisteredTool>();
+    await apply({
+      tools: {
+        register: (def: unknown) => {
+          const tool = def as RegisteredTool & { name: string };
+          registered.set(tool.name, tool);
+        },
+      },
+      provide: () => {},
+      get: () => undefined,
+    });
+    const names = [
+      "task_decompose",
+      "task_implement",
+      "task_execute",
+      "task_stop",
+      "task_status",
+    ];
+    assert.equal(registered.size, names.length, "应注册全部 5 个工具");
+    // 本包 render 是 jsonText(value)：整个 value 进 JSON 文本，任意字段都会回显 →
+    // 最小结构即可。哨兵放 **value 位**；args 用同形结构、标记放同一可回显字段，
+    // 形参写反 / 少参（单形参实现）时渲染器拿到的是 args → ②③ 双失败。
+    const argsShaped = { marker: "ARGS_MARKER_NOT_RENDERED" };
+    const valueShaped = { marker: "SENTINEL_VALUE_MARKER" };
+    for (const name of names) {
+      const render = registered.get(name)?.output?.render;
+      if (render === undefined)
+        throw new Error(`工具未注册或缺 output.render：${name}`);
+      const text = render(argsShaped, valueShaped)[0]?.text;
+      assert.equal(
+        typeof text,
+        "string",
+        `${name}：blocks[0].text 必须是 string`,
+      );
+      assert.ok(
+        String(text).includes("SENTINEL_VALUE_MARKER"),
+        `${name}：渲染的必须是第二参（value）`,
+      );
+      assert.ok(
+        !String(text).includes("ARGS_MARKER_NOT_RENDERED"),
+        `${name}：第一参（args）不该被当成 value 渲染`,
+      );
+    }
+  });
+});

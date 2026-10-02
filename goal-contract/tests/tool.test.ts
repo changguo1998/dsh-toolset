@@ -323,3 +323,27 @@ test("output.render：全函数（undefined 也给 string；对象走 JSON、字
   );
   assert.equal(render({}, "s")[0]?.text, "s", "字符串原样返回");
 });
+
+test("output.render 形参顺序哨兵：渲染的必须是第二参（变异回单形参必失败）", () => {
+  const tool = createGoalContractTool({});
+  assert.equal(tool.name, TOOL_NAME, "单工具注册（探针须覆盖全部）");
+  const render = tool.output.render as (
+    args: unknown,
+    value: unknown,
+  ) => Array<{ type?: string; text?: unknown }>;
+  // 本包 render 是 jsonText(value)：整个 value 进 JSON 文本，任意字段都会回显 →
+  // 最小结构即可。哨兵放 **value 位**；args 用同形结构、标记放同一可回显字段，
+  // 形参写反 / 少参（单形参实现）时渲染器拿到的是 args → ②③ 双失败。
+  const argsShaped = { marker: "ARGS_MARKER_NOT_RENDERED" };
+  const valueShaped = { marker: "SENTINEL_VALUE_MARKER" };
+  const text = render(argsShaped, valueShaped)[0]?.text;
+  assert.equal(typeof text, "string", "blocks[0].text 必须是 string");
+  assert.ok(
+    String(text).includes("SENTINEL_VALUE_MARKER"),
+    "渲染的必须是第二参（value）",
+  );
+  assert.ok(
+    !String(text).includes("ARGS_MARKER_NOT_RENDERED"),
+    "第一参（args）不该被当成 value 渲染",
+  );
+});
