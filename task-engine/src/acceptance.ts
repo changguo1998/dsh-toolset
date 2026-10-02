@@ -37,8 +37,15 @@ export type AcceptanceVerdict =
   | { pass: false; feedback: string; structured?: unknown };
 
 export interface AcceptanceHooks {
-  /** mechanical 级：执行验收命令，返回退出码（0 = 通过） */
-  runCommand(cmd: string): Promise<{ code: number; output?: string }>;
+  /**
+   * mechanical 级：执行验收命令，返回退出码（0 = 通过）。
+   * `frame` 仅供执行方标注复查来源；`blocked: true` = 命令在执行前被安全复查拦下
+   * （**未执行**，`output` 为拦截回执原文）。
+   */
+  runCommand(
+    cmd: string,
+    frame?: FrameId,
+  ): Promise<{ code: number; output?: string; blocked?: boolean }>;
   /** human 级：人工审批，返回是否批准（无人应答 fail-closed = false） */
   approve(req: { frame: FrameId; reason: string }): Promise<boolean>;
   /** semantic 级：独立 audit run（宿主侧）。未配置时语义级 fail-closed。 */
@@ -63,7 +70,17 @@ export async function judgeAcceptance(
           feedback: `验收「${acc.check}」为 mechanical 级但缺 command，无法执行。`,
         };
       }
-      const { code, output } = await hooks.runCommand(acc.command);
+      const { code, output, blocked } = await hooks.runCommand(
+        acc.command,
+        frameId,
+      );
+      // 执行前复查命中（命令未执行）：回执原文即失败原因，不按退出码措辞（避免误导）
+      if (blocked === true) {
+        return {
+          pass: false,
+          feedback: `验收「${acc.check}」的命令被 security-guard 执行前复查拦截（未执行）：${(output ?? "").trim()}`,
+        };
+      }
       if (code === 0) return { pass: true };
       return {
         pass: false,

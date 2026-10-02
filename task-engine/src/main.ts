@@ -11,6 +11,10 @@
 // 已知边界（README 注明）：v1 单执行器、单会话实例；验收命令由本插件以
 // /bin/sh -c 执行（信任契约内命令）；human 级审批在工具 execute 内调用
 // ctx.approval.request（工具执行发生在 open turn 内，满足 turn-enclosed）。
+//
+// 执行期复查（2026-10-02）：executor 的 command 后端与 mechanical 验收命令在执行**之前**
+// 各过一次 security-guard（惰性 `ctx.get('guard')`，不要求挂载）：命中即不执行、回执原文作
+// 失败原因；未挂载 / 复查抛错 → fail-open 放行 + 只告警一次。
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -27,6 +31,7 @@ import type {
   Acceptance,
   AcceptanceLevel,
   ChildSpec,
+  FrameId,
   TokenKind,
 } from "./types.ts";
 
@@ -650,6 +655,8 @@ interface ExecutorWireOptions {
     cmd: string,
     cwd?: string,
   ) => Promise<{ code: number; output?: string }>;
+  /** 执行前命令复查（security-guard 服务面）：命中返回拦截回执，null = 放行 */
+  checkCommand: CommandChecker;
   /** 当前工具调用所属 agent（subagent 的 parent / workflow 的 parent） */
   agent?: unknown;
   warn(message: string): void;
@@ -670,6 +677,19 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
           ok: false,
           retryable: false,
           feedback: "command 后端缺少 command（声明问题，不计重试）",
+        };
+      }
+      // 执行前复查（D1①）：命令来自契约声明（不在工具入参里，声明处检查覆盖不到）——
+      // 命中即不执行，回执原文作为失败原因（声明问题，不计重试）
+      const receipt = opts.checkCommand(
+        command,
+        `task-engine{executor} ${req.frame}`,
+      );
+      if (receipt !== null) {
+        return {
+          ok: false,
+          retryable: false,
+          feedback: `命令被 security-guard 执行前复查拦截（未执行）：\n${receipt}`,
         };
       }
       const out = await opts.runShell(command, spec.cwd);
@@ -927,6 +947,61 @@ function readService<T>(ctx: unknown, name: string): T | undefined {
   }
 }
 
+/**
+ * 命令复查器（security-guard 服务面）：返回 null = 放行；字符串 = 拦截回执（多行，
+ * 首行为来源标注）。真实实现由 security-guard 插件经 `ctx.get('guard')` 提供；
+ * 未挂载即不复查（fail-open 放行）。
+ */
+export type CommandChecker = (command: string, source: string) => string | null;
+
+/** security-guard 服务面（结构子集；不 import 对方代码、不进 inject，避免跨包硬依赖）。 */
+interface GuardServiceLike {
+  /** 命令复查 API（见 security-guard 的 GuardService.inspectCommand） */
+  inspectCommand?: (command: string, source?: string) => string | null;
+}
+
+/**
+ * 构造命令复查器（executor 命令后端与 mechanical 验收共用的执行期检查点）：
+ * 按名**惰性**解析 security-guard 的复查 API（apply 期服务 fiber 常未激活，执行期才可读）。
+ *
+ * fail-open 粒度（D2）：服务缺失 / 形状不符 / 复查自身抛错一律**放行**（不得让既有流程失败），
+ * 且每种失效模式**只告警一次**（不刷屏）。返回非字符串 / 空串一律按放行，
+ * 只有明确的非空回执才算拦截。
+ */
+export function makeCommandGuard(
+  ctx: unknown,
+  warn: (message: string) => void,
+): CommandChecker {
+  let warnedMissing = false;
+  let warnedThrow = false;
+  return (command, source) => {
+    const svc = readService<GuardServiceLike>(ctx, "guard");
+    const inspect = svc?.inspectCommand;
+    if (typeof inspect !== "function") {
+      if (!warnedMissing) {
+        warnedMissing = true;
+        warn(
+          "security-guard 服务不可用（ctx.get('guard') 无 inspectCommand）：" +
+            "执行期命令复查已跳过（fail-open，已知残余边界）",
+        );
+      }
+      return null;
+    }
+    try {
+      const receipt = inspect.call(svc, command, source);
+      return typeof receipt === "string" && receipt.length > 0 ? receipt : null;
+    } catch (err) {
+      if (!warnedThrow) {
+        warnedThrow = true;
+        warn(
+          `security-guard 复查异常（按放行处理，同类异常不再重复告警）：${String(err)}`,
+        );
+      }
+      return null;
+    }
+  };
+}
+
 interface ApprovalLike {
   request(req: {
     agent?: unknown;
@@ -975,6 +1050,24 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   };
   // 叶子执行后端（① 发起 / ② 模型与计量）：宿主面**惰性**解析（执行期按名重试）+ 缺面 fail-closed
   const runShell = makeRunCommand(config?.commandTimeoutMs ?? 30_000);
+  // 命令复查器（执行期检查点）：executor 命令后端与 mechanical 验收共用同一实例
+  // （惰性 ctx.get("guard")；未挂载 / 抛错 → 放行 + 各告警一次，见 makeCommandGuard）
+  const checkCommand = makeCommandGuard(ctx, warn);
+  /**
+   * 验收命令（mechanical 级）：执行前复查（D1②）——命中即**不执行**，回执原文随
+   * `blocked` 标志交给裁决层当失败原因（不按退出码措辞，避免误导）。
+   */
+  const runCommand = async (
+    cmd: string,
+    frame?: FrameId,
+  ): Promise<{ code: number; output?: string; blocked?: boolean }> => {
+    const receipt = checkCommand(
+      cmd,
+      `task-engine{acceptance} ${frame ?? "?"}`,
+    );
+    if (receipt !== null) return { code: 1, output: receipt, blocked: true };
+    return runShell(cmd);
+  };
   // 语义面（audit / entail）：**按次构造**——hook 闭包捕获本次工具执行的 exec（父 agent 与
   // 执行期服务解析都从它取）。宿主 `SubagentStartRequest.parent` 是必填（宿主无条件解引用
   // `parent.session`），故 requireParent=true：拿不到 agent 时 fail-closed 而不是省略 parent。
@@ -1087,6 +1180,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       return makeExecutor({
         resolve: serviceResolver(exec),
         runShell,
+        checkCommand,
         ...(agent === undefined ? {} : { agent }),
         warn,
       });
@@ -1097,7 +1191,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   try {
     engine = new TaskEngine({
       root: normalizeRoot(config?.root),
-      runCommand: runShell,
+      runCommand,
       gate: {
         ...(config?.maxConcurrent === undefined
           ? {}

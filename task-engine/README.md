@@ -94,6 +94,8 @@ profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` �
 - 单会话实例：一个引擎持有一棵任务树。
 - 快照持久化依赖 `snapshotPath`；未配置时跨进程恢复不可用。
 - mechanical 验收命令由插件以 `/bin/sh -c` 执行，信任契约内命令、无额外沙箱（进程级沙箱由宿主策略承载）。
+- **执行期复查**（2026-10-02）：命令**执行之前**各过一次 security-guard —— ① `executor` 的 `command` 后端（`task_execute` 发起前）、② mechanical 验收命令（含不在 `task_decompose` 登记表里的 `root.acceptance[].command`）。复查经 `ctx.get('guard').inspectCommand(command, source)`，`source` 形如 `task-engine{executor} <frameId>` / `task-engine{acceptance} <frameId>`；命中即**不执行**，回执原文作为失败原因（`task_execute` → `ok:false`；验收 → 不通过）。
+  该检查点**需 guard 挂载**（security-guard 插件经 `provide('guard')` 暴露，本包惰性读取、不进 `inject`）：**未挂载或复查抛错 → fail-open 放行 + 只告警一次**（不刷屏、不让既有流程失败）——即未挂载 security-guard 时执行期无复查，与声明处检查（`task_decompose`）的覆盖一起构成纵深。
 - abort 语义：宿主中止 turn 后重启，`resumeFromSnapshot` 为每个在途 active 帧补记 `plan/frame-interrupted`，回收为 pending 且不增 `retryCount`。
 - `ctx.tools` 缺失时告警并跳过工具注册；`ctx.approval` 缺失或 `request` 抛错时静默 fail-closed（human 级一律视为未批准），保证 bundle 加载不崩。
 

@@ -12,6 +12,7 @@
 - **不替换宿主 `todo`**：模型面清单没有契约、deps、验收与溯源，不能当帧栈。
 - **单会话一棵树**：一个引擎实例持有一棵 `TaskTree`；跨会话协作由 session-channel 承担。
 - **机械命令信任契约**：mechanical 验收以 `/bin/sh -c` 执行声明里的命令，引擎不加沙箱（进程级策略归宿主）。
+- **执行期复查（2026-10-02）**：命令**执行之前**各过一次 security-guard —— ① `executor` 的 `command` 后端（`task_execute` 发起前）、② mechanical 验收命令（含**不在** `task_decompose` 登记表里的 `root.acceptance[].command`）。复查走服务面 `ctx.get('guard').inspectCommand(command, source)`（本包惰性读取、不进 `inject`，跨包零硬依赖），`source` = `task-engine{executor} <frameId>` / `task-engine{acceptance} <frameId>`：命中即**不执行**，回执原文作为失败原因（`ok:false` / 验收不通过）。取舍：该检查点**需 guard 挂载**，未挂载 / 复查抛错一律 **fail-open 放行 + 每种失效模式只告警一次**（不刷屏、不让既有流程失败）；它与声明处检查（`task_decompose`，只覆盖工具入参里的命令）互补——Config / 状态旁路带进来的命令正是声明处查不到的那部分。
 - **语义面已接线（2026-10-02）**：插件形态经 `ctx.subagents` 跑独立**裁决子代理**（与 subagent 执行后端共用 `runChildOnce`）——`audit`（semantic 验收）与 `entail`（拆解第二道门）都**按次构造**（hook 闭包捕获本次工具执行的 `exec`：宿主 `SubagentStartRequest.parent` 必填，且避免跨会话串线）；裁决走宿主 `outputSchema` 信封（`{pass|ok: boolean, feedback?: string, structured?: …}`，子会话经 `structured_output` 上报、宿主校验 → 不再依赖模型自报）；`unavailable`（环境/超时/不可解析）分流：audit **fail-closed**、entail **跳过该门**（不烧重试预算）；父帧无验收跳过 entail；开关见 Config `semantic`。
 
 ## 分层
