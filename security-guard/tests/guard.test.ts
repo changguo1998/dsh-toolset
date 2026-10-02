@@ -4,7 +4,8 @@
  * 官方文件工具（read / write / edit / patch / grep / glob 与读面 read_image）、
  * 插件文件工具登记表（写面 hash_edit / md_logic / ast_replace；读面 ast_query /
  * hash_read / fs_digest / code_map / md_map）、插件命令工具登记表
- * （metric_loop.measureCmd / task_decompose 的嵌套命令）与未登记工具边界；
+ * （metric_loop.measureCmd / task_decompose 的嵌套命令）与未登记工具边界
+ * （`unknownToolPolicy` 三态 allow / check / deny + `unknownToolAllowlist`）；
  * 以及外部命令复查 `inspectCommand`（命令不在工具入参里的场景，如 metric-loop 的 tick
  * 执行状态文件里的 measureCmd）与服务面暴露。
  */
@@ -20,6 +21,7 @@ import {
   inject,
   apply,
   DEFAULT_COMMAND_RULES,
+  TOOL_SURFACE,
   type GuardHost,
   type GuardRecord,
   type GuardService,
@@ -1335,4 +1337,435 @@ test("unknownToolPolicy:deny —— 已登记与官方工具判定与缺省一�
       `${tool} 的判定不应受 unknownToolPolicy 影响`,
     );
   }
+});
+
+/** check 模式的命令键用例：黑名单命中命令按拼接构造（不在测试文件里写危险命令字面量）。 */
+const CHECK_BLACKLIST_COMMAND = `echo ${["su", "do ls /"].join("")}`;
+
+// ---------------------------------------------------------------- check 模式（D1）
+// 键类定向：命令键（command / measureCmd / cmd）→ 命令黑名单层；
+// 路径键与值面绝对路径 → 敏感文件层；代码键（script / code / program）只做路径提取。
+
+test("unknownToolPolicy:check —— 缺省 allow 不受影响（未登记工具带敏感参数仍放行）", () => {
+  const fixture = makeSensitiveFixture();
+  try {
+    const args = { files: [{ path: fixture.envPath }] };
+    assert.equal(
+      new GuardEngine({ homeDir: HOME }).inspect("present", args),
+      null,
+      "缺省 allow 必须与历史行为逐字一致（不因新增 check 而开始判定）",
+    );
+    assert.ok(
+      typeof new GuardEngine({
+        homeDir: HOME,
+        unknownToolPolicy: "check",
+      }).inspect("present", args) === "string",
+      "同一参数在 check 下应被敏感层拦（对照）",
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("unknownToolPolicy:check —— 普通路径放行、敏感路径经敏感层拦（含 present 的真实参数面）", () => {
+  const fixture = makeSensitiveFixture();
+  try {
+    const guard = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "check",
+    });
+    // present 的唯一必填参数面是 files[].path（数组元素一层键）——普通路径放行
+    assert.equal(
+      guard.inspect("present", {
+        files: [{ path: fixture.normalPath, description: "交付物" }],
+      }),
+      null,
+    );
+    // 敏感路径 → 敏感层拦：回执前置来源标注 + 读写口径 + 规则 id + 放行方式
+    const hit = guard.inspect("present", {
+      files: [{ path: fixture.envPath }],
+    });
+    assert.ok(typeof hit === "string", "check 下敏感路径应被拦");
+    const receipt = hit as string;
+    assert.match(receipt, /路径复查来源：未登记工具「present」的 path。/);
+    assert.match(receipt, /读写敏感文件/);
+    assert.match(receipt, /env-file/);
+    assert.match(receipt, /放行方式：/);
+    // 参数缺失 / 无 watched 键 / 空数组 → 放行（不猜测语义）
+    assert.equal(guard.inspect("present", { files: [] }), null);
+    assert.equal(
+      guard.inspect("plain_unknown", { id: "x", symbol: "y" }),
+      null,
+    );
+    assert.equal(guard.inspect("present", {}), null);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("unknownToolPolicy:check —— 命令键（command / measureCmd / cmd）整段过命令黑名单层", () => {
+  const guard = new GuardEngine({ homeDir: HOME, unknownToolPolicy: "check" });
+  for (const key of ["command", "measureCmd", "cmd"]) {
+    const hit = guard.inspect("unknown_runner", {
+      [key]: CHECK_BLACKLIST_COMMAND,
+    });
+    assert.ok(typeof hit === "string", `${key} 命中黑名单应被拦`);
+    const receipt = hit as string;
+    assert.match(
+      receipt,
+      new RegExp(`命令复查来源：未登记工具「unknown_runner」的 ${key}。`),
+    );
+    assert.match(receipt, /命令命中黑名单规则「sudo」/);
+    assert.match(receipt, /放行方式：/);
+  }
+  // 安全命令放行；命令参数缺失 / 非字符串 → 放行
+  assert.equal(guard.inspect("unknown_runner", { command: "echo ok" }), null);
+  assert.equal(guard.inspect("unknown_runner", { command: 42 }), null);
+  assert.equal(guard.inspect("unknown_runner", { timeoutMs: 100 }), null);
+  // allowPatterns（既有放行面）在 check 下同样生效，且只放开命令层
+  const allowed = new GuardEngine({
+    homeDir: HOME,
+    unknownToolPolicy: "check",
+    commandBlacklist: { allowPatterns: ["^echo "] },
+  });
+  assert.equal(
+    allowed.inspect("unknown_runner", { command: CHECK_BLACKLIST_COMMAND }),
+    null,
+  );
+});
+
+test("unknownToolPolicy:check —— 代码键（script / code / program）只做路径提取，不整段过命令层", () => {
+  const fixture = makeSensitiveFixture();
+  try {
+    const guard = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "check",
+    });
+    // workflow 的 script 是 JS 编排脚本（不是 shell 命令串）：安全脚本放行
+    assert.equal(
+      guard.inspect("workflow", { script: "const a = 1;\nreturn a;" }),
+      null,
+    );
+    // 代码文本里出现提权词**字面**（不是执行该命令）→ 放行：不整段过命令层，避免误拦
+    assert.equal(
+      guard.inspect("workflow", {
+        script: `const note = ${JSON.stringify(CHECK_BLACKLIST_COMMAND)};`,
+      }),
+      null,
+    );
+    // 代码里出现敏感路径 → 路径提取后过敏感层拦（读侧口径的来源键名是 script）
+    const hit = guard.inspect("workflow", {
+      script: `const text = await read(${JSON.stringify(fixture.keyPath)});`,
+    });
+    assert.ok(typeof hit === "string", "代码文本里的敏感路径应被拦");
+    const receipt = hit as string;
+    assert.match(receipt, /路径复查来源：未登记工具「workflow」的 script。/);
+    assert.match(receipt, /ssh-rsa-key/);
+    // code / program 同属代码键（同类口径）
+    for (const key of ["code", "program"]) {
+      const codeHit = guard.inspect("unknown_code_tool", {
+        [key]: `open(${JSON.stringify(fixture.envPath)})`,
+      });
+      assert.ok(typeof codeHit === "string", `${key} 内的敏感路径应被拦`);
+      assert.match(codeHit as string, new RegExp(`的 ${key}。`));
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("unknownToolPolicy:check —— 值面路径（cwd: 前缀 / 绝对路径 / 家目录）与驼峰键名归一", () => {
+  const fixture = makeSensitiveFixture();
+  try {
+    const guard = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "check",
+    });
+    // session_channel.to = "cwd:<路径>"（BACKLOG 记录的值面缺口）
+    const cwdHit = guard.inspect("session_channel", {
+      to: `cwd:${fixture.envPath}`,
+    });
+    assert.ok(typeof cwdHit === "string");
+    assert.match(
+      cwdHit as string,
+      /路径复查来源：未登记工具「session_channel」的 to。/,
+    );
+    // 非 watched 键 + 绝对路径值（值面兜底）
+    const absHit = guard.inspect("some_tool", { where: fixture.envPath });
+    assert.ok(typeof absHit === "string");
+    // 家目录路径值
+    assert.ok(
+      typeof guard.inspect("some_tool", { where: "~/.ssh/id_rsa" }) ===
+        "string",
+    );
+    // 普通相对/普通绝对路径值不误伤
+    assert.equal(
+      guard.inspect("some_tool", { note: "见 docs/README.md" }),
+      null,
+    );
+    assert.equal(guard.inspect("some_tool", { where: "/tmp/ok.md" }), null);
+    // deny 的键名启发也要认新键与驼峰（root / workdir / cwd / filePath，小写归一）
+    const strict = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "deny",
+    });
+    for (const key of ["root", "workdir", "cwd", "filePath"]) {
+      const hit = strict.inspect("unknown_tool", { [key]: "/tmp/x" });
+      assert.ok(typeof hit === "string", `deny 下 ${key} 应计入键名启发`);
+      assert.match(hit as string, new RegExp(`（${key}）`));
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("unknownToolPolicy:check —— allowPatterns / allowedPaths 两层放行面各自独立生效", () => {
+  const fixture = makeSensitiveFixture();
+  try {
+    const guard = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "check",
+      sensitiveFiles: { allowedPaths: [fixture.dir] },
+    });
+    // 敏感路径被用户层放行清单放开 → 放行
+    assert.equal(
+      guard.inspect("present", { files: [{ path: fixture.envPath }] }),
+      null,
+    );
+    // 放行清单不放命令层：命令键黑名单命中仍拦
+    assert.ok(
+      typeof guard.inspect("unknown_runner", {
+        command: CHECK_BLACKLIST_COMMAND,
+      }) === "string",
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("unknownToolPolicy：三态下已登记/官方工具判定一致（含敏感参数，有区分度）", () => {
+  const fixture = makeSensitiveFixture();
+  try {
+    const engines = ["allow", "check", "deny"].map(
+      (policy) =>
+        new GuardEngine({
+          homeDir: HOME,
+          unknownToolPolicy: policy as "allow" | "check" | "deny",
+        }),
+    );
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ["read", { file_path: fixture.envPath }],
+      ["bash", { command: `cat ${fixture.envPath}` }],
+      ["hash_read", { path: fixture.envPath }],
+      ["metric_loop", { action: "start", measureCmd: CHECK_BLACKLIST_COMMAND }],
+    ];
+    for (const [tool, args] of cases) {
+      // 区分度自检：该参数面本来就该被拦（否则三态相等只是「都没拦」的假一致）
+      assert.ok(
+        typeof engines[0]!.inspect(tool, args) === "string",
+        `${tool} 的敏感参数应被拦（用例区分度）`,
+      );
+      const verdicts = engines.map((engine) => engine.inspect(tool, args));
+      assert.equal(
+        verdicts[0],
+        verdicts[1],
+        `${tool} 在 allow/check 下判定应一致`,
+      );
+      assert.equal(
+        verdicts[1],
+        verdicts[2],
+        `${tool} 在 check/deny 下判定应一致`,
+      );
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+// ------------------------------------------------- unknownToolAllowlist（D2）
+
+test("unknownToolAllowlist —— 精确 / 前缀通配命中即放行（deny 下的显式例外）", () => {
+  const fixture = makeSensitiveFixture();
+  try {
+    const guard = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "deny",
+      unknownToolAllowlist: ["present", "mcp__*"],
+    });
+    // 精确命中
+    assert.equal(
+      guard.inspect("present", { files: [{ path: fixture.envPath }] }),
+      null,
+    );
+    // `*` 结尾前缀通配
+    assert.equal(
+      guard.inspect("mcp__filesystem__read", { path: fixture.envPath }),
+      null,
+    );
+    // 未命中：仍按策略整工具拦（通配不误放行同前缀以外的名字）
+    const denied = guard.inspect("presenter", { path: "/tmp/ok.md" });
+    assert.ok(typeof denied === "string");
+    assert.match(denied as string, /presenter/);
+    // check / allow 三态一致：名单在策略之前判定
+    const checking = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "check",
+      unknownToolAllowlist: ["present"],
+    });
+    assert.equal(
+      checking.inspect("present", { files: [{ path: fixture.envPath }] }),
+      null,
+    );
+    // `"*"` = 放行全部未登记工具（等价 allow）
+    const allAllowed = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "deny",
+      unknownToolAllowlist: ["*"],
+    });
+    assert.equal(
+      allAllowed.inspect("any_unknown", { path: fixture.envPath }),
+      null,
+    );
+    // 名单只作用于未登记工具：已登记工具的敏感参数照拦
+    const registeredToo = new GuardEngine({
+      homeDir: HOME,
+      unknownToolAllowlist: ["read"],
+    });
+    assert.ok(
+      typeof registeredToo.inspect("read", { file_path: fixture.envPath }) ===
+        "string",
+    );
+    // 空串 / 非字符串条目忽略
+    const dirty = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "deny",
+      unknownToolAllowlist: ["", "  ", 42 as unknown as string, "present"],
+    });
+    assert.equal(dirty.inspect("present", { path: "/tmp/x" }), null);
+    assert.ok(typeof dirty.inspect("other", { path: "/tmp/x" }) === "string");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("unknownToolAllowlist —— policy() 快照暴露名单（返回副本，外部修改不影响内部）", () => {
+  const guard = new GuardEngine({
+    homeDir: HOME,
+    unknownToolAllowlist: ["present", "mcp__*"],
+  });
+  const snapshot = guard.policy();
+  assert.deepEqual(snapshot.unknownToolAllowlist, ["present", "mcp__*"]);
+  (snapshot.unknownToolAllowlist as string[]).push("mutated");
+  assert.deepEqual(guard.policy().unknownToolAllowlist, ["present", "mcp__*"]);
+});
+
+// ------------------------------------- unknownToolPolicy 非法值（D6）
+
+test("unknownToolPolicy 非法值 —— 告警一次 + 按 allow 生效 + policy() 标 invalid", () => {
+  const fixture = makeSensitiveFixture();
+  const warns: unknown[][] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]): void => {
+    warns.push(args);
+  };
+  try {
+    const guard = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "Deny" as unknown as "allow",
+    });
+    // 非法值 → 按 "allow" 生效（fail-open 语义不变）：连敏感参数也放行
+    assert.equal(
+      guard.inspect("present", { files: [{ path: fixture.envPath }] }),
+      null,
+    );
+    assert.equal(warns.length, 1, "非法值应告警一次");
+    assert.match(
+      String(warns[0]?.[0]),
+      /非法配置 unknownToolPolicy="Deny"，已按 "allow" 生效/,
+    );
+    // 告警不随工具调用重复
+    guard.inspect("present", { files: [{ path: fixture.envPath }] });
+    assert.equal(warns.length, 1);
+    // policy() 快照：原始值 / 生效值 / invalid
+    assert.deepEqual(guard.policy().unknownToolPolicy, {
+      value: "Deny",
+      effective: "allow",
+      invalid: true,
+    });
+    // 布尔 true 同样非法（fail-open + 标记）
+    const boolGuard = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: true as unknown as "allow",
+    });
+    assert.deepEqual(boolGuard.policy().unknownToolPolicy, {
+      value: true,
+      effective: "allow",
+      invalid: true,
+    });
+    assert.equal(warns.length, 2);
+    // 合法值（含缺省）不带 invalid
+    assert.deepEqual(
+      new GuardEngine({ homeDir: HOME }).policy().unknownToolPolicy,
+      {
+        value: undefined,
+        effective: "allow",
+        invalid: false,
+      },
+    );
+    for (const policy of ["allow", "check", "deny"] as const) {
+      assert.deepEqual(
+        new GuardEngine({ homeDir: HOME, unknownToolPolicy: policy }).policy()
+          .unknownToolPolicy,
+        { value: policy, effective: policy, invalid: false },
+      );
+    }
+    assert.equal(warns.length, 2, "合法值不应告警");
+  } finally {
+    console.warn = original;
+    fixture.cleanup();
+  }
+});
+
+// ------------------------------------- deny 回执的可行动作（D3）
+
+test("unknownToolPolicy:deny —— 回执给出三条可行动作（配置级逃生门，不再只说改源码）", () => {
+  const guard = new GuardEngine({ homeDir: HOME, unknownToolPolicy: "deny" });
+  const hit = guard.inspect("present", { files: [{ path: "/tmp/ok.md" }] });
+  assert.ok(typeof hit === "string");
+  const receipt = hit as string;
+  assert.match(receipt, /放行方式（三选一）：/);
+  assert.match(receipt, /① 配 unknownToolPolicy: "check"/);
+  assert.match(receipt, /② 配 unknownToolAllowlist: \["present"\]/);
+  assert.match(receipt, /③ 按真实参数面登记进 FILE_TOOLS/);
+  // 未登记且无 watched 键 → 仍然放行（防误伤）
+  assert.equal(guard.inspect("plain_unknown", { id: "x" }), null);
+});
+
+// ------------------------------------- TOOL_SURFACE（脚本与引擎的单一来源）
+
+test("TOOL_SURFACE —— 脚本与引擎同源快照：登记名去重 + 三类键集齐备", () => {
+  assert.deepEqual(
+    TOOL_SURFACE.registered,
+    [...TOOL_SURFACE.registered].sort(),
+  );
+  for (const name of [
+    "bash",
+    "read",
+    "read_image",
+    "hash_edit",
+    "metric_loop",
+  ]) {
+    assert.ok(TOOL_SURFACE.registered.includes(name), `${name} 应在登记集内`);
+  }
+  assert.ok(TOOL_SURFACE.pathKeys.includes("file_path"));
+  assert.ok(TOOL_SURFACE.pathKeys.includes("filepath"));
+  assert.ok(TOOL_SURFACE.commandKeys.includes("measurecmd"));
+  assert.ok(TOOL_SURFACE.codeKeys.includes("script"));
+  // 三类键互不重叠（口径清晰：一个键只归一类）
+  const overlap = TOOL_SURFACE.pathKeys.filter(
+    (key) =>
+      TOOL_SURFACE.commandKeys.includes(key as never) ||
+      TOOL_SURFACE.codeKeys.includes(key as never),
+  );
+  assert.deepEqual(overlap, []);
 });

@@ -13,6 +13,10 @@
  * 宿主将工具调用物化为带错误文本的 isError 结果、不下发命令。
  * 回执含拦截原因 + 放行方式（用户层配置 allowPatterns / allowedPaths）。
  *
+ * 未登记工具（不在显式白名单内的工具）由 `unknownToolPolicy` 三态控制：`"allow"`（缺省，一律放行）/
+ * `"check"`（把 watched 键下的字符串值按键类定向派发到既有两层，命中才拦） / `"deny"`（整工具拦）；
+ * `unknownToolAllowlist` 在三态之前判定，命中即无条件放行（见 README「未登记工具」）。
+ *
  * 另有一条**执行前复查**入口：`GuardEngine.inspectCommand(command, source)`（并挂到服务面
  * `guard`，供插件经 `ctx.get('guard')` 调用）——给「命令不在工具入参里」的场景补同口径复查
  * （如 metric-loop 的 `tick` 执行状态文件里的 `spec.measureCmd`）。
@@ -86,10 +90,21 @@ export interface SecurityGuardConfig {
     allowPatterns?: readonly string[];
   };
   /**
-   * 未登记工具策略（默认 "allow" = 历史行为：一律放行）。
-   * "deny" 时只拦「携带潜在路径/命令参数」的未登记工具（键名启发，见 unknownToolSensitiveKeys）。
+   * 未登记工具策略（默认 "allow"）。
+   * - `"allow"`：一律放行（历史行为）；
+   * - `"check"`：不整工具硬拦，把 watched 键下的字符串值按键类定向过既有两层
+   *   （命令键 → 命令黑名单层；路径键与值面绝对路径 → 敏感文件层；代码键
+   *   `script` / `code` / `program` 只做路径提取，不整段送命令层），命中才拦；
+   * - `"deny"`：整工具拦（仅限「携带潜在路径/命令参数」的未登记工具，键名启发见
+   *   unknownToolSensitiveKeys）。
+   * 非法值（非以上三值）按 `"allow"` 生效并 `console.warn` 一次，`policy()` 标 `invalid: true`。
    */
-  unknownToolPolicy?: "allow" | "deny";
+  unknownToolPolicy?: "allow" | "check" | "deny";
+  /**
+   * 未登记工具放行名单（工具名精确匹配；以 `*` 结尾为前缀通配，如 `mcp__*`）。
+   * 在三态策略**之前**判定：命中即无条件放行（`deny` 下的显式例外 / MCP 工具名）。
+   */
+  unknownToolAllowlist?: readonly string[];
   /** 敏感文件层（shell 命令文本中的路径 + 内置文件工具的路径参数）。 */
   sensitiveFiles?: {
     /** 层开关（默认 true）。 */
@@ -234,8 +249,12 @@ const PLUGIN_COMMAND_TOOLS: Record<string, PluginCommandTool> = {
   },
 };
 
-/** unknownToolPolicy="deny" 用的路径/命令参数键名（顶层键 + 数组元素与嵌套对象一层键）。 */
-const UNKNOWN_TOOL_PATH_KEYS = [
+/**
+ * 未登记工具的路径参数键名（**键集单一来源**：本包唯一一份，`scripts/tool-surface-check.mjs`
+ * 经 `TOOL_SURFACE` 复用，脚本与引擎不再各维护一套）。
+ * 键名按**小写归一**比较（`filePath` → `filepath`、`measureCmd` → `measurecmd`）。
+ */
+export const UNKNOWN_TOOL_PATH_KEYS = [
   "file_path",
   "path",
   "target",
@@ -243,25 +262,82 @@ const UNKNOWN_TOOL_PATH_KEYS = [
   "paths",
   "dir",
   "directory",
+  "root",
+  "workdir",
+  "cwd",
+  "filepath",
 ] as const;
-const UNKNOWN_TOOL_COMMAND_KEYS = [
+/** 未登记工具的命令参数键名（**命令键**：值是 shell 命令串，整段过命令黑名单层）。 */
+export const UNKNOWN_TOOL_COMMAND_KEYS = [
   "command",
-  "script",
-  "code",
-  "program",
-  "measureCmd",
+  "measurecmd",
   "cmd",
 ] as const;
-const UNKNOWN_TOOL_WATCHED = new Set<string>([
+/**
+ * 未登记工具的**代码键**（`script` / `code` / `program` 的值是 JS/Python 代码，不是 shell 命令串）：
+ * `check` 模式只做**路径类提取**（把其中出现的路径 token 送敏感文件层），**不整段送命令黑名单层**
+ * —— 代码文本里出现提权词 / 危险序列字面（如字符串里的 `"sudo"`）不算执行该命令，整段匹配会误拦。
+ */
+export const UNKNOWN_TOOL_CODE_KEYS = ["script", "code", "program"] as const;
+
+/**
+ * 路径键集 / 命令键集 / 代码键集 / watched 键集（小写归一；
+ * deny 的键名启发与 check 的语义派发共用，三类键都属 watched）。
+ */
+const UNKNOWN_TOOL_PATH_KEY_SET: ReadonlySet<string> = new Set(
+  UNKNOWN_TOOL_PATH_KEYS,
+);
+const UNKNOWN_TOOL_COMMAND_KEY_SET: ReadonlySet<string> = new Set(
+  UNKNOWN_TOOL_COMMAND_KEYS,
+);
+const UNKNOWN_TOOL_CODE_KEY_SET: ReadonlySet<string> = new Set(
+  UNKNOWN_TOOL_CODE_KEYS,
+);
+const UNKNOWN_TOOL_WATCHED: ReadonlySet<string> = new Set<string>([
   ...UNKNOWN_TOOL_PATH_KEYS,
   ...UNKNOWN_TOOL_COMMAND_KEYS,
+  ...UNKNOWN_TOOL_CODE_KEYS,
 ]);
 
-/** 未登记工具是否携带潜在路径/命令参数：返回命中的键名（去重、保序）。 */
+/**
+ * 工具覆盖面快照：给 `scripts/tool-surface-check.mjs` 复用的**机器可读单一来源**
+ * （已登记工具名 + 三类 watched 键集）。登记表本身仍是本文件内的常量，此处只是只读快照。
+ */
+export const TOOL_SURFACE = {
+  /** 已登记的工具名（官方 shell / run_code / 文件工具 + 两张插件登记表）。 */
+  registered: [
+    ...SHELL_TOOLS,
+    ...RUN_CODE_TOOLS,
+    ...FILE_TOOLS,
+    ...Object.keys(PLUGIN_FILE_TOOLS),
+    ...Object.keys(PLUGIN_COMMAND_TOOLS),
+  ].sort(),
+  /** 未登记工具的路径键（小写归一）。 */
+  pathKeys: UNKNOWN_TOOL_PATH_KEYS,
+  /** 未登记工具的命令键（小写归一，值是 shell 命令串）。 */
+  commandKeys: UNKNOWN_TOOL_COMMAND_KEYS,
+  /** 未登记工具的代码键（小写归一，值是代码文本，check 模式只做路径提取）。 */
+  codeKeys: UNKNOWN_TOOL_CODE_KEYS,
+} as const;
+
+/** 键名归一：小写比较（`filePath` → `filepath`、`measureCmd` → `measurecmd`）。 */
+function normalizeKeyName(key: string): string {
+  return key.toLowerCase();
+}
+
+/** watched 键命中的面：路径键 / 命令键 / 代码键 / 非 watched 键。 */
+function watchedKeyKind(key: string): "path" | "command" | "code" | null {
+  const lower = normalizeKeyName(key);
+  if (UNKNOWN_TOOL_PATH_KEY_SET.has(lower)) return "path";
+  if (UNKNOWN_TOOL_COMMAND_KEY_SET.has(lower)) return "command";
+  return UNKNOWN_TOOL_CODE_KEY_SET.has(lower) ? "code" : null;
+}
+
+/** 未登记工具是否携带潜在路径/命令参数：返回命中的键名（原样、去重、保序）。 */
 function unknownToolSensitiveKeys(args: Record<string, unknown>): string[] {
   const hits: string[] = [];
   const consider = (key: string): void => {
-    if (UNKNOWN_TOOL_WATCHED.has(key) && !hits.includes(key)) hits.push(key);
+    if (watchedKeyKind(key) !== null && !hits.includes(key)) hits.push(key);
   };
   for (const [key, value] of Object.entries(args)) {
     consider(key);
@@ -278,13 +354,140 @@ function unknownToolSensitiveKeys(args: Record<string, unknown>): string[] {
   return hits;
 }
 
-/** 未登记工具拦截回执（unknownToolPolicy="deny"）。 */
+/** 未登记工具拦截回执（unknownToolPolicy="deny"）：放行方式给配置级可行动作，不再只说「改源码」。 */
 function formatUnknownToolReceipt(toolName: string, keys: string[]): string {
   return [
     `[security-guard] 已拦截：未登记工具「${toolName}」携带潜在路径/命令参数（${keys.join(" / ")}）。`,
     "原因：该工具不在 security-guard 的登记表内，无法确认其路径/命令是否经过敏感文件层与命令黑名单层。",
-    '放行方式：把该工具按真实参数面登记进 FILE_TOOLS / PLUGIN_FILE_TOOLS / PLUGIN_COMMAND_TOOLS；或配 unknownToolPolicy: "allow" 恢复放行（不推荐）。',
+    "放行方式（三选一）：",
+    '  ① 配 unknownToolPolicy: "check"：放行安全值，仍拦敏感路径 / 危险命令；',
+    `  ② 配 unknownToolAllowlist: ["${toolName}"]：该工具整体放行（工具名支持 * 结尾的前缀通配）；`,
+    "  ③ 按真实参数面登记进 FILE_TOOLS / PLUGIN_FILE_TOOLS / PLUGIN_COMMAND_TOOLS（改源码，最彻底）。",
   ].join("\n");
+}
+
+/**
+ * 未登记工具放行名单（编译后）：工具名精确匹配 + `*` 结尾前缀通配。
+ * 在策略之前判定（`allow` / `check` / `deny` 三态一致）：命中即无条件放行。
+ * `"*"` 等价于放行全部未登记工具（前缀为空串）。
+ */
+interface UnknownToolAllowlist {
+  exact: ReadonlySet<string>;
+  prefixes: readonly string[];
+}
+
+/** 编译未登记工具放行名单（非字符串 / 空串条目忽略——配置无运行时 schema 校验）。 */
+function compileUnknownToolAllowlist(
+  list: readonly string[],
+): UnknownToolAllowlist {
+  const exact = new Set<string>();
+  const prefixes: string[] = [];
+  for (const raw of list) {
+    if (typeof raw !== "string") continue;
+    const name = raw.trim();
+    if (name.length === 0) continue;
+    if (name.endsWith("*")) prefixes.push(name.slice(0, -1));
+    else exact.add(name);
+  }
+  return { exact, prefixes };
+}
+
+/** 未登记工具是否在放行名单内（精确或 `*` 前缀通配）。 */
+function unknownToolAllowed(
+  toolName: string,
+  list: UnknownToolAllowlist,
+): boolean {
+  return (
+    list.exact.has(toolName) ||
+    list.prefixes.some((prefix) => toolName.startsWith(prefix))
+  );
+}
+
+/** check 模式的键面扫描结果（key = 来源参数键名，回执来源标注行用）。 */
+interface UnknownToolScan {
+  /** 待过命令黑名单层的命令文本。 */
+  commands: { text: string; key: string }[];
+  /** 待过敏感文件层的路径。 */
+  paths: { path: string; key: string }[];
+}
+
+/** 取「可作命令/路径文本的值」：非空字符串，或数组里的非空字符串元素。 */
+function textValues(value: unknown): string[] {
+  if (typeof value === "string") return value.length > 0 ? [value] : [];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (v): v is string => typeof v === "string" && v.length > 0,
+  );
+}
+
+/**
+ * 值面路径判定（键名之外的兜底）：`cwd:` 前缀（如 `session_channel.to = "cwd:/path"`）剥掉前缀后
+ * 按路径处理；明显绝对路径 / 家目录路径（`/`、`~/`、`$HOME`、`${HOME}` 开头）原样按路径处理；
+ * 其余返回 null（不猜测语义）。
+ */
+function pathLikeValue(text: string): string | null {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("cwd:")) {
+    const rest = trimmed.slice(4).trim();
+    return rest.length > 0 ? rest : null;
+  }
+  return /^(?:\/|~\/|\$HOME|\$\{HOME\})/.test(trimmed) ? trimmed : null;
+}
+
+/**
+ * 未登记工具的键面 + 值面扫描（`unknownToolPolicy: "check"` 用）：
+ * 遍历深度与键名启发一致（顶层键 + 数组元素键 / 嵌套对象一层键），命中 watched 键时把该键下的
+ * 字符串值（含数组元素）**按键类定向**：
+ * - 路径键 → 直接作路径候选（敏感文件层）；
+ * - 命令键 → 作命令文本（命令黑名单层）；
+ * - 代码键（`script` / `code` / `program`）→ 只做**路径类提取**（`extractCommandPaths`），
+ *   不整段送命令层（代码里的危险词字面不算执行该命令，避免误拦）；
+ * - 非 watched 键 → 字符串值再过一次值面判定（`cwd:` 前缀 / 绝对路径）。
+ */
+function scanUnknownToolArgs(args: Record<string, unknown>): UnknownToolScan {
+  const scan: UnknownToolScan = { commands: [], paths: [] };
+  const consider = (key: string, value: unknown): void => {
+    const kind = watchedKeyKind(key);
+    for (const text of textValues(value)) {
+      if (kind === "command") scan.commands.push({ text, key });
+      else if (kind === "path") scan.paths.push({ path: text, key });
+      else if (kind === "code") {
+        for (const path of extractCommandPaths(text)) {
+          scan.paths.push({ path, key });
+        }
+      } else {
+        const like = pathLikeValue(text);
+        if (like !== null) scan.paths.push({ path: like, key });
+      }
+    }
+  };
+  for (const [key, value] of Object.entries(args)) {
+    consider(key, value);
+    const nested: Record<string, unknown>[] = Array.isArray(value)
+      ? value.filter(
+          (item): item is Record<string, unknown> =>
+            item !== null && typeof item === "object" && !Array.isArray(item),
+        )
+      : value !== null && typeof value === "object"
+        ? [value as Record<string, unknown>]
+        : [];
+    for (const item of nested) {
+      for (const [innerKey, innerValue] of Object.entries(item)) {
+        consider(innerKey, innerValue);
+      }
+    }
+  }
+  return scan;
+}
+
+/** check 模式的来源标注行（与 `inspectCommand` / 插件命令工具同风格：标准回执前置一行来源）。 */
+function formatUnknownToolCommandSource(toolName: string, key: string): string {
+  return `[security-guard] 命令复查来源：未登记工具「${toolName}」的 ${key}。`;
+}
+
+/** 路径面来源标注行（同上）。 */
+function formatUnknownToolPathSource(toolName: string, key: string): string {
+  return `[security-guard] 路径复查来源：未登记工具「${toolName}」的 ${key}。`;
 }
 
 /** 命令工具登记表查表（与文件表同口径：Object.hasOwn，原型链属性名视同未登记）。 */
@@ -353,8 +556,16 @@ function formatPluginCommandSource(toolName: string, keyPath: string): string {
 
 /** 解析后的内部配置（编译后，构造一次）。 */
 interface ResolvedConfig {
-  /** 未登记工具策略（见 SecurityGuardConfig.unknownToolPolicy）。 */
-  unknownToolPolicy: "allow" | "deny";
+  /** 未登记工具策略（**生效值**；非法值按 "allow" 生效）。 */
+  unknownToolPolicy: "allow" | "check" | "deny";
+  /** 配置里的原始值（policy() 展示；非法值原样保留）。 */
+  unknownToolPolicyRaw: unknown;
+  /** 原始值非法（非 undefined / "allow" / "check" / "deny"）。 */
+  unknownToolPolicyInvalid: boolean;
+  /** 未登记工具放行名单（原始配置，policy() 展示）。 */
+  unknownToolAllowlist: readonly string[];
+  /** 未登记工具放行名单（编译后，判定用）。 */
+  unknownToolAllowlistRules: UnknownToolAllowlist;
   enabled: boolean;
   home: string;
   commandBlacklist: {
@@ -384,6 +595,17 @@ export interface GuardRecord {
 /** 当前策略/规则快照（policy() 返回，供 TUI /guard 展示）。 */
 export interface PolicySnapshot {
   enabled: boolean;
+  /** 未登记工具策略：配置原始值 / 生效值 / 是否非法（非法按 "allow" 生效并告警一次）。 */
+  unknownToolPolicy: {
+    /** 配置里写的原始值（未归一化；非法值原样展示，如 `true` / `"Deny"`）。 */
+    value: unknown;
+    /** 实际生效的策略。 */
+    effective: "allow" | "check" | "deny";
+    /** 原始值非法（非 undefined / 三值之一）→ 已按 "allow" 生效。 */
+    invalid: boolean;
+  };
+  /** 未登记工具放行名单（工具名精确或 `*` 结尾前缀通配）。 */
+  unknownToolAllowlist: readonly string[];
   commandBlacklist: {
     enabled: boolean;
     /** 规则 id + 人话原因（不含正则/谓词实现细节）。 */
@@ -524,8 +746,28 @@ export function resolveGuardConfig(
     })),
     home,
   );
+  // 未登记工具策略：缺省 allow；非法值按 allow 生效（fail-open 语义不变），但告警一次并标 invalid
+  const rawPolicy: unknown = config.unknownToolPolicy;
+  const policyInvalid =
+    rawPolicy !== undefined &&
+    rawPolicy !== "allow" &&
+    rawPolicy !== "check" &&
+    rawPolicy !== "deny";
+  if (policyInvalid) {
+    console.warn(
+      `[security-guard] 非法配置 unknownToolPolicy=${JSON.stringify(rawPolicy)}，已按 "allow" 生效` +
+        '（可选值："allow" | "check" | "deny"）；policy() 快照标记 invalid=true。',
+    );
+  }
+  const effectivePolicy: "allow" | "check" | "deny" =
+    rawPolicy === "check" || rawPolicy === "deny" ? rawPolicy : "allow";
+  const allowlist = [...(config.unknownToolAllowlist ?? [])];
   return {
-    unknownToolPolicy: config.unknownToolPolicy ?? "allow",
+    unknownToolPolicy: effectivePolicy,
+    unknownToolPolicyRaw: rawPolicy,
+    unknownToolPolicyInvalid: policyInvalid,
+    unknownToolAllowlist: allowlist,
+    unknownToolAllowlistRules: compileUnknownToolAllowlist(allowlist),
     enabled: config.enabled ?? true,
     home,
     commandBlacklist: {
@@ -569,11 +811,17 @@ export class GuardEngine {
     return [...this.#records].reverse();
   }
 
-  /** 当前策略/规则快照（enabled、规则 id+原因、放行正则源）。 */
+  /** 当前策略/规则快照（enabled、未登记工具策略、规则 id+原因、放行正则源）。 */
   policy(): PolicySnapshot {
     const cfg = this.#cfg;
     return {
       enabled: cfg.enabled,
+      unknownToolPolicy: {
+        value: cfg.unknownToolPolicyRaw,
+        effective: cfg.unknownToolPolicy,
+        invalid: cfg.unknownToolPolicyInvalid,
+      },
+      unknownToolAllowlist: [...cfg.unknownToolAllowlist],
       commandBlacklist: {
         enabled: cfg.commandBlacklist.enabled,
         rules: cfg.commandBlacklist.rules.map((r) => ({
@@ -638,14 +886,22 @@ export class GuardEngine {
     } else {
       const plugin = pluginFileTool(toolName);
       const commandTool = pluginCommandTool(toolName);
-      // 未登记工具：不拦（已知边界，见 README「边界与限制」）
+      // 未登记工具：先过放行名单（命中即无条件放行），再按 unknownToolPolicy 三态判定
       if (plugin === undefined && commandTool === undefined) {
-        // 未登记工具：缺省一律放行（历史行为）；unknownToolPolicy="deny" 时只拦
-        // 「携带潜在路径/命令参数」的未登记工具（键名启发：顶层 + 数组元素/嵌套对象一层）
-        if (cfg.unknownToolPolicy !== "deny") return null;
-        const watched = unknownToolSensitiveKeys(args);
-        if (watched.length === 0) return null;
-        return formatUnknownToolReceipt(toolName, watched);
+        if (unknownToolAllowed(toolName, cfg.unknownToolAllowlistRules)) {
+          return null;
+        }
+        if (cfg.unknownToolPolicy === "allow") return null;
+        if (cfg.unknownToolPolicy === "deny") {
+          // deny：整工具拦「携带潜在路径/命令参数」的未登记工具（键名启发：
+          // 顶层 + 数组元素/嵌套对象一层，键名小写归一）
+          const watched = unknownToolSensitiveKeys(args);
+          return watched.length === 0
+            ? null
+            : formatUnknownToolReceipt(toolName, watched);
+        }
+        // check：不整工具硬拦，把 watched 键下的字符串值按语义派发到既有两层
+        return this.#checkUnknownTool(toolName, args);
       }
       // 插件文件工具（登记表）：按各自 pathKeys / pathArrayKeys 提取路径，
       // 与官方文件工具同一路径解析与敏感文件层口径
@@ -663,6 +919,35 @@ export class GuardEngine {
       }
     }
     return this.#decideCollected(toolName, args, commands, paths);
+  }
+
+  /**
+   * `unknownToolPolicy: "check"`：未登记工具**不整工具硬拦**——把携带的 watched 键下的字符串值
+   * （含数组元素）**按键类定向**派发：命令键（`command` / `measureCmd` / `cmd`）→ 命令黑名单层
+   * （`commandBlacklist.allowPatterns` 可放行）；路径键与值面绝对路径（`cwd:` 前缀 / `/`、`~/`）→
+   * 敏感文件层（`sensitiveFiles.allowedPaths` 可放行）；代码键（`script` / `code` / `program`）只做
+   * 路径提取后过敏感文件层、**不整段送命令层**。命中才拦（标准回执前置一行来源标注），否则放行。
+   */
+  #checkUnknownTool(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): string | null {
+    const scan = scanUnknownToolArgs(args);
+    if (scan.commands.length === 0 && scan.paths.length === 0) return null;
+    return this.#decideCollected(
+      toolName,
+      args,
+      scan.commands.map((c) => ({
+        text: c.text,
+        sourceLine: formatUnknownToolCommandSource(toolName, c.key),
+      })),
+      scan.paths.map((p) => ({
+        path: p.path,
+        sourceLine: formatUnknownToolPathSource(toolName, p.key),
+      })),
+      // 未登记工具的操作面未知：敏感层按读写两面标注（与 shell 命令同款措辞）
+      "read-write",
+    );
   }
 
   /**
@@ -698,14 +983,15 @@ export class GuardEngine {
 
   /**
    * 「命令文本 + 路径」收集完成后的最终判定：命令黑名单层 → 敏感文件层（两层独立、独立放行）。
-   * 官方 shell 工具、插件命令工具与 `inspectCommand`（外部命令复查）共用同一口径；
+   * 官方 shell 工具、插件命令工具、`check` 模式的未登记工具与 `inspectCommand`（外部命令复查）
+   * 共用同一口径；`sourceLine` 非空时前置一行来源标注（回执首行）；
    * `operation` 缺省按工具/参数推导（命令面为 read-write），供外部复查标注操作面。
    */
   #decideCollected(
     toolName: string,
     args: Record<string, unknown>,
     commands: readonly { text: string; sourceLine?: string }[],
-    paths: readonly string[],
+    paths: readonly (string | { path: string; sourceLine?: string })[],
     operation?: "read" | "write" | "read-write",
   ): string | null {
     const cfg = this.#cfg;
@@ -727,17 +1013,25 @@ export class GuardEngine {
     }
     // 敏感文件层（allowedPaths 仅放开本层）
     if (cfg.sensitiveFiles.enabled) {
-      for (const raw of paths) {
-        const norm = normalizePath(raw, cfg.home);
+      for (const entry of paths) {
+        const candidate = typeof entry === "string" ? { path: entry } : entry;
+        const norm = normalizePath(candidate.path, cfg.home);
         if (cfg.sensitiveFiles.allowedPaths.some((r) => r.matchPath(norm)))
           continue;
-        const hit = checkSensitivePath(raw, cfg.sensitiveFiles.rules, cfg.home);
+        const hit = checkSensitivePath(
+          candidate.path,
+          cfg.sensitiveFiles.rules,
+          cfg.home,
+        );
         if (hit !== null) {
-          return formatSensitiveReceipt(
+          const receipt = formatSensitiveReceipt(
             hit,
             receiptToolName(toolName, args),
             operation ?? toolOperation(toolName, args),
           );
+          return candidate.sourceLine === undefined
+            ? receipt
+            : `${candidate.sourceLine}\n${receipt}`;
         }
       }
     }

@@ -19,8 +19,8 @@ DSH（DeepSeek Harness）进程内安全守卫插件：危险命令黑名单拦�
 - **读面插件工具**（与官方 `read` / `grep` / `glob` 同口径）：`ast_query` 的 `path`（`search` / `outline`，见上）；`hash_read` 的 `path`（读工具，返回行内容与 LINE:HASH 锚点）；`fs_digest` 的 `path`（读文件做摘要）；`code_map` 的 `root`（`index` / `refresh` 扫目录建索引，缺省 cwd）；`md_map` 的 `root`（建索引，缺省 cwd）与 `path`（`callers` / `impact` 的目标文档）。**行为变化**：这四个工具（`hash_read` / `fs_digest` / `code_map` / `md_map`）此前未登记、读任何路径都放行，现登记后读敏感名路径（`.env` / `id_rsa` / `~/.ssh` 等）会被拦，回执为读侧措辞 + 工具名；读普通路径仍放行。四者真实参数面均无数组路径参数，故不登记 `pathArrayKeys`。
 - **官方读面工具 `read_image`**（图片读取，参数 `file_path`）：与 `read` 同级过敏感文件层读侧口径——读敏感名路径（`.env` / `id_rsa` / `~/.ssh` 等）被拦，回执为读侧措辞 + 规则 id + 工具名；读普通路径放行。
 - **插件命令面**（`src/index.ts` 的 `PLUGIN_COMMAND_TOOLS` 登记表，按各包**真实参数面**读码登记）：`metric_loop` 的 `measureCmd`（`action=start` 时经 `/bin/sh -c` 执行，`metric-loop/src/measure.ts`）；`task_decompose` 的 `children[].executor.command`（command 后端的执行命令）与 `children[].acceptance[].command`（mechanical 验收命令）。命令文本走与 `bash` **同一**命令黑名单层与路径抽取（`allowPatterns` 同样生效），命令层回执前置一行来源标注（工具名 + 命令参数路径），敏感层回执按 shell 同口径标「读写」。命令的**执行**在 `task_execute` / `task_stop`，但**检查点**落在声明处 `task_decompose`（前两者的入参只有 `task_id`，不含命令文本）。
-- **未登记工具仍不拦**（当前已知边界）：覆盖范围是显式白名单——官方文件工具、shell 工具与两张插件登记表（`PLUGIN_FILE_TOOLS` 路径面 / `PLUGIN_COMMAND_TOOLS` 命令面）里的插件工具；其他工具名（含本仓其它只读插件工具，如 `context_report` / `rule_list`）不参与判定。登记表只覆盖**登记的参数键**：`metric_loop` 仅 `measureCmd` 参与，`task_decompose` 仅上述两条嵌套命令路径参与（`executor.cwd` / `spec` 等参数不参与）。未识别的工具名或参数缺失一律放行（不猜测语义）。工具名按自身属性查表（`Object.hasOwn`），故 `constructor` / `toString` / `valueOf` 这类原型链属性名视同未登记 → 放行。新增插件工具需按真实参数面在对应登记表登记。
-- 只读查询面 `provide('guard')`：`recent()` 返回最近拦截记录（上限 200，新在前），`policy()` 返回当前开关、生效规则（id / reason）与放行正则源，供 TUI `/guard` 等接线方消费。（服务面另暴露 `inspectCommand(command, source?)`：命令层复查入口，供其它插件在执行前自助复查）
+- **未登记工具缺省不拦**：覆盖范围是显式白名单——官方文件工具、shell 工具与两张插件登记表（`PLUGIN_FILE_TOOLS` 路径面 / `PLUGIN_COMMAND_TOOLS` 命令面）里的插件工具；其他工具名（含本仓其它只读插件工具，如 `context_report` / `rule_list`）缺省不参与判定，可用 `unknownToolPolicy: "check"` / `"deny"` + `unknownToolAllowlist` 收紧（见「边界与限制」）。登记表只覆盖**登记的参数键**：`metric_loop` 仅 `measureCmd` 参与，`task_decompose` 仅上述两条嵌套命令路径参与（`executor.cwd` / `spec` 等参数不参与）。未识别的工具名或参数缺失一律放行（不猜测语义）。工具名按自身属性查表（`Object.hasOwn`），故 `constructor` / `toString` / `valueOf` 这类原型链属性名视同未登记 → 放行。新增插件工具需按真实参数面在对应登记表登记。
+- 只读查询面 `provide('guard')`：`recent()` 返回最近拦截记录（上限 200，新在前），`policy()` 返回当前开关、**未登记工具策略快照**（`unknownToolPolicy` 的原始值 / 生效值 / 是否非法 + `unknownToolAllowlist`）、生效规则（id / reason）与放行正则源，供 TUI `/guard` 等接线方消费（TUI 尚未渲染策略字段，服务面已暴露）。（服务面另暴露 `inspectCommand(command, source?)`：命令层复查入口，供其它插件在执行前自助复查）
 
 ### 回执示例
 
@@ -81,6 +81,10 @@ DSH（DeepSeek Harness）进程内安全守卫插件：危险命令黑名单拦�
         - '~/.vault/**'
       allowedPaths:               # 放行路径（同一字面/glob 语义）
         - '~/.ssh'
+    unknownToolPolicy: check      # 未登记工具策略：allow（缺省，一律放行）| check（按键类定向复检）| deny（整工具拦）
+    unknownToolAllowlist:         # 未登记工具放行名单：精确匹配 + `*` 结尾前缀通配；三态之前判定
+      - present
+      - 'mcp__*'
 ```
 
 追加规则不校验语义，只做编译；非法规则源按命中处理。配置改动需重载/重启会话生效。
@@ -108,15 +112,32 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
   `GuardEngine.inspectCommand(command, source)`，与 `bash` 同一套命令黑名单与命令内路径敏感层（`allowPatterns` /
   `allowedPaths` 同样生效），命中即不测量、不落盘。**未挂载 guard 时 fail-open（告警一次）**，与修复前行为一致
   （不回归）；`metric-loop` 直连 `createController()` 的路径默认不带复查器。
-- **未登记工具：默认放行，可选收紧**（2026-10-02）：覆盖是**显式白名单**（官方文件/shell 工具 + 两张插件登记表）。
-  缺省 `unknownToolPolicy: "allow"` = 与历史行为逐字一致（未登记工具一律放行）；配 `unknownToolPolicy: "deny"`
-  时**只拦「携带潜在路径/命令参数」的未登记工具**（顶层键或数组元素一层键命中 `file_path`/`path`/`target`/`file`/`paths`/`dir`/`directory`
-  或 `command`/`script`/`code`/`program`/`measureCmd`/`cmd`），其余未登记工具仍放行（防误伤）；已登记与官方工具行为不变。
-  拦截回执含工具名、命中的参数键与放行方式。
-- **差异检查（宿主升版后跑一次）**：`node security-guard/scripts/tool-surface-check.mjs [--root <宿主安装树>] [--json]` —— 枚举
-  宿主 `@deepseek-ai/dsh-tool-*` 的工具名，与 `FILE_TOOLS` + 两张登记表对照，输出「已覆盖 / **未覆盖且带路径或命令参数（需关注）** / 未覆盖无相关参数」；
-  有「需关注」项 → exit 1（可作门禁），找不到宿主目录 → 提示 + exit 0。口径为键名启发（保守，宁可多报），需人工复核。
-- **命令执行侧的检查点边界**：task-engine 的命令（`children[].executor.command` 与 mechanical 验收 `children[].acceptance[].command`）在 `task_decompose` **声明处**检查，而执行工具 `task_execute` / `task_stop` 的入参只有 `task_id`、命令文本不在其中。因此**绕过声明工具**进入帧契约的命令不受本层覆盖：经导出 API `resumeFromSnapshot` 恢复的帧（本仓插件**当前未接线**：只写快照、不读回）、配置侧 `root.acceptance[].command`（引擎直接执行、不经 `task_decompose`），以及其它直接写引擎状态/旁路的路径。此外 `workflow` 后端的 `script` 是 JS 编排脚本（非 shell 命令串），也不在命令黑名单层覆盖范围内。
+- **未登记工具：三态策略 + 放行名单**（2026-10-02）：覆盖是**显式白名单**（官方 shell / run_code / 文件工具 + 两张插件登记表）。
+  - `unknownToolPolicy: "allow"`（缺省）= 与历史行为逐字一致（未登记工具一律放行）。
+  - `unknownToolPolicy: "check"`：**不整工具硬拦**，把 watched 键下的字符串值（含数组元素）**按键类定向**送既有两层，命中才拦：
+    路径键（`file_path` / `path` / `target` / `file` / `paths` / `dir` / `directory` / `root` / `workdir` / `cwd` / `filePath`，键名按小写归一）
+    → 敏感文件层，回执前置一行「路径复查来源：未登记工具「X」的 \<键名>」；
+    命令键（`command` / `measureCmd` / `cmd`，值是 shell 命令串）→ 命令黑名单层，前置「命令复查来源」行；
+    代码键（`script` / `code` / `program`，值是 JS/Python 代码）→ **只做路径提取**后过敏感文件层、**不整段送命令层**
+    （代码里的危险词字面不算执行该命令，避免把 `workflow.script` / `run_code.code` 这类正常代码误拦）；
+    另有**值面**兜底：非 watched 键下以 `cwd:` 前缀或 `/`、`~/`、`$HOME` 开头的字符串值也按路径判定（覆盖 `session_channel.to = "cwd:…"` 这类）。
+    两层放行面（`commandBlacklist.allowPatterns` / `sensitiveFiles.allowedPaths`）在 check 下与已登记工具同口径生效。
+  - `unknownToolPolicy: "deny"`：整工具拦，且**只拦「携带潜在路径/命令/代码参数」的未登记工具**（键名启发，键集同上；顶层键 + 数组元素/嵌套对象一层），
+    其余未登记工具仍放行（防误伤）；回执给三条**可行动作**（改 `"check"` / 加 `unknownToolAllowlist` / 按参数面登记进代码），不再只说「改源码」。
+  - `unknownToolAllowlist: string[]`：工具名**精确匹配** + `*` 结尾**前缀通配**（如 `mcp__*`），在**三态策略之前**判定，命中即无条件放行
+    （`deny` 下的显式例外 / MCP 工具名）；只作用于未登记工具，已登记工具的敏感参数照拦。
+  - 非法 `unknownToolPolicy` 值（如 `"Deny"` / `true`）→ `console.warn` 一次 + 按 `"allow"` 生效（fail-open 语义不变），
+    `policy()` 快照标 `invalid: true`（TUI 侧尚未渲染该字段，服务面已暴露供后续消费）。
+  - 键名启发深度为**两层**（顶层键 + 数组元素 / 嵌套对象一层）：`children[].executor.command` 这类两层嵌套不在覆盖内。
+- **差异检查（宿主升版后跑一次）**：`node security-guard/scripts/tool-surface-check.mjs --root <dsh 包目录> [--json]`
+  （也认 `DSH_INSTALL=<同上>`）。**要指 dsh 包目录**（其下含 `node_modules/@deepseek-ai/dsh-tool-*`）；指到 `@deepseek-ai` scope 层
+  （或其下直接是 `dsh-tool-*` 的目录）会给纠正提示并 **exit 2**（扫 scope 层会把未挂载 / 其它版本的工具包算进来）。
+  脚本**逐工具**解析工具包源码 `defineTool({...})` 的 `parameters`（顶层键即参数名，数组元素键取 `items.properties`；与引擎键名启发同深度），
+  输出「已覆盖 / **需关注**（未登记且带路径·命令·代码参数）/ **名称未解析**（`name:` 为计算值，单列包名与 name 表达式；其参数键命中 watched 键时同时计入门禁）
+  / 未覆盖但无相关参数」。退出码：有「需关注」→ 1（可作门禁），干净 → 0，用法 / 环境错误（缺 `--root`、指到 scope 层、root 下无工具包）→ 2。
+  键集与登记集来自 `src/index.ts` 的 `TOOL_SURFACE` 快照（发布形态读 `dist`，`src` 作仓库内回退；`dist` 早于 `src` 时提示并改读 `src`），
+  与引擎**单一来源**、不再各自维护一份键表（旧版脚本与引擎键集互不一致）。仍按「宁可多报」口径，需人工复核。
+- **命令执行侧的检查点边界**：task-engine 的命令（`children[].executor.command` 与 mechanical 验收 `children[].acceptance[].command`）在 `task_decompose` **声明处**检查，而执行工具 `task_execute` / `task_stop` 的入参只有 `task_id`、命令文本不在其中。因此**绕过声明工具**进入帧契约的命令不受本层覆盖：经导出 API `resumeFromSnapshot` 恢复的帧（本仓插件**当前未接线**：只写快照、不读回）、配置侧 `root.acceptance[].command`（引擎直接执行、不经 `task_decompose`），以及其它直接写引擎状态/旁路的路径。此外 `workflow` 后端的 `script` 是 JS 编排脚本（非 shell 命令串），不在命令黑名单层覆盖范围内——未登记工具策略取 `"check"` 时对代码键（`script` / `code` / `program`）也只做路径提取、不整段送命令层（同一口径）。
 - **插件命令参数按参数键检查、不区分 action**：`metric_loop` 的 `measureCmd` 只在 `action=start` 时执行，但登记表按参数键判定——`action=status` 等调用若带上会命中黑名单的 `measureCmd` 同样被拦（宁可误拦不可漏拦；可用 `commandBlacklist.allowPatterns` 放行）。
 - `run_code` 只过命令层，不做路径层检查；文件工具的路径参数只过敏感层，不做命令层检查。
 - 拦截是**策略层**，不是沙箱：放行后命令以宿主既有权限执行，进程级隔离由宿主策略承载。
@@ -125,11 +146,16 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
 
 ```sh
 npm run check   # tsc -p tsconfig.json --noEmit
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（61 例）
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（91 例）
 npm run build   # tsc -p tsconfig.json → dist/
 npm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话拦截验证）
 ```
 
-61 例单测（blacklist 9 + guard 45 + sensitive 7）。
+91 例单测（blacklist 9 + guard 66 + script 9 + sensitive 7）。
+
+`tests/script.test.ts` 用假宿主树（`dsh-tool-fixture-*` 包）覆盖 `scripts/tool-surface-check.mjs` 的逐工具三分类、
+「名称未解析」行与退出码纪律（0 / 1 / 2，含 `--root` 指到 scope 层的纠正提示），并覆盖**发布形态**
+（只有 `dist` + `scripts` → 键集来源 `dist`）与**损坏安装**（只有 `scripts` → exit 2 + 提示先 `npm run build`）；
+仓库内无 `dist` 时键集走 `src` 回退，故测试**不依赖**是否已构建（dist 存在时发布形态用例才运行）。
 
 `smoke` 需要本机 dsh 0.2.0-rc.2、可用的模型 API 与 `zstd` CLI：建/复用 profile `dsh-toolset-security-guard`（`link:` 指向本包），在 `DSH_PERMISSION_MODE=danger-full-access` 下让权限层放行、由本插件独立拦截；headless 会话依次执行 `echo sg-smoke-ok` 与 `sudo ls /`，再解压 `session*.jsonl.zstd` 断言：`sudo ls /` 的结果 `isError` 且回执含 `[security-guard]` / `sudo ls /` / `放行方式`，`echo` 的结果 `isError: false`。模型自行改写或拒绝执行时，兜底为对 `dist/src/index.js` 的引擎直调断言。

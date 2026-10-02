@@ -193,6 +193,7 @@ OLD 130 / NEW 132。
 | 17 个插件包（含 TUI） | **无需改代码**（消费的服务面实现零 diff、工具注册契约未变）；唯一行为面变化是失败步多出的合成 `tool/result`（5 处消费，§3.7） | 真机复现一次「工具中断 / 步骤失败」：TUI 不出现孤立结果行、`output-compress` 不误生成分片、`knowledge-base` 不写入噪声条目 |
 | `metric-loop` | `scheduleHint()` 让模型调 `schedule_create`，而当前组合无该工具（既有问题，非本次引入）——2026-10-02 真机确认：`dsh-base` 无 schedule 行、fff patch 无、重启后工具清单也没有 `schedule_create` / `_delete` / `_list` / `_update` | 挂载面决定（条目 #1）：挂 `schedule` 相关行，或把提示改为不依赖宿主 schedule |
 | 部署 / profile | `bundle/base` 新增 `otel` 行 → 升级后自动多挂 `@deepseek-ai/dsh-otel` | ① 升级动作本身另立条目（安装 + profile 依赖 + 真机验证）；② `scripts/install.sh` 的 `dsh_version_default="0.1.7-rc.2"` 与提示文案同步到 `0.2.0-rc.2`；③ 升级后跑 `--dump-config` 断言 stderr 无 `did not activate`；④ 树外加装包 `session-title-all-prompts-llm` 在 `~/.dsh/profiles/fff/package.json` 里**硬钉 `0.1.7-rc.2`**，升级 CLI 不会自动跟随，要 `npm pkg set` + `pnpm install` 手动升版 |
+| `security-guard` | 宿主升版可能新增「未登记但带路径 / 命令 / 代码参数」的工具（这类工具会绕过敏感文件层 / 命令黑名单层） | 升版后跑一次差异检查：`node security-guard/scripts/tool-surface-check.mjs --root <dsh 包目录>`（**要指 dsh 包目录**，其下含 `node_modules/@deepseek-ai/dsh-tool-*`；指到 `@deepseek-ai` scope 层会纠正提示 + exit 2，缺 `--root` / `DSH_INSTALL` 同样 exit 2）。有「需关注」项 → exit 1（可作门禁）；「名称未解析」行（`name:` 为计算值，如 `workflow`）需人工复核 |
 | 文档 | `HOST-PACKAGES.md` 是 0.1.7-rc.2 口径（283 包 / 91 挂载） | 本次已定点刷新（新增 4 包 + 口径行 + `otel` 行提示）；全量挂载标记实测归条目 #1 |
 | 将来可选 | 若采用 `ask_user_question` timed 模式：需处理 `user-question-reply` 迟到消息与 `userQuestions` 投影 | 不立项，记为观察项 |
 
