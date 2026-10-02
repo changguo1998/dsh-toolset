@@ -1286,3 +1286,53 @@ test("插件命令工具：allowPatterns 正向放行（对照：不匹配 / 空
     assert.match(hit!, /命令命中黑名单规则「sudo」/);
   }
 });
+
+test("unknownToolPolicy：缺省 allow —— 未登记工具带 path 仍放行（行为回归）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  assert.equal(guard.inspect("some_unknown_tool", { path: "/tmp/x" }), null);
+  assert.equal(
+    guard.inspect("another_unknown", { measureCmd: "echo ok" }),
+    null,
+  );
+});
+
+test("unknownToolPolicy:deny —— 只拦携带潜在路径/命令参数的未登记工具", () => {
+  const guard = new GuardEngine({ homeDir: HOME, unknownToolPolicy: "deny" });
+  const hit = guard.inspect("some_unknown_tool", { path: "/tmp/x" });
+  assert.ok(typeof hit === "string", "带 path 的未登记工具应被拦");
+  assert.match(hit as string, /some_unknown_tool/);
+  assert.match(hit as string, /path/);
+  assert.match(hit as string, /放行方式/);
+  // 数组元素一层（files[].path）与嵌套对象一层（executor.command）
+  const arrHit = guard.inspect("other_unknown", {
+    files: [{ path: "/tmp/y" }],
+  });
+  assert.ok(typeof arrHit === "string" && /path/.test(arrHit as string));
+  const nestedHit = guard.inspect("nested_unknown", {
+    spec: { command: "echo ok" },
+  });
+  assert.ok(
+    typeof nestedHit === "string" && /command/.test(nestedHit as string),
+  );
+  // 防误伤：无路径/命令参数的未登记工具仍放行
+  assert.equal(guard.inspect("plain_unknown", { id: "x", symbol: "y" }), null);
+  assert.equal(guard.inspect("empty_unknown", {}), null);
+});
+
+test("unknownToolPolicy:deny —— 已登记与官方工具判定与缺省一致", () => {
+  const strict = new GuardEngine({ homeDir: HOME, unknownToolPolicy: "deny" });
+  const loose = new GuardEngine({ homeDir: HOME });
+  const cases: Array<[string, Record<string, unknown>]> = [
+    ["read", { file_path: "/tmp/notes.txt" }],
+    ["bash", { command: "echo ok" }],
+    ["hash_read", { path: "/tmp/notes.txt" }],
+    ["metric_loop", { action: "start", measureCmd: "echo 42" }],
+  ];
+  for (const [tool, args] of cases) {
+    assert.equal(
+      strict.inspect(tool, args),
+      loose.inspect(tool, args),
+      `${tool} 的判定不应受 unknownToolPolicy 影响`,
+    );
+  }
+});

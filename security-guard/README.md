@@ -108,7 +108,14 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
   `GuardEngine.inspectCommand(command, source)`，与 `bash` 同一套命令黑名单与命令内路径敏感层（`allowPatterns` /
   `allowedPaths` 同样生效），命中即不测量、不落盘。**未挂载 guard 时 fail-open（告警一次）**，与修复前行为一致
   （不回归）；`metric-loop` 直连 `createController()` 的路径默认不带复查器。
-- **未登记工具仍不拦**是当前已知边界：插件工具靠 `PLUGIN_FILE_TOOLS`（路径面：写面 `hash_edit` / `md_logic` / `ast_replace`，读面 `ast_query` / `hash_read` / `fs_digest` / `code_map` / `md_map`）与 `PLUGIN_COMMAND_TOOLS`（命令面：`metric_loop` / `task_decompose`）两张白名单登记，未登记的插件工具（如 `context_report` / `rule_list`）不会被拦；新增工具时需按**真实参数面**同步登记。
+- **未登记工具：默认放行，可选收紧**（2026-10-02）：覆盖是**显式白名单**（官方文件/shell 工具 + 两张插件登记表）。
+  缺省 `unknownToolPolicy: "allow"` = 与历史行为逐字一致（未登记工具一律放行）；配 `unknownToolPolicy: "deny"`
+  时**只拦「携带潜在路径/命令参数」的未登记工具**（顶层键或数组元素一层键命中 `file_path`/`path`/`target`/`file`/`paths`/`dir`/`directory`
+  或 `command`/`script`/`code`/`program`/`measureCmd`/`cmd`），其余未登记工具仍放行（防误伤）；已登记与官方工具行为不变。
+  拦截回执含工具名、命中的参数键与放行方式。
+- **差异检查（宿主升版后跑一次）**：`node security-guard/scripts/tool-surface-check.mjs [--root <宿主安装树>] [--json]` —— 枚举
+  宿主 `@deepseek-ai/dsh-tool-*` 的工具名，与 `FILE_TOOLS` + 两张登记表对照，输出「已覆盖 / **未覆盖且带路径或命令参数（需关注）** / 未覆盖无相关参数」；
+  有「需关注」项 → exit 1（可作门禁），找不到宿主目录 → 提示 + exit 0。口径为键名启发（保守，宁可多报），需人工复核。
 - **命令执行侧的检查点边界**：task-engine 的命令（`children[].executor.command` 与 mechanical 验收 `children[].acceptance[].command`）在 `task_decompose` **声明处**检查，而执行工具 `task_execute` / `task_stop` 的入参只有 `task_id`、命令文本不在其中。因此**绕过声明工具**进入帧契约的命令不受本层覆盖：经导出 API `resumeFromSnapshot` 恢复的帧（本仓插件**当前未接线**：只写快照、不读回）、配置侧 `root.acceptance[].command`（引擎直接执行、不经 `task_decompose`），以及其它直接写引擎状态/旁路的路径。此外 `workflow` 后端的 `script` 是 JS 编排脚本（非 shell 命令串），也不在命令黑名单层覆盖范围内。
 - **插件命令参数按参数键检查、不区分 action**：`metric_loop` 的 `measureCmd` 只在 `action=start` 时执行，但登记表按参数键判定——`action=status` 等调用若带上会命中黑名单的 `measureCmd` 同样被拦（宁可误拦不可漏拦；可用 `commandBlacklist.allowPatterns` 放行）。
 - `run_code` 只过命令层，不做路径层检查；文件工具的路径参数只过敏感层，不做命令层检查。

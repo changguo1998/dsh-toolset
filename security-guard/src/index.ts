@@ -85,6 +85,11 @@ export interface SecurityGuardConfig {
     /** 放行正则源：命令文本匹配任一则跳过黑名单层（不放开敏感文件层）。 */
     allowPatterns?: readonly string[];
   };
+  /**
+   * 未登记工具策略（默认 "allow" = 历史行为：一律放行）。
+   * "deny" 时只拦「携带潜在路径/命令参数」的未登记工具（键名启发，见 unknownToolSensitiveKeys）。
+   */
+  unknownToolPolicy?: "allow" | "deny";
   /** 敏感文件层（shell 命令文本中的路径 + 内置文件工具的路径参数）。 */
   sensitiveFiles?: {
     /** 层开关（默认 true）。 */
@@ -229,6 +234,59 @@ const PLUGIN_COMMAND_TOOLS: Record<string, PluginCommandTool> = {
   },
 };
 
+/** unknownToolPolicy="deny" 用的路径/命令参数键名（顶层键 + 数组元素与嵌套对象一层键）。 */
+const UNKNOWN_TOOL_PATH_KEYS = [
+  "file_path",
+  "path",
+  "target",
+  "file",
+  "paths",
+  "dir",
+  "directory",
+] as const;
+const UNKNOWN_TOOL_COMMAND_KEYS = [
+  "command",
+  "script",
+  "code",
+  "program",
+  "measureCmd",
+  "cmd",
+] as const;
+const UNKNOWN_TOOL_WATCHED = new Set<string>([
+  ...UNKNOWN_TOOL_PATH_KEYS,
+  ...UNKNOWN_TOOL_COMMAND_KEYS,
+]);
+
+/** 未登记工具是否携带潜在路径/命令参数：返回命中的键名（去重、保序）。 */
+function unknownToolSensitiveKeys(args: Record<string, unknown>): string[] {
+  const hits: string[] = [];
+  const consider = (key: string): void => {
+    if (UNKNOWN_TOOL_WATCHED.has(key) && !hits.includes(key)) hits.push(key);
+  };
+  for (const [key, value] of Object.entries(args)) {
+    consider(key);
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== null && typeof item === "object" && !Array.isArray(item)) {
+          for (const inner of Object.keys(item)) consider(inner);
+        }
+      }
+    } else if (value !== null && typeof value === "object") {
+      for (const inner of Object.keys(value)) consider(inner);
+    }
+  }
+  return hits;
+}
+
+/** 未登记工具拦截回执（unknownToolPolicy="deny"）。 */
+function formatUnknownToolReceipt(toolName: string, keys: string[]): string {
+  return [
+    `[security-guard] 已拦截：未登记工具「${toolName}」携带潜在路径/命令参数（${keys.join(" / ")}）。`,
+    "原因：该工具不在 security-guard 的登记表内，无法确认其路径/命令是否经过敏感文件层与命令黑名单层。",
+    '放行方式：把该工具按真实参数面登记进 FILE_TOOLS / PLUGIN_FILE_TOOLS / PLUGIN_COMMAND_TOOLS；或配 unknownToolPolicy: "allow" 恢复放行（不推荐）。',
+  ].join("\n");
+}
+
 /** 命令工具登记表查表（与文件表同口径：Object.hasOwn，原型链属性名视同未登记）。 */
 function pluginCommandTool(toolName: string): PluginCommandTool | undefined {
   return Object.hasOwn(PLUGIN_COMMAND_TOOLS, toolName)
@@ -295,6 +353,8 @@ function formatPluginCommandSource(toolName: string, keyPath: string): string {
 
 /** 解析后的内部配置（编译后，构造一次）。 */
 interface ResolvedConfig {
+  /** 未登记工具策略（见 SecurityGuardConfig.unknownToolPolicy）。 */
+  unknownToolPolicy: "allow" | "deny";
   enabled: boolean;
   home: string;
   commandBlacklist: {
@@ -465,6 +525,7 @@ export function resolveGuardConfig(
     home,
   );
   return {
+    unknownToolPolicy: config.unknownToolPolicy ?? "allow",
     enabled: config.enabled ?? true,
     home,
     commandBlacklist: {
@@ -578,7 +639,14 @@ export class GuardEngine {
       const plugin = pluginFileTool(toolName);
       const commandTool = pluginCommandTool(toolName);
       // 未登记工具：不拦（已知边界，见 README「边界与限制」）
-      if (plugin === undefined && commandTool === undefined) return null;
+      if (plugin === undefined && commandTool === undefined) {
+        // 未登记工具：缺省一律放行（历史行为）；unknownToolPolicy="deny" 时只拦
+        // 「携带潜在路径/命令参数」的未登记工具（键名启发：顶层 + 数组元素/嵌套对象一层）
+        if (cfg.unknownToolPolicy !== "deny") return null;
+        const watched = unknownToolSensitiveKeys(args);
+        if (watched.length === 0) return null;
+        return formatUnknownToolReceipt(toolName, watched);
+      }
       // 插件文件工具（登记表）：按各自 pathKeys / pathArrayKeys 提取路径，
       // 与官方文件工具同一路径解析与敏感文件层口径
       if (plugin !== undefined) paths.push(...pluginFilePaths(args, plugin));
