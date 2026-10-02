@@ -139,7 +139,7 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
       出现的路径才参与判定，仅「在敏感目录下执行」不会命中。
 - **未登记工具：三态策略 + 放行名单**（2026-10-02）：覆盖是**显式白名单**（官方 shell / run_code / 文件工具 + 两张插件登记表）。
   - `unknownToolPolicy: "allow"`（缺省）= 与历史行为逐字一致（未登记工具一律放行）。
-  - `unknownToolPolicy: "check"`：**不整工具硬拦**，把 watched 键下的字符串值（含数组元素）**按键类定向**送既有两层，命中才拦：
+  - `unknownToolPolicy: "check"`：**不整工具硬拦**，把 watched 键下的字符串值（含数组元素）**按键类定向**送既有两层，命中才拦（参数面被截断时**亦拦**，见下「键发现深度与遍历上限」）：
     路径键（`file_path` / `path` / `target` / `file` / `paths` / `dir` / `directory` / `root` / `workdir` / `cwd` / `filePath`，键名按小写归一）
     → 敏感文件层，回执前置一行「路径复查来源：未登记工具「X」的 \<完整键路径>」（如 `files[].path`；顶层键的路径就是键名）；
     命令键（`command` / `measureCmd` / `cmd`，值是 shell 命令串）→ 命令黑名单层，前置「命令复查来源」行（同用完整键路径，如 `children[].acceptance[].command`）；
@@ -157,7 +157,8 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
   - 非法 `unknownToolPolicy` 值（如 `"Deny"` / `true`）→ `console.warn` 一次 + 按 `"allow"` 生效（fail-open 语义不变），
     `policy()` 快照标 `invalid: true`（TUI 侧尚未渲染该字段，服务面已暴露供后续消费）。
   - **键发现深度与遍历上限**：键深上限 **3 层**（顶层键 → 数组元素键 → 其对象成员键 → 再一层数组元素键；**数组层不计数** —— 数组透明、不消费键深；`WeakSet` 跳过环引用）：`children[].executor.command` 与 `children[].acceptance[].command` 都在覆盖内，第 4 层起的同形嵌套不纳入（锁上限语义，避免深层误伤）。键发现递归与 `check` 模式的值面扫描共用同一遍历器（深度口径不分叉），并另设**资源上限**（与键深是两个维度）：**容器节点 ≤ 4096**（对象 / 数组各算 1 个节点，**标量不计**）+ **嵌套层数 ≤ 64**（数组透明不消费键深，但深数组照样加深递归栈，实测本遍历器 ~3500 层即 `RangeError`）。`TOOL_SURFACE.keyDepth` 暴露键深上限，脚本与引擎同源。命中的键在回执 / 来源标注行里按**完整键路径**展示（同一形态，`deny` 去重保序、`check` 逐值给来源行）。
-  - **上限耗尽时保守（不是放行）**：遍历被截断时**绝不**当成「没查到 = 放行」—— `deny` 直接拦、`check` **告警一次 + 按拦处理**（回执说明「参数面超出遍历上限」并给放行方式）；因此「无害填充 + 更深处危险键」的规避不成立（填充量远小于节点上限，且截断本身也拦）。仅**扫描抛异常**（畸形参数，如枚举即抛错的 `Proxy`）才 fail-open：`console.warn` 一次 + 放行，绝不让 `inspect` 把异常抛到宿主 listener（否则一个畸形参数就能把 `pre-execute` 打崩）。
+  - **上限耗尽时保守（不是放行）**：遍历被截断时**绝不**当成「没查到 = 放行」—— `deny` 直接拦、`check` **告警一次 + 按拦处理**（回执说明「参数面超出遍历上限」并给放行方式）；**与「已收集到多少值」无关**：哪怕已收集的诊断值全部无害/未命中，只要遍历未完成就照拦（回执会补一行「已收集 N 项（命令 / 路径）均未命中，但遍历未完成，仍按保守口径拦截」）；
+    **可用性代价**：单次调用超过 4096 个容器节点（或深于 64 层）的**合法**大参数面，也会从「静默放行」变为「拦」（仅在你显式配 `check` 时才会走到这里；`allow` 缺省不受影响）——放行方式见回执，或把调用拆小 / 用 `unknownToolAllowlist`。因此「无害填充 + 更深处危险键」的规避不成立（填充量远小于节点上限，且截断本身也拦）。仅**扫描抛异常**（畸形参数，如枚举即抛错的 `Proxy`）才 fail-open：`console.warn` 一次 + 放行，绝不让 `inspect` 把异常抛到宿主 listener（否则一个畸形参数就能把 `pre-execute` 打崩）。
 - **差异检查（宿主升版后跑一次）**：`node security-guard/scripts/tool-surface-check.mjs --root <dsh 包目录> [--json]`
   （也认 `DSH_INSTALL=<同上>`）。**要指 dsh 包目录**（其下含 `node_modules/@deepseek-ai/dsh-tool-*`）；指到 `@deepseek-ai` scope 层
   （或其下直接是 `dsh-tool-*` 的目录）会给纠正提示并 **exit 2**（扫 scope 层会把未挂载 / 其它版本的工具包算进来）。
@@ -179,12 +180,12 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
 
 ```sh
 npm run check   # tsc -p tsconfig.json --noEmit
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（106 例）
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（108 例）
 npm run build   # tsc -p tsconfig.json → dist/
 npm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话拦截验证）
 ```
 
-106 例单测（blacklist 9 + guard 77 + script 13 + sensitive 7）。
+108 例单测（blacklist 9 + guard 79 + script 13 + sensitive 7）。
 
 `tests/script.test.ts` 用假宿主树（`dsh-tool-fixture-*` 包）覆盖 `scripts/tool-surface-check.mjs` 的逐工具三分类、
 「名称未解析」行与退出码纪律（0 / 1 / 2，含 `--root` 指到 scope 层的纠正提示），并覆盖**发布形态**

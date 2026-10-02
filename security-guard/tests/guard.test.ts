@@ -2222,3 +2222,82 @@ test("TOOL_SURFACE —— 脚本与引擎同源快照：登记名去重 + 三类
   );
   assert.deepEqual(overlap, []);
 });
+
+test("unknownToolPolicy 截断 + 已收集无害值 —— check 不得静默放行（P2 修复的复现锚点）", () => {
+  const warns: unknown[][] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]): void => {
+    warns.push(args);
+  };
+  try {
+    // 5000 个元素：**仅最后一个**带危险命令 —— 节点预算（4096 容器）在危险键出现之前耗尽
+    const items = [
+      ...Array.from({ length: 4999 }, (_, i) => ({ path: `/tmp/ok-${i}.md` })),
+      { command: CHECK_BLACKLIST_COMMAND },
+    ];
+    for (const method of ["check", "deny"] as const) {
+      warns.length = 0;
+      const guard = new GuardEngine({
+        homeDir: HOME,
+        unknownToolPolicy: method,
+      });
+      const hit = guard.inspect("bulk_unknown", { items });
+      assert.ok(
+        typeof hit === "string",
+        `${method}：截断（遍历未完成）必须拦，不得静默放行`,
+      );
+      if (method === "check") {
+        assert.match(
+          hit as string,
+          /超出遍历上限/,
+          "check：应为截断保守回执（遍历未完成，不可判定）",
+        );
+        assert.match(
+          hit as string,
+          /已收集 \d+ 项（命令 \/ 路径）均未命中/,
+          "check：回执应说明已收集项均未命中、但遍历未完成",
+        );
+      }
+      // deny 在「键命中」分支就拦下了（不走截断分支，故无截断告警）；check 才走截断保守分支
+      assert.equal(
+        warns.length,
+        method === "check" ? 1 : 0,
+        `${method}：截断告警数（check=1 / deny=0，deny 由键命中直接拦）`,
+      );
+    }
+  } finally {
+    console.warn = original;
+  }
+});
+
+test("unknownToolPolicy=check 截断 + 早已收完的无害值 —— 仍保守拦；未截断的无害值照常放行", () => {
+  const warns: unknown[][] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]): void => {
+    warns.push(args);
+  };
+  try {
+    const guard = new GuardEngine({
+      homeDir: HOME,
+      unknownToolPolicy: "check",
+    });
+    // ① 截断（深嵌套数组撑满预算）+ 一个无害路径：遍历未完成 → 保守拦 + 告警一次
+    warns.length = 0;
+    const truncated = guard.inspect("deep_unknown", {
+      deep: nestedArray(5000),
+      note: "/tmp/ok.md",
+    });
+    assert.ok(typeof truncated === "string", "截断态：应保守拦");
+    assert.match(truncated as string, /超出遍历上限/);
+    assert.equal(warns.length, 1, "截断态：应告警一次");
+    // ② 未截断 + 仅无害值：放行且不告警（防误报）
+    warns.length = 0;
+    const clean = guard.inspect("small_unknown", {
+      items: [{ path: "/tmp/ok.md" }],
+    });
+    assert.equal(clean, null, "未截断的无害参数应放行");
+    assert.equal(warns.length, 0, "未截断不应告警");
+  } finally {
+    console.warn = original;
+  }
+});

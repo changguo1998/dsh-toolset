@@ -458,10 +458,18 @@ function formatUnknownToolReceipt(
  * 参数面超出遍历资源上限时的拦截回执（deny / check 共用）。
  * 口径：**截断 = 拦**（宁可误拦不可漏拦）——安全策略层只做有界检查，「没查完」不能当成「没查到」。
  */
-function formatUnknownToolTruncatedReceipt(toolName: string): string {
+function formatUnknownToolTruncatedReceipt(
+  toolName: string,
+  collectedCount = 0,
+): string {
   return [
     `[security-guard] 已拦截：未登记工具「${toolName}」的参数面超出遍历上限（${MAX_WALK_NODES} 个容器节点 / ${MAX_WALK_DEPTH} 层嵌套）。`,
     "原因：本层只做有界检查，参数面被截断时无法确认更深处是否藏着敏感路径 / 危险命令，按保守口径拦截。",
+    ...(collectedCount > 0
+      ? [
+          `已收集 ${collectedCount} 项（命令 / 路径）均未命中，但遍历未完成，仍按保守口径拦截。`,
+        ]
+      : []),
     "放行方式（三选一）：",
     "  ① 缩小参数面：把超大数组 / 深层嵌套拆成多次调用；",
     `  ② 配 unknownToolAllowlist: ["${toolName}"]：该工具整体放行（工具名支持 * 结尾的前缀通配）；`,
@@ -1108,12 +1116,13 @@ export class GuardEngine {
     args: Record<string, unknown>,
   ): string | null {
     const scan = scanUnknownToolArgs(args);
-    if (scan.commands.length === 0 && scan.paths.length === 0) {
+    const collected = scan.commands.length + scan.paths.length;
+    if (collected === 0) {
       if (!scan.truncated) return null;
       this.#warnUnknownToolScanTruncated(toolName);
       return formatUnknownToolTruncatedReceipt(toolName);
     }
-    return this.#decideCollected(
+    const decided = this.#decideCollected(
       toolName,
       args,
       scan.commands.map((c) => ({
@@ -1127,6 +1136,12 @@ export class GuardEngine {
       // 未登记工具的操作面未知：敏感层按读写两面标注（与 shell 命令同款措辞）
       "read-write",
     );
+    // 已收集值均未命中，但遍历未完成（截断）→ 不得静默放行（保守拦）
+    if (decided === null && scan.truncated) {
+      this.#warnUnknownToolScanTruncated(toolName);
+      return formatUnknownToolTruncatedReceipt(toolName, collected);
+    }
+    return decided;
   }
 
   /**
