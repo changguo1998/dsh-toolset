@@ -12,6 +12,10 @@
  * packages/core/tools）。命中即返回 { kind: 'deny', reason: <回执> }，
  * 宿主将工具调用物化为带错误文本的 isError 结果、不下发命令。
  * 回执含拦截原因 + 放行方式（用户层配置 allowPatterns / allowedPaths）。
+ *
+ * 另有一条**执行前复查**入口：`GuardEngine.inspectCommand(command, source)`（并挂到服务面
+ * `guard`，供插件经 `ctx.get('guard')` 调用）——给「命令不在工具入参里」的场景补同口径复查
+ * （如 metric-loop 的 `tick` 执行状态文件里的 `spec.measureCmd`）。
  */
 import { homedir } from "node:os";
 import {
@@ -334,6 +338,23 @@ export interface PolicySnapshot {
   };
 }
 
+/**
+ * guard 服务面（`apply` 里 `provide("guard")` → 宿主 `ctx.get('guard')`）：
+ * 只读查询（TUI /guard） + 外部命令复查（插件自查，如 metric-loop 的 tick）。
+ */
+export interface GuardService {
+  /** 最近判定记录（新→旧）。 */
+  recent(): readonly GuardRecord[];
+  /** 当前策略/规则快照。 */
+  policy(): PolicySnapshot;
+  /**
+   * 复查一条**不在工具入参里**的命令文本（与 shell 工具同口径：命令黑名单层 +
+   * 命令内路径的敏感文件层）。返回 null = 放行；字符串 = deny 回执。
+   * `source` 标注命令来源（回执首行 + `recent()` 的 toolName）。
+   */
+  inspectCommand(command: string, source?: string): string | null;
+}
+
 /** 记录缓冲上限（有界，超出丢弃最旧）。 */
 const MAX_RECORDS = 200;
 
@@ -573,6 +594,54 @@ export class GuardEngine {
         }
       }
     }
+    return this.#decideCollected(toolName, args, commands, paths);
+  }
+
+  /**
+   * 复查一条**不在工具入参里**的命令文本——给「命令来自状态文件 / 契约」这类旁路补执行前检查点
+   * （调用方：metric-loop 的 tick 执行 `spec.measureCmd` 前）。与 shell 工具同一口径：
+   * 命令黑名单层 + 命令内路径的敏感文件层（`allowPatterns` / `allowedPaths` 同样生效），
+   * 判定同样记入 `recent()`（toolName = `source`，TUI /guard 可审计）。
+   * 返回 null = 放行；字符串 = deny 回执（首行为来源标注）。
+   */
+  inspectCommand(command: string, source = "external-command"): string | null {
+    // 防御：服务面经跨包结构调用，非字符串按「无命令」处理（类型由调用方保证）
+    if (typeof command !== "string") return null;
+    const label =
+      typeof source === "string" && source.length > 0
+        ? source
+        : "external-command";
+    const receipt = this.#decideCollected(
+      label,
+      { command },
+      [
+        {
+          text: command,
+          sourceLine: `[security-guard] 命令复查来源：${label}。`,
+        },
+      ],
+      extractCommandPaths(command),
+      // 命令面读写都可能（与 shell 工具同款措辞），避免误标成「读取」
+      "read-write",
+    );
+    this.#record(label, receipt);
+    return receipt;
+  }
+
+  /**
+   * 「命令文本 + 路径」收集完成后的最终判定：命令黑名单层 → 敏感文件层（两层独立、独立放行）。
+   * 官方 shell 工具、插件命令工具与 `inspectCommand`（外部命令复查）共用同一口径；
+   * `operation` 缺省按工具/参数推导（命令面为 read-write），供外部复查标注操作面。
+   */
+  #decideCollected(
+    toolName: string,
+    args: Record<string, unknown>,
+    commands: readonly { text: string; sourceLine?: string }[],
+    paths: readonly string[],
+    operation?: "read" | "write" | "read-write",
+  ): string | null {
+    const cfg = this.#cfg;
+    if (!cfg.enabled) return null;
     // 命令黑名单层（allowPatterns 仅放开本层）：逐条命令文本同一口径判定
     if (cfg.commandBlacklist.enabled) {
       for (const c of commands) {
@@ -599,7 +668,7 @@ export class GuardEngine {
           return formatSensitiveReceipt(
             hit,
             receiptToolName(toolName, args),
-            toolOperation(toolName, args),
+            operation ?? toolOperation(toolName, args),
           );
         }
       }
@@ -638,14 +707,18 @@ export function createSecurityGuard(
 /** bundle 入口：宿主加载后调用一次（监听器随宿主 fiber 生命周期回收）。 */
 export function apply(ctx: GuardHost, config: SecurityGuardConfig = {}): void {
   const { guard } = createSecurityGuard(ctx, config);
-  // 只读查询面挂到 ctx（防御式，与 task-engine/metric-loop 同款）：供 TUI /guard 接线
+  // 服务面挂到 ctx（防御式，与 task-engine/metric-loop 同款）：TUI /guard 查询 + 插件执行前复查
   const provideSvc = (
     ctx as { provide?: (name: string, value: unknown) => unknown }
   ).provide;
   if (typeof provideSvc === "function") {
-    provideSvc("guard", {
+    const service: GuardService = {
       recent: () => guard.recent(),
       policy: () => guard.policy(),
-    });
+      // 外部命令复查（命令不在工具入参里的场景，如 metric-loop 的 tick）
+      inspectCommand: (command: string, source?: string) =>
+        guard.inspectCommand(command, source),
+    };
+    provideSvc("guard", service);
   }
 }

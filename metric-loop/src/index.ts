@@ -8,6 +8,11 @@
  * 与 task-engine 同模式：零 DSH 运行时依赖、结构面访问 ctx；ctx.tools 缺失时降级告警而非抛错，
  * 保证 dsh 加载不崩。
  *
+ * 状态文件命令复查（可选）：`tick` 执行的 `measureCmd` 取自状态文件、不在工具入参里，
+ * security-guard 的 `tools/pre-execute` 看不到 —— 故本轮在**测量命令执行前**经
+ * `ctx.get('guard').inspectCommand` 复查（与 shell 工具同口径）；命中即拒绝本轮（状态不变）。
+ * guard 未挂载或形状不符时不复查（fail-open，只告警一次）：本包不硬依赖 security-guard。
+ *
  * 循环载体与宿主面复用（「复用底座，不新建」）：
  * - 周期唤醒 = 宿主 schedule（model-facing schedule_create after 提醒链式续排）；
  *   本插件每轮返回可直接调用的 schedule 参数，不另建调度器。
@@ -110,8 +115,67 @@ interface ToolArgs {
 }
 
 /**
+ * 命令复查器（security-guard 服务面）：返回 null = 放行；字符串 = 拦截回执（多行）。
+ * 真实实现由 security-guard 插件经 `ctx.get('guard')` 提供；缺省（未配置）即不复查。
+ */
+export type CommandChecker = (
+  command: string,
+  source?: string,
+) => string | null;
+
+/** security-guard 服务面（结构子集；不 import 对方代码、不进 inject，避免跨包硬依赖）。 */
+interface GuardServiceLike {
+  /** 命令复查 API（见 security-guard 的 GuardService.inspectCommand）。 */
+  inspectCommand?: (command: string, source?: string) => string | null;
+}
+
+/** 宿主服务惰性解析（与 task-engine 同款：apply 期服务 fiber 常未激活，执行期才可读）。 */
+function readService<T>(ctx: unknown, name: string): T | undefined {
+  try {
+    return (ctx as { get?: (n: string) => unknown }).get?.(name) as
+      T | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 构造「状态文件命令」复查器：按名惰性解析 security-guard 的复查 API。
+ * 服务缺失 / 形状不符 → 放行（fail-open，只告警一次）；复查自身抛错也按放行处理（不拖垮 tick）。
+ * 返回非字符串/空串一律按放行，只有明确的非空回执才算拦截。
+ */
+function makeCommandGuard(
+  ctx: unknown,
+  warn: (msg: string) => void,
+): CommandChecker {
+  let warned = false;
+  return (command, source) => {
+    const svc = readService<GuardServiceLike>(ctx, "guard");
+    const inspect = svc?.inspectCommand;
+    if (typeof inspect !== "function") {
+      if (!warned) {
+        warned = true;
+        warn(
+          "security-guard 服务不可用（ctx.get('guard') 无 inspectCommand）：" +
+            "状态文件里的命令不做执行前复查（已知残余边界）",
+        );
+      }
+      return null;
+    }
+    try {
+      const receipt = inspect.call(svc, command, source);
+      return typeof receipt === "string" && receipt.length > 0 ? receipt : null;
+    } catch (err) {
+      warn(`security-guard 复查异常（按放行处理）：${String(err)}`);
+      return null;
+    }
+  };
+}
+
+/**
  * 循环控制器：持有状态目录，编排 start/tick/status/stop，并提供 list 只读清单。
- * clock 与 measure 可注入（测试缝）；真实实现用 Date.now 与 /bin/sh -c。
+ * clock / measure / commandGuard 均可注入（测试缝）：前两者为时钟与测量，后者为
+ * security-guard 的命令复查（见 runRound 的执行前检查点）。
  */
 export class MetricLoopController {
   private readonly stateDir: string;
@@ -120,6 +184,8 @@ export class MetricLoopController {
   private readonly measure: (
     cmd: string,
   ) => Promise<{ value: number | null; error: string | null }>;
+  /** 状态文件命令复查器（可选；缺省不复查，行为与既有版本一致）。 */
+  private readonly commandGuard: CommandChecker | undefined;
 
   constructor(opts: {
     stateDir: string;
@@ -128,6 +194,7 @@ export class MetricLoopController {
     measure?: (
       cmd: string,
     ) => Promise<{ value: number | null; error: string | null }>;
+    commandGuard?: CommandChecker;
   }) {
     this.stateDir = opts.stateDir;
     this.timeoutMs = opts.timeoutMs ?? 30_000;
@@ -138,6 +205,7 @@ export class MetricLoopController {
         const out = await runMeasureCommand(cmd, { timeoutMs: this.timeoutMs });
         return { value: out.value, error: out.error };
       });
+    this.commandGuard = opts.commandGuard;
   }
 
   /** 新建循环（重置同名旧状态）并跑第一轮。 */
@@ -145,7 +213,7 @@ export class MetricLoopController {
     const now = this.now();
     const state = createInitialState(spec, now);
     saveState(this.stateDir, state);
-    return this.runRound(state, now, "explicit", 0);
+    return this.runRound(state, now, "explicit", 0, "metric_loop{start}");
   }
 
   /** 推进一轮；循环不存在时抛错（工具层转结构化错误）。 */
@@ -154,7 +222,13 @@ export class MetricLoopController {
     if (state === null) {
       throw new Error(`循环 "${id}" 不存在（先调用 metric_loop start）`);
     }
-    return this.runRound(state, this.now(), wake, tokensUsed);
+    return this.runRound(
+      state,
+      this.now(),
+      wake,
+      tokensUsed,
+      `metric_loop{tick} id=${id}`,
+    );
   }
 
   /** 只读状态；不存在返回 null。 */
@@ -206,14 +280,16 @@ export class MetricLoopController {
   }
 
   /**
-   * 单轮编排：cadence 节流（auto）→ 测量 → advance → 落盘 → 组装结果。
-   * deferred 不落盘（无状态变化）；已停止的 tick 原样返回。
+   * 单轮编排：cadence 节流（auto）→ 命令复查 → 测量 → advance → 落盘 → 组装结果。
+   * deferred 不落盘（无状态变化）；已停止的 tick 原样返回；
+   * 复查命中即抛错——本轮不测量、不落盘（状态文件保持原样），由工具层转结构化错误。
    */
   private async runRound(
     state: ReturnType<typeof loadState> & object,
     now: number,
     wake: WakeKind,
     tokensUsed: number,
+    source: string,
   ): Promise<TickResult> {
     const s = state as NonNullable<ReturnType<typeof loadState>>;
     if (s.status === "stopped") {
@@ -227,7 +303,17 @@ export class MetricLoopController {
     let value: number | null = null;
     let measureFailed = false;
     if (hasMeasure(s.spec)) {
-      const outcome = await this.measure(String(s.spec.measureCmd));
+      const cmd = String(s.spec.measureCmd);
+      // 执行前复查：状态文件里的命令不在任何工具入参里（guard 的 pre-execute 看不到它），
+      // 故在此补一道与 shell 工具同口径的检查（可选服务；未挂 guard 时不复查）
+      const denial = this.commandGuard?.(cmd, source) ?? null;
+      if (denial !== null) {
+        throw new Error(
+          `[metric-loop] 本轮未执行：状态文件中的测量命令被 security-guard 拦截` +
+            `（循环 "${s.id}" 状态未变更；修正命令或按回执放行后重试 tick）：\n${denial}`,
+        );
+      }
+      const outcome = await this.measure(cmd);
       value = outcome.value;
       measureFailed = outcome.value === null && outcome.error !== null;
     }
@@ -447,6 +533,8 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     controller = new MetricLoopController({
       stateDir: config?.stateDir ?? defaultStateDir(),
       timeoutMs: config?.commandTimeoutMs,
+      // 状态文件命令复查（可选服务）：惰性解析，guard 未挂载时不复查（fail-open）
+      commandGuard: makeCommandGuard(ctx, warn),
     });
   } catch (err) {
     warn(`控制器初始化失败：${String(err)}`);

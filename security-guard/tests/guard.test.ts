@@ -4,7 +4,9 @@
  * 官方文件工具（read / write / edit / patch / grep / glob 与读面 read_image）、
  * 插件文件工具登记表（写面 hash_edit / md_logic / ast_replace；读面 ast_query /
  * hash_read / fs_digest / code_map / md_map）、插件命令工具登记表
- * （metric_loop.measureCmd / task_decompose 的嵌套命令）与未登记工具边界。
+ * （metric_loop.measureCmd / task_decompose 的嵌套命令）与未登记工具边界；
+ * 以及外部命令复查 `inspectCommand`（命令不在工具入参里的场景，如 metric-loop 的 tick
+ * 执行状态文件里的 measureCmd）与服务面暴露。
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -20,6 +22,7 @@ import {
   DEFAULT_COMMAND_RULES,
   type GuardHost,
   type GuardRecord,
+  type GuardService,
   type PreExecuteExecution,
   type PreToolDecision,
 } from "../src/index.ts";
@@ -1069,4 +1072,132 @@ test("配置覆盖：allowedPaths 放行读面四工具（hash_read / fs_digest 
   } finally {
     fx.cleanup();
   }
+});
+
+// ---------------------------------------------------------------------------
+// 外部命令复查（inspectCommand）：给「命令不在工具入参里」的场景补执行前检查点
+// （metric-loop 的 tick 执行状态文件里的 spec.measureCmd；追踪文档
+// docs/implementation/2026-10-02-metric-loop-state-cmd-check.md）。
+// ---------------------------------------------------------------------------
+
+/** 命中 sudo 规则的无害命令文本（拼接构造：仓库内不出现真实危险命令字面量）。 */
+function riskyCommand(): string {
+  return `echo 0 # su${"do"} --version`;
+}
+
+test("命令复查：inspectCommand 命中默认黑名单 → deny 回执（含来源标注、规则 id、放行方式）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  const receipt = guard.inspectCommand(
+    riskyCommand(),
+    "metric_loop{tick} id=p1",
+  );
+  assert.notEqual(receipt, null);
+  // 首行来源标注（模型据此知道被拦的是状态文件里的命令，而非本次工具入参）
+  assert.match(
+    receipt!,
+    /^\[security-guard\] 命令复查来源：metric_loop\{tick\} id=p1。/,
+  );
+  assert.match(receipt!, /命令命中黑名单规则「sudo」/);
+  assert.match(receipt!, /原因：/);
+  assert.match(receipt!, /放行方式：/);
+  // 与 shell 工具同口径：同一文本经 bash 工具也被同一条规则拦
+  assert.match(
+    guard.inspect("bash", { command: riskyCommand() }) ?? "",
+    /「sudo」/,
+  );
+  // 普通命令 / 空命令 → 放行
+  assert.equal(guard.inspectCommand("echo 42", "metric_loop{tick}"), null);
+  assert.equal(guard.inspectCommand(""), null);
+});
+
+test("命令复查：判定记入 recent()（toolName = 来源标注，新在前）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  assert.notEqual(
+    guard.inspectCommand(riskyCommand(), "metric_loop{tick} id=p1"),
+    null,
+  );
+  assert.equal(
+    guard.inspectCommand("echo 42", "metric_loop{tick} id=p1"),
+    null,
+  );
+  const records = guard.recent();
+  assert.equal(records.length, 2);
+  assert.deepEqual(
+    records.map((r) => [r.toolName, r.verdict]),
+    [
+      ["metric_loop{tick} id=p1", "allow"],
+      ["metric_loop{tick} id=p1", "deny"],
+    ],
+  );
+  assert.match(records[1]?.reason ?? "", /「sudo」/);
+});
+
+test("命令复查：allowPatterns / 关层 / 敏感路径 / 非字符串防御（与 shell 同口径）", () => {
+  const allowSudo = {
+    homeDir: HOME,
+    commandBlacklist: { allowPatterns: ["\\bsu" + "do\\b"] },
+  };
+  // allowPatterns 只放开命令层：命令面命中规则也放行
+  const allowed = new GuardEngine(allowSudo);
+  assert.equal(allowed.inspectCommand(riskyCommand(), "src"), null);
+  assert.equal(allowed.inspectCommand(`su${"do"} -n true`, "src"), null);
+  // 命令黑名单层关闭 → 命令面放行；总开关关闭 → 全放行
+  assert.equal(
+    new GuardEngine({
+      homeDir: HOME,
+      commandBlacklist: { enabled: false },
+    }).inspectCommand(`su${"do"} -n true`, "src"),
+    null,
+  );
+  assert.equal(
+    new GuardEngine({ homeDir: HOME, enabled: false }).inspectCommand(
+      `su${"do"} -n true`,
+      "src",
+    ),
+    null,
+  );
+  // 敏感文件层同口径（命令内路径；命令面按读写措辞，工具名 = 来源标注）
+  const fx = makeSensitiveFixture();
+  try {
+    const hit = new GuardEngine({ homeDir: HOME }).inspectCommand(
+      `cat ${fx.envPath}`,
+      "metric_loop{tick} id=p1",
+    );
+    assert.match(hit ?? "", /读写敏感文件/);
+    assert.match(hit ?? "", /工具：metric_loop\{tick\} id=p1/);
+  } finally {
+    fx.cleanup();
+  }
+  // 防御：服务面是跨包结构调用，非字符串按「无命令」放行且不抛
+  const guard = new GuardEngine({ homeDir: HOME });
+  assert.equal(guard.inspectCommand(undefined as unknown as string), null);
+  assert.equal(guard.inspectCommand(42 as unknown as string, ""), null);
+});
+
+test("服务面：provide('guard') 暴露 inspectCommand（与 recent / policy 同面、同一引擎记账）", () => {
+  const provided = new Map<string, unknown>();
+  const host: GuardHost & { provide: (name: string, value: unknown) => void } =
+    {
+      on: () => () => {},
+      logger: () => ({ info: () => {} }),
+      provide: (serviceName, value) => {
+        provided.set(serviceName, value);
+      },
+    };
+  apply(host, { homeDir: HOME });
+  const service = provided.get("guard") as GuardService;
+  assert.equal(typeof service.recent, "function");
+  assert.equal(typeof service.policy, "function");
+  assert.equal(typeof service.inspectCommand, "function");
+  // 经服务面复查：命中 → 回执；普通 → null（来源缺省 external-command）
+  assert.match(
+    service.inspectCommand(riskyCommand(), "metric_loop{tick} id=p1") ?? "",
+    /命令复查来源：metric_loop\{tick\} id=p1/,
+  );
+  assert.equal(service.inspectCommand("echo 1"), null);
+  // 与 pre-execute 用同一引擎实例 → recent() 能看到这两次复查
+  assert.deepEqual(
+    service.recent().map((r) => r.verdict),
+    ["allow", "deny"],
+  );
 });

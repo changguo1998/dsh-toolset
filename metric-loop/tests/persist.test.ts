@@ -72,6 +72,52 @@ test("loadState：损坏 JSON 抛带路径的清晰错误", () => {
   });
 });
 
+test("loadState：spec / spec.measureCmd 形状非法 → 清晰错误（不进入命令执行路径）", () => {
+  withTmpDir((dir) => {
+    const base = {
+      id: "shape",
+      rounds: 0,
+      best: null,
+      streak: 0,
+      tokensUsed: 0,
+      status: "running",
+      stopReason: null,
+      history: [],
+    };
+    // spec 非对象
+    writeFileSync(
+      statePathFor(dir, "shape1"),
+      JSON.stringify({
+        version: STATE_VERSION,
+        state: { ...base, id: "shape1", spec: 42 },
+      }),
+    );
+    assert.throws(() => loadState(dir, "shape1"), /spec 段形状非法/);
+    // measureCmd 非 string（会进 hasMeasure / 命令复查 / /bin/sh -c）
+    writeFileSync(
+      statePathFor(dir, "shape2"),
+      JSON.stringify({
+        version: STATE_VERSION,
+        state: { ...base, id: "shape2", spec: { measureCmd: 42 } },
+      }),
+    );
+    assert.throws(() => loadState(dir, "shape2"), /spec\.measureCmd 形状非法/);
+    // 合法形状（缺省 measureCmd = metricless）不受影响
+    writeFileSync(
+      statePathFor(dir, "shape3"),
+      JSON.stringify({
+        version: STATE_VERSION,
+        state: {
+          ...base,
+          id: "shape3",
+          spec: { direction: "min", window: 5, maxRounds: 50 },
+        },
+      }),
+    );
+    assert.equal(loadState(dir, "shape3")?.id, "shape3");
+  });
+});
+
 test("sanitizeLoopId：去除路径逃逸字符，限长 64", () => {
   assert.equal(sanitizeLoopId("a/b\\c:d"), "a_b_c_d");
   assert.equal(sanitizeLoopId(".."), "..");

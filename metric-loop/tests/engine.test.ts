@@ -79,6 +79,16 @@ test("normalizeSpec：非法 window/maxRounds 抛错", () => {
   assert.throws(() => normalizeSpec({ direction: "sideways" as never }));
 });
 
+test("normalizeSpec：measureCmd 非 string 抛错（命令执行路径的类型前置校验）", () => {
+  assert.throws(
+    () => normalizeSpec({ measureCmd: 42 as never }),
+    /measureCmd 必须为 string/,
+  );
+  // 合法：缺省（metricless）与 string 都通过
+  assert.equal(normalizeSpec({}).measureCmd, undefined);
+  assert.equal(normalizeSpec({ measureCmd: "echo 1" }).measureCmd, "echo 1");
+});
+
 test("plateau（min）：连续 window 轮无改进后停止，best 保持历史最小", () => {
   // r1=10 基线, r2=8 改进, r3=9 无(1), r4=9 无(2), r5=9 无(3) → plateau
   const state = runSeries([10, 8, 9, 9, 9], { window: 3 });

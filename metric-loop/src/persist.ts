@@ -67,6 +67,18 @@ export function loadState(stateDir: string, id: string): LoopState | null {
     if (state[key] === undefined)
       throw new Error(`状态文件缺少字段 ${key}：${file}`);
   }
+  // 嵌套形状校验：spec 必须是对象、measureCmd（可选）必须是 string——measureCmd 会进入
+  // 命令执行路径（hasMeasure / 执行前复查），形状不符即报清晰错误（fail-closed，不执行命令）
+  const spec = state.spec as unknown;
+  if (typeof spec !== "object" || spec === null) {
+    throw new Error(`状态文件 spec 段形状非法（要求对象）：${file}`);
+  }
+  const measureCmd = (spec as { measureCmd?: unknown }).measureCmd;
+  if (measureCmd !== undefined && typeof measureCmd !== "string") {
+    throw new Error(
+      `状态文件 spec.measureCmd 形状非法（要求 string）：${file}`,
+    );
+  }
   return state;
 }
 

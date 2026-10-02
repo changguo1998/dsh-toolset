@@ -55,6 +55,12 @@ export function normalizeSpec(raw: LoopSpec): LoopState["spec"] {
       throw new RangeError(`${key} 必须为非负有限数，收到：${String(v)}`);
     }
   }
+  // measureCmd 会直接进入命令执行路径（/bin/sh -c 与执行前复查），故类型必须是 string
+  if (raw.measureCmd !== undefined && typeof raw.measureCmd !== "string") {
+    throw new TypeError(
+      `measureCmd 必须为 string，收到：${typeof raw.measureCmd}`,
+    );
+  }
   return {
     id: raw.id ?? "default",
     direction,

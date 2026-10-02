@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -12,8 +12,12 @@ import { test } from "node:test";
 import {
   apply,
   createController,
+  loadState,
+  MetricLoopController,
   provide,
-  type MetricLoopController,
+  saveState,
+  statePathFor,
+  STATE_VERSION,
   type MetricLoopService,
 } from "../src/index.ts";
 
@@ -466,6 +470,238 @@ test("render 形参顺序哨兵：渲染的必须是第二参（变异回单形�
         `${label}：第一参（args）不该被当成 value 渲染`,
       );
     }
+  } finally {
+    cleanup(dir);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 状态文件命令复查：tick 执行的 measureCmd 取自状态文件、不在工具入参里，
+// 故在测量前补一道复查（security-guard 服务面；追踪文档
+// docs/implementation/2026-10-02-metric-loop-state-cmd-check.md）。
+// ---------------------------------------------------------------------------
+
+/** 命中 sudo 规则的无害命令文本（拼接构造：仓库内不出现真实危险命令字面量）。 */
+function riskyCommand(): string {
+  return `echo 0 # su${"do"} --version`;
+}
+
+/** 假复查器（与 guard 服务面同契约）：命中危险文本 → 回执；记录每次调用的命令与来源。 */
+function makeFakeGuard(): {
+  checker: (command: string, source?: string) => string | null;
+  calls: { command: string; source?: string }[];
+} {
+  const calls: { command: string; source?: string }[] = [];
+  const marker = `su${"do"}`;
+  return {
+    calls,
+    checker: (command, source) => {
+      calls.push({ command, source });
+      return command.includes(marker)
+        ? "[security-guard] 已拦截：命令命中黑名单规则「sudo」。"
+        : null;
+    },
+  };
+}
+
+test("tick 前复查：状态文件里的危险命令被执行前拦下（不测量、不落盘、带来源标注）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "metric-loop-guard-"));
+  try {
+    let measureCalls = 0;
+    const { checker, calls } = makeFakeGuard();
+    const controller = new MetricLoopController({
+      stateDir: dir,
+      commandGuard: checker,
+      measure: async () => {
+        measureCalls += 1;
+        return { value: 1, error: null };
+      },
+    });
+    // ① start：命令来自入参（guard 的 pre-execute 已覆盖），引擎内复查为第二道 → 放行
+    await controller.start({ id: "g1", measureCmd: "echo 1" });
+    assert.equal(measureCalls, 1);
+
+    // ② 模拟「命令先落地状态文件、再 tick」的旁路：手改状态文件里的 measureCmd
+    const loaded = loadState(dir, "g1");
+    assert.ok(loaded !== null);
+    loaded.spec.measureCmd = riskyCommand();
+    saveState(dir, loaded);
+    const before = loadState(dir, "g1");
+    assert.ok(before !== null);
+
+    // ③ tick：执行前被拦（抛错 → 工具层转 ok:false 结构化错误）
+    await assert.rejects(
+      () => controller.tick("g1", "explicit"),
+      /状态文件中的测量命令被 security-guard 拦截/,
+    );
+    assert.equal(measureCalls, 1, "被拦的命令不得进入测量");
+    assert.equal(calls.at(-1)?.command, riskyCommand());
+    assert.equal(calls.at(-1)?.source, "metric_loop{tick} id=g1");
+
+    // ④ 状态文件原样：轮次 / 更新时间 / 命令文本都不变（本轮未消耗）
+    const after = loadState(dir, "g1");
+    assert.ok(after !== null);
+    assert.equal(after.rounds, before.rounds);
+    assert.equal(after.updatedAt, before.updatedAt);
+    assert.equal(after.spec.measureCmd, riskyCommand());
+
+    // 复查逐轮记录：start 一次、被拦的 tick 一次，各带来源标注
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0]?.source, "metric_loop{start}");
+    assert.equal(calls[0]?.command, "echo 1");
+
+    // ⑤ 改回普通命令 → tick 恢复正常推进（拦一次不把循环停死）
+    const fixed = loadState(dir, "g1");
+    assert.ok(fixed !== null);
+    fixed.spec.measureCmd = "echo 2";
+    saveState(dir, fixed);
+    const ticked = await controller.tick("g1", "explicit");
+    assert.equal(ticked.round?.round, before.rounds + 1);
+    assert.equal(measureCalls, 2);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("tick 前复查：未配置（无 guard 服务）不拦；状态文件缺失/形状异常不崩且行为明确", async () => {
+  // ① 未配置复查器：危险文本照常进入测量（fail-open，与既有版本一致）
+  const h = makeHarness();
+  try {
+    h.values.push(5, 3);
+    await h.controller.start({ id: "n1", measureCmd: riskyCommand() });
+    const ticked = await h.controller.tick("n1", "explicit");
+    assert.equal(ticked.round?.round, 2);
+    assert.equal(h.count(), 2);
+  } finally {
+    cleanup(h.dir);
+  }
+
+  // ② 形状异常：spec 非对象 / measureCmd 非 string → 清晰错误（不测量、不复查、不崩）
+  const shapeDir = mkdtempSync(path.join(tmpdir(), "metric-loop-shape-"));
+  try {
+    const { checker, calls } = makeFakeGuard();
+    const controller = new MetricLoopController({
+      stateDir: shapeDir,
+      commandGuard: checker,
+      measure: async () => {
+        throw new Error("形状异常时不该测量");
+      },
+    });
+    const base = {
+      id: "shape",
+      rounds: 0,
+      best: null,
+      streak: 0,
+      tokensUsed: 0,
+      status: "running",
+      stopReason: null,
+      history: [],
+    };
+    writeFileSync(
+      statePathFor(shapeDir, "bad-spec"),
+      JSON.stringify({
+        version: STATE_VERSION,
+        state: { ...base, id: "bad-spec", spec: 42 },
+      }),
+    );
+    await assert.rejects(
+      () => controller.tick("bad-spec", "explicit"),
+      /spec 段形状非法/,
+    );
+    writeFileSync(
+      statePathFor(shapeDir, "bad-cmd"),
+      JSON.stringify({
+        version: STATE_VERSION,
+        state: { ...base, id: "bad-cmd", spec: { measureCmd: 42 } },
+      }),
+    );
+    await assert.rejects(
+      () => controller.tick("bad-cmd", "explicit"),
+      /spec\.measureCmd 形状非法/,
+    );
+    // ③ 状态文件缺失：既有语义（报「不存在」，不崩）
+    await assert.rejects(() => controller.tick("ghost", "explicit"), /不存在/);
+    // 形状异常与缺失一律不进复查（更不执行命令）
+    assert.equal(calls.length, 0);
+  } finally {
+    cleanup(shapeDir);
+  }
+});
+
+test("apply 接线：ctx.get('guard').inspectCommand 在 tick 生效（拦危险 / 放行普通）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "metric-loop-guard-apply-"));
+  const registered: Array<Record<string, unknown>> = [];
+  const calls: { command: string; source?: string }[] = [];
+  const marker = `su${"do"}`;
+  const ctx = {
+    tools: {
+      register: (def: unknown) =>
+        void registered.push(def as Record<string, unknown>),
+    },
+    provide: () => {},
+    // 假 guard 服务面（与 security-guard 的 GuardService 同契约）
+    get: (name: string): unknown =>
+      name === "guard"
+        ? {
+            inspectCommand: (
+              command: string,
+              source?: string,
+            ): string | null => {
+              calls.push({ command, source });
+              return command.includes(marker)
+                ? "[security-guard] 已拦截：命令命中黑名单规则「sudo」。（放行方式：allowPatterns）"
+                : null;
+            },
+          }
+        : undefined,
+  };
+  try {
+    await apply(ctx, { stateDir: dir });
+    const def = registered[0];
+    assert.ok(def !== undefined);
+    const execute = def["execute"] as (
+      args: Record<string, unknown>,
+    ) => Promise<Record<string, unknown>>;
+
+    // ① start：入参命令经引擎内复查放行，真实 /bin/sh -c 执行 echo 3
+    const started = await execute({
+      action: "start",
+      id: "ap",
+      measureCmd: "echo 3",
+    });
+    assert.equal(started.ok, true);
+    assert.equal((started.round as { value?: number } | null)?.value, 3);
+
+    // ② 手改状态文件为危险命令 → tick 被拦，回执透出在结构化错误里
+    const loaded = loadState(dir, "ap");
+    assert.ok(loaded !== null);
+    loaded.spec.measureCmd = riskyCommand();
+    saveState(dir, loaded);
+    const blocked = await execute({
+      action: "tick",
+      id: "ap",
+      wake: "explicit",
+    });
+    assert.equal(blocked.ok, false);
+    assert.match(
+      String(blocked.error),
+      /状态文件中的测量命令被 security-guard 拦截/,
+    );
+    assert.match(String(blocked.error), /「sudo」/);
+    assert.equal(calls.at(-1)?.command, riskyCommand());
+    assert.equal(calls.at(-1)?.source, "metric_loop{tick} id=ap");
+    // start 那次也走同一复查缝（来源标注区分 start / tick）
+    assert.equal(calls[0]?.source, "metric_loop{start}");
+    assert.equal(calls[0]?.command, "echo 3");
+
+    // ③ 改回普通命令 → tick 恢复（真实执行，轮次推进）
+    const fixed = loadState(dir, "ap");
+    assert.ok(fixed !== null);
+    fixed.spec.measureCmd = "echo 4";
+    saveState(dir, fixed);
+    const ok = await execute({ action: "tick", id: "ap", wake: "explicit" });
+    assert.equal(ok.ok, true);
+    assert.equal((ok.round as { value?: number } | null)?.value, 4);
   } finally {
     cleanup(dir);
   }
