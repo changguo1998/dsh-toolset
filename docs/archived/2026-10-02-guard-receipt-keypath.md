@@ -55,3 +55,15 @@
 
 - 条目从项目级 `docs/BACKLOG.md` 清理并重编号；追踪文档移入 `docs/archived/`。
 - 残余：① **嵌套数组路径**（`a[][].path`）与登记表 `commandPathValues` 的解析口径不一致（既存；影响 `task_decompose` 对嵌套数组命令路径的登记）；② **check 截断静默放行** → BACKLOG `#5`；③ 审阅终报在关闭时未回（已回部分见上表，与实现一致）；④ 真机未验（无 dsh 会话）。
+
+## 补记：既有断言的「原 → 新 → 原因」清单（2026-10-02，审阅要求）
+
+| 位置（当时行号） | 原断言 | 新断言 | 原因 |
+|---|---|---|---|
+| `tests/guard.test.ts:1434` | `/路径复查来源：未登记工具「present」的 path。/` | `…的 files[].path。` | 来源标注行升级为完整键路径（该用例参数是 `files:[{path}]`） |
+| `:1605` | `/携带潜在路径\/命令参数（command）/` | `（children[].executor.command）`（按形状拼、`keyPathRegExp` 转义） | deny 回执按路径展示，三种两层形状不再同形 |
+| `:1609` | `（path）` | `（files[].meta.path）` | 同上 |
+| `:1741` | `/携带潜在路径\/命令参数（command）/` | `（children[].executor.command）` | 同上（遍历上限用例的参数即该路径） |
+
+- 未动的既有断言：全部**顶层键**用例（`command`/`measureCmd`/`cmd`、`script`/`code`/`program`、`to`、`filePath` —— 顶层键路径 == 键名）、check 的规则 id / 敏感层标签 / `allowPatterns` / `allowedPaths` 断言。
+- 审阅补记结论：**截断回执不必给已收集路径**（`index.ts:1039` / `:1111` 已核实：其只在**零命中**时可达）；`docs/host`、根 README/zh、STATUS 均不需同步；`scripts/tool-surface-check.mjs` 仅消费键集/`keyDepth`，本次未动（其报告仍打叶子键名，追求口径一致时可选做 → 已并入 BACKLOG）。
