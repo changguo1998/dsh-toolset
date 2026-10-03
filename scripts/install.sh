@@ -42,10 +42,10 @@ usage() {
   --sync                更新已存在的 profile：合并式补挂本仓库插件（保留非本仓库条目），再跑
                         pnpm install；不改写 cordis.patch.yml 的标题 provider 配置（见下）
   --take-over-title     与 --sync 同用：禁用 profile patch 里活跃的官方 all-prompts 标题
-                        provider 行，并把其 provider/model 复制给本仓库的
-                        session-title-cutoff（宿主只允许一个标题 provider；不带本开关
-                        只提示、不改 patch）。撤销：删除 cordis.patch.yml 文件头的
-                        title-takeover marker 行后重跑
+                        provider 条目，并把其 provider/model 复制给本仓库的
+                        session-title-cutoff（宿主只允许一个标题 provider；不带本开关只提示、
+                        不改 patch）。以 patch 内容为准：缺则补、取值失败下次重试；撤销 = 删除
+                        patch 里以「# install.sh generated: title-takeover-」开头的生成区
   --dry-run             只打印将要执行的操作，不落盘
   --skip-verify         跳过收尾自检（dsh --profile <name> --dump-config；无 dsh / CI 场景）
   -h, --help            显示本帮助
@@ -101,7 +101,9 @@ backup() {
     if [ "$dry_run" = 1 ]; then
         printf '[dry-run] 备份 %s -> %s.bak.<时间戳>\n' "$1" "$1"
     else
-        cp -p "$1" "$1.bak.$(date +%s)"
+        bak="$1.bak.$(date +%s)"
+        cp -p "$1" "$bak"
+        log "已备份：$bak"
     fi
 }
 
@@ -173,6 +175,11 @@ done
 check_name "$profile_name" "profile 名"
 if [ "$take_over_title" = 1 ] && [ "$sync" != 1 ]; then
     die "--take-over-title 需要与 --sync 一起用（它更新已存在的 profile 的 cordis.patch.yml）"
+fi
+if [ "$sync" = 1 ] && [ "$force" = 1 ]; then
+    die "『--sync --force』组合不支持：清单按 --sync 合并、资产文件按 --force 覆盖，语义不一致；且 --force 会用示例 patch 覆盖 cordis.patch.yml（本脚本生成的标题接管生成区一并丢失，示例里官方行是注释 → 之后无法自动重建），并重渲染 package.json（用户自加的依赖与额外 bundle 丢失）。二选一：
+    a) 只更新挂载、保留 patch 与自加项：sh scripts/install.sh --sync [--take-over-title]
+    b) 确认重置资产：先备份 profile 的 cordis.patch.yml 与 package.json（覆盖前本脚本也会留 .bak），再单独跑 sh scripts/install.sh --force（不带 --sync）；重置后恢复接管 = 用 .bak 恢复 patch，或重挂官方行（依赖 + insert 行）后再跑 --sync --take-over-title"
 fi
 dsh_home="${DSH_HOME:-$HOME/.dsh}"
 
@@ -447,106 +454,241 @@ for asset in pnpm-workspace.yaml cordis.patch.yml; do
         log "内容未变，跳过备份与复制：$target"
         continue
     fi
+    if [ -f "$target" ] && [ "$force" = 1 ] &&
+        grep -q -E '^# install\.sh (generated: title-takeover|title-takeover (route )?marker v1)' "$target"; then
+        warn "--force 将用示例文件覆盖 $target：其中的标题接管生成区 / 标记会丢失（覆盖前会备份，恢复用 .bak；之后可重跑 --sync --take-over-title 重建）"
+    fi
     backup "$target"
     run cp "$profile_asset_dir/$asset" "$target"
 done
 # --sync：标题 provider 接管是**显式开关**（--take-over-title）。
-# 宿主只允许一个标题 provider；但 patch 里的 all-prompts 行可能是**用户自己 insert** 的
-# （文本 grep 分不清「宿主挂载」与「用户自插」，历史上曾把 fff 的官方行关成死行），故
-# --sync 单独**绝不改写** patch：命中只提示（--dump-default-config 不是只读判据：
-# 它会物化 profile 派生文件，且在 pnpm install 之前跑时 bundle 行还判不出来）。
-# 幂等标记写在**文件头**独立行（与追加块解耦：用户清理追加块不再连带删标记）。
+# 文本判据分不清「宿主挂载的行」与「用户自己 insert 的行」，故 --sync 单独**绝不改写** patch
+# （只按内容提示）；带开关时才维护**本脚本的生成区**——判定全部以 patch 内容为准：命中条目按
+# 官方包名匹配（token 边界）、禁用态按条目 id + `disabled: true` 认、生成区按 sentinel 注释认；
+# 缺则补、取值失败只 warn 留待重试；**删除生成区 = 放弃接管**。
+# 注：--dump-default-config 不是只读判据（会物化 profile 派生文件），故不用它做判据。
 patch_file="$pdir/cordis.patch.yml"
-title_marker_key="title-takeover marker v1"
-title_marker_line="# install.sh ${title_marker_key}（--take-over-title）：删除本行即视为放弃接管，可重跑 --sync --take-over-title 重放"
-title_legacy_key="session-title-cutoff 接管标题 provider"
 title_official_key="dsh-session-title-all-prompts-llm"
+title_disable_sentinel="# install.sh generated: title-takeover-disable v1"
+title_route_sentinel="# install.sh generated: title-takeover-route v1"
 if [ "$sync" = 1 ] && [ -f "$patch_file" ]; then
-    # 活跃（非注释）官方行的首行号；空 = 未见（不代表宿主基础层没有）
-    title_active_line="$(awk -v k="$title_official_key" '!/^[[:space:]]*#/ && index($0, k) { print NR; exit }' "$patch_file")"
-    if grep -qF "$title_marker_key" "$patch_file"; then
-        if [ -n "$title_active_line" ]; then
-            log "标题接管已记录（文件头 marker 命中），跳过"
-        else
-            warn "标题接管 marker 在，但 patch 里未见活跃的 all-prompts 行——未自动重写（如需重放：删除文件头 marker 行后重跑 --sync --take-over-title）"
-        fi
-    elif grep -qF "$title_legacy_key" "$patch_file"; then
-        # 旧标记（历史 --sync 把标记写在被保护片段里）：按已接管处理；补文件头 marker 属
-        # 迁移动作，只在显式带开关时做（普通 --sync 对 patch 保持 100% 不改字节）
-        if [ "$take_over_title" != 1 ]; then
-            log "检测到旧版接管标记（历史 --sync 追加，标记在被保护片段内）：按已接管处理、本次不改动（如需补文件头 marker：重跑 --sync --take-over-title）"
-        elif [ "$dry_run" = 1 ]; then
-            printf '[dry-run] 补写标题接管文件头 marker 到 %s\n' "$patch_file"
-        else
-            backup "$patch_file"
-            tmp_patch="$patch_file.tmp.$$"
-            if { printf '%s\n' "$title_marker_line"; cat "$patch_file"; } > "$tmp_patch" &&
-                cat "$tmp_patch" > "$patch_file"; then
-                rm -f "$tmp_patch"
-                log "已补写文件头 marker（接管片段按旧标记判定已存在，未重复追加）"
-            else
-                rm -f "$tmp_patch"
-                die "写入标题接管 marker 失败：$patch_file"
-            fi
-        fi
-    elif [ "$take_over_title" = 1 ]; then
-        if [ -z "$title_active_line" ]; then
-            log "带 --take-over-title，但 patch 中未见活跃的 $title_official_key 行：不追加（不判断宿主基础层）"
-        elif [ "$dry_run" = 1 ]; then
-            printf '[dry-run] 追加标题禁用片段 + 文件头 marker 到 %s\n' "$patch_file"
-        else
-            backup "$patch_file"
-            cat >> "$patch_file" << 'EOF'
-
-# 追加（scripts/install.sh --sync --take-over-title）：按 --take-over-title 接管标题 provider：
-# 禁用官方 all-prompts 实现（宿主 ctx.sessionTitle 只允许注册一个 provider，二次注册会抛错）。
-# 注意：这里硬编码官方行的 id；若官方改用别的 id 挂载，本条会变成未命中的 patch
-# （见 docs/BACKLOG.md「守卫残余」）。
-- id: session-title-all-prompts-llm
-  disabled: true
-EOF
-            log "已追加：禁用官方 all-prompts 标题 provider"
-            # 把官方条目的 provider/model 复制给本仓库实现（all-prompts 在首条消息时可能
-            # 尚无「已记录路由」，显式配对最稳）。仅当原条目同时给出两者时才生成覆盖块。
-            title_provider="$(awk '/dsh-session-title-all-prompts-llm/{f=1} f&&/^[[:space:]]*provider:/{print $2; exit}' "$patch_file")"
-            title_model="$(awk '/dsh-session-title-all-prompts-llm/{f=1} f&&/^[[:space:]]*model:/{print $2; exit}' "$patch_file")"
-            if [ -n "$title_provider" ] && [ -n "$title_model" ]; then
-                cat >> "$patch_file" << EOF
-
-# 由 install.sh --sync 复制自官方 all-prompts 条目：显式路由（provider/model 必须成对）。
-- id: session-title-cutoff
-  config:
-    provider: $title_provider
-    model: $title_model
-EOF
-                log "已追加：session-title-cutoff 显式路由（provider=$title_provider model=$title_model）"
-            else
-                warn "未能在官方 all-prompts 条目中读到 provider/model；请手工为 session-title-cutoff 配置（否则首条消息可能因无已记录路由失败）"
-            fi
-            # marker 写到文件头（就地重写：跟随软链、保权限 / inode；临时文件用完即删）
-            tmp_patch="$patch_file.tmp.$$"
-            if { printf '%s\n' "$title_marker_line"; cat "$patch_file"; } > "$tmp_patch" &&
-                cat "$tmp_patch" > "$patch_file"; then
-                rm -f "$tmp_patch"
-                log "已记录接管（文件头 marker；撤销：删除该行后重跑 --sync --take-over-title）"
-            else
-                rm -f "$tmp_patch"
-                die "写入标题接管 marker 失败：$patch_file（片段已追加，请手工在文件头补 marker）"
-            fi
-        fi
-    elif [ -n "$title_active_line" ]; then
+    # 结构化读取（node；只读）：`id <id> <行>` / `disabled <id>` / `value <p> <m>` / `route <p> <m>` /
+    # `generated-disable <id> <行>` / `generated-route <行>` / `legacy-marker`。
+    # 取值一律白名单清洗（剥成对引号 / 去行内注释；含空格或非法字符视为取不到）。
+    title_state="$(
+        node -e '
+const fs = require("fs");
+const [file, key] = process.argv.slice(1);
+const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+const active = (s) => !/^\s*#/.test(s);
+const clean = (v) => {
+  let t = (v == null ? "" : v).trim();
+  if (/^["\x27].*["\x27]$/.test(t)) t = t.slice(1, -1).trim();
+  t = t.replace(/\s+#.*$/, "").trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(t) ? t : "";
+};
+const hasKey = (s) => {
+  for (let i = s.indexOf(key); i >= 0; i = s.indexOf(key, i + 1)) {
+    const b = i === 0 ? "" : s[i - 1];
+    const a = s[i + key.length] == null ? "" : s[i + key.length];
+    if (!/[A-Za-z0-9._-]/.test(b) && !/[A-Za-z0-9._-]/.test(a)) return true;
+  }
+  return false;
+};
+const items = [];
+let cur = null;
+for (let idx = 0; idx < lines.length; idx += 1) {
+  const line = lines[idx];
+  if (!active(line)) continue;
+  const m = line.match(/^(\s*)- /);
+  if (m) {
+    if (cur && m[1].length <= cur.indent) {
+      items.push(cur);
+      cur = null;
+    }
+    if (!cur) cur = { indent: m[1].length, line: idx + 1, fields: {} };
+    const fm = line.slice(m[0].length).match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (fm) cur.fields[fm[1]] = fm[2];
+    continue;
+  }
+  if (!cur) continue;
+  const im = line.match(/^(\s*)([A-Za-z0-9_-]+):\s*(.*)$/);
+  if (!im) continue;
+  if (im[1].length <= cur.indent) {
+    items.push(cur);
+    cur = null;
+    continue;
+  }
+  if (!(im[2] in cur.fields)) cur.fields[im[2]] = im[3];
+}
+if (cur) items.push(cur);
+const out = [];
+const hits = items.filter((it) =>
+  [it.fields.name, it.fields.id].some((v) => v && hasKey(v)),
+);
+const seen = new Set();
+for (const it of hits) {
+  const id = clean(it.fields.id);
+  if (!id || seen.has(id)) continue;
+  seen.add(id);
+  out.push(`id ${id} ${it.line}`);
+  if (/^true$/.test((it.fields.disabled == null ? "" : it.fields.disabled).trim()))
+    out.push(`disabled ${id}`);
+}
+// 禁用态按 id 扫**全部**条目（本脚本生成的禁用块只有 id、没有 name，不在 hits 里）
+for (const it of items) {
+  const id = clean(it.fields.id);
+  if (!id || !seen.has(id)) continue;
+  if (/^true$/.test((it.fields.disabled == null ? "" : it.fields.disabled).trim()))
+    out.push(`disabled ${id}`);
+}
+const val = hits
+  .map((it) => [clean(it.fields.provider), clean(it.fields.model)])
+  .find((pair) => pair[0] && pair[1]);
+if (val) out.push(`value ${val[0]} ${val[1]}`);
+const cutoff = items.find((it) => clean(it.fields.id) === "session-title-cutoff");
+if (cutoff) {
+  const cp = clean(cutoff.fields.provider);
+  const cm = clean(cutoff.fields.model);
+  if (cp && cm) out.push(`route ${cp} ${cm}`);
+}
+for (let idx = 0; idx < lines.length; idx += 1) {
+  const line = lines[idx];
+  if (line.indexOf("# install.sh generated: title-takeover-disable v1") === 0) {
+    const rest = lines.slice(idx + 1).find((l) => l.trim() !== "" && active(l));
+    const m = rest == null ? null : rest.match(/^\s*- id:\s*(\S+)/);
+    out.push(`generated-disable ${m ? clean(m[1]) : "-"} ${idx + 1}`);
+  }
+  if (line.indexOf("# install.sh generated: title-takeover-route v1") === 0)
+    out.push(`generated-route ${idx + 1}`);
+  if (/^# install\.sh title-takeover (route )?marker v1/.test(line)) out.push("legacy-marker");
+}
+process.stdout.write(`${out.join("\n")}\n`);
+' "$patch_file" "$title_official_key"
+    )" || die "读取标题条目状态失败：$patch_file"
+    title_ids="$(printf '%s\n' "$title_state" | awk '/^id /{printf "%s ", $2}')"
+    title_missing=""
+    for title_id in $title_ids; do
+        printf '%s\n' "$title_state" | grep -qx "disabled $title_id" || title_missing="$title_missing $title_id"
+    done
+    title_route="$(printf '%s\n' "$title_state" | awk '/^route /{print $2 " " $3; exit}')"
+    if [ "$take_over_title" != 1 ]; then
+        # 只读：绝不改写（按内容给精确提示）
         case " $final " in
             *" session-title-cutoff "*)
-                warn "$patch_file:$title_active_line 有活跃的官方 all-prompts 标题 provider 行，而本 profile 也挂了 session-title-cutoff（宿主只允许一个标题 provider，同挂会有一个注册失败、且可能静默不生效）。二选一："
-                warn "  a) 让 cutoff 接管：sh scripts/install.sh --sync --take-over-title（禁用该行并把它的 provider/model 复制给 cutoff）"
-                warn "  b) 保留官方实现：把 session-title-cutoff 从 profile 的 bundles 移除，或给它加 disabled: true"
+                if [ -n "$title_missing" ]; then
+                    warn "$patch_file 里官方 all-prompts 标题 provider 仍启用（id:$title_missing），而本 profile 也挂了 session-title-cutoff（宿主只允许一个标题 provider，同挂会有一个注册失败、且可能静默不生效）。二选一："
+                    warn "  a) 让 cutoff 接管：sh scripts/install.sh --sync --take-over-title（禁用这些条目并按需复制 provider/model）"
+                    warn "  b) 保留官方实现：把 session-title-cutoff 从 profile 的 bundles 移除，或给它加 disabled: true"
+                elif [ -n "$title_ids" ] && [ -z "$title_route" ]; then
+                    log "标题接管：禁用块已在，但未见 session-title-cutoff 的显式路由（provider/model）——带 --take-over-title 可补齐"
+                else
+                    log "profile patch 未见活跃的官方 all-prompts 标题 provider 行（不判断宿主基础层；如你另行挂载，请手工加 disabled: true）"
+                fi
                 ;;
             *)
-                log "profile patch 有活跃的 all-prompts 行，但本 profile 未挂 session-title-cutoff（不冲突）：不改动 patch"
+                if [ -n "$title_missing" ]; then
+                    log "profile patch 有活跃的 all-prompts 行，但本 profile 未挂 session-title-cutoff（不冲突）：不改动 patch"
+                else
+                    log "profile patch 未见活跃的官方 all-prompts 标题 provider 行（不判断宿主基础层）"
+                fi
                 ;;
         esac
     else
-        log "profile patch 未见活跃的官方 all-prompts 标题 provider 行（不判断宿主基础层；如你另行挂载，请手工加 disabled: true）"
+        case " $final " in
+            *" session-title-cutoff "*) ;;
+            *) die "--take-over-title 需要 profile 里挂 session-title-cutoff（否则禁用官方实现后没有替代标题 provider）：请把它加进 --plugins" ;;
+        esac
+        if [ "$dry_run" = 1 ]; then
+            printf '[dry-run] 按当前 patch 补齐 / 校正标题接管生成区（含旧标记行清理）：%s\n' "$patch_file"
+        else
+            # 宿主按 patch 顺序索引（insert 先于 disabled）→ 生成区必须排在命中条目之后
+            title_gen_line="$(printf '%s\n' "$title_state" | awk '/^generated-disable /{print $3; exit}')"
+            title_last_hit="$(printf '%s\n' "$title_state" | awk '/^id /{l=$3} END{print l}')"
+            title_order_bad=0
+            if [ -n "$title_gen_line" ] && [ -n "$title_last_hit" ] && [ "$title_gen_line" -lt "$title_last_hit" ]; then
+                title_order_bad=1
+            fi
+            title_wrote=0
+            # 生成区写入：本次运行首次写入前备份一次
+            title_write() {
+                [ "$title_wrote" = 1 ] || backup "$patch_file"
+                title_wrote=1
+                cat >> "$patch_file"
+            }
+            if [ -n "$title_missing" ]; then
+                title_write << EOF
+
+$title_disable_sentinel
+# 禁用官方 all-prompts 实现（宿主 ctx.sessionTitle 只允许注册一个 provider，二次注册会抛错）。
+# id 取自 patch 里命中的官方条目本身；删除本生成区 = 放弃接管。
+EOF
+                for title_id in $title_missing; do
+                    title_write << EOF
+- id: $title_id
+  disabled: true
+EOF
+                done
+                log "已补写标题接管禁用块（id:$title_missing）"
+            elif [ "$title_order_bad" = 1 ]; then
+                title_write << EOF
+
+$title_disable_sentinel
+# 生成区重放（原生成区在命中条目之前，宿主按 patch 顺序索引会失效）：同 id 再禁用一次。
+EOF
+                for title_id in $title_ids; do
+                    title_write << EOF
+- id: $title_id
+  disabled: true
+EOF
+                done
+                log "已按顺序重放禁用块（原生成区在命中条目之前）"
+                warn "旧生成区（第 $title_gen_line 行起）在命中条目之前、可能不生效：已补一份到文件尾；建议手工删除旧生成区（以 $title_disable_sentinel 开头）"
+            fi
+            if [ -z "$title_route" ]; then
+                title_value="$(printf '%s\n' "$title_state" | awk '/^value /{print $2 " " $3; exit}')"
+                if [ -n "$title_value" ]; then
+                    title_write << EOF
+
+$title_route_sentinel
+# 复制自官方 all-prompts 条目的显式路由（provider/model 必须成对）。注意：本条 config 是整键替换，
+# session-title-cutoff 的其它配置走插件默认值（与本仓库 bundle 层缺省一致）。
+- id: session-title-cutoff
+  config:
+    provider: ${title_value%% *}
+    model: ${title_value##* }
+EOF
+                    log "已补写 session-title-cutoff 显式路由（${title_value%% *} / ${title_value##* }）"
+                else
+                    warn "未能在官方 all-prompts 条目块内读到可用的 provider/model（缺失或格式不受支持）；未补路由——修正后重跑 --sync --take-over-title 会重试"
+                fi
+            fi
+            # 过期生成区（id 已无对应活跃条目）：只提示、不自动删（删是破坏性动作）
+            title_gen_id="$(printf '%s\n' "$title_state" | awk '/^generated-disable /{print $2; exit}')"
+            if [ -n "$title_gen_id" ] && [ "$title_gen_id" != "-" ]; then
+                case " $title_ids " in
+                    *" $title_gen_id "*) ;;
+                    *) warn "生成区里的禁用条目「$title_gen_id」已无对应的活跃官方行（可能已撤挂载）：未自动删除——确认无用后可手工删掉该生成区" ;;
+                esac
+            fi
+            # 上一版实现的权威标记行不再使用：带开关时清理（我们的行，行首锚定）
+            if printf '%s\n' "$title_state" | grep -q '^legacy-marker$'; then
+                tmp_patch="$patch_file.tmp.$$"
+                if grep -v -E '^# install\.sh title-takeover (route )?marker v1' "$patch_file" > "$tmp_patch" &&
+                    cat "$tmp_patch" > "$patch_file"; then
+                    rm -f "$tmp_patch"
+                    log "已清理上一版的权威标记行（生成区自证接管；删除生成区 = 放弃接管）"
+                else
+                    rm -f "$tmp_patch"
+                    die "清理旧标记行失败：$patch_file"
+                fi
+            fi
+            if [ "$title_wrote" = 1 ]; then
+                log "标题接管生成区已更新（$patch_file；删除以「# install.sh generated: title-takeover-」开头的生成区 = 放弃接管）"
+            else
+                log "标题接管生成区与当前 patch 一致（幂等：未写盘）"
+            fi
+        fi
     fi
 fi
 case " $final " in

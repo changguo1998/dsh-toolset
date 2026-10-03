@@ -95,7 +95,7 @@ scripts/install.sh                 # profile 名默认 fff
 scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-dsh/--skip-build/--force/--sync/--take-over-title/--dry-run/--skip-verify
 ```
 
-脚本幂等：已存在的 profile 配置文件默认保留，`--force` 才覆盖；仅当内容确有变化时才写入并备份（`.bak.<时间戳>`），反复 `--sync` 不会堆积备份文件。只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。`--sync` **不改写** `cordis.patch.yml` 的标题 provider 配置：禁用官方 all-prompts 标题 provider 是显式选择（`--sync --take-over-title`），不带开关时只在检测到冲突时提示。
+脚本幂等：已存在的 profile 配置文件默认保留，`--force` 才覆盖；仅当内容确有变化时才写入并备份（`.bak.<时间戳>`），反复 `--sync` 不会堆积备份文件。只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。`--sync` **不改写** `cordis.patch.yml` 的标题 provider 配置：禁用官方 all-prompts 标题 provider 是显式选择（`--sync --take-over-title`），不带开关时只在检测到冲突时提示。`--sync --force` 组合被拒（会覆盖 patch、丢掉生成的接管片段）。生成片段按 patch 内容重建，故幂等：带开关重跑只补缺（provider/model 可读后自动重试），**删除**以 `# install.sh generated: title-takeover-` 开头的生成片段即放弃接管。
 
 手工配置时各插件以 cordis bundle 方式挂载到 DSH profile。示例（`~/.dsh/profiles/fff`，详见 `TUI/README.md`）：
 

@@ -89,6 +89,17 @@ install_() { # install_ [install.sh 选项...]；最近一次输出落 $lastlog
     }
     cat "$lastlog" >> "$log"
 }
+install_expect_fail() { # install_expect_fail <期望文案> [install.sh 选项...]：断言失败且输出含文案
+    expect="$1"
+    shift
+    if PATH="$fakebin:$PATH" DSH_HOME="$home" sh "$repo_root/scripts/install.sh" \
+        --skip-dsh --skip-build "$@" > "$lastlog" 2>&1; then
+        cat "$lastlog" >> "$log"
+        fail "install.sh $* 应当失败但退出 0"
+    fi
+    cat "$lastlog" >> "$log"
+    assert_log_contains "$expect" "失败文案含「$expect」"
+}
 
 pdir="$home/profiles/fff"
 manifest="$pdir/package.json"
@@ -133,13 +144,19 @@ assert_eq "$(count_glob "$pdir" 'package.json.bak.*')" 1 "再跑 --sync 不再�
 install_ --plugins "TUI ponytail" --force
 assert_eq "$(count_glob "$pdir" 'package.json.bak.*')" 2 "--force 内容有变时备份 1 份"
 
-# 7）标题 provider 守卫：--sync 单独不改写 patch（只提示）；显式 --take-over-title 才追加；
-#    幂等 marker 在文件头（清理追加块后仍幂等）；旧标记走迁移（只补文件头 marker）
+# 7）标题 provider 接管（生成区口径）：--sync 单独绝不改写 patch（只提示）；
+#    --take-over-title 按 patch 内容补齐生成区（禁用块 / 路由块 / sentinel）：
+#    取值限定在命中条目块内、id 取自条目本身，取值失败可重试、旧标记行流量清理
 tguard="$home/profiles/tguard"
 install_ --plugins "TUI session-title-cutoff" --profile tguard
 tpatch="$tguard/cordis.patch.yml"
 cat >> "$tpatch" << 'EOF'
 
+# 注释里的旧引用（旧 awk 会以它为起点、取到下面注释里的 bogus 值）：
+#   - name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
+#     config:
+#       provider: bogus
+#       model: bogus-model
 - id: session-title-all-prompts-llm
   name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
   config:
@@ -154,56 +171,104 @@ assert_same_file "$tpatch" "$work/tpatch.before" "守卫：不带 --take-over-ti
 assert_eq "$(count_glob "$tguard" 'cordis.patch.yml.bak.*')" 0 "守卫：不改写也不备份"
 assert_log_contains "--take-over-title" "守卫：提示给出 --take-over-title 出路"
 
-# 7b）带开关：追加禁用块 + 路由块 + 文件头 marker，备份 1 份
+# 7b）带开关：补禁用块 + 路由（取活跃条目的值，不取注释里的 bogus）+ 两段 sentinel，备份 1 份
 install_ --plugins "TUI session-title-cutoff" --profile tguard --sync --take-over-title
-assert_active_count_eq "$tpatch" '- id: session-title-all-prompts-llm' 2 "守卫：追加禁用块（用户 1 + 禁用 1）"
-assert_active_count_eq "$tpatch" 'disabled: true' 1 "守卫：禁用块 1 处"
-assert_contains "$tpatch" 'provider: ustc' "守卫：复制 provider 路由"
-assert_contains "$tpatch" 'model: deepseek-flash' "守卫：复制 model 路由"
-assert_count_eq "$tpatch" 'title-takeover marker v1' 1 "守卫：文件头 marker 恰 1 行"
-assert_eq "$(head -n 1 "$tpatch" | grep -c -F 'title-takeover marker v1' || true)" 1 "守卫：marker 在文件头（第 1 行）"
-assert_eq "$(count_glob "$tguard" 'cordis.patch.yml.bak.*')" 1 "守卫：追加时恰好备份 1 份"
+assert_active_count_eq "$tpatch" 'disabled: true' 1 "守卫：补 1 处禁用块"
+assert_count_eq "$tpatch" 'provider: bogus' 1 "守卫：未把注释里的 bogus 值复制进来（仍只 1 处注释）"
+assert_count_eq "$tpatch" 'provider: ustc' 2 "守卫：复制活跃条目的 provider（原条目 + 路由）"
+assert_count_eq "$tpatch" 'model: deepseek-flash' 2 "守卫：复制活跃条目的 model（原条目 + 路由）"
+assert_count_eq "$tpatch" '# install.sh generated: title-takeover-disable v1' 1 "守卫：禁用生成区 sentinel 1 处"
+assert_count_eq "$tpatch" '# install.sh generated: title-takeover-route v1' 1 "守卫：路由生成区 sentinel 1 处"
+assert_eq "$(count_glob "$tguard" 'cordis.patch.yml.bak.*')" 1 "守卫：补齐时恰好备份 1 份"
 
-# 7c）带开关重跑：字节不变、不新增备份
+# 7c）带开关重跑：字节不变、不新增备份（内容为准幂等）
 cp "$tpatch" "$work/tpatch.after"
 install_ --plugins "TUI session-title-cutoff" --profile tguard --sync --take-over-title
 assert_same_file "$tpatch" "$work/tpatch.after" "守卫：重跑幂等（字节不变）"
 assert_eq "$(count_glob "$tguard" 'cordis.patch.yml.bak.*')" 1 "守卫：重跑不新增备份"
 
-# 7d）幂等不依赖被保护片段：清掉追加块（保留文件头 marker）后重跑，不重复追加
+# 7d）用户清掉生成区：普通 --sync 仍不改写（只提示）；带开关按内容补回（不重复）
 node -e '
 const fs = require("fs");
 const file = process.argv[1];
 const text = fs.readFileSync(file, "utf8");
-const head = "# 追加（scripts/install.sh --sync --take-over-title）";
+const head = "# install.sh generated: title-takeover-disable v1";
 const i = text.indexOf(head);
-if (i < 0) throw new Error("找不到追加块表头");
+if (i < 0) throw new Error("找不到生成区");
 fs.writeFileSync(file, text.slice(0, i).replace(/\n+$/, "\n"));
 ' "$tpatch"
-assert_active_count_eq "$tpatch" 'disabled: true' 0 "守卫：夹具已清掉追加块"
-assert_count_eq "$tpatch" 'title-takeover marker v1' 1 "守卫：清理后 marker 仍在"
+assert_active_count_eq "$tpatch" 'disabled: true' 0 "守卫：夹具已清掉生成区"
 cp "$tpatch" "$work/tpatch.cleaned"
+install_ --plugins "TUI session-title-cutoff" --profile tguard --sync
+assert_same_file "$tpatch" "$work/tpatch.cleaned" "守卫：清掉生成区后普通 --sync 仍不改写"
 install_ --plugins "TUI session-title-cutoff" --profile tguard --sync --take-over-title
-assert_same_file "$tpatch" "$work/tpatch.cleaned" "守卫：marker 独立于片段（清理片段后仍幂等）"
+assert_active_count_eq "$tpatch" 'disabled: true' 1 "守卫：带开关按内容补回生成区"
+assert_count_eq "$tpatch" '# install.sh generated: title-takeover-disable v1' 1 "守卫：补回后 sentinel 不重复"
 
-# 7e）旧标记（标记在被保护片段内）：普通 --sync 不改字节；带开关只补文件头 marker
+# 7e）路由重试：首轮取不到 provider/model → 只补禁用 + warn；补上值后带开关重跑补路由
+tretry="$home/profiles/tretry"
+install_ --plugins "TUI session-title-cutoff" --profile tretry
+rpatch="$tretry/cordis.patch.yml"
+cat >> "$rpatch" << 'EOF'
+
+- id: session-title-all-prompts-llm
+  name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
+EOF
+install_ --plugins "TUI session-title-cutoff" --profile tretry --sync --take-over-title
+assert_active_count_eq "$rpatch" 'disabled: true' 1 "守卫：无 provider/model 时仍补禁用"
+assert_log_contains "未能在官方 all-prompts 条目块内读到可用的 provider/model" "守卫：取不到值时 warn"
+assert_active_count_eq "$rpatch" '- id: session-title-cutoff' 0 "守卫：首轮不写路由"
+# 「用户后来补上取值」：追加一条带官方 name + provider/model 的启用条目
+cat >> "$rpatch" << 'EOF'
+
+- id: title-llm-again
+  name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
+  provider: ustc
+  model: deepseek-flash
+EOF
+install_ --plugins "TUI session-title-cutoff" --profile tretry --sync --take-over-title
+assert_active_count_eq "$rpatch" '- id: session-title-cutoff' 1 "守卫：补齐值后重试补上路由"
+assert_contains "$rpatch" 'provider: ustc' "守卫：重试取到 provider"
+
+# 7f）payload id 取自命中条目（自定义 id 不被硬编码覆盖）
+tcustom="$home/profiles/tcustom"
+install_ --plugins "TUI session-title-cutoff" --profile tcustom
+cpatch="$tcustom/cordis.patch.yml"
+cat >> "$cpatch" << 'EOF'
+
+- id: my-title-llm
+  name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
+  provider: ustc
+  model: deepseek-flash
+EOF
+install_ --plugins "TUI session-title-cutoff" --profile tcustom --sync --take-over-title
+assert_active_count_eq "$cpatch" '- id: my-title-llm' 2 "守卫：生成区用命中条目的 id（用户 1 + 禁用 1）"
+assert_active_count_eq "$cpatch" '- id: session-title-all-prompts-llm' 0 "守卫：不写内置默认 id"
+
+# 7g）前置校验：开关必须挂 cutoff；--sync --force 组合被拒（写盘前）
+cp "$tpatch" "$work/tpatch.guard"
+install_expect_fail "需要 profile 里挂 session-title-cutoff" --plugins TUI --profile tguard --sync --take-over-title
+install_expect_fail "组合不支持" --plugins "TUI session-title-cutoff" --profile tguard --sync --force
+assert_same_file "$tpatch" "$work/tpatch.guard" "守卫：两条校验失败都在写盘前（patch 不变）"
+
+# 7h）旧权威标记行（上一版实现）在带开关时被清理；--force 覆盖含生成区的 patch 会告警 + 打印备份路径
 tlegacy="$home/profiles/tlegacy"
 install_ --plugins "TUI session-title-cutoff" --profile tlegacy
 lpatch="$tlegacy/cordis.patch.yml"
-cat >> "$lpatch" << 'EOF'
-
-- id: session-title-all-prompts-llm
-  disabled: true
-# 追加（scripts/install.sh --sync）：session-title-cutoff 接管标题 provider 后，禁用官方
-EOF
-cp "$lpatch" "$work/lpatch.before"
-install_ --plugins "TUI session-title-cutoff" --profile tlegacy --sync
-assert_same_file "$lpatch" "$work/lpatch.before" "守卫：旧标记存在时普通 --sync 不改字节"
+node -e '
+const fs = require("fs");
+const file = process.argv[1];
+const text = fs.readFileSync(file, "utf8");
+fs.writeFileSync(file, "# install.sh title-takeover marker v1（--take-over-title）：旧版标记\n" + text);
+' "$lpatch"
 install_ --plugins "TUI session-title-cutoff" --profile tlegacy --sync --take-over-title
-assert_count_eq "$lpatch" 'title-takeover marker v1' 1 "守卫：旧标记迁移补文件头 marker"
-assert_active_count_eq "$lpatch" 'disabled: true' 1 "守卫：迁移不重复追加 payload"
+assert_count_eq "$lpatch" '# install.sh title-takeover marker v1' 0 "守卫：清理上一版权威标记行"
+assert_log_contains "已清理上一版的权威标记行" "守卫：清理有日志"
+install_ --plugins "TUI session-title-cutoff" --profile tguard --force
+assert_log_contains "标题接管生成区 / 标记会丢失" "守卫：--force 覆盖前告警"
+assert_log_contains "已备份：" "守卫：备份打印真实路径"
 
-# 7f）带开关但 patch 无活跃行：不追加；--dry-run + 开关：不改文件
+# 7i）带开关但 patch 无活跃行：不追加；--dry-run + 开关：不改文件
 tnoline="$home/profiles/tnoline"
 install_ --plugins "TUI session-title-cutoff" --profile tnoline
 nfile="$tnoline/cordis.patch.yml"
@@ -213,7 +278,7 @@ assert_same_file "$nfile" "$work/nfile.before" "守卫：无活跃行时不追�
 install_ --plugins "TUI session-title-cutoff" --profile tnoline --sync --take-over-title --dry-run
 assert_same_file "$nfile" "$work/nfile.before" "守卫：--dry-run 不改文件"
 
-# 7g）manifest 依赖键序：字母序（与 pnpm 生成物 / fff 侧约定一致）
+# 7j）manifest 依赖键序：字母序（与 pnpm 生成物 / fff 侧约定一致）
 if node -e '
 const fs = require("fs");
 const deps = Object.keys(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).dependencies);
