@@ -869,3 +869,101 @@ test("tool-surface-check：name 只认顶层 —— 嵌套 name 不得顶替（�
     rmSync(base, { recursive: true, force: true });
   }
 });
+
+test("tool-surface-check：正则字面量 / 表达式取值不再造成深度漂移（(e) 残余漏报）", () => {
+  const base = mkdtempSync(join(tmpdir(), "sg-surface-lex-"));
+  try {
+    const host = join(base, "host");
+    const scope = join(host, "node_modules", "@deepseek-ai");
+    const write = (pkg: string, source: string): void => {
+      const dir = join(scope, pkg, "lib");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "index.js"), source);
+    };
+    // ① 正则里含 `)`（旧扫描器会让深度漂移 → 之后的嵌套 name 被当顶层）
+    write(
+      "dsh-tool-regex-span",
+      [
+        "ctx.tools.register(defineTool({",
+        "  name: TOOL_NAME,",
+        "  pattern: /[)]/,",
+        '  meta: { name: "read" },',
+        "  parameters: { path: { type: 'string', required: true } },",
+        "}));",
+      ].join("\n"),
+    );
+    // ② 表达式取值里含括号（`mk({ id: 1 })`）
+    write(
+      "dsh-tool-expr-span",
+      [
+        "ctx.tools.register(defineTool({",
+        "  name: mk({ id: 1 }),",
+        '  meta: { name: "read" },',
+        "  parameters: { cmd: { type: 'string', required: true } },",
+        "}));",
+      ].join("\n"),
+    );
+    mkdirSync(join(host, "lib"), { recursive: true });
+
+    const run = runScript(["--root", host]);
+    assert.doesNotMatch(
+      run.output,
+      /已覆盖 \d+：read/,
+      "嵌套 name 不得因深度漂移被当成顶层（否则静默假阴性）",
+    );
+    const json = JSON.parse(runScript(["--root", host, "--json"]).output) as {
+      unresolvedNames?: { pkg: string }[];
+    };
+    assert.deepEqual(
+      (json.unresolvedNames ?? []).map((u) => u.pkg).sort(),
+      ["dsh-tool-expr-span", "dsh-tool-regex-span"],
+      "两者都应进「名称未解析」",
+    );
+    assert.equal(run.status, 1, "带 path/cmd 参数的未解析工具必须 exit 1");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("tool-surface-check：审阅四反例 + 前缀洞（return 后正则 / 字符串后除法 / 表达式中正则 / i++ 除法 / pathname）", () => {
+  const base = mkdtempSync(join(tmpdir(), "sg-surface-lex2-"));
+  try {
+    const host = join(base, "host");
+    const scope = join(host, "node_modules", "@deepseek-ai");
+    const dir = join(scope, "dsh-tool-lex-holes", "lib");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "index.js"),
+      [
+        "ctx.tools.register(defineTool({",
+        "  match(s) { return /[)]/.test(s); },", // ① return 后正则
+        '  ratio: "4" / 2,', // ② 字符串后除法
+        "  rx: { p: /x/ },",
+        "  name: mk(/[)]/),", // ③ 表达式取值内含正则
+        '  pathname: "read",', // ⑤ 前缀洞：不得被当作 name
+        '  meta: { name: "read" },', // ④ 嵌套 name 不得顶替
+        "  parameters: { path: { type: 'string', required: true } },",
+        "}));",
+      ].join("\n"),
+    );
+    mkdirSync(join(host, "lib"), { recursive: true });
+
+    const run = runScript(["--root", host]);
+    assert.doesNotMatch(
+      run.output,
+      /已覆盖 \d+：read/,
+      "任一洞都不得把该工具算成已覆盖 read",
+    );
+    const json = JSON.parse(runScript(["--root", host, "--json"]).output) as {
+      unresolvedNames?: { pkg: string }[];
+    };
+    assert.deepEqual(
+      (json.unresolvedNames ?? []).map((u) => u.pkg),
+      ["dsh-tool-lex-holes"],
+      "应进「名称未解析」",
+    );
+    assert.equal(run.status, 1, "带 path 参数必须 exit 1");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});

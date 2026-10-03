@@ -370,8 +370,9 @@ function topLevelNameValues(slice) {
   // 切片自 `(` 之后开始：若形如 `{ ...`，先跳过多余的开括号（否则顶层键会被算成深度 1）
   const lead = /^\s*\{/.exec(slice);
   let i = lead === null ? 0 : lead[0].length;
-  /** 词法状态：null / 引号字符 / "//" / "/*" */
   let state = null;
+  /** 最近一次消费的**非空白**字符（判 `/` 是正则字面量还是除号）。 */
+  let prev = "";
   while (i < slice.length) {
     const c = slice[i];
     const d = slice[i + 1];
@@ -386,40 +387,56 @@ function topLevelNameValues(slice) {
         i += 2;
         continue;
       }
+      if (c === "/" && isRegexStart(prev, slice, i)) {
+        // 正则字面量：整段跳过（不参与配平），避免 `/[)]/` 里的 `)` 造成深度漂移
+        i = skipRegex(slice, i);
+        prev = "/";
+        continue;
+      }
       if (c === '"' || c === "'" || c === "`") {
         state = c;
+        prev = c;
         i += 1;
         continue;
       }
       if (c === "{" || c === "[" || c === "(") {
         depth += 1;
+        prev = c;
         i += 1;
         continue;
       }
       if (c === "}" || c === "]" || c === ")") {
         depth -= 1;
+        prev = c;
         i += 1;
         continue;
       }
       if (
         depth === 0 &&
         slice.startsWith("name", i) &&
-        /[\s:]/.test(slice[i + 4] ?? "")
+        /[\s:]/.test(slice[i + 4] ?? "") &&
+        !/[A-Za-z0-9_$]/.test(prev)
       ) {
         const rest = slice.slice(i + 4);
         const lit = /^\s*:\s*("([^"]*)"|'([^']*)')/.exec(rest);
         if (lit !== null) {
           out.push({ literal: lit[2] ?? lit[3] });
           i += 4 + lit[0].length;
+          prev = '"';
           continue;
         }
         const expr = /^\s*:\s*([^\s,}\n][^,\n}]*)/.exec(rest);
         if (expr !== null) {
-          out.push({ expr: expr[1].trim() });
-          i += 4 + expr[0].length;
+          // 表达式取值：按括号配平跳到该表达式结束（`, ` 或所属对象收尾），避免内部括号影响深度
+          const exprStart = i + 4 + expr[0].indexOf(expr[1]);
+          const exprEnd = skipExpression(slice, exprStart);
+          out.push({ expr: slice.slice(exprStart, exprEnd).trim() });
+          i = exprEnd;
+          prev = ")";
           continue;
         }
       }
+      if (!/\s/.test(c)) prev = c;
       i += 1;
     } else if (state === "//") {
       if (c === "\n") state = null;
@@ -441,6 +458,106 @@ function topLevelNameValues(slice) {
     }
   }
   return out;
+}
+
+/** `/` 是否可能是正则字面量起始（按前一个非空白字符启发式判定）。 */
+function isRegexStart(prev, slice, at) {
+  if (prev === "" || "([{!&|?:;,=+-*%<>~^".includes(prev)) return true;
+  // 关键字回看：`return /re/`、`typeof /re/`、`case /re/`… 的 `/` 也是正则
+  const head = slice.slice(0, at);
+  const word = /([A-Za-z_$][A-Za-z0-9_$]*)\s*$/.exec(head);
+  return (
+    word !== null &&
+    /^(return|typeof|case|in|of|instanceof|new|delete|void|do|else|yield|await)$/.test(
+      word[1],
+    )
+  );
+}
+
+/** 跳过一个正则字面量（识别 `[...]` 字符类与 `\` 转义）；未闭合时保守停在换行。 */
+function skipRegex(slice, start) {
+  let i = start + 1;
+  let inClass = false;
+  while (i < slice.length) {
+    const c = slice[i];
+    if (c === "\\") {
+      i += 2;
+      continue;
+    }
+    if (c === "[") inClass = true;
+    else if (c === "]") inClass = false;
+    else if (c === "/" && !inClass) return i + 1;
+    else if (c === "\n") return i;
+    i += 1;
+  }
+  return i;
+}
+
+/**
+ * 跳过一段表达式取值（`name: <expr>`）：按括号配平前进，遇到**相对深度 0** 的 `,` 或
+ * 所属对象的收尾 `}` 即停；字符串 / 注释 / 正则同样跳过（避免内部符号扰乱深度）。
+ */
+/** `skipExpression` 用的「前一个非空白字符」计算（判 `/` 是否正则）。 */
+function prevCharExpr(slice, at) {
+  let j = at - 1;
+  while (j >= 0) {
+    const c = slice[j];
+    if (/\s/.test(c)) {
+      j -= 1;
+      continue;
+    }
+    if (c === ")") {
+      // 回看配对括号前的字符（`mk() /x/` 之类少见，保守取 `)`）
+      return ")";
+    }
+    return c;
+  }
+  return "";
+}
+
+function skipExpression(slice, start) {
+  let d = 0;
+  let i = start;
+  while (i < slice.length) {
+    const c = slice[i];
+    const d2 = slice[i + 1];
+    if (c === '"' || c === "'" || c === "`") {
+      i += 1;
+      while (i < slice.length) {
+        if (slice[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (slice[i] === c) {
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (c === "/" && d2 === "/") {
+      const j = slice.indexOf("\n", i);
+      i = j < 0 ? slice.length : j;
+      continue;
+    }
+    if (c === "/" && d2 === "*") {
+      const j = slice.indexOf("*/", i + 2);
+      i = j < 0 ? slice.length : j + 2;
+      continue;
+    }
+    if (c === "/" && isRegexStart(prevCharExpr(slice, i), slice, i)) {
+      i = skipRegex(slice, i);
+      continue;
+    }
+    if (c === "(" || c === "[" || c === "{") d += 1;
+    else if (c === ")" || c === "]" || c === "}") {
+      if (d === 0) return i;
+      d -= 1;
+    } else if (c === "," && d === 0) return i;
+    i += 1;
+  }
+  return i;
 }
 
 /**
