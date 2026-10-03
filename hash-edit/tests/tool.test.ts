@@ -15,11 +15,15 @@ import { apply } from "../src/main.ts";
 /** 建临时文件（与 fs.test.ts 同款，自建不自引 helpers）。 */
 async function makeTmp(
   content: string,
-): Promise<{ path: string; cleanup: () => Promise<void> }> {
+): Promise<{ path: string; dir: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), "hash-edit-tool-test-"));
   const path = join(dir, "sample.txt");
   await writeFile(path, content, "utf8");
-  return { path, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  return {
+    path,
+    dir,
+    cleanup: () => rm(dir, { recursive: true, force: true }),
+  };
 }
 
 /** 工具定义的最小结构面（宿主侧结构式消费）。 */
@@ -27,7 +31,7 @@ interface RegisteredTool {
   name: string;
   description: string;
   parameters: unknown;
-  execute(args: Record<string, unknown>): Promise<unknown>;
+  execute(args: Record<string, unknown>, exec?: unknown): Promise<unknown>;
   output: {
     schema: { type: string; additionalProperties?: boolean };
     render(
@@ -37,17 +41,22 @@ interface RegisteredTool {
   };
 }
 
-/** 跑一次 `apply`，返回注册到的工具表。 */
-async function registerTools(): Promise<Map<string, RegisteredTool>> {
+/** 跑一次 `apply`（可带 Config），返回注册到的工具表。 */
+async function registerTools(config?: {
+  root?: string;
+}): Promise<Map<string, RegisteredTool>> {
   const tools = new Map<string, RegisteredTool>();
-  await apply({
-    tools: {
-      register: (def: unknown) => {
-        const tool = def as RegisteredTool;
-        tools.set(tool.name, tool);
+  await apply(
+    {
+      tools: {
+        register: (def: unknown) => {
+          const tool = def as RegisteredTool;
+          tools.set(tool.name, tool);
+        },
       },
     },
-  });
+    config,
+  );
   return tools;
 }
 
@@ -126,7 +135,15 @@ test("端到端（工具面）：hash_edit 结果经 render 可见（同一适�
     assert.ok(anchor !== undefined);
     const value = await edit.execute({
       path: file,
-      edits: [{ replace_lines: { start_anchor: `${anchor.line}:${anchor.hash}`, end_anchor: `${anchor.line}:${anchor.hash}`, new_text: "BETA" } }],
+      edits: [
+        {
+          replace_lines: {
+            start_anchor: `${anchor.line}:${anchor.hash}`,
+            end_anchor: `${anchor.line}:${anchor.hash}`,
+            new_text: "BETA",
+          },
+        },
+      ],
     });
     const text = edit.output.render({ path: file }, value)[0]?.text ?? "";
     assert.match(text, /"ok": true/);
@@ -157,5 +174,92 @@ test("端到端（工具面）：hash_read 真实结果经 render 到模型可�
     assert.match(text, /"text": "alpha"/);
   } finally {
     cleanup();
+  }
+});
+
+/* ---- 相对路径基准：会话 cwd（宿主 exec 第二实参；BACKLOG「相对路径基准拿不到会话 cwd」） ---- */
+
+test("相对路径以 exec 的会话 cwd 为基准（与进程 cwd 不同）", async () => {
+  const read = (await registerTools()).get("hash_read");
+  assert.ok(read !== undefined);
+  const { path: file, dir, cleanup } = await makeTmp("alpha\nbeta\n");
+  try {
+    assert.notEqual(dir, process.cwd(), "前提：会话 cwd 与进程 cwd 不同");
+    const res = (await read.execute(
+      { path: "sample.txt" },
+      { agent: { session: { header: { cwd: dir } } } },
+    )) as { ok?: boolean; path?: string };
+    // 判别式断言：撤掉 exec 透传时 path 为 undefined（解析到进程 cwd → not_found）
+    assert.equal(res.path, file, "相对路径解析到会话 cwd 下的文件");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("hash_edit：显式 Config.root 优先；未配置时按 exec 会话 cwd", async () => {
+  const a = await makeTmp("alpha\nbeta\n");
+  const b = await makeTmp("gamma\n");
+  try {
+    const execB = { agent: { session: { header: { cwd: b.dir } } } };
+    const withRoot = await registerTools({ root: a.dir });
+    const read = withRoot.get("hash_read");
+    const edit = withRoot.get("hash_edit");
+    assert.ok(read !== undefined && edit !== undefined);
+    // ① 配置 root=a + exec 会话 cwd=b → 解析到 a（显式配置优先）
+    const readA = (await read.execute({ path: a.path })) as {
+      hashlines: Array<{ line: number; hash: string }>;
+    };
+    const anchorA = readA.hashlines[0];
+    assert.ok(anchorA !== undefined);
+    const resConfig = (await edit.execute(
+      {
+        path: "sample.txt",
+        edits: [
+          {
+            set_line: {
+              anchor: `${anchorA.line}:${anchorA.hash}`,
+              new_text: "ALPHA",
+            },
+          },
+        ],
+      },
+      execB,
+    )) as { ok?: boolean; path?: string };
+    assert.equal(
+      resConfig.path,
+      a.path,
+      "解析到 Config.root（a），而非 exec 的会话 cwd（b）",
+    );
+    // ② 未配置 root → hash_edit 相对路径按 exec 会话 cwd（b）解析（撤销 exec 透传必红）
+    const noRoot = await registerTools();
+    const edit2 = noRoot.get("hash_edit");
+    assert.ok(edit2 !== undefined);
+    const readB = (await read.execute({ path: b.path })) as {
+      hashlines: Array<{ line: number; hash: string }>;
+    };
+    const anchorB = readB.hashlines[0];
+    assert.ok(anchorB !== undefined);
+    const resExec = (await edit2.execute(
+      {
+        path: "sample.txt",
+        edits: [
+          {
+            set_line: {
+              anchor: `${anchorB.line}:${anchorB.hash}`,
+              new_text: "GAMMA",
+            },
+          },
+        ],
+      },
+      execB,
+    )) as { ok?: boolean; path?: string };
+    assert.equal(
+      resExec.path,
+      b.path,
+      "未配置 config.root 时按 exec 会话 cwd 解析",
+    );
+  } finally {
+    await a.cleanup();
+    await b.cleanup();
   }
 });

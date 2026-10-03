@@ -49,7 +49,7 @@ function decodeUtf8Strict(buf: Buffer): string {
   return new TextDecoder("utf-8", { fatal: true }).decode(buf);
 }
 
-/** 相对路径以 root（缺省宿主 cwd）为基准解析。 */
+/** 相对路径以 root 为基准（工具面按调用会话 cwd 传入）；root 缺省回落 `process.cwd()`。 */
 function resolvePath(filePath: string, root?: string): string {
   return isAbsolute(filePath)
     ? filePath

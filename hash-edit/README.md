@@ -12,7 +12,7 @@ DSH（DeepSeek Harness）进程内插件：基于 `LINE:HASH` 锚点的文件编
 
 | 参数 | 必填 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `path` | 是 | — | 绝对路径，或相对 `Config.root` / 宿主 cwd 解析 |
+| `path` | 是 | — | 绝对路径，或相对 `Config.root` / 会话 cwd 解析 |
 | `offset` | 否 | 1 | 起始行号（1 基） |
 | `limit` | 否 | 200 | 返回行数上限 |
 
@@ -22,7 +22,7 @@ DSH（DeepSeek Harness）进程内插件：基于 `LINE:HASH` 锚点的文件编
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
-| `path` | 是 | 目标文件路径 |
+| `path` | 是 | 目标文件路径（绝对路径，或相对 `Config.root` / 会话 cwd 解析） |
 | `edits` | 是 | 非空指令数组，每条恰好一个变体键；行号均锚定同一次 `hash_read` 的原始内容 |
 
 | 指令 | 语义 | `new_text` 口径 |
@@ -38,7 +38,7 @@ DSH（DeepSeek Harness）进程内插件：基于 `LINE:HASH` 锚点的文件编
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `root` | `process.cwd()` | 相对路径解析基准目录 |
+| `root` | 会话 cwd（无会话时 `process.cwd()`） | 相对路径解析基准目录（显式配置优先） |
 
 bundle 契约：`name` / `inject: ["tools"]` / `Config` / `apply`；`ctx.tools` 不可用时仅告警并跳过注册。
 
@@ -77,6 +77,6 @@ bundle 契约：`name` / `inject: ["tools"]` / `Config` / `apply`；`ctx.tools` 
 ```sh
 npm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
 npm run build   # 编译到 dist/
-npm run test    # node --test（50 例：hashline / edit / fs / tool）
+npm run test    # node --test（52 例：hashline / edit / fs / tool）
 npm run demo    # 冒烟：多锚点编辑 + stale 拒绝，输出 SMOKE_PASS
 ```

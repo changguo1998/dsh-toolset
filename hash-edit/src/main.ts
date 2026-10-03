@@ -32,7 +32,7 @@ export const inject = ["tools"];
 
 /** 插件配置（bundle 契约 Config）。 */
 export interface Config {
-  /** 相对路径解析基准目录（缺省宿主进程 cwd）。 */
+  /** 相对路径解析基准目录（显式配置优先；缺省按调用会话 cwd，无会话上下文回退进程 cwd）。 */
   root?: string;
 }
 
@@ -50,11 +50,27 @@ interface ContentBlock {
 /** 工具执行入参（dsh 侧为已解析的 JSON 参数对象）。 */
 type ToolArgs = Record<string, unknown>;
 
+/** 工具执行上下文（宿主 `exec` 第二实参，只读鸭子类型）。 */
+interface ToolExecCtx {
+  agent?: { session?: { header?: { cwd?: string } } };
+}
+
+/**
+ * 本次工具调用的会话 cwd（相对路径解析基准）。口径对齐宿主 tool-fs 与本仓
+ * fs-digest / md-logic：`exec.agent.session.header.cwd`；宿主未传 exec / 无会话 cwd
+ * → 回退 `process.cwd()`（裸进程语义）。勿改读 `ctx.cwd`——cordis 代理上未 inject
+ * 的属性读取会直接抛错（fs-digest 的 D1 教训）。
+ */
+function resolveExecCwd(exec: unknown): string {
+  const cwd = (exec as ToolExecCtx | undefined)?.agent?.session?.header?.cwd;
+  return typeof cwd === "string" && cwd !== "" ? cwd : process.cwd();
+}
+
 interface ToolDef {
   name: string;
   description: string;
   parameters: unknown;
-  execute(args: ToolArgs): Promise<ToolArgs>;
+  execute(args: ToolArgs, exec?: unknown): Promise<ToolArgs>;
 }
 
 /** 提交给 dsh 宿主的工具对象形态（宿主侧结构式消费，无 dsh 包类型依赖）。 */
@@ -62,7 +78,8 @@ interface DshTool {
   name: string;
   description: string;
   parameters: unknown;
-  execute: (args: ToolArgs) => Promise<ToolArgs>;
+  /** 宿主按 `execute(exec.arguments, exec)` 双参调用（会话上下文经第二参传入）。 */
+  execute: (args: ToolArgs, exec?: unknown) => Promise<ToolArgs>;
   output: {
     schema: {
       type: "object";
@@ -79,7 +96,7 @@ function toDshTool(def: ToolDef): DshTool {
     name: def.name,
     description: def.description,
     parameters: compileParameters(def.parameters),
-    execute: (args: ToolArgs) => def.execute(args),
+    execute: (args: ToolArgs, exec?: unknown) => def.execute(args, exec),
     output: {
       // dsh ToolOutputDefinition 强制 output.schema（对照 task-engine/metric-loop 对齐形态）
       schema: { type: "object", additionalProperties: true, properties: {} },
@@ -148,7 +165,7 @@ const HASH_READ_PARAMS = {
   path: {
     type: "string",
     required: true,
-    description: "目标文件路径（绝对路径，或相对 config.root / 宿主 cwd）",
+    description: "目标文件路径（绝对路径，或相对 config.root / 会话 cwd）",
   },
   offset: {
     type: "number",
@@ -225,7 +242,7 @@ const HASH_EDIT_PARAMS = {
   path: {
     type: "string",
     required: true,
-    description: "目标文件路径（绝对路径，或相对 config.root / 宿主 cwd）",
+    description: "目标文件路径（绝对路径，或相对 config.root / 会话 cwd）",
   },
   edits: {
     type: "array",
@@ -270,16 +287,20 @@ function coerceEdits(raw: unknown): { ops: EditOp[]; error?: string } {
   return { ops };
 }
 
-/** 构造两个工具定义（root 为相对路径解析基准）。 */
+/** 构造两个工具定义（root = 显式 config.root；未配置 / 空串按调用会话 cwd 解析相对路径，缺省进程 cwd）。 */
 function createTools(root: string | undefined): ToolDef[] {
+  /** 本次调用的相对路径基准：显式配置优先；空串按未配置（仓库惯例，对照 fs-digest / md-logic），回落会话 cwd。 */
+  const baseRoot = (exec: unknown): string =>
+    root !== undefined && root !== "" ? root : resolveExecCwd(exec);
   const hashRead: ToolDef = {
     name: "hash_read",
     description:
       "读取文件的行内容并返回 LINE:HASH 锚点（每行: 1 基行号:sha256 前 8 位 hex）。编辑前先读取获取锚点。",
     parameters: HASH_READ_PARAMS,
-    async execute(args) {
+    async execute(args, exec) {
       const path = asString(args.path);
       if (path === undefined) return { ok: false, error: "path is required" };
+      const base = baseRoot(exec);
       const offset = asInt(args.offset) ?? 1;
       const limit = asInt(args.limit) ?? 200;
       if (offset < 1 || limit < 1) {
@@ -289,7 +310,7 @@ function createTools(root: string | undefined): ToolDef[] {
         };
       }
       try {
-        const result = await readHashlines(path, root, offset, limit);
+        const result = await readHashlines(path, base, offset, limit);
         return { ...result };
       } catch (err) {
         if (err instanceof FileEditError) {
@@ -307,13 +328,14 @@ function createTools(root: string | undefined): ToolDef[] {
       "所有锚点针对同一次 hash_read 的原始内容校验；任一锚点失效（stale）则整批拒绝、文件不变，" +
       "返回全部失效锚点供重新读取。",
     parameters: HASH_EDIT_PARAMS,
-    async execute(args) {
+    async execute(args, exec) {
       const path = asString(args.path);
       if (path === undefined) return { ok: false, error: "path is required" };
+      const base = baseRoot(exec);
       const { ops, error } = coerceEdits(args.edits);
       if (error !== undefined) return { ok: false, code: "malformed", error };
       try {
-        const result = await applyAnchoredEditsFile(path, ops, root);
+        const result = await applyAnchoredEditsFile(path, ops, base);
         return { ...result };
       } catch (err) {
         if (err instanceof AnchoredEditError) {
