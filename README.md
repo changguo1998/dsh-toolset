@@ -87,15 +87,15 @@ Inside a single subpackage you can run its own `npm run check / build / test / d
 
 ## Wiring into a DSH profile
 
-One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 19 packages):
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 21 packages: TUI + 20 plugins):
 
 ```sh
 git clone <本仓库> && cd dsh-toolset
 scripts/install.sh                 # profile 名默认 fff
-scripts/install.sh --help          # --profile/--plugins/--dsh-version/--force/--dry-run
+scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-dsh/--skip-build/--force/--sync/--dry-run
 ```
 
-The script is idempotent: existing profile config files are kept by default, and only `--force` overwrites them (backing them up first). It writes only to `$DSH_HOME` (default `~/.dsh`) and this repository.
+The script is idempotent: existing profile config files are kept by default, and only `--force` overwrites them. Writes and backups (`.bak.<timestamp>`) happen only when the new content actually differs, so repeated `--sync` runs do not pile up backup files. It writes only to `$DSH_HOME` (default `~/.dsh`) and this repository.
 
 For manual setup, mount each plugin into a DSH profile as a cordis bundle. Example (`~/.dsh/profiles/fff`, see `TUI/README.md` for details):
 

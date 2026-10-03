@@ -4,8 +4,9 @@
 # 默认值：profile 名 fff、dsh 版本 0.2.0-rc.2、插件取 canonical_pkgs 全部包。
 # 本项目只用 TUI：agent 面由 profile 全局组合提供，脚本不配置 agent preset
 # （说明见 docs/host/AGENT-COMPOSITION.md）。
-# 幂等：已存在的 profile 配置文件默认原样保留（--force 才覆盖，且先备份
-# `.bak.<时间戳>`）；只写 $DSH_HOME（默认 ~/.dsh）下的 profile 目录与本仓库，
+# 幂等：已存在的 profile 配置文件默认原样保留（--force 才覆盖）；写入与备份只发生
+# 在内容确有变化时（--sync 可反复执行；内容未变不写、不备份），确有变化时先备份
+# `.bak.<时间戳>`；只写 $DSH_HOME（默认 ~/.dsh）下的 profile 目录与本仓库，
 # 不 sudo、不动系统路径、不改 settings.yaml。
 #
 # 用法：scripts/install.sh [选项]（见 --help）
@@ -34,7 +35,7 @@ usage() {
   --dsh-version <版本>  安装的 dsh 版本（默认 0.2.0-rc.2）
   --skip-dsh            不安装 / 不校验 dsh（假设 PATH 上已有）
   --skip-build          跳过插件的 npm install 与 build（复用已有 dist/）
-  --force               覆盖已存在的 profile 配置文件（覆盖前备份）
+  --force               覆盖已存在的 profile 配置文件（内容有变化时才写入并备份）
   --sync                更新已存在的 profile：合并式补挂本仓库插件、必要时禁用官方
                         all-prompts 标题 provider（追加 patch 片段），再跑 pnpm install
   --dry-run             只打印将要执行的操作，不落盘
@@ -86,7 +87,7 @@ check_name() {
     esac
 }
 backup() {
-    # 覆盖前备份（dry-run 不落盘）
+    # 覆盖前备份（dry-run 不落盘）；调用方先比对内容，未变化时不调用本函数
     [ -e "$1" ] || return 0
     if [ "$dry_run" = 1 ]; then
         printf '[dry-run] 备份 %s -> %s.bak.<时间戳>\n' "$1" "$1"
@@ -284,8 +285,8 @@ if [ -f "$manifest" ] && [ "$sync" = 1 ]; then
     if [ "$dry_run" = 1 ]; then
         printf '[dry-run] 合并更新 %s\n' "$manifest"
     else
-        backup "$manifest"
-        node -e '
+        # 先算合并结果（stdout）再与现状比对：内容未变则不写、不备份（避免堆积 .bak）
+        merged="$(node -e '
 const fs = require("fs");
 const [file, repoRoot, prefix, ...dirs] = process.argv.slice(1);
 const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -304,10 +305,16 @@ manifest.dsh.profile.bundles = ["@deepseek-ai/dsh-base", ...dirs.map((dir) => {
   const pkg = JSON.parse(fs.readFileSync(`${repoRoot}/${dir}/package.json`, "utf8"));
   return pkg.name;
 }), ...extras];
-fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
-' "$manifest" "$repo_root" link $final ||
+process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
+' "$manifest" "$repo_root" link $final)" ||
             die "合并更新 $manifest 失败"
-        log "已更新 $manifest（bundle 数：$(printf '%s' "$final" | wc -w) + dsh-base + 已保留的额外 bundle）"
+        if [ "$merged" = "$(cat "$manifest")" ]; then
+            log "清单内容未变，跳过备份与写入：$manifest"
+        else
+            backup "$manifest"
+            printf '%s\n' "$merged" > "$manifest"
+            log "已更新 $manifest（bundle 数：$(printf '%s' "$final" | wc -w) + dsh-base + 已保留的额外 bundle）"
+        fi
     fi
 elif [ -f "$manifest" ] && [ "$force" != 1 ]; then
     log "保留已有 $manifest（--force 覆盖 / --sync 合并更新）"
@@ -315,16 +322,26 @@ elif [ "$dry_run" = 1 ]; then
     printf '[dry-run] 写入 %s：\n' "$manifest"
     render_manifest
 else
-    backup "$manifest"
-    render_manifest > "$manifest"
-    node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$manifest" ||
+    rendered="$(render_manifest)"
+    printf '%s\n' "$rendered" |
+        node -e 'JSON.parse(require("fs").readFileSync(0, "utf8"))' ||
         die "生成的 $manifest 不是合法 JSON"
-    log "写入 $manifest（bundle 数：$(printf '%s' "$final" | wc -w) + dsh-base）"
+    if [ -f "$manifest" ] && [ "$rendered" = "$(cat "$manifest")" ]; then
+        log "清单内容未变，跳过备份与写入：$manifest"
+    else
+        backup "$manifest"
+        printf '%s\n' "$rendered" > "$manifest"
+        log "写入 $manifest（bundle 数：$(printf '%s' "$final" | wc -w) + dsh-base）"
+    fi
 fi
 for asset in pnpm-workspace.yaml cordis.patch.yml; do
     target="$pdir/$asset"
     if [ -f "$target" ] && [ "$force" != 1 ]; then
         log "保留已有 $target（--force 可覆盖）"
+        continue
+    fi
+    if [ -f "$target" ] && cmp -s "$profile_asset_dir/$asset" "$target"; then
+        log "内容未变，跳过备份与复制：$target"
         continue
     fi
     backup "$target"
