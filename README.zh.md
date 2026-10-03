@@ -92,7 +92,7 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 ```sh
 git clone <本仓库> && cd dsh-toolset
 scripts/install.sh                 # profile 名默认 fff
-scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-dsh/--skip-build/--force/--sync/--dry-run
+scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-dsh/--skip-build/--force/--sync/--dry-run/--skip-verify
 ```
 
 脚本幂等：已存在的 profile 配置文件默认保留，`--force` 才覆盖；仅当内容确有变化时才写入并备份（`.bak.<时间戳>`），反复 `--sync` 不会堆积备份文件。只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。

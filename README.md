@@ -92,7 +92,7 @@ One-shot install on a new machine (install dsh → build all plugins → create 
 ```sh
 git clone <本仓库> && cd dsh-toolset
 scripts/install.sh                 # profile 名默认 fff
-scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-dsh/--skip-build/--force/--sync/--dry-run
+scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-dsh/--skip-build/--force/--sync/--dry-run/--skip-verify
 ```
 
 The script is idempotent: existing profile config files are kept by default, and only `--force` overwrites them. Writes and backups (`.bak.<timestamp>`) happen only when the new content actually differs, so repeated `--sync` runs do not pile up backup files. It writes only to `$DSH_HOME` (default `~/.dsh`) and this repository.

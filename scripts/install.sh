@@ -20,6 +20,7 @@ skip_build=0
 force=0
 sync=0
 dry_run=0
+skip_verify=0
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 profile_asset_dir="$repo_root/profiles/example"
@@ -39,6 +40,7 @@ usage() {
   --sync                更新已存在的 profile：合并式补挂本仓库插件、必要时禁用官方
                         all-prompts 标题 provider（追加 patch 片段），再跑 pnpm install
   --dry-run             只打印将要执行的操作，不落盘
+  --skip-verify         跳过收尾自检（dsh --profile <name> --dump-config；无 dsh / CI 场景）
   -h, --help            显示本帮助
 
 环境变量：DSH_HOME 覆盖 Harness home（默认 ~/.dsh）；请勿在 dsh 运行中执行
@@ -143,6 +145,10 @@ while [ $# -gt 0 ]; do
             ;;
         --dry-run)
             dry_run=1
+            shift
+            ;;
+        --skip-verify)
+            skip_verify=1
             shift
             ;;
         -h | --help)
@@ -464,6 +470,34 @@ if [ "$dry_run" != 1 ]; then
 fi
 
 # ── 5/5 完成 ────────────────────────────────────────────────────────────────
+# 收尾自检：代跑一次 --dump-config，捕捉「未命中条目 id」等 patch 告警（dsh 会顺带在
+# profile 目录物化 cordis.yml 等派生文件，仍在 $DSH_HOME 内）。告警不改变脚本退出码。
+if [ "$skip_verify" = 1 ]; then
+    log "按 --skip-verify 跳过收尾自检（--dump-config）"
+elif [ "$dry_run" = 1 ]; then
+    printf '[dry-run] DSH_HOME=%s dsh --profile %s --dump-config（收尾自检）\n' "$dsh_home" "$profile_name"
+elif ! have dsh; then
+    log "未找到 dsh，跳过收尾自检（--dump-config）"
+else
+    # 2>&1 > /dev/null：stderr 进变量（先接到命令替换管道）、stdout 丢弃；< /dev/null 防交互挂起
+    if dump_err="$(DSH_HOME="$dsh_home" dsh --profile "$profile_name" --dump-config < /dev/null 2>&1 > /dev/null)"; then
+        dump_rc=0
+    else
+        dump_rc=$?
+    fi
+    if [ "$dump_rc" = 0 ] && [ -z "$dump_err" ]; then
+        log "收尾自检通过：--dump-config 解析无告警（不实例化插件）"
+    else
+        warn "收尾自检未通过：dsh --profile $profile_name --dump-config（退出码 $dump_rc）"
+        warn "以下为 dsh stderr 原文（若与 profile patch 无关可忽略）："
+        if [ -n "$dump_err" ]; then
+            dump_lines="$(printf '%s\n' "$dump_err" | wc -l | tr -d ' ')"
+            printf '%s\n' "$dump_err" | sed -e 's/^/    /' -e '20q' >&2
+            [ "$dump_lines" -le 20 ] || warn "…（stderr 共 $dump_lines 行，仅显示前 20 行）"
+        fi
+        warn "排查提示：多为 profile 的 cordis.patch.yml 引用了未安装/不存在的条目 id；修正后重跑（或加 --skip-verify 跳过自检）"
+    fi
+fi
 log "5/5 完成"
 cat << EOF
 
@@ -483,5 +517,6 @@ cat << EOF
     本脚本不动这两处文件。
   - 本项目只用 TUI：agent 面走 profile 全局组合，不配置 agent preset；TUI 的 /preset
     提示「agent 预设服务不可用」属正常（依据见 docs/host/AGENT-COMPOSITION.md）。
-  - 若退出码非零或启动报 patch 告警，多半是 profile 的 cordis.patch.yml 引用了未安装的条目 id。
+  - 收尾自检代跑 dsh --profile $profile_name --dump-config（dsh 会物化 cordis.yml 等派生文件）；
+    「未命中条目 id」等 patch 告警见上方输出，修正后重跑；--skip-verify 可跳过自检。
 EOF

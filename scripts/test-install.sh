@@ -17,9 +17,16 @@ trap cleanup EXIT INT TERM
 # 假 pnpm：install.sh 只要求 pnpm 存在、并能在 profile 目录里执行 install
 printf '#!/bin/sh\nexit 0\n' > "$fakebin/pnpm"
 chmod +x "$fakebin/pnpm"
-# 假 dsh：给「树外官方插件版本检查」的 --skip-dsh 分支一个固定宿主版本
-printf '#!/bin/sh\necho 0.2.0-rc.2\n' > "$fakebin/dsh"
-chmod +x "$fakebin/dsh"
+# 假 dsh：--version 给固定宿主版本；--dump-config 默认成功且无告警（收尾自检用）
+fake_dsh_ok() {
+    printf '#!/bin/sh\ncase "$*" in\n*--dump-config*) exit 0 ;;\n*) echo 0.2.0-rc.2 ;;\nesac\n' > "$fakebin/dsh"
+    chmod +x "$fakebin/dsh"
+}
+fake_dsh_dump() { # fake_dsh_dump <stderr 文本> <退出码>：--dump-config 时输出该文本并退出
+    printf '#!/bin/sh\ncase "$*" in\n*--dump-config*) printf "%%s\\n" "%s" >&2; exit %s ;;\n*) echo 0.2.0-rc.2 ;;\nesac\n' "$1" "$2" > "$fakebin/dsh"
+    chmod +x "$fakebin/dsh"
+}
+fake_dsh_ok
 
 checks=0
 fail() {
@@ -187,7 +194,56 @@ printf '#!/bin/sh\nexit 0\n' > "$fakebin/dsh"
 install_v
 assert_log_contains "拿不到 dsh --version 输出" "版本取不到时告警跳过"
 assert_log_not_contains "与宿主不一致" "版本取不到时不判不一致"
-printf '#!/bin/sh\necho 0.2.0-rc.2\n' > "$fakebin/dsh"
-chmod +x "$fakebin/dsh"
+fake_dsh_ok
+
+# 10）收尾自检（--dump-config）：通过 / stderr 告警 / rc≠0 / --skip-verify / --dry-run / 截断
+write_vmanifest '{"@deepseek-ai/dsh-session-title-all-prompts-llm":"0.2.0-rc.2"}'
+
+# 10a）通过：rc=0 且 stderr 为空
+install_v
+assert_log_contains "收尾自检通过" "自检通过输出"
+assert_log_not_contains "自检未通过" "通过时不告警"
+
+# 10b）stderr 非空（多行 + % 与反斜杠）：告警，但不改退出码（install_ 已隐含断言）
+fake_dsh_dump 'dsh: [patch] entry no-such-id not found
+line2: 50% done
+line3: back\slash path' 0
+install_v
+assert_log_contains "收尾自检未通过" "stderr 非空时告警"
+assert_log_contains "no-such-id" "stderr 原文透出"
+assert_log_contains "50% done" "格式串安全（% 原样）"
+assert_log_contains "back\slash path" "转义安全（反斜杠原样）"
+
+# 10c）退出码非 0：告警含退出码
+fake_dsh_dump 'boom: dump-config failed' 3
+install_v
+assert_log_contains "退出码 3" "报出退出码"
+assert_log_contains "boom: dump-config failed" "报出错误文本"
+
+# 10d）--skip-verify：跳过且不执行自检（失败态 stub 仍生效）
+install_ --profile vercheck --plugins "TUI ponytail" --skip-verify
+assert_log_contains "按 --skip-verify 跳过" "skip-verify 生效"
+assert_log_not_contains "自检未通过" "skip-verify 下不执行自检"
+
+# 10e）--dry-run：只打印将执行的命令
+install_v --dry-run
+assert_log_contains "dsh --profile vercheck --dump-config" "dry-run 打印自检命令"
+assert_log_not_contains "收尾自检通过" "dry-run 不执行自检"
+
+# 10f）超长 stderr：截到前 20 行并注明
+long_msg="$(
+    i=1
+    while [ "$i" -le 25 ]; do
+        printf 'err line %s\n' "$i"
+        i=$((i + 1))
+    done
+)"
+fake_dsh_dump "$long_msg" 0
+install_v
+assert_log_contains "仅显示前 20 行" "超长 stderr 有截断提示"
+assert_log_contains "err line 20" "截断保留前 20 行"
+assert_log_not_contains "err line 21" "截断丢弃后续行"
+
+fake_dsh_ok
 
 printf '[test-install] 全部 %s 项通过\n' "$checks"

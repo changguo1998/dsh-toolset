@@ -26,9 +26,18 @@
 - 版本取值：不 `--skip-dsh` → 目标版本 `$dsh_version_default`（第 2 步刚确保）；`--skip-dsh` → 实际宿主 `dsh --version` 输出（本机实测为裸版本号 `0.2.0-rc.2`；取不到则跳过并告警）。
 - 触发时机：manifest 存在时每次运行都查（读前先 `-f` 判在），新建 profile 场景自然跳过；检查只读，dry-run 同样执行。
 
-### 其余两条
+### 「收尾自检」
 
-- 预备（2026-10-03，只读）：其余细节待各条目开工时补。
+- 现状：脚本收尾只提示用户自己跑 `dsh --profile <name> --dump-config`；「引用了未安装/不存在条目 id」等 patch 告警要等手动跑或启动才暴露。
+- 探针（2026-10-03，本机实测）：
+  - `dsh --profile <name> --dump-config` 由 `prepareProfile` **物化 `cordis.yml` 到 profile 目录**（并非纯只读；仍在 `$DSH_HOME` 内，符合脚本契约）；`DSH_HOME` 被 dsh 尊重（临时 home 夹具实测可组合）。
+  - 「不存在条目 id」形态：**退出码仍为 0**，但 stderr 非空（`dsh: [<patch 路径>] patch: entry "…" not found`）→ 判定必须同时看 rc 与 stderr（主要靠 stderr）。
+  - 无告警形态：rc=0、stderr 为空（stdout 为组合树，11 KB 级）。
+  - 备注：本机对真实 `~/.dsh` 的写入被沙箱（EROFS）拦下，真机验证改用临时 `DSH_HOME` 夹具。
+
+### 其余一条
+
+- 预备（2026-10-03，只读）：其余细节待开工时补。
 
 ## 决策
 
@@ -54,6 +63,17 @@
 - 测试：`scripts/test-install.sh` 增「一致 / 不一致 / 无此类依赖」三态 + 前导 `^` 兼容；宿主版本用 PATH 前置的假 `dsh` 固定输出（走 `--skip-dsh` 分支）。
 - 审阅（子代理，2026-10-03）：结论 **需修改（方向正确，无严重问题）**。采纳：① 仅 `^?~?<semver>` 形态参与串比，其余（`>=` / 别名 / `workspace:` / git 等）单列「非精确版本，无法自动判定」，不给「改 pin」的强建议；② 一并扫 `devDependencies`；③ `--skip-dsh` 且 PATH 无 dsh → 静默跳过（第 2 步已告警），dsh 在但输出为空 → 显式 warn 后跳过；④ 测试换独立 `--profile vercheck` 夹具，补解析失败 / `link:` 排除 / 多条目 / `~` 前缀 / 取不到版本；⑤ 解析失败不 `die`。
 - 未采纳（审阅可选/边界项）：并查 `node_modules` 实际已装版本（超出本条目范围，留作后续可选）；`--force` 仍照常检查（告警显示现状、供用户知情）；多 profile 不扩查（脚本本为单 profile 契约）。
+
+### 「收尾自检」
+
+- 落点：`5/5 完成` 段内、打印安装结果之前；`--dry-run` 只打印将执行的命令、不真跑。
+- 执行：`DSH_HOME="$dsh_home" dsh --profile "$profile_name" --dump-config`，stderr 捕获、stdout 丢弃；**rc 与 stderr 双判**（实测「不存在条目 id」时 rc=0 但 stderr 非空）。
+- 输出：通过 → log「收尾自检通过…无告警」；不通过 → warn（含退出码）+ 缩进打印 stderr + 排查提示；**不改变脚本退出码**（不 `die`）。
+- 跳过路径：`--skip-verify`（新增开关）→ log 跳过；无 dsh → log 跳过；dry-run → `[dry-run]` 打印。
+- 说明：自检会由 dsh 自身物化 `cordis.yml`（在 profile 目录内）；usage、双语 README 的 `--help` 摘要、收尾「提示」段同步补 `--skip-verify` 与自检说明。
+- 测试：`scripts/test-install.sh` 增场景 10（假 dsh 分流 `--version` / `--dump-config`）：通过 / stderr 告警 / rc≠0 / `--skip-verify` / `--dry-run`。
+- 审阅（子代理，2026-10-03）：结论 **需修改（方向、落点、双判思路都对；无严重问题）**。采纳：① `if dump_err="$(…)"; then rc=0; else rc=$?; fi` 写法（裸赋值在 `set -e` 下会当场中止、破坏「退出码保持 0」）；② stderr 一律 `printf` + 缩进 + 前 20 行截断 + 「共 N 行」注（`echo` 会吃转义、`printf "$err"` 会吃 `%`）；③ 文案去掉「健康检查」口吻、注明「不实例化插件」，并修掉旧「退出码非零」提示（探针证伪：rc 恒 0）；④ `< /dev/null` 防交互挂起；⑤ 测试补多行 stderr（含 `%` 与反斜杠）、截断、`--skip-verify`、`--dry-run`。
+- 未采纳（审阅边界项）：`timeout` 包装（非 POSIX，macOS 无）；「PATH 无 dsh」独立夹具（沿用等价覆盖并注明局限）。
 
 ## 规划
 
@@ -81,6 +101,12 @@
   - `scripts/install.sh`：第 2 步后插入独立小段 —— 读 `$dsh_home/profiles/$profile_name/package.json`（存在才查）；node 扫 `dependencies` + `devDependencies` 的 `@deepseek-ai/dsh-*`（排除 `link:`/`file:`），`^~/semver` 参与串比、其余单列；输出 `none` / `ok` / `unknown …` / `mismatch …`；shell 三分类：无候选跳过 / 一致记 log / 不一致逐条 `warn` + `cd … && pnpm install` 提示；解析失败与「版本取不到」warn 后跳过；只读、dry-run 亦执行。
   - `scripts/test-install.sh`：加假 `dsh`（固定输出 `0.2.0-rc.2`）；`install_` 保留最近一次输出（`$lastlog`），`fail` 只打该次输出；新增场景 9（独立 `--profile vercheck` 夹具，7 小项 14 断言）。
 
+- 2026-10-03（「收尾自检」）：
+
+  - `scripts/install.sh`：新增 `--skip-verify`（变量 / 解析 / usage）；`5/5` 段内、打印结果前插入自检块 —— `DSH_HOME=$dsh_home dsh --profile … --dump-config < /dev/null 2>&1 > /dev/null` 捕获 stderr、rc 与 stderr 双判；通过 → log；未通过 → warn（退出码 + stderr 原文缩进、`20q` 截断 + 共 N 行提示）+ 排查提示；不改退出码；`--skip-verify` / 无 dsh / dry-run 三条跳过路径；收尾「提示」段旧文案（「退出码非零」已证伪）改写为自检口径。
+  - 双语 README：`--help` 摘要补 `--skip-verify`。
+  - `scripts/test-install.sh`：假 dsh 分 `--version` / `--dump-config` 两分支（`fake_dsh_ok` / `fake_dsh_dump`）；新增场景 10（通过 / 多行 stderr 含 `%` 与反斜杠 / rc≠0 / `--skip-verify` / `--dry-run` / 超长截断）。
+
 ## 测试与证据
 
 - `sh -n scripts/install.sh`、`sh -n scripts/test-install.sh`：语法 OK。
@@ -90,6 +116,7 @@
 - `shfmt -i 4 -ci -s -sr -d`（`format` 命令对 .sh 的实际参数）：新增代码零差异；仓库既有 shell 脚本同样未统一走 shfmt，未做无关格式化。
 - 未跑 `npm run check / build / test`：本次不涉及 TS / 包面改动（仅 shell 与文档），无从覆盖。
 - 2026-10-03（「树外版本检查」）：`sh scripts/test-install.sh` **31/31 通过**；真机 dry-run（`DSH_HOME=~/.dsh … --profile fff --skip-dsh --skip-build --dry-run`，零写入、只读真实 fff profile）输出 `profile 树外官方插件版本与宿主 dsh 一致（0.2.0-rc.2）`；`shellcheck` 仅 info 级（SC2016/SC2086，设计如此）；`shfmt -i 4 -ci -s -sr -d` 新增代码零差异。局限：「PATH 无 dsh」态因本机存在真实 dsh 无法安全模拟，以「dsh 在但输出为空」等价覆盖（同为 `host_version` 空 → 跳过）。
+- 2026-10-03（「收尾自检」）：`sh scripts/test-install.sh` **46/46 通过**。真机端到端（临时 `DSH_HOME` + `XDG_DATA_HOME` 重定位 pnpm store——默认全局 store 在外会被沙箱 EROFS 拦下）：① 基线 `[]` patch → `收尾自检通过`（rc=0）；② 覆盖为 `- id: definitely-not-a-real-entry-id` 单文档 → `收尾自检未通过（退出码 0）` + `patch: entry … not found` + 排查提示，install.sh 仍 rc=0。夹具经验：空 patch 文件、以及「`[]` + 追加第二文档」都会让 dsh 解析失败（脚本同样以「未通过 + 解析错误」如实呈现）。
 
 ## 新发现（已登记 BACKLOG）
 
