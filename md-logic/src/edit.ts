@@ -54,12 +54,87 @@ export type ReplaceOutcome =
 interface TextFlavor {
   bom: string;
   crlf: boolean;
+  /** 混合 EOL（同时存在 `\r\n` 与独立的 `\n`）。 */
+  mixed: boolean;
+  /** 主导 EOL（多数派；并列取 `\n`）——仅 `mixed` 时用于新增行。 */
+  dominant: "\n" | "\r\n";
 }
 
 function flavorOf(text: string): TextFlavor {
   const bom = text.startsWith("\uFEFF") ? "\uFEFF" : "";
   const body = bom === "" ? text : text.slice(1);
-  return { bom, crlf: body.includes("\r\n") };
+  const crlfCount = (body.match(/\r\n/g) ?? []).length;
+  // 独立 LF = 总数 - CRLF 数（`\r\n` 里的 `\n` 不算独立 LF）
+  const lfTotal = (body.match(/\n/g) ?? []).length;
+  const lfOnly = lfTotal - crlfCount;
+  const mixed = crlfCount > 0 && lfOnly > 0;
+  return {
+    bom,
+    crlf: crlfCount > 0,
+    mixed,
+    dominant: crlfCount > lfOnly ? "\r\n" : "\n",
+  };
+}
+
+/** 按行切开原文并记录**每行原有的 EOL**（末行无 EOL 时记为 `""`）。 */
+function splitWithEols(text: string): { lines: string[]; eols: string[] } {
+  const body = text.replace(/^\uFEFF/, "");
+  const lines: string[] = [];
+  const eols: string[] = [];
+  let start = 0;
+  for (let i = 0; i < body.length; i += 1) {
+    if (body[i] !== "\n") continue;
+    const isCrlf = i > start && body[i - 1] === "\r";
+    lines.push(body.slice(start, isCrlf ? i - 1 : i));
+    eols.push(isCrlf ? "\r\n" : "\n");
+    start = i + 1;
+  }
+  lines.push(body.slice(start));
+  eols.push("");
+  return { lines, eols };
+}
+
+/**
+ * 混合 EOL 文件：**未改动的行保留原有 EOL**（前缀 / 后缀对齐），仅新增/替换的行用 dominant。
+ * 这样 `replace` 不会把整文件行尾翻转（diff 最小化）。
+ */
+function rebuildMixed(
+  lines: string[],
+  flavor: TextFlavor,
+  original: string,
+): string {
+  const { lines: origLines, eols: origEols } = splitWithEols(original);
+  let prefix = 0;
+  while (
+    prefix < lines.length &&
+    prefix < origLines.length &&
+    lines[prefix] === origLines[prefix]
+  ) {
+    prefix += 1;
+  }
+  let suffix = 0;
+  while (
+    suffix < lines.length - prefix &&
+    suffix < origLines.length - prefix &&
+    lines[lines.length - 1 - suffix] ===
+      origLines[origLines.length - 1 - suffix]
+  ) {
+    suffix += 1;
+  }
+  let out = flavor.bom;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    let eol: string;
+    if (i < prefix) {
+      eol = origEols[i] ?? flavor.dominant;
+    } else if (i >= lines.length - suffix) {
+      eol = origEols[origLines.length - (lines.length - i)] ?? flavor.dominant;
+    } else {
+      eol = i === lines.length - 1 ? "" : flavor.dominant;
+    }
+    out += line + eol;
+  }
+  return out;
 }
 
 /** 归一化：剥 BOM + `\r\n?` → `\n`（与 parse.ts 同口径） */
@@ -67,8 +142,13 @@ function normalize(text: string): string {
   return text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
 }
 
-/** 按原文风格重建（内容行已按 `\n` 拼接） */
-function rebuild(lines: string[], flavor: TextFlavor): string {
+/** 按原文风格重建（内容行已按 `\n` 拼接）；混合 EOL 走 `rebuildMixed`（逐行保留） */
+function rebuild(
+  lines: string[],
+  flavor: TextFlavor,
+  original: string,
+): string {
+  if (flavor.mixed) return rebuildMixed(lines, flavor, original);
   const joined = lines.join("\n");
   return flavor.bom + (flavor.crlf ? joined.replace(/\n/g, "\r\n") : joined);
 }
@@ -194,7 +274,11 @@ export function replaceSections(
     const contentLines = item.edit.content === "" ? [] : trimmed.split("\n");
     lines.splice(item.line - 1, item.endLine - item.line + 1, ...contentLines);
   }
-  return { ok: true, text: rebuild(lines, flavor), applied: located.length };
+  return {
+    ok: true,
+    text: rebuild(lines, flavor, text),
+    applied: located.length,
+  };
 }
 
 /** 相对路径以 root（缺省进程 cwd）为基准解析。 */

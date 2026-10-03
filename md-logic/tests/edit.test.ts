@@ -323,3 +323,85 @@ test("重复标题按「同标题 + 精确范围」唯一匹配；错范围列�
   assert.equal(tail.ok, true);
   if (tail.ok) assert.match(tail.text, /乙已改写。\n$/);
 });
+
+test("混合 EOL：未改动行保留原行尾，替换行用主导风格（修「整文件行尾翻转」）", () => {
+  // CRLF 主导 + 中间两行 LF（未改动）；被替换的丙节在末尾
+  const text =
+    "# 标题\r\n## 甲节\r\n内容甲。\r\n## 乙节\n内容乙\n## 丙节\r\n内容丙\r\n";
+  const out = replaceSections(text, [
+    {
+      heading: "丙节",
+      startLine: 6,
+      endLine: 7,
+      content: "## 丙节\n新内容丙。\n",
+    },
+  ]);
+  assert.equal(out.ok, true, out.ok ? "" : out.error);
+  if (!out.ok) return;
+  assert.ok(
+    out.text.startsWith("# 标题\r\n## 甲节\r\n内容甲。\r\n"),
+    "前缀逐字节不变",
+  );
+  assert.ok(
+    out.text.includes("## 乙节\n内容乙\n"),
+    "未改动的 LF 行不得被翻成 CRLF",
+  );
+  assert.ok(
+    out.text.includes("## 丙节\r\n新内容丙。\r\n"),
+    "替换行用主导 EOL（CRLF）",
+  );
+});
+
+test("混合 EOL：LF 主导时新增行用 LF；纯风格文件行为与旧版逐字节一致", () => {
+  // LF 主导（3 LF vs 2 CRLF），替换末尾节 → 新行用 LF，未改动的 CRLF 行保持
+  const mixed =
+    "# 标题\n## 甲节\r\n内容甲。\r\n## 乙节\n内容乙\n## 丙节\n内容丙\n";
+  const out = replaceSections(mixed, [
+    {
+      heading: "丙节",
+      startLine: 6,
+      endLine: 7,
+      content: "## 丙节\n新内容丙。\n",
+    },
+  ]);
+  assert.equal(out.ok, true, out.ok ? "" : out.error);
+  if (!out.ok) return;
+  assert.ok(
+    out.text.includes("## 甲节\r\n内容甲。\r\n"),
+    "未改动的 CRLF 行保持 CRLF",
+  );
+  assert.ok(out.text.includes("## 丙节\n新内容丙。\n"), "LF 主导时新行用 LF");
+
+  // 纯 LF：与旧版（全文件 LF）逐字节一致
+  const lf = replaceSections("# 标题\n## 甲节\n内容甲。\n## 乙节\n内容乙\n", [
+    {
+      heading: "乙节",
+      startLine: 4,
+      endLine: 5,
+      content: "## 乙节\n新内容乙。\n",
+    },
+  ]);
+  assert.equal(lf.ok, true);
+  if (lf.ok)
+    assert.equal(lf.text, "# 标题\n## 甲节\n内容甲。\n## 乙节\n新内容乙。\n");
+
+  // 纯 CRLF：与旧版（全文件 CRLF）逐字节一致
+  const crlf = replaceSections(
+    "# 标题\r\n## 甲节\r\n内容甲。\r\n## 乙节\r\n内容乙\r\n",
+    [
+      {
+        heading: "乙节",
+        startLine: 4,
+        endLine: 5,
+        content: "## 乙节\n新内容乙。\n",
+      },
+    ],
+  );
+  assert.equal(crlf.ok, true);
+  if (crlf.ok) {
+    assert.equal(
+      crlf.text,
+      "# 标题\r\n## 甲节\r\n内容甲。\r\n## 乙节\r\n新内容乙。\r\n",
+    );
+  }
+});
