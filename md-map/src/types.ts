@@ -34,7 +34,7 @@ export type MdEdgeKind =
   | "broken"
   /**
    * 行内代码里的**路径引用**（如 `` `docs/BACKLOG.md` ``）：命中索引内文档才成边；
-   * 未命中不计（示例路径不该变噪声），多解跳过。
+   * 未命中不计（示例路径不该变噪声；计入 `refUnresolved`），多解按候选序（源目录形态优先，与 wiki 同解）。
    */
   | "ref";
 
@@ -92,6 +92,10 @@ export interface MdMapIndex {
   fileEdges: number;
   /** 行内代码路径引用边数（`kind:"ref"`，已计入 `edges`） */
   refEdges: number;
+  /** 未解析的行内代码路径 token（0 命中索引的 (行,token) 条数；仅计数，不计断链——文档改名的漂移探针） */
+  refUnresolved: number;
+  /** 上者中以 `.md` 结尾的子集（文档改名 / 写错路径的直接探针） */
+  refUnresolvedMd: number;
   broken: MdBrockenLink[];
 }
 
@@ -131,6 +135,10 @@ export interface MdMapReport {
   fileEdges: number;
   /** 行内代码路径引用边数（`kind:"ref"`，已计入 `edges`） */
   refEdges: number;
+  /** 未解析的行内代码路径 token（仅计数，不计断链——文档改名的漂移探针） */
+  refUnresolved: number;
+  /** 上者中以 `.md` 结尾的子集（文档改名 / 写错路径的直接探针） */
+  refUnresolvedMd: number;
   broken: MdBrockenLink[];
   orphans: string[];
   /** 被引最多的文档（top 10）。 */

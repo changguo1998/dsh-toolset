@@ -29,16 +29,21 @@ export function renderIndex(index: MdMapIndex, action: string): string {
   ].join("\n");
 }
 
-/** callers 结果。 */
+/** callers 结果（kinds 给出时标注过滤口径）。 */
 export function renderCallers(
   target: string,
   callers: MdCaller[],
   anchor?: string,
+  kinds?: readonly string[],
 ): string {
+  const filter =
+    kinds === undefined || kinds.length === 0
+      ? ""
+      : `（kind 过滤：${kinds.join("/")}）`;
   if (callers.length === 0) {
-    return `(无引用：${target}${anchor === undefined ? "" : `#${anchor}`})`;
+    return `(无引用：${target}${anchor === undefined ? "" : `#${anchor}`}${filter})`;
   }
-  const head = `引用 ${target}${anchor === undefined ? "" : `#${anchor}`} 共 ${callers.length} 处：`;
+  const head = `引用 ${target}${anchor === undefined ? "" : `#${anchor}`} 共 ${callers.length} 处${filter}：`;
   const lines = callers.map((caller) => {
     const at = caller.anchor === undefined ? "" : `#${caller.anchor}`;
     const text = caller.text === undefined ? "" : ` “${caller.text}”`;
@@ -47,13 +52,21 @@ export function renderCallers(
   return [head, ...cap(lines)].join("\n");
 }
 
-/** impact 结果。 */
-export function renderImpact(target: string, layers: MdImpactLayer[]): string {
-  if (layers.length === 0) return `(无上游引用：${target})`;
+/** impact 结果（kinds 给出时标注过滤口径：逐层过滤，中间跳被过滤则后继消失）。 */
+export function renderImpact(
+  target: string,
+  layers: MdImpactLayer[],
+  kinds?: readonly string[],
+): string {
+  const filter =
+    kinds === undefined || kinds.length === 0
+      ? ""
+      : `（kind 过滤：${kinds.join("/")}）`;
+  if (layers.length === 0) return `(无上游引用：${target}${filter})`;
   const total = layers.reduce((sum, layer) => sum + layer.docs.length, 0);
   // 每层条目上限：避免单行过长（真实仓库实测一层可塞满上百个路径 → 单行 20KB+）
   const perLayer = 20;
-  const lines = [`改动 ${target} 的上游影响（${total} 个文档）：`];
+  const lines = [`改动 ${target} 的上游影响（${total} 个文档）${filter}：`];
   for (const layer of layers) {
     const shown = layer.docs.slice(0, perLayer);
     const rest =
@@ -95,6 +108,7 @@ export function renderReport(reportData: MdMapReport): string {
     `文档地图报告（root：${reportData.root}，${reportData.elapsedMs} ms${reportData.truncated ? "，已截断" : ""}）`,
     `文档 ${reportData.docs} / 锚点 ${reportData.anchors} / 内部边 ${reportData.edges} / 文件引用 ${reportData.fileEdges} / 站外链接 ${reportData.externalEdges}`,
     `另有 ${reportData.refEdges ?? 0} 条行内代码路径引用（kind=ref，已计入内部边，不计断链）`,
+    `未解析的行内代码路径 token：${reportData.refUnresolved ?? 0} 行（其中以 .md 结尾 ${reportData.refUnresolvedMd ?? 0}；仅计数、不进断链——文档改名 / 写错路径时升高）`,
   ];
   // 报告里只预览前若干个孤儿（真实仓库动辄上百个，整行输出会撑爆上下文）
   const orphanPreview = reportData.orphans.slice(0, 15);
@@ -137,6 +151,8 @@ export function renderSummary(
         docs: number;
         anchors: number;
         edges: number;
+        /** 行内代码路径引用边数（与 report 对称；已计入 edges；旧值缺省按 0） */
+        refEdges?: number;
         broken: number;
         truncated: boolean;
         builtAt: string;
@@ -145,6 +161,7 @@ export function renderSummary(
   if (value.ready !== true) return "未索引（先调用 md_map action=index）";
   return [
     `索引就绪：${value.docs} 个文档 / ${value.anchors} 个锚点 / ${value.edges} 条内部边 / ${value.broken} 条断链${value.truncated ? "（已截断）" : ""}`,
+    `行内代码路径引用（kind=ref）：${value.refEdges ?? 0} 条（已计入内部边）`,
     `root：${value.root}（构建于 ${value.builtAt}）`,
   ].join("\n");
 }

@@ -120,6 +120,10 @@ export async function buildIndex(
   const docs: MdDoc[] = [];
   const broken: MdBrockenLink[] = [];
   const anchorsByPath = new Map<string, Set<string>>();
+  /** 未解析的行内代码路径 token（0 命中的 (行,token) 条数；仅计数，不计断链——漂移探针） */
+  let refUnresolved = 0;
+  /** 上者中以 `.md` 结尾的子集（文档改名 / 写错路径的直接探针） */
+  let refUnresolvedMd = 0;
 
   // 第一遍：逐文件解析（结构来自 md-logic），收集锚点与候选边
   for (const path of files) {
@@ -172,7 +176,13 @@ export async function buildIndex(
         line: ref.line,
         ref: true,
       });
-      if (refEdge !== undefined) edges.push(refEdge);
+      if (refEdge === undefined) {
+        // 0 命中：不产边、不计断链，只计数（文档改名 / 写错路径的漂移探针）
+        refUnresolved += 1;
+        if (/\.md$/i.test(ref.token)) refUnresolvedMd += 1;
+        continue;
+      }
+      edges.push(refEdge);
     }
     for (const wiki of scanWikiLinks(normalizedLines, codeLines)) {
       const edge = await classify({
@@ -365,6 +375,8 @@ export async function buildIndex(
     externalEdges,
     fileEdges,
     refEdges,
+    refUnresolved,
+    refUnresolvedMd,
     broken,
   };
 }

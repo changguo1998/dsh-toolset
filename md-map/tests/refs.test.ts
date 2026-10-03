@@ -1,14 +1,15 @@
 // tests/refs.test.ts — 行内代码路径引用（kind:"ref"）与代码区两类漏判。
 //
 // 覆盖：容器缩进围栏里的 wiki 不误判、跨行 code span 里的 wiki 不误判、
-// ref token 提取与解析（命中 / 多解跳过 / 未命中不计断链）、report 计数。
+// ref token 提取与解析（命中 / 多解按候选序 / 未命中不计断链但计入未解析计数）、report / summary 计数。
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { buildIndex } from "../src/indexer.ts";
 import { fenceLines, scanInlineRefs, scanWikiLinks } from "../src/links.ts";
-import { report } from "../src/query.ts";
+import { callers, impact, report, summary } from "../src/query.ts";
+import { renderReport, renderSummary } from "../src/render.ts";
 import { FIXTURE, withTempDir, writeFile } from "./helpers.ts";
 
 test("fenceLines：列表 / 引用内 4 空格缩进围栏算代码区（#2①）", () => {
@@ -143,6 +144,69 @@ test("indexer：ref 边命中 / 多解跳过 / 未命中不计断链 + report �
     assert.ok((a?.backlinks ?? 0) >= refs.length);
     const rep = report(index);
     assert.equal(rep.refEdges, refs.length);
+    // 未解析计数：`docs/不存在.md` 0 命中（`docs/` 被扫描器过滤，不是候选 token）
+    assert.equal(index.refUnresolved, 1);
+    assert.equal(index.refUnresolvedMd, 1);
+    assert.equal(rep.refUnresolved, 1);
+    assert.equal(rep.refUnresolvedMd, 1);
+    const reportText = renderReport(rep);
+    assert.match(
+      reportText,
+      /未解析的行内代码路径 token：1 行（其中以 \.md 结尾 1/,
+      reportText,
+    );
+    // ③ summary 与 report 对称
+    assert.equal(summary(index).refEdges, refs.length);
+    assert.match(
+      renderSummary(summary(index)),
+      /行内代码路径引用（kind=ref）：4 条/,
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("query：callers / impact 的 kind 过滤（文档链接语义与 ref 分离）", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    writeFile(dir, "README.md", "# 项目\n\n[A](docs/a.md)\n");
+    writeFile(dir, "docs/a.md", "# A\n");
+    writeFile(dir, "docs/refs.md", "# refs\n\n行内引用：`docs/a.md`\n");
+    const index = await buildIndex({ root: dir });
+    const all = callers(index, "docs/a.md");
+    assert.equal(all.length, 2, JSON.stringify(all));
+    assert.equal(callers(index, "docs/a.md", { kind: ["internal"] }).length, 1);
+    assert.deepEqual(
+      callers(index, "docs/a.md", { kind: ["ref"] }).map((c) => c.from),
+      ["docs/refs.md"],
+    );
+    // impact 逐层过滤：ref-only 上游被滤除（默认口径含 ref）
+    assert.deepEqual(impact(index, "docs/a.md")[0]?.docs, [
+      "README.md",
+      "docs/refs.md",
+    ]);
+    assert.deepEqual(
+      impact(index, "docs/a.md", { kind: ["internal"] })[0]?.docs,
+      ["README.md"],
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("indexer：被 exclude 挡住的 ref 计入未解析（不进断链）", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    writeFile(
+      dir,
+      "README.md",
+      "# 项目\n\n引用：`hidden/x.md`、`docs/nope.md`\n",
+    );
+    writeFile(dir, "hidden/x.md", "# 隐藏\n");
+    const index = await buildIndex({ root: dir, exclude: ["hidden"] });
+    assert.equal(index.refUnresolved, 2);
+    assert.equal(index.refUnresolvedMd, 2);
+    assert.equal(index.broken.length, 0, "未解析 token 不进断链");
   } finally {
     cleanup();
   }

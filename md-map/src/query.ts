@@ -3,6 +3,7 @@
 import type {
   MdCaller,
   MdDoc,
+  MdEdgeKind,
   MdImpactLayer,
   MdMapIndex,
   MdMapReport,
@@ -15,12 +16,13 @@ export function getDoc(index: MdMapIndex, path: string): MdDoc | undefined {
 
 /**
  * 谁引用了该文档（或该锚点）。
- * `anchor` 给出时只统计指向该锚点的入边；`path` 可用相对 root 的路径或其后缀（如 `docs/x.md`）。
+ * `anchor` 给出时只统计指向该锚点的入边；`kind` 给出时只统计这些边种类（allowlist，
+ * 如 `["internal","wiki"]` 排除 ref 噪声）；`path` 可用相对 root 的路径或其后缀（如 `docs/x.md`）。
  */
 export function callers(
   index: MdMapIndex,
   path: string,
-  options: { anchor?: string } = {},
+  options: { anchor?: string; kind?: readonly MdEdgeKind[] } = {},
 ): MdCaller[] {
   const target = resolveDocRef(index, path);
   if (target === undefined) return [];
@@ -29,6 +31,12 @@ export function callers(
     for (const edge of doc.edges) {
       if (edge.to !== target) continue;
       if (options.anchor !== undefined && edge.anchor !== options.anchor)
+        continue;
+      if (
+        options.kind !== undefined &&
+        options.kind.length > 0 &&
+        !options.kind.includes(edge.kind)
+      )
         continue;
       out.push({
         from: doc.path,
@@ -58,11 +66,14 @@ export function resolveDocRef(
   return byName.length === 1 ? byName[0]?.path : undefined;
 }
 
-/** 反向引用闭包：谁引用了该文档、再谁引用了那些文档……按层返回（不含起点）。 */
+/**
+ * 反向引用闭包：谁引用了该文档、再谁引用了那些文档……按层返回（不含起点）。
+ * `kind` 逐层过滤入边（等价于在过滤子图上做 BFS：中间跳被过滤则其后继整体消失）。
+ */
 export function impact(
   index: MdMapIndex,
   path: string,
-  options: { depth?: number } = {},
+  options: { depth?: number; kind?: readonly MdEdgeKind[] } = {},
 ): MdImpactLayer[] {
   const start = resolveDocRef(index, path);
   if (start === undefined) return [];
@@ -73,7 +84,7 @@ export function impact(
   for (let level = 1; level <= depth && frontier.length > 0; level += 1) {
     const next = new Set<string>();
     for (const doc of frontier) {
-      for (const caller of callers(index, doc)) {
+      for (const caller of callers(index, doc, options)) {
         if (seen.has(caller.from)) continue;
         seen.add(caller.from);
         next.add(caller.from);
@@ -119,6 +130,8 @@ export function report(index: MdMapIndex): MdMapReport {
     externalEdges: index.externalEdges,
     fileEdges: index.fileEdges,
     refEdges: index.refEdges,
+    refUnresolved: index.refUnresolved,
+    refUnresolvedMd: index.refUnresolvedMd,
     broken: index.broken,
     orphans: orphans(index),
     topBacklinks: topBacklinks(index),
@@ -134,6 +147,8 @@ export function summary(index: MdMapIndex): {
   docs: number;
   anchors: number;
   edges: number;
+  /** 行内代码路径引用边数（与 report 对称；已计入 `edges`） */
+  refEdges: number;
   broken: number;
   truncated: boolean;
   builtAt: string;
@@ -145,6 +160,7 @@ export function summary(index: MdMapIndex): {
     docs: index.docs.length,
     anchors: index.docs.reduce((sum, doc) => sum + doc.anchors.length, 0),
     edges: index.edges,
+    refEdges: index.refEdges,
     broken: index.broken.length,
     truncated: index.truncated,
     builtAt: index.builtAt,

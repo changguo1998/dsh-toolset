@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 import { apply, inject, mdMapTool, name, provide } from "../src/index.ts";
 import { createMdMapService } from "../src/service.ts";
-import { withTempDir, writeFixture } from "./helpers.ts";
+import { withTempDir, writeFile, writeFixture } from "./helpers.ts";
 
 /** 工具定义的最小结构面。 */
 interface ToolDef {
@@ -19,7 +19,10 @@ interface ToolDef {
   execute(args: Record<string, unknown>, exec?: unknown): Promise<unknown>;
   output: {
     schema: { type: string };
-    render(args: unknown, value: unknown): Array<{ type: string; text: string }>;
+    render(
+      args: unknown,
+      value: unknown,
+    ): Array<{ type: string; text: string }>;
   };
 }
 
@@ -38,7 +41,9 @@ test("apply 注册 md_map 并提供 mdMap 服务面", () => {
     {
       tools: { register: (def) => registered.push(def) },
       provide: (key, value) => provided.push([key, value]),
-      logger: (ns) => ({ info: (message: string) => logs.push(`${ns}: ${message}`) }),
+      logger: (ns) => ({
+        info: (message: string) => logs.push(`${ns}: ${message}`),
+      }),
     },
     {},
   );
@@ -64,6 +69,9 @@ test("参数校验：返回 {error} 不抛", async () => {
     [{ action: "callers" }, "需要 path"],
     [{ action: "impact" }, "需要 path"],
     [{ action: "impact", path: "a.md", depth: 0 }, "depth"],
+    [{ action: "callers", path: "a.md", kind: "ref" }, "kind 须为非空数组"],
+    [{ action: "callers", path: "a.md", kind: [] }, "kind 须为非空数组"],
+    [{ action: "callers", path: "a.md", kind: ["bogus"] }, "未知边种类"],
     [{ action: "callers", path: "a.md" }, "未索引"],
     [{ action: "report" }, "未索引"],
   ];
@@ -86,7 +94,10 @@ test("端到端：index → callers → impact → orphans → report → summar
     const exec = { agent: { session: { header: { cwd: dir } } } };
 
     const indexed = textOf(await tool.execute({ action: "index" }, exec));
-    assert.match(indexed, /^已索引：4 个文档 \/ 5 个锚点 \/ 6 条内部边 \/ 2 条断链/m);
+    assert.match(
+      indexed,
+      /^已索引：4 个文档 \/ 5 个锚点 \/ 6 条内部边 \/ 2 条断链/m,
+    );
     assert.ok(indexed.includes(dir));
 
     const callersText = textOf(
@@ -115,17 +126,72 @@ test("端到端：index → callers → impact → orphans → report → summar
 
     const reportText = textOf(await tool.execute({ action: "report" }, exec));
     assert.match(reportText, /文档地图报告/);
-    assert.match(reportText, /^孤儿文档 1 个（按路径字典序取前 1 个；入口文档已排除）：$/m);
+    assert.match(
+      reportText,
+      /^孤儿文档 1 个（按路径字典序取前 1 个；入口文档已排除）：$/m,
+    );
     assert.match(reportText, /^ {2}docs\/sub\/c\.md$/m);
     assert.match(reportText, /docs\/a\.md ← 2 处/);
     assert.match(reportText, /断链 2 条：/);
     assert.match(reportText, /docs\/missing\.md（目标不存在）/);
 
     const summaryText = textOf(await tool.execute({ action: "summary" }, exec));
-    assert.match(summaryText, /^索引就绪：4 个文档 \/ 5 个锚点 \/ 6 条内部边 \/ 2 条断链$/m);
+    assert.match(
+      summaryText,
+      /^索引就绪：4 个文档 \/ 5 个锚点 \/ 6 条内部边 \/ 2 条断链$/m,
+    );
 
     const refreshed = textOf(await tool.execute({ action: "refresh" }, exec));
     assert.match(refreshed, /^已刷新：4 个文档/m);
+  } finally {
+    cleanup();
+  }
+});
+
+test("kind 过滤端到端：值回显 + 渲染标注（ref 与文档链接语义分离）", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    writeFile(dir, "README.md", "# 项目\n\n[A](docs/a.md)\n");
+    writeFile(dir, "docs/a.md", "# A\n");
+    writeFile(dir, "docs/refs.md", "# refs\n\n行内引用：`docs/a.md`\n");
+    const exec = { agent: { session: { header: { cwd: dir } } } };
+    await tool.execute({ action: "index" }, exec);
+    const all = textOf(
+      await tool.execute({ action: "callers", path: "docs/a.md" }, exec),
+    );
+    assert.match(all, /^引用 docs\/a\.md 共 2 处：$/m);
+    const internal = textOf(
+      await tool.execute(
+        { action: "callers", path: "docs/a.md", kind: ["internal"] },
+        exec,
+      ),
+    );
+    assert.match(
+      internal,
+      /^引用 docs\/a\.md 共 1 处（kind 过滤：internal）：$/m,
+    );
+    const refsOnly = textOf(
+      await tool.execute(
+        { action: "callers", path: "docs/a.md", kind: ["ref"] },
+        exec,
+      ),
+    );
+    assert.match(refsOnly, /^引用 docs\/a\.md 共 1 处（kind 过滤：ref）：$/m);
+    const impactAll = textOf(
+      await tool.execute({ action: "impact", path: "docs/a.md" }, exec),
+    );
+    assert.match(impactAll, /^改动 docs\/a\.md 的上游影响（2 个文档）：$/m);
+    const impactInternal = textOf(
+      await tool.execute(
+        { action: "impact", path: "docs/a.md", kind: ["internal"] },
+        exec,
+      ),
+    );
+    assert.match(
+      impactInternal,
+      /^改动 docs\/a\.md 的上游影响（1 个文档）（kind 过滤：internal）：$/m,
+    );
+    assert.ok(!impactInternal.includes("docs/refs.md"), "ref-only 上游被滤除");
   } finally {
     cleanup();
   }
@@ -136,7 +202,10 @@ test("root 参数显式指定（绝对路径）优先于会话 cwd", async () =>
   try {
     writeFixture(dir);
     const text = textOf(
-      await tool.execute({ action: "index", root: dir }, { agent: { session: { header: { cwd: "/nonexistent" } } } }),
+      await tool.execute(
+        { action: "index", root: dir },
+        { agent: { session: { header: { cwd: "/nonexistent" } } } },
+      ),
     );
     assert.ok(text.includes(dir), text);
   } finally {

@@ -1,9 +1,17 @@
 // src/service.ts — md-map 服务面：持有最近一次索引，提供索引 / 查询（工具面与库面共用）。
 
 import { buildIndex } from "./indexer.ts";
-import { callers, impact, orphans, report, resolveDocRef, summary } from "./query.ts";
+import {
+  callers,
+  impact,
+  orphans,
+  report,
+  resolveDocRef,
+  summary,
+} from "./query.ts";
 import type {
   MdCaller,
+  MdEdgeKind,
   MdImpactLayer,
   MdMapIndex,
   MdMapOptions,
@@ -18,8 +26,14 @@ export interface MdMapService {
   refresh(options?: MdMapOptions): Promise<MdMapIndex>;
   /** 索引内是否存在该文档（供工具面区分「无此文档」与「无引用」）。 */
   hasDoc(path: string): boolean;
-  callers(path: string, options?: { anchor?: string }): MdCaller[];
-  impact(path: string, options?: { depth?: number }): MdImpactLayer[];
+  callers(
+    path: string,
+    options?: { anchor?: string; kind?: readonly MdEdgeKind[] },
+  ): MdCaller[];
+  impact(
+    path: string,
+    options?: { depth?: number; kind?: readonly MdEdgeKind[] },
+  ): MdImpactLayer[];
   orphans(options?: { includeEntry?: boolean }): string[];
   report(): MdMapReport | undefined;
   summary(): ReturnType<typeof summary> | { ready: false };
@@ -28,9 +42,7 @@ export interface MdMapService {
 }
 
 /** 创建服务实例（`maxFiles` / `exclude` 走配置，root 按调用传入）。 */
-export function createMdMapService(
-  config: MdMapOptions = {},
-): MdMapService {
+export function createMdMapService(config: MdMapOptions = {}): MdMapService {
   let current: MdMapIndex | undefined;
   return {
     async index(options: MdMapOptions = {}): Promise<MdMapIndex> {
@@ -47,12 +59,20 @@ export function createMdMapService(
       return this.index(options);
     },
     hasDoc(path: string): boolean {
-      return current !== undefined && resolveDocRef(current, path) !== undefined;
+      return (
+        current !== undefined && resolveDocRef(current, path) !== undefined
+      );
     },
-    callers(path: string, options: { anchor?: string } = {}): MdCaller[] {
+    callers(
+      path: string,
+      options: { anchor?: string; kind?: readonly MdEdgeKind[] } = {},
+    ): MdCaller[] {
       return current === undefined ? [] : callers(current, path, options);
     },
-    impact(path: string, options: { depth?: number } = {}): MdImpactLayer[] {
+    impact(
+      path: string,
+      options: { depth?: number; kind?: readonly MdEdgeKind[] } = {},
+    ): MdImpactLayer[] {
       return current === undefined ? [] : impact(current, path, options);
     },
     orphans(options: { includeEntry?: boolean } = {}): string[] {
