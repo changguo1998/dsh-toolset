@@ -63,7 +63,7 @@ const USAGE = [
  */
 const BOUNDARY =
   "扫 dsh-tool-* 包 + 其它含 defineTool( 的 @deepseek-ai/dsh-* 包（如 dsh-plan-mode / dsh-schedule）；" +
-  "仅含 parameters: 的包（如 MCP 客户端）与第三方运行时注册的工具不在面内，" +
+  "疑似注册面（含 tools.register( 或 parameters: 但无 defineTool(，如 MCP 客户端）与第三方运行时注册的工具不在面内（摘要单列），" +
   "需用 unknownToolAllowlist（如 mcp__*）或按真实参数面登记；exit 0 不等于全覆盖。";
 
 /** schema 元键（逐工具解析参数键时要跳过的非参数键）。 */
@@ -549,7 +549,8 @@ async function loadSurface(pkgDir) {
 /**
  * 收录一个 scope 目录（`@deepseek-ai`）下的 `dsh-*` 包，**按内容分类**：
  * - `lib/index.js` 里出现 `defineTool(` → 纳入扫描面（found）；
- * - 只有 `parameters:` 而无 `defineTool(` → 记入 `parametersOnly`（摘要单列提示，不纳入面 —— 避免噪声与假覆盖）；
+ * - 含 `tools.register(` 或 `parameters:` 而无 `defineTool(` → 记入 `parametersOnly`（「疑似注册面」；摘要单列提示，
+ *   不纳入面 —— 避免噪声与假覆盖）；
  * - 两者都无 → 忽略（宿主里绝大多数包属此类）。
  */
 function collectScope(scopeDir, found, parametersOnly, seenPkgs) {
@@ -575,7 +576,7 @@ function collectScope(scopeDir, found, parametersOnly, seenPkgs) {
       const i = parametersOnly.indexOf(entry.name);
       if (i >= 0) parametersOnly.splice(i, 1);
     } else if (
-      text.includes("parameters:") &&
+      (text.includes("tools.register(") || text.includes("parameters:")) &&
       !seenPkgs.has(entry.name) &&
       !found.some((f) => f.pkg === entry.name)
     ) {
@@ -637,7 +638,7 @@ function findToolPackages(root, maxDepth = 8) {
           if (i >= 0) parametersOnly.splice(i, 1);
         } else if (
           !inFace &&
-          text.includes("parameters:") &&
+          (text.includes("tools.register(") || text.includes("parameters:")) &&
           !seenPkgs.has(name) &&
           !found.some((f) => f.pkg === name)
         ) {
@@ -758,6 +759,8 @@ const covered = new Set();
 const uncoveredPlain = [];
 const needAttention = [];
 const unresolvedNames = [];
+/** 面内包但**解析到 0 个工具**（动态构造，如 `parameters: normalized.spec`）——单列提示。 */
+const zeroToolPackages = [];
 let toolCount = 0;
 
 for (const pkg of packages) {
@@ -767,7 +770,9 @@ for (const pkg of packages) {
   } catch {
     continue;
   }
-  for (const tool of parseTools(text)) {
+  const parsedTools = parseTools(text);
+  if (parsedTools.length === 0) zeroToolPackages.push(pkg.pkg);
+  for (const tool of parsedTools) {
     toolCount += 1;
     const watched = tool.keys.filter((key) => classOf(key) !== "");
     /** 命中键类标签（path / command / code 组合，如 `path+code`）。 */
@@ -848,6 +853,7 @@ if (args.json === true) {
         boundary: BOUNDARY,
         // 稳定语义（勿整串比对上面的中文文案）：本脚本不覆盖 MCP 工具、exit 0 也不代表全覆盖
         parametersOnly: [...parametersOnly].sort(),
+        zeroToolPackages: [...zeroToolPackages].sort(),
         coversMcpTools: false,
         exitZeroMeansFullCoverage: false,
         surfaceOrigin: surface.origin,
@@ -869,9 +875,16 @@ if (args.json === true) {
   );
   if (parametersOnly.length > 0) {
     console.log(
-      `[tool-surface-check] 另有 ${parametersOnly.length} 个包只见 parameters: 未见 defineTool(，未纳入` +
-        `（如 MCP 客户端等运行时注册面）：${parametersOnly.slice(0, 6).join(" / ")}` +
+      `[tool-surface-check] 另有 ${parametersOnly.length} 个包疑似注册面但无法静态解析（未见 defineTool(）` +
+        `（含 MCP 客户端等运行时注册面）：${parametersOnly.slice(0, 6).join(" / ")}` +
         (parametersOnly.length > 6 ? " …" : ""),
+    );
+  }
+  if (zeroToolPackages.length > 0) {
+    console.log(
+      `[tool-surface-check] 注意：${zeroToolPackages.length} 个面内包**解析到 0 个工具**（可能为动态构造（如 parameters: <变量>）` +
+        `或非 defineTool 注册面（如 tools/execute 中间件）—— 其注册的工具看不见）：${zeroToolPackages.slice(0, 6).join(" / ")}` +
+        (zeroToolPackages.length > 6 ? " …" : ""),
     );
   }
   console.log(

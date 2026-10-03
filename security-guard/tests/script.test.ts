@@ -247,7 +247,7 @@ test("tool-surface-check：摘要固定输出覆盖边界行（MCP / 第三方 /
     );
     assert.match(
       boundary,
-      /仅含 parameters: 的包（如 MCP 客户端）与第三方运行时注册的工具不在面内/,
+      /疑似注册面（含 tools.register\( 或 parameters: 但无 defineTool\(，如 MCP 客户端）与第三方运行时注册的工具不在面内（摘要单列）/,
     );
     assert.match(boundary, /unknownToolAllowlist（如 mcp__\*）/);
     assert.match(boundary, /exit 0 不等于全覆盖/);
@@ -570,7 +570,7 @@ test("tool-surface-check：非 dsh-tool-* 命名但含 defineTool( 的官方包�
     );
     assert.match(
       run.output,
-      /另有 1 个包只见 parameters: 未见 defineTool\(，未纳入/,
+      /另有 1 个包疑似注册面但无法静态解析（未见 defineTool\(）/,
       "仅 parameters: 的包应单列提示",
     );
     assert.match(run.output, /dsh-noise-client/, "提示行应点名该包");
@@ -748,6 +748,56 @@ test("tool-surface-check：同一文件多个 defineTool 各取自己体内的 n
       /（名称未解析）/,
       "两个字面量名都可解析，不应有未解析项",
     );
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("tool-surface-check：纯对象注册（tools.register({…})、无 defineTool(）进提示行；面内零工具包单列提示", () => {
+  const base = mkdtempSync(join(tmpdir(), "sg-surface-invisible-"));
+  try {
+    const host = join(base, "host");
+    const scope = join(host, "node_modules", "@deepseek-ai");
+    const write = (pkg: string, source: string): void => {
+      const dir = join(scope, pkg, "lib");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "index.js"), source);
+    };
+    // ① 纯对象注册：无 defineTool( → 应进「疑似注册面」提示行，不进门禁三分类
+    write(
+      "dsh-plain-register",
+      [
+        "ctx.tools.register({",
+        "  name: 'plain_tool',",
+        "  inputSchema: { path: { type: 'string' } }, // 该包整包不含旧判定的字面量",
+        "});",
+      ].join("\n"),
+    );
+    // ② 面内包但参数面动态构造（parameters: <变量>）→ 解析 0 个工具，应单列提示
+    write(
+      "dsh-dynamic-params",
+      [
+        "ctx.tools.register(defineTool({",
+        "  name: 'dynamic_tool',",
+        "  parameters: dynamicSpec,",
+        "}));",
+      ].join("\n"),
+    );
+    mkdirSync(join(host, "lib"), { recursive: true });
+
+    const run = runScript(["--root", host]);
+    assert.match(run.output, /dsh-plain-register/, "纯对象注册包应进提示行");
+    assert.match(
+      run.output,
+      /疑似注册面但无法静态解析/,
+      "提示行措辞应为「疑似注册面」",
+    );
+    assert.match(run.output, /解析到 0 个工具/, "零工具包应单列提示");
+    assert.match(run.output, /dsh-dynamic-params/, "零工具提示行应点名该包");
+    const json = JSON.parse(runScript(["--root", host, "--json"]).output) as {
+      zeroToolPackages?: string[];
+    };
+    assert.deepEqual(json.zeroToolPackages, ["dsh-dynamic-params"]);
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
