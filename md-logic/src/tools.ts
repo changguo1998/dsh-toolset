@@ -8,9 +8,14 @@
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 
-import { listLinks, queryBlocks, findSections } from "./query.ts";
+import {
+  listLinks,
+  queryBlocks,
+  findSections,
+  type FlatSection,
+} from "./query.ts";
 import { parseMarkdownDocument } from "./parse.ts";
-import { replaceSectionsFile, type SectionEdit } from "./edit.ts";
+import { replaceSectionsFile, sectionHash, type SectionEdit } from "./edit.ts";
 import {
   renderBlocks,
   renderLinks,
@@ -82,13 +87,20 @@ function num(args: Record<string, unknown>, key: string): number | undefined {
     : undefined;
 }
 
-/** replace 用 edits 入参 → `SectionEdit[]`（纯校验；非法返回 undefined）。 */
-function parseEdits(raw: unknown): SectionEdit[] | undefined {
-  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+/** replace 用 edits 入参 → `SectionEdit[]`（纯校验；非法返回错误文案）。 */
+function parseEdits(
+  raw: unknown,
+): { ok: true; edits: SectionEdit[] } | { ok: false; error: string } {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { ok: false, error: "需非空数组" };
+  }
   const out: SectionEdit[] = [];
   for (const item of raw) {
     if (item === null || typeof item !== "object" || Array.isArray(item)) {
-      return undefined;
+      return {
+        ok: false,
+        error: "每项需是对象 {heading, start_line, end_line, content}",
+      };
     }
     const o = item as Record<string, unknown>;
     const heading = o["heading"];
@@ -96,17 +108,60 @@ function parseEdits(raw: unknown): SectionEdit[] | undefined {
     const end = o["end_line"];
     // content 直取（不走 str()）：空串是「删除该节」的合法取值，勿改走缺省合并逻辑
     const content = o["content"];
-    if (typeof heading !== "string" || heading === "") return undefined;
+    if (typeof heading !== "string" || heading === "") {
+      return { ok: false, error: "每项的 heading 需是非空字符串（标题文本）" };
+    }
     if (typeof start !== "number" || !Number.isInteger(start) || start < 1) {
-      return undefined;
+      return {
+        ok: false,
+        error: "每项的 start_line 需是 >=1 的整数（来自 structure）",
+      };
     }
     if (typeof end !== "number" || !Number.isInteger(end) || end < start) {
-      return undefined;
+      return {
+        ok: false,
+        error: "每项的 end_line 需是 >=start_line 的整数（来自 structure）",
+      };
     }
-    if (typeof content !== "string") return undefined;
-    out.push({ heading, startLine: start, endLine: end, content });
+    if (typeof content !== "string") {
+      return {
+        ok: false,
+        error: "每项的 content 需是字符串（空串 = 删除该节）",
+      };
+    }
+    // section_hash 可选：轻量格式校验（8 位 hex，容忍抄渲染行时带的引号 / 反引号），
+    // 否则抄错位数会被误报成 section_stale，白跑一轮 structure
+    let sectionHash: string | undefined;
+    const rawHash = o["section_hash"];
+    if (rawHash !== undefined && rawHash !== "") {
+      if (typeof rawHash !== "string") {
+        return {
+          ok: false,
+          error:
+            "每项的 section_hash 需是字符串（structure 输出的 ·#xxxxxxxx）",
+        };
+      }
+      const normalized = rawHash
+        .trim()
+        .replace(/^[`"']+|[`"']+$/g, "")
+        .toLowerCase();
+      if (!/^[0-9a-f]{8}$/.test(normalized)) {
+        return {
+          ok: false,
+          error: `section_hash「${rawHash}」不是 8 位 hex（应抄 structure 输出的 ·#xxxxxxxx）`,
+        };
+      }
+      sectionHash = normalized;
+    }
+    out.push({
+      heading,
+      startLine: start,
+      endLine: end,
+      content,
+      ...(sectionHash === undefined ? {} : { sectionHash }),
+    });
   }
-  return out;
+  return { ok: true, edits: out };
 }
 
 const BLOCK_KINDS: MdBlockKind[] = [
@@ -125,11 +180,11 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
   return {
     name: "md_logic",
     description:
-      "Markdown 逻辑结构（单文件，读 + 按节改写）：action=structure 出节树（标题层级 + 每节 `L{起}-{止}` 行范围）," +
+      "Markdown 逻辑结构（单文件，读 + 按节改写）：action=structure 出节树（标题层级 + 每节 `L{起}-{止}` 行范围 + 内容 hash `·#xxxxxxxx`），" +
       "action=blocks 按类型 / 节 / 行范围列块（list / table / code / quote / frontmatter / html / hr，" +
       "带列表条目数与嵌套层数、表格行列数、代码围栏语言），action=links 列链接、图片与引用式定义（[tag]: url）。" +
       "选择成本：只要标题 + 块快览用 fs_digest（轻量、与三模式统一）；要节行范围配 read 按节读、" +
-      "要链接清单 / 块细节 / 嵌套信息用本工具；action=replace 按节**整节替换 / 删除**（edits 带 heading + start_line / end_line，均来自 structure；替换前重新解析校验「同标题 + 同范围」仍成立，漂移即拒；content 非空时必须以标题行开头（ATX / setext），否则 content_invalid；整批原子写、失败不落盘）。改写分工：本工具 replace = 按节（标题 + 行范围漂移检测）；hash_edit = 行级 LINE:HASH 锚点；官方 edit = 文件级字符串替换 + 版本守卫。" +
+      "要链接清单 / 块细节 / 嵌套信息用本工具；action=replace 按节**整节替换 / 删除**（edits 带 heading + start_line / end_line，均来自 structure；可选 section_hash = structure 的内容 hash，不符 → section_stale（同标题同范围但节体 / 层级已被外部改动的漂移盲区）；替换前重新解析校验「同标题 + 同范围」仍成立，漂移即拒；content 非空时必须以标题行开头（ATX / setext），否则 content_invalid；整批原子写、失败不落盘；读→写之间文件被外部改动 → file_changed）。改写分工：本工具 replace = 按节（标题 + 行范围 + 内容 hash 漂移检测）；hash_edit = 行级 LINE:HASH 锚点；官方 edit = 文件级字符串替换 + 版本守卫。" +
       "行号 1 基；path 相对会话 cwd。",
     parameters: {
       type: "object",
@@ -186,7 +241,7 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
         edits: {
           type: "array",
           description:
-            "replace 用：改写指令数组——heading 为目标节标题文本（与 structure 输出一致，不含 #）、start_line / end_line 为该节行范围（来自 structure）、content 为整节新文本（非空时必须以标题行开头：ATX / setext；空串 = 删除该节）",
+            "replace 用：改写指令数组——heading 为目标节标题文本（与 structure 输出一致，不含 #）、start_line / end_line 为该节行范围（来自 structure）、content 为整节新文本（非空时必须以标题行开头：ATX / setext；空串 = 删除该节）、可选 section_hash 为目标节内容 hash（structure 的 ·#xxxxxxxx）",
           items: {
             type: "object",
             required: ["heading", "start_line", "end_line", "content"],
@@ -206,6 +261,11 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
                 type: "string",
                 description:
                   "整节新文本（非空时必须以标题行开头：ATX / setext；空串 = 删除该节）",
+              },
+              section_hash: {
+                type: "string",
+                description:
+                  "可选：目标节内容 hash（structure 输出的 ·#xxxxxxxx）——与当前内容不符时拒改（section_stale），补「同标题 + 同范围但节体 / 层级已被外部改动」的漂移盲区；注意改造子节会使祖先节的 hash 也失效（需重取）",
               },
             },
           },
@@ -262,19 +322,18 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
         ? (rawPath ?? "")
         : resolve(cwd, rawPath ?? "");
       if (action === "replace") {
-        const edits = parseEdits(args["edits"]);
-        if (edits === undefined) {
+        const parsed = parseEdits(args["edits"]);
+        if (!parsed.ok) {
           return {
             action,
             path: rawPath ?? "",
-            error:
-              "edits 非法：需非空数组，每项 {heading, start_line, end_line, content}（heading 为标题文本、范围来自 structure）",
+            error: `edits 非法：${parsed.error}（edits 每项 {heading, start_line, end_line, content}，可选 section_hash）`,
             code: "edits_invalid",
           };
         }
         const result = await replaceSectionsFile(
           rawPath ?? "",
-          edits,
+          parsed.edits,
           cwd,
           maxBytes,
         );
@@ -299,7 +358,11 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
       const doc = parseMarkdownDocument(read.text);
 
       if (action === "structure") {
-        const sections = findSections(doc);
+        // 节内容 hash 进 value（渲染只由 value 决定）：replace 的 section_hash 漂移锚点
+        const sections = findSections(doc).map((row) => ({
+          ...row,
+          hash: sectionHash(read.text, row.line, row.endLine),
+        }));
         return {
           action,
           path: absPath,
@@ -362,6 +425,7 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
                 code?: string;
                 details?: unknown;
                 doc?: MarkdownDocument;
+                sections?: FlatSection[];
                 blocks?: MarkdownDocument["blocks"];
                 links?: MarkdownDocument["links"];
               })
@@ -396,7 +460,11 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
           return [
             {
               type: "text",
-              text: renderStructure(result.doc, result.depth ?? 3),
+              text: renderStructure(
+                result.doc,
+                result.depth ?? 3,
+                result.sections,
+              ),
             },
           ];
         }

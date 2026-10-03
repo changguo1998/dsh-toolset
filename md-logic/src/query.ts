@@ -19,6 +19,8 @@ export interface FlatSection {
   path: string;
   line: number;
   endLine: number;
+  /** 节内容 hash（8 位 hex；仅 `structure` 输出附带，供 `replace` 的 `section_hash` 做漂移锚点）。 */
+  hash?: string;
 }
 
 /** 按文档顺序扁平化节树（前序）。 */

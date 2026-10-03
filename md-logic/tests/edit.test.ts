@@ -17,6 +17,8 @@ import {
   parseMarkdownDocument,
   replaceSections,
   replaceSectionsFile,
+  sameSignature,
+  sectionHash,
 } from "../src/index.ts";
 import { withTempDir, writeFixture } from "./helpers.ts";
 
@@ -89,6 +91,117 @@ test("replaceSections：漂移即拒（范围变了 / 标题没了 / 参数非�
   ]);
   assert.equal(bad.ok, false);
   if (!bad.ok) assert.equal(bad.code, "edits_invalid");
+});
+
+test("sectionHash：风格无关、空白敏感、覆盖子节（锚点口径）", () => {
+  const range = rangeOf(DOC, "甲节");
+  const hash = sectionHash(DOC, range.startLine, range.endLine);
+  assert.match(hash, /^[0-9a-f]{8}$/);
+  // 风格无关：BOM / CRLF 不参与（与 parse 同归一）
+  const crlf = "\uFEFF" + DOC.replace(/\n/g, "\r\n");
+  assert.equal(sectionHash(crlf, range.startLine, range.endLine), hash);
+  // 空白敏感（不 trim）：行首缩进是真实内容改动
+  const indented = DOC.replace("甲的正文。", "  甲的正文。");
+  assert.notEqual(sectionHash(indented, range.startLine, range.endLine), hash);
+  // 覆盖子节：改子节 → 祖先节 hash 变（fail-safe，需重取）
+  const childChanged = DOC.replace("乙的第一行。", "乙已改写。");
+  assert.notEqual(sectionHash(childChanged, 1, 12), sectionHash(DOC, 1, 12));
+});
+
+test("replaceSections：section_hash 拒「同标题同范围但内容已改」（漂移盲区四例）", () => {
+  const range = rangeOf(DOC, "甲节");
+  const hash = sectionHash(DOC, range.startLine, range.endLine);
+  const edit = (value: string | undefined) => [
+    {
+      heading: "甲节",
+      startLine: range.startLine,
+      endLine: range.endLine,
+      content: "## 甲节\n\n新正文。",
+      ...(value === undefined ? {} : { sectionHash: value }),
+    },
+  ];
+  // 正向：hash 正确 → 放行；不带 hash → 既有语义（放行）
+  assert.equal(replaceSections(DOC, edit(hash)).ok, true);
+  assert.equal(replaceSections(DOC, edit(undefined)).ok, true);
+
+  // 反例 1：节体改写（标题与行范围不变）
+  const bodyChanged = DOC.replace("甲的正文。", "甲已改写。");
+  const stale1 = replaceSections(bodyChanged, edit(hash));
+  assert.equal(stale1.ok, false);
+  if (!stale1.ok) {
+    assert.equal(stale1.code, "section_stale");
+    assert.match(stale1.error, /内容已被外部改动/);
+    assert.ok(Array.isArray(stale1.details));
+  }
+  // 反例 2：行首空白改动（锁「不 trim」契约）
+  const indentChanged = DOC.replace("甲的正文。", "  甲的正文。");
+  assert.equal(replaceSections(indentChanged, edit(hash)).ok, false);
+  // 反例 3：标题级别变化（文本与行范围都不变）
+  const levelChanged = DOC.replace("## 甲节", "### 甲节");
+  assert.equal(replaceSections(levelChanged, edit(hash)).ok, false);
+  // 反例 4：只动子节 → 祖先节旧 hash 失效；子节自己的新 hash 放行
+  const childChanged = DOC.replace("乙的第一行。", "乙已改写。");
+  const rootStale = replaceSections(childChanged, [
+    {
+      heading: "标题",
+      startLine: 1,
+      endLine: 12,
+      content: "# 标题\n\n新前言。",
+      sectionHash: sectionHash(DOC, 1, 12),
+    },
+  ]);
+  assert.equal(rootStale.ok, false);
+  const childRange = rangeOf(childChanged, "乙节");
+  const childOk = replaceSections(childChanged, [
+    {
+      heading: "乙节",
+      startLine: childRange.startLine,
+      endLine: childRange.endLine,
+      content: "## 乙节\n\n新乙节。",
+      sectionHash: sectionHash(
+        childChanged,
+        childRange.startLine,
+        childRange.endLine,
+      ),
+    },
+  ]);
+  assert.equal(childOk.ok, true, JSON.stringify(childOk));
+});
+
+test("sameSignature：纯函数正反例（TOCTOU 复核口径）", () => {
+  const base = { ino: 1, size: 10, mtimeMs: 1000 };
+  assert.equal(sameSignature(base, { ...base }), true);
+  assert.equal(sameSignature(base, { ...base, ino: 2 }), false);
+  assert.equal(sameSignature(base, { ...base, size: 11 }), false);
+  assert.equal(sameSignature(base, { ...base, mtimeMs: 1001 }), false);
+});
+
+test("replaceSectionsFile：连续两次写不误报 file_changed（复核只挡外部改动）", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    const file = writeFixture(dir, "t.md", DOC);
+    const first = await replaceSectionsFile(file, [
+      {
+        heading: "甲节",
+        startLine: 5,
+        endLine: 7,
+        content: "## 甲节\n\n第一次。",
+      },
+    ]);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    const second = await replaceSectionsFile(file, [
+      {
+        heading: "甲节",
+        startLine: 5,
+        endLine: 7,
+        content: "## 甲节\n\n第二次。",
+      },
+    ]);
+    assert.equal(second.ok, true, JSON.stringify(second));
+    assert.match(readFileSync(file, "utf8"), /第二次/);
+  } finally {
+    cleanup();
+  }
 });
 
 test("replaceSections：重叠区间拒绝（父节 + 子节 / 同一节两条）", () => {
@@ -249,6 +362,26 @@ test("工具面：md_logic replace（参数校验先于 IO / 成功写盘 + 渲�
     );
     assert.match(String(bad["error"]), /edits 非法/);
     assert.equal(readFileSync(file, "utf8"), DOC, "参数非法不得写盘");
+
+    // ①.5 section_hash 格式非法：edits_invalid（不触盘；避免抄错位数被误报 section_stale）
+    const badHash = await tool.execute(
+      {
+        action: "replace",
+        path: "a.md",
+        edits: [
+          {
+            heading: "乙节",
+            start_line: 1,
+            end_line: 2,
+            content: "x",
+            section_hash: "a1b2c3d",
+          },
+        ],
+      },
+      exec,
+    );
+    assert.match(String(badHash["error"]), /8 位 hex/);
+    assert.equal(readFileSync(file, "utf8"), DOC, "非法 hash 不得写盘");
 
     // ② 漂移：拒绝且给出下一步
     const drift = await tool.execute(

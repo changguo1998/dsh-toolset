@@ -18,6 +18,7 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { isAbsolute, resolve } from "node:path";
 
 import { parseMarkdownDocument } from "./parse.ts";
@@ -33,6 +34,11 @@ export interface SectionEdit {
   endLine: number;
   /** 整节新文本（**含标题行**；空串 = 删除该节） */
   content: string;
+  /**
+   * 可选：目标节的**内容 hash**（`structure` 输出的 `·#xxxxxxxx`）——与当前内容不符时拒改
+   * （`section_stale`），补「同标题 + 同范围但节体 / 层级已被外部改动」的漂移盲区。
+   */
+  sectionHash?: string;
 }
 
 export type EditFailureCode =
@@ -40,12 +46,47 @@ export type EditFailureCode =
   | "content_invalid"
   | "section_missing"
   | "section_drift"
+  /** 节标题与范围都对，但**内容 hash** 不符（节体被外部改动）。 */
+  | "section_stale"
   | "section_ambiguous"
   | "overlap"
   | "read_failed"
+  /** 读→写之间目标文件被外部改动 / 原子替换（TOCTOU 复核失败）。 */
+  | "file_changed"
   | "write_failed"
   | "not_utf8"
   | "range_out_of_bounds";
+
+/**
+ * 节内容 hash：`sha256(节原文行 [line, endLine] 含端点，以 \n 连接)` 前 8 位小写 hex。
+ * 风格无关（BOM / `\r\n` 不参与，与 parse 同归一）；覆盖**标题行与全部子节**——
+ * 故改子节会连带使所有祖先节的 hash 变化（fail-safe）。行内容空白敏感（不 trim）。
+ */
+export function sectionHash(
+  text: string,
+  line: number,
+  endLine: number,
+): string {
+  const lines = normalize(text)
+    .split("\n")
+    .slice(line - 1, endLine);
+  return createHash("sha256")
+    .update(lines.join("\n"))
+    .digest("hex")
+    .slice(0, 8);
+}
+
+/** 文件签名（读→写之间的 TOCTOU 复核；`ino` 用于识别「原子替换」写法，不对外展示）。 */
+export interface FileSignature {
+  ino: number | bigint;
+  size: number;
+  mtimeMs: number;
+}
+
+/** 签名是否相同（抽成纯函数便于单测；竞态本身无注入点、不单测）。 */
+export function sameSignature(a: FileSignature, b: FileSignature): boolean {
+  return a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs;
+}
 
 export type ReplaceOutcome =
   | { ok: true; text: string; applied: number }
@@ -252,6 +293,21 @@ export function replaceSections(
         error: "内部错误：定位结果为空",
       };
     }
+    // ①-inner 内容 hash 锚点（只在该 edit 带 section_hash 时生效）：标题与范围都对、
+    //          但节体 / 层级被外部改过 → section_stale（fail-safe，不落盘）
+    if (edit.sectionHash !== undefined) {
+      const current = sectionHash(text, only.line, only.endLine);
+      if (current !== edit.sectionHash.trim().toLowerCase()) {
+        return {
+          ok: false,
+          code: "section_stale",
+          error:
+            `节「${edit.heading}」的内容已被外部改动（内容 hash 不符）：你给 #${edit.sectionHash.trim().toLowerCase()}，` +
+            `当前 #${current}；可能有人在 structure 之后改了该节（含其子节），请重新 structure 取最新 hash 与范围`,
+          details: [{ line: only.line, endLine: only.endLine, hash: current }],
+        };
+      }
+    }
     located.push({ edit, line: only.line, endLine: only.endLine });
   }
 
@@ -337,6 +393,8 @@ export async function replaceSectionsFile(
   const target = resolveTarget(filePath, root);
   let buffer: Buffer;
   let mode: number | undefined;
+  /** 读盘时的文件签名（写回前复核，挡读→rename 之间的外部改动）。 */
+  let signature: FileSignature | undefined;
   try {
     const info = await stat(target);
     if (!info.isFile()) {
@@ -354,6 +412,7 @@ export async function replaceSectionsFile(
       };
     }
     mode = info.mode & 0o777;
+    signature = { ino: info.ino, size: info.size, mtimeMs: info.mtimeMs };
     buffer = await readFile(target);
   } catch (err) {
     return {
@@ -384,16 +443,33 @@ export async function replaceSectionsFile(
   if (!outcome.ok) return outcome;
 
   const tmp = `${target}.md-logic-${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-  try {
-    await writeFile(tmp, outcome.text, "utf8");
-    if (mode !== undefined) await chmod(tmp, mode); // 保留原权限位（chmod 不受 umask 影响）
-    await rename(tmp, target);
-  } catch (err) {
+  /** 清理临时文件（失败忽略：目标文件本身未被改动）。 */
+  const cleanupTmp = async (): Promise<void> => {
     try {
       await unlink(tmp);
     } catch {
-      // 清理失败忽略：目标文件本身未被改动
+      // 忽略
     }
+  };
+  try {
+    await writeFile(tmp, outcome.text, "utf8");
+    if (mode !== undefined) await chmod(tmp, mode); // 保留原权限位（chmod 不受 umask 影响）
+    // 读→rename 的 TOCTOU 复核（尽力而为；残余窗口 = 本次 stat 到 rename 之间的微秒级）：
+    // 文件被外部改写 / 原子替换（ino 变）→ 拒写，避免把基于旧内容的改写盖上去
+    const now = await stat(target);
+    if (signature !== undefined && !sameSignature(signature, now)) {
+      await cleanupTmp();
+      return {
+        ok: false,
+        code: "file_changed",
+        error:
+          "目标文件在读取与写回之间被外部改动（size / mtime / ino 变），已放弃写入；请重新 structure 后再改",
+        details: { size: now.size, mtimeMs: now.mtimeMs },
+      };
+    }
+    await rename(tmp, target);
+  } catch (err) {
+    await cleanupTmp();
     return {
       ok: false,
       code: "write_failed",

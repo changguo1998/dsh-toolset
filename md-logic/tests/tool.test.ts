@@ -1,6 +1,7 @@
 // tests/tool.test.ts — 模型侧工具面：注册、契约面、参数校验、渲染、路径与读取守卫。
 
 import assert from "node:assert/strict";
+import { readFileSync, writeFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { apply, inject, mdLogicTool, name } from "../src/index.ts";
@@ -123,8 +124,12 @@ test("structure：节树带行范围，depth 控制层数", async () => {
     const value = await tool.execute({ action: "structure", path: file });
     const text = textOf(value);
     assert.match(text, /^Markdown 结构：35 行 \/ 3 节 \/ 7 块 \/ 3 链接$/m);
-    assert.match(text, /^L6-34 h1 标题一$/m);
-    assert.match(text, /^ {2}L10-28 h2 小节 1\.1$/m);
+    // 内容 hash 后缀（漂移锚点，位置在行尾；JSON sections[].hash 同值）
+    assert.match(text, /^L6-34 h1 标题一 ·#[0-9a-f]{8}$/m);
+    assert.match(text, /^ {2}L10-28 h2 小节 1\.1 ·#[0-9a-f]{8}$/m);
+    const sections = (value as { sections?: Array<{ hash?: string }> })
+      .sections;
+    assert.match(sections?.[1]?.hash ?? "", /^[0-9a-f]{8}$/);
 
     const shallow = await tool.execute({
       action: "structure",
@@ -134,6 +139,70 @@ test("structure：节树带行范围，depth 控制层数", async () => {
     const shallowText = textOf(shallow);
     assert.ok(shallowText.includes("L6-34 h1 标题一"));
     assert.ok(!shallowText.includes("小节 1.1"), shallowText);
+  } finally {
+    cleanup();
+  }
+});
+
+test("replace：section_hash 端到端（陈旧 hash 拒写 / 新 hash 放行）", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    const file = writeFixture(dir, "h.md", SAMPLE);
+    const firstText = textOf(
+      await tool.execute({ action: "structure", path: file }),
+    );
+    const hash = firstText.match(
+      /^ {2}L10-28 h2 小节 1\.1 ·#([0-9a-f]{8})$/m,
+    )?.[1];
+    assert.ok(hash, firstText);
+
+    // 外部改动节体（同标题 + 同范围，仅内容变）→ 旧 hash 必须拒
+    const before = readFileSync(file, "utf8");
+    const changed = before.replace("- 项一", "- 项甲");
+    assert.notEqual(changed, before);
+    writeFileSync(file, changed);
+    const stale = await tool.execute({
+      action: "replace",
+      path: file,
+      edits: [
+        {
+          heading: "小节 1.1",
+          start_line: 10,
+          end_line: 28,
+          content: "## 小节 1.1\n\n新正文。",
+          section_hash: hash,
+        },
+      ],
+    });
+    const staleText = textOf(stale);
+    assert.match(staleText, /replace 失败（section_stale）/);
+    assert.match(staleText, /取最新行范围与/);
+    assert.equal(readFileSync(file, "utf8"), changed, "陈旧 hash 不得写盘");
+
+    // 重取 structure → 新 hash（带引号容错）放行
+    const secondText = textOf(
+      await tool.execute({ action: "structure", path: file }),
+    );
+    const hash2 = secondText.match(
+      /^ {2}L10-28 h2 小节 1\.1 ·#([0-9a-f]{8})$/m,
+    )?.[1];
+    assert.ok(hash2, secondText);
+    assert.notEqual(hash2, hash, "节体改动后 hash 必变");
+    const ok = await tool.execute({
+      action: "replace",
+      path: file,
+      edits: [
+        {
+          heading: "小节 1.1",
+          start_line: 10,
+          end_line: 28,
+          content: "## 小节 1.1\n\n新正文。",
+          section_hash: `\`${hash2}\``,
+        },
+      ],
+    });
+    assert.match(textOf(ok), /已按节替换/);
+    assert.match(readFileSync(file, "utf8"), /新正文。/);
   } finally {
     cleanup();
   }

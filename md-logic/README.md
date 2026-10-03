@@ -10,20 +10,21 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 逻辑结构**（单文件
 
 | 工具 | action | 返回 |
 | --- | --- | --- |
-| `md_logic` | `structure` | 节树：`L{起}-{止} h{级} 标题`（`depth` 控制展示层数，缺省 3）+ 总览行（行数 / 节数 / 块数 / 链接数） |
+| `md_logic` | `structure` | 节树：`L{起}-{止} h{级} 标题 ·#{内容hash}`（`depth` 控制展示层数，缺省 3；hash = 节原文行的 sha256 前 8 位，供 `replace` 的 `section_hash` 做漂移锚点）+ 总览行（行数 / 节数 / 块数 / 链接数） |
 | | `blocks` | 块清单：`§L{节} L{起}-{止} kind·计数`（list 带条目数与嵌套层数 `d{n}`、table 带 `行×列`、code 带围栏语言、quote 带行数与嵌套、frontmatter 带键数）；可按 `kind` / `section` / `from`+`to` / `line` 过滤 |
 | | `links` | 链接清单：`§L{节} L{行} kind "文本" → href`（kind = `link` / `image` / `definition`）；可按 `linkKind` / `pattern` 过滤 |
-| | `replace` | 改写结果：`已按节替换：<path>（N 处，整批原子写）` + 结构提示（继续改前重取范围）；失败 `code` + 原因 + 按 code 的下一步（`content_invalid` 补标题行 / 其余重新 structure）与当前范围（`section_drift`） |
+| | `replace` | 改写结果：`已按节替换：<path>（N 处，整批原子写）` + 结构提示（继续改前重取范围）；失败 `code` + 原因 + 按 code 的下一步（`content_invalid` 补标题行 / `section_stale`、`file_changed` 重取 `·#hash` 与范围 / 其余重新 structure）与当前范围（`section_drift` / `section_stale`） |
 
 选择成本（写进工具描述）：**只要标题 + 块快览 → `fs_digest`**；**要节行范围配 `read` 按节读、要链接清单 / 块细节 → 本工具**；**改 Markdown → `hash_edit`**（行级锚点 + 整批原子拒绝）。
 
 ## 改写面（`replace`）
 
-- **安全语义**：每条 edit 的 `heading`（标题文本，与 `structure` 输出一致）+ `startLine` / `endLine`（`L{start}-{end}`）必须与**当前**文件解析结果一致；不一致 → `section_drift`（带当前范围，重新 `structure` 后再改）；标题不存在 → `section_missing`；区间重叠（父节含子节 / 同一节两条）→ `overlap`；参数非法 → `edits_invalid`。校验优先级：`edits_invalid` → `range_out_of_bounds`（行号越界）→ `section_missing` / `section_drift`（按 edits 数组顺序）→ `content_invalid` → `overlap`。
+- **安全语义**：每条 edit 的 `heading`（标题文本，与 `structure` 输出一致）+ `startLine` / `endLine`（`L{start}-{end}`）必须与**当前**文件解析结果一致；不一致 → `section_drift`（带当前范围，重新 `structure` 后再改）；标题不存在 → `section_missing`；区间重叠（父节含子节 / 同一节两条）→ `overlap`；参数非法 → `edits_invalid`。校验优先级：`edits_invalid` → `range_out_of_bounds`（行号越界）→ `section_missing` / `section_drift` / `section_stale`（按 edits 数组顺序）→ `content_invalid` → `overlap`。
+- **节内容 hash 锚点**（2026-10-04）：`structure` 每行附 `·#xxxxxxxx` = `sha256(节原文行 [line, endLine] 含端点，以 \n 连接)` 前 8 位 hex（BOM / `\r\n` 不参与，与解析同归一；行内空白**敏感**、不 trim）。edit 可带可选 `section_hash`（须 8 位 hex，容忍抄渲染行时带的引号 / 反引号；格式不符 → `edits_invalid`），与当前内容不符 → `section_stale`（带当前范围与 hash；整批不落盘）——补「同标题 + 同范围但节体 / 标题层级已被外部改动」的漂移盲区。注意 hash 覆盖**标题行与全部子节**：改子节会使其所有祖先节的旧 hash 失效（fail-safe，重取 `structure` 即可）；不带 `section_hash` 时语义与旧版一致。
 - **`content` 结构守卫**：非空 `content` 必须以标题行开头（ATX / setext），否则 `content_invalid`（防该节被静默并入父节、节从节树消失）；setext 首行在目标节前一行非空时会吞并上一段 → 此时改用 ATX；空串 = 删除该节。以 frontmatter、缩进代码块开头，或标题在引用 / 列表内的都不算「首行标题」，会被拒。
-- **原子性**：所有 edit 先在内存里自下而上应用（坐标基于原文），**全部通过才写盘**；写盘走同目录临时文件 + `rename`，失败清理临时文件、**目标文件字节不变**；疑似二进制（含 NUL）拒写。
+- **原子性**：所有 edit 先在内存里自下而上应用（坐标基于原文），**全部通过才写盘**；写盘走同目录临时文件 + `rename`，失败清理临时文件、**目标文件字节不变**；疑似二进制（含 NUL）拒写。**读→rename 的 TOCTOU 复核**：读盘时记文件签名（`ino` / `size` / `mtimeMs`），写临时文件后、`rename` 前复 `stat` 比对，不符 → `file_changed`（拒写，防「读完之后文件被外部改写 / 原子替换」被覆盖）；残余窗口 = 本次 `stat` 到 `rename` 之间的微秒级——**尽力而为**，不是完整事务（同尺寸且同 mtime 粒度的改写理论上可漏）。
 - **风格保留**：BOM 与换行风格（`\r\n` / `\n`）原样保留；`content` 按文件风格落盘。删除节保留原分隔空行（不做空行折叠）。
-- **三方分工**：`md_logic replace` = **按节**（标题 + 行范围漂移检测，整节替换）；`hash_edit` = **行级** LINE:HASH 锚点；官方 `edit` = **文件级**字符串替换 + 版本守卫。
+- **三方分工**：`md_logic replace` = **按节**（标题 + 行范围 + 内容 hash 漂移检测，整节替换）；`hash_edit` = **行级** LINE:HASH 锚点；官方 `edit` = **文件级**字符串替换 + 版本守卫。
 - **不做**：插入 / 移动节、Markdown 语法校验（只保证结构漂移安全 + `content` 首行标题守卫）；不校验 `content` 首行标题与 `heading` 的文本 / 级别一致性。
 
 渲染口径：紧凑文本而非 JSON dump；行号 **1 基**，范围起止相同折叠为 `L{n}`；每类上限 **80 行**，超出以「…（其余 N 条略）」收尾。
@@ -39,6 +40,7 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 逻辑结构**（单文件
 | `listLinks(doc, { kind?, pattern?, limit? })` | 链接 / 图片 / 定义筛选 |
 | `flattenSections(sections)` | 节树 → 前序扁平清单（带 `path`，如 `标题一 › 小节 1.1`） |
 | `renderStructure` / `renderBlocks` / `renderLinks` | 工具面同款文本渲染（`RENDER_LIMIT = 80`） |
+| `sectionHash(text, line, endLine)` / `sameSignature(a, b)` | 节内容 hash（8 位 hex，漂移锚点）/ 文件签名比对（TOCTOU 复核；纯函数） |
 | `detectFrontmatter(lines, maxLines?)` | frontmatter 识别（独立可测） |
 | `name` / `inject` / `Config` / `apply(ctx, config?)` | DSH bundle 契约 |
 
@@ -73,9 +75,9 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 逻辑结构**（单文件
 
 ```
 Markdown 结构：35 行 / 3 节 / 7 块 / 3 链接
-L6-34 h1 标题一
-  L10-28 h2 小节 1.1
-  L30-34 h2 小节 1.2
+L6-34 h1 标题一 ·#9f3a1c07
+  L10-28 h2 小节 1.1 ·#04c7be21
+  L30-34 h2 小节 1.2 ·#6d18aa39
 ```
 
 ```
@@ -101,7 +103,7 @@ L6-34 h1 标题一
 
 ## 边界与限制
 
-- **读面只读**：`structure` / `blocks` / `links` 不写文件、不改宿主状态；写面只有 `replace`（按节整节替换 / 删除，见上「改写面」）。注意：`replace` 整文件重写、**绕开官方 fs-observation-policy 版本守卫与 `ctx.fs` 沙箱**（同 ast-tools 的整文件重写情形），之后官方 `edit` / `write` 可能撞 FS_STALE_VERSION；路径限本包守卫（size 上限 + isFile + 非 UTF-8 拒写）。做）。
+- **读面只读**：`structure` / `blocks` / `links` 不写文件、不改宿主状态；写面只有 `replace`（按节整节替换 / 删除，见上「改写面」）。注意：`replace` 整文件重写、**绕开官方 fs-observation-policy 版本守卫与 `ctx.fs` 沙箱**（同 ast-tools 的整文件重写情形），之后官方 `edit` / `write` 可能撞 FS_STALE_VERSION；路径限本包守卫（size 上限 + isFile + 非 UTF-8 拒写）。
 - **行范围口径与 `fs-digest` 对齐**：节 = 标题行 → 下一个「层级 ≤ 本节标题」的前一行（末节到文件末非空行），**尾部空行不计**；父子是**包含关系**（父 ⊇ 子）；块 `kind` 命名沿用 `frontmatter|code|table|list|quote`，本包另加 `html|hr`。
 - **依赖与前置**：`npm run check` / `build` 需要本包 `node_modules`（`marked` + devDeps）；`scripts/install.sh` 只在 `md-logic/node_modules` **不存在**时才装依赖，**改过依赖后需手动 `npm --prefix md-logic install`**（profile 以 `link:` 引用本包，其依赖由包内 `node_modules` 提供，profile 的 `pnpm install` 不装 link 包的依赖）；`--skip-build` 要求各包依赖与 `dist/` 已就绪。
 - **不建 `docs/DESIGN.md`**：本包单一职责、单文件粒度，架构与取舍写在 README「解析选型」+ 建包追踪文档（`docs/archived/2026-10-02-md-logic-package.md`）里，不再单开 DESIGN（参照模板 `ast-tools` 同样没有）。
@@ -114,7 +116,7 @@ L6-34 h1 标题一
 ```sh
 npm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
 npm run build   # 编译到 dist/
-npm run test    # node --test（50 例：解析 / 查询 / 工具面 / 改写面）
+npm run test    # node --test（55 例：解析 / 查询 / 工具面 / 改写面）
 ```
 
 依赖 `marked` 的解析用例恒跑（无外部二进制）；工具面用例用临时 fixture 真实读写文件系统。

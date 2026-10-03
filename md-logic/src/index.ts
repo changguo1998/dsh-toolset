@@ -36,7 +36,10 @@ export {
 export {
   replaceSections,
   replaceSectionsFile,
+  sameSignature,
+  sectionHash,
   type EditFailureCode,
+  type FileSignature,
   type ReplaceOutcome,
   type SectionEdit,
 } from "./edit.ts";
