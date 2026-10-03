@@ -802,3 +802,70 @@ test("tool-surface-check：纯对象注册（tools.register({…})、无 defineT
     rmSync(base, { recursive: true, force: true });
   }
 });
+
+test("tool-surface-check：name 只认顶层 —— 嵌套 name 不得顶替（修静默假阴性）+ 顶层优先", () => {
+  const base = mkdtempSync(join(tmpdir(), "sg-surface-nested-"));
+  try {
+    const host = join(base, "host");
+    const scope = join(host, "node_modules", "@deepseek-ai");
+    const write = (pkg: string, source: string): void => {
+      const dir = join(scope, pkg, "lib");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "index.js"), source);
+    };
+    // ① 嵌套 name（与已登记工具同名）在前、真名（常量）在后 → 不得报成 read
+    write(
+      "dsh-tool-nested-shadow",
+      [
+        "ctx.tools.register(defineTool({",
+        '  meta: { name: "read" },',
+        "  name: TOOL_NAME,",
+        "  parameters: { path: { type: 'string', required: true } },",
+        "}));",
+      ].join("\n"),
+    );
+    // ② 顶层字面量 + 嵌套同名 → 取顶层
+    write(
+      "dsh-tool-top-first",
+      [
+        "ctx.tools.register(defineTool({",
+        '  name: "outer_tool",',
+        '  meta: { name: "read" },',
+        "  parameters: { path: { type: 'string', required: true } },",
+        "}));",
+      ].join("\n"),
+    );
+    // ③ 只有嵌套 name、顶层缺失 → 未解析（不得借用嵌套名）
+    write(
+      "dsh-tool-only-nested",
+      [
+        "ctx.tools.register(defineTool({",
+        '  meta: { name: "read" },',
+        "  parameters: { cmd: { type: 'string', required: true } },",
+        "}));",
+      ].join("\n"),
+    );
+    mkdirSync(join(host, "lib"), { recursive: true });
+
+    const run = runScript(["--root", host]);
+    assert.doesNotMatch(run.output, /已覆盖 \d+：read/, "嵌套 name 不得顶替");
+    assert.match(run.output, /outer_tool/, "顶层字面量应被采用");
+    // ①③ 都应落在「未解析」/需关注行（带 path / cmd 参数）
+    const json = JSON.parse(runScript(["--root", host, "--json"]).output) as {
+      unresolvedNames?: { pkg: string }[];
+    };
+    const unresolved = (json.unresolvedNames ?? []).map((u) => u.pkg).sort();
+    assert.deepEqual(
+      unresolved,
+      ["dsh-tool-nested-shadow", "dsh-tool-only-nested"],
+      "两个无顶层名的工具应进「名称未解析」",
+    );
+    assert.equal(
+      run.status,
+      1,
+      "带 path/cmd 参数的未解析工具必须让脚本 exit 1",
+    );
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});

@@ -360,6 +360,90 @@ function nestedKeys(valueText, level, budget = { left: MAX_PARAM_KEY_STEPS }) {
  * `[{ name?, nameExpr?, keys: string[], spread }]`（每个 `parameters` 块一条）。
  */
 /**
+ * 收集 `defineTool` 体内**深度 0** 的 `name:` 取值（字符串 / 注释感知：单双引号、模板串、行注释与块注释）。
+ * 深度 ≥1（嵌套对象 / 数组里的 `name:`）一律忽略 —— 它们不是本工具的名字（BACKLOG「名称解析残余 (a)」）。
+ * 返回按出现顺序的 `{ literal?: string, expr?: string }`（字面量给 `literal`，计算值给去空白的 `expr`）。
+ */
+function topLevelNameValues(slice) {
+  const out = [];
+  let depth = 0;
+  // 切片自 `(` 之后开始：若形如 `{ ...`，先跳过多余的开括号（否则顶层键会被算成深度 1）
+  const lead = /^\s*\{/.exec(slice);
+  let i = lead === null ? 0 : lead[0].length;
+  /** 词法状态：null / 引号字符 / "//" / "/*" */
+  let state = null;
+  while (i < slice.length) {
+    const c = slice[i];
+    const d = slice[i + 1];
+    if (state === null) {
+      if (c === "/" && d === "/") {
+        state = "//";
+        i += 2;
+        continue;
+      }
+      if (c === "/" && d === "*") {
+        state = "/*";
+        i += 2;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") {
+        state = c;
+        i += 1;
+        continue;
+      }
+      if (c === "{" || c === "[" || c === "(") {
+        depth += 1;
+        i += 1;
+        continue;
+      }
+      if (c === "}" || c === "]" || c === ")") {
+        depth -= 1;
+        i += 1;
+        continue;
+      }
+      if (
+        depth === 0 &&
+        slice.startsWith("name", i) &&
+        /[\s:]/.test(slice[i + 4] ?? "")
+      ) {
+        const rest = slice.slice(i + 4);
+        const lit = /^\s*:\s*("([^"]*)"|'([^']*)')/.exec(rest);
+        if (lit !== null) {
+          out.push({ literal: lit[2] ?? lit[3] });
+          i += 4 + lit[0].length;
+          continue;
+        }
+        const expr = /^\s*:\s*([^\s,}\n][^,\n}]*)/.exec(rest);
+        if (expr !== null) {
+          out.push({ expr: expr[1].trim() });
+          i += 4 + expr[0].length;
+          continue;
+        }
+      }
+      i += 1;
+    } else if (state === "//") {
+      if (c === "\n") state = null;
+      i += 1;
+    } else if (state === "/*") {
+      if (c === "*" && d === "/") {
+        state = null;
+        i += 2;
+        continue;
+      }
+      i += 1;
+    } else {
+      if (c === "\\") {
+        i += 2;
+        continue;
+      }
+      if (c === state) state = null;
+      i += 1;
+    }
+  }
+  return out;
+}
+
+/**
  * 向前找**包住当前 `parameters` 块**的最近的 `defineTool(`：返回其对象体起点（`(` 之后的下标）；
  * 找不到（不在任何 `defineTool` 内）时返回 `undefined`（此时名称按「未找到」保守处理）。
  */
@@ -401,25 +485,25 @@ function parseTools(text) {
     // 或前置的 `name: "read"`），导致**取错名字甚至静默假阴性（exit 0）**。
     const bodyStart = enclosingDefineToolStart(text, cursor, open);
     const before = bodyStart === undefined ? "" : text.slice(bodyStart, open);
-    const names = [...before.matchAll(/name\s*:\s*("([^"]*)"|'([^']*)')/g)];
-    const exprs = [...before.matchAll(/name\s*:\s*([^\s,}\n][^,\n}]*)/g)];
-    const last = names[names.length - 1];
+    // 只取**深度 0**（同一 defineTool 对象体顶层）的 `name:` —— 修「同体嵌套 name 顶替」
+    // （如 `meta:{ name:"read" }` 会把工具报成已覆盖 read → exit 0 静默假阴性）
+    const topNames = topLevelNameValues(before);
     const tool = {
       keys: [...keys],
       spread: entries.spread,
       paramSpread: entries.spread,
     };
-    const literalName = last === undefined ? undefined : (last[2] ?? last[3]);
+    const last = topNames[topNames.length - 1];
+    const literalName = last?.literal;
     if (literalName !== undefined && /^[a-z][a-z_0-9]*$/.test(literalName)) {
       tool.name = literalName;
     } else {
-      const expr = exprs[exprs.length - 1];
       tool.nameExpr =
         literalName !== undefined
           ? JSON.stringify(literalName)
-          : expr === undefined
-            ? "（未找到 name）"
-            : expr[1].trim();
+          : last?.expr !== undefined
+            ? last.expr
+            : "（未找到 name）";
     }
     tools.push(tool);
     cursor = close;
