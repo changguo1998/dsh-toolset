@@ -1,6 +1,7 @@
 # 本包插入自身（bundle 层）：默认配置见下；provider/model 留空 = 复用会话当前记录的路由。
 # 挂载前需在 profile 用户 patch 里禁用官方 `session-title-all-prompts-llm`
-# （宿主只允许注册一个标题 provider）；`scripts/install.sh` 可一条命令完成更新。
+# （宿主只允许注册一个标题 provider）；`scripts/install.sh --sync --take-over-title`
+# 可一条命令完成（普通 --sync 不改写用户 patch 的标题配置，只在检测到冲突时提示）。
 - insert:
     - id: session-title-cutoff
       name: '@dsh-toolset/session-title-cutoff'

@@ -19,6 +19,7 @@ skip_dsh=0
 skip_build=0
 force=0
 sync=0
+take_over_title=0
 dry_run=0
 skip_verify=0
 
@@ -38,8 +39,13 @@ usage() {
   --skip-dsh            不安装 / 不校验 dsh（假设 PATH 上已有）
   --skip-build          跳过插件的 npm install 与 build（复用已有 dist/）
   --force               覆盖已存在的 profile 配置文件（内容有变化时才写入并备份）
-  --sync                更新已存在的 profile：合并式补挂本仓库插件、必要时禁用官方
-                        all-prompts 标题 provider（追加 patch 片段），再跑 pnpm install
+  --sync                更新已存在的 profile：合并式补挂本仓库插件（保留非本仓库条目），再跑
+                        pnpm install；不改写 cordis.patch.yml 的标题 provider 配置（见下）
+  --take-over-title     与 --sync 同用：禁用 profile patch 里活跃的官方 all-prompts 标题
+                        provider 行，并把其 provider/model 复制给本仓库的
+                        session-title-cutoff（宿主只允许一个标题 provider；不带本开关
+                        只提示、不改 patch）。撤销：删除 cordis.patch.yml 文件头的
+                        title-takeover marker 行后重跑
   --dry-run             只打印将要执行的操作，不落盘
   --skip-verify         跳过收尾自检（dsh --profile <name> --dump-config；无 dsh / CI 场景）
   -h, --help            显示本帮助
@@ -144,6 +150,10 @@ while [ $# -gt 0 ]; do
             sync=1
             shift
             ;;
+        --take-over-title)
+            take_over_title=1
+            shift
+            ;;
         --dry-run)
             dry_run=1
             shift
@@ -161,6 +171,9 @@ while [ $# -gt 0 ]; do
 done
 
 check_name "$profile_name" "profile 名"
+if [ "$take_over_title" = 1 ] && [ "$sync" != 1 ]; then
+    die "--take-over-title 需要与 --sync 一起用（它更新已存在的 profile 的 cordis.patch.yml）"
+fi
 dsh_home="${DSH_HOME:-$HOME/.dsh}"
 
 # ── 1/5 前置检查 ────────────────────────────────────────────────────────────
@@ -336,13 +349,26 @@ render_manifest() {
     printf '  "name": "dsh-profile-%s",\n' "$profile_name"
     printf '  "private": true,\n'
     printf '  "dependencies": {\n'
-    first=1
-    for d in $final; do
-        [ "$first" = 1 ] || printf ',\n'
-        printf '    "%s": "link:%s/%s"' "$(pkg_name "$d")" "$repo_root" "$d"
-        first=0
-    done
-    printf '\n  },\n'
+    # 键序与合并路径（--sync）一致：两条路径共用 node 默认排序（包名全 ASCII，等价于字节序）
+    node -e '
+const fs = require("fs");
+const [root, ...dirs] = process.argv.slice(1);
+const rows = dirs
+  .map((dir) => [
+    JSON.parse(fs.readFileSync(`${root}/${dir}/package.json`, "utf8")).name,
+    dir,
+  ])
+  .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+process.stdout.write(
+  rows
+    .map(
+      ([name, dir], i) =>
+        `    "${name}": "link:${root}/${dir}"${i === rows.length - 1 ? "" : ","}`,
+    )
+    .join("\n") + "\n",
+);
+' "$repo_root" $final
+    printf '  },\n'
     printf '  "dsh": {\n    "profile": {\n      "bundles": [\n        "@deepseek-ai/dsh-base"'
     for d in $final; do
         printf ',\n        "%s"' "$(pkg_name "$d")"
@@ -370,6 +396,12 @@ for (const dir of dirs) {
 }
 manifest.dsh ??= {};
 manifest.dsh.profile ??= {};
+// 键序对齐 pnpm 的生成物约定（本仓库生成物与 fff 侧都是字母序）
+manifest.dependencies = Object.fromEntries(
+  Object.entries(manifest.dependencies).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  ),
+);
 const existing = Array.isArray(manifest.dsh.profile.bundles) ? manifest.dsh.profile.bundles : [];
 const extras = existing.filter((name) => !ours.has(name) && name !== "@deepseek-ai/dsh-base");
 manifest.dsh.profile.bundles = ["@deepseek-ai/dsh-base", ...dirs.map((dir) => {
@@ -418,27 +450,64 @@ for asset in pnpm-workspace.yaml cordis.patch.yml; do
     backup "$target"
     run cp "$profile_asset_dir/$asset" "$target"
 done
-# --sync：既有 profile 若挂了官方 all-prompts 标题 provider，追加禁用片段（幂等：带标记跳过）。
-# 宿主只允许一个标题 provider；本仓库 session-title-cutoff 接管后必须禁用官方实现。
+# --sync：标题 provider 接管是**显式开关**（--take-over-title）。
+# 宿主只允许一个标题 provider；但 patch 里的 all-prompts 行可能是**用户自己 insert** 的
+# （文本 grep 分不清「宿主挂载」与「用户自插」，历史上曾把 fff 的官方行关成死行），故
+# --sync 单独**绝不改写** patch：命中只提示（--dump-default-config 不是只读判据：
+# 它会物化 profile 派生文件，且在 pnpm install 之前跑时 bundle 行还判不出来）。
+# 幂等标记写在**文件头**独立行（与追加块解耦：用户清理追加块不再连带删标记）。
 patch_file="$pdir/cordis.patch.yml"
+title_marker_key="title-takeover marker v1"
+title_marker_line="# install.sh ${title_marker_key}（--take-over-title）：删除本行即视为放弃接管，可重跑 --sync --take-over-title 重放"
+title_legacy_key="session-title-cutoff 接管标题 provider"
+title_official_key="dsh-session-title-all-prompts-llm"
 if [ "$sync" = 1 ] && [ -f "$patch_file" ]; then
-    if grep -q "session-title-cutoff 接管标题 provider" "$patch_file"; then
-        log "标题 provider 禁用片段已存在，跳过"
-    elif grep -v '^[[:space:]]*#' "$patch_file" | grep -q "dsh-session-title-all-prompts-llm"; then
-        if [ "$dry_run" = 1 ]; then
-            printf '[dry-run] 追加禁用片段到 %s\n' "$patch_file"
+    # 活跃（非注释）官方行的首行号；空 = 未见（不代表宿主基础层没有）
+    title_active_line="$(awk -v k="$title_official_key" '!/^[[:space:]]*#/ && index($0, k) { print NR; exit }' "$patch_file")"
+    if grep -qF "$title_marker_key" "$patch_file"; then
+        if [ -n "$title_active_line" ]; then
+            log "标题接管已记录（文件头 marker 命中），跳过"
+        else
+            warn "标题接管 marker 在，但 patch 里未见活跃的 all-prompts 行——未自动重写（如需重放：删除文件头 marker 行后重跑 --sync --take-over-title）"
+        fi
+    elif grep -qF "$title_legacy_key" "$patch_file"; then
+        # 旧标记（历史 --sync 把标记写在被保护片段里）：按已接管处理；补文件头 marker 属
+        # 迁移动作，只在显式带开关时做（普通 --sync 对 patch 保持 100% 不改字节）
+        if [ "$take_over_title" != 1 ]; then
+            log "检测到旧版接管标记（历史 --sync 追加，标记在被保护片段内）：按已接管处理、本次不改动（如需补文件头 marker：重跑 --sync --take-over-title）"
+        elif [ "$dry_run" = 1 ]; then
+            printf '[dry-run] 补写标题接管文件头 marker 到 %s\n' "$patch_file"
+        else
+            backup "$patch_file"
+            tmp_patch="$patch_file.tmp.$$"
+            if { printf '%s\n' "$title_marker_line"; cat "$patch_file"; } > "$tmp_patch" &&
+                cat "$tmp_patch" > "$patch_file"; then
+                rm -f "$tmp_patch"
+                log "已补写文件头 marker（接管片段按旧标记判定已存在，未重复追加）"
+            else
+                rm -f "$tmp_patch"
+                die "写入标题接管 marker 失败：$patch_file"
+            fi
+        fi
+    elif [ "$take_over_title" = 1 ]; then
+        if [ -z "$title_active_line" ]; then
+            log "带 --take-over-title，但 patch 中未见活跃的 $title_official_key 行：不追加（不判断宿主基础层）"
+        elif [ "$dry_run" = 1 ]; then
+            printf '[dry-run] 追加标题禁用片段 + 文件头 marker 到 %s\n' "$patch_file"
         else
             backup "$patch_file"
             cat >> "$patch_file" << 'EOF'
 
-# 追加（scripts/install.sh --sync）：session-title-cutoff 接管标题 provider 后，禁用官方
-# all-prompts 实现（宿主 ctx.sessionTitle 只允许注册一个 provider，二次注册会抛错）。
+# 追加（scripts/install.sh --sync --take-over-title）：按 --take-over-title 接管标题 provider：
+# 禁用官方 all-prompts 实现（宿主 ctx.sessionTitle 只允许注册一个 provider，二次注册会抛错）。
+# 注意：这里硬编码官方行的 id；若官方改用别的 id 挂载，本条会变成未命中的 patch
+# （见 docs/BACKLOG.md「守卫残余」）。
 - id: session-title-all-prompts-llm
   disabled: true
 EOF
             log "已追加：禁用官方 all-prompts 标题 provider"
-            # 顺手把官方条目的 provider/model 复制给本仓库实现（all-prompts 在首条消息时
-            # 可能尚无「已记录路由」，显式配对最稳）。仅当原条目同时给出两者时才生成覆盖块。
+            # 把官方条目的 provider/model 复制给本仓库实现（all-prompts 在首条消息时可能
+            # 尚无「已记录路由」，显式配对最稳）。仅当原条目同时给出两者时才生成覆盖块。
             title_provider="$(awk '/dsh-session-title-all-prompts-llm/{f=1} f&&/^[[:space:]]*provider:/{print $2; exit}' "$patch_file")"
             title_model="$(awk '/dsh-session-title-all-prompts-llm/{f=1} f&&/^[[:space:]]*model:/{print $2; exit}' "$patch_file")"
             if [ -n "$title_provider" ] && [ -n "$title_model" ]; then
@@ -454,9 +523,30 @@ EOF
             else
                 warn "未能在官方 all-prompts 条目中读到 provider/model；请手工为 session-title-cutoff 配置（否则首条消息可能因无已记录路由失败）"
             fi
+            # marker 写到文件头（就地重写：跟随软链、保权限 / inode；临时文件用完即删）
+            tmp_patch="$patch_file.tmp.$$"
+            if { printf '%s\n' "$title_marker_line"; cat "$patch_file"; } > "$tmp_patch" &&
+                cat "$tmp_patch" > "$patch_file"; then
+                rm -f "$tmp_patch"
+                log "已记录接管（文件头 marker；撤销：删除该行后重跑 --sync --take-over-title）"
+            else
+                rm -f "$tmp_patch"
+                die "写入标题接管 marker 失败：$patch_file（片段已追加，请手工在文件头补 marker）"
+            fi
         fi
+    elif [ -n "$title_active_line" ]; then
+        case " $final " in
+            *" session-title-cutoff "*)
+                warn "$patch_file:$title_active_line 有活跃的官方 all-prompts 标题 provider 行，而本 profile 也挂了 session-title-cutoff（宿主只允许一个标题 provider，同挂会有一个注册失败、且可能静默不生效）。二选一："
+                warn "  a) 让 cutoff 接管：sh scripts/install.sh --sync --take-over-title（禁用该行并把它的 provider/model 复制给 cutoff）"
+                warn "  b) 保留官方实现：把 session-title-cutoff 从 profile 的 bundles 移除，或给它加 disabled: true"
+                ;;
+            *)
+                log "profile patch 有活跃的 all-prompts 行，但本 profile 未挂 session-title-cutoff（不冲突）：不改动 patch"
+                ;;
+        esac
     else
-        log "profile 未挂载官方 all-prompts 标题 provider（跳过：无需禁用；如你另行挂载，请手工加 disabled: true 或重跑 --sync）"
+        log "profile patch 未见活跃的官方 all-prompts 标题 provider 行（不判断宿主基础层；如你另行挂载，请手工加 disabled: true）"
     fi
 fi
 case " $final " in

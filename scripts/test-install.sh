@@ -64,6 +64,23 @@ count_glob() { # count_glob <目录> <通配模式>
     done
     printf '%s' "$n"
 }
+assert_same_file() { # assert_same_file <文件> <快照> <说明>：字节级不变（cmp）
+    checks=$((checks + 1))
+    cmp -s "$1" "$2" || fail "$3（$1 与快照不一致：$(diff "$2" "$1" | head -5)）"
+    printf '[test-install] 通过：%s\n' "$3"
+}
+assert_count_eq() { # assert_count_eq <文件> <固定串> <期望次数> <说明>
+    checks=$((checks + 1))
+    n="$(grep -c -F -- "$2" "$1" || true)"
+    [ "$n" = "$3" ] || fail "$4（$1 中「$2」出现 $n 次；期望 $3）"
+    printf '[test-install] 通过：%s\n' "$4"
+}
+assert_active_count_eq() { # 同 assert_count_eq，但只数**非注释行**（示例 patch 里有注释掉的行）
+    checks=$((checks + 1))
+    n="$(grep -v '^[[:space:]]*#' "$1" | grep -c -F -- "$2" || true)"
+    [ "$n" = "$3" ] || fail "$4（$1 的非注释行中「$2」出现 $n 次；期望 $3）"
+    printf '[test-install] 通过：%s\n' "$4"
+}
 install_() { # install_ [install.sh 选项...]；最近一次输出落 $lastlog
     PATH="$fakebin:$PATH" DSH_HOME="$home" sh "$repo_root/scripts/install.sh" \
         --skip-dsh --skip-build "$@" > "$lastlog" 2>&1 || {
@@ -116,24 +133,105 @@ assert_eq "$(count_glob "$pdir" 'package.json.bak.*')" 1 "再跑 --sync 不再�
 install_ --plugins "TUI ponytail" --force
 assert_eq "$(count_glob "$pdir" 'package.json.bak.*')" 2 "--force 内容有变时备份 1 份"
 
-# 7）标题 provider 追加：首轮备份 1 份，次轮不重复
-cat >> "$pdir/cordis.patch.yml" << 'EOF'
+# 7）标题 provider 守卫：--sync 单独不改写 patch（只提示）；显式 --take-over-title 才追加；
+#    幂等 marker 在文件头（清理追加块后仍幂等）；旧标记走迁移（只补文件头 marker）
+tguard="$home/profiles/tguard"
+install_ --plugins "TUI session-title-cutoff" --profile tguard
+tpatch="$tguard/cordis.patch.yml"
+cat >> "$tpatch" << 'EOF'
 
 - id: session-title-all-prompts-llm
   name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
-  provider: ustc
-  model: deepseek-flash
+  config:
+    provider: ustc
+    model: deepseek-flash
 EOF
-install_ --plugins "TUI ponytail" --sync
-assert_eq "$(count_glob "$pdir" 'cordis.patch.yml.bak.*')" 1 "标题守卫追加时备份 1 份"
-assert_eq "$(grep -c -F 'session-title-cutoff 接管标题 provider' "$pdir/cordis.patch.yml" || true)" 1 "幂等 marker 只出现一次"
-assert_contains "$pdir/cordis.patch.yml" 'provider: ustc' "复制标题 provider 路由"
-assert_contains "$pdir/cordis.patch.yml" 'model: deepseek-flash' "复制标题 model 路由"
-install_ --plugins "TUI ponytail" --sync
-assert_eq "$(count_glob "$pdir" 'cordis.patch.yml.bak.*')" 1 "再跑 --sync 不重复追加"
+cp "$tpatch" "$work/tpatch.before"
+
+# 7a）不带开关：只提示、patch 字节不变、不产生 patch 备份
+install_ --plugins "TUI session-title-cutoff" --profile tguard --sync
+assert_same_file "$tpatch" "$work/tpatch.before" "守卫：不带 --take-over-title 不改写 patch"
+assert_eq "$(count_glob "$tguard" 'cordis.patch.yml.bak.*')" 0 "守卫：不改写也不备份"
+assert_log_contains "--take-over-title" "守卫：提示给出 --take-over-title 出路"
+
+# 7b）带开关：追加禁用块 + 路由块 + 文件头 marker，备份 1 份
+install_ --plugins "TUI session-title-cutoff" --profile tguard --sync --take-over-title
+assert_active_count_eq "$tpatch" '- id: session-title-all-prompts-llm' 2 "守卫：追加禁用块（用户 1 + 禁用 1）"
+assert_active_count_eq "$tpatch" 'disabled: true' 1 "守卫：禁用块 1 处"
+assert_contains "$tpatch" 'provider: ustc' "守卫：复制 provider 路由"
+assert_contains "$tpatch" 'model: deepseek-flash' "守卫：复制 model 路由"
+assert_count_eq "$tpatch" 'title-takeover marker v1' 1 "守卫：文件头 marker 恰 1 行"
+assert_eq "$(head -n 1 "$tpatch" | grep -c -F 'title-takeover marker v1' || true)" 1 "守卫：marker 在文件头（第 1 行）"
+assert_eq "$(count_glob "$tguard" 'cordis.patch.yml.bak.*')" 1 "守卫：追加时恰好备份 1 份"
+
+# 7c）带开关重跑：字节不变、不新增备份
+cp "$tpatch" "$work/tpatch.after"
+install_ --plugins "TUI session-title-cutoff" --profile tguard --sync --take-over-title
+assert_same_file "$tpatch" "$work/tpatch.after" "守卫：重跑幂等（字节不变）"
+assert_eq "$(count_glob "$tguard" 'cordis.patch.yml.bak.*')" 1 "守卫：重跑不新增备份"
+
+# 7d）幂等不依赖被保护片段：清掉追加块（保留文件头 marker）后重跑，不重复追加
+node -e '
+const fs = require("fs");
+const file = process.argv[1];
+const text = fs.readFileSync(file, "utf8");
+const head = "# 追加（scripts/install.sh --sync --take-over-title）";
+const i = text.indexOf(head);
+if (i < 0) throw new Error("找不到追加块表头");
+fs.writeFileSync(file, text.slice(0, i).replace(/\n+$/, "\n"));
+' "$tpatch"
+assert_active_count_eq "$tpatch" 'disabled: true' 0 "守卫：夹具已清掉追加块"
+assert_count_eq "$tpatch" 'title-takeover marker v1' 1 "守卫：清理后 marker 仍在"
+cp "$tpatch" "$work/tpatch.cleaned"
+install_ --plugins "TUI session-title-cutoff" --profile tguard --sync --take-over-title
+assert_same_file "$tpatch" "$work/tpatch.cleaned" "守卫：marker 独立于片段（清理片段后仍幂等）"
+
+# 7e）旧标记（标记在被保护片段内）：普通 --sync 不改字节；带开关只补文件头 marker
+tlegacy="$home/profiles/tlegacy"
+install_ --plugins "TUI session-title-cutoff" --profile tlegacy
+lpatch="$tlegacy/cordis.patch.yml"
+cat >> "$lpatch" << 'EOF'
+
+- id: session-title-all-prompts-llm
+  disabled: true
+# 追加（scripts/install.sh --sync）：session-title-cutoff 接管标题 provider 后，禁用官方
+EOF
+cp "$lpatch" "$work/lpatch.before"
+install_ --plugins "TUI session-title-cutoff" --profile tlegacy --sync
+assert_same_file "$lpatch" "$work/lpatch.before" "守卫：旧标记存在时普通 --sync 不改字节"
+install_ --plugins "TUI session-title-cutoff" --profile tlegacy --sync --take-over-title
+assert_count_eq "$lpatch" 'title-takeover marker v1' 1 "守卫：旧标记迁移补文件头 marker"
+assert_active_count_eq "$lpatch" 'disabled: true' 1 "守卫：迁移不重复追加 payload"
+
+# 7f）带开关但 patch 无活跃行：不追加；--dry-run + 开关：不改文件
+tnoline="$home/profiles/tnoline"
+install_ --plugins "TUI session-title-cutoff" --profile tnoline
+nfile="$tnoline/cordis.patch.yml"
+cp "$nfile" "$work/nfile.before"
+install_ --plugins "TUI session-title-cutoff" --profile tnoline --sync --take-over-title
+assert_same_file "$nfile" "$work/nfile.before" "守卫：无活跃行时不追加"
+install_ --plugins "TUI session-title-cutoff" --profile tnoline --sync --take-over-title --dry-run
+assert_same_file "$nfile" "$work/nfile.before" "守卫：--dry-run 不改文件"
+
+# 7g）manifest 依赖键序：字母序（与 pnpm 生成物 / fff 侧约定一致）
+if node -e '
+const fs = require("fs");
+const deps = Object.keys(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).dependencies);
+for (let i = 1; i < deps.length; i += 1) {
+  if (!(deps[i - 1] < deps[i])) {
+    console.error(`键序不对：${deps[i - 1]} >= ${deps[i]}`);
+    process.exit(1);
+  }
+}
+' "$manifest"; then
+    checks=$((checks + 1))
+    printf '[test-install] 通过：%s\n' "manifest 依赖键序为字母序"
+else
+    fail "manifest 依赖键序应为字母序"
+fi
 
 # 8）收尾：备份总数符合预期、无临时文件残留
-assert_eq "$(count_glob "$pdir" '*.bak.*')" 3 "备份总数 3 份（清单 2 + patch 1）"
+assert_eq "$(count_glob "$pdir" '*.bak.*')" 2 "备份总数 2 份（清单 2；标题守卫走独立 profile）"
 assert_eq "$(count_glob "$pdir" '*.tmp.*')" 0 "无临时文件残留"
 
 # 9）树外官方插件版本检查（独立 profile 夹具，只读）

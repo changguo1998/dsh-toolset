@@ -36,8 +36,9 @@ DSH 进程内插件：接管 `ctx.sessionTitle` 的唯一标题 provider —— 
   disabled: true
 ```
 
-`scripts/install.sh` 已包含该步骤与包挂载（可一条命令更新既有 profile）；手工接入见
-`docs/implementation/2026-09-29-title-cutoff-provider.md` 的收尾记录。
+`scripts/install.sh --sync --take-over-title` 可一条命令完成该步与包挂载（普通 `--sync`
+**不改写**用户 patch 的标题配置，只在检测到冲突时提示）；手工接入见
+`session-title-cutoff/docs/archived/2026-09-29-title-cutoff-provider.md` 的收尾记录。
 
 profile 挂载（bundle 层已自带 insert 与缺省配置）：
 
