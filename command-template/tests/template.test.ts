@@ -147,10 +147,10 @@ test("registry：双源加载（用户覆盖随包）+ 坏模板隔离", () => {
 /** 步骤替身：记录注入与子代理调用。 */
 function fakeDeps(overrides: Partial<StepDeps> = {}): StepDeps & {
   injected: string[];
-  calls: { prompt: string; model?: string }[];
+  calls: { prompt: string; model?: string; timeoutMs?: number }[];
 } {
   const injected: string[] = [];
-  const calls: { prompt: string; model?: string }[] = [];
+  const calls: { prompt: string; model?: string; timeoutMs?: number }[] = [];
   const deps = {
     injected,
     calls,
@@ -158,10 +158,14 @@ function fakeDeps(overrides: Partial<StepDeps> = {}): StepDeps & {
       injected.push(text);
       return true;
     },
-    runAgent: async (prompt: string, opts: { model?: { model?: string } }) => {
+    runAgent: async (
+      prompt: string,
+      opts: { model?: { model?: string }; timeoutMs?: number },
+    ) => {
       calls.push({
         prompt,
         ...(opts.model?.model === undefined ? {} : { model: opts.model.model }),
+        ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }),
       });
       return `answer(${prompt.slice(0, 12)})`;
     },
@@ -169,7 +173,7 @@ function fakeDeps(overrides: Partial<StepDeps> = {}): StepDeps & {
   };
   return deps as StepDeps & {
     injected: string[];
-    calls: { prompt: string; model?: string }[];
+    calls: { prompt: string; model?: string; timeoutMs?: number }[];
   };
 }
 
@@ -270,6 +274,92 @@ test("steps：上限与注入失败的错误码", async () => {
     { rawInput: "" },
   );
   assert.equal(noSession.code, "session_unavailable");
+});
+
+test("steps：总预算——耗尽 → run_timeout（保留已完成步骤 + 文案可读）", async () => {
+  let started = 0;
+  const deps = fakeDeps({
+    runAgent: async () => {
+      started += 1;
+      await new Promise((r) => setTimeout(r, 50));
+      return "ok";
+    },
+  });
+  const tpl = specOf({
+    steps: [
+      { id: "a", type: "agent", prompt: "p1" },
+      { id: "b", type: "agent", prompt: "p2" },
+    ],
+  });
+  const outcome = await runTemplate(tpl, deps, {
+    rawInput: "",
+    totalTimeoutMs: 10,
+  });
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.code, "run_timeout");
+  assert.deepEqual(
+    outcome.steps.map((s) => s.id),
+    ["a"],
+    "已完成步骤保留在结果里",
+  );
+  assert.equal(started, 1, "预算耗尽后不再启动新步");
+  assert.match(outcome.error ?? "", /超出总预算（10 ms，已用约 \d+ ms）/);
+  assert.match(outcome.error ?? "", /已完成：1 步（a）/);
+});
+
+test("steps：有效单步超时 = min(stepTimeoutMs, 剩余预算)", async () => {
+  const deps = fakeDeps();
+  const tpl = specOf();
+  // 预算 < stepTimeoutMs → 压到预算
+  await runTemplate(tpl, deps, {
+    rawInput: "",
+    totalTimeoutMs: 1000,
+    stepTimeoutMs: 5000,
+  });
+  assert.ok(
+    deps.calls[0]?.timeoutMs !== undefined &&
+      deps.calls[0].timeoutMs > 0 &&
+      deps.calls[0].timeoutMs <= 1000,
+    `被预算压低，收到 ${deps.calls[0]?.timeoutMs}`,
+  );
+  // 预算充足 → 保持 stepTimeoutMs；非正预算 = 不设预算（同样保持）
+  deps.calls.length = 0;
+  await runTemplate(tpl, deps, {
+    rawInput: "",
+    totalTimeoutMs: 100_000,
+    stepTimeoutMs: 5,
+  });
+  assert.equal(deps.calls[0]?.timeoutMs, 5);
+  deps.calls.length = 0;
+  await runTemplate(tpl, deps, {
+    rawInput: "",
+    totalTimeoutMs: 0,
+    stepTimeoutMs: 5,
+  });
+  assert.equal(deps.calls[0]?.timeoutMs, 5, "非正预算按「不设」");
+});
+
+test("steps：预算窗口内的步骤失败归因到 run_timeout（而非 step_failed）", async () => {
+  const deps = fakeDeps({
+    runAgent: async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      throw new Error("boom");
+    },
+  });
+  const outcome = await runTemplate(specOf(), deps, {
+    rawInput: "",
+    totalTimeoutMs: 10,
+  });
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.code, "run_timeout");
+  // 对照：预算充足时同一失败仍是 step_failed（既有归因不退化）
+  const generous = fakeDeps({
+    runAgent: async () => {
+      throw new Error("boom");
+    },
+  });
+  const stepFailed = await runTemplate(specOf(), generous, { rawInput: "" });
+  assert.equal(stepFailed.code, "step_failed");
 });
 
 test("服务：注册命令 + /playbook 管理 + 运行（prompt 模板注入当前会话）", async () => {

@@ -65,6 +65,7 @@ export interface RunOutcome {
   ok: boolean;
   /** 最终文本（最后一步产出；失败时为错误说明）。 */
   text: string;
+  /** 已完成步骤（失败 / `run_timeout` 时为部分完成）。 */
   steps: StepResult[];
   /** 失败原因（ok = false）。 */
   error?: string;
@@ -79,7 +80,9 @@ export type TemplateErrorCode =
   | "name_conflict"
   | "step_failed"
   | "agent_unavailable"
-  | "session_unavailable";
+  | "session_unavailable"
+  /** 超出总预算（`totalTimeoutMs` 缺省 = `maxSteps × stepTimeoutMs`）。 */
+  | "run_timeout";
 
 /** 插件配置（`cordis.patch.yml` 的 `command-template` 节点）。 */
 export interface CommandTemplateConfig {
@@ -93,6 +96,11 @@ export interface CommandTemplateConfig {
   maxBestOf?: number;
   /** 单个 agent 步骤的超时 ms（缺省 600000）。 */
   stepTimeoutMs?: number;
+  /**
+   * 一次运行的总预算 ms（只约束 agent 步之和，语义 = agent 步的**启动闸门**；缺省 =
+   * `maxSteps × stepTimeoutMs`，随包配置 7200000；非正 / 非有限 = 不设；超限 → `run_timeout`）。
+   */
+  totalTimeoutMs?: number;
   /** 尊重保留命令名（缺省 = 入口子命令 `list` / `show` / `reload`；模板与之同名时跳过并告警）。 */
   reservedNames?: string[];
   /** 只加载不注册命令（离线排障用）。 */
@@ -103,7 +111,7 @@ export interface CommandTemplateConfig {
 export interface StepDeps {
   /** 把展开后的文本注入当前会话（返回是否注入成功）。 */
   injectPrompt(text: string): boolean;
-  /** 一次性子代理运行（返回回答文本）。 */
+  /** 一次性子代理运行（返回回答文本）；`opts.timeoutMs` 总是给出（= `min(stepTimeoutMs, 剩余预算)`）。 */
   runAgent(
     prompt: string,
     opts: { model?: ModelRef; timeoutMs?: number },

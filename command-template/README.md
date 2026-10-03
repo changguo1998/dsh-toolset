@@ -49,6 +49,7 @@ steps:
 | `maxSteps` | `12` | 单次运行步骤上限 |
 | `maxBestOf` | `8` | `bestOf` 上限 |
 | `stepTimeoutMs` | `600000` | 单个 agent 步骤超时 |
+| `totalTimeoutMs` | `maxSteps × stepTimeoutMs`（随包 `7200000`） | 一次运行的总预算：只约束 agent 步之和（语义 = agent 步**启动闸门**；非正 / 非有限 = 不设；超限 → `run_timeout`） |
 | `reservedNames` | `["list", "show", "reload"]` | 入口保留子命令名（模板同名则无法调用，加载时告警） |
 | `disabled` | `false` | `true` = 只加载不注册 |
 
@@ -71,7 +72,7 @@ steps:
 - 不实现执行器：`agent` 步骤走宿主 `ctx.subagents` **服务面** `start(name, request)`（一次性运行；宿主写父会话 catalog 并发生命周期事件，模型覆盖仅本次）；
   task-engine 的叶子 `executor` 声明（项目级「task-engine 执行扩展」）落地后，改为经该声明选择后端。
 - **终态与回收**：`start` 与「等宿主结算（`settleRun`）」都放在取消信号**竞速**里——宿主结算面可能**无界**（`await run.result`；已确认：真机出现过 `command/run` 无 `command/done` 的悬挂；未确认：具体触发条件）。竞速落败（调用方取消 / `stepTimeoutMs` 超时）时**抛可读文案**（区分「被调用方取消」与「步骤超时（N ms）后中止」，带子会话 id）→ `steps.ts` 转 `step_failed` → `run()` 返回 `kind:"error"`；同时**发起**回收但**不等待**（宿主 in-process `dispose()` 内部 `await run.result`，等它等于换个地方无界等待）。据此**本仓侧任何路径都回终态**（宿主侧 `subagent/end` 等生命周期事件仍取决于 `run.result`，本仓补不了）；
-  - 最坏耗时＝`maxSteps(12) × stepTimeoutMs(600s) ≈ 2 h` 才回终态（无全局预算，见 `docs/BACKLOG.md`）；
+  - **总预算**（2026-10-04）：`totalTimeoutMs` 缺省 = `maxSteps × stepTimeoutMs`（随包 `7200000` ms）——把最坏上界显式化；语义是 agent 步的**启动闸门**（预算不足不再启动新步；每步有效超时 = `min(stepTimeoutMs, 剩余)`；`prompt` 步零耗时、不受约束），**不是**「命令必在 deadline 前返回」。缺省配置下它对随包模板实际不会触发（名义上界），需收紧请显式配置；注意 `bestOf` 并行 + `judge` 会让单步最坏 ≈ `2 × stepTimeoutMs`（故「重步 ≥ 7 个」时缺省预算才可能生效）；超限返回 `run_timeout`（文案含已用 / 预算 ms 与已完成步骤）；
 - 不改 TUI：模板命令经宿主命令注册表自动出现在补全里（TUI 本地命令同名时本地优先）。
 - 不做模板市场 / 版本管理 / 参数类型校验（参数一律按文本展开）。
 
@@ -80,5 +81,5 @@ steps:
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # tsc → dist/
-npm run test    # node --test（8 例：解析 / 参数 / 双源 / 步骤 / 服务与命令注册）
+npm run test    # node --test（22 例：解析 / 参数 / 双源 / 步骤与预算 / 服务与命令注册 / 子代理面）
 ```

@@ -10,5 +10,5 @@
 
 | # | 条目 | 来源 | 落点 | 工作量 | 优先级 |
 | --- | --- | --- | --- | --- | --- |
-| 1 | **模板运行的全局预算**：现在只有每步 `stepTimeoutMs`（缺省 600s）与 `maxSteps`（缺省 12），最坏 `12 × 600s ≈ 2h` 才回终态；给一次模板运行加总预算（或把 `maxSteps × stepTimeoutMs` 的上界显式化并计入 README） | 2026-10-02「取消/超时终态」条目的子代理审阅（漏项） | `command-template/src/main.ts`（Config 增 `totalTimeoutMs`）+ steps 传递 + 测试 | 1 h | P2 |
+| 1 | **小项三则**：① `bestOf` 候选全灭时只报「候选全部失败」，逐候选错误（`src/steps.ts` 收集后丢弃）不可见——建议带首个错误；② README 声称 `SERVICE_FACE_METHODS` 有「测试守卫」，实际不存在（全仓无守卫用例）——补守卫或删声称；③ `/playbook show` 不显示预算口径（`totalTimeoutMs` 生效值），用户只有跑挂后才知道旋钮 | 2026-10-04 command-template「模板运行的全局预算」任务的子代理审阅 | `command-template/src/steps.ts` / `tests/` / `README.md` / `src/main.ts` | 0.5 h | P3 |
 | 2 | **模块无 `DESIGN.md`**：AGENTS.md 的模块文档口径含 `DESIGN.md`（架构与机制沉淀），本包只有 README + BACKLOG。补一份（命令注册/模板加载/步骤执行/宿主面四节）或明确「不建」并记理由 | 同上（漏项） | `command-template/docs/DESIGN.md` 或本文件记录裁定 | 1 h | P3 |

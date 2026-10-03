@@ -23,6 +23,11 @@ export interface RunTemplateOptions {
   maxBestOf?: number;
   /** 单步超时 ms（缺省 600000）。 */
   stepTimeoutMs?: number;
+  /**
+   * 一次运行的总预算 ms（只约束 agent 步之和；缺省 = `maxSteps × stepTimeoutMs`，
+   * 即把最坏上界显式化；非正 / 非有限 = 不设预算）。超限 → `run_timeout`。
+   */
+  totalTimeoutMs?: number;
 }
 
 /** 运行一个模板：顺序执行步骤，串链产出，返回最终文本。 */
@@ -38,6 +43,14 @@ export async function runTemplate(
       `步骤数超过上限（${template.steps.length} > ${maxSteps}）`,
     );
   }
+  // 总预算：缺省 = 把最坏上界显式化（maxSteps × stepTimeoutMs）；非正 / 非有限 = 不设。
+  // 语义 = agent 步的「启动闸门」：预算不足不再启动新步；每步有效超时 = min(stepTimeoutMs, 剩余)；
+  // prompt 步零耗时、不受约束。
+  const stepTimeoutMs = options.stepTimeoutMs ?? 600_000;
+  const budgetRaw = options.totalTimeoutMs ?? maxSteps * stepTimeoutMs;
+  const budget =
+    Number.isFinite(budgetRaw) && budgetRaw > 0 ? budgetRaw : Infinity;
+  const deadline = budget === Infinity ? Infinity : Date.now() + budget;
   const results: Record<string, string> = {};
   const collected: StepResult[] = [];
   for (const step of template.steps) {
@@ -61,8 +74,26 @@ export async function runTemplate(
       collected.push({ id: step.id, type: step.type, text });
       continue;
     }
-    const outcome = await runAgentStep(step, text, deps, options);
+    // 预算闸门（仅 agent 步）：剩余不足 → 不启动新步；有效超时压到剩余，单步也难越过预算
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      return {
+        ...failure("run_timeout", budgetMessage(budget, deadline, collected)),
+        steps: collected,
+      };
+    }
+    const outcome = await runAgentStep(step, text, deps, {
+      ...options,
+      stepTimeoutMs: Math.min(stepTimeoutMs, remaining),
+    });
     if (!outcome.ok) {
+      // 失败且已过 deadline：可能是被压低的有效超时触发的步骤超时 → 归因到总预算
+      if (Date.now() >= deadline) {
+        return {
+          ...failure("run_timeout", budgetMessage(budget, deadline, collected)),
+          steps: collected,
+        };
+      }
       return { ...outcome, steps: collected };
     }
     results[step.id] = outcome.step.text;
@@ -184,6 +215,20 @@ export interface StepFailure extends RunOutcome {
 
 function failure(code: TemplateErrorCode, error: string): StepFailure {
   return { ok: false, text: error, steps: [], code, error };
+}
+
+/** 总预算失败的文案（用户面 `/playbook` 只看 code / error，故已完成步摘要写进文案）。 */
+function budgetMessage(
+  budget: number,
+  deadline: number,
+  collected: readonly StepResult[],
+): string {
+  const used = Math.max(0, Date.now() - (deadline - budget));
+  const done =
+    collected.length === 0
+      ? "无"
+      : `${collected.length} 步（${collected.map((s) => s.id).join(" → ")}）`;
+  return `模板运行超出总预算（${budget} ms，已用约 ${used} ms）；已完成：${done}；可用 totalTimeoutMs 调大或简化步骤`;
 }
 
 function describe(err: unknown): string {

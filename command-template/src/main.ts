@@ -204,6 +204,9 @@ export class CommandTemplateService {
       ...(this.#config.stepTimeoutMs === undefined
         ? {}
         : { stepTimeoutMs: this.#config.stepTimeoutMs }),
+      ...(this.#config.totalTimeoutMs === undefined
+        ? {}
+        : { totalTimeoutMs: this.#config.totalTimeoutMs }),
     });
     if (!outcome.ok) {
       return {
