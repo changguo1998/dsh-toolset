@@ -678,3 +678,77 @@ test("tool-surface-check：同名多副本按内容择优（外层 stub 不得�
     rmSync(base, { recursive: true, force: true });
   }
 });
+
+test("tool-surface-check：名称只在同一 defineTool 体内解析（前置 name 字面量不得顶替，修静默假阴性）", () => {
+  const base = mkdtempSync(join(tmpdir(), "sg-surface-name-"));
+  try {
+    const host = join(base, "host");
+    const scope = join(host, "node_modules", "@deepseek-ai");
+    const dir = join(scope, "dsh-tool-name-mismatch", "lib");
+    mkdirSync(dir, { recursive: true });
+    // 前置：与**已登记工具同名**的字面量（旧实现会取它 → 报成「已覆盖 read」→ exit 0 静默假阴性）；
+    // 目标工具的真名走常量（体外没有可用字面量），参数面含 path → 必须进「需关注/名称未解析」。
+    writeFileSync(
+      join(dir, "index.js"),
+      [
+        'const REVIEW_COMMAND = { name: "read", description: "slash command" };',
+        'const EXIT_PLAN_MODE = "exit_plan_mode";',
+        "ctx.tools.register(defineTool({",
+        "  name: EXIT_PLAN_MODE,",
+        "  parameters: { path: { type: 'string', required: true } },",
+        "}));",
+      ].join("\n"),
+    );
+    mkdirSync(join(host, "lib"), { recursive: true });
+
+    const run = runScript(["--root", host]);
+    assert.doesNotMatch(
+      run.output,
+      /已覆盖 \d+：read\b/,
+      "前置字面量 name 不得被当成该工具的名字（否则静默假阴性）",
+    );
+    assert.match(
+      run.output,
+      /（名称未解析）/,
+      "名称走常量应按「名称未解析」保守列出",
+    );
+    assert.equal(run.status, 1, "带 path 参数的未解析工具必须让脚本 exit 1");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("tool-surface-check：同一文件多个 defineTool 各取自己体内的 name", () => {
+  const base = mkdtempSync(join(tmpdir(), "sg-surface-multi-"));
+  try {
+    const host = join(base, "host");
+    const scope = join(host, "node_modules", "@deepseek-ai");
+    const dir = join(scope, "dsh-tool-multi", "lib");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "index.js"),
+      [
+        "ctx.tools.register(defineTool({",
+        '  name: "alpha_tool",',
+        "  parameters: { path: { type: 'string', required: true } },",
+        "}));",
+        "ctx.tools.register(defineTool({",
+        '  name: "beta_tool",',
+        "  parameters: { cmd: { type: 'string', required: true } },",
+        "}));",
+      ].join("\n"),
+    );
+    mkdirSync(join(host, "lib"), { recursive: true });
+
+    const run = runScript(["--root", host]);
+    assert.match(run.output, /alpha_tool/, "第一个工具应取自己的名称");
+    assert.match(run.output, /beta_tool/, "第二个工具应取自己的名称");
+    assert.doesNotMatch(
+      run.output,
+      /（名称未解析）/,
+      "两个字面量名都可解析，不应有未解析项",
+    );
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});

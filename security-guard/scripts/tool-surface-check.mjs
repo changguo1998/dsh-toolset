@@ -359,6 +359,21 @@ function nestedKeys(valueText, level, budget = { left: MAX_PARAM_KEY_STEPS }) {
  * 逐工具解析一个工具包源文件：返回
  * `[{ name?, nameExpr?, keys: string[], spread }]`（每个 `parameters` 块一条）。
  */
+/**
+ * 向前找**包住当前 `parameters` 块**的最近的 `defineTool(`：返回其对象体起点（`(` 之后的下标）；
+ * 找不到（不在任何 `defineTool` 内）时返回 `undefined`（此时名称按「未找到」保守处理）。
+ */
+function enclosingDefineToolStart(text, from, open) {
+  const head = text.slice(from, open);
+  const found = [...head.matchAll(/defineTool\s*\(/g)];
+  const last = found[found.length - 1];
+  if (last === undefined) return undefined;
+  const parenIndex = from + last.index + last[0].length - 1;
+  const bodyStart = parenIndex + 1;
+  const bodyEnd = matchBrace(text, parenIndex);
+  return bodyEnd > open ? bodyStart : undefined;
+}
+
 function parseTools(text) {
   const tools = [];
   const paramRe = /parameters\s*:\s*\{/g;
@@ -381,8 +396,11 @@ function parseTools(text) {
       const nested = nestedKeys(entry.valueText, 2);
       for (const key of nested.keys) keys.add(key);
     }
-    // 名字：本块之前最近的 `name: "x"`（不含其它 parameters 块内）
-    const before = text.slice(cursor, open);
+    // 名字只在**同一个 `defineTool({...})` 对象体内**解析（BACKLOG「名称误配」）：
+    // 旧实现取「本块之前的整段文本」里的最近 `name:`，会误取体外字面量（如 slash 命令名 `plan`，
+    // 或前置的 `name: "read"`），导致**取错名字甚至静默假阴性（exit 0）**。
+    const bodyStart = enclosingDefineToolStart(text, cursor, open);
+    const before = bodyStart === undefined ? "" : text.slice(bodyStart, open);
     const names = [...before.matchAll(/name\s*:\s*("([^"]*)"|'([^']*)')/g)];
     const exprs = [...before.matchAll(/name\s*:\s*([^\s,}\n][^,\n}]*)/g)];
     const last = names[names.length - 1];
