@@ -36,3 +36,8 @@
 
 - 计划改动文件清单（**只改这些**）：`docs/BACKLOG.md`（状态）、本追踪文档、`TUI/src/app/adapter/types.ts`、`TUI/src/app/adapter/dsh.ts`（订阅 + 归一化）、`TUI/src/app/state.ts`（新状态 + reducer）、`TUI/src/app/layout.ts`（head 行 + 颜色）、`TUI/docs/SPEC.md`、`TUI/tests/`（新用例 + 既有 goal 用例更新）。
 - 验证：`npm run check` + `npm run build` + `npm run test:tui`（反向验证含在内）；根 `npm run check`。
+
+## 探针记录（2026-10-04，实现前）
+
+- **⟳ 宽度表项：不并入本条目**。实测 `cd TUI && npm run gen:width-table`：生成器与检入的 `src/app/layout/eaw-table.ts` **不同步**——仅补一段 ranges 重生成即产生 **229 行** diff（108 insert / 122 delete，区间归并差异），噪声远超本次收益；已 `git checkout` 还原（工作区干净）。⇒ 宽度项（把 `[0x27c0,0x27ff]` 补进 `SYMBOL_UNCERTAIN_RANGES`，注意审阅给的 `[0x27c0,0x27ef]` **不含** U+27F3）**另开条目**：先解决生成器漂移（谁生成、为何不一致），再谈补字符。本条目渲染层按「⟳ 恒 1 列」处理，风险记在 §决策修订⑤。
+- 实现仍未开工；落点清单与顺序见上（types/dsh → state → layout → tests → docs）。
