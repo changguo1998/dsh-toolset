@@ -1,6 +1,6 @@
 # install.sh 四条待办（接取条目：`docs/BACKLOG.md`「`scripts/install.sh` 的 `backup()` 会在 profile 目录无限堆积 `.bak.<epoch>`」「install.sh 缺「profile 树外加装官方插件版本 vs 宿主版本」检查」「install.sh 收尾缺 `--dump-config` 实测自检」「install.sh 头注释「顺序与根 package.json 一致」口径不实」）
 
-状态：实现　　开启：2026-10-03　　关闭：—
+状态：关闭　　开启：2026-10-03　　关闭：2026-10-03
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 用户指令（2026-10-03）：四条依次完成、每条完成后提交一次；决策后、实现前先交子代理只读审阅；实现只在本会话做，不派发子代理实现。
@@ -141,4 +141,7 @@
 
 ## 收尾
 
-（关闭前补齐）
+- 四条待办全部完成并各自提交：备份堆积 `6ebef26`、树外版本检查 `1400cf7`、收尾自检 `fd872fd`、头注释口径 `175395b`。
+- 回写：双语 `README.md`「安装」节（备份口径、包数 19 → 21、`--help` 摘要含新开关）；`docs/BACKLOG.md` 四条已完成条目清理移除、§1 增一行索引、余项按当前顺序重编；未回写 DESIGN（`scripts/` 无模块 DESIGN 归属，脚本头注释与 README 已覆盖）；`docs/STATUS.md` 按约定由用户择时，不动。
+- 遗留与后续：审阅转出的两条已登记 BACKLOG（「install.sh 标题 provider 守卫残余…」「install.sh `--sync` 的「移除」语义与日志口径」）；可选残留（`node_modules` 实装版本比对、`timeout` 包装、「PATH 无 dsh」独立夹具）未采纳并已注明理由；§2 排序说明与 §3 里程碑沿用旧编号（本次未动）。
+- 归档：本文件移入 `docs/archived/`；临时产物（`/tmp` 复现夹具、pnpm store 重定位目录）已清理。
