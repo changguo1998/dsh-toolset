@@ -194,6 +194,65 @@ else
     fi
 fi
 
+# ── 2.5/5 检查 profile 树外官方插件版本 ─────────────────────────────────────
+# 树外加装的官方包（例：@deepseek-ai/dsh-session-title-all-prompts-llm）必须与宿主
+# dsh 同版；不同版时 pnpm install 不报错、启动才暴露。只读：扫 dependencies /
+# devDependencies 里的 @deepseek-ai/dsh-*（排除 link:/file: 值；bundles 不扫——
+# @deepseek-ai/dsh-base 随宿主树解析）。
+check_manifest="$dsh_home/profiles/$profile_name/package.json"
+if [ -f "$check_manifest" ]; then
+    host_version=""
+    if [ "$skip_dsh" = 1 ]; then
+        if have dsh; then
+            host_version="$(dsh --version 2> /dev/null | tr -d '\r' | sed 's/[[:space:]]*$//' || true)"
+            [ -n "$host_version" ] || warn "拿不到 dsh --version 输出，跳过树外官方插件版本检查"
+        fi # 无 dsh：第 2 步已告警（--skip-dsh），这里静默跳过
+    else
+        host_version="$dsh_version_default"
+    fi
+    if [ -n "$host_version" ]; then
+        if result="$(node -e '
+const fs = require("fs");
+const [file, hostVersion] = process.argv.slice(1);
+const m = JSON.parse(fs.readFileSync(file, "utf8"));
+const deps = Object.assign({}, m.dependencies, m.devDependencies);
+const lines = [];
+let candidates = 0;
+for (const [name, spec] of Object.entries(deps)) {
+  if (!name.startsWith("@deepseek-ai/dsh-")) continue;
+  if (typeof spec !== "string" || spec.startsWith("link:") || spec.startsWith("file:")) continue;
+  candidates += 1;
+  const clean = spec.replace(/^[\^~]/, "");
+  if (!/^\d+\.\d+\.\d+/.test(clean)) lines.push(`unknown ${name} ${spec}`);
+  else if (clean !== hostVersion) lines.push(`mismatch ${name} ${spec}`);
+}
+if (!candidates) console.log("none");
+else if (!lines.length) console.log("ok");
+else console.log(lines.join("\n"));
+' "$check_manifest" "$host_version" 2> /dev/null)"; then
+            case "$result" in
+                none) log "profile 无树外官方插件依赖，跳过版本检查" ;;
+                ok) log "profile 树外官方插件版本与宿主 dsh 一致（$host_version）" ;;
+                *)
+                    warn "profile 树外官方插件版本检查（宿主 dsh $host_version）："
+                    printf '%s\n' "$result" | while IFS=" " read -r kind name spec; do
+                        case "$kind" in
+                            mismatch) warn "  $name：$spec → 与宿主不一致，请把 pin 改为 $host_version" ;;
+                            unknown) warn "  $name：$spec → 非精确版本，无法自动判定，请人工确认" ;;
+                        esac
+                    done
+                    if printf '%s\n' "$result" | grep -q "^mismatch "; then
+                        warn "改完 pin 后，在该 profile 目录重跑 pnpm install："
+                        warn "  cd $dsh_home/profiles/$profile_name && pnpm install"
+                    fi
+                    ;;
+            esac
+        else
+            warn "无法解析 $check_manifest，跳过树外官方插件版本检查"
+        fi
+    fi
+fi
+
 # ── 3/5 构建插件 ────────────────────────────────────────────────────────────
 log "3/5 构建本项目插件"
 discovered=""

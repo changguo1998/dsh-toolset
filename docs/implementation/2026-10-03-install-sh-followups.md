@@ -19,9 +19,16 @@
 - 边界：备份就地命名 `.bak.<epoch>`；同轮同一文件不会重复备份（分支互斥）；脚本契约是只写 `$DSH_HOME` 与仓库。
 - 复现（2026-10-03，临时 `DSH_HOME` + PATH 前置假 pnpm，`--skip-dsh --skip-build --plugins TUI`）：首次安装 0 份 `.bak`；`--sync` 连跑两次 → 1 份、2 份；再 `--force` → 5 份（`package.json.bak.*` ×3、`cordis.patch.yml.bak.*` ×1、`pnpm-workspace.yaml.bak.*` ×1）。
 
-### 其余三条
+### 「树外版本检查」
 
-- 预备（2026-10-03，只读）：fff manifest 的树外 pin 形如 `"@deepseek-ai/dsh-session-title-all-prompts-llm": "0.2.0-rc.2"`（精确版本号，非范围）；本仓插件均为 `link:` 且包名 `@dsh-toolset/*`。其余细节待各条目开工时补。
+- 现状：第 2 步确定/安装 dsh 版本后，脚本不检查既有 profile 里的树外官方插件 pin；第 4 步只按 `--sync`/`--force` 处理清单与资产。fff 实测曾出现「profile pin 已 0.2.0-rc.2、宿主仍 0.1.7-rc.2」，脚本无任何提示。
+- 数据结构（只读实测）：fff manifest 的 pin 形如 `"@deepseek-ai/dsh-session-title-all-prompts-llm": "0.2.0-rc.2"`（精确版本号，非范围）；本仓插件均为 `@dsh-toolset/*` + `link:`。
+- 版本取值：不 `--skip-dsh` → 目标版本 `$dsh_version_default`（第 2 步刚确保）；`--skip-dsh` → 实际宿主 `dsh --version` 输出（本机实测为裸版本号 `0.2.0-rc.2`；取不到则跳过并告警）。
+- 触发时机：manifest 存在时每次运行都查（读前先 `-f` 判在），新建 profile 场景自然跳过；检查只读，dry-run 同样执行。
+
+### 其余两条
+
+- 预备（2026-10-03，只读）：其余细节待各条目开工时补。
 
 ## 决策
 
@@ -38,6 +45,16 @@
 - 转出（本条目范围外，记入「新发现」并登记 BACKLOG）：`--sync --force` 的 patch 覆盖缺口；awk 取值越界与 marker 过宽；`--sync` 不卸载本仓库插件的语义/日志口径。
 - 顺带修正（审阅标记、同属「安装」节）：双语 README 的包数 19 → 21；`--help` 摘要补 `--sync/--skip-dsh/--skip-build`。
 
+### 「树外版本检查」
+
+- 落点：第 2 步之后、第 3 步之前，独立小段（无步骤编号；输出位置在 `2/5` 与 `3/5` 之间）。
+- 判定：node 读 manifest 的 `dependencies`，取 `@deepseek-ai/dsh-*`（天然排除 `@dsh-toolset/*`；再排除 `link:` / `file:` 值）；pin 去掉前导 `^`/`~` 后与宿主版本串比较，不等即列为不一致（profile pin 实测为精确版本；其他范围语法保守报出、由人工确认）。
+- 输出：无候选 → 「无树外官方插件依赖，跳过」；全部一致 → 一行 log（带宿主版本）；不一致 → 逐条 `warn`（`名字：spec（期望 版本）`）+ 精确提示（改 pin 后在 profile 目录重跑 `pnpm install`，带 `cd` 命令）；manifest 解析失败 → warn 跳过（不 `die`，保持非 `--sync` 运行对既有 profile 的容错）。
+- 只读、无新增开关；dry-run 执行。
+- 测试：`scripts/test-install.sh` 增「一致 / 不一致 / 无此类依赖」三态 + 前导 `^` 兼容；宿主版本用 PATH 前置的假 `dsh` 固定输出（走 `--skip-dsh` 分支）。
+- 审阅（子代理，2026-10-03）：结论 **需修改（方向正确，无严重问题）**。采纳：① 仅 `^?~?<semver>` 形态参与串比，其余（`>=` / 别名 / `workspace:` / git 等）单列「非精确版本，无法自动判定」，不给「改 pin」的强建议；② 一并扫 `devDependencies`；③ `--skip-dsh` 且 PATH 无 dsh → 静默跳过（第 2 步已告警），dsh 在但输出为空 → 显式 warn 后跳过；④ 测试换独立 `--profile vercheck` 夹具，补解析失败 / `link:` 排除 / 多条目 / `~` 前缀 / 取不到版本；⑤ 解析失败不 `die`。
+- 未采纳（审阅可选/边界项）：并查 `node_modules` 实际已装版本（超出本条目范围，留作后续可选）；`--force` 仍照常检查（告警显示现状、供用户知情）；多 profile 不扩查（脚本本为单 profile 契约）。
+
 ## 规划
 
 - 顺序（依 BACKLOG 表内先后）：备份堆积 → 树外版本检查 → dump-config 自检 → 头注释口径（条目一律按标题引用，编号仅供阅读）。
@@ -53,10 +70,16 @@
 ## 实现记录
 
 - 2026-10-03（「备份堆积」）：
+
   - `scripts/install.sh`：头注释、`--force` usage、`backup()` 注释改口径（内容未变不写、不备份）；`--sync` 合并段与清单写入段统一为「先算内容（命令替换）→ 与现状比对 → 不同才 `backup` + 写入」；资产复制段加 `cmp -s` 跳过（dry-run 语义一致）；清单 JSON 校验从「写后」提前到「写前」（校验渲染结果）。
   - 新增 `scripts/test-install.sh`：17 项断言（PATH 前置假 pnpm + 临时 `DSH_HOME`，仓库外零落盘）。
   - 根 `README.md` / `README.zh.md` 安装节：备份口径改写、包数 19 → 21、`--help` 摘要补 `--skip-dsh/--skip-build/--sync`。
   - `docs/BACKLOG.md`：本条目标「完成（2026-10-03）」；审阅转出条目见「新发现」。
+
+- 2026-10-03（「树外版本检查」）：
+
+  - `scripts/install.sh`：第 2 步后插入独立小段 —— 读 `$dsh_home/profiles/$profile_name/package.json`（存在才查）；node 扫 `dependencies` + `devDependencies` 的 `@deepseek-ai/dsh-*`（排除 `link:`/`file:`），`^~/semver` 参与串比、其余单列；输出 `none` / `ok` / `unknown …` / `mismatch …`；shell 三分类：无候选跳过 / 一致记 log / 不一致逐条 `warn` + `cd … && pnpm install` 提示；解析失败与「版本取不到」warn 后跳过；只读、dry-run 亦执行。
+  - `scripts/test-install.sh`：加假 `dsh`（固定输出 `0.2.0-rc.2`）；`install_` 保留最近一次输出（`$lastlog`），`fail` 只打该次输出；新增场景 9（独立 `--profile vercheck` 夹具，7 小项 14 断言）。
 
 ## 测试与证据
 
@@ -66,6 +89,7 @@
 - `shellcheck scripts/install.sh scripts/test-install.sh`：仅 info 级（SC2016 单引号内含 JS、SC2086 故意的分词），属设计如此。
 - `shfmt -i 4 -ci -s -sr -d`（`format` 命令对 .sh 的实际参数）：新增代码零差异；仓库既有 shell 脚本同样未统一走 shfmt，未做无关格式化。
 - 未跑 `npm run check / build / test`：本次不涉及 TS / 包面改动（仅 shell 与文档），无从覆盖。
+- 2026-10-03（「树外版本检查」）：`sh scripts/test-install.sh` **31/31 通过**；真机 dry-run（`DSH_HOME=~/.dsh … --profile fff --skip-dsh --skip-build --dry-run`，零写入、只读真实 fff profile）输出 `profile 树外官方插件版本与宿主 dsh 一致（0.2.0-rc.2）`；`shellcheck` 仅 info 级（SC2016/SC2086，设计如此）；`shfmt -i 4 -ci -s -sr -d` 新增代码零差异。局限：「PATH 无 dsh」态因本机存在真实 dsh 无法安全模拟，以「dsh 在但输出为空」等价覆盖（同为 `host_version` 空 → 跳过）。
 
 ## 新发现（已登记 BACKLOG）
 

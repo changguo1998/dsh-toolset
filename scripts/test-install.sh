@@ -9,6 +9,7 @@ work="$(mktemp -d)"
 home="$work/home"
 fakebin="$work/bin"
 log="$work/install.log"
+lastlog="$work/last.log"
 mkdir -p "$home" "$fakebin"
 cleanup() { rm -rf "$work"; }
 trap cleanup EXIT INT TERM
@@ -16,12 +17,15 @@ trap cleanup EXIT INT TERM
 # 假 pnpm：install.sh 只要求 pnpm 存在、并能在 profile 目录里执行 install
 printf '#!/bin/sh\nexit 0\n' > "$fakebin/pnpm"
 chmod +x "$fakebin/pnpm"
+# 假 dsh：给「树外官方插件版本检查」的 --skip-dsh 分支一个固定宿主版本
+printf '#!/bin/sh\necho 0.2.0-rc.2\n' > "$fakebin/dsh"
+chmod +x "$fakebin/dsh"
 
 checks=0
 fail() {
     printf '[test-install] 失败：%s\n' "$1" >&2
-    printf '%s\n' '--- install.sh 输出 ---' >&2
-    cat "$log" >&2 || true
+    printf '%s\n' '--- 最近一次 install.sh 输出 ---' >&2
+    cat "$lastlog" >&2 || true
     exit 1
 }
 assert_eq() { # assert_eq <实际> <期望> <说明>
@@ -34,6 +38,18 @@ assert_contains() { # assert_contains <文件> <固定串> <说明>
     grep -q -F -- "$2" "$1" || fail "$3（$1 中未找到「$2」）"
     printf '[test-install] 通过：%s\n' "$3"
 }
+assert_log_contains() { # assert_log_contains <固定串> <说明>：断言最近一次 install.sh 输出
+    checks=$((checks + 1))
+    grep -q -F -- "$1" "$lastlog" || fail "$2（最近输出中未找到「$1」）"
+    printf '[test-install] 通过：%s\n' "$2"
+}
+assert_log_not_contains() { # assert_log_not_contains <固定串> <说明>
+    checks=$((checks + 1))
+    if grep -q -F -- "$1" "$lastlog"; then
+        fail "$2（最近输出中出现不应有的「$1」）"
+    fi
+    printf '[test-install] 通过：%s\n' "$2"
+}
 count_glob() { # count_glob <目录> <通配模式>
     n=0
     for f in "$1"/$2; do
@@ -41,9 +57,13 @@ count_glob() { # count_glob <目录> <通配模式>
     done
     printf '%s' "$n"
 }
-install_() { # install_ [install.sh 选项...]
+install_() { # install_ [install.sh 选项...]；最近一次输出落 $lastlog
     PATH="$fakebin:$PATH" DSH_HOME="$home" sh "$repo_root/scripts/install.sh" \
-        --skip-dsh --skip-build "$@" >> "$log" 2>&1 || fail "install.sh $* 退出非 0"
+        --skip-dsh --skip-build "$@" > "$lastlog" 2>&1 || {
+        cat "$lastlog" >> "$log"
+        fail "install.sh $* 退出非 0"
+    }
+    cat "$lastlog" >> "$log"
 }
 
 pdir="$home/profiles/fff"
@@ -108,5 +128,66 @@ assert_eq "$(count_glob "$pdir" 'cordis.patch.yml.bak.*')" 1 "再跑 --sync 不�
 # 8）收尾：备份总数符合预期、无临时文件残留
 assert_eq "$(count_glob "$pdir" '*.bak.*')" 3 "备份总数 3 份（清单 2 + patch 1）"
 assert_eq "$(count_glob "$pdir" '*.tmp.*')" 0 "无临时文件残留"
+
+# 9）树外官方插件版本检查（独立 profile 夹具，只读）
+vdir="$home/profiles/vercheck"
+write_vmanifest() { # write_vmanifest <dependencies 的 JSON>
+    mkdir -p "$vdir"
+    node -e '
+const fs = require("fs");
+const [file, json] = process.argv.slice(1);
+fs.writeFileSync(file, `${JSON.stringify({
+  name: "dsh-profile-vercheck",
+  private: true,
+  dependencies: JSON.parse(json),
+}, null, 2)}\n`);
+' "$vdir/package.json" "$1"
+}
+install_v() { install_ --profile vercheck --plugins "TUI ponytail"; }
+
+# 9a）无此类依赖：跳过（不告警）
+write_vmanifest '{"@dsh-toolset/tui":"link:/tmp/nowhere"}'
+install_v
+assert_log_contains "无树外官方插件依赖" "无树外依赖时跳过检查"
+assert_eq "$(count_glob "$vdir" '*.bak.*')" 0 "版本检查为只读（无备份产生）"
+
+# 9b）不一致（多条目）：逐条告警 + 精确提示，且不落盘、仍退出 0
+write_vmanifest '{"@deepseek-ai/dsh-session-title-all-prompts-llm":"0.1.7-rc.2","@deepseek-ai/dsh-session-stats":"^0.1.0"}'
+install_v
+assert_log_contains "dsh-session-title-all-prompts-llm：0.1.7-rc.2 → 与宿主不一致" "报出第 1 条不一致"
+assert_log_contains "dsh-session-stats：^0.1.0 → 与宿主不一致" "报出第 2 条不一致"
+assert_log_contains "cd $vdir && pnpm install" "给出精确修复提示"
+assert_eq "$(count_glob "$vdir" '*.bak.*')" 0 "不一致告警不落盘"
+
+# 9c）一致（~ 前缀兼容）
+write_vmanifest '{"@deepseek-ai/dsh-session-title-all-prompts-llm":"~0.2.0-rc.2"}'
+install_v
+assert_log_contains "与宿主 dsh 一致（0.2.0-rc.2）" "~ 前缀下判定一致"
+assert_log_not_contains "与宿主不一致" "一致时不告警"
+
+# 9d）非精确版本：单列「无法自动判定」，不给改 pin 的强建议
+write_vmanifest '{"@deepseek-ai/dsh-session-title-all-prompts-llm":">=0.2.0"}'
+install_v
+assert_log_contains "无法自动判定" "非精确版本单列"
+assert_log_not_contains "cd $vdir && pnpm install" "非精确版本不给改 pin 提示"
+
+# 9e）link: 值排除（无候选）
+write_vmanifest '{"@deepseek-ai/dsh-session-title-all-prompts-llm":"link:../somewhere"}'
+install_v
+assert_log_contains "无树外官方插件依赖" "link: 值被排除"
+
+# 9f）manifest 解析失败：warn 跳过，退出码仍为 0（install_ 已隐含断言）
+printf '{ broken json\n' > "$vdir/package.json"
+install_v
+assert_log_contains "无法解析" "解析失败时告警跳过"
+
+# 9g）dsh 存在但版本输出为空：告警跳过（「PATH 无 dsh」态受本机真实 dsh 限制，无法安全模拟）
+write_vmanifest '{"@deepseek-ai/dsh-session-title-all-prompts-llm":"0.1.7-rc.2"}'
+printf '#!/bin/sh\nexit 0\n' > "$fakebin/dsh"
+install_v
+assert_log_contains "拿不到 dsh --version 输出" "版本取不到时告警跳过"
+assert_log_not_contains "与宿主不一致" "版本取不到时不判不一致"
+printf '#!/bin/sh\necho 0.2.0-rc.2\n' > "$fakebin/dsh"
+chmod +x "$fakebin/dsh"
 
 printf '[test-install] 全部 %s 项通过\n' "$checks"
