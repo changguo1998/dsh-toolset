@@ -126,9 +126,13 @@ function rebuildMixed(
     const line = lines[i] ?? "";
     let eol: string;
     if (i < prefix) {
-      eol = origEols[i] ?? flavor.dominant;
+      const orig = origEols[i] ?? flavor.dominant;
+      // `""` 只对**输出末行**合法（原文末行无 EOL）；否则会与下一行粘连（审阅 P1）
+      eol = orig === "" && i !== lines.length - 1 ? flavor.dominant : orig;
     } else if (i >= lines.length - suffix) {
-      eol = origEols[origLines.length - (lines.length - i)] ?? flavor.dominant;
+      const orig =
+        origEols[origLines.length - (lines.length - i)] ?? flavor.dominant;
+      eol = orig === "" && i !== lines.length - 1 ? flavor.dominant : orig;
     } else {
       eol = i === lines.length - 1 ? "" : flavor.dominant;
     }

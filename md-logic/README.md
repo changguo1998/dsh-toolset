@@ -113,7 +113,7 @@ L6-34 h1 标题一
 ```sh
 npm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
 npm run build   # 编译到 dist/
-npm run test    # node --test（45 例：解析 / 查询 / 工具面 / 改写面）
+npm run test    # node --test（48 例：解析 / 查询 / 工具面 / 改写面）
 ```
 
 依赖 `marked` 的解析用例恒跑（无外部二进制）；工具面用例用临时 fixture 真实读写文件系统。

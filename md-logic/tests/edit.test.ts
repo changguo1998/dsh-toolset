@@ -405,3 +405,22 @@ test("混合 EOL：LF 主导时新增行用 LF；纯风格文件行为与旧版�
     );
   }
 });
+
+test("混合 EOL + 末行无换行：替换后不得粘连行（审阅 P1 回归）", () => {
+  // 原文末行无 EOL（混合：CRLF + LF）
+  const input = "# H\r\n## S\nbody";
+  const out = replaceSections(input, [
+    { heading: "S", startLine: 2, endLine: 3, content: "## S\nbody\nmore" },
+  ]);
+  assert.equal(out.ok, true, out.ok ? "" : out.error);
+  if (!out.ok) return;
+  assert.ok(
+    !out.text.includes("bodymore"),
+    "不得把两行粘连（原末行无 EOL 被复用到非末行）",
+  );
+  assert.equal(
+    out.text,
+    "# H\r\n## S\nbody\nmore",
+    "未改动首行保 CRLF，新行用主导风格且行结构完整",
+  );
+});
