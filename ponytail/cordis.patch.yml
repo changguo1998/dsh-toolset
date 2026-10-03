@@ -1,0 +1,9 @@
+# 本包插入自身（bundle 层）：缺省**关闭**（enabled: false）——ponytail 模式与 karpathy-guidelines
+# 的「简单优先」高度重叠，默认不双份注入；需要时在 profile 用户 patch 里置 enabled: true。
+- insert:
+    - id: ponytail
+      name: '@dsh-toolset/ponytail'
+      config:
+        enabled: false
+        sources: ['session-start', 'step-end']
+        dedupeInRecord: 1
