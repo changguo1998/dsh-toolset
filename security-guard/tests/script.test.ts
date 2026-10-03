@@ -585,6 +585,12 @@ test("tool-surface-check：非 dsh-tool-* 命名但含 defineTool( 的官方包�
       "--json 应给出 parametersOnly 字段",
     );
     assert.deepEqual(parsed.parametersOnly, ["dsh-noise-client"]);
+    assert.deepEqual(
+      (parsed as { suspectRegistryPackages?: string[] })
+        .suspectRegistryPackages,
+      ["dsh-noise-client"],
+      "新名应与历史名同值",
+    );
     assert.equal(parsed.packages, 1, "面内包数仍只算含 defineTool( 的包");
   } finally {
     rmSync(base, { recursive: true, force: true });

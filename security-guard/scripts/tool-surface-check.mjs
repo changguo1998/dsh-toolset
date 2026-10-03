@@ -1053,7 +1053,10 @@ if (args.json === true) {
         root: absRoot,
         boundary: BOUNDARY,
         // 稳定语义（勿整串比对上面的中文文案）：本脚本不覆盖 MCP 工具、exit 0 也不代表全覆盖
+        // 语义：含 `tools.register(` 或 `parameters:` 但无 `defineTool(` 的「疑似注册面」包
+        // （字段名 `parametersOnly` 为历史名、语义偏窄；新名见下，二者同值）
         parametersOnly: [...parametersOnly].sort(),
+        suspectRegistryPackages: [...parametersOnly].sort(),
         zeroToolPackages: [...zeroToolPackages].sort(),
         coversMcpTools: false,
         exitZeroMeansFullCoverage: false,
