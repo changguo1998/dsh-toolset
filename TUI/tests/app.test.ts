@@ -3683,6 +3683,40 @@ test("tool-result 成功 → ✓ <detail>；失败 → 红色 ✗ <detail>", () 
   );
 });
 
+test("tool-result 成功 + 空 detail → 只出 `✓`（无「（无结果）」占位；前缀着色与有 detail 同款）", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({
+    type: "tool-result",
+    sessionId: "s1",
+    ok: true,
+    detail: "",
+  });
+  const joined = renderer.lastRender.join("\n");
+  const plain = joined.replace(/\u001b\[[0-9;]*m/g, "");
+  assert.ok(!plain.includes("无结果"), "不再出现空结果占位");
+  const rows = plain.split("\n").map((r) => r.trimEnd());
+  assert.ok(
+    rows.some((r) => r.endsWith("✓")),
+    `空 detail 成功行退化为 \`✓\`：${JSON.stringify(rows.filter((r) => r.includes("✓")))}`,
+  );
+  // 前缀着色：与「有 detail 的成功行」同款 SGR（且非默认无色）
+  adapter.push({
+    type: "tool-result",
+    sessionId: "s1",
+    ok: true,
+    detail: "done",
+  });
+  const withDetail = renderer.lastRender.join("\n");
+  const colorOf = (s: string): string =>
+    s.match(/\u001b\[38;[0-9;]*m✓/)?.[0] ?? "";
+  assert.ok(colorOf(joined) !== "", "成功前缀有着色（未退化为默认色）");
+  assert.equal(
+    colorOf(joined),
+    colorOf(withDetail),
+    "空 detail 与有 detail 的成功行前缀着色一致",
+  );
+});
+
 test("notice tone → 4 级语义着色（log 灰 / info 蓝 / warn 黄 / result 级 error 红·success 绿）", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "notice", text: "日志", tone: "log" });

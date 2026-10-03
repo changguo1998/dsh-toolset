@@ -29,10 +29,27 @@ test("toolResultLine：无 meta / 异形 / 零变化 → 不追加摘要（降�
   assert.equal(toolResultLine(true, "ok", { foo: 1 }), "✓ ok");
   assert.equal(toolResultLine(true, "ok", { before: 1, after: "x" }), "✓ ok");
   assert.equal(toolResultLine(true, "ok", { before: "a", after: "a" }), "✓ ok");
-  // 空 detail 语义不变
+  // 空 detail：成功只出 `✓ `（空段省略）；失败走兜底文案；两者都不再加「（无结果）」占位
   assert.equal(
     toolResultLine(true, "", { before: "a", after: "a\nb" }),
-    "✓ (无结果) (+1/-0)",
+    "✓ (+1/-0)",
+  );
+  assert.equal(toolResultLine(true, ""), "✓ ", "成功空 detail 不加占位");
+  assert.equal(toolResultLine(true, "ok"), "✓ ok");
+  assert.equal(
+    toolResultLine(false, ""),
+    "✗ 输出错误",
+    "失败空 detail 走兜底文案",
+  );
+  assert.equal(toolResultLine(false, "EACCES: 13"), "✗ EACCES: 13");
+  assert.equal(
+    toolResultLine(false, "", { before: "a", after: "b" }),
+    "✗ 输出错误 (+1/-1)",
+  );
+  // 前缀契约：空 detail 的成功行仍以 `✓ ` 开头（content-rules 按符号判定，勿 trimEnd）
+  assert.ok(
+    toolResultLine(true, "").startsWith("✓ "),
+    "前缀契约：`✓ ` 尾随空格",
   );
 });
 

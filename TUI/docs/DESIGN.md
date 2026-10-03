@@ -207,7 +207,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 | rc.2 事件（载荷已核实） | DshEvent | 渲染 |
 | --- | --- | --- |
 | `tool/call` `{turn, step, callId, name, arguments}` | `tool-call` `{sessionId, name, summary}` | `<name> <summary>`（summary = arguments JSON 关键字段启发式提取，截断一行） |
-| `tool/result` `{message, error?: {name, code}, meta?}` | `tool-result` `{sessionId, ok, detail}` | `✓ <detail 首行截断>`；错误 `✗ <error.name>: <message>`（红） |
+| `tool/result` `{message, error?: {name, code}, meta?}` | `tool-result` `{sessionId, ok, detail}` | `✓ <detail 首行截断>`；错误 `✗ <error.name>: <message>`（红）。**detail 为空**（静默工具 write / edit / hash_edit 的常态）：成功只出 `✓ `（空段省略，与 `toolCallLine` 省略空 summary 同口径；尾随空格是前缀契约），失败出 `✗ 输出错误`（防御兜底，与判决通知文案对齐） |
 | `assistant/message` 的 `usage?: TokenUsage` | `usage` `{sessionId, input, output, cacheRead}` | 状态栏 `ctx N` + `cache N%`（最近一次请求为准，不累计） |
 | `turn/end` 的 `reason` | `notice` 增加可选 `tone` | error → 红；max-tokens → 黄「输出达 token 上限」；blocked → 黄「已阻塞」；aborted / interrupted → 蓝；completed 静默 |
 | `compaction/start` + `compaction/end` | `compaction` `{phase}` | toast「正在压缩上下文…」/「压缩完成」 |
@@ -383,7 +383,7 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 完整映射与渲染语义见 `TUI/docs/DESIGN.md`「事件接入与渲染」。实现要点：
 
 - raw 事件由 adapter 归一化为 `DshEvent` → App 事件 switch → state reducer → `buildFrame`；`DshEvent` 为封闭联合，新增成员需同步 `index.ts` 穷尽登记（否则 `npm run check` 失败）。
-- tool 行文本由 `layout/tool-line.ts` 纯函数组装（step 分组头 = `stepHeaderLine(step, time)` → `hh:mm:ss #N`，P6：本地时区 24 小时制逐段补零、时间缺失只出 `#N`；渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满）；summary / detail 启发式由 adapter（`dsh.ts`）在归一化时产出。
+- tool 行文本由 `layout/tool-line.ts` 纯函数组装（step 分组头 = `stepHeaderLine(step, time)` → `hh:mm:ss #N`，P6：本地时区 24 小时制逐段补零、时间缺失只出 `#N`；渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满）；summary / detail 启发式由 adapter（`dsh.ts`）在归一化时产出。结果行 = `✓ <detail>` / `✗ <detail>`，**detail 为空按上表省略**（成功只出 `✓ `，行尾空格是前缀契约）；分组 / 着色按**符号**判定（`content-rules.ts` 的 `TOOL_STATUS_PREFIXES` / `renderToolText` 不依赖尾随空格，勿 trimEnd 结果行）。
 - **压缩期间算活跃（P8）**：`compaction/start` → `compaction/end` 期间按会话记 `compactingBySession`，`isCompacting(state)` 供 `index.ts` 的 `agentBusy()` 判定——该会话视为忙：用户块符号显示运行中 `●`/`○`、Enter 提交走排队、`Ctrl+D` 退出守卫不触发（`Esc` 中断语义不变）。回归：`tests/p8-compaction-active.test.ts`。
 - **状态符号渲染位置（P1）**：符号在排版层算定（`userBlockSymbolResolver` → `USER_BLOCK_SYMBOL`；终态由 `turn/end` 的 reason 经 `markUserBlockStatus` 打标到 `BufferLine.status`），`build-box` 只负责把 `符号 + 1 空格` 拼到用户块首行左侧（在块内部，块右缘位置不变；排队块不出符号）。水平状态栏不再有符号段。回归：`tests/app.test.ts`（用户块首行符号与 SGR / turn-end reason 打标）/ `tests/layout4.test.ts`。
 - **seq 守卫**（per-session 游标）：`event.seq <= lastSeq` 丢弃；间隙接受不补缺；非活跃会话丢弃。

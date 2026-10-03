@@ -12,7 +12,10 @@ export function toolCallLine(name: string, summary: string): string {
   return name + (summary ? " " + summary : "");
 }
 
-/** 工具结果行：成功 ✓ <detail> / 失败 ✗ <detail>（detail 为空给占位）。
+/** 工具结果行：成功 `✓ <detail>` / 失败 `✗ <detail>`（detail 空时按「空段省略」处理：
+ * 成功只出 `✓ `——静默工具（write / edit / hash_edit）的常态，与 toolCallLine 省略空 summary
+ * 同口径；**尾随空格是前缀契约**（content-rules 的 TOOL_STATUS_PREFIXES / 着色按符号判定）。
+ * 失败无错误信息时出 `✗ 输出错误`（与 adapter 判决通知的兜底文案对齐）。
  * meta 命中 {before, after} 字符串对时追加行级 diff 摘要 `(+N/-M)`，其他形状降级不显示。
  *  ponytail: 行集差近似（非 LCS）；展示级足够，编辑类工具精确 diff 由其消费者自算。 */
 export function toolResultLine(
@@ -20,9 +23,11 @@ export function toolResultLine(
   detail: string,
   meta?: unknown,
 ): string {
-  const base = (ok ? "✓ " : "✗ ") + (detail || "(无结果)");
+  const text = detail || (ok ? "" : "输出错误");
+  const head = (ok ? "✓ " : "✗ ") + text;
   const d = diffSummary(meta);
-  return d ? `${base} ${d}` : base;
+  if (!d) return head;
+  return text === "" ? `${head}${d}` : `${head} ${d}`;
 }
 
 /** 行级 diff 摘要：before/after 行集差计 added/removed；非字符串对或零变化返回 undefined */

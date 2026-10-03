@@ -84,19 +84,20 @@ export function wrapToolCallText(text: string, width: number): string[] {
 // ---------------- 工具行分组/判定/渲染 ----------------
 
 /** 工具行分组判定：无状态符号前缀的行=工具调用（新组起点）。
- * 前缀集与 tool-line.ts 各辅助行对齐（✓/✗/↻/⚑/⤷/↩//>/⇥/⌗/@）；
- * step 分组头（P6 起为 `hh:mm:ss #N`，不再有固定前缀）由 isStepHeader 单独判定 */
+ * 前缀按**符号本身**判（不依赖尾随空格——结果行 detail 为空时行尾无空格，
+ * 若按 `"✓ "` 匹配会被误判成调用行）；step 分组头（P6 起为 `hh:mm:ss #N`，
+ * 不再有固定前缀）由 isStepHeader 单独判定 */
 export const TOOL_STATUS_PREFIXES = [
-  "✓ ",
-  "✗ ",
-  "↻ ",
-  "⚑ ",
-  "⤷ ",
-  "↩ ",
-  "/> ",
-  "⇥ ",
-  "⌗ ",
-  "@ ",
+  "✓",
+  "✗",
+  "↻",
+  "⚑",
+  "⤷",
+  "↩",
+  "/>",
+  "⇥",
+  "⌗",
+  "@",
 ];
 
 /** step 分组头行判定（P6）：文本为 `hh:mm:ss #N`，时间缺失时为 `#N` */
@@ -111,9 +112,9 @@ export function isToolCall(text: string): boolean {
   );
 }
 
-/** 工具结果行判定（✓ 成功 / ✗ 失败前缀）：结果行与调用行同规格折行缩进 */
+/** 工具结果行判定（✓ 成功 / ✗ 失败前缀，按符号判、不依赖尾随空格）：结果行与调用行同规格折行缩进 */
 export function isToolResult(text: string): boolean {
-  return text.startsWith("✓ ") || text.startsWith("✗ ");
+  return text.startsWith("✓") || text.startsWith("✗");
 }
 
 /** notice/tool 行 tone → 着色名（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿） */
@@ -125,10 +126,10 @@ export const NOTICE_TONE_COLOR: Record<NoticeTone, ColorName> = {
   success: "green",
 };
 
-/** 工具行前缀着色：✓ 前缀绿；其余原样（✗ 由 tone 整体着红） */
+/** 工具行前缀着色：✓ 前缀绿（按符号判，空 detail 行同样绿）；其余原样（✗ 由 tone 整体着红） */
 export function renderToolText(text: string): FrameSegment[] {
-  if (text.startsWith("✓ ")) {
-    return [seg("✓", { fg: "green" }), seg(" " + text.slice(2))];
+  if (text.startsWith("✓")) {
+    return [seg("✓", { fg: "green" }), seg(text.slice(1))];
   }
   return [seg(text)];
 }
