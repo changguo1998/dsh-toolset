@@ -56,8 +56,6 @@
 
 ## 2. 未完成项
 
-| 1 | **`docs/STATUS.md` 对齐现状**：该表为用户择时更新的对照文档，当前多处过期——① 「总览」称「12 个插件全部完成」，而状态表缺 `rule-engine` / `symbol-normalizer` / `session-channel` / `session-title-cutoff`（`command-template` 的模板体系也已落地）；② 「剩余 P2 插件（workflow-ext / web-ext / session-broker / command-template）未开始」中 `command-template` 已完成；③ `fs-digest` 行注记「缺陷见 `fs-digest/docs/BACKLOG.md` D1」，而该文件现为「当前无未完成项」；④ 各行单测数为 2026-09 快照（如 knowledge-base 已 39 → 57）。期望：逐包核对后整表回写（含新增包行与单测数），或明确该表只维护 P0/P1 子集 | 「task-engine 执行扩展」收尾审计 + 用户 2026-10-02 指示「更新 backlog」 | `docs/STATUS.md`（用户择时更新；本次仅登记） | 1 h | P2 |
-
 > 扁平清单，**按条目间逻辑依赖排序**（2026-10-02 依赖重排：编号即先后顺序；同层先小后大。编号仅供阅读，随整理重编）。
 > 顺序依据（2026-10-02 重排：编号即先后顺序；先安全现值风险，再独立缺口，后低优先与收尾类）：**① 已完成十件**——接口对照汇总、宿主升级、profile 挂载面扩张、复用官方包审计、Markdown 结构视图、`ast-tools` 模型侧工具、`md-logic` 建包、`md-map` 建包、task-engine 计量口径、command-template 终态与回收（见 §1）。**② `#1`→`#2` 同一特性先行**：`unknownToolPolicy` 逃生门（现值开 deny 会拦死在用的 `present`/`workflow`，P1）→ 两处缺口补齐（口径定稿后写断言，P2）。**③ `#3`** task-engine 命令执行期复查（真实安全缺口，独立可做，P1）。**④ `#4`** executor 自建简易 worktree 隔离（**已解阻**：不依赖第三方插件，用户 2026-10-02 裁定）。**⑤ `#5`** metric-loop 复查缝低优先项（P3）。**⑥ `#6`** `docs/STATUS.md` 对齐（收尾类，需前面状态定稿后一次写准；由用户择时）。**⑦ 模块级建议顺序**：`md-logic` 混合换行（数据破坏风险）→ `hash-edit` 会话 cwd → `md-logic` `content` 校验 → `md-map` ref 口径 → `md-logic` 节级 hash → `task-engine` 裁决 toolFilter → `command-template` 全局预算 → `command-template` `DESIGN.md`。优先级：P0 > P1 > P2。
 
@@ -67,6 +65,9 @@
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
 **复用审计产出（`docs/ARCHITECTURE-REUSE.md` §4，未立项）**：A `context-report` 改用已挂的 `sessionStats` / `turnOutline` 投影补轮次 / 墙钟 / 大纲；B `output-compress` 写清与官方 `spill-policy` / `compaction-tool-result-pruner` 的分工与阈值语义（实测**不存在**双重截断）；C `metric-loop` 唤醒链补 `@deepseek-ai/dsh-schedule`（**会新增模型工具面**，需用户裁定；备选是改用已挂的 `tool-ralph` / `goal-round-driver` 承担循环）；D `hash-edit` / `fs-digest` 可选改用 `ctx.fs`（含行为变更：hash-edit 写侧将受 workspace-write 围栏，宜与 render 缺陷同批）；E 「可挂但不该挂」清单一律落非生成型文档（本文件 / `profiles/example` 注释），勿写入会重生成的 `HOST-PACKAGES.md`。观察项：① `knowledge-base` ⇄ `output-compress` 共库直写的隐私边界；② 是否开启 `session-query-sqlite` 的 FTS5（`openAt: first-search`）并与知识库分工；③ `rule-engine` 与官方 `repeat-tool-reminder` 的注入重复度。
+
+| 1 | **以「封装插件」方式接入 ponytail（推荐路径 a）** —— 按 `docs/ponytail-investigation.md` 的结论实现：新建包 `ponytail/`（`@dsh-toolset/ponytail`），带 `cordis.patch.yml` + `package.json` 的 `dsh.bundle` 契约；**只做提示注入 + 斜杠命令**，不搬 `hooks/*.js`（DSH 无该钩子面）。要点：① 阶梯文本（`AGENTS.md` 的 7 级：YAGNI → 复用 → 标准库 → 平台特性 → 已装依赖 → 一行 → 最少代码）**自带一份副本并注明来源与 MIT 许可**（`~/GithubRepos/ponytail`，v4.10.3），经 `rule-engine` 注入或包内 skill 装载；② 命令面：`/ponytail`（开关模式）、`/ponytail-audit`（本仓「过度工程」审查）—— 先读 `rule-engine/docs/DESIGN.md` 与 skill 装载契约再定实现；③ 与既有 `karpathy-guidelines` 的**重叠去重**（写明差异与共存方式，避免双份注入刷屏）；④ 测试（注入文案/开关/命令输出）+ 反向验证 + 全仓 check/build/test；⑤ `README.md`（包契约）+ 根 `README.md`/`README.zh.md` 插件表 + `scripts/install.sh` 的 20 → 21 包同步；⑥ 真机：`npm run build` 后重启 `dsh --profile fff` 验证注入生效 | 用户 2026-10-02 指派（**最高优先**，完成后优先执行） | `~/GithubRepos/ponytail`（只读参考）+ 本仓 `rule-engine/`、`docs/host/DSH-CTX-API.md` | 1-2 天 | **P1（最高）** |
+| 2 | **`docs/STATUS.md` 对齐现状**：该表为用户择时更新的对照文档，当前多处过期——① 「总览」称「12 个插件全部完成」，而状态表缺 `rule-engine` / `symbol-normalizer` / `session-channel` / `session-title-cutoff`（`command-template` 的模板体系也已落地）；② 「剩余 P2 插件（workflow-ext / web-ext / session-broker / command-template）未开始」中 `command-template` 已完成；③ `fs-digest` 行注记「缺陷见 `fs-digest/docs/BACKLOG.md` D1」，而该文件现为「当前无未完成项」；④ 各行单测数为 2026-09 快照（如 knowledge-base 已 39 → 57）。期望：逐包核对后整表回写（含新增包行与单测数），或明确该表只维护 P0/P1 子集 | 「task-engine 执行扩展」收尾审计 + 用户 2026-10-02 指示「更新 backlog」 | `docs/STATUS.md`（用户择时更新；本次仅登记） | 1 h | P2 |
 
 ## 3. 里程碑
 
