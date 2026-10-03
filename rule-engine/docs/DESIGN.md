@@ -39,6 +39,7 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 
 - `engine` 可以同步调 `Injector.inject()`（它不认识时序），**推迟由注入器负责**（`inject.ts` 用 `setTimeout(…, 0)`）；
 - 微任务（`queueMicrotask`）在源码机制上可行，但只有 TUI 的宏任务路径有真机实证，本期只用宏任务；
+- **启动期顺序契约**（2026-10-04）：App 的启动自检 kickoff 在 `session/created` 之后的微任务窗口内同步入队（TUI 侧），故 `session-start` 注入恒排在 kickoff 之后；调整推迟策略前先复核该顺序（BACKLOG「`[AUTO]` 注入时序」）；
 - `followup` / `inject` 之后 `sessions.flush(agent.session)` 确保落盘（官方 schedule / goal-round-driver 的标准写法）。
 
 ### 2. 消息构造三项硬要求

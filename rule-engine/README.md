@@ -164,7 +164,7 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 
 ## 时序约束（重要）
 
-`session/event` 监听器运行在 `Session.append` 的**同步派发窗口**内，此刻直接调用 `agent.followup()` 会撞重入保护（异常被宿主吞掉，现象是「消息不落盘」）。因此注入一律 `setTimeout(…, 0)` 推迟一个宏任务后再 `agents.get(sessionId)`，按 `delivery` 调 `followup(message)`（新回合）/ `steer(message)` / `inject(message)`（最近 pre-step），随后 `sessions.flush(agent.session)` 确保落盘。会话非 live（`agents.get` 返回 undefined）时跳过并记 warning。
+`session/event` 监听器运行在 `Session.append` 的**同步派发窗口**内，此刻直接调用 `agent.followup()` 会撞重入保护（异常被宿主吞掉，现象是「消息不落盘」）。因此注入一律 `setTimeout(…, 0)` 推迟一个宏任务后再 `agents.get(sessionId)`，按 `delivery` 调 `followup(message)`（新回合）/ `steer(message)` / `inject(message)`（最近 pre-step），随后 `sessions.flush(agent.session)` 确保落盘。会话非 live（`agents.get` 返回 undefined）时跳过并记 warning。启动期顺序：TUI 的启动自检 kickoff 在 `session/created` 后的微任务窗口内同步入队，故 `session-start` 注入恒排在 kickoff 之后（BACKLOG「`[AUTO]` 注入时序」）。
 
 ## 已知限制
 

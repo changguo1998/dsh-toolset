@@ -374,7 +374,29 @@ test("/new：不重启进程新建会话 → 切换活跃会话、缓冲清空�
   app.dispose();
 });
 
-test("/new：门控通过时补发启动自检（[AUTO] 回显；切换完成后宏任务发送）", async () => {
+test("启动：kickoff 在 app.start() 内同步发出（不 flush 定时器；先于 rule-engine 注入的宏任务）", () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const app = new TrackedApp({
+    renderer,
+    adapter,
+    notify: { enabled: false },
+    runShell: noopShell,
+    bootstrapKickoffText: "[AUTO] 启动自检（测试用例）",
+  });
+  app.start();
+  // 同步断言：改回宏任务发送（历史实现）此处为 0——撤修复必红（见追踪文档反向验证）
+  assert.equal(adapter.bootstrapKickoffs, 1, "start() 返回即已发送（同步）");
+  const st = (): { buffer: { text: string }[] } =>
+    (app as unknown as { state: { buffer: { text: string }[] } }).state;
+  assert.ok(
+    st().buffer.some((l) => l.text === "[AUTO] 启动自检（测试用例）"),
+    "kickoff 以用户行回显: " + JSON.stringify(st().buffer.map((l) => l.text)),
+  );
+  app.dispose();
+});
+
+test("/new：门控通过时补发启动自检（[AUTO] 回显；切换完成后同步发送）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
   const app = new TrackedApp({

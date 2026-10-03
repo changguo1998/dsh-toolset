@@ -7,5 +7,6 @@
 
 ## 待办
 
-> 临时分组（2026-10-02 收尾整理后：已完成条目已清理，余项按当前顺序从 1 起重编）：
-> 当前无未完成条目（2026-10-02：「回合区类型间隔收窄」关闭后清空）。
+> 临时分组（2026-10-04：新增 1 条；条目结构见文件头）。
+
+1. **`/new` 启动自检门控取到上一会话的模型（求值窗口）**：现象 —— `/new` 后 `kickoffForNewSession()` 在 `restoreSessionState()`（异步回填，含 `sessionModel.current` 重置）落定前求值，读到的仍是上一会话的模型，跨模型切换时该发不发 / 不该发而发。期望 —— 按「新会话」判定：以默认选择 / 种子兜底，或把判据挪到状态回填落定后（注意须保持 kickoff 先于 rule-engine 会话注入的时序——回填是 I/O，不能在 `.then` 里简单同步补发）。落点 —— `TUI/src/main.ts`（`kickoffForNewSession`）+ `TUI/src/app/index.ts`（`/new` 分支），视需要 `TUI/src/app/adapter/dsh.ts`。验收 —— 非 deepseek 会话 `/new` 不误发；deepseek 会话 `/new` 且默认模型非 deepseek 也不误发；反向组合必发。来源：`docs/implementation/2026-10-04-bootstrap-kickoff-order.md` 子代理审阅发现（2026-10-04）· 状态：待接取 · 优先级：P2。

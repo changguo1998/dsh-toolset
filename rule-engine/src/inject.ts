@@ -6,6 +6,11 @@
  * 吞掉，现象是「消息不落盘」）。因此这里一律 `setTimeout(…, 0)` 推迟一个宏任务后再调用
  * 宿主 API——该路径有 TUI 符号纠正的真机实证（微任务路径未实证，本期不用）。
  *
+ * **启动期顺序契约**（2026-10-04）：App 的启动自检 kickoff 在 `session/created` 之后的微任务
+ * 窗口内**同步**入队（TUI 侧 `App.start()`；create 决议到 start 全同步，勿引入 await）；本
+ * 注入器恒推迟一个宏任务，故 `session-start` 注入必排在 kickoff 之后（BACKLOG「`[AUTO]` 注入
+ * 时序」）。
+ *
  * 消息构造三项硬要求（缺失会导致 append/resume 校验抛 `lacks an identified message`）：
  * `id` 非空 string、`content` 为数组、`source.kind` 非空 string。
  *

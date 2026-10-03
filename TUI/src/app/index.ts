@@ -2426,8 +2426,11 @@ export class App {
   }
 
   /** 启动自检 kickoff 调度（BACKLOG TUI「启动后自动触发首轮工具调用」）：门控（开关 /
-   *  模型 / 会话未解锁）已在 main.ts 判过，这里只管时机——新会话在启动宏任务里发（先出
-   *  首帧）；恢复会话先挂起，等 restoreStartupHistory 折叠落定后由 flushKickoffPending 发。 */
+   *  模型 / 会话未解锁）已在 main.ts 判过，这里只管时机——新会话**同步发**（首帧已在上方
+   *  paintNow 出帧）：`createNewSession()` 决议后的续跑是微任务，而 rule-engine 的会话注入在
+   *  `session/created` 时只排入宏任务（见其 `inject.ts` 红线）→ 同步发送必先入 next-step 队列
+   *  （BACKLOG「`[AUTO]` 注入时序」；勿在会话创建与 `app.start()` 之间引入 await，否则退化）；
+   *  恢复会话先挂起，等 restoreStartupHistory 折叠落定后由 flushKickoffPending 发。 */
   private startBootstrapKickoff(): void {
     const text = this.deps.bootstrapKickoffText;
     if (typeof text !== "string" || text.trim() === "") return;
@@ -2436,7 +2439,7 @@ export class App {
       this.kickoffPending = text;
       return;
     }
-    setTimeout(() => this.submitBootstrapKickoff(text), 0);
+    this.submitBootstrapKickoff(text);
   }
 
   /** 启动历史折叠已落定（或不会发生）→ 补发挂起的 kickoff，随后补发挂起的启动期告警行
@@ -2463,7 +2466,16 @@ export class App {
     );
     this.beginTurnIfNeeded(true);
     this.apply((s) => reduceState(s, { type: "user-line", text }));
-    send.call(this.deps.adapter);
+    // 启动关键路径：这里是 App.start() 的同步调用链（非宏任务），宿主抛错不得冒出启动
+    // （会经 main() 让插件 apply 失败）——捕获后退化为一条 warn notice。
+    try {
+      send.call(this.deps.adapter);
+    } catch (err) {
+      this.notice(
+        `启动自检发送失败：${err instanceof Error ? err.message : String(err)}`,
+        "warn",
+      );
+    }
   }
 
   /** 发送用户文本（状态置运行 + 本地回显 + adapter 分发）：普通提交、`<` steer 与 /init 共用。
@@ -3766,11 +3778,12 @@ export class App {
         this.restoreSessionState();
         this.notice(`已新建会话 ${id}（原会话可用 /session 切回）`, "success");
         this.paint();
-        // 启动自检补发（BACKLOG TUI#57）：与启动路径同款时序（先出切换后的首帧，宏任务再发；
-        // 消息回显与提交同路径）。门控惰性求值——按当前有效模型判定，全新会话必未解锁。
+        // 启动自检补发（BACKLOG TUI#57）：与启动路径同款时序——切换后同步发送（首帧已在上方
+        // paint；`create().then` 是微任务，先于任何待跑宏任务入队；竞速理由见 startBootstrapKickoff）。
+        // 门控惰性求值——按当前有效模型判定，全新会话必未解锁。
         const kickoff = this.deps.bootstrapKickoffForNewSession?.();
         if (typeof kickoff === "string" && kickoff.trim() !== "") {
-          setTimeout(() => this.submitBootstrapKickoff(kickoff), 0);
+          this.submitBootstrapKickoff(kickoff);
         }
       },
       (err: unknown) =>
