@@ -246,4 +246,33 @@ assert_log_not_contains "err line 21" "截断丢弃后续行"
 
 fake_dsh_ok
 
+# 11）接线一致性：canonical_pkgs ←→ 根 check/build 链、test-parallel.sh default_pkgs
+canonical="$(sed -n 's/^canonical_pkgs="\(.*\)"$/\1/p' "$repo_root/scripts/install.sh")"
+[ -n "$canonical" ] || fail "无法从 install.sh 提取 canonical_pkgs（sed 模式失效？）"
+default_pkgs="$(sed -n 's/^default_pkgs="\(.*\)"$/\1/p' "$repo_root/scripts/test-parallel.sh")"
+[ -n "$default_pkgs" ] || fail "无法从 test-parallel.sh 提取 default_pkgs（sed 模式失效？）"
+assert_eq "$canonical" "$default_pkgs" "canonical_pkgs 与 test-parallel.sh default_pkgs 同序"
+consistency="$(node -e '
+const fs = require("fs");
+const [pkgJson, canonical] = process.argv.slice(1);
+const scripts = JSON.parse(fs.readFileSync(pkgJson, "utf8")).scripts;
+const extract = (name) => (scripts[name].match(/--prefix (\S+) run /g) || []).map((s) => s.split(" ")[1]);
+const check = extract("check");
+const build = extract("build");
+const canon = canonical.trim().split(/\s+/);
+const sorted = (list) => [...new Set(list)].sort();
+const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+const problems = [];
+if (!check.length || !build.length) problems.push("check/build 链提取为空");
+if (!eq(check, build)) problems.push("check 与 build 不同序");
+if (!eq(sorted(check), sorted(canon))) problems.push(`集合不一致：${sorted(check).join(",")} vs ${sorted(canon).join(",")}`);
+console.log(problems.length ? problems.join("；") : "ok");
+' "$repo_root/package.json" "$canonical")"
+assert_eq "$consistency" "ok" "canonical_pkgs 与根 check/build 链一致（集合 + check==build 同序）"
+missing=""
+for d in $canonical; do
+    [ -d "$repo_root/$d" ] || missing="$missing $d"
+done
+assert_eq "$missing" "" "canonical_pkgs 每个目录都存在"
+
 printf '[test-install] 全部 %s 项通过\n' "$checks"

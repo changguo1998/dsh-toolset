@@ -24,7 +24,8 @@ skip_verify=0
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 profile_asset_dir="$repo_root/profiles/example"
-# 插件处理顺序（与根 package.json 的 check/build 顺序一致；子包名从各自 package.json 读）
+# 插件清单（canonical_pkgs）：集合与根 package.json 的 check/build 链一致，顺序与
+# scripts/test-parallel.sh 的 default_pkgs 同序（scripts/test-install.sh 有校验）。
 canonical_pkgs="TUI herdr-integration knowledge-base task-engine ast-tools md-logic md-map fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine symbol-normalizer session-channel session-title-cutoff command-template ponytail"
 
 usage() {
@@ -273,6 +274,11 @@ for d in $discovered; do
         *) warn "发现未列入脚本清单的插件包 $d（已忽略；请同步 canonical_pkgs）" ;;
     esac
 done
+# 反向校验（与上一条对称）：canonical_pkgs 里有、仓库里没有的目录 → 告警（不 die：
+# 子集选择不应被历史残留项误伤；all / 默认选择会在下方选择循环里 die）。
+for d in $canonical_pkgs; do
+    [ -d "$repo_root/$d" ] || warn "canonical_pkgs 里的 $d 目录不存在（请同步 canonical_pkgs）"
+done
 if [ "$plugins_sel" = "all" ]; then
     selected="$canonical_pkgs"
 else
@@ -281,7 +287,7 @@ fi
 final=""
 for d in $selected; do
     if [ ! -d "$repo_root/$d" ]; then
-        die "--plugins 里的 $d 不是本仓库的子包目录"
+        die "$d 不是本仓库的子包目录（--plugins all / 默认选择时请同步 canonical_pkgs）"
     fi
     if [ -z "$(is_bundle "$d")" ]; then
         die "$d 未声明 dsh.bundle，不能作为 profile bundle 挂载"

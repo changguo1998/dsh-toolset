@@ -35,9 +35,11 @@
   - 无告警形态：rc=0、stderr 为空（stdout 为组合树，11 KB 级）。
   - 备注：本机对真实 `~/.dsh` 的写入被沙箱（EROFS）拦下，真机验证改用临时 `DSH_HOME` 夹具。
 
-### 其余一条
+### 「头注释口径」
 
-- 预备（2026-10-03，只读）：其余细节待开工时补。
+- 现状：`scripts/install.sh` 第 25 行注释称插件处理顺序「与根 package.json 的 check/build 顺序一致」；实测**集合**一致（21 个）但**顺序**不同（`md-logic` / `md-map` 在脚本里紧跟 `ast-tools`，在根 `package.json` 里靠后）——顺序不影响功能，注释误导读者。
+- 双向覆盖现状：正向（`*/package.json` 发现的新 bundle 未列入 `canonical_pkgs` → warn）已有；反向（`canonical_pkgs` 里的目录不存在）只在被选中时由选择循环 `die`（`--plugins all` 会中招，消息却是「--plugins 里的 …」）。
+- 根 `package.json` check 链顺序（实测）：`TUI … command-template` **`md-logic` `md-map`** `ponytail`；`scripts/test-parallel.sh` 的 `default_pkgs` 与 `canonical_pkgs` **逐字相同**（含顺序）——这是「顺序」可写的真实锚点。
 
 ## 决策
 
@@ -75,6 +77,14 @@
 - 审阅（子代理，2026-10-03）：结论 **需修改（方向、落点、双判思路都对；无严重问题）**。采纳：① `if dump_err="$(…)"; then rc=0; else rc=$?; fi` 写法（裸赋值在 `set -e` 下会当场中止、破坏「退出码保持 0」）；② stderr 一律 `printf` + 缩进 + 前 20 行截断 + 「共 N 行」注（`echo` 会吃转义、`printf "$err"` 会吃 `%`）；③ 文案去掉「健康检查」口吻、注明「不实例化插件」，并修掉旧「退出码非零」提示（探针证伪：rc 恒 0）；④ `< /dev/null` 防交互挂起；⑤ 测试补多行 stderr（含 `%` 与反斜杠）、截断、`--skip-verify`、`--dry-run`。
 - 未采纳（审阅边界项）：`timeout` 包装（非 POSIX，macOS 无）；「PATH 无 dsh」独立夹具（沿用等价覆盖并注明局限）。
 
+### 「头注释口径」
+
+- 选 ①（改口径）而非 ②（对齐两份顺序）：顺序不影响功能，对齐属纯装饰性 churn；注释写明真实锚点 —— 「集合与根 `package.json` 的 check/build 链一致，顺序与 `scripts/test-parallel.sh` 的 `default_pkgs` 同序（`scripts/test-install.sh` 有校验）」。
+- 顺带补反向校验（条目 ② 提到的「另一半」，约 3 行）：`canonical_pkgs` 里目录不存在 → `warn`（与正向同口径；不 `die`，避免子集选择被历史残留项误伤）；选择循环里给 `all` / 默认场景的 `die` 文案补「请同步 canonical_pkgs」。
+- 不做：不动两处清单顺序；不改 `--plugins` 语义；不从 `package.json` 运行时派生清单（审阅提出，判为新增耦合、且会改变 `all` 的失败语义，不值当）。
+- 测试：`scripts/test-install.sh` 增场景 11 —— ① `canonical_pkgs` 与 `default_pkgs` **同序**（原样串比较）；② 与根 check/build 链集合一致且 check==build 同序（在 node 内比较，避 sort/locale）；③ `canonical_pkgs` 每个目录存在。提取一律带空值守卫。
+- 审阅（子代理，2026-10-03）：结论 **需修改（轻）**。采纳：注释补真实锚点（原「顺序自定」偏含糊）；反向 warn 放正向告警后、措辞对称；测试加提取守卫并在 node 内比较；`die` 文案补充。未采纳：运行时从 check 链派生清单（同上「不做」）。
+
 ## 规划
 
 - 顺序（依 BACKLOG 表内先后）：备份堆积 → 树外版本检查 → dump-config 自检 → 头注释口径（条目一律按标题引用，编号仅供阅读）。
@@ -107,6 +117,11 @@
   - 双语 README：`--help` 摘要补 `--skip-verify`。
   - `scripts/test-install.sh`：假 dsh 分 `--version` / `--dump-config` 两分支（`fake_dsh_ok` / `fake_dsh_dump`）；新增场景 10（通过 / 多行 stderr 含 `%` 与反斜杠 / rc≠0 / `--skip-verify` / `--dry-run` / 超长截断）。
 
+- 2026-10-03（「头注释口径」）：
+
+  - `scripts/install.sh`：头注释改为「集合与根 `package.json` 的 check/build 链一致、顺序与 `scripts/test-parallel.sh` 的 `default_pkgs` 同序（`scripts/test-install.sh` 有校验）」；发现循环后补反向校验（`canonical_pkgs` 目录不存在 → warn）；选择循环 `die` 文案补「请同步 canonical_pkgs」。
+  - `scripts/test-install.sh`：新增场景 11（同序串比较 / node 内集合与 check==build 同序比较 / 每个目录存在；提取带空值守卫）。
+
 ## 测试与证据
 
 - `sh -n scripts/install.sh`、`sh -n scripts/test-install.sh`：语法 OK。
@@ -117,6 +132,7 @@
 - 未跑 `npm run check / build / test`：本次不涉及 TS / 包面改动（仅 shell 与文档），无从覆盖。
 - 2026-10-03（「树外版本检查」）：`sh scripts/test-install.sh` **31/31 通过**；真机 dry-run（`DSH_HOME=~/.dsh … --profile fff --skip-dsh --skip-build --dry-run`，零写入、只读真实 fff profile）输出 `profile 树外官方插件版本与宿主 dsh 一致（0.2.0-rc.2）`；`shellcheck` 仅 info 级（SC2016/SC2086，设计如此）；`shfmt -i 4 -ci -s -sr -d` 新增代码零差异。局限：「PATH 无 dsh」态因本机存在真实 dsh 无法安全模拟，以「dsh 在但输出为空」等价覆盖（同为 `host_version` 空 → 跳过）。
 - 2026-10-03（「收尾自检」）：`sh scripts/test-install.sh` **46/46 通过**。真机端到端（临时 `DSH_HOME` + `XDG_DATA_HOME` 重定位 pnpm store——默认全局 store 在外会被沙箱 EROFS 拦下）：① 基线 `[]` patch → `收尾自检通过`（rc=0）；② 覆盖为 `- id: definitely-not-a-real-entry-id` 单文档 → `收尾自检未通过（退出码 0）` + `patch: entry … not found` + 排查提示，install.sh 仍 rc=0。夹具经验：空 patch 文件、以及「`[]` + 追加第二文档」都会让 dsh 解析失败（脚本同样以「未通过 + 解析错误」如实呈现）。
+- 2026-10-03（「头注释口径」）：`sh scripts/test-install.sh` **49/49 通过**；`shellcheck -S warning` 无告警；`shfmt -i 4 -ci -s -sr -d` 新增代码零差异（仅 install.sh 一处既有偏差未动）。备注：反向 `warn` 分支本身未单独构造用例（需复制脚本注入残留项，成本不值；由场景 11 的静态一致性断言兜住）。
 
 ## 新发现（已登记 BACKLOG）
 
