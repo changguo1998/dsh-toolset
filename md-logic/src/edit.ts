@@ -5,7 +5,7 @@
 //   （该节行范围，来自 `structure`）；替换前重新解析，要求「同标题 + 同范围」仍成立，否则拒绝并回报当前范围；
 // - **整批原子**：全部 edit 校验通过才算新文本；任何一条失败 → 整体不落盘（文件字节不变）；
 // - **原文风格保留**：BOM 与换行风格（`\r\n` / `\n`）原样保留，避免整文件 diff；
-// - 不做 Markdown 语法校验（只保证结构漂移安全）。
+// - 不做 Markdown 语法校验（只保证结构漂移安全 + 非空 content 必须以标题行开头）。
 //
 // 分工：`hash_edit` 是行级 LINE:HASH 锚点（细粒度行编辑）；官方 `edit` 是文件级字符串替换 + 版本守卫；
 // 本模块是**按节**（标题 + 行范围）整节替换 / 删除。
@@ -37,6 +37,7 @@ export interface SectionEdit {
 
 export type EditFailureCode =
   | "edits_invalid"
+  | "content_invalid"
   | "section_missing"
   | "section_drift"
   | "section_ambiguous"
@@ -199,11 +200,13 @@ export function replaceSections(
   }
   const flavor = flavorOf(text);
   const normalized = normalize(text);
+  // 行数组：⓪ 越界、①.5 setext 邻接检查、③ 应用共用（③ 的 splice 就地修改本数组）
+  const lines = normalized.split("\n");
   const parsed = parseMarkdownDocument(normalized);
   const flat = flattenSections(parsed.sections);
 
   // ⓪ 行号越界先判（若落到漂移分支，报「范围已变」会误导）
-  const totalLines = normalized.split("\n").length;
+  const totalLines = lines.length;
   for (const edit of edits) {
     if (edit.endLine > totalLines) {
       return {
@@ -252,6 +255,38 @@ export function replaceSections(
     located.push({ edit, line: only.line, endLine: only.endLine });
   }
 
+  // ①.5 content 结构守卫（放在①后：漂移 / 缺失优先，保持既有错误优先级）：
+  //      非空 content 必须以标题行开头（ATX / setext），否则该节会被静默并入父节（节从节树消失）；
+  //      空串 = 删除该节。setext 首行还会把紧邻的上一段吞进标题文本，故目标节前一行非空时要求 ATX。
+  for (const item of located) {
+    const content = item.edit.content;
+    if (content === "") continue; // 空串 = 删除该节（既有语义）
+    const normalizedContent = normalize(content);
+    const first = parseMarkdownDocument(normalizedContent).sections[0];
+    if (first === undefined || first.line !== 1 || first.title === "") {
+      return {
+        ok: false,
+        code: "content_invalid",
+        error:
+          `edit.content 必须以标题行开头（ATX 或 setext；删除整节请传空串）：「${item.edit.heading}」的 content ` +
+          `首个标题${first === undefined ? "不存在" : `在第 ${first.line} 行`}；` +
+          "常见成因：首行是正文 / 前导空行 / 4 空格缩进被当代码块",
+      };
+    }
+    const firstLine = normalizedContent.split("\n")[0] ?? "";
+    const isAtx = /^ {0,3}#{1,6}(\s|$)/.test(firstLine);
+    const above = item.line > 1 ? (lines[item.line - 2] ?? "") : "";
+    if (!isAtx && above.trim() !== "") {
+      return {
+        ok: false,
+        code: "content_invalid",
+        error:
+          `edit.content 的 setext 标题会吞并紧邻的上一段（第 ${item.line - 1} 行非空），标题文本会变成「上一段 + content 首行」；` +
+          `改用 ATX 标题（如「## ${first.title}」）`,
+      };
+    }
+  }
+
   // ② 重叠拒绝（父节与其子节同时被改、同一节两条 edits 都属重叠）
   const sorted = [...located].sort((a, b) => a.line - b.line);
   for (let i = 1; i < sorted.length; i += 1) {
@@ -267,8 +302,7 @@ export function replaceSections(
     }
   }
 
-  // ③ 自下而上应用（坐标基于原文，倒序 splice 不受前面改动影响）
-  const lines = normalized.split("\n");
+  // ③ 自下而上应用（坐标基于原文，倒序 splice 不受前面改动影响；lines 为上方共享数组）
   for (const item of [...located].sort((a, b) => b.line - a.line)) {
     // 尾随单个换行 = 行终止符（模型常规写法会带），不当作空行，避免累积空行
     const normalizedContent = normalize(item.edit.content);

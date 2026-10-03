@@ -13,17 +13,18 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 逻辑结构**（单文件
 | `md_logic` | `structure` | 节树：`L{起}-{止} h{级} 标题`（`depth` 控制展示层数，缺省 3）+ 总览行（行数 / 节数 / 块数 / 链接数） |
 | | `blocks` | 块清单：`§L{节} L{起}-{止} kind·计数`（list 带条目数与嵌套层数 `d{n}`、table 带 `行×列`、code 带围栏语言、quote 带行数与嵌套、frontmatter 带键数）；可按 `kind` / `section` / `from`+`to` / `line` 过滤 |
 | | `links` | 链接清单：`§L{节} L{行} kind "文本" → href`（kind = `link` / `image` / `definition`）；可按 `linkKind` / `pattern` 过滤 |
-| | `replace` | 改写结果：`已按节替换：<path>（N 处，整批原子写）`；失败 `code` + 原因 + 「先 structure 取最新范围」与当前范围（`section_drift`） |
+| | `replace` | 改写结果：`已按节替换：<path>（N 处，整批原子写）` + 结构提示（继续改前重取范围）；失败 `code` + 原因 + 按 code 的下一步（`content_invalid` 补标题行 / 其余重新 structure）与当前范围（`section_drift`） |
 
 选择成本（写进工具描述）：**只要标题 + 块快览 → `fs_digest`**；**要节行范围配 `read` 按节读、要链接清单 / 块细节 → 本工具**；**改 Markdown → `hash_edit`**（行级锚点 + 整批原子拒绝）。
 
 ## 改写面（`replace`）
 
-- **安全语义**：每条 edit 的 `heading`（标题文本，与 `structure` 输出一致）+ `startLine` / `endLine`（`L{start}-{end}`）必须与**当前**文件解析结果一致；不一致 → `section_drift`（带当前范围，重新 `structure` 后再改）；标题不存在 → `section_missing`；区间重叠（父节含子节 / 同一节两条）→ `overlap`；参数非法 → `edits_invalid`。
+- **安全语义**：每条 edit 的 `heading`（标题文本，与 `structure` 输出一致）+ `startLine` / `endLine`（`L{start}-{end}`）必须与**当前**文件解析结果一致；不一致 → `section_drift`（带当前范围，重新 `structure` 后再改）；标题不存在 → `section_missing`；区间重叠（父节含子节 / 同一节两条）→ `overlap`；参数非法 → `edits_invalid`。校验优先级：`edits_invalid` → `range_out_of_bounds`（行号越界）→ `section_missing` / `section_drift`（按 edits 数组顺序）→ `content_invalid` → `overlap`。
+- **`content` 结构守卫**：非空 `content` 必须以标题行开头（ATX / setext），否则 `content_invalid`（防该节被静默并入父节、节从节树消失）；setext 首行在目标节前一行非空时会吞并上一段 → 此时改用 ATX；空串 = 删除该节。以 frontmatter、缩进代码块开头，或标题在引用 / 列表内的都不算「首行标题」，会被拒。
 - **原子性**：所有 edit 先在内存里自下而上应用（坐标基于原文），**全部通过才写盘**；写盘走同目录临时文件 + `rename`，失败清理临时文件、**目标文件字节不变**；疑似二进制（含 NUL）拒写。
 - **风格保留**：BOM 与换行风格（`\r\n` / `\n`）原样保留；`content` 按文件风格落盘。删除节保留原分隔空行（不做空行折叠）。
 - **三方分工**：`md_logic replace` = **按节**（标题 + 行范围漂移检测，整节替换）；`hash_edit` = **行级** LINE:HASH 锚点；官方 `edit` = **文件级**字符串替换 + 版本守卫。
-- **不做**：插入 / 移动节、Markdown 语法校验（只保证结构漂移安全）。
+- **不做**：插入 / 移动节、Markdown 语法校验（只保证结构漂移安全 + `content` 首行标题守卫）；不校验 `content` 首行标题与 `heading` 的文本 / 级别一致性。
 
 渲染口径：紧凑文本而非 JSON dump；行号 **1 基**，范围起止相同折叠为 `L{n}`；每类上限 **80 行**，超出以「…（其余 N 条略）」收尾。
 
@@ -113,7 +114,7 @@ L6-34 h1 标题一
 ```sh
 npm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
 npm run build   # 编译到 dist/
-npm run test    # node --test（48 例：解析 / 查询 / 工具面 / 改写面）
+npm run test    # node --test（50 例：解析 / 查询 / 工具面 / 改写面）
 ```
 
 依赖 `marked` 的解析用例恒跑（无外部二进制）；工具面用例用临时 fixture 真实读写文件系统。

@@ -72,7 +72,7 @@ export function renderLinks(links: MdLink[]): string {
   return cap(lines).join("\n");
 }
 
-/** replace 结果：成功报处数；失败给原因 + 「重新 structure」的下一步。 */
+/** replace 结果：成功报处数 + 结构提示；失败给原因 + 按 code 分派的下一步（补标题行 / 重新 structure）。 */
 export function renderReplace(result: {
   ok: boolean;
   path: string;
@@ -82,8 +82,16 @@ export function renderReplace(result: {
   details?: unknown;
 }): string {
   if (result.ok) {
-    return `已按节替换：${result.path}（${result.applied ?? 0} 处，整批原子写）`;
+    return (
+      `已按节替换：${result.path}（${result.applied ?? 0} 处，整批原子写）\n` +
+      "注意：结构可能已变（标题层级或行数变化会移动其后的节范围）；继续改请重新 action=structure 取范围。"
+    );
   }
+  // 下一步按 code 分派：content_invalid 与漂移的修法不同（前者补标题行，后者重取范围）
+  const next =
+    result.code === "content_invalid"
+      ? "下一步：给 content 补首行标题（建议 ATX，如「## 标题」；标题文本不得为空）；删除整节请传空串 content。"
+      : "下一步：先 action=structure 取最新节范围，再用新范围重发 edits。";
   const details =
     result.details === undefined
       ? ""
@@ -91,7 +99,7 @@ export function renderReplace(result: {
   return (
     [
       `md_logic replace 失败（${result.code ?? "unknown"}）：${result.error ?? ""}`,
-      "下一步：先 action=structure 取最新节范围，再用新范围重发 edits。",
+      next,
     ].join("\n") + details
   );
 }

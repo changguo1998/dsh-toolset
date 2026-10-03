@@ -2,6 +2,9 @@
 //
 // 安全语义：`heading`（标题文本）+ `startLine` / `endLine`（来自 structure）必须与**当前**解析一致；
 // 任一条不符 → 整体拒绝且不落盘；写盘走临时文件 + rename。
+//
+// 注意：多处用例以 `content: "x"`（非标题）作填充——它们同时是**校验优先级承重测试**
+// （漂移 / 缺失 / 越界必须先于 content_invalid 返回），勿改成标题文本。
 
 import assert from "node:assert/strict";
 import { chmodSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -112,6 +115,72 @@ test("replaceSections：内容为空串 = 删除该节", () => {
   assert.match(out.text, /前言段落。\n\n\n## 乙节/);
 });
 
+test("replaceSections：content 非空必须以标题行开头（防静默并入父节）", () => {
+  const range = rangeOf(DOC, "乙节");
+  // ① 正文开头 → content_invalid（原先会被静默并入父节）
+  const plain = replaceSections(DOC, [
+    { heading: "乙节", ...range, content: "乙已改写。\n" },
+  ]);
+  assert.equal(plain.ok, false);
+  if (!plain.ok) {
+    assert.equal(plain.code, "content_invalid");
+    assert.match(plain.error, /标题行/);
+  }
+  // ② 「#foo」不是标题（挡 `startsWith("#")` 式的错误实现）
+  const hashOnly = replaceSections(DOC, [
+    { heading: "乙节", ...range, content: "#foo\n" },
+  ]);
+  assert.equal(hashOnly.ok, false);
+  if (!hashOnly.ok) assert.equal(hashOnly.code, "content_invalid");
+  // ③ 前导空行 → 标题不在第 1 行 → 拒
+  const leadingBlank = replaceSections(DOC, [
+    { heading: "乙节", ...range, content: "\n## 乙节\n" },
+  ]);
+  assert.equal(leadingBlank.ok, false);
+  if (!leadingBlank.ok) assert.equal(leadingBlank.code, "content_invalid");
+  // ④ 空标题节（`#` 无文本）→ 拒：该节此后无法用 heading 定位
+  const emptyTitle = replaceSections(DOC, [
+    { heading: "乙节", ...range, content: "#\n" },
+  ]);
+  assert.equal(emptyTitle.ok, false);
+  if (!emptyTitle.ok) assert.equal(emptyTitle.code, "content_invalid");
+  // ⑤ setext 且目标节前一行是空行 → 放行（既有 ATX / setext 双风格支持）
+  const setextOk = replaceSections(DOC, [
+    { heading: "乙节", ...range, content: "乙节\n---\n\n乙已改写。" },
+  ]);
+  assert.equal(setextOk.ok, true, JSON.stringify(setextOk));
+  // ⑥ 优先级：坏 content + 漂移范围 → 先报 section_drift（既有优先级不回归）
+  const driftFirst = replaceSections(DOC, [
+    {
+      heading: "乙节",
+      startLine: range.startLine - 1,
+      endLine: range.endLine,
+      content: "x",
+    },
+  ]);
+  assert.equal(driftFirst.ok, false);
+  if (!driftFirst.ok) assert.equal(driftFirst.code, "section_drift");
+});
+
+test("replaceSections：setext 首行 + 目标节前一行非空 → 拒（会吞并上一段）", () => {
+  // 反例：替换 B 后「body A + T2 + ---」被解析为同一个 setext 标题，前节正文丢失
+  const doc = "# H\n\n## A\n\nbody A\n## B\n\nbody B\n";
+  const range = rangeOf(doc, "B");
+  const out = replaceSections(doc, [
+    { heading: "B", ...range, content: "T2\n---\n\nbody B2" },
+  ]);
+  assert.equal(out.ok, false);
+  if (!out.ok) {
+    assert.equal(out.code, "content_invalid");
+    assert.match(out.error, /吞并/);
+  }
+  // 同一内容改用 ATX → 放行
+  const atx = replaceSections(doc, [
+    { heading: "B", ...range, content: "## T2\n\nbody B2" },
+  ]);
+  assert.equal(atx.ok, true, JSON.stringify(atx));
+});
+
 test("replaceSections：BOM 与 CRLF 风格保留（除目标节外字节不动）", () => {
   const crlf = "\uFEFF" + DOC.replace(/\n/g, "\r\n");
   const range = rangeOf(crlf, "乙节");
@@ -195,6 +264,28 @@ test("工具面：md_logic replace（参数校验先于 IO / 成功写盘 + 渲�
     assert.match(driftText, /重新 structure/);
     assert.equal(readFileSync(file, "utf8"), DOC);
 
+    // ②.5 content 非法：content_invalid 透传 + 下一步提示补标题行 + 不落盘
+    const rB = rangeOf(DOC, "乙节");
+    const badContent = await tool.execute(
+      {
+        action: "replace",
+        path: "a.md",
+        edits: [
+          {
+            heading: "乙节",
+            start_line: rB.startLine,
+            end_line: rB.endLine,
+            content: "没有标题开头。",
+          },
+        ],
+      },
+      exec,
+    );
+    const badText = tool.output.render({}, badContent)[0]?.text ?? "";
+    assert.match(badText, /replace 失败（content_invalid）/);
+    assert.match(badText, /补首行标题/);
+    assert.equal(readFileSync(file, "utf8"), DOC, "content 非法不得写盘");
+
     // ③ 成功：写盘 + 渲染处数
     const range = rangeOf(DOC, "乙节");
     const ok = await tool.execute(
@@ -214,6 +305,7 @@ test("工具面：md_logic replace（参数校验先于 IO / 成功写盘 + 渲�
     );
     const text = tool.output.render({}, ok)[0]?.text ?? "";
     assert.match(text, /已按节替换：.+a\.md（1 处/);
+    assert.match(text, /重新 action=structure 取范围/, "成功渲染带结构提示");
     assert.match(readFileSync(file, "utf8"), /工具面已改写。/);
   } finally {
     cleanup();
