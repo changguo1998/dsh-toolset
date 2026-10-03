@@ -104,6 +104,9 @@
 # 新增行必须走 `- insert:`：直接写 `- id:/name:` 会被当成「覆盖既有行」，未命中时只打
 # `patch: entry "x" not found` 且退出码仍为 0（静默失败）。候选池、排除口径与第二批选题见
 # `docs/archived/2026-10-02-profile-mount-expansion.md`。
+# 行缺 `config` 时宿主按该包 `Config` schema 校验 `undefined`：**含 `.required()` 字段**的行会
+# 「entry did not activate」激活失败（`--dump-config` 查不出来，它不实例化插件）——如
+# `message-feedback.maxNoteBytes`（必填；取值对齐上游 dsh-web-app 同款行）。
 - insert:
     - id: session-stats
       name: '@deepseek-ai/dsh-session-stats'
@@ -113,6 +116,8 @@
       name: '@deepseek-ai/dsh-session-reference'
     - id: message-feedback
       name: '@deepseek-ai/dsh-message-feedback'
+      config:
+        maxNoteBytes: 8192 # 必填（.required()）；对齐 dsh-web-app 同款行；缺 config 会激活失败
     - id: workspace-changes
       name: '@deepseek-ai/dsh-workspace-changes'
     - id: file-reference-local

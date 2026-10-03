@@ -59,6 +59,9 @@ tool-pwsh-persistent tool-workspace-dependencies workspace workspace-changes
 - **D1（判据）**：挂载性以「官方组合中是否作为行出现」为准（见上），不按包是否注册服务判断；原清单里的库/缝包不作行挂载。
 - **D2（第一批）**：本批挂 **10 行**（低风险、加法、无同名工具）——`session-stats`、`session-turn-outline`、`session-reference`、`message-feedback`、`workspace-changes`、`file-reference-local`、`terminal`、`terminal-bash`、`invariants`、`workspace`。全部为投影 / 服务 / 事件面扩展，不改既有工具名。
 - **D3（执行方式，按用户 2026-10-02 选择）**：**跳过临时 profile，直接落 fff**——改前备份 `~/.dsh/profiles/fff/cordis.patch.yml`，用**一个 `- insert:` 块**追加 10 行；回滚 = 删该块（或还原备份）。落成后用**第二次 PTY 真机启动**（不打断用户当前会话）做健康检查：stderr 无 `did not activate`、无服务/工具重复注册报错；用户重启后再做会话内生效确认（`ctx.workspaceRegistry` / `ctx.messageFeedback` / `ctx.terminals` / `sessionStats` 投影、`@file` 引用）。
+
+> 2026-10-04 更正：该「PTY 真机启动无激活告警」为**假通过**——`message-feedback` 的 `Config.maxNoteBytes` 自 0.1.7-rc.2 起即 `.required()`，缺 `config` 必报 `1 entry did not activate`（隔离 DSH_HOME 克隆 A/B 已复现并确认补 `maxNoteBytes: 8192` 后归零）；检查 recipe 捕获口径的洞记在 `docs/archived/2026-10-04-message-feedback-activation-failure.md`。
+
 - **D4（文档回写）**：落成后按实测更新 `HOST-PACKAGES.md`——§1 清单（92 → 102）、§2 每行 `已挂载` 标记、各分类标题的「已挂载 N」、§0「小计自洽性」。`scripts/install.sh` **本身不用改**（它只 `cp profiles/example/*`）；要改的是仓库内 `profiles/example/cordis.patch.yml`（加同一个 `- insert:` 块）——但 install.sh 对已存在的 `cordis.patch.yml` 默认「保留已有」，**老机器不会自动获得新行**，需 `--force` 或手工追加（写入文档）。排除口径也要落进 `HOST-PACKAGES.md` §0，避免下一轮重新派生同样的候选池。
 - **D5（不做的事）**：不挂无官方用法的缝包（会重复注册服务）、不挂形式非法的裸 `scope`、不动排除项、不改本仓插件代码。
 - **D6（第二批选题）**：① `invariants` 目前是**空注册表**（已挂集合里无任何包 inject 它），真实注册方是 4 条 `*/invariant` 子路径行（`session` / `agent` / `agent-loop` / `scope`）→ 第二批与它们同批；② `tool-present` / `agent-tool-presentation`（会改模型工具面，需单独裁定）；③ `office-to-pdf` / `skill-office`（重资产）、`tool-bash-persistent` / `tool-pwsh-persistent`（与已挂 `tool-bash` / `tool-pwsh` 可能同名，需先验）、`tool-workspace-dependencies`；④ `session-reference` 隐式依赖 `session-query-sqlite` 提供的 `sessionQuery`——移除后者会让它失效（写入文档）。

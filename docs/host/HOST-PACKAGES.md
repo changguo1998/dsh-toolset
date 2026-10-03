@@ -48,7 +48,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 其中 **101 个**随 dsh 分发（在 §2 之内），**1 个**是树外加装包 `session-title-all-prompts-llm`（会话标题 provider，见 §2「会话 / 上下文 / 存储」）。上表不含本项目 18 个 `@dsh-toolset/*` 包与 TUI bundle 自行 `- insert:` 的 `tool-ask-user`（后者在 `--dump-config` 里也出现，故 2026-10-02 扩张后实测名字项为 103 = 102 + 1；口径见 §6）。
 
 > 2026-10-02 已升级到 `0.2.0-rc.2` 并实测：比 0.1.7 多出的正是 `otel`（`dsh-base` 新增 `- id: otel`，服务 `ctx.otel`），其余 91 个逐项不变。
-> 同日挂载面扩张（`~/.dsh/profiles/fff/cordis.patch.yml` 追加一个 `- insert:` 块）再 +10 个：`session-stats` / `session-turn-outline` / `session-reference` / `message-feedback` / `workspace-changes` / `file-reference-local` / `terminal` / `terminal-bash` / `invariants` / `workspace`（全部为投影 / 服务 / 事件面扩展，不改模型工具面；健康检查：dump 124 行、0 条 `patch: entry` 告警、PTY 真机启动无激活告警）。
+> 同日挂载面扩张（`~/.dsh/profiles/fff/cordis.patch.yml` 追加一个 `- insert:` 块）再 +10 个：`session-stats` / `session-turn-outline` / `session-reference` / `message-feedback` / `workspace-changes` / `file-reference-local` / `terminal` / `terminal-bash` / `invariants` / `workspace`（全部为投影 / 服务 / 事件面扩展，不改模型工具面；健康检查：dump 124 行、0 条 `patch: entry` 告警）。**注（2026-10-04 更正）**：当时「PTY 真机启动无激活告警」是**假通过**——`message-feedback` 的 `Config.maxNoteBytes` 自 0.1.7-rc.2 起即 `.required()`，缺 `config` 必报 `1 entry did not activate`；该行现补 `config: maxNoteBytes: 8192`（对齐上游 `dsh-web-app` 同款行），隔离 `DSH_HOME` 克隆真机 A/B 已复现并确认修复（A：告警 1 条；B：0 条）。该服务当前无消费者（Web bundle 的浏览器对话框才用它），本仓 TUI-only 下按「尽量挂」保留。
 
 ## 2. 全部分组清单（288 个）
 
