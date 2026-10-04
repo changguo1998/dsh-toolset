@@ -10,7 +10,7 @@ DSH（DeepSeek Harness）进程内插件：把超阈值命令/工具输出压成
    `(Omitted N bytes. Full formatted result stored at: <locator>. ...)`——解析到非空 locator 即触发（权威信号）；
 1. **阈值**：无通知时，事件文本 UTF-8 字节数 ≥ `minBytes`（read 工具被宿主豁免 spill，靠此项兜底）。
 
-取回完整输出（读 spill 文件前 `maxSourceBytes` 字节，超出标 `truncated`）后，在沙箱里跑**一段自包含的确定性派生程序**（非 LLM 抽取），产出：
+取回完整输出（读 spill 文件前 `maxSourceBytes` 字节，超出标 `truncated`）后，在沙箱里跑**一段自包含的确定性派生程序**（非 LLM 抽取；首选宿主 `ptcRuntime` 沙箱，服务缺失或运行期不可用时回落 `node:vm`，同一程序源两处执行），产出：
 
 - `stats`：bytes / chars / lines / maxLineLen / avgLineLen；
 - `headings`：markdown `#`–`######` 标题（行号 + 级别，≤40 条）；
@@ -47,11 +47,13 @@ bundle.kb.search({ query: "ENOENT", category: "output-compress", project: "defau
 ## 边界与限制
 
 - **不存原文全文**：原始字节由宿主 retention / spill 负责保留；本插件只写入可检索的摘要与切片索引，不让原文进模型上下文。
+- **与官方 `spill-policy` / `compaction-tool-result-pruner` 的分工（不构成双重截断）**：`spill-policy` 决定「超 `maxInlineTokens` 的结果在上下文里留什么」（preview + 落盘通知，原文写 spill 文件；`read` 工具被它内置豁免，故本插件才有阈值兜底这一路）；`compaction-tool-result-pruner` 在压缩时对 tool-result surface 节点做 head/middle/tail 裁剪（免模型、可重放安全）。两者都只改**上下文呈现**，不产摘要、不入库；本插件只在事件流之外有界读取 spill 文件（≤ `maxSourceBytes`）派生摘要并写库，也不改写会话上下文——三方各管一层，唯一重叠的「取数」动作也只是一次有上限的只读。
 - **不与 knowledge-base 建立 npm 依赖**：跨 bundle 只通过共享库文件这一宿主共享面通信，因此**不建表、不写 FTS 表**——`chunks` 的索引同步完全依赖 knowledge-base 的库内触发器。
+- **共库直写的边界（与 knowledge-base 口径一致）**：本包直插 `sources`/`chunks`，**不走 knowledge-base 的入库规则（`persistRules` 隐私拒绝模式 / `minChars`）、容量守卫（`maxTokensPerProject`）与 `hooks.stats` 计数**，自己只做「库指纹校验 + `content_hash` 去重」；反向地，knowledge-base 的淘汰 / 自动巩固 / 容量守卫按 `chunks` 全表作业，会一并作用到本包写入的行（对端口径见 `../knowledge-base/README.md` 与 `../knowledge-base/docs/DESIGN.md` §9）。
 - `slices` 片数是**上限 16**：每片行数取 `max(1, ceil(总行数/16))`，行数少时实际片数更少。
-- 触发依赖宿主文案：严格正则锚定 spill 通知字面量，宽松正则兜底宿主文案演进；空 locator 的通知回落阈值判定。
+- 触发依赖宿主文案：严格正则锚定 spill 通知字面量，宽松正则兜底宿主文案演进；空 locator 的通知回落阈值判定。宿主在同时省略整张图片时会在省略句与定位句之间插入 ` Omitted N images.`，该形态两个正则都不命中 → 回落阈值判定（不会误写，只是少了 spill 权威信号）。
 - 失败一律降级：管线内任何抛错都收敛为 `skipped` + 日志；spill 文件暂不可读时降级为「用事件内文本入库」（并在 10s 冷却窗口内不再尝试读该文件），库未挂载时按 `kbRetryDelays` 主动重试（最多 4 次，绕过去重）后放弃。
-- 去重表（已处理事件、`callId → toolName`）有容量上限，超出后按插入顺序淘汰最旧项。
+- 去重表（已处理事件、`callId → toolName`）有容量上限（1024 / 256），超出后**整体清空**（不是淘汰最旧项）。
 - 本包 `cordis.patch.yml` 用 dsh 的 `insert` 方言（非 RFC6902 JSON Patch），故刻意不写注释——仓库统一的 `format` 对 YAML 走 python `yq -y -i .`，会丢注释、导致格式化永不收敛；同目录 `.pi-lens.json` 把该文件排除出 `yaml-schema: JSONPatch` 误报。
 
 ## 测试

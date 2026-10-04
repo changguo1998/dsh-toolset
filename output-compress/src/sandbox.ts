@@ -1,7 +1,7 @@
 /**
  * 沙箱运行层：单一派生程序（SUMMARY_PROGRAM）的三条执行路径。
  *
- *  - CodeRuntimeSandbox：宿主沙箱服务 `ctx.ptcRuntime`，
+ *  - CodeRuntimeSandbox：宿主沙箱服务 `ctx.ptcRuntime`（`ptc-runtime` 缝，实现为沙箱 Node 进程），
  *    程序以 async 函数体 + 全局绑定 input 运行，返回值经 JSON 无损传递；
  *  - RuntimeWithFallback：宿主沙箱「不可用」时就地回落 vm（程序级失败不重试），摘要不中断；
  *  - VmSandbox：宿主沙箱缺失/不可用时的 node:vm 进程内回落，执行同一程序源。

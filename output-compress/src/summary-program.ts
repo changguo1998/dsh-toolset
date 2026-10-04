@@ -2,9 +2,9 @@
  * 确定性派生程序（单一程序源）：行数/字节统计、section 标题、top-N 关键行、固定切片索引。
  *
  * 同一份 JS 源码在两种环境执行（保证「同一输入文本 → 同一摘要 JSON」）：
- *  1. 宿主 code-runtime 沙箱（worker-thread 后端）：程序体为 async 函数体，
+ *  1. 宿主 PTC 沙箱（`ptc-runtime`，沙箱 Node 进程后端）：程序体为 async 函数体，
  *     通过全局绑定 input 取数据（await input.text()）；
- *  2. code-runtime 缺失时的 node:vm 进程内回落（见 VmSandbox）。
+ *  2. 宿主沙箱缺失 / 不可用时的 node:vm 进程内回落（见 VmSandbox）。
  *
  * 约束（见 DESIGN.md「确定性」一节）：无时间/随机/环境依赖；纯函数；
  * 仅用标准语法（无 import/require/动态构造器）；输出为可无损 JSON 的纯数据。
@@ -56,11 +56,12 @@ export interface SummaryJson {
 }
 
 /**
- * 单一派生程序源（code-runtime / node:vm 共用）。
+ * 单一派生程序源（宿主 PTC 沙箱 / node:vm 共用）。
  * 以 async 函数体形式提供：`await input.text(0)` 取完整输出文本，最终 `return` 摘要 JSON。
- * 绑定调用必须至少传一个参数：宿主 worker-thread code-runtime 的 decodeWorkerJson 把空参数
- * 列表判为非法（`input.length === 0` → undefined → "binding arguments must be lossless JSON"），
- * 零参数调用在真实宿主上必然失败（node:vm 回落无此限制，故测试需模拟严格编解码）。
+ * 绑定调用必须至少传一个参数：宿主 PTC 沙箱（`ptc-runtime-node`）的绑定参数解码
+ * （`decodePtcJsonWire`）把空参数列表判为非法（`length === 0` → undefined →
+ * "binding arguments must be lossless JSON"），零参数调用在真实宿主上必然失败
+ * （node:vm 回落无此限制，故测试需模拟严格编解码）。
  * 注意：不要在本字符串中引入 import/require/eval/动态构造器/宿主全局（除注入的 input 与 TextEncoder）。
  */
 export const SUMMARY_PROGRAM = `
@@ -156,7 +157,7 @@ return {
 };
 `;
 
-/** 校验沙箱返回值形状（code-runtime 的 value 是未类型化的 JSON）。 */
+/** 校验沙箱返回值形状（宿主沙箱的 value 是未类型化的 JSON）。 */
 export function validateSummary(value: unknown): SummaryJson {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error("派生程序返回非对象");

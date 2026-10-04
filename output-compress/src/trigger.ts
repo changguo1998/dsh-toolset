@@ -1,8 +1,8 @@
 /**
  * 超阈值输出触发判定：spill 通知解析 + 文本字节阈值。
  *
- * 对齐宿主 spill-policy（dsh 0.1.5-rc.2，packages/spill/spill-policy）的持久化文案：
- * 工具结果超过 maxInlineBytes 时，事件内文本被替换为
+ * 对齐宿主 spill-policy（0.1.5-rc.2 起对齐，packages/spill/spill-policy）的持久化文案：
+ * 工具结果超过 maxInlineTokens 时，事件内文本被替换为
  *   <preview>\n\n(Omitted <N> bytes. Full formatted result stored at: <locator>. <retrievalHint>)
  * 完整原始字节落盘在 <locator>（spill-local 后端为文件路径）。本模块解析该通知，
  * 得到 locator 供后续读取完整输出；通知缺失时按配置阈值兜底判定。
@@ -72,7 +72,8 @@ export interface TriggerOptions {
 /**
  * 触发判定：spill 通知优先（宿主已裁定超阈值且给出落盘位置），
  * 否则按文本 UTF-8 字节数阈值兜底（宿主未 spill 但本插件认为值得摘要的大输出）。
- * 字节口径与宿主 spill 阈值同尺度：多字节文本不会因「字符数少」而被漏判。
+ * 按字节而非字符计数：多字节文本不会因「字符数少」而被漏判（宿主 spill 按 token 估算，
+ * 两者口径不同、互不干扰）。
  */
 export function shouldCompress(
   text: string,
