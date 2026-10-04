@@ -445,7 +445,7 @@ if (smoke) {
       );
       ok(
         "status-col-elements",
-        panelPlain.includes("Goal active") &&
+        panelPlain.includes("Goal ▷") &&
           panelPlain.includes("Todo 1/4") &&
           panelPlain.includes("● 状态栏 goal 徽标") &&
           // 列总高 > 窗口 17：折叠等级 L2（仅进行中）隐藏三合一+长待办 2 项

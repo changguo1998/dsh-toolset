@@ -196,7 +196,7 @@ test("端到端：activation 事件经 App 走到状态列（回放路径灰 ⟳
     });
     await sleep(0);
     assert.ok(
-      plain().includes("Goal ▷ active ⟳"),
+      plain().includes("Goal ▷ ⟳"),
       "无 activation 记录仍显示 ⟳（灰色）: " + plain(),
     );
     assert.ok(

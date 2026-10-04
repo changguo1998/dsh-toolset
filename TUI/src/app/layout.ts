@@ -887,6 +887,8 @@ function panelShownInActivity(state: AppState): boolean {
 }
 
 /** goal 阶段符号（用户 2026-10-02 定稿；与 phase 词并存——符号给扫视、词保可读） */
+/** 相位符号（2026-10-05 起**单独承担语义**：当前行不再出 `active` 等词——10 格窄列会把词
+ *  截成 `Goal ▷ ac`；相位色与符号一起表意，历史行仍以 `Goal <phase>` 区分） */
 const GOAL_PHASE_SYMBOL: Record<string, string> = {
   active: "▷", // 空心右三角（绿）
   paused: "∥", // U+2225 PARALLEL TO（黄）——字面度量与 ▷ ✓ ⟳ 一致，无 emoji 属性
@@ -1219,11 +1221,12 @@ function statusBlocks(
     head.push({
       segments: [
         seg("Goal ", { fg: "blue" }),
-        // 未知 phase：不出符号（避免多一个空格），只出词与回落色
+        // 未知 phase：不出符号（避免多出空格），也不出相位词 → 整行只剩 `Goal`
+        // 只出符号（2026-10-05：相位词在 10 格窄列会被截断成 `Goal ▷ ac`，信息量低于噪声；
+        // 语义由符号 + 颜色承担。历史旧 goal 行仍带相位词——它们按约定不出符号）
         ...(phaseSymbol === undefined
           ? []
-          : [seg(`${phaseSymbol} `, { fg: phaseColor })]),
-        seg(phase, { fg: phaseColor }),
+          : [seg(`${phaseSymbol}`, { fg: phaseColor })]),
         // 自动续轮开关（⟳）只在当前 goal 处于 active 时有意义：其它相位本就不在推进，
         // 显示是噪声；无数据（含回放/重启后未收到 activation 边）由 selector 推导
         ...(activation === undefined

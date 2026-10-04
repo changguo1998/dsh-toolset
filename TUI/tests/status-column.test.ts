@@ -3,7 +3,8 @@
 // P7 起状态列**只承载 Goal / Todo / Jobs 三块**：Mode 块（运行模式/权限/策略/预设/开关）
 // 已移除，改由标题栏状态符号承载（见 tests/title-bar.test.ts）。
 //
-// 覆盖：goal 列表（index 0 = 当前，其后为历史旧 goal；`Goal <phase>` 蓝标题+phase 状态色 +
+// 覆盖：goal 列表（index 0 = 当前，其后为历史旧 goal；当前行 `Goal <相位符号>`（2026-10-05 起
+// 不出相位词）、历史行 `Goal <phase>` 蓝标题+phase 状态色 +
 // objective + blocked 黄 tone；已完成 objective 灰+删除线）、
 // todo/jobs 列表（无强制行数上限）、无 goal/todo 占位、总高超窗口时「折叠等级从低到高
 // 依次尝试（L0 全显 / L1 隐藏已完成、goal 保留最近 1 条历史 / L2 仅进行中、goal 压标题行 /
@@ -113,7 +114,14 @@ test("renderStatusColumn: goal 目标 + phase + todo 列表渲染", () => {
     { width: 24 },
   );
   const t = rows.join("\n");
-  assert.ok(t.includes("Goal ▷ active"), "goal 标题=Goal+phase 符号+phase");
+  assert.ok(
+    t.includes("Goal ▷"),
+    "goal 标题=Goal+phase 符号（2026-10-05 起不再出相位词）",
+  );
+  assert.ok(
+    !t.includes("Goal ▷ active"),
+    "相位词已去掉（窄列截断问题一并消失）",
+  );
   assert.ok(t.includes("实现状态列"), "objective 无「目标:」前缀");
   assert.ok(t.includes("Todo 0/2"), "todo 标题=完成数/总数");
   assert.ok(t.includes("● 渲染目标"), "进行中 ● 实心圆标记");
@@ -179,7 +187,7 @@ test("renderStatusColumn: goal 块超窗口高时按等级折叠（L2 压成标�
   // 高 8 且仅 goal 一块：L0 放不下，goal 无条目级折叠 → L2 起压成标题行（无 objective）
   const rows = col(setGoal("active", objective), [], { width: 10, height: 8 });
   const t = rows.join("\n");
-  assert.ok(t.includes("Goal ▷ ac"), "标题保留（窄列被截断到列宽）");
+  assert.ok(t.includes("Goal ▷"), "标题保留（仅符号，10 格列内不再被截断）");
   assert.ok(!t.includes("行0"), "objective 在 L2 压标题行时隐藏");
   // 高度充足时目标完整显示（无固定上限截断）
   const full = col(setGoal("active", objective), [], {
@@ -196,7 +204,7 @@ test("renderStatusColumn: 当前 goal + 历史旧 goal 同块展示（旧条目�
   );
   const rows = col(goals, [], { width: 30, height: 12 });
   const t = rows.join("\n");
-  assert.ok(t.includes("Goal ▷ active"), "标题=当前 goal 的 phase");
+  assert.ok(t.includes("Goal ▷"), "标题=当前 goal 的相位符号");
   assert.ok(t.includes("当前目标"), "当前 objective 展示");
   assert.ok(t.includes("Goal complete"), "历史条目标题行保留 phase");
   assert.ok(t.includes("旧目标"), "历史 objective 展示");
@@ -247,7 +255,7 @@ test("renderStatusColumn: 历史 goal 按折叠等级收敛（L1 留最近 1 条
   assert.ok(mid.includes("历史 goal 已隐藏"), "L1 出现隐藏计数提示");
   // 高度 3：L1(5 行) 放不下 → L2 压成标题行（objective 与历史全隐藏）
   const tight = col(goals, [], { width: 30, height: 3 }).join("\n");
-  assert.ok(tight.includes("Goal ▷ active"), "L2 保留标题行");
+  assert.ok(tight.includes("Goal ▷"), "L2 保留标题行");
   assert.ok(
     !tight.includes("当前") && !tight.includes("历史一"),
     "L2 隐藏 objective 与全部历史 goal",
@@ -321,7 +329,7 @@ test("renderStatusColumn: 溢出时按折叠等级递减内容（L1 隐藏完成
       { content: "待办任务 D", status: "pending" },
     ],
     // L0=12>9，L1 隐藏完成=11>9 → L2 仅进行中（无 in_progress → todo 折叠）+ goal 压标题
-    // 输出：Goal active / Todo 2/4 / …(+4项已隐藏) / Jobs 块 = 7 行
+    // 输出：Goal ▷（仅符号）/ Todo 2/4 / …(+4项已隐藏) / Jobs 块 = 7 行
     { width: 16, height: 9 },
     [{ id: "j1", kind: "bash", label: "跑测试", status: "running" }],
   );
@@ -334,7 +342,7 @@ test("renderStatusColumn: 溢出时按折叠等级递减内容（L1 隐藏完成
   assert.ok(!t.includes("待办任务 C"), "L2 仅进行中：pending 待办也被折叠");
   assert.ok(t.includes("项已隐藏"), "隐藏条目有提示");
   assert.ok(t.includes("跑测试"), "jobs 块保留（无折叠语义）");
-  assert.ok(t.includes("Goal ▷ active"), "goal 压成标题行");
+  assert.ok(t.includes("Goal ▷"), "goal 压成标题行");
   assert.ok(!t.includes("目标"), "goal objective 随 L2 标题行折叠");
 });
 
@@ -447,24 +455,39 @@ const goalHead = (
 
 test("renderStatusColumn: phase 符号与状态色（active ▷ 绿 / paused ∥ 黄 / blocked △ 黄 / complete ✓ 绿）", () => {
   const cases: [GoalPhase, string, "green" | "yellow"][] = [
-    ["active", "▷ active", "green"],
-    ["paused", "∥ paused", "yellow"],
-    ["blocked", "△ blocked", "yellow"],
-    ["complete", "✓ complete", "green"],
+    ["active", "▷", "green"],
+    ["paused", "∥", "yellow"],
+    ["blocked", "△", "yellow"],
+    ["complete", "✓", "green"],
   ];
-  for (const [phase, body, color] of cases) {
+  for (const [phase, symbol, color] of cases) {
     const head = goalHead(setGoal(phase, "目标"));
     assert.ok(
-      head.text.includes(`Goal ${body}`),
-      `${phase} 标题 = Goal + 符号 + phase 词: ${head.text}`,
+      head.text.includes(`Goal ${symbol}`),
+      `${phase} 标题 = Goal + 相位符号: ${head.text}`,
     );
-    // 精确到段：符号自身带 phase 色（整行 includes 会被 phase 词的同色遮住错色）
-    const symbol = body.slice(0, body.indexOf(" "));
     assert.ok(
-      head.ansi.includes(sgrOf(color) + `${symbol} `),
+      !head.text.includes(phase),
+      `${phase} 标题不再出相位词（2026-10-05）: ${head.text}`,
+    );
+    // 精确到段：符号自身带 phase 色（整行 includes 会被别处同色遮住错色）
+    assert.ok(
+      head.ansi.includes(sgrOf(color) + symbol),
       `${phase} 符号取 ${color}: ${head.ansi}`,
     );
   }
+});
+
+test("renderStatusColumn: 未知 phase → 只出 `Goal`（无符号、无相位词、无多余空格）", () => {
+  const head = goalHead(setGoal("weird" as GoalPhase, "目标"));
+  assert.ok(head.text.startsWith("Goal "), "仍以 Goal 起头: " + head.text);
+  assert.equal(
+    head.text.replace(/[\s│]+$/, ""),
+    "Goal",
+    "未知 phase 时标题行只剩 `Goal`（无符号 / 无相位词 / 无尾随空格）",
+  );
+  assert.ok(!head.text.includes("weird"), "未知 phase 不出词: " + head.text);
+  assert.ok(!/[▷∥△✓]/.test(head.text), "未知 phase 不出符号: " + head.text);
 });
 
 test("renderStatusColumn: blocked 标题由红改黄（与阻塞原因行同口径）", () => {
@@ -519,7 +542,7 @@ test("renderStatusColumn: 历史 goal 行不显示 phase 符号与 ⟳（进程�
     historyHead !== undefined,
     "历史行仍是 Goal + phase 词（无符号）: " + JSON.stringify(lines),
   );
-  const currentHead = lines.find((l) => l.startsWith("Goal ▷ active"));
+  const currentHead = lines.find((l) => l.startsWith("Goal ▷"));
   assert.ok(
     currentHead !== undefined,
     "当前 goal 行存在: " + JSON.stringify(lines),
