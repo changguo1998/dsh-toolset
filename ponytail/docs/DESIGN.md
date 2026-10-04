@@ -8,7 +8,7 @@
 
 - `src/ladder.ts`：阶梯文本**自带副本**（来源 `~/GithubRepos/ponytail` v4.10.3，MIT）+ 摘要常量。文案漂移由 `tests` 的关键词断言守卫。
 - `src/main.ts`：契约符号（`name` / `inject` / `Config` / `apply`）+ `resolveConfig()`（非法值回退缺省）+ 消费者注册（结构化 `RuleEngineLike`，不 import 对方代码）。
-- `cordis.patch.yml`：bundle 层 insert 自身，缺省 `enabled: false`。
+- `cordis.patch.yml`：bundle 层 insert 自身，`enabled: true`（缺省开启；显式 `false` 关闭）。
 
 ## 命令面（D4 降级说明）
 
@@ -17,7 +17,7 @@
 ## 关键设计取舍
 
 1. **注册为 rule-engine 消费者**（对齐 `symbol-normalizer` 先例）：注入交给 rule-engine 统一调度（去重 / 冷却 / 投递），本包不自造注入面。
-1. **默认关闭**：与 `karpathy-guidelines` 双份注入会刷屏；显式开启才生效（`config.enabled: true`）。
+1. **默认开启**（2026-10-05 起）：`karpathy-guidelines` 已从默认注入取消，编码行为由本插件承担；`config.enabled: false` 可关闭。
 1. **`delivery: "inject"`**：挂在最近 pre-step、不唤醒 —— 模式提示不该打扰会话节奏。
 1. **缺省 `sources: ["session-start"]`**：模式提示在会话起始注入一次即可；`dedupeInRecord: 1` 防重复。
 1. **rule-engine 缺席 fail-soft**：告警一次 + 不注册，绝不抛到宿主（对齐本仓既有姿态）。

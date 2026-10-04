@@ -19,10 +19,33 @@ test("buildSymbolGuide：含全部推荐符号与使用标准，且文本由 con
     assert.ok(guide.includes(ch), `白名单应含：${ch}`);
   }
   assert.ok(guide.includes("§"), "config 追加的推荐字符应出现在白名单里");
-  assert.match(guide, /^\[符号规范\] 会话开局指南/);
+  // 首行恰为标签（防标题 / 解释回潮）；正文恰 6 行（无额外标题 / 段落）
+  assert.equal(guide.split("\n")[0], "[符号规范]");
+  assert.equal(guide.split("\n").length, 6);
   assert.match(guide, /禁止 emoji/);
-  assert.match(guide, /行内代码与围栏代码块内的符号是引用示例/);
+  assert.match(guide, /行内代码与围栏代码块内的符号不参与审查/);
   assert.equal(GUIDE_SUMMARY, "符号规范（会话开局指南）");
+});
+
+test("buildSymbolGuide：只有命令与要求（无标题、无解释性括注），且泛化规则在前", () => {
+  const guide = buildSymbolGuide(resolveSymbolRules({}));
+  for (const gone of [
+    "会话开局指南",
+    "按此输出",
+    "展示层会替换",
+    "几何简单",
+    "无需改写",
+    "不用符号凑数",
+  ]) {
+    assert.ok(!guide.includes(gone), `不应保留解释 / 标题：${gone}`);
+  }
+  // 泛化（禁止项 / 使用场景）在前，具体清单（白名单 / 变体映射 / 代码段豁免）在后；逐行锚编号
+  const lines = guide.split("\n");
+  assert.match(lines[1] ?? "", /^1\. 禁止 emoji/);
+  assert.match(lines[2] ?? "", /^2\. 状态 \/ 方向 \/ 几何类/);
+  assert.match(lines[3] ?? "", /^3\. 推荐符号白名单：/);
+  assert.match(lines[4] ?? "", /^4\. 下列变体必须改用推荐符：/);
+  assert.match(lines[5] ?? "", /^5\. 行内代码与围栏代码块内的符号不参与审查/);
 });
 
 test("buildSymbolGuide：别名映射取自 config 且用行内代码包裹（自身不被审查命中）", () => {
@@ -44,7 +67,9 @@ test("buildSymbolGuide：别名映射条数有上限（正文长度可控）", (
   for (let i = 0; i < 30; i += 1)
     aliases[String.fromCharCode(0x2460 + i)] = "✗";
   const guide = buildSymbolGuide(resolveSymbolRules({ aliases }));
-  const line = guide.split("\n").find((l) => l.startsWith("2)"));
+  const line = guide
+    .split("\n")
+    .find((l) => l.startsWith("4. 下列变体必须改用推荐符"));
   assert.ok(line !== undefined);
   const pairs = (line.match(/`/g) ?? []).length / 2;
   assert.ok(pairs > 0 && pairs <= 20, `映射列出条数应受限（实际 ${pairs}）`);

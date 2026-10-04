@@ -3,17 +3,23 @@ import assert from "node:assert/strict";
 import { apply, resolveConfig, inject, name } from "../src/main.ts";
 import { LADDER_SUMMARY, LADDER_TEXT } from "../src/ladder.ts";
 
-test("resolveConfig：缺省关闭 + session-start + 去重 1 + 内置阶梯文本", () => {
+test("resolveConfig：缺省开启（仅显式 false 关闭）+ session-start + 去重 1 + 内置阶梯文本", () => {
   const c = resolveConfig();
-  assert.equal(
-    c.enabled,
-    false,
-    "缺省必须关闭（避免与 karpathy-guidelines 双份注入）",
-  );
+  assert.equal(c.enabled, true, "缺省开启（2026-10-05 起）");
   assert.deepEqual(c.sources, ["session-start", "step-end"]);
   assert.equal(c.dedupeInRecord, 1);
   assert.equal(c.delivery, "steer");
   assert.equal(c.text, LADDER_TEXT);
+  assert.equal(
+    resolveConfig({ enabled: false }).enabled,
+    false,
+    "显式 false 关闭",
+  );
+  assert.equal(
+    resolveConfig({ enabled: true }).enabled,
+    true,
+    "显式 true 开启",
+  );
   // 非法值回退缺省
   const bad = resolveConfig({ sources: [], dedupeInRecord: -1, text: "" });
   assert.deepEqual(bad.sources, ["session-start", "step-end"]);
@@ -99,6 +105,12 @@ test("apply：注册消费者；开启注入、关闭不注入；返回 dispose"
   const out = registered?.decide({ sessionId: "s1", turn: 2 });
   assert.equal(out?.text, LADDER_TEXT);
   assert.equal(out?.summary, LADDER_SUMMARY);
+
+  // 缺省态（不传 config）→ 同样注入（2026-10-05 起缺省开启）
+  apply({ ruleEngine: engine });
+  const byDefault = registered?.decide({ sessionId: "s1", turn: 3 });
+  assert.equal(byDefault?.text, LADDER_TEXT, "不传 config 即注入");
+  assert.equal(byDefault?.summary, LADDER_SUMMARY);
 });
 
 test("apply：rule-engine 缺席 → 告警且不抛（不注册、dispose 为空操作）", () => {

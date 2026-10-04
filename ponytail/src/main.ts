@@ -2,10 +2,12 @@
  * ponytail — 把上游 ponytail 的「懒资深工程师」决策阶梯做成可开关的**上下文注入**（BACKLOG 条目）。
  *
  * 姿态：与 `symbol-normalizer` 同款 —— `inject: ["ruleEngine"]`，apply 时把自身注册为 rule-engine 的
- * **消费者**（`registerConsumer`）；开启时在 `session-start` 注入阶梯正文，关闭时 `decide` 返回 null
- * （不注入）。**不搬**上游的 `hooks/*.js` / `commands/*.toml` / `gemini-extension.json`（DSH 无该面）。
+ * **消费者**（`registerConsumer`）；开启时在 `session-start`（另挂 `step-end` 兜底）注入阶梯正文，
+ * 关闭时 `decide` 返回 null（不注入）。**不搬**上游的 `hooks/*.js` / `commands/*.toml` /
+ * `gemini-extension.json`（DSH 无该面）。
  *
- * 缺省**关闭**：与 `karpathy-guidelines` 的「简单优先 / 外科手术式改动」高度重叠，默认不双份注入。
+ * 缺省**开启**（2026-10-05 起；仅显式 `enabled: false` 关闭）：编码行为由本阶梯承担——
+ * `karpathy-guidelines` 已从默认注入取消，不再有双份注入问题。
  * 调研结论与取舍见 `docs/ponytail-investigation.md`（项目级）与 `docs/DESIGN.md`（本包）。
  */
 
@@ -18,7 +20,7 @@ export const inject = ["ruleEngine"];
 
 /** 插件配置（类型声明，宿主不校验；缺省见 resolveConfig）。 */
 export interface Config {
-  /** 是否开启注入（缺省 `false` —— 默认关闭，避免与 karpathy-guidelines 双份注入）。 */
+  /** 是否开启注入（缺省 `true` —— 默认开启；仅显式 `false` 关闭）。 */
   enabled?: boolean;
   /** 唤醒节点（缺省 `["session-start", "step-end"]` —— 后者作兜底，防真机「非 live 跳过」）。 */
   sources?: readonly string[];
@@ -48,7 +50,7 @@ export function resolveConfig(config?: Config): ResolvedConfig {
         )
       : ["session-start", "step-end"];
   return {
-    enabled: config?.enabled === true,
+    enabled: config?.enabled !== false,
     sources: sources.length > 0 ? sources : ["session-start", "step-end"],
     delivery:
       config?.delivery === "inject" || config?.delivery === "followup"

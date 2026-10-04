@@ -20,7 +20,8 @@ export const GUIDE_SUMMARY = "符号规范（会话开局指南）";
 const MAX_ALIAS_ENTRIES = 20;
 
 /**
- * 生成会话开局指南正文：推荐白名单 + 使用标准（变体对应、禁止 emoji、场景口径、代码段豁免）。
+ * 生成会话开局指南正文：**只有命令与要求**（无标题、无解释性括注），且**泛化规则在前、
+ * 具体清单在后**（禁止项 / 使用场景 → 白名单 → 变体映射 → 代码段豁免）。
  * 变体映射写成行内代码（`` `❌→✗` ``），避免指南自身触发符号审查。
  */
 export function buildSymbolGuide(rules: ResolvedSymbolRules): string {
@@ -28,11 +29,11 @@ export function buildSymbolGuide(rules: ResolvedSymbolRules): string {
   const pairs = Object.entries(rules.aliases).slice(0, MAX_ALIAS_ENTRIES);
   const aliasText = pairs.map(([from, to]) => `\`${from}→${to}\``).join("、");
   return [
-    "[符号规范] 会话开局指南（按此输出，避免回合末返工）：",
-    `1) 推荐符号白名单（几何简单、列宽确定、无填色）：${recommended}`,
-    `2) 有推荐对应关系的变体必须改用推荐符（展示层会替换，但会话记录保留原文）：${aliasText}`,
-    "3) 禁止 emoji 与列宽不定/带填色的图形字符，也不要自造符号。",
-    "4) 使用场景：状态 / 方向 / 几何类用推荐符号或文字；装饰性强调用文字，不用符号凑数。",
-    "5) 行内代码与围栏代码块内的符号是引用示例，不参与审查（无需改写）。",
+    "[符号规范]",
+    "1. 禁止 emoji 与列宽不定 / 带填色的图形字符；不要自造符号。",
+    "2. 状态 / 方向 / 几何类用推荐符号或文字；装饰性强调用文字。",
+    `3. 推荐符号白名单：${recommended}`,
+    `4. 下列变体必须改用推荐符：${aliasText}`,
+    "5. 行内代码与围栏代码块内的符号不参与审查；其余正文仍须写推荐符号。",
   ].join("\n");
 }

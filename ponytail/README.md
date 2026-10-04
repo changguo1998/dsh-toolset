@@ -1,7 +1,7 @@
 # @dsh-toolset/ponytail
 
 把上游 [ponytail](https://github.com/DietrichGebert/ponytail)（MIT，v4.10.3）的\*\*「懒资深工程师」决策阶梯\*\*做成 DSH 可装载插件：
-可开关、可注入、可审计。**默认关闭**（`enabled: false`；与 `karpathy-guidelines` 的「简单优先」高度重叠，避免双份注入）。本机 profile `fff` 的用户 patch **2026-10-05 起已开启**——同日起默认注入只保留 `i-have-adhd`，`karpathy-guidelines` 不再加载，「简单优先」由本插件阶梯承担。
+可开关、可注入、可审计。**默认开启**（2026-10-05 起；显式 `enabled: false` 关闭）——「简单优先」由本插件阶梯承担（`karpathy-guidelines` 已从默认注入取消，不再双份）。
 
 ## 它注入什么
 
@@ -23,7 +23,7 @@
 - id: ponytail
   name: '@dsh-toolset/ponytail'
   config:
-    enabled: true              # 缺省 false
+    enabled: true              # 缺省 true；仅显式 false 关闭（其它取值按开启）
     sources: ['session-start'] # 唤醒节点，缺省 session-start
     dedupeInRecord: 1          # 投影里最多 1 条本注入
     # text: '自定义阶梯文本'   # 可选：本地试验用
@@ -47,4 +47,4 @@ npm --prefix ponytail run check && npm --prefix ponytail test && npm --prefix po
 
 重叠：简单优先、外科手术式改动、不加未请求的抽象。
 差异：ponytail 的阶梯**更前置**（先问「要不要做」）且给出 7 级顺序；`karpathy-guidelines` 面向「写代码时的行为准则」。
-**建议只开一个**（缺省即关闭本插件）。**现状（2026-10-05）**：用户裁定默认注入只保留 `i-have-adhd`（输出形态），编码行为由本插件阶梯承担；`karpathy-guidelines` 已从默认注入移除，故本 profile 只开本插件、不再双份。
+**建议只开一个**（本插件缺省开启；`karpathy-guidelines` 已从默认注入取消，编码行为由阶梯承担，无需双开）。
