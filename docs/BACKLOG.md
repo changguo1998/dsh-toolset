@@ -70,7 +70,7 @@
 
 **复用审计产出（`docs/ARCHITECTURE-REUSE.md` §4，未立项）**：A `context-report` 改用已挂的 `sessionStats` / `turnOutline` 投影补轮次 / 墙钟 / 大纲；B `output-compress` 写清与官方 `spill-policy` / `compaction-tool-result-pruner` 的分工与阈值语义（实测**不存在**双重截断）；C `metric-loop` 唤醒链补 `@deepseek-ai/dsh-schedule`（**会新增模型工具面**，需用户裁定；备选是改用已挂的 `tool-ralph` / `goal-round-driver` 承担循环）；D `hash-edit` / `fs-digest` 可选改用 `ctx.fs`（含行为变更：hash-edit 写侧将受 workspace-write 围栏，宜与 render 缺陷同批）；E 「可挂但不该挂」清单一律落非生成型文档（本文件 / `profiles/example` 注释），勿写入会重生成的 `HOST-PACKAGES.md`。观察项：① `knowledge-base` ⇄ `output-compress` 共库直写的隐私边界；② 是否开启 `session-query-sqlite` 的 FTS5（`openAt: first-search`）并与知识库分工；③ `rule-engine` 与官方 `repeat-tool-reminder` 的注入重复度。
 
-| 1 | **更新文档**（文档类改动的统一入口）：① `docs/STATUS.md` 对齐现状（对照文档由**用户择时**更新，流程内不改——留此仅防遗漏）；② `md-map/README.md` 的能力列举补齐（现只列「文档间链接 / wiki / 代码文件引用」，缺 `kind:ref` 与 `external`；根 README 双档 2026-10-05 已按 `MdEdgeKind` 补齐）；③ 抽检各模块 `README.md` / `DESIGN.md` 与实现的漂移（如 2026-10-05 多轮根帧后 `task-engine` 两侧已同步，其余待抽检）。来源：用户 2026-10-05 指示（文档项合并为一条项目级条目） | `docs/STATUS.md`（用户择时）+ `md-map/README.md` + 各模块 `docs/` | 1 h | P3 |
+| 1 | **更新文档**：**全目录文档整理**（各模块 `README.md` / `DESIGN.md` / `docs/` 与实现的漂移、能力列举与索引补齐等），**不规定具体文件**——由**用户择时**进行，不由 agent 按文件清单接取；`docs/STATUS.md` 同为用户择时更新。来源：用户 2026-10-05 指示（先合并为一条项目级条目，后改为不限定文件、用户自行整理） | 全目录 `docs/`（用户择时执行） | — | P3 |
 
 ## 3. 里程碑
 
