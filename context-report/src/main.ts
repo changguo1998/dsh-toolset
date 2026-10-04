@@ -1,10 +1,12 @@
 // src/main.ts — cordis 插件入口（DSH bundle 接入面）
 //
 // 契约对齐 docs/host/DSH-CTX-API.md §0（`export { name, inject, provide, Config, apply }`）与
-// dsh 0.1.5-rc.2 宿主实现：
-//   - `inject: ['sessionProjections']`：投影注册表是 registry 驱动面；宿主按会话持有单元
-//     （`cellFor`）、每次提交事件 eager 驱动 `apply`、缺缓存行时按需惰性整段折叠
-//     （`buildCell`），故本插件**不订阅 session/event、不自行记会话**——单元是纯折叠。
+// dsh 0.1.5-rc.2 宿主实现（0.1.7-rc.2 → 0.2.0-rc.2 升级复核：本包消费面零 diff，见
+// docs/host/HOST-UPGRADE-0.2.0-rc.2.md）：
+//   - `inject: ['sessionProjections', 'sessions', 'tools']`（三者皆硬依赖，任缺则 fiber 等待）：
+//     投影注册表是 registry 驱动面；宿主按会话持有单元（`cellFor`）、每次提交事件 eager 驱动
+//     `apply`、缺缓存行时按需惰性整段折叠（`buildCell`），故本插件**不订阅 session/event、
+//     不自行记会话**——单元是纯折叠。
 //   - `provide: ['contextReport']`：只读报告面（宿主命令/其他插件经 `ctx.get('contextReport')`）。
 //   - 工具面 `context_report` 走宿主 tools registry。
 //
@@ -12,8 +14,9 @@
 // 宿主 public 类型 `SessionProjectionMap` 由宿主包声明，第三方 key 无 wire 语义；host-only
 // 单元同样被 eager 驱动、可经 `stateOf()` 读取，且不参与客户端快照。
 //
-// 惰性/防御：`sessions`、`tokenMeter`、`tools` 均为可选结构面，缺失时相应字段缺省并告警，
-// 保证 dsh 加载本 bundle 不崩。
+// 惰性/防御：`tokenMeter` 是唯一**可选**服务（经 `optionalService` 先探测再读，未挂载时报告
+// 只缺即时读数）；`sessionProjections` / `sessions` / `tools` 已在 inject 声明（cordis 保证
+// apply 时已就绪），代码仍按结构面防御取值，以便单测不经 cordis 直接传普通对象。
 
 import { createInitialState, reduceEvent, type FoldScratch } from "./fold.ts";
 import { sessionContextSchema } from "./schema.ts";

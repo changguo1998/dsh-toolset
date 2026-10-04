@@ -14,7 +14,7 @@ DSH（DeepSeek Harness）进程内插件：会话级上下文与 token 报告（
 | action | 参数 | 作用 |
 | --- | --- | --- |
 | `report`（缺省） | `session_id?`、`detail?` | 渲染报告（文本 + 结构化字段同源） |
-| `state` | `session_id?` | 返回投影原始状态（JSON） |
+| `state` | `session_id?` | 返回投影原始状态（JSON）；读不到时返回 `{ok:false,error}`（投影未注册 / 缺会话） |
 | `list` | — | 列出当前会话（id + 是否有投影状态） |
 
 `detail` 三档：
@@ -62,14 +62,41 @@ bundle 契约：`name` / `inject: ["sessionProjections", "sessions", "tools"]` /
 - 即时读数复用宿主 `ctx.tokenMeter.measure(session)`：宿主未公开 `ContextPressureProjection` 的读面时，退化为 `TokenMeasurement.totalTokens`（请求 + 回复压力）作为压力近似值。
 - `full` 级别的「下次请求构成」（system/tools/messages 三档）需外部提供 `breakdown` 字段（宿主 token-meter 的 `contextBreakdown` 目前无公开读面），缺省时报告明确写「未接入」而不是补零。
 - 不推进 TUI `/stats`：`/stats` 展示的是宿主侧最近一次模型调用；本插件补的是**会话累计**形态，二者口径不同、互不替代。
-- 会话累计依赖宿主装配 `session-projection`（dsh-base 默认装配，见 `dsh-base/cordis.patch.yml`）；缺该服务时工具仍注册，但报告标注「会话累计：不可用」。
+- 会话累计依赖宿主装配 `session-projection`（dsh-base 默认装配，fff 已挂，见 `docs/host/HOST-PACKAGES.md`）。该服务在 `inject` 里是**硬依赖**：未装配时 cordis 让本插件保持 pending（工具与 provide 面都不注册），不会出现「工具在但无数据」；报告里的「会话累计：不可用」分支对应另外两种情形——`projection: false`（不注册投影单元）或该会话读不到状态（未知会话 / 过滤）。
+
+## 与宿主投影的分工
+
+官方 `session-stats`（投影 `sessionStats`：对话轮次与墙钟）与 `session-turn-outline`（投影 `turnOutline`：回合大纲）两行已挂载（`docs/host/HOST-PACKAGES.md`），与本包 `sessionContext` 在「回合/步数 + 模型/工具墙钟」上口径重合：
+
+| 口径 | 官方投影 | 本包 |
+| --- | --- | --- |
+| 轮次 / 步数 / 墙钟 | `sessionStats`（服务面，无模型工具） | `sessionContext` 自折叠（口径见上文「口径」节） |
+| 回合大纲 | `turnOutline` | 不做 |
+| token 分桶 / 上下文占用 / 三档报告 | 无 | 本包独占（`context_report` 是唯一模型工具面） |
+
+**复用评估（`docs/ARCHITECTURE-REUSE.md` §4 A，未立项）**：审计结论为「**并存（需收窄）**」——`sessionStats` 的 turns/steps + llm/tool 墙钟 + 首 token / decode 与本包折叠几乎逐项对应，故**可改用已挂载的 `sessionStats` / `turnOutline`**，去掉本包同类折叠、保留 token 与上下文占用口径；落点 `src/{fold,main}.ts`（估 1 h，需先对齐单位与首 token / decode 口径）。本节只记录现状口径，复用改造尚未立项（`session-telemetry` 未挂载，不构成复用面）。
+
+## 目录结构
+
+```
+src/
+  main.ts    # 插件入口：bundle 契约、投影单元定义与注册、provide 面、context_report 工具
+  fold.ts    # 会话级累计折叠（纯函数：事件 → SessionContextState）
+  report.ts  # 报告渲染（状态 + 即时读数 → 结构化报告 + 文本）
+  schema.ts  # SessionContextState 的极简 JSON 校验 schema（宿主 stateSchema.parse 用）
+  types.ts   # 纯类型层（事件子集 / 状态 / 报告 / 服务面），零宿主运行期依赖
+  index.ts   # 包入口：re-export src/main
+tests/       # node:test 单测
+```
 
 ## 测试
 
 ```sh
 npm run check   # 类型检查（tsc --noEmit，strict）
 npm run build   # 编译到 dist/
-npm run test    # node --test（42 例：fold / report / schema / main）
+npm run test    # node --test（44 例：fold / report / main）
 ```
 
 单测全部用构造事件与假宿主 ctx（仿宿主投影注册表的按会话缓存语义）驱动，不依赖 dsh 运行时与文件系统。
+
+宿主面事实见 `docs/host/HOST-PACKAGES.md`（`session-projection` / `token-meter` 挂载与口径）与 `docs/host/DSH-CTX-API.md`；复用评估见 `docs/ARCHITECTURE-REUSE.md` §4 A。

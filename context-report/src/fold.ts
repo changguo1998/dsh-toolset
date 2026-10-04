@@ -1,6 +1,9 @@
 // src/fold.ts — 会话级累计折叠（纯函数，零宿主运行期依赖）
 //
 // 折叠口径（对齐宿主 dsh-session-stats / dsh-token-meter，见包 README「口径」节）：
+// 注：官方 `sessionStats`（轮次 / 墙钟）与 `turnOutline` 投影口径与本折叠重合，本包仍自折叠
+// （token 与上下文占用为官方空缺）；分工与「可改用官方投影」的评估见 README 与
+// docs/ARCHITECTURE-REUSE.md §4 A。
 //   - **只统计已关闭的步**（`step/end`）：步内的模型墙钟、token 分桶、回合计数先挂账在
 //     在途账（scratch）上，`step/end` 时一次提交；未闭合的步一律不计（在途回合不算完成）；
 //   - token 只累计 provider 实际上报的步（`assistant/message.usage`），缺桶按 0；
