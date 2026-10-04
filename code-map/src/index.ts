@@ -337,7 +337,7 @@ function toToolDef(service: CodeMapService) {
     name: "code_map",
     description:
       "代码结构地图：index/refresh 建立项目结构索引（符号表 + import 图）；" +
-      "callers 查某符号的引用（宿主 LSP 可用时 findReferences 精确结果 precision=lsp，否则同名候选 precision=structural）；callees 查符号所在文件的直接 import 目标（文件级）；" +
+      "callers 查某符号的引用（宿主 LSP 可用时 findReferences 精确结果 precision=lsp；标准 profile 不挂 LSP 三件套 → 实际恒回落同名候选 precision=structural）；callees 查符号所在文件的直接 import 目标（文件级）；" +
       "impact 查改动某文件的影响面（反向 import 闭包聚合到模块）；cycles 查文件级依赖环；" +
       "report 出项目/模块报告（统计/模块依赖/环/未引用导出）；summary 查索引就绪状态。",
     parameters: {
