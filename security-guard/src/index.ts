@@ -68,7 +68,7 @@ export type {
 
 /** bundle 条目 id（与 cordis.patch.yml / profile 层一致）。 */
 export const name = "security-guard";
-/** 只读查询面挂载声明（BACKLOG C3 补全：TUI /guard 经 ctx.get('guard') 接线） */
+/** 只读查询面挂载声明（TUI `/guard` 经 `ctx.get('guard')` 接线，服务面接口见 GuardService）。 */
 export const provide = ["guard"];
 
 /** 依赖 services：仅工具运行时存在时挂载（对齐官方 guard/timeout-policy）。 */
