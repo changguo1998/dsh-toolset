@@ -34,7 +34,10 @@ export function parseSlashCommand(line: string): string | null {
   return m ? m[1]! : null;
 }
 
-/** 从表面事件 content 块数组提取纯文本（v1 仅取 text 块；reasoning/tool-result 省略） */
+/** 从表面事件 content 块数组提取纯文本（v1 仅取 text 块；reasoning/tool-result 省略）。
+ *  多块**直连**（不插分隔符）：同一段正文被拆成的连续切片之间本就接续，模型自己写的
+ *  换行在块内；再插 `\n` 会在正文开头/句中多出换行（与结算路径 `assistant/message`
+ *  的 `join("")` 同口径，2026-10-04 统一）。 */
 export function extractTextBlocks(content: unknown): string {
   if (!Array.isArray(content)) return "";
   const parts: string[] = [];
@@ -42,7 +45,7 @@ export function extractTextBlocks(content: unknown): string {
     if (b && b.type === "text" && typeof b.text === "string")
       parts.push(b.text);
   }
-  return parts.join("\n");
+  return parts.join("");
 }
 
 /** notice 摘要上限（对齐宿主 CONTEXT_SUMMARY_MAX_CHARS，超出截断） */

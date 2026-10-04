@@ -1794,7 +1794,7 @@ test("历史会话：listSessions 归一化（id/时间/cwd/live/persisted + 无
       live: true,
       persisted: false,
       hasPrompt: true,
-      title: "你好 第二行",
+      title: "你好第二行",
     },
     {
       id: "old-2",
@@ -1804,7 +1804,7 @@ test("历史会话：listSessions 归一化（id/时间/cwd/live/persisted + 无
       live: false,
       persisted: true,
       hasPrompt: true,
-      title: "你好 第二行",
+      title: "你好第二行",
     },
   ]);
 });
@@ -1812,7 +1812,7 @@ test("历史会话：listSessions 归一化（id/时间/cwd/live/persisted + 无
 test("历史会话：listSessions 标题——官方 session/title 事件优先，缺失本地兜底", async () => {
   const sq = new FakeSessionQuery();
   // 官方批量折叠（真实 settlement 形态）：old-2 官方标题「OFFICIAL TITLE」与本地兜底
-  // 「你好 第二行」不同 → 断言官方优先；live-1 走 rejected 隔离（回落到本地兜底）
+  // 「你好第二行」不同 → 断言官方优先；live-1 走 rejected 隔离（回落到本地兜底）
   sq.readTitleSnapshots = async (ids) =>
     ids.map((id) =>
       id === "old-2"
@@ -1837,7 +1837,7 @@ test("历史会话：listSessions 标题——官方 session/title 事件优先�
   );
   assert.equal(
     byId.get("live-1"),
-    "你好 第二行",
+    "你好第二行",
     "rejected 隔离 → surface 首条用户消息兜底",
   );
 });
@@ -2078,7 +2078,7 @@ test("历史会话：persisted 会话走 readSurface（普通事件归一化，r
   assert.equal(sq.readCalls[0], "surface:old-2");
   assert.equal(view.sessionId, "old-2");
   assert.deepEqual(view.messages, [
-    { role: "user", text: "你好\n第二行" },
+    { role: "user", text: "你好第二行" },
     { role: "assistant", text: "回复正文" },
   ]);
 });
@@ -2093,8 +2093,8 @@ test("历史会话：live store 空事件（resume 入列竞态）→ 回退 per
         : undefined,
   });
   const view = await adapter.readSessionSurface!("old-2");
-  // 空 live 表面 → 回退 readSurface：仍拿到首条用户消息（完整历史，多块换行拼接）
-  assert.equal(view.messages[0]?.text, "你好\n第二行");
+  // 空 live 表面 → 回退 readSurface：仍拿到首条用户消息（完整历史，多块**直连**拼接）
+  assert.equal(view.messages[0]?.text, "你好第二行");
 });
 
 test("历史会话：live 会话经 sessions store 原始事件（agent/inbox/spliced）提取", async () => {
@@ -2110,7 +2110,7 @@ test("历史会话：live 会话经 sessions store 原始事件（agent/inbox/sp
   // live 直接从内存 store 读，不触 readSurface/readSession
   assert.deepEqual(sq.readCalls, []);
   assert.deepEqual(view.messages, [
-    { role: "user", text: "你好\n第二行" },
+    { role: "user", text: "你好第二行" },
     { role: "assistant", text: "回复正文" },
     { role: "user", text: "内存消息：你好" },
     { role: "assistant", text: "内存回复" },
@@ -2128,7 +2128,7 @@ test("历史会话：宿主无 sessions store 且无 readSurface 时回退 readS
   const { adapter } = makeAdapterWithSessionQuery(slim);
   const view = await adapter.readSessionSurface!("old-2");
   assert.deepEqual(view.messages, [
-    { role: "user", text: "你好\n第二行" },
+    { role: "user", text: "你好第二行" },
     { role: "assistant", text: "回复正文" },
   ]);
 });
