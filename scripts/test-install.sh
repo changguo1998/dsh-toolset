@@ -45,6 +45,13 @@ assert_contains() { # assert_contains <文件> <固定串> <说明>
     grep -q -F -- "$2" "$1" || fail "$3（$1 中未找到「$2」）"
     printf '[test-install] 通过：%s\n' "$3"
 }
+assert_not_contains() { # assert_not_contains <文件> <固定串> <说明>
+    if grep -qF -- "$2" "$1"; then
+        fail "$3（不应包含：$2；文件 $1）"
+    else
+        checks=$((checks + 1))
+    fi
+}
 assert_log_contains() { # assert_log_contains <固定串> <说明>：断言最近一次 install.sh 输出
     checks=$((checks + 1))
     grep -q -F -- "$1" "$lastlog" || fail "$2（最近输出中未找到「$1」）"
@@ -408,6 +415,23 @@ assert_log_contains "err line 20" "截断保留前 20 行"
 assert_log_not_contains "err line 21" "截断丢弃后续行"
 
 fake_dsh_ok
+
+# 10c）--sync 收窄选择集：按当前选择集移除本仓库条目（依赖 + bundle），非本仓库条目保留
+#    注：第 6 步的 --force 会重渲染 package.json（用户自加项按设计丢失），故此处先补回自加项
+install_ --plugins "TUI ponytail" --sync
+node -e '
+const fs = require("fs");
+const file = process.argv[1];
+const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+manifest.dependencies["@deepseek-ai/dsh-session-title-all-prompts-llm"] = "0.2.0-rc.2";
+manifest.dsh.profile.bundles.push("@deepseek-ai/dsh-session-title-all-prompts-llm", "some-third-party-bundle");
+fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+' "$manifest"
+install_ --plugins TUI --sync
+assert_not_contains "$manifest" '"@dsh-toolset/ponytail"' "--sync 移除已不在选择集的本仓库条目（依赖 / bundle）"
+assert_contains "$manifest" '"@deepseek-ai/dsh-session-title-all-prompts-llm"' "--sync 收窄后非本仓库依赖仍保留"
+assert_contains "$manifest" '"some-third-party-bundle"' "--sync 收窄后非本仓库 bundle 仍保留"
+assert_log_contains "已按当前选择集移除本仓库条目：bundle [@dsh-toolset/ponytail]" "收窄时打移除日志并列明移除名单"
 
 # 11）接线一致性：canonical_pkgs ←→ 根 check/build 链、test-parallel.sh default_pkgs
 canonical="$(sed -n 's/^canonical_pkgs="\(.*\)"$/\1/p' "$repo_root/scripts/install.sh")"

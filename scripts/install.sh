@@ -39,7 +39,8 @@ usage() {
   --skip-dsh            不安装 / 不校验 dsh（假设 PATH 上已有）
   --skip-build          跳过插件的 npm install 与 build（复用已有 dist/）
   --force               覆盖已存在的 profile 配置文件（内容有变化时才写入并备份）
-  --sync                更新已存在的 profile：合并式补挂本仓库插件（保留非本仓库条目），再跑
+  --sync                更新已存在的 profile：本仓库插件按**当前选择集**刷新（选择集变小则
+                        移除已不在选择集的本仓库依赖 / bundle），非本仓库条目保留，再跑
                         pnpm install；不改写 cordis.patch.yml 的标题 provider 配置（见下）
   --take-over-title     与 --sync 同用：禁用 profile patch 里活跃的官方 all-prompts 标题
                         provider 条目，并把其 provider/model 复制给本仓库的
@@ -390,19 +391,42 @@ if [ -f "$manifest" ] && [ "$sync" = 1 ]; then
         printf '[dry-run] 合并更新 %s\n' "$manifest"
     else
         # 先算合并结果（stdout）再与现状比对：内容未变则不写、不备份（避免堆积 .bak）
-        merged="$(node -e '
+        # 合并语义（--sync）：本仓库插件的依赖与 bundles **按当前选择集刷新**（选择集变小则
+        # 移除已不在选择集的本仓库条目），非本仓库条目（用户自加依赖 / 额外 bundle）一律保留。
+        # 移除清单经 stderr 回传（stdout 只放 manifest JSON，便于直接落盘）。
+        merge_err="$(mktemp "${TMPDIR:-/tmp}/dsh-install-merge.XXXXXX")"
+        if ! merged="$(node -e '
 const fs = require("fs");
-const [file, repoRoot, prefix, ...dirs] = process.argv.slice(1);
+const argv = process.argv.slice(1);
+const split = argv.indexOf("--all");
+const head = split < 0 ? argv : argv.slice(0, split);
+const allDirs = split < 0 ? [] : argv.slice(split + 1);
+const [file, repoRoot, prefix, ...dirs] = head;
 const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+const readName = (dir) => {
+  try {
+    return JSON.parse(fs.readFileSync(`${repoRoot}/${dir}/package.json`, "utf8")).name;
+  } catch {
+    return undefined;
+  }
+};
 const ours = new Set();
+// 仓库内全部插件名（canonical_pkgs）——用来区分「本仓库已移出选择集」与「用户自加」
+const repoNames = new Set(allDirs.map(readName).filter((name) => typeof name === "string"));
 manifest.dependencies ??= {};
 for (const dir of dirs) {
-  const pkg = JSON.parse(fs.readFileSync(`${repoRoot}/${dir}/package.json`, "utf8"));
-  ours.add(pkg.name);
-  manifest.dependencies[pkg.name] = `link:${repoRoot}/${dir}`;
+  const name = readName(dir);
+  if (name === undefined) continue;
+  ours.add(name);
+  manifest.dependencies[name] = `link:${repoRoot}/${dir}`;
 }
 manifest.dsh ??= {};
 manifest.dsh.profile ??= {};
+// 移除本仓库中已不在选择集的依赖（非本仓库依赖原样保留）
+const removedDeps = Object.keys(manifest.dependencies).filter(
+  (name) => repoNames.has(name) && !ours.has(name),
+);
+for (const name of removedDeps) delete manifest.dependencies[name];
 // 键序对齐 pnpm 的生成物约定（本仓库生成物与 fff 侧都是字母序）
 manifest.dependencies = Object.fromEntries(
   Object.entries(manifest.dependencies).sort(([a], [b]) =>
@@ -410,20 +434,34 @@ manifest.dependencies = Object.fromEntries(
   ),
 );
 const existing = Array.isArray(manifest.dsh.profile.bundles) ? manifest.dsh.profile.bundles : [];
-const extras = existing.filter((name) => !ours.has(name) && name !== "@deepseek-ai/dsh-base");
-manifest.dsh.profile.bundles = ["@deepseek-ai/dsh-base", ...dirs.map((dir) => {
-  const pkg = JSON.parse(fs.readFileSync(`${repoRoot}/${dir}/package.json`, "utf8"));
-  return pkg.name;
-}), ...extras];
+const removedBundles = existing.filter(
+  (name) => repoNames.has(name) && !ours.has(name),
+);
+const extras = existing.filter(
+  (name) => !ours.has(name) && !repoNames.has(name) && name !== "@deepseek-ai/dsh-base",
+);
+manifest.dsh.profile.bundles = ["@deepseek-ai/dsh-base", ...dirs.map(readName).filter((name) => name !== undefined), ...extras];
+process.stderr.write(`REMOVED_BUNDLES=${removedBundles.join(",")}\nREMOVED_DEPS=${removedDeps.join(",")}\nKEPT_EXTRAS=${extras.length}\n`);
 process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
-' "$manifest" "$repo_root" link $final)" ||
+' "$manifest" "$repo_root" link $final --all $discovered 2>"$merge_err")"; then
+            # 排障信息（node 的报错）先回显，再清理并退出
+            cat "$merge_err" >&2 2>/dev/null || true
+            rm -f "$merge_err"
             die "合并更新 $manifest 失败"
+        fi
+        removed_bundles="$(sed -n 's/^REMOVED_BUNDLES=//p' "$merge_err")"
+        removed_deps="$(sed -n 's/^REMOVED_DEPS=//p' "$merge_err")"
+        kept_extras="$(sed -n 's/^KEPT_EXTRAS=//p' "$merge_err")"
+        rm -f "$merge_err"
         if [ "$merged" = "$(cat "$manifest")" ]; then
             log "清单内容未变，跳过备份与写入：$manifest"
         else
             backup "$manifest"
             printf '%s\n' "$merged" > "$manifest"
-            log "已更新 $manifest（bundle 数：$(printf '%s' "$final" | wc -w) + dsh-base + 已保留的额外 bundle）"
+            log "已更新 $manifest（本仓库 bundle $(printf '%s' "$final" | wc -w) 个 + dsh-base + 非本仓库额外 ${kept_extras:-0} 个）"
+            if [ -n "${removed_bundles}${removed_deps}" ]; then
+                log "已按当前选择集移除本仓库条目：bundle [${removed_bundles:-无}]、依赖 [${removed_deps:-无}]（非本仓库条目保留）"
+            fi
         fi
     fi
 elif [ -f "$manifest" ] && [ "$force" != 1 ]; then
