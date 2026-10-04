@@ -33,7 +33,7 @@ const TEXT_PARAM = {
 const MATCH_SCHEMA = {
   type: "object",
   description:
-    "命中条件；keywords / regex / predicates 之间是「任一档命中即命中」，predicates 内部为与关系。缺省仅对 turn-end 表示无条件命中",
+    "命中条件；keywords / regex / predicates 之间是「任一档命中即命中」，predicates 内部为与关系。缺省（无有效档位）时：边界类节点（turn-start / turn-end / step-start / step-end / session-start / compaction，文本载荷为空）无条件命中，其余节点永不命中",
   properties: {
     keywords: {
       type: "array",
@@ -74,7 +74,8 @@ const RULE_PARAMS = {
   text: TEXT_PARAM,
   summary: {
     type: "string",
-    description: "一行摘要（宿主 notice 呈现用），缺省取正文首行截断",
+    description:
+      "一行摘要（元数据：呈现面用，并作为 dedupeInRecord 的计数键），缺省取正文首行截断",
   },
   description: { type: "string", description: "规则说明（仅展示）" },
   enabled: { type: "boolean", description: "是否启用，缺省 true" },
