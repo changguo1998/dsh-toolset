@@ -10,23 +10,41 @@ import {
   apply,
   auditPrompt,
   entailPrompt,
+  judgeToolFilter,
   parseVerdictJson,
+  runChildOnce,
 } from "../src/main.ts";
 
 /** 一次裁决 run 的脚本：fake `subagents.start` 依次吐出这些文本（用完后重复最后一个）。 */
 function fakeSubagents(
   replies: string[],
-  options?: { hang?: boolean; structured?: unknown },
+  options?: { hang?: boolean; structured?: unknown; toolFilter?: boolean },
 ): {
   service: Record<string, unknown>;
-  runs: { label: string; prompt: string; outputSchema?: unknown }[];
+  runs: {
+    label: string;
+    prompt: string;
+    outputSchema?: unknown;
+    toolFilter?: unknown;
+  }[];
 } {
-  const runs: { label: string; prompt: string; outputSchema?: unknown }[] = [];
+  const runs: {
+    label: string;
+    prompt: string;
+    outputSchema?: unknown;
+    toolFilter?: unknown;
+  }[] = [];
   const service = {
     list: () => ["spawn"],
     getProvider: () => ({
       name: "spawn",
-      capabilities: { agentOptions: true, outputSchema: true },
+      capabilities: {
+        agentOptions: true,
+        outputSchema: true,
+        ...(options?.toolFilter === undefined
+          ? {}
+          : { toolFilter: options.toolFilter }),
+      },
     }),
     start: (_name: string, request: Record<string, unknown>) => {
       const promptText =
@@ -44,6 +62,9 @@ function fakeSubagents(
         ...(request["outputSchema"] === undefined
           ? {}
           : { outputSchema: request["outputSchema"] }),
+        ...(request["toolFilter"] === undefined
+          ? {}
+          : { toolFilter: request["toolFilter"] }),
       });
       const reply =
         replies[Math.min(runs.length - 1, replies.length - 1)] ?? "";
@@ -72,7 +93,12 @@ interface Bench {
     name: string,
     args: Record<string, unknown>,
   ): Promise<Record<string, unknown>>;
-  runs: { label: string; prompt: string }[];
+  runs: {
+    label: string;
+    prompt: string;
+    outputSchema?: unknown;
+    toolFilter?: unknown;
+  }[];
 }
 
 /** 经 apply 真接线建一个工具台（`subagents` 由 `service` 提供；传 undefined 模拟宿主缺面）。 */
@@ -80,9 +106,15 @@ async function bench(options: {
   replies?: string[];
   service?: Record<string, unknown> | undefined;
   config?: Record<string, unknown>;
+  /** fake provider 是否声明 `toolFilter` 能力位（缺省不声明 = 旧宿主） */
+  toolFilter?: boolean;
+  /** 指定工具名让 `tools.register` 抛错（模拟注册失败：该名字不得进入 deny 名单） */
+  registerFailsFor?: string;
 }): Promise<Bench> {
   const fake =
-    options.replies === undefined ? undefined : fakeSubagents(options.replies);
+    options.replies === undefined
+      ? undefined
+      : fakeSubagents(options.replies, { toolFilter: options.toolFilter });
   const service = options.service ?? fake?.service;
   const tools = new Map<
     string,
@@ -105,6 +137,9 @@ async function bench(options: {
             ): Promise<Record<string, unknown>>;
           };
           tools.set(tool.name, tool);
+          if (tool.name === options.registerFailsFor) {
+            throw new Error("register 失败（测试用）");
+          }
         },
       },
       provide: () => {},
@@ -331,6 +366,135 @@ describe("audit 语义验收（经 apply 真接线）", () => {
     const r = await b.call("task_stop", { task_id: "root" });
     assert.equal(r["ok"], false, JSON.stringify(r));
     assert.match(String(r["feedback"]), /未配置独立 audit run/);
+  });
+});
+
+/** 捕获本次调用期间的 `process.stderr.write`（插件 `warn` 是 stderr 直写，不经 logger）。 */
+async function captureStderr<T>(
+  fn: () => Promise<T>,
+): Promise<{ result: T; out: string }> {
+  const original = process.stderr.write;
+  let out = "";
+  process.stderr.write = ((chunk: unknown): boolean => {
+    out += String(chunk);
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    return { result: await fn(), out };
+  } finally {
+    process.stderr.write = original;
+  }
+}
+
+describe("裁决 run 的工具面收窄（toolFilter：剥掉 task_* 族）", () => {
+  const TASK_TOOL_DENY = [
+    "task_decompose",
+    "task_implement",
+    "task_execute",
+    "task_stop",
+    "task_status",
+  ];
+
+  it("provider 声明 toolFilter → entail / audit run 都带 deny = 本引擎工具名", async () => {
+    const b = await bench({
+      replies: ['{"ok": true}', '{"pass": true}'],
+      toolFilter: true,
+    });
+    await b.call("task_decompose", {
+      parent_id: "root",
+      children: [child("c1", "mechanical")],
+    });
+    const entailRun = b.runs.find((r) => r.label.startsWith("task:entail:"));
+    assert.deepEqual(
+      entailRun?.toolFilter,
+      { deny: TASK_TOOL_DENY },
+      "蕴含门裁决 run 收窄工具面",
+    );
+    await b.call("task_implement", { task_id: "c1", result: "产出" });
+    await b.call("task_stop", { task_id: "c1" });
+    const auditRun = b.runs.find((r) => r.label.startsWith("task:audit:"));
+    assert.ok(auditRun !== undefined, "应有 audit run");
+    assert.deepEqual(
+      auditRun.toolFilter,
+      { deny: TASK_TOOL_DENY },
+      "语义验收裁决 run 收窄工具面",
+    );
+  });
+
+  it("provider 未声明 toolFilter → 降级不收窄（裁决照跑）+ stderr 告警留痕", async () => {
+    const b = await bench({ replies: ['{"ok": true}'] });
+    const { result, out } = await captureStderr(() =>
+      b.call("task_decompose", {
+        parent_id: "root",
+        children: [child("c1")],
+      }),
+    );
+    assert.equal(result["ok"], true, "缺能力位不拒裁决 run: " + out);
+    assert.equal(b.runs.length, 1, "裁决仍然发起");
+    assert.equal(
+      b.runs[0]?.toolFilter,
+      undefined,
+      "未声明能力位时不传 toolFilter（降级）",
+    );
+    assert.match(out, /toolFilter 能力位/, "告警留痕: " + out);
+  });
+
+  it("judgeToolFilter：空名单 / 非 task_ 名 → 不收窄（undefined）", () => {
+    assert.equal(judgeToolFilter([]), undefined);
+    assert.equal(judgeToolFilter(["grep", "read"]), undefined);
+    assert.deepEqual(judgeToolFilter(["task_stop", "task_stop", "read"]), {
+      deny: ["task_stop"],
+    });
+  });
+
+  it("能力位显式为 false → 同样降级（不传 toolFilter，裁决照跑）", async () => {
+    const b = await bench({ replies: ['{"ok": true}'], toolFilter: false });
+    const r = await b.call("task_decompose", {
+      parent_id: "root",
+      children: [child("c1")],
+    });
+    assert.equal(r["ok"], true, JSON.stringify(r));
+    assert.equal(b.runs.length, 1, "裁决仍然发起");
+    assert.equal(b.runs[0]?.toolFilter, undefined, "false 与缺省同路：不收窄");
+  });
+
+  it("注册部分失败 → deny 只含注册成功的名字（防宿主 restrict 未知名抛错）", async () => {
+    const b = await bench({
+      replies: ['{"ok": true}'],
+      toolFilter: true,
+      registerFailsFor: "task_status",
+    });
+    await b.call("task_decompose", {
+      parent_id: "root",
+      children: [child("c1")],
+    });
+    assert.deepEqual(
+      b.runs[0]?.toolFilter,
+      {
+        deny: ["task_decompose", "task_implement", "task_execute", "task_stop"],
+      },
+      "注册失败的 task_status 不得进入 deny 名单",
+    );
+  });
+
+  it("runChildOnce：未请求 toolFilter（executor 路径不传）→ 请求不带该字段", async () => {
+    const fake = fakeSubagents(['{"ok": true}'], { toolFilter: true });
+    const out = await runChildOnce(
+      {
+        resolve: <T>(name: string): T | undefined =>
+          name === "subagents" ? (fake.service as T) : undefined,
+        agent: { session: { id: "s1" } },
+        warn: () => {},
+      },
+      { label: "task:exec:c1", prompt: "干活", requireParent: true },
+    );
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal(fake.runs.length, 1);
+    assert.equal(
+      fake.runs[0]?.toolFilter,
+      undefined,
+      "执行后端（executor 路径）不请求工具面收窄",
+    );
   });
 });
 

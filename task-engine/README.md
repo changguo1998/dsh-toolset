@@ -111,7 +111,7 @@ profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` �
     复用同一 leafId（见上「executor 隔离」）。原计划复用的第三方 `dsh-git-worktree` 至今无实现（本机不存在），
     官方 316 个公开包里也没有 worktree 隔离实现，故自建简易版；未隔离时 `cwd` 仍只做透传（既有行为不变）；
   - 模型路由与计量：`llm` / `agent-default-model`（不自研路由）；
-  - 审批与语义验收：`approval`、`audit` / `entail` —— **已接线**（2026-10-02）：两者各跑一次**裁决子代理**（经 `ctx.subagents`，与 `subagent` 执行后端共用 `runChildOnce`；prompt 只输出一个 JSON 对象，`{"pass"|"ok": boolean, "feedback": string}`，声明了 `outputSchema` 时另带 `structured`）；开关与超时见 Config `semantic`（缺省都开，`timeoutMs` 120s）；**任一次裁决 run 失败 / 超时 / 输出不可解析 → fail-closed 打回**（不假通过）；
+  - 审批与语义验收：`approval`、`audit` / `entail` —— **已接线**（2026-10-02）：两者各跑一次**裁决子代理**（经 `ctx.subagents`，与 `subagent` 执行后端共用 `runChildOnce`；prompt 只输出一个 JSON 对象，`{"pass"|"ok": boolean, "feedback": string}`，声明了 `outputSchema` 时另带 `structured`）；开关与超时见 Config `semantic`（缺省都开，`timeoutMs` 120s）；**任一次裁决 run 失败 / 超时 / 输出不可解析 → fail-closed 打回**（不假通过）；**工具面收窄**（2026-10-04）：裁决 run 带 **`toolFilter.deny` = 本引擎注册成功的全部 `task_*` 工具名**（宿主 `spawn` provider 支持 `toolFilter` → `ctx.tools.restrict`），裁决子代理**看不到** `task_decompose` / `task_implement` / `task_execute` / `task_stop` / `task_status`，无法反向操作同一引擎与任务树（不再只靠 prompt 约束）；名单只在工具**注册成功**后收集（注册是 best-effort；一个都没成功 → 不收窄，避免宿主 `restrict()` 因未知工具名拒绝整次裁决 run）；provider 未声明该能力位时**降级**（不收窄、裁决照跑）并在 stderr 留一条告警（每插件实例一次）；执行后端（`subagent` executor）的工具面**不变**（收窄口径只针对裁决方，见 BACKLOG 条目）；
   - 工具注册与会话面：`tools` / `agents` / `sessions`（需要时的 jobs / schedule 只用于等待，不作调度器）。
   - **明确不替换**：宿主 `todo`（模型面清单，无契约 / deps / 验收 / 溯源，不能当帧栈）、
     `experimental-agent-team` 任务板（跨执行器调度板，可作呈现或辅助，不作 Frame 底座）。

@@ -134,7 +134,12 @@ interface SubagentsLike {
     dispose(): Promise<void>;
   }>;
   getProvider?(name: string): {
-    capabilities?: { agentOptions?: boolean; outputSchema?: boolean };
+    capabilities?: {
+      agentOptions?: boolean;
+      outputSchema?: boolean;
+      /** 子代理工具面收窄（宿主 `tools.restrict`；`spawn` provider 声明支持） */
+      toolFilter?: boolean;
+    };
   };
 }
 
@@ -299,6 +304,22 @@ export type ChildRunOutcome =
     };
 
 /**
+ * 裁决 run（audit / entail）的工具面收窄：剥掉本引擎自己的 `task_*` 族。
+ * 理由：裁决子代理与执行子代理同为**完整 agent**（prompt 只说「不要调用工具」），
+ * 其工具面里带着 `task_stop` / `task_decompose` 等可反向操作同一引擎与任务树。
+ * 宿主 `spawn` provider 支持 `toolFilter.deny`（`ctx.tools.restrict`），故按名收窄；
+ * 名字取自本引擎实际注册的工具（`createTools` 产物），空列表返回 undefined（不过滤）。
+ */
+export function judgeToolFilter(
+  toolNames: readonly string[],
+): { deny: string[] } | undefined {
+  const deny = [...new Set(toolNames)].filter((name) =>
+    name.startsWith("task_"),
+  );
+  return deny.length === 0 ? undefined : { deny };
+}
+
+/**
  * 发起一次子代理运行并等终态（`ctx.subagents.start` + 宿主 `settleRun`）。
  * executor 后端与 audit / entail 裁决 run 共用：能力位检查、父 agent、可选模型/预算覆盖、
  * 超时中止（`timeoutMs` 到点 abort，防止 gate 悬挂）、终态判定与文本提取。
@@ -319,6 +340,8 @@ export async function runChildOnce(
     requireParent?: boolean;
     /** 结构化产出 schema（宿主 `assertObjectJsonSchema` 校验 + 子会话 `structured_output` 工具） */
     outputSchema?: unknown;
+    /** 子代理工具面收窄（宿主 `toolFilter`；仅裁决 run 用，能力位缺失时降级 + 告警） */
+    toolFilter?: { allow?: string[]; deny?: string[] };
   },
 ): Promise<ChildRunOutcome> {
   const svc = opts.resolve<SubagentsLike>("subagents");
@@ -355,6 +378,15 @@ export async function runChildOnce(
     };
   }
   const timeoutMs = req.timeoutMs ?? 600_000;
+  // 工具面收窄（裁决 run）：provider 未声明能力位时**降级**（不收窄）而不是失败——拒掉裁决
+  // run 会让语义门在旧宿主上直接不可用；降级只在告警里留痕（裁决仍受 prompt 约束）。
+  const wantsFilter =
+    req.toolFilter !== undefined &&
+    ((req.toolFilter.allow?.length ?? 0) > 0 ||
+      (req.toolFilter.deny?.length ?? 0) > 0);
+  const filterSupported = caps?.toolFilter === true;
+  // 能力位缺失的降级告警在**调用方**打（实例级 once，见 semanticHooksFor）：裁决 run 本身
+  // 低频，但一个任务至少有 entail + audit 两次，逐次打会刷屏
   let timedOut = false;
   const controller = new AbortController();
   const timer = setTimeout(() => {
@@ -371,6 +403,9 @@ export async function runChildOnce(
         ...(req.outputSchema === undefined
           ? {}
           : { outputSchema: req.outputSchema }),
+        ...(wantsFilter && filterSupported && req.toolFilter !== undefined
+          ? { toolFilter: req.toolFilter }
+          : {}),
         signal: controller.signal,
         ...(wantsOptions
           ? {
@@ -1544,6 +1579,10 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   // 执行期服务解析都从它取）。宿主 `SubagentStartRequest.parent` 是必填（宿主无条件解引用
   // `parent.session`），故 requireParent=true：拿不到 agent 时 fail-closed 而不是省略 parent。
   const semantic = config?.semantic ?? {};
+  /** 本引擎注册的工具名（`createTools` 产物，注册时回填）：裁决 run 按此收窄工具面 */
+  let ownToolNames: string[] = [];
+  /** `toolFilter` 能力位缺失的降级告警是否已打（实例级 once，避免每次裁决 run 刷屏） */
+  let toolFilterDegradeWarned = false;
   /** 执行期服务解析：工具执行 ctx 优先 → 回退插件 ctx（apply 期服务 fiber 常未激活） */
   const serviceResolver =
     (exec: unknown) =>
@@ -1559,6 +1598,29 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       readService<T>(exec, name) ?? readService<T>(ctx, name);
     const parent = (exec as { agent?: unknown } | undefined)?.agent;
     const timeoutMs = semantic.timeoutMs ?? 120_000;
+    // 裁决子代理的工具面收窄（剥掉 `task_*`）：裁决方只该读证据、不该反向操作引擎与树
+    const toolFilter = judgeToolFilter(ownToolNames);
+    // 两侧语义门都关掉时不会跑任何裁决 run → 不告警（否则是误报）
+    const semanticEnabled =
+      semantic.audit !== false || semantic.entail !== false;
+    if (
+      toolFilter !== undefined &&
+      semanticEnabled &&
+      !toolFilterDegradeWarned
+    ) {
+      // 能力位缺失 → 本次不收窄（`runChildOnce` 侧判定），实例内留一条告警
+      const caps =
+        resolve<SubagentsLike>("subagents")?.getProvider?.(
+          SUBAGENT_PROVIDER,
+        )?.capabilities;
+      if (caps?.toolFilter !== true) {
+        toolFilterDegradeWarned = true;
+        warn(
+          `provider ${SUBAGENT_PROVIDER} 未声明 toolFilter 能力位：裁决子代理的工具面未收窄` +
+            "（仍可见 task_* 族，仅靠 prompt 约束；本条告警每个插件实例只打一次）",
+        );
+      }
+    }
     const audit: (req: AuditRequest) => Promise<AuditVerdict> = async (req) => {
       const out = await runChildOnce(
         { resolve, agent: parent, warn },
@@ -1567,6 +1629,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
           prompt: auditPrompt(req),
           requireParent: true,
           timeoutMs,
+          ...(toolFilter === undefined ? {} : { toolFilter }),
           ...(req.outputSchema === undefined
             ? {}
             : { outputSchema: verdictEnvelope("pass", req.outputSchema) }),
@@ -1608,6 +1671,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
           ),
           requireParent: true,
           timeoutMs,
+          ...(toolFilter === undefined ? {} : { toolFilter }),
           outputSchema: verdictEnvelope("ok"),
         },
       );
@@ -1687,15 +1751,21 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   }
 
   const tools = createTools(engine, toolCtx);
+  // 裁决 run 的 toolFilter 按**实际注册成功**的工具名构造（宿主 `restrict()` 对未知全局工具名
+  // 抛错 → 名字写错 / 没注册成功会让裁决 run 直接发起失败；注册是 best-effort、`ctx.tools`
+  // 缺失时整段跳过，故一个都没注册成功就交空名单 = 不收窄）
+  const registeredNames: string[] = [];
   if (toolsSvc !== undefined && typeof toolsSvc.register === "function") {
     for (const t of tools) {
       try {
         toolsSvc.register(toDshTool(t));
+        registeredNames.push(t.name);
       } catch (err) {
         warn(`工具 ${t.name} 注册失败：${String(err)}`);
       }
     }
   }
+  ownToolNames = registeredNames;
 
   // 只读查询面挂到 ctx（防御降级，与 metric-loop/C5 同款）：供 TUI /task 接线
   const provideSvc = (
