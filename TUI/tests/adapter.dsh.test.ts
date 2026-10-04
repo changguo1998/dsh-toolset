@@ -4831,7 +4831,7 @@ test("真实 adapter /task：refreshTasks 归一化（嵌套缩进/状态/payloa
   await adapter.refreshTasks?.();
   const rows = panelRows(events, "task");
   assert.equal(rows.length, 2);
-  assert.equal(rows[0]?.title, "根任务");
+  assert.equal(rows[0]?.title, "根任务", "单轮不加轮次标注");
   assert.equal(rows[0]?.status, "active");
   assert.equal(rows[0]?.payload, "root");
   assert.ok(
@@ -4941,6 +4941,183 @@ test("真实 adapter /task：taskEngine 缺失 → refreshTasks reject", async (
   const { adapter, unbind } = makeAdapter();
   const call = adapter.refreshTasks!();
   await assert.rejects(call, /taskEngine 未挂载/);
+  unbind();
+});
+
+test("真实 adapter /task：多根但无 round（旧版引擎）→ 整片回落轮根序号", async () => {
+  const snap = {
+    tasks: [
+      {
+        id: "root",
+        parentId: null,
+        order: 0,
+        title: "R1",
+        status: "done",
+        needDecompose: true,
+      },
+      {
+        id: "root-2",
+        parentId: null,
+        order: 0,
+        title: "R2",
+        status: "pending",
+        needDecompose: true,
+      },
+    ],
+    frameStack: [],
+    activeCount: 0,
+    isComplete: false,
+  };
+  const services: AdapterServices = { taskEngine: { query: () => snap } };
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  await adapter.refreshTasks?.();
+  const rows = panelRows(events, "task");
+  assert.equal(rows[0]?.title, "旧轮 1 · R1");
+  assert.equal(rows[1]?.title, "当前轮 2 · R2");
+  unbind();
+});
+
+test("真实 adapter /task：空森林 → 无行不抛（面板走空态占位）", async () => {
+  const snap = {
+    tasks: [],
+    frameStack: [],
+    activeCount: 0,
+    isComplete: false,
+  };
+  const services: AdapterServices = { taskEngine: { query: () => snap } };
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  await adapter.refreshTasks?.();
+  const rows = panelRows(events, "task");
+  assert.equal(rows.length, 0);
+  unbind();
+});
+
+// 多轮（2026-10-05）：森林 > 1 棵时各**轮根行**行首标注轮次（旧轮 / 当前轮）；
+// 子帧行不加（缩进已归属各轮），单轮不加（零噪声）；轮次取引擎 `round`，缺省回落轮根序号。
+
+test("真实 adapter /task：多轮 → 轮根行标注轮次，子帧行不加", async () => {
+  const snap = {
+    tasks: [
+      {
+        id: "root",
+        parentId: null,
+        order: 0,
+        title: "根任务",
+        status: "done",
+        needDecompose: true,
+        round: 1,
+        children: [
+          {
+            id: "c1",
+            parentId: "root",
+            order: 0,
+            title: "旧轮子帧",
+            status: "done",
+            needDecompose: false,
+          },
+        ],
+      },
+      {
+        id: "root-2",
+        parentId: null,
+        order: 0,
+        title: "根任务",
+        status: "active",
+        needDecompose: true,
+        round: 2,
+        children: [
+          {
+            id: "c2",
+            parentId: "root-2",
+            order: 0,
+            title: "新轮子帧",
+            status: "pending",
+            needDecompose: false,
+          },
+        ],
+      },
+    ],
+    frameStack: ["root-2", "c2"],
+    activeCount: 1,
+    isComplete: false,
+  };
+  const services: AdapterServices = { taskEngine: { query: () => snap } };
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  await adapter.refreshTasks?.();
+  const rows = panelRows(events, "task");
+  assert.equal(rows.length, 4);
+  assert.equal(rows[0]?.title, "旧轮 1 · 根任务");
+  assert.equal(rows[0]?.detail, "done · 待拆分");
+  assert.equal(rows[1]?.title, "  旧轮子帧", "子帧行不带轮次标注");
+  assert.equal(rows[2]?.title, "当前轮 2 · 根任务");
+  assert.equal(rows[3]?.title, "  新轮子帧");
+  unbind();
+});
+
+test("真实 adapter /task：id 跳号（root / root-3）按引擎 round 标注，不用 id 后缀", async () => {
+  const snap = {
+    tasks: [
+      {
+        id: "root",
+        parentId: null,
+        order: 0,
+        title: "R1",
+        status: "done",
+        needDecompose: true,
+        round: 1,
+      },
+      {
+        id: "root-3",
+        parentId: null,
+        order: 0,
+        title: "R2",
+        status: "pending",
+        needDecompose: true,
+        round: 2,
+      },
+    ],
+    frameStack: [],
+    activeCount: 0,
+    isComplete: false,
+  };
+  const services: AdapterServices = { taskEngine: { query: () => snap } };
+  const { adapter, events, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  await adapter.refreshTasks?.();
+  const rows = panelRows(events, "task");
+  assert.equal(rows[0]?.title, "旧轮 1 · R1");
+  assert.equal(
+    rows[1]?.title,
+    "当前轮 2 · R2",
+    "root-3 是第 2 轮，不是第 3 轮",
+  );
   unbind();
 });
 

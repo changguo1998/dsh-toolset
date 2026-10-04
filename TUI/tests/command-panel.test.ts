@@ -346,6 +346,43 @@ test("渲染：超宽截断不切半个 CJK（显示宽度 ≤ width）", () => 
   }
 });
 
+test("渲染：/task 轮次标注在行首，窄面板右截断后仍可见", () => {
+  // 面板行右截断（renderCommandListPanel → truncateToWidth），故轮次标注必须靠左。
+  // 宽度口径：28 = 随包 tui.config.json（activityPlacement auto、statusColumnDivisor 5）
+  // 下 80×24 的实测面板宽（activityTextW）；40 为更宽一档的对照。
+  const panel = panelOf({
+    kind: "task",
+    rows: [
+      {
+        title: "旧轮 1 · 任务面板多轮无轮次标识",
+        detail: "done · 待拆分",
+        status: "done",
+        payload: "root",
+      },
+      {
+        title: "当前轮 2 · 任务面板多轮无轮次标识",
+        detail: "active · 待拆分",
+        status: "active",
+        payload: "root-2",
+      },
+      {
+        title: "  子帧行不带轮次标注",
+        detail: "pending",
+        status: "pending",
+        payload: "c1",
+      },
+    ],
+  });
+  for (const w of [28, 40]) {
+    const rows = rowsOf(panel, 5, w);
+    assert.match(rows[1] ?? "", /旧轮 1 · /, `宽 ${w}：旧轮标注可见`);
+    assert.match(rows[2] ?? "", /当前轮 2 · /, `宽 ${w}：当前轮标注可见`);
+    for (const r of rows) {
+      assert.ok(displayWidth(r) <= w, `行宽 ${displayWidth(r)} ≤ ${w}: ${r}`);
+    }
+  }
+});
+
 // ---------- /skills 命令（App 级） ----------
 
 test("routeSlashCommand: /skills → skills", () => {

@@ -3186,7 +3186,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       return { id: child.id, title: child.title };
     },
-    /** 任务面板：经 task-engine `query()` 只读面先序展平为行（标题 + 状态）推送；未挂载 reject */
+    /** 任务面板：经 task-engine `query()` 只读面先序展平为行（标题 + 状态）推送；未挂载 reject。
+     *  多轮（森林 > 1 棵）时给**轮根行**标注轮次——标注放 title **行首**（行右侧先被
+     *  `truncateToWidth` 截掉，detail 尾的标注在窄面板会先消失）；标注只在本映射里加，
+     *  不写进 `flattenTasks`（`findTask` / taskDetail 复用同一函数，详情不加轮次行）。 */
     async refreshTasks(): Promise<void> {
       const svc = opts.taskEngine;
       if (!svc || typeof svc.query !== "function") {
@@ -3194,12 +3197,34 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       try {
         const snap = svc.query();
-        const rows = flattenTasks(snap.tasks).map((t) => ({
-          title: t.depth > 0 ? `${"  ".repeat(t.depth)}${t.title}` : t.title,
-          detail: `${t.status}${t.needDecompose ? " · 待拆分" : ""}`,
-          status: t.status,
-          payload: t.id,
-        }));
+        const forest = snap.tasks;
+        // 轮根 id → 轮次：引擎 `round`（id 跳号不代表轮次）**全有才用**；任一轮根缺 `round`
+        // 则整片回落轮根序号——避免同一森林里两种口径混用串号（多轮与 `round` 同版本引入，
+        // 旧版引擎恒单根，故该回落实际不可达）
+        const allRounded = forest.every((t) => typeof t.round === "number");
+        const roundOf = new Map(
+          forest.map((t, i): [string, number] => [
+            t.id,
+            allRounded && typeof t.round === "number" ? t.round : i + 1,
+          ]),
+        );
+        const currentRootId = forest[forest.length - 1]?.id;
+        const multiRound = forest.length > 1;
+        const rows = flattenTasks(forest).map((t) => {
+          const round = t.depth === 0 ? roundOf.get(t.id) : undefined;
+          const tag =
+            !multiRound || round === undefined
+              ? ""
+              : t.id === currentRootId
+                ? `当前轮 ${round} · `
+                : `旧轮 ${round} · `;
+          return {
+            title: `${tag}${t.depth > 0 ? `${"  ".repeat(t.depth)}${t.title}` : t.title}`,
+            detail: `${t.status}${t.needDecompose ? " · 待拆分" : ""}`,
+            status: t.status,
+            payload: t.id,
+          };
+        });
         emit({
           type: "command-panel-data",
           kind: "task",

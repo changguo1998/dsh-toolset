@@ -1254,6 +1254,8 @@ export interface TaskEngineTaskLike {
   title: string;
   status: string;
   needDecompose: boolean;
+  /** 多轮根帧（2026-10-05）：轮次，1 起；只出现在**轮根**上（子帧无）。旧版引擎无此字段 */
+  round?: number;
   children?: readonly TaskEngineTaskLike[];
 }
 

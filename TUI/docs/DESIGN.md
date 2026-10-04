@@ -358,6 +358,7 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 - 渲染为单一 `components/CommandListPanel.ts`（`buildCommandListPanelBox` + `renderCommandListPanel` 薄包装 `fillBoxTree`）：首行标题青 + 计数 + 右侧灰提示（按剩余宽截断），行 = `> ` 高亮 + 可选符号 + 主文本 — 副文本；占位态（错误红 > 加载中灰 > 空列表灰）输出恰 `height` 行。
 - **接线（现状）**：`layout.buildActivePanelBox` 按优先级选型（`commandPanel` 在 `jobsPanel` 与 `history` 之间）；`frameGeometry` 的 `modalOpen` 一次性判定 7 类面板非空（approval / question / picker / statusPanel / jobsPanel / commandPanel / history），`normalInput = !modalOpen`、`showHint` 随之派生——布局层已无独立的 `normalInput` / `modalOpen` 条件拼接；`inputPanelHeights` 提供翻页页高（与面板窗口同口径）。
 - 键位在 `handleKey` 面板段：`↑/↓`、`PgUp/PgDn`、`Enter` 主操作、`Esc` 关闭、其余吞掉（面板打开时不可输入新命令）。面板占满活动区期间瞬态输出不可见，故 Enter 类主操作若以 notice 反馈，先关面板再提示。
+- **多轮任务的轮次标注（`/task`，2026-10-05）**：task-engine 多轮后 `query().tasks` 是森林（轮根 `root` / `root-2` / `root-3…`，旧轮只读），而面板是平表 —— 森林 > 1 棵时 `refreshTasks` 给**各轮根行**的行首加标注（`旧轮 n · ` / `当前轮 n · `，轮次取 `round`，旧版引擎回落轮根序号），子帧行与单轮不加。标注必须在 title **行首**：渲染是 `title — detail` 单行右截断（`CommandListPanel.ts`），detail 尾的内容在窄面板首个消失。标注只在该行映射里加，不写进 `flattenTasks`（`findTask` / `taskDetail` 复用同一函数，详情不加轮次行）。
 - **面板保鲜**：`/agents` 与 `/workflows` 在面板打开期间定时重拉（`startPanelRefresh`，默认 2s，`agentsRefreshIntervalMs` 可注入；tick 自检面板仍为自身否则停表），`/agents` 另有 `r` 手动刷新；**TUI#10** 起 `/agents` 还订阅宿主 `subagent/start` · `subagent/end`（adapter emit `subagent-activity`）在面板打开时即时重拉，2s 定时退为兜底（老宿主无此事件时静默）。
 
 ### 非显然实现要点
