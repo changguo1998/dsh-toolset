@@ -22,10 +22,11 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 逻辑结构**（单文件
 - **安全语义**：每条 edit 的 `heading`（标题文本，与 `structure` 输出一致）+ `startLine` / `endLine`（`L{start}-{end}`）必须与**当前**文件解析结果一致；不一致 → `section_drift`（带当前范围，重新 `structure` 后再改）；标题不存在 → `section_missing`；区间重叠（父节含子节 / 同一节两条）→ `overlap`；参数非法 → `edits_invalid`。校验优先级：`edits_invalid` → `range_out_of_bounds`（行号越界）→ `section_missing` / `section_drift` / `section_stale`（按 edits 数组顺序）→ `content_invalid` → `overlap`。
 - **节内容 hash 锚点**（2026-10-04）：`structure` 每行附 `·#xxxxxxxx` = `sha256(节原文行 [line, endLine] 含端点，以 \n 连接)` 前 8 位 hex（BOM / `\r\n` 不参与，与解析同归一；行内空白**敏感**、不 trim）。edit 可带可选 `section_hash`（须 8 位 hex，容忍抄渲染行时带的引号 / 反引号；格式不符 → `edits_invalid`），与当前内容不符 → `section_stale`（带当前范围与 hash；整批不落盘）——补「同标题 + 同范围但节体 / 标题层级已被外部改动」的漂移盲区。注意 hash 覆盖**标题行与全部子节**：改子节会使其所有祖先节的旧 hash 失效（fail-safe，重取 `structure` 即可）；不带 `section_hash` 时语义与旧版一致。
 - **`content` 结构守卫**：非空 `content` 必须以标题行开头（ATX / setext），否则 `content_invalid`（防该节被静默并入父节、节从节树消失）；setext 首行在目标节前一行非空时会吞并上一段 → 此时改用 ATX；空串 = 删除该节。以 frontmatter、缩进代码块开头，或标题在引用 / 列表内的都不算「首行标题」，会被拒。
+- **层级一致**（2026-10-04）：首行标题的**层级**须与目标节一致——标题**文本**可以不同（合法重命名，放行），层级不同则 `content_invalid`。理由：节树按层级嵌套，改层级会连带改变其后同级 / 更低级别节的归属（`##` → `###` 把后续节吞成子节、`##` → `#` 把父节挤出）。**首行之外**的标题同理只允许**更深**层级（内嵌同级 / 更高级标题会提前收束该节、把后续节吞进新父节，同样拒绝）。确需改层级时走显式路径：改写**父节**的 `content`（把该节及其子节一并按新层级写入），或先用 `content=""` 删除该节后在父节内重建；**顶层节**（无父节）改层级请改用 `hash_edit` / 官方 `edit` 整体改写。setext 与 ATX 等价（`===` = h1、`---` = h2，按层级判定，不按写法）。
 - **原子性**：所有 edit 先在内存里自下而上应用（坐标基于原文），**全部通过才写盘**；写盘走同目录临时文件 + `rename`，失败清理临时文件、**目标文件字节不变**；疑似二进制（含 NUL）拒写。**读→rename 的 TOCTOU 复核**：读盘时记文件签名（`ino` / `size` / `mtimeMs`），写临时文件后、`rename` 前复 `stat` 比对，不符 → `file_changed`（拒写，防「读完之后文件被外部改写 / 原子替换」被覆盖）；残余窗口 = 本次 `stat` 到 `rename` 之间的微秒级——**尽力而为**，不是完整事务（同尺寸且同 mtime 粒度的改写理论上可漏）。
 - **风格保留**：BOM 与换行风格（`\r\n` / `\n`）原样保留；`content` 按文件风格落盘。删除节保留原分隔空行（不做空行折叠）。
 - **三方分工**：`md_logic replace` = **按节**（标题 + 行范围 + 内容 hash 漂移检测，整节替换）；`hash_edit` = **行级** LINE:HASH 锚点；官方 `edit` = **文件级**字符串替换 + 版本守卫。
-- **不做**：插入 / 移动节、Markdown 语法校验（只保证结构漂移安全 + `content` 首行标题守卫）；不校验 `content` 首行标题与 `heading` 的文本 / 级别一致性。
+- **不做**：插入 / 移动节、Markdown 语法校验（只保证结构漂移安全 + `content` 首行标题与层级守卫）；不校验 `content` 首行标题与 `heading` 的**文本**一致性（改名属合法操作，放行）。
 
 渲染口径：紧凑文本而非 JSON dump；行号 **1 基**，范围起止相同折叠为 `L{n}`；每类上限 **80 行**，超出以「…（其余 N 条略）」收尾。
 

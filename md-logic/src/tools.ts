@@ -184,7 +184,7 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
       "action=blocks 按类型 / 节 / 行范围列块（list / table / code / quote / frontmatter / html / hr，" +
       "带列表条目数与嵌套层数、表格行列数、代码围栏语言），action=links 列链接、图片与引用式定义（[tag]: url）。" +
       "选择成本：只要标题 + 块快览用 fs_digest（轻量、与三模式统一）；要节行范围配 read 按节读、" +
-      "要链接清单 / 块细节 / 嵌套信息用本工具；action=replace 按节**整节替换 / 删除**（edits 带 heading + start_line / end_line，均来自 structure；可选 section_hash = structure 的内容 hash，不符 → section_stale（同标题同范围但节体 / 层级已被外部改动的漂移盲区）；替换前重新解析校验「同标题 + 同范围」仍成立，漂移即拒；content 非空时必须以标题行开头（ATX / setext），否则 content_invalid；整批原子写、失败不落盘；读→写之间文件被外部改动 → file_changed）。改写分工：本工具 replace = 按节（标题 + 行范围 + 内容 hash 漂移检测）；hash_edit = 行级 LINE:HASH 锚点；官方 edit = 文件级字符串替换 + 版本守卫。" +
+      "要链接清单 / 块细节 / 嵌套信息用本工具；action=replace 按节**整节替换 / 删除**（edits 带 heading + start_line / end_line，均来自 structure；可选 section_hash = structure 的内容 hash，不符 → section_stale（同标题同范围但节体 / 层级已被外部改动的漂移盲区）；替换前重新解析校验「同标题 + 同范围」仍成立，漂移即拒；content 非空时必须以标题行开头（ATX / setext）且**层级与目标节一致**（标题文本可不同；首行之外只允许更深层级，否则 content_invalid——改层级会改动节树归属，顶层节请改用 hash_edit / 官方 edit）；整批原子写、失败不落盘；读→写之间文件被外部改动 → file_changed）。改写分工：本工具 replace = 按节（标题 + 行范围 + 内容 hash 漂移检测）；hash_edit = 行级 LINE:HASH 锚点；官方 edit = 文件级字符串替换 + 版本守卫。" +
       "行号 1 基；path 相对会话 cwd。",
     parameters: {
       type: "object",
@@ -241,7 +241,7 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
         edits: {
           type: "array",
           description:
-            "replace 用：改写指令数组——heading 为目标节标题文本（与 structure 输出一致，不含 #）、start_line / end_line 为该节行范围（来自 structure）、content 为整节新文本（非空时必须以标题行开头：ATX / setext；空串 = 删除该节）、可选 section_hash 为目标节内容 hash（structure 的 ·#xxxxxxxx）",
+            "replace 用：改写指令数组——heading 为目标节标题文本（与 structure 输出一致，不含 #）、start_line / end_line 为该节行范围（来自 structure）、content 为整节新文本（非空时必须以标题行开头：ATX / setext，且首行标题层级须与目标节一致、首行之外只允许更深层级；空串 = 删除该节）、可选 section_hash 为目标节内容 hash（structure 的 ·#xxxxxxxx）",
           items: {
             type: "object",
             required: ["heading", "start_line", "end_line", "content"],
@@ -260,7 +260,7 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
               content: {
                 type: "string",
                 description:
-                  "整节新文本（非空时必须以标题行开头：ATX / setext；空串 = 删除该节）",
+                  "整节新文本（非空时必须以标题行开头：ATX / setext，且首行标题层级须与目标节一致、首行之外只允许更深层级；空串 = 删除该节）",
               },
               section_hash: {
                 type: "string",

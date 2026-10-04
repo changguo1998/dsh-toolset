@@ -5,7 +5,8 @@
 //   （该节行范围，来自 `structure`）；替换前重新解析，要求「同标题 + 同范围」仍成立，否则拒绝并回报当前范围；
 // - **整批原子**：全部 edit 校验通过才算新文本；任何一条失败 → 整体不落盘（文件字节不变）；
 // - **原文风格保留**：BOM 与换行风格（`\r\n` / `\n`）原样保留，避免整文件 diff；
-// - 不做 Markdown 语法校验（只保证结构漂移安全 + 非空 content 必须以标题行开头）。
+// - 不做 Markdown 语法校验（只保证结构漂移安全 + content 结构守卫：非空 content 必须以标题行开头，
+//   首行标题层级须与目标节一致、首行之外只允许更深层级——否则会静默改变其后节的归属）。
 //
 // 分工：`hash_edit` 是行级 LINE:HASH 锚点（细粒度行编辑）；官方 `edit` 是文件级字符串替换 + 版本守卫；
 // 本模块是**按节**（标题 + 行范围）整节替换 / 删除。
@@ -259,7 +260,13 @@ export function replaceSections(
   }
 
   // ① 逐条定位 + 漂移校验（同标题 + 同范围仍成立）
-  const located: { edit: SectionEdit; line: number; endLine: number }[] = [];
+  const located: {
+    edit: SectionEdit;
+    line: number;
+    endLine: number;
+    /** 目标节当前标题层级（content 首行标题须与之一致，见 ①.5 层级守卫） */
+    level: number;
+  }[] = [];
   for (const edit of edits) {
     const sameTitle = flat.filter((node) => node.title === edit.heading);
     if (sameTitle.length === 0) {
@@ -308,12 +315,20 @@ export function replaceSections(
         };
       }
     }
-    located.push({ edit, line: only.line, endLine: only.endLine });
+    located.push({
+      edit,
+      line: only.line,
+      endLine: only.endLine,
+      level: only.level,
+    });
   }
 
   // ①.5 content 结构守卫（放在①后：漂移 / 缺失优先，保持既有错误优先级）：
   //      非空 content 必须以标题行开头（ATX / setext），否则该节会被静默并入父节（节从节树消失）；
   //      空串 = 删除该节。setext 首行还会把紧邻的上一段吞进标题文本，故目标节前一行非空时要求 ATX。
+  //      首行标题的**层级**须与目标节一致（标题文本可不同 = 合法重命名，放行）：节树按层级嵌套，
+  //      改层级会连带改变其后同级 / 更低级别节的归属（父节被吞或子节被挤出），故拒绝并要求显式路径；
+  //      content 内**首行之外**的标题只允许更深层级（同级 / 更高级同样会改动后续节的归属）。
   for (const item of located) {
     const content = item.edit.content;
     if (content === "") continue; // 空串 = 删除该节（既有语义）
@@ -339,6 +354,36 @@ export function replaceSections(
         error:
           `edit.content 的 setext 标题会吞并紧邻的上一段（第 ${item.line - 1} 行非空），标题文本会变成「上一段 + content 首行」；` +
           `改用 ATX 标题（如「## ${first.title}」）`,
+      };
+    }
+    // 层级守卫：标题文本可以变（重命名），层级不能悄悄变——节树按层级嵌套，改层级会连带
+    // 改变其后同级 / 更低级别节的归属（例：h2 → h3 会把后续节变成该节的子节）
+    if (first.level !== item.level) {
+      return {
+        ok: false,
+        code: "content_invalid",
+        error:
+          `edit.content 首行标题的层级与目标节不一致（content 为 h${first.level}，节「${item.edit.heading}」为 h${item.level}）：` +
+          "改层级会连带改变其后同级 / 更低级别节的归属（节树按层级嵌套），故拒绝；" +
+          '确需改层级时改写**父节**的 content（把该节及其子节一并按新层级写入），或先用 content="" 删除该节后在父节内重建；' +
+          "顶层节（无父节）改层级请改用 hash_edit / 官方 edit 整体改写（replace 只在节树内保证结构安全）",
+      };
+    }
+    // 首行之外的标题也不能「≤ 目标节层级」：内嵌同级 / 更高级标题同样会改动其后节的归属
+    // （例：h2 节的 content 里写 `# 偷渡` → 该节被提前收束，后续同级节被吞进新顶层节）
+    const stray = flattenSections(
+      parseMarkdownDocument(normalizedContent).sections,
+    )
+      .slice(1)
+      .find((node) => node.level <= item.level);
+    if (stray !== undefined) {
+      return {
+        ok: false,
+        code: "content_invalid",
+        error:
+          `edit.content 内含层级不高于目标节的标题（「${stray.title}」为 h${stray.level}，节「${item.edit.heading}」为 h${item.level}）：` +
+          "会改变其后同级 / 更低级别节的归属（节树按层级嵌套）；" +
+          `content 内除首行标题（须为 h${item.level}）外只允许**更深**层级的标题（h${item.level + 1} 及以下）`,
       };
     }
   }

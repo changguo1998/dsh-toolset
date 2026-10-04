@@ -275,6 +275,74 @@ test("replaceSections：content 非空必须以标题行开头（防静默并入
   if (!driftFirst.ok) assert.equal(driftFirst.code, "section_drift");
 });
 
+test("replaceSections：content 首行标题层级须与目标节一致（改层级拒绝，改标题文本放行）", () => {
+  const range = rangeOf(DOC, "乙节"); // `## 乙节` = h2
+  // ① 降级 h2 → h3：拒（其后同级 / 更低级别节会被吞成该节的子节）
+  const demote = replaceSections(DOC, [
+    { heading: "乙节", ...range, content: "### 乙节\n\n乙已改写。" },
+  ]);
+  assert.equal(demote.ok, false);
+  if (!demote.ok) {
+    assert.equal(demote.code, "content_invalid");
+    assert.match(demote.error, /层级/);
+  }
+  // ② 升级 h2 → h1：同样拒（会把父节挤出）
+  const promote = replaceSections(DOC, [
+    { heading: "乙节", ...range, content: "# 乙节\n\n乙已改写。" },
+  ]);
+  assert.equal(promote.ok, false);
+  if (!promote.ok) assert.equal(promote.code, "content_invalid");
+  // ③ setext h1（`===`）与目标 h2 不等价 → 拒（风格可换，层级不可）
+  const setextH1 = replaceSections(DOC, [
+    { heading: "乙节", ...range, content: "乙节\n===\n\n乙已改写。" },
+  ]);
+  assert.equal(setextH1.ok, false);
+  if (!setextH1.ok) assert.equal(setextH1.code, "content_invalid");
+  // ④ 同层级改标题文本（合法重命名）→ 放行
+  const rename = replaceSections(DOC, [
+    { heading: "乙节", ...range, content: "## 乙节（改名）\n\n乙已改写。" },
+  ]);
+  assert.equal(rename.ok, true, JSON.stringify(rename));
+  if (rename.ok) {
+    assert.match(rename.text, /## 乙节（改名）/);
+    assert.ok(!rename.text.includes("### 乙节"), "改层级不得落盘");
+  }
+  // ⑤ 同一批「一条合法 + 一条改层级」→ 整批拒绝（原子）
+  const mixed = replaceSections(DOC, [
+    {
+      heading: "甲节",
+      ...rangeOf(DOC, "甲节"),
+      content: "## 甲节\n\n甲已改写。",
+    },
+    { heading: "乙节", ...range, content: "### 乙节\n\n乙已改写。" },
+  ]);
+  assert.equal(mixed.ok, false);
+  if (!mixed.ok) assert.equal(mixed.code, "content_invalid");
+  // ⑥ 首行之外内嵌更高级标题（`# 偷渡`）→ 拒（该节被提前收束，后续同级节被吞进新顶层节）
+  const stray = replaceSections(DOC, [
+    {
+      heading: "乙节",
+      ...range,
+      content: "## 乙节\n\n乙已改写。\n\n# 偷渡\n\n新的顶层节。",
+    },
+  ]);
+  assert.equal(stray.ok, false);
+  if (!stray.ok) {
+    assert.equal(stray.code, "content_invalid");
+    assert.match(stray.error, /更深/);
+  }
+  // ⑦ 首行之外内嵌更深层级标题（子节）→ 放行（节树内的合法扩展）
+  const deeper = replaceSections(DOC, [
+    {
+      heading: "乙节",
+      ...range,
+      content: "## 乙节\n\n乙已改写。\n\n### 子节\n\n子节正文。",
+    },
+  ]);
+  assert.equal(deeper.ok, true, JSON.stringify(deeper));
+  if (deeper.ok) assert.match(deeper.text, /### 子节/);
+});
+
 test("replaceSections：setext 首行 + 目标节前一行非空 → 拒（会吞并上一段）", () => {
   // 反例：替换 B 后「body A + T2 + ---」被解析为同一个 setext 标题，前节正文丢失
   const doc = "# H\n\n## A\n\nbody A\n## B\n\nbody B\n";
