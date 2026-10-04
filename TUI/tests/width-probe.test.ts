@@ -133,6 +133,10 @@ test("isWidthUncertainChar：只认「可能判错」的字符（EAW 歧义 / em
     "\u26A0", // ⚠
     "\u25CB", // ○
     "\u2500", // ─ 框线（EAW=A）
+    "\u27F3", // ⟳ goal 行开关状态（补充箭头 A，2026-10-04 纳入符号块）
+    "\u27F8", // ⟸ 会话记录符号白名单（同块）
+    "\u27F9", // ⟹
+    "\u27FA", // ⟺
   ]) {
     assert.equal(
       isWidthUncertainChar(ch.codePointAt(0)!),

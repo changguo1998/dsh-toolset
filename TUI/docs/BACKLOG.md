@@ -7,6 +7,4 @@
 
 ## 待办
 
-> 临时分组（2026-10-04：新增 1 条；条目结构见文件头）。
-
-1. **宽度表生成器与检入表不同步（`⟳` 等符号恒按 1 列）**：现象 —— `TUI/scripts/gen-width-table.mts` 重新生成时，与检入的 `TUI/src/app/layout/eaw-table.ts` 不一致：仅补一段 ranges（`SYMBOL_UNCERTAIN_RANGES` 加 `[0x27c0,0x27ff]`）重生成即产生 229 行 diff（108 增 / 122 删，区间归并差异）。期望 —— 先查清漂移来源（谁生成、为何不一致、是否有手工编辑或生成器版本差异），把生成器与检入表对齐后再谈补字符：`⟳`（U+27F3）不在 `SYMBOL_UNCERTAIN_RANGES` 内，故永远按 1 列且无自校正（注意 `[0x27c0,0x27ef]` **不含** U+27F3，须用 `[0x27c0,0x27ff]`）。落点 —— `TUI/scripts/gen-width-table.mts` + `TUI/src/app/layout/eaw-table.ts`（必要时 `TUI/tests/width-table.test.ts` / `width-eaw.test.ts`）。验收 —— 生成器与检入表零 diff（或在脚本内固化为可重放产物）；补进 ranges 后 `⟳` 走自校正路径且有对应用例。来源：`docs/archived/2026-10-04-tui-goal-activation-symbol.md` 探针记录（2026-10-04，原条目「goal 状态行补 activation」拆出）· 状态：待接取 · 优先级：P3。
+（当前无未完成项）

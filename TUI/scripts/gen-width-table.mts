@@ -90,6 +90,8 @@ const isEmojiConserved = (cp: number): boolean => {
  *  故整块纳入「呈现不确定」。 */
 const SYMBOL_UNCERTAIN_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0x2600, 0x27bf], // 杂项符号 + Dingbats
+  [0x27c0, 0x27ff], // 数学符号 A + 补充箭头 A（含 U+27F3 ⟳ 等项目 UI 符号；注意
+  //                   U+27F0–U+27FF 不在 (0x2600,0x27bf) 内，漏掉则 ⟳ 恒按 1 列且无自校正）
   [0x2b00, 0x2bff], // 杂项符号与箭头
 ];
 
