@@ -1,7 +1,8 @@
 /**
  * AST 结构搜索：ast-grep run -p <pattern> -l <lang> [--strictness] --json=compact <path>。
  *
- * 模式语义对齐 readSeek_search（AST 模式匹配）：$VAR 捕获单节点、$$$VAR/$$$ 捕获节点序列，
+ * 模式语义 = AST 结构匹配（口径对照见 `archive/PI-DSH-FEATURE-COMPARISON.md` 的 readSeek_search
+ * 行）：$VAR 捕获单节点、$$$VAR/$$$ 捕获节点序列，
  * 返回命中节点原文、0-based 行列范围与元变量捕获。
  */
 

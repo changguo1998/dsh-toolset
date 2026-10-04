@@ -11,9 +11,17 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 | `ast_query` | 单工具 + `action` 分派：`search`（AST 模式搜索，`$VAR` / `$$$VAR` 元变量）、`outline`（语法骨架）、`rules`（跑 YAML 规则：`rulePath` 或内联 `rules` + `paths[]`）。参数缺失 / 互斥冲突 / 未知 action → 返回 `{ error }`，不抛。 |
 | `ast_replace` | 结构化替换，**默认 dry-run**（只返回预览与命中，不写文件）；写回需 `write: true`（整文件重写）。 |
 
+工具参数（与实现逐项一致；未标注可选者必填）：
+
+- `ast_query`：`action`（`search` | `outline` | `rules`）分派——
+  - `search`：`pattern`（ast-grep 模式，如 `console.log($ARG)`）、`language`（名或别名，`ts`→`typescript`）、`path`（文件或目录）；可选 `strictness`（`cst` | `smart` | `ast` | `relaxed` | `signature` | `template`，缺省为 ast-grep 默认 `smart`）；
+  - `outline`：`path`；可选 `language`（缺省按扩展名推断）、`items`（`auto` | `structure` | `exports` | `imports` | `all`，缺省 `auto`）、`types`（顶层符号类型白名单，如 `["class", "enum"]`）；
+  - `rules`：`rulePath` 与 `rules` **二选一**（同给报错），`paths`（非空数组）；可选 `includeMetadata`（布尔）、`minSeverity`（`hint` | `info` | `warning` | `error`）。
+- `ast_replace`：`pattern`、`replacement`（可引用 `$VAR`）、`language`、`path`（仅具体文件，不支持目录）；可选 `strictness`、`write`（缺省 `false` = 仅预览）。
+
 渲染口径（`output.render` 输出紧凑文本，不是 JSON dump）：坐标**转 1 基**（`path:行:列`，而库 API 与 ast-grep 输出均为 **0 基**）；`search` 附元变量摘要 `{$ARG=…, $$ARGS=n节点}`；`outline` 缩进到成员；`rules` 形如 `path:行:列 severity ruleId: message`；每类渲染上限 **80 行**，超出以「…（其余 N 条略）」收尾。
 
-选择成本：**文本 / 正则检索用宿主 `grep` / `glob`**（更快，但会命中字符串与注释里的同名文本）；要「所有 `foo(` 调用点」「某语法形态」「按结构批量定位」时用 `ast_query`。改代码：单点精确改写用 `hash_edit`（LINE:HASH 锚点 + 整批原子拒绝），按语法形态批量改同一写法用 `ast_replace`。
+选择成本（口径与工具描述一致）：**文本 / 正则检索用宿主 `grep` / `glob`**（更快，但会匹配字符串与注释里的同名文本）；**「某文件里有哪些符号 / 结构快览」用 `fs_digest`**（`outline` 带行范围）；**「谁引用了某符号 / 改动影响面」用 `code_map`**；要「所有 `foo(` 调用点」「某语法形态」「按结构批量定位」时才用 `ast_query`。改代码：单点精确改写用 `hash_edit`（LINE:HASH 行级锚点 + 漂移检测 + 整批原子拒绝），按语法形态批量改同一写法用 `ast_replace`。
 
 **库 / 服务面**（供宿主与其他插件调用）：
 
@@ -34,7 +42,11 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 - `outline`：`path`、`language?`、`items?`（缺省 `auto`：文件取 `structure`，目录取 `exports`）、`types?`
 - `rules`：`rule`（`{ kind: "file", rulePath }` 或 `{ kind: "inline", rules }`）、`paths`、`includeMetadata?`、`minSeverity?`（`hint` | `info` | `warning` | `error` 阶梯过滤，`off` = 不过滤（默认，等价省略）；非法值由 CLI 报错。**类型按 CLI 真值域含 `off`；模型侧工具 schema 只列四级阶梯**——对模型而言「省略」已是不过滤）
 
-另导出 `normalizeLanguage`、`runCli` / `runCliJson`、`DEFAULT_TIMEOUT_MS`、`INSTALL_GUIDANCE` 与错误类型 `AstGrepError` / `AstGrepMissingError` / `AstGrepProcessError` / `AstGrepJsonError`（含 `exitCode` / `stderr`）。
+另导出工具面构件 `astQueryTool` / `astReplaceTool` / `toToolDefs` / `unavailableOps` / `RENDER_LIMIT` 与渲染器 `renderMatches` / `renderOutlineFiles` / `renderReplace` / `renderRuleHits`（供宿主与其他插件自行注册 / 复用渲染），以及 `normalizeLanguage`、`runCli` / `runCliJson`、`DEFAULT_TIMEOUT_MS`、`INSTALL_GUIDANCE` 与错误类型 `AstGrepError` / `AstGrepMissingError` / `AstGrepProcessError` / `AstGrepJsonError`（含 `exitCode` / `stderr`）。
+
+## 二进制选型
+
+采用**系统 ast-grep CLI**（不内置二进制、不引入 `@ast-grep/napi` 绑定）：CLI 覆盖 25+ 语言、原生执行 YAML 规则（含 `fix` 重写）并输出结构化 JSON；napi 绑定只内置 5 种语言，规则配置也没有 `fix` / `rewrite` 字段，无法覆盖「多语言 + 规则」的能力面。代价是语言覆盖与规则能力随**本机 ast-grep 版本**（字段形态按 0.45.x 对齐），二进制缺失时走下文降级路径。
 
 ## 配置
 
@@ -117,7 +129,13 @@ npm run example:replace   # 输出 REPLACE_EXAMPLE_PASS
 ```sh
 npm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
 npm run build   # 编译到 dist/
-npm run test    # node --test（37 例：多语言匹配/替换/大纲/规则 + 降级路径 + 模型侧工具面）
+npm run test    # node --test（38 例：多语言匹配/替换/大纲/规则 + 降级路径 + 模型侧工具面）
 ```
 
 依赖二进制的用例在缺 ast-grep 的机器上自动 skip，降级路径用例恒跑。
+
+## 文档
+
+- 能力与契约：本文件（轻量包只留 `README.md` + `docs/BACKLOG.md`，无 `DESIGN.md`）。
+- 模块待办：`docs/BACKLOG.md`（当前无未完成项）；历史过程记录见 `docs/archived/`。
+- 宿主契约：`docs/host/DSH-CTX-API.md` §0（bundle 导出面）、`docs/host/HOST-PACKAGES.md`（`ctx.tools` 注册面）。
