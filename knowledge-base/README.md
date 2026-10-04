@@ -4,7 +4,7 @@ DSH（DeepSeek Harness）进程内插件：跨会话知识库与持久记忆—�
 
 ## 能力
 
-本插件**不注册模型侧工具**：订阅宿主 `session/event` 做实时沉淀，并把知识库以服务形态挂在进程内（`provide('knowledge')`，暴露 `getSummary()` 与 `whenReady()`）。可用接口分三组：
+本插件**不注册模型侧工具**：订阅宿主 `session/event` 做实时沉淀，并把知识库以服务形态挂在进程内（`provide('knowledge')`，暴露 `getSummary()`、`whenReady()`、`consolidate(opts?)`、`lastConsolidation()`）。可用接口分三组：
 
 **知识库**（`bundle.kb`，`KnowledgeService`）：
 
@@ -13,7 +13,7 @@ DSH（DeepSeek Harness）进程内插件：跨会话知识库与持久记忆—�
 | `put(input)` | `project`、`content` 必填；`title`/`target`/`category`/`sessionId`；`importance` 默认 3（clamp 1..5）；`source.kind` 默认 `manual` | `{ids, sourceId, created}` |
 | `search(opts)` | `query` 必填；`project`/`target`/`category` 过滤；`limit` 默认 10（clamp 1..100）；`fuzzy` 默认 false | `SearchHit[]`，命中即刷新 `last_referenced` |
 | `touch(id)` / `evict(ids)` | — | `boolean` / 删除条数（联动 `sources.chunk_count`） |
-| 淘汰与提升辅助 | `staleCandidates({project, ttlMs, maxImportance=2, limit=100})`、`compress(ids)`、`tokenBudgetUsage(project)`、`promote({project, limit=10})` | 过期候选 id / 压缩条数 / 估算 token 数 / `SearchHit[]`（按 `importance × 时间衰减` 排序） |
+| 淘汰、提升与巩固辅助 | `staleCandidates({project, ttlMs, maxImportance=2, limit=100})`、`budgetCandidates({project, limit=50})`、`boostCandidates({project, limit=50})`、`targetRows({project, limit=500})`、`compress(ids)`、`setImportance(id, n)`、`tokenBudgetUsage(project)`、`promote({project, limit=10})` | 过期候选 id（TTL + 重要度上限）/ 淘汰顺序候选（低重要度 → 最旧，不设门槛）/ 提权候选 / 具名记忆快照 / 压缩条数 / 是否变更 / 估算 token 数 / `SearchHit[]`（按 `importance × 时间衰减` 排序） |
 
 **持久记忆**（`bundle.memory`，`MemoryService`，与知识同库）：`add({target, content, ...})`（`target` 取 `user`/`memory`/`project`/`failure`，`project` 默认 `__global__`，`importance` 默认 3）、`replace`、`remove`（均按 `target` + 内容子串定位）、`search(opts)`（`limit` 默认 20，支持 `tokenBudget`；返回 `{hits, usedTokens, truncated}`）。
 
@@ -83,6 +83,8 @@ profile 挂载（`~/.dsh/profiles/<p>`）以 `link:` 依赖指向本包，并在
 
 - **检索兜底**：porter 按连续串分词（`构建通过` 匹配不到 `构建`），trigram 需 ≥3 字符子串；故「结果不足 `limit` 且查询含 CJK」或「FTS 语法错误（如 `-`）」时改用 `LIKE` 子串兜底，`fuzzy:false` 不额外召回模糊结果。
 - **去重是全局的**：`put` 按 `content_hash` 去重，不区分 `project`。
+- **与 `output-compress` 共库直写（同一 `dbPath`）**：`output-compress` 不依赖本包代码，直接对同一库插 `sources`/`chunks`（同 `content_hash` 去重键、同 2000 token 分块预算），因此**本包的入库规则（`persistRules` 的隐私拒绝模式 / `minChars`）、容量守卫（`maxTokensPerProject`）与 `hooks.stats` 计数对它的写入不生效**；反向地，本包的淘汰 / 自动巩固 / 容量守卫按 `chunks` 全表作业，会一并作用到它写入的行（那些行 `category`/`target` 均为 `output-compress`、importance 取 4/2，在合并段里自成一组、只做组内判重）。FTS 索引由库内 TRIGGER 统一维护，两条写路径都不各自建索引。
+- **与官方 `session-query-sqlite`（`ctx.sessionQuery` 的 SQLite FTS5 后端）的分工**：它索引**会话历史的原始事件**（`openAt` 控制建库时机）；本包索引**沉淀后的知识 / 记忆**（去重、分段，带 importance / `last_referenced` 可淘汰）。两库各自独立，`search` 不跨库合并结果；`schema.ts` 只是参照它的 `application_id` / `user_version` 守护写法，两者不共用索引。
 - **写策略本身仍不自动调度**：`writeBack` / `backfill` / `evictStale` / `promote` 保持显式接口；本插件内唯一自动的是「自动巩固」（`autoConsolidate`：启动后一次 + compaction 后，进程内节流），它调用 `consolidate.plan/run`。`pending` 为内存态，进程退出即丢；`ConsolidationLock` 不跨进程。
 - **合并判据是机械的**：只合并「同 `target` 下归一化后完全相同，或短者是长者子串且长度占比 ≥ 0.8」的条目，不做语义相似（留待后续条目）；跨 `target`、跨 `project` 不合并。
 - **隐私边界是形态匹配**：内置模式按常见凭据 / 私钥形态识别，无熵检测、无规则语言；命中即**整条拒绝**（不打码），故「正文里混了一段密钥」的条目会整体丢弃——宁可丢，不可泄漏。自定义 `denyPatterns` 只做追加，不能关闭内置模式。

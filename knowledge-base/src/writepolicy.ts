@@ -5,7 +5,8 @@
  * - 批量写回（consolidation 锁）：WritePolicy.writeBack 在锁内聚合写入，失败项入 pending，
  *   backfill() 下次启动/compaction 重试兜底（最终一致）；
  * - 淘汰：evictStale 先 compress 降级（单行摘要），再硬淘汰（复用 kb.evict 联动 source 清理）；
- * - 提升：按 project 拉 top-K（last_referenced 倒序 × importance 加权，kb.promote）注入上下文。
+ * - 提升：按 project 拉 top-K（last_referenced 倒序 × importance 加权，`KnowledgeService.promote`）
+ *   注入上下文——本类只封装写回与淘汰，提升由调用方直接走 kb。
  * 锁为进程内互斥；多进程共享同一库时需升级为文件锁（当前宿主单进程持有库）。
  */
 

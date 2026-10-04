@@ -7,6 +7,7 @@ DSH 进程内集成的**跨会话知识库 + 持久记忆**。三个取舍：
 - **独立 SQLite 库（`node:sqlite` 内置）而非宿主 storage KV**：知识库是搜索密集型负载（关键词/子串/打分排序/过期淘汰），关系库 + FTS5 比 KV 域更贴合；用内置模块意味着零新增依赖。
 - **双 FTS5 索引而非单一分词器**：语义词干检索（porter）与子串/模糊检索（trigram）语义不同，各自建索引、各自 `bm25()` 排序，查询时按需合流。
 - **记忆与知识同库**：记忆是 `chunks` 表上 `target` 划域的记录（`category` 表类别），复用同一套分块、去重、检索、淘汰底座，避免第二套存储语义。
+- **与相邻组件的边界**：会话历史的**原始事件**检索归官方 `session-query-sqlite`（`ctx.sessionQuery`），本库只存「已沉淀」的知识 / 记忆；`output-compress` 以「同一 SQLite 文件」为唯一共享面直写 `sources`/`chunks`，本包与它不建立代码或服务依赖（见 §9 共库直写口径）。
 
 对外接口面与配置见 `README.md`。
 
@@ -24,7 +25,7 @@ DSH 进程内集成的**跨会话知识库 + 持久记忆**。三个取舍：
 - 两张 FTS 表都以 `content='chunks'` external content 挂靠（不双份存原文），由 3 个 TRIGGER（insert / delete / update）写直达同步；update 实现为「旧行 delete + 新行 insert」，保证两个索引都一致。
 - 索引两条：`(project, last_referenced)` 服务按项目取过期候选与提升排序，`(source_id)` 服务 source 联动。
 - **open 守护**：库文件 0o600、父目录 0o700；`PRAGMA application_id = 0x4b4e4f57`（`'KNOW'`）、`user_version = 1`。application_id 属于其他应用、或为空但库非空时拒绝打开；版本不匹配时整库重置（DROP 后重建），避免半旧 schema 带着不兼容数据继续跑。
-- 默认 `journal_mode = wal`（可配），允许知识库长连接与其他写入者（如 output-compress）并发读写。
+- 默认 `journal_mode = wal`（可配），允许知识库长连接与其他写入者（如 output-compress）并发读写；直写方的写入不受本包入库规则约束（见 §9 共库直写边界）。
 
 ## 3. 写入策略（两级）
 
@@ -79,3 +80,5 @@ DSH 进程内集成的**跨会话知识库 + 持久记忆**。三个取舍：
 - `pending` 为内存态，进程重启丢失；`ConsolidationLock` 不跨进程。
 - token 估算为 `len/3` 近似，未引入精确 tokenizer。
 - `SessionSeq`/`SessionLogOffset` 不消费：去重键是 `content_hash`，`session_id` 仅作溯源列，不参与唯一性。
+- **共库直写边界**：`output-compress` 直写同一库时绕过本包的三道闸——入库规则（隐私拒绝模式 / `minChars`）、容量守卫（`maxTokensPerProject`）与 `hooks.stats` 计数；反向地，本包的 `staleCandidates` / `budgetCandidates` / 自动巩固按 `chunks` 全表筛选，同样会作用到它写入的行（其 importance 取 4/2、`last_referenced` 为写入时刻，TTL 到期后会先压缩再硬淘汰）。口径与 `output-compress/README.md` 的「边界与限制」一致。
+- **与 `session-query-sqlite` 不共用索引**：会话日志检索（原始事件）与本库检索（沉淀知识）各自独立，`search` 不跨库合并结果。

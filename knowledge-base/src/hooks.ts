@@ -8,7 +8,7 @@
  * （compaction/summary）。纯逻辑为可测函数；挂接采用结构化 ctx 形态，便于 mock 与 demo。
  * 事件数据量大时由 put 内部按 ~2K token 分块；重复事件经 content_hash 去重。
  *
- * 0.1.5-rc.2 对齐（docs/host/DSH-CTX-API.md §1/§10）：
+ * 0.1.5-rc.2 对齐（docs/host/DSH-CTX-API.md §1/§8）：
  * - tool/result：摄取 `meta` 私有展示载荷（宿主契约要求 JSON-serializable），
  *   以 [tool/meta] 段追加进内容；
  * - compaction/summary：摄取新字段 `shadowedRange{start,end}` 与 `sourceCommandId?`，

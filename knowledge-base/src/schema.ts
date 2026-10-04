@@ -1,5 +1,5 @@
 /**
- * knowledge-base SQLite schema：四表结构（sources/chunks）+ 双 FTS5 影子表 + TRIGGER 写直达。
+ * knowledge-base SQLite schema：两 STRICT 基表（sources/chunks）+ 双 FTS5 影子表 + TRIGGER 写直达同步。
  *
  * 设计对照 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §12.1：
  * - sources / chunks 为内容主体（普通 SQL 做过滤/排序/淘汰）；
@@ -29,7 +29,6 @@ export type JournalMode = "wal" | "delete" | "truncate" | "persist";
 const PRAGMA_APP_ID_SQL = `PRAGMA application_id = ${KNOWLEDGE_APPLICATION_ID}`;
 const PRAGMA_VERSION_SQL = `PRAGMA user_version = ${KNOWLEDGE_SCHEMA_VERSION}`;
 
-/** 各 journal 模式对应的静态 PRAGMA SQL（封闭枚举，映射到字面量）。 */
 /** 各 journal 模式对应的静态 PRAGMA SQL（封闭枚举，映射到字面量）。 */
 const JOURNAL_MODE_SQL = {
   wal: "PRAGMA journal_mode = WAL",
