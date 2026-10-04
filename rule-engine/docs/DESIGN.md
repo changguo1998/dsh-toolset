@@ -19,13 +19,13 @@
 main.ts       插件入口：name / inject / provide / Config / apply
               ├─ ctx.on('session/event') → engine.handle(session, event)
               ├─ ctx.tools.register(...) ← tools.ts（缺 tools 时降级告警）
-              └─ ctx.provide('ruleEngine', { list, status, evaluate, registerConsumer })
+              └─ ctx.provide('ruleEngine', { list, status, evaluate, registerConsumer, onNotice })
 engine.ts     编排：事件分流 → 回合正文聚合 → 匹配 → 节流去重 → 交付注入器
               + 节点派发：规则命中 + 消费者唤醒（按注册的 sources）→ 逐段闸门 → 按 delivery 合并写入
               ├─ match.ts    纯匹配：keyword / regex / 内置谓词 + 消息文本抽取
               ├─ rules.ts    规则归一化 + 两层合并（config 基线 + runtime 层）
               └─ persist.ts  运行时层落盘（{version, state} + tmp/rename 原子写）
-inject.ts     注入动作：推迟宏任务 → agents.get → followup → sessions.flush
+inject.ts     注入动作：推迟宏任务 → agents.get → 按 delivery 走 followup / steer / inject → sessions.flush
 tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_remove / rule_test
 ```
 
@@ -81,7 +81,7 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 
 ### 7. Config 用类型声明、不做运行时 schema
 
-沿用本仓 11 个包的松口径：`Config` 不导出运行时校验器 → 宿主跳过校验、配置原样透传；非法值由 `normalizeRule` / `effectiveRules` 收敛（跳过 + warning）。好处是换宿主版本不炸，代价是配置错误只体现在 stderr warning。
+沿用本仓各包的松口径：`Config` 不导出运行时校验器 → 宿主跳过校验、配置原样透传；非法值由 `normalizeRule` / `effectiveRules` 收敛（跳过 + warning）。好处是换宿主版本不炸，代价是配置错误只体现在 stderr warning。
 
 ### 8. 结构化宿主访问
 
@@ -94,7 +94,7 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 
 ### 10. 消费者面：声明式注册（节点 + 闸门）+ 同步调度（2026-10-01 扩展）
 
-- 只做简单注册：`registerConsumer({ id, delivery?, cooldownTurns?, cooldownMs?, decide })`；`decide(ctx)` 同步返回要注入的内容 `{ text, summary? }`（null = 跳过）。
+- 只做简单注册：`registerConsumer({ id, sources?, delivery?, cooldownTurns?, cooldownMs?, dedupeInRecord?, directWrite?, decide })`；`decide(ctx)` 同步返回要注入的内容 `{ text, summary? }`（null = 跳过）。
 - 注册时声明 `sources`（唤醒节点，缺省 `["turn-end"]`）、`dedupeInRecord`（与规则同口径）与 `directWrite`（这些节点跳过去重判断，2026-10-02）；在对应节点按注册顺序**同步**询问 `decide`，与规则命中**合并**后交同一注入器（共用逐段上限 / 同文本去重；消费者冷却可选、按注入记账）。
 - **对齐点合并（尺度双 flag）**：尺度层级 `session ⊃ turn ⊃ step ⊃ tool`，每消费者 × 每会话 × 每尺度一对 `startFired` / `endFired`；`*-start` 清本尺度及更细的 `endFired` 与更细的 `startFired`（注册才置位/唤醒，`session-start` 无幂等）；`*-end` 查本尺度及更细 `endFired` 的或（注册且全假才唤醒并置位），无论是否唤醒都清本尺度 `startFired`。`reset: true` 清空本消费者 flag。`compaction` 不参与合并。
 - 异常隔离：`decide` 抛错 / 空反馈只记 warning 并跳过该消费者，其余照常；注册返回注销函数（消费者 dispose 时调用）。

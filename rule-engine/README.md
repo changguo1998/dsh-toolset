@@ -142,8 +142,8 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 
 | 方法 | 说明 |
 | --- | --- |
-| `list()` | 生效规则只读清单（`id` / `enabled` / `source` / `delivery` / `origin` / `text` / 节流参数） |
-| `status()` | 规则条数、运行时条数、状态目录、每回合注入上限 |
+| `list()` | 生效规则只读清单（`id` / `enabled` / `sources` / `directWrite` / `delivery` / `origin` / `description` / `text` / 节流参数） |
+| `status()` | 规则条数、运行时条数、被运行时删除的基线条数、状态目录、每回合注入上限 |
 | `evaluate({ text, source? })` | 只读判定：返回命中规则（含**可注入内容** `text` / `summary`）与未启用规则 id；不注入、不改状态 |
 | `registerConsumer({ id, sources?, delivery?, cooldownTurns?, cooldownMs?, dedupeInRecord?, directWrite?, decide })` | 注册消费者：在注册的**节点**（`sources`，缺省 `["turn-end"]`）按注册顺序**同步**询问，`decide(ctx)` 返回要注入的内容 `{ text, summary?, reset? }`（null = 不反馈），反馈由本引擎统一注入；`directWrite` 列出的节点跳过投影去重判断；返回注销函数 |
 | `onNotice(listener)` | 订阅插件告警（完整展示行 + tone） |
@@ -179,7 +179,7 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # 编译到 dist/
-npm test        # node --test（83 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 插件入口）
+npm test        # node --test（87 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 插件入口）
 npm run demo    # mock 事件流跑「规则命中 → 注入」，不依赖 DSH
 ```
 

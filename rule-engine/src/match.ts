@@ -10,7 +10,7 @@ import type { MatchSpec, PredicateName, RuleSource } from "./types.ts";
 /** 正则缺省 flags（大小写不敏感）。 */
 const DEFAULT_FLAGS = "i";
 
-/** `form:'notice'` 的 summary 上限（对齐宿主 CONTEXT_SUMMARY_MAX_CHARS）。 */
+/** 注入摘要上限（`source.summary`，见 boundSummary；对齐宿主 CONTEXT_SUMMARY_MAX_CHARS）。 */
 export const SUMMARY_MAX_CHARS = 120;
 
 /** 内置谓词表：名 → 性质判定（无参数）。 */

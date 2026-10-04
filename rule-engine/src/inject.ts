@@ -91,9 +91,9 @@ export function defaultWarn(message: string): void {
 
 /**
  * 真实注入器：推迟一个宏任务 → `agents.get(sessionId)` → 按 `delivery` 走
- * `followup(message)`（新回合）或 `inject(message)`（最近 pre-step）→
- * `sessions.flush(agent.session)` 确保落盘。会话非 live / 宿主面缺失 / 宿主抛错
- * 一律记 warning 后跳过（不向宿主抛，避免打断 run 收尾）。
+ * `followup(message)`（新回合）/ `steer(message)`（最近 pre-step + 唤醒）/
+ * `inject(message)`（最近 pre-step、不唤醒）→ `sessions.flush(agent.session)` 确保落盘。
+ * 会话非 live / 宿主面缺失 / 宿主抛错一律记 warning 后跳过（不向宿主抛，避免打断 run 收尾）。
  */
 export function createAgentInjector(
   host: InjectionHost,

@@ -63,7 +63,7 @@ import type {
   SessionLike,
 } from "./types.ts";
 
-/** 每回合正文缓冲上限（字符），超出截断（防长回复把内存撑大）。 */
+/** 单条 `assistant/message` 正文的缓冲上限（字符），超出截断（防长回复把内存撑大）。 */
 const TEXT_BUFFER_LIMIT = 20_000;
 
 /** 保留的回合缓冲数（只留最近几回合）。 */
@@ -72,7 +72,8 @@ const TURN_BUFFER_KEEP = 4;
 /** 会话内存态上限（超过后淘汰最早插入的会话）。 */
 const SESSION_STATE_LIMIT = 64;
 
-/** 允许触发注入的回合结束原因：用户中断/报错/分叉的回合不注入（避免对着中断空转追问）。 */
+/** 允许触发注入的回合结束原因（只认 `completed` / `max-tokens`）：中断 / 报错 / 阻塞 / 分叉的
+ *  回合不注入（避免对着中断空转追问）。 */
 const INJECTABLE_TURN_REASONS: ReadonlySet<string> = new Set([
   "completed",
   "max-tokens",
@@ -272,9 +273,9 @@ export class RuleEngine {
   }
 
   /**
-   * 简单消费者注册面：turn-end 时按注册顺序**同步**询问 `decide`，返回的反馈内容
-   * 由本引擎统一注入（每回合上限 / 同文本去重 / 可选消费者冷却）。返回注销函数；
-   * 重复 id / 非法注册记 warning 并返回 noop。
+   * 简单消费者注册面：在注册的 `sources`（缺省 `["turn-end"]`）节点按注册顺序**同步**询问
+   * `decide`，返回的反馈内容由本引擎统一注入（每回合上限 / 同文本去重 / 可选消费者冷却）。
+   * 返回注销函数；重复 id / 非法注册记 warning 并返回 noop。
    */
   registerConsumer(input: ConsumerRegistration): () => void {
     const noop = (): void => {};
@@ -583,7 +584,7 @@ export class RuleEngine {
     }
   }
 
-  /** 回合正文缓冲（只对文本类规则生效的会话保留，超长截断）。 */
+  /** 回合正文缓冲（有文本类规则或已注册消费者时才缓冲，超长截断）。 */
   #buffer(state: SessionState, turn: number, text: string): void {
     if (text.length === 0) return;
     if (!this.#needsText()) return;

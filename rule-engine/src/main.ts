@@ -10,7 +10,8 @@
  * （profile fff 三者都在，仍按可降级写以防换组合）。
  *
  * 数据流：`ctx.on("session/event")` → 引擎（聚合/匹配/节流） → 注入器（推迟宏任务 →
- * `agents.get(sessionId).followup(...)` → `sessions.flush(...)`）。时序红线见 inject.ts 文件头。
+ * `agents.get(sessionId)` → 按 `delivery` 走 `followup` / `steer` / `inject` →
+ * `sessions.flush(...)`）。时序红线见 inject.ts 文件头。
  *
  * 告警出口：缺省写 stderr；`provide("ruleEngine")` 上出现 `onNotice` 订阅者（TUI）后改发
  * 总线（活动区展示，项目级 #61 方案 B）；无订阅者（headless）回退 stderr。

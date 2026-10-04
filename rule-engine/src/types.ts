@@ -61,7 +61,7 @@ export interface InjectAction {
   type: "inject";
   /** 注入正文（代替用户发出的那条消息）。 */
   text: string;
-  /** 一行摘要（`source.form:'notice'` 的 summary）；缺省取正文首行截断。 */
+  /** 一行摘要（注入消息的 `source.summary` 元数据；`dedupeInRecord` 按此 key 计数）；缺省由正文折叠空白后截断（见 boundSummary）。 */
   summary?: string;
 }
 
@@ -78,7 +78,7 @@ export interface Rule {
   sources?: readonly RuleSource[];
   /** 注入送达路径，缺省 "followup"（"inject" / "steer" 走宿主 next-step 队列）。 */
   delivery?: RuleDelivery;
-  /** 命中条件；缺省（或空对象）仅对 turn-end 表示无条件命中，其余匹配面视为永不命中。 */
+  /** 命中条件；缺省（或空对象）时**边界类节点**（turn-start / turn-end / step-start / step-end / session-start / compaction）视为无条件命中，文本类节点视为永不命中。 */
   match?: MatchSpec;
   /** 命中后的动作。 */
   action: InjectAction;
@@ -243,7 +243,7 @@ export interface ConsumerContext {
 export interface ConsumerFeedback {
   /** 要注入的正文。 */
   text: string;
-  /** 一行摘要（notice 呈现用），缺省取正文截断。 */
+  /** 一行摘要（注入消息的 `source.summary` 元数据，规则侧按此 key 计 `dedupeInRecord`）；缺省由正文折叠截断。 */
   summary?: string;
   /** 置 true = 清空本消费者在本会话的对齐 flag（「这次唤醒不算吞并」）。 */
   reset?: boolean;
