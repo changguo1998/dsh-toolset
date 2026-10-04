@@ -1,5 +1,5 @@
 /**
- * 会话开局「符号规范」指南（BACKLOG F2）：
+ * 会话开局「符号规范」指南：
  * - `buildSymbolGuide`：**全部文本由 config 生成**（推荐白名单与别名映射取自 `ResolvedSymbolRules`，不硬编码符号表）。
  *
  * 注入路径：rule-engine 消费者（与回合审查同一通道，受 `maxInjectionsPerTurn` 保护）。

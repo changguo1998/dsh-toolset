@@ -72,7 +72,7 @@ test("review：clearSession 清空冷却记账", () => {
   assert.ok(r.review("s1", "失败 ❌。") !== null, "清空后重新可提醒");
 });
 
-test("review：代码段与内联代码里的引用示例不判违规（F1）", () => {
+test("review：代码段与内联代码里的引用示例不判违规（代码段豁免）", () => {
   const r = reviewer();
   assert.equal(
     r.review("s1", "别名替换（`✔→✓`、`❌→✗`）如下。"),

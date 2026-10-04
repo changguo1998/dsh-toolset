@@ -258,7 +258,7 @@ export interface SymbolRulesConfig {
   aliases?: Record<string, string>;
   /** 是否随下一条用户消息向模型发提醒（缺省 true）。 */
   warnModel?: boolean;
-  /** 是否在会话开局注入「推荐白名单 + 使用标准」指南（缺省 true；见 BACKLOG F2）。 */
+  /** 是否在会话开局注入「推荐白名单 + 使用标准」指南（缺省 true；注入时机与去重交 rule-engine 统一标准）。 */
   injectGuide?: boolean;
   /**
    * 同符号冷却时间窗（毫秒，缺省 10 分钟；显式 0 = 关闭时间维度）。

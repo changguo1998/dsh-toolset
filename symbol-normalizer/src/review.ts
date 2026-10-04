@@ -46,7 +46,7 @@ export class SymbolReviewer {
   review(sessionId: string, text: string): ReviewResult | null {
     const state = this.#state(sessionId);
     this.#tick(state);
-    // 掩码代码段/内联代码：其中的符号是「引用示例」，不参与违规判定（见 BACKLOG F1）
+    // 掩码代码段/内联代码：其中的符号是「引用示例」，不参与违规判定（见 README「豁免代码段」）
     const report = normalizeSymbols(maskCodeSpans(text), this.#rules);
     // emoji 起源替换：罗列「X→Y」，要求更换
     const emojiSeen = new Set<string>();

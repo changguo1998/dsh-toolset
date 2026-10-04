@@ -132,7 +132,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       }
     }
 
-    // 会话开局指南（BACKLOG F2）：注入「推荐白名单 + 使用标准」文案。
+    // 会话开局指南：注入「推荐白名单 + 使用标准」文案。
     // 触发与去重全交 rule-engine 统一标准：`session-start` + `compaction` **直写**
     // （跳过记录去重判断；`session-start` 含恢复，故恢复会话也会再注入一次）、
     // `step-end` 按 `dedupeInRecord: 1` 判断（记录 = 可见投影 + 未消费 inbox，已有就跳过；
