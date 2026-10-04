@@ -209,7 +209,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 
 **锚定工具引导（`toolBootstrap`，默认 true）**：移植 [dsh-anchored-standard](https://github.com/Jungod1121/dsh-anchored-standard) 的两阶段工具锁定-释放——按会话首个真实用户消息分类（spec / react / weak），首请求仅暴露 `bash` + `read`（spec 加 `edit`、react 加 `write`，`glob`/`grep` 永不进入）并把 persona 作为唯一 prompt section、清空 contexts；会话记录首次 `tool/call` 后解锁全量工具目录并恢复完整 sections。对全部 `deepseek-*` 模型生效（v4-pro / v4-flash / v4.1 / chat / reasoner / v3；门控原仅 v4-pro，2026-09-27 放宽，flash 在 weak 模式取 flash 版 persona），非 deepseek 模型或 `toolBootstrap: false` 时原样透传；promotion 状态按会话记忆（经宿主消息投影判定，rc.2 无公开 `session.events`；resume 保留），任何异常降级为全量目录（fail-open）。
 
-引导生效且会话**未解锁**时（新建 / 未解锁的恢复会话），TUI 在启动时自动替用户发一条以 `[AUTO]` 开头的自检消息，驱动模型发起首个工具调用完成解锁（`rule-engine` 的 skill 自动加载随之在启动阶段命中），不必等用户先输入。该消息按用户输入显示、不参与任务模式分类——模式仍由首个真实用户消息落定；已解锁会话不发送。**（2026-10-05 用户裁定关掉 kickoff：`main.ts` 启动与 `/new` 两处门控已注释停用、实现保留，不再自动发送；`toolBootstrap` 开关与锚定过滤行为不变。）**
+引导生效且会话**未解锁**时（新建 / 未解锁的恢复会话），TUI 在启动时自动替用户发一条以 `[AUTO]` 开头的自检消息，驱动模型发起首个工具调用完成解锁（`rule-engine` 的 skill 自动加载随之在启动阶段命中），不必等用户先输入。该消息按用户输入显示、不参与任务模式分类——模式仍由首个真实用户消息落定；已解锁会话不发送。**（2026-10-05 用户裁定关掉 kickoff：`main.ts` 启动与 `/new` 两处门控已注释停用、实现保留，不再自动发送。）** **（2026-10-05 用户裁定不要锁定：`installToolBootstrap` 挂载已注释停用，首请求恢复原样透传（全量目录）；实现保留，恢复 = 取消注释。）**
 
 ### `TUI/tui.config.json`
 

@@ -172,7 +172,9 @@ export interface DshTuiConfig {
   /** 用户块左缘/回复右缘对称留空（列数，默认 4；合法域 0..20，非法回退默认） */
   messageGutter?: number;
   /** 锚定工具引导（两阶段工具锁定-释放，移植自 dsh-anchored-standard）。
-   *  全部 deepseek-* 模型生效（含 flash）；非 deepseek 模型与 false 时原样透传。默认 true。 */
+   *  全部 deepseek-* 模型生效（含 flash）；非 deepseek 模型与 false 时原样透传。默认 true。
+   *  2026-10-05 用户裁定**不要锁定**：`main.ts` 的挂载已注释停用，本开关暂不生效；
+   *  恢复 = 取消挂载注释。 */
   toolBootstrap?: boolean;
 }
 
@@ -385,9 +387,11 @@ export async function apply(
       () => readDefaultSelection(defaultModelSvc),
     );
     // 锚定工具引导：全部 deepseek-* 模型触发锁定-释放；开关可配置关停
-    void installToolBootstrap(agentCtx as DshRuntime, {
-      enabled: config?.toolBootstrap ?? true,
-    });
+    // 2026-10-05 用户裁定**不要锁定**：按「注释而非删除」停用挂载（实现原样保留）；
+    // 恢复 = 取消下面注释（`toolBootstrap` 开关随挂载一并恢复生效）。
+    // void installToolBootstrap(agentCtx as DshRuntime, {
+    //   enabled: config?.toolBootstrap ?? true,
+    // });
   };
   /** 新建会话（既有路径） */
   const createNewSession = async (): Promise<{
