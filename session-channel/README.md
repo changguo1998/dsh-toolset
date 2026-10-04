@@ -4,15 +4,18 @@ DSH 进程内插件：**本机跨会话消息通道**——把消息从一个 ds
 
 ## 能力
 
-| action | 参数 | 说明 |
+注册 4 个工具：`session_channel`（会话 / 通道运维）、`channel_delegate` / `channel_task` / `channel_task_result`（委托任务，planner-worker）。
+
+| 入口 | 参数 | 说明 |
 | --- | --- | --- |
-| `peers` | — | 列在线会话（sessionId / pid / cwd / profile / 启动时刻） |
-| `send` | `to`, `text`, `waitMs?` | 发消息：`to` = 会话 id 或 `cwd:<绝对路径>`；正文注入目标会话（形如 `[CHANNEL](来源) 正文`，来源 = 发送方别名，无别名时用会话 id） |
-| `inbox` | `sessionId`, `count?` | 查某会话最近收到的消息（只读，新→旧，缺省 20 条） |
-| `status` | — | 连接状态、服务端版本、已跟踪会话、错误信息 |
-| `delegate`（工具 `channel_delegate`） | `to`, `task`, `timeoutSec?`, `waitMs?` | 把任务委托给另一个会话执行（planner-worker）；返回 `task_id`，结果自动 / 显式回传 |
-| `task`（工具 `channel_task`） | `action` = `status`/`list`/`cancel`, `taskId?`, `sessionId?`, `status?`, `limit?` | 任务管理：查状态 / 列任务 / 取消 |
-| `task_result`（工具 `channel_task_result`） | `taskId`, `text`, `failed?`, `error?` | worker 侧显式回传结果（优先于轮末自动回收） |
+| `session_channel` `peers` | — | 列在线会话（sessionId / pid / cwd / profile / 启动时刻） |
+| `session_channel` `send` | `to`, `text`, `waitMs?` | 发消息：`to` = 会话 id、别名或 `cwd:<绝对路径>`；正文注入目标会话（形如 `[CHANNEL](来源) 正文`，来源 = 发送方别名，无别名时用会话 id） |
+| `session_channel` `inbox` | `sessionId`, `count?` | 查某会话最近收到的消息（只读，新→旧，缺省 20 条） |
+| `session_channel` `alias` | `op` = `set`/`list`/`clear`, `name?`, `to?`, `force?` | 别名管理：`set` 设别名（`to` 缺省 = 调用方会话，`force` 覆盖他人占用）、`list` 列别名（带在线标记）、`clear` 清别名（传 `name` 按别名、传 `to` 按会话） |
+| `session_channel` `status` | — | 连接状态、服务端版本、已跟踪会话、错误信息 |
+| `channel_delegate` | `to`, `task`, `timeoutSec?`, `waitMs?` | 把任务委托给另一个会话执行（planner-worker）；返回任务记录（`task.id`），结果自动 / 显式回传 |
+| `channel_task` | `action` = `status`/`list`/`cancel`, `taskId?`, `sessionId?`, `status?`, `limit?` | 任务管理：查状态 / 列任务（`sessionId` 缺省 = 调用方会话）/ 取消 |
+| `channel_task_result` | `taskId`, `text`, `failed?`, `error?` | worker 侧显式回传结果（优先于轮末自动回收） |
 
 服务面：`ctx.get("sessionChannel")` → `{ peers, send, inbox, aliasSet, aliasList, aliasClear, kvSet, kvGet, kvList, kvDelete, delegate, taskStatus, taskList, taskCancel, taskResult, status }`（供 TUI / 其他插件调用；方法与语义见「键位」后的服务面表）。
 
@@ -114,7 +117,7 @@ profile 挂载（与其他插件同法）：
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # tsc → dist/
-npm run test    # node --test（41 例；无 redis-server 的机器上集成用例自动 skip）
+npm run test    # node --test（47 例；无 redis-server 的机器上集成用例自动 skip）
 ```
 
-设计决策见 `docs/DESIGN.md`。
+设计决策见 `docs/DESIGN.md`；缺陷与待办见 `docs/BACKLOG.md`。

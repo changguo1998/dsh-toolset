@@ -1,6 +1,6 @@
 // src/types.ts — session-channel 的类型面与错误分类。
 //
-// 与实现解耦：配置项、在线对端、发送/收件结果、错误码（调用方按 code 分支，不解析 message）。
+// 与实现解耦：配置项、在线对端、发送/收件结果、共享 KV 条目、委托任务记录、错误码（调用方按 code 分支，不解析 message）。
 
 /** 插件配置（`cordis.patch.yml` 的 `session-channel` 节点）。 */
 export interface SessionChannelConfig {
@@ -44,7 +44,7 @@ export interface PeerInfo {
 export interface SendRequest {
   /** 发送方会话 id（写入消息体，供接收方显示来源）。 */
   from?: string;
-  /** 目标：会话 id 精确匹配，或 `cwd:<绝对路径>`。 */
+  /** 目标：会话 id 精确匹配 / 别名，或 `cwd:<绝对路径>`（`cwd:` 前缀按路径匹配，见 `resolveTarget`）。 */
   to: string;
   /** 正文（注入时加前缀）。 */
   text: string;

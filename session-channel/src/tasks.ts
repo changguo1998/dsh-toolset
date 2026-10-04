@@ -22,7 +22,7 @@ export const DEFAULT_TASK_TEXT_MAX_BYTES = 8192;
 /** 每会话任务索引保留条数（新→旧，超出丢弃最旧）。 */
 export const TASK_INDEX_MAX = 50;
 
-/** 终态集合（`terminalTaskStatus` 判定用）。 */
+/** 终态集合（`isTerminalTaskStatus` 判定用）。 */
 const TERMINAL: ReadonlySet<TaskStatus> = new Set([
   "done",
   "failed",

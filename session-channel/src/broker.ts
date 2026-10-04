@@ -1,9 +1,10 @@
-// src/broker.ts — 消息与在线状态的 Redis 操作层（纯函数式：入参 client，无内部状态）。
+// src/broker.ts — 消息、在线状态、共享 KV 与委托任务表的 Redis 操作层（纯函数式：入参 client，无内部状态）。
 //
 // 键位见 `keys.ts`；语义约定：
 //  - 在线 = 在线键存在（TTL 内）且 pid 存活（本机快检）；崩溃残留由懒 GC 删除；
 //  - 发送 = 目标唯一命中 → XADD 入邮箱流 → 可选等待回执键；
-//  - 收件 = XREVRANGE（新→旧，只读视图）/ XREAD（阻塞读新消息，reader 连接专用）。
+//  - 收件 = XREVRANGE（新→旧，只读视图）/ XREAD（阻塞读新消息，reader 连接专用）；
+//  - 共享 KV / 委托任务表各见文件内对应分节。
 
 import type { RedisClientType } from "redis";
 import {
@@ -374,8 +375,8 @@ export async function deleteKv(
 }
 
 /**
- * 解析寻址目标，优先级：**会话 id 精确匹配 → 别名 → `cwd:<路径>`**。
- * （`cwd:` 前缀显式指定路径匹配；别名与 id 都不命中时按 id 处理 → 上方报 `target_offline`。）
+ * 解析寻址目标：`cwd:` 前缀 → 按（归一化后的）路径匹配；否则**会话 id 精确匹配 → 别名**。
+ * 都不命中返回空数组，由调用方报 `target_offline`。
  */
 export async function resolveTarget(
   client: RedisClientType,

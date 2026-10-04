@@ -66,7 +66,7 @@ export function kvKeyFromRedisKey(redisKey: string): string | undefined {
     : undefined;
 }
 
-/** 投递游标键：值 = JSON `{id, ts}`，**无 TTL**（接收方重启后从游标续读，避免重复注入）。 */
+/** 投递游标键：值 = JSON `{id, ts}`，**无 TTL**（接收方重启后从游标续读，避免重复注入）；保留期由 `cleanupCursors` 按 `ts` 懒清理。 */
 export function cursorKey(sessionId: string): string {
   return `${KEY_PREFIX}cursor:${sessionId}`;
 }

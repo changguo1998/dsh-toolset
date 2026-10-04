@@ -2,7 +2,9 @@
  * session-channel 插件入口（DSH bundle 接入面）。
  *
  * 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, provide, apply }）：
- * - `inject: ["tools"]`：注册 `session-channel` 工具（缺失仅告警，不使加载失败）；
+ * - `inject: ["tools", "agents", "sessions"]`：硬依赖（cordis 语义：任一不可用则插件等待、不加载）；
+ *   其中 `tools` 缺失时 `session_channel` / `channel_delegate` / `channel_task` / `channel_task_result`
+ *   注册不了（仅告警，服务面仍提供）；
  * - `provide: ["sessionChannel"]`：只读/发送服务面，宿主命令与插件经 `ctx.get("sessionChannel")` 访问；
  * - `apply(ctx, config)`：连接专用 Redis（`$XDG_RUNTIME_DIR/dsh-session-channel.sock`），
  *   跟踪本进程活跃会话（`session/event`）并维护在线心跳，后台阻塞读邮箱流 → 注入目标会话。
@@ -165,7 +167,7 @@ export interface BundleHost {
 /** Config 契约别名（DSH bundle §0 的 `Config`）：仅类型级导出，无运行时 schema。 */
 export type Config = SessionChannelConfig;
 
-/** 服务状态快照（`session-channel status`）。 */
+/** 服务状态快照（`session_channel` 工具 action=status / 服务面 `status()`）。 */
 export interface SessionChannelStatus {
   enabled: boolean;
   connected: boolean;
@@ -550,7 +552,6 @@ export class SessionChannelService {
     }
   }
 
-  /** 心跳：刷新本进程所有已知会话的在线键。 */
   // ---------- 委托任务（BACKLOG #54：跨会话委托/协调，planner-worker 语义） ----------
 
   /**
@@ -934,6 +935,7 @@ export class SessionChannelService {
     return (this.#deps.now ?? Date.now)();
   }
 
+  /** 心跳：刷新本进程所有已知会话的在线键。 */
   async #heartbeat(): Promise<void> {
     for (const sessionId of this.#sessions.keys())
       await this.#announce(sessionId);
