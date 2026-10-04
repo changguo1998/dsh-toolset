@@ -15,6 +15,7 @@ import type {
   ChildSpec,
   ExecutorSpec,
   FrameId,
+  NestedTaskItem,
 } from "./types.ts";
 
 export interface ToolExecuteCtx {
@@ -156,6 +157,31 @@ function fail(feedback: string): Record<string, unknown> {
   return { ok: false, feedback };
 }
 
+/** 折叠轮的根视图：`truncated` / `descendantCount` 只在旧轮根上出现 */
+type StatusRoundView = NestedTaskItem & {
+  truncated?: true;
+  descendantCount?: number;
+};
+
+/** 后代帧数（不含自身） */
+function countDescendants(node: NestedTaskItem): number {
+  return node.children.reduce((n, c) => n + 1 + countDescendants(c), 0);
+}
+
+/** task_status 默认视图：只展开当前轮（末项），旧轮折叠为根摘要（防多轮后森林全量膨胀） */
+function statusView(forest: NestedTaskItem[]): StatusRoundView[] {
+  const last = forest.length - 1;
+  return forest.map((node, i): StatusRoundView => {
+    if (i === last) return node;
+    return {
+      ...node,
+      children: [],
+      truncated: true,
+      descendantCount: countDescendants(node),
+    };
+  });
+}
+
 /** 构造工具族（绑定一个引擎实例） */
 export function createTools(
   engine: TaskEngine,
@@ -267,8 +293,10 @@ export function createTools(
                 feedback: r.feedback ?? "",
               };
         }
-        default:
-          return { ok: true, tree: engine.nested() };
+        default: {
+          const forest = engine.nested();
+          return { ok: true, rounds: forest.length, tree: statusView(forest) };
+        }
       }
     },
   });
@@ -322,7 +350,11 @@ export function createTools(
     decompose(
       "status",
       "查看嵌套任务树（parent_id + order，先序；含 executorKind）。多轮会话返回**森林**：" +
-        "每轮一棵树，树根带 `round`（= 轮次；id 里跳号不代表轮次）",
+        "`rounds` = 已开启轮数（= 当前轮号），`tree` 每轮一棵、树根带 `round`（id 里跳号不代表轮次）。" +
+        "为省 token，**只展开当前轮（末项）**：更早的轮折叠为根摘要——`children: []` + " +
+        "`descendantCount`（被折叠的后代帧数）+ `truncated: true`；`truncated` 表示该轮子树未展开" +
+        "（帧不缺），**本工具不提供取回**，旧轮只读、历史细节在事件流 / 追踪文档里；" +
+        "当前轮**不带** `truncated`（缺省，非 false）",
     ),
   ];
 }

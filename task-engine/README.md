@@ -12,9 +12,11 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
 | `task_implement` | `task_id`、`result` | `{ok, feedback?}` |
 | `task_execute` | `task_id` | `{ok, accepted, next, evidence?, usage?, feedback?}` |
 | `task_stop` | `task_id` | `{ok, accepted, next, feedback?}` |
-| `task_status` | — | `{ok, tree}`（**多轮：森林**——每轮一棵树，树根带 `round`；`parent_id` + `order` + `executorKind?`，先序） |
+| `task_status` | — | `{ok, rounds, tree}`（**多轮：森林**——每轮一棵树，树根带 `round`；`parent_id` + `order` + `executorKind?`，先序。**默认只展开当前轮**，旧轮折叠为根摘要，细则见下） |
 
 - **多轮根帧（会话 = 解释器，2026-10-05）**：一轮 = 一棵完整树（根帧会 `done`，不变量不变）；对**已完成的当前轮根**再 `task_decompose` 会**自动开新一轮**——新根 `root-2` / `root-3…`（首轮仍是 `root`，向后兼容），沿用同一根契约（`root` 示例行的 `{title, spec, acceptance[], needDecompose?}`），旧轮**只读保留**在事件流里。`"root"` 始终解析为**当前轮**根；子帧 id 跨轮必须唯一（复用会覆盖旧轮帧并污染 pool / worktree 注册表 → 门禁拒绝）；`plan/root-created` 载荷带 `round`（旧事件缺省 = 1）；`resumeFromSnapshot` 取**最后**一条 `plan/root-created` 作为当前轮。**非根父帧 done 仍照旧拒绝**；当前轮根 **done 或 failed** 都可开新轮（`failed` 是逃生口——否则一次失败后会话会永久卡住）。注意**轮次与 id 后缀会不同步**：轮次由 `round` 字段表示（1 起，按开轮顺序），`root-<n>` 只是**避让后**的 id（子帧已占 `root-2` 时新根用 `root-3`）。
+
+  `task_status` 的**模型面**视图（防多轮后森林膨胀）：`rounds` = 已开启轮数（= 当前轮号），`tree` 只展开当前轮（末项，不带 `truncated`），更早的轮折叠为根摘要 —— `children: []` + `descendantCount`（被折叠的后代帧数）+ `truncated: true`；`truncated` 只表示「该轮子树未展开（帧不缺）」，**本工具不提供取回**（旧轮只读，历史细节在事件流 / 追踪文档里）。引擎面不被折叠：`nested()` / `query()` 以及走它们的 TUI 任务面板与 demo 仍是全量森林。
 
 - **叶子执行后端（① 执行扩展，2026-10-02）**：叶子（或 `needDecompose:false` 的根）可声明 `executor`，由 `task_execute` 交给**注入式适配器**发起（引擎只做发起 / 证据回填 / 验收，提示词与脚本都由声明方给，引擎不替模型生成）：
 
