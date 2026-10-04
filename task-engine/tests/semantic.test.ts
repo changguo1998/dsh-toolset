@@ -18,7 +18,13 @@ import {
 /** 一次裁决 run 的脚本：fake `subagents.start` 依次吐出这些文本（用完后重复最后一个）。 */
 function fakeSubagents(
   replies: string[],
-  options?: { hang?: boolean; structured?: unknown; toolFilter?: boolean },
+  options?: {
+    hang?: boolean;
+    structured?: unknown;
+    toolFilter?: boolean;
+    /** 带 `toolFilter` 的发起直接抛错（模拟 deny 名单里的名字在全局注册表已失效） */
+    failWithFilter?: boolean;
+  },
 ): {
   service: Record<string, unknown>;
   runs: {
@@ -27,6 +33,8 @@ function fakeSubagents(
     outputSchema?: unknown;
     toolFilter?: unknown;
   }[];
+  /** 每次 `start` 的尝试（含失败的尝试）：断言「重试」行为用 */
+  attempts: { label: string; toolFilter?: unknown }[];
 } {
   const runs: {
     label: string;
@@ -34,6 +42,7 @@ function fakeSubagents(
     outputSchema?: unknown;
     toolFilter?: unknown;
   }[] = [];
+  const attempts: { label: string; toolFilter?: unknown }[] = [];
   const service = {
     list: () => ["spawn"],
     getProvider: () => ({
@@ -55,6 +64,18 @@ function fakeSubagents(
         throw new TypeError(
           "Cannot read properties of undefined (reading 'session')",
         );
+      }
+      attempts.push({
+        label: String(request["label"]),
+        ...(request["toolFilter"] === undefined
+          ? {}
+          : { toolFilter: request["toolFilter"] }),
+      });
+      if (
+        options?.failWithFilter === true &&
+        request["toolFilter"] !== undefined
+      ) {
+        throw new Error("restrict: 未知的全局工具名（测试用）");
       }
       runs.push({
         label: String(request["label"]),
@@ -85,7 +106,7 @@ function fakeSubagents(
       };
     },
   };
-  return { service, runs };
+  return { service, runs, attempts };
 }
 
 interface Bench {
@@ -439,6 +460,35 @@ describe("裁决 run 的工具面收窄（toolFilter：剥掉 task_* 族）", ()
     assert.match(out, /toolFilter 能力位/, "告警留痕: " + out);
   });
 
+  it("无能力位时执行 run 不传 filter 照跑（降级）+ 执行侧告警留痕", async () => {
+    const b = await bench({ replies: ['{"ok": true}', "干活完成"] });
+    // 挂树（会跑 entail 裁决 run）与执行 run 一起捕获 stderr：两侧共用同一个 once，
+    // 故「只打一条告警」本身也是断言项
+    const { result, out } = await captureStderr(async () => {
+      await b.call("task_decompose", {
+        parent_id: "root",
+        children: [
+          { ...child("c1"), executor: { kind: "subagent", prompt: "干活" } },
+        ],
+      });
+      return await b.call("task_execute", { task_id: "c1" });
+    });
+    assert.equal(result["ok"], true, "缺能力位不拒执行 run: " + out);
+    const run = b.runs.find((r) => r.label === "task:c1");
+    assert.ok(run !== undefined, JSON.stringify(b.runs));
+    assert.equal(
+      run.toolFilter,
+      undefined,
+      "未声明能力位时不传 toolFilter（降级）",
+    );
+    assert.match(out, /toolFilter 能力位/, "降级告警留痕: " + out);
+    assert.equal(
+      (out.match(/toolFilter 能力位/g) ?? []).length,
+      1,
+      "裁决 / 执行共用同一个实例级 once：只打一条: " + out,
+    );
+  });
+
   it("judgeToolFilter：空名单 / 非 task_ 名 → 不收窄（undefined）", () => {
     assert.equal(judgeToolFilter([]), undefined);
     assert.equal(judgeToolFilter(["grep", "read"]), undefined);
@@ -474,6 +524,70 @@ describe("裁决 run 的工具面收窄（toolFilter：剥掉 task_* 族）", ()
         deny: ["task_decompose", "task_implement", "task_execute", "task_stop"],
       },
       "注册失败的 task_status 不得进入 deny 名单",
+    );
+  });
+
+  it("executor（subagent）run 也收窄工具面：deny = 本引擎注册成功的工具名", async () => {
+    const b = await bench({
+      replies: ['{"ok": true}', "干活完成"],
+      toolFilter: true,
+    });
+    await b.call("task_decompose", {
+      parent_id: "root",
+      children: [
+        { ...child("c1"), executor: { kind: "subagent", prompt: "干活" } },
+      ],
+    });
+    const exec = await b.call("task_execute", { task_id: "c1" });
+    assert.equal(exec["ok"], true, JSON.stringify(exec));
+    const run = b.runs.find((r) => r.label === "task:c1");
+    assert.ok(run !== undefined, JSON.stringify(b.runs));
+    assert.deepEqual(
+      run.toolFilter,
+      { deny: TASK_TOOL_DENY },
+      "执行 run 与裁决 run 同口径：剥掉本引擎注册的全部 task_* 族（实际： " +
+        JSON.stringify(run.toolFilter) +
+        "）",
+    );
+  });
+
+  it("带 filter 的发起失败 → 去 filter 重试一次（不挂本次 run + 告警留痕）", async () => {
+    const fake = fakeSubagents(['{"ok": true}'], {
+      toolFilter: true,
+      failWithFilter: true,
+    });
+    const warns: string[] = [];
+    const out = await runChildOnce(
+      {
+        resolve: <T>(name: string): T | undefined =>
+          name === "subagents" ? (fake.service as T) : undefined,
+        agent: { session: { id: "s1" } },
+        warn: (msg) => warns.push(msg),
+      },
+      {
+        label: "task:audit:c1",
+        prompt: "审",
+        requireParent: true,
+        toolFilter: { deny: ["task_stop"] },
+      },
+    );
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal(fake.attempts.length, 2, "先带 filter 失败、再去 filter 重试");
+    assert.notEqual(
+      fake.attempts[0]?.toolFilter,
+      undefined,
+      "首次尝试带 filter",
+    );
+    assert.equal(
+      fake.attempts[1]?.toolFilter,
+      undefined,
+      "重试不带 filter（降级）",
+    );
+    assert.equal(fake.runs.length, 1, "只有重试那次成功落 run");
+    assert.match(
+      warns.join("\n"),
+      /去 filter 重试一次/,
+      "告警留痕: " + warns.join("|"),
     );
   });
 

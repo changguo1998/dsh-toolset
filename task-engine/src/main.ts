@@ -394,38 +394,63 @@ export async function runChildOnce(
     controller.abort();
   }, timeoutMs);
   try {
+    // 请求构造：`withFilter` 为 false 时**不带** toolFilter（降级 / 重试路径共用）
+    const buildRequest = (
+      withFilter: boolean,
+    ): Parameters<SubagentsLike["start"]>[1] => ({
+      label: req.label,
+      prompt: [{ type: "text", text: req.prompt }],
+      ...(opts.agent === undefined ? {} : { parent: opts.agent }),
+      ...(req.outputSchema === undefined
+        ? {}
+        : { outputSchema: req.outputSchema }),
+      ...(withFilter && req.toolFilter !== undefined
+        ? { toolFilter: req.toolFilter }
+        : {}),
+      signal: controller.signal,
+      ...(wantsOptions
+        ? {
+            agentOptions: {
+              ...(req.model === undefined
+                ? {}
+                : { provider: req.model.provider, model: req.model.model }),
+              ...(req.maxTokens === undefined
+                ? {}
+                : { maxTokens: req.maxTokens }),
+            },
+          }
+        : {}),
+    });
+    const useFilter = wantsFilter && filterSupported;
     let run: Awaited<ReturnType<SubagentsLike["start"]>>;
     try {
-      run = await svc.start(SUBAGENT_PROVIDER, {
-        label: req.label,
-        prompt: [{ type: "text", text: req.prompt }],
-        ...(opts.agent === undefined ? {} : { parent: opts.agent }),
-        ...(req.outputSchema === undefined
-          ? {}
-          : { outputSchema: req.outputSchema }),
-        ...(wantsFilter && filterSupported && req.toolFilter !== undefined
-          ? { toolFilter: req.toolFilter }
-          : {}),
-        signal: controller.signal,
-        ...(wantsOptions
-          ? {
-              agentOptions: {
-                ...(req.model === undefined
-                  ? {}
-                  : { provider: req.model.provider, model: req.model.model }),
-                ...(req.maxTokens === undefined
-                  ? {}
-                  : { maxTokens: req.maxTokens }),
-              },
-            }
-          : {}),
-      });
+      run = await svc.start(SUBAGENT_PROVIDER, buildRequest(useFilter));
     } catch (err) {
-      return {
-        ok: false,
-        retryable: true,
-        feedback: `subagent 发起失败：${String(err)}`,
-      };
+      // 超时 / 取消后不再重试：`start` 因中止而失败时再发起会二次建会话（可能重复计费），
+      // 且会把「超时不计重试」的既有口径变成「可重试」（审阅指出）
+      if (!useFilter || timedOut || controller.signal.aborted) {
+        return {
+          ok: false,
+          retryable: true,
+          feedback: `subagent 发起失败：${String(err)}`,
+        };
+      }
+      // 带 filter 的发起失败：deny 名单按**本实例注册成功**的名字收集，而宿主 `restrict()` 按
+      // **全局注册表**校验——名字在发起时已失效（插件 remount / 卸载重注册的空窗）会让发起直接
+      // 失败。加固不该让本次裁决 / 执行 run 挂掉 → 去 filter **重试一次**并在告警留痕。
+      opts.warn?.(
+        `子代理 toolFilter 发起失败（${String(err)}）：去 filter 重试一次（加固降级；` +
+          "若为 deny 名单失效请检查 task_* 工具的注册状态）",
+      );
+      try {
+        run = await svc.start(SUBAGENT_PROVIDER, buildRequest(false));
+      } catch (retryErr) {
+        return {
+          ok: false,
+          retryable: true,
+          feedback: `subagent 发起失败（去 filter 重试仍失败）：${String(retryErr)}`,
+        };
+      }
     }
     // 等终态：与超时/取消信号竞速（宿主 `run.result` 可能无界；见 command-template 同类教训），
     // 竞速落败时发起回收但不等待（in-process dispose 内部同样 await result）
@@ -699,6 +724,16 @@ interface ExecutorWireOptions {
   checkCommand: CommandChecker;
   /** 隔离器（叶子声明 `isolate: "worktree"` 时建 / 复用 / 回收；未声明不触达） */
   isolator: WorktreeIsolator;
+  /**
+   * 本实例**注册成功**的工具名（惰性读：apply 期注册完成后才有值）——`subagent` executor run
+   * 的工具面收窄用（与裁决 run 同口径：剥掉 `task_*`，执行方不该反向操作引擎 / 任务树）。
+   */
+  ownToolNames?: () => readonly string[];
+  /**
+   * `toolFilter` 能力位缺失时的降级告警（实例级 once，由 apply 侧实现）：执行 run 与裁决 run
+   * 共用同一个标志，避免两侧各打一条。
+   */
+  onFilterDegraded?: (who: string) => void;
   /** 当前工具调用所属 agent（subagent 的 parent / workflow 的 parent） */
   agent?: unknown;
   warn(message: string): void;
@@ -776,6 +811,15 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
     }
     // —— subagent：ctx.subagents.start（模型覆盖走 agentOptions 能力位；与裁决 run 共用 runChildOnce）——
     if (spec.kind === "subagent") {
+      // 执行方同样收窄工具面（与裁决 run 同口径）：执行子代理的产物由调用方经 task_implement /
+      // task_stop 回写，故它不需要 `task_*` 族；不拦则可反向操作引擎与任务树（BACKLOG#1）。
+      const toolFilter = judgeToolFilter(opts.ownToolNames?.() ?? []);
+      if (toolFilter !== undefined) {
+        const caps = opts
+          .resolve<SubagentsLike>("subagents")
+          ?.getProvider?.(SUBAGENT_PROVIDER)?.capabilities;
+        if (caps?.toolFilter !== true) opts.onFilterDegraded?.("裁决 / 执行子代理");
+      }
       const started = await runChildOnce(opts, {
         label: `task:${req.frame}`,
         prompt: spec.prompt ?? defaultPrompt(req),
@@ -783,6 +827,7 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
         ...(spec.budget?.maxTokens === undefined
           ? {}
           : { maxTokens: spec.budget.maxTokens }),
+        ...(toolFilter === undefined ? {} : { toolFilter }),
         requireParent: true,
       });
       const model = modelFactOf(opts.resolve, spec.model);
@@ -1583,6 +1628,15 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   let ownToolNames: string[] = [];
   /** `toolFilter` 能力位缺失的降级告警是否已打（实例级 once，避免每次裁决 run 刷屏） */
   let toolFilterDegradeWarned = false;
+  /** `toolFilter` 能力位缺失的降级告警（实例级 once：裁决 / 执行 run 共用，避免逐次刷屏） */
+  const warnFilterDegradedOnce = (who: string): void => {
+    if (toolFilterDegradeWarned) return;
+    toolFilterDegradeWarned = true;
+    warn(
+      `provider ${SUBAGENT_PROVIDER} 未声明 toolFilter 能力位：${who}的工具面未收窄` +
+        "（仍可见 task_* 族，仅靠 prompt 约束；本条告警每个插件实例只打一次）",
+    );
+  };
   /** 执行期服务解析：工具执行 ctx 优先 → 回退插件 ctx（apply 期服务 fiber 常未激活） */
   const serviceResolver =
     (exec: unknown) =>
@@ -1603,23 +1657,13 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     // 两侧语义门都关掉时不会跑任何裁决 run → 不告警（否则是误报）
     const semanticEnabled =
       semantic.audit !== false || semantic.entail !== false;
-    if (
-      toolFilter !== undefined &&
-      semanticEnabled &&
-      !toolFilterDegradeWarned
-    ) {
-      // 能力位缺失 → 本次不收窄（`runChildOnce` 侧判定），实例内留一条告警
+    if (toolFilter !== undefined && semanticEnabled) {
+      // 能力位缺失 → 本次不收窄（`runChildOnce` 侧判定），实例内留一条告警（与执行 run 共用 once）
       const caps =
         resolve<SubagentsLike>("subagents")?.getProvider?.(
           SUBAGENT_PROVIDER,
         )?.capabilities;
-      if (caps?.toolFilter !== true) {
-        toolFilterDegradeWarned = true;
-        warn(
-          `provider ${SUBAGENT_PROVIDER} 未声明 toolFilter 能力位：裁决子代理的工具面未收窄` +
-            "（仍可见 task_* 族，仅靠 prompt 约束；本条告警每个插件实例只打一次）",
-        );
-      }
+      if (caps?.toolFilter !== true) warnFilterDegradedOnce("裁决 / 执行子代理");
     }
     const audit: (req: AuditRequest) => Promise<AuditVerdict> = async (req) => {
       const out = await runChildOnce(
@@ -1719,6 +1763,8 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
         checkCommand,
         isolator: worktrees,
         ...(agent === undefined ? {} : { agent }),
+        ownToolNames: () => ownToolNames,
+        onFilterDegraded: warnFilterDegradedOnce,
         warn,
       });
     },
