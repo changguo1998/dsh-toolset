@@ -655,7 +655,10 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   }
 }
 
-/** 供测试/smoke 使用的显式构造入口（同 apply 内逻辑）。 */
+/**
+ * 供测试/smoke 使用的显式构造入口（apply 的控制器构造同款，但不接线 security-guard 复查器——
+ * 需要复查时自行传 `commandGuard`，见 `MetricLoopController` 构造参数）。
+ */
 export function createController(config?: Config): MetricLoopController {
   return new MetricLoopController({
     stateDir: config?.stateDir ?? defaultStateDir(),

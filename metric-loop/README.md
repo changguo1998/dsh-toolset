@@ -53,7 +53,7 @@ npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau �
 
 ## 边界与限制
 
-- 自动唤醒复用宿主 schedule 面：插件只返回 `schedule_create` 参数，由宿主按提示排下一次唤醒（`after_seconds` 一次性提醒链式续排）；不新建调度器。
+- 自动唤醒复用宿主 schedule 面：插件只返回 `schedule_create` 参数，由宿主按提示排下一次唤醒（`after_seconds` 一次性提醒链式续排）；不新建调度器。该提示的**可执行性取决于 profile 是否挂载 `@deepseek-ai/dsh-schedule`**（模型侧 `schedule_create` 工具由它提供）；未挂载时提示只是文案，循环仍需靠显式 `tick` 或其他唤醒路径推进。
 - 轮内做什么改进动作（循环载体）由宿主 workflow / 会话编排，插件不感知。
 - 跨进程语义依赖状态文件：每次 `dsh` 启动或 schedule 唤醒加载状态推进一轮；文件缺失视为循环不存在（`tick`/`stop` 报错，`status` 返回 `exists: false`）。
 - 测量命令经 `/bin/sh -c` 执行，取 stdout 中最后一个数字（容忍 `score: 0.87` 等噪声）；信任契约内命令，不做沙箱隔离。
@@ -70,6 +70,12 @@ npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau �
     原先抛错是每轮都告警），但结果会标 `guardSkipped: true` 且 `summary` 写明「本轮命令未复查即执行」；
     未接线（无复查器）的路径不标 `guardSkipped`（那属于「没接线」，不是「复查失败」）。
 - metricless 循环不判 plateau，只按轮数/时间/token 边界或手动停止。
+
+## 相关文档
+
+- 宿主 bundle 契约（`name` / `inject` / `provide` / `Config` / `apply`）：`docs/host/DSH-CTX-API.md` §0；本包与 `task-engine` 同款——零 DSH 运行时依赖、以结构面访问 ctx。
+- 宿主面依据与升级面：`docs/host/HOST-PACKAGES.md`（`schedule` 行、`tools` 服务）、`docs/host/HOST-UPGRADE-0.2.0-rc.2.md`。
+- `metric_loop` 的模型侧参数 schema 以 `src/index.ts` 的 `toToolDef()` 为唯一来源（本 README 的表格与其保持一致）；复查分工的实现见 `src/index.ts` 的 `makeCommandGuard` / `runRound`。
 
 ## 测试
 
