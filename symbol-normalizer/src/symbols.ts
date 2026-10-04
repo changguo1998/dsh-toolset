@@ -250,7 +250,7 @@ export const DEFAULT_ALIASES: Readonly<Record<string, string>> = {
  *           ⌫（U+232B 退格键，键盘按键属正文内容性字符，见 TEXTUAL_POINTS）。
  */
 
-/** 用户可配置项（tui.config.json `symbols`）。 */
+/** 用户可配置项（插件 config；自 TUI `tui.config.json` 的 `symbols` 段迁入）。 */
 export interface SymbolRulesConfig {
   /** 追加推荐字符（内置白名单之外的治理区放行符）。 */
   recommended?: string[];
@@ -376,7 +376,7 @@ export interface NormalizeResult {
   remaps: SymbolRemap[];
   /** 仅 emoji 起源的替换明细（模型反馈按「要求更换」列出）。 */
   emojiRemaps: SymbolRemap[];
-  /** 无替代的治理区外符号（去重，按出现顺序）。 */
+  /** 治理区内无推荐替代、且无别名的符号（去重，按出现顺序；展示层保留原文）。 */
   unrecommended: string[];
 }
 

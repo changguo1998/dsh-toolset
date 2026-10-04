@@ -10,8 +10,8 @@
  *
  * 同时 provide `symbolNormalizer` 服务供 TUI 做展示层归一（`normalize`）。
  *
- * 配置（`Config`）：`recommended` / `aliases` / `warnModel` / `cooldownMs` / `cooldownRuns`
- * （自 TUI `tui.config.json` 的 `symbols` 段迁移；无运行时 schema，宿主原样透传）。
+ * 配置（`Config`）：`recommended` / `aliases` / `warnModel` / `injectGuide` / `cooldownMs` /
+ * `cooldownRuns`（自 TUI `tui.config.json` 的 `symbols` 段迁移；无运行时 schema，宿主原样透传）。
  */
 
 import { SymbolReviewer } from "./review.ts";
@@ -27,7 +27,7 @@ export const inject = ["ruleEngine"];
 /** 提供的服务名（TUI 等展示层经 `ctx.get('symbolNormalizer')` 消费）。 */
 export const provide = ["symbolNormalizer"];
 
-/** 反馈摘要（宿主 `form:'notice'` 呈现的一行摘要）。 */
+/** 反馈摘要（注入消息的 `source.summary`；展示层与去重按此识别）。 */
 export const FEEDBACK_SUMMARY = "符号规范提醒";
 
 export { SymbolReviewer } from "./review.ts";
@@ -132,7 +132,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       }
     }
 
-    // 会话开局指南（BACKLOG F2）：每会话一次注入「推荐白名单 + 使用标准」。
+    // 会话开局指南（BACKLOG F2）：注入「推荐白名单 + 使用标准」文案。
     // 触发与去重全交 rule-engine 统一标准：`session-start` + `compaction` **直写**
     // （跳过记录去重判断；`session-start` 含恢复，故恢复会话也会再注入一次）、
     // `step-end` 按 `dedupeInRecord: 1` 判断（记录 = 可见投影 + 未消费 inbox，已有就跳过；

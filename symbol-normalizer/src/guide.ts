@@ -14,7 +14,7 @@
 
 import type { ResolvedSymbolRules } from "./symbols.ts";
 
-/** 摘要行（rule-engine notice 呈现用）。 */
+/** 摘要行（注入消息的 `source.summary`；rule-engine 按此 key 计 `dedupeInRecord`）。 */
 export const GUIDE_SUMMARY = "符号规范（会话开局指南）";
 
 /** 别名映射最多列出的条数（正文长度可控）。 */

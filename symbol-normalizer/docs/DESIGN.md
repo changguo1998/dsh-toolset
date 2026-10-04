@@ -16,18 +16,20 @@
 
 ```text
 main.ts     插件入口：name / inject(["ruleEngine"]) / provide(["symbolNormalizer"]) / Config / apply
-            ├─ registerConsumer({ id: 'symbol-normalizer', decide })   ← 经 ctx.ruleEngine
+            ├─ registerConsumer({ id: 'symbol-normalizer', decide })   ← 经 ctx.ruleEngine（缺省 turn-end）
+            ├─ registerConsumer({ id: 'symbol-normalizer-guide', ... })（session-start / compaction / step-end）
             └─ provide('symbolNormalizer', { normalize, onReview, status })
 review.ts   回合审查：正文 → normalizeSymbols → 逐符号冷却 → notice + 反馈文案（按会话记账）
 symbols.ts  纯函数：治理区段 / 推荐白名单 / 别名表 / normalizeSymbols / resolveSymbolRules（自 TUI 迁入）
+guide.ts    会话开局指南文案：白名单 / 变体映射由 config 生成（不硬编码符号表）
 ```
 
-依赖方向单向：`main → {review, symbols}`；`review → symbols`。
+依赖方向单向：`main → {review, symbols, guide}`；`review → symbols`；`guide → symbols`。
 
 ## 关键取舍
 
 1. **规则与算法整体迁出 TUI**（用户 2026-09-27 定稿）：代码与配置（`recommended` / `aliases` / `warnModel` / 冷却）随迁；TUI 只经服务消费（见 TUI 追踪文档）。
-1. **消费者接入而非自行注入**：反馈内容由 rule-engine 统一注入（`source.form:'notice'` 一行提示；节流闸门 / 推迟宏任务 / 落盘都在 rule-engine）。
+1. **消费者接入而非自行注入**：反馈内容由 rule-engine 统一注入（注入消息 `source.kind:'rule-engine'` + `summary`、正文带 `[RULE] ` 前缀；节流闸门 / 推迟宏任务 / 落盘都在 rule-engine）。
 1. **冷却按会话隔离**：迁移前 TUI 为进程级；独立插件服务多会话，故 `Map<sessionId, Map<symbol, rec>>`。冷却语义（双维度任一未过期即冷却、每次审查推进 run 计数、登记时重置）与迁移前一致。
 1. **notice 经服务回调（`onReview`）**：审查只算一次（冷却只消费一次），展示层订阅事件；避免展示层自行计算导致口径不一致。
 1. **硬依赖 rule-engine**（`inject: ["ruleEngine"]`）：插件职责就是消费者接入；rule-engine 缺席时本插件不加载（TUI 回退原文透传）。
