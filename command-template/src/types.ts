@@ -103,7 +103,7 @@ export interface CommandTemplateConfig {
   totalTimeoutMs?: number;
   /** 尊重保留命令名（缺省 = 入口子命令 `list` / `show` / `reload`；模板与之同名时跳过并告警）。 */
   reservedNames?: string[];
-  /** 只加载不注册命令（离线排障用）。 */
+  /** 离线排障：apply 立即返回——不加载模板、不注册命令、不提供 `commandTemplate` 服务面。 */
   disabled?: boolean;
 }
 

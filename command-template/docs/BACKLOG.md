@@ -10,4 +10,4 @@
 
 | # | 条目 | 来源 | 落点 | 工作量 | 优先级 |
 | --- | --- | --- | --- | --- | --- |
-| 1 | **模块无 `DESIGN.md`**：AGENTS.md 的模块文档口径含 `DESIGN.md`（架构与机制沉淀），本包只有 README + BACKLOG。补一份（命令注册/模板加载/步骤执行/宿主面四节）或明确「不建」并记理由 | 同上（漏项） | `command-template/docs/DESIGN.md` 或本文件记录裁定 | 1 h | P3 |
+| 1 | **`/playbook playbook` 触发无限递归**（源码缺陷）：`run()` 见到入口名会转 `#dispatch`（`main.ts` 约 206 行），而 `#dispatch` 把第一段当模板名再调 `run()`（约 247 行）；`ENTRY_COMMAND` 不在 `#reserved()` 里（保留名只有 `list` / `show` / `reload`），故 `/playbook playbook` 会 `run → #dispatch → run` 递归到爆栈（`RangeError`）——现有用例只覆盖 `list` / 空输入 / `show`。期望：把入口名并入保留名（`#dispatch` 对 `first === ENTRY_COMMAND` 走管理面 = 输出 list），或显式返回「模板不存在」错误；补用例（两形态都断言不递归）。来源：2026-10-04「command-template 补 `DESIGN.md`」任务的收尾审阅（源码隐患，非文档问题） | `command-template/src/main.ts`（`#dispatch` / `#reserved`）+ 测试 | 0.5 h | P3 |
