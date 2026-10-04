@@ -5,7 +5,7 @@
  * 空行为 sha256("") 前缀；行号 1 基。
  * 对照 readseek：锚点语法 LINE:HASH 与「读取取锚点 → 写入前校验 → stale 整体拒绝」
  * 语义一致；readseek 行哈希为闭源 24-bit 原生哈希，本插件改用透明 sha256 前缀
- * （可独立复算，碰撞率 1/2^32）。差异详见 README「口径与差异」。
+ * （可独立复算，碰撞率 1/2^32）。差异详见 README「边界与限制」。
  */
 
 import { createHash } from "node:crypto";

@@ -64,6 +64,19 @@ bundle 契约：`name` / `inject: ["tools"]` / `Config` / `apply`；`ctx.tools` 
 
 锚点可离线复算：行文本为 `abc` 时 `printf 'abc' | sha256sum` 输出 `ba7816bf...`，取前 8 位即该行锚点的哈希部分。
 
+## 与官方 `read` / `edit` 的边界
+
+官方 `tool-fs` 的 `read` / `edit` 在 `fs-observation-policy` 下已有**文件级**「读后改前 + 版本守卫」（文件在读取后变化即拒，`FS_STALE_VERSION`；base 缺省挂载）。本包与其**并存**，分歧点是粒度与原子性：
+
+| 维度 | 官方 `read` / `edit`（+ `fs-observation-policy`） | 本包 `hash_read` / `hash_edit` |
+| --- | --- | --- |
+| 定位 | 文件级：整文件版本号 | 行级：`LINE:HASH` 锚点（1 基行号 + `sha256(行文本)` 前 8 位） |
+| 陈旧判据 | 文件版本变化即拒 | 逐锚点比对行内容哈希；未改动的行锚点仍有效，只需重取失效锚点 |
+| 失败面 | 单次写入 | 一次提交多条指令，任一条命中 `malformed` / `out_of_range` / `stale_anchors` / `overlapping_edits` 即**整批拒绝**，文件字节不变 |
+| 写路径 | 宿主 fs 缝（受 `fs-sandbox` / workspace 策略围栏） | 直写 `node:fs`（同目录临时文件 + `rename` 原子替换）——**不经营主围栏** |
+
+分工口径：两者都留在模型工具面，靠工具描述区分——单点精确改写用 `hash_edit`，需要文件级版本守卫用宿主 `edit`；取舍与「为什么不用官方替代」见 `docs/ARCHITECTURE-REUSE.md` §2，「可选改用 `ctx.fs`」的收益（沙箱一致）与代价（写侧行为变更；其守卫是文件级、不能替代行级锚点）见 §4 D。
+
 ## 边界与限制
 
 - 锚点格式：`LINE:HASH`，`LINE` 为 1 基行号，`HASH` 为 `sha256(行文本)` 的前 8 位小写 hex（接受大写，归一化）。空行为 `sha256("")` 前缀 `e3b0c442`。
@@ -71,6 +84,28 @@ bundle 契约：`name` / `inject: ["tools"]` / `Config` / `apply`；`ctx.tools` 
 - 校验顺序（全部针对读取时的原始快照，先于任何写入）：`malformed`（指令形状/锚点语法/`end < start`/空 `edits`）→ `out_of_range`（行号超出文件行数）→ `stale_anchors`（行内容哈希不符）→ `overlapping_edits`（同一行被两条指令占用）。任一失败即整批拒绝，文件字节不变，无临时文件残留。
 - 写入语义：校验全部通过后写盘，同目录临时文件 + `rename` 原子替换；继承原文件权限位（含执行位）；UTF-8 strict（非法字节拒绝）；换行符跟随原文件（CRLF 保持 CRLF，尾随换行保留）；空文件视为 1 行，可 `set_line` / `delete_line`。
 - 仅 4 类行级指令，无符号级编辑（如按符号替换）能力。
+
+## 文件结构与相关文档
+
+```text
+hash-edit/
+  src/
+    hashline.ts   # 行拆分 / 行哈希 / LINE:HASH 锚点解析与格式化
+    edit.ts       # 锚定编辑核心（纯函数：四类指令、四级校验、原子应用）
+    fs.ts         # IO 层（node:fs）：读锚点 / 读-校验-写（临时文件 + rename）
+    main.ts       # bundle 入口：name / inject / Config / apply；注册两个工具
+  demo/main.ts    # 冒烟：多锚点编辑 + stale 拒绝（SMOKE_PASS）
+  docs/
+    BACKLOG.md    # 未完成待办（缺陷与待办条目）
+    archived/     # 已完成项（render 形参顺序 / 相对路径基准）
+  tests/          # node --test：hashline / edit / fs / tool
+```
+
+| 相关文档 | 关系 |
+| --- | --- |
+| `docs/ARCHITECTURE-REUSE.md` §2 / §4 D | 与官方 `read` / `edit` 的并存边界、可选改用 `ctx.fs` |
+| `docs/host/DSH-CTX-API.md` §0 | bundle 导出契约（`name` / `inject` / `Config` / `apply`） |
+| `ast-tools/README.md` | 分工指路：按语法形态批量改写用 `ast_replace`，单点精确改写用 `hash_edit` |
 
 ## 测试
 

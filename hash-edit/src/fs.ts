@@ -3,6 +3,10 @@
  *
  * DSH 宿主内本层职责与 tool-fs 的文件读写底座重合，宿主侧可由 tool-fs 承接；
  * 包内为独立可测/可 demo，直接用标准库 IO，不新增运行时依赖。
+ * **读写都走 node:fs**：读不经宿主 fs 缝、写也不受宿主 fs-sandbox 围栏约束
+ * （workspace-write 等策略不拦本包直写）；改用 `ctx.fs` 的收益（沙箱一致）与
+ * 代价（写侧行为变更 + 其版本守卫是文件级、不能替代行级锚点）见
+ * `docs/ARCHITECTURE-REUSE.md` §4 D。
  * 行级锚定与 fs-observation-policy 的版本号守护互补：本层以「读取快照锚点」
  * 判定 staleness，拒绝发生在任何写操作之前，失败时文件字节不变（无半写）。
  * 成功路径为同目录临时文件 + rename 原子替换，保留原文件权限位。
