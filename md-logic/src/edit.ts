@@ -30,7 +30,7 @@ import { flattenSections } from "./query.ts";
  * 「≤3 空格 + 列表记号（`-` / `*` / `+` / `1.` / `1)`，记号后须跟空白）」，返回容器正文。
  * 用途：CommonMark 解析围栏 / 注释时容器记号会被剥离、内容按剩余缩进进入块级解析——
  * 若只看行首 ≤3 空格，容器内的围栏会与真实相位错开一格（缩进闭行被当开栏 → 误拒或漏拦，
- * 见 `docs/BACKLOG.md`「围栏 / 注释判定的容器盲」）。
+ * 见 `docs/archived/2026-10-05-unclosed-block-container-aware.md`）。
  * @param line - 原始行（不含换行）
  * @returns 剥掉容器记号后的正文（无容器记号 → 原行）
  */
@@ -70,7 +70,9 @@ function containerPhase(line: string): number {
 }
 
 /**
- * content 内的**未闭合块**检测（①.5 结构守卫用）：CommonMark 里未闭合的代码围栏与 `<!--`
+ * content 内的**未闭合块**检测（①.5 结构守卫的**成因文案生成器**；判据是「把 content 代进去
+ * 重新解析、比较节大纲」，见 `replaceSections` ①.5 末段——字符串启发式无法穷举容器 / 相位组合，
+ * 实测既有漏拦也有误拒，故不参与判据）：CommonMark 里未闭合的代码围栏与 `<!--`
  * 都**直到文件结尾**才结束 → 写入后其后所有行被并进该块，**节从节树里静默消失**（既有
  * fenced 守卫与层级守卫都不拦：吞并发生在 parser 内部，解析结果「少了几节」且不报错）。
  * 扫描口径对齐 CommonMark 的**起点判定**（误拒会挡掉合法写入，故只拦「确实会吞块」的写法）：
@@ -87,7 +89,8 @@ function containerPhase(line: string): number {
  * @returns 未闭合说明（直接可用的错误文案）；配对正常 → `undefined`
  * - **容器内**开栏（围栏 / 注释）在容器结束处即被截断（实测 marked 行为）→ 一般不吞后节，
  *   故不收窄也不报错；但**顶层**开栏的未闭合、以及「开着围栏时又出现相位 / 前缀不符的
- *   类闭行」（实测该形态真吞其后节）都报 `content_invalid`。
+ *   类闭行」（实测该形态真吞其后节）都会在解析器裁决判定丢节时作为错误文案给出
+ *   （本函数**不参与判据**，只出成因文案）。
  */
 function unclosedBlockReason(content: string): string | undefined {
   const lines = content.split("\n");
