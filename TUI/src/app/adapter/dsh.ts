@@ -218,6 +218,7 @@ export {
   sessionModeFromMessages,
   firstUserText,
   shouldAutoKickoff,
+  newSessionKickoffText,
   BOOTSTRAP_KICKOFF_TEXT,
   buildBootstrapKickoffMessage,
   type BootstrapKickoffMessage,

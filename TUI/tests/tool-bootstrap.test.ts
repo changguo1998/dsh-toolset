@@ -5,14 +5,15 @@
 // 记录推导（宿主 events 与 rc.2 消息投影两条路径）、applyPersona 替换、
 // installToolBootstrap 端到端（目标模型锁定 → tool/call 后解锁、rc.2 无 events
 // 的投影路径与 fail-open、非 deepseek 模型/开关关闭原样透传）、
-// 启动自检 kickoff（消息形状、shouldAutoKickoff 门控矩阵、firstUserText 的
-// source.kind 过滤、kickoff 请求不落定模式缓存）。
+// 启动自检 kickoff（消息形状、shouldAutoKickoff 门控矩阵、newSessionKickoffText 的
+// `/new` 模型取值、firstUserText 的 source.kind 过滤、kickoff 请求不落定模式缓存）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   BOOTSTRAP_KICKOFF_TEXT,
   buildBootstrapKickoffMessage,
+  newSessionKickoffText,
   classifyTask,
   coreFor,
   personaFor,
@@ -888,3 +889,54 @@ test("installToolBootstrap: kickoff 请求不落定模式（真实首消息到�
 });
 
 /* -- 启动自检 kickoff（END） ------------------------------------------------- */
+
+// ===== `/new` 门控：按「新会话将要使用的模型」判定（BACKLOG TUI#57 求值窗口） =====
+
+test("newSessionKickoffText：钉住的 route 优先，其次宿主默认选择（都不看当前会话）", () => {
+  // 钉住 deepseek + 默认非 deepseek → 发（新会话用的是钉住的那个）
+  assert.equal(
+    newSessionKickoffText({
+      pinnedModel: "deepseek-v4-pro",
+      defaultModel: "gpt-5",
+    }),
+    BOOTSTRAP_KICKOFF_TEXT,
+    "钉住模型优先于默认选择",
+  );
+  // 钉住非 deepseek + 默认 deepseek → 不发（**跨模型切换不误发**：上一会话是什么模型无关）
+  assert.equal(
+    newSessionKickoffText({
+      pinnedModel: "gpt-5",
+      defaultModel: "deepseek-v4-pro",
+    }),
+    undefined,
+  );
+  // 无钉住 + 默认 deepseek → 发（反向组合必发）
+  assert.equal(
+    newSessionKickoffText({ defaultModel: "deepseek-v4-pro" }),
+    BOOTSTRAP_KICKOFF_TEXT,
+  );
+  // 无钉住 + 默认非 deepseek → 不发
+  assert.equal(newSessionKickoffText({ defaultModel: "gpt-5" }), undefined);
+});
+
+test("newSessionKickoffText：开关关闭 / 判据不可读 → 一律不发", () => {
+  assert.equal(
+    newSessionKickoffText({
+      enabled: false,
+      pinnedModel: "deepseek-v4-pro",
+      defaultModel: "deepseek-v4-pro",
+    }),
+    undefined,
+    "开关关闭优先于模型命中",
+  );
+  assert.equal(
+    newSessionKickoffText({}),
+    undefined,
+    "两处模型来源都缺失 → 不发",
+  );
+  assert.equal(
+    newSessionKickoffText({ pinnedModel: "", defaultModel: "" }),
+    undefined,
+    "空串同样视为不可读",
+  );
+});

@@ -356,6 +356,27 @@ export function shouldAutoKickoff(options: {
 }
 
 /**
+ * `/new` 启动自检门控（BACKLOG TUI#57）：全新会话必未解锁，故只看「开关 + **新会话的模型**」。
+ * 模型取值是本条目的修复点——新会话的模型 = 宿主 `create` 实际会用的那个：调用方**钉住的
+ * route**（`agentOptions.model`，适配器建会话时透传）优先，否则宿主默认选择（种子）。
+ * **不读当前会话的模型**：`/new` 的判据必须在 `create()` 决议后的**同一同步回合**内求值
+ * （kickoff 须先于 rule-engine 的 session-start 注入入队，见 bootstrap-kickoff-order 实验），
+ * 而那一刻 `restoreSessionState()`（异步回填，含会话模型重置）尚未落定，读到的仍是
+ * **上一会话**的模型 → 跨模型切换时该发不发 / 不该发而发。
+ * 两处来源都可缺失 = 判据不可读 → 不发（与锚定 filter 的 fail-open 相反）。
+ * @returns kickoff 正文；门控不通过时 `undefined`
+ */
+export function newSessionKickoffText(options: {
+  enabled?: boolean | undefined;
+  pinnedModel?: string | undefined;
+  defaultModel?: string | undefined;
+}): string | undefined {
+  if ((options.enabled ?? true) === false) return undefined;
+  const modelId = options.pinnedModel ?? options.defaultModel ?? "";
+  return isDeepseekModel(modelId) ? BOOTSTRAP_KICKOFF_TEXT : undefined;
+}
+
+/**
  * 挂接 agentCtx 的 system-prompt/assemble：对全部 deepseek-* 模型（默认门控）在
  * 首请求锁定工具目录 + persona-only，首次 durable tool/call 后恢复全量。
  * 返回解绑函数（与 installSessionModelSelection 同构）；setup 内 void 丢弃。

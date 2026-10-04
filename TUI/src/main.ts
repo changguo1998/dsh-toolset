@@ -30,6 +30,7 @@ import {
   installSessionModelSelection,
   installToolBootstrap,
   shouldAutoKickoff,
+  newSessionKickoffText,
   BOOTSTRAP_KICKOFF_TEXT,
   isDeepseekModel,
   listSessionRecords,
@@ -636,17 +637,18 @@ export async function apply(
   })
     ? BOOTSTRAP_KICKOFF_TEXT
     : undefined;
-  // `/new` 的启动自检门控（BACKLOG TUI#57）：惰性求值——每次新建会话时按**当前**有效模型
-  // 判定（不能复用启动时的 kickoffText：那是按启动会话判定的静态值）；全新会话必未解锁，
-  // 无需读 durable 记录。
-  const kickoffForNewSession = (): string | undefined => {
-    if ((config?.toolBootstrap ?? true) === false) return undefined;
-    const modelId =
-      sessionModel.current?.model ??
-      readDefaultSelection(defaultModelSvc)?.model ??
-      "";
-    return isDeepseekModel(modelId) ? BOOTSTRAP_KICKOFF_TEXT : undefined;
-  };
+  // `/new` 的启动自检门控（BACKLOG TUI#57）：惰性求值——每次新建会话时按**新会话将要使用的
+  // 模型**判定。**不读 `sessionModel.current`**：那是按会话回填的值，而 `/new` 的判据必须在
+  // `create()` 决议后的同一同步回合内求值（kickoff 须先于 rule-engine 的 session-start 注入
+  // 入队），此刻 `restoreSessionState()` 尚未落定 → 读到的仍是**上一会话**的模型（求值窗口，
+  // 跨模型切换时该发不发 / 不该发而发）。新会话模型 = 建会话时钉住的 route（`agentOptions`，
+  // 见适配器 `newSession`）优先，否则宿主默认选择（种子）；判据不可读 → 不发。
+  const kickoffForNewSession = (): string | undefined =>
+    newSessionKickoffText({
+      enabled: config?.toolBootstrap ?? true,
+      pinnedModel: route.model,
+      defaultModel: readDefaultSelection(defaultModelSvc)?.model,
+    });
   const disposeApp = main({
     adapter,
     bootstrapKickoffText: kickoffText,
