@@ -50,7 +50,7 @@ steps:
 | `maxBestOf` | `8` | `bestOf` 上限 |
 | `stepTimeoutMs` | `600000` | 单个 agent 步骤超时 |
 | `totalTimeoutMs` | `maxSteps × stepTimeoutMs`（随包 `7200000`） | 一次运行的总预算：只约束 agent 步之和（语义 = agent 步**启动闸门**；非正 / 非有限 = 不设；超限 → `run_timeout`） |
-| `reservedNames` | `["list", "show", "reload"]` | 入口保留子命令名（模板同名则无法调用，加载时告警） |
+| `reservedNames` | `["list", "show", "reload"]` | 入口保留子命令名（模板同名则无法调用，加载时告警）；**入口命令名本身恒保留**（`/playbook playbook` 走管理面 = list，与 `reservedNames` 配置无关） |
 | `disabled` | `false` | `true` = 只加载不注册 |
 
 ## 服务面

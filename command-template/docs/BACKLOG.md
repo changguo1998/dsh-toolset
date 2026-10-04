@@ -10,4 +10,5 @@
 
 | # | 条目 | 来源 | 落点 | 工作量 | 优先级 |
 | --- | --- | --- | --- | --- | --- |
-| 1 | **`/playbook playbook` 触发无限递归**（源码缺陷）：`run()` 见到入口名会转 `#dispatch`（`main.ts` 约 206 行），而 `#dispatch` 把第一段当模板名再调 `run()`（约 247 行）；`ENTRY_COMMAND` 不在 `#reserved()` 里（保留名只有 `list` / `show` / `reload`），故 `/playbook playbook` 会 `run → #dispatch → run` 递归到爆栈（`RangeError`）——现有用例只覆盖 `list` / 空输入 / `show`。期望：把入口名并入保留名（`#dispatch` 对 `first === ENTRY_COMMAND` 走管理面 = 输出 list），或显式返回「模板不存在」错误；补用例（两形态都断言不递归）。来源：2026-10-04「command-template 补 `DESIGN.md`」任务的收尾审阅（源码隐患，非文档问题） | `command-template/src/main.ts`（`#dispatch` / `#reserved`）+ 测试 | 0.5 h | P3 |
+
+（当前无未完成项）

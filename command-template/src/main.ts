@@ -142,10 +142,10 @@ export class CommandTemplateService {
         this.#log(`撤销旧命令失败：${describe(err)}`);
       }
     }
-    const reserved = new Set(this.#reserved());
+    const reserved = new Set([ENTRY_COMMAND, ...this.#reserved()]);
     for (const template of this.#load.templates) {
       if (reserved.has(template.name)) {
-        this.#log(`模板名与子命令保留名冲突（无法调用）：${template.name}`);
+        this.#log(`模板名与入口 / 子命令名冲突（无法调用）：${template.name}`);
       }
     }
     const commands = this.#commands();
@@ -244,7 +244,14 @@ export class CommandTemplateService {
   async #dispatch(invocation: InvocationLike): Promise<CommandResultLike> {
     const raw = (invocation.rawInput ?? "").trim();
     const first = raw.split(/\s+/, 1)[0] ?? "";
-    if (first !== "" && !this.#reserved().includes(first)) {
+    // 入口命令名本身**不是模板**：视为管理面（`/playbook playbook` → list）。该守卫与
+    // `reservedNames` 配置无关（配置只覆盖子命令名）：否则 `run()`（入口名 → 分派）与
+    // `#dispatch()`（第一段当模板名 → `run()`）互调，`/playbook playbook` 递归到爆栈。
+    if (
+      first !== "" &&
+      first !== ENTRY_COMMAND &&
+      !this.#reserved().includes(first)
+    ) {
       const rest = raw.slice(first.length).trim();
       return await this.run(first, invocation, rest);
     }

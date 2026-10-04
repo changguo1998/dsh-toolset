@@ -567,3 +567,53 @@ test("服务面：apply() 提供的对象键清单与 SERVICE_FACE_METHODS 同�
     rmSync(base, { recursive: true, force: true });
   }
 });
+
+test("入口分派：`/playbook playbook`（入口名当参数）走管理面——不递归、不爆栈", async () => {
+  const base = mkdtempSync(join(tmpdir(), "ct-self-"));
+  writeFileSync(
+    join(base, "hello.md"),
+    "---\nname: hello\ndescription: 打招呼\n---\nhi",
+  );
+  const ctx = {
+    logger: () => ({ info: () => {} }),
+    commands: { register: () => () => {} },
+    provide: () => {},
+  };
+  /** 建一个已加载 + 已注册的服务实例（config 覆盖按需传入） */
+  const mk = (config: Record<string, unknown> = {}) => {
+    const service = new CommandTemplateService(ctx, {
+      dirs: [base],
+      userDir: join(base, "none"),
+      ...config,
+    });
+    service.load();
+    service.register();
+    return service;
+  };
+  try {
+    // 入口名当第一段：应走管理面（list）——原先会 run → #dispatch → run 递归到爆栈
+    const self = (await mk().run("playbook", { rawInput: "playbook" })) as {
+      kind: string;
+      text?: string;
+    };
+    assert.equal(self.kind, "success", JSON.stringify(self));
+    assert.match(self.text ?? "", /hello/, "输出模板清单: " + self.text);
+    // 带参数同样不递归（第一段仍是入口名）
+    const withArg = (await mk().run("playbook", {
+      rawInput: "playbook 世界",
+    })) as { kind: string; text?: string };
+    assert.equal(withArg.kind, "success", JSON.stringify(withArg));
+    assert.match(withArg.text ?? "", /hello/);
+    // 入口名守卫与 reservedNames 配置无关：收窄子命令名后仍不递归
+    const narrowed = (await mk({ reservedNames: ["list"] }).run("playbook", {
+      rawInput: "playbook",
+    })) as { kind: string };
+    assert.equal(
+      narrowed.kind,
+      "success",
+      "入口名守卫不依赖 reservedNames 配置",
+    );
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});

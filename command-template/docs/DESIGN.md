@@ -13,7 +13,7 @@
 ## 2. 架构取舍
 
 - **单一入口命令**：`register()` 只注册一条命令 —— 入口 `playbook`（`definitionId: command-template:playbook`，description / hint 为**硬编码文案**，只把 `list | show <模板> | reload | <模板> [参数]` 提示出来）；模板**不注册独立命令**，全部经入口的**参数分派**（`/playbook <模板> [参数]`）。取舍理由：模板数量会增长，逐模板注册会长期占用用户命令命名空间，且难以与宿主 / TUI 本地命令共存。
-- **保留名只告警不改名**：模板名与保留子命令（`ENTRY_SUBCOMMANDS`，可经 `reservedNames` 改）冲突时**仅记日志**（`模板名与子命令保留名冲突（无法调用）`），不静默改名、也不覆盖子命令——该模板因此无法通过入口调用，属用户需自行处理的名字问题。
+- **保留名只告警不改名**：模板名与保留子命令（`ENTRY_SUBCOMMANDS`，可经 `reservedNames` 改）冲突时**仅记日志**（`模板名与入口 / 子命令名冲突（无法调用）`——告警集合是「入口命令名 + 保留子命令名」），不静默改名、也不覆盖子命令——该模板因此无法通过入口调用，属用户需自行处理的名字问题。
 - **双源目录、后覆盖前**：随包目录（低优先级）→ 用户目录（高优先级），用户可用同名文件覆盖随包模板而无需 fork；扫描**不递归**（目录结构由用户掌控，避免 `node_modules` 一类的意外命中）。
 - **执行侧是可注入的纯函数**（`runTemplate(tpl, deps, options)`）：`StepDeps` 只暴露「注入本会话」与「跑一次性子代理」两件事，测试用替身即可覆盖全部步骤语义，宿主依赖集中在 `subagent.ts` / `host.ts` 两处。
 - **失败面用稳定错误码**（`TemplateErrorCode`）而非文案匹配；文案可改、码不改。**当前会发出的**：`template_invalid`（**仅**步骤数超 `maxSteps` 与 `bestOf` 超 `maxBestOf`——frontmatter 形状 / 解析错误只进 `LoadResult.errors`，不发码）、`step_failed`（agent 步失败或超时归一）、`run_timeout`（超出总预算）、`session_unavailable`（prompt 步注入当前会话失败）。`template_not_found` / `name_conflict` / `agent_unavailable` 属**保留码**（当前实现走 notice / 日志文案，不从这里发出）。
@@ -21,7 +21,7 @@
 ## 3. 命令注册（`src/main.ts`）
 
 - `inject: ["commands"]`、`provide: ["commandTemplate"]`（DSH bundle 契约）；`apply(ctx, config)` 建 `CommandTemplateService` → `load()`（扫模板）→ `register()`（**只注册入口命令** `playbook`：description / `input.hint` 为硬编码文案，模板的 `description` / `input.hint` 只用于 `list` / `show` 的输出）。`commands` 未挂载时记日志并跳过注册，**服务面照常提供**（`list` / `errors` 仍可见）。
-- 入口分派（`#dispatch`）：输入为空 → `list`；第一段是保留子命令（`list` / `show` / `reload`）→ 走管理面；否则第一段按**模板名**运行（含后续参数）；模板名未知 → 报「模板不存在」错误（不回落 `list`）。
+- 入口分派（`#dispatch`）：输入为空 → `list`；第一段是保留子命令（`list` / `show` / `reload`）**或入口命令名本身**（`playbook`）→ 走管理面（否则 `run()` ⇄ `#dispatch()` 互调会递归，2026-10-04 修）；否则第一段按**模板名**运行（含后续参数）；模板名未知 → 报「模板不存在」错误（不回落 `list`）。
 - 运行路径把 config 的四个旋钮（`maxSteps` / `maxBestOf` / `stepTimeoutMs` / `totalTimeoutMs`）透传给 `runTemplate`（未配置的字段**不传**，由 `steps.ts` 的缺省常量兜底——缺省值只有一处定义）。
 - **服务面**（`ctx.get("commandTemplate")`）由 `serviceFace(service)` 构造：`list` / `get` / `errors` / `reload`；键清单常量 `SERVICE_FACE_METHODS` 与实现由两条测试守卫（键漂移、服务方法改名、`apply()` 实际 `provide` 的内容）。
 - `config.disabled`（离线排障）：`apply()` 在 `load()` / `provide()` 之前就返回 —— **不加载模板、不注册命令、不提供 `commandTemplate` 服务面**（只向 stderr 记一行禁用提示），故这种模式下 `list` / `errors` 也不可见（`src/types.ts` 的字段注释据此对齐）。
