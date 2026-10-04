@@ -13,7 +13,9 @@ DSH 进程内集成的**代码结构地图**：把「项目里有什么、谁引
 | 结构层（recall） | ast-grep（复用 `ast-tools` 的 `outline`/`search`） | 全量、快、容忍语法错误 | 不启动语言服务器、不要求项目可编译 |
 | 语义层（precision） | 宿主 `ctx.lsp`（dsh-lsp 查询缝） | 按需、准 | 仅对实际查询的符号付语义成本；服务未挂载时自动回落结构层 |
 
-理由：全量语义索引（SCIP/Kythe/LSIF 级）构建成本与维护复杂度远超本插件需求；而「同名标识符候选 + 图上结构聚合」已足以支撑影响面初筛与结构总览。**语义层首项（`callers` 的 findReferences 精确裁决）已实现**（2026-09-29，BACKLOG #22）：宿主 `ctx.lsp` 可用时走精确路径、结果 `precision:"lsp"`，不可用/失败/超时回落同名候选（`precision:"structural"`）；符号级 `callees` / `resolve` 提升仍留作增量（选型调研记录见 `archive/CODEMAP-RESEARCH.md`）。
+理由：全量语义索引（SCIP/Kythe/LSIF 级）构建成本与维护复杂度远超本插件需求；而「同名标识符候选 + 图上结构聚合」已足以支撑影响面初筛与结构总览。**语义层首项（`callers` 的 findReferences 精确裁决）已实现**（2026-09-29，BACKLOG #22）：宿主 `ctx.lsp` 可用时走精确路径、结果 `precision:"lsp"`，不可用/失败/超时回落同名候选（`precision:"structural"`）；符号级 `callees` / `resolve` 提升仍留作增量（选型调研记录见 `../../archive/CODEMAP-RESEARCH.md`）。
+
+**LSP 缺省不可达（重要）**：官方 LSP 三件套（`lsp` / `lsp-stdio` / `tool-lsp`）**不随 dsh 分发**（`docs/host/HOST-PACKAGES.md` 的「官方源码有、随包分发没有」清单），标准 profile 缺省没有 `ctx.lsp`，故 `callers` 在缺省部署下恒定输出 `precision:"structural"`；`precision:"lsp"` 只在自行安装三件套（或经 `config.lsp` 注入提供器）时可达。文档与工具描述里的「LSP 可用时精确」是能力上限而非缺省行为。
 
 ## 3. 数据模型（进程内内存图，`src/types.ts` + `src/graph/graph.ts`）
 
@@ -51,13 +53,13 @@ CodeGraph
 
 ## 7. DSH 接入面（`src/index.ts`）
 
-按 bundle 契约 `export { name, inject, provide, apply }`：`name = "code-map"`，`inject = ["tools"]`（缺失仅告警），`provide = ["codeMap"]`。`apply()` 经 `ctx.get("lsp")` **可选**读取宿主 LSP 服务（受保护；缺失即结构层），`config.lsp` 可注入替身（测试/嵌入）。`apply` 内建 bundle 并由模块级持有（`getCodeMapBundle()` / `getCodeMapSummary()`），`tools.register` 与 `provide` 缺失时降级告警，不使加载失败。`cordis.patch.yml` 声明 bundle 插入。
+按 bundle 契约 `export { name, inject, provide, apply }`：`name = "code-map"`，`inject = ["tools"]`（cordis 硬依赖，缺失即整体等待），`provide = ["codeMap"]`（暴露 `{ getSummary, getBundle }`）。`apply()` 经 `ctx.get("lsp")` **可选**读取宿主 LSP 服务（受保护；缺省无该服务，见 §2），`config.lsp` 可注入替身（测试/嵌入）。`apply` 内建 bundle 并由模块级持有（`getCodeMapBundle()` / `getCodeMapSummary()`）；`tools` / `provide` 在结构面上取不到时**静默跳过**该项注册（单测直接传普通对象场景），只有 `register` 抛错才告警。`cordis.patch.yml` 声明 bundle 插入。
 
 **降级链**：`createCodeMapBundle` 构造时尝试 `createAstToolsBundle()`，失败则返回 `degradedBundle`——所有操作返回空/`ready:false` 结果，绝不抛出，宿主侧表现为「插件在但地图为空」。
 
 ## 8. 约束与已知边界
 
 - 候选边同名误连：`callers` 在宿主 LSP 可用时已消歧（`precision:"lsp"`）；LSP 不可用时仍为同名候选（`precision:"structural"`，需按名核对）。语法错误文件结构层仍可出符号，语义层查询由其 provider 决定（通常跳过）。
-- 内存图随进程生命周期：无快照、无跨进程一致性承诺；`report`/`summary` 在首次 `index` 前返回 `undefined`（工具面带 `error`/`ready:false`）。
+- 内存图随进程生命周期：无快照、无跨进程一致性承诺；`report`/`summary` 在首次 `index` 前返回 `undefined`（工具面带 `error`/`ready:false`），`cycles` 也不触发索引、未索引即空数组。
 - `refresh` 为全量重建：大仓重复调用成本线性。
 - 明确不做：SCIP/Kythe/LSIF 全量语义索引格式；文件系统监听守护；跨文件重命名；远程仓库 clone 前索引；`callees` 符号级提升与 `resolve`/`hover`（LSP 缝其余操作）；provider 实现（自带语言服务器）；TUI 只读桥（`/map`、`/callers`）。

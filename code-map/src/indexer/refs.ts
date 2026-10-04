@@ -1,9 +1,9 @@
 /**
  * 候选引用（recall）：对目标符号做「同名标识符」全仓搜索（ast-grep）。
  *
- * 候选语义：无类型解析的近似——凡出现同名 identifier 即记为候选，
- * 精确裁决（是否真引用、消歧）由 LSP 语义层（增量）负责；首版这些候选
- * 即为 callers 答案，文档声明为近似。
+ * 候选语义：无类型解析的近似——凡出现同名 identifier 即记为候选；
+ * 精确裁决（是否真引用、消歧）由 LSP 语义层负责（已接 `callers`，宿主未装 LSP 三件套时
+ * 不可达）；未走语义层时这些候选即为 callers 答案，文档声明为近似。
  */
 
 import { normalizeLanguage } from "@dsh-toolset/ast-tools";

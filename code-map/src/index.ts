@@ -5,13 +5,17 @@
  * name / inject / provide / apply / Config；apply(ctx, config) 把配置透传给
  * `createCodeMapBundle`（`root` 生效，`ast` 供程序化注入），Config 以类型别名给出
  * （无运行时 schema，宿主不校验）。
- * - `inject: ["tools"]`：注册 `code_map` 工具（防御降级：tools 缺失仅告警）；
+ * - `inject: ["tools"]`：注册 `code_map` 工具（cordis 硬依赖；结构面仍防御取值，单测直接传
+ *   普通对象时缺失即跳过注册，不抛）；
  * - `provide: ["codeMap"]`：只读查询面，宿主命令/插件经 `ctx.get('codeMap')` 访问；
  * - 核心工厂 `createCodeMapBundle`（可测/可复用），apply 为宿主挂载入口。
  *
  * 分层：结构层（recall，ast-grep）恒定可用；语义层（precision）按需——callers 在宿主
  * `ctx.lsp` 可用时经 findReferences 精确裁决（`precision:"lsp"`），否则回落同名候选
- * （`precision:"structural"`）。callees 为文件级；索引惰性（首次查询时构建）。
+ * （`precision:"structural"`）。注意：宿主 LSP 三件套（`lsp` / `lsp-stdio` / `tool-lsp`）
+ * **不随 dsh 分发**（docs/host/HOST-PACKAGES.md），缺省 `ctx.get("lsp")` 解析不到，故标准
+ * profile 下恒走 `structural`；要 `lsp` 精度须自行安装该三件套。
+ * callees 为文件级；索引惰性（首次查询时构建）。
  */
 
 import {
@@ -57,7 +61,7 @@ export type {
 
 export const name = "code-map";
 export const inject = ["tools"];
-/** 提供的服务名（cordis：宿主命令/插件经 ctx.get('codeMap') 访问只读查询面）。 */
+/** 提供的服务名（宿主命令/插件经 ctx.get('codeMap') 取 `{ getSummary, getBundle }`）。 */
 export const provide = ["codeMap"];
 
 /** 结构化宿主 ctx（最小 DSH cordis 形态）：可选 logger。 */
@@ -70,7 +74,8 @@ export interface CodeMapConfig {
   root?: string;
   /** 注入 ast-tools bundle（可测）；缺省自建（ast-grep 缺失时降级为不可用）。 */
   ast?: AstToolsBundle;
-  /** 注入 LSP 引用提供器（可测/嵌入）；缺省由 `apply()` 从宿主 `ctx.lsp` 解析。 */
+  /** 注入 LSP 引用提供器（可测/嵌入）；缺省由 `apply()` 从宿主 `ctx.lsp` 解析
+   *  （三件套不随 dsh 分发 → 缺省解析不到，回落结构层同名候选）。 */
   lsp?: LspReferencesProvider;
 }
 

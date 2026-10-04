@@ -5,6 +5,8 @@
 // 归一为 `{ kind: 'locations', locations: [{ uri, range }] }`；坐标 0-based UTF-16，
 // 与 ast-grep outline 的 0-based 行号同源。服务**可选**：缺失 / 形状不符 / 查询
 // 抛错一律回落 null（调用方回落到结构层同名候选），绝不阻塞或抛出。
+// 注意：该三件套（`lsp` / `lsp-stdio` / `tool-lsp`）**不随 dsh 分发**，缺省宿主没有
+// `ctx.lsp`，故这条精确路径在标准 profile 下不可达（见 docs/host/HOST-PACKAGES.md）。
 
 /** 0-based UTF-16 光标坐标（与官方缝一致）。 */
 export interface LspPosition {

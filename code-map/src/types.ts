@@ -2,7 +2,8 @@
  * code-map 核心类型。
  *
  * 结构层产物围绕「文件 + 符号 + import 边」；引用/调用为候选语义
- * （语法级近似，无类型解析），精确确认（LSP 语义层）为增量。
+ * （语法级近似，无类型解析），精确确认（LSP 语义层）已在 `callers` 落地
+ * （宿主 LSP 缺省不可达，见 src/index.ts 文件头），符号级 callees / resolve 仍为增量。
  */
 
 /** 单个符号（来自 ast-grep outline，0-based 行号）。 */
@@ -74,7 +75,8 @@ export interface CallersResult {
   refs: CandidateRef[];
   /** 引用去重后的文件列表。 */
   files: string[];
-  /** 精度来源：`lsp` = 宿主 LSP findReferences 精确结果；`structural` = 结构层同名候选（回落）。 */
+  /** 精度来源：`lsp` = 宿主 LSP findReferences 精确结果；`structural` = 结构层同名候选
+   *  （回落；LSP 三件套不随 dsh 分发，故此值为缺省实际口径）。 */
   precision: "lsp" | "structural";
 }
 

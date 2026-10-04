@@ -1,7 +1,7 @@
 /**
  * 结构层：全量扫描（文件收集 → ast-grep outline → 符号表 + import 边）。
  *
- * 复用 ast-tools（ast-grep CLI）`outlineFile({ items: "all" })`：
+ * 复用 ast-tools（ast-grep CLI）`outline({ path, items: "all", language })`：
  * 对每个源文件返回 imports + structure + exports 三类符号。
  * import 边按相对说明符解析到仓库内文件（补扩展名/目录 index），
  * 裸模块与内置模块（fs、node:path、@scope/* 等）记外部（to=null）。
