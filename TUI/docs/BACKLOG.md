@@ -7,10 +7,4 @@
 
 ## 待办
 
-### 1. `/collapse` 的命令描述与帮助文案把 on/off 写反
-
-- **现状**：`src/app/commands.ts` 的命令表与 `src/app/index.ts` 的 `/help` 行都写「on=完整折行 / off=紧凑」，而实现与运行时提示是 **on=紧凑（每条目 1 行 + 行尾省略号）/ off=完整折行**（`index.ts` 的 `/collapse` 分支、`activity-compact` reducer；`tests/activity-level.test.ts`、`tests/activity-verbose.test.ts` 按 on=紧凑断言）。
-- **期望**：两处文案与实现一致（on=紧凑 / off=完整折行）。
-- **落点**：`TUI/src/app/commands.ts`、`TUI/src/app/index.ts`（**用户可见字符串**，属行为面文案，不能当纯注释改）。
-- **验收**：`npm --prefix TUI run check` 与相关用例全绿；`/help`、命令补全、运行时提示三处口径一致。
-- **来源·状态·优先级**：2026-10-04 文档刷新（TUI 文档域子代理报告）；未接取；P3。
+（当前无未完成项）

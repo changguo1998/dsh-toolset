@@ -233,7 +233,7 @@ export const LOCAL_COMMANDS: readonly {
   {
     name: "collapse",
     route: "collapse",
-    desc: "活动区详略：on=完整折行 / off=紧凑（每条目 1 行 + 省略号）",
+    desc: "活动区详略：on=紧凑（每条目 1 行 + 行尾省略号）/ off=完整折行",
   },
   {
     name: "verbose",

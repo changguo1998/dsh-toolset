@@ -4163,7 +4163,7 @@ export class App {
       },
       {
         cmd: "/collapse on|off",
-        desc: "活动区详略：on=完整折行 / off=紧凑（每条目 1 行 + 行尾省略号）",
+        desc: "活动区详略：on=紧凑（每条目 1 行 + 行尾省略号）/ off=完整折行",
       },
       {
         cmd: "/verbose think|tool|step",
