@@ -21,14 +21,14 @@
 ## 3. 扫描与索引（`src/indexer.ts`）
 
 - `findMarkdownFiles()`：递归 DFS 扫 root 下的 `.md`（每层按 `localeCompare` 排序），POSIX 相对路径，跳过 `DEFAULT_EXCLUDES`（`node_modules` / `.git` / `dist` / `.pi-glla` / `tmp`）+ 配置追加项；`DEFAULT_MAX_FILES = 2000` 截断（防单次索引把上下文吃光）。
-- `buildIndex()`：逐文档解析 → 收集锚点（`buildAnchors` 产 slug，按文档存 `anchorsByPath`）→ 解析正文里的引用（`links.ts`）→ 解析**引用式定义**（`[tag]: url`）→ 逐边定类型（见 §4）→ 汇总计数（`edges` / `fileEdges` / `refEdges` / `refUnresolved` / `broken`）。
-- `toPosix()` 统一分隔符：本包所有路径（入参、出参、边目标）都是 **root 内 POSIX 相对路径**；绝对路径与 `..` 越界在解析层就被丢弃。
+- `buildIndex()`：逐文档解析 → 收集锚点（`buildAnchors` 产 slug，按文档存 `anchorsByPath`）→ 解析正文里的引用（`links.ts`：行内链接 / wiki / 行内代码路径；图片与引用式定义由 md-logic 一并给出但**不成边**）→ 逐边定类型（见 §4）→ 汇总计数（`edges` / `fileEdges` / `refEdges` / `refUnresolved` / `broken`）。
+- 路径统一为 **root 内 POSIX 相对路径**（扫描时以 `/` 拼接，入参 / 出参 / 边目标同口径）：前导 `/` 按 root 相对解析，真正的绝对路径不会落到 root 之外，`..` 越界在解析层丢弃。`toPosix()` 只是遗留的 Windows 分隔符兼容工具，当前包内无调用方、也未从包入口再导出。
 
 ## 4. 引用解析口径（`src/links.ts`）
 
-- 扫描面：`[文本](href)` 行内链接、图片、引用式定义、`[[wiki]]`，以及**行内代码里的路径 token**（`ref` 形态）。行内代码先 `stripInlineCode*` 再判定，避免把示例文本当引用。
-- `splitHref()`：拆 `path` / `anchor` / 查询串；`resolveDocPath()`：按「源文档所在目录」解析相对路径，越界（仓库外）→ `null`（该边丢弃，不产出 root 外的 `to`）。
-- 候选序（`internal` / `wiki`）：按源文档相对路径 → root 相对 → 逐级 `.md` 兜底（`a` → `a.md` → `a/README.md` …），命中即停；全不中 → `broken`。
+- 扫描面：`[文本](href)` 行内链接（唯一计入关系边的链接类型）、`[[wiki]]`，以及**行内代码里的路径 token**（`ref` 形态）；图片 / 引用式定义由 md-logic 一并给出，但只作扫描输入、**不产边**。行内代码的处理是双向的：`ref` 形态**读取**代码片段内容抽路径 token，wiki / 正文扫描则先 `stripInlineCode*` 剥离（含跨行 code span），避免把示例文本当引用。
+- `splitHref()`：拆 `path` / `anchor` / 查询串；`resolveDocPath()`：前导 `/` 按 root 相对、其余按「源文档所在目录」解析，`..` 越过 root → `null`（调用方落 `broken`（`outside-root`），不产出 root 外的 `to`）。
+- 候选序：`internal` 按源文档所在目录解析（前导 `/` 才是 root 相对），`wiki` 先 root 相对、再源文件目录相对；随后逐级 `.md` 兜底（`a` → `a.md` → `a/README.md` → `a/index.md`），命中即停；全不中 → `broken`。
 - `ref` 形态的三处补口（2026-10-04）：① `x.md#sec` 先拆锚点（否则整串当路径、永不命中）；② 目录形态 token（`` `docs/archived` ``）按 `stat().isDirectory()` 落 `file` 边（名含点的目录如 `docs/v1.0` 同样算）；③ 跨模块裸名按「索引内唯一同名」兜底。出边目标恒为 **root 内规范化路径**（`normalize` + 拒绝 `..` / 绝对路径 / 空路径）。
 
 ## 5. 查询与渲染（`src/query.ts` / `src/render.ts`）
@@ -45,7 +45,7 @@
 
 - 索引**不落盘**、不增量：每次 `index` 全量重扫（大仓库靠 `maxFiles` 截断）；查询面读的是「最近一次」索引，文档已改但未 `refresh` 时会给出陈旧答案。
 - `ref` / `file` 兜底**不受 `exclude` 约束**（见 §2），故 `node_modules/x` 这类 token 会产出 `file` 边。
-- `ref` 边的锚点不参与校验（`file` 边不带锚点），`` `docs/archived#sec` `` 的锚点按既有口径不落。
+- `ref` 边的锚点**参与**校验（`` `x.md#sec` `` 的 `#sec` 落在边上，缺失计 `missing-anchor`）；只有目录形态兜底的 `file` 边不带锚点（`` `docs/archived#sec` `` 这条路径的锚点因此不落）。
 - 裸名唯一命中依赖「索引内」唯一性：被 `maxFiles` 截断或 `exclude` 挡住的同名文档不算候选。
 
 ## 8. 明确不做

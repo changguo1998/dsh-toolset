@@ -1,8 +1,9 @@
 // src/links.ts — 锚点 slug、wiki 链接补扫、链接目标解析（纯函数，文件系统访问由 indexer 注入）。
 //
 // 分工：单文件结构由 `@dsh-toolset/md-logic` 提供（标题树 + link/image/definition 三类链接）；
-// 本模块补 md-logic 不产的两件事——**GitHub 风格锚点**与 **wiki 链接**，并把目标**分类**为
-// internal / wiki / file / external / broken。
+// 本模块补 md-logic 不产的两件事——**GitHub 风格锚点**与 **wiki 链接**——并提供目标解析 / 候选序 /
+// 行内代码路径 token 提取的纯函数（边的最终分类在 `src/indexer.ts` 的 `classify()`：
+// internal / wiki / file / external / broken / ref）。
 
 import { flattenSections, type SectionNode } from "@dsh-toolset/md-logic";
 
@@ -358,7 +359,7 @@ export function isRootRelative(pathPart: string): boolean {
   return pathPart.startsWith("/");
 }
 
-/** 站外目标（`http(s)` / `mailto:` / `tel:` / 协议相对 `//`）。 */
+/** 站外目标（任意 `scheme:` 前缀，覆盖 `http(s)` / `mailto:` / `tel:` 等；含协议相对 `//`）。 */
 export function isExternal(href: string): boolean {
   return /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(href.trim());
 }
@@ -393,14 +394,15 @@ export function resolveDocPath(
   fromPath: string,
   pathPart: string,
 ): string | null {
-  // 以 `/` 开头是「仓库根相对」的常见写法（GitHub / VitePress 都支持）：按 root 解析；
-  // 真正的绝对路径（仓库外）由调用方在磁盘判定失败时归为 outside-root。
+  // 以 `/` 开头是「仓库根相对」的常见写法（GitHub / VitePress 都支持）：按 root 解析——
+  // 真正的绝对路径同样被当作 root 内路径（不会落 outside-root）；
+  // 只有 `..` 越过 root 时返回 null，调用方据此落 `broken`（reason=outside-root）。
   if (isRootRelative(pathPart)) return pathPart.replace(/^\/+/, "");
   const resolved = joinPosix(dirOf(fromPath), pathPart);
   return resolved.escaped ? null : resolved.path;
 }
 
-/** 无扩展名的文档链接尝试：`docs/x` → `docs/x.md` / `docs/x/README.md`（按序取第一个命中的）。 */
+/** 无扩展名的文档链接尝试：`docs/x` → `docs/x.md` / `docs/x/README.md` / `docs/x/index.md`（按序，调用方取首个命中）。 */
 export function candidateDocPaths(
   resolved: string,
   isIndexed: (path: string) => boolean,

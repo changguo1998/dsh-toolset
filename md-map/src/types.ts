@@ -28,7 +28,7 @@ export type MdEdgeKind =
   | "wiki"
   /** 目标存在但不是 `.md`（对代码 / 文件的引用）。 */
   | "file"
-  /** `http(s)` / `mailto` / `tel` 等站外目标。 */
+  /** 站外目标（任意 `scheme:` 前缀，如 `http(s)` / `mailto:` / `tel:`；含协议相对 `//`）。 */
   | "external"
   /** 目标路径或锚点不存在。 */
   | "broken"

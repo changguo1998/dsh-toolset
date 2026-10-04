@@ -446,7 +446,7 @@ export async function buildIndex(
   };
 }
 
-/** 便于测试：把相对路径统一成 POSIX（Windows 分隔符兼容）。 */
+/** 路径分隔符统一成 POSIX（Windows 兼容）；当前包内无调用方，也未从包入口再导出。 */
 export function toPosix(path: string): string {
   return path.split(sep).join("/");
 }

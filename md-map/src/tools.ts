@@ -17,7 +17,7 @@ import {
 import type { MdEdgeKind } from "./types.ts";
 import type { MdMapService } from "./service.ts";
 
-/** callers / impact 可过滤的边种类（external / broken 无 `to`，永不出现在入边里）。 */
+/** callers / impact 可过滤的边种类：`external` / `broken` 无 `to`、`file` 的 `to` 是索引外的真实路径，三者都不会成为入边。 */
 const CALLER_EDGE_KINDS = ["internal", "wiki", "file", "ref"] as const;
 
 /** 工具执行上下文（宿主 `exec`，只读鸭子类型）。 */
