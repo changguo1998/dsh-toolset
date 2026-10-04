@@ -10,7 +10,7 @@
  * `createRequire($DSH_HOME/profiles/node_modules/x.js)` 解析并动态 `import()` 官方 LLM helper
  * （宿主官方兜底解析路径，解析到与宿主同版的副本）；解析失败 → 告警且不注册 provider。
  *
- * 契约与工期记录见 `docs/implementation/2026-09-29-title-cutoff-provider.md`。
+ * 契约与工期记录见 `docs/archived/2026-09-29-title-cutoff-provider.md`。
  */
 
 import { createRequire } from "node:module";
@@ -69,7 +69,7 @@ export function isCommitCommand(command: string): boolean {
     .some((segment) => COMMIT_SEGMENT_RE.test(segment));
 }
 
-/** 从工具参数 JSON 里取命令文本（解析失败 / 无命令字段 → undefined）。 */
+/** 从工具参数 JSON 里取命令文本（无命令字段 → undefined；JSON 解析失败 → 原文兜底匹配）。 */
 export function commandOf(argumentsJson: unknown): string | undefined {
   if (typeof argumentsJson !== "string" || argumentsJson === "")
     return undefined;
@@ -199,7 +199,7 @@ export async function loadTitleLlmHelper(): Promise<
   }
 }
 
-/** 合并配置缺省（只保留 helper 白名单字段：多传会被 resolveSessionTitleLlmConfig 拒绝）。 */
+/** 合并配置缺省（只透传 helper 白名单字段，见下方键列表；空串视为未配置）。 */
 export function resolveConfig(config: Config = {}): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...DEFAULT_CONFIG };
   for (const key of [

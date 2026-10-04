@@ -6,8 +6,8 @@ DSH 进程内插件：接管 `ctx.sessionTitle` 的唯一标题 provider —— 
 
 - **窗口**：`selected = request.messages.filter(m => m.seq > cutoffSeq)`；`cutoffSeq` = 本会话最近一次 `git commit` 工具调用事件的 `seq`。
 - **回退**：无提交记录 / 过滤后为空 / 事件不可读 → 用全量消息（保证标题仍可生成）。
-- **提交判定**：当前只认命令文本匹配 `\bgit\s+commit\b` 的工具调用（含 `--amend` / `-a`）。
-- **记账**：`session/event` 监听（`tool/call`）维护每会话 `cutoffSeq` 缓存；进程重启后缓存为空 → 首次触发按「无提交」处理（回退全量），后续提交再次推进。缓存按会话记账（容量上限见实现，FIFO 淘汰）。
+- **提交判定**：只按命令文本判定，不绑定工具名——命令按换行 / `;` / `&&` / `||` / `|` 切段后，**某段以 `git commit` 开头**才算提交（放行 `sudo` 与 `git -C <目录>` 前缀，`--amend` / `-a` 自然覆盖）。命令里只是「提到」`git commit` 的文本不算（2026-09-29 真机日志实证：核查脚本会把 cutoff 顶高）。
+- **记账**：订阅 `session/event` 的 `tool/call` 维护每会话 `cutoffSeq` 缓存（容量 256 个会话，FIFO 淘汰）；进程重启后缓存为空 → 首次触发时经 `ctx.get("sessionQuery").readSession()` 按会话事件重建一次 cutoff（事件不可读才回退全量），后续提交再次推进。
 
 ## 配置（`cordis.patch.yml` 的 `config`）
 
@@ -53,3 +53,5 @@ npm run check   # tsc --noEmit
 npm run build   # tsc → dist/
 npm run test    # node --test（纯函数 + 假 ctx 装配；不依赖宿主与真实 LLM）
 ```
+
+包内文档：本 README（契约与边界）；决策与工期记录见 `docs/archived/2026-09-29-title-cutoff-provider.md`。
