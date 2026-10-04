@@ -25,6 +25,92 @@ import { isAbsolute, resolve } from "node:path";
 import { parseMarkdownDocument } from "./parse.ts";
 import { flattenSections } from "./query.ts";
 
+/**
+ * content 内的**未闭合块**检测（①.5 结构守卫用）：CommonMark 里未闭合的代码围栏与 `<!--`
+ * 都**直到文件结尾**才结束 → 写入后其后所有行被并进该块，**节从节树里静默消失**（既有
+ * fenced 守卫与层级守卫都不拦：吞并发生在 parser 内部，解析结果「少了几节」且不报错）。
+ * 扫描口径对齐 CommonMark 的**起点判定**（误拒会挡掉合法写入，故只拦「确实会吞块」的写法）：
+ * - 围栏开栏：`^ {0,3}(` + 三连反引号 / 波浪号 + `)`，且**反引号围栏的 info 串不得含反引号**
+ *   （含反引号的行是普通文本——漏判会把「后面的真开栏」误当闭行，真吞节却放行）；
+ * - 围栏闭行：同字符、长度 ≥ 开栏、除空白外无 info；
+ * - 注释开栏：**行首**（≤3 空格）的 `<!--`（段中 / 列表 / 缩进代码块里的 `<!--` 是行内 HTML，
+ *   不吞块）；注释开栏期内**不认围栏**（注释块内一切都是字面内容），等 `-->` 收束；
+ * - 行内代码先剥离（`` `<!--` `` 不是注释）；上述之外不判。
+ * @param content - 已归一的 content 文本（调用方保证换行为 `\n`）
+ * @returns 未闭合说明（直接可用的错误文案）；配对正常 → `undefined`
+ */
+function unclosedBlockReason(content: string): string | undefined {
+  const lines = content.split("\n");
+  let fence: { char: string; size: number; line: number } | undefined;
+  let commentLine: number | undefined;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const lineNo = index + 1;
+    // 注释块内：一切（含围栏符号 / 行内代码）都是注释内容，只等 `-->`
+    if (commentLine !== undefined) {
+      if (line.includes("-->")) commentLine = undefined;
+      continue;
+    }
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence !== undefined) {
+      // 围栏内不判注释（`<!--` 属代码内容）
+      const closer = fenceMatch?.[1];
+      if (
+        closer !== undefined &&
+        closer[0] === fence.char &&
+        closer.length >= fence.size &&
+        (fenceMatch?.[2] ?? "").trim() === ""
+      ) {
+        fence = undefined;
+      }
+      continue;
+    }
+    const opener = fenceOpener(fenceMatch);
+    if (opener !== undefined) {
+      fence = { char: opener.char, size: opener.size, line: lineNo };
+      continue;
+    }
+    // 行内代码里的 `<!--` 不是注释（CommonMark 先解析 code span）
+    const scrubbed = line.replace(/`+[^`]*`+/g, "");
+    // 注释开栏：行首（≤3 空格）的 `<!--`，且本行内没有 `-->` 配对（HTML block type 2 在
+    // 首个 `-->` 处结束 → 同行配对不吞块）
+    if (/^ {0,3}<!--/.test(scrubbed) && !scrubbed.includes("-->")) {
+      commentLine = lineNo;
+    }
+  }
+  if (fence !== undefined) {
+    return (
+      `edit.content 内第 ${fence.line} 行的代码围栏未闭合（${fence.char.repeat(fence.size)}）：` +
+      "CommonMark 里未闭合围栏直到文件结尾，会把**其后所有节**并进该块（节从节树消失）；" +
+      "补上闭合行，或改用 hash_edit / 官方 edit"
+    );
+  }
+  if (commentLine !== undefined) {
+    return (
+      `edit.content 内第 ${commentLine} 行的 HTML 注释未闭合（\`<!--\` 缺 \`-->\`）：` +
+      "注释直到文件结尾，会吞掉其后所有节；补上 `-->`，或改用 hash_edit / 官方 edit"
+    );
+  }
+  return undefined;
+}
+
+/**
+ * 围栏开栏判定（CommonMark）：反引号围栏的 info 串**不得含反引号**（含则整行只是普通文本，
+ * 若误当开栏，「后面真正的开栏」会被当成闭行 → 真吞节却放行）；波浪号围栏无此限制。
+ * @param match - `^ {0,3}(`{3,}|~{3,})(.*)$` 的匹配结果（未匹配传 `null`）
+ * @returns 开栏字符与长度；不是开栏 → `undefined`
+ */
+function fenceOpener(
+  match: RegExpExecArray | null,
+): { char: string; size: number } | undefined {
+  if (match === null) return undefined;
+  const marks = match[1] ?? "";
+  const info = match[2] ?? "";
+  const char = marks[0] ?? "`";
+  if (char === "`" && info.includes("`")) return undefined;
+  return { char, size: marks.length };
+}
+
 /** 一条按节改写指令 */
 export interface SectionEdit {
   /** 目标节标题文本（与 `structure` 渲染一致，不含 `#`） */
@@ -385,6 +471,11 @@ export function replaceSections(
           "会改变其后同级 / 更低级别节的归属（节树按层级嵌套）；" +
           `content 内除首行标题（须为 h${item.level}）外只允许**更深**层级的标题（h${item.level + 1} 及以下）`,
       };
+    }
+    // 内容级配对守卫（①.5 收尾）：未闭合围栏 / 注释会吞掉其后**全部节**（静默结构破坏）
+    const unclosed = unclosedBlockReason(normalizedContent);
+    if (unclosed !== undefined) {
+      return { ok: false, code: "content_invalid", error: unclosed };
     }
   }
 

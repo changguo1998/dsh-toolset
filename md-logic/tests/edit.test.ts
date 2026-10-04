@@ -717,3 +717,98 @@ test("混合 EOL + 末行无换行：替换后不得粘连行（审阅 P1 回归
     "未改动首行保 CRLF，新行用主导风格且行结构完整",
   );
 });
+
+test("replaceSections：content 内未闭合围栏 / 注释 → 拒（会吞掉其后全部节）", () => {
+  // 反例来源：条目「content 内未闭合代码围栏 / HTML 注释会静默吞掉其后全部节」——
+  // CommonMark 里两者都直到文件结尾才结束，写入后其后节从节树消失（层级 / fenced 守卫都不拦）
+  const doc = "# H\n\n## 甲节\n\n甲正文\n\n## 乙节\n\n乙正文\n";
+  const range = rangeOf(doc, "乙节");
+  const unclosedFence = replaceSections(doc, [
+    {
+      heading: "乙节",
+      ...range,
+      content: "## 乙节\n\n```sh\npwd\n",
+    },
+  ]);
+  assert.equal(unclosedFence.ok, false);
+  if (!unclosedFence.ok) {
+    assert.equal(unclosedFence.code, "content_invalid");
+    assert.match(unclosedFence.error, /代码围栏未闭合/);
+  }
+  const unclosedComment = replaceSections(doc, [
+    {
+      heading: "乙节",
+      ...range,
+      content: "## 乙节\n\n<!-- 注释没关\n\n正文\n",
+    },
+  ]);
+  assert.equal(unclosedComment.ok, false);
+  if (!unclosedComment.ok) {
+    assert.equal(unclosedComment.code, "content_invalid");
+    assert.match(unclosedComment.error, /注释未闭合/);
+  }
+  // 漏拦面（审阅实测）：反引号围栏的 info 串含反引号时**不是开栏**（CommonMark）——
+  // 若误当开栏，会把后面真正的开栏当闭行 → 真吞节却被放行
+  const leaked = replaceSections(doc, [
+    {
+      heading: "乙节",
+      ...range,
+      content: "## 乙节\n\n```a`b\nx\n```\n",
+    },
+  ]);
+  assert.equal(
+    leaked.ok,
+    false,
+    "info 含反引号不是开栏，后续 ``` 才是真开栏（未闭合）",
+  );
+  if (!leaked.ok) assert.match(leaked.error, /代码围栏未闭合/);
+  // 已知限制（容器盲，既有）：列表项内围栏的开栏判定只看行首 ≤3 空格 → 与真实相位错开一格。
+  // 两条按**现状** pin 住（逻辑层容器化见 md-logic/docs/BACKLOG.md）：
+  // ① 单个列表项内的围栏（落盘并不吞节）会被误拒；
+  const containerOnly = replaceSections(doc, [
+    {
+      heading: "乙节",
+      ...range,
+      content: "## 乙节\n\n- ```sh\n  pwd\n  ```\n",
+    },
+  ]);
+  assert.equal(
+    containerOnly.ok,
+    false,
+    "容器内围栏：当前误拒（已知限制，待容器化）",
+  );
+  // ② 容器内围栏后再跟一行散围栏（真吞后节）会被漏拦。
+  const containerLeak = replaceSections(doc, [
+    {
+      heading: "乙节",
+      ...range,
+      content: "## 乙节\n\n- ```sh\n  pwd\n  ```\n```\n",
+    },
+  ]);
+  assert.equal(
+    containerLeak.ok,
+    true,
+    "容器内围栏 + 散围栏：当前漏拦（已知限制，待容器化）",
+  );
+  // 放行面（不误伤）：配对围栏（含波浪号 / 更长闭合行 / info 含反引号的「普通文本行」）、
+  // 跨行注释、行内代码里的 `<!--`、段中 / 列表 / 缩进代码块里的 `<!--`、注释块内的围栏符号
+  const allowed = [
+    "## 乙节\n\n```sh\npwd\n```\n\n事后正文\n",
+    "## 乙节\n\n````md\n```\n````\n",
+    "## 乙节\n\n~~~\ntilde fence\n~~~\n",
+    "## 乙节\n\n```a`b\nx\n",
+    "## 乙节\n\n<!-- 注释\n跨行也合法 -->\n\n正文\n",
+    "## 乙节\n\n行内代码 `<!--` 照写\n",
+    "## 乙节\n\n正文里 <!-- 没关也不算注释块\n\n后续段落\n",
+    "## 乙节\n\n    <!-- 缩进 4 空格 = 代码块\n",
+    "## 乙节\n\n<!-- 起\n```\n还在注释里 -->\n\n正文\n",
+  ];
+  for (const content of allowed) {
+    const ok = replaceSections(doc, [{ heading: "乙节", ...range, content }]);
+    assert.equal(
+      ok.ok,
+      true,
+      "应放行: " + JSON.stringify(content) + " → " + JSON.stringify(ok),
+    );
+  }
+});
