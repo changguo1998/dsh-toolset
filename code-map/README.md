@@ -13,7 +13,7 @@ DSH（DeepSeek Harness）进程内插件：代码结构地图——基于 ast-gr
 | `callers` | `symbol`, `file?` | 符号引用（排除定义行本身）：宿主 LSP 可用时 `findReferences` 精确结果（`precision:"lsp"`），否则同名候选（`precision:"structural"`） |
 | `callees` | `symbol`, `file?` | 符号所在文件的直接 import 目标（文件级） |
 | `impact` | `file`（必填） | 目标文件的影响面：反向 import 传递闭包，聚合到模块 |
-| `cycles` | — | 文件级依赖环（Tarjan 强连通分量，`size>=2`）；不触发索引，未 `index` 时返回空数组 |
+| `cycles` | — | 文件级依赖环（Tarjan 强连通分量，`size>=2`）；不触发索引，未 `index` 时返回 `{ok:false,error:"not_indexed"}`（不静默当成「无环」） |
 | `report` | — | 项目/模块报告（未索引时工具面返回 `error`） |
 | `summary` | — | 索引就绪状态（`ready`/`root`/`files`/`symbols`；未索引时 `ready:false`） |
 

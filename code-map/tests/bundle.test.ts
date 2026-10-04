@@ -91,6 +91,36 @@ test("apply 防御：tools.register 抛错只告警不崩", () => {
   assert.doesNotThrow(() => apply(ctx as never));
 });
 
+astTest("工具面：未索引时 cycles 返回 not_indexed（不静默当成无环）", async () => {
+  const { dir, cleanup } = withTempDir();
+  const root = join(dir, "repo");
+  writeFixture(root, "src/a.ts", "export const A = 1;\n");
+  const registered: unknown[] = [];
+  try {
+    apply(
+      {
+        provide: () => {},
+        tools: { register: (t: unknown) => void registered.push(t) },
+      } as never,
+      { root },
+    );
+    const tool = registered[0] as {
+      execute: (a: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    };
+    assert.ok(tool, "apply 应注册 code_map 工具");
+    const before = await tool!.execute({ action: "cycles" });
+    assert.equal(before["ok"], false);
+    assert.equal(before["error"], "not_indexed");
+    await getCodeMapBundle()!.index();
+    const after = await tool!.execute({ action: "cycles" });
+    assert.deepEqual(after, [], "索引后返回环数组（本仓无环）");
+  } finally {
+    getCodeMapBundle()?.dispose();
+    apply({} as never); // 复位共享状态，避免影响后续用例
+    cleanup();
+  }
+});
+
 astTest("apply：config 透传（root 生效；缺省沿用 cwd）", async () => {
   const { dir, cleanup } = withTempDir();
   const root = join(dir, "repo");

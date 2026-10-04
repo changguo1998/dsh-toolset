@@ -60,6 +60,6 @@ CodeGraph
 ## 8. 约束与已知边界
 
 - 候选边同名误连：`callers` 在宿主 LSP 可用时已消歧（`precision:"lsp"`）；LSP 不可用时仍为同名候选（`precision:"structural"`，需按名核对）。语法错误文件结构层仍可出符号，语义层查询由其 provider 决定（通常跳过）。
-- 内存图随进程生命周期：无快照、无跨进程一致性承诺；`report`/`summary` 在首次 `index` 前返回 `undefined`（工具面带 `error`/`ready:false`），`cycles` 也不触发索引、未索引即空数组。
+- 内存图随进程生命周期：无快照、无跨进程一致性承诺；`report`/`summary` 在首次 `index` 前返回 `undefined`（工具面带 `error`/`ready:false`），`cycles` 也不触发索引、未索引时**工具面**返回 `{ok:false,error:"not_indexed"}`（服务面 `cycles()` 仍返回空数组，故 provide 消费方不受影响）。
 - `refresh` 为全量重建：大仓重复调用成本线性。
 - 明确不做：SCIP/Kythe/LSIF 全量语义索引格式；文件系统监听守护；跨文件重命名；远程仓库 clone 前索引；`callees` 符号级提升与 `resolve`/`hover`（LSP 缝其余操作）；provider 实现（自带语言服务器）；TUI 只读桥（`/map`、`/callers`）。

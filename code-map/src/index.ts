@@ -338,7 +338,7 @@ function toToolDef(service: CodeMapService) {
     description:
       "代码结构地图：index/refresh 建立项目结构索引（符号表 + import 图）；" +
       "callers 查某符号的引用（宿主 LSP 可用时 findReferences 精确结果 precision=lsp；标准 profile 不挂 LSP 三件套 → 实际恒回落同名候选 precision=structural）；callees 查符号所在文件的直接 import 目标（文件级）；" +
-      "impact 查改动某文件的影响面（反向 import 闭包聚合到模块）；cycles 查文件级依赖环；" +
+      "impact 查改动某文件的影响面（反向 import 闭包聚合到模块）；cycles 查文件级依赖环（不隐式建索引：未索引返回 not_indexed）；" +
       "report 出项目/模块报告（统计/模块依赖/环/未引用导出）；summary 查索引就绪状态。",
     parameters: {
       type: "object",
@@ -387,7 +387,14 @@ function toToolDef(service: CodeMapService) {
             ? service.impact(file)
             : { error: "impact 需要 file 参数" };
         case "cycles":
-          return service.cycles();
+          // 不隐式建索引（与 callers/callees/impact 不同）：未索引时给明确错误，而不是静默当成「无环」
+          return service.summary()
+            ? service.cycles()
+            : {
+                ok: false,
+                error: "not_indexed",
+                hint: "先调用 index / refresh 建索引（cycles 不隐式建索引）",
+              };
         case "report":
           return service.report() ?? { error: "未索引（先调用 index）" };
         case "summary":
