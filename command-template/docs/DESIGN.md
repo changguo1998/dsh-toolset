@@ -6,7 +6,7 @@
 
 ## 1. 定位
 
-把「可复用的提示词流程」做成**命令入口 + 模板参数**：仓库随包 `templates/*.md` 提供预案（如 `code-review` / `plan-then-code`），用户可在 `$DSH_HOME/command-templates` 覆盖或新增；调用形态是 `/playbook <模板> [参数]`（模板**不占**独立命令名），模板正文 = 一串**步骤**（注入本会话的 prompt 步 / 一次性子代理的 agent 步），支持模型覆盖、`bestOf` 并行候选与裁判步。
+把「可复用的提示词流程」做成**命令入口 + 模板参数**：仓库随包 `templates/*.md` 提供预案（如 `code-review` / `deep-research`），用户可在 `$DSH_HOME/command-templates` 覆盖或新增；调用形态是 `/playbook <模板> [参数]`（模板**不占**独立命令名），模板正文 = 一串**步骤**（注入本会话的 prompt 步 / 一次性子代理的 agent 步），支持模型覆盖、`bestOf` 并行候选与裁判步。
 
 与相邻能力的分工：宿主 `commands` 负责命令注册与分发（本包只注册与实现）；子代理执行复用宿主 `subagents` 的 `spawn` provider（不自己起进程 / 不自己管会话）；本包**不管**会话模型选择（模板级 `model` 只作用于本次子代理运行）。
 
@@ -30,8 +30,8 @@
 ## 4. 模板加载与解析（`src/registry.ts` / `src/frontmatter.ts` / `src/args.ts`）
 
 - `resolveDirs` → `loadTemplates(dirs)`：目录顺序 = 优先级**低 → 高**，同名后者覆盖；每个坏模板记 `{source, error}` 进 `LoadResult.errors`，不中断其它模板。
-- `frontmatter.ts` 是**YAML 子集**解析器（frontmatter 键值 + 块标量 + `steps` 序列 + `model` 简写/嵌套），刻意不引 YAML 依赖：模板由人写、形状收敛（`spec`/`acceptance` 那类复杂结构不属于模板）。
-- 正文未声明 `steps` → 视为**单个 prompt 步**（「一段提示词就是一条命令」的最短路径）。
+- `frontmatter.ts` 是**YAML 子集**解析器（frontmatter 键值 + 块标量 + `steps` 序列 + `model` 简写/嵌套），刻意不引 YAML 依赖：模板由人写、形状收敛（`spec`/`acceptance` 那类复杂结构不属于模板）。流式集合（`{}` / `[]`）遇到即报错；锚点（`&x` / `*x`）不做解析——按普通标量字面读入（不支持就不假装支持，但也不静默改写语义）。
+- front-matter 未声明 `steps` → 视为**单个 prompt 步**（「一段提示词就是一条命令」的最短路径）；显式 `steps` 项的 `type` 缺省 `agent`。
 - 参数展开（`args.ts`）：`$ARGUMENTS` / `$1..$9` / `{{stepId}}`（引用已完成步的产出）；未解析占位符**告警但继续**（fail-soft：宁可跑出一份带原文的提示词，也不要罢工）。
 
 ## 5. 步骤执行（`src/steps.ts`）
@@ -59,5 +59,5 @@
 
 - 不做模板市场 / 版本管理 / 依赖解析（模板是文件，覆盖即升级）。
 - 不做参数类型校验（参数一律按文本展开为 `$ARGUMENTS`）。
-- 不逐模板注册命令：补全里只有入口 `playbook` 一条（模板名只出现在它的 `input.hint` 与 `/playbook list` 输出中）。
+- 不逐模板注册命令：补全里只有入口 `playbook` 一条（代码里不出现具体模板名——`input.hint` 是硬编码的 `list | show <模板> | reload | <模板> [参数]` 占位文案，模板名只在 `/playbook list` 输出与命令参数里出现）。
 - 不做工作流引擎（循环 / 条件 / fan-out 语义属宿主 `workflow`，本包只做线性步骤 + bestOf）。

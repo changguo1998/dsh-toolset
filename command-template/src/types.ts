@@ -20,7 +20,8 @@ export interface JudgeSpec {
 export interface StepSpec {
   /** 步骤 id（模板内唯一；缺省按序号 `step1`…）。 */
   id: string;
-  /** `prompt` = 注入当前会话；`agent` = 一次性子代理运行（可覆盖模型）。 */
+  /** `prompt` = 注入当前会话；`agent` = 一次性子代理运行（可覆盖模型）；
+   *  front-matter 省略 `type` 时缺省 `agent`。 */
   type: "prompt" | "agent";
   /** 展开前文本（支持 `$ARGUMENTS` / `$1..$9` / `{{stepId}}`）。 */
   prompt: string;
@@ -34,7 +35,8 @@ export interface StepSpec {
 
 /** 一个模板（解析后的运行形态）。 */
 export interface TemplateSpec {
-  /** 命令名（小写 `[a-z0-9-]{1,32}`，不含斜杠）。 */
+  /** 模板名（小写 `[a-z0-9][a-z0-9-]{0,31}`，首字符须字母/数字，不含斜杠；
+   *  经 `/playbook <name>` 调用，模板不占独立命令名）。 */
   name: string;
   /** 一行说明（宿主命令目录与补全展示）。 */
   description: string;
@@ -42,7 +44,7 @@ export interface TemplateSpec {
   inputHint?: string;
   /** 模板级默认模型（agent 步骤继承；仅本次调用）。 */
   model?: ModelRef;
-  /** 步骤序列（正文未声明 steps 时 = 单个 prompt 步骤）。 */
+  /** 步骤序列（front-matter 未声明 `steps` 时 = 单个 prompt 步骤）。 */
   steps: StepSpec[];
   /** 模板文件路径（诊断 / `/playbook show` 用）。 */
   source: string;
@@ -98,10 +100,11 @@ export interface CommandTemplateConfig {
   stepTimeoutMs?: number;
   /**
    * 一次运行的总预算 ms（只约束 agent 步之和，语义 = agent 步的**启动闸门**；缺省 =
-   * `maxSteps × stepTimeoutMs`，随包配置 7200000；非正 / 非有限 = 不设；超限 → `run_timeout`）。
+   * `maxSteps × stepTimeoutMs`，随包配置下 = 7200000；非正 / 非有限 = 不设；超限 → `run_timeout`）。
    */
   totalTimeoutMs?: number;
-  /** 尊重保留命令名（缺省 = 入口子命令 `list` / `show` / `reload`；模板与之同名时跳过并告警）。 */
+  /** 保留命令名（缺省 = 入口子命令 `list` / `show` / `reload`；入口命令名本身恒保留）。
+   *  模板与保留名同名时仍会加载并出现在 `list` 里，但无法经入口调用——只记日志告警。 */
   reservedNames?: string[];
   /** 离线排障：apply 立即返回——不加载模板、不注册命令、不提供 `commandTemplate` 服务面。 */
   disabled?: boolean;
