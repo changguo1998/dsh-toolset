@@ -4,6 +4,8 @@
 // ref token 提取与解析（命中 / 多解按候选序 / 未命中不计断链但计入未解析计数）、report / summary 计数。
 
 import assert from "node:assert/strict";
+import { mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import { buildIndex } from "../src/indexer.ts";
@@ -208,6 +210,167 @@ test("indexer：被 exclude 挡住的 ref 计入未解析（不进断链）", as
     assert.equal(index.refUnresolvedMd, 2);
     assert.equal(index.broken.length, 0, "未解析 token 不进断链");
   } finally {
+    cleanup();
+  }
+});
+
+test("indexer：ref 三处补口（锚点拆分 / 目录形态 file 兜底 / 跨模块裸名唯一命中）", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    writeFile(dir, "docs/a.md", "# A\n");
+    writeFile(dir, "docs/archived/old.md", "# old\n");
+    writeFile(dir, "TUI/docs/SPEC.md", "# SPEC\n");
+    writeFile(
+      dir,
+      "docs/refs.md",
+      [
+        "# refs",
+        "",
+        "带锚点：`docs/a.md#sec`",
+        "目录形态：`docs/archived`",
+        "跨模块裸名：`SPEC.md`",
+        "",
+      ].join("\n"),
+    );
+    const index = await buildIndex({ root: dir });
+    const doc = index.docs.find((d) => d.path === "docs/refs.md");
+    assert.ok(doc !== undefined);
+    // ① 锚点拆分：落到 docs/a.md 并把锚点带上（原先整串当路径 → 永不命中）
+    const anchored = doc.edges.find(
+      (e) => e.kind === "ref" && e.to === "docs/a.md",
+    );
+    assert.ok(anchored !== undefined, JSON.stringify(doc.edges));
+    assert.equal(anchored.anchor, "sec");
+    // ② 目录形态（尾斜杠已被扫描器剥掉）：目录真实存在 → file 边（不再计未解析）
+    const dirEdge = doc.edges.find((e) => e.kind === "file");
+    assert.equal(dirEdge?.to, "docs/archived", JSON.stringify(doc.edges));
+    // ③ 跨模块裸名：索引里唯一同名 → 命中
+    const bare = doc.edges.find(
+      (e) => e.kind === "ref" && e.to === "TUI/docs/SPEC.md",
+    );
+    assert.ok(bare !== undefined, JSON.stringify(doc.edges));
+    assert.equal(index.refUnresolved, 0, "三处补口后无未解析 token");
+  } finally {
+    cleanup();
+  }
+});
+
+test("indexer：ref 裸名歧义（多个同名）不猜 → 仍计未解析", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    writeFile(dir, "a/SPEC.md", "# A\n");
+    writeFile(dir, "b/SPEC.md", "# B\n");
+    writeFile(dir, "docs.md", "# refs\n\n引用：`SPEC.md`\n");
+    const index = await buildIndex({ root: dir });
+    const doc = index.docs.find((d) => d.path === "docs.md");
+    assert.equal(
+      doc?.edges.filter((e) => e.kind === "ref").length,
+      0,
+      "歧义宁缺毋滥：不产边",
+    );
+    assert.equal(index.refUnresolved, 1);
+  } finally {
+    cleanup();
+  }
+});
+
+test("indexer：ref 目录兜底的边界（不存在目录 / 名含点 / 越界 / 空路径 / 源目录相对）", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    writeFile(dir, "docs/v1.0/old.md", "# old\n");
+    writeFile(dir, "deep/sub/dir/x.md", "# x\n");
+    writeFile(
+      dir,
+      "docs/refs.md",
+      [
+        "# refs",
+        "",
+        "不存在目录：`docs/nothere`",
+        "名含点目录：`docs/v1.0`",
+        "越界（仓库外）：`../../outside-root`",
+        "空路径形态：`?a/b#c`",
+        "",
+      ].join("\n"),
+    );
+    // 源目录相对目录形：`sub/dir`（root 相对不存在，须靠源目录候选命中）
+    writeFile(dir, "deep/notes.md", "# notes\n\n源目录相对目录形：`sub/dir`\n");
+    const index = await buildIndex({ root: dir });
+    const refs = index.docs.find((d) => d.path === "docs/refs.md");
+    assert.ok(refs !== undefined);
+    const fileEdges = refs.edges.filter((e) => e.kind === "file");
+    assert.deepEqual(
+      fileEdges.map((e) => e.to),
+      ["docs/v1.0"],
+      "只有真实存在的目录落 file 边（名含点也算）: " +
+        JSON.stringify(refs.edges),
+    );
+    assert.ok(
+      !refs.edges.some((e) => e.kind === "file" && e.to === "docs"),
+      "空路径形态不得产出指向自身目录的假边",
+    );
+    assert.equal(
+      index.refUnresolved,
+      3,
+      "不存在目录 / 越界 / 空路径形态仍计未解析",
+    );
+    // 源目录相对目录形：`deep/notes.md` 里的 `sub/dir` → deep/sub/dir（root 相对候选不存在）
+    const notes = index.docs.find((d) => d.path === "deep/notes.md");
+    assert.equal(
+      notes?.edges.find((e) => e.kind === "file")?.to,
+      "deep/sub/dir",
+      JSON.stringify(notes?.edges),
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("indexer：ref 目录兜底的越界口径（中段 `..` 归一 + 源目录相对 `../docs`）", async () => {
+  const { dir, cleanup } = withTempDir();
+  const outside = join(dir, "..", "md-map-outside-probe");
+  try {
+    mkdirSync(outside, { recursive: true });
+    writeFile(dir, "docs/archived/old.md", "# old\n");
+    writeFile(
+      dir,
+      "docs/refs.md",
+      [
+        "# refs",
+        "",
+        "中段越界但归一后仍在 root 内：`docs/../docs/archived`",
+        "真越界（该目录在 root 外存在）：`docs/../../md-map-outside-probe`",
+        "",
+      ].join("\n"),
+    );
+    writeFile(dir, "sub/page.md", "# page\n\n源目录相对：`../docs`\n");
+    const index = await buildIndex({ root: dir });
+    const refs = index.docs.find((d) => d.path === "docs/refs.md");
+    assert.ok(refs !== undefined);
+    const fileEdges = refs.edges.filter((e) => e.kind === "file");
+    assert.deepEqual(
+      fileEdges.map((e) => e.to),
+      ["docs/archived"],
+      "归一后在 root 内 → 命中；真越界 → 不产边: " + JSON.stringify(refs.edges),
+    );
+    assert.equal(index.refUnresolved, 1, "真越界 token 计入未解析");
+    // 源目录相对形态（`../docs` 落在 root 内）：取 SourceDir 候选
+    const page = index.docs.find((d) => d.path === "sub/page.md");
+    assert.equal(
+      page?.edges.find((e) => e.kind === "file")?.to,
+      "docs",
+      JSON.stringify(page?.edges),
+    );
+    for (const doc of index.docs) {
+      for (const edge of doc.edges) {
+        assert.ok(
+          !String(edge.to ?? "").includes("..") &&
+            !String(edge.to ?? "").startsWith("/"),
+          `出边目标必须是 root 内规范化路径：${doc.path} → ${String(edge.to)}`,
+        );
+      }
+    }
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
     cleanup();
   }
 });

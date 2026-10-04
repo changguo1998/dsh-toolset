@@ -3,7 +3,7 @@
 // 只读、无副作用（不改任何文件）；每次 buildIndex 全量扫描（不做增量 / 文件监视）。
 
 import { readFile, readdir, stat } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { isAbsolute, join, normalize, resolve, sep } from "node:path";
 
 import { parseMarkdownDocument } from "@dsh-toolset/md-logic";
 
@@ -114,6 +114,21 @@ export async function buildIndex(
       ok = false;
     }
     existsCache.set(relPath, ok);
+    return ok;
+  };
+
+  /** 磁盘上的**目录**判定（ref 的目录形态兜底用；与 existsOnDisk 同款缓存与 root 基准）。 */
+  const dirCache = new Map<string, boolean>();
+  const isDirectoryOnDisk = async (relPath: string): Promise<boolean> => {
+    const cached = dirCache.get(relPath);
+    if (cached !== undefined) return cached;
+    let ok = false;
+    try {
+      ok = (await stat(join(root, relPath))).isDirectory();
+    } catch {
+      ok = false;
+    }
+    dirCache.set(relPath, ok);
     return ok;
   };
 
@@ -259,20 +274,70 @@ export async function buildIndex(
     const { from, target, line, text, anchor } = input;
     const isWiki = input.wiki === true;
     if (input.ref === true) {
+      // ① 拆锚点：`` `x.md#sec` `` 的 `#sec` 是锚点而非路径的一部分（原先整串当路径 → 永不命中）
+      const { path: refPath, anchor: refAnchor } = splitHref(target);
+      const raw = refPath;
       const hits: string[] = [];
-      for (const candidate of wikiCandidates(from, target)) {
+      for (const candidate of wikiCandidates(from, raw)) {
         if (indexed.has(candidate) && !hits.includes(candidate))
           hits.push(candidate);
       }
+      // ③ 跨模块裸名（`` `SPEC.md` ``）：候选序只覆盖 root / 源目录两处；索引里**唯一**同名文档兜底
+      // （多个同名 → 不猜，保持未解析——歧义宁缺毋滥）
+      if (hits.length === 0 && !raw.includes("/") && /\.md$/i.test(raw)) {
+        const same = [...indexed].filter(
+          (doc) => doc === raw || doc.endsWith(`/${raw}`),
+        );
+        if (same.length === 1 && same[0] !== undefined) hits.push(same[0]);
+      }
       // 0 = 未命中（不产边、不计断链）；多个命中优先**源目录**形态（模块 README 指本模块 BACKLOG），
       // 否则取候选序首个（root 相对优先）——与 wiki 同串同解，避免「行内代码写法丢边」
-      if (hits.length === 0) return undefined;
-      const fromDir = dirOf(from);
-      const own = hits.find(
-        (hit) =>
-          hit !== from && (fromDir === "" || hit.startsWith(`${fromDir}/`)),
-      );
-      return { kind: "ref", target, to: own ?? hits[0], line };
+      if (hits.length > 0) {
+        const fromDir = dirOf(from);
+        const own = hits.find(
+          (hit) =>
+            hit !== from && (fromDir === "" || hit.startsWith(`${fromDir}/`)),
+        );
+        return {
+          kind: "ref",
+          target,
+          to: own ?? hits[0]!,
+          line,
+          ...(refAnchor === undefined ? {} : { anchor: refAnchor }),
+        };
+      }
+      // ② 目录形态 token（`` `docs/archived` ``，尾斜杠已在扫描器剥掉）：索引内无 md 命中，
+      // 但该路径在磁盘上是**目录** → 与文件引用分支同口径落 `file` 边（不再一律计入未解析）。
+      // 判定用 `stat().isDirectory()`（名含点的目录如 `docs/v1.0` 也算），故 md 文件形态天然
+      // 不在此兜底（不绕过 `exclude`）。
+      // 出边目标必须是 **root 内规范化路径**：两个候选（root 相对 / 源目录相对）都过 `normalize`
+      // 与包含性检查——中段越界（`docs/../../outside`）与仓库外绝对路径一律丢弃；`../docs`
+      // 这类「源目录相对但落在 root 内」的形态靠第二个候选正常命中。
+      // 空路径（`?a/b#c` 这类 query-only href 拆出 `path === ""`）没有目标可兜底 → 直接不产边：
+      // 否则 `resolveDocPath(from, "")` 返回**源目录本身**，会产出指向自身目录的假 `file` 边
+      if (raw === "") return undefined;
+      const dirCandidates: string[] = [];
+      const addCandidate = (value: string | null): void => {
+        if (value === null) return;
+        const path = normalize(value).replace(/\/+$/, "");
+        if (
+          path === "" ||
+          path === "." ||
+          path.startsWith("..") ||
+          isAbsolute(path)
+        ) {
+          return;
+        }
+        if (!dirCandidates.includes(path)) dirCandidates.push(path);
+      };
+      addCandidate(raw);
+      addCandidate(resolveDocPath(from, raw));
+      for (const candidate of dirCandidates) {
+        if (await isDirectoryOnDisk(candidate)) {
+          return { kind: "file", target, to: candidate, line };
+        }
+      }
+      return undefined;
     }
     if (isWiki) {
       for (const candidate of wikiCandidates(from, target)) {

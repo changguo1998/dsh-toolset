@@ -11,7 +11,7 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 项目级结构与引用�
 | action | 说明 |
 | --- | --- |
 | `index` / `refresh` | 建立 / 刷新索引（全量扫描；默认 root = 会话 cwd，可用 `root` 指定；跳过 `node_modules` / `.git` / `dist` / `.pi-glla` / `tmp`；`maxFiles` 缺省 2000，超出截断并标记） |
-| `callers` | 谁引用了该文档或该锚点：`path`（相对 root 的路径，也支持唯一后缀 / 文件名）+ 可选 `anchor` + 可选 `kind`（边种类数组，如 `["internal","wiki"]` 排除 ref 噪声；ref 边不带锚点） |
+| `callers` | 谁引用了该文档或该锚点：`path`（相对 root 的路径，也支持唯一后缀 / 文件名）+ 可选 `anchor` + 可选 `kind`（边种类数组，如 `["internal","wiki"]` 排除 ref 噪声；ref 边可带锚点——`` `x.md#a` `` 会拆出锚点） |
 | `impact` | 改这份文档会波及哪些文档（反向引用闭包，`depth` 缺省 2，可选 `kind` **逐层**过滤，按层返回，不含起点） |
 | `orphans` | 零入边文档（**默认排除**入口文档：`README*` / `index*` / 根目录文档） |
 | `report` | 总览：文档 / 锚点 / 内部边 / 文件引用 / 站外链接 +「另有 N 条行内代码路径引用」+「未解析的行内代码路径 token：N 行（其中以 `.md` 结尾 M）」/ 断链 / 孤儿（前 15 个）/ 被引最多（前 10） |
@@ -27,7 +27,7 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 项目级结构与引用�
 | `wiki` | `[[Target]]` / `[[Target\|文本]]` / `[[Target#anchor]]`（先按 root 相对、再按源文件目录相对解析） |
 | `file` | 目标存在但不是 `.md`（对代码 / 文件的引用、目录引用） |
 | `external` | `http(s)` / `mailto:` / `tel:` / 协议相对 `//` |
-| `ref` | **行内代码里的路径引用**（如 `` `docs/BACKLOG.md` ``）：按候选序解析（源目录形态优先，无则 root 相对），只认能解析到索引内文档的 token（root 相对 / 源目录相对 / 目录形态），多解按候选序取首个；**未命中不产边、不计断链**（示例路径不该变噪声），仅计入 `refUnresolved`（report 露出的漂移探针——文档改名 / 写错路径时升高）。默认计入内部边 / backlinks / impact；需要「文档链接」语义时用 `kind` 过滤（如 `["internal","wiki"]`） |
+| `ref` | **行内代码里的路径引用**（如 `` `docs/BACKLOG.md` ``）：按候选序解析（源目录形态优先，无则 root 相对），只认能解析到索引内文档的 token（root 相对 / 源目录相对 / 目录形态），多解按候选序取首个；**未命中不产边、不计断链**（示例路径不该变噪声），仅计入 `refUnresolved`（report 露出的漂移探针——文档改名 / 写错路径时升高）。默认计入内部边 / backlinks / impact；需要「文档链接」语义时用 `kind` 过滤（如 `["internal","wiki"]`）。**三处补口（2026-10-04）**：① `` `x.md#sec` `` 先拆锚点（`#sec` 是锚点不是路径），边落 `x.md` 并带上锚点；② 目录形态 token（`` `docs/archived` ``，尾斜杠由扫描器剥掉）在索引内无 md 命中时按**磁盘存在**落 `file` 边，不再一律计入未解析（md 文件形态**不做**磁盘兜底，避免绕过 `exclude`）；③ 跨模块**裸名**（`` `SPEC.md` ``）在候选序（root / 源目录）全不中时，按「索引里**唯一**同名文档」兜底——多个同名不猜，仍计未解析 |
 | `broken` | 目标不存在（`missing-file`）/ 锚点不存在（`missing-anchor`）/ 指向仓库外（`outside-root`） |
 
 不计为关系边：**图片**（`image`，资产引用）与**引用式定义声明**（`definition`，`[tag]: url` 是目标声明而不是引用）。
