@@ -12,7 +12,12 @@ import { expand, splitArgs, unresolvedPlaceholders } from "../src/args.ts";
 import { parseTemplate, TemplateParseError } from "../src/frontmatter.ts";
 import { loadDefaultTemplates, loadTemplates } from "../src/registry.ts";
 import { runTemplate } from "../src/steps.ts";
-import { CommandTemplateService } from "../src/main.ts";
+import {
+  apply,
+  CommandTemplateService,
+  SERVICE_FACE_METHODS,
+  serviceFace,
+} from "../src/main.ts";
 import type { StepDeps, TemplateSpec } from "../src/types.ts";
 
 const SAMPLE = `---
@@ -237,15 +242,23 @@ test("steps：bestOf 并行 + 裁判收到全部候选；全部失败 → step_f
   assert.equal(seen.filter((p) => p === "评审").length, 3);
   assert.match(seen.at(-1)!, /候选 1/);
 
+  // 逐候选不同错误：断言取的是**首个**候选的错误（三个候选同错文案证不了「取首个」）
+  let candidateSeq = 0;
   const failing = fakeDeps({
     runAgent: async () => {
-      throw new Error("boom");
+      candidateSeq += 1;
+      throw new Error(`boom-${candidateSeq}`);
     },
   });
   const failed = await runTemplate(tpl, failing, { rawInput: "" });
   assert.equal(failed.ok, false);
   assert.equal(failed.code, "step_failed");
   assert.match(failed.error ?? "", /候选全部失败/);
+  assert.match(
+    failed.error ?? "",
+    /候选首错：boom-1/,
+    "带首个候选的失败原因（不吞逐候选错误，且取第一个）",
+  );
 });
 
 test("steps：上限与注入失败的错误码", async () => {
@@ -436,6 +449,120 @@ test("服务：注册命令 + /playbook 管理 + 运行（prompt 模板注入当
     const okInvocation = { agent: { followup: () => {} }, rawInput: "" };
     assert.equal((await list.run("hello", okInvocation)).kind, "success");
     assert.equal((await list.run("nope", okInvocation)).kind, "error");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("服务面：键清单与 SERVICE_FACE_METHODS 同步 + 实现同名方法（守卫）", () => {
+  const face = serviceFace({} as unknown as CommandTemplateService);
+  assert.deepEqual(
+    Object.keys(face).sort(),
+    [...SERVICE_FACE_METHODS].sort(),
+    "服务面键与 SERVICE_FACE_METHODS 漂移即红",
+  );
+  for (const method of SERVICE_FACE_METHODS) {
+    assert.equal(
+      typeof (
+        CommandTemplateService.prototype as unknown as Record<string, unknown>
+      )[method],
+      "function",
+      `CommandTemplateService 应实现 ${method}（服务面键与实现同步）`,
+    );
+  }
+});
+
+test("/playbook show 显示总预算生效值（缺省 = maxSteps × stepTimeoutMs）", async () => {
+  const base = mkdtempSync(join(tmpdir(), "ct-budget-"));
+  writeFileSync(
+    join(base, "hello.md"),
+    "---\nname: hello\ndescription: 打招呼\n---\nhi",
+  );
+  const ctx = {
+    logger: () => ({ info: () => {} }),
+    commands: { register: () => () => {} },
+    provide: () => {},
+  };
+  /** 建一个已加载模板目录的服务实例（config 覆盖按需传入） */
+  const mk = (config: Record<string, unknown> = {}) => {
+    const service = new CommandTemplateService(ctx, {
+      dirs: [base],
+      userDir: join(base, "none"),
+      ...config,
+    });
+    service.load();
+    return service;
+  };
+  const show = async (service: CommandTemplateService) =>
+    (await service.run("playbook", { rawInput: "show hello" })) as {
+      text?: string;
+    };
+  try {
+    // 缺省：maxSteps(12) × stepTimeoutMs(600000)
+    const dflt = await show(mk());
+    assert.match(
+      dflt.text ?? "",
+      /budget: 7200000 ms（缺省 = maxSteps × stepTimeoutMs）/,
+      dflt.text,
+    );
+    // 显式 totalTimeoutMs：标注来源
+    const explicit = await show(mk({ totalTimeoutMs: 1000 }));
+    assert.match(
+      explicit.text ?? "",
+      /budget: 1000 ms（config\.totalTimeoutMs）/,
+      explicit.text,
+    );
+    // 缺省口径随 maxSteps / stepTimeoutMs 变化
+    const scaled = await show(mk({ maxSteps: 2, stepTimeoutMs: 500 }));
+    assert.match(
+      scaled.text ?? "",
+      /budget: 1000 ms（缺省 = maxSteps × stepTimeoutMs）/,
+      scaled.text,
+    );
+    // 非正 / 非有限 = 不设预算（显示须与运行期归一一致，不能显示 0 ms）
+    const off = await show(mk({ totalTimeoutMs: 0 }));
+    assert.match(
+      off.text ?? "",
+      /budget: 不设预算（非正 \/ 非有限）（config\.totalTimeoutMs）/,
+      off.text,
+    );
+    const nan = await show(mk({ totalTimeoutMs: Number.NaN }));
+    assert.match(
+      nan.text ?? "",
+      /budget: 不设预算（非正 \/ 非有限）/,
+      nan.text,
+    );
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("服务面：apply() 提供的对象键清单与 SERVICE_FACE_METHODS 同步（守卫）", () => {
+  const base = mkdtempSync(join(tmpdir(), "ct-face-"));
+  writeFileSync(
+    join(base, "hello.md"),
+    "---\nname: hello\ndescription: 打招呼\n---\nhi",
+  );
+  const provided = new Map<string, unknown>();
+  try {
+    apply(
+      {
+        logger: () => ({ info: () => {} }),
+        commands: { register: () => () => {} },
+        provide: (serviceName: string, value: unknown) => {
+          provided.set(serviceName, value);
+        },
+      } as unknown as Parameters<typeof apply>[0],
+      { dirs: [base], userDir: join(base, "none") },
+    );
+    const face = provided.get("commandTemplate") as
+      Record<string, unknown> | undefined;
+    assert.ok(face !== undefined, "apply 应 provide commandTemplate 服务");
+    assert.deepEqual(
+      Object.keys(face).sort(),
+      [...SERVICE_FACE_METHODS].sort(),
+      "apply 实际提供的键与 SERVICE_FACE_METHODS 漂移即红",
+    );
   } finally {
     rmSync(base, { recursive: true, force: true });
   }

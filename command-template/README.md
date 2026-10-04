@@ -56,7 +56,8 @@ steps:
 ## 服务面
 
 `ctx.get("commandTemplate")` → `{ list, get, errors, reload }`（只读查询 + 热重载；键清单与服务面同步，
-测试守卫 `SERVICE_FACE_METHODS`）。
+测试守卫见 `tests/template.test.ts`——断言服务面键与 `SERVICE_FACE_METHODS` 相等、且每个键在
+`CommandTemplateService` 上有同名方法；键漂移 / 方法改名即红）。
 
 ## 使用
 
@@ -72,7 +73,7 @@ steps:
 - 不实现执行器：`agent` 步骤走宿主 `ctx.subagents` **服务面** `start(name, request)`（一次性运行；宿主写父会话 catalog 并发生命周期事件，模型覆盖仅本次）；
   task-engine 的叶子 `executor` 声明（项目级「task-engine 执行扩展」）落地后，改为经该声明选择后端。
 - **终态与回收**：`start` 与「等宿主结算（`settleRun`）」都放在取消信号**竞速**里——宿主结算面可能**无界**（`await run.result`；已确认：真机出现过 `command/run` 无 `command/done` 的悬挂；未确认：具体触发条件）。竞速落败（调用方取消 / `stepTimeoutMs` 超时）时**抛可读文案**（区分「被调用方取消」与「步骤超时（N ms）后中止」，带子会话 id）→ `steps.ts` 转 `step_failed` → `run()` 返回 `kind:"error"`；同时**发起**回收但**不等待**（宿主 in-process `dispose()` 内部 `await run.result`，等它等于换个地方无界等待）。据此**本仓侧任何路径都回终态**（宿主侧 `subagent/end` 等生命周期事件仍取决于 `run.result`，本仓补不了）；
-  - **总预算**（2026-10-04）：`totalTimeoutMs` 缺省 = `maxSteps × stepTimeoutMs`（随包 `7200000` ms）——把最坏上界显式化；语义是 agent 步的**启动闸门**（预算不足不再启动新步；每步有效超时 = `min(stepTimeoutMs, 剩余)`；`prompt` 步零耗时、不受约束），**不是**「命令必在 deadline 前返回」。缺省配置下它对随包模板实际不会触发（名义上界），需收紧请显式配置；注意 `bestOf` 并行 + `judge` 会让单步最坏 ≈ `2 × stepTimeoutMs`（故「重步 ≥ 7 个」时缺省预算才可能生效）；超限返回 `run_timeout`（文案含已用 / 预算 ms 与已完成步骤）；
+  - **总预算**（2026-10-04）：`totalTimeoutMs` 缺省 = `maxSteps × stepTimeoutMs`（随包 `7200000` ms）——把最坏上界显式化；语义是 agent 步的**启动闸门**（预算不足不再启动新步；每步有效超时 = `min(stepTimeoutMs, 剩余)`；`prompt` 步零耗时、不受约束），**不是**「命令必在 deadline 前返回」。缺省配置下它对随包模板实际不会触发（名义上界），需收紧请显式配置；注意 `bestOf` 并行 + `judge` 会让单步最坏 ≈ `2 × stepTimeoutMs`（故「重步 ≥ 7 个」时缺省预算才可能生效）；超限返回 `run_timeout`（文案含已用 / 预算 ms 与已完成步骤）；**预算可见性**（2026-10-04）：`/playbook show <模板>` 输出 `budget: <生效值> ms` 并标注来源（`（缺省 = maxSteps × stepTimeoutMs）` 或 `（config.totalTimeoutMs）`），与运行侧共用 `budgetOrInfinity()`（内部先算 `effectiveBudget()` 再做「非正 / 非有限 → 不设预算」归一）一处口径；
 - 不改 TUI：模板命令经宿主命令注册表自动出现在补全里（TUI 本地命令同名时本地优先）。
 - 不做模板市场 / 版本管理 / 参数类型校验（参数一律按文本展开）。
 
@@ -81,5 +82,5 @@ steps:
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # tsc → dist/
-npm run test    # node --test（22 例：解析 / 参数 / 双源 / 步骤与预算 / 服务与命令注册 / 子代理面）
+npm run test    # node --test（25 例：解析 / 参数 / 双源 / 步骤与预算 / 服务与命令注册 / 子代理面）
 ```

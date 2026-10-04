@@ -11,7 +11,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, readService } from "./host.ts";
 import { loadDefaultTemplates, type LoadResult } from "./registry.ts";
-import { runTemplate } from "./steps.ts";
+import { budgetOrInfinity, runTemplate } from "./steps.ts";
 import type {
   CommandTemplateConfig,
   ModelRef,
@@ -31,7 +31,7 @@ export { parseTemplate, TemplateParseError } from "./frontmatter.ts";
 export { expand, splitArgs } from "./args.ts";
 export { loadDefaultTemplates, loadTemplates } from "./registry.ts";
 export { readService } from "./host.ts";
-export { runTemplate } from "./steps.ts";
+export { budgetOrInfinity, effectiveBudget, runTemplate } from "./steps.ts";
 
 export const name = "command-template";
 /** 硬依赖：命令注册面（模板即命令）。 */
@@ -55,6 +55,25 @@ export const SERVICE_FACE_METHODS = [
   "errors",
   "reload",
 ] as const;
+
+/**
+ * 服务面对象（`provide("commandTemplate", …)` 的实际内容）：键清单必须与
+ * `SERVICE_FACE_METHODS` 一致——`tests/template.test.ts` 的守卫用例断言两者相等，
+ * 并把每个键回指到 `CommandTemplateService` 的同名方法（方法改名 / 键漂移即红）。
+ */
+export function serviceFace(service: CommandTemplateService): {
+  list: () => unknown;
+  get: (templateName: string) => unknown;
+  errors: () => unknown;
+  reload: () => unknown;
+} {
+  return {
+    list: () => service.list(),
+    get: (templateName: string) => service.get(templateName),
+    errors: () => service.errors(),
+    reload: () => service.reload(),
+  };
+}
 
 /** 宿主命令面最小形态（结构面访问，不引宿主类型依赖）。 */
 interface CommandRuntimeLike {
@@ -249,12 +268,20 @@ export class CommandTemplateService {
       if (template === undefined) {
         return { kind: "error", text: `模板不存在：${arg ?? "(缺 name)"}` };
       }
+      const budget = budgetOrInfinity(this.#config);
       return {
         kind: "success",
         text:
           `# ${template.name}\n${template.description}\n` +
           `source: ${template.source}\n` +
           `model: ${template.model?.model ?? "(会话默认)"}\n` +
+          // 预算口径显式化：**实际生效值**（含非正 / 非有限 → 不设预算的归一）+ 来源
+          `budget: ${budget === Infinity ? "不设预算（非正 / 非有限）" : `${budget} ms`}` +
+          `${
+            this.#config.totalTimeoutMs === undefined
+              ? "（缺省 = maxSteps × stepTimeoutMs）"
+              : "（config.totalTimeoutMs）"
+          }\n` +
           `steps:\n` +
           template.steps
             .map(
@@ -355,11 +382,6 @@ export function apply(
   service.register();
   const provideSvc = ctx.provide;
   if (typeof provideSvc === "function") {
-    provideSvc("commandTemplate", {
-      list: () => service.list(),
-      get: (templateName: string) => service.get(templateName),
-      errors: () => service.errors(),
-      reload: () => service.reload(),
-    });
+    provideSvc("commandTemplate", serviceFace(service));
   }
 }

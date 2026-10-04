@@ -36,7 +36,7 @@ export async function runTemplate(
   deps: StepDeps,
   options: RunTemplateOptions,
 ): Promise<RunOutcome> {
-  const maxSteps = options.maxSteps ?? 12;
+  const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
   if (template.steps.length > maxSteps) {
     return failure(
       "template_invalid",
@@ -46,10 +46,8 @@ export async function runTemplate(
   // 总预算：缺省 = 把最坏上界显式化（maxSteps × stepTimeoutMs）；非正 / 非有限 = 不设。
   // 语义 = agent 步的「启动闸门」：预算不足不再启动新步；每步有效超时 = min(stepTimeoutMs, 剩余)；
   // prompt 步零耗时、不受约束。
-  const stepTimeoutMs = options.stepTimeoutMs ?? 600_000;
-  const budgetRaw = options.totalTimeoutMs ?? maxSteps * stepTimeoutMs;
-  const budget =
-    Number.isFinite(budgetRaw) && budgetRaw > 0 ? budgetRaw : Infinity;
+  const stepTimeoutMs = options.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
+  const budget = budgetOrInfinity(options);
   const deadline = budget === Infinity ? Infinity : Date.now() + budget;
   const results: Record<string, string> = {};
   const collected: StepResult[] = [];
@@ -157,7 +155,17 @@ async function runAgentStep(
       `步骤 ${step.id}：候选 ${bestOf} 个，成功 ${candidates.length} 个`,
     );
     if (candidates.length === 0) {
-      return failure("step_failed", `步骤 ${step.id} 的候选全部失败`);
+      // 候选全灭：带**首个错误**（原实现只报「全部失败」，逐候选错误收集后被丢弃 →
+      // 用户看不到可执行的失败原因）
+      const firstFailed = settled.find((item) => !item.ok);
+      const detail =
+        firstFailed !== undefined && !firstFailed.ok
+          ? `（候选首错：${firstFailed.error}）`
+          : "";
+      return failure(
+        "step_failed",
+        `步骤 ${step.id} 的候选全部失败（共 ${bestOf} 个）${detail}`,
+      );
     }
     if (candidates.length === 1 && step.judge === undefined) {
       return {
@@ -215,6 +223,35 @@ export interface StepFailure extends RunOutcome {
 
 function failure(code: TemplateErrorCode, error: string): StepFailure {
   return { ok: false, text: error, steps: [], code, error };
+}
+
+/** 步骤数缺省上限（`maxSteps` 缺省值）。 */
+export const DEFAULT_MAX_STEPS = 12;
+
+/** 单步超时缺省（`stepTimeoutMs` 缺省值）。 */
+export const DEFAULT_STEP_TIMEOUT_MS = 600_000;
+
+/** 总预算**生效值**（`totalTimeoutMs` 缺省 = `maxSteps × stepTimeoutMs`）：运行与
+ *  `/playbook show` 共用同一处口径，避免「只有跑挂后才知道预算旋钮」。 */
+export function effectiveBudget(options: {
+  maxSteps?: number;
+  stepTimeoutMs?: number;
+  totalTimeoutMs?: number;
+}): number {
+  const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
+  const stepTimeoutMs = options.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
+  return options.totalTimeoutMs ?? maxSteps * stepTimeoutMs;
+}
+
+/** 总预算**实际生效**值：`effectiveBudget` 再经「非正 / 非有限 → 不设预算（`Infinity`）」归一。
+ *  运行与 `/playbook show` 必须共用它，否则显示的预算与实际生效值会不一致。 */
+export function budgetOrInfinity(options: {
+  maxSteps?: number;
+  stepTimeoutMs?: number;
+  totalTimeoutMs?: number;
+}): number {
+  const raw = effectiveBudget(options);
+  return Number.isFinite(raw) && raw > 0 ? raw : Infinity;
 }
 
 /** 总预算失败的文案（用户面 `/playbook` 只看 code / error，故已完成步摘要写进文案）。 */
