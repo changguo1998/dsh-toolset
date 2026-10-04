@@ -6,7 +6,7 @@
 //   - 传输：unix socket（Windows 下为命名管道 `\\.\pipe\<path>`），换行分隔 JSON 行。
 //   - pane.report_agent_session：上报当前会话引用（agent_session_id / agent_session_path）。
 //   - pane.report_agent：上报 agent 状态（working | blocked | idle），附单调 seq 与 message。
-//   - 发送：每次请求独立连接，写一行后等响应；首档超时失败后按固定 1500ms 重试一次。
+//   - 发送：每次请求独立连接，写一行后等响应；首档等响应超时后立即补一次（重试档上限固定 1500ms）。
 //   - 状态队列：sendInFlight 串行 drain，发送期间到达的新状态覆盖待发项（合并去抖）。
 
 import net from "node:net";
@@ -240,7 +240,7 @@ export class HerdrClient implements HerdrSender {
     });
   }
 
-  /** 先按 attemptTimeoutMs 发一次，失败再按固定 1500ms 补一次（pi 原生活语）。 */
+  /** 先按 attemptTimeoutMs 等一次响应，失败立即补一次（该次等待上限固定 1500ms；pi 原生活语）。 */
   private async sendRequest(request: unknown): Promise<void> {
     if (await this.sendRequestAttempt(request, this.attemptTimeoutMs)) {
       return;

@@ -7,18 +7,21 @@
 //      并以 session/event 订阅 turn/end{reason:'blocked'} 作为第三阻塞源（turn/start 解除）——
 //      pending 期间上报 blocked（等待审批 / 等待用户 / 等待输入），沉降后解除；监听者
 //      不认领请求，不影响真实答案者（如 tui）。注意：观察者必须先于答案者注册，
-//      profile bundles 顺序应将本 bundle 排在 tui 之前（见 cordis.patch.yml 注释）。
+//      profile bundles 顺序应将本 bundle 排在 tui 之前（见 README「加载顺序」）。
 //   4. 根 agent 出现/会话切换时上报 pane.report_agent_session。
 //
 // 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
 // name / inject / apply，Config 以类型别名给出（无运行时 schema，宿主不校验，配置原样
 // 透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。
 //
-// 契约对齐 docs/host/DSH-CTX-API.md（dsh 0.1.2-rc.1）：
-//   - agent/status({agent, status})，AgentStatus = 'idle' | 'running'（agent 层事件）；
-//   - approval/request(req, next)、user-questions/request(req, next) 均为 agent 作用域
+// 宿主面契约对齐 docs/host/DSH-CTX-API.md（对齐时基线 dsh 0.1.2-rc.1；0.1.7 / 0.2.0-rc.2
+// 复核事件名与作用域语义未变，见 docs/host/HOST-UPGRADE-0.1.7-rc.2.md §3.3 与
+// docs/host/HOST-UPGRADE-0.2.0-rc.2.md §3.3）：
+//   - agent/status({agent, status})，AgentStatus = 'idle' | 'running'（agent 层事件，§4）；
+//   - approval/request(req, next)（§3）与 user-questions/request(req, next) 均为 agent 作用域
 //     waterfall；根 ctx（unscoped）全局放行，可收所有 agent 的请求；
-//   - ctx.get('agents').roots()：根 agent 注册表（owner === undefined）。
+//   - turn/end.reason 取 'blocked'（§1 事件载荷要点）——第三阻塞源见 handleSessionEvent；
+//   - ctx.get('agents').roots()：根 agent 注册表（顶层 agent，owner === undefined）。
 
 import { HerdrClient, readHerdrEnv } from "./herdr.ts";
 import type {
@@ -190,10 +193,6 @@ export function createHerdrPlugin(
     }
   };
 
-  /**
-   * 观察型 waterfall 阻塞桥：begin → next() → end。
-   * await 保证 finally 在请求沉降（answer/reject）后才解除阻塞。
-   */
   /** turn/end.reason 取值（字符串或 {kind} 结构化联合，向后兼容；与 TUI 归一化一致）。 */
   const reasonKind = (reason: unknown): string | undefined => {
     if (typeof reason === "string") return reason;
@@ -224,6 +223,10 @@ export function createHerdrPlugin(
     }
   };
 
+  /**
+   * 观察型 waterfall 阻塞桥：begin → next() → end。
+   * await 保证 finally 在请求沉降（answer/reject）后才解除阻塞；监听者不认领请求。
+   */
   const observeBlocked =
     (key: string, label: string) =>
     async (
