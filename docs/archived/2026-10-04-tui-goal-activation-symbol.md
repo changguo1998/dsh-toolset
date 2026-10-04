@@ -1,6 +1,6 @@
 # goal 状态行补 `activation`（接取条目：`docs/BACKLOG.md`「goal 状态行只显示 `phase`，需同时显示 `activation`（用状态符号）」）
 
-状态：调研（决策待审阅）　　开启：2026-10-04　　关闭：—
+状态：完成　　开启：2026-10-04　　关闭：2026-10-04
 
 ## 调研（已核）
 
@@ -41,3 +41,29 @@
 
 - **⟳ 宽度表项：不并入本条目**。实测 `cd TUI && npm run gen:width-table`：生成器与检入的 `src/app/layout/eaw-table.ts` **不同步**——仅补一段 ranges 重生成即产生 **229 行** diff（108 insert / 122 delete，区间归并差异），噪声远超本次收益；已 `git checkout` 还原（工作区干净）。⇒ 宽度项（把 `[0x27c0,0x27ff]` 补进 `SYMBOL_UNCERTAIN_RANGES`，注意审阅给的 `[0x27c0,0x27ef]` **不含** U+27F3）**另开条目**：先解决生成器漂移（谁生成、为何不一致），再谈补字符。本条目渲染层按「⟳ 恒 1 列」处理，风险记在 §决策修订⑤。
 - 实现仍未开工；落点清单与顺序见上（types/dsh → state → layout → tests → docs）。
+
+## 实现记录（2026-10-04）
+
+- 数据面：`adapter/types.ts` 新增 `GoalActivation` + `DshEvent` 成员 `goal-activation`；`adapter/dsh.ts` 订阅宿主 `goal/activation-changed`（载荷实测 `{sessionId, goal?: {id, revision, activation}}`，`goal` 缺省 = 无当前 goal → 事件不带 `activation`），**不按活跃会话过滤**（切走再切回仍须显原值）；`adapter/dsh.ts` 另补 `GoalActivation` 的类型再导出（`layout.ts` / `state.ts` / 测试都从 `adapter/dsh.ts` 取类型，缺它 `tsc` 报 TS2305）。同文件回放注释补「activation 不在日志里」。
+- 状态面：`state.ts` 新增 `goalActivationBySession`（末条边、按会话、不落盘）+ reducer `goal-activation`（无 `activation` = 清记录）+ selector `activeGoalActivation`（仅 `phase === "active"` 有值，无记录 → `disarmed`）；`app/index.ts` 的 action 转发补 `goal-activation`。
+- 渲染面：`layout.ts` 新增 `GOAL_PHASE_SYMBOL` / `GOAL_ACTIVATION_SYMBOL` / `GOAL_ACTIVATION_COLOR`，`GOAL_PHASE_COLOR.blocked` 由红改黄；head 行 = `Goal ` + 符号 + phase 词 + （仅 active）` ⟳`；`statusBlocks` / `renderStatusColumn` / `buildTopRegion` 串接 `activation` 参数。
+- **更正决策修订③**：「既有 `includes("Goal active"…)` 断言不受影响」不成立——head 行插入符号后文本变为 `Goal ▷ active`，既有 5 处断言实测全红（含列宽 10 的截断断言，实际文本 `Goal ▷ ac`），已按新口径更新。
+- 测试：新增 `TUI/tests/goal-activation.test.ts`（5 例：边覆盖 / 清记录 / 门控 / **重启回归**（只有 create、零边 → disarmed）/ resume 序列 + edit 不改 activation）；`status-column.test.ts` 补 phase 符号与取色（含 **blocked 红 → 黄** 的显式断色）、`⟳` 两态取色（绿 / 灰，按 SGR 前缀精确断言）、历史行无符号；`adapter.dsh.test.ts` 补事件归一化、非活跃会话不过滤、缺 `goal` → 清记录语义。反向验证：撤掉 `layout.ts` 的符号渲染 → 上述渲染用例必红（已实测，见验证记录）。
+- 文档：`TUI/docs/DESIGN.md`（状态事件映射新增 `goal/activation-changed` 行、顶部状态列、会话恢复口径、按会话隔离口径）、`TUI/docs/SPEC.md` §15.1（新 bullet：符号 / 取色 / 推导口径 + 回归清单）、`TUI/README.md`（界面图 `Goal ▷ active ⟳`、Goal 块说明）。
+- 未做：`⟳` 宽度表项（仍按恒 1 列，见上探针记录，已登记 `TUI/docs/BACKLOG.md`「宽度表生成器与检入表不同步」条目）；demo/mock 加 activation 事件（列为可选，本次不动，保持 diff 面最小）。
+
+## 子代理审阅（收尾前，2026-10-04）
+
+只读审阅（未改文件；另在 `/tmp` 副本做变异测试）。结论「需修」三条，均已修并补测：
+
+1. **[重要] 切走再切回的陈旧 armed**：宿主 `agents.resume` 经 `agents.sessions.prepare` → **重建 Session**（`dsh-session` create/fromRestore 均 `new Session`），进程本地 activation 归 disarmed，且 `setActivation(disarmed)` 与初值相同 → **不发边**，TUI 会沿用切换前的 armed 错显绿。修：`resumeTo` 成功后补一条清空边（`emit({type:"goal-activation", sessionId: id})`），交由「无记录 → disarmed」推导；订阅处注释同步更正（原「切走再切回仍须显绿」的前提不成立——TUI 切换会 dispose 旧 handle）。用例：`adapter.dsh.test.ts`「resumeTo：清该会话的 activation 旧边」。
+1. **[次要] SPEC 口径自相矛盾**：原文写「未收到 activation 时不显示 `⟳`」，与实现及同句「无记录 → disarmed」冲突（active + 无记录实为灰 `⟳`）。修：`TUI/docs/SPEC.md` §15.1 改为「`phase !== "active"` 时不显示；无记录按 disarmed 显示灰 `⟳`」，并补「会话切换清边」口径。
+1. **[次要] 宽度表条目悬空**：SPEC 与本文档均写「见 BACKLOG / 另开条目」，而两层 BACKLOG 都没有该条。修：登记 `TUI/docs/BACKLOG.md`「宽度表生成器与检入表不同步」（含「`[0x27c0,0x27ef]` 不含 U+27F3」的坑）。
+
+采纳的次要 / 提示项（同批修）：测试补强——新增端到端帧断言用例（守 `app/index.ts` 事件分派 + `buildTopRegion` 接线，审阅实测撤这两处原本 0 红）、边序无关用例、缺 `sessionId` 兜底与非法 `activation` 用例；phase 取色断言精确到符号段（整行 `includes` 会漏掉符号错色）；未知 phase 不再多出一个空格；带 `goal` 但 `activation` 非法时**忽略整条事件**（不误当「无当前 goal」清空）。未采纳：demo/mock 加 activation 事件（保持最小 diff，已记在「未做」）。
+
+## 验证记录（2026-10-04）
+
+- `npm run check`（根，20 包）✓ 0 错；`npm run build` ✓；`npm run test:tui` **1317 例全绿**（含本次新增 15 例：`goal-activation.test.ts` 7 + `status-column.test.ts` 4 + `adapter.dsh.test.ts` 4；另有既有断言更新 5 处）；修完审阅项后复跑三文件 209 例全绿（7 + 19 + 183）。
+- 反向验证：临时删除 `layout.ts` head 行的 phase 符号段 → `status-column.test.ts` 7 例红（含新增符号用例），恢复后 19 例全绿（脚本式验证，未留痕）。
+- 人工确认：符号与颜色需在真机 `dsh --profile fff` 目视核对（本任务未跑真机会话，界面上 `⟳` 的绿/灰取值请以重启前后各观察一次为准）。

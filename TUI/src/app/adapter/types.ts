@@ -26,6 +26,9 @@ export interface ApprovalItem {
 export type GoalOperation =
   "create" | "edit" | "pause" | "resume" | "complete" | "block" | "clear";
 
+/** goal 自动续轮开关（GoalActivation；**进程本地**态，不进会话日志） */
+export type GoalActivation = "armed" | "disarmed";
+
 /** goal 引用（GoalRef：id + revision） */
 export interface GoalRefLike {
   id: string;
@@ -215,6 +218,14 @@ export type DshEvent =
       operation: "clear";
       cleared: GoalRefLike;
       clearedAt?: number;
+    }
+  /** goal 自动续轮开关变化（`goal/activation-changed` 总线事件；**进程本地**态：
+   *  `activation` 缺省 = 宿主该会话已无当前 goal → 清该会话记录） */
+  | {
+      type: "goal-activation";
+      sessionId: string;
+      goalId?: string;
+      activation?: GoalActivation;
     }
   | { type: "todo-write"; sessionId: string; todos: TodoItemLike[] }
   | {

@@ -177,6 +177,7 @@ export type {
   NoticeTone,
   TokenUsage,
   GoalOperation,
+  GoalActivation,
   GoalRefLike,
   GoalSnapshotLike,
   GoalChangeLike,
@@ -1411,7 +1412,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
 
     // —— goal / todo ——
     // goal：按 seq 顺序回放**全部** `goal/change`（状态列按会话累积成历史：当前 + 旧 goal；
-    // 只取末条会丢掉已完成的历史）。todo：末条 `todo/write`（全量快照，latest-wins）。
+    // 只取末条会丢掉已完成的历史）。activation 是进程本地态、不在日志里，故回放不产出
+    // （重启后宿主即 disarmed，显示层按「无记录 → disarmed」推导）。todo：末条
+    // `todo/write`（全量快照，latest-wins）。
     for (const ev of events ?? []) {
       if (ev.type !== "goal/change") continue;
       const change = ev.data as GoalChangeLike | undefined;
@@ -3573,6 +3576,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           : () => rawAgent.cancel?.({ kind: "user" });
       activeSessionId = id;
       activeDispose = () => handle.dispose();
+      // 宿主 `agents.resume` 走 `sessions.prepare` → **重建 Session**：activation 是进程本地态，
+      // 新 Session 即 disarmed，且 `setActivation(disarmed)` 与初值相同 → **不发 activation 边**。
+      // 故此处清该会话的旧边，交由「无记录 → disarmed」推导；否则切走再切回会沿用切换前的
+      // armed（显绿，实际已需用户驱动）。
+      emit({ type: "goal-activation", sessionId: id });
     },
     /** /new：新建会话（dispose 旧 agent → agents.create 全新会话，同一 setup/agentOptions）。
      *  旧会话已持久化在磁盘上（handle 释放后变 persisted 非 live），可经 /session 切回。 */
@@ -3651,6 +3659,38 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     runtime.on("session/event", (session, event) =>
       onSessionEvent(session, event as SessionEvent),
     ),
+  );
+  // goal 自动续轮开关（`goal/activation-changed`：宿主 `setActivation` 值真变化时才发）：
+  // **进程本地**事件——不进会话日志、回放拿不到（重启后宿主为 disarmed），故只按事件存
+  // 「最后一条原始边」；`activation` 缺省 = 宿主该会话已无当前 goal → 清该会话记录。
+  // 不按活跃会话过滤：宿主边可来自非活跃会话，按 sessionId 隔离存；「切走再切回」的陈旧
+  // armed 由 `resumeTo` 的清空边兜底（宿主 resume 会重建 Session，见该处注释）。
+  collectUnbind(
+    runtime.on("goal/activation-changed", (payload) => {
+      const p = payload as {
+        sessionId?: unknown;
+        goal?: { id?: unknown; activation?: unknown };
+      };
+      const goalId = p?.goal?.id;
+      const activation = p?.goal?.activation;
+      // 载荷带 goal 但 activation 非法（宿主契约破坏）：忽略整条事件，不误当「无当前 goal」清空
+      if (
+        p?.goal !== undefined &&
+        activation !== "armed" &&
+        activation !== "disarmed"
+      ) {
+        return;
+      }
+      emit({
+        type: "goal-activation",
+        sessionId:
+          typeof p?.sessionId === "string" ? p.sessionId : activeSessionId,
+        ...(typeof goalId === "string" ? { goalId } : {}),
+        ...(activation === "armed" || activation === "disarmed"
+          ? { activation }
+          : {}),
+      });
+    }),
   );
   // agent/assistant-stream 实时帧（agent-subject 事件，payload 含 agent + frame）：
   // 宿主 agent-loop 流中逐 chunk 发布；TUI 据此实时渲染正文与运行中 ●/○ 动画。

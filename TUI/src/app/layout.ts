@@ -23,6 +23,7 @@ import type {
 } from "./state.ts";
 import { hintLine } from "./layout/hints.ts";
 import {
+  activeGoalActivation,
   currentProjectCwd,
   historyVisibleRecords,
   isCompacting,
@@ -33,6 +34,7 @@ import type { Buffer } from "./state.ts";
 import type {
   JobInfo,
   TodoItemLike,
+  GoalActivation,
   GoalSnapshotLike,
   AgentRowInfo,
 } from "./adapter/dsh.ts";
@@ -884,12 +886,30 @@ function panelShownInActivity(state: AppState): boolean {
   );
 }
 
-/** goal 阶段 → 标题 phase 状态色：active/complete 绿、paused 黄、blocked 红 */
+/** goal 阶段符号（用户 2026-10-02 定稿；与 phase 词并存——符号给扫视、词保可读） */
+const GOAL_PHASE_SYMBOL: Record<string, string> = {
+  active: "▷", // 空心右三角（绿）
+  paused: "∥", // U+2225 PARALLEL TO（黄）——字面度量与 ▷ ✓ ⟳ 一致，无 emoji 属性
+  blocked: "△", // U+25B3 空心上三角（黄；无 emoji 属性、单列可着色）
+  complete: "✓",
+};
+
+/** goal 阶段 → 标题 phase 状态色：active/complete 绿、paused/blocked 黄
+ *  （blocked 2026-10-02 由红改黄——与 `turn/end blocked` 及阻塞原因行同口径） */
 const GOAL_PHASE_COLOR: Record<string, "green" | "yellow" | "red"> = {
   active: "green",
   paused: "yellow",
-  blocked: "red",
+  blocked: "yellow",
   complete: "green",
+};
+
+/** goal 自动续轮开关符号（同一符号仅颜色区分：armed 绿 / disarmed 灰，用户 2026-10-02 定稿） */
+const GOAL_ACTIVATION_SYMBOL = "⟳";
+
+/** goal 自动续轮开关色：armed（宿主会自动续轮）绿 / disarmed（需用户驱动）灰 */
+const GOAL_ACTIVATION_COLOR: Record<GoalActivation, "green" | "gray"> = {
+  armed: "green",
+  disarmed: "gray",
 };
 
 const TODO_MARKER: Record<TodoItemLike["status"], string> = {
@@ -1177,6 +1197,8 @@ function statusBlocks(
   jobs: JobInfo[] | undefined,
   agents: AgentRowInfo[] | undefined,
   width: number,
+  /** 当前 goal 的自动续轮开关展示值（undefined = 不显示 ⟳；仅 active 相位有值） */
+  activation?: GoalActivation,
 ): StatusBlock[] {
   const blocks: StatusBlock[] = [];
   const sep = (): StatusRow => ({
@@ -1191,12 +1213,26 @@ function statusBlocks(
     const current = goalList[0]!;
     const head: StatusRow[] = [];
     if (blocks.length > 0) head.push(sep());
+    const phase = current.goal.phase;
+    const phaseColor = GOAL_PHASE_COLOR[phase] ?? "green";
+    const phaseSymbol = GOAL_PHASE_SYMBOL[phase];
     head.push({
       segments: [
         seg("Goal ", { fg: "blue" }),
-        seg(current.goal.phase, {
-          fg: GOAL_PHASE_COLOR[current.goal.phase] ?? "green",
-        }),
+        // 未知 phase：不出符号（避免多一个空格），只出词与回落色
+        ...(phaseSymbol === undefined
+          ? []
+          : [seg(`${phaseSymbol} `, { fg: phaseColor })]),
+        seg(phase, { fg: phaseColor }),
+        // 自动续轮开关（⟳）只在当前 goal 处于 active 时有意义：其它相位本就不在推进，
+        // 显示是噪声；无数据（含回放/重启后未收到 activation 边）由 selector 推导
+        ...(activation === undefined
+          ? []
+          : [
+              seg(` ${GOAL_ACTIVATION_SYMBOL}`, {
+                fg: GOAL_ACTIVATION_COLOR[activation],
+              }),
+            ]),
       ],
     });
     const items: StatusBlock["items"] = [
@@ -1410,12 +1446,14 @@ export function renderStatusColumn(
   width: number,
   /** TUI#39：子代理目录快照（Agents 块；缺省 = 不显示该块，保持既有调用口径） */
   agents?: AgentRowInfo[],
+  /** 当前 goal 的自动续轮开关展示值（`activeGoalActivation`；缺省 = 不显示 ⟳） */
+  activation?: GoalActivation,
 ): FrameRow[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);
   // 状态列折叠策略：无强制行数上限——各块完整渲染，仅当总高度超过窗口高度时
   // 才折叠：高度按块尽量平均分配，块内按「已完成 → 靠后的未完成」优先级隐藏条目
-  const blocks = statusBlocks(goals, todos, jobs, agents, w - 1);
+  const blocks = statusBlocks(goals, todos, jobs, agents, w - 1, activation);
   // 状态列折叠策略：无强制行数上限——从 L0 到 L3 依次尝试折叠等级，
   // 首次放下即采用；全部等级用尽仍放不下（mode/goal 大头）→ 整列行级截断兜底
   let body: StatusRow[] = [];
@@ -1657,6 +1695,8 @@ function buildTopRegion(
         state.activeSessionId
           ? state.agentsBySession[state.activeSessionId]
           : undefined,
+        // goal 自动续轮开关（⟳；进程本地态，仅 active 相位有值）
+        activeGoalActivation(state, state.activeSessionId ?? undefined),
       );
 
   // 边框构图参数：分隔竖线列 = statusColWidth-1（状态列右缘/历史区左缘，

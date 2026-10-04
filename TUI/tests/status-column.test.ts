@@ -15,10 +15,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderStatusColumn, displayWidth } from "../src/app/layout.ts";
+import { THEMES, ansiNameToHex, hexSgr } from "../src/renderer/theme.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
 import type { GoalHistory, ModeState } from "../src/app/state.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
-import type { JobInfo, TodoItemLike } from "../src/app/adapter/dsh.ts";
+import type {
+  GoalActivation,
+  JobInfo,
+  TodoItemLike,
+} from "../src/app/adapter/dsh.ts";
 
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 
@@ -64,7 +69,13 @@ const goalList = (
 function col(
   goals: GoalHistory | undefined,
   todos: TodoItemLike[] | undefined,
-  opts: { height?: number; width?: number; scroll?: number } = {},
+  opts: {
+    height?: number;
+    width?: number;
+    scroll?: number;
+    /** goal 自动续轮开关展示值（`activeGoalActivation` 的产物；缺省 = 不显示 ⟳） */
+    activation?: GoalActivation;
+  } = {},
   jobs?: JobInfo[],
 ): string[] {
   return renderStatusColumn(
@@ -74,6 +85,8 @@ function col(
     opts.scroll ?? 0,
     opts.height ?? 8,
     opts.width ?? 20,
+    undefined,
+    opts.activation,
   ).map((l) => rowText(l));
 }
 
@@ -100,7 +113,7 @@ test("renderStatusColumn: goal 目标 + phase + todo 列表渲染", () => {
     { width: 24 },
   );
   const t = rows.join("\n");
-  assert.ok(t.includes("Goal active"), "goal 标题=Goal+phase");
+  assert.ok(t.includes("Goal ▷ active"), "goal 标题=Goal+phase 符号+phase");
   assert.ok(t.includes("实现状态列"), "objective 无「目标:」前缀");
   assert.ok(t.includes("Todo 0/2"), "todo 标题=完成数/总数");
   assert.ok(t.includes("● 渲染目标"), "进行中 ● 实心圆标记");
@@ -166,7 +179,7 @@ test("renderStatusColumn: goal 块超窗口高时按等级折叠（L2 压成标�
   // 高 8 且仅 goal 一块：L0 放不下，goal 无条目级折叠 → L2 起压成标题行（无 objective）
   const rows = col(setGoal("active", objective), [], { width: 10, height: 8 });
   const t = rows.join("\n");
-  assert.ok(t.includes("Goal act"), "标题保留（窄列被截断到列宽）");
+  assert.ok(t.includes("Goal ▷ ac"), "标题保留（窄列被截断到列宽）");
   assert.ok(!t.includes("行0"), "objective 在 L2 压标题行时隐藏");
   // 高度充足时目标完整显示（无固定上限截断）
   const full = col(setGoal("active", objective), [], {
@@ -183,7 +196,7 @@ test("renderStatusColumn: 当前 goal + 历史旧 goal 同块展示（旧条目�
   );
   const rows = col(goals, [], { width: 30, height: 12 });
   const t = rows.join("\n");
-  assert.ok(t.includes("Goal active"), "标题=当前 goal 的 phase");
+  assert.ok(t.includes("Goal ▷ active"), "标题=当前 goal 的 phase");
   assert.ok(t.includes("当前目标"), "当前 objective 展示");
   assert.ok(t.includes("Goal complete"), "历史条目标题行保留 phase");
   assert.ok(t.includes("旧目标"), "历史 objective 展示");
@@ -234,7 +247,7 @@ test("renderStatusColumn: 历史 goal 按折叠等级收敛（L1 留最近 1 条
   assert.ok(mid.includes("历史 goal 已隐藏"), "L1 出现隐藏计数提示");
   // 高度 3：L1(5 行) 放不下 → L2 压成标题行（objective 与历史全隐藏）
   const tight = col(goals, [], { width: 30, height: 3 }).join("\n");
-  assert.ok(tight.includes("Goal active"), "L2 保留标题行");
+  assert.ok(tight.includes("Goal ▷ active"), "L2 保留标题行");
   assert.ok(
     !tight.includes("当前") && !tight.includes("历史一"),
     "L2 隐藏 objective 与全部历史 goal",
@@ -321,7 +334,7 @@ test("renderStatusColumn: 溢出时按折叠等级递减内容（L1 隐藏完成
   assert.ok(!t.includes("待办任务 C"), "L2 仅进行中：pending 待办也被折叠");
   assert.ok(t.includes("项已隐藏"), "隐藏条目有提示");
   assert.ok(t.includes("跑测试"), "jobs 块保留（无折叠语义）");
-  assert.ok(t.includes("Goal active"), "goal 压成标题行");
+  assert.ok(t.includes("Goal ▷ active"), "goal 压成标题行");
   assert.ok(!t.includes("目标"), "goal objective 随 L2 标题行折叠");
 });
 
@@ -405,4 +418,111 @@ test("renderStatusColumn（P7）：permission 不再出现在状态列（已从�
   const t = rows.join("\n");
   assert.ok(!t.includes("permission"), `状态列不含 permission: ${t}`);
   assert.ok(!t.includes("Mode"), `状态列不含 Mode 块: ${t}`);
+});
+
+// ===== goal 标题行：phase 符号 + 自动续轮开关（⟳） =====
+
+/** 名 → truecolor 前景 SGR（dark 主题） */
+const sgrOf = (name: "green" | "yellow" | "gray" | "red"): string =>
+  hexSgr(ansiNameToHex(THEMES.dark, name) ?? "", true);
+
+/** 当前 goal 的标题行（首行含 Goal） */
+const goalHead = (
+  goals: GoalHistory,
+  activation?: GoalActivation,
+): { text: string; ansi: string } => {
+  const rows = renderStatusColumn(
+    goals,
+    [],
+    undefined,
+    0,
+    8,
+    30,
+    undefined,
+    activation,
+  );
+  const head = rows.find((r) => rowText(r).includes("Goal"))!;
+  return { text: rowText(head), ansi: rowAnsi(head, "dark") };
+};
+
+test("renderStatusColumn: phase 符号与状态色（active ▷ 绿 / paused ∥ 黄 / blocked △ 黄 / complete ✓ 绿）", () => {
+  const cases: [GoalPhase, string, "green" | "yellow"][] = [
+    ["active", "▷ active", "green"],
+    ["paused", "∥ paused", "yellow"],
+    ["blocked", "△ blocked", "yellow"],
+    ["complete", "✓ complete", "green"],
+  ];
+  for (const [phase, body, color] of cases) {
+    const head = goalHead(setGoal(phase, "目标"));
+    assert.ok(
+      head.text.includes(`Goal ${body}`),
+      `${phase} 标题 = Goal + 符号 + phase 词: ${head.text}`,
+    );
+    // 精确到段：符号自身带 phase 色（整行 includes 会被 phase 词的同色遮住错色）
+    const symbol = body.slice(0, body.indexOf(" "));
+    assert.ok(
+      head.ansi.includes(sgrOf(color) + `${symbol} `),
+      `${phase} 符号取 ${color}: ${head.ansi}`,
+    );
+  }
+});
+
+test("renderStatusColumn: blocked 标题由红改黄（与阻塞原因行同口径）", () => {
+  const head = goalHead(
+    setGoal("blocked", "目标", { code: "x", message: "用户拒绝" }),
+  );
+  assert.ok(head.ansi.includes(sgrOf("yellow")), "blocked 黄: " + head.ansi);
+  assert.ok(
+    !head.ansi.includes(sgrOf("red")),
+    "blocked 标题不再是红: " + head.ansi,
+  );
+});
+
+test("renderStatusColumn: 自动续轮开关 ⟳（armed 绿 / disarmed 灰 / 缺省不显示）", () => {
+  // armed：宿主会自动续轮 → 绿 ⟳
+  const armed = goalHead(setGoal("active", "目标"), "armed");
+  assert.ok(armed.text.includes("⟳"), "armed 显示 ⟳: " + armed.text);
+  assert.ok(
+    armed.ansi.includes(sgrOf("green") + " ⟳"),
+    "armed 的 ⟳ 为绿: " + armed.ansi,
+  );
+  // disarmed：需用户驱动 → 灰 ⟳（绿只来自 phase 符号，不来自开关）
+  const disarmed = goalHead(setGoal("active", "目标"), "disarmed");
+  assert.ok(disarmed.text.includes("⟳"), "disarmed 显示 ⟳: " + disarmed.text);
+  assert.ok(
+    disarmed.ansi.includes(sgrOf("gray") + " ⟳"),
+    "disarmed 的 ⟳ 为灰: " + disarmed.ansi,
+  );
+  // 缺省（无数据 / 非 active 相位由 activeGoalActivation 过滤）→ 不显示 ⟳
+  const none = goalHead(setGoal("active", "目标"));
+  assert.ok(!none.text.includes("⟳"), "无激活值不显示 ⟳: " + none.text);
+});
+
+test("renderStatusColumn: 历史 goal 行不显示 phase 符号与 ⟳（进程本地态只对当前 goal 有意义）", () => {
+  const rows = renderStatusColumn(
+    goalList(
+      { phase: "active", objective: "当前目标" },
+      { phase: "complete", objective: "旧目标" },
+    ),
+    [],
+    undefined,
+    0,
+    12,
+    30,
+    undefined,
+    "armed",
+  );
+  // 去掉右缘竖线与补白后比较（行是定宽的）
+  const lines = rows.map((r) => rowText(r).replace(/\s*│$/, "").trimEnd());
+  const historyHead = lines.find((l) => l === "Goal complete");
+  assert.ok(
+    historyHead !== undefined,
+    "历史行仍是 Goal + phase 词（无符号）: " + JSON.stringify(lines),
+  );
+  const currentHead = lines.find((l) => l.startsWith("Goal ▷ active"));
+  assert.ok(
+    currentHead !== undefined,
+    "当前 goal 行存在: " + JSON.stringify(lines),
+  );
+  assert.ok(currentHead.includes("⟳"), "当前 goal 行显示 ⟳: " + currentHead);
 });

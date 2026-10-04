@@ -3011,6 +3011,84 @@ test("P2 goal/change clear → goal-change clear 事件（墓碑 ref）", () => 
   ]);
 });
 
+test("goal/activation-changed → goal-activation 事件（进程本地，按会话存；非活跃会话不过滤）", () => {
+  const t = makeAdapter();
+  // 宿主载荷形态：{ sessionId, goal?: { id, revision, activation } }（dsh-goal setActivation）
+  t.runtime.fire("goal/activation-changed", {
+    sessionId: "s1",
+    goal: { id: "g1", revision: 1, activation: "armed" },
+  });
+  assert.deepEqual(t.events, [
+    {
+      type: "goal-activation",
+      sessionId: "s1",
+      goalId: "g1",
+      activation: "armed",
+    },
+  ]);
+  // 非活跃会话（adapter 绑 s1）不过滤：切走再切回仍须显出该会话的开关
+  t.runtime.fire("goal/activation-changed", {
+    sessionId: "s2",
+    goal: { id: "g2", revision: 1, activation: "disarmed" },
+  });
+  assert.deepEqual(t.events[1], {
+    type: "goal-activation",
+    sessionId: "s2",
+    goalId: "g2",
+    activation: "disarmed",
+  });
+});
+
+test("goal/activation-changed：无当前 goal（载荷缺 goal）→ 事件不带 activation（清记录语义）", () => {
+  const t = makeAdapter();
+  t.runtime.fire("goal/activation-changed", { sessionId: "s1" });
+  assert.deepEqual(t.events, [{ type: "goal-activation", sessionId: "s1" }]);
+});
+
+test("goal/activation-changed：载荷缺 sessionId → 回落活跃会话；activation 非法 → 整条忽略", () => {
+  const t = makeAdapter();
+  // 缺 sessionId（宿主契约上恒有，此处只测兜底）→ 回落 adapter 绑定的活跃会话
+  t.runtime.fire("goal/activation-changed", {
+    goal: { id: "g1", activation: "armed" },
+  });
+  assert.deepEqual(t.events, [
+    {
+      type: "goal-activation",
+      sessionId: "s1",
+      goalId: "g1",
+      activation: "armed",
+    },
+  ]);
+  // 带 goal 但 activation 非法：不得误当「无当前 goal」清空
+  t.runtime.fire("goal/activation-changed", {
+    sessionId: "s1",
+    goal: { id: "g1", activation: "ARMED" },
+  });
+  assert.equal(t.events.length, 1, "非法 activation 不产生事件");
+});
+
+test("resumeTo：清该会话的 activation 旧边（宿主 resume 重建 Session → disarmed 且不发边）", async () => {
+  const runtime = new FakeRuntime();
+  const agent2 = new FakeAgent();
+  agent2.session = { id: "s2" };
+  const adapter = createRealDshAdapter({
+    runtime,
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    agents: {
+      resume: async () => ({
+        agent: agent2,
+        dispose: async (): Promise<void> => {},
+      }),
+    } as unknown as AgentRegistryLike,
+  });
+  const events: DshEvent[] = [];
+  adapter.onEvent((e) => events.push(e));
+  await adapter.resumeTo!("s2");
+  // 清空边（不带 activation）→ reducer 删记录 → 展示值推导为 disarmed
+  assert.deepEqual(events, [{ type: "goal-activation", sessionId: "s2" }]);
+});
+
 test("P2 todo/write → todo-write 全量快照转发（最后一次写入整体替换）", () => {
   const t = makeAdapter();
   t.runtime.fire("session/event", { id: "s1" }, {

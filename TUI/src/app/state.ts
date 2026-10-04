@@ -13,6 +13,7 @@ import type {
   NoticeTone,
   CompactionSummaryPayloadLike,
   GoalOperation,
+  GoalActivation,
   GoalRefLike,
   GoalSnapshotLike,
   TodoItemLike,
@@ -222,6 +223,22 @@ export function activeGoalSnapshot(
 ): GoalSnapshotLike | undefined {
   if (!sessionId) return undefined;
   return state.goalBySession[sessionId]?.[0]?.goal;
+}
+
+/** goal 自动续轮开关的**展示值**（进程本地态）：
+ *  仅在当前 goal `phase === "active"` 时可见（其它相位的 goal 本就不在推进，显示是噪声）；
+ *  取值 = 本进程收到的**最后一条** activation 边，无记录 → `disarmed`（宿主重启后即为
+ *  disarmed 且不发事件；宿主 `goal-round-driver` 会在 phase 仍为 active 时主动 disarm，
+ *  此时有 disarmed 边 → 显示灰 ⟳，故不做「见过 armed 就恒绿」的粘性记忆）。 */
+export function activeGoalActivation(
+  state: AppState,
+  sessionId: string | undefined,
+): GoalActivation | undefined {
+  if (!sessionId) return undefined;
+  if (state.goalBySession[sessionId]?.[0]?.goal.phase !== "active") {
+    return undefined;
+  }
+  return state.goalActivationBySession[sessionId] ?? "disarmed";
 }
 
 /** P2 模式徽标状态（plan 用 "on"/"off"；sandbox/permission 存原始值字符串；缺省省略） */
@@ -498,6 +515,9 @@ export interface AppState {
   sessionTitle: string;
   /** P2：按 sessionId 隔离的 goal 状态（判别联合；完整保留原始载荷字段） */
   goalBySession: Record<string, GoalHistory>;
+  /** goal 自动续轮开关：按 sessionId 存的**最后一条 activation 原始边**（进程本地事件
+   *  `goal/activation-changed`，不进会话日志、不随 tui-state.json 落盘；无记录 = 未收到） */
+  goalActivationBySession: Record<string, GoalActivation>;
   /** P2：按 sessionId 隔离的 todo 列表（全量快照 last-write-wins） */
   todoBySession: Record<string, TodoItemLike[]>;
   /** TUI#39：按 sessionId 隔离的子代理目录快照（状态列 Agents 块；last-write-wins） */
@@ -717,6 +737,9 @@ export function initialState(
     activeSessionId: null,
     sessionTitle: "", // 默认标题为空，渲染层（renderStatusLine）用 <title> 占位
     goalBySession: {},
+    // goal 自动续轮开关（进程本地态，无初值：宿主重启后 setActivation(disarmed) 与初值
+    // 相同不发事件，故「无记录」由 selector 推导为 disarmed，见 activeGoalActivation）
+    goalActivationBySession: {},
     todoBySession: {},
     agentsBySession: {},
     modeBySession: {},
@@ -2234,6 +2257,18 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           goalBySession: { ...state.goalBySession, [action.sessionId]: next },
         };
       }
+      case "goal-activation": {
+        // goal 自动续轮开关：只存**原始边**（展示值由 activeGoalActivation 推导——宿主在
+        // 同一次提交里先发 activation 边、后发 goal/change，若在此落推导结果会丢边）。
+        // 无 activation = 宿主该会话已无当前 goal → 清记录。进程本地态：不落 tui-state.json。
+        const next = { ...state.goalActivationBySession };
+        if (action.activation === undefined) {
+          delete next[action.sessionId];
+        } else {
+          next[action.sessionId] = action.activation;
+        }
+        return { ...state, goalActivationBySession: next };
+      }
       case "todo-write":
         // P2：todo 全量快照 last-write-wins，按 sessionId 隔离
         return {
@@ -2757,6 +2792,12 @@ export type StateAction =
       operation: "clear";
       cleared: GoalRefLike;
       clearedAt?: number;
+    }
+  /** goal 自动续轮开关（进程本地事件；`activation` 缺省 = 该会话已无当前 goal → 清记录） */
+  | {
+      type: "goal-activation";
+      sessionId: string;
+      activation?: GoalActivation;
     }
   | { type: "todo-write"; sessionId: string; todos: TodoItemLike[] }
   /** TUI#39：子代理目录快照（状态列 Agents 块；last-write-wins，按会话隔离） */

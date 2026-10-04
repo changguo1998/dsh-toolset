@@ -1358,6 +1358,7 @@ export class App {
       case "compaction":
       case "retry":
       case "goal-change":
+      case "goal-activation":
       case "todo-write":
       case "agents-changed":
       case "mode":
