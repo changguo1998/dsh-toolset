@@ -61,7 +61,7 @@ interface PluginCtx {
  * `exec.agent?.session.header.cwd`）。宿主未传 exec / 非 agent 调用方 / 会话无
  * cwd → 回退 `process.cwd()`（裸进程语义，仅在无会话上下文时生效）。
  * 注意：不可读 `ctx.cwd`——cordis 上下文代理上未 inject 的属性读取会直接抛错
- * （BACKLOG D1 的根因，旧实现的 `ctx.cwd ?? process.cwd()` 兜底永远走不到）。
+ * （见 `docs/archived/2026-09-27-cwd-injection.md`：旧实现的 `ctx.cwd ?? process.cwd()` 兜底永远走不到）。
  */
 function resolveExecCwd(exec: unknown): string {
   const agent = (exec as ToolExecCtx | undefined)?.agent;
@@ -73,7 +73,7 @@ function resolveExecCwd(exec: unknown): string {
 /**
  * 结果渲染：outline 走共享渲染器（标题树 ≤45 行 + 块清单 ≤15 行）；signatures 渲染 L<n> 签名；
  * pruned 渲染正文（最多 80 行）。
- * 全函数：任意 value 都返回可读文本（BACKLOG #1）——四分支形状守卫拦下非法 / 缺字段形态，
+ * 全函数：任意 value 都返回可读文本（见 `docs/archived/2026-10-02-render-totality.md`）——四分支形状守卫拦下非法 / 缺字段形态，
  * 退回 jsonText(value)；最外层再兜一次异常（守卫够不到的深层畸形），使「render 不抛」成为不变量。
  */
 function renderResult(result: unknown): string {

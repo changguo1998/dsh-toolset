@@ -45,7 +45,7 @@ L22 heading 标题二
 
 块 kind：`list`（条目数）/ `table`（数据行数，不含表头与分隔行）/ `code`（围栏语言）/ `quote`（行数）/ `frontmatter`（键数）。
 
-TS API：`digest(ctx, filePath, opts, deps?)`，`deps` 可注入 `provider` / `read` / `resolvePath` / `maxBytes`（单测与嵌入场景）。
+TS API（包入口 `index.ts` → `src/main.ts` 透出）：`digest(ctx, filePath, opts, deps?)`（`deps` 可注入 `provider` / `read` / `resolvePath` / `maxBytes`，单测与嵌入场景）、`DIGEST_MODES` 与 `types.ts` 的全部结果/选项类型、bundle 契约符号 `name` / `inject` / `Config` / `apply`。结构扫描器等只在**模块级**导出（`src/outline.ts` 的 `scanMarkdown` / `parseMarkdownOutline` / `parseTsOutline` / `parsePythonOutline` / `buildOutline`、`src/signatures.ts` 的 `extract*Signatures` / `buildSignatures`、`src/prune.ts` 的 `pruneText` 等）：深路径可引用，但**不属包入口契约**。
 
 ## 边界与限制
 
@@ -54,7 +54,7 @@ TS API：`digest(ctx, filePath, opts, deps?)`，`deps` 可注入 `provider` / `r
 - `requireLsp: true` 对 Markdown 不生效（Markdown 有原生解析路径，不参与 LSP 可用性检查）。
 - 无法识别语言且无 LSP → `unsupported_language`，可用 `language` 提示绕过。
 - 错误分类：`invalid_option` / `file_not_found` / `not_a_file` / `too_large` / `binary` / `lsp_unavailable` / `unsupported_language`；失败返回 `{ ok: false, error, message }`，不抛未捕获异常。
-- **相对路径基准 = 调用方会话 cwd**（工具执行上下文 `exec.agent.session.header.cwd`，与宿主 `dsh-tool-fs` 同口径）：同一相对路径在不同会话下解析到各自会话目录的文件；无会话上下文（非 agent 调用方 / 无 exec）时回退进程 cwd（`process.cwd()`）。注意不可读 `ctx.cwd`——cordis 上下文代理上未 `inject` 的属性读取会直接抛错（旧实现即因此不可用，见 `fs-digest/docs/BACKLOG.md` D1）。
+- **相对路径基准 = 调用方会话 cwd**（工具执行上下文 `exec.agent.session.header.cwd`，与宿主 `dsh-tool-fs` 同口径）：同一相对路径在不同会话下解析到各自会话目录的文件；无会话上下文（非 agent 调用方 / 无 exec）时回退进程 cwd（`process.cwd()`）。注意不可读 `ctx.cwd`——cordis 上下文代理上未 `inject` 的属性读取会直接抛错（旧实现即因此不可用，见 `docs/archived/2026-09-27-cwd-injection.md`）。
 - **Markdown 结构视图口径**（`outline`）：① 节行范围 = 标题行 → 下一个「层级 ≤ 本节」的标题前一行（末节到文件末），**尾部空行不计**；父子范围是**包含关系**（父 ⊇ 子），不是分区；② `depth` 以下的标题不建节点，其正文与块归入最近的输出祖先节（`endLine` 与块的 `section` 一律只指向输出中的标题行）；③ 块清单为平铺结构（不做嵌套），只识别围栏代码块、GFM 表格、列表、引用与**文件首行**的 frontmatter（需配对且内部只含 YAML 键 / 注释 / 空行）；④ 不做 setext 标题、HTML 块、嵌套引用、复杂表格对齐；⑤ 只有 Markdown 的标题节点带 `endLine`、结果才带 `blocks`（其它语言无）。
 - `pruned` 的切点会吸附到最近的边界行（空行、Markdown 标题/分隔线、闭合括号行、顶层语句结束行），最多偏移 5 行；文件在预算内时返回全文（`truncated: false`）。
 
@@ -63,6 +63,13 @@ TS API：`digest(ctx, filePath, opts, deps?)`，`deps` 可注入 `provider` / `r
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # 编译到 dist/
-npm run test    # node --test（61 例：三模式 + 语言推断/LSP/读取守卫 + Markdown 结构视图）
+npm run test    # node --test（66 例：三模式 + 语言推断/LSP/读取守卫 + Markdown 结构视图）
 npm run demo    # 三模式本地示例（无 DSH 依赖）
 ```
+
+## 文档
+
+- 能力与契约：本文件（轻量包只留 `README.md` + `docs/BACKLOG.md`，无 `DESIGN.md`）。
+- 模块待办：`docs/BACKLOG.md`（当前无未完成项）；历史过程记录见 `docs/archived/`（cwd 注入、render 全函数化）。
+- Markdown 深能力与口径差异：`md-logic/README.md`「与 `fs_digest` 的口径差异」。
+- 宿主契约：`docs/host/DSH-CTX-API.md` §0（bundle 导出面）、`docs/host/HOST-PACKAGES.md`（会话 `header.cwd` / `ctx.tools`）。
