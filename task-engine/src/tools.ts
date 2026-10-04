@@ -310,7 +310,8 @@ export function createTools(
   return [
     decompose(
       "decompose",
-      "把一个待细化任务拆成子任务（每次只细化一层；机械+语义蕴含双门禁通过才挂树）",
+      "把一个待细化任务拆成子任务（每次只细化一层；机械+语义蕴含双门禁通过才挂树）。" +
+        '多轮：对**已完成的当前轮根**再分解会**自动开新一轮**（新根 `root-2` / `root-3…`，沿用同一根契约，旧轮只读保留；跨轮子帧 id 必须唯一）；`parent_id: "root"` 始终指当前轮根',
     ),
     decompose("implement", "完成一个叶子任务并写入产出"),
     execute,
@@ -318,6 +319,10 @@ export function createTools(
       "stop",
       "对任务执行 RET 验收（mechanical/human/semantic），通过则完成并向上 join，返回 accepted/next",
     ),
-    decompose("status", "查看当前嵌套任务树（parent_id + order，先序）"),
+    decompose(
+      "status",
+      "查看嵌套任务树（parent_id + order，先序；含 executorKind）。多轮会话返回**森林**：" +
+        "每轮一棵树，树根带 `round`（= 轮次；id 里跳号不代表轮次）",
+    ),
   ];
 }

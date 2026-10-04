@@ -16,6 +16,7 @@ import {
 } from "../src/engine.ts";
 import type { AcceptanceHooks } from "../src/acceptance.ts";
 import type { ChildSpec, FrameId, LoggedPlanEvent } from "../src/types.ts";
+import { snapshot } from "../src/events.ts";
 
 const mech = (
   id: string,
@@ -818,5 +819,159 @@ describe("TaskEngine 快照落盘（snapshotPath 周期写）", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("多轮根帧（会话 = 解释器，不是一次性 main()；2026-10-05 方案 A）", () => {
+  const newEngine = (): TaskEngine =>
+    new TaskEngine({
+      root: { id: "root", title: "R", spec: "s", acceptance: [mech("r-q")] },
+      ...makeHooks(),
+    });
+  /** 跑完一轮：decompose(root) → implement → stop（叶子 mechanical 通过） */
+  const runRound = async (e: TaskEngine, childId: string): Promise<void> => {
+    const d = await e.decompose("root", [
+      leafChild(childId, `做 ${childId}`, { "r-q": [childId] }),
+    ]);
+    assert.ok(d.ok, `decompose 失败: ${JSON.stringify(d)}`);
+    assert.ok(e.implement(childId, "产物").ok);
+    const stop = await e.stop(childId);
+    assert.ok(stop.ok, `stop 失败: ${JSON.stringify(stop)}`);
+  };
+
+  it("第一轮完成后对 root 再分解 → 自动开第二轮（新根 root-2），旧轮保留 done", async () => {
+    const e = newEngine();
+    await runRound(e, "c1");
+    assert.equal(e.isComplete(), true, "第一轮完成");
+
+    const d2 = await e.decompose("root", [
+      leafChild("c2", "做 C2", { "r-q": ["c2"] }),
+    ]);
+    assert.ok(d2.ok, `第二轮 decompose 失败: ${JSON.stringify(d2)}`);
+    assert.equal(e.root().id, "root-2", "当前轮根 = 新根");
+    assert.equal(e.isComplete(), false, "新一轮尚未完成");
+    assert.equal(e.frames().get("root")?.status, "done", "旧轮保留 done");
+    assert.equal(e.frames().get("c2")?.parentId, "root-2", "子帧挂在新根下");
+    const rounds = e.log
+      .filter((ev) => ev.type === "plan/root-created")
+      .map((ev) => (ev as { round?: number }).round);
+    assert.deepEqual(rounds, [1, 2], "事件流里两轮根创建（带 round）");
+  });
+
+  it("第二轮能独立跑完并 join 到新根", async () => {
+    const e = newEngine();
+    await runRound(e, "c1");
+    await runRound(e, "c2");
+    assert.equal(e.root().id, "root-2");
+    assert.equal(e.root().status, "done");
+    assert.equal(e.isComplete(), true);
+    assert.equal(e.frames().get("c1")?.status, "done", "旧轮子帧不受影响");
+  });
+
+  it("跨轮复用子帧 id → 拒绝（避免覆盖旧轮帧 / 污染注册表）", async () => {
+    const e = newEngine();
+    await runRound(e, "c1");
+    const d2 = await e.decompose("root", [
+      leafChild("c1", "复用旧 id", { "r-q": ["c1"] }),
+    ]);
+    assert.equal(d2.ok, false);
+    assert.match(d2.feedback ?? "", /已存在|必须唯一/);
+  });
+
+  it("非根帧 done 仍照旧拒绝（不只按「当前轮根」放行）", async () => {
+    const e = newEngine();
+    await runRound(e, "c1");
+    const again = await e.decompose("c1", [
+      leafChild("c9", "再拆已完成的叶子", { "r-q": ["c9"] }),
+    ]);
+    assert.equal(again.ok, false);
+    assert.match(again.feedback ?? "", /不可再拆/);
+  });
+});
+
+describe("多轮根帧：审阅修正（门禁打回不建轮 / 根即叶子 / 撞名 / resume 契约）", () => {
+  const mkEngine = (over: Partial<{ needDecompose: boolean }> = {}): TaskEngine =>
+    new TaskEngine({
+      root: {
+        id: "root",
+        title: "R",
+        spec: "s",
+        acceptance: [mech("r-q")],
+        ...(over.needDecompose === undefined
+          ? {}
+          : { needDecompose: over.needDecompose }),
+      },
+      ...makeHooks(),
+    });
+  const settleRound = async (e: TaskEngine, childId: string): Promise<void> => {
+    const d = await e.decompose("root", [
+      leafChild(childId, `做 ${childId}`, { "r-q": [childId] }),
+    ]);
+    assert.ok(d.ok, JSON.stringify(d));
+    assert.ok(e.implement(childId, "产物").ok);
+    assert.ok((await e.stop(childId)).ok);
+  };
+
+  it("门禁打回不留空轮、不改旧轮状态，重试若干次后仍能开新一轮（不会卡死）", async () => {
+    const e = mkEngine();
+    await settleRound(e, "c1");
+    // coverage 不完备 → 机械门禁打回（这是最常见的打回形态）
+    for (let i = 0; i < 3; i += 1) {
+      const bad = await e.decompose("root", [leafChild(`bad${i}`, "无覆盖")]);
+      assert.equal(bad.ok, false, "应被打回");
+      assert.match(bad.feedback ?? "", /覆盖|coverage/);
+    }
+    assert.equal(e.frames().has("root-2"), false, "打回不留空轮");
+    assert.equal(e.frames().get("root")?.status, "done", "旧轮不被翻成 failed");
+    const good = await e.decompose("root", [
+      leafChild("c2", "做 C2", { "r-q": ["c2"] }),
+    ]);
+    assert.ok(good.ok, `打回后仍应能开新一轮: ${JSON.stringify(good)}`);
+    assert.equal(e.root().id, "root-2");
+  });
+
+  it("根契约本身是叶子（needDecompose:false）→ 明确拒绝，不建轮", async () => {
+    const e = mkEngine({ needDecompose: false });
+    // 叶子根先自行跑完（implement + stop），此时根终态 → 再分解会走「开新一轮」分支
+    assert.ok(e.implement("root", "产物").ok);
+    assert.ok((await e.stop("root")).ok);
+    assert.equal(e.frames().get("root")?.status, "done");
+    const d = await e.decompose("root", [leafChild("c1", "x")]);
+    assert.equal(d.ok, false);
+    assert.match(d.feedback ?? "", /叶子/);
+    assert.equal(e.frames().has("root-2"), false);
+  });
+
+  it("新根 id 先扫空闲名：子帧占了 root-2 → 新根用 root-3，不覆盖旧轮", async () => {
+    const e = mkEngine();
+    await settleRound(e, "root-2");
+    const d = await e.decompose("root", [
+      leafChild("c9", "做 C9", { "r-q": ["c9"] }),
+    ]);
+    assert.ok(d.ok, JSON.stringify(d));
+    assert.equal(e.root().id, "root-3", "跳过被占用的 root-2");
+    assert.equal(
+      e.frames().get("root-2")?.parentId,
+      "root",
+      "旧轮子帧 root-2 未被覆盖",
+    );
+  });
+
+  it("resume 后新轮继承的根契约来自事件流（不是空占位）", async () => {
+    const e = mkEngine();
+    await settleRound(e, "c1");
+    const resumed = resumeFromSnapshot(
+      snapshot(e.log),
+      makeHooks() as unknown as Parameters<typeof resumeFromSnapshot>[1],
+    );
+    const d = await resumed.decompose("root", [
+      leafChild("c2", "做 C2", { "r-q": ["c2"] }),
+    ]);
+    assert.ok(d.ok, JSON.stringify(d));
+    assert.equal(
+      resumed.frames().get("root-2")?.acceptance.length,
+      1,
+      "新轮根契约沿用旧根的验收（非空）",
+    );
   });
 });

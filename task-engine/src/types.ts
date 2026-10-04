@@ -114,6 +114,8 @@ export type PlanEvent =
   | {
       type: "plan/root-created";
       frame: Omit<Frame, "status" | "children" | "retryCount">;
+      /** 轮次（1 起；旧事件缺省 = 1；多轮 2026-10-05） */
+      round?: number;
     }
   | { type: "plan/node-expanded"; parent: FrameId; children: ChildSpec[] }
   | { type: "plan/frame-activated"; frame: FrameId }
@@ -196,7 +198,10 @@ export type LoggedPlanEvent = PlanEvent & { seq: number; time: number };
 
 /** 物化出的任务树视图：扁平帧表 + 根 id */
 export interface TaskTree {
+  /** 当前（最新）轮次的根帧 id */
   rootId: FrameId;
+  /** 各轮次根帧 id（按轮次顺序；`rootIds.length` = 会话已开启的轮数） */
+  rootIds: FrameId[];
   frames: Map<FrameId, Frame>;
 }
 
@@ -205,6 +210,8 @@ export interface NestedTaskItem {
   id: FrameId;
   parentId: FrameId | null;
   order: number;
+  /** 轮次（仅森林各棵树的根带此字段；1 起） */
+  round?: number;
   title: string;
   status: FrameStatus;
   needDecompose: boolean;

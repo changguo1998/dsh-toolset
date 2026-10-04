@@ -44,7 +44,7 @@ scripts/      executor-smoke.mjs：主机适配层冒烟（dist 级 + 假宿主�
 
 ### 1. 帧树是事件溯源的物化视图
 
-`PlanEvent` 日志是唯一事实来源（`plan/root-created`、`node-expanded`、`frame-activated`、`frame-implemented`、`frame-executed`、`frame-rejected`、`frame-failed`、`frame-completed`、`frame-interrupted`、`acceptance-verdict`、`step-verdict`），`Frame` / `TaskTree` 由 `materialize` 折叠得出。收益：撤销式变更不需要，且**恢复语义天然**——`resumeFromSnapshot` 重放日志，并把在途 `active` 帧补记 `plan/frame-interrupted` 回收为 `pending`（不增 `retryCount`，用户 2026-09-30 口径）。
+`PlanEvent` 日志是唯一事实来源（`plan/root-created`、`node-expanded`、`frame-activated`、`frame-implemented`、`frame-executed`、`frame-rejected`、`frame-failed`、`frame-completed`、`frame-interrupted`、`acceptance-verdict`、`step-verdict`），`Frame` / `TaskTree` 由 `materialize` 折叠得出。**多轮（2026-10-05）**：日志里可有**多条** `plan/root-created`（载荷 `round`，1 起）——一轮 = 一棵完整树（根会 `done`），`TaskTree.rootId` 指向**当前轮**、`rootIds` 按轮次列出全部根，`toNested` 返回**森林**（每棵树根带 `round`）。开新一轮只发生在「对**已完成的当前轮根**再分解」这一步（`task_decompose` 门禁分流）；非根父帧 done 仍拒绝；当前轮根 **done / failed 都可开新轮**（failed 为逃生口，避免一次失败即卡死会话）。轮次以事件载荷 `round` 为准，`root-<n>` 是避让后的 id（可与轮次号不同步）。`"root"` 解析为当前轮根；子帧 id跨轮唯一（复用即拒）。收益：撤销式变更不需要，且**恢复语义天然**——`resumeFromSnapshot` 重放日志，并把在途 `active` 帧补记 `plan/frame-interrupted` 回收为 `pending`（不增 `retryCount`，用户 2026-09-30 口径）。
 
 ### 2. 双重门禁：机械先挡、语义可选
 

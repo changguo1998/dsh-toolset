@@ -195,7 +195,7 @@ export class TaskEngine {
   readonly log: LoggedPlanEvent[] = [];
   readonly config: GateConfig;
   /** 空初始树（构造结束后由 materialize(this.log) 替换；不因空日志抛错） */
-  private tree: TaskTree = { rootId: "", frames: new Map() };
+  private tree: TaskTree = { rootId: "", rootIds: [], frames: new Map() };
   /** 就绪池：DFS 栈（push 逆序、pop 先序）+ 去重集合 */
   private pool: FrameId[] = [];
   private inPool = new Set<FrameId>();
@@ -207,6 +207,8 @@ export class TaskEngine {
   private executorFallback: ExecutorRunner | undefined;
   private onFrameTerminal: TerminalHook | undefined;
   private snapshotPath?: string;
+  /** 根契约（每轮新根沿用同一份；多轮 2026-10-05） */
+  private rootTemplate: RootSpec;
   /** 周期快照写盘串行链：避免并发 fire-and-forget 写乱序（新快照覆盖旧快照） */
   private snapshotChain: Promise<void> = Promise.resolve();
 
@@ -219,22 +221,21 @@ export class TaskEngine {
     this.executorFallback = opts.executor;
     this.onFrameTerminal = opts.onFrameTerminal;
     this.snapshotPath = opts.snapshotPath;
+    this.rootTemplate = opts.root;
     if (opts.log && opts.log.length > 0) {
       this.log.push(...opts.log);
+      // 恢复：根契约以**最后**一条 root-created 的载荷为准（`resumeFromSnapshot` 传的 root
+      // 只是占位，空验收；否则新一轮会继承空契约）
+      for (const ev of this.log) {
+        if (ev.type === "plan/root-created")
+          this.rootTemplate = { ...ev.frame };
+      }
     } else {
-      const rootFrame: Omit<Frame, "status" | "children" | "retryCount"> = {
-        id: opts.root.id ?? "root",
-        parentId: null,
-        order: 0,
-        title: opts.root.title,
-        spec: opts.root.spec,
-        acceptance: opts.root.acceptance,
-        needDecompose: opts.root.needDecompose ?? true,
-        ...(opts.root.executor === undefined
-          ? {}
-          : { executor: opts.root.executor }),
-      };
-      logEvent(this.log, { type: "plan/root-created", frame: rootFrame });
+      logEvent(this.log, {
+        type: "plan/root-created",
+        frame: this.buildRootFrame(opts.root.id ?? "root"),
+        round: 1,
+      });
     }
     this.tree = materialize(this.log);
     // abort 路径（turn/end reason=aborted）：恢复时在途(active)帧回收为 pending，
@@ -330,7 +331,9 @@ export class TaskEngine {
     entail?: EntailHook,
   ): Promise<DecomposeResult> {
     const entailHook = entail ?? this.entail;
-    const parent = this.tree.frames.get(parentId);
+    // `"root"` 始终指**当前轮**的根（多轮后第一轮根 id 仍是 `root`，直接查表会落到旧轮）
+    parentId = this.resolveId(parentId);
+    let parent = this.tree.frames.get(parentId);
     if (parent === undefined)
       return this.finishDecompose(parentId, {
         ok: false,
@@ -338,13 +341,48 @@ export class TaskEngine {
         next: null,
         feedback: `未知父帧 ${parentId}`,
       });
-    if (parent.status === "done" || parent.status === "failed")
+    // 当前轮根已**终态**（done / failed）→ 再分解 = 开新一轮（会话 = 解释器，不是一次性 main()）。
+    // 这里只造**临时**新根给门禁校验用：门禁 + 蕴含通过后才真正落盘开轮（打回不留空轮，
+    // 也不把重试计数记到尚不存在的新根上）
+    let autoRoundId: FrameId | undefined;
+    if (parent.status === "done" || parent.status === "failed") {
+      if (parent.parentId !== null || parent.id !== this.tree.rootId) {
+        return this.finishDecompose(parentId, {
+          ok: false,
+          accepted: false,
+          next: null,
+          feedback: `父帧 ${parentId} 状态 ${parent.status}，不可再拆`,
+        });
+      }
+      const spec = this.rootTemplate;
+      if (spec.needDecompose === false || spec.executor !== undefined) {
+        return this.finishDecompose(parentId, {
+          ok: false,
+          accepted: false,
+          next: null,
+          feedback:
+            "根契约本身是叶子（needDecompose:false 或带 executor），不能展开作父帧；" +
+            "请先调整根契约（去掉 executor / 置 needDecompose:true）再开新一轮",
+        });
+      }
+      autoRoundId = this.freeRootId(this.tree.rootIds.length + 1);
+      parent = {
+        ...this.buildRootFrame(autoRoundId),
+        status: "pending",
+        children: [],
+        retryCount: 0,
+      };
+    }
+    // frame 表按 id 全局唯一：跨轮复用 id 会覆盖旧轮帧并污染 pool / worktree 注册表
+    const clash = children.find((c) => this.tree.frames.has(c.id));
+    if (clash !== undefined) {
       return this.finishDecompose(parentId, {
         ok: false,
         accepted: false,
         next: null,
-        feedback: `父帧 ${parentId} 状态 ${parent.status}，不可再拆`,
+        feedback: `子帧 id ${clash.id} 已存在（本帧内或历史轮已用）；跨轮 id 必须唯一，请改名`,
       });
+    }
     if (parent.children.length > 0)
       return this.finishDecompose(parentId, {
         ok: false,
@@ -356,11 +394,14 @@ export class TaskEngine {
     // 第一道：机械门禁（§17.2 第一道：粒度四规则 + coverage + 前置传递）
     const gate = checkDecomposition(parent, children, this.config);
     if (!gate.ok) {
-      await this.rejectFrame(
-        parentId,
-        `gate:${String(gate.rule)}`,
-        gate.feedback,
-      );
+      // 自动开轮路径下父帧是临时新根：不把打回计数记到已完成的旧轮上
+      if (autoRoundId === undefined) {
+        await this.rejectFrame(
+          parentId,
+          `gate:${String(gate.rule)}`,
+          gate.feedback,
+        );
+      }
       return this.finishDecompose(parentId, {
         ok: false,
         accepted: false,
@@ -373,7 +414,9 @@ export class TaskEngine {
     if (typeof entailHook === "function" && parent.acceptance.length > 0) {
       const ent = await entailHook(parent, children);
       if (!ent.ok && ent.skipped !== true) {
-        await this.rejectFrame(parentId, "gate:entail", ent.feedback);
+        if (autoRoundId === undefined) {
+          await this.rejectFrame(parentId, "gate:entail", ent.feedback);
+        }
         return this.finishDecompose(parentId, {
           ok: false,
           accepted: false,
@@ -383,6 +426,11 @@ export class TaskEngine {
       }
     }
 
+    // 门禁 + 蕴含都通过 → 现在才真正开新一轮（事件落盘 + 入池）
+    if (autoRoundId !== undefined) {
+      this.openRound(autoRoundId);
+      parentId = autoRoundId;
+    }
     this.append({ type: "plan/node-expanded", parent: parentId, children });
     this.recompute();
     // 子任务逆序入栈，保证先序（第一个子任务先处理）
@@ -401,6 +449,7 @@ export class TaskEngine {
 
   /** implement(frame, result)：仅叶子，写入产出 */
   implement(frameId: FrameId, result: string): ActionResult {
+    frameId = this.resolveId(frameId);
     const f = this.tree.frames.get(frameId);
     if (f === undefined) return reject(`未知帧 ${frameId}`);
     if (f.needDecompose)
@@ -426,6 +475,7 @@ export class TaskEngine {
     frameId: FrameId,
     runner?: ExecutorRunner,
   ): Promise<ExecuteResult> {
+    frameId = this.resolveId(frameId);
     const f = this.tree.frames.get(frameId);
     if (f === undefined)
       return {
@@ -553,6 +603,7 @@ export class TaskEngine {
       audit?: (req: AuditRequest) => Promise<AuditVerdict>;
     },
   ): Promise<StopResult> {
+    frameId = this.resolveId(frameId);
     const f = this.tree.frames.get(frameId);
     if (f === undefined)
       return {
@@ -871,6 +922,50 @@ export class TaskEngine {
   // 私有
   // -------------------------------------------------------------------------
 
+  /** 根帧骨架：首轮沿用 `opts.root.id ?? "root"`（向后兼容），第二轮回起 `root-<轮次>` */
+  private buildRootFrame(
+    id: FrameId,
+  ): Omit<Frame, "status" | "children" | "retryCount"> {
+    const spec = this.rootTemplate;
+    return {
+      id,
+      parentId: null,
+      order: 0,
+      title: spec.title,
+      spec: spec.spec,
+      acceptance: spec.acceptance,
+      needDecompose: spec.needDecompose ?? true,
+      ...(spec.executor === undefined ? {} : { executor: spec.executor }),
+    };
+  }
+
+  /** 新根 id：`root-<n>`，跳过已被占用的名字（子帧可以叫 `root-2`，不能静默覆盖） */
+  private freeRootId(start: number): FrameId {
+    let n = start;
+    while (this.tree.frames.has(`root-${n}`)) n += 1;
+    return `root-${n}`;
+  }
+
+  /** 帧 id 别名：`"root"` 始终指**当前轮**根（多轮后第一轮根 id 也是 `root`） */
+  private resolveId(frameId: FrameId): FrameId {
+    return frameId === "root" ? this.tree.rootId : frameId;
+  }
+
+  /** 开新一轮（会话 = 解释器：一轮 = 一棵完整树；2026-10-05 方案 A）
+   *  落一条 `plan/root-created`（带 `round`）并把新根入池——**只在门禁 + 蕴含通过后调用**，
+   *  打回时不留空轮、也不把重试计数记到新根 */
+  private openRound(id: FrameId): FrameId {
+    const round = this.tree.rootIds.length + 1;
+    this.append({
+      type: "plan/root-created",
+      frame: this.buildRootFrame(id),
+      round,
+    });
+    this.recompute();
+    this.pushPool(id);
+    return id;
+  }
+
   private append(ev: PlanEvent): void {
     logEvent(this.log, ev);
     // 周期快照：配置 snapshotPath 时每次事件后串行写盘（fire-and-forget），
@@ -912,8 +1007,10 @@ export function resumeFromSnapshot(
   opts: Omit<TaskEngineOptions, "root" | "log">,
 ): TaskEngine {
   const log = restore(snapshotText);
+  // 多轮：取**最后**一条 root-created（= 当前轮）
   const rootId =
-    log.find((e) => e.type === "plan/root-created")?.frame.id ?? "root";
+    log.filter((e) => e.type === "plan/root-created").at(-1)?.frame.id ??
+    "root";
   const rootSpec: RootSpec = {
     id: rootId,
     title: "",

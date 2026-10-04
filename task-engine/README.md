@@ -12,9 +12,12 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
 | `task_implement` | `task_id`、`result` | `{ok, feedback?}` |
 | `task_execute` | `task_id` | `{ok, accepted, next, evidence?, usage?, feedback?}` |
 | `task_stop` | `task_id` | `{ok, accepted, next, feedback?}` |
-| `task_status` | — | `{ok, tree}`（嵌套任务列表，`parent_id` + `order` + `executorKind?`，先序） |
+| `task_status` | — | `{ok, tree}`（**多轮：森林**——每轮一棵树，树根带 `round`；`parent_id` + `order` + `executorKind?`，先序） |
+
+- **多轮根帧（会话 = 解释器，2026-10-05）**：一轮 = 一棵完整树（根帧会 `done`，不变量不变）；对**已完成的当前轮根**再 `task_decompose` 会**自动开新一轮**——新根 `root-2` / `root-3…`（首轮仍是 `root`，向后兼容），沿用同一根契约（`root` 示例行的 `{title, spec, acceptance[], needDecompose?}`），旧轮**只读保留**在事件流里。`"root"` 始终解析为**当前轮**根；子帧 id 跨轮必须唯一（复用会覆盖旧轮帧并污染 pool / worktree 注册表 → 门禁拒绝）；`plan/root-created` 载荷带 `round`（旧事件缺省 = 1）；`resumeFromSnapshot` 取**最后**一条 `plan/root-created` 作为当前轮。**非根父帧 done 仍照旧拒绝**；当前轮根 **done 或 failed** 都可开新轮（`failed` 是逃生口——否则一次失败后会话会永久卡住）。注意**轮次与 id 后缀会不同步**：轮次由 `round` 字段表示（1 起，按开轮顺序），`root-<n>` 只是**避让后**的 id（子帧已占 `root-2` 时新根用 `root-3`）。
 
 - **叶子执行后端（① 执行扩展，2026-10-02）**：叶子（或 `needDecompose:false` 的根）可声明 `executor`，由 `task_execute` 交给**注入式适配器**发起（引擎只做发起 / 证据回填 / 验收，提示词与脚本都由声明方给，引擎不替模型生成）：
+
   - `model`（缺省语义）= 本会话执行，等价模型自己调 `task_implement`（`task_execute` 会拒绝并指向 `task_implement`）；
   - **`subagent`**：`ctx.subagents.start(provider='spawn', {label, prompt, parent, signal, agentOptions})` —— `prompt` 缺省由引擎按「标题 + spec + 验收清单 + 上次反馈」拼装；只有声明了 `model` / `budget` 才传 `agentOptions`（`{provider, model, maxTokens}`），未声明则**不传** = 保持宿主「合并父 agent 选项」的语义；取 `result.output` 文本为证据后 `dispose`；`stopReason` 非 `completed` / `max-tokens` 视为失败（`aborted` = 用户中止，不打回）；
   - **`workflow`**：`ctx.workflowEngine.start({script, meta, parent})` —— `script` 必给（引擎不生成脚本）；`meta` 由引擎生成默认值（`name = task:<frame>`、`description = 帧标题`）并与声明**浅合并**（叶子给谁覆盖谁）；`value` 为对象 / 数组时记入 `plan/frame-executed.structured`，文本证据为缩进 JSON；失败分类：`start` 同步抛错（META_INVALID / SCRIPT_PARSE）= **声明错误 → 不打回不计重试**，`cancelled`（用户取消）= 不打回，`error` = 交 bounded retry（反馈附 `已启动子代理 N 个`）；
@@ -26,9 +29,11 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
   - 执行记录落 `plan/frame-executed`（`executor` / `model` / `tokens` / `overBudget` / `structured` / 证据摘要 / `retryable`），**证据全文**仍走 `plan/frame-implemented`（既有验收链不看新事件）；三类后端证据统一**截断**到 8000 字符（超出标注原始长度）；
   - 宿主服务（`subagents` / `workflowEngine` / `agentDefaultModel` / `tokenMeter` / `sessionProjections`）在**执行期惰性解析**（当前工具执行 ctx 优先 → 回退插件 ctx）：apply 期服务 fiber 未激活时 `ctx.get` 会返回 undefined（真机实测），故装载期不缓存句柄，只在发起时按名读取，apply 期探测仅打印告警；
   - 失败分流：`retryable` 缺省 true → 走 bounded retry（`maxRetries` 后置 `failed`）；`retryable: false`（宿主面缺失 / 能力位不足 / 脚本声明错 / 用户取消）→ **不打回、不计重试、不改帧状态**，只把反馈交给模型改声明。
+
 - **executor 隔离（`isolate: "worktree"`，2026-10-02 自建简易版）**：叶子声明 `executor.isolate = "worktree"`
   且 `kind` 为 `command` 时，`task_execute` 先建 git worktree（`<repo>/.worktree/<leafId 安全化>`，分支
   `dsh/<leafId 安全化>`），再把该路径**覆盖** `cwd` 交给命令后端；帧进入终态（`done` / `failed`）时回收。
+
   - 只对 **`command` 后端**生效：宿主 `SubagentStartRequest` / workflow 面**都没有 cwd 参数**，隔离无处落地
     → 声明期直接报错（不「假装隔离」）；必须同时声明 `cwd`（仓库根只在它下面用 `git rev-parse --show-toplevel`
     定位，**不猜 `process.cwd()`**）；`isolate` 只认 `"worktree"`。
@@ -48,12 +53,19 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
   - **复查与审计**：git 调用一律 `execFile` 直调（不经 shell，超时 60s），且**复用** `makeCommandGuard` 做
     执行前复查（`source` 形如 `task-engine{worktree} <leafId> cwd=<repo>`）：命中即不执行，回执原文原样返回。
     该 `source` 只是回执首行的**来源标注（便于审计定位）**，不参与 guard 判定，不构成安全缓解。
+
 - **分解双重门禁**：先跑机械门禁——粒度四规则（越级 / 过粗 / 过细 / 数量）+ coverage 完备性（父每条验收须有本次子任务覆盖）+ `deps` 前置传递（只允许引用前序兄弟，自引用/前向引用/未知 id 拒绝）+ `executor` 声明校验；通过后若配置 `entail` hook，再跑语义蕴含（合取是否蕴含父契约）。任一拒绝都带反馈打回并记 `retryCount`，达 `maxRetries` 置 `failed`。
+
 - **RET 验收路由**：mechanical → `/bin/sh -c` 退出码 0；human → `ctx.approval.request`（`allowed-once` 视为通过，拒绝 / 无人应答 / 抛错一律 fail-closed）；semantic → 注入式 `audit` hook 的独立 audit run（缺 hook，或声明了 `outputSchema` 却无 `structured`，均 fail-closed 打回）。
+
 - **完成与 join**：一个帧的全部验收通过才弹栈，并向上 join（全部子任务 done 后复核父契约）。
+
 - **事件溯源**：所有变更 append 事件流（`plan/root-created`、`plan/node-expanded`、`plan/frame-activated`、`plan/frame-implemented`、`plan/frame-executed`、`plan/acceptance-verdict`、`plan/step-verdict`、`plan/frame-rejected`、`plan/frame-completed`、`plan/frame-interrupted`、`plan/frame-failed`），树由事件流折叠重建；配置 `snapshotPath` 后每次事件串行写盘（unload 时再写一次），`resumeFromSnapshot` 可恢复。
+
 - **有界并发（fan-out）**：就绪池是 DFS 栈，active 帧数达 `maxConcurrent` 时不再弹栈；`activeCount()` 统计在途帧。
+
 - **step 级裁决**：`decompose` / `stop` 结果带 `accepted` / `next`，并写入 `plan/step-verdict` 事件。`next` 语义：`stop` 打回时指向本帧（重做）、帧置 `failed` 时为 `null`、通过时取就绪池候选（不消费）；`decompose` 成功时为第一个子任务 id，拒绝时为 `null`（事件内记为父帧，供审计）。
+
 - **只读查询面**：`provide('taskEngine')`，暴露 `query()`（任务清单 / 帧栈 / active 计数 / 是否完成）与 `frameStack()`，纯读取、零副作用。
 
 ## 配置

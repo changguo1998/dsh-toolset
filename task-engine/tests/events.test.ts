@@ -102,3 +102,52 @@ describe("events", () => {
     assert.throws(() => restore("not-json"), /解析失败/);
   });
 });
+
+describe("多轮：materialize / toNested 出森林（2026-10-05 方案 A）", () => {
+  const rootFrame = (
+    id: string,
+    round: number,
+    seq: number,
+  ): LoggedPlanEvent => ({
+    seq,
+    time: seq,
+    type: "plan/root-created",
+    frame: {
+      id,
+      parentId: null,
+      order: 0,
+      title: id,
+      spec: "s",
+      acceptance: [],
+      needDecompose: true,
+    },
+    round,
+  });
+
+  it("两轮事件流 → rootId 指向最新轮、rootIds 记两轮、森林两项带 round", () => {
+    const log = [rootFrame("root", 1, 1), rootFrame("root-2", 2, 2)];
+    const tree = materialize(log as LoggedPlanEvent[]);
+    assert.equal(tree.rootId, "root-2", "rootId = 当前（最新）轮");
+    assert.deepEqual(tree.rootIds, ["root", "root-2"], "rootIds 按轮次顺序");
+    const nested = toNested(tree);
+    assert.equal(nested.length, 2, "森林：每轮一棵树");
+    assert.deepEqual(
+      nested.map((n) => [n.id, n.round]),
+      [
+        ["root", 1],
+        ["root-2", 2],
+      ],
+    );
+  });
+
+  it("单轮（旧事件流无 round）仍兼容：森林一项、round=1", () => {
+    const log = [rootFrame("root", 1, 1)];
+    delete (log[0] as { round?: number }).round;
+    const tree = materialize(log as LoggedPlanEvent[]);
+    assert.deepEqual(tree.rootIds, ["root"]);
+    assert.deepEqual(
+      toNested(tree).map((n) => [n.id, n.round]),
+      [["root", 1]],
+    );
+  });
+});

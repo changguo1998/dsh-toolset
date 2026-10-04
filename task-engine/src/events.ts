@@ -38,12 +38,15 @@ export function logEvent(
 /** 折叠事件流 → 物化任务树（回放语义，幂等） */
 export function materialize(log: LoggedPlanEvent[]): TaskTree {
   const frames = new Map<FrameId, Frame>();
+  const rootIds: FrameId[] = [];
   let rootId: FrameId = "";
 
   for (const ev of log) {
     switch (ev.type) {
       case "plan/root-created": {
+        // 多轮（2026-10-05）：每轮一条 root-created；rootId 始终指向**最新**轮
         rootId = ev.frame.id;
+        rootIds.push(ev.frame.id);
         frames.set(ev.frame.id, {
           ...ev.frame,
           status: "pending",
@@ -129,10 +132,11 @@ export function materialize(log: LoggedPlanEvent[]): TaskTree {
   if (!rootId || !frames.has(rootId)) {
     throw new Error("materialize: 事件流缺少 plan/root-created");
   }
-  return { rootId, frames };
+  return { rootId, rootIds, frames };
 }
 
-/** 嵌套任务列表（parent_id + order，先序展开；§14.1 todo 视图） */
+/** 嵌套任务列表（parent_id + order，先序展开；§14.1 todo 视图）
+ *  多轮（2026-10-05）起返回**森林**：每轮的树各一项（根带 `round`），按轮次顺序 */
 export function toNested(tree: TaskTree): NestedTaskItem[] {
   const build = (id: FrameId): NestedTaskItem => {
     const f = tree.frames.get(id);
@@ -148,7 +152,7 @@ export function toNested(tree: TaskTree): NestedTaskItem[] {
       children: f.children.map(build),
     };
   };
-  return [build(tree.rootId)];
+  return tree.rootIds.map((id, index) => ({ ...build(id), round: index + 1 }));
 }
 
 /** 快照 = 事件流 JSON（周期快照用于 resume 加速；§15.1 L3） */
