@@ -1,10 +1,9 @@
 // tests/screen.test.ts — Screen 帧写出（光标定位）单测
 //
-// REGRESSION: 满高帧下 input 行为最后一行，旧实现尾部 CRLF 触发触底上滚，
-// 硬件光标落在输入行下一行(与显示不符)。修复后尾部只跟定位转义（擦除改为
-// 「每行先擦后写」，见 Screen 的 eraseBeforeWrite）。
-// 按键提示区另起一行、输入行不占末行：统一规则「仅帧末行不写 CRLF」，
-// 保证提示区另起一行；并修掉无 caret 行的面板帧末行 CRLF 的触底上滚 1 行问题。
+// 行前进契约（2026-10-04 起）：**逐行绝对定位**（每行先 `CSI n;1H`），全程不发
+// CRLF——CRLF 在终端底行会触发滚屏，把整屏顶掉若干行，而帧间 diff 认为这些行
+// 已写对 → 面板首项被复制 / 残留且不自愈（真机：纯终端也复现）。
+// 擦除仍为「每行先擦后写」（见 Screen 的 eraseBeforeWrite）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -57,7 +56,7 @@ test("满高帧 render：输入行(caret)后无 CRLF，光标精确落在输入�
   );
 });
 
-test("非满高帧 render：普通行保留 CRLF，输入行仍定位正确", () => {
+test("非满高帧 render：逐行绝对定位（无 CRLF），输入行光标定位正确", () => {
   const footer: FrameRow = {
     segments: [{ text: "> Type a message..." }],
     caret: 2,
@@ -69,7 +68,11 @@ test("非满高帧 render：普通行保留 CRLF，输入行仍定位正确", ()
     "\x1b[3;1H\x1b[J\x1b[2;3H\x1b[?25h\x1b[?2026l",
     "帧下一行行首 ESC[J 清残留，再定位光标到第2行第3列",
   );
-  assert.ok(out.includes("header\r\n"), "普通行保留 CRLF");
+  assert.ok(!out.includes("\r\n"), "行前进一律绝对定位，不再发 CRLF");
+  assert.ok(
+    out.includes("\x1b[1;1H") && out.includes("\x1b[2;1H"),
+    "每行以自身行号绝对定位",
+  );
 });
 
 test("renderDelta 满高帧：startLine+i 为末行时输入行不 CRLF，光标仍在输入行", () => {
@@ -103,7 +106,7 @@ test("renderDelta 非满高帧：输入行写内容后定位，位置正确", ()
   );
 });
 
-test("满高帧 render：输入行后 CRLF 换行、按键提示区另起一行；末行(提示区)无 CRLF", () => {
+test("满高帧 render：输入行与提示区各自绝对定位，全程无 CRLF", () => {
   const input: FrameRow = {
     segments: [{ text: "> Type a message..." }],
     caret: 2,
@@ -118,35 +121,35 @@ test("满高帧 render：输入行后 CRLF 换行、按键提示区另起一行�
   ];
   const out = capture(lines, 40, 24);
   const idx = out.lastIndexOf(rowText(input));
-  assert.equal(
-    out.slice(idx + rowText(input).length, idx + rowText(input).length + 2),
-    "\r\n",
-    "输入行尾须 CRLF，否则提示区与输入行同屏一行",
+  assert.ok(
+    out.slice(idx + rowText(input).length).startsWith("\x1b[24;1H"),
+    "输入行后直接绝对定位到提示区所在行（第24行）",
   );
   const hidx = out.lastIndexOf(rowText(hint));
   assert.equal(
     out.slice(hidx + rowText(hint).length),
     "\x1b[23;3H\x1b[?25h\x1b[?2026l",
-    "末行(提示区)无 CRLF，光标定位输入行(第23行)第3列",
+    "提示区（末行）后无 CRLF，光标定位输入行（第23行）第3列",
   );
+  assert.ok(!out.includes("\r\n"), "全程无 CRLF（CRLF 会在底行触发滚屏）");
 });
 
-test("renderDelta 满高帧：delta=输入行+按键提示区，输入行后 CRLF、提示区后无 CRLF", () => {
+test("renderDelta 满高帧：delta 两行各自绝对定位，全程无 CRLF", () => {
   const input: FrameRow = { segments: [{ text: "> hello" }], caret: 7 };
   const hint: FrameRow = { segments: [{ text: "[Enter]发送" }] };
   const out = capture([input, hint], 40, 24, 23, true); // 输入行=23 行，提示区=24 行(底行)
   const idx = out.lastIndexOf(rowText(input));
-  assert.equal(
-    out.slice(idx + rowText(input).length, idx + rowText(input).length + 2),
-    "\r\n",
-    "输入行后 CRLF 换行",
+  assert.ok(
+    out.slice(idx + rowText(input).length).startsWith("\x1b[24;1H"),
+    "输入行后绝对定位到提示区行",
   );
   const hidx = out.lastIndexOf(rowText(hint));
   assert.equal(
     out.slice(hidx + rowText(hint).length),
     "\x1b[23;8H\x1b[?25h\x1b[?2026l",
-    "提示区(末行)后无 CRLF，光标定位输入行第8列",
+    "提示区后无 CRLF，光标定位输入行第8列",
   );
+  assert.ok(!out.includes("\r\n"), "全程无 CRLF（CRLF 会在底行触发滚屏）");
 });
 
 test("同步输出：整帧与区间报文均以 DEC 2026 begin/end 成对包裹", () => {

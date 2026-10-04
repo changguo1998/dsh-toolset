@@ -18,12 +18,16 @@ function harness(): {
   renderer: ReturnType<typeof createRenderer>;
   emu: ScreenEmu;
 } {
-  const emu = new ScreenEmu(COLS, ROWS);
+  // 模拟器尺寸必须与**渲染器认为的尺寸**一致（否则是另一类场景：终端比渲染器矮，
+  // 由 question-panel-frame.test.ts 专门覆盖）
+  let emu!: ScreenEmu;
   const renderer = createRenderer({
-    write: (s) => emu.feed(s),
+    write: (s) => emu?.feed(s),
     rawMode: false,
     exitOnClose: false,
   });
+  const size = renderer.getSize();
+  emu = new ScreenEmu(size.cols, size.rows);
   return { renderer, emu };
 }
 

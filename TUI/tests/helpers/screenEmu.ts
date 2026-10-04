@@ -53,8 +53,10 @@ export class ScreenEmu {
           const [, params = "", cmd = ""] = m;
           if (cmd === "H") {
             const [r, c] = params.split(";");
-            this.row = Math.max(0, Number(r ?? 1) - 1);
-            this.col = Math.max(0, Number(c ?? 1) - 1);
+            // 真实终端把越界行/列**钳制**在屏幕内（不滚屏）：定位到屏外时只是
+            // 停在最后一行/最后一列，故「渲染器认为的尺寸 > 实际终端」不会滚屏
+            this.row = Math.min(this.rows - 1, Math.max(0, Number(r ?? 1) - 1));
+            this.col = Math.min(this.cols - 1, Math.max(0, Number(c ?? 1) - 1));
             this.pendingWrap = false;
           } else if (cmd === "K") {
             // 0K：从当前光标列擦到行尾（不清光标左侧，与终端一致）
