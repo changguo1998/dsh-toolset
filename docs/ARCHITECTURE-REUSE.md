@@ -1,12 +1,12 @@
 # 本仓插件与官方包的复用审计（基线 DSH 0.2.0-rc.2）
 
-> 职责：回答「本仓 18 个包（TUI + 17 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（`md-logic` / `md-map` 为审计后 2026-10-02 新增，已在 §0 总表与 §3 补行）
+> 职责：回答「本仓 21 个模块（TUI + 20 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（审计基线为 TUI + 17 包 = 18；`md-logic` / `md-map` 为 2026-10-02 审计后新增、`ponytail` 为 2026-10-05 新增，均已在 §0 总表与 §3 补行）
 > 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）
 > 过期条件：官方发布新的「文件摘要 / 知识记忆 / 行级锚定编辑」类能力，或本仓新增 / 删除包时重做
 
-> 口径：官方基线 `dsh 0.2.0-rc.2`（安装树 277 个 `dsh-*`；fff 已挂 102 个官方行，2026-10-02 实测）；本仓 19 包（`md-logic` / `md-map` 为 2026-10-02 审计后新增，表中已补行） = TUI + ast-tools / code-map / command-template / context-report / fs-digest / goal-contract / hash-edit / herdr-integration / knowledge-base / metric-loop / output-compress / rule-engine / security-guard / session-channel / session-title-cutoff / symbol-normalizer / task-engine。
+> 口径：官方基线 `dsh 0.2.0-rc.2`（安装树 277 个 `dsh-*`；fff 已挂 102 个官方行，2026-10-02 实测）；本仓 21 个模块 = TUI + ast-tools / code-map / command-template / context-report / fs-digest / goal-contract / hash-edit / herdr-integration / knowledge-base / md-logic / md-map / metric-loop / output-compress / ponytail / rule-engine / security-guard / session-channel / session-title-cutoff / symbol-normalizer / task-engine。
 > 判据：① 能力是否重合（同一诉求）；② 官方是否有等价物；③ 我们是否已在复用官方底座。三者交叉后给「改用 / 保留 / 并存」。
-> 结论分布（2026-10-02）：**改用 0 / 保留 12 / 并存 6**。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
+> 结论分布（2026-10-04 复核）：**改用 0 / 保留 15 / 并存 6**（总表 21 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后新增 `md-logic` / `md-map` / `ponytail`，本次复核补行）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
 
 ## 0. 结论总表
 
@@ -21,6 +21,7 @@
 | `output-compress` | `spill` / `spill-local` / `spill-policy`、`compaction-tool-result-pruner` | 中 | **并存（互补）** | 官方阈值管**模型可见面**（超预算转 preview + locator）并做 surface 裁剪；我们**读取 spill 通知与文件**做摘要入库。我们从不回写事件 → 不存在「双重截断」；要做的是把分工与阈值语义写进 DESIGN |
 | `rule-engine` | `agent-instructions`、`hook-protocol`、`hooks-*`、**`repeat-tool-reminder`** | 中 | **保留** | 官方有 `agent-instructions`（静态指令文件）、`repeat-tool-reminder`（**单点**内置提醒）与外部 agent 的 hooks 接入；**规则表 + 多节点注入 + 消费者框架**官方无 |
 | `symbol-normalizer` | `agent-instructions` | 低 | **保留** | 符号规范（展示归一 + 回合审查）是项目约定；官方只负责加载指令文件 |
+| `ponytail`（2026-10-05 新增包） | `agent-instructions` | 低 | **保留** | 「懒资深工程师」决策阶梯在会话起始注入（rule-engine 消费者，缺省开启、`enabled: false` 关闭）；官方只负责加载静态指令文件，无「按模式注入阶梯 + 消费者框架」机制 |
 | `knowledge-base` | `storage` / `storage-domain` / `storage-json`、**`session-query-sqlite`** | 中 | **保留** | 官方**有**检索面，但只覆盖**会话日志**（FTS5 搜索，base 已挂载、缺省 `openAt: never` 未开启）；缺的是**知识条目 / 持久记忆语义**：写穿入库、重要度、合并 / 淘汰 / 巩固与隐私过滤 |
 | `task-engine` | `workflow` / `tool-workflow`、`tool-todo`、`plan-mode` | 中 | **保留** | 官方 workflow 是模型侧脚本编排、todo / plan 是轻状态；**门禁 + 验收（RET）+ 帧状态机 + 执行后端**官方无；执行侧已复用宿主 subagents / workflowEngine / ptcRuntime（reflect 可选读）与 approval / tokenMeter / agentDefaultModel |
 | `goal-contract` | `goal` / `tool-goal`、`userQuestions` | 中 | **保留** | 官方 goal 只有状态与生命周期；「Done-when 契约起草 + 可验证条款」是扩展，且已复用官方 goals / userQuestions |
@@ -33,9 +34,9 @@
 | `ast-tools` | `tool-fs-search`（`grep` / `glob`）、`code-map` | 中 | **保留** | 官方检索是**文本级**，AST 形态查询（ast-grep）官方没有；**已注册模型侧工具** `ast_query`（search / outline / rules）+ `ast_replace`（默认 dry-run），`inject: ["tools"]`（2026-10-02 落地） |
 | `code-map` | `lsp`、`tool-fs-search` | 低 | **保留** | 项目级结构索引 / 影响面 / 候选调用图官方没有；**LSP 语义层已接线但当前不可达**（LSP 三件套不随包分发，见 §5） |
 
-## 1. 保留项（12）的共同理由
+## 1. 保留项（15）的共同理由
 
-官方在这 12 个诉求上**没有等价能力**（表中逐条给了最接近的官方面，或为「无」）：文件摘要 / 结构视图、行级锚定编辑（官方只有文件级）、知识条目与记忆语义、AST 形态检索、项目级结构地图、规则表 + 多节点注入 + 消费者框架、任务门禁与验收、Done-when 契约、指标驱动的循环、跨会话写入、符号规范、终端 TUI、herdr 桥。
+官方在这 15 个诉求上**没有等价能力**（表中逐条给了最接近的官方面，或为「无」）：文件摘要 / 结构视图、行级锚定编辑（官方只有文件级）、知识条目与记忆语义、AST 形态检索、项目级结构地图、Markdown 结构视图与文档引用图、规则表 + 多节点注入 + 消费者框架、模式阶梯注入、任务门禁与验收、Done-when 契约、指标驱动的循环、跨会话写入、符号规范、终端 TUI、herdr 桥。
 
 两处「看起来像但没有替代」的对照：`metric-loop` 的循环诉求官方有 `tool-ralph` / `goal-round-driver`（区别在「指标测量 + 边界判定 + 跨进程状态」）；`knowledge-base` 的检索诉求官方有会话日志 FTS5（区别在「知识 / 记忆语义」）。
 
@@ -77,7 +78,7 @@
 | `hash-edit` / `ast-tools` | inject `tools`（`ast-tools` 2026-10-02 起注册 `ast_query` / `ast_replace`，同时保留库 / 服务面） |
 | `md-logic` | inject `tools`（注册 `md_logic`：structure / blocks / links / replace）；解析用 `marked` 实例，不消费宿主服务 |
 | `md-map` | inject `tools` / provide `mdMap`（注册 `md_map`：index / refresh / callers / impact / orphans / report / summary）；组合 `md-logic` 的解析，不做解析本身 |
-| `metric-loop` / `herdr-integration` / `symbol-normalizer` | inject `tools` / `agents` / —（`symbol-normalizer` 消费本仓 `ruleEngine` 服务） |
+| `metric-loop` / `herdr-integration` / `symbol-normalizer` / `ponytail` | inject `tools` / `agents` / —（`symbol-normalizer` 与 `ponytail` 消费本仓 `ruleEngine` 服务） |
 
 ## 4. 可执行改造清单（未立项，用户择时）
 

@@ -1,4 +1,4 @@
-# 本包插入自身（bundle 层）：模板命令与 `/tpl` 管理命令由本包注册。
+# 本包插入自身（bundle 层）：入口命令 `/playbook`（含 list / show / reload 子命令）由本包注册。
 # dirs 缺省 = 随包 templates/；userDir 缺省 = $DSH_HOME/command-templates（同名模板用户优先）。
 - insert:
     - id: command-template

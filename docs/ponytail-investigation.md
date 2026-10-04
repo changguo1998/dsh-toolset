@@ -47,3 +47,7 @@
 - 未读完全部 `docs/`、`skills/`、`benchmarks/`（只读结构与入口文件）；未评估 `ponytail-mcp/` 的具体工具面。
 - 未做与 `rule-engine` 注入格式的对照（下一步若走 a 需先读 `rule-engine/docs/DESIGN.md` 与 `skills/` 装载契约）。
 - 未落地任何改动（本条目为调研）。
+
+## 六、后记（2026-10-05）
+
+已按 §三 路径 **a** 落地：新包 `ponytail/`（`inject: ["ruleEngine"]`，会话起始注入决策阶梯；缺省开启，显式 `enabled: false` 关闭），**未搬**上游的 `hooks/*.js` / `commands/*.toml` / `ponytail-mcp`。现状、配置与契约见 `ponytail/README.md` 与 `ponytail/docs/DESIGN.md`；本文件保留为当时的调研记录（结论与取舍部分不再随实现更新）。

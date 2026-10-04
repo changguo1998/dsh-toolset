@@ -9,4 +9,10 @@
 
 ## 待办
 
-（当前无未完成项）
+### 1. 工具描述（模型可见文案）与实现口径不一致
+
+- **现状**：`src/tools.ts` 的 `MATCH_SCHEMA.description` 写「缺省仅对 turn-end 表示无条件命中」，`summary` 参数描述写「宿主 notice 呈现用，缺省取正文首行截断」。
+- **期望**：与 `README.md`「匹配面 / 注入消息」一致——`match` 缺省时**边界类节点（无文本）无条件命中**；`summary` 是**元数据**（呈现面用，且是 `dedupeInRecord` 的计数键）。
+- **落点**：`rule-engine/src/tools.ts`（属模型可见字符串 / 行为面文案，按代码改动流程走，不能当纯注释改）。
+- **验收**：`npm --prefix rule-engine run check` 与单测全绿；描述文案与 README 逐句一致。
+- **来源·状态·优先级**：2026-10-04 文档刷新（子代理报告）；未接取；P3。

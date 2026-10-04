@@ -24,7 +24,7 @@
 
 - 安全与集成：security-guard 策略层、herdr-integration；
 
-- 规则触发与符号规范：rule-engine、TUI 符号规则迁移（落点为 symbol-normalizer 插件）、next-step 注入路径、仓库级集成、插件注入消息 `form:'notice'` 一行提示渲染、消费者框架（`registerConsumer` + `evaluate`）、symbol-normalizer 插件；真机验证记录见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`；
+- 规则触发与符号规范：rule-engine、TUI 符号规则迁移（落点为 symbol-normalizer 插件）、next-step 注入路径、仓库级集成、注入消息呈现（**不带** `source.form:'notice'`：TUI 按用户输入块显示、正文以 `[RULE] ` 前缀标明自动注入）、消费者框架（`registerConsumer` + `evaluate`）、symbol-normalizer 插件；真机验证记录见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`；
 
 - TUI：/workflows 面板、/council、/search 多 provider 聚合、声音提醒，以及 7 项纯 TUI 命令与 A1-A5（`/task` `/guard` `/memory` `/loop` `/contract`）；
 
@@ -46,7 +46,7 @@
 
 - `ast-tools` 模型侧工具：注册 `ast_query`（action 分派：search / outline / rules，AST 形态与元变量捕获）与 `ast_replace`（默认 dry-run，写回需 `write:true`）；缺 ast-grep 二进制时注册降级版（调用返回含安装指引的 error）；模型侧行号渲染为 1 基，描述里写明与 `grep` / `glob` / `fs_digest` / `code_map` / `hash_edit` 的选择成本（追踪文档 `docs/archived/2026-10-02-ast-tools-model-tools.md`）。
 
-- Markdown 结构视图：`fs_digest` 的 Markdown `outline` 现在给**每节行范围**（含端点、尾空行不计、父子包含）与**块级结构清单**（list / table / code / quote / frontmatter，带 `§L{节}` 归属）；标题树 45 行 + 块清单 15 行两个独立预算；导出 `scanMarkdown` 供 `md-logic` 复用（追踪文档 `docs/archived/2026-10-02-markdown-structure-view.md`）。
+- Markdown 结构视图：`fs_digest` 的 Markdown `outline` 现在给**每节行范围**（含端点、尾空行不计、父子包含）与**块级结构清单**（list / table / code / quote / frontmatter，带 `§L{节}` 归属）；标题树 45 行 + 块清单 15 行两个独立预算；`scanMarkdown` 为 `src/outline.ts` 的**模块级导出**（未透出包入口，`md-logic` 仅对齐口径、无 import 依赖，2026-10-04 复核更正）（追踪文档 `docs/archived/2026-10-02-markdown-structure-view.md`）。
 
 - 复用审计：官方包与本仓 18 包逐项对照的「改用 / 保留 / 并存」结论（**改用 0 / 保留 12 / 并存 6**）与 5 项改造点，见 `docs/ARCHITECTURE-REUSE.md`（追踪文档 `docs/archived/2026-10-02-reuse-audit.md`）。
 
@@ -68,9 +68,8 @@
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
-**复用审计产出（`docs/ARCHITECTURE-REUSE.md` §4，未立项）**：A `context-report` 改用已挂的 `sessionStats` / `turnOutline` 投影补轮次 / 墙钟 / 大纲；B `output-compress` 写清与官方 `spill-policy` / `compaction-tool-result-pruner` 的分工与阈值语义（实测**不存在**双重截断）；C `metric-loop` 唤醒链补 `@deepseek-ai/dsh-schedule`（**会新增模型工具面**，需用户裁定；备选是改用已挂的 `tool-ralph` / `goal-round-driver` 承担循环）；D `hash-edit` / `fs-digest` 可选改用 `ctx.fs`（含行为变更：hash-edit 写侧将受 workspace-write 围栏，宜与 render 缺陷同批）；E 「可挂但不该挂」清单一律落非生成型文档（本文件 / `profiles/example` 注释），勿写入会重生成的 `HOST-PACKAGES.md`。观察项：① `knowledge-base` ⇄ `output-compress` 共库直写的隐私边界；② 是否开启 `session-query-sqlite` 的 FTS5（`openAt: first-search`）并与知识库分工；③ `rule-engine` 与官方 `repeat-tool-reminder` 的注入重复度。
+**复用审计产出（`docs/ARCHITECTURE-REUSE.md` §4，未立项）**：A `context-report` 改用已挂的 `sessionStats` / `turnOutline` 投影补轮次 / 墙钟 / 大纲；B `output-compress` 写清与官方 `spill-policy` / `compaction-tool-result-pruner` 的分工与阈值语义（实测**不存在**双重截断）；C `metric-loop` 唤醒链补 `@deepseek-ai/dsh-schedule`（**会新增模型工具面**，需用户裁定；备选是改用已挂的 `tool-ralph` / `goal-round-driver` 承担循环）；D `hash-edit` / `fs-digest` 可选改用 `ctx.fs`（含行为变更：hash-edit 写侧将受 workspace-write 围栏；原「宜与 render 缺陷同批」的前置已随该缺陷关闭归档而失效）；E 「可挂但不该挂」清单一律落非生成型文档（本文件 / `profiles/example` 注释），勿写入会重生成的 `HOST-PACKAGES.md`。观察项：① `knowledge-base` ↔ `output-compress` 共库直写的隐私边界；② 是否开启 `session-query-sqlite` 的 FTS5（`openAt: first-search`）并与知识库分工；③ `rule-engine` 与官方 `repeat-tool-reminder` 的注入重复度。
 
-| 1 | **更新文档**：**全目录文档整理**（各模块 `README.md` / `DESIGN.md` / `docs/` 与实现的漂移、能力列举与索引补齐等），**不规定具体文件**——由**用户择时**进行，不由 agent 按文件清单接取；`docs/STATUS.md` 同为用户择时更新。来源：用户 2026-10-05 指示（先合并为一条项目级条目，后改为不限定文件、用户自行整理） | 全目录 `docs/`（用户择时执行） | — | P3 |
 
 ## 3. 里程碑
 

@@ -25,14 +25,14 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **md-logic** | Markdown 逻辑结构（单文件，读 + 按节改写）：节树（每节带 `L{起}-{止}` 行范围）、块清单（列表 / 表格 / 代码块 / 引用 / frontmatter / html / hr，带嵌套层数与表格行列数）与链接 / 图片 / 引用式定义清单；注册模型侧工具 `md_logic`（读面 `structure` / `blocks` / `links`，写面 `replace` 按节整节替换 / 删除），解析基于 `marked` |
 | **md-map** | Markdown 项目级结构与引用分析（文档版的 `code-map`）：索引 `**/*.md` 的标题锚点、文档间链接（`internal`）、wiki 链接、行内代码路径引用（`kind:ref`）、代码 / 文件 / 目录引用与站外链接，以及被引计数，查询面 `callers` / `impact` / `orphans` / `report`（含断链与断锚点）；注册模型侧工具 `md_map`，单文件解析复用 `md-logic` |
 | **security-guard** | 安全守卫：危险命令黑名单 + 敏感文件保护策略层，挂在宿主 `tools/pre-execute` 水位线，命令下发前拦截 |
-| **code-map** | 代码结构地图：文件节点 + import 图索引，`callers`/`callees`/`cycles`/`impact` 查询与项目/模块报告（引用为候选，无 LSP 语义层）；经 `link:` 依赖 `@dsh-toolset/ast-tools`（挂载时需一并安装） |
+| **code-map** | 代码结构地图：文件节点 + import 图索引，`callers`/`callees`/`cycles`/`impact` 查询与项目/模块报告（引用为候选：`callers` 的语义精度需官方 LSP 三件套，而 profile 不分发它，故回落 `structural`）；经 `link:` 依赖 `@dsh-toolset/ast-tools`（挂载时需一并安装） |
 | **context-report** | 会话上下文与用量报告：host-only 投影 `sessionContext` 折叠会话累计（回合/步、模型与工具墙钟、首 token、token 分桶），工具 `context_report` 合成 token-meter 即时压力与模型容量读数 |
-| **rule-engine** | 规则触发的自动注入：按关键词/正则/内置谓词匹配模型正文、工具调用与回合边界，命中后向下一回合（`followup`）或最近 pre-step（`next-step`）注入 user-role 消息；提供消费者注册面（`registerConsumer`，turn-end 同步询问并统一注入）与只读 `evaluate` |
+| **rule-engine** | 规则触发的自动注入：按关键词/正则/内置谓词匹配模型正文、工具调用与回合边界，命中后作为独立新回合（`followup`）、挂到最近 pre-step 并唤醒（`steer`）或不唤醒（`inject`）注入 user-role 消息；提供按节点的消费者注册面（`registerConsumer`，`sources` 缺省 `turn-end`，同步询问、统一注入）与只读 `evaluate` |
 | **symbol-normalizer** | 符号规范：模型正文符号的展示层归一（别名替换）+ 回合审查（人类 notice / 模型反馈），以 rule-engine 消费者形式接入；provide `symbolNormalizer` 服务供 TUI 消费 |
 | **ponytail** | ponytail 模式（2026-10-05 起缺省开启；`enabled: false` 关闭）：会话起始注入「懒资深工程师」7 级决策阶梯（YAGNI → 复用 → 标准库 → 平台特性 → 已装依赖 → 一行 → 最少代码）。 |
 | **session-channel** | 跨会话消息通道（专用 Redis 实例 + unix socket）：`peers`/`send`/`inbox`/`status`，消息注入目标会话的下一回合（形如 `[CHANNEL](来源) 正文`）；provide `sessionChannel` 服务（含别名、共享 KV：last-value + 版本号，以及跨会话委托：`channel_delegate`/`channel_task`/`channel_task_result` + 任务表 + 结果自动/显式回传） |
 | **session-title-cutoff** | 会话标题 provider：触发保持 all-prompts，参考窗口改为「最近一次 `git commit` 之后」的人类消息（无提交/窗口为空回退全量）；接管 `ctx.sessionTitle` 唯一 provider，需在 profile 禁用官方 all-prompts 实现 |
-| **command-template** | 模板体系：把提示词流程写成 `.md` 模板（YAML 子集 front-matter）并统一经一个 slash 命令调用（`/playbook <模板> [参数]`）——双源目录（随包 `templates/` + 用户 `~/.dsh/command-templates`，同名用户优先）、步骤 `prompt`（注入当前会话）与 `agent`（一次性子代理，可覆盖模型且仅本次生效）、`{{stepId}}` 串链、`bestOf` + `judge` 裁判；另有 `/tpl` 管理命令 |
+| **command-template** | 模板体系：把提示词流程写成 `.md` 模板（YAML 子集 front-matter）并统一经一个 slash 命令调用（`/playbook <模板> [参数]`，另有 `list` / `show` / `reload` 子命令）——双源目录（随包 `templates/` + 用户 `~/.dsh/command-templates`，同名用户优先）、步骤 `prompt`（注入当前会话）与 `agent`（一次性子代理，可覆盖模型且仅本次生效）、`{{stepId}}` 串链、`bestOf` + `judge` 裁判 |
 
 各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/STATUS.md`。
 
@@ -126,7 +126,7 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-ds
 - `docs/ROADMAP.md` — 未来开发方向与完成判据（进度、排期与条目见 `docs/BACKLOG.md` §3 里程碑）。
 - `docs/BACKLOG.md` — 可执行条目：跨包功能与缺陷（P0/P1/P2）+ 里程碑 + 插件规划。
 - `docs/STATUS.md` — 对照文档：记录已实现的内容（由维护者择时更新）。
-- `docs/ARCHITECTURE-REUSE.md` — 复用审计：逐包（审计时 18 个；`md-logic` / `md-map` 为后加）「官方是否有等价物」与「改用 / 保留 / 并存」结论及理由。
+- `docs/ARCHITECTURE-REUSE.md` — 复用审计：逐包（审计基线为 TUI + 17 包；`md-logic` / `md-map` / `ponytail` 为后加，总表已补行）「官方是否有等价物」与「改用 / 保留 / 并存」结论及理由。
 - `docs/WORKFLOW-STANDARD.md` — 内容变更规范 · 标准流程（详版）。
 - `docs/WORKFLOW-FAST.md` — 内容变更规范 · 快速流程（小改动）。
 - `docs/implementation/`、`docs/archived/` — 跨包条目的追踪文档（进行中 / 已关闭）。
@@ -144,10 +144,10 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-ds
 **模块级（`TUI/docs/`、`<包>/docs/`）**
 
 - `TUI/README.md`、`<包>/README.md` — 模块入口：用法、配置、契约、边界。
-- `TUI/docs/DESIGN.md`、`<包>/docs/DESIGN.md` — 架构设计与机制取舍（`knowledge-base`、`output-compress`、`code-map`、`session-channel` 有）。
+- `TUI/docs/DESIGN.md`、`<包>/docs/DESIGN.md` — 架构设计与机制取舍（`TUI`、`task-engine`、`knowledge-base`、`session-channel`、`code-map`、`rule-engine`、`symbol-normalizer`、`output-compress`、`ponytail`、`command-template`、`md-logic`、`md-map` 有；轻量包只留 `README.md` + `docs/BACKLOG.md`）。
 - `TUI/docs/SPEC.md` — 渲染管线规格；`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` — 命令清单与扩展规格。
 - `TUI/docs/design/` — TUI 内部规范：`NOTICE-LEVELS.md`（提示分级）、`AUDIT-colors.md`（配色语义）、`REFACTOR.md`（模块拆分约定）。
-- `<模块>/docs/BACKLOG.md` — 模块待办（`TUI/docs/BACKLOG.md`、`fs-digest/docs/BACKLOG.md`、`session-channel/docs/BACKLOG.md`、`symbol-normalizer/docs/BACKLOG.md` 已建，其余按需）；`<模块>/docs/STATUS.md` — 模块级对照文档（TUI 已有）。
+- `<模块>/docs/BACKLOG.md` — 模块待办（`TUI`、`task-engine`、`rule-engine`、`symbol-normalizer`、`session-channel`、`md-logic`、`md-map`、`command-template`、`ast-tools`、`fs-digest`、`hash-edit`、`code-map` 已建，其余按需）；`<模块>/docs/STATUS.md` — 模块级对照文档（TUI 已有）。
 
 **协作与历史**
 

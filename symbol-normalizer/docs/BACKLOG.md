@@ -9,4 +9,10 @@
 
 ## 待办
 
-（当前无未完成项）
+### 1. `F1` / `F2` / `F3` 悬空引用
+
+- **现状**：`README.md`、`docs/DESIGN.md`、`docs/BACKLOG.md` 与 `src/{main,review,guide,symbols}.ts` 共 6+ 处引用已关闭并从本清单移除的 `F1` / `F2` / `F3`。
+- **期望**：改为按**标题**引用（如「符号表（本包 README）」）或直接删掉编号指路；本模块编号口径为扁平 `#n`，`F*` 已废。
+- **落点**：上述文件（跨 src 注释与模块文档；头部 `> 本文件只列未完成项…（如 F3 已实现提交）` 一句一并改）。
+- **验收**：`grep -rn "F[123]" symbol-normalizer` 无残留；`npm --prefix symbol-normalizer run check` 全绿。
+- **来源·状态·优先级**：2026-10-04 文档刷新（子代理报告）；未接取；P3。
