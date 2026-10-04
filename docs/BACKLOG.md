@@ -72,8 +72,7 @@
 
 | 1 | **`docs/STATUS.md` 对齐现状**：该表为用户择时更新的对照文档，当前多处过期——① 「总览」称「12 个插件全部完成」，而状态表缺 `rule-engine` / `symbol-normalizer` / `session-channel` / `session-title-cutoff`（`command-template` 的模板体系也已落地）；② 「剩余 P2 插件（workflow-ext / web-ext / session-broker / command-template）未开始」中 `command-template` 已完成；③ `fs-digest` 行注记「缺陷见 `fs-digest/docs/BACKLOG.md` D1」，而该文件现为「当前无未完成项」；④ 各行单测数为 2026-09 快照（如 knowledge-base 已 39 → 57）。期望：逐包核对后整表回写（含新增包行与单测数），或明确该表只维护 P0/P1 子集 | 「task-engine 执行扩展」收尾审计 + 用户 2026-10-02 指示「更新 backlog」 | `docs/STATUS.md`（用户择时更新；本次仅登记） | 1 h | P2 |
 
-| 2 | **11 个模块缺 `DESIGN.md`（系统性缺口）**：AGENTS.md 的模块文档口径含 `DESIGN.md`（架构与机制沉淀），但 21 个模块里只有 9 个有（`TUI` / `task-engine` / `knowledge-base` / `session-channel` / `code-map` / `rule-engine` / `symbol-normalizer` / `output-compress` / `ponytail`）；缺的是 `ast-tools` / `context-report` / `fs-digest` / `goal-contract` / `hash-edit` / `herdr-integration` / `md-logic` / `md-map` / `metric-loop` / `security-guard` / `session-title-cutoff`（`command-template` 已于 2026-10-04 补上，见 `command-template/docs/archived/2026-10-04-module-design-doc.md`）。期望：**先裁定口径**（逐包补全 or 明确「轻量包只留 README + BACKLOG」并同步 AGENTS.md 措辞），再按裁定执行；逐包补的密度参照已有 9 份（定位 / 取舍 / 机制 / 边界 / 明确不做） | 2026-10-04「command-template 补 DESIGN.md」任务的途中发现 | 各缺文档模块 `docs/DESIGN.md` + 根 `AGENTS.md`（口径） | 逐包 0.5-1 h（共 11 包）或 0.5 h（改口径） | P3 |
-| 3 | **根 README 双档 md-map 行措辞不对齐**：`README.md:26` 多列一项 `cross-doc refs`（`README.zh.md:26` 无），且两侧该项序不同；AGENTS.md 要求双档逐节同构。期望：择一为准（建议按 EN 语义补进 ZH，或删 EN 的多余项）并对齐项序 | 2026-10-04「修 `README.md:26` 残缺」任务的收尾审阅（既有漂移） | `README.md` / `README.zh.md` | 5 min | P3 |
+| 2 | **根 README 双档 md-map 行措辞不对齐**：`README.md:26` 多列一项 `cross-doc refs`（`README.zh.md:26` 无），且两侧该项序不同；AGENTS.md 要求双档逐节同构。期望：择一为准（建议按 EN 语义补进 ZH，或删 EN 的多余项）并对齐项序 | 2026-10-04「修 `README.md:26` 残缺」任务的收尾审阅（既有漂移） | `README.md` / `README.zh.md` | 5 min | P3 |
 
 ## 3. 里程碑
 
