@@ -72,7 +72,7 @@
 
 | 1 | **`docs/STATUS.md` 对齐现状**：该表为用户择时更新的对照文档，当前多处过期——① 「总览」称「12 个插件全部完成」，而状态表缺 `rule-engine` / `symbol-normalizer` / `session-channel` / `session-title-cutoff`（`command-template` 的模板体系也已落地）；② 「剩余 P2 插件（workflow-ext / web-ext / session-broker / command-template）未开始」中 `command-template` 已完成；③ `fs-digest` 行注记「缺陷见 `fs-digest/docs/BACKLOG.md` D1」，而该文件现为「当前无未完成项」；④ 各行单测数为 2026-09 快照（如 knowledge-base 已 39 → 57）。期望：逐包核对后整表回写（含新增包行与单测数），或明确该表只维护 P0/P1 子集 | 「task-engine 执行扩展」收尾审计 + 用户 2026-10-02 指示「更新 backlog」 | `docs/STATUS.md`（用户择时更新；本次仅登记） | 1 h | P2 |
 
-| 2 | **根 README 双档 md-map 行措辞与实现口径不对齐**：「跨文档引用」不是 `md-map` 的边分类项（边分类 = `internal` / `wiki` / `file` / `external` / `broken` / `ref`），它与紧随其后的「文档间链接」（= `internal`）语义重叠，且两侧都**漏了 `external`（站外链接）**；建议两侧统一改为按边分类列举（文档间链接 / wiki / 行内代码路径引用 `kind:ref` / 代码与文件引用 / 站外链接）。来源：2026-10-04「根 README 双档 md-map 行措辞对齐」任务的收尾审阅（英文主档同措辞，故未在本任务改动） | `README.md` / `README.zh.md`（第 26 行） | 10 min | P3 |
+| 2 | **根 README 双档 md-map 行措辞与实现口径不对齐**：「跨文档引用」不是 `md-map` 的边分类项（边分类 = `internal` / `wiki` / `file` / `external` / `broken` / `ref`），它与紧随其后的「文档间链接」（= `internal`）语义重叠，且两侧都**漏了 `external`（站外链接）**；建议两侧统一改为按边分类列举（文档间链接 / wiki / 行内代码路径引用 `kind:ref` / 代码与文件引用 / 站外链接）。 | 2026-10-04「根 README 双档 md-map 行措辞对齐」任务的收尾审阅（英文主档同措辞，故未在本任务改动） | `README.md` / `README.zh.md`（第 26 行） | 10 min | P3 |
 
 ## 3. 里程碑
 
