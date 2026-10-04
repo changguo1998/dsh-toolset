@@ -123,7 +123,8 @@ export function validateExecutor(spec: unknown): string | null {
     return "meta 必须是对象";
   }
   if (typeof o["meta"] === "object" && o["meta"] !== null) {
-    // workflow 的 META_INVALID 前移到门禁：name / description 缺失或无效在这里就拒绝
+    // workflow 的 META_INVALID 前移到门禁：显式给出的 name / description 非法在这里就拒绝
+    // （缺失不算错——引擎在发起时补默认值，见 main.ts 的默认 meta 生成）
     const meta = o["meta"] as Record<string, unknown>;
     if (meta["name"] !== undefined && !nonEmpty(meta["name"])) {
       return "meta.name 必须是非空字符串";

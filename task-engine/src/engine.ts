@@ -685,7 +685,6 @@ export class TaskEngine {
     });
   }
 
-  /** 依序裁决一个帧的全部验收条目；任一失败 → 打回（bounded retry） */
   /**
    * 语义裁决的证据文本：叶子用自身产出；**父帧没有自身产出**（父验收在子任务 join 后才判），
    * 故汇总子帧结论——否则语义级 audit run 对父验收「无产出可审」，语义门形同虚设。
@@ -705,6 +704,7 @@ export class TaskEngine {
     return parts.length === 0 ? f.result : parts.join("\n");
   }
 
+  /** 依序裁决一个帧的全部验收条目；任一失败 → 打回（bounded retry） */
   private async audit(
     frameId: FrameId,
     approve: AcceptanceHooks["approve"],

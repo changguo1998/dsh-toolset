@@ -55,7 +55,7 @@ export interface ExecutorSpec {
   cwd?: string;
   /**
    * 执行隔离（BACKLOG「executor 隔离落地（自建简易 worktree）」）：`worktree` = 引擎在执行前
-   * 建一个 git worktree（`<repo>/.worktree/<leafId>`，分支 `dsh/<leafId>`），把该路径作为
+   * 建一个 git worktree（`<repo>/.worktree/<leafId 安全化>`，分支 `dsh/<leafId 安全化>`），把该路径作为
    * `cwd` 交给后端，帧进入终态时回收。**缺省不隔离（既有行为逐字不变）**。
    * 简单版边界：不自动 merge、不做审查 / checkpoint、不处理远程；回收失败保留现场不静默。
    * 仅 `command` 后端支持（宿主 subagent / workflow 面没有 cwd 参数，声明时不静默忽略而是报错）。

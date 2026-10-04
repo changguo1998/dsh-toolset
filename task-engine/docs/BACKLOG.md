@@ -8,4 +8,4 @@
 
 ## 待办
 
-（当前无未完成项；TUI 任务面板多轮标识已按落点移入 `TUI/docs/BACKLOG.md`）
+（当前无未完成项；TUI 任务面板多轮标识已按落点移入 TUI，并已于 2026-10-05 完成归档——见 `TUI/docs/archived/2026-10-05-task-panel-rounds.md`）

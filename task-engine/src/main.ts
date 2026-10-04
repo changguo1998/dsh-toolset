@@ -5,16 +5,18 @@
 // 无运行时 schema，不引入 schemastery；宿主不校验，配置原样透传给 apply；缺省/非法值
 // 沿用本包既有语义——root 缺省示例根、level 非法归一 mechanical，不新增校验）。
 //
-// 惰性、防御：可选服务（approval/tools）缺失时降级告警而非抛错；工具注册按结构面构造，
-// 失败只告警——保证 dsh 加载本 bundle 时不崩。
+// 惰性、防御：可选服务缺失时降级而非抛错——`tools` 缺失告警并跳过注册，`approval` 缺失
+// 静默 fail-closed（human 级一律视为未批准）；工具注册按结构面构造，失败只告警——保证
+// dsh 加载本 bundle 时不崩。
 //
-// 已知边界（README 注明）：v1 单执行器、单会话实例；验收命令由本插件以
-// /bin/sh -c 执行（信任契约内命令）；human 级审批在工具 execute 内调用
-// ctx.approval.request（工具执行发生在 open turn 内，满足 turn-enclosed）。
+// 已知边界（README 注明）：v1 引擎侧不做真实并行调度（只做在途帧记账）、单会话实例；
+// 验收命令由本插件以 /bin/sh -c 执行（信任契约内命令）；human 级审批在工具 execute 内
+// 调用 ctx.approval.request（工具执行发生在 open turn 内，满足 turn-enclosed）。
 //
 // 执行期复查（2026-10-02）：executor 的 command 后端与 mechanical 验收命令在执行**之前**
 // 各过一次 security-guard（惰性 `ctx.get('guard')`，不要求挂载）：命中即不执行、回执原文作
-// 失败原因；未挂载 / 复查抛错 → fail-open 放行 + 只告警一次。
+// 失败原因；未挂载 / 复查抛错 → fail-open 放行 + 只告警一次，并把「这条命令没复查过」
+// 留痕到事件流与反馈（`guardSkipped`，不静默）。
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -60,14 +62,15 @@ export interface Config {
   };
   /** 每次变更自动写快照的路径（周期快照） */
   snapshotPath?: string;
-  /** mechanical 验收命令超时（ms，默认 30s） */
+  /** 命令执行超时（ms，默认 30s）：mechanical 验收命令与 executor `command` 后端共用 */
   commandTimeoutMs?: number;
   /** fan-out 并发上限（BACKLOG #13，默认 4）：active 帧数达上限时不再弹栈 */
   maxConcurrent?: number;
   /**
    * 语义面（audit / entail）开关与超时：两者各跑一次**裁决子代理**（经 `ctx.subagents`）。
    * 缺省都开（`audit` 关掉 → semantic 验收仍 fail-closed；`entail` 关掉 → 该门跳过，回到旧行为）；
-   * 任一次裁决 run 失败 / 超时 / 输出不可解析 → fail-closed 打回（不假通过）。
+   * 裁决 run 不可用（失败 / 超时 / 输出不可解析）时的分流：audit → **fail-closed 打回**（不假通过）；
+   * entail → **跳过该门**并告警（环境故障不烧重试预算，见 engine 的 `EntailHook.skipped`）。
    */
   semantic?: {
     /** 语义级验收的独立 audit run（缺省 true） */
@@ -1142,8 +1145,8 @@ export function makeCommandGuard(
 // ---------------------------------------------------------------------------
 // executor 隔离（自建简易 worktree，见 README「executor 隔离」）
 //
-// 语义：叶子声明 `isolate: "worktree"` → 执行前建 git worktree（`<repo>/.worktree/<leafId>`，
-// 分支 `dsh/<leafId>`），把该路径作为 `cwd` 交给后端；帧进入终态（done / failed）时回收。
+// 语义：叶子声明 `isolate: "worktree"` → 执行前建 git worktree（`<repo>/.worktree/<leafId 安全化>`，
+// 分支 `dsh/<leafId 安全化>`），把该路径作为 `cwd` 交给后端；帧进入终态（done / failed）时回收。
 // 边界（简单版）：不自动 merge、不做审查 / checkpoint、不处理远程；**仅 command 后端生效**
 // （宿主 `SubagentStartRequest` / workflow 面都没有 cwd 参数 → 声明期即拒绝，不做「假装隔离」）。
 // 所有 git 调用一律 `execFile` 直调（不经 shell），且**复用** `makeCommandGuard` 做执行前复查

@@ -1,6 +1,6 @@
 # @dsh-toolset/task-engine
 
-DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / implement / stop / status 工具族，分解双重门禁与 RET 验收（mechanical / semantic / human）路由。
+DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / implement / execute / stop / status 工具族，分解双重门禁与 RET 验收（mechanical / semantic / human）路由。
 
 ## 能力
 
@@ -56,7 +56,7 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
     执行前复查（`source` 形如 `task-engine{worktree} <leafId> cwd=<repo>`）：命中即不执行，回执原文原样返回。
     该 `source` 只是回执首行的**来源标注（便于审计定位）**，不参与 guard 判定，不构成安全缓解。
 
-- **分解双重门禁**：先跑机械门禁——粒度四规则（越级 / 过粗 / 过细 / 数量）+ coverage 完备性（父每条验收须有本次子任务覆盖）+ `deps` 前置传递（只允许引用前序兄弟，自引用/前向引用/未知 id 拒绝）+ `executor` 声明校验；通过后若配置 `entail` hook，再跑语义蕴含（合取是否蕴含父契约）。任一拒绝都带反馈打回并记 `retryCount`，达 `maxRetries` 置 `failed`。
+- **分解双重门禁**：先跑机械门禁——粒度四规则（越级 / 过粗 / 过细 / 数量）+ coverage 完备性（父每条验收须有本次子任务覆盖）+ `deps` 前置传递（只允许引用前序兄弟，自引用/前向引用/未知 id 拒绝）+ `executor` 声明校验；通过后若配置 `entail` hook，再跑语义蕴含（合取是否蕴含父契约）。任一拒绝都带反馈打回并记 `retryCount`（**自动开轮路径除外**：临时新根未落盘即打回，不留空轮、也不把重试计数记到新根），达 `maxRetries` 置 `failed`。
 
 - **RET 验收路由**：mechanical → `/bin/sh -c` 退出码 0；human → `ctx.approval.request`（`allowed-once` 视为通过，拒绝 / 无人应答 / 抛错一律 fail-closed）；semantic → 注入式 `audit` hook 的独立 audit run（缺 hook，或声明了 `outputSchema` 却无 `structured`，均 fail-closed 打回）。
 
@@ -125,7 +125,7 @@ profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` �
     复用同一 leafId（见上「executor 隔离」）。原计划复用的第三方 `dsh-git-worktree` 至今无实现（本机不存在），
     官方 316 个公开包里也没有 worktree 隔离实现，故自建简易版；未隔离时 `cwd` 仍只做透传（既有行为不变）；
   - 模型路由与计量：`llm` / `agent-default-model`（不自研路由）；
-  - 审批与语义验收：`approval`、`audit` / `entail` —— **已接线**（2026-10-02）：两者各跑一次**裁决子代理**（经 `ctx.subagents`，与 `subagent` 执行后端共用 `runChildOnce`；prompt 只输出一个 JSON 对象，`{"pass"|"ok": boolean, "feedback": string}`，声明了 `outputSchema` 时另带 `structured`）；开关与超时见 Config `semantic`（缺省都开，`timeoutMs` 120s）；**任一次裁决 run 失败 / 超时 / 输出不可解析 → fail-closed 打回**（不假通过）；**工具面收窄**（2026-10-04）：裁决 run 带 **`toolFilter.deny` = 本引擎注册成功的全部 `task_*` 工具名**（宿主 `spawn` provider 支持 `toolFilter` → `ctx.tools.restrict`），裁决子代理**看不到** `task_decompose` / `task_implement` / `task_execute` / `task_stop` / `task_status`，无法反向操作同一引擎与任务树（不再只靠 prompt 约束）；名单只在工具**注册成功**后收集（注册是 best-effort；一个都没成功 → 不收窄，避免宿主 `restrict()` 因未知工具名拒绝整次裁决 run）；provider 未声明该能力位时**降级**（不收窄、裁决照跑）并在 stderr 留一条告警（每插件实例一次）；**执行后端**（`subagent` executor）自 2026-10-04 起**同口径收窄**（执行方的产物由调用方经 `task_implement` / `task_stop` 回写，不需要 `task_*` 族）；带 `toolFilter` 的发起若失败（deny 名单里的名字在宿主**全局注册表**已失效——插件 remount / 卸载重注册的空窗）→ **去 filter 重试一次**并在告警留痕（加固降级，不让本次裁决 / 执行 run 直接挂掉）；
+  - 审批与语义验收：`approval`、`audit` / `entail` —— **已接线**（2026-10-02）：两者各跑一次**裁决子代理**（经 `ctx.subagents`，与 `subagent` 执行后端共用 `runChildOnce`；prompt 只输出一个 JSON 对象，`{"pass"|"ok": boolean, "feedback": string}`，声明了 `outputSchema` 时另带 `structured`）；开关与超时见 Config `semantic`（缺省都开，`timeoutMs` 120s）；**裁决 run 不可用**（失败 / 超时 / 输出不可解析）时的分流：`audit` **fail-closed 打回**（不假通过）、`entail` **跳过该门**（环境故障不烧重试预算）；**工具面收窄**（2026-10-04）：裁决 run 带 **`toolFilter.deny` = 本引擎注册成功的全部 `task_*` 工具名**（宿主 `spawn` provider 支持 `toolFilter` → `ctx.tools.restrict`），裁决子代理**看不到** `task_decompose` / `task_implement` / `task_execute` / `task_stop` / `task_status`，无法反向操作同一引擎与任务树（不再只靠 prompt 约束）；名单只在工具**注册成功**后收集（注册是 best-effort；一个都没成功 → 不收窄，避免宿主 `restrict()` 因未知工具名拒绝整次裁决 run）；provider 未声明该能力位时**降级**（不收窄、裁决照跑）并在 stderr 留一条告警（每插件实例一次）；**执行后端**（`subagent` executor）自 2026-10-04 起**同口径收窄**（执行方的产物由调用方经 `task_implement` / `task_stop` 回写，不需要 `task_*` 族）；带 `toolFilter` 的发起若失败（deny 名单里的名字在宿主**全局注册表**已失效——插件 remount / 卸载重注册的空窗）→ **去 filter 重试一次**并在告警留痕（加固降级，不让本次裁决 / 执行 run 直接挂掉）；
   - 工具注册与会话面：`tools` / `agents` / `sessions`（需要时的 jobs / schedule 只用于等待，不作调度器）。
   - **明确不替换**：宿主 `todo`（模型面清单，无契约 / deps / 验收 / 溯源，不能当帧栈）、
     `experimental-agent-team` 任务板（跨执行器调度板，可作呈现或辅助，不作 Frame 底座）。
@@ -157,7 +157,7 @@ index.ts        # 包入口：re-export src/main（编译产出 dist/index.js）
 scripts/        # executor-smoke.mjs：主机适配层冒烟（dist 级 + 假宿主面）
 demo/main.ts    # mock demo（脚本化模型，自断言）
 tests/          # node:test 单测
-docs/           # DESIGN.md（架构与设计取舍）、BACKLOG.md（模块待办）、implementation/、archived/
+docs/           # DESIGN.md（架构与设计取舍）、BACKLOG.md（模块待办）、archived/（已关闭的过程记录与追踪文档）
 ```
 
 架构与设计取舍见 `docs/DESIGN.md`；模块待办见 `docs/BACKLOG.md`；过程记录见 `docs/archived/`。
@@ -167,7 +167,7 @@ docs/           # DESIGN.md（架构与设计取舍）、BACKLOG.md（模块待�
 ```sh
 npm run check   # 类型检查（tsc --noEmit）
 npm run build   # 编译到 dist/
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（112 例：engine / events / gate /
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（136 例：engine / events / gate /
                 # query / tools / semantic / usage / exec-guard / exec-isolate（隔离 14 例：建 / 回收 / 脏树取舍 /
                 # id 安全化 / id 规则 / 崩后残留 / 卸载兜底 / guard 命中 / 幂等 / 非 git 仓库 / 声明面）等）
 npm run demo    # npm run build && node dist/demo/main.js；脚本化模型跑步骤 0-7 + 演示 8-13，

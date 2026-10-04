@@ -1,5 +1,5 @@
-// src/tools.ts — 模型侧工具族：task_decompose / task_implement / task_stop /
-// task_status + 嵌套任务列表（parent_id + order）
+// src/tools.ts — 模型侧工具族：task_decompose / task_implement / task_execute /
+// task_stop / task_status（+ 嵌套任务列表：parent_id + order）
 //
 // 零 DSH 依赖的纯数据 + 处理器：工具定义供 cordis 适配层结构注册（main.ts），
 // 也供 demo/tests 直接调用。JSON 参数在此做最小校验，拒绝时返回带反馈结果。
