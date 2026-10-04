@@ -3,7 +3,8 @@
 // 退出生命周期归 renderer 拥有：
 //  - close()                          → 显式关闭，恢复终端
 //  - SIGINT / SIGTERM                 → 恢复终端后以 130/143 退出
-//  - uncaughtException/unhandledRejection → 恢复终端后重新抛出（保留下沉）
+//  - uncaughtException/unhandledRejection → 恢复终端后写 stderr 并以 1 退出
+//    （renderer/index.ts 的处理器口径；错误文本即下沉出口）
 
 export type ExitResult = { exitCode: number } | { injected: unknown };
 

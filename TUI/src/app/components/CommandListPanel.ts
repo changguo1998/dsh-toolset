@@ -2,8 +2,9 @@
 //
 // 输出恰 height 行，渲染于**活动区窗口**（见 COMMANDS-SPEC.md §4：面板由
 // layout.buildActivePanelBox 选型，用活动区高度与内容宽度构建）。
-// 单一 buildCommandListPanelBox 供三个 kind 复用（不复制 N 套 state/reducer/渲染）：
-//   - 首行标题（青）+ 计数 + 右侧按键提示（灰，按剩余宽截断）
+// 单一 buildCommandListPanelBox 供全部 kind 复用（skills / agents / tools / task /
+// guard / loop / workflows / search；不复制 N 套 state/reducer/渲染）：
+//   - 首行标题（青）+ 计数（按键提示不在面板内，统一由底部提示区显示）
 //   - 行 = `> ` 高亮前缀 + 状态符号（可选）+ 主文本（— 副文本）
 //   - 占位态：数据错误（红）> 加载中（灰）> 空列表（灰），均输出恰 height 行
 // 高亮行恒在可见窗口内（窗口随 index 平移），超宽 truncateToWidth（不切半个 CJK）。

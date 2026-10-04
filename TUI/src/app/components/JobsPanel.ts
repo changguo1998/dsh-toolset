@@ -4,7 +4,7 @@
 // 数据源为 ctx.jobs 快照（adapter 经 events.subscribe 增量推送 + 打开时 refreshJobs 拉全量）：
 //   - 首行标题 + 任务计数；每任务一行：`>` 高亮标记 + 状态符号 + label（detail 作后缀）
 //   - 状态着色：running/stopping 黄、failed/error 红、cancelled 灰、其余默认
-//   - 底部按键提示行：↑/↓ 选择 · PgUp/PgDn 翻页 · Enter 取消 · Esc 关闭
+//   - 按键提示不在面板内（统一由底部提示区显示，见 layout/hints.ts 的 JOBS_HINT_LINE）
 // 高亮行恒在可见窗口内（窗口随 index 平移），列表放不下时截断显示。
 // 无 ANSI 之外的着色；显示宽度截断（与 HistoryPanel 同风格）。
 
@@ -19,8 +19,9 @@ import { seg } from "../layout/primitives.ts";
 
 /**
  * 后台任务面板 Box 生成器（TUI/docs/DESIGN.md §7 / SPEC.md §7）：标题 + 运行中
- * 计数（青）+ 按键提示（灰）头部行、任务行（高亮`>` + 状态符号着色）、
- * 空列表占位。滚动窗口与截断算法保留在 build 内；叶子 styled wrap:false。
+ * 计数（青）头部行、任务行（高亮`>` + 状态符号着色）、空列表占位。按键提示
+ * 不在面板内（见 layout/hints.ts 的 JOBS_HINT_LINE）。滚动窗口与截断算法保留
+ * 在 build 内；叶子 styled wrap:false。
  */
 export function buildJobsPanelBox(
   jobs: JobInfo[],

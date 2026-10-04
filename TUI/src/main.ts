@@ -8,7 +8,8 @@
 //      profile 内做会话/agent 引导并组装 renderer + app + real adapter。
 //      注意：本模块作为插件被 import 时绝不能有顶层副作用(如直接 start)，
 //      否则 loader 阶段就会抢占 TTY。
-//   2. 独立 `main()`：供 bin/tui.js 显式调用(阶段 3 再指向 profile boot)。
+//   2. 组装入口 `main()`：renderer + app + adapter 的纯组装（由 apply() 调用；
+//      bin/tui.js 的 mock demo 自行组装 App/renderer，不经此处）。
 
 import { createRenderer, type Renderer } from "./renderer/index.ts";
 import { normalizeThemeId, type ThemeId } from "./renderer/theme.ts";
@@ -70,7 +71,6 @@ export function main(opts: {
   logger?: (m: string) => void;
   /** 初始主题（默认 dark） */
   initialTheme?: ThemeId;
-  /** 用户块左缘/回复右缘对称留空(列数，默认 4；由 apply 归一化，域 0..20) */
   /** 用户块左缘/回复右缘对称留空(列数，默认 4；由 apply 归一化，域 0..20) */
   messageGutter?: number;
   /** 测试注入：替代真实终端 renderer（缺省 createRenderer()） */
@@ -161,7 +161,7 @@ export const inject = ["agents"];
 export interface DshTuiConfig {
   /** 创建会话时的 cwd(默认 process.cwd()) */
   cwd?: string;
-  /** 审批弹窗超时(ms，默认 60s) */
+  /** 审批弹窗超时(ms，默认 30s；tui.config.json 的 approval.timeoutMs 优先) */
   approvalTimeoutMs?: number;
   /** 备用模型 route(config 提供了就用它；否则取 agentDefaultModel 选择) */
   provider?: string;

@@ -32,6 +32,10 @@
 // 分类（firstUserText 按 source.kind 过滤），模式仍由首个真实 user 消息落定；门控与
 // 消息构造为纯函数：shouldAutoKickoff / buildBootstrapKickoffMessage。
 //
+// 当前状态（2026-10-05 用户裁定）：本引导的挂载点与启动自检调用点均已按「注释而非删除」
+// 停用（见 main.ts 的 makeSetup 与两处 kickoff 门控），实现原样保留；
+// 恢复 = 取消那几处注释。
+//
 // 零运行时依赖，仅用 DshRuntime 结构面（ctx.on），与 installSessionModelSelection
 // 挂钩同一条 system-prompt/assemble waterfall，顺序无关可共存。
 
@@ -39,7 +43,7 @@ import { randomUUID } from "node:crypto";
 
 import type { DshRuntime } from "./types.ts";
 
-/** 进程内已提升的 session id（append-only） */
+/** 引导选项：总开关 + 模型门控（两者缺省 = 生效） */
 export type ToolBootstrapOptions = {
   /** 总开关（默认 true）。false 时任何模型都原样透传 */
   enabled?: boolean;

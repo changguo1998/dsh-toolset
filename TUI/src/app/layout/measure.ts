@@ -401,8 +401,8 @@ function measureNode(
 
 /**
  * 测量整棵 Box 树。返回 SizeTable（含 root 与全部子节点实测）。
- * 循环依赖注意：本模块从 layout.ts 导入宽度原语；下一接线里程碑需先
- * 把共享原语迁到中立模块再双向引用（TASKS.md 已记录）。
+ * 宽度原语来自中立模块（./primitives.ts / ./markdown.ts），不依赖 layout.ts —
+ * 无循环依赖。
  */
 export function measure(root: Node, c: MeasureConstraint): SizeTable {
   const size = new Map<Node, MeasuredSize>();

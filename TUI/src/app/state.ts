@@ -177,7 +177,8 @@ export interface BufferLine {
    *  ✓/✗/■ 与运行态 ●/○，turn-end 后也不恢复）。 */
   steerContinued?: boolean;
   /** #3：回合分隔线（kind="separator"）的时间戳（epoch ms）与回合号，供渲染
-   *  `╌╌ hh:mm:ss #N ╌╌` 同族格式；回合号可能在 turn-begin 后才由 `turn/start` 回填。 */
+   *  `╌╌ hh:mm:ss ⇆N ╌╌` 同族格式（回合号标记 `⇆`，与 step 头的 `#N` 区分）；
+   *  回合号可能在 turn-begin 后才由 `turn/start` 回填。 */
   time?: number;
   turn?: number;
 }
@@ -261,7 +262,7 @@ export type HistoryPhase =
   | "cleaning"
   | "error";
 
-/** /history 历史会话面板状态（只读浏览；list 与 view 两阶段） */
+/** /history 历史会话面板状态（阶段见 HistoryPhase：列表浏览 + resume 切换 + 删除/清理引导） */
 export interface HistoryPanelState {
   phase: HistoryPhase;
   /** 会话列表（newest-first；list 阶段填充） */
@@ -454,8 +455,9 @@ export interface AppState {
   queued: QueuedItem[];
   /** 输入模式（符号代表模式；提交后自动回退 normal） */
   inputMode: InputMode;
-  /** 输入状态（状态栏最左侧符号来源）：绿✓=成功 / 红✗=失败 / 黄●/○=运行中（按
-   *  流式输出节奏交替）/ 黄△=等待交互（审批/问答面板打开）/ idle=尚无结果（渲染回退 ?） */
+  /** 输入状态（用户块首行符号来源；P1 起状态栏不再渲染该符号）：绿✓=成功 /
+   *  红✗=失败 / 黄●/○=运行中（按流式输出节奏交替）/
+   *  黄△=等待交互（审批/问答面板打开等用户决策）/ idle=尚无结果（渲染回退 ?） */
   inputStatus: InputStatus;
   approval: ApprovalItem | null;
   /** 审批面板描述窗口首行偏移（BACKLOG 3.2.1 统一窗口机制；打开/关闭归零） */
@@ -491,7 +493,6 @@ export interface AppState {
   themeId: ThemeId;
   /** 用户块左缘/回复右缘对称留空列数（交错布局，默认 4，可配置） */
   messageGutter: number;
-  /** 用户块左缘/回复右缘对称留空列数（交错布局，默认 4，可配置） */
   /** 布局配置（false 语义：footerHeight/divisor undefined=默认） */
   footerHeight: number | undefined;
   /** 活动区高分母（contentTopH / divisor；默认 2 ≈ 1/2） */
@@ -546,9 +547,11 @@ export interface AppState {
   presetBySession: Record<string, string>;
   /** 事件回读的生效模型（model/selection）；状态栏模型徽标 fallback 来源 */
   modelBySession: Record<string, ModelSelectionLike | undefined>;
-  /** 权限预设目录（ctx.permissionPresets.names；状态列 Mode 块 permission 可选项；[]=未同步降级三档） */
+  /** 权限预设目录（ctx.permissionPresets.names；原状态列 Mode 块的可选项，
+   *  P7 移除该块后暂无消费方；[]=未同步降级三档） */
   permissionOptions: string[];
-  /** agent 预设目录（ctx.agentPresets.list 的 id；状态列 Mode 块 preset 可选项；[]=未同步降级当前值） */
+  /** agent 预设目录（ctx.agentPresets.list 的 id；原状态列 Mode 块的可选项，
+   *  P7 移除该块后暂无消费方；[]=未同步降级当前值） */
   presetOptions: string[];
   /** P3：最近一次后台任务快照（adapter 经 jobs-changed 事件推送；[]=无任务） */
   jobs: JobInfo[];
@@ -583,7 +586,7 @@ export interface AppState {
    *  活动区内的交互面板（问答/审批等）仍照常弹出。 */
   lowerPanesVisible: boolean;
   /** 声音提醒总开关（tui.config.json `notify.enabled`；启动时接线）。无会话内切换路径，
-   *  状态列 Mode 块按其当前值只读展示（勾绿 / 叉灰） */
+   *  标题栏状态符号组按当前值只读展示（on 绿 / off 灰） */
   notifyEnabled: boolean;
   /** 本回合剔除的非打印控制字符计数（appendStream 累计；turn-begin 清零、turn-end 警告） */
   strippedChars: number;
@@ -2447,10 +2450,11 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           },
         };
       case "permission-catalog":
-        // P4：权限预设目录（ctx.permissionPresets.names）——状态列 Mode 块列出可选值
+        // P4：权限预设目录（ctx.permissionPresets.names）——P7 移除状态列 Mode 块后
+        // 暂无渲染消费方（保留槽位）
         return { ...state, permissionOptions: action.names };
       case "agent-preset-catalog":
-        // P4：agent 预设目录 id 列表（ctx.agentPresets.list）——状态列 Mode 块 preset 可选项
+        // P4：agent 预设目录 id 列表（ctx.agentPresets.list）——同上（原 Mode 块 preset 可选项）
         return { ...state, presetOptions: action.ids };
       case "jobs-changed":
         // P3：jobs 快照 last-write-wins（adapter events.subscribe 推送 + 打开时刷新）

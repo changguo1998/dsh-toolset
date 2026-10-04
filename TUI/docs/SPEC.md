@@ -118,11 +118,11 @@ type Height =
 | 列表 / 任务列表 | `text(prefix:{"• "}/{"[x] "}, hanging:2)` | 统一 `•`、`[x]` 删除线 |
 | 代码块 | `v([ Paragraph(lang, style:{italic}), Paragraph(code, style:{bg:"code"}, width:fill, fillBg:true) ])` | 标签单独一行（斜体、无底色）；代码体超长行折行、底色补齐到内容区宽 |
 | markdown 表格 | 构建期降级为 `v([ h([cell,cell…]), … ])`（见 §3.2） | `layout/table.ts` |
-| 每回合分隔线 | `text("╌"×w)` | `TURN_SEPARATOR` |
+| 每回合分隔线 | `text("╌╌ hh:mm:ss ⇆N ", tail:{char:"╌"})`（片段缺失即省略该片段，都缺退回纯线） | `turnHeaderLine(turn, time)`（`layout/tool-line.ts`）；buffer 侧占位行文本 `TURN_SEPARATOR`，`build-box` 的 separator 分支按上述形制渲染 |
 
 **结论**：内容元素 → Box 子树的映射（`buildBox` / `buildContentRows`）统一了「按类型分别处理缩进 / 前缀 / 对齐」的逻辑；新增内容类型 = 新增一个映射函数，不改布局。
 
-**顶部区域构成（结构规格）**：状态列 = **Goal / Todo / Jobs 三块**（块间虚线 `╌`，不再有 Mode 块）；标题栏首行 = `[preset 图标 + 1 空格 + 预设名] 1 空格 [状态符号组（最多 6 个，空格分隔，固定顺序：沙箱 / policy / plan / verbose / symbol-unify / bell）] 2 空格 [会话标题]`，符号取 Nerd Font 私有区字形（`TITLE_ICON`，各 1 列）、**颜色即语义值**（沙箱 `read-only` 绿 / `workspace-write` 黄 / `danger-full-access` 红 / 其它灰；policy `ask` 黄 / `never` 绿；四个开关 `on` 绿 / `off` 灰；preset 默认前景；`permission` 不显示），窄宽让位顺序 = ① 去掉 preset → ② 截断标题 → ③ 去掉整组符号 → ④ 既有标题栏降级。`Ctrl+S` 切换状态列显隐：隐藏时 `statusColWidth = 0`、右缘分隔竖线不画（状态区上方分隔行该列的交点随之不画，几何上 `dividerCol = −1`）、历史区吃满整区全宽；显隐随会话写入 `tui-state.json`。
+**顶部区域构成（结构规格）**：状态列 = **Goal / Todo / Jobs / Agents 四块**（块间虚线 `╌`，不再有 Mode 块；Agents 块无子代理数据时整块省略）；标题栏首行 = `[preset 图标 + 1 空格 + 预设名] 1 空格 [状态符号组（最多 6 个，空格分隔，固定顺序：沙箱 / policy / plan / verbose / symbol-unify / bell）] 2 空格 [会话标题]`，符号取 Nerd Font 私有区字形（`TITLE_ICON`，各 1 列）、**颜色即语义值**（沙箱 `read-only` 绿 / `workspace-write` 黄 / `danger-full-access` 红 / 其它灰；policy `ask` 黄 / `never` 绿；四个开关 `on` 绿 / `off` 灰；preset 默认前景；`permission` 不显示），窄宽让位顺序 = ① 去掉 preset → ② 截断标题 → ③ 去掉整组符号 → ④ 既有标题栏降级。`Ctrl+S` 切换状态列显隐：隐藏时 `statusColWidth = 0`、右缘分隔竖线不画（状态区上方分隔行该列的交点随之不画，几何上 `dividerCol = −1`）、历史区吃满整区全宽；显隐随会话写入 `tui-state.json`。
 
 **系统状态栏分隔**：组内与组间统一 `•`（U+2022，默认前景色、1 列、两侧无空格；`h` 容器的 `separator` 以 `char:"•"` / `color:"plain"` 传入），因此组间不再有边框色竖线，其上/下横线也没有组间交点 `┬`（状态列右缘 D 列的 `┴` 保留）。
 
@@ -457,7 +457,7 @@ panelOptions(options: PanelOption[]): Box       // 选项列表（每项一行�
   - **按键白名单**：`y` / `1` = 批准，`n` / `2` = 拒绝，`Enter` = 提交当前焦点项，`Tab` = 切焦点窗，`←/→` = 切选项（快捷），`↑/↓` = 见焦点窗语义，`Esc` = 取消审批（应答 `cancelled`，不打断 turn）；白名单外按键不落输入栏，改在**用户输入区**显示 `[无效键] …`（BACKLOG 3.3.8）——即屏幕左下、按键提示区**正上方**的那一行（问题交互态下输入区切换为临时消息显示区，不显示 `>`；提示优先占用该行、任意有效键即切回 notice 视图），**按键提示区始终显示常规按键**。
   - **倒计时**：拒绝项行尾显示剩余秒数 `(XXs)`（`deadline − now` 向上取整；无 deadline 不显示，过期显示 `(0s)`）。
   - **超时语义（BACKLOG 3.3.2 / 3.3.5）**：**完全无操作**到超时 → 裁定 `rejected`（默认拒绝）并发 `approval-closed`（`reason: "timeout"`）→ App 关闭面板并提示「审批已超时（按默认拒绝处理）」；**面板内按过任意键**（含无效键）后 → App 调 `adapter.stopApprovalTimeout(id)` 停止计时，此后不再自动裁定、倒计时隐藏（与问答面板「人在场就不催」一致）；手动 `Esc` 仍为 `cancelled`（与超时区分）；连接中断（abort）同样发 `approval-closed`（`reason: "abort"`）。超时值可配置（BACKLOG 3.3.7）：`tui.config.json` 的 `approval.timeoutMs`（最小 1000ms）> 宿主插件 config 的 `approvalTimeoutMs` > 缺省 **30000**。
-- **提问上下文**（BACKLOG 3.2.10 / 3.2.12）：问答面板打开时，自活动区缓冲**末尾向前扫描**收集最近 ≤ 6 行**非空** `assistant` / `plain` 正文行（**空正文行跳过而不终止**；已收到正文后遇非正文行即停；尚未收到正文时可跨过 `tool` / `step` / `notice` / `separator` / `thinking`；扫描上限 40 行，超出即视为本回合无正文）作 `question.source`，渲染在描述窗**顶部**（青色、随描述窗滚动、与题干空一行分隔）；取不到时不占行。
+- **提问上下文**（BACKLOG 3.2.10 / 3.2.12）：问答面板打开时，`recentQuestionSource` 取本回合**最近一块含正文**的全部 `assistant` / `plain` 行（整块取出，不设行数 / 扫描上限；本回合无正文则回退上一回合的最近一块，仍无为空串）作 `question.source`，渲染在描述窗**顶部**（回退来源段前加 `- 上文 -` 标记；青色、随描述窗滚动、与题干空一行分隔）；取不到时不占行。分块与回退口径见 §15.5。
 - **数字键直标**（BACKLOG 3.2.6）：问答与审批面板的选项前带编号，数字键 `1-9` 直接标记对应项（单选置唯一 / 多选切换）**不提交**（提交仍为 `Enter`）；「自定义回答」项上数字键仍按文本输入；越界吞掉。
 
 ## 8. FocusFrame 覆写规格 [spec]
@@ -660,12 +660,12 @@ segStyle(seg: FrameSegment, theme: Theme): string
 
 ### 15.1 顶部状态列与标题栏（P1 / P2 / P7）
 
-- **状态列**（`renderStatusColumn`）：自上而下 **Goal / Todo / Jobs 三块**（块间虚线 `╌`），原 Mode 块整体删除——`modeBySession` 里的 plan / sandbox / permission 改由标题栏消费，`permission` 不再渲染。
+- **状态列**（`renderStatusColumn`）：自上而下 **Goal / Todo / Jobs / Agents 四块**（块间虚线 `╌`；Agents 块仅当前会话有子代理数据时出现），原 Mode 块整体删除——`modeBySession` 里的 plan / sandbox / permission 改由标题栏消费，`permission` 不再渲染。**Agents 块**（TUI#39）行 = `符号 名称 · 工作内容`（显示名 = 别名 ?? label；工作内容 = 最近一次工具调用摘要，无则省略），色义 运行中黄 `●` / 空闲灰 `○` / 一切异常态红 `!`（附宿主 reason），随 `StatusTicker` 5s 保鲜 + `subagent/start|end` 即时刷新；纯只读（中断走 `/agents` 面板）。
 - **Goal 块当前行**：`Goal <phase 符号>` + 尾随 `⟳` 自动续轮开关（`phase !== "active"` 时不显示 `⟳`；无 activation 记录时按 `disarmed` 显示**灰** `⟳`——宿主重启/回放后不发 activation 边，故作可推导初值；历史行一律不带符号）。**当前行 2026-10-05 起不再出相位词**（10 格默认列宽会把 `active` 截成 `ac`，信息量低于噪声；语义由符号 + 颜色承担）——**历史行仍带词**（它们按约定无符号，`Goal <phase>` 是其唯一相位线索）。**phase 符号与取色**：`▷` active 绿 / `∥` U+2225 paused 黄 / `△` U+25B3 blocked 黄（2026-10-02 由红改黄，与 `turn/end blocked` 及阻塞原因行同口径）/ `✓` complete 绿；**activation**：`⟳` U+27F3，armed 绿（宿主会自动续轮）/ disarmed 灰（需用户驱动）。数据源 = 进程本地事件 `goal/activation-changed`（`goalActivationBySession` 存末条边），展示值经 `activeGoalActivation` 推导（无记录 → `disarmed`）；**会话切换清边**：宿主 `agents.resume` 走 `sessions.prepare` 重建 Session（进程本地 activation 归 disarmed 且同值早退不发边），故 `resumeTo` 成功时补一条清空边，防沿用切换前的 armed。`⟳` 属**呈现不确定**字符（2026-10-04 起「数学符号 A + 补充箭头 A」并入宽表的不确定符号块 `[0x27C0,0x27FF]`）：静态表按 1 列出帧，运行期经 CPR 实测后按实测列宽自校正（详见 §宽度表）。
 - **状态列显隐（P7）**：`state.statusColumnVisible`（缺省显示）+ reducer `status-column{visible}`（`visible` 缺省取反，供 `Ctrl+S`）；`frameGeometry` 隐藏时 `statusColWidth = 0`、`historyWidth = cols`，`buildTopRegion` 不构建该列内容也不拼分隔段（分隔竖线随之消失）。显隐经 `adapter/session-ui-state.ts` 的 `statusColumn` 字段随会话写入 `tui-state.json`，`restoreSessionState` 回灌。
 - **标题栏**（`titleBarSegments` / `TITLE_ICON`）：首行 = `[preset 图标 + 空格 + 预设名] 空格 [≤6 个状态图标（空格分隔，顺序：sandbox / policy / plan / verbose / symbol-unify / bell）] 2 空格 [标题]`；图标是 Nerd Font 私有区字形（`boxClosed U+F03D7`（`md-package_variant_closed`）/ `boxOpen U+F03D6`（`md-package_variant`）、`policyAsk U+F1739` / `policyNever U+F1414`、`plan U+EDA6`、`verbose U+F09AA`、`symbolUnify U+F04C6`、`bell U+F009F`、`preset U+F0A66`，命中与宽度实测各 1 列）。颜色即语义值：沙箱 ro 绿 / wr 黄 / full 红 / 其它灰（`MODE_SHORT` 归一，取值未知回落灰）、policy ask 黄 / never 绿、四个开关 on 绿 / off 灰、preset 段默认前景。**让位顺序**（`MIN_TITLE = 8` 列保底）：① 去掉 preset 段 → ② 截断标题 → ③ 去掉整组图标 → ④ 既有标题栏降级（收下划线 / 整栏省略，`titleRows` 在 `frameGeometry`）。**字体依赖**：非 Nerd Font 终端显示豆腐块（本机验证字体 Maple Mono NF CN）。
 - **水平状态栏**（`renderStatusLine`）：`dotJoin` 给组内逻辑段插 `•`，`h` 的 `separator` 传 `{ char:"•", color:"plain" }` 做组间分隔；状态符号段（符号 + `│` lead 段）整体删除，首行行首回到 1 空格留边。因此 `statusBarSeamCols` 在状态栏行上取不到边框色竖线列——上/下横线不再画组间交点 `┬`，仅状态列右缘 D 列的 `┴` / `├` 保留（横向排列时内部分隔列的 `┬`/`┴` 属另一机制，不受影响）；`Ctrl+S` 隐藏状态列时 D 列不存在（几何 `dividerCol = −1`），该列交点一并不画（并排排列下该行只剩内部分隔列一个交点）。
-- **回归**：`tests/title-bar.test.ts`（段结构 / permission 不显示 / 沙箱四态取色 / 开关 on-off / 让位顺序）+ `tests/status-column.test.ts`（三块渲染与折叠 / phase 符号与取色 / `⟳` 两态取色 / 历史行无符号）+ `tests/goal-activation.test.ts`（activation reducer 与展示值推导，含重启回归）+ `tests/status.test.ts` / `tests/tee-glyph.test.ts`（状态栏分隔与交点）。
+- **回归**：`tests/title-bar.test.ts`（段结构 / permission 不显示 / 沙箱四态取色 / 开关 on-off / 让位顺序）+ `tests/status-column.test.ts`（三块基础渲染与折叠 / phase 符号与取色 / `⟳` 两态取色 / 历史行无符号）+ `tests/status-column-agents.test.ts`（Agents 块：有数据出块 / 行文本 / 无数据省略 / 折叠分级 / 按会话隔离 / 即时刷新与定时保鲜）+ `tests/goal-activation.test.ts`（activation reducer 与展示值推导，含重启回归）+ `tests/status.test.ts` / `tests/tee-glyph.test.ts`（状态栏分隔与交点）。
 
 ### 15.2 历史区回滚：语义锚点 + 渐进窗口
 

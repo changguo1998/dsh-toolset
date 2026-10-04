@@ -612,7 +612,8 @@ export function buildBox(
     }
     // separator / plain → 对话区
     if (line.kind === "separator") {
-      // #3：回合分隔线用 step 线同族格式——`╌╌ <hh:mm:ss #N> ` + 尾部 `╌` 铺满；
+      // #3：回合分隔线用 step 线同族格式——`╌╌ <hh:mm:ss ⇆N> ` + 尾部 `╌` 铺满
+      // （回合号标记 `⇆`，与 step 头的 `#N` 区分）；
       // 时间/回合号都缺失时退回纯线（旧会话与 mock 合成事件）。
       const label = turnHeaderLine(line.turn, line.time);
       const node = styled(label === "" ? [] : [{ text: `╌╌ ${label} ` }], {

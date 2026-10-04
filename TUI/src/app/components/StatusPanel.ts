@@ -1,9 +1,9 @@
 // src/app/components/StatusPanel.ts — 通用状态选项面板（/policy /permission）
 //
 // 以文本面板呈现一组状态选项（活动区窗口，与审批/问答/模型选择同区域）：
-// 标题行 + 选项列表 + 操作提示行。↑/↓ 移动焦点（>），空格预选（*，再按取消），
-// Enter 提交预选（无预选回退焦点行）并关闭，Esc 取消。
-// 输出恰 height 行：标题 + 最多 (height-2) 行选项（超出时窗口跟随焦点滚动）+ 操作提示。
+// 标题行 + 选项列表。↑/↓ 移动焦点（>），空格预选（*，再按取消），
+// Enter 提交预选（无预选回退焦点行）并关闭，Esc 取消；按键提示在底部提示区。
+// 输出恰 height 行：标题 + 最多 (height-1) 行选项（超出时窗口跟随焦点滚动）。
 
 import type { FrameRow } from "../../renderer/index.ts";
 import type { ThemeId } from "../../renderer/theme.ts";
@@ -16,8 +16,9 @@ import { seg } from "../layout/primitives.ts";
 
 /**
  * 状态选项面板 Box 生成器（TUI/docs/DESIGN.md §7 / SPEC.md §7）：标题行（命令名蓝
- * + 当前生效值）+ 选项列表（预选`*`绿优先 / 未预选焦点`>`黄）+ 操作提示。选项滚动
- * 窗口算法保留在 build 内（跟随焦点滚动）；叶子 styled wrap:false 精确行长。
+ * + 当前生效值）+ 选项列表（预选`*`绿优先 / 未预选焦点`>`黄）。按键提示不在面板内
+ * （见 layout/hints.ts 的 statusPanelHintLine）。选项滚动窗口算法保留在 build 内
+ * （跟随焦点滚动）；叶子 styled wrap:false 精确行长。
  */
 export function buildStatusPanelBox(
   panel: StatusPanelState,

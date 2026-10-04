@@ -327,7 +327,7 @@ export interface FrameMetrics {
   footerHeight: number;
   /** 按键提示区行数（独立区域，位于输入区下方、之间不画横线；恒 1 行，空文案也占位） */
   hintHeight: number;
-  /** 顶部状态列宽（详细 goal/todo；窄列约 25%，含右缘分隔竖线，状态列位于最左侧列） */
+  /** 顶部状态列宽（详细 goal/todo；窄列约 1/3，含右缘分隔竖线，状态列位于最左侧列） */
   statusColWidth: number;
   /** 历史区（标题栏 + 历史/活动区）宽 = cols - statusColWidth */
   historyWidth: number;
@@ -438,7 +438,7 @@ export function dialogueWindow(buffer: Buffer, groups: number): DialogueWindow {
 /** 状态列内 goal/todo/jobs 块间分隔：点更少的虚线（double dash，窗口内部板块分隔保留虚线） */
 export const STATUS_BLOCK_SEPARATOR = "╌";
 
-/** 权限/沙箱等级缩写（状态列 Mode 块与旧状态栏徽标共用） */
+/** 权限/沙箱等级缩写（标题栏沙箱状态符号的等级缩写来源） */
 const MODE_SHORT: Record<string, string> = {
   "read-only": "ro",
   "workspace-write": "wr",
@@ -484,7 +484,7 @@ export function regionColumnWidth(historyWidth: number): number {
  *  极矮终端由 topPaneHeights 自适应收缩到 1/0 行） */
 export const TITLE_BAR_ROWS = 2;
 
-/** 焦点框色（L4 强调级）：dark=bright[7] 白、light=ansi[0] 黑。
+/** 焦点框色（语义色名 `focus`，取色由渲染层经主题 semantics 解析）。
  * re-export focus-frame.focusColor（单一实现，避免焦点色映射双源）。 */
 export const focusFrameColor = focusColor;
 
@@ -1084,7 +1084,7 @@ function jobItemRows(job: JobInfo): StatusRow[] {
 }
 
 /**
- * 状态列 **Agents 块**条目行（BACKLOG TUI#39）：`符号 名称 · 状态 · 短id`（按宽折行）。
+ * 状态列 **Agents 块**条目行（BACKLOG TUI#39）：`符号 名称 · 工作摘要`（工作摘要无记录时省略；按宽折行）。
  * 色义：**运行中黄 / 空闲灰 / 一切异常态红**（诊断条目、枚举失败；附宿主给出的 reason 短因）。
  * 纯只读展示：不吃按键、不提供中断入口（中断仍走 `/agents` 面板）。
  */
@@ -1106,9 +1106,6 @@ function agentItemRows(a: AgentRowInfo, width: number): StatusRow[] {
   );
 }
 
-/** 状态列 Mode 块：列出会话运行模式/权限/审批策略的所有可选项，生效项着色强调、其余灰。
- *  plan=青（on/off）；sandbox、permission=ro 绿 / wr 黄 / full 红；policy=ask 绿 / auto 红；
- *  preset=洋红（动态值无可枚举，仅显示当前值）。无会话数据时整块省略。 */
 /** 段集按显示宽度折行（token=多段数组；放不下强制折行、不截断）。
  *  同行相邻 token 之间插入分隔 sep（如竖线），token A 与 B 之间发生折行时不加
  *  分隔（行尾不残留竖线）。宽度按各段 text 显示宽计。返回 FrameRow[]（纯文本段）。 */
@@ -1190,7 +1187,6 @@ export interface StatusSwitches {
   notifyEnabled: boolean;
 }
 
-/** 顶部状态列正文行（未按可视高度裁剪；供滚动窗口取窗） */
 /** 状态列各块（Goal / Todo / Jobs；完整自然高度，无强制行数上限；
  *  是否折叠由 renderStatusColumn 按窗口总高决定） */
 function statusBlocks(
@@ -1458,7 +1454,7 @@ export function renderStatusColumn(
   // 才折叠：高度按块尽量平均分配，块内按「已完成 → 靠后的未完成」优先级隐藏条目
   const blocks = statusBlocks(goals, todos, jobs, agents, w - 1, activation);
   // 状态列折叠策略：无强制行数上限——从 L0 到 L3 依次尝试折叠等级，
-  // 首次放下即采用；全部等级用尽仍放不下（mode/goal 大头）→ 整列行级截断兜底
+  // 首次放下即采用；全部等级用尽仍放不下（goal 大头）→ 整列行级截断兜底
   let body: StatusRow[] = [];
   for (const level of [0, 1, 2, 3] as const) {
     body = blocks.flatMap((b) => foldAt(b, level));
@@ -2084,7 +2080,8 @@ export function renderStatusLine(
   cols: number,
   /** 最新一次模型调用 token 用量（有且 total>0 时覆盖 contextLen/cacheHit 占位） */
   usage?: AppState["usage"],
-  /** 输入状态：非空时在状态栏首行最左侧渲染状态符号（✓/✗/●/○/△/?） */
+  /** 输入状态（签名保留兼容调用方）：P1 起状态栏不再渲染状态符号段
+   *  （✓/✗/●/○/△/? 已迁至用户块首行，见 userBlockSymbol），本参数当前未参与排版 */
   inputStatus?: InputStatus,
   /** 运行中 ●/○ 交替相位（本回合虚拟总 token；running 且缺省时回落 ○） */
   runVirtTokens?: number,
@@ -2208,10 +2205,10 @@ export function renderStatusLine(
 }
 
 /**
- * 状态栏框线竖线（边框色 `│`）在行内的列位置列表（0 基，升序去重）。
- * 覆盖两类竖线：组间框线（纯 `│` 段）与符号右侧分隔竖线（lead 复合段
- * ` │ ` 中的 `│`）。buildFrame 用它在上/下横线对应列画交点（┬/┴），
- * 使竖线两端与横线相接成格。
+ * 状态栏行内**框线竖线**（border 色 `│`）的列位置列表（0 基，升序去重）。
+ * buildFrame 用它在上/下横线对应列画交点（┬/┴），使竖线两端与横线相接成格。
+ * P1 起状态符号段迁至用户块首行、组间分隔改为 `•` 圆点（color="plain"），
+ * 状态栏行内已无 border 色 `│` 段 → 对当前状态栏行恒返回空数组（不画交点）。
  */
 export function statusBarSeamCols(row: FrameRow | undefined): number[] {
   if (!row) return [];
@@ -2482,7 +2479,7 @@ function activeSessionFields(state: AppState): {
   const policy = state.activeSessionId
     ? state.policyBySession[state.activeSessionId]
     : undefined;
-  // P3：当前活跃会话 agent 预设（状态列 Mode 块显示当前值）
+  // P3：当前活跃会话 agent 预设（标题栏 preset 符号段显示当前值）
   const preset = state.activeSessionId
     ? state.presetBySession[state.activeSessionId]
     : undefined;
@@ -2765,7 +2762,7 @@ export function buildFrame(
           }));
   } else {
     // 单字符提示符：当前输入模式符号（MODE_SYMBOL[inputMode]，默认前景色不着色）；
-    // 上次命令结果/运行状态符号已移至水平状态栏最左侧（STATUS_SYMBOL）。
+    // 上次命令结果/运行状态符号已移至**用户块首行**（见 userBlockSymbol）。
     // prompt 预先分段，renderTextInput 宽度按未着色文本计算。
     const prompt: FrameSegment[] = [
       seg(MODE_SYMBOL[state.inputMode] ?? ">"),

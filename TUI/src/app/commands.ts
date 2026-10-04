@@ -8,9 +8,8 @@ import { sanitizeText } from "./state.ts";
 import type { ModelCatalog, ModelSelection } from "./adapter/dsh.ts";
 import type { ThemeId } from "../renderer/theme.ts";
 
-/** 格式化模型目录为多行文本（/model 无参输出）：纯 ASCII，当前模型前 ->、其余空格缩进 */
 /**
- * 会话标题：剥空白并截断到 ≤30 显示字符；空文本 →（新会话）。
+ * 会话标题：剥空白，超过 30 显示字符截断并加 `...`；空文本 →（新会话）。
  * 为 resume 后从 surface 首条用户消息生成标题的本地兜底（无官方 title 服务依赖时）；
  * 标题核心逻辑与 adapter 列表行共享（normalize.localTitleFromText）。
  */
@@ -105,6 +104,7 @@ export function surfaceToBuffer(
   return out;
 }
 
+/** 格式化模型目录为多行文本（/model 无参输出）：纯 ASCII，当前模型前 ->、其余空格缩进 */
 export function formatModelCatalog(catalog: ModelCatalog): string {
   const current = catalog.current;
   const lines: string[] = [];
@@ -201,7 +201,7 @@ export type SlashRoute =
   | "search";
 
 /** 本地命令目录：路由与输入补全的**单一来源**（含别名，别名也是独立可补全项）。
- *  desc 供补全候选展示；/help 的逐行说明仍在 App.helpText（历史格式）。 */
+ *  desc 供补全候选展示；/help 的逐行说明仍在 App.helpLines()（历史格式）。 */
 export const LOCAL_COMMANDS: readonly {
   name: string;
   route: SlashRoute;

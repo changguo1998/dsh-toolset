@@ -1,7 +1,7 @@
 // renderer/screen.ts — FrameRow 定义 + 帧缓冲 + 整帧重绘
 //
 // 写入一次性 ANSI 报文（同步输出包裹 + 清屏/定位 + 逐行带样式写出）。
-// 增量由 Renderer 走 renderRange（变化区间重写），本类只负责报文组装。
+// 增量由 Renderer 走 renderRanges（按帧段切分的多区间重写），本类只负责报文组装。
 // 颜色全部 manual ANSI truecolor（经 theme.ts 解析），
 // 不使用 chalk：chalk 以 `39m`/`49m` 收尾复位到终端默认，浅色主题会不可读；
 // 这里每个样式段都以主题基底前景/背景收尾，保证后续文本仍按主题取色。

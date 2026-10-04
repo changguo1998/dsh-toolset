@@ -3,7 +3,7 @@
 // 输入仍处于首个命令 token 时，把匹配的命令候选显示在流输出（活动区）窗口：
 // 标题行 + 候选行（焦点行 `> /name  desc` 黄色，默认高亮最匹配项）。
 // 候选尽可能铺满活动区可视行（面板不放按键提示——键位统一放在输入区下方的
-// 按键提示区，见 layout.ts 的 COMPLETION_HINT_LINE）。
+// 按键提示区，见 layout/hints.ts 的 COMPLETION_HINT_LINE）。
 // 判定与排序在 commands.ts 的 completeCommandInput（纯函数），本组件只渲染。
 // 输出恰 height 行：标题 + (height-1) 行候选（**超出的候选直接丢弃，不滚动**；
 // 焦点导航同口径由 App.completionVisibleRows() 限制在可视范围内）。

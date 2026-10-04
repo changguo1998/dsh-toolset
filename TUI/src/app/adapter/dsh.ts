@@ -1,13 +1,13 @@
 // src/app/adapter/dsh.ts — DSH 适配层：真实实现 + 兼容重导（类型/纯函数已拆出）
 //
-// 29 个纯类型见 ./types.ts，5 个纯归一化函数见 ./normalize.ts；本文件保留
+// 纯类型见 ./types.ts，纯归一化函数见 ./normalize.ts；本文件保留
 // installSessionModelSelection 与 createRealDshAdapter，并以显式重导保持原
 // ./adapter/dsh.ts 公共导出不变（外部 import 路径无需改动）。
 //
 // 接口化让 mock（demo/）与真实（阶段 2）可互换，app 层不感知实现。
 // tool-bootstrap（锚定工具引导）见 ./tool-bootstrap.ts，本文件显式重导保持公共导出不变。
 // 类型骨架依据官方 deepseek-harness 源码研读沉淀对齐（见 docs/host/DSH-CTX-API.md，
-// clone b150a551b8 = dsh-0.1.1-rc.2）。
+// 研读基线 dsh-v0.1.7-rc.2 = commit 477b4f42）。
 //
 // DSH 原生信号 → app 归一化事件的映射（阶段 2 已在 createRealDshAdapter 内实现）：
 //   runtime.on('session/event', (session, e))  → 按 e.type 归一化：
@@ -291,7 +291,7 @@ export function installSessionModelSelection(
  *  2. agent/inbox/spliced（当前 dsh 内存会话承载消息的形态）——文本在
  *     data.inserted[].content[]（role 取 inserted[].role，仅 user/assistant）。
  *
- * P9 折叠口径（与 docs/PENDING-FIXES.md P9 一致）：
+ * P9 折叠口径：
  *  - 每个 step 折成**一行摘要**（见 `flushStep`），只保留工具名去重计数与失败数；
  *    参数摘要、结果详情、thinking 一概不还原；
  *  - 无工具调用的 step（纯思考/纯正文）不出行；
@@ -390,7 +390,6 @@ function workSummary(name: string, args: unknown): string {
   return text.length > 40 ? text.slice(0, 39) + "…" : text;
 }
 
-/** 单行摘要最大长度（超出截断，避免工具行撑爆窄终端） */
 /**
  * tool/call.arguments（原始 JSON 字符串）→ 单行摘要：优先关键字段启发式
  * （path/file/url/command/pattern/query/dir——read/write/edit→路径、bash→命令等），
@@ -451,10 +450,6 @@ function toolResultDetail(message: unknown): string {
   return "";
 }
 
-/**
- * turn/end.reason（结构化判别联合；向后兼容字符串 reason）→ 分级 notice：
- * error/max-tokens/aborted/interrupted/blocked 显式提示并带 tone，completed 及未知静默。
- */
 /** turn/end 的 reason → 归一化收尾原因（宿主用 `reason` 字符串或 `reason.kind`；未识别返回 undefined）。
  *  P1：只有 completed / aborted / error 会在用户块上落终态符号，其余（blocked / max-tokens /
  *  interrupted / 未知）保持未定 → 渲染 `?`（与「已进历史区但未收到终态」同口径）。 */
@@ -476,6 +471,10 @@ function turnEndReason(reason: unknown): TurnEndReason | undefined {
   }
 }
 
+/**
+ * turn/end.reason（结构化判别联合；向后兼容字符串 reason）→ 分级 notice：
+ * error/max-tokens/aborted/interrupted/blocked 显式提示并带 tone，completed 及未知静默。
+ */
 function turnEndNotice(
   reason: unknown,
 ): Extract<DshEvent, { type: "notice" }> | undefined {
@@ -1282,7 +1281,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
    * 读取源：live 会话优先读内存 events（全量原始，最省事）；否则走
    * `sessionQuery.readSession`（readSurface 做 surface fold 会滤掉 log-only 事件）。
    * 宿主既无 live 会话也无 sessionQuery 时只回填快照能提供的部分；快照也没有则静默
-   * （Mode 块保持事件驱动）。
+   * （模式值保持事件驱动）。
    */
   const restoreSessionState = async (id: string): Promise<void> => {
     let events: readonly { type?: string; data?: unknown }[] | undefined;
@@ -1836,7 +1835,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       case "turn/start": {
         // turn/start 本身不插入历史分隔线（用户本地回显后应紧邻模型响应），但把**回合号**
-        // 转给上层（#3）：会话区回合分隔线要显示 `hh:mm:ss #N`，而本地 turn-begin 早于本事件。
+        // 转给上层（#3）：会话区回合分隔线要显示 `hh:mm:ss ⇆N`（符号见 layout/tool-line.ts 的
+        // turnHeaderLine），而本地 turn-begin 早于本事件。
         const turn = (data as { turn?: unknown }).turn;
         emit({
           type: "turn-start",

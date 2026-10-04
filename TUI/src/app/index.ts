@@ -232,7 +232,6 @@ export interface AppDeps {
   /** 用户块左缘/回复右缘对称留空(列数，默认 4，经 initialState 落到 state) */
   messageGutter?: number;
   /** 交互区绝对行数（tui.config.json layout.footerHeight；缺省自动 1/5 上限 4） */
-  /** 交互区绝对行数（tui.config.json layout.footerHeight；缺省自动 1/5 上限 4） */
   footerHeight?: number;
   /** 活动区高分母（tui.config.json layout.activityHeightDivisor；1/2 → 2） */
   activityHeightDivisor?: number;
@@ -369,7 +368,7 @@ export class App {
   private ruleEngineService: RuleEngineLike | null = null;
   /** 告警总线订阅注销函数（dispose 时调用） */
   private ruleEngineUnsubscribe: (() => void) | null = null;
-  /** 启动自动清理空会话开关（deps.autoCleanEmpty ?? false） */
+  /** 启动自动清理空会话开关（deps.autoCleanEmpty === true；未接线时关闭） */
   private autoCleanEmpty = false;
   /** 上次 Ctrl+C 时间戳；双击窗口内再次按下则退出（含输入为空时计数） */
   private lastCtrlCAt = 0;
@@ -472,7 +471,8 @@ export class App {
     if (typeof fi === "number" && Number.isFinite(fi) && fi > 0) {
       this.frameIntervalMs = Math.floor(fi);
     }
-    // 启动自动清理空会话（tui.config.json session.autoCleanEmpty；缺省关闭）
+    // 启动自动清理空会话（tui.config.json session.autoCleanEmpty；main.ts 接线缺省 true，
+    // 未接线时为关闭）
     this.autoCleanEmpty = deps.autoCleanEmpty === true;
     // 实测宽度表落盘目录（缺省 "" = 不落盘；见 layout/width-table.ts）
     this.profileDir = deps.profileDir ?? "";
@@ -485,7 +485,7 @@ export class App {
         activityTopRow: this.deps.activityTopRow,
         activityPlacement: this.deps.activityPlacement,
         statusDivisor: this.deps.statusColumnDivisor,
-        // 状态列 Mode 块的只读配置项（声音提醒）
+        // 标题栏状态符号组的只读配置项（声音提醒）
         notifyEnabled: this.bellEnabled,
       },
     );
@@ -605,11 +605,12 @@ export class App {
     // 首帧前同步 renderer 主题（基底色/词槽位随 /theme 切换）
     this.deps.renderer.setTheme(this.state.themeId);
     this.paintNow();
-    // 拉取权限/agent 预设目录写入 state（状态列 Mode 块可选值；缺默服务则保持降级）
+    // 拉取权限/agent 预设目录写入 state（原状态列 Mode 块的可选项，P7 移除该块后
+    // 暂无渲染消费方；缺默服务则保持降级）
     this.refreshCatalogs();
     // 拉取宿主命令注册表目录（输入补全候选；服务缺失时仅本地目录）
     this.refreshCommandCatalog();
-    // 补 Mode 块初始值（log-only 事件启动不产生，从会话日志折叠一次）
+    // 补会话状态初始值（标题栏状态符号组用；log-only 事件启动不产生，从会话日志折叠一次）
     this.restoreSessionState();
     // 启动自检 kickoff（BACKLOG TUI「启动后自动触发首轮工具调用」）：先挂起，再由下面的
     // 历史折叠决定发送时机（新会话走启动宏任务；恢复会话等折叠落定，见 flushKickoffPending）
@@ -729,9 +730,9 @@ export class App {
   }
 
   /**
-   * 拉取权限/agent 预设目录写入 state（状态列 Mode 块 permission/preset 列出可选值；
-   * 目录变化低频，start + /permission 命令时刷新已足够）。目录服务缺失或
-   * 读失败静默降级（state 保持 [] → Mode 块回退标准三档/当前值），不崩溃。
+   * 拉取权限/agent 预设目录写入 state（原状态列 Mode 块的可选项，P7 移除该块后
+   * 暂无渲染消费方；目录变化低频，start + /permission 命令时刷新已足够）。目录服务
+   * 缺失或读失败静默降级（state 保持 []），不崩溃。
    */
   private refreshCatalogs(): void {
     const a = this.deps.adapter;
@@ -3552,7 +3553,7 @@ export class App {
     this.openStatusPanel({
       kind: "policy",
       title: "/policy 审批策略",
-      // 展示名与状态列 Mode 块一致（ask/auto；never 提交值不变，展示用 auto）
+      // 展示名沿用旧 Mode 块口径（ask/auto；never 提交值不变，展示用 auto）
       options: [
         { id: "ask", label: "ask", desc: "（每次工具调用询问）" },
         { id: "never", label: "auto", desc: "（工具调用自动放行）" },
@@ -3588,7 +3589,7 @@ export class App {
           if (!info) this.notice("权限预设服务不可用", "warn");
           return;
         }
-        // 同步目录进 state（状态列 Mode 块 permission 列出可选值）
+        // 同步目录进 state（P7 移除状态列 Mode 块后无渲染消费方，保留槽位）
         this.apply((s) =>
           reduceState(s, { type: "permission-catalog", names: info.names }),
         );

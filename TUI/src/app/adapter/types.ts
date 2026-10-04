@@ -148,9 +148,9 @@ export type DshEvent =
   | { type: "question"; id: string; questions: QuestionItem[] }
   | { type: "agent-status"; sessionId: string; status: AgentStatus }
   | { type: "notice"; text: string; error?: boolean; tone?: NoticeTone }
-  /** P1：收尾原因（宿主 turn/end reason.kind）→ 用户块终态符号依据 */
-  /** #3：宿主的 `turn/start`（携带回合号）——会话区回合分隔线要显示 `#N` */
+  /** #3：宿主的 `turn/start`（携带回合号）——会话区回合分隔线要显示 `⇆N` */
   | { type: "turn-start"; turn?: number }
+  /** P1：收尾原因（宿主 turn/end reason.kind）→ 用户块终态符号依据 */
   | { type: "turn-end"; reason?: TurnEndReason }
   | {
       type: "tool-call";
@@ -614,7 +614,7 @@ export type StreamChunk =
   | { type: "usage"; index?: number; usage: Record<string, unknown> }
   | { type: "finish"; reason: string; replayState?: unknown };
 
-/** AssistantStreamRecord（assistant/attempt 的 stream 数组元素，见 docs/host/DSH-CTX-API.md §10）：
+/** AssistantStreamRecord（assistant/attempt 的 stream 数组元素，见 docs/host/DSH-CTX-API.md §2）：
  *  text/reasoning/tool-call-chunks 为打包的 delta 运行（逐成员等价 text-delta /
  *  reasoning-delta / tool-call-delta）；`chunk` 为原始 StreamChunk（block/usage/finish
  *  恒为 raw chunk 记录）。 */
@@ -1352,7 +1352,7 @@ export interface SymbolNormalizerLike {
 
 /** ctx.get('ruleEngine') 服务面（rule-engine 插件 provide；缺失或未实现 onNotice 时 TUI
  *  不订阅，告警仍走插件侧 stderr 兜底。消费侧懒读，容忍插件装载顺序，见 index.ts
- *  App.ruleEngine()；BACKLOG #61 方案 B）。 */
+ *  App.ruleEngine()；BACKLOG「rule-engine 的用户提示应显示在活动区」方案 B）。 */
 export interface RuleEngineLike {
   /** 订阅插件告警（完整展示行 + tone）；返回注销函数。 */
   onNotice?(listener: (event: RuleEngineNotice) => void): () => void;
@@ -1506,7 +1506,7 @@ export interface RealAdapterOptions {
   commandAgent?: unknown;
   /** DSH commands 注册表(来自 ctx.get('commands')，bundle 已挂载) */
   commands?: DshCommandLike;
-  /** 审批弹窗超时（ms），超时未答 fallback 'cancelled'；默认 60s */
+  /** 审批弹窗超时（ms），超时未答按默认拒绝裁定（'rejected'）；缺省 60s */
   approvalTimeoutMs?: number;
   /** 打断当前思考/turn 的回调（调用 agent.cancel({kind:'user'})）；宿主无 cancel 能力时不传 */
   interrupt?: () => void;

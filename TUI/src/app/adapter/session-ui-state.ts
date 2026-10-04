@@ -35,7 +35,8 @@ export interface SessionUiState {
   statusColumn?: boolean;
   /** #9：下半区（Turn 流 + Tool 面板区）是否显示（Ctrl+T 切换；TUI 本地。缺省 = 显示） */
   lowerPanes?: boolean;
-  /** Mode 块兜底值（宿主日志无对应事件时使用；plan/sandbox/permission + 审批策略） */
+  /** 模式值兜底（宿主日志无对应事件时使用；plan/sandbox/permission + 审批策略）；
+   *  P7 起状态列 Mode 块已移除，本组值仍供回填下发 mode / approval-policy 事件。 */
   modes?: {
     plan?: "on" | "off";
     sandbox?: string;

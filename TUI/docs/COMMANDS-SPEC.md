@@ -5,8 +5,8 @@
 > 过期条件：无
 
 > 用途：新增命令时须遵守的通用约定——落点、服务获取与降级、输出三型、共享面板契约、命名冲突、测试口径，以及已裁定排除项的索引。
-> 现状：本地 32 条命令均已实现（清单见 `COMMANDS.md` §1.1），用法见 `README.md`「Slash 命令」，逐命令落点与降级见 `DESIGN.md`「命令实现落点」——逐条实现规格不再重复于此。
-> 上游：`COMMANDS.md`（命令来源归口与落点决策）、`TUI/docs/DESIGN.md`（四区域布局与面板约定）、`SPEC.md`（Box 渲染与排版契约）、`TUI/docs/design/NOTICE-LEVELS.md`（提示分级）。
+> 现状：本地命令目录 40 条（35 命令 + 5 别名）均已实现（清单见 `TUI/docs/COMMANDS.md` §1.1），用法见 `TUI/README.md`「Slash 命令」，逐命令落点与降级见 `TUI/docs/DESIGN.md`「命令实现落点」——逐条实现规格不再重复于此。
+> 上游：`TUI/docs/COMMANDS.md`（命令来源归口与落点决策）、`TUI/docs/DESIGN.md`（四区域布局与面板约定）、`TUI/docs/SPEC.md`（Box 渲染与排版契约）、`TUI/docs/design/NOTICE-LEVELS.md`（提示分级）。
 
 ## 1. 落点（按命令取子集，最多 6 类）
 
@@ -75,7 +75,7 @@ commandPanel: {
 ## 5. 命名、冲突与 help
 
 - 命令名规则 `^/([a-z][a-z0-9_-]*)`；别名在 `LOCAL_COMMANDS` 内以独立条目指向同一 route（先例 `/clearscreen` + `/cls`）。
-- 与宿主注册命令同名时**本地优先**（先例 `/goal`、`/permission`）；本地未消费的形态应转发宿主，例外是 `/goal`——恒为本地提示、参数被忽略（不转发）。
+- 与宿主注册命令同名时**本地优先**（先例 `/goal`、`/permission`）；本地未消费的形态应转发宿主——`/goal` 无参走本地提示、带参（`<目标>` / `edit` / `pause` / `resume` / `clear`）转发宿主 `dsh-command-goal`，`/permission` 无参走本地面板、带参转发宿主。
 - `/help` 必须同步加行；help 行数变化会改变冻结基线（`tests/fixtures/focus-frame-legacy.json`）→ 重跑 `node --experimental-transform-types scripts/freeze-focus-frame.mts` 并 diff 审查，随后 `npm run demo -- --smoke` 断言 `SMOKE_PASS` 全绿（当前 40 项，2026-10-02 实测：删除 `/preset` 命令的三项断言后）。
 
 ## 6. 测试口径（每条命令必备）
@@ -102,11 +102,11 @@ commandPanel: {
 
 | 文档 | 关系 |
 |------|------|
-| `COMMANDS.md` | 上游：命令来源归口与现状清单 |
-| `TUI/docs/DESIGN.md` / `SPEC.md` | 上游：布局、面板与 Box 渲染契约（§4 渲染位置与优先级以 `layout.ts` 实现为准） |
+| `TUI/docs/COMMANDS.md` | 上游：命令来源归口与现状清单 |
+| `TUI/docs/DESIGN.md` / `TUI/docs/SPEC.md` | 上游：布局、面板与 Box 渲染契约（§4 渲染位置与优先级以 `layout.ts` 实现为准） |
 | `TUI/docs/design/NOTICE-LEVELS.md` | 双向：新增 notice 调用点须同步入 A 表 |
-| `README.md` / `DESIGN.md` | 下游：命令用法与逐命令实现落点（`DESIGN.md`「命令实现落点」） |
-| `docs/BACKLOG.md` | 下游：命令项以本文件为规格依据 |
+| `TUI/README.md` / `TUI/docs/DESIGN.md` | 下游：命令用法与逐命令实现落点（`DESIGN.md`「命令实现落点」） |
+| `docs/BACKLOG.md`（项目级） | 下游：命令项以本文件为规格依据 |
 
 ## 附：已核实的宿主服务签名（新增命令时参考）
 

@@ -9,11 +9,11 @@
 // 终端 16 色槽位映射：black..white → ansi[]，brightBlack..brightWhite → bright[]。
 // 语义色槽位（gray/border/code/focus）一律从 ColorTheme.semantics 取 hex，
 // 不再按主题 name 或 themeId 推断（旧实现按 theme.name==="fffdark" 分支，
-// 自定义配色会静默走错分支）。三语义色槽位定位：
+// 自定义配色会静默走错分支）。四语义色槽位定位：
 //   次要文字 gray   = dark bright[0] #80878E / light bright[0] #475863
 //   边框 border     = ansi[4]（dark #5A98F3 / light #1256B2）
 //   行内代码 code   = ansi[0]（dark #272336）/ ansi[7]（light #E9EBEE，米色底可读）
-//   焦点框 focus    = dark bright[7] #FFFFFF / light ansi[0] #121418
+//   焦点框 focus    = dark bright[6] #9FEEFA / light ansi[6] #007784
 // 两主题同语义槽位色值不同，表述必须带槽位+双主题值。
 // 颜色一律 manual ANSI truecolor（不用 chalk）：chalk 单色段以 `39m` 收尾
 // 会复位到终端默认前景而非当前主题基底前景，浅色主题下不可读。

@@ -1,7 +1,8 @@
 /**
- * 运行期 stderr 桥（项目级 BACKLOG #61 方案 A）：把运行期的 `process.stderr.write` 文本
- * 按行转交 App 的活动区（`appendExternalLog`），避免裸写落在输入区光标处——渲染器是
- * 增量（delta）重绘，输入区未被重写的行不会覆盖这些字节（机制见追踪文档 2026-10-01）。
+ * 运行期 stderr 桥（项目级 BACKLOG「rule-engine 的用户提示应显示在活动区」方案 A）：
+ * 把运行期的 `process.stderr.write` 文本按行转交 App 的活动区（`appendExternalLog`），
+ * 避免裸写落在输入区光标处——渲染器是增量（delta）重绘，输入区未被重写的行不会覆盖
+ * 这些字节（机制见 docs/archived/2026-10-01-warn-display-channel.md）。
  *
  * 边界：
  * - 安装前的写入照旧直写（启动诊断不受影响）；`restore` 后还原原始 write，缓冲残行透传；
