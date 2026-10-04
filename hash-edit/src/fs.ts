@@ -139,7 +139,12 @@ export async function applyAnchoredEditsFile(
   } catch (err) {
     throw new FileEditError("io_error", `stat failed: ${String(err)}`, p);
   }
-  const tmp = join(dirname(p), `.${basename(p)}.hashedit-${process.pid}.tmp`);
+  // 临时名带进程内唯一后缀：同进程并发写若共用名字，先到者 rename 后后到者会 ENOENT /
+  // 或读到被覆盖的内容（2026-10-04 登记的并发冲突条目）
+  const tmp = join(
+    dirname(p),
+    `.${basename(p)}.hashedit-${process.pid}-${Math.random().toString(36).slice(2, 10)}.tmp`,
+  );
   try {
     await writeFile(tmp, result.content, { encoding: "utf8", mode });
     await rename(tmp, p);

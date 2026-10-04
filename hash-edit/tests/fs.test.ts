@@ -233,3 +233,27 @@ test("空文件编辑：set 唯一空行 / delete 后仍为空", async () => {
     await t.cleanup();
   }
 });
+
+test("并发：同文件并行锚定写不互踩（临时文件名唯一，全部成功且无残留）", async () => {
+  const t = await makeTmp(CONTENT);
+  try {
+    const anchor = anchorAt(CONTENT, 1);
+    // 8 个并发写共用同一锚点：临时文件名若不唯一，先到者 rename 后后到者会 ENOENT
+    const results = await Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        applyAnchoredEditsFile(t.path, [
+          { set_line: { anchor, new_text: `V${i}` } },
+        ]),
+      ),
+    );
+    assert.equal(results.length, 8);
+    const after = await readFile(t.path, "utf8");
+    const [first] = after.split("\n");
+    assert.match(first ?? "", /^V[0-7]$/, `首行应为某次写入的内容，实际 ${first}`);
+    assert.equal(after.split("\n").length, CONTENT.split("\n").length);
+    const junk = (await listDir(t.dir)).filter((n) => n.includes("hashedit"));
+    assert.deepEqual(junk, [], "并发写后目录不应残留临时文件");
+  } finally {
+    await t.cleanup();
+  }
+});
