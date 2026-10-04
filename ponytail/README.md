@@ -5,7 +5,7 @@
 
 ## 它注入什么
 
-`session-start` 时注入一段中文阶梯（自带副本，见 `src/ladder.ts`）：
+`session-start` 时注入一段中文阶梯（另挂 `step-end` 兜底；自带副本，见 `src/ladder.ts`）：
 
 1. 这件事**要不要做**？（YAGNI）
 1. 本仓**已有**可复用的实现/助手/模式？
@@ -23,16 +23,17 @@
 - id: ponytail
   name: '@dsh-toolset/ponytail'
   config:
-    enabled: true              # 缺省 true；仅显式 false 关闭（其它取值按开启）
-    sources: ['session-start'] # 唤醒节点，缺省 session-start
-    dedupeInRecord: 1          # 投影里最多 1 条本注入
-    # text: '自定义阶梯文本'   # 可选：本地试验用
+    enabled: true            # 缺省 true；仅显式 false 关闭（其它取值按开启）
+    dedupeInRecord: 1        # 会话记录里最多 1 条本注入（可见投影 + 未消费 inbox）
+    # 唤醒节点，缺省 session-start + step-end（后者兜底）：
+    sources: ['session-start', 'step-end']
+    # text: '自定义阶梯文本' # 可选：本地试验用
 ```
 
 ## 契约
 
 - `inject: ["ruleEngine"]`（硬依赖；缺席 → 告警且不注册，不影响宿主启动）
-- apply 时经 `ruleEngine.registerConsumer({ id: "ponytail", sources, delivery: "inject", dedupeInRecord, decide })` 注册；
+- apply 时经 `ruleEngine.registerConsumer({ id: "ponytail", sources, delivery: "steer", dedupeInRecord, decide })` 注册；
   开启 → 返回阶梯正文 + 摘要；关闭 → `decide` 返回 `null`（不注入）
 - 返回 dispose：注销消费者
 - **不搬**上游的 `hooks/*.js` / `commands/*.toml` / `gemini-extension.json` / `ponytail-mcp`

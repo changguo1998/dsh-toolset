@@ -18,7 +18,7 @@
 
 1. **注册为 rule-engine 消费者**（对齐 `symbol-normalizer` 先例）：注入交给 rule-engine 统一调度（去重 / 冷却 / 投递），本包不自造注入面。
 1. **默认开启**（2026-10-05 起）：`karpathy-guidelines` 已从默认注入取消，编码行为由本插件承担；`config.enabled: false` 可关闭。
-1. **`delivery: "inject"`**：挂在最近 pre-step、不唤醒 —— 模式提示不该打扰会话节奏。
-1. **缺省 `sources: ["session-start"]`**：模式提示在会话起始注入一次即可；`dedupeInRecord: 1` 防重复。
+1. **`delivery: "steer"`**（缺省）：挂到最近 pre-step 并唤醒（`inject` 不唤醒，真机 agent 非 live 时会被丢弃）。
+1. **缺省 `sources: ["session-start", "step-end"]`**：会话起始注入一次；`step-end` 作兜底（session-start 时 agent 非 live 会跳过投递），`dedupeInRecord: 1` 防重复（记录 = 可见投影 + 未消费 inbox）。
 1. **rule-engine 缺席 fail-soft**：告警一次 + 不注册，绝不抛到宿主（对齐本仓既有姿态）。
 1. **文本自带副本**（不运行时读上游仓）：避免外部路径依赖；上游更新需人工同步并改 `tests` 关键词断言。

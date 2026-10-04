@@ -67,8 +67,8 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 | 同内容去重 | 固定开启 | 同一回合内相同正文只注入一次（不同规则同文案也只发一条） |
 | `cooldownTurns`（规则） | 0 | 两次命中的最小回合间隔；`1` = 隔回合才允许再次命中 |
 | `cooldownMs`（规则） | 0（不限制） | 两次命中的最小毫秒间隔 |
-| `dedupeInRecord`（规则 / 消费者） | `0` | **整型**：会话可见投影里最多允许 N 条本注入。`0` = 无限制；`1` = 已有就跳过（重载会话不重复注入；压缩把注入挤出投影后才补）；`N≥2` = 允许最多 N 条。计数按 `source.summary` 或合并消息的 `source.summaries` 命中该 key 的**条数**。投影不可读 → 照旧注入（fail-open）。旧布尔值兼容归一：`true → 1`、`false → 0` |
-| `directWrite`（规则 / 消费者） | `[]` | **直写节点**：命中发生在这些节点时**跳过 `dedupeInRecord` 投影判断**、直接写入（项须是匹配面 / `sources` 的子集，越界项归一化时丢弃并记 warning）。用于「会话建立 + 压缩完成必须出现、不等步末」：`session-start`（含恢复）不判断 → 恢复会话会再注入一次；`step-end` 仍按投影判断兜底 |
+| `dedupeInRecord`（规则 / 消费者） | `0` | **整型**：会话记录里最多允许 N 条本注入——记录 = 可见投影（`deriveMessages()`）**加**仍在 inbox 待消费的注入（`sessionProjections` 的 `inbox` 投影；`steer` / `inject` 到步边界才被 claim，见「时序约束」）。`0` = 无限制；`1` = 已有就跳过（重载会话不重复注入；压缩把注入挤出记录后才补）；`N≥2` = 允许最多 N 条。计数按 `source.summary` 或合并消息的 `source.summaries` 命中该 key 的**条数**。记录不可读 → 照旧注入（fail-open）。旧布尔值兼容归一：`true → 1`、`false → 0` |
+| `directWrite`（规则 / 消费者） | `[]` | **直写节点**：命中发生在这些节点时**跳过 `dedupeInRecord` 记录判断**、直接写入（项须是匹配面 / `sources` 的子集，越界项归一化时丢弃并记 warning）。用于「会话建立 + 压缩完成必须出现、不等步末」：`session-start`（含恢复）不判断 → 恢复会话会再注入一次；`step-end` 仍按记录判断兜底 |
 
 ### 工具族
 
@@ -164,14 +164,14 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 
 ## 时序约束（重要）
 
-`session/event` 监听器运行在 `Session.append` 的**同步派发窗口**内，此刻直接调用 `agent.followup()` 会撞重入保护（异常被宿主吞掉，现象是「消息不落盘」）。因此注入一律 `setTimeout(…, 0)` 推迟一个宏任务后再 `agents.get(sessionId)`，按 `delivery` 调 `followup(message)`（新回合）/ `steer(message)` / `inject(message)`（最近 pre-step），随后 `sessions.flush(agent.session)` 确保落盘。会话非 live（`agents.get` 返回 undefined）时跳过并记 warning。启动期顺序：TUI 的启动自检 kickoff 在 `session/created` 后的微任务窗口内同步入队，故 `session-start` 注入恒排在 kickoff 之后（BACKLOG「`[AUTO]` 注入时序」）。
+`session/event` 监听器运行在 `Session.append` 的**同步派发窗口**内，此刻直接调用 `agent.followup()` 会撞重入保护（异常被宿主吞掉，现象是「消息不落盘」）。因此注入一律 `setTimeout(…, 0)` 推迟一个宏任务后再 `agents.get(sessionId)`，按 `delivery` 调 `followup(message)`（新回合）/ `steer(message)` / `inject(message)`（最近 pre-step），随后 `sessions.flush(agent.session)` 确保落盘。会话非 live（`agents.get` 返回 undefined）时跳过并记 warning。启动期顺序：TUI 的启动自检 kickoff 在 `session/created` 后的微任务窗口内同步入队，故 `session-start` 注入恒排在 kickoff 之后（BACKLOG「`[AUTO]` 注入时序」）。注入先落 `next-step` 队列、到**下一个步边界**才被 claim 进可见投影；`dedupeInRecord` 因此把「仍在 inbox 待消费」的注入也计为已注入——否则 `session-start` 之后的第一个 `step-end` 会把同一个符号指南 / ponytail 再注入一次（2026-10-05 真机修复）。
 
 ## 已知限制
 
 - **「提示人」已由 TUI 支持**：注入消息按**用户输入块**渲染（正文 `[RULE] ` 前缀标明自动注入，BACKLOG TUI#49）；未实现该分支的客户端按普通 user 消息块渲染（行为退化为默认，不丢消息）。
 - 只有 `inject` 一种动作：`tag` 打标 / `abort` 中断 / `memory` 写知识库未实现。
 - `inject` 路径需要宿主 rc.2+（`agent.inject`）；旧宿主上记 warning 跳过（不回退 followup）。`steer` 缺 API 时回退 `inject` 并记 warning（内容不丢，只是不唤醒）。
-- 节流记账是**进程内**内存态：`dsh` 重启后 cooldown 计数清零（规则本身持久化）；需要跨重启不重复的规则用 `dedupeInRecord`（按会话可见投影去重）。
+- 节流记账是**进程内**内存态：`dsh` 重启后 cooldown 计数清零（规则本身持久化）；需要跨重启不重复的规则用 `dedupeInRecord`（按会话记录去重：可见投影 + 未消费 inbox）。
 - 逐 delta 实时匹配未实现：文本类规则只在回合结束判定（实时需订阅 `agent/assistant-stream`）。
 
 ## 开发

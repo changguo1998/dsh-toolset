@@ -5,7 +5,8 @@
  * 注入路径：rule-engine 消费者（与回合审查同一通道，受 `maxInjectionsPerTurn` 保护）。
  * 触发与去重按 rule-engine 的统一标准：注册 `sources: ["session-start", "compaction", "step-end"]`
  * + `dedupeInRecord: 1` + `directWrite: ["session-start", "compaction"]`——会话建立（含恢复）与
- * 压缩完成直写（不看可见投影，故恢复会话会再注入一次），步末按可见投影判断（最多 1 条，被压缩挤出后补回）。
+ * 压缩完成直写（跳过记录去重判断，故恢复会话会再注入一次），步末按会话记录判断
+ * （可见投影 + 未消费 inbox；最多 1 条，被压缩挤出后补回）。
  * `delivery: "steer"` 与 skill 自加载规则同节点同组：同一次触发下合并为一条注入。
  * 注：宿主指令面（`@deepseek-ai/dsh-agent-instructions`）只读取固定候选路径的指令文件，
  * 无插件注册口，故「严格早于首个请求」不可达；本指南在首个可行回合边界注入（见追踪文档）。

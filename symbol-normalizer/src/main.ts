@@ -134,8 +134,9 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
 
     // 会话开局指南（BACKLOG F2）：每会话一次注入「推荐白名单 + 使用标准」。
     // 触发与去重全交 rule-engine 统一标准：`session-start` + `compaction` **直写**
-    // （跳过可见投影判断；`session-start` 含恢复，故恢复会话也会再注入一次）、
-    // `step-end` 按 `dedupeInRecord: 1` 判断（投影里已有就跳过，压缩把注入挤出投影后自然补回）。
+    // （跳过记录去重判断；`session-start` 含恢复，故恢复会话也会再注入一次）、
+    // `step-end` 按 `dedupeInRecord: 1` 判断（记录 = 可见投影 + 未消费 inbox，已有就跳过；
+    // 压缩把注入挤出记录后自然补回）。
     // `delivery: "steer"` 与 skill 自加载规则同节点同组 → 同一次触发合并为一条注入。
     let disposeGuide: (() => void) | undefined;
     if (

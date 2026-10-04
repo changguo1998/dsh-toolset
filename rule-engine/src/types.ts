@@ -86,12 +86,12 @@ export interface Rule {
   cooldownTurns?: number;
   /** 同一会话内两次命中之间的最小毫秒间隔，缺省 0（不限制）。 */
   cooldownMs?: number;
-  /** 按记录去重，缺省 0（= 无限制）：会话可见投影里**最多允许 N 条**本注入。
+  /** 按记录去重，缺省 0（= 无限制）：会话记录（可见投影 + 未消费 inbox）里**最多允许 N 条**本注入。
    *  0 = 不限制；1 = 已有 1 条就跳过（重载会话不重复、被压缩挤出后才补）；
    *  N ≥ 2 = 允许最多 N 条。兼容旧布尔值：true → 1、false → 0。 */
   dedupeInRecord?: number;
-  /** 直写节点：命中发生在这些节点时**跳过 `dedupeInRecord` 投影判断**、直接写入
-   *  （缺省 `[]` = 所有节点都按投影判断）。不在匹配面内的项会被丢弃并告警。 */
+  /** 直写节点：命中发生在这些节点时**跳过 `dedupeInRecord` 记录判断**、直接写入
+   *  （缺省 `[]` = 所有节点都按记录判断）。不在匹配面内的项会被丢弃并告警。 */
   directWrite?: readonly RuleSource[];
   /** 说明（工具面只读展示）。 */
   description?: string | null;
@@ -103,7 +103,7 @@ export interface NormalizedRule {
   enabled: boolean;
   /** 匹配面（至少一个节点；字符串入参在归一化时收成数组）。 */
   sources: readonly RuleSource[];
-  /** 直写节点（`sources` 的子集；空数组 = 所有节点都按投影去重判断）。 */
+  /** 直写节点（`sources` 的子集；空数组 = 所有节点都按记录去重判断）。 */
   directWrite: readonly RuleSource[];
   delivery: RuleDelivery;
   match: MatchSpec;
@@ -186,7 +186,7 @@ export interface RuleSummary {
   id: string;
   enabled: boolean;
   sources: readonly RuleSource[];
-  /** 直写节点（这些节点跳过 `dedupeInRecord` 投影判断）。 */
+  /** 直写节点（这些节点跳过 `dedupeInRecord` 记录判断）。 */
   directWrite: readonly RuleSource[];
   delivery: RuleDelivery;
   origin: RuleOrigin;
@@ -259,7 +259,7 @@ export interface ConsumerRegistration {
   delivery?: RuleDelivery;
   /** 按记录去重（与规则侧同口径）：投影里最多允许 N 条本反馈，缺省 0 = 无限制。 */
   dedupeInRecord?: number;
-  /** 直写节点：在这些节点跳过 `dedupeInRecord` 投影判断、直接写入（须是 `sources` 的子集）。 */
+  /** 直写节点：在这些节点跳过 `dedupeInRecord` 记录判断、直接写入（须是 `sources` 的子集）。 */
   directWrite?: readonly RuleSource[];
   /** 同一会话两次反馈之间的最小回合间隔，缺省 0。 */
   cooldownTurns?: number;

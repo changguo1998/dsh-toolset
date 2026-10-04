@@ -89,13 +89,13 @@ const RULE_PARAMS = {
   dedupeInRecord: {
     type: "number",
     description:
-      "按记录去重，缺省 0 = 无限制：会话可见投影里最多允许 N 条本注入（1 = 已有就跳过，重载不重复、被压缩挤出投影后才补；N≥2 = 允许最多 N 条）",
+      "按记录去重，缺省 0 = 无限制：会话记录（可见投影 + 未消费 inbox）里最多允许 N 条本注入（1 = 已有就跳过，重载不重复、被压缩挤出记录后才补；N≥2 = 允许最多 N 条）",
   },
   directWrite: {
     type: "array",
     items: { type: "string", enum: [...RULE_SOURCES] },
     description:
-      "直写节点（须是 source 的子集）：命中发生在这些节点时跳过 dedupeInRecord 投影判断、直接写入；缺省 [] = 所有节点都按投影判断",
+      "直写节点（须是 source 的子集）：命中发生在这些节点时跳过 dedupeInRecord 记录判断、直接写入；缺省 [] = 所有节点都按记录判断",
   },
 } as const;
 

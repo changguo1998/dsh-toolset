@@ -133,7 +133,8 @@ test("apply：开局指南消费者按统一标准注册（sources + directWrite
   await apply(fake.ctx, { cooldownMs: 0, cooldownRuns: 0 });
   const guide = fake.consumers.find((c) => c.id === "symbol-normalizer-guide");
   assert.ok(guide !== undefined);
-  // 触发与去重由 rule-engine 统一负责：会话建立（含恢复）/ 压缩完成直写，步末按投影判断（最多 1 条）；
+  // 触发与去重由 rule-engine 统一负责：会话建立（含恢复）/ 压缩完成直写，
+  // 步末按记录判断（可见投影 + 未消费 inbox；最多 1 条）；
   // 与 skill 自加载规则同节点同 delivery → 同一次触发合并成一条注入
   assert.deepEqual(guide.sources, ["session-start", "compaction", "step-end"]);
   assert.deepEqual(guide.directWrite, ["session-start", "compaction"]);

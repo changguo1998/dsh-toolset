@@ -16,9 +16,10 @@ import { apply, isSubagentSession } from "../src/main.ts";
 import { toToolDefs } from "../src/tools.ts";
 import type { Config, SessionEventLike, SessionLike } from "../src/types.ts";
 
-/** 假 ctx：记录监听器、注册的工具、provide 的服务，并提供 agents / sessions。 */
+/** 假 ctx：记录监听器、注册的工具、provide 的服务，并提供 agents / sessions / sessionProjections。 */
 function fakeCtx() {
   const followups: Array<Record<string, unknown>> = [];
+  const steers: Array<Record<string, unknown>> = [];
   const flushed: unknown[] = [];
   const registered: Array<{ name?: string }> = [];
   const provided = new Map<string, unknown>();
@@ -33,12 +34,25 @@ function fakeCtx() {
     followup: (message: unknown) => {
       followups.push(message as Record<string, unknown>);
     },
+    steer: (message: unknown) => {
+      steers.push(message as Record<string, unknown>);
+    },
+  };
+  /** 会话句柄（可见投影读面）：测试可替换 `deriveMessages` 模拟 claim / 压缩后的投影变化。 */
+  const session = { deriveMessages: (): readonly unknown[] => [] };
+  /** inbox 投影状态（未消费的待投递消息）：测试可直接 push / 清空模拟真机时序。 */
+  const inbox: { "next-step": unknown[]; "next-turn": unknown[] } = {
+    "next-step": [],
+    "next-turn": [],
   };
   return {
     followups,
+    steers,
     flushed,
     registered,
     provided,
+    session,
+    inbox,
     get listener() {
       return listener;
     },
@@ -56,15 +70,23 @@ function fakeCtx() {
         listeners.set(event, cb as (session: unknown, event: unknown) => void);
         if (event === "session/event") listener = cb;
       },
-      // tools 不在 inject 声明中：apply 经 ctx.get('tools') 读取（严格模式安全路径）
-      get: (name: string) =>
-        name === "tools"
-          ? {
-              register: (def: unknown) => {
-                registered.push(def as { name?: string });
-              },
-            }
-          : undefined,
+      // tools / sessionProjections 不在 inject 声明中：apply 经 ctx.get 读取（严格模式安全路径）
+      get: (name: string) => {
+        if (name === "tools") {
+          return {
+            register: (def: unknown) => {
+              registered.push(def as { name?: string });
+            },
+          };
+        }
+        if (name === "sessionProjections") {
+          return {
+            stateOf: (_session: unknown, key: string) =>
+              key === "inbox" ? inbox : undefined,
+          };
+        }
+        return undefined;
+      },
       agents: {
         get: (id: string) => (id === "s1" ? agent : undefined),
       },
@@ -73,6 +95,7 @@ function fakeCtx() {
           flushed.push(session);
           return Promise.resolve();
         },
+        get: (id: string) => (id === "s1" ? session : undefined),
       },
       provide: (name: string, value: unknown) => {
         provided.set(name, value);
@@ -460,6 +483,122 @@ test("apply：session/created → session-start 节点唤醒消费者（含恢�
     await tick();
     assert.deepEqual(triggers, ["session-start"]);
     assert.equal(fake.followups.length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("apply：session-start 注入仍在 inbox 待消费 → 首个 step-end 不重复注入（去重读面含 inbox）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-test-"));
+  try {
+    const fake = fakeCtx();
+    await apply(fake.ctx, { stateDir: dir });
+    const service = fake.provided.get("ruleEngine") as {
+      registerConsumer(input: {
+        id: string;
+        sources: readonly string[];
+        delivery?: string;
+        dedupeInRecord?: number;
+        decide(): { text: string; summary: string } | null;
+      }): () => void;
+    };
+    service.registerConsumer({
+      id: "guide",
+      sources: ["session-start", "step-end"],
+      delivery: "steer",
+      dedupeInRecord: 1,
+      decide: () => ({ text: "[符号规范] 指南", summary: "指南" }),
+    });
+
+    // session-start：注入一条；真机上此时它挂在 next-step 队列、尚未进入可见投影
+    fake.createdListener?.({ id: "s1" });
+    await tick();
+    assert.equal(fake.steers.length, 1, "session-start 注入一条");
+    const injected = fake.steers[0];
+    assert.ok(injected !== undefined);
+    fake.inbox["next-step"].push(injected);
+
+    // 首个 step/end（真机 seq 17）：可见投影还没有它，但 inbox 待消费 → 计为已注入
+    fake.listener?.({ id: "s1" }, { type: "step/end", data: { turn: 1 } });
+    await tick();
+    assert.equal(fake.steers.length, 1, "inbox 待消费即算已注入 → 不重复注入");
+
+    // claim 之后（真机 seq 18）：离开 inbox、进入可见投影 → 仍不重复
+    fake.inbox["next-step"].length = 0;
+    fake.session.deriveMessages = () => [injected];
+    fake.listener?.({ id: "s1" }, { type: "turn/start", data: { turn: 2 } });
+    fake.listener?.({ id: "s1" }, { type: "step/end", data: { turn: 2 } });
+    await tick();
+    assert.equal(fake.steers.length, 1, "可见投影里已有 → 不重复注入");
+
+    // 压缩把注入挤出记录（inbox 空 + 投影空）→ step-end 兜底补一次
+    fake.session.deriveMessages = () => [];
+    fake.listener?.({ id: "s1" }, { type: "turn/start", data: { turn: 3 } });
+    fake.listener?.({ id: "s1" }, { type: "step/end", data: { turn: 3 } });
+    await tick();
+    assert.equal(fake.steers.length, 2, "记录里没了 → 兜底补一次");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("apply：inbox 非本引擎消息不计入去重；inbox 读取抛错 → 照旧补注入（fail-open）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-test-"));
+  try {
+    const registerGuide = (fake: ReturnType<typeof fakeCtx>): void => {
+      const service = fake.provided.get("ruleEngine") as {
+        registerConsumer(input: {
+          id: string;
+          sources: readonly string[];
+          delivery?: string;
+          dedupeInRecord?: number;
+          decide(): { text: string; summary: string } | null;
+        }): () => void;
+      };
+      service.registerConsumer({
+        id: "guide",
+        sources: ["session-start", "step-end"],
+        delivery: "steer",
+        dedupeInRecord: 1,
+        decide: () => ({ text: "指南", summary: "指南" }),
+      });
+    };
+
+    // ① inbox 只有普通用户消息：不算「本引擎注入」→ step-end 兜底照发
+    const fakeA = fakeCtx();
+    fakeA.inbox["next-step"].push({ role: "user", source: { kind: "user" } });
+    await apply(fakeA.ctx, { stateDir: dir });
+    registerGuide(fakeA);
+    fakeA.createdListener?.({ id: "s1" });
+    await tick();
+    assert.equal(fakeA.steers.length, 1);
+    fakeA.listener?.({ id: "s1" }, { type: "step/end", data: { turn: 1 } });
+    await tick();
+    assert.equal(fakeA.steers.length, 2, "非本引擎来源不计入 → 兜底注入");
+
+    // ② sessionProjections.stateOf 抛错：不阻断链路 → 按可见投影判断，照旧注入
+    const fakeB = fakeCtx();
+    await apply(
+      {
+        ...fakeB.ctx,
+        get: (name: string) =>
+          name === "sessionProjections"
+            ? {
+                stateOf: () => {
+                  throw new Error("projection boom");
+                },
+              }
+            : fakeB.ctx.get(name),
+      },
+      { stateDir: dir },
+    );
+    registerGuide(fakeB);
+    fakeB.createdListener?.({ id: "s1" });
+    await tick();
+    assert.equal(fakeB.steers.length, 1);
+    fakeB.listener?.({ id: "s1" }, { type: "step/end", data: { turn: 1 } });
+    await tick();
+    assert.equal(fakeB.steers.length, 2, "inbox 读取失败 fail-open → 照旧注入");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

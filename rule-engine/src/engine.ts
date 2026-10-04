@@ -17,8 +17,9 @@
  *
  * 节流与去重（同一会话内）：每规则 `cooldownTurns` / `cooldownMs`；每回合注入条数上限
  * `maxInjectionsPerTurn`；同一回合内相同正文只注入一次（不同规则同文案也只发一条）；
- * `dedupeInRecord` 规则再按**会话可见投影**去重（重载不重复注入，压缩后投影里没了才补）；
- * 声明在 `directWrite` 里的节点**跳过该投影判断**直接写入（规则与消费者同口径）。
+ * `dedupeInRecord` 规则再按**会话记录**去重（可见投影 + 未消费 inbox，读面由接线层合成；
+ * 重载不重复注入，压缩后记录里没了才补）；
+ * 声明在 `directWrite` 里的节点**跳过该去重判断**直接写入（规则与消费者同口径）。
  *
  * **红线**：本层可能在 `Session.append` 的同步派发窗口内被调用，因此不得在此同步调用
  * `agent.followup()`（会撞重入保护导致消息不落盘）——推迟由注入器负责。
@@ -166,7 +167,8 @@ export interface EngineOptions {
   injector: Injector;
   /** 同一会话同一来源回合的注入上限，缺省 3。 */
   maxInjectionsPerTurn?: number;
-  /** 会话可见投影读取（`dedupeInRecord` 判据）；缺省或读不到 → 去重失效、照旧注入。 */
+  /** 会话记录读取（`dedupeInRecord` 判据；接线层合成「可见投影 + 未消费 inbox」）；
+   *  缺省或读不到 → 去重失效、照旧注入。 */
   messagesOf?: (sessionId: string) => readonly unknown[];
   /** 时钟（测试缝），缺省 Date.now。 */
   now?: () => number;
@@ -678,7 +680,7 @@ export class RuleEngine {
         if (rule.cooldownMs > 0 && now - last.time < rule.cooldownMs) continue;
       }
       const summary = rule.action.summary ?? boundSummary(rule.action.text);
-      // 按记录去重：投影里已有 N 条本注入 → 不产出，仍记本次命中（避免每次触发都重读投影）；
+      // 按记录去重：记录里已有 N 条本注入 → 不产出，仍记本次命中（避免每次触发都重读记录）；
       // 直写节点（directWrite）跳过该判断、直接写入
       if (
         !rule.directWrite.includes(trigger) &&
@@ -698,7 +700,7 @@ export class RuleEngine {
     }
   }
 
-  /** 消费者唤醒收集：对齐 flag → 冷却 → decide → 投影计数去重 → 产出段。 */
+  /** 消费者唤醒收集：对齐 flag → 冷却 → decide → 记录计数去重 → 产出段。 */
   #collectConsumers(
     trigger: RuleSource,
     text: string,
@@ -896,7 +898,7 @@ export class RuleEngine {
     return wake;
   }
 
-  /** 会话可见投影里本引擎注入的条数（`summary` 或 `summaries` 命中该 key）。 */
+  /** 会话记录里本引擎注入的条数（`summary` 或 `summaries` 命中该 key）；读面由接线层给出。 */
   #countInRecord(sessionId: string, key: string): number {
     const messages = this.#messagesOf?.(sessionId);
     if (!Array.isArray(messages)) return 0;

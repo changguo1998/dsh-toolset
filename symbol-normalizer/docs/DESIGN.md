@@ -33,4 +33,4 @@ symbols.ts  纯函数：治理区段 / 推荐白名单 / 别名表 / normalizeSy
 1. **硬依赖 rule-engine**（`inject: ["ruleEngine"]`）：插件职责就是消费者接入；rule-engine 缺席时本插件不加载（TUI 回退原文透传）。
 1. **无运行时 schema**：沿用本仓松口径（宿主原样透传配置，缺省由 `resolveSymbolRules` 收敛）。
 1. **可观测性**：apply 写 stderr 自证日志（推荐 / 别名 / 冷却 / warnModel）；`decide` 内异常不外抛（rule-engine 侧也会隔离）。
-1. **开局指南（F2）按 rule-engine 统一标准注册**（2026-10-01「注入标准统一与合并」起；2026-10-02「注入时机直写」改为多节点 + 直写）：`sources: ["session-start", "compaction", "step-end"]` + `delivery: "steer"` + `dedupeInRecord: 1` + `directWrite: ["session-start", "compaction"]`——`session-start`（含恢复）与 `compaction` 跳过可见投影判断直接写入，`step-end` 按可见投影判断（最多 1 条，压缩挤出后补回）；与 skill 自加载规则同节点同组 → 合并成一条注入；不再自管进程内 gate 与历史判空（那份逻辑已删）。`提醒` 类回合反馈仍不走去重（每次违规都该说）。
+1. **开局指南（F2）按 rule-engine 统一标准注册**（2026-10-01「注入标准统一与合并」起；2026-10-02「注入时机直写」改为多节点 + 直写）：`sources: ["session-start", "compaction", "step-end"]` + `delivery: "steer"` + `dedupeInRecord: 1` + `directWrite: ["session-start", "compaction"]`——`session-start`（含恢复）与 `compaction` 跳过记录去重判断直接写入，`step-end` 按会话记录（可见投影 + 未消费 inbox）判断（最多 1 条，压缩挤出后补回）；与 skill 自加载规则同节点同组 → 合并成一条注入；不再自管进程内 gate 与历史判空（那份逻辑已删）。`提醒` 类回合反馈仍不走去重（每次违规都该说）。

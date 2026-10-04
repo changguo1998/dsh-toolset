@@ -72,10 +72,6 @@
 
 | 1 | **更新文档**：**全目录文档整理**（各模块 `README.md` / `DESIGN.md` / `docs/` 与实现的漂移、能力列举与索引补齐等），**不规定具体文件**——由**用户择时**进行，不由 agent 按文件清单接取；`docs/STATUS.md` 同为用户择时更新。来源：用户 2026-10-05 指示（先合并为一条项目级条目，后改为不限定文件、用户自行整理） | 全目录 `docs/`（用户择时执行） | — | P3 |
 
-| 2 | **注入段数余量为 0**：`rule-engine` 的 `maxInjectionsPerTurn` 缺省 3，而 `session-start` 同节点同 delivery 恰好 3 段（skill 规则 + 符号指南 + ponytail 阶梯）；再有一段就只留一行 stderr warning 即被**静默丢弃**（丢注册顺序最后者，profile bundles 里 ponytail 排末位）。真实同计数键的路径：某回合内 `compaction` 直写 2 段 → 步末 ponytail 1 段 → `turn-end` 的符号审查反馈即第 4 段被丢（`session-start` 用 `state.turn`、`turn-end` 用 `data.turn`，两者不是同一计数键，不会互相挤占）。来源：2026-10-05 注入正文精简任务的决策审阅（次要项） | `~/.dsh/profiles/fff/cordis.patch.yml`（设 `maxInjectionsPerTurn: 4`）或 `rule-engine` 文档写明口径 | 15 min | P3 |
-
-| 3 | **ponytail 文档的 sources / delivery 与代码缺省不一致**：`ponytail/README.md` 配置示例写 `sources: ['session-start']`、`ponytail/docs/DESIGN.md` 写 `delivery: "inject"` / `缺省 sources: ["session-start"]`，而代码缺省是 `delivery: "steer"` + `sources: ["session-start", "step-end"]`（`src/main.ts` `resolveConfig`）。来源：2026-10-05 注入正文精简任务的决策审阅（次要项，非本次改动引入） | `ponytail/README.md`、`ponytail/docs/DESIGN.md` | 15 min | P3 |
-
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：goal-contract / metric-loop、知识库记忆层与淘汰提升、fan-out 就绪池、hash-edit / ast-tools、security-guard / herdr-integration 等）均已完成。

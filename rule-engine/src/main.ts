@@ -110,6 +110,11 @@ interface ToolsRegistrar {
   register(def: unknown): void;
 }
 
+/** 会话投影注册表最小形态（`ctx.get('sessionProjections')`；只读某会话的投影状态）。 */
+interface ProjectionRegistryLike {
+  stateOf(session: unknown, key: string): unknown;
+}
+
 /** ctx 结构面（只声明本插件用到的成员）。 */
 interface PluginContext {
   on?: EventBus["on"];
@@ -125,7 +130,7 @@ interface PluginContext {
   };
   sessions?: {
     flush(session: unknown): unknown;
-    /** 会话句柄读取（`dedupeInRecord` 判据用；缺省 → 去重失效、照旧注入）。 */
+    /** 会话句柄读取（`dedupeInRecord` 判据用：可见投影 + inbox 待消费；缺省 → 去重失效、照旧注入）。 */
     get?(id: string): unknown;
   };
   provide?: (name: string, value: unknown) => unknown;
@@ -184,13 +189,19 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       { agents: c.agents, sessions: c.sessions },
       { warn },
     );
+    // 会话投影注册表（可选面）：`dedupeInRecord` 判据要读 inbox 待消费注入，见 sessionMessagesOf
+    const projections = readOptional<ProjectionRegistryLike>(
+      c,
+      "sessionProjections",
+    );
     const engine = new RuleEngine({
       baseline: config?.rules ?? [],
       stateDir,
       injector,
       maxInjectionsPerTurn:
         config?.maxInjectionsPerTurn ?? DEFAULT_MAX_INJECTIONS_PER_TURN,
-      messagesOf: (sessionId) => sessionMessagesOf(c.sessions, sessionId),
+      messagesOf: (sessionId) =>
+        sessionMessagesOf(c.sessions, sessionId, projections),
       warn,
     });
 
@@ -274,16 +285,61 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   }
 }
 
-/** 会话可见投影读取（`dedupeInRecord` 判据）：读不到 / 未实现 → 空数组（照旧注入）。 */
+/**
+ * 会话记录读面（`dedupeInRecord` 判据）：**可见投影**（`deriveMessages()`）加**仍在 inbox
+ * 待消费**的注入消息（`sessionProjections` 的 `inbox` 投影：`next-step` / `next-turn`）。
+ *
+ * 为什么必须带上 inbox：`steer` / `inject` 注入先落 `next-step` 队列，直到**下一个步边界**
+ * 才被 claim 进会话；而 `step-end` 派发发生在同一边界、且早于 claim——只读投影会把刚写出的
+ * 注入判成「不存在」，使 `session-start` 之后的第一个 `step-end` 重复注入（2026-10-05 真机
+ * 会话实证：seq 6 注入 → seq 17 step/end 判定 → seq 18 才 claim → seq 19 重复注入符号指南
+ * 与 ponytail）。inbox 投影随会话日志持久重建（重启后仍准）；被 claim 后自然从 inbox 转入
+ * 可见投影，计数不变量不变。
+ *
+ * 读不到（宿主面缺失 / 投影未注册 / 抛错）→ 只返回可见投影（照旧注入，fail-open：
+ * 宁可重复，不可永久丢注入）。
+ */
 function sessionMessagesOf(
   sessions: PluginContext["sessions"],
   sessionId: string,
+  projections?: ProjectionRegistryLike,
 ): readonly unknown[] {
   const session = sessions?.get?.(sessionId);
+  return [
+    ...derivedMessagesOf(session),
+    ...pendingInboxMessages(projections, session),
+  ];
+}
+
+/** 可见投影消息（`deriveMessages()`；读不到 / 未实现 → 空数组）。 */
+function derivedMessagesOf(session: unknown): readonly unknown[] {
   const messages = (
     session as { deriveMessages?: () => unknown } | null | undefined
   )?.deriveMessages?.();
   return Array.isArray(messages) ? messages : [];
+}
+
+/** inbox 待消费消息（`next-step` + `next-turn`；读不到 / 非法 → 空数组）。 */
+function pendingInboxMessages(
+  projections: ProjectionRegistryLike | undefined,
+  session: unknown,
+): readonly unknown[] {
+  if (projections === undefined || session === undefined || session === null) {
+    return [];
+  }
+  try {
+    const state = projections.stateOf(session, "inbox") as {
+      "next-step"?: unknown;
+      "next-turn"?: unknown;
+    } | null;
+    const out: unknown[] = [];
+    for (const list of [state?.["next-step"], state?.["next-turn"]]) {
+      if (Array.isArray(list)) out.push(...list);
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 /** 可选服务的严格安全读取（未注入服务的直接属性访问在 cordis 严格模式下抛错）。 */

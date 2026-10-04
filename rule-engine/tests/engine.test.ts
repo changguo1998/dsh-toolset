@@ -828,7 +828,7 @@ test("规则多节点 + 直写：session-start / compaction 命中，投影已�
   );
 });
 
-test("消费者直写：session-start / compaction 跳过投影判断，step-end 仍判断", () => {
+test("消费者直写：session-start / compaction 跳过记录判断，step-end 仍判断", () => {
   const messages: Array<Record<string, unknown>> = [
     { source: { kind: "rule-engine", summary: "键" } },
   ];
@@ -848,7 +848,7 @@ test("消费者直写：session-start / compaction 跳过投影判断，step-end
       engine.handle(SESSION, compactionEnd(1));
       assert.equal(injected.length, 2, "compaction 直写");
       engine.handle(SESSION, stepEnd(1, 1));
-      assert.equal(injected.length, 2, "step-end 仍按投影判断 → 跳过");
+      assert.equal(injected.length, 2, "step-end 仍按记录判断 → 跳过");
       messages.length = 0;
       engine.handle(SESSION, turnStart(2));
       engine.handle(SESSION, stepEnd(2, 1));

@@ -40,7 +40,7 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 
 - 会话开局注入一次「推荐符号白名单 + 符号使用标准」（禁用 emoji/列宽不定字符、变体必须用推荐对应符、使用场景口径、代码段豁免说明），让模型开局即按规范输出；
 - 文本**由 config 生成**（白名单取自 `recommended`、变体映射取自 `aliases`，最多列 20 条），改配置即改注入内容；
-- 触发与去重走 rule-engine 统一标准：注册 `sources: ["session-start", "compaction", "step-end"]` + `delivery: "steer"` + `dedupeInRecord: 1` + `directWrite: ["session-start", "compaction"]`——会话建立（含恢复）与压缩完成**直写**（不看可见投影，恢复会话会再注入一次），步末按可见投影判断（投影里最多 1 条，被压缩挤出后自然补回）；与 skill 自加载规则同节点同组，故同一次触发合并成一条注入；`injectGuide: false` 关闭；
+- 触发与去重走 rule-engine 统一标准：注册 `sources: ["session-start", "compaction", "step-end"]` + `delivery: "steer"` + `dedupeInRecord: 1` + `directWrite: ["session-start", "compaction"]`——会话建立（含恢复）与压缩完成**直写**（跳过记录去重判断，恢复会话会再注入一次），步末按会话记录判断（记录 = 可见投影 + 未消费 inbox，最多 1 条；被压缩挤出后自然补回）；与 skill 自加载规则同节点同组，故同一次触发合并成一条注入；`injectGuide: false` 关闭；
 - 通道同为 rule-engine 消费者；**已知时序边界**：注入发生在首个可行回合边界（宿主指令面 `@deepseek-ai/dsh-agent-instructions` 只读取固定候选路径的指令文件，无插件注册口，故无法早于首个请求）。
 
 ### 4. 服务（`provide("symbolNormalizer")`）
