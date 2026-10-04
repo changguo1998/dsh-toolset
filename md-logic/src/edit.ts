@@ -26,66 +26,158 @@ import { parseMarkdownDocument } from "./parse.ts";
 import { flattenSections } from "./query.ts";
 
 /**
+ * 剥离**容器前缀**（列表项 / 引用块）：循环去掉行首的「≤3 空格 + `>`（可缺空格）」与
+ * 「≤3 空格 + 列表记号（`-` / `*` / `+` / `1.` / `1)`，记号后须跟空白）」，返回容器正文。
+ * 用途：CommonMark 解析围栏 / 注释时容器记号会被剥离、内容按剩余缩进进入块级解析——
+ * 若只看行首 ≤3 空格，容器内的围栏会与真实相位错开一格（缩进闭行被当开栏 → 误拒或漏拦，
+ * 见 `docs/BACKLOG.md`「围栏 / 注释判定的容器盲」）。
+ * @param line - 原始行（不含换行）
+ * @returns 剥掉容器记号后的正文（无容器记号 → 原行）
+ */
+function stripContainerPrefix(line: string): string {
+  let rest = line;
+  for (;;) {
+    const prefix = /^ {0,3}(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)/.exec(
+      rest,
+    );
+    if (prefix === null) return rest;
+    rest = rest.slice(prefix[0].length);
+  }
+}
+
+/**
+ * 文档大纲签名（结构裁决用）：拍平成 `层级:标题` 序列——用于比较「改前 / 改后」的节集合，
+ * 判定 content 是否让**其后的节**从节树里消失（比字符串启发式精确：直接问解析器）。
+ * @param text - 完整文档文本
+ * @returns 大纲签名序列（深度优先）
+ */
+function sectionOutline(text: string): string[] {
+  return flattenSections(parseMarkdownDocument(text).sections).map(
+    (section) => `${section.level}:${section.title}`,
+  );
+}
+
+/**
+ * 行的**容器相位**：容器前缀长度 + 正文的前导空白数（= 该行块级内容的起始列）。
+ * 用途：围栏的闭行必须落在与开栏**同一相位族**（`[phase, phase+3]`）——容器内的围栏不能
+ * 被更浅的散围栏闭合（`- ```sh` + 缩进正文 + 顶层 ```` ``` ```` 真会吞掉其后节）。
+ * @param line - 原始行（不含换行）
+ * @returns 相位列（顶层无容器 → 即该行前导空白数）
+ */
+function containerPhase(line: string): number {
+  const body = stripContainerPrefix(line);
+  return line.length - body.length + (body.length - body.trimStart().length);
+}
+
+/**
  * content 内的**未闭合块**检测（①.5 结构守卫用）：CommonMark 里未闭合的代码围栏与 `<!--`
  * 都**直到文件结尾**才结束 → 写入后其后所有行被并进该块，**节从节树里静默消失**（既有
  * fenced 守卫与层级守卫都不拦：吞并发生在 parser 内部，解析结果「少了几节」且不报错）。
  * 扫描口径对齐 CommonMark 的**起点判定**（误拒会挡掉合法写入，故只拦「确实会吞块」的写法）：
- * - 围栏开栏：`^ {0,3}(` + 三连反引号 / 波浪号 + `)`，且**反引号围栏的 info 串不得含反引号**
- *   （含反引号的行是普通文本——漏判会把「后面的真开栏」误当闭行，真吞节却放行）；
- * - 围栏闭行：同字符、长度 ≥ 开栏、除空白外无 info；
- * - 注释开栏：**行首**（≤3 空格）的 `<!--`（段中 / 列表 / 缩进代码块里的 `<!--` 是行内 HTML，
- *   不吞块）；注释开栏期内**不认围栏**（注释块内一切都是字面内容），等 `-->` 收束；
+ * - 围栏开栏：**剥掉容器前缀**（列表项 / 引用块记号，见 `stripContainerPrefix`）后 `^ {0,3}(` +
+ *   三连反引号 / 波浪号 + `)`，且**反引号围栏的 info 串不得含反引号**（含反引号的行是普通文本
+ *   ——漏判会把「后面的真开栏」误当闭行，真吞节却放行）；
+ * - 围栏闭行：同字符、长度 ≥ 开栏、除空白外无 info，且**与开栏同相位族**（`[phase, phase+3]`，
+ *   相位 = 容器前缀长度 + 正文前导空白；容器内的围栏不会被更浅的散围栏闭合）；带容器记号的
+ *   行不能闭合**顶层**围栏（顶层围栏正文里演示的 `- ``` ` 是字面内容）；
+ * - 注释开栏：**剥掉容器前缀**后的行首（≤3 空格）`<!--`（段中 / 缩进代码块里的 `<!--` 是行内
+ *   HTML，不吞块）；注释开栏期内**不认围栏**（注释块内一切都是字面内容），等 `-->` 收束；
  * - 行内代码先剥离（`` `<!--` `` 不是注释）；上述之外不判。
  * @param content - 已归一的 content 文本（调用方保证换行为 `\n`）
  * @returns 未闭合说明（直接可用的错误文案）；配对正常 → `undefined`
+ * - **容器内**开栏（围栏 / 注释）在容器结束处即被截断（实测 marked 行为）→ 一般不吞后节，
+ *   故不收窄也不报错；但**顶层**开栏的未闭合、以及「开着围栏时又出现相位 / 前缀不符的
+ *   类闭行」（实测该形态真吞其后节）都报 `content_invalid`。
  */
 function unclosedBlockReason(content: string): string | undefined {
   const lines = content.split("\n");
-  let fence: { char: string; size: number; line: number } | undefined;
+  let fence:
+    | {
+        char: string;
+        size: number;
+        line: number;
+        phase: number;
+        inContainer: boolean;
+      }
+    | undefined;
   let commentLine: number | undefined;
+  // 容器内开栏的注释同样在容器结束处被截断 → 不吞其后节
+  let commentInContainer = false;
+  // 围栏开着时出现「看着像闭行但相位 / 前缀不符」的行：作者多半想闭合它，而实测该形态
+  // **真会吞掉其后节**（marked 不把它当闭行、围栏继续吃掉后续内容）→ 记冲突，收尾必拒
+  let fenceConflict = false;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? "";
     const lineNo = index + 1;
     // 注释块内：一切（含围栏符号 / 行内代码）都是注释内容，只等 `-->`
     if (commentLine !== undefined) {
-      if (line.includes("-->")) commentLine = undefined;
-      continue;
-    }
-    const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    if (fence !== undefined) {
-      // 围栏内不判注释（`<!--` 属代码内容）
-      const closer = fenceMatch?.[1];
-      if (
-        closer !== undefined &&
-        closer[0] === fence.char &&
-        closer.length >= fence.size &&
-        (fenceMatch?.[2] ?? "").trim() === ""
-      ) {
-        fence = undefined;
+      if (line.includes("-->")) {
+        commentLine = undefined;
+        commentInContainer = false;
       }
       continue;
     }
+    // 容器（列表项 / 引用块）内的围栏 / 注释：先剥容器前缀再判（相位与真实解析一致）。
+    // 但**围栏正文里**的容器记号是字面内容（如顶层围栏内演示 `- ``` `），故闭行判定只在
+    // 「开栏本身就在容器内」时剥离——否则会把围栏正文里的 `- ``` ` 误当闭行（漏拦）。
+    const body = stripContainerPrefix(line);
+    const prefixLen = line.length - body.length;
+    const phase = containerPhase(line);
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(body);
+    if (fence !== undefined) {
+      // 围栏内不判注释（`<!--` 属代码内容）；闭行须同相位族，且**带容器记号的行走不进
+      // 顶层围栏**（顶层围栏正文里演示的 `- ``` ` 是字面内容，不是闭行）
+      const closer = fenceMatch?.[1];
+      const sameRun =
+        closer !== undefined &&
+        closer[0] === fence.char &&
+        closer.length >= fence.size;
+      const noInfo = (fenceMatch?.[2] ?? "").trim() === "";
+      // 闭行接受条件按开栏形态分两种：
+      // ① 顶层开栏（无容器记号）→ 同字符 + 无 info + 缩进 ≤3 且本行**无容器记号**
+      //    （顶层围栏正文里演示的 `- ``` ` 不算闭行）；
+      // ② 容器内开栏 → 闭行须落在**同相位族** `[phase, phase+3]`（更浅的顶层散围栏不闭合它，
+      //    实测那种写法真吞其后节）。
+      const accepted = fence.inContainer
+        ? sameRun && noInfo && phase >= fence.phase && phase <= fence.phase + 3
+        : sameRun && noInfo && phase <= 3 && prefixLen === 0;
+      if (accepted) {
+        fence = undefined;
+        continue;
+      }
+      // 看着像闭行（同字符、长度够）却不被接受 → 记录冲突（收尾必拒，见字段注释）
+      if (sameRun) fenceConflict = true;
+      continue;
+    }
+    // 开栏：恒在**剥离容器前缀后**的正文上判（容器内的围栏与真实解析相位一致）
     const opener = fenceOpener(fenceMatch);
     if (opener !== undefined) {
-      fence = { char: opener.char, size: opener.size, line: lineNo };
+      fence = {
+        char: opener.char,
+        size: opener.size,
+        line: lineNo,
+        phase,
+        inContainer: prefixLen > 0,
+      };
       continue;
     }
     // 行内代码里的 `<!--` 不是注释（CommonMark 先解析 code span）
-    const scrubbed = line.replace(/`+[^`]*`+/g, "");
+    const scrubbed = body.replace(/`+[^`]*`+/g, "");
     // 注释开栏：行首（≤3 空格）的 `<!--`，且本行内没有 `-->` 配对（HTML block type 2 在
     // 首个 `-->` 处结束 → 同行配对不吞块）
     if (/^ {0,3}<!--/.test(scrubbed) && !scrubbed.includes("-->")) {
       commentLine = lineNo;
+      commentInContainer = prefixLen > 0;
     }
   }
-  if (fence !== undefined) {
+  if (fence !== undefined && (!fence.inContainer || fenceConflict)) {
     return (
       `edit.content 内第 ${fence.line} 行的代码围栏未闭合（${fence.char.repeat(fence.size)}）：` +
       "CommonMark 里未闭合围栏直到文件结尾，会把**其后所有节**并进该块（节从节树消失）；" +
       "补上闭合行，或改用 hash_edit / 官方 edit"
     );
   }
-  if (commentLine !== undefined) {
+  if (commentLine !== undefined && !commentInContainer) {
     return (
       `edit.content 内第 ${commentLine} 行的 HTML 注释未闭合（\`<!--\` 缺 \`-->\`）：` +
       "注释直到文件结尾，会吞掉其后所有节；补上 `-->`，或改用 hash_edit / 官方 edit"
@@ -419,7 +511,9 @@ export function replaceSections(
     const content = item.edit.content;
     if (content === "") continue; // 空串 = 删除该节（既有语义）
     const normalizedContent = normalize(content);
-    const first = parseMarkdownDocument(normalizedContent).sections[0];
+    // 同一份 content 只解析一次（下面层级 / stray / 结构裁决都要用）
+    const contentDoc = parseMarkdownDocument(normalizedContent);
+    const first = contentDoc.sections[0];
     if (first === undefined || first.line !== 1 || first.title === "") {
       return {
         ok: false,
@@ -457,9 +551,7 @@ export function replaceSections(
     }
     // 首行之外的标题也不能「≤ 目标节层级」：内嵌同级 / 更高级标题同样会改动其后节的归属
     // （例：h2 节的 content 里写 `# 偷渡` → 该节被提前收束，后续同级节被吞进新顶层节）
-    const stray = flattenSections(
-      parseMarkdownDocument(normalizedContent).sections,
-    )
+    const stray = flattenSections(contentDoc.sections)
       .slice(1)
       .find((node) => node.level <= item.level);
     if (stray !== undefined) {
@@ -472,10 +564,45 @@ export function replaceSections(
           `content 内除首行标题（须为 h${item.level}）外只允许**更深**层级的标题（h${item.level + 1} 及以下）`,
       };
     }
-    // 内容级配对守卫（①.5 收尾）：未闭合围栏 / 注释会吞掉其后**全部节**（静默结构破坏）
-    const unclosed = unclosedBlockReason(normalizedContent);
-    if (unclosed !== undefined) {
-      return { ok: false, code: "content_invalid", error: unclosed };
+    // 内容级结构裁决（①.5 收尾）：把 content 代进去**重新解析**，看目标节**之后**的节是否还在。
+    // 判据用解析器本身（精确），启发式扫描（`unclosedBlockReason`）只负责给出可读成因文案——
+    // 字符串启发式无法穷举容器 / 相位组合（实测既有漏拦也有误拒），故不作判据。
+    // **判据文本必须 ≡ 落盘文本**：③ 落盘时会剥掉 content 的**单个尾随换行**（行终止符），
+    // 这里沿用同一规则——否则「以空行终止的 HTML 块」（`<div>` / `<span>` / 自定义标签，非
+    // type 1）这类空行敏感构造在判据与落盘两处解析出不同结果（实测：`<div>` 结尾且后节标题
+    // 紧贴时，判据多出的空行提前结束该块 → 放行，而落盘真吞其后节）
+    const replacement = (
+      normalizedContent.endsWith("\n")
+        ? normalizedContent.slice(0, -1)
+        : normalizedContent
+    ).split("\n");
+    const candidate = [
+      ...lines.slice(0, item.line - 1),
+      ...replacement,
+      ...lines.slice(item.endLine),
+    ].join("\n");
+    // 「其后节」= 大纲里位于目标节之后、且**不在目标节子树内**（层级 ≤ 目标节）的节：
+    // 目标节自身的标题可改名、其子树可整块重写，都不算「丢节」
+    const prefixCount = flattenSections(
+      parseMarkdownDocument(lines.slice(0, item.line - 1).join("\n")).sections,
+    ).length;
+    const suffix = sectionOutline(lines.join("\n"))
+      .slice(prefixCount)
+      .slice(1)
+      .filter((signature) => Number(signature.split(":")[0]) <= item.level);
+    const after = new Set(sectionOutline(candidate));
+    const lost = suffix.filter((signature) => !after.has(signature));
+    if (lost.length > 0) {
+      const unclosed = unclosedBlockReason(normalizedContent);
+      return {
+        ok: false,
+        code: "content_invalid",
+        error:
+          unclosed ??
+          `edit.content 会让目标节之后的节从节树消失（${lost.join(" / ")}）：` +
+            "常见成因是未闭合的代码围栏 / HTML 注释（CommonMark 里它们直到文件结尾）。" +
+            "补上闭合行，或改用 hash_edit / 官方 edit",
+      };
     }
   }
 

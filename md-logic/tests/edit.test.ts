@@ -723,10 +723,14 @@ test("replaceSections：content 内未闭合围栏 / 注释 → 拒（会吞掉�
   // CommonMark 里两者都直到文件结尾才结束，写入后其后节从节树消失（层级 / fenced 守卫都不拦）
   const doc = "# H\n\n## 甲节\n\n甲正文\n\n## 乙节\n\n乙正文\n";
   const range = rangeOf(doc, "乙节");
-  const unclosedFence = replaceSections(doc, [
+  // 用「目标节之后还有节」的文档：判据是「其后节是否从节树消失」（解析器裁决）
+  const docTail =
+    "# H\n\n## 甲节\n\n甲正文\n\n## 乙节\n\n乙正文\n\n## 丙节\n\n丙\n";
+  const rangeTail = rangeOf(docTail, "乙节");
+  const unclosedFence = replaceSections(docTail, [
     {
       heading: "乙节",
-      ...range,
+      ...rangeTail,
       content: "## 乙节\n\n```sh\npwd\n",
     },
   ]);
@@ -735,10 +739,23 @@ test("replaceSections：content 内未闭合围栏 / 注释 → 拒（会吞掉�
     assert.equal(unclosedFence.code, "content_invalid");
     assert.match(unclosedFence.error, /代码围栏未闭合/);
   }
-  const unclosedComment = replaceSections(doc, [
+  // 目标节是**最后一节**时，未闭合围栏只会吞掉它自己的后续正文（没有别的节会消失）→ 放行
+  const lastSectionFence = replaceSections(doc, [
     {
       heading: "乙节",
       ...range,
+      content: "## 乙节\n\n```sh\npwd\n",
+    },
+  ]);
+  assert.equal(
+    lastSectionFence.ok,
+    true,
+    "目标节之后无其它节 → 不存在「丢节」，不做结构拦截",
+  );
+  const unclosedComment = replaceSections(docTail, [
+    {
+      heading: "乙节",
+      ...rangeTail,
       content: "## 乙节\n\n<!-- 注释没关\n\n正文\n",
     },
   ]);
@@ -749,10 +766,10 @@ test("replaceSections：content 内未闭合围栏 / 注释 → 拒（会吞掉�
   }
   // 漏拦面（审阅实测）：反引号围栏的 info 串含反引号时**不是开栏**（CommonMark）——
   // 若误当开栏，会把后面真正的开栏当闭行 → 真吞节却被放行
-  const leaked = replaceSections(doc, [
+  const leaked = replaceSections(docTail, [
     {
       heading: "乙节",
-      ...range,
+      ...rangeTail,
       content: "## 乙节\n\n```a`b\nx\n```\n",
     },
   ]);
@@ -762,34 +779,162 @@ test("replaceSections：content 内未闭合围栏 / 注释 → 拒（会吞掉�
     "info 含反引号不是开栏，后续 ``` 才是真开栏（未闭合）",
   );
   if (!leaked.ok) assert.match(leaked.error, /代码围栏未闭合/);
-  // 已知限制（容器盲，既有）：列表项内围栏的开栏判定只看行首 ≤3 空格 → 与真实相位错开一格。
-  // 两条按**现状** pin 住（逻辑层容器化见 md-logic/docs/BACKLOG.md）：
-  // ① 单个列表项内的围栏（落盘并不吞节）会被误拒；
-  const containerOnly = replaceSections(doc, [
+  // 容器化（2026-10-05）：列表项 / 引用块内的围栏与注释按**剥离容器前缀后的相位**判定。
+  // 用带后续节的文档，断言「配对容器围栏不吞其后节」（重解析节数不变）
+  const doc3 = "# H\n\n## 甲节\n\n甲\n\n## 乙节\n\n乙\n\n## 丙节\n\n丙\n";
+  const range3 = rangeOf(doc3, "乙节");
+  const containerFence = replaceSections(doc3, [
     {
       heading: "乙节",
-      ...range,
+      ...range3,
       content: "## 乙节\n\n- ```sh\n  pwd\n  ```\n",
     },
   ]);
   assert.equal(
-    containerOnly.ok,
-    false,
-    "容器内围栏：当前误拒（已知限制，待容器化）",
+    containerFence.ok,
+    true,
+    "容器内配对围栏应放行: " + JSON.stringify(containerFence),
   );
-  // ② 容器内围栏后再跟一行散围栏（真吞后节）会被漏拦。
-  const containerLeak = replaceSections(doc, [
+  if (containerFence.ok) {
+    assert.deepEqual(
+      flattenSections(parseMarkdownDocument(containerFence.text).sections).map(
+        (section) => section.title,
+      ),
+      ["H", "甲节", "乙节", "丙节"],
+      "容器内配对围栏不得吞掉其后节（H / 甲 / 乙 / 丙 四节仍在）",
+    );
+  }
+  // 容器内围栏 + 一行散围栏 = 散围栏成开栏且无闭行 → 真吞其后节，必须拒
+  const containerLeak = replaceSections(doc3, [
     {
       heading: "乙节",
-      ...range,
+      ...range3,
       content: "## 乙节\n\n- ```sh\n  pwd\n  ```\n```\n",
     },
   ]);
   assert.equal(
     containerLeak.ok,
-    true,
-    "容器内围栏 + 散围栏：当前漏拦（已知限制，待容器化）",
+    false,
+    "容器内围栏后的散围栏是未闭合开栏，必须拒",
   );
+  if (!containerLeak.ok) assert.match(containerLeak.error, /代码围栏未闭合/);
+  // 引用块 / 嵌套（引用块内列表项）/ 列表内注释：配对 → 放行
+  for (const content of [
+    "## 乙节\n\n> ```sh\n> pwd\n> ```\n",
+    "## 乙节\n\n> - ```sh\n>   pwd\n>   ```\n",
+    "## 乙节\n\n- <!-- 注释\n  -->\n",
+    "## 乙节\n\n1. ```sh\n   pwd\n   ```\n",
+  ]) {
+    const ok = replaceSections(doc3, [{ heading: "乙节", ...range3, content }]);
+    assert.equal(
+      ok.ok,
+      true,
+      "容器内配对写法应放行: " +
+        JSON.stringify(content) +
+        " → " +
+        JSON.stringify(ok),
+    );
+  }
+  // 判据文本 ≡ 落盘文本（审阅实测的漏拦形态）：content 以**空行终止的 HTML 块**结尾、且目标节
+  // 之后的第一个节标题**紧贴**时，落盘会因 ③ 剥掉单个尾随换行而真吞其后节 → 必须拒
+  const tightHtmlTail = replaceSections(
+    "## 乙\n乙正文\n## 丙\n丙正文\n",
+    [
+      {
+        heading: "乙",
+        ...rangeOf("## 乙\n乙正文\n## 丙\n丙正文\n", "乙"),
+        content: "## 乙\n\n<div>\n",
+      },
+    ],
+  );
+  assert.equal(
+    tightHtmlTail.ok,
+    false,
+    "空行终止的 HTML 块 + 紧贴后节标题：判据须与落盘同口径（真吞其后节）→ 拒",
+  );
+  // 子树收缩（content 丢弃原有子节）是**合法**重写，不算丢节
+  const shrinkSubtree = replaceSections(
+    "# H\n\n## 甲\n\n甲\n\n## 乙\n\n乙\n\n### 乙.1\n\n子\n\n## 丙\n\n丙\n",
+    [
+      {
+        heading: "乙",
+        ...rangeOf(
+          "# H\n\n## 甲\n\n甲\n\n## 乙\n\n乙\n\n### 乙.1\n\n子\n\n## 丙\n\n丙\n",
+          "乙",
+        ),
+        content: "## 乙\n\n改写后只剩本节（子节被移除）\n",
+      },
+    ],
+  );
+  assert.equal(
+    shrinkSubtree.ok,
+    true,
+    "子树收缩不算丢节: " + JSON.stringify(shrinkSubtree),
+  );
+  // 相位族（审阅实测的真实语义）：容器内围栏**只能被同相位族的闭行**闭合——
+  // 顶层散围栏不闭合它，自己反而成了未闭合的顶层围栏（真吞其后节）→ 必须拒；
+  const strayTopFence = replaceSections(doc3, [
+    {
+      heading: "乙节",
+      ...range3,
+      content: "## 乙节\n\n- ```sh\n  pwd\n```\n",
+    },
+  ]);
+  assert.equal(
+    strayTopFence.ok,
+    false,
+    "容器内围栏不被顶层散围栏闭合 → 散围栏自身未闭合，必须拒",
+  );
+  if (!strayTopFence.ok) assert.match(strayTopFence.error, /代码围栏未闭合/);
+  // 容器内未闭合（容器结束即截断，**不吞**其后节）→ 放行（不是结构破坏）
+  for (const content of [
+    "## 乙节\n\n- ```sh\n  pwd\n",
+    "## 乙节\n\n> ```sh\n> pwd\n",
+    "## 乙节\n\n- <!-- 没关的注释\n",
+  ]) {
+    const ok = replaceSections(doc3, [{ heading: "乙节", ...range3, content }]);
+    assert.equal(
+      ok.ok,
+      true,
+      "容器内未闭合块在容器结束处截断、不吞其后节，应放行: " +
+        JSON.stringify(content) +
+        " → " +
+        JSON.stringify(ok),
+    );
+  }
+  // 顶层围栏正文里演示列表围栏（`- ``` `）：不得被当闭行 → 外层围栏仍未闭合，拒
+  const documentedFence = replaceSections(doc3, [
+    {
+      heading: "乙节",
+      ...range3,
+      content: "## 乙节\n\n```markdown\n- ```sh\n- ```\n",
+    },
+  ]);
+  assert.equal(
+    documentedFence.ok,
+    false,
+    "顶层围栏正文里的 `- ``` ` 不是闭行 → 外层围栏未闭合，必须拒",
+  );
+  // 顶层围栏**正文里**的容器记号是字面内容：`- ``` ` 不得被当作闭行（否则外层围栏会「提前闭合」
+  // → 漏拦真吞节）。故闭行剥离只在「开栏本身在容器内」时生效。
+  const innerMarker = replaceSections(doc3, [
+    {
+      heading: "乙节",
+      ...range3,
+      content: "## 乙节\n\n```\n- ```\n\n仍在围栏内\n",
+    },
+  ]);
+  assert.equal(
+    innerMarker.ok,
+    false,
+    "顶层围栏内的 `- ``` ` 不是闭行 → 外层围栏仍未闭合，必须拒",
+  );
+  if (!innerMarker.ok) assert.match(innerMarker.error, /代码围栏未闭合/);
+  // 主题分隔线（`---` / `***`）不是列表记号，不触发容器剥离：不产围栏/注释 → 放行
+  for (const content of ["## 乙节\n\n---\n", "## 乙节\n\n***\n"]) {
+    const ok = replaceSections(doc3, [{ heading: "乙节", ...range3, content }]);
+    assert.equal(ok.ok, true, "主题分隔线应放行: " + JSON.stringify(content));
+  }
   // 放行面（不误伤）：配对围栏（含波浪号 / 更长闭合行 / info 含反引号的「普通文本行」）、
   // 跨行注释、行内代码里的 `<!--`、段中 / 列表 / 缩进代码块里的 `<!--`、注释块内的围栏符号
   const allowed = [
