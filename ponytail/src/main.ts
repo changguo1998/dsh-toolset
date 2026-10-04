@@ -1,5 +1,5 @@
 /**
- * ponytail — 把上游 ponytail 的「懒资深工程师」决策阶梯做成可开关的**上下文注入**（BACKLOG 条目）。
+ * ponytail — 把上游 ponytail 的「懒资深工程师」决策阶梯做成可开关的**上下文注入**。
  *
  * 姿态：与 `symbol-normalizer` 同款 —— `inject: ["ruleEngine"]`，apply 时把自身注册为 rule-engine 的
  * **消费者**（`registerConsumer`）；开启时在 `session-start`（另挂 `step-end` 兜底）注入阶梯正文，

@@ -27,13 +27,15 @@
     dedupeInRecord: 1        # 会话记录里最多 1 条本注入（可见投影 + 未消费 inbox）
     # 唤醒节点，缺省 session-start + step-end（后者兜底）：
     sources: ['session-start', 'step-end']
+    # 投递方式，缺省 steer（挂到最近 pre-step 并唤醒；inject 不唤醒、真机 agent 非 live 时会被丢弃）：
+    # delivery: steer
     # text: '自定义阶梯文本' # 可选：本地试验用
 ```
 
 ## 契约
 
 - `inject: ["ruleEngine"]`（硬依赖；缺席 → 告警且不注册，不影响宿主启动）
-- apply 时经 `ruleEngine.registerConsumer({ id: "ponytail", sources, delivery: "steer", dedupeInRecord, decide })` 注册；
+- apply 时经 `ruleEngine.registerConsumer({ id: "ponytail", sources, delivery, dedupeInRecord, decide })` 注册（五项缺省见 `src/main.ts` 的 `resolveConfig`：`enabled` true、`sources` `["session-start", "step-end"]`、`delivery` `"steer"`、`dedupeInRecord` 1、`text` 为内置阶梯）；
   开启 → 返回阶梯正文 + 摘要；关闭 → `decide` 返回 `null`（不注入）
 - 返回 dispose：注销消费者
 - **不搬**上游的 `hooks/*.js` / `commands/*.toml` / `gemini-extension.json` / `ponytail-mcp`
@@ -41,7 +43,7 @@
 ## 验证
 
 ```sh
-npm --prefix ponytail run check && npm --prefix ponytail test && npm --prefix ponytail run build
+npm --prefix ponytail run check && npm --prefix ponytail run test && npm --prefix ponytail run build
 ```
 
 ## 与 `karpathy-guidelines` 的关系
@@ -49,3 +51,9 @@ npm --prefix ponytail run check && npm --prefix ponytail test && npm --prefix po
 重叠：简单优先、外科手术式改动、不加未请求的抽象。
 差异：ponytail 的阶梯**更前置**（先问「要不要做」）且给出 7 级顺序；`karpathy-guidelines` 面向「写代码时的行为准则」。
 **建议只开一个**（本插件缺省开启；`karpathy-guidelines` 已从默认注入取消，编码行为由阶梯承担，无需双开）。
+
+## 文档
+
+- `docs/DESIGN.md`：本包分层、命令面降级说明与关键设计取舍。
+- `docs/ponytail-investigation.md`（项目级）：上游调研结论与方案取舍。
+- `cordis.patch.yml`：bundle 层挂载行（`enabled: true` + `sources` + `dedupeInRecord: 1`，显式 `false` 可关闭）。

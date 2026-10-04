@@ -1,5 +1,7 @@
 # ponytail 设计（@dsh-toolset/ponytail）
 
+契约与用法见 `../README.md`；上游调研与方案取舍见 `docs/ponytail-investigation.md`（项目级，仓库根）。
+
 ## 目标与边界
 
 把上游 ponytail 的「懒资深工程师」决策阶梯做成**可开关的上下文注入**。边界：**不搬**钩子（DSH 无该面）、不做 MCP、不做 benchmarks；只做「注入 + 开关」。
@@ -8,7 +10,7 @@
 
 - `src/ladder.ts`：阶梯文本**自带副本**（来源 `~/GithubRepos/ponytail` v4.10.3，MIT）+ 摘要常量。文案漂移由 `tests` 的关键词断言守卫。
 - `src/main.ts`：契约符号（`name` / `inject` / `Config` / `apply`）+ `resolveConfig()`（非法值回退缺省）+ 消费者注册（结构化 `RuleEngineLike`，不 import 对方代码）。
-- `cordis.patch.yml`：bundle 层 insert 自身，`enabled: true`（缺省开启；显式 `false` 关闭）。
+- `cordis.patch.yml`：bundle 层 insert 自身（`enabled: true` + `sources: ['session-start', 'step-end']` + `dedupeInRecord: 1`；显式 `false` 关闭）。
 
 ## 命令面（D4 降级说明）
 
