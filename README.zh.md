@@ -22,7 +22,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **fs-digest** | 上下文感知文件读取：`outline`/`signatures`/`pruned` 三模式返回最小充分上下文，替代整文件 `read` |
 | **hash-edit** | LINE:HASH 锚定编辑：读取得到每行内容哈希锚点，编辑按锚点定位，内容过期（stale）整批拒绝、防脏写 |
 | **ast-tools** | 基于 ast-grep 的 AST 结构搜索、结构化替换、文件大纲与 YAML 规则执行（经系统 CLI 子进程，零运行时依赖）；注册模型侧工具 `ast_query`（AST 搜索 / 大纲 / 规则）与 `ast_replace`（默认 dry-run） |
-| **md-logic** | Markdown 逻辑结构（单文件，读 + 按节改写）：节树（每节带 `L{起}-{止}` 行范围）、块清单（列表 / 表格 / 代码块 / 引用 / frontmatter / html / hr，带嵌套层数与表格行列数）与链接 / 图片 / 引用式定义清单；注册模型侧工具 `md_logic`（`structure` / `blocks` / `links`），解析基于 `marked` |
+| **md-logic** | Markdown 逻辑结构（单文件，读 + 按节改写）：节树（每节带 `L{起}-{止}` 行范围）、块清单（列表 / 表格 / 代码块 / 引用 / frontmatter / html / hr，带嵌套层数与表格行列数）与链接 / 图片 / 引用式定义清单；注册模型侧工具 `md_logic`（读面 `structure` / `blocks` / `links`，写面 `replace` 按节整节替换 / 删除），解析基于 `marked` |
 | **md-map** | Markdown 项目级结构与引用分析（文档版的 `code-map`）：索引 `**/*.md` 的标题锚点、文档间链接、wiki 链接、**行内代码路径引用**（`kind:ref`）、代码 / 文件引用与被引计数，查询面 `callers` / `impact` / `orphans` / `report`（含断链与断锚点）；注册模型侧工具 `md_map`，单文件解析复用 `md-logic` |
 | **security-guard** | 安全守卫：危险命令黑名单 + 敏感文件保护策略层，挂在宿主 `tools/pre-execute` 水位线，命令下发前拦截 |
 | **code-map** | 代码结构地图：文件节点 + import 图索引，`callers`/`callees`/`cycles`/`impact` 查询与项目/模块报告（引用为候选，无 LSP 语义层）；经 `link:` 依赖 `@dsh-toolset/ast-tools`（挂载时需一并安装） |

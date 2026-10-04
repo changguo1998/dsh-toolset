@@ -73,7 +73,7 @@
 | 1 | **install.sh `--sync` 的「移除」语义与日志口径**：`--sync` 改到更小选择集时，被移出的本仓库插件会作为 extras 留在 bundles（合并只剔除 `@deepseek-ai/dsh-base`）、依赖也不删 → 实际不卸载，而日志「已保留的额外 bundle」易被读成保留了别的包。二选一：改语义（按当前选择集同步、移除多余的本仓库项）或在日志/README 写明「`--sync` 不卸载本仓库插件」 | 2026-10-03「备份堆积」条目的子代理审阅 | `scripts/install.sh`（`--sync` 合并段）+ 根 README | 0.5-1 h | P3 |
 | 2 | **`docs/STATUS.md` 对齐现状**：该表为用户择时更新的对照文档，当前多处过期——① 「总览」称「12 个插件全部完成」，而状态表缺 `rule-engine` / `symbol-normalizer` / `session-channel` / `session-title-cutoff`（`command-template` 的模板体系也已落地）；② 「剩余 P2 插件（workflow-ext / web-ext / session-broker / command-template）未开始」中 `command-template` 已完成；③ `fs-digest` 行注记「缺陷见 `fs-digest/docs/BACKLOG.md` D1」，而该文件现为「当前无未完成项」；④ 各行单测数为 2026-09 快照（如 knowledge-base 已 39 → 57）。期望：逐包核对后整表回写（含新增包行与单测数），或明确该表只维护 P0/P1 子集 | 「task-engine 执行扩展」收尾审计 + 用户 2026-10-02 指示「更新 backlog」 | `docs/STATUS.md`（用户择时更新；本次仅登记） | 1 h | P2 |
 
-| 3 | **根 `README.md` / `README.zh.md` 的 md-logic 动作列表漏 `replace`**：两处横排只列 `md_logic` 的 `structure` / `blocks` / `links`，未含按节改写面（`replace`）；期望：中英同步补上（或改述为「读 + 按节改写」） | 2026-10-04 md-logic「content 结构校验」任务的子代理审阅（既有漂移） | `README.md` / `README.zh.md` | 5 min | P3 |
+| 3 | **`README.md:26`（md-map 行）英文句残缺**：`…(including inline-code path refs, kind:ref),ument links, wiki links…`——`ument` 前缺 `doc`（疑编辑事故），中文版同句正常。期望：补回 `doc`（单侧改，中英同构不受影响） | 2026-10-04「根 README 补 md-logic `replace`」任务的决策审阅（既有漂移） | `README.md` | 1 min | P3 |
 
 ## 3. 里程碑
 
