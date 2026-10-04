@@ -4,13 +4,17 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { expand, splitArgs, unresolvedPlaceholders } from "../src/args.ts";
 import { parseTemplate, TemplateParseError } from "../src/frontmatter.ts";
-import { loadDefaultTemplates, loadTemplates } from "../src/registry.ts";
+import {
+  listTemplateFiles,
+  loadDefaultTemplates,
+  loadTemplates,
+} from "../src/registry.ts";
 import { runTemplate } from "../src/steps.ts";
 import {
   apply,
@@ -616,4 +620,27 @@ test("入口分派：`/playbook playbook`（入口名当参数）走管理面—
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
+});
+
+test("随包模板：同级键不落进 prompt 块（code-review 的 bestOf/judge 缩进回归）", () => {
+  // 注意：bundledTemplatesDir() 只在 dist 布局成立（源码直跑会指到包外），此处按测试文件相对定位
+  const dir = join(import.meta.dirname, "..", "templates");
+  const files = listTemplateFiles(dir);
+  assert.ok(files.length >= 5, `随包模板应有 ≥5 个，实际 ${files.length}`);
+  // 块标量缩进错误会把同级键吞进 prompt（表现为 prompt 里出现裸键行）
+  for (const f of files) {
+    const spec = parseTemplate(readFileSync(f, "utf8"), f);
+    for (const s of spec.steps) {
+      assert.ok(
+        !/^\s*(id|type|model|bestOf|judge):/m.test(s.prompt ?? ""),
+        `${f} 的 ${s.id} 步：prompt 块里混入了同级键（缩进错误）`,
+      );
+    }
+  }
+  const verify = parseTemplate(
+    readFileSync(join(dir, "code-review.md"), "utf8"),
+    "code-review.md",
+  ).steps.find((s) => s.id === "verify");
+  assert.equal(verify?.bestOf, 2, "code-review 的 verify 步应带 bestOf: 2");
+  assert.ok(verify?.judge?.prompt, "code-review 的 verify 步应带 judge.prompt");
 });
