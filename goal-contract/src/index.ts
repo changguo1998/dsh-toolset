@@ -16,7 +16,9 @@ import process from "node:process";
 import { createGoalContractTool } from "./tool.ts";
 import type { GoalsLike, UserQuestionsLike } from "./types.ts";
 
-/** 契约构建/解析公开导出（TUI /contract 与外部宿主依赖）。 */
+/** 契约构建/解析公开导出（包入口面，供外部宿主直接引用）。本包不 provide
+ *  `goalContract` 服务，TUI 的 `/contract` 经 `ctx.get('goalContract')` 取不到，
+ *  实际走内置同构回读；将来若要贯通，需在此补 `ctx.provide`。 */
 export { buildObjective, parseContract } from "./contract.ts";
 
 /** bundle 名（与 cordis.patch.yml 插件 id 一致）。 */
