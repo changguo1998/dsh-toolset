@@ -87,10 +87,12 @@ export function main(opts: {
    *  fail-open 照常执行 + 每种失效模式告警一次（BACKLOG「TUI `$` 模式执行面不经 guard」） */
   getGuard?: () => SecurityGuardLike | undefined;
   /** 启动自检 kickoff 正文（门控通过时传入，App 代替用户发出以完成锚定解锁）；
-   *  不传 = 不发送（非 deepseek 模型 / toolBootstrap 关闭 / 会话已解锁 / 记录不可读） */
+   *  不传 = 不发送（非 deepseek 模型 / toolBootstrap 关闭 / 会话已解锁 / 记录不可读）。
+   *  2026-10-05 用户裁定**关掉 kickoff**：调用点已注释停用（本文件启动与 `/new` 两处），
+   *  恒传 undefined；实现原样保留，恢复 = 取消那两处注释并删占位赋值。 */
   bootstrapKickoffText?: string;
   /** `/new` 的启动自检惰性门控（BACKLOG TUI#57）：每次新建会话切换完成后调用，返回正文
-   *  则补发 kickoff；不传 / 返回 undefined = 不发 */
+   *  则补发 kickoff；不传 / 返回 undefined = 不发。2026-10-05 起调用点恒返回 undefined（同关掉）。 */
   bootstrapKickoffForNewSession?: () => string | undefined;
   /** 重启交接文件路径（`process.env.DSH_RESTART_FILE`；非空 = 由处理退出码 75 的启动器启动，
    *  退出确认面板才提供「重启 dsh（保留会话）」；BACKLOG #51 / DESIGN「退出确认 ·「重启」方案」） */
@@ -629,26 +631,31 @@ export async function apply(
   // 启动自检门控（BACKLOG TUI「启动后自动触发首轮工具调用」）：开关未关 + 模型命中
   // deepseek + 会话未解锁 → 把正文交给 App，由其代替用户发出以完成锚定解锁；判据不可读
   // → 不发并 warn（与锚定 filter 的 fail-open 方向相反，见 shouldAutoKickoff）。
-  const kickoffText = shouldAutoKickoff({
-    enabled: config?.toolBootstrap ?? true,
-    modelId: route.model ?? "",
-    session: rawAgent.session,
-    warn: (msg) => process.stderr.write("[tui] warn: " + msg + "\n"),
-  })
-    ? BOOTSTRAP_KICKOFF_TEXT
-    : undefined;
+  // 2026-10-05 用户裁定**关掉 kickoff**：按「注释而非删除」停用（实现原样保留）；
+  // 恢复 = 取消下面注释、删掉占位赋值。
+  // const kickoffText = shouldAutoKickoff({
+  //   enabled: config?.toolBootstrap ?? true,
+  //   modelId: route.model ?? "",
+  //   session: rawAgent.session,
+  //   warn: (msg) => process.stderr.write("[tui] warn: " + msg + "\n"),
+  // })
+  //   ? BOOTSTRAP_KICKOFF_TEXT
+  //   : undefined;
+  const kickoffText: string | undefined = undefined;
   // `/new` 的启动自检门控（BACKLOG TUI#57）：惰性求值——每次新建会话时按**新会话将要使用的
   // 模型**判定。**不读 `sessionModel.current`**：那是按会话回填的值，而 `/new` 的判据必须在
   // `create()` 决议后的同一同步回合内求值（kickoff 须先于 rule-engine 的 session-start 注入
   // 入队），此刻 `restoreSessionState()` 尚未落定 → 读到的仍是**上一会话**的模型（求值窗口，
   // 跨模型切换时该发不发 / 不该发而发）。新会话模型 = 建会话时钉住的 route（`agentOptions`，
   // 见适配器 `newSession`）优先，否则宿主默认选择（种子）；判据不可读 → 不发。
-  const kickoffForNewSession = (): string | undefined =>
-    newSessionKickoffText({
-      enabled: config?.toolBootstrap ?? true,
-      pinnedModel: route.model,
-      defaultModel: readDefaultSelection(defaultModelSvc)?.model,
-    });
+  // 2026-10-05 用户裁定**关掉 kickoff**（同启动路径，注释停用、保留实现；恢复 = 取消注释）。
+  // const kickoffForNewSession = (): string | undefined =>
+  //   newSessionKickoffText({
+  //     enabled: config?.toolBootstrap ?? true,
+  //     pinnedModel: route.model,
+  //     defaultModel: readDefaultSelection(defaultModelSvc)?.model,
+  //   });
+  const kickoffForNewSession = (): string | undefined => undefined;
   const disposeApp = main({
     adapter,
     bootstrapKickoffText: kickoffText,
