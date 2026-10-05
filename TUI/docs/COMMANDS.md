@@ -20,7 +20,7 @@
 `ctx.commands.register` 现注册 6 条（dsh 0.1.7-rc.2 随包清单核对）：`/compact` `/feedback` `/goal` `/permission` `/plan` 由 dsh-base 装配的插件注册（dsh-command-compact / dsh-command-feedback / dsh-command-goal / dsh-permission-presets / dsh-plan-mode），`/export` 来自 dsh-session-log-export。本地目录未命中的命令名一律经 `adapter.runCommand` 转发注册表；注册表未命中提示未知命令（fail-close，绝不把 slash 行发给模型）。
 
 - 补全候选 = 本地目录 + `ctx.commands.list(agent)`（`start()` 时拉取一次，无周期刷新）；同名本地优先。
-- `/goal` `/permission` 与本地同名：`/permission` 无参走本地面板、带参转发宿主；`/goal` 无参为本地提示、带参转发宿主（`/goal <目标>` 即新建当前会话 goal）。
+- `/goal` `/permission` 与本地同名：`/permission` 无参走本地面板、带参转发宿主；`/goal` **无本地行为**——条目只提供帮助 / 补全描述（`route: "registry"`），全形态转发宿主（`/goal` 看状态与可用命令、`/goal <目标>` 新建，`edit` / `pause` / `resume` / `clear` 管理），2026-10-06 起不再有本地无参提示。
 
 ## 2. 扩展建议
 

@@ -272,7 +272,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 | `/provider`、`/effort`（`/thinking`） | 打开同一模型选择面板并预置焦点列；带参只提示用法 |
 | `/policy [ask\|never]` | 审批策略：无参打开状态选项面板，带参直接设置（写宿主 `approval.setPolicy`） |
 | `/permission [预设名]` | 权限预设（sandbox mode + 审批策略捆绑）：无参打开面板，带参转发宿主命令 |
-| `/goal [<目标>\|edit <目标>\|pause\|resume\|clear]` | 无参：提示 goal / todo / jobs 详情常驻左侧状态列（不再打开面板）；带参：转发宿主 `dsh-command-goal` 管理当前会话 goal（`/goal <目标>` 新建、`edit`/`pause`/`resume`/`clear` 改／暂停／恢复／清除） |
+| `/goal [<目标>\|edit <目标>\|pause\|resume\|clear]` | TUI 无本地行为（2026-10-06 起）：全形态转发宿主 `dsh-command-goal`——无参看状态与可用命令，`/goal <目标>` 新建、`edit`/`pause`/`resume`/`clear` 改／暂停／恢复／清除；goal / todo 详情同时常驻左侧状态列 |
 | `/stats`（`/usage` `/context`） | token 用量**双口径**：「最近一次调用」（输入/输出/缓存读，含上下文占用与缓存命中率）与「本会话累计」（逐次调用求和，会话切换/恢复时清零，`/clearscreen` 不清） |
 | `/session` | 会话面板：列出持久化会话（**按编辑时间从晚到早**，行首时间即编辑时间、缺省回退创建时间），Enter 切换（`agents.resume` 恢复后继续对话，并回填该会话的模型 / 模式与策略（plan、sandbox、审批策略）/ goal / todo / `verbose`、`symbol-unify` 开关 / 状态列显隐）；`Tab` 切换范围（当前目录 / 全部）、`Space` 批量标记（`a` 全选当前范围、`c` 清空）、`d`/Delete 删除（有标记=批量删除全部标记，无标记=删当前高亮）、`x` 清理空会话、`/session clean` 直达清理确认 |
 | `/continue` | 加载**当前目录下最新的会话**（等价 `/session` + 自动选中，复用同一恢复路径）：**当前会话已是最新（已有用户消息）→ 提示不切换**；刚起的新会话 → 回退到最近退出的会话；无匹配 → info 提示。CLI `-c` / `--continue` 仍按「同目录、非 live、编辑时间最大」在启动时选择 |
@@ -296,7 +296,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 
 ### 宿主自带命令
 
-`/compact`、`/feedback`、`/goal`、`/permission`、`/plan` 由 dsh-base 装配的插件注册（dsh-command-compact / dsh-command-feedback / dsh-command-goal / dsh-permission-presets / dsh-plan-mode），`/export` 来自 dsh-session-log-export，均经 `ctx.commands.register` 注册。其中 `/goal` 无参为本地提示、带参转发宿主，`/permission` 无参走本地面板、带参转发宿主；其余走 registry 转发即用。完整命令面与扩展建议见 `COMMANDS.md`。
+`/compact`、`/feedback`、`/goal`、`/permission`、`/plan` 由 dsh-base 装配的插件注册（dsh-command-compact / dsh-command-feedback / dsh-command-goal / dsh-permission-presets / dsh-plan-mode），`/export` 来自 dsh-session-log-export，均经 `ctx.commands.register` 注册。其中 `/goal` TUI 已无本地行为（条目仅提供帮助 / 补全描述，全形态转发宿主；2026-10-06 起），`/permission` 无参走本地面板、带参转发宿主；其余走 registry 转发即用。完整命令面与扩展建议见 `COMMANDS.md`。
 
 ## 按键
 

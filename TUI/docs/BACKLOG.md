@@ -7,4 +7,8 @@
 
 ## 待办
 
-（当前无未完成项）
+| # | 条目 | 落点 | 工作量 | 优先级 |
+| --- | --- | --- | --- | --- |
+| 1 | **`npm run demo -- --smoke` 的 `activity-mixed-ordered` 场景恒失败**。现状：该场景把最后一帧按 `\r\n` 切成行（`TUI/demo/main.ts:509-513`），而渲染器自 2026-10-05 起改为**逐行绝对定位**（提交 `647761d`，行间不再输出 `\r\n`）→ 五个子串全部命中第 0 行，`aM > aT` 恒假，实测报错 `SMOKE_FAIL activity-mixed-ordered (idx=0,0,0,0,0,-1)`。已在 HEAD 与 2026-10-06 TUI `/goal` 任务改动后各跑一次，两次均只此一例失败（`SMOKE_FAIL n=1`），属既有缺陷、与命令面无关。期望：帧解析改为按帧内光标定位分段，或复用测试侧的帧解析助手（`TUI/tests/helpers/rowText.ts` 同族）。验收：`npm run demo -- --smoke` 该场景转绿，且 `SMOKE_FAIL n=0`。 | `TUI/demo/main.ts` | 30 min | P3 |
+
+> 来源：2026-10-06 TUI `/goal` 双注册任务收尾时实测（追踪文档 `docs/archived/2026-10-05-tui-goal-command-shadowing.md`，§4「途中发现的新问题」）。

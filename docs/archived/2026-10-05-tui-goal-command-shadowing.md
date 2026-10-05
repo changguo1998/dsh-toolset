@@ -1,6 +1,6 @@
 # TUI `/goal` 与官方命令双注册（接取条目：`docs/BACKLOG.md`「TUI `/goal` 与官方命令双注册」）
 
-状态：决策　　开启：2026-10-05　　关闭：—
+状态：关闭　　开启：2026-10-05　　关闭：2026-10-06
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -128,4 +128,8 @@ emit({ type: "notice", text: "未知命令，输入 /help 查看可用命令。"
 
 ## 收尾
 
-（待关闭时补）
+- 条目「TUI `/goal` 与官方命令双注册」已从 `docs/BACKLOG.md` §2 **清理移除**（BACKLOG 只留未完成项），其余条目按当前顺序重编号；本文件移入 `docs/archived/`。
+- 关闭后回写（5 份）：`TUI/docs/COMMANDS.md`（与宿主同名口径）、`TUI/docs/COMMANDS-SPEC.md`（本地优先规则）、`TUI/docs/DESIGN.md`（`/goal` 命令表行）、`TUI/README.md`（命令表行 + 宿主自带命令段）、`TUI/docs/design/NOTICE-LEVELS.md`（删 A2 里已消失的「goal/todo 详情见左侧信息栏」死引用）。
+- 途中发现并已登记：`TUI/docs/BACKLOG.md` #1（`activity-mixed-ordered` smoke 场景恒失败，既有缺陷、非本任务引入）。
+- 遗留：无。`STATUS.md` 按流程由用户择时更新，本次不改。
+- 提交：决策后仅文档 `02bffeb`；代码与测试 `cbd1e0e`；本次关闭提交为其后最后一次相关提交。
