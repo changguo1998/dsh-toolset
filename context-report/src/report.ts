@@ -95,6 +95,7 @@ export function tokenBuckets(state: SessionContextState): TokenBuckets {
 /** 渲染报告（文本与结构化字段同源）。 */
 export function buildReport(input: ContextReportInput): ContextReport {
   const state = input.state;
+  const stats = input.stats;
   const detail = input.detail ?? "standard";
   const generatedAt =
     input.generatedAt ?? (Number.isFinite(Date.now()) ? Date.now() : 0);
@@ -104,23 +105,26 @@ export function buildReport(input: ContextReportInput): ContextReport {
     state?.provider !== undefined && state?.model !== undefined
       ? { provider: state.provider, model: state.model }
       : undefined;
+  // 墙钟来自官方 sessionStats（本包不再自折叠）；官方不在位 → 该组数字缺省。
   const durations =
-    state === undefined
+    stats === undefined
       ? undefined
       : {
-          llmMs: state.llmMs,
-          toolMs: state.toolMs,
-          ttftMs: state.ttftMs,
-          decodeMs: state.decodeMs,
+          llmMs: stats.llmMs,
+          toolMs: stats.toolMs,
+          ttftMs: stats.ttftMs,
+          ttftSteps: stats.ttftSteps,
+          decodeMs: stats.decodeMs,
+          decodeTokens: stats.decodeTokens,
         };
   const report: ContextReport = {
     ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
     generatedAt,
     detail,
-    projection: state === undefined ? "unavailable" : "sessionContext",
+    projection: projectionSource(state, stats),
     asOfSeq: state?.asOfSeq ?? -1,
-    turns: state?.turns ?? 0,
-    steps: state?.steps ?? 0,
+    turns: stats?.turns ?? 0,
+    steps: stats?.steps ?? 0,
     tokens,
     occupancy,
     ...(detail !== "summary" && durations !== undefined ? { durations } : {}),
@@ -133,6 +137,17 @@ export function buildReport(input: ContextReportInput): ContextReport {
   return { ...report, text: renderText(report) };
 }
 
+/** 两组投影的在位情况（`projection` 字段取值）。 */
+function projectionSource(
+  state: ContextReportInput["state"],
+  stats: ContextReportInput["stats"],
+): ContextReport["projection"] {
+  if (state !== undefined && stats !== undefined)
+    return "sessionStats+sessionContext";
+  if (stats !== undefined) return "sessionStats";
+  return state !== undefined ? "sessionContext" : "unavailable";
+}
+
 /** 文本渲染：按级别给出不同深度的表格化数字。 */
 export function renderText(report: ContextReport): string {
   const lines: string[] = [];
@@ -141,15 +156,21 @@ export function renderText(report: ContextReport): string {
       ? `会话 ${report.sessionId}`
       : "会话（未知 id）";
   lines.push(`${head} 上下文报告（${report.detail}）`);
-  if (report.projection === "unavailable") {
-    lines.push("- 会话累计：不可用（sessionContext 投影未注册）");
-  } else {
+  const hasStats =
+    report.projection === "sessionStats+sessionContext" ||
+    report.projection === "sessionStats";
+  const hasTokens =
+    report.projection === "sessionStats+sessionContext" ||
+    report.projection === "sessionContext";
+  if (hasStats) {
     lines.push(
-      `- 回合/步：${report.turns} / ${report.steps}（已关闭步，水位 seq=${report.asOfSeq}）`,
+      `- 回合/步：${report.turns} / ${report.steps}（官方 sessionStats；token 水位 seq=${report.asOfSeq}）`,
     );
+  } else {
+    lines.push("- 会话累计：不可用（官方 sessionStats 投影未在位）");
   }
   lines.push(
-    `- token 累计：总 ${formatCount(report.tokens.total)} = 未缓存输入 ${formatCount(report.tokens.uncachedInput)} + 缓存读 ${formatCount(report.tokens.cacheRead)} + 缓存写 ${formatCount(report.tokens.cacheWrite)} + 输出 ${formatCount(report.tokens.output)}`,
+    `- token 累计：总 ${formatCount(report.tokens.total)} = 未缓存输入 ${formatCount(report.tokens.uncachedInput)} + 缓存读 ${formatCount(report.tokens.cacheRead)} + 缓存写 ${formatCount(report.tokens.cacheWrite)} + 输出 ${formatCount(report.tokens.output)}${hasTokens ? "" : "（本包投影未在位）"}`,
   );
   if (report.detail !== "summary") {
     const o = report.occupancy;
@@ -166,11 +187,13 @@ export function renderText(report: ContextReport): string {
     lines.push(`- 上下文占用：${projectedText} / ${windowText}${pctText}`);
     const d = report.durations;
     if (d !== undefined) {
+      // 均值分母用官方 ttftSteps（已记录首 token 的步数），不再借步数近似。
       const ttftAvg =
-        report.steps > 0 && d.ttftMs > 0 ? d.ttftMs / report.steps : 0;
+        d.ttftSteps > 0 && d.ttftMs > 0 ? d.ttftMs / d.ttftSteps : 0;
+      // 解码速率与墙钟同源（官方 decodeTokens / decodeMs），不跨源混算。
       const decodeRate =
-        d.decodeMs > 0 && report.tokens.output > 0
-          ? (report.tokens.output / (d.decodeMs / 1000)).toFixed(1)
+        d.decodeMs > 0 && d.decodeTokens > 0
+          ? (d.decodeTokens / (d.decodeMs / 1000)).toFixed(1)
           : undefined;
       lines.push(
         `- 墙钟累计：模型 ${formatMs(d.llmMs)}、工具 ${formatMs(d.toolMs)}、首 token ${formatMs(d.ttftMs)}（均 ${formatMs(ttftAvg)}）、解码 ${formatMs(d.decodeMs)}`,
@@ -198,9 +221,9 @@ export function renderText(report: ContextReport): string {
   if (report.route !== undefined && report.detail === "standard") {
     lines.push(`- 最近路由：${report.route.provider}/${report.route.model}`);
   }
-  if (report.projection === "unavailable") {
+  if (report.projection !== "sessionStats+sessionContext") {
     lines.push(
-      "- 提示：数据缺失不等于 0；宿主未装配 session-projection 时请勿据此判断用量",
+      "- 提示：数据缺失不等于 0；宿主未装配官方 sessionStats / 本包投影时请勿据此判断用量",
     );
   }
   return lines.join("\n");

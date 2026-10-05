@@ -159,12 +159,27 @@ export function typicalSession(): ReportEvent[] {
   ]);
 }
 
-/** 构造常见状态（供报告用例直接注入）。 */
+/** 构造常见 token 状态（供报告用例直接注入；官方覆盖的部分见 {@link statsFixture}）。 */
 export function stateFixture(
   overrides: Partial<import("../src/types.ts").SessionContextState> = {},
 ): import("../src/types.ts").SessionContextState {
   return {
     asOfSeq: 10,
+    uncachedInputTokens: 1_400,
+    outputTokens: 160,
+    cacheReadTokens: 50,
+    cacheWriteTokens: 20,
+    reasoningTokens: 30,
+    usageSamples: 2,
+    ...overrides,
+  };
+}
+
+/** 构造官方 `sessionStats` 视图夹具（回合 / 步 / 墙钟）。 */
+export function statsFixture(
+  overrides: Partial<import("../src/types.ts").SessionStatsLike> = {},
+): import("../src/types.ts").SessionStatsLike {
+  return {
     turns: 1,
     steps: 2,
     llmMs: 500,
@@ -173,12 +188,6 @@ export function stateFixture(
     ttftSteps: 2,
     decodeMs: 300,
     decodeTokens: 160,
-    uncachedInputTokens: 1_400,
-    outputTokens: 160,
-    cacheReadTokens: 50,
-    cacheWriteTokens: 20,
-    reasoningTokens: 30,
-    usageSamples: 2,
     ...overrides,
   };
 }

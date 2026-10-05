@@ -15,7 +15,7 @@ import {
   withDefaults,
 } from "../src/report.ts";
 import { createInitialState, foldSession } from "../src/fold.ts";
-import { stateFixture, typicalSession } from "./helpers.ts";
+import { stateFixture, statsFixture, typicalSession } from "./helpers.ts";
 
 test("normalizeDetail：合法值透传，非法/缺失回落 standard", () => {
   assert.equal(normalizeDetail("summary"), "summary");
@@ -71,26 +71,61 @@ test("tokenBuckets：总量为四桶之和，reasoning 不重复计入", () => {
 
 test("buildReport：summary 省略耗时与路由，standard 给出", () => {
   const state = stateFixture({ provider: "deepseek", model: "v4" });
+  const stats = statsFixture();
   const summary = buildReport({
     sessionId: "s1",
     state,
+    stats,
     detail: "summary",
     generatedAt: 1,
   });
   assert.equal(summary.durations, undefined);
   assert.equal(summary.route, undefined);
-  assert.equal(summary.projection, "sessionContext");
+  assert.equal(summary.projection, "sessionStats+sessionContext");
   assert.match(summary.text, /token 累计/);
   const standard = buildReport({
     sessionId: "s1",
     state,
+    stats,
     detail: "standard",
     generatedAt: 1,
   });
-  assert.equal(standard.durations?.llmMs, 500);
+  assert.equal(standard.durations?.llmMs, 500, "墙钟取自官方 sessionStats");
+  assert.equal(standard.durations?.ttftSteps, 2);
   assert.deepEqual(standard.route, { provider: "deepseek", model: "v4" });
   assert.match(standard.text, /最近路由：deepseek\/v4/);
   assert.match(standard.text, /解码速率：约 \d+(\.\d+)? tok\/s/);
+});
+
+test("buildReport：墙钟整组来自 stats；stats 缺省时不给 durations", () => {
+  const withStats = buildReport({
+    state: stateFixture(),
+    stats: statsFixture({ llmMs: 1_234 }),
+    detail: "standard",
+    generatedAt: 1,
+  });
+  assert.equal(withStats.durations?.llmMs, 1_234);
+  const withoutStats = buildReport({
+    state: stateFixture(),
+    detail: "standard",
+    generatedAt: 1,
+  });
+  assert.equal(withoutStats.durations, undefined, "官方不在位 → 整组缺省");
+  assert.equal(withoutStats.projection, "sessionContext");
+  assert.doesNotMatch(withoutStats.text, /墙钟累计/);
+});
+
+test("buildReport：只有官方 stats（本包投影缺席）时仍出会话累计", () => {
+  const report = buildReport({
+    stats: statsFixture(),
+    detail: "standard",
+    generatedAt: 1,
+  });
+  assert.equal(report.projection, "sessionStats");
+  assert.equal(report.steps, 2);
+  assert.equal(report.tokens.total, 0);
+  assert.match(report.text, /本包投影未在位/);
+  assert.match(report.text, /数据缺失不等于 0/);
 });
 
 test("buildReport：full 给出 reasoning 细分与构成缺口提示", () => {
@@ -127,12 +162,12 @@ test("buildReport：状态缺省（投影未注册）时明确标注不可用而
   assert.match(report.text, /数据缺失不等于 0/);
 });
 
-test("buildReport 与 foldSession 串联：文本数字与折叠一致", () => {
+test("buildReport 与 foldSession 串联：token 数字与折叠一致", () => {
   const state = foldSession(typicalSession());
   const report = buildReport({ state, detail: "standard", generatedAt: 1 });
-  assert.equal(report.steps, 2);
   assert.equal(report.tokens.total, 1_400 + 160 + 50 + 20);
   assert.deepEqual(report.tokens, tokenBuckets(state));
+  assert.equal(report.steps, 0, "步数不再来自本包折叠（官方投影未传）");
 });
 
 test("withDefaults：归一 detail 并可补入构成", () => {
@@ -157,7 +192,11 @@ test("withDefaults：归一 detail 并可补入构成", () => {
 });
 
 test("空状态报告：不抛错且给出零值", () => {
-  const report = buildReport({ state: createInitialState(), generatedAt: 1 });
+  const report = buildReport({
+    state: createInitialState(),
+    stats: statsFixture({ turns: 0, steps: 0 }),
+    generatedAt: 1,
+  });
   assert.equal(report.tokens.total, 0);
   assert.equal(report.occupancy.occupancyPct, undefined);
   assert.match(report.text, /回合\/步：0 \/ 0/);

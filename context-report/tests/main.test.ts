@@ -11,6 +11,7 @@ import { test } from "node:test";
 import {
   PROJECTION_KEY,
   STATE_VERSION,
+  STATS_KEY,
   apply,
   optionalService,
   createContextReportTool,
@@ -24,8 +25,8 @@ import {
   type ProjectionRegistryLike,
 } from "../src/main.ts";
 import { sessionContextSchema } from "../src/schema.ts";
-import type { SessionContextState } from "../src/types.ts";
-import { stateFixture, typicalSession } from "./helpers.ts";
+import type { SessionContextState, SessionStatsLike } from "../src/types.ts";
+import { stateFixture, statsFixture, typicalSession } from "./helpers.ts";
 
 /** 假会话：带事件与请求头，行为对齐宿主 Session 的读面子集。 */
 function fakeSession(
@@ -46,8 +47,8 @@ function fakeSession(
   } as HostSessionLike & { events: readonly never[] };
 }
 
-/** 假投影注册表：按会话缓存单元状态（仿宿主 cellFor 语义）。 */
-function fakeRegistry(): ProjectionRegistryLike & {
+/** 假投影注册表：按会话缓存单元状态（仿宿主 cellFor 语义）；可另挂官方 sessionStats 视图。 */
+function fakeRegistry(stats?: SessionStatsLike): ProjectionRegistryLike & {
   defs: ProjectionDefLike[];
   registered: number;
   state(session: unknown): unknown;
@@ -64,7 +65,9 @@ function fakeRegistry(): ProjectionRegistryLike & {
         this.registered -= 1;
       };
     },
-    stateOf(session: unknown) {
+    stateOf(session: unknown, key?: string) {
+      // 官方会话统计：本包只读（未传 stats 即模拟官方不在位 → 该组数字缺省）。
+      if (key === STATS_KEY) return stats;
       const existing = cells.get(session);
       if (existing !== undefined) return existing;
       const def = defs[0];
@@ -93,14 +96,6 @@ test("投影定义：host-only（无 wire）、纯折叠、未匹配事件返回
   const initial = def.init({}, 0) as SessionContextState;
   assert.deepEqual(initial, {
     asOfSeq: -1,
-    turns: 0,
-    steps: 0,
-    llmMs: 0,
-    toolMs: 0,
-    ttftMs: 0,
-    ttftSteps: 0,
-    decodeMs: 0,
-    decodeTokens: 0,
     uncachedInputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
@@ -116,14 +111,14 @@ test("投影定义：host-only（无 wire）、纯折叠、未匹配事件返回
     seq: 0,
     time: 1,
   });
-  assert.equal((afterStep as SessionContextState).steps, 1);
+  assert.equal((afterStep as SessionContextState).asOfSeq, 0);
 });
 
 test("投影定义：脏状态入参退回空态而非抛错", () => {
   const def = createProjectionDef();
   const next = def.apply({ garbage: true }, { type: "step/end", seq: 0 });
-  assert.equal((next as SessionContextState).steps, 1);
-  assert.equal((next as SessionContextState).turns, 0);
+  assert.equal((next as SessionContextState).asOfSeq, 0);
+  assert.equal((next as SessionContextState).usageSamples, 0);
 });
 
 test("schema：合法状态 round-trip、缺省补全、非法行拒绝", () => {
@@ -136,9 +131,9 @@ test("schema：合法状态 round-trip、缺省补全、非法行拒绝", () => 
   );
   const filled = schema.parse({ asOfSeq: 3 }) as SessionContextState;
   assert.equal(filled.asOfSeq, 3);
-  assert.equal(filled.steps, 0, "缺省字段补 0");
-  assert.throws(() => schema.parse({ steps: -1 }), /不能为负/);
-  assert.throws(() => schema.parse({ steps: "x" }), /必须是有限数/);
+  assert.equal(filled.outputTokens, 0, "缺省字段补 0");
+  assert.throws(() => schema.parse({ outputTokens: -1 }), /不能为负/);
+  assert.throws(() => schema.parse({ outputTokens: "x" }), /必须是有限数/);
   assert.throws(() => schema.parse(null), /必须是对象/);
   assert.throws(() => schema.parse({ provider: 7 }), /必须是字符串/);
   assert.throws(() => schema.parse({ asOfSeq: Number.NaN }), /必须是有限数/);
@@ -171,7 +166,7 @@ test("pressureFromMeasure：直接字段优先，退回 totalTokens", () => {
 });
 
 test("apply：注册投影 + provide 服务 + 注册工具（三面齐备）", () => {
-  const registry = fakeRegistry();
+  const registry = fakeRegistry(statsFixture({ turns: 1, steps: 2 }));
   const provided = new Map<string, unknown>();
   const registered: unknown[] = [];
   const ctx = {
@@ -199,20 +194,22 @@ test("apply：注册投影 + provide 服务 + 注册工具（三面齐备）", (
 
   const report = service.report();
   assert.equal(report.sessionId, "s1", "唯一会话自动选中");
-  assert.equal(report.projection, "sessionContext");
-  assert.equal(report.steps, 2);
+  assert.equal(
+    report.projection,
+    "sessionStats+sessionContext",
+    "两组投影都在位",
+  );
+  assert.equal(report.turns, 1, "回合取自官方 sessionStats");
+  assert.equal(report.steps, 2, "步数取自官方 sessionStats");
+  assert.equal(report.durations?.llmMs, 500, "墙钟取自官方 sessionStats");
   assert.equal(report.occupancy.contextWindow, 8_000);
   assert.equal(report.occupancy.occupancyPct, 13.8, "1100/8000 → 13.8%");
   assert.deepEqual(report.route, { provider: "deepseek", model: "v4" });
   assert.deepEqual(service.listSessions(), [{ id: "s1", tracked: true }]);
-  assert.equal(service.sessionState("s1")?.steps, 2);
-  // 逐事件 apply 驱动（宿主语义）下，在途账必须跨调用保持：回合/token/墙钟不得丢
-  // （回归：v1 的 apply 每次重建 scratch，这些字段恒 0——见 STATE_VERSION v2 注释）。
+  assert.equal(service.sessionState("s1")?.outputTokens, 160);
+  // 逐事件 apply 驱动（宿主语义）下，在途账必须跨调用保持：token 不得丢
+  // （回归：v1 的 apply 每次重建 scratch，token 恒 0——见 STATE_VERSION v2 注释）。
   const s1 = service.sessionState("s1");
-  assert.equal(s1?.turns, 1, "回合身份来自 step 事件载荷，跨 apply 调用保持");
-  assert.equal(s1?.llmMs, 500, "step/start→assistant/message 墙钟");
-  assert.equal(s1?.toolMs, 200, "tool/call→tool/result 墙钟");
-  assert.equal(s1?.ttftMs, 500);
   assert.equal(s1?.uncachedInputTokens, 1_400);
   assert.equal(s1?.outputTokens, 160);
   assert.equal(s1?.cacheReadTokens, 50);
@@ -222,6 +219,32 @@ test("apply：注册投影 + provide 服务 + 注册工具（三面齐备）", (
   assert.equal(service.sessionState("nope"), undefined);
   service.dispose();
   assert.equal(registry.registered, 0, "dispose 注销注册");
+});
+
+test("官方 sessionStats 不在位：该组数字缺省、来源降级标注（不回退自折叠）", () => {
+  const registry = fakeRegistry();
+  const provided = new Map<string, unknown>();
+  const ctx = {
+    sessionProjections: registry,
+    sessions: {
+      list: () => [fakeSession("s1")],
+      get: (id: string) => (id === "s1" ? fakeSession("s1") : undefined),
+    },
+    tools: { register: () => undefined },
+    provide: (key: string, value: unknown) => provided.set(key, value),
+  } as unknown as BundleHost & Record<string, unknown>;
+
+  apply(ctx, {});
+  const service = provided.get("contextReport") as ContextReportService;
+  const report = service.report();
+  assert.equal(report.projection, "sessionContext", "只剩本包 token 投影");
+  assert.equal(report.turns, 0, "官方不在位 → 回合计 0（不猜）");
+  assert.equal(report.steps, 0);
+  assert.equal(report.durations, undefined, "墙钟整组缺省");
+  assert.equal(report.tokens.output, 160, "token 分桶照常可用");
+  assert.match(report.text, /官方 sessionStats 投影未在位/);
+  assert.match(report.text, /数据缺失不等于 0/);
+  service.dispose();
 });
 
 test("apply：无 tokenMeter 时占用缺容量、报告仍可用", () => {
@@ -236,7 +259,8 @@ test("apply：无 tokenMeter 时占用缺容量、报告仍可用", () => {
   const service = provided.get("contextReport") as ContextReportService;
   const report = service.report();
   assert.equal(report.occupancy.contextWindow, undefined);
-  assert.equal(report.steps, 2, "累计值不受影响");
+  assert.equal(report.tokens.output, 160, "本包 token 累计不受影响");
+  assert.equal(report.steps, 0, "官方 sessionStats 未传 → 步数缺省（不猜）");
 });
 
 test("apply：缺 sessionProjections 时工具仍注册，报告标注不可用", () => {
@@ -312,7 +336,7 @@ test("工具面：report / state / list 三个 action 与错误分支", async ()
     { action: "state" },
     caller,
   )) as SessionContextState;
-  assert.equal(state.steps, 2);
+  assert.equal(state.outputTokens, 160, "state 动作返回本包 token 状态");
 
   const list = (await tool.execute({ action: "list" }, caller)) as {
     sessions: { id: string; tracked: boolean }[];

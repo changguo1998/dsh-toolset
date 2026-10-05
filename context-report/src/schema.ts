@@ -18,14 +18,6 @@ export interface StateSchema<T> {
 
 const NUMERIC_FIELDS = [
   "asOfSeq",
-  "turns",
-  "steps",
-  "llmMs",
-  "toolMs",
-  "ttftMs",
-  "ttftSteps",
-  "decodeMs",
-  "decodeTokens",
   "uncachedInputTokens",
   "outputTokens",
   "cacheReadTokens",
@@ -62,14 +54,6 @@ export function sessionContextSchema(): StateSchema<SessionContextState> {
         -readonly [K in keyof SessionContextState]: SessionContextState[K];
       } = {
         asOfSeq: out["asOfSeq"] ?? -1,
-        turns: out["turns"] ?? 0,
-        steps: out["steps"] ?? 0,
-        llmMs: out["llmMs"] ?? 0,
-        toolMs: out["toolMs"] ?? 0,
-        ttftMs: out["ttftMs"] ?? 0,
-        ttftSteps: out["ttftSteps"] ?? 0,
-        decodeMs: out["decodeMs"] ?? 0,
-        decodeTokens: out["decodeTokens"] ?? 0,
         uncachedInputTokens: out["uncachedInputTokens"] ?? 0,
         outputTokens: out["outputTokens"] ?? 0,
         cacheReadTokens: out["cacheReadTokens"] ?? 0,

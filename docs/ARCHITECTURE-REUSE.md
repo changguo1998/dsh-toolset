@@ -16,7 +16,7 @@
 | `fs-digest` | `tool-fs` / `fs` / `fs-local`（缝） | 低 | **保留** | 官方**没有**文件摘要 / 结构视图工具（277 包描述扫描 + 官方模型工具名全表均无 outline / digest / summary），`fs_digest` 的 outline / signatures / pruned 三模式无对应物 |
 | `session-title-cutoff` | `session-title-llm` / `session-title-all-prompts-llm` | 高（同 provider 位） | **并存** | 同占 `ctx.sessionTitle` 唯一 provider；「裁剪窗口到最近一次 git commit 之后」官方没有；已复用官方 `session-title-llm` 的生成策略（按约定路径动态 import 官方模块） |
 | `command-template` | `commands`、`workflow` / `tool-workflow` | 中 | **并存** | 「人面模板目录 + 模板级模型选择 + 多步编排」官方没有（官方只有模型侧 workflow 脚本与裸命令注册）；执行侧已复用宿主 subagents / workflow / ptc |
-| `context-report` | `session-stats`、`session-turn-outline`、`session-telemetry` | 中 | **并存（需收窄）** | 本包**自折叠** turns / 墙钟（`fold.ts:19,201,242`），而官方 `sessionStats` 的口径（turns/steps + llm/tool 墙钟 + 首 token / decode）几乎逐项对应 → 应复用官方投影；token 与上下文占用仍是官方空缺 |
+| `context-report` | `session-stats`、`session-turn-outline`、`session-telemetry` | 中 | **保留（已收窄，2026-10-06）** | 曾**自折叠** turns / 墙钟，与官方 `sessionStats` 逐项重合 → 已按 §4 A 收窄：删除同类折叠，回合/步/墙钟改读官方投影，本包只留 token 分桶与上下文占用（官方空缺） |
 | `session-channel` | `session-query`、`session-reference`、**`experimental-agent-team`** | 低 | **保留** | 官方两个读写面都是**只读**（查询 / 快照引用）；**同会话**持久 peer mailbox 官方有实验实现（`experimental-agent-team`，未挂），**跨会话 / 跨进程写**（消息、委托、共享 KV、任务回传）仍无等价物 |
 | `output-compress` | `spill` / `spill-local` / `spill-policy`、`compaction-tool-result-pruner` | 中 | **并存（互补）** | 官方阈值管**模型可见面**（超预算转 preview + locator）并做 surface 裁剪；我们**读取 spill 通知与文件**做摘要入库。我们从不回写事件 → 不存在「双重截断」；要做的是把分工与阈值语义写进 DESIGN |
 | `rule-engine` | `agent-instructions`、`hook-protocol`、`hooks-*`、**`repeat-tool-reminder`** | 中 | **保留** | 官方有 `agent-instructions`（静态指令文件）、`repeat-tool-reminder`（**单点**内置提醒）与外部 agent 的 hooks 接入；**规则表 + 多节点注入 + 消费者框架**官方无 |
@@ -45,7 +45,7 @@
 | 并存对 | 谁负责哪一段 | 模型面 / 人面处理 |
 |---|---|---|
 | `hash-edit` ⇄ 官方 `read` / `edit`（`tool-fs` + `fs-observation-policy`） | 官方：文件级「读后改前 + 版本守卫」（`FS_STALE_VERSION`）；`hash-edit`：**行级**锚点定位与漂移检测、一次提交多条编辑且任一条失效整批拒绝 | 两者都在模型工具面；分歧点是**粒度与原子性**，靠工具描述区分（先例：`fs_digest` 与 `code-map` 并存） |
-| `context-report` ⇄ `session-stats` / `session-turn-outline` | 官方投影：轮次 / 步数 / 墙钟 / 回合大纲；`context-report`：token 与上下文占用（`sessionContext` 折叠）、三档报告 | 只有 `context_report` 在模型面；官方投影是服务面，供我们读取（§4 A） |
+| `context-report` ⇄ `session-stats` / `session-turn-outline` | 官方投影：轮次 / 步数 / 墙钟 / 回合大纲；`context-report`：token 与上下文占用、三档报告（**回合/墙钟已改为读官方投影**，不再自折叠） | 只有 `context_report` 在模型面；官方投影是服务面，供我们读取（§4 A 已落地） |
 | `output-compress` ⇄ `spill-policy` / `compaction-tool-result-pruner` | 官方：**模型可见面**的超预算处理（preview + locator）与 surface 裁剪；我们：以 spill 为上游输入做**有损摘要入库 + 分片**（知识库可检索），不回写事件 | 官方两行已挂载；要做的是**阈值语义的文档口径**（§4 B），不是修冲突 |
 | `command-template` ⇄ `commands` / `workflow` / `tool-workflow` | 官方：命令注册表 + 模型侧 JS 编排；我们：**人面** `/playbook` 模板目录、模板级模型选择、步骤编排 | 模型面 `workflow` 官方独占；我们不注册同名工具，只注册 slash 命令 |
 | `security-guard` ⇄ `sandbox-policy` / `permission-presets` | 官方：沙箱等级与审批预设；我们：危险命令 / 敏感文件的模式拦截（`tools/pre-execute`，命中即 deny） | 若将来启用 `experimental-auto-review`，需先划界（谁拥有最终否决权，见 §5） |
@@ -84,7 +84,7 @@
 
 | # | 改造 | 落点 | 工作量 | 依赖 / 前置 |
 |---|---|---|---|---|
-| A | `context-report` **改用已挂的 `sessionStats` / `turnOutline`** 提供轮次 / 墙钟 / 大纲，去掉自己的同类折叠（保留 token / 上下文占用口径） | `context-report/src/{fold,main}.ts` | 1 h | 官方两行已于 2026-10-02 挂载；需先对齐单位与「首 token / decode」口径 |
+| A | ~~`context-report` **改用已挂的 `sessionStats` / `turnOutline`** 提供轮次 / 墙钟 / 大纲，去掉自己的同类折叠（保留 token / 上下文占用口径）~~ **已完成（2026-10-06）**：轮次 / 步 / 墙钟改读 `sessionStats`，自折叠已删；`turnOutline` 未接（属新增能力，另议） | `context-report/src/{fold,main,report,types,schema}.ts` | 已完成 | 口径已对齐（官方视图字段 `ttftMs` / `ttftSteps`，非 `firstTokenTime`）；过程记录 `docs/archived/2026-10-05-context-report-official-projections.md` |
 | B | `output-compress`：把与官方 `spill-policy` / `compaction-tool-result-pruner` 的**分工与阈值语义**写进 DESIGN，并记录「spill 文件 + 知识库」双份存储的取舍 | `output-compress/docs/DESIGN.md` | 0.2-0.5 h | 无（**不是**修双重截断——实测不存在） |
 | C | `metric-loop` 唤醒链缺口：挂 `@deepseek-ai/dsh-schedule`（提供 `schedule_create` 等模型工具），或把提示改为不依赖宿主 schedule | 仓库外 profile / `metric-loop/src/engine.ts` | 0.5-1 h | **需用户裁定**：挂它等于**新增模型工具面**（与上一批「只挂服务 / 投影面」口径不同）；另一条路是评估「改用 `tool-ralph` / `goal-round-driver` 承担循环、metric-loop 只留指标测量」 |
 | D | `hash-edit` / `fs-digest` 可选改用 `ctx.fs` 读（沙箱一致，替代直接 `node:fs`） | 两包 `src/**` | 1 h | **含行为变更**：`ctx.fs` 后端是 `fs-sandbox`，hash-edit 的**写**会从「node:fs 直写（当前绕开沙箱）」变为受 workspace-write 围栏；且 `ctx.fs` 的版本守卫是文件级，**不能**替代行级锚点语义。宜与 `hash-edit/docs/BACKLOG.md` #1（render 缺陷）同批 |

@@ -26,7 +26,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **md-map** | Markdown 项目级结构与引用分析（文档版的 `code-map`）：索引 `**/*.md` 的标题锚点、文档间链接（`internal`）、wiki 链接、行内代码路径引用（`kind:ref`）、代码 / 文件 / 目录引用与站外链接，以及被引计数，查询面 `callers` / `impact` / `orphans` / `report`（含断链与断锚点）；注册模型侧工具 `md_map`，单文件解析复用 `md-logic` |
 | **security-guard** | 安全守卫：危险命令黑名单 + 敏感文件保护策略层，挂在宿主 `tools/pre-execute` 水位线，命令下发前拦截 |
 | **code-map** | 代码结构地图：文件节点 + import 图索引，`callers`/`callees`/`cycles`/`impact` 查询与项目/模块报告（引用为候选：`callers` 的语义精度需官方 LSP 三件套，而 profile 不分发它，故回落 `structural`）；经 `link:` 依赖 `@dsh-toolset/ast-tools`（挂载时需一并安装） |
-| **context-report** | 会话上下文与用量报告：host-only 投影 `sessionContext` 折叠会话累计（回合/步、模型与工具墙钟、首 token、token 分桶），工具 `context_report` 合成 token-meter 即时压力与模型容量读数 |
+| **context-report** | 会话上下文与用量报告：host-only 投影 `sessionContext` 只折官方空缺的部分（token 分桶），回合/步与墙钟读官方 `sessionStats` 投影；工具 `context_report` 合成 token-meter 即时压力与模型容量读数 |
 | **rule-engine** | 规则触发的自动注入：按关键词/正则/内置谓词匹配模型正文、工具调用与回合边界，命中后作为独立新回合（`followup`）、挂到最近 pre-step 并唤醒（`steer`）或不唤醒（`inject`）注入 user-role 消息；提供按节点的消费者注册面（`registerConsumer`，`sources` 缺省 `turn-end`，同步询问、统一注入）与只读 `evaluate` |
 | **symbol-normalizer** | 符号规范：模型正文符号的展示层归一（别名替换）+ 回合审查（人类 notice / 模型反馈），以 rule-engine 消费者形式接入；provide `symbolNormalizer` 服务供 TUI 消费 |
 | **ponytail** | ponytail 模式（2026-10-05 起缺省开启；`enabled: false` 关闭）：会话起始注入「懒资深工程师」7 级决策阶梯（YAGNI → 复用 → 标准库 → 平台特性 → 已装依赖 → 一行 → 最少代码）。 |

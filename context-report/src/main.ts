@@ -28,6 +28,7 @@ import type {
   ReportDetail,
   ReportEvent,
   SessionContextState,
+  SessionStatsLike,
 } from "./types.ts";
 
 export const name = "context-report";
@@ -47,11 +48,17 @@ export const provide = ["contextReport"];
 /** 投影 key（host-only 状态单元名）。 */
 export const PROJECTION_KEY = "sessionContext";
 /**
+ * 官方会话统计投影 key（回合 / 步 / 墙钟；由 `dsh-session-stats` 注册）。
+ * 本包只读不注册：官方不在位时该组数字缺省，不回退自折叠（见追踪文档「决策」）。
+ */
+export const STATS_KEY = "sessionStats";
+/**
  * 投影状态版本：序列化字段或折叠语义变更时递增（宿主按此丢弃旧缓存行）。
  * v2：修复宿主逐事件驱动 `apply` 时在途账（scratch）跨调用丢失的问题
  * （v1 的 apply 每次重建 scratch，导致回合/token/墙钟恒 0，仅步数可计）。
+ * v3：与官方 `sessionStats` 去重——状态只保留 token 分桶（删除回合/步/墙钟字段）。
  */
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 3;
 
 /** 宿主投影定义（`ProjectionDefinition` 的结构子集，wire 缺省 = host-only）。 */
 export interface ProjectionDefLike {
@@ -149,7 +156,23 @@ function isState(value: unknown): value is SessionContextState {
     value !== null &&
     typeof value === "object" &&
     typeof (value as { asOfSeq?: unknown }).asOfSeq === "number" &&
-    typeof (value as { steps?: unknown }).steps === "number"
+    typeof (value as { outputTokens?: unknown }).outputTokens === "number"
+  );
+}
+
+/** 判定官方 `sessionStats` 视图形状（字段缺一即视为不可用，宁可缺省不猜）。 */
+function isStats(value: unknown): value is SessionStatsLike {
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record["turns"] === "number" &&
+    typeof record["steps"] === "number" &&
+    typeof record["llmMs"] === "number" &&
+    typeof record["toolMs"] === "number" &&
+    typeof record["ttftMs"] === "number" &&
+    typeof record["ttftSteps"] === "number" &&
+    typeof record["decodeMs"] === "number" &&
+    typeof record["decodeTokens"] === "number"
   );
 }
 
@@ -202,13 +225,7 @@ export function createProjectionDef(): ProjectionDefLike {
       // 在途账按 state 对象延续（见 scratchByState 注释）；首次/恢复时新建。
       let scratch = scratchByState.get(prev);
       if (scratch === undefined) {
-        scratch = {
-          seq: -1,
-          turn: 0,
-          countedTurn: 0,
-          open: null,
-          openCalls: new Map<string, number>(),
-        };
+        scratch = { seq: -1, open: null };
       }
       const next = reduceEvent(prev, event as ReportEvent, scratch, 0);
       scratchByState.set(next, scratch);
@@ -336,6 +353,25 @@ export function apply(
       : { ...raw, provider: route.provider, model: route.model };
   };
 
+  /**
+   * 读官方会话统计投影（回合 / 步 / 墙钟）。官方不在位 / 形状不符 → undefined，
+   * 报告按「该组数字不可用」渲染（不回退自折叠，见追踪文档「决策」）。
+   */
+  const statsFor = (
+    session: HostSessionLike | undefined,
+  ): SessionStatsLike | undefined => {
+    if (session === undefined || registry === undefined) return undefined;
+    if (typeof registry.stateOf !== "function") return undefined;
+    let raw: unknown;
+    try {
+      raw = registry.stateOf(session, STATS_KEY);
+    } catch (err) {
+      warn(`sessionStats 读面失败：${String(err)}`);
+      return undefined;
+    }
+    return isStats(raw) ? raw : undefined;
+  };
+
   /** 即时压力读数（tokenMeter 为可选服务，先探测再读）。 */
   const pressureFor = (
     session: HostSessionLike | undefined,
@@ -353,7 +389,7 @@ export function apply(
   };
 
   /**
-   * 组装一次报告输入（会话解析 + 状态 + 压力读数）。
+   * 组装一次报告输入（会话解析 + token 状态 + 官方统计 + 压力读数）。
    * @param options - 调用方给的报告输入（sessionId / detail）。
    * @param callerSession - 调用方会话（工具面来自 `exec.agent.session`），可选。
    * @returns 补齐状态与压力后的输入，可直接喂给 `buildReport`。
@@ -364,6 +400,7 @@ export function apply(
   ): ContextReportInput => {
     const session = resolveSession(options.sessionId, callerSession);
     const state = stateFor(session);
+    const stats = statsFor(session);
     const pressure = pressureFor(session);
     const resolvedId = options.sessionId ?? sessionIdOf(session);
     return withDefaults(
@@ -372,6 +409,7 @@ export function apply(
         detail: options.detail ?? defaultDetail,
         ...(resolvedId !== undefined ? { sessionId: resolvedId } : {}),
         ...(state !== undefined ? { state } : {}),
+        ...(stats !== undefined ? { stats } : {}),
         ...(pressure !== undefined ? { pressure } : {}),
       },
       undefined,
