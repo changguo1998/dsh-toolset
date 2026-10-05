@@ -222,6 +222,11 @@ export function checkBounds(state: LoopState, now: number): StopReason | null {
 /**
  * 供模型直接调用的宿主 schedule 参数（复用宿主 schedule 面做自动唤醒）；
  * 已停止返回 null。after 一次性提醒链式续排，便于逐轮控制与及时停止。
+ *
+ * 字段对齐官方 `schedule_create` 入参校验（`dsh-schedule` 0.2.0-rc.2 的
+ * `validateCreateArgs`）：只用白名单内的键、恰好一个选择器（`after_seconds`）、
+ * `after_seconds` 为正安全整数、`prompt` 与 `title` trim 后非空且 `title` ≤120 字符。
+ * 2026-10-06 修复：此前缺必填 `title`，照提示调用会被 `invalid_prompt` 拒绝。
  */
 export function scheduleHint(
   state: LoopState,
@@ -232,6 +237,7 @@ export function scheduleHint(
   return {
     tool: "schedule_create",
     args: {
+      title: `[metric-loop] ${state.id}`,
       after_seconds: afterSeconds,
       prompt: `[metric-loop] 自动唤醒：调用 metric_loop tick（wake=auto，id=${state.id}）继续指标循环`,
     },

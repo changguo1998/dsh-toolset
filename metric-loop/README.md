@@ -21,7 +21,7 @@ DSH（DeepSeek Harness）进程内插件：指标驱动的自动循环。注册�
 - 轮前边界检查：已达 `maxRounds` / `timeBoundMs` / `tokenBound` 时本轮不执行、直接停止（结果 `round: null`）。
 - `wake: "auto"` 受 cadence 节流：距上次成功不足 `cadenceSec` 返回 `deferred: true`，不消耗轮次、不落盘；显式 start/tick 不受限。
 - 测量失败（超时、非零退出、stdout 无数字）按本轮无改进处理，不更新最优值、不中断循环。
-- 结果含 `schedule` 提示（运行中为 `schedule_create` 的 `after_seconds` + `prompt`，已停止为 `null`）与一句话 `summary`；另有复查相关标注：`guardScope`（本轮复查范围）与（仅复查不可用时）`guardSkipped: true`。
+- 结果含 `schedule` 提示（运行中为 `schedule_create` 的 `title` + `after_seconds` + `prompt`，已停止为 `null`）与一句话 `summary`；另有复查相关标注：`guardScope`（本轮复查范围）与（仅复查不可用时）`guardSkipped: true`。
 
 只读服务 `metricLoop`（`provide("metricLoop")`）：`list()` 返回活动/历史循环清单（只读子集，`updatedAt` 倒序，单个状态文件损坏则跳过），`status(id)` 查单循环或返回 `null`。
 
@@ -74,7 +74,7 @@ npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau �
 
 ## 边界与限制
 
-- 自动唤醒复用宿主 schedule 面：插件只返回 `schedule_create` 参数，由宿主按提示排下一次唤醒（`after_seconds` 一次性提醒链式续排）；不新建调度器。该提示的**可执行性取决于 profile 是否挂载 `@deepseek-ai/dsh-schedule`**（模型侧 `schedule_create` 工具由它提供）；未挂载时提示只是文案，循环仍需靠显式 `tick` 或其他唤醒路径推进。
+- 自动唤醒复用宿主 schedule 面：插件只返回 `schedule_create` 参数，由宿主按提示排下一次唤醒（`after_seconds` 一次性提醒链式续排）；不新建调度器。**字段已对齐官方入参校验**（`dsh-schedule` 0.2.0-rc.2 的 `validateCreateArgs`：键白名单、恰好一个选择器、`prompt` / `title` trim 后非空且 `title` ≤120 字符、`after_seconds` 为正安全整数；`title` 为 `[metric-loop] <id>`），照提示调用即可成功。该提示的**可执行性仍取决于 profile 是否挂载 `@deepseek-ai/dsh-schedule`**（模型侧 `schedule_create` 工具由它提供）；未挂载时提示只是文案，循环仍需靠显式 `tick` 或其他唤醒路径推进。回归背景见 `docs/archived/2026-10-06-metric-loop-schedule-hint.md`。
 - 轮内做什么改进动作（循环载体）由宿主 workflow / 会话编排，插件不感知。
 - 跨进程语义依赖状态文件：每次 `dsh` 启动或 schedule 唤醒加载状态推进一轮；文件缺失视为循环不存在（`tick`/`stop` 报错，`status` 返回 `exists: false`）。
 - 测量命令经 `/bin/sh -c` 执行，取 stdout 中最后一个数字（容忍 `score: 0.87` 等噪声）；信任契约内命令，不做沙箱隔离。
@@ -103,7 +103,7 @@ npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau �
 ```sh
 npm run check   # 类型检查（tsc --noEmit，strict）
 npm run build   # 编译到 dist/
-npm run test    # node --test（44 例：engine / persist / controller，注入时钟与测量）
+npm run test    # node --test（45 例：engine / persist / controller，注入时钟与测量）
 npm run smoke   # 宿主联调：profile 引导 + headless 连跑三轮 + 状态文件断言
 ```
 

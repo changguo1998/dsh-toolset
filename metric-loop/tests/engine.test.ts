@@ -254,11 +254,73 @@ test("scheduleHint：运行中返回 schedule_create（after_seconds>=1），停
   assert.equal(hint.tool, "schedule_create");
   assert.ok(hint.args.after_seconds >= 1);
   assert.equal(hint.args.after_seconds, 40);
+  assert.equal(hint.args.title, "[metric-loop] default", "title 带循环 id");
 
   const stopped = createInitialState({ measureCmd: "true" }, 1_000);
   stopped.status = "stopped";
   stopped.stopReason = "plateau";
   assert.equal(scheduleHint(stopped, 30_000), null);
+});
+
+test("scheduleHint：字段契约对齐官方 schedule_create 入参校验", () => {
+  // 官方 dsh-schedule 0.2.0-rc.2 validateCreateArgs（lib/index.js:1937-1960）：
+  // 键白名单、恰好一个选择器、prompt/title trim 后非空、title ≤120、after_seconds 为正安全整数。
+  // 回归：2026-10-06 之前缺 title → 照提示调用必被 invalid_prompt 拒绝。
+  const ALLOWED = new Set([
+    "prompt",
+    "title",
+    "after_seconds",
+    "at",
+    "every_seconds",
+    "daily",
+    "weekly",
+    "cron",
+  ]);
+  const SELECTORS = [
+    "after_seconds",
+    "at",
+    "every_seconds",
+    "daily",
+    "weekly",
+    "cron",
+  ];
+  const state = createInitialState(
+    { measureCmd: "true", cadenceSec: 60 },
+    1_000,
+  );
+  state.lastSuccessAt = 10_000;
+  state.rounds = 1;
+  const hint = scheduleHint(state, 30_000);
+  assert.ok(hint !== null);
+  const args = hint.args as unknown as Record<string, unknown>;
+
+  assert.deepEqual(
+    Object.keys(args).filter((k) => !ALLOWED.has(k)),
+    [],
+    "不得出现白名单外的键",
+  );
+  assert.equal(
+    SELECTORS.filter((k) => args[k] !== undefined).length,
+    1,
+    "恰好一个选择器",
+  );
+  assert.equal(args["after_seconds"], 40);
+  assert.ok(
+    Number.isSafeInteger(args["after_seconds"]) &&
+      (args["after_seconds"] as number) > 0,
+    "after_seconds 正安全整数",
+  );
+  assert.equal(typeof args["prompt"], "string");
+  assert.ok((args["prompt"] as string).trim().length > 0, "prompt 非空");
+  assert.equal(typeof args["title"], "string");
+  assert.ok((args["title"] as string).trim().length > 0, "title 非空（必填）");
+  assert.ok(
+    (args["title"] as string).length <= 120,
+    "title 不超过官方 120 字符上限",
+  );
+  // id 出现在 title 与 prompt 里：模型据此认领是哪条循环
+  assert.ok((args["title"] as string).includes(state.id));
+  assert.ok((args["prompt"] as string).includes(state.id));
 });
 
 test("metricless（无测量命令）：不判 plateau，只按边界停止", () => {

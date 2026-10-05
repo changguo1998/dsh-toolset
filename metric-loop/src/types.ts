@@ -154,10 +154,10 @@ export interface TickResult {
   state: LoopState;
   /** 建议的下次自动唤醒延迟（秒）；已停止为 0。 */
   nextWakeSec: number;
-  /** 供模型直接调用的宿主 schedule 参数；已停止为 null。 */
+  /** 供模型直接调用的宿主 schedule 参数（字段对齐官方 `schedule_create` 入参 schema）；已停止为 null。 */
   schedule: {
     tool: "schedule_create";
-    args: { after_seconds: number; prompt: string };
+    args: { title: string; after_seconds: number; prompt: string };
   } | null;
   /** 供 agent 阅读的一句话摘要。 */
   summary: string;
