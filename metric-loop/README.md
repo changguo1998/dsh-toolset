@@ -51,6 +51,27 @@ bundle 契约：`name` / `inject: ["tools"]` / `provide: ["metricLoop"]` / `Conf
 npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau 停止
 ```
 
+## 与官方循环机制的分工（2026-10-06 裁定 A）
+
+宿主另有两条「循环 / 自主续跑」面，与本包不是同类能力（依据与全过程：`docs/archived/2026-10-05-metric-loop-official-loops.md`）：
+
+| 维度 | 本包 `metric-loop` | 官方 `goal-round-driver` | 官方 `tool-ralph` |
+| --- | --- | --- | --- |
+| 驱动源 | 模型调 `metric_loop`，每轮显式 `tick`（可经 schedule 提示唤醒） | 宿主事件：agent idle 时排 goal-round | 模型调 `ralph`，**前台阻塞**至结算 |
+| 前置条件 | 无（新建循环即可） | **需已建 goal 且 `activation === "armed"`**（resume / fork 后 disarmed） | 无 |
+| 测量与收敛 | **有**：测量命令 + best / streak / plateau | 无（模型自判） | 无（worker 自报） |
+| 停止边界 | plateau / maxRounds / time / tokens / manual | complete / paused / blocked / 轮上限 | complete / blocked / 轮上限 |
+| 跨进程状态 | **有**（JSON 状态文件，原子写 + schema 版本） | 无（activation 仅进程内） | 无（工作区即长期记忆） |
+| 轮间共享 | 同一会话 + 状态文件 | 同一会话 | 仅一份有界结构化报告（每轮全新子 agent） |
+| 本项目当前是否在位 | 是（本仓插件） | 是（`dsh-base` 装配） | **否** —— base 默认 `disabled: true`（`dsh-base/cordis.patch.yml:447-449`），一行 overlay（`- id: tool-ralph` + `disabled: false`）可恢复 |
+
+**本项目口径（裁定 A）**：
+
+- 要**按指标收敛**的长跑（有可测目标数字、按方向比较、plateau 自动收手、跨进程续跑）→ 用本包；这三项官方两条都没有。
+- 要**同一个 goal 的自主多轮推进**（目标是完成一件事，而不是优化一个数字）→ 用官方 goal + `goal-round-driver`；本包不参与。
+- `tool-ralph` **本项目不启用**：每轮全新子 agent、跨轮只传一份结构化报告，且完成 / 受阻是 worker 自报而非独立评估；即使用也需人明确要求，且与本包的指标循环不是同类能力。
+- 建议**不把两条循环叠在同一个目标上**：同一目标同时挂本包与 goal 续轮会形成两条互不知情的推进链，各有独立停止条件，收敛语义无法归因。
+
 ## 边界与限制
 
 - 自动唤醒复用宿主 schedule 面：插件只返回 `schedule_create` 参数，由宿主按提示排下一次唤醒（`after_seconds` 一次性提醒链式续排）；不新建调度器。该提示的**可执行性取决于 profile 是否挂载 `@deepseek-ai/dsh-schedule`**（模型侧 `schedule_create` 工具由它提供）；未挂载时提示只是文案，循环仍需靠显式 `tick` 或其他唤醒路径推进。

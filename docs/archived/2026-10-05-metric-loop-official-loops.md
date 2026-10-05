@@ -1,6 +1,6 @@
 # `metric-loop` 与官方两套循环机制并存（接取条目：`docs/BACKLOG.md`「`metric-loop` 与官方两套循环机制并存且分工未裁定」）
 
-状态：调研　　开启：2026-10-05　　关闭：—
+状态：关闭　　开启：2026-10-05　　关闭：2026-10-06
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -59,20 +59,32 @@
 
 ## 决策
 
-**需用户裁定**（本任务只备材料）。可选路径：
+2026-10-06 用户裁定：**选 A**。
 
-- **A** 保留 `metric-loop` 承担「测量 + 收敛 + 边界停止」，把与 `goal-round-driver` 的边界写进 README；
-- **B** 循环交给官方（goal + `goal-round-driver`），`metric-loop` 只留测量与状态；
-- **C** 维持现状，仅在 README 写明三方分工。
+**A = `metric-loop` 定位为「指标循环」那一层**：测量命令 + 收敛判定（best / streak / plateau）+ 四类边界停止 + 跨进程状态；与官方 `goal-round-driver`（宿主事件驱动、需已建且 armed 的 goal、无指标无跨进程状态）的分工写进 README。**不改代码、不改 profile。**
+
+理由（对照另两条）：
+
+- B（循环交给官方 + 本包只留测量）要拆 `src/engine.ts` 的 tick / 停止判定，并会失去**三项无替代品的能力**：指标收敛判定、四类边界停止、跨进程 JSON 状态；且官方驱动要求先建 goal 并 resume 后才 arm，门槛更高；
+- C 与 A 落地文件几乎相同，差别只在给不给本包写定位——不写等于把判断留给下一个人；
+- `tool-ralph` 是**默认关闭**的（见下「事实更正」），把它算作「并存机制」不成立，也不作为本项目循环路径。
+
+**事实更正（本次核实，含我中途的一次错判）**：
+
+- 启动用的是**全局安装树**（`/home/guochang/.local/share/fnm/.../lib/node_modules/@deepseek-ai/dsh`，dsh 0.2.0-rc.2），其 `dsh-base/cordis.patch.yml:447-449` 为 `tool-ralph: disabled: true`，注释明确「Off by default … An overlay row restores it (`- id: tool-ralph` / `disabled: false`)」→ **调研引用的 `:447-448` 正确**；
+- `~/.npm/_npx/c40503fdf38a82ea/` 是 **0.1.5-rc.2 旧树**，同一行**没有** `disabled` —— 我中途 grep 的是这棵树，据此误判「调研写错了」，**该错判已撤回**；口径：宿主面事实一律读全局树；
+- 旁证：本会话工具目录实测 50 个模型面工具，**无 `ralph`**（`ralph` 的实现两版逐字节相同，故功能描述不受树差异影响）。
+
+**据此新增的登记项**：`docs/host/HOST-PACKAGES.md:76` 把 `tool-ralph` 列入「§1 现成可用（fff 已挂载）」为误（该行实为 base 默认 `disabled: true`）→ 追加 BACKLOG 条目；`docs/host/` 按仓库约定「不参与变更流程，按自身过期条件复核」，**本任务不改它**。
 
 ## 规划
 
-**计划改动文件清单（待裁定后收敛；未列出的文件一律不改）**
+**计划改动文件清单（未列出的文件一律不改；用户选 A 时已一并批准下列清单）**
 
-- `docs/BACKLOG.md` —— 更正「三者均已挂载」；登记 `schedule_create` 提示缺陷为新条目
-- `docs/ARCHITECTURE-REUSE.md` —— 更正 `:28` 的挂载口径与 `:89` §4 C
-- `metric-loop/README.md` —— 三方分工口径（裁定后写）
-- 若走 A/B：`metric-loop/src/**`
+- `metric-loop/README.md` —— 新增「与官方循环机制的分工」节：三方（本包 / `goal-round-driver` / `tool-ralph`）能力对照 + 本项目口径（本包承担指标循环；官方驱动走 goal 路线；`tool-ralph` 默认关闭、本项目不启用）
+- `docs/ARCHITECTURE-REUSE.md` —— 更正 `:28` 总表行的挂载口径（`tool-ralph` 默认禁用、`goal-round-driver` 在位）；`§4 C` 标「已裁定（A）」
+- `docs/BACKLOG.md` —— 追加新条目（`HOST-PACKAGES` 误标 `tool-ralph` 为已挂载）；关闭时移除本条目
+- 本追踪文档 + 归档
 
 **明确不做**
 
@@ -81,12 +93,28 @@
 
 ## 实现记录
 
-- 2026-10-05：接取条目并标记「进行中」；完成三方对照调研（见上），**无代码改动**。发现两处文档事实错误 + 一处提示缺陷。
+- 2026-10-06：用户裁定 **A**；决策与计划清单落本文件（状态 → 决策）。
+- 2026-10-06：实现（纯文档，4 个文件）——
+  - `metric-loop/README.md`：新增「与官方循环机制的分工（2026-10-06 裁定 A）」节 —— 三方对照表（驱动源 / 前置条件 / 测量与收敛 / 停止边界 / 跨进程状态 / 轮间共享 / 是否在位）+ 本项目口径四条（指标收敛用本包 / goal 续轮用官方 / `tool-ralph` 不启用 / 不把两条循环叠在同一目标上）；
+  - `docs/ARCHITECTURE-REUSE.md`：`:28` 总表行改「保留（已裁定 A，2026-10-06）」并更正挂载口径（只有 `goal-round-driver` 在位；`tool-ralph` base 默认 `disabled: true`，一行 overlay 可恢复）；§4 C 标「已裁定（选 A）」；
+  - `docs/BACKLOG.md`：追加条目「`docs/host/HOST-PACKAGES.md` 把 `tool-ralph` 标为已挂载与实测不符」；
+  - 本追踪文档。
 
 ## 测试与证据
 
-（待实现后补；调研阶段的对照材料见「调研」一节）
+文档类变更，验证 = `format` + 自查 diff（不涉及 `check` / `build` / `test`）。
+
+- `format metric-loop/README.md docs/ARCHITECTURE-REUSE.md docs/BACKLOG.md <本文件>` → 通过；`git status` 仅这 4 个文件。
+- 事实复核（裁定所依据的两条，落文档前逐条实测）：
+  - 启动树 = 全局安装 `dsh 0.2.0-rc.2`，其 `dsh-base/cordis.patch.yml:447-449` = `- id: tool-ralph` / `name: '@deepseek-ai/dsh-tool-ralph'` / `disabled: true` —— 逐行打印确认；
+  - 本会话工具目录实测 **50** 个模型面工具，`'ralph' in names === False`（会话日志 `request/header` 解帧后统计）。
+- 反向证据（说明为何要写这节）：`~/.npm/_npx/c40503fdf38a82ea/`（0.1.5-rc.2 旧树）同一行**无** `disabled` —— 我据旧树一度误判「调研写错了」，已撤回并写进决策节，避免下一个人再踩。
 
 ## 收尾
 
-（待关闭时补）
+- 条目「`metric-loop` 与官方两套循环机制并存且分工未裁定」已从 `docs/BACKLOG.md` §2 **清理移除**，其余条目重编号；本文件移入 `docs/archived/`。
+- 关闭后回写：`metric-loop/README.md`（本包契约面，含三方分工口径）、`docs/ARCHITECTURE-REUSE.md` 两处（§0 总表行、§4 C）。`docs/host/HOST-PACKAGES.md` 本体**未改**（宿主面文档按自身过期条件复核），改为在 BACKLOG 追加条目。
+- 途中发现并已登记：`docs/BACKLOG.md` 新条目（`HOST-PACKAGES` 误标 `tool-ralph` 已挂载）、原有条目「`metric-loop` 的 `schedule` 续排提示结构性不可执行」保持独立。
+- 遗留：`tool-ralph` 若将来要启用，是 profile overlay 一行（`- id: tool-ralph` + `disabled: false`，项目目录外，需授权）——本任务明确不做。
+- `STATUS.md` 按流程由用户择时更新，本次不改。
+- 提交：前三个询问点用户均选择留到关闭后；本次为**关闭后一次性提交**。
