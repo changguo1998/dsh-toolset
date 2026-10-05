@@ -349,6 +349,8 @@ npm run watch # tsc --watch 常驻编译到 dist/（仍需重启 dsh 生效）
 
 字符宽度按 EAW 精确表判定（N 类 1 列 / W·F 2 列 / A 类保守 2 列）；排版遇到「呈现不确定」字符时**按需实测**（写屏前 `CSI 6n` 光标列差）覆盖其真实列数，实测值落盘 `<profile 目录>/tui-width-table.json` 供后续会话复用（`TUI_WIDTH_PROBE=0` 可关）；见 `docs/SPEC.md` §15.7。
 
+渲染层另有**帧转储**排查开关（定位「帧对但屏幕不对」类问题：画面残留 / 首项被复制 / 错位——这类问题取决于「实际写出的字节 + 当时的尺寸认知」，离线复现不一定命中）：`TUI_FRAME_DUMP=/tmp/tui-frames.jsonl dsh --profile fff` 会把**每帧行文本**、**实际终端报文**与**尺寸来源对比**（渲染器采用的尺寸 vs `process.stdout` 读数）按 JSONL 追加（超 8 MiB 停止并写 `kind:"stop"` 标记）。复盘：把 `kind:"out"` 的报文按序喂给 `tests/helpers/screenEmu.ts` 的 `ScreenEmu.feed()` 重放得到「屏幕实际留下什么」，与同刻 `kind:"frame"` 的 `lines` 逐行比对，差异行即残留位置；`kind:"size"` 用来看认知偏差何时发生。未设该环境变量时不生效（零开销）；转储含屏幕文本，排查完请删除文件。
+
 ## 已知限制
 
 - **模型与 TUI 本地开关随会话恢复**：resume / 启动时按「宿主日志 → TUI 侧快照（`<会话目录>/tui-state.json`）→ 宿主默认」恢复模型、模式与策略（plan / sandbox / permission 预设 / 审批策略）、`verbose` / `symbol-unify` 与状态列显隐；仅内存会话（无持久化目录）没有快照，模型退化为宿主日志口径。**恢复会话按 step 概要恢复工具记录**（每个含工具调用的 step 折成一行），不还原逐条工具行 / 参数摘要 / 结果详情 / thinking。详见 `docs/DESIGN.md`「实现要点（机制与命令）· 会话状态恢复」。

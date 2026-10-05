@@ -3,6 +3,7 @@
 // 契约见 TUI/docs/DESIGN.md「核心接口契约」。退出生命周期归 renderer：
 // close()/SIGINT/SIGTERM/uncaught 一律先恢复终端。
 
+import { appendFileSync } from "node:fs";
 import {
   Screen,
   type FrameFocus,
@@ -89,11 +90,68 @@ export interface CreateRendererOptions {
   exitOnClose?: boolean;
 }
 
+/**
+ * 帧转储（排查设施，2026-10-04 起保留）：设 `TUI_FRAME_DUMP=<path>` 时把**每帧**与
+ * **每条终端报文**按 JSONL 追加到该文件，用于定位「帧对但屏幕不对」类问题（残留 /
+ * 首项被复制 / 错位）——这类问题取决于「实际写出的字节 + 当时的尺寸认知」，离线复现
+ * 不一定命中，需要真机抓一段现场。
+ *
+ * 记录形态（每行一条 JSON，`t` 为毫秒时间戳）：
+ * - `{kind:"frame", value:{size:{cols,rows}, count, lines:[...]}}`：本帧行文本（去样式）
+ *   与渲染器**认为的**屏幕尺寸；`lines` 是判定「屏幕上应该是什么」的基准。
+ * - `{kind:"out", value:"<终端报文原文>"}`：实际写出的转义序列（含行定位 / 擦除）。
+ * - `{kind:"size", value:{got, out}}`：尺寸来源对比——`got` = 渲染器采用的尺寸，
+ *   `out` = `process.stdout` 当下读数；两者不一致即「认知偏差」，滚屏 / 钳制类残留的源头。
+ * - `{kind:"stop", value:"..."}`：达到上限后停止转储的收尾标记。
+ *
+ * 用法：`TUI_FRAME_DUMP=/tmp/tui-frames.jsonl dsh --profile fff` → 复现 → 退出。复盘时把
+ * `kind:"out"` 的报文**按序**喂给 `tests/helpers/screenEmu.ts` 的 `ScreenEmu.feed()`
+ * 重放，得到「屏幕上实际留下什么」，再与同刻 `kind:"frame"` 的 `lines` 逐行比对，
+ * 差异行即残留 / 复制位置；`kind:"size"` 用来看认知偏差是否发生（及何时发生）。
+ *
+ * 开销：未设该环境变量时**不生效**（每次调用仅一次 env 读取 + 早返回）；设了则每次
+ * 渲染同步追加一行，文件超上限即停（转储含屏幕文本，排查完请自行删除文件）。
+ */
+const FRAME_DUMP_MAX_BYTES = 8 * 1024 * 1024;
+let frameDumpBytes = 0;
+let frameDumpStopped = false;
+function frameDump(kind: string, value: unknown): void {
+  const path = process.env["TUI_FRAME_DUMP"];
+  if (!path || frameDumpStopped) return;
+  const line = JSON.stringify({ t: Date.now(), kind, value }) + "\n";
+  if (frameDumpBytes + line.length > FRAME_DUMP_MAX_BYTES) {
+    frameDumpStopped = true;
+    try {
+      appendFileSync(
+        path,
+        JSON.stringify({
+          t: Date.now(),
+          kind: "stop",
+          value: `已达 ${FRAME_DUMP_MAX_BYTES} 字节上限，停止转储`,
+        }) + "\n",
+      );
+    } catch {
+      // 排查开关：写失败不影响渲染
+    }
+    return;
+  }
+  frameDumpBytes += line.length;
+  try {
+    appendFileSync(path, line);
+  } catch {
+    frameDumpStopped = true; // 写入失败（权限/磁盘）：停止重试，不影响渲染
+  }
+}
+
 export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
   const terminal = createTerminal();
   const themes = opts.themes ?? THEMES;
   // 原始写出句柄（屏幕渲染与宽度探测共用同一出口，便于测试捕获）
-  const write = opts.write ?? ((s: string) => process.stdout.write(s));
+  const rawWrite = opts.write ?? ((s: string) => process.stdout.write(s));
+  const write = (s: string): void => {
+    frameDump("out", s);
+    rawWrite(s);
+  };
   const screen = new Screen({ write, themes });
   const decoder = new KeyDecoder();
   const keyCbs = new Set<(k: KeyEvent) => void>();
@@ -115,6 +173,14 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
     if (terminal.stdin.isTTY) {
       const s = terminal.getSize();
       screen.resize(s.cols, s.rows);
+      // 尺寸变化现场（排查：认知偏差何时发生）——got = 采用的尺寸，out = stdout 读数
+      frameDump("size", {
+        got: s,
+        out: {
+          cols: process.stdout.columns ?? 0,
+          rows: process.stdout.rows ?? 0,
+        },
+      });
       for (const cb of resizeCbs) cb(s.cols, s.rows);
     }
   };
@@ -157,6 +223,16 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       focus?: FrameFocus,
     ): void {
       if (closed) return;
+      // 帧转储（TUI_FRAME_DUMP 生效时）：本帧行文本 + 渲染器认为的尺寸 + stdout 读数
+      frameDump("frame", {
+        size: screen.getSize(),
+        out: {
+          cols: process.stdout.columns ?? 0,
+          rows: process.stdout.rows ?? 0,
+        },
+        count: rows.length,
+        lines: rows.map((r) => r.segments.map((s) => s.text).join("")),
+      });
       // delta 优化：与上一帧逐行比较取变化行**游程**，只重写这些区间（帧中任意位置，
       // 不限帧尾——状态栏符号/流式末行增长都只重写对应行，不清屏）。
       // sections 提供且与上一帧段表一致时按**帧段**切分：多段同时变化只重写各段内
