@@ -1,6 +1,6 @@
 # TUI `/goal` 与官方命令双注册（接取条目：`docs/BACKLOG.md`「TUI `/goal` 与官方命令双注册」）
 
-状态：调研　　开启：2026-10-05　　关闭：—
+状态：决策　　开启：2026-10-05　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -59,22 +59,39 @@ emit({ type: "notice", text: "未知命令，输入 /help 查看可用命令。"
 
 ## 决策
 
-（待定；调研已给出结论：验收的「可见降级」一条已满足，剩余工作是把覆盖语义显式化）
+2026-10-05 用户裁定：**保留官方插件（A = `@deepseek-ai/dsh-command-goal`），删除 TUI 本地的覆盖定义**。
+
+选项对照：
+
+1. 原规划——保留本地无参分支，只补注释 / 转发断言 / 降级测试 / 文档口径：双注册仍在，只是把隐式变显式；
+1. 无参也转发宿主但保留本地条目：本地条目退化成纯转交空壳，等于同一件事两处实现，未采纳；
+1. **（选定）** 删除 `LOCAL_COMMANDS` 的 `goal` 条目与 `case "goal"` 分支，`goal` 回到 `registry` 路由、由官方独占。
+
+理由：验收要求的「可见降级」当前已由注册表 fail-close 满足（`dsh.ts:3856` 未知命令 notice + 失败色），无需新增；本地条目的**唯一自有行为**是无参提示，而该信息已由左侧状态列常驻展示——保留它换来一句与官方重复的提示加一条永久契约债。删除后**行为面变化仅一处**：无参 `/goal` 从「一行 notice」变为官方多行状态块（Status / Objective / Rounds / Activation / Commands）；带参路径本就转发，行为不变。
+
+插件关系（临时指代）：A 官方 slash 命令（保留）／B TUI（本次唯一改动方）／C `dsh-goal` 域服务／D `goal-round-driver`／E `tool-goal` 模型工具／F `goal-contract`／G `knowledge-base`。C / D / E / F / G 与命令面无耦合，本次不动。
 
 ## 规划
 
-**计划改动文件清单（待决策后收敛；未列出的文件一律不改）**
+**计划改动文件清单（未列出的文件一律不改）**
 
-- `TUI/src/app/commands.ts` —— `LOCAL_COMMANDS` 中 `goal` 条目补覆盖语义注释（或集中声明「本地可覆盖宿主同名命令」）
-- `TUI/src/app/index.ts` —— `case "goal"` 的转发分支补一句说明与断言
-- `TUI/tests/app.test.ts` —— 补一条「宿主无 `goal` 命令 → 落到未知命令的可见降级」用例
-- `TUI/docs/DESIGN.md` 或 `TUI/README.md` —— 记录覆盖口径
+代码（全在 TUI 包内，3 个文件）：
+
+- `TUI/src/app/commands.ts` —— 删 `SlashRoute` 联合成员 `"goal"`（`:182`）与 `LOCAL_COMMANDS` 的 `goal` 条目（`:261-263`）
+- `TUI/src/app/index.ts` —— 删 `case "goal"` 分支（`:2781-2789`）；改 `/help` 硬编码文案（`:4185-4187`）
+- `TUI/tests/app.test.ts` —— 改两条用例：无参 `/goal` 改为「转发宿主、不再本地拦截」（原 `:3867-3877`）；带参用例去掉「无参仍本地提示」尾断言（原 `:3879-3890`）
+
+文档（关闭后回写，与代码同批提交）：
+
+- `TUI/docs/COMMANDS.md`（`:23`）、`TUI/docs/COMMANDS-SPEC.md`（`:78`）、`TUI/docs/DESIGN.md`（`:354`）、`TUI/README.md`（`:275`、`:299`）—— 把「`/goal` 无参本地提示、带参转发宿主」改为「本地定义已删除，`/goal` 全形态交宿主 `dsh-command-goal`」
+- 本追踪文档、`docs/BACKLOG.md`（关闭时清理条目）
 
 **明确不做**
 
-- 不改命令名（`/goal` 是用户肌肉记忆，改名成本高于收益）
-- 不改动官方包
-- 不动无参分支的文案（除非决策阶段另有结论）
+- 不改命令名、不改动官方包、不动 profile（**不**新增 `disabled: true` 行——那是另一条路线，已被选项 3 取代）
+- 不动 `layout.ts` 里的 `"goal"`（左侧状态列块 id，同名不同物）
+- 不删 TUI 的 goal 展示面（状态列 goal 块 / phase 符号 / `⟳` activation）
+- 不改动无参 `/goal` 的官方文案（属 A）
 
 ## 实现记录
 
