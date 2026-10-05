@@ -3864,19 +3864,25 @@ test("usage 事件带 contextWindow → 状态栏 ctx 追加占用百分比", ()
   );
 });
 
-test("/goal：不再打开面板，通知左侧信息栏查看 goal/todo", () => {
-  const { renderer } = makeApp();
+test("/goal：无参也交宿主（route 改 registry，2026-10-06 裁定）", () => {
+  const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/goal");
+  assert.deepEqual(
+    adapter.commands,
+    ["/goal"],
+    "无参 /goal 走 registry 路由 → adapter.runCommand（宿主 dsh-command-goal）",
+  );
+  assert.deepEqual(adapter.sent, [], "不经 sendMessage 当作消息发给模型");
   const plain = renderer.lastRender.map((l) =>
     l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
-    plain.some((l) => l.includes("详情见左侧信息栏")),
-    "/goal 仅提示查看左侧信息栏（不再打开面板）",
+    !plain.some((l) => l.includes("详情见左侧信息栏")),
+    "旧本地提示已消失（回归守卫）",
   );
 });
 
-test("/goal <objective>：带参数转交宿主 goal 命令（无参数仍只提示左侧信息栏）", () => {
+test("/goal <objective>：带参数转交宿主 goal 命令", () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/goal 打磨状态列");
   assert.deepEqual(
@@ -3885,8 +3891,6 @@ test("/goal <objective>：带参数转交宿主 goal 命令（无参数仍只提
     "带参数的 /goal 交 adapter.runCommand（宿主 dsh-command-goal）",
   );
   assert.deepEqual(adapter.sent, [], "不经 sendMessage 当作消息发给模型");
-  typeAndEnter(renderer, "/goal");
-  assert.equal(adapter.commands.length, 1, "无参数 /goal 仍是本地提示");
 });
 
 // ===== 顶部三面板焦点滚动（Tab 切换 / ↑↓ 行滚动 / PgUp/PgDn 整页）=====

@@ -437,11 +437,15 @@ if (smoke) {
       typeLine("/goal");
       await sleep(300);
       const panelPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
+      // 2026-10-06 起 `/goal` 无本地处理（条目 route=registry）：无参也交宿主，demo 的
+      // mock 宿主没有该命令 → 可见降级「未知命令」（fail-close）；状态列 goal objective
+      // 仍常驻（与命令面无关）。
       ok(
         "goal-panel",
-        panelPlain.includes("详情见左侧信息栏") &&
+        !panelPlain.includes("详情见左侧信息栏") &&
+          panelPlain.includes("未知命令") &&
           panelPlain.includes("P2 阶段 B1+B2"),
-        "goal 提示/状态列 objective absent from frames",
+        "goal 本地提示未消失 / 未知命令降级缺失 / 状态列 objective absent from frames",
       );
       ok(
         "status-col-elements",

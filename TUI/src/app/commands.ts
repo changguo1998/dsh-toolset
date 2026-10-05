@@ -179,7 +179,6 @@ export type SlashRoute =
   | "new"
   | "copy"
   | "registry"
-  | "goal"
   | "policy"
   | "permission"
   | "jobs"
@@ -257,10 +256,13 @@ export const LOCAL_COMMANDS: readonly {
     desc: "新建会话（不重启进程；当前会话保留，可经 /session 切回）",
   },
   { name: "copy", route: "copy", desc: "复制最后一条回复（OSC52）" },
+  // `/goal` 条目只为帮助与补全面板提供中文描述，route 直接走 `registry`：全形态交宿主
+  // `dsh-command-goal`（2026-10-06 裁定——删除本地无参覆盖以消除双注册，但保留描述行；
+  // 详见 docs/archived/2026-10-05-tui-goal-command-shadowing.md）。
   {
     name: "goal",
-    route: "goal",
-    desc: "无参看状态列；带参转发宿主",
+    route: "registry",
+    desc: "交宿主 dsh-command-goal",
   },
   { name: "policy", route: "policy", desc: "审批策略 ask/never" },
   {

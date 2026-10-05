@@ -71,19 +71,30 @@ emit({ type: "notice", text: "未知命令，输入 /help 查看可用命令。"
 
 插件关系（临时指代）：A 官方 slash 命令（保留）／B TUI（本次唯一改动方）／C `dsh-goal` 域服务／D `goal-round-driver`／E `tool-goal` 模型工具／F `goal-contract`／G `knowledge-base`。C / D / E / F / G 与命令面无耦合，本次不动。
 
+**2026-10-06 用户细化（方案甲，覆盖上面选项 2 的判定）**：本地条目**保留**，但降级为「只为帮助与补全面板提供中文描述」——`route` 改 `"registry"`、`desc` 改为现在行为的描述，`case "goal"` 分支与 `SlashRoute` 的 `"goal"` 成员照删。即：不再有任何本地**行为**，但保留本地**描述行**（`/help` 与 `/` 补全面板仍显示中文；用户：帮助内容修改，其他内容不变，测试相应更新）。选项 2 原先被否的理由是「纯转交空壳」——按甲，该条目不再承担路由职责（路由即通用 registry 分支），只承担文案，故不构成双重实现。
+
 ## 规划
 
 **计划改动文件清单（未列出的文件一律不改）**
 
 代码（全在 TUI 包内，3 个文件）：
 
-- `TUI/src/app/commands.ts` —— 删 `SlashRoute` 联合成员 `"goal"`（`:182`）与 `LOCAL_COMMANDS` 的 `goal` 条目（`:261-263`）
+- `TUI/src/app/commands.ts` —— 删 `SlashRoute` 联合成员 `"goal"`（`:182`）；`LOCAL_COMMANDS` 的 `goal` 条目**保留**，`route` 改 `"registry"`、`desc` 改为现在行为的描述（方案甲）
 - `TUI/src/app/index.ts` —— 删 `case "goal"` 分支（`:2781-2789`）；改 `/help` 硬编码文案（`:4185-4187`）
 - `TUI/tests/app.test.ts` —— 改两条用例：无参 `/goal` 改为「转发宿主、不再本地拦截」（原 `:3867-3877`）；带参用例去掉「无参仍本地提示」尾断言（原 `:3879-3890`）
 
+**计划外补入（2026-10-06，全量测试暴露，用户批准）**：
+
+- `TUI/tests/fixtures/focus-frame-legacy.json` —— 冻结帧基线：`panel-completion@w60` 场景的补全候选里原本是旧 desc（`无参看状态列；带参转发宿主`），方案甲后该行描述文本变化。由 `scripts/freeze-focus-frame.mts` 再生成，实测**仅该行 2 行文本（text + ansi）变化**，其余 14 个场景逐字节不变。
+- `TUI/demo/main.ts` —— `goal-panel` smoke 场景（`:437-445`）断言旧本地提示「详情见左侧信息栏」；`/goal` 改走 registry 后该提示不再出现（demo 的 mock 宿主无该命令 → 可见降级「未知命令」）。改写为三条断言：旧提示消失 + 「未知命令」可见降级 + 状态列 objective「P2 阶段 B1+B2」仍在。
+
+**途中发现的新问题（按 §4 追加条目，不在本任务内修）**：
+
+- `npm run demo -- --smoke` 的 `activity-mixed-ordered` 场景**恒失败**（HEAD 基线即 `SMOKE_FAIL n=1`）：场景按 `\r\n` 切帧，而渲染器自 2026-10-05 起改为逐行绝对定位（提交 `647761d`）→ 子串全命中第 0 行。已登记为 `TUI/docs/BACKLOG.md` #1。
+
 文档（关闭后回写，与代码同批提交）：
 
-- `TUI/docs/COMMANDS.md`（`:23`）、`TUI/docs/COMMANDS-SPEC.md`（`:78`）、`TUI/docs/DESIGN.md`（`:354`）、`TUI/README.md`（`:275`、`:299`）—— 把「`/goal` 无参本地提示、带参转发宿主」改为「本地定义已删除，`/goal` 全形态交宿主 `dsh-command-goal`」
+- `TUI/docs/COMMANDS.md`（`:23`）、`TUI/docs/COMMANDS-SPEC.md`（`:78`）、`TUI/docs/DESIGN.md`（`:354`）、`TUI/README.md`（`:275`、`:299`）—— 把「`/goal` 无参本地提示、带参转发宿主」改为「`/goal` 无本地**行为**：条目仅提供帮助 / 补全描述（`route: "registry"`），全形态交宿主 `dsh-command-goal`」
 - 本追踪文档、`docs/BACKLOG.md`（关闭时清理条目）
 
 **明确不做**
@@ -96,10 +107,24 @@ emit({ type: "notice", text: "未知命令，输入 /help 查看可用命令。"
 ## 实现记录
 
 - 2026-10-05：接取条目并标记「进行中」；完成现状调研（见上），**无代码改动**。
+- 2026-10-06：决策定稿（保留 A、删除 TUI 本地覆盖定义），文档提交 `02bffeb`。
+- 2026-10-06：首版实现（删条目 + 删 case + 改 `/help` + 改两条用例），`check` / `build` / `app.test.ts` 167 例全绿；全量 `npm test` 暴露冻结帧基线失败（计划外文件）。
+- 2026-10-06：用户细化落法为**方案甲**并批准两个计划外文件，据此完成终版实现：
+  - `TUI/src/app/commands.ts`：`SlashRoute` 删 `"goal"` 成员；`LOCAL_COMMANDS` 的 `goal` 条目保留，`route: "registry"`、`desc: "交宿主 dsh-command-goal"`（宽度按补全面板实测截断上限取值，避免截断），原位留指路注释；
+  - `TUI/src/app/index.ts`：删 `case "goal"`（`registry` 分支统一处理）；`/help` 的 `/goal` 描述改为「全形态交宿主 dsh-command-goal…」；
+  - `TUI/tests/app.test.ts`：无参用例断言「转交宿主（`adapter.commands === ["/goal"]`）+ 旧本地提示消失」；带参用例去掉「无参仍本地提示」尾断言；
+  - `TUI/tests/fixtures/focus-frame-legacy.json`：`scripts/freeze-focus-frame.mts` 再生成（仅该行 text+ansi 变化）；
+  - `TUI/demo/main.ts`：`goal-panel` 场景改为「旧提示消失 + 「未知命令」可见降级 + 状态列 objective 仍在」；
+  - `TUI/docs/BACKLOG.md`：#1 登记途中发现的既有 smoke 缺陷。
 
 ## 测试与证据
 
-（待实现后补）
+- `cd TUI && npm run check` → 通过（tsc strict）
+- `cd TUI && npm run build` → 通过
+- `cd TUI && npm test` → **1332 / 1332 通过**（含改写后的两条 `/goal` 用例、`focus-frame` 15 场景基线对照）
+- `npm run demo -- --smoke` → `SMOKE_PASS goal-panel`；仅剩 `SMOKE_FAIL activity-mixed-ordered (idx=0,0,0,0,0,-1)`，**与 HEAD 基线一致**（基线 `SMOKE_FAIL n=1`，本条已登记为 `TUI/docs/BACKLOG.md` #1，非本任务引入）
+- 夹具差异自查：`git diff --numstat` 显示该 JSON 仅 2 行变化（text + ansi），未跑 `format`（脚本与 `AGENTS.md` 明令禁止对生成夹具跑 jq 类格式化）
+- 反向验证（人工确认点）：`/goal` 现在不再出现本地提示「详情见左侧信息栏」；补全面板该行描述已换为新文案；左侧状态列 goal objective 与 phase 符号不受影响
 
 ## 收尾
 
