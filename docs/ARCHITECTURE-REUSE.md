@@ -90,7 +90,7 @@
 | D | `hash-edit` / `fs-digest` 可选改用 `ctx.fs` 读（沙箱一致，替代直接 `node:fs`） | 两包 `src/**` | 1 h | **含行为变更**：`ctx.fs` 后端是 `fs-sandbox`，hash-edit 的**写**会从「node:fs 直写（当前绕开沙箱）」变为受 workspace-write 围栏；且 `ctx.fs` 的版本守卫是文件级，**不能**替代行级锚点语义。宜与 `hash-edit/docs/BACKLOG.md` #1（render 缺陷）同批 |
 | E | 把「可挂但不该挂」清单（§5）落到**非生成型**文档（`docs/BACKLOG.md` 观察项 / `profiles/example/cordis.patch.yml` 注释）——不要写进 `HOST-PACKAGES.md`（升宿主后重生成会被覆盖） | `docs/BACKLOG.md` / `profiles/example` | 0.2 h | 无 |
 
-**新增观察项（本次审阅补出）**：① `knowledge-base` ⇄ `output-compress` 共库直写的隐私边界（两包写入口径需同步）；② 是否用配置开启 `session-query-sqlite` 的 FTS5（`openAt: first-search`）并与知识库做分工验证；③ `rule-engine` 与官方 `repeat-tool-reminder` 的注入重复度评估。
+**新增观察项（本次审阅补出）**：① `knowledge-base` ⇄ `output-compress` 共库直写的隐私边界（两包写入口径需同步）；② 是否用配置开启 `session-query-sqlite` 的 FTS5（`openAt: first-search`）并与知识库做分工验证；③ `rule-engine` 与官方 `repeat-tool-reminder` 的注入重复度评估（**2026-10-05 已评估关闭**：注入点与通道均不同——官方走 `tools/post-execute` 的 `additionalContexts`、不产生消息记录，本引擎走 next-step 消息注入，预算互不挤占；见 `rule-engine/README.md`「与官方 `repeat-tool-reminder` 的分工」）。
 
 ## 5. 判定为「可挂但不该挂」的官方面
 

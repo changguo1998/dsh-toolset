@@ -70,6 +70,18 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 | `dedupeInRecord`（规则 / 消费者） | `0` | **整型**：会话记录里最多允许 N 条本注入——记录 = 可见投影（`deriveMessages()`）**加**仍在 inbox 待消费的注入（`sessionProjections` 的 `inbox` 投影；`steer` / `inject` 到步边界才被 claim，见「时序约束」）。`0` = 无限制；`1` = 已有就跳过（重载会话不重复注入；压缩把注入挤出记录后才补）；`N≥2` = 允许最多 N 条。计数按 `source.summary` 或合并消息的 `source.summaries` 命中该 key 的**条数**。记录不可读 → 照旧注入（fail-open）。旧布尔值兼容归一：`true → 1`、`false → 0` |
 | `directWrite`（规则 / 消费者） | `[]` | **直写节点**：命中发生在这些节点时**跳过 `dedupeInRecord` 记录判断**、直接写入（项须是匹配面 / `sources` 的子集，越界项归一化时丢弃并记 warning）。用于「会话建立 + 压缩完成必须出现、不等步末」：`session-start`（含恢复）不判断 → 恢复会话会再注入一次；`step-end` 仍按记录判断兜底 |
 
+### 与官方 `repeat-tool-reminder` 的分工（不竞争，2026-10-05 定论）
+
+官方 `repeat-tool-reminder`（base 已挂载，`thresholds: [3, 5, 8]`）与本引擎**既不同注入点、也不同通道**：
+
+| 维度 | 本引擎 | 官方 `repeat-tool-reminder` |
+| --- | --- | --- |
+| 触发条件 | 规则表判定（关键词 / 正则 / 谓词）+ 消费者 `decide` | 同一工具重复调用计数达阈值 |
+| 注入通道 | `agent.followup` / `steer` / `inject` 注入**消息记录**（落 next-step inbox，呈现为用户输入块） | 在 `tools/post-execute` 返回值里附 `additionalContexts`——**步骤级上下文，不产生消息记录** |
+| 订阅节点 | session / turn / step / tool 边界 + `compaction`（**不含 `agent/pre-step`**） | `tools/post-execute`（注入）；`agent/pre-step` 仅用于「收到真实用户消息即清零重复计数」 |
+
+故：注入预算互不挤占（`maxInjectionsPerTurn` 只计本引擎自己的注入段）；同一回合各出一条提醒**不构成冲突**（触发条件互不相关、通道与文案均不同，无需去重）。本引擎**不**为避让官方 reminder 而收窄触发面（调研与实测依据见 `docs/archived/2026-10-05-rule-engine-reminder-overlap.md`）。
+
 ### 工具族
 
 | 工具 | 参数 | 作用 |
