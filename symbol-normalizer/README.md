@@ -38,7 +38,7 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 
 ### 3. 会话开局指南（消费者 `symbol-normalizer-guide`）
 
-- 会话开局注入一次「推荐符号白名单 + 符号使用标准」（禁用 emoji/列宽不定字符、变体必须用推荐对应符、使用场景口径、代码段豁免说明），让模型开局即按规范输出；
+- 会话开局注入一次「推荐符号白名单 + 符号使用标准」（禁用 emoji/列宽不定字符、**英文标点且标点后留一个空格**、**非 ASCII 符号后留一个空格（不紧贴文字）**、变体必须用推荐对应符、使用场景口径、代码段豁免说明），让模型开局即按规范输出；
 - 文本**由 config 生成**（白名单取自 `recommended`、变体映射取自 `aliases`，最多列 20 条），改配置即改注入内容；
 - 触发与去重走 rule-engine 统一标准：注册 `sources: ["session-start", "compaction", "step-end"]` + `delivery: "steer"` + `dedupeInRecord: 1` + `directWrite: ["session-start", "compaction"]`——会话建立（含恢复）与压缩完成**直写**（跳过记录去重判断，恢复会话会再注入一次），步末按会话记录判断（记录 = 可见投影 + 未消费 inbox，最多 1 条；被压缩挤出后自然补回）；与 skill 自加载规则同节点同组，故同一次触发合并成一条注入；`injectGuide: false` 关闭；
 - 通道同为 rule-engine 消费者；**已知时序边界**：注入发生在首个可行回合边界（宿主指令面 `@deepseek-ai/dsh-agent-instructions` 只读取固定候选路径的指令文件，无插件注册口，故无法早于首个请求）。
@@ -87,6 +87,7 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 - 反馈按回合合并为一条，不逐符号多条。
 - 冷却记账在进程内（`dsh` 重启清零），按会话隔离。
 - 展示层归一依赖客户端主动调用 `normalize`（dsh-toolset TUI 已接入）；未接入的客户端只有模型侧提醒。
+- 标点与间距两条（英文标点 + 标点后空格、非 ASCII 符号后空格）**只做引导层**——写进开局指南文案，不替换、不插空格、不进审查；模型不遵守时无强制手段（升级路径见 `docs/BACKLOG.md` 对应条目）。
 
 ## 开发
 
