@@ -100,6 +100,19 @@
 # - id: session-title-llm
 #   disabled: true
 
+# DeepSeek 账号登录链：本项目不挂载（2026-10-06 用户核实）。账号登录（浏览器 PKCE）
+# 仅**桌面版**支持，Linux web / CLI 只支持 API key；本项目是 TUI + Linux，两条都用不上：
+#   deepseek-account     = dsh-deepseek-account-platform（PKCE 登录 + /oauth/callback）
+#   llm-deepseek-account = dsh-llm-deepseek-account（账号 LLM 路由，未登录恒空目录）
+# 影响面：ctx.deepseekAccount 的消费者只有上面第二条与 web-search-deepseek（仅当会话
+# provider 为 deepseek-account 时才取账号 token）→ 禁用后 web 搜索回落 API key。
+# 桌面版部署请删掉这两条（背景见仓库 docs/BACKLOG.md §6「挂起」）。
+- id: deepseek-account
+  disabled: true
+
+- id: llm-deepseek-account
+  disabled: true
+
 # ── 可挂官方行（2026-10-02 挂载面扩张：投影 / 服务 / 事件面扩展，不改模型工具面）──────
 # 新增行必须走 `- insert:`：直接写 `- id:/name:` 会被当成「覆盖既有行」，未命中时只打
 # `patch: entry "x" not found` 且退出码仍为 0（静默失败）。候选池、排除口径与第二批选题见
