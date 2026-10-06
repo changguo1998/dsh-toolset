@@ -26,7 +26,7 @@ import {
 } from "../src/renderer/theme.ts";
 import { App } from "../src/app/index.ts";
 import { createProcessStatusQueries } from "../src/app/status.ts";
-import { TITLE_ICON } from "../src/app/layout.ts";
+import { TITLE_ICON, displayWidth } from "../src/app/layout.ts";
 import { createMockDshAdapter, type MockDshAdapter } from "./mockAdapter.ts";
 // 帧取证复用测试侧终端模拟器（BACKLOG TUI#2）：渲染器逐行绝对定位（行间无 `\r\n`），
 // 只有按 VT 语义重放报文才能还原「屏幕上实际留下的行」。同源用法见
@@ -532,11 +532,43 @@ if (smoke) {
       // 只断言活动条目的**时间顺序**（行号递增）与总结可见。原先另有一条「总结在活动区
       // 分隔行之前」的判据，实测站不住：80×24 的 auto 排列是左右分栏、没有活动区分隔行，
       // 而按 `/^─+$/` 搜到的恒是状态区下方那条全宽横线（帧 chrome）→ 判据恒真，已删；
-      // 「总结是否落在历史 pane」需按列判，见 BACKLOG 新条目
+      // 「总结落在哪个 pane」改由下方两条**按列**断言覆盖（见 BACKLOG 条目）
       ok(
         "activity-mixed-ordered",
         aT >= 0 && aM > aT && aTool > aM && aN > aTool && aSum >= 0,
         "idx=" + [aT, aM, aTool, aN, aSum].join(","),
+      );
+      // pane 归属（BACKLOG 条目：只验行序验不出「总结落在哪个 pane」）：按**显示列**判定。
+      // 左右排列时会话 pane 在左、回合 pane 在右，内部分隔列由 pane 标题行（同时含
+      // `Session` 与 `Turn`）上的 `┬` 给出；上下排列没有该行 → 退化为「总结在处理内容之上」。
+      // `emu.line(r)` 是字符串，宽字符下 `indexOf` 的下标 ≠ 显示列，故用 displayWidth 换算。
+      const titleRow = mixedLines.findIndex(
+        (l) => l.includes("Session") && l.includes("Turn"),
+      );
+      const titleText = titleRow >= 0 ? (mixedLines[titleRow] ?? "") : "";
+      const teeAt = titleText.indexOf("┬");
+      const divCol = teeAt >= 0 ? displayWidth(titleText.slice(0, teeAt)) : -1;
+      const midRow = lineIdx("混合中间输出");
+      const horizontal = divCol > 0;
+      ok(
+        "activity-mixed-summary-in-dialogue",
+        aSum >= 0 &&
+          (horizontal
+            ? screen.slice(aSum, 0, divCol).includes("混合最终总结")
+            : midRow >= 0 && aSum < midRow),
+        `divCol=${divCol} sumRow=${aSum} midRow=${midRow} row=` +
+          JSON.stringify(mixedLines[aSum] ?? ""),
+      );
+      ok(
+        "activity-mixed-activity-side",
+        midRow >= 0 &&
+          (horizontal
+            ? screen
+                .slice(midRow, divCol, smokeSize.cols - divCol)
+                .includes("混合中间输出")
+            : aSum >= 0 && midRow > aSum),
+        `divCol=${divCol} sumRow=${aSum} midRow=${midRow} row=` +
+          JSON.stringify(mixedLines[midRow] ?? ""),
       );
       // C 阶段：/policy 审批策略。启动注入 approval/policy(ask) → 状态栏 ask 徽标；
       // `/policy never` → notice + mock 回发 approval/policy(never) → 徽标变 auto
