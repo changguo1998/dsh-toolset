@@ -2174,8 +2174,8 @@ test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多�
   pushQuestion(adapter);
   const plain = plainFrame(renderer);
   assert.ok(
-    strippedFrame(renderer).includes("1○ 2□"),
-    "多题顶部符号行：题号 + 类型符号，当前题黄（BACKLOG TUI#4）",
+    strippedFrame(renderer).includes("1● 2□"),
+    "多题顶部符号行：题号 + 类型符号，当前题黄且实心（BACKLOG TUI#4 / TUI#1）",
   );
   assert.ok(
     !plain.includes("请回答"),

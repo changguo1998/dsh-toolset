@@ -56,10 +56,22 @@ const OPTION_CONT_INDENT = "      ";
 /** 选项正文起点列（前缀 ` >* ` = 4 列）：解释行按此缩进（BACKLOG 3.2.3） */
 const OPTION_DESC_INDENT = "    ";
 
-/** 类型标识符号（BACKLOG TUI#4）：多题符号行用；plan-review 视同审批；空心几何符号、均黄色 */
+/** 类型标识符号（BACKLOG TUI#4 / TUI#1）：多题符号行用；plan-review 视同审批。
+ *  空心 = 非当前题；当前题改用实心（SYM_FILLED），两者都按当前题着色。 */
 const SYM_PLAN = "△";
 const SYM_MULTI = "□";
 const SYM_SINGLE = "○";
+
+/** 三常量字面量联合：SYM_FILLED 的键类型（对取值完备，无需兜底分支） */
+type QuestionSym = typeof SYM_PLAN | typeof SYM_MULTI | typeof SYM_SINGLE;
+
+/** 当前题实心符号（BACKLOG TUI#1）：空心 → 实心且等宽（3 对实测 charWidth 均 1 列）
+ *  → buildSymbolRow 的截断预算与折行口径不变 */
+const SYM_FILLED: Record<QuestionSym, string> = {
+  [SYM_PLAN]: "▲",
+  [SYM_MULTI]: "■",
+  [SYM_SINGLE]: "●",
+};
 
 /** 选项标记（BACKLOG TUI#4）：单 / 多选不再由标记区分（多题的类型由符号行表达），统一对勾 */
 const OPTION_MARK = "✓";
@@ -439,15 +451,16 @@ function layoutQuestionPanel(
   return { symbolRow, headerRows, body, caret, maxDescScroll };
 }
 
-/** 单题类型符号（BACKLOG TUI#4）：plan-review 视同审批 */
-function typeSymOf(item: QuestionPanelItem | undefined): string {
+/** 单题类型符号（BACKLOG TUI#4）：plan-review 视同审批；返回**空心**代表，
+ *  实心由 buildSymbolRow 按当前题取 SYM_FILLED */
+function typeSymOf(item: QuestionPanelItem | undefined): QuestionSym {
   if (item?.intent?.kind === "plan-review") return SYM_PLAN;
   return item?.multiSelect ? SYM_MULTI : SYM_SINGLE;
 }
 
-/** 多题符号行（BACKLOG TUI#4；题号与符号同色见 TUI#15）：` 1○ 2□ 3△`——题号与符号
- *  同色（当前题黄、其余灰）；超出可用宽即截断并以灰 `…` 收尾（恒占 1 行、不折行）。
- *  width = 面板可用宽。 */
+/** 多题符号行（BACKLOG TUI#4；题号与符号同色见 TUI#15；当前题实心见 TUI#1）：
+ *  ` 1● 2□ 3△`——题号与符号同色（当前题黄、其余灰）且**当前题字形实心**；超出可用宽
+ *  即截断并以灰 `…` 收尾（恒占 1 行、不折行）。width = 面板可用宽。 */
 function buildSymbolRow(
   items: readonly QuestionPanelItem[],
   active: number,
@@ -462,7 +475,9 @@ function buildSymbolRow(
   push(" "); // 行首 1 列缩进（与面板其它行同口径）
   let truncated = false;
   for (let i = 0; i < items.length; i++) {
-    const sym = typeSymOf(items[i]);
+    const hollow = typeSymOf(items[i]);
+    // 当前题双重强调（BACKLOG TUI#1）：字形空心 → 实心（等宽，截断预算不变）
+    const sym = i === active ? SYM_FILLED[hollow] : hollow;
     const gap = i === 0 ? "" : " ";
     // 为截断标记 `…` 预留 1 列
     if (used + displayWidth(gap) + displayWidth(`${i + 1}${sym}`) + 1 > width) {

@@ -6,7 +6,7 @@
 //  2) 描述窗滚动：↑/↓ 逐行滚动，上界由 maxDescScrollFor 给出并被 reducer clamp
 //  3) 焦点窗：Tab 切换、↑/↓ 语义随之分派；焦点在描述窗时选项窗仍锚定已标记项
 //  4) 选项形态（3.2.3）：解释另起一行、缩进对齐选项正文起点、标记只在首行
-//  5) 类型标识（TUI#4）：单题不显示标题区（首行即题干，无类型符号）；多题顶部符号行（题号 + 符号、题号与符号同色（TUI#15）、当前题黄、超宽截断）；选项标记 ✓
+//  5) 类型标识（TUI#4 / TUI#1）：单题不显示标题区（首行即题干，无类型符号）；多题顶部符号行（题号 + 符号、题号与符号同色（TUI#15）、当前题黄**且实心**（TUI#1）、超宽截断）；选项标记 ✓
 //  6) 编辑光标（3.2.7）：焦点在自定义兜底项时产出 caret（面板内 0 基行 + 0 基列）
 //  7) 审批描述窗（3.2.1）：长草稿可滚动查看末尾
 //  8) windowStart 共用窗口工具（3.2.1 的统一机制）
@@ -262,7 +262,7 @@ test("类型标识：单题不显示标题区（首行即题干），旧 [单选
   );
 });
 
-test("多题符号行：最顶行「题号 + 符号」（当前题黄、其余灰），标题行已去掉，超宽截断（BACKLOG TUI#4）", () => {
+test("多题符号行：最顶行「题号 + 符号」（当前题黄且实心、其余灰且空心），标题行已去掉，超宽截断（BACKLOG TUI#4 / TUI#1）", () => {
   const st = questionState([
     { id: "a", question: "问题一", options: [{ label: "A" }] },
     {
@@ -279,9 +279,10 @@ test("多题符号行：最顶行「题号 + 符号」（当前题黄、其余�
     },
   ]);
   const rows = plain(renderQuestionPanel(panelOf(st), 10, 60));
+  // 当前题（第 1 题，单选）实心 ●、其余题空心（BACKLOG TUI#1）
   assert.equal(
     rows[0]!.trim(),
-    "1○ 2□ 3△",
+    "1● 2□ 3△",
     "符号行形态: " + JSON.stringify(rows[0]),
   );
   assert.ok(
@@ -293,29 +294,49 @@ test("多题符号行：最顶行「题号 + 符号」（当前题黄、其余�
     rows[1]!.includes("问题一"),
     "符号行下直接是题干: " + JSON.stringify(rows[1]),
   );
-  // 题号与符号同色（BACKLOG TUI#15）：当前题（第 1 题）题号 + 符号皆黄、其余皆灰
+  // 题号与符号同色（BACKLOG TUI#15）+ 当前题实心（TUI#1）：第 1 题题号 + 实心符号皆黄
   const ansi = rowAnsi(renderQuestionPanel(panelOf(st), 10, 60)[0]!);
   assert.ok(
-    ansi.includes("233;201;68m1") && ansi.includes("233;201;68m○"),
-    "当前题题号 + 符号皆黄: " + JSON.stringify(ansi),
+    ansi.includes("233;201;68m1") && ansi.includes("233;201;68m●"),
+    "当前题题号 + 实心符号皆黄: " + JSON.stringify(ansi),
   );
   assert.ok(
     !ansi.includes("233;201;68m2") && !ansi.includes("233;201;68m□"),
     "非当前题题号与符号皆不黄",
   );
-  // 切到第 2 题：第 2 题的题号 + 符号（□）皆黄，第 1 题两项皆灰
+  assert.ok(
+    ansi.includes("□") && !ansi.includes("■"),
+    "非当前题保持空心: " + JSON.stringify(ansi),
+  );
+  // 切到第 2 题：实心随手切换（第 1 题回空心 ○、第 2 题实心 ■ 且皆黄）
   const st2 = reduceState(st, { type: "question-nav", delta: 1 });
   assert.equal(panelOf(st2).itemIndex, 1, "已切到第 2 题");
+  const rows2 = plain(renderQuestionPanel(panelOf(st2), 10, 60));
+  assert.equal(
+    rows2[0]!.trim(),
+    "1○ 2■ 3△",
+    "实心随当前题切换: " + JSON.stringify(rows2[0]),
+  );
   const ansi2 = rowAnsi(renderQuestionPanel(panelOf(st2), 10, 60)[0]!);
   assert.ok(
-    ansi2.includes("233;201;68m2") && ansi2.includes("233;201;68m□"),
-    "第 2 题题号 + 符号皆黄: " + JSON.stringify(ansi2),
+    ansi2.includes("233;201;68m2") && ansi2.includes("233;201;68m■"),
+    "第 2 题题号 + 实心符号皆黄: " + JSON.stringify(ansi2),
   );
   assert.ok(
     !ansi2.includes("233;201;68m1") && !ansi2.includes("233;201;68m○"),
-    "第 1 题题号与符号皆不黄",
+    "第 1 题题号与符号皆不黄、且回到空心",
   );
-  // 窄面板（可用宽 8 < 「 1○ 2□ 3△」所需 9 列）：截断为 `…` 收尾（恒 1 行，不折行）
+  // 切到第 3 题（plan-review 视同审批）：实心 △ → ▲（BACKLOG TUI#1）
+  const st3 = reduceState(st2, { type: "question-nav", delta: 1 });
+  assert.equal(panelOf(st3).itemIndex, 2, "已切到第 3 题");
+  const rows3 = plain(renderQuestionPanel(panelOf(st3), 10, 60));
+  assert.equal(
+    rows3[0]!.trim(),
+    "1○ 2□ 3▲",
+    "plan-review 当前题实心 ▲: " + JSON.stringify(rows3[0]),
+  );
+  // 窄面板（可用宽 8 < 「 1● 2□ 3△」所需 9 列）：截断为 `…` 收尾（恒 1 行，不折行）；
+  // 实心与空心等宽（1 列），故截断预算不变（BACKLOG TUI#1）
   const narrow = plain(renderQuestionPanel(panelOf(st), 10, 10));
   assert.ok(narrow[0]!.includes("…"), "超宽截断: " + JSON.stringify(narrow[0]));
   assert.ok(
