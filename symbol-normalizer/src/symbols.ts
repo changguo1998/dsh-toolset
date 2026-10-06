@@ -13,7 +13,12 @@
  * 集合可用插件 config（recommended / aliases）扩展。
  */
 
-/** 治理区：只在这些符号/emoji 区段触发「白名单外」判定（文字/标点不算治理）。 */
+/**
+ * 治理区：只在这些符号/emoji 区段触发「白名单外」判定（文字/标点不算治理）。
+ * 边界即行为：区外码点天然放行。已知有意放行者——TUI goal 状态行的 ∥（U+2225，
+ * 箭头区与杂项技术符号区之间的空档）与 ⟳（U+27F3，高于 0x27bf）；扩张本表或改
+ * 别名表时勿无声纳入（不扩白名单的理由见 tests/symbols.test.ts「goal 状态符号不触发」）。
+ */
 const GOVERNED_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0x2190, 0x21ff], // 箭头
   [0x2300, 0x23ff], // 杂项技术符号（⌚⏰⏳ 等）

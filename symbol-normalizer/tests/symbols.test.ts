@@ -273,6 +273,27 @@ test("推荐符号 / 文字 / 常用标点不触发", () => {
   assert.equal(r.text, "✓ 完成 ✗ 失败 △ 注意 中文字符，标点…");
 });
 
+test("goal 状态符号不触发：白名单放行与治理区外放行并存，且不扩白名单", () => {
+  const rules = resolveSymbolRules();
+  // TUI goal 状态行五符号：▷ △ ✓ 在推荐白名单；∥（U+2225，箭头区与杂项技术
+  // 符号区之间的空档）与 ⟳（U+27F3，高于框线/几何段上界 0x27bf）在治理区外
+  const r = normalizeSymbols("Goal ▷ ⟳  Goal ∥  Goal △  Goal ✓", rules);
+  assert.equal(r.replacedCount, 0, "五符号零替换");
+  assert.equal(r.text, "Goal ▷ ⟳  Goal ∥  Goal △  Goal ✓", "原文原样");
+  assert.deepEqual(r.unrecommended, [], "五符号不进 unrecommended");
+  // 裁定锁：不做豁免档 / 不扩白名单——∥ ⟳ 不得进推荐集合或别名表（进了推荐
+  // 集合会随 guide 的 recommendedSet 泄漏进开局注入的「推荐符号」文案）
+  assert.ok(!rules.recommendedSet.has("∥"), "∥ 不进推荐集合");
+  assert.ok(!rules.recommendedSet.has("⟳"), "⟳ 不进推荐集合");
+  assert.equal(rules.aliases["∥"], undefined, "∥ 无别名");
+  assert.equal(rules.aliases["⟳"], undefined, "⟳ 无别名");
+  // 反例：替换面（⚠ ✔）与提醒面（🚀）照常触发，避免退化成「整段零触发」假绿
+  const ctl = normalizeSymbols("注意 ⚠ 完成 ✔ 发射 🚀", rules);
+  assert.equal(ctl.text, "注意 △ 完成 ✓ 发射 🚀");
+  assert.equal(ctl.replacedCount, 2, "⚠→△、✔→✓ 仍替换");
+  assert.deepEqual(ctl.unrecommended, ["🚀"], "白名单外 emoji 仍提醒");
+});
+
 test("配置扩展：extraRecommended 放行、aliases 覆盖内置", () => {
   const rules = resolveSymbolRules({
     recommended: ["🚀"],
