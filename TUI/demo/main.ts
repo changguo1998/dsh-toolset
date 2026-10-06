@@ -28,6 +28,10 @@ import { App } from "../src/app/index.ts";
 import { createProcessStatusQueries } from "../src/app/status.ts";
 import { TITLE_ICON } from "../src/app/layout.ts";
 import { createMockDshAdapter, type MockDshAdapter } from "./mockAdapter.ts";
+// 帧取证复用测试侧终端模拟器（BACKLOG TUI#2）：渲染器逐行绝对定位（行间无 `\r\n`），
+// 只有按 VT 语义重放报文才能还原「屏幕上实际留下的行」。同源用法见
+// `src/renderer/index.ts` 的排查配方与 `tests/screen-residue.test.ts`。
+import { ScreenEmu } from "../tests/helpers/screenEmu.ts";
 
 const tuiConfig = loadTuiConfig();
 const resolvedThemes = resolveThemes(tuiConfig.theme);
@@ -510,9 +514,14 @@ if (smoke) {
       });
       adapter.emitEvent({ type: "turn-end" });
       await sleep(400);
-      const mixedLines = (smokeOut.split("\x1b[2J\x1b[H").at(-1) ?? "")
-        .split("\r\n")
-        .map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""));
+      // 帧取证（BACKLOG TUI#2）：把整段输出喂终端模拟器，末屏行 = 最后一帧在屏幕上
+      // 实际留下的文本（每帧整屏覆盖重写，故喂全量等价于只看最后一帧）
+      const smokeSize = renderer.getSize();
+      const screen = new ScreenEmu(smokeSize.cols, smokeSize.rows);
+      screen.feed(smokeOut);
+      const mixedLines = Array.from({ length: smokeSize.rows }, (_, r) =>
+        screen.line(r),
+      );
       const lineIdx = (sub: string): number =>
         mixedLines.findIndex((l) => l.includes(sub));
       const aT = lineIdx("混合思考行");
@@ -520,22 +529,14 @@ if (smoke) {
       const aTool = lineIdx("mixed-check");
       const aN = lineIdx("混合 notice 提示");
       const aSum = lineIdx("混合最终总结");
-      // 活动区分隔行（左列全 ─）：混合内容在分隔行后按时间顺序同屏
-      const mixedSepIdx = mixedLines.findIndex(
-        (l, i) => i > 1 && /^─+$/.test(l.slice(0, 40).trim()),
-      );
-      const sepBefore = (i: number): boolean => i >= 0 && i > mixedSepIdx;
-      // 排列方式为 auto（上下/左右随几何选择）：只断言活动条目的**时间顺序**与总结落位；
-      // 上下排列时另有活动区分隔行（mixedSepIdx），左右排列时该行不存在（=-1）
+      // 只断言活动条目的**时间顺序**（行号递增）与总结可见。原先另有一条「总结在活动区
+      // 分隔行之前」的判据，实测站不住：80×24 的 auto 排列是左右分栏、没有活动区分隔行，
+      // 而按 `/^─+$/` 搜到的恒是状态区下方那条全宽横线（帧 chrome）→ 判据恒真，已删；
+      // 「总结是否落在历史 pane」需按列判，见 BACKLOG 新条目
       ok(
         "activity-mixed-ordered",
-        aT >= 0 &&
-          aM > aT &&
-          aTool > aM &&
-          aN > aTool &&
-          aSum >= 0 &&
-          (mixedSepIdx < 0 || aSum < mixedSepIdx),
-        "idx=" + [aT, aM, aTool, aN, aSum, mixedSepIdx].join(","),
+        aT >= 0 && aM > aT && aTool > aM && aN > aTool && aSum >= 0,
+        "idx=" + [aT, aM, aTool, aN, aSum].join(","),
       );
       // C 阶段：/policy 审批策略。启动注入 approval/policy(ask) → 状态栏 ask 徽标；
       // `/policy never` → notice + mock 回发 approval/policy(never) → 徽标变 auto
