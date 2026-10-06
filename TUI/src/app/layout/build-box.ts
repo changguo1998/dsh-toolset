@@ -216,6 +216,11 @@ export function buildBox(
    *  notice / step 头 / shell / 空行**不算**类型边界（不改现有紧排），同类连续只插一次。 */
   type ActKind = "thinking" | "assistant" | "tool";
   let lastActKind: ActKind | undefined;
+  /** 正文合并（BACKLOG）：只把「被 ≥1 个穿透行（thinking / notice）隔开」的普通正文分片
+   *  并入上一个正文叶——**合并时才移动**（正文不缓冲，未合并路径逐字节不变）。
+   *  `raw` = 已累计的原始文本（紧凑模式按整段重新压行），`gaps` = 本 run 记账过的间隔空行。 */
+  let bodyRun:
+    { leaf: Node; raw: string; transparent: number; gaps: Node[] } | undefined;
   const noteActKind = (kind: ActKind, rowMeta: RowMeta): void => {
     const isDialoguePair =
       (kind === "thinking" || kind === "assistant") &&
@@ -226,6 +231,8 @@ export function buildBox(
       // 行元数据取新类型那一行的（kind 用 "plain"：不参与回复组 / 工具组分组）
       meta.set(blank, { ...rowMeta, kind: "plain" });
       activityLeaves.push(blank);
+      // 正文合并（BACKLOG）：间隔空行归当前 run 记账，合并时收敛为「1 行 + 合并叶」
+      bodyRun?.gaps.push(blank);
     }
     lastActKind = kind;
   };
@@ -287,6 +294,14 @@ export function buildBox(
   const lineOffset = opts.lineOffset ?? 0;
   for (let li = 0; li < buffer.length; li++) {
     const line = buffer[li]!;
+    // 正文合并（BACKLOG）：只有普通正文分片与穿透行（thinking / notice）留在 run 内；
+    // 工具 / step / shell / 用户 / 分隔线等一律硬边界
+    if (
+      line.kind !== "assistant" &&
+      line.kind !== "thinking" &&
+      line.kind !== "notice"
+    )
+      bodyRun = undefined;
     const rowMeta: RowMeta = {
       kind: line.kind,
       blockId: freshBlockId(),
@@ -313,6 +328,8 @@ export function buildBox(
     }
     if (toolRun.length > 0) flushToolRun();
     if (line.kind === "thinking") {
+      // 穿透行（BACKLOG）：空思考行 / 被档位过滤的思考行同样计入，正文 run 不被打断
+      if (bodyRun !== undefined) bodyRun.transparent += 1;
       // 空思考行跳过（流式增量换行锚点）
       if (line.text === "") continue;
       // #8：tool / step 档不显示思考过程
@@ -393,11 +410,14 @@ export function buildBox(
     }
     if (line.kind === "assistant") {
       const target = line.final ? dialogueLeaves : activityLeaves;
+      // 正文合并（BACKLOG）：final 正文进历史 pane，是硬边界
+      if (line.final) bodyRun = undefined;
       // #5：非 final 正文进活动区 → 与「思考」互切时插 1 行空行（与工具相邻不插）
       if (!line.final) noteActKind("assistant", rowMeta);
       // 含显式换行的单条行：旧 FENCE_RE 对整串不匹配（^…$ 需整行），
       // 整段交 wrapAssistantLine 解析；fill 的 Paragraph 按 \n 拆物理行。直接产单节点。
       if (line.text.includes("\n")) {
+        bodyRun = undefined; // 含内部换行 = 结构分片（列表 / 代码块），硬边界
         const body = text(line.final ? line.text : actText(line.text, 1), {
           prefix: {
             text: "┃",
@@ -412,6 +432,7 @@ export function buildBox(
       // 空正文行：旧「块内空行竖线连排」动态决定是否挂竖线——空行先产无竖线纯空；
       // （buildBox 不做块级连排后处理，此为空行最简等价，对照测试覆盖常规场景）
       if (line.text === "") {
+        bodyRun = undefined; // 空正文行是硬边界
         const blank = text("", {});
         meta.set(blank, rowMeta);
         target.push(blank);
@@ -422,6 +443,7 @@ export function buildBox(
         line.text,
       );
       if (fence && fence[1]!.length >= 3) {
+        bodyRun = undefined; // fence 开关行是硬边界（不参与合并）
         if (inFence) {
           inFence = false;
           continue;
@@ -548,6 +570,7 @@ export function buildBox(
             ? tableBox(parsed.table, budget, opts.themeId)
             : null;
           if (parsed && box) {
+            bodyRun = undefined; // 表格是硬边界（不参与合并）
             markSubtree(box, meta, rowMeta);
             target.push(box);
             li += parsed.end - 1; // 表格各行已并入本节点（循环再自增 1）
@@ -555,6 +578,38 @@ export function buildBox(
           }
         }
       }
+      // 正文合并（BACKLOG）：被 ≥1 个穿透行（thinking / notice）隔开的普通正文分片，
+      // 并入上一个正文叶——摘叶 → 文本直接相接 → 移到穿透行之后 → 间隔空行收敛为 1 行置叶前。
+      // 未发生合并的路径不做任何改动（逐字节不变）。
+      if (
+        !line.final &&
+        !inFence &&
+        bodyRun !== undefined &&
+        bodyRun.transparent >= 1
+      ) {
+        const run = bodyRun;
+        for (const gap of run.gaps) {
+          const gi = activityLeaves.indexOf(gap);
+          // 容忍 -1：该空行可能已被 absorbActivityBlank 吸收
+          if (gi >= 0) activityLeaves.splice(gi, 1);
+        }
+        const merged = run.raw + line.text;
+        (run.leaf as { text: string }).text = actText(merged, 1);
+        const pi = activityLeaves.indexOf(run.leaf);
+        if (pi >= 0) activityLeaves.splice(pi, 1);
+        const kept = run.gaps[0];
+        if (kept !== undefined) activityLeaves.push(kept);
+        activityLeaves.push(run.leaf);
+        bodyRun = {
+          leaf: run.leaf,
+          raw: merged,
+          transparent: 0,
+          gaps: kept === undefined ? [] : [kept],
+        };
+        lastActKind = "assistant";
+        continue;
+      }
+      if (inFence) bodyRun = undefined; // fence 内行不参与合并，且是硬边界
       const body = text(line.final ? line.text : actText(line.text, 1), {
         ...(inFence ? { fillBg: true, width: { mode: "fill" } } : {}),
         prefix: {
@@ -565,9 +620,15 @@ export function buildBox(
       });
       meta.set(body, rowMeta);
       target.push(line.final ? finalSpace(body, opts, meta, rowMeta) : body);
+      // 普通正文分片成为新的 run 候选叶（可被后续「穿透行 + 分片」合并）
+      if (!line.final && !inFence) {
+        bodyRun = { leaf: body, raw: line.text, transparent: 0, gaps: [] };
+      }
       continue;
     }
     if (line.kind === "notice") {
+      // 穿透行（BACKLOG）：notice 不打断正文 run（条目原文「只被 thinking / notice 行隔开」）
+      if (bodyRun !== undefined) bodyRun.transparent += 1;
       // 呈现参数（tone 色 + hanging）与底部 notice 视图共用，见 noticeLinePresentation；
       // 紧凑模式把条目压单行（noCompact 行如 /help 豁免，保持完整折行与悬挂缩进）
       const keepFull = compact && line.noCompact === true;

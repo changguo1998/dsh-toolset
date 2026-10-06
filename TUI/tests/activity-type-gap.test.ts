@@ -133,3 +133,81 @@ test("#5 活动区开头（无前一类）不插空行", () => {
   const rows = act([L("提示行", "notice"), L("思考一", "thinking")]);
   assert.deepEqual(blanks(rows), []);
 });
+
+test("正文合并（BACKLOG）：正文 → 思考 → 正文 并成一段（直接相接、只留 1 行间隔）", () => {
+  const rows = act([
+    L("正文一", "assistant"),
+    L("思考一", "thinking"),
+    L("正文二", "assistant"),
+  ]);
+  // 思考块在前、合并后的正文段在后；两处切点的空行收敛为 1 行（5 行 → 3 行）
+  assert.equal(
+    rows.length,
+    3,
+    `3 行 = 思考 + 空行 + 合并正文（实际 ${rows.length}）: ` +
+      JSON.stringify(rows),
+  );
+  assert.deepEqual(blanks(rows), [1], "间隔空行恰 1 行且在合并叶正前方");
+  assert.ok(
+    rows[2]!.includes("正文一正文二"),
+    "两片直接相接（不插换行 / 空格）: " + JSON.stringify(rows),
+  );
+});
+
+test("正文合并：notice 是穿透行，工具 / 结构分片是硬边界", () => {
+  // notice 穿透（条目原文「只被 thinking / notice 行隔开」）
+  const withNotice = act([
+    L("正文一", "assistant"),
+    L("提示行", "notice"),
+    L("正文二", "assistant"),
+  ]);
+  assert.ok(
+    withNotice.some((t) => t.includes("正文一正文二")),
+    "notice 不打断合并: " + JSON.stringify(withNotice),
+  );
+  // 工具是硬边界
+  const withTool = act([
+    L("正文一", "assistant"),
+    L("○ bash ls", "tool"),
+    L("正文二", "assistant"),
+  ]);
+  assert.ok(
+    !withTool.some((t) => t.includes("正文一正文二")),
+    "工具边界不合并: " + JSON.stringify(withTool),
+  );
+  // 直接相邻的正文分片不合并（同一 delta 含 \n 时本就产相邻行：列表 / 代码块分片）
+  const adjacent = act([L("第一片", "assistant"), L("第二片", "assistant")]);
+  assert.ok(
+    !adjacent.some((t) => t.includes("第一片第二片")),
+    "直接相邻不合并: " + JSON.stringify(adjacent),
+  );
+  // 含内部换行的结构分片：不参与合并，且是边界
+  const multi = act([
+    L("正文一", "assistant"),
+    L("思考一", "thinking"),
+    L("1. 甲\n2. 乙", "assistant"),
+  ]);
+  assert.ok(
+    !multi.some((t) => t.includes("正文一1. 甲")),
+    "结构分片不参与合并: " + JSON.stringify(multi),
+  );
+});
+
+test("正文合并：二次合并不丢间隔空行（run 记账收敛为 1 行）", () => {
+  const rows = act([
+    L("正文一", "assistant"),
+    L("思考一", "thinking"),
+    L("正文二", "assistant"),
+    L("提示行", "notice"),
+    L("正文三", "assistant"),
+  ]);
+  assert.ok(
+    rows.some((t) => t.includes("正文一正文二正文三")),
+    "三片合并为一段: " + JSON.stringify(rows),
+  );
+  assert.deepEqual(
+    blanks(rows),
+    [rows.length - 2],
+    "间隔空行恰 1 行、紧邻合并叶之前: " + JSON.stringify(rows),
+  );
+});
