@@ -62,6 +62,7 @@
 
 > 扁平清单，**按条目间逻辑依赖排序**（2026-10-04 整理：编号即先后顺序；键序 = 依赖 → 优先级 → 工作量，同层先小后大。编号仅供阅读，随整理重编）。
 > 顺序依据（2026-10-04 整理；键序 = 依赖 → 优先级 → 工作量，同层先小后大；编号仅供阅读，随整理重编）：跨层推荐顺序按优先级分组（P2 → P3 → 收尾），同级内按工作量升序；模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
+> 跨层顺序（2026-10-06 起，用户指示「重新按依赖 → 工作量排序」）：**依赖优先**（无前置项在前、有前置项排在各自前置之后）→ 同层**工作量升序** → 同工时「缺陷优先于行为改动 / 高优先级优先」。各层文件内部已按同口径排（`TUI/docs/BACKLOG.md` §组织行、`symbol-normalizer/docs/BACKLOG.md`）。当前可开工顺序（跨文件）：sn#1（10-20 min）→ TUI#1（15-30 min）→ sn#2+#3（15-30 min，同批）→ TUI#2（30 min）→ TUI#3 / TUI#4 / TUI#5（各 30-45 min）→ 本文件 #1（P1）/ #2（P2）（各 1-2 h）→ TUI#6（调研 30-60 min，前置 TUI#5）→ TUI#7（1-2 h，前置 TUI#4）。编号仅供阅读，层号互不关联。
 
 | # | 功能 | 来源 | 落点（复用） | 工作量（估） | 优先级 |
 |---|------|------|--------------|--------------|--------|
@@ -93,3 +94,17 @@
 ## 5. TUI 侧
 
 → 已迁至 `TUI/docs/BACKLOG.md`（TUI 的变更优先写 TUI 文档）：命令扩展状态、排版与交互开放项、herdr pane 外部问题取证都在那里；本清单只维护跨包功能项。
+
+## 6. 挂起（未来计划，暂不接取）
+
+> 用户裁定挂起、暂不接取；**保留调研结论备查**，避免以后重复排查。每条写明恢复条件；恢复后再挪回 §2 并重新排序编号。
+
+### DeepSeek 账号路由 `deepseek-account`
+
+**挂起裁定（2026-10-06，用户核实）**：账号登录（浏览器 PKCE）**仅桌面版（Desktop）支持**；**Linux web / CLI 只支持 API key**。本项目当前形态（TUI + Linux）落在后者，故 `deepseek-account` 不可用，且非本项目可解。**恢复条件**：官方在 Linux web / CLI 开放账号登录，或本项目改用 Desktop 版。
+
+**已同步卸载登录链（2026-10-06）**：本机 fff profile 用户层 patch（`~/.dsh/profiles/fff/cordis.patch.yml`）与仓库模板 `profiles/example/cordis.patch.yml` 均新增两条 `- id: <条目>` + `disabled: true`：`deepseek-account`（`dsh-deepseek-account-platform`，PKCE 登录 + `/oauth/callback`）与 `llm-deepseek-account`（账号 LLM 路由，未登录恒空目录）。**影响面已核**：`ctx.deepseekAccount` 在本 profile 内的消费者只有后者与 `web-search-deepseek`（仅当会话 provider 为 `deepseek-account` 时才取账号 token，见其 `resolveAccountToken` 的 `ACCOUNT_PROVIDER` 判定）→ 禁用后 web 搜索回落 `resolveApiKey`，无回归。**验证**：`dsh --profile fff --dump-config` 输出里两条均带 `disabled: true`（2026-10-06 实测）。桌面版部署需删掉这两条。
+
+**已查证结论（备查，2026-10-06）**：官方两条路由 = `deepseek-official`（API key，`@deepseek-ai/dsh-llm-deepseek-api-key`，`lib/index.js:36` `PROVIDER = "deepseek-official"`，走 `x-api-key`）与 `deepseek-account`（账号，`@deepseek-ai/dsh-llm-deepseek-account`，`:11`，走 `x-dsh-auth-token`）。**两条插件行都已挂载**（`dsh-base/cordis.patch.yml:522-529`；组合树 dump `tmp/hostdoc-020/dump-020.yml:761-764`，0.2.0-rc.2 + fff profile），所以“没接入”**不是挂载问题**，缺口在登录通路：① 该 provider 只从 `ctx.deepseekAccount.resolveToken(baseURL)` 取 token（`lib/index.js:16-20`），拿不到抛 `ACCOUNT_SIGN_IN_REQUIRED`，且未登录时 `discoverModels` 返回**空目录**（`:49-56`）→ 模型选择器里无模型；② `ctx.deepseekAccount` 由 `@deepseek-ai/dsh-deepseek-account-platform`（base 行 id `deepseek-account`）提供，登录走浏览器 PKCE，`startSignIn` 内部 `this.ctx.get("webServer")`，**无 webServer 直接抛 `PlatformAuthError("protocol")`**（`:950-953`）并需注册 `/oauth/callback`（`:970`）；③ fff profile 不挂 host-webserver；④ 凭据库无账号 grant（`~/.dsh/.credentials.yaml` 仅 `client-connection/browser-session` 一条）；⑤ 现成登录入口只有 Web / Desktop 面（`dsh-api-account-controller` + `dsh-client-ui-settings-account`，即 `dsh-web-app` bundle 的 `ui-settings-account` 行），TUI 侧 grep `account` / `login` 零命中。
+**若将来恢复**，原候选路径不变（懒 → 重）：① 用带 Web UI 的 profile 登录一次 → grant 落共享的 `$DSH_HOME/.credentials.yaml`（`dsh-credentials-local`）→ 回 TUI 即用（约 10 min）；② profile 自足（加 `@deepseek-ai/dsh-host-webserver` + 一个能触发 `authorization` 流的调用方；注意非 desktop profile 下 `desktopPlatform` 为 null → `x-client-platform: web`，回调 origin 需浏览器可达，含 SSH 转发端口）；③ 仅把 `ACCOUNT_SIGN_IN_REQUIRED` 渲染成可读提示（`turnEndNotice`，`TUI/src/app/adapter/dsh.ts:478-511`）。
+**宿主侧依据**：`dsh-llm-deepseek-account/lib/index.js`、`dsh-llm-deepseek-api-key/lib/index.js`、`dsh-deepseek-account-platform/lib/index.js` 与 README（`desktopPlatform` / `webServer` / callback origin 口径）、`dsh-base/cordis.patch.yml`、`tmp/hostdoc-020/dump-020.yml`。
