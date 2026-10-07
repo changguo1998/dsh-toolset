@@ -183,18 +183,102 @@ test("renderStatusColumn: blocked 黄 tone 显示阻塞原因", () => {
 });
 
 test("renderStatusColumn: goal 块超窗口高时按等级折叠（L2 压成标题行）", () => {
-  const objective = Array.from({ length: 40 }, (_, i) => `行${i}`).join(" ");
-  // 高 8 且仅 goal 一块：L0 放不下，goal 无条目级折叠 → L2 起压成标题行（无 objective）
-  const rows = col(setGoal("active", objective), [], { width: 10, height: 8 });
+  // 当前行固定 1-2 行（首行截断）→ 撑高改由**历史旧 goal** 承担（历史行仍全文折行）
+  const history = Array.from({ length: 6 }, (_, i) => ({
+    phase: "complete" as const,
+    objective: `旧目标${i} 很长的历史目标描述文本`.repeat(3),
+  }));
+  const goals = goalList(
+    { phase: "active", objective: "当前概括" },
+    ...history,
+  );
+  // 高 8 且仅 goal 一块：L0/L1 放不下，goal 无条目级折叠 → L2 起压成标题行
+  const rows = col(goals, [], { width: 10, height: 8 });
   const t = rows.join("\n");
   assert.ok(t.includes("Goal ▷"), "标题保留（仅符号，10 格列内不再被截断）");
-  assert.ok(!t.includes("行0"), "objective 在 L2 压标题行时隐藏");
-  // 高度充足时目标完整显示（无固定上限截断）
-  const full = col(setGoal("active", objective), [], {
-    width: 120,
-    height: 30,
+  assert.ok(!t.includes("当前概括"), "objective 在 L2 压标题行时隐藏");
+  assert.ok(!t.includes("旧目标"), "L2 同时隐藏历史旧 goal");
+  // 高度充足时历史旧 goal 完整显示（条目级无固定上限截断）
+  const full = col(goals, [], { width: 120, height: 60 });
+  assert.ok(full.join("|").includes("旧目标5"), "高度充足时历史目标完整显示");
+});
+
+test("renderStatusColumn: 当前 goal 只显示首行概括（宽列恰 1 行 + …）", () => {
+  const objective = "一句话概括" + "很长的补充描述".repeat(10);
+  const rows = col(setGoal("active", objective), [], { width: 40, height: 10 });
+  const t = rows.join("\n");
+  assert.ok(t.includes("一句话概括"), "首行概括展示");
+  assert.ok(t.includes("…"), "超宽截断加省略号");
+  assert.ok(!t.includes("补充描述".repeat(10)), "全文不再折行占多行");
+  const bodyRows = rows.filter(
+    (r) => r.includes("一句话概括") || r.includes("补充描述"),
+  );
+  assert.equal(bodyRows.length, 1, "概括恰 1 行: " + t);
+});
+
+test("renderStatusColumn: 多行 objective 只取首个非空行", () => {
+  const rows = col(
+    setGoal("active", "\n  第一句概括  \n第二段细节\n第三段细节"),
+    [],
+    { width: 40, height: 10 },
+  );
+  const t = rows.join("\n");
+  assert.ok(t.includes("第一句概括"), "首个非空行展示");
+  assert.ok(
+    !t.includes("第二段细节") && !t.includes("第三段细节"),
+    "后续行不展示: " + t,
+  );
+  assert.ok(!t.includes("…"), "未超宽不加省略号");
+});
+
+test("renderStatusColumn: 窄列（正文 <24 列）概括放宽到 ≤2 行", () => {
+  const rows = col(setGoal("active", "一句话概括".repeat(12)), [], {
+    width: 20,
+    height: 10,
   });
-  assert.ok(full.join("|").includes("行39"), "高度充足时目标完整显示");
+  const body = rows.filter((r) => r.includes("一句话概括"));
+  assert.equal(body.length, 2, "窄列恰 2 行: " + rows.join("\n"));
+  assert.ok(body[1]!.includes("…"), "末行以省略号结尾: " + body[1]);
+});
+
+test("renderStatusColumn: 窄列放得下时不加省略号（只在真截断时出现 …）", () => {
+  // 正文宽 19 → 两行预算 37 列；30 列目标放得下（2 行）→ 不应出现省略号
+  const rows = col(setGoal("active", "一二三四五六七八九十甲乙丙丁戊"), [], {
+    width: 20,
+    height: 10,
+  });
+  const t = rows.join("\n");
+  assert.ok(!t.includes("…"), "未截断不应出现省略号: " + t);
+  assert.equal(
+    rows.filter((r) => /[一二三四五六七八九十]/.test(r)).length,
+    2,
+    "恰 2 行（放得下就不加 …）: " + t,
+  );
+});
+
+test("renderStatusColumn: 历史旧 goal 仍全文折行（口径不变）", () => {
+  const goals = goalList(
+    { phase: "active", objective: "当前概括" },
+    { phase: "complete", objective: "旧目标全文".repeat(8) },
+  );
+  const rows = col(goals, [], { width: 30, height: 20 });
+  const t = rows.join("\n");
+  const historyRows = rows.filter((r) => r.includes("旧目标全文"));
+  assert.ok(historyRows.length >= 2, "历史条目仍折行多行: " + t);
+  assert.ok(!t.includes("旧目标全文…"), "历史条目不做首行截断");
+});
+
+test("renderStatusColumn: 空 / 全空白 objective 回落占位不炸", () => {
+  for (const objective of ["", "   ", "\n\n"]) {
+    const rows = col(setGoal("active", objective), [], {
+      width: 20,
+      height: 6,
+    });
+    assert.ok(
+      rows.join("\n").includes("（空目标）"),
+      `占位展示: ${JSON.stringify(objective)}`,
+    );
+  }
 });
 
 test("renderStatusColumn: 当前 goal + 历史旧 goal 同块展示（旧条目灰+删除线）", () => {

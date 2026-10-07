@@ -1003,17 +1003,33 @@ function capRows(rows: StatusRow[], budget: number): StatusRow[] {
   return kept;
 }
 
-/** 当前 goal 的 objective 行（phase=complete 已完成 → 灰 + 删除线，与 todo 完成态同口径） */
+/** 当前 goal 的概括位宽列阈值（正文列数）：≥ 此宽度恒 1 行，更窄放宽到 ≤2 行 */
+const GOAL_OBJECTIVE_WIDE_WIDTH = 24;
+
+/** 当前 goal 的 objective 行：**只展示首个非空行**（概括位；全文入口 = 宿主 `/goal` 输出）。
+ *  截断口径：宽列（正文 ≥ `GOAL_OBJECTIVE_WIDE_WIDTH`）恒 1 行，窄列允许 ≤2 行（避免一句话
+ *  被截成半个词）；**只在真的放不下时**才以 `…` 结尾（放得下就不加）。
+ *  历史旧 goal 行不受此口径影响（见 `goalHistoryRows`）。
+ *  phase=complete 已完成 → 灰 + 删除线，与 todo 完成态同口径 */
 function goalObjectiveRows(g: GoalSnapshotLike, width: number): StatusRow[] {
-  return wrapLine(g.objective || "（空目标）", Math.max(1, width)).map(
-    (text) => ({
-      segments: [
-        g.phase === "complete"
-          ? seg(text, { fg: "gray", strike: true })
-          : seg(text),
-      ],
-    }),
-  );
+  const first = (g.objective || "（空目标）")
+    .split("\n")
+    .find((line) => line.trim() !== "");
+  const body = first?.trim() || "（空目标）";
+  const w = Math.max(1, width);
+  // 预算列数：宽列 1 行（`w`）/ 窄列 2 行（`2w-1`，留 1 列给省略号）
+  const limit = w >= GOAL_OBJECTIVE_WIDE_WIDTH ? w : Math.max(1, w * 2 - 1);
+  const text =
+    displayWidth(body) <= limit
+      ? body
+      : `${truncateToWidth(body, Math.max(1, limit - 1))}…`;
+  return wrapLine(text, w).map((line) => ({
+    segments: [
+      g.phase === "complete"
+        ? seg(line, { fg: "gray", strike: true })
+        : seg(line),
+    ],
+  }));
 }
 
 /** 历史（旧）goal 行：标题行「Goal <phase>」（灰）+ objective（灰 + 删除线） */
