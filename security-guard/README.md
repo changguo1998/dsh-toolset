@@ -2,7 +2,7 @@
 
 DSH（DeepSeek Harness）进程内安全守卫插件：危险命令黑名单拦截 + 敏感文件保护策略层。
 
-挂在宿主 `tools/pre-execute` 水位线（命令**下发前**）：命中即返回 `{kind:"deny", reason}`，宿主把工具调用物化为带 `Error: ` 前缀的 `isError: true` 结果且不下发命令；回执含拦截原因与放行方式。默认策略**保守（宁可误拦不可漏拦）**：非法黑名单正则按命中处理，非法放行正则按不放行处理。
+挂在宿主**单调守卫** `ctx.tools.guard`（2026-10-07 裁定；排在 `tools/pre-execute` waterfall **之后**，拒绝不可被后续监听器翻盘）：命中返回**回执字符串**，宿主把工具调用物化为带 `Error: ` 前缀的 `isError: true` 结果且不下发命令；宿主无 `tools.guard` 面时**回退** `tools/pre-execute` 监听器（返回 `{kind:"deny", reason}`，回执文本一致）。回执含拦截原因与放行方式；顺序依据与已知差异见「拦截顺序与契约」。默认策略**保守（宁可误拦不可漏拦）**：非法黑名单正则按命中处理，非法放行正则按不放行处理。
 
 ## 能力
 
@@ -21,6 +21,19 @@ DSH（DeepSeek Harness）进程内安全守卫插件：危险命令黑名单拦�
 - **插件命令面**（`src/index.ts` 的 `PLUGIN_COMMAND_TOOLS` 登记表，按各包**真实参数面**读码登记）：`metric_loop` 的 `measureCmd`（`action=start` 时经 `/bin/sh -c` 执行，`metric-loop/src/measure.ts`）；`task_decompose` 的 `children[].executor.command`（command 后端的执行命令）与 `children[].acceptance[].command`（mechanical 验收命令）。命令文本走与 `bash` **同一**命令黑名单层与路径抽取（`allowPatterns` 同样生效），命令层回执前置一行来源标注（工具名 + 命令参数路径），敏感层回执按 shell 同口径标「读写」。命令的**执行**在 `task_execute` / `task_stop`，但**检查点**落在声明处 `task_decompose`（前两者的入参只有 `task_id`，不含命令文本）。
 - **未登记工具缺省不拦**：覆盖范围是显式白名单——官方文件工具、shell 工具与两张插件登记表（`PLUGIN_FILE_TOOLS` 路径面 / `PLUGIN_COMMAND_TOOLS` 命令面）里的插件工具；其他工具名（含本仓其它只读插件工具，如 `context_report` / `rule_list`）缺省不参与判定，可用 `unknownToolPolicy: "check"` / `"deny"` + `unknownToolAllowlist` 收紧（见「边界与限制」）。登记表只覆盖**登记的参数键**：`metric_loop` 仅 `measureCmd` 参与，`task_decompose` 仅上述两条嵌套命令路径参与（`executor.cwd` / `spec` 等参数不参与）。未识别的工具名或参数缺失一律放行（不猜测语义）。工具名按自身属性查表（`Object.hasOwn`），故 `constructor` / `toString` / `valueOf` 这类原型链属性名视同未登记 → 放行。新增插件工具需按真实参数面在对应登记表登记。
 - 只读查询面 `provide('guard')`：`recent()` 返回最近判定记录（上限 200，新在前）—— 记录里的 **`toolName` = 工具名或来源标注**（常规判定记工具名，如 `bash` / `md_logic replace`；外部命令复查 `inspectCommand(command, source)` 记的是 `source`，如 `metric_loop{tick} id=x`，不是工具名），`policy()` 返回当前开关、**未登记工具策略快照**（`unknownToolPolicy` 的原始值 / 生效值 / 是否非法 + `unknownToolAllowlist`）、生效规则（id / reason）与放行正则源（策略面视图，不含逐次判定的工具名 / 来源标注），供 TUI `/guard` 等接线方消费（TUI `/guard` 的 Enter 详情已渲染启用状态 / 规则数 / 放行数 / 拦截计数；`unknownToolPolicy` 字段尚未渲染）。（服务面另暴露 `inspectCommand(command, source?)`：命令层复查入口，供其它插件在执行前自助复查；来源形态回执的标签行是「来源：<source>」）
+
+### 拦截顺序与契约（2026-10-07 裁定）
+
+宿主在命令下发前有**两段**判定，语义不同：
+
+1. **`tools/pre-execute`（可重排的 waterfall）**：`dsh-tools` 以 `ctx.waterfall(carrier, "tools/pre-execute", exec, () => ({kind:"allow"}))` 派发（`dsh-tools/lib/index.js:3225`）。监听器按**注册顺序**（= 插件装载顺序）执行——cordis 把监听器存在数组里，缺省 `push`、`prepend: true` 插队首（`cordis/lib/index.js:336-347`），分发按数组顺序（`:258-264`）；waterfall 语义是「谁不调 `next()` 谁否决其后整条链，含宿主内建行为」（`:317-326`）。**该事件没有数值优先级 API**。本机在该点注册监听器的包：`dsh-experimental-auto-review` / `dsh-hooks-claude-code` / `dsh-hooks-codex` / `dsh-tool-jobs` / `dsh-workspace-changes`（+ 本包的回退路径）。
+1. **单调守卫（`ctx.tools.guard`）**：waterfall **之后**跑（`dsh-tools/lib/index.js:3239` 的 `guardReason(exec)`）；同步检查、返回字符串即拒绝，且**后注册的守卫无法把已被拒绝的调用翻回放行**（注册 `dsh-tools/lib/index.js:2912-2920`、遍历 `:2646-2651`）。
+
+**本包的选择**：硬拒层（命令黑名单 + 敏感文件）注册为**单调守卫**——顺序无关、不受「某监听器不调 `next()` 截断整条链」影响、**单次判定**（`inspect()` 有审计副作用：每次判定都记入 `recent()`，并存会让一次调用判定两次、记两条）。`ask` / 审批类语义仍在 waterfall 段由官方包负责：守卫只有「拒绝 / 不拒绝」，没有 `ask` 与 `info` 载荷。
+
+**已知差异**（相对挂在 waterfall 的旧形态，知情接受）：拒绝**不再提前截断链路** → ① 审计类监听器（`dsh-workspace-changes` / `dsh-tool-jobs`）会记录到这次被拒调用（事后可见尝试，视为更好）；② `dsh-experimental-auto-review` 可能先弹一次审批，用户批准后仍被守卫拒绝（噪音，非安全损失）。为消除 ② 而并存会增加双判定，不采纳。
+
+**回退路径**：宿主 ctx 没有 `tools.guard`（旧宿主 / 极简测试 ctx）时退回 `tools/pre-execute` 监听器，行为与旧版逐字一致；两种形态都在挂载日志里写明（`security-guard mounted: monotonic guard…` / `…tools/pre-execute 回退…`）。
 
 ### 回执示例
 
@@ -121,7 +134,7 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
 | `src/receipt.ts` | deny 回执文案（拦截原因 + 放行方式；命令 160 字预览） |
 | `scripts/tool-surface-check.mjs` | 宿主工具面差异检查（键集与 `TOOL_SURFACE` 同源） |
 | `smoke/smoke.mjs` | 真机 headless 会话拦截冒烟 |
-| `tests/*.test.ts` | 单测（122 例） |
+| `tests/*.test.ts` | 单测（124 例） |
 
 ## 边界与限制
 
@@ -134,7 +147,7 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
   `GuardEngine.inspectCommand(command, source)`，与 `bash` 同一套命令黑名单与命令内路径敏感层（`allowPatterns` /
   `allowedPaths` 同样生效），命中即不测量、不落盘（调用方：`metric-loop` 的 tick 复查、`task-engine` 的 executor / 验收 /
   worktree git 执行期复查、`TUI` 的 `$` 模式手输命令）。
-  - **检查点分工（D2）**：命令来自**工具入参**时由 guard 自己的 `tools/pre-execute` 覆盖，插件引擎内**不重复判定**
+  - **检查点分工（D2）**：命令来自**工具入参**时由 guard 自身的挂载形态（单调守卫 / 回退监听器）覆盖，插件引擎内**不重复判定**
     （同一命令不会在 `recent()` 里落两条记录）；只有 guard 看不到的命令（状态文件 / 契约声明）才由调用方显式复查。
   - **不可用时可见（D1）**：guard 未挂载 / 形状不符 / 调用抛错 → **fail-open 放行**（判定策略与修复前一致，不回归；
     每种失效模式只告警一次），但调用方会**留痕**：`metric-loop` 结果标 `guardSkipped` + `summary` 写明；
@@ -207,12 +220,12 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
 
 ```sh
 npm run check   # tsc -p tsconfig.json --noEmit
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（122 例）
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（124 例）
 npm run build   # tsc -p tsconfig.json → dist/
 npm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话拦截验证）
 ```
 
-122 例单测（blacklist 9 + guard 84 + script 22 + sensitive 7）。
+124 例单测（blacklist 9 + guard 86 + script 22 + sensitive 7）。
 
 `tests/script.test.ts` 用假宿主树（`dsh-tool-fixture-*` 包）覆盖 `scripts/tool-surface-check.mjs` 的逐工具三分类、
 「名称未解析」行与退出码纪律（0 / 1 / 2，含 `--root` 指到 scope 层的纠正提示），并覆盖**发布形态**

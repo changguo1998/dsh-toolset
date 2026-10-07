@@ -37,8 +37,8 @@ import {
 
 const HOME = "/home/tester";
 
-/** 构造最小宿主（记录监听器与日志）。 */
-function makeHost(): {
+/** 构造最小宿主（记录监听器 / 单调守卫 / 日志）；`monotonic: true` = 提供 `tools.guard` 面。 */
+function makeHost(opts: { monotonic?: boolean } = {}): {
   host: GuardHost;
   listeners: Array<
     (
@@ -46,20 +46,35 @@ function makeHost(): {
       next: () => PreToolDecision | Promise<PreToolDecision>,
     ) => PreToolDecision | Promise<PreToolDecision>
   >;
+  guards: Array<(exec: PreExecuteExecution) => string | undefined>;
   logs: string[];
 } {
   const listeners: ReturnType<typeof makeHost>["listeners"] = [];
+  const guards: ReturnType<typeof makeHost>["guards"] = [];
   const logs: string[] = [];
   const host: GuardHost = {
     on(_event, cb) {
       listeners.push(cb);
       return () => {};
     },
+    ...(opts.monotonic === true
+      ? {
+          tools: {
+            guard(check: (exec: PreExecuteExecution) => string | undefined) {
+              guards.push(check);
+              return () => {
+                const at = guards.indexOf(check);
+                if (at >= 0) guards.splice(at, 1);
+              };
+            },
+          },
+        }
+      : {}),
     logger: () => ({
       info: (m: string) => logs.push(m),
     }),
   };
-  return { host, listeners, logs };
+  return { host, listeners, guards, logs };
 }
 
 const nextAllow: () => PreToolDecision = () => ({ kind: "allow" });
@@ -100,13 +115,54 @@ function execOf(name: string, args: unknown): PreExecuteExecution {
   };
 }
 
-test("bundle 约定：name / inject / apply 存在", () => {
+test("bundle 约定：name / inject / apply 存在（无 tools.guard → 降级 waterfall 监听器）", () => {
   assert.equal(name, "security-guard");
   assert.deepEqual([...inject], ["tools"]);
-  const { host, listeners, logs } = makeHost();
+  const { host, listeners, guards, logs } = makeHost();
   apply(host);
-  assert.equal(listeners.length, 1);
+  assert.equal(listeners.length, 1, "降级路径仍注册 pre-execute 监听器");
+  assert.equal(guards.length, 0, "宿主无 tools.guard 面 → 不注册守卫");
   assert.ok(logs.some((l) => l.includes("mounted")));
+  assert.ok(
+    logs.some((l) => l.includes("回退")),
+    "挂载日志写明降级路径: " + logs.join(" | "),
+  );
+});
+
+test("单调守卫路径：有 tools.guard 时注册守卫，与 waterfall 监听器不并存", () => {
+  const { host, listeners, guards, logs } = makeHost({ monotonic: true });
+  apply(host);
+  assert.equal(guards.length, 1, "注册单调守卫");
+  assert.equal(
+    listeners.length,
+    0,
+    "移动、不并存：不再注册 pre-execute 监听器",
+  );
+  assert.ok(
+    logs.some((l) => l.includes("monotonic guard")),
+    "挂载日志写明形态: " + logs.join(" | "),
+  );
+});
+
+test("单调守卫：命中返回回执字符串，未命中返回 undefined（判定恰一次）", () => {
+  const { host, guards } = makeHost({ monotonic: true });
+  const { guard, dispose } = createSecurityGuard(host);
+  const check = guards[0]!;
+  const denied = check(execOf("bash", { command: "rm -rf /" }));
+  assert.equal(typeof denied, "string", "命中 → 回执字符串（宿主按拒绝处理）");
+  assert.ok(denied!.includes("rm -rf /"), "回执含命令文本: " + denied);
+  assert.equal(
+    check(execOf("bash", { command: "ls -la" })),
+    undefined,
+    "未命中 → undefined（放行）",
+  );
+  assert.equal(
+    guard.recent().length,
+    2,
+    "两次判定各记一条（守卫路径恰判定一次）",
+  );
+  dispose();
+  assert.equal(guards.length, 0, "disposer 注销守卫");
 });
 
 test("pre-execute：危险命令 → deny，回执含原因与放行方式", async () => {

@@ -145,6 +145,13 @@ export interface GuardHost {
       next: () => PreToolDecision | Promise<PreToolDecision>,
     ) => PreToolDecision | Promise<PreToolDecision>,
   ): void | (() => unknown);
+  /**
+   * 单调守卫注册面（宿主 `ctx.tools.guard`，同步判定、返回字符串即拒绝）；
+   * 缺省 = 宿主不支持该面 → 回退 `tools/pre-execute` 监听器（见 `createSecurityGuard`）。
+   */
+  tools?: {
+    guard(check: (exec: PreExecuteExecution) => string | undefined): unknown;
+  };
   logger?(ns: string): { info(message: string): void };
 }
 
@@ -1267,25 +1274,48 @@ export function createSecurityGuard(
   host: GuardHost,
   config: SecurityGuardConfig = {},
 ): { guard: GuardEngine; dispose: () => void } {
-  const guard = new GuardEngine(config);
+  const engine = new GuardEngine(config);
+  // 单次判定：命中返回回执（两种挂载形态共用，避免并存时判定两次、`recent()` 记两条）
+  const inspect = (exec: PreExecuteExecution): string | null => {
+    const receipt = engine.inspect(exec.name, exec.arguments);
+    if (receipt === null) return null;
+    // 日志取回执**前两行**（插件命令工具的首行是来源标注行，规则摘要紧随其后；
+    // 只取首行会让日志丢掉规则 id），完整回执在工具结果文本里
+    const logHead = receipt.split("\n").slice(0, 2).join(" ");
+    host
+      .logger?.(name)
+      .info(`security-guard blocked tool=${exec.name}: ${logHead}`);
+    return receipt;
+  };
+  const tools = host.tools;
+  // 优先单调守卫（2026-10-07 裁定）：它排在 `tools/pre-execute` waterfall **之后**，
+  // 拒绝不可被后续监听器翻盘，也不受「某监听器不调 next() 就截断整条链」影响
+  if (tools !== undefined && typeof tools.guard === "function") {
+    const off = tools.guard((exec) => inspect(exec) ?? undefined);
+    host
+      .logger?.(name)
+      .info("security-guard mounted: monotonic guard（黑名单 + 敏感文件保护）");
+    return {
+      guard: engine,
+      dispose:
+        typeof off === "function"
+          ? () => void (off as () => unknown)()
+          : () => {},
+    };
+  }
+  // 降级：旧宿主 / 极简 ctx 无 `tools.guard` 时沿用 waterfall 监听器（行为与旧版一致，
+  // 代价是顺序可被重排、且更早的监听器不调 next() 时会被整段跳过）
   const detach = host.on("tools/pre-execute", (exec, next) => {
-    const receipt = guard.inspect(exec.name, exec.arguments);
-    if (receipt !== null) {
-      // 日志取回执**前两行**（插件命令工具的首行是来源标注行，规则摘要紧随其后；
-      // 只取首行会让日志丢掉规则 id），完整回执在工具结果文本里
-      const logHead = receipt.split("\n").slice(0, 2).join(" ");
-      host
-        .logger?.(name)
-        .info(`security-guard blocked tool=${exec.name}: ${logHead}`);
-      return { kind: "deny", reason: receipt };
-    }
-    return next();
+    const receipt = inspect(exec);
+    return receipt === null ? next() : { kind: "deny", reason: receipt };
   });
   host
     .logger?.(name)
-    .info("security-guard mounted: tools/pre-execute（黑名单 + 敏感文件保护）");
+    .info(
+      "security-guard mounted: tools/pre-execute 回退（宿主无 tools.guard；黑名单 + 敏感文件保护）",
+    );
   return {
-    guard,
+    guard: engine,
     dispose: typeof detach === "function" ? () => void detach() : () => {},
   };
 }

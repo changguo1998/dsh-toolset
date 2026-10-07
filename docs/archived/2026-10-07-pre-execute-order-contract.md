@@ -1,6 +1,6 @@
 # `tools/pre-execute` 拦截顺序契约（接取条目：`docs/BACKLOG.md` §2「`tools/pre-execute` 拦截顺序无契约」）
 
-状态：决策（待实施）　　开启：2026-10-07　　关闭：—
+状态：完成（2026-10-07）　　开启：2026-10-07　　关闭：2026-10-07
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。实施面预期只落 `security-guard/README.md`（+ 必要时 `security-guard/src/`）。
 
 ## 目标
@@ -90,12 +90,24 @@
 
 ## 实现记录
 
-（未开始）
+- `security-guard/src/index.ts`：`GuardHost` 增可选 `tools?: { guard(check: (exec: PreExecuteExecution) => string | undefined): unknown }`（`:149-155`）；`createSecurityGuard` 抽出单次判定 `inspect()`（命中→记日志 + 返回回执），**优先** `host.tools.guard` 注册单调守卫（命中返回回执字符串、未命中 `undefined`，`disposer` 取守卫返回值里的函数），**降级**才 `host.on("tools/pre-execute", …)` 返回 `{kind:"deny", reason}`；两种形态各写一条挂载日志（`monotonic guard` / `tools/pre-execute 回退`）。
+- `security-guard/tests/guard.test.ts`：`makeHost({ monotonic })` 增 `guards` 收集器与 `tools.guard`（缺省不提供 → 既有 30+ 例仍走降级路径）；新增/改写 3 例——bundle 用例断言降级形态（1 listener / 0 guard + 日志含「回退」）、单调守卫形态（1 guard / **0 listener**，锁「移动、不并存」+ 日志含 `monotonic guard`）、守卫行为（命中回执字符串、未命中 `undefined`、两次判定 `recent()` 恰 2 条、`dispose()` 后守卫注销）。
+- `security-guard/README.md`：首段改口径（单调守卫 + 回退）；新增「拦截顺序与契约（2026-10-07 裁定）」小节（两段判定机制 + 证据行号 + 本包选择 + 已知差异 + 回退路径）；`## 边界与限制` 的检查点分工措辞与例数（122 → 124）同步。
+- 未改：`GuardEngine` 判定与规则内容、服务面（`recent` / `policy` / `inspectCommand`）、TUI `/guard` 接线、宿主。
 
 ## 测试与证据
 
-本轮调研证据全部为源码事实，逐条已注 `文件:行`（本机 `@deepseek-ai/dsh@0.2.0-rc.2` 安装目录 + 本仓）。未改动任何文件（除本追踪文档与 BACKLOG 状态）。
+调研证据全部为源码事实，逐条已注 `文件:行`（本机 `@deepseek-ai/dsh@0.2.0-rc.2` 安装目录 + 本仓）。
+
+实施证据：
+
+- `security-guard`：`npm run check` exit 0；`npm run test` **124 pass / 0 fail**（新增 2 例）。
+- 全仓（本批两条目的同一轮）：`npm run check` exit 0；`npm run build` exit 0；`npm run test` 全绿（各包并行）；`npm run demo -- --smoke` → `SMOKE_OK` exit 0。
+- 待人工：真机 `dsh --profile fff` 跑一条命中黑名单的命令 → 被拒且结果为 `Error: <回执>`，`/guard` 只记**一条**记录（验证「单次判定、不并存」）。
 
 ## 收尾
 
-（待实施后关闭；关闭时按 D5 回写 `security-guard/README.md`、移除 BACKLOG 条目、本文件归档）
+- 条目「`tools/pre-execute` 拦截顺序无契约」：完成 → 从 `docs/BACKLOG.md` 移除（余下条目重编）。
+- `security-guard/README.md` 已按 D5 回写（「拦截顺序与契约」小节）。
+- 本文件移入 `docs/archived/`。
+- 本次未产生临时 / 调试文件。
