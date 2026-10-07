@@ -5,7 +5,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createGoalContractTool, TOOL_NAME } from "../src/tool.ts";
+import {
+  createGoalContractTool,
+  TOOL_DESCRIPTION,
+  TOOL_NAME,
+} from "../src/tool.ts";
 import type {
   GoalsLike,
   GoalViewLike,
@@ -301,6 +305,20 @@ test("parameters 编译为标准 JSON Schema（网关 type:null 回归）", () =
   }
   // 全可选字段 → 不生成顶层 required 数组
   assert.equal(params.required, undefined);
+  // 「objective 首行 = 一句话概括」约定（2026-10-07 用户裁定）：工具描述与 objective 参数描述都要写明
+  // （状态列只显示首个非空行；全文经宿主 /goal 读）——TUI 侧渲染口径见 TUI/docs/SPEC.md §15.1。
+  assert.ok(
+    TOOL_DESCRIPTION.includes("首行必须是一句话概括"),
+    "工具描述须写明首行概括约定",
+  );
+  const objectiveDesc =
+    (params.properties as Record<string, { description?: string }>).objective
+      ?.description ?? "";
+  assert.ok(
+    objectiveDesc.includes("首行必须是一句话概括"),
+    "objective 参数描述须写明首行概括约定: " + objectiveDesc,
+  );
+  assert.ok(objectiveDesc.includes("/goal"), "须写明全文入口 = /goal");
 });
 
 test("output.render：全函数（undefined 也给 string；对象走 JSON、字符串原样）", () => {

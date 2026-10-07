@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）进程内插件：goal 会话契约起草。经 `tool-a
 
 | 参数 | 说明 |
 | --- | --- |
-| `objective` | 目标描述（预填；缺省时访谈提问）。不得包含独占一行的 `Done-when:` |
+| `objective` | 目标描述（预填；缺省时访谈提问）。**首行必须是一句话概括**（TUI 状态列只显示首个非空行；全文经宿主 `/goal` 命令输出读）。不得包含独占一行的 `Done-when:` |
 | `clauses` | 结构化条款预填：`[{ id, check, level, command?, outputSchema? }]`（输入 `output_schema` 亦可，归一为 `outputSchema`） |
 | `clauses_text` | 自由文本条款（每行一条：`描述`、`描述 → 命令` 或 `[<level>] 描述`）；与 `clauses` 二选一 |
 | `max_goal_rounds` | goal 回合上限（正整数；缺省不传、由宿主决定，自动化场景建议给小值） |

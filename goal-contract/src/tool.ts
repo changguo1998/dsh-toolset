@@ -61,6 +61,7 @@ export const TOOL_DESCRIPTION = [
   "起草 goal 契约并落 dsh goal 事件源（goal/change）。",
   "字段：objective（目标描述）、clauses（Done-when 验证条款，schema 对齐 task-engine Acceptance：",
   "{id, check, level: mechanical|semantic|human, command?}，mechanical 必须带 command）。",
+  "objective 首行必须是一句话概括（TUI 状态列只显示首个非空行；全文经宿主 /goal 命令输出读）。",
   "objective 与 clauses 齐备时直接创建；缺任一则经 ask_user 逐题访谈（目标→条款→确认）。",
   "创建后回读当前 goal 视图并解析 Done-when 条款，返回往返比对结果（readback.match）。",
 ].join(" ");
@@ -119,7 +120,7 @@ export function createGoalContractTool(deps: GoalContractDeps) {
         type: "string",
         required: false,
         description:
-          "目标描述（预填；缺省时访谈向用户提问）。不得包含独占一行的 'Done-when:'。",
+          "目标描述（预填；缺省时访谈向用户提问）。首行必须是一句话概括（TUI 状态列只显示首个非空行，全文经 /goal 命令输出读）。不得包含独占一行的 'Done-when:'。",
       },
       clauses: {
         type: "array",
