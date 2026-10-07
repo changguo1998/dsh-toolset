@@ -23,7 +23,7 @@ import type {
 } from "./state.ts";
 import { hintLine } from "./layout/hints.ts";
 import {
-  activeGoalActivation,
+  goalActivationDisplay,
   currentProjectCwd,
   historyVisibleRecords,
   isCompacting,
@@ -1445,7 +1445,7 @@ export function renderStatusColumn(
   width: number,
   /** TUI#39：子代理目录快照（Agents 块；缺省 = 不显示该块，保持既有调用口径） */
   agents?: AgentRowInfo[],
-  /** 当前 goal 的自动续轮开关展示值（`activeGoalActivation`；缺省 = 不显示 ⟳） */
+  /** 当前 goal 的自动续轮开关展示值（`goalActivationDisplay`；缺省 = 不显示 ⟳） */
   activation?: GoalActivation,
 ): FrameRow[] {
   const h = Math.max(1, height);
@@ -1695,7 +1695,7 @@ function buildTopRegion(
           ? state.agentsBySession[state.activeSessionId]
           : undefined,
         // goal 自动续轮开关（⟳；进程本地态，仅 active 相位有值）
-        activeGoalActivation(state, state.activeSessionId ?? undefined),
+        goalActivationDisplay(state, state.activeSessionId ?? undefined),
       );
 
   // 边框构图参数：分隔竖线列 = statusColWidth-1（状态列右缘/历史区左缘，

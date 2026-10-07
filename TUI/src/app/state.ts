@@ -227,19 +227,18 @@ export function activeGoalSnapshot(
 }
 
 /** goal 自动续轮开关的**展示值**（进程本地态）：
- *  仅在当前 goal `phase === "active"` 时可见（其它相位的 goal 本就不在推进，显示是噪声）；
- *  取值 = 本进程收到的**最后一条** activation 边，无记录 → `disarmed`（宿主重启后即为
- *  disarmed 且不发事件；宿主 `goal-round-driver` 会在 phase 仍为 active 时主动 disarm，
- *  此时有 disarmed 边 → 显示灰 ⟳，故不做「见过 armed 就恒绿」的粘性记忆）。 */
-export function activeGoalActivation(
+ *  只要本进程收到过该会话的 activation 边就显示——armed / disarmed 都是有效值，**不再按相位门控**
+ *  （paused / blocked / complete 也会显示灰 ⟳，颜色口径不变：armed 绿、disarmed 灰）；
+ *  取值 = 本进程收到的**最后一条** activation 边；**无记录 → 不显示**（宿主重启 / 回放 / 会话切换后
+ *  不再推导为 `disarmed`——用户 2026-10-06 裁定，推翻归档文档「可推导初值」的当时决策）。
+ *  宿主 `goal-round-driver` 会在相位仍为 active 时主动 disarm，此时有 disarmed 边 → 显示灰 ⟳，
+ *  故不做「见过 armed 就恒绿」的粘性记忆）。 */
+export function goalActivationDisplay(
   state: AppState,
   sessionId: string | undefined,
 ): GoalActivation | undefined {
   if (!sessionId) return undefined;
-  if (state.goalBySession[sessionId]?.[0]?.goal.phase !== "active") {
-    return undefined;
-  }
-  return state.goalActivationBySession[sessionId] ?? "disarmed";
+  return state.goalActivationBySession[sessionId];
 }
 
 /** P2 模式徽标状态（plan 用 "on"/"off"；sandbox/permission 存原始值字符串；缺省省略） */
@@ -741,7 +740,7 @@ export function initialState(
     sessionTitle: "", // 默认标题为空，渲染层（renderStatusLine）用 <title> 占位
     goalBySession: {},
     // goal 自动续轮开关（进程本地态，无初值：宿主重启后 setActivation(disarmed) 与初值
-    // 相同不发事件，故「无记录」由 selector 推导为 disarmed，见 activeGoalActivation）
+    // 相同不发事件，故「无记录」即不显示（selector 不再推导），见 goalActivationDisplay）
     goalActivationBySession: {},
     todoBySession: {},
     agentsBySession: {},
@@ -2261,7 +2260,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         };
       }
       case "goal-activation": {
-        // goal 自动续轮开关：只存**原始边**（展示值由 activeGoalActivation 推导——宿主在
+        // goal 自动续轮开关：只存**原始边**（展示值直取**原始边**，不推导、不按相位门控——宿主在
         // 同一次提交里先发 activation 边、后发 goal/change，若在此落推导结果会丢边）。
         // 无 activation = 宿主该会话已无当前 goal → 清记录。进程本地态：不落 tui-state.json。
         const next = { ...state.goalActivationBySession };

@@ -1,7 +1,7 @@
 // tests/goal-activation.test.ts — goal 自动续轮开关（activation）状态单测
 //
 // 覆盖：reduceState 的 `goal-activation`（armed / disarmed 边覆盖、无 `activation` = 清记录、
-// 按 sessionId 隔离、不落 tui-state.json）、selector `activeGoalActivation` 的门控与推导——
+// 按 sessionId 隔离、不落 tui-state.json）、selector `goalActivationDisplay` 的取值口径（有边就显示、无记录不显示）——
 // 无 goal / 非 active 相位 → 不显示（undefined）；active 且**无记录** → `disarmed`
 // （宿主重启后 setActivation(disarmed) 与初值相同、不发事件，靠该推导兜底）；收到过边则取末条。
 // 渲染面（⟳ 符号与颜色）见 tests/status-column.test.ts；事件归一化见 tests/adapter.dsh.test.ts。
@@ -10,7 +10,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  activeGoalActivation,
+  goalActivationDisplay,
   initialState,
   reduceState,
 } from "../src/app/state.ts";
@@ -37,7 +37,9 @@ class TrackedApp extends App {
 }
 
 /** 建立「s1 有当前 goal（相位可指定）」的状态（模拟宿主 `goal/change` 回放/事件） */
-function withGoal(phase: "active" | "paused" | "complete"): AppState {
+function withGoal(
+  phase: "active" | "paused" | "blocked" | "complete",
+): AppState {
   return reduceState(initialState(), {
     type: "goal-change",
     sessionId: SID,
@@ -100,45 +102,55 @@ test("goal-activation reducer: 无 activation = 宿主已无当前 goal → 清�
   assert.equal(s.goalActivationBySession[SID], "disarmed");
 });
 
-test("activeGoalActivation: 非 active 相位 / 无 goal / 无会话 → 不显示（undefined）", () => {
+test("goalActivationDisplay: 无记录 → 不显示（与相位无关）；有 disarmed 边 → 四个相位都显示", () => {
+  // 无记录（未收到边）：与相位、有无 goal 均无关，一律不显示
   assert.equal(
-    activeGoalActivation(withGoal("paused"), SID),
+    goalActivationDisplay(withGoal("paused"), SID),
     undefined,
-    "paused 相位不显示开关",
+    "paused + 无记录不显示",
   );
   assert.equal(
-    activeGoalActivation(withGoal("complete"), SID),
+    goalActivationDisplay(withGoal("complete"), SID),
     undefined,
-    "complete 相位不显示开关",
+    "complete + 无记录不显示",
   );
   assert.equal(
-    activeGoalActivation(initialState(), SID),
+    goalActivationDisplay(initialState(), SID),
     undefined,
-    "无 goal 不显示",
+    "无 goal + 无记录不显示",
   );
   assert.equal(
-    activeGoalActivation(withGoal("active"), undefined),
+    goalActivationDisplay(withGoal("active"), undefined),
     undefined,
     "无会话不显示",
   );
+  // 有 disarmed 边：取消相位门控后四个相位都取到展示值（颜色由渲染层定：灰）
+  for (const phase of ["active", "paused", "blocked", "complete"] as const) {
+    const s = edge(withGoal(phase), "disarmed");
+    assert.equal(
+      goalActivationDisplay(s, SID),
+      "disarmed",
+      phase + " 相位 + disarmed 边 → 显示灰 ⟳",
+    );
+  }
 });
 
-test("activeGoalActivation: 重启回归——只有 create(active)、零 activation 边 → disarmed", () => {
+test("goalActivationDisplay: 重启回归——只有 create(active)、零 activation 边 → 不显示", () => {
   const s = withGoal("active");
   assert.equal(
-    activeGoalActivation(s, SID),
-    "disarmed",
-    "无记录推导为 disarmed（重启后宿主为 disarmed 且不发事件）",
+    goalActivationDisplay(s, SID),
+    undefined,
+    "无记录即不显示（不再推导为 disarmed；宿主重启后不发边）",
   );
 });
 
-test("activeGoalActivation: 收到边后取展示值；resume 序列（disarmed → armed）转绿", () => {
+test("goalActivationDisplay: 收到边后取展示值；resume 序列（disarmed → armed）转绿", () => {
   let s = withGoal("active");
   s = edge(s, "disarmed");
-  assert.equal(activeGoalActivation(s, SID), "disarmed", "disarmed 边");
+  assert.equal(goalActivationDisplay(s, SID), "disarmed", "disarmed 边");
   // resume（人类直接请求）→ 宿主 setActivation(armed) → armed 边
   s = edge(s, "armed");
-  assert.equal(activeGoalActivation(s, SID), "armed", "resume 后转 armed");
+  assert.equal(goalActivationDisplay(s, SID), "armed", "resume 后转 armed");
   // 相位变更不携带 activation，故保留原边（edit 语义：宿主不改 activation）
   s = reduceState(s, {
     type: "goal-change",
@@ -149,17 +161,21 @@ test("activeGoalActivation: 收到边后取展示值；resume 序列（disarmed 
     createdAt: 1,
     updatedAt: 2,
   });
-  assert.equal(activeGoalActivation(s, SID), "armed", "edit 不改 activation");
+  assert.equal(goalActivationDisplay(s, SID), "armed", "edit 不改 activation");
 });
 
-test("activeGoalActivation: activation 边先于 goal/change 到达也保留（顺序无关）", () => {
+test("goalActivationDisplay: activation 边先于 goal/change 到达也保留（顺序无关）", () => {
   // 宿主真实顺序可能先发 activation 边再发 goal/change；reducer 只存原始边，故两步互换结果一致
   let s = reduceState(initialState(), {
     type: "goal-activation",
     sessionId: SID,
     activation: "armed",
   });
-  assert.equal(activeGoalActivation(s, SID), undefined, "无 goal 时不显示");
+  assert.equal(
+    goalActivationDisplay(s, SID),
+    "armed",
+    "边先到也保留（「无当前 goal 不显示」由渲染层的整块门控承担，不在这里判）",
+  );
   s = reduceState(s, {
     type: "goal-change",
     sessionId: SID,
@@ -170,7 +186,7 @@ test("activeGoalActivation: activation 边先于 goal/change 到达也保留（�
     updatedAt: 1,
   });
   assert.equal(
-    activeGoalActivation(s, SID),
+    goalActivationDisplay(s, SID),
     "armed",
     "goal 到达后沿用先到的边",
   );
@@ -184,7 +200,7 @@ test("端到端：activation 事件经 App 走到状态列（回放路径灰 ⟳
   const frame = (): string => renderer.lastRender.join("\n");
   const plain = (): string => frame().replace(/\x1b\[[0-9;]*m/g, "");
   try {
-    // 只有 goal/change（回放 / 重启后宿主不发 activation 边）→ 推导 disarmed
+    // 只有 goal/change（回放 / 重启后宿主不发 activation 边）→ 不显示 ⟳（不再推导 disarmed）
     adapter.push({
       type: "goal-change",
       sessionId: SID,
@@ -196,12 +212,23 @@ test("端到端：activation 事件经 App 走到状态列（回放路径灰 ⟳
     });
     await sleep(0);
     assert.ok(
+      !plain().includes("⟳"),
+      "无 activation 记录不显示 ⟳: " + plain(),
+    );
+    // disarmed 边 → 灰 ⟳
+    adapter.push({
+      type: "goal-activation",
+      sessionId: SID,
+      activation: "disarmed",
+    });
+    await sleep(0);
+    assert.ok(
       plain().includes("Goal ▷ ⟳"),
-      "无 activation 记录仍显示 ⟳（灰色）: " + plain(),
+      "disarmed 边后显示 ⟳: " + plain(),
     );
     assert.ok(
       frame().includes(sgrOf("gray") + " ⟳"),
-      "disarmed 推导为灰: " + frame(),
+      "disarmed 显示为灰: " + frame(),
     );
     // armed 边 → 转绿（该用例同时守 index.ts 的事件分派与 buildTopRegion 的接线）
     adapter.push({

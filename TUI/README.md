@@ -145,7 +145,7 @@ dsh --profile <p>                      # 启动（需要真实终端；真实链
 
 自上而下 **Goal / Todo / Jobs / Agents 四块**（Agents 块仅在当前会话有子代理数据时出现），块间以虚线 `╌` 分隔（原 Mode 块已整块迁入标题栏符号组，见上；`Ctrl+S` 整体显隐状态列——隐藏后该列宽归 0、右缘分隔竖线不画、历史区吃满整区全宽，显隐随会话写入 `tui-state.json`）：
 
-- **Goal 块**：标题 `Goal <符号>`（2026-10-05 起不出相位词；历史行仍为 `Goal <phase>`）（当前 goal；Goal 蓝、phase 按 `▷` active 绿 / `∥` paused 黄 / `△` blocked 黄 / `✓` complete 绿）+ objective；blocked 时附黄色阻塞原因。标题行尾另有 `⟳` **自动续轮开关**（绿 = 宿主会自动续轮 / 灰 = 需用户驱动，仅 active 相位显示）。其下为**历史（旧）goal**：每条「`Goal <phase>`（灰，不带符号）+ objective（灰 + 删除线）」，与已完成 todo 同口径——同一会话的 goal 变更累积展示（create 入栈、后续事件按 id 原位更新、clear 出栈）。
+- **Goal 块**：标题 `Goal <符号>`（2026-10-05 起不出相位词；历史行仍为 `Goal <phase>`）（当前 goal；Goal 蓝、phase 按 `▷` active 绿 / `∥` paused 黄 / `△` blocked 黄 / `✓` complete 绿）+ objective；blocked 时附黄色阻塞原因。标题行尾另有 `⟳` **自动续轮开关**（绿 = 宿主会自动续轮 / 灰 = 需用户驱动；**只要收到过 activation 边就显示，无记录不显示**）。其下为**历史（旧）goal**：每条「`Goal <phase>`（灰，不带符号）+ objective（灰 + 删除线）」，与已完成 todo 同口径——同一会话的 goal 变更累积展示（create 入栈、后续事件按 id 原位更新、clear 出栈）。
 - **Todo 块**：标题 `Todo 完成数/总数`（蓝）+ 列表（`○` 待办 / `●` 进行中（黄，续行同色）/ `✓` 完成（对号灰、正文灰 + 删除线））。
 - **Jobs 块**：标题 `Jobs 运行中/总数`（蓝）+ 任务行（`●` 运行中黄 / `✗` 失败红 / `○` 取消灰 / `✓` 已完成灰 + 删除线）。
 - **Agents 块**：标题 `Agents 运行中/总数`（蓝）+ 子代理行（`●` 运行中黄 / `○` 空闲灰 / `!` 一切异常态红并附宿主 reason；显示名 = 别名 ?? label，其后接最近一次工具调用摘要、无则不显示），纯只读展示——中断仍走 `/agents` 面板。

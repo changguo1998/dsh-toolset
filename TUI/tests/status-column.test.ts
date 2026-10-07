@@ -74,7 +74,7 @@ function col(
     height?: number;
     width?: number;
     scroll?: number;
-    /** goal 自动续轮开关展示值（`activeGoalActivation` 的产物；缺省 = 不显示 ⟳） */
+    /** goal 自动续轮开关展示值（`goalActivationDisplay` 的产物；缺省 = 不显示 ⟳） */
     activation?: GoalActivation;
   } = {},
   jobs?: JobInfo[],
@@ -516,9 +516,18 @@ test("renderStatusColumn: 自动续轮开关 ⟳（armed 绿 / disarmed 灰 / �
     disarmed.ansi.includes(sgrOf("gray") + " ⟳"),
     "disarmed 的 ⟳ 为灰: " + disarmed.ansi,
   );
-  // 缺省（无数据 / 非 active 相位由 activeGoalActivation 过滤）→ 不显示 ⟳
+  // 缺省（无数据）→ 不显示 ⟳
   const none = goalHead(setGoal("active", "目标"));
   assert.ok(!none.text.includes("⟳"), "无激活值不显示 ⟳: " + none.text);
+  // 取消相位门控（BACKLOG 条目）：非 active 相位 + disarmed 边 → 同样显示灰 ⟳
+  for (const phase of ["paused", "blocked", "complete"] as const) {
+    const row = goalHead(setGoal(phase, "目标"), "disarmed");
+    assert.ok(row.text.includes("⟳"), phase + " 相位显示 ⟳: " + row.text);
+    assert.ok(
+      row.ansi.includes(sgrOf("gray") + " ⟳"),
+      phase + " 相位的 ⟳ 为灰: " + row.ansi,
+    );
+  }
 });
 
 test("renderStatusColumn: 历史 goal 行不显示 phase 符号与 ⟳（进程本地态只对当前 goal 有意义）", () => {
