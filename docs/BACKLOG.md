@@ -50,7 +50,7 @@
 
 - 复用审计：官方包与本仓 18 包逐项对照的「改用 / 保留 / 并存」结论（**改用 0 / 保留 12 / 并存 6**）与 5 项改造点，见 `docs/ARCHITECTURE-REUSE.md`（追踪文档 `docs/archived/2026-10-02-reuse-audit.md`）。
 
-- profile 挂载面：**扩张到 base + 本仓 18 包 + 10 个官方行**（2026-10-02：`session-stats` / `session-turn-outline` / `session-reference` / `message-feedback` / `workspace-changes` / `file-reference-local` / `terminal` / `terminal-bash` / `invariants` / `workspace`；全部为投影 / 服务 / 事件面扩展，排除口径与第二批选题见 `docs/archived/2026-10-02-profile-mount-expansion.md`）。
+- profile 挂载面：**扩张到 base + 本仓插件 + 10 个官方行**（2026-10-02：`session-stats` / `session-turn-outline` / `session-reference` / `message-feedback` / `workspace-changes` / `file-reference-local` / `terminal` / `terminal-bash` / `invariants` / `workspace`；全部为投影 / 服务 / 事件面扩展，排除口径与第二批选题见 `docs/archived/2026-10-02-profile-mount-expansion.md`）。
 
 - 宿主运行基线：**已升到 `dsh 0.2.0-rc.2`**（2026-10-02：全局安装 + profile 树外加装包 `session-title-all-prompts-llm` 同步 + `scripts/install.sh` 默认版本 + 主要版本引用（含 5 个包 smoke 脚本的宿主门槛）；进程外与进程内验证见追踪文档 `docs/archived/2026-10-02-host-upgrade-execution.md`）。
 
@@ -60,9 +60,8 @@
 
 ## 2. 未完成项
 
-> 扁平清单，**按条目间逻辑依赖排序**（2026-10-04 整理：编号即先后顺序；键序 = 依赖 → 优先级 → 工作量，同层先小后大。编号仅供阅读，随整理重编）。
-> 顺序依据（2026-10-04 整理；键序 = 依赖 → 优先级 → 工作量，同层先小后大；编号仅供阅读，随整理重编）：跨层推荐顺序按优先级分组（P2 → P3 → 收尾），同级内按工作量升序；模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
-> 跨层顺序（2026-10-06 起，用户指示「重新按依赖 → 工作量排序」）：**依赖优先**（无前置项在前、有前置项排在各自前置之后）→ 同层**工作量升序** → 同工时「缺陷优先于行为改动 / 高优先级优先」。各层文件内部已按同口径排（`TUI/docs/BACKLOG.md` §组织行、`symbol-normalizer/docs/BACKLOG.md`）。当前可开工顺序（跨文件）：sn#1（10-20 min）→ TUI#1（15-30 min）→ sn#2+#3（15-30 min，同批）→ TUI#2（30 min）→ TUI#3 / TUI#4 / TUI#5（各 30-45 min）→ 本文件 #1（P1，长期记忆；设计 1-2 h）→ TUI#6（调研 30-60 min，前置 TUI#5）→ TUI#7（1-2 h，前置 TUI#4）。编号仅供阅读，层号互不关联。
+> 顺序依据：扁平清单**按依赖 → 工作量排序**（2026-10-06 起，用户指示「重新按依赖 → 工作量排序」）：**依赖优先**（无前置项在前、有前置项排在各自前置之后）→ 同层**工作量升序** → 同工时「缺陷优先于行为改动 / 高优先级优先」；模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
+> 当前可开工顺序（2026-10-07 核对）：本文件 §2 #1（P1，长期记忆设计 1-2 h）；`TUI/docs/BACKLOG.md` 4 条中仅 #1（排版流程重构，P1，1-2 天）可开工，其余 3 条暂停且前置为 #1。
 
 | # | 功能 | 来源 | 落点（复用） | 工作量（估） | 优先级 |
 |---|------|------|--------------|--------------|--------|
@@ -75,8 +74,8 @@
 ## 3. 里程碑
 
 1. 里程碑一（P0，引擎三块 + 知识库底座）与里程碑二（P1：goal-contract / metric-loop、知识库记忆层与淘汰提升、fan-out 就绪池、hash-edit / ast-tools、security-guard / herdr-integration 等）均已完成。
-1. 里程碑三（P1/P2）剩余项即 §2 清单（编号即先后顺序；2026-10-03 起按「依赖 → 优先级 → 工作量」排序，详见 §2 顺序依据），按需排期；已完成项与已取消 / 不再立项项见 §1 索引。
-1. 依赖：条目间依赖与用户门见各条正文与 §2 顺序依据；原「近期改动代码审查」能力并入命令模板体系③。
+1. 里程碑三（P1/P2）剩余项即 §2 清单（编号即先后顺序；2026-10-06 起按「依赖 → 工作量」排序，详见 §2 顺序依据），按需排期；已完成项与已取消 / 不再立项项见 §1 索引。
+1. 依赖：条目间依赖与用户门见各条正文与 §2 顺序依据。
 
 ## 4. 插件规划（未建包）
 
@@ -84,10 +83,6 @@
 
 | 插件 | 承载清单项 | 复用（不新建） |
 |------|-----------|----------------|
-| `task-engine`（既有包扩展，非新包） | task-engine 执行扩展 | 宿主 subagents / workflow / llm / token-meter 面；本机本地插件 `dsh-git-worktree` 补隔离 |
-| `web-ext` | PDF / 文档结构视图（另有已取消的仓库克隆 / PDF 提取候选） | search provider 扩充、web-fetch-http、shell（git 克隆先行） |
-| `session-broker` | 跨会话消息通道（已由 `session-channel` 落地） | 无等效底座，新建 unix socket 通道 |
-| `command-template` | 模板体系①②（已落地） | commands（宿主入口）、workflow（宿主执行） |
 | 内容资产（非插件） | 模板体系③ | workflow 脚本 + skill 内容 |
 
 ## 5. TUI 侧
