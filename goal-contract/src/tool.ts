@@ -10,7 +10,12 @@
 // 服务缺失时按「预填可用 / 访谈不可用」降级并给出明确反馈。
 
 import { parseClauseText, validateClauses } from "./clauses.ts";
-import { buildObjective, clausesEqual, parseContract } from "./contract.ts";
+import {
+  buildObjective,
+  checkSummaryWidth,
+  clausesEqual,
+  parseContract,
+} from "./contract.ts";
 import { applyAnswer, initialState, nextQuestion } from "./interview.ts";
 import type {
   ContractClause,
@@ -61,7 +66,7 @@ export const TOOL_DESCRIPTION = [
   "起草 goal 契约并落 dsh goal 事件源（goal/change）。",
   "字段：objective（目标描述）、clauses（Done-when 验证条款，schema 对齐 task-engine Acceptance：",
   "{id, check, level: mechanical|semantic|human, command?}，mechanical 必须带 command）。",
-  "objective 首行必须是一句话概括（TUI 状态列只显示首个非空行；全文经宿主 /goal 命令输出读）。",
+  "objective 首行必须是一句话概括（≤40 显示列，约 20 个汉字；状态列只显示首个逻辑行并按列宽完整折行，全文经宿主 /goal 命令输出读）。",
   "objective 与 clauses 齐备时直接创建；缺任一则经 ask_user 逐题访谈（目标→条款→确认）。",
   "创建后回读当前 goal 视图并解析 Done-when 条款，返回往返比对结果（readback.match）。",
 ].join(" ");
@@ -120,7 +125,7 @@ export function createGoalContractTool(deps: GoalContractDeps) {
         type: "string",
         required: false,
         description:
-          "目标描述（预填；缺省时访谈向用户提问）。首行必须是一句话概括（TUI 状态列只显示首个非空行，全文经 /goal 命令输出读）。不得包含独占一行的 'Done-when:'。",
+          "目标描述（预填；缺省时访谈向用户提问）。首行必须是一句话概括且 ≤40 显示列（约 20 个汉字 / 40 个英文字符）——状态列只显示首个逻辑行（行数由列宽决定），全文经 /goal 命令输出读；超限会在起草阶段报错。不得包含独占一行的 'Done-when:'。",
       },
       clauses: {
         type: "array",
@@ -152,6 +157,11 @@ export function createGoalContractTool(deps: GoalContractDeps) {
       // ── 1) 解析预填：objective / clauses（结构化或文本）/ max_goal_rounds ──
       const objectiveArg =
         typeof args.objective === "string" ? args.objective.trim() : undefined;
+      // 首行概括字数上限：预填路径直接给可操作报错（访谈路径由状态机重问）
+      if (objectiveArg !== undefined) {
+        const overLimit = checkSummaryWidth(objectiveArg);
+        if (overLimit !== null) return fail(overLimit);
+      }
       let preClauses: ContractClause[] | undefined;
       if (args.clauses !== undefined) {
         const v = validateClauses(args.clauses);

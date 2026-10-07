@@ -5,6 +5,8 @@ import { test } from "node:test";
 import {
   ContractParseError,
   buildObjective,
+  checkSummaryWidth,
+  summaryWidth,
   clausesEqual,
   parseContract,
 } from "../src/contract.ts";
@@ -96,4 +98,35 @@ test("公开入口：index.ts re-export buildObjective/parseContract 可用", ()
   const parsed = parseContractPublic(embedded);
   assert.equal(parsed.objective, "公开入口目标");
   assert.equal(clausesEqual(CLAUSES, parsed.clauses), true);
+});
+
+test("summaryWidth / checkSummaryWidth：按显示列算首个逻辑行（宽字符 2 列）", () => {
+  assert.equal(summaryWidth("短概括"), 6);
+  assert.equal(summaryWidth("a".repeat(40)), 40);
+  assert.equal(summaryWidth("一".repeat(20)), 40);
+  assert.equal(summaryWidth(""), 0);
+  assert.equal(summaryWidth("\n\n"), 0);
+  // 只看首个逻辑行：首行短 + 后续行超长 → 不超限
+  assert.equal(summaryWidth("短概括\n" + "很长".repeat(50)), 6);
+  assert.equal(checkSummaryWidth("一".repeat(20)), null, "40 列 = 上限内");
+  const over = checkSummaryWidth("一".repeat(21));
+  assert.ok(
+    over !== null && over.includes("首行"),
+    "42 列超限且写明首行: " + over,
+  );
+});
+
+test("buildObjective：首行概括超限 → 抛 ContractParseError（正文长度不受限）", () => {
+  assert.throws(
+    () => buildObjective("一".repeat(21), CLAUSES),
+    (err: unknown) =>
+      err instanceof ContractParseError &&
+      err.message.includes("首行（一句话概括）过长") &&
+      err.message.includes("显示列"),
+  );
+  const embedded = buildObjective(
+    "一句话概括\n" + "很长的正文".repeat(20),
+    CLAUSES,
+  );
+  assert.ok(embedded.startsWith("一句话概括\n"), "首行短、正文长 → 合法");
 });

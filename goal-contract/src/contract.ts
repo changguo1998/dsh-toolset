@@ -19,6 +19,51 @@ import type { ContractClause } from "./types.ts";
 /** 嵌入格式标记行（必须独占一行，trim 后精确匹配）。 */
 export const DONE_WHEN_MARKER = "Done-when:";
 
+/** 首行概括的显示列上限（状态列只显示 objective 首个逻辑行；最窄正文 19 列 → 折 ≤3 行） */
+export const SUMMARY_MAX_WIDTH = 40;
+
+/** 宽字符（东亚全宽 / emoji）近似判定：只服务「首句字数」上限，不追求逐码点精确 */
+function isWideCodePoint(cp: number): boolean {
+  return (
+    (cp >= 0x1100 && cp <= 0x115f) ||
+    (cp >= 0x2e80 && cp <= 0x303e) ||
+    (cp >= 0x3041 && cp <= 0x33ff) ||
+    (cp >= 0x3400 && cp <= 0x4dbf) ||
+    (cp >= 0x4e00 && cp <= 0x9fff) ||
+    (cp >= 0xa000 && cp <= 0xa4cf) ||
+    (cp >= 0xac00 && cp <= 0xd7a3) ||
+    (cp >= 0xf900 && cp <= 0xfaff) ||
+    (cp >= 0xfe30 && cp <= 0xfe4f) ||
+    (cp >= 0xff00 && cp <= 0xff60) ||
+    (cp >= 0xffe0 && cp <= 0xffe6) ||
+    (cp >= 0x1f300 && cp <= 0x1faff) ||
+    (cp >= 0x20000 && cp <= 0x3fffd)
+  );
+}
+
+/** objective **首个逻辑行**（概括句）的显示宽度（列）；空 / 全空白 → 0 */
+export function summaryWidth(objective: string): number {
+  const first = objective.split(/\r?\n/).find((line) => line.trim() !== "");
+  if (first === undefined) return 0;
+  let w = 0;
+  for (const ch of first.trim()) {
+    w += isWideCodePoint(ch.codePointAt(0) ?? 0) ? 2 : 1;
+  }
+  return w;
+}
+
+/**
+ * 首行概括超限时的可操作报错（未超 → null）。
+ * 状态列只显示首个逻辑行，所以「一句话概括」的字数要在**起草侧**收住；
+ * 具体行数仍由状态列宽决定（宽列 1 行、窄列自然折更多行）。
+ */
+export function checkSummaryWidth(objective: string): string | null {
+  const w = summaryWidth(objective);
+  return w > SUMMARY_MAX_WIDTH
+    ? `objective 首行（一句话概括）过长：${w} 显示列 > ${SUMMARY_MAX_WIDTH}（约 20 个汉字 / 40 个英文字符）——状态列只显示首行，请把第一句压成一句话概括`
+    : null;
+}
+
 /** 契约回读错误（objective 为空 / Done-when 段非法）。 */
 export class ContractParseError extends Error {
   constructor(message: string) {
@@ -47,6 +92,10 @@ export function buildObjective(
   const trimmed = objective.trim();
   if (trimmed.length === 0) {
     throw new ContractParseError("objective 不得为空");
+  }
+  const overLimit = checkSummaryWidth(trimmed);
+  if (overLimit !== null) {
+    throw new ContractParseError(overLimit);
   }
   return `${trimmed}\n\n${DONE_WHEN_MARKER}\n${JSON.stringify(clauses, null, 2)}`;
 }

@@ -8,6 +8,7 @@
 // （经宿主 userQuestions 面，对齐 tool-ask-user 的提问形状）。
 
 import { parseClauseText } from "./clauses.ts";
+import { checkSummaryWidth } from "./contract.ts";
 import type { ClauseValidation, ContractClause } from "./types.ts";
 
 export type InterviewPhase =
@@ -175,6 +176,13 @@ export function applyAnswer(
         return attempts >= maxAttempts
           ? exhaust()
           : { ...base, error: "objective 不能为空，请输入目标描述" };
+      }
+      // 首行概括字数上限（状态列只显示首个逻辑行）——超限算本阶段失败，拼进下次提问重问
+      const overLimit = checkSummaryWidth(text);
+      if (overLimit !== null) {
+        return attempts >= maxAttempts
+          ? exhaust()
+          : { ...base, error: overLimit };
       }
       return {
         ...base,

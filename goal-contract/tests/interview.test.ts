@@ -130,3 +130,31 @@ test("终态不可迁移：done/aborted 上 applyAnswer 原样返回", () => {
   );
   assert.equal(applyAnswer(done, CANCEL_ANSWER), done);
 });
+
+test("首行概括超限：同阶段重问并携带可操作错误；连续超限 → aborted", () => {
+  let s = applyAnswer(initialState(), {
+    id: "objective",
+    selected: [],
+    custom: "一".repeat(21),
+  });
+  assert.equal(s.phase, "ask-objective", "超限留在同一阶段");
+  assert.ok((s.error ?? "").includes("首行"), "错误写明首行概括: " + s.error);
+  s = applyAnswer(s, {
+    id: "objective",
+    selected: [],
+    custom: "二".repeat(21),
+  });
+  s = applyAnswer(s, {
+    id: "objective",
+    selected: [],
+    custom: "三".repeat(21),
+  });
+  assert.equal(s.phase, "aborted", "连续超限达上限 → aborted");
+  // 首行短 + 正文长 → 通过（只有首个逻辑行受限）
+  const ok = applyAnswer(initialState(), {
+    id: "objective",
+    selected: [],
+    custom: "短概括\n" + "很长正文".repeat(30),
+  });
+  assert.equal(ok.phase, "ask-clauses", "正文长度不受限");
+});

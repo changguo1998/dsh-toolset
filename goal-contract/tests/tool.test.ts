@@ -365,3 +365,21 @@ test("output.render 形参顺序哨兵：渲染的必须是第二参（变异回
     "第一参（args）不该被当成 value 渲染",
   );
 });
+
+test("预填 objective 首行超限 → ok:false 且给可操作报错（不落 goal）", async () => {
+  const goals = fakeGoals();
+  const tool = createGoalContractTool({
+    userQuestions: fakeUserQuestions([]).service,
+    goals: goals.service,
+  });
+  const result = await tool.execute(
+    { objective: "一".repeat(21), clauses: CLAUSES },
+    EXEC,
+  );
+  assert.equal(result.ok, false);
+  assert.ok(
+    String(result.error).includes("首行"),
+    "错误写明首行概括: " + String(result.error),
+  );
+  assert.equal(goals.events.length, 0, "未落 goal");
+});
