@@ -1003,12 +1003,9 @@ function capRows(rows: StatusRow[], budget: number): StatusRow[] {
   return kept;
 }
 
-/** 当前 goal 的概括位宽列阈值（正文列数）：≥ 此宽度恒 1 行，更窄放宽到 ≤2 行 */
-const GOAL_OBJECTIVE_WIDE_WIDTH = 24;
-
-/** 当前 goal 的 objective 行：**只展示首个非空行**（概括位；全文入口 = 宿主 `/goal` 输出）。
- *  截断口径：宽列（正文 ≥ `GOAL_OBJECTIVE_WIDE_WIDTH`）恒 1 行，窄列允许 ≤2 行（避免一句话
- *  被截成半个词）；**只在真的放不下时**才以 `…` 结尾（放得下就不加）。
+/** 当前 goal 的 objective 行：**只展示首个逻辑行**（概括位；全文入口 = 宿主 `/goal` 输出）。
+ *  首个逻辑行按列宽**完整折行**——行数由宽度与内容共同决定（窄列自然多占几行），**不截断**；
+ *  「一句概括」的字数限制在**起草侧**把关（goal-contract 要求首句 ≤ 40 显示列，见其 README）。
  *  历史旧 goal 行不受此口径影响（见 `goalHistoryRows`）。
  *  phase=complete 已完成 → 灰 + 删除线，与 todo 完成态同口径 */
 function goalObjectiveRows(g: GoalSnapshotLike, width: number): StatusRow[] {
@@ -1016,14 +1013,7 @@ function goalObjectiveRows(g: GoalSnapshotLike, width: number): StatusRow[] {
     .split("\n")
     .find((line) => line.trim() !== "");
   const body = first?.trim() || "（空目标）";
-  const w = Math.max(1, width);
-  // 预算列数：宽列 1 行（`w`）/ 窄列 2 行（`2w-1`，留 1 列给省略号）
-  const limit = w >= GOAL_OBJECTIVE_WIDE_WIDTH ? w : Math.max(1, w * 2 - 1);
-  const text =
-    displayWidth(body) <= limit
-      ? body
-      : `${truncateToWidth(body, Math.max(1, limit - 1))}…`;
-  return wrapLine(text, w).map((line) => ({
+  return wrapLine(body, Math.max(1, width)).map((line) => ({
     segments: [
       g.phase === "complete"
         ? seg(line, { fg: "gray", strike: true })

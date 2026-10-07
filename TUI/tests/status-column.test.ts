@@ -203,17 +203,20 @@ test("renderStatusColumn: goal 块超窗口高时按等级折叠（L2 压成标�
   assert.ok(full.join("|").includes("旧目标5"), "高度充足时历史目标完整显示");
 });
 
-test("renderStatusColumn: 当前 goal 只显示首行概括（宽列恰 1 行 + …）", () => {
-  const objective = "一句话概括" + "很长的补充描述".repeat(10);
-  const rows = col(setGoal("active", objective), [], { width: 40, height: 10 });
+test("renderStatusColumn: 当前 goal 只显示首个逻辑行（完整折行、不截断）", () => {
+  const first = "一句话概括" + "很长的补充描述".repeat(6) + "（首行结尾）";
+  const rows = col(setGoal("active", `${first}\n第二段细节`), [], {
+    width: 40,
+    height: 12,
+  });
   const t = rows.join("\n");
-  assert.ok(t.includes("一句话概括"), "首行概括展示");
-  assert.ok(t.includes("…"), "超宽截断加省略号");
-  assert.ok(!t.includes("补充描述".repeat(10)), "全文不再折行占多行");
-  const bodyRows = rows.filter(
-    (r) => r.includes("一句话概括") || r.includes("补充描述"),
+  assert.ok(!t.includes("…"), "不截断：不出现省略号");
+  assert.ok(t.includes("（首行结尾）"), "首逻辑行完整显示到末字: " + t);
+  assert.ok(!t.includes("第二段细节"), "第二个逻辑行不展示");
+  const body = rows.filter(
+    (r) => r.replace(/[│|]\s*$/, "").trim() !== "" && !r.includes("Goal"),
   );
-  assert.equal(bodyRows.length, 1, "概括恰 1 行: " + t);
+  assert.ok(body.length >= 2, "首个逻辑行按列宽折行（≥2 行）: " + t);
 });
 
 test("renderStatusColumn: 多行 objective 只取首个非空行", () => {
@@ -231,29 +234,28 @@ test("renderStatusColumn: 多行 objective 只取首个非空行", () => {
   assert.ok(!t.includes("…"), "未超宽不加省略号");
 });
 
-test("renderStatusColumn: 窄列（正文 <24 列）概括放宽到 ≤2 行", () => {
-  const rows = col(setGoal("active", "一句话概括".repeat(12)), [], {
-    width: 20,
-    height: 10,
-  });
-  const body = rows.filter((r) => r.includes("一句话概括"));
-  assert.equal(body.length, 2, "窄列恰 2 行: " + rows.join("\n"));
-  assert.ok(body[1]!.includes("…"), "末行以省略号结尾: " + body[1]);
+test("renderStatusColumn: 首个逻辑行的行数由列宽决定（窄列折更多行、不截断）", () => {
+  const first = "一二三四五六七八九十".repeat(3) + "末标记"; // 33 个汉字 = 66 列
+  const bodyRows = (width: number): string[] =>
+    col(setGoal("active", first), [], { width, height: 12 }).filter(
+      (r) => r.replace(/[│|]\s*$/, "").trim() !== "" && !r.includes("Goal"),
+    );
+  assert.equal(bodyRows(20).length, 4, "正文 19 列 → 4 行（ceil(66/19)）");
+  assert.equal(bodyRows(40).length, 2, "正文 39 列 → 2 行（ceil(66/39)）");
+  const t = col(setGoal("active", first), [], { width: 20, height: 12 }).join(
+    "\n",
+  );
+  assert.ok(t.includes("末标记"), "末字可见（不截断）: " + t);
+  assert.ok(!t.includes("…"), "不出现省略号");
 });
 
-test("renderStatusColumn: 窄列放得下时不加省略号（只在真截断时出现 …）", () => {
-  // 正文宽 19 → 两行预算 37 列；30 列目标放得下（2 行）→ 不应出现省略号
-  const rows = col(setGoal("active", "一二三四五六七八九十甲乙丙丁戊"), [], {
-    width: 20,
-    height: 10,
-  });
-  const t = rows.join("\n");
-  assert.ok(!t.includes("…"), "未截断不应出现省略号: " + t);
-  assert.equal(
-    rows.filter((r) => /[一二三四五六七八九十]/.test(r)).length,
-    2,
-    "恰 2 行（放得下就不加 …）: " + t,
+test("renderStatusColumn: 首个逻辑行未超宽时只占 1 行", () => {
+  const rows = col(setGoal("active", "短概括"), [], { width: 40, height: 10 });
+  const body = rows.filter(
+    (r) => r.replace(/[│|]\s*$/, "").trim() !== "" && !r.includes("Goal"),
   );
+  assert.equal(body.length, 1, "恰 1 行: " + rows.join(" | "));
+  assert.ok(!rows.join("\n").includes("…"), "无省略号");
 });
 
 test("renderStatusColumn: 历史旧 goal 仍全文折行（口径不变）", () => {
