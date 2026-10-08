@@ -61,13 +61,12 @@
 ## 2. 未完成项
 
 > 顺序依据：扁平清单**按工作量升序**（2026-10-08 起，用户指示「按照工作量排序」；此前为「依赖 → 工作量」）：同工时「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」；**依赖不参与排序**——前置关系仍写在各条行内与下方注记里，实际开工顺序由注记给出。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
-> 当前可开工顺序（2026-10-08 核对，编号 = 工作量序）：**可执行序 1 → 2 → 3** —— 条目 **1（提升链与审阅）** 无未完成前置（分类注册 `3b0b432` / 闸门下沉 `55c6382` / 派生链 `270b2df` / 文档索引 `doc_index` 均已落地，记录见 `docs/implementation/2026-10-07-knowledge-memory-lifecycle.md`）；条目 **2（TUI 侧改造）** 与 **3（`output-compress` 自持 `digest.db`）** 依赖条目 1。
+> 当前可开工顺序（2026-10-08 核对，编号 = 工作量序）：**可执行序 1 → 2** —— 条目 **1（TUI 侧改造）** 与 **2（`output-compress` 自持 `digest.db`）** 的前置（提升链 / 分类注册 / 闸门 / 派生链 / doc_index）均已落地（记录见 `docs/implementation/2026-10-07-knowledge-memory-lifecycle.md`），无相互依赖，按工作量升序排列。
 
 | # | 功能 | 来源 | 落点（复用） | 工作量（估） | 优先级 |
 |---|------|------|--------------|--------------|--------|
-| 1 | 〔进行中〕**提升链 I → S → P → U**（判据 + LLM 概括 + 审阅队列 `candidates` 表 + 回指 + 单事务转换 + `resolveConflict`）。详 §12 #4（前置「分类注册 / 闸门下沉 / 派生链 / doc_index」均已落地：分类注册 `3b0b432` / 闸门 `55c6382` / 派生链 `270b2df` / 文档索引见追踪文档） | 设计定稿 §12#4 | 新 `memory-base/src/promote.ts`、`src/consolidate.ts` | 3-5 天 | P1 |
-| 2 | **TUI 侧改造**（审阅面板按条提问 / `approve`/`reject`/`edit`，P 可代批、冲突与 U 需用户；`/memory` 命令改造含 `--all-projects`；服务键消费点已就位（`ctx.get('memory')`））。详 §12 #13；**前置 = 条目 1（提升链与审阅）** | 设计定稿 §12#13 | `TUI/src/main.ts`、`TUI/src/app/**` | 1-2 天 | P1 |
-| 3 | **`output-compress` 自持 `digest.db`**（底线闸门 + 提升 push + `referenced_at` 回读刷新 + 巩固时重推；不再共库直写）。详 §12 #7；**前置 = 条目 1（提升链与审阅）** | 设计定稿 §12#7 | `output-compress/src/kb-write.ts`、`src/hooks.ts`、`src/index.ts` | 2-3 天 | P1 |
+| 1 | **TUI 侧改造**（审阅面板按条提问 / `approve`/`reject`/`edit`，P 可代批、冲突与 U 需用户；`/memory` 命令改造含 `--all-projects`；服务键消费点已就位（`ctx.get('memory')`）；审阅动作走 `ctx.get('memory').candidates.*` 服务面，user 凭据只由用户发起的命令 / 面板动作生成）。详 §12 #13 | 设计定稿 §12#13 | `TUI/src/main.ts`、`TUI/src/app/**` | 1-2 天 | P1 |
+| 2 | **`output-compress` 自持 `digest.db`**（底线闸门 + 提升 push + `referenced_at` 回读刷新 + 巩固时重推；不再共库直写）。详 §12 #7；提升 push 走 `ctx.get('memory').promote(items)` 服务面（已就绪） | 设计定稿 §12#7 | `output-compress/src/kb-write.ts`、`src/hooks.ts`、`src/index.ts` | 2-3 天 | P1 |
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（memory-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 

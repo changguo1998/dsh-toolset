@@ -4,7 +4,7 @@ DSH（DeepSeek Harness）进程内插件：跨会话知识库与持久记忆—�
 
 ## 能力
 
-本插件**不注册模型侧工具**：订阅宿主 `session/event` 做实时沉淀，并把记忆库以服务形态挂在进程内（`provide('memory')`，暴露 `getSummary()`、`whenReady()`、`consolidate(opts?)`、`lastConsolidation()`、`rescanDenied(opts?)`、`migrate(opts?)`、`search(opts)`、`remember(input)`、`forget(refs)`、`usage()`、`enforceLimits(opts?)`、`registerKind(spec)`、`scanDocs(opts?)`）。可用接口分三组：
+本插件**不注册模型侧工具**：订阅宿主 `session/event` 做实时沉淀，并把记忆库以服务形态挂在进程内（`provide('memory')`，暴露 `getSummary()`、`whenReady()`、`consolidate(opts?)`、`lastConsolidation()`、`rescanDenied(opts?)`、`migrate(opts?)`、`search(opts)`、`remember(input)`、`forget(refs)`、`usage()`、`enforceLimits(opts?)`、`registerKind(spec)`、`scanDocs(opts?)`、`promote(items)`、`candidates.{list,approve,reject,edit,markConflict,resolveConflict}`、`setLlmCaller(caller)`）。可用接口分三组：
 
 **知识库**（`bundle.kb`，`KnowledgeService`）：
 
@@ -28,6 +28,15 @@ DSH（DeepSeek Harness）进程内插件：跨会话知识库与持久记忆—�
 - **维护挂巩固链**：启动后 + `compaction/end` 后增量扫（mtime+size 粗筛 → sha256 确认，进程内缓存判变），文件消失只标 `missing`（**不自动删行、不自动改写**）；`status` 三态 `present` / `stale` / `missing`，检索默认不返回 `missing`。
 - **参与检索**：未给 `kind` 时与分类表同进检索并集；显式 `kind: "doc"` 独查文档索引，给其他 `kind` 时它不参与。
 - **配置即开关**：`docIndex.project.include` / `docIndex.user.include`（glob，P 相对项目根、U 相对家目录）——**缺省均不索引**；服务面 `scanDocs({tier?})` 手动扫一次。
+
+**提升链 I → S → P → U（2026-10-08，设计 §6）**：提升 = 下层行产出**候选**（写目标层 `candidates` 表，与记忆表分离、不参与检索）→ 审阅通过 → 过上层闸门 → 落上层 → 下层标 `promoted_to`。候选三态：`pending` / `approved`（转换成功即删行）/ `rejected`（终态留痕 = fact_key 墓碑，防同源反复提审）。
+
+- **三跳判据与权限**：I → S（属主经服务面 `promote(items)` push，幂等键 = target_tier + kind + fact_key；agent 审）；S → P（`session/disposed` 收尾 + `compaction/end` 触发；判据 = 被检索命中过 OR 决策类事件；**agent 可代批**）；P → U（巩固链推票，每项目一票、`projects` 累积 ≥2 即跨项目事实优先提审；**必须用户本人批**，`conflict_with` 候选一律 user-only）。
+- **幂等合并**：`fact_key` = sha256(归一化)；精确命中或子串占比 ≥ 0.8（§3.4 机械判据）→ 并入同一条候选（`projects` 并集、`sources` 合并、content 以最新为准）。
+- **LLM 概括**：入队时由**可插拔 caller** 完成（`setLlmCaller(caller)`；宿主无公开 ctx.llm，由 wrapper 注入）——未注入 = 面不可用：候选照常入队但**不得转换落上层**（拒绝并计数，下次巩固重概括），**不降级成机械摘要**。
+- **转换与留痕**：approve 单库落地（put 自带事务、去重使重试安全）+ 正式行记 `reviewer` / `reviewed_at` / `promoted_from`；② 下层 `promoted_to` 跨库 best-effort（失败计数，回指允许悬空）。
+- **冲突裁定（§6.1）**：`markConflict` 人工标记（自动检测依赖 LLM，不做）→ `resolveConflict(id, keep-old | accept-new | merge | edit)` 落地——目标行承载一致结论，候选清理，不留新旧并存。
+- **容量**：`candidates` 表独立上限 5 MB（超限清最旧）；生产每轮 I→S ≤20 / S→P ≤20 / P→U ≤10（防审阅疲劳）。
 
 **持久记忆**（`bundle.memory`，`MemoryService`，与知识同库）：`add({target, content, ...})`（`target` 取 `user`/`memory`/`project`/`failure`，`project` 默认 `__global__`，`importance` 默认 3）、`replace`、`remove`（均按 `target` + 内容子串定位）、`search(opts)`（`limit` 默认 20，支持 `tokenBudget`；返回 `{hits, usedTokens, truncated}`）。
 
