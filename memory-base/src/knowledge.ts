@@ -68,6 +68,8 @@ export interface PutInput {
   kind?: string;
   /** 事件类型 / 旧「类别」元数据：参与注册方的事件认领路由；随行存入 `category` 列。 */
   category?: string;
+  /** 来源标记（设计 §5）：`user` = 用户明确指令直写（免审留痕）；缺省 `auto`。 */
+  origin?: "auto" | "user";
   importance?: number;
   sessionId?: string;
   source?: SourceRef;
@@ -568,9 +570,10 @@ export class KnowledgeService {
       );
       const insert = this.#db.prepare(
         `INSERT INTO ${entry.table}
-           (source_id, project, target, category, title, content, content_hash, importance, session_id, last_referenced, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (source_id, project, target, category, title, content, content_hash, importance, session_id, last_referenced, created_at, origin)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
+      const origin = input.origin ?? "auto";
       const ids: number[] = [];
       let created = 0;
       for (const chunk of chunks) {
@@ -592,6 +595,7 @@ export class KnowledgeService {
             input.sessionId ?? null,
             now,
             now,
+            origin,
           ).lastInsertRowid,
         );
         ids.push(id);

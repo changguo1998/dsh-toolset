@@ -331,8 +331,9 @@ export class TierSet {
         `memory-base 没有可写的 ${target} 库（该层未打开；自动路径只能写会话层）`,
       );
     }
-    const { tier: _tier, origin: _origin, ...put } = input;
-    return store.kb.put(put);
+    // origin 随行持久化（设计 §5 / §12 #4：用户指令直写带 origin: user 留痕）。
+    const { tier: _tier, origin, ...put } = input;
+    return store.kb.put({ ...put, origin });
   }
 
   /**

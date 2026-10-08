@@ -95,6 +95,40 @@ function ensureSources(db: DatabaseSync): void {
 }
 
 /**
+ * 幂等给表补可空列（决策 D53 的「加表式加列」例外，已回写设计 §9）：
+ * `pragma_table_info` 探测，缺列才 `ALTER TABLE ADD COLUMN`（可空、无默认值——
+ * STRICT 表下 NOT NULL 无默认会被拒，实测见追踪文档）。
+ */
+function ensureColumn(
+  db: DatabaseSync,
+  table: string,
+  column: string,
+  ddl: string,
+): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+    name: string;
+  }>;
+  if (columns.some((info) => info.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+}
+
+/**
+ * 审阅留痕与回指列（设计 §4 基类列的落地子集，决策 D53）：
+ * `promoted_to`（下层行回指上层行）/ `promoted_from`（上层行回指下层来源）/
+ * `origin`（auto | user，来源标记）/ `reviewer` + `reviewed_at`（审阅留痕——
+ * 候选转换成功即删行，唯一审阅记录落在这里）/ `projects`（U 层跨项目集合，JSON）。
+ * 新库直接建进 CREATE，旧库经 `ensureColumn` 幂等补。
+ */
+const PROMOTION_COLUMNS: ReadonlyArray<[string, string]> = [
+  ["promoted_to", "TEXT"],
+  ["promoted_from", "TEXT"],
+  ["origin", "TEXT"],
+  ["reviewer", "TEXT"],
+  ["reviewed_at", "INTEGER"],
+  ["projects", "TEXT"],
+];
+
+/**
  * 按需建一张分类表（设计 §4「按需建表 / 空表不建」）：基类列 + 注册方声明的扩展列，
  * 外加索引、双 FTS5 影子表、写直达 TRIGGER。**幂等**——已存在的表原样保留（改列走版本迁移 §9）。
  *
@@ -126,9 +160,18 @@ export function ensureKindTable(
       session_id      TEXT,
       last_referenced INTEGER NOT NULL DEFAULT 0,
       summary         TEXT,
-      created_at      INTEGER NOT NULL${extra}
+      created_at      INTEGER NOT NULL,
+      promoted_to     TEXT,
+      promoted_from   TEXT,
+      origin          TEXT,
+      reviewer        TEXT,
+      reviewed_at     INTEGER,
+      projects        TEXT
     ) STRICT
   `);
+  for (const [column, ddl] of PROMOTION_COLUMNS) {
+    ensureColumn(db, table, column, ddl);
+  }
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_${table}_project_lr ON ${table} (project, last_referenced)`,
   );
@@ -216,6 +259,42 @@ export function ensureDocIndex(db: DatabaseSync): void {
   `);
 }
 
+/**
+ * 审阅候选表（设计 §6，决策 D49）：S / P / U 三库各一张，与记忆表分离——候选**不是记忆**：
+ * 不参与检索（无 FTS）、不计入容量统计，审阅通过才写入正式分类表。
+ * `promotion_state` 三态：`pending`（待审）/ `approved`（终态，转换成功即删行）/
+ * `rejected`（终态留痕 = fact_key 墓碑，防同源内容反复提审）。唯一索引 `(kind, fact_key)`
+ * 撑 promote 幂等键（D50）。幂等建、不 bump 版本（同加表口径）。
+ */
+export function ensureCandidatesTable(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS candidates (
+      id              INTEGER PRIMARY KEY,
+      target_tier     TEXT NOT NULL,
+      kind            TEXT NOT NULL,
+      fact_key        TEXT NOT NULL,
+      content_hash    TEXT NOT NULL,
+      title           TEXT,
+      content         TEXT NOT NULL,
+      sources         TEXT NOT NULL DEFAULT '[]',
+      projects        TEXT NOT NULL DEFAULT '[]',
+      promotion_state TEXT NOT NULL DEFAULT 'pending' CHECK (promotion_state IN ('pending', 'approved', 'rejected')),
+      conflict_with   TEXT,
+      reviewer        TEXT,
+      reject_reason   TEXT,
+      summarized      INTEGER NOT NULL DEFAULT 0,
+      created_at      INTEGER NOT NULL,
+      updated_at      INTEGER NOT NULL
+    ) STRICT
+  `);
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_fact ON candidates (kind, fact_key)",
+  );
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_candidates_state ON candidates (promotion_state, created_at)",
+  );
+}
+
 /** 建表 + 索引 + 双 FTS5 影子表 + 写直达 TRIGGER。仅应在空库/已重置库上调用。 */
 function ensureSchema(db: DatabaseSync, appId: number): void {
   db.exec(`PRAGMA application_id = ${appId}`);
@@ -277,6 +356,8 @@ export async function openTierDatabase(
       // 文档索引（设计 §7.2）：P / U 库的固定索引表，open 时幂等建；S 层不建。
       ensureDocIndex(db);
     }
+    // 审阅候选表（设计 §6）：三库都有（I→S 候选也在 S 库），open 时幂等建。
+    ensureCandidatesTable(db);
     db.exec(JOURNAL_MODE_SQL[journalMode]);
     return db;
   } catch (error: unknown) {

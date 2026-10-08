@@ -61,13 +61,13 @@ const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** 合并判据的长度占比阈值：短的一条至少要有长的一条 80% 才视为同义重复。 */
 const CONTAIN_RATIO = 0.8;
 
-/** 归一化：压缩空白 + 小写（合并判据用；不改变入库内容）。 */
-function normalize(text: string): string {
+/** 归一化：压缩空白 + 小写（合并判据 + 提升 `fact_key` 共用；不改变入库内容）。 */
+export function normalize(text: string): string {
   return text.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 /** 同组内 a 是否可被 b 取代（完全相同，或 a 是 b 的子串且长度占比达标）。 */
-function redundant(shorter: string, longer: string): boolean {
+export function redundant(shorter: string, longer: string): boolean {
   if (shorter === longer) return true;
   if (!longer.includes(shorter)) return false;
   return shorter.length / Math.max(1, longer.length) >= CONTAIN_RATIO;
