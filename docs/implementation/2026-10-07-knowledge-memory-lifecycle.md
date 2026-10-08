@@ -534,3 +534,47 @@
   - **二段（生产 + 接线）**：`promoteSessionToProject`（判据 = 命中过 OR 决策类事件，每轮 ≤20；扫源库写目标库分离）/ `promoteProjectToUser`（importance × 近期引用，每轮 ≤10，跨项目推同事实靠幂等 + 子串合并累积 projects）/ `pruneCandidates` / `markSourcesPromoted`（kind 经注册表解析表名——兜底 default 的表是 chunks）；`index.ts` `setLlmCaller` 可插拔注入 + `bundle.promotion` 门面 + 服务面 `promote` / `candidates.*` / `setLlmCaller` + `session/disposed` 监听（防御式宽化 on 签名）+ compaction 传 sessionId + 巩固链挂 P→U 生产与容量兜底 + approve 后 ② 下层标记。提交 `a296fd8`（代码）+ `70e42c6`（测试）。
   - **三段（收尾）**：README 提升链小节；本记录；BACKLOG 移除条目重排。
   - **验证**：全仓 `npm run check` 0 error、`npm run build` exit 0；`memory-base` **102/102**（96 基线 + 6 promote）。
+
+### 条目明细：TUI 侧改造（§12 #13）
+
+#### 调研（2026-10-08，只读子代理侦察 + 本文件复核）
+
+- **/memory 现状**：无子命令——`TUI/src/app/commands.ts:195,314-318` 注册、`index.ts:2829-2831` 分发、`index.ts:3917-3932` 只读 `adapter.memorySummary` 出 notice。search / add 等是设计规划面未落地。
+- **面板基础设施可复用**：QuestionPanel（`QuestionPrompt.ts` + `state.ts:657-679` 题目结构 + `question-transition.ts` 状态机）；**TUI 自主面板先例 = 退出确认**（`index.ts:143-151` 合成 id + 本地结算、不经宿主应答链）；宿主 waterfall 提问是另一条链（`adapter/dsh.ts:2440-2496`）。
+- **服务键消费点**：仅 `main.ts:586-588` **急读快照**（插件装载顺序晚于 TUI 时为 undefined——guard/sessionChannel 已改懒读，此处漏改）；`KnowledgeServiceLike` 只有 getSummary/whenReady。
+- **--all-projects**：`crossProjectRoots` 是 bundle 启动期定死（`TierSet` 私有不可变）；配置后「其他项目 P」**已自动参与** `tiers.search`。动态运行时开口（运行中追加库）不存在。
+- **审阅消费面**：`candidates.{list,approve,reject,edit,markConflict,resolveConflict}` 服务面齐备（条目 1 落地）；approve 有 LLM 概括闸（llm-unavailable 保持 pending，面板需呈现该失败态）。
+- **user 凭据**：数据面闸要求 U 候选 / 冲突候选 `reviewer === "user"`；TUI 面板结算函数内写死 `"user"` 即满足「user 标记只由用户发起动作生成」；TUI 现无 agent 自主调 `candidates.*` 的路径。
+
+#### 决策（D55–D59）
+
+- **D55 范围**：本条目 = ① `/memory` 子命令化（缺省概要 / `review` / `search [query] [--all-projects]` / `add <target> <content...>` 走 `remember` 直达并 `origin: "user"`）；② 审阅面板（消费 `candidates.*`）；③ `main.ts` knowledge 懒读改造 + `KnowledgeServiceLike` 扩签名。**--all-projects v1 = 静态版**：crossProjectRoots 配置后其他项目 P 已自动参与检索，命令负责显式标签与未配置提示；**动态运行时开口（运行中追加其他项目库）记观察项**，不在本条目做。
+- **D56 面板形态**：复用 QuestionPanel + **exit-confirm 合成 id 模式**（TUI 自主开面板、本地结算、不经宿主应答链）。一候选一题：题干 = `[tier] kind · 标题`（U 候选 / 冲突候选标注「需用户裁定」），detail = content + sources / projects / conflict_with 的 markdown；选项 = 批准 / 拒绝，**edit = 自定义兜底项**（custom 文本即改写内容）。整批 pending 合成多题（`itemIndex` 游标逐条推进）；submit 结算时**逐条**调 `candidates.*`（`reviewer` 在结算函数内写死 `"user"`，不参数化）；单条失败（llm-unavailable / not-found / forbidden）出 notice 回执、不阻塞后续条目。
+- **D57 懒读与类型**：`main.ts:586-588` 急读改 getter 懒读（对照 guard/sessionChannel 既有改法）；`KnowledgeServiceLike` 扩 `candidates.{list,approve,reject,edit,markConflict,resolveConflict}` 与 `search`（宽松子集类型，防宿主形状漂移）。
+- **D58 面板并发**：宿主 question **优先**——本地面板打开时收到宿主 waterfall 提问 → 宿主覆盖（本地面板作废，重开入口保留）；本地面板想打开时若宿主 question 挂起 → 拒绝打开并 notice「先处理当前提问」。
+- **D59 数据漂移兜底**：面板是快照——结算遇 `not-found` / `not-pending`（巩固链 edit 重算 fact_key、容量清最旧）→ notice「该候选已变化，跳过」；队列重开即拉新快照。
+
+#### 决策修订（2026-10-08 子代理审阅：有条件通过，6 项必须改全采纳）
+
+- **D56-a 未答条目跳过**：`buildQuestionAnswers`（question-transition.ts:146-149）对无选项条目回退提交高亮项——结算**绕开默认回退**，直接读 panel.items：无 selected 且无 custom = 跳过并 notice（防「没碰过的候选被批量批准」）。
+- **D56-b 冲突候选走裁定不走审批**：`conflict_with != null` 的题选项换 `resolveConflict` 四裁定（keep-old / accept-new / merge / edit）——approve/reject 对冲突候选会留「新旧并存」，违反 §6.1。
+- **D55-a `/memory add` 补 kind**：签名 `add <target> [--kind <k>] <content...>`——U 层禁兜底（allowFallback false），user 目标无 kind 必被拒；报错时列出已注册分类。
+- **D58-a 宿主覆盖留痕**：覆盖时 notice + 编辑草稿按候选 id 暂存、面板重开恢复（防静默丢编辑）。
+- **D58-b 打开态派生化**：审阅面板打开态 = `state.question?.id === 合成 id`（不复制 exitConfirmOpen 只在 finish/cancel 复位的标志陷阱）。
+- **D56-c 结算守卫与回执**：结算 in-flight 守卫（禁重开 / 二次 submit，防并发结算同候选）；reject reason 定值 `"panel-rejected"`；verdict 处理补 `not-pending` / `duplicate-fact`。
+- **采纳建议**：submit 结算后自动重拉三库 pending 快照 + 汇总 notice（X 成功 / Y 失败 / Z 仍在待审）；`--all-projects` 帮助文案写明「标注非开关」、命中标注来源项目路径（LayeredHit.project）；BACKLOG 补 `/memory replace|remove` 后续条目（remove 是错误 U/P 条目唯一删除路径，forget 面就绪无调用方）；demo mock 补候选样例覆盖面板冒烟；llm-unavailable notice 写明「内容已改写、待下次巩固重概括」。
+
+#### 规划：分三段落地
+
+**一段（接线与子命令）**：`main.ts` 懒读；`adapter/types.ts` 扩签名；`adapter/dsh.ts` 增审阅数据 / 动作方法；`commands.ts` + `index.ts` `/memory` 子命令化（概要 / search --all-projects / add）+ help 同步。
+
+**二段（审阅面板）**：`index.ts` `handleMemoryReview`（三库 list 合并按 created_at 排序）+ 合成 id 面板 + submit/cancel 分支（逐条结算 + reviewer="user" + 失败回执）+ D58 并发守卫 + hints。
+
+**三段（收尾）**：TUI 测试（面板帧断言 + 结算分支）+ README/COMMANDS 文档 + BACKLOG 收尾。
+
+#### 明确不做（本条目边界）
+
+- 不做动态跨项目库开口（运行时追加 otherProjectRoots）——记观察项。
+- 不做 I→S 候选的专属呈现（I→S 候选在 S 库 candidates，面板一并列出即可，无特殊化）。
+- 不做批量 approve（设计「一次一条逐条处理」）；不做 reviewer 参数化（凭据约束）。
+- 不改 memory-base 数据面（消费面已就绪）。
