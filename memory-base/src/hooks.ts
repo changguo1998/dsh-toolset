@@ -191,13 +191,19 @@ export interface SessionEventLike {
 export interface HookHost {
   on(
     event: "session/event",
-    callback: (session: { id: string }, event: SessionEventLike) => void,
+    callback: (
+      session: { id: string; header?: { cwd?: string } },
+      event: SessionEventLike,
+    ) => void,
   ): void | (() => void);
 }
 
 export interface HooksOptions {
-  /** 项目作用域：静态字符串或按事件求值的函数。 */
-  project: string | (() => string);
+  /**
+   * 项目作用域：静态字符串或按事件求值的函数。
+   * **缺省走派生链**（设计 §7）：显式配置 > 会话 `header.cwd` > `process.cwd()`。
+   */
+  project?: string | (() => string);
   /** 白名单覆盖；null 表示不过滤（全部事件尝试沉淀）。 */
   persistTypes?: ReadonlySet<string> | null;
   /** 入库过滤规则（类型 / 最小长度 / 拒绝模式）；`types` 缺省时沿用 `persistTypes`。 */
@@ -243,7 +249,7 @@ function emptyStats(): IngestStats {
 /** session/event → 知识库 的写直达适配器。 */
 export class SessionHooks {
   readonly #kb: KnowledgeService;
-  readonly #project: string | (() => string);
+  readonly #project: string | (() => string) | undefined;
   readonly #types: ReadonlySet<string> | null;
   readonly #rules: CompiledRules;
   readonly #budget: { maxTokens: number; batch?: number } | undefined;
@@ -280,9 +286,24 @@ export class SessionHooks {
   /** 订阅宿主 `session/event`；返回解绑函数。 */
   attach(ctx: HookHost): () => void {
     const disposer = ctx.on("session/event", (session, event) => {
-      this.handle(session?.id ?? "", event);
+      this.handle(session?.id ?? "", event, session?.header?.cwd);
     });
     return typeof disposer === "function" ? disposer : () => {};
+  }
+
+  /**
+   * 项目作用域派生链（设计 §7）：显式配置（含函数形式）> 会话 `header.cwd` > `process.cwd()`。
+   * 不再硬编码 `"default"`——否则「A 项目写过、B 项目查不到」的漏检会重现。
+   */
+  #resolveProject(sessionCwd?: string): string {
+    if (typeof this.#project === "function") return this.#project();
+    if (typeof this.#project === "string" && this.#project.length > 0) {
+      return this.#project;
+    }
+    if (typeof sessionCwd === "string" && sessionCwd.length > 0) {
+      return sessionCwd;
+    }
+    return process.cwd();
   }
 
   /**
@@ -290,7 +311,11 @@ export class SessionHooks {
    * 非白名单 / 畸形 / 被规则拒绝的事件安全跳过（过滤先于写入，`put` 事务化不半写），
    * 并计入 `stats`——静默跳过不可排查。
    */
-  handle(sessionId: string, event: SessionEventLike): IngestOutcome {
+  handle(
+    sessionId: string,
+    event: SessionEventLike,
+    sessionCwd?: string,
+  ): IngestOutcome {
     if (
       event === undefined ||
       event === null ||
@@ -303,8 +328,7 @@ export class SessionHooks {
     if (summary === null) return this.#skip("no-summary");
     const verdict = checkContent(this.#rules, summary.content);
     if (!verdict.accept) return this.#skip(verdict.reason ?? "empty");
-    const project =
-      typeof this.#project === "function" ? this.#project() : this.#project;
+    const project = this.#resolveProject(sessionCwd);
     const result = this.#kb.put({
       project,
       title: summary.title,

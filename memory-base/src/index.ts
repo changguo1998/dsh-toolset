@@ -1,5 +1,5 @@
 /**
- * knowledge-base 插件入口（DSH bundle 接入面）。
+ * memory-base 插件入口（DSH bundle 接入面）。
  *
  * 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
  * name / provide / apply（无 inject），Config 以类型别名给出（无运行时 schema，宿主不校验，
@@ -10,7 +10,13 @@
  */
 
 import { openKnowledgeDatabase, type JournalMode } from "./schema.ts";
-import { KnowledgeService } from "./knowledge.ts";
+import {
+  migrate,
+  type MigrateFrom,
+  type MigrateMode,
+  type MigrateResult,
+} from "./migrate.ts";
+import { KnowledgeService, type RescanReport } from "./knowledge.ts";
 import { MemoryService } from "./memory.ts";
 import { WritePolicy } from "./writepolicy.ts";
 import { SessionHooks, type HookHost } from "./hooks.ts";
@@ -20,6 +26,15 @@ import {
   type ConsolidationReport,
 } from "./consolidate.ts";
 import type { PersistRules } from "./rules.ts";
+import {
+  TierSet,
+  type LayeredHit,
+  type LayeredSearchOptions,
+  type RememberInput,
+  type TierEnforcement,
+  type TierUsage,
+} from "./tiers.ts";
+import { resolveTierPaths, type Tier } from "./router.ts";
 
 export {
   openKnowledgeDatabase,
@@ -28,12 +43,15 @@ export {
   WritePolicy,
   SessionHooks,
   ConsolidationService,
+  migrate,
 };
 export type {
-  SearchHit,
-  SearchOptions,
+  DeniedRow,
   PutInput,
   PutResult,
+  RescanReport,
+  SearchHit,
+  SearchOptions,
 } from "./knowledge.ts";
 export type { MemoryHit, MemorySearchResult, MemoryTarget } from "./memory.ts";
 export type { WriteBackResult, EvictResult } from "./writepolicy.ts";
@@ -44,10 +62,16 @@ export type {
   ConsolidationReport,
 } from "./consolidate.ts";
 export type { IngestOutcome, IngestStats, IngestSkip } from "./hooks.ts";
+export type {
+  MigrateFrom,
+  MigrateInput,
+  MigrateMode,
+  MigrateResult,
+} from "./migrate.ts";
 
-export const name = "knowledge-base";
-/** 只读查询面挂载声明（BACKLOG C4 补全：TUI /memory 经 ctx.get('knowledge') 接线） */
-export const provide = ["knowledge"];
+export const name = "memory-base";
+/** 只读查询面挂载声明（BACKLOG C4 补全：TUI /memory 经 ctx.get('memory') 接线） */
+export const provide = ["memory"];
 
 /** 结构化宿主 ctx（DSH cordis 最小形态）：session/event 事件 + 可选 logger。 */
 export interface BundleHost extends HookHost {
@@ -55,7 +79,7 @@ export interface BundleHost extends HookHost {
 }
 
 export interface KnowledgeConfig {
-  /** 独立 SQLite 库路径；缺省取 KNOWLEDGE_DB_PATH 环境变量，再缺省为 :memory:。 */
+  /** 独立 SQLite 库路径；缺省取 MEMORY_DB_PATH 环境变量，再缺省为 :memory:。 */
   dbPath?: string;
   journalMode?: JournalMode;
   /** 写直达事件的项目作用域（静态或按事件求值）。 */
@@ -67,6 +91,28 @@ export interface KnowledgeConfig {
   maxTokensPerProject?: number;
   /** 自动巩固（BACKLOG「记忆 auto-consolidation」）：见 `AutoConsolidateConfig`。 */
   autoConsolidate?: AutoConsolidateConfig;
+  /**
+   * 分层三库（设计 §2 / §12 #10）：开启后 S / P / U 各一个库、各带独立指纹与字节上限。
+   * **缺省关闭**——沿用单库 `dbPath`（不静默在项目里建 `.dsh/`、不在家目录建库）。
+   */
+  tiers?: TierConfig;
+}
+
+/** 分层三库的落点配置（`enabled: true` 才生效）。 */
+export interface TierConfig {
+  /** 总开关（缺省 false）。 */
+  enabled?: boolean;
+  /** S 库所在会话目录；缺省沿用 `dbPath`（或 `:memory:`）。 */
+  sessionDir?: string;
+  /** P 库所在项目根；缺省 `process.cwd()`。 */
+  projectRoot?: string;
+  /** 存储根（U 库落点 `<dshHome>/memory-base/user.db`）；缺省 `~/.dsh`。 */
+  dshHome?: string;
+  /**
+   * 额外允许读的其他项目根（`crossProject`）：**只能由用户显式发起**，
+   * agent 不得自行开启（设计 §7）。
+   */
+  crossProjectRoots?: readonly string[];
 }
 
 /** 自动巩固触发配置（巩固内容为「提升 + 合并相似 + 淘汰陈旧 + 容量守卫」）。 */
@@ -97,6 +143,8 @@ export interface KnowledgeBundle {
   hooks: SessionHooks;
   /** 巩固服务（提升 / 合并 / 淘汰 + 容量守卫），`plan()` 可只读预演。 */
   consolidate: ConsolidationService;
+  /** 分层三库集合（`config.tiers.enabled` 时才有）：跨层检索 / 写入路由 / 容量。 */
+  tiers?: TierSet;
   /** 静态项目作用域；`project` 配成函数时为 `"default"`（自动巩固只用静态值）。 */
   project: string;
   /** 实际数据库路径（:memory: 或文件路径）。 */
@@ -123,7 +171,7 @@ export async function createKnowledgeBundle(
   host: BundleHost,
   config: KnowledgeConfig = {},
 ): Promise<KnowledgeBundle> {
-  const dbPath = config.dbPath ?? process.env.KNOWLEDGE_DB_PATH ?? ":memory:";
+  const dbPath = config.dbPath ?? process.env.MEMORY_DB_PATH ?? ":memory:";
   const db = await openKnowledgeDatabase(dbPath, config.journalMode);
   const kb = new KnowledgeService(db);
   const memory = new MemoryService(db);
@@ -133,7 +181,8 @@ export async function createKnowledgeBundle(
     host.logger?.(name).info(message);
   };
   const hooks = new SessionHooks(kb, {
-    project: config.project ?? "default",
+    // 不填 "default"：交给派生链（显式配置 > 会话 header.cwd > process.cwd()，设计 §7）。
+    ...(config.project === undefined ? {} : { project: config.project }),
     persistTypes: config.persistTypes,
     ...(config.persistRules === undefined
       ? {}
@@ -145,12 +194,50 @@ export async function createKnowledgeBundle(
   });
   const detach = hooks.attach(host);
   if (hooks.rules.invalid.length > 0) {
-    log(`knowledge-base 非法拒绝模式已忽略：${hooks.rules.invalid.join(", ")}`);
+    log(`memory-base 非法拒绝模式已忽略：${hooks.rules.invalid.join(", ")}`);
   }
 
   // —— 自动巩固：启动后一次 + compaction 完成后（进程内节流；只对静态 project 生效）——
+  // 自动巩固只认静态作用域：显式配置优先，否则用进程 cwd（与写入侧的派生链首项一致）。
   const projectName =
-    typeof config.project === "string" ? config.project : "default";
+    typeof config.project === "string" ? config.project : process.cwd();
+
+  // —— 分层三库（设计 §2）：显式开启才建 P / U 库，避免在项目里静默留 .dsh/ ——
+  const tierConfig = config.tiers;
+  let tiers: TierSet | undefined;
+  if (tierConfig?.enabled === true) {
+    const paths = resolveTierPaths({
+      ...(tierConfig.sessionDir === undefined
+        ? {}
+        : { sessionDir: tierConfig.sessionDir }),
+      projectRoot: tierConfig.projectRoot ?? process.cwd(),
+      ...(tierConfig.dshHome === undefined
+        ? {}
+        : { dshHome: tierConfig.dshHome }),
+    });
+    // 显式 dbPath 优先作为会话库（未给会话目录时），保持既有单库部署的落点不变。
+    if (tierConfig.sessionDir === undefined) paths.session = dbPath;
+    tiers = await TierSet.open({
+      paths,
+      ...(config.journalMode === undefined
+        ? {}
+        : { journalMode: config.journalMode }),
+      projectKey: projectName,
+      // 闸门在库核心（设计 §5）：把事件钩子编译好的规则交给各层库，绕过钩子的写路径同样受管。
+      rules: hooks.rules,
+      ...(tierConfig.crossProjectRoots === undefined
+        ? {}
+        : { otherProjectRoots: tierConfig.crossProjectRoots }),
+    });
+    log(
+      `memory-base 分层三库已开启（${tiers
+        .all()
+        .map(
+          (store) => `${store.tier}${store.current ? "" : "*"}=${store.path}`,
+        )
+        .join(" / ")}）`,
+    );
+  }
   const auto = config.autoConsolidate ?? {};
   const minIntervalMs = Math.max(0, auto.minIntervalMs ?? 10 * 60 * 1000);
   let lastConsolidateAt = 0;
@@ -168,11 +255,26 @@ export async function createKnowledgeBundle(
         ...(auto.options ?? {}),
       });
       log(
-        `knowledge-base 自动巩固（${reason}）：提升 ${report.promoted.length} / 合并 ${report.merged.length} / 压缩 ${report.compressed} / 淘汰 ${report.evicted}`,
+        `memory-base 自动巩固（${reason}）：提升 ${report.promoted.length} / 合并 ${report.merged.length} / 压缩 ${report.compressed} / 淘汰 ${report.evicted}`,
       );
+      // 逐库容量兜底（设计 §8：触发点 = 写入后 + 巩固时）；U 层只告警。
+      if (tiers !== undefined) {
+        const enforcement = tiers.enforceLimits();
+        for (const entry of enforcement) {
+          if (entry.evicted > 0 || entry.demoted > 0) {
+            log(
+              `memory-base 容量兜底（${entry.tier}）：降级 ${entry.demoted} / 淘汰 ${entry.evicted}（${entry.bytes}/${entry.limitBytes} 字节）`,
+            );
+          } else if (entry.over) {
+            log(
+              `memory-base 容量告警（${entry.tier}${entry.soft ? "，软上限" : ""}）：${entry.bytes}/${entry.limitBytes} 字节`,
+            );
+          }
+        }
+      }
       return report;
     } catch (error: unknown) {
-      log(`knowledge-base 自动巩固失败（忽略）：${String(error)}`);
+      log(`memory-base 自动巩固失败（忽略）：${String(error)}`);
       return undefined;
     }
   };
@@ -189,7 +291,7 @@ export async function createKnowledgeBundle(
     typeof consolidateDisposer === "function" ? consolidateDisposer : () => {};
   if (auto.onStart !== false) maybeConsolidate("start");
   log(
-    `knowledge-base 已就绪（db=${dbPath === ":memory:" ? ":memory:" : dbPath}）`,
+    `memory-base 已就绪（db=${dbPath === ":memory:" ? ":memory:" : dbPath}）`,
   );
   const summary = (): KnowledgeBundleSummary => {
     const chunks = db.prepare("SELECT COUNT(*) AS n FROM chunks").get() as {
@@ -211,12 +313,14 @@ export async function createKnowledgeBundle(
     policy,
     hooks,
     consolidate,
+    ...(tiers === undefined ? {} : { tiers }),
     project: projectName,
     dbPath,
     summary,
     dispose: () => {
       detach();
       detachConsolidate();
+      tiers?.close();
       db.close();
     },
   };
@@ -245,9 +349,7 @@ export function getKnowledgeBundleSummary():
 export function whenKnowledgeReady(): Promise<KnowledgeBundle> {
   const pending = readyPromise;
   if (pending === undefined) {
-    return Promise.reject(
-      new Error("knowledge-base 尚未初始化（apply 未调用）"),
-    );
+    return Promise.reject(new Error("memory-base 尚未初始化（apply 未调用）"));
   }
   return pending;
 }
@@ -261,7 +363,7 @@ export function apply(ctx: BundleHost, config: KnowledgeConfig = {}): void {
       activeBundle = bundle;
     },
     (error: unknown) => {
-      ctx.logger?.(name).info(`knowledge-base 启动失败：${String(error)}`);
+      ctx.logger?.(name).info(`memory-base 启动失败：${String(error)}`);
     },
   );
   // 只读查询面挂到 ctx（防御式，与 task-engine/metric-loop/security-guard 同款）：
@@ -270,9 +372,79 @@ export function apply(ctx: BundleHost, config: KnowledgeConfig = {}): void {
     ctx as { provide?: (name: string, value: unknown) => unknown }
   ).provide;
   if (typeof provideSvc === "function") {
-    provideSvc("knowledge", {
+    provideSvc("memory", {
       getSummary: () => getKnowledgeBundleSummary(),
       whenReady: () => whenKnowledgeReady(),
+      /**
+       * 存量迁移（设计 §10）：显式调用才执行，不静默删。
+       * 缺省作用于本 bundle 的库路径；当前只有 from=v1 / mode=drop。
+       */
+      migrate: (opts?: {
+        dbPath?: string;
+        from?: MigrateFrom;
+        mode?: MigrateMode;
+      }): Promise<MigrateResult> => {
+        const target =
+          opts?.dbPath ?? config.dbPath ?? process.env.MEMORY_DB_PATH;
+        if (target === undefined || target === ":memory:") {
+          return Promise.reject(
+            new Error(
+              "memory-base 无文件库路径可迁移（请在 config.dbPath 或 MEMORY_DB_PATH 指定）",
+            ),
+          );
+        }
+        return migrate({
+          dbPath: target,
+          from: opts?.from ?? "v1",
+          mode: opts?.mode ?? "drop",
+        });
+      },
+      /** 存量回扫（设计 §5）：默认只报告条数与分类分布，`apply: true` 才删。 */
+      rescanDenied: async (opts?: {
+        project?: string;
+        apply?: boolean;
+      }): Promise<RescanReport> => {
+        const bundle = await whenKnowledgeReady();
+        return bundle.kb.rescanDenied({
+          ...(opts ?? {}),
+          rules: bundle.hooks.rules,
+        });
+      },
+      /** 跨层检索（设计 §7）：三库开启时层 × 分类跨全域；否则回落单库检索。 */
+      search: async (opts: LayeredSearchOptions): Promise<LayeredHit[]> => {
+        const bundle = await whenKnowledgeReady();
+        return bundle.tiers === undefined
+          ? bundle.kb
+              .search(opts)
+              .map((hit) => ({ ...hit, tier: "session" as const }))
+          : bundle.tiers.search(opts);
+      },
+      /** 写入（设计 §5）：自动路径落 S；`origin: "user"` 可直达 P / U。 */
+      remember: async (input: RememberInput) => {
+        const bundle = await whenKnowledgeReady();
+        return bundle.tiers === undefined
+          ? bundle.kb.put(input)
+          : bundle.tiers.remember(input);
+      },
+      /** 删除（设计 §6.1：独立动作，不传播到下层来源行）。 */
+      forget: async (
+        refs: readonly { tier: Tier; ids: readonly number[] }[],
+      ): Promise<number> => {
+        const bundle = await whenKnowledgeReady();
+        return bundle.tiers?.forget(refs) ?? 0;
+      },
+      /** 逐库字节用量与上限（设计 §8）。 */
+      usage: async (): Promise<TierUsage[]> => {
+        const bundle = await whenKnowledgeReady();
+        return bundle.tiers?.usage() ?? [];
+      },
+      /** 逐库容量兜底（设计 §8）：S 先降级再淘汰、P 直接淘汰、U 只告警。 */
+      enforceLimits: async (opts?: {
+        limitBytes?: Partial<Record<Tier, number>>;
+      }): Promise<TierEnforcement[]> => {
+        const bundle = await whenKnowledgeReady();
+        return bundle.tiers?.enforceLimits(opts ?? {}) ?? [];
+      },
       /** 手动触发一次巩固（缺省按 bundle 的静态 project；可传段参数覆盖）。 */
       consolidate: async (opts?: Partial<ConsolidationOptions>) => {
         const bundle = await whenKnowledgeReady();

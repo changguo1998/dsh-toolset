@@ -1,6 +1,6 @@
 # 重新设计长期记忆（知识库 / 持久记忆）模块逻辑（接取条目：docs/BACKLOG.md「重新设计长期记忆（知识库 / 持久记忆）模块逻辑」）
 
-状态：关闭（设计定稿并经四轮独立复审）　　开启：2026-10-07　　关闭：2026-10-08
+状态：进行中（设计已定稿；实施阶段进行中，见文末「实施阶段」）　　开启：2026-10-07　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -308,3 +308,52 @@
 - **归档**：本文件由 `docs/implementation/` 移入 `docs/archived/`（`git mv`）。
 - **BACKLOG 清理**：项目级 `docs/BACKLOG.md` 原条目已移除（唯一记录 = 本文件与实施条目）；`TUI/docs/BACKLOG.md` 的「Agents 符号闪烁」是本次会话中用户另提的新条目，与本任务无关，单独提交。
 - **提交**：关闭提交为本次变更的**最后一次提交**（见 commit message 引用的本文件路径）。
+
+## 实施阶段（2026-10-08 恢复进行中）
+
+> 设计收尾时条目被误关闭（设计 → 实施未衔接）。用户 2026-10-08 裁定：恢复本文件为进行中，接取 §12 拆出的 13 条实施条目，在**本会话内**完成实现与测试，不开子代理。设计依据 = `knowledge-base/docs/DESIGN.md`（§0 判定标准优先于细则）。
+
+### 本次接取的条目（项目级 `docs/BACKLOG.md` §2，按标题引用）
+
+1. 包改名 `knowledge-base` → `memory-base`
+1. 存量清空 + 版本策略改「迁移或拒绝打开」
+1. 存量回扫 `rescanDenied()`
+1. 分层三库 + 索引层落地
+1. 分类注册机制 `registerKind`
+1. 存储位置迁移
+1. 闸门下沉到库核心
+1. `project` 派生链 + 跨全域检索
+1. 提升链 I → S → P → U
+1. 容量、寿命与清理
+1. `output-compress` 自持 `digest.db`
+1. 文档索引落地 `doc_index`
+1. TUI 侧改造
+
+### 实施顺序（按依赖）
+
+1 / 2 / 3（无前置）→ 4（地基）→ 5 / 6 / 7 / 10 → 8 → 9 → 11 / 12 / 13；每步 `npm run check` + 相关包 `npm run test`。
+
+### 计划改动文件清单（实施）
+
+| 文件 / 目录 | 改动性质 |
+| --- | --- |
+| `knowledge-base/` → `memory-base/` | 目录改名 + `package.json` / `cordis.patch.yml` / 服务键 / 全仓引用 |
+| `memory-base/src/schema.ts`、新 `src/scopes/*`、新 `src/router.ts`、新 `src/migrate.ts` | 三库分层 / 指纹 / 路由 / 位置推导 / 迁移 |
+| `memory-base/src/knowledge.ts`、`src/rules.ts` | 闸门下沉到库核心 + `rescanDenied()` |
+| 新 `memory-base/src/promote.ts`、`src/consolidate.ts` | 提升链 I→S→P→U + 审阅队列 + 冲突裁定 |
+| `memory-base/src/index.ts`、`src/budget.ts`、`src/hooks.ts` | 服务面 / 容量寿命 / `project` 派生链 / 跨全域检索 / `doc_index` |
+| `output-compress/src/kb-write.ts`、`src/hooks.ts`、`src/index.ts` | 自持 `digest.db` + 提升 push + 隐私常量一致性 |
+| `TUI/src/main.ts`、`TUI/src/app/**` | 审阅面板 / `/memory` 改造 / 服务键消费点 |
+| 各包 `README.md`、`scripts/install.sh`、`docs/BACKLOG.md` | 改名与口径同步、条目状态 |
+| 本文件 | 实施过程记录（唯一文档落点） |
+
+### 实施记录
+
+- 2026-10-08：**条目 1（包改名）完成** —— 目录 `knowledge-base/` → `memory-base/`（`git mv`）；包名 / `cordis.patch.yml` id / 服务键 `ctx.get('memory')` / `MEMORY_DB_PATH` / smoke profile 名 / `scripts/{install,test-parallel}.sh` / `profiles/example` / TUI 消费点 / 全部活跃文档引用一并改（555 个 tracked 文件过 sed）。**保留旧名**：`docs/STATUS.md`（用户择时更新）、`docs/BACKLOG.md` 条目 1 自身、本文件、`*docs/archived/`、根 `archive/`、`docs/host/`（宿主面历史记录）。验证：全仓 `check` 0 error、`build` exit 0、`test` 21 包全绿（memory-base 57）。**待人工**：`~/.dsh/profiles/fff` 的 `link:` 依赖与 patch id 仍是旧名（项目目录外，未擅自改）。
+- 2026-10-08：**条目 2（存量清空 + 版本策略）完成** —— `schema.ts` 版本不匹配改「拒绝打开并报错」（不再 `DROP` 重建，GB 级库上等于数据全失）；新增 `src/migrate.ts`：`migrate({dbPath, from:"v1", mode:"drop"})` 删库文件 + `-wal` / `-shm`（幂等；未实现的 from/mode 组合拒绝，避免「调用成功但没做事」）；服务面挂 `migrate`（缺省作用于本 bundle 库路径，不静默删）。+4 用例（schema 版本拒绝 1 / migrate 3）→ 61。
+- 2026-10-08：**条目 3（存量回扫）完成** —— `rules.ts` 加 `matchDenyPattern()`（只查隐私拒绝模式，不含空 / 长度闸门）；`KnowledgeService.rescanDenied({project?, apply?, rules?})`：默认只报告（`scanned` / `matched` / `byCategory` / `hits`，命中项只给模式源串 + 分类 + project，**不回显正文**），`apply: true` 才走 `evict`（联动 `sources.chunk_count` 与归零清理）；服务面挂 `rescanDenied`，复用 hooks 已编译规则 → profile 自定义 `denyPatterns` 一并生效。+3 用例 → 64。
+- 2026-10-08：**条目 4（分层三库 + 索引层）与条目 6（存储位置迁移）完成** —— 新增 `src/router.ts`（层路径推导：S → 会话目录、P → 项目根 `.dsh/`、U → `~/.dsh/memory-base/`；`sessionDirFor()` 按宿主要约拼接；**解析不到返回 undefined，不静默换路径**）与 `src/tiers.ts`（`TierSet`：三库打开、`search()` 跨层检索、`remember()` 写入路由、`forget()`、`usage()`、`enforceLimits()`）。`schema.ts` 改 `openTierDatabase(path, tier)`：**一库一指纹**（`SESS` / `PROJ` / `USER`），旧 v1 的 `KNOW` 指纹库不会被任何层打开；`application_id` 参数化建库。bundle 增 `config.tiers`（**缺省关闭**，不静默在项目里建 `.dsh/`）、`bundle.tiers` 与服务面 `search` / `remember` / `forget` / `usage` / `enforceLimits`。+10 用例（tiers 6 / bundle-tiers 2 / 其余并入）→ 80。
+- 2026-10-08：**条目 7（闸门下沉到库核心）完成** —— `KnowledgeService` 构造收 `rules`，`put()` 内先过 `checkContent`（隐私底线 + profile 扩展），被拒返回 `{ids: [], skipped}` 且不写库；`writeBack` / `backfill` / `memory.add` / `tiers.remember` 全部继承。负向用例：绕过 hooks 直接 `put` 凭据形态被拒、库零行（存量回扫测试改为直插 SQL 模拟闸门上线前的行）。
+- 2026-10-08：**条目 8（`project` 派生链 + 跨全域检索）完成** —— `HooksOptions.project` 变可选，派生链 = 显式配置（含函数形式）> 会话 `header.cwd`（`HookHost` 回调补 `header.cwd`，`attach` 透传）> `process.cwd()`；自动巩固的静态作用域改为「显式配置 ?? `process.cwd()`」。检索面：`TierSet.search()` 覆盖已打开层并按 U > 当前 P > 其他 P > S 加权；跨项目 P 只有显式 `tiers.crossProjectRoots` 才打开（`TierSet` 标 `current`）。+3 用例（派生链三态）。
+- 2026-10-08：**条目 10（容量、寿命与清理）完成** —— 字节口径 `(page_count − freelist_count) × page_size`（删行不缩文件，不扣空闲页会永远「超限」）；`tiers.enforceLimits()` 按**缺口**淘汰（平均每条字节折算条数，作废现状「每轮固定 50 条」）：S 层先就地降级（只挑 `summary IS NULL` 且 `importance < 5` 的行）再硬淘汰，P 层直接淘汰，**U 层软上限只告警**；巩固触发时顺带执行并记日志。淘汰顺序 `importance → last_referenced → id`。**踩坑**：初版用「字节不再下降」判收敛 → 压缩后页分配在 61K / 69K 间抖动导致死循环（探针实测），改为「候选耗尽」终止 + 轮数安全网。+4 用例。
+- 2026-10-08：**本轮到此为止的验证** —— 全仓 `npm run check` 0 error、`npm run build` exit 0、`npm run test` **21 包全绿**（memory-base 3,640 → 80 例）。**未做**：条目 5 / 9 / 11 / 12 / 13（分类注册制 / 提升链与审阅 / `output-compress` 自持 `digest.db` / `doc_index` / TUI 侧改造），按剩余预算与质量优先原则停下，留待后续回合。

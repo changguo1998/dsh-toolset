@@ -61,23 +61,15 @@
 ## 2. 未完成项
 
 > 顺序依据：扁平清单**按依赖 → 工作量排序**（2026-10-06 起，用户指示「重新按依赖 → 工作量排序」）：**依赖优先**（无前置项在前、有前置项排在各自前置之后）→ 同层**工作量升序** → 同工时「缺陷优先于行为改动 / 高优先级优先」；模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
-> 当前可开工顺序（2026-10-08 核对）：本文件 §2 条目 **1（改名）/ 2（存量清空）/ 3（回扫）** 无前置，可先开工；条目 **4** 是其余实施条目的地基（5–13 多数以它为前置）。
+> 当前可开工顺序（2026-10-08 核对，长期记忆实施批次）：条目 **5** 与 **9** 的前置（原「分层三库」与「闸门下沉 / 派生链」）**已落地**（见 `docs/implementation/2026-10-07-knowledge-memory-lifecycle.md` 实施记录），可直接接取；条目 **13（TUI）** 的前置是条目 3（提升链与审阅），**11（output-compress 自持 digest.db）** 同样等它。
 
 | # | 功能 | 来源 | 落点（复用） | 工作量（估） | 优先级 |
 |---|------|------|--------------|--------------|--------|
-| 1 | **包改名 `knowledge-base` → `memory-base`**（目录 / `package.json` name / `cordis.patch.yml` id / 服务键 `ctx.get('memory')` / `scripts/install.sh` 的 `canonical_pkgs` / TUI 消费方 / 全部文档引用）。详 设计定稿 `docs/archived/2026-10-07-knowledge-memory-lifecycle.md` §12 #9 | 设计定稿 §12#9 | 仓库级 | 1-2 h | P1 |
-| 2 | **存量清空 + 版本策略改「迁移或拒绝打开」**（旧 601 MB 库直接删除、不备份；schema 版本不匹配不再整库重置）。详 §12 #6 | 设计定稿 §12#6 | `knowledge-base/src/schema.ts`、新 `src/migrate.ts` | 30-60 min | P2 |
-| 3 | **存量回扫 `rescanDenied()`**（S / P / U 三层；默认只报告、不回显内容，`apply` 才删）。详 §12 #8 | 设计定稿 §12#8 | `knowledge-base/src/rules.ts` + 各库核心 | 1-2 h | P2 |
-| 4 | **分层三库 + 索引层落地**（`session.db` / `project.db` / `user.db` + I 层 `digest.db` 由 output-compress 自持；各库独立指纹与字节上限）。详 §12 #1 | 设计定稿 §12#1 | `knowledge-base/src/schema.ts`、`src/index.ts`、新 `src/scopes/*` | 3-5 天 | P1 |
-| 5 | **分类注册机制 `registerKind`**（`kind` + 扩展列 + 写入前钩子 + 查询路由规则；按需建表；跨分类检索 union；加表式迁移）。详 §12 #11；**前置 = 条目 4** | 设计定稿 §12#11 | `knowledge-base/src/schema.ts`、`src/router.ts`、`src/knowledge.ts` | 2-3 天 | P1 |
-| 6 | **存储位置迁移**（S / I → 宿主会话目录，P → 项目根 `.dsh/`，U → `~/.dsh/memory-base/`；含会话目录可达性核实与 `.gitignore` 提示）。详 §12 #10；**前置 = 条目 4** | 设计定稿 §12#10 | `knowledge-base/src/schema.ts`、`src/index.ts`、新 `src/router.ts` | 1 天 | P1 |
-| 7 | **闸门下沉到库核心**（按作用域选规则集；`writeBack` / `backfill` / `remember` 自动继承；`writeBack` / `backfill` 目标层只能是 S）。详 §12 #2；**前置 = 条目 4** | 设计定稿 §12#2 | `knowledge-base/src/knowledge.ts`、`src/rules.ts` | 1-2 天 | P1 |
-| 8 | **`project` 派生链 + 跨全域检索**（层 × 分类；U > 当前 P > 其他 P > S 加权；`crossProject` 仅用户可开）。详 §12 #3；**前置 = 条目 4 / 7** | 设计定稿 §12#3 | `knowledge-base/src/index.ts`、`src/hooks.ts`、`src/knowledge.ts` | 1-2 天 | P1 |
-| 9 | **提升链 I → S → P → U**（判据 + LLM 概括走 `ctx.llm` + 审阅队列 `candidates` 表 + 回指 + 单事务转换 + `resolveConflict`）。详 §12 #4；**前置 = 条目 5 / 7 / 8** | 设计定稿 §12#4 | 新 `knowledge-base/src/promote.ts`、`src/consolidate.ts` | 3-5 天 | P1 |
-| 10 | **容量、寿命与清理**（会话级清理口径 + 逐库字节上限 + 降级跳过范围 + 兜底过期触发点）。详 §12 #5；**前置 = 条目 4** | 设计定稿 §12#5 | `knowledge-base/src/budget.ts`、各库核心、`src/index.ts` | 1 天 | P2 |
-| 11 | **`output-compress` 自持 `digest.db`**（底线闸门 + 提升 push + `referenced_at` 回读刷新 + 巩固时重推；不再共库直写）。详 §12 #7；**前置 = 条目 9** | 设计定稿 §12#7 | `output-compress/src/kb-write.ts`、`src/hooks.ts`、`src/index.ts` | 2-3 天 | P1 |
-| 12 | **文档索引落地 `doc_index`**（表 + FTS5 只索引标题与摘要行 + 复用 `md-logic` 解析 + 巩固增量扫 + `present`/`stale`/`missing` 状态机）。详 §12 #12；**前置 = 条目 5** | 设计定稿 §12#12 | 各层库核心、`knowledge-base/src/index.ts` | 2-3 天 | P2 |
-| 13 | **TUI 侧改造**（审阅面板按条提问 / `approve`/`reject`/`edit`，P 可代批、冲突与 U 需用户；`/memory` 命令改造含 `--all-projects`；服务键消费点改 `ctx.get('memory')`）。详 §12 #13；**前置 = 条目 9** | 设计定稿 §12#13 | `TUI/src/main.ts`、`TUI/src/app/**` | 1-2 天 | P1 |
+| 1 | **分类注册机制 `registerKind`**（`kind` + 扩展列 + 写入前钩子 + 查询路由规则；按需建表；跨分类检索 union；加表式迁移）。详 §12 #11（前置「分层三库」已落地） | 设计定稿 §12#11 | `knowledge-base/src/schema.ts`、`src/router.ts`、`src/knowledge.ts` | 2-3 天 | P1 |
+| 2 | **提升链 I → S → P → U**（判据 + LLM 概括走 `ctx.llm` + 审阅队列 `candidates` 表 + 回指 + 单事务转换 + `resolveConflict`）。详 §12 #4（前置「分类注册 / 闸门下沉 / 派生链」部分已落地，分类注册见条目 1） | 设计定稿 §12#4 | 新 `knowledge-base/src/promote.ts`、`src/consolidate.ts` | 3-5 天 | P1 |
+| 3 | **`output-compress` 自持 `digest.db`**（底线闸门 + 提升 push + `referenced_at` 回读刷新 + 巩固时重推；不再共库直写）。详 §12 #7；**前置 = 条目 2（提升链与审阅）** | 设计定稿 §12#7 | `output-compress/src/kb-write.ts`、`src/hooks.ts`、`src/index.ts` | 2-3 天 | P1 |
+| 4 | **文档索引落地 `doc_index`**（表 + FTS5 只索引标题与摘要行 + 复用 `md-logic` 解析 + 巩固增量扫 + `present`/`stale`/`missing` 状态机）。详 §12 #12；**前置 = 条目 1（分类注册机制）** | 设计定稿 §12#12 | 各层库核心、`knowledge-base/src/index.ts` | 2-3 天 | P2 |
+| 5 | **TUI 侧改造**（审阅面板按条提问 / `approve`/`reject`/`edit`，P 可代批、冲突与 U 需用户；`/memory` 命令改造含 `--all-projects`；服务键消费点改 `ctx.get('memory')`）。详 §12 #13；**前置 = 条目 2（提升链与审阅）** | 设计定稿 §12#13 | `TUI/src/main.ts`、`TUI/src/app/**` | 1-2 天 | P1 |
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
