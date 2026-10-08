@@ -360,3 +360,37 @@ test("S→P / P→U 生产：判据过滤、跨库写目标库、跨项目累积
     uDb.close();
   }
 });
+
+test("merge 后 summarized 重算（D63-a 回归）：已概括锚行被重推合并不回退原文落上层", async () => {
+  const { db, registry, kb } = await makeHarness("project");
+  // 首推（带 caller）：概括落行。
+  await promoteCandidates(
+    db,
+    registry,
+    [{ targetTier: "project", kind: "default", content: "原始素材内容甲" }],
+    { llm: async () => "概括结论甲" },
+  );
+  const [row1] = listCandidates(db, { tier: "project" });
+  assert.equal(row1?.summarized, true);
+  // 同源重推（无 caller）：合并 → summarized 重算为 0（不沿用旧标志），内容 = 推送原文。
+  const merged = await promoteCandidates(
+    db,
+    registry,
+    [{ targetTier: "project", kind: "default", content: "原始素材内容甲" }],
+    {},
+  );
+  assert.equal(merged[0]?.status, "merged");
+  const [row2] = listCandidates(db, { tier: "project" });
+  assert.equal(row2?.summarized, false);
+  // 有 caller 再推：重概括成功 → summarized 回到 1。
+  await promoteCandidates(
+    db,
+    registry,
+    [{ targetTier: "project", kind: "default", content: "原始素材内容甲" }],
+    { llm: async () => "重新概括结论" },
+  );
+  const [row3] = listCandidates(db, { tier: "project" });
+  assert.equal(row3?.summarized, true);
+  assert.equal(row3?.content, "重新概括结论");
+  void kb;
+});

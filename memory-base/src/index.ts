@@ -29,7 +29,7 @@ import {
   type ConsolidationOptions,
   type ConsolidationReport,
 } from "./consolidate.ts";
-import type { PersistRules } from "./rules.ts";
+import { compileRules, matchDenyPattern, type PersistRules } from "./rules.ts";
 import {
   TierSet,
   type LayeredHit,
@@ -814,6 +814,9 @@ export function apply(ctx: BundleHost, config: KnowledgeConfig = {}): void {
           rules: bundle.hooks.rules,
         });
       },
+      /** 隐私底线查询（设计 §5「叠加」取法）：命中返回模式源串，未命中 null。 */
+      checkPrivacy: (text: string): string | null =>
+        matchDenyPattern(compileRules(undefined, null), text),
       /**
        * 分类注册（设计 §4）：第三方插件在自身 apply 时调用，声明 `kind` + 表名 + 扩展列 +
        * 事件认领 + 写前钩子 + 查询路由。同名 / 同表重复注册抛错；注册后**按需建表**（首次写入时）。

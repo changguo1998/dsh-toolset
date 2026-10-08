@@ -394,11 +394,17 @@ function mapRow(row: Record<string, unknown>): CandidateRow {
 const CANDIDATE_SELECT =
   "SELECT id, target_tier, kind, fact_key, content_hash, title, content, sources, projects, promotion_state, conflict_with, reviewer, reject_reason, summarized, created_at, updated_at FROM candidates";
 
-/** 合并语义（决策 D50）：projects 并集、sources 合并、content / title 以最新为准。 */
+/**
+ * 合并语义（决策 D50 / 修订 D63-a）：projects 并集、sources 合并、content / title 以
+ * 最新为准；**summarized 由调用方重算**（合并内容经概括函数——不沿用锚行旧标志，
+ * 防止已概括锚行被原文覆盖后标志失真、原文落上层）。`fact_key` = 推送内容哈希
+ * （推送方幂等键，与存储的概括内容解耦：同源重推精确命中，不逐次重跑 LLM）。
+ */
 function mergeInto(
   db: DatabaseSync,
   anchor: CandidateRow,
   incoming: PromoteItem,
+  summarized: { content: string; summarized: 0 | 1 },
   now: number,
 ): number {
   const projects = [
@@ -410,19 +416,47 @@ function mergeInto(
   const factKey = factKeyOf(incoming.content);
   db.prepare(
     `UPDATE candidates SET content = ?, content_hash = ?, fact_key = ?, title = ?,
-       sources = ?, projects = ?, summarized = summarized, updated_at = ?
+       sources = ?, projects = ?, summarized = ?, updated_at = ?
      WHERE id = ?`,
   ).run(
-    incoming.content,
-    sha256(incoming.content),
+    summarized.content,
+    sha256(summarized.content),
     factKey,
     incoming.title ?? anchor.title,
     JSON.stringify(sources),
     JSON.stringify(projects),
+    summarized.summarized,
     now,
     anchor.id,
   );
   return anchor.id;
+}
+
+/**
+ * LLM 概括（共用，决策 D52 / 修订 D63-a）：caller 存在 → 压缩为一句结论（保留命令
+ * 与路径）；caller 缺席 / 失败 / 空输出 → 原样返回且 summarized = 0（转换闸挡未概括
+ * 候选——「失败不提升、不降级成机械摘要」）。
+ */
+async function summarizeForCandidate(
+  llm: LlmCaller | undefined,
+  title: string | null | undefined,
+  content: string,
+): Promise<{ content: string; summarized: 0 | 1 }> {
+  if (llm === undefined) return { content, summarized: 0 };
+  try {
+    const prompt = [
+      "把下面的项目事实压缩为一句可长期成立的结论（保留关键命令与路径，不要解释）：",
+      title === null || title === undefined ? "" : `标题：${title}`,
+      `内容：${content}`,
+    ]
+      .filter((line) => line.length > 0)
+      .join("\n");
+    const text = (await llm(prompt, { maxTokens: 200 })).trim();
+    if (text.length === 0) return { content, summarized: 0 };
+    return { content: text, summarized: 1 };
+  } catch {
+    return { content, summarized: 0 };
+  }
 }
 
 /**
@@ -472,10 +506,15 @@ export async function promoteCandidates(
         outcomes.push({ status: "rejected-duplicate", id: existing.id });
         continue;
       }
-      // pending 精确命中 → 并入（content 以最新为准）。
+      // pending 精确命中 → 并入（content 以最新为准；summarized 重算，D63-a）。
       const anchor = getPendingCandidate(db, existing.id);
       if (anchor !== undefined) {
-        const id = mergeInto(db, anchor, item, now);
+        const summarizedPart = await summarizeForCandidate(
+          opts.llm,
+          item.title ?? anchor.title,
+          item.content,
+        );
+        const id = mergeInto(db, anchor, item, summarizedPart, now);
         outcomes.push({ status: "merged", id });
         continue;
       }
@@ -495,34 +534,24 @@ export async function promoteCandidates(
         redundant(normalize(row.content), normalizedNew),
     );
     if (anchor !== undefined) {
-      const id = mergeInto(db, anchor, item, now);
+      const summarizedPart = await summarizeForCandidate(
+        opts.llm,
+        item.title ?? anchor.title,
+        item.content,
+      );
+      const id = mergeInto(db, anchor, item, summarizedPart, now);
       outcomes.push({ status: "merged", id });
       continue;
     }
-    // LLM 概括（决策 D52）：caller 存在 → 入队时改写；失败 → 保留原文、summarized = 0
-    //（转换闸会挡住未概括候选——「失败不提升、不降级」）。
-    let content = item.content;
-    let summarized = 0;
-    if (opts.llm !== undefined) {
-      try {
-        const prompt = [
-          "把下面的项目事实压缩为一句可长期成立的结论（保留关键命令与路径，不要解释）：",
-          item.title === undefined ? "" : `标题：${item.title}`,
-          `内容：${item.content}`,
-        ]
-          .filter((line) => line.length > 0)
-          .join("\n");
-        const summarizedText = (
-          await opts.llm(prompt, { maxTokens: 200 })
-        ).trim();
-        if (summarizedText.length > 0) {
-          content = summarizedText;
-          summarized = 1;
-        }
-      } catch {
-        summarized = 0;
-      }
-    }
+    // LLM 概括（决策 D52 / 修订 D63-a）：共用概括函数（caller 缺席 / 失败 → 原文
+    // + summarized = 0，转换闸挡住——「失败不提升、不降级」）。
+    const summarizedPart = await summarizeForCandidate(
+      opts.llm,
+      item.title,
+      item.content,
+    );
+    const content = summarizedPart.content;
+    const summarized = summarizedPart.summarized;
     const result = db
       .prepare(
         `INSERT INTO candidates
