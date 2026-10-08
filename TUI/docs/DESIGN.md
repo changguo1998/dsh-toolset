@@ -353,7 +353,7 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 | `/jobs` | 增量 + 打开时全量拉取：0.1.7 起 `ctx.jobs.events.subscribe({owner})` / ≤0.1.5 `ctx.jobs.onJobsChanged`（按能力择路，都缺则只拉一次）；`Enter` → `ctx.jobs.kill`（caller 形态经版本探测） | 服务缺失 → warn |
 | `/goal` | **无本地行为**（2026-10-06 起）：条目仅提供帮助 / 补全描述，`route: "registry"` → `adapter.runCommand(line)` 交宿主 `dsh-command-goal`（无参看状态与可用命令、`<目标>` 新建 / `edit <目标>` / `pause` / `resume` / `clear`），结果经 notice 回报；goal/todo/jobs 详情同时常驻左侧状态列（展示面不依赖命令） | 注册表未命中 → warn（fail-close 不发消息） |
 
-**只读服务面（插件侧提供）**：task-engine `ctx.provide("taskEngine", { query, frameStack })`、metric-loop `ctx.provide("metricLoop", { list, status })`、security-guard `ctx.provide("guard", { recent, policy })`、memory-base `ctx.provide("knowledge", { getSummary, whenReady })`。`/contract` 例外：goal-contract 不 expose ctx 服务，TUI 优先用 `opts.goalContract.parseContract`（`ctx.get('goalContract')`），未挂载时走内置同构回读 `parseContractObjective`（定位独占 `Done-when:` 行 + 段后 JSON 数组）；包入口直读不可行（TUI 无跨包依赖、根无 workspaces、`file:` 依赖被项目约定禁止）。
+**只读服务面（插件侧提供）**：task-engine `ctx.provide("taskEngine", { query, frameStack })`、metric-loop `ctx.provide("metricLoop", { list, status })`、security-guard `ctx.provide("guard", { recent, policy })`、memory-base `ctx.provide("memory", { getSummary, whenReady })`。`/contract` 例外：goal-contract 不 expose ctx 服务，TUI 优先用 `opts.goalContract.parseContract`（`ctx.get('goalContract')`），未挂载时走内置同构回读 `parseContractObjective`（定位独占 `Done-when:` 行 + 段后 JSON 数组）；包入口直读不可行（TUI 无跨包依赖、根无 workspaces、`file:` 依赖被项目约定禁止）。
 
 ### 共享列表面板（`commandPanel`）
 

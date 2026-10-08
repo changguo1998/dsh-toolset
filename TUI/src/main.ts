@@ -584,9 +584,8 @@ export async function apply(
         SecurityGuardLike | undefined;
     },
     // 知识库只读查询面（ctx.get('memory')，memory-base provide；缺失时 /memory 提示不可用）
-    knowledge: (ctx as { get?: (name: string) => unknown }).get?.(
-      "knowledge",
-    ) as KnowledgeServiceLike | undefined,
+    knowledge: (ctx as { get?: (name: string) => unknown }).get?.("memory") as
+      KnowledgeServiceLike | undefined,
     // 循环只读查询面（ctx.get('metricLoop')，metric-loop provide；缺失时 /loop 提示不可用）
     metricLoop: (ctx as { get?: (name: string) => unknown }).get?.(
       "metricLoop",

@@ -16,7 +16,7 @@
 
 - 任务控制：task-engine（Frame 状态机、工具族、双重门禁、RET 三级路由、step 裁决、**叶子执行后端**：`executor` 声明 + `task_execute` 工具 + `subagent` / `workflow` / `command` 后端 + 用量计量，追踪文档 `docs/archived/2026-10-02-injection-timing-naming-warn-executor.md`）、fan-out 就绪池、goal-contract、metric-loop；
 
-- 知识库与记忆：knowledge-base（两张基表 + 两张 FTS5 虚表、两级写策略与淘汰提升、持久记忆 CRUD、**入库规则与隐私 / 容量边界**、**自动巩固**（提升 / 合并 / 淘汰，启动后与 compaction 后触发），追踪文档 `docs/archived/2026-10-02-knowledge-events-and-memory-consolidation.md`）、output-compress、fs-digest；
+- 知识库与记忆：memory-base（原名 knowledge-base；两张基表 + 两张 FTS5 虚表、持久记忆 CRUD、**入库规则与隐私 / 容量边界**、**自动巩固**（提升 / 合并 / 淘汰，启动后与 compaction 后触发）；**分层记忆系统**：S / P / U 三库 + 一库一指纹、写入闸门下沉库核心、`project` 派生链、容量寿命控制——实施批次 13 条中 8 条已提交（`a81da69` / `0652866` / `55c6382` / `270b2df`），余 5 条见 §2）、output-compress、fs-digest（追踪文档 `docs/implementation/2026-10-07-knowledge-memory-lifecycle.md`，前身 `docs/archived/2026-10-02-knowledge-events-and-memory-consolidation.md`）；
 
 - 代码与文件：hash-edit、ast-tools、code-map 报告与影响面、结构层索引与候选调用图 + LSP 语义层（callers 的 findReferences 精确裁决，`precision:lsp/structural`；追踪文档 `docs/archived/2026-09-29-codemap-lsp-semantic.md`）；
 
@@ -61,17 +61,17 @@
 ## 2. 未完成项
 
 > 顺序依据：扁平清单**按依赖 → 工作量排序**（2026-10-06 起，用户指示「重新按依赖 → 工作量排序」）：**依赖优先**（无前置项在前、有前置项排在各自前置之后）→ 同层**工作量升序** → 同工时「缺陷优先于行为改动 / 高优先级优先」；模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
-> 当前可开工顺序（2026-10-08 核对，长期记忆实施批次）：条目 **5** 与 **9** 的前置（原「分层三库」与「闸门下沉 / 派生链」）**已落地**（见 `docs/implementation/2026-10-07-knowledge-memory-lifecycle.md` 实施记录），可直接接取；条目 **13（TUI）** 的前置是条目 3（提升链与审阅），**11（output-compress 自持 digest.db）** 同样等它。
+> 当前可开工顺序（2026-10-08 核对，长期记忆实施批次）：条目 **1（分类注册）** 与 **2（提升链与审阅）** 的前置（包改名、分层三库、闸门下沉、`project` 派生链）**已落地并提交**（`a81da69` / `0652866` / `55c6382` / `270b2df`，记录见 `docs/implementation/2026-10-07-knowledge-memory-lifecycle.md`），可直接接取；条目 **3（`output-compress` 自持 `digest.db`）** 与 **5（TUI 侧改造）** 依赖条目 2，条目 **4（`doc_index`）** 依赖条目 1。
 
 | # | 功能 | 来源 | 落点（复用） | 工作量（估） | 优先级 |
 |---|------|------|--------------|--------------|--------|
-| 1 | **分类注册机制 `registerKind`**（`kind` + 扩展列 + 写入前钩子 + 查询路由规则；按需建表；跨分类检索 union；加表式迁移）。详 §12 #11（前置「分层三库」已落地） | 设计定稿 §12#11 | `knowledge-base/src/schema.ts`、`src/router.ts`、`src/knowledge.ts` | 2-3 天 | P1 |
-| 2 | **提升链 I → S → P → U**（判据 + LLM 概括走 `ctx.llm` + 审阅队列 `candidates` 表 + 回指 + 单事务转换 + `resolveConflict`）。详 §12 #4（前置「分类注册 / 闸门下沉 / 派生链」部分已落地，分类注册见条目 1） | 设计定稿 §12#4 | 新 `knowledge-base/src/promote.ts`、`src/consolidate.ts` | 3-5 天 | P1 |
+| 1 | **分类注册机制 `registerKind`**（`kind` + 扩展列 + 写入前钩子 + 查询路由规则；按需建表；跨分类检索 union；加表式迁移）。详 §12 #11（前置「分层三库」已落地） | 设计定稿 §12#11 | `memory-base/src/schema.ts`、`src/router.ts`、`src/knowledge.ts` | 2-3 天 | P1 |
+| 2 | **提升链 I → S → P → U**（判据 + LLM 概括走 `ctx.llm` + 审阅队列 `candidates` 表 + 回指 + 单事务转换 + `resolveConflict`）。详 §12 #4（前置「分类注册 / 闸门下沉 / 派生链」部分已落地，分类注册见条目 1） | 设计定稿 §12#4 | 新 `memory-base/src/promote.ts`、`src/consolidate.ts` | 3-5 天 | P1 |
 | 3 | **`output-compress` 自持 `digest.db`**（底线闸门 + 提升 push + `referenced_at` 回读刷新 + 巩固时重推；不再共库直写）。详 §12 #7；**前置 = 条目 2（提升链与审阅）** | 设计定稿 §12#7 | `output-compress/src/kb-write.ts`、`src/hooks.ts`、`src/index.ts` | 2-3 天 | P1 |
-| 4 | **文档索引落地 `doc_index`**（表 + FTS5 只索引标题与摘要行 + 复用 `md-logic` 解析 + 巩固增量扫 + `present`/`stale`/`missing` 状态机）。详 §12 #12；**前置 = 条目 1（分类注册机制）** | 设计定稿 §12#12 | 各层库核心、`knowledge-base/src/index.ts` | 2-3 天 | P2 |
-| 5 | **TUI 侧改造**（审阅面板按条提问 / `approve`/`reject`/`edit`，P 可代批、冲突与 U 需用户；`/memory` 命令改造含 `--all-projects`；服务键消费点改 `ctx.get('memory')`）。详 §12 #13；**前置 = 条目 2（提升链与审阅）** | 设计定稿 §12#13 | `TUI/src/main.ts`、`TUI/src/app/**` | 1-2 天 | P1 |
+| 4 | **文档索引落地 `doc_index`**（表 + FTS5 只索引标题与摘要行 + 复用 `md-logic` 解析 + 巩固增量扫 + `present`/`stale`/`missing` 状态机）。详 §12 #12；**前置 = 条目 1（分类注册机制）** | 设计定稿 §12#12 | 各层库核心、`memory-base/src/index.ts` | 2-3 天 | P2 |
+| 5 | **TUI 侧改造**（审阅面板按条提问 / `approve`/`reject`/`edit`，P 可代批、冲突与 U 需用户；`/memory` 命令改造含 `--all-projects`；服务键消费点已就位（`ctx.get('memory')`））。详 §12 #13；**前置 = 条目 2（提升链与审阅）** | 设计定稿 §12#13 | `TUI/src/main.ts`、`TUI/src/app/**` | 1-2 天 | P1 |
 
-**未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
+**未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（memory-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
 **复用审计产出（`docs/ARCHITECTURE-REUSE.md` §4，未立项）**：B `output-compress` 写清与官方 `spill-policy` / `compaction-tool-result-pruner` 的分工与阈值语义（实测**不存在**双重截断）；D `hash-edit` / `fs-digest` 可选改用 `ctx.fs`（含行为变更：hash-edit 写侧将受 workspace-write 围栏；原「宜与 render 缺陷同批」的前置已随该缺陷关闭归档而失效）；E 「可挂但不该挂」清单一律落非生成型文档（本文件 / `profiles/example` 注释），勿写入会重生成的 `HOST-PACKAGES.md`。观察项：① 是否开启 `session-query-sqlite` 的 FTS5（`openAt: first-search`）并与知识库分工。（A / C 与观察项「共库直写的隐私边界」已于 2026-10-05 升为 §2 条目；观察项「与 `repeat-tool-reminder` 的注入重复度」已于同日评估关闭——非同点竞争、通道不同，见 `rule-engine/README.md`。）
 
