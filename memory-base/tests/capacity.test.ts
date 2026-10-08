@@ -26,7 +26,10 @@ function fill(
       project: "p",
       importance,
       source: { kind: "manual" },
-      ...(tier === "session" ? {} : { origin: "user" as const, tier }),
+      // U 层禁止落兜底（设计 §5）：非 S 层写入必须显式给已注册 kind。
+      ...(tier === "session"
+        ? {}
+        : { origin: "user" as const, tier, kind: "default" }),
     });
   }
 }
@@ -146,13 +149,22 @@ test("淘汰顺序与降级候选（设计 §8）：importance → last_referenc
       }).ids[0];
       assert.ok(high !== undefined && low !== undefined && mid !== undefined);
 
-      // 淘汰顺序：低 importance 在前。
-      assert.deepEqual(kb.evictionCandidates({ limit: 3 }), [low, mid, high]);
+      // 淘汰顺序：低 importance 在前（候选是 (kind, id) 句柄，缺省落兜底分类）。
+      assert.deepEqual(
+        kb.evictionCandidates({ limit: 3 }).map((ref) => ref.id),
+        [low, mid, high],
+      );
       // 降级候选：排除 importance = 5。
-      assert.deepEqual(kb.demotionCandidates({ limit: 3 }), [low, mid]);
+      assert.deepEqual(
+        kb.demotionCandidates({ limit: 3 }).map((ref) => ref.id),
+        [low, mid],
+      );
       // 压缩后该行不再入选（幂等，不会反复挑同一批）。
       kb.compress([low]);
-      assert.deepEqual(kb.demotionCandidates({ limit: 3 }), [mid]);
+      assert.deepEqual(
+        kb.demotionCandidates({ limit: 3 }).map((ref) => ref.id),
+        [mid],
+      );
       assert.equal(
         (
           db.prepare("SELECT summary FROM chunks WHERE id = ?").get(low) as {

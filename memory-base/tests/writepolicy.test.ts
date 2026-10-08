@@ -111,7 +111,7 @@ test("staleCandidates：LRU+importance 阈值过滤", async () => {
       ttlMs: 90 * 24 * 3600 * 1000,
     });
     assert.deepEqual(
-      ids,
+      ids.map((ref) => ref.id),
       [old],
       "仅 100 天前 + importance≤2 命中；high importance 与 fresh 排除",
     );

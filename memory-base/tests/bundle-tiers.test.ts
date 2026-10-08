@@ -72,6 +72,8 @@ test("bundle：tiers 开启 → 三库落位、摘要可用、写入落 S、跨�
         source: { kind: "manual" },
         origin: "user",
         tier: "user",
+        // U 层禁止落兜底（设计 §5）：显式给已注册 kind。
+        kind: "default",
       });
       const hits = bundle.tiers.search({ query: "会话要点 OR 用户偏好" });
       assert.deepEqual(

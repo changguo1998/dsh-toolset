@@ -95,6 +95,8 @@ test("写入路由：自动路径落 S，origin=user 直达 U", async () => {
         source: { kind: "manual" },
         origin: "user",
         tier: "user",
+        // U 层禁止落兜底（设计 §5）：显式给已注册 kind。
+        kind: "default",
       });
       assert.equal(
         tiers.get("user")?.kb.search({ query: "提交信息" }).length,
@@ -137,6 +139,7 @@ test("跨层检索：命中三层并按 U > P > S 加权排序", async () => {
         content: "检索排序验证 payload（用户偏好）",
         origin: "user",
         tier: "user",
+        kind: "default",
       });
 
       const hits = tiers.search({ query: "payload" });
