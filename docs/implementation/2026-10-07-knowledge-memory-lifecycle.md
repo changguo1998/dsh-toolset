@@ -406,6 +406,52 @@
 - 不做 `doc_index`；不做 TUI 侧改造；不做 `output-compress` 自持 `digest.db`——`kb-write.ts` 直插 `chunks` 的现状**保持**到条目 3。
 - 不删存量列（`target` / `summary` / `category`）、不 bump schema 版本、不实现 §13「trigram 只在 P 层」、不改 `STATUS.md`（用户择时）。
 
+### 条目明细：文档索引落地 `doc_index`（§12 #12）
+
+#### 调研（2026-10-08，只读）
+
+**设计口径**（`memory-base/docs/DESIGN.md` §7.2 为主、§7.1 / §12 #12 为验收面）：
+
+- **索引不是独立层**：建在被索引内容所属的库里、与该层同寿命——项目文档索引落 **P 库**（会话里读到的文档也一样记 P），用户私有文档索引落 **U 库**；**不建 S 层 `doc_index`**（会话临时文本按普通记忆条目落 S 分类表）。
+- **表结构**：`docRef` / 章节标题 / 行范围 / `docHash` / 摘要行 + FTS5（复用既有 FTS5 + TRIGGER 机制）；**FTS 只索引章节标题与摘要行，不索引正文**（正文留在文件里）。
+- **解析复用 `md-logic`**：CommonMark 节树已带行范围，拿来切片；`md-map` 锚点 / 引用关系「可选一并入库」。
+- **维护挂巩固链**：启动后 + `compaction/end` 后增量扫（`mtime` + `size` + `docHash` 判变），事件驱动不轮询；首次全量扫一次。
+- **命中行为**：返回**路径 + 行范围 + 摘要行**，调用方读原文；正文不入库（§1 文档优先，记忆不替文档做副本）。
+- **参与检索**：与分类表同属该层检索并集，命中带 `scope` 标签与一个**固定的文档索引标签（标签名由实现定）**；**给了 `kind` 时它默认不参与**（不是注册分类），显式指定该标签才查。
+- **状态机**：`present` / `stale`（`docHash` 不一致）/ `missing`（文件消失），与 §7.1 同一套；不自动改写、不自动删除；**检索默认不返回 `missing`**。
+- **边界**：只索引配置给该层的 glob；**U 层默认不索引任何 glob**（需显式配置）；一旦索引，其摘要与 U 层其它内容一样对所有项目可见（设计意图非泄漏）。
+
+**现状核查**：
+
+- `memory-base/package.json` 零运行时依赖（仅 devDeps）；`md-logic` 导出 `parseMarkdownDocument`（`src/parse.ts:161`，纯函数、仅依赖 `marked`）——可作为 workspace 运行时依赖接入。
+- 既有建表机制（条目 2 落地）：`ensureKindTable` 幂等建表（`IF NOT EXISTS`）+ 分类 FTS + TRIGGER；`doc_index` 列形状与分类表不同，需独立建表函数，但幂等 / 不 bump 版本的「加表式」路径相同。
+- 检索并集（条目 2 落地）：`KnowledgeService.search` 遍历 `#existingEntries()`（注册分类表）；`doc_index` 不走 `KindRegistry`，需要在并集面单独并入。
+- 巩固链挂点（条目 8/10 落地）：`index.ts` `maybeConsolidate`（启动一次 + `compaction/end`，10 分钟节流）——文档增量扫挂同一链。
+- §11 边界表无「禁止依赖 md-logic」条款；「不得建立 npm 依赖」仅是 `output-compress` ↔ `memory-base` 隐私常量的专项约束。
+
+#### 决策（D44–D48）
+
+- **D44 落点与建表**：`doc_index` 表 + 专用 FTS5 影子表（external content，只挂 `section_title` 与 `summary` 两列）+ 写直达 TRIGGER，由 `schema.ts` 新增 `ensureDocIndex(db)` 幂等建（P / U 库 open 时即建——它是每库至多一张的固定索引，不同于分类表「空表不建」的按需语义）。**不 bump 版本**（加表 = 向后兼容，同条目 2 口径）。列：`id` / `doc_ref` / `section_title` / `line_start` / `line_end` / `doc_hash` / `summary` / `status`（`present|stale|missing`）/ `project` / `last_referenced` / `indexed_at`。行粒度 = 一文档一节一行，去重键 = `(doc_ref, line_start)`。
+- **D45 解析依赖 md-logic**：`memory-base` 新增 workspace 运行时依赖 `@dsh-toolset/md-logic`，用 `parseMarkdownDocument` 切节。理由：设计明文复用 + 节树行范围现成，自写解析 = 复制 CommonMark 状态机。`md-map` 锚点 / 引用入库是「可选」项 → **本条目不做**（记观察）。
+- **D46 检索参与**：`doc_index` **不进** `KindRegistry`（无内容主体、非分类，注册制语义不含它）；检索并集面扩为「已注册分类表 + 本库 `doc_index`（已建即并入）」。固定标签 = 导出常量 `DOC_INDEX_KIND = "doc"`（§7.2「标签名由实现定」）；调用方给 `kind` 时 `doc_index` 默认不参与，显式 `kind: "doc"` 才查它。命中行映射：`title` = 章节标题、`content` = 摘要行、`SearchHit` 增可选 `doc?: { ref: string; lineStart: number; lineEnd: number }`，正文不返回。
+- **D47 维护与配置**：增量扫判据 = `mtime` + `size` 粗筛 → `docHash`（sha256 文件级）确认；新文件全量解析、未变跳过；文件消失 → 该文档全部行标 `missing`（不删行）。挂 `maybeConsolidate` 同链（启动 + `compaction/end`，复用既有节流）+ 服务面手动 `scanDocs()`。配置 `docIndex?: { project?: { include?: string[] }, user?: { include?: string[] } }`（glob；**P / U 缺省均空 = 不索引**，显式配置才开，与「不静默建 `.dsh/`」同风格；U 一旦配置即对所有项目可见是设计意图）。
+- **D48 状态机**：`present` / `stale` / `missing` 三态只更新 `status` 列，**不自动改写摘要、不自动删行**（§7.1 文档是权威）；检索默认过滤 `missing`；`stale` 照常返回（调用方读原文后自行判断）。
+
+#### 规划：分三段落地
+
+**一段（表 + 扫描器）**：`schema.ts` `ensureDocIndex`（表 + FTS + TRIGGER）；`package.json` 加 `@dsh-toolset/md-logic` 依赖；新 `src/doc-index.ts`（扫描器：glob 展开 → `parseMarkdownDocument` 切节 → 差异写入 + 三态更新；`scanDocs(db, {include, now})` 纯函数入口）；单库与 `TierSet` 的 open 路径接线（P / U 建表）。
+
+**二段（检索 + 巩固链 + 配置）**：`knowledge.ts` `search()` 并集并入 `doc_index`（`kind: "doc"` 语义 + `missing` 过滤 + `SearchHit.doc`）；`index.ts` 配置 `docIndex` + 巩固链挂增量扫 + 服务面 `scanDocs()`；`TierSet.search` 透传。
+
+**三段（收尾）**：README（能力 + 配置表）、BACKLOG 收尾、本文件实施记录；测试补齐（建表幂等 / 扫描差异 / 三态 / 检索并集与 `kind: "doc"` 语义 / `missing` 过滤）。
+
+#### 明确不做（本条目边界）
+
+- 不索引文档正文（FTS 只挂标题与摘要行）；不建 S 层 `doc_index`。
+- 不做 `md-map` 锚点 / 引用关系入库（设计「可选」项，记观察）。
+- 不做 stale 自动改写 / 自动删除；不做 U 层缺省 glob；不做跨项目 P 库的 doc_index（「其他项目」P 库只读检索面，索引只维护当前项目）。
+- 不 bump schema 版本、不改 `STATUS.md`（用户择时）。
+
 ### 实施记录
 
 - 2026-10-08：**条目 1（包改名）完成** —— 目录 `knowledge-base/` → `memory-base/`（`git mv`）；包名 / `cordis.patch.yml` id / 服务键 `ctx.get('memory')` / `MEMORY_DB_PATH` / smoke profile 名 / `scripts/{install,test-parallel}.sh` / `profiles/example` / TUI 消费点 / 全部活跃文档引用一并改（555 个 tracked 文件过 sed）。**保留旧名**：`docs/STATUS.md`（用户择时更新）、`docs/BACKLOG.md` 条目 1 自身、本文件、`*docs/archived/`、根 `archive/`、`docs/host/`（宿主面历史记录）。验证：全仓 `check` 0 error、`build` exit 0、`test` 21 包全绿（memory-base 57）。**待人工**：`~/.dsh/profiles/fff` 的 `link:` 依赖与 patch id 仍是旧名（项目目录外，未擅自改）。
@@ -426,3 +472,8 @@
   - **测试**：新增 `tests/kinds.test.ts` 11 例（拒写回报 / 按需建表与 kind 标签 / 事件认领 / 钩子拒绝与 importance 建议 / U 层禁兜底 / 跨分类 union 含 CJK LIKE 路径 / 跨表删除 + D40 聚合回归 / **加表不迁移**（旧库重开注册新分类即可写、`user_version` 不动）/ D42 三调用方回归 / 注册表约束 / D43 grep 断言——`src/` 不出现具体分类名）；既有 4 例按新契约修正（`capacity` / `writepolicy` 的候选断言改 `.map(ref => ref.id)`；`tiers` / `bundle-tiers` 的 U 层写入显式 `kind`）。
   - **验证**：全仓 `npm run check` 0 error、`npm run build` exit 0；`memory-base` **91/91**（80 基线 + 11 新增）。
 - 2026-10-08：**条目 5（分类注册机制）完成收尾** —— 提交 `3b0b432`（实现，src 10 文件）与 `687dbb2`（测试 11 例 + 4 例适配）；README 同步（能力表 `kind` / `RowRef` / `skipped` 口径 + 新增「分类注册机制」小节 + 配置表 `defaultKind`）；BACKLOG §2 移除已完成条目并按工作量升序重排（新编号 1 TUI / 2 `output-compress` / 3 `doc_index` / 4 提升链，可执行序 3 → 4 → 1 → 2）。与规划的三处偏差：①测试落 `tests/kinds.test.ts`（规划写的 `registry.test.ts`——用例实际覆盖闸门到检索全链，不止注册表）；②`ensureKindFts` / `listKindTables` 并入 `ensureKindTable` 一体生成（FTS / TRIGGER 随表同建，无需独立函数，`resetSchema` 也无需泛化 DROP 清单——它只在空库上运行）；③规划中的「单库路径补 `rules` 注入」**未做**——需把 `SessionHooks` 的规则编译提前并改其构造契约（`kb` 先于 `hooks` 创建，循环依赖），超出本条目验收；现状单库路径仍有内置隐私底线闸，事件路径经 hooks 含 profile 自定义 `denyPatterns`，仅 `writeBack` / `memory.add` / `remember` 三条直写路径在单库模式下缺自定义模式（分层模式无此缺口，`TierSet` 各库已注 `hooks.rules`）。**文档保留**：本文件承载其余未完成条目，不入 `archived/`（全部条目关闭后随文档归档）。
+- 2026-10-08：**条目 3（文档索引 `doc_index`）完成** —— 决策点文档按用户裁定与关闭提交合并（未单独提交）。实现三段落地：
+  - **一段（表 + 扫描器）**：`schema.ts` 新增 `ensureDocIndex(db)`（`doc_index` 表 + `doc_index_fts` 只挂 `section_title` / `summary` 两列 + ai/ad/au 写直达 TRIGGER + 两个索引；P / U 库 open 时幂等建、S 层不建，不 bump 版本）；`package.json` 新增首个运行时依赖 `@dsh-toolset/md-logic`（`link:../md-logic`，node_modules 符号链接手工建立——npm 对 `link:` 协议报 Unsupported URL Type，与 `md-map` 现状同构）；新 `src/doc-index.ts` 扫描器：glob 展开（node:fs `glob`）→ `parseMarkdownDocument` 切节（节树展平，一节一行；摘要 = 节内首个非空非标题行、剥列表 / 引用标记、≤300 字符）→ 差异写入（文件 hash 变才 DELETE + INSERT）→ 三态更新（文件消失只标 `missing`；**读失败保留旧行不标 missing**——可能暂态）；判变缓存（doc_ref → mtime+size+hash）由调用方持有，mtime+size 命中跳过重哈希；**空 include = 功能关闭 no-op**（不动已有行——配置摘掉 ≠ 全部 missing，实测发现后修正）。
+  - **二段（检索 + 接线）**：`knowledge.ts` `search()` 并集并入 `doc_index`（固定标签 `DOC_INDEX_KIND = "doc"`；未给 `kind` 参与并集、显式 `kind: "doc"` 独查、给其他 kind 不参与；`missing` 恒过滤；P 行按项目过滤、U 行 `project = ''` 对所有项目可见；CJK 走 LIKE 兜底同样覆盖；命中带 `SearchHit.doc = {ref, lineStart, lineEnd}` 回指，`importance = 0` 标示非记忆行）；`index.ts` 配置 `docIndex.{project,user}.include`（**缺省均不索引**）+ `maybeConsolidate` 变 async 挂增量扫（与容量兜底同链同节流）+ bundle 增 `scanDocs(only?)` + 服务面挂 `scanDocs`；判变缓存每库一份由 bundle 持有。
+  - **三段（收尾）**：README（能力表 `scanDocs` / 检索并集口径 / 新增「文档索引」小节 / 配置表 `docIndex` 行）；本条提交：测试 `552bd3f`（5 例），实现与决策 / 收尾文档按用户裁定合并进关闭提交。
+  - **验证**：全仓 `npm run check` 0 error、`npm run build` exit 0；`memory-base` **96/96**（91 基线 + 5 新增）。

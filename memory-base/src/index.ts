@@ -39,6 +39,12 @@ import {
   type TierUsage,
 } from "./tiers.ts";
 import { resolveTierPaths, type Tier } from "./router.ts";
+import { homedir } from "node:os";
+import {
+  DOC_INDEX_KIND,
+  scanDocs as scanDocTable,
+  type DocScanReport,
+} from "./doc-index.ts";
 import {
   fallbackSpec,
   KindRegistry,
@@ -56,6 +62,7 @@ export {
   migrate,
   fallbackSpec,
   KindRegistry,
+  DOC_INDEX_KIND,
 };
 export type {
   DeniedRow,
@@ -66,6 +73,7 @@ export type {
   SearchHit,
   SearchOptions,
 } from "./knowledge.ts";
+export type { DocScanReport, DocScanOptions, DocStatus } from "./doc-index.ts";
 export type { KindColumn, KindSpec, RegisteredKind } from "./router.ts";
 export type { MemoryHit, MemorySearchResult, MemoryTarget } from "./memory.ts";
 export type { WriteBackResult, EvictResult } from "./writepolicy.ts";
@@ -110,6 +118,15 @@ export interface KnowledgeConfig {
    * 本包不为它赋予语义；其物理表固定为 v1 布局的 `chunks`（决策 D38）。
    */
   defaultKind?: string;
+  /**
+   * 文档索引（设计 §7.2 / §12 #12）：各层要索引的 glob（相对该层根解析：P = 项目根，
+   * U = 家目录）。**缺省均不索引**（显式配置才开，与「不静默建 `.dsh/`」同风格）；
+   * S 层不建 `doc_index`。维护挂巩固链（启动后 + `compaction/end` 后，事件驱动不轮询）。
+   */
+  docIndex?: {
+    project?: { include?: readonly string[] };
+    user?: { include?: readonly string[] };
+  };
   /**
    * 分层三库（设计 §2 / §12 #10）：开启后 S / P / U 各一个库、各带独立指纹与字节上限。
    * **缺省关闭**——沿用单库 `dbPath`（不静默在项目里建 `.dsh/`、不在家目录建库）。
@@ -166,6 +183,13 @@ export interface KnowledgeBundle {
   registry: KindRegistry;
   /** 分层三库集合（`config.tiers.enabled` 时才有）：跨层检索 / 写入路由 / 容量。 */
   tiers?: TierSet;
+  /**
+   * 文档索引增量扫（设计 §7.2）：按配置扫一次（`tier` 收窄单层）；未配置 / 单库返回空数组。
+   * 自动维护挂巩固链，此处供手动触发与测试。
+   */
+  scanDocs(
+    only?: "project" | "user",
+  ): Promise<Array<{ tier: "project" | "user" } & DocScanReport>>;
   /** 静态项目作用域；`project` 配成函数时为 `"default"`（自动巩固只用静态值）。 */
   project: string;
   /** 实际数据库路径（:memory: 或文件路径）。 */
@@ -268,12 +292,60 @@ export async function createKnowledgeBundle(
         .join(" / ")}）`,
     );
   }
+  // —— 文档索引（设计 §7.2）：增量扫挂巩固链；缺省不索引（无配置即 no-op，S 层无 doc_index）——
+  const docCaches = new Map<
+    "project" | "user",
+    Map<string, { mtimeMs: number; size: number; hash: string }>
+  >();
+  const docIncludes: Record<"project" | "user", readonly string[]> = {
+    project: config.docIndex?.project?.include ?? [],
+    user: config.docIndex?.user?.include ?? [],
+  };
+  const docRoots: Record<"project" | "user", string> = {
+    project: tierConfig?.projectRoot ?? process.cwd(),
+    user: homedir(),
+  };
+  const scanConfiguredDocs = async (
+    only?: "project" | "user",
+  ): Promise<Array<{ tier: "project" | "user" } & DocScanReport>> => {
+    if (tiers === undefined) return [];
+    const out: Array<{ tier: "project" | "user" } & DocScanReport> = [];
+    for (const tier of ["project", "user"] as const) {
+      if (only !== undefined && tier !== only) continue;
+      const include = docIncludes[tier];
+      if (include.length === 0) continue;
+      // 只维护当前项目 P 库（「其他项目」P 库是只读检索面，不建索引）。
+      const store =
+        tier === "project"
+          ? (tiers.currentProject() ?? tiers.get("project"))
+          : tiers.get("user");
+      if (store === undefined) continue;
+      let cache = docCaches.get(tier);
+      if (cache === undefined) {
+        cache = new Map();
+        docCaches.set(tier, cache);
+      }
+      try {
+        const report = await scanDocTable(store.db, {
+          include,
+          root: docRoots[tier],
+          project: store.project,
+          cache,
+        });
+        out.push({ tier, ...report });
+      } catch (error: unknown) {
+        log(`memory-base 文档索引扫描失败（${tier}，忽略）：${String(error)}`);
+      }
+    }
+    return out;
+  };
+
   const auto = config.autoConsolidate ?? {};
   const minIntervalMs = Math.max(0, auto.minIntervalMs ?? 10 * 60 * 1000);
   let lastConsolidateAt = 0;
-  const maybeConsolidate = (
+  const maybeConsolidate = async (
     reason: string,
-  ): ConsolidationReport | undefined => {
+  ): Promise<ConsolidationReport | undefined> => {
     if (auto.enabled === false) return undefined;
     const at = Date.now();
     if (at - lastConsolidateAt < minIntervalMs) return undefined;
@@ -301,6 +373,18 @@ export async function createKnowledgeBundle(
             );
           }
         }
+        // 文档索引增量扫（设计 §7.2）：与容量兜底同链（事件驱动 + 同一节流）。
+        for (const docReport of await scanConfiguredDocs()) {
+          if (
+            docReport.changed > 0 ||
+            docReport.missing > 0 ||
+            docReport.errors.length > 0
+          ) {
+            log(
+              `memory-base 文档索引（${docReport.tier}）：变更 ${docReport.changed} / 失踪 ${docReport.missing} / 错误 ${docReport.errors.length}`,
+            );
+          }
+        }
       }
       return report;
     } catch (error: unknown) {
@@ -314,12 +398,12 @@ export async function createKnowledgeBundle(
       event?.type === "compaction/end" ||
       event?.type === "compaction/summary"
     ) {
-      maybeConsolidate("compaction");
+      void maybeConsolidate("compaction");
     }
   });
   const detachConsolidate =
     typeof consolidateDisposer === "function" ? consolidateDisposer : () => {};
-  if (auto.onStart !== false) maybeConsolidate("start");
+  if (auto.onStart !== false) void maybeConsolidate("start");
   log(
     `memory-base 已就绪（db=${dbPath === ":memory:" ? ":memory:" : dbPath}）`,
   );
@@ -341,6 +425,7 @@ export async function createKnowledgeBundle(
     hooks,
     consolidate,
     registry,
+    scanDocs: scanConfiguredDocs,
     ...(tiers === undefined ? {} : { tiers }),
     project: projectName,
     dbPath,
@@ -481,6 +566,16 @@ export function apply(ctx: BundleHost, config: KnowledgeConfig = {}): void {
       }): Promise<TierEnforcement[]> => {
         const bundle = await whenKnowledgeReady();
         return bundle.tiers?.enforceLimits(opts ?? {}) ?? [];
+      },
+      /**
+       * 文档索引增量扫（设计 §7.2）：按配置手动扫一次（`tier` 收窄单层；缺省扫全部已配置层）。
+       * 自动维护挂巩固链；未配置 glob / 单库模式返回空数组。
+       */
+      scanDocs: async (opts?: {
+        tier?: "project" | "user";
+      }): Promise<Array<{ tier: "project" | "user" } & DocScanReport>> => {
+        const bundle = await whenKnowledgeReady();
+        return bundle.scanDocs(opts?.tier);
       },
       /** 手动触发一次巩固（缺省按 bundle 的静态 project；可传段参数覆盖）。 */
       consolidate: async (opts?: Partial<ConsolidationOptions>) => {

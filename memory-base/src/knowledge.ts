@@ -22,6 +22,7 @@ import {
 } from "./rules.ts";
 import { fallbackSpec, KindRegistry, type RegisteredKind } from "./router.ts";
 import { ensureKindTable } from "./schema.ts";
+import { DOC_INDEX_KIND } from "./doc-index.ts";
 
 /** 单块 token 预算上限（~2K token）。 */
 const MAX_TOKENS = 2000;
@@ -86,7 +87,7 @@ export interface SearchOptions {
 
 export interface SearchHit {
   id: number;
-  /** 所属分类（即命中行的物理表）。 */
+  /** 所属分类（即命中行的物理表）；文档索引命中为固定标签 `doc`。 */
   kind: string;
   project: string;
   target: string | null;
@@ -97,6 +98,8 @@ export interface SearchHit {
   importance: number;
   lastReferenced: number;
   score: number;
+  /** 文档索引命中专有：回指原文（调用方读文件——正文不入库，设计 §7.1 / §7.2）。 */
+  doc?: { ref: string; lineStart: number; lineEnd: number };
 }
 
 export interface PutResult {
@@ -334,32 +337,90 @@ export class KnowledgeService {
     };
 
     // 并集去重键 = (kind, id)：各分类表 id 独立自增，裸 id 会跨表相撞（决策 D39）。
+    // owners 存命中行所在物理表（分类表与 doc_index 统一按表刷新 last_referenced）。
     const hits = new Map<string, SearchHit>();
-    const owners = new Map<string, RegisteredKind>();
-    const add = (entry: RegisteredKind, hit: SearchHit): boolean => {
-      const key = `${entry.kind}\u0000${hit.id}`;
+    const owners = new Map<string, string>();
+    const add = (kind: string, table: string, hit: SearchHit): boolean => {
+      const key = `${kind}\u0000${hit.id}`;
       if (hits.has(key)) return false;
       if (hits.size >= limit) return false;
       hits.set(key, hit);
-      owners.set(key, entry);
+      owners.set(key, table);
       return true;
     };
+
+    // 文档索引（设计 §7.2，决策 D46）：非注册分类的固定索引——未给 kind 时参与并集；
+    // 显式 `kind: "doc"` 才独查它（给其他 kind 时它不参与）。命中返回路径 + 行范围 + 摘要行。
+    const docActive = opts.kind === undefined || opts.kind === DOC_INDEX_KIND;
+    const docIndexReady = docActive && this.#tableExists("doc_index");
+    // U 库行 project = ''（对所有项目可见）；P 库行带项目键。target / category 过滤不适用。
+    const docFilters = ["c.status != 'missing'"];
+    const docParams: Array<string | number> = [];
+    if (opts.project !== undefined) {
+      docFilters.push("(c.project = ? OR c.project = '')");
+      docParams.push(opts.project);
+    }
+    const docWhere = ` AND ${docFilters.join(" AND ")}`;
+    const mapDocHit = (
+      row: Record<string, unknown>,
+      score: number,
+    ): SearchHit => ({
+      id: Number(row.id),
+      kind: DOC_INDEX_KIND,
+      project: String(row.project),
+      target: null,
+      category: null,
+      title: row.section_title == null ? null : String(row.section_title),
+      content: row.summary == null ? "" : String(row.summary),
+      summary: null,
+      importance: 0,
+      lastReferenced: Number(row.last_referenced),
+      score,
+      doc: {
+        ref: String(row.doc_ref),
+        lineStart: Number(row.line_start),
+        lineEnd: Number(row.line_end),
+      },
+    });
 
     // FTS5 对自由输入语法错误（如 '-' 排除符）容错：失败退回 LIKE 兜底。
     let ftsFailed = false;
     for (const entry of entries) {
       try {
-        for (const { row } of runQuery(entry, entry.fts)) add(entry, row);
+        for (const { row } of runQuery(entry, entry.fts))
+          add(entry.kind, entry.table, row);
       } catch {
         ftsFailed = true;
       }
       if (opts.fuzzy) {
         try {
-          for (const { row } of runQuery(entry, entry.trigram)) add(entry, row);
+          for (const { row } of runQuery(entry, entry.trigram))
+            add(entry.kind, entry.table, row);
         } catch {
           ftsFailed = true;
         }
       }
+    }
+
+    if (docIndexReady) {
+      try {
+        const rows = this.#db
+          .prepare(
+            `SELECT c.id, c.doc_ref, c.section_title, c.summary, c.project, c.last_referenced, c.line_start, c.line_end, bm25(doc_index_fts) AS score
+             FROM doc_index_fts JOIN doc_index c ON c.id = doc_index_fts.rowid
+             WHERE doc_index_fts MATCH ?${docWhere}
+             ORDER BY score LIMIT ?`,
+          )
+          .all(opts.query, ...docParams, limit) as Array<
+          Record<string, unknown>
+        >;
+        for (const row of rows)
+          add(DOC_INDEX_KIND, "doc_index", mapDocHit(row, Number(row.score)));
+      } catch {
+        ftsFailed = true;
+      }
+      // doc_index 无 trigram 影子表（标题 / 摘要行短文本）：fuzzy 语义由下方 LIKE 兜底承接。
+      if (opts.fuzzy) ftsFailed = true;
     }
 
     const now = Date.now();
@@ -386,18 +447,34 @@ export class KnowledgeService {
         >;
         for (const row of likeRows) {
           if (hits.size >= limit) break;
-          add(entry, mapHit(row, 0, entry.kind));
+          add(entry.kind, entry.table, mapHit(row, 0, entry.kind));
+        }
+      }
+      // 文档索引的 LIKE 兜底（标题 / 摘要行；与分类查询同触发条件）。
+      if (docIndexReady && hits.size < limit) {
+        const docLikeRows = this.#db
+          .prepare(
+            `SELECT c.id, c.doc_ref, c.section_title, c.summary, c.project, c.last_referenced, c.line_start, c.line_end FROM doc_index c
+             WHERE (c.section_title LIKE ? ESCAPE '\\' OR c.summary LIKE ? ESCAPE '\\')${docWhere}
+             LIMIT ?`,
+          )
+          .all(like, like, ...docParams, limit - hits.size) as Array<
+          Record<string, unknown>
+        >;
+        for (const row of docLikeRows) {
+          if (hits.size >= limit) break;
+          add(DOC_INDEX_KIND, "doc_index", mapDocHit(row, 0));
         }
       }
     }
-    // last_referenced 按命中行所在的表刷新（各分类表独立）。
+    // last_referenced 按命中行所在的表刷新（各分类表独立；doc_index 一并刷新）。
     const byTable = new Map<string, number[]>();
     for (const [key, hit] of hits) {
-      const entry = owners.get(key);
-      if (entry === undefined) continue;
-      const ids = byTable.get(entry.table) ?? [];
+      const table = owners.get(key);
+      if (table === undefined) continue;
+      const ids = byTable.get(table) ?? [];
       ids.push(hit.id);
-      byTable.set(entry.table, ids);
+      byTable.set(table, ids);
     }
     for (const [table, ids] of byTable) {
       const touch = this.#db.prepare(

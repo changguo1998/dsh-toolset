@@ -164,6 +164,58 @@ export function ensureKindTable(
   `);
 }
 
+/**
+ * 文档索引表（设计 §7.2 / §12 #12）：每库至多一张的**固定索引**（不同于分类表的按需语义，
+ * P / U 库 open 时即幂等建；S 层不建——会话临时文本按普通记忆条目落分类表）。
+ *
+ * 行粒度 = 一文档一节一行（去重键 `(doc_ref, line_start)`）；FTS5 只挂 `section_title` 与
+ * `summary` 两列（**不索引正文**，正文留在文件里，命中返回路径 + 行范围 + 摘要行）；
+ * 无 trigram 影子表（标题 / 摘要行短文本，CJK 走 LIKE 兜底，避免 §13 观察的索引体积问题）。
+ * 不 bump 版本（加表 = 向后兼容，同分类表口径）。
+ */
+export function ensureDocIndex(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS doc_index (
+      id              INTEGER PRIMARY KEY,
+      doc_ref         TEXT NOT NULL,
+      section_title   TEXT,
+      line_start      INTEGER NOT NULL,
+      line_end        INTEGER NOT NULL,
+      doc_hash        TEXT NOT NULL,
+      summary         TEXT,
+      status          TEXT NOT NULL DEFAULT 'present' CHECK (status IN ('present', 'stale', 'missing')),
+      project         TEXT NOT NULL DEFAULT '',
+      last_referenced INTEGER NOT NULL DEFAULT 0,
+      indexed_at      INTEGER NOT NULL
+    ) STRICT
+  `);
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_doc_index_ref ON doc_index (doc_ref)",
+  );
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_doc_index_project_status ON doc_index (project, status)",
+  );
+  db.exec(
+    "CREATE VIRTUAL TABLE IF NOT EXISTS doc_index_fts USING fts5(section_title, summary, content='doc_index', content_rowid='id', tokenize='porter')",
+  );
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS doc_index_ai AFTER INSERT ON doc_index BEGIN
+      INSERT INTO doc_index_fts(rowid, section_title, summary) VALUES (new.id, new.section_title, new.summary);
+    END
+  `);
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS doc_index_ad AFTER DELETE ON doc_index BEGIN
+      INSERT INTO doc_index_fts(doc_index_fts, rowid, section_title, summary) VALUES ('delete', old.id, old.section_title, old.summary);
+    END
+  `);
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS doc_index_au AFTER UPDATE ON doc_index BEGIN
+      INSERT INTO doc_index_fts(doc_index_fts, rowid, section_title, summary) VALUES ('delete', old.id, old.section_title, old.summary);
+      INSERT INTO doc_index_fts(rowid, section_title, summary) VALUES (new.id, new.section_title, new.summary);
+    END
+  `);
+}
+
 /** 建表 + 索引 + 双 FTS5 影子表 + 写直达 TRIGGER。仅应在空库/已重置库上调用。 */
 function ensureSchema(db: DatabaseSync, appId: number): void {
   db.exec(`PRAGMA application_id = ${appId}`);
@@ -220,6 +272,10 @@ export async function openTierDatabase(
       throw new Error(
         `memory-base ${tier} 库 "${actual}" 版本 ${version} 与当前 ${KNOWLEDGE_SCHEMA_VERSION} 不符且无可用迁移；需清空重建时显式调用 migrate({ from: "v1", mode: "drop" })`,
       );
+    }
+    if (tier !== "session") {
+      // 文档索引（设计 §7.2）：P / U 库的固定索引表，open 时幂等建；S 层不建。
+      ensureDocIndex(db);
     }
     db.exec(JOURNAL_MODE_SQL[journalMode]);
     return db;

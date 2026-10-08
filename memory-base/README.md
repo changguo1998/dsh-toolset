@@ -4,14 +4,14 @@ DSH（DeepSeek Harness）进程内插件：跨会话知识库与持久记忆—�
 
 ## 能力
 
-本插件**不注册模型侧工具**：订阅宿主 `session/event` 做实时沉淀，并把记忆库以服务形态挂在进程内（`provide('memory')`，暴露 `getSummary()`、`whenReady()`、`consolidate(opts?)`、`lastConsolidation()`、`rescanDenied(opts?)`、`migrate(opts?)`、`search(opts)`、`remember(input)`、`forget(refs)`、`usage()`、`enforceLimits(opts?)`、`registerKind(spec)`）。可用接口分三组：
+本插件**不注册模型侧工具**：订阅宿主 `session/event` 做实时沉淀，并把记忆库以服务形态挂在进程内（`provide('memory')`，暴露 `getSummary()`、`whenReady()`、`consolidate(opts?)`、`lastConsolidation()`、`rescanDenied(opts?)`、`migrate(opts?)`、`search(opts)`、`remember(input)`、`forget(refs)`、`usage()`、`enforceLimits(opts?)`、`registerKind(spec)`、`scanDocs(opts?)`）。可用接口分三组：
 
 **知识库**（`bundle.kb`，`KnowledgeService`）：
 
 | 接口 | 参数要点 | 返回 |
 | --- | --- | --- |
 | `put(input)` | `project`、`content` 必填；`kind`（分类，见下）、`title`/`target`/`category`/`sessionId`；`importance` 默认 3（clamp 1..5，可被注册方钩子建议覆盖）；`source.kind` 默认 `manual` | `{ids, sourceId, created}`；被闸门拒写时 `ids` 为空且带 `skipped` 原因（`empty`/`short`/`pattern`/`kind`/`hook`） |
-| `search(opts)` | `query` 必填；`project`/`target`/`category`/`kind` 过滤；`limit` 默认 10（clamp 1..100）；`fuzzy` 默认 false | `SearchHit[]`（带 `kind` 标签），跨已注册分类取并集，命中即刷新 `last_referenced` |
+| `search(opts)` | `query` 必填；`project`/`target`/`category`/`kind` 过滤；`limit` 默认 10（clamp 1..100）；`fuzzy` 默认 false | `SearchHit[]`（带 `kind` 标签），跨已注册分类**与文档索引**取并集，命中即刷新 `last_referenced` |
 | `touch(ref)` / `evict(refs)` | 行句柄 `{kind, id}`（裸 `number` 作 v1 兼容 = 兜底表行） | `boolean` / 删除条数（联动 `sources.chunk_count`，跨分类聚合重算） |
 | 淘汰、提升与巩固辅助 | `staleCandidates({project, ttlMs, maxImportance=2, limit=100})`、`budgetCandidates({project, limit=50})`、`boostCandidates({project, limit=50})`、`targetRows({project, limit=500})`、`compress(refs)`、`setImportance(ref, n)`、`tokenBudgetUsage(project)`、`promote({project, limit=10})` | 过期候选（TTL + 重要度上限）/ 淘汰顺序候选（低重要度 → 最旧，不设门槛）/ 提权候选 / 具名记忆快照 / 压缩条数 / 是否变更 / 估算 token 数 / `SearchHit[]`（按 `importance × 时间衰减` 排序）；候选均为 `{kind, id}` 句柄，跨分类合并排序 |
 
@@ -21,6 +21,13 @@ DSH（DeepSeek Harness）进程内插件：跨会话知识库与持久记忆—�
 - **按需建表**：注册不建表，首次写入该分类时才建（「空表不建」）；**新增分类 = 加表**，不需要数据迁移，改列 / 删表才走版本迁移。
 - **跨层同构 + 自动纳入检索**：同一分类在 S / P / U 三层结构一致；注册后自动进入所在层的检索并集，调用方无需逐表查询；检索结果带 `kind` 标签。
 - **兜底分类**：未指定 `kind` 的写入按「显式 kind > 事件认领 > 兜底」路由；兜底分类名来自配置 `defaultKind`（缺省 `default`），其物理表固定为 v1 布局的 `chunks`（既有库照常打开，跨包直写方不受影响）；**U 层不允许落兜底**（未显式给已注册 `kind` 的一律拒写，`skipped: "kind"`）。
+
+**文档索引 `doc_index`（2026-10-08，设计 §7.2）**：项目文档索引落 **P 库**、用户私有文档落 **U 库**（**S 层不建**——会话临时文本按普通记忆条目落分类表）；索引与所在库同寿命。
+
+- **只索引标题与摘要行**：`md-logic` 切节（一节一行：`section_title` / 行范围 / `doc_hash` / 摘要行 ≤300 字符），FTS5 只挂标题与摘要两列，**正文不入库**；检索命中带 `doc: {ref, lineStart, lineEnd}` 回指原文（固定标签 `kind: "doc"`），调用方读文件。
+- **维护挂巩固链**：启动后 + `compaction/end` 后增量扫（mtime+size 粗筛 → sha256 确认，进程内缓存判变），文件消失只标 `missing`（**不自动删行、不自动改写**）；`status` 三态 `present` / `stale` / `missing`，检索默认不返回 `missing`。
+- **参与检索**：未给 `kind` 时与分类表同进检索并集；显式 `kind: "doc"` 独查文档索引，给其他 `kind` 时它不参与。
+- **配置即开关**：`docIndex.project.include` / `docIndex.user.include`（glob，P 相对项目根、U 相对家目录）——**缺省均不索引**；服务面 `scanDocs({tier?})` 手动扫一次。
 
 **持久记忆**（`bundle.memory`，`MemoryService`，与知识同库）：`add({target, content, ...})`（`target` 取 `user`/`memory`/`project`/`failure`，`project` 默认 `__global__`，`importance` 默认 3）、`replace`、`remove`（均按 `target` + 内容子串定位）、`search(opts)`（`limit` 默认 20，支持 `tokenBudget`；返回 `{hits, usedTokens, truncated}`）。
 
@@ -55,6 +62,7 @@ DSH（DeepSeek Harness）进程内插件：跨会话知识库与持久记忆—�
 | `persistRules` | 无 | `{types?, minChars?, denyPatterns?}`：类型 / 最小长度 / 拒绝模式（内置隐私模式始终生效） |
 | `maxTokensPerProject` | `0`（不设限） | 入库容量守卫：超限先压缩降级再淘汰 |
 | `defaultKind` | `"default"` | 兜底分类名（设计 §4）：未指定 `kind` 的写入落它（U 层除外）；本包不为它赋予语义，物理表固定为 v1 的 `chunks` |
+| `docIndex` | 不索引 | 文档索引 glob（设计 §7.2）：`{project?: {include?}, user?: {include?}}`，P 相对项目根、U 相对家目录；缺省均不索引，配置后挂巩固链自动增量扫 |
 | `autoConsolidate` | 全开 | `{enabled?, onStart?, afterCompaction?, minIntervalMs?, options?}`：自动巩固触发与参数；触发时顺带做逐库容量兜底 |
 | `tiers` | 关闭 | 分层三库（设计 §2）：`{enabled, sessionDir?, projectRoot?, dshHome?, crossProjectRoots?}`。开启后 S / P / U 各一个库——默认落点 `<会话目录>/session.db`、`<项目根>/.dsh/project.db`、`~/.dsh/memory-base/user.db`，各带**独立指纹**（`SESS` / `PROJ` / `USER`）与独立字节上限（50 / 200 / 1 MB，U 为软上限）。**缺省关闭**：不静默在项目里建 `.dsh/`、不在家目录建库 |
 
