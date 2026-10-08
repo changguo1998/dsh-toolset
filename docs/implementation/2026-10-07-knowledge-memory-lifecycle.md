@@ -347,6 +347,65 @@
 | 各包 `README.md`、`scripts/install.sh`、`docs/BACKLOG.md` | 改名与口径同步、条目状态 |
 | 本文件 | 实施过程记录（唯一文档落点） |
 
+### 条目明细：分类注册机制（§12 #11）
+
+#### 调研（2026-10-08，只读；子代理逐处侦察 + 本文件复核）
+
+**设计口径**（`memory-base/docs/DESIGN.md`；§0 判定标准优先于细则）：
+
+- §4：注册制——注册方给 `kind` + 扩展列 + 可选写入前钩子 + 可选**查询路由规则**；本包只提供**基类列**；**一类一张表，表名由注册方给出**；未注册 `kind` 拒写并回报；兜底分类由配置声明（缺省 `default`）并在首次启动注册；分类跨层同构；注册即自动进入该层检索并集；**按需建表（空表不建）**；新增分类 = 加表（不迁移既有数据），**改列 / 删表**才走版本迁移（§9）。
+- §5：分类闸门在**库核心**；**U 层不允许兜底**；候选入队同样过这道闸。
+- §7：检索 = **层 × 分类**；给了 `kind` 只查该分类表，没给则由各分类的**查询路由规则**决定参与集合（规则未声明的分类作通配一起参与）；结果带 `scope` / `project` / `kind` 标签。
+- §12 #11 验收：未注册 `kind` 拒写；新增分类不需数据迁移；检索结果带 `kind` 标签；**代码里不出现具体分类名**。
+
+**代码现状（基线：`memory-base` `npm run test` = 80 例全绿；类名是 `KnowledgeService`，`knowledge.ts:163`）**：
+
+- 数据面只有**一张记忆表** `chunks`（`schema.ts:96-111`，STRICT），`sources` 为全局单表（`:85-94`）；双 FTS5 external content + 三支 TRIGGER（`:117-142`）。**没有** `candidates` / `doc_index` / 任何 per-kind 表。
+- 表名硬编码的真实影响面（`文件:行号`）：`knowledge.ts` 22 条 SQL（`:202/:217/:227/:250/:264/:316/:319/:368/:378/:382/:404/:408/:453/:469/:488/:502/:507/:523/:543/:566/:582/:612/:635`）、`tiers.ts:230`、`index.ts:297`、`memory.ts:97/:161`；**跨包** `output-compress/src/kb-write.ts:215-238` 直插 `chunks`（第四条写路径、不过任何闸门，归 §12 #7）。
+- 基类列**缺 8 项**：`docRef` / `docHash` / `origin` / `promoted_from` / `promoted_to` / `reviewer` / `sources`（来源列表）/ `projects`；存量 `target` / `summary` / `category` 是设计未列的列。
+- `category` 出入口：写 `hooks.ts:169/:175`（**事件类型直接当 category**）、`hooks.ts:113/:140`、`memory.ts:77/:102`、`output-compress/src/hooks.ts:368`、`kb-write.ts:238`；读 `knowledge.ts:153/:190-193/:404-429`、`memory.ts:123/:146`、`smoke/smoke.mjs:44-48`。
+- 拒绝语义：`PutResult.skipped` 复用 `SkipReason = "empty"|"short"|"pattern"`（`rules.ts:32`）；**三处调用方不判 `skipped`**——`writepolicy.ts:78-79`、`:95-96`（拒写被算成写成功且永不重试）与 `memory.ts:81`（`result.ids[0]!` 空数组直接 TypeError）。
+- 装配点四处：`knowledge.ts:172-175`（`{rules?}`）、`memory.ts:67-70`（**不透传 options**）、`tiers.ts:347-348`（已有 `rules` 透传范式）、`index.ts:176`（单库 bundle 路径**连 `rules` 都没传**，既有缺口）。
+- 版本策略：`KNOWLEDGE_SCHEMA_VERSION = 1`（`schema.ts:22`）；版本不符**拒绝打开**（`:188-193`）；空库建表只在 `:187` 跑一次；`resetSchema`（`:73-79`）与 `listUserTables`（`:60-67`）都锚在硬编码表名上。
+- `sources.kind`（`schema.ts:87`）是**来源种类**（session / manual / …），与本次的分类 `kind` 同名不同义，SQL 别名须显式区分。
+- **真机现状**：`~/.dsh/memory-base/memory.db` 6.0 MB 且**正在被写**（2026-10-08 17:46）＝当前跑的是**单库模式**；层库（`user.db` / `project.db` / `session.db`）尚未产生。会话目录约定已由宿主实证（本包子会话落在 `~/.dsh/sessions/--home-guochang-Projects-dsh-toolset--/<session-id>/`）。
+- 顺带记一笔缺口（**本条目不做**）：§13 写「trigram 只在 P 层保留」，但 `schema.ts:119-121` 给每个层库都建 trigram FTS。
+
+#### 决策（续 D35）
+
+- **D36 分类 = 物理表，`kind` 即表身份**（照 §4）。`registerKind({ kind, table?, columns?, preWrite?, routes? })`：表名由注册方给，缺省按 `kind` 派生（`kind_<归一化>`）；派生规则在代码里，**具体分类名不在代码里**。表名过白名单（`^[a-z][a-z0-9_]{0,62}$`、不撞 `sqlite_*` 与保留名）后才拼串——SQLite 不支持 PRAGMA / 标识符参数绑定（`schema.ts:13` 已注明）。
+- **D37 注册表与 DDL 分家**：`KindSpec` / `KindRegistry`（注册、解析表名、列校验、路由判定、兜底名）放 `router.ts`（§12 #11 指定落点，与「层 → 库路径」同属路由职责）；建表与 FTS / TRIGGER 归 `schema.ts`；SQL 归 `knowledge.ts`。
+- **D38 兜底分类的表就用既有 `chunks`：不改名、不 bump 版本、不做数据迁移**。理由：① 跨包 `output-compress/src/kb-write.ts:215-238` 直插 `chunks`（属条目 3 的范围），改名会跨包打断；② 真机 `memory.db` 是活跃数据，改名 + 按新表名重建 FTS / TRIGGER 纯风险无收益；③ §9「按迁移链升级」与 §4「加表式迁移」只要求**新增分类不迁移**——新 kind 走 `CREATE TABLE IF NOT EXISTS`（幂等），`user_version` 保持 1，既有 v1 库照常打开（`:188-193` 的拒绝分支不动）。代价：兜底表名与其它 kind 的派生名不同构，写进 README；条目 3 落地（不再直写）后可收口。
+- **D39 全局唯一键 = `(kind, id)`**：per-kind 表 id 各自从 1 起，而 `search` 的去重 Map（`knowledge.ts:222-223/:232-234`）与 `put` 的 `existing.get(sha256(chunk))`（`:315-330`）都以**裸 id** 为键 → 不换键会静默吞命中、跨 kind 误判重复。跨表维护动作（`evict` / `compress` / `setImportance` / `touch`）入参由 `id` 改 `{kind, id}`（内部契约，调用方全在本包：`consolidate.ts` / `hooks.ts` / `memory.ts`）。
+- **D40 跨表 union 的落法**：无 `kind` 参数的读写（候选 / 淘汰 / 容量 / 回扫 / 压缩 / 计数）改为**遍历注册表逐表跑再归并**；`evict` 里 `sources.chunk_count` 的汇总（`knowledge.ts:382`）与归零清理（`:384`）必须按各表求和，否则 source 被误判归零删除。带 `kind` 的 `search` 只查该表；层内先 union 分类，跨层 union 仍由 `TierSet`（`tiers.ts:284-299`）承担。
+- **D41 闸门与钩子**：`kind` 未注册 → `put()` 返回 `skipped: "kind"`（`SkipReason` 扩 `"kind"` / `"hook"`）；未显式给 `kind` 落兜底；**U 层拒兜底**（`tiers.remember` 落 `user` 且未给 `kind` → 拒写）。写前钩子 `preWrite({content, title, project, kind})` 在隐私闸门**之后**、INSERT **之前**，返回 `{ accept, reason?, importance? }`。
+- **D42 补上「拒写＝未写」的三个漏判**（D41 让它们从潜伏变成活 bug）：`writepolicy.ts:78-79` / `:95-96` / `memory.ts:81` 先判 `skipped`——拒写不计 `written`、不抛 TypeError、按失败计数回报。
+- **D43 「代码里不出现具体分类名」的判定口径**：本包 `src/` 内不出现**分类 kind 的字面量**（兜底名来自配置，缺省 `default`）；`hooks.ts:169/:175` 的事件类型、`memory.ts:13` 的 target 四值、demo 与测试里的 `note` / `preference` / `convention` 属**事件类型与 target 域**，不是注册分类，不计入。落地为一条 grep 断言。
+
+#### 规划：计划改动文件清单（本条目，分三段落地）
+
+**一段（地基，主线）**：
+
+| 文件 | 改动 |
+| --- | --- |
+| `memory-base/src/router.ts` | `KindSpec` / `KindRegistry` / 表名派生与白名单校验 / 查询路由判定 / 兜底名 |
+| `memory-base/src/schema.ts` | `ensureKindTable` / `ensureKindFts` / `listKindTables`（泛化 `resetSchema` 的 DROP 清单）；**版本保持 1** |
+| `memory-base/src/knowledge.ts` | `put()` 分类闸门 + `preWrite` 钩子 + 目标表解析（含扩展列）；`kind` 进 `PutInput` / `SearchHit`；`search()` 跨表 union + `(kind, id)` 去重 |
+| `memory-base/src/rules.ts` | `SkipReason` 扩 `"kind"` / `"hook"` |
+| `memory-base/src/writepolicy.ts`、`src/memory.ts` | 补判 `skipped`（D42）；`memory.ts` 构造透传 options |
+
+**二段（跨表维护并集化，D39 / D40）**：`knowledge.ts` 的 13 个维护方法 + `tiers.ts:230` + `index.ts:297` + `memory.ts:97/:161` 的 id → `{kind, id}` 与逐表归并。
+
+**三段（装配与面）**：`memory-base/src/index.ts`（服务面 `registerKind` + 配置 `defaultKind` + 启动注册兜底 + 单库路径补 `rules` 注入）、`memory-base/src/tiers.ts`（registry 透传 + U 层拒兜底）、`memory-base/README.md`、`docs/BACKLOG.md`、本文件。
+
+**测试**：新增 `memory-base/tests/registry.test.ts`；`schema.test.ts` / `knowledge.test.ts` / `memory.test.ts` / `rescan.test.ts` / `writepolicy.test.ts` / `tiers.test.ts` 随契约调整（既有用例锚在 `chunks` 表名与 `category` 值上，改名与加列必红）。目标 80 → 约 100 例全绿；每段跑 `npm run check` + `npm run test`。
+
+#### 明确不做（本条目边界）
+
+- 不做 `candidates` 表与提升链（条目：提升链 I → S → P → U）；本条目只把**候选入队要过的分类闸门**做成可复用判定。
+- 不做 `doc_index`；不做 TUI 侧改造；不做 `output-compress` 自持 `digest.db`——`kb-write.ts` 直插 `chunks` 的现状**保持**到条目 3。
+- 不删存量列（`target` / `summary` / `category`）、不 bump schema 版本、不实现 §13「trigram 只在 P 层」、不改 `STATUS.md`（用户择时）。
+
 ### 实施记录
 
 - 2026-10-08：**条目 1（包改名）完成** —— 目录 `knowledge-base/` → `memory-base/`（`git mv`）；包名 / `cordis.patch.yml` id / 服务键 `ctx.get('memory')` / `MEMORY_DB_PATH` / smoke profile 名 / `scripts/{install,test-parallel}.sh` / `profiles/example` / TUI 消费点 / 全部活跃文档引用一并改（555 个 tracked 文件过 sed）。**保留旧名**：`docs/STATUS.md`（用户择时更新）、`docs/BACKLOG.md` 条目 1 自身、本文件、`*docs/archived/`、根 `archive/`、`docs/host/`（宿主面历史记录）。验证：全仓 `check` 0 error、`build` exit 0、`test` 21 包全绿（memory-base 57）。**待人工**：`~/.dsh/profiles/fff` 的 `link:` 依赖与 patch id 仍是旧名（项目目录外，未擅自改）。
