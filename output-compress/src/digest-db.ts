@@ -16,6 +16,11 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { DENY_PATTERNS } from "./deny-patterns.ts";
+import type {
+  HeadingEntry,
+  KeyLineEntry,
+  SliceEntry,
+} from "./summary-program.ts";
 
 /** I 层库指纹（'DIGE'）：本包自管，与 memory-base 层指纹互不相干。 */
 export const DIGEST_APPLICATION_ID = 0x44494745;
@@ -32,9 +37,9 @@ export interface DigestRecord {
   /** spill 文件定位（阈值触发无 spill 时为 null：区间悬空，指向事件文本，仅供审计）。 */
   locator: string | null;
   seq: number | null;
-  headings: readonly string[];
-  keyLines: readonly number[];
-  slices: ReadonlyArray<{ start: number; end: number; fnv: string }>;
+  headings: readonly HeadingEntry[];
+  keyLines: readonly KeyLineEntry[];
+  slices: readonly SliceEntry[];
   /** 摘要级指纹（summary-program textFnv，§3.1 四件套之一）。 */
   fingerprint: string;
   /** 固定上限的截断预览（属概括，不是正文）。 */
@@ -166,7 +171,7 @@ export function putDigest(
   record: DigestRecord,
 ): DigestPutResult {
   const now = record.now ?? Date.now();
-  const headingsText = record.headings.join("\n");
+  const headingsText = record.headings.map((h) => h.text).join("\n");
   const gateText = `${headingsText}\n${record.preview}`;
   const pattern = matchDenyPattern(gateText);
   if (pattern !== null) return { status: "rejected", reason: pattern };
@@ -362,7 +367,6 @@ export function pruneDigests(
 /** 会话目录解析（D60-b）：existsSync 且不 mkdir；返回 null = 解析失败（调用方告警跳过）。 */
 export function resolveSessionDigestPath(
   sessionDir: string | undefined,
-  sessionId: string,
 ): string | null {
   if (sessionDir === undefined || sessionDir === "") return null;
   const dir = resolve(sessionDir);

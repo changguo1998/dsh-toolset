@@ -34,9 +34,22 @@ const record = (overrides: Partial<DigestRecord> = {}): DigestRecord => ({
   tool: "read",
   locator: "/tmp/spill.txt",
   seq: 3,
-  headings: ["# 输出标题"],
-  keyLines: [4, 9],
-  slices: [{ start: 1, end: 20, fnv: "0xabc" }],
+  headings: [{ line: 1, level: 1, text: "输出标题" }],
+  keyLines: [
+    { line: 4, text: "ERROR: boom" },
+    { line: 9, text: "warn" },
+  ],
+  slices: [
+    {
+      index: 0,
+      startLine: 1,
+      endLine: 20,
+      startChar: 0,
+      endChar: 400,
+      preview: "…",
+      fnv: "0xabc",
+    },
+  ],
   fingerprint: "fnv-123",
   preview: "输出首段预览文本。",
   isError: false,
@@ -94,7 +107,10 @@ test("去重：同 content_hash 幂等返回既有 id", async () => {
 test("searchDigests / readDigest：命中即刷新 referenced_at；FTS 语法错误走 LIKE 兜底", async () => {
   const { db } = await makeDb();
   try {
-    putDigest(db, record({ headings: ["构建指南"] }));
+    putDigest(
+      db,
+      record({ headings: [{ line: 1, level: 1, text: "构建指南" }] }),
+    );
     const hits = searchDigests(db, "构建", { now: 2000 });
     assert.equal(hits.length, 1);
     const ref = db
@@ -106,8 +122,13 @@ test("searchDigests / readDigest：命中即刷新 referenced_at；FTS 语法错
     assert.equal(cjk.length, 1);
     const digest = readDigest(db, "/tmp/spill.txt", { now: 4000 });
     assert.ok(digest !== undefined);
-    assert.deepEqual(digest.headings, ["构建指南"]);
-    assert.deepEqual(digest.keyLines, [4, 9]);
+    assert.deepEqual(digest.headings, [
+      { line: 1, level: 1, text: "构建指南" },
+    ]);
+    assert.deepEqual(digest.keyLines, [
+      { line: 4, text: "ERROR: boom" },
+      { line: 9, text: "warn" },
+    ]);
     const ref2 = db
       .prepare("SELECT referenced_at FROM digests WHERE id = 1")
       .get() as { referenced_at: number };
@@ -140,9 +161,9 @@ test("容量兜底：超限清最旧", async () => {
 test("落点判据：会话目录不存在 → null（不建目录）；存在 → 路径", async () => {
   const dir = await mkdtemp(join(tmpdir(), "sess-"));
   try {
-    assert.equal(resolveSessionDigestPath(join(dir, "nope"), "s1"), null);
+    assert.equal(resolveSessionDigestPath(join(dir, "nope")), null);
     assert.ok(!existsSync(join(dir, "nope")), "不得自建旁路目录");
-    const okPath = resolveSessionDigestPath(dir, "s1");
+    const okPath = resolveSessionDigestPath(dir);
     assert.equal(okPath, dir);
   } finally {
     await rm(dir, { recursive: true, force: true });
