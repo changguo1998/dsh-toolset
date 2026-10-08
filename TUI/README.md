@@ -287,7 +287,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 | `/agents` | 子代理面板：Enter 对 continuable 子代理发中断、一次性（one-shot）条目给不可中断原因；面板打开期间订阅 `subagent/start` · `subagent/end` 即时刷新（另有 2s 定时兜底与 `r` 手动刷新） |
 | `/task`、`/guard`、`/loop` | 任务树 / 守卫记录 / 指标循环面板，Enter 查看详情（`/guard` 的 security-guard 服务按**惰读**获取，与 `$` 模式复查同口径：插件并发装载不会误报「服务不可用」） |
 | `/workflows` | workflow 运行面板（只读，面板打开期间定时刷新） |
-| `/memory` | 知识库概要（路径与 chunk/source 计数） |
+| `/memory` | 知识库（memory-base）：缺省概要；`review [tier]` 提升审阅面板（批准/拒绝/改写，冲突候选四裁定，U 层需用户本人）；`search <query> [--all-projects]`；`add <tier> [--kind k] <内容>`（origin: user 直达） |
 | `/contract` | 当前会话 goal 的 Done-when 条款摘要 |
 | `/council [N]` | 二次意见：并行拉起 N（默认 2、上限 4）个评审子代理汇总意见 |
 | `/search <query>` | 网页搜索：并行多 provider 聚合 → URL 去重 → 相关度排序 → 列表面板（Enter 打开来源 URL） |

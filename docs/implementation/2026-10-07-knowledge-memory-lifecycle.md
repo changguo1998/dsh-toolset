@@ -578,3 +578,9 @@
 - 不做 I→S 候选的专属呈现（I→S 候选在 S 库 candidates，面板一并列出即可，无特殊化）。
 - 不做批量 approve（设计「一次一条逐条处理」）；不做 reviewer 参数化（凭据约束）。
 - 不改 memory-base 数据面（消费面已就绪）。
+- 2026-10-08：**条目 2（TUI 侧改造）完成** —— 决策点经子代理审阅（有条件通过，6 项必须改全采纳：未答条目跳过 / 冲突候选走 resolveConflict 四裁定 / add 补 kind / 宿主覆盖草稿暂存 / 打开态派生化 / 结算守卫；建议项采纳：submit 后自动重拉快照、--all-projects 标注非开关、`/memory replace|remove` 记 BACKLOG 后续条目候选、llm-unavailable 回执语义）。实施：
+  - **一段（接线与子命令）**：`main.ts` knowledge 急读改 getter 惰读；`adapter/types.ts` `KnowledgeServiceLike` 扩 search / remember / candidates.\* + 新 `CandidateRowLike` / `MemoryReviewVerdictLike` / `MemoryCandidatesLike` + `DshAdapter` 增七个 memory 方法（reviewer 写死 "user"）；`app/index.ts` `/memory` 子命令化（缺省概要 / `review [tier]` / `search [--all-projects]` 静态版标注 / `add <tier> [--kind k]`——U 层无 kind 显式拒绝）。提交 `0c46aa8`。
+  - **二段（审阅面板）**：合成 id `memory-review` 面板（照 exit-confirm 模式，不经宿主应答链）；一候选一题（普通=批准/拒绝，冲突=裁定四选项，edit=自定义兜底项文本）；结算未答跳过（绕开 `buildQuestionAnswers` 默认回退）+ 单条失败回执不阻塞 + 完成自动重拉快照汇总；宿主 question 优先 + 覆盖时编辑草稿按候选暂存恢复；submit/cancel 本地分支。同上提交。
+  - **三段（收尾）**：TUI README `/memory` 行更新；测试 `tests/memory-review.test.ts` 4 例（面板分化 / 未答跳过 / 冲突裁定路由 / add kind 闸）；BACKLOG 移除条目重排（剩 output-compress 自持 digest.db）。测试提交 `b7b907f`。
+  - **踩坑**：① dispatch 传入的 `line` 含 `/memory` 前缀（同 /session 口径），子命令解析前需剥离；② adapter 方法解构调用丢 `this`（fake adapter 用实例字段）——统一 `.call(adapter, ...)`；③ 断言受 100 列画布截断影响——测试画布加宽到 120。
+  - **验证**：TUI `npm run check` 0 error、`npm run build` exit 0、`npm run test` **1345 全绿**（+4 新例）；memory-base 102/102 不回归。
