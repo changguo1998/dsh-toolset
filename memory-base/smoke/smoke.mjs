@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * 宿主联调 smoke（profile: dsh-toolset-knowledge-base，对齐宿主 dsh 0.2.0-rc.2）。
+ * 宿主联调 smoke（profile: dsh-toolset-memory-base，对齐宿主 dsh 0.2.0-rc.2）。
  *
  * 流程：
  *   0. 检查宿主 dsh 版本（要求 0.2.0-rc.2）
- *   1. profile dsh-toolset-knowledge-base 引导（幂等：创建 → 挂载插件 link: → 写用户层配置）
+ *   1. profile dsh-toolset-memory-base 引导（幂等：创建 → 挂载插件 link: → 写用户层配置）
  *   2. 缺 dist 时先构建
  *   3. 真实 dsh headless 一次性会话（低阈值强制压缩 + fs write 产生真实 meta）
  *   4. 断言 ctx_knowledge 注册（DB schema 指纹）与新字段摄取（[tool/meta]、shadowedRange）
@@ -33,9 +33,9 @@ const PKG_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const PROFILE = "dsh-toolset-knowledge-base";
+const PROFILE = "dsh-toolset-memory-base";
 const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
-const PKG_NAME = "@dsh-toolset/knowledge-base";
+const PKG_NAME = "@dsh-toolset/memory-base";
 const REQUIRED_VERSION = "0.2.0-rc.2";
 const KNOWLEDGE_APP_ID = 0x4b4e4f57; // schema.ts KNOWLEDGE_APPLICATION_ID ('KNOW')
 const KNOWLEDGE_SCHEMA_VERSION = 1;
@@ -47,14 +47,14 @@ const COMP_SQL =
 const RANGE_SQL =
   "SELECT COUNT(*) AS n FROM chunks WHERE category = 'compaction/summary' AND content LIKE '%shadowedRange%'";
 
-const CORDIS_PATCH = `# 本 profile 用户层：knowledge-base 插件配置（由 smoke 脚本管理，勿手改）。
-# dbPath 优先取 KNOWLEDGE_DB_PATH 环境变量（smoke 重定向到临时目录），
-# 缺省落 ~/.dsh/knowledge-base/knowledge.db（dshHomePath 由宿主 !!js 提供）。
-- id: knowledge-base
-  name: '@dsh-toolset/knowledge-base'
+const CORDIS_PATCH = `# 本 profile 用户层：memory-base 插件配置（由 smoke 脚本管理，勿手改）。
+# dbPath 优先取 MEMORY_DB_PATH 环境变量（smoke 重定向到临时目录），
+# 缺省落 ~/.dsh/memory-base/memory.db（dshHomePath 由宿主 !!js 提供）。
+- id: memory-base
+  name: '@dsh-toolset/memory-base'
   config:
-    dbPath: !!js process.env.KNOWLEDGE_DB_PATH || dshHomePath('knowledge-base/knowledge.db')
-    project: 'dsh-toolset-knowledge-base'
+    dbPath: !!js process.env.MEMORY_DB_PATH || dshHomePath('memory-base/memory.db')
+    project: 'dsh-toolset-memory-base'
 `;
 
 const COMPACTION_OVERLAY = `# smoke 专用：强制低压缩阈值，让一次性会话也能触发 compaction/summary
@@ -202,7 +202,7 @@ function runSession(dbPath, taskDir, overlayPath) {
       cwd: taskDir,
       env: {
         ...process.env,
-        KNOWLEDGE_DB_PATH: dbPath,
+        MEMORY_DB_PATH: dbPath,
         DSH_PERMISSION_MODE: "danger-full-access",
       },
     });
@@ -269,7 +269,7 @@ async function syntheticBackstop(dbPath, { needMeta, needCompaction }) {
     const sessionHooks = new hooks.SessionHooks(
       new knowledge.KnowledgeService(db),
       {
-        project: "dsh-toolset-knowledge-base",
+        project: "dsh-toolset-memory-base",
       },
     );
     if (needMeta) {
@@ -325,7 +325,7 @@ async function roundtrip(dbPath) {
   const db = await schema.openKnowledgeDatabase(dbPath);
   try {
     const kb = new knowledge.KnowledgeService(db);
-    const project = "dsh-toolset-knowledge-base";
+    const project = "dsh-toolset-memory-base";
     const target = "smoke/roundtrip";
     const content = "smoke roundtrip marker 烟雾弹 12345";
     kb.put({ project, target, content, importance: 3, sessionId: "smoke" });

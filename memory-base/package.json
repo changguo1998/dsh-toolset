@@ -1,5 +1,5 @@
 {
-    "name": "@dsh-toolset/knowledge-base",
+    "name": "@dsh-toolset/memory-base",
     "version": "0.1.0",
     "description": "DSH (DeepSeek Harness) 进程内集成跨会话知识库与持久记忆",
     "type": "module",

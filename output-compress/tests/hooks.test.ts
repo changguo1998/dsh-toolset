@@ -28,7 +28,7 @@ import { SUMMARY_PROGRAM, validateSummary } from "../src/summary-program.ts";
 const HINT =
   "Use read with offset/limit, or grep this path to search within it.";
 
-/** 按 knowledge-base DDL 建测试库（指纹 'KNOW'/v1 + 触发器）。 */
+/** 按 memory-base DDL 建测试库（指纹 'KNOW'/v1 + 触发器）。 */
 function makeKbDb(dbPath: string): void {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA application_id = 0x4b4e4f57");
@@ -399,7 +399,7 @@ test("库未挂载：库稍后出现时，同一事件经退避重试入库", as
     });
     // 首试时库不存在：被捕获为 skipped 并调度重试（回调不抛错）
     assert.doesNotThrow(() => emit(toolResultEvent(60, "r".repeat(20_000))));
-    // 模拟 knowledge-base 稍后建库
+    // 模拟 memory-base 稍后建库
     await new Promise((r) => setTimeout(r, 80));
     makeKbDb(dbPath);
     await settle(() => countOcChunks(dbPath) >= 1);

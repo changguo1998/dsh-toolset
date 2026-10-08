@@ -1,4 +1,4 @@
-# knowledge-base 实现
+# memory-base 实现
 
 本文件记实现落点、关键机制与踩坑；设计取舍见 `DESIGN.md`，接口与配置见 `README.md`。
 
@@ -20,7 +20,7 @@
 ## 2. 装配与生命周期（`src/index.ts`）
 
 - `createKnowledgeBundle(host, config)`：开库 → 建 `KnowledgeService`/`MemoryService`/`WritePolicy` → `SessionHooks.attach(host)` → 返回 `{kb, memory, policy, hooks, dbPath, summary(), dispose()}`；`dispose` 解绑事件订阅并关库。
-- `apply(ctx, config)` 保持宿主调用语义：**void、fire-and-forget**，创建 Promise 存入模块级 `readyPromise`，成功后才赋给 `activeBundle`；失败只写日志（`ctx.logger("knowledge-base").info`）。
+- `apply(ctx, config)` 保持宿主调用语义：**void、fire-and-forget**，创建 Promise 存入模块级 `readyPromise`，成功后才赋给 `activeBundle`；失败只写日志（`ctx.logger("memory-base").info`）。
 - 命令侧通过 `getKnowledgeBundle()`（同步，未就绪返回 `undefined`）、`getKnowledgeBundleSummary()`、`whenKnowledgeReady()`（未 apply 时 reject）访问，避免「apply 尚未完成就读」的竞态。
 - 只读服务经 `ctx.provide('knowledge', { getSummary, whenReady })` 暴露，`ctx.provide` 不是函数时静默跳过（防御式，不因宿主形态差异而失败）。
 
@@ -62,4 +62,4 @@ npm run smoke   # 需本机 dsh 0.2.0-rc.2 与模型凭据
 ```
 
 - 单测分布：`schema` 3（TRIGGER 双索引一致、索引建立、文件库幂等 reopen）、`knowledge` 8、`hooks` 12、`writepolicy` 8、`memory` 6、`exposure` 2（apply 前暴露面未就绪 / apply 后 bundle 可写入与检索）。
-- `npm run smoke` 的判定口径是**确定性证据**：引导 profile `dsh-toolset-knowledge-base`（`link:` 挂载、缺 `dist/` 自动构建）→ `dsh --version` 必须等于 0.2.0-rc.2 → 低压缩阈值 overlay 强制触发 compaction + 任务强制 fs write 产生真实 meta → 断言库文件存在且 schema 指纹匹配（`application_id = 0x4b4e4f57`、`user_version = 1`）与 `[tool/meta]`/`shadowedRange` 摄取行（不依赖宿主 logger 输出）→ dist 产物 put / search（EN 词干 + CJK LIKE）/ touch / evict 往返。真实载荷缺失时经 dist hooks 注入合成事件兜底；失败保留临时目录并打印路径。
+- `npm run smoke` 的判定口径是**确定性证据**：引导 profile `dsh-toolset-memory-base`（`link:` 挂载、缺 `dist/` 自动构建）→ `dsh --version` 必须等于 0.2.0-rc.2 → 低压缩阈值 overlay 强制触发 compaction + 任务强制 fs write 产生真实 meta → 断言库文件存在且 schema 指纹匹配（`application_id = 0x4b4e4f57`、`user_version = 1`）与 `[tool/meta]`/`shadowedRange` 摄取行（不依赖宿主 logger 输出）→ dist 产物 put / search（EN 词干 + CJK LIKE）/ touch / evict 往返。真实载荷缺失时经 dist hooks 注入合成事件兜底；失败保留临时目录并打印路径。

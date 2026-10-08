@@ -1,8 +1,8 @@
-# knowledge-base 设计
+# memory-base 设计
 
 > 阅读顺序：§0 判定标准（先读）→ §1 定位 → §2 分层与路由 → §3 各层契约 → §4 分类 → §5 闸门 → §6 提升与审阅 → §7 检索与索引 → §8 容量与频率 → §9–§10 Schema 与迁移 → §11–§13 边界 / 差异清单 / 已知边界。
 >
-> 本文描述**目标架构**（2026-10-08 定稿方向）：按**生命周期作用域**分层的记忆系统，目标包名 `memory-base`（现名 `knowledge-base`）。现状实现（单库 `knowledge.db` + 调用方闸门）与目标的差异见 §12；`README.md` 仍描述当前实现，实施落地后同步。
+> 本文描述**目标架构**（2026-10-08 定稿方向）：按**生命周期作用域**分层的记忆系统，包名 `memory-base`（2026-10-08 由 `knowledge-base` 改名）。现状实现（单库 `knowledge.db` + 调用方闸门）与目标的差异见 §12；`README.md` 仍描述当前实现，实施落地后同步。
 
 ## 0 判定标准（先读这一节）
 
@@ -57,7 +57,7 @@ DSH 进程内集成的**分层长期记忆**。层不是按时间长短切，而
 | **P** 项目（**P**roject） | `project.db` | 项目根 `.dsh/` | `memory-base` | 项目级事实 / 约定 / 失败教训（不设长度上限） | + 跨会话价值判据 + 项目内去重 | 项目存续 / 200 MB |
 | **U** 用户（**U**ser） | `user.db` | `~/.dsh/memory-base/` | `memory-base` | 跨项目偏好 / 习惯 / 通用事实（不设长度上限） | + 跨项目价值判据或用户确认 + 跨项目去重 + 隐私**二次**检查 + 近似替换 | 永久 / 1 MB（软上限：超限只告警） |
 
-表中「写入标准」列只列该层**增量**标准，完整闸门（含隐私与审阅）见 §5 表；层名：**S**ession / **P**roject / **U**ser 是三个生命周期作用域的首字母；**I**ndex 是索引层（不是作用域）。`memory-base` 是本包的目标名（现名 `knowledge-base`，改名属实施条目，见 §12 #9）。
+表中「写入标准」列只列该层**增量**标准，完整闸门（含隐私与审阅）见 §5 表；层名：**S**ession / **P**roject / **U**ser 是三个生命周期作用域的首字母；**I**ndex 是索引层（不是作用域）。`memory-base` 是本包名（§12 #9 改名已落地）。
 
 ```
 T0 原始（宿主日志 / spill；本仓不复制）
@@ -96,7 +96,7 @@ U  user.db          跨项目的用户事实（最严）
 ### 3.1 I 索引层（`digest.db`，`output-compress`）
 
 - 触发：宿主 spill 通知或阈值（≥ 16 KB）；沙箱内确定性派生程序产出 `headings` / `keyLines` / `slices` / 指纹。`keyLines` / `slices` 存**行号 + 字符区间 + 指纹**，`preview` 是**固定上限的截断预览**（属概括，不是正文）；**`is_error` 布尔值写入时落库**，供巩固期复算 I → S 判据。
-- 写入：过本层闸门（结构 + 去重 + **隐私底线**，见 §5）；不再直写 knowledge-base 的库。原先的硬约束「不建表、不写 FTS」随之作废——它只对「写别人的库」成立。
+- 写入：过本层闸门（结构 + 去重 + **隐私底线**，见 §5）；不再直写 memory-base 的库。原先的硬约束「不建表、不写 FTS」随之作废——它只对「写别人的库」成立。
 - 保留：`session/disposed` **不清除**本会话索引（它只触发 S → P 的提升收尾）；硬删除只有两条路——宿主删除会话（目录消失）与 7 天兜底；100 MB 上限。**清理由属主 `output-compress` 自管**（启动后 + 每次写入后自查），memory-base 的巩固链只处理 S / P / U。
 - 字段：`referenced_at`——**刷新点 = 属主自己的索引检索 / 回读入口**（`searchDigests` 命中或按 locator 回读时 UPDATE）；I 层**不参与记忆检索**，故不用 `last_referenced`。
 - 定位：供 `read` 按行 / 字符区间回 spill 文件；**不参与记忆检索**，升级为记忆要走提升接口。
@@ -157,7 +157,7 @@ U  user.db          跨项目的用户事实（最严）
 | P | 提升来源约束 | `(project, content_hash)` | 价值证据：命中过 / 决策类 / 教训（§6） | **agent 可代批**（用户亦可；用户指令免审） | 底线 + 概括文本二次检查 |
 | U | 已注册分类（`kind` 必填） | 跨项目去重 + 同类**近似**替换 | 跨 ≥2 项目成立**或用户确认** | **必须用户本人**（agent 的 `approve` 无效；用户指令免审） | 底线 + 概括文本二次检查 |
 
-- **隐私底线必须自足**：`output-compress` 与 `knowledge-base` 各持一份相同的六类形态模式常量（两包**不得**建立 npm 依赖）+ 一条**跨包一致性测试**（漂移即测试红）。profile 自定义 `denyPatterns` 属扩展面：能取到 `ctx.get('memory').checkContent()` 就叠加，取不到只用底线。
+- **隐私底线必须自足**：`output-compress` 与 `memory-base` 各持一份相同的六类形态模式常量（两包**不得**建立 npm 依赖）+ 一条**跨包一致性测试**（漂移即测试红）。profile 自定义 `denyPatterns` 属扩展面：能取到 `ctx.get('memory').checkContent()` 就叠加，取不到只用底线。
 - **存量回扫**：**S / P / U** 三层可按当前规则重扫已有行（I 层归属主自管）（`rescanDenied({scope, apply})`），默认只出报告（条数 + 分类，不回显内容），`apply: true` 才删。
 - **`importance` 赋值**：由写入方给——用户直写可显式指定；自动路径取注册方写入前钩子的建议值，无建议时缺省 3（clamp 1..5）。它**只用于淘汰排序与候选优先级，不作为价值闸**（缺省 3 会让门槛恒真，故 P / U 的门槛由「价值证据」承担）。
 - **可观测**：各层计数（`accepted` / `deduped` / `skipped{reason}` / `promoted` / `evicted` / `conflicts` / `bytes`），`getSummary()` 汇总。
@@ -306,13 +306,13 @@ U  user.db          跨项目的用户事实（最严）
 
 | # | 差异 | 落点 | 验收要点 |
 | --- | --- | --- | --- |
-| 1 | 单库 601 MB → 三库（`session.db` / `project.db` / `user.db`）+ 索引库 `digest.db` | `knowledge-base/src/schema.ts`、`src/index.ts`、新 `src/scopes/*` | 各库独立指纹与上限；旧库文件不被自动读取 |
+| 1 | 单库 601 MB → 三库（`session.db` / `project.db` / `user.db`）+ 索引库 `digest.db` | `memory-base/src/schema.ts`、`src/index.ts`、新 `src/scopes/*` | 各库独立指纹与上限；旧库文件不被自动读取 |
 | 2 | 闸门从 `hooks.ts` 下沉到库核心，并按作用域选规则集 | `src/knowledge.ts`、`src/rules.ts` | `writeBack` / `backfill` / `memory.add` 自动过闸（负向用例：绕过即被拒） |
 | 3 | `project` 派生链（写入归属 + 排序加权）+ **跨全域检索** | `src/index.ts`、`src/hooks.ts`（读 `header.cwd`）、`src/knowledge.ts` | 一次查询命中本会话 S + 当前项目 P + U 的**全部已注册分类表**并带层 / 分类标签；`crossProject` 开关能读到其他项目的 P；同 project 结果靠前 |
 | 4 | 提升链 I → S → P → U（判据 + LLM 概括 + **审阅队列** + 回指 + **接 `ctx.llm` 面**） | 新 `src/promote.ts`、`src/consolidate.ts` | 每跳产出候选、审阅通过才落上层；无审阅记录不得自动入库；用户指令直写带 `origin: user`；**LLM 面不可用 = 调用失败**，失败不提升并计数（不降级） |
 | 5 | 会话级清理口径（`session/disposed` 只做提升收尾；删数据靠宿主删会话 + 7 天兜底）+ 逐库字节上限 | `src/budget.ts`、各库核心、`src/index.ts` | TUI 退出 / resume 后 S 内容仍在；以「手动删会话目录」模拟宿主清理后 S / I 一并消失；7 天兜底与容量淘汰各自单测覆盖；逐库上限触发淘汰（U 层只告警） |
 | 6 | 存量清空 + 版本策略改「迁移或拒绝打开」 | `src/schema.ts`、新 `src/migrate.ts` | 版本不匹配不 DROP；清空动作显式调用才发生 |
-| 7 | `output-compress` 自持 `digest.db` + 底线闸门 + 提升 push（含 `referenced_at` 回读刷新 + 巩固时重推未成功候选） | `output-compress/src/kb-write.ts`、`src/hooks.ts`、`src/index.ts` | 不再写 knowledge-base 的库；跨包模式常量一致性测试 |
+| 7 | `output-compress` 自持 `digest.db` + 底线闸门 + 提升 push（含 `referenced_at` 回读刷新 + 巩固时重推未成功候选） | `output-compress/src/kb-write.ts`、`src/hooks.ts`、`src/index.ts` | 不再写 memory-base 的库；跨包模式常量一致性测试 |
 | 8 | 存量回扫 `rescanDenied()` | `src/rules.ts` + 各库核心 | 默认只报告不回显内容；`apply` 才删 |
 | 9 | **包改名** `knowledge-base` → `memory-base`（目录、`package.json` name、`cordis.patch.yml` id、服务键 `ctx.get('memory')`、`scripts/install.sh` 的 `canonical_pkgs`、TUI 消费方 `TUI/src/main.ts:586`、全部文档引用） | 仓库级 | `npm run check` 全绿；`dsh --profile fff --dump-config` 显示新名；旧服务键无残留引用 |
 | 10 | **存储位置迁移**：S / I → 会话目录，P → 项目根 `.dsh/`，U → `~/.dsh/memory-base/` | `src/schema.ts`、`src/index.ts`、新 `src/router.ts` | 三层路径各就各位；项目 `.dsh/` 不被 git 跟踪（提示或 `.gitignore`）；S / I 落在宿主会话目录本身，无自建旁路目录 |

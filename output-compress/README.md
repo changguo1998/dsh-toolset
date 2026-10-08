@@ -1,6 +1,6 @@
 # @dsh-toolset/output-compress
 
-DSH（DeepSeek Harness）进程内插件：把超阈值命令/工具输出压成**确定性摘要 + 切片索引**写进 knowledge-base 的共享 SQLite 库——原始大输出不进模型上下文，事后仍可按需检索并定位回原始字节。
+DSH（DeepSeek Harness）进程内插件：把超阈值命令/工具输出压成**确定性摘要 + 切片索引**写进 memory-base 的共享 SQLite 库——原始大输出不进模型上下文，事后仍可按需检索并定位回原始字节。
 
 ## 能力
 
@@ -18,13 +18,13 @@ DSH（DeepSeek Harness）进程内插件：把超阈值命令/工具输出压成
 - `slices`：行区间 + 字符区间 + 80 字符预览 + FNV-1a-32 指纹；
 - `textFnv`：全文指纹。
 
-摘要渲染为小体积 Markdown（含 session/seq/tool/source/stats 头与 sections / key lines / slices 三段），经共享库写入器写进 knowledge-base 的**同一个** SQLite 文件（`category`、`target` 均为 `output-compress`，`source.kind = tool_result`，importance 按 isError 取 4 / 2），FTS 索引由 knowledge-base 的库内触发器自动建立。
+摘要渲染为小体积 Markdown（含 session/seq/tool/source/stats 头与 sections / key lines / slices 三段），经共享库写入器写进 memory-base 的**同一个** SQLite 文件（`category`、`target` 均为 `output-compress`，`source.kind = tool_result`，importance 按 isError 取 4 / 2），FTS 索引由 memory-base 的库内触发器自动建立。
 
 ## 配置
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `dbPath` | `OUTPUT_COMPRESS_DB_PATH` → `KNOWLEDGE_DB_PATH` → `~/.dsh/knowledge-base/knowledge.db` | 共享库路径，必须与 knowledge-base 一致 |
+| `dbPath` | `OUTPUT_COMPRESS_DB_PATH` → `MEMORY_DB_PATH` → `~/.dsh/memory-base/memory.db` | 共享库路径，必须与 memory-base 一致 |
 | `minBytes` | `16384` | 无 spill 通知时触发摘要的最小文本 UTF-8 字节数 |
 | `maxSourceBytes` | `524288` | 读取 spill 文件的字节上限 |
 | `kbRetryDelays` | `[1000, 2500, 5000, 10000]` | 库未挂载时的重试退避序列（ms） |
@@ -34,9 +34,9 @@ DSH（DeepSeek Harness）进程内插件：把超阈值命令/工具输出压成
 
 ## 使用示例
 
-profile 挂载（`~/.dsh/profiles/<p>`）：以 `link:` 依赖同时指向本包与 knowledge-base，两者共享同一 `dbPath` 表达式，然后 `dsh --profile <p>` 启动。
+profile 挂载（`~/.dsh/profiles/<p>`）：以 `link:` 依赖同时指向本包与 memory-base，两者共享同一 `dbPath` 表达式，然后 `dsh --profile <p>` 启动。
 
-检索摘要记录（走 knowledge-base 的检索面，按 category 过滤）：
+检索摘要记录（走 memory-base 的检索面，按 category 过滤）：
 
 ```ts
 bundle.kb.search({ query: "ENOENT", category: "output-compress", project: "default" });
@@ -48,15 +48,15 @@ bundle.kb.search({ query: "ENOENT", category: "output-compress", project: "defau
 
 - **不存原文全文**：原始字节由宿主 retention / spill 负责保留；本插件只写入可检索的摘要与切片索引，不让原文进模型上下文。
 - **与官方 `spill-policy` / `compaction-tool-result-pruner` 的分工（不构成双重截断）**：`spill-policy` 决定「超 `maxInlineTokens` 的结果在上下文里留什么」（preview + 落盘通知，原文写 spill 文件；`read` 工具被它内置豁免，故本插件才有阈值兜底这一路）；`compaction-tool-result-pruner` 在压缩时对 tool-result surface 节点做 head/middle/tail 裁剪（免模型、可重放安全）。两者都只改**上下文呈现**，不产摘要、不入库；本插件只在事件流之外有界读取 spill 文件（≤ `maxSourceBytes`）派生摘要并写库，也不改写会话上下文——三方各管一层，唯一重叠的「取数」动作也只是一次有上限的只读。
-- **不与 knowledge-base 建立 npm 依赖**：跨 bundle 只通过共享库文件这一宿主共享面通信，因此**不建表、不写 FTS 表**——`chunks` 的索引同步完全依赖 knowledge-base 的库内触发器。
-- **共库直写的边界（与 knowledge-base 口径一致；目标架构已变更，见下）**：本包直插 `sources`/`chunks`，**不走 knowledge-base 的入库规则（`persistRules` 隐私拒绝模式 / `minChars`）、容量守卫（`maxTokensPerProject`）与 `hooks.stats` 计数**，自己只做「库指纹校验 + `content_hash` 去重」；反向地，knowledge-base 的淘汰 / 自动巩固 / 容量守卫按 `chunks` 全表作业，会一并作用到本包写入的行（对端口径见 `../knowledge-base/README.md` 与 `../knowledge-base/docs/DESIGN.md` §9）。
+- **不与 memory-base 建立 npm 依赖**：跨 bundle 只通过共享库文件这一宿主共享面通信，因此**不建表、不写 FTS 表**——`chunks` 的索引同步完全依赖 memory-base 的库内触发器。
+- **共库直写的边界（与 memory-base 口径一致；目标架构已变更，见下）**：本包直插 `sources`/`chunks`，**不走 memory-base 的入库规则（`persistRules` 隐私拒绝模式 / `minChars`）、容量守卫（`maxTokensPerProject`）与 `hooks.stats` 计数**，自己只做「库指纹校验 + `content_hash` 去重」；反向地，memory-base 的淘汰 / 自动巩固 / 容量守卫按 `chunks` 全表作业，会一并作用到本包写入的行（对端口径见 `../memory-base/README.md` 与 `../memory-base/docs/DESIGN.md` §9）。
 - `slices` 片数是**上限 16**：每片行数取 `max(1, ceil(总行数/16))`，行数少时实际片数更少。
 - 触发依赖宿主文案：严格正则锚定 spill 通知字面量，宽松正则兜底宿主文案演进；空 locator 的通知回落阈值判定。宿主在同时省略整张图片时会在省略句与定位句之间插入 ` Omitted N images.`，该形态两个正则都不命中 → 回落阈值判定（不会误写，只是少了 spill 权威信号）。
 - 失败一律降级：管线内任何抛错都收敛为 `skipped` + 日志；spill 文件暂不可读时降级为「用事件内文本入库」（并在 10s 冷却窗口内不再尝试读该文件），库未挂载时按 `kbRetryDelays` 主动重试（最多 4 次，绕过去重）后放弃。
 - 去重表（已处理事件、`callId → toolName`）有容量上限（1024 / 256），超出后**整体清空**（不是淘汰最旧项）。
 - 本包 `cordis.patch.yml` 用 dsh 的 `insert` 方言（非 RFC6902 JSON Patch），故刻意不写注释——仓库统一的 `format` 对 YAML 走 python `yq -y -i .`，会丢注释、导致格式化永不收敛；同目录 `.pi-lens.json` 把该文件排除出 `yaml-schema: JSONPatch` 误报。
 
-> **目标架构提示（2026-10-08）**：`knowledge-base/docs/DESIGN.md` 已定稿为**分层记忆系统**——本包将**自持 `digest.db`**（索引层，属主为本包）、不再共库直写，跨包只经服务面（`ctx.get('memory').promote` / `checkContent`）+ 一份必须一致的隐私常量；I 层的兜底过期与容量由本包自管。本节上述「共库直写」描述的是**当前实现**，实施落地后同步。
+> **目标架构提示（2026-10-08）**：`memory-base/docs/DESIGN.md` 已定稿为**分层记忆系统**——本包将**自持 `digest.db`**（索引层，属主为本包）、不再共库直写，跨包只经服务面（`ctx.get('memory').promote` / `checkContent`）+ 一份必须一致的隐私常量；I 层的兜底过期与容量由本包自管。本节上述「共库直写」描述的是**当前实现**，实施落地后同步。
 
 ## 测试
 

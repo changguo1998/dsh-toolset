@@ -1,7 +1,7 @@
 {
     "name": "@dsh-toolset/output-compress",
     "version": "0.1.0",
-    "description": "DSH (DeepSeek Harness) 进程内集成大输出压缩入库（确定性摘要+切片索引，经宿主共享面写入 knowledge-base 库）",
+    "description": "DSH (DeepSeek Harness) 进程内集成大输出压缩入库（确定性摘要+切片索引，经宿主共享面写入 memory-base 库）",
     "type": "module",
     "main": "dist/src/index.js",
     "scripts": {

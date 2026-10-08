@@ -30,7 +30,7 @@
 
 - **目标**：会话过程里的决策、结论与工具结果自动进入知识库，并被巩固与淘汰。
 - **判据**：事件入库具备过滤 / 去重 / 容量 / 隐私边界；记忆能自动提升、合并相似项、淘汰陈旧项。
-- **依据**：`knowledge-base/README.md`、`knowledge-base/docs/DESIGN.md`、追踪文档 `docs/archived/2026-10-02-knowledge-events-and-memory-consolidation.md`。
+- **依据**：`memory-base/README.md`、`memory-base/docs/DESIGN.md`、追踪文档 `docs/archived/2026-10-02-knowledge-events-and-memory-consolidation.md`。
 
 ### D. 宿主演进与文档资产
 

@@ -5,7 +5,7 @@
  * 流程：
  *   0. 检查宿主 dsh 版本（要求 0.2.0-rc.2）
  *   1. profile dsh-toolset-output-compress 引导（幂等：创建 → 双插件 link: → 写用户层配置）
- *   2. 缺 dist 时先构建（output-compress + knowledge-base 双包）
+ *   2. 缺 dist 时先构建（output-compress + memory-base 双包）
  *   3. 真实 dsh headless 一次性会话：bash cat 大文件（>50KB → 宿主 spill → 触发本插件）
  *   4. 断言：DB 指纹、category='output-compress' chunk、FTS 召回、切片索引定位回原始字节、
  *      chunk 体积上限（≤6000 字符）
@@ -34,31 +34,31 @@ const PKG_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const KB_ROOT = path.resolve(PKG_ROOT, "..", "knowledge-base");
+const KB_ROOT = path.resolve(PKG_ROOT, "..", "memory-base");
 const PROFILE = "dsh-toolset-output-compress";
 const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
 const PKG_NAME_OC = "@dsh-toolset/output-compress";
-const PKG_NAME_KB = "@dsh-toolset/knowledge-base";
+const PKG_NAME_KB = "@dsh-toolset/memory-base";
 const REQUIRED_VERSION = "0.2.0-rc.2";
-const KNOWLEDGE_APP_ID = 0x4b4e4f57; // knowledge-base schema.ts 'KNOW'
+const KNOWLEDGE_APP_ID = 0x4b4e4f57; // memory-base schema.ts 'KNOW'
 const KNOWLEDGE_SCHEMA_VERSION = 1;
 const MARKER = "ERROR output-compress-smoke-marker unique-token-42";
 const MARKER_LINE = 1402;
 
-const CORDIS_PATCH = `# 本 profile 用户层：knowledge-base + output-compress 双插件配置（由 smoke 脚本管理，勿手改）。
+const CORDIS_PATCH = `# 本 profile 用户层：memory-base + output-compress 双插件配置（由 smoke 脚本管理，勿手改）。
 # 两 bundle 共享同一 dbPath 表达式（!!js 由宿主求值）：
-#   优先 KNOWLEDGE_DB_PATH 环境变量（smoke 重定向到临时目录），
-#   缺省落 ~/.dsh/knowledge-base/knowledge.db（dshHomePath 由宿主提供）。
-- id: knowledge-base
-  name: '@dsh-toolset/knowledge-base'
+#   优先 MEMORY_DB_PATH 环境变量（smoke 重定向到临时目录），
+#   缺省落 ~/.dsh/memory-base/memory.db（dshHomePath 由宿主提供）。
+- id: memory-base
+  name: '@dsh-toolset/memory-base'
   config:
-    dbPath: !!js process.env.KNOWLEDGE_DB_PATH || dshHomePath('knowledge-base/knowledge.db')
+    dbPath: !!js process.env.MEMORY_DB_PATH || dshHomePath('memory-base/memory.db')
     project: 'dsh-toolset-output-compress'
 
 - id: output-compress
   name: '@dsh-toolset/output-compress'
   config:
-    dbPath: !!js process.env.KNOWLEDGE_DB_PATH || dshHomePath('knowledge-base/knowledge.db')
+    dbPath: !!js process.env.MEMORY_DB_PATH || dshHomePath('memory-base/memory.db')
     project: 'dsh-toolset-output-compress'
 `;
 
@@ -290,7 +290,7 @@ function runSession(dbPath, taskDir) {
       cwd: taskDir,
       env: {
         ...process.env,
-        KNOWLEDGE_DB_PATH: dbPath,
+        MEMORY_DB_PATH: dbPath,
         DSH_PERMISSION_MODE: "danger-full-access",
       },
     });
@@ -459,7 +459,7 @@ if (!failed) {
     sessionOk = runSession(dbPath, taskDir);
   }
   if (sessionOk && !failed) {
-    // 注册核心证据：真实会话后知识库文件必须存在（由 knowledge-base apply 创建）
+    // 注册核心证据：真实会话后知识库文件必须存在（由 memory-base apply 创建）
     if (assert(existsSync(dbPath), "注册失败：会话成功但知识库文件未创建")) {
       if (!failed) assertIngestion(dbPath);
     }

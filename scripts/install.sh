@@ -27,7 +27,7 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 profile_asset_dir="$repo_root/profiles/example"
 # 插件清单（canonical_pkgs）：集合与根 package.json 的 check/build 链一致，顺序与
 # scripts/test-parallel.sh 的 default_pkgs 同序（scripts/test-install.sh 有校验）。
-canonical_pkgs="TUI herdr-integration knowledge-base task-engine ast-tools md-logic md-map fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine symbol-normalizer session-channel session-title-cutoff command-template ponytail"
+canonical_pkgs="TUI herdr-integration memory-base task-engine ast-tools md-logic md-map fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine symbol-normalizer session-channel session-title-cutoff command-template ponytail"
 
 usage() {
     cat << 'EOF'
@@ -734,8 +734,8 @@ case " $final " in
     *) warn "未选中 TUI：profiles/example/cordis.patch.yml 里针对 - id: tui 的配置会被跳过（启动日志有 patch 告警）" ;;
 esac
 case " $final " in
-    *" knowledge-base "*) ;;
-    *) warn "未选中 knowledge-base：profiles/example/cordis.patch.yml 里针对 - id: knowledge-base 的配置会被跳过" ;;
+    *" memory-base "*) ;;
+    *) warn "未选中 memory-base：profiles/example/cordis.patch.yml 里针对 - id: memory-base 的配置会被跳过" ;;
 esac
 log "profile 依赖：pnpm install（全部为 link: 本地包，无需联网下载本项目插件）"
 run_in "$pdir" pnpm install

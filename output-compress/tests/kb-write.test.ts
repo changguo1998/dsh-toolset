@@ -1,7 +1,7 @@
 /**
  * 共享库写入测试：去重、指纹拒写、FTS 召回、dbPath 解析链、chunk 切分。
  *
- * 测试库按 knowledge-base 的 DDL 复刻（sources/chunks + 双 FTS5 + 触发器 + 指纹），
+ * 测试库按 memory-base 的 DDL 复刻（sources/chunks + 双 FTS5 + 触发器 + 指纹），
  * 保证列名与真实共享库一致。
  */
 import assert from "node:assert/strict";
@@ -18,7 +18,7 @@ import {
   SharedKbWriter,
 } from "../src/kb-write.ts";
 
-/** 按 knowledge-base 的 DDL 建测试库（可指定错误指纹用于拒写用例）。 */
+/** 按 memory-base 的 DDL 建测试库（可指定错误指纹用于拒写用例）。 */
 function makeKbDb(
   dbPath: string,
   opts: { appId?: number; version?: number; dropChunks?: boolean } = {},
@@ -167,20 +167,20 @@ test("库文件不存在 → KbNotMountedError", () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("resolveDbPath 解析链：config > OUTPUT_COMPRESS_DB_PATH > KNOWLEDGE_DB_PATH > 默认", () => {
+test("resolveDbPath 解析链：config > OUTPUT_COMPRESS_DB_PATH > MEMORY_DB_PATH > 默认", () => {
   const prev = {
     oc: process.env.OUTPUT_COMPRESS_DB_PATH,
-    kb: process.env.KNOWLEDGE_DB_PATH,
+    kb: process.env.MEMORY_DB_PATH,
   };
   try {
     delete process.env.OUTPUT_COMPRESS_DB_PATH;
-    delete process.env.KNOWLEDGE_DB_PATH;
+    delete process.env.MEMORY_DB_PATH;
     assert.ok(
       resolveDbPath(undefined).endsWith(
-        path.join("knowledge-base", "knowledge.db"),
+        path.join("memory-base", "knowledge.db"),
       ),
     );
-    process.env.KNOWLEDGE_DB_PATH = "/tmp/kb-env.db";
+    process.env.MEMORY_DB_PATH = "/tmp/kb-env.db";
     assert.equal(resolveDbPath(undefined), "/tmp/kb-env.db");
     process.env.OUTPUT_COMPRESS_DB_PATH = "/tmp/oc-env.db";
     assert.equal(resolveDbPath(undefined), "/tmp/oc-env.db");
@@ -189,8 +189,8 @@ test("resolveDbPath 解析链：config > OUTPUT_COMPRESS_DB_PATH > KNOWLEDGE_DB_
   } finally {
     if (prev.oc === undefined) delete process.env.OUTPUT_COMPRESS_DB_PATH;
     else process.env.OUTPUT_COMPRESS_DB_PATH = prev.oc;
-    if (prev.kb === undefined) delete process.env.KNOWLEDGE_DB_PATH;
-    else process.env.KNOWLEDGE_DB_PATH = prev.kb;
+    if (prev.kb === undefined) delete process.env.MEMORY_DB_PATH;
+    else process.env.MEMORY_DB_PATH = prev.kb;
   }
 });
 

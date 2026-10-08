@@ -1,4 +1,4 @@
-// tests/memory-notice.test.ts — A3：/memory 命令（knowledge-base 概要，notice 型）
+// tests/memory-notice.test.ts — A3：/memory 命令（memory-base 概要，notice 型）
 //
 // 覆盖：路由；就绪概要展示（路径/chunk·source 计数）；未就绪 → info 说明；
 // 服务缺失降级（warn）；读取失败降级（warn）。

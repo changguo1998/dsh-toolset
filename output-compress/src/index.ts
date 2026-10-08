@@ -2,9 +2,9 @@
  * output-compress：DSH 进程内集成大输出压缩入库插件（bundle 入口）。
  *
  * 职责边界（见 DESIGN.md）：
- *  - 只负责「派生摘要 + 切片索引」并写入 knowledge-base 共享库；
+ *  - 只负责「派生摘要 + 切片索引」并写入 memory-base 共享库；
  *  - 原始字节由宿主 retention/spill 保留落盘，不进知识库全文、不进模型上下文；
- *  - 不做 npm 级 knowledge-base 依赖，共享面 = 同一 SQLite 库文件。
+ *  - 不做 npm 级 memory-base 依赖，共享面 = 同一 SQLite 库文件。
  *
  * 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
  * name / Config / apply(ctx, config)（无 inject / provide，沙箱服务经 ctx.reflect 可选读取：
@@ -139,7 +139,7 @@ export async function createOutputCompressBundle(
 }
 
 /**
- * DSH bundle 挂载入口（cordis apply 契约，对齐 knowledge-base 的 fire-and-forget 语义）。
+ * DSH bundle 挂载入口（cordis apply 契约，对齐 memory-base 的 fire-and-forget 语义）。
  * 启动失败不抛给宿主：记录告警后放弃挂载（不阻塞会话启动）。
  */
 export function apply(

@@ -2,7 +2,7 @@
 
 ## 1. 问题
 
-工具输出（bash 等）经常远超模型上下文经济线。宿主 spill-policy 已把超 `maxInlineTokens`（`dsh-base` 装配值 12500 token，见 `dsh-base/cordis.patch.yml` 的 `spill-policy` 行）的完整输出落盘、事件内只留 preview 与通知——原文不占上下文，但**模型事后无法检索其内容，也无法定位回原文**。knowledge-base 解决的是「会话知识沉淀」，不覆盖「单次大输出的可检索摘要」，本插件补上这一环。
+工具输出（bash 等）经常远超模型上下文经济线。宿主 spill-policy 已把超 `maxInlineTokens`（`dsh-base` 装配值 12500 token，见 `dsh-base/cordis.patch.yml` 的 `spill-policy` 行）的完整输出落盘、事件内只留 preview 与通知——原文不占上下文，但**模型事后无法检索其内容，也无法定位回原文**。memory-base 解决的是「会话知识沉淀」，不覆盖「单次大输出的可检索摘要」，本插件补上这一环。
 
 与另外两条官方「结果面」通道的分工（三方各管一层，**不构成双重截断**）：
 
@@ -37,13 +37,13 @@
 
 ## 5. 写入：共享库文件，零 npm 依赖
 
-- 与 knowledge-base 的通信面是**同一个 SQLite 文件**（dbPath 解析链见 `README.md` 配置表）。
+- 与 memory-base 的通信面是**同一个 SQLite 文件**（dbPath 解析链见 `README.md` 配置表）。
 - 写前校验指纹（`application_id = 0x4b4e4f57`、`user_version = 1`）+ `sources`/`chunks` 表存在，不符抛 `KbNotMountedError`（拒写，绝不半写或误建表）。
-- 不建表、不写 FTS 表：`chunks` 的 FTS5 同步由 knowledge-base 的库内触发器完成，本插件只做 `sources`/`chunks` 的普通 INSERT，检索复用同一套 FTS。
-- 去重与 knowledge-base 同键：source 级 `(content_hash, kind)`、chunk 级 `content_hash`（均 sha256），重复事件不产生重复行；`chunk_count` 只按实际新增块数增量更新。
-- `PRAGMA busy_timeout = 2000` 消化与 knowledge-base 长连接的短暂写竞争（WAL 模式）。
-- chunk 预算对齐 knowledge-base：2000 token（≈3 字符/token 估算）/ 6000 字符硬限，段落边界优先、超限硬切。
-- **共库直写的边界（与 knowledge-base 口径一致）**：本包只做「库指纹校验 + `content_hash` 去重」，knowledge-base 的入库规则（`persistRules` 隐私拒绝模式 / `minChars`）、容量守卫（`maxTokensPerProject`）与 `hooks.stats` 计数**不覆盖**本包的写入；反向地，knowledge-base 的淘汰 / 自动巩固 / 容量守卫按 `chunks` 全表作业，会一并作用到本包写入的行（`category`/`target` 均为 `output-compress`、importance 取 4/2，TTL 到期后同样先压缩降级再硬淘汰）。对端口径见 `knowledge-base/README.md`「边界与限制」与 `knowledge-base/docs/DESIGN.md` §9。
+- 不建表、不写 FTS 表：`chunks` 的 FTS5 同步由 memory-base 的库内触发器完成，本插件只做 `sources`/`chunks` 的普通 INSERT，检索复用同一套 FTS。
+- 去重与 memory-base 同键：source 级 `(content_hash, kind)`、chunk 级 `content_hash`（均 sha256），重复事件不产生重复行；`chunk_count` 只按实际新增块数增量更新。
+- `PRAGMA busy_timeout = 2000` 消化与 memory-base 长连接的短暂写竞争（WAL 模式）。
+- chunk 预算对齐 memory-base：2000 token（≈3 字符/token 估算）/ 6000 字符硬限，段落边界优先、超限硬切。
+- **共库直写的边界（与 memory-base 口径一致）**：本包只做「库指纹校验 + `content_hash` 去重」，memory-base 的入库规则（`persistRules` 隐私拒绝模式 / `minChars`）、容量守卫（`maxTokensPerProject`）与 `hooks.stats` 计数**不覆盖**本包的写入；反向地，memory-base 的淘汰 / 自动巩固 / 容量守卫按 `chunks` 全表作业，会一并作用到本包写入的行（`category`/`target` 均为 `output-compress`、importance 取 4/2，TTL 到期后同样先压缩降级再硬淘汰）。对端口径见 `memory-base/README.md`「边界与限制」与 `memory-base/docs/DESIGN.md` §9。
 
 ## 6. 记录形状（可检索性）
 
@@ -74,5 +74,5 @@
 
 - 不把原文全文写入知识库（原始字节归宿主 retention / spill 管）；
 - 不引入 LLM 摘要（非确定性、延迟、成本都与「可重算的索引」定位冲突）；
-- 不依赖 knowledge-base 的 npm 包或服务接口（跨 bundle 只走宿主共享面）；
+- 不依赖 memory-base 的 npm 包或服务接口（跨 bundle 只走宿主共享面）；
 - 不改宿主 spill-policy / compaction-tool-result-pruner 的行为，也不改写会话上下文（呈现层职责归它们；分工见 §1 表）。

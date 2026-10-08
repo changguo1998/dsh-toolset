@@ -1,6 +1,6 @@
 # AGENTS.md — dsh-toolset
 
-本项目为 DSH（DeepSeek Harness）进程内集成插件工具集，包含 `TUI/` 终端界面包与 20 个进程内集成插件（herdr-integration / task-engine / knowledge-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / md-logic / md-map / security-guard / code-map / context-report / rule-engine / symbol-normalizer / session-channel / session-title-cutoff / command-template / ponytail）。
+本项目为 DSH（DeepSeek Harness）进程内集成插件工具集，包含 `TUI/` 终端界面包与 20 个进程内集成插件（herdr-integration / task-engine / memory-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / md-logic / md-map / security-guard / code-map / context-report / rule-engine / symbol-normalizer / session-channel / session-title-cutoff / command-template / ponytail）。
 
 > 文档分工：根目录 `README.md` 面向人（项目总览、插件功能、快速开始、文档索引），本文件面向 agent（开发协作规范）；变更规范简版见下方「内容变更规范」，详版分两份：标准流程 `docs/WORKFLOW-STANDARD.md`、小改动快速流程 `docs/WORKFLOW-FAST.md`；状态对照见 `docs/STATUS.md` 与各模块 `docs/`，宿主面知识与升级记录见 `docs/host/`。
 
@@ -12,7 +12,7 @@
 
 ## 命令
 
-仓库根 `package.json` 委托全部子包（TUI / herdr-integration / knowledge-base / task-engine / ast-tools / md-logic / md-map / fs-digest / goal-contract / hash-edit / metric-loop / output-compress / security-guard / code-map / context-report / rule-engine / symbol-normalizer / session-channel / session-title-cutoff / command-template / ponytail）：
+仓库根 `package.json` 委托全部子包（TUI / herdr-integration / memory-base / task-engine / ast-tools / md-logic / md-map / fs-digest / goal-contract / hash-edit / metric-loop / output-compress / security-guard / code-map / context-report / rule-engine / symbol-normalizer / session-channel / session-title-cutoff / command-template / ponytail）：
 
 ```sh
 npm run check   # 全部子包类型检查（tsc --noEmit）
@@ -74,7 +74,7 @@ scripts/install.sh --help   # --profile/--plugins/--dsh-version/--skip-dsh/--ski
 
 - `TUI/src/app/` 状态与纯函数层（state/layout），`TUI/src/renderer/` 终端渲染层，`TUI/src/app/adapter/` 插拔适配层，`TUI/demo/` mock demo。
 
-- 插件子包：`task-engine/`（任务执行引擎）、`knowledge-base/`（知识库与记忆）、`herdr-integration/`（herdr 面板桥）、`goal-contract/`（Done-when 契约起草）、`metric-loop/`（指标循环）、`output-compress/`（大输出摘要入库）、`fs-digest/`（文件摘要）、`hash-edit/`（LINE:HASH 锚定编辑）、`ast-tools/`（AST 搜索/替换/大纲）、`md-logic/`（Markdown 逻辑结构：节树 + 块 + 链接，带行范围；`replace` 按节整节替换 / 删除）、`md-map/`（文档版 code-map：锚点 / 引用 / 影响面 / 断链）、`security-guard/`（危险命令与敏感文件防护）、`code-map/`（代码结构地图）、`context-report/`（会话上下文/用量报告）、`rule-engine/`（规则触发的自动注入与消费者框架）、`symbol-normalizer/`（符号规范：展示归一 + 回合审查）、`session-channel/`（跨会话消息通道：专用 Redis 实例 + unix socket）、`session-title-cutoff/`（会话标题 provider：all-prompts 触发不变，参考窗口改为最近一次 `git commit` 之后）、`command-template/`（模板体系：slash 命令模板 + 模板级模型选择，双源模板目录）、`ponytail/`（ponytail 模式：会话起始注入「懒资深工程师」决策阶梯；rule-engine 消费者；缺省开启，显式 `enabled: false` 关闭）；各包的 `package.json` 带 `dsh.bundle` 集成契约与 `cordis.patch.yml`。
+- 插件子包：`task-engine/`（任务执行引擎）、`memory-base/`（知识库与记忆）、`herdr-integration/`（herdr 面板桥）、`goal-contract/`（Done-when 契约起草）、`metric-loop/`（指标循环）、`output-compress/`（大输出摘要入库）、`fs-digest/`（文件摘要）、`hash-edit/`（LINE:HASH 锚定编辑）、`ast-tools/`（AST 搜索/替换/大纲）、`md-logic/`（Markdown 逻辑结构：节树 + 块 + 链接，带行范围；`replace` 按节整节替换 / 删除）、`md-map/`（文档版 code-map：锚点 / 引用 / 影响面 / 断链）、`security-guard/`（危险命令与敏感文件防护）、`code-map/`（代码结构地图）、`context-report/`（会话上下文/用量报告）、`rule-engine/`（规则触发的自动注入与消费者框架）、`symbol-normalizer/`（符号规范：展示归一 + 回合审查）、`session-channel/`（跨会话消息通道：专用 Redis 实例 + unix socket）、`session-title-cutoff/`（会话标题 provider：all-prompts 触发不变，参考窗口改为最近一次 `git commit` 之后）、`command-template/`（模板体系：slash 命令模板 + 模板级模型选择，双源模板目录）、`ponytail/`（ponytail 模式：会话起始注入「懒资深工程师」决策阶梯；rule-engine 消费者；缺省开启，显式 `enabled: false` 关闭）；各包的 `package.json` 带 `dsh.bundle` 集成契约与 `cordis.patch.yml`。
 
 - 核心契约对齐官方 deepseek-harness：根目录 `docs/host/DSH-CTX-API.md` 为跨插件共享研读笔记（只读参考，勿改动）。
 
@@ -90,7 +90,7 @@ scripts/install.sh --help   # --profile/--plugins/--dsh-version/--skip-dsh/--ski
 
 - 设计与机制讨论沉淀在对应模块 `docs/DESIGN.md`（TUI 为 `TUI/docs/DESIGN.md`）；TUI 的渲染规格在 `TUI/docs/SPEC.md`。
 
-  **`DESIGN.md` 口径（2026-10-04 裁定）**：有独立架构与机制沉淀的包必须有 —— 现有 `TUI` / `task-engine` / `knowledge-base` / `session-channel` / `code-map` / `rule-engine` / `symbol-normalizer` / `output-compress` / `ponytail` / `command-template` / `md-logic` / `md-map`；**轻量包只留 `README.md` + `BACKLOG.md`**：`ast-tools` / `context-report` / `fs-digest` / `goal-contract` / `hash-edit` / `herdr-integration` / `metric-loop` / `security-guard` / `session-title-cutoff`（能力面已在 README 讲清，另写 DESIGN 只会重复；某包机制变厚——出现跨组件协议 / 状态机 / 时序契约——时再补）。
+  **`DESIGN.md` 口径（2026-10-04 裁定）**：有独立架构与机制沉淀的包必须有 —— 现有 `TUI` / `task-engine` / `memory-base` / `session-channel` / `code-map` / `rule-engine` / `symbol-normalizer` / `output-compress` / `ponytail` / `command-template` / `md-logic` / `md-map`；**轻量包只留 `README.md` + `BACKLOG.md`**：`ast-tools` / `context-report` / `fs-digest` / `goal-contract` / `hash-edit` / `herdr-integration` / `metric-loop` / `security-guard` / `session-title-cutoff`（能力面已在 README 讲清，另写 DESIGN 只会重复；某包机制变厚——出现跨组件协议 / 状态机 / 时序契约——时再补）。
 
 ## Git
 

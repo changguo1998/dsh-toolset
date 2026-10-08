@@ -4,7 +4,7 @@
  * 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
  * name / inject / apply，Config 以类型别名给出（无运行时 schema，宿主不校验，
  * 配置原样透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。
- * cordis 加载器识别 named apply 导出；与 knowledge-base/TUI 同款挂载形态。
+ * cordis 加载器识别 named apply 导出；与 memory-base/TUI 同款挂载形态。
  *
  * 四个操作 search/replace/outline/rules 均委托系统 ast-grep CLI 子进程
  * （选型依据见 README「二进制选型」）；二进制缺失时 apply 走降级：
@@ -164,7 +164,9 @@ export function apply(ctx: BundleHost, config: AstToolsConfig = {}): void {
     bundle = createAstToolsBundle(config);
   } catch (error) {
     if (error instanceof AstGrepMissingError) {
-      ctx.logger?.(name).info(`ast-tools 降级（ast-grep 不可用）：${error.message}`);
+      ctx
+        .logger?.(name)
+        .info(`ast-tools 降级（ast-grep 不可用）：${error.message}`);
       for (const def of toToolDefs(unavailableOps(error.message))) {
         ctx.tools?.register(def);
       }

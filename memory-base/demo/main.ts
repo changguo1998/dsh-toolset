@@ -1,5 +1,5 @@
 /**
- * knowledge-base mock demo（无 DSH 宿主依赖）。
+ * memory-base mock demo（无 DSH 宿主依赖）。
  * 演示：put/search（porter + CJK 兜底）、session/event 写直达、记忆 CRUD、
  * resume top-K 提升、批量写回。退出码 0 表示流程通过，供人工确认。
  */

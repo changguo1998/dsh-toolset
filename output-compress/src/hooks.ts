@@ -15,7 +15,7 @@ import { type SummaryJson } from "./summary-program.ts";
 import type { SandboxRunner } from "./sandbox.ts";
 import { shouldCompress } from "./trigger.ts";
 
-/** 宿主钩子挂载面（最小结构化视图，与 knowledge-base 的 HookHost 同形）。 */
+/** 宿主钩子挂载面（最小结构化视图，与 memory-base 的 HookHost 同形）。 */
 export interface HookHost {
   on(
     event: "session/event",
@@ -63,7 +63,7 @@ const CALL_NAMES_CAP = 256;
 
 /**
  * 从 tool/result 事件载荷提取工具结果的纯文本表示。
- * 最小实现（对齐 knowledge-base 的 extractText 行为）：
+ * 最小实现（对齐 memory-base 的 extractText 行为）：
  * 字符串原样；数组递归拼接；对象取 text → content → message。
  */
 export function extractText(value: unknown): string {
@@ -273,7 +273,7 @@ export class OutputCompressHooks {
         error instanceof KbNotMountedError
           ? `kb-not-mounted: ${error.message}`
           : `compress-failed: ${String(error)}`;
-      // 库未挂载（knowledge-base 尚未建库）：对同一事件退避重试；其他失败直接跳过
+      // 库未挂载（memory-base 尚未建库）：对同一事件退避重试；其他失败直接跳过
       if (error instanceof KbNotMountedError) {
         this.scheduleKbRetry(sessionId, event, 0, reason);
       } else {
@@ -434,7 +434,7 @@ export class OutputCompressHooks {
   }
 
   /**
-   * 库未挂载重试：knowledge-base 异步建库，首个 tool/result 可能早于库文件出现。
+   * 库未挂载重试：memory-base 异步建库，首个 tool/result 可能早于库文件出现。
    * 对同一事件按 1/2.5/5/10s 退避重试（最多 4 次）；定时器 unref 不阻塞进程退出，
    * detach 时全部清理。重试直接走管线（绕过 dedup，首轮已登记）。
    */

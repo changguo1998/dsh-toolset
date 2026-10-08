@@ -583,7 +583,7 @@ export async function apply(
       return (ctx as { get?: (name: string) => unknown }).get?.("guard") as
         SecurityGuardLike | undefined;
     },
-    // 知识库只读查询面（ctx.get('knowledge')，knowledge-base provide；缺失时 /memory 提示不可用）
+    // 知识库只读查询面（ctx.get('memory')，memory-base provide；缺失时 /memory 提示不可用）
     knowledge: (ctx as { get?: (name: string) => unknown }).get?.(
       "knowledge",
     ) as KnowledgeServiceLike | undefined,

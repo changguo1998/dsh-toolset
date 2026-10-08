@@ -4,7 +4,7 @@
 > 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）
 > 过期条件：官方发布新的「文件摘要 / 知识记忆 / 行级锚定编辑」类能力，或本仓新增 / 删除包时重做
 
-> 口径：官方基线 `dsh 0.2.0-rc.2`（安装树 277 个 `dsh-*`；fff 已挂 102 个官方行，2026-10-02 实测）；本仓 21 个模块 = TUI + ast-tools / code-map / command-template / context-report / fs-digest / goal-contract / hash-edit / herdr-integration / knowledge-base / md-logic / md-map / metric-loop / output-compress / ponytail / rule-engine / security-guard / session-channel / session-title-cutoff / symbol-normalizer / task-engine。
+> 口径：官方基线 `dsh 0.2.0-rc.2`（安装树 277 个 `dsh-*`；fff 已挂 102 个官方行，2026-10-02 实测）；本仓 21 个模块 = TUI + ast-tools / code-map / command-template / context-report / fs-digest / goal-contract / hash-edit / herdr-integration / memory-base / md-logic / md-map / metric-loop / output-compress / ponytail / rule-engine / security-guard / session-channel / session-title-cutoff / symbol-normalizer / task-engine。
 > 判据：① 能力是否重合（同一诉求）；② 官方是否有等价物；③ 我们是否已在复用官方底座。三者交叉后给「改用 / 保留 / 并存」。
 > 结论分布（2026-10-04 复核）：**改用 0 / 保留 15 / 并存 6**（总表 21 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后新增 `md-logic` / `md-map` / `ponytail`，本次复核补行）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
 
@@ -22,7 +22,7 @@
 | `rule-engine` | `agent-instructions`、`hook-protocol`、`hooks-*`、**`repeat-tool-reminder`** | 中 | **保留** | 官方有 `agent-instructions`（静态指令文件）、`repeat-tool-reminder`（**单点**内置提醒）与外部 agent 的 hooks 接入；**规则表 + 多节点注入 + 消费者框架**官方无 |
 | `symbol-normalizer` | `agent-instructions` | 低 | **保留** | 符号规范（展示归一 + 回合审查）是项目约定；官方只负责加载指令文件 |
 | `ponytail`（2026-10-05 新增包） | `agent-instructions` | 低 | **保留** | 「懒资深工程师」决策阶梯在会话起始注入（rule-engine 消费者，缺省开启、`enabled: false` 关闭）；官方只负责加载静态指令文件，无「按模式注入阶梯 + 消费者框架」机制 |
-| `knowledge-base` | `storage` / `storage-domain` / `storage-json`、**`session-query-sqlite`** | 中 | **保留** | 官方**有**检索面，但只覆盖**会话日志**（FTS5 搜索，base 已挂载、缺省 `openAt: never` 未开启）；缺的是**知识条目 / 持久记忆语义**：写穿入库、重要度、合并 / 淘汰 / 巩固与隐私过滤 |
+| `memory-base` | `storage` / `storage-domain` / `storage-json`、**`session-query-sqlite`** | 中 | **保留** | 官方**有**检索面，但只覆盖**会话日志**（FTS5 搜索，base 已挂载、缺省 `openAt: never` 未开启）；缺的是**知识条目 / 持久记忆语义**：写穿入库、重要度、合并 / 淘汰 / 巩固与隐私过滤 |
 | `task-engine` | `workflow` / `tool-workflow`、`tool-todo`、`plan-mode` | 中 | **保留** | 官方 workflow 是模型侧脚本编排、todo / plan 是轻状态；**门禁 + 验收（RET）+ 帧状态机 + 执行后端**官方无；执行侧已复用宿主 subagents / workflowEngine / ptcRuntime（reflect 可选读）与 approval / tokenMeter / agentDefaultModel |
 | `goal-contract` | `goal` / `tool-goal`、`userQuestions` | 中 | **保留** | 官方 goal 只有状态与生命周期；「Done-when 契约起草 + 可验证条款」是扩展，且已复用官方 goals / userQuestions |
 | `metric-loop` | **`tool-ralph`**、**`goal-round-driver`**、`schedule`（未挂）、`workflow` | 中 | **保留（已裁定 A，2026-10-06）** | 官方两条循环面中**只有 `goal-round-driver` 在位**（`dsh-base` 装配，需已建且 armed 的 goal）；`tool-ralph` 是 base 默认 `disabled: true`（`dsh-base/cordis.patch.yml:447-449`，一行 overlay 可恢复），本项目不启用。`metric-loop` 不可替代的是**测量命令驱动的指标循环 + plateau / 边界停止 + 状态文件跨进程**——分工口径见 `metric-loop/README.md`「与官方循环机制的分工」 |
@@ -38,7 +38,7 @@
 
 官方在这 15 个诉求上**没有等价能力**（表中逐条给了最接近的官方面，或为「无」）：文件摘要 / 结构视图、行级锚定编辑（官方只有文件级）、知识条目与记忆语义、AST 形态检索、项目级结构地图、Markdown 结构视图与文档引用图、规则表 + 多节点注入 + 消费者框架、模式阶梯注入、任务门禁与验收、Done-when 契约、指标驱动的循环、跨会话写入、符号规范、终端 TUI、herdr 桥。
 
-两处「看起来像但没有替代」的对照：`metric-loop` 的循环诉求官方有 `tool-ralph` / `goal-round-driver`（区别在「指标测量 + 边界判定 + 跨进程状态」）；`knowledge-base` 的检索诉求官方有会话日志 FTS5（区别在「知识 / 记忆语义」）。
+两处「看起来像但没有替代」的对照：`metric-loop` 的循环诉求官方有 `tool-ralph` / `goal-round-driver`（区别在「指标测量 + 边界判定 + 跨进程状态」）；`memory-base` 的检索诉求官方有会话日志 FTS5（区别在「知识 / 记忆语义」）。
 
 ## 2. 并存项（6）的边界
 
@@ -55,7 +55,7 @@
 
 **内部边界补充（二）**：`md-logic` ⇄ `fs-digest`（同一文件的结构视图，2026-10-02 起两处并存）——范围口径一致，分歧仅在解析精度（setext / HTML 块 / 缩进代码块 / 懒续行 / `html`·`hr` 两种新 kind），两个 README 互相指路：快览用 `fs_digest`，深查（链接 / 定义 / 嵌套 / 表格维度）用 `md_logic`；改 Markdown 仍用 `hash_edit`。
 
-**内部边界补充（一）**：`knowledge-base` ⇄ `output-compress` **共用同一个 `dbPath`**（profile patch 指定），`output-compress` 经共享写入器直写知识库、不经过 `knowledge-base` 的入库规则与隐私过滤（`persistRules`）。这是设计取舍（避免依赖循环），但两包写入口径必须同步——见 §4 观察项。
+**内部边界补充（一）**：`memory-base` ⇄ `output-compress` **共用同一个 `dbPath`**（profile patch 指定），`output-compress` 经共享写入器直写知识库、不经过 `memory-base` 的入库规则与隐私过滤（`persistRules`）。这是设计取舍（避免依赖循环），但两包写入口径必须同步——见 §4 观察项。
 
 ## 3. 已复用的官方面（按代码实测重写，2026-10-02）
 
@@ -71,7 +71,7 @@
 | `session-title-cutoff` | inject `sessionTitle` / `llm`；import `dsh-session-title-llm`（复用官方生成策略） |
 | `session-channel` | inject `tools` / `agents` / `sessions` |
 | `rule-engine` | inject `agents` / `sessions`；事件 `session/event`、`agent/pre-step` 等注入节点 |
-| `knowledge-base` | 事件 `session/event`（写穿入库白名单）、`compaction/end`、`compaction/summary`（巩固触发） |
+| `memory-base` | 事件 `session/event`（写穿入库白名单）、`compaction/end`、`compaction/summary`（巩固触发） |
 | `output-compress` | reflect 可选读 `ptcRuntime`（宿主沙箱后端）；事件 `session/event` 的 `tool/result`（只读，不回写） |
 | `security-guard` | inject `tools`；事件 `tools/pre-execute`（拦截点） |
 | `code-map` / `fs-digest` | inject `tools`；get `lsp`（**当前不可达**，见 §5） |
@@ -90,7 +90,7 @@
 | D | `hash-edit` / `fs-digest` 可选改用 `ctx.fs` 读（沙箱一致，替代直接 `node:fs`） | 两包 `src/**` | 1 h | **含行为变更**：`ctx.fs` 后端是 `fs-sandbox`，hash-edit 的**写**会从「node:fs 直写（当前绕开沙箱）」变为受 workspace-write 围栏；且 `ctx.fs` 的版本守卫是文件级，**不能**替代行级锚点语义。宜与 `hash-edit/docs/BACKLOG.md` #1（render 缺陷）同批 |
 | E | 把「可挂但不该挂」清单（§5）落到**非生成型**文档（`docs/BACKLOG.md` 观察项 / `profiles/example/cordis.patch.yml` 注释）——不要写进 `HOST-PACKAGES.md`（升宿主后重生成会被覆盖） | `docs/BACKLOG.md` / `profiles/example` | 0.2 h | 无 |
 
-**新增观察项（本次审阅补出）**：① `knowledge-base` ⇄ `output-compress` 共库直写的隐私边界（两包写入口径需同步）；② 是否用配置开启 `session-query-sqlite` 的 FTS5（`openAt: first-search`）并与知识库做分工验证；③ `rule-engine` 与官方 `repeat-tool-reminder` 的注入重复度评估（**2026-10-05 已评估关闭**：注入点与通道均不同——官方走 `tools/post-execute` 的 `additionalContexts`、不产生消息记录，本引擎走 next-step 消息注入，预算互不挤占；见 `rule-engine/README.md`「与官方 `repeat-tool-reminder` 的分工」）。
+**新增观察项（本次审阅补出）**：① `memory-base` ⇄ `output-compress` 共库直写的隐私边界（两包写入口径需同步）；② 是否用配置开启 `session-query-sqlite` 的 FTS5（`openAt: first-search`）并与知识库做分工验证；③ `rule-engine` 与官方 `repeat-tool-reminder` 的注入重复度评估（**2026-10-05 已评估关闭**：注入点与通道均不同——官方走 `tools/post-execute` 的 `additionalContexts`、不产生消息记录，本引擎走 next-step 消息注入，预算互不挤占；见 `rule-engine/README.md`「与官方 `repeat-tool-reminder` 的分工」）。
 
 ## 5. 判定为「可挂但不该挂」的官方面
 

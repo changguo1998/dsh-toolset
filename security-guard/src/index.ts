@@ -5,7 +5,7 @@
  * name / inject / provide / apply，Config 以类型别名给出（无运行时 schema，宿主不校验，
  * 配置原样透传给 apply；缺省/非法值沿用本包既有语义——非法规则按保守策略处理，不新增校验）。
  * @deepseek-ai/cordis 是 dsh 仓的 workspace 包（未发布 npm），故宿主 ctx 以
- * 结构化类型声明（与 knowledge-base 同策略）；GuardEngine 是核心（纯、可测），
+ * 结构化类型声明（与 memory-base 同策略）；GuardEngine 是核心（纯、可测），
  * apply 是宿主挂载入口。
  *
  * 拦截点：宿主 `tools/pre-execute` waterfall（命令下发前，见 dsh

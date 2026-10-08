@@ -1,10 +1,10 @@
-# @dsh-toolset/knowledge-base
+# @dsh-toolset/memory-base
 
 DSH（DeepSeek Harness）进程内插件：跨会话知识库与持久记忆——独立 SQLite（`node:sqlite`）库 + FTS5 双索引，搜索密集操作不经过宿主 storage KV 域。
 
 ## 能力
 
-本插件**不注册模型侧工具**：订阅宿主 `session/event` 做实时沉淀，并把知识库以服务形态挂在进程内（`provide('knowledge')`，暴露 `getSummary()`、`whenReady()`、`consolidate(opts?)`、`lastConsolidation()`）。可用接口分三组：
+本插件**不注册模型侧工具**：订阅宿主 `session/event` 做实时沉淀，并把记忆库以服务形态挂在进程内（`provide('memory')`，暴露 `getSummary()`、`whenReady()`、`consolidate(opts?)`、`lastConsolidation()`、`rescanDenied(opts?)`、`migrate(opts?)`、`search(opts)`、`remember(input)`、`forget(refs)`、`usage()`、`enforceLimits(opts?)`）。可用接口分三组：
 
 **知识库**（`bundle.kb`，`KnowledgeService`）：
 
@@ -35,26 +35,27 @@ DSH（DeepSeek Harness）进程内插件：跨会话知识库与持久记忆—�
 | `plan(opts)` / `run(opts)` | 只读预演 / 执行一次巩固；返回报告（`promoted` / `merged` / `compressed` / `evicted` / `tokensBefore→After`） |
 | 三段策略 | **提升**：被检索命中过（`last_referenced > created_at`）且 `importance < 5` 的条目 +1；**合并**：同 `target` 分组内归一化后相同、或短者是长者子串且长度占比 ≥ 0.8 → 保留 importance 高者；**淘汰**：`staleCandidates`（TTL + 重要度上限）先压缩再删除 |
 | 自动触发 | `autoConsolidate{enabled,onStart,afterCompaction,minIntervalMs,options}`：apply 后一次 + `compaction/end`（或 `compaction/summary`）后一次，进程内按 `minIntervalMs`（缺省 10 min）节流；失败只 warning |
-| 只读面 | `ctx.get('knowledge').consolidate(opts?)` 手动触发、`.lastConsolidation()` 取最近报告 |
+| 只读面 | `ctx.get('memory').consolidate(opts?)` 手动触发、`.lastConsolidation()` 取最近报告 |
 
 ## 配置
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `dbPath` | `KNOWLEDGE_DB_PATH` → `:memory:` | 库路径；`:memory:` 表示不落盘 |
+| `dbPath` | `MEMORY_DB_PATH` → `:memory:` | 库路径；`:memory:` 表示不落盘 |
 | `journalMode` | `"wal"` | `wal` / `delete` / `truncate` / `persist` |
-| `project` | `"default"` | 写直达事件的项目作用域（字符串或按事件求值函数；自动巩固只在静态字符串下生效） |
+| `project` | 派生链 | 写直达事件的项目作用域：显式配置（字符串或按事件求值函数）> 会话 `header.cwd` > `process.cwd()`；自动巩固只认静态作用域（显式配置，否则进程 cwd） |
 | `persistTypes` | 内置白名单 | 替换白名单；传 `null` 表示不过滤 |
 | `persistRules` | 无 | `{types?, minChars?, denyPatterns?}`：类型 / 最小长度 / 拒绝模式（内置隐私模式始终生效） |
 | `maxTokensPerProject` | `0`（不设限） | 入库容量守卫：超限先压缩降级再淘汰 |
-| `autoConsolidate` | 全开 | `{enabled?, onStart?, afterCompaction?, minIntervalMs?, options?}`：自动巩固触发与参数 |
+| `autoConsolidate` | 全开 | `{enabled?, onStart?, afterCompaction?, minIntervalMs?, options?}`：自动巩固触发与参数；触发时顺带做逐库容量兜底 |
+| `tiers` | 关闭 | 分层三库（设计 §2）：`{enabled, sessionDir?, projectRoot?, dshHome?, crossProjectRoots?}`。开启后 S / P / U 各一个库——默认落点 `<会话目录>/session.db`、`<项目根>/.dsh/project.db`、`~/.dsh/memory-base/user.db`，各带**独立指纹**（`SESS` / `PROJ` / `USER`）与独立字节上限（50 / 200 / 1 MB，U 为软上限）。**缺省关闭**：不静默在项目里建 `.dsh/`、不在家目录建库 |
 
 淘汰、提升、截断的阈值多数不是配置项，而是各接口的调用参数（`maxTokensPerProject` 与 `autoConsolidate.options` 是写入路径上的例外）。
 
 ## 使用示例
 
 ```ts
-import { createKnowledgeBundle } from "@dsh-toolset/knowledge-base";
+import { createKnowledgeBundle } from "@dsh-toolset/memory-base";
 
 const bundle = await createKnowledgeBundle(host, {
   dbPath: "/path/to/knowledge.db",
@@ -70,14 +71,14 @@ bundle.dispose(); // 解绑事件订阅并关库
 profile 挂载（`~/.dsh/profiles/<p>`）以 `link:` 依赖指向本包，并在 `cordis.patch.yml` 配置：
 
 ```yaml
-- id: knowledge-base
-  name: '@dsh-toolset/knowledge-base'
+- id: memory-base
+  name: '@dsh-toolset/memory-base'
   config:
-    dbPath: !!js process.env.KNOWLEDGE_DB_PATH || dshHomePath('knowledge-base/knowledge.db')
+    dbPath: !!js process.env.MEMORY_DB_PATH || dshHomePath('memory-base/memory.db')
     project: 'my-project'
 ```
 
-宿主侧读取方：TUI `/memory` 经 `ctx.get('knowledge')` 调 `getSummary()` / `whenReady()`。
+宿主侧读取方：TUI `/memory` 经 `ctx.get('memory')` 调 `getSummary()` / `whenReady()`。
 
 ## 边界与限制
 
@@ -90,7 +91,8 @@ profile 挂载（`~/.dsh/profiles/<p>`）以 `link:` 依赖指向本包，并在
 - **隐私边界是形态匹配**：内置模式按常见凭据 / 私钥形态识别，无熵检测、无规则语言；命中即**整条拒绝**（不打码），故「正文里混了一段密钥」的条目会整体丢弃——宁可丢，不可泄漏。自定义 `denyPatterns` 只做追加，不能关闭内置模式。
 - token 预算按「1 token ≈ 3 字符」估算（分块上限 2000 token ≈ 6000 字符），非精确分词。
 - `[tool/meta]`、`[compaction]` 尾注只写进知识库 chunk 文本，**不会**改写会话上下文；本插件不注入 system prompt。
-- 库文件 0o600、父目录 0o700；`application_id` / `user_version` 不匹配的库会被拒绝或整库重置。
+- 库文件 0o600、父目录 0o700；**一库一指纹**（S / P / U 各一个 `application_id`）：指纹不符（含旧 v1 单库的 `KNOW`）或版本不匹配一律**拒绝打开**，不再整库重置。清空重建走显式 `migrate({ from: "v1", mode: "drop" })`——删库文件与 `-wal` / `-shm`，不备份、不静默删。
+- **闸门在库核心**：`knowledge.put()` 内先过该层规则（隐私底线 + `persistRules`），`writeBack` / `backfill` / `memory.add` / `remember` 一并继承——绕过事件钩子不再能绕过闸门。被拒时返回 `{ids: [], skipped}`。
 - `MemoryService.replace` 的 `project` 参数当前不参与定位，且未传 `category` 会把该条 category 置空。
 
 ## 测试
@@ -103,10 +105,13 @@ npm run demo    # node --experimental-transform-types demo/main.ts（末行 demo
 npm run smoke   # node smoke/smoke.mjs（需本机 dsh 0.2.0-rc.2 与模型凭据）
 ```
 
-57 例测试（schema 3 + knowledge 8 + hooks 12 + writepolicy 8 + memory 6 + exposure 2 + rules 4 + budget 3 + hooks-rules 6 + consolidate 5）。
+80 例测试（schema 5 + knowledge 8 + hooks 12 + writepolicy 8 + memory 6 + exposure 2 + rules 4 + budget 3 + hooks-rules 6 + consolidate 5 + migrate 3 + rescan 4 + tiers 6 + bundle-tiers 2 + project-derivation 3 + capacity 4）。
 
-`smoke` 幂等引导独立 profile `dsh-toolset-knowledge-base`（`link:` 挂载、缺 `dist/` 自动构建），跑一次性真实 headless 会话强制触发 compaction 与 fs 写入，再断言库 schema 指纹与 `[tool/meta]`/`shadowedRange` 摄取行，最后对 dist 产物做 put / search / touch / evict 往返（profile 属机器级配置，不入库）。断言口径见 `smoke/smoke.mjs` 头注释（流程 4-6）。
+`smoke` 幂等引导独立 profile `dsh-toolset-memory-base`（`link:` 挂载、缺 `dist/` 自动构建），跑一次性真实 headless 会话强制触发 compaction 与 fs 写入，再断言库 schema 指纹与 `[tool/meta]`/`shadowedRange` 摄取行，最后对 dist 产物做 put / search / touch / evict 往返（profile 属机器级配置，不入库）。断言口径见 `smoke/smoke.mjs` 头注释（流程 4-6）。
 
 设计决策与实现落点见 `docs/DESIGN.md`；已知边界见其 §13。
 
-> **注意（2026-10-08）**：`docs/DESIGN.md` 现已改写为**目标架构**——按生命周期作用域分层的记忆系统（S 会话 / P 项目 / U 用户三库 + I 索引库），目标包名 **`memory-base`**、服务键 `ctx.get('memory')`。本 `README.md` 仍描述**当前实现**（单库 `knowledge.db`）；目标与现状的差异清单见 DESIGN §12，实施条目见 `docs/BACKLOG.md`。
+> **实施状态（2026-10-08）**：包已改名 **`memory-base`**（服务键 `ctx.get('memory')`，目录 / 包名 / profile id / TUI 消费点全量同步）。`docs/DESIGN.md` 的目标架构**部分落地**：
+>
+> - **已完成**：分层三库骨架（`tiers.enabled`，一库一指纹 + 逐库字节上限 + 跨项目 P 显式开启）、路径路由（`router.ts`）、写入路由（自动路径落 S、`origin: "user"` 直达 P / U）、库核心闸门、`project` 派生链、跨层检索（层 × 分类的「层」维度）、按缺口淘汰 + S 层就地降级 + U 层软上限、存量回扫 `rescanDenied()`、显式迁移 `migrate()`、版本策略改「拒绝打开」。
+> - **未完成**（DESIGN §12 差异清单剩余项）：分类注册制（一类一张表 + `registerKind`）、提升链与审阅队列（`candidates` / `promote` / `review(id)` / `resolveConflict` / LLM 概括）、`doc_index` 文档索引、`output-compress` 自持 `digest.db`、TUI 审阅面板与 `/memory` 改造。当前每层库仍是 `sources` + `chunks` 两表结构。

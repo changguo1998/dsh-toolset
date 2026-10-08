@@ -1304,7 +1304,7 @@ export interface SecurityGuardLike {
   inspectCommand?(command: string, source?: string): string | null;
 }
 
-/** knowledge-base 概要（C4 前置；`KnowledgeBundleSummary` 的 TUI 侧宽松子集） */
+/** memory-base 概要（C4 前置；`KnowledgeBundleSummary` 的 TUI 侧宽松子集） */
 export interface KnowledgeBundleSummaryLike {
   ready: boolean;
   dbPath: string;
@@ -1312,7 +1312,7 @@ export interface KnowledgeBundleSummaryLike {
   sourceCount: number;
 }
 
-/** ctx.get('knowledge') 只读查询面（knowledge-base cordis provide；缺失时 /memory 提示不可用） */
+/** ctx.get('memory') 只读查询面（memory-base cordis provide；缺失时 /memory 提示不可用） */
 export interface KnowledgeServiceLike {
   getSummary?(): KnowledgeBundleSummaryLike | undefined;
   whenReady?(): Promise<{ summary?(): KnowledgeBundleSummaryLike | undefined }>;
@@ -1555,7 +1555,7 @@ export interface RealAdapterOptions {
   taskEngine?: TaskEngineLike;
   /** ctx.get('guard') 只读查询面（security-guard cordis provide）；缺失时 /guard 提示不可用 */
   guard?: SecurityGuardLike;
-  /** ctx.get('knowledge') 只读查询面（knowledge-base cordis provide）；缺失时 /memory 提示不可用 */
+  /** ctx.get('memory') 只读查询面（memory-base cordis provide）；缺失时 /memory 提示不可用 */
   knowledge?: KnowledgeServiceLike;
   /** ctx.get('metricLoop') 只读查询面（metric-loop cordis provide）；缺失时 /loop 提示不可用 */
   metricLoop?: MetricLoopLike;

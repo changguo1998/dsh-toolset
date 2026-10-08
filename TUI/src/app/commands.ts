@@ -314,7 +314,7 @@ export const LOCAL_COMMANDS: readonly {
   {
     name: "memory",
     route: "memory",
-    desc: "知识库概要（knowledge-base：就绪/路径/chunk·source 计数）",
+    desc: "知识库概要（memory-base：就绪/路径/chunk·source 计数）",
   },
   {
     name: "loop",

@@ -15,10 +15,10 @@ The repository contains the `TUI/` terminal UI package and 20 in-process plugins
 | **TUI** (`TUI/`, `@dsh-toolset/tui`) | Terminal UI: four-region layout (conversation / activity / status column / input), event-driven rendering, slash commands, session switching and cleanup, model and approval panels; **zero runtime dependencies** (no third-party imports in the source, colors via manual ANSI) |
 | **herdr-integration** | herdr panel bridge: agent state is reported to the herdr panel over a unix socket, and blocked events are bridged across three signal sources (ask-user questions, approvals, turn blocking) |
 | **task-engine** | Task tree engine: Frame state machine, the `decompose`/`implement`/`stop`/`status` tool family, mechanical + semantic dual gating, and RET acceptance routing |
-| **knowledge-base** | Cross-session knowledge base and persistent memory: two base tables (`sources`/`chunks`) plus two FTS5 virtual tables, a two-level write policy with eviction and promotion, readable and writable by other plugins through the host's shared surface |
+| **memory-base** | Cross-session knowledge base and persistent memory: two base tables (`sources`/`chunks`) plus two FTS5 virtual tables, a two-level write policy with eviction and promotion, readable and writable by other plugins through the host's shared surface |
 | **goal-contract** | Goal session contract drafting: interview-style questioning produces a goal plus Done-when acceptance clauses (schema aligned with task-engine's three-level acceptance), persisted to the dsh-goal event source |
 | **metric-loop** | Metric-driven automatic loop: a measure command parses a single number, plateau stop, round/time/token bounds, cadence auto-wake |
-| **output-compress** | Large-output compression into the store: deterministic digests of over-threshold command/tool output plus a slice index written to the shared knowledge-base store, so raw large output never enters the model context |
+| **output-compress** | Large-output compression into the store: deterministic digests of over-threshold command/tool output plus a slice index written to the shared memory-base store, so raw large output never enters the model context |
 | **fs-digest** | Context-aware file reading: `outline`/`signatures`/`pruned` modes return the minimum sufficient context instead of a whole-file `read` |
 | **hash-edit** | LINE:HASH anchored editing: reads return a content hash anchor for every line, edits locate lines by anchor, and stale content rejects the whole batch — no dirty writes |
 | **ast-tools** | AST structural search, structured replacement, file outlines and YAML rule execution on top of ast-grep (through the system CLI as a subprocess, zero runtime dependencies); registers the model-facing `ast_query` (AST search / outline / rules) and `ast_replace` (dry-run by default) |
@@ -43,7 +43,7 @@ dsh-toolset/
 ├── TUI/                  # 终端 UI 包（src/app 状态层、src/renderer 渲染层、src/app/adapter 适配层、demo/ mock）
 ├── herdr-integration/    # herdr 面板桥
 ├── task-engine/          # 任务树引擎
-├── knowledge-base/       # 知识库与持久记忆
+├── memory-base/       # 知识库与持久记忆
 ├── goal-contract/        # Done-when 契约起草
 ├── metric-loop/          # 指标循环
 ├── output-compress/      # 大输出摘要入库
@@ -139,12 +139,12 @@ The home for official interface study notes and upgrade documents — **not limi
 - `docs/host/HOST-PACKAGES.md` — dictionary of official host packages and services (generated; regenerate after a host upgrade).
 - `docs/host/HOST-UPGRADE-0.2.0-rc.2.md` — current upgrade comparison (0.1.7-rc.2 → 0.2.0-rc.2) and implementation status; the previous one is `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` (0.1.5-rc.3 → 0.1.7-rc.2).
 - `docs/host/AGENT-COMPOSITION.md` — current agent-side composition and its official basis (the TUI uses profile-wide composition, with no preset).
-- `docs/host/AGENT-ARCHITECTURE-ANALOGY.md` — official agent architecture and interface comparison (the design basis for task-engine and knowledge-base).
+- `docs/host/AGENT-ARCHITECTURE-ANALOGY.md` — official agent architecture and interface comparison (the design basis for task-engine and memory-base).
 
 **Module-level (`TUI/docs/`, `<package>/docs/`)**
 
 - `TUI/README.md`, `<package>/README.md` — module entry points: usage, configuration, contracts, boundaries.
-- `TUI/docs/DESIGN.md`, `<package>/docs/DESIGN.md` — architecture design and mechanism tradeoffs (present for `TUI`, `task-engine`, `knowledge-base`, `session-channel`, `code-map`, `rule-engine`, `symbol-normalizer`, `output-compress`, `ponytail`, `command-template`, `md-logic`, `md-map`; lightweight packages keep `README.md` + `docs/BACKLOG.md` only).
+- `TUI/docs/DESIGN.md`, `<package>/docs/DESIGN.md` — architecture design and mechanism tradeoffs (present for `TUI`, `task-engine`, `memory-base`, `session-channel`, `code-map`, `rule-engine`, `symbol-normalizer`, `output-compress`, `ponytail`, `command-template`, `md-logic`, `md-map`; lightweight packages keep `README.md` + `docs/BACKLOG.md` only).
 - `TUI/docs/SPEC.md` — rendering pipeline spec; `TUI/docs/COMMANDS.md`, `TUI/docs/COMMANDS-SPEC.md` — command inventory and extension spec.
 - `TUI/docs/design/` — TUI-internal conventions: `NOTICE-LEVELS.md` (notice levels), `AUDIT-colors.md` (color semantics), `REFACTOR.md` (module split conventions).
 - `<module>/docs/BACKLOG.md` — module backlog (`TUI`, `task-engine`, `rule-engine`, `symbol-normalizer`, `session-channel`, `md-logic`, `md-map`, `command-template`, `ast-tools`, `fs-digest`, `hash-edit`, `code-map` have one; the rest as needed); `<module>/docs/STATUS.md` — module-level reference document (TUI has one).

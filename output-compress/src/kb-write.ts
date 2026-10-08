@@ -1,10 +1,10 @@
 /**
- * 共享库写入层：把摘要记录写入 knowledge-base 的同一 SQLite 库（宿主共享面）。
+ * 共享库写入层：把摘要记录写入 memory-base 的同一 SQLite 库（宿主共享面）。
  *
- * 硬约束：不引入 knowledge-base 的 npm 依赖，也不创建任何表——
- * 表结构与 FTS5 索引由 knowledge-base 插件持有，本层只做：
+ * 硬约束：不引入 memory-base 的 npm 依赖，也不创建任何表——
+ * 表结构与 FTS5 索引由 memory-base 插件持有，本层只做：
  *  1. 写前校验库指纹（PRAGMA application_id = 'KNOW'、user_version = 1）与必备表；
- *  2. 按 content_hash 去重（与 knowledge-base 同一去重键）；
+ *  2. 按 content_hash 去重（与 memory-base 同一去重键）；
  *  3. 插入 sources + chunks（FTS5 由库内触发器自动同步）。
  */
 import { createHash } from "node:crypto";
@@ -13,44 +13,44 @@ import { DatabaseSync } from "node:sqlite";
 import { homedir } from "node:os";
 import path from "node:path";
 
-/** knowledge-base 库指纹：application_id = 0x4B4E4F57（'KNOW'）。 */
+/** memory-base 库指纹：application_id = 0x4B4E4F57（'KNOW'）。 */
 export const KB_APPLICATION_ID = 0x4b4e4f57;
-/** knowledge-base 库 schema 版本。 */
+/** memory-base 库 schema 版本。 */
 export const KB_SCHEMA_VERSION = 1;
-/** 单 chunk 的 token 预算（对齐 knowledge-base 的 MAX_TOKENS）。 */
+/** 单 chunk 的 token 预算（对齐 memory-base 的 MAX_TOKENS）。 */
 const CHUNK_TOKEN_BUDGET = 2000;
-/** token 估算（对齐 knowledge-base：1 token ≈ 3 字符）。 */
+/** token 估算（对齐 memory-base：1 token ≈ 3 字符）。 */
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 3);
 }
 
 /**
  * dbPath 解析顺序（见 DESIGN.md）：
- * 显式 config > OUTPUT_COMPRESS_DB_PATH > KNOWLEDGE_DB_PATH > ~/.dsh/knowledge-base/knowledge.db
+ * 显式 config > OUTPUT_COMPRESS_DB_PATH > MEMORY_DB_PATH > ~/.dsh/memory-base/memory.db
  */
 export function resolveDbPath(configDbPath?: string): string {
   if (typeof configDbPath === "string" && configDbPath.length > 0) {
     return configDbPath;
   }
   const fromEnv =
-    process.env.OUTPUT_COMPRESS_DB_PATH ?? process.env.KNOWLEDGE_DB_PATH;
+    process.env.OUTPUT_COMPRESS_DB_PATH ?? process.env.MEMORY_DB_PATH;
   if (typeof fromEnv === "string" && fromEnv.length > 0) {
     return fromEnv;
   }
-  return path.join(homedir(), ".dsh", "knowledge-base", "knowledge.db");
+  return path.join(homedir(), ".dsh", "memory-base", "knowledge.db");
 }
 
 /** 库未挂载（不存在/指纹不符/表缺失）时抛出，调用方捕获后跳过写入。 */
 export class KbNotMountedError extends Error {}
 
-/** 待入库的摘要记录（结构化输入，与 knowledge-base 的 PutInput 同形状约定）。 */
+/** 待入库的摘要记录（结构化输入，与 memory-base 的 PutInput 同形状约定）。 */
 export interface KbPutInput {
   project: string;
   title: string;
   content: string;
   category: string;
   target: string;
-  /** 1-5（对齐 knowledge-base 取值）。 */
+  /** 1-5（对齐 memory-base 取值）。 */
   importance: number;
   sessionId?: string;
   source: {
@@ -74,7 +74,7 @@ function sha256(text: string): string {
 }
 
 /**
- * 按 markdown 段落边界切 chunk，超预算硬切（移植 knowledge-base 的 chunkContent 行为，
+ * 按 markdown 段落边界切 chunk，超预算硬切（移植 memory-base 的 chunkContent 行为，
  * 保持两插件的 chunk 语义一致：预算 2000 token ≈ 6000 字符）。
  */
 export function chunkContent(content: string): string[] {
@@ -122,19 +122,19 @@ export class SharedKbWriter {
 
   /**
    * 打开并校验库；指纹不符或表缺失时抛 KbNotMountedError 并关闭连接。
-   * 注意：knowledge-base 尚未创建库文件时同样抛 KbNotMountedError（文件不存在）。
+   * 注意：memory-base 尚未创建库文件时同样抛 KbNotMountedError（文件不存在）。
    */
   open(): DatabaseSync {
     if (this.db !== null) return this.db;
     if (!existsSync(this.dbPath)) {
       throw new KbNotMountedError(
-        `knowledge-base 库不存在: ${this.dbPath}（knowledge-base bundle 未挂载或未初始化？）`,
+        `memory-base 库不存在: ${this.dbPath}（memory-base bundle 未挂载或未初始化？）`,
       );
     }
     const db = new DatabaseSync(this.dbPath);
     let closed = false;
     try {
-      // 写锁等待 2s：与 knowledge-base 的连接共存，避免 SQLITE_BUSY 直接抛错
+      // 写锁等待 2s：与 memory-base 的连接共存，避免 SQLITE_BUSY 直接抛错
       db.exec("PRAGMA busy_timeout = 2000");
       const { application_id: appId } = db
         .prepare("PRAGMA application_id")
@@ -146,7 +146,7 @@ export class SharedKbWriter {
         db.close();
         closed = true;
         throw new KbNotMountedError(
-          `knowledge-base 指纹不符（application_id=${appId
+          `memory-base 指纹不符（application_id=${appId
             .toString(16)
             .padStart(
               8,
@@ -178,7 +178,7 @@ export class SharedKbWriter {
 
   /**
    * 写入摘要记录：全文 content_hash 去重（复用既有 source），chunk 级 content_hash 去重。
-   * 与 knowledge-base 的 put() 同键同表，FTS5 由库内触发器自动同步。
+   * 与 memory-base 的 put() 同键同表，FTS5 由库内触发器自动同步。
    */
   put(input: KbPutInput): KbPutResult {
     const db = this.open();
@@ -193,7 +193,7 @@ export class SharedKbWriter {
       .get(fullHash, input.source.kind) as { id: number } | undefined;
     db.exec("BEGIN");
     try {
-      // source 去重：同内容同 kind 复用既有行（与 knowledge-base 行为一致）
+      // source 去重：同内容同 kind 复用既有行（与 memory-base 行为一致）
       const sourceId =
         existingSource === undefined
           ? Number(

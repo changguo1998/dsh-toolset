@@ -51,10 +51,10 @@
 
 # 知识库：dbPath 接受 `!!js` 表达式——环境变量优先，否则落到 dshHomePath 下，
 # 避免把绝对家目录路径写进随仓库分发的配置。
-- id: knowledge-base
-  name: '@dsh-toolset/knowledge-base'
+- id: memory-base
+  name: '@dsh-toolset/memory-base'
   config:
-    dbPath: !!js process.env.KNOWLEDGE_DB_PATH || dshHomePath('knowledge-base/knowledge.db')
+    dbPath: !!js process.env.MEMORY_DB_PATH || dshHomePath('memory-base/memory.db')
 
 # 宿主官方插件同样可覆盖：压缩阈值提前到上下文窗口的 0.5。
 - id: compaction-basic
