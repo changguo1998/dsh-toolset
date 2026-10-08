@@ -1233,13 +1233,16 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     turn: number,
     step: number,
     interrupted: boolean,
+    seq?: number,
   ): void => {
     if (opts.onDelivery === undefined) return;
-    opts.onDelivery({ kind: "finalize", turn, step });
-    if (interrupted) opts.onDelivery({ kind: "interrupted", turn, step });
+    const scope = seq === undefined ? {} : { seq };
+    opts.onDelivery({ kind: "finalize", turn, step, ...scope });
+    if (interrupted)
+      opts.onDelivery({ kind: "interrupted", turn, step, ...scope });
   };
 
-  /** 文本块投递（增量与结算整块共用；`full` = 结算整块，接收层负责与已交付前缀对齐） */
+  /** 文本块投递（增量只来自实时线；结算线按块投递 `full`，接收层负责前缀对齐） */
   const deliverText = (
     turn: number,
     step: number,
@@ -1247,14 +1250,24 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     source: "assistant" | "reasoning",
     text: string,
     full?: boolean,
+    seq?: number,
   ): void => {
     if (opts.onDelivery === undefined) return;
-    opts.onDelivery(
-      full === true
-        ? { kind: "text", turn, step, index, source, text, full: true }
-        : { kind: "text", turn, step, index, source, text },
-    );
+    opts.onDelivery({
+      kind: "text",
+      turn,
+      step,
+      index,
+      source,
+      text,
+      ...(full === true ? { full: true } : {}),
+      ...(seq === undefined ? {} : { seq }),
+    });
   };
+
+  // 当前 (turn, step)：宿主部分事件（tool/call、tool/result）不带归属，接收层不能拿 0
+  // 兜底（会开出 0/0 假节、把调用与结果拆到两节）→ 由带归属的事件推进、缺归属的沿用。
+  let liveScope: { turn: number; step: number } | undefined;
 
   // 上下文窗口缓存：provider:model → 模型上下文容量（LlmResolvedModelInfo.context.contextWindow，
   // 供状态栏 ctx 占用百分比作分母）。undefined=已解析但模型未披露（不再重试）；缺失/异常视为未知。
@@ -1547,6 +1560,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     turn: number,
     step: number,
     chunk: StreamChunk,
+    settle = false,
   ): void => {
     const index = (chunk as { index?: number }).index ?? 0;
     const blockKey = sid + ":" + turn + ":" + step + ":" + index;
@@ -1574,13 +1588,16 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         return;
       }
       emittedByBlock.set(blockKey, emitted + chunk.text);
-      deliverText(
-        turn,
-        step,
-        index,
-        isReasoning ? "reasoning" : "assistant",
-        chunk.text,
-      );
+      // 结算线（settle）的逐成员重放不投递给接收层：它在记录层按块聚合投递一次 full
+      if (!settle) {
+        deliverText(
+          turn,
+          step,
+          index,
+          isReasoning ? "reasoning" : "assistant",
+          chunk.text,
+        );
+      }
       emit({
         type: isReasoning ? "thinking" : "stream",
         sessionId: sid,
@@ -1660,6 +1677,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         turn: frame.turn,
         step: frame.step ?? 0,
       });
+      liveScope = { turn: frame.turn, step: frame.step ?? 0 };
       return;
     }
     if (frame.type === "chunk" && frame.chunk) {
@@ -1732,6 +1750,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         if (!Array.isArray(stream) || stream.length === 0) return;
         const turn = data.turn ?? 0;
         const step = data.step ?? 0;
+        liveScope = { turn, step };
         // 遍历流记录展开为逐 chunk 处理：text/reasoning-chunks 逐成员等价对应 delta；
         // tool-call-chunks 逐成员等价 tool-call-delta（id/name 随块声明带上）
         for (const rec of stream) {
@@ -1739,20 +1758,43 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
             applyChunk(sid, turn, step, rec.chunk);
           } else if (rec.type === "text-chunks") {
             for (const text of rec.texts) {
-              applyChunk(sid, turn, step, {
-                type: "text-delta",
-                index: rec.index,
-                text,
-              });
+              applyChunk(
+                sid,
+                turn,
+                step,
+                { type: "text-delta", index: rec.index, text },
+                true,
+              );
             }
+            // 接收层：按块聚合一次 full（不与实时线增量重复；前缀对齐在接收层做）
+            deliverText(
+              turn,
+              step,
+              rec.index,
+              "assistant",
+              rec.texts.join(""),
+              true,
+              raw.seq,
+            );
           } else if (rec.type === "reasoning-chunks") {
             for (const text of rec.texts) {
-              applyChunk(sid, turn, step, {
-                type: "reasoning-delta",
-                index: rec.index,
-                text,
-              });
+              applyChunk(
+                sid,
+                turn,
+                step,
+                { type: "reasoning-delta", index: rec.index, text },
+                true,
+              );
             }
+            deliverText(
+              turn,
+              step,
+              rec.index,
+              "reasoning",
+              rec.texts.join(""),
+              true,
+              raw.seq,
+            );
           } else {
             for (const argsDelta of rec.args) {
               applyChunk(sid, turn, step, {
@@ -1816,6 +1858,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
             });
           }
         }
+        liveScope = { turn: data.turn ?? 0, step: data.step ?? 0 };
         const content = data.message?.content;
         const text = Array.isArray(content)
           ? content
@@ -1835,6 +1878,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
             data.turn ?? 0,
             data.step ?? 0,
             data?.interrupted === true,
+            raw.seq,
           );
           return;
         }
@@ -1854,6 +1898,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
             "assistant",
             rest,
             true,
+            raw.seq,
           );
         }
         // delta 与 message 文本不一致时不再输出（append-only UI 无法安全重写）
@@ -1861,6 +1906,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           data.turn ?? 0,
           data.step ?? 0,
           data?.interrupted === true,
+          raw.seq,
         );
         // 0.1.2-rc.1：输出被打断标记（assistant/message.interrupted）→ muted notice
         if (data?.interrupted === true) {
@@ -1940,6 +1986,26 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         emittedByBlock.clear();
         stepEmitted.clear();
         completedBlocks.clear();
+        // 接收层：回合结束（封闭当前节 + 标记该回合的最终总结节）
+        {
+          const explicit = data as unknown as { turn?: number; step?: number };
+          const scope =
+            explicit.turn === undefined
+              ? liveScope
+              : {
+                  turn: explicit.turn,
+                  step: explicit.step ?? liveScope?.step ?? 0,
+                };
+          if (scope) {
+            liveScope = scope;
+            deliver({
+              kind: "turn-end",
+              turn: scope.turn,
+              step: scope.step,
+              ...(raw.seq === undefined ? {} : { seq: raw.seq }),
+            });
+          }
+        }
         // P1：仅在能识别出收尾原因时携带 reason（其余保持既有事件形态）
         const reason = turnEndReason(data.reason);
         emit(reason ? { type: "turn-end", reason } : { type: "turn-end" });
@@ -1971,15 +2037,26 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         const summary = summarizeToolArguments(argsRaw);
         rememberToolCall(data.callId, name, argsRaw, summary);
         if (typeof data.callId === "string" && data.callId !== "") {
-          const scope = data as unknown as { turn?: number; step?: number };
-          deliver({
-            kind: "tool-call",
-            turn: scope.turn ?? 0,
-            step: scope.step ?? 0,
-            callId: data.callId,
-            name,
-            args: argsRaw,
-          });
+          const explicit = data as unknown as { turn?: number; step?: number };
+          const scope =
+            explicit.turn === undefined
+              ? liveScope
+              : { turn: explicit.turn, step: explicit.step ?? 0 };
+          // 归属不可知 → 不投递（0 兜底会开出 0/0 假节）
+          if (scope) {
+            liveScope = scope;
+            deliver({
+              kind: "tool-call",
+              turn: scope.turn,
+              step: scope.step,
+              callId: data.callId,
+              name,
+              args: argsRaw,
+              // 会话事件的 arguments 是完整参数：按整块投递（实时线分片不再拼坏）
+              full: true,
+              ...(raw.seq === undefined ? {} : { seq: raw.seq }),
+            });
+          }
         }
         emit({
           type: "tool-call",
@@ -1998,16 +2075,25 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         const detail = toolResultDetail(data.message);
         const meta = data.meta;
         {
-          const scope = data as unknown as { turn?: number; step?: number };
-          const callId = toolResultCallId(data.message);
-          deliver({
-            kind: "tool-result",
-            turn: scope.turn ?? 0,
-            step: scope.step ?? 0,
-            ...(callId === undefined ? {} : { callId }),
-            ok: !err,
-            detail,
-          });
+          const explicit = data as unknown as { turn?: number; step?: number };
+          const scope =
+            explicit.turn === undefined
+              ? liveScope
+              : { turn: explicit.turn, step: explicit.step ?? 0 };
+          // 归属不可知（会话刚开始就来了结果）→ 不投递，避免 0/0 假节
+          if (scope) {
+            liveScope = scope;
+            const callId = toolResultCallId(data.message);
+            deliver({
+              kind: "tool-result",
+              turn: scope.turn,
+              step: scope.step,
+              ...(callId === undefined ? {} : { callId }),
+              ok: !err,
+              detail,
+              ...(raw.seq === undefined ? {} : { seq: raw.seq }),
+            });
+          }
         }
         emit({
           type: "tool-result",
@@ -2137,11 +2223,13 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         // P6：转发事件信封时间（分组头渲染为 `hh:mm:ss #N`）
         if (raw.type === "step/start") {
           // 节边界（接收层）：step 开始封闭上一节，本身不开节
+          liveScope = { turn: data.turn ?? 0, step: data.step ?? 0 };
           deliver({
             kind: "step-start",
-            turn: data.turn ?? 0,
-            step: data.step ?? 0,
+            turn: liveScope.turn,
+            step: liveScope.step,
             ...(typeof raw.time === "number" ? { time: raw.time } : {}),
+            ...(raw.seq === undefined ? {} : { seq: raw.seq }),
           });
         }
         emit({

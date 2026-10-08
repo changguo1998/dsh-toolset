@@ -6201,7 +6201,7 @@ test("pipeline sink：增量 / 结算两条线重复交付只入一次，工具�
       ["c2", false],
     ],
   );
-  assert.equal(state.awaitingResults.size, 0, "批结果到齐");
+  assert.equal(state.awaiting.get("1:1")?.size ?? 0, 0, "批结果到齐");
   assert.equal(state.pendingOpen, true, "结果到齐 → 待开节");
   assert.equal(state.freezable.has("1:1"), true, "定型信号已记");
   assert.equal(freezeAtFrameBoundary(state).current?.frozen, true);
