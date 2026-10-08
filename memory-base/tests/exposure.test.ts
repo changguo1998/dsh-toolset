@@ -25,14 +25,22 @@ function makeHost(): BundleHost & {
   const listeners: Array<
     (session: { id: string }, event: { type: string; data?: unknown }) => void
   > = [];
+  const disposedListeners: Array<
+    (session: { id: string }, event: { sessionId?: string }) => void
+  > = [];
   const logs: string[] = [];
   return {
     on(event, cb) {
-      assert.equal(event, "session/event");
-      listeners.push(cb);
+      // session/event = 巩固与写直达链；session/disposed = 提升链 S→P 收尾触发（设计 §6）。
+      assert.ok(event === "session/event" || event === "session/disposed");
+      const pool =
+        event === "session/event"
+          ? listeners
+          : (disposedListeners as unknown as typeof listeners);
+      pool.push(cb);
       return () => {
-        const i = listeners.indexOf(cb);
-        if (i >= 0) listeners.splice(i, 1);
+        const i = pool.indexOf(cb);
+        if (i >= 0) pool.splice(i, 1);
       };
     },
     logger: () => ({

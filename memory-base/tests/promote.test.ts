@@ -14,7 +14,11 @@ import {
   editCandidate,
   listCandidates,
   markConflict,
+  markSourcesPromoted,
   promoteCandidates,
+  promoteProjectToUser,
+  promoteSessionToProject,
+  pruneCandidates,
   rejectCandidate,
   resolveConflict,
 } from "../src/promote.ts";
@@ -265,4 +269,94 @@ test("origin 留痕：kb.put 显式 origin user 落列；缺省 auto", async () 
     rows.map((row) => row.origin),
     ["auto", "user"],
   );
+});
+
+test("S→P / P→U 生产：判据过滤、跨库写目标库、跨项目累积、来源标记、容量兜底", async () => {
+  const sDb = await openTierDatabase(":memory:", "session");
+  const pDb = await openTierDatabase(":memory:", "project");
+  const uDb = await openTierDatabase(":memory:", "user");
+  const registry = new KindRegistry();
+  registry.register(fallbackSpec(registry.fallbackKind));
+  const sKb = new KnowledgeService(sDb, { registry });
+  try {
+    // S 库三行：命中过（A）、决策类（B）、都不沾（C）。
+    sKb.put({ project: "p", content: "被检索命中的要点", sessionId: "s1" });
+    sKb.put({
+      project: "p",
+      content: "决策类要点",
+      sessionId: "s1",
+      category: "plan/mode",
+    });
+    sKb.put({ project: "p", content: "普通流水行", sessionId: "s1" });
+    // 回拨 created_at 保证「命中过」（touch 用同一毫秒的 now，严格大于不成立）。
+    sDb
+      .prepare("UPDATE chunks SET created_at = created_at - 1000 WHERE id = 1")
+      .run();
+    sKb.touch(1);
+    const sStats = await promoteSessionToProject(sDb, pDb, registry, {
+      sessionId: "s1",
+      limit: 20,
+    });
+    assert.equal(sStats.queued, 2);
+    assert.equal(
+      (
+        pDb.prepare("SELECT COUNT(*) AS n FROM candidates").get() as {
+          n: number;
+        }
+      ).n,
+      2,
+    );
+
+    // P→U：两个不同 P 库各推一票，U 候选行 projects 累积到 2（≥2 = 跨项目事实）。
+    const pKb = new KnowledgeService(pDb, { registry });
+    pKb.put({ project: "proj-a", content: "跨项目成立的事实" });
+    const uStats1 = await promoteProjectToUser(pDb, uDb, registry, {
+      project: "proj-a",
+    });
+    assert.equal(uStats1.queued, 1);
+    const pDb2 = await openTierDatabase(":memory:", "project");
+    const pKb2 = new KnowledgeService(pDb2, { registry });
+    pKb2.put({ project: "proj-b", content: "跨项目成立的事实" });
+    const uStats2 = await promoteProjectToUser(pDb2, uDb, registry, {
+      project: "proj-b",
+    });
+    assert.equal(uStats2.merged, 1);
+    const [uRow] = listCandidates(uDb, { tier: "user" });
+    assert.deepEqual(uRow?.projects, ["proj-a", "proj-b"]);
+    pDb2.close();
+
+    // 来源标记：session:default:1 → S 库该行 promoted_to 写入。
+    const marked = markSourcesPromoted(
+      {
+        get: (tier: "session" | "project" | "user") =>
+          tier === "session" ? { db: sDb } : undefined,
+      },
+      ["session:default:1"],
+      { kind: "default", id: 9 },
+      registry,
+    );
+    assert.equal(marked, 1);
+    const promotedTo = sDb
+      .prepare("SELECT promoted_to FROM chunks WHERE id = 1")
+      .get() as { promoted_to: string };
+    assert.deepEqual(JSON.parse(promotedTo.promoted_to), {
+      kind: "default",
+      id: 9,
+    });
+
+    // 容量兜底：超限清最旧。
+    for (let i = 0; i < 30; i += 1) {
+      uDb
+        .prepare(
+          "INSERT INTO candidates (target_tier, kind, fact_key, content_hash, content, created_at, updated_at) VALUES ('user', 'default', ?, ?, ?, ?, ?)",
+        )
+        .run(`fk-${i}`, `h-${i}`, "x".repeat(4096), 1000 + i, 1000 + i);
+    }
+    const pruned = pruneCandidates(uDb, 64 * 1024);
+    assert.ok(pruned > 0);
+  } finally {
+    sDb.close();
+    pDb.close();
+    uDb.close();
+  }
 });
