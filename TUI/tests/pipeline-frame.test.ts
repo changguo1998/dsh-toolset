@@ -12,6 +12,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildFrame } from "../src/app/layout.ts";
+import { pipelineContent } from "../src/app/layout/pipeline/frame.ts";
+import {
+  resetRowRenderStats,
+  rowRenderMisses,
+} from "../src/app/layout/pipeline/rows.ts";
 import { setPipelineEnabled } from "../src/app/layout/pipeline/flag.ts";
 import {
   applyAll,
@@ -185,3 +190,47 @@ for (const turns of [2, 5]) {
     });
   }
 }
+
+test("c5 扩窗只排版新增段：已渲染的节命中行缓存（查表不重排）", () => {
+  const { newState } = states(5);
+  const pipeline = newState.pipeline;
+  assert.ok(pipeline, "注入节缓存");
+  resetRowRenderStats();
+  const first = pipelineContent(pipeline, {
+    dialogueTextW: 80,
+    activityTextW: 80,
+    windowGroups: 3,
+    render: { themeId: "dark", width: 80 },
+  });
+  const initial = rowRenderMisses();
+  assert.ok(initial > 0, "首帧排一次");
+
+  // 同窗口重复出帧：全部命中（滚动 / 重绘不重排）
+  resetRowRenderStats();
+  pipelineContent(pipeline, {
+    dialogueTextW: 80,
+    activityTextW: 80,
+    windowGroups: 3,
+    render: { themeId: "dark", width: 80 },
+  });
+  assert.equal(rowRenderMisses(), 0, "同窗重复出帧零重排");
+
+  // 扩窗（3 → 6 组）：只排新纳入的更早段，已排过的内容不重排
+  resetRowRenderStats();
+  const wider = pipelineContent(pipeline, {
+    dialogueTextW: 80,
+    activityTextW: 80,
+    windowGroups: 6,
+    render: { themeId: "dark", width: 80 },
+  });
+  const grown = rowRenderMisses();
+  assert.ok(grown > 0, "扩窗纳入的新段要排一次");
+  assert.ok(
+    grown < initial + grown && grown <= initial,
+    "扩窗不重排已缓存的内容",
+  );
+  assert.ok(
+    wider.dialogue.length >= first.dialogue.length,
+    "扩窗后内容不少于原窗口",
+  );
+});

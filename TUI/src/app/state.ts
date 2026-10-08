@@ -24,6 +24,7 @@ import type {
 } from "./adapter/dsh.ts";
 import type { ModelSelection, ModelSelectionLike } from "./adapter/dsh.ts";
 import type { SectionsState } from "./layout/pipeline/sections.ts";
+import { createSections } from "./layout/pipeline/sections.ts";
 import type { ActivityPlacement } from "./config.ts";
 import {
   DIALOGUE_KEEP_REPLIES,
@@ -1334,6 +1335,8 @@ export function clearBuffer(state: AppState): AppState {
     scrollOffset: 0,
     followBottom: true,
     activityScroll: 0,
+    // 六步流水线的节缓存同源清空（否则 /cls 后旧内容仍会从节缓存渲染出来）
+    ...(state.pipeline === undefined ? {} : { pipeline: createSections() }),
   };
 }
 
