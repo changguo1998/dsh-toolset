@@ -1,12 +1,17 @@
 // src/app/layout/pipeline/sections.ts — 第 1 步「接收」：块交付 → 节缓存
 //
 // 职责（口径见追踪文档「分节规则」「节内合并」「冻结 / 活跃 两套」）：
-//   - 幂等合并：宿主两条线（持久线结算 / 实时线增量）重复交付同一块只入一次；
-//   - 三张记账表：① 交付账（块键 → 已交付文本）② 工具参数累计（callId → 调用）
-//     ③ 完成 / 中断标记（块键 / step 键）；
-//   - 分节：用户输入 / notice / shell / step-start / 工具批结果到齐为边界，惰性开节（无空节）；
+//   - 幂等：带 `seq` 的交付按事件号去重；不带 seq 的文本按「已入账文本」重对账；
+//   - 三张记账表：① 交付账（块键 → 已入账文本）② 工具调用归属与待配对（callId → 节 /
+//     待结果集合）③ 中断与定型标记（step 键）；
+//   - 分节：用户输入 / notice / shell / 回合结束 / 工具批结果到齐为边界，惰性开节（无空节）；
 //   - 节内归并：按来源类型归并（`r1 a1 r2 a2` → reasoning = r1+r2、assistant = a1+a2），
 //     顺序按各类型首次出现；归并不跨节。
+//
+// 与文档的两处口径细化（实现即口径，追踪文档已同步）：
+//   1) **增量只来自实时线**，结算线按块投递 `full`：两条线交叉时不会重复入账；
+//   2) 迟到交付（两线无序 / 恢复重放）按 (turn, step) **回写原节**，不另开新节——
+//      否则同一 step 的正文会被拆到两节（内容错序 + 重复 step 头）。
 //
 // 本层**不碰宽度**、不插任何分隔内容（空行 / step 头 / 回合分隔线都由第 3 步推导）。
 
@@ -24,25 +29,33 @@ import {
 
 /** 节缓存状态（不可变；每次交付返回新状态，便于等价断言与快照） */
 export interface SectionsState {
-  /** 已封闭的节（append-only） */
+  /** 已封闭的节（append-only；迟到交付回写时替换其中的元素并撤销冻结） */
   sections: readonly Section[];
   /** 当前可写节（惰性创建；不存在 = 下一块内容落地时才开节） */
   current?: Section;
-  /** 待开节：下一块内容落地时先封闭当前节（工具批结果到齐 / step-start / 中断置位） */
+  /** 待封闭：下一块内容落地时先封闭当前节（工具批结果到齐 / 回合结束置位） */
   pendingOpen: boolean;
   /** step 元数据（`step-start` 记录，开节时取用：时间戳供 step 头显示） */
   stepMeta: ReadonlyMap<string, { time?: number }>;
-  /** ① 交付账：块键 → 已交付文本 */
+  /** ① 交付账：块键 → 已入账文本 */
   delivered: ReadonlyMap<string, string>;
-  /** ② 工具参数累计：callId → 调用（delta 累计后的终值） */
+  /** 事件号去重（宿主持久线的交付都带 `seq`；实时线增量不带、由交付账对账） */
+  seenSeqs: ReadonlySet<number>;
+  /** 最近一次带 (turn, step) 的交付（notice / shell 等无归属交付沿用，避免 0/0 假节） */
+  lastScope: { turn: number; step: number };
+  /** ② 待结果工具调用：step 键 → callId 集合（空集 = 该 step 的批已到齐） */
+  awaiting: ReadonlyMap<string, ReadonlySet<string>>;
+  /** ② 调用归属：callId → 节下标（-1 = 当前节）；结果据此回到调用所在节（批不拆） */
+  callOwner: ReadonlyMap<string, number>;
+  /** ② 工具参数累计：callId → 调用（整块与增量交叉时按此对账） */
   toolArgs: ReadonlyMap<string, ToolCall>;
-  /** ③ 完成标记：块键（结算整块已交付，后续增量 / 结算不再入账） */
-  completed: ReadonlySet<string>;
+  /** ② 已收到整块参数的调用（其后的增量分片一律忽略，避免拼接损坏） */
+  completedCalls: ReadonlySet<string>;
+  /** ② 已有结果的调用（结果早于调用时，登记调用不再等结果） */
+  resolved: ReadonlySet<string>;
   /** ③ 中断标记：step 键（结果可能永不到齐，不再等批结果） */
   interrupted: ReadonlySet<string>;
-  /** 待结果的工具调用：callId 集合（清空的那一刻 = 批结果到齐 → 置 `pendingOpen`） */
-  awaitingResults: ReadonlySet<string>;
-  /** 定型信号（宿主 `assistant/message`）已送达的 step 键 */
+  /** ③ 定型信号（宿主 `assistant/message`）已送达的 step 键 */
   freezable: ReadonlySet<string>;
 }
 
@@ -52,15 +65,19 @@ export function createSections(): SectionsState {
     pendingOpen: false,
     stepMeta: new Map(),
     delivered: new Map(),
+    seenSeqs: new Set(),
+    lastScope: { turn: 0, step: 0 },
+    awaiting: new Map(),
+    callOwner: new Map(),
     toolArgs: new Map(),
-    completed: new Set(),
+    completedCalls: new Set(),
+    resolved: new Set(),
     interrupted: new Set(),
-    awaitingResults: new Set(),
     freezable: new Set(),
   };
 }
 
-/** 当前节是否已可冻结（封闭 + 定型信号已到）——帧边界用它决定冻结 */
+/** 当前节是否已可冻结（定型信号已到）——帧边界用它决定冻结 */
 export function currentFrozen(state: SectionsState): boolean {
   const current = state.current;
   if (!current) return false;
@@ -78,37 +95,75 @@ export function freezeAtFrameBoundary(state: SectionsState): SectionsState {
   return { ...state, current: { ...current, frozen: true } };
 }
 
-/** 封闭当前节（置 `frozen`）——边界到达时调用 */
-function close(
-  state: SectionsState,
-  current: Section,
-): Pick<SectionsState, "sections" | "current" | "pendingOpen"> {
+/** 交付目标：当前节，或（迟到交付）已封闭节的下标 */
+type Target =
+  | { on: "current"; section: Section }
+  | { on: "closed"; at: number; section: Section };
+
+function close(section: Section): Section {
+  return section.frozen ? section : { ...section, frozen: true };
+}
+
+function sealedOf(state: SectionsState, section: Section): SectionsState {
   return {
-    sections: [
-      ...state.sections,
-      current.frozen ? current : { ...current, frozen: true },
-    ],
+    ...state,
+    sections: [...state.sections, close(section)],
     current: undefined,
     pendingOpen: false,
   };
 }
 
-/** 取当前节（必要时惰性开节）；`pendingOpen` 或有旧 turn/step 时先封闭 */
-function ensure(
+/** 写回目标节（迟到回写会撤销该节冻结——内容变了，派生缓存须失效） */
+function write(
+  state: SectionsState,
+  target: Target,
+  section: Section,
+): SectionsState {
+  if (target.on === "current") {
+    return {
+      ...state,
+      current: section.frozen ? { ...section, frozen: false } : section,
+    };
+  }
+  const sections = [...state.sections];
+  sections[target.at] = { ...section, frozen: false };
+  return { ...state, sections };
+}
+
+function sameScope(section: Section, turn: number, step: number): boolean {
+  return section.turn === turn && section.step === step;
+}
+
+/**
+ * 取交付目标：
+ *   1) `pendingOpen` 且有当前节 → 先封闭（边界语义）；
+ *   2) 已存在同 (turn, step) 的节（封闭节 → 迟到回写；当前节 → 就地写）；
+ *   3) 其余 → 开新节（当前节 scope 不同则先封闭）。
+ * 开节即消费 `pendingOpen`；已在头上的同类 step-start 不会重复切节。
+ */
+function target(
   state: SectionsState,
   turn: number,
   step: number,
-): { state: SectionsState; current: Section } {
+): { state: SectionsState; target: Target } {
   let base = state;
   const existing = base.current;
-  if (
-    existing &&
-    (base.pendingOpen || existing.turn !== turn || existing.step !== step)
-  ) {
-    base = { ...base, ...close(base, existing) };
-  }
+  // 边界先于迟到回写：待封闭（批结果到齐 / 回合结束）时下一块内容另起新节，即使
+  // scope 相同——否则同一 step 的批后正文会被写回批所在节
+  const boundary = existing !== undefined && base.pendingOpen;
+  if (boundary) base = sealedOf(base, existing);
   const current = base.current;
-  if (current) return { state: base, current };
+  if (current && sameScope(current, turn, step)) {
+    return { state: base, target: { on: "current", section: current } };
+  }
+  const at = boundary
+    ? -1
+    : base.sections.findIndex((section) => sameScope(section, turn, step));
+  if (at >= 0) {
+    const section = base.sections[at]!;
+    return { state: base, target: { on: "closed", at, section } };
+  }
+  if (current) base = sealedOf(base, current);
   const time = base.stepMeta.get(stepKey(turn, step))?.time;
   const opened: Section = {
     turn,
@@ -117,15 +172,9 @@ function ensure(
     items: [],
     frozen: false,
   };
-  // 开节即消费「待开节」标记：否则该标记会残留到下一块，把刚开的节又切一刀
-  return { state: { ...base, current: opened, pendingOpen: false }, current: opened };
-}
-
-/** 写回当前节（追加后必然是新内容 → 撤销冻结标记） */
-function write(state: SectionsState, section: Section): SectionsState {
   return {
-    ...state,
-    current: section.frozen ? { ...section, frozen: false } : section,
+    state: { ...base, current: opened, pendingOpen: false },
+    target: { on: "current", section: opened },
   };
 }
 
@@ -140,11 +189,7 @@ function appendText(
   const at = items.findIndex((item) => item.source === source);
   const found = at >= 0 ? items[at] : undefined;
   if (found === undefined) {
-    items.push({
-      source,
-      text,
-      ...(tone === undefined ? {} : { tone }),
-    });
+    items.push({ source, text, ...(tone === undefined ? {} : { tone }) });
   } else {
     items[at] = {
       ...found,
@@ -155,70 +200,42 @@ function appendText(
   return { ...section, items };
 }
 
-/** 工具条目（调用 / 结果同组）：不存在则新建 */
-function toolItem(section: Section): {
-  section: Section;
-  item: Item;
-  at: number;
-} {
+/** 工具条目（调用 / 结果同组）：不存在则新建，返回其下标 */
+function toolAt(section: Section): { items: Item[]; at: number; item: Item } {
   const items = [...section.items];
   const at = items.findIndex((item) => item.source === "tool");
   const found = at >= 0 ? items[at] : undefined;
-  if (found === undefined) {
-    const fresh: Item = { source: "tool", calls: [], results: [] };
-    items.push(fresh);
-    return {
-      section: { ...section, items },
-      item: fresh,
-      at: items.length - 1,
-    };
-  }
-  return { section, item: found, at };
+  if (found !== undefined) return { items, at, item: found };
+  const fresh: Item = { source: "tool", calls: [], results: [] };
+  items.push(fresh);
+  return { items, at: items.length - 1, item: fresh };
 }
 
-function writeToolItem(section: Section, at: number, item: Item): Section {
-  const items = [...section.items];
-  items[at] = item;
-  return { ...section, items };
-}
-
-/** 文本块入账：返回「本次真正新增的文本」（空 = 重复交付，不入账） */
-function acceptText(
-  state: SectionsState,
-  key: string,
-  text: string,
-  full: boolean,
-): { state: SectionsState; accept: string } | undefined {
-  if (state.completed.has(key)) return undefined;
-  const delivered = state.delivered.get(key) ?? "";
+/**
+ * 文本对账：返回「本次真正新增的文本」（空 = 重复交付 / 无法回写）。
+ *   - `full`（整块）：与已入账文本前缀对齐，只补缺失后缀；
+ *   - 增量：已含该片段（后缀重复）→ 空；新片段以已入账文本开头（累计式）→ 补后缀；否则追加。
+ */
+function reconcile(previous: string, text: string, full: boolean): string {
+  if (previous === "") return text;
+  if (text === previous) return "";
   if (full) {
-    // 整块结算：与已交付前缀对齐，只补缺失后缀（前缀不符 = 无法重写，丢弃）
-    const accept =
-      delivered === ""
-        ? text
-        : text.startsWith(delivered)
-          ? text.slice(delivered.length)
-          : "";
-    const completed = new Set(state.completed);
-    completed.add(key);
-    const deliveredMap = new Map(state.delivered);
-    deliveredMap.set(key, text);
-    return {
-      state: { ...state, completed, delivered: deliveredMap },
-      accept,
-    };
+    if (text.startsWith(previous)) return text.slice(previous.length);
+    return ""; // 与已入账不符：append-only 设备无法回写，保留既有内容
   }
-  // 增量：已被累计文本覆盖（是前缀）则视为重复交付
-  if (
-    delivered !== "" &&
-    text.length <= delivered.length &&
-    delivered.startsWith(text)
-  ) {
-    return undefined;
-  }
-  const deliveredMap = new Map(state.delivered);
-  deliveredMap.set(key, delivered + text);
-  return { state: { ...state, delivered: deliveredMap }, accept: text };
+  if (previous.startsWith(text)) return ""; // 已覆盖（旧线前缀重放）
+  if (previous.endsWith(text)) return ""; // 已覆盖（尾部重放）
+  if (text.startsWith(previous)) return text.slice(previous.length); // 累计式
+  return text;
+}
+
+function record(
+  delivered: Map<string, string>,
+  key: string,
+  previous: string,
+  accept: string,
+): void {
+  delivered.set(key, previous + accept);
 }
 
 function applyText(
@@ -226,93 +243,176 @@ function applyText(
   delivery: Extract<BlockDelivery, { kind: "text" }>,
 ): SectionsState {
   const key = blockKey(delivery.turn, delivery.step, delivery.index);
-  const accepted = acceptText(
-    state,
-    key,
-    delivery.text,
-    delivery.full === true,
-  );
-  if (accepted === undefined || accepted.accept === "")
-    return accepted?.state ?? state;
-  const opened = ensure(accepted.state, delivery.turn, delivery.step);
-  const section = appendText(opened.current, delivery.source, accepted.accept);
-  return write(opened.state, section);
+  const previous = state.delivered.get(key) ?? "";
+  const accept = reconcile(previous, delivery.text, delivery.full === true);
+  const delivered = new Map(state.delivered);
+  record(delivered, key, previous, accept);
+  const next = {
+    ...state,
+    delivered,
+    lastScope: { turn: delivery.turn, step: delivery.step },
+  };
+  if (accept === "") return next;
+  const located = target(next, delivery.turn, delivery.step);
+  const section = appendText(located.target.section, delivery.source, accept);
+  return write(located.state, located.target, section);
+}
+
+/** 工具参数增量对账：已含该分片 / 累计式分片 / 新分片三式 */
+function reconcileArgs(previous: string, args: string): string {
+  if (previous.endsWith(args)) return previous;
+  if (previous.startsWith(args)) return previous;
+  if (args.startsWith(previous)) return args;
+  return previous + args;
 }
 
 function applyToolCall(
   state: SectionsState,
   delivery: Extract<BlockDelivery, { kind: "tool-call" }>,
 ): SectionsState {
-  // ② 工具参数累计：同 callId 的后续分片只追加未覆盖后缀（重复交付不入账）
-  const previous = state.toolArgs.get(delivery.callId);
+  const sk = stepKey(delivery.turn, delivery.step);
+  const previous = state.toolArgs.get(delivery.callId)?.args;
+  const full = delivery.full === true;
   const args =
-    previous === undefined
+    previous === undefined || previous === ""
       ? delivery.args
-      : previous.args === delivery.args || previous.args.endsWith(delivery.args)
-        ? previous.args
-        : previous.args + delivery.args;
+      : full
+        ? delivery.args // 整块：以整块为准（append-only 设备不回写更短内容）
+        : state.completedCalls.has(delivery.callId)
+          ? previous // 已有整块参数：忽略其后的增量分片（拼接会损坏 args）
+          : reconcileArgs(previous, delivery.args);
   const toolArgs = new Map(state.toolArgs);
   toolArgs.set(delivery.callId, {
     callId: delivery.callId,
     name: delivery.name,
     args,
   });
-  const awaitingResults = state.interrupted.has(
-    stepKey(delivery.turn, delivery.step),
-  )
-    ? state.awaitingResults
-    : new Set(state.awaitingResults).add(delivery.callId);
-  const opened = ensure(
-    { ...state, toolArgs, awaitingResults },
+  const completedCalls = full
+    ? new Set(state.completedCalls).add(delivery.callId)
+    : state.completedCalls;
+
+  const awaiting = new Map(state.awaiting);
+  const waiting = new Set(awaiting.get(sk) ?? []);
+  if (!state.resolved.has(delivery.callId) && !state.interrupted.has(sk)) {
+    waiting.add(delivery.callId);
+  }
+  awaiting.set(sk, waiting);
+
+  const located = target(
+    {
+      ...state,
+      toolArgs,
+      completedCalls,
+      awaiting,
+      lastScope: { turn: delivery.turn, step: delivery.step },
+    },
     delivery.turn,
     delivery.step,
   );
-  const target = toolItem(opened.current);
-  const calls = [...(target.item.calls ?? [])];
+  const owner = located.target.on === "current" ? -1 : located.target.at;
+  const callOwner = new Map(state.callOwner);
+  callOwner.set(delivery.callId, owner);
+  const slot = toolAt(located.target.section);
+  const calls = [...(slot.item.calls ?? [])];
   const at = calls.findIndex((call) => call.callId === delivery.callId);
   const call: ToolCall = { callId: delivery.callId, name: delivery.name, args };
   if (at >= 0) calls[at] = call;
   else calls.push(call);
-  const item: Item = { ...target.item, calls };
-  return write(opened.state, writeToolItem(target.section, target.at, item));
+  const section: Section = {
+    ...located.target.section,
+    items: withItem(slot.items, slot.at, { ...slot.item, calls }),
+  };
+  return write({ ...located.state, callOwner }, located.target, section);
+}
+
+function withItem(items: readonly Item[], at: number, item: Item): Item[] {
+  const next = [...items];
+  next[at] = item;
+  return next;
 }
 
 function applyToolResult(
   state: SectionsState,
   delivery: Extract<BlockDelivery, { kind: "tool-result" }>,
 ): SectionsState {
-  const awaitingResults = new Set(state.awaitingResults);
-  if (delivery.callId !== undefined) awaitingResults.delete(delivery.callId);
-  // 结果先按「当前节的批」入账（同 callId 配对），**之后**才置待开节——否则结果会
-  // 被 `ensure` 推到新节，与它的调用分离（批结果到齐的信号是给「下一块内容」的）。
-  const opened = ensure(
-    { ...state, awaitingResults },
-    delivery.turn,
-    delivery.step,
-  );
-  const target = toolItem(opened.current);
-  const result: ToolResult = {
-    ...(delivery.callId === undefined ? {} : { callId: delivery.callId }),
+  const sk = stepKey(delivery.turn, delivery.step);
+  const awaiting = new Map(state.awaiting);
+  const waiting = new Set(awaiting.get(sk) ?? []);
+  // 配对键：显式 callId 优先；否则按到达顺序消费本 step 第一个待配对调用
+  const callId = delivery.callId ?? [...waiting][0];
+  if (callId !== undefined) waiting.delete(callId);
+  awaiting.set(sk, waiting);
+  const batchDone = callId !== undefined && waiting.size === 0;
+
+  // 结果回到调用所在节（批不拆）；调用未知（结果早于调用）→ 落在当前节
+  const owner = callId === undefined ? undefined : state.callOwner.get(callId);
+  const located =
+    owner !== undefined && owner >= 0 && state.sections[owner] !== undefined
+      ? {
+          state,
+          target: {
+            on: "closed",
+            at: owner,
+            section: state.sections[owner]!,
+          } as Target,
+        }
+      : target(state, delivery.turn, delivery.step);
+
+  const resolved =
+    callId === undefined ? state.resolved : new Set(state.resolved).add(callId);
+  const slot = toolAt(located.target.section);
+  const results = [...(slot.item.results ?? [])];
+  results.push({
+    ...(callId === undefined ? {} : { callId }),
     ok: delivery.ok,
     detail: delivery.detail,
+  });
+  const section: Section = {
+    ...located.target.section,
+    items: withItem(slot.items, slot.at, { ...slot.item, results }),
   };
-  const results = [...(target.item.results ?? []), result];
-  const item: Item = { ...target.item, results };
   const written = write(
-    opened.state,
-    writeToolItem(target.section, target.at, item),
+    {
+      ...located.state,
+      awaiting,
+      resolved,
+      lastScope: { turn: delivery.turn, step: delivery.step },
+    },
+    located.target,
+    section,
   );
-  // 批结果到齐（此前有待配对项）→ 下一块内容先封闭本节
-  const batchDone =
-    state.awaitingResults.size > 0 && awaitingResults.size === 0;
-  return batchDone ? { ...written, pendingOpen: true } : written;
+  // 批结果到齐 → 下一块内容先封闭本节（结果自身已入账，不会被推走）
+  return batchDone && written.current !== undefined
+    ? { ...written, pendingOpen: true }
+    : written;
 }
 
-/** 交付一块：接收层的唯一入口（幂等；同块重复交付不改变节内容） */
+/** 回合结束：封闭当前节 + 给该回合最后一个 assistant 节打「最终总结」标记 */
+function applyTurnEnd(state: SectionsState, turn: number): SectionsState {
+  const sealed =
+    state.current === undefined ? state : sealedOf(state, state.current);
+  const sections = [...sealed.sections];
+  for (let i = sections.length - 1; i >= 0; i--) {
+    const section = sections[i]!;
+    if (section.turn !== turn) continue;
+    if (!section.items.some((item) => item.source === "assistant")) continue;
+    sections[i] = { ...section, final: true };
+    break;
+  }
+  return { ...sealed, sections, pendingOpen: false };
+}
+
+/** 交付一块：接收层的唯一入口（幂等） */
 export function applyDelivery(
   state: SectionsState,
   delivery: BlockDelivery,
 ): SectionsState {
+  // 事件号去重：宿主持久线交付都带 seq（同一事件重放只入一次）
+  const seq = "seq" in delivery ? delivery.seq : undefined;
+  if (seq !== undefined) {
+    if (state.seenSeqs.has(seq)) return state;
+    state = { ...state, seenSeqs: new Set(state.seenSeqs).add(seq) };
+  }
   switch (delivery.kind) {
     case "text":
       return applyText(state, delivery);
@@ -321,28 +421,39 @@ export function applyDelivery(
     case "tool-result":
       return applyToolResult(state, delivery);
     case "step-start": {
-      const stepMeta = new Map(state.stepMeta);
       const key = stepKey(delivery.turn, delivery.step);
+      const stepMeta = new Map(state.stepMeta);
       stepMeta.set(
         key,
         delivery.time === undefined ? {} : { time: delivery.time },
       );
-      const base = { ...state, stepMeta, pendingOpen: true };
-      const existing = base.current;
-      if (!existing) return base;
-      return { ...base, ...close(base, existing) };
+      const next = {
+        ...state,
+        stepMeta,
+        lastScope: { turn: delivery.turn, step: delivery.step },
+      };
+      const current = next.current;
+      // 幂等 / 迟到：同一 (turn, step) 已有节或已有内容 → 只记元数据，不切节
+      if (!current || sameScope(current, delivery.turn, delivery.step))
+        return next;
+      if (
+        next.sections.some((section) =>
+          sameScope(section, delivery.turn, delivery.step),
+        )
+      ) {
+        return next;
+      }
+      return sealedOf(next, current);
     }
     case "user":
     case "notice":
     case "shell": {
-      const turn =
-        delivery.kind === "user" ? delivery.turn : (state.current?.turn ?? 0);
-      const step =
-        delivery.kind === "user" ? delivery.step : (state.current?.step ?? 0);
+      const scope =
+        delivery.kind === "user"
+          ? { turn: delivery.turn, step: delivery.step }
+          : state.lastScope;
       const sealed =
-        state.current === undefined
-          ? state
-          : { ...state, ...close(state, state.current) };
+        state.current === undefined ? state : sealedOf(state, state.current);
       const source: Source =
         delivery.kind === "user"
           ? "user"
@@ -350,35 +461,44 @@ export function applyDelivery(
             ? "notice"
             : "shell";
       const tone = delivery.kind === "notice" ? delivery.tone : undefined;
-      const item: Item = {
-        source,
-        text: delivery.text,
-        ...(tone === undefined ? {} : { tone }),
-      };
       const section: Section = {
-        turn,
-        step,
-        items: [item],
+        turn: scope.turn,
+        step: scope.step,
+        items: [
+          {
+            source,
+            text: delivery.text,
+            ...(tone === undefined ? {} : { tone }),
+          },
+        ],
         frozen: false,
       };
-      // 自成节后置「待开节」：其后内容另起一节（与设计「notice 与用户消息同行为」一致）
+      // 自成节（封闭态）：其后内容另起一节——与设计「notice 与用户消息同行为」一致
       return {
         ...sealed,
-        sections: [...sealed.sections, { ...section, frozen: true }],
+        sections: [...sealed.sections, close(section)],
         current: undefined,
         pendingOpen: false,
+        lastScope: scope,
       };
     }
+    case "turn-end":
+      return applyTurnEnd(
+        { ...state, lastScope: { turn: delivery.turn, step: delivery.step } },
+        delivery.turn,
+      );
     case "interrupted": {
-      const interrupted = new Set(state.interrupted);
-      interrupted.add(stepKey(delivery.turn, delivery.step));
-      // 不再等批结果（结果仍可到达并按 callId 配进本节）；不置待开节——中断后的结果
-      // 正属于本节那批，置待开节会把它们推到新节，与调用分离。
-      return { ...state, interrupted, awaitingResults: new Set() };
+      const sk = stepKey(delivery.turn, delivery.step);
+      const interrupted = new Set(state.interrupted).add(sk);
+      // 不再等批结果（结果仍可到达并按 callId 配进本节）；不置待封闭——中断后的结果正属本节
+      const awaiting = new Map(state.awaiting);
+      awaiting.set(sk, new Set());
+      return { ...state, interrupted, awaiting };
     }
     case "finalize": {
-      const freezable = new Set(state.freezable);
-      freezable.add(stepKey(delivery.turn, delivery.step));
+      const freezable = new Set(state.freezable).add(
+        stepKey(delivery.turn, delivery.step),
+      );
       return { ...state, freezable };
     }
   }
