@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { openKnowledgeDatabase } from "../src/schema.ts";
 
 /** 插入一条 source + 一条 chunk，返回 chunk 行 id。 */
@@ -136,6 +137,38 @@ test("文件库打开：重复 open 幂等且保留数据", async () => {
     ).n;
     assert.equal(count, 1);
     again.close();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("版本不匹配：拒绝打开而不是整库重置（设计 §9）", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kb-schema-"));
+  try {
+    const path = join(dir, "kb.db");
+    const db = await openKnowledgeDatabase(path);
+    seedChunk(db);
+    db.exec("PRAGMA user_version = 99");
+    db.close();
+
+    // 拒绝打开：报版本不符，并指明显式迁移入口。
+    await assert.rejects(
+      () => openKnowledgeDatabase(path),
+      /版本 99 与当前 1 不符且无可用迁移/,
+    );
+
+    // 数据仍在（没有被 DROP 重建）。
+    const reopened = new DatabaseSync(path);
+    try {
+      const count = (
+        reopened.prepare("SELECT COUNT(*) AS n FROM chunks").get() as {
+          n: number;
+        }
+      ).n;
+      assert.equal(count, 1);
+    } finally {
+      reopened.close();
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

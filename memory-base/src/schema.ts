@@ -1,5 +1,5 @@
 /**
- * knowledge-base SQLite schema：两 STRICT 基表（sources/chunks）+ 双 FTS5 影子表 + TRIGGER 写直达同步。
+ * memory-base SQLite schema：两 STRICT 基表（sources/chunks）+ 双 FTS5 影子表 + TRIGGER 写直达同步。
  *
  * 设计对照 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §12.1：
  * - sources / chunks 为内容主体（普通 SQL 做过滤/排序/淘汰）；
@@ -9,24 +9,34 @@
  *
  * open 流程仿 packages/session-query/session-query-sqlite/src/schema.ts：
  * application_id / user_version 守护、0o600 文件创建、journal_mode（默认 WAL）、
- * 版本不匹配时整库重置后重建，避免跨代 schema 漂移。
+ * 版本不匹配时**拒绝打开**（不整库重置：GB 级库上等于数据全失）；存量清理走显式 `migrate()`。
  * PRAGMA 不支持参数绑定，故各 PRAGMA SQL 以常量/映射形式预计算，不做运行时插值。
  */
 
 import { DatabaseSync } from "node:sqlite";
 import { mkdir, open } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import type { Tier } from "./router.ts";
 
-/** 当前 schema 版本。不兼容变更时 +1，open 时整库重置。 */
+/** 当前 schema 版本。不兼容变更时 +1；open 遇不匹配版本一律拒绝（不重置）。 */
 export const KNOWLEDGE_SCHEMA_VERSION = 1;
 
-/** SQLite application id（'KNOW'），防止误开其他应用的中立数据库。 */
-export const KNOWLEDGE_APPLICATION_ID = 0x4b4e4f57;
+/**
+ * 各层库的 SQLite application id（设计 §9「一库一指纹」）。
+ * 指纹即层身份：拿 session 库当 project 库打开会被拒。
+ */
+export const TIER_APPLICATION_IDS: Record<Tier, number> = {
+  session: 0x53455353, // 'SESS'
+  project: 0x50524f4a, // 'PROJ'
+  user: 0x55534552, // 'USER'
+};
+
+/** v1 单库（`knowledge.db`）的历史指纹 'KNOW'：用于识别旧库，不用于打开（见 `migrate.ts`）。 */
+export const LEGACY_V1_APPLICATION_ID = 0x4b4e4f57;
 
 /** 支持的 SQLite journal 模式。 */
 export type JournalMode = "wal" | "delete" | "truncate" | "persist";
 
-const PRAGMA_APP_ID_SQL = `PRAGMA application_id = ${KNOWLEDGE_APPLICATION_ID}`;
 const PRAGMA_VERSION_SQL = `PRAGMA user_version = ${KNOWLEDGE_SCHEMA_VERSION}`;
 
 /** 各 journal 模式对应的静态 PRAGMA SQL（封闭枚举，映射到字面量）。 */
@@ -57,7 +67,7 @@ function listUserTables(db: DatabaseSync): string[] {
 }
 
 /**
- * 版本不匹配或外部污染时整库重建。
+ * 仅用于空库初始化前的清场（外部污染的库不走到这里：已在 open 内提前拒绝）。
  * FTS 影子表随虚拟表 DROP 自动清理，base 表 DROP 连带其 TRIGGER。
  */
 function resetSchema(db: DatabaseSync): void {
@@ -69,8 +79,8 @@ function resetSchema(db: DatabaseSync): void {
 }
 
 /** 建表 + 索引 + 双 FTS5 影子表 + 写直达 TRIGGER。仅应在空库/已重置库上调用。 */
-function ensureSchema(db: DatabaseSync): void {
-  db.exec(PRAGMA_APP_ID_SQL);
+function ensureSchema(db: DatabaseSync, appId: number): void {
+  db.exec(`PRAGMA application_id = ${appId}`);
   db.exec(`
     CREATE TABLE sources (
       id           INTEGER PRIMARY KEY,
@@ -134,14 +144,17 @@ function ensureSchema(db: DatabaseSync): void {
 }
 
 /**
- * 打开并初始化知识库连接。
+ * 打开并初始化**某一层**的库连接（设计 §9：一库一指纹）。
  * @param path 独立 SQLite 库路径或 `:memory:`；文件路径父目录自动创建（0o700）。
+ * @param tier 层身份：指纹不匹配该层即拒绝打开（旧 v1 库的 'KNOW' 因此不会被自动读取）。
  * @param journalMode 校验过的 journal 模式（默认 wal）。
  */
-export async function openKnowledgeDatabase(
+export async function openTierDatabase(
   path: string,
+  tier: Tier,
   journalMode: JournalMode = "wal",
 ): Promise<DatabaseSync> {
+  const expected = TIER_APPLICATION_IDS[tier];
   const actual = path === ":memory:" ? path : resolve(path);
   if (actual !== ":memory:") {
     await mkdir(dirname(actual), { recursive: true, mode: 0o700 });
@@ -159,22 +172,24 @@ export async function openKnowledgeDatabase(
       .get() as {
       user_version: number;
     };
-    if (appId !== 0 && appId !== KNOWLEDGE_APPLICATION_ID) {
+    if (appId !== 0 && appId !== expected) {
       throw new Error(
-        `knowledge-base 数据库 "${actual}" 属于其他应用，拒绝打开`,
+        `memory-base ${tier} 库 "${actual}" 指纹 ${appId} 与该层（${expected}）不符，拒绝打开`,
       );
     }
     if (appId === 0) {
       if (listUserTables(db).length > 0) {
         throw new Error(
-          `knowledge-base 数据库 "${actual}" 非空且非本应用库，拒绝打开`,
+          `memory-base ${tier} 库 "${actual}" 非空且非本应用库，拒绝打开`,
         );
       }
       resetSchema(db);
-      ensureSchema(db);
+      ensureSchema(db, expected);
     } else if (version !== KNOWLEDGE_SCHEMA_VERSION) {
-      resetSchema(db);
-      ensureSchema(db);
+      // 设计 §9：按迁移链升级；无可用迁移则拒绝打开并报错（现状只有 v1 一个版本，无升级链）。
+      throw new Error(
+        `memory-base ${tier} 库 "${actual}" 版本 ${version} 与当前 ${KNOWLEDGE_SCHEMA_VERSION} 不符且无可用迁移；需清空重建时显式调用 migrate({ from: "v1", mode: "drop" })`,
+      );
     }
     db.exec(JOURNAL_MODE_SQL[journalMode]);
     return db;
@@ -182,4 +197,15 @@ export async function openKnowledgeDatabase(
     db.close();
     throw error;
   }
+}
+
+/**
+ * 单库入口的历史别名（等同会话层）。
+ * 供既有调用点与测试使用；新代码一律用 `openTierDatabase`。
+ */
+export function openKnowledgeDatabase(
+  path: string,
+  journalMode: JournalMode = "wal",
+): Promise<DatabaseSync> {
+  return openTierDatabase(path, "session", journalMode);
 }
