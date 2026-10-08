@@ -30,6 +30,7 @@
 // signal 中断 → reject。单活动请求守卫：已有待答提问时直接 reject（单面板约束）。
 
 import type { TurnEndReason } from "../state.ts";
+import type { BlockDelivery } from "../layout/pipeline/types.ts";
 import { clockHms } from "../clock.ts";
 import type {
   DshEvent,
@@ -433,6 +434,12 @@ function summarizeToolArguments(args: string): string {
   }
   return raw === "" ? "(无参数)" : raw;
 }
+/** tool/result 的配对键：宿主 append 的 `message.callId`（缺失返回 undefined → 接收层按到达顺序配对） */
+function toolResultCallId(message: unknown): string | undefined {
+  const id = (message as { callId?: unknown } | undefined)?.callId;
+  return typeof id === "string" && id !== "" ? id : undefined;
+}
+
 /**
  * tool/result.message（ToolResultMessage.content=[ToolResultBlock]）→ 首段文本：
  * 取内层第一个 text 块首行（v1 足够）；形状不符/空 → ""。
@@ -1198,6 +1205,15 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
 
   const emit = (e: DshEvent): void => {
     if (disposed) return;
+    // 六步流水线接收层：自造 notice 与宿主内容一视同仁（设计「自造内容走同一流程」）；
+    // 未注入 sink（开关关闭）时零开销。
+    if (e.type === "notice" && opts.onDelivery !== undefined) {
+      opts.onDelivery(
+        e.tone === undefined
+          ? { kind: "notice", text: e.text }
+          : { kind: "notice", text: e.text, tone: e.tone },
+      );
+    }
     for (const cb of listeners) {
       try {
         cb(e);
@@ -1205,6 +1221,39 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         process.stderr.write("[dsh adapter] emit error: " + String(err) + "\n");
       }
     }
+  };
+
+  /** 投递一块到接收层（sink 缺省 = 什么都不做） */
+  const deliver = (delivery: BlockDelivery): void => {
+    opts.onDelivery?.(delivery);
+  };
+
+  /** 定型信号投递（`assistant/message`：宿主每 step 必发；`interrupted` = 输出被打断） */
+  const deliverFinalize = (
+    turn: number,
+    step: number,
+    interrupted: boolean,
+  ): void => {
+    if (opts.onDelivery === undefined) return;
+    opts.onDelivery({ kind: "finalize", turn, step });
+    if (interrupted) opts.onDelivery({ kind: "interrupted", turn, step });
+  };
+
+  /** 文本块投递（增量与结算整块共用；`full` = 结算整块，接收层负责与已交付前缀对齐） */
+  const deliverText = (
+    turn: number,
+    step: number,
+    index: number,
+    source: "assistant" | "reasoning",
+    text: string,
+    full?: boolean,
+  ): void => {
+    if (opts.onDelivery === undefined) return;
+    opts.onDelivery(
+      full === true
+        ? { kind: "text", turn, step, index, source, text, full: true }
+        : { kind: "text", turn, step, index, source, text },
+    );
   };
 
   // 上下文窗口缓存：provider:model → 模型上下文容量（LlmResolvedModelInfo.context.contextWindow，
@@ -1525,6 +1574,13 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         return;
       }
       emittedByBlock.set(blockKey, emitted + chunk.text);
+      deliverText(
+        turn,
+        step,
+        index,
+        isReasoning ? "reasoning" : "assistant",
+        chunk.text,
+      );
       emit({
         type: isReasoning ? "thinking" : "stream",
         sessionId: sid,
@@ -1542,6 +1598,15 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       if (full === undefined) return;
       const done = emittedByBlock.get(blockKey) ?? "";
       emittedByBlock.delete(blockKey);
+      // 结算整块投递给接收层（前缀对齐在接收层做：与已交付增量不重复）
+      deliverText(
+        turn,
+        step,
+        index,
+        isReasoning ? "reasoning" : "assistant",
+        full,
+        true,
+      );
       if (done === "") {
         // 无 delta 的 provider：block-end 即完整文本
         emit({
@@ -1764,19 +1829,39 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
               .map((b) => b.text)
               .join("")
           : "";
-        if (text === "") return;
+        if (text === "") {
+          // 空正文也要定型（该 step 的可见内容可能只有工具调用）
+          deliverFinalize(
+            data.turn ?? 0,
+            data.step ?? 0,
+            data?.interrupted === true,
+          );
+          return;
+        }
         const sk = sid + ":" + (data.turn ?? 0) + ":" + (data.step ?? 0);
         const done = stepEmitted.get(sk) ?? "";
         stepEmitted.delete(sk);
-        if (done === "") {
-          emit({ type: "stream", sessionId: sid, text });
-        } else if (text.startsWith(done)) {
-          const rest = text.slice(done.length);
-          if (rest.length > 0) {
-            emit({ type: "stream", sessionId: sid, text: rest });
-          }
+        let rest = "";
+        if (done === "") rest = text;
+        else if (text.startsWith(done)) rest = text.slice(done.length);
+        if (rest.length > 0) {
+          emit({ type: "stream", sessionId: sid, text: rest });
+          // 结算整块（step 级）：接收层按 `index = -1` 单独记账，与逐块增量不重复
+          deliverText(
+            data.turn ?? 0,
+            data.step ?? 0,
+            -1,
+            "assistant",
+            rest,
+            true,
+          );
         }
         // delta 与 message 文本不一致时不再输出（append-only UI 无法安全重写）
+        deliverFinalize(
+          data.turn ?? 0,
+          data.step ?? 0,
+          data?.interrupted === true,
+        );
         // 0.1.2-rc.1：输出被打断标记（assistant/message.interrupted）→ muted notice
         if (data?.interrupted === true) {
           emit({ type: "notice", text: "（模型输出已中断）", tone: "info" });
@@ -1885,6 +1970,17 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           typeof data.arguments === "string" ? data.arguments : "";
         const summary = summarizeToolArguments(argsRaw);
         rememberToolCall(data.callId, name, argsRaw, summary);
+        if (typeof data.callId === "string" && data.callId !== "") {
+          const scope = data as unknown as { turn?: number; step?: number };
+          deliver({
+            kind: "tool-call",
+            turn: scope.turn ?? 0,
+            step: scope.step ?? 0,
+            callId: data.callId,
+            name,
+            args: argsRaw,
+          });
+        }
         emit({
           type: "tool-call",
           sessionId: sid,
@@ -1901,6 +1997,18 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         const err = data.error;
         const detail = toolResultDetail(data.message);
         const meta = data.meta;
+        {
+          const scope = data as unknown as { turn?: number; step?: number };
+          const callId = toolResultCallId(data.message);
+          deliver({
+            kind: "tool-result",
+            turn: scope.turn ?? 0,
+            step: scope.step ?? 0,
+            ...(callId === undefined ? {} : { callId }),
+            ok: !err,
+            detail,
+          });
+        }
         emit({
           type: "tool-result",
           sessionId: sid,
@@ -2027,6 +2135,15 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       case "step/end":
         // P2 step 边界（B3 工具行分组头）；载荷为 {turn, step}，无独立值；
         // P6：转发事件信封时间（分组头渲染为 `hh:mm:ss #N`）
+        if (raw.type === "step/start") {
+          // 节边界（接收层）：step 开始封闭上一节，本身不开节
+          deliver({
+            kind: "step-start",
+            turn: data.turn ?? 0,
+            step: data.step ?? 0,
+            ...(typeof raw.time === "number" ? { time: raw.time } : {}),
+          });
+        }
         emit({
           type: "step",
           sessionId: sid,

@@ -5,6 +5,7 @@
 
 import type { SessionUiState } from "./session-ui-state.ts";
 import type { ActivityLevel, TurnEndReason } from "../state.ts";
+import type { BlockDelivery } from "../layout/pipeline/types.ts";
 
 export type AgentStatus = "idle" | "thinking" | "tool" | "done";
 
@@ -1611,6 +1612,9 @@ export interface RealAdapterOptions {
   /** TUI#40：本次进程**启动即恢复**了持久化会话（CLI `--resume` / `-c`）——
    *  adapter 据此暴露 `resumedAtLaunch`，App 启动时补一次历史折叠（历史区直接可见既有消息） */
   resumedAtLaunch?: boolean;
+  /** 六步流水线接收层 sink（`TUI_LAYOUT_PIPELINE` 开启时由 App 注入）：adapter 把宿主
+   *  两条线（持久线结算 / 实时线增量）归一成「块交付」投递到这里；缺省不投递、零开销。 */
+  onDelivery?: (delivery: BlockDelivery) => void;
   /** app 使用的瘦 agent(用于 followup) */
   agent: DshAgentLike;
   /** 真实 Agent(注册表作用域查找用，通常与 main.ts 的 handle.agent 相同) */

@@ -55,6 +55,14 @@ import {
   type AgentPresetsLike,
   type JobsLike,
 } from "../src/app/adapter/dsh.ts";
+import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
+import {
+  allSections,
+  applyAll,
+  createSections,
+  freezeAtFrameBoundary,
+  itemOf,
+} from "../src/app/layout/pipeline/sections.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import {
   readSessionUiState,
@@ -6052,4 +6060,149 @@ test("真实 adapter /guard：opts.guard 按次读取（apply 期未挂载、之
   const rows = panelRows(events, "guard");
   assert.equal(rows.length, 1, "服务出现后应渲染面板行");
   assert.equal(rows[0]?.title, "bash");
+});
+
+// --- 六步流水线批 1b：adapter 产出「块交付」（sink → 接收层 → 节） ---
+
+/** 实时线帧（agent/assistant-stream）：payload = { agent, frame } */
+function streamFrame(frame: Record<string, unknown>): unknown {
+  return { agent: { session: { id: "s1" } }, frame };
+}
+
+test("pipeline sink：增量 / 结算两条线重复交付只入一次，工具批按 callId 配对", () => {
+  const runtime = new FakeRuntime();
+  const deliveries: BlockDelivery[] = [];
+  const adapter = createRealDshAdapter({
+    runtime,
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    onDelivery: (d) => deliveries.push(d),
+  });
+  const unbind = adapter.onEvent(() => {});
+
+  const t = Date.now();
+  runtime.fire("session/event", { id: "s1" }, {
+    type: "step/start",
+    seq: 1,
+    time: t,
+    data: { turn: 1, step: 1 },
+  } satisfies SessionEvent);
+
+  // 实时线：逐 chunk 增量（正文 + 思考）
+  runtime.fire(
+    "agent/assistant-stream",
+    streamFrame({ type: "start", attemptId: "a1", turn: 1, step: 1 }),
+  );
+  for (const [type, text] of [
+    ["text-delta", "你"],
+    ["reasoning-delta", "（想）"],
+    ["text-delta", "好"],
+  ] as const) {
+    runtime.fire(
+      "agent/assistant-stream",
+      streamFrame({
+        type: "chunk",
+        attemptId: "a1",
+        chunk: { type, index: type === "text-delta" ? 0 : 1, text },
+      }),
+    );
+  }
+
+  // 结算线（assistant/attempt）：同一内容重放 → 不重复入账
+  runtime.fire("session/event", { id: "s1" }, {
+    type: "assistant/attempt",
+    seq: 2,
+    time: t,
+    data: {
+      turn: 1,
+      step: 1,
+      stream: [
+        {
+          type: "chunk",
+          time: t,
+          chunk: { type: "text-delta", index: 0, text: "你" },
+        },
+        {
+          type: "chunk",
+          time: t,
+          chunk: { type: "text-delta", index: 0, text: "你好" },
+        },
+      ],
+    },
+  } satisfies SessionEvent);
+
+  // 工具批：两条调用、两条结果（callId 在 data.callId 与 message.callId 两种形态都要认）
+  for (const [callId, name] of [
+    ["c1", "read"],
+    ["c2", "bash"],
+  ] as const) {
+    runtime.fire("session/event", { id: "s1" }, {
+      type: "tool/call",
+      seq: 3,
+      time: t,
+      data: { turn: 1, step: 1, callId, name, arguments: "{}" },
+    } satisfies SessionEvent);
+  }
+  runtime.fire("session/event", { id: "s1" }, {
+    type: "tool/result",
+    seq: 4,
+    time: t,
+    data: {
+      turn: 1,
+      step: 1,
+      callId: "c1",
+      message: { callId: "c1", content: [{ type: "text", text: "ok" }] },
+    },
+  } satisfies SessionEvent);
+  runtime.fire("session/event", { id: "s1" }, {
+    type: "tool/result",
+    seq: 5,
+    time: t,
+    data: {
+      turn: 1,
+      step: 1,
+      callId: "c2",
+      message: { callId: "c2", content: [{ type: "text", text: "boom" }] },
+      error: { name: "EACCES" },
+    },
+  } satisfies SessionEvent);
+
+  // 定型信号（assistant/message：宿主每 step 必发）
+  runtime.fire("session/event", { id: "s1" }, {
+    type: "assistant/message",
+    seq: 6,
+    time: t,
+    data: {
+      turn: 1,
+      step: 1,
+      message: { content: [{ type: "text", text: "你好" }] },
+    },
+  } satisfies SessionEvent);
+
+  unbind();
+  const state = applyAll(createSections(), deliveries);
+  const sections = allSections(state);
+  assert.equal(sections.length, 1, "step 内只有一节");
+  assert.equal(
+    itemOf(sections[0]!, "assistant")?.text,
+    "你好",
+    "两条线重复交付只入一次",
+  );
+  assert.equal(itemOf(sections[0]!, "reasoning")?.text, "（想）");
+  const tool = itemOf(sections[0]!, "tool");
+  assert.deepEqual(
+    tool?.calls?.map((c) => c.callId),
+    ["c1", "c2"],
+  );
+  assert.deepEqual(
+    tool?.results?.map((r) => [r.callId, r.ok]),
+    [
+      ["c1", true],
+      ["c2", false],
+    ],
+  );
+  assert.equal(state.awaitingResults.size, 0, "批结果到齐");
+  assert.equal(state.pendingOpen, true, "结果到齐 → 待开节");
+  assert.equal(state.freezable.has("1:1"), true, "定型信号已记");
+  assert.equal(freezeAtFrameBoundary(state).current?.frozen, true);
 });
