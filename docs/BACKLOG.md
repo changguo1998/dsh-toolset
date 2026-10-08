@@ -67,10 +67,10 @@
 |---|------|------|--------------|--------------|--------|
 | 1 | **`test-install.sh` 既有红灯：标题接管守卫计数过时**（`profiles/example/cordis.patch.yml` 自 `1e17b50` 起含 2 条活跃 `disabled: true`，断言仍期望 1 → 实得 3 而失败；且 `fail()` 立即 `exit 1`，后续约 32 项检查不再执行）。修法二选一：按 example 现状改期望，或让计数只统计脚本生成的禁用块 | 2026-10-08 修 `install.sh --sync` 时实测 | `scripts/test-install.sh` | 0.5 天 | P1 |
 | 2 | **分类注册机制 `registerKind`**（`kind` + 扩展列 + 写入前钩子 + 查询路由规则；按需建表；跨分类检索 union；加表式迁移）。详 §12 #11（前置「分层三库」已落地） | 设计定稿 §12#11 | `memory-base/src/schema.ts`、`src/router.ts`、`src/knowledge.ts` | 2-3 天 | P1 |
-| 3 | **提升链 I → S → P → U**（判据 + LLM 概括走 `ctx.llm` + 审阅队列 `candidates` 表 + 回指 + 单事务转换 + `resolveConflict`）。详 §12 #4（前置「分类注册 / 闸门下沉 / 派生链」部分已落地，分类注册见条目 1） | 设计定稿 §12#4 | 新 `memory-base/src/promote.ts`、`src/consolidate.ts` | 3-5 天 | P1 |
-| 4 | **`output-compress` 自持 `digest.db`**（底线闸门 + 提升 push + `referenced_at` 回读刷新 + 巩固时重推；不再共库直写）。详 §12 #7；**前置 = 条目 2（提升链与审阅）** | 设计定稿 §12#7 | `output-compress/src/kb-write.ts`、`src/hooks.ts`、`src/index.ts` | 2-3 天 | P1 |
-| 5 | **文档索引落地 `doc_index`**（表 + FTS5 只索引标题与摘要行 + 复用 `md-logic` 解析 + 巩固增量扫 + `present`/`stale`/`missing` 状态机）。详 §12 #12；**前置 = 条目 1（分类注册机制）** | 设计定稿 §12#12 | 各层库核心、`memory-base/src/index.ts` | 2-3 天 | P2 |
-| 6 | **TUI 侧改造**（审阅面板按条提问 / `approve`/`reject`/`edit`，P 可代批、冲突与 U 需用户；`/memory` 命令改造含 `--all-projects`；服务键消费点已就位（`ctx.get('memory')`））。详 §12 #13；**前置 = 条目 2（提升链与审阅）** | 设计定稿 §12#13 | `TUI/src/main.ts`、`TUI/src/app/**` | 1-2 天 | P1 |
+| 3 | **提升链 I → S → P → U**（判据 + LLM 概括走 `ctx.llm` + 审阅队列 `candidates` 表 + 回指 + 单事务转换 + `resolveConflict`）。详 §12 #4（前置「分类注册 / 闸门下沉 / 派生链」部分已落地，分类注册见条目 2） | 设计定稿 §12#4 | 新 `memory-base/src/promote.ts`、`src/consolidate.ts` | 3-5 天 | P1 |
+| 4 | **`output-compress` 自持 `digest.db`**（底线闸门 + 提升 push + `referenced_at` 回读刷新 + 巩固时重推；不再共库直写）。详 §12 #7；**前置 = 条目 3（提升链与审阅）** | 设计定稿 §12#7 | `output-compress/src/kb-write.ts`、`src/hooks.ts`、`src/index.ts` | 2-3 天 | P1 |
+| 5 | **文档索引落地 `doc_index`**（表 + FTS5 只索引标题与摘要行 + 复用 `md-logic` 解析 + 巩固增量扫 + `present`/`stale`/`missing` 状态机）。详 §12 #12；**前置 = 条目 2（分类注册机制）** | 设计定稿 §12#12 | 各层库核心、`memory-base/src/index.ts` | 2-3 天 | P2 |
+| 6 | **TUI 侧改造**（审阅面板按条提问 / `approve`/`reject`/`edit`，P 可代批、冲突与 U 需用户；`/memory` 命令改造含 `--all-projects`；服务键消费点已就位（`ctx.get('memory')`））。详 §12 #13；**前置 = 条目 3（提升链与审阅）** | 设计定稿 §12#13 | `TUI/src/main.ts`、`TUI/src/app/**` | 1-2 天 | P1 |
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（memory-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
