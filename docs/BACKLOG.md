@@ -61,11 +61,11 @@
 ## 2. 未完成项
 
 > 顺序依据：扁平清单**按依赖 → 工作量排序**（2026-10-06 起，用户指示「重新按依赖 → 工作量排序」）：**依赖优先**（无前置项在前、有前置项排在各自前置之后）→ 同层**工作量升序** → 同工时「缺陷优先于行为改动 / 高优先级优先」；模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
-> 当前可开工顺序（2026-10-08 核对）：条目 **1（`install.sh --sync` 包改名残留）** 无前置、可直接接取；长期记忆实施批次条目 **2（分类注册）** 与 **3（提升链与审阅）** 的前置（包改名、分层三库、闸门下沉、`project` 派生链）**已落地并提交**（`a81da69` / `0652866` / `55c6382` / `270b2df`，记录见 `docs/implementation/2026-10-07-knowledge-memory-lifecycle.md`），可直接接取；条目 **4（`output-compress` 自持 `digest.db`）** 与 **6（TUI 侧改造）** 依赖条目 3，条目 **5（`doc_index`）** 依赖条目 2。
+> 当前可开工顺序（2026-10-08 核对）：条目 **1（`test-install.sh` 既有红灯）** 无前置、可直接接取；长期记忆实施批次条目 **2（分类注册）** 与 **3（提升链与审阅）** 的前置（包改名、分层三库、闸门下沉、`project` 派生链）**已落地并提交**（`a81da69` / `0652866` / `55c6382` / `270b2df`，记录见 `docs/implementation/2026-10-07-knowledge-memory-lifecycle.md`），可直接接取；条目 **4（`output-compress` 自持 `digest.db`）** 与 **6（TUI 侧改造）** 依赖条目 3，条目 **5（`doc_index`）** 依赖条目 2。
 
 | # | 功能 | 来源 | 落点（复用） | 工作量（估） | 优先级 |
 |---|------|------|--------------|--------------|--------|
-| 1 | 〔进行中〕**`install.sh --sync` 包改名残留**（合并式更新只删「仍在仓库目录里的包名」，改名后的旧名被归入「用户自加」永久保留——依赖与 bundles 各留一条，dsh 收尾自检只 WARN 不报错；修法：值形如 `link:<repoRoot>/…` 的依赖也算本仓条目，再参与「不在选择集即移除」判定） | 2026-10-08 本机 fff profile 改名同步实测 | `scripts/install.sh`、`scripts/test-install.sh` | 0.5 天 | P2 |
+| 1 | **`test-install.sh` 既有红灯：标题接管守卫计数过时**（`profiles/example/cordis.patch.yml` 自 `1e17b50` 起含 2 条活跃 `disabled: true`，断言仍期望 1 → 实得 3 而失败；且 `fail()` 立即 `exit 1`，后续约 32 项检查不再执行）。修法二选一：按 example 现状改期望，或让计数只统计脚本生成的禁用块 | 2026-10-08 修 `install.sh --sync` 时实测 | `scripts/test-install.sh` | 0.5 天 | P1 |
 | 2 | **分类注册机制 `registerKind`**（`kind` + 扩展列 + 写入前钩子 + 查询路由规则；按需建表；跨分类检索 union；加表式迁移）。详 §12 #11（前置「分层三库」已落地） | 设计定稿 §12#11 | `memory-base/src/schema.ts`、`src/router.ts`、`src/knowledge.ts` | 2-3 天 | P1 |
 | 3 | **提升链 I → S → P → U**（判据 + LLM 概括走 `ctx.llm` + 审阅队列 `candidates` 表 + 回指 + 单事务转换 + `resolveConflict`）。详 §12 #4（前置「分类注册 / 闸门下沉 / 派生链」部分已落地，分类注册见条目 1） | 设计定稿 §12#4 | 新 `memory-base/src/promote.ts`、`src/consolidate.ts` | 3-5 天 | P1 |
 | 4 | **`output-compress` 自持 `digest.db`**（底线闸门 + 提升 push + `referenced_at` 回读刷新 + 巩固时重推；不再共库直写）。详 §12 #7；**前置 = 条目 2（提升链与审阅）** | 设计定稿 §12#7 | `output-compress/src/kb-write.ts`、`src/hooks.ts`、`src/index.ts` | 2-3 天 | P1 |
