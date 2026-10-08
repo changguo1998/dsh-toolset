@@ -290,3 +290,22 @@ test("⑥ 冻结：封闭节立即定型；当前节待定型信号，追加则�
   });
   assert.equal(closed.sections[0]?.frozen, true);
 });
+
+test("③ 待开节标记只消费一次：step/start 后连续两块内容仍属同一节", () => {
+  // 回归：开节时若不清 pendingOpen，第二块内容会把刚开的节又切一刀
+  const s = applyAll(createSections(), [
+    { kind: "step-start", turn: 1, step: 1, time: 1 },
+    delta(0, "assistant", "你"),
+    delta(1, "reasoning", "（想）"),
+    delta(0, "assistant", "好"),
+  ]);
+  const sections = allSections(s);
+  assert.equal(sections.length, 1, "同一 step 的内容只有一节");
+  assert.deepEqual(
+    sections[0]?.items.map((item) => [item.source, item.text]),
+    [
+      ["assistant", "你好"],
+      ["reasoning", "（想）"],
+    ],
+  );
+});

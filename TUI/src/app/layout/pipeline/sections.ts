@@ -117,7 +117,8 @@ function ensure(
     items: [],
     frozen: false,
   };
-  return { state: { ...base, current: opened }, current: opened };
+  // 开节即消费「待开节」标记：否则该标记会残留到下一块，把刚开的节又切一刀
+  return { state: { ...base, current: opened, pendingOpen: false }, current: opened };
 }
 
 /** 写回当前节（追加后必然是新内容 → 撤销冻结标记） */
