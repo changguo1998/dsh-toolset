@@ -194,6 +194,8 @@ export interface SessionChannelDeps {
   now?: () => number;
   /** 自动别名的随机源（缺省 `Math.random`；测试注入用）。 */
   random?: () => number;
+  /** 后台重试间隔（缺省 `RETRY_DELAY_MS`；测试注入用）。 */
+  retryDelayMs?: number;
 }
 
 /** session-channel 服务（bundle 内部实现）。 */
@@ -211,6 +213,8 @@ export class SessionChannelService {
   readonly #instanceId: string;
   #conn: SessionChannelConnection | undefined;
   #running = false;
+  /** `stop()` 置位：终止后台重试（见 `#retryConnect`）。 */
+  #stopped = false;
   #heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   #status: SessionChannelStatus;
   #sessions = new Map<string, SessionState>();
@@ -253,6 +257,7 @@ export class SessionChannelService {
       this.#status.error = "已禁用（config.disabled）";
       return;
     }
+    this.#stopped = false;
     try {
       this.#conn = await (this.#deps.connect ?? connectSessionChannel)(
         this.#config,
@@ -260,17 +265,52 @@ export class SessionChannelService {
       );
     } catch (err) {
       this.#status.error = describe(err);
-      this.#log(`未连接（降级）：${this.#status.error}`);
+      this.#log(`未连接（降级，后台重试）：${this.#status.error}`);
+      void this.#retryConnect();
       return;
     }
+    this.#afterConnect();
+  }
+
+  /**
+   * 首连失败后的后台重试（每 `retryDelayMs` 一次，连上为止）：连上即补齐启动步骤。
+   * 启动期事件循环可能被长同步工作占住数秒，此时 3 s 超时定时器会先于**已完成**的
+   * 连接回调触发（报「连接超时」而连接其实成功，实测复现）→ 一次失败不该固化成
+   * 整会话降级。`stop()` 置位 `#stopped` 即退出。
+   */
+  async #retryConnect(): Promise<void> {
+    let attempts = 0;
+    while (!this.#stopped) {
+      await sleepUnref(this.#deps.retryDelayMs ?? RETRY_DELAY_MS);
+      if (this.#stopped) return;
+      attempts += 1;
+      try {
+        this.#conn = await (this.#deps.connect ?? connectSessionChannel)(
+          this.#config,
+          (m) => this.#log(m),
+        );
+      } catch (err) {
+        this.#status.error = describe(err);
+        continue;
+      }
+      this.#status.error = undefined;
+      this.#log(`重试 ${attempts} 次后连接成功`);
+      this.#afterConnect();
+      return;
+    }
+  }
+
+  /** 连接就绪后的启动步骤（首连与后台重试共用；调用前 `#conn` 必已赋值）。 */
+  #afterConnect(): void {
+    const conn = this.#conn;
+    if (conn === undefined) return;
     this.#status.connected = true;
-    this.#status.address = this.#conn.address.label;
-    this.#status.version = this.#conn.version;
+    this.#status.address = conn.address.label;
+    this.#status.version = conn.version;
     this.#log(
       `已连接 ${this.#status.address}（Redis ${this.#status.version}）`,
     );
-    const cleanupConn = this.#conn;
-    void cleanupCursors(cleanupConn.main, CURSOR_TTL_MS)
+    void cleanupCursors(conn.main, CURSOR_TTL_MS)
       .then((removed) => {
         if (removed > 0) this.#log(`清理过期投递游标 ${removed} 个`);
       })
@@ -290,6 +330,7 @@ export class SessionChannelService {
 
   /** 停止：取消定时器、清本进程在线键、断开连接（幂等）。 */
   async stop(): Promise<void> {
+    this.#stopped = true;
     this.#running = false;
     if (this.#heartbeatTimer !== undefined) {
       clearInterval(this.#heartbeatTimer);
@@ -1099,6 +1140,13 @@ function sessionIdOfInboxKey(key: string): string | undefined {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 同上，但定时器不阻止进程退出（后台重试用）。 */
+function sleepUnref(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms).unref?.();
+  });
 }
 
 /** 核心工厂（可测/可复用）。 */

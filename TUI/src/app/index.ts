@@ -159,6 +159,9 @@ const EXIT_CLEAN_TIMEOUT_MS = 5000;
 const VIRT_TICK_MS = 250;
 /** 会话状态快照落盘合并窗口(ms)：/model、/collapse、模式事件等连续变更只写一次文件 */
 const SESSION_STATE_SAVE_MS = 400;
+/** 别名段读取失败告警阈值（连续失败次数）：别名段是增强项，session-channel 首连失败会
+ *  后台重试，启动窗口内静默；连续失败到阈值才留痕一次 */
+const ALIAS_WARN_AFTER_FAILS = 3;
 
 /**
  * 焦点面板单行滚动 action 映射：history/activity 偏移语义=距底部（上滚=+），
@@ -349,6 +352,8 @@ export class App {
   private aliasCache: string | undefined;
   /** 别名读取失败是否已告警（每进程一次，避免刷屏） */
   private aliasWarned = false;
+  /** 别名读取连续失败次数（成功即清零；阈值见 `ALIAS_WARN_AFTER_FAILS`） */
+  private aliasFailStreak = 0;
   /** 运行中闪烁时间驱动定时器（running 期间周期性发 virt-tick：无数据时虚拟速度
    *  衰减回落、虚拟总 token 持续积分——闪烁频率渐降到最低而不断） */
   private virtTimer: ReturnType<typeof setInterval> | null = null;
@@ -1161,8 +1166,13 @@ export class App {
       if (service === undefined) return;
       const result = await service.aliasList();
       if (!result.ok) {
-        // 增强项失败不阻塞主流程，但首故障要留痕（每进程一次）
-        if (!this.aliasWarned) {
+        // 增强项失败不阻塞主流程：通道首连失败会后台重试，故启动窗口内（连续失败未达阈值）
+        // 静默，达阈值才留痕一次（每进程一次）
+        this.aliasFailStreak += 1;
+        if (
+          this.aliasFailStreak >= ALIAS_WARN_AFTER_FAILS &&
+          !this.aliasWarned
+        ) {
           this.aliasWarned = true;
           this.deps.logger?.(
             `warn: 会话别名读取失败（状态栏不显示别名段）：${result.error ?? "未知原因"}`,
@@ -1170,6 +1180,7 @@ export class App {
         }
         return;
       }
+      this.aliasFailStreak = 0;
       const alias = result.aliases?.find(
         (entry: { sessionId: string; alias: string }) =>
           entry.sessionId === sessionId,

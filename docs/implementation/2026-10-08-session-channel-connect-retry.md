@@ -1,6 +1,6 @@
 # session-channel 首连失败后台重试（接取条目：`docs/BACKLOG.md`「session-channel 启动首连失败即整会话降级（假超时），状态栏别名段消失并打 warn」）
 
-状态：规划　　开启：2026-10-08　　关闭：
+状态：实现　　开启：2026-10-08　　关闭：
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -47,11 +47,29 @@
 
 ## 实现记录
 
-（实现时按时间追加）
+2026-10-08（本回合）按「规划」清单实现，未改清单外文件。
+
+1. `session-channel/src/index.ts`
+   - `start()`：首连失败改为记 `未连接（降级，后台重试）：<err>` 后 `void this.#retryConnect()`（仍立即返回，不阻塞启动）。
+   - 新增 `#retryConnect()`：每 `deps.retryDelayMs ?? RETRY_DELAY_MS`（2 s）一次，连上即清 `status.error`、记一行 `重试 N 次后连接成功`、跑启动步骤；`stop()` 置 `#stopped` 后退出（在途尝试最长 3 s 内收敛）。
+   - 原「连接就绪后的启动步骤」抽为 `#afterConnect()`（首连与后台重试共用，心跳定时器仍 unref）。
+   - 新增 `sleepUnref()`（unref 定时器：后台重试不阻止进程退出）与 `SessionChannelDeps.retryDelayMs`（测试注入用，与既有 `deps.now` / `deps.random` 同风格）。
+1. `TUI/src/app/index.ts`
+   - 新增常量 `ALIAS_WARN_AFTER_FAILS = 3` 与字段 `aliasFailStreak`：别名读取连续失败 3 次（StatusTicker 5 s → 约 10-15 s）才写一次 warn，成功即清零；仍保持「每进程一次」不刷屏。
+1. 回归用例 `session-channel/tests/service.test.ts`
+   - 「首连失败转后台重试：连上后补齐启动步骤并清空 error」：注入 `connect`（首调抛 `unavailable/连接超时`，次调走真实连接）→ 断言降级立即返回、重试后 `connected` / `error` 清空 / `peers` 可用 / 恰好调 2 次。
+   - 「重试期间 stop()：不再继续重试（不连上）」：`stop()` 后等待 80 ms，连接调用次数不再增长。
+
+途中发现（已在本任务内修正，未新增 BACKLOG 条目）：新用例起初漏了 `redis.stop()`，临时 redis 子进程会让测试进程不退出（`node --test` 挂住）；已改为 `try/finally` 收尾，与本文件既有用例同构。
 
 ## 测试与证据
 
-（补齐命令 + 输出；含真机重启 `dsh --profile fff` 的别名段与 warn 现象）
+- `npm run check`（全仓 `tsc --noEmit`，20 包）→ exit 0，无报错行。
+- `npm run build`（全仓 `tsc`）→ exit 0。
+- `cd session-channel && npm test` → `tests 49 / pass 49 / fail 0`，8.9 s，进程正常退出（此前失败态：单文件跑完不退出，即上面那条临时 redis 泄漏）。
+- `npm run test:tui -- app.test.ts` → `tests 167 / pass 167 / fail 0`（TUI 侧改动触达面）。
+- `npm run test`（全仓 21 包并行）→ exit 0，逐包 `fail 0`（合计 pass 2421；TUI pass 1345、session-channel pass 49）。
+- 真机验证（待用户执行）：重启 `dsh --profile fff` 后观察——预期无启动 warn，且状态栏别名段在数秒内出现（插件日志应出现 `重试 N 次后连接成功`）；若持续不出现，则日志里的真实 errno 即「沙箱拒连」成因证据，转入下一轮排查。
 
 ## 收尾
 
