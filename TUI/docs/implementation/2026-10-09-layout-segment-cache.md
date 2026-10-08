@@ -221,7 +221,7 @@ interface Box { turn: number; step: number; source: Source; shape: Shape; text?:
 | 三张记账表 | 非缓冲（记账） | 按块 id | 去重 / 配对会出错 |
 
 - 节缓存结构 = 节列表（节元数据：turn / step / 时间；条目：类型标记 + 文本 / 调用 / 结果）+ 记账（当前节指针、待开节标记、批结果计数）。
-- **不做块缓存**：内容只存一份（节内条目），按块 id 只留三张记账表——① 交付账（实时线 / 结算线去重）② 工具参数累计 ③ 完成与 `interrupted` 标记。出现「按块重算 / 事后重新分节 / 按块调试」需求时再加（宿主 `assistant/attempt` 可兜底）。
+- **不做块缓存**：内容只存一份（节内条目），按块 id 只留三张记账表——① 交付账（实时线 / 结算线去重，含宿主事件 `seq` 去重集合）② 工具参数累计 + 调用归属（`callId` → 节下标）与待配对集合（按 step 键）③ 完成（整块参数已到）/ `interrupted` / 定型标记。出现「按块重算 / 事后重新分节 / 按块调试」需求时再加（宿主 `assistant/attempt` 可兜底）。
 - 失效链：块到达 → 节内容变 → 该节 box 失效 → pane 重放 → 行重排；**粒度按节**。
 - 命名映射：本文「会话区 / 回合区」= 现状代码的 dialogue pane / activity pane。
 
@@ -230,14 +230,18 @@ interface Box { turn: number; step: number; source: Source; shape: Shape; text?:
 1. 边界：**用户输入**、**notice**（各自独立成节）、`step/start`、**批结果到齐之后**；`tool/call` 不开节。
 1. 开节**惰性**：只在第一条内容落地时建节 → 结构上无空节。
 1. 一节最多一批工具调用（并发多条算一批）；该批结果全部到齐后才置「开新节」。
-1. notice 与用户消息同行为：封闭当前节、自成节、其后开新节。
+1. notice 与用户消息同行为：封闭当前节、自成节、其后开新节；notice / shell 无 `(turn, step)` 归属时**继承最近一次带归属的交付**（不用 0 兜底——会开出 0/0 假节，回合分隔线与 step 头都会错）。
+1. `step/start` **幂等**：同 `(turn, step)` 已有节或内容时只记元数据（时间戳），不切节——持久线重放与两线无序都会让 step-start 迟到。
+1. **边界优先于迟到回写**：`待封闭`（批结果到齐 / 回合结束）置位后，下一块内容**另起新节**，即使 scope 相同。
+1. **迟到交付回写原节**：`(turn, step)` 已有节（含已封闭节）时把内容写回该节并撤销其冻结，不新开错序节——两线无序与恢复重放都会造成迟到；这也是「冻结集 append-only」的例外，派生缓存按节失效即可。
 
 ### 节内合并
 
 1. 按**类型**归并，不被 reasoning / assistant 交错切断（`r1 a1 r2 a2` → `reasoning = r1+r2`、`assistant = a1+a2`）；顺序按各类型首次出现。
 1. 同类型文本**直拼**（不补分隔符）；工具调用 / 结果各自成组，保留 `name` / `args` / `callId`。
 1. 条目保留类型标记（user / assistant / reasoning / tool-call / tool-result 等）。
-1. 归并**不跨节**。
+1. 归并**不跨节**；但**工具批不拆**：结果按 `callId` 回到调用所在节（即使该节已封闭，如 steer 插话落在批中间时），批始终是一个 box。
+1. 文本幂等：**增量只来自实时线**（逐 chunk），结算线按块投递一次 `full`；接收层用「交付账 + 前缀对齐」对账——整块更短时保留既有内容（append-only 设备不回写），更长时补后缀。原文 doc「全文补后缀**或替换**」中的「替换」**不做**（无块缓存，无法回写已归并文本）。
 
 ### 节 → box（宽无关）
 
@@ -354,7 +358,19 @@ interface Box { turn: number; step: number; source: Source; shape: Shape; text?:
 
 落定时修正两处设计细节（已按此实现）：① 批结果到齐的「待开节」在**结果入账之后**才置位（否则结果被推到新节、与调用分离）；② `interrupted` **不置**待开节、只清空待配对集合（中断后到达的结果正属本节那批）。
 
-**下一步（批 1 后半）**：adapter 产出「块交付」——`RealAdapterOptions` 加可选 sink，事件侧按 user / notice / step-start / text（delta + full）/ tool-call / tool-result / interrupted / finalize 归一投递；开关关闭时不接线、行为不变。
+**批 1b（完成）**：adapter 产出「块交付」——`RealAdapterOptions.onDelivery` 可选 sink（缺省零开销）；投递点 = text 增量（实时线）与结算整块（结算线按块聚合一次 `full`，step 级 `index = -1`）/ step-start / tool-call（`full` 整块参数）/ tool-result（配对键兼容 `data.callId` 与 `message.callId`）/ assistant-message 定型与中断 / turn-end / 自造 notice；`liveScope` 跟踪当前 `(turn, step)`，**归属不可知就不投递**（不拿 0 兜底）。
+
+**批 1 审阅修复（只读子代理报告 7 条，全部落地）**：
+
+1. 文本幂等：删掉「`completed` 永久拦截」；改成交付账 + 前缀对齐（整块先到 + 更长内容后到 = 补后缀；增量重放 = 跳过；空整块不再吞后续内容）；结算线改为按块投递 `full`（不再逐成员重放 delta）。
+1. 工具结果：新增 `seq` 去重、`callId → 节下标` 归属表（结果回到调用所在节，批不拆）、待配对集合**按 step 键**（不再跨 step 泄漏）、无 `callId` 时按到达顺序消费第一个待配对项、结果早于调用时调用侧不再登记等待。
+1. 工具参数：交付补 `full` 标记；整块先到则忽略其后增量分片（原先会拼成 `{"cmd":"ls"}{"cmd":"ls"}`）。
+1. 归属：`liveScope` + 接收层 `lastScope`（notice / shell 继承），去掉 0 兜底。
+1. `step/start` 幂等（同 scope 重复 / 迟到不切节）；边界优先于迟到回写。
+1. 迟到块回写原节（不新开错序节）。
+1. 迁移面：交付与条目补 `seq`、`Section.final`（turn-end 标记最终总结节）、`readonly` 数组类型；`turn-end` 作为回合边界交付。
+
+**下一步（批 2）**：`boxes.ts`（节 → box 序列，宽无关）已落草，待补用例与提交。
 
 ## 测试与证据
 
