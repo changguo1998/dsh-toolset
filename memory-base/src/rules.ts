@@ -90,3 +90,19 @@ export function checkContent(
   }
   return { accept: true };
 }
+
+/**
+ * 只查隐私拒绝模式（不含空 / 长度闸门），命中返回模式源串，否则 `null`。
+ * 供存量回扫 `rescanDenied` 复用同一份编译结果（设计 §5 / §10）。
+ */
+export function matchDenyPattern(
+  compiled: CompiledRules,
+  content: string,
+): string | null {
+  const text = content.trim();
+  if (text.length === 0) return null;
+  for (const pattern of compiled.deny) {
+    if (pattern.test(text)) return pattern.source;
+  }
+  return null;
+}

@@ -11,10 +11,38 @@
 
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import {
+  checkContent,
+  compileRules,
+  matchDenyPattern,
+  type CompiledRules,
+  type SkipReason,
+} from "./rules.ts";
 
 /** 单块 token 预算上限（~2K token）。 */
 const MAX_TOKENS = 2000;
 // ponytail: 粗略估算 1 token ≈ 3 字符（ASCII/CJK 平均）。精确 tokenizer 需要时再引入。
+
+/** 存量回扫命中的一行（**不含正文**：报告不回显内容）。 */
+export interface DeniedRow {
+  id: number;
+  /** 命中的拒绝模式源串。 */
+  pattern: string;
+  category: string | null;
+  project: string;
+}
+
+/** 存量回扫报告（`apply: false` 时只看前四项，用于「先报告、后清理」）。 */
+export interface RescanReport {
+  scanned: number;
+  matched: number;
+  /** 命中分布（按 category；无分类归 `(none)`）。 */
+  byCategory: Record<string, number>;
+  applied: boolean;
+  hits: DeniedRow[];
+  /** 实际删除的行数（`apply: true` 时）。 */
+  removed: number;
+}
 
 export type SourceKind = "session" | "file" | "url" | "tool_result" | "manual";
 
@@ -63,6 +91,8 @@ export interface PutResult {
   ids: number[];
   sourceId: number;
   created: number;
+  /** 被本层闸门拒绝的原因（拒绝时 `ids` 为空、不写库）。 */
+  skipped?: SkipReason;
 }
 
 function sha256(text: string): string {
@@ -132,9 +162,16 @@ function mapHit(row: Record<string, unknown>, score: number): SearchHit {
 
 export class KnowledgeService {
   readonly #db: DatabaseSync;
+  readonly #rules: CompiledRules;
 
-  constructor(db: DatabaseSync) {
+  /**
+   * @param db 已打开的层库连接。
+   * @param options.rules 该层的入库闸门（**闸门在库核心**，设计 §5）：缺省只用内置隐私底线。
+   *   调用方（事件钩子 / writeBack / backfill / memory.add）无法绕过——这是「换个调用方就绕过」的修复点。
+   */
+  constructor(db: DatabaseSync, options: { rules?: CompiledRules } = {}) {
     this.#db = db;
+    this.#rules = options.rules ?? compileRules(undefined, null);
   }
 
   /** 检索（porter 语义 BM25；fuzzy 时叠加 trigram 子串召回），命中即更新 last_referenced。 */
@@ -230,8 +267,17 @@ export class KnowledgeService {
     return [...hits.values()];
   }
 
-  /** 写入：去重 + 分块 + source 记账。相同 content_hash 的块不重复写。 */
+  /** 写入：**先过本层闸门**（设计 §5），再去重 + 分块 + source 记账。 */
   put(input: PutInput): PutResult {
+    const verdict = checkContent(this.#rules, input.content);
+    if (!verdict.accept) {
+      return {
+        ids: [],
+        sourceId: 0,
+        created: 0,
+        skipped: verdict.reason ?? "pattern",
+      };
+    }
     const now = Date.now();
     const importance = Math.max(1, Math.min(5, input.importance ?? 3));
     const source = input.source ?? { kind: "manual" as const };
@@ -342,6 +388,88 @@ export class KnowledgeService {
       this.#db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  /**
+   * 存量回扫（设计 §5 / §10）：按当前隐私拒绝模式重扫已有行，防「闸门上线前的存量」复发。
+   * 默认只报告——条数 + 分类分布 + 命中模式源串，**不回显内容**；`apply: true` 才删除（走 `evict` 联动 source）。
+   */
+  rescanDenied(
+    opts: { project?: string; apply?: boolean; rules?: CompiledRules } = {},
+  ): RescanReport {
+    const compiled = opts.rules ?? compileRules(undefined, null);
+    const rows = (
+      opts.project === undefined
+        ? this.#db
+            .prepare("SELECT id, content, category, project FROM chunks")
+            .all()
+        : this.#db
+            .prepare(
+              "SELECT id, content, category, project FROM chunks WHERE project = ?",
+            )
+            .all(opts.project)
+    ) as Array<{
+      id: number;
+      content: string;
+      category: string | null;
+      project: string;
+    }>;
+
+    const hits: DeniedRow[] = [];
+    const byCategory: Record<string, number> = {};
+    for (const row of rows) {
+      const pattern = matchDenyPattern(compiled, row.content);
+      if (pattern === null) continue;
+      hits.push({
+        id: row.id,
+        pattern,
+        category: row.category,
+        project: row.project,
+      });
+      const key = row.category ?? "(none)";
+      byCategory[key] = (byCategory[key] ?? 0) + 1;
+    }
+
+    const applied = opts.apply === true && hits.length > 0;
+    return {
+      scanned: rows.length,
+      matched: hits.length,
+      byCategory,
+      applied,
+      hits,
+      removed: applied ? this.evict(hits.map((hit) => hit.id)) : 0,
+    };
+  }
+
+  /**
+   * 硬淘汰候选（设计 §8 统一顺序）：`importance` 升序 → `last_referenced` 升序 → `id` 升序。
+   * 按**缺口**取（不是「每轮固定 N 条」）；`importance = 5` 与已提升行照常参与（否则上限不可满足）。
+   */
+  evictionCandidates(opts: { limit?: number } = {}): number[] {
+    const limit = Math.max(1, opts.limit ?? 10);
+    return (
+      this.#db
+        .prepare(
+          "SELECT id FROM chunks ORDER BY importance ASC, last_referenced ASC, id ASC LIMIT ?",
+        )
+        .all(limit) as Array<{ id: number }>
+    ).map((row) => row.id);
+  }
+
+  /**
+   * 降级候选（设计 §8：**只对 S 层生效**，就地压缩保留可检索足迹）：
+   * 跳过 `importance = 5`（它们仍参与硬淘汰），且**只取尚未压缩过的行**（`summary IS NULL`）
+   * ——压缩是幂等的有限动作，重复挑同一批会让淘汰循环无法收敛。
+   */
+  demotionCandidates(opts: { limit?: number } = {}): number[] {
+    const limit = Math.max(1, opts.limit ?? 10);
+    return (
+      this.#db
+        .prepare(
+          "SELECT id FROM chunks WHERE importance < 5 AND summary IS NULL ORDER BY importance ASC, last_referenced ASC, id ASC LIMIT ?",
+        )
+        .all(limit) as Array<{ id: number }>
+    ).map((row) => row.id);
   }
 
   /** 淘汰候选：last_referenced 早于 ttl 且 importance 不高于上限（§12.3 LRU+importance）。 */
