@@ -10,7 +10,8 @@
 import type { NoticeTone } from "../../adapter/types.ts";
 
 /** 内容来源（节的条目类型标记；与状态层 BufferKind 的对应：reasoning → thinking） */
-export type Source = "user" | "assistant" | "reasoning" | "tool" | "notice" | "shell";
+export type Source =
+  "user" | "assistant" | "reasoning" | "tool" | "notice" | "shell";
 
 /** 工具调用（参数按 delta 累计后的终值） */
 export interface ToolCall {
@@ -35,6 +36,8 @@ export interface Item {
   readonly calls?: readonly ToolCall[];
   readonly results?: readonly ToolResult[];
   readonly tone?: NoticeTone;
+  /** 该条目覆盖的宿主事件号（压缩剪枝的 `shadowedSeqs` 按交集打遮蔽标记用） */
+  readonly seqs?: readonly number[];
 }
 
 /** 节：元数据（turn / step / 时间）+ 条目；`frozen` 由帧边界统一置位 */
@@ -74,7 +77,12 @@ export type BlockDelivery =
   /** 本地 shell 输出（`$` 模式）：与 notice 同族，独立成节 */
   | (Delivery & { kind: "shell"; text: string })
   /** step 开始：节边界（本身不开节——无内容不建节；同 (turn, step) 重复 / 迟到不切节） */
-  | (Delivery & { kind: "step-start"; turn: number; step: number; time?: number })
+  | (Delivery & {
+      kind: "step-start";
+      turn: number;
+      step: number;
+      time?: number;
+    })
   /**
    * 文本块。`index = -1` = step 级结算（宿主 `assistant/message` 的完整正文）。
    * `full` = 整块（结算线），缺省 = 增量（实时线）。
@@ -112,7 +120,9 @@ export type BlockDelivery =
   /** 定型信号（宿主 `assistant/message`）：标记该 step 可冻结 */
   | (Delivery & { kind: "finalize"; turn: number; step: number })
   /** 回合结束：封闭当前节 + 给该回合最后一个 assistant 节打「最终总结」标记 */
-  | (Delivery & { kind: "turn-end"; turn: number; step: number });
+  | (Delivery & { kind: "turn-end"; turn: number; step: number })
+  /** 压缩剪枝（`compaction/prune`）：被遮蔽的宿主事件号 → box 层按交集打灰 */
+  | (Delivery & { kind: "shadow"; seqs: readonly number[] });
 
 /** 交付账键：块身份（session 由每会话一份接收状态隐含） */
 export function blockKey(turn: number, step: number, index: number): string {

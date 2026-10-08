@@ -57,6 +57,8 @@ export interface SectionsState {
   interrupted: ReadonlySet<string>;
   /** ③ 定型信号（宿主 `assistant/message`）已送达的 step 键 */
   freezable: ReadonlySet<string>;
+  /** 压缩剪枝遮蔽的宿主事件号（box 层按交集打灰；内容与行数不变） */
+  shadowedSeqs: ReadonlySet<number>;
 }
 
 export function createSections(): SectionsState {
@@ -74,6 +76,7 @@ export function createSections(): SectionsState {
     resolved: new Set(),
     interrupted: new Set(),
     freezable: new Set(),
+    shadowedSeqs: new Set(),
   };
 }
 
@@ -178,24 +181,36 @@ function target(
   };
 }
 
+/** 条目事件号累积（去重；遮蔽判定用） */
+function withSeq(item: Item, seq: number | undefined): Item {
+  if (seq === undefined || item.seqs?.includes(seq) === true) return item;
+  return { ...item, seqs: [...(item.seqs ?? []), seq] };
+}
+
 /** 节内按来源归并：同类型文本直拼，顺序按类型首次出现 */
 function appendText(
   section: Section,
   source: Source,
   text: string,
   tone?: NoticeTone,
+  seq?: number,
 ): Section {
   const items = [...section.items];
   const at = items.findIndex((item) => item.source === source);
   const found = at >= 0 ? items[at] : undefined;
   if (found === undefined) {
-    items.push({ source, text, ...(tone === undefined ? {} : { tone }) });
+    items.push(
+      withSeq({ source, text, ...(tone === undefined ? {} : { tone }) }, seq),
+    );
   } else {
-    items[at] = {
-      ...found,
-      text: (found.text ?? "") + text,
-      ...(tone === undefined ? {} : { tone }),
-    };
+    items[at] = withSeq(
+      {
+        ...found,
+        text: (found.text ?? "") + text,
+        ...(tone === undefined ? {} : { tone }),
+      },
+      seq,
+    );
   }
   return { ...section, items };
 }
@@ -254,7 +269,13 @@ function applyText(
   };
   if (accept === "") return next;
   const located = target(next, delivery.turn, delivery.step);
-  const section = appendText(located.target.section, delivery.source, accept);
+  const section = appendText(
+    located.target.section,
+    delivery.source,
+    accept,
+    undefined,
+    delivery.seq,
+  );
   return write(located.state, located.target, section);
 }
 
@@ -320,7 +341,11 @@ function applyToolCall(
   else calls.push(call);
   const section: Section = {
     ...located.target.section,
-    items: withItem(slot.items, slot.at, { ...slot.item, calls }),
+    items: withItem(
+      slot.items,
+      slot.at,
+      withSeq({ ...slot.item, calls }, delivery.seq),
+    ),
   };
   return write({ ...located.state, callOwner }, located.target, section);
 }
@@ -369,7 +394,11 @@ function applyToolResult(
   });
   const section: Section = {
     ...located.target.section,
-    items: withItem(slot.items, slot.at, { ...slot.item, results }),
+    items: withItem(
+      slot.items,
+      slot.at,
+      withSeq({ ...slot.item, results }, delivery.seq),
+    ),
   };
   const written = write(
     {
@@ -500,6 +529,11 @@ export function applyDelivery(
         stepKey(delivery.turn, delivery.step),
       );
       return { ...state, freezable };
+    }
+    case "shadow": {
+      const shadowedSeqs = new Set(state.shadowedSeqs);
+      for (const seq of delivery.seqs) shadowedSeqs.add(seq);
+      return { ...state, shadowedSeqs };
     }
   }
 }

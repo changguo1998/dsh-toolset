@@ -2508,6 +2508,16 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           shadowedSeqs?: unknown;
           shadowedTokenCount?: unknown;
         };
+        if (Array.isArray(p.shadowedSeqs)) {
+          // 六步流水线：被遮蔽的事件号 → box 层按交集打灰（内容与行数不变）
+          deliver({
+            kind: "shadow",
+            seqs: p.shadowedSeqs.filter(
+              (seq): seq is number => typeof seq === "number",
+            ),
+            ...(raw.seq === undefined ? {} : { seq: raw.seq }),
+          });
+        }
         emit({
           type: "compaction-prune",
           sessionId: sid,
