@@ -324,7 +324,7 @@ else
         if [ ! -d "$repo_root/$d/node_modules" ]; then
             # npm 不支持 `link:` 协议（code-map → ast-tools、md-map → md-logic）：这些包改用 pnpm
             if grep -q '"link:' "$repo_root/$d/package.json"; then
-                if command -v pnpm >/dev/null 2>&1; then
+                if command -v pnpm > /dev/null 2>&1; then
                     log "安装依赖（pnpm；含 link: 本地依赖）：$d"
                     run_in "$repo_root/$d" pnpm install
                 else
@@ -414,6 +414,15 @@ const ours = new Set();
 // 仓库内全部插件名（canonical_pkgs）——用来区分「本仓库已移出选择集」与「用户自加」
 const repoNames = new Set(allDirs.map(readName).filter((name) => typeof name === "string"));
 manifest.dependencies ??= {};
+// 依赖值仍 link: 指向本仓库的既有条目也算「本仓库条目」：包改名后旧名已不在仓库目录列表里
+// （repoNames 取的是**当前**目录），只按名字判会被当成「用户自加」永久残留——依赖与 bundles
+// 各留一条、dsh 收尾自检只 WARN。改名时唯一没变的是 link 目标，故以它补判。
+const linkedRepo = new Set(
+  Object.entries(manifest.dependencies)
+    .filter(([, value]) => typeof value === "string" && value.startsWith(`${prefix}:${repoRoot}/`))
+    .map(([name]) => name),
+);
+const isRepoEntry = (name) => repoNames.has(name) || linkedRepo.has(name);
 for (const dir of dirs) {
   const name = readName(dir);
   if (name === undefined) continue;
@@ -424,7 +433,7 @@ manifest.dsh ??= {};
 manifest.dsh.profile ??= {};
 // 移除本仓库中已不在选择集的依赖（非本仓库依赖原样保留）
 const removedDeps = Object.keys(manifest.dependencies).filter(
-  (name) => repoNames.has(name) && !ours.has(name),
+  (name) => isRepoEntry(name) && !ours.has(name),
 );
 for (const name of removedDeps) delete manifest.dependencies[name];
 // 键序对齐 pnpm 的生成物约定（本仓库生成物与 fff 侧都是字母序）
@@ -435,17 +444,17 @@ manifest.dependencies = Object.fromEntries(
 );
 const existing = Array.isArray(manifest.dsh.profile.bundles) ? manifest.dsh.profile.bundles : [];
 const removedBundles = existing.filter(
-  (name) => repoNames.has(name) && !ours.has(name),
+  (name) => isRepoEntry(name) && !ours.has(name),
 );
 const extras = existing.filter(
-  (name) => !ours.has(name) && !repoNames.has(name) && name !== "@deepseek-ai/dsh-base",
+  (name) => !ours.has(name) && !isRepoEntry(name) && name !== "@deepseek-ai/dsh-base",
 );
 manifest.dsh.profile.bundles = ["@deepseek-ai/dsh-base", ...dirs.map(readName).filter((name) => name !== undefined), ...extras];
 process.stderr.write(`REMOVED_BUNDLES=${removedBundles.join(",")}\nREMOVED_DEPS=${removedDeps.join(",")}\nKEPT_EXTRAS=${extras.length}\n`);
 process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
-' "$manifest" "$repo_root" link $final --all $discovered 2>"$merge_err")"; then
+' "$manifest" "$repo_root" link $final --all $discovered 2> "$merge_err")"; then
             # 排障信息（node 的报错）先回显，再清理并退出
-            cat "$merge_err" >&2 2>/dev/null || true
+            cat "$merge_err" >&2 2> /dev/null || true
             rm -f "$merge_err"
             die "合并更新 $manifest 失败"
         fi

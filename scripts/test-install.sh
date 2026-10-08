@@ -147,6 +147,28 @@ assert_eq "$(count_glob "$pdir" 'package.json.bak.*')" 1 "内容有变化时产�
 install_ --plugins "TUI ponytail" --sync
 assert_eq "$(count_glob "$pdir" 'package.json.bak.*')" 1 "再跑 --sync 不再新增备份"
 
+# 5b）包改名残留（独立 profile）：旧名（依赖值仍 link: 指向本仓库）按本仓条目移除，
+#     不被当成「用户自加」保留；同一轮里真·用户自加 bundle 仍保留
+rpdir="$home/profiles/trename"
+rmanifest="$rpdir/package.json"
+install_ --plugins "TUI ponytail" --profile trename
+node -e '
+const fs = require("fs");
+const file = process.argv[1];
+const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+manifest.dependencies["@dsh-toolset/ponytail-old"] = manifest.dependencies["@dsh-toolset/ponytail"];
+delete manifest.dependencies["@dsh-toolset/ponytail"];
+manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.map((name) =>
+  name === "@dsh-toolset/ponytail" ? "@dsh-toolset/ponytail-old" : name,
+);
+manifest.dsh.profile.bundles.push("some-third-party-bundle");
+fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+' "$rmanifest"
+install_ --plugins "TUI ponytail" --profile trename --sync
+assert_not_contains "$rmanifest" '@dsh-toolset/ponytail-old' "改名残留（依赖 + bundle）被移除"
+assert_contains "$rmanifest" '"@dsh-toolset/ponytail"' "当前名照常挂载"
+assert_contains "$rmanifest" '"some-third-party-bundle"' "真·用户自加 bundle 仍保留"
+
 # 6）--force 且内容有变：备份 1 份并覆盖
 install_ --plugins "TUI ponytail" --force
 assert_eq "$(count_glob "$pdir" 'package.json.bak.*')" 2 "--force 内容有变时备份 1 份"
