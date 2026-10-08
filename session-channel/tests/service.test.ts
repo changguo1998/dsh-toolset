@@ -8,6 +8,7 @@ import { SessionChannelService } from "../src/index.ts";
 import { closeConnection, connectSessionChannel } from "../src/client.ts";
 import { ackKey } from "../src/keys.ts";
 import { announcePresence, listPeers } from "../src/broker.ts";
+import { SessionChannelError } from "../src/types.ts";
 import {
   makeFakeHost,
   redisTest,
@@ -218,6 +219,54 @@ test("降级：disabled 与连不上实例都不抛，工具面返回错误文�
   const peers = await offline.peers();
   assert.equal(peers.ok, false);
   await offline.stop();
+});
+
+redisTest("首连失败转后台重试：连上后补齐启动步骤并清空 error", async () => {
+  const redis = await startTempRedis();
+  let calls = 0;
+  const svc = new SessionChannelService(
+    { url: redis.socketPath },
+    makeFakeHost().host,
+    {
+      retryDelayMs: 10,
+      connect: async (config, onError) => {
+        calls += 1;
+        // 首次失败＝启动期假超时（query 成功但回调输给超时定时器）；重试即成功
+        if (calls === 1)
+          throw new SessionChannelError("unavailable", "连接超时");
+        return await connectSessionChannel(config, onError);
+      },
+    },
+  );
+  try {
+    await svc.start();
+    assert.equal(svc.status().connected, false, "首连失败：立即返回降级");
+    assert.match(svc.status().error ?? "", /连接超时/);
+    await waitUntil(() => svc.status().connected === true);
+    assert.equal(calls, 2, "后台重试再连一次");
+    assert.equal(svc.status().error, undefined, "重试成功后清空 error");
+    const peers = await svc.peers();
+    assert.equal(peers.ok, true, "重试连上后通道可用");
+  } finally {
+    await svc.stop();
+    await redis.stop();
+  }
+});
+
+test("重试期间 stop()：不再继续重试（不连上）", async () => {
+  let calls = 0;
+  const svc = new SessionChannelService({}, makeFakeHost().host, {
+    retryDelayMs: 20,
+    connect: async () => {
+      calls += 1;
+      throw new SessionChannelError("unavailable", "连接超时");
+    },
+  });
+  await svc.start();
+  await svc.stop();
+  const atStop = calls;
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(calls, atStop, "stop() 后不再发起连接");
 });
 
 redisTest("键前缀完整（sanity）：在线键可被 listPeers 命中", async () => {

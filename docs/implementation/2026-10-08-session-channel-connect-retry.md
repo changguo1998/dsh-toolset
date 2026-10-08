@@ -1,6 +1,6 @@
 # session-channel 首连失败后台重试（接取条目：`docs/BACKLOG.md`「session-channel 启动首连失败即整会话降级（假超时），状态栏别名段消失并打 warn」）
 
-状态：实现　　开启：2026-10-08　　关闭：
+状态：测试　　开启：2026-10-08　　关闭：
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -69,7 +69,7 @@
 - `cd session-channel && npm test` → `tests 49 / pass 49 / fail 0`，8.9 s，进程正常退出（此前失败态：单文件跑完不退出，即上面那条临时 redis 泄漏）。
 - `npm run test:tui -- app.test.ts` → `tests 167 / pass 167 / fail 0`（TUI 侧改动触达面）。
 - `npm run test`（全仓 21 包并行）→ exit 0，逐包 `fail 0`（合计 pass 2421；TUI pass 1345、session-channel pass 49）。
-- 真机验证（待用户执行）：重启 `dsh --profile fff` 后观察——预期无启动 warn，且状态栏别名段在数秒内出现（插件日志应出现 `重试 N 次后连接成功`）；若持续不出现，则日志里的真实 errno 即「沙箱拒连」成因证据，转入下一轮排查。
+- 真机验证（2026-10-08，用户执行，人工确认通过）：重启 `dsh --profile fff` 与新建会话均正常——启动不再出现别名 warn，状态栏别名段正常显示。原「沙箱拒连」备选成因据此排除（若为拒连，重试不会连上）。
 
 ## 收尾
 
