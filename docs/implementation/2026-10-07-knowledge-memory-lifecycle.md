@@ -584,3 +584,36 @@
   - **三段（收尾）**：TUI README `/memory` 行更新；测试 `tests/memory-review.test.ts` 4 例（面板分化 / 未答跳过 / 冲突裁定路由 / add kind 闸）；BACKLOG 移除条目重排（剩 output-compress 自持 digest.db）。测试提交 `b7b907f`。
   - **踩坑**：① dispatch 传入的 `line` 含 `/memory` 前缀（同 /session 口径），子命令解析前需剥离；② adapter 方法解构调用丢 `this`（fake adapter 用实例字段）——统一 `.call(adapter, ...)`；③ 断言受 100 列画布截断影响——测试画布加宽到 120。
   - **验证**：TUI `npm run check` 0 error、`npm run build` exit 0、`npm run test` **1345 全绿**（+4 新例）；memory-base 102/102 不回归。
+
+### 条目明细：output-compress 自持 `digest.db`（§12 #7）
+
+#### 调研（2026-10-08，只读子代理侦察 + 本文件复核）
+
+- **现状写入**：`kb-write.ts` SharedKbWriter 单事务直插 memory-base 库的 sources/chunks（:183-262），触发 = spill 通知或 ≥16KB（hooks.ts:303）；headings/keyLines/slices/preview 全烘进 markdown 正文一列；is_error 只折算 importance 不落库；KbNotMountedError → 重试链。
+- **关键现状：共库直写实际已断**——kb-write 校验指纹 'KNOW'（:17），而 memory-base 现行按层指纹（SESS/PROJ/USER，'KNOW' 仅 legacy 识别不打开）→ 现产库根本打不开。本条目顺带删断路。
+- **回读缺位**：全仓无 searchDigests / locator 回读；`referenced_at` 不存在（memory-base 全用 last_referenced）。
+- **隐私底线**：output-compress 无任何拒绝模式常量（共库直写绕过 persistRules）；memory-base `rules.ts:22-29` 六条 DEFAULT_DENY_PATTERNS；`checkContent` 未暴露在 'memory' 服务面（叠加路径落空）。
+- **promote 面就绪**（条目 1）：`PromoteItem{targetTier,kind,title,content,sources,projects}`；幂等 fact_key；llm 未注入 → 入队成功但 approve 被转换闸挡；**缺口：mergeInto 不触发重概括**（「下次巩固重概括」无落点）。
+- **落点**：output-compress 无会话目录获取途径（宿主 rc.2 未暴露读取面；`sessionDirFor` 约定拼接未经承诺）；'DIGE' 指纹全仓不存在（自管 0x44494745）。
+- **测试面**：hooks.test(629)/kb-write.test(218) 以共库口径编写，需按新口径重写。
+
+#### 决策（D60–D65）
+
+- **D60 自持 digest.db**：新 `src/digest-db.ts`——指纹 0x44494745（'DIGE'）+ user_version 1；表 `digests`（id / session_id / tool / locator / seq / headings JSON / key_lines JSON / slices JSON / preview ≤600 字符截断 / is_error INTEGER / content_hash / referenced_at / created_at；去重 `(session_id, content_hash)`）+ FTS5（headings, preview）；落点 = `config.sessionDir`（解析不到 → 告警 + 跳过写入，不静默换路径；`sessionDirFor` 约定自足小函数复制，与隐私常量同等待遇）；100MB 上限启动后 + 写后自查（超限清最旧，属主自管 §3.1）。
+- **D61 底线闸门**：新 `src/deny-patterns.ts` 六条同源复制（对照 rules.ts，含一致性注释）；写入前过闸（命中 → 拒写 + 计数）；**跨包一致性测试**：两包各放一份对拍文件（同输入 → 同命中），不得 npm 依赖；profile 叠加：memory-base 服务面补 `checkPrivacy(text): string | null`（matchDenyPattern 委托，本条目内最小改），output-compress 能取到就叠加。
+- **D62 提升 push**：pipeline 写 digest 后，`is_error` 行组织 `PromoteItem{targetTier:"session", kind, title, content: renderSummaryRecord 概要, sources:["digest:<sessionId>:<id>"]}` 经 `ctx.reflect.get('memory')?.promote(items)` 推送（仿 ptcRuntime 可选读姿势；服务缺失 → 不提升、留待重推，不报错）；kind：apply 时经 `registerKind` 注册 `digest` 分类（§6 L181 注册方规则；I→S 判据的「失败教训」分支待绑定，暂不成立由 is_error 分支兜住）。
+- **D63 重推与重概括**：巩固链（output-compress 启动后）扫 `is_error OR referenced_at > created_at` 且未推成功的 digests 重推（幂等键吸收重复）；**memory-base 侧配套小改**：`promoteCandidates` 的 merge 分支补「summarized=0 且 caller 存在 → 重概括该候选」（设计「下次巩固重概括」的落点）。
+- **D64 referenced_at**：`searchDigests(query)` + `readDigest(locator)` 命中即 UPDATE referenced_at；本条目落地 API + 测试；宿主 / 模型侧调用契约记观察项（is_error 分支已可独立推动 I→S）。
+- **D65 共库直写拆除**：kb-write.ts 重写为 digest 写入器（删 'KNOW' 校验 / sources / chunks 直插与 chunkContent 移植）；存量旧 v1 库不动（migrate 口径已有）；memory-base router.ts 中「兜底表名保持 chunks 兼容跨包直写方」注释更新（直写方拆除）。
+
+#### 规划：分三段落地
+
+**一段（digest.db + 闸门）**：`digest-db.ts`（打开 / schema / 写入 / 底线闸 / 100MB 清理）+ `deny-patterns.ts` + 跨包一致性测试 + digest-db 测试。
+**二段（回读 + push + 接线）**：`searchDigests` / `readDigest`（referenced_at 刷新）；hooks pipeline 改结构化入库 + is_error push + 巩固重推；index.ts 接线（reflect 读 promote、registerKind、config.sessionDir）；memory-base 小改（checkPrivacy 暴露 + merge 重概括）。
+**三段（收尾）**：README / DESIGN 回写（两包）+ 测试重写收尾 + BACKLOG。
+
+#### 明确不做（本条目边界）
+
+- 不做宿主 / 模型侧 searchDigests 调用接线（记观察项）；不做会话目录宿主正式读取面（沿用约定拼接 + 告警降级）。
+- 不做旧 v1 库迁移（显式 migrate 口径已有）；不做 profile denyPatterns 编辑面。
+- 不改 STATUS.md（用户择时）。
