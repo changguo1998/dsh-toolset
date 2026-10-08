@@ -107,4 +107,6 @@ npm run smoke   # node smoke/smoke.mjs（需本机 dsh 0.2.0-rc.2 与模型凭�
 
 `smoke` 幂等引导独立 profile `dsh-toolset-knowledge-base`（`link:` 挂载、缺 `dist/` 自动构建），跑一次性真实 headless 会话强制触发 compaction 与 fs 写入，再断言库 schema 指纹与 `[tool/meta]`/`shadowedRange` 摄取行，最后对 dist 产物做 put / search / touch / evict 往返（profile 属机器级配置，不入库）。断言口径见 `smoke/smoke.mjs` 头注释（流程 4-6）。
 
-设计决策与实现落点见 `docs/DESIGN.md`（各节标注对应 `src/` 文件）；已知边界见其 §9。
+设计决策与实现落点见 `docs/DESIGN.md`；已知边界见其 §13。
+
+> **注意（2026-10-08）**：`docs/DESIGN.md` 现已改写为**目标架构**——按生命周期作用域分层的记忆系统（S 会话 / P 项目 / U 用户三库 + I 索引库），目标包名 **`memory-base`**、服务键 `ctx.get('memory')`。本 `README.md` 仍描述**当前实现**（单库 `knowledge.db`）；目标与现状的差异清单见 DESIGN §12，实施条目见 `docs/BACKLOG.md`。

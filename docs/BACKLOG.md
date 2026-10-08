@@ -61,11 +61,23 @@
 ## 2. 未完成项
 
 > 顺序依据：扁平清单**按依赖 → 工作量排序**（2026-10-06 起，用户指示「重新按依赖 → 工作量排序」）：**依赖优先**（无前置项在前、有前置项排在各自前置之后）→ 同层**工作量升序** → 同工时「缺陷优先于行为改动 / 高优先级优先」；模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
-> 当前可开工顺序（2026-10-07 核对）：本文件 §2 #1（P1，长期记忆设计 1-2 h）；`TUI/docs/BACKLOG.md` 4 条中仅 #1（排版流程重构，P1，1-2 天）可开工，其余 3 条暂停且前置为 #1。
+> 当前可开工顺序（2026-10-08 核对）：本文件 §2 条目 **1（改名）/ 2（存量清空）/ 3（回扫）** 无前置，可先开工；条目 **4** 是其余实施条目的地基（5–13 多数以它为前置）。
 
 | # | 功能 | 来源 | 落点（复用） | 工作量（估） | 优先级 |
 |---|------|------|--------------|--------------|--------|
-| 1 | **重新设计长期记忆（知识库 / 持久记忆）模块逻辑**：现状是「先做能力、后补边界」的叠加结果，已暴露的问题都指向同一层——**记忆的生命周期与边界没有统一设计**。归入项（均已随之从本清单移除）：① **写入闸门挂在调用方而非库核心**——`knowledge-base` 的闸门在事件钩子（`hooks.ts:301,304`），核心 `put()` 无过滤（`knowledge.ts:234`）；`output-compress` 经自有 `SharedKbWriter`（`kb-write.ts:183`）直写同组表、**完全不过闸**（闸门上线后仍写入 290 行）；② **分区与作用域未落地**——`project` 未配置，全库只有 1 个值 `default`（缺省见 `index.ts:136`），多目录 / 多会话（304 个 session ref）摘要在检索面**不隔离**；③ **容量与淘汰不设限**——`maxTokensPerProject` 缺省 0（`index.ts:66`），库已 533 MB / ≈4.98 万 chunks 且只增不减；④ **存量无清理路径**——91 行闸门上线前的凭据形态条目从未回扫清理；⑤ 与官方 `session-query-sqlite` 的 FTS5 分工未定（观察项）。期望：以「记忆生命周期」为主线重梳并定稿设计——写入面（谁写 / 哪条路 / 闸门在哪层）、分区与作用域（`project` / `target` / session 语义与检索隔离）、容量与淘汰（预算 / 降级 / 硬淘汰 / 存量回扫）、检索面（双 FTS5 / fuzzy / 与官方分工）、与 `output-compress` 的共库契约。验收：`knowledge-base/docs/DESIGN.md` 修订定稿并经用户确认；由它拆出的实施条目各自可独立验收（回扫后全库零命中 / 跳 project 检索不串 等）。 | 2026-10-05 插件冲突排查与库实测的归纳（用户指示：连原「共库直写无统一口径」条目一并吸收；调研过程记录见 `docs/archived/2026-10-05-kb-shared-write-parity.md`） | `knowledge-base/docs/DESIGN.md`（设计定稿）、`knowledge-base/README.md` | 设计 1-2 h（不含实施） | P1 |
+| 1 | **包改名 `knowledge-base` → `memory-base`**（目录 / `package.json` name / `cordis.patch.yml` id / 服务键 `ctx.get('memory')` / `scripts/install.sh` 的 `canonical_pkgs` / TUI 消费方 / 全部文档引用）。详 设计定稿 `docs/archived/2026-10-07-knowledge-memory-lifecycle.md` §12 #9 | 设计定稿 §12#9 | 仓库级 | 1-2 h | P1 |
+| 2 | **存量清空 + 版本策略改「迁移或拒绝打开」**（旧 601 MB 库直接删除、不备份；schema 版本不匹配不再整库重置）。详 §12 #6 | 设计定稿 §12#6 | `knowledge-base/src/schema.ts`、新 `src/migrate.ts` | 30-60 min | P2 |
+| 3 | **存量回扫 `rescanDenied()`**（S / P / U 三层；默认只报告、不回显内容，`apply` 才删）。详 §12 #8 | 设计定稿 §12#8 | `knowledge-base/src/rules.ts` + 各库核心 | 1-2 h | P2 |
+| 4 | **分层三库 + 索引层落地**（`session.db` / `project.db` / `user.db` + I 层 `digest.db` 由 output-compress 自持；各库独立指纹与字节上限）。详 §12 #1 | 设计定稿 §12#1 | `knowledge-base/src/schema.ts`、`src/index.ts`、新 `src/scopes/*` | 3-5 天 | P1 |
+| 5 | **分类注册机制 `registerKind`**（`kind` + 扩展列 + 写入前钩子 + 查询路由规则；按需建表；跨分类检索 union；加表式迁移）。详 §12 #11；**前置 = 条目 4** | 设计定稿 §12#11 | `knowledge-base/src/schema.ts`、`src/router.ts`、`src/knowledge.ts` | 2-3 天 | P1 |
+| 6 | **存储位置迁移**（S / I → 宿主会话目录，P → 项目根 `.dsh/`，U → `~/.dsh/memory-base/`；含会话目录可达性核实与 `.gitignore` 提示）。详 §12 #10；**前置 = 条目 4** | 设计定稿 §12#10 | `knowledge-base/src/schema.ts`、`src/index.ts`、新 `src/router.ts` | 1 天 | P1 |
+| 7 | **闸门下沉到库核心**（按作用域选规则集；`writeBack` / `backfill` / `remember` 自动继承；`writeBack` / `backfill` 目标层只能是 S）。详 §12 #2；**前置 = 条目 4** | 设计定稿 §12#2 | `knowledge-base/src/knowledge.ts`、`src/rules.ts` | 1-2 天 | P1 |
+| 8 | **`project` 派生链 + 跨全域检索**（层 × 分类；U > 当前 P > 其他 P > S 加权；`crossProject` 仅用户可开）。详 §12 #3；**前置 = 条目 4 / 7** | 设计定稿 §12#3 | `knowledge-base/src/index.ts`、`src/hooks.ts`、`src/knowledge.ts` | 1-2 天 | P1 |
+| 9 | **提升链 I → S → P → U**（判据 + LLM 概括走 `ctx.llm` + 审阅队列 `candidates` 表 + 回指 + 单事务转换 + `resolveConflict`）。详 §12 #4；**前置 = 条目 5 / 7 / 8** | 设计定稿 §12#4 | 新 `knowledge-base/src/promote.ts`、`src/consolidate.ts` | 3-5 天 | P1 |
+| 10 | **容量、寿命与清理**（会话级清理口径 + 逐库字节上限 + 降级跳过范围 + 兜底过期触发点）。详 §12 #5；**前置 = 条目 4** | 设计定稿 §12#5 | `knowledge-base/src/budget.ts`、各库核心、`src/index.ts` | 1 天 | P2 |
+| 11 | **`output-compress` 自持 `digest.db`**（底线闸门 + 提升 push + `referenced_at` 回读刷新 + 巩固时重推；不再共库直写）。详 §12 #7；**前置 = 条目 9** | 设计定稿 §12#7 | `output-compress/src/kb-write.ts`、`src/hooks.ts`、`src/index.ts` | 2-3 天 | P1 |
+| 12 | **文档索引落地 `doc_index`**（表 + FTS5 只索引标题与摘要行 + 复用 `md-logic` 解析 + 巩固增量扫 + `present`/`stale`/`missing` 状态机）。详 §12 #12；**前置 = 条目 5** | 设计定稿 §12#12 | 各层库核心、`knowledge-base/src/index.ts` | 2-3 天 | P2 |
+| 13 | **TUI 侧改造**（审阅面板按条提问 / `approve`/`reject`/`edit`，P 可代批、冲突与 U 需用户；`/memory` 命令改造含 `--all-projects`；服务键消费点改 `ctx.get('memory')`）。详 §12 #13；**前置 = 条目 9** | 设计定稿 §12#13 | `TUI/src/main.ts`、`TUI/src/app/**` | 1-2 天 | P1 |
 
 **未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（knowledge-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。
 
