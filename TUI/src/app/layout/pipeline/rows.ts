@@ -151,3 +151,177 @@ export function remap(
   );
   return { offset: offsetOf(table, visibleRows, bounded), index: bounded };
 }
+
+// ---------------- 第 4 步下半：pane 项 → 行（折行 + 装饰） ----------------
+//
+// 口径：**凡是要用宽度才能定的，都在这一步加**。行生成复用既有排版算法库
+// （`build-box.ts` 的 `buildContentRows` + `measure` / `allocate` / `fill` +
+// `markdown.ts` 折行 + `table.ts` 表格 + `primitives.ts` 截断），本层只负责
+// 「pane 项 → 旧口径的缓冲行」的映射与逐项行数记账，使结构 / 缓存 / 位置模型
+// 都在新流水线里，而字形与装饰与旧路径逐行一致（等价性由 `pipeline-equivalence`
+// 用例把关）。
+
+import type { ActivityLevel, BufferLine } from "../../state.ts";
+import { TURN_SEPARATOR } from "../../state.ts";
+import { buildContentRows, type BuildBoxOptions } from "../build-box.ts";
+import { stepHeaderLine, toolCallLine, toolResultLine } from "../tool-line.ts";
+import { summarizeToolArguments } from "../../adapter/normalize.ts";
+import type { ContentRow } from "../fill.ts";
+import type { Box } from "./boxes.ts";
+import type { PaneItem } from "./panes.ts";
+
+export interface RenderOptions extends BuildBoxOptions {
+  /** 会话区可用宽 */
+  width: number;
+  /** 回合区可用宽（缺省 = width） */
+  activityWidth?: number;
+  /** 活动区档位（透传给旧口径的 buildContentRows，保证逐行一致） */
+  activityLevel?: ActivityLevel;
+}
+
+export interface RenderedPane {
+  rows: ContentRow[];
+  /** 每项贡献的行数（与 `items` 一一对应）——行数表的段 */
+  readonly counts: readonly number[];
+  readonly table: LineTable;
+}
+
+/**
+ * 逻辑行 box → 旧口径缓冲行（原始形态，交给既有排版算法库）。
+ * `dialogue` = 该 box 归会话区：旧口径按 `final` 分流（`assistant` 正文 final → 会话区），
+ * 故会话区的正文行必须带 `final`，否则旧渲染器会把它排进回合区。
+ */
+export function boxToLines(box: Box, dialogue = false): BufferLine[] {
+  const base = { seq: undefined } as const;
+  void base;
+  const scope = { step: box.step };
+  if (box.shape === "tool") {
+    const lines: BufferLine[] = [];
+    for (const call of box.batch?.calls ?? []) {
+      lines.push({
+        text: toolCallLine(call.name, summarizeToolArguments(call.args)),
+        kind: "tool",
+        ...scope,
+      });
+    }
+    for (const result of box.batch?.results ?? []) {
+      lines.push({
+        text: toolResultLine(result.ok, result.detail),
+        kind: "tool",
+        ...(!result.ok ? { tone: "error" as const } : {}),
+        ...scope,
+      });
+    }
+    return lines;
+  }
+  if (box.shape === "code") {
+    const code = box.code ?? { lang: "", lines: [], closed: true };
+    return [
+      { text: "```" + code.lang, kind: kindOf(box) },
+      ...code.lines.map((line) => ({ text: line, kind: kindOf(box) })),
+      ...(code.closed ? [{ text: "```", kind: kindOf(box) }] : []),
+    ];
+  }
+  if (box.shape === "table") {
+    const table = box.table;
+    if (table === undefined) return [];
+    const row = (cells: readonly string[]): string =>
+      "| " + cells.join(" | ") + " |";
+    const aligns = table.aligns.map((align) =>
+      align === "right" ? "---:" : align === "center" ? ":---:" : "---",
+    );
+    return [
+      { text: row(table.header), kind: kindOf(box) },
+      { text: row(aligns), kind: kindOf(box) },
+      ...table.rows.map((cells) => ({ text: row(cells), kind: kindOf(box) })),
+    ];
+  }
+  return [
+    {
+      text: box.text ?? "",
+      kind: kindOf(box),
+      ...(box.tone === undefined ? {} : { tone: box.tone }),
+      ...(dialogue && box.source === "assistant" ? { final: true } : {}),
+      ...scope,
+    },
+  ];
+}
+
+/** 来源 → 状态层的行类型（与旧路径同一分类口径） */
+function kindOf(box: Box): BufferLine["kind"] {
+  switch (box.source) {
+    case "reasoning":
+      return "thinking";
+    case "tool":
+      return "tool";
+    case "notice":
+      return "notice";
+    case "shell":
+      return "shell";
+    case "user":
+      return "user";
+    default:
+      return box.shape === "code" || box.shape === "table"
+        ? "assistant"
+        : "assistant";
+  }
+}
+
+/** pane 项 → 旧口径缓冲行（边界项按既有线型：step 头 / 回合分隔线 / 空行） */
+function itemLines(item: PaneItem, dialogue: boolean): BufferLine[] {
+  switch (item.kind) {
+    case "line":
+      return boxToLines(item.box, dialogue);
+    case "blank":
+      return [{ text: "", kind: "plain" }];
+    case "step-head":
+      // 旧口径：step 头由 `appendToolLine` 插入（kind = tool），渲染为 `╌╌ hh:mm:ss #N ╌╌`
+      return [
+        {
+          text: stepHeaderLine(item.step, item.time),
+          kind: "tool",
+        },
+      ];
+    case "turn-separator":
+      return [
+        {
+          text: TURN_SEPARATOR,
+          kind: "separator",
+          ...(item.time === undefined ? {} : { time: item.time }),
+          turn: item.turn,
+        },
+      ];
+  }
+}
+
+/**
+ * 逐项出一行缓冲 + 行数表（宽度相关）。每一项独立走既有算法库：跨项的分隔与留白
+ * 已由第 3 步的边界项表达，故此处不再做跨节点后处理。
+ */
+export function renderPane(
+  items: readonly PaneItem[],
+  pane: "dialogue" | "activity",
+  options: RenderOptions,
+): RenderedPane {
+  const width = Math.max(1, options.width);
+  const activityWidth = Math.max(1, options.activityWidth ?? width);
+  const rows: ContentRow[] = [];
+  const counts: number[] = [];
+  for (const item of items) {
+    const lines = itemLines(item, pane === "dialogue");
+    if (lines.length === 0) {
+      counts.push(0);
+      continue;
+    }
+    const built = buildContentRows(
+      lines,
+      { ...options, width, activityWidth },
+      width,
+      activityWidth,
+    );
+    const produced = pane === "dialogue" ? built.dialogue : built.activity;
+    rows.push(...produced);
+    counts.push(produced.length);
+  }
+  return { rows, counts, table: createLineTable(counts) };
+}

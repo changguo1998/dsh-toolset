@@ -80,8 +80,6 @@ function toLines(
 interface Acc {
   items: PaneItem[];
   last?: Box;
-  /** 待插入的 step 头（scope 变化时置位，下一行落地前插） */
-  pendingHead?: { turn: number; step: number };
 }
 
 function blank(acc: Acc): void {
@@ -90,42 +88,30 @@ function blank(acc: Acc): void {
     acc.items.push({ kind: "blank" });
 }
 
-/** 追加一个逻辑行 box：必要时先插边界项（step 头 / 回合分隔线 / 空行） */
+/**
+ * 追加一个逻辑行 box：必要时先插边界项。
+ *  - `withSeparators`（仅会话区）：turn 变化 → 回合分隔线（旧口径：分隔线是会话区的线）；
+ *  - 分类变化 → 空行（相邻 box 的来源 × 结构不同）。
+ * step 头由调用方按 step 预置（旧口径：step 头是工具行，恒进回合区）。
+ */
 function push(
   acc: Acc,
   box: Box,
   meta: ReadonlyMap<string, number | undefined>,
-  withHeads: boolean,
+  withSeparators: boolean,
 ): void {
   const previous = acc.last;
-  if (previous === undefined) {
-    // 首项：活动区给 step 头（思考 / 工具归属到某个 step），会话区不插
-    if (withHeads) acc.pendingHead = { turn: box.turn, step: box.step };
-  } else if (previous.turn !== box.turn || previous.step !== box.step) {
-    if (previous.turn !== box.turn) {
+  if (previous !== undefined) {
+    if (previous.turn !== box.turn && withSeparators) {
+      const time = meta.get("turn:" + box.turn);
       acc.items.push({
         kind: "turn-separator",
         turn: box.turn,
-        ...(meta.get("turn:" + box.turn) === undefined
-          ? {}
-          : { time: meta.get("turn:" + box.turn) }),
+        ...(time === undefined ? {} : { time }),
       });
+    } else if (mood(previous) !== mood(box)) {
+      blank(acc);
     }
-    if (withHeads) acc.pendingHead = { turn: box.turn, step: box.step };
-  } else if (mood(previous) !== mood(box)) {
-    blank(acc);
-  }
-  if (acc.pendingHead !== undefined) {
-    const head = acc.pendingHead;
-    acc.items.push({
-      kind: "step-head",
-      turn: head.turn,
-      step: head.step,
-      ...(meta.get(stepKey(head.turn, head.step)) === undefined
-        ? {}
-        : { time: meta.get(stepKey(head.turn, head.step)) }),
-    });
-    acc.pendingHead = undefined;
   }
   acc.items.push({ kind: "line", box });
   acc.last = box;
@@ -139,15 +125,29 @@ export function buildPanes(
   const meta = new Map<string, number | undefined>();
   for (const section of sections) {
     meta.set(stepKey(section.turn, section.step), section.time);
-    if (!meta.has("turn:" + section.turn)) {
+    if (meta.get("turn:" + section.turn) === undefined) {
       meta.set("turn:" + section.turn, section.time);
     }
   }
   const dialogue: Acc = { items: [] };
   const activity: Acc = { items: [] };
   const shadowed = options.shadowedSeqs ?? new Set<number>();
+  const headed = new Set<string>();
   for (const section of sections) {
     const boxes = applyShadowed(buildBoxes(section), shadowed);
+    if (boxes.length === 0) continue;
+    // step 头（旧口径：step 头是工具行，恒进回合区；该 step 无回合区内容时是「孤儿头」）
+    const key = stepKey(section.turn, section.step);
+    if (!headed.has(key)) {
+      headed.add(key);
+      const stepTime = meta.get(key);
+      activity.items.push({
+        kind: "step-head",
+        turn: section.turn,
+        step: section.step,
+        ...(stepTime === undefined ? {} : { time: stepTime }),
+      });
+    }
     for (const box of boxes) {
       for (const line of toLines(box, options.normalize)) {
         const target = isDialogue(line, section.final === true)
@@ -161,7 +161,7 @@ export function buildPanes(
           blank(target);
           continue;
         }
-        push(target, line, meta, target === activity);
+        push(target, line, meta, target === dialogue);
       }
     }
   }

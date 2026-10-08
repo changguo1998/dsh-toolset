@@ -58,14 +58,23 @@ test("① 归属：用户块与 final 正文进会话区，思考 / 工具 / 非
     ],
     { level: "think" },
   );
-  assert.deepEqual(shape(panes.dialogue), ["user:问题", "assistant:最终答复"]);
+  // 会话区：用户块与 final 正文，中间按分类变化留白（旧路径 spaceUserAssistant 口径）
+  assert.deepEqual(shape(panes.dialogue), [
+    "user:问题",
+    "(blank)",
+    "assistant:最终答复",
+  ]);
+  // 回合区：每个有内容的 step 一个 step 头（旧口径：step 头是工具行，恒进回合区；
+  // 该 step 无回合区内容时为孤儿头）；turn 分隔线只在会话区
   assert.deepEqual(shape(panes.activity), [
+    "#step 1",
     "#step 2",
     "reasoning:（想）",
     "(blank)",
     "tool:1",
     "(blank)",
     "assistant:中间正文",
+    "#step 3",
   ]);
 });
 
@@ -160,10 +169,26 @@ test("⑤ 边界：step 头随 scope 变化；turn 分隔线随回合变化；�
     "assistant:第一步",
     "#step 2",
     "assistant:第二步",
-    "-- turn 2",
     "#step 1",
     "assistant:下一回合",
   ]);
+  // turn 分隔线只在会话区（旧口径：分隔线是会话区的线）
+  const dialogue = buildPanes(
+    [
+      section([{ source: "user", text: "第一问" }], { turn: 1, step: 1 }),
+      section([{ source: "assistant", text: "第一答" }], {
+        turn: 1,
+        step: 1,
+        final: true,
+      }),
+      section([{ source: "user", text: "第二问" }], { turn: 2, step: 1 }),
+    ],
+    { level: "think" },
+  );
+  assert.ok(
+    shape(dialogue.dialogue).includes("-- turn 2"),
+    "会话区在回合变化处插分隔线",
+  );
 });
 
 test("⑥ 合并空行：连续空行并成 1 个（代码块内不合并）", () => {

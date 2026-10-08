@@ -89,6 +89,7 @@ import {
   parseSlashCommand,
   readDefaultSelection,
   ruleInjectionTextOf,
+  summarizeToolArguments,
 } from "./normalize.ts";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
@@ -397,43 +398,6 @@ function workSummary(name: string, args: unknown): string {
   return text.length > 40 ? text.slice(0, 39) + "…" : text;
 }
 
-/**
- * tool/call.arguments（原始 JSON 字符串）→ 单行摘要：优先关键字段启发式
- * （path/file/url/command/pattern/query/dir——read/write/edit→路径、bash→命令等），
- * 无关键字段回落原始紧凑串；JSON 解析失败兜底原样。
- * 不做固定字符数截断（固定字符数与窗口宽度无关，窄/宽终端下都不匹配）；
- * 完整摘要交给渲染层按窗口宽度换行。
- */
-function summarizeToolArguments(args: string): string {
-  const raw = args.trim();
-  if (raw.startsWith("{")) {
-    try {
-      const obj = JSON.parse(raw) as Record<string, unknown>;
-      const preferred = [
-        "path",
-        "file",
-        "url",
-        "command",
-        "pattern",
-        "query",
-        "dir",
-      ];
-      for (const key of preferred) {
-        const v = obj[key];
-        if (typeof v === "string" && v !== "") return v;
-      }
-      const flat = Object.entries(obj)
-        .map(
-          ([k, v]) => k + "=" + (typeof v === "string" ? v : JSON.stringify(v)),
-        )
-        .join(" ");
-      if (flat !== "") return flat;
-    } catch {
-      /* 非 JSON：回落原始串 */
-    }
-  }
-  return raw === "" ? "(无参数)" : raw;
-}
 /** tool/result 的配对键：宿主 append 的 `message.callId`（缺失返回 undefined → 接收层按到达顺序配对） */
 function toolResultCallId(message: unknown): string | undefined {
   const id = (message as { callId?: unknown } | undefined)?.callId;

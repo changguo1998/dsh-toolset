@@ -169,3 +169,41 @@ export function normalizeAgentStatus(s: string | undefined): AgentStatus {
       return "idle";
   }
 }
+
+/**
+ * tool/call.arguments（原始 JSON 字符串）→ 单行摘要：优先关键字段启发式
+ * （path/file/url/command/pattern/query/dir——read/write/edit→路径、bash→命令等），
+ * 无关键字段回落原始紧凑串；JSON 解析失败兜底原样。
+ * 不做固定字符数截断（固定字符数与窗口宽度无关，窄/宽终端下都不匹配）；
+ * 完整摘要交给渲染层按窗口宽度换行。
+ */
+export function summarizeToolArguments(args: string): string {
+  const raw = args.trim();
+  if (raw.startsWith("{")) {
+    try {
+      const obj = JSON.parse(raw) as Record<string, unknown>;
+      const preferred = [
+        "path",
+        "file",
+        "url",
+        "command",
+        "pattern",
+        "query",
+        "dir",
+      ];
+      for (const key of preferred) {
+        const v = obj[key];
+        if (typeof v === "string" && v !== "") return v;
+      }
+      const flat = Object.entries(obj)
+        .map(
+          ([k, v]) => k + "=" + (typeof v === "string" ? v : JSON.stringify(v)),
+        )
+        .join(" ");
+      if (flat !== "") return flat;
+    } catch {
+      /* 非 JSON：回落原始串 */
+    }
+  }
+  return raw === "" ? "(无参数)" : raw;
+}

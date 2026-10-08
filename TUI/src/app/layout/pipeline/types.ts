@@ -50,6 +50,8 @@ export interface Section {
   readonly frozen: boolean;
   /** 回合最终总结（turn-end 时给该回合最后一个 assistant 节打标）→ 会话区归属判据 */
   readonly final?: boolean;
+  /** 独立自足节（用户输入 / notice / shell 各自成节）：不再接受迟到内容（回写会串节） */
+  readonly standalone?: boolean;
 }
 
 /** 交付公共字段（`seq` = 宿主持久线事件号，接收层据此去重；实时线增量不带） */

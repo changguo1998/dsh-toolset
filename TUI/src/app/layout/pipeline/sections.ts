@@ -161,7 +161,10 @@ function target(
   }
   const at = boundary
     ? -1
-    : base.sections.findIndex((section) => sameScope(section, turn, step));
+    : base.sections.findIndex(
+        (section) =>
+          sameScope(section, turn, step) && section.standalone !== true,
+      );
   if (at >= 0) {
     const section = base.sections[at]!;
     return { state: base, target: { on: "closed", at, section } };
@@ -501,6 +504,7 @@ export function applyDelivery(
           },
         ],
         frozen: false,
+        standalone: true,
       };
       // 自成节（封闭态）：其后内容另起一节——与设计「notice 与用户消息同行为」一致
       return {
