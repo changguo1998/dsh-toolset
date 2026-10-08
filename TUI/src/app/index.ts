@@ -48,6 +48,7 @@ import {
   type SectionsState,
 } from "./layout/pipeline/sections.ts";
 import type { BlockDelivery } from "./layout/pipeline/types.ts";
+import { sectionsFromBuffer } from "./layout/pipeline/replay.ts";
 import {
   setWidthOverrides,
   setWidthProbeEnabled,
@@ -418,6 +419,18 @@ export class App {
   private sections: SectionsState | null = null;
   /** 节缓存归属的会话 id（切换会话时重建，避免跨会话串节） */
   private sectionsSessionId: string | null = null;
+
+  /**
+   * 六步流水线：把当前缓冲（恢复 / 整体替换后的行）重放成节缓存。
+   * 仅在开关开启时生效；关闭时不动任何状态。
+   */
+  private replaySectionsFromBuffer(): void {
+    if (!pipelineEnabled()) return;
+    this.sections = sectionsFromBuffer(this.state.buffer);
+    this.sectionsSessionId = this.state.activeSessionId;
+    const pipeline = this.sections;
+    this.apply((s) => reduceState(s, { type: "pipeline-state", pipeline }));
+  }
 
   /**
    * 六步流水线接收：块交付 → 节缓存 → 注入 state（会话切换即重建节缓存）。
@@ -899,6 +912,8 @@ export class App {
           }),
         );
         this.apply((s) => reduceState(s, { type: "queued-clear" }));
+        // 六步流水线：恢复的历史行重放成节缓存（此后新事件继续按节增量接收）
+        this.replaySectionsFromBuffer();
         this.paint();
       })
       .catch(() => this.notice("启动恢复：既有消息读取失败", "warn"))
