@@ -425,7 +425,7 @@ export class App {
    * 仅在开关开启时生效；关闭时不动任何状态。
    */
   private replaySectionsFromBuffer(): void {
-    if (!pipelineEnabled()) return;
+    if (!pipelineEnabled() || this.deps.pipelineSink === undefined) return;
     this.sections = sectionsFromBuffer(this.state.buffer);
     this.sectionsSessionId = this.state.activeSessionId;
     const pipeline = this.sections;
@@ -620,12 +620,13 @@ export class App {
     // 恢复会话：启动历史折叠会整表替换 buffer → 早到的外部日志先挂起（落定后补发，见
     // flushKickoffPending）。必须在总线接线（会触发插件侧重放）之前置位。
     if (this.deps.adapter.resumedAtLaunch === true) this.bootLogPending = [];
-    // 六步流水线（`TUI_LAYOUT_PIPELINE`）：注册 sink 并注入节缓存；关闭时不接线
-    if (pipelineEnabled()) {
+    // 六步流水线：仅在「开关开启 + 调用方给了 sink」时接管（缺 sink = 未装配 → 旧路径，
+    // 测试与嵌入用法不受默认切换影响）
+    const sink = this.deps.pipelineSink;
+    if (pipelineEnabled() && sink !== undefined) {
       this.sections = createSections();
       this.sectionsSessionId = this.state.activeSessionId;
-      const sink = this.deps.pipelineSink;
-      if (sink) sink.current = (delivery) => this.ingestDelivery(delivery);
+      sink.current = (delivery) => this.ingestDelivery(delivery);
       const pipeline = this.sections;
       this.apply((s) => reduceState(s, { type: "pipeline-state", pipeline }));
     }
