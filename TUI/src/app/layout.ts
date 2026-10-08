@@ -55,6 +55,8 @@ import {
   buildContentRows,
   noticeLinePresentation,
 } from "./layout/build-box.ts";
+import { pipelineEnabled } from "./layout/pipeline/flag.ts";
+import { pipelineContent } from "./layout/pipeline/frame.ts";
 import { measure } from "./layout/measure.ts";
 import { allocate } from "./layout/measure.ts";
 import { fillToList, fillBoxTree } from "./layout/fill.ts";
@@ -1625,27 +1627,53 @@ function buildTopRegion(
   const diaEnd = geom.activitySepRow; // 活动区分隔行（横向无分隔行，此值 = 历史 pane 底边下一行）
   // 渐进窗口：只物化最近 windowGroups 个回合组（缺省 3），更早部分以顶部占位行示意；
   // 上滚接近窗口顶部时由 App 增大 windowGroups 再扩窗（不再每帧全量重排历史）
-  const win = dialogueWindow(state.buffer, state.windowGroups);
-  const { dialogue, activity } = buildContentRows(
-    win.lines,
-    {
-      themeId: state.themeId,
-      gutter: state.messageGutter,
-      // 活动区详略两态（SPEC §6.8）：activityCompact=true → 紧凑（每条目 1 行 + 省略号，/collapse on）
-      activityCompact: state.activityCompact,
-      // BACKLOG #8：活动区输出内容档位（think / tool / step；缺省 think）
-      activityLevel: state.activityVerbose,
-      lineOffset: win.start,
-      // P1：用户块首行左侧状态符号（✓/✗/■/? 与活跃块 ●/○/△）
-      userStatus: userBlockSymbolResolver(state),
-    },
-    dialogueTextW,
-    // 活动 pane 可用宽：横向与对话 pane 不同宽（P3 起两者差 1 列）；纵向两 pane 同宽
-    horizontal ? activityTextW : dialogueTextW,
-  );
+  // 六步流水线接管（`TUI_LAYOUT_PIPELINE` + App 注入节缓存）：内容行来源换成
+  // 节 → box → pane → 行；渐进窗口按回合丢弃（旧路径按行丢弃），其余口径一致。
+  const pipeline = pipelineEnabled() ? state.pipeline : undefined;
+  const activityWidth = horizontal ? activityTextW : dialogueTextW;
+  const built =
+    pipeline === undefined
+      ? (() => {
+          const win = dialogueWindow(state.buffer, state.windowGroups);
+          return {
+            ...buildContentRows(
+              win.lines,
+              {
+                themeId: state.themeId,
+                gutter: state.messageGutter,
+                // 活动区详略两态（SPEC §6.8）：activityCompact=true → 紧凑（每条目 1 行 + 省略号，/collapse on）
+                activityCompact: state.activityCompact,
+                // BACKLOG #8：活动区输出内容档位（think / tool / step；缺省 think）
+                activityLevel: state.activityVerbose,
+                lineOffset: win.start,
+                // P1：用户块首行左侧状态符号（✓/✗/■/? 与活跃块 ●/○/△）
+                userStatus: userBlockSymbolResolver(state),
+              },
+              dialogueTextW,
+              // 活动 pane 可用宽：横向与对话 pane 不同宽（P3 起两者差 1 列）；纵向两 pane 同宽
+              activityWidth,
+            ),
+            dropped: win.dropped,
+          };
+        })()
+      : pipelineContent(pipeline, {
+          dialogueTextW,
+          activityTextW: activityWidth,
+          windowGroups: state.windowGroups,
+          render: {
+            themeId: state.themeId,
+            gutter: state.messageGutter,
+            activityCompact: state.activityCompact,
+            activityLevel: state.activityVerbose,
+            width: dialogueTextW,
+            activityWidth,
+            userStatus: userBlockSymbolResolver(state),
+          },
+        });
+  const { dialogue, activity } = built;
   // 顶部占位行（line = -1）：窗口未覆盖最旧内容时提示更早回复已折叠
   const markerRow: ContentRow | null =
-    win.dropped > 0
+    built.dropped > 0
       ? {
           segments: [seg(DIALOGUE_MORE, { fg: NOTICE_TONE_COLOR.log })],
           kind: "plain",

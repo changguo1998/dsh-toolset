@@ -214,12 +214,21 @@ export function boxToLines(box: Box, dialogue = false): BufferLine[] {
     }
     return lines;
   }
+  // 会话区归属：旧渲染器按 `final` 把 assistant 内容分流到会话区——代码块 / 表格同样要带
+  const final = dialogue && box.source === "assistant";
   if (box.shape === "code") {
     const code = box.code ?? { lang: "", lines: [], closed: true };
+    const kind = kindOf(box);
     return [
-      { text: "```" + code.lang, kind: kindOf(box) },
-      ...code.lines.map((line) => ({ text: line, kind: kindOf(box) })),
-      ...(code.closed ? [{ text: "```", kind: kindOf(box) }] : []),
+      { text: "```" + code.lang, kind, ...(final ? { final: true } : {}) },
+      ...code.lines.map((line) => ({
+        text: line,
+        kind,
+        ...(final ? { final: true } : {}),
+      })),
+      ...(code.closed
+        ? [{ text: "```", kind, ...(final ? { final: true } : {}) }]
+        : []),
     ];
   }
   if (box.shape === "table") {
@@ -231,9 +240,21 @@ export function boxToLines(box: Box, dialogue = false): BufferLine[] {
       align === "right" ? "---:" : align === "center" ? ":---:" : "---",
     );
     return [
-      { text: row(table.header), kind: kindOf(box) },
-      { text: row(aligns), kind: kindOf(box) },
-      ...table.rows.map((cells) => ({ text: row(cells), kind: kindOf(box) })),
+      {
+        text: row(table.header),
+        kind: kindOf(box),
+        ...(final ? { final: true } : {}),
+      },
+      {
+        text: row(aligns),
+        kind: kindOf(box),
+        ...(final ? { final: true } : {}),
+      },
+      ...table.rows.map((cells) => ({
+        text: row(cells),
+        kind: kindOf(box),
+        ...(final ? { final: true } : {}),
+      })),
     ];
   }
   return [
@@ -241,7 +262,7 @@ export function boxToLines(box: Box, dialogue = false): BufferLine[] {
       text: box.text ?? "",
       kind: kindOf(box),
       ...(box.tone === undefined ? {} : { tone: box.tone }),
-      ...(dialogue && box.source === "assistant" ? { final: true } : {}),
+      ...(final ? { final: true } : {}),
       ...scope,
     },
   ];

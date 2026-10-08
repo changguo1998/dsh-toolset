@@ -44,6 +44,8 @@ export interface PaneOptions {
   normalize?: (text: string) => string;
   /** 压缩剪枝遮蔽的宿主事件号（box 层按交集打灰） */
   shadowedSeqs?: ReadonlySet<number>;
+  /** 抑制首个内容节的 step 头（渐进窗口起点落在节中间时，旧路径已把该头切掉） */
+  suppressFirstHead?: boolean;
 }
 
 /** 拆行缓存：键 = box 身份（box 由节缓存给出、稳定）——行缓存据此保持身份 */
@@ -59,15 +61,22 @@ function visibleAtLevel(box: Box, level: ActivityLevel): boolean {
   return box.source !== "reasoning";
 }
 
-/** 归属：会话区 = 用户块 + final 节的正文；其余进回合区 */
+/**
+ * 归属：会话区 = 用户块 + **final 节的 assistant 内容（正文 / 代码块 / 表格都算）**；
+ * 其余（思考 / 工具批 / 非 final 正文 / notice）进回合区。
+ * 注意：final 节里的代码块与表格仍是该回合的最终答复（旧路径同口径），不能按结构分流。
+ */
 function isDialogue(box: Box, final: boolean): boolean {
   if (box.source === "user") return true;
-  return final && box.source === "assistant" && box.shape === "text";
+  return final && box.source === "assistant";
 }
 
-/** 氛围分类：相邻 box 分类不同 → 空行（来源 × 结构各一档：正文 / 代码 / 表格 / 工具 / 思考…） */
+/**
+ * 氛围分类：相邻 box 分类不同 → 空行。按**来源**分档（正文 / 代码 / 表格同属 assistant：
+ * 旧口径同块内不插空行，空行只来自 markdown 原文的空行）；工具批与思考各成一档。
+ */
 function mood(box: Box): string {
-  return box.source + ":" + box.shape;
+  return box.shape === "tool" ? "tool" : box.source;
 }
 
 /** 拆行：文本 box → 逻辑行 box；代码 / 表格 / 工具批不拆 */
@@ -145,12 +154,18 @@ export function buildPanes(
   const activity: Acc = { items: [] };
   const shadowed = options.shadowedSeqs ?? new Set<number>();
   const headed = new Set<string>();
+  let headedOnce = false;
   for (const section of sections) {
     const boxes = applyShadowed(buildBoxes(section), shadowed);
     if (boxes.length === 0) continue;
-    // step 头（旧口径：step 头是工具行，恒进回合区；该 step 无回合区内容时是「孤儿头」）
+    // step 头（旧口径：step 头是工具行，恒进回合区；该 step 无回合区内容时是「孤儿头」）。
+    // 独立自足节（用户 / notice / shell）没有 step 头；窗口起点落在节中间时首个头已被切掉。
     const key = stepKey(section.turn, section.step);
-    if (!headed.has(key)) {
+    const suppress = options.suppressFirstHead === true && !headedOnce;
+    headedOnce = true;
+    // 头按 scope 发放（notice / 用户节继承最近 scope ⇒ 同一 step 只发一次；旧路径在
+    // step/start 处发头，故不因「该节内容进了会话区」而跳过）
+    if (!headed.has(key) && !suppress) {
       headed.add(key);
       const stepTime = meta.get(key);
       activity.items.push({

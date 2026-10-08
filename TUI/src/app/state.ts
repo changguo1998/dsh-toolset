@@ -23,6 +23,7 @@ import type {
   AgentRowInfo,
 } from "./adapter/dsh.ts";
 import type { ModelSelection, ModelSelectionLike } from "./adapter/dsh.ts";
+import type { SectionsState } from "./layout/pipeline/sections.ts";
 import type { ActivityPlacement } from "./config.ts";
 import {
   DIALOGUE_KEEP_REPLIES,
@@ -433,6 +434,11 @@ export interface AppState {
   scrollAnchor: DialogueAnchor | null;
   /** 渐进窗口：物化的尾部回合组数（上滚接近窗口顶部时增大；回到最新时复位默认） */
   windowGroups: number;
+  /**
+   * 六步流水线的节缓存（`TUI_LAYOUT_PIPELINE` 开启时由 App 注入）。
+   * 存在时 `buildTopRegion` 从节缓存出两 pane 内容行（旧 `buffer` 路径作对照）。
+   */
+  pipeline?: SectionsState;
   /** 下一个可用的 buffer 行序号（单调递增；只增不减，裁剪/清行后不复用） */
   nextSeq: number;
   /** 对话区滚动几何（派生缓存：每帧由布局回填 + 由滚动 action 的 geom 覆盖） */
@@ -2059,6 +2065,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           ...state,
           windowGroups: Math.max(DIALOGUE_KEEP_REPLIES, action.groups),
         };
+      case "pipeline-state":
+        return { ...state, pipeline: action.pipeline };
       case "user-jump":
         // PgUp/PgDn 用户输入跳转：直接给锚点（null = 落到底部）
         return {
@@ -2716,6 +2724,8 @@ export type StateAction =
       geometry: DialogueGeometry;
     }
   | { type: "window-groups"; groups: number }
+  /** 六步流水线节缓存整体替换（App 在开关开启时注入；undefined = 关闭 / 无会话） */
+  | { type: "pipeline-state"; pipeline: SectionsState | undefined }
   | { type: "user-jump"; anchor: DialogueAnchor | null }
   /** clearActivity：是否清空活动区内容（缺省 true；核心自发回合传 false，见 appendTurnSeparator） */
   | {

@@ -127,12 +127,11 @@ test("③ 替换符号只作用于文本，代码与表格不替换", () => {
     ],
     { level: "think", normalize: (text) => text.replace(/->/g, "→") },
   );
+  // 正文 / 代码 / 表格同属 assistant：同块内不插空行（旧口径），只断言内容不被替换
   assert.deepEqual(shape(panes.activity), [
     "#step 2",
     "assistant:a → b",
-    "(blank)",
     "code:const a = 1; -> x",
-    "(blank)",
     "table",
   ]);
 });

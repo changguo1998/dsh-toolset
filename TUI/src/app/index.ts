@@ -41,6 +41,13 @@ import type {
   RuleEngineLike,
 } from "./adapter/dsh.ts";
 import type { NoticeTone, CandidateRowLike } from "./adapter/types.ts";
+import { pipelineEnabled } from "./layout/pipeline/flag.ts";
+import {
+  applyDelivery,
+  createSections,
+  type SectionsState,
+} from "./layout/pipeline/sections.ts";
+import type { BlockDelivery } from "./layout/pipeline/types.ts";
 import {
   setWidthOverrides,
   setWidthProbeEnabled,
@@ -259,6 +266,11 @@ export interface AppDeps {
     /** 等待用户输入超时(ms)；缺省 8000。最小 1000（由 config 归一化兜底） */
     idleThresholdMs?: number;
   };
+  /**
+   * 六步流水线装配（`TUI_LAYOUT_PIPELINE` 开启时生效）：App 在此注册「块交付」sink 并
+   * 自己持有节缓存（`state.pipeline`）。缺省不注册 → adapter 零开销、旧路径不变。
+   */
+  pipelineSink?: { current?: (delivery: BlockDelivery) => void };
   /** 符号服务读取器（懒读，容忍插件装载顺序）：返回 undefined = symbol-normalizer 未挂载，
    *  此时展示层原文透传、无 notice（BACKLOG TUI#18 / 项目级 #48） */
   getSymbols?: () => SymbolNormalizerLike | undefined;
@@ -402,6 +414,25 @@ export class App {
   private paneScrollMaxState: AppState | null = null;
   /** 上一帧 buffer 的回合组数（用户停在历史里时按新增组数撑住窗口起点） */
   private groupCount: number | null = null;
+  /** 六步流水线节缓存（开关开启时持有；会话切换即重建） */
+  private sections: SectionsState | null = null;
+  /** 节缓存归属的会话 id（切换会话时重建，避免跨会话串节） */
+  private sectionsSessionId: string | null = null;
+
+  /**
+   * 六步流水线接收：块交付 → 节缓存 → 注入 state（会话切换即重建节缓存）。
+   * 接收跟事件（去重不能延迟），处理与排版仍跟帧。
+   */
+  private ingestDelivery(delivery: BlockDelivery): void {
+    const sid = this.state.activeSessionId;
+    if (this.sections === null || this.sectionsSessionId !== sid) {
+      this.sections = createSections();
+      this.sectionsSessionId = sid;
+    }
+    this.sections = applyDelivery(this.sections, delivery);
+    const pipeline = this.sections;
+    this.apply((s) => reduceState(s, { type: "pipeline-state", pipeline }));
+  }
 
   /** 当前 state 的可滚动上限：出帧回填过就直接用，否则就地补算一次（同一帧口径） */
   private paneMaxes(): FrameScrollReport {
@@ -576,6 +607,15 @@ export class App {
     // 恢复会话：启动历史折叠会整表替换 buffer → 早到的外部日志先挂起（落定后补发，见
     // flushKickoffPending）。必须在总线接线（会触发插件侧重放）之前置位。
     if (this.deps.adapter.resumedAtLaunch === true) this.bootLogPending = [];
+    // 六步流水线（`TUI_LAYOUT_PIPELINE`）：注册 sink 并注入节缓存；关闭时不接线
+    if (pipelineEnabled()) {
+      this.sections = createSections();
+      this.sectionsSessionId = this.state.activeSessionId;
+      const sink = this.deps.pipelineSink;
+      if (sink) sink.current = (delivery) => this.ingestDelivery(delivery);
+      const pipeline = this.sections;
+      this.apply((s) => reduceState(s, { type: "pipeline-state", pipeline }));
+    }
     // 告警总线懒接线（未挂载则 no-op；见 ruleEngine()）
     this.ruleEngine();
     this.deps.renderer.onKey((k) => this.handleKey(k));

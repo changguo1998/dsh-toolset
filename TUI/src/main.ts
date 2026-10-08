@@ -26,6 +26,7 @@ import type {
   AgentDefaultModelLike,
   LlmLike,
 } from "./app/adapter/dsh.ts";
+import type { BlockDelivery } from "./app/layout/pipeline/types.ts";
 import {
   createRealDshAdapter,
   installSessionModelSelection,
@@ -97,6 +98,8 @@ export function main(opts: {
   /** 重启交接文件路径（`process.env.DSH_RESTART_FILE`；非空 = 由处理退出码 75 的启动器启动，
    *  退出确认面板才提供「重启 dsh（保留会话）」；BACKLOG #51 / DESIGN「退出确认 ·「重启」方案」） */
   restartHandoffPath?: string;
+  /** 六步流水线 sink 容器（`TUI_LAYOUT_PIPELINE`；apply 内创建并传给 adapter） */
+  pipelineSink?: { current?: (delivery: BlockDelivery) => void };
   /** profile 目录（`ctx.get('profileContext').dir`）：实测宽度表落盘位置；缺省不落盘
    *  （不落盘时仍按需实测，只是不跨会话复用；见 layout/width-table.ts） */
   profileDir?: string;
@@ -108,9 +111,15 @@ export function main(opts: {
   for (const warning of resolvedThemes.warnings) configLogger(warning);
   const renderer: Renderer =
     opts.renderer ?? createRenderer({ themes: resolvedThemes.themes });
+
+  // 六步流水线：App 注册 sink 后 adapter 才投递（开关关闭时 sink 恒空、零开销）
+  const pipelineSink: { current?: (delivery: BlockDelivery) => void } = {};
   const app = new App({
     renderer,
     adapter: opts.adapter,
+    ...(opts.pipelineSink === undefined
+      ? {}
+      : { pipelineSink: opts.pipelineSink }),
     status: {
       queries: opts.statusQueries ?? createProcessStatusQueries(),
       intervalMs: 5000,
@@ -313,6 +322,8 @@ export async function apply(
   ctx: unknown,
   config?: DshTuiConfig,
 ): Promise<void> {
+  // 六步流水线：App 注册 sink 后 adapter 才投递（开关关闭时 sink 恒空、零开销）
+  const pipelineSink: { current?: (delivery: BlockDelivery) => void } = {};
   const runtime: DshRuntime = ctx as DshRuntime;
   const agents = (ctx as { agents?: unknown }).agents as
     | {
@@ -508,6 +519,7 @@ export async function apply(
 
   const adapter = createRealDshAdapter({
     runtime,
+    onDelivery: (delivery) => pipelineSink.current?.(delivery),
     sessionId: agentLike.session.id,
     // TUI#40：启动即恢复（--resume / -c）→ App 启动时补一次历史折叠
     resumedAtLaunch: startedFromResume,
@@ -665,6 +677,7 @@ export async function apply(
   const kickoffForNewSession = (): string | undefined => undefined;
   const disposeApp = main({
     adapter,
+    pipelineSink,
     bootstrapKickoffText: kickoffText,
     bootstrapKickoffForNewSession: kickoffForNewSession,
     // 启动器（如用户的 fffdsh 循环）经此变量声明「会处理退出码 75」（BACKLOG #51）
