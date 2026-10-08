@@ -1,6 +1,6 @@
 # 排版流程重构：六步流水线（节 → box → pane → 行）
 
-> 接取条目：`TUI/docs/BACKLOG.md`「排版流程重构：按段缓存排版结果 + 「先量后裁」」（**条目仍是旧标题**，待改写——见「收尾」）。
+> 接取条目：`TUI/docs/BACKLOG.md`「排版流程重构：六步流水线（节 → box → pane → 行）」。
 > 状态：决策　　开启：2026-10-09　　关闭：—
 > 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
@@ -13,12 +13,99 @@
 
 ## 规划（计划改动文件清单）
 
-设计阶段（已完成）只改文档：
+### 已完成（调研与设计，只改文档）
 
-1. `TUI/docs/BACKLOG.md`：条目「排版流程重构…」标〔进行中〕；按流程追加 R7 缺陷条目（未闭合围栏丢内容）。
-1. 本追踪文档：建 → 写调研与设计（关闭时移入 `TUI/docs/archived/`）。
+1. `TUI/docs/BACKLOG.md`：条目「排版流程重构…」标〔进行中〕；追加 R7 缺陷条目（未闭合围栏丢内容，现已暂停）。
+1. 本追踪文档：建 → 写调研与设计。
 
-实现阶段（**未开始**）：落点按设计确定，初步范围 `TUI/src/app/layout.ts`、`TUI/src/app/layout/build-box.ts`、`layout/measure.ts` / `fill.ts`、`TUI/src/app/index.ts`、`TUI/src/app/state.ts`、`TUI/tests/`、`TUI/bench/layout-bench.mts`。
+### 计划改动文件清单（实现阶段）
+
+**新增**（新流水线的落点，按节 / box / pane / 行分层）：
+
+| 文件 | 职责 |
+| --- | --- |
+| `TUI/src/app/layout/pipeline/types.ts` | 四种缓冲与位置模型的类型（节 / box / pane 项 / row / 行数表 / 偏移） |
+| `TUI/src/app/layout/pipeline/sections.ts` | 接收：块 → 节（幂等合并 + 三张记账表 + 分节规则 + 节内合并 + 冻结标记） |
+| `TUI/src/app/layout/pipeline/boxes.ts` | 节 → box 序列（围栏配对 / 表格识别 / 工具批一个 box / 分类标记） |
+| `TUI/src/app/layout/pipeline/panes.ts` | pane 构建五步（档位过滤 → 替换符号 → 拆行 → 加边界 → 合并空行），两个 pane |
+| `TUI/src/app/layout/pipeline/rows.ts` | box → row（折行 + 装饰 / 状态符号）+ 行数表 + 偏移 ↔ 索引 + 全量重算两种情形 |
+| `TUI/src/app/layout/pipeline/assemble.ts` | 帧装配（各区域行缓冲按几何拼接）+ 折叠占位行插入 |
+| `TUI/src/app/layout/pipeline/replay.ts` | 会话恢复：宿主事件 → 节的重放器 |
+| `TUI/tests/pipeline-*.test.ts` | 分级单测（见下面每批的验收）+ 等价性（新旧路径逐帧逐行一致） |
+
+**改造**：
+
+- `TUI/src/app/adapter/dsh.ts`：`applyChunk` / `completedBlocks` / `emittedByBlock` 的去重逻辑改为产出「块 + 冻结信号」，不再直接写 buffer 行；补读 `message.callId` / `sourceEventSeqs`。
+- `TUI/src/app/layout/markdown.ts`：缓存键去掉 `themeId`（`themeSizedKey` → `sizedKey`）。
+- `TUI/src/app/layout/measure.ts` / `fill.ts` / `primitives.ts` / `table.ts`：作为第 4 步的算法库复用（折行、尺寸、填充），只换调用方与键。
+- `TUI/src/app/index.ts`：帧循环接新流水线（标脏 → 帧边界补算脏段 + 执行冻结 → 装配）；滚动 / 扩窗 / 位置读写改新模型；非会话区域交给装配。
+- `TUI/src/app/state.ts`：**退场**旧结构（`state.buffer`、`seq` 锚点、`dialogueGeometry`、`windowGroups`、`window-groups` / `anchor-resolved` 死 action）；保留状态字段与事件语义。
+- `TUI/src/app/layout.ts`：从「每帧全量构帧」退化为装配入口（旧 `buildTopRegion` / `frameGeometry` 的口径被新流程取代）。
+- `TUI/bench/layout-bench.mts`：加「大窗口 / 全量物化」档。
+
+### 分批（依赖顺序；每批独立可验证）
+
+| 批 | 内容 | 估时 | 验收 |
+| --- | --- | --- | --- |
+| 0 | 流水线骨架 + 新旧路径开关（`TUI_LAYOUT_PIPELINE` 风格，供等价性对照） | 1-2 h | 编译通过；关 = 行为不变 |
+| 1 | 接收（`sections.ts` + adapter 改造） | 0.5 天 | 两条线重复交付只入一次；`r1 a1 r2 a2` 归并；无空节；工具批按 `callId` 配对 |
+| 2 | 节 → box（`boxes.ts`，围栏配对**重写**） | 0.5 天 | box 序列形态断言；**未闭合围栏之后的内容仍在**（原 R7 用例）；代码 / 表格不拆 |
+| 3 | pane 构建（`panes.ts` + 复用 `symbol-normalizer`） | 0.5 天 | 两 pane 缓存开 / 关逐项一致；档位切换重放正确；空行合并（代码块内不合并） |
+| 4 | box → row + 行数表 + 位置模型（`rows.ts`） | 1 天 | 新旧路径逐帧逐行一致（宽度 × 档位矩阵）；宽度不变不重排（计数断言）；滚动 / 扩窗只查表 |
+| 5 | 装配 + 接管 + 旧结构退场（`assemble.ts`、`index.ts`、`state.ts`、`layout.ts`） | 0.5 天 | 既有帧断言全绿；真机滚动 / 扩窗 / 流式 / 面板目视 |
+| 6 | 恢复、失效传播、容量、文档回写、条目改写 | 0.5 天 | 恢复用例；宽度表切换用例；DESIGN / SPEC / README 更新 |
+
+合计约 **3.5-4 天**（含等价性回归；不含真机验收往返）。
+
+### 明确不做（本任务范围外）
+
+- **未闭合围栏缺陷不单独修**：随第 2 批的围栏重写验证，**不作为验收条件**（BACKLOG 条目已标暂停）。
+- 优化项留后：宽度表「按段失效」、按块重算、缓冲硬上限、字形维度（`glyphSet`）。
+- 滚动与键位类条目（BACKLOG 条目 5 / 6 / 7）不在本任务内，重构完成后另行接取。
+- 配色 / 视觉调整（主题只换色值，不在此列）。
+
+### 细分与拆分方案（提案；经子代理审阅后定稿）
+
+**审阅安排**（用户 2026-10-09：不能全程盯，改由子代理把关）：设计定稿后开两个只读审阅子代理——① 设计一致性与内部自洽；② 迁移面与可验证性。审阅结论并入本文档「规划」，再据此拆分条目。
+
+**拆分提案**：把实现拆成 3 条 BACKLOG 条目，各自走标准流程（接取 → 追踪文档 → 实现 → 测试 → 人工确认 → 提交询问），每条实现前 / 后各过一次子代理审阅；原条目「排版流程重构」在拆分落地后关闭（设计交付物 = 本文档）。
+
+| 条目 | 覆盖批 | 内容 | 落点 | 估时 |
+| --- | --- | --- | --- | --- |
+| A｜骨架 + 接收 + 结构 | 0-2 | 流水线骨架与新旧开关；块 → 节（幂等合并 / 记账表 / 分节 / 节内归并 / 冻结标记）；节 → box（围栏配对重写 / 表格 / 工具批一个 box / 分类标记） | `pipeline/{types,sections,boxes}.ts`、`adapter/dsh.ts` | 1-1.5 天 |
+| B｜显示准备 + 出行 | 3-4 | pane 构建五步（两 pane）；box → row（折行 + 装饰 / 状态符号）；行数表 + 偏移 / 索引 + 全量重算两种情形 | `pipeline/{panes,rows}.ts`、`markdown.ts` | 1.5 天 |
+| C｜装配 + 接管 + 收尾 | 5-6 | 帧装配与非会话区域；旧结构退场（`state.buffer` / 旧锚点 / 死 action）；恢复重放器；宽度表失效；容量清理；文档回写 | `pipeline/{assemble,replay}.ts`、`index.ts`、`state.ts`、`layout.ts`、`tests/`、`bench/` | 1-1.5 天 |
+
+依赖：A → B → C（严格顺序；B 需要 A 的节 / box 产物，C 需要 B 的行缓冲与行数表）。
+
+**批 0-1 细分（条目 A 的前半）**
+
+类型骨架（`pipeline/types.ts` 草案，落地时以代码为准）：
+
+```ts
+type Source = "user" | "assistant" | "reasoning" | "tool" | "notice";
+type Shape = "text" | "code" | "table" | "call" | "result" | "batch";
+interface ToolCall { callId: string; name: string; args: string; seq: number }
+interface ToolResult { callId?: string; callSeq?: number; ok: boolean; detail: string }
+interface Item { source: Source; text?: string; calls?: ToolCall[]; results?: ToolResult[]; seqs: number[] }
+interface Section { turn: number; step: number; time?: number; items: Item[]; frozen: boolean }
+interface Box { turn: number; step: number; source: Source; shape: Shape; text?: string;
+                code?: { lang: string; lines: string[] }; table?: unknown;
+                batch?: { calls: ToolCall[]; results: ToolResult[] }; shadowed?: boolean }
+```
+
+模块接口（草案）：
+
+- `sections.ts`：`createStore()`；`ingest(store, block: BlockEvent)`（幂等合并 + 分节 + 记账 + 冻结标记）；`sections(store)`；`active(store)`。
+- `boxes.ts`：`buildBoxes(sec: Section): Box[]`（纯函数、宽无关）。
+- 冻结信号：`assistant/message` → 标记该 step 可冻结；新开节 → 封版；实际冻结在帧边界执行。
+
+用例清单（条目 A 的验收）：
+
+| 批 | 用例 |
+| --- | --- |
+| 1 | ① 同一 `(turn, step, index)` 的实时 delta 与结算全文只入一次；② `r1 a1 r2 a2` → 两个条目（reasoning / assistant 各自归并）；③ 连续 `step/start` 不产生空节；④ 并发 3 条工具调用按 `callId` 配对成一批；⑤ notice / 用户输入各自独立成节 |
+| 2 | ⑥ 正文夹围栏 → `正文 / 代码块 / 正文` 三个 box；⑦ 表格整体一个 box；⑧ 工具批一个 box；⑨ **未闭合围栏之后的内容仍进 box**（原 R7 用例）；⑩ `turn` / `step` / 分类标记正确；⑪ `shadowed` 有交集即整块打标 |
 
 ## 调研（现状事实 = 实现依据）
 
@@ -93,7 +180,7 @@
 - 实测（探针已删）：buffer = ```` [user 第一问][assistant final "```ts"][assistant final "const a = 1;"][user 第二问][assistant final 回答][user 第三问][assistant final 回答] ```` → 对话 pane 只剩 4 行（第一问 + 代码块），**第二 / 第三问及其回答全部不可见**。
 - 触发：某条 assistant 行整行恰为围栏开启符（```` ^ {0,3}(```+|~~~+) ````，`build-box.ts:442`）且遇到下一条非 assistant 行前未闭合——典型如粘贴代码少一个结尾围栏。
 - 影响：**物化窗口内该行之后的内容在画面上消失**（不改 buffer、不影响会话数据），直到该围栏行被挤出窗口才自愈。
-- 处置：已写入 `TUI/docs/BACKLOG.md`（缺陷条目，交其他 agent 接取）。
+- 处置：已写入 `TUI/docs/BACKLOG.md`（缺陷条目）；2026-10-09 裁定**暂停**，等排版流程重构完成后再复检是否仍存在——**不作为重构的验收条件**，重构前也不单独修。
 
 ### R8｜宿主事件面事实（2026-10-09 定向核对）
 
@@ -261,11 +348,17 @@
 
 ## 实现记录
 
-（未开始。）
+**批 0（完成）**：新增 `src/app/layout/pipeline/types.ts`（块交付 / 节 / 条目 / 工具调用与结果；只放宽无关两级）与 `pipeline/flag.ts`（`TUI_LAYOUT_PIPELINE` 开关，照 `layout/cache.ts` 写法：环境变量只作初始值，运行时可用 `setPipelineEnabled` 切换）。
+
+**批 1（接收层完成，adapter 接线待做）**：新增 `src/app/layout/pipeline/sections.ts`——纯函数接收层（`createSections` / `applyDelivery` / `applyAll` / `freezeAtFrameBoundary` / `allSections` / `itemOf`）：幂等合并（实时增量与结算整块两条线交叉重放只入一次、结算补齐缺失后缀）、三张记账表（交付账 / 工具参数累计 / 完成与中断标记）、分节规则（user / notice / shell / step-start / 工具批结果到齐为边界，惰性开节 → 无空节）、节内按来源归并（`r1 a1 r2 a2` → `reasoning = r1+r2`、`assistant = a1+a2`，顺序按首现）、冻结口径（封闭节即定型；当前节待定型信号 + 帧边界；追加则撤销冻结）。
+
+落定时修正两处设计细节（已按此实现）：① 批结果到齐的「待开节」在**结果入账之后**才置位（否则结果被推到新节、与调用分离）；② `interrupted` **不置**待开节、只清空待配对集合（中断后到达的结果正属本节那批）。
+
+**下一步（批 1 后半）**：adapter 产出「块交付」——`RealAdapterOptions` 加可选 sink，事件侧按 user / notice / step-start / text（delta + full）/ tool-call / tool-result / interrupted / finalize 归一投递；开关关闭时不接线、行为不变。
 
 ## 测试与证据
 
-本轮为调研 + 设计阶段，无代码改动。证据 = 上文 `文件:行号`；三张实测表来自三个临时探针（`tmp/seg-probe.mts` / `tmp/phase2-probe.mts` / `tmp/fence2-probe.mts`，跑完已删，数字已抄录进 R1 / R5 / R7）与既有基准：
+调研 + 设计阶段无代码改动，证据 = 上文 `文件:行号`。批 0-1 证据：`npm run check` 通过；`TUI/scripts/test.sh` 全量 **1356 用例全绿**（含新增 `tests/pipeline-sections.test.ts` 11 例：重复交付只入一次 / 节内归并 / 无空节 / 工具批配对 / 独立成节 / 冻结）。三张实测表来自三个临时探针（`tmp/seg-probe.mts` / `tmp/phase2-probe.mts` / `tmp/fence2-probe.mts`，跑完已删，数字已抄录进 R1 / R5 / R7）与既有基准：
 
 ```
 buildFrame 基准｜cols=120 rows=40 buffer≈1000 行｜iterations=30
