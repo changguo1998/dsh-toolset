@@ -387,7 +387,13 @@ interface Box { turn: number; step: number; source: Source; shape: Shape; text?:
 
 **等价性与计数（c3 / c4 的当前证据）**：`tests/pipeline-equivalence.test.ts` 用同一语料（用户 / 正文 / 思考 / 工具批 / 代码块 / 表格 / notice / 多 step / 多回合）走新旧两条路径，宽度 40 / 80 / 120 **逐行一致**；档位 `think` / `tool` / `step` 逐行一致；计数断言：宽度不变重复出帧 → 内容项零重排，宽度变化 → 全量重排，档位切换 → 重排回合区。
 
-**下一步（批 5）**：接管。`index.ts` 帧循环取新流水线的两 pane 行缓冲（`renderPane`）替代 `buildTopRegion` 的内容行来源；滚动 / 扩窗改新位置模型（偏移 + 显示索引，`rows.ts` 已备）；行身份从「buffer seq 锚点」迁到新模型（旧 `state.buffer` / `seq` 锚点 / `dialogueGeometry` / `windowGroups` 退场，见待续表 1）；帧级等价性矩阵（宽度 × 档位 × 扩窗档）与计数断言全绿后切默认路径。
+**批 5（接管接缝完成）**：`pipeline/frame.ts`（节缓存 → 两 pane 内容行；渐进窗口按回组合丢弃、分组复用既有 `turnGroupStarts`、窗口起点落在节中间时抑制首个 step 头、行身份合成 seq 保旧锚点模型）、`state.ts` 的 `AppState.pipeline` 与 `pipeline-state` action、`layout.ts` 的 `buildTopRegion` 双来源分支、`index.ts` 的 sink 注册与节缓存持有（会话切换重建；`/cls` 清空；`main.ts` 透传 sink 容器）。**整帧等价**：`tests/pipeline-frame.test.ts` 同一语料两条路径 `buildFrame` 逐行一致（2 / 5 回合 × 60x24 / 100x30 / 120x40），恢复重放（缓冲行 → 节）后同样逐行一致。
+
+**c5 证据**：同窗重复出帧零重排；扩窗（3 → 6 组）只排新纳入的更早段（`rowRenderMisses` 计数断言）。
+
+**批 6 前半（完成）**：`pipeline/replay.ts` 恢复重放器（分隔线推回合、step 头推 step、文本按同 kind 连续块聚合、final 块结束时补定型 + 回合结束、工具行还原调用 / 结果）；`App.restoreStartupHistory` 落定后重放节缓存。
+
+**下一步（批 5 收尾 + 批 6 收尾）**：① 默认路径切换（`flag.ts` 目前 `TUI_LAYOUT_PIPELINE=1` 才开，需真机目视 c6 后翻默认）；② 文档回写（DESIGN / SPEC / README + BACKLOG 条目改写 + 追踪文档归档）。`index.ts` 帧循环取新流水线的两 pane 行缓冲（`renderPane`）替代 `buildTopRegion` 的内容行来源；滚动 / 扩窗改新位置模型（偏移 + 显示索引，`rows.ts` 已备）；行身份从「buffer seq 锚点」迁到新模型（旧 `state.buffer` / `seq` 锚点 / `dialogueGeometry` / `windowGroups` 退场，见待续表 1）；帧级等价性矩阵（宽度 × 档位 × 扩窗档）与计数断言全绿后切默认路径。
 
 ## 测试与证据
 
