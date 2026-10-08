@@ -584,8 +584,12 @@ export async function apply(
         SecurityGuardLike | undefined;
     },
     // 知识库只读查询面（ctx.get('memory')，memory-base provide；缺失时 /memory 提示不可用）
-    knowledge: (ctx as { get?: (name: string) => unknown }).get?.("memory") as
-      KnowledgeServiceLike | undefined,
+    // **惰读**（getter，与 guard/sessionChannel 同口径）：memory-base 晚于 TUI 装载时
+    // apply 期快照会是 undefined（TUI 侧改造条目 D57）。
+    get knowledge(): KnowledgeServiceLike | undefined {
+      return (ctx as { get?: (name: string) => unknown }).get?.("memory") as
+        KnowledgeServiceLike | undefined;
+    },
     // 循环只读查询面（ctx.get('metricLoop')，metric-loop provide；缺失时 /loop 提示不可用）
     metricLoop: (ctx as { get?: (name: string) => unknown }).get?.(
       "metricLoop",

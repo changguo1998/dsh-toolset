@@ -471,6 +471,42 @@ export interface DshAdapter {
   /** 读取知识库概要（就绪/路径/chunk·source 计数）；服务缺失 → reject，
    *  未就绪 → resolve 说明文本（调用方 info） */
   memorySummary?(): Promise<string>;
+  /** 提升审阅（设计 §6）：pending 候选清单（tier 缺省三库全拉）；服务缺失 → 空数组 */
+  memoryCandidates?(tier?: string): Promise<CandidateRowLike[]>;
+  /** 审阅动作（`reviewer` 由 adapter 写死 `"user"`——凭据约束，不参数化）；
+   *  服务缺失 / 权限不足 → `{ ok: false }` */
+  memoryApprove?(args: {
+    tier: string;
+    id: number;
+    project?: string;
+  }): Promise<MemoryReviewVerdictLike>;
+  memoryReject?(args: {
+    tier: string;
+    id: number;
+    reason: string;
+  }): Promise<MemoryReviewVerdictLike>;
+  memoryEdit?(args: {
+    tier: string;
+    id: number;
+    content: string;
+  }): Promise<MemoryReviewVerdictLike>;
+  memoryResolveConflict?(args: {
+    tier: string;
+    id: number;
+    decision: string;
+    content?: string;
+  }): Promise<MemoryReviewVerdictLike>;
+  /** `/memory search`：跨全域检索（未挂载 → undefined，调用方提示） */
+  memorySearch?(args: {
+    query: string;
+    limit?: number;
+  }): Promise<unknown[] | undefined>;
+  /** `/memory add`：用户直写（origin user；U 层须带 kind，否则数据面拒） */
+  memoryAdd?(input: {
+    content: string;
+    kind?: string;
+    tier: "session" | "project" | "user";
+  }): Promise<{ ok: boolean; skipped?: string }>;
   /** 请求刷新循环面板（经 metric-loop `list()` 归一化为行后推送）；未挂载 → reject */
   refreshLoops?(): Promise<void>;
   /** 读取单个循环详情（Enter 详情；list() 中定位）；服务缺失或未找到 → undefined */
@@ -1316,6 +1352,81 @@ export interface KnowledgeBundleSummaryLike {
 export interface KnowledgeServiceLike {
   getSummary?(): KnowledgeBundleSummaryLike | undefined;
   whenReady?(): Promise<{ summary?(): KnowledgeBundleSummaryLike | undefined }>;
+  /** 跨全域检索（LayeredHit 宽松形态；`/memory search` 只读呈现）。 */
+  search?(opts: {
+    query: string;
+    project?: string;
+    kind?: string;
+    limit?: number;
+  }): Promise<unknown[]> | unknown[];
+  /** 用户直写（`/memory add`：origin user 免审直达；数据面仍过该层闸门）。 */
+  remember?(input: {
+    content: string;
+    kind?: string;
+    title?: string;
+    tier?: "session" | "project" | "user";
+    origin?: "auto" | "user";
+  }): Promise<{ ids?: number[]; skipped?: string }>;
+  /** 提升审阅队列（设计 §6；`/memory review` 面板消费）。 */
+  candidates?: MemoryCandidatesLike;
+}
+
+/** 审阅候选项（memory-base `CandidateRow` 的 TUI 侧宽松子集）。 */
+export interface CandidateRowLike {
+  id: number;
+  targetTier: "session" | "project" | "user";
+  kind: string;
+  title: string | null;
+  content: string;
+  sources: string[];
+  projects: string[];
+  state: string;
+  conflictWith: { kind: string; id: number } | null;
+  summarized?: boolean;
+  createdAt: number;
+}
+
+/** 审阅动作回执（memory-base `ReviewVerdict` 宽松形态）。 */
+export interface MemoryReviewVerdictLike {
+  ok: boolean;
+  reason?: string;
+  id?: number;
+  kind?: string;
+  sources?: string[];
+}
+
+/** 提升审阅动作面（memory-base `candidates.*` 服务面的宽松子集）。 */
+export interface MemoryCandidatesLike {
+  list?(opts?: { tier?: string; state?: string }): Promise<CandidateRowLike[]>;
+  approve?(args: {
+    tier: string;
+    id: number;
+    reviewer: string;
+    project?: string;
+  }): Promise<MemoryReviewVerdictLike>;
+  reject?(args: {
+    tier: string;
+    id: number;
+    reviewer: string;
+    reason: string;
+  }): Promise<MemoryReviewVerdictLike>;
+  edit?(args: {
+    tier: string;
+    id: number;
+    content: string;
+  }): Promise<MemoryReviewVerdictLike>;
+  markConflict?(args: {
+    tier: string;
+    id: number;
+    conflictWith: { kind: string; id: number };
+  }): Promise<MemoryReviewVerdictLike>;
+  resolveConflict?(args: {
+    tier: string;
+    id: number;
+    decision: string;
+    reviewer: string;
+    content?: string;
+  }): Promise<MemoryReviewVerdictLike>;
 }
 
 /** metric-loop 循环概要素（C5 前置；`LoopSummary` 的 TUI 侧宽松子集） */

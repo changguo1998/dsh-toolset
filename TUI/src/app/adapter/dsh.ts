@@ -59,6 +59,9 @@ import type {
   TaskEngineTaskLike,
   CommandPanelRow,
   KnowledgeBundleSummaryLike,
+  KnowledgeServiceLike,
+  CandidateRowLike,
+  MemoryReviewVerdictLike,
   LoopSummaryLike,
   ContractParseResult,
   ContractClauseLike,
@@ -155,6 +158,9 @@ export type {
   PolicySnapshotLike,
   KnowledgeServiceLike,
   KnowledgeBundleSummaryLike,
+  CandidateRowLike,
+  MemoryReviewVerdictLike,
+  MemoryCandidatesLike,
   MetricLoopLike,
   LoopSummaryLike,
   SessionChannelLike,
@@ -3467,6 +3473,80 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       } catch {
         return "知识库尚未就绪（读取失败）";
       }
+    },
+    /** 提升审阅：拉 pending 候选（tier 缺省三库全拉——服务面按层分库）。 */
+    async memoryCandidates(tier?: string): Promise<CandidateRowLike[]> {
+      const list = opts.knowledge?.candidates?.list;
+      if (typeof list !== "function") return [];
+      return list({
+        ...(tier === undefined ? {} : { tier }),
+        state: "pending",
+      });
+    },
+    /** 审阅动作（reviewer 由 App 结算函数写死 "user"——凭据约束，不参数化）。 */
+    async memoryApprove(args: {
+      tier: string;
+      id: number;
+      project?: string;
+    }): Promise<MemoryReviewVerdictLike> {
+      const approve = opts.knowledge?.candidates?.approve;
+      if (typeof approve !== "function")
+        return { ok: false, reason: "forbidden" };
+      return approve({ ...args, reviewer: "user" });
+    },
+    async memoryReject(args: {
+      tier: string;
+      id: number;
+      reason: string;
+    }): Promise<MemoryReviewVerdictLike> {
+      const reject = opts.knowledge?.candidates?.reject;
+      if (typeof reject !== "function")
+        return { ok: false, reason: "forbidden" };
+      return reject({ ...args, reviewer: "user" });
+    },
+    async memoryResolveConflict(args: {
+      tier: string;
+      id: number;
+      decision: string;
+      content?: string;
+    }): Promise<MemoryReviewVerdictLike> {
+      const resolveConflict = opts.knowledge?.candidates?.resolveConflict;
+      if (typeof resolveConflict !== "function") {
+        return { ok: false, reason: "forbidden" };
+      }
+      return resolveConflict({ ...args, reviewer: "user" });
+    },
+    async memoryEdit(args: {
+      tier: string;
+      id: number;
+      content: string;
+    }): Promise<MemoryReviewVerdictLike> {
+      const edit = opts.knowledge?.candidates?.edit;
+      if (typeof edit !== "function") return { ok: false, reason: "forbidden" };
+      return edit(args);
+    },
+    /** `/memory search`：跨全域检索（LayeredHit 宽松形态透传）。 */
+    async memorySearch(args: {
+      query: string;
+      limit?: number;
+    }): Promise<unknown[] | undefined> {
+      const search = opts.knowledge?.search;
+      if (typeof search !== "function") return undefined;
+      return search({ query: args.query, limit: args.limit ?? 10 });
+    },
+    /** `/memory add`：用户直写（origin user；数据面仍过该层闸门——U 层禁兜底）。 */
+    async memoryAdd(input: {
+      content: string;
+      kind?: string;
+      tier: "session" | "project" | "user";
+    }): Promise<{ ok: boolean; skipped?: string }> {
+      const remember = opts.knowledge?.remember;
+      if (typeof remember !== "function") return { ok: false };
+      const result = await remember({ ...input, origin: "user" });
+      if (result.skipped !== undefined || (result.ids?.length ?? 0) === 0) {
+        return { ok: false, skipped: result.skipped };
+      }
+      return { ok: true };
     },
     /** 守卫面板：经 security-guard `recent()` 归一化为行（工具名 + 放行/拦截 + 原因首行）；
      *  deny → status failed（红）、allow → success（绿）；未挂载 reject */

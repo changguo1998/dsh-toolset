@@ -40,7 +40,7 @@ import type {
   SymbolNormalizerLike,
   RuleEngineLike,
 } from "./adapter/dsh.ts";
-import type { NoticeTone } from "./adapter/types.ts";
+import type { NoticeTone, CandidateRowLike } from "./adapter/types.ts";
 import {
   setWidthOverrides,
   setWidthProbeEnabled,
@@ -143,6 +143,8 @@ const CTRL_C_DOUBLE_MS = 750;
 /** 退出确认面板的合成问答面板 id（非宿主 ask；`submitQuestion`/`cancelQuestion` 按它分支，
  *  绝不调用 adapter 的 answerQuestion/cancelQuestion）。普通 id 不会与之冲突（宿主 id 为 uuid 类） */
 const EXIT_CONFIRM_PANEL_ID = "exit-confirm";
+/** /memory review 审阅面板的合成问答面板 id（TUI 自主面板、本地结算，不经宿主应答链） */
+const MEMORY_REVIEW_PANEL_ID = "memory-review";
 /** 退出确认面板「重启 dsh」项与启动器的约定退出码（BACKLOG #51）：
  *  TUI 置 `process.exitCode = 75` 后正常收尾退出，启动器看到 75 即重启下一轮
  *  （会话 id 经 `DSH_RESTART_FILE` 交接；语义见 `TUI/docs/DESIGN.md`「退出确认 ·「重启」方案」） */
@@ -317,6 +319,12 @@ export class App {
   /** 退出确认面板选的是「重启 dsh（保留会话）」（BACKLOG #51）：退出收尾跳过空会话清理
    *  ——重启场景不该改动其它会话，且要继续用同一个会话；见 DESIGN「退出确认 ·「重启」方案」 */
   private restartPending = false;
+  /** /memory review 审阅面板（合成问答面板 `MEMORY_REVIEW_PANEL_ID`，照 exit-confirm 模式）：
+   *  待审快照（item id → 候选行）、编辑草稿（宿主提问覆盖时按候选暂存、重开恢复）、
+   *  结算 in-flight 守卫（禁重开 / 二次 submit，防并发结算同候选）。 */
+  private memoryReviewRows = new Map<string, CandidateRowLike>();
+  private memoryReviewDrafts = new Map<string, string>();
+  private memoryReviewSettling = false;
   /** 已实时渲染的 rule-engine 注入消息 id（BACKLOG TUI#49；双通道去重，容量上限同 adapter 口径） */
   private renderedRuleInjections = new Set<string>();
   /** 待绘制脏标记：同一 tick 内多次标脏合并为一次 render（见 paint/flushPaint） */
@@ -1308,6 +1316,21 @@ export class App {
       case "question":
         // DSH 提问：整批题一次打开（一次 ask() 一批；面板内逐题导航，提交整批）
         // 3.2.10：带上活动区最近一条非思考正文（通常是提问前的题干说明），面板期间展示
+        // 宿主 question 优先（决策 D58）：覆盖本地审阅面板时暂存编辑草稿并提示。
+        if (
+          this.state.question?.id === MEMORY_REVIEW_PANEL_ID &&
+          e.id !== MEMORY_REVIEW_PANEL_ID
+        ) {
+          for (const item of this.state.question.items) {
+            if (item.custom !== undefined && item.custom.trim() !== "") {
+              this.memoryReviewDrafts.set(item.id, item.custom);
+            }
+          }
+          this.notice(
+            "审阅面板被宿主提问覆盖（编辑草稿已暂存，/memory review 恢复）",
+            "warn",
+          );
+        }
         this.apply((s) =>
           reduceState(s, {
             type: "question-open",
@@ -2406,6 +2429,11 @@ export class App {
       this.finishExitConfirm(panel);
       return;
     }
+    if (panel.id === MEMORY_REVIEW_PANEL_ID) {
+      // 审阅面板本地结算（不经宿主应答链；逐条调 candidates.*，reviewer 写死 user）。
+      this.finishMemoryReview(panel);
+      return;
+    }
     const answer = buildQuestionAnswers(panel);
     this.apply((s) => reduceState(s, { type: "question-close" }));
     this.deps.adapter.answerQuestion(panel.id, answer);
@@ -2418,6 +2446,12 @@ export class App {
     if (!panel) return;
     if (panel.id === EXIT_CONFIRM_PANEL_ID) {
       this.exitConfirmOpen = false;
+      this.apply((s) => reduceState(s, { type: "question-close" }));
+      this.paint();
+      return;
+    }
+    if (panel.id === MEMORY_REVIEW_PANEL_ID) {
+      // 本地面板取消 = 只关闭（未答条目留在待审队列，重开即恢复）。
       this.apply((s) => reduceState(s, { type: "question-close" }));
       this.paint();
       return;
@@ -2827,7 +2861,7 @@ export class App {
         this.handleGuardCommand();
         return;
       case "memory":
-        this.handleMemoryCommand();
+        this.handleMemoryCommand(line);
         return;
       case "loop":
         this.handleLoopCommand();
@@ -3912,9 +3946,37 @@ export class App {
     });
   }
 
-  /** /memory：知识库概要（notice 型）——就绪 → info 展示（路径/chunk·source 计数）；
-   *  未就绪 → info 说明；服务缺失/失败 → warn。 */
-  private handleMemoryCommand(): void {
+  /** /memory：子命令分发——缺省概要；`review [tier]` 审阅面板；`search <query>
+   *  [--all-projects]`；`add <tier> [--kind <k>] <content>`（origin: user 免审直达）。 */
+  private handleMemoryCommand(line?: string): void {
+    // dispatch 传入的 line 含 "/memory" 前缀（同 /session 的 slice 口径），先剥掉。
+    const raw = (line ?? "").replace(/^\/memory/, "").trim();
+    const sub = raw === "" ? "" : (raw.split(/\s+/)[0] ?? "");
+    const rest = raw === "" ? "" : raw.slice(sub.length).trim();
+    if (sub === "") {
+      this.showMemorySummary();
+      return;
+    }
+    if (sub === "review") {
+      void this.openMemoryReview(rest === "" ? undefined : rest);
+      return;
+    }
+    if (sub === "search") {
+      this.handleMemorySearchCommand(rest);
+      return;
+    }
+    if (sub === "add") {
+      this.handleMemoryAddCommand(rest);
+      return;
+    }
+    this.notice(
+      "usage: /memory [review [session|project|user] | search <query> [--all-projects] | add <session|project|user> [--kind <k>] <content>]",
+      "warn",
+    );
+  }
+
+  /** 概要（notice 型）——就绪 → info 展示；未就绪 → info 说明；缺失/失败 → warn。 */
+  private showMemorySummary(): void {
     const adapter = this.deps.adapter;
     const summary = adapter.memorySummary;
     if (!summary) {
@@ -3929,6 +3991,335 @@ export class App {
         ),
       () => this.notice("knowledge 服务不可用", "warn"),
     );
+  }
+
+  /** `/memory search <query> [--all-projects]`：跨全域检索，notice 呈现。
+   *  `--all-projects` 是**标注非开关**（设计 §7：跨项目读 = bundle 启动期配置的
+   *  crossProjectRoots，配置后已自动参与检索；动态开口记观察项）。 */
+  private handleMemorySearchCommand(rest: string): void {
+    const allProjects = rest.includes("--all-projects");
+    const query = rest.replace("--all-projects", "").trim();
+    if (query === "") {
+      this.notice("usage: /memory search <query> [--all-projects]", "warn");
+      return;
+    }
+    const search = this.deps.adapter.memorySearch;
+    if (!search) {
+      this.notice("knowledge 服务不可用", "warn");
+      return;
+    }
+    void search.call(this.deps.adapter, { query, limit: 10 }).then(
+      (hits) => {
+        if (!hits || hits.length === 0) {
+          this.notice("无命中", "info");
+          return;
+        }
+        const lines = hits.map((hit) => {
+          const row = hit as {
+            kind?: string;
+            title?: string;
+            content?: string;
+            tier?: string;
+            project?: string;
+            doc?: { ref: string; lineStart: number; lineEnd: number };
+          };
+          const scope = row.tier ?? "?";
+          const kind = row.kind ?? "?";
+          const head =
+            row.title && row.title !== ""
+              ? row.title
+              : (row.content ?? "").slice(0, 60);
+          const where =
+            row.doc !== undefined
+              ? ` → ${row.doc.ref}:${row.doc.lineStart}-${row.doc.lineEnd}`
+              : "";
+          return `· [${scope}/${kind}] ${head}${where}（${row.project ?? "-"}）`;
+        });
+        const tag = allProjects
+          ? "--all-projects：检索范围 = 已配置的跨项目库（未配置则仅本域）\n"
+          : "";
+        this.notice(tag + lines.join("\n"), "info");
+      },
+      () => this.notice("检索失败", "warn"),
+    );
+  }
+
+  /** `/memory add <tier> [--kind <k>] <content>`：用户明确指令直达（免审，
+   *  origin: user——设计 §6「用户直接动作」；数据面仍过该层闸门）。
+   *  U 层禁兜底（allowFallback false）→ user 必须显式 --kind。 */
+  private handleMemoryAddCommand(rest: string): void {
+    const tokens = rest.split(/\s+/).filter((token) => token !== "");
+    const tier = tokens[0];
+    if (tier !== "session" && tier !== "project" && tier !== "user") {
+      this.notice(
+        "usage: /memory add <session|project|user> [--kind <k>] <content>",
+        "warn",
+      );
+      return;
+    }
+    const kindFlag = tokens.indexOf("--kind");
+    let kind: string | undefined;
+    if (kindFlag >= 0) {
+      kind = tokens[kindFlag + 1];
+      tokens.splice(kindFlag, 2);
+    }
+    const content = tokens.slice(1).join(" ").trim();
+    if (content === "") {
+      this.notice("usage: /memory add <tier> [--kind <k>] <content>", "warn");
+      return;
+    }
+    if (tier === "user" && kind === undefined) {
+      this.notice(
+        "user 层必须显式 --kind（禁兜底分类，设计 §5）；已注册分类见 /memory review 或 profile",
+        "warn",
+      );
+      return;
+    }
+    const add = this.deps.adapter.memoryAdd;
+    if (!add) {
+      this.notice("knowledge 服务不可用", "warn");
+      return;
+    }
+    void add.call(this.deps.adapter, { content, kind, tier }).then(
+      (result) => {
+        if (result.ok) {
+          this.notice(
+            `已记录（${tier}${kind === undefined ? "" : ` · ${kind}`}），origin: user 免审直达`,
+            "info",
+          );
+        } else {
+          this.notice(
+            `写入被拒${result.skipped === undefined ? "" : `（${result.skipped}）`}`,
+            "warn",
+          );
+        }
+      },
+      () => this.notice("写入失败", "warn"),
+    );
+  }
+
+  /** `/memory review [tier]`：审阅面板（合成 id，本地结算）。三库 pending 合并按
+   *  created_at 升序；一候选一题（批准/拒绝，冲突候选走裁定四选项）；edit = 自定义
+   *  兜底项文本。守卫：结算 in-flight 禁重开；宿主提问挂起时禁打开（宿主优先）。 */
+  private openMemoryReview(tier?: string): void {
+    if (this.memoryReviewSettling) {
+      this.notice("上一批审阅仍在结算，请稍候", "warn");
+      return;
+    }
+    const pending = this.state.question;
+    if (pending !== null && pending.id !== MEMORY_REVIEW_PANEL_ID) {
+      this.notice("先处理当前提问，再打开审阅面板", "warn");
+      return;
+    }
+    const candidates = this.deps.adapter.memoryCandidates;
+    if (!candidates) {
+      this.notice("knowledge 服务不可用", "warn");
+      return;
+    }
+    const tiers: Array<"session" | "project" | "user"> =
+      tier === "session" || tier === "project" || tier === "user"
+        ? [tier]
+        : ["session", "project", "user"];
+    void Promise.all(
+      tiers.map((t) => candidates.call(this.deps.adapter, t)),
+    ).then(
+      (lists) => {
+        const rows = lists.flat().sort((a, b) => a.createdAt - b.createdAt);
+        if (rows.length === 0) {
+          this.notice("无待审候选", "info");
+          return;
+        }
+        this.memoryReviewRows = new Map(
+          rows.map((row) => [
+            `${MEMORY_REVIEW_PANEL_ID}:${row.targetTier}:${row.id}`,
+            row,
+          ]),
+        );
+        const questions = rows.map((row) => {
+          const conflict = row.conflictWith !== null;
+          const options = conflict
+            ? [
+                { label: "keep-old", description: "保留既有结论（候选丢弃）" },
+                { label: "accept-new", description: "以候选结论替换既有行" },
+                { label: "merge", description: "合并两边（选后输入合并文本）" },
+                { label: "edit", description: "改写（选后输入新内容）" },
+              ]
+            : [
+                { label: "批准", description: "转换落上层并回指标记" },
+                { label: "拒绝", description: "终态留痕（同源不再提审）" },
+              ];
+          const detailLines = [
+            row.content,
+            `来源：${row.sources.length > 0 ? row.sources.join(", ") : "-"}`,
+            `项目票：${row.projects.length > 0 ? row.projects.join(", ") : "-"}`,
+            row.summarized === false
+              ? "（未概括：无 LLM caller 时 approve 会被拒，保持待审）"
+              : "",
+            conflict
+              ? `冲突：与 ${row.conflictWith?.kind}:${row.conflictWith?.id} 矛盾，须用户裁定`
+              : "",
+          ].filter((line) => line !== "");
+          return {
+            id: `${MEMORY_REVIEW_PANEL_ID}:${row.targetTier}:${row.id}`,
+            question: `[${row.targetTier}] ${row.kind} · ${row.title ?? "(无标题)"}${
+              conflict ? "（冲突裁定）" : ""
+            }${row.targetTier === "user" ? "（需用户本人）" : ""}`,
+            header: "memory review",
+            detail: detailLines.join("\n\n"),
+            options,
+            // 编辑草稿恢复（宿主提问覆盖时暂存的 custom 文本）。
+            ...(this.memoryReviewDrafts.get(
+              `${MEMORY_REVIEW_PANEL_ID}:${row.targetTier}:${row.id}`,
+            ) === undefined
+              ? {}
+              : {
+                  custom: this.memoryReviewDrafts.get(
+                    `${MEMORY_REVIEW_PANEL_ID}:${row.targetTier}:${row.id}`,
+                  ),
+                }),
+          };
+        });
+        this.apply((s) =>
+          reduceState(s, {
+            type: "question-open",
+            id: MEMORY_REVIEW_PANEL_ID,
+            questions,
+          }),
+        );
+        this.paint();
+      },
+      () => this.notice("审阅队列读取失败", "warn"),
+    );
+  }
+
+  /** 审阅面板结算（决策 D56 修订）：未答条目**跳过**（绕开默认回退，防没碰过的候选
+   *  被批量批准）；冲突候选走裁定四选项；单条失败出回执不阻塞；完成后自动重拉快照。 */
+  private finishMemoryReview(panel: QuestionPanelState): void {
+    if (this.memoryReviewSettling) return;
+    this.memoryReviewSettling = true;
+    this.apply((s) => reduceState(s, { type: "question-close" }));
+    this.paint();
+    const adapter = this.deps.adapter;
+    const settle = async (): Promise<void> => {
+      let ok = 0;
+      let failed = 0;
+      let skipped = 0;
+      for (const item of panel.items) {
+        const row = this.memoryReviewRows.get(item.id);
+        const custom = item.custom?.trim();
+        const selected = item.selected ?? [];
+        // 未答（无选择无改写）→ 跳过（D56-a：不用默认回退批准）。
+        if (selected.length === 0 && (custom === undefined || custom === "")) {
+          skipped += 1;
+          continue;
+        }
+        if (row === undefined) {
+          failed += 1;
+          this.notice("候选已变化，跳过（面板为快照）", "warn");
+          continue;
+        }
+        const tier = row.targetTier;
+        if (row.conflictWith !== null) {
+          // 冲突候选 → 裁定四选项（user-only；merge/edit 须带文本）。
+          const decision = selected[0] ?? "keep-old";
+          if (
+            (decision === "merge" || decision === "edit") &&
+            (custom === undefined || custom === "")
+          ) {
+            failed += 1;
+            this.notice(
+              `${row.title ?? row.kind}：merge/edit 需输入文本`,
+              "warn",
+            );
+            continue;
+          }
+          const result = await adapter.memoryResolveConflict?.({
+            tier,
+            id: row.id,
+            decision,
+            content: custom,
+          });
+          if (result?.ok === true) ok += 1;
+          else {
+            failed += 1;
+            this.notice(`裁定被拒（${result?.reason ?? "unknown"}）`, "warn");
+          }
+          continue;
+        }
+        if (selected.includes("批准")) {
+          // 有改写文本 → 先 edit 再 approve（approve 会过概括闸）。
+          if (custom !== undefined && custom !== "") {
+            const edited = await adapter.memoryEdit?.({
+              tier,
+              id: row.id,
+              content: custom,
+            });
+            if (edited?.ok !== true) {
+              failed += 1;
+              this.notice(`改写失败（${edited?.reason ?? "unknown"}）`, "warn");
+              continue;
+            }
+          }
+          const result = await adapter.memoryApprove?.({ tier, id: row.id });
+          if (result?.ok === true) ok += 1;
+          else {
+            failed += 1;
+            this.notice(
+              result?.reason === "llm-unavailable"
+                ? "未概括且无 LLM caller：保持待审（内容已改写，待下次巩固重概括）"
+                : `批准被拒（${result?.reason ?? "unknown"}）`,
+              "warn",
+            );
+          }
+          continue;
+        }
+        if (selected.includes("拒绝")) {
+          const result = await adapter.memoryReject?.({
+            tier,
+            id: row.id,
+            reason: "panel-rejected",
+          });
+          if (result?.ok === true) ok += 1;
+          else {
+            failed += 1;
+            this.notice(`驳回被拒（${result?.reason ?? "unknown"}）`, "warn");
+          }
+          continue;
+        }
+        skipped += 1;
+      }
+      // 自动重拉快照（决策修订 D：失败条目与幸存条目天然回到清单）。
+      const candidates = adapter.memoryCandidates;
+      let remaining = -1;
+      if (candidates) {
+        try {
+          const lists = await Promise.all(
+            (["session", "project", "user"] as const).map((t) =>
+              candidates.call(adapter, t),
+            ),
+          );
+          const rows = lists.flat();
+          remaining = rows.length;
+          this.memoryReviewRows = new Map(
+            rows.map((row) => [
+              `${MEMORY_REVIEW_PANEL_ID}:${row.targetTier}:${row.id}`,
+              row,
+            ]),
+          );
+        } catch {
+          remaining = -1;
+        }
+      }
+      this.notice(
+        `审阅完成：成功 ${ok} / 失败 ${failed} / 跳过 ${skipped}` +
+          (remaining > 0
+            ? `；仍有 ${remaining} 条待审（/memory review 重开）`
+            : ""),
+        failed > 0 ? "warn" : "info",
+      );
+      this.memoryReviewSettling = false;
+    };
+    void settle();
   }
 
   /** /guard：共享列表面板（kind=guard），经 adapter.refreshGuard 拉取拦截/放行记录；
@@ -4236,7 +4627,7 @@ export class App {
       },
       {
         cmd: "/memory",
-        desc: "知识库概要（就绪/路径/chunk·source 计数；未就绪给说明）",
+        desc: "知识库（缺省概要；review [tier] 审阅面板；search <query> [--all-projects]；add <tier> [--kind k] <内容>）",
       },
       {
         cmd: "/loop",
