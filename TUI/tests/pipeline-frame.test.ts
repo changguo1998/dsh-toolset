@@ -23,6 +23,7 @@ import {
   createSections,
 } from "../src/app/layout/pipeline/sections.ts";
 import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
+import { sectionsFromBuffer } from "../src/app/layout/pipeline/replay.ts";
 import {
   initialState,
   type AppState,
@@ -139,6 +140,8 @@ function oldBuffer(turns: number): BufferLine[] {
         push({
           text: stepHeaderLine(delivery.step, delivery.time),
           kind: "tool",
+          // 真实落行口径：step 头带事件时间（恢复重放要靠它补 step / 回合时间）
+          ...(delivery.time === undefined ? {} : { time: delivery.time }),
         });
         break;
       case "text":
@@ -233,4 +236,24 @@ test("c5 扩窗只排版新增段：已渲染的节命中行缓存（查表不�
     wider.dialogue.length >= first.dialogue.length,
     "扩窗后内容不少于原窗口",
   );
+});
+
+test("恢复重放：缓冲行 → 节缓存，整帧与原缓冲逐行一致", () => {
+  const { oldState } = states(3);
+  const replayed = sectionsFromBuffer(oldState.buffer);
+  const newState: AppState = {
+    ...initialState(),
+    buffer: [],
+    pipeline: replayed,
+  };
+  for (const size of [
+    { rows: 30, cols: 100 },
+    { rows: 40, cols: 120 },
+  ]) {
+    assert.deepEqual(
+      buildFrame(newState, size).map(rowText),
+      buildFrame(oldState, size).map(rowText),
+      `${size.cols}x${size.rows}`,
+    );
+  }
 });

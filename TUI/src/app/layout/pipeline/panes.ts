@@ -46,6 +46,8 @@ export interface PaneOptions {
   shadowedSeqs?: ReadonlySet<number>;
   /** 抑制首个内容节的 step 头（渐进窗口起点落在节中间时，旧路径已把该头切掉） */
   suppressFirstHead?: boolean;
+  /** 已声明的 step（`SectionsState.stepMeta` 的键）：未声明不发头（如恢复时首个内容之前） */
+  declaredSteps?: ReadonlySet<string>;
 }
 
 /** 拆行缓存：键 = box 身份（box 由节缓存给出、稳定）——行缓存据此保持身份 */
@@ -145,9 +147,14 @@ export function buildPanes(
 ): PaneCache {
   const meta = new Map<string, number | undefined>();
   for (const section of sections) {
-    meta.set(stepKey(section.turn, section.step), section.time);
-    if (meta.get("turn:" + section.turn) === undefined) {
-      meta.set("turn:" + section.turn, section.time);
+    // 只补不覆盖：独立自足节（用户 / notice）时间缺失，别把它当该 step / 回合的时间
+    const key = stepKey(section.turn, section.step);
+    if (section.time !== undefined && meta.get(key) === undefined) {
+      meta.set(key, section.time);
+    }
+    const turnKey = "turn:" + section.turn;
+    if (section.time !== undefined && meta.get(turnKey) === undefined) {
+      meta.set(turnKey, section.time);
     }
   }
   const dialogue: Acc = { items: [] };
@@ -165,7 +172,9 @@ export function buildPanes(
     headedOnce = true;
     // 头按 scope 发放（notice / 用户节继承最近 scope ⇒ 同一 step 只发一次；旧路径在
     // step/start 处发头，故不因「该节内容进了会话区」而跳过）
-    if (!headed.has(key) && !suppress) {
+    const declared =
+      options.declaredSteps === undefined || options.declaredSteps.has(key);
+    if (declared && !headed.has(key) && !suppress) {
       headed.add(key);
       const stepTime = meta.get(key);
       activity.items.push({

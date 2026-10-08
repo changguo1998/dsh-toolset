@@ -158,6 +158,7 @@ export function pipelineContent(
   );
   const panes = buildPanes(kept, {
     level: options.render.activityLevel ?? "think",
+    declaredSteps: new Set(state.stepMeta.keys()),
     ...(suppressFirstHead ? { suppressFirstHead: true } : {}),
     ...(options.normalize === undefined
       ? {}
