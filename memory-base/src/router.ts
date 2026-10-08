@@ -139,7 +139,8 @@ const RESERVED_TABLE =
 
 /**
  * 兜底分类的物理表名＝v1 布局的 `chunks`（决策 D38）：不改名、不迁移、不 bump 版本，
- * 既有的 v1 库因此照常打开，跨包直写方（`output-compress`）也不被打断。
+ * 既有的 v1 库因此照常打开。（2026-10-08：跨包直写方 `output-compress` 已拆除共库
+ * 直写、改自持 digest.db——`chunks` 兜底表名仅为存量 v1 库兼容保留。）
  */
 export const FALLBACK_TABLE = "chunks";
 

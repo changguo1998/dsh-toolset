@@ -578,6 +578,7 @@
 - 不做 I→S 候选的专属呈现（I→S 候选在 S 库 candidates，面板一并列出即可，无特殊化）。
 - 不做批量 approve（设计「一次一条逐条处理」）；不做 reviewer 参数化（凭据约束）。
 - 不改 memory-base 数据面（消费面已就绪）。
+- （2026-10-08 补，随 output-compress 条目裁定）审阅面板**不呈现 S 层 I→S 候选**——入队即属主自审（§6 落地口径），user 凭据不碰。
 - 2026-10-08：**条目 2（TUI 侧改造）完成** —— 决策点经子代理审阅（有条件通过，6 项必须改全采纳：未答条目跳过 / 冲突候选走 resolveConflict 四裁定 / add 补 kind / 宿主覆盖草稿暂存 / 打开态派生化 / 结算守卫；建议项采纳：submit 后自动重拉快照、--all-projects 标注非开关、`/memory replace|remove` 记 BACKLOG 后续条目候选、llm-unavailable 回执语义）。实施：
   - **一段（接线与子命令）**：`main.ts` knowledge 急读改 getter 惰读；`adapter/types.ts` `KnowledgeServiceLike` 扩 search / remember / candidates.\* + 新 `CandidateRowLike` / `MemoryReviewVerdictLike` / `MemoryCandidatesLike` + `DshAdapter` 增七个 memory 方法（reviewer 写死 "user"）；`app/index.ts` `/memory` 子命令化（缺省概要 / `review [tier]` / `search [--all-projects]` 静态版标注 / `add <tier> [--kind k]`——U 层无 kind 显式拒绝）。提交 `0c46aa8`。
   - **二段（审阅面板）**：合成 id `memory-review` 面板（照 exit-confirm 模式，不经宿主应答链）；一候选一题（普通=批准/拒绝，冲突=裁定四选项，edit=自定义兜底项文本）；结算未答跳过（绕开 `buildQuestionAnswers` 默认回退）+ 单条失败回执不阻塞 + 完成自动重拉快照汇总；宿主 question 优先 + 覆盖时编辑草稿按候选暂存恢复；submit/cancel 本地分支。同上提交。
@@ -626,3 +627,10 @@
 - **D63-a merge 后 summarized 必须重算**：promote.ts:413 现状 `summarized = summarized` 是活洞（已概括锚行被重推合并 → 内容回退原文、标志仍 1 → 原文落上层）。修法：概括段提为共用函数，merge 后 caller 在场 → 重概括合并内容（成功置 1 / 失败置 0），无 caller → 置 0；配合 `pushed_content_hash`：内容未变不重推（防逐次巩固反复 LLM）。
 - **D62-a I→S 审阅落地**（裁定②）：依 §3.2「会话级几乎照单全收」——I→S 候选**入队即属主 agent 自审**：push 成功后立即 `candidates.approve({tier:"session", reviewer:"agent:output-compress"})`（无 caller 被 llm-unavailable 挡时保持 pending，下次巩固重概括后再批）；TUI 面板 list **排除 session 层候选**（面板只管 P/U，user 凭据不碰 I→S）；DESIGN §6 L189 回写口径，TUI 条目「明确不做」同步。
 - **D65-a 拆除清单**：KbNotMountedError + 退避重试链（kbRetryDelays）整体删除；旧 dbPath/env 解析链删除（config.sessionDir 单一来源）；hooks.test 保 15 删 3（「库未挂载」两例 + KbNotMounted 区分例），kb-write.test 按自持口径重写；**负向验收**：跑一次 pipeline 断言三层库路径零打开零写入；legacy v1 'KNOW' 库拆除前仍被共写的事实记调研（数据可再生、migrate drop 可接受）；拒写计数分 `sessionDirMissing` / `deny-pattern` 两类纳入可观测。
+- 2026-10-08：**条目 3（output-compress 自持 digest.db）完成** —— 决策点经子代理审阅（有条件通过，6 项必须改全采纳，见上「决策修订」）。实施：
+  - **一段（digest.db + 闸门）**：`deny-patterns.ts`（六类模式同源复制 + `privacyPin()` 指纹封印）+ `digest-db.ts`（'DIGE' 指纹 / user_version 守卫；digests 单表 = 结构化列 + fingerprint + push 状态三列 + headings_text 纯文本 FTS；底线闸；content_hash 幂等（= spill 源字节哈希，单列唯一，对齐 §5 I 行）；searchDigests / readDigest（命中刷 referenced_at，CJK LIKE 兜底）；100 MB 容量自查；落点判据 existsSync 不 mkdir）。跨包一致性测试：`deny-parity.test.ts` 指纹封印 + 行为对拍。提交 `7259179`。
+  - **配套小改（memory-base）**：`promote.ts` 概括提为共用 `summarizeForCandidate`，mergeInto 不再沿用锚行 summarized（修活洞：已概括锚行被重推合并 → 原文落上层）；`index.ts` 服务面新增 `checkPrivacy`。提交 `f446fac`（103/103）。
+  - **二段（管线改造）**：`hooks.ts` 重写（结构化入 digest.db + is_error 立即 push（kind=digest，入队即属主自审）+ promotePending 巩固重推（≤20/轮）+ 容量自查；KbNotMountedError / 退避重试链删除；extractCallId 补 message 递归）；`index.ts` 重写（config.sessionDir + reflect 读 memory + registerKind + 启动后重推）；`render.ts`（renderSummaryRecord 迁出）；**删除 `kb-write.ts` + `kb-write.test.ts`**（共库直写拆除）。`hooks.test.ts` 重写：保留 15 例移植 + 新增 is_error push / 巩固重推 / 落点缺失不建旁路目录 / 负向验收（三层库零写入）/ reflect 读 memory。提交 `2a37e65`。
+  - **三段（收尾）**：README 改自持口径（配置 / 指纹 / 边界 / 架构提示落地）；memory-base DESIGN §6 审阅行回写 I→S 入队即属主自审口径；router.ts 注释更新（跨包直写方已拆除，chunks 兜底仅为存量 v1 兼容）；TUI 条目「明确不做」同步（面板不呈现 S 层 I→S 候选）；BACKLOG §2 清空。本提交。
+  - **踩坑**：① spill 通知文案必须精确匹配 spill-policy 字面量（`(Omitted N bytes. Full formatted result stored at: <locator>. Use read with...)`），测试自造格式不被解析；② SummaryJson 条目形状（HeadingEntry/KeyLineEntry/SliceEntry）与直觉不同，digest 列须按真实形状落库；③ 重写 hooks 时 extractCallId 丢了 record.message 递归（tool-result 块在 message.content[] 下）。
+  - **验证**：output-compress `check` 0 error / `build` exit 0 / `test` **48 全绿**（39 存量口径改造 + 9 新例）；memory-base 103/103；全仓 `npm run check` + `npm run build` 通过。
