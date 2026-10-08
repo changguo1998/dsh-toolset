@@ -88,6 +88,12 @@ assert_active_count_eq() { # 同 assert_count_eq，但只数**非注释行**（�
     [ "$n" = "$3" ] || fail "$4（$1 的非注释行中「$2」出现 $n 次；期望 $3）"
     printf '[test-install] 通过：%s\n' "$4"
 }
+assert_generated_count_eq() { # 同 assert_active_count_eq，但只数**生成区**（首个 sentinel 起至文件尾）：示例 patch 自带的活跃行不干扰
+    checks=$((checks + 1))
+    n="$(awk '/^# install\.sh generated: title-takeover-/{f=1} f' "$1" | grep -v '^[[:space:]]*#' | grep -c -F -- "$2" || true)"
+    [ "$n" = "$3" ] || fail "$4（$1 的生成区内「$2」出现 $n 次；期望 $3）"
+    printf '[test-install] 通过：%s\n' "$4"
+}
 install_() { # install_ [install.sh 选项...]；最近一次输出落 $lastlog
     PATH="$fakebin:$PATH" DSH_HOME="$home" sh "$repo_root/scripts/install.sh" \
         --skip-dsh --skip-build "$@" > "$lastlog" 2>&1 || {
@@ -202,7 +208,7 @@ assert_log_contains "--take-over-title" "守卫：提示给出 --take-over-title
 
 # 7b）带开关：补禁用块 + 路由（取活跃条目的值，不取注释里的 bogus）+ 两段 sentinel，备份 1 份
 install_ --plugins "TUI session-title-cutoff" --profile tguard --sync --take-over-title
-assert_active_count_eq "$tpatch" 'disabled: true' 1 "守卫：补 1 处禁用块"
+assert_generated_count_eq "$tpatch" 'disabled: true' 1 "守卫：补 1 处禁用块"
 assert_count_eq "$tpatch" 'provider: bogus' 1 "守卫：未把注释里的 bogus 值复制进来（仍只 1 处注释）"
 assert_count_eq "$tpatch" 'provider: ustc' 2 "守卫：复制活跃条目的 provider（原条目 + 路由）"
 assert_count_eq "$tpatch" 'model: deepseek-flash' 2 "守卫：复制活跃条目的 model（原条目 + 路由）"
@@ -226,12 +232,12 @@ const i = text.indexOf(head);
 if (i < 0) throw new Error("找不到生成区");
 fs.writeFileSync(file, text.slice(0, i).replace(/\n+$/, "\n"));
 ' "$tpatch"
-assert_active_count_eq "$tpatch" 'disabled: true' 0 "守卫：夹具已清掉生成区"
+assert_generated_count_eq "$tpatch" 'disabled: true' 0 "守卫：夹具已清掉生成区"
 cp "$tpatch" "$work/tpatch.cleaned"
 install_ --plugins "TUI session-title-cutoff" --profile tguard --sync
 assert_same_file "$tpatch" "$work/tpatch.cleaned" "守卫：清掉生成区后普通 --sync 仍不改写"
 install_ --plugins "TUI session-title-cutoff" --profile tguard --sync --take-over-title
-assert_active_count_eq "$tpatch" 'disabled: true' 1 "守卫：带开关按内容补回生成区"
+assert_generated_count_eq "$tpatch" 'disabled: true' 1 "守卫：带开关按内容补回生成区"
 assert_count_eq "$tpatch" '# install.sh generated: title-takeover-disable v1' 1 "守卫：补回后 sentinel 不重复"
 
 # 7e）路由重试：首轮取不到 provider/model → 只补禁用 + warn；补上值后带开关重跑补路由
@@ -244,9 +250,9 @@ cat >> "$rpatch" << 'EOF'
   name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
 EOF
 install_ --plugins "TUI session-title-cutoff" --profile tretry --sync --take-over-title
-assert_active_count_eq "$rpatch" 'disabled: true' 1 "守卫：无 provider/model 时仍补禁用"
+assert_generated_count_eq "$rpatch" 'disabled: true' 1 "守卫：无 provider/model 时仍补禁用"
 assert_log_contains "未能在官方 all-prompts 条目块内读到可用的 provider/model" "守卫：取不到值时 warn"
-assert_active_count_eq "$rpatch" '- id: session-title-cutoff' 0 "守卫：首轮不写路由"
+assert_generated_count_eq "$rpatch" '- id: session-title-cutoff' 0 "守卫：首轮不写路由"
 # 「用户后来补上取值」：追加一条带官方 name + provider/model 的启用条目
 cat >> "$rpatch" << 'EOF'
 
@@ -256,7 +262,7 @@ cat >> "$rpatch" << 'EOF'
   model: deepseek-flash
 EOF
 install_ --plugins "TUI session-title-cutoff" --profile tretry --sync --take-over-title
-assert_active_count_eq "$rpatch" '- id: session-title-cutoff' 1 "守卫：补齐值后重试补上路由"
+assert_generated_count_eq "$rpatch" '- id: session-title-cutoff' 1 "守卫：补齐值后重试补上路由"
 assert_contains "$rpatch" 'provider: ustc' "守卫：重试取到 provider"
 
 # 7f）payload id 取自命中条目（自定义 id 不被硬编码覆盖）
