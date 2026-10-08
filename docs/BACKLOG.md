@@ -65,7 +65,7 @@
 
 | # | 功能 | 来源 | 落点（复用） | 工作量（估） | 优先级 |
 |---|------|------|--------------|--------------|--------|
-| 1 | **提升链 I → S → P → U**（判据 + LLM 概括走 `ctx.llm` + 审阅队列 `candidates` 表 + 回指 + 单事务转换 + `resolveConflict`）。详 §12 #4（前置「分类注册 / 闸门下沉 / 派生链 / doc_index」均已落地：分类注册 `3b0b432` / 闸门 `55c6382` / 派生链 `270b2df` / 文档索引见追踪文档） | 设计定稿 §12#4 | 新 `memory-base/src/promote.ts`、`src/consolidate.ts` | 3-5 天 | P1 |
+| 1 | 〔进行中〕**提升链 I → S → P → U**（判据 + LLM 概括 + 审阅队列 `candidates` 表 + 回指 + 单事务转换 + `resolveConflict`）。详 §12 #4（前置「分类注册 / 闸门下沉 / 派生链 / doc_index」均已落地：分类注册 `3b0b432` / 闸门 `55c6382` / 派生链 `270b2df` / 文档索引见追踪文档） | 设计定稿 §12#4 | 新 `memory-base/src/promote.ts`、`src/consolidate.ts` | 3-5 天 | P1 |
 | 2 | **TUI 侧改造**（审阅面板按条提问 / `approve`/`reject`/`edit`，P 可代批、冲突与 U 需用户；`/memory` 命令改造含 `--all-projects`；服务键消费点已就位（`ctx.get('memory')`））。详 §12 #13；**前置 = 条目 1（提升链与审阅）** | 设计定稿 §12#13 | `TUI/src/main.ts`、`TUI/src/app/**` | 1-2 天 | P1 |
 | 3 | **`output-compress` 自持 `digest.db`**（底线闸门 + 提升 push + `referenced_at` 回读刷新 + 巩固时重推；不再共库直写）。详 §12 #7；**前置 = 条目 1（提升链与审阅）** | 设计定稿 §12#7 | `output-compress/src/kb-write.ts`、`src/hooks.ts`、`src/index.ts` | 2-3 天 | P1 |
 

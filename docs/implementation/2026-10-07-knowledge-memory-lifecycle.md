@@ -452,6 +452,58 @@
 - 不做 stale 自动改写 / 自动删除；不做 U 层缺省 glob；不做跨项目 P 库的 doc_index（「其他项目」P 库只读检索面，索引只维护当前项目）。
 - 不 bump schema 版本、不改 `STATUS.md`（用户择时）。
 
+### 条目明细：提升链 I → S → P → U（§12 #4）
+
+#### 调研（2026-10-08，只读）
+
+**设计口径**（`memory-base/docs/DESIGN.md` §6 + §6.1 + §3.2/§3.3/§3.4 + §5 门槛表 + §12 #4 验收面）：
+
+- **链路**：提升 = 读下层行产出候选 → 审阅通过 → 上层按上层标准重写为概括 → 过上层闸门 → 入库 → 下层标 `promoted_to`。候选写**目标层 `candidates` 表**（与记忆表分离、不参与检索、不计容量），未过审随库寿命淘汰；**不做跨库事务**。
+- **三跳判据与权限**：I → S（属主 push；agent 审，用户不审）；S → P（`session/disposed` 或 `compaction/end` 触发；判据 = 被检索命中过 OR 决策类事件 `plan/mode` / `goal/change` / `approval/decided` OR 失败教训（未注册绑定则该分支不成立）；**agent 可代批**）；P → U（巩固触发；判据 = 同一事实 ≥2 项目 OR 用户确认；**必须用户本人批，agent 的 approve 无效并回报**）。`conflict_with != null` 一律用户裁定。
+- **候选表字段**（设计给定）：`id` / `target_tier` / `kind` / `fact_key` / `content_hash` / `title` / `content` / `sources` / `projects` / `promotion_state` / `conflict_with` / `reviewer` / `created_at`。
+- **promote 幂等键** =（`target_tier` + `kind` + `fact_key`），`fact_key` = 来源内容按 §3.4 归一化后的哈希；重复 push 更新同一行，跨项目推同一事实落同一行（`projects` 各记一票）。
+- **跨项目证据只在本项目内累积**：每个项目的会话只投自己一票，并入同一条 U 候选行的 `projects` 集合，≥2 即「跨项目事实」优先提审——**不需要跨项目读 P**。
+- **概括由 LLM 完成**（走宿主 LLM 面）：输入 = 下层候选 + 来源回指，输出 = 上层 title + 结论 + 建议分类；**面不可用 = 调用失败**：不提升、计数、下次巩固重推，**不降级成机械摘要**。
+- **审阅通过后的转换（单事务）**：① 用候选内容写上层正式行 → ② 有下层来源行才标 `promoted_to` → ③ 候选标 `approved` 并清理；任一步失败整体回滚。
+- **冲突裁定**（§6.1）：矛盾 → 冲突候选（带 `conflict_with`）→ `resolveConflict(id, accept-new | keep-old | merge | edit)`；两条路径（有下层来源行 = 走 ①②③；用户直写冲突 = 只更新两行 + 清理）；把两条内容都更新为一致结论，不留新旧并存；不引入 `supersedes`；适用 P / U 层。
+- **验收**（§12 #4）：每跳产出候选、审阅通过才落上层；**无审阅记录不得自动入库**；用户指令直写带 `origin: user`；LLM 面不可用 = 调用失败、失败不提升并计数（不降级）。
+
+**现状核查**：
+
+- **宿主 LLM 面与设计假设不符**：设计写「走宿主 LLM 面（`ctx.llm`）」，但 `docs/host/DSH-CTX-API.md` **没有 `ctx.llm` 服务**（可注入键 = `sessions` / `approval` / `agents` / `userQuestions` / `goals` / `commands` / `tools` / `ruleEngine` / `sessionTitle` 等）。`session-title-cutoff` 声明 `inject: ["llm"]`（`src/main.ts:24`）但实际生成走 **profiles/node_modules 里的官方 helper 包**（`@deepseek-ai/dsh-session-title-llm`，运行时 `createRequire` 加载，失败即降级不注册）——是 title 专用路径，不是通用 LLM 调用面。
+- 归一化判据已有实现：`consolidate.ts` 的 `normalize()`（模块私有，需导出后复用，避免第三份拷贝）与 `redundant()`（§3.4「归一化相同或子串占比 ≥ 0.8」的现成实现）；`memory.ts` 的 `findByText` 是裸 LIKE 子串、**不**含 normalize 与占比判据，不构成同判据佐证（初稿表述有误，已修正）。
+- 触发点已有挂链：`maybeConsolidate`（启动 + `compaction/end`，条目 8/10 落地）；`session/disposed` 事件在 hooks 事件白名单外，需要新增监听（宿主事件词汇表含 `session/disposed`）。
+- 用户直写（`origin: user`）已落地路由（条目 8：`tiers.remember` + U 层禁兜底），但 origin **未持久化**（`tiers.ts` 解构后丢弃、`PutInput` 无该字段）——本条目补列落痕。
+
+#### 决策（D49–D54，含 2026-10-08 子代理审阅修订）
+
+> 审阅裁定：**有条件通过**——7 项必须改全部采纳折入下文（状态机补 `rejected` / `summarized` 闸 / 加列清单补全 / 隐私闸 / `markConflict` / approve 事务落地方式 / candidates 独立上限），并采纳建议项（`redundant()` 子串合并、normalize 导出复用、conflict 全链 user-only、每轮上限、设计两处回写）。
+
+- **D49 候选表**：S / P / U 三库各一张 `candidates` 表，`schema.ts` 新增 `ensureCandidatesTable(db)` 幂等建（三库 open 时建；候选不参与检索 → **无 FTS**；不 bump 版本）。列 = 设计给定 13 字段 + `updated_at` + `reject_reason` + `summarized`（0/1，D51 闸）；`sources` / `projects` / `conflict_with` 存 JSON 文本。`promotion_state` 三态：`pending`（待审）/ `approved`（终态，转换成功即删行）/ `rejected`（**终态留痕**，保留到容量清最旧或库寿命淘汰——正合设计「候选未过审留在表内」）。唯一索引 `(kind, fact_key)`：`rejected` 行占住 fact_key 作**墓碑**——同 fact_key 重推 → 计数 `rejected-duplicate` 不重置（内容变了自然是新 key 新行）；promote() 把唯一冲突翻译成计数而非报错。`listCandidates` 缺省只出 `pending`。
+- **D50 promote() 幂等入队**：服务面 `promote(items)`；`fact_key` = sha256(normalize(content))，normalize **从 `consolidate.ts` 导出复用**（trim + 压空白 + 小写）。合并两分支：① `fact_key` 精确命中 pending 行 → 并入；② 同 `(target_tier, kind)` 的 pending 候选内跑 `redundant()`（§3.4「归一化相同**或**短者为长者子串且占比 ≥ 0.8」）——没有②则不同措辞的同一事实各占一行，P→U 的 ≥2 跨项目判据永不触发。并入语义：`projects` 并集、`sources` 合并、`content` / `title` 以最新为准、状态重置 `pending`。**闸门（入队时过）**：`checkContent` 隐私底线（命中 → 拒收 `pattern`，候选表不留未过滤正文）+ kind 未注册拒收（U 层尤其，§5「死候选」防线）。返回每条结果（`queued` / `merged` / `rejected-duplicate` / 拒收原因）。
+- **D51 LLM 面可插拔注入（与设计的偏差点）**：**不加** `inject: ["llm"]`——宿主无公开契约（`session-title-cutoff` 声明了同名键且正常加载，但 `llm?: unknown` 声明后从未消费，真实生成走 profiles helper 专用路径；风险是无公开方法面而非加载失败）。改为 bundle 服务面 `setLlmCaller(caller | null)`（caller = `(prompt: string, opts?: {maxTokens?: number}) => Promise<string>`），由宿主侧 wrapper 插件或测试注入；探测宿主 llm 服务实际形态记观察项。
+- **D52 概括时点与失败闸（统一 D51）**：**概括在入队时完成**（promote 面即服务面；caller 存在 → 改写候选 `content` 为概括、`summarized = 1`；caller 的输出含建议分类，先于审阅存在，审阅可改——设计 L167 与 L181/L182 的时序表述以此为准，已回写设计）。**转换闸**：`approve` 前置检查——无 caller 且 `summarized = 0` → 拒绝转换、计数 `promotion.skipped: "llm-unavailable"`、候选保持 `pending`（下次巩固重概括）。即：候选可以入队（外部 push 不丢），但**未概括的候选不得落上层**——L180/L182「失败不提升不降级」落在转换步。触发：S → P = `session/disposed` + `compaction/end`；判据 = 被检索命中过（`last_referenced > created_at`）OR 决策类事件来源（`category` ∈ `plan/mode` / `goal/change` / `approval/decided`）OR 失败教训（未注册绑定 → 分支不成立）。P → U = 巩固链扫 `projects` ≥2 的 U 候选（票数在 promote 入队时累积）+ **隐私二次检查**（同一闸）。每轮生产上限：I→S ≤20 / S→P ≤20 / P→U ≤10（§8.1，防审阅疲劳）。
+- **D53 加列清单（一次幂等 ALTER 补齐）**：分类基表补 `promoted_to` / `promoted_from` / `origin` / `reviewer` / `reviewed_at` / `projects`（全部可空 TEXT/INTEGER，子代理已在 node:sqlite STRICT 表实测 `ALTER ADD COLUMN` 可空列可行、旧行回读 NULL）——`reviewer` / `reviewed_at` 撑「审阅留痕到上层行」（否则③删候选后唯一审阅记录消失），`projects` 撑 U 行跨项目集合，`promoted_from` 撑回指链，`origin` 撑「用户指令直写带 `origin: user`」验收。`ensureKindTable` 新库直接建进 CREATE + 旧库 `ensureColumn` 幂等补（`pragma_table_info` 探测）；与 §9「改列才走迁移」冲突记**例外**（可空加列与加表同性质，已回写设计 §9），配测试。`tiers.remember` 不再丢弃 origin（透传 `PutInput.origin` 持久化）。
+- **D53 审阅动作**：服务面 `listCandidates({tier?, state?})` / `approve(id, {reviewer})` / `reject(id, {reviewer, reason})` / `edit(id, content)` / `markConflict(id, {conflictWith})`。权限：P 候选 reviewer 任意（agent 代批合法）；U 候选、`conflict_with != null` 候选的 **approve / reject / resolveConflict 一律 user-only**（`reviewer === "user"`，标记制信任模型；「user 标记只由用户发起的命令 / TUI 动作生成」记为条目 2 的接口约束）。**approve 落地方式（嵌套事务规避）**：不加外层 BEGIN——① 调 `kb.put()`（自带事务，content_hash 去重使「①成功③失败」可安全重试：重试 approve → put 去重命中 → 继续删候选）→ ③ 删候选行（单语句原子）→ ② 跨库标下层 `promoted_to`（best-effort：失败计数 + 日志；后果 = 下轮触发重扫会重复提审，靠 fact_key 墓碑 / 人工 reject 兜底）。审阅留痕：put 时写 `reviewer` / `reviewed_at` / `origin`（提升行 origin = "auto"？——裁定：提升写入的行 `origin` 落 `"auto"`，直写落 `"user"`，来源标记与路由语义一致）。edit = 改 `content` + 重算 `content_hash` / `fact_key`（新 key 撞 pending 行按 D50 并入），状态保持 `pending`。
+- **D54 冲突机制**：`candidates.conflict_with` 存目标层既有行的 `(kind, id)` JSON；**服务面 `markConflict(id, {conflictWith})`** 是把 pending 候选标记为冲突的唯一入口（自动检测依赖 LLM，本条目不做——「直写遇结论矛盾 → 冲突候选」的自动衔接同样移入明确不做）；`resolveConflict(id, decision, {content?})` 双路径按设计 L188（有下层来源行 = 走 ①②③；用户直写冲突 = 只更新两行 + 清理）；`merge` / `edit` 需带 `content`；user-only。
+
+#### 规划：分三段落地
+
+**一段（候选表 + 数据层）**：`schema.ts` `ensureCandidatesTable` + `ensureColumn` 幂等加列（六列）；`consolidate.ts` 导出 `normalize` / `redundant`；新 `src/promote.ts`：`factKeyOf`、`promote(db, registry, items, {rules})` 幂等入队（双分支合并 + 隐私闸 + 墓碑计数）、`listCandidates` / `approveCandidate` / `rejectCandidate` / `editCandidate` / `markConflict` / `resolveConflict`；三库 open 接线；`PutInput.origin` + `tiers.remember` 透传。
+
+**二段（生产 + 触发 + LLM 注入点）**：`src/promote.ts` 增候选生产（S→P 会话扫描判据 + P→U 跨项目提审 + 每轮 ≤20/≤10）；`candidates` 独立上限（每层 5 MB、超限清最旧——pending / conflict / rejected 全计入，§6 L175）；`index.ts` 触发接线（`session/disposed` 监听 + 巩固链）+ `setLlmCaller`（caller 存在时入队改写 + summarized 标记）+ 失败计数与日志；服务面全量挂出（promote / listCandidates / approve / reject / edit / markConflict / resolveConflict / setLlmCaller）。
+
+**三段（收尾）**：README（提升链小节 + 配置）+ 测试补齐（幂等入队与双分支合并 / 墓碑 / 权限与 user-only / 转换闸 summarized / put 去重重试安全 / 冲突双路径 / 触发判据 / 容量上限）+ BACKLOG 收尾。
+
+#### 明确不做（本条目边界）
+
+- 不做 TUI 审阅面板（条目 2：按条提问 / approve / reject / edit 面板化；「user 标记只由用户发起动作生成」的凭据约束落条目 2 接口）。
+- 不做 `output-compress` 的 push 改造（条目 3）；本条目只保证服务面 `promote()` 就绪。
+- 不做矛盾自动检测与「直写遇结论矛盾 → 冲突候选」的自动衔接（均依赖 LLM 输出；机制 + `markConflict` 服务面先落，人工标记）。
+- 不做跨库事务（设计明令；②下层标记为 best-effort + 计数）；不做 `supersedes` / 撤销机制（§6.1）。
+- rejected 墓碑被容量清掉后同 fact_key 可重新入队（可接受，容量兜底优先）。
+- 不改 `STATUS.md`（用户择时）。
+
 ### 实施记录
 
 - 2026-10-08：**条目 1（包改名）完成** —— 目录 `knowledge-base/` → `memory-base/`（`git mv`）；包名 / `cordis.patch.yml` id / 服务键 `ctx.get('memory')` / `MEMORY_DB_PATH` / smoke profile 名 / `scripts/{install,test-parallel}.sh` / `profiles/example` / TUI 消费点 / 全部活跃文档引用一并改（555 个 tracked 文件过 sed）。**保留旧名**：`docs/STATUS.md`（用户择时更新）、`docs/BACKLOG.md` 条目 1 自身、本文件、`*docs/archived/`、根 `archive/`、`docs/host/`（宿主面历史记录）。验证：全仓 `check` 0 error、`build` exit 0、`test` 21 包全绿（memory-base 57）。**待人工**：`~/.dsh/profiles/fff` 的 `link:` 依赖与 patch id 仍是旧名（项目目录外，未擅自改）。
