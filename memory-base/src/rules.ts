@@ -28,8 +28,11 @@ export const DEFAULT_DENY_PATTERNS: readonly RegExp[] = [
   /(?:password|passwd|pwd|secret|token|api[_-]?key)\s*[:=]\s*["']?[^\s"']{8,}/i, // key = value 形态
 ];
 
-/** 拒绝原因：空文本 / 过短 / 命中拒绝模式。 */
-export type SkipReason = "empty" | "short" | "pattern";
+/**
+ * 拒绝原因：空文本 / 过短 / 命中拒绝模式由 `checkContent` 产生；
+ * `kind`（未注册分类，或兜底被该层禁止）与 `hook`（注册方写前钩子拒绝）由分类闸门产生（设计 §4 / §5）。
+ */
+export type SkipReason = "empty" | "short" | "pattern" | "kind" | "hook";
 
 export interface RuleVerdict {
   accept: boolean;

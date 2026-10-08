@@ -15,10 +15,11 @@ import {
   KnowledgeService,
   type PutInput,
   type PutResult,
+  type RowRef,
   type SearchHit,
   type SearchOptions,
 } from "./knowledge.ts";
-import type { Tier, TierPaths } from "./router.ts";
+import type { Tier, TierPaths, KindRegistry } from "./router.ts";
 import type { CompiledRules } from "./rules.ts";
 
 /** 逐库字节上限（设计 §2 表）。 */
@@ -118,6 +119,8 @@ export interface OpenTierSetOptions {
   projectKey?: string;
   /** 各层共用的入库闸门（设计 §5：闸门在库核心）；缺省只用内置隐私底线。 */
   rules?: CompiledRules;
+  /** 各层共用的分类注册表（设计 §4）：缺省各库只注册兜底分类。 */
+  registry?: KindRegistry;
   /**
    * 额外打开的「其他项目」P 库（`crossProject` 用，**只能由用户显式发起**）：
    * 值为项目根目录列表。
@@ -148,6 +151,7 @@ export class TierSet {
           "",
           true,
           opts.rules,
+          opts.registry,
         ),
       );
     }
@@ -160,17 +164,34 @@ export class TierSet {
           projectKey,
           true,
           opts.rules,
+          opts.registry,
         ),
       );
     }
     for (const root of opts.otherProjectRoots ?? []) {
       const path = join(root, ".dsh", "project.db");
       stores.push(
-        await openStore("project", path, journalMode, root, false, opts.rules),
+        await openStore(
+          "project",
+          path,
+          journalMode,
+          root,
+          false,
+          opts.rules,
+          opts.registry,
+        ),
       );
     }
     stores.push(
-      await openStore("user", paths.user, journalMode, "", true, opts.rules),
+      await openStore(
+        "user",
+        paths.user,
+        journalMode,
+        "",
+        true,
+        opts.rules,
+        opts.registry,
+      ),
     );
     return new TierSet(stores);
   }
@@ -225,13 +246,7 @@ export class TierSet {
       if (store.tier !== "user" && bytes > limit) {
         // 按缺口淘汰：用「平均每条字节」把缺口折算成条数，删够即止。
         // 不拿字节做收敛判据——WAL 下删行不缩文件、FTS5 删除是标记删除，字节不会立刻下降。
-        const rows = Number(
-          (
-            store.db.prepare("SELECT COUNT(*) AS n FROM chunks").get() as {
-              n: number;
-            }
-          ).n,
-        );
+        const rows = store.kb.countAll();
         const average = rows > 0 ? bytes / rows : 0;
         const gap = (): number =>
           average > 0
@@ -320,8 +335,13 @@ export class TierSet {
     return store.kb.put(put);
   }
 
-  /** 删除（设计 §6.1：删除是独立动作，不传播到下层来源行）。 */
-  forget(refs: readonly { tier: Tier; ids: readonly number[] }[]): number {
+  /**
+   * 删除（设计 §6.1：删除是独立动作，不传播到下层来源行）。
+   * 行句柄支持 `(kind, id)`（跨分类精确删除）与裸 `number`（v1 兼容 = 兜底表的行）。
+   */
+  forget(
+    refs: readonly { tier: Tier; ids: readonly (number | RowRef)[] }[],
+  ): number {
     let removed = 0;
     for (const ref of refs) {
       const store = this.get(ref.tier);
@@ -343,8 +363,14 @@ async function openStore(
   project: string,
   current: boolean,
   rules: CompiledRules | undefined,
+  registry: KindRegistry | undefined,
 ): Promise<TierStore> {
   const db = await openTierDatabase(path, tier, journalMode);
-  const kb = new KnowledgeService(db, rules === undefined ? {} : { rules });
+  const kb = new KnowledgeService(db, {
+    ...(rules === undefined ? {} : { rules }),
+    ...(registry === undefined ? {} : { registry }),
+    // 设计 §5：U 层不允许落兜底分类（未显式给已注册 kind 的写入一律拒）。
+    allowFallback: tier !== "user",
+  });
   return { tier, path, db, kb, project, current };
 }

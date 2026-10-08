@@ -77,3 +77,183 @@ export function sessionDirFor(
     .replace(/[/\\]+/g, "-");
   return join(resolve(sessionsRoot), key, sessionId);
 }
+
+/** 分类表的扩展列（设计 §4：由注册方声明；只允许**可空**列）。 */
+export interface KindColumn {
+  name: string;
+  type: "TEXT" | "INTEGER" | "REAL" | "BLOB";
+}
+
+/** 写前钩子的判定结果（设计 §5：闸门在库核心，钩子在闸门之后、INSERT 之前）。 */
+export interface KindVerdict {
+  accept: boolean;
+  reason?: string;
+  /** 建议 `importance`（1..5）；不传则用调用方给的值。 */
+  importance?: number;
+}
+
+export interface KindWriteInput {
+  content: string;
+  title?: string;
+  project: string;
+  kind: string;
+}
+
+export interface KindRouteQuery {
+  query: string;
+  project?: string;
+  target?: string;
+  kind?: string;
+}
+
+/** 注册项（设计 §4）：`kind` + 表名 + 扩展列 + 事件认领 + 写前钩子 + 查询路由规则。 */
+export interface KindSpec {
+  kind: string;
+  /** 物理表名；缺省按 `kind` 派生（见 `kindTableName`）。 */
+  table?: string;
+  columns?: readonly KindColumn[];
+  /** 本分类认领的事件类型（写入方的 `category`）→ 自动路由到本分类。 */
+  eventTypes?: readonly string[];
+  preWrite?: (input: KindWriteInput) => KindVerdict;
+  /** 查询路由规则：返回 false 表示该分类不参与本次检索（未声明 = 通配参与）。 */
+  routes?: (opts: KindRouteQuery) => boolean;
+}
+
+/** 注册后的形态（表名与 FTS 表名已解析）。 */
+export interface RegisteredKind {
+  kind: string;
+  table: string;
+  fts: string;
+  trigram: string;
+  columns: readonly KindColumn[];
+  eventTypes: readonly string[];
+  preWrite?: (input: KindWriteInput) => KindVerdict;
+  routes?: (opts: KindRouteQuery) => boolean;
+}
+
+/** 表名 / 列名白名单：SQLite 不支持标识符参数绑定，只能校验后拼串。 */
+const IDENTIFIER = /^[a-z][a-z0-9_]{0,62}$/;
+/** 保留与影子表名：撞上会破坏 `sources` 或 FTS5 的内部表。 */
+const RESERVED_TABLE =
+  /^(sources|chunks_fts|chunks_trigram_fts)$|_fts$|_trigram_fts$/;
+
+/**
+ * 兜底分类的物理表名＝v1 布局的 `chunks`（决策 D38）：不改名、不迁移、不 bump 版本，
+ * 既有的 v1 库因此照常打开，跨包直写方（`output-compress`）也不被打断。
+ */
+export const FALLBACK_TABLE = "chunks";
+
+/** `kind` → 缺省表名（`kind_<归一化>`）。派生规则在代码里，**具体分类名不在代码里**。 */
+export function kindTableName(kind: string): string {
+  const slug = kind
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const name = `kind_${slug}`;
+  if (!IDENTIFIER.test(name) || RESERVED_TABLE.test(name)) {
+    throw new Error(`分类「${kind}」无法派生合法表名（得到「${name}」）`);
+  }
+  return name;
+}
+
+/** 兜底分类的注册项：表名固定为 `chunks`（D38）。 */
+export function fallbackSpec(kind: string): KindSpec {
+  return { kind, table: FALLBACK_TABLE };
+}
+
+/**
+ * 分类注册表（设计 §4 的「注册制」）。进程内一份，注册后由各层库按需建表。
+ * 未注册的 `kind` 一律拒写（`pick` 返回 `undefined`），U 层不允许落兜底。
+ */
+export class KindRegistry {
+  readonly #fallbackKind: string;
+  readonly #byKind = new Map<string, RegisteredKind>();
+  readonly #tableOwner = new Map<string, string>();
+
+  constructor(options: { fallbackKind?: string } = {}) {
+    this.#fallbackKind = options.fallbackKind ?? "default";
+  }
+
+  get fallbackKind(): string {
+    return this.#fallbackKind;
+  }
+
+  /** 注册一个分类；同名 / 同表重复注册即报错（避免静默改写别人声明的列）。 */
+  register(spec: KindSpec): RegisteredKind {
+    const kind = spec.kind.trim();
+    if (kind.length === 0) throw new Error("分类名不能为空");
+    if (this.#byKind.has(kind)) throw new Error(`分类「${kind}」已注册`);
+    const table = spec.table?.trim() ?? kindTableName(kind);
+    if (!IDENTIFIER.test(table) || RESERVED_TABLE.test(table)) {
+      throw new Error(`分类「${kind}」的表名「${table}」不合法`);
+    }
+    const owner = this.#tableOwner.get(table);
+    if (owner !== undefined) {
+      throw new Error(`表「${table}」已属于分类「${owner}」`);
+    }
+    const columns = spec.columns ?? [];
+    const seen = new Set<string>();
+    for (const column of columns) {
+      if (!IDENTIFIER.test(column.name) || seen.has(column.name)) {
+        throw new Error(
+          `分类「${kind}」的扩展列「${column.name}」不合法或重复`,
+        );
+      }
+      seen.add(column.name);
+    }
+    const entry: RegisteredKind = {
+      kind,
+      table,
+      fts: `${table}_fts`,
+      trigram: `${table}_trigram_fts`,
+      columns,
+      eventTypes: spec.eventTypes ?? [],
+      ...(spec.preWrite === undefined ? {} : { preWrite: spec.preWrite }),
+      ...(spec.routes === undefined ? {} : { routes: spec.routes }),
+    };
+    this.#byKind.set(kind, entry);
+    this.#tableOwner.set(table, kind);
+    return entry;
+  }
+
+  /** 按名字取注册项；未注册返回 `undefined`。 */
+  resolve(kind?: string): RegisteredKind | undefined {
+    return kind === undefined ? undefined : this.#byKind.get(kind);
+  }
+
+  /** 兜底分类的注册项（尚未注册时为 `undefined`）。 */
+  fallback(): RegisteredKind | undefined {
+    return this.#byKind.get(this.#fallbackKind);
+  }
+
+  /**
+   * 写入路由（设计 §4 / §5）：显式 `kind` > 事件类型认领 > 兜底分类。
+   * 返回 `undefined` = 拒写（未注册的 `kind`，或兜底分类尚未注册）。
+   */
+  pick(input: {
+    kind?: string;
+    eventType?: string;
+  }): RegisteredKind | undefined {
+    if (input.kind !== undefined) return this.#byKind.get(input.kind);
+    if (input.eventType !== undefined) {
+      for (const entry of this.#byKind.values()) {
+        if (entry.eventTypes.includes(input.eventType)) return entry;
+      }
+    }
+    return this.fallback();
+  }
+
+  list(): readonly RegisteredKind[] {
+    return [...this.#byKind.values()];
+  }
+
+  /** 参与本次检索的分类集合（设计 §7：给了 `kind` 只查该表；否则按各分类的路由规则）。 */
+  participants(opts: KindRouteQuery): RegisteredKind[] {
+    if (opts.kind !== undefined) {
+      const one = this.#byKind.get(opts.kind);
+      return one === undefined ? [] : [one];
+    }
+    return this.list().filter((entry) => entry.routes?.(opts) ?? true);
+  }
+}

@@ -16,7 +16,11 @@ import {
   type MigrateMode,
   type MigrateResult,
 } from "./migrate.ts";
-import { KnowledgeService, type RescanReport } from "./knowledge.ts";
+import {
+  KnowledgeService,
+  type RescanReport,
+  type RowRef,
+} from "./knowledge.ts";
 import { MemoryService } from "./memory.ts";
 import { WritePolicy } from "./writepolicy.ts";
 import { SessionHooks, type HookHost } from "./hooks.ts";
@@ -35,6 +39,12 @@ import {
   type TierUsage,
 } from "./tiers.ts";
 import { resolveTierPaths, type Tier } from "./router.ts";
+import {
+  fallbackSpec,
+  KindRegistry,
+  type KindSpec,
+  type RegisteredKind,
+} from "./router.ts";
 
 export {
   openKnowledgeDatabase,
@@ -44,15 +54,19 @@ export {
   SessionHooks,
   ConsolidationService,
   migrate,
+  fallbackSpec,
+  KindRegistry,
 };
 export type {
   DeniedRow,
   PutInput,
   PutResult,
   RescanReport,
+  RowRef,
   SearchHit,
   SearchOptions,
 } from "./knowledge.ts";
+export type { KindColumn, KindSpec, RegisteredKind } from "./router.ts";
 export type { MemoryHit, MemorySearchResult, MemoryTarget } from "./memory.ts";
 export type { WriteBackResult, EvictResult } from "./writepolicy.ts";
 export type { PersistRules, SkipReason, RuleVerdict } from "./rules.ts";
@@ -91,6 +105,11 @@ export interface KnowledgeConfig {
   maxTokensPerProject?: number;
   /** 自动巩固（BACKLOG「记忆 auto-consolidation」）：见 `AutoConsolidateConfig`。 */
   autoConsolidate?: AutoConsolidateConfig;
+  /**
+   * 兜底分类名（设计 §4：名字来自配置，缺省 `default`）：未指定 `kind` 的写入落它，
+   * 本包不为它赋予语义；其物理表固定为 v1 布局的 `chunks`（决策 D38）。
+   */
+  defaultKind?: string;
   /**
    * 分层三库（设计 §2 / §12 #10）：开启后 S / P / U 各一个库、各带独立指纹与字节上限。
    * **缺省关闭**——沿用单库 `dbPath`（不静默在项目里建 `.dsh/`、不在家目录建库）。
@@ -143,6 +162,8 @@ export interface KnowledgeBundle {
   hooks: SessionHooks;
   /** 巩固服务（提升 / 合并 / 淘汰 + 容量守卫），`plan()` 可只读预演。 */
   consolidate: ConsolidationService;
+  /** 分类注册表（设计 §4）：第三方经服务面 `registerKind` 注册，各层库共用。 */
+  registry: KindRegistry;
   /** 分层三库集合（`config.tiers.enabled` 时才有）：跨层检索 / 写入路由 / 容量。 */
   tiers?: TierSet;
   /** 静态项目作用域；`project` 配成函数时为 `"default"`（自动巩固只用静态值）。 */
@@ -173,7 +194,14 @@ export async function createKnowledgeBundle(
 ): Promise<KnowledgeBundle> {
   const dbPath = config.dbPath ?? process.env.MEMORY_DB_PATH ?? ":memory:";
   const db = await openKnowledgeDatabase(dbPath, config.journalMode);
-  const kb = new KnowledgeService(db);
+  // 分类注册表（设计 §4）：进程内一份、各层库共用；兜底分类由配置声明并在此注册。
+  const registry = new KindRegistry({
+    ...(config.defaultKind === undefined
+      ? {}
+      : { fallbackKind: config.defaultKind }),
+  });
+  registry.register(fallbackSpec(registry.fallbackKind));
+  const kb = new KnowledgeService(db, { registry });
   const memory = new MemoryService(db);
   const policy = new WritePolicy(kb);
   const consolidate = new ConsolidationService(kb);
@@ -225,6 +253,8 @@ export async function createKnowledgeBundle(
       projectKey: projectName,
       // 闸门在库核心（设计 §5）：把事件钩子编译好的规则交给各层库，绕过钩子的写路径同样受管。
       rules: hooks.rules,
+      // 分类注册表跨层共用（设计 §4「跨层同构」）；U 层库禁止落兜底（§5）。
+      registry,
       ...(tierConfig.crossProjectRoots === undefined
         ? {}
         : { otherProjectRoots: tierConfig.crossProjectRoots }),
@@ -294,16 +324,13 @@ export async function createKnowledgeBundle(
     `memory-base 已就绪（db=${dbPath === ":memory:" ? ":memory:" : dbPath}）`,
   );
   const summary = (): KnowledgeBundleSummary => {
-    const chunks = db.prepare("SELECT COUNT(*) AS n FROM chunks").get() as {
-      n: number;
-    };
     const sources = db.prepare("SELECT COUNT(*) AS n FROM sources").get() as {
       n: number;
     };
     return {
       ready: true,
       dbPath,
-      chunkCount: Number(chunks.n),
+      chunkCount: kb.countAll(),
       sourceCount: Number(sources.n),
     };
   };
@@ -313,6 +340,7 @@ export async function createKnowledgeBundle(
     policy,
     hooks,
     consolidate,
+    registry,
     ...(tiers === undefined ? {} : { tiers }),
     project: projectName,
     dbPath,
@@ -410,6 +438,15 @@ export function apply(ctx: BundleHost, config: KnowledgeConfig = {}): void {
           rules: bundle.hooks.rules,
         });
       },
+      /**
+       * 分类注册（设计 §4）：第三方插件在自身 apply 时调用，声明 `kind` + 表名 + 扩展列 +
+       * 事件认领 + 写前钩子 + 查询路由。同名 / 同表重复注册抛错；注册后**按需建表**（首次写入时）。
+       */
+      registerKind: async (spec: KindSpec): Promise<RegisteredKind> => {
+        const bundle = await whenKnowledgeReady();
+        const entry = bundle.registry.register(spec);
+        return entry;
+      },
       /** 跨层检索（设计 §7）：三库开启时层 × 分类跨全域；否则回落单库检索。 */
       search: async (opts: LayeredSearchOptions): Promise<LayeredHit[]> => {
         const bundle = await whenKnowledgeReady();
@@ -428,7 +465,7 @@ export function apply(ctx: BundleHost, config: KnowledgeConfig = {}): void {
       },
       /** 删除（设计 §6.1：独立动作，不传播到下层来源行）。 */
       forget: async (
-        refs: readonly { tier: Tier; ids: readonly number[] }[],
+        refs: readonly { tier: Tier; ids: readonly (number | RowRef)[] }[],
       ): Promise<number> => {
         const bundle = await whenKnowledgeReady();
         return bundle.tiers?.forget(refs) ?? 0;

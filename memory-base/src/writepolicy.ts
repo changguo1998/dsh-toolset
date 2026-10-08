@@ -75,8 +75,9 @@ export class WritePolicy {
       let written = 0;
       for (const item of items) {
         try {
-          this.#kb.put(item);
-          written += 1;
+          const result = this.#kb.put(item);
+          // 被闸门拒写的条目（skipped）不计入 written、也不入 pending——重试必然再被拒。
+          if (result.ids.length > 0) written += 1;
         } catch (error) {
           // 失败可延迟：留到下次 backfill（最终一致）。
           this.#pending.push(item);
@@ -93,8 +94,8 @@ export class WritePolicy {
       const stillPending: PutInput[] = [];
       for (const item of this.#pending) {
         try {
-          this.#kb.put(item);
-          written += 1;
+          const result = this.#kb.put(item);
+          if (result.ids.length > 0) written += 1;
         } catch (error) {
           stillPending.push(item);
         }

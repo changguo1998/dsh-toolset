@@ -1,8 +1,9 @@
 /**
- * memory-base SQLite schema：两 STRICT 基表（sources/chunks）+ 双 FTS5 影子表 + TRIGGER 写直达同步。
+ * memory-base SQLite schema：`sources` + 各分类表（每个分类一张，结构一致）+ 双 FTS5 影子表 + TRIGGER 写直达同步。
  *
- * 设计对照 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §12.1：
- * - sources / chunks 为内容主体（普通 SQL 做过滤/排序/淘汰）；
+ * 设计对照 docs/DESIGN.md §4（分类注册制）与 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §12.1：
+ * - sources 为来源记账；分类表为内容主体（普通 SQL 做过滤/排序/淘汰），**按需建**（空表不建）；
+ * - 兜底分类的物理表＝v1 布局的 `chunks`（决策 D38：不改名、不迁移、不 bump 版本）；
  * - chunks_fts（porter 语义词干 BM25）与 chunks_trigram_fts（trigram 子串/模糊检索）
  *   以 external content 模式挂靠 chunks（免双份存储），由 TRIGGER 在 insert/update/delete
  *   写直达同步（update = delete 旧行 + insert 新行）。
@@ -16,7 +17,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdir, open } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import type { Tier } from "./router.ts";
+import { FALLBACK_TABLE, type KindColumn, type Tier } from "./router.ts";
 
 /** 当前 schema 版本。不兼容变更时 +1；open 遇不匹配版本一律拒绝（不重置）。 */
 export const KNOWLEDGE_SCHEMA_VERSION = 1;
@@ -71,18 +72,17 @@ function listUserTables(db: DatabaseSync): string[] {
  * FTS 影子表随虚拟表 DROP 自动清理，base 表 DROP 连带其 TRIGGER。
  */
 function resetSchema(db: DatabaseSync): void {
-  db.exec("DROP TABLE IF EXISTS chunks_trigram_fts");
-  db.exec("DROP TABLE IF EXISTS chunks_fts");
-  db.exec("DROP TABLE IF EXISTS chunks");
+  db.exec(`DROP TABLE IF EXISTS ${FALLBACK_TABLE}_trigram_fts`);
+  db.exec(`DROP TABLE IF EXISTS ${FALLBACK_TABLE}_fts`);
+  db.exec(`DROP TABLE IF EXISTS ${FALLBACK_TABLE}`);
   db.exec("DROP TABLE IF EXISTS sources");
   db.exec("PRAGMA user_version = 0");
 }
 
-/** 建表 + 索引 + 双 FTS5 影子表 + 写直达 TRIGGER。仅应在空库/已重置库上调用。 */
-function ensureSchema(db: DatabaseSync, appId: number): void {
-  db.exec(`PRAGMA application_id = ${appId}`);
+/** sources 表：来源记账（不分层不分分类，全库一份）。 */
+function ensureSources(db: DatabaseSync): void {
   db.exec(`
-    CREATE TABLE sources (
+    CREATE TABLE IF NOT EXISTS sources (
       id           INTEGER PRIMARY KEY,
       kind         TEXT NOT NULL,
       label        TEXT,
@@ -92,8 +92,28 @@ function ensureSchema(db: DatabaseSync, appId: number): void {
       created_at   INTEGER NOT NULL
     ) STRICT
   `);
+}
+
+/**
+ * 按需建一张分类表（设计 §4「按需建表 / 空表不建」）：基类列 + 注册方声明的扩展列，
+ * 外加索引、双 FTS5 影子表、写直达 TRIGGER。**幂等**——已存在的表原样保留（改列走版本迁移 §9）。
+ *
+ * 各分类表**结构一致**（同一套基类列，扩展列只允许可空），SQL 因此不必按表分支。
+ * 表名与列名由注册表校验过（标识符白名单），此处直接拼串。
+ *
+ * @param table 物理表名（`KindRegistry` 已校验）。
+ * @param columns 注册方声明的扩展列（可空）。
+ */
+export function ensureKindTable(
+  db: DatabaseSync,
+  table: string,
+  columns: readonly KindColumn[] = [],
+): void {
+  const extra = columns
+    .map((column) => `,\n      ${column.name} ${column.type}`)
+    .join("");
   db.exec(`
-    CREATE TABLE chunks (
+    CREATE TABLE IF NOT EXISTS ${table} (
       id              INTEGER PRIMARY KEY,
       source_id       INTEGER NOT NULL REFERENCES sources(id),
       project         TEXT NOT NULL,
@@ -106,40 +126,50 @@ function ensureSchema(db: DatabaseSync, appId: number): void {
       session_id      TEXT,
       last_referenced INTEGER NOT NULL DEFAULT 0,
       summary         TEXT,
-      created_at      INTEGER NOT NULL
+      created_at      INTEGER NOT NULL${extra}
     ) STRICT
   `);
   db.exec(
-    "CREATE INDEX idx_chunks_project_lr ON chunks (project, last_referenced)",
-  );
-  db.exec("CREATE INDEX idx_chunks_source ON chunks (source_id)");
-  db.exec(
-    "CREATE VIRTUAL TABLE chunks_fts USING fts5(title, content, content='chunks', content_rowid='id', tokenize='porter')",
+    `CREATE INDEX IF NOT EXISTS idx_${table}_project_lr ON ${table} (project, last_referenced)`,
   );
   db.exec(
-    "CREATE VIRTUAL TABLE chunks_trigram_fts USING fts5(title, content, content='chunks', content_rowid='id', tokenize='trigram')",
+    `CREATE INDEX IF NOT EXISTS idx_${table}_source ON ${table} (source_id)`,
+  );
+  db.exec(
+    `CREATE VIRTUAL TABLE IF NOT EXISTS ${table}_fts USING fts5(title, content, content='${table}', content_rowid='id', tokenize='porter')`,
+  );
+  db.exec(
+    `CREATE VIRTUAL TABLE IF NOT EXISTS ${table}_trigram_fts USING fts5(title, content, content='${table}', content_rowid='id', tokenize='trigram')`,
   );
   // TRIGGER 写直达：insert 双写、update 先删旧行再插新行、delete 删除 FTS 行。
   db.exec(`
-    CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
-      INSERT INTO chunks_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
-      INSERT INTO chunks_trigram_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
+    CREATE TRIGGER IF NOT EXISTS ${table}_ai AFTER INSERT ON ${table} BEGIN
+      INSERT INTO ${table}_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
+      INSERT INTO ${table}_trigram_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
     END
   `);
   db.exec(`
-    CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
-      INSERT INTO chunks_fts(chunks_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
-      INSERT INTO chunks_trigram_fts(chunks_trigram_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
+    CREATE TRIGGER IF NOT EXISTS ${table}_ad AFTER DELETE ON ${table} BEGIN
+      INSERT INTO ${table}_fts(${table}_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
+      INSERT INTO ${table}_trigram_fts(${table}_trigram_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
     END
   `);
   db.exec(`
-    CREATE TRIGGER chunks_au AFTER UPDATE ON chunks BEGIN
-      INSERT INTO chunks_fts(chunks_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
-      INSERT INTO chunks_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
-      INSERT INTO chunks_trigram_fts(chunks_trigram_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
-      INSERT INTO chunks_trigram_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
+    CREATE TRIGGER IF NOT EXISTS ${table}_au AFTER UPDATE ON ${table} BEGIN
+      INSERT INTO ${table}_fts(${table}_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
+      INSERT INTO ${table}_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
+      INSERT INTO ${table}_trigram_fts(${table}_trigram_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
+      INSERT INTO ${table}_trigram_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
     END
   `);
+}
+
+/** 建表 + 索引 + 双 FTS5 影子表 + 写直达 TRIGGER。仅应在空库/已重置库上调用。 */
+function ensureSchema(db: DatabaseSync, appId: number): void {
+  db.exec(`PRAGMA application_id = ${appId}`);
+  ensureSources(db);
+  // 兜底分类的物理表＝v1 布局的 `chunks`（决策 D38）：同名同结构，老库照常打开。
+  ensureKindTable(db, FALLBACK_TABLE);
   db.exec(PRAGMA_VERSION_SQL);
 }
 

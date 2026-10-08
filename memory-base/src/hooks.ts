@@ -240,7 +240,15 @@ function emptyStats(): IngestStats {
   return {
     accepted: 0,
     deduped: 0,
-    skipped: { type: 0, "no-summary": 0, empty: 0, short: 0, pattern: 0 },
+    skipped: {
+      type: 0,
+      "no-summary": 0,
+      empty: 0,
+      short: 0,
+      pattern: 0,
+      kind: 0,
+      hook: 0,
+    },
     compressed: 0,
     evicted: 0,
   };
@@ -338,6 +346,8 @@ export class SessionHooks {
       sessionId,
       source: { kind: "session", ref: sessionId },
     });
+    // 分类闸门拒写（未注册 kind / 钩子拒绝）≠ 去重：按跳过计数并回报（修复「拒写计为去重」）。
+    if (result.skipped !== undefined) return this.#skip(result.skipped);
     if (result.created === 0) {
       this.#stats.deduped += 1;
       return { accepted: false, created: 0, deduped: true };

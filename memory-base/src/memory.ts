@@ -69,7 +69,7 @@ export class MemoryService {
     this.#kb = new KnowledgeService(db);
   }
 
-  /** 新增一条记忆；相同 content_hash 去重（返回既有 id）。 */
+  /** 新增一条记忆；相同 content_hash 去重（返回既有 id）；被闸门拒写时抛错并说明原因。 */
   add(input: MemoryAddInput): { id: number } {
     const result = this.#kb.put({
       project: input.project ?? GLOBAL_PROJECT,
@@ -78,7 +78,12 @@ export class MemoryService {
       content: input.content,
       importance: input.importance ?? 3,
     });
-    return { id: result.ids[0]! };
+    // 修复「拒写返回 { id: undefined }」：空 ids = 未落库，必须显式失败而不是静默回 undefined。
+    const id = result.ids[0];
+    if (id === undefined) {
+      throw new Error(`memory.add 被拒绝（${result.skipped ?? "unknown"}）`);
+    }
+    return { id };
   }
 
   /** 按 target + 内容子串定位并替换内容；找不到返回 false。 */
@@ -92,9 +97,12 @@ export class MemoryService {
   }): boolean {
     const id = this.findByText(input.target, input.oldText);
     if (id === undefined) return false;
+    // memory 域固定落兜底分类（本服务的注册表缺省只注册兜底；表名不硬编码）。
+    const table = this.#kb.fallbackTable;
+    if (table === undefined) return false;
     this.#db
       .prepare(
-        `UPDATE chunks SET content = ?, content_hash = ?, category = ?, importance = ?, last_referenced = ? WHERE id = ?`,
+        `UPDATE ${table} SET content = ?, content_hash = ?, category = ?, importance = ?, last_referenced = ? WHERE id = ?`,
       )
       .run(
         input.content,
@@ -155,10 +163,12 @@ export class MemoryService {
 
   /** target 域内按内容子串定位首条 chunk id（LIKE 转义）。 */
   findByText(target: string, text: string): number | undefined {
+    const table = this.#kb.fallbackTable;
+    if (table === undefined) return undefined;
     const like = `%${text.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
     const row = this.#db
       .prepare(
-        "SELECT id FROM chunks WHERE target = ? AND (content LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\') ORDER BY id LIMIT 1",
+        `SELECT id FROM ${table} WHERE target = ? AND (content LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\') ORDER BY id LIMIT 1`,
       )
       .get(target, like, like) as { id: number } | undefined;
     return row === undefined ? undefined : Number(row.id);

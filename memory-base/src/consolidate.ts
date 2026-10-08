@@ -14,10 +14,11 @@
  */
 
 import { enforceBudget, type BudgetEnforcement } from "./budget.ts";
-import type { KnowledgeService } from "./knowledge.ts";
+import type { KnowledgeService, RowRef } from "./knowledge.ts";
 
-/** 提升候选：被检索命中过且还能提权。 */
+/** 提升候选：被检索命中过且还能提权（`(kind, id)` 定位行）。 */
 export interface BoostCandidate {
+  kind: string;
   id: number;
   importance: number;
   lastReferenced: number;
@@ -114,14 +115,14 @@ export class ConsolidationService {
       for (const candidate of boostCandidates) {
         const to = Math.min(5, candidate.importance + 1);
         promoted.push({ id: candidate.id, from: candidate.importance, to });
-        if (!dryRun) this.#kb.setImportance(candidate.id, to);
+        if (!dryRun) this.#kb.setImportance(candidate, to);
       }
     }
 
     // 2）合并：同 target 分组内去掉重复 / 近似重复（保留排序靠前者）
     const merged: Array<{ kept: number; dropped: number[]; target: string }> =
       [];
-    const droppedIds: number[] = [];
+    const droppedRefs: RowRef[] = [];
     let mergeGroups = 0;
     if (opts.merge !== false) {
       const rows = this.#kb.targetRows({
@@ -145,30 +146,34 @@ export class ConsolidationService {
             a.id - b.id,
         );
         const kept: typeof ordered = [];
-        const dropped: number[] = [];
+        const dropped: RowRef[] = [];
         for (const row of ordered) {
           const text = normalize(row.content);
           const covered = kept.some((k) =>
             redundant(text, normalize(k.content)),
           );
-          if (covered) dropped.push(row.id);
+          if (covered) dropped.push(row);
           else kept.push(row);
         }
         if (dropped.length > 0) {
           const keeper = kept[0];
           if (keeper !== undefined) {
-            merged.push({ kept: keeper.id, dropped, target });
-            droppedIds.push(...dropped);
+            merged.push({
+              kept: keeper.id,
+              dropped: dropped.map((ref) => ref.id),
+              target,
+            });
+            droppedRefs.push(...dropped);
           }
         }
       }
-      if (!dryRun && droppedIds.length > 0) this.#kb.evict(droppedIds);
+      if (!dryRun && droppedRefs.length > 0) this.#kb.evict(droppedRefs);
     }
 
     // 3）淘汰：陈旧条目先压缩降级再硬淘汰
     let compressed = 0;
     let evicted = 0;
-    let stale: number[] = [];
+    let stale: RowRef[] = [];
     if (opts.evict !== false) {
       stale = this.#kb.staleCandidates({
         project: opts.project,
