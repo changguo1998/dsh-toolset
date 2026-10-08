@@ -151,8 +151,19 @@ function toolBox(item: Item, turn: number, step: number): Box | undefined {
   };
 }
 
-/** 节 → box 序列（纯函数；节内条目顺序即 box 顺序） */
+/** box 缓存：键 = 节对象身份。封闭节对象不可变（迟到回写会换新对象）→ 可安全复用 */
+const boxCache = new WeakMap<Section, Box[]>();
+
+/** 节 → box 序列（纯函数；节内条目顺序即 box 顺序；按节缓存） */
 export function buildBoxes(section: Section): Box[] {
+  const hit = boxCache.get(section);
+  if (hit !== undefined) return hit;
+  const built = computeBoxes(section);
+  boxCache.set(section, built);
+  return built;
+}
+
+function computeBoxes(section: Section): Box[] {
   const boxes: Box[] = [];
   for (const item of section.items) {
     if (item.source === "tool") {
@@ -172,14 +183,16 @@ export function buildBoxes(section: Section): Box[] {
 export function applyShadowed(
   boxes: readonly Box[],
   shadowedSeqs: ReadonlySet<number>,
-): Box[] {
-  if (shadowedSeqs.size === 0) return [...boxes];
-  return boxes.map((box) => {
+): readonly Box[] {
+  if (shadowedSeqs.size === 0) return boxes;
+  let changed = false;
+  const next = boxes.map((box) => {
     if (box.seqs === undefined || box.seqs.length === 0) return box;
-    return box.seqs.some((seq) => shadowedSeqs.has(seq))
-      ? { ...box, shadowed: true }
-      : box;
+    if (!box.seqs.some((seq) => shadowedSeqs.has(seq))) return box;
+    changed = true;
+    return { ...box, shadowed: true };
   });
+  return changed ? next : boxes;
 }
 
 /** 多节 → box 序列（顺序 = 节顺序；各节内部按 `buildBoxes`） */

@@ -46,13 +46,17 @@ export interface PaneOptions {
   shadowedSeqs?: ReadonlySet<number>;
 }
 
-/** 档位过滤：该 box 在活动区是否可见（会话区不受档位影响） */
+/** 拆行缓存：键 = box 身份（box 由节缓存给出、稳定）——行缓存据此保持身份 */
+const lineCache = new WeakMap<Box, readonly Box[]>();
+
+/**
+ * 档位过滤：该 box 在活动区是否可见（会话区不受档位影响）。
+ * 口径与旧渲染器一致：`tool` / `step` 去思考；工具批内部的**结果行**由第 4 步沿用
+ * 旧渲染器按档位裁掉（调用行只取首行），故此处不拆工具批。
+ */
 function visibleAtLevel(box: Box, level: ActivityLevel): boolean {
   if (level === "think") return true;
-  if (box.source === "reasoning") return false;
-  if (level === "tool") return true;
-  // step：只留工具调用（notice 保留，供提示可见）
-  return box.source === "tool" || box.source === "notice";
+  return box.source !== "reasoning";
 }
 
 /** 归属：会话区 = 用户块 + final 节的正文；其余进回合区 */
@@ -72,8 +76,16 @@ function toLines(
   normalize: ((text: string) => string) | undefined,
 ): readonly Box[] {
   if (box.shape !== "text") return [box];
-  const text =
-    normalize === undefined ? (box.text ?? "") : normalize(box.text ?? "");
+  if (normalize === undefined) {
+    const hit = lineCache.get(box);
+    if (hit !== undefined) return hit;
+    const built = (box.text ?? "")
+      .split("\n")
+      .map((line) => ({ ...box, text: line }));
+    lineCache.set(box, built);
+    return built;
+  }
+  const text = normalize(box.text ?? "");
   return text.split("\n").map((line) => ({ ...box, text: line }));
 }
 

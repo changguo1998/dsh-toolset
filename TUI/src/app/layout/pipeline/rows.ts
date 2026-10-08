@@ -294,9 +294,38 @@ function itemLines(item: PaneItem, dialogue: boolean): BufferLine[] {
   }
 }
 
+// ---------------- 行缓冲缓存（键见追踪文档「行缓冲键的组成」） ----------------
+
+/** 每个 box 的行结果：键 = 区域宽 + 档位 + 紧凑（宽度不变的重复帧直接命中） */
+const rowCache = new WeakMap<Box, Map<string, ContentRow[]>>();
+let misses = 0;
+
+/** 缓存未命中次数（计数断言用：宽度不变时同段不重复排版） */
+export function rowRenderMisses(): number {
+  return misses;
+}
+
+export function resetRowRenderStats(): void {
+  misses = 0;
+}
+
+function cacheKey(
+  width: number,
+  pane: "dialogue" | "activity",
+  options: RenderOptions,
+): string {
+  return [
+    pane,
+    width,
+    options.activityLevel ?? "think",
+    options.activityCompact === true ? "compact" : "full",
+  ].join("|");
+}
+
 /**
  * 逐项出一行缓冲 + 行数表（宽度相关）。每一项独立走既有算法库：跨项的分隔与留白
  * 已由第 3 步的边界项表达，故此处不再做跨节点后处理。
+ * 文本项按 (box 身份, 宽, 档位, 紧凑) 命中行缓存——宽度不变的重复帧不重排。
  */
 export function renderPane(
   items: readonly PaneItem[],
@@ -313,6 +342,21 @@ export function renderPane(
       counts.push(0);
       continue;
     }
+    const cacheable = item.kind === "line" ? item.box : undefined;
+    const key = cacheKey(
+      pane === "dialogue" ? width : activityWidth,
+      pane,
+      options,
+    );
+    let slot = cacheable === undefined ? undefined : rowCache.get(cacheable);
+    const hit = slot?.get(key);
+    if (hit !== undefined) {
+      rows.push(...hit);
+      counts.push(hit.length);
+      continue;
+    }
+    // 只计内容项的排版次数：边界项（空行 / step 头 / 分隔线）是常量开销，不进计数
+    if (cacheable !== undefined) misses += 1;
     const built = buildContentRows(
       lines,
       { ...options, width, activityWidth },
@@ -320,6 +364,11 @@ export function renderPane(
       activityWidth,
     );
     const produced = pane === "dialogue" ? built.dialogue : built.activity;
+    if (cacheable !== undefined) {
+      slot ??= new Map<string, ContentRow[]>();
+      slot.set(key, produced);
+      rowCache.set(cacheable, slot);
+    }
     rows.push(...produced);
     counts.push(produced.length);
   }

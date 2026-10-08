@@ -98,8 +98,12 @@ test("② 档位过滤：tool 去思考、step 只留工具调用（notice 保�
     "(blank)",
     "notice:提示",
   ]);
+  // step 档：去思考；工具批内部的**结果行**由第 4 步沿用旧渲染器裁掉（调用行只取首行），
+  // 正文与 notice 保留——与旧渲染器同口径
   assert.deepEqual(shape(buildPanes(sections, { level: "step" }).activity), [
     "#step 2",
+    "assistant:过程",
+    "(blank)",
     "tool:1",
     "(blank)",
     "notice:提示",

@@ -13,7 +13,12 @@ import assert from "node:assert/strict";
 
 import { buildContentRows } from "../src/app/layout/build-box.ts";
 import { buildPanes } from "../src/app/layout/pipeline/panes.ts";
-import { boxToLines, renderPane } from "../src/app/layout/pipeline/rows.ts";
+import {
+  boxToLines,
+  renderPane,
+  resetRowRenderStats,
+  rowRenderMisses,
+} from "../src/app/layout/pipeline/rows.ts";
 import {
   allSections,
   applyAll,
@@ -207,4 +212,67 @@ test("box → 旧口径缓冲行：代码块 / 表格 / 工具批的还原形态
   assert.ok(texts.includes("tool:read /tmp/a.md"), "工具调用行");
   assert.ok(texts.includes("tool:✓ ok"), "工具结果行");
   assert.ok(texts.includes("assistant:```ts"), "代码块围栏还原");
+});
+
+test("c4 计数断言：宽度不变时同段不重复排版；宽度变化才重排", () => {
+  const sections = allSections(applyAll(createSections(), script));
+  const panes = buildPanes(sections, { level: "think" });
+  // 首次：全部未命中（节 / box / 拆行 / 行 都按身份缓存）
+  resetRowRenderStats();
+  renderPane(panes.dialogue, "dialogue", { themeId: THEME, width: 80 });
+  renderPane(panes.activity, "activity", { themeId: THEME, width: 80 });
+  const first = rowRenderMisses();
+  assert.ok(first > 0, "首次渲染必有未命中");
+
+  // 同一 pane 缓存重复出帧（宽度不变）→ 零重排
+  resetRowRenderStats();
+  renderPane(panes.dialogue, "dialogue", { themeId: THEME, width: 80 });
+  renderPane(panes.activity, "activity", { themeId: THEME, width: 80 });
+  assert.equal(rowRenderMisses(), 0, "宽度不变 → 命中行缓存，不重排");
+
+  // 宽度变化 → 重新排版（行号 / 折行全变）
+  resetRowRenderStats();
+  renderPane(panes.dialogue, "dialogue", { themeId: THEME, width: 100 });
+  assert.ok(rowRenderMisses() > 0, "宽度变化 → 全量重排");
+});
+
+test("c4 计数断言：档位切换只重排回合区（会话区不受档位影响）", () => {
+  const sections = allSections(applyAll(createSections(), script));
+  const think = buildPanes(sections, { level: "think" });
+  const render = (
+    panes: ReturnType<typeof buildPanes>,
+    level: "think" | "step",
+  ) =>
+    renderPane(panes.activity, "activity", {
+      themeId: THEME,
+      width: 80,
+      activityLevel: level,
+    });
+  render(think, "think");
+  resetRowRenderStats();
+  render(think, "think");
+  assert.equal(rowRenderMisses(), 0, "同档位重复出帧零重排");
+  resetRowRenderStats();
+  render(think, "step");
+  assert.ok(rowRenderMisses() > 0, "档位变化重放回合区");
+});
+
+test("等价性扩展：档位 tool / step 下新旧逐行一致", () => {
+  for (const level of ["tool", "step"] as const) {
+    const oldRows = buildContentRows(
+      oldBuffer(),
+      { themeId: THEME, activityLevel: level },
+      80,
+    );
+    const sections = allSections(applyAll(createSections(), script));
+    // 档位过滤在 pane 层（新）与旧渲染器（旧）各做一次：新路径先过滤再渲染，
+    // 旧路径把同一份 buffer 交给旧渲染器按档位过滤——两侧结果必须一致。
+    const panes = buildPanes(sections, { level });
+    const next = renderPane(panes.activity, "activity", {
+      themeId: THEME,
+      width: 80,
+      activityLevel: level,
+    });
+    assert.deepEqual(rowText(next.rows), rowText(oldRows.activity), level);
+  }
 });
