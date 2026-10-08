@@ -617,3 +617,12 @@
 - 不做宿主 / 模型侧 searchDigests 调用接线（记观察项）；不做会话目录宿主正式读取面（沿用约定拼接 + 告警降级）。
 - 不做旧 v1 库迁移（显式 migrate 口径已有）；不做 profile denyPatterns 编辑面。
 - 不改 STATUS.md（用户择时）。
+
+#### 决策修订（2026-10-08 子代理审阅：有条件通过，6 项必须改全采纳）
+
+- **D60-a 列补全**：`digests` 补 `fingerprint`（摘要级 textFnv，§3.1 四件套之一）与 push 状态三列（`pushed_at` / `push_state`（`none|queued|merged|rejected`）/ `pushed_content_hash`）——巩固判「未推成功」需持久状态；**一段一次定稿 schema**（避免二段二次 bump）。`content_hash` 输入写明 = sha256(spill 源字节（截断后实际读取的字节）)，去重键 = 库内单列 `content_hash`（对齐 DESIGN §5 I 行「库内 content_hash」，不用 S 层 (session_id, hash) 口径）；FTS 源改抽取后纯文本（headings 行 + preview，不索引 JSON 串）。
+- **D60-b 落点判据**：`existsSync(sessionDir)` 且**不 mkdir**——会话存续期宿主必已建目录，缺失即视为解析失败：告警 + 计数 `skipped.sessionDirMissing` + 跳过写入（**= 该会话 I→S 判据整体失效，is_error 也无记忆**，写明）；无 spill 路径（阈值触发）时 locator=null、区间悬空 = 指向事件文本、仅供审计不承诺回读。
+- **D61-a 指纹封印防漂移**：两包测试各断言「本包常量按序序列化（source+flags，\\n join）的 sha256 === 同一硬编码 PIN」——单侧改常量即红，报错文案写明同步两包后更新两侧 PIN；向量表降为行为对拍（防同改同错）。
+- **D63-a merge 后 summarized 必须重算**：promote.ts:413 现状 `summarized = summarized` 是活洞（已概括锚行被重推合并 → 内容回退原文、标志仍 1 → 原文落上层）。修法：概括段提为共用函数，merge 后 caller 在场 → 重概括合并内容（成功置 1 / 失败置 0），无 caller → 置 0；配合 `pushed_content_hash`：内容未变不重推（防逐次巩固反复 LLM）。
+- **D62-a I→S 审阅落地**（裁定②）：依 §3.2「会话级几乎照单全收」——I→S 候选**入队即属主 agent 自审**：push 成功后立即 `candidates.approve({tier:"session", reviewer:"agent:output-compress"})`（无 caller 被 llm-unavailable 挡时保持 pending，下次巩固重概括后再批）；TUI 面板 list **排除 session 层候选**（面板只管 P/U，user 凭据不碰 I→S）；DESIGN §6 L189 回写口径，TUI 条目「明确不做」同步。
+- **D65-a 拆除清单**：KbNotMountedError + 退避重试链（kbRetryDelays）整体删除；旧 dbPath/env 解析链删除（config.sessionDir 单一来源）；hooks.test 保 15 删 3（「库未挂载」两例 + KbNotMounted 区分例），kb-write.test 按自持口径重写；**负向验收**：跑一次 pipeline 断言三层库路径零打开零写入；legacy v1 'KNOW' 库拆除前仍被共写的事实记调研（数据可再生、migrate drop 可接受）；拒写计数分 `sessionDirMissing` / `deny-pattern` 两类纳入可观测。
