@@ -370,7 +370,13 @@ interface Box { turn: number; step: number; source: Source; shape: Shape; text?:
 1. 迟到块回写原节（不新开错序节）。
 1. 迁移面：交付与条目补 `seq`、`Section.final`（turn-end 标记最终总结节）、`readonly` 数组类型；`turn-end` 作为回合边界交付。
 
-**下一步（批 2）**：`boxes.ts`（节 → box 序列，宽无关）已落草，待补用例与提交。
+**批 2（完成）**：`boxes.ts`——节 → box 序列（正文 / 代码块 / 表格 / 工具批），围栏配对只看本条目文本（未闭合不再吞后续内容，原 R7 缺陷在新路径结构上不可能发生）；复用 `layout/table.ts` 解析表格；工具批整批一个 box；不插分隔内容。条目累积宿主事件号，`applyShadowed` 按交集给 box 打遮蔽标记；adapter 转发 `compaction/prune` 的 `shadowedSeqs`。用例 9 例。
+
+**批 3（完成）**：`panes.ts`——box → pane 缓存 ×2（会话区 / 回合区），五步齐备：档位过滤（`think` / `tool` / `step`）→ 替换符号（只作用于文本，代码 / 表格跳过）→ 拆行（文本拆逻辑行，代码与表格整块）→ 加边界（step 头 / 回合分隔线 / 分类变化空行）→ 合并空行。归属：`user` 与 final 节正文 → 会话区，其余 → 回合区。边界项只带位置与元数据（文案由第 4 步按宽度渲染）。用例 7 例。
+
+**批 4 上半（完成）**：`rows.ts` 的行数表与位置模型——段行数 + 前缀和（二分定位段 / 段内偏移）、单段增量更新与追加段；偏移 ↔ 显示索引互换；贴底重算索引、非贴底索引不动；上方插入 / 宽度变化按「段 + 段内偏移」remap，换算不出退回贴底。用例 5 例。
+
+**下一步（批 4 下半 + 批 5）**：box → row 的排版实现（把 pane 逻辑行 box 映射到既有 `box.ts` 节点模型，复用 `measure` / `allocate` / `fill` 与 `markdown.ts` 折行、`table.ts` 表格渲染、`primitives.ts` 截断），随后接装配与接管：`index.ts` 帧循环 → 新流水线，滚动 / 扩窗改新位置模型，跑等价性矩阵（宽度 × 档位）与计数断言，最后旧结构退场。
 
 ## 测试与证据
 
