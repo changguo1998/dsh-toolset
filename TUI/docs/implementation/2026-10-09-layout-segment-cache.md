@@ -376,7 +376,18 @@ interface Box { turn: number; step: number; source: Source; shape: Shape; text?:
 
 **批 4 上半（完成）**：`rows.ts` 的行数表与位置模型——段行数 + 前缀和（二分定位段 / 段内偏移）、单段增量更新与追加段；偏移 ↔ 显示索引互换；贴底重算索引、非贴底索引不动；上方插入 / 宽度变化按「段 + 段内偏移」remap，换算不出退回贴底。用例 5 例。
 
-**下一步（批 4 下半 + 批 5）**：box → row 的排版实现（把 pane 逻辑行 box 映射到既有 `box.ts` 节点模型，复用 `measure` / `allocate` / `fill` 与 `markdown.ts` 折行、`table.ts` 表格渲染、`primitives.ts` 截断），随后接装配与接管：`index.ts` 帧循环 → 新流水线，滚动 / 扩窗改新位置模型，跑等价性矩阵（宽度 × 档位）与计数断言，最后旧结构退场。
+**批 4 下半（完成）**：`rows.ts` 出行层——pane 项 → 旧口径缓冲行（文本 / 代码块 / 表格 / 工具批 / step 头 / 回合分隔线 / 空行）→ 复用 `buildContentRows`（`measure` / `allocate` / `fill` + markdown 折行 + 表格渲染），逐项行数进线表；行缓存键 =（box 身份，区域宽，档位，紧凑），`rowRenderMisses` 供计数断言。为让行缓存有稳定身份，box 缓存按节身份、拆行缓存按 box 身份（封闭节对象不可变，迟到回写换新对象）。
+
+**口径对齐（等价性逼出来的三处，已写进实现）**：
+
+1. **step 头恒进回合区**（旧口径：step 头由 `appendToolLine` 插入 ⇒ kind = tool）；该 step 无回合区内容时是「孤儿头」，与旧路径一致。
+1. **回合分隔线只在会话区**（旧路径的 `separator` 行进对话 pane）。
+1. **档位过滤只去思考**（`tool` / `step`）；工具批内部的**结果行**由第 4 步沿用旧渲染器按档位裁掉，正文与 notice 保留。
+   另：独立自足节（用户 / notice / shell）**不参与迟到回写**——否则同 scope 的 step 内容会串进用户节。
+
+**等价性与计数（c3 / c4 的当前证据）**：`tests/pipeline-equivalence.test.ts` 用同一语料（用户 / 正文 / 思考 / 工具批 / 代码块 / 表格 / notice / 多 step / 多回合）走新旧两条路径，宽度 40 / 80 / 120 **逐行一致**；档位 `think` / `tool` / `step` 逐行一致；计数断言：宽度不变重复出帧 → 内容项零重排，宽度变化 → 全量重排，档位切换 → 重排回合区。
+
+**下一步（批 5）**：接管。`index.ts` 帧循环取新流水线的两 pane 行缓冲（`renderPane`）替代 `buildTopRegion` 的内容行来源；滚动 / 扩窗改新位置模型（偏移 + 显示索引，`rows.ts` 已备）；行身份从「buffer seq 锚点」迁到新模型（旧 `state.buffer` / `seq` 锚点 / `dialogueGeometry` / `windowGroups` 退场，见待续表 1）；帧级等价性矩阵（宽度 × 档位 × 扩窗档）与计数断言全绿后切默认路径。
 
 ## 测试与证据
 
