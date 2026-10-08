@@ -40,11 +40,33 @@ import {
 } from "./tiers.ts";
 import { resolveTierPaths, type Tier } from "./router.ts";
 import { homedir } from "node:os";
+import type { DatabaseSync } from "node:sqlite";
 import {
   DOC_INDEX_KIND,
   scanDocs as scanDocTable,
   type DocScanReport,
 } from "./doc-index.ts";
+import {
+  approveCandidate,
+  editCandidate,
+  listCandidates,
+  markConflict,
+  markSourcesPromoted,
+  pruneCandidates,
+  promoteCandidates,
+  promoteProjectToUser,
+  promoteSessionToProject,
+  resolveConflict,
+  rejectCandidate,
+  summarizeOutcomes,
+  type CandidateRow,
+  type ConflictDecision,
+  type LlmCaller,
+  type PromoteItem,
+  type PromotionStats,
+  type PromoteOutcome,
+  type ReviewVerdict,
+} from "./promote.ts";
 import {
   fallbackSpec,
   KindRegistry,
@@ -172,6 +194,53 @@ export interface AutoConsolidateConfig {
  */
 export type Config = KnowledgeConfig;
 
+/** 提升链服务面（设计 §6 L178-189）：跨包 push + 审阅队列 + 冲突裁定的 bundle 门面。 */
+export interface PromotionFacade {
+  /** 幂等入队（`target_tier` + `kind` + `fact_key` 幂等键；跨项目同事实落同一行）。 */
+  promote(items: readonly PromoteItem[]): Promise<PromoteOutcome[]>;
+  /** 审阅队列清单（缺省只出 pending）。 */
+  list(opts?: {
+    tier?: Tier;
+    state?: CandidateRow["state"];
+  }): Promise<CandidateRow[]>;
+  /** 审阅通过（P 可 agent 代批；U 与冲突候选 user-only）；返回 `sources` 供跨包标记。 */
+  approve(args: {
+    tier: Tier;
+    id: number;
+    reviewer: string;
+    project?: string;
+  }): Promise<ReviewVerdict & { kind?: string; sources?: string[] }>;
+  /** 驳回（终态留痕 = fact_key 墓碑）。 */
+  reject(args: {
+    tier: Tier;
+    id: number;
+    reviewer: string;
+    reason: string;
+  }): Promise<ReviewVerdict>;
+  /** 改写候选内容（重算 fact_key；保持 pending）。 */
+  edit(args: {
+    tier: Tier;
+    id: number;
+    content: string;
+  }): Promise<ReviewVerdict>;
+  /** 人工标记冲突（自动检测依赖 LLM，本条目不做）。 */
+  markConflict(args: {
+    tier: Tier;
+    id: number;
+    conflictWith: { kind: string; id: number };
+  }): Promise<ReviewVerdict>;
+  /** 冲突裁定（user-only；keep-old / accept-new / merge / edit）。 */
+  resolveConflict(args: {
+    tier: Tier;
+    id: number;
+    decision: ConflictDecision;
+    reviewer: string;
+    content?: string;
+  }): Promise<ReviewVerdict & { sources?: string[] }>;
+  /** 累计统计（§5 可观测）。 */
+  stats(): PromotionStats & { llmUnavailable: number };
+}
+
 export interface KnowledgeBundle {
   kb: KnowledgeService;
   memory: MemoryService;
@@ -181,6 +250,12 @@ export interface KnowledgeBundle {
   consolidate: ConsolidationService;
   /** 分类注册表（设计 §4）：第三方经服务面 `registerKind` 注册，各层库共用。 */
   registry: KindRegistry;
+  /** 提升链门面（设计 §6）：跨包 push + 审阅队列 + 冲突裁定。 */
+  promotion: PromotionFacade;
+  /** 注入 / 解除 LLM 概括调用方（设计偏差 D51：宿主无公开 ctx.llm，由 wrapper 注入）。 */
+  setLlmCaller(caller: LlmCaller | null): void;
+  /** 单库模式的库连接（分层模式下为 S 库连接；候选表在每层库上）。 */
+  db: DatabaseSync;
   /** 分层三库集合（`config.tiers.enabled` 时才有）：跨层检索 / 写入路由 / 容量。 */
   tiers?: TierSet;
   /**
@@ -340,11 +415,165 @@ export async function createKnowledgeBundle(
     return out;
   };
 
+  // —— 提升链（设计 §6）：LLM 面可插拔注入（D51）+ 生产统计 + 层解析 ——
+  let llmCaller: LlmCaller | undefined;
+  const promotionStats: PromotionStats & { llmUnavailable: number } = {
+    queued: 0,
+    merged: 0,
+    rejectedDuplicate: 0,
+    rejectedGate: 0,
+    llmUnavailable: 0,
+  };
+  const resolveTierAccess = (
+    tier: Tier,
+  ): { db: DatabaseSync; kb: KnowledgeService } | undefined => {
+    if (tiers === undefined) {
+      // 单库模式 = 会话层库：只有 session 目标可达（P / U 库不存在）。
+      return tier === "session" ? { db, kb } : undefined;
+    }
+    const store = tiers.get(tier);
+    return store === undefined ? undefined : { db: store.db, kb: store.kb };
+  };
+  const accumulatePromotion = (stats: PromotionStats): void => {
+    promotionStats.queued += stats.queued;
+    promotionStats.merged += stats.merged;
+    promotionStats.rejectedDuplicate += stats.rejectedDuplicate;
+    promotionStats.rejectedGate += stats.rejectedGate;
+  };
+  // S → P 候选生产（设计 §6：session/disposed 收尾 + compaction/end；判据见 promote.ts）。
+  const promoteDisposedSession = async (sessionId: string): Promise<void> => {
+    if (tiers === undefined) return;
+    const sStore = tiers.get("session");
+    const pStore = tiers.currentProject() ?? tiers.get("project");
+    if (sStore === undefined || pStore === undefined) return;
+    try {
+      const stats = await promoteSessionToProject(
+        sStore.db,
+        pStore.db,
+        registry,
+        {
+          sessionId,
+          llm: llmCaller,
+          rules: hooks.rules,
+        },
+      );
+      accumulatePromotion(stats);
+      if (stats.queued + stats.merged > 0) {
+        log(
+          `memory-base S→P 候选（会话 ${sessionId} 收尾）：入队 ${stats.queued} / 合并 ${stats.merged}`,
+        );
+      }
+    } catch (error: unknown) {
+      log(`memory-base S→P 候选生产失败（忽略）：${String(error)}`);
+    }
+  };
+  const promotion: PromotionFacade = {
+    promote: async (items) => {
+      const out: PromoteOutcome[] = [];
+      for (const item of items) {
+        const access = resolveTierAccess(item.targetTier);
+        if (access === undefined) {
+          out.push({ status: "rejected-gate", reason: "tier-unavailable" });
+          continue;
+        }
+        const batch = await promoteCandidates(access.db, registry, [item], {
+          rules: hooks.rules,
+          llm: llmCaller,
+        });
+        accumulatePromotion(summarizeOutcomes(batch));
+        const outcome = batch[0];
+        if (outcome !== undefined) out.push(outcome);
+      }
+      return out;
+    },
+    list: async (opts) => {
+      const access = resolveTierAccess(opts?.tier ?? "session");
+      if (access === undefined) return [];
+      return listCandidates(access.db, {
+        tier: opts?.tier,
+        state: opts?.state,
+      });
+    },
+    approve: async (args) => {
+      const access = resolveTierAccess(args.tier);
+      if (access === undefined) return { ok: false, reason: "not-found" };
+      const result = await approveCandidate(
+        access.db,
+        access.kb,
+        registry,
+        args.id,
+        {
+          reviewer: args.reviewer,
+          project: args.project ?? tiers?.get(args.tier)?.project ?? "",
+          llm: llmCaller,
+        },
+      );
+      if (!result.ok) {
+        if (result.reason === "llm-unavailable")
+          promotionStats.llmUnavailable += 1;
+        return result;
+      }
+      // ② 下层来源标记（跨库 best-effort；外部标记格式不认识就跳过——回指允许悬空）。
+      if (result.kind !== undefined && result.sources !== undefined) {
+        const marked = markSourcesPromoted(
+          tiers ?? { get: () => undefined },
+          result.sources,
+          { kind: result.kind, id: result.id },
+          registry,
+        );
+        if (result.sources.length > 0) {
+          log(
+            `memory-base 提升落库（${args.tier}）：来源标记 ${marked}/${result.sources.length}`,
+          );
+        }
+      }
+      return result;
+    },
+    reject: async (args) => {
+      const access = resolveTierAccess(args.tier);
+      if (access === undefined) return { ok: false, reason: "not-found" };
+      return rejectCandidate(access.db, args.id, {
+        reviewer: args.reviewer,
+        reason: args.reason,
+      });
+    },
+    edit: async (args) => {
+      const access = resolveTierAccess(args.tier);
+      if (access === undefined) return { ok: false, reason: "not-found" };
+      return editCandidate(access.db, args.id, args.content);
+    },
+    markConflict: async (args) => {
+      const access = resolveTierAccess(args.tier);
+      if (access === undefined) return { ok: false, reason: "not-found" };
+      return markConflict(access.db, args.id, {
+        conflictWith: args.conflictWith,
+      });
+    },
+    resolveConflict: async (args) => {
+      const access = resolveTierAccess(args.tier);
+      if (access === undefined) return { ok: false, reason: "not-found" };
+      return resolveConflict(
+        access.db,
+        access.kb,
+        registry,
+        args.id,
+        args.decision,
+        {
+          reviewer: args.reviewer,
+          content: args.content,
+          llm: llmCaller,
+        },
+      );
+    },
+    stats: () => ({ ...promotionStats }),
+  };
+
   const auto = config.autoConsolidate ?? {};
   const minIntervalMs = Math.max(0, auto.minIntervalMs ?? 10 * 60 * 1000);
   let lastConsolidateAt = 0;
   const maybeConsolidate = async (
     reason: string,
+    sessionId?: string,
   ): Promise<ConsolidationReport | undefined> => {
     if (auto.enabled === false) return undefined;
     const at = Date.now();
@@ -385,6 +614,37 @@ export async function createKnowledgeBundle(
             );
           }
         }
+        // 提升候选生产（设计 §6）：S → P（compaction 触发，需会话 id）+ P → U 巩固推票
+        //（每轮 ≤10）+ 候选表容量兜底（清最旧）。
+        if (tiers !== undefined) {
+          if (sessionId !== undefined) {
+            await promoteDisposedSession(sessionId);
+          }
+          const pStore = tiers.currentProject() ?? tiers.get("project");
+          const uStore = tiers.get("user");
+          if (pStore !== undefined && uStore !== undefined) {
+            const stats = await promoteProjectToUser(
+              pStore.db,
+              uStore.db,
+              registry,
+              {
+                project: pStore.project,
+                llm: llmCaller,
+                rules: hooks.rules,
+              },
+            );
+            accumulatePromotion(stats);
+            if (stats.queued + stats.merged > 0) {
+              log(
+                `memory-base P→U 候选：入队 ${stats.queued} / 合并 ${stats.merged}`,
+              );
+            }
+          }
+          const pruned = pruneCandidates(uStore?.db ?? db);
+          if (pruned > 0) {
+            log(`memory-base 候选容量兜底：清理最旧 ${pruned} 条`);
+          }
+        }
       }
       return report;
     } catch (error: unknown) {
@@ -392,17 +652,42 @@ export async function createKnowledgeBundle(
       return undefined;
     }
   };
-  const consolidateDisposer = host.on("session/event", (_session, event) => {
+  const consolidateDisposer = host.on("session/event", (session, event) => {
     if (auto.afterCompaction === false) return;
     if (
       event?.type === "compaction/end" ||
       event?.type === "compaction/summary"
     ) {
-      void maybeConsolidate("compaction");
+      const sessionId =
+        typeof session?.id === "string" ? session.id : undefined;
+      void maybeConsolidate("compaction", sessionId);
     }
+  });
+  // S → P 收尾触发（设计 §6）：会话销毁时把该会话够格行推入 P 审阅队列。
+  // 宿主 on 面是字符串事件名（HookHost 类型只收窄了 session/event）——防御式宽化。
+  const disposedDisposer = (
+    host as {
+      on?: (
+        event: string,
+        listener: (
+          session: { id?: string },
+          event: { sessionId?: string } | null,
+        ) => unknown,
+      ) => unknown;
+    }
+  ).on?.("session/disposed", (session, event) => {
+    const id =
+      typeof event?.sessionId === "string"
+        ? event.sessionId
+        : typeof session?.id === "string"
+          ? session.id
+          : undefined;
+    if (id !== undefined) void promoteDisposedSession(id);
   });
   const detachConsolidate =
     typeof consolidateDisposer === "function" ? consolidateDisposer : () => {};
+  const detachDisposed =
+    typeof disposedDisposer === "function" ? disposedDisposer : () => {};
   if (auto.onStart !== false) void maybeConsolidate("start");
   log(
     `memory-base 已就绪（db=${dbPath === ":memory:" ? ":memory:" : dbPath}）`,
@@ -425,6 +710,11 @@ export async function createKnowledgeBundle(
     hooks,
     consolidate,
     registry,
+    promotion,
+    setLlmCaller: (caller: LlmCaller | null): void => {
+      llmCaller = caller ?? undefined;
+    },
+    db,
     scanDocs: scanConfiguredDocs,
     ...(tiers === undefined ? {} : { tiers }),
     project: projectName,
@@ -433,6 +723,7 @@ export async function createKnowledgeBundle(
     dispose: () => {
       detach();
       detachConsolidate();
+      detachDisposed();
       tiers?.close();
       db.close();
     },
@@ -576,6 +867,70 @@ export function apply(ctx: BundleHost, config: KnowledgeConfig = {}): void {
       }): Promise<Array<{ tier: "project" | "user" } & DocScanReport>> => {
         const bundle = await whenKnowledgeReady();
         return bundle.scanDocs(opts?.tier);
+      },
+      /** 提升链门面（设计 §6）：push / 审阅队列 / 冲突裁定（逐方法透传 bundle.promotion）。 */
+      promote: async (
+        items: readonly PromoteItem[],
+      ): Promise<PromoteOutcome[]> => {
+        const bundle = await whenKnowledgeReady();
+        return bundle.promotion.promote(items);
+      },
+      candidates: {
+        list: async (opts?: {
+          tier?: Tier;
+          state?: CandidateRow["state"];
+        }): Promise<CandidateRow[]> => {
+          const bundle = await whenKnowledgeReady();
+          return bundle.promotion.list(opts);
+        },
+        approve: async (args: {
+          tier: Tier;
+          id: number;
+          reviewer: string;
+          project?: string;
+        }): Promise<ReviewVerdict & { kind?: string; sources?: string[] }> => {
+          const bundle = await whenKnowledgeReady();
+          return bundle.promotion.approve(args);
+        },
+        reject: async (args: {
+          tier: Tier;
+          id: number;
+          reviewer: string;
+          reason: string;
+        }): Promise<ReviewVerdict> => {
+          const bundle = await whenKnowledgeReady();
+          return bundle.promotion.reject(args);
+        },
+        edit: async (args: {
+          tier: Tier;
+          id: number;
+          content: string;
+        }): Promise<ReviewVerdict> => {
+          const bundle = await whenKnowledgeReady();
+          return bundle.promotion.edit(args);
+        },
+        markConflict: async (args: {
+          tier: Tier;
+          id: number;
+          conflictWith: { kind: string; id: number };
+        }): Promise<ReviewVerdict> => {
+          const bundle = await whenKnowledgeReady();
+          return bundle.promotion.markConflict(args);
+        },
+        resolveConflict: async (args: {
+          tier: Tier;
+          id: number;
+          decision: ConflictDecision;
+          reviewer: string;
+          content?: string;
+        }): Promise<ReviewVerdict & { sources?: string[] }> => {
+          const bundle = await whenKnowledgeReady();
+          return bundle.promotion.resolveConflict(args);
+        },
+      },
+      setLlmCaller: async (caller: LlmCaller | null): Promise<void> => {
+        const bundle = await whenKnowledgeReady();
+        bundle.setLlmCaller(caller);
       },
       /** 手动触发一次巩固（缺省按 bundle 的静态 project；可传段参数覆盖）。 */
       consolidate: async (opts?: Partial<ConsolidationOptions>) => {

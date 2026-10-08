@@ -58,10 +58,273 @@ export interface PromoteItem {
 export type PromoteOutcome =
   | { status: "queued" | "merged"; id: number }
   | { status: "rejected-duplicate"; id: number }
-  | { status: "rejected-gate"; reason: SkipReason | "kind-unregistered" };
+  | {
+      status: "rejected-gate";
+      reason: SkipReason | "kind-unregistered" | "tier-unavailable";
+    };
 
 export interface LlmCaller {
   (prompt: string, opts?: { maxTokens?: number }): Promise<string>;
+}
+
+/** 一轮候选生产的汇总（可观测：§5 计数面）。 */
+export interface PromotionStats {
+  queued: number;
+  merged: number;
+  rejectedDuplicate: number;
+  rejectedGate: number;
+}
+
+function accumulate(
+  stats: PromotionStats,
+  outcomes: readonly PromoteOutcome[],
+): void {
+  for (const outcome of outcomes) {
+    if (outcome.status === "queued") stats.queued += 1;
+    else if (outcome.status === "merged") stats.merged += 1;
+    else if (outcome.status === "rejected-duplicate")
+      stats.rejectedDuplicate += 1;
+    else stats.rejectedGate += 1;
+  }
+}
+
+/** 把一批入队结果折算成统计（供 bundle 层累计，§5 可观测）。 */
+export function summarizeOutcomes(
+  outcomes: readonly PromoteOutcome[],
+): PromotionStats {
+  const stats: PromotionStats = {
+    queued: 0,
+    merged: 0,
+    rejectedDuplicate: 0,
+    rejectedGate: 0,
+  };
+  accumulate(stats, outcomes);
+  return stats;
+}
+
+/** 候选表独立上限（设计 §6：超限先清最旧；pending / conflict / rejected 全计入）。 */
+export const CANDIDATES_MAX_BYTES = 5 * 1024 * 1024;
+
+/** 候选表容量兜底：按估算字节（正文 + 标题 + 冲突引用 + 行开销）清最旧，返回删除行数。 */
+export function pruneCandidates(
+  db: DatabaseSync,
+  maxBytes: number = CANDIDATES_MAX_BYTES,
+): number {
+  const totalOf = (): number =>
+    Number(
+      (
+        db
+          .prepare(
+            "SELECT COALESCE(SUM(LENGTH(content) + LENGTH(COALESCE(title, '')) + LENGTH(COALESCE(conflict_with, '')) + 256), 0) AS bytes FROM candidates",
+          )
+          .get() as { bytes: number }
+      ).bytes,
+    );
+  let deleted = 0;
+  let total = totalOf();
+  while (total > maxBytes) {
+    const result = db
+      .prepare(
+        "DELETE FROM candidates WHERE id IN (SELECT id FROM candidates ORDER BY created_at ASC, id ASC LIMIT 10)",
+      )
+      .run();
+    const changes = Number(result.changes);
+    if (changes === 0) break;
+    deleted += changes;
+    total = totalOf();
+  }
+  return deleted;
+}
+
+/**
+ * S → P 候选生产（设计 §6 触发表）：扫本会话够格行（被检索命中过，或决策类事件
+ * `plan/mode` / `goal/change` / `approval/decided`；失败教训分支待注册方事件绑定，
+ * 未注册不成立）→ 推入当前项目 P 库 candidates。每轮 ≤ 20（防审阅疲劳，§8.1）。
+ */
+export async function promoteSessionToProject(
+  sourceDb: DatabaseSync,
+  targetDb: DatabaseSync,
+  registry: KindRegistry,
+  opts: {
+    sessionId: string;
+    llm?: LlmCaller;
+    rules?: CompiledRules;
+    now?: number;
+    limit?: number;
+  },
+): Promise<PromotionStats> {
+  const limit = Math.max(1, Math.min(opts.limit ?? 20, 100));
+  const decisionCategories = ["plan/mode", "goal/change", "approval/decided"];
+  const placeholders = decisionCategories.map(() => "?").join(", ");
+  const stats: PromotionStats = {
+    queued: 0,
+    merged: 0,
+    rejectedDuplicate: 0,
+    rejectedGate: 0,
+  };
+  const items: PromoteItem[] = [];
+  for (const entry of registry.list()) {
+    const exists = sourceDb
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+      )
+      .get(entry.table);
+    if (exists === undefined) continue;
+    const rows = sourceDb
+      .prepare(
+        `SELECT id, title, content FROM ${entry.table}
+         WHERE session_id = ? AND (last_referenced > created_at OR category IN (${placeholders}))
+         ORDER BY last_referenced DESC, id ASC LIMIT ?`,
+      )
+      .all(opts.sessionId, ...decisionCategories, limit) as Array<{
+      id: number;
+      title: string | null;
+      content: string;
+    }>;
+    for (const row of rows) {
+      items.push({
+        targetTier: "project",
+        kind: entry.kind,
+        title: row.title ?? undefined,
+        content: row.content,
+        sources: [`session:${entry.kind}:${row.id}`],
+      });
+    }
+  }
+  const outcomes = await promoteCandidates(targetDb, registry, items, {
+    llm: opts.llm,
+    rules: opts.rules,
+    now: opts.now,
+  });
+  accumulate(stats, outcomes);
+  return stats;
+}
+
+/**
+ * P → U 候选生产（设计 §6 触发表）：把当前项目的 P 层行作为 U 候选推送（每项目一票，
+ * 跨项目合并靠 promote 幂等键 + 子串合并；≥2 项目即「跨项目事实」优先提审）。
+ * 排序 = importance 降序 → last_referenced 降序（近期有用的先推）；每轮 ≤ 10（§8.1）。
+ */
+export async function promoteProjectToUser(
+  sourceDb: DatabaseSync,
+  targetDb: DatabaseSync,
+  registry: KindRegistry,
+  opts: {
+    project: string;
+    llm?: LlmCaller;
+    rules?: CompiledRules;
+    now?: number;
+    limit?: number;
+  },
+): Promise<PromotionStats> {
+  const limit = Math.max(1, Math.min(opts.limit ?? 10, 100));
+  const stats: PromotionStats = {
+    queued: 0,
+    merged: 0,
+    rejectedDuplicate: 0,
+    rejectedGate: 0,
+  };
+  const rows: Array<{
+    id: number;
+    kind: string;
+    title: string | null;
+    content: string;
+    importance: number;
+    last_referenced: number;
+  }> = [];
+  for (const entry of registry.list()) {
+    const exists = sourceDb
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+      )
+      .get(entry.table);
+    if (exists === undefined) continue;
+    const found = sourceDb
+      .prepare(
+        `SELECT id, title, content, importance, last_referenced FROM ${entry.table}
+         WHERE project = ?
+         ORDER BY importance DESC, last_referenced DESC, id ASC LIMIT ?`,
+      )
+      .all(opts.project, limit) as Array<{
+      id: number;
+      title: string | null;
+      content: string;
+      importance: number;
+      last_referenced: number;
+    }>;
+    for (const row of found) {
+      rows.push({
+        id: row.id,
+        kind: entry.kind,
+        title: row.title,
+        content: row.content,
+        importance: row.importance,
+        last_referenced: row.last_referenced,
+      });
+    }
+  }
+  rows.sort(
+    (a, b) =>
+      b.importance - a.importance ||
+      b.last_referenced - a.last_referenced ||
+      a.id - b.id,
+  );
+  const items: PromoteItem[] = rows.slice(0, limit).map((row) => ({
+    targetTier: "user",
+    kind: row.kind,
+    title: row.title ?? undefined,
+    content: row.content,
+    sources: [`project:${row.kind}:${row.id}`],
+    projects: [opts.project],
+  }));
+  const outcomes = await promoteCandidates(targetDb, registry, items, {
+    llm: opts.llm,
+    rules: opts.rules,
+    now: opts.now,
+  });
+  accumulate(stats, outcomes);
+  return stats;
+}
+
+/**
+ * ② 下层来源标记（跨库 best-effort，决策 D53）：`sources` 形如 `<tier>:<kind>:<id>`
+ * （本包生产路径的格式；I 层等外部标记不认识就跳过——回指链允许自然悬空，§6.1）。
+ * 失败只计数不抛（approve 已提交，重扫靠墓碑 / 人工 reject 兜底重复提审）。
+ */
+export function markSourcesPromoted(
+  tiersLike: {
+    get(tier: "session" | "project" | "user"): { db: DatabaseSync } | undefined;
+  },
+  sources: readonly string[],
+  target: { kind: string; id: number },
+  registry: KindRegistry,
+): number {
+  let marked = 0;
+  for (const source of sources) {
+    const parts = source.split(":");
+    if (parts.length !== 3) continue;
+    const tier = parts[0];
+    const kind = parts[1];
+    const rawId = parts[2];
+    if (tier === undefined || kind === undefined || rawId === undefined)
+      continue;
+    const store = tiersLike.get(tier as "session" | "project" | "user");
+    if (store === undefined) continue;
+    const id = Number(rawId);
+    if (!Number.isFinite(id)) continue;
+    // kind → 物理表名经注册表解析（kind 不是表名：兜底分类 default 的表是 chunks）。
+    const table = registry.resolve(kind)?.table;
+    if (table === undefined) continue;
+    try {
+      const result = store.db
+        .prepare(`UPDATE ${table} SET promoted_to = ? WHERE id = ?`)
+        .run(JSON.stringify(target), id);
+      marked += Number(result.changes);
+    } catch {
+      // 表不存在 / 行不存在：回指悬空，计数即可（调用方日志）。
+    }
+  }
+  return marked;
 }
 
 function sha256(text: string): string {
@@ -355,7 +618,9 @@ export async function approveCandidate(
     llm?: LlmCaller;
     now?: number;
   },
-): Promise<ReviewVerdict & { sources?: string[]; projects?: string[] }> {
+): Promise<
+  ReviewVerdict & { kind?: string; sources?: string[]; projects?: string[] }
+> {
   const row = getPendingCandidate(db, id);
   if (row === undefined) return { ok: false, reason: "not-found" };
   if (!reviewerAllowed(row, opts.reviewer))
