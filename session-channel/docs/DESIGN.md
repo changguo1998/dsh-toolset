@@ -67,7 +67,8 @@ reader 循环 ──▶ XREAD BLOCK（多流单次读，id = 各流游标；游�
 ## 5. 生命周期与降级（`src/client.ts`）
 
 - 启动：连接（`connectTimeout` + 3s 总超时）→ PING → 版本 ≥ 5.0 → `meta` schema 校验（缺失则写入）。
-- **任何失败只降级不抛**：插件照常加载，`status` 与工具返回值给出可读错误（`unavailable` / `schema_mismatch` / `bad_config`）。
+- **首连失败只降级不抛，并转后台重试**：`start()` 立即返回（插件照常加载，`status` 与工具返回值给出可读错误 `unavailable` / `schema_mismatch` / `bad_config`），同时按 `RETRY_DELAY_MS`（2 s，可经 `deps.retryDelayMs` 注入）重试到连上为止——连上后跑同一套启动步骤、清 `status.error` 并记一行「重试 N 次后连接成功」。动机：启动期事件循环可能被长同步工作占住数秒，此时 3 s 超时定时器会**先于已完成的连接回调**触发（报「连接超时」而连接其实成功，实测复现），一次失败不该固化成整会话降级。定时器 unref，不阻止进程退出。
+- 重试失败不重复写日志（`status.error` 持续更新）；`stop()` 置 `#stopped` 即终止重试。
 - 自检失败路径也会关掉已建立的连接（否则句柄残留，进程不退出——测试时实测过）。
 - 关闭：清本进程所有在线键 → 断开两条连接（reader 用 `disconnect` 打断阻塞读）。
 

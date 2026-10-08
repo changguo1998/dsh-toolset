@@ -32,6 +32,8 @@ cd <repo> && sh session-channel/scripts/setup-redis.sh --linger
 
 脚本写入 `~/.dsh/session-channel/redis.conf`（`port 0` + `$XDG_RUNTIME_DIR/dsh-session-channel.sock`、独立数据目录、`noeviction`、`appendonly yes`）与用户级服务 `~/.config/systemd/user/dsh-session-channel-redis.service`，并 `enable --now`。验证：`redis-cli -s "$XDG_RUNTIME_DIR/dsh-session-channel.sock" ping` → `PONG`。
 
+**连接失败不阻塞启动**：首连失败只降级（`status.error` 记最后一次错误），并按 `RETRY_DELAY_MS`（2 s）后台重试到连上为止——连上后补齐心跳 / 读循环并清 `error`（`stop()` 终止重试）。故 Redis 晚起或启动期事件循环被占住导致的「假超时」都会在数秒内自愈。
+
 ## 配置
 
 | 字段 | 默认 | 说明 |
