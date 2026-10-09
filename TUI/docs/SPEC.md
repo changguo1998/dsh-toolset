@@ -257,7 +257,7 @@ tableBox(table: TableSpec, width: number, themeId: ThemeId): Box | null
 
 1. **宽轴 = 自顶向下（分割）**：根矩形（终端尺寸）→ 逐层按 `Width` 意图切分宽度。该链与内容无关，纯分割（`metricsFor`/`contentW` 的活）。
 1. **高轴 = 自底向上（生长）**：**必须在宽度确定后才能计算**——段落折行必须知道可用宽（来自父链分配），折行行数即高度（`fill` 的活）。
-1. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` + 语义锚点 `anchorToIndex` 的活）。区域（历史 + 活动区，位于状态列右侧）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane 宽高比距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 `TUI/docs/DESIGN.md`「四区域布局」）。历史区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`dialogueWindow`），视口位置由**语义锚点**（`DialogueAnchor{line,row}`，视口顶行 = (buffer 行, 行内换行序号)）解析——两者合计使「重排/新增内容」不再移动锚定内容（见 `TUI/docs/DESIGN.md`「四区域布局」）。
+1. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` 定高度、`positionAt` / `indexOfTop` 按段键位置模型切段）。区域（历史 + 活动区，位于状态列右侧）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane 宽高比距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 `TUI/docs/DESIGN.md`「四区域布局」）。历史区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`windowSections`），视口位置由**段键位置模型**（`DialogueTop{key,row}`：段键 = 节身份 + 节内 box 序号）解析——两者合计使「重排 / 新增内容 / 扩窗插入段」不再移动视口所指的内容（见 `TUI/docs/DESIGN.md`「四区域布局」）。
 
 **次序不变量（长宽不可能同时自由）**：宽度分割先于高度测量；高度永远在宽度确定后计算。`measure(node, constraint)` 的 `constraint` 即「宽度来自父链」的入口——measure 并非无约束累加：宽锁（父分配）→ 高自由（内容生长）。至少一个轴被父链锁死，内容才在另一轴自由生长。
 
@@ -407,7 +407,7 @@ setCell(row: FrameRow, col: number, ch: string, style?: FrameStyle): void
 折叠决策依赖**可用高度**，因此全部落在 `fill`（拿 rect 之后）执行——内容树本身与尺寸无关，避免“建树要先知高度”的鸡生蛋：
 
 - **状态列分级折叠**（L0–L3）：按 rect 高逐级尝试、首次放下即采用；必保行与可折叠条目及其优先级由现状块结构（`head`/`items`）自然携带，**不发明“可折叠标注”**（现 `foldAt`）。Goal 块额外携带 `historyFrom`（`items[≥historyFrom]` 为旧 goal 条目）：L1 只保留最近 1 条历史并提示隐藏数，L2 起压成标题行
-- **历史区组折叠**：仅保最近 N 回复组，更早替换为灰占位（`dialogueWindow` 在 buffer 层切片 + 占位行）
+- **历史区组折叠**：仅保最近 N 回复组，更早替换为灰占位（`windowSections` 在**节**层切片 + 占位行（`MARKER_KEY`），未物化的节不排版）
 - **活动区两态**：状态 1（`/collapse off`，缺省）每条完全显示、溢出按行截断 + 可滚动；状态 2（`/collapse on`，紧凑）每条目压为 1 行、行尾省略号。**触发方式已定：显式命令切换**（不做按高度预算自动降级；实现见 §15.5.1）。另有**输出内容三档** `/verbose think|tool|step`（BACKLOG #8，见 §15.5）
 - 滚动 viewport：按矩形高裁行 + 行级滚动偏移（= 现状 `computeViewport` 语义）
 
@@ -416,7 +416,7 @@ setCell(row: FrameRow, col: number, ch: string, style?: FrameStyle): void
 | 适配 | 现实现 |
 |---|---|
 | 状态列分级折叠（L0-L3 逐级尝试、首次放下即用，兜底行级截断 `…(+N行)`） | `layout.ts` `foldAt(block, level)` + `capRows(rows, budget)` |
-| 历史区组折叠（保最近 N 回复组，更早替换为灰占位 `...(更早回复已折叠)`） | `dialogueWindow(buffer, groups)` 在 buffer 层切片 + 占位行（排版量随窗口收敛） |
+| 历史区组折叠（保最近 N 回复组，更早替换为灰占位 `...(更早回复已折叠)`） | `windowSections(sections, groups)` 在节层切片 + 占位行（排版量随窗口收敛，段键跨扩窗稳定） |
 | 活动区两态（完整折行 / 每条目 1 行 + 行尾省略号） | `layout/build-box.ts` `compactActivityLine`（构建期压缩） |
 | 滚动 viewport（按矩形高裁行 + 行级滚动偏移） | `fill` 产出行后由 `buildFrame` 按 pane 高切窗口 |
 
@@ -683,19 +683,17 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **水平状态栏**（`renderStatusLine`）：`dotJoin` 给组内逻辑段插 `•`，`h` 的 `separator` 传 `{ char:"•", color:"plain" }` 做组间分隔；状态符号段（符号 + `│` lead 段）整体删除，首行行首回到 1 空格留边。因此 `statusBarSeamCols` 在状态栏行上取不到边框色竖线列——上/下横线不再画组间交点 `┬`，仅状态列右缘 D 列的 `┴` / `├` 保留（横向排列时内部分隔列的 `┬`/`┴` 属另一机制，不受影响）；`Ctrl+S` 隐藏状态列时 D 列不存在（几何 `dividerCol = −1`），该列交点一并不画（并排排列下该行只剩内部分隔列一个交点）。
 - **回归**：`tests/title-bar.test.ts`（段结构 / permission 不显示 / 沙箱四态取色 / 开关 on-off / 让位顺序）+ `tests/status-column.test.ts`（三块基础渲染与折叠 / phase 符号与取色 / `⟳` 两态取色 / 历史行无符号）+ `tests/status-column-agents.test.ts`（Agents 块：有数据出块 / 行文本 / 无数据省略 / 折叠分级 / 按会话隔离 / 即时刷新与定时保鲜）+ `tests/goal-activation.test.ts`（activation reducer 与展示值口径：有边就显示、无记录不显示、四相位一致，含重启回归）+ `tests/status.test.ts` / `tests/tee-glyph.test.ts`（状态栏分隔与交点）。
 
-### 15.2 历史区回滚：语义锚点 + 渐进窗口
+### 15.2 历史区回滚：段键位置模型 + 渐进窗口
 
-- **为什么**：旧的「距底部行数」+ 全量物化模型有三处弱点——底部新增 / 流式增长会改变同一偏移所指的内容（视图被顶走）、resize 重排后锚定内容跳、首帧上滚要付一次全量排版。
-- **语义锚点**（`layout.ts`：`DialogueAnchor{seq,row}` / `DialogueSpan` / `DialogueGeometry`）：位置改成**内容身份**——视口顶行 = 来源 buffer 行的稳定序号 `seq` + 行内换行序号 `row`（`seq = -1` 是折叠占位行）。序号在行插入时由 `state.append*` 分配（`BufferLine.seq`，`nextSeq` 单调递增），`RowMeta.seq` / `ContentRow.seq` 由 `buildBox` / `fill` 透传，`dialogueSpans(rows)` 每帧把行按序号压成分组表（无序号时回退行下标，便于直接构造 buffer 的单测）。**为什么必须稳定序号**：`turn-begin` 会 filter 掉上一回合的瞬态活动行、`MAX_BUFFER_LINES` 会从头部裁剪——两者都让行下标整体平移，按下标存的锚点会指向别的内容（表现为「提交新消息后视图跳到新内容」）。
-- `anchorToIndex` / `indexToAnchor` 互算（锚点行已被清掉时收敛到空间上最近的前一行，越界收敛首 / 末行）、`moveDialogueAnchor(anchor, deltaRows, geom)` 做行位移（顶到窗口末行 → `null` = 跟底）、`anchorToOffset` 供 `scrollOffset` 派生缓存口径。帧渲染取 `topIdx = anchor === null ? maxTop : clamp(anchorToIndex(...))`。
-- **渐进窗口**（`dialogueWindow(buffer, groups)` / `turnGroupStarts`）：只物化尾部 `windowGroups` 个回合组（缺省 `DIALOGUE_KEEP_REPLIES=3`，组起点 = user 行或无 user 前缀的回复起头）；窗口未覆盖最旧内容时顶部加 `...(更早回复已折叠)` 占位行。`buildContentRows` 接切片 + `lineOffset`，「折叠」不再是显示层裁剪，而是排版量随窗口收敛。
-- **增窗 / 复位**：`scrollDialogue()` 在位移后判断——上滚且视口顶行进入窗口顶部半屏区间（或窗口内已无可滚行）→ `windowGroups += WINDOW_GROW_STEP(3)`（封顶总组数）；扩窗在视口上方插入行、锚点不变故画面不跳；下滚回到底部时复位默认组数。
-- **App 接线**：`FrameScrollReport` 增 `dialogueGeometry{rows,height,spans,topIdx}` + `dialogueTop`（本帧渲染的锚点）；`paneMaxes()` 同口径回填 / 补算；`syncScrollAnchor()` 在出帧后把收敛后的锚点 / 几何 / `scrollOffset` 写回 state（派生缓存，帧已按该锚点渲染故不触发重绘）。**窗口起点不滑走**：用户停在历史里（锚点非 null）而尾部新增了回合组时，按新增组数把 `windowGroups` 撑住。
-- **阅读位置不被输出拽走**（「活动区输出大量文本后，历史区跟着一起向上滚动」的回归，两处协同）：
-  1. 缓冲头部裁剪（`state.ts` 的 `trimBufferHead`）超过 `MAX_BUFFER_LINES` 时**保留锚点行**（最多裁到该行；锚点保护设 2× 上限的安全阀，越界则放弃保护、退回上限裁剪）——否则用户正在读的那一行被逐行裁掉，视口只能跟着不断前移的缓冲头走。
-  1. 锚点行不可达时的顶行回落（`layout.ts` 的 `dialogueTopIdx`）：被裁剪 / 被 `compaction/summary` 遮蔽 / 改由活动区承载 / 落在折叠占位行上时，钉到缓冲中「不早于锚点行的第一条仍可达内容」，而不是 `anchorToIndex` 那样收敛到窗口首行（否则视口会钉在占位行与偏移位之间来回跳，并与压缩摘要互相打架）；全不可达时贴底。
-  1. 会话切换（`history-resume-ok` / `session-switch`）清掉锚点回跟随底部，避免上一会话的锚点跨会话残留。
-- **回归**：`tests/scroll-anchor.test.ts`（10 例：组切分 / 切片、互算往返与越界、底部新增不顶走视图、resize 重排锚点可解析、位移到顶 / 底、增窗与复位、`End` 跳最旧、回合切换清瞬态行后视图不跳、`dialogueTopIdx` 不可达回落）+ `tests/buffer-trim.test.ts`（4 例：锚点行保留 / 无锚点严格按上限 / 锚点已不在缓冲 / 2× 安全阀）+ `tests/layout4.test.ts`（窗口 / 占位 / 报告口径）+ `tests/app.test.ts`（键位路径）。
+- **为什么**：旧的「距底部行数 + 全量物化」模型有三处弱点——底部新增 / 流式增长会改变同一偏移所指的内容；上方插入行（扩窗）会把视图整体推走；落点压在被裁剪行上时只能塌到窗口首行。改为**内容身份**表达位置后，这三种情况都不再需要补偿。
+- **位置 = 段键 + 段内行**（`layout/pipeline/rows.ts`：`DialogueTop{key,row}` / `positionAt` / `indexOfTop`）：段键由节身份 + 节内 box 序号构成（边界项另发 `blank@<后项键>` / `sep@<回合>` / `step@<turn:step>`），跨扩窗与改宽稳定；段键失效（被窗口丢弃 / 会话切换 / `/cls`）时回落「距底偏移」`scrollOffset`。
+- **渐进窗口**（`windowSections(sections, groups)` / `sectionGroupStarts`）：只物化尾部 `windowGroups` 个回合组（缺省 `DIALOGUE_KEEP_REPLIES = 3`），丢弃部分在会话区顶部画一行折叠占位（`MARKER_KEY = "@marker"`）；分组口径复用 `turnGroupStarts`，段身份与分组结果都不依赖宽度。
+- **增窗 / 复位**：`App.scrollDialogueBy(delta)` 在施加位移**之前**按当前段表判断——上滚且视口顶进入窗口顶部半屏区间（或窗口内已无可滚行）→ `windowGroups += WINDOW_GROW_STEP(3)`（封顶总组数），随后按**扩窗后的段表**施加位移；扩窗只在视口上方插段、位置按段键表达 → 画面不动、**位移恒等于按键量**。下滚回到底部时复位默认组数（`scroll-to-bottom`）。
+- **滚动粒度**：裸 `↑` / `↓` = 一行；`Ctrl+↑` / `Ctrl+↓` = 半屏（`dialogueHalfPage(vh) = max(1, floor(vh/2))`）。`PgUp` / `PgDn` = 跳上 / 下一条用户输入（`userRowJump`，行号口径）；`Home` / `End` 语义见 BACKLOG 条目 6。
+- **App 接线**：`FrameScrollReport` 回填段表口径字段（`dialogueTotal` / `dialogueCounts` / `dialogueKeys` / `dialogueTopIdx` / `dialogueViewportH` / `dialogueUserRows`）；`paneMaxes()` 同口径回填 / 补算；`syncDialoguePos()` 在出帧后把收敛后的位置写回 state（派生缓存，帧已按该位置渲染故不触发重绘）。**窗口起点不滑走**：用户停在历史里（`dialogueTop !== null`）而尾部新增了回合组时，按新增组数把 `windowGroups` 撑住。
+- **阅读位置不被输出拽走**（「活动区输出大量文本后，历史区跟着一起向上滚动」的回归）：位置按段键表达 → 尾部追加 / 活动区增长都不改变视口顶所指的内容；缓冲头部裁剪（`trimBufferHead`）按上限裁剪，被裁掉的更早内容本就在窗口之外。
+- **会话切换**（`history-resume-ok` / `session-switch` / `/cls`）清掉位置回跟随底部，避免上一会话的位置跨会话残留。
+- **回归**：`tests/scroll-position.test.ts`（段表 / 位置互算与越界 / 段键失效回落）+ `tests/buffer-trim.test.ts`（按上限裁剪）+ `tests/layout4.test.ts`（窗口 / 占位 / 报告口径 / 扩窗位移恒等于半屏）+ `tests/app.test.ts`（键位路径：裸 ↑ 一行、`Ctrl+↑` 半屏、撞窗口顶那次不多滚）。
 
 ### 15.3 排版尺寸唯一来源：FrameGeometry
 
@@ -796,7 +794,7 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **网格线不着色**：`│` / `═` / `─` / 交叉字一律用主题默认前景色，只有左缘竖线取 `brightBlue`；表头格加粗与格内行内样式照旧。横线行的横线须铺满整个列区域（列宽 + 左右留白），故不经 `gridRow` 的 pad 装配（否则每列多出 2 列、总宽超出预算导致折行错位）。
 - **列宽求解**：自然宽按渲染文本计（CJK 2 列）；超预算用**水位法**（`waterLevel` 二分）——窄列保持自然宽、只有超宽列被压到共同水位线，避免按比例缩放把窄列压到 `minW` 以下；抬到 `minW` 后若超预算则退回纯水位线。`ΣminW` 仍放不下 → **返回 `null` 退回普通文本行**（#6：取消格内 `…` 截断，被截内容不再丢失）。数字列在分隔行未显式标注且表体非空格全为数字时自动右对齐。
 - **窄终端回退**：可用宽 < 左缘竖线 + 1 空格 + 每列 1 列 + 固定开销 → `tableBox` 返回 `null`，调用方退回普通文本行。
-- **元数据**：表格子树整棵挂同一 `rowMeta`（`markSubtree`）——`fill` 后各行 `kind` / `blockId` 必须与所在回复一致，否则回复组折叠（`dialogueWindow` 按连续 assistant 行切组）与块内空行判定会把表格当成新块。
+- **元数据**：表格子树整棵挂同一 `rowMeta`（`markSubtree`）——`fill` 后各行 `kind` / `blockId` 必须与所在回复一致，否则回复组折叠（`windowSections` / `sectionGroupStarts` 按连续 assistant 行切组）与块内空行判定会把表格当成新块。
 - **回归**：`tests/table.test.ts`（21 例：解析 / 转义 / 列宽 / 压缩 / 截断 / 对齐 / 加粗 / 网格与交叉字 / 左缘竖线连续 + 间隔空格 / 行高 / fence 保护 / 窄宽回退 / 元数据传播）。
 
 ### 15.7 字符宽度（EAW 精确表 + 按需实测 + profile 落盘）

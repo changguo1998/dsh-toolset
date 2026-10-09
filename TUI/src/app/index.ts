@@ -2332,7 +2332,10 @@ export class App {
           const vh =
             this.paneMaxes().dialogueViewportH ||
             frameGeometry(this.state, this.deps.renderer.getSize()).viewportH;
-          this.scrollDialogueBy(dir * dialogueHalfPage(vh));
+          // 2026-10-10 用户裁定：裸 ↑/↓ = **一行**（默认滚动粒度）；Ctrl+↑/↓ = **半屏**
+          // （快速翻页）。两者都走同一套「先扩窗、再按扩窗后的段表施加位移」，
+          // 所以 1 行步进到窗口顶时同样只多物化、不多滚（见 scrollDialogueBy）
+          this.scrollDialogueBy(dir * (ctrl ? dialogueHalfPage(vh) : 1));
         }
         break;
       }

@@ -4214,11 +4214,12 @@ test("对话区滚动：上滚越顶 / End 之后 ↓ 立即响应（偏移收�
   app.dispose();
 });
 
-test("对话区 ↑ 位移恒等于半屏：撞渐进窗口顶那一次也只多物化、不多滚", () => {
+test("对话区滚动粒度：裸 ↑ = 一行，Ctrl+↑ = 半屏（撞渐进窗口顶那一次也只多物化、不多滚）", () => {
   // 回归（BACKLOG 条目 5，真机报告「向上箭头翻页跳内容太多」）：旧实现的位移用**移动前**
   // 几何 clamp，撞窗口顶那次被夹到窗口首行，之后才扩窗 → 视口被重钉到新窗口第一条内容，
-  // 一次跳十几行。新模型的位移在扩窗后施加，且位置按「段键 + 段内行」表达 ⇒ 扩窗只在
-  // 视口上方插段，画面不动，位移恒等于半屏。
+  // 一次跳十几行。新模型的位移在扩窗后施加，且位置按「段键 + 段内行」表达 → 扩窗只在
+  // 视口上方插段，画面不动，位移恒等于按键量。
+  // 粒度（2026-10-10 用户裁定）：裸 ↑/↓ 一行、Ctrl+↑/↓ 半屏。
   const { app, renderer, adapter } = makeApp();
   renderer.size = { cols: 100, rows: 30 };
   for (let i = 1; i <= 8; i++) {
@@ -4230,9 +4231,9 @@ test("对话区 ↑ 位移恒等于半屏：撞渐进窗口顶那一次也只多
     adapter.push({ type: "turn-end" } as DshEvent);
   }
   const st = (): AppState => (app as unknown as { state: AppState }).state;
-  const key = (name: string): KeyEvent => ({
+  const key = (name: string, mods: { ctrl?: boolean } = {}): KeyEvent => ({
     name,
-    ctrl: false,
+    ctrl: mods.ctrl === true,
     meta: false,
     shift: false,
   });
@@ -4261,7 +4262,7 @@ test("对话区 ↑ 位移恒等于半屏：撞渐进窗口顶那一次也只多
   let grew = false;
   for (let i = 0; i < 40; i++) {
     const groupsBefore = st().windowGroups;
-    renderer.press(key("up"));
+    renderer.press(key("up", { ctrl: true }));
     const now = report();
     const table = createLineTable(now.dialogueCounts);
     // 上一帧的视口顶在新段表里的位置 → 位移必须正好 HALF 行（扩窗那一次也一样）
@@ -4275,13 +4276,37 @@ test("对话区 ↑ 位移恒等于半屏：撞渐进窗口顶那一次也只多
     assert.equal(
       now.dialogueTopIdx,
       Math.max(0, here - HALF),
-      `第 ${i + 1} 次 ↑ 位移应为半屏（本次上方多物化 ${now.dialogueTotal - r0.dialogueTotal} 行）`,
+      `第 ${i + 1} 次 Ctrl+↑ 位移应为半屏（本次上方多物化 ${now.dialogueTotal - r0.dialogueTotal} 行）`,
     );
     if (st().windowGroups > groupsBefore) grew = true;
     if (now.dialogueTopIdx === 0) break;
     prevTop = positionAt(table, now.dialogueKeys, now.dialogueTopIdx);
   }
   assert.ok(grew, "上滚过程确实触发过扩窗（否则没覆盖到「撞窗口顶」那一次）");
+  // 裸 ↑ = 一行：视口顶正好比原内容上移 1 行（同内容身份口径）
+  {
+    const before = report();
+    const top = positionAt(
+      createLineTable(before.dialogueCounts),
+      before.dialogueKeys,
+      before.dialogueTopIdx,
+    );
+    renderer.press(key("up"));
+    const after = report();
+    const table = createLineTable(after.dialogueCounts);
+    const here = indexOfTop(
+      table,
+      after.dialogueKeys,
+      top,
+      0,
+      after.dialogueTotal,
+    );
+    assert.equal(
+      after.dialogueTopIdx,
+      Math.max(0, here - 1),
+      "裸 ↑ 位移应为一行",
+    );
+  }
   app.dispose();
 });
 
