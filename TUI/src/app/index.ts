@@ -1654,10 +1654,13 @@ export class App {
     // #3：回合分隔线要显示时间（`hh:mm:ss`）；回合号由随后的宿主 `turn/start` 回填
     const beginTime = Date.now();
     // 六步流水线：分隔线时间的真源同步交付（首回合分隔线由 frame 层预置）
+    // 排队项在回合开始被认领（followup）→ 转入历史流；流水线同步交付用户节
+    const claimed = this.state.queued.find((q) => q.kind === "followup");
+    let predictedTurn = 0;
     if (this.sections !== null) {
       // 回合号本地预测：宿主 turn/start 稍后回填（旧路径改写缓冲行；节缓存不可变），
       // 这里按上一已知回合 +1 预测（首回合 1），分隔线时间随预测号登记
-      const turn = (this.pipelineLastTurn ?? 0) + 1;
+      predictedTurn = (this.pipelineLastTurn ?? 0) + 1;
       // 画线判据与旧路径 appendTurnSeparator 镜像：活动区清理后 buffer 非空且末行
       // 不是回合分隔线才画——首回合空历史不画（frame 层不预置重复线）
       const visible = clearActivity
@@ -1674,22 +1677,15 @@ export class App {
         visible.length > 0 &&
         !(last?.kind === "separator" && last.text === TURN_SEPARATOR);
       if (drawsSeparator) {
-        this.ingestDelivery({ kind: "turn-start", turn, time: beginTime });
+        this.ingestDelivery({
+          kind: "turn-start",
+          turn: predictedTurn,
+          time: beginTime,
+        });
       } else {
         // 不画线（首回合空历史 / 末行已是分隔线）：回合号基线仍要推进，
         // 否则下一回合的本地预测会重复同一号
-        this.pipelineLastTurn = turn;
-      }
-      // 排队项在回合开始被认领（followup）→ 转入历史流；流水线同步交付用户节
-      const claimed = this.state.queued.find((q) => q.kind === "followup");
-      if (claimed !== undefined) {
-        this.deliverLocal({
-          kind: "user",
-          turn,
-          step: 0,
-          text: claimed.text,
-          seq: lastUserLineSeq(this.state.buffer),
-        });
+        this.pipelineLastTurn = predictedTurn;
       }
     }
     this.apply((s) =>
@@ -1700,6 +1696,16 @@ export class App {
       }),
     );
     this.apply((s) => reduceState(s, { type: "queued-claim" }));
+    // 认领交付放在 queued-claim 落行之后：行号取自本行（先交付会取到旧行的 seq）
+    if (claimed !== undefined && this.sections !== null) {
+      this.deliverLocal({
+        kind: "user",
+        turn: predictedTurn,
+        step: 0,
+        text: claimed.text,
+        seq: lastUserLineSeq(this.state.buffer),
+      });
+    }
   }
 
   /** turn 结束后警告：本回合剔除的非打印控制字符（渲染保护兜底） */
