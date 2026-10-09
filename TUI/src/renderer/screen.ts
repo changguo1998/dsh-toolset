@@ -109,18 +109,30 @@ export interface Size {
 }
 
 export class Screen {
-  private write: (s: string) => void;
+  private doWrite: (s: string) => void;
   private cols: number;
   private rows: number;
   private theme: ColorTheme;
   private themes: Record<ThemeId, ColorTheme>;
   /** 首帧是否已渲染：仅首帧做破坏性清屏（清终端既有内容），后续全帧覆盖式重写 */
   private firstRenderDone = false;
+  /** 累计写出的报文字节数（渲染器自愈整帧重绘的阈值计数用） */
+  private byteCount = 0;
+
+  /** 累计写出的报文字节数（渲染器据此触发自愈整帧重绘） */
+  get writtenBytes(): number {
+    return this.byteCount;
+  }
+
+  private write(s: string): void {
+    this.byteCount += s.length;
+    this.doWrite(s);
+  }
 
   constructor(opts: ScreenOptions = {}) {
     this.themes = opts.themes ?? THEMES;
     this.theme = this.themes[DEFAULT_THEME];
-    this.write = opts.write ?? ((s) => process.stdout.write(s));
+    this.doWrite = opts.write ?? ((s) => process.stdout.write(s));
     // 通过 ioctl 探测终端尺寸；不可用时退回 80x24
     this.cols = process.stdout.columns || 80;
     this.rows = process.stdout.rows || 24;
@@ -129,7 +141,7 @@ export class Screen {
   /** 终端 bell：向输出流写 BEL（\x07）。声音提醒事件（任务结束/等待超时）经此输出。
    *  保持与画面渲染同一输出出口（可注入 write 捕获/转发）。 */
   beep(): void {
-    this.write("\x07");
+    this.doWrite("\x07");
   }
 
   resize(cols: number, rows: number): void {
