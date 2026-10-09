@@ -50,7 +50,7 @@ import {
   sectionsFromBuffer,
   stepOf,
 } from "./layout/pipeline/replay.ts";
-import { TURN_SEPARATOR } from "./state.ts";
+import { TURN_SEPARATOR, type BufferLine } from "./state.ts";
 import {
   setWidthOverrides,
   setWidthProbeEnabled,
@@ -428,12 +428,14 @@ export class App {
   private pipelineLastTurn: number | null = null;
 
   /**
-   * 六步流水线：把当前缓冲（恢复 / 整体替换后的行）重放成节缓存。
-   * 仅在开关开启时生效；关闭时不动任何状态。
+   * 六步流水线：把**已构造的历史行**重放成节缓存（恢复 / 会话切换路径）。
+   *
+   * 条目 7 选项 1：行由调用方本地构造（`surfaceToBuffer`）并直传，不再回读
+   * `state.buffer` —— 生产路径不把缓冲内容当恢复入口（缓冲仅测试 / 嵌入用）。
    */
-  private replaySectionsFromBuffer(): void {
+  private replaySectionsFromRows(rows: readonly BufferLine[]): void {
     if (this.deps.pipelineSink === undefined) return;
-    this.sections = sectionsFromBuffer(this.state.buffer);
+    this.sections = sectionsFromBuffer(rows);
     // 回合号基线：重放后取最大节回合（下一回合本地预测 +1 的基准）
     const scanned =
       this.sections.current === undefined
@@ -1038,17 +1040,18 @@ export class App {
           this.state.sessionTitle !== ""
             ? this.state.sessionTitle
             : deriveTitle(firstUser?.text);
+        const rows = surfaceToBuffer(view.messages);
         this.apply((s) =>
           reduceState(s, {
             type: "history-restore",
             id: sid,
             title,
-            rows: surfaceToBuffer(view.messages),
+            rows,
           }),
         );
         this.apply((s) => reduceState(s, { type: "queued-clear" }));
         // 六步流水线：恢复的历史行重放成节缓存（此后新事件继续按节增量接收）
-        this.replaySectionsFromBuffer();
+        this.replaySectionsFromRows(rows);
         this.paint();
       })
       .catch(() => this.notice("启动恢复：既有消息读取失败", "warn"))
@@ -3723,14 +3726,18 @@ export class App {
         ? await this.deps.adapter.sessionTitle(id).catch(() => undefined)
         : undefined;
       const title = official ?? deriveTitle(firstUser?.text);
+      const rows = surfaceToBuffer(view.messages);
       this.apply((s) =>
         reduceState(s, {
           type: "history-resume-ok",
           id,
           title,
-          rows: surfaceToBuffer(view.messages),
+          rows,
         }),
       );
+      // 六步流水线：切换后的历史行重放成节缓存。此前缺失 → 下一次交付按「会话已换」
+      // 重建空节缓存，恢复出的历史在回合区不见（仅 /session 切换路径，启动恢复有重放）
+      this.replaySectionsFromRows(rows);
       this.notice(`已切换到会话「${title}」`, "success");
       // 排队块属于切换前会话（核心队列里那条仍在原会话）：显示登记清空
       this.apply((s) => reduceState(s, { type: "queued-clear" }));

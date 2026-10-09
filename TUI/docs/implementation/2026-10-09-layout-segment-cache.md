@@ -493,7 +493,7 @@ incremental   10.67 ms       0.34 ms       31.6×
 | --- | --- | --- |
 | A1 | pass-through 事件（retry / subagent / hook / feedback / retry-started / compaction / compaction-summary / goal-\* / todo-write / mode …）写下的可见行补投块：新增 `App.deliverBufferTail`，复用重放的「行 → 交付」映射（`deliveryOfLine`），step 头 / 分隔线按重放同款转 `step-start` / `turn-start`；**adapter 已直接交付的事件不桥接**（`tool-call` / `tool-result` / `step` / `compaction-prune`，否则回合区出现重复行） | ✓ 完成 |
 | A1′ | 顺带修交付层根因：`sections.ts` 的 `appendText` 同来源合并会把辅助行（`source: "tool"` 文本）并进工具批，批渲染忽略 `text` → 辅助行整条消失；改为**只与文本项合并** | ✓ 完成 |
-| A2 | 恢复路径从宿主历史直接产交付（不再经 buffer 重放） | 待做 |
+| A2 | 恢复路径改喂**已构造的行**：`replaySectionsFromBuffer()`（回读 `state.buffer`）→ `replaySectionsFromRows(rows)`；启动恢复（`restoreStartupHistory`）与 `/session` 切换（`resumeToSession`）两处都直传 `surfaceToBuffer(...)` 的结果 | ✓ 完成 |
 | 范围裁定 | 用户 2026-10-10：条目 7 取**选项 1**——生产路径单源化（live 运行不再写 / 读 buffer 内容），`state.buffer` 保留为**测试与嵌入用**的重放输入并在文档写明；「连测试路径也不再经 buffer」另立 BACKLOG 条目 12（P3，2-3 天）。实现机制：`AppState` 增「是否保留缓冲内容」开关（App 注入 sink 时置否），`reduceState` 的内容分支在该开关关闭时只更新状态事实、不写缓冲行 | 已裁定 |
 | B1 | 用户块状态事实进节模型（去掉按 `seq` 回查 buffer）。**已完成**：① `turn-end` 交付带 `reason`（`adapter/dsh.ts` 透传宿主 reason）→ `applyTurnEnd` 落到该回合最后一个用户**条目**的 `userStatus`（已有不覆盖）；② `user-flag` 交付（steer 认领时 App 在投新用户块**之前**发出）→ 上一条用户条目 `steerContinued`；③ 恢复路径由 `deliveryOfLine` 按缓冲行透传 `status` / `steerContinued`（`user` 交付新增两个字段）；④ `panes.ts` 给会话区**最后一条终态未定**的用户项打 `active` → 行层 `active`；⑤ `userBlockSymbolResolver` 改读行自带 `status` / `steerContinued` / `active`，**删掉 `activeSeq` 扫描与按 `seq` 回查 buffer** | ✓ 完成 |
 | B2 | 无 sink 回退改测试助手：新增 `tests/helpers/renderFromBuffer.ts`（用 reducer 造 state 的帧测试统一经它把 buffer 行转节并注入 `pipeline`），保留测试能力、不占生产 `state.buffer` | 待做 |
@@ -501,6 +501,28 @@ incremental   10.67 ms       0.34 ms       31.6×
 
 **批 A1 证据**：新增回归用例 `tests/pipeline-app.test.ts`「事件驱动的本地写入投块：retry / subagent / hook 在回合区可见」（条目 10 回归）；`npm run check` 全绿；TUI 全量 **1411 用例全绿**。修复后条目 10 的「警告在回合区不可见」已消失（真机目视待确认）。
 
+**批 A2 证据**（2026-10-10）：新增回归用例 `tests/pipeline-app.test.ts`「会话切换：history-resume-ok 的历史行直接进节缓存」；临时探针正反验证——改前该路径重放后只有 1 节（历史不可见，用例失败）、改后 3 节全出。**顺带修掉一个未报告的缺陷**：`/session` 切换路径此前**没有**重放调用 → 切换后的首次交付按「会话已换」重建空节缓存，恢复出的历史在回合区不可见（启动恢复路径有重放，故只有切换路径中招）。`npm run check` 全绿；TUI 全量 **1412 用例全绿**。
+
+### 第四阶段（条目 7 选项 1 收尾：生产读侧迁移 + 关写开关，进行中）
+
+**开工实测**：交接单把第二步记为「加一个开关」，实测该开关一关会打断 7 处仍在读 `state.buffer` 的生产读者（**这不是开关，是读侧迁移**）。
+
+| # | 读点 | 位置 | 迁移方向 |
+| --- | --- | --- | --- |
+| 1 | A1 事件桥：pass-through 事件写缓冲行后回读补块 | `index.ts` `deliverBufferTail` | 事件 → 交付直投（不经缓冲行） |
+| 2 | 底部 toast / 通知区：取缓冲里的 notice 行 | `layout.ts` `buildBottomRegion` | 节模型的 notice 项 |
+| 3 | `/copy` 最后一条回复 | `index.ts` `copyLastReply`（`lastAssistantText(state.buffer)`） | 节模型的 assistant 末条文本 |
+| 4 | `/council` 目标与问答面板来源 | `index.ts` 的 council 分支、`recentQuestionSource(s.buffer)` | 节模型的末条 user 文本 |
+| 5 | 画线判据（活动区清理后是否画分隔线） | `index.ts` `beginTurnIfNeeded` | 节模型的末节状态 |
+| 6 | 用户块 `seq`（交付去重键 + 节项 `seqs`） | `index.ts` 的 `lastUserLineSeq` ×4 | 退场（A2 已在重放侧先行去掉） |
+| 7 | 无 sink 回退（测试 / 嵌入用法） | `frame.ts` `sectionsOf` | **保留**（条目 12 处理） |
+
+| 批 | 内容 | 状态 |
+| --- | --- | --- |
+| C1 | 读侧迁移（上表 1-6；7 保留） | 进行中 |
+| C2 | `AppState` 增「保留缓冲内容」开关：App 注入 sink 时置否 → `reduceState` 的内容分支只更新状态事实、不写缓冲行；测试路径默认保留 | 待做 |
+| C3 | 文档回写（`state.buffer` = 测试与嵌入用的重放输入）+ 关闭条目 7 | 待做 |
+
 ## 收尾
 
-（未关闭。第二阶段（位置模型接管 + 旧排版退役）进行中；关闭时本文件移入 `TUI/docs/archived/`。）
+（未关闭。条目 7「排版流水线双写退役」选项 1 进行中；关闭时本文件移入 `TUI/docs/archived/`。）

@@ -16,7 +16,12 @@ import {
   applyDelivery,
   createSections,
 } from "../src/app/layout/pipeline/sections.ts";
-import { clearBuffer, initialState, reduceState } from "../src/app/state.ts";
+import {
+  clearBuffer,
+  initialState,
+  reduceState,
+  type AppState,
+} from "../src/app/state.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";
 
@@ -360,6 +365,34 @@ test("续接：恢复面带宿主回合号 → 重放真回合，新回合预测
     !rows.some((line) => line.includes("⇆2 ")),
     "不再出现按恢复序数预测的回合号",
   );
+  app.dispose();
+});
+
+test("会话切换：history-resume-ok 的历史行直接进节缓存（回归：切换后回合区空白）", async () => {
+  // 真机缺陷回归（条目 7 选项 1 / 批 A2）：`/session` 切换路径此前**不重放**历史行 →
+  // 下一次交付按「会话已换」重建空节缓存，恢复出的历史在回合区不可见
+  // （启动恢复路径有重放，故只有切换路径中招）。
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const sink: { current?: (delivery: BlockDelivery) => void } = {};
+  adapter.sessionSurfaces["s2"] = [
+    { role: "user", text: "切换后的提问" },
+    { role: "assistant", text: "切换后的回答" },
+  ];
+  const app = new App({ renderer, adapter, pipelineSink: sink });
+  registerApp(app);
+  app.start();
+  // 面板态由 reducer 置位（与 /session 面板选中链路同型），再走真实恢复方法
+  const inner = app as unknown as {
+    apply(fn: (s: AppState) => AppState): void;
+    resumeToSession(id: string): Promise<void>;
+  };
+  inner.apply((s) => reduceState(s, { type: "history-open" }));
+  inner.apply((s) => reduceState(s, { type: "history-resume", id: "s2" }));
+  await inner.resumeToSession("s2");
+  const body = frames(app, renderer).join("\n");
+  assert.ok(body.includes("切换后的提问"), "用户历史行在回合区可见: " + body);
+  assert.ok(body.includes("切换后的回答"), "回复历史行在回合区可见");
   app.dispose();
 });
 
