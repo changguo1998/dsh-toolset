@@ -174,13 +174,14 @@ interface Box { turn: number; step: number; source: Source; shape: Shape; text?:
 - 帧断言与滚动：`tests/layout.test.ts`、`tests/layout4.test.ts`（3228 行，含翻页区）、`tests/scroll-anchor.test.ts`、`tests/layout-horizontal.test.ts`。
 - 基准：`bench/layout-bench.mts`（cold / warm / incremental 三档，**不设阈值**）——按同形态加「大窗口 / 全量物化」档。
 
-### R7｜未闭合围栏缺陷（已入 BACKLOG，待另修）
+### R7｜未闭合围栏缺陷（已随批 2 消除，BACKLOG 条目已关闭）
 
 - 机制：fence 分支的行消费是 `li = closed ? j : buffer.length - 1`（`build-box.ts:544`）；作者假设「未闭合 → 收集循环已走到 buffer 末尾」，但收集循环还会在**首个非 assistant 行**处提前 `break`（`:496`）——此时 `closed === false`，`li` 直接跳到窗口末尾，**其后所有行既不建节点也不进任何 pane**。
 - 实测（探针已删）：buffer = ```` [user 第一问][assistant final "```ts"][assistant final "const a = 1;"][user 第二问][assistant final 回答][user 第三问][assistant final 回答] ```` → 对话 pane 只剩 4 行（第一问 + 代码块），**第二 / 第三问及其回答全部不可见**。
 - 触发：某条 assistant 行整行恰为围栏开启符（```` ^ {0,3}(```+|~~~+) ````，`build-box.ts:442`）且遇到下一条非 assistant 行前未闭合——典型如粘贴代码少一个结尾围栏。
 - 影响：**物化窗口内该行之后的内容在画面上消失**（不改 buffer、不影响会话数据），直到该围栏行被挤出窗口才自愈。
 - 处置：已写入 `TUI/docs/BACKLOG.md`（缺陷条目）；2026-10-09 裁定**暂停**，等排版流程重构完成后再复检是否仍存在——**不作为重构的验收条件**，重构前也不单独修。
+- **复检结论（2026-10-09）：已随批 2 消除，条目关闭并从 BACKLOG 移除。** 批 2 的围栏配对（`pipeline/boxes.ts:18,31,180`）只看**本条目文本**，未闭合 = 本条目文本用尽，不吞后续条目 / box；且默认路径已是流水线（`pipeline/flag.ts:8` 默认开），生产的构帧不再走旧 `build-box.ts` 的 fence 分支（那条 `li = closed ? j : buffer.length - 1` 仅存于回落路径）。真机复检：assistant 输出未闭合围栏 + 其后一行，行**仍在**（作为代码块内容显示，符合「未闭合仍是普通代码块」口径）。判据固化在 `tests/pipeline-boxes.test.ts` ④（未闭合围栏之后的内容仍在，含后续条目 / 节）。
 
 ### R8｜宿主事件面事实（2026-10-09 定向核对）
 
