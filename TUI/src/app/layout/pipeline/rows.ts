@@ -367,7 +367,10 @@ export function renderPane(
       counts.push(0);
       continue;
     }
-    const cacheable = item.kind === "line" ? item.box : undefined;
+    // 用户块不走行缓存：其首行符号随回合状态变化（运行 ●/○ → 终态 ✓/✗/■，
+    // 经 seq 回查 buffer 解析），缓存会渲染出上一状态的旧符号
+    const cacheable =
+      item.kind === "line" && item.box.source !== "user" ? item.box : undefined;
     const key = cacheKey(
       pane === "dialogue" ? width : activityWidth,
       pane,
