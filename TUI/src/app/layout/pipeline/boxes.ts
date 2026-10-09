@@ -94,10 +94,26 @@ const LIST_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)/;
 /** 列表项的缩进续行（更深的空白开头的内容行，归属上一个列表项） */
 const LIST_CONT_RE = /^\s{2,}\S/;
 
-/** 文本条目 → 细分 ContentBox 序列：正文 / 引用 / 列表 / 代码块 / 表格逐段拆 */
+/** 文本条目 → 细分 ContentBox 序列：正文 / 引用 / 列表 / 代码块 / 表格逐段拆。
+ *  结构细分仅对 assistant：用户块是逐字原文（不做 markdown 结构拆分，否则一个输入
+ *  被拆成多个块、状态符号重复），思考 / notice / shell 同样保持整段文本。 */
 function textParts(item: Item, turn: number, step: number): Box[] {
   const text = item.text ?? "";
   if (text === "") return [];
+  if (item.source !== "assistant") {
+    return [
+      {
+        kind: "content",
+        turn,
+        step,
+        source: item.source,
+        shape: "text",
+        text,
+        ...(item.tone === undefined ? {} : { tone: item.tone }),
+        ...(item.seqs === undefined ? {} : { seqs: item.seqs }),
+      },
+    ];
+  }
   const lines = text.split("\n");
   const parts: Box[] = [];
   let run: string[] = [];
