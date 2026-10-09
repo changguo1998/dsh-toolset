@@ -116,16 +116,7 @@ export class Screen {
   private themes: Record<ThemeId, ColorTheme>;
   /** 首帧是否已渲染：仅首帧做破坏性清屏（清终端既有内容），后续全帧覆盖式重写 */
   private firstRenderDone = false;
-  /** 累计写出的报文字节数（渲染器自愈整帧重绘的阈值计数用） */
-  private byteCount = 0;
-
-  /** 累计写出的报文字节数（渲染器据此触发自愈整帧重绘） */
-  get writtenBytes(): number {
-    return this.byteCount;
-  }
-
   private write(s: string): void {
-    this.byteCount += s.length;
     this.doWrite(s);
   }
 

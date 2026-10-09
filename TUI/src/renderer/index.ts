@@ -205,14 +205,6 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
     process.exit(1);
   });
 
-  /**
-   * 自愈整帧重绘阈值（累计写入字节）：向 PTY 的大突发写入在复用器/模拟器侧可能被
-   * 截断（真机：状态栏上下行残留内容碎片 + 断裂多字节字符，Ctrl+L 全帧重绘即消失），
-   * 而差分账本认为已发送、不会重发未变化的行。累计写入超阈值 → 下一帧强制整帧
-   * 重绘（全帧重写所有可见行），把截断残留的存活时间压到秒级。
-   */
-  const FULL_REPAINT_BYTES = 512 * 1024;
-  let lastFullRepaintAt = 0;
   const stdio = terminal.stdin;
   const onResizeEvt = (): void => passToRenderSizes();
 
@@ -249,18 +241,7 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       // 上报可能滞后，期间帧比终端高就会触底滚屏、把整屏顶掉一行），逐行 diff 会
       // 认为「没变」而留下永久残留（「首项上方多一行」）；整帧重写从首行覆盖即自愈。
       // 帧高变长仍走 delta（常见于内容追加，且不会滚屏）。
-      //
-      // 自愈整帧重绘（真机 2026-10-09）：累计写入量超过阈值后强制一次整帧重绘。
-      // 背景：向 PTY 的大突发写入在多路复用器/模拟器侧可能被截断（真机表现为
-      // 状态栏上下行残留内容碎片 + 断裂的多字节字符，Ctrl+L 全帧重绘即消失）；
-      // 差分账本（prevRows）认为已发送、不再重发未变化的行，残留无法自愈。
-      // 整帧重绘重写全部可见行，周期性触发即可把截断残留的存活时间压到秒级。
-      if (
-        delta &&
-        prevRows &&
-        rows.length >= prevRows.length &&
-        screen.writtenBytes - lastFullRepaintAt < FULL_REPAINT_BYTES
-      ) {
+      if (delta && prevRows && rows.length >= prevRows.length) {
         let intervals = changedIntervals(
           prevRows,
           rows,
@@ -289,7 +270,6 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
         return;
       }
       screen.render(rows, focus);
-      lastFullRepaintAt = screen.writtenBytes;
       prevRows = rows;
       prevSections = sections;
     },

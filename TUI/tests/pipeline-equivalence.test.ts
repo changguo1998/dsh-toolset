@@ -225,6 +225,63 @@ test("box → 旧口径缓冲行：代码块 / 表格 / 工具批的还原形态
   assert.ok(texts.includes("assistant:```ts"), "代码块围栏还原");
 });
 
+// 回归（真机 2026-10-09）：多行文本曾整串落在一行里（内嵌 \n 未拆物理行）——那个换行
+// 会被终端执行成真实换行，把后面内容顶到下面几行（回合区底行溢出，状态栏上方出现正文
+// 碎片），而差分账本认为那些行未变 → 残留一直留到 Ctrl+L。
+// 判据：① 任何上屏行文本都不得含 \n；② 显式换行仍属**同一个块**（用户块只带一个状态
+// 符号、整块右对齐——拆到块粒度会让每行各带一个符号，真机 2026-10-09 复现过）。
+test("多行文本按物理行展开，且不拆成多个块", () => {
+  const streamed: BlockDelivery[] = [
+    { kind: "step-start", turn: 1, step: 1 },
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: -1,
+      source: "assistant",
+      text: "第一段\n\n第二段",
+    },
+    { kind: "user", turn: 1, step: 1, text: "第一行\n第二行" },
+  ];
+  const panes = buildPanes(allSections(applyAll(createSections(), streamed)), {
+    level: "think",
+  });
+  const activity = renderPane(panes.activity, "activity", {
+    themeId: THEME,
+    width: 40,
+  });
+  const dialogue = renderPane(panes.dialogue, "dialogue", {
+    themeId: THEME,
+    width: 40,
+    userStatus: () => ({ text: "○" }),
+  });
+  const texts = [...rowText(activity.rows), ...rowText(dialogue.rows)];
+  assert.deepEqual(
+    texts.filter((text) => text.includes("\n")),
+    [],
+    `上屏行不得内嵌换行：${JSON.stringify(texts)}`,
+  );
+  assert.equal(
+    rowText(activity.rows).filter((text) => text.includes("段")).length,
+    2,
+    `回合区两段各占一行（空行独立成行）：${JSON.stringify(rowText(activity.rows))}`,
+  );
+  const userRows = dialogue.rows.filter((row) =>
+    row.segments.some((segment) => segment.text.includes("行")),
+  );
+  assert.equal(userRows.length, 2, "用户块两物理行各占一行");
+  assert.equal(
+    new Set(userRows.map((row) => row.blockId)).size,
+    1,
+    "两行同属一个用户块（状态符号只在块首行）",
+  );
+  assert.equal(
+    rowText(userRows).filter((text) => text.includes("○")).length,
+    1,
+    `状态符号只出现一次：${JSON.stringify(rowText(userRows))}`,
+  );
+});
+
 test("c4 计数断言：宽度不变时同段不重复排版；宽度变化才重排", () => {
   const sections = allSections(applyAll(createSections(), script));
   const panes = buildPanes(sections, { level: "think" });

@@ -249,18 +249,24 @@ export function boxToLines(box: Box, dialogue = false): BufferLine[] {
       ...scope,
     }));
   }
-  return [
-    {
-      text: box.text ?? "",
-      kind: kindOf(box),
-      ...(box.tone === undefined ? {} : { tone: box.tone }),
-      ...scope,
-      // 用户行带行号：布局层用户块符号解析按 seq 回查 buffer 同源行
-      ...(box.source === "user" && box.seqs?.[0] !== undefined
-        ? { seq: box.seqs[0] }
-        : {}),
-    },
-  ];
+  // 回合区文本同样按**物理行**落行：`box.text` 以 \n 作行分隔，整段当一行输出会让终端
+  // 把内嵌换行执行成真实换行、把后面内容顶到下面几行（真机 2026-10-09：回合区底行溢出，
+  // 状态栏上方出现正文碎片；差分账本认为那些行未变，残留一直留到 Ctrl+L）。
+  // **例外：user**——旧路径用户块整段入 buffer（state 的 keepLineBreaks 语义），物理行由
+  // 渲染层 StyledText 折行时拆；在这里拆会变成「每物理行一个用户块」，状态符号与整块
+  // 右对齐各来一次（真机 2026-10-09 复现：输入每行开头都多一个状态字符）。
+  const shared = {
+    kind: kindOf(box),
+    ...(box.tone === undefined ? {} : { tone: box.tone }),
+    ...scope,
+    // 用户行带行号：布局层用户块符号解析按 seq 回查 buffer 同源行
+    ...(box.source === "user" && box.seqs?.[0] !== undefined
+      ? { seq: box.seqs[0] }
+      : {}),
+  };
+  const parts =
+    box.source === "user" ? [box.text ?? ""] : (box.text ?? "").split("\n");
+  return parts.map((text) => ({ text, ...shared }));
 }
 
 /** 表格容器 → 原始表格行（与旧缓冲的 markdown 形态逐字符一致）；会话区行带 final */
