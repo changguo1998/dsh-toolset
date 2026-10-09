@@ -393,7 +393,11 @@ interface Box { turn: number; step: number; source: Source; shape: Shape; text?:
 
 **批 6 前半（完成）**：`pipeline/replay.ts` 恢复重放器（分隔线推回合、step 头推 step、文本按同 kind 连续块聚合、final 块结束时补定型 + 回合结束、工具行还原调用 / 结果）；`App.restoreStartupHistory` 落定后重放节缓存。
 
-**下一步（批 5 收尾 + 批 6 收尾）**：① 默认路径切换（`flag.ts` 目前 `TUI_LAYOUT_PIPELINE=1` 才开，需真机目视 c6 后翻默认）；② 文档回写（DESIGN / SPEC / README + BACKLOG 条目改写 + 追踪文档归档）。`index.ts` 帧循环取新流水线的两 pane 行缓冲（`renderPane`）替代 `buildTopRegion` 的内容行来源；滚动 / 扩窗改新位置模型（偏移 + 显示索引，`rows.ts` 已备）；行身份从「buffer seq 锚点」迁到新模型（旧 `state.buffer` / `seq` 锚点 / `dialogueGeometry` / `windowGroups` 退场，见待续表 1）；帧级等价性矩阵（宽度 × 档位 × 扩窗档）与计数断言全绿后切默认路径。
+**批 5 收尾（完成）**：默认路径已切换（`flag.ts` 缺省开启，`TUI_LAYOUT_PIPELINE=0` 回落）；App 仅在「开关开启 + 注入 sink」时接管（测试 / 嵌入用法不受影响）。文档回写完成（SPEC §9.1 / DESIGN 排版分层 / README 路径开关）。
+
+**App 级等价（新增）**：`tests/pipeline-app.test.ts`——真实 App 装配（sink 注册 → 接收 → 节缓存 → buildTopRegion → 帧）下新旧路径逐步整帧一致（step 头 / 思考 / 工具批 / 正文流片段 / notice / 回合结束）；为此补了回合开始交付（`turn-start`，App 的 turn-begin 时间真源；宿主 `turn/start` 只回填回合号）。唯一已知瞬时差异：分隔线回合号旧路径靠 `turn/start` 回填（晚一帧），用例中整行归一。
+
+**剩余（等待人工验收 c6 后收尾）**：真机目视（滚动 / 扩窗 / 流式 / 面板）→ 通过后清理 BACKLOG 条目并把本追踪文档移入 `TUI/docs/archived/`。`index.ts` 帧循环取新流水线的两 pane 行缓冲（`renderPane`）替代 `buildTopRegion` 的内容行来源；滚动 / 扩窗改新位置模型（偏移 + 显示索引，`rows.ts` 已备）；行身份从「buffer seq 锚点」迁到新模型（旧 `state.buffer` / `seq` 锚点 / `dialogueGeometry` / `windowGroups` 退场，见待续表 1）；帧级等价性矩阵（宽度 × 档位 × 扩窗档）与计数断言全绿后切默认路径。
 
 ## 测试与证据
 
