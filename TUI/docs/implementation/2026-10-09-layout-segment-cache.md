@@ -399,6 +399,20 @@ interface Box { turn: number; step: number; source: Source; shape: Shape; text?:
 
 **剩余（等待人工验收 c6 后收尾）**：真机目视（滚动 / 扩窗 / 流式 / 面板）→ 通过后清理 BACKLOG 条目并把本追踪文档移入 `TUI/docs/archived/`。`index.ts` 帧循环取新流水线的两 pane 行缓冲（`renderPane`）替代 `buildTopRegion` 的内容行来源；滚动 / 扩窗改新位置模型（偏移 + 显示索引，`rows.ts` 已备）；行身份从「buffer seq 锚点」迁到新模型（旧 `state.buffer` / `seq` 锚点 / `dialogueGeometry` / `windowGroups` 退场，见待续表 1）；帧级等价性矩阵（宽度 × 档位 × 扩窗档）与计数断言全绿后切默认路径。
 
+**真机验收轮（2026-10-09 晚，herdr 开新 tab 实测；发现五类缺陷并全部修复）**：
+
+1. **App 本地写入双写缺口（用户输入被吞 / 注入不显示）**：用户回显、排队认领（followup / steer）、rule-engine 注入、App 本地 notice、本地 shell 只写旧缓冲、未交付节缓存 → 流水线路径下全部不可见。补全双写边界（`b47ea10`）；交付带行号（seq）→ 节条目 → 行 → 布局层按 seq 回查 buffer，用户块符号（活跃 ●/○ / 终态 ✓/✗/■ / steer 续接 ←）与旧路径单源。
+1. **会话建立过渡重建丢内容**：`activeSessionId` null → sid 的事件翻转曾触发「会话切换重建」，启动早期的用户节被清掉；改为仅真实 sid 变化重建，建立过渡只登记归属。
+1. **回合号本地预测 + 画线判据镜像**：宿主 `turn/start` 回填只改写旧缓冲行，节缓存不可变 → turn-begin 按「上一已知回合 + 1」本地预测（基线只跟 turn-start 交付推进，用户 / 通知交付不推进）；画线判据与 `appendTurnSeparator` 镜像（首回合空历史不画线）；重放器按分隔线行补交付 `turn-start`（恢复路径的时间真源）。
+1. **用户块绕过行缓存**：块符号随回合状态变化（运行 ● → 终态 ✓），行缓存按 box 身份命中会渲染旧状态符号。
+1. **同一节正文换行后左侧竖线断线**：第 3 步把文本叶子拆散成逐行 box，每行独立调排版，「块内空行竖线连排」看不到邻居 → 空行丢竖线。随嵌套 box 重构一并修复（见下）。
+
+**结构裁定（用户 2026-10-09：box 节内嵌套化，`2c6f27c`）**：第 2 步从「扁平 box 序列」改为嵌套两族（对齐旧 box.ts 容器 / 叶子）：第一级 = 类型块 LayoutBox（role "block"，source 分档 reasoning/assistant/tool/notice/user/shell），细分 = ContentBox 叶子（assistant: text / quote 引用 / list 列表 / code / table；tool: 整批）；表格拆为 table → row（带表头标记）→ cell 叶子（单元格当前均为单行文本，更深拆分预留）。结构细分**仅 assistant**——用户块是逐字原文，markdown 形态（如「1. 」列表行）不再拆分，否则一条输入被拆成多块、状态符号重复（真机观察并修复）。第 3 步文本叶子不再按行拆散：整段过第 4 步按物理行展开（同节正文的行落在同一次排版调用，竖线连排恢复连续）；表格行补 final 归属（曾整表掉进活动区）。
+
+**续接重复注入（发现，待裁定，不在本条目修）**：rule-engine 把 `session/created`（含恢复）派发为 `session-start` → 续接（`-c`）会话时规则重新注入：模型上下文重复 + TUI 历史回放与活通道各显示一次。属 rule-engine / 宿主语义问题，另立条目处理。
+
+**测试与证据（更新）**：全量 **1412 用例全绿**；App 级双写用例 ×3 + 双写整帧等价 ×1（`pipeline-app.test.ts`）；真机回归路径 = herdr 开新 tab 跑 `dsh --profile fff`（注入显示 / 回显 / 流式 / 符号流转 / 分隔线 / 折叠 / 分屏收窄还原均通过；滚动翻页按键注入受 herdr 键集限制，留人工目测）。
+
 ## 测试与证据
 
 调研 + 设计阶段无代码改动，证据 = 上文 `文件:行号`。批 0-1 证据：`npm run check` 通过；`TUI/scripts/test.sh` 全量 **1356 用例全绿**（含新增 `tests/pipeline-sections.test.ts` 11 例：重复交付只入一次 / 节内归并 / 无空节 / 工具批配对 / 独立成节 / 冻结）。三张实测表来自三个临时探针（`tmp/seg-probe.mts` / `tmp/phase2-probe.mts` / `tmp/fence2-probe.mts`，跑完已删，数字已抄录进 R1 / R5 / R7）与既有基准：
