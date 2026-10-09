@@ -47,6 +47,8 @@ interface BoxBase {
   seqs?: readonly number[];
   /** 压缩剪枝遮蔽（`compaction/prune`）：整块渲染成灰，内容与行数不变 */
   shadowed?: boolean;
+  /** steer 插队送达的用户块（第 3 步据此在它之前留空行） */
+  steer?: boolean;
 }
 
 /** 叶子 box：只保存内容，不再包含子节点 */
@@ -297,6 +299,14 @@ export function buildBoxes(section: Section): LayoutBox[] {
 }
 
 function computeBoxes(section: Section): LayoutBox[] {
+  const markSteer = (blocks: LayoutBox[]): LayoutBox[] =>
+    section.steer === true
+      ? blocks.map((block) => ({
+          ...block,
+          steer: true,
+          children: block.children.map((child) => ({ ...child, steer: true })),
+        }))
+      : blocks;
   const blocks: LayoutBox[] = [];
   let current: LayoutBox | undefined;
   const flush = (): void => {
@@ -305,12 +315,16 @@ function computeBoxes(section: Section): LayoutBox[] {
     current = undefined;
   };
   for (const item of section.items) {
-    const parts =
-      item.source === "tool"
-        ? [toolBox(item, section.turn, section.step)].filter(
-            (box): box is ContentBox => box !== undefined,
-          )
-        : textParts(item, section.turn, section.step);
+    // 工具批 = 带 calls / results 的条目；来源为 tool 的**辅助行**（subagent / hook /
+    // command 等）走文本分支，按普通行渲染
+    const isBatch =
+      item.source === "tool" &&
+      (item.calls !== undefined || item.results !== undefined);
+    const parts = isBatch
+      ? [toolBox(item, section.turn, section.step)].filter(
+          (box): box is ContentBox => box !== undefined,
+        )
+      : textParts(item, section.turn, section.step);
     if (parts.length === 0) continue;
     if (current === undefined || current.source !== item.source) {
       flush();
@@ -326,7 +340,7 @@ function computeBoxes(section: Section): LayoutBox[] {
     current = { ...current, children: [...current.children, ...parts] };
   }
   flush();
-  return blocks;
+  return markSteer(blocks);
 }
 
 /** 该节点覆盖的事件号与 `shadowedSeqs` 是否有交集 */

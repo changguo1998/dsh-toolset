@@ -98,7 +98,7 @@ export function main(opts: {
   /** 重启交接文件路径（`process.env.DSH_RESTART_FILE`；非空 = 由处理退出码 75 的启动器启动，
    *  退出确认面板才提供「重启 dsh（保留会话）」；BACKLOG #51 / DESIGN「退出确认 ·「重启」方案」） */
   restartHandoffPath?: string;
-  /** 六步流水线 sink 容器（`TUI_LAYOUT_PIPELINE`；apply 内创建并传给 adapter） */
+  /** 六步流水线 sink 容器（apply 内创建并传给 adapter） */
   pipelineSink?: { current?: (delivery: BlockDelivery) => void };
   /** profile 目录（`ctx.get('profileContext').dir`）：实测宽度表落盘位置；缺省不落盘
    *  （不落盘时仍按需实测，只是不跨会话复用；见 layout/width-table.ts） */

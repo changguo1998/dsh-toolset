@@ -52,6 +52,10 @@ export interface Section {
   readonly final?: boolean;
   /** 独立自足节（用户输入 / notice / shell 各自成节）：不再接受迟到内容（回写会串节） */
   readonly standalone?: boolean;
+  /** steer 插队送达的用户输入（与上一条输入之间留空行；旧口径由 `markSteerClaim` 加） */
+  readonly steer?: boolean;
+  /** P9 恢复会话的 step 概要行文本（会话区 `╌╌ <text> ` + 尾部 ╌ 铺满；无条目） */
+  readonly stepSummary?: string;
 }
 
 /** 交付公共字段（`seq` = 宿主持久线事件号，接收层据此去重；实时线增量不带） */
@@ -73,11 +77,20 @@ export type BlockDelivery =
       step: number;
       text: string;
       queued?: "followup" | "steer";
+      /** 该输入之前留一个空行（恢复路径的 `spaceBefore`；steer 插队送达的可见效果） */
+      spaceBefore?: boolean;
     })
   /** notice（提示 / 自造输出）：行为同用户输入（无 turn/step 时沿用最近一次归属） */
   | (Delivery & { kind: "notice"; text: string; tone?: NoticeTone })
   /** 本地 shell 输出（`$` 模式）：与 notice 同族，独立成节 */
   | (Delivery & { kind: "shell"; text: string })
+  /** P9 恢复会话的 step 概要行（`╌╌ hh:mm:ss #N ╌╌ read ×2 …`；独立成节） */
+  | (Delivery & {
+      kind: "step-summary";
+      turn: number;
+      step: number;
+      text: string;
+    })
   /** step 开始：节边界（本身不开节——无内容不建节；同 (turn, step) 重复 / 迟到不切节） */
   | (Delivery & {
       kind: "step-start";
@@ -94,8 +107,14 @@ export type BlockDelivery =
       turn: number;
       step: number;
       index: number;
-      source: "assistant" | "reasoning";
+      /**
+       * `assistant` / `reasoning` = 模型输出；`tool` = **本地辅助行**（subagent / hook /
+       * command / 重试提示等，状态层按工具行落 buffer），与工具批同 pane 但无配对语义。
+       */
+      source: "assistant" | "reasoning" | "tool";
       text: string;
+      /** 辅助行分级（notice 同族配色；`tool` 来源用） */
+      tone?: import("../../adapter/types.ts").NoticeTone;
       full?: boolean;
     })
   /** 工具调用（`callId` 为配对键；`full` = 整块参数，缺省 = 增量分片） */
@@ -126,10 +145,11 @@ export type BlockDelivery =
   /** 压缩剪枝（`compaction/prune`）：被遮蔽的宿主事件号 → box 层按交集打灰 */
   | (Delivery & { kind: "shadow"; seqs: readonly number[] })
   /**
-   * 回合开始（App 在回合首行内容前画分隔线时同步交付）：分隔线时间的真源。
-   * 首回合分隔线由 frame 层按此时间预置；后续回合的分隔线时间也从这里取。
+   * 回合开始（App 在回合首行内容前画分隔线时同步交付）：回合分隔线的绘制信号与时间真源。
+   * `time` 缺省 = 时间未知（恢复路径：本地 `turn-begin` 刚落、宿主尚未回填）→ 该回合的线
+   * 画成纯虚线，不写 `hh:mm:ss ⇆N`（旧路径 `turnHeaderLine(undefined, undefined)` 同款）。
    */
-  | (Delivery & { kind: "turn-start"; turn: number; time: number });
+  | (Delivery & { kind: "turn-start"; turn: number; time?: number });
 
 /** 交付账键：块身份（session 由每会话一份接收状态隐含） */
 export function blockKey(turn: number, step: number, index: number): string {

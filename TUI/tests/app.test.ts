@@ -18,6 +18,16 @@ import {
 } from "../src/app/index.ts";
 import { main } from "../src/main.ts";
 import {
+  buildFrame,
+  dialogueHalfPage,
+  type FrameScrollReport,
+} from "../src/app/layout.ts";
+import {
+  createLineTable,
+  indexOfTop,
+  positionAt,
+} from "../src/app/layout/pipeline/rows.ts";
+import {
   buildOsc52,
   completeCommandInput,
   deriveTitle,
@@ -3896,15 +3906,9 @@ test("/goal <objective>：带参数转交宿主 goal 命令", () => {
 // ===== 顶部三面板焦点滚动（Tab 切换 / ↑↓ 行滚动 / PgUp/PgDn 整页）=====
 
 test("顶部面板焦点滚动映射：↑/↓ 只作用于各自面板；PgUp/PgDn 用面板可视行高", () => {
-  // 单行：history/activity 距底部（上=+），status 距顶部（上=-）
-  assert.deepEqual(focusedLineScroll("history", 1), {
-    type: "scroll",
-    delta: 1,
-  });
-  assert.deepEqual(focusedLineScroll("history", -1), {
-    type: "scroll",
-    delta: -1,
-  });
+  // 单行：activity 距底部（上=+），status 距顶部（上=-）。
+  // 对话区不在此映射里：它按「段键 + 段内行」定位，位移由 App 用本帧段表换算
+  // （见 `App.scrollDialogueBy`），不产生 action 级的 scroll
   assert.deepEqual(focusedLineScroll("activity", 1), {
     type: "activity-scroll",
     delta: 1,
@@ -3924,10 +3928,6 @@ test("顶部面板焦点滚动映射：↑/↓ 只作用于各自面板；PgUp/P
   });
   // 整页：页 = 面板可视行数
   const page = { contentTopH: 17, activityH: 8, viewportH: 8 } as never;
-  assert.deepEqual(focusedPageScroll("history", 1, page), {
-    type: "scroll",
-    delta: 8,
-  });
   assert.deepEqual(focusedPageScroll("activity", 1, page), {
     type: "activity-scroll",
     delta: 8,
@@ -4211,6 +4211,77 @@ test("对话区滚动：上滚越顶 / End 之后 ↓ 立即响应（偏移收�
   );
   renderer.press(key("down"));
   assert.notEqual(view(), endView, "End 之后 ↓ 立即响应");
+  app.dispose();
+});
+
+test("对话区 ↑ 位移恒等于半屏：撞渐进窗口顶那一次也只多物化、不多滚", () => {
+  // 回归（BACKLOG 条目 5，真机报告「向上箭头翻页跳内容太多」）：旧实现的位移用**移动前**
+  // 几何 clamp，撞窗口顶那次被夹到窗口首行，之后才扩窗 → 视口被重钉到新窗口第一条内容，
+  // 一次跳十几行。新模型的位移在扩窗后施加，且位置按「段键 + 段内行」表达 ⇒ 扩窗只在
+  // 视口上方插段，画面不动，位移恒等于半屏。
+  const { app, renderer, adapter } = makeApp();
+  renderer.size = { cols: 100, rows: 30 };
+  for (let i = 1; i <= 8; i++) {
+    adapter.push({
+      type: "stream",
+      sessionId: "s1",
+      text: `第 ${i} 回合正文甲\n第 ${i} 回合正文乙\n`,
+    } as DshEvent);
+    adapter.push({ type: "turn-end" } as DshEvent);
+  }
+  const st = (): AppState => (app as unknown as { state: AppState }).state;
+  const key = (name: string): KeyEvent => ({
+    name,
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+  /** 当前帧的段表 + 视口顶（与 App 内部同一口径：buildFrame 回填 FrameScrollReport） */
+  const report = (): FrameScrollReport => {
+    const r: FrameScrollReport = {
+      dialogueMaxScroll: 0,
+      activityMaxScroll: 0,
+      dialogueTotal: 0,
+      dialogueCounts: [],
+      dialogueKeys: [],
+      dialogueTopIdx: 0,
+      dialogueViewportH: 0,
+      dialogueUserRows: [],
+    };
+    buildFrame(st(), { rows: 30, cols: 100 }, r);
+    return r;
+  };
+  const r0 = report();
+  const HALF = dialogueHalfPage(r0.dialogueViewportH);
+  let prevTop = positionAt(
+    createLineTable(r0.dialogueCounts),
+    r0.dialogueKeys,
+    r0.dialogueTopIdx,
+  );
+  let grew = false;
+  for (let i = 0; i < 40; i++) {
+    const groupsBefore = st().windowGroups;
+    renderer.press(key("up"));
+    const now = report();
+    const table = createLineTable(now.dialogueCounts);
+    // 上一帧的视口顶在新段表里的位置 → 位移必须正好 HALF 行（扩窗那一次也一样）
+    const here = indexOfTop(
+      table,
+      now.dialogueKeys,
+      prevTop,
+      0,
+      now.dialogueTotal,
+    );
+    assert.equal(
+      now.dialogueTopIdx,
+      Math.max(0, here - HALF),
+      `第 ${i + 1} 次 ↑ 位移应为半屏（本次上方多物化 ${now.dialogueTotal - r0.dialogueTotal} 行）`,
+    );
+    if (st().windowGroups > groupsBefore) grew = true;
+    if (now.dialogueTopIdx === 0) break;
+    prevTop = positionAt(table, now.dialogueKeys, now.dialogueTopIdx);
+  }
+  assert.ok(grew, "上滚过程确实触发过扩窗（否则没覆盖到「撞窗口顶」那一次）");
   app.dispose();
 });
 

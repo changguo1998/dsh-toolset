@@ -163,7 +163,6 @@ const FRAME_ACTIONS: StateAction[] = [
   { type: "turn-end" },
   { type: "user-line", text: "第二回合：再看缓存" },
   { type: "append", text: '```ts\nconst x = displayWidth(\\"中文\\")\n```' },
-  { type: "scroll", delta: -5 },
   { type: "scroll-to-bottom" },
 ];
 

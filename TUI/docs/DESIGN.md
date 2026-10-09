@@ -55,8 +55,10 @@ DSH 适配层接口以**官方源码研读与升级对照**为准（`docs/host/D
 接收（`sections.ts`，宿主块 → 节）、结构（`boxes.ts`，节 → box）、显示准备（`panes.ts`，
 box → 两 pane 缓存）、出行（`rows.ts`，pane 项 → 行 + 行数表 + 位置模型）、装配
 （`frame.ts` + `layout.ts` 的构帧）；`replay.ts` 负责恢复时的「已有行 → 节」重放。
-宽无关与吃宽度的分界在第 3/4 步之间；主题只决定色值（渲染层）。旧管线保留为
-`TUI_LAYOUT_PIPELINE=0` 的回落路径，两条路径逐帧逐行等价。契约见 `SPEC.md` §9.1。
+宽无关与吃宽度的分界在第 3/4 步之间；主题只决定色值（渲染层）。**这是唯一渲染路径**：
+旧管线（`dialogueWindow` + 逐帧全量 `buildContentRows`）与回落开关已于 2026-10-09 移除；
+滚动位置按「段键 + 段内行」表达（`rows.ts` 的 `positionAt` / `indexOfTop`），扩窗只在视口
+上方插段、画面不动。契约见 `SPEC.md` §9.1。
 
 样式链路已收敛：样式序列化由渲染层 `renderer/theme.ts` 独占，排版层仅持有 `ColorName` 语义；Box 排版管线（`layout/box|measure|fill|build-box|focus-frame|panel`）落地，面板组件改为 Box 生成器，焦点框线为全局 `focusFrame` 覆写。契约见 `SPEC.md`。
 

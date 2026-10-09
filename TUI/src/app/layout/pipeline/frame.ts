@@ -8,7 +8,8 @@
 //     `indexToAnchor`）继续可用；
 //   - 顶部「更早回复已折叠」占位行仍由调用方插入（`dropped > 0`）。
 //
-// 默认路径不受影响：只有 `state.pipeline` 存在且 `TUI_LAYOUT_PIPELINE` 开启时调用。
+// 内容来源唯一：`state.pipeline`（App 注入）优先；未注入时 `sectionsOf` 按 `state.buffer`
+// 重放一份（测试 / 嵌入用法）。
 
 import type { RenderOptions, RenderedPane } from "./rows.ts";
 import { renderPane } from "./rows.ts";
@@ -16,8 +17,10 @@ import { buildPanes } from "./panes.ts";
 import { allSections, type SectionsState } from "./sections.ts";
 import { buildBoxes } from "./boxes.ts";
 import { turnGroupStarts } from "../../layout.ts";
+import { sectionsFromBuffer } from "./replay.ts";
 import type { Section } from "./types.ts";
 import type { ContentRow } from "../fill.ts";
+import type { BufferLine } from "../../state.ts";
 
 export interface PipelineFrameOptions {
   /** 会话区可用宽 */
@@ -39,6 +42,13 @@ export interface PipelineContent {
   activity: ContentRow[];
   /** 被窗口丢掉的回合数（> 0 → 调用方插顶部占位行） */
   dropped: number;
+  /** 会话区每段行数 + 段键（第 ⑤ 步定位：位置 = 段键 + 段内行） */
+  dialogueCounts: readonly number[];
+  dialogueKeys: readonly string[];
+  /** 会话区各用户块首行行号（**未含占位行**，调用方按 `dropped` 加偏移）——跳转目标 */
+  dialogueUserRows: readonly number[];
+  /** 回合区每段行数（页滚上限用） */
+  activityCounts: readonly number[];
 }
 
 /**
@@ -181,6 +191,10 @@ export function pipelineContent(
     dialogue: seqRows(panes.dialogue, dialogue),
     activity: seqRows(panes.activity, activity),
     dropped,
+    dialogueCounts: dialogue.counts,
+    dialogueKeys: dialogue.keys,
+    dialogueUserRows: dialogue.userRows,
+    activityCounts: activity.counts,
   };
 }
 
@@ -203,4 +217,37 @@ function seqRows(
     out.push(...(seq === -1 ? slice : withSeq(slice, seq)));
   }
   return out;
+}
+
+/**
+ * 节缓存来源：App 注入的（`state.pipeline`）优先；未注入（测试 / 嵌入用法）时按
+ * `state.buffer` 重放一份——按缓冲身份 memo，重放只在内容整体替换后发生。
+ */
+let replayEntry:
+  { lines: readonly BufferLine[]; value: SectionsState } | undefined;
+
+export function sectionsOf(state: {
+  pipeline?: SectionsState;
+  buffer: Parameters<typeof sectionsFromBuffer>[0];
+}): SectionsState {
+  if (state.pipeline !== undefined) return state.pipeline;
+  // 命中判据 = **逐行对象身份**相同（不是数组身份）：缓冲是就地改的——流式续写、
+  // `final` 打标、回合号回填都会**换掉行对象**（见追踪文档 R4），只比数组身份会拿到
+  // 过期节缓存（旧帧的分隔线 / 用户行在画面里消失）
+  const buffer = state.buffer;
+  const hit = replayEntry;
+  if (
+    hit !== undefined &&
+    hit.lines.length === buffer.length &&
+    hit.lines.every((line, index) => line === buffer[index])
+  )
+    return hit.value;
+  const value = sectionsFromBuffer(buffer);
+  replayEntry = { lines: [...buffer], value };
+  return value;
+}
+
+/** 渐进窗口的回合组总数（窗口上限判据：还有更早回合可物化吗） */
+export function sectionGroupCount(sections: SectionsState): number {
+  return sectionGroupStarts(allSections(sections)).starts.length;
 }

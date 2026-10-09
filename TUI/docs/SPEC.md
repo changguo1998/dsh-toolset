@@ -516,10 +516,10 @@ state --buildBox--> Box 树 --measure/allocate--> rects --fill(ctx, rect)--> Fra
 
 - 分界：第 1/2 步之间 = 跟事件 | 跟帧；第 3/4 步之间 = 宽无关 | 吃宽度；主题只决定色值（渲染层）
 - 缓冲与失效：节（无键）/ box（键 = 节身份）/ pane（键 = box + 档位 + 符号规则）/ 行（键 = box + 区域宽 + 档位 + 紧凑）
-- 渐进窗口按**回合组**丢弃更早的节（分组复用 `turnGroupStarts` 口径）；行身份沿用 `seq` 语义（宿主事件号优先，缺省合成，稳定）
-- 滚动物理：偏移 + 显示索引（`topIndex` / `offsetOf` / `remap`）；上方插入行与宽度变化才全量重算
-- 关闭方式：`TUI_LAYOUT_PIPELINE=0`（回落旧管线；两条路径**整帧逐行等价**由 `tests/pipeline-frame.test.ts` 断言）
-- 设计与分批见 `docs/implementation/2026-10-09-layout-segment-cache.md`（完成后归档到 `docs/archived/`）
+- 渐进窗口按**回合组**丢弃更早的节（分组复用 `turnGroupStarts` 口径）；段键 = 节身份 + 节内 box 序号（跨扩窗 / 改宽稳定）
+- 滚动位置 = **段键 + 段内行**（`positionAt` / `indexOfTop`）：上方插入段（扩窗）画面不动、位移恒等于按键量；段键失效回落「距底偏移」
+- 回合分隔线由 `turn-start` 交付驱动（时间未知 → 纯虚线）；`turn-start` / `step-summary` 等交付口径见 `layout/pipeline/types.ts`
+- 设计与分批见 `docs/implementation/2026-10-09-layout-segment-cache.md`（完成后归档到 `docs/archived/`）；第二阶段的迁移与退役记录同文件「第二阶段」一节
 
 ______________________________________________________________________
 

@@ -60,7 +60,7 @@ export interface SectionsState {
   /** 压缩剪枝遮蔽的宿主事件号（box 层按交集打灰；内容与行数不变） */
   shadowedSeqs: ReadonlySet<number>;
   /** 回合元数据：turn → 开始时间（分隔线显示用；App 的 turn-begin 是真源） */
-  turnMeta: ReadonlyMap<string, number>;
+  turnMeta: ReadonlyMap<string, number | undefined>;
 }
 
 export function createSections(): SectionsState {
@@ -279,7 +279,7 @@ function applyText(
     located.target.section,
     delivery.source,
     accept,
-    undefined,
+    delivery.tone,
     delivery.seq,
   );
   return write(located.state, located.target, section);
@@ -480,6 +480,24 @@ export function applyDelivery(
       }
       return sealedOf(next, current);
     }
+    case "step-summary": {
+      // P9：恢复会话的 step 概要行——独立成节、不带条目（渲染只看 `stepSummary`）
+      const sealed =
+        state.current === undefined ? state : sealedOf(state, state.current);
+      const section: Section = {
+        turn: delivery.turn,
+        step: delivery.step,
+        items: [],
+        frozen: false,
+        standalone: true,
+        stepSummary: delivery.text,
+      };
+      return {
+        ...sealed,
+        sections: [...sealed.sections, section],
+        lastScope: { turn: delivery.turn, step: delivery.step },
+      };
+    }
     case "user":
     case "notice":
     case "shell": {
@@ -510,6 +528,11 @@ export function applyDelivery(
         ],
         frozen: false,
         standalone: true,
+        // steer 插队送达：与上一条输入之间留空行（第 3 步按此插 blank，旧口径同款留白）
+        ...(delivery.kind === "user" &&
+        (delivery.queued === "steer" || delivery.spaceBefore === true)
+          ? { steer: true }
+          : {}),
       };
       // 自成节（封闭态）：其后内容另起一节——与设计「notice 与用户消息同行为」一致
       return {
@@ -543,8 +566,13 @@ export function applyDelivery(
       const key = String(delivery.turn);
       const turnMeta = new Map(state.turnMeta);
       // 首次登记的时间（turn-begin 的 now）即分隔线显示时间；后到的宿主 turn/start
-      // 只回填回合号，不覆盖时间
-      if (!turnMeta.has(key)) turnMeta.set(key, delivery.time);
+      // 只回填回合号，不覆盖时间。首次登记时没有时间（恢复路径）→ 记 undefined
+      // （线画纯虚线）；后到的时间可以补上（宿主 turn/start 带来真实时间）
+      if (
+        !turnMeta.has(key) ||
+        (turnMeta.get(key) === undefined && delivery.time !== undefined)
+      )
+        turnMeta.set(key, delivery.time);
       return { ...state, turnMeta };
     }
     case "shadow": {

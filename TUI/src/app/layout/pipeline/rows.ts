@@ -152,6 +152,64 @@ export function remap(
   return { offset: offsetOf(table, visibleRows, bounded), index: bounded };
 }
 
+// ---------------- 视口顶：段键 + 段内行 ↔ 绝对行号 ----------------
+//
+// 滚动位置**不存绝对行号**（宽度变化与上方插入行都会让它失效），而存「段键 + 段内行」：
+//   - 上方插入段（扩窗纳入更早回合）→ 段键不变 → 同一内容留在原处，画面不动；
+//   - 宽度变化 → 段内行数变，按段键定位到同一段；段内行超界时夹到该段末行；
+//   - 段整个消失（该节被裁掉）→ 回落「距底偏移」（内容靠底则位置也靠底）。
+
+/** 折叠占位行（「更早回复已折叠」）的段键 */
+export const MARKER_KEY = "@marker";
+/** 「跳到最旧」哨兵段键（reducer 不知道段键，由定位层解析为第 0 行） */
+export const TOP_OLDEST_KEY = "@oldest";
+
+/** 视口顶位置：段键 + 段内行（`null` = 贴底跟随最新） */
+export interface DialogueTop {
+  readonly key: string;
+  readonly row: number;
+}
+
+/** 绝对行号 → 视口顶位置（越界收敛到首 / 末段） */
+export function positionAt(
+  table: LineTable,
+  keys: readonly string[],
+  index: number,
+): DialogueTop {
+  const total = totalLines(table);
+  if (total === 0 || keys.length === 0) return { key: "", row: 0 };
+  const idx = Math.min(Math.max(0, index), total - 1);
+  const segment = Math.max(0, Math.min(segmentAt(table, idx), keys.length - 1));
+  return {
+    key: keys[segment] ?? "",
+    row: idx - (table.prefix[segment] ?? 0),
+  };
+}
+
+/**
+ * 视口顶位置 → 绝对行号（clamp 到 `[0, maxTop]`）：
+ *   - `null` → `maxTop`（贴底）；
+ *   - 哨兵「最旧」→ 0；
+ *   - 段键不在表里 → 回落 `maxTop − fallbackOffset`（距底偏移）。
+ */
+export function indexOfTop(
+  table: LineTable,
+  keys: readonly string[],
+  top: DialogueTop | null,
+  fallbackOffset: number,
+  maxTop: number,
+): number {
+  if (top === null) return maxTop;
+  if (top.key === TOP_OLDEST_KEY) return 0;
+  const segment = keys.indexOf(top.key);
+  if (segment < 0)
+    return Math.max(0, Math.min(maxTop, maxTop - Math.max(0, fallbackOffset)));
+  const count = table.counts[segment] ?? 0;
+  const row = Math.min(Math.max(0, top.row), Math.max(0, count - 1));
+  const index = (table.prefix[segment] ?? 0) + row;
+  return Math.max(0, Math.min(index, maxTop));
+}
+
 // ---------------- 第 4 步下半：pane 项 → 行（折行 + 装饰） ----------------
 //
 // 口径：**凡是要用宽度才能定的，都在这一步加**。行生成复用既有排版算法库
@@ -183,6 +241,10 @@ export interface RenderedPane {
   rows: ContentRow[];
   /** 每项贡献的行数（与 `items` 一一对应）——行数表的段 */
   readonly counts: readonly number[];
+  /** 每项的稳定段键（与 `counts` 一一对应）：滚动位置按「段键 + 段内行」表达 */
+  readonly keys: readonly string[];
+  /** 用户块首行的绝对行号（PgUp / PgDn 跳转目标） */
+  readonly userRows: readonly number[];
   readonly table: LineTable;
 }
 
@@ -264,8 +326,15 @@ export function boxToLines(box: Box, dialogue = false): BufferLine[] {
       ? { seq: box.seqs[0] }
       : {}),
   };
+  const raw = box.text ?? "";
+  // notice / shell：剥掉拖尾换行（旧渲染器 `absorbActivityBlank` 的 `stripTrailingNewline`
+  // 口径——拖尾空行不渲染；整段只有换行时退化成一行空文本，交吸收规则处置）
+  const trimmed =
+    box.source === "notice" || box.source === "shell"
+      ? raw.replace(/\n+$/, "")
+      : raw;
   const parts =
-    box.source === "user" ? [box.text ?? ""] : (box.text ?? "").split("\n");
+    box.source === "user" ? [raw] : trimmed === "" ? [""] : trimmed.split("\n");
   return parts.map((text) => ({ text, ...shared }));
 }
 
@@ -340,14 +409,20 @@ function itemLines(item: PaneItem, dialogue: boolean): BufferLine[] {
           kind: "tool",
         },
       ];
+    case "step-summary":
+      // P9 概要行：`kind: "step"` 由既有渲染器画成 `╌╌ <text> ` + 尾部 ╌ 铺满（会话区）
+      return [{ text: item.text, kind: "step" }];
     case "turn-separator":
+      // `untitled`（时间未知）= 纯虚线：不带 turn / time，既有渲染器按 `turnHeaderLine` 得空标签
       return [
-        {
-          text: TURN_SEPARATOR,
-          kind: "separator",
-          ...(item.time === undefined ? {} : { time: item.time }),
-          turn: item.turn,
-        },
+        item.untitled === true
+          ? { text: TURN_SEPARATOR, kind: "separator" }
+          : {
+              text: TURN_SEPARATOR,
+              kind: "separator",
+              ...(item.time === undefined ? {} : { time: item.time }),
+              turn: item.turn,
+            },
       ];
   }
 }
@@ -394,12 +469,31 @@ export function renderPane(
   const activityWidth = Math.max(1, options.activityWidth ?? width);
   const rows: ContentRow[] = [];
   const counts: number[] = [];
+  const keys: string[] = [];
+  const userRows: number[] = [];
   for (const item of items) {
+    // 空行：直接出行，不经 `buildContentRows`——它会**裁掉首行空行**并把裸空 plain 行
+    // 路由到会话区（活动区的空行会整行消失）。形状与旧路径的空行一致：无段、缩进 0、
+    // kind plain（旧路径的空行节点同样只有这三个字段）
+    if (item.kind === "blank") {
+      rows.push({ segments: [], indent: 0, kind: "plain" });
+      counts.push(1);
+      keys.push(item.key);
+      continue;
+    }
     const lines = itemLines(item, pane === "dialogue");
     if (lines.length === 0) {
       counts.push(0);
+      keys.push(item.key);
       continue;
     }
+    // 跳转目标：用户块首行（在本 pane 行缓冲里的绝对行号）
+    if (
+      pane === "dialogue" &&
+      item.kind === "line" &&
+      item.box.source === "user"
+    )
+      userRows.push(rows.length);
     // 用户块不走行缓存：其首行符号随回合状态变化（运行 ●/○ → 终态 ✓/✗/■，
     // 经 seq 回查 buffer 解析），缓存会渲染出上一状态的旧符号
     const cacheable =
@@ -414,6 +508,7 @@ export function renderPane(
     if (hit !== undefined) {
       rows.push(...hit);
       counts.push(hit.length);
+      keys.push(item.key);
       continue;
     }
     // 只计内容项的排版次数：边界项（空行 / step 头 / 分隔线）是常量开销，不进计数
@@ -432,6 +527,18 @@ export function renderPane(
     }
     rows.push(...produced);
     counts.push(produced.length);
+    keys.push(item.key);
   }
-  return { rows, counts, table: createLineTable(counts) };
+  // 整 pane 末尾的空行不渲染（旧渲染器 `trimTrailingAssistantBlanks` 口径：只在 pane 末尾
+  // 生效；逐项排版时各段看不到「谁是最后一行」，故在这里统一收尾）
+  while (
+    rows.length > 0 &&
+    rows[rows.length - 1]!.segments.length === 0 &&
+    rows[rows.length - 1]!.kind === "plain"
+  ) {
+    rows.pop();
+    const last = counts.length - 1;
+    if (last >= 0) counts[last] = Math.max(0, (counts[last] ?? 0) - 1);
+  }
+  return { rows, counts, keys, userRows, table: createLineTable(counts) };
 }

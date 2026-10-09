@@ -41,7 +41,6 @@ import type {
   RuleEngineLike,
 } from "./adapter/dsh.ts";
 import type { NoticeTone, CandidateRowLike } from "./adapter/types.ts";
-import { pipelineEnabled } from "./layout/pipeline/flag.ts";
 import {
   applyDelivery,
   createSections,
@@ -116,19 +115,21 @@ import {
 } from "./model-transition.ts";
 import {
   buildFrame,
-  dialogueWindow,
-  turnGroupStarts,
+  DIALOGUE_KEEP_REPLIES,
+  WINDOW_GROW_STEP,
   type FrameScrollReport,
   type FrameBuildOutput,
   dialogueHalfPage,
   frameGeometry,
   modelLabel,
-  userInputJump,
+  userRowJump,
   type FrameGeometry,
   helpTableLines,
   sortHelpRows,
   runPhase,
 } from "./layout.ts";
+import { createLineTable, positionAt } from "./layout/pipeline/rows.ts";
+import { sectionGroupCount, sectionsOf } from "./layout/pipeline/frame.ts";
 import {
   DEFAULT_THEME,
   normalizeThemeId,
@@ -183,55 +184,42 @@ function lastUserLineSeq(buffer: AppState["buffer"]): number | undefined {
 }
 
 /**
- * 焦点面板单行滚动 action 映射：history/activity 偏移语义=距底部（上滚=+），
+ * 焦点面板单行滚动 action 映射：activity 偏移语义=距底部（上滚=+），
  * status 偏移语义=距顶部（上滚=-），方向不可混用。
+ *
+ * 对话区不在其中：它按「段键 + 段内行」定位，位移在 App 用本帧段表换算
+ * （见 `App.scrollDialogueBy`）。
  */
 export function focusedLineScroll(
-  panel: AppState["focusedPanel"],
+  panel: "activity" | "status",
   dir: 1 | -1, // 1=上, -1=下
   max?: PaneScrollMax,
 ): StateAction {
-  switch (panel) {
-    case "activity":
-      return {
-        type: "activity-scroll",
-        delta: dir,
-        ...(max ? { max: max.activity } : {}),
-      };
-    case "status":
-      return { type: "status-column-scroll", delta: -dir };
-    default:
-      return {
-        type: "scroll",
-        delta: dir,
-        ...(max ? { max: max.dialogue } : {}),
-      };
+  if (panel === "activity") {
+    return {
+      type: "activity-scroll",
+      delta: dir,
+      ...(max ? { max: max.activity } : {}),
+    };
   }
+  return { type: "status-column-scroll", delta: -dir };
 }
 
-/** 焦点面板整页滚动 action 映射（页 = 该面板当前可视行数） */
+/** 焦点面板整页滚动 action 映射（页 = 该面板当前可视行数；对话区同上） */
 export function focusedPageScroll(
-  panel: AppState["focusedPanel"],
+  panel: "activity" | "status",
   dir: 1 | -1, // 1=上一页, -1=下一页
   page: FrameGeometry,
   max?: PaneScrollMax,
 ): StateAction {
-  switch (panel) {
-    case "activity":
-      return {
-        type: "activity-scroll",
-        delta: dir * page.activityH,
-        ...(max ? { max: max.activity } : {}),
-      };
-    case "status":
-      return { type: "status-column-scroll", delta: -dir * page.contentTopH };
-    default:
-      return {
-        type: "scroll",
-        delta: dir * page.viewportH,
-        ...(max ? { max: max.dialogue } : {}),
-      };
+  if (panel === "activity") {
+    return {
+      type: "activity-scroll",
+      delta: dir * page.activityH,
+      ...(max ? { max: max.activity } : {}),
+    };
   }
+  return { type: "status-column-scroll", delta: -dir * page.contentTopH };
 }
 
 /** 两 pane 的可滚动上限（行单位；App 经 paneMaxes() 取得，见 FrameScrollReport） */
@@ -279,7 +267,7 @@ export interface AppDeps {
     idleThresholdMs?: number;
   };
   /**
-   * 六步流水线装配（`TUI_LAYOUT_PIPELINE` 开启时生效）：App 在此注册「块交付」sink 并
+   * 六步流水线装配：App 在此注册「块交付」sink 并
    * 自己持有节缓存（`state.pipeline`）。缺省不注册 → adapter 零开销、旧路径不变。
    */
   pipelineSink?: { current?: (delivery: BlockDelivery) => void };
@@ -415,8 +403,12 @@ export class App {
   private paneScrollMax: FrameScrollReport = {
     dialogueMaxScroll: 0,
     activityMaxScroll: 0,
-    dialogueGeometry: { rows: 0, height: 0, spans: [], topIdx: 0 },
-    dialogueTop: { seq: 0, row: 0 },
+    dialogueTotal: 0,
+    dialogueCounts: [],
+    dialogueKeys: [],
+    dialogueTopIdx: 0,
+    dialogueViewportH: 0,
+    dialogueUserRows: [],
   };
   /** 会话状态快照待落盘定时器（见 scheduleSessionStateSave） */
   private sessionStateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -438,7 +430,7 @@ export class App {
    * 仅在开关开启时生效；关闭时不动任何状态。
    */
   private replaySectionsFromBuffer(): void {
-    if (!pipelineEnabled() || this.deps.pipelineSink === undefined) return;
+    if (this.deps.pipelineSink === undefined) return;
     this.sections = sectionsFromBuffer(this.state.buffer);
     // 回合号基线：重放后取最大节回合（下一回合本地预测 +1 的基准）
     const scanned =
@@ -498,42 +490,96 @@ export class App {
   }
 
   /**
-   * 出帧后同步派生缓存（语义锚点/几何/行偏移）：帧已按收敛后的锚点渲染，
+   * 出帧后同步派生缓存（视口顶位置 + 距底偏移 + 渐进窗口）：帧已按段键解析后的位置渲染，
    * 故直接写 state（不经 apply，不触发重绘），与 paneScrollMax 的缓存语义一致。
-   * 只有锚点真正被收敛（窗口收缩、resize、buffer 裁剪）时 state 才会变化。
+   *
+   * 两件事：① 段落收敛（位置键已消失 → 布局按距底偏移回落，这里把结果写回，保持
+   * 「state 里记的就是画面上那一行」）；② 用户停在历史里时，尾部新增回合组会把窗口
+   * 起点向前挤（窗口按「尾部 N 组」计）→ 按新增组数把窗口撑住，视口顶所在段不被挤出。
    */
-  private syncScrollAnchor(): void {
+  private syncDialoguePos(): void {
     const r = this.paneScrollMax;
     const st = this.state;
-    // 用户停在历史里（锚点非 null）时，尾部新增回合组会把窗口起点向前挤（窗口按
-    // 「尾部 N 组」计）——按新增组数把窗口撑住，锚定内容不被挤出已物化范围
-    const groups = turnGroupStarts(st.buffer).length;
+    const groups = sectionGroupCount(sectionsOf(st));
     const grew = groups - (this.groupCount ?? groups);
     this.groupCount = groups;
     const keepWindow =
-      st.scrollAnchor !== null && grew > 0
+      st.dialogueTop !== null && grew > 0
         ? Math.min(groups, st.windowGroups + grew)
         : st.windowGroups;
-    const same =
-      st.scrollAnchor !== null &&
-      st.scrollAnchor.seq === r.dialogueTop.seq &&
-      st.scrollAnchor.row === r.dialogueTop.row;
-    const offset = Math.max(0, r.dialogueMaxScroll - r.dialogueGeometry.topIdx);
+    if (st.dialogueTop === null) {
+      // 贴底：位置就是「跟随最新」，只需收敛窗口
+      if (st.windowGroups !== keepWindow)
+        this.state = { ...st, windowGroups: keepWindow };
+      return;
+    }
+    const offset = Math.max(0, r.dialogueMaxScroll - r.dialogueTopIdx);
+    const resolved = positionAt(
+      createLineTable(r.dialogueCounts),
+      r.dialogueKeys,
+      r.dialogueTopIdx,
+    );
     if (
-      same &&
       st.scrollOffset === offset &&
-      st.dialogueGeometry === r.dialogueGeometry &&
-      st.windowGroups === keepWindow
+      st.windowGroups === keepWindow &&
+      st.dialogueTop.key === resolved.key &&
+      st.dialogueTop.row === resolved.row
     )
       return;
     this.state = {
       ...st,
-      // followBottom（锚点 null）保持 null：收敛值仅用于非跟随态
-      scrollAnchor: st.scrollAnchor === null ? null : r.dialogueTop,
-      scrollOffset: st.scrollAnchor === null ? 0 : offset,
-      dialogueGeometry: r.dialogueGeometry,
+      dialogueTop: resolved,
+      scrollOffset: offset,
       windowGroups: keepWindow,
     };
+  }
+
+  /**
+   * 对话区按键滚动（`delta` 行：正 = 上滚看更早内容）。
+   *
+   * 顺序：**先扩窗、再按扩窗后的段表施加位移** —— 位置按段键表达，扩窗只在视口上方插段，
+   * 画面不动；位移量因此始终等于 `delta`（撞窗口顶那次也只是多物化，不多滚）。
+   */
+  private scrollDialogueBy(delta: number): void {
+    if (delta === 0) return;
+    let r = this.paneMaxes();
+    for (let guard = 0; delta > 0 && guard < 4; guard++) {
+      if (this.state.windowGroups >= sectionGroupCount(sectionsOf(this.state)))
+        break; // 更早回合已全部物化，没有可扩的窗口
+      const margin = Math.max(1, Math.floor(r.dialogueViewportH / 2));
+      const needMore = r.dialogueTopIdx - delta < 0;
+      const nearTop = r.dialogueTopIdx <= margin;
+      if (!needMore && !nearTop) break;
+      const before = r.dialogueTotal;
+      this.apply((s) =>
+        reduceState(s, {
+          type: "window-grow",
+          groups: s.windowGroups + WINDOW_GROW_STEP,
+        }),
+      );
+      r = this.paneMaxes();
+      if (r.dialogueTotal <= before) break; // 没有更多内容可纳入
+    }
+    const target = Math.min(
+      Math.max(0, r.dialogueTopIdx - delta),
+      r.dialogueMaxScroll,
+    );
+    // 滚回底部 → 恢复跟随最新（窗口复位默认组数，释放增量物化）
+    if (delta < 0 && target >= r.dialogueMaxScroll) {
+      this.apply((s) => reduceState(s, { type: "scroll-to-bottom" }));
+      return;
+    }
+    this.apply((s) =>
+      reduceState(s, {
+        type: "dialogue-scroll",
+        top: positionAt(
+          createLineTable(r.dialogueCounts),
+          r.dialogueKeys,
+          target,
+        ),
+        offset: Math.max(0, r.dialogueMaxScroll - target),
+      }),
+    );
   }
 
   /** 按面板取可滚动上限（status 列不按行滚动，返回 undefined = 不设上限） */
@@ -664,7 +710,7 @@ export class App {
     // 六步流水线：仅在「开关开启 + 调用方给了 sink」时接管（缺 sink = 未装配 → 旧路径，
     // 测试与嵌入用法不受默认切换影响）
     const sink = this.deps.pipelineSink;
-    if (pipelineEnabled() && sink !== undefined) {
+    if (sink !== undefined) {
       this.sections = createSections();
       this.sectionsSessionId = this.state.activeSessionId;
       sink.current = (delivery) => this.ingestDelivery(delivery);
@@ -833,7 +879,7 @@ export class App {
     const out: FrameBuildOutput = {};
     const frame = buildFrame(this.state, size, this.paneScrollMax, out);
     this.paneScrollMaxState = this.state;
-    this.syncScrollAnchor();
+    this.syncDialoguePos();
     this.deps.renderer.render(frame, out.sections, out.focus);
   }
 
@@ -1564,7 +1610,8 @@ export class App {
         if (e.target === "next-step") {
           const claimed = this.state.queued.find((q) => q.kind === "steer");
           this.apply((s) => reduceState(s, { type: "queued-claim-steer" }));
-          // 双写：steer 认领转入历史流 → 当前步用户节（与旧路径同组）
+          // steer 认领转入历史流 → 当前步用户节（与旧路径同组；`queued: "steer"`
+          // 让节带 steer 标记 → 第 3 步在它与上一条输入之间留空行）
           if (claimed !== undefined) {
             const scope = this.sections?.lastScope;
             if (scope !== undefined) {
@@ -1574,6 +1621,7 @@ export class App {
                   scope.turn > 0 ? scope.turn : (this.pipelineLastTurn ?? 1),
                 step: scope.step,
                 text: claimed.text,
+                queued: "steer",
                 seq: lastUserLineSeq(this.state.buffer),
               });
             }
@@ -2286,19 +2334,11 @@ export class App {
         if (panel === "activity" || panel === "status") {
           this.apply((s) => reduceState(s, focusedLineScroll(panel, dir, max)));
         } else {
-          const { viewportH } = frameGeometry(
-            this.state,
-            this.deps.renderer.getSize(),
-          );
-          // 语义锚点位移：几何（行分组表）取自本帧布局，位移换算成 (buffer 行, 行内行号)
-          const geom = this.paneMaxes().dialogueGeometry;
-          this.apply((s) =>
-            reduceState(s, {
-              type: "scroll",
-              delta: dir * dialogueHalfPage(viewportH),
-              geom,
-            }),
-          );
+          // 位移基准 = 本帧可视行数（缺省回落到几何口径）
+          const vh =
+            this.paneMaxes().dialogueViewportH ||
+            frameGeometry(this.state, this.deps.renderer.getSize()).viewportH;
+          this.scrollDialogueBy(dir * dialogueHalfPage(vh));
         }
         break;
       }
@@ -2317,30 +2357,32 @@ export class App {
             ),
           );
         } else {
-          const m = frameGeometry(this.state, this.deps.renderer.getSize());
-          // 跳转只在物化窗口内找目标（更早内容未物化，先按 ↑ 扩窗再翻页）
-          const win = dialogueWindow(
-            this.state.buffer,
-            this.state.windowGroups,
-          );
-          const jump = userInputJump(
-            win.lines,
-            m.dialogueW,
-            this.state.messageGutter,
-            this.state.themeId,
-            m.viewportH,
-            this.paneMaxes().dialogueGeometry.topIdx,
-            win.start,
+          // 跳转只在已物化范围内找目标（更早内容未物化，先按 ↑ 扩窗再翻页）
+          const r = this.paneMaxes();
+          const target = userRowJump(
+            r.dialogueUserRows,
+            r.dialogueTopIdx,
+            r.dialogueViewportH,
+            r.dialogueTotal,
             dir,
-            win.dropped > 0 ? 1 : 0,
           );
-          if (jump)
-            this.apply((s) =>
-              reduceState(s, { type: "user-jump", anchor: jump }),
-            );
-          else if (dir === -1)
+          if (target === undefined) {
             // PgDn 无下一条 → 回到底部跟随最新
-            this.apply((s) => reduceState(s, { type: "scroll-to-bottom" }));
+            if (dir === -1)
+              this.apply((s) => reduceState(s, { type: "scroll-to-bottom" }));
+          } else {
+            this.apply((s) =>
+              reduceState(s, {
+                type: "dialogue-scroll",
+                top: positionAt(
+                  createLineTable(r.dialogueCounts),
+                  r.dialogueKeys,
+                  target,
+                ),
+                offset: Math.max(0, r.dialogueMaxScroll - target),
+              }),
+            );
+          }
         }
         break;
       }
@@ -4958,7 +5000,7 @@ export class App {
     const out: FrameBuildOutput = {};
     const frame = buildFrame(this.state, size, this.paneScrollMax, out);
     this.paneScrollMaxState = this.state;
-    this.syncScrollAnchor();
+    this.syncDialoguePos();
     this.deps.renderer.refresh(frame, out.sections, out.focus);
   }
 
@@ -5034,7 +5076,7 @@ export class App {
     const out: FrameBuildOutput = {};
     const frame = buildFrame(this.state, size, this.paneScrollMax, out);
     this.paneScrollMaxState = this.state;
-    this.syncScrollAnchor();
+    this.syncDialoguePos();
     // 帧前按需实测：本次排版登记了「呈现不确定」字符 → 先实测再出帧（探测字节写在原点，
     // 由随后的整帧重绘覆盖），见 probeThenRender
     if (!this.widthProbeInFlight && !this.widthProbeUnavailable) {

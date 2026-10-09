@@ -5,7 +5,8 @@
 // ② 档位过滤：think = 全量；tool = 去思考；step = 只留工具调用（notice 保留）；
 // ③ 替换符号只作用于文本（代码 / 表格不替换）；
 // ④ 拆行：文本 box → 逻辑行；代码块与表格不拆；
-// ⑤ 加边界：scope 变化 → step 头（仅回合区）；turn 变化 → 回合分隔线；分类变化 → 空行；
+// ⑤ 加边界：scope 变化 → step 头（仅回合区）；turn 变化 → 回合分隔线；
+//    留白按旧渲染器口径：会话区「用户块 → 正文」，回合区「思考 ↔ 正文」（工具重置上一档）；
 // ⑥ 合并空行：连续空行并成 1 个。
 
 import { test } from "node:test";
@@ -13,6 +14,9 @@ import assert from "node:assert/strict";
 
 import { buildPanes, type PaneItem } from "../src/app/layout/pipeline/panes.ts";
 import type { Item, Section } from "../src/app/layout/pipeline/types.ts";
+
+/** 分隔线时间戳（断言只关心有没有线，值任意） */
+const STEP_TIME = 1_700_000_000_000;
 
 const section = (items: Item[], extra: Partial<Section> = {}): Section => ({
   turn: 1,
@@ -28,6 +32,7 @@ const shape = (items: readonly PaneItem[]): string[] =>
     if (item.kind === "blank") return "(blank)";
     if (item.kind === "step-head") return `#step ${item.step}`;
     if (item.kind === "turn-separator") return `-- turn ${item.turn}`;
+    if (item.kind === "step-summary") return `summary:${item.text}`;
     const box = item.box;
     if (box.kind === "layout") return box.role === "table" ? "table" : box.role;
     if (box.shape === "code") return "code:" + box.code?.lines.join("|");
@@ -73,9 +78,7 @@ test("① 归属：用户块与 final 正文进会话区，思考 / 工具 / 非
     "#step 1",
     "#step 2",
     "reasoning:（想）",
-    "(blank)",
     "tool:1",
-    "(blank)",
     "assistant:中间正文",
     "#step 3",
   ]);
@@ -96,9 +99,7 @@ test("② 档位过滤：tool 去思考、step 只留工具调用（notice 保�
   assert.deepEqual(shape(buildPanes(sections, { level: "tool" }).activity), [
     "#step 2",
     "assistant:过程",
-    "(blank)",
     "tool:1",
-    "(blank)",
     "notice:提示",
   ]);
   // step 档：去思考；工具批内部的**结果行**由第 4 步沿用旧渲染器裁掉（调用行只取首行），
@@ -106,9 +107,7 @@ test("② 档位过滤：tool 去思考、step 只留工具调用（notice 保�
   assert.deepEqual(shape(buildPanes(sections, { level: "step" }).activity), [
     "#step 2",
     "assistant:过程",
-    "(blank)",
     "tool:1",
-    "(blank)",
     "notice:提示",
   ]);
 });
@@ -175,7 +174,8 @@ test("⑤ 边界：step 头随 scope 变化；turn 分隔线随回合变化；�
     "#step 1",
     "assistant:下一回合",
   ]);
-  // turn 分隔线只在会话区（旧口径：分隔线是会话区的线）
+  // turn 分隔线只在会话区，且**按 turn-start 交付**画（旧口径：turn-begin 往缓冲追加
+  // separator 行）——交付过就画，即使该回合还没有内容
   const dialogue = buildPanes(
     [
       section([{ source: "user", text: "第一问" }], { turn: 1, step: 1 }),
@@ -186,11 +186,27 @@ test("⑤ 边界：step 头随 scope 变化；turn 分隔线随回合变化；�
       }),
       section([{ source: "user", text: "第二问" }], { turn: 2, step: 1 }),
     ],
-    { level: "think" },
+    { level: "think", turnTimes: new Map([["2", STEP_TIME]]) },
   );
   assert.ok(
     shape(dialogue.dialogue).includes("-- turn 2"),
-    "会话区在回合变化处插分隔线",
+    "会话区在交付过 turn-start 的回合处插分隔线",
+  );
+  // 只交付 turn-start、尚无内容：同样画线（旧路径 turn-begin 即出线）
+  const trailing = buildPanes(
+    [section([{ source: "assistant", text: "旧内容" }], { turn: 1, step: 1 })],
+    {
+      level: "think",
+      turnTimes: new Map([
+        ["1", STEP_TIME],
+        ["2", STEP_TIME],
+      ]),
+    },
+  );
+  assert.deepEqual(
+    shape(trailing.dialogue).filter((x) => x.startsWith("-- turn")),
+    ["-- turn 1", "-- turn 2"],
+    "尾部空回合的线也画（interrupted / 刚落地的 turn-begin）",
   );
 });
 

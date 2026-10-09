@@ -28,25 +28,18 @@ import { createSections } from "./layout/pipeline/sections.ts";
 import type { ActivityPlacement } from "./config.ts";
 import {
   DIALOGUE_KEEP_REPLIES,
-  DIALOGUE_MARKER_SEQ,
-  WINDOW_GROW_STEP,
-  anchorToIndex,
-  anchorToOffset,
-  dialogueWindow,
   emptyRunVirt,
   estimateOutputTokens,
-  moveDialogueAnchor,
   nextRunVirt,
-  turnGroupStarts,
   virtTick,
   VIRT_SPEED_MIN,
   TOKEN_CALIB_ALPHA,
   TOKEN_CALIB_MAX,
   TOKEN_CALIB_MIN,
-  type DialogueAnchor,
-  type DialogueGeometry,
   type RunVirtState,
 } from "./layout.ts";
+import { TOP_OLDEST_KEY, type DialogueTop } from "./layout/pipeline/rows.ts";
+import { sectionGroupCount, sectionsOf } from "./layout/pipeline/frame.ts";
 import { completeCommandInput, type CommandCandidate } from "./commands.ts";
 import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
 import {
@@ -69,30 +62,14 @@ export const PANEL_CYCLE = ["history", "activity", "status"] as const;
 export const MAX_BUFFER_LINES = 2000;
 
 /**
- * 缓冲头部裁剪（就地）：超过上限时丢弃最旧行，但**保留语义锚点所在行及之后的内容**。
+ * 缓冲头部裁剪（就地）：超过上限时丢弃最旧行。
  *
- * 用户上翻阅读历史时 `scrollAnchor` 指向视口顶行。若这行被逐行裁掉，视口只能跟着
- * 缓冲头一起前移（锚点随之被重设为缓冲头，`scrollOffset` 被推导成「窗口顶到内容底」
- * 的距离），表现为「活动区输出大量文本时历史区跟着一起上滚」——阅读位置被持续拽走。
- * 保留锚点行即可让视口纹丝不动（新行只从底部追加，锚点行留在原地）。
- * 代价是缓冲临时超过上限，故给锚点保护设宽松上限（保留不超过 2× 上限）：极端输出
- * 下仍会放弃保护、退回上限裁剪（此时由 layout 的 `dialogueTopIdx` 兜底为距底偏移）。
+ * 会话内容真源已迁到节缓存（`state.pipeline`），缓冲不再参与构帧，故裁剪**不再需要
+ * 为阅读位置让路**（视口顶按段键定位，与缓冲无关）：直接按上限裁。
  */
-function trimBufferHead(
-  buffer: { seq?: number }[],
-  anchor: DialogueAnchor | null,
-): void {
+function trimBufferHead(buffer: { seq?: number }[]): void {
   const over = buffer.length - MAX_BUFFER_LINES;
-  if (over <= 0) return;
-  const idx =
-    anchor === null ? -1 : buffer.findIndex((l) => l.seq === anchor.seq);
-  // 锚点行在缓冲内 → 最多裁到它（该行保留，故裁的比上限要求的更少）；不在（已裁掉/无
-  // 锚点）→ 按上限裁。锚点保护另有宽松上限：保留不超过 2× 上限（极端输出下放弃保护）。
-  const keepFrom =
-    idx >= 0
-      ? Math.max(Math.min(over, idx), buffer.length - MAX_BUFFER_LINES * 2)
-      : over;
-  if (keepFrom > 0) buffer.splice(0, keepFrom);
+  if (over > 0) buffer.splice(0, over);
 }
 
 /** 用户块左缘/回复右缘对称留空默认列数（可经 initialState 配置，交错布局用）。
@@ -426,24 +403,25 @@ export interface AppState {
   activeSessionId: string | null;
   /** 会话纯文本行（未换行，展示时才按列宽切分） */
   buffer: Buffer;
-  /** 是否跟随底部（= scrollAnchor 为 null；由锚点派生，供既有调用口径使用） */
+  /** 是否跟随底部（= `dialogueTop` 为 null；由位置派生，供既有调用口径使用） */
   followBottom: boolean;
-  /** 距底部行数（派生缓存：每帧由布局回填，供既有调用与断言口径使用） */
+  /** 距底部行数（派生缓存：每帧由布局回填；段键失配时的回落基准，供既有断言口径使用） */
   scrollOffset: number;
-  /** 对话区语义锚点（视口顶行 = (buffer 行, 行内换行序号)；null = 跟随底部/最新）。
-   *  位置身份化：底部新增内容、resize 重排、渐进窗口扩窗都不会把视图顶走 */
-  scrollAnchor: DialogueAnchor | null;
+  /**
+   * 对话区视口顶位置（段键 + 段内行；`null` = 跟随底部/最新）。
+   * 位置按**内容段身份**表达：上方插入段（扩窗纳入更早回合）不动画面；宽度变化按段键重定位；
+   * 段消失时回落 `scrollOffset`（距底偏移）。
+   */
+  dialogueTop: DialogueTop | null;
   /** 渐进窗口：物化的尾部回合组数（上滚接近窗口顶部时增大；回到最新时复位默认） */
   windowGroups: number;
   /**
-   * 六步流水线的节缓存（`TUI_LAYOUT_PIPELINE` 开启时由 App 注入）。
-   * 存在时 `buildTopRegion` 从节缓存出两 pane 内容行（旧 `buffer` 路径作对照）。
+   * 六步流水线的节缓存（App 注入；内容真源）。
+   * 缺省（测试 / 嵌入用法）由 `layout.ts` 的 `sectionsOf` 按 `buffer` 重放一份。
    */
   pipeline?: SectionsState;
   /** 下一个可用的 buffer 行序号（单调递增；只增不减，裁剪/清行后不复用） */
   nextSeq: number;
-  /** 对话区滚动几何（派生缓存：每帧由布局回填 + 由滚动 action 的 geom 覆盖） */
-  dialogueGeometry: DialogueGeometry;
   inputText: string;
   inputCursor: number;
   /** 输入历史（已提交输入连同**提交时的输入模式**；仅本会话生命周期，不持久化）。
@@ -781,10 +759,9 @@ export function initialState(
     buffer: [],
     followBottom: true,
     scrollOffset: 0,
-    scrollAnchor: null,
+    dialogueTop: null,
     windowGroups: DIALOGUE_KEEP_REPLIES,
     nextSeq: 1,
-    dialogueGeometry: { rows: 0, height: 0, spans: [], topIdx: 0 },
     inputText: "",
     inputCursor: 0,
     inputHistory: [], // 输入历史：进程内、随会话生命周期（不写入 tui-state.json）
@@ -943,7 +920,7 @@ export function appendStream(
       }
     }
   }
-  trimBufferHead(buffer, state.scrollAnchor);
+  trimBufferHead(buffer);
   // 模型流式输出（assistant/thinking）推进虚拟状态（窗口速率估计 → slew/clamp
   // 虚拟速度 → 虚拟总 token 积分，驱动 ●/○ 交替）；用户行不参与。
   // 估算 token 按 tokenCalib 校正（P5：流末 usage 真值学习）；stepEstTokens 累计
@@ -986,7 +963,7 @@ export function appendNotice(
       seq: seq++,
       ...(tone ? { tone } : {}),
     });
-  trimBufferHead(buffer, state.scrollAnchor);
+  trimBufferHead(buffer);
   // 失败标记(error notice，如未知 slash 命令 fail-close)→ 输入栏失败色(红)；
   // agent 仍活跃时保持黄（活跃守卫），绿/红仅空闲时暴露
   return {
@@ -1027,7 +1004,7 @@ export function appendNoticeLines(
         ...(l.noCompact === true ? { noCompact: true } : {}),
       });
   }
-  trimBufferHead(buffer, state.scrollAnchor);
+  trimBufferHead(buffer);
   return { ...state, buffer, nextSeq: seq };
 }
 
@@ -1049,7 +1026,7 @@ export function appendShellLines(
       ...(l.tone !== undefined ? { tone: l.tone } : {}),
     });
   }
-  trimBufferHead(buffer, state.scrollAnchor);
+  trimBufferHead(buffer);
   return { ...state, buffer, nextSeq: seq };
 }
 
@@ -1061,7 +1038,7 @@ export function appendToolLine(
   state: AppState,
   text: string,
   tone?: NoticeTone,
-  params?: { keepLineBreaks?: boolean },
+  params?: { keepLineBreaks?: boolean; time?: number },
 ): AppState {
   // 工具内容可能夹带 \r/\n/控制符（参数/结果原文）。剔除其余非打印字符、避免控制符
   // 干扰终端（宽度限制由渲染层按窗口宽度处理）；\n 默认折叠成单行（结果/辅助行），
@@ -1074,8 +1051,11 @@ export function appendToolLine(
     kind: "tool",
     seq: state.nextSeq,
     ...(tone ? { tone } : {}),
+    // step 头的时间随行存一份：恢复重放据此还原 `hh:mm:ss #N`（文本里虽有格式化时间，
+    // 但那是显示态、无法反解 epoch；行元数据是权威来源）
+    ...(params?.time === undefined ? {} : { time: params.time }),
   });
-  trimBufferHead(buffer, state.scrollAnchor);
+  trimBufferHead(buffer);
   return { ...state, buffer, nextSeq: state.nextSeq + 1 };
 }
 
@@ -1302,7 +1282,7 @@ export function appendTurnSeparator(
     ...(meta.turn !== undefined ? { turn: meta.turn } : {}),
   });
   next.nextSeq = state.nextSeq + 1;
-  trimBufferHead(buffer, state.scrollAnchor);
+  trimBufferHead(buffer);
   return next;
 }
 
@@ -2028,64 +2008,42 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return reduceInputHistory(state, action);
       case "move-cursor":
         return moveCursor(state, action);
-      case "scroll":
-        return scrollDialogue(state, action.delta, action.geom);
+      case "dialogue-scroll":
+        // 位移换算在 App（拿到本帧段表与可视高）完成，此处只落位置
+        return {
+          ...state,
+          dialogueTop: action.top,
+          followBottom: action.top === null,
+          scrollOffset: action.top === null ? 0 : Math.max(0, action.offset),
+        };
       case "scroll-to-bottom":
         // 回到最新：跟随底部并复位渐进窗口（窗口内容随之上滚时再按需扩窗）
         return {
           ...state,
           followBottom: true,
           scrollOffset: 0,
-          scrollAnchor: null,
+          dialogueTop: null,
           windowGroups: DIALOGUE_KEEP_REPLIES,
         };
-      case "scroll-to-oldest": {
-        // 跳到最旧：把窗口一次扩到全部回合组，并把锚点钉在首行（首行的稳定序号）
-        const first = state.buffer[0];
-        const anchor = { seq: first?.seq ?? DIALOGUE_MARKER_SEQ, row: 0 };
+      case "scroll-to-oldest":
+        // 跳到最旧：窗口一次扩到全部回合组，视口钉在最旧一行（哨兵键由定位层解析为第 0 行）
         return {
           ...state,
           followBottom: false,
-          scrollAnchor: anchor,
+          dialogueTop: { key: TOP_OLDEST_KEY, row: 0 },
           windowGroups: Math.max(
             state.windowGroups,
-            turnGroupStarts(state.buffer).length,
-          ),
-          scrollOffset: anchorToOffset(
-            state.dialogueGeometry.spans,
-            anchor,
-            state.dialogueGeometry.height,
+            sectionGroupCount(sectionsOf(state)),
           ),
         };
-      }
-      case "anchor-resolved":
-        // 每帧由 App 回填：布局收敛后的锚点/几何/偏移（派生缓存同步）
-        return {
-          ...state,
-          scrollAnchor: action.anchor,
-          followBottom: action.anchor === null,
-          scrollOffset: action.offset,
-          dialogueGeometry: action.geometry,
-        };
-      case "window-groups":
+      case "window-grow":
+        // 扩窗（App 在位移前调用）：只多物化更早回合，视口位置不动
         return {
           ...state,
           windowGroups: Math.max(DIALOGUE_KEEP_REPLIES, action.groups),
         };
       case "pipeline-state":
         return { ...state, pipeline: action.pipeline };
-      case "user-jump":
-        // PgUp/PgDn 用户输入跳转：直接给锚点（null = 落到底部）
-        return {
-          ...state,
-          scrollAnchor: action.anchor,
-          followBottom: action.anchor === null,
-          scrollOffset: anchorToOffset(
-            state.dialogueGeometry.spans,
-            action.anchor,
-            state.dialogueGeometry.height,
-          ),
-        };
       case "turn-begin": {
         // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容；
         // 非打印字符剔除计数按回合清零（turn-end 时警告后不复用旧值）。
@@ -2328,7 +2286,14 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           // P6：时间取事件时间；mock/合成事件缺 time 时回退当前时刻
           const time = action.time ?? Date.now();
           return {
-            ...appendToolLine(state, stepHeaderLine(action.step, time)),
+            ...appendToolLine(
+              state,
+              stepHeaderLine(action.step, time),
+              undefined,
+              {
+                time,
+              },
+            ),
             stepGroup: {
               sessionId: action.sessionId,
               step: action.step,
@@ -2728,19 +2693,17 @@ export type StateAction =
   /** 输入历史（BACKLOG TUI#34）：push 入栈（提交时）/ prev 上翻 / next 下翻（回草稿） */
   | { type: "input-history"; action: "push" | "prev" | "next" }
   | { type: "move-cursor"; delta: number }
-  | { type: "scroll"; delta: number; max?: number; geom?: DialogueGeometry }
+  /**
+   * 对话区滚动到指定视口顶（位移换算在 App：拿到本帧段表与可视高，`null` = 贴底跟随最新）。
+   * `offset` = 距底行数（段键失配时的回落基准）。
+   */
+  | { type: "dialogue-scroll"; top: DialogueTop | null; offset: number }
   | { type: "scroll-to-bottom" }
   | { type: "scroll-to-oldest" }
-  | {
-      type: "anchor-resolved";
-      anchor: DialogueAnchor | null;
-      offset: number;
-      geometry: DialogueGeometry;
-    }
-  | { type: "window-groups"; groups: number }
-  /** 六步流水线节缓存整体替换（App 在开关开启时注入；undefined = 关闭 / 无会话） */
+  /** 扩窗：只多物化更早回合组，视口位置不动（App 在施加位移之前调用） */
+  | { type: "window-grow"; groups: number }
+  /** 六步流水线节缓存整体替换（App 注入；undefined = 无会话） */
   | { type: "pipeline-state"; pipeline: SectionsState | undefined }
-  | { type: "user-jump"; anchor: DialogueAnchor | null }
   /** clearActivity：是否清空活动区内容（缺省 true；核心自发回合传 false，见 appendTurnSeparator） */
   | {
       type: "turn-begin";
@@ -3479,55 +3442,6 @@ function moveCustomCaret(state: AppState, delta: 1 | -1): AppState {
   const items = [...panel.items];
   items[panel.itemIndex] = { ...item, customCaret: next };
   return { ...state, question: { ...panel, items } };
-}
-
-/**
- * 对话区行位移（正数上滚、负数下滚）：语义锚点 + 渐进窗口。
- *
- * - 位移经 `moveDialogueAnchor` 在锚点坐标上换算（顶到窗口末行 → 锚点 null 跟随底部）；
- *   几何（行分组表/可视行数）来自本帧布局（`geom`；缺省用 state 里的派生缓存），
- *   因此「上滚半屏」在任意换行宽度/窗口大小下都落在同一行身份上。
- * - 上滚后视口顶行距物化窗口顶部不足半屏 → 增窗（每次 +WINDOW_GROW_STEP 组）：
- *   扩窗在视口上方插入行，锚点保证同一内容留在原地（"渐进定位"的可见效果）。
- * - 回到跟随底部时窗口复位为默认组数（释放增量物化）。
- */
-export function scrollDialogue(
-  state: AppState,
-  delta: number,
-  geom?: DialogueGeometry,
-): AppState {
-  const g = geom ?? state.dialogueGeometry;
-  const totalGroups = turnGroupStarts(state.buffer).length;
-  const anchor = moveDialogueAnchor(state.scrollAnchor, delta, g);
-  // 增窗判定：上滚 + 视口顶行已进入窗口顶部「半屏」区间（或窗口内已无可滚行、上方
-  // 仍有更早回合组）→ 再物化一批更早回合组。扩窗在视口上方插入行，锚点不变 →
-  // 同一内容留在原地，多出来的更早历史从其上方长出来（渐进定位的可见效果）。
-  const top =
-    anchor === null
-      ? Math.max(0, g.rows - g.height)
-      : anchorToIndex(g.spans, anchor);
-  const margin = Math.max(1, Math.floor(g.height / 2));
-  const nearTop = top <= margin || g.rows <= g.height;
-  let windowGroups = state.windowGroups;
-  if (delta > 0 && windowGroups < totalGroups && nearTop)
-    windowGroups = Math.min(totalGroups, windowGroups + WINDOW_GROW_STEP);
-  if (anchor === null) {
-    // 跟底：下滚方向（delta < 0）才复位窗口（释放增量物化）；上滚触发的扩窗保留
-    return {
-      ...state,
-      scrollAnchor: null,
-      followBottom: true,
-      windowGroups: delta < 0 ? DIALOGUE_KEEP_REPLIES : windowGroups,
-    };
-  }
-  return {
-    ...state,
-    scrollAnchor: anchor,
-    followBottom: false,
-    windowGroups,
-    // 派生缓存同步（既有调用/断言口径；绘制期 syncScrollAnchor 会再校准一次）
-    scrollOffset: anchorToOffset(g.spans, anchor, g.height),
-  };
 }
 
 /**

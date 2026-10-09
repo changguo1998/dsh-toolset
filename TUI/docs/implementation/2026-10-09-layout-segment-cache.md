@@ -426,6 +426,65 @@ warm          6.58 ms        0.17 ms       38.6×
 incremental   10.67 ms       0.34 ms       31.6×
 ```
 
+## 第二阶段：位置模型接管 + 旧排版退役（2026-10-09 用户指示）
+
+**范围裁定（用户 2026-10-09）**：条目 1 的剩余（滚动 / 扩窗迁位置模型）与条目 7（双写退役）合并执行——新路径成为**唯一**路径；`TUI_LAYOUT_PIPELINE` 开关与旧排版结构一次性清空。
+
+### 现状事实（本阶段开工时实测）
+
+1. 出帧已由流水线驱动（`layout.ts:1632-1672` 的双来源分支，`state.pipeline` 存在时走 `pipelineContent`），节 / box / pane / 行 / 重放五层齐备。
+1. **未达成项**：`pipeline/rows.ts` 的位置模型（偏移 + 显示索引 + 行数表 + `remap`）在 `src/app` 里**零引用**；滚动仍走 `state.ts:3494 scrollDialogue` 的语义锚点（`moveDialogueAnchor` + 移动前几何 clamp，扩窗判定在其后）+ `layout.ts:245 dialogueTopIdx`；`index.ts:2316` 的几何经 `paneMaxes()`（以 state 引用为键的整帧回填）取得。
+1. **旧结构依赖面**：`state.buffer` 既承载会话内容（渲染来源之一）又是用户块状态符号（`layout.ts:2452 userBlockSymbolResolver` 按 `seq` 回查）、PgUp 跳转（`index.ts` `userInputJump` + `dialogueWindow`）与回合分组（`turnGroupStarts(buffer)`）的事实源；`trimBufferHead(buffer, state.scrollAnchor)` 在 `state.ts` 多处调用。
+
+### 分批（依赖顺序；每批独立可验证）
+
+| 批 | 内容 | 验收 |
+| --- | --- | --- |
+| M1 | **位置模型接管滚动与扩窗**：`state` 的 `scrollAnchor` / `dialogueGeometry` 换成 `dialoguePos`（偏移 + 显示索引）；App 每帧从流水线取两 pane 行缓冲与行数表；扩窗 = 段级前置插入（位移在扩窗后施加）→ 条目 5 的「clamp 先于扩窗」结构上消失 | 单测：撞顶一次 ↑ 恰走 `floor(viewportH/2)` 行；滚动 / 扩窗零重排计数断言 |
+| M2 | **单一渲染来源**：`buildTopRegion` 删旧分支；用户块事实（终态 / `steerContinued` / 活跃块）入节模型；占位行由流水线产出；删 `dialogueWindow` / `dialogueSpans` / `dialogueTopIdx` / `indexToAnchor` / `moveDialogueAnchor` / `anchorToOffset` / `DIALOGUE_MARKER_SEQ` / `window-groups` / `anchor-resolved` 死 action / `TUI_LAYOUT_PIPELINE` 开关 | 帧断言全绿；`state.buffer` 不再被构帧读取 |
+| M3 | **本地写入与恢复改块交付**：App 本地（用户回显 / 排队认领 / notice / shell / help）只投递块；恢复路径从宿主历史直接产交付（不再经 buffer 重放）；`state.buffer` 与 `nextSeq` 退场 | 恢复重放用例等价；全量测试绿 |
+| M4 | **测试与文档收尾**：既有帧断言 / 滚动用例迁到新模型；补滚动零重排计数断言；`check` + `build` + 全量测试；真机目视（滚动 / 扩窗 / 流式 / 面板 / 恢复） | 全绿 + 真机通过 |
+
+### 计划改动文件清单（第二阶段）
+
+| 文件 | 改动 |
+| --- | --- |
+| `TUI/src/app/layout/pipeline/view.ts`（新） | 每帧视图：节缓存 → 窗口（按段）→ 两 pane 行缓冲 + 行数表 + 占位标记，供 App 定位与 layout 装配共用（单一来源） |
+| `TUI/src/app/layout/pipeline/rows.ts` | 行数表接窗口段；段身份（供 `remap` 定位） |
+| `TUI/src/app/layout/pipeline/frame.ts` | 由「构帧函数」降为 `view.ts` 的一层；去掉 `turnGroupStarts(buffer)` 依赖 |
+| `TUI/src/app/layout/pipeline/types.ts` / `sections.ts` | 用户条目补状态事实（终态 / `steerContinued` / `queued`），接收层按 `turn-end` 原因打标 |
+| `TUI/src/app/layout/pipeline/flag.ts` | 删除（开关退场） |
+| `TUI/src/app/state.ts` | `dialoguePos` 取代 `scrollAnchor` / `dialogueGeometry`；滚动 action 改位置模型；删死 action；`buffer` / `nextSeq` 退场 |
+| `TUI/src/app/layout.ts` | `buildTopRegion` 单源（取 `view.ts` 结果）；删锚点族函数与 `FrameScrollReport` 的几何字段；退化为装配入口 |
+| `TUI/src/app/index.ts` | 帧循环取视图行缓冲；滚动 / 扩窗改位置模型；本地写入改块交付；删开关分支 |
+| `TUI/src/app/adapter/dsh.ts` | `turn-end` 带原因；用户状态事实随交付；去 buffer 写 |
+| `TUI/tests/` | 更新既有帧断言 / 滚动用例；新增滚动零重排与位置 remap 用例 |
+
+### 实现记录（第二阶段）
+
+**M1-a 段键与位置模型**：`panes.ts` 给每个 pane 项发**稳定段键**（节身份 + 节内 box 序号；边界项 `blank@<后项键>` / `sep@<回合>` / `step@<turn:step>` / `step-summary@<节>`）；`rows.ts` 的 `RenderedPane` 增 `keys` / `userRows`，并导出 `positionAt` / `indexOfTop` / `MARKER_KEY` / `TOP_OLDEST_KEY` / `DialogueTop`（位置 = 段键 + 段内行，段键失效回落距底偏移）。
+
+**M1-b 状态与装配**：`AppState.scrollAnchor` + `dialogueGeometry` → **`dialogueTop`**（+ `scrollOffset` 作回落基准）；action `scroll` / `anchor-resolved` / `window-groups` / `user-jump` → **`dialogue-scroll`** / **`window-grow`**；`scrollDialogue` / `dialogueSpans` / `dialogueTopIdx` / `indexToAnchor` / `anchorToIndex` / `anchorToOffset` / `moveDialogueAnchor` / `DialogueAnchor` / `DialogueSpan` / `DialogueGeometry` / `dialogueWindow` / `DIALOGUE_MARKER_SEQ` / `TUI_LAYOUT_PIPELINE`（`flag.ts`）全部删除；`FrameScrollReport` 改为段表口径（`dialogueTotal` / `dialogueCounts` / `dialogueKeys` / `dialogueTopIdx` / `dialogueViewportH` / `dialogueUserRows`）。App 侧新增 `scrollDialogueBy`（**先扩窗、再按扩窗后的段表施加位移** —— 条目 5 的根因链在结构上不存在）与 `syncDialoguePos`（段落收敛 + 窗口撑住）；PgUp/PgDn 改走 `userRowJump`（行号口径，不再回查缓冲）。
+
+**M2 单一内容来源**：`buildTopRegion` 删旧分支（`dialogueWindow` + `buildContentRows` 构帧调用点），内容来源唯一 = `pipelineContent(sectionsOf(state), …)`；`sectionsOf` 在 App 未注入节缓存时按 `state.buffer` 重放（**按逐行对象身份**判缓存命中——缓冲就地变更会换行对象，只比数组身份会拿到过期节缓存）。
+
+**迁移中发现并修掉的口径缺陷**（都有测试固化）：
+
+1. **恢复重放的同 scope 迟到回写**：回合定型后同 scope 的内容被并回总结节（文本直拼成一行、非 final 正文错进会话区）→ 重放器在定型后把 scope 前移一格（不发 step-start，不产生 step 头）。
+1. **活动区空行整片消失**：`buildContentRows` 会把裸空 plain 行路由到会话区、并裁掉首行空行 → 空行项改由行层直接出行（`segments: []`、`kind: "plain"`）。
+1. **留白规则按旧渲染器口径收紧**：回合区只在「思考 ↔ 正文」之间留白（工具重置上一档，`noteActKind`）；会话区只在「用户块 → 正文」之间留白（`spaceUserAssistant`）。
+1. **steer 留白**：`queued: "steer"` / 恢复行的 `spaceBefore` → 节带 `steer` 标记 → 第 3 步在该块之前插空行。
+1. **P9 step 概要行**：新增 `step-summary` 交付与 pane 项（恢复路径的 `kind: "step"` 行），渲染复用既有 `kind: "step"` 行口径。
+1. **回合分隔线口径**：由 `turn-start` 交付驱动（App 在 turn-begin 交付；重放按分隔线行补交付），时间未知时画**纯虚线**；被窗口丢掉的更早回合不画。
+1. **空行吸收三件套**：pane 尾部空行裁剪（`trimTrailingAssistantBlanks`）、notice/shell 拖尾换行剥离、空 notice 在工具批 / step 头之前吸收（`absorbActivityBlank`）。
+1. **step 头顺序**：未声明 step 的节不再提前冲刷已声明的头（旧路径的头随 step 事件追加）；重放的分隔线不再重置 step（沿用最近一次声明的 step，与实时线一致）。
+1. **本地辅助行**：`subagent` / `hook` / `command` 等工具行不再在恢复时被丢弃 → 文本交付新增 `source: "tool"`（+ `tone`），工具批按 `calls` 有无分流。
+1. **step 头时间**：`step` action 把时间写进缓冲行（`time` 字段），恢复重放据此还原 `hh:mm:ss #N`。
+
+**证据**：`npm run check` 全绿；TUI 全量 **1410 用例全绿**（新增 `tests/scroll-position.test.ts`；重写 `scroll-anchor.test.ts` → 段键 / 位置模型；`buffer-trim.test.ts` 改为「裁剪不再为阅读位置让路」；`layout4.test.ts` 的滚动 / 翻页用例迁到新模型 + `appScrollDialogue` 同口径助手；`app.test.ts` 增「对话区 ↑ 位移恒等于半屏（含撞扩窗那一次）」）。
+
+**剩余（未完成，另批处理）**：`state.buffer` 仍作事实源与恢复回放源（App 无 sink 时的回落路径），本地写入（用户回显 / notice / shell / 辅助行）仍是「写缓冲 + 投块」双写；条目 7 的验收（`state.buffer` 不再承载会话内容）未达成 → 见 BACKLOG。真机目视（滚动 / 扩窗 / 流式 / 面板 / 恢复）待人工确认。
+
 ## 收尾
 
-（未关闭。待办：BACKLOG 条目改写 → 实现；关闭时本文件移入 `TUI/docs/archived/`。）
+（未关闭。第二阶段（位置模型接管 + 旧排版退役）进行中；关闭时本文件移入 `TUI/docs/archived/`。）

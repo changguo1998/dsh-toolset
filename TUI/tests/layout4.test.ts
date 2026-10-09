@@ -17,11 +17,9 @@ import {
   TITLE_BAR_ROWS,
   dialogueHalfPage,
   frameGeometry,
-  userInputJump,
+  userRowJump,
   DIALOGUE_KEEP_REPLIES,
-  anchorToIndex,
-  dialogueSpans,
-  indexToAnchor,
+  WINDOW_GROW_STEP,
   FRAME_LEFT_COLS,
   regionColumnWidth,
   paneTextWidth,
@@ -40,7 +38,18 @@ import {
   initialState,
   reduceState,
   TURN_SEPARATOR,
+  type AppState,
 } from "../src/app/state.ts";
+import {
+  createLineTable,
+  indexOfTop,
+  positionAt,
+  MARKER_KEY,
+} from "../src/app/layout/pipeline/rows.ts";
+import {
+  sectionGroupCount,
+  sectionsOf,
+} from "../src/app/layout/pipeline/frame.ts";
 
 /** P6：step 分组头的固定时间戳（本地时间 03:04:05），使分组头文本可精确断言 */
 const STEP_TIME = new Date(2026, 0, 2, 3, 4, 5).getTime();
@@ -2621,55 +2630,59 @@ test("对话区：渐进窗口（跟底只物化最近 N 组，上滚逐步扩�
     s = reduceState(s, { type: "turn-end" }); // 回复标 final 进历史区
   }
   const size = { rows: 24, cols: 80 };
-  const geomOf = (st: typeof s) => {
+  const reportOf = (st: AppState): FrameScrollReport => {
     const r = emptyReportForTest();
     buildFrame(st, size, r);
-    return r.dialogueGeometry;
+    return r;
   };
-  const frame = (st: typeof s): string =>
+  const frame = (st: AppState): string =>
     buildFrame(st, size)
       .map((l) => rowAnsi(l))
       .join("\n");
-  // 跟随底部：只物化最近 3 个回合组 → 首行是「更早回复已折叠」占位（line = -1）
-  const g0 = geomOf(s);
+  // 跟随底部：只物化最近 3 个回合组 → 首段是「更早回复已折叠」占位行
+  const r0 = reportOf(s);
   assert.equal(s.windowGroups, 3, "默认窗口 = 最近 3 个回合组");
-  assert.equal(g0.spans[0]!.seq, -1, "窗口未覆盖最旧内容 → 顶部物化占位行");
+  assert.equal(
+    r0.dialogueKeys[0],
+    MARKER_KEY,
+    "窗口未覆盖最旧内容 → 顶部占位行",
+  );
   assert.ok(!frame(s).includes("A1 的回复正文"), "窗口外的更早回复未物化");
-  const groups0 = s.windowGroups;
-  // 上滚：接近窗口顶部时按步长增窗；锚点保证同一内容留在视口顶行
-  let topBefore = "";
+  // 上滚：接近窗口顶时增窗；**位移恒等于半屏**（增窗那一次也只多物化、不多滚）
+  // 判据用「内容身份」：把上一帧的视口顶段键在新段表里定位，再要求新视口顶正好在它上方 HALF 行
+  const HALF = dialogueHalfPage(r0.dialogueViewportH);
   let grew = false;
-  for (let i = 0; i < 12; i++) {
-    const before = geomOf(s);
-    const rowAtTop = buildFrame(s, size)
-      .map((l) => rowText(l))
-      .slice(before.height === 0 ? 0 : 0);
-    void rowAtTop;
-    s = reduceState(s, { type: "scroll", delta: 6, geom: before });
-    const after = geomOf(s);
-    if (s.windowGroups > groups0) {
-      grew = true;
-      // 增窗后锚点未变：同一 (buffer 行, 行内行号) 仍在视口顶行
-      assert.deepEqual(
-        s.scrollAnchor,
-        indexToAnchor(after.spans, after.topIdx),
-      );
-      topBefore = s.scrollAnchor ? `${s.scrollAnchor.seq}` : "";
-      break;
-    }
-    void after;
+  let prev = r0;
+  for (let i = 0; i < 40 && prev.dialogueTopIdx > 0; i++) {
+    const groupsBefore = s.windowGroups;
+    const prevTop = positionAt(
+      createLineTable(prev.dialogueCounts),
+      prev.dialogueKeys,
+      prev.dialogueTopIdx,
+    );
+    s = appScrollDialogue(s, size, HALF);
+    const now = reportOf(s);
+    const here = indexOfTop(
+      createLineTable(now.dialogueCounts),
+      now.dialogueKeys,
+      prevTop,
+      0,
+      now.dialogueMaxScroll,
+    );
+    assert.equal(
+      now.dialogueTopIdx,
+      Math.max(0, here - HALF),
+      `位移恒等于半屏（本次上方多物化 ${now.dialogueTotal - prev.dialogueTotal} 行）`,
+    );
+    if (s.windowGroups > groupsBefore) grew = true;
+    prev = now;
   }
   assert.ok(grew, "上滚接近窗口顶部时增窗");
-  assert.ok(topBefore !== "", "增窗后仍持有锚点（非跟随底部）");
-  // 继续上滚到顶：更早的回复出现（窗口已覆盖）
-  for (let i = 0; i < 60; i++) {
-    s = reduceState(s, { type: "scroll", delta: 6, geom: geomOf(s) });
-  }
   assert.ok(frame(s).includes("A1 的回复正文"), "扩窗后更早回复可见");
   // 回到底部：窗口复位默认组数（释放增量物化）
   s = reduceState(s, { type: "scroll-to-bottom" });
   assert.equal(s.windowGroups, 3, "回底复位窗口");
-  assert.equal(s.scrollAnchor, null, "回底 = 锚点 null（跟随底部）");
+  assert.equal(s.dialogueTop, null, "回底 = 贴底（dialogueTop null）");
 });
 
 test("活动区新输出不推历史：非 final 中间输出不算窗口组，不折叠旧回复", () => {
@@ -2684,12 +2697,12 @@ test("活动区新输出不推历史：非 final 中间输出不算窗口组，�
     s = reduceState(s, { type: "turn-end" });
   }
   const size = { rows: 24, cols: 80 };
-  const geomOf = (st: typeof s) => {
+  const reportOf = (st: AppState): FrameScrollReport => {
     const r = emptyReportForTest();
     buildFrame(st, size, r);
-    return r.dialogueGeometry;
+    return r;
   };
-  const g0 = geomOf(s);
+  const g0 = reportOf(s);
   // 只来活动区内容：思考 + 工具 + 非 final 中间输出（均不进历史区）
   s = reduceState(s, { type: "thinking", text: "思考…" });
   s = reduceState(s, {
@@ -2701,9 +2714,14 @@ test("活动区新输出不推历史：非 final 中间输出不算窗口组，�
   for (const t of ["中间输出1", "中间输出2"]) {
     s = reduceState(s, { type: "append", text: t });
   }
-  const g1 = geomOf(s);
-  assert.deepEqual(g1.spans, g0.spans, "历史窗口不被活动区折叠/移位");
-  assert.equal(g1.rows, g0.rows, "历史行数不变");
+  const g1 = reportOf(s);
+  // 段键含节对象编号（缓冲变化会重放 → 段对象重建），故比行数结构而不是键
+  assert.deepEqual(
+    g1.dialogueCounts,
+    g0.dialogueCounts,
+    "历史窗口各段行数不变",
+  );
+  assert.equal(g1.dialogueTotal, g0.dialogueTotal, "历史行数不变");
   assert.equal(s.windowGroups, 3, "窗口组数不被活动区撑大");
 });
 
@@ -2778,17 +2796,9 @@ test("滚动历史区不改变活动区：两 pane 滚动独立", () => {
     region(g.contentStartCol, g.contentStartCol + g.dialogueW);
   const actBase = act();
   const diaBase = dia();
-  // 滚动历史区（对话）：先补算几何再应用 scroll
-  const r: FrameScrollReport = emptyReportForTest();
-  buildFrame(s, size, r);
+  // 滚动历史区（对话）：与 App 同口径（先扩窗、再按段表施加位移）
   let s2 = s;
-  for (let i = 0; i < 6; i++) {
-    s2 = reduceState(s2, {
-      type: "scroll",
-      delta: 1,
-      geom: r.dialogueGeometry,
-    } as never);
-  }
+  for (let i = 0; i < 6; i++) s2 = appScrollDialogue(s2, size, 1);
   const old = s;
   s = s2;
   const actAfter = act();
@@ -2798,13 +2808,56 @@ test("滚动历史区不改变活动区：两 pane 滚动独立", () => {
   assert.deepEqual(actAfter, actBase, "活动 pane 不受历史滚动影响");
 });
 
+/**
+ * 对话区滚动（与 `App.scrollDialogueBy` 同口径）：**先扩窗、再按扩窗后的段表施加位移** ——
+ * 撞窗口顶那一次也只多物化、不多滚（位置按「段键 + 段内行」表达，扩窗只在视口上方插段）。
+ */
+function appScrollDialogue(
+  s: AppState,
+  size: { rows: number; cols: number },
+  delta: number,
+): AppState {
+  let r = emptyReportForTest();
+  buildFrame(s, size, r);
+  for (let guard = 0; delta > 0 && guard < 4; guard++) {
+    if (s.windowGroups >= sectionGroupCount(sectionsOf(s))) break;
+    const margin = Math.max(1, Math.floor(r.dialogueViewportH / 2));
+    const needMore = r.dialogueTopIdx - delta < 0;
+    const nearTop = r.dialogueTopIdx <= margin;
+    if (!needMore && !nearTop) break;
+    const before = r.dialogueTotal;
+    s = reduceState(s, {
+      type: "window-grow",
+      groups: s.windowGroups + WINDOW_GROW_STEP,
+    });
+    r = emptyReportForTest();
+    buildFrame(s, size, r);
+    if (r.dialogueTotal <= before) break;
+  }
+  const target = Math.min(
+    Math.max(0, r.dialogueTopIdx - delta),
+    r.dialogueMaxScroll,
+  );
+  if (delta < 0 && target >= r.dialogueMaxScroll)
+    return reduceState(s, { type: "scroll-to-bottom" });
+  return reduceState(s, {
+    type: "dialogue-scroll",
+    top: positionAt(createLineTable(r.dialogueCounts), r.dialogueKeys, target),
+    offset: Math.max(0, r.dialogueMaxScroll - target),
+  });
+}
+
 /** 测试用空报告（字段与 FrameScrollReport 对齐） */
 function emptyReportForTest(): FrameScrollReport {
   return {
     dialogueMaxScroll: 0,
     activityMaxScroll: 0,
-    dialogueGeometry: { rows: 0, height: 0, spans: [], topIdx: 0 },
-    dialogueTop: { seq: 0, row: 0 },
+    dialogueTotal: 0,
+    dialogueCounts: [],
+    dialogueKeys: [],
+    dialogueTopIdx: 0,
+    dialogueViewportH: 0,
+    dialogueUserRows: [],
   };
 }
 
@@ -2927,82 +2980,53 @@ test("frameGeometry：正文宽/可视高与 buildFrame 同口径（rows=24/cols
   assert.equal(m.dialogueW, 53, "对话区正文宽 = historyWidth - 左缘框列");
 });
 
-test("userInputJump：PgUp/PgDn 把用户消息首行翻到顶行，后文不足一屏时填充前面历史", () => {
-  const themeId = initialState().themeId;
-  // 每行 1 条 wrapped 行（短文本 + 宽列不换行），块间空行由布局层插入：
-  // 0=u1 1=<空> 2=a1 3=u2 4=<空> 5=a2 6=u3 7=<空> 8=a3，共 9 行，用户块首行 [0,3,6]
-  const buffer: Buffer = [
-    { text: "u1", kind: "user" },
-    { text: "a1", kind: "assistant", final: true },
-    { text: "u2", kind: "user" },
-    { text: "a2", kind: "assistant", final: true },
-    { text: "u3", kind: "user" },
-    { text: "a3", kind: "assistant", final: true },
-  ];
+test("userRowJump：PgUp/PgDn 把用户消息首行翻到顶行，后文不足一屏时收敛到底对齐", () => {
+  // 渲染行（布局层插块间空行后）：0=u1 1=<空> 2=a1 3=u2 4=<空> 5=a2 6=u3 7=<空> 8=a3
+  // 共 9 行，用户块首行 = [0, 3, 6]（第 4 步出行时一并给出，见 renderPane 的 userRows）
+  const userRows = [0, 3, 6];
   const H = 4;
-  // 跟随底部（start=5）：PgUp 跳上一条用户消息 u2（buffer 行 2）顶对齐
-  assert.deepEqual(
-    userInputJump(buffer, 60, 4, themeId, H, 5, 0, 1),
-    { seq: 2, row: 0 },
+  const total = 9;
+  // 跟随底部（视口顶 5）：PgUp 跳上一条用户消息 u2（行 3）顶对齐
+  assert.equal(
+    userRowJump(userRows, 5, H, total, 1),
+    3,
     "跟随底部 PgUp：跳到上一条用户输入并顶对齐",
   );
-  // 继续 PgUp：当前视口首行=3（u2）→ 上一条 u1（buffer 行 0）
-  assert.deepEqual(
-    userInputJump(buffer, 60, 4, themeId, H, 3, 0, 1),
-    { seq: 0, row: 0 },
-    "再次 PgUp：跳到更早一条用户输入",
-  );
-  // 已到最早用户消息（start=0）：无更早 → null（视口不动）
-  assert.equal(userInputJump(buffer, 60, 4, themeId, H, 0, 0, 1), null);
-  // PgDn：从 start=0 跳下一条 u2 → 行 2
-  assert.deepEqual(
-    userInputJump(buffer, 60, 4, themeId, H, 0, 0, -1),
-    { seq: 2, row: 0 },
-    "PgDn：跳到下一条用户输入并顶对齐",
-  );
-  // 下一条 u3：u3 后文本不足一屏（6+4>9）→ 收敛到底对齐（锚点指到底对齐那一行）
-  const rows = buildContentRows(buffer, { themeId, gutter: 4 }, 60).dialogue;
-  const spans = dialogueSpans(rows);
-  const jump = userInputJump(buffer, 60, 4, themeId, H, 3, 0, -1)!;
+  // 继续 PgUp：当前视口首行 = 3（u2）→ 上一条 u1（行 0）
   assert.equal(
-    anchorToIndex(spans, jump),
-    Math.min(6, rows.length - H),
+    userRowJump(userRows, 3, H, total, 1),
+    0,
+    "再次 PgUp：跳到更早一条",
+  );
+  // 已到最早用户消息：无更早 → undefined（视口不动）
+  assert.equal(userRowJump(userRows, 0, H, total, 1), undefined);
+  // PgDn：从 0 跳下一条 u2 → 行 3
+  assert.equal(
+    userRowJump(userRows, 0, H, total, -1),
+    3,
+    "PgDn：跳到下一条并顶对齐",
+  );
+  // 下一条 u3：其后文本不足一屏（6+4 > 9）→ 收敛到底对齐（9 − 4 = 5）
+  assert.equal(
+    userRowJump(userRows, 3, H, total, -1),
+    Math.min(6, total - H),
     "最后一条用户消息后文不足一屏：填充前面历史（底对齐）",
   );
-  // 窗口切片：lineOffset=3（窗口从 u2 起）时锚点用绝对行号
-  assert.deepEqual(
-    userInputJump(buffer.slice(2), 60, 4, themeId, H, 3, 2, 1),
-    { seq: 2, row: 0 },
-    "窗口切片下锚点取绝对 buffer 行号",
+  // 渐进窗口切片：调用方已把切片内的行号加上占位行偏移，函数按绝对行号工作
+  assert.equal(
+    userRowJump([0, 3], 3, H, 6, 1),
+    0,
+    "窗口切片下按切片内绝对行号跳转",
   );
 });
 
-test("userInputJump：PgDn 无下一条用户消息 → null（调用方回到底部）；边界返回 null", () => {
-  const themeId = initialState().themeId;
-  const single: Buffer = [
-    { text: "u1", kind: "user" },
-    { text: "a1", kind: "assistant", final: true },
-  ];
-  // 视口首行已是唯一用户块之上（start=0）：无下一条 → null（App 走 scroll-to-bottom）
-  assert.equal(userInputJump(single, 60, 4, themeId, 4, 0, 0, -1), null);
-  // 无任何用户块 → null
-  assert.equal(
-    userInputJump(
-      [{ text: "a1", kind: "assistant", final: true }],
-      60,
-      4,
-      themeId,
-      4,
-      0,
-      0,
-      1,
-    ),
-    null,
-  );
-  // 空 buffer → null
-  assert.equal(userInputJump([], 60, 4, themeId, 4, 0, 0, 1), null);
-  // 对话区不可见（dialogueH<=0）→ null
-  assert.equal(userInputJump(single, 60, 4, themeId, 0, 0, 0, 1), null);
+test("userRowJump：PgDn 无下一条用户消息 → undefined（调用方回到底部）；边界返回 undefined", () => {
+  // 视口首行已在唯一用户块之下：无下一条 → undefined（App 走 scroll-to-bottom）
+  assert.equal(userRowJump([0], 2, 4, 5, -1), undefined);
+  // 无任何用户块 → undefined
+  assert.equal(userRowJump([], 0, 4, 5, 1), undefined);
+  // 对话区不可见（viewportH <= 0）→ undefined
+  assert.equal(userRowJump([0], 0, 0, 5, 1), undefined);
 });
 
 test("/session 历史面板：标题标明列表范围（当前目录 可见/全量 ⇄ 全部），提示含 [Tab]范围", () => {
@@ -3136,18 +3160,15 @@ test("buildFrame 回填滚动几何：上限随物化窗口（渐进），初始
   buildFrame(s, size, report);
   assert.ok(report.dialogueMaxScroll > 0, "对话区可滚上限 > 0");
   assert.ok(report.activityMaxScroll > 0, "活动区可滚上限 > 0");
-  assert.ok(report.dialogueGeometry.rows > 0, "回填物化行数");
+  assert.ok(report.dialogueTotal > 0, "回填物化行数");
   assert.ok(
-    report.dialogueGeometry.rows < s.buffer.length,
+    report.dialogueTotal < s.buffer.length,
     "窗口只物化尾部（渐进定位：不再整段历史入排版）",
   );
   // 窗口一次扩到全部回合组 → 物化行数随之增长（渐进扩窗）
   const bigger = emptyReport();
   buildFrame(reduceState(s, { type: "scroll-to-oldest" }), size, bigger);
-  assert.ok(
-    bigger.dialogueGeometry.rows > report.dialogueGeometry.rows,
-    "扩窗后物化行数变多",
-  );
+  assert.ok(bigger.dialogueTotal > report.dialogueTotal, "扩窗后物化行数变多");
   assert.ok(bigger.dialogueMaxScroll > report.dialogueMaxScroll);
 });
 
@@ -3156,8 +3177,12 @@ function emptyReport(): FrameScrollReport {
   return {
     dialogueMaxScroll: 0,
     activityMaxScroll: 0,
-    dialogueGeometry: { rows: 0, height: 0, spans: [], topIdx: 0 },
-    dialogueTop: { seq: 0, row: 0 },
+    dialogueTotal: 0,
+    dialogueCounts: [],
+    dialogueKeys: [],
+    dialogueTopIdx: 0,
+    dialogueViewportH: 0,
+    dialogueUserRows: [],
   };
 }
 

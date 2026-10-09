@@ -189,7 +189,7 @@ for (const width of [40, 80, 120]) {
     const turnTimes = new Map<string, number>();
     for (const delivery of script) {
       if (delivery.kind === "turn-start") {
-        turnTimes.set(String(delivery.turn), delivery.time);
+        turnTimes.set(String(delivery.turn), delivery.time ?? 0);
       }
     }
     const panes = buildPanes(sections, { level: "think", turnTimes });

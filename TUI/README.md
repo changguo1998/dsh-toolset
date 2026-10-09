@@ -351,17 +351,15 @@ npm run watch # tsc --watch 常驻编译到 dist/（仍需重启 dsh 生效）
 
 渲染层另有**帧转储**排查开关（定位「帧对但屏幕不对」类问题：画面残留 / 首项被复制 / 错位——这类问题取决于「实际写出的字节 + 当时的尺寸认知」，离线复现不一定命中）：`TUI_FRAME_DUMP=/tmp/tui-frames.jsonl dsh --profile fff` 会把**每帧行文本**、**实际终端报文**与**尺寸来源对比**（渲染器采用的尺寸 vs `process.stdout` 读数）按 JSONL 追加（超 8 MiB 停止并写 `kind:"stop"` 标记）。复盘：把 `kind:"out"` 的报文按序喂给 `tests/helpers/screenEmu.ts` 的 `ScreenEmu.feed()` 重放得到「屏幕实际留下什么」，与同刻 `kind:"frame"` 的 `lines` 逐行比对，差异行即残留位置；`kind:"size"` 用来看认知偏差何时发生。未设该环境变量时不生效（零开销）；转储含屏幕文本，排查完请删除文件。
 
-## 排版路径开关
+## 排版路径
 
-TUI 默认走**六步流水线**（节 → box → pane → 行；滚动 / 扩窗只查表不重排）。
-需要回落旧管线（每帧全量重排）时：
+TUI 只有**一条**渲染路径：六步流水线（节 → box → pane → 行）。滚动 / 扩窗只查行数表，
+不重排内容；恢复会话、`/cls` 清屏、会话切换都会重建节缓存。
 
-```sh
-TUI_LAYOUT_PIPELINE=0 dsh --profile fff
-```
-
-两条路径**整帧逐行等价**（`tests/pipeline-frame.test.ts` 用同一语料对比 `buildFrame`
-输出），恢复会话、`/cls` 清屏、会话切换都会重建节缓存。
+- 位置模型：视口顶 = 「段键 + 段内行」（`src/app/layout/pipeline/rows.ts`），扩窗只在视口
+  上方插段 → 画面不动，↑/↓ 位移恒等于半屏
+- 回合分隔线：由 `turn-start` 交付画线（时间未知时画纯虚线）
+- 旧管线与 `TUI_LAYOUT_PIPELINE` 开关已于 2026-10-09 移除（`docs/implementation/2026-10-09-layout-segment-cache.md`）
 
 ## 已知限制
 

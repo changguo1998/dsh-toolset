@@ -33,6 +33,13 @@ const TIME = new Date(2026, 0, 2, 3, 4, 5).getTime();
 function script(): Step[] {
   return [
     {
+      // 宿主 turn/start：回填回合号（分隔线 ⇆N）。无交付——流水线的 turn-start
+      // 由 App 在 turn-begin（首条内容）时同步交付（时间的真源）。
+      // 顺序按真实时序：回合边界先于 step（重放按缓冲行序推断 scope，乱序会让
+      // 「分隔线重置 step=0」把 step 头之后的思考算进未声明的 step 0）
+      event: { type: "turn-start", turn: TURN },
+    },
+    {
       event: {
         type: "step",
         sessionId: "s1",
@@ -42,11 +49,6 @@ function script(): Step[] {
         time: TIME,
       },
       delivery: { kind: "step-start", turn: TURN, step: 1, time: TIME },
-    },
-    {
-      // 宿主 turn/start：回填回合号（分隔线 ⇆N）。无交付——流水线的 turn-start
-      // 由 App 在 turn-begin（首条内容）时同步交付（时间的真源）。
-      event: { type: "turn-start", turn: TURN },
     },
     {
       event: { type: "thinking", sessionId: "s1", text: "（先读文档）" },

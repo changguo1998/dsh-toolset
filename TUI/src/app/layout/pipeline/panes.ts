@@ -15,20 +15,45 @@ import type { ActivityLevel } from "../../state.ts";
 import { applyShadowed, buildBoxes, type Box } from "./boxes.ts";
 import { stepKey, type Section } from "./types.ts";
 
-/** pane 项：逻辑行 box 或边界项 */
+/** 节身份（稳定段键前缀）：节对象在一次会话内不因窗口 / 宽度变化而重建，故 WeakMap 发号即可 */
+const sectionIds = new WeakMap<object, number>();
+let nextSectionId = 0;
+
+function sectionId(section: Section): number {
+  const hit = sectionIds.get(section);
+  if (hit !== undefined) return hit;
+  nextSectionId += 1;
+  sectionIds.set(section, nextSectionId);
+  return nextSectionId;
+}
+
+/**
+ * pane 项：逻辑行 box 或边界项。
+ * `key` = **稳定段键**（滚动定位 / 重映射用）：节身份 + 节内 box 序号；窗口扩缩、
+ * 宽度变化、行数变化都不变，故「视口顶内容」可以靠它跨帧与跨重排保持。
+ */
 export type PaneItem =
-  | { readonly kind: "line"; readonly box: Box }
-  | { readonly kind: "blank" }
+  | { readonly kind: "line"; readonly box: Box; readonly key: string }
+  | { readonly kind: "blank"; readonly key: string }
+  | {
+      readonly kind: "step-summary";
+      readonly text: string;
+      readonly key: string;
+    }
   | {
       readonly kind: "step-head";
       readonly turn: number;
       readonly step: number;
       readonly time?: number;
+      readonly key: string;
     }
   | {
       readonly kind: "turn-separator";
       readonly turn: number;
       readonly time?: number;
+      /** 无标签（时间未知）：画纯虚线，不写 `hh:mm:ss ⇆N`（旧路径同款） */
+      readonly untitled?: boolean;
+      readonly key: string;
     };
 
 /** pane 缓存（会话区 / 回合区） */
@@ -53,8 +78,8 @@ export interface PaneOptions {
   declaredSteps?: readonly string[];
   /** step 的时间戳（`SectionsState.stepMeta`）：暂无内容的 step 画头时取这里的时间 */
   stepTimes?: ReadonlyMap<string, { time?: number }>;
-  /** 回合开始时间（`SectionsState.turnMeta`）：回合分隔线的时间真源 */
-  turnTimes?: ReadonlyMap<string, number>;
+  /** 回合开始时间（`SectionsState.turnMeta`）：回合分隔线的时间真源；`undefined` = 时间未知（纯虚线） */
+  turnTimes?: ReadonlyMap<string, number | undefined>;
   /**
    * 首 pane 内容前的回合分隔线（旧口径：turn-begin 即画线，含第一回合）。
    * 渐进窗口丢过内容时为 false——窗口起点在回合中间，旧路径已把该线切掉。
@@ -83,12 +108,17 @@ function isDialogue(box: Box, final: boolean): boolean {
 }
 
 /**
- * 氛围分类：相邻 box 分类不同 → 空行。按**来源**分档（正文 / 引用 / 列表 / 代码 / 表格
- * 同属 assistant：旧口径同块内不插空行，空行只来自 markdown 原文的空行）；
- * 工具批与思考各成一档。
+ * 回合区的「活动类型」三档（旧渲染器 `ActKind` 同口径）：思考 / 正文 / 工具。
+ * 只有思考 ↔ 正文之间留空行；**工具会把上一档重置成 tool**（故「思考 → 工具 → 正文」
+ * 不留白）——notice / shell / 用户块不参与，也不重置。
  */
-function mood(box: Box): string {
-  return box.kind === "content" && box.shape === "tool" ? "tool" : box.source;
+type ActKind = "reasoning" | "assistant" | "tool";
+
+function actKind(box: Box): ActKind | undefined {
+  if (box.kind === "content" && box.shape === "tool") return "tool";
+  if (box.source === "reasoning") return "reasoning";
+  if (box.source === "assistant") return "assistant";
+  return undefined;
 }
 
 /**
@@ -111,45 +141,65 @@ function toLines(
 interface Acc {
   items: PaneItem[];
   last?: Box;
+  /** 上一档活动类型（回合区留白判据；见 `actKind`） */
+  lastActKind?: ActKind;
+  /** 本 pane 是否会话区（会话区的留白规则不同：user → 正文） */
+  dialogue: boolean;
 }
 
-function blank(acc: Acc): void {
+/**
+ * 吸收空 notice：紧接工具批 / step 头之前的「空文本 notice 段」不渲染（旧渲染器
+ * `absorbActivityBlank` 在工具 run 边界上的连续 pop 口径）。
+ */
+function absorbEmptyNotice(acc: Acc): void {
+  const tail = acc.items[acc.items.length - 1];
+  if (tail === undefined || tail.kind !== "line") return;
+  const box = tail.box;
+  if (box.kind !== "content" || box.source !== "notice") return;
+  if ((box.text ?? "").replace(/\n+$/, "") !== "") return;
+  acc.items.pop();
+}
+
+function blank(acc: Acc, key: string): void {
   const tail = acc.items[acc.items.length - 1];
   if (tail !== undefined && tail.kind !== "blank")
-    acc.items.push({ kind: "blank" });
+    acc.items.push({ kind: "blank", key: "blank@" + key });
 }
 
 /**
  * 追加一个逻辑行 box：必要时先插边界项。
  *  - `withSeparators`（仅会话区）：turn 变化 → 回合分隔线（旧口径：分隔线是会话区的线）；
- *  - 分类变化 → 空行（相邻 box 的来源 × 结构不同）。
+ *  - 会话区留白：用户块之后接正文（旧渲染器 `spaceUserAssistant`）；
+ *  - 回合区留白：思考 ↔ 正文（旧渲染器 `noteActKind`；工具重置上一档）。
  * step 头由调用方按 step 预置（旧口径：step 头是工具行，恒进回合区）。
  */
 function push(
   acc: Acc,
   box: Box,
+  key: string,
   meta: ReadonlyMap<string, number | undefined>,
   withSeparators: boolean,
   options: PaneOptions,
 ): void {
   const previous = acc.last;
-  if (previous !== undefined) {
-    if (previous.turn !== box.turn) {
-      if (withSeparators) {
-        const time =
-          options.turnTimes?.get(String(box.turn)) ??
-          meta.get("turn:" + box.turn);
-        acc.items.push({
-          kind: "turn-separator",
-          turn: box.turn,
-          ...(time === undefined ? {} : { time }),
-        });
-      }
-    } else if (mood(previous) !== mood(box)) {
-      blank(acc);
-    }
-  }
-  acc.items.push({ kind: "line", box });
+  const kind = actKind(box);
+  // 留白判定要在更新 lastActKind **之前**算（并在本函数内统一更新）
+  const pairBlank =
+    !acc.dialogue &&
+    kind !== undefined &&
+    kind !== "tool" &&
+    acc.lastActKind !== undefined &&
+    acc.lastActKind !== "tool" &&
+    acc.lastActKind !== kind;
+  if (kind !== undefined) acc.lastActKind = kind;
+  const userBlank =
+    acc.dialogue &&
+    previous !== undefined &&
+    previous.source === "user" &&
+    box.source === "assistant";
+  if (pairBlank || userBlank) blank(acc, key);
+  if (box.kind === "content" && box.shape === "tool") absorbEmptyNotice(acc);
+  acc.items.push({ kind: "line", box, key });
   acc.last = box;
 }
 
@@ -170,8 +220,8 @@ export function buildPanes(
       meta.set(turnKey, section.time);
     }
   }
-  const dialogue: Acc = { items: [] };
-  const activity: Acc = { items: [] };
+  const dialogue: Acc = { items: [], dialogue: true };
+  const activity: Acc = { items: [], dialogue: false };
   const shadowed = options.shadowedSeqs ?? new Set<number>();
   const headed = new Set<string>();
   let headedOnce = false;
@@ -213,7 +263,9 @@ export function buildPanes(
       headed.add(key);
       const [turn, step] = key.split(":");
       const time = meta.get(key) ?? options.stepTimes?.get(key)?.time;
+      absorbEmptyNotice(activity);
       activity.items.push({
+        key: "step@" + key,
         kind: "step-head",
         turn: Number(turn),
         step: Number(step),
@@ -221,16 +273,66 @@ export function buildPanes(
       });
     }
   };
+  // 回合分隔线来自 **`turn-start` 交付**（App 在 turn-begin 即交付：分隔线先到、首个 token
+  // 后到）——与旧路径「turn-begin 往缓冲追加 `separator` 行」同口径；已交付但暂无内容的
+  // 回合（刚落地 turn-begin / 被中断）同样画线。按 turn 号与节交错，尾部剩余的追加到末尾。
+  const markedTurns = [...(options.turnTimes?.keys() ?? [])]
+    .map(Number)
+    .filter((turn) => Number.isFinite(turn))
+    .sort((a, b) => a - b);
+  // 窗口保留的是**整回合组**（前几组整体丢弃）：被丢回合的线随内容一起没有，
+  // 窗口内各回合的线照画（旧路径的 separator 行就落在组的开头）
+  const firstTurn = sections.find(
+    (section) => section.items.length > 0 || section.stepSummary !== undefined,
+  )?.turn;
+  let markerAt = 0;
+  const emittedTurns = new Set<number>();
+  /** 画一条回合分隔线（同一回合只画一次；被窗口丢掉的回合不画） */
+  const pushSeparator = (turn: number): void => {
+    if (emittedTurns.has(turn)) return;
+    emittedTurns.add(turn);
+    if (firstTurn !== undefined && turn < firstTurn) return;
+    const time =
+      options.turnTimes?.get(String(turn)) ?? meta.get("turn:" + turn);
+    dialogue.items.push({
+      kind: "turn-separator",
+      turn,
+      key: "sep@" + turn,
+      // 时间未知（本地 turn-begin 刚落、宿主尚未回填）→ 画纯虚线：旧路径
+      // `turnHeaderLine(undefined, undefined)` = 无标签，标签只随时间一起出现
+      ...(time === undefined ? { untitled: true } : { time }),
+    });
+  };
+  const emitMarkersUpTo = (turn: number): void => {
+    while (markerAt < markedTurns.length && markedTurns[markerAt]! <= turn) {
+      pushSeparator(markedTurns[markerAt]!);
+      markerAt += 1;
+    }
+  };
   for (const section of sections) {
+    emitMarkersUpTo(section.turn);
+    // P9 恢复会话的 step 概要行：先于该节内容落进会话区（无条目也照样出这一行）
+    if (section.stepSummary !== undefined) {
+      dialogue.items.push({
+        kind: "step-summary",
+        text: section.stepSummary,
+        key: "summary@" + sectionId(section),
+      });
+    }
     const blocks = applyShadowed(buildBoxes(section), shadowed);
     if (blocks.length === 0) continue;
     // step 头（旧口径：step 头是工具行，恒进回合区；该 step 无回合区内容时是「孤儿头」；
     // 旧路径在 step/start 即画头 ⇒ 本层按 declaredSteps 顺序补发，含暂无内容的最新 step）
-    headUpTo(
-      declaredAt.get(stepKey(section.turn, section.step)) ?? declaredDone,
-    );
+    // **未声明的 step**（没有 step/start 交付，如恢复前的裸工具行）不提前冲刷已声明的头：
+    // 旧路径的头是随 step 事件追加在末尾的，提前画会把头排到那些行之前（顺序反了）
+    const declaredAt2 = declaredAt.get(stepKey(section.turn, section.step));
+    if (declaredAt2 !== undefined) headUpTo(declaredAt2);
+    // 段键：节身份 + 节内 box 序号（跨窗口扩缩、宽度变化都稳定）
+    const sid = sectionId(section);
+    let ordinal = 0;
     for (const block of blocks) {
       for (const part of block.children) {
+        const bkey = sid + ":" + ordinal++;
         for (const line of toLines(part, options.normalize)) {
           const target = isDialogue(line, section.final === true)
             ? dialogue
@@ -238,40 +340,19 @@ export function buildPanes(
               ? activity
               : undefined;
           if (target === undefined) continue;
-          // 空文本行 = 空行（第 ⑤ 步：连续空行并成 1 个；代码块不拆故不受影响）
-          if (
-            line.kind === "content" &&
-            (line.shape === "text" ||
-              line.shape === "quote" ||
-              line.shape === "list") &&
-            (line.text ?? "") === ""
-          ) {
-            blank(target);
-            continue;
-          }
-          push(target, line, meta, target === dialogue, options);
+          // 空文本行进 pane（**不自造空行项**）：交回既有渲染器按旧口径裁剪/吸收
+          // （前导与尾部空行裁掉、notice 的纯换行吸收）——自造空行会绕过这些规则
+          // steer 插队送达：与上一条输入之间留白（旧口径 `markSteerClaim` 的可见效果）
+          if (line.source === "user" && line.steer === true)
+            blank(target, bkey);
+          push(target, line, bkey, meta, target === dialogue, options);
         }
       }
     }
   }
   // 尾部：已声明但暂无内容的 step（如刚落地的 step/start）也要画头（旧口径同步可见）
   headUpTo(declared.length - 1);
-  // 首内容前的回合分隔线：旧口径由 turn-begin 画线（首回合空历史不画）——流水线同判据，
-  // 以「该回合被 turn-start 交付过」（turnTimes 命中，含重放器按分隔线行的补交付）为准；
-  // 内容存在本身不再推断分隔线（否则首回合空历史的提交会多出一条旧路径没有的线）。
-  // 窗口丢过内容时已切掉不再补（leadingSeparator=false）。
-  const firstDeclared = declared[0];
-  if (options.leadingSeparator !== false && firstDeclared !== undefined) {
-    const turn = Number(firstDeclared.split(":")[0]);
-    if (options.turnTimes?.has(String(turn)) === true) {
-      const time =
-        options.turnTimes?.get(String(turn)) ?? meta.get("turn:" + turn);
-      dialogue.items.unshift({
-        kind: "turn-separator",
-        turn,
-        ...(time === undefined ? {} : { time }),
-      });
-    }
-  }
+  // 尾部剩余的分隔线（已交付 turn-start 但该回合还没有任何内容）
+  emitMarkersUpTo(Number.POSITIVE_INFINITY);
   return { dialogue: dialogue.items, activity: activity.items };
 }

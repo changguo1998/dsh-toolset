@@ -17,7 +17,6 @@ import {
   resetRowRenderStats,
   rowRenderMisses,
 } from "../src/app/layout/pipeline/rows.ts";
-import { setPipelineEnabled } from "../src/app/layout/pipeline/flag.ts";
 import {
   applyAll,
   createSections,
@@ -32,13 +31,14 @@ import {
 import { stepHeaderLine } from "../src/app/layout/tool-line.ts";
 import { rowText } from "./helpers/rowText.ts";
 
-setPipelineEnabled(true);
-
 /** 语料：`turns` 个回合，每回合含思考 / 工具批 / 正文（末步带代码块与表格） */
 function script(turns: number): BlockDelivery[] {
   const out: BlockDelivery[] = [];
   for (let turn = 1; turn <= turns; turn++) {
     const base = 1_700_000_000_000 + turn * 60_000;
+    // 回合变化处交付 turn-start（与旧路径 `turn-begin` 往缓冲追加 separator 行同构：
+    // 分隔线由它画，`oldBuffer` 也只在 turn ≥ 2 处生成 separator 行）
+    if (turn > 1) out.push({ kind: "turn-start", turn, time: base });
     out.push({ kind: "user", turn, step: 1, text: `第 ${turn} 问：看下文档` });
     out.push({ kind: "step-start", turn, step: 1, time: base });
     out.push({

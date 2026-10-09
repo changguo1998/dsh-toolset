@@ -315,12 +315,20 @@ test("排队块：钉在历史 pane 右下角（右对齐 + 灰色右缘竖线�
   const report: FrameScrollReport = {
     dialogueMaxScroll: 0,
     activityMaxScroll: 0,
-    dialogueGeometry: { rows: 0, height: 0, spans: [], topIdx: 0 },
-    dialogueTop: { seq: 0, row: 0 },
+    dialogueTotal: 0,
+    dialogueCounts: [],
+    dialogueKeys: [],
+    dialogueTopIdx: 0,
+    dialogueViewportH: 0,
+    dialogueUserRows: [],
   };
   buildFrame(s, size, report);
   const scrolled = buildFrame(
-    reduceState(s, { type: "scroll", delta: 3, geom: report.dialogueGeometry }),
+    reduceState(s, {
+      type: "dialogue-scroll",
+      top: { key: "@oldest", row: 0 },
+      offset: report.dialogueMaxScroll,
+    }),
     size,
   ).map(rowText);
   assert.ok(scrolled[last]!.includes("排队二"), "上滚后排队块仍在右下角");
