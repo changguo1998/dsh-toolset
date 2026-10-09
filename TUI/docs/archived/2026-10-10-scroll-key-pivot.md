@@ -85,4 +85,4 @@
 
 ## 收尾
 
-条目 8 关闭：BACKLOG 移除该条；本追踪文档移入 `docs/archived/`。`docs/STATUS.md` 未改（用户择时更新）。
+条目 8 于 2026-10-10 关闭：BACKLOG 移除该条；本追踪文档移入 `docs/archived/`。`docs/STATUS.md` 未改（用户择时更新）。
