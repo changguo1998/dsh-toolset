@@ -2231,9 +2231,9 @@ test("P9：step 折叠成一行摘要（名字去重计数 + 失败数），纯�
   const { adapter } = makeAdapterWithSessionQuery(slim);
   const view = await adapter.readSessionSurface!("p9-1");
   assert.deepEqual(view.messages, [
-    { role: "user", text: "问题" },
-    { role: "step", text: "22:31:05 #3 ╌╌ read ×2, bash ✗1" },
-    { role: "assistant", text: "最终回复" },
+    { role: "user", text: "问题", turn: 1 },
+    { role: "step", text: "22:31:05 #3 ╌╌ read ×2, bash ✗1", turn: 1 },
+    { role: "assistant", text: "最终回复", turn: 1 },
   ]);
 });
 
@@ -2309,8 +2309,8 @@ test("P9：无工具调用的 step 不出行；缺 time 时摘要只出步号", 
   const { adapter } = makeAdapterWithSessionQuery(slim);
   const view = await adapter.readSessionSurface!("p9-3");
   assert.deepEqual(view.messages, [
-    { role: "step", text: "#7 ╌╌ grep" },
-    { role: "assistant", text: "无工具的步骤" },
+    { role: "step", text: "#7 ╌╌ grep", turn: 1 },
+    { role: "assistant", text: "无工具的步骤", turn: 1 },
   ]);
 });
 

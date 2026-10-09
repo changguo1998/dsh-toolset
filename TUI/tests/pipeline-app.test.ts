@@ -329,6 +329,38 @@ test("双写：App 本地 notice 进帧（slash fail-close 提示不被吞）", 
   next.app.dispose();
 });
 
+test("续接：恢复面带宿主回合号 → 重放真回合，新回合预测与宿主对齐", async () => {
+  // 真机缺陷回归：恢复缓冲无回合标记时，重放全部落回合 1、预测号与宿主错位，
+  // 用户消息被两条回合分隔线夹住（预测号在前、宿主真值在后）
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const sink: { current?: (delivery: BlockDelivery) => void } = {};
+  adapter.resumedAtLaunch = true;
+  adapter.sessionSurfaces["s1"] = [
+    { role: "user", text: "第 39 问", turn: 39 },
+    { role: "assistant", text: "第 39 答", turn: 39 },
+    { role: "user", text: "第 40 问", turn: 40 },
+    { role: "assistant", text: "第 40 答", turn: 40 },
+  ];
+  const app = new App({ renderer, adapter, pipelineSink: sink });
+  registerApp(app);
+  app.start();
+  // 恢复读取是异步链路：等表面读取落定后再提交
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  typeAndEnter(renderer, "续接后的新问题");
+  app.paintNow();
+  const rows = renderer.lastRender.map((line) =>
+    line.replace(/\x1b\[[0-9;]*m/g, ""),
+  );
+  const sep = rows.find((line) => line.includes("41"));
+  assert.ok(sep !== undefined, "新回合分隔线使用与宿主对齐的回合号 41");
+  assert.ok(
+    !rows.some((line) => line.includes("⇆2 ")),
+    "不再出现按恢复序数预测的回合号",
+  );
+  app.dispose();
+});
+
 test("双写等价：用户提交 + 首个 step 后新旧路径整帧一致", () => {
   const old = makeApp(false);
   const next = makeApp(true);

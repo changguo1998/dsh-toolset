@@ -317,6 +317,8 @@ function normalizeHistoryMessages(
     names: Map<string, number>;
     fails: number;
   } | null = null;
+  /** 宿主回合号（跟随事件流的 data.turn）：恢复路径保留宿主索引（真回合号） */
+  let curTurn: number | undefined;
   /** 收口当前 step：有工具调用才产出一行摘要（时间缺失时省略时间片段） */
   const flushStep = (): void => {
     const cur = step;
@@ -330,17 +332,20 @@ function normalizeHistoryMessages(
     out.push({
       role: "step",
       text: `${hms === undefined ? "" : hms + " "}#${cur.n} ╌╌ ${tools}`,
+      ...(curTurn === undefined ? {} : { turn: curTurn }),
     });
   };
   /** 正文消息：整条纯空白 → 丢弃（P9 空行来源） */
   const pushText = (role: "user" | "assistant", raw: string): void => {
     const text = raw.trim() === "" ? "" : raw;
     if (text === "") return;
-    out.push({ role, text });
+    out.push({ role, text, ...(curTurn === undefined ? {} : { turn: curTurn }) });
   };
   for (const e of events) {
     const data = e.data as Record<string, unknown> | undefined;
     if (!data) continue;
+    // 宿主回合号逐层保留（恢复路径真回合号的来源；缺省保持上一个已知值）
+    if (typeof data.turn === "number") curTurn = data.turn;
     if (e.type === "step/start") {
       flushStep(); // 防御：上一个 step 未发 step/end（截断日志）时先收口
       step = {
@@ -361,7 +366,12 @@ function normalizeHistoryMessages(
     } else if (e.type === "user/message") {
       // TUI#17：插件注入的 notice 形态（source.form:'notice' + summary）→ 单行摘要行
       const summary = noticeSummaryOf(data);
-      if (summary !== undefined) out.push({ role: "notice", text: summary });
+      if (summary !== undefined)
+        out.push({
+          role: "notice",
+          text: summary,
+          ...(curTurn === undefined ? {} : { turn: curTurn }),
+        });
       else pushText("user", extractTextBlocks(data.content));
     } else if (e.type === "assistant/message") {
       const msg = data.message as Record<string, unknown> | undefined;
@@ -373,7 +383,11 @@ function normalizeHistoryMessages(
         // TUI#17：注入 notice 项折成一行摘要；其余项按 role 走正文（现状）
         const summary = noticeSummaryOf(item);
         if (summary !== undefined) {
-          out.push({ role: "notice", text: summary });
+          out.push({
+            role: "notice",
+            text: summary,
+            ...(curTurn === undefined ? {} : { turn: curTurn }),
+          });
           continue;
         }
         const role = item.role;

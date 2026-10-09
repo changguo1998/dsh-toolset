@@ -999,6 +999,8 @@ export type SessionDeleteResult = { ok: true } | { ok: false; reason: string };
 export interface HistoryMessage {
   role: "user" | "assistant" | "step" | "notice";
   text: string;
+  /** 宿主回合号（转录事件自带）：恢复路径保留宿主索引用，缺省 = 该事件无回合标记 */
+  turn?: number;
 }
 
 /** 单个历史会话的只读表面视图（归一化后的消息列表） */

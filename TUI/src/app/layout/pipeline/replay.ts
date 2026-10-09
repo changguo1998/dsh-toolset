@@ -177,7 +177,12 @@ export function sectionsFromBuffer(
     }
     if (line.kind === "separator") {
       flushRun();
-      scope.turn += 1;
+      // 回合号用分隔线行上的宿主真值（numberTurnSeparator 落盘 / 恢复路径保留）；
+      // 缺号（极旧缓冲）才退回序数 +1。真值是续接后本地预测与宿主对齐的前提
+      scope.turn =
+        typeof line.turn === "number" && line.turn > 0
+          ? line.turn
+          : scope.turn + 1;
       scope.step = 0;
       // 分隔线行 = 回合边界：补交付 turn-start（turnMeta 时间源），与实时路径同构——
       // 帧层的回合分隔线以「该回合被 turn-begin 交付过」为准（见 panes leading 条件）。

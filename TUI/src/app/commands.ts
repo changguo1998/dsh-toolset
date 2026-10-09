@@ -4,7 +4,7 @@
 // （adapter 调用、paint、notice）留在 App 执行。
 
 import { localTitleFromText } from "./adapter/normalize.ts";
-import { sanitizeText } from "./state.ts";
+import { sanitizeText, TURN_SEPARATOR } from "./state.ts";
 import type { ModelCatalog, ModelSelection } from "./adapter/dsh.ts";
 import type { ThemeId } from "../renderer/theme.ts";
 
@@ -57,27 +57,41 @@ export function buildOsc52(text: string): string {
   return `\x1b]52;c;${b64}\x07`;
 }
 
-/** 历史会话表面消息 → buffer 行（user/assistant 正文 + P9 的 step 概要行 +
+/** 历史会话表面消息 → buffer 行（回合分隔线 + user/assistant 正文 + P9 的 step 概要行 +
  *  TUI#17 的 notice 摘要行）；历史 assistant 均为已完成回合的最终总结 → final: true（历史区展示）。
- *  P9：整条为空的消息不再产出行（恢复后成片空行的来源），step 行原样成行。 */
+ *  P9：整条为空的消息不再产出行（恢复后成片空行的来源），step 行原样成行。
+ *  宿主回合索引逐层保留：消息带 turn 且变化 → 产分隔线行（带真回合号），重放器据此
+ *  还原真回合（不按序数重数），续接后的回合预测才与宿主一致。 */
 export function surfaceToBuffer(
   messages: readonly {
     role: "user" | "assistant" | "step" | "notice";
     text: string;
+    turn?: number;
   }[],
 ): {
   text: string;
-  kind: "user" | "assistant" | "step" | "notice";
+  kind: "user" | "assistant" | "step" | "notice" | "separator";
   tone?: "log";
   final?: boolean;
+  turn?: number;
 }[] {
   const out: {
     text: string;
-    kind: "user" | "assistant" | "step" | "notice";
+    kind: "user" | "assistant" | "step" | "notice" | "separator";
     tone?: "log";
     final?: boolean;
+    turn?: number;
   }[] = [];
+  let lastTurn: number | undefined;
   for (const m of messages) {
+    // 回合变化 → 分隔线行（真回合号；无号的消息保持上一个已知回合）
+    if (
+      typeof m.turn === "number" &&
+      (lastTurn === undefined || m.turn !== lastTurn)
+    ) {
+      out.push({ text: TURN_SEPARATOR, kind: "separator", turn: m.turn });
+      lastTurn = m.turn;
+    }
     if (m.role === "notice") {
       // TUI#17：注入 notice 的一行摘要 → 单行提示行（log 灰；空白行不产出）
       const text = sanitizeText(m.text).text.trim();

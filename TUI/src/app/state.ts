@@ -2681,11 +2681,15 @@ export type StateAction =
       type: "history-resume-ok";
       id: string;
       title: string;
-      /** 恢复行（P9 起含 step 概要行、TUI#17 起含 notice 摘要行）；kind 与 BufferKind 的子集一致 */
+      /** 恢复行（P9 起含 step 概要行、TUI#17 起含 notice 摘要行；含回合分隔线行）；
+       *  kind 与 BufferKind 的子集一致 */
       rows: {
         text: string;
-        kind: "user" | "assistant" | "step" | "notice";
+        kind: "user" | "assistant" | "step" | "notice" | "separator";
         tone?: NoticeTone;
+        final?: boolean;
+        /** 宿主回合号（分隔线行携带）：恢复路径保留宿主索引，重放器据此还原真回合 */
+        turn?: number;
       }[];
     }
   /** TUI#40：启动即恢复（--resume / -c）——把既有消息折叠入 buffer（无 /session 面板参与） */
@@ -2695,8 +2699,11 @@ export type StateAction =
       title: string;
       rows: {
         text: string;
-        kind: "user" | "assistant" | "step" | "notice";
+        kind: "user" | "assistant" | "step" | "notice" | "separator";
         tone?: NoticeTone;
+        final?: boolean;
+        /** 宿主回合号（分隔线行携带）：恢复路径保留宿主索引，重放器据此还原真回合 */
+        turn?: number;
       }[];
     }
   /** 切换活跃会话（/new 新建后切过去）：缓冲/滚动/窗口按空会话重置 */
