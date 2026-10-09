@@ -167,7 +167,7 @@ import { buildContentRows, type BuildBoxOptions } from "../build-box.ts";
 import { stepHeaderLine, toolCallLine, toolResultLine } from "../tool-line.ts";
 import { summarizeToolArguments } from "../../adapter/normalize.ts";
 import type { ContentRow } from "../fill.ts";
-import type { Box } from "./boxes.ts";
+import type { Box, LayoutBox } from "./boxes.ts";
 import type { PaneItem } from "./panes.ts";
 
 export interface RenderOptions extends BuildBoxOptions {
@@ -192,9 +192,13 @@ export interface RenderedPane {
  * 故会话区的正文行必须带 `final`，否则旧渲染器会把它排进回合区。
  */
 export function boxToLines(box: Box, dialogue = false): BufferLine[] {
-  const base = { seq: undefined } as const;
-  void base;
   const scope = { step: box.step };
+  if (box.kind === "layout") {
+    // 表格容器 → 旧口径的原始表格行（表头 / 对齐分隔 / 数据行），表格渲染器重排；
+    // 其余容器（类型块）不直接产出行。会话区的表格行带 final（旧口径同源）
+    if (box.role === "table") return tableLines(box, dialogue);
+    return [];
+  }
   if (box.shape === "tool") {
     const lines: BufferLine[] = [];
     for (const call of box.batch?.calls ?? []) {
@@ -231,38 +235,25 @@ export function boxToLines(box: Box, dialogue = false): BufferLine[] {
         : []),
     ];
   }
-  if (box.shape === "table") {
-    const table = box.table;
-    if (table === undefined) return [];
-    const row = (cells: readonly string[]): string =>
-      "| " + cells.join(" | ") + " |";
-    const aligns = table.aligns.map((align) =>
-      align === "right" ? "---:" : align === "center" ? ":---:" : "---",
-    );
-    return [
-      {
-        text: row(table.header),
-        kind: kindOf(box),
-        ...(final ? { final: true } : {}),
-      },
-      {
-        text: row(aligns),
-        kind: kindOf(box),
-        ...(final ? { final: true } : {}),
-      },
-      ...table.rows.map((cells) => ({
-        text: row(cells),
-        kind: kindOf(box),
-        ...(final ? { final: true } : {}),
-      })),
-    ];
+  if (box.shape === "cell") {
+    return [{ text: box.text ?? "", kind: kindOf(box), ...scope }];
+  }
+  // 会话区正文按物理行拆分交付：旧缓冲按物理行落行（keepLineBreaks），「块内空行
+  // 竖线连排」等后处理逐行生效——单条行内嵌 \n 会走「含显式换行」孤立分支，丢竖线。
+  // box 粒度不变（仍是一个结构段），只是行层展开与旧路径同粒度
+  if (final) {
+    return (box.text ?? "").split("\n").map((text) => ({
+      text,
+      kind: kindOf(box),
+      final: true,
+      ...scope,
+    }));
   }
   return [
     {
       text: box.text ?? "",
       kind: kindOf(box),
       ...(box.tone === undefined ? {} : { tone: box.tone }),
-      ...(final ? { final: true } : {}),
       ...scope,
       // 用户行带行号：布局层用户块符号解析按 seq 回查 buffer 同源行
       ...(box.source === "user" && box.seqs?.[0] !== undefined
@@ -270,6 +261,44 @@ export function boxToLines(box: Box, dialogue = false): BufferLine[] {
         : {}),
     },
   ];
+}
+
+/** 表格容器 → 原始表格行（与旧缓冲的 markdown 形态逐字符一致）；会话区行带 final */
+function tableLines(box: LayoutBox, dialogue: boolean): BufferLine[] {
+  const kind = kindOf(box);
+  const final = dialogue && box.source === "assistant";
+  const line = (text: string): BufferLine => ({
+    text,
+    kind,
+    ...(final ? { final: true } : {}),
+  });
+  const row = (cells: readonly string[]): string =>
+    "| " + cells.join(" | ") + " |";
+  const rows = box.children.filter(
+    (child): child is LayoutBox =>
+      child.kind === "layout" && child.role === "row",
+  );
+  const cellsOf = (row0: LayoutBox): string[] =>
+    row0.children.map((cell) =>
+      cell.kind === "content" ? (cell.text ?? "") : "",
+    );
+  const header = rows.find((row0) => row0.header === true);
+  const out: BufferLine[] = [];
+  if (header !== undefined) out.push(line(row(cellsOf(header))));
+  out.push({
+    text: row(
+      (box.aligns ?? []).map((align) =>
+        align === "right" ? "---:" : align === "center" ? ":---:" : "---",
+      ),
+    ),
+    kind,
+    ...(final ? { final: true } : {}),
+  });
+  for (const row0 of rows) {
+    if (row0 === header) continue;
+    out.push(line(row(cellsOf(row0))));
+  }
+  return out;
 }
 
 /** 来源 → 状态层的行类型（与旧路径同一分类口径） */
@@ -286,9 +315,7 @@ function kindOf(box: Box): BufferLine["kind"] {
     case "user":
       return "user";
     default:
-      return box.shape === "code" || box.shape === "table"
-        ? "assistant"
-        : "assistant";
+      return "assistant";
   }
 }
 

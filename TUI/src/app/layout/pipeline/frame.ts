@@ -61,30 +61,32 @@ export function sectionGroupStarts(sections: readonly Section[]): {
       kinds.push({ kind: "tool" });
       owner.push(index);
     }
-    for (const box of buildBoxes(section)) {
+    for (const block of buildBoxes(section)) {
       const final = section.final === true;
-      if (box.shape === "tool") {
-        for (const _call of box.batch?.calls ?? []) {
-          kinds.push({ kind: "tool" });
-          owner.push(index);
+      for (const box of block.children) {
+        if (box.kind === "content" && box.shape === "tool") {
+          for (const _call of box.batch?.calls ?? []) {
+            kinds.push({ kind: "tool" });
+            owner.push(index);
+          }
+          for (const _result of box.batch?.results ?? []) {
+            kinds.push({ kind: "tool" });
+            owner.push(index);
+          }
+          continue;
         }
-        for (const _result of box.batch?.results ?? []) {
-          kinds.push({ kind: "tool" });
-          owner.push(index);
-        }
-        continue;
+        const kind =
+          box.source === "reasoning"
+            ? "thinking"
+            : box.source === "user"
+              ? "user"
+              : "assistant";
+        kinds.push({
+          kind,
+          ...(kind === "assistant" && final ? { final: true } : {}),
+        });
+        owner.push(index);
       }
-      const kind =
-        box.source === "reasoning"
-          ? "thinking"
-          : box.source === "user"
-            ? "user"
-            : "assistant";
-      kinds.push({
-        kind,
-        ...(kind === "assistant" && final ? { final: true } : {}),
-      });
-      owner.push(index);
     }
   });
   const starts: number[] = [];

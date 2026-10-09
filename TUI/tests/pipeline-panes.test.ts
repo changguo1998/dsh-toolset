@@ -29,8 +29,8 @@ const shape = (items: readonly PaneItem[]): string[] =>
     if (item.kind === "step-head") return `#step ${item.step}`;
     if (item.kind === "turn-separator") return `-- turn ${item.turn}`;
     const box = item.box;
+    if (box.kind === "layout") return box.role === "table" ? "table" : box.role;
     if (box.shape === "code") return "code:" + box.code?.lines.join("|");
-    if (box.shape === "table") return "table";
     if (box.shape === "tool") return "tool:" + (box.batch?.calls.length ?? 0);
     return box.source + ":" + (box.text ?? "");
   });
@@ -139,7 +139,7 @@ test("③ 替换符号只作用于文本，代码与表格不替换", () => {
   ]);
 });
 
-test("④ 拆行：文本 box 拆成逻辑行；代码块与表格保持整块", () => {
+test("④ 拆行：文本叶子整段保留（第 4 步按物理行展开）；代码块与表格保持整块", () => {
   const panes = buildPanes(
     [
       section([{ source: "assistant", text: "第一行\n第二行\n\n第三行" }], {
@@ -151,10 +151,7 @@ test("④ 拆行：文本 box 拆成逻辑行；代码块与表格保持整块",
   );
   assert.deepEqual(shape(panes.activity), [
     "#step 2",
-    "assistant:第一行",
-    "assistant:第二行",
-    "(blank)",
-    "assistant:第三行",
+    "assistant:第一行\n第二行\n\n第三行",
   ]);
 });
 
@@ -197,7 +194,7 @@ test("⑤ 边界：step 头随 scope 变化；turn 分隔线随回合变化；�
   );
 });
 
-test("⑥ 合并空行：连续空行并成 1 个（代码块内不合并）", () => {
+test("⑥ 空行：段内空行随文本进第 4 步（第 4 步合并 + 竖线连排）；不同来源相邻插 1 个空行", () => {
   const panes = buildPanes(
     [
       section(
@@ -212,9 +209,7 @@ test("⑥ 合并空行：连续空行并成 1 个（代码块内不合并）", (
   );
   assert.deepEqual(shape(panes.activity), [
     "#step 2",
-    "assistant:正文",
-    "(blank)",
-    "assistant:正文二",
+    "assistant:正文\n\n\n\n正文二",
     "(blank)",
     "reasoning:（想）",
   ]);

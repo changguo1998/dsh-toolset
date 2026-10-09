@@ -62,9 +62,6 @@ export interface PaneOptions {
   leadingSeparator?: boolean;
 }
 
-/** 拆行缓存：键 = box 身份（box 由节缓存给出、稳定）——行缓存据此保持身份 */
-const lineCache = new WeakMap<Box, readonly Box[]>();
-
 /**
  * 档位过滤：该 box 在活动区是否可见（会话区不受档位影响）。
  * 口径与旧渲染器一致：`tool` / `step` 去思考；工具批内部的**结果行**由第 4 步沿用
@@ -76,7 +73,7 @@ function visibleAtLevel(box: Box, level: ActivityLevel): boolean {
 }
 
 /**
- * 归属：会话区 = 用户块 + **final 节的 assistant 内容（正文 / 代码块 / 表格都算）**；
+ * 归属：会话区 = 用户块 + **final 节的 assistant 内容（正文 / 引用 / 列表 / 代码块 / 表格都算）**；
  * 其余（思考 / 工具批 / 非 final 正文 / notice）进回合区。
  * 注意：final 节里的代码块与表格仍是该回合的最终答复（旧路径同口径），不能按结构分流。
  */
@@ -86,30 +83,29 @@ function isDialogue(box: Box, final: boolean): boolean {
 }
 
 /**
- * 氛围分类：相邻 box 分类不同 → 空行。按**来源**分档（正文 / 代码 / 表格同属 assistant：
- * 旧口径同块内不插空行，空行只来自 markdown 原文的空行）；工具批与思考各成一档。
+ * 氛围分类：相邻 box 分类不同 → 空行。按**来源**分档（正文 / 引用 / 列表 / 代码 / 表格
+ * 同属 assistant：旧口径同块内不插空行，空行只来自 markdown 原文的空行）；
+ * 工具批与思考各成一档。
  */
 function mood(box: Box): string {
-  return box.shape === "tool" ? "tool" : box.source;
+  return box.kind === "content" && box.shape === "tool" ? "tool" : box.source;
 }
 
-/** 拆行：文本 box → 逻辑行 box；代码 / 表格 / 工具批不拆 */
+/**
+ * 文本类叶子（text / quote / list）在此层**不按行拆**：整段交给第 4 步按物理行展开
+ * （boxToLines），同一节正文的行才落在同一次排版调用里——「块内空行竖线连排」等
+ * 逐叶子后处理才看得到邻居（拆散后每行孤立成调用，空行丢失竖线上下文）。
+ * 符号替换（normalize）在整段文本上应用；代码 / 表格 / 工具批原样透传。
+ */
 function toLines(
   box: Box,
   normalize: ((text: string) => string) | undefined,
 ): readonly Box[] {
-  if (box.shape !== "text") return [box];
-  if (normalize === undefined) {
-    const hit = lineCache.get(box);
-    if (hit !== undefined) return hit;
-    const built = (box.text ?? "")
-      .split("\n")
-      .map((line) => ({ ...box, text: line }));
-    lineCache.set(box, built);
-    return built;
-  }
-  const text = normalize(box.text ?? "");
-  return text.split("\n").map((line) => ({ ...box, text: line }));
+  const textual =
+    box.kind === "content" &&
+    (box.shape === "text" || box.shape === "quote" || box.shape === "list");
+  if (!textual || normalize === undefined) return [box];
+  return [{ ...box, text: normalize(box.text ?? "") }];
 }
 
 interface Acc {
@@ -226,27 +222,35 @@ export function buildPanes(
     }
   };
   for (const section of sections) {
-    const boxes = applyShadowed(buildBoxes(section), shadowed);
-    if (boxes.length === 0) continue;
+    const blocks = applyShadowed(buildBoxes(section), shadowed);
+    if (blocks.length === 0) continue;
     // step 头（旧口径：step 头是工具行，恒进回合区；该 step 无回合区内容时是「孤儿头」；
     // 旧路径在 step/start 即画头 ⇒ 本层按 declaredSteps 顺序补发，含暂无内容的最新 step）
     headUpTo(
       declaredAt.get(stepKey(section.turn, section.step)) ?? declaredDone,
     );
-    for (const box of boxes) {
-      for (const line of toLines(box, options.normalize)) {
-        const target = isDialogue(line, section.final === true)
-          ? dialogue
-          : visibleAtLevel(line, options.level)
-            ? activity
-            : undefined;
-        if (target === undefined) continue;
-        // 空文本行 = 空行（第 ⑤ 步：连续空行并成 1 个；代码块不拆故不受影响）
-        if (line.shape === "text" && (line.text ?? "") === "") {
-          blank(target);
-          continue;
+    for (const block of blocks) {
+      for (const part of block.children) {
+        for (const line of toLines(part, options.normalize)) {
+          const target = isDialogue(line, section.final === true)
+            ? dialogue
+            : visibleAtLevel(line, options.level)
+              ? activity
+              : undefined;
+          if (target === undefined) continue;
+          // 空文本行 = 空行（第 ⑤ 步：连续空行并成 1 个；代码块不拆故不受影响）
+          if (
+            line.kind === "content" &&
+            (line.shape === "text" ||
+              line.shape === "quote" ||
+              line.shape === "list") &&
+            (line.text ?? "") === ""
+          ) {
+            blank(target);
+            continue;
+          }
+          push(target, line, meta, target === dialogue, options);
         }
-        push(target, line, meta, target === dialogue, options);
       }
     }
   }
