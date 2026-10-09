@@ -156,10 +156,13 @@ export function pipelineContent(
     allSections(state),
     options.windowGroups,
   );
-  const panes = buildPanes(kept, {
+  let panes = buildPanes(kept, {
     level: options.render.activityLevel ?? "think",
-    declaredSteps: new Set(state.stepMeta.keys()),
+    declaredSteps: [...state.stepMeta.keys()],
+    stepTimes: state.stepMeta,
+    turnTimes: state.turnMeta,
     ...(suppressFirstHead ? { suppressFirstHead: true } : {}),
+    ...(dropped > 0 ? { leadingSeparator: false } : {}),
     ...(options.normalize === undefined
       ? {}
       : { normalize: options.normalize }),

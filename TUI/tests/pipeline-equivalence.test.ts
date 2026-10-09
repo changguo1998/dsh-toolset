@@ -121,7 +121,8 @@ function oldBuffer(): BufferLine[] {
   script.forEach((delivery, index) => {
     switch (delivery.kind) {
       case "user":
-        if (turn !== 0 && turn !== delivery.turn) {
+        // 真实落行口径：每个回合（含第一回合）在回合开始处画分隔线
+        if (turn !== delivery.turn) {
           lines.push({
             text: "--------",
             kind: "separator",

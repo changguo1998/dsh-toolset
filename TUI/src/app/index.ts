@@ -419,6 +419,8 @@ export class App {
   private sections: SectionsState | null = null;
   /** 节缓存归属的会话 id（切换会话时重建，避免跨会话串节） */
   private sectionsSessionId: string | null = null;
+  /** 流水线视角的当前回合号（turn-begin 交付用；宿主回合号经块交付已带到） */
+  private pipelineLastTurn: number | null = null;
 
   /**
    * 六步流水线：把当前缓冲（恢复 / 整体替换后的行）重放成节缓存。
@@ -443,6 +445,7 @@ export class App {
       this.sectionsSessionId = sid;
     }
     this.sections = applyDelivery(this.sections, delivery);
+    if ("turn" in delivery) this.pipelineLastTurn = delivery.turn;
     const pipeline = this.sections;
     this.apply((s) => reduceState(s, { type: "pipeline-state", pipeline }));
   }
@@ -1577,8 +1580,24 @@ export class App {
     this.turnOpen = true;
     const clearActivity = userInput || this.state.queued.length > 0;
     // #3：回合分隔线要显示时间（`hh:mm:ss`）；回合号由随后的宿主 `turn/start` 回填
+    const beginTime = Date.now();
+    // 六步流水线：分隔线时间的真源同步交付（首回合分隔线由 frame 层预置）
+    if (this.sections !== null) {
+      // 回合号：turn-begin 时宿主 turn/start 尚未到（回合号随后回填），
+      // 这里取上一条交付的回合号（lastScope），缺省 1（首回合）
+      this.ingestDelivery({
+        kind: "turn-start",
+        turn: this.pipelineLastTurn ?? 1,
+        time: beginTime,
+      });
+      this.pipelineLastTurn = this.pipelineLastTurn ?? 1;
+    }
     this.apply((s) =>
-      reduceState(s, { type: "turn-begin", clearActivity, time: Date.now() }),
+      reduceState(s, {
+        type: "turn-begin",
+        clearActivity,
+        time: beginTime,
+      }),
     );
     this.apply((s) => reduceState(s, { type: "queued-claim" }));
   }

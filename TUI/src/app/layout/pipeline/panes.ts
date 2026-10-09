@@ -46,8 +46,20 @@ export interface PaneOptions {
   shadowedSeqs?: ReadonlySet<number>;
   /** 抑制首个内容节的 step 头（渐进窗口起点落在节中间时，旧路径已把该头切掉） */
   suppressFirstHead?: boolean;
-  /** 已声明的 step（`SectionsState.stepMeta` 的键）：未声明不发头（如恢复时首个内容之前） */
-  declaredSteps?: ReadonlySet<string>;
+  /**
+   * 已声明的 step（`SectionsState.stepMeta` 的键，**按到达顺序**）：step 头按此发放——
+   * 与旧口径一致（旧路径在 step/start 就画头，即使该 step 暂无内容）。
+   */
+  declaredSteps?: readonly string[];
+  /** step 的时间戳（`SectionsState.stepMeta`）：暂无内容的 step 画头时取这里的时间 */
+  stepTimes?: ReadonlyMap<string, { time?: number }>;
+  /** 回合开始时间（`SectionsState.turnMeta`）：回合分隔线的时间真源 */
+  turnTimes?: ReadonlyMap<string, number>;
+  /**
+   * 首 pane 内容前的回合分隔线（旧口径：turn-begin 即画线，含第一回合）。
+   * 渐进窗口丢过内容时为 false——窗口起点在回合中间，旧路径已把该线切掉。
+   */
+  leadingSeparator?: boolean;
 }
 
 /** 拆行缓存：键 = box 身份（box 由节缓存给出、稳定）——行缓存据此保持身份 */
@@ -122,16 +134,21 @@ function push(
   box: Box,
   meta: ReadonlyMap<string, number | undefined>,
   withSeparators: boolean,
+  options: PaneOptions,
 ): void {
   const previous = acc.last;
   if (previous !== undefined) {
-    if (previous.turn !== box.turn && withSeparators) {
-      const time = meta.get("turn:" + box.turn);
-      acc.items.push({
-        kind: "turn-separator",
-        turn: box.turn,
-        ...(time === undefined ? {} : { time }),
-      });
+    if (previous.turn !== box.turn) {
+      if (withSeparators) {
+        const time =
+          options.turnTimes?.get(String(box.turn)) ??
+          meta.get("turn:" + box.turn);
+        acc.items.push({
+          kind: "turn-separator",
+          turn: box.turn,
+          ...(time === undefined ? {} : { time }),
+        });
+      }
     } else if (mood(previous) !== mood(box)) {
       blank(acc);
     }
@@ -162,28 +179,60 @@ export function buildPanes(
   const shadowed = options.shadowedSeqs ?? new Set<number>();
   const headed = new Set<string>();
   let headedOnce = false;
+  // 未显式给 declaredSteps（直接调用 / 单测）时，按节序列自造声明表（每有内容的节一个 step）
+  const declared =
+    options.declaredSteps ??
+    (() => {
+      const keys: string[] = [];
+      for (const section of sections) {
+        if (section.items.length === 0) continue;
+        const key = stepKey(section.turn, section.step);
+        if (keys[keys.length - 1] !== key) keys.push(key);
+      }
+      return keys;
+    })();
+  const declaredAt = new Map(declared.map((key, index) => [key, index]));
+
+  // 窗口起点之前被丢的 step 不发头（否则丢掉的更早 step 会在回合区末尾复活）
+  const firstKept = sections.find((section) => section.items.length > 0);
+  let declaredDone =
+    firstKept === undefined
+      ? 0
+      : (declaredAt.get(stepKey(firstKept.turn, firstKept.step)) ?? 0);
+  /** 补发 declared 队列里到 `until`（含）为止尚未发的 step 头 */
+  const headUpTo = (until: number): void => {
+    for (
+      let index = declaredDone;
+      index <= until && index < declared.length;
+      index++
+    ) {
+      const key = declared[index]!;
+      declaredDone = index + 1;
+      if (headed.has(key)) continue;
+      if (options.suppressFirstHead === true && !headedOnce) {
+        headedOnce = true;
+        continue;
+      }
+      headedOnce = true;
+      headed.add(key);
+      const [turn, step] = key.split(":");
+      const time = meta.get(key) ?? options.stepTimes?.get(key)?.time;
+      activity.items.push({
+        kind: "step-head",
+        turn: Number(turn),
+        step: Number(step),
+        ...(time === undefined ? {} : { time }),
+      });
+    }
+  };
   for (const section of sections) {
     const boxes = applyShadowed(buildBoxes(section), shadowed);
     if (boxes.length === 0) continue;
-    // step 头（旧口径：step 头是工具行，恒进回合区；该 step 无回合区内容时是「孤儿头」）。
-    // 独立自足节（用户 / notice / shell）没有 step 头；窗口起点落在节中间时首个头已被切掉。
-    const key = stepKey(section.turn, section.step);
-    const suppress = options.suppressFirstHead === true && !headedOnce;
-    headedOnce = true;
-    // 头按 scope 发放（notice / 用户节继承最近 scope ⇒ 同一 step 只发一次；旧路径在
-    // step/start 处发头，故不因「该节内容进了会话区」而跳过）
-    const declared =
-      options.declaredSteps === undefined || options.declaredSteps.has(key);
-    if (declared && !headed.has(key) && !suppress) {
-      headed.add(key);
-      const stepTime = meta.get(key);
-      activity.items.push({
-        kind: "step-head",
-        turn: section.turn,
-        step: section.step,
-        ...(stepTime === undefined ? {} : { time: stepTime }),
-      });
-    }
+    // step 头（旧口径：step 头是工具行，恒进回合区；该 step 无回合区内容时是「孤儿头」；
+    // 旧路径在 step/start 即画头 ⇒ 本层按 declaredSteps 顺序补发，含暂无内容的最新 step）
+    headUpTo(
+      declaredAt.get(stepKey(section.turn, section.step)) ?? declaredDone,
+    );
     for (const box of boxes) {
       for (const line of toLines(box, options.normalize)) {
         const target = isDialogue(line, section.final === true)
@@ -197,9 +246,31 @@ export function buildPanes(
           blank(target);
           continue;
         }
-        push(target, line, meta, target === dialogue);
+        push(target, line, meta, target === dialogue, options);
       }
     }
+  }
+  // 尾部：已声明但暂无内容的 step（如刚落地的 step/start）也要画头（旧口径同步可见）
+  headUpTo(declared.length - 1);
+  // 首回合分隔线（旧口径：turn-begin 即画线，含第一回合；窗口丢过内容时已切掉不再补）。
+  // 回合已经开始（turn-begin 交付过）或已有对话内容时才画——旧路径在首条内容前画线，
+  // 纯 step/start 落地尚无任何内容时不画。
+  const firstDeclared = declared[0];
+  const turnStarted =
+    options.turnTimes !== undefined && options.turnTimes.size > 0;
+  if (
+    options.leadingSeparator !== false &&
+    firstDeclared !== undefined &&
+    (turnStarted || dialogue.items.length > 0)
+  ) {
+    const turn = Number(firstDeclared.split(":")[0]);
+    const time =
+      options.turnTimes?.get(String(turn)) ?? meta.get("turn:" + turn);
+    dialogue.items.unshift({
+      kind: "turn-separator",
+      turn,
+      ...(time === undefined ? {} : { time }),
+    });
   }
   return { dialogue: dialogue.items, activity: activity.items };
 }

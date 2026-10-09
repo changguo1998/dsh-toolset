@@ -59,6 +59,8 @@ export interface SectionsState {
   freezable: ReadonlySet<string>;
   /** 压缩剪枝遮蔽的宿主事件号（box 层按交集打灰；内容与行数不变） */
   shadowedSeqs: ReadonlySet<number>;
+  /** 回合元数据：turn → 开始时间（分隔线显示用；App 的 turn-begin 是真源） */
+  turnMeta: ReadonlyMap<string, number>;
 }
 
 export function createSections(): SectionsState {
@@ -77,6 +79,7 @@ export function createSections(): SectionsState {
     interrupted: new Set(),
     freezable: new Set(),
     shadowedSeqs: new Set(),
+    turnMeta: new Map(),
   };
 }
 
@@ -533,6 +536,14 @@ export function applyDelivery(
         stepKey(delivery.turn, delivery.step),
       );
       return { ...state, freezable };
+    }
+    case "turn-start": {
+      const key = String(delivery.turn);
+      const turnMeta = new Map(state.turnMeta);
+      // 首次登记的时间（turn-begin 的 now）即分隔线显示时间；后到的宿主 turn/start
+      // 只回填回合号，不覆盖时间
+      if (!turnMeta.has(key)) turnMeta.set(key, delivery.time);
+      return { ...state, turnMeta };
     }
     case "shadow": {
       const shadowedSeqs = new Set(state.shadowedSeqs);

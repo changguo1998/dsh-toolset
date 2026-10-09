@@ -58,8 +58,10 @@ test("① 归属：用户块与 final 正文进会话区，思考 / 工具 / 非
     ],
     { level: "think" },
   );
-  // 会话区：用户块与 final 正文，中间按分类变化留白（旧路径 spaceUserAssistant 口径）
+  // 会话区：首 pane 内容前有回合分隔线（旧口径 turn-begin 即画线），用户块与 final
+  // 正文之间按分类变化留白（旧路径 spaceUserAssistant 口径）
   assert.deepEqual(shape(panes.dialogue), [
+    "-- turn 1",
     "user:问题",
     "(blank)",
     "assistant:最终答复",

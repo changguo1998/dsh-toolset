@@ -124,7 +124,12 @@ export type BlockDelivery =
   /** 回合结束：封闭当前节 + 给该回合最后一个 assistant 节打「最终总结」标记 */
   | (Delivery & { kind: "turn-end"; turn: number; step: number })
   /** 压缩剪枝（`compaction/prune`）：被遮蔽的宿主事件号 → box 层按交集打灰 */
-  | (Delivery & { kind: "shadow"; seqs: readonly number[] });
+  | (Delivery & { kind: "shadow"; seqs: readonly number[] })
+  /**
+   * 回合开始（App 在回合首行内容前画分隔线时同步交付）：分隔线时间的真源。
+   * 首回合分隔线由 frame 层按此时间预置；后续回合的分隔线时间也从这里取。
+   */
+  | (Delivery & { kind: "turn-start"; turn: number; time: number });
 
 /** 交付账键：块身份（session 由每会话一份接收状态隐含） */
 export function blockKey(turn: number, step: number, index: number): string {
