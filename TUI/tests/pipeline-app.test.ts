@@ -16,7 +16,7 @@ import {
   applyDelivery,
   createSections,
 } from "../src/app/layout/pipeline/sections.ts";
-import { clearBuffer, initialState } from "../src/app/state.ts";
+import { clearBuffer, initialState, reduceState } from "../src/app/state.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";
 
@@ -256,4 +256,31 @@ test("接管开关：/cls（clearBuffer）清空节缓存，旧内容不再复�
   assert.equal(cleared.pipeline?.sections.length ?? -1, 0, "清屏后节缓存为空");
   assert.equal(cleared.buffer.length, 0, "缓冲同源清空");
   next.app.dispose();
+});
+
+test("接管开关：/new（session-switch）归零节缓存", () => {
+  const seeded = {
+    ...initialState(),
+    buffer: [{ text: "旧会话内容", kind: "assistant" as const }],
+    pipeline: applyDelivery(createSections(), {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "assistant" as const,
+      text: "旧会话内容",
+      full: true,
+    }),
+  };
+  const switched = reduceState(seeded, {
+    type: "session-switch",
+    id: "s-new",
+    title: "新会话",
+  });
+  assert.equal(
+    switched.pipeline?.sections.length ?? -1,
+    0,
+    "切换后节缓存为空（否则首帧渲染旧会话内容）",
+  );
+  assert.equal(switched.buffer.length, 0);
 });

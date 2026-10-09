@@ -1878,6 +1878,10 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           sessionTitle: action.title,
           history: null,
           buffer: [],
+          // 六步流水线的节缓存同源归零（否则切换后首帧仍渲染旧会话内容）
+          ...(state.pipeline === undefined
+            ? {}
+            : { pipeline: createSections() }),
           followBottom: true,
           scrollOffset: 0,
           scrollAnchor: null,
