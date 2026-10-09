@@ -284,3 +284,73 @@ test("接管开关：/new（session-switch）归零节缓存", () => {
   );
   assert.equal(switched.buffer.length, 0);
 });
+
+// ---------------------------------------------------------------------------
+// App 本地写入双写（真机回归：用户回显 / 规则注入 / 本地 notice 曾被流水线吞掉）
+// ---------------------------------------------------------------------------
+
+/** 模拟在输入框输入文本并回车（与 app.test.ts 的 typeAndEnter 同口径） */
+function typeAndEnter(renderer: FakeRenderer, text: string): void {
+  for (const ch of Array.from(text)) {
+    renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
+  }
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+}
+
+test("双写：用户回显与规则注入进帧（App 本地写入不被流水线吞掉）", () => {
+  const next = makeApp(true);
+  typeAndEnter(next.renderer, "你好流水线");
+  assert.deepEqual(next.adapter.sent, ["你好流水线"]);
+  assert.ok(
+    frames(next.app, next.renderer).join("").includes("你好流水线"),
+    "用户回显进帧",
+  );
+  // 规则注入（TUI#49 用户块实时通道）→ 同样上屏（rule-engine 启动注入曾不可见）
+  next.adapter.push({
+    type: "rule-injection",
+    id: "r1",
+    text: "[RULE] 测试规则",
+  });
+  assert.ok(
+    frames(next.app, next.renderer).join("").includes("[RULE] 测试规则"),
+    "规则注入进帧",
+  );
+  next.app.dispose();
+});
+
+test("双写：App 本地 notice 进帧（slash fail-close 提示不被吞）", () => {
+  const next = makeApp(true);
+  // 非法命令名（数字开头）→ parseSlashCommand null → App 本地 notice（非 adapter notice）
+  typeAndEnter(next.renderer, "/1abc");
+  assert.ok(
+    frames(next.app, next.renderer).join("").includes("无效命令: /1abc"),
+    "本地 notice 进帧",
+  );
+  next.app.dispose();
+});
+
+test("双写等价：用户提交 + 首个 step 后新旧路径整帧一致", () => {
+  const old = makeApp(false);
+  const next = makeApp(true);
+  typeAndEnter(old.renderer, "你好流水线");
+  typeAndEnter(next.renderer, "你好流水线");
+  // 回合开启后 step 落地（真实时序：step/start 紧随提交），两侧同步推进
+  const stepEvent: DshEvent = {
+    type: "step",
+    sessionId: "s1",
+    turn: 1,
+    step: 1,
+    phase: "start",
+    time: TIME,
+  };
+  old.adapter.push(stepEvent);
+  next.adapter.push(stepEvent);
+  next.sink.current?.({ kind: "step-start", turn: 1, step: 1, time: TIME });
+  assert.deepEqual(
+    frames(next.app, next.renderer),
+    frames(old.app, old.renderer),
+    "用户提交后整帧一致（分隔线归一后）",
+  );
+  old.app.dispose();
+  next.app.dispose();
+});

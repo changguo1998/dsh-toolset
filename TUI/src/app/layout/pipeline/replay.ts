@@ -49,7 +49,14 @@ export function deliveryOfLine(
   const text = line.text;
   switch (line.kind) {
     case "user":
-      return { kind: "user", turn: scope.turn, step: scope.step, text };
+      return {
+        kind: "user",
+        turn: scope.turn,
+        step: scope.step,
+        text,
+        // 行号透传：恢复后的用户块符号解析与旧路径同源（回查 buffer 行）
+        ...(line.seq === undefined ? {} : { seq: line.seq }),
+      };
     case "notice":
       return {
         kind: "notice",
@@ -172,6 +179,14 @@ export function sectionsFromBuffer(
       flushRun();
       scope.turn += 1;
       scope.step = 0;
+      // 分隔线行 = 回合边界：补交付 turn-start（turnMeta 时间源），与实时路径同构——
+      // 帧层的回合分隔线以「该回合被 turn-begin 交付过」为准（见 panes leading 条件）。
+      // 历史分隔线行缺时间（理论不该发生）→ 以重放时刻兜底，仅影响该线显示时间
+      state = applyDelivery(state, {
+        kind: "turn-start",
+        turn: scope.turn,
+        time: line.time ?? Date.now(),
+      });
       continue;
     }
     const header = line.kind === "step" ? stepOf(line.text) : undefined;

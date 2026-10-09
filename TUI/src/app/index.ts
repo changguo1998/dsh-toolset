@@ -49,6 +49,7 @@ import {
 } from "./layout/pipeline/sections.ts";
 import type { BlockDelivery } from "./layout/pipeline/types.ts";
 import { sectionsFromBuffer } from "./layout/pipeline/replay.ts";
+import { TURN_SEPARATOR } from "./state.ts";
 import {
   setWidthOverrides,
   setWidthProbeEnabled,
@@ -170,6 +171,16 @@ const SESSION_STATE_SAVE_MS = 400;
 /** 别名段读取失败告警阈值（连续失败次数）：别名段是增强项，session-channel 首连失败会
  *  后台重试，启动窗口内静默；连续失败到阈值才留痕一次 */
 const ALIAS_WARN_AFTER_FAILS = 3;
+
+/** 末条用户行的行号：App 本地用户交付带上它，流水线用户行经 seq 回查 buffer 同源行
+ *  （用户块符号 / 终态 / 活跃判定的单一事实源在 buffer，见 userBlockSymbolResolver） */
+function lastUserLineSeq(buffer: AppState["buffer"]): number | undefined {
+  for (let i = buffer.length - 1; i >= 0; i--) {
+    const line = buffer[i]!;
+    if (line.kind === "user") return line.seq;
+  }
+  return undefined;
+}
 
 /**
  * 焦点面板单行滚动 action 映射：history/activity 偏移语义=距底部（上滚=+），
@@ -429,6 +440,16 @@ export class App {
   private replaySectionsFromBuffer(): void {
     if (!pipelineEnabled() || this.deps.pipelineSink === undefined) return;
     this.sections = sectionsFromBuffer(this.state.buffer);
+    // 回合号基线：重放后取最大节回合（下一回合本地预测 +1 的基准）
+    const scanned =
+      this.sections.current === undefined
+        ? this.sections.sections
+        : [...this.sections.sections, this.sections.current];
+    let lastTurn = 0;
+    for (const section of scanned) {
+      if (section.turn > lastTurn) lastTurn = section.turn;
+    }
+    this.pipelineLastTurn = lastTurn > 0 ? lastTurn : null;
     this.sectionsSessionId = this.state.activeSessionId;
     const pipeline = this.sections;
     this.apply((s) => reduceState(s, { type: "pipeline-state", pipeline }));
@@ -440,14 +461,31 @@ export class App {
    */
   private ingestDelivery(delivery: BlockDelivery): void {
     const sid = this.state.activeSessionId;
-    if (this.sections === null || this.sectionsSessionId !== sid) {
+    if (
+      this.sections === null ||
+      (this.sectionsSessionId !== null && this.sectionsSessionId !== sid)
+    ) {
+      // 首次建立 or 会话切换（真实 sid 变化）→ 重建节缓存并归零回合号基线
       this.sections = createSections();
+      this.sectionsSessionId = sid;
+      this.pipelineLastTurn = null;
+    } else if (this.sectionsSessionId === null && sid !== null) {
+      // 会话建立过渡（null → sid，启动早期事件带上了会话号）：保留既有缓存
+      // （启动期内容同属该会话），只登记归属，不重建
       this.sectionsSessionId = sid;
     }
     this.sections = applyDelivery(this.sections, delivery);
-    if ("turn" in delivery) this.pipelineLastTurn = delivery.turn;
+    // 回合号基线只跟回合边界（beginTurn 预测 +1 的基准）；用户/通知等自带 turn 的
+    // 交付不推进基线（启动注入按回合 1 归组后，首回合预测不得被推到 2）
+    if (delivery.kind === "turn-start") this.pipelineLastTurn = delivery.turn;
     const pipeline = this.sections;
     this.apply((s) => reduceState(s, { type: "pipeline-state", pipeline }));
+  }
+
+  /** App 本地写入的双写交付（用户回显 / 注入 / 通知 / 本地 shell）：流水线关闭时空转 */
+  private deliverLocal(delivery: BlockDelivery): void {
+    if (this.sections === null) return;
+    this.ingestDelivery(delivery);
   }
 
   /** 当前 state 的可滚动上限：出帧回填过就直接用，否则就地补算一次（同一帧口径） */
@@ -1381,6 +1419,14 @@ export class App {
             tone: "warn",
           }),
         );
+        this.deliverLocal({
+          kind: "notice",
+          text:
+            e.reason === "timeout"
+              ? "审批已超时（按默认拒绝处理）"
+              : "审批已取消（连接中断）",
+          tone: "warn",
+        });
         break;
       }
       case "question":
@@ -1498,6 +1544,17 @@ export class App {
           this.renderedRuleInjections.add(e.id);
         }
         this.apply((s) => reduceState(s, { type: "user-line", text: e.text }));
+        // 双写：流水线用户节（回合中 → 当前上下文；启动注入（尚无回合）→ 归回合 1）
+        if (this.sections !== null) {
+          const scope = this.sections.lastScope;
+          this.deliverLocal({
+            kind: "user",
+            turn: scope.turn > 0 ? scope.turn : (this.pipelineLastTurn ?? 1),
+            step: scope.step,
+            text: e.text,
+            seq: lastUserLineSeq(this.state.buffer),
+          });
+        }
         this.paint();
         break;
       case "inbox-claim":
@@ -1505,7 +1562,22 @@ export class App {
         // next-turn 的认领仍走回合开始路径（beginTurnIfNeeded → queued-claim），
         // 这里只处理 steer，避免同一条被认领两次
         if (e.target === "next-step") {
+          const claimed = this.state.queued.find((q) => q.kind === "steer");
           this.apply((s) => reduceState(s, { type: "queued-claim-steer" }));
+          // 双写：steer 认领转入历史流 → 当前步用户节（与旧路径同组）
+          if (claimed !== undefined) {
+            const scope = this.sections?.lastScope;
+            if (scope !== undefined) {
+              this.deliverLocal({
+                kind: "user",
+                turn:
+                  scope.turn > 0 ? scope.turn : (this.pipelineLastTurn ?? 1),
+                step: scope.step,
+                text: claimed.text,
+                seq: lastUserLineSeq(this.state.buffer),
+              });
+            }
+          }
           this.paint();
         }
         break;
@@ -1583,14 +1655,42 @@ export class App {
     const beginTime = Date.now();
     // 六步流水线：分隔线时间的真源同步交付（首回合分隔线由 frame 层预置）
     if (this.sections !== null) {
-      // 回合号：turn-begin 时宿主 turn/start 尚未到（回合号随后回填），
-      // 这里取上一条交付的回合号（lastScope），缺省 1（首回合）
-      this.ingestDelivery({
-        kind: "turn-start",
-        turn: this.pipelineLastTurn ?? 1,
-        time: beginTime,
-      });
-      this.pipelineLastTurn = this.pipelineLastTurn ?? 1;
+      // 回合号本地预测：宿主 turn/start 稍后回填（旧路径改写缓冲行；节缓存不可变），
+      // 这里按上一已知回合 +1 预测（首回合 1），分隔线时间随预测号登记
+      const turn = (this.pipelineLastTurn ?? 0) + 1;
+      // 画线判据与旧路径 appendTurnSeparator 镜像：活动区清理后 buffer 非空且末行
+      // 不是回合分隔线才画——首回合空历史不画（frame 层不预置重复线）
+      const visible = clearActivity
+        ? this.state.buffer.filter(
+            (l) =>
+              l.kind !== "thinking" &&
+              l.kind !== "tool" &&
+              l.kind !== "notice" &&
+              !(l.kind === "assistant" && !l.final),
+          )
+        : this.state.buffer;
+      const last = visible[visible.length - 1];
+      const drawsSeparator =
+        visible.length > 0 &&
+        !(last?.kind === "separator" && last.text === TURN_SEPARATOR);
+      if (drawsSeparator) {
+        this.ingestDelivery({ kind: "turn-start", turn, time: beginTime });
+      } else {
+        // 不画线（首回合空历史 / 末行已是分隔线）：回合号基线仍要推进，
+        // 否则下一回合的本地预测会重复同一号
+        this.pipelineLastTurn = turn;
+      }
+      // 排队项在回合开始被认领（followup）→ 转入历史流；流水线同步交付用户节
+      const claimed = this.state.queued.find((q) => q.kind === "followup");
+      if (claimed !== undefined) {
+        this.deliverLocal({
+          kind: "user",
+          turn,
+          step: 0,
+          text: claimed.text,
+          seq: lastUserLineSeq(this.state.buffer),
+        });
+      }
     }
     this.apply((s) =>
       reduceState(s, {
@@ -1613,6 +1713,11 @@ export class App {
         tone: "warn",
       }),
     );
+    this.deliverLocal({
+      kind: "notice",
+      text: `已过滤 ${n} 个非打印控制字符（渲染保护）`,
+      tone: "warn",
+    });
     this.apply((s) => reduceState(s, { type: "clear-stripped" }));
     this.paint();
   }
@@ -2615,6 +2720,21 @@ export class App {
     // 回合开始时先画分隔线(上一轮内容 → 新回合内容)；用户输入开启 → 清空活动区
     this.beginTurnIfNeeded(true);
     this.apply((s) => reduceState(s, { type: "user-line", text: echoText }));
+    // 双写：流水线用户节。回合刚开 → 预测新回合（step 0）；回合仍开（打断后立即
+    // 重发）→ 归当前回合当前步，与旧路径同组
+    if (this.sections !== null) {
+      const scope = this.sections.lastScope;
+      const sameTurn =
+        this.turnOpen && scope.turn === (this.pipelineLastTurn ?? 1);
+      this.deliverLocal({
+        kind: "user",
+        turn: sameTurn ? scope.turn : (this.pipelineLastTurn ?? 1),
+        step: sameTurn ? scope.step : 0,
+        text: echoText,
+        // 回显行号 → 流水线用户行符号与 buffer 单源
+        seq: lastUserLineSeq(this.state.buffer),
+      });
+    }
     this.deps.adapter.sendMessage(
       sendText,
       this.state.activeSessionId ?? undefined,
@@ -2728,6 +2848,11 @@ export class App {
             tone: "warn",
           }),
         );
+        this.deliverLocal({
+          kind: "notice",
+          text: "宿主不支持 steer，已按普通消息发送",
+          tone: "warn",
+        });
       }
       this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
       this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
@@ -2776,6 +2901,8 @@ export class App {
         lines: [{ text: `$ ${command}`, tone: "info" }],
       }),
     );
+    // 双写：命令回显行（流水线 shell 节）
+    this.deliverLocal({ kind: "shell", text: `$ ${command}` });
     this.paint();
     // 执行前复查一次（BACKLOG「TUI `$` 模式执行面不经 guard」）：命中即**不执行**，回执
     // （含来源标注与规则 id）进输出区；guard 不可用 → 复查器内每种失效模式告警一次 + 留痕后
@@ -2783,12 +2910,18 @@ export class App {
     const check = this.shellGuard?.(command) ?? null;
     const receipt = check?.receipt ?? null;
     if (receipt !== null) {
+      const blocked = shellGuardBlockedLines(command, receipt).slice(1);
       this.apply((s) =>
         reduceState(s, {
           type: "shell-lines",
-          lines: shellGuardBlockedLines(command, receipt).slice(1),
+          lines: blocked,
         }),
       );
+      // 双写：guard 拦截回执
+      this.deliverLocal({
+        kind: "shell",
+        text: blocked.map((l) => l.text).join("\n"),
+      });
       this.paint();
       return;
     }
@@ -2801,18 +2934,30 @@ export class App {
           lines: [SHELL_GUARD_SKIPPED_LINE],
         }),
       );
+      // 双写：guard 跳过留痕
+      this.deliverLocal({ kind: "shell", text: SHELL_GUARD_SKIPPED_LINE.text });
       this.paint();
     }
     const started = Date.now();
     const result = await this.shellRunner(command, { cwd });
     if (this.disposed) return;
     // 跳过 shellResultLines 的命令回显行（首行已在提交时入 buffer）
+    const resultLines = shellResultLines(
+      command,
+      result,
+      Date.now() - started,
+    ).slice(1);
     this.apply((s) =>
       reduceState(s, {
         type: "shell-lines",
-        lines: shellResultLines(command, result, Date.now() - started).slice(1),
+        lines: resultLines,
       }),
     );
+    // 双写：本地 shell 回执进活动区（流水线 shell 节；命令回显行已先行交付）
+    this.deliverLocal({
+      kind: "shell",
+      text: resultLines.map((l) => l.text).join("\n"),
+    });
     this.paint();
   }
 
@@ -2832,6 +2977,11 @@ export class App {
           tone: "error",
         }),
       );
+      this.deliverLocal({
+        kind: "notice",
+        text: "无效命令: " + line,
+        tone: "error",
+      });
       // 本地可检测的无效 slash 命令 → 失败色(红)
       this.apply((s) =>
         reduceState(s, { type: "input-status", status: "failure" }),
@@ -4608,6 +4758,12 @@ export class App {
     this.apply((s) =>
       reduceState(s, { type: "notice", text, ...(tone ? { tone } : {}) }),
     );
+    // 双写：流水线通知节（scope 由接收层取 lastScope；启动早期 → 回合 1）
+    this.deliverLocal({
+      kind: "notice",
+      text,
+      ...(tone === undefined ? {} : { tone }),
+    });
     this.paint();
   }
 

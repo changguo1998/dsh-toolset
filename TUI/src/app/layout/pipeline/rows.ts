@@ -264,6 +264,10 @@ export function boxToLines(box: Box, dialogue = false): BufferLine[] {
       ...(box.tone === undefined ? {} : { tone: box.tone }),
       ...(final ? { final: true } : {}),
       ...scope,
+      // 用户行带行号：布局层用户块符号解析按 seq 回查 buffer 同源行
+      ...(box.source === "user" && box.seqs?.[0] !== undefined
+        ? { seq: box.seqs[0] }
+        : {}),
     },
   ];
 }

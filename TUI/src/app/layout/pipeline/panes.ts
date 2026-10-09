@@ -252,25 +252,22 @@ export function buildPanes(
   }
   // 尾部：已声明但暂无内容的 step（如刚落地的 step/start）也要画头（旧口径同步可见）
   headUpTo(declared.length - 1);
-  // 首回合分隔线（旧口径：turn-begin 即画线，含第一回合；窗口丢过内容时已切掉不再补）。
-  // 回合已经开始（turn-begin 交付过）或已有对话内容时才画——旧路径在首条内容前画线，
-  // 纯 step/start 落地尚无任何内容时不画。
+  // 首内容前的回合分隔线：旧口径由 turn-begin 画线（首回合空历史不画）——流水线同判据，
+  // 以「该回合被 turn-start 交付过」（turnTimes 命中，含重放器按分隔线行的补交付）为准；
+  // 内容存在本身不再推断分隔线（否则首回合空历史的提交会多出一条旧路径没有的线）。
+  // 窗口丢过内容时已切掉不再补（leadingSeparator=false）。
   const firstDeclared = declared[0];
-  const turnStarted =
-    options.turnTimes !== undefined && options.turnTimes.size > 0;
-  if (
-    options.leadingSeparator !== false &&
-    firstDeclared !== undefined &&
-    (turnStarted || dialogue.items.length > 0)
-  ) {
+  if (options.leadingSeparator !== false && firstDeclared !== undefined) {
     const turn = Number(firstDeclared.split(":")[0]);
-    const time =
-      options.turnTimes?.get(String(turn)) ?? meta.get("turn:" + turn);
-    dialogue.items.unshift({
-      kind: "turn-separator",
-      turn,
-      ...(time === undefined ? {} : { time }),
-    });
+    if (options.turnTimes?.has(String(turn)) === true) {
+      const time =
+        options.turnTimes?.get(String(turn)) ?? meta.get("turn:" + turn);
+      dialogue.items.unshift({
+        kind: "turn-separator",
+        turn,
+        ...(time === undefined ? {} : { time }),
+      });
+    }
   }
   return { dialogue: dialogue.items, activity: activity.items };
 }

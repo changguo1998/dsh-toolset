@@ -31,8 +31,10 @@ import type { ThemeId } from "../src/renderer/theme.ts";
 
 const THEME: ThemeId = "dark";
 
-/** 固定语料：多 step + 多回合，含代码块 / 表格 / 工具批 / notice */
+/** 固定语料：多 step + 多回合，含代码块 / 表格 / 工具批 / notice（turn-start = 实时流
+ *  里 App 在 turn-begin 的同步交付，分隔线时间的真源） */
 const script: BlockDelivery[] = [
+  { kind: "turn-start", turn: 1, time: 1_700_000_000_000 },
   { kind: "user", turn: 1, step: 1, text: "第一问：看下文档" },
   { kind: "step-start", turn: 1, step: 1, time: 1_700_000_000_000 },
   {
@@ -79,6 +81,7 @@ const script: BlockDelivery[] = [
   },
   { kind: "finalize", turn: 1, step: 2 },
   { kind: "turn-end", turn: 1, step: 2 },
+  { kind: "turn-start", turn: 2, time: 1_700_000_020_000 },
   { kind: "user", turn: 2, step: 1, text: "第二问" },
   { kind: "step-start", turn: 2, step: 1, time: 1_700_000_020_000 },
   { kind: "notice", text: "（提示）", tone: "warn" },
@@ -182,7 +185,14 @@ for (const width of [40, 80, 120]) {
   test(`等价性（宽 ${width}）：会话区与回合区逐行一致`, () => {
     const oldRows = buildContentRows(oldBuffer(), { themeId: THEME }, width);
     const sections = allSections(applyAll(createSections(), script));
-    const panes = buildPanes(sections, { level: "think" });
+    // 回合分隔线判据与生产一致：turn-start 交付过的回合才画线（时间的真源）
+    const turnTimes = new Map<string, number>();
+    for (const delivery of script) {
+      if (delivery.kind === "turn-start") {
+        turnTimes.set(String(delivery.turn), delivery.time);
+      }
+    }
+    const panes = buildPanes(sections, { level: "think", turnTimes });
     const next = {
       dialogue: renderPane(panes.dialogue, "dialogue", {
         themeId: THEME,

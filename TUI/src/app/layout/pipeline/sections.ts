@@ -504,6 +504,8 @@ export function applyDelivery(
             source,
             text: delivery.text,
             ...(tone === undefined ? {} : { tone }),
+            // 行号透传（App 本地用户交付带 seq）：流水线用户行符号解析回查 buffer 用
+            ...(delivery.seq === undefined ? {} : { seqs: [delivery.seq] }),
           },
         ],
         frozen: false,

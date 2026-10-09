@@ -2474,10 +2474,19 @@ function userBlockSymbolResolver(
   const runSymbol = runningSymbol(state.runVirt.tokens);
   return (line) => {
     if (line.kind !== "user" || line.queued) return undefined;
+    // 六步流水线行：按 seq 回查 buffer 同源行（符号 / 终态 / 活跃判定单源在 buffer；
+    // 恢复路径与实时交付都透传了行号）
+    const resolved =
+      line.seq !== undefined
+        ? (state.buffer.find(
+            (candidate) =>
+              candidate.kind === "user" && candidate.seq === line.seq,
+          ) ?? line)
+        : line;
     // #4：被 steer 续接过的输入 → 永久 `←`（优先于终态与运行态；用户 2026-10-01 裁定）
-    if (line.steerContinued === true) return { text: "←" };
-    if (line.status) return USER_BLOCK_SYMBOL[line.status];
-    if (activeSeq !== undefined && line.seq === activeSeq) {
+    if (resolved.steerContinued === true) return { text: "←" };
+    if (resolved.status) return USER_BLOCK_SYMBOL[resolved.status];
+    if (activeSeq !== undefined && resolved.seq === activeSeq) {
       if (waiting) return { text: "△", fg: "yellow" as ColorName };
       if (running) return { text: runSymbol, fg: "yellow" as ColorName };
     }
