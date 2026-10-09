@@ -1,8 +1,9 @@
 // tests/input-history.test.ts — 输入历史（BACKLOG TUI#34）
 //
-// 覆盖：提交入栈（普通输入与 `/` 命令共用一份）、↑ 上翻 / ↓ 下翻回到草稿、
-// 到最早一条停住、相邻重复与空串不入栈、手动编辑退出翻看态、无历史且输入为空
-// 时 ↑/↓ 仍走既有对话区滚动（语义不被抢占）。
+// 覆盖：提交入栈（普通输入与 `/` 命令共用一份）、**Ctrl+P 上翻 / Ctrl+N 下翻**回到草稿、
+// 到最早一条停住、相邻重复与空串不入栈、手动编辑退出翻看态。
+// 2026-10-10 用户裁定：↑/↓ 归历史区翻页（到顶加载更旧回合），输入历史改用 Ctrl+P / Ctrl+N
+// —— 历史非空时 ↑ 也必须滚历史区（见本文件「↑ 专用于历史区」用例与 app.test.ts 的半屏回归）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -61,9 +62,10 @@ function makeApp(): {
   };
 }
 
-const key = (name: string): KeyEvent => ({
+/** 按键（`ctrl: true` = Ctrl+<字母>：输入历史回溯用 Ctrl+P / Ctrl+N） */
+const key = (name: string, mods: { ctrl?: boolean } = {}): KeyEvent => ({
   name,
-  ctrl: false,
+  ctrl: mods.ctrl === true,
   meta: false,
   shift: false,
 });
@@ -115,7 +117,7 @@ test("历史回溯恢复**输入模式**（真机缺陷修复）：slash 命令�
   assert.deepEqual(adapter.commands, ["/zzz"]);
   assert.equal(st().inputMode, "normal", "提交后回退 normal");
   // ↑ 回溯：文本与模式**同时**恢复 → 提示符回到 `/`，再次提交仍是 slash 命令
-  renderer.press(key("up"));
+  renderer.press(key("p", { ctrl: true }));
   assert.equal(st().inputText, "zzz");
   assert.equal(st().inputMode, "slash", "模式随条目恢复（不再变成普通输入）");
   renderer.press(key("enter"));
@@ -131,15 +133,15 @@ test("历史回溯恢复**输入模式**（真机缺陷修复）：slash 命令�
   typeAndEnter(renderer, "ls -la");
   renderer.press(key("<"));
   typeAndEnter(renderer, "快点");
-  renderer.press(key("up"));
+  renderer.press(key("p", { ctrl: true }));
   assert.equal(st().inputMode, "steer", "最近一条是 steer 条目");
   assert.equal(st().inputText, "快点");
-  renderer.press(key("up"));
+  renderer.press(key("p", { ctrl: true }));
   assert.equal(st().inputMode, "shell", "再上一条是 shell 条目");
   assert.equal(st().inputText, "ls -la");
-  renderer.press(key("down"));
+  renderer.press(key("n", { ctrl: true }));
   assert.equal(st().inputMode, "steer");
-  renderer.press(key("down"));
+  renderer.press(key("n", { ctrl: true }));
   assert.equal(
     st().inputMode,
     "normal",
@@ -148,40 +150,40 @@ test("历史回溯恢复**输入模式**（真机缺陷修复）：slash 命令�
   assert.equal(st().inputText, "");
 });
 
-test("↑ 上翻取上一条、↓ 回到草稿；到最早一条停住", () => {
+test("Ctrl+P 上翻取上一条、Ctrl+N 回到草稿；到最早一条停住", () => {
   const { renderer, st } = makeApp();
   typeAndEnter(renderer, "甲");
   typeAndEnter(renderer, "乙");
   // 输入区空：↑ 取最近一条
-  renderer.press(key("up"));
+  renderer.press(key("p", { ctrl: true }));
   assert.equal(st().inputText, "乙");
   assert.equal(st().inputHistoryCursor, 1);
   // 再 ↑ 取更早一条
-  renderer.press(key("up"));
+  renderer.press(key("p", { ctrl: true }));
   assert.equal(st().inputText, "甲");
   assert.equal(st().inputHistoryCursor, 2);
   // 已是最早：再 ↑ 停住（不越界、不清空）
-  renderer.press(key("up"));
+  renderer.press(key("p", { ctrl: true }));
   assert.equal(st().inputText, "甲");
   assert.equal(st().inputHistoryCursor, 2);
   // ↓ 逐条回来，过最新条目后回到进入翻看前的草稿（此处为空）
-  renderer.press(key("down"));
+  renderer.press(key("n", { ctrl: true }));
   assert.equal(st().inputText, "乙");
-  renderer.press(key("down"));
+  renderer.press(key("n", { ctrl: true }));
   assert.equal(st().inputText, "");
   assert.equal(st().inputHistoryCursor, 0);
 });
 
-test("翻看中手输草稿不丢：↑ 前保存草稿，↓ 回到它", () => {
+test("翻看中手输草稿不丢：Ctrl+P 前保存草稿，Ctrl+N 回到它", () => {
   const { renderer, st } = makeApp();
   typeAndEnter(renderer, "已提交");
   type(renderer, "半截草稿");
   // 输入非空：首按 ↑ 仍进入翻看（先把草稿存起来）
-  renderer.press(key("up"));
+  renderer.press(key("p", { ctrl: true }));
   assert.equal(st().inputText, "已提交");
   assert.equal(st().inputHistoryDraft, "半截草稿");
   // ↓ 回最新条目之下 → 恢复草稿
-  renderer.press(key("down"));
+  renderer.press(key("n", { ctrl: true }));
   assert.equal(st().inputText, "半截草稿");
   assert.equal(st().inputHistoryCursor, 0);
 });
@@ -189,7 +191,7 @@ test("翻看中手输草稿不丢：↑ 前保存草稿，↓ 回到它", () => 
 test("翻看态下编辑 → 退出翻看（游标归零，编辑文本成为新草稿）", () => {
   const { renderer, st } = makeApp();
   typeAndEnter(renderer, "旧输入");
-  renderer.press(key("up"));
+  renderer.press(key("p", { ctrl: true }));
   assert.equal(st().inputText, "旧输入");
   renderer.press(key("backspace"));
   assert.equal(st().inputHistoryCursor, 0, "编辑即退出翻看");
@@ -197,12 +199,30 @@ test("翻看态下编辑 → 退出翻看（游标归零，编辑文本成为新
   assert.equal(st().inputHistoryDraft, "旧输", "编辑后的文本成为新草稿");
 });
 
-test("无历史且输入为空：↑/↓ 保持既有对话区滚动语义（不被历史抢占）", () => {
-  const { renderer, st } = makeApp();
+test("↑ 专用于历史区：历史非空、输入为空时 ↑ 不再回溯输入（真机循环缺陷回归）", () => {
+  // 真机报告（2026-10-10）：按 ↑ 时输入框在旧输入之间循环、历史区纹丝不动 —— 根因是
+  // 「空输入 + 历史非空」也让 ↑ 接管输入历史。现在 ↑ 只滚历史区，回溯走 Ctrl+P / Ctrl+N。
+  const { renderer, adapter, st } = makeApp();
+  renderer.size = { cols: 100, rows: 30 };
+  for (let i = 1; i <= 8; i++) {
+    typeAndEnter(renderer, `第 ${i} 问`);
+    adapter.push({
+      type: "stream",
+      sessionId: "s1",
+      text: `第 ${i} 回合正文甲\n第 ${i} 回合正文乙\n`,
+    } as never);
+    adapter.push({ type: "turn-end" } as never);
+  }
+  assert.ok(st().inputHistory.length >= 8, "输入历史已入栈（前置条件）");
+  assert.equal(st().inputText, "", "提交后输入为空（前置条件）");
+  const before = st().dialogueTop;
   renderer.press(key("up"));
-  assert.equal(st().inputText, "");
-  assert.equal(st().inputHistoryCursor, 0);
-  assert.equal(st().inputHistory.length, 0);
+  assert.equal(st().inputText, "", "↑ 不写输入框（不再回溯）");
+  assert.ok(st().dialogueTop !== null, "↑ 改为滚历史区（位置从贴底变为持顶）");
+  assert.notDeepEqual(st().dialogueTop, before, "视口顶确实移动了");
+  // 回溯仍可用：Ctrl+P 取上一条
+  renderer.press(key("p", { ctrl: true }));
+  assert.equal(st().inputText, "第 8 问", "Ctrl+P 取最近一次提交");
 });
 
 test("reducer：相邻重复（文本 + 模式）不入栈、模式不同算不同条目、超上限丢最旧", () => {

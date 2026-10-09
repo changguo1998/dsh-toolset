@@ -19,8 +19,6 @@ import {
   historyVisibleRecords,
   initialState,
   isCompacting,
-  isInputHistoryBrowse,
-  isInputHistoryBrowseAt,
   markableSessionIds,
   recentQuestionSource,
   reduceState,
@@ -2223,6 +2221,22 @@ export class App {
       return;
     }
 
+    // Ctrl+P / Ctrl+N：输入历史回溯（BACKLOG TUI#34；readline 惯例）。
+    // 2026-10-10 裁定（用户）：**↑/↓ 专用于历史区翻页**（含到顶加载更旧回合），
+    // 输入历史改用 Ctrl+P / Ctrl+N —— 原先 ↑ 在「空输入 + 历史非空」时也会接管，
+    // 按 ↑ 看到的是输入框在旧输入之间循环、历史区纹丝不动。
+    if (ctrl && (name === "p" || name === "n")) {
+      if (this.state.focusedPanel !== null) return; // 面板焦点下不接管（面板自有键位）
+      this.apply((s) =>
+        reduceState(s, {
+          type: "input-history",
+          action: name === "p" ? "prev" : "next",
+        }),
+      );
+      this.paint();
+      return;
+    }
+
     // Ctrl+L：强制整帧重绘（绕过 delta 优化）。放在 switch 前，避免吞掉普通 'l' 输入。
     if (ctrl && name === "l") {
       this.refresh();
@@ -2302,28 +2316,8 @@ export class App {
           this.paint();
           break;
         }
-        // 输入历史（BACKLOG TUI#34）：无面板焦点且输入区非空（或已在翻看态）时，
-        // ↑/↓ 翻看已提交输入——与焦点面板滚动 / `/history` 面板移动按焦点态分流。
-        // ↑ 优先于「面板滚动」（输入区有内容才接管，空输入保持既有焦点/滚动语义）
-        if (this.state.focusedPanel === null) {
-          const cursor = this.state.inputHistoryCursor;
-          const nextCursor = name === "up" ? cursor + 1 : cursor - 1;
-          const browseNext = isInputHistoryBrowseAt(this.state, nextCursor);
-          if (
-            this.state.inputText !== "" ||
-            isInputHistoryBrowse(this.state) ||
-            browseNext
-          ) {
-            this.apply((s) =>
-              reduceState(s, {
-                type: "input-history",
-                action: name === "up" ? "prev" : "next",
-              }),
-            );
-            this.paint();
-            break;
-          }
-        }
+        // 输入历史见 Ctrl+P / Ctrl+N（readline 惯例）：↑/↓ 不再接管输入历史 ——
+        // 用户 2026-10-10 裁定，↑/↓ 专用于历史区翻页（含到顶加载更旧回合）
         // 焦点面板滚动：活动区/状态列保持现状（单行），对话区（history 焦点/
         // 无焦点默认）↑/↓ 每次半屏（方向内聚在 focusedLineScroll）
         const dir: 1 | -1 = name === "up" ? 1 : -1;
