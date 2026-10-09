@@ -339,7 +339,11 @@ function normalizeHistoryMessages(
   const pushText = (role: "user" | "assistant", raw: string): void => {
     const text = raw.trim() === "" ? "" : raw;
     if (text === "") return;
-    out.push({ role, text, ...(curTurn === undefined ? {} : { turn: curTurn }) });
+    out.push({
+      role,
+      text,
+      ...(curTurn === undefined ? {} : { turn: curTurn }),
+    });
   };
   for (const e of events) {
     const data = e.data as Record<string, unknown> | undefined;
@@ -1976,10 +1980,14 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
                 };
           if (scope) {
             liveScope = scope;
+            // 收尾原因随交付透传（条目 7 批 B1）：节层把它落到该回合最后一个用户条目上，
+            // 用户块终态符号不再按 seq 回查 buffer
+            const ended = turnEndReason(data.reason);
             deliver({
               kind: "turn-end",
               turn: scope.turn,
               step: scope.step,
+              ...(ended === undefined ? {} : { reason: ended }),
               ...(raw.seq === undefined ? {} : { seq: raw.seq }),
             });
           }

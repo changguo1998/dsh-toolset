@@ -485,6 +485,22 @@ incremental   10.67 ms       0.34 ms       31.6×
 
 **剩余（未完成，另批处理）**：`state.buffer` 仍作事实源与恢复回放源（App 无 sink 时的回落路径），本地写入（用户回显 / notice / shell / 辅助行）仍是「写缓冲 + 投块」双写；条目 7 的验收（`state.buffer` 不再承载会话内容）未达成 → 见 BACKLOG。真机目视（滚动 / 扩窗 / 流式 / 面板 / 恢复）待人工确认。
 
+### 第三阶段（条目 7 双写退役，进行中）
+
+用户 2026-10-10 裁定：A + B 一起做。侦察结论（双写的精确边界）——渲染已单源（只读节缓存），`state.buffer` 在生产路径只剩三个角色：① 恢复会话的内容入口；② 用户块状态事实（用户行符号按 `seq` 回查 buffer，见 `rows.ts:324,498`、`sections.ts:525`、`replay.ts:57`）；③ 无 sink 时的渲染回退（测试 / 嵌入用法依赖）。此外 pass-through 事件只入 reducer、不投块 → 用户真机「回合区不显示警告」（条目 10）。
+
+| 批 | 内容 | 状态 |
+| --- | --- | --- |
+| A1 | pass-through 事件（retry / subagent / hook / feedback / retry-started / compaction / compaction-summary / goal-\* / todo-write / mode …）写下的可见行补投块：新增 `App.deliverBufferTail`，复用重放的「行 → 交付」映射（`deliveryOfLine`），step 头 / 分隔线按重放同款转 `step-start` / `turn-start`；**adapter 已直接交付的事件不桥接**（`tool-call` / `tool-result` / `step` / `compaction-prune`，否则回合区出现重复行） | ✓ 完成 |
+| A1′ | 顺带修交付层根因：`sections.ts` 的 `appendText` 同来源合并会把辅助行（`source: "tool"` 文本）并进工具批，批渲染忽略 `text` → 辅助行整条消失；改为**只与文本项合并** | ✓ 完成 |
+| A2 | 恢复路径从宿主历史直接产交付（不再经 buffer 重放） | 待做 |
+| 范围裁定 | 用户 2026-10-10：条目 7 取**选项 1**——生产路径单源化（live 运行不再写 / 读 buffer 内容），`state.buffer` 保留为**测试与嵌入用**的重放输入并在文档写明；「连测试路径也不再经 buffer」另立 BACKLOG 条目 12（P3，2-3 天）。实现机制：`AppState` 增「是否保留缓冲内容」开关（App 注入 sink 时置否），`reduceState` 的内容分支在该开关关闭时只更新状态事实、不写缓冲行 | 已裁定 |
+| B1 | 用户块状态事实进节模型（去掉按 `seq` 回查 buffer）。**已完成**：① `turn-end` 交付带 `reason`（`adapter/dsh.ts` 透传宿主 reason）→ `applyTurnEnd` 落到该回合最后一个用户**条目**的 `userStatus`（已有不覆盖）；② `user-flag` 交付（steer 认领时 App 在投新用户块**之前**发出）→ 上一条用户条目 `steerContinued`；③ 恢复路径由 `deliveryOfLine` 按缓冲行透传 `status` / `steerContinued`（`user` 交付新增两个字段）；④ `panes.ts` 给会话区**最后一条终态未定**的用户项打 `active` → 行层 `active`；⑤ `userBlockSymbolResolver` 改读行自带 `status` / `steerContinued` / `active`，**删掉 `activeSeq` 扫描与按 `seq` 回查 buffer** | ✓ 完成 |
+| B2 | 无 sink 回退改测试助手：新增 `tests/helpers/renderFromBuffer.ts`（用 reducer 造 state 的帧测试统一经它把 buffer 行转节并注入 `pipeline`），保留测试能力、不占生产 `state.buffer` | 待做 |
+| B3 | 删 `state.buffer` / `nextSeq` / 旧 reducer 内容分支 / `trimBufferHead`；**残留死码已清**（2026-10-10：3 处 `scrollAnchor: null` 死写改 `dialogueTop: null`、`focus-frame.ts` 的 `FRAME_SEP` / `FRAME_DSEP`、`panel.ts` 的 `panelPlainParagraph`） | 部分完成（死码 ✓ / buffer 退场待做） |
+
+**批 A1 证据**：新增回归用例 `tests/pipeline-app.test.ts`「事件驱动的本地写入投块：retry / subagent / hook 在回合区可见」（条目 10 回归）；`npm run check` 全绿；TUI 全量 **1411 用例全绿**。修复后条目 10 的「警告在回合区不可见」已消失（真机目视待确认）。
+
 ## 收尾
 
 （未关闭。第二阶段（位置模型接管 + 旧排版退役）进行中；关闭时本文件移入 `TUI/docs/archived/`。）

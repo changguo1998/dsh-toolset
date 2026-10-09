@@ -253,7 +253,11 @@ export interface RenderedPane {
  * `dialogue` = 该 box 归会话区：旧口径按 `final` 分流（`assistant` 正文 final → 会话区），
  * 故会话区的正文行必须带 `final`，否则旧渲染器会把它排进回合区。
  */
-export function boxToLines(box: Box, dialogue = false): BufferLine[] {
+export function boxToLines(
+  box: Box,
+  dialogue = false,
+  active = false,
+): BufferLine[] {
   const scope = { step: box.step };
   if (box.kind === "layout") {
     // 表格容器 → 旧口径的原始表格行（表头 / 对齐分隔 / 数据行），表格渲染器重排；
@@ -321,6 +325,13 @@ export function boxToLines(box: Box, dialogue = false): BufferLine[] {
     kind: kindOf(box),
     ...(box.tone === undefined ? {} : { tone: box.tone }),
     ...scope,
+    // 用户块终态（条目 7 批 B1）：节上已定，行层直接带 `status`（解析器优先读它，
+    // 不再回查 buffer）；`seq` 仍在（活跃块判定与旧路径兜底），B3 删 buffer 时一并去掉
+    ...(box.userStatus === undefined ? {} : { status: box.userStatus }),
+    // 被 steer 续接（批 B1）：行层带 `steerContinued` → 解析器出永久 `←`，不回查 buffer
+    ...(box.steerContinued === true ? { steerContinued: true } : {}),
+    // 活跃用户块（批 B1）：终态未定的最后一条用户输入 → 运行 ●/○ / 等待 △
+    ...(active && box.source === "user" ? { active: true } : {}),
     // 用户行带行号：布局层用户块符号解析按 seq 回查 buffer 同源行
     ...(box.source === "user" && box.seqs?.[0] !== undefined
       ? { seq: box.seqs[0] }
@@ -398,7 +409,7 @@ function kindOf(box: Box): BufferLine["kind"] {
 function itemLines(item: PaneItem, dialogue: boolean): BufferLine[] {
   switch (item.kind) {
     case "line":
-      return boxToLines(item.box, dialogue);
+      return boxToLines(item.box, dialogue, item.active === true);
     case "blank":
       return [{ text: "", kind: "plain" }];
     case "step-head":

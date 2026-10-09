@@ -2242,23 +2242,14 @@ const USER_BLOCK_SYMBOL: Record<
 };
 
 /** P1：用户块首行符号解析器——状态在 layout 侧算定，build-box 只负责画。
- *  - 终态：取本行 `status`（turn-end 时按 reason 打标）；
- *  - 活跃块（buffer 里最后一个 `status` 未定的 user 行）：等待交互（审批/问答面板打开）
- *    显示黄 △；运行中显示黄 ●/○（沿用虚拟 token 交替相位）；
+ *  - 终态：取本行 `status`（`turn-end` 的原因经节 → 条目 → box 透传，批 B1）；
+ *  - 活跃块（`line.active`：会话区最后一条终态未定的用户输入，由 `panes.ts` 打标）：
+ *    等待交互（审批/问答面板打开）显示黄 △；运行中显示黄 ●/○（沿用虚拟 token 交替相位）；
  *  - 其余无终态块回退 `?`（恢复的历史、未收到 turn/end 的块）；
  *  - 排队块（布局层由 `state.queued` 单独渲染）不显示符号。 */
 function userBlockSymbolResolver(
   state: AppState,
 ): (line: BufferLine) => { text: string; fg?: ColorName } | undefined {
-  // 活跃块 = **最后一条**用户输入，且其终态未定；不往前找——更早的未终态块（例如上一回合
-  // 以 blocked 收尾，宿主没落终态）属历史，只显示 `?`，不该跟着当前运行状态闪 ●/○ 或 △
-  let activeSeq: number | undefined;
-  for (let i = state.buffer.length - 1; i >= 0; i--) {
-    const l = state.buffer[i]!;
-    if (l.kind !== "user") continue;
-    if (l.status === undefined) activeSeq = l.seq;
-    break;
-  }
   const waiting =
     state.approval !== null ||
     state.question !== null ||
@@ -2272,19 +2263,11 @@ function userBlockSymbolResolver(
   const runSymbol = runningSymbol(state.runVirt.tokens);
   return (line) => {
     if (line.kind !== "user" || line.queued) return undefined;
-    // 六步流水线行：按 seq 回查 buffer 同源行（符号 / 终态 / 活跃判定单源在 buffer；
-    // 恢复路径与实时交付都透传了行号）
-    const resolved =
-      line.seq !== undefined
-        ? (state.buffer.find(
-            (candidate) =>
-              candidate.kind === "user" && candidate.seq === line.seq,
-          ) ?? line)
-        : line;
-    // #4：被 steer 续接过的输入 → 永久 `←`（优先于终态与运行态；用户 2026-10-01 裁定）
-    if (resolved.steerContinued === true) return { text: "←" };
-    if (resolved.status) return USER_BLOCK_SYMBOL[resolved.status];
-    if (activeSeq !== undefined && resolved.seq === activeSeq) {
+    // 终态 / 续接 / 活跃三个事实都由流水线行自带（批 B1：单源在节模型，
+    // 不再按 seq 回查 buffer）
+    if (line.steerContinued === true) return { text: "←" };
+    if (line.status) return USER_BLOCK_SYMBOL[line.status];
+    if (line.active === true) {
       if (waiting) return { text: "△", fg: "yellow" as ColorName };
       if (running) return { text: runSymbol, fg: "yellow" as ColorName };
     }

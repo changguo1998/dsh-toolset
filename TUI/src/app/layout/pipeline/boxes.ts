@@ -49,6 +49,10 @@ interface BoxBase {
   shadowed?: boolean;
   /** steer 插队送达的用户块（第 3 步据此在它之前留空行） */
   steer?: boolean;
+  /** 用户块终态（节上的 `userStatus` 透传）：行层写 `status`，符号不再回查 buffer */
+  userStatus?: "success" | "failure" | "aborted";
+  /** 被 steer 续接过的用户块（批 B1）：行层写 `steerContinued` → 永久 `←` */
+  steerContinued?: boolean;
 }
 
 /** 叶子 box：只保存内容，不再包含子节点 */
@@ -113,6 +117,10 @@ function textParts(item: Item, turn: number, step: number): Box[] {
         text,
         ...(item.tone === undefined ? {} : { tone: item.tone }),
         ...(item.seqs === undefined ? {} : { seqs: item.seqs }),
+        ...(item.userStatus === undefined
+          ? {}
+          : { userStatus: item.userStatus }),
+        ...(item.steerContinued === true ? { steerContinued: true } : {}),
       },
     ];
   }

@@ -45,7 +45,11 @@ import {
   type SectionsState,
 } from "./layout/pipeline/sections.ts";
 import type { BlockDelivery } from "./layout/pipeline/types.ts";
-import { sectionsFromBuffer } from "./layout/pipeline/replay.ts";
+import {
+  deliveryOfLine,
+  sectionsFromBuffer,
+  stepOf,
+} from "./layout/pipeline/replay.ts";
 import { TURN_SEPARATOR } from "./state.ts";
 import {
   setWidthOverrides,
@@ -476,6 +480,51 @@ export class App {
   private deliverLocal(delivery: BlockDelivery): void {
     if (this.sections === null) return;
     this.ingestDelivery(delivery);
+  }
+
+  /**
+   * 事件驱动的本地写入补块交付（条目 7 批 A）：`reduceState` 写下的可见行（retry /
+   * subagent / hook / feedback / 压缩提示 …）过去只进缓冲、不投块 → 流水线（唯一渲染
+   * 来源）看不到（用户真机「回合区不显示警告」）。
+   *
+   * 复用重放的「行 → 交付」映射（`deliveryOfLine`），口径与恢复路径完全一致；scope 取
+   * 接收层最近一次 (turn, step)。**step 头与分隔线**在这里按重放同款规则转成
+   * `step-start` / `turn-start`（但 `step` / `compaction-prune` 事件由 adapter 侧直接
+   * 投递，调用方跳过本方法以免重复）。
+   */
+  private deliverBufferTail(before: number): void {
+    if (this.sections === null) return;
+    const scope = this.sections.lastScope;
+    let index = 0;
+    for (const line of this.state.buffer.slice(before)) {
+      const step =
+        line.kind === "step" || line.kind === "tool"
+          ? stepOf(line.text)
+          : undefined;
+      if (step !== undefined) {
+        this.deliverLocal({
+          kind: "step-start",
+          turn: scope.turn,
+          step,
+          ...(line.time === undefined ? {} : { time: line.time }),
+        });
+        continue;
+      }
+      if (line.kind === "separator") {
+        this.deliverLocal({
+          kind: "turn-start",
+          turn:
+            typeof line.turn === "number" && line.turn > 0
+              ? line.turn
+              : scope.turn,
+          ...(line.time === undefined ? {} : { time: line.time }),
+        });
+        continue;
+      }
+      const delivery = deliveryOfLine(line, scope, index);
+      index += 1;
+      if (delivery !== undefined) this.deliverLocal(delivery);
+    }
   }
 
   /** 当前 state 的可滚动上限：出帧回填过就直接用，否则就地补算一次（同一帧口径） */
@@ -1559,9 +1608,21 @@ export class App {
       case "feedback":
       case "retry-started":
       case "command-panel-data":
-        // 阶段 1 pass-through：仅入 reducer（事件结构 = StateAction 同型），不渲染；
-        // 阶段 2 按事件落 buffer 工具行 / toast / 状态栏槽位；P2 B 阶段渲染前同此处理
+        // 阶段 1 pass-through：事件结构 = StateAction 同型，入 reducer 落 buffer 行；
+        // 阶段 2 按事件落 toast / 状态栏槽位；P2 B 阶段渲染前同此处理
+        // 条目 7 批 A：这条分支写下的可见行（retry / subagent / hook / feedback /
+        // 压缩提示 / 重试中 …）过去只进缓冲、不投块 → 流水线看不到，这里补投块。
+        // **adapter 已直接交付的事件不桥接**（重复投递会在回合区出现两行）：
+        // `tool-call` / `tool-result`（批与结果）、`step`（step-start）、
+        // `compaction-prune`（shadow）—— 见 adapter/dsh.ts 的 deliver 调用点。
+        const tailBefore = this.state.buffer.length;
         this.apply((s) => reduceState(s, e));
+        const bridged =
+          e.type !== "step" &&
+          e.type !== "compaction-prune" &&
+          e.type !== "tool-call" &&
+          e.type !== "tool-result";
+        if (bridged) this.deliverBufferTail(tailBefore);
         // 模型/模式类状态变化 → 刷新会话状态快照（宿主日志仍是主来源，快照作兜底）
         if (
           e.type === "model-selection" ||
@@ -1613,10 +1674,14 @@ export class App {
           if (claimed !== undefined) {
             const scope = this.sections?.lastScope;
             if (scope !== undefined) {
+              const turn =
+                scope.turn > 0 ? scope.turn : (this.pipelineLastTurn ?? 1);
+              // 先给**上一条**用户输入置「被续接」（永久 `←`）——必须在投新块之前，
+              // 否则「最后一条用户条目」已变成刚认领的这条（批 B1：符号不再回查 buffer）
+              this.deliverLocal({ kind: "user-flag", steerContinued: true });
               this.deliverLocal({
                 kind: "user",
-                turn:
-                  scope.turn > 0 ? scope.turn : (this.pipelineLastTurn ?? 1),
+                turn,
                 step: scope.step,
                 text: claimed.text,
                 queued: "steer",

@@ -35,10 +35,6 @@ export function focusColor(): ColorName {
   return "focus";
 }
 
-/** 分隔线默认字符（与现状 buildTopRegion/buildStatusSeparator 一致） */
-export const FRAME_SEP = "─";
-export const FRAME_DSEP = "│";
-
 /**
  * 在指定显示列覆写一枚字形（就地改写 segments）。
  * - col 为显示列（0 基；跨段累加 displayWidth 定位）

@@ -388,3 +388,60 @@ test("双写等价：用户提交 + 首个 step 后新旧路径整帧一致", ()
   old.app.dispose();
   next.app.dispose();
 });
+
+test("事件驱动的本地写入投块：retry / subagent / hook 在回合区可见（条目 10 回归）", () => {
+  // 真机报告（2026-10-10）：「回合区不显示警告」——`index.ts` 的 pass-through 分支
+  // 只 `reduceState` 落缓冲行、不投块，而流水线是唯一渲染来源 → retry 退避提示、
+  // 插件告警、subagent / hook 辅助行都看不到。批 A 用 `deliverBufferTail` 把新增行
+  // 按重放同款映射补投块。
+  const { app, renderer, adapter } = makeApp(true);
+  // 辅助行（subagent / hook）在 `step` 档会被既有渲染口径过滤掉，先切到 `tool` 档
+  typeAndEnter(renderer, "/verbose tool");
+  typeAndEnter(renderer, "先起一个回合");
+  adapter.push({
+    type: "step",
+    sessionId: "s1",
+    turn: 1,
+    step: 1,
+    phase: "start",
+    time: TIME,
+  } as DshEvent);
+  adapter.push({
+    type: "tool-call",
+    sessionId: "s1",
+    turn: 1,
+    step: 1,
+    callId: "c1",
+    name: "bash",
+    args: "ls",
+  } as unknown as DshEvent);
+  const body = (): string => frames(app, renderer).join("\n");
+  adapter.push({
+    type: "retry",
+    attempt: 2,
+    max: 3,
+    delayMs: 1500,
+    code: "429",
+  } as DshEvent);
+  assert.ok(body().includes("重试 2/3"), "retry 警告在回合区可见: " + body());
+  adapter.push({
+    type: "subagent",
+    sessionId: "s1",
+    label: "researcher",
+    mode: "one-shot",
+  } as DshEvent);
+  assert.ok(body().includes("@ researcher os"), "subagent 行可见: " + body());
+  adapter.push({
+    type: "hook",
+    sessionId: "s1",
+    phase: "result",
+    point: "pre-commit",
+    decision: "allow",
+    ok: true,
+  } as unknown as DshEvent);
+  assert.ok(
+    body().includes("pre-commit"),
+    "hook 辅助行可见: " + body().slice(0, 200),
+  );
+  app.dispose();
+});

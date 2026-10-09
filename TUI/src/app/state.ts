@@ -155,6 +155,12 @@ export interface BufferLine {
   /** #4：该用户输入的回合被后续 steer 续接过 → 状态符号**永久**显示 `←`（优先于终态
    *  ✓/✗/■ 与运行态 ●/○，turn-end 后也不恢复）。 */
   steerContinued?: boolean;
+  /**
+   * 活跃用户块标记（条目 7 批 B1 起由节模型给出）：会话区最后一条终态未定的用户输入 →
+   * 运行中/等待交互时显示 `●`/`○`/`△`。旧路径从 buffer 取「最后一条未打标用户行」，
+   * 现在由 `panes.ts` 打标、解析器直接读本字段。
+   */
+  active?: boolean;
   /** #3：回合分隔线（kind="separator"）的时间戳（epoch ms）与回合号，供渲染
    *  `╌╌ hh:mm:ss ⇆N ╌╌` 同族格式（回合号标记 `⇆`，与 step 头的 `#N` 区分）；
    *  回合号可能在 turn-begin 后才由 `turn/start` 回填。 */
@@ -1814,8 +1820,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           })),
           nextSeq: state.nextSeq + action.rows.length,
           followBottom: true,
-          // 会话切换：清掉上一会话的语义锚点，回到跟随底部
-          scrollAnchor: null,
+          // 会话切换：清掉上一会话的阅读位置，回到跟随底部（段键跨会话无意义）
+          dialogueTop: null,
           scrollOffset: 0,
           activityScroll: 0,
           // TUI#9：会话恢复/切换 → 本会话累计清零（与 buffer 同步换会话）
@@ -1843,7 +1849,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           })),
           nextSeq: state.nextSeq + action.rows.length,
           followBottom: true,
-          scrollAnchor: null,
+          dialogueTop: null,
           scrollOffset: 0,
           activityScroll: 0,
         };
@@ -1864,7 +1870,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
             : { pipeline: createSections() }),
           followBottom: true,
           scrollOffset: 0,
-          scrollAnchor: null,
+          dialogueTop: null,
           activityScroll: 0,
           windowGroups: DIALOGUE_KEEP_REPLIES,
           focusedPanel: null,

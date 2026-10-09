@@ -33,7 +33,13 @@ function sectionId(section: Section): number {
  * 宽度变化、行数变化都不变，故「视口顶内容」可以靠它跨帧与跨重排保持。
  */
 export type PaneItem =
-  | { readonly kind: "line"; readonly box: Box; readonly key: string }
+  | {
+      readonly kind: "line";
+      readonly box: Box;
+      readonly key: string;
+      /** 活跃用户块（批 B1）：终态未定的最后一条用户输入 → 行层带 `active`，符号不回查 buffer */
+      readonly active?: boolean;
+    }
   | { readonly kind: "blank"; readonly key: string }
   | {
       readonly kind: "step-summary";
@@ -354,5 +360,15 @@ export function buildPanes(
   headUpTo(declared.length - 1);
   // 尾部剩余的分隔线（已交付 turn-start 但该回合还没有任何内容）
   emitMarkersUpTo(Number.POSITIVE_INFINITY);
+  // 活跃用户块（批 B1）：会话区**最后一条**终态未定、也未被 steer 续接的用户输入 →
+  // 行层带 `active`，符号解析按它判「运行 ●/○ / 等待 △」，不必再回查 buffer
+  for (let i = dialogue.items.length - 1; i >= 0; i--) {
+    const item = dialogue.items[i]!;
+    if (item.kind !== "line" || item.box.source !== "user") continue;
+    if (item.box.userStatus === undefined && item.box.steerContinued !== true) {
+      dialogue.items[i] = { ...item, active: true };
+    }
+    break;
+  }
   return { dialogue: dialogue.items, activity: activity.items };
 }

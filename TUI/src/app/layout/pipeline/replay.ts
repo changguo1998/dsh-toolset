@@ -58,6 +58,9 @@ export function deliveryOfLine(
         ...(line.seq === undefined ? {} : { seq: line.seq }),
         // 留白标记（steer 插队送达）：节带 steer → 第 3 步在该块之前插空行
         ...(line.spaceBefore === true ? { spaceBefore: true } : {}),
+        // 终态与「被 steer 续接」标记按行原样透传（批 B1）：恢复的用户块符号不再回查 buffer
+        ...(line.status === undefined ? {} : { status: line.status }),
+        ...(line.steerContinued === true ? { steerContinued: true } : {}),
       };
     case "notice":
       return {

@@ -202,7 +202,15 @@ function appendText(
   seq?: number,
 ): Section {
   const items = [...section.items];
-  const at = items.findIndex((item) => item.source === source);
+  // 同来源合并**只对文本项**：工具批（带 calls / results）与文本走不同渲染分支，
+  // 把辅助行（subagent / hook 的 `source: "tool"` 文本）并进工具批会被批渲染忽略
+  // （真机表现：辅助行整条消失）
+  const at = items.findIndex(
+    (item) =>
+      item.source === source &&
+      item.calls === undefined &&
+      item.results === undefined,
+  );
   const found = at >= 0 ? items[at] : undefined;
   if (found === undefined) {
     items.push(
@@ -423,7 +431,21 @@ function applyToolResult(
 }
 
 /** 回合结束：封闭当前节 + 给该回合最后一个 assistant 节打「最终总结」标记 */
-function applyTurnEnd(state: SectionsState, turn: number): SectionsState {
+/** 回合结束原因 → 用户块终态符号（与 `state.ts` 的 `markUserBlockStatus` 同口径） */
+function userStatusOfReason(
+  reason: string | undefined,
+): "success" | "failure" | "aborted" | undefined {
+  if (reason === "completed") return "success";
+  if (reason === "aborted") return "aborted";
+  if (reason === "error") return "failure";
+  return undefined;
+}
+
+function applyTurnEnd(
+  state: SectionsState,
+  turn: number,
+  reason?: string,
+): SectionsState {
   const sealed =
     state.current === undefined ? state : sealedOf(state, state.current);
   const sections = [...sealed.sections];
@@ -433,6 +455,24 @@ function applyTurnEnd(state: SectionsState, turn: number): SectionsState {
     if (!section.items.some((item) => item.source === "assistant")) continue;
     sections[i] = { ...section, final: true };
     break;
+  }
+  // 用户块终态（条目 7 批 B1）：落到**该回合最后一个用户条目的最后一个用户 item** ——
+  // 符号渲染不再回查 buffer。已有终态不覆盖（同 `markUserBlockStatus`）
+  const status = userStatusOfReason(reason);
+  if (status !== undefined) {
+    for (let i = sections.length - 1; i >= 0; i--) {
+      const section = sections[i]!;
+      if (section.turn !== turn) continue;
+      const at = section.items.findIndex((item) => item.source === "user");
+      if (at < 0) continue;
+      const item = section.items[at]!;
+      if (item.userStatus === undefined) {
+        const items = [...section.items];
+        items[at] = { ...item, userStatus: status };
+        sections[i] = { ...section, items };
+      }
+      break;
+    }
   }
   return { ...sealed, sections, pendingOpen: false };
 }
@@ -522,8 +562,16 @@ export function applyDelivery(
             source,
             text: delivery.text,
             ...(tone === undefined ? {} : { tone }),
-            // 行号透传（App 本地用户交付带 seq）：流水线用户行符号解析回查 buffer 用
+            // 行号透传（App 本地用户交付带 seq）：旧路径兜底用；批 B1 起终态 / steer
+            // 标记都随条目走，不再依赖它回查 buffer
             ...(delivery.seq === undefined ? {} : { seqs: [delivery.seq] }),
+            // 恢复路径按缓冲行原样透传的终态与「被 steer 续接」标记（批 B1）
+            ...(delivery.kind === "user" && delivery.status !== undefined
+              ? { userStatus: delivery.status }
+              : {}),
+            ...(delivery.kind === "user" && delivery.steerContinued === true
+              ? { steerContinued: true }
+              : {}),
           },
         ],
         frozen: false,
@@ -547,7 +595,27 @@ export function applyDelivery(
       return applyTurnEnd(
         { ...state, lastScope: { turn: delivery.turn, step: delivery.step } },
         delivery.turn,
+        delivery.reason,
       );
+    case "user-flag": {
+      // 批 B1：steer 认领 → **上一条**用户输入置「被续接」（永久 `←` 符号）。
+      // 用户节是独立自足节（立即可封闭）→ 从已封闭节往前找最后一条用户条目
+      if (delivery.steerContinued !== true) return state;
+      const sections = [...state.sections];
+      for (let i = sections.length - 1; i >= 0; i--) {
+        const section = sections[i]!;
+        const at = section.items.findIndex((item) => item.source === "user");
+        if (at < 0) continue;
+        const item = section.items[at]!;
+        if (item.steerContinued !== true) {
+          const items = [...section.items];
+          items[at] = { ...item, steerContinued: true };
+          sections[i] = { ...section, items };
+        }
+        return { ...state, sections };
+      }
+      return state;
+    }
     case "interrupted": {
       const sk = stepKey(delivery.turn, delivery.step);
       const interrupted = new Set(state.interrupted).add(sk);

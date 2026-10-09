@@ -38,6 +38,16 @@ export interface Item {
   readonly tone?: NoticeTone;
   /** 该条目覆盖的宿主事件号（压缩剪枝的 `shadowedSeqs` 按交集打遮蔽标记用） */
   readonly seqs?: readonly number[];
+  /**
+   * 用户块终态（条目 7 批 B1）：`turn-end` 的原因落到该回合最后一个用户**条目**上 →
+   * 行层直接写 `status`，符号渲染不再按 `seq` 回查 buffer；已有终态不覆盖
+   */
+  readonly userStatus?: "success" | "failure" | "aborted";
+  /**
+   * 被 steer 续接过的用户输入（`user-flag` 交付置位）：永久 `←` 符号，优先于终态与
+   * 运行态（用户 2026-10-01 裁定）；同批 B1：符号渲染不再按 `seq` 回查 buffer
+   */
+  readonly steerContinued?: boolean;
 }
 
 /** 节：元数据（turn / step / 时间）+ 条目；`frozen` 由帧边界统一置位 */
@@ -79,6 +89,10 @@ export type BlockDelivery =
       queued?: "followup" | "steer";
       /** 该输入之前留一个空行（恢复路径的 `spaceBefore`；steer 插队送达的可见效果） */
       spaceBefore?: boolean;
+      /** 终态（恢复路径按缓冲行原样透传；实时线由 `turn-end` 的原因另发） */
+      status?: "success" | "failure" | "aborted";
+      /** 被 steer 续接（恢复路径按缓冲行原样透传）→ 永久 `←` */
+      steerContinued?: boolean;
     })
   /** notice（提示 / 自造输出）：行为同用户输入（无 turn/step 时沿用最近一次归属） */
   | (Delivery & { kind: "notice"; text: string; tone?: NoticeTone })
@@ -141,7 +155,14 @@ export type BlockDelivery =
   /** 定型信号（宿主 `assistant/message`）：标记该 step 可冻结 */
   | (Delivery & { kind: "finalize"; turn: number; step: number })
   /** 回合结束：封闭当前节 + 给该回合最后一个 assistant 节打「最终总结」标记 */
-  | (Delivery & { kind: "turn-end"; turn: number; step: number })
+  | (Delivery & {
+      kind: "turn-end";
+      turn: number;
+      step: number;
+      reason?: string;
+    })
+  /** 用户块标记（批 B1）：steer 认领后给**上一条**用户输入置「被续接」→ 永久 `←` */
+  | (Delivery & { kind: "user-flag"; steerContinued?: boolean })
   /** 压缩剪枝（`compaction/prune`）：被遮蔽的宿主事件号 → box 层按交集打灰 */
   | (Delivery & { kind: "shadow"; seqs: readonly number[] })
   /**

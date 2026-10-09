@@ -119,14 +119,6 @@ export function panelOptions(
   return v(children);
 }
 
-/** 兼容便捷：纯文本 Paragraph（首行缩进/续行悬挂语义；非面板精确行长场景用） */
-export function panelPlainParagraph(
-  content: string,
-  style?: FrameStyle,
-): Paragraph {
-  return text(content, { style });
-}
-
 /** 滚动窗口语义（BACKLOG 3.2.1 统一窗口机制） */
 export type WindowMode =
   /** 焦点尽量居中（长列表跟随焦点，原 StatusPanel 语义） */
