@@ -154,6 +154,7 @@ function target(
   state: SectionsState,
   turn: number,
   step: number,
+  continuation = true,
 ): { state: SectionsState; target: Target } {
   let base = state;
   const existing = base.current;
@@ -165,12 +166,17 @@ function target(
   if (current && sameScope(current, turn, step)) {
     return { state: base, target: { on: "current", section: current } };
   }
-  const at = boundary
-    ? -1
-    : base.sections.findIndex(
-        (section) =>
-          sameScope(section, turn, step) && section.standalone !== true,
-      );
+  // 回写更早的节**只对续写**（同一块的后续增量 / 同一工具调用的后续交付）：新内容必须
+  // 按**到达顺序**落在当前节之后——否则「reasoning → notice → assistant」里后到的正文会
+  // 回写进 notice 之前的那一节，notice 被排到正文后面（BACKLOG「同 step 内 notice 与正文
+  // 的到达顺序丢失」）
+  const at =
+    boundary || !continuation
+      ? -1
+      : base.sections.findIndex(
+          (section) =>
+            sameScope(section, turn, step) && section.standalone !== true,
+        );
   if (at >= 0) {
     const section = base.sections[at]!;
     return { state: base, target: { on: "closed", at, section } };
@@ -327,7 +333,22 @@ function applyText(
     delivered,
     lastScope: { turn: delivery.turn, step: delivery.step },
   };
-  const located = target(next, delivery.turn, delivery.step);
+  // 续写判据看**该来源在该节是否已有同块的文本条目**（不能只看交付账：交付账按
+  // `turn:step:index` 记、不含来源，reasoning 与 assistant 用同一 index 时会误判成续写）
+  const home = state.sections.find(
+    (section) =>
+      section.turn === delivery.turn &&
+      section.step === delivery.step &&
+      section.standalone !== true,
+  );
+  const continuing =
+    delivery.index < 0 ||
+    (home?.items.some(
+      (item) =>
+        item.source === delivery.source && item.block === delivery.index,
+    ) ??
+      false);
+  const located = target(next, delivery.turn, delivery.step, continuing);
   // step 级结算（`index < 0`）与该来源**已在屏上的最后一条文本**对账：交付账按块键记，
   // 结算另有其键（`…:-1`），拿它当 `previous` 会把整块文本重复并进上一条
   const settle = delivery.index < 0;
@@ -400,6 +421,7 @@ function applyToolCall(
     },
     delivery.turn,
     delivery.step,
+    state.toolArgs.has(delivery.callId) || state.callOwner.has(delivery.callId),
   );
   const owner = located.target.on === "current" ? -1 : located.target.at;
   const callOwner = new Map(state.callOwner);
@@ -783,13 +805,26 @@ export function joinedLastTextBySource(
   source: Source,
 ): string | undefined {
   const list = allSections(state);
-  for (let i = list.length - 1; i >= 0; i--) {
-    const texts = list[i]!.items.filter((item) => item.source === source)
-      .map((item) => item.text ?? "")
-      .filter((text) => text.trim() !== "");
-    if (texts.length > 0) return texts.join("");
+  // 先定**最后一个含该来源文本的 (turn, step)**，再取该 scope 下所有节的该来源文本按序拼接：
+  // 同一步的回复会被 notice / 工具批按到达顺序切成多节，但它们同属「最后一条回复」
+  let scope: { turn: number; step: number } | undefined;
+  for (let i = list.length - 1; i >= 0 && scope === undefined; i--) {
+    const section = list[i]!;
+    const has = section.items.some(
+      (item) => item.source === source && (item.text ?? "").trim() !== "",
+    );
+    if (has) scope = { turn: section.turn, step: section.step };
   }
-  return undefined;
+  if (scope === undefined) return undefined;
+  const texts = list
+    .filter(
+      (section) => section.turn === scope.turn && section.step === scope.step,
+    )
+    .flatMap((section) => section.items)
+    .filter((item) => item.source === source)
+    .map((item) => item.text ?? "")
+    .filter((text) => text.trim() !== "");
+  return texts.length > 0 ? texts.join("") : undefined;
 }
 
 /** 单来源版（`/copy` = assistant、`/council` = user） */

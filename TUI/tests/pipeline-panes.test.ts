@@ -13,6 +13,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildPanes, type PaneItem } from "../src/app/layout/pipeline/panes.ts";
+import {
+  allSections,
+  applyAll,
+  createSections,
+} from "../src/app/layout/pipeline/sections.ts";
 import type { Item, Section } from "../src/app/layout/pipeline/types.ts";
 
 /** 分隔线时间戳（断言只关心有没有线，值任意） */
@@ -357,4 +362,41 @@ test("⑩ 辅助行各自成段：与工具批不同段、都可见（含批前�
     item.kind === "line" ? [item.key] : [],
   );
   assert.equal(new Set(keys).size, keys.length, "每段段键唯一");
+});
+
+test("⑪ 到达顺序：同 step 内 notice 排在正文之前（不被回写越过）", () => {
+  // 交付顺序 reasoning → notice → assistant：notice 自成节后，后到的正文必须按到达顺序
+  // 落在 notice 之后（旧路径同款）；旧实现会回写进 notice 之前的那一节，notice 被挤到末尾
+  const state = applyAll(createSections(), [
+    { kind: "step-start", turn: 1, step: 1, time: 1 },
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "reasoning",
+      text: "（先想）",
+    },
+    { kind: "notice", text: "（提示）" },
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 1,
+      source: "assistant",
+      text: "中间正文",
+    },
+  ]);
+  const panes = buildPanes(allSections(state), {
+    level: "think",
+    declaredSteps: ["1:1"],
+  });
+  // 与旧路径逐行同款（探针 `tmp/probe-notice.ts`：`#1`、`┃（先想）`、`（提示）`、空行、`┃中间正文`）
+  assert.deepEqual(shape(panes.activity), [
+    "#step 1",
+    "reasoning:（先想）",
+    "notice:（提示）",
+    "(blank)",
+    "assistant:中间正文",
+  ]);
 });
