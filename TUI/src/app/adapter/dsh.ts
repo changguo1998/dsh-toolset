@@ -394,10 +394,15 @@ export function normalizeHistoryMessages(
       });
     } else if (e.type === "tool/result") {
       // 失败判定与实时路径同口径：error 字段存在即失败
-      const err = data.error;
+      // 失败判定与 live 同口径（结构化 error 或 message.isError）
+      const failed = toolResultFailed(data);
       out.push({
         role: "tool",
-        text: toolResultLine(!err, toolResultDetail(data.message), data.meta),
+        text: toolResultLine(
+          !failed,
+          toolResultDetail(data.message),
+          data.meta,
+        ),
         ...(curTurn === undefined ? {} : { turn: curTurn }),
       });
     } else if (e.type === "turn/end") {
@@ -500,11 +505,26 @@ function toolResultCallId(message: unknown): string | undefined {
  * tool/result.message（ToolResultMessage.content=[ToolResultBlock]）→ 首段文本：
  * 取内层第一个 text 块首行（v1 足够）；形状不符/空 → ""。
  */
+/** 工具结果是否失败：结构化 `error`，或真机形态的 `message.isError` 任一成立 */
+function toolResultFailed(data: Record<string, unknown>): boolean {
+  if (data.error !== undefined) return true;
+  return (data.message as { isError?: unknown } | undefined)?.isError === true;
+}
+
 function toolResultDetail(message: unknown): string {
   const content = (message as { content?: unknown } | undefined)?.content;
   if (!Array.isArray(content)) return "";
   for (const block of content as unknown[]) {
-    const inner = (block as { content?: unknown } | undefined)?.content;
+    const flat = block as Record<string, unknown> | undefined;
+    // 真机形态：`message.content = [{ type: "text", text }]`（扁平）——直接取首行
+    if (
+      flat?.type === "text" &&
+      typeof flat["text"] === "string" &&
+      flat["text"] !== ""
+    ) {
+      return (flat["text"] as string).split("\n")[0] ?? "";
+    }
+    const inner = flat?.content;
     if (!Array.isArray(inner)) continue;
     for (const part of inner as Array<Record<string, unknown>>) {
       if (
@@ -2159,7 +2179,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       case "tool/result": {
         // 工具结果：成功/失败一行；error 分支（结构化错误 {name, code}）标记失败
-        const err = data.error;
+        const failed = toolResultFailed(data);
         const detail = toolResultDetail(data.message);
         const meta = data.meta;
         {
@@ -2177,16 +2197,17 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
               turn: scope.turn,
               step: scope.step,
               ...(callId === undefined ? {} : { callId }),
-              ok: !err,
+              ok: !failed,
               detail,
               ...(raw.seq === undefined ? {} : { seq: raw.seq }),
             });
           }
         }
+        const err = data.error as { name?: string; code?: string } | undefined;
         emit({
           type: "tool-result",
           sessionId: sid,
-          ok: !err,
+          ok: !failed,
           ...(meta === undefined ? {} : { meta }),
           detail: err
             ? (err.name ? err.name + ": " : "") + (detail || err.code || "")
