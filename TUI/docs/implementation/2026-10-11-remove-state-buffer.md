@@ -29,7 +29,16 @@
 
 ## 实现记录
 
-（待补）
+- 2026-10-11（段 A 进行中）：
+  - 新增 `tests/helpers/deliveriesFromScript.ts`：`ScriptStep`（只带交付）+ `sectionsFromScript(steps)`（走生产同一入口 `applyAll`）+ `turnScript({turn,user,assistant,reasoning,reason})` 便捷造回合。
+  - **首个迁移文件**：`tests/pane-text-margin.test.ts`（4 个用例，单一 fixture 助手）——内容不再写 `state.buffer`（旧路径靠 `sectionsOf` 回退重放），改为 `state.pipeline = sectionsFromScript(steps)`。**生产代码零改动**。
+  - 迁移范式（后续文件照此）：状态类 action（`status` 等）保留；内容类 action（`user-line` / `append` / `thinking` / `turn-begin` / `turn-end`）换成一条条交付（`turn-start` / `user` / `text` / `finalize` / `turn-end`）。
+- 待迁移（段 A 余量）：`layout4`（2800+ 行、fixture 最规整，但用例多）、`layout-cache`（10 例）、`focus-frame` 等。
+
+## 测试与证据
+
+- 迁移后 `tests/pane-text-margin.test.ts` 4/4 通过；全量 `npm test` **1444 / 1444 通过**；`npm run check` 干净。
+- **反向验证**：把助手里 `pipeline: sectionsFromScript(steps)` 抽掉（其余不动）→ 该文件 4 例中 **2 例失败**（依赖长文本铺满的断言拿不到内容）→ 证明帧内容确实来自节模型，而非缓冲回退。
 
 ## 测试与证据
 

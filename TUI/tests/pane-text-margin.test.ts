@@ -19,28 +19,42 @@ import {
 } from "../src/app/layout.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { rowText } from "./helpers/rowText.ts";
+import {
+  sectionsFromScript,
+  turnScript,
+  type ScriptStep,
+} from "./helpers/deliveriesFromScript.ts";
 
-/** 典型回合（长文本铺满两个 pane）+ 指定排列方式 */
+/** 典型回合（长文本铺满两个 pane）+ 指定排列方式
+ *  条目 16 段 A：内容不再写 `state.buffer`（旧路径靠 `sectionsOf` 回退重放），改为显式
+ *  造交付流塞进 `state.pipeline`——帧只认节模型 */
 function state(placement: "vertical" | "horizontal") {
   let s = initialState(undefined, { activityPlacement: placement });
   s = reduceState(s, {
     type: "status",
     status: { time: "12:00:00", cwd: "/home/u/work", git: "main" },
   });
-  s = reduceState(s, { type: "user-line", text: "检查文字右缘留白" });
-  s = reduceState(s, {
-    type: "append",
-    text: "回复正文：这是一段足够长的中文内容，用来把历史 pane 的文字行铺满到排版右缘，看最右可见字符落在哪一列（末尾还有 ABCdef）。",
-  });
-  s = reduceState(s, { type: "turn-end" });
-  // 第二个回合 → buffer 里产生一条回合分隔线（kind=separator，渲染为 ╌ 横线）
-  s = reduceState(s, { type: "user-line", text: "第二轮" });
-  s = reduceState(s, { type: "turn-begin" });
-  s = reduceState(s, {
-    type: "thinking",
-    text: "活动区内容：同样需要铺满一行来观察最右可见列，中文与 ASCII 混排 mixed-content-tail。",
-  });
-  return s;
+  const T = 1_700_000_000_000;
+  const steps: ScriptStep[] = [
+    // 回合 1：用户块 + 最终正文（finalize + turn-end → 进会话区）
+    ...turnScript({
+      turn: 1,
+      time: T,
+      user: "检查文字右缘留白",
+      assistant:
+        "回复正文：这是一段足够长的中文内容，用来把历史 pane 的文字行铺满到排版右缘，看最右可见字符落在哪一列（末尾还有 ABCdef）。",
+      reason: "completed",
+    }),
+    // 回合 2：用户块 + 思考（活动区内容，铺满一行观察最右可见列）
+    ...turnScript({
+      turn: 2,
+      time: T + 60_000,
+      user: "第二轮",
+      reasoning:
+        "活动区内容：同样需要铺满一行来观察最右可见列，中文与 ASCII 混排 mixed-content-tail。",
+    }),
+  ];
+  return { ...s, pipeline: sectionsFromScript(steps) };
 }
 
 /** 行内 [from, to) 列区间里所有非空白字符的显示列 */
