@@ -44,6 +44,13 @@ export interface Item {
    */
   readonly userStatus?: "success" | "failure" | "aborted";
   /**
+   * 交付时的**回合世代**（上一次 `turn-end` 之后为一代，见 `SectionsState.turnEnds`）：
+   * `turn-end` 只允许标记本世代的用户条目——回合号匹配不可靠（用户块由 App 按本地
+   * **预测**回合号交付，宿主的 `turn-end` 用它自己的号），而「往回合号之外回溯」又会把
+   * 上一个以非终态原因（interrupted / max-tokens / blocked）收尾的用户块误标。
+   */
+  readonly generation?: number;
+  /**
    * 被 steer 续接过的用户输入（`user-flag` 交付置位）：永久 `←` 符号，优先于终态与
    * 运行态（用户 2026-10-01 裁定）；同批 B1：符号渲染不再按 `seq` 回查 buffer
    */

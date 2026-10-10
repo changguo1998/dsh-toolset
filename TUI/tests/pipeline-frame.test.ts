@@ -547,3 +547,46 @@ test("会话区内容不足时贴底：短内容空白留在上方，超视口�
     `超视口时首行应为内容：${JSON.stringify(long[longSession + 1])}`,
   );
 });
+
+test("用户块终态符号：宿主回合号漂移时同一帧即显 `✓`（帧断言）", () => {
+  // BACKLOG「用户块终态符号始终是 `?`」：用户块按本地预测回合号交付、turn-end 带宿主号，
+  // 两者不同步时旧实现恒 `?`；终态改按回合世代落后，漂移也要在同帧出 `✓`。
+  const rows = (deliveries: BlockDelivery[]): string[] =>
+    buildFrame(
+      {
+        ...initialState(),
+        buffer: [],
+        pipeline: applyAll(createSections(), deliveries),
+      },
+      { cols: 60, rows: 30 },
+    ).map(rowText);
+  const drift: BlockDelivery[] = [
+    { kind: "user", turn: 3, step: 0, text: "追问" },
+    {
+      kind: "text",
+      turn: 9,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: "答复九",
+    },
+    { kind: "turn-end", turn: 9, step: 1, reason: "completed" },
+  ];
+  const driftRow = rows(drift).find((text) => text.includes("追问"));
+  assert.ok(
+    driftRow !== undefined && driftRow.includes("✓"),
+    `漂移也要显 ✓：${JSON.stringify(driftRow)}`,
+  );
+  // 反例：非终态原因（interrupted）不显 ✓（既有设计：保持未定 → `?`）
+  const interrupted: BlockDelivery[] = [
+    { kind: "user", turn: 1, step: 0, text: "追问" },
+    { kind: "turn-end", turn: 1, step: 1, reason: "interrupted" },
+  ];
+  const interruptedRow = rows(interrupted).find((text) =>
+    text.includes("追问"),
+  );
+  assert.ok(
+    interruptedRow !== undefined && interruptedRow.includes("?"),
+    `中断回合保持 ?：${JSON.stringify(interruptedRow)}`,
+  );
+});

@@ -456,3 +456,67 @@ test("⑦ 迟到交付回写原节，不另开新节（两线无序 / 恢复重�
   assert.equal(itemOf(sections[0]!, "assistant")?.text, "第一回合（补全）");
   assert.equal(sections[0]?.frozen, false, "回写撤销冻结（派生缓存须失效）");
 });
+
+// —— 用户块终态的作用域门（BACKLOG「用户块终态符号始终是 `?`」） ——
+// 用户块由 App 在发送时按**本地预测**回合号交付，宿主的 `turn-end` 带它自己的号；
+// 恢复会话后两者不同步 → 按回合号精确匹配永远落空（用户块恒 `?`）。终态改按**回合世代**
+// 落：只标记「上一次 turn-end 之后交付」的用户块，既不依赖回合号，也不回溯更早的块。
+test("用户块终态：宿主回合号漂移时仍按世代落终态（不再恒 `?`）", () => {
+  const state = applyAll(createSections(), [
+    { kind: "user", turn: 3, step: 0, text: "追问" },
+    {
+      kind: "text",
+      turn: 9,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: "答复九",
+    },
+    { kind: "turn-end", turn: 9, step: 1, reason: "completed" },
+  ]);
+  const user = allSections(state)
+    .flatMap((section) => section.items)
+    .find((item) => item.source === "user");
+  assert.equal(user?.userStatus, "success", "漂移时用户块仍落终态");
+});
+
+test("用户块终态：非终态原因（interrupted）的块不被下一回合回溯标记", () => {
+  const state = applyAll(createSections(), [
+    { kind: "user", turn: 1, step: 0, text: "被打断" },
+    { kind: "turn-end", turn: 1, step: 1, reason: "interrupted" },
+    { kind: "user", turn: 2, step: 0, text: "追问" },
+    { kind: "turn-end", turn: 2, step: 1, reason: "completed" },
+  ]);
+  const users = allSections(state)
+    .flatMap((section) => section.items)
+    .filter((item) => item.source === "user");
+  assert.equal(users[0]?.userStatus, undefined, "中断回合的块保持未定");
+  assert.equal(users[1]?.userStatus, "success", "终态只落本回合的块");
+});
+
+test("用户块终态：steer 续接块（符号恒 `←`）不被终态改写", () => {
+  const state = applyAll(createSections(), [
+    { kind: "user", turn: 1, step: 0, text: "原问" },
+    {
+      kind: "user",
+      turn: 1,
+      step: 0,
+      text: "插队",
+      queued: "steer",
+      steerContinued: true,
+    },
+    { kind: "turn-end", turn: 1, step: 1, reason: "completed" },
+  ]);
+  const users = allSections(state)
+    .flatMap((section) => section.items)
+    .filter((item) => item.source === "user");
+  assert.equal(
+    users.find((i) => i.steerContinued === true)?.userStatus,
+    undefined,
+  );
+  assert.equal(
+    users.find((i) => i.steerContinued !== true)?.userStatus,
+    "success",
+    "终态落在本回合的非 steer 块上",
+  );
+});

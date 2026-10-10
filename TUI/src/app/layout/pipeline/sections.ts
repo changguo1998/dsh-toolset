@@ -60,6 +60,9 @@ export interface SectionsState {
   shadowedSeqs: ReadonlySet<number>;
   /** 回合元数据：turn → 开始时间（分隔线显示用；App 的 turn-begin 是真源） */
   turnMeta: ReadonlyMap<string, number | undefined>;
+  /** 回合世代计数：每次 `turn-end` +1；用户条目在交付时记下当时的世代（`Item.generation`），
+   *  `turn-end` 只标记**本世代**的用户块（既不依赖回合号匹配，也不回溯更早的块） */
+  turnEnds: number;
 }
 
 export function createSections(): SectionsState {
@@ -79,6 +82,7 @@ export function createSections(): SectionsState {
     freezable: new Set(),
     shadowedSeqs: new Set(),
     turnMeta: new Map(),
+    turnEnds: 0,
   };
 }
 
@@ -199,6 +203,7 @@ function appendText(
   text: string,
   tone?: NoticeTone,
   seq?: number,
+  generation?: number,
 ): Section {
   const items = [...section.items];
   // 同来源合并**只对文本项**：工具批（带 calls / results）与文本走不同渲染分支，
@@ -213,7 +218,15 @@ function appendText(
   const found = at >= 0 ? items[at] : undefined;
   if (found === undefined) {
     items.push(
-      withSeq({ source, text, ...(tone === undefined ? {} : { tone }) }, seq),
+      withSeq(
+        {
+          source,
+          text,
+          ...(tone === undefined ? {} : { tone }),
+          ...(generation === undefined ? {} : { generation }),
+        },
+        seq,
+      ),
     );
   } else {
     items[at] = withSeq(
@@ -221,6 +234,10 @@ function appendText(
         ...found,
         text: (found.text ?? "") + text,
         ...(tone === undefined ? {} : { tone }),
+        // 世代按「首次交付」记（同一条目内的流式续写不刷新世代）
+        ...(found.generation === undefined && generation !== undefined
+          ? { generation }
+          : {}),
       },
       seq,
     );
@@ -288,6 +305,7 @@ function applyText(
     accept,
     delivery.tone,
     delivery.seq,
+    next.turnEnds,
   );
   return write(located.state, located.target, section);
 }
@@ -459,21 +477,35 @@ function applyTurnEnd(
   // 符号渲染不再回查 buffer。已有终态不覆盖（同 `markUserBlockStatus`）
   const status = userStatusOfReason(reason);
   if (status !== undefined) {
+    // 本世代的用户条目（上一次 `turn-end` 之后交付、尚无终态、非 steer 续接块）：
+    // **不按回合号匹配**——用户块由 App 在发送时按本地预测回合号交付（`index.ts` 的
+    // `sendUserText`），宿主的 `turn-end` 带它自己的号；恢复会话后两者不同步时精确匹配
+    // 永远落空，用户块会一直停在 `?`（BACKLOG「用户块终态符号始终是 `?`」）。也不能改成
+    // 「往回合号之外回溯最后一个未定态块」：上一个以 interrupted / max-tokens / blocked
+    // 收尾的回合**不落终态**（设计如此），回溯会把它误标成本回合的 ✓。
     for (let i = sections.length - 1; i >= 0; i--) {
       const section = sections[i]!;
-      if (section.turn !== turn) continue;
-      const at = section.items.findIndex((item) => item.source === "user");
+      const at = section.items.findIndex(
+        (item) =>
+          item.source === "user" &&
+          item.userStatus === undefined &&
+          item.steerContinued !== true &&
+          item.generation === sealed.turnEnds,
+      );
       if (at < 0) continue;
-      const item = section.items[at]!;
-      if (item.userStatus === undefined) {
-        const items = [...section.items];
-        items[at] = { ...item, userStatus: status };
-        sections[i] = { ...section, items };
-      }
+      const items = [...section.items];
+      items[at] = { ...items[at]!, userStatus: status };
+      sections[i] = { ...section, items };
       break;
     }
   }
-  return { ...sealed, sections, pendingOpen: false };
+  // 世代推进：本回合的用户块（不论是否落成终态）就此消费，后续 `turn-end` 不再回头标它
+  return {
+    ...sealed,
+    sections,
+    pendingOpen: false,
+    turnEnds: sealed.turnEnds + 1,
+  };
 }
 
 /** 交付一块：接收层的唯一入口（幂等） */
@@ -577,6 +609,8 @@ export function applyDelivery(
             ...(delivery.kind === "user" && delivery.steerContinued === true
               ? { steerContinued: true }
               : {}),
+            // 回合世代（用户块终态的作用域门，见 `Item.generation`）：自成节，交付即定代
+            ...(delivery.kind === "user" ? { generation: state.turnEnds } : {}),
           },
         ],
         frozen: false,
