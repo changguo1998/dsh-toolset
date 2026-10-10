@@ -61,4 +61,9 @@
 
 ## 收尾
 
-（待填）
+- 关闭：条目「旧排版遗留死代码清理」2026-10-10 完成，已从 `TUI/docs/BACKLOG.md` 移除（当场重排后原编号 3）。
+- 回写文档：`TUI/docs/SPEC.md:412`（旧 `computeViewport` 提及 + `Viewport` 字段口径）、`TUI/docs/DESIGN.md:373` 与 `TUI/docs/COMMANDS-SPEC.md:46`（`normalInput` 口径）、`TUI/src/main.ts` 四处注释（恢复需补回 import）；`STATUS.md` 按流程不由本任务改。
+- 判据沉淀（给后续同类清理）：`--noUnusedLocals` 归零 **+** export 面零引用 **+** 本文件内零活读者——只看「全仓 grep 零引用」会把「本文件内被活函数读取」的符号误判为死代码（本条目的 ③ 组即如此）。
+- 已知未覆盖项（审阅判定非必须）：`buildFrame` 层「内容不足一屏 → `dialogueMaxScroll=0` 且 `dialogueTopIdx=0`」无直接断言。
+- 归档：本文件移入 `TUI/docs/archived/`。
+- 提交链：`33b5153`（实现）→ `7ecee5d`（审阅折叠）→ 收尾提交（本文件归档 + BACKLOG 收尾；另修回 BACKLOG 表头——上游脚本曾在条目 1 收尾时漏写表头两行）。
