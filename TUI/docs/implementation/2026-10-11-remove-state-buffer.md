@@ -85,6 +85,23 @@
 
 （待补）
 
+## 段 B 预研（2026-10-11 第 14 轮，只读调研，未改代码）
+
+**写侧**（`src/app/state.ts`）：UI 本地行由这些分支写入缓冲——`notice` / `shell` / `tool-call` / `tool-result` / `command` / `feedback` / `hook` / `subagent` / `step` / `retry` / `compaction*`（约 10 个内容分支）；实现形态是**写时复制**：`const buffer = state.buffer.length ? [...state.buffer] : [];`（实测出现在 `state.ts:893 / 976 / 1013 / 1038 / 1067 / 1167` 等，至少 6 处），随后 `nextSeq` / `trimBufferHead` / 行数上限一起动。
+
+**读侧**（3 处，都要同步改）：
+
+- `src/app/index.ts:512`——`deliverBufferTail` 逐行交付（按 `state.buffer.slice(before)`）。
+- `src/app/index.ts:1653`——记录 `tailBefore` 配合上一处。
+- `src/app/layout.ts:1321 / 2385`——`sectionsOf` 的无 sink 回退（测试 / 嵌入式用法）逐行重放。
+
+**段 B 的最小落地顺序（下一轮照做）**：
+
+1. `state.ts` 加 `local: BufferLine[]`（UI 本地行专用），把上面 10 个分支的写入从 `buffer` 改到 `local`（写时复制形态照旧，先机械搬移，不改语义）。
+1. 读侧 3 处改读 `local`；`sectionsOf` 回退先合并读（`local` + 旧 `buffer` 残留）以便分批。
+1. 跑全量；`steer-queued-display` / `layout` / `step` / `buffer-retire` / `screen-residue` / `turn-separator` 这些**缓冲契约用例**随本段改写到 `local` 上。
+1. 确认无残留写入后，段 C 才删 `buffer` 字段与 `BufferLine` 的内容 kind。
+
 ## 收尾
 
 （待补）
