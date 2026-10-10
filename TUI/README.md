@@ -347,7 +347,7 @@ npm run watch # tsc --watch 常驻编译到 dist/（仍需重启 dsh 生效）
 
 另有 `TUI/scripts/verify-p0.py`（会话切换 / 标题 / OSC52 复制，可重复执行）与打包验证（`pnpm pack` + 全新空目录 `pnpm add <tarball>` 校验 files / bundle patch）。运行门槛：Node ≥ 22.19.0（`package.json` 的 `engines`）。
 
-排版折行 / 宽度纯函数走有界缓存（键含文本 + 列宽 + 主题，`TUI_LAYOUT_CACHE=0` 可关）；`paint()` 同 tick 合帧（真实链路默认 10Hz 上限，`AppDeps.frameIntervalMs`）。机制与基准见 `docs/SPEC.md` §15.8。
+排版折行 / 宽度纯函数走有界缓存（键含文本 + 列宽，与主题无关；`TUI_LAYOUT_CACHE=0` 可关）；`paint()` 同 tick 合帧（真实链路默认 10Hz 上限，`AppDeps.frameIntervalMs`）。机制与基准见 `docs/SPEC.md` §15.8。
 
 字符宽度按 EAW 精确表判定（N 类 1 列 / W·F 2 列 / A 类保守 2 列）；排版遇到「呈现不确定」字符时**按需实测**（写屏前 `CSI 6n` 光标列差）覆盖其真实列数，实测值落盘 `<profile 目录>/tui-width-table.json` 供后续会话复用（`TUI_WIDTH_PROBE=0` 可关）；见 `docs/SPEC.md` §15.7。
 

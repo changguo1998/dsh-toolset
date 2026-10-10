@@ -41,7 +41,6 @@ import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
 import { panelMarkdownRows, windowStart } from "../layout/panel.ts";
 import { fillBoxTree } from "../layout/fill.ts";
-import { type ThemeId } from "../../renderer/theme.ts";
 // 列宽口径与 fill / 渲染器 / markdown 同源（吃运行时宽度探针的覆盖表；BACKLOG TUI#4）
 import { charWidth, displayWidth } from "../layout/markdown.ts";
 

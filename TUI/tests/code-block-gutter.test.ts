@@ -12,9 +12,7 @@ import { buildBox } from "../src/app/layout/build-box.ts";
 import { fillBoxTree } from "../src/app/layout/fill.ts";
 import { displayWidth } from "../src/app/layout/markdown.ts";
 import type { BufferLine } from "../src/app/state.ts";
-import type { ThemeId } from "../src/renderer/theme.ts";
 
-const THEME: ThemeId = "dark";
 const a = (text: string): BufferLine => ({
   text,
   kind: "assistant",

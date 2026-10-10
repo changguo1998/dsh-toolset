@@ -11,10 +11,8 @@ import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
 import { turnHeaderLine } from "../src/app/layout/tool-line.ts";
 import { buildBox } from "../src/app/layout/build-box.ts";
 import { fillBoxTree } from "../src/app/layout/fill.ts";
-import type { ThemeId } from "../src/renderer/theme.ts";
 
 const T0 = new Date(2026, 0, 2, 3, 4, 5).getTime();
-const THEME: ThemeId = "dark";
 
 /** 渲染对话区（session 区）行文本 */
 function dialogueRows(

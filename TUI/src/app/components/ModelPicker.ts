@@ -17,7 +17,6 @@
 // effort 无选项（unsupported）时按标题宽兜底保证列可见。
 
 import type { FrameRow } from "../../renderer/index.ts";
-import type { ThemeId } from "../../renderer/theme.ts";
 import type { PickerState } from "../state.ts";
 import { truncateToWidth, displayWidth } from "../layout.ts";
 import type { Box } from "../layout/box.ts";

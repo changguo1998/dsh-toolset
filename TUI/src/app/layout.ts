@@ -49,7 +49,7 @@ import { buildJobsPanelBox, statusMark } from "./components/JobsPanel.ts";
 import { buildCommandListPanelBox } from "./components/CommandListPanel.ts";
 import { buildStatusPanelBox } from "./components/StatusPanel.ts";
 import { buildCommandCompletionBox } from "./components/CommandCompletion.ts";
-import type { ColorName, ThemeId } from "../renderer/theme.ts";
+import type { ColorName } from "../renderer/theme.ts";
 import { buildApprovalBox } from "./components/ApprovalPrompt.ts";
 import {
   buildContentRows,
@@ -2335,17 +2335,13 @@ export function userRowJump(
  * 横线**上方**（topRegion），交点画 `┴`（竖线自横线向上顶住）。 */
 export function buildStatusSeparator(
   geom: FrameGeometry,
-  themeId: ThemeId,
-  sepFocus: "none" | "status" | "activity",
   /** 状态栏框线竖线列（0 基）：该列画 ┬ 与状态栏竖线相接；缺省不画 */
   seamCols?: number[],
 ): FrameRow {
   // 焦点中性基线：状态区上方分隔行恒灰 `─`（col0 非 status 底角 └、D 列 ┴
   // border、右缘非 activity 右下角 ┘）；亮角字/亮边由 buildFrame 末尾 focusFrame
   // 按焦点态覆写（status 顶/底边、activity 底边 └┘、history 底边 ┴ 等）。
-  // sepFocus / themeId 参数保留（契约兼容），焦点绘图不再在此进行。
-  void sepFocus;
-  void themeId;
+  // 焦点绘图不在此进行（亮角字/亮边由 buildFrame 末尾 focusFrame 统一覆写）。
   // 尺寸全部取自几何（分隔竖线列/两外缘框列/内部分隔列与帧内其它部分同源）
   const D = geom.dividerCol; // 分隔竖线列（状态列右缘/历史区左缘）
   const R = geom.cols - 1;
@@ -2593,12 +2589,6 @@ export function buildFrame(
     out.push(seg(ch.repeat(fullWidth - cursor), { fg: color }));
     return { segments: out };
   };
-  // 状态区上方分隔行的焦点语义（modal 态无焦点回 none）
-  let statusSepFocus: "none" | "status" | "activity" = "none";
-  if (!modalOpen) {
-    if (state.focusedPanel === "status") statusSepFocus = "status";
-    else if (state.focusedPanel === "activity") statusSepFocus = "activity";
-  }
   // 状态栏框线竖线列：上横线按首行竖线画交点 ┬（竖线自横线向下伸入状态栏）、
   // 下横线按末行竖线画交点 ┴（竖线自横线向上顶住状态栏），两端相接成格
   const topSeams = statusBarSeamCols(geom.statusLines[0]);
@@ -2607,7 +2597,7 @@ export function buildFrame(
   const rects: Map<PaneId, Rect> = new Map();
   const rows: FrameRow[] = [
     ...topRegion,
-    buildStatusSeparator(geom, state.themeId, statusSepFocus, topSeams),
+    buildStatusSeparator(geom, topSeams),
     ...geom.statusLines,
     makeSep(SEPARATOR, "border", bottomSeams),
     ...footerLines,
@@ -2667,7 +2657,6 @@ export function buildFrame(
   });
   focusFrame(
     {
-      themeId: state.themeId,
       // P7：状态列隐藏时不聚焦 status（宽 0 的焦点框会压掉内容首列）
       focusedPanel: modalOpen
         ? null

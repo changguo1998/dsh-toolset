@@ -27,9 +27,7 @@ import {
 import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
 import type { BufferLine } from "../src/app/state.ts";
 import { stepHeaderLine } from "../src/app/layout/tool-line.ts";
-import type { ThemeId } from "../src/renderer/theme.ts";
 
-const THEME: ThemeId = "dark";
 
 /** 固定语料：多 step + 多回合，含代码块 / 表格 / 工具批 / notice（turn-start = 实时流
  *  里 App 在 turn-begin 的同步交付，分隔线时间的真源） */

@@ -42,7 +42,7 @@ test("buildStatusSeparator：段分隔竖线落在 D 列时写 ┼（不切断�
   const D = geom.dividerCol;
   const other = Math.max(2, D - 4);
   const plain = rowPlain(
-    buildStatusSeparator(geom, "dark", "none", [other, D]),
+    buildStatusSeparator(geom, [other, D]),
   );
   assert.equal(plain[D], "┼", "D 列同时有上方状态列边框与下方段分隔竖线 → ┼");
   assert.equal(plain[other], "┬", "普通段分隔列 → ┬");

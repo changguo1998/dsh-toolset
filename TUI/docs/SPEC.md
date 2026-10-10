@@ -501,7 +501,7 @@ state --buildBox--> Box 树 --measure/allocate--> rects --fill(ctx, rect)--> Fra
 ```
 
 - 每帧从 state 派生 Box 树（纯函数），无增量、无文档状态
-- `ctx: FrameContext = { state, size, themeId, metrics, focusedPanel … }`（`FrameContext` 定义见 §11.3）
+- `ctx: FrameContext = { state, size, metrics, focusedPanel … }`（`FrameContext` 定义见 §11.3）
 - 对外仍 `buildFrame(state, size): FrameRow[]`，**renderer 契约零改动**
 - **不变量**：摊平可复现——`flatten(state, size)` 是 `(state, size)` 的纯函数，同一输入必产出同一行序列（单测断言：同输入两次 flatten 逐行相等）；行级滚动偏移 = 该行序列的稳定索引
 

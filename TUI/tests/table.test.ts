@@ -21,7 +21,6 @@ import { buildBox, buildContentRows } from "../src/app/layout/build-box.ts";
 import { displayWidth } from "../src/app/layout/markdown.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
 
-const THEME = "dark" as const;
 
 /** assistant buffer 行（缺省 final，即历史区展示） */
 function a(text: string, final = true) {

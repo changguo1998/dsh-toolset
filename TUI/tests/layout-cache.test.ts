@@ -30,6 +30,7 @@ import {
   wrapCodeLine,
   wrapInlineMarkdown,
 } from "../src/app/layout/markdown.ts";
+import { sectionsFromBuffer } from "../src/app/layout/pipeline/replay.ts";
 import { rowAnsi, rowsText } from "./helpers/rowText.ts";
 import type { DshAdapter, DshEvent } from "../src/app/adapter/dsh.ts";
 import type { KeyEvent, Renderer } from "../src/renderer/index.ts";
@@ -201,30 +202,32 @@ test("buildFrame：同一状态重复排版在两种模式下都稳定（缓存�
   assert.deepEqual(third, second, "重复排版不稳定");
 });
 
-test("换主题：排版结果逐字节一致，主题色只在渲染层加", () => {
+test("换主题：整帧逐字节一致（生产节缓存路径），主题色只在渲染层加", () => {
   const size: Size = { cols: 100, rows: 30 };
-  let s = initialState("dark");
-  for (const action of FRAME_ACTIONS) s = reduceState(s, action);
+  let base = initialState("dark");
+  for (const action of FRAME_ACTIONS) base = reduceState(base, action);
+  // 生产口径：内容源是节缓存（`state.pipeline`），不走 buffer 回放兜底
+  const dark: AppState = {
+    ...base,
+    buffer: [],
+    pipeline: sectionsFromBuffer(base.buffer),
+  };
+  const light = reduceState(dark, { type: "set-theme", themeId: "light" });
   clearLayoutCaches();
-  const dark = buildFrame(s, size);
-  const light = buildFrame(
-    reduceState(s, { type: "set-theme", themeId: "light" }),
-    size,
+  const darkRows = buildFrame(dark, size);
+  const lightRows = buildFrame(light, size);
+  // 整帧逐字节（含行元数据与 caret）：主题不参与排版，两帧应完全相同
+  assert.equal(
+    JSON.stringify(lightRows),
+    JSON.stringify(darkRows),
+    "换主题后整帧逐字节一致",
   );
-  /** 行 → 段文本 + 段样式（不含主题映射；渲染层才把语义色映射成 RGB） */
-  const shape = (rows: FrameRow[]): string =>
-    rows
-      .map((r) =>
-        r.segments
-          .map((seg) => `${seg.text}|${JSON.stringify(seg.style ?? {})}`)
-          .join("~"),
-      )
-      .join("\n");
-  assert.equal(shape(light), shape(dark), "换主题后排版结果应逐字节一致");
-  // 主题确实生效：同帧两主题的 ANSI 序列至少有一行不同（色值由渲染层决定）
-  const ansiDark = dark.map((r) => rowAnsi(r, "dark")).join("\n");
-  const ansiLight = light.map((r) => rowAnsi(r, "light")).join("\n");
-  assert.notEqual(ansiLight, ansiDark, "主题色应作用于渲染层输出");
+  // 主题确实生效：色值由渲染层按主题映射（同一帧两主题 ANSI 不同）
+  assert.notEqual(
+    lightRows.map((r) => rowAnsi(r, "light")).join("\n"),
+    darkRows.map((r) => rowAnsi(r, "dark")).join("\n"),
+    "主题色应作用于渲染层输出",
+  );
   clearLayoutCaches();
 });
 

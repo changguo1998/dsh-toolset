@@ -14,13 +14,12 @@ import type {
   FrameSegment,
   FrameStyle,
 } from "../../renderer/screen.ts";
-import type { ColorName, ThemeId } from "../../renderer/theme.ts";
+import type { ColorName } from "../../renderer/theme.ts";
 import type { PaneId, Rect } from "./box.ts";
 import { displayWidth } from "./markdown.ts";
 
 /** 焦点框覆写上下文（不 import layout.ts / AppState，防循环依赖） */
 export interface FocusFrameContext {
-  themeId: ThemeId;
   focusedPanel: PaneId | null;
   /** 标题栏下划线行（=diaStart-1；无下划线时 0/-1）——该行 D 列归属 history 顶边，
    *  status 焦点时不强调（保持灰） */

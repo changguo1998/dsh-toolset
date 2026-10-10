@@ -103,7 +103,7 @@ test("setCell：越界 col no-op", () => {
 test("focusFrame：null 不覆写", () => {
   const rows = frameOf(5, 10);
   const before = rows.map(rowPlain);
-  focusFrame({ themeId: "dark", focusedPanel: null }, stdRects(10, 3, 4), rows);
+  focusFrame({ focusedPanel: null }, stdRects(10, 3, 4), rows);
   assert.deepEqual(rows.map(rowPlain), before);
 });
 
@@ -113,7 +113,7 @@ test("focusFrame：空白帧上不落字形（#4：焦点不新增边框）", ()
   const before = rows.map(rowPlain);
   const rects = stdRects(cols, 3, 5);
   for (const panel of ["history", "activity", "status"] as const) {
-    focusFrame({ themeId: "dark", focusedPanel: panel }, rects, rows);
+    focusFrame({ focusedPanel: panel }, rects, rows);
   }
   assert.deepEqual(rows.map(rowPlain), before, "空白帧保持空白（不画新框）");
 });
@@ -135,7 +135,7 @@ test("focusFrame：history 焦点只给既有框线上色（字形不变）", ()
     setCell(rows[3]!, c, "─");
   }
   const before = rows.map(rowPlain);
-  focusFrame({ themeId: "dark", focusedPanel: "history" }, rects, rows);
+  focusFrame({ focusedPanel: "history" }, rects, rows);
   assert.deepEqual(rows.map(rowPlain), before, "字形不变（只改颜色）");
   for (const [row, why] of [
     [rows[1]!, "顶边（标题栏下划线行）"],
@@ -183,7 +183,7 @@ test("focusFrame：activity 焦点只给既有框线上色（不画右边框）"
     setCell(rows[5]!, c, "─");
   }
   const before = rows.map(rowPlain);
-  focusFrame({ themeId: "dark", focusedPanel: "activity" }, rects, rows);
+  focusFrame({ focusedPanel: "activity" }, rects, rows);
   assert.deepEqual(rows.map(rowPlain), before, "字形不变");
   assert.ok(
     rows[3]!.segments.some((s) => s.style?.fg === "focus"),
@@ -207,7 +207,7 @@ test("focusFrame：status 焦点只给既有框线上色（不新增左缘/顶�
   for (let i = 0; i <= 5; i++) setCell(rows[i]!, right, "│");
   for (let c = left; c <= right; c++) setCell(rows[5]!, c, "─");
   const before = rows.map(rowPlain);
-  focusFrame({ themeId: "dark", focusedPanel: "status" }, rects, rows);
+  focusFrame({ focusedPanel: "status" }, rects, rows);
   assert.deepEqual(rows.map(rowPlain), before, "字形不变");
   assert.ok(
     rows[2]!.segments.some((s) => s.style?.fg === "focus"),

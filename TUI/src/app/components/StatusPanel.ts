@@ -6,7 +6,6 @@
 // 输出恰 height 行：标题 + 最多 (height-1) 行选项（超出时窗口跟随焦点滚动）。
 
 import type { FrameRow } from "../../renderer/index.ts";
-import type { ThemeId } from "../../renderer/theme.ts";
 import type { StatusPanelState } from "../state.ts";
 import type { Box } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";

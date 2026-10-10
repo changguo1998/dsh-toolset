@@ -13,7 +13,6 @@
 // 一旦超宽会把活动区右缘框线挤偏并让终端折行。
 
 import type { FrameRow } from "../../renderer/index.ts";
-import type { ThemeId } from "../../renderer/theme.ts";
 import { truncateToWidth } from "../layout.ts";
 import type { CommandCandidate } from "../commands.ts";
 import type { Box } from "../layout/box.ts";

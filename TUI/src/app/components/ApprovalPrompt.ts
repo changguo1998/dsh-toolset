@@ -19,7 +19,6 @@ import { fillBoxTree } from "../layout/fill.ts";
 // 描述窗折行走 markdown 子集（fence 内代码行由本文件自持，命令段按代码块渲染）
 import { wrapCodeLine } from "../layout/markdown.ts";
 import { panelMarkdownRows } from "../layout/panel.ts";
-import { type ThemeId } from "../../renderer/theme.ts";
 
 /** 审批标题行文案（BACKLOG TUI#4：类型标识改为符号 △ 并去掉 `[审批]`——符号与状态标记
  *  △ 合一，整行黄） */

@@ -9,9 +9,7 @@ import assert from "node:assert/strict";
 import { buildBox } from "../src/app/layout/build-box.ts";
 import { fillBoxTree } from "../src/app/layout/fill.ts";
 import type { BufferLine } from "../src/app/state.ts";
-import type { ThemeId } from "../src/renderer/theme.ts";
 
-const THEME: ThemeId = "dark";
 const a = (text: string, final = false): BufferLine => ({
   text,
   kind: "assistant",
