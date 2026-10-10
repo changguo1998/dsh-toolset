@@ -174,7 +174,7 @@ Box 模型把块判定显式化为"块列表 → 子树"，不再与 `inFence` �
 - **每格独立成块**：cell 是独立叶子（列宽内自行折行）
 - **行高 = 该行各格折行行数的最大值**：由构建器用 `measure` 在同一列宽下算得后**显式声明** `height:fixed`，矮格 `valign:"center"` 补白（`fill` 的补白仅在显式高度下生效，§2）
 - **构建器需要可用宽度**：`buildBox` 经 `BuildBoxOptions.width` 取得（`buildContentRows` 透传内容区宽）；**宽度未知时不识别表格**（按普通文本行渲染）
-- **窄终端压缩**：水位法（`waterLevel`）——窄列保持自然宽、只有超宽列被压到共同水位线，并尽量不低于 `minW = max(3, ⌈自然宽/4⌉)`；若抬到 `minW` 后超预算则退回纯水位线（不牺牲窄列）；**ΣminW 也放不下** → **放弃表格**（`tableBox` 返回 `null`，调用方退回普通文本行渲染——**内容一律不截断**，见 BACKLOG #6）；不做降级为列表
+- **窄终端压缩**：水位法（`waterLevel`）——窄列保持自然宽、只有超宽列被压到共同水位线，并尽量不低于 `minW = max(3, ⌈自然宽/4⌉)`；若抬到 `minW` 后超预算则退回纯水位线（不牺牲窄列）；**ΣminW 也放不下** → **放弃表格**（`tableBox` 返回 `null`，调用方退回普通文本行渲染——**内容一律不截断**）；不做降级为列表
 - **网格**（左缘保留回复竖线，其后 1 空格 prefix）：
   - **左缘竖线**：整表最左 1 列 `┃`（`brightBlue`，与 assistant 正文左竖线同列同色）——`┃` 概念上属父级 box，故**逐行重复**（含折行续行、横线行），整条回答左缘竖线连续不断；竖线后固定 1 空格（表格 box 的 prefix）
   - **列分隔**：列间 `│`（末列不画；折行续行逐行重复）
@@ -408,7 +408,7 @@ setCell(row: FrameRow, col: number, ch: string, style?: FrameStyle): void
 
 - **状态列分级折叠**（L0–L3）：按 rect 高逐级尝试、首次放下即采用；必保行与可折叠条目及其优先级由现状块结构（`head`/`items`）自然携带，**不发明“可折叠标注”**（现 `foldAt`）。Goal 块额外携带 `historyFrom`（`items[≥historyFrom]` 为旧 goal 条目）：L1 只保留最近 1 条历史并提示隐藏数，L2 起压成标题行
 - **历史区组折叠**：仅保最近 N 回复组，更早替换为灰占位（`windowSections` 在**节**层切片 + 占位行（`MARKER_KEY`），未物化的节不排版）
-- **活动区两态**：状态 1（`/collapse off`，缺省）每条完全显示、溢出按行截断 + 可滚动；状态 2（`/collapse on`，紧凑）每条目压为 1 行、行尾省略号。**触发方式已定：显式命令切换**（不做按高度预算自动降级；实现见 §15.5.1）。另有**输出内容三档** `/verbose think|tool|step`（BACKLOG #8，见 §15.5）
+- **活动区两态**：状态 1（`/collapse off`，缺省）每条完全显示、溢出按行截断 + 可滚动；状态 2（`/collapse on`，紧凑）每条目压为 1 行、行尾省略号。**触发方式已定：显式命令切换**（不做按高度预算自动降级；实现见 §15.5.1）。另有**输出内容三档** `/verbose think|tool|step`（见 §15.5）
 - 滚动 viewport：按矩形高裁行 + 行级滚动偏移（段表算定后的窗口 = `Viewport { start, end }`；`followBottom` / `scrollOffset` 的旧字段已随六步流水线退场）
 
 **适配落点**（均为 `(内容, rect) → 行` 的纯函数，同输入同输出，支撑 §9 的摊平可复现不变量）：
@@ -636,7 +636,7 @@ state 事实("status=failure")             -- 逻辑层，不碰颜色
 色名 → 色值 → SGR("red" → hex → \x1b[…   -- 渲染层
 ```
 
-- **语义 → 色名（排版层）**：映射表为**排版层常量**——不入 `AppState`、不进 renderer。现有实例：`USER_BLOCK_SYMBOL` + `userBlockSymbolResolver`（用户输入块**首行左侧留白内**的状态符号：独占 2 列格，不参与正文换行（正文与续行同列）；success 绿 / failure 红 / aborted 灰；最新未终态块 running / waiting 黄；其余无终态块 `?` 不着色，排队块不出符号；**被 steer 续接过的输入**显示 `←`（默认前景，优先于终态与运行态、**永久**不恢复，见 BACKLOG #4）、标题栏图标语义色（`TITLE_ICON` 在 `titleBarSegments` 内取色：沙箱 ro 绿 / wr 黄 / full 红 / 其它灰，policy ask 黄 / never 绿，开关 on 绿 / off 灰，preset 默认前景）、notice tone（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿）。markdown 语义同为此类（`**`→bold、`` ` ``→bg:code）：解析器在排版层，调"强调样式"只改排版层映射，state / renderer 均不动。
+- **语义 → 色名（排版层）**：映射表为**排版层常量**——不入 `AppState`、不进 renderer。现有实例：`USER_BLOCK_SYMBOL` + `userBlockSymbolResolver`（用户输入块**首行左侧留白内**的状态符号：独占 2 列格，不参与正文换行（正文与续行同列）；success 绿 / failure 红 / aborted 灰；最新未终态块 running / waiting 黄；其余无终态块 `?` 不着色，排队块不出符号；**被 steer 续接过的输入**显示 `←`（默认前景，优先于终态与运行态、**永久**不恢复）、标题栏图标语义色（`TITLE_ICON` 在 `titleBarSegments` 内取色：沙箱 ro 绿 / wr 黄 / full 红 / 其它灰，policy ask 黄 / never 绿，开关 on 绿 / off 灰，preset 默认前景）、notice tone（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿）。markdown 语义同为此类（`**`→bold、`` ` ``→bg:code）：解析器在排版层，调"强调样式"只改排版层映射，state / renderer 均不动。
 - **色名 → 色值（渲染层独占）**：`ColorName → hex → SGR`（`ansiNameToHex` / `hexSgr` 不得再被排版层 import，`theme.ts` 收口取色、`screen.ts` 的 `segStyle`/`serializeFrameRow` 收口序列化）。
 - **排版层仅持有**：`ThemeId` + 语义 `ColorName`；state 保持与呈现无关（不存颜色）。
 - 未知色名回退基底色（fail-safe，不抛异常，与现状 `ansiNameToHex` 返回 null 语义一致）。
@@ -762,7 +762,7 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **与 pane 高度 / 滚动的关系**：紧凑只改条目行数，`activityH` 与 `activityScroll` 口径不变；行数变少后 `activityMaxScroll` 自动收敛。
 - **回归**：`tests/activity-verbose.test.ts`（完整模式折行多行 / 紧凑每条目 1 行且 ≤ pane 宽 + 行尾 `…` / 换行折叠 / 短条目不加省略号 / 端到端 buildFrame 行数收敛）+ `tests/app.test.ts`（切换与无参 / 非法参数只提示用法不动状态）。
 
-#### 活动区输出内容三档（`/verbose think|tool|step`；BACKLOG #8）
+#### 活动区输出内容三档（`/verbose think|tool|step`）
 
 - **语义**：只作用于活动区（历史区不变），与「详略两态」**正交**、可叠加：`think`（缺省）= 思考 + 正文 + 工具调用（调用行 / 参数 / 结果 / 辅助行全显示）；`tool` = 正文 + 工具调用（**去思考行**）；`step` = 正文 + 工具调用的**第一行**（结果行 / 辅助行整条去掉，调用行只取**首个物理行**＝去参数续行；**step 头与 notice 保留**）。
 - **实现**：`state.activityVerbose: ActivityLevel`（缺省 `"think"`）+ action `activity-verbose{level}`；`buildTopRegion` 传 `activityLevel` → `BuildBoxOptions.activityLevel`，过滤在 `build-box.ts` 构建期（thinking 分支跳过；tool 分支按 `isToolCall` / `isStepHeader` 取舍）。无参 / 非法参数只提示用法与当前档位、不切换；档位随会话状态快照持久化（键 `verbose`；旧布尔值按「详略」语义迁移到 `collapse`）。
