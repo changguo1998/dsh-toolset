@@ -16,6 +16,7 @@ import { buildFrame, focusFrameColor } from "../src/app/layout.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { rowAnsi } from "./helpers/rowText.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
+import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
 
 /** 帧内某符号所在行的全部 38;2 RGB（去重） */
 function lineColors(rows: string[], symbol: string): string[] {
@@ -33,8 +34,23 @@ function frame(
 ): string[] {
   const CY = { none: 0, history: 1, activity: 2, status: 3 } as const;
   let s = initialState(themeId);
-  s = reduceState(s, { type: "append", text: "hello world" });
-  s = reduceState(s, { type: "turn-begin" });
+  // 条目 16 段 A：正文不再写 buffer，改走交付流（帧内容源 = state.pipeline）
+  s = {
+    ...s,
+    pipeline: sectionsFromScript([
+      { delivery: { kind: "turn-start", turn: 1, time: 1_700_000_000_000 } },
+      {
+        delivery: {
+          kind: "text",
+          turn: 1,
+          step: 1,
+          index: 0,
+          source: "assistant",
+          text: "hello world",
+        },
+      },
+    ]),
+  };
   for (let i = 0; i < CY[focus]; i++)
     s = reduceState(s, { type: "focus-panel-cycle" });
   return buildFrame(s, { rows: 24, cols: 80 }).map((r) => rowAnsi(r, themeId));

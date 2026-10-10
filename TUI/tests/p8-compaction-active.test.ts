@@ -14,13 +14,19 @@ import { initialState, isCompacting, reduceState } from "../src/app/state.ts";
 import { canExitOnCtrlD } from "../src/app/index.ts";
 import { buildFrame } from "../src/app/layout.ts";
 import { rowText } from "./helpers/rowText.ts";
+import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
 
 /** 活跃会话 s1 + 一条用户输入（产生一个用户块，供符号断言） */
 function withUser(): ReturnType<typeof initialState> {
   let s = initialState();
   s.activeSessionId = "s1";
-  s = reduceState(s, { type: "user-line", text: "问一句" });
-  return s;
+  // 条目 16 段 A：用户块不再写 buffer，改走交付流（帧内容源 = state.pipeline）
+  return {
+    ...s,
+    pipeline: sectionsFromScript([
+      { delivery: { kind: "user", turn: 1, step: 0, text: "问一句" } },
+    ]),
+  };
 }
 
 test("P8：compaction start 标记当前会话、end 清除", () => {
