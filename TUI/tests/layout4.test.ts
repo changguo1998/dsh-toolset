@@ -149,7 +149,7 @@ test("metricsFor: 交互区(输入+提示)占 1/5 且至少 2 行；历史区 = 
 });
 
 test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / 分隔线 / 输入区 3 行 + 按键提示区 1 行）", () => {
-  const { frame } = frameWith(24, 60);
+  const { s, frame } = frameWith(24, 60);
   assert.equal(frame.length, 24, "帧恰好铺满 24 行");
   // 主题给边框/分隔线上色后带 ANSI 前缀，先剥离再断言
   const plain = (l: FrameRow) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "");
@@ -173,9 +173,19 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     /^(── Session ──)?─+$/.test(histContent(rowAnsi(top[1]!), 60)),
     "标题栏下为实线下划线（#5 起左端为窗口标题）",
   );
+  // 会话 pane 行范围（标题栏之后起、高度 = dialogueH）：内容不足一屏时自 pane 底部起排，
+  // 补白在上方（条目「会话区内容不足时贴顶」）——断言收窄到该 pane，避免「错位到别处也通过」
+  const paneRows = top.slice(
+    2,
+    2 + frameGeometry(s, { rows: 24, cols: 60 }).dialogueH,
+  );
+  const firstText = paneRows.findIndex((l) => rowAnsi(l).includes("第一行"));
+  assert.ok(firstText >= 0, "历史区内容在会话 pane 内（标题栏之后）");
   assert.ok(
-    rowAnsi(top[2]!).includes("第一行"),
-    "历史区内容在左侧（标题栏之后）",
+    paneRows
+      .slice(0, firstText)
+      .every((l) => histContent(rowAnsi(l), 60) === ""),
+    "内容上方为补白（内容自 pane 底部起排）",
   );
   // 横线分隔：17 行后是分隔行，再之后状态区（短 cwd 下动态单行：env|LLM 全在一行）
   const separator1 = frame[17]!;

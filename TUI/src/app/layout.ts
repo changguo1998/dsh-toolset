@@ -1373,6 +1373,11 @@ function buildTopRegion(
     start: topIdx,
     end: Math.min(dialogueRows.length, topIdx + viewportH),
   };
+  // 内容不足一屏时**底部对齐**（与活动区 `topPad` 同口径）：历史从 pane 底部往上长，空白留在
+  // 上方。只影响行放置——视口 / 段表 / 报告字段一律不变（内容超视口时补白恒为 0，逐字节同现状）。
+  // 按**视口内实有行数**（`vp.end - vp.start`）算而不是内容总长：滚动中（`topIdx > 0`）时补白
+  // 必须为 0，否则会少显示 topIdx 行（滚动窗口与贴底补白是互斥的两种状态）。
+  const dialoguePadTop = Math.max(0, viewportH - (vp.end - vp.start));
   // 回填段表与视口信息：App 用它把按键换算成新的视口顶、并同步 state
   if (report) {
     report.dialogueMaxScroll = maxTop;
@@ -1480,7 +1485,9 @@ function buildTopRegion(
   };
   /** 历史 pane 内容行（越界或排队块行 → undefined；排队块不属回合分隔线） */
   const dialogueRowAt = (rr: number): ContentRow | undefined =>
-    rr >= 0 && rr < viewportH ? dialogueRows[vp.start + rr] : undefined;
+    rr >= dialoguePadTop && rr < viewportH
+      ? dialogueRows[vp.start + rr - dialoguePadTop]
+      : undefined;
   // 对话 pane 行：历史视口（viewportH 行）之后是排队块（钉在 pane 底部右下角，始终可见）
   const dialoguePaneSegs = (rr: number): FrameSegment[] => {
     if (rr < 0 || rr >= dialogueH) return [];
@@ -1488,8 +1495,9 @@ function buildTopRegion(
       const q = queuedRows[rr - viewportH];
       return q ? [...q.segments] : [];
     }
-    const w = dialogueRows[vp.start + rr];
-    if (!w || vp.start + rr >= vp.end) return [];
+    if (rr < dialoguePadTop) return [];
+    const w = dialogueRows[vp.start + rr - dialoguePadTop];
+    if (!w || vp.start + rr - dialoguePadTop >= vp.end) return [];
     return [...w.segments];
   };
   // 活动 pane 行：交互面板存在时显示面板（顶部对齐），否则按滚动偏移取瞬态窗口（底部对齐）

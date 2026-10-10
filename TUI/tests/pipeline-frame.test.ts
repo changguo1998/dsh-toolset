@@ -439,3 +439,111 @@ test("边界空行带竖线：两侧正文都有竖线时补 `┃`，其余保�
     "下一行竖线在行尾 → 空行保持裸空行",
   );
 });
+
+test("会话区内容不足时贴底：短内容空白留在上方，超视口行为不变（帧断言）", () => {
+  // 条目「会话区内容不足时贴顶」：会话区此前贴顶（内容在第 1 行、空白在下方），
+  // 回合区早已贴底——两区口径统一为「底部对齐」；本用例只钉放置，不改视口 / 滚动模型。
+  const T = 1_700_000_000_000;
+  const short: BlockDelivery[] = [
+    { kind: "turn-start", turn: 1, time: T },
+    { kind: "user", turn: 1, step: 1, text: "问题" },
+    { kind: "step-start", turn: 1, step: 1, time: T },
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: "答案",
+    },
+    { kind: "finalize", turn: 1, step: 1 },
+    { kind: "turn-end", turn: 1, step: 1, reason: "completed" },
+  ];
+  const frame = (
+    deliveries: BlockDelivery[],
+    size: { rows: number; cols: number },
+  ): string[] =>
+    buildFrame(
+      {
+        ...initialState(),
+        buffer: [],
+        pipeline: applyAll(createSections(), deliveries),
+      },
+      size,
+    ).map(rowText);
+  /** 剥掉 pane 边框与状态列骨架后是否为空行 */
+  const isBlank = (text: string): boolean => text.replace(/[│\s]/g, "") === "";
+
+  // 短内容 + 高终端：内容贴 pane 底边（最后一行内容紧邻 Turn 分隔行），其上方全空
+  const rows = frame(short, { cols: 60, rows: 30 });
+  const sessionAt = rows.findIndex((text) => text.includes("Session"));
+  const turnAt = rows.findIndex((text) => text.includes("Turn"));
+  const userAt = rows.findIndex((text) => text.includes("问题"));
+  const answerAt = rows.findIndex((text) => text.includes("答案"));
+  assert.ok(
+    sessionAt >= 0 &&
+      turnAt > sessionAt &&
+      userAt > sessionAt &&
+      answerAt > userAt,
+  );
+  const pane = rows.slice(sessionAt + 1, turnAt);
+  const firstContent = pane.findIndex((text) => !isBlank(text));
+  assert.ok(firstContent >= 0, "会话区应有内容（回合分隔线 / 用户块 / 正文）");
+  assert.equal(
+    pane.slice(0, firstContent).every(isBlank),
+    true,
+    `内容上方应为空白：${JSON.stringify(pane.slice(0, firstContent))}`,
+  );
+  assert.equal(
+    isBlank(pane[pane.length - 1] ?? ""),
+    false,
+    `会话区最后一行应为内容（贴 pane 底边）：${JSON.stringify(pane[pane.length - 1])}`,
+  );
+  assert.equal(answerAt, turnAt - 1, "正文是 pane 的最后一行");
+
+  // 不变量扫描（含「内容恰等于视口高」的边界）：补白行数恒 = max(0, 视口高 − 内容行数)，
+  // 内容 ≥ 视口时补白为 0——放置与视口模型不脱钩
+  for (let turns = 1; turns <= 6; turns++) {
+    const sweep = { cols: 60, rows: 30 };
+    const report = {
+      dialogueMaxScroll: 0,
+      activityMaxScroll: 0,
+      dialogueTotal: 0,
+      dialogueCounts: [],
+      dialogueKeys: [],
+      dialogueTopIdx: 0,
+      dialogueViewportH: 0,
+      dialogueUserRows: [],
+    };
+    buildFrame(
+      {
+        ...initialState(),
+        buffer: [],
+        pipeline: applyAll(createSections(), script(turns)),
+      },
+      sweep,
+      report,
+    );
+    const rowsN = frame(script(turns), sweep);
+    const top = rowsN.findIndex((text) => text.includes("Session")) + 1;
+    const bottom = rowsN.findIndex((text) => text.includes("Turn"));
+    const pane = rowsN.slice(top, bottom);
+    const firstContent = pane.findIndex((text) => !isBlank(text));
+    assert.equal(
+      firstContent,
+      Math.max(0, report.dialogueViewportH - report.dialogueTotal),
+      `${turns} 回合：补白行数 = max(0, 视口高 − 内容行数)`,
+    );
+  }
+
+  // 内容超视口：不补白（标题行之后第一行就是内容），放置口径与改动前一致
+  const long = frame(script(5), { cols: 60, rows: 24 });
+  const longSession = long.findIndex((text) => text.includes("Session"));
+  const longTurn = long.findIndex((text) => text.includes("Turn"));
+  assert.ok(longSession >= 0 && longTurn > longSession);
+  assert.equal(
+    isBlank(long[longSession + 1] ?? ""),
+    false,
+    `超视口时首行应为内容：${JSON.stringify(long[longSession + 1])}`,
+  );
+});

@@ -225,6 +225,86 @@ test("横向排列：内部分隔列与下划线行 ┬ / 状态区分隔行 ┴
   );
 });
 
+test("会话区内容底部对齐（两种排列一致）：内容不足一屏时空白留在上方", () => {
+  // 条目「会话区内容不足时贴顶」：与活动区同语义——内容自 pane 底部往上排（最新一行贴底），
+  // 补白行数 = 视口高 − 内容行数，且补白只影响放置（视口模型仍是「不足一屏」）。
+  const size = { rows: 24, cols: 140 };
+  const short = (
+    placement: "vertical" | "horizontal",
+    extra = false,
+  ): AppState => {
+    let s = reduceState(
+      reduceState(initialState(undefined, { activityPlacement: placement }), {
+        type: "user-line",
+        text: "Q会话问题",
+      }),
+      { type: "append", text: "A会话回复" },
+    );
+    // 回合结束 → 回复标 final 才会进会话区（否则留在回合区）
+    s = reduceState(s, { type: "turn-end" });
+    // 排队块：钉在 pane 底部（补白只在其上方，不与排队行重叠）
+    return extra ? reduceState(s, { type: "queued-push", text: "Q排队中" }) : s;
+  };
+  for (const placement of ["vertical", "horizontal"] as const) {
+    const state = short(placement);
+    const m = frameGeometry(state, size);
+    assert.equal(m.mode, placement, "排列方式按入参落地（两种排列都要真跑到）");
+    const report = emptyReport();
+    const rows = buildFrame(state, size, report).map(rowText);
+    const paneTop = m.titleRows;
+    const paneBottom = paneTop + m.dialogueH - 1;
+    const pad = report.dialogueViewportH - report.dialogueTotal;
+    assert.equal(pad > 0, true, `${placement}: 本用例内容不足一屏`);
+    const pane = rows.slice(paneTop, paneBottom + 1);
+    assert.ok(
+      pane.slice(0, pad).every((text) => text.replace(/[│\s]/g, "") === ""),
+      `${placement}: 上方 ${pad} 行是补白`,
+    );
+    assert.ok(
+      pane[pad]!.includes("Q会话问题") &&
+        rows[paneBottom]!.includes("A会话回复"),
+      `${placement}: 内容自补白之后起、最新一行贴 pane 底边`,
+    );
+    // 补白只影响放置：视口模型仍是不足一屏（无滚动余量、视口顶在内容首行）
+    assert.equal(
+      report.dialogueMaxScroll,
+      0,
+      `${placement}: 不足一屏无滚动余量`,
+    );
+    assert.equal(report.dialogueTopIdx, 0, `${placement}: 视口顶在内容首行`);
+  }
+  // 排队块与补白共存：排队行仍占 pane 最后一行，补白在其上方
+  const queued = short("vertical", true);
+  const qm = frameGeometry(queued, size);
+  const qReport = emptyReport();
+  const qRows = buildFrame(queued, size, qReport).map(rowText);
+  const qBottom = qm.titleRows + qm.dialogueH - 1;
+  assert.ok(qRows[qBottom]!.includes("Q排队中"), "排队行钉在 pane 底部");
+  assert.ok(
+    !qRows[qBottom - 1]!.includes("Q排队中"),
+    "排队行只占最后一行（补白未与它重叠）",
+  );
+  assert.equal(
+    qReport.dialogueViewportH,
+    frameGeometry(short("vertical"), size).dialogueH - 1,
+    "视口高 = pane 高 − 排队块行数",
+  );
+});
+
+/** 帧报告桩（`buildFrame` 会整体回填，初值只用于读取） */
+function emptyReport(): FrameScrollReport {
+  return {
+    dialogueMaxScroll: 0,
+    activityMaxScroll: 0,
+    dialogueTotal: 0,
+    dialogueCounts: [],
+    dialogueKeys: [],
+    dialogueTopIdx: 0,
+    dialogueViewportH: 0,
+    dialogueUserRows: [],
+  };
+}
+
 test("活动区内容底部对齐（两种排列一致）：内容从下往上填满 pane 后才折叠最早内容", () => {
   const size = { rows: 24, cols: 140 };
   const short = (placement: "auto" | "vertical"): AppState =>
