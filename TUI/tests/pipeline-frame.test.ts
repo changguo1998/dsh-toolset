@@ -312,3 +312,130 @@ test("同源合并的前导 / 拖尾空行不产出可见行（交付驱动，�
     "边缘空行不应改变回合区 / 会话区行",
   );
 });
+
+test("边界空行带竖线：两侧正文都有竖线时补 `┃`，其余保持裸空行（交付驱动）", () => {
+  // 条目「边界空行丢竖线」：pane 边界空行（会话区「用户块 → 正文」/ 回合区「思考 ↔ 正文」）
+  // 此前是裸空行，把正文块的竖线切断；现按「两侧都有竖线 → 取下一行前导竖线」补段。
+  const T = 1_700_000_000_000;
+  const content = (deliveries: BlockDelivery[]) =>
+    pipelineContent(applyAll(createSections(), deliveries), {
+      dialogueTextW: 60,
+      activityTextW: 60,
+      windowGroups: 3,
+      render: { width: 60 },
+    });
+  const texts = (rows: readonly { segments: readonly { text: string }[] }[]) =>
+    rows.map((row) => row.segments.map((segment) => segment.text).join(""));
+
+  // ① 会话区「用户块 → 正文」：空行取**下一行**（正文首行）的前导竖线段（文字 + 样式）
+  const finalTurn: BlockDelivery[] = [
+    { kind: "turn-start", turn: 1, time: T },
+    { kind: "user", turn: 1, step: 1, text: "第一问" },
+    { kind: "step-start", turn: 1, step: 1, time: T },
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: "答复",
+    },
+    { kind: "finalize", turn: 1, step: 1 },
+    { kind: "turn-end", turn: 1, step: 1, reason: "completed" },
+  ];
+  const dialogue = content(finalTurn).dialogue;
+  const userAt = dialogue.findIndex((row) => row.kind === "user");
+  const blank = dialogue[userAt + 1];
+  const reply = dialogue[userAt + 2];
+  assert.ok(userAt >= 0 && blank !== undefined && reply !== undefined);
+  assert.equal(
+    texts(dialogue)[userAt + 1],
+    "┃",
+    "会话区边界空行带竖线（裸空行 → 竖线段）",
+  );
+  assert.equal(
+    texts(dialogue)[userAt]!.endsWith("┃"),
+    true,
+    "上一行（用户块末行）本身有竖线",
+  );
+  assert.deepEqual(
+    blank.segments,
+    [reply.segments[0]],
+    "空行的竖线取下一行（文字与样式原样）",
+  );
+
+  // ② 回合区「思考 ↔ 正文」：同上（正文非 final 才留回合区）
+  const midTurn: BlockDelivery[] = [
+    { kind: "step-start", turn: 1, step: 1, time: T },
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "reasoning",
+      text: "（先想）",
+    },
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: "中间正文",
+    },
+  ];
+  const activity = content(midTurn).activity;
+  assert.deepEqual(
+    texts(activity).map((text) => text.replace(/^╌+.*╌+$/, "<step>")),
+    ["<step>", "┃（先想）", "┃", "┃中间正文"],
+    "回合区边界空行带竖线",
+  );
+  assert.deepEqual(activity[2]!.segments, [activity[3]!.segments[0]]);
+  // ③ 反例：只有一侧有竖线（空行紧跟在 step 头之后）→ 保持裸空行
+  const twoSteps: BlockDelivery[] = [
+    { kind: "step-start", turn: 1, step: 1, time: T },
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "reasoning",
+      text: "（先想）",
+    },
+    { kind: "step-start", turn: 1, step: 2, time: T + 1000 },
+    {
+      kind: "text",
+      turn: 1,
+      step: 2,
+      index: 0,
+      source: "assistant",
+      text: "正文",
+    },
+  ];
+  const stepped = content(twoSteps).activity;
+  const bodyAt = stepped.findIndex((row) =>
+    row.segments.some((segment) => segment.text.includes("正文")),
+  );
+  assert.equal(bodyAt > 0, true);
+  assert.deepEqual(
+    stepped[bodyAt - 1]!.segments,
+    [],
+    "上一行是 step 头（无竖线）→ 空行保持裸空行",
+  );
+
+  // ④ 反例：两侧都有竖线但都在行尾（steer 留白两侧都是用户块右缘竖线）→ 保持裸空行
+  const steered: BlockDelivery[] = [
+    { kind: "user", turn: 1, step: 1, text: "第一问" },
+    { kind: "user", turn: 1, step: 1, text: "插队", queued: "steer" },
+  ];
+  const steeredRows = content(steered).dialogue;
+  const steerAt = steeredRows.findIndex((row) =>
+    row.segments.some((segment) => segment.text.includes("插队")),
+  );
+  assert.equal(steerAt > 0, true);
+  assert.deepEqual(
+    steeredRows[steerAt - 1]!.segments,
+    [],
+    "下一行竖线在行尾 → 空行保持裸空行",
+  );
+});

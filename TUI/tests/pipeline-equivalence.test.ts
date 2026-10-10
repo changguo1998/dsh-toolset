@@ -28,7 +28,6 @@ import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
 import type { BufferLine } from "../src/app/state.ts";
 import { stepHeaderLine } from "../src/app/layout/tool-line.ts";
 
-
 /** 固定语料：多 step + 多回合，含代码块 / 表格 / 工具批 / notice（turn-start = 实时流
  *  里 App 在 turn-begin 的同步交付，分隔线时间的真源） */
 const script: BlockDelivery[] = [
@@ -179,6 +178,31 @@ function oldBuffer(): BufferLine[] {
 const rowText = (rows: readonly { segments: { text: string }[] }[]): string[] =>
   rows.map((row) => row.segments.map((segment) => segment.text).join(""));
 
+/**
+ * 已裁定差异（BACKLOG「边界空行丢竖线」）：新路径给 pane 边界空行补竖线（`rows.ts` 的
+ * `fillBoundaryBars`），旧路径（`build-box.ts` 的 `spaceUserAssistant` 插的纯空行节点）
+ * 没有。归一化**只作用于可归因的行**——新侧是纯竖线行**且旧侧同行是空行**（即该行是新增
+ * 的竖线段）：块内空行两侧同为纯竖线行时两边都保留原样，不会把一致误判成差异。
+ * 差异由「条数 = 用户交付数」+「每处旧侧同行必为空行」两条钉住。
+ */
+const isBarOnly = (text: string): boolean => /^┃+$/.test(text);
+
+/** 可归因于本条目差异的行号（新侧纯竖线行，且旧侧同行为空） */
+function boundaryBarRows(newRows: string[], oldTexts: string[]): number[] {
+  return newRows
+    .map((text, index) => ({ text, index }))
+    .filter(
+      ({ text, index }) => isBarOnly(text) && (oldTexts[index] ?? null) === "",
+    )
+    .map(({ index }) => index);
+}
+
+/** 把可归因的竖线行还原成空行后比较（其余行逐字比较，不受影响） */
+const withoutBoundaryBar = (
+  rows: string[],
+  added: readonly number[],
+): string[] => rows.map((text, index) => (added.includes(index) ? "" : text));
+
 for (const width of [40, 80, 120]) {
   test(`等价性（宽 ${width}）：会话区与回合区逐行一致`, () => {
     const oldRows = buildContentRows(oldBuffer(), {}, width);
@@ -199,7 +223,34 @@ for (const width of [40, 80, 120]) {
         width,
       }),
     };
-    assert.deepEqual(rowText(next.dialogue.rows), rowText(oldRows.dialogue));
+    const oldTexts = rowText(oldRows.dialogue);
+    const dialogueRows = rowText(next.dialogue.rows);
+    const added = boundaryBarRows(dialogueRows, oldTexts);
+    // 位置钉死：竖线只补在「用户块 → 正文」的边界空行上（旧侧 = 用户行之后紧跟空行）
+    const expectedAdded = next.dialogue.rows
+      .map((row, index) => ({ kind: row.kind, index }))
+      .filter(
+        ({ kind, index }) => kind === "user" && oldTexts[index + 1] === "",
+      )
+      .map(({ index }) => index + 1);
+    assert.deepEqual(
+      added,
+      expectedAdded,
+      "已裁定差异只出现在每回合「用户块 → 正文」的边界空行（块内空行不算）",
+    );
+    // 竖线段必须与下一行前导段同形（文字 + 样式）——差异只加竖线，不改别的
+    for (const index of added) {
+      assert.deepEqual(
+        next.dialogue.rows[index]!.segments,
+        [next.dialogue.rows[index + 1]!.segments[0]],
+        `行 ${index} 的竖线取下一行`,
+      );
+    }
+    assert.deepEqual(
+      withoutBoundaryBar(dialogueRows, added),
+      oldTexts,
+      "除边界空行的竖线外，会话区逐行一致",
+    );
     assert.deepEqual(rowText(next.activity.rows), rowText(oldRows.activity));
     assert.equal(
       next.dialogue.rows.length,

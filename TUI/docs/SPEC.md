@@ -523,6 +523,7 @@ state --buildBox--> Box 树 --measure/allocate--> rects --fill(ctx, rect)--> Fra
 - **测试 / 嵌入用法仍可造缓冲**：`bufferRetainsContent` 缺省 `true`，`state.pipeline` 缺席时 `sectionsOf`（`layout/pipeline/frame.ts`）按 `buffer` 重放一份节（`replay.ts` 的 `sectionsFromBuffer`，按逐行对象身份 memo）——即 `buffer` 的定位是**测试与嵌入用的重放输入**，不再是生产渲染来源。「连测试路径也不经 buffer」见 `docs/BACKLOG.md` 条目（暂停中）。
 - **本地 notice 的排版元数据随交付走**：`notice` 交付可带 `hanging`（折行续行停靠列）与 `noCompact`（紧凑模式豁免），经节条目 → box → 行透传到 `buildContentRows`（旧路径这两项长在缓冲行上，行不再是内容来源后必须随交付）。**UI 本地提示必须投块**：`/help` 是唯一不经 `App.notice()` 的本地提示，只写缓冲时生产路径什么都看不到（2026-10-10 真机验收缺陷，已补 `deliverLocal`）。
 - 设计与分批见 `docs/archived/2026-10-09-layout-segment-cache.md`；第二阶段的迁移与退役记录同文件「第二阶段」一节
+- **边界空行带竖线**（2026-10-10，BACKLOG「边界空行丢竖线」）：第 3 步插入的 pane 边界空行（会话区「用户块 → 正文」、回合区「思考 ↔ 正文」、steer 留白）在第 4 步收尾按邻居补竖线——**两侧内容行都有竖线**（**上一行的竖线在行尾也算**，如用户块右缘；下一行则必须是**前导**竖线）时，空行沿用下一行的前导竖线段（文字 + 样式原样复制，不重判 `minWidth`）；仅一侧有竖线、或下一行竖线只在行尾（steer 留白两侧都是用户块右缘竖线）时保持裸空行。**块内**空行的竖线仍归 `build-box.ts` 的 `lineUpBlockBars()`。实现 = `pipeline/rows.ts` 的 `fillBoundaryBars()`（`renderPane` 收尾、pane 末尾空行裁剪**之前**）。回归：`tests/pipeline-frame.test.ts`
 
 ______________________________________________________________________
 

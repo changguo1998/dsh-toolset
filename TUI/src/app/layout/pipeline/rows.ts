@@ -469,6 +469,36 @@ function cacheKey(
   ].join("|");
 }
 
+/** 竖线字形：内容行的竖线只有 `┃`（`│` 只作表内列分隔与状态列 / 面板边框，见 `table.ts` /
+ * `layout.ts`；引用前缀是 `"> "`）——收窄成 `┃` 可避免把边框字形当内容竖线继承过来 */
+const BAR_TEXT = /^┃+$/;
+
+/**
+ * 边界空行补竖线：空行**两侧**的内容行都有竖线时，空行沿用**下一行**的前导竖线段
+ * （文字与样式原样复制）——正文块之间的分隔不再把竖线切断；仅一侧有竖线、或下一行
+ * 竖线只在行尾（如 steer 留白两侧都是用户块右缘竖线）时保持裸空行。
+ *
+ * 判定不对称是有意的：**上一行**只要**任一**段是竖线即算（用户块的竖线是行尾
+ * `suffix`、回复的竖线是行首 `prefix`，两侧列位不同），而**下一行**必须**前导**
+ * 是竖线——空行取的是「正文块自这一行起」的左缘竖线，取上一行会把用户块向下延伸一行。
+ * 复制段不重判 `minWidth`：相邻内容行已按门限决定过是否画竖线，空行只跟随结果。
+ */
+function fillBoundaryBars(
+  rows: ContentRow[],
+  blankRows: readonly number[],
+): void {
+  for (const index of blankRows) {
+    const above = rows[index - 1];
+    const below = rows[index + 1];
+    if (above === undefined || below === undefined) continue;
+    if (!above.segments.some((segment) => BAR_TEXT.test(segment.text)))
+      continue;
+    const lead = below.segments[0];
+    if (lead === undefined || !BAR_TEXT.test(lead.text)) continue;
+    rows[index] = { segments: [{ ...lead }], indent: 0, kind: "plain" };
+  }
+}
+
 /**
  * 逐项出一行缓冲 + 行数表（宽度相关）。每一项独立走既有算法库：跨项的分隔与留白
  * 已由第 3 步的边界项表达，故此处不再做跨节点后处理。
@@ -485,11 +515,14 @@ export function renderPane(
   const counts: number[] = [];
   const keys: string[] = [];
   const userRows: number[] = [];
+  /** 边界空行的行号（收尾按两侧内容行补竖线，见 `fillBoundaryBars`） */
+  const blankRows: number[] = [];
   for (const item of items) {
     // 空行：直接出行，不经 `buildContentRows`——它会**裁掉首行空行**并把裸空 plain 行
     // 路由到会话区（活动区的空行会整行消失）。形状与旧路径的空行一致：无段、缩进 0、
     // kind plain（旧路径的空行节点同样只有这三个字段）
     if (item.kind === "blank") {
+      blankRows.push(rows.length);
       rows.push({ segments: [], indent: 0, kind: "plain" });
       counts.push(1);
       keys.push(item.key);
@@ -543,6 +576,8 @@ export function renderPane(
     counts.push(produced.length);
     keys.push(item.key);
   }
+  // 收尾 1：边界空行补竖线（在末尾裁剪**之前**——尾部空行没有「下一行」，仍是裸空行 → 照旧被裁）
+  fillBoundaryBars(rows, blankRows);
   // 整 pane 末尾的空行不渲染（旧渲染器 `trimTrailingAssistantBlanks` 口径：只在 pane 末尾
   // 生效；逐项排版时各段看不到「谁是最后一行」，故在这里统一收尾）
   while (

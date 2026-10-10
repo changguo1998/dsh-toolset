@@ -1217,7 +1217,11 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   assert.ok(ui >= 0 && ai > ui);
   const between = plain.slice(ui + 1, ai);
   assert.equal(between.length, 1, "用户与答案之间应恰有一行");
-  assert.equal(histContent(between[0]!, 40), "", "该行为空行(状态列外无内容)");
+  assert.equal(
+    histContent(between[0]!, 40),
+    "┃",
+    "该行为空行（正文块的竖线延续过来，状态列外无其它内容）",
+  );
   assert.ok(!between[0]!.startsWith("|"), "空行最左侧无插件竖线");
 
   // user → thinking：思考归属活动区（分隔线之下展示），不再要求与用户消息间空行
