@@ -36,7 +36,12 @@
 - 段 A 续迁（2026-10-11 第 8 轮）：`tests/p8-compaction-active.test.ts`（4 例，助手内一处 `user-line` → 交付）、`tests/color-semantics.test.ts`（5 例，助手内 `append` + `turn-begin` → 交付）。两文件全绿，全量 1446 绿。
 - 段 A 续迁（2026-10-11 第 9 轮）：`tests/renderer-diff.test.ts`（11 例，底稿 8 行改一条含换行的正文交付、末行增长改同块流式追加）。全绿。
 - 更正：`tests/pipeline-app.test.ts` **无需迁移**——那里 `type: "thinking"` 是**宿主事件**（与交付配对），不是缓冲写入；上一轮清单的 1/15 是误判。
-- **`layout4` 分批计划（2026-10-11 第 12 轮产出，下一次直接照做）**：全文件 80 例、87 处内容动作。先用脚本按「用例 → 动作数」列表（前 12 例）：
+- **计划修正（2026-10-11 第 13 轮，实测后）**：`layout4` 的内容动作**大多不是填充物**，而是喂给**状态机制**的输入 → 不属段 A。已核两例：
+  - L642〈usage 校准〉：`append(..., time)` 是**在测 `append` 的 token 估算**（断言 `s.stepEstTokens`）→ 估算器的输入源要随「内容改交付」一起改，属**段 B/C**。
+  - L722〈turn-begin…流式内容仍实时合入 buffer〉：明写「合入 buffer」→ 缓冲契约本身，属**段 C**。
+    → 结论：**段 A 的实质目标已达成**（内容型 fixture 不再需要缓冲：已迁 6 个文件）。`layout4` 剩余动作与 `layout`/`step`/`steer-queued-display`/`buffer-retire`/`screen-residue`/`turn-separator` 等同性质，随\*\*段 B（本地行另立存储）/ 段 C（估算器与缓冲契约改源）\*\*一起改，不单独为段 A 迁移。
+    → 下一步优先级：**段 B**（`notice`/`shell`/辅助工具行 → `state.local`，读侧同步）→ 段 C（估算器改吃交付、`sectionsOf` 回退改源、删 `BufferLine` 内容字段 / `nextSeq` / 裁剪 / 上限）→ 段 D。
+- **`layout4` 分批计划（2026-10-11 第 12 轮产出；按上面的修正，只对「填充物型」用例生效）**：全文件 80 例、87 处内容动作。先用脚本按「用例 → 动作数」列表（前 12 例）：
   - L220（7 处动作）：输入栏单字符提示符：当前模式符号（默认前景色）；状态符号渲染在用户块首行左侧", () => {
   - L591（4 处动作）：运行中无数据：virt-tick 持续积分跨过阈值切换 ●/○，速度渐降但 token 不停", () =>
   - L642（5 处动作）：usage 校准（P5）：真值/估算比例 EMA 更新 tokenCalib；无真值不校准", () =>
