@@ -41,23 +41,26 @@ export function buildOsc52(text: string): string {
  *  还原真回合（不按序数重数），续接后的回合预测才与宿主一致。 */
 export function surfaceToBuffer(
   messages: readonly {
-    role: "user" | "assistant" | "step" | "notice";
+    role: "user" | "assistant" | "step" | "notice" | "tool";
     text: string;
     turn?: number;
+    status?: "success" | "failure" | "aborted";
   }[],
 ): {
   text: string;
-  kind: "user" | "assistant" | "step" | "notice" | "separator";
+  kind: "user" | "assistant" | "step" | "notice" | "tool" | "separator";
   tone?: "log";
   final?: boolean;
   turn?: number;
+  status?: "success" | "failure" | "aborted";
 }[] {
   const out: {
     text: string;
-    kind: "user" | "assistant" | "step" | "notice" | "separator";
+    kind: "user" | "assistant" | "step" | "notice" | "tool" | "separator";
     tone?: "log";
     final?: boolean;
     turn?: number;
+    status?: "success" | "failure" | "aborted";
   }[] = [];
   let lastTurn: number | undefined;
   for (const m of messages) {
@@ -79,6 +82,11 @@ export function surfaceToBuffer(
       if (m.text.trim() !== "") out.push({ text: m.text, kind: "step" });
       continue;
     }
+    if (m.role === "tool") {
+      // 工具批逐行（调用行 / 结果行；辅助行同 kind）——重放器据此还原成批交付
+      if (m.text.trim() !== "") out.push({ text: m.text, kind: "tool" });
+      continue;
+    }
     // assistant 多段文本（extractTextBlocks 以 \n join）拆成独立 buffer 行：
     // 逐行结构是 fence 识别/段落归并的前提。user 消息则整段保留（一次输入 =
     // 一个用户块，显式换行由布局层按物理行渲染，块内行首左对齐）。
@@ -90,6 +98,10 @@ export function surfaceToBuffer(
         text: line,
         kind: m.role,
         final: m.role === "assistant" ? true : undefined,
+        // 恢复的终态随用户行透传 → 重放器据此还原用户块符号（不再一律 `?`）
+        ...(m.role === "user" && m.status !== undefined
+          ? { status: m.status }
+          : {}),
       });
   }
   return out;

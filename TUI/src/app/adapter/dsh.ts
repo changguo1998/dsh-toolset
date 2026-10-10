@@ -89,6 +89,11 @@ import {
   ruleInjectionTextOf,
   summarizeToolArguments,
 } from "./normalize.ts";
+import {
+  stepHeaderLine,
+  toolCallLine,
+  toolResultLine,
+} from "../layout/tool-line.ts";
 import { rmSync } from "node:fs";
 import { locateSessionDir, sessionRoots } from "./session-paths.ts";
 import {
@@ -303,7 +308,7 @@ export function installSessionModelSelection(
  *  - **整条消息为空（纯空白）时不产出行**——宿主每步补发的 `"\n\n"` 文本块正是
  *    恢复后成片空行的来源；消息**内部**的空行属段落间隔，保留（与实时渲染一致）。
  */
-function normalizeHistoryMessages(
+export function normalizeHistoryMessages(
   events: readonly Record<string, unknown>[],
 ): HistoryMessage[] {
   const out: HistoryMessage[] = [];
@@ -316,21 +321,20 @@ function normalizeHistoryMessages(
   } | null = null;
   /** 宿主回合号（跟随事件流的 data.turn）：恢复路径保留宿主索引（真回合号） */
   let curTurn: number | undefined;
-  /** 收口当前 step：有工具调用才产出一行摘要（时间缺失时省略时间片段） */
-  const flushStep = (): void => {
-    const cur = step;
-    step = null;
-    if (!cur || cur.names.size === 0) return;
-    const tools =
-      [...cur.names.entries()]
-        .map(([name, count]) => (count > 1 ? `${name} ×${count}` : name))
-        .join(", ") + (cur.fails > 0 ? ` ✗${cur.fails}` : "");
-    const hms = clockHms(cur.time);
+  /** 回合 → 用户块终态（`turn/end` 的 reason 归一；循环后落到该回合最后一个用户消息上） */
+  const turnStatus = new Map<number, "success" | "failure" | "aborted">();
+  /** step 头行（与实时路径同形制：`hh:mm:ss ⇆N #M`）：step 起点的作用域行；该 step 没有
+   *  回合区内容时第 3 步按「内容驱动」不出头（不会变成孤儿头） */
+  const pushStepHead = (n: number, time?: number): void => {
     out.push({
       role: "step",
-      text: `${hms === undefined ? "" : hms + " "}#${cur.n} ╌╌ ${tools}`,
+      text: stepHeaderLine(n, time, curTurn),
       ...(curTurn === undefined ? {} : { turn: curTurn }),
     });
+  };
+  /** 收口当前 step（step/end 或截断日志）：摘要行已由「step 头 + 工具行」取代，这里只清状态 */
+  const flushStep = (): void => {
+    step = null;
   };
   /** 正文消息：整条纯空白 → 丢弃（P9 空行来源） */
   const pushText = (role: "user" | "assistant", raw: string): void => {
@@ -349,21 +353,54 @@ function normalizeHistoryMessages(
     if (typeof data.turn === "number") curTurn = data.turn;
     if (e.type === "step/start") {
       flushStep(); // 防御：上一个 step 未发 step/end（截断日志）时先收口
+      const n = typeof data.step === "number" ? data.step : 0;
+      const time = typeof e.time === "number" ? e.time : undefined;
       step = {
-        n: typeof data.step === "number" ? data.step : 0,
-        ...(typeof e.time === "number" ? { time: e.time } : {}),
-        names: new Map<string, number>(),
+        n,
+        ...(time === undefined ? {} : { time }),
+        names: new Map(),
         fails: 0,
       };
+      pushStepHead(n, time);
     } else if (e.type === "step/end") {
       flushStep();
     } else if (e.type === "tool/call") {
+      // 工具批**逐条还原**（BACKLOG「恢复的记录要能区分输入 / 正文 / 工具调用」）：调用行
+      // 与结果行按到达顺序落行，交给重放器还原成 tool-call / tool-result 交付（与实时路径
+      // 同形制）；不再折成一行 step 摘要
       const name = typeof data.name === "string" ? data.name : "";
-      if (step && name !== "")
-        step.names.set(name, (step.names.get(name) ?? 0) + 1);
+      if (name === "") continue;
+      const args = typeof data.arguments === "string" ? data.arguments : "";
+      if (step) step.names.set(name, (step.names.get(name) ?? 0) + 1);
+      out.push({
+        role: "tool",
+        text: toolCallLine(name, summarizeToolArguments(args)),
+        ...(curTurn === undefined ? {} : { turn: curTurn }),
+      });
     } else if (e.type === "tool/result") {
       // 失败判定与实时路径同口径：error 字段存在即失败
-      if (step && data.error !== undefined && data.error !== null) step.fails++;
+      const err = data.error;
+      if (step && err !== undefined && err !== null) step.fails++;
+      out.push({
+        role: "tool",
+        text: toolResultLine(!err, toolResultDetail(data.message), data.meta),
+        ...(curTurn === undefined ? {} : { turn: curTurn }),
+      });
+    } else if (e.type === "turn/end") {
+      // 恢复的用户块终态（BACKLOG「恢复的会话记录也保留用户块终态符号」）：记下该回合的收尾
+      // 原因，循环后落到**该回合最后一个**用户消息上（与实时路径同口径：completed → success /
+      // aborted → aborted / error → failure，其余原因不落终态 → 渲染仍为 `?`）
+      const reason = turnEndReason(data.reason);
+      const status =
+        reason === "completed"
+          ? "success"
+          : reason === "aborted"
+            ? "aborted"
+            : reason === "error"
+              ? "failure"
+              : undefined;
+      if (status !== undefined && curTurn !== undefined)
+        turnStatus.set(curTurn, status);
     } else if (e.type === "user/message") {
       // TUI#17：插件注入的 notice 形态（source.form:'notice' + summary）→ 单行摘要行
       const summary = noticeSummaryOf(data);
@@ -398,6 +435,15 @@ function normalizeHistoryMessages(
     }
   }
   flushStep(); // 末尾收口（最后一步可能没有 step/end）
+  // 回填用户块终态：`turn/end` 在用户消息之后到达，故此处按回合号从后往前找该回合最后一个用户消息
+  for (const [turn, status] of turnStatus) {
+    for (let i = out.length - 1; i >= 0; i--) {
+      const m = out[i]!;
+      if (m.role !== "user" || m.turn !== turn) continue;
+      out[i] = { ...m, status };
+      break;
+    }
+  }
   return out;
 }
 

@@ -997,10 +997,17 @@ export type SessionDeleteResult = { ok: true } | { ok: false; reason: string };
  *  - `notice`（TUI#17）：插件注入消息 `source.form:'notice'` 的**一行摘要**（summary，
  *    缺失时取正文首行）——渲染为单行提示，不展开、不占用户消息块。 */
 export interface HistoryMessage {
-  role: "user" | "assistant" | "step" | "notice";
+  role: "user" | "assistant" | "step" | "notice" | "tool";
   text: string;
   /** 宿主回合号（转录事件自带）：恢复路径保留宿主索引用，缺省 = 该事件无回合标记 */
   turn?: number;
+  /**
+   * 用户块终态（BACKLOG「恢复的会话记录也保留用户块终态符号」）：按该回合 `turn/end` 的
+   * reason 读回（`normalizeHistoryMessages` 建 (turn → status) 映射后落到**该回合最后一个**
+   * 用户消息上），与实时路径 `sections.ts` 的 `userStatusOfReason` 同口径（completed →
+   * `success` / aborted → `aborted` / error → `failure`，其余原因不落终态）。
+   */
+  status?: "success" | "failure" | "aborted";
 }
 
 /** 单个历史会话的只读表面视图（归一化后的消息列表） */

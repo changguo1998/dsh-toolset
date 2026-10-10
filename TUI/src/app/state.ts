@@ -2700,7 +2700,7 @@ export type StateAction =
        *  kind 与 BufferKind 的子集一致 */
       rows: {
         text: string;
-        kind: "user" | "assistant" | "step" | "notice" | "separator";
+        kind: "user" | "assistant" | "step" | "notice" | "tool" | "separator";
         tone?: NoticeTone;
         final?: boolean;
         /** 宿主回合号（分隔线行携带）：恢复路径保留宿主索引，重放器据此还原真回合 */
@@ -2714,9 +2714,11 @@ export type StateAction =
       title: string;
       rows: {
         text: string;
-        kind: "user" | "assistant" | "step" | "notice" | "separator";
+        kind: "user" | "assistant" | "step" | "notice" | "tool" | "separator";
         tone?: NoticeTone;
         final?: boolean;
+        /** 恢复的用户块终态（重放器透传给节模型 → 符号不再是 `?`） */
+        status?: "success" | "failure" | "aborted";
         /** 宿主回合号（分隔线行携带）：恢复路径保留宿主索引，重放器据此还原真回合 */
         turn?: number;
       }[];

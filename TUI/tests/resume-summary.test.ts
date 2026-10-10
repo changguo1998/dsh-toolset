@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildFrame } from "../src/app/layout.ts";
 import { surfaceToBuffer } from "../src/app/commands.ts";
+import { normalizeHistoryMessages } from "../src/app/adapter/dsh.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { rowText } from "./helpers/rowText.ts";
 
@@ -51,5 +52,166 @@ test("P9 渲染：step 行 = `╌╌ <文本> ` + 尾部 ╌ 铺满，且位于�
   assert.ok(
     !s.buffer.some((l) => l.text.trim() === ""),
     `恢复行不含空行: ${JSON.stringify(s.buffer.map((l) => l.text))}`,
+  );
+});
+
+test("恢复：用户块终态按 turn/end 的 reason 读回（completed → ✓ / error → ✗ / 其余不落）", () => {
+  const msgs = normalizeHistoryMessages([
+    { type: "turn/start", seq: 1, data: { turn: 1 } },
+    {
+      type: "user/message",
+      seq: 2,
+      data: { turn: 1, content: [{ type: "text", text: "问题一" }] },
+    },
+    {
+      type: "turn/end",
+      seq: 3,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+    { type: "turn/start", seq: 4, data: { turn: 2 } },
+    {
+      type: "user/message",
+      seq: 5,
+      data: { turn: 2, content: [{ type: "text", text: "问题二" }] },
+    },
+    { type: "turn/end", seq: 6, data: { turn: 2, reason: { kind: "error" } } },
+    { type: "turn/start", seq: 7, data: { turn: 3 } },
+    {
+      type: "user/message",
+      seq: 8,
+      data: { turn: 3, content: [{ type: "text", text: "问题三" }] },
+    },
+    {
+      type: "turn/end",
+      seq: 9,
+      data: { turn: 3, reason: { kind: "max-tokens" } },
+    },
+  ]);
+  assert.deepEqual(
+    msgs.filter((m) => m.role === "user").map((m) => [m.text, m.status ?? "-"]),
+    [
+      ["问题一", "success"],
+      ["问题二", "failure"],
+      ["问题三", "-"],
+    ],
+    "completed → success、error → failure、max-tokens 不落终态",
+  );
+  // 终态随用户行透传（重放器据此还原符号，不再一律 `?`）
+  const rows = surfaceToBuffer(msgs);
+  assert.deepEqual(
+    rows.filter((r) => r.kind === "user").map((r) => r.status ?? "-"),
+    ["success", "failure", "-"],
+  );
+});
+
+test("恢复：帧里两个用户块分别显示 ✓ 与 ✗（不再一律 `?`）", () => {
+  const msgs = normalizeHistoryMessages([
+    { type: "turn/start", seq: 1, data: { turn: 1 } },
+    {
+      type: "user/message",
+      seq: 2,
+      data: { turn: 1, content: [{ type: "text", text: "问题一" }] },
+    },
+    {
+      type: "assistant/message",
+      seq: 3,
+      data: {
+        turn: 1,
+        message: { content: [{ type: "text", text: "答复一" }] },
+      },
+    },
+    {
+      type: "turn/end",
+      seq: 4,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+    { type: "turn/start", seq: 5, data: { turn: 2 } },
+    {
+      type: "user/message",
+      seq: 6,
+      data: { turn: 2, content: [{ type: "text", text: "问题二" }] },
+    },
+    { type: "turn/end", seq: 7, data: { turn: 2, reason: { kind: "error" } } },
+  ]);
+  let s = initialState();
+  s = reduceState(s, {
+    type: "history-restore",
+    id: "s1",
+    title: "恢复会话",
+    rows: surfaceToBuffer(msgs),
+  });
+  const lines = buildFrame(s, { cols: 80, rows: 24 }).map(rowText);
+  const first = lines.find((l) => l.includes("问题一"));
+  const second = lines.find((l) => l.includes("问题二"));
+  assert.ok(
+    first?.includes("✓ 问题一"),
+    `第一块应为 ✓：${JSON.stringify(first)}`,
+  );
+  assert.ok(
+    second?.includes("✗ 问题二"),
+    `第二块应为 ✗：${JSON.stringify(second)}`,
+  );
+});
+
+test("恢复：帧里出现工具批行（工具名 + 结果符号），不再只剩空行", () => {
+  const msgs = normalizeHistoryMessages([
+    { type: "turn/start", seq: 1, data: { turn: 1 } },
+    {
+      type: "user/message",
+      seq: 2,
+      data: { turn: 1, content: [{ type: "text", text: "跑一下" }] },
+    },
+    { type: "step/start", seq: 3, time: 1, data: { turn: 1, step: 1 } },
+    {
+      type: "tool/call",
+      seq: 4,
+      data: {
+        turn: 1,
+        step: 1,
+        callId: "c1",
+        name: "bash",
+        arguments: '{"cmd":"ls"}',
+      },
+    },
+    {
+      type: "tool/result",
+      seq: 5,
+      data: {
+        turn: 1,
+        step: 1,
+        callId: "c1",
+        message: { content: [{ content: [{ type: "text", text: "a.ts" }] }] },
+      },
+    },
+    {
+      type: "assistant/message",
+      seq: 6,
+      data: {
+        turn: 1,
+        step: 1,
+        message: { content: [{ type: "text", text: "看到了" }] },
+      },
+    },
+    {
+      type: "turn/end",
+      seq: 7,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+  ]);
+  let s = initialState();
+  s = reduceState(s, {
+    type: "history-restore",
+    id: "s1",
+    title: "恢复会话",
+    rows: surfaceToBuffer(msgs),
+  });
+  const lines = buildFrame(s, { cols: 80, rows: 24 }).map(rowText);
+  const joined = lines.join("\n");
+  assert.ok(joined.includes("bash"), `工具名应上屏：${JSON.stringify(lines)}`);
+  assert.ok(joined.includes("✓"), "结果符号应上屏");
+  assert.ok(joined.includes("看到了"), "正文应上屏");
+  assert.ok(
+    joined.includes("✓ 跑一下") || joined.includes("跑一下"),
+    "用户块应上屏",
   );
 });

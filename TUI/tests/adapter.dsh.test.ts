@@ -2076,7 +2076,7 @@ test("历史会话：当前活跃会话有官方标题也走探针 → hasPrompt
   assert.equal(records[0]!.current, true, "活跃会话标记 current");
 });
 
-test("历史会话：persisted 会话走 readSurface（普通事件归一化，reasoning/tool 省略）", async () => {
+test("历史会话：persisted 会话走 readSurface（普通事件归一化，reasoning 逐行、工具批逐条）", async () => {
   const sq = new FakeSessionQuery();
   const { adapter } = makeAdapterWithSessionQuery(sq);
   const view = await adapter.readSessionSurface!("old-2");
@@ -2085,6 +2085,8 @@ test("历史会话：persisted 会话走 readSurface（普通事件归一化，r
   assert.deepEqual(view.messages, [
     { role: "user", text: "你好第二行" },
     { role: "assistant", text: "回复正文" },
+    // 工具批逐条还原（BACKLOG「恢复的记录要能区分输入 / 正文 / 工具调用」）：结果行不再省略
+    { role: "tool", text: "✓ 工具输出（v1 省略）" },
   ]);
 });
 
@@ -2102,7 +2104,7 @@ test("历史会话：live store 空事件（resume 入列竞态）→ 回退 per
   assert.equal(view.messages[0]?.text, "你好第二行");
 });
 
-test("历史会话：live 会话经 sessions store 原始事件（agent/inbox/spliced）提取", async () => {
+test("历史会话：live 会话经 sessions store 原始事件（agent/inbox/spliced）提取（工具批逐条还原）", async () => {
   const sq = new FakeSessionQuery();
   const store = {
     get(id: string) {
@@ -2117,6 +2119,8 @@ test("历史会话：live 会话经 sessions store 原始事件（agent/inbox/sp
   assert.deepEqual(view.messages, [
     { role: "user", text: "你好第二行" },
     { role: "assistant", text: "回复正文" },
+    // 工具批逐条还原（结果行不再省略）
+    { role: "tool", text: "✓ 工具输出（v1 省略）" },
     { role: "user", text: "内存消息：你好" },
     { role: "assistant", text: "内存回复" },
   ]);
@@ -2135,6 +2139,8 @@ test("历史会话：宿主无 sessions store 且无 readSurface 时回退 readS
   assert.deepEqual(view.messages, [
     { role: "user", text: "你好第二行" },
     { role: "assistant", text: "回复正文" },
+    // 工具批逐条还原（BACKLOG「恢复的记录要能区分输入 / 正文 / 工具调用」）：结果行不再省略
+    { role: "tool", text: "✓ 工具输出（v1 省略）" },
   ]);
 });
 
@@ -2181,7 +2187,12 @@ function p9Events(): Record<string, unknown>[] {
     type: "tool/result",
     seq,
     time: t,
-    data: { callId, message: "done" },
+    data: {
+      callId,
+      message: {
+        content: [{ content: [{ type: "text", text: "done" }] }],
+      },
+    },
   });
   return [
     { type: "turn/start", seq: 1, time: t, data: { turn: 1 } },
@@ -2219,7 +2230,7 @@ function p9Events(): Record<string, unknown>[] {
   ];
 }
 
-test("P9：step 折叠成一行摘要（名字去重计数 + 失败数），纯正文 step 不出行", async () => {
+test("恢复：工具批逐条还原（step 头 + 调用行 / 结果行），不再折成一行摘要", async () => {
   const slim: SessionQueryLike = {
     listSessions: () => Promise.resolve([]),
     readSession: (id) =>
@@ -2229,7 +2240,15 @@ test("P9：step 折叠成一行摘要（名字去重计数 + 失败数），纯�
   const view = await adapter.readSessionSurface!("p9-1");
   assert.deepEqual(view.messages, [
     { role: "user", text: "问题", turn: 1 },
-    { role: "step", text: "22:31:05 #3 ╌╌ read ×2, bash ✗1", turn: 1 },
+    // step 头（与实时同形制：`hh:mm:ss ⇆N #M`）+ 逐条工具行（调用 → 结果，按到达顺序）
+    { role: "step", text: "22:31:05 ⇆1 #3", turn: 1 },
+    { role: "tool", text: "read {}", turn: 1 },
+    { role: "tool", text: "✓ done", turn: 1 },
+    { role: "tool", text: "read {}", turn: 1 },
+    { role: "tool", text: "✗ 输出错误", turn: 1 },
+    { role: "tool", text: "bash {}", turn: 1 },
+    { role: "tool", text: "✓ done", turn: 1 },
+    { role: "step", text: "22:31:05 ⇆1 #4", turn: 1 },
     { role: "assistant", text: "最终回复", turn: 1 },
   ]);
 });
@@ -2277,7 +2296,7 @@ test("P9：空文本消息不产出行（宿主每步补发的纯换行文本块
   ]);
 });
 
-test("P9：无工具调用的 step 不出行；缺 time 时摘要只出步号", async () => {
+test("恢复：每个 step 起点出一条 step 头；缺 time 时头为 `⇆N #M`", async () => {
   const slim: SessionQueryLike = {
     listSessions: () => Promise.resolve([]),
     readSession: (id) =>
@@ -2306,7 +2325,11 @@ test("P9：无工具调用的 step 不出行；缺 time 时摘要只出步号", 
   const { adapter } = makeAdapterWithSessionQuery(slim);
   const view = await adapter.readSessionSurface!("p9-3");
   assert.deepEqual(view.messages, [
-    { role: "step", text: "#7 ╌╌ grep", turn: 1 },
+    // step 头对每个 step/start 都落一行（该 step 没有回合区内容时由第 3 步按「内容驱动」
+    // 不出头，故 step 8 的头不会变成孤儿头）；缺 time → 头只出回合号与步号
+    { role: "step", text: "⇆1 #7", turn: 1 },
+    { role: "tool", text: "grep {}", turn: 1 },
+    { role: "step", text: "⇆1 #8", turn: 1 },
     { role: "assistant", text: "无工具的步骤", turn: 1 },
   ]);
 });
