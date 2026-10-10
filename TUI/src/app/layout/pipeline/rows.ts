@@ -336,15 +336,20 @@ export function boxToLines(
       : {}),
   };
   const raw = box.text ?? "";
-  // notice / shell：剥掉拖尾换行（旧渲染器 `absorbActivityBlank` 的 `stripTrailingNewline`
-  // 口径——拖尾空行不渲染；整段只有换行时退化成一行空文本，交吸收规则处置）
-  const trimmed =
-    box.source === "notice" || box.source === "shell"
-      ? raw.replace(/\n+$/, "")
-      : raw;
-  const parts =
-    box.source === "user" ? [raw] : trimmed === "" ? [""] : trimmed.split("\n");
-  return parts.map((text) => ({ text, ...shared }));
+  // user：整段一行（行拆分交渲染层折行，见上）；
+  if (box.source === "user") return [{ text: raw, ...shared }];
+  // 非 user 文本：剥掉**前导 / 拖尾空行**（旧渲染器 `absorbActivityBlank` 口径，2026-10-10
+  // 从 notice / shell 扩到全来源）——同源合并会把宿主补发的 "\n\n" 并进相邻正文（`sections.ts`
+  // 按 source 合并），边缘空行在回合区与会话区都会占行；整段全空则该 box 不产出行。
+  // 空白判定含零宽字符（U+200B/U+200C/U+2060/U+FEFF：`trim()` 不删但列宽为 0）。
+  const lines = raw.split("\n");
+  const blank = (text: string): boolean =>
+    /^[\s\u200b\u200c\u2060\ufeff]*$/.test(text);
+  let from = 0;
+  let to = lines.length;
+  while (from < to && blank(lines[from] ?? "")) from++;
+  while (to > from && blank(lines[to - 1] ?? "")) to--;
+  return lines.slice(from, to).map((text) => ({ text, ...shared }));
 }
 
 /** 表格容器 → 原始表格行（与旧缓冲的 markdown 形态逐字符一致）；会话区行带 final */

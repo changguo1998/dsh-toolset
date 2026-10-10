@@ -257,3 +257,58 @@ test("恢复重放：缓冲行 → 节缓存，整帧与原缓冲逐行一致", 
     );
   }
 });
+
+test("同源合并的前导 / 拖尾空行不产出可见行（交付驱动，回合区与会话区）", () => {
+  // 宿主每步补发的 "\n\n" 与相邻同源文本合并（sections.ts 按 source 合并）→ box 文本带
+  // 边缘空行；旧渲染器 absorbActivityBlank 会吸收，新流水线须同口径（BACKLOG 条目）。
+  const base: BlockDelivery[] = [
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: "正文一",
+    },
+  ];
+  const merged: BlockDelivery[] = [
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: "正文一",
+    },
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: "\n\n",
+    },
+  ];
+  const rows = (deliveries: BlockDelivery[]): string[] => {
+    const content = pipelineContent(applyAll(createSections(), deliveries), {
+      dialogueTextW: 80,
+      activityTextW: 80,
+      windowGroups: 3,
+      render: { width: 80 },
+    });
+    return [
+      ...content.activity.map((row) =>
+        row.segments.map((s) => s.text).join(""),
+      ),
+      "|",
+      ...content.dialogue.map((row) =>
+        row.segments.map((s) => s.text).join(""),
+      ),
+    ];
+  };
+  assert.deepEqual(
+    rows(merged),
+    rows(base),
+    "边缘空行不应改变回合区 / 会话区行",
+  );
+});
