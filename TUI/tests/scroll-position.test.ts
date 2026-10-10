@@ -16,7 +16,6 @@ import {
   positionAt,
   segmentAt,
   totalLines,
-  TOP_OLDEST_KEY,
 } from "../src/app/layout/pipeline/rows.ts";
 import { turnGroupStarts } from "../src/app/layout.ts";
 import type { Buffer } from "../src/app/state.ts";
@@ -77,16 +76,12 @@ test("宽度变化（段内行数变）：按段键重定位，行号超界夹�
   );
 });
 
-test("段消失 → 回落距底偏移；哨兵「最旧」→ 第 0 行；null → 贴底", () => {
+test("段消失 → 回落距底偏移；null → 贴底", () => {
   const t = createLineTable([5, 5]);
   assert.equal(
     indexOfTop(t, ["x", "y"], { key: "gone", row: 3 }, 4, 10),
     6,
     "maxTop − 距底偏移",
-  );
-  assert.equal(
-    indexOfTop(t, ["x", "y"], { key: TOP_OLDEST_KEY, row: 0 }, 0, 10),
-    0,
   );
   assert.equal(indexOfTop(t, ["x", "y"], null, 7, 10), 10, "贴底 = maxTop");
 });

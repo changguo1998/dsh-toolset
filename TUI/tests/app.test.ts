@@ -4133,8 +4133,8 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   );
 });
 
-test("对话区滚动：上滚越顶 / End 之后 ↓ 立即响应（偏移收敛到真实上限）", () => {
-  // 回归：scrollOffset 无上限时，连续上滚越顶或按 End（旧实现置 MAX_SAFE_INTEGER）
+test("对话区滚动：上滚越顶 / Home 之后 ↓ 立即响应（偏移收敛到真实上限）", () => {
+  // 回归：scrollOffset 无上限时，连续上滚越顶或按 Home（旧实现置 MAX_SAFE_INTEGER）
   // 会把偏移顶到远超可滚范围；渲染层只做显示侧 clamp，于是每次 ↓ 都只是"还债"，
   // 画面纹丝不动——看起来整块历史卡死。修复：滚键按上一帧回填的真实上限收敛偏移。
   const { app, renderer, adapter } = makeApp();
@@ -4174,16 +4174,75 @@ test("对话区滚动：上滚越顶 / End 之后 ↓ 立即响应（偏移收�
   );
   assert.notEqual(view(), topView, "↓ 画面立即变化（修复前纹丝不动）");
 
-  // End（跳到顶部）：偏移取真实上限，不是 MAX_SAFE_INTEGER
-  renderer.press(key("end"));
+  // Home（翻到最旧已加载）：偏移取真实上限，不是 MAX_SAFE_INTEGER
+  renderer.press(key("home"));
   const endOffset = scrollOffset();
   const endView = view();
   assert.ok(
     endOffset > 0 && endOffset < 1_000_000,
-    `End 后偏移应为真实上限，实际 ${endOffset}`,
+    `Home 后偏移应为真实上限，实际 ${endOffset}`,
   );
   renderer.press(key("down"));
-  assert.notEqual(view(), endView, "End 之后 ↓ 立即响应");
+  assert.notEqual(view(), endView, "Home 之后 ↓ 立即响应");
+  app.dispose();
+});
+
+test("Home / End 语义（2026-10-06 裁定）：End 回最新并复位窗口；Home 分批加载更旧、锚点不动", () => {
+  const { app, renderer, adapter } = makeApp();
+  const key = (name: string): KeyEvent => ({
+    name,
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+  renderer.size = { cols: 100, rows: 30 };
+  for (let i = 1; i <= 20; i++) {
+    adapter.push({
+      type: "stream",
+      sessionId: "s1",
+      text: `回复 ${i} 正文\n`.repeat(3),
+    } as DshEvent);
+    adapter.push({ type: "turn-end" } as DshEvent);
+  }
+  type St = {
+    windowGroups: number;
+    dialogueTop: { key: string; row: number } | null;
+    followBottom: boolean;
+  };
+  const st = (): St => (app as unknown as { state: St }).state;
+  const defaultGroups = initialState().windowGroups;
+
+  // Home = 往回翻到最旧「已加载」内容：不扩窗（不一次性全量物化），离开跟随底部
+  const groups0 = st().windowGroups;
+  assert.equal(groups0, defaultGroups, "初始为默认渐进窗口");
+  renderer.press(key("home"));
+  assert.equal(st().windowGroups, groups0, "Home 只翻到已加载的最旧处，不扩窗");
+  assert.equal(st().followBottom, false, "Home 后停止跟随底部");
+  const anchorTop = st().dialogueTop;
+  assert.ok(anchorTop !== null && anchorTop["key"] !== "", "Home 落了段键锚点");
+
+  // 已在最旧已加载处再按 Home：再物化一批更早回合，锚点不变（内容自上方长出）
+  renderer.press(key("home"));
+  assert.ok(st().windowGroups > groups0, "再按 Home 扩窗一批");
+  assert.deepEqual(
+    st().dialogueTop,
+    anchorTop,
+    "扩窗后锚点不变（视口停在原内容）",
+  );
+
+  // End = 翻到最新 + 渐进窗口复位
+  renderer.press(key("end"));
+  assert.equal(st().followBottom, true, "End 回最新（跟随底部）");
+  assert.equal(st().dialogueTop, null, "End 后清锚点");
+  assert.equal(st().windowGroups, defaultGroups, "End 复位渐进窗口");
+
+  // 更早回合已全部物化时按 Home 不再动作（无更旧内容，也不跳走）
+  for (let i = 0; i < 40; i++) renderer.press(key("home"));
+  const full = st().windowGroups;
+  renderer.press(key("home"));
+  renderer.press(key("home"));
+  assert.equal(st().windowGroups, full, "全部物化后不再扩窗");
+  assert.equal(st().followBottom, false, "仍在锚定态（未被拉回底部）");
   app.dispose();
 });
 

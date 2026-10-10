@@ -130,7 +130,11 @@ import {
   sortHelpRows,
   runPhase,
 } from "./layout.ts";
-import { createLineTable, positionAt } from "./layout/pipeline/rows.ts";
+import {
+  createLineTable,
+  MARKER_KEY,
+  positionAt,
+} from "./layout/pipeline/rows.ts";
 import { sectionGroupCount, sectionsOf } from "./layout/pipeline/frame.ts";
 import {
   DEFAULT_THEME,
@@ -2505,13 +2509,42 @@ export class App {
         }
         break;
       }
-      case "home":
-        // 回到底部（最新）：跟随底部 + 窗口复位默认组数
-        this.apply((s) => reduceState(s, { type: "scroll-to-bottom" }));
+      case "home": {
+        // Home = 往回翻到最旧「已加载」内容（2026-10-06 用户裁定；不一次性全量物化）；
+        // 已在最旧已加载处再按 → 再物化一批更早回合，锚点段键不变（内容从上方长出）
+        const r = this.paneMaxes();
+        // 窗口首行是折叠占位行（`MARKER_KEY`）时，最旧「已加载」内容从第 1 行起
+        const firstContent = r.dialogueKeys[0] === MARKER_KEY ? 1 : 0;
+        if (r.dialogueTopIdx > firstContent) {
+          this.apply((s) =>
+            reduceState(s, {
+              type: "dialogue-scroll",
+              top: positionAt(
+                createLineTable(r.dialogueCounts),
+                r.dialogueKeys,
+                firstContent,
+              ),
+              offset: Math.max(0, r.dialogueMaxScroll - firstContent),
+            }),
+          );
+          break;
+        }
+        // 已在最旧已加载：再物化一批（不动 dialogueTop → 锚点不变，内容自上方长出）
+        if (
+          this.state.windowGroups >= sectionGroupCount(sectionsOf(this.state))
+        )
+          break; // 更早回合已全部物化：无更旧内容，静默不动作
+        this.apply((s) =>
+          reduceState(s, {
+            type: "window-grow",
+            groups: s.windowGroups + WINDOW_GROW_STEP,
+          }),
+        );
         break;
+      }
       case "end":
-        // 跳到最旧：窗口一次扩到全部回合组，锚点钉在首行（line 0）
-        this.apply((s) => reduceState(s, { type: "scroll-to-oldest" }));
+        // End = 翻到最新（2026-10-06 用户裁定，接管原 Home 行为）：跟随底部 + 渐进窗口复位
+        this.apply((s) => reduceState(s, { type: "scroll-to-bottom" }));
         break;
       case "left":
         this.apply((s) => reduceState(s, { type: "move-cursor", delta: -1 }));

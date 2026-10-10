@@ -3160,9 +3160,13 @@ test("buildFrame 回填滚动几何：上限随物化窗口（渐进），初始
     report.dialogueTotal < s.buffer.length,
     "窗口只物化尾部（渐进定位：不再整段历史入排版）",
   );
-  // 窗口一次扩到全部回合组 → 物化行数随之增长（渐进扩窗）
+  // 扩窗一批（Home 的加载步长）→ 物化行数随之增长（渐进扩窗）
   const bigger = emptyReport();
-  buildFrame(reduceState(s, { type: "scroll-to-oldest" }), size, bigger);
+  buildFrame(
+    reduceState(s, { type: "window-grow", groups: s.windowGroups + 3 }),
+    size,
+    bigger,
+  );
   assert.ok(bigger.dialogueTotal > report.dialogueTotal, "扩窗后物化行数变多");
   assert.ok(bigger.dialogueMaxScroll > report.dialogueMaxScroll);
 });

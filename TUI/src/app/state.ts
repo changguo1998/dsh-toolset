@@ -38,8 +38,7 @@ import {
   TOKEN_CALIB_MIN,
   type RunVirtState,
 } from "./layout.ts";
-import { TOP_OLDEST_KEY, type DialogueTop } from "./layout/pipeline/rows.ts";
-import { sectionGroupCount, sectionsOf } from "./layout/pipeline/frame.ts";
+import type { DialogueTop } from "./layout/pipeline/rows.ts";
 import { completeCommandInput, type CommandCandidate } from "./commands.ts";
 import { DEFAULT_THEME, type ThemeId } from "../renderer/theme.ts";
 import {
@@ -2078,17 +2077,6 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           dialogueTop: null,
           windowGroups: DIALOGUE_KEEP_REPLIES,
         };
-      case "scroll-to-oldest":
-        // 跳到最旧：窗口一次扩到全部回合组，视口钉在最旧一行（哨兵键由定位层解析为第 0 行）
-        return {
-          ...state,
-          followBottom: false,
-          dialogueTop: { key: TOP_OLDEST_KEY, row: 0 },
-          windowGroups: Math.max(
-            state.windowGroups,
-            sectionGroupCount(sectionsOf(state)),
-          ),
-        };
       case "window-grow":
         // 扩窗（App 在位移前调用）：只多物化更早回合，视口位置不动
         return {
@@ -2761,7 +2749,6 @@ export type StateAction =
    */
   | { type: "dialogue-scroll"; top: DialogueTop | null; offset: number }
   | { type: "scroll-to-bottom" }
-  | { type: "scroll-to-oldest" }
   /** 扩窗：只多物化更早回合组，视口位置不动（App 在施加位移之前调用） */
   | { type: "window-grow"; groups: number }
   /** 六步流水线节缓存整体替换（App 注入；undefined = 无会话）。

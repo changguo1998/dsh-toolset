@@ -158,11 +158,8 @@ export function remap(
 //   - 上方插入段（扩窗纳入更早回合）→ 段键不变 → 同一内容留在原处，画面不动；
 //   - 宽度变化 → 段内行数变，按段键定位到同一段；段内行超界时夹到该段末行；
 //   - 段整个消失（该节被裁掉）→ 回落「距底偏移」（内容靠底则位置也靠底）。
-
 /** 折叠占位行（「更早回复已折叠」）的段键 */
 export const MARKER_KEY = "@marker";
-/** 「跳到最旧」哨兵段键（reducer 不知道段键，由定位层解析为第 0 行） */
-export const TOP_OLDEST_KEY = "@oldest";
 
 /** 视口顶位置：段键 + 段内行（`null` = 贴底跟随最新） */
 export interface DialogueTop {
@@ -189,7 +186,6 @@ export function positionAt(
 /**
  * 视口顶位置 → 绝对行号（clamp 到 `[0, maxTop]`）：
  *   - `null` → `maxTop`（贴底）；
- *   - 哨兵「最旧」→ 0；
  *   - 段键不在表里 → 回落 `maxTop − fallbackOffset`（距底偏移）。
  */
 export function indexOfTop(
@@ -200,7 +196,6 @@ export function indexOfTop(
   maxTop: number,
 ): number {
   if (top === null) return maxTop;
-  if (top.key === TOP_OLDEST_KEY) return 0;
   const segment = keys.indexOf(top.key);
   if (segment < 0)
     return Math.max(0, Math.min(maxTop, maxTop - Math.max(0, fallbackOffset)));
