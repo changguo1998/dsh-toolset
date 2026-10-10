@@ -25,6 +25,8 @@ import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";
 import { ScreenEmu } from "./helpers/screenEmu.ts";
 import { rowText } from "./helpers/rowText.ts";
+import { applyDelivery } from "../src/app/layout/pipeline/sections.ts";
+import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
 
 const COLS = 80;
 const ROWS = 24;
@@ -50,9 +52,15 @@ function assertScreenMatches(
     const want = rowText(rows[i]!).replace(/\s+$/, "");
     const got = emu.line(i);
     if (want !== got)
-      bad.push(`第${i + 1}行 屏=${JSON.stringify(got)} 帧=${JSON.stringify(want)}`);
+      bad.push(
+        `第${i + 1}行 屏=${JSON.stringify(got)} 帧=${JSON.stringify(want)}`,
+      );
   }
-  assert.deepEqual(bad, [], `${label}：屏幕应与帧一致（${bad.length} 行不一致）`);
+  assert.deepEqual(
+    bad,
+    [],
+    `${label}：屏幕应与帧一致（${bad.length} 行不一致）`,
+  );
 }
 
 class TrackedApp extends App {
@@ -134,9 +142,15 @@ function paint(
     const want = rowText(r.rows[i]!).replace(/\s+$/, "");
     const got = emu.line(i);
     if (want !== got)
-      bad.push(`第${i + 1}行 屏=${JSON.stringify(got)} 帧=${JSON.stringify(want)}`);
+      bad.push(
+        `第${i + 1}行 屏=${JSON.stringify(got)} 帧=${JSON.stringify(want)}`,
+      );
   }
-  assert.deepEqual(bad, [], `${label}：屏幕应与帧一致（${bad.length} 行不一致）`);
+  assert.deepEqual(
+    bad,
+    [],
+    `${label}：屏幕应与帧一致（${bad.length} 行不一致）`,
+  );
 }
 
 test("问答面板：开面板 + ↓ + 空格 + Esc，每一步屏幕都等于当前帧（纯终端语义）", () => {
@@ -251,14 +265,45 @@ test("面板位移：活动区有流式行时开面板 + ↓，屏幕仍等于�
   try {
     // 面板打开期间活动区仍有流式内容（真实时序：工具/子代理输出与提问并发）
     let frame = (st: AppState) => buildFrame(st, size);
-    s = reduceState(s, { type: "thinking", text: "思考中……" });
-    s = reduceState(s, { type: "append", text: "正在输出的正文……" });
+    // 条目 16 段 A：流式内容不再写 buffer，改走交付流（帧内容源 = state.pipeline）
+    let pipe = sectionsFromScript([
+      { delivery: { kind: "turn-start", turn: 1, time: 1_700_000_000_000 } },
+      {
+        delivery: {
+          kind: "text",
+          turn: 1,
+          step: 1,
+          index: 0,
+          source: "reasoning",
+          text: "思考中……",
+        },
+      },
+      {
+        delivery: {
+          kind: "text",
+          turn: 1,
+          step: 1,
+          index: 1,
+          source: "assistant",
+          text: "正在输出的正文……",
+        },
+      },
+    ]);
+    s = { ...s, pipeline: pipe };
     let rows = frame(s);
     real.render(rows);
     assertScreenMatches(emu, rows, "流式行 + 面板");
     for (let i = 1; i <= 2; i++) {
       s = reduceState(s, { type: "question-move", delta: 1 });
-      s = reduceState(s, { type: "append", text: `追加第 ${i} 段输出` });
+      pipe = applyDelivery(pipe, {
+        kind: "text",
+        turn: 1,
+        step: 1,
+        index: 1 + i,
+        source: "assistant",
+        text: `追加第 ${i} 段输出`,
+      });
+      s = { ...s, pipeline: pipe };
       rows = frame(s);
       real.render(rows);
       assertScreenMatches(emu, rows, `流式行 + ↓ 第 ${i} 次`);

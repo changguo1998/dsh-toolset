@@ -36,6 +36,8 @@
 - 段 A 续迁（2026-10-11 第 8 轮）：`tests/p8-compaction-active.test.ts`（4 例，助手内一处 `user-line` → 交付）、`tests/color-semantics.test.ts`（5 例，助手内 `append` + `turn-begin` → 交付）。两文件全绿，全量 1446 绿。
 - 段 A 续迁（2026-10-11 第 9 轮）：`tests/renderer-diff.test.ts`（11 例，底稿 8 行改一条含换行的正文交付、末行增长改同块流式追加）。全绿。
 - 更正：`tests/pipeline-app.test.ts` **无需迁移**——那里 `type: "thinking"` 是**宿主事件**（与交付配对），不是缓冲写入；上一轮清单的 1/15 是误判。
+- 段 A 续迁（2026-10-11 第 10 轮）：`tests/question-panel-frame.test.ts`（4 例，流式内容改交付流 + 逐步 `applyDelivery` 追加）。全绿。
+- **归类更正**：`tests/steer-queued-display.test.ts` 的 `user-line` **不是内容 fixture**，而是断言「steer 认领给上一条输入打 `steerContinued` / `spaceBefore`」的**缓冲行契约**——它属**段 C**（buffer 行语义本身退场时一并改写），段 A 不动它。
 - 仍依赖 buffer 内容动作的测试文件（按「内容动作数 / 用例数」升序，下一轮从小到大清）：`renderer-diff`(2/11)、`layout`(2/34)、`steer-queued-display`(2/7)、`step`(3/10)、`question-panel-frame`(3/4)、`turn-separator`(4/5)、`screen-residue`(4/7)、`buffer-retire`(5/5)、`focus-frame`(4/1，需重生基线)、`layout4`(118/80，最后做)。
 - 原「待迁移（段 A 余量，按难度排）」备忘（保留供参照）：
   1. `tests/focus-frame.test.ts`（210 行）：**不能机械迁移**——它比的是冻结基线 `tests/fixtures/focus-frame-legacy.json`。2026-10-11 实测：按 `pane-text-margin` 的范式把 `baseState` 换成交付流后，`w20` 四例仍过、**`w60` 四例全挂**（内容形态与旧缓冲重放不同）。
