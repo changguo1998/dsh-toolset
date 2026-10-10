@@ -345,6 +345,12 @@ export function normalizeHistoryMessages(
   // 54 条副本的 id 与 `user/message` 全部重合）。恢复时若两条都出，每条用户消息会出现两次，
   // 且副本没有终态 → 显示 `?`（真机现象：自己的消息块一直是 `?`）。先收集 `user/message` 的
   // id，主循环里丢弃同 id 的副本——与实时路径同口径（spliced 的用户输入由本地回显覆盖，不重复显示）
+  // 「消息先落库、回合后开始」：宿主把用户输入记成**不带 turn** 的 `user/message`，紧随其后
+  // 才发 `turn/start`。若按 `curTurn` 兜底，用户块会挂到**上一个**回合号上，它对应的
+  // `turn/end` 永远匹配不上 → 恢复出来一直是 `?`（条目 27 真机现象）。故：紧跟在
+  // `turn/end`（或会话开头）之后的无 turn 用户消息，归给**下一个** `turn/start` 的回合号。
+  const pendingUsers: number[] = [];
+  let awaitingTurnStart = true;
   const userIds = new Set<string>();
   for (const e of events) {
     if (e.type !== "user/message") continue;
@@ -355,7 +361,17 @@ export function normalizeHistoryMessages(
     const data = e.data as Record<string, unknown> | undefined;
     if (!data) continue;
     // 宿主回合号逐层保留（恢复路径真回合号的来源；缺省保持上一个已知值）
-    if (typeof data.turn === "number") curTurn = data.turn;
+    if (typeof data.turn === "number") {
+      curTurn = data.turn;
+      if (e.type === "turn/start") {
+        awaitingTurnStart = false;
+        for (const idx of pendingUsers) {
+          const m = out[idx];
+          if (m !== undefined) out[idx] = { ...m, turn: curTurn };
+        }
+        pendingUsers.length = 0;
+      }
+    }
     if (e.type === "step/start") {
       flushStep(); // 防御：上一个 step 未发 step/end（截断日志）时先收口
       const n = typeof data.step === "number" ? data.step : 0;
@@ -401,6 +417,7 @@ export function normalizeHistoryMessages(
       // 的收尾只能沿用上一个已知回合 → 仅在该回合尚无记录时采用，避免归属不明的收尾
       // 把先前正确的终态改错（截断 / 旧格式日志）
       const own = typeof data.turn === "number" ? data.turn : undefined;
+      awaitingTurnStart = true;
       const at = own ?? curTurn;
       if (status !== undefined && at !== undefined) {
         if (own !== undefined || !turnStatus.has(at))
@@ -415,7 +432,10 @@ export function normalizeHistoryMessages(
           text: summary,
           ...(curTurn === undefined ? {} : { turn: curTurn }),
         });
-      else pushText("user", extractTextBlocks(data.content));
+      else {
+        pushText("user", extractTextBlocks(data.content));
+        if (awaitingTurnStart) pendingUsers.push(out.length - 1);
+      }
     } else if (e.type === "assistant/message") {
       const msg = data.message as Record<string, unknown> | undefined;
       pushText("assistant", extractTextBlocks(msg?.content));

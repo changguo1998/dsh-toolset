@@ -69,6 +69,7 @@ import type {
   StreamChunk,
   AssistantStreamRecord,
 } from "../src/app/adapter/types.ts";
+import { normalizeHistoryMessages } from "../src/app/adapter/dsh.ts";
 
 /** 可编程 fake 宿主 */
 class FakeRuntime implements DshRuntime {
@@ -6256,5 +6257,38 @@ test("条目 27：live 事件缺 turn/end 时从持久源补齐（恢复的用�
       .map((m) => [m.text, m.status ?? "-"]),
     [["问题一", "success"]],
     "live 缺 turn/end → 从持久源补齐后用户块应带终态（不再是 ?）",
+  );
+});
+
+test("条目 27：用户消息先于 turn/start 落库（真机顺序）→ 终态回填到正确回合", () => {
+  const msgs = normalizeHistoryMessages([
+    {
+      type: "user/message",
+      seq: 1,
+      data: { id: "u1", content: [{ type: "text", text: "问题一" }] },
+    },
+    { type: "turn/start", seq: 2, data: { turn: 1 } },
+    {
+      type: "assistant/message",
+      seq: 3,
+      data: {
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "答一" }],
+        },
+      },
+    },
+    {
+      type: "turn/end",
+      seq: 4,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+  ]);
+  assert.deepEqual(
+    msgs
+      .filter((m) => m.role === "user")
+      .map((m) => [m.turn ?? "-", m.status ?? "-"]),
+    [[1, "success"]],
+    "用户块应归给紧随其后的 turn/start 的回合（旧口径会挂到上一个回合 → ?）",
   );
 });
