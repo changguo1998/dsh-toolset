@@ -5,11 +5,9 @@
 // Enter 提交预选（无预选回退焦点行）并关闭，Esc 取消；按键提示在底部提示区。
 // 输出恰 height 行：标题 + 最多 (height-1) 行选项（超出时窗口跟随焦点滚动）。
 
-import type { FrameRow } from "../../renderer/index.ts";
 import type { StatusPanelState } from "../state.ts";
 import type { Box } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
-import { fillBoxTree } from "../layout/fill.ts";
 import { windowStart } from "../layout/panel.ts";
 import { seg } from "../layout/primitives.ts";
 
@@ -74,19 +72,4 @@ export function buildStatusPanelBox(
     (_, i) => window[i] ?? styled([seg("")]),
   );
   return v([titleRow, ...body]);
-}
-
-export interface StatusPanelView {
-  panel: StatusPanelState;
-  height: number;
-  width: number;
-}
-
-export function renderStatusPanel(view: StatusPanelView): FrameRow[] {
-  // 薄包装：单一数据源 buildStatusPanelBox（Box 生成器）→ fill 摊平
-  return fillBoxTree(
-    buildStatusPanelBox(view.panel, view.height, view.width),
-    view.height,
-    view.width,
-  );
 }

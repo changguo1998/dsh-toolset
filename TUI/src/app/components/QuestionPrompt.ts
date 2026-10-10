@@ -50,10 +50,8 @@ import { charWidth, displayWidth } from "../layout/markdown.ts";
  * 新选项从哪一行开始；加深到 6 列后续行缩进于选项文字起点（第 4 列）。
  * 面板可用宽不足 6 列时退回 4 列（见 buildQuestionPanelBox 的 contIndent）。
  */
-const OPTION_CONT_INDENT = "      ";
 
 /** 选项正文起点列（前缀 ` >* ` = 4 列）：解释行按此缩进（BACKLOG 3.2.3） */
-const OPTION_DESC_INDENT = "    ";
 
 /** 类型标识符号（BACKLOG TUI#4 / TUI#1）：多题符号行用；plan-review 视同审批。
  *  空心 = 非当前题；当前题改用实心（SYM_FILLED），两者都按当前题着色。 */

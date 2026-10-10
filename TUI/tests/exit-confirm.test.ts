@@ -67,7 +67,7 @@ const frameText = (renderer: FakeRenderer): string => {
 const ctrlD = (renderer: FakeRenderer): void => renderer.press(key("d", true));
 
 test("Ctrl+D → 弹出退出确认面板（不退出）；Esc 取消后留在 TUI", () => {
-  const { app, renderer, adapter } = makeApp();
+  const { renderer, adapter } = makeApp();
   ctrlD(renderer);
   const text = frameText(renderer);
   assert.ok(text.includes("确认退出 dsh？"), "面板题干可见");
@@ -91,7 +91,7 @@ test("Ctrl+D → 弹出退出确认面板（不退出）；Esc 取消后留在 T
 });
 
 test("确认面板：Enter（默认「取消」）关面板不退出；数字 2 + Enter 才退出", () => {
-  const { app, renderer, adapter } = makeApp();
+  const { renderer, adapter } = makeApp();
   ctrlD(renderer);
   renderer.press(key("enter"));
   assert.equal(renderer.closed, 0, "默认项 Enter = 留在 TUI");

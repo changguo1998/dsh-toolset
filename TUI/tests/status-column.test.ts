@@ -18,15 +18,13 @@ import assert from "node:assert/strict";
 import { renderStatusColumn, displayWidth } from "../src/app/layout.ts";
 import { THEMES, ansiNameToHex, hexSgr } from "../src/renderer/theme.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
-import type { GoalHistory, ModeState } from "../src/app/state.ts";
+import type { GoalHistory } from "../src/app/state.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import type {
   GoalActivation,
   JobInfo,
   TodoItemLike,
 } from "../src/app/adapter/dsh.ts";
-
-const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 type GoalPhase = "active" | "paused" | "blocked" | "complete";
 

@@ -52,7 +52,7 @@ import {
   sectionsFromBuffer,
   stepOf,
 } from "./layout/pipeline/replay.ts";
-import { TURN_SEPARATOR, type BufferLine } from "./state.ts";
+import { type BufferLine } from "./state.ts";
 import {
   setWidthOverrides,
   setWidthProbeEnabled,
@@ -118,7 +118,6 @@ import {
 } from "./model-transition.ts";
 import {
   buildFrame,
-  DIALOGUE_KEEP_REPLIES,
   WINDOW_GROW_STEP,
   type FrameScrollReport,
   type FrameBuildOutput,

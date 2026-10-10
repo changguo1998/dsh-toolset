@@ -22,7 +22,6 @@ import { truncateToWidth, displayWidth } from "../layout.ts";
 import type { Box } from "../layout/box.ts";
 import { fillBoxTree } from "../layout/fill.ts";
 import { v, styled } from "../layout/box.ts";
-import { seg } from "../layout/primitives.ts";
 
 export interface ModelPickerView {
   picker: PickerState;
@@ -179,9 +178,6 @@ export function buildModelPickerBox(view: ModelPickerView): Box {
     ? displayWidth("effort (unsupported)") + 2
     : longestCellWidth(efforts.map((e) => e.name));
   const widths = pickerColumnWidths([provLong, modelLong, effLong], available);
-  const provW = widths[0]!;
-  const modelW = widths[1]!;
-  const thinkW = widths[2]!;
 
   const listRows = Math.max(1, height - 1); // 只剩标题行（按键提示在底部提示区）
   const colContent = (len: number) =>

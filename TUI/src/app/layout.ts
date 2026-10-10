@@ -116,40 +116,16 @@ import {
   wrapLine,
 } from "./layout/primitives.ts";
 
-// ---------- 视口纯函数 ----------
+// ---------- 对话区视口 ----------
 
-export interface ViewportInput {
-  totalRows: number;
-  height: number; // 视口区域行数
-  followBottom: boolean;
-  scrollOffset: number; // 距底部行数
-}
-
+/** 对话区可见窗口（`buildTopRegion` 内回填 `FrameScrollReport` 与 pane 取行用）。
+ *  旧的 `ViewportInput` / `computeViewport`（followBottom + scrollOffset 模型）已随
+ *  六步流水线退场，2026-10-10 删除；本结构只剩「段表算定后的窗口四个字段」。 */
 export interface Viewport {
-  start: number; // wrapped 行数组内可见起始下标
+  start: number; // segTable 内可见起始下标
   end: number; // 结束下标（不含）
   followBottom: boolean;
   scrollOffset: number;
-}
-
-/** 由 followBottom + scrollOffset 计算可见窗口；offset 超界自动收敛 */
-export function computeViewport(vp: ViewportInput): Viewport {
-  if (vp.totalRows <= vp.height) {
-    return { start: 0, end: vp.totalRows, followBottom: true, scrollOffset: 0 };
-  }
-  if (vp.followBottom) {
-    return {
-      start: vp.totalRows - vp.height,
-      end: vp.totalRows,
-      followBottom: true,
-      scrollOffset: 0,
-    };
-  }
-  const offset = Math.min(vp.scrollOffset, vp.totalRows - vp.height);
-  const start = vp.totalRows - vp.height - offset;
-  const end = start + vp.height;
-  const followBottom = offset <= 0;
-  return { start: Math.max(0, start), end, followBottom, scrollOffset: offset };
 }
 
 // ---------- 帧组装 ----------
@@ -256,13 +232,6 @@ const MODE_SHORT: Record<string, string> = {
   "danger-full-access": "full",
 };
 
-/** 权限等级配色名（红色=高危险 / 黄=可写 / 绿=只读安全）：ro 绿、wr 黄、full 红，其余灰 */
-function permColor(code: string): ColorName {
-  if (code === "ro") return "green";
-  if (code === "wr") return "yellow";
-  if (code === "full") return "red";
-  return "gray";
-}
 /** 焦点面板四边框的保留格：屏幕最左 1 列（状态列外缘）+ 最右 1 列（历史/活动区外缘）。
  *  所有状态恒定，未聚焦留空白占位，防内容重排。
  *  不保留顶部边框行（标题栏即顶部，焦点顶边用标题栏下划线/状态列顶行兼作）。 */
@@ -599,7 +568,6 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     state.jobsPanel !== null ||
     state.commandPanel !== null ||
     state.history !== null;
-  const normalInput = !modalOpen;
   const statusLines = renderStatusLine(
     state.systemStatus,
     cols,
@@ -917,76 +885,6 @@ function agentItemRows(a: AgentRowInfo, width: number): StatusRow[] {
       segments: [seg(line, { fg })],
     }),
   );
-}
-
-/** 段集按显示宽度折行（token=多段数组；放不下强制折行、不截断）。
- *  同行相邻 token 之间插入分隔 sep（如竖线），token A 与 B 之间发生折行时不加
- *  分隔（行尾不残留竖线）。宽度按各段 text 显示宽计。返回 FrameRow[]（纯文本段）。 */
-function wrapSegs(
-  tokens: readonly FrameSegment[][],
-  width: number,
-  /** 同行相邻 token 之间的分隔（默认单空格段） */
-  sep: FrameSegment = { text: " " },
-): FrameRow[] {
-  const rows: FrameRow[] = [];
-  let row: FrameSegment[] = [];
-  let rowW = 0;
-  const visW = (segs: FrameSegment[]): number =>
-    segs.reduce((acc, s) => acc + displayWidth(s.text), 0);
-  // token 超宽时按词级在内部折行（保留各段样式；空格拆分后同词段合并）
-  const splitOverflow = (segs: FrameSegment[]): FrameSegment[][] => {
-    const words = segs
-      .flatMap((s) => s.text.split(" "))
-      .filter((w) => w !== "");
-    const lines: FrameSegment[][] = [];
-    let line: FrameSegment[] = [];
-    let lw = 0;
-    for (const wd of words) {
-      const style = segs.find((s) => s.text.includes(wd))?.style;
-      const ww = charWidth(wd[0] ?? "");
-      const gap = line.length === 0 ? 0 : 1;
-      if (line.length !== 0 && lw + gap + ww > Math.max(1, width)) {
-        lines.push(line);
-        line = [];
-        lw = 0;
-      }
-      line.push({ text: (line.length === 0 ? "" : " ") + wd, style });
-      lw += gap + displayWidth(wd);
-    }
-    if (line.length > 0) lines.push(line);
-    return lines.length > 0 ? lines : [segs];
-  };
-  const pushToken = (segs: FrameSegment[]): void => {
-    const w = visW(segs);
-    if (row.length === 0) {
-      if (w <= Math.max(1, width)) {
-        row = segs;
-        rowW = w;
-      } else {
-        for (const l of splitOverflow(segs)) rows.push({ segments: l });
-      }
-      return;
-    }
-    const gap = visW([sep]);
-    if (rowW + gap + w <= Math.max(1, width)) {
-      row.push(sep, ...segs); // 同行：插入竖线分隔
-      rowW += gap + w;
-      return;
-    }
-    // 折行：上一项行尾不带竖线
-    rows.push({ segments: row });
-    row = [];
-    rowW = 0;
-    if (w <= Math.max(1, width)) {
-      row = segs;
-      rowW = w;
-    } else {
-      for (const l of splitOverflow(segs)) rows.push({ segments: l });
-    }
-  };
-  for (const token of tokens) pushToken(token);
-  if (row.length > 0) rows.push({ segments: row });
-  return rows;
 }
 
 /** P7 起：会话开关态（verbose / symbol-unify / 声音提醒）不再由状态列 Mode 块展示，
@@ -1377,7 +1275,6 @@ function buildTopRegion(
   const {
     contentTopH,
     statusColWidth,
-    historyWidth,
     contentW,
     titleRows,
     activityH,
@@ -2517,7 +2414,6 @@ export function buildFrame(
     cols: fullWidth,
     contentTopH,
     statusColWidth,
-    historyWidth,
     titleRows,
     innerDividerCol,
     modalOpen,

@@ -409,7 +409,7 @@ setCell(row: FrameRow, col: number, ch: string, style?: FrameStyle): void
 - **状态列分级折叠**（L0–L3）：按 rect 高逐级尝试、首次放下即采用；必保行与可折叠条目及其优先级由现状块结构（`head`/`items`）自然携带，**不发明“可折叠标注”**（现 `foldAt`）。Goal 块额外携带 `historyFrom`（`items[≥historyFrom]` 为旧 goal 条目）：L1 只保留最近 1 条历史并提示隐藏数，L2 起压成标题行
 - **历史区组折叠**：仅保最近 N 回复组，更早替换为灰占位（`windowSections` 在**节**层切片 + 占位行（`MARKER_KEY`），未物化的节不排版）
 - **活动区两态**：状态 1（`/collapse off`，缺省）每条完全显示、溢出按行截断 + 可滚动；状态 2（`/collapse on`，紧凑）每条目压为 1 行、行尾省略号。**触发方式已定：显式命令切换**（不做按高度预算自动降级；实现见 §15.5.1）。另有**输出内容三档** `/verbose think|tool|step`（BACKLOG #8，见 §15.5）
-- 滚动 viewport：按矩形高裁行 + 行级滚动偏移（= 现状 `computeViewport` 语义）
+- 滚动 viewport：按矩形高裁行 + 行级滚动偏移（段表算定后的窗口，`Viewport` 结构）
 
 **适配落点**（均为 `(内容, rect) → 行` 的纯函数，同输入同输出，支撑 §9 的摊平可复现不变量）：
 

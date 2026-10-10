@@ -6,7 +6,6 @@ import {
   displayWidth,
   wrapLine,
   wrapLines,
-  computeViewport,
   parseInlineMarkdown,
   wrapInlineMarkdown,
   truncateToWidth,
@@ -151,68 +150,6 @@ test("wrapLines：多条原始行各自换行并拼接", () => {
     "i",
     "",
   ]);
-});
-
-// ---- computeViewport ----
-
-test("跟随底部：内容不足一屏时 start=0", () => {
-  assert.deepEqual(
-    computeViewport({
-      totalRows: 3,
-      height: 10,
-      followBottom: true,
-      scrollOffset: 0,
-    }),
-    { start: 0, end: 3, followBottom: true, scrollOffset: 0 },
-  );
-});
-
-test("跟随底部：超一屏时显示末尾 height 行", () => {
-  assert.deepEqual(
-    computeViewport({
-      totalRows: 20,
-      height: 5,
-      followBottom: true,
-      scrollOffset: 0,
-    }),
-    { start: 15, end: 20, followBottom: true, scrollOffset: 0 },
-  );
-});
-
-test("上滚暂停跟随：有 offset 时 start 上移", () => {
-  assert.deepEqual(
-    computeViewport({
-      totalRows: 20,
-      height: 5,
-      followBottom: false,
-      scrollOffset: 3,
-    }),
-    { start: 12, end: 17, followBottom: false, scrollOffset: 3 },
-  );
-});
-
-test("上滚 offset 上限收敛到顶部（不能滚过头）", () => {
-  assert.deepEqual(
-    computeViewport({
-      totalRows: 20,
-      height: 5,
-      followBottom: false,
-      scrollOffset: 999,
-    }),
-    { start: 0, end: 5, followBottom: false, scrollOffset: 15 },
-  );
-});
-
-test("滚回底部（offset=0, follow=false）恢复跟随", () => {
-  assert.deepEqual(
-    computeViewport({
-      totalRows: 20,
-      height: 5,
-      followBottom: false,
-      scrollOffset: 0,
-    }),
-    { start: 15, end: 20, followBottom: true, scrollOffset: 0 },
-  );
 });
 
 // ---- 修复回归：多行 notice 拆分（REGRESSION: /help 在 "quit" 中间折行） ----

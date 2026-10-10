@@ -64,10 +64,7 @@ import {
   itemOf,
 } from "../src/app/layout/pipeline/sections.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
-import {
-  readSessionUiState,
-  writeSessionUiState,
-} from "../src/app/adapter/session-ui-state.ts";
+import { writeSessionUiState } from "../src/app/adapter/session-ui-state.ts";
 import type {
   StreamChunk,
   AssistantStreamRecord,

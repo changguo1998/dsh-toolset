@@ -581,7 +581,6 @@ if (smoke) {
       );
       typeLine("/policy never");
       await sleep(400);
-      const policyPlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
       ok(
         "policy-command-call",
         adapter.setApprovalPolicyCalls === 1 && adapter.lastPolicy === "never",

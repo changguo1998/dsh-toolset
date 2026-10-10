@@ -60,13 +60,11 @@ import type {
   TaskEngineTaskLike,
   CommandPanelRow,
   KnowledgeBundleSummaryLike,
-  KnowledgeServiceLike,
   CandidateRowLike,
   MemoryReviewVerdictLike,
   LoopSummaryLike,
   ContractParseResult,
   ContractClauseLike,
-  GoalContractServiceLike,
   WorkflowRunLike,
   SearchSourceLike,
   GoalChangeLike,
@@ -92,7 +90,6 @@ import {
   summarizeToolArguments,
 } from "./normalize.ts";
 import { rmSync } from "node:fs";
-import { join } from "node:path";
 import { locateSessionDir, sessionRoots } from "./session-paths.ts";
 import {
   readSessionUiState,

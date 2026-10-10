@@ -12,7 +12,6 @@ import { initialState, reduceState } from "../src/app/state.ts";
 import { routeSlashCommand } from "../src/app/commands.ts";
 import { TITLE_ICON, titleBarSegments } from "../src/app/layout.ts";
 import { createRealDshAdapter } from "../src/app/adapter/dsh.ts";
-import { rowAnsi } from "./helpers/rowText.ts";
 import type {
   DshAdapter,
   DshEvent,

@@ -10,14 +10,9 @@
 import type { Box, Node } from "./box.ts";
 import { v, h, text, styled, spacer } from "./box.ts";
 import { hasCellPipe, isTableStart, parseTableAt, tableBox } from "./table.ts";
-import type {
-  ActivityLevel,
-  Buffer,
-  BufferKind,
-  BufferLine,
-} from "../state.ts";
+import type { ActivityLevel, Buffer, BufferLine } from "../state.ts";
 import type { ColorName } from "../../renderer/theme.ts";
-import type { FrameSegment, FrameStyle } from "../../renderer/index.ts";
+import type { FrameStyle } from "../../renderer/index.ts";
 import {
   TOOL_CONT_INDENT,
   USER_MIN_LEFT_GUTTER,

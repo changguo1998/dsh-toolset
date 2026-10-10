@@ -16,12 +16,7 @@ import {
 } from "../src/app/components/ApprovalPrompt.ts";
 import { renderQuestionPanel } from "../src/app/components/QuestionPrompt.ts";
 import { questionKeyDecision } from "../src/app/question-transition.ts";
-import {
-  initialState,
-  reduceState,
-  type AppState,
-  type BufferLine,
-} from "../src/app/state.ts";
+import { initialState, reduceState, type AppState } from "../src/app/state.ts";
 import { rowAnsi, rowsText } from "./helpers/rowText.ts";
 
 const plain = (rows: Parameters<typeof rowsText>[0]): string[] =>

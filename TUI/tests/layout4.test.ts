@@ -12,15 +12,12 @@ import {
   renderStatusLine,
   truncateToWidth,
   displayWidth,
-  USER_MIN_LEFT_GUTTER,
   userMaxBodyWidth,
   TITLE_BAR_ROWS,
   dialogueHalfPage,
   frameGeometry,
   userRowJump,
-  DIALOGUE_KEEP_REPLIES,
   WINDOW_GROW_STEP,
-  FRAME_LEFT_COLS,
   regionColumnWidth,
   paneTextWidth,
   emptyRunVirt,
@@ -60,7 +57,6 @@ import { buildContentRows } from "../src/app/layout/build-box.ts";
 import type {
   InputMode,
   InputStatus,
-  Buffer,
   TurnEndReason,
 } from "../src/app/state.ts";
 import type { FrameRow } from "../src/renderer/screen.ts";

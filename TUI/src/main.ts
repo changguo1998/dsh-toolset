@@ -30,11 +30,6 @@ import type { BlockDelivery } from "./app/layout/pipeline/types.ts";
 import {
   createRealDshAdapter,
   installSessionModelSelection,
-  installToolBootstrap,
-  shouldAutoKickoff,
-  newSessionKickoffText,
-  BOOTSTRAP_KICKOFF_TEXT,
-  isDeepseekModel,
   listSessionRecords,
   pickRecentSession,
   readDefaultSelection,
@@ -113,7 +108,6 @@ export function main(opts: {
     opts.renderer ?? createRenderer({ themes: resolvedThemes.themes });
 
   // 六步流水线：App 注册 sink 后 adapter 才投递（开关关闭时 sink 恒空、零开销）
-  const pipelineSink: { current?: (delivery: BlockDelivery) => void } = {};
   const app = new App({
     renderer,
     adapter: opts.adapter,

@@ -8,8 +8,6 @@
 // 高亮行恒在可见窗口内（窗口随 index 平移），列表放不下时截断显示。
 // 无 ANSI 之外的着色；显示宽度截断（与 HistoryPanel 同风格）。
 
-import type { FrameRow } from "../../renderer/index.ts";
-import { fillBoxTree } from "../layout/fill.ts";
 import type { ColorName } from "../../renderer/theme.ts";
 import type { JobInfo } from "../adapter/dsh.ts";
 import { truncateToWidth } from "../layout.ts";
@@ -78,17 +76,6 @@ export function buildJobsPanelBox(
   return v(leaves);
 }
 
-export interface JobsPanelView {
-  /** adapter 推送的最新 jobs 快照 */
-  jobs: JobInfo[];
-  /** 高亮任务在 jobs 中的索引（Enter 取消它）；空/越界时 clamp */
-  index: number;
-  /** 面板可用行数（footer 高度） */
-  height: number;
-  /** 面板可用列宽 */
-  width: number;
-}
-
 /** 状态 → 符号 + 语义色名（运行中黄 / 失败红 / 取消灰 / 成功默认前景） */
 export function statusMark(status: string): {
   symbol: string;
@@ -108,14 +95,4 @@ export function statusMark(status: string): {
     return { symbol: "○", color: "gray" };
   }
   return { symbol: "✓", color: undefined };
-}
-
-/** 一行（首行或任务行） → FrameRow[]；把超宽文本截断后按需着色 */
-export function renderJobsPanel(view: JobsPanelView): FrameRow[] {
-  // 薄包装：单一数据源 buildJobsPanelBox → fillBoxTree
-  return fillBoxTree(
-    buildJobsPanelBox(view.jobs, view.index, view.height, view.width),
-    view.height,
-    view.width,
-  );
 }

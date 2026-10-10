@@ -13,14 +13,12 @@
 // 标题按显示宽补齐，避免 CJK 顶开活动区右缘框线。
 // 无 ANSI 着色（与模型选择面板同风格），中文界面文本按显示宽度截断。
 
-import type { FrameRow } from "../../renderer/index.ts";
 import type { HistoryPanelState } from "../state.ts";
 import type { SessionInfo } from "../adapter/dsh.ts";
 import { truncateToWidth, wrapLine, displayWidth } from "../layout.ts";
 import type { Box } from "../layout/box.ts";
 import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
-import { fillBoxTree } from "../layout/fill.ts";
 
 export interface HistoryPanelView {
   history: HistoryPanelState;
@@ -295,9 +293,4 @@ export function buildHistoryPanelBox(view: HistoryPanelView): Box {
     styled([seg(body[r] ?? "")], { wrap: false }),
   );
   return v([titleRow, ...bodyLeaves]);
-}
-
-export function renderHistoryPanel(view: HistoryPanelView): FrameRow[] {
-  // 薄包装：单一数据源 buildHistoryPanelBox → fillBoxTree
-  return fillBoxTree(buildHistoryPanelBox(view), view.height, view.width);
 }

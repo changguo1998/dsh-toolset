@@ -19,8 +19,7 @@ import type { TableSpec } from "../src/app/layout/table.ts";
 import { fillBoxTree } from "../src/app/layout/fill.ts";
 import { buildBox, buildContentRows } from "../src/app/layout/build-box.ts";
 import { displayWidth } from "../src/app/layout/markdown.ts";
-import { rowAnsi, rowText } from "./helpers/rowText.ts";
-
+import { rowText } from "./helpers/rowText.ts";
 
 /** assistant buffer 行（缺省 final，即历史区展示） */
 function a(text: string, final = true) {

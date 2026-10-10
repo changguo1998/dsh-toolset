@@ -46,24 +46,11 @@ import {
   titleBarSegments,
 } from "../src/app/layout.ts";
 import type { TurnEndReason } from "../src/app/state.ts";
-import type {
-  DshAdapter,
-  DshEvent,
-  ModelCatalog,
-  ModelReasoning,
-  ModelSelection,
-  QuestionAnswer,
-  SessionInfo,
-  HistoryMessage,
-  SessionSurfaceView,
-} from "../src/app/adapter/dsh.ts";
-import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
-import type { SessionUiState } from "../src/app/adapter/session-ui-state.ts";
-import type { FrameRow, Size } from "../src/renderer/screen.ts";
+import type { DshEvent, ModelCatalog } from "../src/app/adapter/dsh.ts";
+import type { KeyEvent } from "../src/renderer/index.ts";
 import { THEMES, hexSgr, type ThemeId } from "../src/renderer/theme.ts";
-import { rowAnsi } from "./helpers/rowText.ts";
 
-import { flushApp, registerApp } from "./helpers/paintFlush.ts";
+import { registerApp } from "./helpers/paintFlush.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 
 /** 顶部行历史/活动区正文：取区域正文段（跳过状态列与分隔竖线，到右缘框列前为止；
@@ -2044,7 +2031,6 @@ test("/collapse on|off 切换活动区详略；无参/非法参数只提示用�
 test("/collapse on（紧凑）下 /help 仍完整显示，不被压成单行省略号隐藏", () => {
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/help");
-  const fullText = renderer.lastRender.join("\n");
   typeAndEnter(renderer, "/collapse on");
   typeAndEnter(renderer, "/help");
   const compactText = renderer.lastRender.join("\n");

@@ -24,7 +24,6 @@ import {
   type Section,
   type Source,
   type ToolCall,
-  type ToolResult,
 } from "./types.ts";
 
 /** 节缓存状态（不可变；每次交付返回新状态，便于等价断言与快照） */

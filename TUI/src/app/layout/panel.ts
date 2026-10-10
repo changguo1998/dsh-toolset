@@ -11,8 +11,8 @@
 // 渲染字符：选项行高亮游标 `>`、选中标记 `✓`（见 TUI/docs/DESIGN.md「/model 命令」
 // ModelPicker / StatusPanel / Question）。
 
-import type { Box, Node, Paragraph, StyledText } from "./box.ts";
-import { v, text, styled } from "./box.ts";
+import type { Box, Node, StyledText } from "./box.ts";
+import { v, styled } from "./box.ts";
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
 import {
   FENCE_RE,
