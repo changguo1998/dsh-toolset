@@ -443,8 +443,8 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 
 - **现象**：上滚历史（或按 `Home` / `End`）后按 `↓` 画面纹丝不动；发送消息后更容易撞上。
 - **根因**：`scrollOffset`（对话区）/ `activityScroll`（活动区）无上限——连续上滚越顶会一直累加，`End` 曾直接置 `Number.MAX_SAFE_INTEGER`；渲染层只在显示侧 clamp，状态里留着越界值。此后下滚每按一次只是「还债」一格，差额大时等于永久卡住。
-- **修复**：状态里的偏移恒在真实范围内——`buildFrame` 出帧时顺带回填 `FrameScrollReport{dialogueMaxScroll, activityMaxScroll}`（零额外排版开销；对话区上限取**未折叠**全量行数 − 可视行数，上滚会解除折叠，折叠态上限偏小不能作上界）；App 侧 `paneMaxes()` 取上限（出帧回填过就直接用，否则就地补算一次同口径帧）；`scrollBy(state, delta, maxOffset?)` 与 `activity-scroll` action 先收敛当前偏移再叠加 delta、结果不超上限；`End` 改为真实上限。
-- **回归**：`tests/app.test.ts`（上滚越顶后 `↓` 立即响应 / `End` 后 `↓` 立即响应 / 活动区同理）+ `tests/layout4.test.ts`（回填值在折叠态下仍为未折叠全量）。
+- **修复**：状态里的偏移恒在真实范围内——`buildFrame` 出帧时顺带回填 `FrameScrollReport{dialogueMaxScroll, activityMaxScroll}`（零额外排版开销；对话区上限取**未折叠**全量行数 − 可视行数，上滚会解除折叠，折叠态上限偏小不能作上界）；App 侧 `paneMaxes()` 取上限（出帧回填过就直接用，否则就地补算一次同口径帧）；`scrollBy(state, delta, maxOffset?)` 与 `activity-scroll` action 先收敛当前偏移再叠加 delta、结果不超上限；`Home` 翻到最旧「已加载」内容时偏移取真实上限。
+- **回归**：`tests/app.test.ts`（上滚越顶后 `↓` 立即响应 / `Home` 后 `↓` 立即响应 / 活动区同理）+ `tests/layout4.test.ts`（回填值在折叠态下仍为未折叠全量）。
 
 ### 排队消息（agent 运行中 Enter）
 

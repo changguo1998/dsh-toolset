@@ -2513,8 +2513,18 @@ export class App {
         // Home = 往回翻到最旧「已加载」内容（2026-10-06 用户裁定；不一次性全量物化）；
         // 已在最旧已加载处再按 → 再物化一批更早回合，锚点段键不变（内容从上方长出）
         const r = this.paneMaxes();
-        // 窗口首行是折叠占位行（`MARKER_KEY`）时，最旧「已加载」内容从第 1 行起
-        const firstContent = r.dialogueKeys[0] === MARKER_KEY ? 1 : 0;
+        // 「最旧已加载内容」= 段表里第一个**节内容段**（跳过折叠占位行与边界项：
+        // 分隔行 / step 头 / 空行 / step 摘要）。钉在边界段键上会在扩窗后解析不到
+        // （边界项随窗口重算，如 `sep@18` 消失）→ 走「距底偏移」兜底把视口弹走。
+        const firstContent = ((): number => {
+          const at = r.dialogueKeys.findIndex(
+            (k) =>
+              k !== "" &&
+              k !== MARKER_KEY &&
+              !/^(sep|step|blank|summary)@/.test(k),
+          );
+          return at >= 0 ? at : 0;
+        })();
         if (r.dialogueTopIdx > firstContent) {
           this.apply((s) =>
             reduceState(s, {
@@ -2529,15 +2539,36 @@ export class App {
           );
           break;
         }
-        // 已在最旧已加载：再物化一批（不动 dialogueTop → 锚点不变，内容自上方长出）
+        // 已在最旧已加载：再物化一批，并把视口**显式钉回原内容行**
         if (
           this.state.windowGroups >= sectionGroupCount(sectionsOf(this.state))
         )
           break; // 更早回合已全部物化：无更旧内容，静默不动作
+        // 新物化的行都插在视口上方 → 顶行号平移「新增行数」。不靠段键跨扩窗解析：
+        // 键随窗口重建会失效，`indexOfTop` 兜底「距底偏移」会把视口弹到新窗口顶部
+        // （实测 3 → 6 组时画面从 ⇆18 跳到 ⇆2）。
+        const beforeTop = r.dialogueTopIdx;
+        const beforeTotal = r.dialogueTotal;
         this.apply((s) =>
           reduceState(s, {
             type: "window-grow",
             groups: s.windowGroups + WINDOW_GROW_STEP,
+          }),
+        );
+        const after = this.paneMaxes();
+        const target = Math.min(
+          after.dialogueMaxScroll,
+          beforeTop + Math.max(0, after.dialogueTotal - beforeTotal),
+        );
+        this.apply((s) =>
+          reduceState(s, {
+            type: "dialogue-scroll",
+            top: positionAt(
+              createLineTable(after.dialogueCounts),
+              after.dialogueKeys,
+              target,
+            ),
+            offset: Math.max(0, after.dialogueMaxScroll - target),
           }),
         );
         break;

@@ -326,7 +326,7 @@ test("排队块：钉在历史 pane 右下角（右对齐 + 灰色右缘竖线�
   const scrolled = buildFrame(
     reduceState(s, {
       type: "dialogue-scroll",
-      top: { key: "@oldest", row: 0 },
+      top: { key: report.dialogueKeys[0] ?? "", row: 0 },
       offset: report.dialogueMaxScroll,
     }),
     size,
