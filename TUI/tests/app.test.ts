@@ -167,6 +167,22 @@ test("普通输入(不以 / 开头) → sendMessage", () => {
   assert.deepEqual(adapter.commands, []);
 });
 
+test("多行粘贴：整段插入输入框、不自动提交、光标在末尾（条目 11）", () => {
+  const { app, renderer, adapter } = makeApp();
+  renderer.press({
+    name: "paste",
+    ctrl: false,
+    meta: false,
+    shift: false,
+    text: "第一行\n第二行\n第三行",
+  } as KeyEvent);
+  const state = (): AppState => (app as unknown as { state: AppState }).state;
+  assert.equal(state().inputText, "第一行\n第二行\n第三行", "整段进输入框");
+  assert.equal(state().inputCursor, state().inputText.length, "光标停在末尾");
+  assert.deepEqual(adapter.sent, [], "不自动提交");
+  app.dispose();
+});
+
 test("Ctrl+J 输入区插入换行（Enter 仍发送，CR/LF 区分）", () => {
   const { renderer, adapter } = makeApp();
   for (const ch of Array.from("第一行")) {

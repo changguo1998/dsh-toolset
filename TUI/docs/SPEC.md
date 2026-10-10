@@ -722,6 +722,13 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **assistant 仍逐行拆**：正文流式逐行到达，且 fence 开合、尾部空行清理、回复组折叠都按 buffer 行粒度工作。
 - **回归**：`tests/layout4.test.ts`「多行输入为一块」+ `tests/app.test.ts`（`user-line` 保留换行 / `append` 仍拆行 / `surfaceToBuffer` user 整段保留）。
 
+#### 粘贴：bracketed paste + 裸 CR 降级（2026-10-10 关闭；追踪文档 `docs/archived/2026-10-10-paste-bracketed.md`）
+
+- **启用协议**：renderer 启动写 `ESC[?2004h`、退出（`restore()` / `close()`，只写一次）写 `ESC[?2004l`；`rawMode: false`（测试 / 无 TTY）不写。终端此后把粘贴内容包在 `ESC[200~ … ESC[201~` 里，解码层 `stepPaste()` 产出**单个** `paste` 事件，App 的 `case "paste"` 整段插入输入框、光标停末尾、**不自动提交**（多行原样进输入框，`Enter` 才发送）。
+- **载荷归一**：粘贴文本的行尾 `\r\n` / 裸 `\r` → `\n`（输入框行分隔符与 `Ctrl+J` 同源）。
+- **降级**（不支持该协议的终端）：粘贴以裸字节到达时，按**单批 read** 判「像粘贴」——批内出现成对 CRLF 且不止这两个字节，或批内换行 ≥ 2 处 → 批内 CR 归一为换行（`\n` = 换行插入）；其余情况 CR 仍是 `enter`（单次 `Enter` 恒为独立一块，打字时相邻按键被内核合并成一块也安全）。判据不引入时钟，解码层保持纯逻辑。
+- **回归**：`tests/input.test.ts`（载荷归一 / CRLF 多行 / CR-only 多行 / 单 Enter 不变）、`tests/renderer.test.ts`（启动与关闭写模式序列）、`tests/app.test.ts`（多行粘贴整段进输入框、未发送、光标末尾）。
+
 ### 15.5 活动区渲染（生命周期 / 详略 / 排列）
 
 #### 活动区内容生命周期

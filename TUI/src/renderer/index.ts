@@ -38,6 +38,11 @@ export type {
 } from "./screen.ts";
 export type { Size };
 
+/** bracketed paste 启用 / 关闭（BACKLOG 条目 11）：启用后终端把粘贴内容包在
+ *  `ESC[200~ … ESC[201~` 里，解码层产出**单个** `paste` 事件（整段插入、不逐行提交） */
+const PASTE_ON = "\x1b[?2004h";
+const PASTE_OFF = "\x1b[?2004l";
+
 export interface Renderer {
   /** 整帧重绘；内含变化行游程重写（sections 提供时先按帧段切分）。
    *  focus（3.1.3）：输入焦点与位置，决定重写结束后光标是否定位回输入位置。 */
@@ -190,8 +195,18 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
     for (const ev of decoder.feed(chunk)) for (const cb of keyCbs) cb(ev);
   };
 
+  // bracketed paste：启用后粘贴内容整段到达（见 PASTE_ON）；关闭 = 还原终端状态，
+  // 退出路径（restore / close）都走这里，重复调用只写一次
+  let pasteModeOn = false;
+  const pasteOff = (): void => {
+    if (!pasteModeOn) return;
+    pasteModeOn = false;
+    rawWrite(PASTE_OFF);
+  };
+
   // 终端恢复
   const restore = (): void => {
+    pasteOff();
     if (!closed) terminal.rawMode(false);
   };
 
@@ -209,7 +224,12 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
   const onResizeEvt = (): void => passToRenderSizes();
 
   // 启动
-  if (opts.rawMode !== false) terminal.rawMode(true);
+  if (opts.rawMode !== false) {
+    terminal.rawMode(true);
+    // 粘贴协议只在真终端有意义（rawMode: false = 测试 / 无 TTY：不写模式序列）
+    rawWrite(PASTE_ON);
+    pasteModeOn = true;
+  }
   stdio.on("data", onData);
   stdio.resume();
   process.stdout.on("resize", onResizeEvt);
@@ -368,6 +388,7 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       if (closed) return;
       closed = true;
       detach(); // 移除退出钩子，防止 close 后再被信号触发
+      pasteOff(); // 关闭 bracketed paste（还原终端粘贴行为）
       stdio.removeListener("data", onData);
       stdio.pause(); // 对称：启动时 resume()，关闭时 pause() 释放事件循环持有
       process.stdout.removeListener("resize", onResizeEvt);

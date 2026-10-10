@@ -166,6 +166,48 @@ test("paste 内容跨 chunk 分片", () => {
   assert.equal(done[0]!.text, "分片粘贴内容");
 });
 
+test("bracketed paste 载荷行尾归一：CRLF / 裸 CR 折成换行", () => {
+  const start = [0x1b, 0x5b, 0x32, 0x30, 0x30, 0x7e];
+  const end = [0x1b, 0x5b, 0x32, 0x30, 0x31, 0x7e];
+  const evs = dec([...start, ...enc("第一行\r\n第二行\r第三行"), ...end]);
+  assert.equal(evs.length, 1);
+  assert.equal(evs[0]!.name, "paste");
+  assert.equal(
+    evs[0]!.text,
+    "第一行\n第二行\n第三行",
+    "输入框行分隔符是 \n（与 Ctrl+J 同源）",
+  );
+});
+
+test("裸 CR 降级：CRLF 多行粘贴不逐行提交（条目 11）", () => {
+  // 无 bracketed paste 的终端把粘贴内容按裸字节送入：CRLF 曾是「两个换行 → 两次 enter」
+  const evs = dec(enc("第一行\r\n第二行\r\n"));
+  assert.deepEqual(
+    evs.map((e) => (e.ctrl ? "ctrl+" + e.name : e.name)),
+    ["第", "一", "行", "ctrl+j", "第", "二", "行", "ctrl+j"],
+    "CRLF 归一为换行插入，不产出 enter",
+  );
+  assert.equal(evs.filter((e) => e.name === "enter").length, 0, "不自动提交");
+});
+
+test("裸 CR 降级：CR-only 多行粘贴（≥2 处换行）", () => {
+  const evs = dec(enc("a\rb\rc"));
+  assert.deepEqual(
+    evs.map((e) => (e.ctrl ? "ctrl+" + e.name : e.name)),
+    ["a", "ctrl+j", "b", "ctrl+j", "c"],
+  );
+});
+
+test("单次 Enter 不受降级影响（独立一块 / 相邻按键合并成一块）", () => {
+  assert.deepEqual(names(enc("\r")), ["enter"], "Enter 单块");
+  assert.deepEqual(names(enc("\r\n")), ["enter"], "CRLF Enter 单块（两字节）");
+  assert.deepEqual(
+    names(enc("abc\r")),
+    ["a", "b", "c", "enter"],
+    "打字被内核合并成一块时仍是 Enter",
+  );
+});
+
 test("连续按键混合：字符 + 方向键 + 回车", () => {
   const d = new KeyDecoder();
   const evs = d.feed([0x68, 0x1b, 0x5b, 0x41, 0x0d]);

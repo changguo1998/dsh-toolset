@@ -29,8 +29,15 @@ export class KeyDecoder {
    */
   onCpr: ((row: number, col: number) => void) | null = null;
 
+  /**
+   * 喂入一段终端字节，产出完整按键事件。
+   *
+   * 裸 CR 降级（BACKLOG 条目 11）：不支持 bracketed paste 的终端把粘贴内容以裸字节送入，
+   * 其中的 `\r` 会被解码成 `enter` → 逐行提交。入队前先按**本批字节**判一次「像粘贴」，
+   * 是则把批内 CR 归一为 LF（`\n` = 换行插入，与 Ctrl+J 同义）。
+   */
   feed(bytes: ArrayLike<number> | null | undefined): KeyEvent[] {
-    if (bytes) this.pending.push(...Array.from(bytes));
+    if (bytes) this.pending.push(...normalizePastedCr(Array.from(bytes)));
     const out: KeyEvent[] = [];
     for (;;) {
       const step = this.step();
@@ -83,9 +90,11 @@ export class KeyDecoder {
       break;
     }
     if (found === -1) return NEED_MORE; // 仍在粘贴中
-    const text = new TextDecoder("utf-8").decode(
-      Uint8Array.from(raw.slice(0, found)),
-    );
+    // 载荷行尾归一：剪贴板常带 CRLF（浏览器 / GUI），输入框的行分隔符是 `\n`
+    // （与 Ctrl+J 同源）；不归一会把 `\r` 当可打印字符插进正文
+    const text = new TextDecoder("utf-8")
+      .decode(Uint8Array.from(raw.slice(0, found)))
+      .replace(/\r\n?/g, "\n");
     this.pasteRaw = null;
     this.pending.push(...raw.slice(found + marker.length));
     return { name: "paste", ctrl: false, meta: false, shift: false, text };
@@ -227,6 +236,43 @@ function parseDigitParam(bytes: number[]): number {
     if (b >= 0x30 && b <= 0x39) n = n * 10 + (b - 0x30);
   }
   return n;
+}
+
+/**
+ * 裸 CR 降级（BACKLOG 条目 11）：判「本批字节像不像粘贴」，是则把批内 CR 归一为 LF。
+ *
+ * 判据只用**本批**字节（不引入时钟，解码层保持纯逻辑）：
+ *   - 批内出现成对 `\r\n` 且不止这两个字节 → 网页 / Windows 剪贴板的主形态；
+ *   - 批内换行（CR / LF，CRLF 记一处）≥ 2 处 → 一次 read 里两次回车只可能是粘贴。
+ *
+ * 归一：CRLF 丢掉 CR（LF 自己解码为换行插入）、裸 CR 改写成 LF。其余情况原样返回——
+ * 单次 Enter 恒为独立一块（`\r` 或 `\r\n` 两字节），打字时相邻按键被内核合并成一块
+ * （`abc\r`）也仍是 Enter，回车语义不丢。
+ */
+function normalizePastedCr(batch: readonly number[]): number[] {
+  let breaks = 0;
+  let crlf = false;
+  for (let i = 0; i < batch.length; i++) {
+    const b = batch[i];
+    if (b === 0x0d) {
+      breaks += 1;
+      if (batch[i + 1] === 0x0a) crlf = true;
+    } else if (b === 0x0a) {
+      if (batch[i - 1] !== 0x0d) breaks += 1;
+    }
+  }
+  const pasteLike = breaks >= 2 || (crlf && batch.length > 2);
+  if (!pasteLike) return [...batch];
+  const out: number[] = [];
+  for (let i = 0; i < batch.length; i++) {
+    const b = batch[i]!;
+    if (b !== 0x0d) {
+      out.push(b);
+      continue;
+    }
+    if (batch[i + 1] !== 0x0a) out.push(0x0a); // 裸 CR → 换行（CRLF 只留 LF）
+  }
+  return out;
 }
 
 /** 解码一个控制字节（回车/退格/Tab/Ctrl+字母 等） */
