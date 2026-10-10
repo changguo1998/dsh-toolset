@@ -4210,6 +4210,50 @@ test("Home / End 在空会话上不崩、不改窗口（边界）", () => {
   app.dispose();
 });
 
+test("折叠改视口容量驱动：短内容 + 高终端 → 全部物化，不提前折叠（无占位行）", () => {
+  const { app, renderer, adapter } = makeApp();
+  renderer.size = { cols: 100, rows: 40 };
+  for (let i = 1; i <= 6; i++) {
+    adapter.push({ type: "stream", sessionId: "s1", text: `回复 ${i}\n` });
+    adapter.push({ type: "turn-end" } as DshEvent);
+  }
+  flushApp();
+  const st = (): { windowGroups: number } =>
+    (app as unknown as { state: { windowGroups: number } }).state;
+  // 内容远未占满视口（6 组 × 1 行 << 会话区高度）→ 按容量补齐到全量，而不是停在默认 3 组
+  assert.equal(st().windowGroups, 6, "还有空位就继续物化（上限 = 全量）");
+  const plain = renderer.lastRender.join("\n");
+  assert.ok(!plain.includes("更早回复已折叠"), "装得下就不该出现折叠占位行");
+  app.dispose();
+});
+
+test("折叠改视口容量驱动：内容超视口 → 仍按默认窗口折叠并可滚动", () => {
+  const { app, renderer, adapter } = makeApp();
+  renderer.size = { cols: 100, rows: 30 };
+  for (let i = 1; i <= 12; i++) {
+    adapter.push({
+      type: "stream",
+      sessionId: "s1",
+      text: `回复 ${i} 正文\n`.repeat(3),
+    } as DshEvent);
+    adapter.push({ type: "turn-end" } as DshEvent);
+  }
+  flushApp();
+  const st = (): { windowGroups: number } =>
+    (app as unknown as { state: { windowGroups: number } }).state;
+  assert.equal(
+    st().windowGroups,
+    initialState().windowGroups,
+    "3 组就装不下 → 不扩窗（长会话不一次性全量物化）",
+  );
+  // 窗口仍丢着更早的组 → 布局层据此插「更早回复已折叠」占位行（行是否在视口内取决于滚动位置）
+  flushApp();
+  const rep = (): { dropped: number } =>
+    (app as unknown as { paneScrollMax: { dropped: number } }).paneScrollMax;
+  assert.ok(rep().dropped > 0, "装不下 → 仍有被窗口丢掉的组");
+  app.dispose();
+});
+
 test("Home / End 语义（2026-10-06 裁定）：End 回最新并复位窗口；Home 分批加载更旧、锚点不动", () => {
   const { app, renderer, adapter } = makeApp();
   const key = (name: string): KeyEvent => ({
@@ -4313,6 +4357,7 @@ test("对话区滚动粒度：裸 ↑ = 一行，Ctrl+↑ = 半屏（撞渐进�
       dialogueMaxScroll: 0,
       activityMaxScroll: 0,
       dialogueTotal: 0,
+      dropped: 0,
       dialogueCounts: [],
       dialogueKeys: [],
       dialogueTopIdx: 0,

@@ -509,6 +509,7 @@ test("会话区内容不足时贴底：短内容空白留在上方，超视口�
       dialogueMaxScroll: 0,
       activityMaxScroll: 0,
       dialogueTotal: 0,
+      dropped: 0,
       dialogueCounts: [],
       dialogueKeys: [],
       dialogueTopIdx: 0,

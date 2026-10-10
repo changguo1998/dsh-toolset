@@ -404,6 +404,7 @@ export class App {
     dialogueMaxScroll: 0,
     activityMaxScroll: 0,
     dialogueTotal: 0,
+    dropped: 0,
     dialogueCounts: [],
     dialogueKeys: [],
     dialogueTopIdx: 0,
@@ -569,8 +570,18 @@ export class App {
         : st.windowGroups;
     if (st.dialogueTop === null) {
       // 贴底：位置就是「跟随最新」，只需收敛窗口
-      if (st.windowGroups !== keepWindow)
-        this.state = { ...st, windowGroups: keepWindow };
+      let next = keepWindow;
+      // 视口容量驱动（BACKLOG「交付窗口折叠改为视口容量驱动」）：**还有空位就不折叠**——
+      // 内容没占满会话区（`dialogueMaxScroll === 0`）且仍有未物化的更早组时，继续按步长
+      // 物化；一旦装不下（滑动上限 > 0）或已全量物化即停。每轮至少 +WINDOW_GROW_STEP 且
+      // 上限 = 总组数，单调收敛，不会自激
+      if (r.dropped > 0 && r.dialogueMaxScroll === 0 && next < groups) {
+        next = Math.min(groups, next + WINDOW_GROW_STEP);
+      }
+      if (st.windowGroups !== next) {
+        this.state = { ...st, windowGroups: next };
+        this.paint(); // 窗口变了：再出一帧（同 tick 合帧，不会叠加渲染）
+      }
       return;
     }
     const offset = Math.max(0, r.dialogueMaxScroll - r.dialogueTopIdx);
