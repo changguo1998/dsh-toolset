@@ -36,6 +36,11 @@ import type { DshAdapter, DshEvent } from "../src/app/adapter/dsh.ts";
 import type { KeyEvent, Renderer } from "../src/renderer/index.ts";
 import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
+import { applyDelivery } from "../src/app/layout/pipeline/sections.ts";
+import {
+  sectionsFromScript,
+  type ScriptStep,
+} from "./helpers/deliveriesFromScript.ts";
 
 // ---------- A 部分：缓存开关等价性 ----------
 
@@ -163,16 +168,84 @@ const FRAME_ACTIONS: StateAction[] = [
   { type: "scroll-to-bottom" },
 ];
 
+/** 与 `FRAME_ACTIONS` 逐步对齐的**交付镜像**（条目 16 段 A）：内容类动作改由节模型产出，
+ *  帧只认 `state.pipeline`；状态类动作（scroll 等）与 UI 本地行（notice / 工具行）本段不动 */
+const FRAME_DELIVERIES: (ScriptStep | undefined)[] = [
+  {
+    delivery: {
+      kind: "user",
+      turn: 1,
+      step: 0,
+      text: "给我看一下 TUI 的排版管线",
+    },
+  },
+  {
+    delivery: {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "reasoning",
+      text: "先看 buildFrame 与 buildContentRows 的分工",
+    },
+  },
+  {
+    delivery: {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 1,
+      source: "assistant",
+      text: "## 结论\n- buildBox 结构分类\n- measure 折行测量",
+    },
+  },
+  undefined,
+  undefined,
+  {
+    delivery: {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 2,
+      source: "assistant",
+      text: "超长行 " + "宽".repeat(120),
+    },
+  },
+  { delivery: { kind: "finalize", turn: 1, step: 1 } },
+  { delivery: { kind: "turn-end", turn: 1, step: 1, reason: "completed" } },
+  { delivery: { kind: "user", turn: 2, step: 0, text: "第二回合：再看缓存" } },
+  {
+    delivery: {
+      kind: "text",
+      turn: 2,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: '```ts\nconst x = displayWidth("中文")\n```',
+    },
+  },
+  undefined,
+];
+
+/** 折叠脚本：状态动作照旧走 `reduceState`，内容动作同时喂节模型（帧内容源 = pipeline） */
+function foldScript(): AppState[] {
+  const out: AppState[] = [];
+  let s = initialState();
+  let pipeline = sectionsFromScript([]);
+  out.push({ ...s, pipeline });
+  FRAME_ACTIONS.forEach((action, i) => {
+    s = reduceState(s, action);
+    const step = FRAME_DELIVERIES[i];
+    if (step !== undefined) pipeline = applyDelivery(pipeline, step.delivery);
+    out.push({ ...s, pipeline });
+  });
+  return out;
+}
+
 test("buildFrame：缓存开/关在固定状态 + 增量追加下逐行一致", () => {
   const size: Size = { cols: 100, rows: 30 };
   // 状态构建与缓存无关：先一次性折叠出每一步的状态快照
-  const states: AppState[] = [];
-  let s = initialState();
-  states.push(s);
-  for (const action of FRAME_ACTIONS) {
-    s = reduceState(s, action);
-    states.push(s);
-  }
+  const states: AppState[] = foldScript();
   for (let i = 1; i < states.length; i++) {
     const snapshot = states[i]!;
     const off = sampleWithCache(false, false, () =>
@@ -187,8 +260,8 @@ test("buildFrame：缓存开/关在固定状态 + 增量追加下逐行一致", 
 
 test("buildFrame：同一状态重复排版在两种模式下都稳定（缓存不产生跨帧污染）", () => {
   const size: Size = { cols: 92, rows: 26 };
-  let s = initialState();
-  for (const action of FRAME_ACTIONS) s = reduceState(s, action);
+  const folded = foldScript();
+  const s = folded[folded.length - 1]!;
   const first = sampleWithCache(true, false, () =>
     rowsText(buildFrame(s, size)),
   );
@@ -206,11 +279,11 @@ test("换主题：整帧逐字节一致（生产节缓存路径），主题色�
   const size: Size = { cols: 100, rows: 30 };
   let base = initialState("dark");
   for (const action of FRAME_ACTIONS) base = reduceState(base, action);
-  // 生产口径：内容源是节缓存（`state.pipeline`），不走 buffer 回放兜底
+  // 生产口径：内容源是节缓存（`state.pipeline`）——条目 16 段 A 后由 `foldScript` 直接产出
+  const folded = foldScript();
   const dark: AppState = {
     ...base,
-    buffer: [],
-    pipeline: sectionsFromBuffer(base.buffer),
+    pipeline: folded[folded.length - 1]!.pipeline,
   };
   const light = reduceState(dark, { type: "set-theme", themeId: "light" });
   clearLayoutCaches();
