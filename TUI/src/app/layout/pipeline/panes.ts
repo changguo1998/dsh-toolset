@@ -153,19 +153,6 @@ interface Acc {
   dialogue: boolean;
 }
 
-/**
- * 吸收空 notice：紧接工具批 / step 头之前的「空文本 notice 段」不渲染（旧渲染器
- * `absorbActivityBlank` 在工具 run 边界上的连续 pop 口径）。
- */
-function absorbEmptyNotice(acc: Acc): void {
-  const tail = acc.items[acc.items.length - 1];
-  if (tail === undefined || tail.kind !== "line") return;
-  const box = tail.box;
-  if (box.kind !== "content" || box.source !== "notice") return;
-  if ((box.text ?? "").replace(/\n+$/, "") !== "") return;
-  acc.items.pop();
-}
-
 function blank(acc: Acc, key: string): void {
   const tail = acc.items[acc.items.length - 1];
   if (tail !== undefined && tail.kind !== "blank")
@@ -187,6 +174,18 @@ function push(
   withSeparators: boolean,
   options: PaneOptions,
 ): void {
+  // 全空正文段（文本 trim 后为空，如只含换行的 reasoning / assistant / notice 段）不产出
+  // 可见行：旧渲染器这类行直接丢，新流水线曾把它排成空行占位（BACKLOG「回合区没有清理
+  // 全空的正文」）。口径：整段丢弃（含首尾换行都算空）；代码块 / 表格 / 工具批有各自结构，
+  // 用户块带块身份与符号语义，均不参与。
+  if (
+    box.kind === "content" &&
+    box.source !== "user" &&
+    box.shape !== "code" &&
+    box.shape !== "tool" &&
+    (box.text ?? "").trim() === ""
+  )
+    return;
   const previous = acc.last;
   const kind = actKind(box);
   // 留白判定要在更新 lastActKind **之前**算（并在本函数内统一更新）
@@ -204,7 +203,6 @@ function push(
     previous.source === "user" &&
     box.source === "assistant";
   if (pairBlank || userBlank) blank(acc, key);
-  if (box.kind === "content" && box.shape === "tool") absorbEmptyNotice(acc);
   acc.items.push({ kind: "line", box, key });
   acc.last = box;
 }
@@ -269,7 +267,6 @@ export function buildPanes(
       headed.add(key);
       const [turn, step] = key.split(":");
       const time = meta.get(key) ?? options.stepTimes?.get(key)?.time;
-      absorbEmptyNotice(activity);
       activity.items.push({
         key: "step@" + key,
         kind: "step-head",

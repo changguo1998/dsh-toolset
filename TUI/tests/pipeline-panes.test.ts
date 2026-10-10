@@ -258,3 +258,32 @@ test("⑦ 遮蔽标记透传到 pane 项（第 4 步据此着色）", () => {
     true,
   );
 });
+
+test("⑦ 全空正文段不产出回合区行（中间 / 尾部各一例）", () => {
+  const panes = buildPanes(
+    [
+      section(
+        [
+          { source: "reasoning", text: "\n\n" },
+          { source: "reasoning", text: "（想）" },
+          { source: "assistant", text: "\n\n\n" },
+          { source: "assistant", text: "中间正文" },
+          { source: "assistant", text: "\n\n" },
+        ],
+        { turn: 1, step: 1 },
+      ),
+    ],
+    { level: "think" },
+  );
+  const blankItems = panes.activity.filter(
+    (it) =>
+      it.kind === "line" &&
+      it.box.kind === "content" &&
+      (it.box.text ?? "").trim() === "",
+  );
+  assert.equal(blankItems.length, 0, "全空正文段不应产出回合区项");
+  assert.ok(
+    shape(panes.activity).includes("assistant:中间正文"),
+    "非空正文照常产出",
+  );
+});
