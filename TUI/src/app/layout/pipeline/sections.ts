@@ -205,18 +205,30 @@ function appendText(
   seq?: number,
   generation?: number,
   block?: number,
+  settle?: boolean,
 ): Section {
   const items = [...section.items];
+  const mergeable = (item: Item): boolean =>
+    item.source === source &&
+    item.calls === undefined &&
+    item.results === undefined;
   // 同来源合并**只对文本项**（工具批与文本走不同渲染分支），且**只并同块的流式续写**：
   // 跨块合并会把「正文甲 → 工具调用 → 正文乙」粘成一条（BACKLOG「同一步内『工具调用
-  // 前后的正文』被粘成一行」）；无块身份的路径（notice / shell / 回放整行）保持原样
-  const at = items.findIndex(
-    (item) =>
-      item.source === source &&
-      item.calls === undefined &&
-      item.results === undefined &&
-      item.block === block,
-  );
+  // 前后的正文』被粘成一行」）；无块身份的路径（notice / shell / user）保持原样
+  // `settle`（step 级结算，交付 `index < 0`）**不是新块**而是「本 step 已流出正文的整块
+  // 结算」→ 并入该来源**最后一条**文本条目；否则同一逻辑块的流出前缀与结算文本会被拆成
+  // 两个条目 / 两个框（代码块、表格还会被从中间劈开分别解析）
+  let at = -1;
+  if (settle === true) {
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (mergeable(items[i]!)) {
+        at = i;
+        break;
+      }
+    }
+  } else {
+    at = items.findIndex((item) => mergeable(item) && item.block === block);
+  }
   const found = at >= 0 ? items[at] : undefined;
   if (found === undefined) {
     items.push(
@@ -246,6 +258,17 @@ function appendText(
     );
   }
   return { ...section, items };
+}
+
+/** 节内该来源最后一条**文本**条目的文本（工具批不算） */
+function lastTextIn(section: Section, source: Source): string | undefined {
+  for (let i = section.items.length - 1; i >= 0; i--) {
+    const item = section.items[i]!;
+    if (item.source !== source) continue;
+    if (item.calls !== undefined || item.results !== undefined) continue;
+    return item.text ?? "";
+  }
+  return undefined;
 }
 
 /** 工具条目（调用 / 结果同组）：不存在则新建，返回其下标 */
@@ -298,17 +321,22 @@ function applyText(
   delivery: Extract<BlockDelivery, { kind: "text" }>,
 ): SectionsState {
   const key = blockKey(delivery.turn, delivery.step, delivery.index);
-  const previous = state.delivered.get(key) ?? "";
-  const accept = reconcile(previous, delivery.text, delivery.full === true);
   const delivered = new Map(state.delivered);
-  record(delivered, key, previous, accept);
   const next = {
     ...state,
     delivered,
     lastScope: { turn: delivery.turn, step: delivery.step },
   };
-  if (accept === "") return next;
   const located = target(next, delivery.turn, delivery.step);
+  // step 级结算（`index < 0`）与该来源**已在屏上的最后一条文本**对账：交付账按块键记，
+  // 结算另有其键（`…:-1`），拿它当 `previous` 会把整块文本重复并进上一条
+  const settle = delivery.index < 0;
+  const previous = settle
+    ? (lastTextIn(located.target.section, delivery.source) ?? "")
+    : (state.delivered.get(key) ?? "");
+  const accept = reconcile(previous, delivery.text, delivery.full === true);
+  record(delivered, key, previous, accept);
+  if (accept === "") return located.state;
   const section = appendText(
     located.target.section,
     delivery.source,
@@ -317,6 +345,7 @@ function applyText(
     delivery.seq,
     next.turnEnds,
     delivery.index,
+    settle,
   );
   return write(located.state, located.target, section);
 }

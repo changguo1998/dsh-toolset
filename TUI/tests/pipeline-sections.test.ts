@@ -611,3 +611,23 @@ test("辅助行独立成条：辅助行 → 工具调用 两个方向都不丢�
     "两段辅助行各自成条",
   );
 });
+
+test("结算交付（index < 0）与该来源已流出正文并成同一条（不拆两个框）", () => {
+  const s = applyAll(createSections(), [
+    delta(0, "assistant", "甲"),
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: -1,
+      source: "assistant",
+      text: "甲乙",
+      full: true,
+    },
+  ]);
+  assert.deepEqual(
+    allSections(s)[0]?.items.map((item) => [item.source, item.text]),
+    [["assistant", "甲乙"]],
+    "流出前缀 + step 结算 = 同一条（文本不重复、不拆条）",
+  );
+});
