@@ -110,7 +110,9 @@ function visibleAtLevel(box: Box, level: ActivityLevel): boolean {
  */
 function isDialogue(box: Box, final: boolean): boolean {
   if (box.source === "user") return true;
-  return final && box.source === "assistant";
+  // final = 「该节属历史」（回合总结节 / 恢复重放节）：正文与工具批都归会话区；
+  // 回合区只承载当前回合的活动（进行中的思考 / 正文 / 工具）
+  return final && (box.source === "assistant" || box.source === "tool");
 }
 
 /**
@@ -325,7 +327,10 @@ export function buildPanes(
       for (const part of block.children) {
         const bkey = sid + ":" + ordinal++;
         for (const line of toLines(part, options.normalize)) {
-          const target = isDialogue(line, section.final === true)
+          const target = isDialogue(
+            line,
+            section.final === true || section.history === true,
+          )
             ? dialogue
             : visibleAtLevel(line, options.level)
               ? activity

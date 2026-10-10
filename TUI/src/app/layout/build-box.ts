@@ -235,8 +235,13 @@ export function buildBox(
   // tool 连续 run 缓冲（flushToolRun 时分组/折叠/step）
   const toolRun: { line: { text: string; tone?: string }; meta: RowMeta }[] =
     [];
+  /** 本批工具行的落点（条目 26：恢复出来的工具批要进会话区）——由**首行**的分流决定，
+   *  缺省活动区（旧的写死行为）；批结束时清空 */
+  let runTarget: Node[] | undefined;
   const flushToolRun = (): void => {
     if (toolRun.length === 0) return;
+    const toolTarget = runTarget ?? activityLeaves;
+    runTarget = undefined;
     // 2026-10-02：工具 run 落盘前先吸收前文拖尾空行——正文节点拖尾换行锚点 /
     // 宿主补发 "\n\n" 留下的空白行（同 kind 分片）会让「正文 → 工具」多 1 行空行，
     // 与「工具类不插空行」口径冲突；此处与 step 分割行的吸收同语义。
@@ -278,7 +283,7 @@ export function buildBox(
           node = styled(segs2, { hanging: TOOL_CONT_INDENT });
         }
         meta.set(node, { kind: "tool", blockId: bid });
-        activityLeaves.push(node);
+        toolTarget.push(node);
       }
     }
     toolRun.length = 0;
@@ -314,6 +319,8 @@ export function buildBox(
           : line.text;
       // #5：工具类不做类型间隔（2026-10-02 收窄），仅在 noteActKind 上报类型供后续判定
       noteActKind("tool", rowMeta);
+      // 本批落点 = 首行的分流目标（与 `:406` 同一判据；条目 26）
+      runTarget ??= line.final === true ? dialogueLeaves : activityLeaves;
       toolRun.push({
         line: { text: toolText, tone: line.tone },
         meta: rowMeta,

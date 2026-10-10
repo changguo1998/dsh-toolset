@@ -261,11 +261,15 @@ export function boxToLines(
     return [];
   }
   if (box.shape === "tool") {
+    // 会话区只保留「历史行」（带 final）：恢复出来的工具批（`history` 盒）在会话区按
+    // 历史行上屏；实时路径的工具行不带 final → 照旧只在回合区
+    const hist = dialogue && box.history === true;
     const lines: BufferLine[] = [];
     for (const call of box.batch?.calls ?? []) {
       lines.push({
         text: toolCallLine(call.name, summarizeToolArguments(call.args)),
         kind: "tool",
+        ...(hist ? { final: true } : {}),
         ...scope,
       });
     }
@@ -274,6 +278,7 @@ export function boxToLines(
         text: toolResultLine(result.ok, result.detail),
         kind: "tool",
         ...(!result.ok ? { tone: "error" as const } : {}),
+        ...(hist ? { final: true } : {}),
         ...scope,
       });
     }

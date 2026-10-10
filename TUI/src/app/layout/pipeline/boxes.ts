@@ -53,6 +53,8 @@ interface BoxBase {
   userStatus?: "success" | "failure" | "aborted";
   /** 被 steer 续接过的用户块（批 B1）：行层写 `steerContinued` → 永久 `←` */
   steerContinued?: boolean;
+  /** 历史节（恢复重放产出）的盒子：会话区渲染据此把工具批也按历史行保留（`final`） */
+  history?: true;
 }
 
 /** 叶子 box：只保存内容，不再包含子节点 */
@@ -307,8 +309,20 @@ export function buildBoxes(section: Section): LayoutBox[] {
   const hit = boxCache.get(section);
   if (hit !== undefined) return hit;
   const built = computeBoxes(section);
-  boxCache.set(section, built);
-  return built;
+  // 历史节的盒子带 `history`（含子盒）：工具批在会话区按历史行上屏
+  const marked: LayoutBox[] =
+    section.history === true
+      ? built.map((block) => ({
+          ...block,
+          history: true as const,
+          children: block.children.map((child) => ({
+            ...child,
+            history: true as const,
+          })),
+        }))
+      : built;
+  boxCache.set(section, marked);
+  return marked;
 }
 
 function computeBoxes(section: Section): LayoutBox[] {

@@ -443,7 +443,7 @@ export class App {
    */
   private replaySectionsFromRows(rows: readonly BufferLine[]): void {
     if (this.deps.pipelineSink === undefined) return;
-    this.sections = sectionsFromBuffer(rows);
+    this.sections = sectionsFromBuffer(rows, { history: true });
     // 回合号基线：重放后取最大节回合（下一回合本地预测 +1 的基准）
     const scanned =
       this.sections.current === undefined

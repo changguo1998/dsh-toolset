@@ -81,6 +81,9 @@ export interface Section {
   readonly frozen: boolean;
   /** 回合最终总结（turn-end 时给该回合最后一个 assistant 节打标）→ 会话区归属判据 */
   readonly final?: boolean;
+  /** **历史节**（恢复重放产出：整节都是历史）→ 该节的正文与工具批都归会话区，
+   *  回合区只承载当前回合的活动（用户裁定：恢复的工具结果放会话区） */
+  readonly history?: true;
   /** 独立自足节（用户输入 / notice / shell 各自成节）：不再接受迟到内容（回写会串节） */
   readonly standalone?: boolean;
   /** steer 插队送达的用户输入（与上一条输入之间留空行；旧口径由 `markSteerClaim` 加） */

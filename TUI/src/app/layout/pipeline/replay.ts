@@ -132,6 +132,7 @@ export function deliveryOfLine(
 /** 已有行 → 节缓存（恢复路径；顺序与行序一致） */
 export function sectionsFromBuffer(
   lines: readonly BufferLine[],
+  opts?: { history?: boolean },
 ): SectionsState {
   let state = createSections();
   const scope: Scope = { turn: 1, step: 0 };
@@ -285,5 +286,16 @@ export function sectionsFromBuffer(
   }
   flushRun();
   flushFinal();
+  // 恢复重放产出 = 历史：整节标 `history`（`isDialogue` 据此把正文与工具批都路由到会话区；
+  // 实时新交付的节不带该标记 → 回合区）
+  if (opts?.history === true) {
+    const mark = <T extends { history?: true }>(section: T): T =>
+      section.history === true ? section : { ...section, history: true };
+    state = {
+      ...state,
+      sections: state.sections.map(mark),
+      ...(state.current === undefined ? {} : { current: mark(state.current) }),
+    };
+  }
   return state;
 }
