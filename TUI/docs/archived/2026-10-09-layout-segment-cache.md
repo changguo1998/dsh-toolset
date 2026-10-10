@@ -547,3 +547,11 @@ incremental   10.67 ms       0.34 ms       31.6×
 ## 收尾
 
 （条目 7「排版流水线双写退役」选项 1 已完成，2026-10-10 关闭；本文件移入 `TUI/docs/archived/`。）
+
+**条目 1「排版流程重构：六步流水线」关闭记录（2026-10-10）**：
+
+- 完成口径：六步流水线为**唯一渲染路径**（生产恒注入 `pipelineSink`；`state.pipeline` 是内容单源）。旧结构全数退场——`TUI_LAYOUT_PIPELINE` 开关、`scrollAnchor` 锚点模型（`moveDialogueAnchor` / `indexToAnchor`）、`dialogueGeometry`、`dialogueWindow` 构帧调用点（全仓 `grep` 零命中，仅注释里保留历史说明）。
+- 验收证据：新旧路径**逐帧逐行等价**（`tests/pipeline-equivalence.test.ts` / `pipeline-frame.test.ts`）；宽度不变时同段不重复排版（`rowRenderMisses()` 计数断言）；滚动 / 扩窗只查表（`tests/scroll-position.test.ts` / `layout4.test.ts`）；既有帧断言不回归；用户 2026-10-10 真机复检滚动 / 流式 / 面板 / `/help` / `/cls` / 会话切换通过。
+- **未完成的一条计划项**另立条目 13：`markdown.ts` 缓存键去掉 `themeId`（`themeSizedKey` 仍在 3 处，`themeId` 沿调用链传但解析不读）。
+- **旧代码残留**另立条目 14：`layout.ts:121-136` 旧视口模型 `ViewportInput` / `Viewport` / `computeViewport`（仅测试引用）、`components/{StatusPanel,JobsPanel,HistoryPanel}.ts` 的三个 `render*Panel` 整屏渲染函数、`layout.ts` 内只自引用的常量与类型。
+- 有意保留（不算残留）：`state.buffer` 重放回退（条目 12）、共享排版库（`build-box` / `fill` / `measure` / `markdown` / `table` / `primitives` / `content-rules`）、`layout.ts` 的装配与状态列 / 标题栏 / 几何。
