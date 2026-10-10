@@ -1340,7 +1340,35 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     }
     const live = opts.sessions?.get(id);
     if (live && Array.isArray(live.events)) {
-      const messages = normalizeHistoryMessages(live.events);
+      // 条目 27：内存 store 的事件里**可能没有 `turn/end`**（真机实测：恢复出来的用户块
+      // 读不到收尾原因 → 一律 `?`）。正文仍用 live（保最新），但缺 `turn/end` 时补一次持久源
+      // 并把其中的 `turn/end` 合并进来（按 seq 去重），供归一化读终态原因
+      let events: readonly Record<string, unknown>[] = live.events;
+      if (!events.some((e) => e.type === "turn/end")) {
+        try {
+          const persisted = sessionQuery.readSurface
+            ? (await sessionQuery.readSurface(id)).events
+            : sessionQuery.readSession
+              ? (await sessionQuery.readSession(id)).events
+              : [];
+          const seen = new Set(
+            events
+              .map((e) => e.seq)
+              .filter((seq): seq is number => typeof seq === "number"),
+          );
+          events = [
+            ...events,
+            ...persisted.filter(
+              (e) =>
+                e.type === "turn/end" &&
+                !(typeof e.seq === "number" && seen.has(e.seq)),
+            ),
+          ];
+        } catch {
+          /* 持久源不可用：保持只有 live 事件（与旧行为一致） */
+        }
+      }
+      const messages = normalizeHistoryMessages(events);
       // 刚 resume 的会话在内存 store 可能尚未完全入列：live 表面为空时
       // 回退到 persisted 读取面（readSurface）拿完整历史，避免切换后空屏
       if (messages.length > 0) {

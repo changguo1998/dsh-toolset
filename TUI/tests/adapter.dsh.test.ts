@@ -2115,7 +2115,7 @@ test("历史会话：live 会话经 sessions store 原始事件（agent/inbox/sp
   const { adapter } = makeAdapterWithSessionQuery(sq, store);
   const view = await adapter.readSessionSurface!("live-1");
   // live 直接从内存 store 读，不触 readSurface/readSession
-  assert.deepEqual(sq.readCalls, []);
+  assert.deepEqual(sq.readCalls, ["surface:live-1"]); // 条目 27：缺 turn/end 时补读一次持久源
   assert.deepEqual(view.messages, [
     { role: "user", text: "你好第二行" },
     { role: "assistant", text: "回复正文" },
@@ -6225,4 +6225,36 @@ test("pipeline sink：增量 / 结算两条线重复交付只入一次，工具�
   assert.equal(state.pendingOpen, true, "结果到齐 → 待开节");
   assert.equal(state.freezable.has("1:1"), true, "定型信号已记");
   assert.equal(freezeAtFrameBoundary(state).current?.frozen, true);
+});
+
+test("条目 27：live 事件缺 turn/end 时从持久源补齐（恢复的用户块拿回终态）", async () => {
+  const persisted: Record<string, unknown>[] = [
+    { type: "turn/start", seq: 1, data: { turn: 1 } },
+    {
+      type: "user/message",
+      seq: 2,
+      data: { id: "u1", content: [{ type: "text", text: "问题一" }] },
+    },
+    {
+      type: "turn/end",
+      seq: 3,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+  ];
+  // 内存 store 的事件里没有 turn/end（真机实测形态）
+  const liveEvents = persisted.filter((e) => e.type !== "turn/end");
+  const sq = new FakeSessionQuery();
+  sq.events = persisted;
+  const sessions = {
+    get: (id: string) => (id === "live-1" ? { events: liveEvents } : undefined),
+  } as unknown as SessionStoreLike;
+  const { adapter } = makeAdapterWithSessionQuery(sq, sessions);
+  const view = await adapter.readSessionSurface!("live-1");
+  assert.deepEqual(
+    view.messages
+      .filter((m) => m.role === "user")
+      .map((m) => [m.text, m.status ?? "-"]),
+    [["问题一", "success"]],
+    "live 缺 turn/end → 从持久源补齐后用户块应带终态（不再是 ?）",
+  );
 });
