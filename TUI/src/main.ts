@@ -85,7 +85,9 @@ export function main(opts: {
   /** 启动自检 kickoff 正文（门控通过时传入，App 代替用户发出以完成锚定解锁）；
    *  不传 = 不发送（非 deepseek 模型 / toolBootstrap 关闭 / 会话已解锁 / 记录不可读）。
    *  2026-10-05 用户裁定**关掉 kickoff**：调用点已注释停用（本文件启动与 `/new` 两处），
-   *  恒传 undefined；实现原样保留，恢复 = 取消那两处注释并删占位赋值。 */
+   *  恒传 undefined；实现原样保留，恢复 = 取消那两处注释、**补回被清理的 import**
+   *  （`installToolBootstrap` / `shouldAutoKickoff` / `newSessionKickoffText` /
+   *  `BOOTSTRAP_KICKOFF_TEXT`）并删占位赋值。 */
   bootstrapKickoffText?: string;
   /** `/new` 的启动自检惰性门控（BACKLOG TUI#57）：每次新建会话切换完成后调用，返回正文
    *  则补发 kickoff；不传 / 返回 undefined = 不发。2026-10-05 起调用点恒返回 undefined（同关掉）。 */
@@ -393,7 +395,8 @@ export async function apply(
     );
     // 锚定工具引导：全部 deepseek-* 模型触发锁定-释放；开关可配置关停
     // 2026-10-05 用户裁定**不要锁定**：按「注释而非删除」停用挂载（实现原样保留）；
-    // 恢复 = 取消下面注释（`toolBootstrap` 开关随挂载一并恢复生效）。
+    // 恢复 = 取消下面注释（`toolBootstrap` 开关随挂载一并恢复生效），并补回
+    // `installToolBootstrap` 的 import（2026-10-10 死代码清理摘掉）。
     // void installToolBootstrap(agentCtx as DshRuntime, {
     //   enabled: config?.toolBootstrap ?? true,
     // });
@@ -645,7 +648,8 @@ export async function apply(
   // deepseek + 会话未解锁 → 把正文交给 App，由其代替用户发出以完成锚定解锁；判据不可读
   // → 不发并 warn（与锚定 filter 的 fail-open 方向相反，见 shouldAutoKickoff）。
   // 2026-10-05 用户裁定**关掉 kickoff**：按「注释而非删除」停用（实现原样保留）；
-  // 恢复 = 取消下面注释、删掉占位赋值。
+  // 恢复 = 取消下面注释、删掉占位赋值，并补回 `shouldAutoKickoff` / `BOOTSTRAP_KICKOFF_TEXT`
+  // 的 import（2026-10-10 死代码清理摘掉）。
   // const kickoffText = shouldAutoKickoff({
   //   enabled: config?.toolBootstrap ?? true,
   //   modelId: route.model ?? "",
@@ -661,7 +665,8 @@ export async function apply(
   // 入队），此刻 `restoreSessionState()` 尚未落定 → 读到的仍是**上一会话**的模型（求值窗口，
   // 跨模型切换时该发不发 / 不该发而发）。新会话模型 = 建会话时钉住的 route（`agentOptions`，
   // 见适配器 `newSession`）优先，否则宿主默认选择（种子）；判据不可读 → 不发。
-  // 2026-10-05 用户裁定**关掉 kickoff**（同启动路径，注释停用、保留实现；恢复 = 取消注释）。
+  // 2026-10-05 用户裁定**关掉 kickoff**（同启动路径，注释停用、保留实现；恢复 = 取消注释
+  // 并补回 `newSessionKickoffText` 的 import——2026-10-10 死代码清理摘掉）。
   // const kickoffForNewSession = (): string | undefined =>
   //   newSessionKickoffText({
   //     enabled: config?.toolBootstrap ?? true,

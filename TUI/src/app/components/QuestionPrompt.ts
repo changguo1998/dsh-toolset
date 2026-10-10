@@ -28,7 +28,7 @@
 //
 // 输出恰好 height 行；题干/detail/选项超出面板可用宽均按行 soft-wrap（题干/选项
 // 续行按正文起点缩进、选项续行缩进 6 列更深（选项文字起点第 4 列 + 2），
-// 便于辨认新选项起点；见 OPTION_CONT_INDENT）。
+// 便于辨认新选项起点；续行缩进取选项正文起点，见 buildQuestionPanelBox 的 contIndent）。
 
 import type {
   FrameRow,
@@ -43,15 +43,6 @@ import { panelMarkdownRows, windowStart } from "../layout/panel.ts";
 import { fillBoxTree } from "../layout/fill.ts";
 // 列宽口径与 fill / 渲染器 / markdown 同源（吃运行时宽度探针的覆盖表；BACKLOG TUI#4）
 import { charWidth, displayWidth } from "../layout/markdown.ts";
-
-/**
- * 选项续行缩进（6 列 = 选项首行前缀 ` >* ` 4 列 + 2 列阶梯差）。选项行未选中
- * 且光标不在其上时前缀全为空格、与 4 列续行缩进同形，长文本折行后无法辨认
- * 新选项从哪一行开始；加深到 6 列后续行缩进于选项文字起点（第 4 列）。
- * 面板可用宽不足 6 列时退回 4 列（见 buildQuestionPanelBox 的 contIndent）。
- */
-
-/** 选项正文起点列（前缀 ` >* ` = 4 列）：解释行按此缩进（BACKLOG 3.2.3） */
 
 /** 类型标识符号（BACKLOG TUI#4 / TUI#1）：多题符号行用；plan-review 视同审批。
  *  空心 = 非当前题；当前题改用实心（SYM_FILLED），两者都按当前题着色。 */

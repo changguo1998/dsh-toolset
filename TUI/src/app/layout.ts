@@ -124,8 +124,6 @@ import {
 export interface Viewport {
   start: number; // segTable 内可见起始下标
   end: number; // 结束下标（不含）
-  followBottom: boolean;
-  scrollOffset: number;
 }
 
 // ---------- 帧组装 ----------
@@ -1374,8 +1372,6 @@ function buildTopRegion(
   const vp: Viewport = {
     start: topIdx,
     end: Math.min(dialogueRows.length, topIdx + viewportH),
-    followBottom: topIdx >= maxTop,
-    scrollOffset: maxTop - topIdx,
   };
   // 回填段表与视口信息：App 用它把按键换算成新的视口顶、并同步 state
   if (report) {
