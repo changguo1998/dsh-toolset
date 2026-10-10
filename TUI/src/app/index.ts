@@ -42,6 +42,7 @@ import {
   allSections,
   applyDelivery,
   createSections,
+  joinedLastTextBySource,
   lastTextBySource,
   lastTextOfSources,
   type SectionsState,
@@ -3896,8 +3897,9 @@ export class App {
   /** /copy：最后一条模型回复经 OSC52 写入系统剪贴板（ANSI 已剥离，纯文本）。
    *  来源 = 节模型（条目 7 选项 1：不再回查缓冲；无 sink 时 `sectionsOf` 回退重放）。 */
   private copyLastReply(): void {
+    // 整条回复 = 该节 assistant 各块条目按序拼接（块身份只用于渲染分段）
     const text = (
-      lastTextBySource(sectionsOf(this.state), "assistant") ?? ""
+      joinedLastTextBySource(sectionsOf(this.state), "assistant") ?? ""
     ).trim();
     if (text === "") {
       this.notice("没有可复制的模型回复", "warn");

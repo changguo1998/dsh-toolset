@@ -2,7 +2,8 @@
 //
 // 契约（追踪文档「分节规则」「节内合并」「三张记账表」，含审阅后细化的两条口径）：
 // ① 幂等：实时增量 / 结算整块两条线交叉、乱序、重放都只入一次（`seq` 或文本对账）；
-// ② 节内按来源类型归并（`r1 a1 r2 a2` → reasoning = r1+r2、assistant = a1+a2），顺序按首现；
+// ② 节内同**块**（交付 `index`）流式续写合并（`r1 a1 r2 a2` 同块交错 → reasoning = r1+r2、
+//    assistant = a1+a2），顺序按首现；跨块不并（工具调用前后的正文不被粘成一行）；
 // ③ 惰性开节：只有 `step/start` 时**无空节**；同 (turn,step) 的重复 / 迟到 step-start 不切节；
 // ④ 工具批按 `callId` 配对（结果早于调用 / 缺 callId / 跨 step 泄漏都有口径），
 //    结果回到调用所在节（批不拆），到齐 → 置「待封闭」；
@@ -151,12 +152,13 @@ test("① seq 去重：同一事件号重放只入一次", () => {
   assert.equal(itemOf(allSections(s)[0]!, "tool")?.results?.length, 1);
 });
 
-test("② 节内归并：reasoning / assistant 交错不被切断，顺序按首现", () => {
+test("② 节内归并：同块流式续写合并、顺序按首现；跨块不并（不被粘成一行）", () => {
+  // 同 (turn, step) 内两条块交错流式（块 0 的续写被块 1 的分片打断）→ 各块自并一条
   const s = applyAll(createSections(), [
     delta(0, "reasoning", "r1"),
     delta(1, "assistant", "a1"),
-    delta(2, "reasoning", "r2"),
-    delta(3, "assistant", "a2"),
+    delta(0, "reasoning", "r2"),
+    delta(1, "assistant", "a2"),
   ]);
   assert.deepEqual(
     allSections(s)[0]?.items.map((item) => [item.source, item.text]),
@@ -164,6 +166,41 @@ test("② 节内归并：reasoning / assistant 交错不被切断，顺序按首
       ["reasoning", "r1r2"],
       ["assistant", "a1a2"],
     ],
+    "同块续写按序并入同一条",
+  );
+  // 跨块（工具调用前后的正文是不同块）**不并**：并了就是「工具调用前后的正文被粘成一行」
+  const glued = applyAll(createSections(), [
+    delta(0, "assistant", "正文甲"),
+    {
+      kind: "tool-call",
+      turn: 1,
+      step: 1,
+      callId: "c1",
+      name: "bash",
+      args: "{}",
+    },
+    {
+      kind: "tool-result",
+      turn: 1,
+      step: 1,
+      callId: "c1",
+      ok: true,
+      detail: "ok",
+    },
+    delta(1, "assistant", "正文乙"),
+  ]);
+  // 工具批结果到齐 → 待开节：后到的正文另起一节（旧路径的「工具调用行 = 分块硬边界」同款），
+  // 两段正文因此各自成条，不会被并成 `正文甲正文乙`
+  assert.deepEqual(
+    allSections(glued).flatMap((section) =>
+      section.items.map((item) => [item.source, item.text ?? ""]),
+    ),
+    [
+      ["assistant", "正文甲"],
+      ["tool", ""],
+      ["assistant", "正文乙"],
+    ],
+    "跨块正文各自成条（不粘）",
   );
 });
 
@@ -518,5 +555,59 @@ test("用户块终态：steer 续接块（符号恒 `←`）不被终态改写",
     users.find((i) => i.steerContinued !== true)?.userStatus,
     "success",
     "终态落在本回合的非 steer 块上",
+  );
+});
+
+// —— 辅助行与工具批分槽（BACKLOG「辅助行独立成段」+「辅助行 → 工具调用顺序让辅助行消失」） ——
+test("辅助行独立成条：辅助行 → 工具调用 两个方向都不丢、不并进批", () => {
+  const helper = (text: string, index: number): BlockDelivery => ({
+    kind: "text",
+    turn: 1,
+    step: 1,
+    index,
+    source: "tool",
+    text,
+  });
+  const call: BlockDelivery = {
+    kind: "tool-call",
+    turn: 1,
+    step: 1,
+    callId: "c1",
+    name: "bash",
+    args: "{}",
+  };
+  const result: BlockDelivery = {
+    kind: "tool-result",
+    turn: 1,
+    step: 1,
+    callId: "c1",
+    ok: true,
+    detail: "ok",
+  };
+  const items = (deliveries: BlockDelivery[]): [string, string][] =>
+    allSections(applyAll(createSections(), deliveries))
+      .flatMap((section) => section.items)
+      .map((item) => [
+        item.source,
+        item.text ?? (item.calls === undefined ? "" : "<batch>"),
+      ]);
+  // ① 辅助行在前：旧实现会被批复用（挂上 calls）→ 文本整条消失
+  assert.deepEqual(
+    items([helper("辅助甲", 0), call, result]),
+    [
+      ["tool", "辅助甲"],
+      ["tool", "<batch>"],
+    ],
+    "辅助行与批分槽（辅助行不消失）",
+  );
+  // ② 辅助行 → 批 → 辅助行：两段辅助行各自成条（不与批同条）
+  assert.deepEqual(
+    items([helper("辅助甲", 0), call, result, helper("辅助乙", 1)]),
+    [
+      ["tool", "辅助甲"],
+      ["tool", "<batch>"],
+      ["tool", "辅助乙"],
+    ],
+    "两段辅助行各自成条",
   );
 });

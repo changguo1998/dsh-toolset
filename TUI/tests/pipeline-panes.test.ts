@@ -327,3 +327,34 @@ test("⑨ 抑制首头：窗口顶切在节中间时，该 step 一条头都不�
   });
   assert.deepEqual(shape(panes.activity), ["reasoning:（想）", "tool:1"]);
 });
+
+test("⑩ 辅助行各自成段：与工具批不同段、都可见（含批前后各一段）", () => {
+  const panes = buildPanes(
+    [
+      section(
+        [
+          { source: "tool", text: "辅助甲" },
+          {
+            source: "tool",
+            calls: [{ callId: "c1", name: "bash", args: "{}" }],
+          },
+          { source: "tool", text: "辅助乙" },
+        ],
+        { turn: 1, step: 1 },
+      ),
+    ],
+    { level: "think", declaredSteps: ["1:1"] },
+  );
+  // 三段各自成 box（辅助行文本走文本分支、批走批分支），顺序按到达序
+  assert.deepEqual(shape(panes.activity), [
+    "#step 1",
+    "tool:辅助甲",
+    "tool:1",
+    "tool:辅助乙",
+  ]);
+  // 段键互不相同（独立段：不共用同段键）
+  const keys = panes.activity.flatMap((item) =>
+    item.kind === "line" ? [item.key] : [],
+  );
+  assert.equal(new Set(keys).size, keys.length, "每段段键唯一");
+});

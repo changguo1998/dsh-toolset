@@ -39,6 +39,12 @@ export interface Item {
   /** 该条目覆盖的宿主事件号（压缩剪枝的 `shadowedSeqs` 按交集打遮蔽标记用） */
   readonly seqs?: readonly number[];
   /**
+   * 文本**块身份**（同节内的块序号，来自交付的 `index`）：流式续写（同块）才并成一条，
+   * 跨块不并——否则「正文甲 → 工具调用 → 正文乙」会被粘成一条无分隔的长行
+   * （BACKLOG「同一步内『工具调用前后的正文』被粘成一行」）
+   */
+  readonly block?: number;
+  /**
    * 用户块终态（条目 7 批 B1）：`turn-end` 的原因落到该回合最后一个用户**条目**上 →
    * 行层直接写 `status`，符号渲染不再按 `seq` 回查 buffer；已有终态不覆盖
    */

@@ -204,16 +204,18 @@ function appendText(
   tone?: NoticeTone,
   seq?: number,
   generation?: number,
+  block?: number,
 ): Section {
   const items = [...section.items];
-  // 同来源合并**只对文本项**：工具批（带 calls / results）与文本走不同渲染分支，
-  // 把辅助行（subagent / hook 的 `source: "tool"` 文本）并进工具批会被批渲染忽略
-  // （真机表现：辅助行整条消失）
+  // 同来源合并**只对文本项**（工具批与文本走不同渲染分支），且**只并同块的流式续写**：
+  // 跨块合并会把「正文甲 → 工具调用 → 正文乙」粘成一条（BACKLOG「同一步内『工具调用
+  // 前后的正文』被粘成一行」）；无块身份的路径（notice / shell / 回放整行）保持原样
   const at = items.findIndex(
     (item) =>
       item.source === source &&
       item.calls === undefined &&
-      item.results === undefined,
+      item.results === undefined &&
+      item.block === block,
   );
   const found = at >= 0 ? items[at] : undefined;
   if (found === undefined) {
@@ -224,6 +226,7 @@ function appendText(
           text,
           ...(tone === undefined ? {} : { tone }),
           ...(generation === undefined ? {} : { generation }),
+          ...(block === undefined ? {} : { block }),
         },
         seq,
       ),
@@ -248,7 +251,14 @@ function appendText(
 /** 工具条目（调用 / 结果同组）：不存在则新建，返回其下标 */
 function toolAt(section: Section): { items: Item[]; at: number; item: Item } {
   const items = [...section.items];
-  const at = items.findIndex((item) => item.source === "tool");
+  // 只复用**已是工具批**的条目：辅助行（subagent / hook 的 `source: "tool"` 文本）没有
+  // calls / results，复用会给它挂上批 → 渲染走批分支、文本整条消失（BACKLOG「同节内
+  // 『辅助行 → 工具调用』顺序会让辅助行消失」）。与 `appendText` 的排除判据对称。
+  const at = items.findIndex(
+    (item) =>
+      item.source === "tool" &&
+      (item.calls !== undefined || item.results !== undefined),
+  );
   const found = at >= 0 ? items[at] : undefined;
   if (found !== undefined) return { items, at, item: found };
   const fresh: Item = { source: "tool", calls: [], results: [] };
@@ -306,6 +316,7 @@ function applyText(
     delivery.tone,
     delivery.seq,
     next.turnEnds,
+    delivery.index,
   );
   return write(located.state, located.target, section);
 }
@@ -731,6 +742,23 @@ export function lastTextOfSources(
       const text = item.text ?? "";
       if (text.trim() !== "") return text;
     }
+  }
+  return undefined;
+}
+
+/** 最后一个含该来源文本的**节**里，该来源各条目文本按序拼接（`/copy` 的「完整最后回复」：
+ *  条目的块身份只管渲染分段，复制要的是整条回复——同 step 内被 notice 隔开的多块也算一条，
+ *  与「节内正文按序合并」的既有口径一致） */
+export function joinedLastTextBySource(
+  state: SectionsState,
+  source: Source,
+): string | undefined {
+  const list = allSections(state);
+  for (let i = list.length - 1; i >= 0; i--) {
+    const texts = list[i]!.items.filter((item) => item.source === source)
+      .map((item) => item.text ?? "")
+      .filter((text) => text.trim() !== "");
+    if (texts.length > 0) return texts.join("");
   }
   return undefined;
 }
