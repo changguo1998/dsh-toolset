@@ -64,10 +64,14 @@ test("分组判定：无状态前缀=调用，状态前缀=辅助行", () => {
   assert.ok(!isToolCall("✓ done"), "✓ 是结果行");
   assert.ok(
     !isToolCall("22:31:05 #2"),
-    "step 分组头是辅助行（P6 起为 hh:mm:ss #N）",
+    "step 分组头是辅助行（形制 hh:mm:ss ⇆N #M）",
   );
-  assert.ok(isStepHeader("22:31:05 #2"), "带时间的分组头");
-  assert.ok(isStepHeader("#2"), "缺时间的分组头");
+  assert.ok(isStepHeader("22:31:05 ⇆3 #2"), "带时间与回合号的分组头");
+  assert.ok(isStepHeader("⇆3 #2"), "缺时间的分组头");
+  assert.ok(isStepHeader("22:31:05 #2"), "旧形制（历史缓冲行）仍是分组头");
+  assert.ok(isStepHeader("#2"), "两项都缺的分组头");
+  // 护栏：回合分隔线标签（`hh:mm:ss ⇆N`，无步号）不得被认成分组头
+  assert.ok(!isStepHeader("03:04:05 ⇆3"), "回合分隔线标签不是分组头");
   assert.ok(!isStepHeader("step 2"), "旧格式不再识别为分组头");
   assert.ok(!isToolCall("#2"), "缺时间的分组头同样非调用行");
   assert.ok(isToolResult("✓ done"));

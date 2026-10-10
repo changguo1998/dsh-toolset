@@ -138,7 +138,7 @@ function oldBuffer(turns: number): BufferLine[] {
       case "step-start":
         turn = delivery.turn;
         push({
-          text: stepHeaderLine(delivery.step, delivery.time),
+          text: stepHeaderLine(delivery.step, delivery.time, delivery.turn),
           kind: "tool",
           // 真实落行口径：step 头带事件时间（恢复重放要靠它补 step / 回合时间）
           ...(delivery.time === undefined ? {} : { time: delivery.time }),

@@ -416,10 +416,10 @@ function itemLines(item: PaneItem, dialogue: boolean): BufferLine[] {
     case "blank":
       return [{ text: "", kind: "plain" }];
     case "step-head":
-      // 旧口径：step 头由 `appendToolLine` 插入（kind = tool），渲染为 `╌╌ hh:mm:ss #N ╌╌`
+      // 旧口径：step 头由 `appendToolLine` 插入（kind = tool），渲染为 `╌╌ hh:mm:ss ⇆N #M ╌╌`
       return [
         {
-          text: stepHeaderLine(item.step, item.time),
+          text: stepHeaderLine(item.step, item.time, item.turn),
           kind: "tool",
         },
       ];

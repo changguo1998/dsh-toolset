@@ -6,7 +6,7 @@
 //
 // 口径：
 //   - `separator`（回合分隔线）→ 回合 +1；
-//   - step 头（`kind = "step"` 或工具行里的 `hh:mm:ss #N`）→ step 边界；
+//   - step 头（`kind = "step"` 或工具行里的 `hh:mm:ss ⇆N #M`）→ step 边界；
 //   - `user` / `notice` / `shell` → 独立自足节；
 //   - `thinking` → reasoning 条目；工具行 → 工具批（调用行按 `名字 摘要` 拆、结果行按
 //     `✓/✗` 判定，配对交给接收层的到达顺序口径）；其余 → 正文条目；
@@ -22,7 +22,8 @@ import {
 } from "./sections.ts";
 import type { BlockDelivery } from "./types.ts";
 
-/** step 头文本（`hh:mm:ss #N` / `#N`）→ step 号；非 step 头返回 undefined */
+/** step 头文本（`hh:mm:ss ⇆N #M` 及其省略形 / 旧形制 `hh:mm:ss #N`）→ step 号；非 step 头返回 undefined。
+ *  尾锚 `#M` 使回合号插在 `#` 前不影响回解（新旧文本都能解）。 */
 export function stepOf(text: string): number | undefined {
   const match = /(?:^|\s)#(\d+)\s*$/.exec(text.trim());
   return match === null ? undefined : Number(match[1]);

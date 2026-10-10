@@ -85,7 +85,7 @@ export function wrapToolCallText(text: string, width: number): string[] {
 
 /** 工具行分组判定：无状态符号前缀的行=工具调用（新组起点）。
  * 前缀按**符号本身**判（不依赖尾随空格——结果行 detail 为空时行尾无空格，
- * 若按 `"✓ "` 匹配会被误判成调用行）；step 分组头（P6 起为 `hh:mm:ss #N`，
+ * 若按 `"✓ "` 匹配会被误判成调用行）；step 分组头（形制 `hh:mm:ss ⇆N #M`，
  * 不再有固定前缀）由 isStepHeader 单独判定 */
 export const TOOL_STATUS_PREFIXES = [
   "✓",
@@ -100,9 +100,10 @@ export const TOOL_STATUS_PREFIXES = [
   "@",
 ];
 
-/** step 分组头行判定（P6）：文本为 `hh:mm:ss #N`，时间缺失时为 `#N` */
+/** step 分组头行判定：文本为 `hh:mm:ss ⇆N #M`（时间 → 回合号 → 步号）；时间与回合号
+ *  各自可缺（`⇆N #M` / `hh:mm:ss #M` / `#M`），顺序固定 */
 export function isStepHeader(text: string): boolean {
-  return /^(?:\d{2}:\d{2}:\d{2} )?#\d+$/.test(text);
+  return /^(?:\d{2}:\d{2}:\d{2} )?(?:⇆\d+ )?#\d+$/.test(text);
 }
 
 /** 无状态符号前缀、且非 step 分组头的行=工具调用行（新组起点） */

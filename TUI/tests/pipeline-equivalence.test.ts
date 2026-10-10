@@ -140,7 +140,7 @@ function oldBuffer(): BufferLine[] {
         turn = delivery.turn;
         // 旧口径：step 头经 appendToolLine 入 buffer（kind = tool）
         lines.push({
-          text: stepHeaderLine(delivery.step, delivery.time),
+          text: stepHeaderLine(delivery.step, delivery.time, delivery.turn),
           kind: "tool",
         });
         break;

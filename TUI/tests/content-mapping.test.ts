@@ -207,7 +207,7 @@ test("双轨（已偏离）：thinking + notice + 非 final assistant（活动�
 });
 
 test("双轨（已偏离）：tool 行分组 + step 结果（P6 起分组头带时间戳）", () => {
-  // 冻结基线记录旧格式 `╌╌ step 2 `；P6 起分组头为 `╌╌ hh:mm:ss #N `，
+  // 冻结基线记录旧格式 `╌╌ step 2 `；P6 起分组头为 `╌╌ hh:mm:ss ⇆N #M `，
   // 故此处断言「除分组头文本与尾部铺满长度外逐行等价」而非整行等价。
   const buf: Buffer = [
     { text: "bash run cmd", kind: "tool" },

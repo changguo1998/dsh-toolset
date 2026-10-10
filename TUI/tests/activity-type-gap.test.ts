@@ -81,7 +81,7 @@ test("#5 notice / step 概要行不算类型边界（不新增空行）", () => 
     [2],
     "只有思考→正文那一处，notice 不新增",
   );
-  // 实时 step 头是 tool-kind 行（文本 `hh:mm:ss #N`）→ 归「工具」类：
+  // 实时 step 头是 tool-kind 行（文本 `hh:mm:ss ⇆N #M`）→ 归「工具」类：
   // 与思考相邻不插类型间隔空行，且分割行的「吸收拖尾空行」照常生效 → 分割行与内容紧排
   const withStep = act([
     L("思考一", "thinking"),

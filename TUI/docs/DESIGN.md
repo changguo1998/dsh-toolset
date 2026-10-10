@@ -239,7 +239,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 | `plan/mode` `{active}` | `mode {kind:'plan', value}` | 标题栏 plan 图标（on 绿 / off 灰） |
 | `sandbox/mode` `{mode}` | `mode {kind:'sandbox', value}` | 标题栏沙箱图标（ro 绿 / wr 黄 / full 红 / 其它灰） |
 | `permission/preset` `{preset}` | `mode {kind:'permission', value}` | **不再显示**（P7；值仍随 TUI 侧会话快照保存，沙箱取值经 `sandbox/mode` 出图标） |
-| `step/start` / `step/end` `{turn, step}` | `step {phase:'start'\|'end'}` | 分组头 `╌╌ hh:mm:ss #N ` + 尾部 `╌` 铺满（P6，`stepHeaderLine(step, time)`：本地时区 24 小时制逐段补零、时间缺失只出 `#N`；该 step 首个工具调用时渲染，end 无独立渲染） |
+| `step/start` / `step/end` `{turn, step}` | `step {phase:'start'\|'end'}` | 分组头 `╌╌ hh:mm:ss ⇆N #M ` + 尾部 `╌` 铺满（`stepHeaderLine(step, time, turn)`：本地时区 24 小时制逐段补零；顺序固定为时间 → 回合号 → 步号，片段缺失即省略；该 step 首个工具调用时渲染，end 无独立渲染） |
 | `subagent/descriptor` `{version, mode, provider, label?, …}` | `subagent {sessionId, label, mode}` | 子代理行（one-shot / continuable 标记），append-only 不配对 |
 | `compaction/summary` `{compactionId, summary, shadowedSeqs, shadowedTokenCount, provider, model, usage?}` | `compaction-summary {sessionId, text, raw}` | 仅 toast（首行）；`raw` 存 `state.compactionBySession`（每会话仅最新一条，不改写、不入 buffer） |
 
@@ -247,7 +247,7 @@ Box 模型**不引入 `box.border` 属性**——三类视觉边界各有机制�
 
 - **goal / todo / mode / policy / preset 均按 `sessionId` 隔离**（`goalBySession` / `todoBySession` / `modeBySession` / `policyBySession` / `presetBySession`），切换活跃会话读对应状态，杜绝旧会话泄漏；goal 以会话为单位累积历史（create / 未知 id 入栈、其余事件按 id 原位更新、clear 出栈；非 clear 事件为全量快照，原子无增量），状态列 index 0 当当前展示、其余当旧 goal 展示，全部出栈后省略块。**goal 自动续轮开关**另存 `goalActivationBySession`（末条 activation 边、按会话隔离、不落盘）：展示值由 `goalActivationDisplay` 直取末条边——**有边就显示**（不按相位门控）、**无记录不显示**（宿主重启后不发事件，不再推导为 `disarmed`），故不做「见过 armed 就恒绿」的粘性记忆。
 - **标题栏状态符号组（P7）**：四个开关（`plan` 取 mode 状态、`verbose` / `symbol-unify` 取 `AppState`、`bell` 取启动接线的配置值 `notify.enabled`）与沙箱 / policy 各出一个 Nerd Font 私有区图标，顺序固定 `沙箱 → policy → plan → verbose → symbol-unify → bell`、空格分隔、最多 6 个；**颜色即语义值**（沙箱 ro 绿 / wr 黄 / full 红 / 其它灰，policy ask 黄 / never 绿，开关 on 绿 / off 灰），无数据项整组省略。preset 段为拼图图标 + 预设名（默认前景）。权限预设目录（`ctx.permissionPresets.names`）与 agent 预设目录（`ctx.agentPresets.list`）仍经 `permission-catalog` / `agent-preset-catalog` 事件同步入 state（`permission` 不再渲染，preset 名直接来自 `agent-preset/selected`）。新会话由 adapter 的 Mode 快照（宿主 `permissionPresets.defaultPreset` 捆绑兜底 + plan=off）补发初始事件，与宿主当前模式一致。
-- **step**：`step/start` 到来且当前有活动工具组时先 flush 并另起分组头；头文本 = `hh:mm:ss #N`（时间取事件 `time`，本地时区 24 小时制逐段补零、缺失只出 `#N`），渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满（P6）；无工具调用的 step 不产生输出。
+- **step**：`step/start` 到来且当前有活动工具组时先 flush 并另起分组头；头文本 = `hh:mm:ss ⇆N #M`（时间取事件 `time`、回合号取事件 `turn`；本地时区 24 小时制逐段补零，片段缺失即省略），渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满（P6）；无工具调用的 step 不产生输出。
 - **恢复会话按 step 概要（P9）**：恢复不还原逐条工具行，而是折叠事件——每个**含工具调用**的 step 折成一行 `╌╌ hh:mm:ss #N ╌╌ 工具名[×次数], …[ ✗失败数] ╌╌╌…`（buffer `kind = "step"`，由 `surfaceToBuffer` 注入、`build-box` 按同一形制品渲染），无工具调用的 step 不出行；参数摘要 / 结果详情 / thinking 不还原；整条空文本不再产出空行。
 - **compaction/summary**：只取首个非空文本块首行入 toast（空摘要 → 「压缩完成（无摘要）」）。
 - **后台任务 `/jobs`**：宿主 `JobRegistry` 推送全量快照——事件走 `jobs.events.subscribe({ owner: sessionId })`、caller 是裸 `sessionId` 字符串（0.1.7-rc.2 单一形态；事件缺失/订阅抛错时退化为打开面板时拉取一次）。`list(caller)` / `kill(id, caller)` 为 owner-relative；App 事件层再按活跃 sessionId 过滤一道（防迟到事件与切会话串味）。仅只读展示 + cancel，不做 job 创建 / 参数 UI。
@@ -399,7 +399,7 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 完整映射与渲染语义见 `TUI/docs/DESIGN.md`「事件接入与渲染」。实现要点：
 
 - raw 事件由 adapter 归一化为 `DshEvent` → App 事件 switch → state reducer → `buildFrame`；`DshEvent` 为封闭联合，新增成员需同步 `index.ts` 穷尽登记（否则 `npm run check` 失败）。
-- tool 行文本由 `layout/tool-line.ts` 纯函数组装（step 分组头 = `stepHeaderLine(step, time)` → `hh:mm:ss #N`，P6：本地时区 24 小时制逐段补零、时间缺失只出 `#N`；渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满）；summary / detail 启发式由 adapter（`dsh.ts`）在归一化时产出。结果行 = `✓ <detail>` / `✗ <detail>`，**detail 为空按上表省略**（成功只出 `✓ `，行尾空格是前缀契约）；分组 / 着色按**符号**判定（`content-rules.ts` 的 `TOOL_STATUS_PREFIXES` / `renderToolText` 不依赖尾随空格，勿 trimEnd 结果行）。
+- tool 行文本由 `layout/tool-line.ts` 纯函数组装（step 分组头 = `stepHeaderLine(step, time, turn)` → `hh:mm:ss ⇆N #M`（顺序固定；片段缺失即省略；本地时区 24 小时制逐段补零）；渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满）；summary / detail 启发式由 adapter（`dsh.ts`）在归一化时产出。结果行 = `✓ <detail>` / `✗ <detail>`，**detail 为空按上表省略**（成功只出 `✓ `，行尾空格是前缀契约）；分组 / 着色按**符号**判定（`content-rules.ts` 的 `TOOL_STATUS_PREFIXES` / `renderToolText` 不依赖尾随空格，勿 trimEnd 结果行）。
 - **压缩期间算活跃（P8）**：`compaction/start` → `compaction/end` 期间按会话记 `compactingBySession`，`isCompacting(state)` 供 `index.ts` 的 `agentBusy()` 判定——该会话视为忙：用户块符号显示运行中 `●`/`○`、Enter 提交走排队、`Ctrl+D` 退出守卫不触发（`Esc` 中断语义不变）。回归：`tests/p8-compaction-active.test.ts`。
 - **状态符号渲染位置（P1）**：符号在排版层算定（`userBlockSymbolResolver` → `USER_BLOCK_SYMBOL`；终态由 `turn/end` 的 reason 经 `markUserBlockStatus` 打标到 `BufferLine.status`），`build-box` 只负责把 `符号 + 1 空格` 拼到用户块首行左侧（在块内部，块右缘位置不变；排队块不出符号）。水平状态栏不再有符号段。回归：`tests/app.test.ts`（用户块首行符号与 SGR / turn-end reason 打标）/ `tests/layout4.test.ts`。
 - **seq 守卫**（per-session 游标）：`event.seq <= lastSeq` 丢弃；间隙接受不补缺；非活跃会话丢弃。

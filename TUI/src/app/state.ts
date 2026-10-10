@@ -533,7 +533,7 @@ export interface AppState {
   stepGroup: {
     sessionId: string;
     step: number;
-    /** P6：分组头时间戳（epoch ms；渲染为 `hh:mm:ss #N`） */
+    /** 分组头时间戳（epoch ms；渲染为 `hh:mm:ss ⇆N #M`） */
     time?: number;
   } | null;
   /** P8：按 sessionId 隔离的「上下文压缩中」标记——压缩期间该会话算活跃
@@ -1070,7 +1070,7 @@ export function appendToolLine(
     kind: "tool",
     seq: state.nextSeq,
     ...(tone ? { tone } : {}),
-    // step 头的时间随行存一份：恢复重放据此还原 `hh:mm:ss #N`（文本里虽有格式化时间，
+    // step 头的时间随行存一份：恢复重放据此还原 `hh:mm:ss ⇆N #M`（文本里虽有格式化时间，
     // 但那是显示态、无法反解 epoch；行元数据是权威来源）
     ...(params?.time === undefined ? {} : { time: params.time }),
   });
@@ -2329,7 +2329,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         };
       }
       case "step":
-        // #7：step/start **即画真分割线** `hh:mm:ss #N`（其后思考/工具/正文都归入该步；
+        // #7：step/start **即画真分割线** `hh:mm:ss ⇆N #M`（其后思考/工具/正文都归入该步；
         // 每步都画，含首个 step 与无工具调用的 step）；step/end 关组。
         if (action.phase === "start") {
           // P6：时间取事件时间；mock/合成事件缺 time 时回退当前时刻
@@ -2337,7 +2337,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           return {
             ...appendToolLine(
               state,
-              stepHeaderLine(action.step, time),
+              stepHeaderLine(action.step, time, action.turn),
               undefined,
               {
                 time,

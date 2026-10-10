@@ -42,12 +42,23 @@ function diffSummary(meta: unknown): string | undefined {
   return added + removed === 0 ? undefined : `(+${added}/-${removed})`;
 }
 
-/** step 分组头：`hh:mm:ss #N`（P6；时间缺失时只出 `#N`）。
+/** step 分组头：`hh:mm:ss ⇆N #M`（**时间 → 回合号 → 步号**；任一片段缺失即省略：
+ *  时间缺 → `⇆N #M`、回合号缺 → `hh:mm:ss #M`、都缺 → `#M`）。
  *  渲染层在其前后补 `╌╌ ` 前缀与尾部 `╌` 铺满（build-box 的 step 分支）；
- *  `N` 取事件 step 字段原样、不补零。 */
-export function stepHeaderLine(step: number, time?: number): string {
+ *  `N` / `M` 取事件的 turn / step 字段原样、不补零。回合号标记 `⇆` 与回合分隔线同款
+ *  （`turnHeaderLine`），步号 `#M` 是 step 头独有标记。 */
+export function stepHeaderLine(
+  step: number,
+  time?: number,
+  turn?: number,
+): string {
   const hms = clockHms(time);
-  return hms ? `${hms} #${step}` : `#${step}`;
+  // 回合号 0 / 负数不是有效回合（宿主 `data.turn ?? 0`、回放 scope 起始 0）→ 按「缺项」省略，
+  // 避免渲染出 `⇆0` 这种无意义片段
+  const no = turn === undefined || turn <= 0 ? undefined : `⇆${turn}`;
+  return [hms, no, `#${step}`]
+    .filter((part): part is string => part !== undefined)
+    .join(" ");
 }
 
 /** #3 会话区回合分隔线标签：与 step 线同族格式，但回合号标记用 `⇆`（水平双箭头、

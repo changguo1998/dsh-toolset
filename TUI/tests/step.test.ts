@@ -1,6 +1,6 @@
 // tests/step.test.ts — step 分步分割线（#7 起：step/start 即画）
 //
-// 直接驱动 reducer 断言 buffer 内容（工具行 ○/✓/✗ 与 `hh:mm:ss #N` 分割线均为
+// 直接驱动 reducer 断言 buffer 内容（工具行 ○/✓/✗ 与 `hh:mm:ss ⇆N #M` 分割线均为
 // kind="tool" 的纯文本行，不依赖渲染）。覆盖四类语义：
 //   1. 分割线时机：`step/start` 到达即产线（每步都画，含首个 step 与无工具调用的 step）
 //   2. 同一步不重复：组内工具行不再插头
@@ -12,6 +12,8 @@ import assert from "node:assert/strict";
 import { initialState, reduceState } from "../src/app/state.ts";
 import type { StateAction } from "../src/app/state.ts";
 import { stepHeaderLine } from "../src/app/layout/tool-line.ts";
+import { isStepHeader } from "../src/app/layout/content-rules.ts";
+import { stepOf } from "../src/app/layout/pipeline/replay.ts";
 
 /** 顺序执行一串 action，返回最终 buffer 的纯文本行 */
 function run(actions: StateAction[]): string[] {
@@ -56,7 +58,7 @@ const toolErr = (detail: string): StateAction => ({
   detail,
 });
 
-test("B3 分组头插入：step 内首条工具行前插 `hh:mm:ss #N`，同组不重复", () => {
+test("B3 分组头插入：step 内首条工具行前插 `hh:mm:ss ⇆N #M`，同组不重复", () => {
   const lines = run([
     stepStart(1),
     toolCall("ls -la src/app"),
@@ -64,7 +66,7 @@ test("B3 分组头插入：step 内首条工具行前插 `hh:mm:ss #N`，同组�
     toolCall("pwd"),
   ]);
   assert.deepEqual(lines, [
-    "03:04:05 #1",
+    "03:04:05 ⇆1 #1",
     "bash ls -la src/app",
     "✓ 总用量 3 目录",
     "bash pwd",
@@ -73,7 +75,7 @@ test("B3 分组头插入：step 内首条工具行前插 `hh:mm:ss #N`，同组�
 
 test("B3 每步都画：无工具调用的 step 也产线（#7 的真分割线口径）", () => {
   const lines = run([stepStart(5), stepEnd(5)]);
-  assert.deepEqual(lines, ["03:04:05 #5"]);
+  assert.deepEqual(lines, ["03:04:05 ⇆1 #5"]);
 });
 
 test("B3 分割线跟随 step/end 关闭：结束后工具行不再产线", () => {
@@ -83,7 +85,7 @@ test("B3 分割线跟随 step/end 关闭：结束后工具行不再产线", () =
     stepEnd(1),
     toolErr("EACCES: 13"),
   ]);
-  assert.deepEqual(lines, ["03:04:05 #1", "bash ls", "✗ EACCES: 13"]);
+  assert.deepEqual(lines, ["03:04:05 ⇆1 #1", "bash ls", "✗ EACCES: 13"]);
 });
 
 test("B3 防御 flush：活动组未关又到 step/start 时新组另起分组头", () => {
@@ -94,9 +96,9 @@ test("B3 防御 flush：活动组未关又到 step/start 时新组另起分组�
     toolCall("rm -rf /tmp/tui-demo"),
   ]);
   assert.deepEqual(lines, [
-    "03:04:05 #1",
+    "03:04:05 ⇆1 #1",
     "bash ls",
-    "03:04:05 #2",
+    "03:04:05 ⇆1 #2",
     "bash rm -rf /tmp/tui-demo",
   ]);
 });
@@ -108,7 +110,7 @@ test("B3 向后兼容：无 step 上下文（旧会话/mock）工具行不插头
 
 test("B3 失败工具结果也参与分组：分组头先行", () => {
   const lines = run([stepStart(2), toolErr("EACCES: 13")]);
-  assert.deepEqual(lines, ["03:04:05 #2", "✗ EACCES: 13"]);
+  assert.deepEqual(lines, ["03:04:05 ⇆1 #2", "✗ EACCES: 13"]);
 });
 
 test("B3 每步一条线：step/start 各自产线，工具行不产线", () => {
@@ -117,7 +119,7 @@ test("B3 每步一条线：step/start 各自产线，工具行不产线", () => 
     stepStart(1), // s1 的 step
     { type: "tool-call", sessionId: "s2", name: "bash", summary: "whoami" },
   ]);
-  assert.deepEqual(lines, ["03:04:05 #1", "bash whoami"]);
+  assert.deepEqual(lines, ["03:04:05 ⇆1 #1", "bash whoami"]);
   // 两个会话各自 step/start → 各产一条线（线与 step 一一对应）
   const lines2 = run([
     stepStart(1), // s1 组
@@ -131,7 +133,7 @@ test("B3 每步一条线：step/start 各自产线，工具行不产线", () => 
     },
     { type: "tool-call", sessionId: "s2", name: "bash", summary: "pwd" },
   ]);
-  assert.deepEqual(lines2, ["03:04:05 #1", "03:04:05 #3", "bash pwd"]);
+  assert.deepEqual(lines2, ["03:04:05 ⇆1 #1", "03:04:05 ⇆1 #3", "bash pwd"]);
   // s1 的 step/end 后进行下一个 step：新线照产
   const lines3 = run([
     stepStart(1),
@@ -139,7 +141,7 @@ test("B3 每步一条线：step/start 各自产线，工具行不产线", () => 
     stepStart(2), // s1 新 step
     { type: "tool-call", sessionId: "s1", name: "bash", summary: "env" },
   ]);
-  assert.deepEqual(lines3, ["03:04:05 #1", "03:04:05 #2", "bash env"]);
+  assert.deepEqual(lines3, ["03:04:05 ⇆1 #1", "03:04:05 ⇆1 #2", "bash env"]);
 });
 
 test("B3 思考拖尾换行保留下一个「换行锚点」空段（渲染层跳过空思考行）", () => {
@@ -152,7 +154,7 @@ test("B3 思考拖尾换行保留下一个「换行锚点」空段（渲染层�
     { type: "thinking", text: "好的，下一步执行\n" },
   ]);
   assert.deepEqual(lines, [
-    "03:04:05 #1",
+    "03:04:05 ⇆1 #1",
     "bash ls",
     "✓ ok",
     "好的，下一步执行",
@@ -166,13 +168,26 @@ test("B3 思考拖尾换行保留下一个「换行锚点」空段（渲染层�
   assert.deepEqual(lines2, ["第一段", "第二段", ""]);
 });
 
-test("P6 分组头文本：`hh:mm:ss #N`（24 小时制、步号不补零；缺时间只出 `#N`）", () => {
-  assert.equal(stepHeaderLine(3, T0), "03:04:05 #3");
-  assert.equal(stepHeaderLine(123, T0), "03:04:05 #123");
+test("分组头文本：`hh:mm:ss ⇆N #M`（时间 → 回合号 → 步号；24 小时制、号不补零、缺项省略）", () => {
+  assert.equal(stepHeaderLine(3, T0, 2), "03:04:05 ⇆2 #3");
+  assert.equal(stepHeaderLine(123, T0, 45), "03:04:05 ⇆45 #123");
   // 下午时间用 24 小时制（本地时区 15:04:05）
   const pm = new Date(2026, 0, 2, 15, 4, 5).getTime();
-  assert.equal(stepHeaderLine(1, pm), "15:04:05 #1");
-  assert.equal(stepHeaderLine(7, undefined), "#7", "缺时间不设占位");
+  assert.equal(stepHeaderLine(1, pm, 1), "15:04:05 ⇆1 #1");
+  // 缺项省略（顺序固定：时间 → 回合号 → 步号）
+  assert.equal(stepHeaderLine(7, undefined, 3), "⇆3 #7", "缺时间");
+  assert.equal(stepHeaderLine(3, T0), "03:04:05 #3", "缺回合号");
+  assert.equal(stepHeaderLine(7, undefined), "#7", "两项都缺，不设占位");
+  assert.equal(stepHeaderLine(7, T0, 0), "03:04:05 #7", "回合号 0 按缺项省略");
+  assert.equal(stepHeaderLine(7, undefined, -1), "#7", "回合号负数同样省略");
+  // 形制识别与回解（恢复路径 / `index.ts` 按键判据依赖 `stepOf`）：新形制、缺项省略形、
+  // 以及本改动前落进缓冲的历史旧形制都要认得出步号
+  assert.ok(isStepHeader("03:04:05 ⇆1 #3"), "新形制是分组头");
+  assert.ok(isStepHeader("03:04:05 #3"), "旧形制（历史缓冲行）仍是分组头");
+  assert.equal(stepOf("03:04:05 ⇆2 #3"), 3, "新形制可回解步号");
+  assert.equal(stepOf("⇆3 #7"), 7, "缺时间的新形制可回解");
+  assert.equal(stepOf("03:04:05 #3"), 3, "旧形制仍可回解步号");
+  assert.equal(stepOf("#9"), 9, "两项都缺仍可回解");
 });
 
 test("P6 事件缺 time：分组头回退当前时刻（mock / 合成事件）", () => {
@@ -182,7 +197,7 @@ test("P6 事件缺 time：分组头回退当前时刻（mock / 合成事件）",
     toolCall("ls"),
   ]);
   const head = lines[0]!;
-  assert.match(head, /^\d{2}:\d{2}:\d{2} #7$/, `回退当前时刻: ${head}`);
+  assert.match(head, /^\d{2}:\d{2}:\d{2} ⇆1 #7$/, `回退当前时刻: ${head}`);
   // 回退时刻不早于调用前、不晚于调用后（允许 1s 粒度误差）
   const hms = head.slice(0, 8);
   const d = new Date(before);

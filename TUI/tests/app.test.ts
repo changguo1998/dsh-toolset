@@ -2080,7 +2080,7 @@ function barRowCount(renderer: FakeRenderer): number {
   return renderer.lastRender.filter((l) => {
     // 只看历史区（左侧状态列可能把占位/标题混进同一行，误伤分隔判定）
     const t = histBody(l, renderer.size.cols);
-    // #3/#5 起分隔行带标签（回合线 `╌╌ hh:mm:ss #N `、窗口标题 `── Session ──` 等）：
+    // #3/#5 起分隔行带标签（回合线 `╌╌ hh:mm:ss ⇆N #M `、窗口标题 `── Session ──` 等）：
     // 去掉标签后再判「是否为纯横线行」，不把标签当内容
     const rest = t
       .replace(/── (Session|Turn|Tool) ──/g, "")

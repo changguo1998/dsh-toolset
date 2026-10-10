@@ -2,7 +2,7 @@
 //
 // 覆盖：① 标签格式化（时间/回合号任一缺失的降级）；② 本地 turn-begin 落线时带时间；
 // ③ 宿主 turn/start 回填回合号（已有号不覆盖、不重复画线、缺号补齐）；
-// ④ 渲染形态 `╌╌ hh:mm:ss #N ` + 尾部 `╌` 铺满；⑤ 无时间无回合号时退回纯线。
+// ④ 渲染形态 `╌╌ hh:mm:ss ⇆N #M ` + 尾部 `╌` 铺满；⑤ 无时间无回合号时退回纯线。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

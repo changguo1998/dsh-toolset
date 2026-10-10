@@ -9,7 +9,7 @@
 //
 // 归属：`user` 与**带 `final` 的节**里正文 → 会话区；`reasoning` / 工具批 / 非 final 正文 /
 // notice → 回合区。宽度相关（折行、紧凑截断、竖线连通）一律留给第 4 步；边界项的**文案**
-// （`hh:mm:ss #N` / `╌╌ hh:mm:ss ⇆N ╌╌`）也在第 4 步渲染，本层只给位置与元数据。
+// （`hh:mm:ss ⇆N #M` / `╌╌ hh:mm:ss ⇆N ╌╌`）也在第 4 步渲染，本层只给位置与元数据。
 
 import type { ActivityLevel } from "../../state.ts";
 import { applyShadowed, buildBoxes, type Box } from "./boxes.ts";
