@@ -36,6 +36,21 @@
 - 段 A 续迁（2026-10-11 第 8 轮）：`tests/p8-compaction-active.test.ts`（4 例，助手内一处 `user-line` → 交付）、`tests/color-semantics.test.ts`（5 例，助手内 `append` + `turn-begin` → 交付）。两文件全绿，全量 1446 绿。
 - 段 A 续迁（2026-10-11 第 9 轮）：`tests/renderer-diff.test.ts`（11 例，底稿 8 行改一条含换行的正文交付、末行增长改同块流式追加）。全绿。
 - 更正：`tests/pipeline-app.test.ts` **无需迁移**——那里 `type: "thinking"` 是**宿主事件**（与交付配对），不是缓冲写入；上一轮清单的 1/15 是误判。
+- **`layout4` 分批计划（2026-10-11 第 12 轮产出，下一次直接照做）**：全文件 80 例、87 处内容动作。先用脚本按「用例 → 动作数」列表（前 12 例）：
+  - L220（7 处动作）：输入栏单字符提示符：当前模式符号（默认前景色）；状态符号渲染在用户块首行左侧", () => {
+  - L591（4 处动作）：运行中无数据：virt-tick 持续积分跨过阈值切换 ●/○，速度渐降但 token 不停", () =>
+  - L642（5 处动作）：usage 校准（P5）：真值/估算比例 EMA 更新 tokenCalib；无真值不校准", () =>
+  - L722（3 处动作）：turn-begin: 回合开始时在历史末尾追加分隔线；流式内容仍实时合入 buffer", () => {
+  - L742（2 处动作）：turn-begin: 空 buffer 不画孤立分隔线；重复 begin 不重复；turn-end 不画线
+  - L762（2 处动作）：turn-begin: 新回合清空旧活动区瞬态（工具/notice），仅保留对话与分隔线", () => {
+  - L802（1 处动作）：activityScroll 归零：turn-begin 空 buffer/已有分隔线路径 + clear-
+  - L824（5 处动作）：turn-end 标 final：中间输出留在活动区、总结进历史区；幂等与跨回合", () => {
+  - L869（1 处动作）：turn-end 无模型正文：不标 final（纯工具/思考回合）", () => {
+  - L886（2 处动作）：appendStream 不修改旧 state 的行对象", () => {
+  - L990（2 处动作）：会话流：用户靠右、模型靠左，用户续行保持右侧缩进(块右对齐、内部左对齐)", () => {
+  - L1147（1 处动作）：会话流：短用户消息块整体靠右，右缘贴历史区右缘，块内左对齐", () => {
+  - 分类口径：**只测渲染/布局**的（正文或用户块只是填充物）→ 段 A 迁交付流；**测缓冲语义本身**的（如 L722「turn-begin…流式内容仍实时合入 buffer」、notice/工具行的缓冲契约）→ 留到段 B/C。
+  - 迁法：把用例内的 `reduceState(s, {type:"append"|"user-line"|"thinking", …})` 就地换成 `s = { ...s, pipeline: applyDelivery(prev, {kind:"text"|"user"|…}) }`（或开头一次性 `sectionsFromScript`），断言不动；一次 3-5 例，跑完该文件再下一批。
 - 段 A 续迁（2026-10-11 第 11 轮）：`tests/focus-frame.test.ts` **仍不能迁**——已把 `baseState` 换成交付流并跑 `scripts/freeze-focus-frame.mts` 重生基线，但**脚本自己另建场景**（不引用测试里的 `baseState`），所以重生出来的仍是**旧缓冲路径**的帧（fixture 零 diff）而测试依旧 11/16 挂；去掉 `turn-start`（我多加的回合分隔线）后仍挂 → 说明交付路径与缓冲路径在**内容落位**上有真实差异（如「最终总结回复」的 `final` 归属）。
   接续口径：**先改 `scripts/freeze-focus-frame.mts` 让它复用测试的 `baseState`（或等价的交付脚本）**，重生后逐帧核对差异（只允许可归因差异），再更新 fixture；本文件放到 `layout4` 之后做。已回退，全绿。
 - 段 A 续迁（2026-10-11 第 10 轮）：`tests/question-panel-frame.test.ts`（4 例，流式内容改交付流 + 逐步 `applyDelivery` 追加）。全绿。
