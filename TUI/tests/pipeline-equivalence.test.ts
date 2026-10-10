@@ -197,6 +197,44 @@ function boundaryBarRows(newRows: string[], oldTexts: string[]): number[] {
     .map(({ index }) => index);
 }
 
+/** 已裁定差异二（条目「孤儿步骤分隔线」）：旧路径在 `step/start` 即画头，声明过但回合区
+ *  **没有内容**的 step 会留下「孤儿头」；新路径内容驱动，不发这种头。差异由「旧侧多出的行
+ *  只能是孤儿头」+「删掉后逐行一致」+「新侧不再产生孤儿头」三条钉住。 */
+const isStepHeadRow = (text: string): boolean =>
+  /^╌╌ \d{2}:\d{2}:\d{2} ⇆\d+ #\d+ /.test(text);
+const isTurnSepRow = (text: string): boolean =>
+  /^╌╌ \d{2}:\d{2}:\d{2} ⇆\d+ /.test(text) && !isStepHeadRow(text);
+
+/** 孤儿头行号：step 头行，且其后紧跟另一条头 / 回合分隔线 / 已到末尾（即本 step 无内容） */
+function orphanHeadRows(rows: string[]): number[] {
+  return rows
+    .map((text, index) => ({ text, index }))
+    .filter(({ text, index }) => {
+      if (!isStepHeadRow(text)) return false;
+      const next = rows[index + 1];
+      return next === undefined || isStepHeadRow(next) || isTurnSepRow(next);
+    })
+    .map(({ index }) => index);
+}
+
+/** 回合区比较：允许旧侧多出孤儿头，并钉住差异只在这里 */
+function assertActivityEquivalent(
+  newRows: string[],
+  oldRows: string[],
+  label: string,
+): void {
+  const orphans = orphanHeadRows(oldRows);
+  for (const index of orphans) {
+    assert.ok(isStepHeadRow(oldRows[index]!), `${label}：被删的只能是 step 头`);
+  }
+  assert.deepEqual(
+    newRows,
+    oldRows.filter((_, index) => !orphans.includes(index)),
+    `${label}：除已裁定差异（旧侧孤儿头）外逐行一致`,
+  );
+  assert.deepEqual(orphanHeadRows(newRows), [], `${label}：新侧不再产生孤儿头`);
+}
+
 /** 把可归因的竖线行还原成空行后比较（其余行逐字比较，不受影响） */
 const withoutBoundaryBar = (
   rows: string[],
@@ -251,7 +289,11 @@ for (const width of [40, 80, 120]) {
       oldTexts,
       "除边界空行的竖线外，会话区逐行一致",
     );
-    assert.deepEqual(rowText(next.activity.rows), rowText(oldRows.activity));
+    assertActivityEquivalent(
+      rowText(next.activity.rows),
+      rowText(oldRows.activity),
+      `宽 ${width}`,
+    );
     assert.equal(
       next.dialogue.rows.length,
       next.dialogue.counts.reduce((sum, count) => sum + count, 0),
@@ -380,6 +422,10 @@ test("等价性扩展：档位 tool / step 下新旧逐行一致", () => {
       width: 80,
       activityLevel: level,
     });
-    assert.deepEqual(rowText(next.rows), rowText(oldRows.activity), level);
+    assertActivityEquivalent(
+      rowText(next.rows),
+      rowText(oldRows.activity),
+      level,
+    );
   }
 });

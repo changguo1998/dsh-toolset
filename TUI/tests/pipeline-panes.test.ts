@@ -72,15 +72,14 @@ test("① 归属：用户块与 final 正文进会话区，思考 / 工具 / 非
     "(blank)",
     "assistant:最终答复",
   ]);
-  // 回合区：每个有内容的 step 一个 step 头（旧口径：step 头是工具行，恒进回合区；
-  // 该 step 无回合区内容时为孤儿头）；turn 分隔线只在会话区
+  // 回合区：step 头**内容驱动**——只在该 step 有回合区内容时画（BACKLOG「孤儿步骤
+  // 分隔线」口径：旧路径 step/start 即画头，无内容的 step 会留下孤儿头，已不再发）；
+  // turn 分隔线只在会话区
   assert.deepEqual(shape(panes.activity), [
-    "#step 1",
     "#step 2",
     "reasoning:（想）",
     "tool:1",
     "assistant:中间正文",
-    "#step 3",
   ]);
 });
 
@@ -286,4 +285,27 @@ test("⑦ 全空正文段不产出回合区行（中间 / 尾部各一例）", (
     shape(panes.activity).includes("assistant:中间正文"),
     "非空正文照常产出",
   );
+});
+
+test("⑧ 孤儿头：声明多个无回合区内容的 step 不出分隔线（内容驱动口径）", () => {
+  // 三个 step 只有声明、回合区没有内容（内容归会话区 / 被档位过滤 / 还没到）→ 0 行头；
+  // 有内容的那一步照常出（含时间戳与步号）
+  const empty = buildPanes([], {
+    level: "think",
+    declaredSteps: ["1:1", "1:2", "1:3"],
+    stepTimes: new Map([
+      ["1:1", { time: 1 }],
+      ["1:2", { time: 2 }],
+      ["1:3", { time: 3 }],
+    ]),
+  });
+  assert.deepEqual(shape(empty.activity), []);
+  const withContent = buildPanes(
+    [section([{ source: "reasoning", text: "（想）" }], { turn: 1, step: 2 })],
+    { level: "think", declaredSteps: ["1:1", "1:2", "1:3"] },
+  );
+  assert.deepEqual(shape(withContent.activity), [
+    "#step 2",
+    "reasoning:（想）",
+  ]);
 });

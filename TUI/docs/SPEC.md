@@ -112,7 +112,7 @@ type Height =
 | 一条 LLM 回复段落 | `h([ text(indent), spacer(gutter) ])` | 回复靠左 + 右缘 `messageGutter` 留空 |
 | 思考 | `text(prefix:{┃,紫}, indent:1)` | 左侧紫色竖线区分 |
 | 一条工具调用记录 | `v([调用行, 结果行])`，续行 `hanging:2` | 工具行缩进 + 续行 `TOOL_CONT_INDENT=2` |
-| step 分组头 | `text("╌╌ hh:mm:ss ⇆N #M ", tail:{char:"╌"})` | `stepHeaderLine(step, time, turn)`（本地时区 24 小时制逐段补零；顺序固定为**时间 → 回合号 → 步号**，任一片段缺失即省略——时间缺 → `⇆N #M`、回合号缺 → `hh:mm:ss #M`、都缺 → `#M`；回合号标记 `⇆` 与回合分隔线同款、步号 `#M` 为 step 头独有；该 step 首个工具调用时渲染） |
+| step 分组头 | `text("╌╌ hh:mm:ss ⇆N #M ", tail:{char:"╌"})` | `stepHeaderLine(step, time, turn)`（本地时区 24 小时制逐段补零；顺序固定为**时间 → 回合号 → 步号**，任一片段缺失即省略——时间缺 → `⇆N #M`、回合号缺 → `hh:mm:ss #M`、都缺 → `#M`；回合号标记 `⇆` 与回合分隔线同款、步号 `#M` 为 step 头独有；**内容驱动**——在该 step 首条回合区内容前渲染，该 step 没有回合区内容（被档位过滤 / 正文归会话区 / 只声明未产出）就不出这一行，「孤儿头」不再发） |
 | 恢复会话的 step 概要行 | 同上形制（buffer `kind = "step"`） | P9：`╌╌ hh:mm:ss #N ╌╌ 工具名[×次数], …[ ✗失败数]`，由 `surfaceToBuffer` 注入、`build-box` 按同形制品渲染 |
 | 引用块 | `text(prefix:{│})` | 单层竖线前缀、正文不加斜 |
 | 列表 / 任务列表 | `text(prefix:{"• "}/{"[x] "}, hanging:2)` | 统一 `•`、`[x]` 删除线 |

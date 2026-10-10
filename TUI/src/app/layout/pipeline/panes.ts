@@ -243,38 +243,29 @@ export function buildPanes(
     })();
   const declaredAt = new Map(declared.map((key, index) => [key, index]));
 
-  // 窗口起点之前被丢的 step 不发头（否则丢掉的更早 step 会在回合区末尾复活）
-  const firstKept = sections.find((section) => section.items.length > 0);
-  let declaredDone =
-    firstKept === undefined
-      ? 0
-      : (declaredAt.get(stepKey(firstKept.turn, firstKept.step)) ?? 0);
-  /** 补发 declared 队列里到 `until`（含）为止尚未发的 step 头 */
-  const headUpTo = (until: number): void => {
-    for (
-      let index = declaredDone;
-      index <= until && index < declared.length;
-      index++
-    ) {
-      const key = declared[index]!;
-      declaredDone = index + 1;
-      if (headed.has(key)) continue;
-      if (options.suppressFirstHead === true && !headedOnce) {
-        headedOnce = true;
-        continue;
-      }
+  // 窗口起点之前被丢的 step 不会「复活」出头：内容驱动的画头只发生在窗口内的内容前，
+  // 被丢掉的内容不经过本函数（旧口径的 declaredDone 记账因此不再需要）
+  /** step 头：**内容驱动**——在该 step 的第一条回合区内容前画，本 step 没有回合区
+   *  内容（被档位过滤 / 正文归会话区 / 只是声明了还没到）就不画，避免「孤儿头」堆叠
+   *  （BACKLOG「新回合后回合区出现多行孤儿分隔线」）。未声明的 step（裸工具行 / 恢复前
+   *  的 step 0）不画头：旧口径的头随 step 事件追加，裸行没有对应声明。 */
+  const ensureHead = (turn: number, step: number): void => {
+    const key = stepKey(turn, step);
+    if (!declaredAt.has(key) || headed.has(key)) return;
+    if (options.suppressFirstHead === true && !headedOnce) {
       headedOnce = true;
-      headed.add(key);
-      const [turn, step] = key.split(":");
-      const time = meta.get(key) ?? options.stepTimes?.get(key)?.time;
-      activity.items.push({
-        key: "step@" + key,
-        kind: "step-head",
-        turn: Number(turn),
-        step: Number(step),
-        ...(time === undefined ? {} : { time }),
-      });
+      return;
     }
+    headedOnce = true;
+    headed.add(key);
+    const time = meta.get(key) ?? options.stepTimes?.get(key)?.time;
+    activity.items.push({
+      key: "step@" + key,
+      kind: "step-head",
+      turn,
+      step,
+      ...(time === undefined ? {} : { time }),
+    });
   };
   // 回合分隔线来自 **`turn-start` 交付**（App 在 turn-begin 即交付：分隔线先到、首个 token
   // 后到）——与旧路径「turn-begin 往缓冲追加 `separator` 行」同口径；已交付但暂无内容的
@@ -324,12 +315,6 @@ export function buildPanes(
     }
     const blocks = applyShadowed(buildBoxes(section), shadowed);
     if (blocks.length === 0) continue;
-    // step 头（旧口径：step 头是工具行，恒进回合区；该 step 无回合区内容时是「孤儿头」；
-    // 旧路径在 step/start 即画头 ⇒ 本层按 declaredSteps 顺序补发，含暂无内容的最新 step）
-    // **未声明的 step**（没有 step/start 交付，如恢复前的裸工具行）不提前冲刷已声明的头：
-    // 旧路径的头是随 step 事件追加在末尾的，提前画会把头排到那些行之前（顺序反了）
-    const declaredAt2 = declaredAt.get(stepKey(section.turn, section.step));
-    if (declaredAt2 !== undefined) headUpTo(declaredAt2);
     // 段键：节身份 + 节内 box 序号（跨窗口扩缩、宽度变化都稳定）
     const sid = sectionId(section);
     let ordinal = 0;
@@ -348,13 +333,12 @@ export function buildPanes(
           // steer 插队送达：与上一条输入之间留白（旧口径 `markSteerClaim` 的可见效果）
           if (line.source === "user" && line.steer === true)
             blank(target, bkey);
+          if (target === activity) ensureHead(section.turn, section.step);
           push(target, line, bkey, meta, target === dialogue, options);
         }
       }
     }
   }
-  // 尾部：已声明但暂无内容的 step（如刚落地的 step/start）也要画头（旧口径同步可见）
-  headUpTo(declared.length - 1);
   // 尾部剩余的分隔线（已交付 turn-start 但该回合还没有任何内容）
   emitMarkersUpTo(Number.POSITIVE_INFINITY);
   // 活跃用户块（批 B1）：会话区**最后一条**终态未定、也未被 steer 续接的用户输入 →
