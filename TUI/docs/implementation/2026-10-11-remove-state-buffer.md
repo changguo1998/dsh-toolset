@@ -34,7 +34,9 @@
   - **首个迁移文件**：`tests/pane-text-margin.test.ts`（4 个用例，单一 fixture 助手）——内容不再写 `state.buffer`（旧路径靠 `sectionsOf` 回退重放），改为 `state.pipeline = sectionsFromScript(steps)`。**生产代码零改动**。
   - 迁移范式（后续文件照此）：状态类 action（`status` 等）保留；内容类 action（`user-line` / `append` / `thinking` / `turn-begin` / `turn-end`）换成一条条交付（`turn-start` / `user` / `text` / `finalize` / `turn-end`）。
 - 待迁移（段 A 余量，按难度排）：
-  1. `tests/focus-frame.test.ts`（210 行）：fixture 少（一次 `append` + `user-line` 若干），照 `pane-text-margin` 的范式直接换。
+  1. `tests/focus-frame.test.ts`（210 行）：**不能机械迁移**——它比的是冻结基线 `tests/fixtures/focus-frame-legacy.json`。2026-10-11 实测：按 `pane-text-margin` 的范式把 `baseState` 换成交付流后，`w20` 四例仍过、**`w60` 四例全挂**（内容形态与旧缓冲重放不同）。
+     故本文件要先「重新生成基线 + 逐帧核对差异」：用 `scripts/freeze-focus-frame.mts` 重跑（该脚本在条目 2 / 4 落地时用过两次），并人工核对 diff 只含**可归因**差异（交付路径 vs 缓冲回退的已知口径差：`final` 归属 / 段内空行 / notice 顺序），
+     核对通过后才更新 fixture 并提交（禁止手工编辑 fixture JSON，必须走脚本）。
   1. `tests/layout-cache.test.ts`（424 行、10 例）：它的固定脚本 `FRAME_ACTIONS` 里含**工具调用 / notice / 超长行 / 代码栅栏**（覆盖内容区 + 状态列 + footer），
      并逐step折叠出状态快照比「缓存开 / 关」的帧是否一致 → 需要先给助手补**混合脚本**能力（`tool` / `notice` 步；`turnScript` 只覆盖 user/正文/思考），
      再按同样的「快照数组」结构喂 `state.pipeline`。注意：该文件的断言是**缓存等价性**（与内容语义无关），迁移时保持「同一脚本 → 两套缓存配置 → 帧逐行相等」的形状。
