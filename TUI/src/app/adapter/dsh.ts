@@ -341,6 +341,16 @@ export function normalizeHistoryMessages(
       ...(curTurn === undefined ? {} : { turn: curTurn }),
     });
   };
+  // 用户输入的注入副本：宿主把用户自己发的消息**同时**记进 `agent/inbox/spliced`（日志实测
+  // 54 条副本的 id 与 `user/message` 全部重合）。恢复时若两条都出，每条用户消息会出现两次，
+  // 且副本没有终态 → 显示 `?`（真机现象：自己的消息块一直是 `?`）。先收集 `user/message` 的
+  // id，主循环里丢弃同 id 的副本——与实时路径同口径（spliced 的用户输入由本地回显覆盖，不重复显示）
+  const userIds = new Set<string>();
+  for (const e of events) {
+    if (e.type !== "user/message") continue;
+    const id = (e.data as { id?: unknown } | undefined)?.id;
+    if (typeof id === "string") userIds.add(id);
+  }
   for (const e of events) {
     const data = e.data as Record<string, unknown> | undefined;
     if (!data) continue;
@@ -425,6 +435,10 @@ export function normalizeHistoryMessages(
         }
         const role = item.role;
         if (role !== "user" && role !== "assistant") continue;
+        // 同 id 的 `user/message` 已经在正文里出过一次 → 注入副本丢弃（无 id 的照旧显示）
+        const id = item.id;
+        if (role === "user" && typeof id === "string" && userIds.has(id))
+          continue;
         pushText(role, extractTextBlocks(item.content));
       }
     }

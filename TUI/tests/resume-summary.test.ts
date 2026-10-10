@@ -267,3 +267,40 @@ test("恢复：缺回合号的 turn/end 不覆盖已有终态（沿用旧 turn �
     "已有终态不被后到的无回合号收尾覆盖",
   );
 });
+
+test("恢复：用户消息的 inbox 注入副本不重复出块（副本无终态会显示 `?`）", () => {
+  const id = "u-1";
+  const msgs = normalizeHistoryMessages([
+    { type: "turn/start", seq: 1, data: { turn: 1 } },
+    // 宿主把同一条用户消息同时记进 agent/inbox/spliced（注入副本）
+    {
+      type: "agent/inbox/spliced",
+      seq: 2,
+      data: {
+        inserted: [
+          {
+            id,
+            role: "user",
+            source: { kind: "user" },
+            content: [{ type: "text", text: "问题一" }],
+          },
+        ],
+      },
+    },
+    {
+      type: "user/message",
+      seq: 3,
+      data: { id, content: [{ type: "text", text: "问题一" }] },
+    },
+    {
+      type: "turn/end",
+      seq: 4,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+  ]);
+  assert.deepEqual(
+    msgs.filter((m) => m.role === "user").map((m) => [m.text, m.status ?? "-"]),
+    [["问题一", "success"]],
+    "同 id 的注入副本被丢弃，用户块只出一条且带终态",
+  );
+});
