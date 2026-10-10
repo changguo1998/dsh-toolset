@@ -33,7 +33,14 @@
   - 新增 `tests/helpers/deliveriesFromScript.ts`：`ScriptStep`（只带交付）+ `sectionsFromScript(steps)`（走生产同一入口 `applyAll`）+ `turnScript({turn,user,assistant,reasoning,reason})` 便捷造回合。
   - **首个迁移文件**：`tests/pane-text-margin.test.ts`（4 个用例，单一 fixture 助手）——内容不再写 `state.buffer`（旧路径靠 `sectionsOf` 回退重放），改为 `state.pipeline = sectionsFromScript(steps)`。**生产代码零改动**。
   - 迁移范式（后续文件照此）：状态类 action（`status` 等）保留；内容类 action（`user-line` / `append` / `thinking` / `turn-begin` / `turn-end`）换成一条条交付（`turn-start` / `user` / `text` / `finalize` / `turn-end`）。
-- 待迁移（段 A 余量）：`layout4`（2800+ 行、fixture 最规整，但用例多）、`layout-cache`（10 例）、`focus-frame` 等。
+- 待迁移（段 A 余量，按难度排）：
+  1. `tests/focus-frame.test.ts`（210 行）：fixture 少（一次 `append` + `user-line` 若干），照 `pane-text-margin` 的范式直接换。
+  1. `tests/layout-cache.test.ts`（424 行、10 例）：它的固定脚本 `FRAME_ACTIONS` 里含**工具调用 / notice / 超长行 / 代码栅栏**（覆盖内容区 + 状态列 + footer），
+     并逐step折叠出状态快照比「缓存开 / 关」的帧是否一致 → 需要先给助手补**混合脚本**能力（`tool` / `notice` 步；`turnScript` 只覆盖 user/正文/思考），
+     再按同样的「快照数组」结构喂 `state.pipeline`。注意：该文件的断言是**缓存等价性**（与内容语义无关），迁移时保持「同一脚本 → 两套缓存配置 → 帧逐行相等」的形状。
+  1. `tests/layout4.test.ts`（2800+ 行、用例最多）：fixture 分散在多个 `frameWith` 类助手里（`append` / `user-line` / `turn-end` 等），
+     建议**分批**迁移（先迁 fixture 助手，再逐组用例核对期望），一次不要超过 ~20 例，避免大爆炸。
+- **本轮到此为止的原因（如实记录）**：段 A 剩余文件（尤其 `layout4`）需要连续多轮编辑与逐组核对期望；本轮上下文预算已尽，故停在「助手 + 首个文件迁移完成、反向验证通过、全量绿」这个干净状态。
 
 ## 测试与证据
 
