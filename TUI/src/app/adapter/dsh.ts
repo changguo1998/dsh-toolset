@@ -312,19 +312,14 @@ export function normalizeHistoryMessages(
   events: readonly Record<string, unknown>[],
 ): HistoryMessage[] {
   const out: HistoryMessage[] = [];
-  /** 当前 step 的工具调用累计（null = 不在 step 内） */
-  let step: {
-    n: number;
-    time?: number;
-    names: Map<string, number>;
-    fails: number;
-  } | null = null;
+  /** 是否处于某个 step 内（`step/start` → `step/end`）：工具行按到达顺序落行，标记只用于收口 */
+  let inStep = false;
   /** 宿主回合号（跟随事件流的 data.turn）：恢复路径保留宿主索引（真回合号） */
   let curTurn: number | undefined;
   /** 回合 → 用户块终态（`turn/end` 的 reason 归一；循环后落到该回合最后一个用户消息上） */
   const turnStatus = new Map<number, "success" | "failure" | "aborted">();
-  /** step 头行（与实时路径同形制：`hh:mm:ss ⇆N #M`）：step 起点的作用域行；该 step 没有
-   *  回合区内容时第 3 步按「内容驱动」不出头（不会变成孤儿头） */
+  /** step 头行（与实时路径同形制：`hh:mm:ss ⇆N #M`）：每个 `step/start` 落一条，作为工具行
+   *  的归属作用域；渲染层按「内容驱动」只在有回合区内容时画头，故无内容的 step 不会成孤儿头 */
   const pushStepHead = (n: number, time?: number): void => {
     out.push({
       role: "step",
@@ -334,7 +329,7 @@ export function normalizeHistoryMessages(
   };
   /** 收口当前 step（step/end 或截断日志）：摘要行已由「step 头 + 工具行」取代，这里只清状态 */
   const flushStep = (): void => {
-    step = null;
+    inStep = false;
   };
   /** 正文消息：整条纯空白 → 丢弃（P9 空行来源） */
   const pushText = (role: "user" | "assistant", raw: string): void => {
@@ -355,12 +350,7 @@ export function normalizeHistoryMessages(
       flushStep(); // 防御：上一个 step 未发 step/end（截断日志）时先收口
       const n = typeof data.step === "number" ? data.step : 0;
       const time = typeof e.time === "number" ? e.time : undefined;
-      step = {
-        n,
-        ...(time === undefined ? {} : { time }),
-        names: new Map(),
-        fails: 0,
-      };
+      inStep = true;
       pushStepHead(n, time);
     } else if (e.type === "step/end") {
       flushStep();
@@ -371,7 +361,6 @@ export function normalizeHistoryMessages(
       const name = typeof data.name === "string" ? data.name : "";
       if (name === "") continue;
       const args = typeof data.arguments === "string" ? data.arguments : "";
-      if (step) step.names.set(name, (step.names.get(name) ?? 0) + 1);
       out.push({
         role: "tool",
         text: toolCallLine(name, summarizeToolArguments(args)),
@@ -380,7 +369,6 @@ export function normalizeHistoryMessages(
     } else if (e.type === "tool/result") {
       // 失败判定与实时路径同口径：error 字段存在即失败
       const err = data.error;
-      if (step && err !== undefined && err !== null) step.fails++;
       out.push({
         role: "tool",
         text: toolResultLine(!err, toolResultDetail(data.message), data.meta),
@@ -399,8 +387,15 @@ export function normalizeHistoryMessages(
             : reason === "error"
               ? "failure"
               : undefined;
-      if (status !== undefined && curTurn !== undefined)
-        turnStatus.set(curTurn, status);
+      // 归属：事件自带 `turn` → 权威，后到者覆盖（同一回合的最终收尾原因）；不带 `turn`
+      // 的收尾只能沿用上一个已知回合 → 仅在该回合尚无记录时采用，避免归属不明的收尾
+      // 把先前正确的终态改错（截断 / 旧格式日志）
+      const own = typeof data.turn === "number" ? data.turn : undefined;
+      const at = own ?? curTurn;
+      if (status !== undefined && at !== undefined) {
+        if (own !== undefined || !turnStatus.has(at))
+          turnStatus.set(at, status);
+      }
     } else if (e.type === "user/message") {
       // TUI#17：插件注入的 notice 形态（source.form:'notice' + summary）→ 单行摘要行
       const summary = noticeSummaryOf(data);
@@ -440,7 +435,9 @@ export function normalizeHistoryMessages(
     for (let i = out.length - 1; i >= 0; i--) {
       const m = out[i]!;
       if (m.role !== "user" || m.turn !== turn) continue;
-      out[i] = { ...m, status };
+      // 已有终态不覆盖：回合号缺失时 `curTurn` 沿用上一个已知值，同一条 `turn/end` 会挂到
+      // 已标过的用户块上（截断 / 旧格式日志），覆盖会把先前正确的符号改错
+      if (m.status === undefined) out[i] = { ...m, status };
       break;
     }
   }

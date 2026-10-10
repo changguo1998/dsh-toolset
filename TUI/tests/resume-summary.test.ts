@@ -215,3 +215,55 @@ test("恢复：帧里出现工具批行（工具名 + 结果符号），不再�
     "用户块应上屏",
   );
 });
+
+test("恢复：空 detail 的结果行保留 `✓ ` 尾随空格（前缀契约），批仍配成一组", () => {
+  const msgs = normalizeHistoryMessages([
+    { type: "step/start", seq: 1, time: 1, data: { turn: 1, step: 1 } },
+    {
+      type: "tool/call",
+      seq: 2,
+      data: { turn: 1, step: 1, callId: "c1", name: "write", arguments: "{}" },
+    },
+    // 结果不带 message（空 detail；静默工具的常态）
+    { type: "tool/result", seq: 3, data: { turn: 1, step: 1, callId: "c1" } },
+  ]);
+  assert.deepEqual(
+    msgs.filter((m) => m.role === "tool").map((m) => m.text),
+    ["write {}", "✓ "],
+    "空 detail 只出 `✓ `（尾随空格是前缀契约）",
+  );
+  let s = initialState();
+  s = reduceState(s, {
+    type: "history-restore",
+    id: "s1",
+    title: "恢复会话",
+    rows: surfaceToBuffer(msgs),
+  });
+  const lines = buildFrame(s, { cols: 80, rows: 24 }).map(rowText);
+  const joined = lines.join("\n");
+  assert.ok(joined.includes("write"), "调用行应上屏");
+  assert.ok(joined.includes("✓"), "结果行应上屏");
+});
+
+test("恢复：缺回合号的 turn/end 不覆盖已有终态（沿用旧 turn 的边界）", () => {
+  const msgs = normalizeHistoryMessages([
+    { type: "turn/start", seq: 1, data: { turn: 1 } },
+    {
+      type: "user/message",
+      seq: 2,
+      data: { turn: 1, content: [{ type: "text", text: "问题一" }] },
+    },
+    {
+      type: "turn/end",
+      seq: 3,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+    // 归属不明的收尾事件（无 turn；curTurn 沿用 1）——不得把上面已标的 ✓ 改成 ✗
+    { type: "turn/end", seq: 4, data: { reason: { kind: "error" } } },
+  ]);
+  assert.deepEqual(
+    msgs.filter((m) => m.role === "user").map((m) => [m.text, m.status ?? "-"]),
+    [["问题一", "success"]],
+    "已有终态不被后到的无回合号收尾覆盖",
+  );
+});
