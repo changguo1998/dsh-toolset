@@ -66,4 +66,8 @@
 
 ## 收尾
 
-（待填：BACKLOG 标完成并移除、另立「演示冒烟期望漂移」条目、追踪文档归档）
+- 关闭：条目「`markdown.ts` 缓存键去掉 `themeId`」2026-10-10 完成，已从 `TUI/docs/BACKLOG.md` 移除（当场重排后编号 1）。
+- 回写文档：`TUI/docs/SPEC.md`（`tableBox` / `panelMarkdownRows` 签名、缓存键口径、§11.1 `FrameContext` 去 `themeId` 提及）、`TUI/docs/DESIGN.md`（面板 API 去参）、`TUI/README.md:350`（缓存键不含主题）；`STATUS.md` 按流程不由本任务改。
+- 另立条目：**演示冒烟 3 项期望漂移** → 登记为 `TUI/docs/BACKLOG.md` 第 2 条（同工时缺陷优先于重构）。
+- 归档：本文件已移入 `TUI/docs/archived/`。
+- 提交链：`035d7ac`（BACKLOG 重排）→ `82c4a7f`（实现）→ `74e3d93`（审阅折叠）→ 收尾提交（本文件归档 + BACKLOG 收尾）。
