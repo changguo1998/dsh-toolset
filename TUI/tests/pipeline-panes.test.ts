@@ -309,3 +309,21 @@ test("⑧ 孤儿头：声明多个无回合区内容的 step 不出分隔线（�
     "reasoning:（想）",
   ]);
 });
+
+test("⑨ 抑制首头：窗口顶切在节中间时，该 step 一条头都不画（含第二条活动内容）", () => {
+  const sections = [
+    section(
+      [
+        { source: "reasoning", text: "（想）" },
+        { source: "tool", calls: [{ callId: "c1", name: "bash", args: "{}" }] },
+      ],
+      { turn: 1, step: 1 },
+    ),
+  ];
+  const panes = buildPanes(sections, {
+    level: "think",
+    declaredSteps: ["1:1"],
+    suppressFirstHead: true,
+  });
+  assert.deepEqual(shape(panes.activity), ["reasoning:（想）", "tool:1"]);
+});

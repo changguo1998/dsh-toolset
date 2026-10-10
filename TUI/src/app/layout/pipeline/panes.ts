@@ -253,7 +253,10 @@ export function buildPanes(
     const key = stepKey(turn, step);
     if (!declaredAt.has(key) || headed.has(key)) return;
     if (options.suppressFirstHead === true && !headedOnce) {
+      // 抑制也要记账：否则同一 step 的第二条活动内容会再次进来，把本该被压掉的头
+      // 画在节中段（窗口顶切在节中间时的既有语义是「这一条头不画」）
       headedOnce = true;
+      headed.add(key);
       return;
     }
     headedOnce = true;

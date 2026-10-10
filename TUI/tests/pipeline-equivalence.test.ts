@@ -225,7 +225,15 @@ function assertActivityEquivalent(
 ): void {
   const orphans = orphanHeadRows(oldRows);
   for (const index of orphans) {
-    assert.ok(isStepHeadRow(oldRows[index]!), `${label}：被删的只能是 step 头`);
+    const text = oldRows[index]!;
+    assert.ok(isStepHeadRow(text), `${label}：被删的只能是 step 头`);
+    // 计数钉子：被删的头所标的 step 在新侧**必须也没有头**——否则可能是「合法头被
+    // 误判成孤儿」而静默通过（新侧缺这个头 = 真差异，不该被归一化吞掉）
+    const no = text.slice(0, text.indexOf(" #")).trimEnd();
+    assert.ok(
+      !newRows.some((row) => isStepHeadRow(row) && row.startsWith(no + " ")),
+      `${label}：${JSON.stringify(text)} 在新侧也没有头，差异成立`,
+    );
   }
   assert.deepEqual(
     newRows,
