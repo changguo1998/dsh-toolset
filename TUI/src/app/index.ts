@@ -20,7 +20,6 @@ import {
   initialState,
   isCompacting,
   markableSessionIds,
-  recentQuestionSource,
   reduceState,
   setSystemStatus,
   startupCleanableIds,
@@ -40,8 +39,11 @@ import type {
 } from "./adapter/dsh.ts";
 import type { NoticeTone, CandidateRowLike } from "./adapter/types.ts";
 import {
+  allSections,
   applyDelivery,
   createSections,
+  lastTextBySource,
+  lastTextOfSources,
   type SectionsState,
 } from "./layout/pipeline/sections.ts";
 import type { BlockDelivery } from "./layout/pipeline/types.ts";
@@ -95,7 +97,6 @@ import {
   INIT_PROMPT,
   buildOsc52,
   deriveTitle,
-  lastAssistantText,
   modelCommandSpec,
   renameCommandDecision,
   resolveModelSpec,
@@ -175,36 +176,29 @@ const SESSION_STATE_SAVE_MS = 400;
  *  后台重试，启动窗口内静默；连续失败到阈值才留痕一次 */
 const ALIAS_WARN_AFTER_FAILS = 3;
 
-/** 末条用户行的行号：App 本地用户交付带上它，流水线用户行经 seq 回查 buffer 同源行
- *  （用户块符号 / 终态 / 活跃判定的单一事实源在 buffer，见 userBlockSymbolResolver） */
-function lastUserLineSeq(buffer: AppState["buffer"]): number | undefined {
-  for (let i = buffer.length - 1; i >= 0; i--) {
-    const line = buffer[i]!;
-    if (line.kind === "user") return line.seq;
-  }
-  return undefined;
-}
-
 /**
- * 焦点面板单行滚动 action 映射：activity 偏移语义=距底部（上滚=+），
+ * 焦点面板行滚动 action 映射：activity 偏移语义=距底部（上滚=+），
  * status 偏移语义=距顶部（上滚=-），方向不可混用。
+ *
+ * `delta` = 位移行数（正 = 上滚）：裸 ↑/↓ 传 1，Ctrl+↑/↓ 传半屏
+ * （`dialogueHalfPage(activityH)`，与对话区同款快速翻页）。
  *
  * 对话区不在其中：它按「段键 + 段内行」定位，位移在 App 用本帧段表换算
  * （见 `App.scrollDialogueBy`）。
  */
 export function focusedLineScroll(
   panel: "activity" | "status",
-  dir: 1 | -1, // 1=上, -1=下
+  delta: number, // 行数：正=上, 负=下
   max?: PaneScrollMax,
 ): StateAction {
   if (panel === "activity") {
     return {
       type: "activity-scroll",
-      delta: dir,
+      delta,
       ...(max ? { max: max.activity } : {}),
     };
   }
-  return { type: "status-column-scroll", delta: -dir };
+  return { type: "status-column-scroll", delta: -delta };
 }
 
 /** 焦点面板整页滚动 action 映射（页 = 该面板当前可视行数；对话区同上） */
@@ -426,6 +420,16 @@ export class App {
   private sectionsSessionId: string | null = null;
   /** 流水线视角的当前回合号（turn-begin 交付用；宿主回合号经块交付已带到） */
   private pipelineLastTurn: number | null = null;
+  /**
+   * 末尾是否停在「已投 turn-start、其后无内容」上（画线判据，条目 7 选项 1 起改读节模型）：
+   * 等价旧口径的「缓冲末行已是回合分隔线」——下次 turn-begin 不重复画线。
+   */
+  private pipelineSepPending = false;
+  /**
+   * 流水线是否收到过任何内容交付（画线判据的不清活动区分支：核心自发回合下，旧口径
+   * 「缓冲非空」= 任何行都算内容，含 step 头 / 工具行 / notice）。
+   */
+  private pipelineAnyContent = false;
 
   /**
    * 六步流水线：把**已构造的历史行**重放成节缓存（恢复 / 会话切换路径）。
@@ -471,6 +475,9 @@ export class App {
       this.sectionsSessionId = sid;
     }
     this.sections = applyDelivery(this.sections, delivery);
+    // 画线判据的事实：turn-start 之后无内容 = 分隔线还在末尾（下次回合不重复画）
+    this.pipelineSepPending = delivery.kind === "turn-start";
+    if (delivery.kind !== "turn-start") this.pipelineAnyContent = true;
     // 回合号基线只跟回合边界（beginTurn 预测 +1 的基准）；用户/通知等自带 turn 的
     // 交付不推进基线（启动注入按回合 1 归组后，首回合预测不得被推到 2）
     if (delivery.kind === "turn-start") this.pipelineLastTurn = delivery.turn;
@@ -764,7 +771,14 @@ export class App {
       this.sectionsSessionId = this.state.activeSessionId;
       sink.current = (delivery) => this.ingestDelivery(delivery);
       const pipeline = this.sections;
-      this.apply((s) => reduceState(s, { type: "pipeline-state", pipeline }));
+      // 内容单源：注入节缓存的同时关掉「缓冲承载会话内容」（条目 7 选项 1）
+      this.apply((s) =>
+        reduceState(s, {
+          type: "pipeline-state",
+          pipeline,
+          bufferRetainsContent: false,
+        }),
+      );
     }
     // 告警总线懒接线（未挂载则 no-op；见 ruleEngine()）
     this.ruleEngine();
@@ -1548,7 +1562,10 @@ export class App {
             type: "question-open",
             id: e.id,
             questions: e.questions,
-            source: recentQuestionSource(s.buffer),
+            // 上文来源：最近一段正文（模型说明 / 用户块；节模型，跨工具行——条目 7 选项 1
+            // 前取自缓冲的「最近正文块」）
+            source:
+              lastTextOfSources(sectionsOf(s), ["assistant", "user"]) ?? "",
           }),
         );
         // 需交互（问答）→ 立即响铃并起催促计时（BACKLOG 3.4.1 / 3.4.3）
@@ -1660,7 +1677,6 @@ export class App {
             turn: scope.turn > 0 ? scope.turn : (this.pipelineLastTurn ?? 1),
             step: scope.step,
             text: e.text,
-            seq: lastUserLineSeq(this.state.buffer),
           });
         }
         this.paint();
@@ -1688,7 +1704,6 @@ export class App {
                 step: scope.step,
                 text: claimed.text,
                 queued: "steer",
-                seq: lastUserLineSeq(this.state.buffer),
               });
             }
           }
@@ -1775,21 +1790,26 @@ export class App {
       // 回合号本地预测：宿主 turn/start 稍后回填（旧路径改写缓冲行；节缓存不可变），
       // 这里按上一已知回合 +1 预测（首回合 1），分隔线时间随预测号登记
       predictedTurn = (this.pipelineLastTurn ?? 0) + 1;
-      // 画线判据与旧路径 appendTurnSeparator 镜像：活动区清理后 buffer 非空且末行
-      // 不是回合分隔线才画——首回合空历史不画（frame 层不预置重复线）
-      const visible = clearActivity
-        ? this.state.buffer.filter(
-            (l) =>
-              l.kind !== "thinking" &&
-              l.kind !== "tool" &&
-              l.kind !== "notice" &&
-              !(l.kind === "assistant" && !l.final),
+      // 画线判据（条目 7 选项 1：改读节模型 / 交付事实，不再回查缓冲）：与旧路径
+      // appendTurnSeparator 镜像——「活动区清理后仍有内容」才算有历史，首回合空历史不画
+      // （frame 层不预置重复线）；末尾刚投过 turn-start（其后无内容）也不重复画。
+      // 清理活动区的回合（用户输入开启）只看会留下的内容（用户块 / 最终总结 / shell /
+      // step 概要——思考、工具、notice、非 final 正文随后会被清掉，不算）；
+      // 核心自发回合不清活动区 → 任何内容交付都算（旧口径「缓冲非空」）。
+      const all = allSections(this.sections);
+      const hasContent = clearActivity
+        ? all.some(
+            (section) =>
+              section.stepSummary !== undefined ||
+              section.items.some(
+                (item) =>
+                  item.source === "user" ||
+                  item.source === "shell" ||
+                  (item.source === "assistant" && section.final === true),
+              ),
           )
-        : this.state.buffer;
-      const last = visible[visible.length - 1];
-      const drawsSeparator =
-        visible.length > 0 &&
-        !(last?.kind === "separator" && last.text === TURN_SEPARATOR);
+        : this.pipelineAnyContent;
+      const drawsSeparator = hasContent && this.pipelineSepPending !== true;
       if (drawsSeparator) {
         this.ingestDelivery({
           kind: "turn-start",
@@ -1810,14 +1830,13 @@ export class App {
       }),
     );
     this.apply((s) => reduceState(s, { type: "queued-claim" }));
-    // 认领交付放在 queued-claim 落行之后：行号取自本行（先交付会取到旧行的 seq）
+    // 认领的用户块交付（符号 / 终态由节模型给出，不再带缓冲行号）
     if (claimed !== undefined && this.sections !== null) {
       this.deliverLocal({
         kind: "user",
         turn: predictedTurn,
         step: 0,
         text: claimed.text,
-        seq: lastUserLineSeq(this.state.buffer),
       });
     }
   }
@@ -2386,15 +2405,26 @@ export class App {
         }
         // 输入历史见 Ctrl+P / Ctrl+N（readline 惯例）：↑/↓ 不再接管输入历史 ——
         // 用户 2026-10-10 裁定，↑/↓ 专用于历史区翻页（含到顶加载更旧回合）
-        // 焦点面板滚动：活动区/状态列保持现状（单行），对话区（history 焦点/
-        // 无焦点默认）↑/↓ 每次半屏（方向内聚在 focusedLineScroll）
+        // 焦点面板滚动（2026-10-10 用户裁定，两处同款）：裸 ↑/↓ = **一行**；Ctrl+↑/↓ =
+        // **半屏**（快速翻页）。对话区（history 焦点/无焦点默认）走 scrollDialogueBy；
+        // 活动区（Turn 面板）走 focusedLineScroll —— 半屏在此前只落在对话区，
+        // Turn 面板按 Ctrl+↑ 与裸 ↑ 同效（用户真机缺陷）
         const dir: 1 | -1 = name === "up" ? 1 : -1;
         const panel = this.state.focusedPanel;
         // 可滚动上限由渲染层按内容/窗口算好（上一帧回填或就地补算）：滚键据此收敛
         // 偏移，否则越界偏移（连续上滚越顶、End）会累积成"按了没反应"的假死
         const max = this.paneScrollMaxOf(panel);
         if (panel === "activity" || panel === "status") {
-          this.apply((s) => reduceState(s, focusedLineScroll(panel, dir, max)));
+          const step =
+            ctrl && panel === "activity"
+              ? dialogueHalfPage(
+                  frameGeometry(this.state, this.deps.renderer.getSize())
+                    .activityH,
+                )
+              : 1;
+          this.apply((s) =>
+            reduceState(s, focusedLineScroll(panel, dir * step, max)),
+          );
         } else {
           // 位移基准 = 本帧可视行数（缺省回落到几何口径）
           const vh =
@@ -2422,15 +2452,40 @@ export class App {
             ),
           );
         } else {
-          // 跳转只在已物化范围内找目标（更早内容未物化，先按 ↑ 扩窗再翻页）
-          const r = this.paneMaxes();
-          const target = userRowJump(
-            r.dialogueUserRows,
-            r.dialogueTopIdx,
-            r.dialogueViewportH,
-            r.dialogueTotal,
-            dir,
-          );
+          // 跳转只在已物化范围内找目标：目标不在窗口里（更早回合未物化）→ 先扩窗再翻页。
+          // 条目 7 选项 1 回归：恢复出的历史只物化最近 N 组，PgUp 在窗口顶此前直接无反应
+          // ——「先按 ↑ 扩窗」这条前提在折叠窗口上不成立（用户真机：按键没有翻页）
+          let r = this.paneMaxes();
+          const jump = (): number | undefined =>
+            userRowJump(
+              r.dialogueUserRows,
+              r.dialogueTopIdx,
+              r.dialogueViewportH,
+              r.dialogueTotal,
+              dir,
+            );
+          let target = jump();
+          for (
+            let guard = 0;
+            target === undefined && dir === 1 && guard < 4;
+            guard++
+          ) {
+            if (
+              this.state.windowGroups >=
+              sectionGroupCount(sectionsOf(this.state))
+            )
+              break; // 更早回合已全部物化，没有可扩的窗口
+            const before = r.dialogueTotal;
+            this.apply((s) =>
+              reduceState(s, {
+                type: "window-grow",
+                groups: s.windowGroups + WINDOW_GROW_STEP,
+              }),
+            );
+            r = this.paneMaxes();
+            if (r.dialogueTotal <= before) break; // 没有更多内容可纳入
+            target = jump();
+          }
           if (target === undefined) {
             // PgDn 无下一条 → 回到底部跟随最新
             if (dir === -1)
@@ -2844,8 +2899,6 @@ export class App {
         turn: sameTurn ? scope.turn : (this.pipelineLastTurn ?? 1),
         step: sameTurn ? scope.step : 0,
         text: echoText,
-        // 回显行号 → 流水线用户行符号与 buffer 单源
-        seq: lastUserLineSeq(this.state.buffer),
       });
     }
     this.deps.adapter.sendMessage(
@@ -3107,6 +3160,22 @@ export class App {
     );
     switch (routeSlashCommand(name)) {
       case "help":
+        {
+          const lines = this.helpLines();
+          this.apply((s) =>
+            reduceState(s, { type: "notice", text: "", lines }),
+          );
+          // 条目 7 选项 1：/help 是唯一不经 `notice()` 的本地提示——内容单源是节缓存，
+          // 只写缓冲的话生产路径（已注入 sink）什么都看不到。悬挂缩进与紧凑豁免随交付带上
+          const hanging = lines.find((l) => l.hanging !== undefined)?.hanging;
+          this.deliverLocal({
+            kind: "notice",
+            text: lines.map((l) => l.text).join("\n"),
+            ...(hanging === undefined ? {} : { hanging }),
+            noCompact: true,
+          });
+          return;
+        }
         this.apply((s) =>
           reduceState(s, {
             type: "notice",
@@ -3115,9 +3184,24 @@ export class App {
           }),
         );
         return;
-      case "clearscreen":
+      case "clearscreen": {
         this.apply((s) => reduceState(s, { type: "clear-buffer" }));
+        // 节缓存同源清空（条目 7 选项 1 回归）：生产路径内容单源是节缓存，`clearBuffer`
+        // 只把 `state.pipeline` 换成新对象，App 手里的接收层仍是旧内容 → 下一次交付
+        // 会把清掉的内容原样带回来（真机复现：`/cls` 后新事件一到旧正文全回来了）
+        if (this.deps.pipelineSink !== undefined) {
+          const pipeline = createSections();
+          this.sections = pipeline;
+          this.sectionsSessionId = this.state.activeSessionId;
+          this.pipelineLastTurn = null;
+          this.pipelineSepPending = false;
+          this.pipelineAnyContent = false;
+          this.apply((s) =>
+            reduceState(s, { type: "pipeline-state", pipeline }),
+          );
+        }
         return;
+      }
       case "quit":
         // 走 App.dispose：释放 adapter 与当前活跃 handle（含 resume 后由 adapter
         // 持有的新 handle），再恢复终端退出
@@ -3756,10 +3840,13 @@ export class App {
     this.paint();
   }
 
-  /** /copy：最后一条模型回复经 OSC52 写入系统剪贴板（ANSI 已剥离，纯文本） */
+  /** /copy：最后一条模型回复经 OSC52 写入系统剪贴板（ANSI 已剥离，纯文本）。
+   *  来源 = 节模型（条目 7 选项 1：不再回查缓冲；无 sink 时 `sectionsOf` 回退重放）。 */
   private copyLastReply(): void {
-    const text = lastAssistantText(this.state.buffer);
-    if (!text) {
+    const text = (
+      lastTextBySource(sectionsOf(this.state), "assistant") ?? ""
+    ).trim();
+    if (text === "") {
       this.notice("没有可复制的模型回复", "warn");
       return;
     }
@@ -4239,17 +4326,16 @@ export class App {
     // 带参数 count（1-4），无参默认 2
     const arg = slashCommandArg(line);
     const count = /^[1-4]$/.test(arg) ? Number(arg) : 2;
-    // 当前目标：有 goal 快照取 objective，否则回落到最近用户输入（无则空串占位）
+    // 当前目标：有 goal 快照取 objective，否则回落到最近用户输入（节模型来源；
+    // 无则占位文案）
     const snapshot = activeGoalSnapshot(
       this.state,
       this.state.activeSessionId ?? undefined,
     );
-    const lastUser = [...this.state.buffer]
-      .reverse()
-      .find((l) => l.kind === "user");
+    const lastUser = lastTextBySource(sectionsOf(this.state), "user");
     const target = snapshot
       ? snapshot.objective
-      : (lastUser?.text ?? "（无具体目标，请评审当前任务）");
+      : (lastUser ?? "（无具体目标，请评审当前任务）");
     void council
       .call(adapter, target, count)
       .then((text) => this.notice(text, "info"))

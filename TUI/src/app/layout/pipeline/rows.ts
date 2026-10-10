@@ -324,6 +324,9 @@ export function boxToLines(
   const shared = {
     kind: kindOf(box),
     ...(box.tone === undefined ? {} : { tone: box.tone }),
+    // notice 排版参数（条目 7 选项 1）：/help 的悬挂缩进与紧凑豁免由节条目带到行上
+    ...(box.hanging === undefined ? {} : { hanging: box.hanging }),
+    ...(box.noCompact === true ? { noCompact: true } : {}),
     ...scope,
     // 用户块终态（条目 7 批 B1）：节上已定，行层直接带 `status`（解析器优先读它，
     // 不再回查 buffer）；`seq` 仍在（活跃块判定与旧路径兜底），B3 删 buffer 时一并去掉

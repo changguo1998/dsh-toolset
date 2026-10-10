@@ -554,6 +554,8 @@ export function applyDelivery(
             ? "notice"
             : "shell";
       const tone = delivery.kind === "notice" ? delivery.tone : undefined;
+      // notice 排版参数（条目 7 选项 1）：/help 的悬挂缩进与紧凑豁免随交付进节模型
+      const hanging = delivery.kind === "notice" ? delivery.hanging : undefined;
       const section: Section = {
         turn: scope.turn,
         step: scope.step,
@@ -562,6 +564,10 @@ export function applyDelivery(
             source,
             text: delivery.text,
             ...(tone === undefined ? {} : { tone }),
+            ...(hanging === undefined ? {} : { hanging }),
+            ...(delivery.kind === "notice" && delivery.noCompact === true
+              ? { noCompact: true }
+              : {}),
             // 行号透传（App 本地用户交付带 seq）：旧路径兜底用；批 B1 起终态 / steer
             // 标记都随条目走，不再依赖它回查 buffer
             ...(delivery.seq === undefined ? {} : { seqs: [delivery.seq] }),
@@ -671,4 +677,35 @@ export function allSections(state: SectionsState): readonly Section[] {
 /** 取节内某来源的条目（测试与后续批次读取用） */
 export function itemOf(section: Section, source: Source): Item | undefined {
   return section.items.find((item) => item.source === source);
+}
+
+/**
+ * 按节序取**最后一条**匹配来源的非空文本（条目 7 选项 1：生产读侧不再回查
+ * `state.buffer`——`/copy` 的最后回复、`/council` 与问答面板的来源都取自此）。
+ * 多来源按「节序 → 节内条目序」的先后取最后一条（问答面板的「上文」= 最近一段正文，
+ * 正文与用户块都可能成为来源）。
+ */
+export function lastTextOfSources(
+  state: SectionsState,
+  sources: readonly Source[],
+): string | undefined {
+  const list = allSections(state);
+  for (let i = list.length - 1; i >= 0; i--) {
+    const items = list[i]!.items;
+    for (let j = items.length - 1; j >= 0; j--) {
+      const item = items[j]!;
+      if (!sources.includes(item.source)) continue;
+      const text = item.text ?? "";
+      if (text.trim() !== "") return text;
+    }
+  }
+  return undefined;
+}
+
+/** 单来源版（`/copy` = assistant、`/council` = user） */
+export function lastTextBySource(
+  state: SectionsState,
+  source: Source,
+): string | undefined {
+  return lastTextOfSources(state, [source]);
 }

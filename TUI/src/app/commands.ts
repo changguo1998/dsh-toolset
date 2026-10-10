@@ -17,29 +17,6 @@ export function deriveTitle(text: string | undefined): string {
   return localTitleFromText(text) ?? "（新会话）";
 }
 
-/**
- * 收集末尾连续 assistant 行（完整最后一条模型回复），以 \n 连接并去首尾空白。
- * 多行回复经 appendStream 按 \n 拆成多条 assistant buffer 行，/copy 须整体收集
- * 而非只取末行；无任何 assistant 正文 → undefined。
- */
-export function lastAssistantText(
-  lines: readonly { text: string; kind: string }[],
-): string | undefined {
-  // 从末尾跳过非 assistant 杂讯行（notice/separator 等），定位最后一条 assistant，
-  // 再向上收集该回复的全部连续 assistant 行（多行回复整体复制）
-  let end = lines.length - 1;
-  while (end >= 0 && (!lines[end] || lines[end]!.kind !== "assistant")) end--;
-  if (end < 0) return undefined;
-  const reply: string[] = [];
-  for (let i = end; i >= 0; i--) {
-    const line = lines[i];
-    if (!line || line.kind !== "assistant") break;
-    reply.unshift(line.text);
-  }
-  const text = reply.join("\n").trim();
-  return text === "" ? undefined : text;
-}
-
 /** ANSI 转义序列（CSI/OSC/单字符 ESC）正则。OSC 支持 BEL（\x07）与 ST（ESC\）
  *  两种结尾（OSC 8 超链接等 ST 结尾序列不再泄漏载荷文本）。 */
 const ANSI_ESCAPE_RE =

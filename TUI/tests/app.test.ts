@@ -31,7 +31,6 @@ import {
   buildOsc52,
   completeCommandInput,
   deriveTitle,
-  lastAssistantText,
   stripAnsi,
   surfaceToBuffer,
 } from "../src/app/commands.ts";
@@ -2672,43 +2671,6 @@ test("stripAnsi：剥离 CSI/OSC(BEL/ST 两种结尾)/单字符 ESC 序列", () 
   );
 });
 
-test("lastAssistantText：收集完整最后回复（连续 assistant 行），去首尾空白", () => {
-  assert.equal(lastAssistantText([]), undefined);
-  assert.equal(
-    lastAssistantText([
-      { text: "q", kind: "user" },
-      { text: "  ", kind: "assistant" },
-      { text: "a1", kind: "assistant" },
-    ]),
-    "a1",
-  );
-  // 末尾连续 assistant 行整体收集（多行回复）
-  assert.equal(
-    lastAssistantText([
-      { text: "q", kind: "user" },
-      { text: "line1", kind: "assistant" },
-      { text: "line2", kind: "assistant" },
-    ]),
-    "line1\nline2",
-  );
-  // 非 assistant 行（user/notice）截断收集
-  assert.equal(
-    lastAssistantText([
-      { text: "a0", kind: "assistant" },
-      { text: "n", kind: "notice" },
-    ]),
-    "a0",
-  );
-  // 全空白/尾部空白 → 去尾后仍为空白则 undefined
-  assert.equal(
-    lastAssistantText([
-      { text: "a0", kind: "assistant" },
-      { text: "\n", kind: "assistant" },
-    ]),
-    "a0",
-  );
-});
-
 test("surfaceToBuffer：仅保留 user/assistant 正文行，历史 assistant 标 final", () => {
   const rows = surfaceToBuffer([
     { role: "user", text: "q1" },
@@ -3544,7 +3506,9 @@ test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC5
     w.mock.restore();
   }
 
-  // 多行回复：/copy 复制完整最后回复（连续 assistant 行以 \n 连接）
+  // 多行回复：/copy 复制完整最后回复。条目 7 选项 1 起来源改为节模型（节内同 (turn, step)
+  // 的正文按序合并，中间的 notice 行不切断）——与回合区实际渲染的正文一致；旧口径按缓冲
+  // 连续行收集，会把 /copy 自身的 notice 之前的半截回复丢掉
   const w2 = mock.method(process.stdout, "write", () => true);
   try {
     adapter.push({ type: "stream", sessionId: "s1", text: "第一行" });
@@ -3557,7 +3521,7 @@ test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC5
         .find((a) => typeof a === "string") ?? "",
     );
     const payload = Buffer.from(osc.slice(7, -1), "base64").toString("utf8");
-    assert.equal(payload, "第一行\n第二行", "复制完整多行回复");
+    assert.equal(payload, "最终答复第一行\n第二行", "复制完整多行回复");
   } finally {
     w2.mock.restore();
   }
@@ -3578,7 +3542,9 @@ test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC5
         .find((a) => typeof a === "string") ?? "",
     );
     const payload3 = Buffer.from(osc3.slice(7, -1), "base64").toString("utf8");
-    assert.equal(payload3, "红字", "OSC52 载荷剥离 ANSI");
+    // 同 (turn, step) 续写仍并进同一段回复（同上），载荷中不得残留 CSI
+    assert.equal(payload3, "最终答复第一行\n第二行红字", "OSC52 载荷剥离 ANSI");
+    assert.ok(!payload3.includes("\x1b"), "载荷无转义序列");
   } finally {
     w3.mock.restore();
   }
@@ -3917,6 +3883,11 @@ test("顶部面板焦点滚动映射：↑/↓ 只作用于各自面板；PgUp/P
     type: "activity-scroll",
     delta: -1,
   });
+  assert.deepEqual(
+    focusedLineScroll("activity", 4),
+    { type: "activity-scroll", delta: 4 },
+    "半屏：传位移行数（Ctrl+↑/↓，见 key 路径）",
+  );
   assert.deepEqual(
     focusedLineScroll("status", 1),
     { type: "status-column-scroll", delta: -1 },
@@ -4333,6 +4304,36 @@ test("活动区滚动：上滚越顶之后 ↓ 立即响应（activityScroll 收
   assert.ok(atTop > 0, "上滚后活动区偏移 > 0");
   renderer.press(key("down"));
   assert.equal(activityScroll(), atTop - 1, "↓ 使活动区偏移立即下降");
+  app.dispose();
+});
+
+test("Turn 面板焦点：Ctrl+↑/↓ = 半屏（此前与裸 ↑ 同效，半屏只在对话区）", () => {
+  const { app, renderer, adapter } = makeApp();
+  const key = (name: string, ctrl = false): KeyEvent => ({
+    name,
+    ctrl,
+    meta: false,
+    shift: false,
+  });
+  renderer.size = { cols: 120, rows: 24 };
+  for (let i = 0; i < 30; i++)
+    adapter.push({ type: "notice", text: `活动区行 ${i}` } as DshEvent);
+  renderer.press(key("tab")); // null → 历史
+  renderer.press(key("tab")); // 历史 → 活动区焦点
+  const scroll = (): number =>
+    (app as unknown as { state: { activityScroll: number } }).state
+      .activityScroll;
+  const state = (): AppState => (app as unknown as { state: AppState }).state;
+  renderer.press(key("up"));
+  assert.equal(scroll(), 1, "裸 ↑ = 一行");
+  const half = dialogueHalfPage(
+    frameGeometry(state(), renderer.size).activityH,
+  );
+  assert.ok(half > 1, `半屏行数应 > 1（实际 ${half}）`);
+  renderer.press(key("up", true));
+  assert.equal(scroll(), 1 + half, "Ctrl+↑ = 半屏");
+  renderer.press(key("down", true));
+  assert.equal(scroll(), 1, "Ctrl+↓ = 半屏（方向相反）");
   app.dispose();
 });
 

@@ -503,26 +503,47 @@ incremental   10.67 ms       0.34 ms       31.6×
 
 **批 A2 证据**（2026-10-10）：新增回归用例 `tests/pipeline-app.test.ts`「会话切换：history-resume-ok 的历史行直接进节缓存」；临时探针正反验证——改前该路径重放后只有 1 节（历史不可见，用例失败）、改后 3 节全出。**顺带修掉一个未报告的缺陷**：`/session` 切换路径此前**没有**重放调用 → 切换后的首次交付按「会话已换」重建空节缓存，恢复出的历史在回合区不可见（启动恢复路径有重放，故只有切换路径中招）。`npm run check` 全绿；TUI 全量 **1412 用例全绿**。
 
-### 第四阶段（条目 7 选项 1 收尾：生产读侧迁移 + 关写开关，进行中）
+### 第四阶段（条目 7 选项 1 收尾：生产读侧迁移 + 关写开关，2026-10-10 完成）
 
 **开工实测**：交接单把第二步记为「加一个开关」，实测该开关一关会打断 7 处仍在读 `state.buffer` 的生产读者（**这不是开关，是读侧迁移**）。
 
-| # | 读点 | 位置 | 迁移方向 |
+| # | 读点 | 位置 | 处置 |
 | --- | --- | --- | --- |
-| 1 | A1 事件桥：pass-through 事件写缓冲行后回读补块 | `index.ts` `deliverBufferTail` | 事件 → 交付直投（不经缓冲行） |
-| 2 | 底部 toast / 通知区：取缓冲里的 notice 行 | `layout.ts` `buildBottomRegion` | 节模型的 notice 项 |
-| 3 | `/copy` 最后一条回复 | `index.ts` `copyLastReply`（`lastAssistantText(state.buffer)`） | 节模型的 assistant 末条文本 |
-| 4 | `/council` 目标与问答面板来源 | `index.ts` 的 council 分支、`recentQuestionSource(s.buffer)` | 节模型的末条 user 文本 |
-| 5 | 画线判据（活动区清理后是否画分隔线） | `index.ts` `beginTurnIfNeeded` | 节模型的末节状态 |
-| 6 | 用户块 `seq`（交付去重键 + 节项 `seqs`） | `index.ts` 的 `lastUserLineSeq` ×4 | 退场（A2 已在重放侧先行去掉） |
+| 1 | A1 事件桥：pass-through 事件写缓冲行后回读补块 | `index.ts` `deliverBufferTail` | **保留**：这些行属 UI 本地行，开关只停「会话内容」写入 → 桥照旧工作 |
+| 2 | 底部 toast / 通知区：取缓冲里的 notice 行 | `layout.ts` `buildBottomRegion` | **保留**（同上；`/help` 双列表格的 `hanging` / `noCompact` 2026-10-10 起随交付进节模型——见「验收回归」#1） |
+| 3 | `/copy` 最后一条回复 | `index.ts` `copyLastReply` | 迁移 → `lastTextBySource(sectionsOf(state), "assistant")` |
+| 4 | `/council` 目标与问答面板来源 | `index.ts` council 分支、`recentQuestionSource(s.buffer)` | 迁移 → `lastTextBySource(…, "user")` / `lastTextOfSources(…, ["assistant","user"])` |
+| 5 | 画线判据（活动区清理后是否分隔线） | `index.ts` `beginTurnIfNeeded` | 迁移 → 节模型查询（清理活动区的回合）+ `pipelineAnyContent` / `pipelineSepPending`（交付事实，镜像旧「缓冲非空且末行非分隔线」） |
+| 6 | 用户块 `seq`（交付去重键 + 节项 `seqs`） | `index.ts` 的 `lastUserLineSeq` ×4 | **退场**（B1 起终态 / steer 标记已随条目走；A2 先在重放侧去掉） |
 | 7 | 无 sink 回退（测试 / 嵌入用法） | `frame.ts` `sectionsOf` | **保留**（条目 12 处理） |
 
 | 批 | 内容 | 状态 |
 | --- | --- | --- |
-| C1 | 读侧迁移（上表 1-6；7 保留） | 进行中 |
-| C2 | `AppState` 增「保留缓冲内容」开关：App 注入 sink 时置否 → `reduceState` 的内容分支只更新状态事实、不写缓冲行；测试路径默认保留 | 待做 |
-| C3 | 文档回写（`state.buffer` = 测试与嵌入用的重放输入）+ 关闭条目 7 | 待做 |
+| C1 | 读侧迁移（3-6；1/2/7 保留） | ✓ 完成 |
+| C2 | 关写开关：`AppState.bufferRetainsContent`（App 注入 sink 时经 `pipeline-state` 置否）+ `reduceState` 出口的 `dropContentWrites` 丢弃内容类 action 的缓冲写入（状态事实保留；`turn-begin` 另清活动区本地行、历史恢复清空缓冲） | ✓ 完成 |
+| C3 | 文档回写（SPEC §9.1/§15.2、DESIGN 层级图、README「排版路径」）+ 关闭条目 7 | ✓ 完成 |
+
+**口径说明（迁移中的三点取舍）**：
+
+1. **`buffer` 的最终定位 = 测试与嵌入用的重放输入 + 生产路径的 UI 本地行**：内容类写入全停（正文 / 用户块 / 思考 / step / 工具行 / 分隔线 / 恢复行），notice / shell / 辅助工具行照写——底部 toast 与 A1 补投依赖它们，且它们不是会话内容（不进模型历史）。「连 UI 本地行也不再经缓冲」未做，属条目 12 的延伸（另立条目时再议）。
+1. **`/copy` 语义微调**：改按节模型的末段 assistant 文本（节内同 `(turn, step)` 合并、notice 不切断）——与回合区实际渲染的正文一致；旧口径按缓冲「连续 assistant 行」收集，会把中途 notice 之前的半截回复丢掉（`tests/app.test.ts` 的多行复制断言按新口径更新）。
+1. **问答面板来源微调**：改取「最近一段正文（assistant / user 按节序取最后一条）」，跨工具行与旧口径一致，但不再按「本回合 → 上一回合」回退（会话内最近一段正文即同一结果）；`recentQuestionSource`（缓冲块口径）随之退场。
+
+**证据**：`npm run check` / `npm run build` 全绿；TUI 全量 **1416 用例全绿**（新增 `tests/buffer-retire.test.ts` 5 例：内容类不写缓冲 / UI 本地行照写 / 回合开始清活动区行 / 历史恢复清缓冲 / `lastTextOfSources` 取值；`tests/pipeline-app.test.ts` 增「注入 sink 时 /copy 的来源仍在节模型」，该文件含逐步新旧路径**整帧等价**用例——生产口径（sink + 关写）与旧口径逐帧一致；另含下述 4 例真机回归）。
+
+### 验收回归（2026-10-10 真机验收发现，同日修复）
+
+用户真机（`dsh --profile fff`，生产口径 = 已注入 sink）验收发现 4 个缺陷：3 个根因同族（**内容单源换成节缓存后，仍有三条路径只动缓冲 / 只认已物化的行**），1 个是键位覆盖漏了 Turn 面板。
+
+| # | 现象 | 根因 | 修法 |
+| --- | --- | --- | --- |
+| 1 | `/help` 完全不显示 | `/help` 是唯一不经 `App.notice()` 的本地提示：只 `reduceState(notice)` 写缓冲、不投块 → 节缓存里没有，唯一渲染来源看不到 | `/help` 补 `deliverLocal`；notice 的排版元数据 `hanging`（悬挂缩进）/ `noCompact`（紧凑豁免）由交付 → 节条目 → box → 行透传（`types.ts` / `sections.ts` / `boxes.ts` / `rows.ts` 各加两个可选字段）——旧路径这两项长在缓冲行上 |
+| 2 | 对话区翻页无反应（`PgUp` / `PgDn`） | 恢复出的历史只物化最近 `DIALOGUE_KEEP_REPLIES(3)` 组，而 `userRowJump` 只扫已物化行 → 窗口顶找不到目标就什么都不做（旧路径全量重放缓冲，不存在「未物化」） | `handleKey` 的 PgUp 分支：找不到目标且还有更早回合时先 `window-grow` 再跳（与 ↑ 扩窗同口径，上限 4 次） |
+| 3 | `/cls` 后新事件一到，清掉的内容全回来 | `clearBuffer` 只把 `state.pipeline` 换成新对象；App 手里的接收层（`this.sections`）没重置 → 下一次 `ingestDelivery` 把旧节缓存重新注入 state | `/cls` 在 App 侧重建接收层（`createSections()` + 归零回合基线 / 画线判据） |
+| 4 | Turn 面板（下半区）`Ctrl+↑` / `Ctrl+↓` 与裸 `↑` 同效，没有半屏 | 用户 2026-10-10 的「裸 ↑/↓ 一行、Ctrl+↑/↓ 半屏」裁定只落在对话区分支；活动区分支恒按 1 行走（`focusedLineScroll` 的 `dir` 只有 `1 \| -1`） | `focusedLineScroll` 改为收**位移行数**（`delta: number`）；`handleKey` 的 ↑/↓ 分支在活动区 + `ctrl` 时传 `dialogueHalfPage(frameGeometry().activityH)`（状态列仍是 1 行） |
+
+**回归用例**（均在去掉修复后实测失败）：`tests/pipeline-app.test.ts` —— `/help` 进回合区 + 元数据进节模型；`PgUp` 逐条走到最旧回合（断言最旧回合**正文**——`第 1 问` 会命中标题栏，不能证明回合区滚到位）；`/cls` 后新交付不回流旧内容；`tests/app.test.ts` —— Turn 面板焦点下 `Ctrl+↑/↓` = 半屏（裸 ↑ 仍一行）。
 
 ## 收尾
 
-（未关闭。条目 7「排版流水线双写退役」选项 1 进行中；关闭时本文件移入 `TUI/docs/archived/`。）
+（条目 7「排版流水线双写退役」选项 1 已完成，2026-10-10 关闭；本文件移入 `TUI/docs/archived/`。）

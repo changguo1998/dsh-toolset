@@ -127,7 +127,7 @@ screen = v([
   statusBar, input, hint,
 ])
 
-history 的内容 = v( 消息 Box … )      // 由 state.buffer 派生
+history 的内容 = v( 消息 Box … )      // 由节缓存派生（生产路径）；缺 pipeline 时按 state.buffer 重放
 activity 的内容 = v( 瞬态行 Box … )    // 思考/工具/notice；面板打开时整体替换
 ```
 

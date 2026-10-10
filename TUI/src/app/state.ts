@@ -409,6 +409,13 @@ export interface AppState {
   activeSessionId: string | null;
   /** 会话纯文本行（未换行，展示时才按列宽切分） */
   buffer: Buffer;
+  /**
+   * 是否让 `buffer` 承载会话内容（条目 7 选项 1）。`false` = 生产路径（App 注入节缓存）：
+   * 内容类 action 的缓冲写入被丢弃，只保留状态事实——会话内容的唯一来源是节模型
+   * （`pipeline`），`buffer` 只留 UI 本地行（notice / shell / 辅助工具行）。
+   * 缺省 `true`：测试 / 嵌入用法仍可造缓冲，供 `sectionsOf` 的无 sink 回退重放。
+   */
+  bufferRetainsContent: boolean;
   /** 是否跟随底部（= `dialogueTop` 为 null；由位置派生，供既有调用口径使用） */
   followBottom: boolean;
   /** 距底部行数（派生缓存：每帧由布局回填；段键失配时的回落基准，供既有断言口径使用） */
@@ -763,6 +770,13 @@ export function initialState(
     tokenCalib: 1, // 估算 token 校准系数（usage 真值/估算值 EMA，跨 step 保留）
     usageTotals: { input: 0, output: 0, cacheRead: 0 }, // 本会话累计（/stats；会话切换清零）
     buffer: [],
+    /**
+     * 缓冲是否承载**会话内容**（条目 7 选项 1；缺省 true = 测试 / 嵌入用法）。
+     * App 注入节缓存时置否：会话内容（正文 / 用户块 / step / 工具行 / 分隔线 / 恢复行）
+     * 只进节模型，`buffer` 只留 UI 本地行（notice / shell / 辅助工具行 —— 底部 toast 与
+     * App 补投的来源）。
+     */
+    bufferRetainsContent: true,
     followBottom: true,
     scrollOffset: 0,
     dialogueTop: null,
@@ -1144,17 +1158,6 @@ function lastTextBlock(
   return null;
 }
 
-/** 块内正文文本（非空行按行序拼接） */
-function blockText(
-  lines: readonly BufferLine[],
-  block: readonly number[],
-): string {
-  return block
-    .map((i) => (lines[i]?.text ?? "").trim())
-    .filter((t) => t !== "")
-    .join("\n");
-}
-
 /**
  * 回合结束：把当前回合（最后一个分隔线之后）**最近一块正文**的全部 assistant 行标记为
  * final（最终总结，历史区展示）。分块口径见 {@link textBlocks}——边界 = `[step 变化 |
@@ -1439,6 +1442,50 @@ const FOCUS_RESET_ACTIONS: ReadonlySet<string> = new Set([
   "permission-catalog",
   "agent-preset-catalog",
 ]);
+
+/**
+ * 写缓冲的**会话内容**类 action（条目 7 选项 1）：生产路径（`bufferRetainsContent` 为 false）
+ * 下只更新状态事实、不写缓冲行——内容的唯一来源是节模型（`pipeline`）。UI 本地行
+ * （notice / shell / 辅助工具行 / 压缩与重试提示…）不在其列：底部 toast 与 App 的事件补投
+ * 需要它们（见追踪文档第四阶段）。
+ */
+const CONTENT_ACTIONS: ReadonlySet<string> = new Set([
+  "append", // 模型正文流
+  "user-line", // 用户回显 / 规则注入行
+  "thinking", // 思考流
+  "queued-claim", // 排队消息认领转历史（用户行）
+  "queued-claim-steer",
+  "step", // step 头分隔线（由 step-start 交付驱动）
+  "tool-call",
+  "tool-result",
+  "turn-begin", // 回合分隔线
+  "turn-number", // 分隔线回合号回填
+  "turn-end", // final 标记与用户块终态（事实已在节模型）
+  "history-restore", // 恢复行（批 A2 起直接进节模型）
+  "history-resume-ok",
+]);
+
+/**
+ * 生产路径的缓冲写入闸门：内容类 action 的缓冲变更整体丢弃（状态事实保留）。
+ *  - `turn-begin`（用户输入开启回合）另按旧口径清掉活动区的 UI 本地行（notice / 工具行）——
+ *    否则底部 toast 一直挂着上一回合的提示；
+ *  - 历史恢复 / 切换类改为清空缓冲：上一会话的 UI 本地行不带进新会话。
+ */
+function dropContentWrites(
+  state: AppState,
+  next: AppState,
+  action: StateAction,
+): AppState {
+  if (state.bufferRetainsContent || !CONTENT_ACTIONS.has(action.type))
+    return next;
+  const buffer =
+    action.type === "turn-begin" && (action.clearActivity ?? true)
+      ? state.buffer.filter((l) => l.kind !== "notice" && l.kind !== "tool")
+      : action.type === "history-restore" || action.type === "history-resume-ok"
+        ? []
+        : state.buffer;
+  return { ...next, buffer, nextSeq: state.nextSeq };
+}
 
 export function reduceState(state: AppState, action: StateAction): AppState {
   // 新输入/输出后焦点回到无焦点（null）；其它 action 原样
@@ -2049,7 +2096,15 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           windowGroups: Math.max(DIALOGUE_KEEP_REPLIES, action.groups),
         };
       case "pipeline-state":
-        return { ...state, pipeline: action.pipeline };
+        // 注入节缓存 = 内容单源；`bufferRetainsContent: false` 同步关掉内容写缓冲
+        // （条目 7 选项 1；测试 / 嵌入用法不传该字段，缺省仍承载内容）
+        return {
+          ...state,
+          pipeline: action.pipeline,
+          ...(action.bufferRetainsContent === undefined
+            ? {}
+            : { bufferRetainsContent: action.bufferRetainsContent }),
+        };
       case "turn-begin": {
         // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容；
         // 非打印字符剔除计数按回合清零（turn-end 时警告后不复用旧值）。
@@ -2561,9 +2616,10 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return state;
     }
   })();
-  return FOCUS_RESET_ACTIONS.has(action.type)
+  const focused = FOCUS_RESET_ACTIONS.has(action.type)
     ? { ...next, focusedPanel: null }
     : next;
+  return dropContentWrites(state, focused, action);
 }
 
 export type StateAction =
@@ -2708,8 +2764,13 @@ export type StateAction =
   | { type: "scroll-to-oldest" }
   /** 扩窗：只多物化更早回合组，视口位置不动（App 在施加位移之前调用） */
   | { type: "window-grow"; groups: number }
-  /** 六步流水线节缓存整体替换（App 注入；undefined = 无会话） */
-  | { type: "pipeline-state"; pipeline: SectionsState | undefined }
+  /** 六步流水线节缓存整体替换（App 注入；undefined = 无会话）。
+   *  `bufferRetainsContent: false` = 生产路径（内容只进节模型，缓冲不承载会话内容） */
+  | {
+      type: "pipeline-state";
+      pipeline: SectionsState | undefined;
+      bufferRetainsContent?: boolean;
+    }
   /** clearActivity：是否清空活动区内容（缺省 true；核心自发回合传 false，见 appendTurnSeparator） */
   | {
       type: "turn-begin";
@@ -3289,30 +3350,13 @@ function openQuestion(
       id: action.id,
       items,
       itemIndex: 0,
-      // 问题前正文（3.2.10）：面板期间展示在描述窗顶部，来源见 recentQuestionSource
+      // 问题前正文（3.2.10）：面板期间展示在描述窗顶部，来源由 App 从节模型取
+      // （`lastTextOfSources`，条目 7 选项 1）
       source: action.source ?? "",
     },
     // 问答面板打开 = 等待用户决策（黄△）
     inputStatus: "waiting",
   };
-}
-
-/**
- * 取「问题前正文」（BACKLOG 3.2.10 / 3.2.12；#1 起改为**分块口径**）：按 {@link textBlocks}
- * 把回合切块，取**最近一块含正文**的全部 `assistant` / `plain` 行（整块，不再限 6 行、
- * thinking / notice 不切割）。
- *
- * 本回合取不到正文（正文还没开始 / 只有工具与思考）→ **先回退**取「上一回合的最近一块」
- * （用户 2026-10-01 裁定：先回退、不加相关性闸门）；两回合都没有 → 空串（面板不显示来源段）。
- */
-export function recentQuestionSource(lines: readonly BufferLine[]): string {
-  if (lines.length === 0) return "";
-  const sep = prevSeparator(lines, lines.length);
-  const found = lastTextBlock(lines, sep + 1, lines.length);
-  if (found !== null) return blockText(lines, found);
-  if (sep < 0) return ""; // 没有更早的回合
-  const older = lastTextBlock(lines, prevSeparator(lines, sep) + 1, sep);
-  return older === null ? "" : blockText(lines, older);
 }
 
 /** Tab 切焦点窗（BACKLOG 3.2.1）：desc <-> options，按题独立记忆 */

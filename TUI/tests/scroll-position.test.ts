@@ -1,7 +1,7 @@
 // tests/scroll-position.test.ts — 滚动位置模型（段键 + 段内行）的契约
 //
 // 取代旧的 `scroll-anchor.test.ts`（语义锚点模型 2026-10-09 退场）。口径见
-// `TUI/docs/implementation/2026-10-09-layout-segment-cache.md`「滚动位置模型」：
+// `TUI/docs/archived/2026-10-09-layout-segment-cache.md`「滚动位置模型」：
 //   - 位置 = **段键 + 段内行**（段 = 占位行 + 会话区各 pane 项），不是绝对行号；
 //   - 上方插入段（扩窗纳入更早回合）→ 段键不变 ⇒ 同一内容留在原处（画面不动）；
 //   - 宽度变化 → 段内行数变，按段键重定位到同一段，行号超界夹到该段末行；

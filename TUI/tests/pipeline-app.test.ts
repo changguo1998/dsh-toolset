@@ -13,9 +13,15 @@ import { App } from "../src/app/index.ts";
 import type { DshEvent } from "../src/app/adapter/dsh.ts";
 import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
 import {
+  allSections,
   applyDelivery,
   createSections,
+  lastTextBySource,
 } from "../src/app/layout/pipeline/sections.ts";
+import {
+  sectionGroupCount,
+  sectionsOf,
+} from "../src/app/layout/pipeline/frame.ts";
 import {
   clearBuffer,
   initialState,
@@ -296,6 +302,11 @@ test("接管开关：/new（session-switch）归零节缓存", () => {
 // App 本地写入双写（真机回归：用户回显 / 规则注入 / 本地 notice 曾被流水线吞掉）
 // ---------------------------------------------------------------------------
 
+/** 读 App 内部 state（App 的 state 为私有字段，测试按既有写法断言） */
+function stateOf(app: App): AppState {
+  return (app as unknown as { state: AppState }).state;
+}
+
 /** 模拟在输入框输入文本并回车（与 app.test.ts 的 typeAndEnter 同口径） */
 function typeAndEnter(renderer: FakeRenderer, text: string): void {
   for (const ch of Array.from(text)) {
@@ -396,6 +407,36 @@ test("会话切换：history-resume-ok 的历史行直接进节缓存（回归�
   app.dispose();
 });
 
+test("读侧迁移：注入 sink（缓冲不承载内容）时 /copy 的来源仍在节模型", () => {
+  // 条目 7 选项 1：`/copy`、`/council`、问答来源的读取从缓冲改为节模型——生产路径下缓冲
+  // 是空的，用旧来源会取不到内容。`/copy` 的端到端断言（OSC52 载荷）见 `app.test.ts`，
+  // 这里只锁定「注入 sink 即关内容写缓冲」+ 读取来源正确。
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const sink: { current?: (delivery: BlockDelivery) => void } = {};
+  const app = new App({ renderer, adapter, pipelineSink: sink });
+  registerApp(app);
+  app.start();
+  const state = (): AppState => (app as unknown as { state: AppState }).state;
+  assert.equal(state().bufferRetainsContent, false, "注入 sink 即关内容写缓冲");
+  sink.current?.({
+    kind: "text",
+    turn: 1,
+    step: 1,
+    index: 0,
+    source: "assistant",
+    text: "最终答复",
+    full: true,
+  });
+  assert.deepEqual(state().buffer, [], "内容不进缓冲");
+  assert.equal(
+    lastTextBySource(sectionsOf(state()), "assistant"),
+    "最终答复",
+    "/copy 的读取来源（节模型）",
+  );
+  app.dispose();
+});
+
 test("双写等价：用户提交 + 首个 step 后新旧路径整帧一致", () => {
   const old = makeApp(false);
   const next = makeApp(true);
@@ -476,5 +517,84 @@ test("事件驱动的本地写入投块：retry / subagent / hook 在回合区�
     body().includes("pre-commit"),
     "hook 辅助行可见: " + body().slice(0, 200),
   );
+  app.dispose();
+});
+
+// ---------------------------------------------------------------------------
+// 真机回归（条目 7 选项 1）：生产口径下 /help、PgUp 翻页、/cls 清屏
+// ---------------------------------------------------------------------------
+
+test("/help 进回合区（本地提示必须投块：内容单源是节缓存，只写缓冲会全不可见）", () => {
+  const { app, renderer } = makeApp(true);
+  typeAndEnter(renderer, "/help");
+  const body = frames(app, renderer).join("\n");
+  assert.ok(
+    body.includes("其他 /name 通过 commands 注册表执行"),
+    "帮助脚注（块尾）在回合区可见: " + body,
+  );
+  // 排版元数据随交付进节模型（旧路径长在缓冲行上）：悬挂缩进 + 紧凑豁免
+  const item = allSections(sectionsOf(stateOf(app)))
+    .flatMap((section) => section.items)
+    .find((i) => i.source === "notice");
+  assert.equal(typeof item?.hanging, "number", "悬挂缩进随交付进节模型");
+  assert.equal(item?.noCompact, true, "紧凑豁免随交付进节模型");
+  app.dispose();
+});
+
+test("PgUp 逐条走到最旧回合（折叠窗口里先扩窗再跳，此前按键卡在窗口顶）", async () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const sink: { current?: (delivery: BlockDelivery) => void } = {};
+  adapter.resumedAtLaunch = true;
+  adapter.sessionSurfaces["s1"] = Array.from({ length: 12 }, (_, i) => [
+    { role: "user" as const, text: `第 ${i + 1} 问`, turn: i + 1 },
+    { role: "assistant" as const, text: `第 ${i + 1} 答正文`, turn: i + 1 },
+  ]).flat();
+  const app = new App({ renderer, adapter, pipelineSink: sink });
+  registerApp(app);
+  app.start();
+  // 恢复读取是异步链路：等表面读取落定
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // 恢复出的历史只物化最近 N 组：PgUp 必须自己扩窗，否则卡在窗口顶（真机：翻页无反应）
+  for (let i = 0; i < 12; i++)
+    renderer.press({ name: "pageup", ctrl: false, meta: false, shift: false });
+  const body = frames(app, renderer).join("\n");
+  // 断言取「最旧回合的正文」：`第 1 问` 会命中标题栏（会话标题取自首条用户输入），
+  // 不能证明回合区已滚到最旧
+  assert.ok(
+    body.includes("第 1 答正文"),
+    "翻页可回到最旧回合: " + body.slice(0, 300),
+  );
+  assert.equal(
+    stateOf(app).windowGroups,
+    sectionGroupCount(sectionsOf(stateOf(app))),
+    "最旧回合已被纳入窗口",
+  );
+  app.dispose();
+});
+
+test("/cls 后新交付不把清掉的内容带回来（节缓存同源清空）", () => {
+  const { app, renderer, sink } = makeApp(true);
+  sink.current?.({ kind: "turn-start", turn: 1 });
+  sink.current?.({
+    kind: "text",
+    turn: 1,
+    step: 1,
+    index: 0,
+    source: "assistant",
+    text: "清除前的正文",
+    full: true,
+  });
+  assert.ok(frames(app, renderer).join("\n").includes("清除前的正文"));
+  typeAndEnter(renderer, "/cls");
+  assert.ok(
+    !frames(app, renderer).join("\n").includes("清除前的正文"),
+    "/cls 后不可见",
+  );
+  // 下一次交付（新事件）曾把旧内容带回（App 手里的接收层仍是旧节缓存）
+  sink.current?.({ kind: "notice", text: "清屏之后的新提示" });
+  const body = frames(app, renderer).join("\n");
+  assert.ok(!body.includes("清除前的正文"), "新交付不回流旧内容: " + body);
+  assert.ok(body.includes("清屏之后的新提示"), "新内容照常可见");
   app.dispose();
 });

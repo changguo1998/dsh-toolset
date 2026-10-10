@@ -519,7 +519,10 @@ state --buildBox--> Box 树 --measure/allocate--> rects --fill(ctx, rect)--> Fra
 - 渐进窗口按**回合组**丢弃更早的节（分组复用 `turnGroupStarts` 口径）；段键 = 节身份 + 节内 box 序号（跨扩窗 / 改宽稳定）
 - 滚动位置 = **段键 + 段内行**（`positionAt` / `indexOfTop`）：上方插入段（扩窗）画面不动、位移恒等于按键量；段键失效回落「距底偏移」
 - 回合分隔线由 `turn-start` 交付驱动（时间未知 → 纯虚线）；`turn-start` / `step-summary` 等交付口径见 `layout/pipeline/types.ts`
-- 设计与分批见 `docs/implementation/2026-10-09-layout-segment-cache.md`（完成后归档到 `docs/archived/`）；第二阶段的迁移与退役记录同文件「第二阶段」一节
+- **内容真源 = 节缓存；`state.buffer` 不再承载会话内容**（条目 7 选项 1）：生产路径（App 注入 `pipelineSink`）下 `bufferRetainsContent: false`，`reduceState` 的内容类 action（正文 / 用户块 / 思考 / step / 工具行 / 分隔线 / 恢复行）只更新状态事实、不写缓冲；`buffer` 只留 **UI 本地行**（notice / shell / 辅助工具行），供底部 toast（`layout.ts` 的 notice 视图）与事件补投（`App.deliverBufferTail`：pass-through 事件写下的可见行 → 块交付）使用。读侧（`/copy`、`/council`、问答面板来源、画线判据）走 `sections.ts` 的 `lastTextOfSources` / `allSections`。
+- **测试 / 嵌入用法仍可造缓冲**：`bufferRetainsContent` 缺省 `true`，`state.pipeline` 缺席时 `sectionsOf`（`layout/pipeline/frame.ts`）按 `buffer` 重放一份节（`replay.ts` 的 `sectionsFromBuffer`，按逐行对象身份 memo）——即 `buffer` 的定位是**测试与嵌入用的重放输入**，不再是生产渲染来源。「连测试路径也不经 buffer」见 `docs/BACKLOG.md` 条目（暂停中）。
+- **本地 notice 的排版元数据随交付走**：`notice` 交付可带 `hanging`（折行续行停靠列）与 `noCompact`（紧凑模式豁免），经节条目 → box → 行透传到 `buildContentRows`（旧路径这两项长在缓冲行上，行不再是内容来源后必须随交付）。**UI 本地提示必须投块**：`/help` 是唯一不经 `App.notice()` 的本地提示，只写缓冲时生产路径什么都看不到（2026-10-10 真机验收缺陷，已补 `deliverLocal`）。
+- 设计与分批见 `docs/archived/2026-10-09-layout-segment-cache.md`；第二阶段的迁移与退役记录同文件「第二阶段」一节
 
 ______________________________________________________________________
 
@@ -689,10 +692,10 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **位置 = 段键 + 段内行**（`layout/pipeline/rows.ts`：`DialogueTop{key,row}` / `positionAt` / `indexOfTop`）：段键由节身份 + 节内 box 序号构成（边界项另发 `blank@<后项键>` / `sep@<回合>` / `step@<turn:step>`），跨扩窗与改宽稳定；段键失效（被窗口丢弃 / 会话切换 / `/cls`）时回落「距底偏移」`scrollOffset`。
 - **渐进窗口**（`windowSections(sections, groups)` / `sectionGroupStarts`）：只物化尾部 `windowGroups` 个回合组（缺省 `DIALOGUE_KEEP_REPLIES = 3`），丢弃部分在会话区顶部画一行折叠占位（`MARKER_KEY = "@marker"`）；分组口径复用 `turnGroupStarts`，段身份与分组结果都不依赖宽度。
 - **增窗 / 复位**：`App.scrollDialogueBy(delta)` 在施加位移**之前**按当前段表判断——上滚且视口顶进入窗口顶部半屏区间（或窗口内已无可滚行）→ `windowGroups += WINDOW_GROW_STEP(3)`（封顶总组数），随后按**扩窗后的段表**施加位移；扩窗只在视口上方插段、位置按段键表达 → 画面不动、**位移恒等于按键量**。下滚回到底部时复位默认组数（`scroll-to-bottom`）。
-- **滚动粒度**：裸 `↑` / `↓` = 一行；`Ctrl+↑` / `Ctrl+↓` = 半屏（`dialogueHalfPage(vh) = max(1, floor(vh/2))`）。`PgUp` / `PgDn` = 跳上 / 下一条用户输入（`userRowJump`，行号口径）；`Home` / `End` 语义见 BACKLOG 条目 6。
+- **滚动粒度**：裸 `↑` / `↓` = 一行；`Ctrl+↑` / `Ctrl+↓` = 半屏（`dialogueHalfPage(vh) = max(1, floor(vh/2))`）——**对话区与活动区（Turn 面板）同款**（活动区半屏基准 = `frameGeometry().activityH`；2026-10-10 真机验收：此前 Ctrl+↑ 在 Turn 面板与裸 ↑ 同效）。`PgUp` / `PgDn` = 跳上 / 下一条用户输入（`userRowJump`，行号口径）；目标不在**已物化**窗口内时先 `window-grow` 再跳（与 `↑` 的扩窗同口径）——恢复出的历史只物化最近 N 组，不扩窗则按键在窗口顶无反应（2026-10-10 真机验收缺陷）；`Home` / `End` 语义见 BACKLOG 条目 6。
 - **App 接线**：`FrameScrollReport` 回填段表口径字段（`dialogueTotal` / `dialogueCounts` / `dialogueKeys` / `dialogueTopIdx` / `dialogueViewportH` / `dialogueUserRows`）；`paneMaxes()` 同口径回填 / 补算；`syncDialoguePos()` 在出帧后把收敛后的位置写回 state（派生缓存，帧已按该位置渲染故不触发重绘）。**窗口起点不滑走**：用户停在历史里（`dialogueTop !== null`）而尾部新增了回合组时，按新增组数把 `windowGroups` 撑住。
-- **阅读位置不被输出拽走**（「活动区输出大量文本后，历史区跟着一起向上滚动」的回归）：位置按段键表达 → 尾部追加 / 活动区增长都不改变视口顶所指的内容；缓冲头部裁剪（`trimBufferHead`）按上限裁剪，被裁掉的更早内容本就在窗口之外。
-- **会话切换**（`history-resume-ok` / `session-switch` / `/cls`）清掉位置回跟随底部，避免上一会话的位置跨会话残留。
+- **阅读位置不被输出拽走**（「活动区输出大量文本后，历史区跟着一起向上滚动」的回归）：位置按段键表达 → 尾部追加 / 活动区增长都不改变视口顶所指的内容；缓冲头部裁剪（`trimBufferHead`）按上限裁剪（生产路径下缓冲只剩 UI 本地行，上限实际不再触达）。
+- **会话切换**（`history-resume-ok` / `session-switch` / `/cls`）清掉位置回跟随底部，避免上一会话的位置跨会话残留。`/cls` 还要在 App 侧重置**接收层**（`createSections()` + 归零回合基线 / 画线判据）：`clearBuffer` 只换 `state.pipeline`，不重置 App 手里的节缓存 → 下一次交付会把清掉的内容带回来（2026-10-10 真机验收缺陷）。
 - **回归**：`tests/scroll-position.test.ts`（段表 / 位置互算与越界 / 段键失效回落）+ `tests/buffer-trim.test.ts`（按上限裁剪）+ `tests/layout4.test.ts`（窗口 / 占位 / 报告口径 / 扩窗位移恒等于半屏）+ `tests/app.test.ts`（键位路径：裸 ↑ 一行、`Ctrl+↑` 半屏、撞窗口顶那次不多滚）。
 
 ### 15.3 排版尺寸唯一来源：FrameGeometry

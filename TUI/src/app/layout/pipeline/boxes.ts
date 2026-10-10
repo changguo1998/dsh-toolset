@@ -65,6 +65,9 @@ export interface ContentBox extends BoxBase {
   batch?: ToolBatch;
   /** notice 分级（来源条目的 tone 透传） */
   tone?: Item["tone"];
+  /** notice 排版参数（条目 7 选项 1）：悬挂缩进列与紧凑豁免（/help 双列表格用） */
+  hanging?: number;
+  noCompact?: boolean;
 }
 
 /** 容器 box：可嵌套 LayoutBox 与 ContentBox */
@@ -116,6 +119,8 @@ function textParts(item: Item, turn: number, step: number): Box[] {
         shape: "text",
         text,
         ...(item.tone === undefined ? {} : { tone: item.tone }),
+        ...(item.hanging === undefined ? {} : { hanging: item.hanging }),
+        ...(item.noCompact === true ? { noCompact: true } : {}),
         ...(item.seqs === undefined ? {} : { seqs: item.seqs }),
         ...(item.userStatus === undefined
           ? {}

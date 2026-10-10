@@ -1,6 +1,6 @@
 // src/app/layout/pipeline/types.ts — 六步流水线的类型骨架（第 1 / 2 步）
 //
-// 口径见 TUI/docs/implementation/2026-10-09-layout-segment-cache.md「设计」：
+// 口径见 TUI/docs/archived/2026-10-09-layout-segment-cache.md「设计」：
 //   ① 接收（宿主事件 → 节缓存）② 结构（节 → box 序列，宽无关）
 // 本文件只放「宽无关」的两级；第 3 步起（pane / row / 行数表）的吃宽度类型
 // 待各批实现时补，避免先写出用不上的形状。
@@ -48,6 +48,14 @@ export interface Item {
    * 运行态（用户 2026-10-01 裁定）；同批 B1：符号渲染不再按 `seq` 回查 buffer
    */
   readonly steerContinued?: boolean;
+  /**
+   * notice 呈现参数（条目 7 选项 1）：本地写入的 notice 行自带的两项排版元数据，随交付
+   * 带进节模型——`hanging` = 折行续行停靠列（/help 双列表格），`noCompact` = 紧凑模式
+   * 豁免（/help 仍完整折行）。旧路径这两项长在缓冲行上，行不再是内容来源后必须随条目
+   * 走，否则生产路径（内容单源 = 节缓存）丢悬挂缩进与紧凑豁免。
+   */
+  readonly hanging?: number;
+  readonly noCompact?: boolean;
 }
 
 /** 节：元数据（turn / step / 时间）+ 条目；`frozen` 由帧边界统一置位 */
@@ -95,7 +103,15 @@ export type BlockDelivery =
       steerContinued?: boolean;
     })
   /** notice（提示 / 自造输出）：行为同用户输入（无 turn/step 时沿用最近一次归属） */
-  | (Delivery & { kind: "notice"; text: string; tone?: NoticeTone })
+  | (Delivery & {
+      kind: "notice";
+      text: string;
+      tone?: NoticeTone;
+      /** 折行续行停靠列（/help 双列表格；缺省不悬挂） */
+      hanging?: number;
+      /** 紧凑模式（/collapse on）豁免：本行仍完整折行（/help 用） */
+      noCompact?: boolean;
+    })
   /** 本地 shell 输出（`$` 模式）：与 notice 同族，独立成节 */
   | (Delivery & { kind: "shell"; text: string })
   /** P9 恢复会话的 step 概要行（`╌╌ hh:mm:ss #N ╌╌ read ×2 …`；独立成节） */

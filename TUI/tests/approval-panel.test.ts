@@ -18,7 +18,6 @@ import { renderQuestionPanel } from "../src/app/components/QuestionPrompt.ts";
 import { questionKeyDecision } from "../src/app/question-transition.ts";
 import {
   initialState,
-  recentQuestionSource,
   reduceState,
   type AppState,
   type BufferLine,
@@ -254,57 +253,6 @@ test("审批按键白名单：Esc 取消、非白名单键由决策层吞掉（B
   assert.equal(closed.approvalFocus, "approve");
   assert.equal(closed.approvalDeadline, null);
   assert.equal(closed.approvalHint, null);
-});
-
-test("recentQuestionSource：按分块口径取最近一块正文（工具行切块、空行与思考不切、整块不限行数；#1）", () => {
-  const line = (text: string, kind: BufferLine["kind"]): BufferLine => ({
-    text,
-    kind,
-  });
-  assert.equal(
-    recentQuestionSource([
-      line("旧正文", "assistant"),
-      line("工具行", "tool"),
-      line("这是提问前的说明第一行", "assistant"),
-      line("第二行说明", "assistant"),
-    ]),
-    "这是提问前的说明第一行\n第二行说明",
-    "只取紧邻的连续正文（工具行截断）",
-  );
-  // 真机形态：正文尾部带空正文行 + 提问工具留下的若干行 —— 都不能让来源变空
-  assert.equal(
-    recentQuestionSource([
-      line("说明正文第一行", "assistant"),
-      line("说明正文第二行", "assistant"),
-      line("", "assistant"),
-      line("⚙ bash echo hi", "tool"),
-      line("✓ 输出", "tool"),
-      line("⚙ ask_user_question", "tool"),
-    ]),
-    "说明正文第一行\n说明正文第二行",
-    "尾部空正文行跳过、工具行跳过（3.2.12 修复点）",
-  );
-  assert.equal(
-    recentQuestionSource([
-      line("很早以前的一条回复", "assistant"),
-      ...Array.from({ length: 40 }, (_, i) => line(`工具行 ${i}`, "tool")),
-    ]),
-    "很早以前的一条回复",
-    "工具行只切块、不再设扫描上限 → 同一回合的最近一块正文照取（#1）",
-  );
-  assert.equal(
-    recentQuestionSource([line("思考内容", "thinking")]),
-    "",
-    "无正文返回空串",
-  );
-  const many = Array.from({ length: 10 }, (_, i) =>
-    line(`第${i + 1}行`, "plain"),
-  );
-  assert.equal(
-    recentQuestionSource(many).split("\n").length,
-    10,
-    "整块保留（#1 起不再限 6 行；超长由描述窗滚动承接）",
-  );
 });
 
 test("提问上下文：来源段渲染在描述窗顶部（灰、随窗滚动，与题干空行分隔）", () => {
