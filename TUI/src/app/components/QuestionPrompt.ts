@@ -41,7 +41,7 @@ import { v, styled } from "../layout/box.ts";
 import { seg } from "../layout/primitives.ts";
 import { panelMarkdownRows, windowStart } from "../layout/panel.ts";
 import { fillBoxTree } from "../layout/fill.ts";
-import { DEFAULT_THEME, type ThemeId } from "../../renderer/theme.ts";
+import { type ThemeId } from "../../renderer/theme.ts";
 // 列宽口径与 fill / 渲染器 / markdown 同源（吃运行时宽度探针的覆盖表；BACKLOG TUI#4）
 import { charWidth, displayWidth } from "../layout/markdown.ts";
 
@@ -114,9 +114,8 @@ export function buildQuestionPanelBox(
   panel: QuestionPanelState,
   height: number,
   width: number,
-  themeId: ThemeId = DEFAULT_THEME,
 ): Box {
-  const layout = layoutQuestionPanel(panel, height, width, themeId);
+  const layout = layoutQuestionPanel(panel, height, width);
   const maxBody = Math.max(0, height - layout.headerRows);
   // body 行（着色取自排版结果：选项行含折行续行与解释行整块同色）
   const bodyLeaves = Array.from({ length: maxBody }, (_, i) => {
@@ -152,9 +151,8 @@ export function maxDescScrollFor(
   panel: QuestionPanelState,
   height: number,
   width: number,
-  themeId: ThemeId = DEFAULT_THEME,
 ): number {
-  return layoutQuestionPanel(panel, height, width, themeId).maxDescScroll;
+  return layoutQuestionPanel(panel, height, width).maxDescScroll;
 }
 
 /** 面板内编辑光标（BACKLOG 3.2.7）：焦点在「自定义回答」且该行在选项窗内时返回位置 */
@@ -162,9 +160,8 @@ export function questionCaretFor(
   panel: QuestionPanelState,
   height: number,
   width: number,
-  themeId: ThemeId = DEFAULT_THEME,
 ): PanelCaret | null {
-  return layoutQuestionPanel(panel, height, width, themeId).caret;
+  return layoutQuestionPanel(panel, height, width).caret;
 }
 
 /**
@@ -175,7 +172,6 @@ function layoutQuestionPanel(
   panel: QuestionPanelState,
   height: number,
   width: number,
-  themeId: ThemeId,
 ): QuestionLayout {
   // 面板可用宽：右侧只留 1 列（原为 4 列，人工验收反馈「内容行右侧留白太多」）
   const avail = Math.max(4, width - 2);
@@ -207,7 +203,7 @@ function layoutQuestionPanel(
     const descW = Math.max(1, avail - 1);
     /** markdown 行（BACKLOG TUI#6）：题干 / detail 走历史区同口径解析 */
     const pushMarkdown = (text: string): void => {
-      for (const segs of panelMarkdownRows(text, descW, themeId)) {
+      for (const segs of panelMarkdownRows(text, descW)) {
         descRows.push({ text: "", segments: segs });
       }
     };
@@ -498,14 +494,12 @@ export function renderQuestionPanel(
   panel: QuestionPanelState,
   height: number,
   width: number,
-  themeId: ThemeId = DEFAULT_THEME,
 ): FrameRow[] {
   // 薄包装：单一数据源 buildQuestionPanelBox → fillBoxTree
   return fillBoxTree(
-    buildQuestionPanelBox(panel, height, width, themeId),
+    buildQuestionPanelBox(panel, height, width),
     height,
     width,
-    themeId as never,
   );
 }
 

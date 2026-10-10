@@ -11,7 +11,7 @@ import { measure, allocate } from "../src/app/layout/measure.ts";
 import { fillToList, type ContentRow } from "../src/app/layout/fill.ts";
 import { rowText } from "./helpers/rowText.ts";
 
-const ctx = { themeId: "dark" as const };
+const ctx = {};
 const rowsText = (rows: ContentRow[]): string[] => rows.map(rowText);
 
 /** 便捷 1：直接固定 rect 摊平（单段落单元测试，不涉 allocate） */

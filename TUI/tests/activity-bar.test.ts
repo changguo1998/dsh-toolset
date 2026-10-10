@@ -19,8 +19,8 @@ const a = (text: string, final = false): BufferLine => ({
 });
 
 function activityRows(buf: BufferLine[], width = 40): string[] {
-  const built = buildBox(buf, { themeId: THEME });
-  return fillBoxTree(built.panes.activity, 20, width, THEME).map((r) =>
+  const built = buildBox(buf, {});
+  return fillBoxTree(built.panes.activity, 20, width).map((r) =>
     r.segments.map((g) => g.text).join(""),
   );
 }

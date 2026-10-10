@@ -16,7 +16,7 @@ import type {
   BufferKind,
   BufferLine,
 } from "../state.ts";
-import type { ColorName, ThemeId } from "../../renderer/theme.ts";
+import type { ColorName } from "../../renderer/theme.ts";
 import type { FrameSegment, FrameStyle } from "../../renderer/index.ts";
 import {
   TOOL_CONT_INDENT,
@@ -57,7 +57,6 @@ export interface BuildBoxResult {
 
 /** buildBox 输入上下文（除 width 外均与宽度无关） */
 export interface BuildBoxOptions {
-  themeId: ThemeId;
   /** 用户/助手右缘留白（assistantMaxBodyWidth 的 gutter；固定配置非 width 相关） */
   gutter?: number;
   /** 内容区可用宽：仅 markdown 表格需要（列宽是跨行约束，须构建期算死）；
@@ -566,9 +565,7 @@ export function buildBox(
           // 非 final（活动 pane）在横向排列下用活动 pane 自身宽度
           const paneWidth = line.final ? width : (opts.activityWidth ?? width);
           const budget = paneWidth - (line.final ? gutter - 1 : 0);
-          const box = parsed
-            ? tableBox(parsed.table, budget, opts.themeId)
-            : null;
+          const box = parsed ? tableBox(parsed.table, budget) : null;
           if (parsed && box) {
             bodyRun = undefined; // 表格是硬边界（不参与合并）
             markSubtree(box, meta, rowMeta);
@@ -918,7 +915,7 @@ export function buildContentRows(
     const st = measure(pane, { maxW: paneW });
     const rects = allocate(st, rect);
     return fillToList(
-      { themeId: opts.themeId, viewportWidth: paneW },
+      { viewportWidth: paneW },
       pane,
       rect,
       rects,

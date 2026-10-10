@@ -299,10 +299,5 @@ export function buildHistoryPanelBox(view: HistoryPanelView): Box {
 
 export function renderHistoryPanel(view: HistoryPanelView): FrameRow[] {
   // 薄包装：单一数据源 buildHistoryPanelBox → fillBoxTree
-  return fillBoxTree(
-    buildHistoryPanelBox(view),
-    view.height,
-    view.width,
-    "dark" as never,
-  );
+  return fillBoxTree(buildHistoryPanelBox(view), view.height, view.width);
 }

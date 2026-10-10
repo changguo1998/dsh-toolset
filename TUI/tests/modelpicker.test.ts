@@ -20,14 +20,11 @@ import { rowAnsi } from "./helpers/rowText.ts";
 test("渲染：选项行着色——选中行 success 绿、焦点行 warn 黄（截断后着色）", () => {
   // providerIndex=1（ustc 焦点）、selectedProvider=deepseek：
   // row0 deepseek = 选中非焦点 → 绿 `* deepseek`；row1 ustc = 焦点 → 黄 `> ustc`
-  const rows = renderModelPicker(
-    {
-      picker: picker({ selectedProvider: "deepseek", providerIndex: 1 }),
-      height: 6,
-      width: 80,
-    },
-    "dark",
-  );
+  const rows = renderModelPicker({
+    picker: picker({ selectedProvider: "deepseek", providerIndex: 1 }),
+    height: 6,
+    width: 80,
+  });
   assert.ok(
     rowAnsi(rows[1]!).includes("\x1b[38;2;97;211;131m* deepseek"),
     "选中行应着 success 绿: " + stripAnsi(rowAnsi(rows[1]!)),
@@ -41,14 +38,11 @@ test("渲染：选项行着色——选中行 success 绿、焦点行 warn 黄�
 test("渲染：空格选中后选中项着绿——焦点行同时是选中行时绿优先于黄", () => {
   // providerIndex=0 且 selectedProvider=deepseek：row0 既焦点又选中（空格刚写入）
   // → 标记 `*`，绿色优先（选中才有视觉反馈），不再停留在黄
-  const rows = renderModelPicker(
-    {
-      picker: picker({ selectedProvider: "deepseek", providerIndex: 0 }),
-      height: 6,
-      width: 80,
-    },
-    "dark",
-  );
+  const rows = renderModelPicker({
+    picker: picker({ selectedProvider: "deepseek", providerIndex: 0 }),
+    height: 6,
+    width: 80,
+  });
   assert.ok(
     rowAnsi(rows[1]!).includes("\x1b[38;2;97;211;131m* deepseek"),
     "选中且焦点行应着 success 绿: " + stripAnsi(rowAnsi(rows[1]!)),
@@ -122,7 +116,7 @@ test("渲染：长 provider 名完整显示不截断（列宽按最长选项比�
       { id: "max", name: "max" },
     ],
   });
-  const rows = renderModelPicker({ picker: p, height: 6, width: 90 }, "dark");
+  const rows = renderModelPicker({ picker: p, height: 6, width: 90 });
   // provider 列应完整容纳最长名（旧实现 16 字符上限会截断）
   const r1 = stripAnsi(rowAnsi(rows[1]!));
   assert.ok(
@@ -140,10 +134,7 @@ test("渲染：长 provider 名完整显示不截断（列宽按最长选项比�
 });
 
 test("面板内不再渲染按键帮助行（提示统一到底部提示区，见 layout/hints.ts）", () => {
-  const rows = renderModelPicker(
-    { picker: picker(), height: 6, width: 80 },
-    "dark",
-  );
+  const rows = renderModelPicker({ picker: picker(), height: 6, width: 80 });
   const text = rows.map((r) => stripAnsi(rowAnsi(r))).join("\n");
   assert.ok(!text.includes("[space]select"), "面板内不应有键位帮助行: " + text);
   assert.ok(!text.includes("[esc]cancel"), "面板内不应有取消键位: " + text);
@@ -158,7 +149,7 @@ test("渲染：三列同屏, 头部全小写, 焦点行箭头, 当前生效值�
       { id: "max", name: "max" },
     ],
   });
-  const rows = renderModelPicker({ picker: p, height: 5, width: 80 }, "dark");
+  const rows = renderModelPicker({ picker: p, height: 5, width: 80 });
   const h = stripAnsi(rowAnsi(rows[0]!));
   assert.ok(
     h.includes("[ provider ]") && h.includes("model") && h.includes("effort"),
@@ -191,7 +182,7 @@ test("渲染：effort 列 id!=name 时选中仍按 id 标星", () => {
     phase: 2,
     selectedEffort: "max",
   });
-  const rows = renderModelPicker({ picker: p, height: 6, width: 80 }, "dark");
+  const rows = renderModelPicker({ picker: p, height: 6, width: 80 });
   // effort 列显示名 Max 标星（选中键 id="max" 匹配；选中与焦点同行时星号优先）
   const r2 = stripAnsi(rowAnsi(rows[2]!));
   assert.ok(r2.includes("* Max"), "effort 按 id 标星: " + r2);
@@ -212,7 +203,7 @@ test("渲染：星号标各列选中值（独立于焦点/当前），可与箭�
     ],
     selectedEffort: "max",
   });
-  const rows = renderModelPicker({ picker: p, height: 6, width: 80 }, "dark");
+  const rows = renderModelPicker({ picker: p, height: 6, width: 80 });
   const r1 = stripAnsi(rowAnsi(rows[1]!));
   const r2 = stripAnsi(rowAnsi(rows[2]!));
   const r3 = stripAnsi(rowAnsi(rows[3]!));
@@ -232,7 +223,7 @@ test("渲染：当前 model 与 effort 值只以浅绿方式呈现（不标星�
       { id: "max", name: "max" },
     ],
   });
-  const rows = renderModelPicker({ picker: p, height: 5, width: 80 }, "dark");
+  const rows = renderModelPicker({ picker: p, height: 5, width: 80 });
   // 行1: provider 第1行 deepseek、model 第1行 test-a、effort 第1行 low
   // phase=0 焦点在 provider 列(providerIndex=1=ustc)，所以 providerIndex=0=deepseek
   // 非焦点 → 当前值行无星号
@@ -253,7 +244,7 @@ test("渲染：焦点在 model 列时 model 标题加边框, model 焦点行 > �
       { id: "max", name: "max" },
     ],
   });
-  const rows = renderModelPicker({ picker: p, height: 5, width: 80 }, "dark");
+  const rows = renderModelPicker({ picker: p, height: 5, width: 80 });
   assert.ok(
     rowAnsi(rows[0]!).includes("[ model ]"),
     "model 标题应加边框: " + rowAnsi(rows[0]!),
@@ -265,10 +256,7 @@ test("渲染：焦点在 model 列时 model 标题加边框, model 焦点行 > �
 });
 
 test("渲染：模型无等级时 effort 列显示 (unsupported)", () => {
-  const rows = renderModelPicker(
-    { picker: picker(), height: 5, width: 80 },
-    "dark",
-  );
+  const rows = renderModelPicker({ picker: picker(), height: 5, width: 80 });
   assert.ok(
     stripAnsi(rowAnsi(rows[0]!)).includes("effort (unsupported)"),
     stripAnsi(rowAnsi(rows[0]!)),
@@ -283,7 +271,7 @@ test("渲染：列表上下有未显示项时顶/底行显示省略号, 焦点�
     providerIndex: 3,
     phase: 0,
   });
-  const rows = renderModelPicker({ picker: p, height: 6, width: 80 }, "dark");
+  const rows = renderModelPicker({ picker: p, height: 6, width: 80 });
   const r1 = stripAnsi(rowAnsi(rows[1]!));
   const r5 = stripAnsi(rowAnsi(rows[5]!));
   assert.ok(r1.includes("..."), "顶部应有省略号: " + r1);
@@ -299,7 +287,7 @@ test("渲染：焦点在列表顶部时顶部不显示省略号", () => {
     providerIndex: 0,
     phase: 0,
   });
-  const rows = renderModelPicker({ picker: p, height: 6, width: 80 }, "dark");
+  const rows = renderModelPicker({ picker: p, height: 6, width: 80 });
   const r1 = stripAnsi(rowAnsi(rows[1]!));
   assert.ok(r1.includes("a"), "首行应为焦点内容 a: " + r1);
   const r5 = stripAnsi(rowAnsi(rows[5]!));
@@ -307,14 +295,11 @@ test("渲染：焦点在列表顶部时顶部不显示省略号", () => {
 });
 
 test("渲染：纯 ASCII（无汉字）且各列对齐", () => {
-  const rows = renderModelPicker(
-    {
-      picker: picker({ efforts: [{ id: "max", name: "max" }] }),
-      height: 5,
-      width: 80,
-    },
-    "dark",
-  );
+  const rows = renderModelPicker({
+    picker: picker({ efforts: [{ id: "max", name: "max" }] }),
+    height: 5,
+    width: 80,
+  });
   for (const r of rows) {
     assert.ok(!/[\u4e00-\u9fff]/.test(rowAnsi(r)), "不应含汉字: " + rowAnsi(r));
   }

@@ -203,7 +203,7 @@ test("c5 扩窗只排版新增段：已渲染的节命中行缓存（查表不�
     dialogueTextW: 80,
     activityTextW: 80,
     windowGroups: 3,
-    render: { themeId: "dark", width: 80 },
+    render: { width: 80 },
   });
   const initial = rowRenderMisses();
   assert.ok(initial > 0, "首帧排一次");
@@ -214,7 +214,7 @@ test("c5 扩窗只排版新增段：已渲染的节命中行缓存（查表不�
     dialogueTextW: 80,
     activityTextW: 80,
     windowGroups: 3,
-    render: { themeId: "dark", width: 80 },
+    render: { width: 80 },
   });
   assert.equal(rowRenderMisses(), 0, "同窗重复出帧零重排");
 
@@ -224,7 +224,7 @@ test("c5 扩窗只排版新增段：已渲染的节命中行缓存（查表不�
     dialogueTextW: 80,
     activityTextW: 80,
     windowGroups: 6,
-    render: { themeId: "dark", width: 80 },
+    render: { width: 80 },
   });
   const grown = rowRenderMisses();
   assert.ok(grown > 0, "扩窗纳入的新段要排一次");

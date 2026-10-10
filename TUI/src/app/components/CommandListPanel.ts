@@ -126,6 +126,5 @@ export function renderCommandListPanel(
     buildCommandListPanelBox(panel, height, width),
     height,
     width,
-    "dark" as never,
   );
 }

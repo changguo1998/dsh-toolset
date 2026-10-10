@@ -14,7 +14,6 @@
 import type { Box, Node, Paragraph, StyledText } from "./box.ts";
 import { v, text, styled } from "./box.ts";
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
-import type { ThemeId } from "../../renderer/theme.ts";
 import {
   FENCE_RE,
   wrapAssistantLine,
@@ -167,7 +166,6 @@ export type PanelMarkdownRows = FrameSegment[][];
 export function panelMarkdownRows(
   text: string,
   width: number,
-  themeId: ThemeId,
 ): PanelMarkdownRows {
   const rows: PanelMarkdownRows = [];
   const w = Math.max(1, width);
@@ -181,7 +179,7 @@ export function panelMarkdownRows(
     } else if (line.includes("|")) {
       rows.push(...wrapFrameSegments([{ text: line }], w));
     } else {
-      rows.push(...wrapAssistantLine(line, w, themeId));
+      rows.push(...wrapAssistantLine(line, w));
     }
   }
   return rows;

@@ -19,7 +19,7 @@ import { fillBoxTree } from "../layout/fill.ts";
 // 描述窗折行走 markdown 子集（fence 内代码行由本文件自持，命令段按代码块渲染）
 import { wrapCodeLine } from "../layout/markdown.ts";
 import { panelMarkdownRows } from "../layout/panel.ts";
-import { DEFAULT_THEME, type ThemeId } from "../../renderer/theme.ts";
+import { type ThemeId } from "../../renderer/theme.ts";
 
 /** 审批标题行文案（BACKLOG TUI#4：类型标识改为符号 △ 并去掉 `[审批]`——符号与状态标记
  *  △ 合一，整行黄） */
@@ -49,11 +49,7 @@ interface ApprovalRow {
 }
 
 /** 描述窗各行（渲染与滚动上界共用的单一来源；BACKLOG TUI#6 起走 markdown 子集） */
-function approvalRows(
-  approval: ApprovalItem,
-  width: number,
-  themeId: ThemeId,
-): ApprovalRow[] {
+function approvalRows(approval: ApprovalItem, width: number): ApprovalRow[] {
   // 与问答面板同口径：右侧只留 1 列、行首 1 列留给滚动条 / 焦点条
   const avail = Math.max(4, width - 2);
   const w = Math.max(1, avail - 1);
@@ -79,7 +75,7 @@ function approvalRows(
       }
       continue;
     }
-    for (const segments of panelMarkdownRows(part, w, themeId)) {
+    for (const segments of panelMarkdownRows(part, w)) {
       rows.push({ segments });
     }
   }
@@ -96,13 +92,11 @@ export function maxApprovalScroll(
   approval: ApprovalItem,
   height: number,
   width: number,
-  themeId: ThemeId = DEFAULT_THEME,
 ): number {
   const maxBody = Math.max(0, height - 1);
   return Math.max(
     0,
-    approvalRows(approval, width, themeId).length -
-      approvalDescMaxRows(maxBody),
+    approvalRows(approval, width).length - approvalDescMaxRows(maxBody),
   );
 }
 
@@ -119,10 +113,9 @@ export function buildApprovalBox(
   width: number,
   scroll = 0,
   view: ApprovalView = {},
-  themeId: ThemeId = DEFAULT_THEME,
 ): Box {
   const maxBody = Math.max(0, height - 1); // 只剩标题行（按键提示在底部提示区）
-  const rows = approvalRows(approval, width, themeId);
+  const rows = approvalRows(approval, width);
   // 两窗分配（BACKLOG 3.2.11 规则）：描述窗上限 = 面板体 2/3，选项窗吃剩余行
   const bodyRows = maxBody;
   const descMaxRows = approvalDescMaxRows(bodyRows);
@@ -216,13 +209,11 @@ export function renderApprovalPrompt(
   width: number,
   scroll = 0,
   view: ApprovalView = {},
-  themeId: ThemeId = DEFAULT_THEME,
 ): FrameRow[] {
   // 薄包装：单一数据源 buildApprovalBox → fillBoxTree
   return fillBoxTree(
-    buildApprovalBox(approval, height, width, scroll, view, themeId),
+    buildApprovalBox(approval, height, width, scroll, view),
     height,
     width,
-    themeId as never,
   );
 }

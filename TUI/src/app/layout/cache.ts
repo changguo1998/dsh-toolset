@@ -78,12 +78,3 @@ export function memo<T>(cache: TextCache<T>, key: string, compute: () => T): T {
 export function sizedKey(text: string, size: number): string {
   return `${size}\u0000${text}`;
 }
-
-/** 主题相关文本缓存键：主题 + 列宽 + 文本 */
-export function themeSizedKey(
-  text: string,
-  size: number,
-  theme: string,
-): string {
-  return `${theme}\u0000${size}\u0000${text}`;
-}

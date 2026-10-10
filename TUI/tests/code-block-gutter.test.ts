@@ -23,8 +23,8 @@ const a = (text: string): BufferLine => ({
 const stripRight = (s: string): string => s.replace(/\s+$/, "");
 
 function rows(buf: BufferLine[], width = 60, height = 40): string[] {
-  const built = buildBox(buf, { themeId: THEME, width });
-  return fillBoxTree(built.panes.dialogue, height, width, THEME).map((r) =>
+  const built = buildBox(buf, { width });
+  return fillBoxTree(built.panes.dialogue, height, width).map((r) =>
     r.segments.map((g) => g.text).join(""),
   );
 }

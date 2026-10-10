@@ -30,7 +30,7 @@ import {
   wrapCodeLine,
   wrapInlineMarkdown,
 } from "../src/app/layout/markdown.ts";
-import { rowsText } from "./helpers/rowText.ts";
+import { rowAnsi, rowsText } from "./helpers/rowText.ts";
 import type { DshAdapter, DshEvent } from "../src/app/adapter/dsh.ts";
 import type { KeyEvent, Renderer } from "../src/renderer/index.ts";
 import type { FrameRow, Size } from "../src/renderer/screen.ts";
@@ -70,14 +70,14 @@ const CORPUS: string[] = [
   "A".repeat(300),
 ];
 
-/** 读一次全部折行/宽度出口（theme 影响缓存键，故按主题取样） */
-function sampleOutputs(text: string, width: number, themeId: ThemeId) {
+/** 读一次全部折行/宽度出口（排版与主题无关：缓存键只含文本 + 宽度） */
+function sampleOutputs(text: string, width: number) {
   return {
     line: wrapLine(text, width),
     width: displayWidth(text),
-    parsed: parseInlineMarkdown(text, themeId),
-    inline: wrapInlineMarkdown(text, width, themeId),
-    assistant: wrapAssistantLine(text, width, themeId),
+    parsed: parseInlineMarkdown(text),
+    inline: wrapInlineMarkdown(text, width),
+    assistant: wrapAssistantLine(text, width),
     code: wrapCodeLine(text, width),
   };
 }
@@ -99,20 +99,17 @@ function sampleWithCache(
   }
 }
 
-test("折行/宽度缓存：固定语料在开/关两模式逐项一致（含热命中与宽/主题变体）", () => {
+test("折行/宽度缓存：固定语料在开/关两模式逐项一致（含热命中与宽度变体）", () => {
   const widths = [0, -3, 1, 7, 40, 84];
-  const themes: ThemeId[] = ["dark", "light"];
   for (const text of CORPUS) {
     for (const width of widths) {
-      for (const themeId of themes) {
-        const compute = () => sampleOutputs(text, width, themeId);
-        const off = sampleWithCache(false, false, compute);
-        const onCold = sampleWithCache(true, false, compute);
-        const onWarm = sampleWithCache(true, true, compute);
-        const label = `text=${JSON.stringify(text.slice(0, 24))} w=${width} theme=${themeId}`;
-        assert.deepEqual(onCold, off, `冷缓存与关闭缓存不一致：${label}`);
-        assert.deepEqual(onWarm, off, `热缓存与关闭缓存不一致：${label}`);
-      }
+      const compute = () => sampleOutputs(text, width);
+      const off = sampleWithCache(false, false, compute);
+      const onCold = sampleWithCache(true, false, compute);
+      const onWarm = sampleWithCache(true, true, compute);
+      const label = `text=${JSON.stringify(text.slice(0, 24))} w=${width}`;
+      assert.deepEqual(onCold, off, `冷缓存与关闭缓存不一致：${label}`);
+      assert.deepEqual(onWarm, off, `热缓存与关闭缓存不一致：${label}`);
     }
   }
 });
@@ -135,14 +132,13 @@ test("折行/宽度缓存：随机追加语料逐条一致（确定性种子）"
   for (let i = 0; i < 240; i++) {
     text += pieces[Math.floor(rand() * pieces.length)]!;
     const width = 1 + Math.floor(rand() * 60);
-    const themeId: ThemeId = rand() < 0.5 ? "dark" : "light";
-    const compute = () => sampleOutputs(text, width, themeId);
+    const compute = () => sampleOutputs(text, width);
     const off = sampleWithCache(false, false, compute);
     const onWarm = sampleWithCache(true, true, compute);
     assert.deepEqual(
       onWarm,
       off,
-      `随机语料不一致（第 ${i} 次追加, w=${width}, theme=${themeId}）`,
+      `随机语料不一致（第 ${i} 次追加, w=${width}）`,
     );
   }
 });
@@ -203,6 +199,33 @@ test("buildFrame：同一状态重复排版在两种模式下都稳定（缓存�
   );
   assert.deepEqual(second, first, "热缓存改变了输出");
   assert.deepEqual(third, second, "重复排版不稳定");
+});
+
+test("换主题：排版结果逐字节一致，主题色只在渲染层加", () => {
+  const size: Size = { cols: 100, rows: 30 };
+  let s = initialState("dark");
+  for (const action of FRAME_ACTIONS) s = reduceState(s, action);
+  clearLayoutCaches();
+  const dark = buildFrame(s, size);
+  const light = buildFrame(
+    reduceState(s, { type: "set-theme", themeId: "light" }),
+    size,
+  );
+  /** 行 → 段文本 + 段样式（不含主题映射；渲染层才把语义色映射成 RGB） */
+  const shape = (rows: FrameRow[]): string =>
+    rows
+      .map((r) =>
+        r.segments
+          .map((seg) => `${seg.text}|${JSON.stringify(seg.style ?? {})}`)
+          .join("~"),
+      )
+      .join("\n");
+  assert.equal(shape(light), shape(dark), "换主题后排版结果应逐字节一致");
+  // 主题确实生效：同帧两主题的 ANSI 序列至少有一行不同（色值由渲染层决定）
+  const ansiDark = dark.map((r) => rowAnsi(r, "dark")).join("\n");
+  const ansiLight = light.map((r) => rowAnsi(r, "light")).join("\n");
+  assert.notEqual(ansiLight, ansiDark, "主题色应作用于渲染层输出");
+  clearLayoutCaches();
 });
 
 // ---------- B 部分：paint 合帧 ----------

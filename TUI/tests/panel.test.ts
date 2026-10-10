@@ -19,7 +19,7 @@ import { measure, allocate } from "../src/app/layout/measure.ts";
 import { fillToList } from "../src/app/layout/fill.ts";
 import { rowText } from "./helpers/rowText.ts";
 
-const ctx = { themeId: "dark" as const, viewportWidth: 40 };
+const ctx = { viewportWidth: 40 };
 
 /** 以 fill 摊平节点 → 纯文本行 */
 function rowsOf(node: Box | Paragraph | StyledText, w = 40): string[] {
@@ -118,7 +118,6 @@ test("panelMarkdownRows：行内样式成段 / 标题去 # / fence 内不解析 
   const rows = panelMarkdownRows(
     "**粗** 与 `码`\n# 标题\n```sh\nls *\n```\n| a | b |",
     24,
-    "dark",
   );
   const flat = rows.map((r) => r.map((s) => s.text).join("")).join("\n");
   assert.ok(flat.includes("粗 与 码"), "行内标记去壳: " + flat);

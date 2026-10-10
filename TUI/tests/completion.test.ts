@@ -112,7 +112,6 @@ test("renderCommandCompletion：标题 + 默认高亮首项 + 恰 height 行", (
     completion,
     height: 10,
     width: 60,
-    themeId: "dark",
   });
   assert.equal(rows.length, 10, "输出行数 = height");
   assert.ok(rowAnsi(rows[0]!).includes("/命令补全"), "标题行");
@@ -147,7 +146,6 @@ test("renderCommandCompletion：行宽不得超列宽（否则挤偏边框 + 终
       completion: { ...completion, index: 3 },
       height: 12,
       width,
-      themeId: "dark",
     });
     assert.equal(rows.length, 12, "输出行数 = height");
     for (const r of rows) {
@@ -166,7 +164,6 @@ test("renderCommandCompletion：候选超出可视行时丢弃多余项（不滚
     completion,
     height,
     width: 60,
-    themeId: "dark",
   });
   assert.equal(rows.length, height, "输出行数 = height");
   const body = rows.slice(1);
@@ -187,7 +184,6 @@ test("renderCommandCompletion：候选超出可视行时丢弃多余项（不滚
     completion: { ...completion, index: completion.items.length - 1 },
     height,
     width: 60,
-    themeId: "dark",
   });
   assert.deepEqual(
     tail

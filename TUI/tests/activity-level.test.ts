@@ -24,7 +24,6 @@ const act = (buf: Buffer, level?: "think" | "tool" | "step"): string[] =>
   buildContentRows(
     buf,
     {
-      themeId: "dark",
       ...(level === undefined ? {} : { activityLevel: level }),
     },
     W,

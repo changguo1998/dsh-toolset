@@ -81,7 +81,6 @@ export interface StatusPanelView {
   panel: StatusPanelState;
   height: number;
   width: number;
-  themeId: ThemeId;
 }
 
 export function renderStatusPanel(view: StatusPanelView): FrameRow[] {
@@ -90,6 +89,5 @@ export function renderStatusPanel(view: StatusPanelView): FrameRow[] {
     buildStatusPanelBox(view.panel, view.height, view.width),
     view.height,
     view.width,
-    view.themeId,
   );
 }

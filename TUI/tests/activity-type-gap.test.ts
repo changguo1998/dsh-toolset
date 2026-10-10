@@ -18,7 +18,7 @@ const L = (text: string, kind: BufferLine["kind"]): BufferLine => ({
 
 /** 活动区渲染文本行 */
 const act = (buf: Buffer): string[] =>
-  buildContentRows(buf, { themeId: "dark" }, W, W).activity.map(rowText);
+  buildContentRows(buf, {}, W, W).activity.map(rowText);
 
 /** 空行所在行号 */
 const blanks = (rows: string[]): number[] =>

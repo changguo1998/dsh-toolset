@@ -348,16 +348,16 @@ test("renderTextInput: 光标在换行边界/文本末尾时落在空行且 care
 const strip = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 test("行内 markdown：单独粗体 / 斜体 / 行内 code 均渲染且带样式", () => {
-  const bold = segsAnsi(wrapInlineMarkdown("**加粗**", 60, "dark")[0]!);
+  const bold = segsAnsi(wrapInlineMarkdown("**加粗**", 60)[0]!);
   assert.ok(bold.includes("\x1b[1m") && bold.includes("\x1b[22m"), "bold SGR");
   assert.equal(strip(bold), "加粗");
-  const italic = segsAnsi(wrapInlineMarkdown("*斜体*", 60, "dark")[0]!);
+  const italic = segsAnsi(wrapInlineMarkdown("*斜体*", 60)[0]!);
   assert.ok(
     italic.includes("\x1b[3m") && italic.includes("\x1b[23m"),
     "italic SGR",
   );
   assert.equal(strip(italic), "斜体");
-  const code = segsAnsi(wrapInlineMarkdown("`代码`", 60, "dark")[0]!);
+  const code = segsAnsi(wrapInlineMarkdown("`代码`", 60)[0]!);
   assert.ok(
     (code.match(/\x1b\[48;2;/g) ?? []).length >= 2,
     "code 用主题背景色打开/关闭(48;2)",
@@ -366,19 +366,13 @@ test("行内 markdown：单独粗体 / 斜体 / 行内 code 均渲染且带样�
 });
 
 test("行内 markdown：三种样式混排顺序保留", () => {
-  const out = segsAnsi(
-    wrapInlineMarkdown("前**粗**中`码`后*斜*尾", 60, "dark")[0]!,
-  );
+  const out = segsAnsi(wrapInlineMarkdown("前**粗**中`码`后*斜*尾", 60)[0]!);
   assert.equal(strip(out), "前粗中码后斜尾");
   assert.ok(out.includes("\x1b[1m") && out.includes("\x1b[3m"));
 });
 
 test("行内 markdown：样式跨软换行后每行 ANSI 成对且不超宽", () => {
-  const rows = wrapInlineMarkdown(
-    "alpha**boldbeta boldbeta**gamma",
-    10,
-    "dark",
-  );
+  const rows = wrapInlineMarkdown("alpha**boldbeta boldbeta**gamma", 10);
   assert.ok(rows.length >= 2, "宽 10 内应软换行");
   for (const row of rows) {
     const ansi = segsAnsi(row);
@@ -393,7 +387,7 @@ test("行内 markdown：样式跨软换行后每行 ANSI 成对且不超宽", ()
 });
 
 test("行内 markdown：CJK 按 2 列精确换行，粗体跨行不丢字", () => {
-  const rows = wrapInlineMarkdown("一二**三四五六**七八", 6, "dark");
+  const rows = wrapInlineMarkdown("一二**三四五六**七八", 6);
   assert.deepEqual(
     rows.map((r) => strip(segsAnsi(r))),
     ["一二三", "四五六", "七八"],
@@ -410,7 +404,7 @@ test("行内 markdown：未闭合或嵌套时字符不丢失且约定输出稳�
     ["**外*内*外**", "**外内外**"],
   ];
   for (const [src, expect] of cases) {
-    const out = segsAnsi(wrapInlineMarkdown(src, 60, "dark")[0]!);
+    const out = segsAnsi(wrapInlineMarkdown(src, 60)[0]!);
     assert.equal(strip(out), expect, `输入: ${src}`);
   }
 });
@@ -430,8 +424,8 @@ test("ANSI 感知：displayWidth 不计转义；truncateToWidth 透传转义不�
 test("行内 code 颜色随主题：dark / light 使用各自 gray 背景色板", () => {
   const bgSgr = (s: string): string =>
     /\x1b\[48;2;\d+;\d+;\d+m/.exec(s)?.[0] ?? "";
-  const d = segsAnsi(wrapInlineMarkdown("`x`", 60, "dark")[0]!);
-  const l = segsAnsi(wrapInlineMarkdown("`x`", 60, "light")[0]!, "light");
+  const d = segsAnsi(wrapInlineMarkdown("`x`", 60)[0]!, "dark");
+  const l = segsAnsi(wrapInlineMarkdown("`x`", 60)[0]!, "light");
   assert.ok(bgSgr(d) && bgSgr(l), "两主题代码均有背景色");
   assert.notEqual(bgSgr(d), bgSgr(l), "深浅主题 code 背景色不同");
 });
@@ -439,9 +433,7 @@ test("行内 code 颜色随主题：dark / light 使用各自 gray 背景色板"
 test("无 markdown 标记时 wrapInlineMarkdown 与 wrapLine 输出一致", () => {
   const text = "一二三四五六七八九十";
   assert.deepEqual(
-    wrapInlineMarkdown(text, 10, "dark").map((r) =>
-      r.map((s) => s.text).join(""),
-    ),
+    wrapInlineMarkdown(text, 10).map((r) => r.map((s) => s.text).join("")),
     wrapLine(text, 10),
   );
   assert.equal(parseInlineMarkdown("纯文本").length, 1);
@@ -460,20 +452,16 @@ test("行内 markdown：粗斜/删除线/下划线/转义/自动链接/图片（
     ["![a](https://x/i.png)", "[a] https://x/i.png"],
   ];
   for (const [src, expect] of cases) {
-    assert.equal(
-      strip(segsAnsi(wrapInlineMarkdown(src, 60, "dark")[0]!)),
-      expect,
-      src,
-    );
+    assert.equal(strip(segsAnsi(wrapInlineMarkdown(src, 60)[0]!)), expect, src);
   }
-  const bi = segsAnsi(wrapInlineMarkdown("***粗斜***", 60, "dark")[0]!);
+  const bi = segsAnsi(wrapInlineMarkdown("***粗斜***", 60)[0]!);
   assert.ok(bi.includes("\x1b[1m") && bi.includes("\x1b[3m"), "*** 同段粗斜");
-  const st = segsAnsi(wrapInlineMarkdown("~~删除~~", 60, "dark")[0]!);
+  const st = segsAnsi(wrapInlineMarkdown("~~删除~~", 60)[0]!);
   assert.ok(st.includes("\x1b[9m") && st.includes("\x1b[29m"), "删除线 SGR");
-  const ul = segsAnsi(wrapInlineMarkdown("__下划线__", 60, "dark")[0]!);
+  const ul = segsAnsi(wrapInlineMarkdown("__下划线__", 60)[0]!);
   assert.ok(ul.includes("\x1b[4m") && ul.includes("\x1b[24m"), "下划线 SGR");
-  const esc = segsAnsi(wrapInlineMarkdown("\\*不斜*", 60, "dark")[0]!);
+  const esc = segsAnsi(wrapInlineMarkdown("\\*不斜*", 60)[0]!);
   assert.ok(!esc.includes("\x1b[3m"), "\\* 不触发斜体");
-  const al = segsAnsi(wrapInlineMarkdown("<https://a.b>", 60, "dark")[0]!);
+  const al = segsAnsi(wrapInlineMarkdown("<https://a.b>", 60)[0]!);
   assert.ok(al.includes("\x1b[4m"), "自动链接下划线");
 });

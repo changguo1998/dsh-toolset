@@ -6,7 +6,7 @@
 // （ANSI_RE/stripAnsi/charWidth/displayWidth）一并迁至此供换行/padding 计算；
 // layout.ts 重导 charWidth/displayWidth，公共导出不变，且不引入 layout↔markdown 循环依赖。
 
-import type { ColorName, ThemeId } from "../../renderer/theme.ts";
+import type { ColorName } from "../../renderer/theme.ts";
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
 import {
   clearLayoutCaches,
@@ -15,7 +15,6 @@ import {
   memo,
   registerCacheReset,
   sizedKey,
-  themeSizedKey,
 } from "./cache.ts";
 import {
   EAW_AMBIGUOUS_CONSERVATIVE,
@@ -592,16 +591,11 @@ function bracketText(full: string): string {
  */
 const parseInlineCache = createTextCache<FrameSegment[]>();
 
-export function parseInlineMarkdown(
-  text: string,
-  themeId: ThemeId = "dark",
-): FrameSegment[] {
-  return memo(parseInlineCache, themeSizedKey(text, 0, themeId), () =>
-    inlineSegments(text),
-  );
+export function parseInlineMarkdown(text: string): FrameSegment[] {
+  return memo(parseInlineCache, sizedKey(text, 0), () => inlineSegments(text));
 }
 
-/** parseInlineMarkdown 直算路径（无缓存；行内 token 样式为语义色，主题仅进缓存键） */
+/** parseInlineMarkdown 直算路径（无缓存；行内 token 样式为语义色，主题只在渲染层加） */
 function inlineSegments(text: string): FrameSegment[] {
   const segs: FrameSegment[] = [];
   let last = 0;
@@ -698,10 +692,9 @@ const wrapInlineCache = createTextCache<FrameSegment[][]>();
 export function wrapInlineMarkdown(
   text: string,
   width: number,
-  themeId: ThemeId,
 ): FrameSegment[][] {
-  return memo(wrapInlineCache, themeSizedKey(text, width, themeId), () =>
-    wrapFrameSegments(parseInlineMarkdown(text, themeId), width),
+  return memo(wrapInlineCache, sizedKey(text, width), () =>
+    wrapFrameSegments(parseInlineMarkdown(text), width),
   );
 }
 
@@ -816,19 +809,14 @@ const wrapAssistantCache = createTextCache<FrameSegment[][]>();
 export function wrapAssistantLine(
   text: string,
   width: number,
-  themeId: ThemeId,
 ): FrameSegment[][] {
-  return memo(wrapAssistantCache, themeSizedKey(text, width, themeId), () =>
-    assistantLineRows(text, width, themeId),
+  return memo(wrapAssistantCache, sizedKey(text, width), () =>
+    assistantLineRows(text, width),
   );
 }
 
 /** wrapAssistantLine 直算路径（无缓存）：块级元素分类后交行内 markdown 折行 */
-function assistantLineRows(
-  text: string,
-  width: number,
-  themeId: ThemeId,
-): FrameSegment[][] {
+function assistantLineRows(text: string, width: number): FrameSegment[][] {
   // 1. 分隔线：灰色横线铺满内容区（与 turn 分隔线视觉区分）
   if (RULE_RE.test(text)) {
     return wrapFrameSegments(
@@ -841,7 +829,7 @@ function assistantLineRows(
   const task = TASK_RE.exec(text);
   if (task) {
     const checked = task[1]!.toLowerCase() === "x";
-    const body = parseInlineMarkdown(task[2]!, themeId);
+    const body = parseInlineMarkdown(task[2]!);
     const taskPrefix = checked ? "[x] " : "[ ] ";
     const segs: FrameSegment[] = checked
       ? [
@@ -858,7 +846,7 @@ function assistantLineRows(
   // 3. 标题：去掉 #，整行 bold + 醒目青；行内 token（如 **粗**）叠加保留
   const heading = HEADING_RE.exec(text);
   if (heading) {
-    const segs = parseInlineMarkdown(heading[2]!, themeId).map((s) => ({
+    const segs = parseInlineMarkdown(heading[2]!).map((s) => ({
       text: s.text,
       style: mergeStyle({ bold: true, fg: HEADING_FG }, s.style ?? {}),
     }));
@@ -872,7 +860,7 @@ function assistantLineRows(
     if (body === "") return [[]];
     const segs: FrameSegment[] = [
       { text: "> " },
-      ...parseInlineMarkdown(body, themeId).map((s) => ({
+      ...parseInlineMarkdown(body).map((s) => ({
         text: s.text,
         style: s.style ?? {},
       })),
@@ -887,10 +875,10 @@ function assistantLineRows(
     const prefix = bullet ? "• " : text.slice(0, text.length - list[1]!.length);
     const segs: FrameSegment[] = [
       { text: prefix },
-      ...parseInlineMarkdown(list[1]!, themeId),
+      ...parseInlineMarkdown(list[1]!),
     ];
     return wrapListRows(segs, displayWidth(prefix), width);
   }
   // 6. 普通行内 markdown
-  return wrapFrameSegments(parseInlineMarkdown(text, themeId), width);
+  return wrapFrameSegments(parseInlineMarkdown(text), width);
 }

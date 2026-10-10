@@ -36,9 +36,9 @@ const parse = (table: readonly string[]): TableSpec => {
 
 /** 无 wrapper 摊平表格 Box（rect 宽 = 可用宽） */
 function rows(spec: TableSpec, budget: number): string[] {
-  const box = tableBox(spec, budget, THEME);
+  const box = tableBox(spec, budget);
   assert.ok(box, "表格应可构建（budget=" + budget + "）");
-  return fillBoxTree(box, 200, budget, THEME).map(rowText);
+  return fillBoxTree(box, 200, budget).map(rowText);
 }
 
 /** 行内 `│` 所在的显示列（列分隔对齐不变量） */
@@ -145,8 +145,8 @@ test("列对齐三态（:--- 左 / :--: 中 / ---: 右）+ 表头加粗 + 网格
     "| a | b | 1 |",
     "| 中文 | c | 250 |",
   ]);
-  const box = tableBox(spec, 30, THEME)!;
-  const out = fillBoxTree(box, 200, 30, THEME);
+  const box = tableBox(spec, 30)!;
+  const out = fillBoxTree(box, 200, 30);
   const texts = out.map(rowText);
   assert.deepEqual(texts, [
     "┃  Lxx  │ Cxx │ Rxx ",
@@ -244,8 +244,8 @@ test("网格：左缘回复竖线逐行连续、横线隔 1 空格不与其连�
 
 test("格内行内 markdown 生效（粗体/行内代码），且列宽按渲染文本（不计标记）", () => {
   const spec = parse(["| a | b |", "| --- | --- |", "| **粗** | `code` |"]);
-  const box = tableBox(spec, 30, THEME)!;
-  const out = fillBoxTree(box, 200, 30, THEME);
+  const box = tableBox(spec, 30)!;
+  const out = fillBoxTree(box, 200, 30);
   // 自然宽：a=1、粗=2（去掉 ** ）；b=1、code=4
   assert.equal(rowText(out[2]!), "┃  粗 │ code ");
   assert.ok(
@@ -283,7 +283,7 @@ test("#6 极窄：minW 也放不下 → 放弃表格（不再格内截断），�
   ]);
   const budget = 15; // overhead 10 → 可用 5 < ΣminW 9
   assert.equal(
-    tableBox(spec, budget, THEME),
+    tableBox(spec, budget),
     null,
     "容不下最小列宽 → 不构建表格（无 `…` 截断）",
   );
@@ -293,7 +293,7 @@ test("#6 极窄：minW 也放不下 → 放弃表格（不再格内截断），�
     a("| --- | --- | --- |"),
     a("| a | 中文说明 | 12 |"),
   ];
-  const { dialogue } = buildContentRows(buf, { themeId: THEME }, budget);
+  const { dialogue } = buildContentRows(buf, {}, budget);
   const text = dialogue.map(rowText).join("\n");
   assert.ok(!text.includes("…"), "无格内省略号：" + JSON.stringify(text));
   // 退回普通文本行后按窗宽折行（每行带 `┃` 前缀），故把各行拼起来再找（内容不丢）
@@ -307,8 +307,8 @@ test("#6 极窄：minW 也放不下 → 放弃表格（不再格内截断），�
 test("过窄：连每列 1 列都放不下 → tableBox 返回 null（调用方退回普通文本）", () => {
   const spec = parse(["| a | b |", "| --- | --- |"]);
   // 两列最小占宽 = 左竖线 1 + 间隔 1 + 每列 1 + 左右留白 4 + 列分隔 1 = 9
-  assert.equal(tableBox(spec, 8, THEME), null);
-  assert.ok(tableBox(spec, 9, THEME), "9 列起可构建");
+  assert.equal(tableBox(spec, 8), null);
+  assert.ok(tableBox(spec, 9), "9 列起可构建");
 });
 
 test("行高不一致：矮格垂直居中补白（valign center）", () => {
@@ -397,11 +397,7 @@ test("buildContentRows: 表格成块渲染，各行 kind 均为 assistant（回�
     a("| a | 1 |"),
     a("结束。"),
   ];
-  const { dialogue } = buildContentRows(
-    buffer,
-    { themeId: THEME, gutter: 4 },
-    40,
-  );
+  const { dialogue } = buildContentRows(buffer, { gutter: 4 }, 40);
   const texts = dialogue.map(rowText);
   assert.ok(
     texts.some((t) => t.includes("名称")),
@@ -438,11 +434,7 @@ test("集成：表格行保留回复左缘竖线，横线与其之间隔 1 空�
     a("| a | 较长的一段中文说明 |"),
     a("结尾。"),
   ];
-  const { dialogue } = buildContentRows(
-    buffer,
-    { themeId: THEME, gutter: 4 },
-    26,
-  );
+  const { dialogue } = buildContentRows(buffer, { gutter: 4 }, 26);
   // 表格各行（含横线行）以 `┃ ` 起：回复左缘竖线保留，其后 1 空格间隔
   const tableRows = dialogue.filter((r) =>
     r.segments.some((s) => s.text.includes("│") || s.text.includes("═")),
@@ -475,11 +467,7 @@ test("集成：表格行保留回复左缘竖线，横线与其之间隔 1 空�
 
 test("buildContentRows: 管道符不再原样渲染；非 final 表格进活动区", () => {
   const finalBuf: Buffer = [a("| a | b |"), a("| --- | --- |"), a("| 1 | 2 |")];
-  const { dialogue, activity } = buildContentRows(
-    finalBuf,
-    { themeId: THEME, gutter: 4 },
-    40,
-  );
+  const { dialogue, activity } = buildContentRows(finalBuf, { gutter: 4 }, 40);
   assert.equal(activity.length, 0);
   assert.ok(!dialogue.some((r) => rowText(r).includes("|")), "无残留 `|`");
   const streamBuf: Buffer = [
@@ -487,11 +475,7 @@ test("buildContentRows: 管道符不再原样渲染；非 final 表格进活动�
     a("| --- | --- |", false),
     a("| 1 | 2 |", false),
   ];
-  const streamed = buildContentRows(
-    streamBuf,
-    { themeId: THEME, gutter: 4 },
-    40,
-  );
+  const streamed = buildContentRows(streamBuf, { gutter: 4 }, 40);
   assert.equal(streamed.dialogue.length, 0);
   assert.ok(streamed.activity.length === 3, "流式表格在活动区成块");
 });
@@ -503,11 +487,7 @@ test("fence 内不识别表格（代码块原样保留管道符）", () => {
     a("| --- | ---: |"),
     a("```"),
   ];
-  const { dialogue } = buildContentRows(
-    buffer,
-    { themeId: THEME, gutter: 4 },
-    40,
-  );
+  const { dialogue } = buildContentRows(buffer, { gutter: 4 }, 40);
   const texts = dialogue.map(rowText);
   assert.ok(
     texts.some((t) => t.includes("| 名称 | 数量 |")),
@@ -518,8 +498,8 @@ test("fence 内不识别表格（代码块原样保留管道符）", () => {
 
 test("可用宽未知（buildBox 直调，无 width）→ 表格按普通文本行渲染", () => {
   const buffer: Buffer = [a("| a | b |"), a("| --- | --- |")];
-  const built = buildBox(buffer, { themeId: THEME });
-  const out = fillBoxTree(built.panes.dialogue, 50, 40, THEME).map(rowText);
+  const built = buildBox(buffer, {});
+  const out = fillBoxTree(built.panes.dialogue, 50, 40).map(rowText);
   assert.equal(out.length, 2, "每行一个文本节点（未合成表格）");
   assert.ok(out[0]!.includes("| a | b |"));
 });
@@ -531,11 +511,7 @@ test("窄宽回退：可用宽过窄时退回普通文本（不抛错、不溢�
     a("| a | 1 |"),
   ];
   // 宽 10 → 预算 = 10 - 1(缩进) - 3(final gutter) = 6 < 两列最小占宽 9 → 放弃表格
-  const { dialogue } = buildContentRows(
-    buffer,
-    { themeId: THEME, gutter: 4 },
-    10,
-  );
+  const { dialogue } = buildContentRows(buffer, { gutter: 4 }, 10);
   const texts = dialogue.map(rowText);
   assert.ok(
     texts.some((t) => t.includes("|")),

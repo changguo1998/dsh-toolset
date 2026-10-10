@@ -26,7 +26,7 @@ const buf: Buffer = [
 const W = 40;
 
 test("活动区完整模式（缺省）：长条目折行成多行", () => {
-  const panes = buildContentRows(buf, { themeId: "dark" }, W, W);
+  const panes = buildContentRows(buf, {}, W, W);
   assert.ok(
     panes.activity.length > buf.length,
     `折行后行数应多于条目数（实际 ${panes.activity.length}）`,
@@ -37,12 +37,7 @@ test("活动区完整模式（缺省）：长条目折行成多行", () => {
 });
 
 test("活动区紧凑模式：每条目 1 行 + 行尾省略号", () => {
-  const panes = buildContentRows(
-    buf,
-    { themeId: "dark", activityCompact: true },
-    W,
-    W,
-  );
+  const panes = buildContentRows(buf, { activityCompact: true }, W, W);
   const rows = panes.activity.map(rowText);
   const texts = rows.filter((t) => t.trim() !== "");
   assert.equal(texts.length, buf.length, "每条目压成 1 行（类型间隔空行另计）");
@@ -68,13 +63,8 @@ test("活动区紧凑模式：条目内换行折叠为空格（多行参数压 1
   const multi: Buffer = [
     { text: "○ bash 参数甲\n参数乙\n参数丙", kind: "tool" },
   ];
-  const full = buildContentRows(multi, { themeId: "dark" }, W, W);
-  const compact = buildContentRows(
-    multi,
-    { themeId: "dark", activityCompact: true },
-    W,
-    W,
-  );
+  const full = buildContentRows(multi, {}, W, W);
+  const compact = buildContentRows(multi, { activityCompact: true }, W, W);
   assert.ok(full.activity.length > 1, "完整模式保留换行（多行）");
   assert.equal(compact.activity.length, 1, "紧凑模式折叠为 1 行");
   assert.equal(rowText(compact.activity[0]!), "○ bash 参数甲 参数乙 参数丙");
@@ -82,12 +72,7 @@ test("活动区紧凑模式：条目内换行折叠为空格（多行参数压 1
 
 test("活动区紧凑模式：短条目不加省略号（原样）", () => {
   const short: Buffer = [{ text: "短", kind: "thinking" }];
-  const panes = buildContentRows(
-    short,
-    { themeId: "dark", activityCompact: true },
-    W,
-    W,
-  );
+  const panes = buildContentRows(short, { activityCompact: true }, W, W);
   assert.equal(rowText(panes.activity[0]!), "┃短");
 });
 
@@ -128,12 +113,7 @@ test("紧凑模式豁免 noCompact 行（/help）：保持完整折行 + 悬垂�
       noCompact: true,
     },
   ];
-  const compact = buildContentRows(
-    buf,
-    { themeId: "dark", activityCompact: true },
-    W,
-    W,
-  );
+  const compact = buildContentRows(buf, { activityCompact: true }, W, W);
   const texts = compact.activity.map(rowText);
   // noCompact notice 完整可见（跨行保留），且整块不带省略号（对照的 thinking 条目被压行）
   const helpTexts = texts.slice(1);
@@ -154,12 +134,7 @@ test("紧凑模式豁免 noCompact 行（/help）：保持完整折行 + 悬垂�
       kind: "notice",
     },
   ];
-  const cp = buildContentRows(
-    plain,
-    { themeId: "dark", activityCompact: true },
-    W,
-    W,
-  );
+  const cp = buildContentRows(plain, { activityCompact: true }, W, W);
   assert.equal(cp.activity.length, 1, "普通 notice 紧凑下压成 1 行");
   assert.ok(rowText(cp.activity[0]!).endsWith("…"), "普通 notice 行尾省略号");
 });

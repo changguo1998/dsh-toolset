@@ -281,15 +281,7 @@ export function buildModelPickerBox(view: ModelPickerView): Box {
   return v(leaves);
 }
 
-export function renderModelPicker(
-  view: ModelPickerView,
-  themeId: ThemeId,
-): FrameRow[] {
+export function renderModelPicker(view: ModelPickerView): FrameRow[] {
   // 薄包装：单一数据源 buildModelPickerBox → fillBoxTree
-  return fillBoxTree(
-    buildModelPickerBox(view),
-    view.height,
-    view.width,
-    themeId,
-  );
+  return fillBoxTree(buildModelPickerBox(view), view.height, view.width);
 }

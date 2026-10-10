@@ -183,7 +183,7 @@ const rowText = (rows: readonly { segments: { text: string }[] }[]): string[] =>
 
 for (const width of [40, 80, 120]) {
   test(`等价性（宽 ${width}）：会话区与回合区逐行一致`, () => {
-    const oldRows = buildContentRows(oldBuffer(), { themeId: THEME }, width);
+    const oldRows = buildContentRows(oldBuffer(), {}, width);
     const sections = allSections(applyAll(createSections(), script));
     // 回合分隔线判据与生产一致：turn-start 交付过的回合才画线（时间的真源）
     const turnTimes = new Map<string, number>();
@@ -195,11 +195,9 @@ for (const width of [40, 80, 120]) {
     const panes = buildPanes(sections, { level: "think", turnTimes });
     const next = {
       dialogue: renderPane(panes.dialogue, "dialogue", {
-        themeId: THEME,
         width,
       }),
       activity: renderPane(panes.activity, "activity", {
-        themeId: THEME,
         width,
       }),
     };
@@ -247,11 +245,9 @@ test("多行文本按物理行展开，且不拆成多个块", () => {
     level: "think",
   });
   const activity = renderPane(panes.activity, "activity", {
-    themeId: THEME,
     width: 40,
   });
   const dialogue = renderPane(panes.dialogue, "dialogue", {
-    themeId: THEME,
     width: 40,
     userStatus: () => ({ text: "○" }),
   });
@@ -287,20 +283,20 @@ test("c4 计数断言：宽度不变时同段不重复排版；宽度变化才�
   const panes = buildPanes(sections, { level: "think" });
   // 首次：全部未命中（节 / box / 拆行 / 行 都按身份缓存）
   resetRowRenderStats();
-  renderPane(panes.dialogue, "dialogue", { themeId: THEME, width: 80 });
-  renderPane(panes.activity, "activity", { themeId: THEME, width: 80 });
+  renderPane(panes.dialogue, "dialogue", { width: 80 });
+  renderPane(panes.activity, "activity", { width: 80 });
   const first = rowRenderMisses();
   assert.ok(first > 0, "首次渲染必有未命中");
 
   // 同一 pane 缓存重复出帧（宽度不变）→ 零重排
   resetRowRenderStats();
-  renderPane(panes.dialogue, "dialogue", { themeId: THEME, width: 80 });
-  renderPane(panes.activity, "activity", { themeId: THEME, width: 80 });
+  renderPane(panes.dialogue, "dialogue", { width: 80 });
+  renderPane(panes.activity, "activity", { width: 80 });
   assert.equal(rowRenderMisses(), 0, "宽度不变 → 命中行缓存，不重排");
 
   // 宽度变化 → 重新排版（行号 / 折行全变）
   resetRowRenderStats();
-  renderPane(panes.dialogue, "dialogue", { themeId: THEME, width: 100 });
+  renderPane(panes.dialogue, "dialogue", { width: 100 });
   assert.ok(rowRenderMisses() > 0, "宽度变化 → 全量重排");
 });
 
@@ -312,7 +308,6 @@ test("c4 计数断言：档位切换只重排回合区（会话区不受档位�
     level: "think" | "step",
   ) =>
     renderPane(panes.activity, "activity", {
-      themeId: THEME,
       width: 80,
       activityLevel: level,
     });
@@ -327,17 +322,12 @@ test("c4 计数断言：档位切换只重排回合区（会话区不受档位�
 
 test("等价性扩展：档位 tool / step 下新旧逐行一致", () => {
   for (const level of ["tool", "step"] as const) {
-    const oldRows = buildContentRows(
-      oldBuffer(),
-      { themeId: THEME, activityLevel: level },
-      80,
-    );
+    const oldRows = buildContentRows(oldBuffer(), { activityLevel: level }, 80);
     const sections = allSections(applyAll(createSections(), script));
     // 档位过滤在 pane 层（新）与旧渲染器（旧）各做一次：新路径先过滤再渲染，
     // 旧路径把同一份 buffer 交给旧渲染器按档位过滤——两侧结果必须一致。
     const panes = buildPanes(sections, { level });
     const next = renderPane(panes.activity, "activity", {
-      themeId: THEME,
       width: 80,
       activityLevel: level,
     });

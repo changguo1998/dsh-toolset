@@ -21,8 +21,8 @@ function dialogueRows(
   s: ReturnType<typeof initialState>,
   width = 40,
 ): string[] {
-  const built = buildBox(s.buffer, { themeId: THEME });
-  return fillBoxTree(built.panes.dialogue, 10, width, THEME).map((r) =>
+  const built = buildBox(s.buffer, {});
+  return fillBoxTree(built.panes.dialogue, 10, width).map((r) =>
     r.segments.map((g) => g.text).join(""),
   );
 }

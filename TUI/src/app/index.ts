@@ -2578,12 +2578,7 @@ export class App {
     const panel = this.state.question;
     if (!panel) return 0;
     const geom = frameGeometry(this.state, this.deps.renderer.getSize());
-    return maxDescScrollFor(
-      panel,
-      geom.activityH,
-      geom.activityTextW,
-      this.state.themeId,
-    );
+    return maxDescScrollFor(panel, geom.activityH, geom.activityTextW);
   }
 
   /** 审批描述窗滚动上界（长草稿可滚动，BACKLOG 3.2.1） */
@@ -2591,12 +2586,7 @@ export class App {
     const approval = this.state.approval;
     if (!approval) return 0;
     const geom = frameGeometry(this.state, this.deps.renderer.getSize());
-    return maxApprovalScroll(
-      approval,
-      geom.activityH,
-      geom.activityTextW,
-      this.state.themeId,
-    );
+    return maxApprovalScroll(approval, geom.activityH, geom.activityTextW);
   }
 
   /** 审批超时（ms）：优先取 adapter 实际生效值（保证倒计时与裁定同源，BACKLOG 3.3.2） */

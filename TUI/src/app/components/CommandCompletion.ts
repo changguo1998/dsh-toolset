@@ -26,7 +26,6 @@ export interface CommandCompletionView {
   completion: { items: readonly CommandCandidate[]; index: number };
   height: number;
   width: number;
-  themeId: ThemeId;
 }
 
 /**
@@ -64,10 +63,5 @@ export function renderCommandCompletion(
   view: CommandCompletionView,
 ): FrameRow[] {
   // 薄包装：单一数据源 buildCommandCompletionBox → fillBoxTree
-  return fillBoxTree(
-    buildCommandCompletionBox(view),
-    view.height,
-    view.width,
-    view.themeId,
-  );
+  return fillBoxTree(buildCommandCompletionBox(view), view.height, view.width);
 }

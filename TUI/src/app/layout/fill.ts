@@ -11,7 +11,7 @@ import type {
   FrameSegment,
   FrameStyle,
 } from "../../renderer/screen.ts";
-import type { ColorName, ThemeId } from "../../renderer/theme.ts";
+import type { ColorName } from "../../renderer/theme.ts";
 import {
   wrapAssistantLine,
   wrapCodeLine,
@@ -21,9 +21,8 @@ import {
 import { seg, rowWidth2 } from "./primitives.ts";
 import { measure, allocate } from "./measure.ts";
 
-/** fill 上下文：主题（行内 markdown 着色调色板）+ 视口宽（装饰降级判定） */
+/** fill 上下文：视口宽（装饰降级判定） */
 export interface FillContext {
-  themeId: ThemeId;
   /** 当前视口（内容区）列宽；prefix/suffix 的 minWidth 判定基准 */
   viewportWidth?: number;
 }
@@ -49,13 +48,12 @@ export function fillBoxTree(
   box: Box,
   height: number,
   width: number,
-  themeId: ThemeId,
 ): ContentRow[] {
   const w = Math.max(1, width);
   const rect = { x: 0, y: 0, w, h: Math.max(1, height) };
   const st = measure(box, { maxW: w });
   const rects = allocate(st, rect);
-  return fillToList({ themeId, viewportWidth: w }, box, rect, rects);
+  return fillToList({ viewportWidth: w }, box, rect, rects);
 }
 
 /** 节点 → 行元数据（buildBox 产出；fill 传播到每行） */
@@ -392,7 +390,7 @@ function fillParagraph(
   } else if (p.fillBg) {
     rows = wrapCodeLine(p.text, bodyW);
   } else {
-    rows = wrapAssistantLine(p.text, bodyW, ctx.themeId);
+    rows = wrapAssistantLine(p.text, bodyW);
   }
   const content = decorateRows(
     p,

@@ -1631,7 +1631,6 @@ test("用户块：长输入折行后状态符号占左侧留白、正文各行�
   const { dialogue } = buildContentRows(
     s.buffer,
     {
-      themeId: "dark",
       userStatus: (l) =>
         l.kind === "user" && !l.queued
           ? { text: "✓", fg: "green" as const }
@@ -1752,7 +1751,7 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
 test("markdown 列表长项折行：悬挂缩进对齐正文、续行不顶满", () => {
   // 单元：wrapAssistantLine——首行前缀 + 续行同宽空格缩进（正文对齐、不重复前缀）
   const unit = (input: string, width: number, prefixWidth: number): void => {
-    const rows = wrapAssistantLine(input, width, "dark");
+    const rows = wrapAssistantLine(input, width);
     assert.ok(rows.length >= 2, "长列表项应折出多行");
     const first = rows[0]!.map((s) => s.text).join("");
     assert.ok(

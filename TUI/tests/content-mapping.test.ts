@@ -58,11 +58,7 @@ function baselineRows(
 
 /** 新管线：统一入口 buildContentRows（buildBox → measure/allocate → fill） */
 function newRows(buffer: Buffer, width: number, gutter = 4) {
-  const { dialogue, activity } = buildContentRows(
-    buffer,
-    { themeId, gutter },
-    width,
-  );
+  const { dialogue, activity } = buildContentRows(buffer, { gutter }, width);
   const normRow = (r: ContentRow): FixtureRow => {
     const own = displayWidth(rowTextOf(r));
     const tail = width - own;
@@ -291,8 +287,8 @@ test("buildBox 确定性：重复调用元数据/结构一致（blockId 局部�
     { text: "q", kind: "user" },
     { text: "a", kind: "assistant", final: true },
   ];
-  const a = buildBox(buf, { themeId });
-  const b = buildBox(buf, { themeId });
+  const a = buildBox(buf, {});
+  const b = buildBox(buf, {});
   // 结构等价 + 元数据等价（不含全局副作用）
   const snapA = a.panes.dialogue.children.map((c) => JSON.stringify(c));
   const snapB = b.panes.dialogue.children.map((c) => JSON.stringify(c));

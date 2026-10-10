@@ -184,8 +184,8 @@ test("横向排列：两 pane 各自宽度换行（buildContentRows 独立宽度
     },
     { kind: "assistant", text: "最终回复内容".repeat(12), final: true },
   ];
-  const narrow = buildContentRows(buffer, { themeId: "dark" }, 20, 20);
-  const wide = buildContentRows(buffer, { themeId: "dark" }, 60, 60);
+  const narrow = buildContentRows(buffer, {}, 20, 20);
+  const wide = buildContentRows(buffer, {}, 60, 60);
   const actWidth = (rows: { segments: { text: string }[] }[]): number =>
     Math.max(
       ...rows.map((r) => displayWidth(r.segments.map((s) => s.text).join(""))),

@@ -117,6 +117,5 @@ export function renderJobsPanel(view: JobsPanelView): FrameRow[] {
     buildJobsPanelBox(view.jobs, view.index, view.height, view.width),
     view.height,
     view.width,
-    "dark" as never,
   );
 }

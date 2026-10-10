@@ -141,7 +141,7 @@ test("渲染层折行：help notice 续行停靠描述列（不穿回第一列�
     })),
   ];
   // 窄活动 pane（40 列）强制 /jobs 描述折行
-  const { activity } = buildContentRows(buffer, { themeId: "dark" }, 40, 40);
+  const { activity } = buildContentRows(buffer, {}, 40, 40);
   const texts = activity.map((r) => r.segments.map((s) => s.text).join(""));
   const descIndent = lines[0]!.hanging;
   const idx = texts.findIndex((t) =>
@@ -180,7 +180,7 @@ test("渲染层：超宽命令描述另起一行，行首缩进 = 描述列起�
       hanging: l.hanging,
     })),
   ];
-  const { activity } = buildContentRows(buffer, { themeId: "dark" }, 90, 90);
+  const { activity } = buildContentRows(buffer, {}, 90, 90);
   const texts = activity.map((r) => r.segments.map((s) => s.text).join(""));
   const descIndent = lines[0]!.hanging;
   const cmdIdx = texts.findIndex((t) =>

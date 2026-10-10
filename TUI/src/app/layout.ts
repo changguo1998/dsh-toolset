@@ -582,11 +582,8 @@ function queuedBlockRows(state: AppState, width: number): ContentRow[] {
     kind: "user",
     queued: item.kind,
   }));
-  return buildContentRows(
-    lines,
-    { themeId: state.themeId, gutter: state.messageGutter },
-    width,
-  ).dialogue;
+  return buildContentRows(lines, { gutter: state.messageGutter }, width)
+    .dialogue;
 }
 
 /** 单帧几何（纯函数）：终端尺寸 + state 的布局/模态/排队信息 → FrameGeometry */
@@ -609,7 +606,6 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     state.usage,
     state.inputStatus,
     state.runVirt.tokens,
-    state.themeId,
   );
   // 交互区总高恒定（见 metricsFor）：提示区恒 1 行（空文案也占位），面板开关不让顶部上下跳
   const metrics = metricsFor(size, statusLines.length, 1, state);
@@ -1316,15 +1312,9 @@ function buildActivePanelBox(
         deadline: state.approvalDeadline,
         window: state.approvalWindow,
       },
-      state.themeId, // 描述窗 markdown 解析（BACKLOG TUI#6）
     );
   if (state.question)
-    return buildQuestionPanelBox(
-      state.question,
-      activityH,
-      contentW,
-      state.themeId, // 描述窗 markdown 解析（BACKLOG TUI#6）
-    );
+    return buildQuestionPanelBox(state.question, activityH, contentW);
   if (state.picker)
     return buildModelPickerBox({
       picker: state.picker,
@@ -1356,7 +1346,6 @@ function buildActivePanelBox(
       completion: state.completion,
       height: activityH,
       width: contentW,
-      themeId: state.themeId,
     });
   return null;
 }
@@ -1366,13 +1355,12 @@ function fillPanelBox(
   box: import("./layout/box.ts").Box,
   height: number,
   width: number,
-  themeId: ThemeId,
 ): ContentRow[] {
   const w = Math.max(1, width);
   const rect = { x: 0, y: 0, w, h: Math.max(1, height) };
   const st = measure(box, { maxW: w });
   const rects = allocate(st, rect);
-  return fillToList({ themeId, viewportWidth: w }, box, rect, rects);
+  return fillToList({ viewportWidth: w }, box, rect, rects);
 }
 
 /**
@@ -1443,7 +1431,6 @@ function buildTopRegion(
     activityTextW: activityWidth,
     windowGroups: state.windowGroups,
     render: {
-      themeId: state.themeId,
       gutter: state.messageGutter,
       // 活动区详略两态（SPEC §6.8）：activityCompact=true → 紧凑（每条目 1 行 + 省略号，/collapse on）
       activityCompact: state.activityCompact,
@@ -1572,18 +1559,13 @@ function buildTopRegion(
   // 活动区面板 Box 生成器统一入口（buildActivePanelBox 多分支选型）
   const activeBox = buildActivePanelBox(state, activityH, activityTextW);
   const modalPanel: ContentRow[] = activeBox
-    ? fillPanelBox(activeBox, activityH, activityTextW, state.themeId)
+    ? fillPanelBox(activeBox, activityH, activityTextW)
     : [];
   // 面板内编辑光标（BACKLOG 3.2.7）：仅问答面板的「自定义回答」编辑态产出；行号为
   // 面板内 0 基行（与活动区行号同口径），拼帧时按活动区列偏移写入对应帧行
   const panelCaret =
     state.question !== null && modalPanel.length > 0
-      ? questionCaretFor(
-          state.question,
-          activityH,
-          activityTextW,
-          state.themeId,
-        )
+      ? questionCaretFor(state.question, activityH, activityTextW)
       : null;
   const divFor = (rc: number): FrameSegment[] => {
     // 焦点中性基线：活动区分隔行 D 列=连接 `├`（竖线贯穿+横线右接入，
@@ -1917,8 +1899,6 @@ export function renderStatusLine(
   inputStatus?: InputStatus,
   /** 运行中 ●/○ 交替相位（本回合虚拟总 token；running 且缺省时回落 ○） */
   runVirtTokens?: number,
-  /** 主题（横向 Box fill 折行/着色用；缺省 dark 兼容直接调用方） */
-  themeId: ThemeId = "dark",
 ): FrameRow[] {
   const u = usage ? usageStatus(usage) : undefined;
   const ctxSeg = u?.ctx ?? status.contextLen;
@@ -2031,7 +2011,7 @@ export function renderStatusLine(
         ? { separator: { char: "•", color: "plain" as const } }
         : {},
     );
-    const out = fillBoxTree(box, 1, cols, themeId);
+    const out = fillBoxTree(box, 1, cols);
     return out[0] ?? { segments: [] };
   });
 }

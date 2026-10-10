@@ -105,7 +105,7 @@ test("新增管线与 wrapToolCallText 逐行一致：显式换行 + 第二物�
     "bash command=longarg-" + "x".repeat(80) + "\nline2-" + "y".repeat(80);
   const built = buildContentRows(
     [{ text, kind: "tool" }],
-    { themeId: "dark" as const, gutter: 4 },
+    { gutter: 4 },
     width,
   );
   const newText = built.activity.map((r) =>

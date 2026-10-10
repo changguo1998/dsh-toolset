@@ -16,7 +16,6 @@
 import type { Box, Node, StyledText } from "./box.ts";
 import { v, h, styled, spacer } from "./box.ts";
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
-import type { ThemeId } from "../../renderer/theme.ts";
 import { displayWidth, parseInlineMarkdown } from "./markdown.ts";
 import { seg } from "./primitives.ts";
 import { measure } from "./measure.ts";
@@ -267,8 +266,8 @@ function fitCols(natural: number[], avail: number): number[] | null {
 // ---------------- 构建 ----------------
 
 /** 单元格解析后的纯文本（自然宽测量口径：与 fill 渲染文本一致，不计标记） */
-function cellPlainText(cell: string, themeId: ThemeId): string {
-  return parseInlineMarkdown(cell, themeId)
+function cellPlainText(cell: string): string {
+  return parseInlineMarkdown(cell)
     .map((s) => s.text)
     .join("");
 }
@@ -278,10 +277,9 @@ function cellLeaf(
   cell: string,
   colW: number,
   align: TableAlign,
-  themeId: ThemeId,
   header: boolean,
 ): StyledText {
-  let segs: FrameSegment[] = parseInlineMarkdown(cell, themeId);
+  let segs: FrameSegment[] = parseInlineMarkdown(cell);
   if (header)
     segs = segs.map((s) => ({
       text: s.text,
@@ -337,11 +335,10 @@ function rowBox(
   cells: string[],
   cols: number[],
   aligns: TableAlign[],
-  themeId: ThemeId,
   header: boolean,
 ): Box {
   const leaves = cells.map((c, j) =>
-    cellLeaf(c, cols[j]!, aligns[j] ?? "left", themeId, header),
+    cellLeaf(c, cols[j]!, aligns[j] ?? "left", header),
   );
   // 行高 = 各格在本格列宽下的自身行数最大值（用引擎同口径 measure 算得）
   let rowH = 1;
@@ -377,11 +374,7 @@ function ruleRow(cols: number[], ch: string, colCross: string): Box {
  * 回复竖线连接。可用宽 width 含左缘竖线 + 间隔 + 列间分隔 + 每列左右留白；
  * 过窄返回 null，由调用方退回普通文本行渲染（窄终端降级）。
  */
-export function tableBox(
-  table: TableSpec,
-  width: number,
-  themeId: ThemeId,
-): Box | null {
+export function tableBox(table: TableSpec, width: number): Box | null {
   const ncols = table.header.length;
   if (ncols === 0) return null;
   // 固定开销：左缘竖线 + 间隔 + 每列左右留白 + 列间分隔
@@ -389,20 +382,20 @@ export function tableBox(
   if (width < overhead + ncols) return null;
   // 各列自然宽 = 该列所有格（渲染文本）最大显示宽
   const natural = table.header.map((head, j) => {
-    let w = displayWidth(cellPlainText(head, themeId));
+    let w = displayWidth(cellPlainText(head));
     for (const row of table.rows)
-      w = Math.max(w, displayWidth(cellPlainText(row[j] ?? "", themeId)));
+      w = Math.max(w, displayWidth(cellPlainText(row[j] ?? "")));
     return w;
   });
   const cols = fitCols(natural, width - overhead);
   if (cols === null) return null; // #6：容不下最小列宽 → 退回普通文本行（不截断内容）
   const body: Node[] = [
-    rowBox(table.header, cols, table.aligns, themeId, true),
+    rowBox(table.header, cols, table.aligns, true),
     ruleRow(cols, HEAD_RULE, HEAD_CROSS),
   ];
   for (let i = 0; i < table.rows.length; i++) {
     if (i > 0) body.push(ruleRow(cols, ROW_RULE, ROW_CROSS));
-    body.push(rowBox(table.rows[i]!, cols, table.aligns, themeId, false));
+    body.push(rowBox(table.rows[i]!, cols, table.aligns, false));
   }
   return v(body);
 }
