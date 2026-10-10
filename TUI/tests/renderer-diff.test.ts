@@ -9,6 +9,8 @@ import assert from "node:assert/strict";
 import { createRenderer, type FrameRow } from "../src/renderer/index.ts";
 import { buildFrame, type FrameBuildOutput } from "../src/app/layout.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
+import { applyDelivery } from "../src/app/layout/pipeline/sections.ts";
+import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
 
 function row(text: string): FrameRow {
   return { segments: [{ text }] };
@@ -237,8 +239,26 @@ test("区间 diff：真实帧里状态列与活动区同 tick 变化只重写变
   const { chunks, renderer } = collector();
   let s = initialState();
   s = reduceState(s, { type: "turn-begin" });
-  for (let i = 0; i < 8; i++)
-    s = reduceState(s, { type: "append", text: `底稿第 ${i} 行内容占位` });
+  // 条目 16 段 A：底稿不再写 buffer，改走交付流（8 行 = 一条含换行的正文块）
+  s = {
+    ...s,
+    pipeline: sectionsFromScript([
+      { delivery: { kind: "turn-start", turn: 1, time: 1_700_000_000_000 } },
+      {
+        delivery: {
+          kind: "text",
+          turn: 1,
+          step: 1,
+          index: 0,
+          source: "assistant",
+          text: Array.from(
+            { length: 8 },
+            (_, i) => `底稿第 ${i} 行内容占位`,
+          ).join("\n"),
+        },
+      },
+    ]),
+  };
   const paint = (st: typeof s): void => {
     const out: FrameBuildOutput = {};
     const rows = buildFrame(st, size, undefined, out);
@@ -247,7 +267,19 @@ test("区间 diff：真实帧里状态列与活动区同 tick 变化只重写变
   paint(s);
   const mark = chunks.length;
   // 同一 tick：活动区末行增长 + 状态列 todo 更新
-  let next = reduceState(s, { type: "append", text: "字" });
+  // 同一 tick 的末行增长：同块追加（流式续写，`full: false`）
+  const base = s.pipeline ?? sectionsFromScript([]);
+  let next: typeof s = {
+    ...s,
+    pipeline: applyDelivery(base, {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: "字",
+    }),
+  };
   next = reduceState(next, {
     type: "todo-write",
     sessionId: "s1",
