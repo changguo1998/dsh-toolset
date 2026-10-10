@@ -40,7 +40,9 @@ export interface PipelineFrameOptions {
 export interface PipelineContent {
   dialogue: ContentRow[];
   activity: ContentRow[];
-  /** 被窗口丢掉的回合数（> 0 → 调用方插顶部占位行） */
+  /** 被窗口丢掉的**首个节的节下标**（> 0 → 有更早内容未物化，调用方插顶部占位行）：
+   *  只当布尔用；「丢了几组」请用 `sectionGroupCount` 与窗口组数之差（空节 / 无法成组的
+   *  节会计入本值但不计组） */
   dropped: number;
   /** 会话区每段行数 + 段键（第 ⑤ 步定位：位置 = 段键 + 段内行） */
   dialogueCounts: readonly number[];

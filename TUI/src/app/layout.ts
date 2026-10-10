@@ -1382,7 +1382,6 @@ function buildTopRegion(
   if (report) {
     report.dialogueMaxScroll = maxTop;
     report.dialogueTotal = dialogueRows.length;
-    report.dropped = built.dropped;
     report.dialogueCounts = segCounts;
     report.dialogueKeys = segKeys;
     report.dialogueTopIdx = topIdx;
@@ -2296,8 +2295,6 @@ export interface FrameScrollReport {
   activityMaxScroll: number;
   /** 对话区总行数（含占位行） */
   dialogueTotal: number;
-  /** 被窗口丢掉的回合组数（> 0 = 还有更早内容未物化；App 按视口容量补窗用） */
-  dropped: number;
   /** 对话区段表（每段行数）与段键——位置 = 段键 + 段内行，App 据此换算按键位移 */
   dialogueCounts: readonly number[];
   dialogueKeys: readonly string[];

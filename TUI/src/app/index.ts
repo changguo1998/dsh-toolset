@@ -404,7 +404,6 @@ export class App {
     dialogueMaxScroll: 0,
     activityMaxScroll: 0,
     dialogueTotal: 0,
-    dropped: 0,
     dialogueCounts: [],
     dialogueKeys: [],
     dialogueTopIdx: 0,
@@ -575,7 +574,8 @@ export class App {
       // 内容没占满会话区（`dialogueMaxScroll === 0`）且仍有未物化的更早组时，继续按步长
       // 物化；一旦装不下（滑动上限 > 0）或已全量物化即停。每轮至少 +WINDOW_GROW_STEP 且
       // 上限 = 总组数，单调收敛，不会自激
-      if (r.dropped > 0 && r.dialogueMaxScroll === 0 && next < groups) {
+      // `next < groups` 即「还有更早的组未物化」——与窗口层的 `dropped` 同源，不另设字段
+      if (r.dialogueMaxScroll === 0 && next < groups) {
         next = Math.min(groups, next + WINDOW_GROW_STEP);
       }
       if (st.windowGroups !== next) {

@@ -4248,9 +4248,11 @@ test("折叠改视口容量驱动：内容超视口 → 仍按默认窗口折叠
   );
   // 窗口仍丢着更早的组 → 布局层据此插「更早回复已折叠」占位行（行是否在视口内取决于滚动位置）
   flushApp();
-  const rep = (): { dropped: number } =>
-    (app as unknown as { paneScrollMax: { dropped: number } }).paneScrollMax;
-  assert.ok(rep().dropped > 0, "装不下 → 仍有被窗口丢掉的组");
+  const total = (app as unknown as { groupCount: number }).groupCount;
+  assert.ok(
+    st().windowGroups < total,
+    `装不下 → 仍有未物化的组（窗口 ${st().windowGroups} / 共 ${total}）`,
+  );
   app.dispose();
 });
 
@@ -4357,7 +4359,6 @@ test("对话区滚动粒度：裸 ↑ = 一行，Ctrl+↑ = 半屏（撞渐进�
       dialogueMaxScroll: 0,
       activityMaxScroll: 0,
       dialogueTotal: 0,
-      dropped: 0,
       dialogueCounts: [],
       dialogueKeys: [],
       dialogueTopIdx: 0,
