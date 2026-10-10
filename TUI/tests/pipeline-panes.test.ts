@@ -400,3 +400,35 @@ test("⑪ 到达顺序：同 step 内 notice 排在正文之前（不被回写�
     "assistant:中间正文",
   ]);
 });
+
+test("条目 26：历史节里的工具批进会话区（恢复的工具结果不再铺满回合区）", () => {
+  const toolItem: Item = {
+    source: "tool",
+    calls: [{ callId: "c1", name: "read", args: '{"path":"src/a.ts"}' }],
+    results: [{ callId: "c1", ok: true, detail: "已读取" }],
+  };
+  // 同一批工具条目：普通节 → 回合区；历史节（恢复重放产出）→ 会话区
+  const withSections = (sections: Section[]) => ({
+    ...applyAll(createSections(), []),
+    sections,
+    current: undefined,
+  });
+  const plain = buildPanes(allSections(withSections([section([toolItem])])), {
+    level: "think",
+  });
+  const history = buildPanes(
+    allSections(withSections([section([toolItem], { history: true })])),
+    { level: "think" },
+  );
+  const hasTool = (items: readonly PaneItem[]): boolean =>
+    items.some(
+      (it) =>
+        it.kind === "line" &&
+        it.box.kind === "content" &&
+        it.box.shape === "tool",
+    );
+  assert.equal(hasTool(plain.dialogue), false, "普通节的工具批仍在回合区");
+  assert.equal(hasTool(plain.activity), true);
+  assert.equal(hasTool(history.dialogue), true, "历史节的工具批进会话区");
+  assert.equal(hasTool(history.activity), false, "历史节的工具批不再进回合区");
+});
