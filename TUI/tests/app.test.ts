@@ -4711,3 +4711,22 @@ test("appendExternalLog：外部告警行进活动区；未挂载服务不抛错
     "外部行渲染进活动区",
   );
 });
+
+test("BACKLOG #24①：补窗一次到位——一次 flush 就补到「装得下」为止（不是一帧一步）", () => {
+  const { app, renderer, adapter } = makeApp();
+  renderer.size = { cols: 100, rows: 60 };
+  // 300 组 × 1 行：远超会话区高度 → 容量驱动会补到「装不下」为止
+  for (let i = 1; i <= 300; i++) {
+    adapter.push({ type: "stream", sessionId: "s1", text: `第 ${i} 组\n` });
+    adapter.push({ type: "turn-end" } as DshEvent);
+  }
+  flushApp();
+  const st = (): { windowGroups: number } =>
+    (app as unknown as { state: { windowGroups: number } }).state;
+  // 旧实现一帧一步（默认 3 组 + 每帧 3 组 → 一次 sync 只会到 6）；一次到位应远大于 6
+  assert.ok(
+    st().windowGroups > 10,
+    `一次 flush 应补到位（实际 windowGroups=${st().windowGroups}，一帧一步只会到 6）`,
+  );
+  app.dispose();
+});

@@ -98,6 +98,32 @@ interface Row {
 
 const rows: Row[] = [];
 
+// ---- groups：300+ 组 × 1 行组（rows=60 / 120）——BACKLOG #24③ 的量化档 ----
+// 窗口物化路径（容量驱动补窗）在「组多、每组短、视口高」时压力最大
+function synthGroups(groups: number): AppState {
+  let s = initialState();
+  for (let i = 0; i < groups; i++) {
+    s = reduceState(s, { type: "user-line", text: `第 ${i} 组` });
+    s = reduceState(s, { type: "turn-begin" });
+  }
+  return s;
+}
+for (const rowsN of [60, 120] as const) {
+  const state = synthGroups(320);
+  const size = { cols: 120, rows: rowsN };
+  setLayoutCacheEnabled(false);
+  const off = measure(() => {
+    clearLayoutCaches();
+    buildFrame(state, size);
+  }, ITERS);
+  setLayoutCacheEnabled(true);
+  const on = measure(() => {
+    clearLayoutCaches();
+    buildFrame(state, size);
+  }, ITERS);
+  rows.push({ mode: `groups(rows=${rowsN})`, off, on });
+}
+
 // ---- cold：每帧前清空缓存 ----
 {
   const state = synthState(BASE_LINES);
