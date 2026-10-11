@@ -64,15 +64,31 @@ export function withUser(
   });
 }
 
-/** 正文 / 思考行（`source: "reasoning"` = 思考） */
+/** 正文 / 思考行（`source: "reasoning"` = 思考）。
+ *  `index` 缺省按当前节里已有的同来源文本条目数递增——否则同 step 的连续文本都拿 `index: 0`，
+ *  会被流水线当成**同一块的续写**并进一行（旧缓冲语义是各占一行）。 */
 export function withText(
   state: AppState,
   text: string,
   source: "assistant" | "reasoning" = "assistant",
-  index = 0,
+  index?: number,
 ): AppState {
   const { turn, step } = scopeOf(state);
-  return withDelivery(state, { kind: "text", turn, step, index, source, text });
+  const pipeline = state.pipeline ?? createSections();
+  const inScope = [
+    ...pipeline.sections,
+    ...(pipeline.current === undefined ? [] : [pipeline.current]),
+  ]
+    .flatMap((s) => s.items)
+    .filter((i) => i.source === source);
+  return withDelivery(state, {
+    kind: "text",
+    turn,
+    step,
+    index: index ?? inScope.length,
+    source,
+    text,
+  });
 }
 
 /** step 头（`╌╌ hh:mm:ss ⇆N #M`） */

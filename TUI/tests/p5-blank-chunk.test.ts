@@ -1,71 +1,107 @@
-// tests/p5-blank-chunk.test.ts — P5：活动区流式思考被空行打断（宿主每步的空白文本块）
+// tests/p5-blank-chunk.test.ts — P5：宿主补发的空白文本块被丢弃
 //
 // 回归点：宿主每个 step 末尾会补发一个只有换行的文本块（实测 190 个文本分片里
-// 154 个就是 "\n\n"）。TUI 逐行落 buffer，会在思考/工具行之后留下成片空行。
-// 本轮只做降级版 A′：整段仅空白 **且** 上一行是异 kind（或 buffer 为空）时丢弃；
-// 同 kind 内部的空白分片维持现状（软换行与段落空行语义不变）。
+// 154 个就是 "\n\n"）。若不丢，会在思考/工具行之后留下成片空行。
+// 判据：整段仅空白 **且** 末项来源与本分片不同（或尚无内容）→ 丢；同来源内部的空白分片保留
+// （软换行与段落空行语义不变）。
+//
+// 条目 16 段 C2：内容不再有缓冲行形态，该规则随之从 state 侧（`appendStream`）搬进
+// **交付入口**（`App.ingestDelivery`），故本文件改为经 App 的 sink 投交付、断言节缓存。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { initialState, reduceState } from "../src/app/state.ts";
+import { App } from "../src/app/index.ts";
+import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
+import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 
-/** 当前 buffer 的 kind/text 快照（便于断言"没有多余空行"） */
-function snapshot(s: ReturnType<typeof initialState>): string[] {
-  return s.local.map((l) => `${l.kind}:${l.text}`);
+/** App + sink 直投（与生产同路径：main.ts 亦注册 pipelineSink） */
+function makeApp(): {
+  app: App;
+  deliver: (d: BlockDelivery) => void;
+  dump: () => string;
+} {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const sink: { current?: (delivery: BlockDelivery) => void } = {};
+  const app = new App({
+    renderer,
+    adapter,
+    notify: { enabled: false },
+    pipelineSink: sink,
+  });
+  app.start();
+  const dump = (): string =>
+    JSON.stringify((app as unknown as { sections: unknown }).sections ?? null);
+  return { app, deliver: (d) => sink.current?.(d), dump };
 }
 
-test("P5：思考分片之间的空白文本块被丢弃（异 kind → 不产生空行）", () => {
-  let s = initialState();
-  s = reduceState(s, { type: "user-line", text: "问题" });
-  s = reduceState(s, { type: "thinking", text: "I need to check the docs to" });
-  // 宿主补发的 "\n\n" 文本块（kind=assistant，与上一行 thinking 异 kind）
-  s = reduceState(s, { type: "append", text: "\n\n" });
-  s = reduceState(s, { type: "thinking", text: "fix the title link." });
-  assert.deepEqual(snapshot(s), [
-    "user:问题",
-    "thinking:I need to check the docs to",
-    "thinking:fix the title link.",
-  ]);
+const text = (
+  t: string,
+  source: "assistant" | "reasoning" = "assistant",
+): BlockDelivery => ({
+  kind: "text",
+  turn: 1,
+  step: 1,
+  index: 0,
+  source,
+  text: t,
 });
 
-test("P5：buffer 为空时的空白分片不产生行", () => {
-  let s = initialState();
-  s = reduceState(s, { type: "append", text: "\n\n" });
-  assert.deepEqual(snapshot(s), [], "空 buffer + 空白分片 → 仍为空");
+test("P5：尚无内容时的空白分片被丢弃", () => {
+  const { app, deliver, dump } = makeApp();
+  deliver(text("\n\n"));
+  assert.ok(
+    !dump().includes("\\n\\n"),
+    "空节 + 空白分片 → 不产生条目: " + dump().slice(0, 200),
+  );
+  app.dispose();
+});
+
+test("P5：异来源之间的空白分片被丢弃（思考 → 空白 → 思考）", () => {
+  const { app, deliver, dump } = makeApp();
+  deliver(text("先看文档", "reasoning"));
+  deliver(text("\n\n")); // 与末项异来源 → 丢
+  deliver(text("再改链接", "reasoning"));
+  const d = dump();
+  assert.ok(!d.includes("\\n\\n"), "空白分片不应进节: " + d.slice(0, 300));
+  assert.ok(d.includes("先看文档") && d.includes("再改链接"), "两段思考都在");
+  app.dispose();
 });
 
 test("P5：工具行之后的空白分片被丢弃", () => {
-  let s = initialState();
-  s = reduceState(s, {
-    type: "tool-call",
-    sessionId: "s1",
+  const { app, deliver, dump } = makeApp();
+  deliver({
+    kind: "tool-call",
+    turn: 1,
+    step: 1,
+    callId: "c1",
     name: "bash",
-    summary: "ls",
+    args: "ls",
   });
-  const before = snapshot(s);
-  s = reduceState(s, { type: "append", text: " \n\n " });
-  assert.deepEqual(snapshot(s), before, "异 kind 空白分片不落行");
+  const before = dump();
+  deliver(text(" \n\n "));
+  assert.equal(dump(), before, "异来源空白分片不落节");
+  app.dispose();
 });
 
-test("P5：同 kind 内部的空白分片维持现状（段落空行保留）", () => {
-  let s = initialState();
-  s = reduceState(s, { type: "append", text: "第一段" });
-  s = reduceState(s, { type: "append", text: "\n\n" });
-  s = reduceState(s, { type: "append", text: "第二段" });
-  assert.deepEqual(snapshot(s), [
-    "assistant:第一段",
-    "assistant:",
-    "assistant:第二段",
-  ]);
-});
-
-test("P5：非流式 kind（user）不受影响", () => {
-  let s = initialState();
-  s = reduceState(s, { type: "append", text: "x" });
-  s = reduceState(s, { type: "user-line", text: " " });
-  assert.deepEqual(
-    snapshot(s),
-    ["assistant:x", "user: "],
-    "user 空白行维持现状",
+test("P5：同来源内部的空白分片保留（段落空行语义不变）", () => {
+  const { app, deliver, dump } = makeApp();
+  deliver(text("第一段"));
+  deliver(text("\n\n"));
+  deliver(text("第二段"));
+  assert.ok(
+    dump().includes("\\n\\n"),
+    "同来源内部的空白分片应保留: " + dump().slice(0, 300),
   );
+  app.dispose();
+});
+
+test("P5：非 text 交付不受该规则影响（user 空白行维持现状）", () => {
+  const { app, deliver, dump } = makeApp();
+  deliver({ kind: "user", turn: 1, step: 1, text: " " });
+  assert.ok(
+    dump().includes(" "),
+    "user 空白行维持现状: " + dump().slice(0, 200),
+  );
+  app.dispose();
 });
