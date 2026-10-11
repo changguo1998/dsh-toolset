@@ -235,6 +235,21 @@
 
 **裁定（用户 2026-10-11）**：**取消「新回合清空活动区」语义**——内容持续可见；〈活动区生命周期〉用例已按此改写。
 
+## 段 C2 计划（原子删除，未开工）
+
+删除面（只读盘点，2026-10-11 第 122 轮统计）：
+
+| 符号 | 位置数 | 说明 |
+| --- | --- | --- |
+| `BufferKind`（内容类成员） | 6（定义 `state.ts:115`） | 收敛后只留 `notice` / `shell` / `tool` / `plain` |
+| `bufferRetainsContent` | 10 | 开关与闸门/回写一起删 |
+| `CONTENT_ACTIONS` | 2 | 内容类动作集合 |
+| `dropContentWrites` | 2 | 内容写入丢弃逻辑 |
+| `nextSeq` | 19 | 缓冲序号（内容专用） |
+| `trimBufferHead` / `MAX_BUFFER_LINES` | 7 / 4 | 裁剪点 6 处 + 上限 |
+
+顺序：一次改完（删字段会让全部写点 tsc 报错、删开关会让写点回灌内容，只能一起落）→ `npx tsc --noEmit` 的报错即完整入口清单 → 同步改 4 个测试文件（`buffer-trim` 整体删；`buffer-retire` 保留本地行语义；`state-history-blocks` 先核对覆盖；`pipeline-frame` 保留整帧骨架、`oldState` 改「空 local + 显式节」）→ 文档（`SPEC.md:522-523`、`DESIGN.md:175/698`）。验收断言：`local.every(l => ["notice","shell","tool","plain"].includes(l.kind))` + 反向断言（抽掉 pipeline 后帧内不再出现 assistant 段）。
+
 ## 收尾
 
 （待补）
