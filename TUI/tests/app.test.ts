@@ -411,7 +411,7 @@ test("/new：不重启进程新建会话 → 切换活跃会话、缓冲清空�
   app.dispose();
 });
 
-test("启动：kickoff 在 app.start() 内同步发出（不 flush 定时器；先于 rule-engine 注入的宏任务）", () => {
+test("启动：kickoff 在 app.start() 内同步发出（不 flush 定时器；先于 rule-engine 注入的宏任务）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
   const app = new TrackedApp({
@@ -427,7 +427,8 @@ test("启动：kickoff 在 app.start() 内同步发出（不 flush 定时器；�
   const st = (): { local: { text: string }[] } =>
     (app as unknown as { state: { local: { text: string }[] } }).state;
   // 条目 16 段 C1：内容不再写缓冲（`bufferRetainsContent: false`），改断言帧内可见
-  flushApp();
+  // （本条原先无 await：同步断言看不到出帧，故先 flush 一帧；「同步发出」由上面那条断言把守）
+  await flushApp();
   assert.ok(
     renderer.lastRender.join("\n").includes("[AUTO] 启动自检（测试用例）"),
     "kickoff 以用户行回显（帧内）: " +
