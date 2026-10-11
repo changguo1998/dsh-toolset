@@ -591,6 +591,10 @@ export function applyDelivery(
     case "tool-result":
       return applyToolResult(state, delivery);
     case "step-start": {
+      // step 0 = 占位、非真实步（宿主 `step/start` 缺 `step` 字段时适配器回退 0）：不登记
+      // stepMeta、不前移 scope，否则会渲染出 `#0` 假头（BACKLOG #21 的形态）。旧守卫长在
+      // state 侧的落行点（条目 16 段 C2 删除），故在交付层兜底——这里是所有路径的唯一入口。
+      if (delivery.step <= 0) return state;
       const key = stepKey(delivery.turn, delivery.step);
       const stepMeta = new Map(state.stepMeta);
       stepMeta.set(

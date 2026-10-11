@@ -272,3 +272,23 @@ test("B3 帧层：回合区渲染出 step 头与工具行（帧行含状态列�
   assert.ok(callAt >= 0 && resultAt >= 0, "工具调用与结果在帧内");
   assert.ok(headAt < callAt && callAt < resultAt, "帧内顺序：头 → 调用 → 结果");
 });
+
+test("#21 step 0（宿主 step/start 缺 step 字段时的回退值）不产 #0 假头", () => {
+  // 守卫在交付层（`sections.ts` 的 step-start 分支 step <= 0 直接返回）：宿主的 step/start
+  // 缺 step 字段时适配器回退 0，不得登记 stepMeta，否则渲染出 #0 假头
+  const s = apply([
+    (x) => withStep(x, 0, T0),
+    (x) => withToolCall(x, "bash", "ls", "c1"),
+  ]);
+  const rows = buildFrame(s, { rows: 24, cols: 100 }).map((row) =>
+    rowText(row),
+  );
+  assert.ok(
+    !rows.some((row) => row.includes("#0")),
+    `不应出现 #0 假头：${JSON.stringify(rows)}`,
+  );
+  assert.ok(
+    rows.some((row) => row.includes("bash ls")),
+    "工具行仍在（内容驱动，不因该守卫丢失）",
+  );
+});
