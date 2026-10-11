@@ -263,7 +263,11 @@ test("冲突候选走 resolveConflict（不调 approve）；llm-unavailable 保�
   const adapter2 = new FakeMemoryReviewAdapter();
   adapter2.rows = [row({ id: 1, targetTier: "project", summarized: false })];
   adapter2.approveResult = { ok: false, reason: "llm-unavailable" };
-  const app2 = new App({ renderer: renderer2, adapter: adapter2 });
+  const app2 = new App({
+    renderer: renderer2,
+    adapter: adapter2,
+    pipelineSink: {},
+  });
   app2.start();
   typeAndEnter(renderer2, "/memory review");
   await ticks(3);

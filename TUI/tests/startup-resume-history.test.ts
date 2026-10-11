@@ -14,7 +14,9 @@ import type { AppState } from "../src/app/state.ts";
 
 class TrackedApp extends App {
   constructor(deps: ConstructorParameters<typeof App>[0]) {
-    super({ ...deps, pipelineSink: deps.pipelineSink ?? {} });
+    const sink = deps.pipelineSink ?? {};
+    super({ ...deps, pipelineSink: sink });
+    (deps.adapter as unknown as { mirrorTo?: typeof sink }).mirrorTo = sink;
     registerApp(this);
   }
 }
@@ -49,7 +51,7 @@ function makeApp(
   };
 }
 
-test("启动即恢复：既有消息折叠入 buffer（用户/回复行可见），标题本地兜底", async () => {
+test("启动即恢复：既有消息折叠入历史（节缓存；用户/回复行可见），标题本地兜底", async () => {
   const { adapter, st, app } = makeApp(true, {
     s1: [
       { role: "user", text: "昨天的提问" },
@@ -65,17 +67,16 @@ test("启动即恢复：既有消息折叠入 buffer（用户/回复行可见）
     );
     const state = st();
     assert.equal(state.activeSessionId, "s1", "活跃会话确立为恢复的会话");
+    // 条目 16 段 C1：折叠行进节缓存（`state.pipeline`），缓冲只留 UI 本地行
+    const sections = JSON.stringify(state.pipeline ?? []);
     assert.ok(
-      state.local.some(
-        (l) => l.kind === "user" && l.text.includes("昨天的提问"),
-      ),
-      "用户消息行折叠入历史: " + JSON.stringify(state.local),
+      sections.includes('"source":"user"') && sections.includes("昨天的提问"),
+      "用户消息行折叠入历史（节缓存）: " + sections,
     );
     assert.ok(
-      state.local.some(
-        (l) => l.kind === "assistant" && l.text.includes("昨天的回答"),
-      ),
-      "助手消息行折叠入历史",
+      sections.includes('"source":"assistant"') &&
+        sections.includes("昨天的回答"),
+      "助手消息行折叠入历史（节缓存）: " + sections,
     );
     assert.ok(state.sessionTitle !== "", "标题有本地兜底（首条用户消息）");
     assert.equal(state.followBottom, true, "恢复后跟随底部");

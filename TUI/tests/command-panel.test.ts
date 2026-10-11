@@ -424,7 +424,8 @@ test("/skills：服务缺失 → warn 且不开面板", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSkillsAdapter();
   adapter.refreshSkills = undefined;
-  const app = new App({ renderer, adapter });
+  // 条目 16 段 C1：warn 走 notice（双写：缓冲 + 流水线通知节），须注入 sink 才可见
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/skills");
   await tick();
@@ -460,7 +461,8 @@ test("/skills：空列表 → 占位行；Esc 后可重新打开", async () => {
 test("/skills：Enter 读取详情（skillDetail）→ 关面板 + notice 展示", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSkillsAdapter();
-  const app = new App({ renderer, adapter });
+  // 条目 16 段 C1：详情提示走 notice（双写：缓冲 + 流水线通知节），须注入 sink 才可见
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/skills");
   await tick();

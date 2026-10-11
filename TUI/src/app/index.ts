@@ -1003,6 +1003,13 @@ export class App {
       text,
       ...(tone ? { tone } : {}),
     });
+    // 双写：流水线节缓存（与 `notice()` 同口径）。缺了它，注册 sink 后内容不再写缓冲 →
+    // 退出清理提示永远不上屏（条目 16 段 C1 暴露；生产 main.ts 恒注入 sink，真机同样中招）
+    this.deliverLocal({
+      kind: "notice",
+      text,
+      ...(tone ? { tone } : {}),
+    });
     const size = this.deps.renderer.getSize();
     const out: FrameBuildOutput = {};
     const frame = buildFrame(this.state, size, this.paneScrollMax, out);

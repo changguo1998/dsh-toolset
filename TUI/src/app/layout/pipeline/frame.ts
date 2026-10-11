@@ -8,8 +8,9 @@
 //     `indexToAnchor`）继续可用；
 //   - 顶部「更早回复已折叠」占位行仍由调用方插入（`dropped > 0`）。
 //
-// 内容来源唯一：`state.pipeline`（App 注入）优先；未注入时 `sectionsOf` 按 `state.local`
-// 重放一份（测试 / 嵌入用法）。
+// 内容来源唯一：`state.pipeline`（App 注入）。未注入时 `sectionsOf` 返回**空节**——条目 16
+// 段 C1 已剥离「无 sink 回退」；需要按缓冲重放的调用方（测试 / 嵌入用法）显式用
+// `replay.ts` 的 `sectionsFromLocal()` 或 `tests/helpers/frameWithLocalReplay.ts` 的包装。
 
 import type { RenderOptions, RenderedPane } from "./rows.ts";
 import { renderPane } from "./rows.ts";

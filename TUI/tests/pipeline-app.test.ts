@@ -4,7 +4,9 @@
 // state.pipeline → buildTopRegion → 帧），逐步（流式增量 / 工具 / notice / 回合结束）比对
 // 「旧缓冲路径」与「六步流水线路径」的整帧输出，覆盖真实帧循环与会话状态。
 //
-// App 缺 `pipelineSink` 时不接管（旧路径）；本用例两侧各建一个 App，事件与块交付同步喂入。
+// App 缺 `pipelineSink` 时不接管（内容只留缓冲，出帧为空）——旧路径的帧由本用例按
+// **显式重放**口径给出（`legacyFrames`，等价剥离前行为）；两侧各建一个 App，事件与块交付
+// 同步喂入。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -30,6 +32,8 @@ import {
 } from "../src/app/state.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";
+import { buildFrame as buildFrameWithReplay } from "./helpers/frameWithLocalReplay.ts";
+import { rowAnsi } from "./helpers/rowText.ts";
 
 /** 一条测试步：老路径事件 + 新路径块交付（同一内容） */
 interface Step {
@@ -177,21 +181,29 @@ function makeApp(pipeline: boolean): {
 }
 
 /**
- * 取当前帧（先 paintNow 再冲刷 renderer 合帧，与生产帧循环口径一致）。
- * `⇆N` 回合号做归一：旧路径的分隔线回合号靠宿主 turn/start 回填（晚一帧），
- * 流水线在 turn-begin 交付时即带号——这是唯一已知的瞬时差异，归一后比对其余全部。
+ * 帧行归一：剥 SGR + 回合分隔线整行归一（`⇆N` 回合号做归一：旧路径的分隔线回合号靠宿主
+ * turn/start 回填（晚一帧），流水线在 turn-begin 交付时即带号——这是唯一已知的瞬时差异，
+ * 归一后比对其余全部）。
  */
+const normalizeFrameLine = (line: string): string =>
+  line.replace(/\x1b\[[0-9;]*m/g, "").replace(/╌╌ [0-9:]+ (⇆\d+ )?╌*$/, "SEP");
+
+/** 取当前帧（先 paintNow 再冲刷 renderer 合帧，与生产帧循环口径一致） */
 const frames = (app: App, renderer: FakeRenderer): string[] => {
   app.paintNow();
   flushApp();
-  return renderer.lastRender.map((line) =>
-    line
-      .replace(/\x1b\[[0-9;]*m/g, "")
-      // 回合分隔线整行归一：旧路径的回合号靠宿主 turn/start 回填（晚一帧），
-      // 流水线在 turn-begin 交付时即带号——唯一已知的瞬时差异，其余逐行比对
-      .replace(/╌╌ [0-9:]+ (⇆\d+ )?╌*$/, "SEP"),
-  );
+  return renderer.lastRender.map(normalizeFrameLine);
 };
+
+/**
+ * 旧路径（纯缓冲）帧行：条目 16 段 C1 后 App 不再按 `state.local` 回退重放（无 sink 时
+ * 直出空节缓存），故旧路径的渲染由测试侧**显式重放**口径给出（`frameWithLocalReplay`
+ * 包装与剥离前的 `App.paint` 旧路径逐字等价），比对口径不变。
+ */
+const legacyFrames = (app: App, renderer: FakeRenderer): string[] =>
+  buildFrameWithReplay(stateOf(app), renderer.getSize()).map((row) =>
+    normalizeFrameLine(rowAnsi(row)),
+  );
 
 test("逐步等价：App 装配下新旧路径每一步的整帧输出一致", () => {
   const old = makeApp(false);
@@ -203,7 +215,7 @@ test("逐步等价：App 装配下新旧路径每一步的整帧输出一致", (
     if (step.delivery !== undefined) next.sink.current?.(step.delivery);
     assert.deepEqual(
       frames(next.app, next.renderer),
-      frames(old.app, old.renderer),
+      legacyFrames(old.app, old.renderer),
       `第 ${index + 1} 步（${step.event.type}）`,
     );
   }
@@ -211,12 +223,15 @@ test("逐步等价：App 装配下新旧路径每一步的整帧输出一致", (
   next.app.dispose();
 });
 
-test("接管开关：无 sink 的 App 不注入节缓存（回落旧路径）", () => {
+test("接管开关：无 sink 的 App 不注入节缓存（旧路径内容仍可由缓冲显式重放）", () => {
   const old = makeApp(false);
   old.adapter.push({ type: "stream", sessionId: "s1", text: "只有旧路径" });
-  // 未接管：sink 容器保持为空（App 不注册），帧内容仍来自旧缓冲路径
+  // 未接管：sink 容器保持为空（App 不注册）；内容仍落在旧缓冲里（显式重放可见）
   assert.equal(old.sink.current, undefined, "未接管时不注册 sink");
-  assert.ok(frames(old.app, old.renderer).join("").includes("只有旧路径"));
+  assert.ok(
+    legacyFrames(old.app, old.renderer).join("").includes("只有旧路径"),
+    "旧路径内容在缓冲（显式重放）里可见",
+  );
   old.app.dispose();
 });
 
@@ -456,7 +471,7 @@ test("双写等价：用户提交 + 首个 step 后新旧路径整帧一致", ()
   next.sink.current?.({ kind: "step-start", turn: 1, step: 1, time: TIME });
   assert.deepEqual(
     frames(next.app, next.renderer),
-    frames(old.app, old.renderer),
+    legacyFrames(old.app, old.renderer),
     "用户提交后整帧一致（分隔线归一后）",
   );
   old.app.dispose();

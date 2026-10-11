@@ -275,7 +275,12 @@ test("/search：聚合 detail 含 provider 标注 + 全失败 warn 不空开", a
   adapter2.search = async (): Promise<void> => {
     throw new Error("所有搜索 provider 均失败");
   };
-  const app2 = new App({ renderer: renderer2, adapter: adapter2 });
+  // 条目 16 段 C1：全败 warn 走 notice（双写：缓冲 + 流水线通知节），须注入 sink 才可见
+  const app2 = new App({
+    renderer: renderer2,
+    adapter: adapter2,
+    pipelineSink: {},
+  });
   app2.start();
   typeAndEnter(renderer2, "/search foo");
   await tick();

@@ -11,7 +11,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildFrame } from "../src/app/layout.ts";
+// 条目 16 段 C1：`sectionsOf` 不再按 `state.local` 回退重放 → 旧路径口径（纯缓冲状态）
+// 的出帧改用显式补节缓存的包装版（等价剥离前行为）
+import { buildFrame } from "./helpers/frameWithLocalReplay.ts";
 import { pipelineContent } from "../src/app/layout/pipeline/frame.ts";
 import {
   resetRowRenderStats,

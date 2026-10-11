@@ -6,11 +6,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildFrame,
   displayWidth,
   wrapToolCallText,
   TOOL_CONT_INDENT,
 } from "../src/app/layout.ts";
+// 条目 16 段 C1：`reduceState` 造的行只在缓冲里，`sectionsOf` 已不再回退重放 →
+// 用显式补节缓存的包装版出帧（等价剥离前行为）
+import { buildFrame } from "./helpers/frameWithLocalReplay.ts";
 import { appendToolLine, initialState } from "../src/app/state.ts";
 import { buildContentRows } from "../src/app/layout/build-box.ts";
 import { rowText } from "./helpers/rowText.ts";

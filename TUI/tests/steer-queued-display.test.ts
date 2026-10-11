@@ -18,8 +18,8 @@ import { THEMES, ansiNameToHex, hexSgr } from "../src/renderer/theme.ts";
 class TrackedApp extends App {
   constructor(deps: ConstructorParameters<typeof App>[0]) {
     const sink = deps.pipelineSink ?? {};
-        super({ ...deps, pipelineSink: sink });
-        (deps.adapter as unknown as { mirrorTo?: typeof sink }).mirrorTo = sink;
+    super({ ...deps, pipelineSink: sink });
+    (deps.adapter as unknown as { mirrorTo?: typeof sink }).mirrorTo = sink;
     registerApp(this);
   }
 }

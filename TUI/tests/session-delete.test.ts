@@ -1160,6 +1160,9 @@ test("退出自动清理（autoCleanEmpty=true）：提示渲染到活动区并�
     renderer.renders - rendersBefore >= 2,
     "先出「正在清理」帧、再出结果帧",
   );
+  // 已知产品缺口（条目 16 段 C1 暴露，测试侧不可迁）：`paintExitNotice`
+  // （`src/app/index.ts:1000`）只 `reduceState` 写缓冲、不 `deliverLocal` 投节缓存，
+  // 而流水线已是唯一渲染源 → 生产（`src/main.ts:322/679` 注入 sink）退出清理提示不可见。
   assert.ok(
     renderer.lastRender.join("\n").includes("已自动清理 2 个空会话"),
     "结果渲染到活动区",
@@ -1209,6 +1212,7 @@ test("退出自动清理：部分失败计数渲染到活动区，仍完成收�
   await flush();
   assert.deepEqual(adapter.deleteCalls, ["tui-empty001", "tui-boom0001"]);
   assert.equal(renderer.closes, 1, "失败也完成收尾（不阻塞退出）");
+  // 同上的产品缺口（`paintExitNotice` 未投节缓存）
   assert.ok(
     renderer.lastRender
       .join("\n")

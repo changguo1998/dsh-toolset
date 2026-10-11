@@ -37,6 +37,7 @@ import type { KeyEvent, Renderer } from "../src/renderer/index.ts";
 import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
 import { applyDelivery } from "../src/app/layout/pipeline/sections.ts";
+import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
 import {
   sectionsFromScript,
   type ScriptStep,
@@ -350,9 +351,20 @@ class EventAdapter implements DshAdapter {
   readonly sessionId = "s1";
   cbs: ((e: DshEvent) => void)[] = [];
   disposed = 0;
+  /** 条目 16 段 C1：生产适配器把 notice 事件镜像成等价交付（`dsh.ts` 接收层
+   *  「自造 notice 与宿主内容一视同仁」）。本假件同样镜像，否则 App 只写缓冲、
+   *  流水线（唯一渲染源）看不到通知。 */
+  mirrorTo: { current?: (delivery: BlockDelivery) => void } | null = null;
 
   emit(e: DshEvent): void {
     for (const cb of this.cbs) cb(e);
+    if (e.type === "notice") {
+      this.mirrorTo?.current?.({
+        kind: "notice",
+        text: e.text,
+        ...(e.tone === undefined ? {} : { tone: e.tone as never }),
+      });
+    }
   }
   onEvent(cb: (e: DshEvent) => void): () => void {
     this.cbs.push(cb);
@@ -402,7 +414,10 @@ function makeApp(): {
 } {
   const renderer = new FrameRenderer();
   const adapter = new EventAdapter();
-  const app = new App({ renderer, adapter, pipelineSink: {} });
+  // sink 与适配器镜像共用同一对象：App 注册 `current` 后事件才有内容交付进流水线
+  const sink = {};
+  adapter.mirrorTo = sink;
+  const app = new App({ renderer, adapter, pipelineSink: sink });
   app.start();
   return { app, renderer, adapter };
 }
@@ -472,7 +487,9 @@ test("合帧：绘制期间再次标脏会补画一帧并收敛（不自旋）",
       });
     }
   };
-  const app = new App({ renderer, adapter, pipelineSink: {} });
+  const sink = {};
+  adapter.mirrorTo = sink;
+  const app = new App({ renderer, adapter, pipelineSink: sink });
   app.start(); // 帧 1
   adapter.emit({ type: "notice", text: "首个事件" }); // 标脏
   await drain(); // 帧 2（冲刷；其间再标脏）
