@@ -219,6 +219,22 @@
 1. 跑全量；`steer-queued-display` / `layout` / `step` / `buffer-retire` / `screen-residue` / `turn-separator` 这些**缓冲契约用例**随本段改写到 `local` 上。
 1. 确认无残留写入后，段 C 才删 `buffer` 字段与 `BufferLine` 的内容 kind。
 
+## 段 C1 收尾：测试侧迁移套路与现状（2026-10-11 第 110-119 轮）
+
+删掉无 sink 回退后，凡「自建 App 未传 `pipelineSink`」或「用 `reduceState` 造内容再出帧」的测试都看不到内容。三套已验证有效的补法：
+
+| 场景 | 补法 | 涉及文件（本轮） |
+| --- | --- | --- |
+| `new App({ renderer, adapter })` | 追加 `pipelineSink: {}`（生产 `main.ts` 同款） | `council-notice`、`stats-rename`、`settings-fork`、`memory-notice`、`memory-review`、`contract-notice`、`permission`、`command-panel-{agents-tools,search,task,loop,guard,workflows}` |
+| 各文件本地 `class TrackedApp` | 构造函数里 `const sink = deps.pipelineSink ?? {}` → `super({...deps, pipelineSink: sink})`，并给共享 `FakeAdapter` 接 `mirrorTo = sink` | `session-delete`、`steer-queued-display`、`injection-display`、`exit-confirm`、`startup-resume-history`、`activity-level`、`policy`、`jobs-panel`、`title-bar` |
+| 断言读 `state.local` / 直接 `buildFrame` | 改断言**节缓存**（`JSON.stringify(app.sections).includes(...)`，同步安全、形状无关）或换用 `helpers/frameWithLocalReplay.ts` 的包装 `buildFrame` | `steer-queued-display`、`app.test.ts`、`layout-cache`、`tool-call-wrap` |
+
+**结果**：全量失败 79 → 28 →（子代理批量迁移中）。已复跑转绿：`council-notice`、`stats-rename`、`settings-fork`、`memory-notice`、`contract-notice`、`command-panel-agents-tools`、`injection-display`、`exit-confirm`、`activity-level`、`steer-queued-display`、`app`（177/177 且退出码 0）。
+
+**顺带修掉的两处**：① `rows.ts` 工具结果行折叠（结果行不保留换行，与旧缓冲口径一致）；② `index.ts` 的符号归一改到**交付入口** `ingestDelivery` 做一次（原先只在事件分支改缓冲文本 → 流水线看不到，`/symbol-unify` 在真机没有效果），并删掉事件分支里的重复归一。
+
+**裁定（用户 2026-10-11）**：**取消「新回合清空活动区」语义**——内容持续可见；〈活动区生命周期〉用例已按此改写。
+
 ## 收尾
 
 （待补）
