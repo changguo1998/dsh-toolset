@@ -111,7 +111,10 @@ export type TurnEndReason =
 
 /** 缓冲行类型:用户输出靠右缩进展示,模型正文靠左;思考行限高,完成后清除
  *  - `step`（P9）：恢复会话时的 step 概要行（`22:31:05 #3 ╌╌ read ×2, bash ×1`），
- *    渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满，形制与实时 step 头（P6）一致 */
+ *    渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满，形制与实时 step 头（P6）一致
+ *
+ *  条目 16 段 C2 目标：内容成员（user / assistant / thinking / separator / step）迁到
+ *  `HistoryRow` 后，本类型只剩 UI 本地行（notice / tool / shell / plain）。 */
 export type BufferKind =
   | "user"
   | "assistant"
@@ -162,6 +165,29 @@ export interface BufferLine {
    *  回合号可能在 turn-begin 后才由 `turn/start` 回填。 */
   time?: number;
   turn?: number;
+}
+
+/** 恢复 / 重放用的**历史行**类型（条目 16 段 C2）：内容行（用户块 / 正文 / 思考 / 分隔线 /
+ *  step 概要）只在恢复与测试重放里出现，不再属于 `BufferLine`（缓冲只留 UI 本地行）。 */
+export type HistoryRowKind =
+  "user" | "assistant" | "thinking" | "separator" | "step";
+
+export interface HistoryRow {
+  text: string;
+  kind: HistoryRowKind;
+  /** 回合最终总结（进会话区） */
+  final?: boolean;
+  /** 回合分隔线 / step 概要的时间戳与回合号 */
+  time?: number;
+  turn?: number;
+  /** 用户块终态符号（完成 ✓ / 失败 ✗ / 中止 ■）；缺省 = 未收到终态（渲染 `?`） */
+  status?: "success" | "failure" | "aborted";
+  /** 与上一条输入之间留空行（steer 插队送达） */
+  spaceBefore?: boolean;
+  /** 「被 steer 续接」标记（终态符号显示 ←） */
+  steerContinued?: boolean;
+  /** 排队中的用户消息（followup 右缘竖线灰 / steer 黄） */
+  queued?: "followup" | "steer";
 }
 
 export type Buffer = BufferLine[];
