@@ -322,6 +322,7 @@ export class FakeAdapter implements DshAdapter {
       detail?: string;
       tone?: string;
       reason?: string;
+      summary?: string;
     };
     switch (ev.type) {
       case "stream":
@@ -349,7 +350,7 @@ export class FakeAdapter implements DshAdapter {
           step,
           callId: `c${turn}-${step}`,
           name: ev.name ?? "tool",
-          args: ev.args ?? "{}",
+          args: ev.summary ?? ev.args ?? "{}",
         };
       case "tool-result":
         return {
@@ -358,7 +359,7 @@ export class FakeAdapter implements DshAdapter {
           step,
           callId: `c${turn}-${step}`,
           ok: ev.ok !== false,
-          detail: ev.detail ?? "",
+          detail: ev.detail ?? ev.summary ?? "",
         };
       case "notice":
         return {
