@@ -391,6 +391,16 @@ export class FakeAdapter implements DshAdapter {
     const sid = (e as { sessionId?: string }).sessionId;
     const mine = this.mirrorSessionId ?? this.sessionId;
     if (sid !== undefined && sid !== mine) return;
+    // `turn-end` 之前补一条定型信号：生产里宿主在 assistant/message 定型时发 `finalize`
+    // （types.ts「标记该 step 可冻结」）；镜像漏了它 → 内容永不冻结、一直留在活动区
+    // （「用户输入后活动区清空」的用例必红）
+    if (e.type === "turn-end") {
+      this.mirrorTo?.current?.({
+        kind: "finalize",
+        turn: this.mirrorTurn,
+        step: 1,
+      });
+    }
     const delivery = this.deliveryOf(e);
     if (delivery !== undefined) this.mirrorTo?.current?.(delivery);
     if (e.type === "turn-end") this.mirrorTurn++;

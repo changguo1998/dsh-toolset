@@ -979,18 +979,15 @@ test("P8：压缩期间 Enter 进排队、Ctrl+D 不请求退出确认；压缩�
   app.dispose();
 });
 
-test("活动区生命周期：核心自发回合不清空（用户输入才清空，且整类一起清）", () => {
+test("活动区生命周期：新回合不再清空上一回合内容（2026-10-11 裁定去掉清空语义）", () => {
   const { app, renderer, adapter } = makeApp();
-  const st = (): { local: { text: string; kind: string }[] } =>
-    (app as unknown as { state: { local: { text: string; kind: string }[] } })
-      .state;
-  const kinds = (): string[] =>
-    st()
-      .local.filter(
-        (l) =>
-          l.kind === "thinking" || l.kind === "tool" || l.kind === "notice",
-      )
-      .map((l) => l.text);
+  // 条目 16 段 C1：内容（思考 / 工具行）不再写缓冲 → 断言帧内可见。
+  // 2026-10-11 用户裁定：去掉「新回合清空活动区」语义 → 判定统一为「内容持续可见」。
+  const plain = (): string =>
+    renderer.lastRender
+      .map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""))
+      .join("\n");
+  const shown = (t: string): boolean => plain().includes(t);
   // 第一回合：思考 + 工具 + 提示（活动区三类内容）
   typeAndEnter(renderer, "第一问");
   adapter.push({ type: "thinking", sessionId: "s1", text: "思考一" });
@@ -1002,29 +999,33 @@ test("活动区生命周期：核心自发回合不清空（用户输入才清�
   });
   adapter.push({ type: "notice", text: "提示一" });
   adapter.push({ type: "turn-end" });
-  assert.deepEqual(
-    kinds(),
-    ["思考一", "bash ls", "提示一"],
-    "三类内容同处活动区",
+  assert.ok(
+    shown("思考一") && shown("bash ls") && shown("提示一"),
+    "三类内容同处活动区（帧内可见）",
   );
   // 核心自发的新回合（无本地提交）：turn-begin 画分隔线但不清活动区
   adapter.push({ type: "stream", sessionId: "s1", text: "自发回合正文" });
-  assert.deepEqual(
-    kinds(),
-    ["思考一", "bash ls", "提示一"],
-    "核心自发回合保留上一轮活动内容（只有用户输入才清）",
+  assert.ok(
+    shown("思考一") && shown("bash ls") && shown("提示一"),
+    "首回合三类内容持续可见（核心自发回合不改变它）",
   );
   // 自发回合结束后用户输入（空闲直发）→ 活动区整类清空
   adapter.push({ type: "turn-end" });
   typeAndEnter(renderer, "第二问");
-  assert.deepEqual(kinds(), [], "用户输入后活动区三类内容一起清空");
+  assert.ok(
+    shown("思考一") && shown("bash ls") && shown("提示一"),
+    "用户输入新回合后，上一回合内容仍持续可见（不再清空）",
+  );
   // 运行中的用户输入（进排队）→ 被核心认领开启新回合时清空
   adapter.push({ type: "thinking", sessionId: "s1", text: "思考二" });
   typeAndEnter(renderer, "第三问");
-  assert.deepEqual(kinds(), ["思考二"], "排队期间不清空运行中回合的活动内容");
+  assert.ok(shown("思考二"), "排队期间新到的思考内容可见（不清空、也不丢）");
   adapter.push({ type: "turn-end" });
   adapter.push({ type: "stream", sessionId: "s1", text: "第三问回复" });
-  assert.deepEqual(kinds(), [], "排队消息被认领开启新回合 → 整体清空");
+  assert.ok(
+    shown("思考二") && shown("第三问回复"),
+    "排队消息被认领开启新回合：既有内容与新内容同时可见（不再清空）",
+  );
   app.dispose();
 });
 
