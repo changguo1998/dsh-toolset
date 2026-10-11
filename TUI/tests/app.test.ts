@@ -3,7 +3,7 @@
 // 覆盖：submit() 对 / 前缀行走 slash 路由；本地表 /help /clearscreen /cls /quit；
 // 未知命令 fail-close(不经 sendMessage)；notice 事件进入缓冲。
 
-import { mock, test } from "node:test";
+import { afterEach, mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -17,11 +17,8 @@ import {
   resolveModelSpec,
 } from "../src/app/index.ts";
 import { main } from "../src/main.ts";
-import {
-  buildFrame,
-  dialogueHalfPage,
-  type FrameScrollReport,
-} from "../src/app/layout.ts";
+import { dialogueHalfPage, type FrameScrollReport } from "../src/app/layout.ts";
+import { buildFrame } from "./helpers/frameWithLocalReplay.ts";
 import {
   createLineTable,
   indexOfTop,
@@ -115,16 +112,35 @@ function userBlockMark(
   };
 }
 
+/** 本文件建过的 App（`afterEach` 统一收尾：renderer 持有 stdin，不 dispose 会让 runner 跑完不退） */
+const createdApps: TrackedApp[] = [];
+
+afterEach(() => {
+  for (const app of createdApps.splice(0)) {
+    try {
+      app.dispose();
+    } catch {
+      // 用例已自行 dispose / 半途失败：忽略重复释放
+    }
+  }
+});
+
 function makeApp(): { app: App; renderer: FakeRenderer; adapter: FakeAdapter } {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
+  // 条目 16 段 C1：与生产同路径（`main.ts:322/679` 也传一个空对象，App 自己填 `current`）。
+  // 同时把该对象交给假适配器做「事件 → 交付」镜像：生产里内容由适配器产出的交付驱动。
+  const sink: NonNullable<FakeAdapter["mirrorTo"]> = {};
   const app = new TrackedApp({
     renderer,
     adapter,
     notify: { enabled: false },
     runShell: noopShell,
+    pipelineSink: sink,
   });
+  createdApps.push(app);
   app.start();
+  adapter.mirrorTo = sink; // start() 之后 sink.current 才就绪
   return { app, renderer, adapter };
 }
 
@@ -267,6 +283,8 @@ function makeAppAtCwd(cwd: string): {
       intervalMs: 60_000,
     },
   });
+  // 同上：这个工厂带 60 秒 status ticker，不登记收尾会让 runner 跑完不退
+  createdApps.push(app);
   app.start();
   return { app, renderer, adapter };
 }

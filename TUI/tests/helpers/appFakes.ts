@@ -19,6 +19,7 @@ import type {
   HistoryMessage,
 } from "../../src/app/adapter/dsh.ts";
 import type { SessionUiState } from "../../src/app/adapter/session-ui-state.ts";
+import type { BlockDelivery } from "../../src/app/layout/pipeline/types.ts";
 import { flushApp } from "./paintFlush.ts";
 import { rowAnsi } from "./rowText.ts";
 
@@ -294,8 +295,82 @@ export class FakeAdapter implements DshAdapter {
       return this.sessionTitleValues[id];
     };
 
-  /** 测试辅助：注入事件 */
+  /**
+   * 可选的「事件 → 交付」镜像（条目 16 段 C1）：
+   * 生产里内容走**适配器产出的交付**（`dsh.ts` 归一化后调 `onDelivery`），而本假适配器只发
+   * App 级事件、从不产交付；一旦 App 注册了 `pipelineSink`（内容不再写缓冲），只推事件的用例
+   * 就没有内容可渲染。把它设为 App 的 sink（`pipelineSink` 那个对象），`push()` 会顺手把
+   * 常见内容事件镜像成等价交付。缺省 `null` = 不镜像（不影响其他测试文件）。
+   */
+  mirrorTo: { current?: (delivery: BlockDelivery) => void } | null = null;
+
+  /** 事件 → 交付（只覆盖测试常用的内容类；未知类型返回 undefined 表示不镜像） */
+  private deliveryOf(
+    e: DshEvent,
+    turn = 1,
+    step = 1,
+  ): BlockDelivery | undefined {
+    const ev = e as {
+      type: string;
+      text?: string;
+      name?: string;
+      args?: string;
+      ok?: boolean;
+      detail?: string;
+      tone?: string;
+    };
+    switch (ev.type) {
+      case "stream":
+        return {
+          kind: "text",
+          turn,
+          step,
+          index: 0,
+          source: "assistant",
+          text: ev.text ?? "",
+        };
+      case "thinking":
+        return {
+          kind: "text",
+          turn,
+          step,
+          index: 0,
+          source: "reasoning",
+          text: ev.text ?? "",
+        };
+      case "tool-call":
+        return {
+          kind: "tool-call",
+          turn,
+          step,
+          callId: `c${turn}-${step}`,
+          name: ev.name ?? "tool",
+          args: ev.args ?? "{}",
+        };
+      case "tool-result":
+        return {
+          kind: "tool-result",
+          turn,
+          step,
+          callId: `c${turn}-${step}`,
+          ok: ev.ok !== false,
+          detail: ev.detail ?? "",
+        };
+      case "notice":
+        return {
+          kind: "notice",
+          text: ev.text ?? "",
+          ...(ev.tone === undefined ? {} : { tone: ev.tone as never }),
+        };
+      default:
+        return undefined;
+    }
+  }
+
+  /** 测试辅助：注入事件（配置了 `mirrorTo` 时同步镜像一条等价交付） */
   push(e: DshEvent): void {
     for (const cb of this.cbs) cb(e);
+    const delivery = this.deliveryOf(e);
+    if (delivery !== undefined) this.mirrorTo?.current?.(delivery);
   }
 }
