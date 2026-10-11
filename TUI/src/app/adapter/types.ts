@@ -136,6 +136,13 @@ export interface AgentRowInfo {
   work?: string;
   /** 异常态：宿主把该条目标为 diagnostic（投影不完整 / 不可续），reason 为宿主给出的短因 */
   diagnostic?: { reason: string };
+  /**
+   * 该子代理最近的输出速率（tokens/s，adapter 侧估计）。
+   *
+   * 用途：状态列 Agents 块**条目行自己的状态符号**按此速率闪烁（BACKLOG 条目 1 用户口径：
+   * 快 → 闪得快，慢 → 闪得慢）；缺省 = 未知速率，按基础速率闪。
+   */
+  tps?: number;
 }
 
 export type DshEvent =
