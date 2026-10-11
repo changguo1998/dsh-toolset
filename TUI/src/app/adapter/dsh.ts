@@ -236,6 +236,7 @@ export {
   type ToolBootstrapOptions,
   type TaskAnchor,
 } from "./tool-bootstrap.ts";
+import { appendFileSync } from "node:fs"; // 临时：恢复诊断（定位后删）
 
 /**
  * 镜像官方 @deepseek-ai/dsh-agent installModelSelection：挂钩 agentCtx 的
@@ -1369,6 +1370,36 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     return w;
   };
 
+  // 临时诊断（定位「重启前用户块恒 ?」用，定位后整段删除）：把恢复取到的源与终态统计
+  // 追加到 workspace 下的 tmp/restore-debug.log，供 agent 直接读取
+  const debugRestore = (
+    tag: string,
+    msgs: readonly HistoryMessage[],
+    events: readonly Record<string, unknown>[],
+  ): void => {
+    try {
+      const users = msgs.filter((m) => m.role === "user");
+      appendFileSync(
+        "/home/guochang/Projects/dsh-toolset/tmp/restore-debug.log",
+        JSON.stringify({
+          at: new Date().toISOString(),
+          tag,
+          events: events.length,
+          turnEnd: events.filter((e) => e.type === "turn/end").length,
+          turnStart: events.filter((e) => e.type === "turn/start").length,
+          msgs: msgs.length,
+          users: users.length,
+          usersWithStatus: users.filter((m) => m.status !== undefined).length,
+          firstUsers: users
+            .slice(0, 6)
+            .map((m) => [m.turn ?? null, m.status ?? null]),
+        }) + "\n",
+      );
+    } catch {
+      /* 诊断写失败不影响恢复 */
+    }
+  };
+
   /** 只读会话表面（live 直接读内存事件；persisted 走 readSurface；兜底 readSession） */
   const doReadSessionSurface = async (
     id: string,
@@ -1418,22 +1449,51 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       // 刚 resume 的会话在内存 store 可能尚未完全入列：live 表面为空时
       // 回退到 persisted 读取面（readSurface）拿完整历史，避免切换后空屏
       if (messages.length > 0) {
+        debugRestore("live", messages, events);
         return { sessionId: id, messages };
       }
     }
     if (sessionQuery.readSurface) {
       const snap = await sessionQuery.readSurface(id);
-      return {
-        sessionId: id,
-        messages: normalizeHistoryMessages(snap.events),
-      };
+      // surface fold **不含 turn/start 与 turn/end**（真机实测：517 条事件里两者都是 0）→
+      // 用户块拿不到终态，恒 `?`。故：surface 缺 turn/end 时，从 `readSession`（完整日志）
+      // 只并入 `turn/end`（正文仍用 surface，保持既有口径），供归一化读收尾原因。
+      let surfaceEvents: readonly Record<string, unknown>[] = snap.events;
+      // 需要的是**回合边界事件**：`turn/start` 提供回合号（用户消息按它归属），
+      // `turn/end` 提供收尾原因。两者都不产消息，合并进来只影响归属与终态。
+      const boundary = (e: Record<string, unknown>): boolean =>
+        e.type === "turn/start" || e.type === "turn/end";
+      if (
+        !surfaceEvents.some((e) => e.type === "turn/end") &&
+        sessionQuery.readSession
+      ) {
+        try {
+          const full = await sessionQuery.readSession(id);
+          const seen = new Set(
+            surfaceEvents
+              .map((e) => e.seq)
+              .filter((seq): seq is number => typeof seq === "number"),
+          );
+          surfaceEvents = [
+            ...surfaceEvents,
+            ...full.events.filter(
+              (e) =>
+                boundary(e) && !(typeof e.seq === "number" && seen.has(e.seq)),
+            ),
+          ];
+        } catch {
+          /* 日志不可用：保持只有 surface 事件（与旧行为一致） */
+        }
+      }
+      const msgs = normalizeHistoryMessages(surfaceEvents);
+      debugRestore("surface", msgs, surfaceEvents);
+      return { sessionId: id, messages: msgs };
     }
     if (sessionQuery.readSession) {
       const snap = await sessionQuery.readSession(id);
-      return {
-        sessionId: id,
-        messages: normalizeHistoryMessages(snap.events),
-      };
+      const msgs = normalizeHistoryMessages(snap.events);
+      debugRestore("session", msgs, snap.events);
+      return { sessionId: id, messages: msgs };
     }
     throw new Error(
       "sessionQuery 未暴露 readSession/readSurface，无法读取会话内容",

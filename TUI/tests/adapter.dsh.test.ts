@@ -6333,3 +6333,45 @@ test("条目 27：live 缺 turn/end 且 readSurface 为空 → 退到 readSessio
     "surface 为空时必须退到 readSession，用户块才有终态",
   );
 });
+
+test("条目 27：surface 缺 turn/end（真机形态）→ 从 readSession 只并入 turn/end", async () => {
+  const full: Record<string, unknown>[] = [
+    {
+      type: "user/message",
+      seq: 1,
+      data: { id: "u1", content: [{ type: "text", text: "问题一" }] },
+    },
+    { type: "turn/start", seq: 2, data: { turn: 1 } },
+    {
+      type: "assistant/message",
+      seq: 3,
+      data: {
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "答一" }],
+        },
+      },
+    },
+    {
+      type: "turn/end",
+      seq: 4,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+  ];
+  // surface fold：只有正文类事件，没有 turn/start 与 turn/end
+  const surface = full.filter(
+    (e) => e.type !== "turn/end" && e.type !== "turn/start",
+  );
+  const sq = new FakeSessionQuery();
+  sq.readSurface = async (id: string) => ({ session: { id }, events: surface });
+  sq.readSession = async (id: string) => ({ session: { id }, events: full });
+  const { adapter } = makeAdapterWithSessionQuery(sq);
+  const view = await adapter.readSessionSurface!("live-1");
+  assert.deepEqual(
+    view.messages
+      .filter((m) => m.role === "user")
+      .map((m) => [m.turn ?? "-", m.status ?? "-"]),
+    [[1, "success"]],
+    "surface 无 turn/end → 从日志并入后用户块才有终态",
+  );
+});
