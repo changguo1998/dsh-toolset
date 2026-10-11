@@ -226,7 +226,7 @@ function seqRows(
 /**
  * 节缓存来源：App 注入的 `state.pipeline` 优先；未注入（测试 / 嵌入用法）时按 `state.local`
  * 重放一份（条目 16 段 C1：实现已搬进 `replay.ts` 的显式助手 `sectionsFromLocal()`，这里保留
- * 调用以免在测试迁移完成前改变生产行为；测试全部迁移后本回退会被删掉，只留 `pipeline`）。
+ * 调用，等各测试文件都带上自己的包装后再删掉这一行，只留 `pipeline`）。
  */
 export function sectionsOf(state: {
   pipeline?: SectionsState;
