@@ -10,6 +10,7 @@ import { buildFrame, displayWidth } from "../src/app/layout.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { rowText } from "./helpers/rowText.ts";
 import { ScreenEmu } from "./helpers/screenEmu.ts";
+import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
 
 const COLS = 60;
 const ROWS = 20;
@@ -102,22 +103,53 @@ test("全帧重写（Ctrl+L 路径）：首行变短同样不留旧字", () => {
 test("活动区清空（真实帧）：屏幕不得残留上一回合活动行", () => {
   const size = { cols: COLS, rows: ROWS };
   const { renderer, emu } = harness();
-  // 上一回合：思考 + 工具行 + 非 final 正文（活动区三类内容）
-  let s = initialState();
-  s = reduceState(s, { type: "user-line", text: "问题" });
-  for (let i = 0; i < 5; i++)
-    s = reduceState(s, { type: "thinking", text: `思考行 ${i}` });
-  s = reduceState(s, {
-    type: "tool-call",
-    sessionId: "s1",
-    name: "bash",
-    summary: "ls -la 很长的命令摘要内容占位",
-  });
-  s = reduceState(s, { type: "append", text: "非 final 中间输出" });
+  // 上一回合：思考 + 工具行 + 非 final 正文（活动区三类内容）——条目 16 段 C1：内容走交付流
+  const s = {
+    ...initialState(),
+    pipeline: sectionsFromScript([
+      { delivery: { kind: "turn-start", turn: 1 } },
+      { delivery: { kind: "user", turn: 1, step: 0, text: "问题" } },
+      ...Array.from({ length: 5 }, (_, i) => ({
+        delivery: {
+          kind: "text" as const,
+          turn: 1,
+          step: 1,
+          index: i,
+          source: "reasoning" as const,
+          text: `思考行 ${i}`,
+        },
+      })),
+      {
+        delivery: {
+          kind: "tool-call",
+          turn: 1,
+          step: 1,
+          callId: "c1",
+          name: "bash",
+          args: "ls -la 很长的命令摘要内容占位",
+        },
+      },
+      {
+        delivery: {
+          kind: "text",
+          turn: 1,
+          step: 1,
+          index: 9,
+          source: "assistant",
+          text: "非 final 中间输出",
+        },
+      },
+    ]),
+  };
   renderer.render(buildFrame(s, size));
   // 新输入开启回合：活动区整体清空
-  let next = reduceState(s, { type: "turn-begin", clearActivity: true });
-  next = reduceState(next, { type: "user-line", text: "新问题" });
+  const next = {
+    ...s,
+    pipeline: sectionsFromScript([
+      { delivery: { kind: "turn-start", turn: 2 } },
+      { delivery: { kind: "user", turn: 2, step: 0, text: "新问题" } },
+    ]),
+  };
   const rows = buildFrame(next, size);
   renderer.render(rows);
   assertScreenMatches(emu, rows, "活动区清空后");
