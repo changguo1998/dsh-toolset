@@ -16,7 +16,8 @@ import {
 } from "../src/app/state.ts";
 import { routeSlashCommand } from "../src/app/commands.ts";
 import { renderCommandListPanel } from "../src/app/components/CommandListPanel.ts";
-import { buildFrame, frameGeometry, displayWidth } from "../src/app/layout.ts";
+import { frameGeometry, displayWidth } from "../src/app/layout.ts";
+import { buildFrame } from "./helpers/frameWithLocalReplay.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
 import type {
   CommandPanelRow,

@@ -228,17 +228,12 @@ function seqRows(
  * 重放一份（条目 16 段 C1：实现已搬进 `replay.ts` 的显式助手 `sectionsFromLocal()`，这里保留
  * 调用；等下表文件都带上自己的包装后再删这一行，只留 `pipeline`）。
  *
- * 待补包装（逐文件定向跑出来的真实清单，2026-10-11）：`command-panel`（2 红）、`resume-summary`（3 红）。
- * 已就位：`layout4` / `focus-frame` / `layout-horizontal` 自带包装；`app` 走真实 App 不需要；
- * `ctrl-t-panes` / `focus-cursor` / `footer-notice` / `pane-titles` / `title-bar` / `activity-verbose` /
- * `status-column` / `notice-form` / `screen-residue` 定向跑全绿。
  */
 export function sectionsOf(state: {
   pipeline?: SectionsState;
   local: Parameters<typeof sectionsFromBuffer>[0];
 }): SectionsState {
-  if (state.pipeline !== undefined) return state.pipeline;
-  return sectionsFromLocal(state.local);
+  return state.pipeline ?? createSections();
 }
 
 /** 渐进窗口的回合组总数（窗口上限判据：还有更早回合可物化吗） */

@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildFrame } from "../src/app/layout.ts";
+import { buildFrame } from "./helpers/frameWithLocalReplay.ts";
 import { surfaceToBuffer } from "../src/app/commands.ts";
 import { normalizeHistoryMessages } from "../src/app/adapter/dsh.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
