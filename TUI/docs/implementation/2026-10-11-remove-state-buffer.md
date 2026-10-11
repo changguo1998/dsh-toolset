@@ -235,7 +235,14 @@
 
 **裁定（用户 2026-10-11）**：**取消「新回合清空活动区」语义**——内容持续可见；〈活动区生命周期〉用例已按此改写。
 
-## 段 C2 计划（原子删除，未开工）
+## 段 C2 计划（原子删除，进行中）
+
+**实施设计（2026-10-11 第 127-128 轮）**
+
+- 顺序：**先迁测试（保持绿）→ 后删机制**。迁移工具 = 新建 `tests/helpers/pipelineContent.ts`（`withText` / `withUser` / `withToolCall` / `withToolResult` / `withStep` / `withTurnStart` / `withTurnEnd` / `withDelivery`），内部把等价交付 `applyDelivery` 进 `state.pipeline`。测试面 **15 文件 / ~230 处**（`layout4` 130、`app` 23、`adapter.dsh` 20、`step` 14 …）。
+- 依赖方向已确认无环：`state.ts:26-27` **本来就**导入 `createSections` / `SectionsState`，因此「内容 action 产节」可行。
+- **必须随内容一起搬走的策略（否则语义回退）**：`state.ts` 的 `appendLine` 一段承担了三件事——① 流式续写合并、② P5「纯空白分片丢弃」（宿主每步末尾补发的 `"\n\n"`，实测 190 分片里 154 个；判据：仅空白 **且** 上一行异 kind 或缓冲为空）、③ 稳定序号 `seq` 与 step 标。其中①由流水线 `applyText` 的续写探针负责 ✓；②③ 在流水线**尚无实现** ✗ → C2 必须把②的策略搬进交付路径，③ 若无人读则直接删（`seq` 目前只在 `state.ts` 内部读写，`layout.ts` / `build-box.ts` / `pipeline/*` 都不读）。
+- 因此 `state.ts` 的内容分支目标形态：**判断要不要发、发什么文本**（保留②的判据）→ 构造等价交付 → `applyDelivery`；合并/渲染交给流水线，删掉 state 侧的 buffer 行构造与 `nextSeq` 维护。
 
 删除面（只读盘点，2026-10-11 第 122 轮统计）：
 
