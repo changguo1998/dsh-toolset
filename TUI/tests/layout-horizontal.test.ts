@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildFrame,
+  buildFrame as buildFrameRaw,
   frameGeometry,
   displayWidth,
   regionColumnWidth,
@@ -16,6 +16,21 @@ import {
   type FrameScrollReport,
 } from "../src/app/layout.ts";
 import { buildContentRows } from "../src/app/layout/build-box.ts";
+import { sectionsFromLocal } from "../src/app/layout/pipeline/replay.ts";
+
+/**
+ * 条目 16 段 C1：本文件部分用例用 `reduceState` 造缓冲行再直接出帧；生产侧「无 sink 回退」剥离后
+ * 在这里显式补一节缓存（助手带单槽 memo，行为与剥离前逐字等价）。段 C2 删内容类 `BufferKind`
+ * 时本包装失效 → 那些用例改成交付流。
+ */
+const buildFrame = (...args: Parameters<typeof buildFrameRaw>) => {
+  const state = args[0];
+  if (state.pipeline !== undefined) return buildFrameRaw(...args);
+  return buildFrameRaw(
+    { ...state, pipeline: sectionsFromLocal(state.local) },
+    ...(args.slice(1) as [Parameters<typeof buildFrameRaw>[1]]),
+  );
+};
 import type { Buffer } from "../src/app/state.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import type { AppState } from "../src/app/state.ts";
