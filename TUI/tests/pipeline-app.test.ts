@@ -598,3 +598,80 @@ test("/cls 后新交付不把清掉的内容带回来（节缓存同源清空）
   assert.ok(body.includes("清屏之后的新提示"), "新内容照常可见");
   app.dispose();
 });
+
+test("BACKLOG #29①：实时增量 —— 同一块的前后片段落在同一行（一条框）", () => {
+  const next = makeApp(true);
+  next.sink.current?.({ kind: "turn-start", turn: TURN, time: TIME });
+  next.sink.current?.({ kind: "user", turn: TURN, step: 0, text: "问题" });
+  next.sink.current?.({
+    kind: "text",
+    turn: TURN,
+    step: 1,
+    index: 0,
+    source: "assistant",
+    text: "前半",
+  });
+  // 中途一批工具结果（令 pendingOpen 置位）后再补同块迟到增量
+  next.sink.current?.({
+    kind: "tool-call",
+    turn: TURN,
+    step: 1,
+    callId: "c1",
+    name: "read",
+    args: "{}",
+  });
+  next.sink.current?.({
+    kind: "tool-result",
+    turn: TURN,
+    step: 1,
+    callId: "c1",
+    ok: true,
+    detail: "ok",
+  });
+  next.sink.current?.({
+    kind: "text",
+    turn: TURN,
+    step: 1,
+    index: 0,
+    source: "assistant",
+    text: "后半",
+  });
+  const rows = frames(next.app, next.renderer);
+  assert.ok(
+    rows.some((r) => r.includes("前半") && r.includes("后半")),
+    `同块两片段应在同一行: ${rows.filter((r) => /前半|后半/.test(r)).join(" || ")}`,
+  );
+  next.app.dispose();
+});
+
+test("BACKLOG #29②：结算（index<0）—— 整块补齐后仍只有一条框、不重复", () => {
+  const next = makeApp(true);
+  next.sink.current?.({ kind: "turn-start", turn: TURN, time: TIME });
+  next.sink.current?.({ kind: "user", turn: TURN, step: 0, text: "问题" });
+  next.sink.current?.({
+    kind: "text",
+    turn: TURN,
+    step: 1,
+    index: 0,
+    source: "assistant",
+    text: "前半",
+  });
+  // step 级结算：宿主给出整块文本
+  next.sink.current?.({
+    kind: "text",
+    turn: TURN,
+    step: 1,
+    index: -1,
+    source: "assistant",
+    text: "前半后半",
+    full: true,
+  });
+  const rows = frames(next.app, next.renderer);
+  const hits = rows.filter((r) => r.includes("前半"));
+  assert.equal(hits.length, 1, `含该块的应只有一行: ${hits.join(" || ")}`);
+  assert.ok(
+    hits[0]!.includes("前半后半"),
+    `结算补齐后应显示完整文本: ${hits[0]}`,
+  );
+  next.app.dispose();
+});

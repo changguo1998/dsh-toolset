@@ -20,6 +20,10 @@ import {
 } from "../src/app/layout/pipeline/sections.ts";
 import type { Item, Section } from "../src/app/layout/pipeline/types.ts";
 import { joinedLastTextBySource } from "../src/app/layout/pipeline/sections.ts";
+import { sectionsFromBuffer } from "../src/app/layout/pipeline/replay.ts";
+import { buildFrame } from "../src/app/layout.ts";
+import { initialState } from "../src/app/state.ts";
+import { rowText } from "./helpers/rowText.ts";
 
 /** 分隔线时间戳（断言只关心有没有线，值任意） */
 const STEP_TIME = 1_700_000_000_000;
