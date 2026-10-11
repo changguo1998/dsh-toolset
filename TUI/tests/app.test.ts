@@ -879,22 +879,24 @@ test("P1：turn-end 的 reason 进 state → 用户块落终态（completed/abor
   ];
   for (const c of cases) {
     const { app, renderer, adapter } = makeApp();
-    const st = (): { local: { kind: string; status?: string }[] } =>
-      (
-        app as unknown as {
-          state: { local: { kind: string; status?: string }[] };
-        }
-      ).state;
     typeAndEnter(renderer, "问一句");
     adapter.push({
       type: "turn-end",
       ...(c.reason === undefined ? {} : { reason: c.reason }),
     });
-    const last = [...st().local].reverse().find((l) => l.kind === "user");
+    // 条目 16 段 C1：用户块不再写缓冲 → 改断言用户块首行**渲染出的状态符号**
+    // （映射见 layout.ts USER_BLOCK_SYMBOL；未定态渲染 `?`）
+    const SYM: Record<string, string> = {
+      success: "✓",
+      failure: "✗",
+      aborted: "■",
+    };
+    const want = c.want === undefined ? "?" : (SYM[c.want] ?? "?");
+    const got = userBlockMark(renderer.lastRender, 80, "问一句").sym;
     assert.equal(
-      last?.status,
-      c.want,
-      `reason=${String(c.reason)} → status=${String(c.want)}`,
+      got,
+      want,
+      `reason=${String(c.reason)} → 符号 ${String(want)}（want=${String(c.want)}）`,
     );
     app.dispose();
   }

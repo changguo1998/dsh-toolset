@@ -371,11 +371,12 @@ export class FakeAdapter implements DshAdapter {
           ...(ev.tone === undefined ? {} : { tone: ev.tone as never }),
         };
       case "turn-end":
+        // 不兜底 reason：缺 reason（旧宿主 / mock）必须保持「未定态」（用户块渲染 `?`）
         return {
           kind: "turn-end",
           turn,
           step,
-          reason: ev.reason ?? "completed",
+          ...(ev.reason === undefined ? {} : { reason: ev.reason }),
         };
       default:
         return undefined;
