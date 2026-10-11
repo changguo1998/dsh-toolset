@@ -48,6 +48,13 @@
 - 裁定 ② 的 50% 占空比随之成立（每 250 ms 交替）；
 - 裁定 ⑤ 只需改 `virtTick()` 的门：`inputStatus === "running" || agents 有运行中` 才推进。
 
+### 第 18 轮实测更正（重要）
+
+`buildFrame` **不直接调用** `renderStatusColumn`：全仓只有一处调用，在 `layout.ts:1400`（三元表达式里，
+位于 `buildFrame` 定义 `:2409` **之前**的另一函数内）。所以相位要**先透到 `:1400` 那个函数**（它手上是否有
+`state` 需先确认，见 `layout.ts:1390-1410`），再传给 `renderStatusColumn` 的可选参数。
+第 18 轮曾把相位直接写在 `renderStatusColumn` 体内的 `state.runVirt.tokens`（编译报 `state` 未定义）→ 已 `git checkout` 回退，仓库保持全绿。
+
 ### 待做（下一轮照此实现，2-3 次编辑）
 
 1. `layout.ts`：Agents 块标题行支持前导符号——新增纯函数 `agentHeadSymbol(agents, phase)`（返回 `{ text: "● " | "  " | "! ", fg }`），`statusBlocks` 调用处传入相位；折叠层级不动它。
