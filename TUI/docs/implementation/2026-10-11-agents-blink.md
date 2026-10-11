@@ -160,3 +160,16 @@
 1. **钉子帧断言**：同一 tick（如 `floor(runTokens / RUN_TOGGLE_TOKENS) = 4`）下，
    `tps = 10` 与 `tps = 0.5` 两条 Agents 行的符号**必须不同**（验证分档真的生效）。
    `RUN_TOGGLE_TOKENS` 未导出 → 断言里用 `runPhase` 反推或用可导出的常量。
+
+**生产者的落点（第 47 轮勘察结论，照此改即可）**：
+
+- 唯一咽喉：`adapter/dsh.ts:1887` 的 `onSessionEvent` —— 它先算 `sid`（**全会话**），`:1891-1896`
+  已按会话记录 `tool/call`（`lastToolBySession`），`:1899` 才做「非活跃会话丢弃」。
+  → 速率累计必须写在 `:1899` **之前**（与 `tool/call` 同处）；写在后面的话子代理事件已被滤掉。
+- 事件带时间：`raw.time`（宿主事件顶层字段；日志实测 `{"type":"tool/result","seq":92,"time":…,"data":{…}}`）。
+- 体量口径：`tool/call` 取 `raw.data.arguments` 的 `length`；`tool/result` 取 `toolResultDetail(raw.data)`
+  的长度（`dsh.ts` 内已有该助手）；两者均按 `length / 4` 折算 token。
+- 窗口：按 `sid` 维护 `{ acc, since, tps }`；相邻样本间隔 ≥ 1s 时结算瞬时速率（`acc / 间隔秒`），
+  与旧值做 0.5 指数加权，然后重置 `acc` 与 `since`。
+- 投影：`:3411` 附近的 `agentRows.map` 里按 `id` 取值填入 `AgentRowInfo.tps`（无样本不填 → 走缺省档）。
+- 清理：与 `:3431` 的 `lastToolBySession` 同步删除已消失会话的窗口。
