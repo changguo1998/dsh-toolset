@@ -3363,3 +3363,41 @@ test("BACKLOG 条目 1：同 tick 下高 tps 与低 tps 的条目行符号必须
     `同 tick 下两行符号应不同（快=${fast} 慢=${slow}）`,
   );
 });
+
+test("BACKLOG 条目 30：Goal 块显示自动续轮进度（当前轮 / 上限）", () => {
+  const base = initialState();
+  const withGoal = (roundsStarted?: number, maxGoalRounds?: number): string => {
+    const state = {
+      ...base,
+      activeSessionId: "s1",
+      goalActivationBySession: { s1: "armed" },
+      goalBySession: {
+        s1: [
+          {
+            operation: "set",
+            roundsStarted,
+            goal: {
+              id: "g1",
+              revision: 1,
+              objective: "示例目标",
+              phase: "active",
+              maxGoalRounds,
+            },
+          },
+        ],
+      },
+    } as never;
+    return buildFrame(state, { cols: 100, rows: 30 })
+      .map((r) => r.segments.map((x) => x.text).join(""))
+      .join("\n");
+  };
+  const both = withGoal(53, 999);
+  assert.ok(both.includes("53/999"), "有轮次与上限时应显示 53/999");
+  const onlyRounds = withGoal(53, undefined);
+  assert.ok(
+    onlyRounds.includes("53") && !onlyRounds.includes("53/"),
+    "缺上限只显轮数（不带斜杠）",
+  );
+  const none = withGoal(undefined, undefined);
+  assert.ok(!/\d+\/\d+/.test(none), "两者皆缺时整段不显");
+});

@@ -23,6 +23,7 @@ import type {
 } from "./state.ts";
 import { hintLine } from "./layout/hints.ts";
 import {
+  activeGoalSnapshot,
   goalActivationDisplay,
   currentProjectCwd,
   historyVisibleRecords,
@@ -922,6 +923,8 @@ function statusBlocks(
   phase: 0 | 1 = 0,
   /** 闪烁节拍（整数，运行期单调递增）：条目行符号按各自 tps 分档取相位 */
   tick = 0,
+  /** 条目 30：goal 自动续轮进度（当前轮 / 上限；两者皆缺 → 整段不显） */
+  goalRounds?: { started?: number; max?: number },
 ): StatusBlock[] {
   const blocks: StatusBlock[] = [];
   const sep = (): StatusRow => ({
@@ -936,6 +939,13 @@ function statusBlocks(
     const current = goalList[0]!;
     const head: StatusRow[] = [];
     if (blocks.length > 0) head.push(sep());
+    // 条目 30：进度文本（` 53/999`；缺上限只显轮数；轮次缺失 → 整段不显）
+    const roundsText =
+      goalRounds?.started === undefined
+        ? undefined
+        : goalRounds.max === undefined
+          ? ` ${goalRounds.started}`
+          : ` ${goalRounds.started}/${goalRounds.max}`;
     const phase = current.goal.phase;
     const phaseColor = GOAL_PHASE_COLOR[phase] ?? "green";
     const phaseSymbol = GOAL_PHASE_SYMBOL[phase];
@@ -957,6 +967,9 @@ function statusBlocks(
                 fg: GOAL_ACTIVATION_COLOR[activation],
               }),
             ]),
+        // 条目 30：自动续轮进度（当前轮 / 上限）——缺上限只显轮数、两者皆缺整段不显；
+        // 用中性灰，不复用相位/开关配色（避免把「进度」误读成状态）
+        ...(roundsText === undefined ? [] : [seg(roundsText, { fg: "gray" })]),
       ],
     });
     const items: StatusBlock["items"] = [
@@ -1175,6 +1188,8 @@ export function renderStatusColumn(
   activation?: GoalActivation,
   /** BACKLOG #1：Agents 块前导符号的闪烁相位来源（虚拟 token 累计；缺省 0 = 静态） */
   runTokens = 0,
+  /** 条目 30：goal 进度（当前轮 / 上限） */
+  goalRounds?: { started?: number; max?: number },
 ): FrameRow[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);
@@ -1191,6 +1206,7 @@ export function renderStatusColumn(
     // 条目 1：条目行符号的闪烁节拍 = 全局相位序号（虚拟 token 积分单调递增，App 的节拍门
     // 已含「有子代理在跑」）→ 各代理再按自己的 tps 分档取相位，相对快慢即不同
     Math.floor(runTokens / RUN_TOGGLE_TOKENS),
+    goalRounds,
   );
   // 状态列折叠策略：无强制行数上限——从 L0 到 L3 依次尝试折叠等级，
   // 首次放下即采用；全部等级用尽仍放不下（goal 大头）→ 整列行级截断兜底
@@ -1445,6 +1461,26 @@ function buildTopRegion(
         goalActivationDisplay(state, state.activeSessionId ?? undefined),
         // BACKLOG #1：Agents 块前导符号的闪烁相位来源（虚拟 token 累计）
         state.runVirt.tokens,
+        // 条目 30：goal 进度（当前轮取 goal 条目、上限取快照——两者本就在 state 上，无需适配层改动）
+        state.activeSessionId
+          ? {
+              ...(state.goalBySession[state.activeSessionId]?.[0]
+                ?.roundsStarted === undefined
+                ? {}
+                : {
+                    started:
+                      state.goalBySession[state.activeSessionId]?.[0]
+                        ?.roundsStarted,
+                  }),
+              ...(activeGoalSnapshot(state, state.activeSessionId)
+                ?.maxGoalRounds === undefined
+                ? {}
+                : {
+                    max: activeGoalSnapshot(state, state.activeSessionId)
+                      ?.maxGoalRounds,
+                  }),
+            }
+          : undefined,
       );
 
   // 边框构图参数：分隔竖线列 = statusColWidth-1（状态列右缘/历史区左缘，
