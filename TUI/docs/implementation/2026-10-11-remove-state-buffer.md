@@ -117,7 +117,34 @@
 - **代价**：diff 覆盖全部缓冲相关测试、不可分批；无「两字段并存」过渡期（而过渡期本身就是故障源）。
 - **不采纳**：新增 `local` 字段（多一次迁移）、双写再切读（双投递 + `nextSeq` 双计，风险最高）、保留只读别名（编译器发现不了漏读点，段 C 还得再扫）。
 
-## 段 C 的体量实测与拆分（2026-10-11 第 63-64 轮，子代理审阅 + 本地测量）
+## 段 C1 完成（2026-10-11 第 76-84 轮，提交 `ef9ae89` / `7da4777` / `2240cb3` / `20e1c22`）
+
+**目标**：把「无 sink 回退」从生产代码剥离——`sectionsOf` 只认 `state.pipeline`，未注入即空节。
+
+**做法（按审阅裁定的变体）**：
+
+1. `replay.ts` 新增**显式助手** `sectionsFromLocal(local)`——把回退实现（含**单槽 memo**，逐行对象身份命中）从 `frame.ts` 原样搬出；注释写明**不要去掉 memo**（节身份与合成序号按对象发号，每帧新建节对象会让发号漂移）。
+1. `frame.ts` 的 `sectionsOf` 改为 `return state.pipeline ?? createSections();`（未注入 = 空节）。
+1. 依赖回退的测试文件**各自带包装**：新增共享助手 `tests/helpers/frameWithLocalReplay.ts`（导出包装版 `buildFrame`，未注入 `pipeline` 时用 `sectionsFromLocal(state.local)` 补一份）——多数文件只需**改一行导入**；`layout4` / `focus-frame` / `layout-horizontal` 用同款**文件内**包装（先做的三个）。
+1. 5 个文件改走**交付流**（`sectionsFromScript`）：`notice-form` / `screen-residue` / `resume-summary` / `activity-verbose` / `layout-horizontal.turnState`。
+
+**依赖面清单（逐文件定向跑出来的，比 grep 猜准）**：
+
+| 类别 | 文件 |
+| --- | --- |
+| 走交付流（5） | `notice-form`、`screen-residue`、`resume-summary`、`activity-verbose`、`layout-horizontal.turnState` |
+| 走包装（5） | `layout4`、`focus-frame`、`layout-horizontal`、`command-panel`、`resume-summary` |
+| 不需要（8） | `app`（真实 App，`pipeline` 恒在）+ `ctrl-t-panes`、`focus-cursor`、`footer-notice`、`pane-titles`、`title-bar`、`status-column`（0 内容用法，定向跑绿） |
+| 属段 C2 | `buildContentRows` 的缓冲字面量用例（随内容类 `BufferKind` 一并处理） |
+
+**过程中的四次教训（都踩过）**：
+
+1. **顺序**：先删回退再迁测试 → 全量立刻红（踩了两次）→ 正确顺序是「**先给所有依赖文件带包装并逐个验证，最后才删那一行**」。
+1. **测量要在同一回合内、且有界**：跨回合的后台全量跑会被回合边界杀掉（文件都没生成）；改用**逐文件定向跑**（每个几秒）→ 才拿到真实清单。
+1. **不要用「bash 打补丁 + trap 还原」**：`job_kill` 直接杀 shell，trap 不执行 → 树被留在半改状态；文件修改一律用编辑工具（临时改动也一样）。
+1. **命令上限 5 分钟且不增长**：全量套件放**后台跑**（前台只跑逐文件定向，单文件 `app.test.ts` 超 5 分钟也改后台）；一条命令里不要跑两次全量。
+
+**验证**：`tsc` 0 错；定向跑全绿（`layout4` 86/86、`focus-frame` 16/16、`layout-horizontal` 9/9、`command-panel` 23/23、`resume-summary` 8/8、其余 7 个文件全绿）；全量后台跑（`20e1c22` 之后）用于最终确认。
 
 **审阅结论（只读 ≤6 次调用，逐条实证）**：
 
