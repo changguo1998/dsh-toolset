@@ -134,6 +134,20 @@
 
 ## 段 B 完成（2026-10-11 第 62 轮，提交 `3566488`）
 
+**第 65 轮精化（重要）**：15 个「依赖回退」的文件里，**只有 9 个真的构造内容**，7 个是零内容用法（只碰本地行 → 到 C2 也不用迁）：
+
+| 文件 | 内容类用法次数 | 处置 |
+| --- | --- | --- |
+| `layout4` | 118 | 主战场（整帧对拍骨架，逐块迁） |
+| `app` | 65 | 多数是 `adapter.push({type:"stream"})`＝**真实交付**（本就走流水线）→ 预计只需少量清理 |
+| `layout-horizontal` | 10 | 迁 |
+| `activity-verbose` / `screen-residue` / `resume-summary` / `focus-frame` | 5 / 4 / 4 / 4 | 迁 |
+| `notice-form` | 3 | 迁（最小，先做） |
+| `title-bar` / `status-column` / `pane-titles` / `footer-notice` / `focus-cursor` / `ctrl-t-panes` / `command-panel` | **0** | **无需迁**（只断言本地行，C2 后依然成立） |
+
+判据 = 在「依赖回退」集合内再统计 `"append"|"user-line"|"thinking"|type: "stream"|kind: "assistant"|kind: "user"|history-resume-ok|"step"` 的出现次数。
+→ C1 的真实工作量落在 **7 个文件**（`layout4` 与 `app` 另计），比原先按 15 个估的要小。
+
 **做法**：仍是一次性改名，但把规则**分类精确**施加（不再用上一轮那种「全局正则 + 按报错行自动修补」的循环）：
 
 | 类 | 规则 | 说明 |
