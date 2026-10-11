@@ -273,11 +273,13 @@ function makeAppAtCwd(cwd: string): {
 } {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
+  const sink: NonNullable<FakeAdapter["mirrorTo"]> = {};
   const app = new TrackedApp({
     renderer,
     adapter,
     notify: { enabled: false },
     runShell: noopShell,
+    pipelineSink: sink,
     status: {
       queries: { time: () => "12:00", cwd: () => cwd, git: () => "main" },
       intervalMs: 60_000,
@@ -286,6 +288,7 @@ function makeAppAtCwd(cwd: string): {
   // 同上：这个工厂带 60 秒 status ticker，不登记收尾会让 runner 跑完不退
   createdApps.push(app);
   app.start();
+  adapter.mirrorTo = sink;
   return { app, renderer, adapter };
 }
 
