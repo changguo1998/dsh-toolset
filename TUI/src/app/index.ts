@@ -458,6 +458,7 @@ export class App {
     }
     this.pipelineLastTurn = lastTurn > 0 ? lastTurn : null;
     this.sectionsSessionId = this.state.activeSessionId;
+    this.groupCount = null; // 重放（BACKLOG #24②）：与 sectionGroupCount 重新对齐
     const pipeline = this.sections;
     this.apply((s) => reduceState(s, { type: "pipeline-state", pipeline }));
   }
@@ -474,6 +475,7 @@ export class App {
     ) {
       // 首次建立 or 会话切换（真实 sid 变化）→ 重建节缓存并归零回合号基线
       this.sections = createSections();
+      this.groupCount = null; // 会话切换（BACKLOG #24②）：窗口基线随会话重建
       this.sectionsSessionId = sid;
       this.pipelineLastTurn = null;
     } else if (this.sectionsSessionId === null && sid !== null) {
@@ -551,6 +553,28 @@ export class App {
     this.bufferTailIndex = index;
   }
 
+  /** 空的滚动报表（scratch 试算用：与 `paneScrollMax` 同形，出帧后即被填满） */
+  private scratchReport(): FrameScrollReport {
+    return {
+      dialogueMaxScroll: 0,
+      activityMaxScroll: 0,
+      dialogueTotal: 0,
+      dialogueCounts: [],
+      dialogueKeys: [],
+      dialogueTopIdx: 0,
+      dialogueViewportH: 0,
+      dialogueUserRows: [],
+    };
+  }
+
+  /** 试算「窗口 = windowGroups」时的可滚动上限（**不出帧、不写 state**；BACKLOG #24①） */
+  private trialDialogueMaxScroll(windowGroups: number): number {
+    const trial = { ...this.state, windowGroups };
+    const scratch = this.scratchReport();
+    buildFrame(trial, this.deps.renderer.getSize(), scratch);
+    return scratch.dialogueMaxScroll;
+  }
+
   /** 当前 state 的可滚动上限：出帧回填过就直接用，否则就地补算一次（同一帧口径） */
   private paneMaxes(): FrameScrollReport {
     if (this.paneScrollMaxState !== this.state) {
@@ -586,8 +610,13 @@ export class App {
       // 物化；一旦装不下（滑动上限 > 0）或已全量物化即停。每轮至少 +WINDOW_GROW_STEP 且
       // 上限 = 总组数，单调收敛，不会自激
       // `next < groups` 即「还有更早的组未物化」——与窗口层的 `dropped` 同源，不另设字段
-      if (r.dialogueMaxScroll === 0 && next < groups) {
+      // **一次到位**（BACKLOG #24①）：用 scratch 报表**循环试算**（不出帧、不写 state），
+      // 直到装不下（上限 > 0）或已全量物化；最后一次才写 state 并重绘一次
+      // —— 此前一帧一步（300 组 × 1 行 + rows=60 要约 19 帧）
+      let maxScroll = r.dialogueMaxScroll;
+      while (maxScroll === 0 && next < groups) {
         next = Math.min(groups, next + WINDOW_GROW_STEP);
+        maxScroll = this.trialDialogueMaxScroll(next);
       }
       if (st.windowGroups !== next) {
         this.state = { ...st, windowGroups: next };
@@ -794,6 +823,7 @@ export class App {
     const sink = this.deps.pipelineSink;
     if (sink !== undefined) {
       this.sections = createSections();
+      this.groupCount = null; // 会话切换（BACKLOG #24②）：窗口基线随会话重建
       this.sectionsSessionId = this.state.activeSessionId;
       sink.current = (delivery) => this.ingestDelivery(delivery);
       const pipeline = this.sections;
