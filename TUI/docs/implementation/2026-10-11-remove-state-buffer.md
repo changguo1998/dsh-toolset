@@ -252,6 +252,22 @@
 
 **删除面收敛（2026-10-11 第 125 轮复核）**：`nextSeq` 全部集中在 `src/app/state.ts`（19 处），测试侧只有 3 个文件各 1 处引用（`state-history-blocks` / `pipeline-frame` / `buffer-retire`）；`trimBufferHead` = 定义（`state.ts:69`）+ 6 个调用点（`:942/:984/:1024/:1046/:1075/:1291`），同在 `state.ts`。即 **C2 的代码改动几乎全在这一个文件内**，测试改动面 4 个文件。
 
+## 段 C1 完成（2026-10-11 第 126 轮）
+
+**验收三项全绿**：`npm test` **1465 / 1465 通过**（0 失败）、`npm run check` 退出码 0、`npm run build` 退出码 0（均 0 条 TS 错误）。
+
+**收尾提交**：`e5f301d`（批量补 sink）、`bdf093b` / `eb25543`（demo 注册 sink + mock 适配器镜像）、`2d0c872`（子代理迁移 9 个测试文件 + 修两处产品缺口）。
+
+**过程中修掉的 3 处产品缺口**（都是 C1 剥离回退后暴露、此前被回退掩盖）：
+
+1. `submitBootstrapKickoff()` 只写缓冲 → 启动自检回显消失（补「双写」投节缓存，提交 `03d2fdf`）。
+1. 符号归一只在事件分支改缓冲文本 → `/symbol-unify` 在真机没有可见效果（改到交付入口 `ingestDelivery` 统一做一次，提交 `d51951a`）。
+1. `paintExitNotice()` 只写缓冲 → 退出清理提示不上屏（补 `deliverLocal({kind:"notice"})`，提交 `2d0c872`）。
+
+**顺带修正**：`rows.ts` 工具结果行折成单行（与旧缓冲口径一致）；`frame.ts` 顶部注释改为与实现一致（只认 `state.pipeline`）。
+
+**遗留（不在段 C1 范围，已记 BACKLOG）**：演示冒烟 36 PASS / 7 FAIL（其中 `tool-meta-diff` 是产品缺口：`BlockDelivery` 的 `tool-result` 无 `meta` 字段 → diff 摘要永不显示）；`layout-cache` / `tool-call-wrap` 等改用的测试包装 `helpers/frameWithLocalReplay.ts` 待段 C2 删除内容类 kind 后一并清理。
+
 ## 收尾
 
 （待补）
