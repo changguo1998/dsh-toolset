@@ -250,6 +250,8 @@
 
 顺序：一次改完（删字段会让全部写点 tsc 报错、删开关会让写点回灌内容，只能一起落）→ `npx tsc --noEmit` 的报错即完整入口清单 → 同步改 4 个测试文件（`buffer-trim` 整体删；`buffer-retire` 保留本地行语义；`state-history-blocks` 先核对覆盖；`pipeline-frame` 保留整帧骨架、`oldState` 改「空 local + 显式节」）→ 文档（`SPEC.md:522-523`、`DESIGN.md:175/698`）。验收断言：`local.every(l => ["notice","shell","tool","plain"].includes(l.kind))` + 反向断言（抽掉 pipeline 后帧内不再出现 assistant 段）。
 
+**删除面收敛（2026-10-11 第 125 轮复核）**：`nextSeq` 全部集中在 `src/app/state.ts`（19 处），测试侧只有 3 个文件各 1 处引用（`state-history-blocks` / `pipeline-frame` / `buffer-retire`）；`trimBufferHead` = 定义（`state.ts:69`）+ 6 个调用点（`:942/:984/:1024/:1046/:1075/:1291`），同在 `state.ts`。即 **C2 的代码改动几乎全在这一个文件内**，测试改动面 4 个文件。
+
 ## 收尾
 
 （待补）
