@@ -43,10 +43,18 @@ function scopeOf(state: AppState): { turn: number; step: number } {
   };
 }
 
-/** `turn-start`（新回合开始；同时刷新作用域回合号） */
-export function withTurnStart(state: AppState, turn?: number): AppState {
+/** `turn-start`（新回合开始；首次登记的时间即分隔线显示时间，后到不覆盖） */
+export function withTurnStart(
+  state: AppState,
+  turn?: number,
+  time?: number,
+): AppState {
   const t = turn ?? scopeOf(state).turn + 1;
-  return withDelivery(state, { kind: "turn-start", turn: t });
+  return withDelivery(state, {
+    kind: "turn-start",
+    turn: t,
+    ...(time === undefined ? {} : { time }),
+  });
 }
 
 /** 用户块（同 `sendUserText` 的交付口径） */

@@ -998,14 +998,19 @@ test("turn-end 无模型正文：不标 final（纯工具/思考回合）", () =
   );
 });
 
-test("appendStream 不修改旧 state 的行对象", () => {
+test("appendStream 不修改旧 state 的行对象（节条目同样不可变）", () => {
+  // 条目 16 段 C2：内容不再有缓冲行形态，旧断言读 `state.local` 的行对象；
+  // 等价不变量搬到节条目上：续写交付不改旧 state 的条目，且新条目是新对象。
   let s = initialState();
   s = withText(s, "原文");
-  const beforeLine = s.local[0];
-  const next = withText(s, "续写");
-  assert.equal(beforeLine?.text, "原文");
-  assert.equal(next.local[0]?.text, "原文续写");
-  assert.notEqual(next.local[0], beforeLine);
+  const beforeItem = sectionItems(s)[0]!;
+  assert.equal(beforeItem.text, "原文");
+  // 同块续写（index 不变）= 旧 `appendStream` 的合入路径
+  const next = withText(s, "续写", "assistant", 0);
+  assert.equal(beforeItem.text, "原文", "旧条目对象未被就地修改");
+  assert.equal(sectionItems(s)[0]!.text, "原文", "旧 state 的节缓存保持不变");
+  assert.equal(sectionItems(next)[0]!.text, "原文续写", "续写合入同一条目");
+  assert.notEqual(sectionItems(next)[0], beforeItem, "新条目是新对象");
 });
 
 test("truncateToWidth: 按显示宽度截断，不切半个 CJK", () => {
@@ -1457,7 +1462,7 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   assert.equal(i2 - i1, 2, "两段正文之间的空行保留");
 });
 
-test("会话流：思考在活动区按视口截断；正文(输出)到达保留、turn-end 后保留至下回合", () => {
+test("会话流：思考在活动区按视口截断；正文(输出)到达保留、turn-end 与下回合仍保留", () => {
   let s = initialState();
   s = withText(s, "t1\nt2\nt3\nt4\nt5\nt6", "reasoning");
   const frame = buildFrame(s, { rows: 16, cols: 60 });
@@ -1467,25 +1472,24 @@ test("会话流：思考在活动区按视口截断；正文(输出)到达保留
   assert.ok(frame.some((line) => rowAnsi(line).includes("t6")));
   assert.ok(!frame.some((line) => rowAnsi(line).includes("t1")));
 
+  // 条目 16 段 C2：思考不再有缓冲行形态，保留判据改读节缓存（旧的 `state.local` 的
+  // `kind === "thinking"` 不再存在）
   s = withText(s, "正文");
-  assert.equal(
-    s.local.some((line) => line.kind === "thinking"),
-    true,
+  assert.ok(
+    itemTexts(s, "reasoning").includes("t1\nt2\nt3\nt4\nt5\nt6"),
     "正文到达后思考仍保留（思考/中间输出属活动区，总结属历史区）",
   );
 
   s = withText(s, "残留思考", "reasoning");
   s = withTurnEnd(s); // 输出结束：不立即清空
-  assert.equal(
-    s.local.some((line) => line.kind === "thinking"),
-    true,
+  assert.ok(
+    itemTexts(s, "reasoning").includes("残留思考"),
     "turn-end 后思考保留显示（输出结束后不立即清空）",
   );
-  s = withTurnStart(s); // 下一轮需要进行输出前：统一清空
-  assert.equal(
-    s.local.some((line) => line.kind === "thinking"),
-    false,
-    "下回合 turn-begin 才清空思考（输出前清空）",
+  s = withTurnStart(s); // 下回合：2026-10-11 裁定取消「新回合清空活动区」→ 仍保留
+  assert.ok(
+    itemTexts(s, "reasoning").includes("残留思考"),
+    "下回合后思考仍保留（内容持续可见）",
   );
 });
 
@@ -1640,10 +1644,11 @@ test("交错布局：多行输入为一块——块内行首左对齐、块宽 =
   s = withUser(s, "短\n中等长度的一行\n最长的一行内容ABCDEFGHIJ");
   s = withText(s, "好");
   s = withTurnEnd(s);
-  // 一次输入 = 一条 buffer 行（显式换行保留在行内，不再拆成多条 user 行）
-  const userLines = s.local.filter((l) => l.kind === "user");
-  assert.equal(userLines.length, 1, "多行输入只占一条 buffer 行");
-  assert.ok(userLines[0]!.text.includes("\n"), "换行保留在行内");
+  // 条目 16 段 C2：一次输入 = 一条**节条目**（显式换行保留在条目文本内，不再拆成多条 user 行；
+  // 旧断言读 `state.local` 的 user 行）
+  const userItems = sectionItems(s).filter((i) => i.source === "user");
+  assert.equal(userItems.length, 1, "多行输入只占一条节条目");
+  assert.ok((userItems[0]!.text ?? "").includes("\n"), "换行保留在条目文本内");
 
   const rows = buildFrame(s, { rows: 24, cols })
     .map((l) => strip(rowAnsi(l)))
@@ -1741,11 +1746,11 @@ test("用户块：长输入折行后状态符号占左侧留白、正文各行�
   );
   const userRows = dialogue.filter((r) => r.kind === "user");
   assert.ok(userRows.length >= 3, `用户块多行: ${userRows.length}`);
+  // 条目 16 段 C2：RowMeta.seq 已删（行身份由 frame.seqRows 按 box 盖），此处只留块归属
   assert.ok(
-    userRows.every((r) => r.seq !== undefined && r.blockId !== undefined),
-    "块内各行元数据（seq/blockId）不丢",
+    userRows.every((r) => r.blockId !== undefined),
+    "块内各行元数据（blockId）不丢",
   );
-  assert.equal(new Set(userRows.map((r) => r.seq)).size, 1, "块内 seq 一致");
 });
 
 test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代码块", () => {

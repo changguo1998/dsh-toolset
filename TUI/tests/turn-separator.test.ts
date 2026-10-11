@@ -1,28 +1,28 @@
-// tests/turn-separator.test.ts — #3：会话区回合分隔线改用 step 线同族格式
+// tests/turn-separator.test.ts — 回合分隔线（#3）
 //
-// 覆盖：① 标签格式化（时间/回合号任一缺失的降级）；② 本地 turn-begin 落线时带时间；
-// ③ 宿主 turn/start 回填回合号（已有号不覆盖、不重复画线、缺号补齐）；
-// ④ 渲染形态 `╌╌ hh:mm:ss ⇆N #M ` + 尾部 `╌` 铺满；⑤ 无时间无回合号时退回纯线。
+// 条目 16 段 C2：分隔线不再落缓冲行——由 `turn-start` 交付驱动，渲染由流水线给出
+// （`rows.ts` 的 TURN_SEPARATOR 行）；显示时间存 `pipeline.turnMeta`（按回合号为键）：
+// 首次登记的时间即显示时间，后到不覆盖；缺时间时后到可补。故本文件改为节 / 帧级断言。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { initialState, reduceState, TURN_SEPARATOR } from "../src/app/state.ts";
+import { buildFrame } from "../src/app/layout.ts";
+import { initialState, type AppState } from "../src/app/state.ts";
 import { turnHeaderLine } from "../src/app/layout/tool-line.ts";
-import { buildBox } from "../src/app/layout/build-box.ts";
-import { fillBoxTree } from "../src/app/layout/fill.ts";
+import { rowText } from "./helpers/rowText.ts";
+import { withTurnStart, withUser } from "./helpers/pipelineContent.ts";
 
 const T0 = new Date(2026, 0, 2, 3, 4, 5).getTime();
 
-/** 渲染对话区（session 区）行文本 */
-function dialogueRows(
-  s: ReturnType<typeof initialState>,
-  width = 40,
-): string[] {
-  const built = buildBox(s.local, {});
-  return fillBoxTree(built.panes.dialogue, 10, width).map((r) =>
-    r.segments.map((g) => g.text).join(""),
-  );
+/** 帧行文本（分隔线的渲染形态在此断言） */
+function frameRows(s: AppState, cols = 60): string[] {
+  return buildFrame(s, { rows: 24, cols }).map((row) => rowText(row));
+}
+
+/** 帧里的回合分隔线行（含 ╌ 的行；状态列 / 边框不含该字符） */
+function separatorRows(s: AppState, cols = 60): string[] {
+  return frameRows(s, cols).filter((r) => r.includes("╌"));
 }
 
 test("#3 turnHeaderLine：时间/回合号任一缺失时降级", () => {
@@ -32,58 +32,48 @@ test("#3 turnHeaderLine：时间/回合号任一缺失时降级", () => {
   assert.equal(turnHeaderLine(undefined, undefined), "");
 });
 
-test("#3 turn-begin 落分隔线带时间；turn-number 回填回合号且不覆盖已有号", () => {
-  let s = initialState();
-  // 空历史不画线（既有口径）——先落一条用户行再看分隔线
-  s = reduceState(s, { type: "user-line", text: "第一问" });
-  s = reduceState(s, { type: "turn-begin", clearActivity: true, time: T0 });
-  const sep = s.local.find((l) => l.kind === "separator");
-  assert.equal(sep?.text, TURN_SEPARATOR);
-  assert.equal(sep?.time, T0);
-  assert.equal(sep?.turn, undefined, "回合号由宿主 turn/start 回填");
-  s = reduceState(s, { type: "turn-number", turn: 164 });
-  assert.equal(s.local.find((l) => l.kind === "separator")?.turn, 164);
-  s = reduceState(s, { type: "turn-number", turn: 999 });
+test("#3 turn-start 登记时间；后到不覆盖已有时间", () => {
+  let s = withUser(initialState(), "第一问");
+  s = withTurnStart(s, 1, T0);
+  assert.equal(s.pipeline?.turnMeta.get("1"), T0, "首次登记的时间即显示时间");
+  s = withTurnStart(s, 1);
+  assert.equal(s.pipeline?.turnMeta.get("1"), T0, "后到的空时间不覆盖已有值");
+  s = withTurnStart(s, 7);
   assert.equal(
-    s.local.find((l) => l.kind === "separator")?.turn,
-    164,
-    "已有号不覆盖",
+    s.pipeline?.turnMeta.get("7"),
+    undefined,
+    "无时间的回合无线头时间",
   );
 });
 
-test("#3 重复 turn-begin 不重复画线，但补齐缺失字段", () => {
-  let s = initialState();
-  s = reduceState(s, { type: "user-line", text: "第一问" });
-  s = reduceState(s, { type: "turn-begin", clearActivity: true, time: T0 });
-  s = reduceState(s, { type: "turn-begin", clearActivity: false, turn: 5 });
-  const seps = s.local.filter((l) => l.kind === "separator");
-  assert.equal(seps.length, 1, "不重复画线");
-  assert.equal(seps[0]?.time, T0);
-  assert.equal(seps[0]?.turn, 5, "缺号时补齐");
+test("#3 重复 turn-start 不重复画线；缺时间时后到可补", () => {
+  let s = withUser(initialState(), "第一问");
+  s = withTurnStart(s, 1);
+  s = withTurnStart(s, 1);
+  assert.equal(separatorRows(s).length, 1, "同一回合只画一条线");
+  assert.equal(s.pipeline?.turnMeta.get("1"), undefined, "仍无时间");
+  s = withTurnStart(s, 1, T0);
+  assert.equal(s.pipeline?.turnMeta.get("1"), T0, "缺时间时后到可补");
 });
 
 test("#3 渲染形态：`╌╌ 03:04:05 ⇆164 ` + 尾部 ╌ 铺满", () => {
-  let s = initialState();
-  s = reduceState(s, { type: "user-line", text: "第一百六十四问" });
-  s = reduceState(s, { type: "turn-begin", clearActivity: true, time: T0 });
-  s = reduceState(s, { type: "turn-number", turn: 164 });
-  const rows = dialogueRows(s);
+  let s = withUser(initialState(), "第一百六十四问");
+  s = withTurnStart(s, 164, T0);
+  const rows = frameRows(s);
   const line = rows.find((r) => r.includes("⇆164"));
   assert.ok(
     line !== undefined,
     `应渲染出带回合号的回合线：${JSON.stringify(rows)}`,
   );
-  assert.match(line, /^╌╌ 03:04:05 ⇆164 /);
-  assert.match(line, /╌$/);
+  assert.match(line, /╌╌ 03:04:05 ⇆164 /);
+  assert.match(line, /╌ *$/);
 });
 
 test("#3 无时间无回合号（旧会话 / mock）时退回纯线", () => {
-  let s = initialState();
-  s = reduceState(s, { type: "user-line", text: "第一问" });
-  s = reduceState(s, { type: "turn-begin", clearActivity: false });
-  const rows = dialogueRows(s);
+  const s = withTurnStart(withUser(initialState(), "第一问"), 1);
+  const rows = frameRows(s);
   assert.ok(
-    rows.some((r) => /^\s*╌+$/.test(r)),
+    rows.some((r) => /╌+ *$/.test(r)),
     `应退回纯 ╌ 线：${JSON.stringify(rows)}`,
   );
 });
