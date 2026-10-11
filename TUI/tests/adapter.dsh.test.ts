@@ -6358,7 +6358,20 @@ test("条目 27：surface 缺 turn/end（真机形态）→ 从 readSession 只�
       data: { turn: 1, reason: { kind: "completed" } },
     },
   ];
-  // surface fold：只有正文类事件，没有 turn/start 与 turn/end
+  // surface fold：只有正文类事件，没有 turn/start 与 turn/end（两个回合，验归位）
+  full.push(
+    {
+      type: "user/message",
+      seq: 5,
+      data: { id: "u2", content: [{ type: "text", text: "问题二" }] },
+    },
+    { type: "turn/start", seq: 6, data: { turn: 2 } },
+    {
+      type: "turn/end",
+      seq: 7,
+      data: { turn: 2, reason: { kind: "aborted" } },
+    },
+  );
   const surface = full.filter(
     (e) => e.type !== "turn/end" && e.type !== "turn/start",
   );
@@ -6371,7 +6384,10 @@ test("条目 27：surface 缺 turn/end（真机形态）→ 从 readSession 只�
     view.messages
       .filter((m) => m.role === "user")
       .map((m) => [m.turn ?? "-", m.status ?? "-"]),
-    [[1, "success"]],
-    "surface 无 turn/end → 从日志并入后用户块才有终态",
+    [
+      [1, "success"],
+      [2, "aborted"],
+    ],
+    "surface 无回合边界 → 从日志并入并**按 seq 归位**后，用户块各自拿到正确回合与终态",
   );
 });

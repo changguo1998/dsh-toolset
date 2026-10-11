@@ -1474,13 +1474,18 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
               .map((e) => e.seq)
               .filter((seq): seq is number => typeof seq === "number"),
           );
+          // **必须按 `seq` 归位**：追加到末尾会让边界事件全部排在正文之后 →
+          // 处理用户消息时 `curTurn` 还没推进，最后回填把它们全判成同一个回合
+          // （真机实测：51 个用户块全变 turn 1）
+          const seqOf = (e: Record<string, unknown>): number =>
+            typeof e.seq === "number" ? e.seq : Number.MAX_SAFE_INTEGER;
           surfaceEvents = [
             ...surfaceEvents,
             ...full.events.filter(
               (e) =>
                 boundary(e) && !(typeof e.seq === "number" && seen.has(e.seq)),
             ),
-          ];
+          ].sort((a, b) => seqOf(a) - seqOf(b));
         } catch {
           /* 日志不可用：保持只有 surface 事件（与旧行为一致） */
         }
