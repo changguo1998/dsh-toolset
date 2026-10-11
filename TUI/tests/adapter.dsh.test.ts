@@ -6435,3 +6435,35 @@ test("BACKLOG #20：回合号不后退（长工具的迟到结果带回旧号也
   for (let i = 1; i < turns.length; i++)
     assert.ok(turns[i]! >= turns[i - 1]!, `回合号不得后退：${turns.join(",")}`);
 });
+
+test("BACKLOG #23①：辅助行还原（llm/retry → notice 行；llm/retry-started → tool 行）", () => {
+  const msgs = normalizeHistoryMessages([
+    { type: "turn/start", seq: 1, data: { turn: 1 } },
+    {
+      type: "llm/retry-started",
+      seq: 2,
+      data: { turn: 1, retry: 2 },
+    },
+    {
+      type: "llm/retry",
+      seq: 3,
+      data: {
+        turn: 1,
+        retry: 2,
+        maxRetries: 3,
+        delayMs: 1500,
+        failure: { code: "ECONNRESET", message: "连接被重置" },
+      },
+    },
+  ]);
+  const retryNotice = msgs.find((m) => m.role === "notice");
+  assert.ok(
+    retryNotice?.text.includes("重试 2/3 (1.5s): ECONNRESET 连接被重置"),
+    `retry 应还原为 notice 行，实际：${retryNotice?.text ?? "(无)"}`,
+  );
+  const started = msgs.find((m) => m.role === "tool");
+  assert.ok(
+    started !== undefined && started.text.includes("↻"),
+    `retry-started 应还原为 ↻ 灰行，实际：${started?.text ?? "(无)"}`,
+  );
+});

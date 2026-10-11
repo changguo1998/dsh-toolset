@@ -93,6 +93,7 @@ import {
   stepHeaderLine,
   toolCallLine,
   toolResultLine,
+  retryStartedLine,
 } from "../layout/tool-line.ts";
 import { rmSync } from "node:fs";
 import { locateSessionDir, sessionRoots } from "./session-paths.ts";
@@ -450,6 +451,30 @@ export function normalizeHistoryMessages(
         pushText("user", extractTextBlocks(data.content));
         if (awaitingTurnStart) pendingUsers.push(out.length - 1);
       }
+    } else if (e.type === "llm/retry") {
+      // 辅助行还原（BACKLOG #23①）：live 口径是 notice（`state.ts` 的 retry toast），
+      // 文本形制与 live 完全一致
+      const r = data as {
+        retry?: number;
+        maxRetries?: number;
+        delayMs?: number;
+        failure?: { code?: string; message?: string };
+      };
+      out.push({
+        role: "notice",
+        text:
+          `重试 ${r.retry ?? 0}/${r.maxRetries ?? 0} (${((r.delayMs ?? 0) / 1000).toFixed(1)}s): ${r.failure?.code ?? ""}` +
+          (r.failure?.message ? " " + r.failure.message : ""),
+        ...(curTurn === undefined ? {} : { turn: curTurn }),
+      });
+    } else if (e.type === "llm/retry-started") {
+      // 启动行（↻ 灰行）：live 口径是 tool 行（`appendToolLine(..., "log")`）
+      const r = data as { retry?: number };
+      out.push({
+        role: "tool",
+        text: retryStartedLine(r.retry ?? 0),
+        ...(curTurn === undefined ? {} : { turn: curTurn }),
+      });
     } else if (e.type === "assistant/message") {
       const msg = data.message as Record<string, unknown> | undefined;
       pushText("assistant", extractTextBlocks(msg?.content));
