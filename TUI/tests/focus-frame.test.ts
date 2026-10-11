@@ -14,7 +14,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildFrame } from "../src/app/layout.ts";
+import { buildFrame as buildFrameRaw } from "../src/app/layout.ts";
+import { sectionsFromLocal } from "../src/app/layout/pipeline/replay.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import type { AppState } from "../src/app/state.ts";
 import { rowAnsi } from "./helpers/rowText.ts";
@@ -31,6 +32,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturePath = join(__dirname, "fixtures", "focus-frame-legacy.json");
 const FIXTURE: Fixture = JSON.parse(readFileSync(fixturePath, "utf-8"));
 const TF = { rows: 24 } as const;
+
+/**
+ * 条目 16 段 C1：本文件用 `reduceState` 造缓冲行再直接出帧；生产侧的「无 sink 回退」剥离后
+ * 在这里显式补一节缓存（助手带单槽 memo，行为与剥离前逐字等价）。段 C2 删内容类 `BufferKind`
+ * 时本包装失效 → 那时的用例改成交付流。
+ */
+const buildFrame = (...args: Parameters<typeof buildFrameRaw>) => {
+  const state = args[0];
+  if (state.pipeline !== undefined) return buildFrameRaw(...args);
+  return buildFrameRaw(
+    { ...state, pipeline: sectionsFromLocal(state.local) },
+    ...(args.slice(1) as [Parameters<typeof buildFrameRaw>[1]]),
+  );
+};
 
 function baseState(): AppState {
   let s = initialState();

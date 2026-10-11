@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildFrame,
+  buildFrame as buildFrameRaw,
   focusFrameColor,
   metricsFor,
   renderStatusLine,
@@ -47,6 +47,21 @@ import {
   sectionGroupCount,
   sectionsOf,
 } from "../src/app/layout/pipeline/frame.ts";
+import { sectionsFromLocal } from "../src/app/layout/pipeline/replay.ts";
+
+/**
+ * 条目 16 段 C1：本文件大量用例用 `reduceState` 造缓冲行再直接出帧。生产侧的「无 sink 回退」
+ * 已按计划剥离（`sectionsOf` 只认 `pipeline`），故在这里**显式**补一节缓存——助手带单槽 memo，
+ * 行为与剥离前逐字等价。段 C2 删内容类 `BufferKind` 时本包装自然失效，那些用例按批次改成交付流。
+ */
+const buildFrame = (...args: Parameters<typeof buildFrameRaw>) => {
+  const state = args[0];
+  if (state.pipeline !== undefined) return buildFrameRaw(...args);
+  return buildFrameRaw(
+    { ...state, pipeline: sectionsFromLocal(state.local) },
+    ...(args.slice(1) as [Parameters<typeof buildFrameRaw>[1]]),
+  );
+};
 
 /** P6：step 分组头的固定时间戳（本地时间 03:04:05），使分组头文本可精确断言 */
 const STEP_TIME = new Date(2026, 0, 2, 3, 4, 5).getTime();
@@ -2830,7 +2845,7 @@ function appScrollDialogue(
   let r = emptyReportForTest();
   buildFrame(s, size, r);
   for (let guard = 0; delta > 0 && guard < 4; guard++) {
-    if (s.windowGroups >= sectionGroupCount(sectionsOf(s))) break;
+    if (s.windowGroups >= sectionGroupCount(sectionsFromLocal(s.local))) break;
     const margin = Math.max(1, Math.floor(r.dialogueViewportH / 2));
     const needMore = r.dialogueTopIdx - delta < 0;
     const nearTop = r.dialogueTopIdx <= margin;
