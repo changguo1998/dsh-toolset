@@ -1910,6 +1910,15 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     // 子代理会话的事件只用于状态列，不进本会话 buffer）
     // 状态列 Agents 块：速率累计必须在下面的「非活跃会话丢弃」**之前**（子代理事件只在
     // 这里可见；写到后面会被 `sid !== activeSessionId` 滤掉）
+    // 文本流也要计入（子代理大量输出走 assistant/message；此前只统计工具事件 → 文本型子代理
+    // 永远测不到速率、停在缺省档）。载荷形状不定 → 用其字符串长度作体量代理（4 字符 ≈ 1 token）
+    if (raw.type === "assistant/message") {
+      recordAgentRate(
+        sid,
+        JSON.stringify(raw.data ?? "").length,
+        typeof raw.time === "number" ? raw.time : 0,
+      );
+    }
     if (raw.type === "tool/call" || raw.type === "tool/result") {
       const chars =
         raw.type === "tool/call"

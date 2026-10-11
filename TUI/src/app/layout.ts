@@ -867,9 +867,10 @@ function jobItemRows(job: JobInfo): StatusRow[] {
  * 色义：**运行中黄 / 空闲灰 / 一切异常态红**（诊断条目、枚举失败；附宿主给出的 reason 短因）。
  * 纯只读展示：不吃按键、不提供中断入口（中断仍走 `/agents` 面板）。
  */
-/** 闪烁节拍分档：tps 越高档位越小（1 = 每个 tick 翻转一次，最快）——条目 1「速度与该代理 tps 相关」 */
+/** 闪烁节拍分档：档 1 = 每个 tick 翻转一次（与主会话符号同频）；档越大越慢——条目 1「速度与该代理 tps 相关」 */
 function agentBlinkBucket(tps: number | undefined): number {
-  if (tps === undefined) return 2;
+  // 缺省 = 1：**与主会话同频**（用户口径：机制复用就该同频）；只有测到较低速率时才放慢
+  if (tps === undefined) return 1;
   if (tps >= 8) return 1;
   if (tps >= 3) return 2;
   if (tps >= 1) return 3;
