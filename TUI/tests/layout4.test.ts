@@ -61,6 +61,7 @@ import type {
 } from "../src/app/state.ts";
 import type { FrameRow } from "../src/renderer/screen.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
+import { sectionsFromBuffer } from "../src/app/layout/pipeline/replay.ts";
 
 /** 去 ANSI 取行文本 */
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
@@ -3287,4 +3288,22 @@ test("BACKLOG #1：Agents 块标题前导符号进帧（运行 `● ` / 空闲�
     frameOf("diagnostic").includes("! Agents 0/1"),
     "异常：常亮红 ! 前导（优先于运行；计数仍按「运行中/总数」= 0/1）",
   );
+});
+
+test("BACKLOG #20：恢复出的分隔线显示宿主真实 ⇆N（42/43 不被重编号成 1/2）", () => {
+  // 恢复路径：宿主回合号在分隔线行上（surfaceToBuffer 的口径）
+  const rows = [
+    { text: "第一行", kind: "user", turn: 42 },
+    { text: TURN_SEPARATOR, kind: "separator", turn: 43, time: STEP_TIME },
+    { text: "第二行", kind: "user", turn: 43 },
+  ] as never;
+  const s = {
+    ...initialState(),
+    pipeline: sectionsFromBuffer(rows, { history: true }),
+  };
+  const frame = buildFrame(s, { cols: 100, rows: 30 })
+    .map((r) => r.segments.map((x) => x.text).join(""))
+    .join("\n");
+  assert.ok(frame.includes("⇆43"), "分隔线应显示宿主回合号 43");
+  assert.ok(!frame.includes("⇆1 "), "不应被重编号成 1（本地序数）");
 });
