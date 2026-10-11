@@ -85,7 +85,39 @@
 
 （待补）
 
-## 段 B 预研（2026-10-11 第 14 轮，只读调研，未改代码）
+## 段 B 实现前审阅（2026-10-11，子代理，只读 ≤5 次工具调用）
+
+**审阅结论：原计划（新增 `state.local` 字段、分两轮落地）不成立，改用「一次性改名」。**
+
+### 一、原预研清单不完整（审阅补正）
+
+| 项 | 原文档 | 审阅补正 |
+| --- | --- | --- |
+| 写侧复制点 | 只列 6 处 | 漏 `:1253`（`appendTurnSeparator`）、`:1299`（`numberTurnSeparator` 的 `slice`）、`:1480-1485`（`dropContentWrites` 的 filter）、`:1863`/`:1892`（`history-restore` / `history-resume` 整体替换 `rows → buffer`）；且 `:1167`/`:1202`/`:1221` 是**引用型**写点（真正改行时才复制） |
+| 分支口径 | 「约 10 个内容分支」 | 偏粗：notice 三个独立函数（`:873`/`:965`/`:1005`）、shell `:1031`、step 头 `:1067`、retry `:1865`/`:1894` 内联 |
+| 语义承载点 | 未提 | `:1253-1261` 与 `:1481` 按 kind 清 **notice/tool** 本地行（旧口径「否则 toast 一直挂着上一回合的提示」）→ 搬移后这两处 filter 必须跟着改源 |
+| 裁剪不对称 | 「`nextSeq`/裁剪/上限一起动」 | 上限（`MAX_BUFFER_LINES` 2000）**只能裁内容侧**，否则本地行先被挤掉（本地行应长留） |
+| 读侧 | 只列 3 处 | 漏 `index.ts:524`（`deliverBufferTail` 本体）、`index.ts:1703`（`tailBefore`）、`layout.ts:2417`（footer notice 折叠**直接遍历 buffer**）、`layout/pipeline/frame.ts:239-248`（按缓冲身份 memo 重放）、`layout.ts:203-209`（`sectionGroupCount` 按 kind/final 判据）、`build-box.ts` 的 notice/shell 分支 |
+| 不必改 | — | 会话状态落盘走快照、`/copy` / `/council` / 问答来源走节模型（只有测试/嵌入经 `sectionsOf` 回退碰缓冲） |
+
+### 二、原「最小落地顺序」不成立
+
+1. **① 单独落地 = 复现故障**：`deliverBufferTail` 读 `state.buffer`，本地行一旦不写进去，桥接的那批事件（notice / subagent / hook / feedback / retry / compaction）立刻投不出块 —— 即注释里记过的「回合区不显示警告」。
+   → **① 与 ② 必须同一个提交**。
+1. **「回退处合并读 `local` + 旧 `buffer` 残留」是伪需求**：① 之后 `buffer` 恒空。
+1. **真正需要「合并」的是按 `seq` 归并**：`sectionsOf` 回退若分居两数组，`[...local, ...buffer]` 会打乱行序（`frame.ts:247` 重放与 `sections.ts` 都依赖行序）→ 必须按 `seq` 排序合并。
+1. 中间态会读空的点：`layout.ts:2417` footer、`deliverBufferTail`、`frame.ts` 重放、`build-box` 的 notice/shell 渲染、`sectionGroupCount`（`layout.ts:203`）、`appendTurnSeparator:1268` 的 `buffer.length === 0` 早退。
+1. 双投递风险：`index.ts:3281/3287` 一带先 `reduceState(notice)` 落缓冲、再 `deliverLocal` 投块 → 搬移时必须明确「本地行只走一条交付路径」，否则双行。
+1. 测试影响面比原清单大：除 6 个缓冲契约用例，还有 `build-box` / footer notice 折叠 / `state` 的 notice/shell 断言 / `layout4` 剩余动作。
+
+### 三、裁定：一次性改名（推荐方案）
+
+- **做法**：`state.buffer` → `local`（保留 `BufferLine` 类型名、`nextSeq` 共享），写侧 + 读侧 + 测试在**同一个提交**改完，用 `tsc --noEmit` 当遗漏检测器。
+- **理由**：工作量与「新增字段」相同，但**改名会让每个漏改点变成编译错误**；新增字段的漏改只会静默变成运行时问题（读空、投不出块）—— 正是本任务最易踩的坑。
+- **代价**：diff 覆盖全部缓冲相关测试、不可分批；无「两字段并存」过渡期（而过渡期本身就是故障源）。
+- **不采纳**：新增 `local` 字段（多一次迁移）、双写再切读（双投递 + `nextSeq` 双计，风险最高）、保留只读别名（编译器发现不了漏读点，段 C 还得再扫）。
+
+## 原段 B 预研（2026-10-11 第 14 轮，保留供对照；结论已被上节取代）
 
 **写侧**（`src/app/state.ts`）：UI 本地行由这些分支写入缓冲——`notice` / `shell` / `tool-call` / `tool-result` / `command` / `feedback` / `hook` / `subagent` / `step` / `retry` / `compaction*`（约 10 个内容分支）；实现形态是**写时复制**：`const buffer = state.buffer.length ? [...state.buffer] : [];`（实测出现在 `state.ts:893 / 976 / 1013 / 1038 / 1067 / 1167` 等，至少 6 处），随后 `nextSeq` / `trimBufferHead` / 行数上限一起动。
 
