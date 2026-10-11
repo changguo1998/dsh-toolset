@@ -5,6 +5,7 @@
 // 关键不变量：增量帧不得出现 ESC[2J（清屏）。
 
 import { test } from "node:test";
+import { withTurnStart } from "./helpers/pipelineContent.ts";
 import assert from "node:assert/strict";
 import { createRenderer, type FrameRow } from "../src/renderer/index.ts";
 import { buildFrame, type FrameBuildOutput } from "../src/app/layout.ts";
@@ -238,7 +239,7 @@ test("区间 diff：真实帧里状态列与活动区同 tick 变化只重写变
   const size = { rows: 24, cols: 80 };
   const { chunks, renderer } = collector();
   let s = initialState();
-  s = reduceState(s, { type: "turn-begin" });
+  s = withTurnStart(s);
   // 条目 16 段 A：底稿不再写 buffer，改走交付流（8 行 = 一条含换行的正文块）
   s = {
     ...s,

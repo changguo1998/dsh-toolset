@@ -10,6 +10,7 @@
 // 七个面板场景（approval/question/picker/statusPanel/jobsPanel/history/completion）。
 
 import { test } from "node:test";
+import { withText, withTurnEnd, withUser } from "./helpers/pipelineContent.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -53,11 +54,11 @@ function baseState(): AppState {
     type: "status",
     status: { time: "12:00:00", cwd: "/home/u", git: "main" },
   });
-  s = reduceState(s, { type: "user-line", text: "第一行" });
-  s = reduceState(s, { type: "append", text: "中间输出一段" });
-  s = reduceState(s, { type: "thinking", text: "思考过程" });
-  s = reduceState(s, { type: "turn-end" });
-  s = reduceState(s, { type: "append", text: "最终总结回复" });
+  s = withUser(s, "第一行");
+  s = withText(s, "中间输出一段");
+  s = withText(s, "思考过程", "reasoning");
+  s = withTurnEnd(s);
+  s = withText(s, "最终总结回复");
   return s;
 }
 

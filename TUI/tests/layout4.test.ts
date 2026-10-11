@@ -781,47 +781,81 @@ test("buildFrame: 审批弹窗时交互区高度与输入态一致（不上下�
   assert.equal(frame.length, 24);
 });
 
-test("turn-begin: 回合开始时在历史末尾追加分隔线；流式内容仍实时合入 buffer", () => {
+test("turn-begin: 回合开始时在会话区画分隔线；流式续写合入同一条节条目", () => {
+  // 条目 16 段 C2：内容不落 `state.local`——分隔线现在是交付驱动的 pane 项（`turn-start`），
+  // 非 final 的中间输出也不再被 turn-begin 从缓冲里清掉，而是留在回合区。
   let s = initialState();
-  // 历史内容（用户行保留）；过程 assistant（非 final）在 turn-begin 时被清空
+  // 历史内容（用户行保留）；过程 assistant（非 final）在回合区
   s = withUser(s, "q");
   s = withText(s, "中间输出");
-  s = withTurnStart(s);
-  assert.deepEqual(
-    (({ text, kind }) => ({ text, kind }))(s.local[s.local.length - 1]!),
-    { text: TURN_SEPARATOR, kind: "separator" },
-  );
   assert.equal(
-    s.local.some((l) => l.kind === "assistant"),
-    false,
-    "turn-begin 清空非 final 中间输出（仅历史 user + 分隔线保留）",
+    turnSepRows(buildFrame(s, SIZE), SIZE.cols),
+    0,
+    "turn-begin 前无回合分隔线",
   );
-  // 流式仍实时合入
-  s = withText(s, " more");
-  assert.equal(s.local[s.local.length - 1]?.text, " more");
+  s = withTurnStart(s);
+  assert.equal(
+    turnSepRows(buildFrame(s, SIZE), SIZE.cols),
+    1,
+    "turn-begin 在会话区画出该回合的分隔线",
+  );
+  // 流式仍实时合入：同一块的后到片段并进同一条节条目（不新起一条 / 一行）
+  s = withText(s, " more", "assistant", 0);
+  assert.deepEqual(
+    itemTexts(s, "assistant"),
+    ["中间输出 more"],
+    "流式内容仍实时合入同一条节条目",
+  );
+  // 中间输出所属节未打 final → 不归会话区（历史区），仍在回合区
+  assert.equal(
+    allSectionsOf(s).some((sec) => sec.final === true),
+    false,
+    "非 final 中间输出不进历史区",
+  );
 });
 
-test("turn-begin: 空 buffer 不画孤立分隔线；重复 begin 不重复；turn-end 不画线", () => {
+test("turn-begin: 同一回合重复交付只画一条分隔线；turn-end 不画线、末段正文打 final", () => {
+  // 条目 16 段 C2：分隔线 / final 都不再有缓冲行形态，旧的 `state.local` 断言改为
+  // 帧级（分隔线行数）+ 节级（final 标记）断言。原用例里「首回合空历史不画孤立分隔线」
+  // 一条属 App 层判据（src/app/index.ts 的 drawsSeparator），已由
+  // tests/app.test.ts「首回合空历史不画孤立线」覆盖，此处不再重复。
   let s = initialState();
-  s = withTurnStart(s);
-  assert.equal(s.local.length, 0);
-  s = withUser(s, "q");
+  s = withTurnStart(s, 1);
+  s = withUser(s, "q", 1);
   s = withText(s, "a");
   s = withTurnEnd(s);
-  assert.equal(
-    s.local.filter((l) => l.kind === "assistant" && l.final).length,
-    1,
+  assert.ok(
+    allSectionsOf(s).some(
+      (sec) =>
+        sec.final === true &&
+        sec.items.some((item) => item.source === "assistant"),
+    ),
     "turn-end 把最后一段 assistant 标为 final 总结",
   );
-  s = withTurnStart(s);
-  let seps = s.local.filter((l) => l.kind === "separator").length;
-  assert.equal(seps, 1, "turn-end 不增线，仅 turn-begin 画一条");
-  s = withTurnStart(s);
-  seps = s.local.filter((l) => l.kind === "separator").length;
-  assert.equal(seps, 1, "重复 begin 只保留一条分隔线");
+  assert.equal(
+    turnSepRows(buildFrame(s, SIZE), SIZE.cols),
+    1,
+    "turn-end 不画线，仅 turn-begin 画一条",
+  );
+  s = withTurnStart(s, 1); // 同号重复交付
+  assert.equal(
+    turnSepRows(buildFrame(s, SIZE), SIZE.cols),
+    1,
+    "重复 begin 只保留一条分隔线",
+  );
+  s = withTurnStart(s, 2); // 对照：新回合（新号）
+  assert.equal(
+    turnSepRows(buildFrame(s, SIZE), SIZE.cols),
+    2,
+    "新回合追加一条分隔线",
+  );
 });
 
-test("turn-begin: 新回合清空旧活动区瞬态（工具/notice），仅保留对话与分隔线", () => {
+test("turn-begin: 新回合不再清空活动区（内容持续可见），仅画分隔线并归零滚动", () => {
+  // 条目 16 段 C2：内容都在节缓存里、`state.local` 只剩 UI 本地行，旧断言数的是缓冲行；
+  // 且「新回合清空活动区瞬态」语义已由用户 2026-10-11 裁定**取消**（内容持续可见）。
+  // 端到端口径见 tests/app.test.ts「活动区生命周期：新回合不再清空上一回合内容」，
+  // UI 本地行的清理见 tests/buffer-retire.test.ts「用户输入开启的回合：清掉活动区提示行」。
   let s = initialState();
   s = reduceState(s, { type: "activity-scroll", delta: 5 }); // 先上滚活动区
   assert.equal(s.activityScroll, 5, "前置：活动区已上滚 5 行");
@@ -831,85 +865,124 @@ test("turn-begin: 新回合清空旧活动区瞬态（工具/notice），仅保�
   s = withToolResult(s, true, "ok 1");
   s = reduceState(s, { type: "notice", text: "theme: dark" });
   s = withTurnEnd(s); // 回合结束：思考保留(下回合 begin 才清)，工具/notice 保留
-  const transient1 = s.local.filter(
-    (l) => l.kind === "tool" || l.kind === "notice",
+  const textOf = (st: AppState): string =>
+    buildFrame(st, SIZE)
+      .map((l) => rowText(l))
+      .join("\n");
+  const before = textOf(s);
+  assert.ok(
+    before.includes("bash cmd 1") && before.includes("✓ ok 1"),
+    "turn-end 后工具(*++)与 notice 仍可见",
   );
-  assert.ok(transient1.length === 3, "turn-end 后工具(*++)与 notice 仍可见");
-  s = withTurnStart(s); // 新回合：旧活动结果被冲掉
-  const kinds = s.local.map((l) => l.kind);
-  assert.ok(!kinds.includes("tool"), "新回合清空旧工具行");
-  assert.ok(!kinds.includes("notice"), "新回合清空旧 notice");
-  assert.ok(!kinds.includes("thinking"), "新回合无思考残留");
-  assert.ok(kinds.includes("user"), "对话保留");
-  assert.equal(
-    kinds.filter((k) => k === "separator").length,
-    1,
-    "新回合带一条分隔线",
+  assert.ok(before.includes("思考 1"), "turn-end 后思考仍可见");
+  assert.ok(
+    s.local.some((l) => l.kind === "notice"),
+    "notice 是 UI 本地行（不进节缓存），turn-end 后仍在 state.local",
   );
-  // 活动区整区被清空（每回合瞬态）：滚动偏移一并归零，新回合回到跟随最新——
-  // 不归零则旧偏移超出新内容可视上限，↓ 需连续按到偏移耗尽才恢复（“向下没反应”死区）
+  s = userTurnBegin(s); // 新回合
+  const after = textOf(s);
+  assert.ok(
+    after.includes("bash cmd 1") && after.includes("✓ ok 1"),
+    "新回合不再清空旧工具行（内容持续可见）",
+  );
+  assert.ok(after.includes("思考 1"), "新回合不再清空思考（内容持续可见）");
+  assert.ok(after.includes("问题 1"), "对话保留");
+  assert.equal(turnSepRows(buildFrame(s, SIZE), SIZE.cols), 1, "新回合带一条分隔线");
+  assert.ok(
+    !s.local.some((l) => l.kind === "notice"),
+    "新回合清掉上一回合的 UI 本地提示行（toast 不挂上一回合的提示）",
+  );
+  // 滚动偏移仍归零：新回合回到跟随最新——不归零则旧偏移超出可视上限，
+  // ↓ 需连续按到偏移耗尽才恢复（“向下没反应”死区）
   assert.equal(s.activityScroll, 0, "turn-begin 后 activityScroll 归零");
 });
 
 test("activityScroll 归零：turn-begin 空 buffer/已有分隔线路径 + clear-buffer", () => {
   // 空 buffer 路径：仍应归零（万一旧 state 残留偏移）
   let s = reduceState(initialState(), { type: "activity-scroll", delta: 3 });
-  s = withTurnStart(s);
+  s = reduceState(s, { type: "turn-begin" });
   assert.equal(s.activityScroll, 0, "空 buffer turn-begin 也归零");
-  // 末行已是分隔线路径（上回合转场已画过线）：不重复画线但仍归零
+  // 首回合转场已画过线（turn-start 交付过）：重复 begin 不重复画线但仍归零
+  // （条目 16 段 C2：分隔线不再落缓冲，「缓冲末行已是分隔线」的旧判据已不存在，
+  //  等价场景改为「同一回合重复交付只画一条线 + 仍归零」）
   s = reduceState(initialState(), { type: "activity-scroll", delta: 4 });
   s = withUser(s, "q");
-  s = withTurnStart(s); // 首回合转场画分隔线
+  s = userTurnBegin(s, 1); // 首回合转场画分隔线（生产口径：action 归零 + 交付画线）
+  assert.equal(
+    turnSepRows(buildFrame(s, SIZE), SIZE.cols),
+    1,
+    "前置：首回合转场画出一条分隔线",
+  );
   s = reduceState(s, { type: "activity-scroll", delta: 2 });
   assert.equal(s.activityScroll, 2, "前置：再次上滚 2 行");
-  s = withTurnStart(s); // 末行已分隔线：不追加且归零
-  const separators = s.local.filter((l) => l.kind === "separator").length;
-  assert.equal(separators, 1, "末行已分隔线时不重复追加");
+  s = reduceState(s, { type: "turn-begin" }); // 已画过线的回合再 begin
   assert.equal(s.activityScroll, 0, "已有分隔线路径同样归零");
   // /cls 清屏：活动区随之清空，偏移归零
   s = reduceState(s, { type: "activity-scroll", delta: 9 });
   s = reduceState(s, { type: "clear-buffer" });
   assert.equal(s.local.length, 0, "清屏后 buffer 空");
+  assert.equal(
+    buildFrame(s, SIZE)
+      .map((l) => rowText(l))
+      .join("\n")
+      .includes("q"),
+    false,
+    "清屏后节缓存同源清空（旧内容不再复现）",
+  );
   assert.equal(s.activityScroll, 0, "clear-buffer 后 activityScroll 归零");
 });
 
-test("turn-end 标 final：中间输出留在活动区、总结进历史区；幂等与跨回合", () => {
-  // 回合内：思考 → 中间输出 → 工具 → 总结
+test("turn-end 标 final：中间输出留活动区、总结进历史区；幂等与跨回合", () => {
+  // 条目 16 段 C2：final 是**节**标记（旧路径是缓冲行的 `final` 字段），旧断言读 `state.local`。
+  // 归属口径（panes 层）：final 节的 assistant 正文进会话区，非 final 节（思考 / 工具 / 中间
+  // 输出）留回合区——故中间输出与总结用 step 边界分开（同节内则整节一起进会话区）。
   let s = initialState();
   s = withUser(s, "q");
   s = withText(s, "思考", "reasoning");
   s = withText(s, "中间回复 1");
   s = withText(s, "中间回复 2");
   s = withToolCall(s, "bash", "ls");
+  s = withStep(s, 2);
   s = withText(s, "最终总结");
-  // turn-end 前：所有 assistant 均非 final
+  // turn-end 前：无 final 节（中间输出在活动区）
   assert.equal(
-    s.local.filter((l) => l.kind === "assistant" && l.final).length,
+    allSectionsOf(s).filter((sec) => sec.final === true).length,
     0,
-    "回合进行中无 final 行（中间输出在活动区）",
+    "回合进行中无 final 节（中间输出在活动区）",
   );
   s = withTurnEnd(s);
-  const finals = s.local.filter((l) => l.final);
-  assert.equal(finals.length, 1, "仅最后一段 assistant 标 final");
-  assert.equal(finals[0]!.text, "最终总结");
-  // 幂等：再次 turn-end 不新增 final
-  s = withTurnEnd(s);
-  assert.equal(s.local.filter((l) => l.final).length, 1, "重复 turn-end 幂等");
-  // 新回合 turn-begin：清掉非 final 中间输出/思考/工具，保留 user + final 总结
-  s = withTurnStart(s);
-  const kinds = s.local.map((l) => l.kind);
-  assert.ok(!kinds.includes("thinking"), "思考被清");
-  assert.ok(!kinds.includes("tool"), "工具被清");
+  const finals = allSectionsOf(s).filter((sec) => sec.final === true);
+  assert.equal(finals.length, 1, "仅最后一段 assistant 所在节标 final");
   assert.equal(
-    s.local.filter((l) => l.kind === "assistant" && !l.final).length,
-    0,
-    "非 final 中间输出被清",
+    finals[0]!.items.filter((item) => item.source === "assistant").at(-1)?.text,
+    "最终总结",
+    "final 节里最后一段正文是总结",
+  );
+  // 幂等：再次 turn-end 不新增 final 节
+  s = withTurnEnd(s);
+  assert.equal(
+    allSectionsOf(s).filter((sec) => sec.final === true).length,
+    1,
+    "重复 turn-end 幂等",
+  );
+  // 帧级：总结进会话区（历史区），中间输出与思考留活动区
+  const rows = buildFrame(s, SIZE).map((l) => histContent(rowText(l), SIZE.cols));
+  assert.ok(rows.some((r) => r.includes("最终总结")), "final 总结在帧内可见");
+  assert.ok(
+    rows.some((r) => r.includes("中间回复 1")),
+    "非 final 中间输出留在活动区",
+  );
+  assert.ok(rows.some((r) => r.includes("思考")), "思考留在活动区");
+  // 新回合 turn-begin：final 节保留（历史区），非 final 中间输出也不清（内容持续可见）
+  s = withTurnStart(s);
+  assert.equal(
+    allSectionsOf(s).filter((sec) => sec.final === true).length,
+    1,
+    "final 总结保留（历史区）",
   );
   assert.ok(
-    s.local.some(
-      (l) => l.kind === "assistant" && l.final && l.text === "最终总结",
-    ),
-    "final 总结保留在历史区",
+    itemTexts(s, "assistant").includes("中间回复 1"),
+    "非 final 中间输出不被清（2026-10-11 裁定：取消新回合清空语义）",
   );
 });
 
