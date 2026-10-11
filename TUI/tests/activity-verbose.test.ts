@@ -11,7 +11,13 @@ import {
   rowText,
 } from "../src/app/layout.ts";
 import { buildContentRows } from "../src/app/layout/build-box.ts";
-import { initialState, reduceState, type Buffer } from "../src/app/state.ts";
+import {
+  initialState,
+  reduceState,
+  type AppState,
+  type Buffer,
+} from "../src/app/state.ts";
+import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
 
 /** 覆盖各活动区条目类型的长文本（思考/工具调用/工具结果/非 final 中间输出） */
 const LONG = "很长的活动区文本内容".repeat(6); // 显示宽 10×6 = 60，超 40 列窗
@@ -77,17 +83,57 @@ test("活动区紧凑模式：短条目不加省略号（原样）", () => {
 });
 
 test("端到端：/collapse off 后 buildFrame 活动区行数收敛且不越宽", () => {
-  let s = initialState();
-  s = reduceState(s, { type: "turn-begin" });
-  for (const line of buf) {
-    s = reduceState(s, {
-      type: line.kind === "thinking" ? "thinking" : "append",
-      text: line.text,
-    } as never);
-  }
+  // 条目 16 段 C1：活动区内容改走交付流（不再写缓冲行 + 靠回退重放）
+  const s = {
+    ...initialState(),
+    pipeline: sectionsFromScript([
+      { delivery: { kind: "turn-start", turn: 1 } },
+      { delivery: { kind: "user", turn: 1, step: 0, text: "问题" } },
+      {
+        delivery: {
+          kind: "text",
+          turn: 1,
+          step: 1,
+          index: 0,
+          source: "reasoning",
+          text: LONG,
+        },
+      },
+      {
+        delivery: {
+          kind: "tool-call",
+          turn: 1,
+          step: 1,
+          callId: "c1",
+          name: "bash",
+          args: LONG,
+        },
+      },
+      {
+        delivery: {
+          kind: "tool-result",
+          turn: 1,
+          step: 1,
+          callId: "c1",
+          ok: true,
+          detail: LONG,
+        },
+      },
+      {
+        delivery: {
+          kind: "text",
+          turn: 1,
+          step: 1,
+          index: 1,
+          source: "assistant",
+          text: LONG,
+        },
+      },
+    ]),
+  };
   const size = { rows: 30, cols: 100 };
   const g = frameGeometry(s, size);
-  const countAct = (state: typeof s): number => {
+  const countAct = (state: AppState): number => {
     const rows = buildFrame(state, size).map(rowText);
     // 活动 pane 行：横向在左列、纵向在下段——统一按「含 ┃/○/✓ 前缀」计数即可
     return rows.filter((r) => /[┃○✓]/.test(r)).length;
