@@ -55,7 +55,35 @@
 该函数体内直接用 `state.jobs` / `state.statusColumnScroll` 构造状态列，故补 `state.runVirt.tokens` 即可），再传给 `renderStatusColumn` 的可选参数。
 第 18 轮曾把相位直接写在 `renderStatusColumn` 体内的 `state.runVirt.tokens`（编译报 `state` 未定义）→ 已 `git checkout` 回退，仓库保持全绿。
 
-### 待做（下一轮照此实现，2-3 次编辑）
+### 第 19 轮：两处调用点的**精确原文**（下一轮按文本替换，别再写括号扫描）
+
+1. `statusBlocks` 在 `renderStatusColumn` 体内的调用（**单行**，直接整行替换加 `runPhase(runTokens)`）：
+
+```ts
+  const blocks = statusBlocks(goals, todos, jobs, agents, w - 1, activation);
+```
+
+2. `renderStatusColumn` 的生产调用点（`layout.ts` 约 `:1400`，该函数体内有 `state`）——在最后一个实参后加 `state.runVirt.tokens`：
+
+```ts
+    : renderStatusColumn(
+        goals,
+        todos,
+        state.jobs,
+        state.statusColumnScroll,
+        contentTopH,
+        // 只传「状态列正文宽 + 末位竖线」：正文可见列 = statusColWidth − 外缘框格(1)
+        // − 分隔竖线(1) = statusColWidth − 2（renderStatusColumn 末位自带竖线，剥去后
+        // 与 statusBodyW 同宽）——传满宽会让拼行/折行多算一列，恰好拼满的行被截掉末字符
+        statusColWidth - 1,
+        // TUI#39：Agents 块数据（当前活跃会话切片；无数据时该块整块省略）
+        state.activeSessionId
+          ? state.agentsBySession[state.activeSessionId]
+          : undefined,
+        // goal 自动续轮开关（⟳；进程本地态，仅 active 相位有值）
+        goalActivationDisplay(state, state.activeSessionId ?? undefined),
+      );
+```
 
 1. `layout.ts`：Agents 块标题行支持前导符号——新增纯函数 `agentHeadSymbol(agents, phase)`（返回 `{ text: "● " | "  " | "! ", fg }`），`statusBlocks` 调用处传入相位；折叠层级不动它。
 1. `index.ts`：`virtTick()` 的门并上「有运行中子代理」（agents 数据来自 `state.agents`，与状态列同源）。
