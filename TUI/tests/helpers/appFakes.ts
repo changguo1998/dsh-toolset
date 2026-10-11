@@ -382,6 +382,10 @@ export class FakeAdapter implements DshAdapter {
   /** 测试辅助：注入事件（配置了 `mirrorTo` 时同步镜像一条等价交付） */
   push(e: DshEvent): void {
     for (const cb of this.cbs) cb(e);
+    // 只镜像**本会话**的事件：真实适配器也只为本会话产交付，别的会话的流不该进活跃会话节缓存
+    // （漏了这条会把非活跃会话的文本混进画面，「非活跃会话…不进入」的否定断言必红）
+    const sid = (e as { sessionId?: string }).sessionId;
+    if (sid !== undefined && sid !== this.sessionId) return;
     const delivery = this.deliveryOf(e);
     if (delivery !== undefined) this.mirrorTo?.current?.(delivery);
     if (e.type === "turn-end") this.mirrorTurn++;
