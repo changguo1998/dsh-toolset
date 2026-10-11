@@ -20,36 +20,66 @@ import type { Buffer } from "../src/app/state.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import type { AppState } from "../src/app/state.ts";
 import { rowText } from "./helpers/rowText.ts";
+import {
+  sectionsFromScript,
+  type ScriptStep,
+} from "./helpers/deliveriesFromScript.ts";
 
 /** 一段典型回合内容：用户提问 + 思考 + 工具调用 + 最终回复 */
 function turnState(placement: "auto" | "vertical" | "horizontal"): AppState {
-  let s = initialState(undefined, {
-    activityDivisor: 2,
-    activityPlacement: placement,
-  });
+  // 条目 16 段 C1：内容走交付流（不再写缓冲行 + 靠 sectionsOf 回退重放）
+  const steps: ScriptStep[] = [];
   for (let i = 1; i <= 4; i++) {
-    s = reduceState(s, {
-      type: "user-line",
-      text: `用户问题 ${i}：请检查第 ${i} 项`,
-    });
-    s = reduceState(s, { type: "turn-begin" });
-    s = reduceState(s, {
-      type: "thinking",
-      text: `思考 ${i}：这是一段较长的思考内容，用来观察活动 pane 自身宽度下的换行结果。`,
-    });
-    s = reduceState(s, {
-      type: "tool-call",
-      sessionId: "",
-      name: "bash",
-      summary: "sed -n '1,20p' src/app/layout.ts",
-    });
-    s = reduceState(s, {
-      type: "append",
-      text: `回复 ${i}：这是一段较长的回复内容，用来观察对话 pane 自身宽度下的换行结果。`,
-    });
-    s = reduceState(s, { type: "turn-end" });
+    steps.push(
+      { delivery: { kind: "turn-start", turn: i } },
+      {
+        delivery: {
+          kind: "user",
+          turn: i,
+          step: 0,
+          text: `用户问题 ${i}：请检查第 ${i} 项`,
+        },
+      },
+      {
+        delivery: {
+          kind: "text",
+          turn: i,
+          step: 1,
+          index: 0,
+          source: "reasoning",
+          text: `思考 ${i}：这是一段较长的思考内容，用来观察活动 pane 自身宽度下的换行结果。`,
+        },
+      },
+      {
+        delivery: {
+          kind: "tool-call",
+          turn: i,
+          step: 1,
+          callId: `c${i}`,
+          name: "bash",
+          args: "sed -n '1,20p' src/app/layout.ts",
+        },
+      },
+      {
+        delivery: {
+          kind: "text",
+          turn: i,
+          step: 1,
+          index: 1,
+          source: "assistant",
+          text: `回复 ${i}：这是一段较长的回复内容，用来观察对话 pane 自身宽度下的换行结果。`,
+        },
+      },
+      { delivery: { kind: "turn-end", turn: i, step: 1, reason: "completed" } },
+    );
   }
-  return s;
+  return {
+    ...initialState(undefined, {
+      activityDivisor: 2,
+      activityPlacement: placement,
+    }),
+    pipeline: sectionsFromScript(steps),
+  };
 }
 
 /** 按显示列取一行文本的 [from, to) 区间（CJK 安全） */
