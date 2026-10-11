@@ -304,6 +304,9 @@ export class FakeAdapter implements DshAdapter {
    */
   mirrorTo: { current?: (delivery: BlockDelivery) => void } | null = null;
 
+  /** 镜像的「本会话」号（缺省用 `sessionId`；有些用例把活跃会话设成别的 id 时覆盖它） */
+  mirrorSessionId: string | undefined = undefined;
+
   /** 镜像用的当前回合号：`turn-end` 事件后递增（多数用例跨多回合，固定 1 会让内容落错节） */
   private mirrorTurn = 1;
 
@@ -384,8 +387,10 @@ export class FakeAdapter implements DshAdapter {
     for (const cb of this.cbs) cb(e);
     // 只镜像**本会话**的事件：真实适配器也只为本会话产交付，别的会话的流不该进活跃会话节缓存
     // （漏了这条会把非活跃会话的文本混进画面，「非活跃会话…不进入」的否定断言必红）
+    // 会话号可被用例覆盖（有些用例把活跃会话设成别的 id）
     const sid = (e as { sessionId?: string }).sessionId;
-    if (sid !== undefined && sid !== this.sessionId) return;
+    const mine = this.mirrorSessionId ?? this.sessionId;
+    if (sid !== undefined && sid !== mine) return;
     const delivery = this.deliveryOf(e);
     if (delivery !== undefined) this.mirrorTo?.current?.(delivery);
     if (e.type === "turn-end") this.mirrorTurn++;

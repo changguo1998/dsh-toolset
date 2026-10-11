@@ -3492,7 +3492,8 @@ test("非活跃会话事件不污染活跃 buffer 与状态（App 侧兜底过�
     !after.some((l) => l.includes("OTHER_THINK")),
     "非活跃会话思考不进入 buffer",
   );
-  // 活跃会话事件照常生效
+  // 活跃会话事件照常生效（本用例的活跃会话号是 live-1，故覆盖镜像的会话号）
+  adapter.mirrorSessionId = "live-1";
   adapter.push({ type: "stream", sessionId: "live-1", text: "ACTIVE_OUTPUT" });
   const active = renderer.lastRender.map((l) =>
     l.replace(/\u001b\[[0-9;]*m/g, ""),
