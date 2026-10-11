@@ -52,7 +52,10 @@ import { THEMES, hexSgr, type ThemeId } from "../src/renderer/theme.ts";
 
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
-import { sectionGroupCount, sectionsOf } from "../src/app/layout/pipeline/frame.ts";
+import {
+  sectionGroupCount,
+  sectionsOf,
+} from "../src/app/layout/pipeline/frame.ts";
 
 /** 顶部行历史/活动区正文：取区域正文段（跳过状态列与分隔竖线，到右缘框列前为止；
  *  按显示宽度定位，兼容 CJK） */
@@ -4774,5 +4777,28 @@ test("BACKLOG #24②：会话切换后 groupCount 与 sectionGroupCount 对齐�
     sectionGroupCount(sectionsOf(inner.state)),
     "切换会话后基线必须与新会话的组数对齐（否则 grew 一次性偏大 → 窗口被撑到全量）",
   );
+  app.dispose();
+});
+
+test("BACKLOG #22②：两次缓冲尾巴交付的辅助行都在屏上、且不同行（同节构造）", () => {
+  const { app, renderer, adapter } = makeApp();
+  renderer.size = { cols: 100, rows: 30 };
+  typeAndEnter(renderer, "/verbose tool");
+  typeAndEnter(renderer, "起一个回合");
+  adapter.push({ type: "subagent", label: "alice" } as DshEvent);
+  flushApp();
+  adapter.push({ type: "subagent", label: "bob" } as DshEvent);
+  flushApp();
+  const frame = renderer.lastRender.join("\n");
+  const lineOf = (name: string): string | undefined =>
+    frame.split("\n").find((l) => l.includes(name));
+  const a = lineOf("alice");
+  const b = lineOf("bob");
+  assert.ok(a !== undefined, "第一条辅助行（alice）要上屏");
+  assert.ok(
+    b !== undefined,
+    "第二条辅助行（bob）要上屏（块身份须跨调用连续，否则被 full 对账吃掉）",
+  );
+  assert.notEqual(a, b, "两条辅助行不得落在同一行");
   app.dispose();
 });
