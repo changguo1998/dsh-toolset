@@ -48,7 +48,6 @@ test("内容类 action 不写缓冲；UI 本地行仍写（toast / 事件补投�
   ];
   const kept = applyAll(prod(), content);
   assert.deepEqual(kept.local, [], "缓冲不承载会话内容");
-  assert.equal(kept.nextSeq, 1, "行号不因内容推进");
 
   const local = applyAll(prod(), [
     { type: "notice", text: "提示一下", tone: "warn" },

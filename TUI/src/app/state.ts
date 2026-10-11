@@ -66,7 +66,7 @@ export const MAX_BUFFER_LINES = 2000;
  * 会话内容真源已迁到节缓存（`state.pipeline`），缓冲不再参与构帧，故裁剪**不再需要
  * 为阅读位置让路**（视口顶按段键定位，与缓冲无关）：直接按上限裁。
  */
-function trimBufferHead(buffer: { seq?: number }[]): void {
+function trimBufferHead(buffer: BufferLine[]): void {
   const over = buffer.length - MAX_BUFFER_LINES;
   if (over > 0) buffer.splice(0, over);
 }
@@ -129,9 +129,6 @@ export type BufferKind =
 export interface BufferLine {
   text: string;
   kind: BufferKind;
-  /** 稳定行序号（插入时分配；语义锚点身份——buffer 被 filter/裁剪后行下标会平移，
-   *  序号不变，故「视口顶行」在清瞬态行/裁剪后仍指向同一内容） */
-  seq?: number;
   tone?: NoticeTone;
   /** 回合最终总结标记：turn-end 时由 markFinalSummary 打标；历史恢复行恒为 true */
   final?: boolean;
@@ -432,8 +429,6 @@ export interface AppState {
    * 缺省（测试 / 嵌入用法）由 `layout.ts` 的 `sectionsOf` 按 `buffer` 重放一份。
    */
   pipeline?: SectionsState;
-  /** 下一个可用的 buffer 行序号（单调递增；只增不减，裁剪/清行后不复用） */
-  nextSeq: number;
   inputText: string;
   inputCursor: number;
   /** 输入历史（已提交输入连同**提交时的输入模式**；仅本会话生命周期，不持久化）。
@@ -780,7 +775,6 @@ export function initialState(
     scrollOffset: 0,
     dialogueTop: null,
     windowGroups: DIALOGUE_KEEP_REPLIES,
-    nextSeq: 1,
     inputText: "",
     inputCursor: 0,
     inputHistory: [], // 输入历史：进程内、随会话生命周期（不写入 tui-state.json）
@@ -898,7 +892,6 @@ export function appendStream(
   const parts = kind === "user" ? [clean] : clean.split("\n");
   const lastIndex = buffer.length - 1;
   const last = buffer[lastIndex];
-  let seq = state.nextSeq;
   // P5（降级版）：宿主每个 step 末尾会补发一个「只有换行」的文本块（实测 190 个
   // 文本分片里 154 个就是 "\n\n"），逐行落 buffer 会在思考/工具行之后留下成片空行。
   // 判据：整段仅空白 **且** 上一行是异 kind（思考/工具/notice/用户行/分隔线）
@@ -933,7 +926,6 @@ export function appendStream(
         buffer.push({
           text: part,
           kind,
-          seq: seq++,
           ...(stepNo === undefined ? {} : { step: stepNo }),
         });
       }
@@ -949,8 +941,8 @@ export function appendStream(
     ? nextRunVirt(state.runVirt, time, estTokens * state.tokenCalib)
     : undefined;
   return {
-    ...state, local: buffer,
-    nextSeq: seq,
+    ...state,
+    local: buffer,
     strippedChars: state.strippedChars + stripped,
     // 丢弃后置位（下一条流式分片另起一行）；流式分片消费后清位；非流式分片不动
     streamBreak: streamed ? dropBlankChunk : state.streamBreak,
@@ -973,20 +965,18 @@ export function appendNotice(
   // 多行 notice 拆成多行 buffer，否则 wrapLine 把 \n 当普通字符(宽1)会让列宽对不齐，
   // 字词在中间被截断(例如 /quit 在 i 与 t 之间换行)。
   const buffer = state.local.length ? [...state.local] : [];
-  let seq = state.nextSeq;
   for (const line of sanitizeText(text).text.split("\n"))
     buffer.push({
       text: line,
       kind: "notice",
-      seq: seq++,
       ...(tone ? { tone } : {}),
     });
   trimBufferHead(buffer);
   // 失败标记(error notice，如未知 slash 命令 fail-close)→ 输入栏失败色(红)；
   // agent 仍活跃时保持黄（活跃守卫），绿/红仅空闲时暴露
   return {
-    ...state, local: buffer,
-    nextSeq: seq,
+    ...state,
+    local: buffer,
     inputStatus: error ? statusFor(state, "failure") : state.inputStatus,
   };
 }
@@ -1009,20 +999,18 @@ export function appendNoticeLines(
   tone?: NoticeTone,
 ): AppState {
   const buffer = state.local.length ? [...state.local] : [];
-  let seq = state.nextSeq;
   for (const l of lines) {
     for (const line of sanitizeText(l.text).text.split("\n"))
       buffer.push({
         text: line,
         kind: "notice",
-        seq: seq++,
         ...(tone ? { tone } : {}),
         ...(l.hanging !== undefined ? { hanging: l.hanging } : {}),
         ...(l.noCompact === true ? { noCompact: true } : {}),
       });
   }
   trimBufferHead(buffer);
-  return { ...state, local: buffer, nextSeq: seq };
+  return { ...state, local: buffer };
 }
 
 /**
@@ -1034,17 +1022,15 @@ export function appendShellLines(
   lines: readonly { text: string; tone?: NoticeTone }[],
 ): AppState {
   const buffer = state.local.length ? [...state.local] : [];
-  let seq = state.nextSeq;
   for (const l of lines) {
     buffer.push({
       text: sanitizeText(l.text).text,
       kind: "shell",
-      seq: seq++,
       ...(l.tone !== undefined ? { tone: l.tone } : {}),
     });
   }
   trimBufferHead(buffer);
-  return { ...state, local: buffer, nextSeq: seq };
+  return { ...state, local: buffer };
 }
 
 /**
@@ -1066,14 +1052,13 @@ export function appendToolLine(
   buffer.push({
     text: text2,
     kind: "tool",
-    seq: state.nextSeq,
     ...(tone ? { tone } : {}),
     // step 头的时间随行存一份：恢复重放据此还原 `hh:mm:ss ⇆N #M`（文本里虽有格式化时间，
     // 但那是显示态、无法反解 epoch；行元数据是权威来源）
     ...(params?.time === undefined ? {} : { time: params.time }),
   });
   trimBufferHead(buffer);
-  return { ...state, local: buffer, nextSeq: state.nextSeq + 1 };
+  return { ...state, local: buffer };
 }
 
 /**
@@ -1283,11 +1268,9 @@ export function appendTurnSeparator(
   buffer.push({
     text: TURN_SEPARATOR,
     kind: "separator",
-    seq: state.nextSeq,
     ...(meta.time !== undefined ? { time: meta.time } : {}),
     ...(meta.turn !== undefined ? { turn: meta.turn } : {}),
   });
-  next.nextSeq = state.nextSeq + 1;
   trimBufferHead(buffer);
   return next;
 }
@@ -1481,7 +1464,7 @@ function dropContentWrites(
       : action.type === "history-restore" || action.type === "history-resume-ok"
         ? []
         : state.local;
-  return { ...next, local: buffer, nextSeq: state.nextSeq };
+  return { ...next, local: buffer };
 }
 
 export function reduceState(state: AppState, action: StateAction): AppState {
@@ -1858,11 +1841,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           activeSessionId: action.id,
           sessionTitle: action.title,
           history: null,
-          local: (action.rows as BufferLine[]).map((l, i) => ({
-            ...l,
-            seq: state.nextSeq + i,
-          })),
-          nextSeq: state.nextSeq + action.rows.length,
+          local: [...(action.rows as BufferLine[])],
           followBottom: true,
           // 会话切换：清掉上一会话的阅读位置，回到跟随底部（段键跨会话无意义）
           dialogueTop: null,
@@ -1887,11 +1866,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           ...state,
           activeSessionId: action.id,
           sessionTitle: action.title,
-          local: action.rows.map((l, i) => ({
-            ...l,
-            seq: state.nextSeq + i,
-          })),
-          nextSeq: state.nextSeq + action.rows.length,
+          local: action.rows,
           followBottom: true,
           dialogueTop: null,
           scrollOffset: 0,

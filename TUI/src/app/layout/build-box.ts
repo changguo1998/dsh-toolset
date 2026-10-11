@@ -181,10 +181,7 @@ function wrapCodeRows(
   return out;
 }
 
-export function buildBox(
-  local: Buffer,
-  opts: BuildBoxOptions,
-): BuildBoxResult {
+export function buildBox(local: Buffer, opts: BuildBoxOptions): BuildBoxResult {
   // 块 id 计数器：每次 buildBox 调用内局部，保证纯函数/确定性
   let nextBlockId = 0;
   const freshBlockId = (): number => {
@@ -305,7 +302,6 @@ export function buildBox(
       kind: line.kind,
       blockId: freshBlockId(),
       line: lineOffset + li,
-      seq: line.seq,
       ...(line.queued ? { queued: line.queued } : {}),
     };
     if (line.kind === "tool") {

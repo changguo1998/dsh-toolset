@@ -139,6 +139,46 @@ const isThinkingRow = (l: FrameRow, cols: number): boolean => {
   return t !== "" && b.startsWith("  ") && !t.endsWith("│");
 };
 
+/** 条目 16 段 C2：节缓存里的全部节（含当前节）——内容类断言改读这里，不再读 `state.local` */
+const allSectionsOf = (state: AppState) => {
+  const p = sectionsOf(state);
+  return [...p.sections, ...(p.current === undefined ? [] : [p.current])];
+};
+
+/** 节缓存里的全部条目（含当前节） */
+const sectionItems = (state: AppState) =>
+  allSectionsOf(state).flatMap((sec) => sec.items);
+
+/** 某来源的条目文本（按节序；`state.local` 只留 UI 本地行的对照口径） */
+const itemTexts = (state: AppState, source: string): string[] =>
+  sectionItems(state)
+    .filter((i) => i.source === source)
+    .map((i) => i.text ?? "");
+
+/** 回合分隔线行数：会话区正文段含 ≥10 个 ╌ 的行（分隔线现在是交付驱动的 pane 项，不再是缓冲行） */
+const turnSepRows = (frame: FrameRow[], cols: number): number =>
+  frame.filter(
+    (l) => (histContent(rowText(l), cols).match(/╌/g)?.length ?? 0) >= 10,
+  ).length;
+
+/**
+ * 条目 16 段 C2：生产口径的「用户输入开启回合」= 状态 action `turn-begin`（分隔线记账 /
+ * 活动区滚动偏移归零 / run 边界清零）+ 节缓存交付 `turn-start`（分隔线随交付画在会话区）。
+ * helper 的 `withTurnStart` 只做后者；断言状态层副作用的用例补上前者。
+ */
+const userTurnBegin = (state: AppState, turn?: number): AppState =>
+  withTurnStart(reduceState(state, { type: "turn-begin" }), turn);
+
+/**
+ * 条目 16 段 C2：生产口径的回合结束 = `turn-end` 交付（封闭节 + 末段正文打 final + 用户块终态）
+ * + 状态 action `turn-end`（虚拟速度落下限等 UI 状态；旧路径还写缓冲，内容已不承载）。
+ */
+const turnEnd = (state: AppState, reason?: TurnEndReason): AppState =>
+  withTurnEnd(reduceState(state, { type: "turn-end", reason }), reason);
+
+/** 帧尺寸（本条会话区断言的统一口径） */
+const SIZE = { rows: 24, cols: 60 } as const;
+
 function frameWith(rows: number, cols: number) {
   let s = initialState();
   s = reduceState(s, {
@@ -295,10 +335,10 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
       ),
       { type: "input-status", status },
     );
-  /** 终态用例：turn-end 的 reason 给最新未终态用户块打终态（state.markUserBlockStatus），
-   *  再读该用户块首行的符号与着色 */
+  /** 终态用例：turn-end 的 reason 给最新未终态用户块打终态（条目 16 段 C2：终态由 `turn-end`
+   *  **交付**落在节条目上，旧路径的 `{type:"turn-end"}` action 只写缓冲、已不承载内容） */
   const ended = (reason?: TurnEndReason): { sym: string; sgr: string } =>
-    mark(reduceState(mk("normal", "idle"), { type: "turn-end", reason }));
+    mark(withTurnEnd(mk("normal", "idle"), reason));
   // 单字符提示符 = 当前输入模式符号；提示符不着色（默认前景色，状态符号在用户块首行）
   assert.ok(
     strip(inputRow(mk("normal", "success"))).startsWith("> "),
@@ -444,7 +484,7 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   tb = reduceState(tb, { type: "append", text: ascii(64), time: 1050 });
   const beforeTurnEnd = tb.runVirt.tokens;
   assert.ok(beforeTurnEnd > 0, "流式输出已累计虚拟 token");
-  tb = withTurnEnd(tb);
+  tb = turnEnd(tb);
   assert.equal(
     tb.runVirt.tokens,
     beforeTurnEnd,
@@ -456,7 +496,7 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
     "turn-end 仅把虚拟速度更新为下限（输出停止）",
   );
   // 用户输入开启的回合（clearActivity=true）：清零
-  tb = withTurnStart(tb);
+  tb = userTurnBegin(tb);
   assert.equal(tb.runVirt.tokens, 0, "用户输入（turn-begin）清零虚拟总 token");
   assert.equal(tb.runVirt.speed, VIRT_SPEED_MIN, "用户输入重置虚拟速度为下限");
   // 核心自发回合（clearActivity=false）：属同一 run，保留
@@ -465,14 +505,14 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   tb = reduceState(tb, { type: "append", text: ascii(64), time: 2050 });
   const midRun = tb.runVirt.tokens;
   assert.ok(midRun > 0, "核心回合流式输出累计虚拟 token");
-  tb = withTurnStart(tb);
+  tb = withTurnStart(reduceState(tb, { type: "turn-begin", clearActivity: false }));
   assert.equal(
     tb.runVirt.tokens,
     midRun,
     "核心自发回合（clearActivity=false）不清零",
   );
   // 用户输入提交后用户块符号回到相位 0 实心圆
-  tb = withTurnStart(tb);
+  tb = userTurnBegin(tb);
   tb = reduceState(tb, { type: "agent-status", status: "thinking" });
   assert.equal(liveSym(tb), "●", "用户输入清零后回到相位 0 实心圆");
 });

@@ -21,7 +21,7 @@ const line = (
 
 /** 用给定 buffer 造状态（本文件只关心分块相关字段） */
 function withBuffer(lines: BufferLine[]): AppState {
-  return { ...initialState(), local: lines, nextSeq: lines.length + 1 };
+  return { ...initialState(), local: lines };
 }
 
 /** buffer 里被标 final 的行文本（按行序） */

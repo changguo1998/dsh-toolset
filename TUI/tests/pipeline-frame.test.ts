@@ -116,12 +116,10 @@ function oldBuffer(turns: number): BufferLine[] {
         turnTime.set(delivery.turn, delivery.time);
     }
   }
-  let seq = 0;
   let turn = 0;
   deliveries.forEach((delivery, index) => {
-    const push = (line: Omit<BufferLine, "seq">): void => {
-      seq += 1;
-      lines.push({ ...line, seq });
+    const push = (line: BufferLine): void => {
+      lines.push(line);
     };
     switch (delivery.kind) {
       case "user":
@@ -172,7 +170,7 @@ function states(turns: number): { oldState: AppState; newState: AppState } {
   const base = initialState();
   const buffer = oldBuffer(turns);
   return {
-    oldState: { ...base, local: buffer, nextSeq: buffer.length + 1 },
+    oldState: { ...base, local: buffer },
     newState: {
       ...base,
       local: [],
