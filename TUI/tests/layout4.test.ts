@@ -3264,3 +3264,27 @@ test("状态列：正文宽口径 = statusColWidth − 2（外缘框格 + 分隔
       );
   }
 });
+
+test("BACKLOG #1：Agents 块标题前导符号进帧（运行 `● ` / 空闲无 / 异常 `! `）", () => {
+  const frameOf = (status: string): string => {
+    const s = {
+      ...initialState(),
+      activeSessionId: "s1",
+      agentsBySession: {
+        s1: [{ id: "a1", label: "子代理", status }],
+      } as never,
+    };
+    return buildFrame(s, { cols: 100, rows: 30 })
+      .map((r) => r.segments.map((x) => x.text).join(""))
+      .join("\n");
+  };
+  assert.ok(
+    frameOf("running").includes("● Agents 1/1"),
+    "运行中：块标题带前导 ●（相位 0 = 静态，tokens 缺省 0）",
+  );
+  assert.ok(!frameOf("idle").includes("● Agents"), "空闲：不加前导符号");
+  assert.ok(
+    frameOf("diagnostic").includes("! Agents 0/1"),
+    "异常：常亮红 ! 前导（优先于运行；计数仍按「运行中/总数」= 0/1）",
+  );
+});
