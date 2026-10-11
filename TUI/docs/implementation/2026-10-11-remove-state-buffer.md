@@ -275,6 +275,24 @@
 
 **遗留（不在段 C1 范围，已记 BACKLOG）**：演示冒烟 36 PASS / 7 FAIL（其中 `tool-meta-diff` 是产品缺口：`BlockDelivery` 的 `tool-result` 无 `meta` 字段 → diff 摘要永不显示）；`layout-cache` / `tool-call-wrap` 等改用的测试包装 `helpers/frameWithLocalReplay.ts` 待段 C2 删除内容类 kind 后一并清理。
 
+## 段 C2 进展与口径修正（2026-10-11 第 127-137 轮）
+
+**已落地**
+
+- 迁移工具 `tests/helpers/pipelineContent.ts`（`withText` / `withUser` / `withStep` / `withToolCall` / `withToolResult` / `withTurnStart` / `withTurnEnd` / `withDelivery`；`index` 缺省按同来源条目数递增，避免同 step 连续文本并块）。
+- **P5 空白分片丢弃策略已搬进交付入口** `App.ingestDelivery`（原在 state 的 `appendStream`）：整段仅空白 且 末项来源不同（或尚无内容）→ 丢。
+- 删 `nextSeq` / `seq` 死管线：`BufferLine.seq`、`AppState.nextSeq`、5 个 append 助手的分配、会话切换/恢复的行号回填、`build-box` 写入 `RowMeta.seq`、`replay.ts` 透传、`fill.ts` 的四处拷贝与 `hasRowMeta` 判据（`RowMeta.seq` 无消费者；行身份由 `frame.seqRows` 按 box 盖）。提交 `7c25781` / `ec9a6d3`。
+- 测试迁移（10 个文件里已完成 5 个）：`layout-horizontal`、`p5-blank-chunk`（改写为 App 级）、`renderer-diff`、`focus-frame`、`turn-separator`（整篇改节 + 帧级断言）、`layout-cache`（去掉「动作 + 交付」双写、删 `FRAME_ACTIONS`）。由子代理推进：`layout4`（78 过 / 8 红 → 继续中）。
+
+**口径修正（与原计划不同，务必按此执行）**
+
+1. **`MAX_BUFFER_LINES` / `trimBufferHead` 保留**：`local` 仍会积 notice / tool / shell 行（会话切换、退出清理、`$` 模式输出），裁剪仍必要；`buffer-trim.test.ts` 正是用 notice 行覆盖。
+1. **内容类 state action 不删，改为「只留状态事实」**：`append` / `user-line` / `thinking` / `step` / `history-restore` / `turn-begin` / `turn-end` 在 App 侧仍被调用（8 处，`index.ts:1148/1566/1582/1697/1765/1921/3007/3047`），它们承载状态事实（`inputStatus` / `runVirt` / `strippedChars` / 回合号），内容由交付驱动。C2 要做的是**让它们不再产生内容类缓冲行**，而不是删 action 类型。
+1. **`dropContentWrites` 只保留「清本地行」那半边**：`turn-begin` 清 notice/tool 行、`history-restore` / `history-resume-ok` 清空 `local` 的行为要留住（用户 2026-10-11 只取消了「新回合清空**活动区内容**」，本地提示行仍清）；「丢弃内容写入」半边随内容类 kind 一起删。
+1. **`bufferRetainsContent` 删除**：不再有承载内容的缓冲写入，闸门无对象。注意 `buffer-retire` 用例依赖它表达「生产模式」，迁移时改为断言「交付 → 节里有内容、`local` 里没有内容行」。
+
+**删除顺序（剩最后一步）**：等两个子代理的测试迁移落完 → 删内容类 `BufferKind` 成员（`user` / `assistant` / `thinking` / `separator` / `step`）→ 删 `CONTENT_ACTIONS` + `dropContentWrites` 的内容半边 + `bufferRetainsContent` → `npx tsc --noEmit` 的报错即完整残留清单（预计集中在 `content-mapping` / `scroll-position` / `pipeline-sections` / `activity-verbose` 等直构内容行的测试）。
+
 ## 收尾
 
 （待补）
