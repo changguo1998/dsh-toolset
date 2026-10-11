@@ -2116,7 +2116,10 @@ test("历史会话：live 会话经 sessions store 原始事件（agent/inbox/sp
   const { adapter } = makeAdapterWithSessionQuery(sq, store);
   const view = await adapter.readSessionSurface!("live-1");
   // live 直接从内存 store 读，不触 readSurface/readSession
-  assert.deepEqual(sq.readCalls, ["surface:live-1"]); // 条目 27：缺 turn/end 时补读一次持久源
+  assert.ok(
+    sq.readCalls.includes("surface:live-1"),
+    "条目 27：live 缺 turn/end → 至少会补读一次持久源",
+  );
   assert.deepEqual(view.messages, [
     { role: "user", text: "你好第二行" },
     { role: "assistant", text: "回复正文" },
@@ -6290,5 +6293,43 @@ test("条目 27：用户消息先于 turn/start 落库（真机顺序）→ 终�
       .map((m) => [m.turn ?? "-", m.status ?? "-"]),
     [[1, "success"]],
     "用户块应归给紧随其后的 turn/start 的回合（旧口径会挂到上一个回合 → ?）",
+  );
+});
+
+test("条目 27：live 缺 turn/end 且 readSurface 为空 → 退到 readSession 补（真机路径）", async () => {
+  const persisted: Record<string, unknown>[] = [
+    {
+      type: "user/message",
+      seq: 1,
+      data: { id: "u1", content: [{ type: "text", text: "问题一" }] },
+    },
+    { type: "turn/start", seq: 2, data: { turn: 1 } },
+    {
+      type: "turn/end",
+      seq: 3,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+  ];
+  const liveEvents = persisted.filter((e) => e.type !== "turn/end");
+  const sq = new FakeSessionQuery();
+  sq.readSurface = async (id: string) => ({
+    session: { id },
+    events: [],
+  }); // live 会话：surface fold 为空
+  sq.readSession = async (id: string) => ({
+    session: { id },
+    events: persisted,
+  });
+  const sessions = {
+    get: (id: string) => (id === "live-1" ? { events: liveEvents } : undefined),
+  } as unknown as SessionStoreLike;
+  const { adapter } = makeAdapterWithSessionQuery(sq, sessions);
+  const view = await adapter.readSessionSurface!("live-1");
+  assert.deepEqual(
+    view.messages
+      .filter((m) => m.role === "user")
+      .map((m) => [m.turn ?? "-", m.status ?? "-"]),
+    [[1, "success"]],
+    "surface 为空时必须退到 readSession，用户块才有终态",
   );
 });

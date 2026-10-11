@@ -1386,11 +1386,17 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       let events: readonly Record<string, unknown>[] = live.events;
       if (!events.some((e) => e.type === "turn/end")) {
         try {
-          const persisted = sessionQuery.readSurface
-            ? (await sessionQuery.readSurface(id)).events
-            : sessionQuery.readSession
-              ? (await sessionQuery.readSession(id)).events
+          // 持久源两段式：`readSurface` 对 **live 会话**是空的（宿主不做 surface fold），
+          // 空结果必须继续退到 `readSession`（完整日志）——否则永远补不到 `turn/end`
+          const fromSurface: readonly Record<string, unknown>[] =
+            sessionQuery.readSurface
+              ? (await sessionQuery.readSurface(id)).events
               : [];
+          const persisted: readonly Record<string, unknown>[] =
+            fromSurface.some((e) => e.type === "turn/end") ||
+            sessionQuery.readSession === undefined
+              ? fromSurface
+              : (await sessionQuery.readSession(id)).events;
           const seen = new Set(
             events
               .map((e) => e.seq)
