@@ -477,6 +477,22 @@ export class App {
         if (text !== delivery.text) delivery = { ...delivery, text };
       }
     }
+    // P5（降级版，条目 16 段 C2 从 state 侧搬来）：宿主每个 step 末尾会补发「只有换行」的
+    // 文本块（实测 190 个分片里 154 个是 "\n\n"），落进节会在思考/工具行后留下成片空行。
+    // 判据：整段仅空白 **且** 末项来源与本分片不同（或尚无内容）→ 丢；同来源内部的空白
+    // 分片保留（软换行/段落空行语义不变）。
+    if (
+      delivery.kind === "text" &&
+      delivery.text.trim() === "" &&
+      this.sections !== null
+    ) {
+      const items = [
+        ...this.sections.sections,
+        ...(this.sections.current === undefined ? [] : [this.sections.current]),
+      ].flatMap((s) => s.items);
+      const lastItem = items[items.length - 1];
+      if (lastItem === undefined || lastItem.source !== delivery.source) return;
+    }
     const sid = this.state.activeSessionId;
     if (
       this.sections === null ||
