@@ -254,7 +254,7 @@ test("接管开关：/cls（clearBuffer）清空节缓存，旧内容不再复�
   const seeded = initialState();
   const withPipeline = {
     ...seeded,
-    buffer: [{ text: "将被清掉", kind: "assistant" as const }],
+    local: [{ text: "将被清掉", kind: "assistant" as const }],
     pipeline: applyDelivery(createSections(), {
       kind: "text",
       turn: 1,
@@ -267,14 +267,14 @@ test("接管开关：/cls（clearBuffer）清空节缓存，旧内容不再复�
   };
   const cleared = clearBuffer(withPipeline);
   assert.equal(cleared.pipeline?.sections.length ?? -1, 0, "清屏后节缓存为空");
-  assert.equal(cleared.buffer.length, 0, "缓冲同源清空");
+  assert.equal(cleared.local.length, 0, "缓冲同源清空");
   next.app.dispose();
 });
 
 test("接管开关：/new（session-switch）归零节缓存", () => {
   const seeded = {
     ...initialState(),
-    buffer: [{ text: "旧会话内容", kind: "assistant" as const }],
+    local: [{ text: "旧会话内容", kind: "assistant" as const }],
     pipeline: applyDelivery(createSections(), {
       kind: "text",
       turn: 1,
@@ -295,7 +295,7 @@ test("接管开关：/new（session-switch）归零节缓存", () => {
     0,
     "切换后节缓存为空（否则首帧渲染旧会话内容）",
   );
-  assert.equal(switched.buffer.length, 0);
+  assert.equal(switched.local.length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -428,7 +428,7 @@ test("读侧迁移：注入 sink（缓冲不承载内容）时 /copy 的来源�
     text: "最终答复",
     full: true,
   });
-  assert.deepEqual(state().buffer, [], "内容不进缓冲");
+  assert.deepEqual(state().local, [], "内容不进缓冲");
   assert.equal(
     lastTextBySource(sectionsOf(state()), "assistant"),
     "最终答复",

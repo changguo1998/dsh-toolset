@@ -74,7 +74,7 @@ const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 /** 本会话 buffer 中的 shell 行（kind="shell"） */
 function shellLines(st: AppState): { text: string; tone?: string }[] {
-  return st.buffer
+  return st.local
     .filter((l) => l.kind === "shell")
     .map((l) => ({ text: l.text, ...(l.tone ? { tone: l.tone } : {}) }));
 }
@@ -130,7 +130,7 @@ test("stderr 与非零退出码 → error tone；输出行不进历史区（非 
   assert.match(lines[3]?.text ?? "", /^→ 退出码 2 · \d+ms$/, "非零退出摘要");
   assert.equal(lines[3]?.tone, "error", "非零退出摘要红");
   // 不进历史区：shell 行不带 final（历史区只收 final 行）
-  const shellBuf = st().buffer.filter((l) => l.kind === "shell");
+  const shellBuf = st().local.filter((l) => l.kind === "shell");
   assert.ok(
     shellBuf.every((l) => l.final !== true),
     "shell 行不进历史区（无 final 标记）",

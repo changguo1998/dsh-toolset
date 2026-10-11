@@ -26,7 +26,7 @@ import {
 } from "./helpers/deliveriesFromScript.ts";
 
 /** 典型回合（长文本铺满两个 pane）+ 指定排列方式
- *  条目 16 段 A：内容不再写 `state.buffer`（旧路径靠 `sectionsOf` 回退重放），改为显式
+ *  条目 16 段 A：内容不再写 `state.local`（旧路径靠 `sectionsOf` 回退重放），改为显式
  *  造交付流塞进 `state.pipeline`——帧只认节模型 */
 function state(placement: "vertical" | "horizontal") {
   let s = initialState(undefined, { activityPlacement: placement });

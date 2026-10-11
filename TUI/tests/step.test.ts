@@ -19,7 +19,7 @@ import { stepOf } from "../src/app/layout/pipeline/replay.ts";
 function run(actions: StateAction[]): string[] {
   let s = initialState();
   for (const a of actions) s = reduceState(s, a);
-  return s.buffer.map((l) => l.text);
+  return s.local.map((l) => l.text);
 }
 
 /** 固定时间戳（本地时间 03:04:05）——分组头文本可精确断言 */

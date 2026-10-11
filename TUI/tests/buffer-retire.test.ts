@@ -47,7 +47,7 @@ test("内容类 action 不写缓冲；UI 本地行仍写（toast / 事件补投�
     { type: "turn-begin", clearActivity: false },
   ];
   const kept = applyAll(prod(), content);
-  assert.deepEqual(kept.buffer, [], "缓冲不承载会话内容");
+  assert.deepEqual(kept.local, [], "缓冲不承载会话内容");
   assert.equal(kept.nextSeq, 1, "行号不因内容推进");
 
   const local = applyAll(prod(), [
@@ -68,7 +68,7 @@ test("内容类 action 不写缓冲；UI 本地行仍写（toast / 事件补投�
     },
   ]);
   assert.deepEqual(
-    local.buffer.map((l) => l.kind),
+    local.local.map((l) => l.kind),
     ["notice", "shell", "notice", "tool"],
     "UI 本地行照写（底部 toast 与 A1 补投依赖）",
   );
@@ -80,7 +80,7 @@ test("用户输入开启的回合：清掉活动区提示行（toast 不挂上�
     { type: "subagent", sessionId: "s1", label: "a", mode: "one-shot" },
     { type: "turn-begin", clearActivity: true },
   ]);
-  assert.deepEqual(s.buffer, [], "notice / 工具行被清掉");
+  assert.deepEqual(s.local, [], "notice / 工具行被清掉");
 });
 
 test("历史恢复 / 会话切换：缓冲清空（不带上一会话的 UI 本地行）", () => {
@@ -92,7 +92,7 @@ test("历史恢复 / 会话切换：缓冲清空（不带上一会话的 UI 本�
     { type: "notice", text: "恢复前的提示" },
     { type: "history-restore", id: "s2", title: "t", rows },
   ]);
-  assert.deepEqual(s.buffer, [], "恢复行只进节模型（批 A2），缓冲清空");
+  assert.deepEqual(s.local, [], "恢复行只进节模型（批 A2），缓冲清空");
   assert.equal(s.activeSessionId, "s2", "状态事实保留");
 });
 
@@ -102,7 +102,7 @@ test("缺省仍承载内容（测试 / 嵌入用法不变）", () => {
     { type: "user-line", text: "你好" },
   ]);
   assert.deepEqual(
-    s.buffer.map((l) => l.text),
+    s.local.map((l) => l.text),
     ["回复正文", "你好"],
     "bufferRetainsContent 缺省 true",
   );

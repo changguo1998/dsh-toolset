@@ -66,13 +66,13 @@ test("启动即恢复：既有消息折叠入 buffer（用户/回复行可见）
     const state = st();
     assert.equal(state.activeSessionId, "s1", "活跃会话确立为恢复的会话");
     assert.ok(
-      state.buffer.some(
+      state.local.some(
         (l) => l.kind === "user" && l.text.includes("昨天的提问"),
       ),
-      "用户消息行折叠入历史: " + JSON.stringify(state.buffer),
+      "用户消息行折叠入历史: " + JSON.stringify(state.local),
     );
     assert.ok(
-      state.buffer.some(
+      state.local.some(
         (l) => l.kind === "assistant" && l.text.includes("昨天的回答"),
       ),
       "助手消息行折叠入历史",
@@ -91,7 +91,7 @@ test("非恢复启动（resumedAtLaunch 缺省 false）：不读取 surface，�
   try {
     await sleep(0);
     assert.deepEqual(adapter.readSurfaceCalls, [], "不读取既有消息");
-    assert.deepEqual(st().buffer, [], "历史区为空（全新会话）");
+    assert.deepEqual(st().local, [], "历史区为空（全新会话）");
   } finally {
     app.dispose();
   }
@@ -101,7 +101,7 @@ test("启动即恢复但会话为空：保持空历史（不产生空行）", as
   const { st, app } = makeApp(true, { s1: [] });
   try {
     await sleep(0);
-    assert.deepEqual(st().buffer, [], "空会话不折叠任何行");
+    assert.deepEqual(st().local, [], "空会话不折叠任何行");
   } finally {
     app.dispose();
   }
@@ -112,7 +112,7 @@ test("启动即恢复读取失败：给提示且不抛（不阻塞启动）", as
   const { renderer, st, app } = makeApp(true, {});
   try {
     await sleep(0);
-    const buf = st().buffer;
+    const buf = st().local;
     assert.ok(
       buf.some(
         (l) => l.kind === "notice" && l.text === "启动恢复：既有消息读取失败",
@@ -140,24 +140,24 @@ test("启动期外部日志：恢复启动时先挂起，折叠落定后补发�
     // start() 已置挂起态：此刻到达的外部日志进队列，不直接落 buffer
     app.appendExternalLog("[rule-engine] warn: 装载期告警", "warn");
     assert.ok(
-      !st().buffer.some((l) => l.kind === "notice"),
-      "折叠落定前不直接入 buffer: " + JSON.stringify(st().buffer),
+      !st().local.some((l) => l.kind === "notice"),
+      "折叠落定前不直接入 buffer: " + JSON.stringify(st().local),
     );
     for (
       let i = 0;
-      i < 20 && !st().buffer.some((l) => l.kind === "notice");
+      i < 20 && !st().local.some((l) => l.kind === "notice");
       i++
     ) {
       await sleep(0);
     }
-    const notice = st().buffer.find((l) => l.kind === "notice");
-    assert.ok(notice, "折叠落定后补发进活动区: " + JSON.stringify(st().buffer));
+    const notice = st().local.find((l) => l.kind === "notice");
+    assert.ok(notice, "折叠落定后补发进活动区: " + JSON.stringify(st().local));
     assert.equal(notice?.text, "[rule-engine] warn: 装载期告警");
     assert.equal(notice?.tone, "warn", "tone 保留");
     // 落定后新到的日志直接入 buffer
     app.appendExternalLog("后续日志");
     assert.ok(
-      st().buffer.some((l) => l.kind === "notice" && l.text === "后续日志"),
+      st().local.some((l) => l.kind === "notice" && l.text === "后续日志"),
       "落定后直接入 buffer",
     );
   } finally {

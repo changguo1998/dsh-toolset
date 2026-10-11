@@ -407,7 +407,7 @@ export interface AppState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
   /** 会话纯文本行（未换行，展示时才按列宽切分） */
-  buffer: Buffer;
+  local: Buffer;
   /**
    * 是否让 `buffer` 承载会话内容（条目 7 选项 1）。`false` = 生产路径（App 注入节缓存）：
    * 内容类 action 的缓冲写入被丢弃，只保留状态事实——会话内容的唯一来源是节模型
@@ -768,7 +768,7 @@ export function initialState(
     stepEstTokens: 0, // 本 step 估算 token 累计（usage 真值到达时校准）
     tokenCalib: 1, // 估算 token 校准系数（usage 真值/估算值 EMA，跨 step 保留）
     usageTotals: { input: 0, output: 0, cacheRead: 0 }, // 本会话累计（/stats；会话切换清零）
-    buffer: [],
+    local: [],
     /**
      * 缓冲是否承载**会话内容**（条目 7 选项 1；缺省 true = 测试 / 嵌入用法）。
      * App 注入节缓存时置否：会话内容（正文 / 用户块 / step / 工具行 / 分隔线 / 恢复行）
@@ -890,7 +890,7 @@ export function appendStream(
 ): AppState {
   // 思考/正文分属活动区与历史区两个窗口：正文到达不清思考，思考保留显示到本
   // turn 结束，由下轮 turn-begin 统一清空（活动区瞬态整轮重置）。
-  const buffer = state.buffer.length ? [...state.buffer] : [];
+  const buffer = state.local.length ? [...state.local] : [];
   // 渲染保护：剔除非打印控制字符（CRLF/孤立 CR 归一为 LF、其余 C0/C1 移除），
   // 剔除计数累计入 state.strippedChars，turn-end 时统一警告
   const { text: clean, stripped } = sanitizeText(text);
@@ -949,8 +949,7 @@ export function appendStream(
     ? nextRunVirt(state.runVirt, time, estTokens * state.tokenCalib)
     : undefined;
   return {
-    ...state,
-    buffer,
+    ...state, local: buffer,
     nextSeq: seq,
     strippedChars: state.strippedChars + stripped,
     // 丢弃后置位（下一条流式分片另起一行）；流式分片消费后清位；非流式分片不动
@@ -973,7 +972,7 @@ export function appendNotice(
 ): AppState {
   // 多行 notice 拆成多行 buffer，否则 wrapLine 把 \n 当普通字符(宽1)会让列宽对不齐，
   // 字词在中间被截断(例如 /quit 在 i 与 t 之间换行)。
-  const buffer = state.buffer.length ? [...state.buffer] : [];
+  const buffer = state.local.length ? [...state.local] : [];
   let seq = state.nextSeq;
   for (const line of sanitizeText(text).text.split("\n"))
     buffer.push({
@@ -986,8 +985,7 @@ export function appendNotice(
   // 失败标记(error notice，如未知 slash 命令 fail-close)→ 输入栏失败色(红)；
   // agent 仍活跃时保持黄（活跃守卫），绿/红仅空闲时暴露
   return {
-    ...state,
-    buffer,
+    ...state, local: buffer,
     nextSeq: seq,
     inputStatus: error ? statusFor(state, "failure") : state.inputStatus,
   };
@@ -1010,7 +1008,7 @@ export function appendNoticeLines(
   lines: readonly NoticeLine[],
   tone?: NoticeTone,
 ): AppState {
-  const buffer = state.buffer.length ? [...state.buffer] : [];
+  const buffer = state.local.length ? [...state.local] : [];
   let seq = state.nextSeq;
   for (const l of lines) {
     for (const line of sanitizeText(l.text).text.split("\n"))
@@ -1024,7 +1022,7 @@ export function appendNoticeLines(
       });
   }
   trimBufferHead(buffer);
-  return { ...state, buffer, nextSeq: seq };
+  return { ...state, local: buffer, nextSeq: seq };
 }
 
 /**
@@ -1035,7 +1033,7 @@ export function appendShellLines(
   state: AppState,
   lines: readonly { text: string; tone?: NoticeTone }[],
 ): AppState {
-  const buffer = state.buffer.length ? [...state.buffer] : [];
+  const buffer = state.local.length ? [...state.local] : [];
   let seq = state.nextSeq;
   for (const l of lines) {
     buffer.push({
@@ -1046,7 +1044,7 @@ export function appendShellLines(
     });
   }
   trimBufferHead(buffer);
-  return { ...state, buffer, nextSeq: seq };
+  return { ...state, local: buffer, nextSeq: seq };
 }
 
 /**
@@ -1064,7 +1062,7 @@ export function appendToolLine(
   // 工具调用参数行保留换行（keepLineBreaks，渲染层 split + 续行 4 空格缩进）
   const clean = sanitizeText(text).text;
   const text2 = params?.keepLineBreaks ? clean : clean.replace(/\n/g, " ");
-  const buffer = state.buffer.length ? [...state.buffer] : [];
+  const buffer = state.local.length ? [...state.local] : [];
   buffer.push({
     text: text2,
     kind: "tool",
@@ -1075,7 +1073,7 @@ export function appendToolLine(
     ...(params?.time === undefined ? {} : { time: params.time }),
   });
   trimBufferHead(buffer);
-  return { ...state, buffer, nextSeq: state.nextSeq + 1 };
+  return { ...state, local: buffer, nextSeq: state.nextSeq + 1 };
 }
 
 /**
@@ -1164,7 +1162,7 @@ function lastTextBlock(
  * 无分隔线（首回合）则从 buffer 开头起算；幂等：已 final 的行不重复标记。
  */
 export function markFinalSummary(state: AppState): AppState {
-  const buffer = state.buffer;
+  const buffer = state.local;
   if (buffer.length === 0) return state;
   const block = lastTextBlock(
     buffer,
@@ -1176,7 +1174,7 @@ export function markFinalSummary(state: AppState): AppState {
   if (marks.length === 0 || marks.every((i) => buffer[i]!.final)) return state;
   const next = [...buffer];
   for (const i of marks) next[i] = { ...next[i]!, final: true };
-  return { ...state, buffer: next };
+  return { ...state, local: next };
 }
 
 /**
@@ -1199,14 +1197,14 @@ export function markUserBlockStatus(
           ? "failure"
           : undefined;
   if (status === undefined) return state;
-  const buffer = state.buffer;
+  const buffer = state.local;
   for (let i = buffer.length - 1; i >= 0; i--) {
     const l = buffer[i]!;
     if (l.kind !== "user") continue;
     if (l.status !== undefined) return state; // 已有终态：不覆盖
     const next = [...buffer];
     next[i] = { ...l, status };
-    return { ...state, buffer: next };
+    return { ...state, local: next };
   }
   return state;
 }
@@ -1218,7 +1216,7 @@ export function markUserBlockStatus(
  * 没有上一条用户输入（会话首条即 steer）→ 两个标记都不落（无参照物）。
  */
 export function markSteerClaim(state: AppState): AppState {
-  const buffer = state.buffer;
+  const buffer = state.local;
   const last = buffer.length - 1;
   const claimed = buffer[last];
   if (claimed === undefined || claimed.kind !== "user") return state;
@@ -1233,7 +1231,7 @@ export function markSteerClaim(state: AppState): AppState {
   const next = [...buffer];
   next[last] = { ...claimed, spaceBefore: true };
   next[prev] = { ...next[prev]!, steerContinued: true };
-  return { ...state, buffer: next };
+  return { ...state, local: next };
 }
 
 /**
@@ -1250,7 +1248,7 @@ export function appendTurnSeparator(
   clearActivity = true,
   meta: { time?: number; turn?: number } = {},
 ): AppState {
-  let buffer = state.buffer.length ? [...state.buffer] : [];
+  let buffer = state.local.length ? [...state.local] : [];
   if (clearActivity) {
     buffer = buffer.filter(
       (l) =>
@@ -1263,8 +1261,8 @@ export function appendTurnSeparator(
   // 活动区被清空时滚动偏移一并归零，新回合回到跟随最新。不归零则旧 activityScroll
   // 超出新内容的可视上限，渲染钳制下 ↓ 需连续按到偏移耗尽才恢复（“向下没反应”死区）。
   const next: AppState = clearActivity
-    ? { ...state, buffer, activityScroll: 0 }
-    : { ...state, buffer };
+    ? { ...state, local: buffer, activityScroll: 0 }
+    : { ...state, local: buffer };
   if (buffer.length === 0) return next;
   const last = buffer[buffer.length - 1];
   if (last && last.kind === "separator" && last.text === TURN_SEPARATOR) {
@@ -1296,13 +1294,13 @@ export function appendTurnSeparator(
 
 /** #3：把回合号回填到**本回合的分隔线**（尾部向前找第一条 separator；已有号则不覆盖）。 */
 function numberTurnSeparator(state: AppState, turn: number): AppState {
-  const buffer = state.buffer.slice();
+  const buffer = state.local.slice();
   for (let i = buffer.length - 1; i >= 0; i--) {
     const line = buffer[i]!;
     if (line.kind !== "separator") continue;
     if (line.turn !== undefined) return state;
     buffer[i] = { ...line, turn };
-    return { ...state, buffer };
+    return { ...state, local: buffer };
   }
   return state;
 }
@@ -1319,7 +1317,7 @@ export function setSystemStatus(
 export function clearBuffer(state: AppState): AppState {
   return {
     ...state,
-    buffer: [],
+    local: [],
     scrollOffset: 0,
     followBottom: true,
     activityScroll: 0,
@@ -1479,11 +1477,11 @@ function dropContentWrites(
     return next;
   const buffer =
     action.type === "turn-begin" && (action.clearActivity ?? true)
-      ? state.buffer.filter((l) => l.kind !== "notice" && l.kind !== "tool")
+      ? state.local.filter((l) => l.kind !== "notice" && l.kind !== "tool")
       : action.type === "history-restore" || action.type === "history-resume-ok"
         ? []
-        : state.buffer;
-  return { ...next, buffer, nextSeq: state.nextSeq };
+        : state.local;
+  return { ...next, local: buffer, nextSeq: state.nextSeq };
 }
 
 export function reduceState(state: AppState, action: StateAction): AppState {
@@ -1860,7 +1858,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           activeSessionId: action.id,
           sessionTitle: action.title,
           history: null,
-          buffer: (action.rows as BufferLine[]).map((l, i) => ({
+          local: (action.rows as BufferLine[]).map((l, i) => ({
             ...l,
             seq: state.nextSeq + i,
           })),
@@ -1889,7 +1887,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           ...state,
           activeSessionId: action.id,
           sessionTitle: action.title,
-          buffer: action.rows.map((l, i) => ({
+          local: action.rows.map((l, i) => ({
             ...l,
             seq: state.nextSeq + i,
           })),
@@ -1909,7 +1907,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           activeSessionId: action.id,
           sessionTitle: action.title,
           history: null,
-          buffer: [],
+          local: [],
           // 六步流水线的节缓存同源归零（否则切换后首帧仍渲染旧会话内容）
           ...(state.pipeline === undefined
             ? {}

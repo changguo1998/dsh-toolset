@@ -76,8 +76,8 @@ test("steer 提交：走 adapter target='next-step'、立即回显（不排队�
   assert.deepEqual(adapter.steered, ["快改"], "投递目标为 next-step");
   assert.deepEqual(st().queued, [], "steer 属当前回合，不登记排队块");
   assert.ok(
-    st().buffer.some((l) => l.kind === "user" && l.text.includes("快改")),
-    "立即回显为用户块: " + JSON.stringify(st().buffer),
+    st().local.some((l) => l.kind === "user" && l.text.includes("快改")),
+    "立即回显为用户块: " + JSON.stringify(st().local),
   );
   assert.ok(!plainFrame(renderer).includes("快改" + " "), "输入区已清空");
   // 回退 normal：再输入普通字符并按 Enter → 走普通 followup（不进 steered）
@@ -99,10 +99,10 @@ test("宿主不支持 steer：降级 followup 并给提示（消息不丢）", (
   assert.deepEqual(adapter.steered, [], "未走 steer 投递");
   // 断言状态而非帧：用户块回显后活动区可能已把提示挤出可视窗
   assert.ok(
-    st().buffer.some(
+    st().local.some(
       (l) => l.kind === "notice" && l.text.includes("宿主不支持 steer"),
     ),
-    "应给降级提示: " + JSON.stringify(st().buffer),
+    "应给降级提示: " + JSON.stringify(st().local),
   );
 });
 

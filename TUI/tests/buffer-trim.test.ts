@@ -23,7 +23,7 @@ function appendLines(state: AppState, n: number, tag: string): AppState {
 
 test("超过上限即按上限裁剪（不因滚动位置保留更多）", () => {
   const s = appendLines(initialState(), MAX_BUFFER_LINES + 500, "L");
-  assert.equal(s.buffer.length, MAX_BUFFER_LINES, "缓冲不超上限");
+  assert.equal(s.local.length, MAX_BUFFER_LINES, "缓冲不超上限");
 });
 
 test("用户停在历史里（dialogueTop 非 null）同样按上限裁剪", () => {
@@ -31,7 +31,7 @@ test("用户停在历史里（dialogueTop 非 null）同样按上限裁剪", () 
   s = { ...s, dialogueTop: { key: "1:0", row: 0 } };
   s = appendLines(s, 100, "M");
   assert.equal(
-    s.buffer.length,
+    s.local.length,
     MAX_BUFFER_LINES,
     "不再为锚点破例（视口位置按段键定位，与缓冲无关）",
   );
@@ -40,5 +40,5 @@ test("用户停在历史里（dialogueTop 非 null）同样按上限裁剪", () 
 test("连续追加始终不越界（裁剪是持续的，不是一次性的）", () => {
   let s = appendLines(initialState(), MAX_BUFFER_LINES, "L");
   s = appendLines(s, MAX_BUFFER_LINES * 2, "M");
-  assert.equal(s.buffer.length, MAX_BUFFER_LINES, "多轮追加后仍不超上限");
+  assert.equal(s.local.length, MAX_BUFFER_LINES, "多轮追加后仍不超上限");
 });

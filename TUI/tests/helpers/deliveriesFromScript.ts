@@ -1,6 +1,6 @@
 // tests/helpers/deliveriesFromScript.ts — state 级用例的「造交付流」助手（条目 16 段 A）
 //
-// 背景：`state.buffer` 作为**测试重放输入**的用途要退场（BACKLOG 第 16 条）。state 级用例
+// 背景：`state.local` 作为**测试重放输入**的用途要退场（BACKLOG 第 16 条）。state 级用例
 // 不再「写缓冲行 + 让 `sectionsOf` 回退重放」，改成显式造一条交付流并塞进 `state.pipeline`：
 // 内容是节模型的产物，帧只认 `state.pipeline`。
 //

@@ -93,7 +93,7 @@ test("reducer：排队项带类型；认领按类型各取最早一条（互不�
     ["steer 一", "普通二"],
   );
   assert.ok(
-    claimedFollow.buffer.some((l) => l.kind === "user" && l.text === "普通一"),
+    claimedFollow.local.some((l) => l.kind === "user" && l.text === "普通一"),
     "被认领的 followup 转入历史流",
   );
 
@@ -104,7 +104,7 @@ test("reducer：排队项带类型；认领按类型各取最早一条（互不�
     ["普通一", "普通二"],
   );
   assert.ok(
-    claimedSteer.buffer.some((l) => l.kind === "user" && l.text === "steer 一"),
+    claimedSteer.local.some((l) => l.kind === "user" && l.text === "steer 一"),
     "被认领的 steer 转入历史流",
   );
 
@@ -133,7 +133,7 @@ test("忙时 `<` 提交：进排队块（不写 buffer）、steer 排在 followu
     );
     assert.deepEqual(adapter.steered, ["steer 排队"], "投递目标 next-step");
     assert.ok(
-      !st().buffer.some((l) => l.text === "steer 排队"),
+      !st().local.some((l) => l.text === "steer 排队"),
       "排队中不写历史 buffer（独立成行由排队块渲染）",
     );
 
@@ -176,11 +176,11 @@ test("核心在 step 边界认领（inbox-claim / next-step）→ 该条转入�
       "只认领 steer，followup 仍排队",
     );
     assert.ok(
-      st().buffer.some((l) => l.kind === "user" && l.text === "steer 排队"),
+      st().local.some((l) => l.kind === "user" && l.text === "steer 排队"),
       "认领后成为历史用户行",
     );
     assert.ok(
-      !st().buffer.some((l) => l.text === "普通排队"),
+      !st().local.some((l) => l.text === "普通排队"),
       "followup 未被误认领",
     );
   } finally {
@@ -199,12 +199,12 @@ test("#4 reducer：steer 认领给上一条输入打「被续接」标 + 认领�
   });
   const claimed = reduceState(s, { type: "queued-claim-steer" });
   assert.equal(
-    claimed.buffer.find((l) => l.text === "第一条")?.steerContinued,
+    claimed.local.find((l) => l.text === "第一条")?.steerContinued,
     true,
     "上一条输入标「被 steer 续接」",
   );
   assert.equal(
-    claimed.buffer.find((l) => l.text === "steer 插队")?.spaceBefore,
+    claimed.local.find((l) => l.text === "steer 插队")?.spaceBefore,
     true,
     "steer 行上方留白",
   );
@@ -215,7 +215,7 @@ test("#4 reducer：steer 认领给上一条输入打「被续接」标 + 认领�
   f = reduceState(f, { type: "queued-push", text: "普通排队" });
   const follow = reduceState(f, { type: "queued-claim" });
   assert.ok(
-    !follow.buffer.some((l) => l.steerContinued || l.spaceBefore),
+    !follow.local.some((l) => l.steerContinued || l.spaceBefore),
     "followup 认领不加任何标记",
   );
 
@@ -228,7 +228,7 @@ test("#4 reducer：steer 认领给上一条输入打「被续接」标 + 认领�
   });
   const first = reduceState(e, { type: "queued-claim-steer" });
   assert.ok(
-    !first.buffer.some((l) => l.steerContinued || l.spaceBefore),
+    !first.local.some((l) => l.steerContinued || l.spaceBefore),
     "无上一条输入时不标符号、不留白",
   );
 });
@@ -267,7 +267,7 @@ test("空闲时 `<` 提交：直达回显（不留排队闪影），投递仍为
     assert.deepEqual(st().queued, [], "空闲无需排队");
     assert.deepEqual(adapter.steered, ["空闲 steer"]);
     assert.ok(
-      st().buffer.some((l) => l.kind === "user" && l.text === "空闲 steer"),
+      st().local.some((l) => l.kind === "user" && l.text === "空闲 steer"),
       "立即回显为用户块",
     );
     // 回显的用户块右缘竖线是「已发出」的亮红
@@ -292,10 +292,10 @@ test("宿主无 steer + 忙：降级为 followup 排队（灰线）并给提示�
     assert.deepEqual(adapter.sent.includes("降级 steer"), true, "消息仍发出");
     assert.deepEqual(adapter.steered, [], "未走 steer 投递");
     assert.ok(
-      st().buffer.some(
+      st().local.some(
         (l) => l.kind === "notice" && l.text.includes("宿主不支持 steer"),
       ),
-      "降级提示落 buffer: " + JSON.stringify(st().buffer),
+      "降级提示落 buffer: " + JSON.stringify(st().local),
     );
     const row = rawRowOf(renderer, "降级 steer");
     assert.ok(row.includes(sgrOf("gray") + "┃"), "降级后按 followup 灰线渲染");

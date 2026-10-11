@@ -352,13 +352,13 @@ test("/new：不重启进程新建会话 → 切换活跃会话、缓冲清空�
   await flush();
   const st = (): {
     activeSessionId: string | null;
-    buffer: unknown[];
+    local: unknown[];
     activityCompact: boolean;
     modeBySession: Record<string, { plan?: string }>;
   } => (app as unknown as { state: never }).state;
   assert.equal(adapter.newSessionCalls, 1, "调用 adapter.newSession");
   assert.equal(st().activeSessionId, "s-new2", "活跃会话切到新会话");
-  const texts = st().buffer.map((l) => (l as { text: string }).text);
+  const texts = st().local.map((l) => (l as { text: string }).text);
   assert.ok(
     !texts.some((t) => t.includes("旧会话")),
     "旧会话内容不残留（缓冲按空会话重置）",
@@ -403,11 +403,11 @@ test("启动：kickoff 在 app.start() 内同步发出（不 flush 定时器；�
   app.start();
   // 同步断言：改回宏任务发送（历史实现）此处为 0——撤修复必红（见追踪文档反向验证）
   assert.equal(adapter.bootstrapKickoffs, 1, "start() 返回即已发送（同步）");
-  const st = (): { buffer: { text: string }[] } =>
-    (app as unknown as { state: { buffer: { text: string }[] } }).state;
+  const st = (): { local: { text: string }[] } =>
+    (app as unknown as { state: { local: { text: string }[] } }).state;
   assert.ok(
-    st().buffer.some((l) => l.text === "[AUTO] 启动自检（测试用例）"),
-    "kickoff 以用户行回显: " + JSON.stringify(st().buffer.map((l) => l.text)),
+    st().local.some((l) => l.text === "[AUTO] 启动自检（测试用例）"),
+    "kickoff 以用户行回显: " + JSON.stringify(st().local.map((l) => l.text)),
   );
   app.dispose();
 });
@@ -430,11 +430,11 @@ test("/new：门控通过时补发启动自检（[AUTO] 回显；切换完成后
   await flush();
   assert.equal(adapter.newSessionCalls, 1, "新建会话已调用");
   assert.equal(adapter.bootstrapKickoffs, 1, "切换完成后补发一次 kickoff");
-  const st = (): { buffer: { text: string }[] } =>
-    (app as unknown as { state: { buffer: { text: string }[] } }).state;
+  const st = (): { local: { text: string }[] } =>
+    (app as unknown as { state: { local: { text: string }[] } }).state;
   assert.ok(
-    st().buffer.some((l) => l.text === "[AUTO] 启动自检（测试用例）"),
-    "kickoff 以用户行回显: " + JSON.stringify(st().buffer.map((l) => l.text)),
+    st().local.some((l) => l.text === "[AUTO] 启动自检（测试用例）"),
+    "kickoff 以用户行回显: " + JSON.stringify(st().local.map((l) => l.text)),
   );
   app.dispose();
 });
@@ -778,13 +778,13 @@ test("agent 运行中 Enter → 官方流程：立即发送给核心（逐条不
   assert.deepEqual(adapter.sent, ["第一条"], "空闲直发");
   const st = (): {
     queued: { text: string; kind: "followup" | "steer" }[];
-    buffer: { text: string }[];
+    local: { text: string }[];
   } =>
     (
       app as unknown as {
         state: {
           queued: { text: string; kind: "followup" | "steer" }[];
-          buffer: { text: string }[];
+          local: { text: string }[];
         };
       }
     ).state;
@@ -806,7 +806,7 @@ test("agent 运行中 Enter → 官方流程：立即发送给核心（逐条不
   );
   const bufferText = (): string =>
     st()
-      .buffer.map((l) => l.text)
+      .local.map((l) => l.text)
       .join("|");
   assert.ok(
     !bufferText().includes("第二条") && !bufferText().includes("第三条"),
@@ -837,10 +837,10 @@ test("P1：turn-end 的 reason 进 state → 用户块落终态（completed/abor
   ];
   for (const c of cases) {
     const { app, renderer, adapter } = makeApp();
-    const st = (): { buffer: { kind: string; status?: string }[] } =>
+    const st = (): { local: { kind: string; status?: string }[] } =>
       (
         app as unknown as {
-          state: { buffer: { kind: string; status?: string }[] };
+          state: { local: { kind: string; status?: string }[] };
         }
       ).state;
     typeAndEnter(renderer, "问一句");
@@ -848,7 +848,7 @@ test("P1：turn-end 的 reason 进 state → 用户块落终态（completed/abor
       type: "turn-end",
       ...(c.reason === undefined ? {} : { reason: c.reason }),
     });
-    const last = [...st().buffer].reverse().find((l) => l.kind === "user");
+    const last = [...st().local].reverse().find((l) => l.kind === "user");
     assert.equal(
       last?.status,
       c.want,
@@ -939,12 +939,12 @@ test("P8：压缩期间 Enter 进排队、Ctrl+D 不请求退出确认；压缩�
 
 test("活动区生命周期：核心自发回合不清空（用户输入才清空，且整类一起清）", () => {
   const { app, renderer, adapter } = makeApp();
-  const st = (): { buffer: { text: string; kind: string }[] } =>
-    (app as unknown as { state: { buffer: { text: string; kind: string }[] } })
+  const st = (): { local: { text: string; kind: string }[] } =>
+    (app as unknown as { state: { local: { text: string; kind: string }[] } })
       .state;
   const kinds = (): string[] =>
     st()
-      .buffer.filter(
+      .local.filter(
         (l) =>
           l.kind === "thinking" || l.kind === "tool" || l.kind === "notice",
       )
@@ -1102,7 +1102,7 @@ test("shell 模式提交：本地执行（不经模型），回显与摘要进�
     "提示符已改单字符，不再有左 $（状态符号移至状态栏最左侧）",
   );
   // 本地输出进活动区（kind="shell"：回显 + 退出摘要），不进模型上下文
-  const shells = (app as unknown as { state: AppState }).state.buffer.filter(
+  const shells = (app as unknown as { state: AppState }).state.local.filter(
     (l) => l.kind === "shell",
   );
   assert.ok(shells.length >= 2, "应产生 shell 本地行（回显 + 摘要）");
@@ -2696,13 +2696,13 @@ test("append：CRLF/孤立 CR 归一为 LF 再切分，buffer 行不残留 \\r�
     text: "a\r\nb\rc\nd",
   });
   assert.deepEqual(
-    s.buffer.map((l) => l.text),
+    s.local.map((l) => l.text),
     ["a", "b", "c", "d"],
   );
   // \r\n 与空段落保留空行语义（段落分隔）
   s = reduceState(initialState(), { type: "append", text: "p1\r\n\r\np2" });
   assert.deepEqual(
-    s.buffer.map((l) => l.text),
+    s.local.map((l) => l.text),
     ["p1", "", "p2"],
   );
 });
@@ -2738,17 +2738,17 @@ test("user-line：显式换行保留在一条 buffer 行（一次输入 = 一个
     text: "第一行\n第二行",
   });
   assert.deepEqual(
-    s.buffer.map((l) => l.text),
+    s.local.map((l) => l.text),
     ["第一行\n第二行"],
   );
   assert.deepEqual(
-    s.buffer.map((l) => l.kind),
+    s.local.map((l) => l.kind),
     ["user"],
   );
   // 流式 assistant 仍按 \n 拆行（增量续写/逐行结构依赖）
   const a = reduceState(initialState(), { type: "append", text: "p1\np2" });
   assert.deepEqual(
-    a.buffer.map((l) => l.text),
+    a.local.map((l) => l.text),
     ["p1", "p2"],
   );
 });
@@ -2836,7 +2836,7 @@ test("history-resume-ok：替换 buffer、关面板、更新 activeSessionId/标
   assert.equal(s.activeSessionId, "s2");
   assert.equal(s.sessionTitle, "我的问题");
   assert.deepEqual(
-    s.buffer.map((l) => ({ text: l.text, kind: l.kind })),
+    s.local.map((l) => ({ text: l.text, kind: l.kind })),
     [
       { text: "q", kind: "user" },
       { text: "a", kind: "assistant" },
@@ -3592,10 +3592,10 @@ test("tool-call：summary 含 \\r/\\n/控制符 → 换行保留、\\r/\\t/控�
     name: "bash",
     summary: "ls -l\r\n/tmp/a\r第二行\tx\x00",
   });
-  assert.equal(s.buffer.length, 1);
-  assert.equal(s.buffer[0]!.kind, "tool");
+  assert.equal(s.local.length, 1);
+  assert.equal(s.local[0]!.kind, "tool");
   // 工具调用参数行保留换行（渲染层续行缩进）；\r\n/\r→\n、\t/NUL 剔除
-  assert.equal(s.buffer[0]!.text, "bash ls -l\n/tmp/a\n第二行x");
+  assert.equal(s.local[0]!.text, "bash ls -l\n/tmp/a\n第二行x");
 });
 
 test("tool-call：参数显式换行/软折行 → 续行统一 2 空格缩进", () => {
@@ -3751,10 +3751,10 @@ test("本地 slash 分级：/help 内容普通前景（不再 info 蓝）、无�
 test("帮助文案：/help 说明统一中文（命令名与参数标识符保留英文）", () => {
   const { app, renderer } = makeApp();
   typeAndEnter(renderer, "/help");
-  const st = (): { buffer: { text: string }[] } =>
-    (app as unknown as { state: { buffer: { text: string }[] } }).state;
+  const st = (): { local: { text: string }[] } =>
+    (app as unknown as { state: { local: { text: string }[] } }).state;
   const text = st()
-    .buffer.map((l) => l.text)
+    .local.map((l) => l.text)
     .join("\n");
   assert.ok(text.includes("切换当前会话模型"), "/model 说明为中文");
   assert.ok(!/switch current-session model/.test(text), "不留整句英文说明");

@@ -85,7 +85,7 @@ test("TUI#17 渲染：恢复后 notice 摘要行单行显示、buffer 中不占�
     lines.some((t) => t.includes("已提醒模型统一符号")),
     `notice 摘要行应可见: ${lines.join("|")}`,
   );
-  const line = s.buffer.find((l) => l.text.includes("已提醒模型统一符号"));
+  const line = s.local.find((l) => l.text.includes("已提醒模型统一符号"));
   assert.equal(line?.kind, "notice", "该行 kind=notice（非 user 块）");
   assert.equal(line?.tone, "log", "log 灰（一行提示口径）");
 });

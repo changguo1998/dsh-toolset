@@ -442,7 +442,7 @@ export class App {
    * 六步流水线：把**已构造的历史行**重放成节缓存（恢复 / 会话切换路径）。
    *
    * 条目 7 选项 1：行由调用方本地构造（`surfaceToBuffer`）并直传，不再回读
-   * `state.buffer` —— 生产路径不把缓冲内容当恢复入口（缓冲仅测试 / 嵌入用）。
+   * `state.local` —— 生产路径不把缓冲内容当恢复入口（缓冲仅测试 / 嵌入用）。
    */
   private replaySectionsFromRows(rows: readonly BufferLine[]): void {
     if (this.deps.pipelineSink === undefined) return;
@@ -521,7 +521,7 @@ export class App {
       this.bufferTailIndex = 0;
     }
     let index = this.bufferTailIndex;
-    for (const line of this.state.buffer.slice(before)) {
+    for (const line of this.state.local.slice(before)) {
       const step =
         line.kind === "step" || line.kind === "tool"
           ? stepOf(line.text)
@@ -1700,7 +1700,7 @@ export class App {
         // **adapter 已直接交付的事件不桥接**（重复投递会在回合区出现两行）：
         // `tool-call` / `tool-result`（批与结果）、`step`（step-start）、
         // `compaction-prune`（shadow）—— 见 adapter/dsh.ts 的 deliver 调用点。
-        const tailBefore = this.state.buffer.length;
+        const tailBefore = this.state.local.length;
         this.apply((s) => reduceState(s, e));
         const bridged =
           e.type !== "step" &&

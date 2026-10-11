@@ -50,8 +50,8 @@ test("P9 渲染：step 行 = `╌╌ <文本> ` + 尾部 ╌ 铺满，且位于�
   assert.ok(/read ×2 ╌+/.test(step), `尾部用 ╌ 铺满: ${step}`);
   // 无空行：恢复后的 buffer 里不能出现纯空行
   assert.ok(
-    !s.buffer.some((l) => l.text.trim() === ""),
-    `恢复行不含空行: ${JSON.stringify(s.buffer.map((l) => l.text))}`,
+    !s.local.some((l) => l.text.trim() === ""),
+    `恢复行不含空行: ${JSON.stringify(s.local.map((l) => l.text))}`,
   );
 });
 

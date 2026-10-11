@@ -2872,14 +2872,14 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
     });
     assert.notEqual(s2, s1, "tool-call 应产生新状态");
     assert.ok(
-      s2.buffer.some((l) => l.kind === "tool" && l.text === "bash ls"),
+      s2.local.some((l) => l.kind === "tool" && l.text === "bash ls"),
       "工具调用行入 buffer",
     );
     // compaction → notice toast
     const s3 = reduceState(s2, { type: "compaction", phase: "start" });
-    assert.ok(s3.buffer.some((l) => l.text === "正在压缩上下文..."));
+    assert.ok(s3.local.some((l) => l.text === "正在压缩上下文..."));
     const s3b = reduceState(s3, { type: "compaction", phase: "end" });
-    assert.ok(s3b.buffer.some((l) => l.text === "压缩完成"));
+    assert.ok(s3b.local.some((l) => l.text === "压缩完成"));
     // retry → warn tone notice toast（黄）
     const s4 = reduceState(s3b, {
       type: "retry",
@@ -2889,7 +2889,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
       code: "T",
     });
     assert.ok(
-      s4.buffer.some(
+      s4.local.some(
         (l) =>
           l.kind === "notice" &&
           l.tone === "warn" &&
@@ -2905,7 +2905,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
       detail: "ok",
     });
     assert.ok(
-      okLine.buffer.some((l) => l.kind === "tool" && l.text === "✓ ok"),
+      okLine.local.some((l) => l.kind === "tool" && l.text === "✓ ok"),
       "成功结果行 +",
     );
     const errLine = reduceState(okLine, {
@@ -2915,7 +2915,7 @@ test("buildUserMessage：携带 UUID 形态 id（identified），role/content/so
       detail: "EACCES: 13",
     });
     assert.ok(
-      errLine.buffer.some(
+      errLine.local.some(
         (l) =>
           l.kind === "tool" && l.tone === "error" && l.text === "✗ EACCES: 13",
       ),

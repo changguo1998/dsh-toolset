@@ -79,11 +79,11 @@ function newRows(buffer: Buffer, width: number, gutter = 4) {
 /** 对照断言：对话区+活动区逐行等价（新管线 vs 冻结基线） */
 function assertEquivalent(
   key: string,
-  buffer: Buffer,
+  local: Buffer,
   width: number,
   gutter: number,
 ): void {
-  const fresh = newRows(buffer, width, gutter);
+  const fresh = newRows(local, width, gutter);
   assert.deepEqual(
     fresh.dialogue,
     baselineRows(key, "dialogue"),

@@ -778,7 +778,7 @@ export function itemOf(section: Section, source: Source): Item | undefined {
 
 /**
  * 按节序取**最后一条**匹配来源的非空文本（条目 7 选项 1：生产读侧不再回查
- * `state.buffer`——`/copy` 的最后回复、`/council` 与问答面板的来源都取自此）。
+ * `state.local`——`/copy` 的最后回复、`/council` 与问答面板的来源都取自此）。
  * 多来源按「节序 → 节内条目序」的先后取最后一条（问答面板的「上文」= 最近一段正文，
  * 正文与用户块都可能成为来源）。
  */

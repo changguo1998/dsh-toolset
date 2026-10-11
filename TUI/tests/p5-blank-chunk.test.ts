@@ -11,7 +11,7 @@ import { initialState, reduceState } from "../src/app/state.ts";
 
 /** 当前 buffer 的 kind/text 快照（便于断言"没有多余空行"） */
 function snapshot(s: ReturnType<typeof initialState>): string[] {
-  return s.buffer.map((l) => `${l.kind}:${l.text}`);
+  return s.local.map((l) => `${l.kind}:${l.text}`);
 }
 
 test("P5：思考分片之间的空白文本块被丢弃（异 kind → 不产生空行）", () => {

@@ -21,12 +21,12 @@ const line = (
 
 /** 用给定 buffer 造状态（本文件只关心分块相关字段） */
 function withBuffer(lines: BufferLine[]): AppState {
-  return { ...initialState(), buffer: lines, nextSeq: lines.length + 1 };
+  return { ...initialState(), local: lines, nextSeq: lines.length + 1 };
 }
 
 /** buffer 里被标 final 的行文本（按行序） */
 function finals(state: AppState): string[] {
-  return state.buffer.filter((l) => l.final).map((l) => l.text);
+  return state.local.filter((l) => l.final).map((l) => l.text);
 }
 
 test("markFinalSummary：#1 被思考行打断的正文整块入历史区（thinking 不切割）", () => {

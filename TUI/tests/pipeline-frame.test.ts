@@ -1,7 +1,7 @@
 // tests/pipeline-frame.test.ts — 批 5 接管接缝：整帧逐行等价（新旧内容行来源）
 //
 // 同一语料两条路径：
-//   旧：`state.buffer` → `dialogueWindow` + `buildContentRows`（生产路径）；
+//   旧：`state.local` → `dialogueWindow` + `buildContentRows`（生产路径）；
 //   新：`state.pipeline`（节缓存）→ 节 → box → pane → 行（六步流水线，开关开启）。
 // 断言 `buildFrame` 输出的**整帧逐行**一致（含标题栏 / 两 pane / 状态列 / 状态栏 / 输入区）。
 //
@@ -170,10 +170,10 @@ function states(turns: number): { oldState: AppState; newState: AppState } {
   const base = initialState();
   const buffer = oldBuffer(turns);
   return {
-    oldState: { ...base, buffer, nextSeq: buffer.length + 1 },
+    oldState: { ...base, local: buffer, nextSeq: buffer.length + 1 },
     newState: {
       ...base,
-      buffer: [],
+      local: [],
       pipeline: applyAll(createSections(), script(turns)),
     },
   };
@@ -240,10 +240,10 @@ test("c5 扩窗只排版新增段：已渲染的节命中行缓存（查表不�
 
 test("恢复重放：缓冲行 → 节缓存，整帧与原缓冲逐行一致", () => {
   const { oldState } = states(3);
-  const replayed = sectionsFromBuffer(oldState.buffer);
+  const replayed = sectionsFromBuffer(oldState.local);
   const newState: AppState = {
     ...initialState(),
-    buffer: [],
+    local: [],
     pipeline: replayed,
   };
   for (const size of [
@@ -466,7 +466,7 @@ test("会话区内容不足时贴底：短内容空白留在上方，超视口�
     buildFrame(
       {
         ...initialState(),
-        buffer: [],
+        local: [],
         pipeline: applyAll(createSections(), deliveries),
       },
       size,
@@ -518,7 +518,7 @@ test("会话区内容不足时贴底：短内容空白留在上方，超视口�
     buildFrame(
       {
         ...initialState(),
-        buffer: [],
+        local: [],
         pipeline: applyAll(createSections(), script(turns)),
       },
       sweep,
@@ -555,7 +555,7 @@ test("用户块终态符号：宿主回合号漂移时同一帧即显 `✓`（�
     buildFrame(
       {
         ...initialState(),
-        buffer: [],
+        local: [],
         pipeline: applyAll(createSections(), deliveries),
       },
       { cols: 60, rows: 30 },

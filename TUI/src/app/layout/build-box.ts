@@ -182,7 +182,7 @@ function wrapCodeRows(
 }
 
 export function buildBox(
-  buffer: Buffer,
+  local: Buffer,
   opts: BuildBoxOptions,
 ): BuildBoxResult {
   // 块 id 计数器：每次 buildBox 调用内局部，保证纯函数/确定性
@@ -291,8 +291,8 @@ export function buildBox(
 
   // 索引循环：markdown 表格需按行前瞻（连续表格行合并为一个 Box 子树）
   const lineOffset = opts.lineOffset ?? 0;
-  for (let li = 0; li < buffer.length; li++) {
-    const line = buffer[li]!;
+  for (let li = 0; li < local.length; li++) {
+    const line = local[li]!;
     // 正文合并（BACKLOG）：只有普通正文分片与穿透行（thinking / notice）留在 run 内；
     // 工具 / step / shell / 用户 / 分隔线等一律硬边界
     if (
@@ -492,8 +492,8 @@ export function buildBox(
         const code: string[] = [];
         let j = li + 1;
         let closed = false;
-        for (; j < buffer.length; j++) {
-          const l = buffer[j]!;
+        for (; j < local.length; j++) {
+          const l = local[j]!;
           if (l.kind !== "assistant") break;
           const inner = /^ {0,3}(`{3,}|~{3,})[ \t]*[\w.+-]*[ \t]*$/.exec(
             l.text,
@@ -542,7 +542,7 @@ export function buildBox(
           }
         }
         // 消费：闭栅行归循环下一轮（inFence=false）；未闭栅（流式中）保持 inFence
-        li = closed ? j : buffer.length - 1;
+        li = closed ? j : local.length - 1;
         inFence = !closed;
         continue;
       }
@@ -550,15 +550,15 @@ export function buildBox(
       // 构建期降级为固定宽 Box 子树（列宽是跨行约束，SPEC §3.2）。可用宽未知时不识别。
       // 紧凑模式（活动 pane 条目压单行）不建表——表格天然多行，与「每条目 1 行」冲突
       if (!inFence && width !== undefined && !(compact && !line.final)) {
-        const next = buffer[li + 1];
+        const next = local[li + 1];
         if (
           next !== undefined &&
           next.kind === "assistant" &&
           isTableStart(line.text, next.text)
         ) {
           const texts = [line.text, next.text];
-          for (let j = li + 2; j < buffer.length; j++) {
-            const l = buffer[j]!;
+          for (let j = li + 2; j < local.length; j++) {
+            const l = local[j]!;
             if (l.kind !== "assistant" || !hasCellPipe(l.text)) break;
             texts.push(l.text);
           }
@@ -902,7 +902,7 @@ export interface ContentPanes {
  * 调用点只换这里（legacy 旧函数曾承担同一职责）。
  */
 export function buildContentRows(
-  buffer: Buffer,
+  local: Buffer,
   opts: BuildBoxOptions,
   width: number,
   /** 活动 pane 可用宽（横向排列时与对话 pane 不同宽；缺省与 width 相同） */
@@ -911,7 +911,7 @@ export function buildContentRows(
   const w = Math.max(1, width);
   const aw = Math.max(1, activityWidth ?? width);
   // 可用宽随上下文交给 buildBox：markdown 表格列宽是跨行约束，须构建期算死
-  const built = buildBox(buffer, { ...opts, width: w, activityWidth: aw });
+  const built = buildBox(local, { ...opts, width: w, activityWidth: aw });
   const fillPane = (pane: Box, paneW: number): ContentRow[] => {
     const rect = { x: 0, y: 0, w: paneW, h: 1_000_000 };
     const st = measure(pane, { maxW: paneW });

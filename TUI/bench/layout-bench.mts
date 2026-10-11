@@ -161,7 +161,7 @@ for (const rowsN of [60, 120] as const) {
   const off = measure(() => {
     offState = reduceState(offState, {
       type: "append",
-      text: `增量追加：${offState.buffer.length} 行，正文段落`.padEnd(80, "文"),
+      text: `增量追加：${offState.local.length} 行，正文段落`.padEnd(80, "文"),
     });
     buildFrame(offState, SIZE);
   }, ITERS);
@@ -172,7 +172,7 @@ for (const rowsN of [60, 120] as const) {
   const on = measure(() => {
     onState = reduceState(onState, {
       type: "append",
-      text: `增量追加：${onState.buffer.length} 行，正文段落`.padEnd(80, "文"),
+      text: `增量追加：${onState.local.length} 行，正文段落`.padEnd(80, "文"),
     });
     buildFrame(onState, SIZE);
   }, ITERS);

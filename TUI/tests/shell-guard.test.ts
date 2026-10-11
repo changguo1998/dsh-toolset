@@ -134,7 +134,7 @@ function typeText(renderer: FakeRenderer, text: string): void {
 
 /** 本会话 buffer 中的 shell 行（kind="shell"） */
 function shellLines(st: AppState): { text: string; tone?: string }[] {
-  return st.buffer
+  return st.local
     .filter((l) => l.kind === "shell")
     .map((l) => ({ text: l.text, ...(l.tone ? { tone: l.tone } : {}) }));
 }
@@ -181,7 +181,7 @@ test("`$` 命中 guard：命令未执行，回执（来源 tui:$ + 规则 id）�
   );
   assert.ok(
     st()
-      .buffer.filter((l) => l.kind === "shell")
+      .local.filter((l) => l.kind === "shell")
       .every((l) => l.final !== true),
     "shell 行不进历史区（与既有 `$` 输出同口径）",
   );

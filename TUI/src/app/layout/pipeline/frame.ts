@@ -8,7 +8,7 @@
 //     `indexToAnchor`）继续可用；
 //   - 顶部「更早回复已折叠」占位行仍由调用方插入（`dropped > 0`）。
 //
-// 内容来源唯一：`state.pipeline`（App 注入）优先；未注入时 `sectionsOf` 按 `state.buffer`
+// 内容来源唯一：`state.pipeline`（App 注入）优先；未注入时 `sectionsOf` 按 `state.local`
 // 重放一份（测试 / 嵌入用法）。
 
 import type { RenderOptions, RenderedPane } from "./rows.ts";
@@ -223,20 +223,20 @@ function seqRows(
 
 /**
  * 节缓存来源：App 注入的（`state.pipeline`）优先；未注入（测试 / 嵌入用法）时按
- * `state.buffer` 重放一份——按缓冲身份 memo，重放只在内容整体替换后发生。
+ * `state.local` 重放一份——按缓冲身份 memo，重放只在内容整体替换后发生。
  */
 let replayEntry:
   { lines: readonly BufferLine[]; value: SectionsState } | undefined;
 
 export function sectionsOf(state: {
   pipeline?: SectionsState;
-  buffer: Parameters<typeof sectionsFromBuffer>[0];
+  local: Parameters<typeof sectionsFromBuffer>[0];
 }): SectionsState {
   if (state.pipeline !== undefined) return state.pipeline;
   // 命中判据 = **逐行对象身份**相同（不是数组身份）：缓冲是就地改的——流式续写、
   // `final` 打标、回合号回填都会**换掉行对象**（见追踪文档 R4），只比数组身份会拿到
   // 过期节缓存（旧帧的分隔线 / 用户行在画面里消失）
-  const buffer = state.buffer;
+  const buffer = state.local;
   const hit = replayEntry;
   if (
     hit !== undefined &&

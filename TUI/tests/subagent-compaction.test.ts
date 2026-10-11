@@ -21,18 +21,18 @@ test("B4 subagent 行：`@ <label> <os|ct>` append-only 独立成行", () => {
   let s = initialState();
   s = reduceState(s, sub("reviewer", "one-shot"));
   s = reduceState(s, sub("writer", "continuable"));
-  const texts = s.buffer.map((l) => l.text);
+  const texts = s.local.map((l) => l.text);
   assert.deepEqual(texts, ["@ reviewer os", "@ writer ct"]);
   assert.ok(
-    s.buffer.every((l) => l.kind === "tool"),
+    s.local.every((l) => l.kind === "tool"),
     "subagent 行复用 tool kind",
   );
 });
 
 test("B4 subagent 行：mode 缩略映射 one-shot→os / continuable→ct，label 原样展示", () => {
   const texts = [
-    reduceState(initialState(), sub("arch", "one-shot")).buffer.at(-1)!.text,
-    reduceState(initialState(), sub("impl", "continuable")).buffer.at(-1)!.text,
+    reduceState(initialState(), sub("arch", "one-shot")).local.at(-1)!.text,
+    reduceState(initialState(), sub("impl", "continuable")).local.at(-1)!.text,
   ];
   assert.deepEqual(texts, ["@ arch os", "@ impl ct"]);
 });
@@ -47,7 +47,7 @@ test("B5 compaction 摘要 toast：非空 text 取首行 `压缩完成：<text �
     text: "第一行总结\n第二行",
     raw,
   });
-  const texts = s.buffer.map((l) => l.text);
+  const texts = s.local.map((l) => l.text);
   assert.deepEqual(texts, ["压缩完成：第一行总结"]);
 });
 
@@ -59,7 +59,7 @@ test("B5 compaction 摘要空文本：toast 给「压缩完成（无摘要）」
     text: "",
     raw: { compactionId: "c2" },
   });
-  assert.deepEqual(s.buffer.map((l) => l.text), ["压缩完成（无摘要）"]);
+  assert.deepEqual(s.local.map((l) => l.text), ["压缩完成（无摘要）"]);
 });
 
 test("B5 compaction 摘要：原始载荷保留于 state，每会话仅最近一条", () => {
@@ -89,7 +89,7 @@ test("B5 compaction 摘要：原始载荷保留于 state，每会话仅最近一
   assert.equal(s.compactionBySession["s2"]!.text, "另一会话");
   // toast 行按事件累计（每个摘要一条 notice）
   assert.deepEqual(
-    s.buffer.map((l) => l.text),
+    s.local.map((l) => l.text),
     ["压缩完成：旧", "压缩完成：新", "压缩完成：另一会话"],
   );
 });

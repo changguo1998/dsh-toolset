@@ -201,13 +201,13 @@ export const DIALOGUE_MORE = "...(更早回复已折叠)";
  * 首行不属于任何起点时补一个 0 起点（头部残段自成一组）。
  */
 export function turnGroupStarts(
-  buffer: readonly { kind: string; final?: boolean }[],
+  local: readonly { kind: string; final?: boolean }[],
 ): number[] {
   const starts: number[] = [];
-  for (let i = 0; i < buffer.length; i++) {
-    const line = buffer[i]!;
+  for (let i = 0; i < local.length; i++) {
+    const line = local[i]!;
     const kind = line.kind;
-    const prev = i > 0 ? buffer[i - 1]!.kind : undefined;
+    const prev = i > 0 ? local[i - 1]!.kind : undefined;
     const userStart = kind === "user" && prev !== "user";
     // 与历史一致：紧邻 user 的答复并入该用户组；无 user 前缀的 final 回复自成一组
     const replyStart =
@@ -1364,7 +1364,7 @@ function buildTopRegion(
   };
   const diaEnd = geom.activitySepRow; // 活动区分隔行（横向无分隔行，此值 = 历史 pane 底边下一行）
   // 内容来源**唯一**：节缓存 → box → pane → 行（六步流水线）。
-  // App 注入节缓存（`state.pipeline`）；测试 / 嵌入用法未注入时按 `state.buffer` 重放一份
+  // App 注入节缓存（`state.pipeline`）；测试 / 嵌入用法未注入时按 `state.local` 重放一份
   // （按缓冲身份 memo —— 重放只在内容整体替换后发生）。
   const activityWidth = horizontal ? activityTextW : dialogueTextW;
   const built = pipelineContent(sectionsOf(state), {
@@ -2450,7 +2450,7 @@ function noticeFooterLines(
       wrapped.push({ text: part, fg: "yellow" });
     }
   } else {
-    for (const line of state.buffer) {
+    for (const line of state.local) {
       if (line.kind !== "notice") continue;
       const { fg, hanging } = noticeLinePresentation(line, false);
       const parts =

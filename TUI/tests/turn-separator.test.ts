@@ -19,7 +19,7 @@ function dialogueRows(
   s: ReturnType<typeof initialState>,
   width = 40,
 ): string[] {
-  const built = buildBox(s.buffer, {});
+  const built = buildBox(s.local, {});
   return fillBoxTree(built.panes.dialogue, 10, width).map((r) =>
     r.segments.map((g) => g.text).join(""),
   );
@@ -37,15 +37,15 @@ test("#3 turn-begin 落分隔线带时间；turn-number 回填回合号且不覆
   // 空历史不画线（既有口径）——先落一条用户行再看分隔线
   s = reduceState(s, { type: "user-line", text: "第一问" });
   s = reduceState(s, { type: "turn-begin", clearActivity: true, time: T0 });
-  const sep = s.buffer.find((l) => l.kind === "separator");
+  const sep = s.local.find((l) => l.kind === "separator");
   assert.equal(sep?.text, TURN_SEPARATOR);
   assert.equal(sep?.time, T0);
   assert.equal(sep?.turn, undefined, "回合号由宿主 turn/start 回填");
   s = reduceState(s, { type: "turn-number", turn: 164 });
-  assert.equal(s.buffer.find((l) => l.kind === "separator")?.turn, 164);
+  assert.equal(s.local.find((l) => l.kind === "separator")?.turn, 164);
   s = reduceState(s, { type: "turn-number", turn: 999 });
   assert.equal(
-    s.buffer.find((l) => l.kind === "separator")?.turn,
+    s.local.find((l) => l.kind === "separator")?.turn,
     164,
     "已有号不覆盖",
   );
@@ -56,7 +56,7 @@ test("#3 重复 turn-begin 不重复画线，但补齐缺失字段", () => {
   s = reduceState(s, { type: "user-line", text: "第一问" });
   s = reduceState(s, { type: "turn-begin", clearActivity: true, time: T0 });
   s = reduceState(s, { type: "turn-begin", clearActivity: false, turn: 5 });
-  const seps = s.buffer.filter((l) => l.kind === "separator");
+  const seps = s.local.filter((l) => l.kind === "separator");
   assert.equal(seps.length, 1, "不重复画线");
   assert.equal(seps[0]?.time, T0);
   assert.equal(seps[0]?.turn, 5, "缺号时补齐");

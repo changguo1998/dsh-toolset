@@ -160,7 +160,7 @@ test("appendNotice: 多行 notice 文本拆成多行 buffer（不再整块折行
     text: "本地命令：\n  /quit   退出\n其他 /name 走注册表。",
   });
   assert.deepEqual(
-    s.buffer.map((l) => ({ text: l.text, kind: l.kind })),
+    s.local.map((l) => ({ text: l.text, kind: l.kind })),
     [
       { text: "本地命令：", kind: "notice" },
       { text: "  /quit   退出", kind: "notice" },
@@ -173,7 +173,7 @@ test("appendNotice: 多行拆分不改变已有 buffer 末行语义", () => {
   let s = _stateWith({ type: "append", text: "第1行" });
   s = _stateWith({ type: "notice", text: "A\nB" }, s);
   assert.deepEqual(
-    s.buffer.map((l) => ({ text: l.text, kind: l.kind })),
+    s.local.map((l) => ({ text: l.text, kind: l.kind })),
     [
       { text: "第1行", kind: "assistant" },
       { text: "A", kind: "notice" },

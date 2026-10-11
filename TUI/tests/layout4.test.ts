@@ -727,36 +727,36 @@ test("turn-begin: 回合开始时在历史末尾追加分隔线；流式内容�
   s = reduceState(s, { type: "append", text: "中间输出" });
   s = reduceState(s, { type: "turn-begin" });
   assert.deepEqual(
-    (({ text, kind }) => ({ text, kind }))(s.buffer[s.buffer.length - 1]!),
+    (({ text, kind }) => ({ text, kind }))(s.local[s.local.length - 1]!),
     { text: TURN_SEPARATOR, kind: "separator" },
   );
   assert.equal(
-    s.buffer.some((l) => l.kind === "assistant"),
+    s.local.some((l) => l.kind === "assistant"),
     false,
     "turn-begin 清空非 final 中间输出（仅历史 user + 分隔线保留）",
   );
   // 流式仍实时合入
   s = reduceState(s, { type: "append", text: " more" });
-  assert.equal(s.buffer[s.buffer.length - 1]?.text, " more");
+  assert.equal(s.local[s.local.length - 1]?.text, " more");
 });
 
 test("turn-begin: 空 buffer 不画孤立分隔线；重复 begin 不重复；turn-end 不画线", () => {
   let s = initialState();
   s = reduceState(s, { type: "turn-begin" });
-  assert.equal(s.buffer.length, 0);
+  assert.equal(s.local.length, 0);
   s = reduceState(s, { type: "user-line", text: "q" });
   s = reduceState(s, { type: "append", text: "a" });
   s = reduceState(s, { type: "turn-end" });
   assert.equal(
-    s.buffer.filter((l) => l.kind === "assistant" && l.final).length,
+    s.local.filter((l) => l.kind === "assistant" && l.final).length,
     1,
     "turn-end 把最后一段 assistant 标为 final 总结",
   );
   s = reduceState(s, { type: "turn-begin" });
-  let seps = s.buffer.filter((l) => l.kind === "separator").length;
+  let seps = s.local.filter((l) => l.kind === "separator").length;
   assert.equal(seps, 1, "turn-end 不增线，仅 turn-begin 画一条");
   s = reduceState(s, { type: "turn-begin" });
-  seps = s.buffer.filter((l) => l.kind === "separator").length;
+  seps = s.local.filter((l) => l.kind === "separator").length;
   assert.equal(seps, 1, "重复 begin 只保留一条分隔线");
 });
 
@@ -780,12 +780,12 @@ test("turn-begin: 新回合清空旧活动区瞬态（工具/notice），仅保�
   });
   s = reduceState(s, { type: "notice", text: "theme: dark" });
   s = reduceState(s, { type: "turn-end" }); // 回合结束：思考保留(下回合 begin 才清)，工具/notice 保留
-  const transient1 = s.buffer.filter(
+  const transient1 = s.local.filter(
     (l) => l.kind === "tool" || l.kind === "notice",
   );
   assert.ok(transient1.length === 3, "turn-end 后工具(*++)与 notice 仍可见");
   s = reduceState(s, { type: "turn-begin" }); // 新回合：旧活动结果被冲掉
-  const kinds = s.buffer.map((l) => l.kind);
+  const kinds = s.local.map((l) => l.kind);
   assert.ok(!kinds.includes("tool"), "新回合清空旧工具行");
   assert.ok(!kinds.includes("notice"), "新回合清空旧 notice");
   assert.ok(!kinds.includes("thinking"), "新回合无思考残留");
@@ -812,13 +812,13 @@ test("activityScroll 归零：turn-begin 空 buffer/已有分隔线路径 + clea
   s = reduceState(s, { type: "activity-scroll", delta: 2 });
   assert.equal(s.activityScroll, 2, "前置：再次上滚 2 行");
   s = reduceState(s, { type: "turn-begin" }); // 末行已分隔线：不追加且归零
-  const separators = s.buffer.filter((l) => l.kind === "separator").length;
+  const separators = s.local.filter((l) => l.kind === "separator").length;
   assert.equal(separators, 1, "末行已分隔线时不重复追加");
   assert.equal(s.activityScroll, 0, "已有分隔线路径同样归零");
   // /cls 清屏：活动区随之清空，偏移归零
   s = reduceState(s, { type: "activity-scroll", delta: 9 });
   s = reduceState(s, { type: "clear-buffer" });
-  assert.equal(s.buffer.length, 0, "清屏后 buffer 空");
+  assert.equal(s.local.length, 0, "清屏后 buffer 空");
   assert.equal(s.activityScroll, 0, "clear-buffer 后 activityScroll 归零");
 });
 
@@ -838,29 +838,29 @@ test("turn-end 标 final：中间输出留在活动区、总结进历史区；�
   s = reduceState(s, { type: "append", text: "最终总结" });
   // turn-end 前：所有 assistant 均非 final
   assert.equal(
-    s.buffer.filter((l) => l.kind === "assistant" && l.final).length,
+    s.local.filter((l) => l.kind === "assistant" && l.final).length,
     0,
     "回合进行中无 final 行（中间输出在活动区）",
   );
   s = reduceState(s, { type: "turn-end" });
-  const finals = s.buffer.filter((l) => l.final);
+  const finals = s.local.filter((l) => l.final);
   assert.equal(finals.length, 1, "仅最后一段 assistant 标 final");
   assert.equal(finals[0]!.text, "最终总结");
   // 幂等：再次 turn-end 不新增 final
   s = reduceState(s, { type: "turn-end" });
-  assert.equal(s.buffer.filter((l) => l.final).length, 1, "重复 turn-end 幂等");
+  assert.equal(s.local.filter((l) => l.final).length, 1, "重复 turn-end 幂等");
   // 新回合 turn-begin：清掉非 final 中间输出/思考/工具，保留 user + final 总结
   s = reduceState(s, { type: "turn-begin" });
-  const kinds = s.buffer.map((l) => l.kind);
+  const kinds = s.local.map((l) => l.kind);
   assert.ok(!kinds.includes("thinking"), "思考被清");
   assert.ok(!kinds.includes("tool"), "工具被清");
   assert.equal(
-    s.buffer.filter((l) => l.kind === "assistant" && !l.final).length,
+    s.local.filter((l) => l.kind === "assistant" && !l.final).length,
     0,
     "非 final 中间输出被清",
   );
   assert.ok(
-    s.buffer.some(
+    s.local.some(
       (l) => l.kind === "assistant" && l.final && l.text === "最终总结",
     ),
     "final 总结保留在历史区",
@@ -878,7 +878,7 @@ test("turn-end 无模型正文：不标 final（纯工具/思考回合）", () =
   });
   s = reduceState(s, { type: "turn-end" });
   assert.equal(
-    s.buffer.filter((l) => l.final).length,
+    s.local.filter((l) => l.final).length,
     0,
     "无 assistant 输出时不产生 final 行",
   );
@@ -887,11 +887,11 @@ test("turn-end 无模型正文：不标 final（纯工具/思考回合）", () =
 test("appendStream 不修改旧 state 的行对象", () => {
   let s = initialState();
   s = reduceState(s, { type: "append", text: "原文" });
-  const beforeLine = s.buffer[0];
+  const beforeLine = s.local[0];
   const next = reduceState(s, { type: "append", text: "续写" });
   assert.equal(beforeLine?.text, "原文");
-  assert.equal(next.buffer[0]?.text, "原文续写");
-  assert.notEqual(next.buffer[0], beforeLine);
+  assert.equal(next.local[0]?.text, "原文续写");
+  assert.notEqual(next.local[0], beforeLine);
 });
 
 test("truncateToWidth: 按显示宽度截断，不切半个 CJK", () => {
@@ -1367,7 +1367,7 @@ test("会话流：思考在活动区按视口截断；正文(输出)到达保留
 
   s = reduceState(s, { type: "append", text: "正文" });
   assert.equal(
-    s.buffer.some((line) => line.kind === "thinking"),
+    s.local.some((line) => line.kind === "thinking"),
     true,
     "正文到达后思考仍保留（思考/中间输出属活动区，总结属历史区）",
   );
@@ -1375,13 +1375,13 @@ test("会话流：思考在活动区按视口截断；正文(输出)到达保留
   s = reduceState(s, { type: "thinking", text: "残留思考" });
   s = reduceState(s, { type: "turn-end" }); // 输出结束：不立即清空
   assert.equal(
-    s.buffer.some((line) => line.kind === "thinking"),
+    s.local.some((line) => line.kind === "thinking"),
     true,
     "turn-end 后思考保留显示（输出结束后不立即清空）",
   );
   s = reduceState(s, { type: "turn-begin" }); // 下一轮需要进行输出前：统一清空
   assert.equal(
-    s.buffer.some((line) => line.kind === "thinking"),
+    s.local.some((line) => line.kind === "thinking"),
     false,
     "下回合 turn-begin 才清空思考（输出前清空）",
   );
@@ -1551,7 +1551,7 @@ test("交错布局：多行输入为一块——块内行首左对齐、块宽 =
   s = reduceState(s, { type: "append", text: "好" });
   s = reduceState(s, { type: "turn-end" });
   // 一次输入 = 一条 buffer 行（显式换行保留在行内，不再拆成多条 user 行）
-  const userLines = s.buffer.filter((l) => l.kind === "user");
+  const userLines = s.local.filter((l) => l.kind === "user");
   assert.equal(userLines.length, 1, "多行输入只占一条 buffer 行");
   assert.ok(userLines[0]!.text.includes("\n"), "换行保留在行内");
 
@@ -1640,7 +1640,7 @@ test("用户块：长输入折行后状态符号占左侧留白、正文各行�
   const m = metricsFor({ rows: 24, cols });
   const textW = paneTextWidth(regionColumnWidth(m.historyWidth), true);
   const { dialogue } = buildContentRows(
-    s.buffer,
+    s.local,
     {
       userStatus: (l) =>
         l.kind === "user" && !l.queued
@@ -3172,7 +3172,7 @@ test("buildFrame 回填滚动几何：上限随物化窗口（渐进），初始
   assert.ok(report.activityMaxScroll > 0, "活动区可滚上限 > 0");
   assert.ok(report.dialogueTotal > 0, "回填物化行数");
   assert.ok(
-    report.dialogueTotal < s.buffer.length,
+    report.dialogueTotal < s.local.length,
     "窗口只物化尾部（渐进定位：不再整段历史入排版）",
   );
   // 扩窗一批（Home 的加载步长）→ 物化行数随之增长（渐进扩窗）

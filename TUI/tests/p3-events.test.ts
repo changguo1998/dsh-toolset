@@ -20,7 +20,7 @@ function lastLine(
   s: AppState,
   kind: "tool" | "notice",
 ): BufferLine | undefined {
-  return [...s.buffer].reverse().find((l) => l.kind === kind);
+  return [...s.local].reverse().find((l) => l.kind === kind);
 }
 
 test("workflow：run-start/agent-start/agent-end 活动区行 + run-end toast", () => {
@@ -81,7 +81,7 @@ test("command：run 行 + 失败红行；成功静默", () => {
   });
   assert.equal(lastLine(s, "tool")?.text, "/> goal");
   // 成功 done：静默（结果由命令自身 notice 呈现，避免重复）
-  const before = s.buffer.length;
+  const before = s.local.length;
   s = reduceState(s, {
     type: "command",
     sessionId: sid,
@@ -89,7 +89,7 @@ test("command：run 行 + 失败红行；成功静默", () => {
     name: "goal",
     ok: true,
   });
-  assert.equal(s.buffer.length, before);
+  assert.equal(s.local.length, before);
   // 失败 done：红行
   s = reduceState(s, {
     type: "command",
@@ -114,7 +114,7 @@ test("code-dispatch：start 行；settle 成功静默、失败红行", () => {
     ok: true,
   });
   assert.equal(lastLine(s, "tool")?.text, "⇥ read src/app/index.ts");
-  const before = s.buffer.length;
+  const before = s.local.length;
   s = reduceState(s, {
     type: "code-dispatch",
     sessionId: sid,
@@ -123,7 +123,7 @@ test("code-dispatch：start 行；settle 成功静默、失败红行", () => {
     summary: "",
     ok: true,
   });
-  assert.equal(s.buffer.length, before);
+  assert.equal(s.local.length, before);
   s = reduceState(s, {
     type: "code-dispatch",
     sessionId: sid,
@@ -167,7 +167,7 @@ test("schedule：仅 dispatch 提示；create/delete 静默", () => {
     operation: "create",
     id: "s1",
   });
-  assert.equal(s.buffer.length, 0);
+  assert.equal(s.local.length, 0);
   s = reduceState(s, {
     type: "schedule",
     sessionId: sid,
