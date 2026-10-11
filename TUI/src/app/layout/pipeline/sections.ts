@@ -170,13 +170,15 @@ function target(
   // 按**到达顺序**落在当前节之后——否则「reasoning → notice → assistant」里后到的正文会
   // 回写进 notice 之前的那一节，notice 被排到正文后面（BACKLOG「同 step 内 notice 与正文
   // 的到达顺序丢失」）
-  const at =
-    boundary || !continuation
-      ? -1
-      : base.sections.findIndex(
-          (section) =>
-            sameScope(section, turn, step) && section.standalone !== true,
-        );
+  // 回写更早的节只对续写；**边界不阻断续写**（BACKLOG #22⑤：批结果到齐后再到的同块增量
+  // 原本另起一节 → 同一逻辑块被劈成两半）。边界的作用是让**新**内容落在当前节之后，
+  // 而不是拆散已在屏上的块 —— `!continuation` 已经覆盖「新内容不回写」这一半。
+  const at = !continuation
+    ? -1
+    : base.sections.findIndex(
+        (section) =>
+          sameScope(section, turn, step) && section.standalone !== true,
+      );
   if (at >= 0) {
     const section = base.sections[at]!;
     return { state: base, target: { on: "closed", at, section } };
@@ -335,20 +337,20 @@ function applyText(
   };
   // 续写判据看**该来源在该节是否已有同块的文本条目**（不能只看交付账：交付账按
   // `turn:step:index` 记、不含来源，reasoning 与 assistant 用同一 index 时会误判成续写）
-  const home = state.sections.find(
-    (section) =>
-      section.turn === delivery.turn &&
-      section.step === delivery.step &&
-      section.standalone !== true,
-  );
+  // 续写判据与回写目标**同源**（BACKLOG #22⑤）：先按「允许续写」定位一次，若定位到的节里
+  // 已有同一块的条目 → 判定为续写并**原样沿用该定位**；否则按「新内容」重新定位（落当前节
+  // 之后，不回写更早的节）。此前的判据用 `sections.find` 取第一个同 scope 节，与 `target()`
+  // 的 `findIndex` 不同源，两者可能给出不同的节。
+  const probe = target(next, delivery.turn, delivery.step, true);
   const continuing =
     delivery.index < 0 ||
-    (home?.items.some(
+    probe.target.section.items.some(
       (item) =>
         item.source === delivery.source && item.block === delivery.index,
-    ) ??
-      false);
-  const located = target(next, delivery.turn, delivery.step, continuing);
+    );
+  const located = continuing
+    ? probe
+    : target(next, delivery.turn, delivery.step, false);
   // step 级结算（`index < 0`）与该来源**已在屏上的最后一条文本**对账：交付账按块键记，
   // 结算另有其键（`…:-1`），拿它当 `previous` 会把整块文本重复并进上一条
   const settle = delivery.index < 0;

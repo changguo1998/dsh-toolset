@@ -453,3 +453,48 @@ test("BACKLOG #22③：joinedLastTextBySource 同块重复入账不放大（/cop
     "同块重复只取一次；不同块按序拼接",
   );
 });
+
+test("BACKLOG #22⑤：批结果到齐后的同块迟到增量并入原节（不劈成两节）", () => {
+  const st = applyAll(createSections(), [
+    { kind: "turn-start", turn: 1 },
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: "前半",
+    },
+    {
+      kind: "tool-call",
+      turn: 1,
+      step: 1,
+      callId: "c1",
+      name: "read",
+      args: "{}",
+    },
+    {
+      kind: "tool-result",
+      turn: 1,
+      step: 1,
+      callId: "c1",
+      ok: true,
+      detail: "ok",
+    },
+    // 批结果到齐（pendingOpen）之后，同一块的迟到增量
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: "后半",
+    },
+  ]);
+  const blocks = allSections(st)
+    .filter((section) => section.turn === 1 && section.step === 1)
+    .flatMap((section) => section.items)
+    .filter((item) => item.source === "assistant" && item.block === 0);
+  assert.equal(blocks.length, 1, "同一块只应有一条条目（不被劈成两节各半段）");
+  assert.equal(blocks[0]?.text, "前半后半");
+});
