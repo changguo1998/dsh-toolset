@@ -468,6 +468,15 @@ export class App {
    * 接收跟事件（去重不能延迟），处理与排版仍跟帧。
    */
   private ingestDelivery(delivery: BlockDelivery): void {
+    // 符号归一（`/symbol-unify`）在**交付入口**统一做一次：生产的唯一渲染源是流水线，而交付里的
+    // 文本来自适配器原文；只在事件分支里改缓冲文本到不了画面（BACKLOG「符号归一在真机不可见」）。
+    if (delivery.kind === "text" && this.state.symbolUnify) {
+      const symbols = this.symbols();
+      if (symbols !== undefined) {
+        const text = symbols.normalize(delivery.text).text;
+        if (text !== delivery.text) delivery = { ...delivery, text };
+      }
+    }
     const sid = this.state.activeSessionId;
     if (
       this.sections === null ||
@@ -1527,15 +1536,12 @@ export class App {
           break;
         }
         this.beginTurnIfNeeded();
-        // 符号统一（/symbol-unify 开关）：on=经 symbol-normalizer 服务做展示层替换；
-        // off 或服务未挂载=原文透传（审查 / notice / 模型反馈均在插件侧，经 onReview 订阅）
-        const symbols = this.state.symbolUnify ? this.symbols() : undefined;
-        const streamText =
-          symbols !== undefined ? symbols.normalize(e.text).text : e.text;
+        // 符号统一（/symbol-unify）只在本文件 `ingestDelivery`（交付入口）做一次：
+        // 流水线是唯一渲染源，缓冲文本已不再是展示来源（审查 / notice / 模型反馈在插件侧）
         this.apply((s) =>
           reduceState(s, {
             type: "append",
-            text: streamText,
+            text: e.text,
             time: Date.now(),
           }),
         );
