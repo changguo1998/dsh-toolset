@@ -11,6 +11,7 @@ import { surfaceToBuffer } from "../src/app/commands.ts";
 import { normalizeHistoryMessages } from "../src/app/adapter/dsh.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { rowText } from "./helpers/rowText.ts";
+import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
 
 test("P9 surfaceToBuffer：step 行原样成行；整条空文本不产行", () => {
   const rows = surfaceToBuffer([
@@ -26,20 +27,33 @@ test("P9 surfaceToBuffer：step 行原样成行；整条空文本不产行", () 
 });
 
 test("P9 渲染：step 行 = `╌╌ <文本> ` + 尾部 ╌ 铺满，且位于历史区", () => {
-  let s = initialState();
-  s.activeSessionId = "s1";
-  s = reduceState(s, { type: "history-open" });
-  s = reduceState(s, { type: "history-resume", id: "old-1" });
-  s = reduceState(s, {
-    type: "history-resume-ok",
-    id: "old-1",
-    title: "旧会话",
-    rows: surfaceToBuffer([
-      { role: "user", text: "问题" },
-      { role: "step", text: "22:31:05 #3 ╌╌ read ×2" },
-      { role: "assistant", text: "回复正文" },
+  // 条目 16 段 C1：内容走交付流（不再经历史行 + sectionsOf 回退重放）
+  const s = {
+    ...initialState(),
+    activeSessionId: "s1",
+    pipeline: sectionsFromScript([
+      { delivery: { kind: "turn-start", turn: 1 } },
+      { delivery: { kind: "user", turn: 1, step: 0, text: "问题" } },
+      {
+        delivery: {
+          kind: "step-summary",
+          turn: 1,
+          step: 1,
+          text: "22:31:05 #3 ╌╌ read ×2",
+        },
+      },
+      {
+        delivery: {
+          kind: "text",
+          turn: 1,
+          step: 1,
+          index: 0,
+          source: "assistant",
+          text: "回复正文",
+        },
+      },
     ]),
-  });
+  };
   const lines = buildFrame(s, { rows: 24, cols: 100 }).map((r) => rowText(r));
   const step = lines.find((t) => t.includes("read ×2"));
   assert.ok(step, `step 概要行应可见: ${lines.join("|")}`);
@@ -48,10 +62,11 @@ test("P9 渲染：step 行 = `╌╌ <文本> ` + 尾部 ╌ 铺满，且位于�
     `` + `前缀与内部分隔: ${step}`,
   );
   assert.ok(/read ×2 ╌+/.test(step), `尾部用 ╌ 铺满: ${step}`);
-  // 无空行：恢复后的 buffer 里不能出现纯空行
+  // 原「恢复后的 buffer 不能出现纯空行」断言在迁移后失效（s.local 不再承载会话内容，
+  // 该断言会平凡为真）→ 改断渲染结果：step 行前后不留空行
   assert.ok(
-    !s.local.some((l) => l.text.trim() === ""),
-    `恢复行不含空行: ${JSON.stringify(s.local.map((l) => l.text))}`,
+    absenceOfBlankAround(lines, step),
+    `step 行前后不留空行: ${lines.join("|")}`,
   );
 });
 
@@ -304,3 +319,15 @@ test("恢复：用户消息的 inbox 注入副本不重复出块（副本无终�
     "同 id 的注入副本被丢弃，用户块只出一条且带终态",
   );
 });
+
+/** step 行前后不留空行（迁移后替代原「缓冲不含空行」断言） */
+function absenceOfBlankAround(lines: string[], target: string): boolean {
+  const i = lines.findIndex((t) => t === target);
+  if (i < 0) return false;
+  const prev = i > 0 ? lines[i - 1]! : undefined;
+  const next = i + 1 < lines.length ? lines[i + 1]! : undefined;
+  return (
+    (prev === undefined || prev.trim() !== "") &&
+    (next === undefined || next.trim() !== "")
+  );
+}
