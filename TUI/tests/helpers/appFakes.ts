@@ -304,10 +304,13 @@ export class FakeAdapter implements DshAdapter {
    */
   mirrorTo: { current?: (delivery: BlockDelivery) => void } | null = null;
 
+  /** 镜像用的当前回合号：`turn-end` 事件后递增（多数用例跨多回合，固定 1 会让内容落错节） */
+  private mirrorTurn = 1;
+
   /** 事件 → 交付（只覆盖测试常用的内容类；未知类型返回 undefined 表示不镜像） */
   private deliveryOf(
     e: DshEvent,
-    turn = 1,
+    turn = this.mirrorTurn,
     step = 1,
   ): BlockDelivery | undefined {
     const ev = e as {
@@ -318,6 +321,7 @@ export class FakeAdapter implements DshAdapter {
       ok?: boolean;
       detail?: string;
       tone?: string;
+      reason?: string;
     };
     switch (ev.type) {
       case "stream":
@@ -362,6 +366,13 @@ export class FakeAdapter implements DshAdapter {
           text: ev.text ?? "",
           ...(ev.tone === undefined ? {} : { tone: ev.tone as never }),
         };
+      case "turn-end":
+        return {
+          kind: "turn-end",
+          turn,
+          step,
+          reason: ev.reason ?? "completed",
+        };
       default:
         return undefined;
     }
@@ -372,5 +383,6 @@ export class FakeAdapter implements DshAdapter {
     for (const cb of this.cbs) cb(e);
     const delivery = this.deliveryOf(e);
     if (delivery !== undefined) this.mirrorTo?.current?.(delivery);
+    if (e.type === "turn-end") this.mirrorTurn++;
   }
 }
