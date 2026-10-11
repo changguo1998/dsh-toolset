@@ -19,6 +19,7 @@ import {
   createSections,
 } from "../src/app/layout/pipeline/sections.ts";
 import type { Item, Section } from "../src/app/layout/pipeline/types.ts";
+import { joinedLastTextBySource } from "../src/app/layout/pipeline/sections.ts";
 
 /** 分隔线时间戳（断言只关心有没有线，值任意） */
 const STEP_TIME = 1_700_000_000_000;
@@ -431,4 +432,24 @@ test("条目 26：历史节里的工具批进会话区（恢复的工具结果�
   assert.equal(hasTool(plain.activity), true);
   assert.equal(hasTool(history.dialogue), true, "历史节的工具批进会话区");
   assert.equal(hasTool(history.activity), false, "历史节的工具批不再进回合区");
+});
+
+test("BACKLOG #22③：joinedLastTextBySource 同块重复入账不放大（/copy 不拼成甲乙甲乙）", () => {
+  const st = {
+    ...applyAll(createSections(), []),
+    sections: [
+      section([
+        { source: "assistant", text: "甲", block: 0 },
+        { source: "assistant", text: "乙", block: 1 },
+        { source: "assistant", text: "甲", block: 0 },
+        { source: "assistant", text: "乙", block: 1 },
+      ]),
+    ],
+    current: undefined,
+  };
+  assert.equal(
+    joinedLastTextBySource(st, "assistant"),
+    "甲乙",
+    "同块重复只取一次；不同块按序拼接",
+  );
 });

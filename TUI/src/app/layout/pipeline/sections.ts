@@ -816,12 +816,22 @@ export function joinedLastTextBySource(
     if (has) scope = { turn: section.turn, step: section.step };
   }
   if (scope === undefined) return undefined;
+  // 同块重复入账去重（BACKLOG #22③）：同 scope 内 (source, block) 相同即同一逻辑块 →
+  // 只取第一次出现的文本；否则 `/copy` 会拼成「甲乙甲乙」（旧实现只取最后一条，不会放大）。
+  // `block` 缺省（旧交付 / 结算路径）保持原样按序拼接。
+  const seenBlocks = new Set<number>();
   const texts = list
     .filter(
       (section) => section.turn === scope.turn && section.step === scope.step,
     )
     .flatMap((section) => section.items)
     .filter((item) => item.source === source)
+    .filter((item) => {
+      if (item.block === undefined) return true;
+      if (seenBlocks.has(item.block)) return false;
+      seenBlocks.add(item.block);
+      return true;
+    })
     .map((item) => item.text ?? "")
     .filter((text) => text.trim() !== "");
   return texts.length > 0 ? texts.join("") : undefined;

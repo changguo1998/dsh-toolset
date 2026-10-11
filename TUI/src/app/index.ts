@@ -424,6 +424,9 @@ export class App {
   private sectionsSessionId: string | null = null;
   /** 流水线视角的当前回合号（turn-begin 交付用；宿主回合号经块交付已带到） */
   private pipelineLastTurn: number | null = null;
+  /** 缓冲尾巴的块身份游标（BACKLOG #22②）：同一 (turn, step) 内**跨调用连续**，scope 变化才归零 */
+  private bufferTailIndex = 0;
+  private bufferTailScope: string | null = null;
   /**
    * 末尾是否停在「已投 turn-start、其后无内容」上（画线判据，条目 7 选项 1 起改读节模型）：
    * 等价旧口径的「缓冲末行已是回合分隔线」——下次 turn-begin 不重复画线。
@@ -508,7 +511,14 @@ export class App {
   private deliverBufferTail(before: number): void {
     if (this.sections === null) return;
     const scope = this.sections.lastScope;
-    let index = 0;
+    // 块身份跨调用连续（BACKLOG #22②）：每次从 0 起会让两次调用带出的辅助行都拿 block 0
+    // → 被并成「辅助甲辅助乙」。同一 (turn, step) 内累加，scope 变化才归零。
+    const tailScope = scope.turn + ":" + scope.step;
+    if (this.bufferTailScope !== tailScope) {
+      this.bufferTailScope = tailScope;
+      this.bufferTailIndex = 0;
+    }
+    let index = this.bufferTailIndex;
     for (const line of this.state.buffer.slice(before)) {
       const step =
         line.kind === "step" || line.kind === "tool"
@@ -538,6 +548,7 @@ export class App {
       index += 1;
       if (delivery !== undefined) this.deliverLocal(delivery);
     }
+    this.bufferTailIndex = index;
   }
 
   /** 当前 state 的可滚动上限：出帧回填过就直接用，否则就地补算一次（同一帧口径） */
