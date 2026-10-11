@@ -2332,6 +2332,9 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         // #7：step/start **即画真分割线** `hh:mm:ss ⇆N #M`（其后思考/工具/正文都归入该步；
         // 每步都画，含首个 step 与无工具调用的 step）；step/end 关组。
         if (action.phase === "start") {
+          // step 0 = 宿主在首个 step/start 之前的占位（「尚未声明任何 step」）→ **不落头行**：
+          // 落了会被回放反解成「step 0 已声明」并画出 `╌╌ ⇆N #0 ╌╌` 假头（BACKLOG #21）
+          if (action.step === 0) return state;
           // P6：时间取事件时间；mock/合成事件缺 time 时回退当前时刻
           const time = action.time ?? Date.now();
           return {

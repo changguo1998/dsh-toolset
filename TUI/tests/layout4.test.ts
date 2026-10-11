@@ -3307,3 +3307,32 @@ test("BACKLOG #20：恢复出的分隔线显示宿主真实 ⇆N（42/43 不被�
   assert.ok(frame.includes("⇆43"), "分隔线应显示宿主回合号 43");
   assert.ok(!frame.includes("⇆1 "), "不应被重编号成 1（本地序数）");
 });
+
+test("BACKLOG #21：回放不留 #0 假头 / 有内容的 step 头带时间戳 / 同号不重复", () => {
+  const rows = [
+    { text: "第一行", kind: "user", turn: 1 },
+    // 历史缓冲里的 `#0` 假头（step 0 = 未声明占位）
+    { text: stepHead(0), kind: "tool", turn: 1 },
+    { text: "思考中", kind: "thinking", turn: 1, step: 0 },
+    // 有内容的 step 2 头（缓冲行上带时间）
+    { text: stepHead(2, 1), kind: "tool", turn: 1, time: STEP_TIME },
+    { text: "正文两句", kind: "assistant", turn: 1, step: 2 },
+  ] as never;
+  const s = {
+    ...initialState(),
+    pipeline: sectionsFromBuffer(rows, { history: true }),
+  };
+  const frame = buildFrame(s, { cols: 100, rows: 30 })
+    .map((r) => r.segments.map((x) => x.text).join(""))
+    .join("\n");
+  assert.ok(!frame.includes("#0"), "step 0 不得出假头");
+  // 节层验「回放从缓冲行取到了 time」（帧层的头文本由 `stepHeaderLine` 现画，另有用例覆盖）
+  const st = sectionsFromBuffer(rows, { history: true });
+  const all = [
+    ...st.sections,
+    ...(st.current === undefined ? [] : [st.current]),
+  ];
+  const step2 = all.filter((x) => x.step === 2);
+  assert.equal(step2.length, 1, "同一步号只出一个节（不重复出头）");
+  assert.equal(step2[0]?.time, STEP_TIME, "step 2 节带缓冲行上的时间戳");
+});

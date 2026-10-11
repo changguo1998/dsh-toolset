@@ -26,7 +26,10 @@ import type { BlockDelivery } from "./types.ts";
  *  尾锚 `#M` 使回合号插在 `#` 前不影响回解（新旧文本都能解）。 */
 export function stepOf(text: string): number | undefined {
   const match = /(?:^|\s)#(\d+)\s*$/.exec(text.trim());
-  return match === null ? undefined : Number(match[1]);
+  if (match === null) return undefined;
+  const n = Number(match[1]);
+  // step 0 = 占位（未声明），历史缓冲里可能有 `#0` 头 → 不算声明，避免 `#0` 假头（BACKLOG #21）
+  return n > 0 ? n : undefined;
 }
 
 /** 工具结果行（`✓ …` / `✗ …`）→ 成功标志；非结果行返回 undefined */
@@ -233,6 +236,9 @@ export function sectionsFromBuffer(
       continue;
     }
     const header = line.kind === "step" ? stepOf(line.text) : undefined;
+    // BACKLOG #21：历史缓冲里的 step 0 占位头（`╌╌ hh:mm:ss ⇆N #0 ╌╌…`）——既不是
+    // 真正的 step 声明，也不是内容 → 直接丢弃，避免它作为普通行上屏
+    if (line.kind === "tool" && /(?:^|\s)#0\s/.test(line.text)) continue;
     const toolHeader =
       line.kind === "tool" && stepOf(line.text) !== undefined
         ? stepOf(line.text)
