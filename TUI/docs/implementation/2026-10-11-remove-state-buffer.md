@@ -117,6 +117,19 @@
 - **代价**：diff 覆盖全部缓冲相关测试、不可分批；无「两字段并存」过渡期（而过渡期本身就是故障源）。
 - **不采纳**：新增 `local` 字段（多一次迁移）、双写再切读（双投递 + `nextSeq` 双计，风险最高）、保留只读别名（编译器发现不了漏读点，段 C 还得再扫）。
 
+## 段 B 首次实施尝试失败（2026-10-11 第 41 轮，已整体回退）
+
+**做法**：按审阅裁定做一次性改名 —— ① `state.ts` 的声明 `buffer: Buffer` → `local: Buffer`；② 全局正则 `.buffer` → `.local`（28 文件 151 处）；③ 再用 tsc 报错行**自动定点**修正剩余（结构类型键名、简写属性、过度改名）。
+
+**结果**：错误数 150 → 39 → 23 → 13 → 15 → 2 → 5（反复震荡），最后**全量测试挂住**（疑似 `nextSeq` / 裁剪相关语义被改坏），遂 `git checkout -- TUI` **整体回退**，仓库恢复 1461 全绿。
+
+**教训（下轮必读）**：
+
+1. **不要用「按 tsc 报错行自动改写」的循环** —— 它把 `nextSeq: buffer.length + 1` 改成 `nextSeq: local: buffer.length + 1`（双冒号语法错），也把简写属性改出 `local: buffer: buffer`；错误数会震荡而非单调下降。
+1. **各类改名要分开、按类型精准**：字段访问 `.buffer`（可正则）、结构类型的**键名** `buffer:`（要人工确认每个键都属于 AppState 形状）、**简写属性** `{ …state, buffer }`（要改成 `local: buffer`，不能只改标识符）、以及**局部变量同名** `const buffer = state.local`（应一并改名为 `local` 以保持一致）。
+1. **推荐做法**：先在 `state.ts` 改声明 + 该文件内所有用法 → 再**逐文件**用 `read` + `edit`（按原文替换）推进，每改 2-3 个文件跑一次 `tsc`；不要全局脚本 + 自动修补。
+1. 段 B 仍未开始（仓库当前状态 = 段 A 完成、段 B 未动）。
+
 ## 原段 B 预研（2026-10-11 第 14 轮，保留供对照；结论已被上节取代）
 
 **写侧**（`src/app/state.ts`）：UI 本地行由这些分支写入缓冲——`notice` / `shell` / `tool-call` / `tool-result` / `command` / `feedback` / `hook` / `subagent` / `step` / `retry` / `compaction*`（约 10 个内容分支）；实现形态是**写时复制**：`const buffer = state.buffer.length ? [...state.buffer] : [];`（实测出现在 `state.ts:893 / 976 / 1013 / 1038 / 1067 / 1167` 等，至少 6 处），随后 `nextSeq` / `trimBufferHead` / 行数上限一起动。
