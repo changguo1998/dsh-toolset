@@ -33,6 +33,7 @@ const buildFrame = (...args: Parameters<typeof buildFrameRaw>) => {
 };
 import type { Buffer } from "../src/app/state.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
+import { withText, withTurnEnd, withUser } from "./helpers/pipelineContent.ts";
 import type { AppState } from "../src/app/state.ts";
 import { rowText } from "./helpers/rowText.ts";
 import {
@@ -278,15 +279,15 @@ test("会话区内容底部对齐（两种排列一致）：内容不足一屏�
     placement: "vertical" | "horizontal",
     extra = false,
   ): AppState => {
-    let s = reduceState(
-      reduceState(initialState(undefined, { activityPlacement: placement }), {
-        type: "user-line",
-        text: "Q会话问题",
-      }),
-      { type: "append", text: "A会话回复" },
+    let s = withText(
+      withUser(
+        initialState(undefined, { activityPlacement: placement }),
+        "Q会话问题",
+      ),
+      "A会话回复",
     );
     // 回合结束 → 回复标 final 才会进会话区（否则留在回合区）
-    s = reduceState(s, { type: "turn-end" });
+    s = withTurnEnd(s);
     // 排队块：钉在 pane 底部（补白只在其上方，不与排队行重叠）
     return extra ? reduceState(s, { type: "queued-push", text: "Q排队中" }) : s;
   };
@@ -353,16 +354,17 @@ function emptyReport(): FrameScrollReport {
 test("活动区内容底部对齐（两种排列一致）：内容从下往上填满 pane 后才折叠最早内容", () => {
   const size = { rows: 24, cols: 140 };
   const short = (placement: "auto" | "vertical"): AppState =>
-    reduceState(
-      reduceState(
+    withText(
+      withText(
         initialState(undefined, {
           activityDivisor: 2,
           activityPlacement: placement,
           activityTopRow: "half",
         }),
-        { type: "thinking", text: "TH短内容" },
+        "TH短内容",
+        "reasoning",
       ),
-      { type: "append", text: "AN回复" },
+      "AN回复",
     );
   // 内容不足一屏：贴 pane 底部（最新一行落在 pane 末行），上方留白
   for (const placement of ["auto", "vertical"] as const) {
@@ -379,19 +381,17 @@ test("活动区内容底部对齐（两种排列一致）：内容从下往上�
   }
   // 内容超过一屏：填满整块 pane 后才折叠——可见行数 = pane 高，最早可见行 = 内容尾部 N 行
   const manyLines = (placement: "auto" | "vertical"): AppState =>
-    reduceState(
+    withText(
       initialState(undefined, {
         activityDivisor: 2,
         activityPlacement: placement,
         activityTopRow: "half",
       }),
-      {
-        type: "thinking",
-        text: Array.from(
-          { length: 60 },
-          (_, i) => `L${String(i + 1).padStart(2, "0")}`,
-        ).join("\n"),
-      },
+      Array.from(
+        { length: 60 },
+        (_, i) => `L${String(i + 1).padStart(2, "0")}`,
+      ).join("\n"),
+      "reasoning",
     );
   for (const placement of ["auto", "vertical"] as const) {
     const m = frameGeometry(manyLines(placement), size);
