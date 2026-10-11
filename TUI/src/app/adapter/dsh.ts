@@ -1301,6 +1301,26 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   /** 状态列 Agents 块「工作内容」：各会话（含子代理会话）最近一次工具调用摘要。
    *  随 `refreshAgents` 清理离场会话（见 BACKLOG「Agents 列表显示别名 + 工作内容」）。 */
   const lastToolBySession = new Map<string, string>();
+  // 状态列 Agents 块「条目行闪烁速率」（条目 1）：按会话累计输出体量（按 4 字符 ≈ 1 token
+  // 折算）与时间，相邻样本间隔 ≥ 1 秒时结算瞬时速率并做 0.5 指数加权 → 供 AgentRowInfo.tps。
+  // 只在有样本的会话上产出（主会话通常也有样本，但状态列只列子代理，故不影响）。
+  const rateBySession = new Map<
+    string,
+    { acc: number; since: number; tps?: number }
+  >();
+  const recordAgentRate = (sid: string, chars: number, time: number): void => {
+    if (!(chars > 0) || !(time > 0)) return;
+    const w = rateBySession.get(sid) ?? { acc: 0, since: time };
+    const secs = (time - w.since) / 1000;
+    if (secs >= 1) {
+      const inst = w.acc / secs;
+      w.tps = w.tps === undefined ? inst : w.tps * 0.5 + inst * 0.5;
+      w.acc = 0;
+      w.since = time;
+    }
+    w.acc += chars / 4;
+    rateBySession.set(sid, w);
+  };
   // TUI#17：已渲染的注入 notice 消息 id（user/message 与 agent/inbox/spliced 双通道
   // 可能携带同一条注入消息 → 去重；超上限清空，避免无界增长）
   const renderedNoticeIds = new Set<string>();
@@ -1888,6 +1908,17 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     const sid = (session as { id?: string } | null)?.id ?? activeSessionId;
     // 状态列 Agents 块「工作内容」：**全会话**记录最近一次工具调用（先于活跃会话过滤；
     // 子代理会话的事件只用于状态列，不进本会话 buffer）
+    // 状态列 Agents 块：速率累计必须在下面的「非活跃会话丢弃」**之前**（子代理事件只在
+    // 这里可见；写到后面会被 `sid !== activeSessionId` 滤掉）
+    if (raw.type === "tool/call" || raw.type === "tool/result") {
+      const chars =
+        raw.type === "tool/call"
+          ? typeof (raw.data as { arguments?: unknown }).arguments === "string"
+            ? (raw.data as { arguments: string }).arguments.length
+            : 0
+          : (toolResultDetail(raw.data) ?? "").length;
+      recordAgentRate(sid, chars, typeof raw.time === "number" ? raw.time : 0);
+    }
     if (raw.type === "tool/call") {
       const call = raw.data as { name?: unknown; arguments?: unknown };
       if (typeof call.name === "string" && call.name !== "") {
@@ -3409,6 +3440,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
             const id = entry.id ?? "-";
             const alias = aliasById.get(id);
             const work = lastToolBySession.get(id);
+            // 条目 1：条目行符号的闪烁速率（无样本不填 → 布局侧走缺省档）
+            const tps = rateBySession.get(id)?.tps;
             return {
               id,
               label: diagnostic
@@ -3421,6 +3454,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
               // 状态列 Agents 块：别名 + 工作内容（无别名 / 无记录时省略该段）
               ...(alias !== undefined ? { alias } : {}),
               ...(work !== undefined ? { work } : {}),
+              ...(tps !== undefined ? { tps } : {}),
               ...(diagnostic
                 ? { diagnostic: { reason: entry.reason ?? "unknown" } }
                 : {}),
@@ -3430,6 +3464,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         const liveIds = new Set(agentRows.map((r) => r.id));
         for (const id of lastToolBySession.keys()) {
           if (!liveIds.has(id)) lastToolBySession.delete(id);
+        }
+        for (const id of rateBySession.keys()) {
+          if (!liveIds.has(id)) rateBySession.delete(id);
         }
         emit({
           type: "command-panel-data",
