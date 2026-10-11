@@ -848,7 +848,21 @@ test("agent 运行中 Enter → 官方流程：立即发送给核心（逐条不
     [{ text: "第三条", kind: "followup" }],
     "每回合认领一条（弹出最早）",
   );
-  assert.ok(bufferText().includes("第二条"), "被认领的排队消息成为历史用户行");
+  // 条目 16 段 C1：内容不再写缓冲 → 改断言节缓存里有被认领的那条用户行
+  // （形状无关：直接序列化 sections/current 的 items 找文本，避免耦合 box 的内部字段）
+  const sec = (
+    app as unknown as {
+      sections: {
+        sections: { items: unknown[] }[];
+        current?: { items: unknown[] };
+      } | null;
+    }
+  ).sections;
+  const secDump = JSON.stringify([
+    ...(sec?.sections ?? []),
+    ...(sec?.current === undefined ? [] : [sec.current]),
+  ]);
+  assert.ok(secDump.includes("第二条"), "被认领的排队消息成为节缓存里的用户行");
   app.dispose();
 });
 
