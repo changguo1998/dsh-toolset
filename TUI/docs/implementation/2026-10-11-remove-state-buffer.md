@@ -301,3 +301,12 @@
 ## 收尾
 
 （待补）
+
+## 段 C2 完成（第 137-157 轮，提交 6989909）
+
+- 结果：BufferKind 收敛为 notice | tool | shell | plain；bufferRetainsContent / CONTENT_ACTIONS / dropContentWrites 全删；内容类 action 只记状态事实并保留本地行清理；MAX_BUFFER_LINES / trimBufferHead 按口径保留。
+- 做法：两段式（先重定向到 HistoryRow 保持全绿，再翻转 + 删机制），规避 203 处一次性编译错误。
+- 测试：19 个文件改「造交付 / 读节缓存 / 帧断言」，13 个文件注解改 HistoryRow；删 10 条重复用例（state-history-blocks 7 由 pipeline-sections finalize 覆盖；pipeline-app 3 条新旧等价已无对象），新增 1 条。
+- 验收：test 1457/1457、tsc 0 错、check 0、build 0。
+- 工具教训：ast_replace 每次只替 1 处；hash_edit 回显整份文件（494 KB）；sed 全局替换会撞重复标识符。跨 200 处改造宜委托给能连续干活的会话。
+- 遗留：无 sink 装配下提交输入不再立即回显（依赖 deliverLocal 交付）；生产路径不受影响，待真机目视。
