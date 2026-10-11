@@ -52,6 +52,7 @@ import { THEMES, hexSgr, type ThemeId } from "../src/renderer/theme.ts";
 
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
+import { sectionGroupCount, sectionsOf } from "../src/app/layout/pipeline/frame.ts";
 
 /** 顶部行历史/活动区正文：取区域正文段（跳过状态列与分隔竖线，到右缘框列前为止；
  *  按显示宽度定位，兼容 CJK） */
@@ -4746,6 +4747,32 @@ test("BACKLOG #22②：两次缓冲尾巴交付的辅助行各自成段（不粘
   assert.ok(
     !/重试中 \(1\).*重试中 \(2\)/.test(plain),
     "两次交付的辅助行不得粘成同一行（块身份需跨调用连续）",
+  );
+  app.dispose();
+});
+
+test("BACKLOG #24②：会话切换后 groupCount 与 sectionGroupCount 对齐（不残留旧会话基线）", () => {
+  const { app, renderer, adapter } = makeApp();
+  renderer.size = { cols: 100, rows: 40 };
+  // 先在一个会话里堆出若干组，让 groupCount 有非零基线
+  for (let i = 1; i <= 5; i++) {
+    adapter.push({ type: "stream", sessionId: "s1", text: `回复 ${i}\n` });
+    adapter.push({ type: "turn-end" } as DshEvent);
+  }
+  flushApp();
+  type Inner = {
+    state: Parameters<typeof sectionsOf>[0];
+    groupCount: number | null;
+    startNewSession(): void;
+  };
+  const inner = app as unknown as Inner;
+  assert.ok((inner.groupCount ?? 0) > 0, "前置：旧会话已有非零基线");
+  inner.startNewSession();
+  flushApp();
+  assert.equal(
+    inner.groupCount,
+    sectionGroupCount(sectionsOf(inner.state)),
+    "切换会话后基线必须与新会话的组数对齐（否则 grew 一次性偏大 → 窗口被撑到全量）",
   );
   app.dispose();
 });
