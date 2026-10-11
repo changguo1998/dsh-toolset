@@ -13,6 +13,7 @@ import {
 import { initialState, reduceState } from "../src/app/state.ts";
 import { renderTextInput } from "../src/app/components/TextInput.ts";
 import { rowText, segsAnsi } from "./helpers/rowText.ts";
+import { agentHeadSymbol } from "../src/app/layout.ts";
 
 // ---- charWidth / displayWidth ----
 
@@ -401,4 +402,29 @@ test("行内 markdown：粗斜/删除线/下划线/转义/自动链接/图片（
   assert.ok(!esc.includes("\x1b[3m"), "\\* 不触发斜体");
   const al = segsAnsi(wrapInlineMarkdown("<https://a.b>", 60)[0]!);
   assert.ok(al.includes("\x1b[4m"), "自动链接下划线");
+});
+
+test("BACKLOG #1：Agents 块标题前导符号（运行中按相位闪 / 异常常亮 / 空闲不加）", () => {
+  const agents = (status: string): never[] =>
+    [{ id: "a1", label: "子代理", status }] as never[];
+  assert.deepEqual(agentHeadSymbol(agents("running"), 0), {
+    text: "● ",
+    fg: "yellow",
+  });
+  assert.deepEqual(
+    agentHeadSymbol(agents("running"), 1),
+    { text: "  ", fg: "yellow" },
+    "相位 1 显示等宽空白（两态 2 列，标题不抖）",
+  );
+  assert.equal(agentHeadSymbol(agents("idle"), 0), undefined, "空闲不加前导");
+  assert.deepEqual(
+    agentHeadSymbol(agents("diagnostic"), 0),
+    { text: "! ", fg: "red" },
+    "异常常亮红（不参与闪烁）",
+  );
+  assert.deepEqual(
+    agentHeadSymbol([...agents("running"), ...agents("diagnostic")], 1),
+    { text: "! ", fg: "red" },
+    "异常优先于运行",
+  );
 });

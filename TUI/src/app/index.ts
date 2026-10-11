@@ -1169,7 +1169,16 @@ export class App {
    *  等待交互（△）/空闲（✓/?）不推进。P5：相位未变时不重绘（tick 只改虚拟
    *  状态，画面无变化；相位变化才出一帧） */
   private virtTick(): void {
-    if (this.disposed || this.state.inputStatus !== "running") return;
+    // BACKLOG #1：Agents 块前导符号也按同一 250ms 相位闪 —— 有运行中子代理时同样推进
+    const agentsRunning =
+      this.state.agentsBySession[this.state.activeSessionId ?? ""]?.some(
+        (a) => a.status === "running",
+      ) === true;
+    if (
+      this.disposed ||
+      (this.state.inputStatus !== "running" && !agentsRunning)
+    )
+      return;
     const before = runPhase(this.state.runVirt.tokens);
     this.apply((s) => reduceState(s, { type: "virt-tick", time: Date.now() }));
     if (runPhase(this.state.runVirt.tokens) !== before) this.paint();

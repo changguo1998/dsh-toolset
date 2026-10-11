@@ -898,14 +898,27 @@ export interface StatusSwitches {
 
 /** 状态列各块（Goal / Todo / Jobs；完整自然高度，无强制行数上限；
  *  是否折叠由 renderStatusColumn 按窗口总高决定） */
+/** Agents 块标题的前导符号（BACKLOG #1）：异常 > 运行 > 无。
+ *  异常取 `!`（常亮红——异常要被看见，不参与闪烁）；运行中按相位在 `● ` / `  ` 间切
+ *  （两态等宽 2 列，标题不抖）；无运行中子代理时 undefined（标题回到原形制）。 */
+export function agentHeadSymbol(
+  agents: readonly AgentRowInfo[],
+  phase: 0 | 1,
+): { text: string; fg: "red" | "yellow" } | undefined {
+  if (agents.some((a) => a.status === "diagnostic"))
+    return { text: "! ", fg: "red" };
+  if (!agents.some((a) => a.status === "running")) return undefined;
+  return { text: phase === 0 ? "● " : "  ", fg: "yellow" };
+}
+
 function statusBlocks(
   goals: GoalHistory | undefined,
   todos: TodoItemLike[] | undefined,
   jobs: JobInfo[] | undefined,
   agents: AgentRowInfo[] | undefined,
   width: number,
-  /** 当前 goal 的自动续轮开关展示值（undefined = 不显示 ⟳；仅 active 相位有值） */
-  activation?: GoalActivation,
+  /** 当前 goal 的自动续轮开关展示值（undefined = 不显示 ⟳；仅 active 相位有值） */ activation?: GoalActivation,
+  phase: 0 | 1 = 0,
 ): StatusBlock[] {
   const blocks: StatusBlock[] = [];
   const sep = (): StatusRow => ({
@@ -1024,8 +1037,15 @@ function statusBlocks(
     const head: StatusRow[] = [];
     if (blocks.length > 0) head.push(sep());
     const running = agents.filter((a) => a.status === "running").length;
+    // BACKLOG #1：块标题前导符号（运行中按相位闪、异常常亮、其余不加）
+    const headSym = agentHeadSymbol(agents, phase);
     head.push({
-      segments: [seg(`Agents ${running}/${agents.length}`, { fg: "blue" })],
+      segments: [
+        ...(headSym === undefined
+          ? []
+          : [seg(headSym.text, { fg: headSym.fg })]),
+        seg(`Agents ${running}/${agents.length}`, { fg: "blue" }),
+      ],
     });
     blocks.push({
       id: "agents",
@@ -1156,12 +1176,22 @@ export function renderStatusColumn(
   agents?: AgentRowInfo[],
   /** 当前 goal 的自动续轮开关展示值（`goalActivationDisplay`；缺省 = 不显示 ⟳） */
   activation?: GoalActivation,
+  /** BACKLOG #1：Agents 块前导符号的闪烁相位来源（虚拟 token 累计；缺省 0 = 静态） */
+  runTokens = 0,
 ): FrameRow[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);
   // 状态列折叠策略：无强制行数上限——各块完整渲染，仅当总高度超过窗口高度时
   // 才折叠：高度按块尽量平均分配，块内按「已完成 → 靠后的未完成」优先级隐藏条目
-  const blocks = statusBlocks(goals, todos, jobs, agents, w - 1, activation);
+  const blocks = statusBlocks(
+    goals,
+    todos,
+    jobs,
+    agents,
+    w - 1,
+    activation,
+    runPhase(runTokens),
+  );
   // 状态列折叠策略：无强制行数上限——从 L0 到 L3 依次尝试折叠等级，
   // 首次放下即采用；全部等级用尽仍放不下（goal 大头）→ 整列行级截断兜底
   let body: StatusRow[] = [];
@@ -1413,6 +1443,8 @@ function buildTopRegion(
           : undefined,
         // goal 自动续轮开关（⟳；进程本地态，仅 active 相位有值）
         goalActivationDisplay(state, state.activeSessionId ?? undefined),
+        // BACKLOG #1：Agents 块前导符号的闪烁相位来源（虚拟 token 累计）
+        state.runVirt.tokens,
       );
 
   // 边框构图参数：分隔竖线列 = statusColWidth-1（状态列右缘/历史区左缘，
