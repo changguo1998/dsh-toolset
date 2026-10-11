@@ -28,7 +28,7 @@ import { sectionsFromBuffer } from "../src/app/layout/pipeline/replay.ts";
 import {
   initialState,
   type AppState,
-  type BufferLine,
+  type HistoryRow,
 } from "../src/app/state.ts";
 import { stepHeaderLine } from "../src/app/layout/tool-line.ts";
 import { rowText } from "./helpers/rowText.ts";
@@ -100,8 +100,8 @@ function script(turns: number): BlockDelivery[] {
 }
 
 /** 旧路径口径的缓冲行（与 state 的落行口径一致：物理行、step 头为工具行、final 打标） */
-function oldBuffer(turns: number): BufferLine[] {
-  const lines: BufferLine[] = [];
+function oldBuffer(turns: number): HistoryRow[] {
+  const lines: HistoryRow[] = [];
   const deliveries = script(turns);
   const finals = new Map<number, number>();
   deliveries.forEach((delivery, index) => {
@@ -118,7 +118,7 @@ function oldBuffer(turns: number): BufferLine[] {
   }
   let turn = 0;
   deliveries.forEach((delivery, index) => {
-    const push = (line: BufferLine): void => {
+    const push = (line: HistoryRow): void => {
       lines.push(line);
     };
     switch (delivery.kind) {

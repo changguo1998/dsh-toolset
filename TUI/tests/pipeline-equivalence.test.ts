@@ -25,7 +25,7 @@ import {
   createSections,
 } from "../src/app/layout/pipeline/sections.ts";
 import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
-import type { BufferLine } from "../src/app/state.ts";
+import type { HistoryRow } from "../src/app/state.ts";
 import { stepHeaderLine } from "../src/app/layout/tool-line.ts";
 
 /** 固定语料：多 step + 多回合，含代码块 / 表格 / 工具批 / notice（turn-start = 实时流
@@ -106,8 +106,8 @@ function finalIndexes(): Set<number> {
 }
 
 /** 状态层口径的缓冲行（旧路径的输入）：与旧 adapter + state 的产生口径一致 */
-function oldBuffer(): BufferLine[] {
-  const lines: BufferLine[] = [];
+function oldBuffer(): HistoryRow[] {
+  const lines: HistoryRow[] = [];
   const finals = finalIndexes();
   // 回合时间 = 该回合首个 step/start 的时间（旧路径取自回合元数据）
   const turnTime = new Map<number, number>();

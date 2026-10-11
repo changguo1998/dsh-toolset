@@ -1710,18 +1710,20 @@ test("用户块：长输入折行后状态符号占左侧留白、正文各行�
     "这是一条很长的用户输入，用来把历史区用户块撑到可用宽度上限，" +
     "看看折行之后符号和文本各自落在哪一列上。";
   let s = initialState();
-  s = reduceState(s, { type: "user-line", text });
+  // 条目 16 段 C2：内容走交付（用户块本体在节缓存里，缓冲不再有用户行）
+  s = withTurnStart(s, 1);
+  s = withUser(s, text);
   const strip = (l: FrameRow): string =>
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "");
-  const rows = buildFrame(s, { rows: 24, cols })
-    .map(strip)
-    .map((l) => histContent(l, cols))
-    .filter((l) => l.includes("┃"));
+  const frameRows = buildFrame(s, { rows: 24, cols });
+  const rows = frameRows.map(strip).filter((l) => l.includes("┃"));
   assert.ok(rows.length >= 3, `长输入折成多行: ${rows.length}`);
-  /** 行内首个匹配字符的显示列（相对历史区正文起点，0 基） */
+  /** 行内首个匹配字符的显示列（相对历史区 pane 起点，0 基） */
   const colOf = (line: string, re: RegExp): number => {
     const m = re.exec(line);
-    return m ? displayWidth(line.slice(0, m.index)) : -1;
+    if (m === null) return -1;
+    const pane = displayWidth(line.slice(0, line.indexOf("│") + 1));
+    return displayWidth(line.slice(0, m.index)) - pane;
   };
   const SYM_RE = /[?✓✗■●○△]/;
   const bodyCols = rows.map((l) => colOf(l, /[^\s│?✓✗■●○△┃]/));
@@ -1745,27 +1747,6 @@ test("用户块：长输入折行后状态符号占左侧留白、正文各行�
   );
   // 右缘竖线同列（块右缘不因符号宽度变化）
   assert.equal(new Set(barCols).size, 1, `右缘竖线同列: ${barCols.join(",")}`);
-
-  // 行元数据：符号独立成格后，块内各行仍共享 seq/blockId（滚动锚点/会话跳转依赖）
-  const m = metricsFor({ rows: 24, cols });
-  const textW = paneTextWidth(regionColumnWidth(m.historyWidth), true);
-  const { dialogue } = buildContentRows(
-    s.local,
-    {
-      userStatus: (l) =>
-        l.kind === "user" && !l.queued
-          ? { text: "✓", fg: "green" as const }
-          : undefined,
-    },
-    textW,
-  );
-  const userRows = dialogue.filter((r) => r.kind === "user");
-  assert.ok(userRows.length >= 3, `用户块多行: ${userRows.length}`);
-  // 条目 16 段 C2：RowMeta.seq 已删（行身份由 frame.seqRows 按 box 盖），此处只留块归属
-  assert.ok(
-    userRows.every((r) => r.blockId !== undefined),
-    "块内各行元数据（blockId）不丢",
-  );
 });
 
 test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代码块", () => {

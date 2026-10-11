@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { initialState, reduceState } from "../src/app/state.ts";
-import type { AppState, BufferLine } from "../src/app/state.ts";
+import type { AppState, HistoryRow } from "../src/app/state.ts";
 
 const sid = "s1";
 
@@ -19,7 +19,7 @@ function fresh(): AppState {
 function lastLine(
   s: AppState,
   kind: "tool" | "notice",
-): BufferLine | undefined {
+): HistoryRow | undefined {
   return [...s.local].reverse().find((l) => l.kind === kind);
 }
 

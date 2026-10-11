@@ -169,16 +169,16 @@ test("appendNotice: 多行 notice 文本拆成多行 buffer（不再整块折行
   );
 });
 
-test("appendNotice: 多行拆分不改变已有 buffer 末行语义", () => {
+test("appendNotice: 多行 notice 各自成行（不与内容行混行；条目 16 段 C2 后缓冲只留本地行）", () => {
   let s = _stateWith({ type: "append", text: "第1行" });
   s = _stateWith({ type: "notice", text: "A\nB" }, s);
   assert.deepEqual(
     s.local.map((l) => ({ text: l.text, kind: l.kind })),
     [
-      { text: "第1行", kind: "assistant" },
       { text: "A", kind: "notice" },
       { text: "B", kind: "notice" },
     ],
+    "多行 notice 拆成多行本地行；正文行不进缓冲",
   );
 });
 

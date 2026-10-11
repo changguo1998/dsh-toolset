@@ -66,7 +66,7 @@ export const MAX_BUFFER_LINES = 2000;
  * 会话内容真源已迁到节缓存（`state.pipeline`），缓冲不再参与构帧，故裁剪**不再需要
  * 为阅读位置让路**（视口顶按段键定位，与缓冲无关）：直接按上限裁。
  */
-function trimBufferHead(buffer: BufferLine[]): void {
+function trimBufferHead(buffer: HistoryRow[]): void {
   const over = buffer.length - MAX_BUFFER_LINES;
   if (over > 0) buffer.splice(0, over);
 }
@@ -109,72 +109,33 @@ export type InputStatus =
 export type TurnEndReason =
   "completed" | "aborted" | "error" | "blocked" | "max-tokens" | "interrupted";
 
-/** 缓冲行类型:用户输出靠右缩进展示,模型正文靠左;思考行限高,完成后清除
- *  - `step`（P9）：恢复会话时的 step 概要行（`22:31:05 #3 ╌╌ read ×2, bash ×1`），
- *    渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满，形制与实时 step 头（P6）一致
- *
- *  条目 16 段 C2 目标：内容成员（user / assistant / thinking / separator / step）迁到
- *  `HistoryRow` 后，本类型只剩 UI 本地行（notice / tool / shell / plain）。 */
-export type BufferKind =
+/** 行的 kind 取值：内容行（user / assistant / thinking / separator / step）+ UI 本地行
+ *  （notice / tool / shell / plain）——渲染与重放按本全集判别，缓冲只落本地行那一半。 */
+export type HistoryRowKind =
   | "user"
   | "assistant"
   | "thinking"
-  | "notice"
-  | "tool"
   | "separator"
   | "step"
-  /** `$` 模式本地 shell 输出（BACKLOG TUI#37）：活动区本地行，不进会话/模型上下文 */
+  | "notice"
+  | "tool"
   | "shell"
   | "plain";
 
-/** 缓冲行:纯文本 + 类型标记(展示时决定缩进/配色) + 可选 tone（notice/tool 行着色分级）
- *  final: true = 该回合最终总结（历史区展示）；false/缺省 = 过程行（活动区展示） */
-export interface BufferLine {
-  text: string;
-  kind: BufferKind;
-  tone?: NoticeTone;
-  /** 回合最终总结标记：turn-end 时由 markFinalSummary 打标；历史恢复行恒为 true */
-  final?: boolean;
-  /** 排队中的用户消息（历史区右下角的待发块）：`followup` → 右缘竖线灰、`steer` → 黄
-   *  （TUI#43；已发出的用户块为亮红）。字符串真值，便于同时表达「排队中」与「排队类型」。 */
-  queued?: "followup" | "steer";
-  /** P1：该用户块的终态（turn-end 时按 reason 打标；缺省 = 未收到终态，渲染 `?`）。
-   *  - `success` 绿 ✓（completed）；`failure` 红 ✗（error）；`aborted` 灰 ■（aborted）。 */
-  status?: "success" | "failure" | "aborted";
-  /** 悬垂缩进（notice 用，/help 双列表格）：本行折行时续行停靠列（描述列起点） */
-  hanging?: number;
-  /** 紧凑模式（/collapse off）豁免：本行仍完整折行显示（/help 用，不被压成 1 行隐藏） */
-  noCompact?: boolean;
-  /** #1：落 buffer 时的活动 step 号（取自 `state.stepGroup.step`；无活动组时缺省）。
-   *  历史区正文分块（边界 = `[step 变化 | 工具调用行]`）与问答来源段共用该标。 */
-  step?: number;
-  /** #4：本行与上一条输入之间留一个空行（渲染期留白，不入 buffer 空行）——steer 排队项
-   *  被认领转入历史时打；仅 steer 适用（followup 认领是下一回合的自然续接，不留白）。 */
-  spaceBefore?: boolean;
-  /** #4：该用户输入的回合被后续 steer 续接过 → 状态符号**永久**显示 `←`（优先于终态
-   *  ✓/✗/■ 与运行态 ●/○，turn-end 后也不恢复）。 */
-  steerContinued?: boolean;
-  /**
-   * 活跃用户块标记（条目 7 批 B1 起由节模型给出）：会话区最后一条终态未定的用户输入 →
-   * 运行中/等待交互时显示 `●`/`○`/`△`。旧路径从 buffer 取「最后一条未打标用户行」，
-   * 现在由 `panes.ts` 打标、解析器直接读本字段。
-   */
-  active?: boolean;
-  /** #3：回合分隔线（kind="separator"）的时间戳（epoch ms）与回合号，供渲染
-   *  `╌╌ hh:mm:ss ⇆N ╌╌` 同族格式（回合号标记 `⇆`，与 step 头的 `#N` 区分）；
-   *  回合号可能在 turn-begin 后才由 `turn/start` 回填。 */
-  time?: number;
-  turn?: number;
-}
+/** 缓冲行类型（**UI 本地行**）：条目 16 段 C2 之后，缓冲只承载本地行（notice / tool /
+ *  shell / plain）——内容（用户块 / 正文 / 思考 / 回合分隔线 / step 概要）不再有缓冲行形态，
+ *  唯一来源是节缓存（`state.pipeline`，交付驱动）。需要「按行重放成节」的路径（会话恢复 /
+ *  测试重放）用 `HistoryRow`；渲染层按「行的通用形态」消费（`HistoryRow[]`）。 */
+export type BufferKind = "notice" | "tool" | "shell" | "plain";
 
-/** 恢复 / 重放用的**历史行**类型（条目 16 段 C2）：内容行（用户块 / 正文 / 思考 / 分隔线 /
- *  step 概要）只在恢复与测试重放里出现，不再属于 `BufferLine`（缓冲只留 UI 本地行）。 */
-export type HistoryRowKind =
-  "user" | "assistant" | "thinking" | "separator" | "step";
-
+/** 行的通用形态（内容行 ∪ UI 本地行）：节缓存重放（`sectionsFromBuffer`）、行 → 渲染叶子
+ *  （`buildContentRows` / `buildBox`）与恢复行共用。**kind 放宽到全部 9 种**——内容行的
+ *  比较分支（`=== "assistant"` 等）在这一层仍是活分支。 */
 export interface HistoryRow {
   text: string;
   kind: HistoryRowKind;
+  /** 着色分级（notice / tool 行） */
+  tone?: NoticeTone;
   /** 回合最终总结（进会话区） */
   final?: boolean;
   /** 回合分隔线 / step 概要的时间戳与回合号 */
@@ -188,9 +149,21 @@ export interface HistoryRow {
   steerContinued?: boolean;
   /** 排队中的用户消息（followup 右缘竖线灰 / steer 黄） */
   queued?: "followup" | "steer";
+  /** 悬垂缩进（notice 用，/help 双列表格）：本行折行时续行停靠列（描述列起点） */
+  hanging?: number;
+  /** 紧凑模式（/collapse off）豁免：本行仍完整折行显示（/help 用，不被压成 1 行隐藏） */
+  noCompact?: boolean;
+  /** #1：落行时的活动 step 号（历史区正文分块与问答来源段共用该标） */
+  step?: number;
+  /** 活跃用户块标记（由节模型 `panes.ts` 打标；解析器直接读本字段） */
+  active?: boolean;
 }
 
-export type Buffer = BufferLine[];
+/** 缓冲行（UI 本地行；`kind` 收窄到 `BufferKind` 的 `HistoryRow`） */
+export type BufferLine = HistoryRow & { kind: BufferKind };
+
+/** 行表（`state.local`；渲染与重放按通用形态消费） */
+export type Buffer = HistoryRow[];
 
 /** 系统状态区各字段：time/cwd/git 由 StatusTicker 合并节流读取，其余为占位 */
 export interface SystemStatus {
@@ -431,13 +404,6 @@ export interface AppState {
   activeSessionId: string | null;
   /** 会话纯文本行（未换行，展示时才按列宽切分） */
   local: Buffer;
-  /**
-   * 是否让 `buffer` 承载会话内容（条目 7 选项 1）。`false` = 生产路径（App 注入节缓存）：
-   * 内容类 action 的缓冲写入被丢弃，只保留状态事实——会话内容的唯一来源是节模型
-   * （`pipeline`），`buffer` 只留 UI 本地行（notice / shell / 辅助工具行）。
-   * 缺省 `true`：测试 / 嵌入用法仍可造缓冲，供 `sectionsOf` 的无 sink 回退重放。
-   */
-  bufferRetainsContent: boolean;
   /** 是否跟随底部（= `dialogueTop` 为 null；由位置派生，供既有调用口径使用） */
   followBottom: boolean;
   /** 距底部行数（派生缓存：每帧由布局回填；段键失配时的回落基准，供既有断言口径使用） */
@@ -607,9 +573,6 @@ export interface AppState {
   notifyEnabled: boolean;
   /** 本回合剔除的非打印控制字符计数（appendStream 累计；turn-begin 清零、turn-end 警告） */
   strippedChars: number;
-  /** P5：上一分片是「被丢弃的纯空白块」——下一条流式分片不并入末行、另起一行。
-   *  既消除宿主每步补发的 `"\n\n"` 造成的空行，又保住「两个思考分片各占一行」 */
-  streamBreak: boolean;
   /** 运行中闪烁虚拟状态（速度/虚拟总 token/时间基准/速率估计窗口）。run 边界 =
    *  两次用户输入之间：下次用户输入（turn-begin clearActivity=true）时重置；
    *  turn-end 仅把速度更新为下限（输出停止），虚拟总 token 保留 */
@@ -784,19 +747,11 @@ export function initialState(
     statusColumnVisible: true, // P7：垂直状态列默认显示（Ctrl+S 切换）
     lowerPanesVisible: true, // #9：下半区（Turn/Tool）默认显示（Ctrl+T 切换）
     strippedChars: 0, // 本回合剔除的非打印控制字符计数（turn-begin 清零）
-    streamBreak: false, // P5：上一分片是否为被丢弃的纯空白块
     runVirt: emptyRunVirt(), // 运行中闪烁虚拟状态（下次用户输入时重置）
     stepEstTokens: 0, // 本 step 估算 token 累计（usage 真值到达时校准）
     tokenCalib: 1, // 估算 token 校准系数（usage 真值/估算值 EMA，跨 step 保留）
     usageTotals: { input: 0, output: 0, cacheRead: 0 }, // 本会话累计（/stats；会话切换清零）
     local: [],
-    /**
-     * 缓冲是否承载**会话内容**（条目 7 选项 1；缺省 true = 测试 / 嵌入用法）。
-     * App 注入节缓存时置否：会话内容（正文 / 用户块 / step / 工具行 / 分隔线 / 恢复行）
-     * 只进节模型，`buffer` 只留 UI 本地行（notice / shell / 辅助工具行 —— 底部 toast 与
-     * App 补投的来源）。
-     */
-    bufferRetainsContent: true,
     followBottom: true,
     scrollOffset: 0,
     dialogueTop: null,
@@ -890,93 +845,52 @@ export function sanitizeText(text: string): { text: string; stripped: number } {
   return { text: out, stripped };
 }
 /**
- * 追加流式文本。语义：
- *  - 文本中的第一个段落（不含换行符）合并到 buffer 末行（流式续写）
- *  - 换行之后的段落各自新开一行
- *  - 若文本以换行结尾，末尾出现一个空行
- *  - 末行为 turn 分隔线时不合并（分隔线是硬边界，下个 turn 另起一行）
- *  - `kind="user"` 例外：整段保留（含显式换行）为**一条** buffer 行——一次输入
- *    即一个用户块，布局层按物理行折行渲染（块内行首左对齐、块宽 = 最长行、整块右对齐）
+ * 内容类 action 的**状态事实**记写（条目 16 段 C2）：内容行不再有缓冲形态（唯一来源是节缓存
+ * `state.pipeline`），这里只保留缓冲时代遗留的可观测事实——剔除计数（`strippedChars`，
+ * turn-end 警告用）、流式分片的虚拟状态推进（`runVirt` / `stepEstTokens`，●/○ 闪烁与
+ * P5 token 校准的来源）。
+ *
+ * 已随内容行退场的口径：缓冲续写/拆行、回合分隔线与 final / 用户块终态 / steer 标记的
+ * 行内改写——等价物都在节模型里（`sections.ts` 的交接口径、`panes.ts` 的符号打标）。
  */
 export function appendStream(
   state: AppState,
   text: string,
-  kind: BufferKind = "assistant",
+  kind: "assistant" | "thinking" | "user",
   /** 流式事件到达时刻（ms；assistant/thinking 时驱动虚拟速度/虚拟总 token 更新） */
   time?: number,
-  /** TUI#43：true = **强制另起一行**（不与末行同类续写）。
-   *  用户行必须用它——否则连续两条用户消息会被粘成一行（排队消息认领时实测到）。 */
-  newLine = false,
 ): AppState {
-  // 思考/正文分属活动区与历史区两个窗口：正文到达不清思考，思考保留显示到本
-  // turn 结束，由下轮 turn-begin 统一清空（活动区瞬态整轮重置）。
-  const buffer = state.local.length ? [...state.local] : [];
   // 渲染保护：剔除非打印控制字符（CRLF/孤立 CR 归一为 LF、其余 C0/C1 移除），
   // 剔除计数累计入 state.strippedChars，turn-end 时统一警告
   const { text: clean, stripped } = sanitizeText(text);
-  // 用户输入不按 \n 拆行（多行输入 = 一块）；流式 assistant/thinking 仍逐行拆
-  const parts = kind === "user" ? [clean] : clean.split("\n");
-  const lastIndex = buffer.length - 1;
-  const last = buffer[lastIndex];
-  // P5（降级版）：宿主每个 step 末尾会补发一个「只有换行」的文本块（实测 190 个
-  // 文本分片里 154 个就是 "\n\n"），逐行落 buffer 会在思考/工具行之后留下成片空行。
-  // 判据：整段仅空白 **且** 上一行是异 kind（思考/工具/notice/用户行/分隔线）
-  // 或 buffer 为空时才丢弃；同 kind 内部的空白分片维持现状（软换行与段落空行
-  // 语义不变），也不做段尾空行清理（完整方案见 docs/PENDING-FIXES.md P5 备查注释）。
-  const streamed = kind === "assistant" || kind === "thinking";
-  const lastKind = last?.kind;
-  const dropBlankChunk =
-    streamed &&
-    clean.trim() === "" &&
-    (lastKind === undefined || lastKind !== kind);
-  // 上一分片是被丢弃的纯空白块时，本分片不再并入末行：丢弃 ≠ 合并，否则两个思考
-  // 分片会被粘成一行（"…to" + "fix …" → "…tofix …"），原本的空行变成缺空格
-  const breakBefore = streamed && state.streamBreak;
-  if (!dropBlankChunk) {
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]!;
-      // 首个段落合并进末尾同类行(流式续写)；不合并时不产生中间状态
-      if (
-        i === 0 &&
-        !breakBefore &&
-        !newLine &&
-        last &&
-        last.kind === kind &&
-        last.kind !== "separator"
-      ) {
-        if (part !== "")
-          buffer[lastIndex] = { ...last, text: last.text + part };
-      } else {
-        // 新行分配稳定序号（同块续写沿用原行序号）；#1：一并落当前 step 标（无活动组则缺省）
-        const stepNo = state.stepGroup?.step;
-        buffer.push({
-          text: part,
-          kind,
-          ...(stepNo === undefined ? {} : { step: stepNo }),
-        });
-      }
-    }
-  }
-  trimBufferHead(buffer);
-  // 模型流式输出（assistant/thinking）推进虚拟状态（窗口速率估计 → slew/clamp
-  // 虚拟速度 → 虚拟总 token 积分，驱动 ●/○ 交替）；用户行不参与。
-  // 估算 token 按 tokenCalib 校正（P5：流末 usage 真值学习）；stepEstTokens 累计
-  // 原始估算量供校准对比
+  // 模型流式输出（assistant/thinking）推进虚拟状态（窗口速率估计 → slew/clamp 虚拟速度 →
+  // 虚拟总 token 积分，驱动 ●/○ 交替）；用户行不参与。估算 token 按 tokenCalib 校正
+  // （P5：流末 usage 真值学习）；stepEstTokens 累计原始估算量供校准对比
+  const streamed = kind !== "user";
   const estTokens = streamed ? estimateOutputTokens(clean) : 0;
   const virt = streamed
     ? nextRunVirt(state.runVirt, time, estTokens * state.tokenCalib)
     : undefined;
   return {
     ...state,
-    local: buffer,
     strippedChars: state.strippedChars + stripped,
-    // 丢弃后置位（下一条流式分片另起一行）；流式分片消费后清位；非流式分片不动
-    streamBreak: streamed ? dropBlankChunk : state.streamBreak,
     ...(virt
       ? { runVirt: virt, stepEstTokens: state.stepEstTokens + estTokens }
       : {}),
   };
 }
+
+/**
+ * 追加模型思考行（条目 16 段 C2：只记写状态事实；思考行本体进节缓存）。
+ */
+export function appendThinking(
+  state: AppState,
+  text: string,
+  time?: number,
+): AppState {
+  return appendStream(state, text, "thinking", time);
+}
+
 
 /**
  * 追加一条命令通知(notice)：独立成行，不并入 buffer 末行(与流式 append 不同)。
@@ -1087,18 +1001,6 @@ export function appendToolLine(
   return { ...state, local: buffer };
 }
 
-/**
- * 追加模型思考行。复用流式续写(并入末尾 thinking 行)语义；思考显示于活动区，
- * 正文(历史区)到达不再清除——保留至 turn-end 后、下回合 turn-begin
- * 由 appendTurnSeparator 统一清空(活动区瞬态整轮重置)。
- */
-export function appendThinking(
-  state: AppState,
-  text: string,
-  time?: number,
-): AppState {
-  return appendStream(state, text, "thinking", time);
-}
 
 /** P8：当前活跃会话是否正在压缩上下文（压缩期间视为活跃：状态符号显示运行中、
  *  新消息走排队、Ctrl+D 退出守卫不触发）。非活跃会话的标记不影响当前视图。 */
@@ -1114,205 +1016,6 @@ function statusFor(state: AppState, fallback: InputStatus): InputStatus {
   return state.agentStatus === "idle" ? fallback : "running";
 }
 
-/** #1：正文分块——边界 = `[step 变化 | 工具调用行]`（step 分割线 / 回合分隔线同为硬边界）；
- *  thinking / notice / 空行**不**切割。返回各块内的**正文行**（assistant / plain）下标，块序 = 行序。 */
-function textBlocks(
-  lines: readonly BufferLine[],
-  from: number,
-  to: number,
-): number[][] {
-  const blocks: number[][] = [];
-  let cur: number[] = [];
-  const flush = (): void => {
-    if (cur.length > 0) blocks.push(cur);
-    cur = [];
-  };
-  for (let i = from; i < to; i++) {
-    const line = lines[i]!;
-    const prev = i > from ? lines[i - 1] : undefined;
-    const boundary =
-      line.kind === "tool" ||
-      line.kind === "step" ||
-      line.kind === "separator" ||
-      (line.step !== undefined &&
-        prev?.step !== undefined &&
-        line.step !== prev.step);
-    if (boundary) flush();
-    if (line.kind === "assistant" || line.kind === "plain") cur.push(i);
-  }
-  flush();
-  return blocks;
-}
-
-/** 向前找 `before` 之前的最后一个 `separator` 下标；无 → -1（段首 = 该下标 + 1） */
-function prevSeparator(lines: readonly BufferLine[], before: number): number {
-  for (let i = before - 1; i >= 0; i--) {
-    if (lines[i]!.kind === "separator") return i;
-  }
-  return -1;
-}
-
-/** 区间内**最近一块含正文**（非空白正文行）的行下标；无 → null */
-function lastTextBlock(
-  lines: readonly BufferLine[],
-  from: number,
-  to: number,
-): number[] | null {
-  const blocks = textBlocks(lines, from, to);
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const block = blocks[i]!;
-    if (block.some((k) => (lines[k]?.text ?? "").trim() !== "")) return block;
-  }
-  return null;
-}
-
-/**
- * 回合结束：把当前回合（最后一个分隔线之后）**最近一块正文**的全部 assistant 行标记为
- * final（最终总结，历史区展示）。分块口径见 {@link textBlocks}——边界 = `[step 变化 |
- * 工具调用行]`、thinking / notice / 空行不切割，被思考行打断的正文段不再被丢在活动区。
- * 无分隔线（首回合）则从 buffer 开头起算；幂等：已 final 的行不重复标记。
- */
-export function markFinalSummary(state: AppState): AppState {
-  const buffer = state.local;
-  if (buffer.length === 0) return state;
-  const block = lastTextBlock(
-    buffer,
-    prevSeparator(buffer, buffer.length) + 1,
-    buffer.length,
-  );
-  if (block === null) return state; // 本回合无模型正文
-  const marks = block.filter((i) => buffer[i]!.kind === "assistant");
-  if (marks.length === 0 || marks.every((i) => buffer[i]!.final)) return state;
-  const next = [...buffer];
-  for (const i of marks) next[i] = { ...next[i]!, final: true };
-  return { ...state, local: next };
-}
-
-/**
- * P1：按 turn/end 的 reason 给「最新未终态用户块」打终态符号依据。
- *  - `completed` → `success`（渲染绿 ✓）、`aborted` → `aborted`（灰 ■）、`error` → `failure`（红 ✗）；
- *  - 其余（`blocked` / `max-tokens` / `interrupted` / 未识别 / 缺省）保持未定 → 渲染 `?`。
- *  只作用 buffer 里**最后一个** kind="user" 且 status 未定的行；该行已有终态时不回溯覆盖更早的块
- *  （排队块由布局层单独渲染、不入 buffer，故天然不参与）。
- */
-export function markUserBlockStatus(
-  state: AppState,
-  reason?: TurnEndReason,
-): AppState {
-  const status: BufferLine["status"] =
-    reason === "completed"
-      ? "success"
-      : reason === "aborted"
-        ? "aborted"
-        : reason === "error"
-          ? "failure"
-          : undefined;
-  if (status === undefined) return state;
-  const buffer = state.local;
-  for (let i = buffer.length - 1; i >= 0; i--) {
-    const l = buffer[i]!;
-    if (l.kind !== "user") continue;
-    if (l.status !== undefined) return state; // 已有终态：不覆盖
-    const next = [...buffer];
-    next[i] = { ...l, status };
-    return { ...state, local: next };
-  }
-  return state;
-}
-
-/**
- * #4：steer 排队项被认领转入历史后落两处标记（用户 2026-10-01 裁定）：
- *  - 新落的 steer 用户行 `spaceBefore` → 渲染期在其上方留一个空行（与上一条输入分隔）；
- *  - 其上**最近一条用户输入** `steerContinued` → 状态符号永久 `←`（不随终态覆盖）。
- * 没有上一条用户输入（会话首条即 steer）→ 两个标记都不落（无参照物）。
- */
-export function markSteerClaim(state: AppState): AppState {
-  const buffer = state.local;
-  const last = buffer.length - 1;
-  const claimed = buffer[last];
-  if (claimed === undefined || claimed.kind !== "user") return state;
-  let prev = -1;
-  for (let i = last - 1; i >= 0; i--) {
-    if (buffer[i]!.kind === "user") {
-      prev = i;
-      break;
-    }
-  }
-  if (prev < 0) return state;
-  const next = [...buffer];
-  next[last] = { ...claimed, spaceBefore: true };
-  next[prev] = { ...next[prev]!, steerContinued: true };
-  return { ...state, local: next };
-}
-
-/**
- * turn 开始：在历史末尾追加分隔线；`clearActivity` 为真时先清掉活动区内容
- * （思考/工具调用/notice/非 final 中间输出——**整类一起清**，不做单类清除）。
- *
- * clearActivity 由触发方决定：**用户输入开启的回合**（提交 / 排队消息被认领）清空，
- * 核心自发的回合（goal 轮次、定时唤醒等）保留上一轮活动内容继续往上堆——活动区
- * 内容只在下一次输入后整体清空。空 buffer 或末尾已是分隔线时不追加分隔线
- * （避免孤立/重复分隔）。由 `turn-begin` 触发。
- */
-export function appendTurnSeparator(
-  state: AppState,
-  clearActivity = true,
-  meta: { time?: number; turn?: number } = {},
-): AppState {
-  let buffer = state.local.length ? [...state.local] : [];
-  if (clearActivity) {
-    buffer = buffer.filter(
-      (l) =>
-        l.kind !== "thinking" &&
-        l.kind !== "tool" &&
-        l.kind !== "notice" &&
-        !(l.kind === "assistant" && !l.final),
-    );
-  }
-  // 活动区被清空时滚动偏移一并归零，新回合回到跟随最新。不归零则旧 activityScroll
-  // 超出新内容的可视上限，渲染钳制下 ↓ 需连续按到偏移耗尽才恢复（“向下没反应”死区）。
-  const next: AppState = clearActivity
-    ? { ...state, local: buffer, activityScroll: 0 }
-    : { ...state, local: buffer };
-  if (buffer.length === 0) return next;
-  const last = buffer[buffer.length - 1];
-  if (last && last.kind === "separator" && last.text === TURN_SEPARATOR) {
-    // 已画则不重复；#3：缺时间/回合号时补上（先落行、后由 turn/start 回填的路径）
-    if (meta.time !== undefined || meta.turn !== undefined) {
-      buffer[buffer.length - 1] = {
-        ...last,
-        ...(last.time === undefined && meta.time !== undefined
-          ? { time: meta.time }
-          : {}),
-        ...(last.turn === undefined && meta.turn !== undefined
-          ? { turn: meta.turn }
-          : {}),
-      };
-    }
-    return next;
-  }
-  buffer.push({
-    text: TURN_SEPARATOR,
-    kind: "separator",
-    ...(meta.time !== undefined ? { time: meta.time } : {}),
-    ...(meta.turn !== undefined ? { turn: meta.turn } : {}),
-  });
-  trimBufferHead(buffer);
-  return next;
-}
-
-/** #3：把回合号回填到**本回合的分隔线**（尾部向前找第一条 separator；已有号则不覆盖）。 */
-function numberTurnSeparator(state: AppState, turn: number): AppState {
-  const buffer = state.local.slice();
-  for (let i = buffer.length - 1; i >= 0; i--) {
-    const line = buffer[i]!;
-    if (line.kind !== "separator") continue;
-    if (line.turn !== undefined) return state;
-    buffer[i] = { ...line, turn };
-    return { ...state, local: buffer };
-  }
-  return state;
-}
 
 /** 合并更新系统状态区（StatusTicker 每 tick 调用；缺失字段保持原值） */
 export function setSystemStatus(
@@ -1449,50 +1152,6 @@ const FOCUS_RESET_ACTIONS: ReadonlySet<string> = new Set([
   "agent-preset-catalog",
 ]);
 
-/**
- * 写缓冲的**会话内容**类 action（条目 7 选项 1）：生产路径（`bufferRetainsContent` 为 false）
- * 下只更新状态事实、不写缓冲行——内容的唯一来源是节模型（`pipeline`）。UI 本地行
- * （notice / shell / 辅助工具行 / 压缩与重试提示…）不在其列：底部 toast 与 App 的事件补投
- * 需要它们（见追踪文档第四阶段）。
- */
-const CONTENT_ACTIONS: ReadonlySet<string> = new Set([
-  "append", // 模型正文流
-  "user-line", // 用户回显 / 规则注入行
-  "thinking", // 思考流
-  "queued-claim", // 排队消息认领转历史（用户行）
-  "queued-claim-steer",
-  "step", // step 头分隔线（由 step-start 交付驱动）
-  "tool-call",
-  "tool-result",
-  "turn-begin", // 回合分隔线
-  "turn-number", // 分隔线回合号回填
-  "turn-end", // final 标记与用户块终态（事实已在节模型）
-  "history-restore", // 恢复行（批 A2 起直接进节模型）
-  "history-resume-ok",
-]);
-
-/**
- * 生产路径的缓冲写入闸门：内容类 action 的缓冲变更整体丢弃（状态事实保留）。
- *  - `turn-begin`（用户输入开启回合）另按旧口径清掉活动区的 UI 本地行（notice / 工具行）——
- *    否则底部 toast 一直挂着上一回合的提示；
- *  - 历史恢复 / 切换类改为清空缓冲：上一会话的 UI 本地行不带进新会话。
- */
-function dropContentWrites(
-  state: AppState,
-  next: AppState,
-  action: StateAction,
-): AppState {
-  if (state.bufferRetainsContent || !CONTENT_ACTIONS.has(action.type))
-    return next;
-  const buffer =
-    action.type === "turn-begin" && (action.clearActivity ?? true)
-      ? state.local.filter((l) => l.kind !== "notice" && l.kind !== "tool")
-      : action.type === "history-restore" || action.type === "history-resume-ok"
-        ? []
-        : state.local;
-  return { ...next, local: buffer };
-}
-
 export function reduceState(state: AppState, action: StateAction): AppState {
   // 新输入/输出后焦点回到无焦点（null）；其它 action 原样
   const next: AppState = (() => {
@@ -1500,8 +1159,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "append":
         return appendStream(state, action.text, "assistant", action.time);
       case "user-line":
-        // 用户行一律另起一行（TUI#43：末行同为 user 时续写会把两条输入粘一起）
-        return appendStream(state, action.text, "user", undefined, true);
+        // 用户行（条目 16 段 C2：只记写状态事实——行本体由交付进节缓存）
+        return appendStream(state, action.text, "user");
       case "queued-push":
         // 排队消息登记（不合并、不写 buffer）：显示由布局层按 queued 渲染，
         // 核心认领后由 queued-claim / queued-claim-steer 转入历史流；kind 缺省 followup
@@ -1525,16 +1184,10 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           ...state.queued.slice(0, idx),
           ...state.queued.slice(idx + 1),
         ];
-        const next = appendStream(
-          { ...state, queued: rest },
-          item.text,
-          "user",
-          undefined,
-          true,
-        );
-        // #4：steer 认领＝插队送达 → 该行与上一条输入之间留白 + 上一条输入打「被 steer
-        // 续接」标（状态符号永久 `←`）；followup 认领走原路径，不加任何标记
-        return kind === "steer" ? markSteerClaim(next) : next;
+        // #4：steer 认领＝插队送达（留白 + 上一条输入打「被 steer 续接」标）与用户块本体
+        // 都由 App 的交付带进节缓存（`queued: "steer"` / `spaceBefore`），本地只出队 +
+        // 记状态事实（剔除计数，与 `user-line` 同口径）
+        return appendStream({ ...state, queued: rest }, item.text, "user");
       }
       case "queued-clear":
         return { ...state, queued: [] };
@@ -1867,7 +1520,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           activeSessionId: action.id,
           sessionTitle: action.title,
           history: null,
-          local: [...(action.rows as BufferLine[])],
+          local: [],
           followBottom: true,
           // 会话切换：清掉上一会话的阅读位置，回到跟随底部（段键跨会话无意义）
           dialogueTop: null,
@@ -1892,7 +1545,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           ...state,
           activeSessionId: action.id,
           sessionTitle: action.title,
-          local: action.rows,
+          local: [],
           followBottom: true,
           dialogueTop: null,
           scrollOffset: 0,
@@ -2083,50 +1736,47 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           windowGroups: Math.max(DIALOGUE_KEEP_REPLIES, action.groups),
         };
       case "pipeline-state":
-        // 注入节缓存 = 内容单源；`bufferRetainsContent: false` 同步关掉内容写缓冲
-        // （条目 7 选项 1；测试 / 嵌入用法不传该字段，缺省仍承载内容）
-        return {
-          ...state,
-          pipeline: action.pipeline,
-          ...(action.bufferRetainsContent === undefined
-            ? {}
-            : { bufferRetainsContent: action.bufferRetainsContent }),
-        };
+        // 注入节缓存 = 内容单源（条目 16 段 C2 后这是**唯一**内容来源）
+        return { ...state, pipeline: action.pipeline };
       case "turn-begin": {
-        // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容；
+        // 回合开始：内容归节缓存（回合分隔线由 `turn-start` 交付驱动），本地**无内容行可画**；
         // 非打印字符剔除计数按回合清零（turn-end 时警告后不复用旧值）。
         // run 边界 = 两次用户输入之间（见 runVirt 注释）：仅用户输入开启的回合
         // （clearActivity=true，含排队消息被认领）才重置虚拟状态与本 step 累计；
-        // 核心自发的回合（goal 轮次/定时唤醒，clearActivity=false）属同一 run，保留
+        // 核心自发的回合（goal 轮次/定时唤醒，clearActivity=false）属同一 run，保留。
+        // 活动区本地行（notice / 工具行）一并清掉（否则底部 toast 挂着上一回合的提示）。
         const clearActivity = action.clearActivity ?? true;
-        const virt = clearActivity ? { runVirt: emptyRunVirt() } : {};
-        return appendTurnSeparator(
-          { ...state, strippedChars: 0, stepEstTokens: 0, ...virt },
-          clearActivity,
-          { time: action.time, turn: action.turn },
-        );
+        return {
+          ...state,
+          strippedChars: 0,
+          stepEstTokens: 0,
+          ...(clearActivity
+            ? {
+                runVirt: emptyRunVirt(),
+                local: state.local.filter(
+                  (l) => l.kind !== "notice" && l.kind !== "tool",
+                ),
+                activityScroll: 0,
+              }
+            : {}),
+        };
       }
       case "turn-number":
-        // #3：宿主 turn/start 的回合号回填到本回合的分隔线（本地 turn-begin 早于该事件）
-        return numberTurnSeparator(state, action.turn);
+        // 条目 16 段 C2：缓冲不再承载回合分隔线行（分隔线是节缓存的内容），本地无事可做
+        return state;
       case "clear-stripped":
         return { ...state, strippedChars: 0 };
-        // 回合开始：先画分隔线(空历史/已画则跳过)，再进入新回合内容
-        return appendTurnSeparator(state);
       case "turn-end": {
-        // 回合结束：不再画分隔线(下个回合 begin 时画)；也不清思考/中间输出——
-        // 保留显示，至下回合 turn-begin 统一清空(输出结束后不立即清)；
-        // 本回合最后一段模型正文打 final 标记进历史区（最终总结）；置成功色(绿)。
-        // 虚拟状态：仅把虚拟速度大小更新为下限（回合结束=输出停止→最低闪烁频率），
+        // 回合结束（条目 16 段 C2）：定型（finalize）与回合结束（turn-end）信号由宿主事件
+        // 投进节缓存，本地只剩状态事实——置成功色（绿）与虚拟速度下限。
         // 虚拟总 token **不清零**（run 边界 = 两次用户输入之间，到下次用户输入
-        // turn-begin clearActivity=true 时才重置），lastTime/速率窗口保持
-        // P1：按 reason 给最新未终态用户块打终态（completed→✓ / aborted→■ / error→✗）
-        const marked = markUserBlockStatus(state, action.reason);
-        return markFinalSummary({
-          ...marked,
+        // turn-begin clearActivity=true 时才重置），lastTime/速率窗口保持。
+        // 用户块终态符号（✓/■/✗）由节模型按 reason 打标（`sections.ts`）
+        return {
+          ...state,
           inputStatus: "success",
-          runVirt: { ...marked.runVirt, speed: VIRT_SPEED_MIN },
-        });
+          runVirt: { ...state.runVirt, speed: VIRT_SPEED_MIN },
+        };
       }
       case "status":
         return setSystemStatus(state, action.status);
@@ -2609,7 +2259,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
   const focused = FOCUS_RESET_ACTIONS.has(action.type)
     ? { ...next, focusedPanel: null }
     : next;
-  return dropContentWrites(state, focused, action);
+  return focused;
 }
 
 export type StateAction =
@@ -2698,32 +2348,16 @@ export type StateAction =
       type: "history-resume-ok";
       id: string;
       title: string;
-      /** 恢复行（P9 起含 step 概要行、TUI#17 起含 notice 摘要行；含回合分隔线行）；
-       *  kind 与 BufferKind 的子集一致 */
-      rows: {
-        text: string;
-        kind: "user" | "assistant" | "step" | "notice" | "tool" | "separator";
-        tone?: NoticeTone;
-        final?: boolean;
-        /** 宿主回合号（分隔线行携带）：恢复路径保留宿主索引，重放器据此还原真回合 */
-        turn?: number;
-      }[];
+      /** 恢复行（P9 起含 step 概要行、TUI#17 起含 notice 摘要行；含回合分隔线行）——
+       *  条目 16 段 C2：内容行形态由 `HistoryRow` 表达（缓冲不再承载它们） */
+      rows: HistoryRow[];
     }
-  /** TUI#40：启动即恢复（--resume / -c）——把既有消息折叠入 buffer（无 /session 面板参与） */
+  /** TUI#40：启动即恢复（--resume / -c）——把既有消息折叠入历史行（无 /session 面板参与） */
   | {
       type: "history-restore";
       id: string;
       title: string;
-      rows: {
-        text: string;
-        kind: "user" | "assistant" | "step" | "notice" | "tool" | "separator";
-        tone?: NoticeTone;
-        final?: boolean;
-        /** 恢复的用户块终态（重放器透传给节模型 → 符号不再是 `?`） */
-        status?: "success" | "failure" | "aborted";
-        /** 宿主回合号（分隔线行携带）：恢复路径保留宿主索引，重放器据此还原真回合 */
-        turn?: number;
-      }[];
+      rows: HistoryRow[];
     }
   /** 切换活跃会话（/new 新建后切过去）：缓冲/滚动/窗口按空会话重置 */
   | { type: "session-switch"; id: string; title: string }
@@ -2755,12 +2389,10 @@ export type StateAction =
   | { type: "scroll-to-bottom" }
   /** 扩窗：只多物化更早回合组，视口位置不动（App 在施加位移之前调用） */
   | { type: "window-grow"; groups: number }
-  /** 六步流水线节缓存整体替换（App 注入；undefined = 无会话）。
-   *  `bufferRetainsContent: false` = 生产路径（内容只进节模型，缓冲不承载会话内容） */
+  /** 六步流水线节缓存整体替换（App 注入；undefined = 无会话） */
   | {
       type: "pipeline-state";
       pipeline: SectionsState | undefined;
-      bufferRetainsContent?: boolean;
     }
   /** clearActivity：是否清空活动区内容（缺省 true；核心自发回合传 false，见 appendTurnSeparator） */
   | {

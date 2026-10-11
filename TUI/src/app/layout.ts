@@ -14,7 +14,6 @@ import type { FrameFocus, FrameRow, FrameSegment } from "../renderer/index.ts";
 import type { FrameSection, Size } from "../renderer/index.ts";
 import type {
   AppState,
-  BufferLine,
   InputMode,
   InputStatus,
   GoalEntry,
@@ -31,7 +30,7 @@ import {
 } from "./state.ts";
 import type { ActivityPlacement } from "./config.ts";
 
-import type { Buffer } from "./state.ts";
+import type { HistoryRow } from "./state.ts";
 import type {
   JobInfo,
   TodoItemLike,
@@ -545,7 +544,7 @@ function queuedBlockRows(state: AppState, width: number): ContentRow[] {
     ...state.queued.filter((q) => q.kind === "steer"),
     ...state.queued.filter((q) => q.kind !== "steer"),
   ];
-  const lines: Buffer = ordered.map((item) => ({
+  const lines: HistoryRow[] = ordered.map((item) => ({
     text: item.text,
     kind: "user",
     queued: item.kind,
@@ -2198,7 +2197,7 @@ const USER_BLOCK_SYMBOL: Record<
  *  - 排队块（布局层由 `state.queued` 单独渲染）不显示符号。 */
 function userBlockSymbolResolver(
   state: AppState,
-): (line: BufferLine) => { text: string; fg?: ColorName } | undefined {
+): (line: HistoryRow) => { text: string; fg?: ColorName } | undefined {
   const waiting =
     state.approval !== null ||
     state.question !== null ||

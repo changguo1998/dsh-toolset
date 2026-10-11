@@ -12,6 +12,7 @@ import { normalizeHistoryMessages } from "../src/app/adapter/dsh.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { rowText } from "./helpers/rowText.ts";
 import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
+import { sectionsFromBuffer } from "../src/app/layout/pipeline/replay.ts";
 
 test("P9 surfaceToBuffer：step 行原样成行；整条空文本不产行", () => {
   const rows = surfaceToBuffer([
@@ -148,12 +149,17 @@ test("恢复：帧里两个用户块分别显示 ✓ 与 ✗（不再一律 `?`�
     },
     { type: "turn/end", seq: 7, data: { turn: 2, reason: { kind: "error" } } },
   ]);
-  let s = initialState();
-  s = reduceState(s, {
+  // 条目 16 段 C2：恢复行不再落缓冲（`local` 只留 UI 本地行）——按生产口径把行重放成节缓存
+  const rows = surfaceToBuffer(msgs);
+  let s = reduceState(initialState(), {
     type: "history-restore",
     id: "s1",
     title: "恢复会话",
-    rows: surfaceToBuffer(msgs),
+    rows,
+  });
+  s = reduceState(s, {
+    type: "pipeline-state",
+    pipeline: sectionsFromBuffer(rows, { history: true }),
   });
   const lines = buildFrame(s, { cols: 80, rows: 24 }).map(rowText);
   const first = lines.find((l) => l.includes("问题一"));
@@ -213,12 +219,17 @@ test("恢复：帧里出现工具批行（工具名 + 结果符号），不再�
       data: { turn: 1, reason: { kind: "completed" } },
     },
   ]);
-  let s = initialState();
-  s = reduceState(s, {
+  // 条目 16 段 C2：恢复行不再落缓冲（`local` 只留 UI 本地行）——按生产口径把行重放成节缓存
+  const rows = surfaceToBuffer(msgs);
+  let s = reduceState(initialState(), {
     type: "history-restore",
     id: "s1",
     title: "恢复会话",
-    rows: surfaceToBuffer(msgs),
+    rows,
+  });
+  s = reduceState(s, {
+    type: "pipeline-state",
+    pipeline: sectionsFromBuffer(rows, { history: true }),
   });
   const lines = buildFrame(s, { cols: 80, rows: 24 }).map(rowText);
   const joined = lines.join("\n");
@@ -247,12 +258,17 @@ test("恢复：空 detail 的结果行保留 `✓ ` 尾随空格（前缀契约�
     ["write {}", "✓ "],
     "空 detail 只出 `✓ `（尾随空格是前缀契约）",
   );
-  let s = initialState();
-  s = reduceState(s, {
+  // 条目 16 段 C2：恢复行不再落缓冲（`local` 只留 UI 本地行）——按生产口径把行重放成节缓存
+  const rows = surfaceToBuffer(msgs);
+  let s = reduceState(initialState(), {
     type: "history-restore",
     id: "s1",
     title: "恢复会话",
-    rows: surfaceToBuffer(msgs),
+    rows,
+  });
+  s = reduceState(s, {
+    type: "pipeline-state",
+    pipeline: sectionsFromBuffer(rows, { history: true }),
   });
   const lines = buildFrame(s, { cols: 80, rows: 24 }).map(rowText);
   const joined = lines.join("\n");

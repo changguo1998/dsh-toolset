@@ -8,16 +8,16 @@ import assert from "node:assert/strict";
 
 import { rowText } from "../src/app/layout.ts";
 import { buildContentRows } from "../src/app/layout/build-box.ts";
-import type { Buffer, BufferLine } from "../src/app/state.ts";
+import type { HistoryRow } from "../src/app/state.ts";
 
 const W = 80;
-const L = (text: string, kind: BufferLine["kind"]): BufferLine => ({
+const L = (text: string, kind: HistoryRow["kind"]): HistoryRow => ({
   text,
   kind,
 });
 
 /** 活动区渲染文本行 */
-const act = (buf: Buffer): string[] =>
+const act = (buf: HistoryRow[]): string[] =>
   buildContentRows(buf, {}, W, W).activity.map(rowText);
 
 /** 空行所在行号 */

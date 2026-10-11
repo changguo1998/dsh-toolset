@@ -75,10 +75,9 @@ test("steer 提交：走 adapter target='next-step'、立即回显（不排队�
   assert.deepEqual(adapter.sent, ["快改"], "消息已投递");
   assert.deepEqual(adapter.steered, ["快改"], "投递目标为 next-step");
   assert.deepEqual(st().queued, [], "steer 属当前回合，不登记排队块");
-  assert.ok(
-    st().local.some((l) => l.kind === "user" && l.text.includes("快改")),
-    "立即回显为用户块: " + JSON.stringify(st().local),
-  );
+  // 条目 16 段 C2：立即回显的用户块由「交付 → 节缓存」承载（本例未装 sink，故断言缓冲
+  // 无内容行；生产路径的可见性由 pipeline-app.test.ts 的交付用例覆盖）
+  assert.deepEqual(st().local, [], "用户块不进缓冲（内容单源在节缓存）");
   assert.ok(!plainFrame(renderer).includes("快改" + " "), "输入区已清空");
   // 回退 normal：再输入普通字符并按 Enter → 走普通 followup（不进 steered）
   renderer.press(key("z"));

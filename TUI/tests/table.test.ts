@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { Buffer } from "../src/app/state.ts";
+import type { HistoryRow } from "../src/app/state.ts";
 import {
   hasCellPipe,
   isTableStart,
@@ -286,7 +286,7 @@ test("#6 极窄：minW 也放不下 → 放弃表格（不再格内截断），�
     "容不下最小列宽 → 不构建表格（无 `…` 截断）",
   );
   // 集成：buildContentRows 退回普通文本行——内容完整、不出现省略号
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     a("| 名称 | 说明 | 数量 |"),
     a("| --- | --- | --- |"),
     a("| a | 中文说明 | 12 |"),
@@ -388,7 +388,7 @@ test("数字列自动右对齐（分隔行未显式标注时）；显式 :--- �
 // ---------------- 集成：buildContentRows ----------------
 
 test("buildContentRows: 表格成块渲染，各行 kind 均为 assistant（回复组折叠依据）", () => {
-  const buffer: Buffer = [
+  const buffer: HistoryRow[] = [
     a("说明："),
     a("| 名称 | 数量 |"),
     a("| --- | ---: |"),
@@ -425,7 +425,7 @@ test("buildContentRows: 表格成块渲染，各行 kind 均为 assistant（回�
 });
 
 test("集成：表格行保留回复左缘竖线，横线与其之间隔 1 空格（不连接）", () => {
-  const buffer: Buffer = [
+  const buffer: HistoryRow[] = [
     a("说明："),
     a("| 名称 | 说明 |"),
     a("| --- | --- |"),
@@ -464,11 +464,11 @@ test("集成：表格行保留回复左缘竖线，横线与其之间隔 1 空�
 });
 
 test("buildContentRows: 管道符不再原样渲染；非 final 表格进活动区", () => {
-  const finalBuf: Buffer = [a("| a | b |"), a("| --- | --- |"), a("| 1 | 2 |")];
+  const finalBuf: HistoryRow[] = [a("| a | b |"), a("| --- | --- |"), a("| 1 | 2 |")];
   const { dialogue, activity } = buildContentRows(finalBuf, { gutter: 4 }, 40);
   assert.equal(activity.length, 0);
   assert.ok(!dialogue.some((r) => rowText(r).includes("|")), "无残留 `|`");
-  const streamBuf: Buffer = [
+  const streamBuf: HistoryRow[] = [
     a("| a | b |", false),
     a("| --- | --- |", false),
     a("| 1 | 2 |", false),
@@ -479,7 +479,7 @@ test("buildContentRows: 管道符不再原样渲染；非 final 表格进活动�
 });
 
 test("fence 内不识别表格（代码块原样保留管道符）", () => {
-  const buffer: Buffer = [
+  const buffer: HistoryRow[] = [
     a("```md"),
     a("| 名称 | 数量 |"),
     a("| --- | ---: |"),
@@ -495,7 +495,7 @@ test("fence 内不识别表格（代码块原样保留管道符）", () => {
 });
 
 test("可用宽未知（buildBox 直调，无 width）→ 表格按普通文本行渲染", () => {
-  const buffer: Buffer = [a("| a | b |"), a("| --- | --- |")];
+  const buffer: HistoryRow[] = [a("| a | b |"), a("| --- | --- |")];
   const built = buildBox(buffer, {});
   const out = fillBoxTree(built.panes.dialogue, 50, 40).map(rowText);
   assert.equal(out.length, 2, "每行一个文本节点（未合成表格）");
@@ -503,7 +503,7 @@ test("可用宽未知（buildBox 直调，无 width）→ 表格按普通文本�
 });
 
 test("窄宽回退：可用宽过窄时退回普通文本（不抛错、不溢出）", () => {
-  const buffer: Buffer = [
+  const buffer: HistoryRow[] = [
     a("| 名称 | 数量 |"),
     a("| --- | --- |"),
     a("| a | 1 |"),

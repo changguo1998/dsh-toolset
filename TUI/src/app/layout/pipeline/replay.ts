@@ -1,7 +1,7 @@
 // src/app/layout/pipeline/replay.ts — 会话恢复：已有行 → 节缓存
 //
 // 恢复（`--resume` / 历史折叠）时没有逐块事件可放，但有状态层已归一化的行。本模块按
-// **旧口径的行类型**把它们重放成节（与 `frame.ts` 的 `sectionGroupStarts` 恰好相反：
+// **历史行**（`HistoryRow`）把它们重放成节（与 `frame.ts` 的 `sectionGroupStarts` 恰好相反：
 // 那边把节还原成行类型序列，这边把行还原成节），供新流水线在恢复后继续按节增量接收事件。
 //
 // 口径：
@@ -13,7 +13,7 @@
 //   - `final` 正文 → 定型信号 + 回合结束（该节即回合总结节 → 会话区归属）。
 // 恢复不到的瞬态内容不造占位（reasoning 只在实时线，恢复后自然缺失）。
 
-import type { BufferLine } from "../../state.ts";
+import type { HistoryRow } from "../../state.ts";
 import { isToolCall } from "../content-rules.ts";
 import {
   createSections,
@@ -46,7 +46,7 @@ interface Scope {
 
 /** 行 → 块交付（顺序投递；step 头与分隔线在调用方处理） */
 export function deliveryOfLine(
-  line: BufferLine,
+  line: HistoryRow,
   scope: Scope,
   index: number,
 ): BlockDelivery | undefined {
@@ -130,7 +130,7 @@ export function deliveryOfLine(
   }
 }
 
-/** 已有行 → 节缓存（恢复路径；顺序与行序一致） */
+/** 历史行 → 节缓存（恢复路径；顺序与行序一致） */
 /**
  * 由 `state.local` 重放一份节缓存（**显式助手**，条目 16 段 C1：从 `sectionsOf` 的无 sink 回退
  * 搬出来给测试与嵌入用法显式调用）。
@@ -140,9 +140,9 @@ export function deliveryOfLine(
  * 过期节缓存。**不要**去掉 memo：节身份与合成序号按对象发号，每帧新建节对象会让发号漂移。
  */
 let replayEntry:
-  { lines: readonly BufferLine[]; value: SectionsState } | undefined;
+  { lines: readonly HistoryRow[]; value: SectionsState } | undefined;
 
-export function sectionsFromLocal(local: readonly BufferLine[]): SectionsState {
+export function sectionsFromLocal(local: readonly HistoryRow[]): SectionsState {
   const hit = replayEntry;
   if (
     hit !== undefined &&
@@ -156,7 +156,7 @@ export function sectionsFromLocal(local: readonly BufferLine[]): SectionsState {
 }
 
 export function sectionsFromBuffer(
-  lines: readonly BufferLine[],
+  lines: readonly HistoryRow[],
   opts?: { history?: boolean },
 ): SectionsState {
   let state = createSections();
@@ -191,7 +191,7 @@ export function sectionsFromBuffer(
   };
   // 文本类行按「同 kind 连续块」聚合后一次投递（块文本语义：节内直拼，须带换行）
   let run:
-    | { kind: BufferLine["kind"]; tone?: BufferLine["tone"]; text: string[] }
+    | { kind: HistoryRow["kind"]; tone?: HistoryRow["tone"]; text: string[] }
     | undefined;
   const flushRun = (): void => {
     if (run === undefined) return;
@@ -212,7 +212,7 @@ export function sectionsFromBuffer(
     );
     if (delivery !== undefined) state = applyDelivery(state, delivery);
   };
-  const isTextKind = (kind: BufferLine["kind"]): boolean =>
+  const isTextKind = (kind: HistoryRow["kind"]): boolean =>
     kind === "assistant" || kind === "thinking" || kind === "plain";
   for (const line of lines) {
     if (

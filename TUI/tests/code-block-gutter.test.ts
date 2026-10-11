@@ -11,16 +11,16 @@ import assert from "node:assert/strict";
 import { buildBox } from "../src/app/layout/build-box.ts";
 import { fillBoxTree } from "../src/app/layout/fill.ts";
 import { displayWidth } from "../src/app/layout/markdown.ts";
-import type { BufferLine } from "../src/app/state.ts";
+import type { HistoryRow } from "../src/app/state.ts";
 
-const a = (text: string): BufferLine => ({
+const a = (text: string): HistoryRow => ({
   text,
   kind: "assistant",
   final: true,
 });
 const stripRight = (s: string): string => s.replace(/\s+$/, "");
 
-function rows(buf: BufferLine[], width = 60, height = 40): string[] {
+function rows(buf: HistoryRow[], width = 60, height = 40): string[] {
   const built = buildBox(buf, { width });
   return fillBoxTree(built.panes.dialogue, height, width).map((r) =>
     r.segments.map((g) => g.text).join(""),
@@ -65,7 +65,7 @@ test("#2 软折行：续行缩进 4 列 + 靠右对齐正文右缘", () => {
 });
 
 test("#2 行号 >99 显示 99+（固定 2 列）", () => {
-  const buf: BufferLine[] = [a("```")];
+  const buf: HistoryRow[] = [a("```")];
   for (let i = 1; i <= 105; i++) buf.push(a(`line ${i}`));
   buf.push(a("```"));
   const out = rows(buf, 60, 130);

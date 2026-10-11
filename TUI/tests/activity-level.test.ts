@@ -8,19 +8,19 @@ import assert from "node:assert/strict";
 import { App } from "../src/app/index.ts";
 import { rowText } from "../src/app/layout.ts";
 import { buildContentRows } from "../src/app/layout/build-box.ts";
-import type { Buffer, BufferLine } from "../src/app/state.ts";
+import type { HistoryRow } from "../src/app/state.ts";
 import type { KeyEvent } from "../src/renderer/index.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 import { registerApp } from "./helpers/paintFlush.ts";
 
 const W = 80;
-const L = (text: string, kind: BufferLine["kind"]): BufferLine => ({
+const L = (text: string, kind: HistoryRow["kind"]): HistoryRow => ({
   text,
   kind,
 });
 
 /** 活动区渲染文本行（level 缺省 = think） */
-const act = (buf: Buffer, level?: "think" | "tool" | "step"): string[] =>
+const act = (buf: HistoryRow[], level?: "think" | "tool" | "step"): string[] =>
   buildContentRows(
     buf,
     {
@@ -30,7 +30,7 @@ const act = (buf: Buffer, level?: "think" | "tool" | "step"): string[] =>
     W,
   ).activity.map(rowText);
 
-const MIXED: Buffer = [
+const MIXED: HistoryRow[] = [
   L("思考一段", "thinking"),
   L("正文一段", "assistant"),
   L("22:31:05 #1", "tool"),
@@ -61,7 +61,7 @@ test("#8 step：只留工具调用行（step 头与 notice 保留；结果行去
 });
 
 test("#8 step：调用行只取首个物理行（去参数续行），结果行整条去掉", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     L("bash run cmd\n  参数甲", "tool"),
     L("✓ done", "tool"),
   ];

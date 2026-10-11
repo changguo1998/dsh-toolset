@@ -31,7 +31,7 @@ const buildFrame = (...args: Parameters<typeof buildFrameRaw>) => {
     ...(args.slice(1) as [Parameters<typeof buildFrameRaw>[1]]),
   );
 };
-import type { Buffer } from "../src/app/state.ts";
+import type { HistoryRow } from "../src/app/state.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { withText, withTurnEnd, withUser } from "./helpers/pipelineContent.ts";
 import type { AppState } from "../src/app/state.ts";
@@ -223,7 +223,7 @@ test("横向排列：焦点框落在内部分隔列（历史右缘 / 活动左�
 });
 
 test("横向排列：两 pane 各自宽度换行（buildContentRows 独立宽度）", () => {
-  const buffer: Buffer = [
+  const buffer: HistoryRow[] = [
     {
       kind: "thinking",
       text: "思考：".repeat(1) + "很长的思考内容".repeat(12),

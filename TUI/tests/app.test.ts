@@ -2735,21 +2735,17 @@ test("surfaceToBuffer：仅保留 user/assistant 正文行，历史 assistant �
   ]);
 });
 
-test("append：CRLF/孤立 CR 归一为 LF 再切分，buffer 行不残留 \\r（防终端回车抹掉行内容）", () => {
+test("append：CRLF/孤立 CR 归一为 LF（不计入剔除）；内容不再落缓冲（条目 16 段 C2）", () => {
+  // 条目 16 段 C2：正文进节缓存（交付驱动），缓冲不再有内容行——断言保留可观测的状态事实
   let s = reduceState(initialState(), {
     type: "append",
     text: "a\r\nb\rc\nd",
   });
-  assert.deepEqual(
-    s.local.map((l) => l.text),
-    ["a", "b", "c", "d"],
-  );
-  // \r\n 与空段落保留空行语义（段落分隔）
+  assert.equal(s.strippedChars, 0, "\\r 属换行语义，不计入剔除");
+  assert.deepEqual(s.local, [], "内容不进缓冲（local 只留 UI 本地行）");
   s = reduceState(initialState(), { type: "append", text: "p1\r\n\r\np2" });
-  assert.deepEqual(
-    s.local.map((l) => l.text),
-    ["p1", "", "p2"],
-  );
+  assert.equal(s.strippedChars, 0);
+  assert.deepEqual(s.local, []);
 });
 
 test("surfaceToBuffer：assistant 多段拆成独立 buffer 行；user 整段保留（\\n 归一到行内）", () => {
@@ -2777,25 +2773,18 @@ test("surfaceToBuffer：assistant 多段拆成独立 buffer 行；user 整段保
   ]);
 });
 
-test("user-line：显式换行保留在一条 buffer 行（一次输入 = 一个用户块）；append 仍逐行拆", () => {
+test("user-line：只记状态事实（用户块本体走交付）；用户行不计流式估算", () => {
+  // 条目 16 段 C2：用户块由 `deliverLocal` 的交付进节缓存，缓冲不再有用户行
   const s = reduceState(initialState(), {
     type: "user-line",
     text: "第一行\n第二行",
   });
-  assert.deepEqual(
-    s.local.map((l) => l.text),
-    ["第一行\n第二行"],
-  );
-  assert.deepEqual(
-    s.local.map((l) => l.kind),
-    ["user"],
-  );
-  // 流式 assistant 仍按 \n 拆行（增量续写/逐行结构依赖）
+  assert.deepEqual(s.local, [], "用户行不进缓冲");
+  assert.equal(s.strippedChars, 0, "换行不在剔除之列（仅 C0/C1 与孤立 ESC）");
+  assert.equal(s.stepEstTokens, 0, "用户行不计估算 token");
+  // 流式 assistant 仍推进虚拟状态（估算 token 累计）——用户行不参与
   const a = reduceState(initialState(), { type: "append", text: "p1\np2" });
-  assert.deepEqual(
-    a.local.map((l) => l.text),
-    ["p1", "p2"],
-  );
+  assert.ok(a.stepEstTokens > 0, "assistant 流推进估算 token");
 });
 
 test("sanitizeText：剔除非打印控制符但保留换行/ANSI 序列，计数正确", () => {
@@ -2861,7 +2850,7 @@ test("history-resume-error：目标不符/面板已关 → 忽略；匹配 → e
   assert.equal(sErr.history?.pendingResume, undefined);
 });
 
-test("history-resume-ok：替换 buffer、关面板、更新 activeSessionId/标题", () => {
+test("history-resume-ok：恢复行交节缓存、关面板、更新 activeSessionId/标题", () => {
   let s = reduceState(initialState(), { type: "history-open" });
   s = reduceState(s, {
     type: "history-list",
@@ -2880,13 +2869,9 @@ test("history-resume-ok：替换 buffer、关面板、更新 activeSessionId/标
   assert.equal(s.history, null);
   assert.equal(s.activeSessionId, "s2");
   assert.equal(s.sessionTitle, "我的问题");
-  assert.deepEqual(
-    s.local.map((l) => ({ text: l.text, kind: l.kind })),
-    [
-      { text: "q", kind: "user" },
-      { text: "a", kind: "assistant" },
-    ],
-  );
+  // 条目 16 段 C2：恢复行不再落缓冲（内容单源在节缓存）——缓冲清空即可，重放由
+  // App 的 `replaySectionsFromRows` 负责（帧级用例见 pipeline-app.test.ts）
+  assert.deepEqual(s.local, [], "缓冲清空（不带恢复行，也不带上一会话的本地行）");
   assert.equal(s.followBottom, true);
   // 过期结果被丢弃
   let s2 = reduceState(initialState(), { type: "history-open" });

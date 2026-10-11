@@ -32,7 +32,6 @@ import {
 } from "../src/app/state.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";
-import { buildFrame as buildFrameWithReplay } from "./helpers/frameWithLocalReplay.ts";
 import { rowAnsi } from "./helpers/rowText.ts";
 
 /** 一条测试步：老路径事件 + 新路径块交付（同一内容） */
@@ -194,46 +193,6 @@ const frames = (app: App, renderer: FakeRenderer): string[] => {
   flushApp();
   return renderer.lastRender.map(normalizeFrameLine);
 };
-
-/**
- * 旧路径（纯缓冲）帧行：条目 16 段 C1 后 App 不再按 `state.local` 回退重放（无 sink 时
- * 直出空节缓存），故旧路径的渲染由测试侧**显式重放**口径给出（`frameWithLocalReplay`
- * 包装与剥离前的 `App.paint` 旧路径逐字等价），比对口径不变。
- */
-const legacyFrames = (app: App, renderer: FakeRenderer): string[] =>
-  buildFrameWithReplay(stateOf(app), renderer.getSize()).map((row) =>
-    normalizeFrameLine(rowAnsi(row)),
-  );
-
-test("逐步等价：App 装配下新旧路径每一步的整帧输出一致", () => {
-  const old = makeApp(false);
-  const next = makeApp(true);
-  for (const [index, step] of script().entries()) {
-    // 真实运行形态：adapter 同时发事件（旧路径 / 状态面）与块交付（六步流水线）
-    old.adapter.push(step.event);
-    next.adapter.push(step.event);
-    if (step.delivery !== undefined) next.sink.current?.(step.delivery);
-    assert.deepEqual(
-      frames(next.app, next.renderer),
-      legacyFrames(old.app, old.renderer),
-      `第 ${index + 1} 步（${step.event.type}）`,
-    );
-  }
-  old.app.dispose();
-  next.app.dispose();
-});
-
-test("接管开关：无 sink 的 App 不注入节缓存（旧路径内容仍可由缓冲显式重放）", () => {
-  const old = makeApp(false);
-  old.adapter.push({ type: "stream", sessionId: "s1", text: "只有旧路径" });
-  // 未接管：sink 容器保持为空（App 不注册）；内容仍落在旧缓冲里（显式重放可见）
-  assert.equal(old.sink.current, undefined, "未接管时不注册 sink");
-  assert.ok(
-    legacyFrames(old.app, old.renderer).join("").includes("只有旧路径"),
-    "旧路径内容在缓冲（显式重放）里可见",
-  );
-  old.app.dispose();
-});
 
 test("接管开关：有 sink 的 App 注入节缓存并按块交付出帧", () => {
   const next = makeApp(true);
@@ -423,9 +382,9 @@ test("会话切换：history-resume-ok 的历史行直接进节缓存（回归�
 });
 
 test("读侧迁移：注入 sink（缓冲不承载内容）时 /copy 的来源仍在节模型", () => {
-  // 条目 7 选项 1：`/copy`、`/council`、问答来源的读取从缓冲改为节模型——生产路径下缓冲
-  // 是空的，用旧来源会取不到内容。`/copy` 的端到端断言（OSC52 载荷）见 `app.test.ts`，
-  // 这里只锁定「注入 sink 即关内容写缓冲」+ 读取来源正确。
+  // 条目 7 选项 1（条目 16 段 C2 收口）：`/copy`、`/council`、问答来源的读取从缓冲改为
+  // 节模型——生产路径下缓冲是空的，用旧来源会取不到内容。`/copy` 的端到端断言（OSC52
+  // 载荷）见 `app.test.ts`，这里只锁定「注入 sink 后缓冲不含内容」+ 读取来源正确。
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
   const sink: { current?: (delivery: BlockDelivery) => void } = {};
@@ -433,7 +392,7 @@ test("读侧迁移：注入 sink（缓冲不承载内容）时 /copy 的来源�
   registerApp(app);
   app.start();
   const state = (): AppState => (app as unknown as { state: AppState }).state;
-  assert.equal(state().bufferRetainsContent, false, "注入 sink 即关内容写缓冲");
+  assert.deepEqual(state().local, [], "缓冲只留 UI 本地行（内容单源在节模型）");
   sink.current?.({
     kind: "text",
     turn: 1,
@@ -450,32 +409,6 @@ test("读侧迁移：注入 sink（缓冲不承载内容）时 /copy 的来源�
     "/copy 的读取来源（节模型）",
   );
   app.dispose();
-});
-
-test("双写等价：用户提交 + 首个 step 后新旧路径整帧一致", () => {
-  const old = makeApp(false);
-  const next = makeApp(true);
-  typeAndEnter(old.renderer, "你好流水线");
-  typeAndEnter(next.renderer, "你好流水线");
-  // 回合开启后 step 落地（真实时序：step/start 紧随提交），两侧同步推进
-  const stepEvent: DshEvent = {
-    type: "step",
-    sessionId: "s1",
-    turn: 1,
-    step: 1,
-    phase: "start",
-    time: TIME,
-  };
-  old.adapter.push(stepEvent);
-  next.adapter.push(stepEvent);
-  next.sink.current?.({ kind: "step-start", turn: 1, step: 1, time: TIME });
-  assert.deepEqual(
-    frames(next.app, next.renderer),
-    legacyFrames(old.app, old.renderer),
-    "用户提交后整帧一致（分隔线归一后）",
-  );
-  old.app.dispose();
-  next.app.dispose();
 });
 
 test("事件驱动的本地写入投块：retry / subagent / hook 在回合区可见（条目 10 回归）", () => {

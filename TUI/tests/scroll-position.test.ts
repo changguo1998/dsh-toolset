@@ -18,7 +18,7 @@ import {
   totalLines,
 } from "../src/app/layout/pipeline/rows.ts";
 import { turnGroupStarts } from "../src/app/layout.ts";
-import type { Buffer } from "../src/app/state.ts";
+import type { HistoryRow } from "../src/app/state.ts";
 
 const BIG = 10_000;
 
@@ -87,7 +87,7 @@ test("段消失 → 回落距底偏移；null → 贴底", () => {
 });
 
 test("turnGroupStarts：user 行与无 user 前缀的回复起头都算组起点", () => {
-  const b: Buffer = [
+  const b: HistoryRow[] = [
     { text: "a0", kind: "assistant", final: true },
     { text: "u1", kind: "user" },
     { text: "a1", kind: "assistant", final: true },
@@ -97,7 +97,7 @@ test("turnGroupStarts：user 行与无 user 前缀的回复起头都算组起点
   ];
   assert.deepEqual(turnGroupStarts(b), [0, 1, 4]);
   // 无 user 行的恢复会话：按回复起头切分（否则永不折叠）
-  const restored: Buffer = [
+  const restored: HistoryRow[] = [
     { text: "a1", kind: "assistant", final: true },
     { text: "sep", kind: "separator" },
     { text: "a2", kind: "assistant", final: true },
@@ -108,7 +108,7 @@ test("turnGroupStarts：user 行与无 user 前缀的回复起头都算组起点
 test("turnGroupStarts：非 final 中间输出不算组起点——单回合多 step 不被截断", () => {
   // 回归：非 final 的 assistant（思考/工具之间的中间输出）若也算回复组起点，单回合
   // 会被切碎成多组 → 渐进窗口尾部 N 组会截掉本回合早期活动内容（活动区大片空白）。
-  const b: Buffer = [
+  const b: HistoryRow[] = [
     { text: "u", kind: "user" },
     { text: "sep", kind: "separator" },
     { text: "思考", kind: "thinking" },

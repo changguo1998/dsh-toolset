@@ -8,15 +8,15 @@ import assert from "node:assert/strict";
 
 import { buildBox } from "../src/app/layout/build-box.ts";
 import { fillBoxTree } from "../src/app/layout/fill.ts";
-import type { BufferLine } from "../src/app/state.ts";
+import type { HistoryRow } from "../src/app/state.ts";
 
-const a = (text: string, final = false): BufferLine => ({
+const a = (text: string, final = false): HistoryRow => ({
   text,
   kind: "assistant",
   final,
 });
 
-function activityRows(buf: BufferLine[], width = 40): string[] {
+function activityRows(buf: HistoryRow[], width = 40): string[] {
   const built = buildBox(buf, {});
   return fillBoxTree(built.panes.activity, 20, width).map((r) =>
     r.segments.map((g) => g.text).join(""),

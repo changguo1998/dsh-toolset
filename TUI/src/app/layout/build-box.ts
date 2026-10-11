@@ -10,7 +10,7 @@
 import type { Box, Node } from "./box.ts";
 import { v, h, text, styled, spacer } from "./box.ts";
 import { hasCellPipe, isTableStart, parseTableAt, tableBox } from "./table.ts";
-import type { ActivityLevel, Buffer, BufferLine } from "../state.ts";
+import type { ActivityLevel, HistoryRow } from "../state.ts";
 import type { ColorName } from "../../renderer/theme.ts";
 import type { FrameStyle } from "../../renderer/index.ts";
 import {
@@ -72,7 +72,7 @@ export interface BuildBoxOptions {
   /** P1：用户块**首行**左侧状态符号（2 列前缀 = 符号 + 1 空格；由 layout 依会话状态算定）。
    *  返回 undefined = 该行不显示符号（非用户块 / 排队块 / 无状态）。 */
   userStatus?: (
-    line: BufferLine,
+    line: HistoryRow,
   ) => { text: string; fg?: ColorName } | undefined;
 }
 
@@ -123,7 +123,7 @@ function toolLineSegs(line: string, tone?: string) {
  * 条目压成 1 行并取消 hanging，`noCompact` 行（/help）豁免、保持完整折行。
  */
 export function noticeLinePresentation(
-  line: BufferLine,
+  line: HistoryRow,
   compact: boolean,
 ): { fg?: ColorName; hanging?: number } {
   const tone = line.tone;
@@ -181,7 +181,7 @@ function wrapCodeRows(
   return out;
 }
 
-export function buildBox(local: Buffer, opts: BuildBoxOptions): BuildBoxResult {
+export function buildBox(local: HistoryRow[], opts: BuildBoxOptions): BuildBoxResult {
   // 块 id 计数器：每次 buildBox 调用内局部，保证纯函数/确定性
   let nextBlockId = 0;
   const freshBlockId = (): number => {
@@ -898,7 +898,7 @@ export interface ContentPanes {
  * 调用点只换这里（legacy 旧函数曾承担同一职责）。
  */
 export function buildContentRows(
-  local: Buffer,
+  local: HistoryRow[],
   opts: BuildBoxOptions,
   width: number,
   /** 活动 pane 可用宽（横向排列时与对话 pane 不同宽；缺省与 width 相同） */

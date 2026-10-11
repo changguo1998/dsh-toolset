@@ -5,6 +5,7 @@
 
 import { localTitleFromText } from "./adapter/normalize.ts";
 import { sanitizeText, TURN_SEPARATOR } from "./state.ts";
+import type { HistoryRow } from "./state.ts";
 import type { ModelCatalog, ModelSelection } from "./adapter/dsh.ts";
 import type { ThemeId } from "../renderer/theme.ts";
 
@@ -47,24 +48,8 @@ export function surfaceToBuffer(
     status?: "success" | "failure" | "aborted";
     steerContinued?: boolean;
   }[],
-): {
-  text: string;
-  kind: "user" | "assistant" | "step" | "notice" | "tool" | "separator";
-  tone?: "log";
-  final?: boolean;
-  turn?: number;
-  status?: "success" | "failure" | "aborted";
-  steerContinued?: boolean;
-}[] {
-  const out: {
-    text: string;
-    kind: "user" | "assistant" | "step" | "notice" | "tool" | "separator";
-    tone?: "log";
-    final?: boolean;
-    turn?: number;
-    status?: "success" | "failure" | "aborted";
-    steerContinued?: boolean;
-  }[] = [];
+): HistoryRow[] {
+  const out: HistoryRow[] = [];
   let lastTurn: number | undefined;
   for (const m of messages) {
     // 回合变化 → 分隔线行（真回合号；无号的消息保持上一个已知回合）

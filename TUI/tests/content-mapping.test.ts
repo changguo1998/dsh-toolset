@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { Buffer } from "../src/app/state.ts";
+import type { HistoryRow } from "../src/app/state.ts";
 import { buildBox, buildContentRows } from "../src/app/layout/build-box.ts";
 import type { ContentRow } from "../src/app/layout/fill.ts";
 import { displayWidth } from "../src/app/layout/markdown.ts";
@@ -57,7 +57,7 @@ function baselineRows(
 }
 
 /** 新管线：统一入口 buildContentRows（buildBox → measure/allocate → fill） */
-function newRows(buffer: Buffer, width: number, gutter = 4) {
+function newRows(buffer: HistoryRow[], width: number, gutter = 4) {
   const { dialogue, activity } = buildContentRows(buffer, { gutter }, width);
   const normRow = (r: ContentRow): FixtureRow => {
     const own = displayWidth(rowTextOf(r));
@@ -79,7 +79,7 @@ function newRows(buffer: Buffer, width: number, gutter = 4) {
 /** 对照断言：对话区+活动区逐行等价（新管线 vs 冻结基线） */
 function assertEquivalent(
   key: string,
-  local: Buffer,
+  local: HistoryRow[],
   width: number,
   gutter: number,
 ): void {
@@ -97,7 +97,7 @@ function assertEquivalent(
 }
 
 /** 窄窗语义等价（w≤5 竖线关闭边界未知退化：仅比语义文本 + kind） */
-function assertSemantic(key: string, buffer: Buffer, width: number): void {
+function assertSemantic(key: string, buffer: HistoryRow[], width: number): void {
   const fresh = newRows(buffer, width);
   const sem = (rows: FixtureRow[]) =>
     rows
@@ -120,7 +120,7 @@ test("双轨：空 buffer", () => {
 });
 
 test("双轨：plain + separator", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "hello world", kind: "plain" },
     { text: "", kind: "separator" },
   ];
@@ -128,7 +128,7 @@ test("双轨：plain + separator", () => {
 });
 
 test("双轨：user + assistant final（收缩块右对齐 + 竖线）", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "user message", kind: "user" },
     { text: "assistant reply text", kind: "assistant", final: true },
   ];
@@ -137,7 +137,7 @@ test("双轨：user + assistant final（收缩块右对齐 + 竖线）", () => {
 });
 
 test("双轨：user 多行 + 竖线阈值边界（新阈值 w≥8 开启竖线；w=6 已偏离基线）", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "line1\nline2", kind: "user" },
     { text: "ok", kind: "assistant", final: true },
   ];
@@ -160,7 +160,7 @@ test("双轨：user 多行 + 竖线阈值边界（新阈值 w≥8 开启竖线�
 // 新管线 spacer(fill,min:gutter−1) 的收缩语义在超窄窗留白列数略异——此为已知
 // 边界，此处仅验「pane/kind/语义文本」等价。
 test("双轨：窄窗（宽 1/4/5）user 语义等价（非严格 pad 序列）", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "line1\nline2", kind: "user" },
     { text: "ok", kind: "assistant", final: true },
   ];
@@ -169,13 +169,13 @@ test("双轨：窄窗（宽 1/4/5）user 语义等价（非严格 pad 序列）"
 
 test("双轨：assistant 折行 + 宽边界", () => {
   const long = "assistant ".repeat(10);
-  const buf: Buffer = [{ text: long, kind: "assistant", final: true }];
+  const buf: HistoryRow[] = [{ text: long, kind: "assistant", final: true }];
   for (const w of [30, 15, 8])
     assertEquivalent(`assistant-wrap@w${w}g4`, buf, w, 4);
 });
 
 test("双轨（已偏离）：thinking + notice + 非 final assistant（活动区）——#5 新增「思考↔正文」类型间隔空行", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "reasoning...", kind: "thinking" },
     { text: "", kind: "thinking" }, // 空思考行跳过
     { text: "tool notice", kind: "notice", tone: "log" },
@@ -209,7 +209,7 @@ test("双轨（已偏离）：thinking + notice + 非 final assistant（活动�
 test("双轨（已偏离）：tool 行分组 + step 结果（P6 起分组头带时间戳）", () => {
   // 冻结基线记录旧格式 `╌╌ step 2 `；P6 起分组头为 `╌╌ hh:mm:ss ⇆N #M `，
   // 故此处断言「除分组头文本与尾部铺满长度外逐行等价」而非整行等价。
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "bash run cmd", kind: "tool" },
     { text: "✓ done", kind: "tool" },
     { text: "22:31:05 #2", kind: "tool" },
@@ -239,7 +239,7 @@ test("双轨（已偏离）：tool 不再按组数折叠——基线保留旧折
   // 工具历史只受活动 pane 可视行数约束，不按组数折叠。
   // 冻结基线是旧实现的记录（含 `...(更早工具调用已隐藏)`），此处显式断言差异方向：
   // 新管线保留全部调用组，旧基线折叠到最近 4 组 + 1 行占位。
-  const buf: Buffer = [];
+  const buf: HistoryRow[] = [];
   for (let i = 0; i < 6; i++) {
     buf.push({ text: `bash run ${i}`, kind: "tool" });
     buf.push({ text: `✓ ok${i}`, kind: "tool" });
@@ -264,7 +264,7 @@ test("双轨（已偏离）：tool 不再按组数折叠——基线保留旧折
 });
 
 test("双轨：fence 代码块跨行", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "", kind: "assistant", final: true },
     { text: "```ts\nconst x = 1;\n```", kind: "assistant", final: true },
     { text: "after fence", kind: "assistant", final: true },
@@ -273,7 +273,7 @@ test("双轨：fence 代码块跨行", () => {
 });
 
 test("双轨：assistant 尾部空行清理 + user-assistant 块间空行", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "space", kind: "assistant", final: true },
     { text: "", kind: "assistant", final: true },
     { text: "user", kind: "user" },
@@ -283,7 +283,7 @@ test("双轨：assistant 尾部空行清理 + user-assistant 块间空行", () =
 });
 
 test("buildBox 确定性：重复调用元数据/结构一致（blockId 局部计数）", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "q", kind: "user" },
     { text: "a", kind: "assistant", final: true },
   ];
@@ -303,7 +303,7 @@ test("buildBox 确定性：重复调用元数据/结构一致（blockId 局部�
 });
 
 test("双轨：CJK 宽字符折行", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "中文消息内容测试", kind: "user" },
     { text: "这是模型回答", kind: "assistant", final: true },
   ];
@@ -311,7 +311,7 @@ test("双轨：CJK 宽字符折行", () => {
 });
 
 test("双轨：gutter 变体（0 / 默认4 / 较大）", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "hi", kind: "user" },
     { text: "answer long text", kind: "assistant", final: true },
   ];
@@ -324,7 +324,7 @@ test("双轨：gutter 变体（0 / 默认4 / 较大）", () => {
 });
 
 test("双轨：全部 notice tone 着色", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "log msg", kind: "notice", tone: "log" },
     { text: "info msg", kind: "notice", tone: "info" },
     { text: "warn msg", kind: "notice", tone: "warn" },
@@ -334,11 +334,11 @@ test("双轨：全部 notice tone 着色", () => {
   assertEquivalent("notice-tones@w40g4", buf, 40, 4);
 });
 
-test("双轨（已偏离）：真实多 BufferLine fence 开/内容/关——#2 起整块加行号", () => {
+test("双轨（已偏离）：真实多 HistoryRow fence 开/内容/关——#2 起整块加行号", () => {
   // #2 起代码块改为「整块右缩进 + 左侧行号」：语言标记行并入块首（带 ┃ 前缀）、
   // 围栏行本身不渲染、代码行前缀 `┃ <行号> `。冻结基线记录的是旧管线（无行号），
   // 故此处按「已偏离」断言差异方向而非等价（同下方 tool-step 用例）。
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "```ts", kind: "assistant", final: true },
     { text: "const x = 1;", kind: "assistant", final: true },
     { text: "const y = 2;", kind: "assistant", final: true },
@@ -361,7 +361,7 @@ test("双轨（已偏离）：真实多 BufferLine fence 开/内容/关——#2 
 });
 
 test("双轨：内部空格与续行（wrap 折行空白保留）", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "minecraft survival guide", kind: "assistant", final: true },
     { text: "  indented line", kind: "assistant", final: true },
   ];
@@ -372,7 +372,7 @@ test("双轨：内部空格与续行（wrap 折行空白保留）", () => {
 test("双轨（已偏离）：tool step 头 + 多组不再折叠", () => {
   // 同 tool-overflow：工具历史只受 pane 高约束、不按组数折叠，step 头保留；
   // 冻结基线记录旧管线行为，此处断言差异方向而非等价。
-  const buf: Buffer = [];
+  const buf: HistoryRow[] = [];
   for (let i = 1; i <= 7; i++) {
     buf.push({ text: `22:31:05 #${i}`, kind: "tool" }); // P6：分组头带时间戳
     buf.push({ text: `tool call ${i}`, kind: "tool" });

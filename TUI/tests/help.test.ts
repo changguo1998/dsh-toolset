@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { displayWidth } from "../src/app/layout.ts";
 import { buildContentRows } from "../src/app/layout/build-box.ts";
-import type { Buffer } from "../src/app/state.ts";
+import type { HistoryRow } from "../src/app/state.ts";
 import {
   helpTableLines,
   helpSortKey,
@@ -132,7 +132,7 @@ test("行内不再有 \n（未超宽行）：每行单物理行，折行统一�
 
 test("渲染层折行：help notice 续行停靠描述列（不穿回第一列）", () => {
   const lines = helpTableLines(ROWS);
-  const buffer: Buffer = [
+  const buffer: HistoryRow[] = [
     { kind: "notice", text: "本地命令：" },
     ...lines.map((l) => ({
       kind: "notice" as const,
@@ -172,7 +172,7 @@ test("渲染层：超宽命令描述另起一行，行首缩进 = 描述列起�
     },
   ] as const;
   const lines = helpTableLines(rows);
-  const buffer: Buffer = [
+  const buffer: HistoryRow[] = [
     { kind: "notice", text: "本地命令：" },
     ...lines.map((l) => ({
       kind: "notice" as const,

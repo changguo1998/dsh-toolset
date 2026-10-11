@@ -15,14 +15,14 @@ import {
   initialState,
   reduceState,
   type AppState,
-  type Buffer,
+  type HistoryRow,
 } from "../src/app/state.ts";
 import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
 
 /** 覆盖各活动区条目类型的长文本（思考/工具调用/工具结果/非 final 中间输出） */
 const LONG = "很长的活动区文本内容".repeat(6); // 显示宽 10×6 = 60，超 40 列窗
 
-const buf: Buffer = [
+const buf: HistoryRow[] = [
   { text: LONG, kind: "thinking" },
   { text: "○ bash " + LONG, kind: "tool" },
   { text: "✓ " + LONG, kind: "tool" },
@@ -66,7 +66,7 @@ test("活动区紧凑模式：每条目 1 行 + 行尾省略号", () => {
 });
 
 test("活动区紧凑模式：条目内换行折叠为空格（多行参数压 1 行）", () => {
-  const multi: Buffer = [
+  const multi: HistoryRow[] = [
     { text: "○ bash 参数甲\n参数乙\n参数丙", kind: "tool" },
   ];
   const full = buildContentRows(multi, {}, W, W);
@@ -77,7 +77,7 @@ test("活动区紧凑模式：条目内换行折叠为空格（多行参数压 1
 });
 
 test("活动区紧凑模式：短条目不加省略号（原样）", () => {
-  const short: Buffer = [{ text: "短", kind: "thinking" }];
+  const short: HistoryRow[] = [{ text: "短", kind: "thinking" }];
   const panes = buildContentRows(short, { activityCompact: true }, W, W);
   assert.equal(rowText(panes.activity[0]!), "┃短");
 });
@@ -150,7 +150,7 @@ test("端到端：/collapse off 后 buildFrame 活动区行数收敛且不越宽
 });
 
 test("紧凑模式豁免 noCompact 行（/help）：保持完整折行 + 悬垂缩进，不压单行截断", () => {
-  const buf: Buffer = [
+  const buf: HistoryRow[] = [
     { text: "长条目正文".repeat(8) + "（末尾可见）", kind: "thinking" },
     {
       text: "  /help 命令辅助行 这是一个很长很长很长的描述文本文本文本文本文本文本文本文本",
@@ -174,7 +174,7 @@ test("紧凑模式豁免 noCompact 行（/help）：保持完整折行 + 悬垂�
   );
   assert.ok(helpTexts.length > 1, "noCompact 行长描述折成多行（非压成 1 行）");
   // 对照：普通 notice（无 noCompact）在紧凑下确被压 1 行 + 省略号
-  const plain: Buffer = [
+  const plain: HistoryRow[] = [
     {
       text: "  一条很长很长很长的普通 notice 描述文本文本文本文本文本文本文本",
       kind: "notice",

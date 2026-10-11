@@ -44,16 +44,13 @@ const T0 = new Date(2026, 0, 2, 3, 4, 5).getTime();
 /**
  * 生产口径 state：注入节缓存（内容唯一来源 = 节缓存；App 装配时同此）。
  *
- * 条目 16 段 C2 过渡：`bufferRetainsContent: false` 是 C1 的开关（C2 随内容类 `BufferKind`
- * 一起删）。本文件只在这一处引用它——C2 落地后删掉该字段即可，断言无需改动：「历史恢复清空
- * `local`」半边按 C2 口径保留（清理分支改为无条件），其余四例本就与开关无关（交付不写缓冲、
- * UI 本地行恒写）。
+ * 条目 16 段 C2：内容类 action 不再写缓冲（开关 `bufferRetainsContent` 已删），本文件其余
+ * 断言即生产口径。
  */
 function prod(): AppState {
   return reduceState(initialState(), {
     type: "pipeline-state",
     pipeline: createSections(),
-    bufferRetainsContent: false,
   });
 }
 

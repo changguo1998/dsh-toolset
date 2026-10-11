@@ -214,7 +214,7 @@ export function indexOfTop(
 // 都在新流水线里，而字形与装饰与旧路径逐行一致（等价性由 `pipeline-equivalence`
 // 用例把关）。
 
-import type { ActivityLevel, BufferLine } from "../../state.ts";
+import type { ActivityLevel, HistoryRow } from "../../state.ts";
 import { TURN_SEPARATOR } from "../../state.ts";
 import { buildContentRows, type BuildBoxOptions } from "../build-box.ts";
 import { stepHeaderLine, toolCallLine, toolResultLine } from "../tool-line.ts";
@@ -252,7 +252,7 @@ export function boxToLines(
   box: Box,
   dialogue = false,
   active = false,
-): BufferLine[] {
+): HistoryRow[] {
   const scope = { step: box.step };
   if (box.kind === "layout") {
     // 表格容器 → 旧口径的原始表格行（表头 / 对齐分隔 / 数据行），表格渲染器重排；
@@ -264,7 +264,7 @@ export function boxToLines(
     // 会话区只保留「历史行」（带 final）：恢复出来的工具批（`history` 盒）在会话区按
     // 历史行上屏；实时路径的工具行不带 final → 照旧只在回合区
     const hist = dialogue && box.history === true;
-    const lines: BufferLine[] = [];
+    const lines: HistoryRow[] = [];
     for (const call of box.batch?.calls ?? []) {
       lines.push({
         text: toolCallLine(call.name, summarizeToolArguments(call.args)),
@@ -360,10 +360,10 @@ export function boxToLines(
 }
 
 /** 表格容器 → 原始表格行（与旧缓冲的 markdown 形态逐字符一致）；会话区行带 final */
-function tableLines(box: LayoutBox, dialogue: boolean): BufferLine[] {
+function tableLines(box: LayoutBox, dialogue: boolean): HistoryRow[] {
   const kind = kindOf(box);
   const final = dialogue && box.source === "assistant";
-  const line = (text: string): BufferLine => ({
+  const line = (text: string): HistoryRow => ({
     text,
     kind,
     ...(final ? { final: true } : {}),
@@ -379,7 +379,7 @@ function tableLines(box: LayoutBox, dialogue: boolean): BufferLine[] {
       cell.kind === "content" ? (cell.text ?? "") : "",
     );
   const header = rows.find((row0) => row0.header === true);
-  const out: BufferLine[] = [];
+  const out: HistoryRow[] = [];
   if (header !== undefined) out.push(line(row(cellsOf(header))));
   out.push({
     text: row(
@@ -398,7 +398,7 @@ function tableLines(box: LayoutBox, dialogue: boolean): BufferLine[] {
 }
 
 /** 来源 → 状态层的行类型（与旧路径同一分类口径） */
-function kindOf(box: Box): BufferLine["kind"] {
+function kindOf(box: Box): HistoryRow["kind"] {
   switch (box.source) {
     case "reasoning":
       return "thinking";
@@ -416,7 +416,7 @@ function kindOf(box: Box): BufferLine["kind"] {
 }
 
 /** pane 项 → 旧口径缓冲行（边界项按既有线型：step 头 / 回合分隔线 / 空行） */
-function itemLines(item: PaneItem, dialogue: boolean): BufferLine[] {
+function itemLines(item: PaneItem, dialogue: boolean): HistoryRow[] {
   switch (item.kind) {
     case "line":
       return boxToLines(item.box, dialogue, item.active === true);

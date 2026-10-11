@@ -53,7 +53,7 @@ import {
   sectionsFromBuffer,
   stepOf,
 } from "./layout/pipeline/replay.ts";
-import { type BufferLine } from "./state.ts";
+import { type HistoryRow } from "./state.ts";
 import {
   setWidthOverrides,
   setWidthProbeEnabled,
@@ -444,7 +444,7 @@ export class App {
    * 条目 7 选项 1：行由调用方本地构造（`surfaceToBuffer`）并直传，不再回读
    * `state.local` —— 生产路径不把缓冲内容当恢复入口（缓冲仅测试 / 嵌入用）。
    */
-  private replaySectionsFromRows(rows: readonly BufferLine[]): void {
+  private replaySectionsFromRows(rows: readonly HistoryRow[]): void {
     if (this.deps.pipelineSink === undefined) return;
     this.sections = sectionsFromBuffer(rows, { history: true });
     // 回合号基线：重放后取最大节回合（下一回合本地预测 +1 的基准）
@@ -852,14 +852,8 @@ export class App {
       this.sectionsSessionId = this.state.activeSessionId;
       sink.current = (delivery) => this.ingestDelivery(delivery);
       const pipeline = this.sections;
-      // 内容单源：注入节缓存的同时关掉「缓冲承载会话内容」（条目 7 选项 1）
-      this.apply((s) =>
-        reduceState(s, {
-          type: "pipeline-state",
-          pipeline,
-          bufferRetainsContent: false,
-        }),
-      );
+      // 内容单源：注入节缓存（条目 16 段 C2 后这是唯一内容来源）
+      this.apply((s) => reduceState(s, { type: "pipeline-state", pipeline }));
     }
     // 告警总线懒接线（未挂载则 no-op；见 ruleEngine()）
     this.ruleEngine();
