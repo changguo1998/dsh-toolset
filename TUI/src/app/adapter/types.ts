@@ -1008,6 +1008,12 @@ export interface HistoryMessage {
    * `success` / aborted → `aborted` / error → `failure`，其余原因不落终态）。
    */
   status?: "success" | "failure" | "aborted";
+  /**
+   * 被 steer 续接过的用户块（BACKLOG #23②）：宿主在 step 边界认领 steer 时摘除排队项
+   * （`agent/inbox/spliced` 的 `removedCount > 0 && target === "next-step"`）→ 恢复时给
+   * **上一条用户消息**打此标；渲染为永久 `←`（不随终态覆盖，与实时路径同口径）。
+   */
+  steerContinued?: boolean;
 }
 
 /** 单个历史会话的只读表面视图（归一化后的消息列表） */

@@ -284,7 +284,15 @@ export function sectionsFromBuffer(
     const index = indexByScope.get(key) ?? 0;
     indexByScope.set(key, index + 1);
     const delivery = deliveryOfLine(line, scope, index);
-    if (delivery !== undefined) state = applyDelivery(state, delivery);
+    if (delivery !== undefined) {
+      state = applyDelivery(state, delivery);
+      // steer 续接标记（BACKLOG #23②）：与实时路径同形，补一条 `user-flag`
+      if (line.steerContinued === true && delivery.kind === "user")
+        state = applyDelivery(state, {
+          kind: "user-flag",
+          steerContinued: true,
+        });
+    }
     if (line.kind === "assistant" && line.final === true) {
       // 该节即回合总结节（会话区归属）：定型与回合结束在整块结束时补（见 flushFinal）
       pendingFinal = { ...scope };

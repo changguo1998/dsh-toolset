@@ -479,6 +479,20 @@ export function normalizeHistoryMessages(
       const msg = data.message as Record<string, unknown> | undefined;
       pushText("assistant", extractTextBlocks(msg?.content));
     } else if (e.type === "agent/inbox/spliced") {
+      // steer 认领（BACKLOG #23②）：step 边界摘除排队项 = 上一条用户输入被续接 →
+      // 打 `steerContinued`（渲染永久 `←`）。判据与实时路径发 `inbox-claim` 的同一条。
+      if (
+        typeof data.removedCount === "number" &&
+        data.removedCount > 0 &&
+        data.target === "next-step"
+      ) {
+        for (let i = out.length - 1; i >= 0; i--) {
+          const m = out[i]!;
+          if (m.role !== "user") continue;
+          out[i] = { ...m, steerContinued: true };
+          break;
+        }
+      }
       const inserted = data.inserted;
       if (!Array.isArray(inserted)) continue;
       for (const item of inserted as Array<Record<string, unknown>>) {

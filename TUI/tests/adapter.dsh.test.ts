@@ -6467,3 +6467,39 @@ test("BACKLOG #23①：辅助行还原（llm/retry → notice 行；llm/retry-st
     `retry-started 应还原为 ↻ 灰行，实际：${started?.text ?? "(无)"}`,
   );
 });
+
+test("BACKLOG #23②：steer 认领 → 上一条用户块打 steerContinued（渲染 ←）", () => {
+  const msgs = normalizeHistoryMessages([
+    {
+      type: "user/message",
+      seq: 1,
+      data: { id: "u1", content: [{ type: "text", text: "输入甲" }] },
+    },
+    { type: "turn/start", seq: 2, data: { turn: 1 } },
+    {
+      type: "agent/inbox/spliced",
+      seq: 3,
+      data: { removedCount: 1, target: "next-step", inserted: [] },
+    },
+    {
+      type: "user/message",
+      seq: 4,
+      data: { id: "u2", content: [{ type: "text", text: "steer 输入乙" }] },
+    },
+    {
+      type: "turn/end",
+      seq: 5,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+  ]);
+  assert.equal(
+    msgs.find((m) => m.text === "输入甲")?.steerContinued,
+    true,
+    "被续接的块要打 steerContinued（渲染永久 ←）",
+  );
+  assert.equal(
+    msgs.find((m) => m.text === "steer 输入乙")?.status,
+    "success",
+    "终态落到该回合最后一个用户块（steer 输入）",
+  );
+});

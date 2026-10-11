@@ -1,6 +1,6 @@
 # 恢复保真两处缺口（接取条目：`TUI/docs/BACKLOG.md` 第 23 条）
 
-状态：进行中（① 已修；② 待续）　　开启：2026-10-11　　关闭：—
+状态：关闭　　开启：2026-10-11　　关闭：2026-10-11
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标（条目验收）
@@ -22,7 +22,24 @@
 
 **其余辅助行种类**（subagent / hook / command / feedback）：本会话日志里只有 `subagent/catalog`（状态列事件，不是正文行），无可取证的行事件 → 待有真机样本再按同款补（口径：从 live 的 `state.ts` 分支抄文本）。
 
-## ② steer 插队块的终态与 `←` —— 待续
+## ② steer 插队块的 `←` —— **已修**
+
+**核对后收窄**：终态落「该回合最后一个用户块」本身是对的（被续接块的 `←` 会覆盖终态，见
+`state.ts:1217`），真正缺的只是**被续接块的 `steerContinued` 在恢复路径从不设置**。
+
+**落地链路**（5 处，均可编译且有 live 同形对照）：
+
+| 步骤 | 位置 | 内容 |
+| --- | --- | --- |
+| 1 | `adapter/dsh.ts` | `agent/inbox/spliced` 且 `removedCount > 0 && target === "next-step"`（与 live 发 `inbox-claim` 同一判据）→ 给 **上一条已产出的用户消息**打 `steerContinued` |
+| 2 | `adapter/types.ts` | `HistoryMessage.steerContinued?: boolean` |
+| 3 | `commands.ts` | `surfaceToBuffer` 的输入/输出/内部三处类型 + 用户行透传该标记 |
+| 4 | `state.ts` | `BufferLine` 早已有 `steerContinued`（本次一度插重，已去重） |
+| 5 | `replay.ts` | 用户行带标记 → 交付 `user` 后再补一条 `user-flag`（与 live `index.ts` 同形）→ 节条目标记 → 渲染永久 `←` |
+
+**用例**：〈steer 认领 → 上一条用户块打 steerContinued〉（输入甲 ✓ `steerContinued`、steer 输入乙 ✓ 拿 `success`）。
+
+## ② 原始计划（保留供参照）
 
 **live 口径**（已读）：`index.ts:1719 case "inbox-claim"` → `deliverLocal({kind:"user-flag", steerContinued:true})` → 上一条用户输入块的 `steerContinued`（渲染 `←`，且不随终态覆盖）；`state.ts:1530` 的 `kind === "steer" → markSteerClaim`。
 
@@ -43,4 +60,7 @@
 
 ## 收尾
 
-（待 ② 完成）
+- **实现**：① `f38c38a`（辅助行还原）；② 随本次收尾提交。
+- **验证**：全量 `npm test` **1458 / 1458 通过**；`npm run check` 干净；`npm run build` 通过。
+- **遗留**：subagent / hook / command 类辅助行无可取证样本（本会话日志只有 `subagent/catalog`），待有真机样本再按同款补（口径已写入本文档）。
+- **归档**：本文件移入 `TUI/docs/archived/`；BACKLOG 移除该条。

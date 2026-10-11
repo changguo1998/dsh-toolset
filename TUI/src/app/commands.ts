@@ -45,6 +45,7 @@ export function surfaceToBuffer(
     text: string;
     turn?: number;
     status?: "success" | "failure" | "aborted";
+    steerContinued?: boolean;
   }[],
 ): {
   text: string;
@@ -53,6 +54,7 @@ export function surfaceToBuffer(
   final?: boolean;
   turn?: number;
   status?: "success" | "failure" | "aborted";
+  steerContinued?: boolean;
 }[] {
   const out: {
     text: string;
@@ -61,6 +63,7 @@ export function surfaceToBuffer(
     final?: boolean;
     turn?: number;
     status?: "success" | "failure" | "aborted";
+    steerContinued?: boolean;
   }[] = [];
   let lastTurn: number | undefined;
   for (const m of messages) {
@@ -101,6 +104,10 @@ export function surfaceToBuffer(
         // 恢复的终态随用户行透传 → 重放器据此还原用户块符号（不再一律 `?`）
         ...(m.role === "user" && m.status !== undefined
           ? { status: m.status }
+          : {}),
+        // steer 续接标记（BACKLOG #23②）：随用户行透传 → 重放补 user-flag → 永久 `←`
+        ...(m.role === "user" && m.steerContinued === true
+          ? { steerContinued: true }
           : {}),
       });
   }
