@@ -2976,6 +2976,19 @@ export class App {
     );
     this.beginTurnIfNeeded(true);
     this.apply((s) => reduceState(s, { type: "user-line", text }));
+    // 双写：流水线用户节（同 sendUserText）。缺了它，注册 sink 后内容不再写缓冲，
+    // 启动自检的回显在画面里就消失了（条目 16 段 C1 暴露出的真实缺口）。
+    if (this.sections !== null) {
+      const scope = this.sections.lastScope;
+      const sameTurn =
+        this.turnOpen && scope.turn === (this.pipelineLastTurn ?? 1);
+      this.deliverLocal({
+        kind: "user",
+        turn: sameTurn ? scope.turn : (this.pipelineLastTurn ?? 1),
+        step: sameTurn ? scope.step : 0,
+        text,
+      });
+    }
     // 启动关键路径：这里是 App.start() 的同步调用链（非宏任务），宿主抛错不得冒出启动
     // （会经 main() 让插件 apply 失败）——捕获后退化为一条 warn notice。
     try {

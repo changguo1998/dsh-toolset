@@ -426,9 +426,12 @@ test("启动：kickoff 在 app.start() 内同步发出（不 flush 定时器；�
   assert.equal(adapter.bootstrapKickoffs, 1, "start() 返回即已发送（同步）");
   const st = (): { local: { text: string }[] } =>
     (app as unknown as { state: { local: { text: string }[] } }).state;
+  // 条目 16 段 C1：内容不再写缓冲（`bufferRetainsContent: false`），改断言帧内可见
+  flushApp();
   assert.ok(
-    st().local.some((l) => l.text === "[AUTO] 启动自检（测试用例）"),
-    "kickoff 以用户行回显: " + JSON.stringify(st().local.map((l) => l.text)),
+    renderer.lastRender.join("\n").includes("[AUTO] 启动自检（测试用例）"),
+    "kickoff 以用户行回显（帧内）: " +
+      JSON.stringify(st().local.map((l) => l.text)),
   );
   app.dispose();
 });
@@ -453,9 +456,12 @@ test("/new：门控通过时补发启动自检（[AUTO] 回显；切换完成后
   assert.equal(adapter.bootstrapKickoffs, 1, "切换完成后补发一次 kickoff");
   const st = (): { local: { text: string }[] } =>
     (app as unknown as { state: { local: { text: string }[] } }).state;
+  // 条目 16 段 C1：内容不再写缓冲（`bufferRetainsContent: false`），改断言帧内可见
+  flushApp();
   assert.ok(
-    st().local.some((l) => l.text === "[AUTO] 启动自检（测试用例）"),
-    "kickoff 以用户行回显: " + JSON.stringify(st().local.map((l) => l.text)),
+    renderer.lastRender.join("\n").includes("[AUTO] 启动自检（测试用例）"),
+    "kickoff 以用户行回显（帧内）: " +
+      JSON.stringify(st().local.map((l) => l.text)),
   );
   app.dispose();
 });
