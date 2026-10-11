@@ -28,6 +28,7 @@ import { App } from "../src/app/index.ts";
 import { createProcessStatusQueries } from "../src/app/status.ts";
 import { TITLE_ICON, displayWidth } from "../src/app/layout.ts";
 import { createMockDshAdapter, type MockDshAdapter } from "./mockAdapter.ts";
+import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
 // 帧取证复用测试侧终端模拟器（BACKLOG TUI#2）：渲染器逐行绝对定位（行间无 `\r\n`），
 // 只有按 VT 语义重放报文才能还原「屏幕上实际留下的行」。同源用法见
 // `src/renderer/index.ts` 的排查配方与 `tests/screen-residue.test.ts`。
@@ -73,14 +74,20 @@ if (smoke) {
   }) as typeof renderer.refresh;
 }
 
+const sink: { current?: (delivery: BlockDelivery) => void } = {};
 const app = new App({
   renderer,
   adapter,
   ...tuiConfig.layout,
   initialTheme: normalizeThemeId(initialTheme ?? resolvedThemes.active),
   status: { queries: createProcessStatusQueries(), intervalMs: 5000 },
+  // 条目 16 段 C1：与生产 main.ts 同款——注册节缓存 sink，App 才走流水线路径
+  // （少了它 App 走「未注册 sink」旧路径，而「无 sink 回退」已剥离 → 内容无处渲染）
+  pipelineSink: sink,
 });
 app.start();
+// 交付出口接线：mock 适配器把内容事件镜像成交付灌进 sink（生产由真实适配器直接产出交付）
+adapter.deliverySink = (delivery: BlockDelivery) => sink.current?.(delivery);
 
 // 退出路径交 renderer：/quit 命令、SIGINT/SIGTERM 信号或进程结束即可；此处不加额外逻辑。
 

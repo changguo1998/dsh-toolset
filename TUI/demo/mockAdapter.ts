@@ -12,6 +12,7 @@ import type {
   ModelSelection,
   QuestionAnswer,
 } from "../src/app/adapter/dsh.ts";
+import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
 
 export class MockDshAdapter implements DshAdapter {
   private cbs: ((e: DshEvent) => void)[] = [];
@@ -39,6 +40,9 @@ export class MockDshAdapter implements DshAdapter {
   sendMessage(text: string): void {
     // App 在发送前本地回显用户行；mock 只负责模拟模型响应（冒烟断言记 sent）。
     this.sent.push(text);
+    // 条目 16 段 C1：本地开新回合 → 交付侧同步开回合（流水线据此把上一回合内容判为历史）
+    this.mirrorTurn += 1;
+    this.deliverySink?.({ kind: "turn-start", turn: this.mirrorTurn });
     this.scheduleReply();
   }
 
@@ -765,7 +769,104 @@ export class MockDshAdapter implements DshAdapter {
     }
   }
 
+  /**
+   * 条目 16 段 C1：交付出口。生产里内容由**真实适配器产出的交付**驱动（`dsh.ts` 归一化后调
+   * `onDelivery`），而流水线是唯一渲染源；mock 只发 App 级事件 → 画面就没有内容。
+   * 这里把常见内容事件镜像成等价交付（与测试 helper `appFakes.ts` 同口径）。
+   */
+  deliverySink?: (delivery: BlockDelivery) => void;
+  /** 镜像用的当前回合号（每个 `sendMessage` 开一个新回合） */
+  private mirrorTurn = 0;
+  /** 镜像里 tool-call 的配对 id */
+  private mirrorCallSeq = 0;
+  private mirrorLastCallId = "call-0";
+
+  /** 事件 → 交付镜像（只覆盖内容类；未接 `deliverySink` 时零开销） */
+  private mirror(e: DshEvent): void {
+    const sink = this.deliverySink;
+    if (sink === undefined) return;
+    const turn = Math.max(this.mirrorTurn, 1);
+    const step = 1;
+    const ev = e as {
+      type: string;
+      text?: string;
+      name?: string;
+      summary?: string;
+      detail?: string;
+      ok?: boolean;
+      tone?: string;
+      reason?: string;
+    };
+    switch (ev.type) {
+      case "stream":
+        sink({
+          kind: "text",
+          turn,
+          step,
+          index: 0,
+          source: "assistant",
+          text: ev.text ?? "",
+        });
+        break;
+      case "thinking":
+        sink({
+          kind: "text",
+          turn,
+          step,
+          index: 1,
+          source: "reasoning",
+          text: ev.text ?? "",
+        });
+        break;
+      case "tool-call":
+        this.mirrorCallSeq += 1;
+        this.mirrorLastCallId = `m${turn}-${this.mirrorCallSeq}`;
+        sink({
+          kind: "tool-call",
+          turn,
+          step,
+          callId: this.mirrorLastCallId,
+          name: ev.name ?? "tool",
+          args: ev.summary ?? ev.text ?? "",
+        });
+        break;
+      case "tool-result":
+        sink({
+          kind: "tool-result",
+          turn,
+          step,
+          callId: this.mirrorLastCallId,
+          ok: ev.ok !== false,
+          detail: ev.detail ?? ev.summary ?? ev.text ?? "",
+        });
+        break;
+      case "notice":
+        sink({
+          kind: "notice",
+          text: ev.text ?? "",
+          ...(ev.tone === undefined ? {} : { tone: ev.tone as never }),
+        });
+        break;
+      case "turn-end":
+        sink({
+          kind: "finalize",
+          turn,
+          step,
+        });
+        sink({
+          kind: "turn-end",
+          turn,
+          step,
+          ...(ev.reason === undefined ? {} : { reason: ev.reason }),
+        });
+        break;
+      default:
+        break;
+    }
+  }
+
   private emit(e: DshEvent): void {
+    this.mirror(e);
     for (const cb of this.cbs) {
       try {
         cb(e);

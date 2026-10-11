@@ -17,7 +17,9 @@ import { THEMES, ansiNameToHex, hexSgr } from "../src/renderer/theme.ts";
 
 class TrackedApp extends App {
   constructor(deps: ConstructorParameters<typeof App>[0]) {
-    super({ ...deps, pipelineSink: deps.pipelineSink ?? {} });
+    const sink = deps.pipelineSink ?? {};
+        super({ ...deps, pipelineSink: sink });
+        (deps.adapter as unknown as { mirrorTo?: typeof sink }).mirrorTo = sink;
     registerApp(this);
   }
 }
@@ -175,9 +177,12 @@ test("核心在 step 边界认领（inbox-claim / next-step）→ 该条转入�
       ["普通排队"],
       "只认领 steer，followup 仍排队",
     );
+    // 条目 16 段 C1：用户块不再写缓冲 → 改断言节缓存里有该用户块（形状无关的序列化查找）
     assert.ok(
-      st().local.some((l) => l.kind === "user" && l.text === "steer 排队"),
-      "认领后成为历史用户行",
+      JSON.stringify(
+        (app as unknown as { sections: unknown }).sections ?? [],
+      ).includes("steer 排队"),
+      "认领后成为历史用户行（节缓存）",
     );
     assert.ok(
       !st().local.some((l) => l.text === "普通排队"),
@@ -266,9 +271,12 @@ test("空闲时 `<` 提交：直达回显（不留排队闪影），投递仍为
     typeAndEnter(renderer, "空闲 steer");
     assert.deepEqual(st().queued, [], "空闲无需排队");
     assert.deepEqual(adapter.steered, ["空闲 steer"]);
+    // 条目 16 段 C1：用户块不再写缓冲 → 改断言节缓存里有该用户块
     assert.ok(
-      st().local.some((l) => l.kind === "user" && l.text === "空闲 steer"),
-      "立即回显为用户块",
+      JSON.stringify(
+        (app as unknown as { sections: unknown }).sections ?? [],
+      ).includes("空闲 steer"),
+      "立即回显为用户块（节缓存）",
     );
     // 回显的用户块右缘竖线是「已发出」的亮红
     const row = rawRowOf(renderer, "空闲 steer");
