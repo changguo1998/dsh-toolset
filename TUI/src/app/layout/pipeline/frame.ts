@@ -14,6 +14,8 @@
 import type { RenderOptions, RenderedPane } from "./rows.ts";
 import { renderPane } from "./rows.ts";
 import { buildPanes } from "./panes.ts";
+import { createSections } from "./sections.ts";
+import { sectionsFromLocal } from "./replay.ts";
 import { allSections, type SectionsState } from "./sections.ts";
 import { buildBoxes } from "./boxes.ts";
 import { turnGroupStarts } from "../../layout.ts";
@@ -222,31 +224,16 @@ function seqRows(
 }
 
 /**
- * 节缓存来源：App 注入的（`state.pipeline`）优先；未注入（测试 / 嵌入用法）时按
- * `state.local` 重放一份——按缓冲身份 memo，重放只在内容整体替换后发生。
+ * 节缓存来源：App 注入的 `state.pipeline` 优先；未注入（测试 / 嵌入用法）时按 `state.local`
+ * 重放一份（条目 16 段 C1：实现已搬进 `replay.ts` 的显式助手 `sectionsFromLocal()`，这里保留
+ * 调用以免在测试迁移完成前改变生产行为；测试全部迁移后本回退会被删掉，只留 `pipeline`）。
  */
-let replayEntry:
-  { lines: readonly BufferLine[]; value: SectionsState } | undefined;
-
 export function sectionsOf(state: {
   pipeline?: SectionsState;
   local: Parameters<typeof sectionsFromBuffer>[0];
 }): SectionsState {
   if (state.pipeline !== undefined) return state.pipeline;
-  // 命中判据 = **逐行对象身份**相同（不是数组身份）：缓冲是就地改的——流式续写、
-  // `final` 打标、回合号回填都会**换掉行对象**（见追踪文档 R4），只比数组身份会拿到
-  // 过期节缓存（旧帧的分隔线 / 用户行在画面里消失）
-  const buffer = state.local;
-  const hit = replayEntry;
-  if (
-    hit !== undefined &&
-    hit.lines.length === buffer.length &&
-    hit.lines.every((line, index) => line === buffer[index])
-  )
-    return hit.value;
-  const value = sectionsFromBuffer(buffer);
-  replayEntry = { lines: [...buffer], value };
-  return value;
+  return sectionsFromLocal(state.local);
 }
 
 /** 渐进窗口的回合组总数（窗口上限判据：还有更早回合可物化吗） */

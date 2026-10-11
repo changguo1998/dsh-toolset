@@ -133,6 +133,30 @@ export function deliveryOfLine(
 }
 
 /** 已有行 → 节缓存（恢复路径；顺序与行序一致） */
+/**
+ * 由 `state.local` 重放一份节缓存（**显式助手**，条目 16 段 C1：从 `sectionsOf` 的无 sink 回退
+ * 搬出来给测试与嵌入用法显式调用）。
+ *
+ * 带**单槽 memo**（与搬运前逐字等价）：命中判据 = **逐行对象身份**相同（不是数组身份）——
+ * 缓冲是就地改的，流式续写 / `final` 打标 / 回合号回填都会换掉行对象；只比数组身份会拿到
+ * 过期节缓存。**不要**去掉 memo：节身份与合成序号按对象发号，每帧新建节对象会让发号漂移。
+ */
+let replayEntry:
+  { lines: readonly BufferLine[]; value: SectionsState } | undefined;
+
+export function sectionsFromLocal(local: readonly BufferLine[]): SectionsState {
+  const hit = replayEntry;
+  if (
+    hit !== undefined &&
+    hit.lines.length === local.length &&
+    hit.lines.every((line, index) => line === local[index])
+  )
+    return hit.value;
+  const value = sectionsFromBuffer(local);
+  replayEntry = { lines: [...local], value };
+  return value;
+}
+
 export function sectionsFromBuffer(
   lines: readonly BufferLine[],
   opts?: { history?: boolean },
