@@ -35,7 +35,7 @@ export interface ContentRow extends FrameRow {
   blockId?: number;
   /** 来源 buffer 行号（绝对行号；调试/分组口径） */
   line?: number;
-  /** 来源 buffer 行的稳定序号（语义锚点身份，见 layout.DialogueAnchor） */
+  /** 行身份（由 `frame.seqRows` 按 box 盖；旧锚点模型用） */
   seq?: number;
   /** 行级缩进（已并入 segments；冗余供快速读取） */
   indent?: number;
@@ -62,7 +62,6 @@ export type RowMeta = {
   blockId?: number;
   indent?: number;
   line?: number;
-  seq?: number;
   /** 排队中的用户消息（未发出）：`followup` 右缘竖线灰、`steer` 黄（TUI#43） */
   queued?: "followup" | "steer";
 };
@@ -104,14 +103,13 @@ export function fill(
 
 // ---------------- Box ----------------
 
-/** 该行是否携带语义元数据（kind/blockId/line/seq 任一存在；indent 只是排版冗余） */
+/** 该行是否携带语义元数据（kind/blockId/line 任一存在；indent 只是排版冗余） */
 function hasRowMeta(row: ContentRow | undefined): boolean {
   return (
     row !== undefined &&
     (row.kind !== undefined ||
       row.blockId !== undefined ||
-      row.line !== undefined ||
-      row.seq !== undefined)
+      row.line !== undefined)
   );
 }
 
@@ -180,7 +178,7 @@ function fillBox(
       }
       // 合并行继承内容子项元数据（spacer 不产独立语义行）；首个内容子项该行缺失或
       // 无元数据时（如用户块的符号格只占首行、语义挂在正文格）向后取第一个带元数据
-      // 的子项行，保住 kind/blockId/line/seq（滚动锚点与块归属依赖它们）
+      // 的子项行，保住 kind/blockId/line（滚动锚点与块归属依赖它们）
       let meta = contentChildIdx >= 0 ? subs[contentChildIdx]![ri] : undefined;
       if (!hasRowMeta(meta)) {
         for (let ci = contentChildIdx + 1; ci < box.children.length; ci++) {
@@ -197,7 +195,6 @@ function fillBox(
         blockId: meta?.blockId,
         indent: meta?.indent,
         line: meta?.line,
-        seq: meta?.seq,
       });
     }
     return;
@@ -300,7 +297,6 @@ function decorateRows(
       kind: rowMeta?.kind,
       blockId: rowMeta?.blockId,
       line: rowMeta?.line,
-      seq: rowMeta?.seq,
     };
   });
   // tail：非空正文时行尾补 char 到 rect.w
@@ -375,7 +371,6 @@ function fillParagraph(
       kind: m?.kind,
       blockId: m?.blockId,
       line: m?.line,
-      seq: m?.seq,
     });
     return;
   }
@@ -424,7 +419,6 @@ function fillStyled(
       kind: m?.kind,
       blockId: m?.blockId,
       line: m?.line,
-      seq: m?.seq,
     });
     return;
   }
