@@ -135,3 +135,28 @@
   ⑤ tick 门并上「有运行中子代理」 ✓；⑥ 折叠层级不影响前导符号（块级） ✓。
 - **待用户复核**：真机目视一次（有子代理运行时标题前导 `●` 每 250 ms 闪，空闲不闪，异常常亮 `!`）。
 - **归档**：复核通过后本文件移入 `TUI/docs/archived/`，并从 `TUI/docs/BACKLOG.md` 移除该条。
+
+## 返工第二半的收口状态（2026-10-11 第 46 轮）
+
+**已落地**（`4dcbd10` / `6fde6f1` / `4b23879`）：
+
+- 撤掉 `Agents` 标题前导符号与 `agentHeadSymbol`；帧用例改判「标题前不得有状态符号」（三态）。
+- `agentItemRows(a, width, tick)`：运行中条目行在 `● `/`○ ` 间切换（两态等宽 2 列、颜色保持运行中的黄），
+  空闲仍 `○ `、异常仍 `! ` 常亮。
+- `agentBlinkBucket(tps)`：≥8 → 1、≥3 → 2、≥1 → 3、其余 4、缺省 2（tps 越高每 tick 翻转越快）。
+- 节拍接线：`renderStatusColumn` → `statusBlocks` 第 8 参 `floor(runTokens / RUN_TOGGLE_TOKENS)`
+  （虚拟 token 积分单调递增；App 的节拍门已含「有子代理在跑」）。
+- 核对：`layout.ts:2172` 的 `runningSymbol` 用于**用户块**的运行中符号，与 Agents 标题无关。
+
+**未落地（两项，下一轮照此做）**：
+
+1. **`tps` 的生产者**（关键：没有它，全部条目走缺省档「每 2 档翻」，各代理快慢无差异）
+   - 产地：`adapter/dsh.ts` 的 Agents 投影（`:3402` `agentRows`，数据来自 `svc.listDescendants` 与
+     适配层自维护的 `lastToolBySession`）。
+   - 做法：在适配层另维护一个按会话的速率窗口（与 `lastToolBySession` 同寿命、同更新点）：
+     子代理会话的 `assistant/message` 与 `tool/result` 文本按 `length / 4` 折算 token，配事件 `time`
+     做指数加权（秒窗口），得到 `tps`；投影时按 `id` 取值填入 `AgentRowInfo.tps`。
+   - 约束：只在**子代理会话**上累计（主会话不计）；无样本时不填（走缺省档）。
+1. **钉子帧断言**：同一 tick（如 `floor(runTokens / RUN_TOGGLE_TOKENS) = 4`）下，
+   `tps = 10` 与 `tps = 0.5` 两条 Agents 行的符号**必须不同**（验证分档真的生效）。
+   `RUN_TOGGLE_TOKENS` 未导出 → 断言里用 `runPhase` 反推或用可导出的常量。
