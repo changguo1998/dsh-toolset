@@ -332,13 +332,17 @@ export function normalizeHistoryMessages(
     inStep = false;
   };
   /** 正文消息：整条纯空白 → 丢弃（P9 空行来源） */
-  const pushText = (role: "user" | "assistant", raw: string): void => {
+  const pushText = (
+    role: "user" | "assistant",
+    raw: string,
+    turn: number | undefined = curTurn,
+  ): void => {
     const text = raw.trim() === "" ? "" : raw;
     if (text === "") return;
     out.push({
       role,
       text,
-      ...(curTurn === undefined ? {} : { turn: curTurn }),
+      ...(turn === undefined ? {} : { turn }),
     });
   };
   // 用户输入的注入副本：宿主把用户自己发的消息**同时**记进 `agent/inbox/spliced`（日志实测
@@ -360,9 +364,14 @@ export function normalizeHistoryMessages(
   for (const e of events) {
     const data = e.data as Record<string, unknown> | undefined;
     if (!data) continue;
+    /** 本事件自带的回合号（缺省 undefined）——消息各用自己事件的号，避免迟到事件串号 */
+    const ownTurn = typeof data.turn === "number" ? data.turn : undefined;
     // 宿主回合号逐层保留（恢复路径真回合号的来源；缺省保持上一个已知值）
-    if (typeof data.turn === "number") {
-      curTurn = data.turn;
+    if (ownTurn !== undefined) {
+      // 回合号**不后退**（BACKLOG #20 真机实测：长工具的迟到结果带着原回合号到达，
+      // 归一化输出因此出现 10→2 / 35→13 之类回退，重放时把分隔线号搅乱）。
+      // `curTurn` 只作「事件不带号」时的兜底，且只增不减
+      curTurn = curTurn === undefined || ownTurn > curTurn ? ownTurn : curTurn;
       if (e.type === "turn/start") {
         awaitingTurnStart = false;
         for (const idx of pendingUsers) {

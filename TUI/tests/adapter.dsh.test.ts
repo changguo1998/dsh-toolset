@@ -6391,3 +6391,47 @@ test("条目 27：surface 缺 turn/end（真机形态）→ 从 readSession 只�
     "surface 无回合边界 → 从日志并入并**按 seq 归位**后，用户块各自拿到正确回合与终态",
   );
 });
+
+test("BACKLOG #20：回合号不后退（长工具的迟到结果带回旧号也不串号）", () => {
+  const msgs = normalizeHistoryMessages([
+    { type: "turn/start", seq: 1, data: { turn: 10 } },
+    {
+      type: "assistant/message",
+      seq: 2,
+      data: {
+        turn: 10,
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "第十回合" }],
+        },
+      },
+    },
+    // 长工具的迟到结果：带着**原回合号**（真机实测 10→2 / 35→13 的回退来源）
+    {
+      type: "tool/result",
+      seq: 3,
+      data: {
+        turn: 2,
+        message: {
+          role: "tool",
+          isError: false,
+          content: [{ type: "text", text: "迟到结果" }],
+        },
+      },
+    },
+    {
+      type: "assistant/message",
+      seq: 4,
+      data: {
+        turn: 10,
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "继续第十回合" }],
+        },
+      },
+    },
+  ]);
+  const turns = msgs.map((m) => m.turn ?? 0).filter((t) => t > 0);
+  for (let i = 1; i < turns.length; i++)
+    assert.ok(turns[i]! >= turns[i - 1]!, `回合号不得后退：${turns.join(",")}`);
+});
