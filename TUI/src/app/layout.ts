@@ -867,11 +867,23 @@ function jobItemRows(job: JobInfo): StatusRow[] {
  * 色义：**运行中黄 / 空闲灰 / 一切异常态红**（诊断条目、枚举失败；附宿主给出的 reason 短因）。
  * 纯只读展示：不吃按键、不提供中断入口（中断仍走 `/agents` 面板）。
  */
-function agentItemRows(a: AgentRowInfo, width: number): StatusRow[] {
+/** 闪烁节拍分档：tps 越高档位越小（1 = 每个 tick 翻转一次，最快）——条目 1「速度与该代理 tps 相关」 */
+function agentBlinkBucket(tps: number | undefined): number {
+  if (tps === undefined) return 2;
+  if (tps >= 8) return 1;
+  if (tps >= 3) return 2;
+  if (tps >= 1) return 3;
+  return 4;
+}
+
+function agentItemRows(a: AgentRowInfo, width: number, tick = 0): StatusRow[] {
   const diag = a.diagnostic;
   const running = a.status === "running";
   const fg: ColorName = diag ? "red" : running ? "yellow" : "gray";
-  const sym = diag ? "! " : running ? "● " : "○ ";
+  // BACKLOG 条目 1（用户口径）：闪烁在**条目行自己的**符号上（● / ○ 切换，两态等宽 2 列，
+  // 颜色保持「运行中」的黄，避免被误读成空闲）；速度按该子代理 tps 分档。空闲仍 ○、异常仍 ! 常亮。
+  const blink = Math.floor(tick / agentBlinkBucket(a.tps)) % 2 === 1;
+  const sym = diag ? "! " : running && blink ? "○ " : running ? "● " : "○ ";
   // BACKLOG「Agents 列表显示别名 + 工作内容」：显示名 = 别名 ?? label；工作内容 = 最近一次
   // 工具调用摘要（无记录省略）；不再输出状态词与短 id（状态由符号/配色表达，详细见 /agents 面板）。
   const text =
@@ -907,6 +919,8 @@ function statusBlocks(
   width: number,
   /** 当前 goal 的自动续轮开关展示值（undefined = 不显示 ⟳；仅 active 相位有值） */ activation?: GoalActivation,
   phase: 0 | 1 = 0,
+  /** 闪烁节拍（整数，运行期单调递增）：条目行符号按各自 tps 分档取相位 */
+  tick = 0,
 ): StatusBlock[] {
   const blocks: StatusBlock[] = [];
   const sep = (): StatusRow => ({
@@ -1033,7 +1047,7 @@ function statusBlocks(
       id: "agents",
       head,
       items: agents.map((a) => ({
-        rows: agentItemRows(a, width),
+        rows: agentItemRows(a, width, tick),
         done: a.status !== "running",
         active: a.status === "running",
       })),
