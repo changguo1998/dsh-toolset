@@ -106,7 +106,17 @@
 
 ## 测试与证据
 
-（待补）
+- 单测（返工前的口径，已随第一半删除）：标题前导符号 5 条 —— **已作废**。
+- 帧断言（现行）：
+  1. 〈Agents 块标题**不带**状态符号〉：`running` / `inactive` / `diagnostic` 三态都不得出现 `● Agents` / `! Agents` / `○ Agents`。
+  1. 〈同 tick 下高 tps 与低 tps 的条目行符号必须不同〉（`tests/layout4.test.ts`）：`tokens = 4 × RUN_TOGGLE_TOKENS`
+     时 `tps=10`（bucket 1）应为 `● `、`tps=0.5`（bucket 4）应为 `○ `。
+- **反向验证（已做，有效）**：把 `agentBlinkBucket` 临时改成恒定档（`return 2`）后，
+  上面第 2 条断言**失败** ✓ → 它确实钉住「按 tps 分档」，不是弱断言。
+  （对比：本任务早前两条断言经反向验证后**仍通过**，已如实标注为弱断言。）
+- 全量 `npm test` **1461 / 1461 通过**；`npm run check` 干净；`npm run build` 通过。
+- **真机目视（待用户确认）**：有子代理运行时，状态列 Agents 块**每个条目行自己的** `●` / `○` 闪烁，
+  快慢按各代理速率不同；`Agents` 标题前无符号。
 
 ## 审阅记录
 

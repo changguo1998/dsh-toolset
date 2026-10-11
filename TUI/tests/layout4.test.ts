@@ -3335,3 +3335,31 @@ test("BACKLOG #21：回放不留 #0 假头 / 有内容的 step 头带时间戳 /
   assert.equal(step2.length, 1, "同一步号只出一个节（不重复出头）");
   assert.equal(step2[0]?.time, STEP_TIME, "step 2 节带缓冲行上的时间戳");
 });
+
+test("BACKLOG 条目 1：同 tick 下高 tps 与低 tps 的条目行符号必须不同（速率分档真生效）", () => {
+  // tick=4（4 × RUN_TOGGLE_TOKENS(=16)）：bucket1 → floor(4/1)%2=0（●）；bucket4 → floor(4/4)%2=1（○）
+  const base = initialState();
+  const state = {
+    ...base,
+    activeSessionId: "s1",
+    runVirt: { ...base.runVirt, tokens: 4 * 16 },
+    agentsBySession: {
+      s1: [
+        { id: "fast", label: "快的", status: "running", tps: 10 },
+        { id: "slow", label: "慢的", status: "running", tps: 0.5 },
+      ],
+    } as never,
+  };
+  const frame = buildFrame(state, { cols: 100, rows: 30 })
+    .map((r) => r.segments.map((x) => x.text).join(""))
+    .join("\n");
+  const fast = /[●○] 快的/.exec(frame)?.[0];
+  const slow = /[●○] 慢的/.exec(frame)?.[0];
+  assert.ok(fast !== undefined, "高 tps 条目行要上屏");
+  assert.ok(slow !== undefined, "低 tps 条目行要上屏");
+  assert.notEqual(
+    fast?.[0],
+    slow?.[0],
+    `同 tick 下两行符号应不同（快=${fast} 慢=${slow}）`,
+  );
+});
