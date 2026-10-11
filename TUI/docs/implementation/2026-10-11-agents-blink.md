@@ -29,7 +29,30 @@
 
 ## 实现记录
 
-（待补）
+### 锚点核对（2026-10-11 第 17 轮：条目里的行号已漂移，以本节为准）
+
+| 目标 | 真实位置 |
+| --- | --- |
+| 状态列块构建（标题行 + 条目行） | `layout.ts` 的 `statusBlocks(...)`（定义 `:901`，调用 `:1164`） |
+| Agents 条目行 | `layout.ts:870 agentItemRows(a, width)`（调用点 `:1034 rows: agentItemRows(a, width)`） |
+| Agents 块标题行 | 同 `:1034` 附近的块组装处（`Agents 运行中/总数` 文本，非原条目写的 `:1320-1337`） |
+| 定时器 | `index.ts:826-828`：`this.virtTimer = setInterval(() => this.virtTick(), VIRT_TICK_MS)`（250 ms，始终存在） |
+| **相位门**（要改的判据） | `index.ts:1167-1171 virtTick()`：「仅 `inputStatus=running` 时推进」 |
+| 相位载体 | `RunVirtState`（`state.ts:595` 字段 `runVirt`；`emptyRunVirt()` 见 `:767`） |
+
+### 相位来源（裁定 ②/④ 的落地口径）
+
+**不再新增 state 字段**：直接把 `state.runVirt` 的累计 tick 当相位（`phaseOn = ticks % 2 === 0`）——
+
+- 裁定 ④ 自动成立：tick 没推进（demo / 一次性出帧 / 非 TTY）时相位恒为 0 → 静态 `●`；
+- 裁定 ② 的 50% 占空比随之成立（每 250 ms 交替）；
+- 裁定 ⑤ 只需改 `virtTick()` 的门：`inputStatus === "running" || agents 有运行中` 才推进。
+
+### 待做（下一轮照此实现，2-3 次编辑）
+
+1. `layout.ts`：Agents 块标题行支持前导符号——新增纯函数 `agentHeadSymbol(agents, phase)`（返回 `{ text: "● " | "  " | "! ", fg }`），`statusBlocks` 调用处传入相位；折叠层级不动它。
+1. `index.ts`：`virtTick()` 的门并上「有运行中子代理」（agents 数据来自 `state.agents`，与状态列同源）。
+1. 帧断言：同 state 两相位 → 标题前导符号不同；无运行中 → 无前导符号；异常 → 常亮 `!`；相位 0 → 静态 `●`。）
 
 ## 测试与证据
 
