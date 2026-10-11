@@ -38,6 +38,7 @@ import {
   type AppState,
 } from "../src/app/state.ts";
 import {
+  withDelivery,
   withStep,
   withText,
   withToolCall,
@@ -2012,8 +2013,10 @@ test("buildFrame: 工具历史不按组数折叠，只受活动 pane 可视行�
   // 6 次调用组（每次 * + +）：过去按固定组数上限（=4）折叠掉前两组，
   // 现在全部保留（只受 pane 高约束，pane 外的内容可上滚回看）
   for (let i = 1; i <= 6; i++) {
-    s = withToolCall(s, "bash", "cmd " + i);
-    s = withToolResult(s, true, "ok " + i);
+    // 条目 16 段 C2：调用行进节缓存，同批按 callId 配对——每次调用各自 callId（缺省同一个
+    // "c1" 会把 6 次并成一条）
+    s = withToolCall(s, "bash", "cmd " + i, "c" + i);
+    s = withToolResult(s, true, "ok " + i, "c" + i);
   }
   const strip = (rows: ReturnType<typeof buildFrame>): string =>
     rows
@@ -2077,18 +2080,15 @@ test("buildFrame: step 分组头渲染为 `╌╌ hh:mm:ss ⇆N #M ╌╌╌` �
 test("buildFrame: step 分割行前吸收空活动行（前文结束即接分割行）", () => {
   let s = initialState();
   s = withStep(s, 1, STEP_TIME);
-  s = withToolCall(s, "bash", "ls");
-  s = withToolResult(s, true, "ok 1");
-  // 前文之后积一空 notice 行（空段拖尾，如多行 notice 的末尾换行）——分割行须吸收
-  s = reduceState(s, {
-    type: "notice",
-    tone: "info",
-    text: "中间提示\n",
-    error: false,
-  });
+  s = withToolCall(s, "bash", "ls", "c1");
+  s = withToolResult(s, true, "ok 1", "c1");
+  // 前文之后积一空 notice 行（空段拖尾，如多行 notice 的末尾换行）——分割行须吸收。
+  // 条目 16 段 C2：notice 只写 `state.local` 的本地 action **不上屏**，进帧须按生产口径交付
+  // （src/app/index.ts 的 `deliverLocal`）；两次调用也要各自 callId，否则同批被并成一行。
+  s = withDelivery(s, { kind: "notice", tone: "info", text: "中间提示\n" });
   s = withStep(s, 2, STEP_TIME);
-  s = withToolCall(s, "bash", "pwd");
-  s = withToolResult(s, true, "ok 2");
+  s = withToolCall(s, "bash", "pwd", "c2");
+  s = withToolResult(s, true, "ok 2", "c2");
   const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
@@ -2131,17 +2131,13 @@ test("buildFrame: 思考块与下一个 step 分割行紧排（#5 收窄后不�
 
 test("buildFrame: notice 纯换行紧贴 step 头被吸收（无视觉空行）", () => {
   let s = initialState();
-  s = withToolCall(s, "bash", "ls");
-  s = withToolResult(s, true, "ok 1");
-  // notice 文本恰为单个换行：剥离尾部换行后节点变空 → 连续吸收（不留空行）
-  s = reduceState(s, {
-    type: "notice",
-    tone: "warn",
-    text: "\n",
-    error: false,
-  });
+  s = withToolCall(s, "bash", "ls", "c1");
+  s = withToolResult(s, true, "ok 1", "c1");
+  // notice 文本恰为单个换行：剥离尾部换行后节点变空 → 连续吸收（不留空行）。
+  // 条目 16 段 C2：notice 按生产口径交付进节缓存（只写 `state.local` 的本地 action 不上屏）
+  s = withDelivery(s, { kind: "notice", tone: "warn", text: "\n" });
   s = withStep(s, 2, STEP_TIME);
-  s = withToolCall(s, "bash", "pwd");
+  s = withToolCall(s, "bash", "pwd", "c2");
   const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
@@ -2154,16 +2150,12 @@ test("buildFrame: notice 纯换行紧贴 step 头被吸收（无视觉空行）"
 
 test("buildFrame: notice 尾换行被吸收但正文保留（中间提示场景）", () => {
   let s = initialState();
-  s = withToolCall(s, "bash", "ls");
-  s = withToolResult(s, true, "ok 1");
-  s = reduceState(s, {
-    type: "notice",
-    tone: "info",
-    text: "中间提示\n",
-    error: false,
-  });
+  s = withToolCall(s, "bash", "ls", "c1");
+  s = withToolResult(s, true, "ok 1", "c1");
+  // 条目 16 段 C2：notice 按生产口径交付进节缓存（只写 `state.local` 的本地 action 不上屏）
+  s = withDelivery(s, { kind: "notice", tone: "info", text: "中间提示\n" });
   s = withStep(s, 2, STEP_TIME);
-  s = withToolCall(s, "bash", "pwd");
+  s = withToolCall(s, "bash", "pwd", "c2");
   const lines = buildFrame(s, { rows: 20, cols: 50 }).map((l) =>
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );

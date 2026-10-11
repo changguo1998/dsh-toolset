@@ -11,12 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { App } from "../src/app/index.ts";
-import {
-  initialState,
-  reduceState,
-  type AppState,
-  type StateAction,
-} from "../src/app/state.ts";
+import { initialState, reduceState, type AppState } from "../src/app/state.ts";
 import { buildFrame } from "./helpers/frameWithLocalReplay.ts";
 import {
   clearLayoutCaches,
@@ -150,27 +145,7 @@ test("折行/宽度缓存：随机追加语料逐条一致（确定性种子）"
   }
 });
 
-/** 固定动作序列：内容/工具/思考/notice/回合边界（覆盖内容区 + 状态列 + footer） */
-const FRAME_ACTIONS: StateAction[] = [
-  { type: "user-line", text: "给我看一下 TUI 的排版管线" },
-  { type: "thinking", text: "先看 buildFrame 与 buildContentRows 的分工" },
-  { type: "append", text: "## 结论\n- buildBox 结构分类\n- measure 折行测量" },
-  {
-    type: "tool-call",
-    sessionId: "s1",
-    name: "read",
-    summary: "src/app/layout.ts",
-  },
-  { type: "notice", text: "已读取 1 个文件" },
-  { type: "append", text: "超长行 " + "宽".repeat(120) },
-  { type: "turn-end" },
-  { type: "user-line", text: "第二回合：再看缓存" },
-  { type: "append", text: '```ts\nconst x = displayWidth(\\"中文\\")\n```' },
-  { type: "scroll-to-bottom" },
-];
-
-/** 与 `FRAME_ACTIONS` 逐步对齐的**交付镜像**（条目 16 段 A）：内容类动作改由节模型产出，
- *  帧只认 `state.pipeline`；状态类动作（scroll 等）与 UI 本地行（notice / 工具行）本段不动 */
+/** 与 `FRAME_DELIVERIES` 对应的脚本说明（条目 16 段 A 建立交付镜像；段 C2 后动作序列已删） */
 const FRAME_DELIVERIES: (ScriptStep | undefined)[] = [
   {
     delivery: {
@@ -228,18 +203,17 @@ const FRAME_DELIVERIES: (ScriptStep | undefined)[] = [
   undefined,
 ];
 
-/** 折叠脚本：状态动作照旧走 `reduceState`，内容动作同时喂节模型（帧内容源 = pipeline） */
+/** 折叠脚本：内容全部由交付产出（帧内容源 = `pipeline`；条目 16 段 C2 后内容类
+ *  state action 已不再承载内容，故不再有「动作 + 交付」双写） */
 function foldScript(): AppState[] {
   const out: AppState[] = [];
-  let s = initialState();
+  const s = initialState();
   let pipeline = sectionsFromScript([]);
   out.push({ ...s, pipeline });
-  FRAME_ACTIONS.forEach((action, i) => {
-    s = reduceState(s, action);
-    const step = FRAME_DELIVERIES[i];
+  for (const step of FRAME_DELIVERIES) {
     if (step !== undefined) pipeline = applyDelivery(pipeline, step.delivery);
     out.push({ ...s, pipeline });
-  });
+  }
   return out;
 }
 
@@ -278,8 +252,7 @@ test("buildFrame：同一状态重复排版在两种模式下都稳定（缓存�
 
 test("换主题：整帧逐字节一致（生产节缓存路径），主题色只在渲染层加", () => {
   const size: Size = { cols: 100, rows: 30 };
-  let base = initialState("dark");
-  for (const action of FRAME_ACTIONS) base = reduceState(base, action);
+  const base = initialState("dark");
   // 生产口径：内容源是节缓存（`state.pipeline`）——条目 16 段 A 后由 `foldScript` 直接产出
   const folded = foldScript();
   const dark: AppState = {
