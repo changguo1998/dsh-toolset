@@ -211,10 +211,7 @@ test("端到端：activation 事件经 App 走到状态列（回放路径灰 ⟳
       updatedAt: 1,
     });
     await sleep(0);
-    assert.ok(
-      !plain().includes("⟳"),
-      "无 activation 记录不显示 ⟳: " + plain(),
-    );
+    assert.ok(!plain().includes("⟳"), "无 activation 记录不显示 ⟳: " + plain());
     // disarmed 边 → 灰 ⟳
     adapter.push({
       type: "goal-activation",
@@ -222,10 +219,7 @@ test("端到端：activation 事件经 App 走到状态列（回放路径灰 ⟳
       activation: "disarmed",
     });
     await sleep(0);
-    assert.ok(
-      plain().includes("Goal ▷ ⟳"),
-      "disarmed 边后显示 ⟳: " + plain(),
-    );
+    assert.ok(plain().includes("Goal ▷ ⟳"), "disarmed 边后显示 ⟳: " + plain());
     assert.ok(
       frame().includes(sgrOf("gray") + " ⟳"),
       "disarmed 显示为灰: " + frame(),

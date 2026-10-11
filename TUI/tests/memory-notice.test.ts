@@ -120,7 +120,7 @@ test("routeSlashCommand: /memory → memory", () => {
 test("/memory：就绪 → info 展示概要（路径/chunk·source 计数）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeMemoryAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/memory");
   await tick();
@@ -136,7 +136,7 @@ test("/memory：未就绪 → info 说明（不报服务缺失）", async () => 
   const renderer = new FakeRenderer();
   const adapter = new FakeMemoryAdapter();
   adapter.memorySummaryResult = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/memory");
   await tick();
@@ -151,7 +151,7 @@ test("/memory：服务缺失 → warn 且不调", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeMemoryAdapter();
   adapter.memorySummary = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/memory");
   await tick();
@@ -166,7 +166,7 @@ test("/memory：读取失败（reject）→ warn knowledge 服务不可用", asy
   const renderer = new FakeRenderer();
   const adapter = new FakeMemoryAdapter();
   adapter.memorySummaryError = new Error("boom");
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/memory");
   await tick();

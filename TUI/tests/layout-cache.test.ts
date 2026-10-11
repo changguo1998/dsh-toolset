@@ -17,7 +17,7 @@ import {
   type AppState,
   type StateAction,
 } from "../src/app/state.ts";
-import { buildFrame } from "../src/app/layout.ts";
+import { buildFrame } from "./helpers/frameWithLocalReplay.ts";
 import {
   clearLayoutCaches,
   setLayoutCacheEnabled,
@@ -402,7 +402,7 @@ function makeApp(): {
 } {
   const renderer = new FrameRenderer();
   const adapter = new EventAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   return { app, renderer, adapter };
 }
@@ -472,7 +472,7 @@ test("合帧：绘制期间再次标脏会补画一帧并收敛（不自旋）",
       });
     }
   };
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start(); // 帧 1
   adapter.emit({ type: "notice", text: "首个事件" }); // 标脏
   await drain(); // 帧 2（冲刷；其间再标脏）

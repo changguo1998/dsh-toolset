@@ -146,7 +146,7 @@ test("/permission 无参：读目录 → 打开状态选项面板列出可用预
 test("/permission <name>：转发宿主 /permission（写路径由宿主完成）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakePermissionAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/permission danger-full-access");
   await tick();
@@ -158,7 +158,7 @@ test("/permission 无参：宿主未挂载 ctx.permissionPresets → notice 不�
   const renderer = new FakeRenderer();
   const adapter = new FakePermissionAdapter();
   adapter.permissionCatalog = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/permission");
   await tick();

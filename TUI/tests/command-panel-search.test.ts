@@ -141,7 +141,7 @@ test("routeSlashCommand: /search → search", () => {
 test("/search <query>：查询透传 + 行归一化（title/host、url·snippet）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSearchAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/search rust async");
   await tick();
@@ -158,7 +158,7 @@ test("/search：无结果 → 占位（无结果）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSearchAdapter();
   adapter.sources = [];
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/search foo");
   await tick();
@@ -169,7 +169,7 @@ test("/search：无结果 → 占位（无结果）", async () => {
 test("/search 无 query → usage warn（不开面板）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSearchAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/search");
   await tick();
@@ -183,7 +183,7 @@ test("/search：服务缺失 → warn 不空开面板", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSearchAdapter();
   adapter.search = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/search foo");
   await tick();
@@ -196,7 +196,7 @@ test("/search：服务缺失 → warn 不空开面板", async () => {
 test("/search：Enter 查看来源 URL（关面板 + notice）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSearchAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/search foo");
   await tick();
@@ -216,7 +216,7 @@ test("/search：多结果 PgDn/PgUp 整页翻页", async () => {
     url: `https://example.com/${i}`,
     title: `r-${String(i).padStart(2, "0")}`,
   }));
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/search foo");
   await tick();
@@ -261,7 +261,7 @@ test("/search：聚合 detail 含 provider 标注 + 全失败 warn 不空开", a
       ],
     });
   };
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/search foo");
   await tick();

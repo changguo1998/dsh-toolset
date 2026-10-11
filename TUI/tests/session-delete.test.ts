@@ -1026,7 +1026,7 @@ test("面板范围：当前目录不可识别 → 明确空态并提示按 Tab �
 /** 构造即登记到合帧冲刷钩子：FakeRenderer 读帧前 flushApp() 同步冲刷待绘制帧 */
 class TrackedApp extends App {
   constructor(deps: ConstructorParameters<typeof App>[0]) {
-    super(deps);
+    super({ ...deps, pipelineSink: deps.pipelineSink ?? {} });
     registerApp(this);
   }
 }

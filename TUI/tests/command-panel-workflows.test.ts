@@ -145,7 +145,7 @@ test("routeSlashCommand: /workflows → workflows", () => {
 test("/workflows：列表渲染（name/阶段·成员数；running 黄、done 灰）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeWorkflowAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/workflows");
   await tick();
@@ -162,7 +162,7 @@ test("/workflows：无运行 → 占位（无运行中工作流）", async () =>
   const renderer = new FakeRenderer();
   const adapter = new FakeWorkflowAdapter();
   adapter.runs = [];
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/workflows");
   await tick();
@@ -174,7 +174,7 @@ test("/workflows：服务缺失 → warn 且不空开面板", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeWorkflowAdapter();
   adapter.refreshWorkflows = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/workflows");
   await tick();
@@ -187,7 +187,7 @@ test("/workflows：服务缺失 → warn 且不空开面板", async () => {
 test("/workflows：tool-workflow 增量事件 → 刷新行（run-end 后 done 灰）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeWorkflowAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/workflows");
   await tick();
@@ -224,7 +224,7 @@ test("/workflows：数十运行时 PgDn/PgUp 整页翻页", async () => {
     membersDone: i,
     updatedAt: i,
   }));
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/workflows");
   await tick();

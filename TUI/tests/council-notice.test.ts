@@ -130,7 +130,7 @@ test("/council：默认 2 个评审并行 → notice 汇总（council（2/2 成�
   const renderer = new FakeRenderer();
   const adapter = new FakeCouncilAdapter();
   adapter.opinions = ["风险：缺少验收", "改进：补充测试"];
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/council");
   await tick();
@@ -148,7 +148,7 @@ test("/council 3：带参 count 生效", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeCouncilAdapter();
   adapter.opinions = ["a", "b", "c"];
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/council 3");
   await tick();
@@ -163,7 +163,7 @@ test("/council：宿主无 start 面 → warn 不假启动", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeCouncilAdapter();
   adapter.council = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/council");
   await tick();
@@ -176,7 +176,7 @@ test("/council：部分失败降级保留其余", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeCouncilAdapter();
   adapter.opinions = ["意见一", undefined, "意见三"];
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/council 3");
   await tick();
@@ -193,7 +193,7 @@ test("/council：全部失败 → 失败提示", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeCouncilAdapter();
   adapter.opinions = [undefined, undefined];
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/council");
   await tick();

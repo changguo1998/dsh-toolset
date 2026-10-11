@@ -17,7 +17,7 @@ import { THEMES, ansiNameToHex, hexSgr } from "../src/renderer/theme.ts";
 
 class TrackedApp extends App {
   constructor(deps: ConstructorParameters<typeof App>[0]) {
-    super(deps);
+    super({ ...deps, pipelineSink: deps.pipelineSink ?? {} });
     registerApp(this);
   }
 }

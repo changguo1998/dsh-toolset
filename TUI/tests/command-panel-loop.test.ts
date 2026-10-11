@@ -143,7 +143,7 @@ test("routeSlashCommand: /loop → loop", () => {
 test("/loop：列表渲染（measureCmd/状态·方向·轮数/best/更新时间）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeLoopAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/loop");
   await tick();
@@ -163,7 +163,7 @@ test("/loop：空循环 → 占位（无循环）", async () => {
   adapter.refreshLoops = async (): Promise<void> => {
     adapter.emit({ type: "command-panel-data", kind: "loop", rows: [] });
   };
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/loop");
   await tick();
@@ -175,7 +175,7 @@ test("/loop：服务缺失 → warn 且不空开面板", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeLoopAdapter();
   adapter.refreshLoops = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/loop");
   await tick();
@@ -188,7 +188,7 @@ test("/loop：服务缺失 → warn 且不空开面板", async () => {
 test("/loop：Enter 读取详情（loopDetail 4 行）→ 关面板 + notice", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeLoopAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/loop");
   await tick();
@@ -218,7 +218,7 @@ test("/loop：数十项时 PgDn/PgUp 整页翻页", async () => {
       })),
     });
   };
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/loop");
   await tick();

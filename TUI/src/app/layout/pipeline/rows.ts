@@ -277,10 +277,7 @@ export function boxToLines(
       lines.push({
         // 结果行不保留换行（非参数）：与缓冲旧路径同口径折成单行。C1 后流水线是唯一渲染源，
         // 漏了这步会让 detail 里的换行直接进帧（tests/app.test.ts「结果行 \n 折叠为空格」）
-        text: toolResultLine(
-          result.ok,
-          result.detail.replace(/\s+/g, " ").trim(),
-        ),
+        text: toolResultLine(result.ok, result.detail.replace(/[\r\n]+/g, " ")),
         kind: "tool",
         ...(!result.ok ? { tone: "error" as const } : {}),
         ...(hist ? { final: true } : {}),

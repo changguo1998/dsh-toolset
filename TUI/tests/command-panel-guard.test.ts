@@ -140,7 +140,7 @@ test("routeSlashCommand: /guard → guard", () => {
 test("/guard：列表渲染（工具名 + 拦截/放行 + 原因摘要）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeGuardAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/guard");
   await tick();
@@ -159,7 +159,7 @@ test("/guard：空记录 → 占位（无记录）", async () => {
   adapter.refreshGuard = async (): Promise<void> => {
     adapter.emit({ type: "command-panel-data", kind: "guard", rows: [] });
   };
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/guard");
   await tick();
@@ -171,7 +171,7 @@ test("/guard：服务缺失 → warn 且不空开面板", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeGuardAdapter();
   adapter.refreshGuard = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/guard");
   await tick();
@@ -184,7 +184,7 @@ test("/guard：服务缺失 → warn 且不空开面板", async () => {
 test("/guard：Enter 展示策略快照（policy() 4 行）→ 关面板 + notice", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeGuardAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/guard");
   await tick();
@@ -214,7 +214,7 @@ test("/guard：数十条时 PgDn/PgUp 整页翻页", async () => {
       })),
     });
   };
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/guard");
   await tick();

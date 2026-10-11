@@ -206,7 +206,7 @@ test("routeSlashCommand: /agents → agents；/tools → tools", () => {
 test("/agents：列表渲染 label · mode · activity，diagnostic 行显示原因", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAgentsToolsAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/agents");
   await tick();
@@ -222,7 +222,7 @@ test("/agents：列表渲染 label · mode · activity，diagnostic 行显示原
 test("/agents：Enter 直接中断高亮条目（断言 interruptAgent 收到会话 id）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAgentsToolsAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/agents");
   await tick();
@@ -239,7 +239,7 @@ test("/agents：Enter 直接中断高亮条目（断言 interruptAgent 收到会
 test("/agents：diagnostic 条目（无可用 id）→ 不调服务 + info 说明", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAgentsToolsAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/agents");
   await tick();
@@ -267,7 +267,7 @@ test("/agents：一次性条目不可中断 → 不调服务 + 原因说明", as
       hasChildren: false,
     },
   ];
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/agents");
   await tick();
@@ -292,7 +292,7 @@ test("/agents：服务缺失 → warn 且不开面板", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAgentsToolsAdapter();
   adapter.refreshAgents = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/agents");
   await tick();
@@ -307,7 +307,7 @@ test("/agents：服务缺失 → warn 且不开面板", async () => {
 test("/tools：列表渲染 + filter 透传（归一化阶段过滤）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAgentsToolsAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/tools");
   await tick();
@@ -334,7 +334,7 @@ test("/tools：列表渲染 + filter 透传（归一化阶段过滤）", async (
 test("/tools：Enter 读取详情（toolDetail(name)）→ 关面板 + notice", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAgentsToolsAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/tools");
   await tick();
@@ -352,7 +352,7 @@ test("/tools：服务缺失 → warn 且不开面板", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAgentsToolsAdapter();
   adapter.refreshTools = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/tools");
   await tick();
@@ -369,7 +369,7 @@ test("/tools：数十条时 PgDn 整页前进、PgUp 回退（页高 = 活动区
     name: `tool-${String(i).padStart(2, "0")}`,
     description: `d${i}`,
   }));
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/tools");
   await tick();
@@ -506,7 +506,7 @@ test("/agents：打开期间定时刷新（interval 注入短间隔；关闭后�
 test("/agents：手动 r 立即刷新（面板打开时）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAgentsToolsAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/agents");
   await tick();

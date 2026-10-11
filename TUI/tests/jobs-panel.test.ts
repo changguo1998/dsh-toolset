@@ -192,7 +192,7 @@ test("jobs-panel reducer：open/move(clamp)/close", () => {
 test("/jobs：打开面板 → refreshJobs 拉取 → 面板渲染任务状态行", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeJobsAdapter();
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/jobs");
   await tick();
@@ -213,7 +213,7 @@ test("/jobs：打开面板 → refreshJobs 拉取 → 面板渲染任务状态�
 test("/jobs 面板：↑/↓ 移动高亮、Enter 取消高亮任务、Esc 关闭", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeJobsAdapter();
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/jobs");
   await tick();
@@ -235,7 +235,7 @@ test("/jobs：宿主未挂载 ctx.jobs → notice 不可用不崩溃", async () 
   const adapter = new FakeJobsAdapter();
   adapter.refreshJobs = undefined;
   adapter.killJob = undefined;
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/jobs");
   await tick();
@@ -247,7 +247,7 @@ test("/jobs：宿主未挂载 ctx.jobs → notice 不可用不崩溃", async () 
 test("/jobs：面板关闭后迟到 jobs-changed 不重开面板、jobs 状态仍更新", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeJobsAdapter();
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, pipelineSink: {} });
   app.start();
   // 打开面板并建立首帧快照
   typeAndEnter(renderer, "/jobs");
@@ -292,7 +292,7 @@ test("/jobs：面板关闭后迟到 jobs-changed 不重开面板、jobs 状态�
 test("/jobs：非活跃会话 jobs-changed / agent-preset 事件被丢弃（会话待机）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeJobsAdapter();
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, pipelineSink: {} });
   app.start();
   // 建立活跃会话 s1（其余事件按活跃会话过滤；adapter 已过滤，此处 App 侧兜底断言）
   adapter.emit({ type: "session-list", sessions: [{ id: "s1", title: "" }] });
@@ -387,7 +387,7 @@ test("/jobs 面板：PgDn 整页翻动高亮（高亮恒在可见窗口）", asy
     label: `task-${i}`,
     status: "done",
   }));
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/jobs");
   await tick();

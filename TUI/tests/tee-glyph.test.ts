@@ -41,9 +41,7 @@ test("teeGlyph / strokeUp / strokeDown：按上下笔画取并集字形", () => 
 test("buildStatusSeparator：段分隔竖线落在 D 列时写 ┼（不切断状态列右边框）", () => {
   const D = geom.dividerCol;
   const other = Math.max(2, D - 4);
-  const plain = rowPlain(
-    buildStatusSeparator(geom, [other, D]),
-  );
+  const plain = rowPlain(buildStatusSeparator(geom, [other, D]));
   assert.equal(plain[D], "┼", "D 列同时有上方状态列边框与下方段分隔竖线 → ┼");
   assert.equal(plain[other], "┬", "普通段分隔列 → ┬");
   assert.equal(plain[0], "─", "其余列为横线");

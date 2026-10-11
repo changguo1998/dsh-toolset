@@ -346,7 +346,7 @@ function frames(renderer: FakeRenderer): string {
 test("/policy never：显式设置 → adapter.setApprovalPolicy('never') + notice", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakePolicyAdapter();
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/policy never");
   await tick();
@@ -360,7 +360,7 @@ test("/policy never：显式设置 → adapter.setApprovalPolicy('never') + noti
 test("/policy 无参：打开状态选项面板——空格预选、Enter 提交并关闭", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakePolicyAdapter();
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/policy");
   await tick();
@@ -386,7 +386,7 @@ test("/policy 无参：打开状态选项面板——空格预选、Enter 提交
 test("/policy 显式 ask 覆盖：adapter 收到 ask", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakePolicyAdapter();
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/policy ask");
   await tick();
@@ -398,7 +398,7 @@ test("/policy：宿主未挂载 ctx.approval（adapter 缺失方法）→ notice
   const renderer = new FakeRenderer();
   const adapter = new FakePolicyAdapter();
   adapter.setApprovalPolicy = undefined;
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/policy never");
   await tick();
@@ -412,7 +412,7 @@ test("/policy：宿主未挂载 ctx.approval（adapter 缺失方法）→ notice
 test("/policy 非法参数 → 用法提示（不调 adapter）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakePolicyAdapter();
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/policy wat");
   await tick();

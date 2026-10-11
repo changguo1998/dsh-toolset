@@ -143,7 +143,7 @@ test("routeSlashCommand: /task → task", () => {
 test("/task：列表渲染（标题/状态/嵌套缩进/待拆分标记）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeTaskAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/task");
   await tick();
@@ -166,7 +166,7 @@ test("/task：空任务 → 占位（无任务）", async () => {
   adapter.refreshTasks = async (): Promise<void> => {
     adapter.emit({ type: "command-panel-data", kind: "task", rows: [] });
   };
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/task");
   await tick();
@@ -178,7 +178,7 @@ test("/task：服务缺失 → warn 且不空开面板", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeTaskAdapter();
   adapter.refreshTasks = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/task");
   await tick();
@@ -191,7 +191,7 @@ test("/task：服务缺失 → warn 且不空开面板", async () => {
 test("/task：Enter 读取详情（taskDetail）→ 关面板 + notice", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeTaskAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/task");
   await tick();
@@ -221,7 +221,7 @@ test("/task：数十项时 PgDn/PgUp 整页翻页", async () => {
       })),
     });
   };
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/task");
   await tick();

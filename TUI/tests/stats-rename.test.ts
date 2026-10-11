@@ -125,7 +125,7 @@ test("routeSlashCommand: /stats、/usage、/context → stats；/rename → rena
 test("/stats：有 usage（含 contextWindow）→ 分解行 + 上下文占比 + 命中率", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeCmdAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   adapter.emit({
     type: "usage",
@@ -202,7 +202,7 @@ test("usage 双口径：会话累计 = 事件求和；会话切换/恢复清零�
 test("/stats：contextWindow 缺失 → 只显绝对量，不除零", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeCmdAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   adapter.emit({
     type: "usage",
@@ -223,7 +223,7 @@ test("/stats：contextWindow 缺失 → 只显绝对量，不除零", async () =
 test("/stats：contextWindow 为 0 → 不除零（同缺失处理）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeCmdAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   adapter.emit({
     type: "usage",
@@ -244,7 +244,7 @@ test("/stats：contextWindow 为 0 → 不除零（同缺失处理）", async ()
 test("/stats：无 usage（新会话 / 刚切换会话）→ 四行占位（最近一次 — / 上下文 — / 命中率 n/a）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeCmdAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/stats");
   await tick();
@@ -266,7 +266,7 @@ test("/stats：无 usage（新会话 / 刚切换会话）→ 四行占位（最�
 test("/rename <title>：调用 renameSession 并提示成功", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeCmdAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/rename 修复登录流程");
   await tick();
@@ -279,7 +279,7 @@ test("/rename <title>：调用 renameSession 并提示成功", async () => {
 test("/rename：缺参 → 用法提示，且不发服务调用", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeCmdAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/rename");
   await tick();
@@ -311,7 +311,7 @@ test("/rename：服务缺失 → warn，不崩溃", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeCmdAdapter();
   adapter.renameSession = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/rename 新标题");
   await tick();

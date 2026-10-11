@@ -59,7 +59,10 @@ test("B5 compaction 摘要空文本：toast 给「压缩完成（无摘要）」
     text: "",
     raw: { compactionId: "c2" },
   });
-  assert.deepEqual(s.local.map((l) => l.text), ["压缩完成（无摘要）"]);
+  assert.deepEqual(
+    s.local.map((l) => l.text),
+    ["压缩完成（无摘要）"],
+  );
 });
 
 test("B5 compaction 摘要：原始载荷保留于 state，每会话仅最近一条", () => {

@@ -136,7 +136,7 @@ test("/settings：readSettings 多行 → info notice（含 ns：value）", asyn
   const renderer = new FakeRenderer();
   const adapter = new FakeSettingsForkAdapter();
   adapter.readSettingsResult = "theme：dark\nfork.policy：ask";
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/settings");
   await tick();
@@ -152,7 +152,7 @@ test("/settings：adapter 返回空 → 占位「（无设置项）」", async (
   const renderer = new FakeRenderer();
   const adapter = new FakeSettingsForkAdapter();
   adapter.readSettingsResult = "";
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/settings");
   await tick();
@@ -165,7 +165,7 @@ test("/settings：服务缺失 → warn 且不调 describe", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSettingsForkAdapter();
   adapter.readSettings = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/settings");
   await tick();
@@ -178,7 +178,7 @@ test("/settings：describe 抛错 → warn", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSettingsForkAdapter();
   adapter.readSettingsError = true;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/settings");
   await tick();
@@ -193,7 +193,7 @@ test("/fork：成功 → success + 新会话 id + /session 提示（id 与当前
   const renderer = new FakeRenderer();
   const adapter = new FakeSettingsForkAdapter();
   adapter.forkResult = { id: "child-s9", title: "分叉会话" };
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/fork");
   await tick();
@@ -209,7 +209,7 @@ test("/fork：错误（错误码映射文案）→ warn 分叉失败", async () 
   const renderer = new FakeRenderer();
   const adapter = new FakeSettingsForkAdapter();
   adapter.forkError = new Error("源会话不存在");
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/fork");
   await tick();
@@ -225,7 +225,7 @@ test("/fork：服务缺失 → warn 且不调服务", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSettingsForkAdapter();
   adapter.forkCurrentSession = undefined;
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/fork");
   await tick();

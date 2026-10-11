@@ -190,7 +190,7 @@ test("/memory review：面板打开，普通与冲突候选项分化", async () 
       createdAt: 2,
     }),
   ];
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/memory review");
   await ticks(3);
@@ -214,7 +214,7 @@ test("结算：数字直标批准 + 未答条目跳过（不默认批准）", as
     row({ id: 1, targetTier: "project", createdAt: 1 }),
     row({ id: 2, targetTier: "project", createdAt: 2, title: "第二条" }),
   ];
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/memory review");
   await ticks(3);
@@ -244,7 +244,7 @@ test("冲突候选走 resolveConflict（不调 approve）；llm-unavailable 保�
       conflictWith: { kind: "default", id: 3 },
     }),
   ];
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/memory review");
   await ticks(3);
@@ -277,7 +277,7 @@ test("冲突候选走 resolveConflict（不调 approve）；llm-unavailable 保�
 test("/memory add user 无 kind → warn 且不调用；带 kind 正常直达", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeMemoryReviewAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   typeAndEnter(renderer, "/memory add user 回答保持简洁");
   await tick();

@@ -77,7 +77,7 @@ test("#8 step：调用行只取首个物理行（去参数续行），结果行�
 
 class TrackedApp extends App {
   constructor(deps: ConstructorParameters<typeof App>[0]) {
-    super(deps);
+    super({ ...deps, pipelineSink: deps.pipelineSink ?? {} });
     registerApp(this);
   }
 }

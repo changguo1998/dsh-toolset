@@ -152,7 +152,7 @@ test("routeSlashCommand: /contract → contract", () => {
 test("/contract：无当前目标 → warn 提示", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeContractAdapter();
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   // 不 seed goal → activeSessionId 无快照
   typeAndEnter(renderer, "/contract");
@@ -172,7 +172,7 @@ test("/contract：目标含 Done-when 契约 → info 展示（条款数 + check
     objective:
       '完成 A5 接线\n\nDone-when:\n[{"check":"npm --prefix TUI run check 0 错误","level":"mechanical"},{"check":"测试全绿","level":"semantic"}]',
   };
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   seedGoal(adapter);
   await tick();
@@ -198,7 +198,7 @@ test("/contract：目标无契约 → info 说明（未附条款）", async () =
     phase: "active",
     objective: "普通目标无契约",
   };
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   seedGoal(adapter);
   await tick();
@@ -225,7 +225,7 @@ test("/contract：Done-when 段非法 JSON → warn（解析失败）", async ()
     clauses: [],
     error: "Done-when 段不是合法 JSON",
   });
-  const app = new App({ renderer, adapter });
+  const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
   seedGoal(adapter);
   await tick();

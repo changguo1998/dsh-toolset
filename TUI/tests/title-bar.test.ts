@@ -431,7 +431,7 @@ function makeApp(): {
 } {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
-  const app = new TrackedApp({ renderer, adapter });
+  const app = new TrackedApp({ renderer, adapter, pipelineSink: {} });
   app.start();
   return { app, renderer, dispose: () => app.dispose() };
 }
