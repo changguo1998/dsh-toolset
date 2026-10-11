@@ -4730,3 +4730,22 @@ test("BACKLOG #24①：补窗一次到位——一次 flush 就补到「装得�
   );
   app.dispose();
 });
+
+test("BACKLOG #22②：两次缓冲尾巴交付的辅助行各自成段（不粘成一行）", () => {
+  const { app, renderer, adapter } = makeApp();
+  renderer.size = { cols: 100, rows: 30 };
+  // 两次 `tool` 类本地行（同节、非 standalone → 才会被块身份影响）：
+  // 块身份此前每次从 0 起 → 两条都是 block 0 → 被并成「↻1 ↻2」一行
+  adapter.push({ type: "retry-started", attempt: 1 } as DshEvent);
+  flushApp();
+  adapter.push({ type: "retry-started", attempt: 2 } as DshEvent);
+  flushApp();
+  const plain = renderer.lastRender.join("\n");
+  assert.ok(plain.includes("重试中 (1)"), "第一条 ↻ 行要上屏");
+  assert.ok(plain.includes("重试中 (2)"), "第二条 ↻ 行要上屏");
+  assert.ok(
+    !/重试中 \(1\).*重试中 \(2\)/.test(plain),
+    "两次交付的辅助行不得粘成同一行（块身份需跨调用连续）",
+  );
+  app.dispose();
+});
