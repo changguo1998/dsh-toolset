@@ -898,18 +898,6 @@ export interface StatusSwitches {
 
 /** 状态列各块（Goal / Todo / Jobs；完整自然高度，无强制行数上限；
  *  是否折叠由 renderStatusColumn 按窗口总高决定） */
-/** Agents 块标题的前导符号（BACKLOG #1）：异常 > 运行 > 无。
- *  异常取 `!`（常亮红——异常要被看见，不参与闪烁）；运行中按相位在 `● ` / `  ` 间切
- *  （两态等宽 2 列，标题不抖）；无运行中子代理时 undefined（标题回到原形制）。 */
-export function agentHeadSymbol(
-  agents: readonly AgentRowInfo[],
-  phase: 0 | 1,
-): { text: string; fg: "red" | "yellow" } | undefined {
-  if (agents.some((a) => a.status === "diagnostic"))
-    return { text: "! ", fg: "red" };
-  if (!agents.some((a) => a.status === "running")) return undefined;
-  return { text: phase === 0 ? "● " : "  ", fg: "yellow" };
-}
 
 function statusBlocks(
   goals: GoalHistory | undefined,
@@ -1037,15 +1025,9 @@ function statusBlocks(
     const head: StatusRow[] = [];
     if (blocks.length > 0) head.push(sep());
     const running = agents.filter((a) => a.status === "running").length;
-    // BACKLOG #1：块标题前导符号（运行中按相位闪、异常常亮、其余不加）
-    const headSym = agentHeadSymbol(agents, phase);
+    // BACKLOG #1（用户真机澄清）：**标题不加任何状态符号** —— 闪烁在条目行自身的符号上
     head.push({
-      segments: [
-        ...(headSym === undefined
-          ? []
-          : [seg(headSym.text, { fg: headSym.fg })]),
-        seg(`Agents ${running}/${agents.length}`, { fg: "blue" }),
-      ],
+      segments: [seg(`Agents ${running}/${agents.length}`, { fg: "blue" })],
     });
     blocks.push({
       id: "agents",

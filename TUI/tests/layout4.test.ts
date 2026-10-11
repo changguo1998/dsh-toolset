@@ -3266,7 +3266,7 @@ test("状态列：正文宽口径 = statusColWidth − 2（外缘框格 + 分隔
   }
 });
 
-test("BACKLOG #1：Agents 块标题前导符号进帧（运行 `● ` / 空闲无 / 异常 `! `）", () => {
+test("BACKLOG #1（返工中）：Agents 块标题**不带**状态符号（闪烁改在条目行符号上）", () => {
   const frameOf = (status: string): string => {
     const s = {
       ...initialState(),
@@ -3279,15 +3279,14 @@ test("BACKLOG #1：Agents 块标题前导符号进帧（运行 `● ` / 空闲�
       .map((r) => r.segments.map((x) => x.text).join(""))
       .join("\n");
   };
-  assert.ok(
-    frameOf("running").includes("● Agents 1/1"),
-    "运行中：块标题带前导 ●（相位 0 = 静态，tokens 缺省 0）",
-  );
-  assert.ok(!frameOf("idle").includes("● Agents"), "空闲：不加前导符号");
-  assert.ok(
-    frameOf("diagnostic").includes("! Agents 0/1"),
-    "异常：常亮红 ! 前导（优先于运行；计数仍按「运行中/总数」= 0/1）",
-  );
+  for (const status of ["running", "inactive", "diagnostic"]) {
+    const frame = frameOf(status);
+    assert.ok(
+      !/● Agents|! Agents|○ Agents/.test(frame),
+      `标题前不得有状态符号（status=${status}）`,
+    );
+    assert.ok(frame.includes("Agents "), "标题本身仍在");
+  }
 });
 
 test("BACKLOG #20：恢复出的分隔线显示宿主真实 ⇆N（42/43 不被重编号成 1/2）", () => {
