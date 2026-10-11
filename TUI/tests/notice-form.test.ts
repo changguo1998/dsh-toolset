@@ -10,6 +10,7 @@ import { buildFrame } from "../src/app/layout.ts";
 import { surfaceToBuffer } from "../src/app/commands.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { noticeSummaryOf } from "../src/app/adapter/normalize.ts";
+import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
 import { rowText } from "./helpers/rowText.ts";
 
 test("TUI#17 noticeSummaryOf：notice 取 summary；缺省取正文首行；非 notice → undefined", () => {
@@ -65,20 +66,41 @@ test("TUI#17 surfaceToBuffer：notice 行 → kind notice + log 灰；空白行�
   ]);
 });
 
-test("TUI#17 渲染：恢复后 notice 摘要行单行显示、buffer 中不占用户块", () => {
+test("TUI#17 渲染：恢复后 notice 摘要行单行显示、不占用户块", () => {
   let s = initialState();
   s.activeSessionId = "s1";
-  s = reduceState(s, { type: "history-open" });
-  s = reduceState(s, { type: "history-resume", id: "old-1" });
-  s = reduceState(s, {
-    type: "history-resume-ok",
-    id: "old-1",
-    title: "旧会话",
-    rows: surfaceToBuffer([
-      { role: "notice", text: "已提醒模型统一符号" },
-      { role: "user", text: "问题" },
-      { role: "assistant", text: "回复" },
+  // 会话内容走节模型（条目 16 段 C1：不再经缓冲重放）
+  s = {
+    ...s,
+    pipeline: sectionsFromScript([
+      { delivery: { kind: "turn-start", turn: 1 } },
+      { delivery: { kind: "user", turn: 1, step: 0, text: "问题" } },
+      {
+        delivery: {
+          kind: "text",
+          turn: 1,
+          step: 1,
+          index: 0,
+          source: "assistant",
+          text: "回复",
+        },
+      },
+      { delivery: { kind: "turn-end", turn: 1, step: 1, reason: "completed" } },
+      // notice 走交付（生产路径同形：state 动作写本地行 + 一条块交付进节模型）
+      {
+        delivery: {
+          kind: "notice",
+          text: "已提醒模型统一符号",
+          tone: "log",
+        },
+      },
     ]),
+  };
+  // notice 属 UI 本地行：进 local（toast 与补投依赖它），并应上屏
+  s = reduceState(s, {
+    type: "notice",
+    text: "已提醒模型统一符号",
+    tone: "log",
   });
   const lines = buildFrame(s, { rows: 24, cols: 100 }).map((r) => rowText(r));
   assert.ok(
