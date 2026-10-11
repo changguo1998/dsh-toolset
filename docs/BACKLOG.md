@@ -32,7 +32,7 @@
 
 - 运行时与宿主：宿主双栈兼容垫片清理（0.1.7-rc.2 单一形态；追踪文档 `docs/archived/2026-09-29-host-single-stack-cleanup.md`）、tmux 断连后 dsh 退出 → 退出前问题面板确认（追踪文档 `docs/archived/2026-09-29-exit-confirm-panel.md`）、跨会话消息通道 `session-channel` 插件（专用 Redis 实例 + unix socket；追踪文档 `docs/archived/2026-09-29-cross-session-intercom.md`）、跨会话共享 KV（session-channel 服务面扩展，last-value + 版本号；追踪文档 `session-channel/docs/archived/2026-09-29-shared-kv.md`）、会话标题参考窗口改为「最近一次 `git commit` 之后」（新包 `session-title-cutoff`，接管 `ctx.sessionTitle` 唯一 provider；追踪文档 `session-title-cutoff/docs/archived/2026-09-29-title-cutoff-provider.md`）、跨会话委托/协调（`session-channel` 任务语义：任务表 + 结果自动/显式回传 + `channel_delegate`/`channel_task`/`channel_task_result` 三工具；追踪文档 `docs/archived/2026-09-30-cross-session-delegation.md`）、模板体系（`command-template`：预案 `/playbook` 统一入口 + 五族模板 + 双源目录 + 模板级模型选择；追踪文档 `docs/archived/2026-09-30-template-system.md`）。
 
-- 已取消/不再立项：rate-guard（不实现，pi 侧已移除，dsh 侧由官方 `llm-retry` 覆盖，见 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1）；GitHub 仓库克隆、PDF 提取 / 视频理解、密文扫描、安全 issue 上报（用户 2026-09-29 裁定移除，不立项）；近期改动代码审查、preset 机制迁移评估（用户 2026-09-29 裁定直接关闭，不立项）。
+- 已取消/不再立项：rate-guard（不实现，pi 侧已移除，dsh 侧由官方 `llm-retry` 覆盖，见 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1）；GitHub 仓库克隆、PDF 提取 / 视频理解、密文扫描、安全 issue 上报（用户 2026-09-29 裁定移除，不立项）；近期改动代码审查、preset 机制迁移评估（用户 2026-09-29 裁定直接关闭，不立项）；模型请求路由与速度控制 `llm-router`（2026-10-11 判定不改仓内插件，采用现成开源网关 —— 主选 Bifrost、备选 LiteLLM，见 `docs/archived/2026-10-11-llm-router-decision.md`）。
 
 - 宿主面知识：官方 **0.2.0-rc.2 对照汇总**（`docs/host/HOST-UPGRADE-0.2.0-rc.2.md`；工具 / 事件 / 服务面零增删，`docs/host/HOST-PACKAGES.md` 同期刷到 0.2.0 口径，审阅记录见 `docs/archived/2026-10-02-host-upgrade-0.2.0-rc.2.md`）。
 
@@ -80,16 +80,6 @@
 | 插件 | 承载清单项 | 复用（不新建） |
 |------|-----------|----------------|
 | 内容资产（非插件） | 模板体系③ | workflow 脚本 + skill 内容 |
-| 模型请求路由与速度控制 `llm-router`（暂名） | **意向**（2026-10-10 用户提出；详细待开工讨论） | 宿主 LLM 路由、`command-template` 模板级模型选择、官方 `llm-retry` |
-
-**模型请求路由与速度控制（意向，2026-10-10 用户提出，仅登记防遗忘）**：新增一个进程内集成插件，控制**模型请求的路由**与**速度**。开工时先讨论四件事：
-
-1. **「路由」的范围**：按模型 / 账号 / endpoint / 会话 / 工具 / 场景切换？是否含 fallback 与重试？
-1. **「速度」的含义**：限流、节流、并发上限、逐 token 节奏、超时与退避？是否只对本机 TUI 生效？
-1. **与既有能力的分工**：宿主自带路由（`deepseek-official` / `deepseek-account`）、`command-template` 的模板级模型选择、官方 `llm-retry`；尤其**与已取消的 `rate-guard` 的关系**——当时结论是「不立项，dsh 侧由官方 `llm-retry` 覆盖」（见 §1 已取消条目与 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1），本条若覆盖限流 / 重试须先说明与 `llm-retry` 的边界。
-1. **集成面**：`package.json` 的 `dsh.bundle` + `cordis.patch.yml` + profile 挂载（以现有 20 包为模板）。
-
-状态：意向（未排期）；优先级待定；验收待定。
 
 ## 5. TUI 侧
 
