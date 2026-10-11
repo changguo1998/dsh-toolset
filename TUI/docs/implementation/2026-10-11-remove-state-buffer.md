@@ -291,7 +291,12 @@
 1. **`dropContentWrites` 只保留「清本地行」那半边**：`turn-begin` 清 notice/tool 行、`history-restore` / `history-resume-ok` 清空 `local` 的行为要留住（用户 2026-10-11 只取消了「新回合清空**活动区内容**」，本地提示行仍清）；「丢弃内容写入」半边随内容类 kind 一起删。
 1. **`bufferRetainsContent` 删除**：不再有承载内容的缓冲写入，闸门无对象。注意 `buffer-retire` 用例依赖它表达「生产模式」，迁移时改为断言「交付 → 节里有内容、`local` 里没有内容行」。
 
-**删除顺序（剩最后一步）**：等两个子代理的测试迁移落完 → 删内容类 `BufferKind` 成员（`user` / `assistant` / `thinking` / `separator` / `step`）→ 删 `CONTENT_ACTIONS` + `dropContentWrites` 的内容半边 + `bufferRetainsContent` → `npx tsc --noEmit` 的报错即完整残留清单（预计集中在 `content-mapping` / `scroll-position` / `pipeline-sections` / `activity-verbose` 等直构内容行的测试）。
+**删除顺序（2026-10-11 第 141-145 轮修订，两段式）**：一次翻转 `BufferKind` 实测 **203 处**编译错误（`activity-type-gap` 38 / `content-mapping` 31 / `table` 28 / `state.ts` 23 / `scroll-position` 15 / `state-history-blocks` 14 / `replay.ts` 11 / `build-box.ts` 10 / `rows.ts` 5 / `index.ts` 4 …），故改为：
+
+1. **先重定向（保持全绿）**：新增 `HistoryRow`（已落地 `c3cedb5`）→ 恢复/重放路径（`replay.ts` 的 `sectionsFromBuffer` / `sectionsFromLocal`、`frame.ts` 的 `local:` 形参、`index.ts` 的会话恢复行、`state.ts` 两个 action 的 `rows` 字段）改收 `HistoryRow`；删 `build-box.ts` / `rows.ts` 里**只读缓冲内容行**的死分支；测试侧 fixture 由 `Buffer` 改 `HistoryRow`。
+1. **再翻转**：`BufferKind` 只留 `notice` / `tool` / `shell` / `plain` → 删 `CONTENT_ACTIONS` + `dropContentWrites` 的内容半边（**保留** `turn-begin` 清本地行、`history-restore` 清空 `local`）+ `bufferRetainsContent`（连带改 `tests/pipeline-app.test.ts:436` 与 `tests/buffer-retire.test.ts` 的 `prod()`）。
+
+**保留项**：`MAX_BUFFER_LINES` / `trimBufferHead`（本地行仍会累积，裁剪仍必要）。
 
 ## 收尾
 
