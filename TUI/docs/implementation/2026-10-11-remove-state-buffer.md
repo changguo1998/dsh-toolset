@@ -117,6 +117,21 @@
 - **代价**：diff 覆盖全部缓冲相关测试、不可分批；无「两字段并存」过渡期（而过渡期本身就是故障源）。
 - **不采纳**：新增 `local` 字段（多一次迁移）、双写再切读（双投递 + `nextSeq` 双计，风险最高）、保留只读别名（编译器发现不了漏读点，段 C 还得再扫）。
 
+## 段 C 的体量实测与拆分（2026-10-11 第 63-64 轮，子代理审阅 + 本地测量）
+
+**审阅结论（只读 ≤6 次调用，逐条实证）**：
+
+- **拆两段**：C1 = 读侧/元数据改源（不动数据结构：`frame.ts:231-249` 的回退判据与**模块级单例 `replayEntry`**、`index.ts:513-560` 的 `deliverBufferTail` 只吃本地行、估算器输入）+ 测试逐文件显式造节；C2 = **原子不可分**（删 `bufferRetainsContent` / `CONTENT_ACTIONS`(`state.ts:1449-1463`) / `dropContentWrites`(派发点 `:2611`、字段 `:2762`、赋值 `:2090-2092`) / `nextSeq` / `trimBufferHead` / `MAX_BUFFER_LINES` 与 6 个裁剪点 / `BufferLine` 内容字段与内容类 `BufferKind`(`state.ts:115-135`)，同步改 4 个测试文件与文档）—— 理由：删字段会让全部写点 tsc 报错、删开关会让写点回灌内容，只能一次落。
+- **`nextSeq` 在 src 里没有任何读点**；`BufferLine.seq` 的读点只有 `replay.ts:62`、`build-box.ts:308`、`rows.ts:332-340`。
+- **防错断言**：notice / shell / 工具行按设计**永久**留在 `local`（toast 与补投依赖 `index.ts:524`）→ 验收要断言 **kind 收敛**（`local.every(l => ["notice","shell","tool","plain"].includes(l.kind))`），**绝不能**写 `local === []`。
+- 测试处置：`buffer-trim.test.ts` **整体删**（本地行若仍需上限，C2 另立新契约）；`buffer-retire.test.ts` 保留 3 例本地行语义、删内容口径与 `nextSeq`/缺省 true（可更名 `local-lines.test.ts`）；`state-history-blocks.test.ts` 先核对 `pipeline-*` 是否已覆盖再删；`pipeline-frame.test.ts` 保留整帧对拍骨架、`oldState` 改「空 local + 显式节」。
+- 必补**反向断言**（段 A 验证过的手法）：抽掉 `pipeline`/`pipelineSink` 后帧内不再出现 assistant 段 ⇒ 直接证明内容不经缓冲。
+
+**本地测量（第 64 轮）**：
+
+- **回退依赖面 = 15 个测试文件**（`activity-verbose` / `app` / `command-panel` / `ctrl-t-panes` / `focus-cursor` / `focus-frame` / `footer-notice` / `layout4` / `layout-horizontal` / `notice-form` / `pane-titles` / `resume-summary` / `screen-residue` / `status-column` / `title-bar`）；段 A 已迁 6 个。判据 = 同文件既用 `reduceState` + `buildFrame`/`renderStatusColumn`，又未用 `deliveriesFromScript` / `sectionsFromScript` / `pipelineSink`。
+- **「估算器改吃交付」这项无需改**：`state.ts:947` 的 `estimateOutputTokens(clean)` 吃的是**流式文本**（`clean` = 本 action 去标记后的文本），不是缓冲 → 原计划该子项自动满足（`stepEstTokens` / `tokenCalib` 链路也不读缓冲）。
+
 ## 段 B 完成（2026-10-11 第 62 轮，提交 `3566488`）
 
 **做法**：仍是一次性改名，但把规则**分类精确**施加（不再用上一轮那种「全局正则 + 按报错行自动修补」的循环）：
