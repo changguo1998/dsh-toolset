@@ -27,6 +27,7 @@ import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
 import { sectionsFromBuffer } from "../src/app/layout/pipeline/replay.ts";
 import {
   initialState,
+  reduceState,
   type AppState,
   type HistoryRow,
 } from "../src/app/state.ts";
@@ -588,5 +589,239 @@ test("用户块终态符号：宿主回合号漂移时同一帧即显 `✓`（�
   assert.ok(
     interruptedRow !== undefined && interruptedRow.includes("?"),
     `中断回合保持 ?：${JSON.stringify(interruptedRow)}`,
+  );
+});
+
+// ---- 条目 16 段 D：节身份 / 行身份是**稳定量**（重建后逐字节一致） ----
+//
+// 旧口径：节身份 = `WeakMap<Section, number>` + 全局自增，行身份 = `WeakMap<Box, number>` +
+// 全局自增。节对象每次写入都被换成副本（`sections.ts` 的 `close` / `write` 都是浅拷贝），
+// 于是**每来一次交付**段键与行号就整体换号（实测流式 12 步里段键换 8 次：`1:0` → `2:0`
+// → `3:0` …），渐进扩窗 / 重放 / 会话切换后更与前一帧对不上——视口位置（段键 + 段内行）
+// 随之失配、回落「距底偏移」，表现为扩窗或切换后画面跳到窗口顶。
+// 现口径：节身份由**节自身派生**（`turn:step` + 角色 + 同组合出现序，见 `panes.ts`
+// 的 `sectionIdentities`），行身份由段键派生（`frame.ts` 的 `syntheticSeq`）。
+
+/** 整帧逐字节（`FrameRow[]` 的 JSON，含段级样式与 caret） */
+function frameBytes(
+  st: AppState,
+  size: { rows: number; cols: number },
+): string {
+  return JSON.stringify(buildFrame(st, size));
+}
+
+/** 段键 + 逐行身份（`{ 段键, 行身份 }`，按段表展开）：跨重建的两类稳定量 */
+function identityOf(
+  st: AppState,
+  windowGroups?: number,
+): { keys: string[]; rows: { key: string; seq: string }[] } {
+  const built = pipelineContent(st.pipeline ?? createSections(), {
+    dialogueTextW: 80,
+    activityTextW: 80,
+    windowGroups: windowGroups ?? st.windowGroups,
+    render: { width: 80 },
+  });
+  const rows: { key: string; seq: string }[] = [];
+  let at = 0;
+  for (const [index, key] of built.dialogueKeys.entries()) {
+    const count = built.dialogueCounts[index] ?? 0;
+    for (let n = 0; n < count; n++) {
+      rows.push({ key, seq: String(built.dialogue[at++]?.seq ?? "-") });
+    }
+  }
+  return { keys: [...built.dialogueKeys], rows };
+}
+
+/** 内容行（正文 / 用户块）的「段键 → 行身份」表（排除边界项：它们的段键随窗口边界变） */
+function contentIdentity(v: {
+  rows: { key: string; seq: string }[];
+}): Map<string, string> {
+  return new Map(
+    v.rows
+      .filter((row) => row.key.includes(":c#") || row.key.includes(":u#"))
+      .map((row) => [row.key, row.seq]),
+  );
+}
+
+test("段 D · Home：扩窗上滚后回最新，与一直跟随底部逐字节一致（段键 / 行身份不变）", () => {
+  const size = { rows: 30, cols: 100 };
+  const base: AppState = {
+    ...initialState(),
+    pipeline: applyAll(createSections(), script(6)),
+  };
+  // 一直跟随底部（从未上滚）
+  const bottomBytes = frameBytes(base, size);
+  const bottom = identityOf(base);
+
+  // 上滚：扩窗物化更早回合（App 侧由视口容量驱动，这里直接置窗口组数）
+  const scrolled = reduceState(base, { type: "window-grow", groups: 99 });
+  const wider = identityOf(scrolled);
+  const narrow = contentIdentity(bottom);
+  const wide = contentIdentity(wider);
+  assert.ok(wide.size > narrow.size, "上滚确实多物化了更早的内容段");
+  // 扩窗只多物化、不改已物化段：原窗口里的每个内容段在新序列里拿到**同一段键 + 同一行身份**
+  // （边界项——回合分隔线 / 空行——的段键随窗口起点变，不在比较之列）
+  for (const [key, seq] of narrow) {
+    assert.equal(wide.get(key), seq, `扩窗后 ${key} 的段键与行身份不变`);
+  }
+  // 原窗口的段键在新序列里**原样保留**（尾部逐项一致，含边界项）
+  const keptKeys = wider.keys.filter((key) => bottom.keys.includes(key));
+  assert.deepEqual(
+    keptKeys,
+    bottom.keys.filter((key) => wider.keys.includes(key)),
+    "扩窗不改已物化段的段键与顺序",
+  );
+
+  // 上滚后停在历史里（视口顶 = 某段键 + 段内行），再回最新
+  const parked = reduceState(scrolled, {
+    type: "dialogue-scroll",
+    top: { key: wider.keys[0] ?? "", row: 3 },
+    offset: 12,
+  });
+  const back = reduceState(parked, { type: "scroll-to-bottom" });
+  assert.equal(frameBytes(back, size), bottomBytes, "回最新后整帧逐字节一致");
+  assert.deepEqual(identityOf(back), bottom, "段键与行身份逐项一致");
+});
+
+test("段 D · 流式改写：同一逻辑节的段键在交付推进中不被换号", () => {
+  const all = script(1);
+  const keysAt = (n: number): string[] =>
+    identityOf(
+      {
+        ...initialState(),
+        pipeline: applyAll(createSections(), all.slice(0, n)),
+      },
+      99,
+    ).keys;
+  let prev = keysAt(2);
+  for (let n = 3; n <= all.length; n++) {
+    const now = keysAt(n);
+    for (const key of prev) {
+      assert.ok(
+        now.includes(key),
+        `第 ${n} 步：段键 ${key} 应保持（旧口径每次交付整体换号）`,
+      );
+    }
+    prev = now;
+  }
+});
+
+test("段 D · 会话切换 / 重放：同一份历史行重放两次（含切走再切回）逐字节一致", () => {
+  const size = { rows: 30, cols: 100 };
+  const rows = oldBuffer(3);
+  const replay = (): AppState => ({
+    ...initialState(),
+    local: [],
+    pipeline: sectionsFromBuffer(rows, { history: true }),
+  });
+  const firstBytes = frameBytes(replay(), size);
+  const first = identityOf(replay());
+  assert.equal(
+    frameBytes(replay(), size),
+    firstBytes,
+    "重放两次整帧逐字节一致",
+  );
+  assert.deepEqual(
+    identityOf(replay()),
+    first,
+    "重放两次段键 / 行身份逐项一致",
+  );
+
+  // 切走（另一会话的历史行）再切回：切回后与首次重放逐字节一致
+  const otherBytes = frameBytes(
+    {
+      ...initialState(),
+      local: [],
+      pipeline: sectionsFromBuffer(oldBuffer(2), { history: true }),
+    },
+    size,
+  );
+  assert.notEqual(
+    otherBytes,
+    firstBytes,
+    "不同会话内容不同（自检：比较有意义）",
+  );
+  assert.equal(frameBytes(replay(), size), firstBytes, "切回后逐字节一致");
+  assert.deepEqual(identityOf(replay()), first, "切回后段键 / 行身份逐项一致");
+});
+
+test("段 D · 重放 vs 实时交付：同内容整帧逐字节一致（差异口径见注释）", () => {
+  // 语料只用「每回合都已定型」的文本内容：恢复重放把整节标 `history`——正文与工具批都归
+  // 会话区；实时路径把未定型内容（思考 / 工具批 / 中间正文）归回合区。这是既定分派口径
+  // （见 `tests/pipeline-equivalence.test.ts` 的等价协议），故不纳入本用例的逐字节比较。
+  const T = 1_700_000_000_000;
+  const live: BlockDelivery[] = [];
+  const rows: HistoryRow[] = [];
+  for (let turn = 1; turn <= 2; turn++) {
+    live.push({ kind: "turn-start", turn, time: T + turn * 1000 });
+    live.push({ kind: "user", turn, step: 1, text: `第 ${turn} 问` });
+    live.push({ kind: "step-start", turn, step: 1, time: T + turn * 1000 });
+    live.push({
+      kind: "text",
+      turn,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: `第 ${turn} 答：正文。`,
+    });
+    live.push({ kind: "finalize", turn, step: 1 });
+    live.push({ kind: "turn-end", turn, step: 1 });
+    rows.push({
+      text: "--------",
+      kind: "separator",
+      turn,
+      time: T + turn * 1000,
+    });
+    rows.push({ text: `第 ${turn} 问`, kind: "user" });
+    rows.push({
+      text: `22:31:0${turn} ⇆${turn} #1`,
+      kind: "tool",
+      time: T + turn * 1000,
+    });
+    rows.push({
+      text: `第 ${turn} 答：正文。`,
+      kind: "assistant",
+      final: true,
+    });
+  }
+  const liveState: AppState = {
+    ...initialState(),
+    local: [],
+    pipeline: applyAll(createSections(), live),
+  };
+  const replayState: AppState = {
+    ...initialState(),
+    local: [],
+    pipeline: sectionsFromBuffer(rows, { history: true }),
+  };
+  for (const size of [
+    { rows: 30, cols: 100 },
+    { rows: 24, cols: 60 },
+  ]) {
+    assert.equal(
+      frameBytes(replayState, size),
+      frameBytes(liveState, size),
+      `重放与实时交付逐字节一致（${size.cols}x${size.rows}）`,
+    );
+  }
+  // 行身份跨路径一致：内容节逐项相同（用户节的差异见下一条断言）
+  const contentSeq = (v: { rows: { key: string; seq: string }[] }): string[] =>
+    v.rows
+      .filter((row) => row.key.includes(":c#"))
+      .map((row) => `${row.key}:${row.seq}`);
+  assert.deepEqual(
+    contentSeq(identityOf(replayState, 99)),
+    contentSeq(identityOf(liveState, 99)),
+    "内容节的行身份逐项一致",
+  );
+  // 既定差异（钉住，不隐藏）：重放按**行序**还原作用域——历史行序里用户行在 step 头之前，
+  // 故首回合用户节落在 step 0（`1:0:u#0`）；实时交付的用户交付自带 step（`1:1:u#0`）。
+  // 该差异只体现在段键字符串上（渲染内容与行数完全一致，故上面的整帧比较仍逐字节相等）。
+  const liveKeys = identityOf(liveState, 99).keys;
+  const replayKeys = identityOf(replayState, 99).keys;
+  assert.deepEqual(
+    liveKeys.filter((key, index) => key !== replayKeys[index]),
+    ["1:1:u#0:0"],
+    "唯一差异 = 首回合用户节的 step 口径（重放按行序还原作用域）",
   );
 });

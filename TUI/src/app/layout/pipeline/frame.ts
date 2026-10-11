@@ -14,7 +14,7 @@
 
 import type { RenderOptions, RenderedPane } from "./rows.ts";
 import { renderPane } from "./rows.ts";
-import { buildPanes } from "./panes.ts";
+import { buildPanes, sectionIdentities } from "./panes.ts";
 import { createSections } from "./sections.ts";
 import { sectionsFromLocal } from "./replay.ts";
 import { allSections, type SectionsState } from "./sections.ts";
@@ -138,22 +138,33 @@ export function windowSections(
   };
 }
 
-/** 合成行序号：按 box 身份发号（稳定；与宿主事件号区间错开） */
-const synthetic = new WeakMap<object, number>();
+/** 合成行序号基数（与宿主事件号区间错开） */
 const SYNTHETIC_BASE = 1_000_000_000;
-let syntheticNext = 0;
 
-/** 行身份：优先宿主事件号，否则合成 */
-export function rowSeq(box: { seqs?: readonly number[] }): number {
+/**
+ * 合成行序号：由**稳定段键**（节身份 + 节内 box 序号）派生（FNV-1a 双轮 → 48 位，低于
+ * `Number.MAX_SAFE_INTEGER`），**不依赖对象身份**——重放 / 渐进扩窗 / 会话切换后同一逻辑行
+ * 拿到同一身份，且与进程外的历史无关（旧实现用 WeakMap + 全局自增：节对象每次写入都被换成
+ * 副本，段键与行号每帧都在换）。
+ */
+export function syntheticSeq(segKey: string): number {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b1;
+  for (let i = 0; i < segKey.length; i++) {
+    const c = segKey.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ ((c << 5) + c + i), 0x85ebca6b) >>> 0;
+  }
+  return SYNTHETIC_BASE + (h1 % 0x1000000) * 0x1000000 + (h2 % 0x1000000);
+}
+
+/** 行身份：优先宿主事件号，否则按稳定段键合成 */
+export function rowSeq(
+  box: { seqs?: readonly number[] },
+  segKey: string,
+): number {
   const host = box.seqs?.[0];
-  if (host !== undefined) return host;
-  const key = box as object;
-  const hit = synthetic.get(key);
-  if (hit !== undefined) return hit;
-  syntheticNext += 1;
-  const seq = SYNTHETIC_BASE + syntheticNext;
-  synthetic.set(key, seq);
-  return seq;
+  return host !== undefined ? host : syntheticSeq(segKey);
 }
 
 /** 给出行缓冲补上行身份（旧锚点模型用） */
@@ -169,8 +180,9 @@ export function pipelineContent(
   state: SectionsState,
   options: PipelineFrameOptions,
 ): PipelineContent {
+  const all = allSections(state);
   const { kept, dropped, suppressFirstHead } = windowSections(
-    allSections(state),
+    all,
     options.windowGroups,
   );
   let panes = buildPanes(kept, {
@@ -178,6 +190,8 @@ export function pipelineContent(
     declaredSteps: [...state.stepMeta.keys()],
     stepTimes: state.stepMeta,
     turnTimes: state.turnMeta,
+    // 节身份按**全量节**算（窗口只决定物化范围，不该改已物化节的段键）
+    sectionIds: sectionIdentities(all),
     ...(suppressFirstHead ? { suppressFirstHead: true } : {}),
     ...(dropped > 0 ? { leadingSeparator: false } : {}),
     ...(options.normalize === undefined
@@ -205,7 +219,11 @@ export function pipelineContent(
 
 /** 逐项给行补身份（与 `pane` 项一一对应；边界项用相邻内容项的序号） */
 function seqRows(
-  items: readonly { kind: string; box?: { seqs?: readonly number[] } }[],
+  items: readonly {
+    kind: string;
+    key: string;
+    box?: { seqs?: readonly number[] };
+  }[],
   rendered: RenderedPane,
 ): ContentRow[] {
   const out: ContentRow[] = [];
@@ -215,10 +233,11 @@ function seqRows(
     index += 1;
     if (count === 0) continue;
     const slice = rendered.rows.slice(out.length, out.length + count);
+    // 行身份：宿主事件号优先；否则由**稳定段键**派生（重建后同一行拿到同一身份）
     const seq =
       item.box === undefined
         ? -1
-        : rowSeq(item.box as { seqs?: readonly number[] });
+        : rowSeq(item.box as { seqs?: readonly number[] }, item.key);
     out.push(...(seq === -1 ? slice : withSeq(slice, seq)));
   }
   return out;

@@ -15,16 +15,44 @@ import type { ActivityLevel } from "../../state.ts";
 import { applyShadowed, buildBoxes, type Box } from "./boxes.ts";
 import { stepKey, type Section } from "./types.ts";
 
-/** 节身份（稳定段键前缀）：节对象在一次会话内不因窗口 / 宽度变化而重建，故 WeakMap 发号即可 */
-const sectionIds = new WeakMap<object, number>();
-let nextSectionId = 0;
+/**
+ * 节角色：身份的另一半。只取**单调**字段（作用域 + 类别）——文本 / `final` / `frozen`
+ * 会随流式增量与迟到回写变化，入身份会让段键每帧换号。
+ */
+function roleOf(section: Section): string {
+  if (section.stepSummary !== undefined) return "ss";
+  if (section.standalone === true) {
+    const source = section.items[0]?.source;
+    return source === "notice"
+      ? "n"
+      : source === "shell"
+        ? "sh"
+        : source === "user"
+          ? "u"
+          : "s";
+  }
+  return "c";
+}
 
-function sectionId(section: Section): number {
-  const hit = sectionIds.get(section);
-  if (hit !== undefined) return hit;
-  nextSectionId += 1;
-  sectionIds.set(section, nextSectionId);
-  return nextSectionId;
+/**
+ * 节身份（稳定段键前缀）：**由节自身派生**，不依赖对象身份——同一逻辑节在重建（流式改写 /
+ * 渐进扩窗 / 重放 / 会话切换）后拿到同一个身份，同作用域内不同节按出现序区分，不会撞号。
+ *
+ * 组成 = `turn:step`（`stepKey`）+ 角色 + 该组合在**本次序列**里的出现序。序列必须传
+ * **全量节**（渐进窗口切片之前）：窗口只决定物化范围，不该改变已物化节的段键。
+ */
+export function sectionIdentities(
+  sections: readonly Section[],
+): Map<Section, string> {
+  const out = new Map<Section, string>();
+  const seen = new Map<string, number>();
+  for (const section of sections) {
+    const base = stepKey(section.turn, section.step) + ":" + roleOf(section);
+    const ordinal = seen.get(base) ?? 0;
+    seen.set(base, ordinal + 1);
+    out.set(section, base + "#" + ordinal);
+  }
+  return out;
 }
 
 /**
@@ -91,6 +119,11 @@ export interface PaneOptions {
    * 渐进窗口丢过内容时为 false——窗口起点在回合中间，旧路径已把该线切掉。
    */
   leadingSeparator?: boolean;
+  /**
+   * 节身份表（`sectionIdentities(全量节)`）：**渐进窗口切片之前**算好传进来，使段键不随
+   * 窗口物化范围变化。缺省按传入序列现算（直接调用 / 单测）。
+   */
+  sectionIds?: ReadonlyMap<Section, string>;
 }
 
 /**
@@ -214,6 +247,9 @@ export function buildPanes(
   sections: readonly Section[],
   options: PaneOptions,
 ): PaneCache {
+  // 节身份：调用方传**全量节**算好的表（渐进窗口切片之前的序列）；未传则按本序列现算
+  const ids = options.sectionIds ?? sectionIdentities(sections);
+  const sectionId = (section: Section): string => ids.get(section) ?? "";
   const meta = new Map<string, number | undefined>();
   for (const section of sections) {
     // 只补不覆盖：独立自足节（用户 / notice）时间缺失，别把它当该 step / 回合的时间
