@@ -4528,7 +4528,13 @@ test("帧率上限：跨回合标脏合并到窗口末统一出帧（frameInterv
 /** 构造即登记到合帧冲刷钩子：FakeRenderer 读帧前 flushApp() 同步冲刷待绘制帧 */
 class TrackedApp extends App {
   constructor(deps: ConstructorParameters<typeof App>[0]) {
-    super(deps);
+    // 条目 16 段 C1：本文件还有若干直接 new TrackedApp 的用例（不经上面两个工厂）。
+    // 这里兜底：没传 sink 就自建一个（等价于生产 `main.ts:322/679`），并把假适配器的事件
+    // 镜像成交付——生产里内容正是由适配器产出的交付驱动，否则这些用例渲染不出内容
+    // （App 的 sections === null → 内容只写缓冲，而「无 sink 回退」已按 C1 剥离）。
+    const sink: NonNullable<FakeAdapter["mirrorTo"]> = deps.pipelineSink ?? {};
+    super({ ...deps, pipelineSink: sink });
+    (deps.adapter as FakeAdapter).mirrorTo = sink;
     registerApp(this);
   }
 }
