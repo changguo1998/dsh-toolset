@@ -840,6 +840,14 @@ export class MockDshAdapter implements DshAdapter {
           detail: ev.detail ?? ev.summary ?? ev.text ?? "",
         });
         break;
+      case "step": {
+        // step/start → step-start（流水线据此画 `╌╌ hh:mm:ss ⇆N #M` 分组头）
+        const phase = (e as { phase?: string }).phase;
+        const stepNo = (e as { step?: number }).step ?? 1;
+        if (phase !== "end")
+          sink({ kind: "step-start", turn, step: stepNo, time: Date.now() });
+        break;
+      }
       case "notice":
         sink({
           kind: "notice",
