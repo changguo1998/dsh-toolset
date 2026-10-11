@@ -1437,10 +1437,80 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     return w;
   };
 
-  /** 只读会话表面（live 直接读内存事件；persisted 走 readSurface；兜底 readSession） */
+  /**
+   * 回合边界补齐：`base` 是正文来源（live 内存事件 / persisted surface 折叠面），两者都可能
+   * **缺回合边界**——`turn/start` 提供回合号（无号用户消息按它归属）、`turn/end` 提供收尾原因，
+   * 缺任一用户块就拿不到终态（画面全是 `?`）。缺时从完整日志（`readSession`）并回这两类事件：
+   *
+   *  - 按 `seq` 去重（`base` 优先）后**整体按 `seq` 归位**：追加到末尾会让边界事件排在正文
+   *    之后，处理用户消息时回合号还没推进，回填会把多条用户块判到同一个回合（真机实测：
+   *    51 个用户块全变 turn 1）；
+   *  - `base` 一条数字 `seq` 都没有时无法归位 → 退回追加（旧行为，不比原来差）；
+   *  - 读失败 → 原样返回 `base` 并给一条 warn notice：否则画面只剩「全 `?`」，无法归因。
+   */
+  const withTurnBoundaries = async (
+    id: string,
+    base: readonly Record<string, unknown>[],
+  ): Promise<readonly Record<string, unknown>[]> => {
+    if (sessionQuery?.readSession === undefined) return base;
+    const turnOf = (e: Record<string, unknown>): number | undefined => {
+      const turn = (e.data as { turn?: unknown } | undefined)?.turn;
+      return typeof turn === "number" ? turn : undefined;
+    };
+    const ended = new Set<number>();
+    for (const e of base) {
+      if (e.type !== "turn/end") continue;
+      const turn = turnOf(e);
+      if (turn !== undefined) ended.add(turn);
+    }
+    // 边界不完整：① 一条 `turn/end` 都没有；② 有用户消息没带回合号（等 `turn/start` 回填）
+    // 或它引用的回合没有收尾；③ 用户块由 `agent/inbox/spliced` 承载（内存会话形态，取不到号）
+    let incomplete = ended.size === 0;
+    for (const e of base) {
+      if (incomplete) break;
+      if (e.type === "agent/inbox/spliced") incomplete = true;
+      else if (e.type === "user/message") {
+        const turn = turnOf(e);
+        if (turn === undefined || !ended.has(turn)) incomplete = true;
+      }
+    }
+    if (!incomplete) return base;
+    try {
+      const full = await sessionQuery.readSession(id);
+      const seen = new Set(
+        base
+          .map((e) => e.seq)
+          .filter((seq): seq is number => typeof seq === "number"),
+      );
+      const extra = full.events.filter(
+        (e) =>
+          (e.type === "turn/start" || e.type === "turn/end") &&
+          !(typeof e.seq === "number" && seen.has(e.seq)),
+      );
+      if (extra.length === 0) return base;
+      const merged = [...base, ...extra];
+      if (!base.some((e) => typeof e.seq === "number")) return merged;
+      const seqOf = (e: Record<string, unknown>): number =>
+        typeof e.seq === "number" ? e.seq : Number.MAX_SAFE_INTEGER;
+      return merged.sort((a, b) => seqOf(a) - seqOf(b));
+    } catch {
+      emit({
+        type: "notice",
+        text: "历史回合边界补齐失败：持久日志不可读，恢复的用户块可能显示 ?",
+        tone: "warn",
+      });
+      return base;
+    }
+  };
+
+  /** 只读会话表面（live 直接读内存事件；persisted 走 readSurface；兜底 readSession）。
+   *  `boundaries: false` 供 `listSessions` 的标题 / 空会话探针用——那里只要正文，不必为每个
+   *  活跃 live 会话多读一次完整日志。 */
   const doReadSessionSurface = async (
     id: string,
+    readOpts?: { boundaries?: boolean },
   ): Promise<SessionSurfaceView> => {
+    const boundaries = readOpts?.boundaries !== false;
     if (!sessionQuery) {
       throw new Error(
         "sessionQuery 未暴露 readSession/readSurface，无法读取会话内容",
@@ -1448,40 +1518,12 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     }
     const live = opts.sessions?.get(id);
     if (live && Array.isArray(live.events)) {
-      // 条目 27：内存 store 的事件里**可能没有 `turn/end`**（真机实测：恢复出来的用户块
-      // 读不到收尾原因 → 一律 `?`）。正文仍用 live（保最新），但缺 `turn/end` 时补一次持久源
-      // 并把其中的 `turn/end` 合并进来（按 seq 去重），供归一化读终态原因
-      let events: readonly Record<string, unknown>[] = live.events;
-      if (!events.some((e) => e.type === "turn/end")) {
-        try {
-          // 持久源两段式：`readSurface` 对 **live 会话**是空的（宿主不做 surface fold），
-          // 空结果必须继续退到 `readSession`（完整日志）——否则永远补不到 `turn/end`
-          const fromSurface: readonly Record<string, unknown>[] =
-            sessionQuery.readSurface
-              ? (await sessionQuery.readSurface(id)).events
-              : [];
-          const persisted: readonly Record<string, unknown>[] =
-            fromSurface.some((e) => e.type === "turn/end") ||
-            sessionQuery.readSession === undefined
-              ? fromSurface
-              : (await sessionQuery.readSession(id)).events;
-          const seen = new Set(
-            events
-              .map((e) => e.seq)
-              .filter((seq): seq is number => typeof seq === "number"),
-          );
-          events = [
-            ...events,
-            ...persisted.filter(
-              (e) =>
-                e.type === "turn/end" &&
-                !(typeof e.seq === "number" && seen.has(e.seq)),
-            ),
-          ];
-        } catch {
-          /* 持久源不可用：保持只有 live 事件（与旧行为一致） */
-        }
-      }
+      // 条目 27：内存 store 的事件里**可能缺回合边界**（真机实测：恢复出来的用户块读不到
+      // 收尾原因 → 一律 `?`），也可能只覆盖一部分回合（旧回合缺、新回合有）。正文仍用 live
+      // （保最新），缺的边界从完整日志补——补齐口径见 `withTurnBoundaries`
+      const events: readonly Record<string, unknown>[] = boundaries
+        ? await withTurnBoundaries(id, live.events)
+        : live.events;
       const messages = normalizeHistoryMessages(events);
       // 刚 resume 的会话在内存 store 可能尚未完全入列：live 表面为空时
       // 回退到 persisted 读取面（readSurface）拿完整历史，避免切换后空屏
@@ -1492,40 +1534,10 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     if (sessionQuery.readSurface) {
       const snap = await sessionQuery.readSurface(id);
       // surface fold **不含 turn/start 与 turn/end**（真机实测：517 条事件里两者都是 0）→
-      // 用户块拿不到终态，恒 `?`。故：surface 缺 turn/end 时，从 `readSession`（完整日志）
-      // 只并入 `turn/end`（正文仍用 surface，保持既有口径），供归一化读收尾原因。
-      let surfaceEvents: readonly Record<string, unknown>[] = snap.events;
-      // 需要的是**回合边界事件**：`turn/start` 提供回合号（用户消息按它归属），
-      // `turn/end` 提供收尾原因。两者都不产消息，合并进来只影响归属与终态。
-      const boundary = (e: Record<string, unknown>): boolean =>
-        e.type === "turn/start" || e.type === "turn/end";
-      if (
-        !surfaceEvents.some((e) => e.type === "turn/end") &&
-        sessionQuery.readSession
-      ) {
-        try {
-          const full = await sessionQuery.readSession(id);
-          const seen = new Set(
-            surfaceEvents
-              .map((e) => e.seq)
-              .filter((seq): seq is number => typeof seq === "number"),
-          );
-          // **必须按 `seq` 归位**：追加到末尾会让边界事件全部排在正文之后 →
-          // 处理用户消息时 `curTurn` 还没推进，最后回填把它们全判成同一个回合
-          // （真机实测：51 个用户块全变 turn 1）
-          const seqOf = (e: Record<string, unknown>): number =>
-            typeof e.seq === "number" ? e.seq : Number.MAX_SAFE_INTEGER;
-          surfaceEvents = [
-            ...surfaceEvents,
-            ...full.events.filter(
-              (e) =>
-                boundary(e) && !(typeof e.seq === "number" && seen.has(e.seq)),
-            ),
-          ].sort((a, b) => seqOf(a) - seqOf(b));
-        } catch {
-          /* 日志不可用：保持只有 surface 事件（与旧行为一致） */
-        }
-      }
+      // 用户块拿不到终态，恒 `?`。补边界口径与 live 分支同源（`withTurnBoundaries`）。
+      const surfaceEvents: readonly Record<string, unknown>[] = boundaries
+        ? await withTurnBoundaries(id, snap.events)
+        : snap.events;
       const msgs = normalizeHistoryMessages(surfaceEvents);
       return { sessionId: id, messages: msgs };
     }
@@ -3296,7 +3308,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           listSessionRecords({
             sessionQuery,
             readMessages: async (id) =>
-              (await doReadSessionSurface(id)).messages,
+              (await doReadSessionSurface(id, { boundaries: false })).messages,
             ...(activeSessionId === undefined ? {} : { activeSessionId }),
           })
       : undefined,

@@ -2115,10 +2115,10 @@ test("历史会话：live 会话经 sessions store 原始事件（agent/inbox/sp
   };
   const { adapter } = makeAdapterWithSessionQuery(sq, store);
   const view = await adapter.readSessionSurface!("live-1");
-  // live 直接从内存 store 读，不触 readSurface/readSession
+  // live 正文从内存 store 读；边界不完整时补读一次持久源（完整日志 readSession）
   assert.ok(
-    sq.readCalls.includes("surface:live-1"),
-    "条目 27：live 缺 turn/end → 至少会补读一次持久源",
+    sq.readCalls.includes("session:live-1"),
+    "条目 27：live 缺回合边界 → 至少会补读一次持久源",
   );
   assert.deepEqual(view.messages, [
     { role: "user", text: "你好第二行" },
@@ -6263,6 +6263,197 @@ test("条目 27：live 事件缺 turn/end 时从持久源补齐（恢复的用�
   );
 });
 
+test("回合边界并回：live 整段缺 turn/start + turn/end → 按 seq 归位后仍带终态", async () => {
+  const persisted: Record<string, unknown>[] = [
+    { type: "turn/start", seq: 1, data: { turn: 1 } },
+    {
+      type: "user/message",
+      seq: 2,
+      data: { id: "u1", content: [{ type: "text", text: "问题一" }] },
+    },
+    {
+      type: "turn/end",
+      seq: 3,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+  ];
+  // 内存 store 只有正文、两类边界一个都没有（真机实测形态）
+  const liveEvents = persisted.filter(
+    (e) => e.type !== "turn/start" && e.type !== "turn/end",
+  );
+  const sq = new FakeSessionQuery();
+  sq.events = persisted;
+  const sessions = {
+    get: (id: string) => (id === "live-1" ? { events: liveEvents } : undefined),
+  } as unknown as SessionStoreLike;
+  const { adapter } = makeAdapterWithSessionQuery(sq, sessions);
+  const view = await adapter.readSessionSurface!("live-1");
+  assert.deepEqual(
+    view.messages
+      .filter((m) => m.role === "user")
+      .map((m) => [m.turn ?? "-", m.status ?? "-"]),
+    [[1, "success"]],
+    "live 缺两类边界 → 从持久源按 seq 并回后应归属回合 1 且带终态（旧口径只并 turn/end → 无回合号 → ?）",
+  );
+});
+
+test("回合边界并回：live 只缺旧回合的 turn/end（部分覆盖）→ 仍去持久源补齐", async () => {
+  const persisted: Record<string, unknown>[] = [
+    { type: "turn/start", seq: 1, data: { turn: 1 } },
+    {
+      type: "user/message",
+      seq: 2,
+      data: { id: "u1", content: [{ type: "text", text: "问题一" }] },
+    },
+    {
+      type: "turn/end",
+      seq: 3,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+    { type: "turn/start", seq: 4, data: { turn: 2 } },
+    {
+      type: "user/message",
+      seq: 5,
+      data: { id: "u2", content: [{ type: "text", text: "问题二" }] },
+    },
+    {
+      type: "turn/end",
+      seq: 6,
+      data: { turn: 2, reason: { kind: "completed" } },
+    },
+  ];
+  // live 有回合 2 的边界、缺回合 1 的：旧判据「一条 turn/end 都没有」不成立 → 漏补
+  const liveEvents = persisted.filter((e) => e.seq !== 1 && e.seq !== 3);
+  const sq = new FakeSessionQuery();
+  sq.events = persisted;
+  const sessions = {
+    get: (id: string) => (id === "live-1" ? { events: liveEvents } : undefined),
+  } as unknown as SessionStoreLike;
+  const { adapter } = makeAdapterWithSessionQuery(sq, sessions);
+  const view = await adapter.readSessionSurface!("live-1");
+  assert.deepEqual(
+    view.messages
+      .filter((m) => m.role === "user")
+      .map((m) => [m.turn ?? "-", m.status ?? "-"]),
+    [
+      [1, "success"],
+      [2, "success"],
+    ],
+    "边界部分覆盖时旧口径漏补旧回合 → 该用户块恒 ?；应按「引用回合是否都有 turn/end」补齐",
+  );
+});
+
+test("回合边界并回：持久源不可读 → 保持 live 事件并给一条 warn notice（不再静默）", async () => {
+  const sq = new FakeSessionQuery();
+  const liveEvents: Record<string, unknown>[] = [
+    {
+      type: "user/message",
+      seq: 2,
+      data: { id: "u1", content: [{ type: "text", text: "问题一" }] },
+    },
+  ];
+  // corrupt-9：readSession 直接 reject（真机形态：日志损坏 / 读失败）
+  const sessions = {
+    get: (id: string) =>
+      id === "corrupt-9" ? { events: liveEvents } : undefined,
+  } as unknown as SessionStoreLike;
+  const { adapter } = makeAdapterWithSessionQuery(sq, sessions);
+  const events: DshEvent[] = [];
+  const unbind = adapter.onEvent((e) => events.push(e));
+  const view = await adapter.readSessionSurface!("corrupt-9");
+  unbind();
+  assert.equal(
+    view.messages.filter((m) => m.role === "user").length,
+    1,
+    "补齐失败仍返回 live 正文（不阻塞恢复）",
+  );
+  const notice = events.find((e) => e.type === "notice");
+  assert.equal(
+    notice?.type === "notice" ? notice.tone : undefined,
+    "warn",
+    "补齐失败要给一条 warn notice，不再静默（否则画面只剩「全 ?」无法归因）",
+  );
+});
+
+test("回合边界并回：用户块由 agent/inbox/spliced 承载 → 同样触发补齐", async () => {
+  const persisted: Record<string, unknown>[] = [
+    { type: "turn/start", seq: 1, data: { turn: 1 } },
+    {
+      type: "agent/inbox/spliced",
+      seq: 2,
+      data: {
+        target: "next-step",
+        inserted: [
+          {
+            id: "u1",
+            role: "user",
+            content: [{ type: "text", text: "问题一" }],
+          },
+        ],
+      },
+    },
+    {
+      type: "turn/end",
+      seq: 3,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+  ];
+  // 内存会话形态（`dsh.ts` 注释：spliced 承载当前内存会话的用户块）：边界缺失
+  const liveEvents = persisted.filter((e) => e.type === "agent/inbox/spliced");
+  const sq = new FakeSessionQuery();
+  sq.events = persisted;
+  const sessions = {
+    get: (id: string) => (id === "live-1" ? { events: liveEvents } : undefined),
+  } as unknown as SessionStoreLike;
+  const { adapter } = makeAdapterWithSessionQuery(sq, sessions);
+  const view = await adapter.readSessionSurface!("live-1");
+  assert.deepEqual(
+    view.messages
+      .filter((m) => m.role === "user")
+      .map((m) => [m.turn ?? "-", m.status ?? "-"]),
+    [[1, "success"]],
+    "spliced 承载的用户块也要算进「边界不完整」判据（旧判据只看 user/message → 恒 ?）",
+  );
+});
+
+test("回合边界并回：live 事件无数字 seq → 退回追加（不假排序）且正文仍带终态", async () => {
+  const persisted: Record<string, unknown>[] = [
+    { type: "turn/start", seq: 1, data: { turn: 1 } },
+    {
+      type: "user/message",
+      seq: 2,
+      data: {
+        id: "u1",
+        turn: 1,
+        content: [{ type: "text", text: "问题一" }],
+      },
+    },
+    {
+      type: "turn/end",
+      seq: 3,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+  ];
+  // 宿主变体：live 事件整体没有 seq → 无法归位，退回追加（旧行为）
+  const liveEvents = persisted
+    .filter((e) => e.type === "user/message")
+    .map(({ seq: _seq, ...rest }) => rest);
+  const sq = new FakeSessionQuery();
+  sq.events = persisted;
+  const sessions = {
+    get: (id: string) => (id === "live-1" ? { events: liveEvents } : undefined),
+  } as unknown as SessionStoreLike;
+  const { adapter } = makeAdapterWithSessionQuery(sq, sessions);
+  const view = await adapter.readSessionSurface!("live-1");
+  assert.deepEqual(
+    view.messages
+      .filter((m) => m.role === "user")
+      .map((m) => [m.turn ?? "-", m.status ?? "-"]),
+    [[1, "success"]],
+    "无 seq 时不假排序；正文自带回合号 + 追加的 turn/end 仍能落终态",
+  );
+});
+
 test("条目 27：用户消息先于 turn/start 落库（真机顺序）→ 终态回填到正确回合", () => {
   const msgs = normalizeHistoryMessages([
     {
@@ -6334,7 +6525,7 @@ test("条目 27：live 缺 turn/end 且 readSurface 为空 → 退到 readSessio
   );
 });
 
-test("条目 27：surface 缺 turn/end（真机形态）→ 从 readSession 只并入 turn/end", async () => {
+test("条目 27：surface 缺回合边界（真机形态）→ 从 readSession 并回 turn/start + turn/end", async () => {
   const full: Record<string, unknown>[] = [
     {
       type: "user/message",
