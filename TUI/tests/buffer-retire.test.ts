@@ -1,11 +1,17 @@
-// tests/buffer-retire.test.ts — 条目 7 选项 1：生产路径的缓冲不承载会话内容
+// tests/buffer-retire.test.ts — 条目 7 选项 1 / 条目 16 段 C2：生产路径的 `local` 只承载 UI 本地行
 //
-// 覆盖 `bufferRetainsContent: false`（App 注入节缓存时置否）的口径：
-//   - 内容类 action（正文 / 用户行 / 思考 / step / 工具行 / 分隔线 / 恢复行）只更新状态
-//     事实，不写缓冲；
-//   - UI 本地行（notice / shell / 辅助工具行）仍写缓冲——底部 toast 与 App 的事件补投
-//     需要它们（见追踪文档第四阶段）；
-//   - 用户输入开启的回合清掉活动区提示行；历史恢复清空缓冲（不带上一会话的本地行）；
+// 条目 16 段 C2 之后，内容（用户块 / 正文 / 思考 / step 头 / 工具批）的唯一来源是节缓存
+// `state.pipeline`（交付驱动），`local` 只剩 UI 本地行：
+//   - 交付把内容送进节缓存，缓冲里没有内容行（本文件用交付构造器造内容；App 级同型断言见
+//     `tests/p5-blank-chunk.test.ts` 与 `tests/pipeline-app.test.ts`）；
+//   - UI 本地行（notice / shell / 辅助工具行 / 重试提示）仍写缓冲——底部 toast 与 App 的
+//     事件补投需要它们（见追踪文档第四阶段）；
+//   - 用户输入开启的回合清掉活动区提示行；历史恢复 / 会话切换清空缓冲（不带上一会话的本地行）。
+//
+// 已退场的口径：`bufferRetainsContent` / `CONTENT_ACTIONS` 的「内容写缓冲闸门」与
+// 「缺省仍承载内容（测试 / 嵌入用法）」——C2 后内容类 action 只承载状态事实
+// （`inputStatus` / 回合号 / `strippedChars` …），不再有内容类缓冲写入。
+//
 // 读侧迁移的 App 级回归（`/copy` 取节模型）见 `tests/pipeline-app.test.ts`。
 
 import { test } from "node:test";
@@ -18,13 +24,31 @@ import {
   type StateAction,
 } from "../src/app/state.ts";
 import {
+  allSections,
   applyDelivery,
   createSections,
   lastTextOfSources,
 } from "../src/app/layout/pipeline/sections.ts";
 import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
+import {
+  withStep,
+  withText,
+  withToolCall,
+  withToolResult,
+  withUser,
+} from "./helpers/pipelineContent.ts";
 
-/** 生产口径 state：注入节缓存 + 关掉「缓冲承载会话内容」 */
+/** 固定时间戳（本地时间 03:04:05）——step 声明用 */
+const T0 = new Date(2026, 0, 2, 3, 4, 5).getTime();
+
+/**
+ * 生产口径 state：注入节缓存（内容唯一来源 = 节缓存；App 装配时同此）。
+ *
+ * 条目 16 段 C2 过渡：`bufferRetainsContent: false` 是 C1 的开关（C2 随内容类 `BufferKind`
+ * 一起删）。本文件只在这一处引用它——C2 落地后删掉该字段即可，断言无需改动：「历史恢复清空
+ * `local`」半边按 C2 口径保留（清理分支改为无条件），其余四例本就与开关无关（交付不写缓冲、
+ * UI 本地行恒写）。
+ */
 function prod(): AppState {
   return reduceState(initialState(), {
     type: "pipeline-state",
@@ -36,19 +60,29 @@ function prod(): AppState {
 const applyAll = (s: AppState, actions: readonly StateAction[]): AppState =>
   actions.reduce((acc, action) => reduceState(acc, action), s);
 
-test("内容类 action 不写缓冲；UI 本地行仍写（toast / 事件补投的来源）", () => {
-  const content: StateAction[] = [
-    { type: "append", text: "回复正文" },
-    { type: "user-line", text: "你好" },
-    { type: "thinking", text: "想一下" },
-    { type: "step", sessionId: "s1", turn: 1, step: 1, phase: "start" },
-    { type: "tool-call", sessionId: "s1", name: "bash", summary: "echo hi" },
-    { type: "tool-result", sessionId: "s1", ok: true, detail: "hi" },
-    { type: "turn-begin", clearActivity: false },
-  ];
-  const kept = applyAll(prod(), content);
-  assert.deepEqual(kept.local, [], "缓冲不承载会话内容");
+test("交付把内容送进节缓存；缓冲里没有内容行", () => {
+  let s = prod();
+  s = withUser(s, "你好");
+  s = withText(s, "回复正文", "assistant");
+  s = withText(s, "想一下", "reasoning");
+  s = withStep(s, 1, T0);
+  s = withToolCall(s, "bash", "echo hi", "c1");
+  s = withToolResult(s, true, "hi", "c1");
+  const dump = JSON.stringify(allSections(s.pipeline!));
+  for (const text of ["你好", "回复正文", "想一下", "echo hi", "hi"])
+    assert.ok(
+      dump.includes(text),
+      `节缓存应含「${text}」：${dump.slice(0, 200)}`,
+    );
+  assert.deepEqual(
+    [...(s.pipeline?.stepMeta.keys() ?? [])],
+    ["1:1"],
+    "step 声明进节缓存元数据",
+  );
+  assert.deepEqual(s.local, [], "缓冲不承载会话内容（local 只留 UI 本地行）");
+});
 
+test("UI 本地行照写（toast / 事件补投的来源）", () => {
   const local = applyAll(prod(), [
     { type: "notice", text: "提示一下", tone: "warn" },
     { type: "shell-lines", lines: [{ text: "$ echo hi" }] },
@@ -93,18 +127,6 @@ test("历史恢复 / 会话切换：缓冲清空（不带上一会话的 UI 本�
   ]);
   assert.deepEqual(s.local, [], "恢复行只进节模型（批 A2），缓冲清空");
   assert.equal(s.activeSessionId, "s2", "状态事实保留");
-});
-
-test("缺省仍承载内容（测试 / 嵌入用法不变）", () => {
-  const s = applyAll(initialState(), [
-    { type: "append", text: "回复正文" },
-    { type: "user-line", text: "你好" },
-  ]);
-  assert.deepEqual(
-    s.local.map((l) => l.text),
-    ["回复正文", "你好"],
-    "bufferRetainsContent 缺省 true",
-  );
 });
 
 test("lastTextOfSources：按节序取最后一条匹配来源的非空文本", () => {

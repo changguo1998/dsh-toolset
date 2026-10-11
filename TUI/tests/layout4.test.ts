@@ -330,10 +330,10 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
     mark(withUser(s, LIVE), LIVE).sym;
   const mk = (curMode: InputMode, status: InputStatus) =>
     reduceState(
-      reduceState(
-        withUser(initialState(), "用户输入文本"),
-        { type: "input-mode", mode: curMode },
-      ),
+      reduceState(withUser(initialState(), "用户输入文本"), {
+        type: "input-mode",
+        mode: curMode,
+      }),
       { type: "input-status", status },
     );
   /** 终态用例：turn-end 的 reason 给最新未终态用户块打终态（条目 16 段 C2：终态由 `turn-end`
@@ -506,7 +506,9 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   tb = reduceState(tb, { type: "append", text: ascii(64), time: 2050 });
   const midRun = tb.runVirt.tokens;
   assert.ok(midRun > 0, "核心回合流式输出累计虚拟 token");
-  tb = withTurnStart(reduceState(tb, { type: "turn-begin", clearActivity: false }));
+  tb = withTurnStart(
+    reduceState(tb, { type: "turn-begin", clearActivity: false }),
+  );
   assert.equal(
     tb.runVirt.tokens,
     midRun,
@@ -888,7 +890,11 @@ test("turn-begin: 新回合不再清空活动区（内容持续可见），仅�
   );
   assert.ok(after.includes("思考 1"), "新回合不再清空思考（内容持续可见）");
   assert.ok(after.includes("问题 1"), "对话保留");
-  assert.equal(turnSepRows(buildFrame(s, SIZE), SIZE.cols), 1, "新回合带一条分隔线");
+  assert.equal(
+    turnSepRows(buildFrame(s, SIZE), SIZE.cols),
+    1,
+    "新回合带一条分隔线",
+  );
   assert.ok(
     !s.local.some((l) => l.kind === "notice"),
     "新回合清掉上一回合的 UI 本地提示行（toast 不挂上一回合的提示）",
@@ -967,13 +973,21 @@ test("turn-end 标 final：中间输出留活动区、总结进历史区；幂�
     "重复 turn-end 幂等",
   );
   // 帧级：总结进会话区（历史区），中间输出与思考留活动区
-  const rows = buildFrame(s, SIZE).map((l) => histContent(rowText(l), SIZE.cols));
-  assert.ok(rows.some((r) => r.includes("最终总结")), "final 总结在帧内可见");
+  const rows = buildFrame(s, SIZE).map((l) =>
+    histContent(rowText(l), SIZE.cols),
+  );
+  assert.ok(
+    rows.some((r) => r.includes("最终总结")),
+    "final 总结在帧内可见",
+  );
   assert.ok(
     rows.some((r) => r.includes("中间回复 1")),
     "非 final 中间输出留在活动区",
   );
-  assert.ok(rows.some((r) => r.includes("思考")), "思考留在活动区");
+  assert.ok(
+    rows.some((r) => r.includes("思考")),
+    "思考留在活动区",
+  );
   // 新回合 turn-begin：final 节保留（历史区），非 final 中间输出也不清（内容持续可见）
   s = withTurnStart(s);
   assert.equal(
@@ -1110,7 +1124,10 @@ test("renderStatusLine: 超宽溢出到多行，不丢段且每行不超宽", ()
 
 test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(块右对齐、内部左对齐)", () => {
   let s = initialState();
-  s = withUser(s, "用户消息很长用于验证历史区的右侧缩进和续行换行行为这是一段更长的内容");
+  s = withUser(
+    s,
+    "用户消息很长用于验证历史区的右侧缩进和续行换行行为这是一段更长的内容",
+  );
   s = withText(s, "模型回答");
   // 回合结束：最后一段 assistant 标为 final 总结 → 历史区展示
   s = withTurnEnd(s);
@@ -1285,7 +1302,10 @@ test("会话流：短用户消息块整体靠右，右缘贴历史区右缘，�
 
 test("会话流：用户消息软换行续行共享同一左边界；显式换行另起一个右对齐收缩块", () => {
   let s = initialState();
-  s = withUser(s, "第一行内容\n第二行更长的内容会触发软换行继续向下一行展示直到超出三十六列宽度限制为止");
+  s = withUser(
+    s,
+    "第一行内容\n第二行更长的内容会触发软换行继续向下一行展示直到超出三十六列宽度限制为止",
+  );
   // 标题栏占左列顶部 2 行：加高终端（rows=24 → dialogueH=5）保证首行块可见；
   // cols=50（状态列最低 20 → 历史区 30）确保两个用户块都在可视窗口内
   const plain = buildFrame(s, { rows: 24, cols: 50 }).map((line) =>
@@ -1362,13 +1382,10 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   // 活动区分隔线：灰色实线（ANSI 直方）；turn 分隔线灰色虚线；状态栏上 = 下 -
   // 标题栏下划线行也是全 ─（index 2），须跳过以定位真正的活动区分隔行
   const graySGR = "\x1b[38;2;";
-  const dt = buildFrame(
-    withText(initialState(), "x", "reasoning"),
-    {
-      rows: 16,
-      cols: 40,
-    },
-  );
+  const dt = buildFrame(withText(initialState(), "x", "reasoning"), {
+    rows: 16,
+    cols: 40,
+  });
   const dotRaw = dt.find(
     (l, i) => i > TITLE_BAR_ROWS && /^─+$/.test(histContent(rowAnsi(l), 40)),
   );
@@ -1388,13 +1405,10 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
     rowAnsi(turnRaw!).includes(graySGR),
     "turn 分隔线为灰色（含 truecolor SGR）",
   );
-  const st = buildFrame(
-    withText(initialState(), "x", "reasoning"),
-    {
-      rows: 16,
-      cols: 40,
-    },
-  ).map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""));
+  const st = buildFrame(withText(initialState(), "x", "reasoning"), {
+    rows: 16,
+    cols: 40,
+  }).map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""));
   // 状态栏行定位（P1）：状态栏不再以「符号 + 空格 + │」起头（符号已移到用户块首行、
   // 组间改 • 分隔），改按状态区三段结构定位——上分隔行 / 状态栏行 / 下分隔行
   const seps = st
@@ -2394,9 +2408,21 @@ test("focus-panel-cycle / activity-scroll reducer：循环与偏移非负 clamp"
 test("reduceState: 新输入/输出（内容推进）后焦点自动回 null；UI action 不重置", () => {
   const s = reduceState(initialState(), { type: "focus-panel-cycle" }); // null → 历史
   assert.equal(s.focusedPanel, "history");
-  const afterOut = withText(s, "模型输出");
+  // 条目 16 段 C2：内容改由**交付**进节缓存（action 类型 `pipeline-state`），而焦点复位挂在
+  // 旧内容 action 上（`FOCUS_RESET_ACTIONS`）——生产里每条内容事件仍是「旧 action + 交付」
+  // 成对派发（src/app/index.ts 的 stream / thinking / notice 分支），故这里按生产口径成对调用。
+  const afterOut = reduceState(withText(s, "模型输出"), {
+    type: "append",
+    text: "模型输出",
+  });
   assert.equal(afterOut.focusedPanel, null, "模型输出后自动回无焦点");
-  const afterIn = withUser(reduceState(initialState(), { type: "focus-panel-cycle" }), "用户输入");
+  const afterIn = reduceState(
+    withUser(
+      reduceState(initialState(), { type: "focus-panel-cycle" }),
+      "用户输入",
+    ),
+    { type: "user-line", text: "用户输入" },
+  );
   assert.equal(afterIn.focusedPanel, null, "用户输入后自动回无焦点");
   const afterNotice = reduceState(
     reduceState(initialState(), { type: "focus-panel-cycle" }),
@@ -2526,8 +2552,7 @@ test("对话区：渐进窗口（跟底只物化最近 N 组，上滚逐步扩�
   // 8 组回复（> DIALOGUE_KEEP_REPLIES=3），每组多行 → 3 组物化即超出 24 行终端的一屏
   for (let i = 1; i <= 8; i++) {
     s = withUser(s, `Q${i}`);
-    for (let k = 0; k < 4; k++)
-      s = withText(s, `A${i} 的回复正文第 ${k} 行`);
+    for (let k = 0; k < 4; k++) s = withText(s, `A${i} 的回复正文第 ${k} 行`);
     s = withTurnEnd(s); // 回复标 final 进历史区
   }
   const size = { rows: 24, cols: 80 };
@@ -2706,7 +2731,8 @@ function appScrollDialogue(
   let r = emptyReportForTest();
   buildFrame(s, size, r);
   for (let guard = 0; delta > 0 && guard < 4; guard++) {
-    if (s.windowGroups >= sectionGroupCount(sectionsFromLocal(s.local))) break;
+    // 条目 16 段 C2：组数上限改从**节缓存**数（内容不落缓冲，`sectionsFromLocal(s.local)` 恒空）
+    if (s.windowGroups >= sectionGroupCount(sectionsOf(s))) break;
     const margin = Math.max(1, Math.floor(r.dialogueViewportH / 2));
     const needMore = r.dialogueTopIdx - delta < 0;
     const nearTop = r.dialogueTopIdx <= margin;
@@ -3033,17 +3059,20 @@ test("buildFrame 回填滚动几何：上限随物化窗口（渐进），初始
     s = withText(s, `回复正文行 ${i}甲\n回复正文行 ${i}乙`);
     s = withTurnEnd(s);
   }
+  // 条目 16 段 C2：活动区内容是节缓存里的 notice 交付（只写 `state.local` 的本地 action 不上屏）
   for (let i = 0; i < 40; i++)
-    s = reduceState(s, { type: "notice", text: `活动区行 ${i}` });
+    s = withDelivery(s, { kind: "notice", text: `活动区行 ${i}` });
   const size = { rows: 24, cols: 80 };
   const report = emptyReport();
   buildFrame(s, size, report);
   assert.ok(report.dialogueMaxScroll > 0, "对话区可滚上限 > 0");
   assert.ok(report.activityMaxScroll > 0, "活动区可滚上限 > 0");
   assert.ok(report.dialogueTotal > 0, "回填物化行数");
-  assert.ok(
-    report.dialogueTotal < s.local.length,
-    "窗口只物化尾部（渐进定位：不再整段历史入排版）",
+  // 旧判据是「物化行数 < 缓冲行数」；内容不落缓冲后改为等价语义：窗口未覆盖最旧内容
+  assert.equal(
+    report.dialogueKeys[0],
+    MARKER_KEY,
+    "窗口只物化尾部（渐进定位：更早回复未入排版，顶部为折叠占位行）",
   );
   // 扩窗一批（Home 的加载步长）→ 物化行数随之增长（渐进扩窗）
   const bigger = emptyReport();

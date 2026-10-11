@@ -3,11 +3,22 @@
 // 覆盖：排队项带类型（followup / steer）；忙时 `<` 提交进排队块（独立成行、不写 buffer）、
 // 空闲时直达回显；渲染顺序 steer 在 followup 之上；右缘竖线 steer 黄 / followup 灰 /
 // 已发出亮红；核心在 step 边界认领（inbox-claim）后 steer 项转入历史流。
+//
+// 条目 16 段 C2：内容不再有缓冲行形态——「被 steer 续接」标与 steer 留白都改在**节缓存 /
+// pane** 上断言（交付驱动；标记由流水线产出，见 `pipeline/sections.ts` 的 `user-flag` 与
+// 带 `queued:"steer"` 的用户交付）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { App } from "../src/app/index.ts";
+import { withDelivery, withUser } from "./helpers/pipelineContent.ts";
+import {
+  allSections,
+  applyDelivery,
+  createSections,
+} from "../src/app/layout/pipeline/sections.ts";
+import { buildPanes } from "../src/app/layout/pipeline/panes.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 import { registerApp } from "./helpers/paintFlush.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
@@ -94,20 +105,16 @@ test("reducer：排队项带类型；认领按类型各取最早一条（互不�
     claimedFollow.queued.map((q) => q.text),
     ["steer 一", "普通二"],
   );
-  assert.ok(
-    claimedFollow.local.some((l) => l.kind === "user" && l.text === "普通一"),
-    "被认领的 followup 转入历史流",
-  );
+  // 条目 16 段 C2：内容不再有缓冲行形态——「认领即转入历史流」改由 App 认领时随交付发出
+  // （`index.ts` 的 `queued-claim` 分支 → 节缓存），本用例只钉队列事实。等价覆盖：
+  // `tests/app.test.ts`「agent 运行中 Enter → 官方流程」断言被认领的 followup 成为节缓存
+  // 里的用户块；steer 认领的节缓存断言见下方「核心在 step 边界认领」用例。
 
   // step 边界：认领最早 **steer**（不误吃 followup）
   const claimedSteer = reduceState(s, { type: "queued-claim-steer" });
   assert.deepEqual(
     claimedSteer.queued.map((q) => q.text),
     ["普通一", "普通二"],
-  );
-  assert.ok(
-    claimedSteer.local.some((l) => l.kind === "user" && l.text === "steer 一"),
-    "被认领的 steer 转入历史流",
   );
 
   // 队列里没有该类条目 → no-op（不误吃别的类型）
@@ -193,49 +200,74 @@ test("核心在 step 边界认领（inbox-claim / next-step）→ 该条转入�
   }
 });
 
-test("#4 reducer：steer 认领给上一条输入打「被续接」标 + 认领行留白；followup/首条不标", () => {
-  // steer 认领：上一条输入 steerContinued + 认领行 spaceBefore
-  let s: AppState = initialState();
-  s = reduceState(s, { type: "user-line", text: "第一条" });
-  s = reduceState(s, {
-    type: "queued-push",
+test("#4 节缓存：steer 认领给上一条用户块打「被续接」标 + steer 块留白；followup/首条不标", () => {
+  // 条目 16 段 C2：两个标记不再长在缓冲行上——steer 认领时 App 发两条交付（`index.ts` 的
+  // `inbox-claim` 分支）：`user-flag` 给**上一条**用户块打「被续接」标（渲染永久 `←`），
+  // 带 `queued:"steer"` 的用户块所在节带 steer 标 → pane 层在其上方插留白。
+  const userItems = (
+    s: AppState,
+  ): { text?: string; steerContinued?: boolean }[] =>
+    allSections(s.pipeline!)
+      .flatMap((section) => section.items)
+      .filter((item) => item.source === "user");
+  /** 会话区 pane 项类型序列（`blank` = 留白） */
+  const paneKinds = (s: AppState): string[] =>
+    buildPanes(allSections(s.pipeline!), { level: "think" }).dialogue.map(
+      (item) => item.kind,
+    );
+
+  // steer 认领：上一条输入 steerContinued + 认领块上方留白
+  let s = withUser(initialState(), "第一条");
+  s = withDelivery(s, { kind: "user-flag", steerContinued: true });
+  s = withDelivery(s, {
+    kind: "user",
+    turn: 1,
+    step: 1,
     text: "steer 插队",
-    kind: "steer",
+    queued: "steer",
   });
-  const claimed = reduceState(s, { type: "queued-claim-steer" });
-  assert.equal(
-    claimed.local.find((l) => l.text === "第一条")?.steerContinued,
-    true,
-    "上一条输入标「被 steer 续接」",
+  assert.deepEqual(
+    userItems(s).map((item) => [item.text, item.steerContinued ?? false]),
+    [
+      ["第一条", true],
+      ["steer 插队", false],
+    ],
+    "上一条输入标「被 steer 续接」，认领块自身不标",
   );
-  assert.equal(
-    claimed.local.find((l) => l.text === "steer 插队")?.spaceBefore,
-    true,
-    "steer 行上方留白",
+  assert.deepEqual(
+    paneKinds(s),
+    ["line", "blank", "line"],
+    "steer 块与上一条输入之间留白",
   );
 
   // followup 认领：两个标记都不落
-  let f: AppState = initialState();
-  f = reduceState(f, { type: "user-line", text: "第一条" });
-  f = reduceState(f, { type: "queued-push", text: "普通排队" });
-  const follow = reduceState(f, { type: "queued-claim" });
+  let f = withUser(initialState(), "第一条");
+  f = withDelivery(f, { kind: "user", turn: 1, step: 1, text: "普通排队" });
   assert.ok(
-    !follow.local.some((l) => l.steerContinued || l.spaceBefore),
-    "followup 认领不加任何标记",
+    userItems(f).every((item) => item.steerContinued !== true),
+    "followup 认领不加「被续接」标",
   );
+  assert.deepEqual(paneKinds(f), ["line", "line"], "followup 认领不留白");
 
   // 会话首条即 steer：无参照物 → 不标不留白
-  let e: AppState = initialState();
-  e = reduceState(e, {
-    type: "queued-push",
-    text: "首条 steer",
-    kind: "steer",
-  });
-  const first = reduceState(e, { type: "queued-claim-steer" });
-  assert.ok(
-    !first.local.some((l) => l.steerContinued || l.spaceBefore),
-    "无上一条输入时不标符号、不留白",
+  const empty = createSections();
+  assert.equal(
+    applyDelivery(empty, { kind: "user-flag", steerContinued: true }),
+    empty,
+    "无上一条用户块 → `user-flag` 空转（不标符号）",
   );
+  const first = withDelivery(initialState(), {
+    kind: "user",
+    turn: 1,
+    step: 1,
+    text: "首条 steer",
+    queued: "steer",
+  });
+  assert.ok(
+    userItems(first).every((item) => item.steerContinued !== true),
+    "首条 steer 无参照物 → 不标符号",
+  );
+  assert.deepEqual(paneKinds(first), ["line"], "首条 steer 前无内容 → 不留白");
 });
 
 test("#4 渲染：被 steer 续接的用户块显示 ←，steer 块与上一条输入之间留空行", async () => {
