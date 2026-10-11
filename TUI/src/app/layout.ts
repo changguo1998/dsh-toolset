@@ -1187,6 +1187,9 @@ export function renderStatusColumn(
     w - 1,
     activation,
     runPhase(runTokens),
+    // 条目 1：条目行符号的闪烁节拍 = 全局相位序号（虚拟 token 积分单调递增，App 的节拍门
+    // 已含「有子代理在跑」）→ 各代理再按自己的 tps 分档取相位，相对快慢即不同
+    Math.floor(runTokens / RUN_TOGGLE_TOKENS),
   );
   // 状态列折叠策略：无强制行数上限——从 L0 到 L3 依次尝试折叠等级，
   // 首次放下即采用；全部等级用尽仍放不下（goal 大头）→ 整列行级截断兜底
