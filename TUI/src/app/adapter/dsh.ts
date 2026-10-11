@@ -236,7 +236,6 @@ export {
   type ToolBootstrapOptions,
   type TaskAnchor,
 } from "./tool-bootstrap.ts";
-import { appendFileSync } from "node:fs"; // 临时：恢复诊断（定位后删）
 
 /**
  * 镜像官方 @deepseek-ai/dsh-agent installModelSelection：挂钩 agentCtx 的
@@ -1370,36 +1369,6 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     return w;
   };
 
-  // 临时诊断（定位「重启前用户块恒 ?」用，定位后整段删除）：把恢复取到的源与终态统计
-  // 追加到 workspace 下的 tmp/restore-debug.log，供 agent 直接读取
-  const debugRestore = (
-    tag: string,
-    msgs: readonly HistoryMessage[],
-    events: readonly Record<string, unknown>[],
-  ): void => {
-    try {
-      const users = msgs.filter((m) => m.role === "user");
-      appendFileSync(
-        "/home/guochang/Projects/dsh-toolset/tmp/restore-debug.log",
-        JSON.stringify({
-          at: new Date().toISOString(),
-          tag,
-          events: events.length,
-          turnEnd: events.filter((e) => e.type === "turn/end").length,
-          turnStart: events.filter((e) => e.type === "turn/start").length,
-          msgs: msgs.length,
-          users: users.length,
-          usersWithStatus: users.filter((m) => m.status !== undefined).length,
-          firstUsers: users
-            .slice(0, 6)
-            .map((m) => [m.turn ?? null, m.status ?? null]),
-        }) + "\n",
-      );
-    } catch {
-      /* 诊断写失败不影响恢复 */
-    }
-  };
-
   /** 只读会话表面（live 直接读内存事件；persisted 走 readSurface；兜底 readSession） */
   const doReadSessionSurface = async (
     id: string,
@@ -1449,7 +1418,6 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       // 刚 resume 的会话在内存 store 可能尚未完全入列：live 表面为空时
       // 回退到 persisted 读取面（readSurface）拿完整历史，避免切换后空屏
       if (messages.length > 0) {
-        debugRestore("live", messages, events);
         return { sessionId: id, messages };
       }
     }
@@ -1491,13 +1459,11 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         }
       }
       const msgs = normalizeHistoryMessages(surfaceEvents);
-      debugRestore("surface", msgs, surfaceEvents);
       return { sessionId: id, messages: msgs };
     }
     if (sessionQuery.readSession) {
       const snap = await sessionQuery.readSession(id);
       const msgs = normalizeHistoryMessages(snap.events);
-      debugRestore("session", msgs, snap.events);
       return { sessionId: id, messages: msgs };
     }
     throw new Error(
