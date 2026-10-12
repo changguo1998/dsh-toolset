@@ -55,16 +55,12 @@ import {
 } from "./layout/pipeline/replay.ts";
 import { type HistoryRow } from "./state.ts";
 import {
+  charWidth,
   setWidthOverrides,
   setWidthProbeEnabled,
   takePendingWidthProbes,
-  widthOverrideEntries,
 } from "./layout/markdown.ts";
-import {
-  readWidthTable,
-  terminalKey,
-  writeWidthTable,
-} from "./layout/width-table.ts";
+import { readWidthSymbols, writeWidthSymbols } from "./layout/width-symbols.ts";
 import { maxDescScrollFor } from "./components/QuestionPrompt.ts";
 import { maxApprovalScroll } from "./components/ApprovalPrompt.ts";
 
@@ -73,6 +69,8 @@ const APPROVAL_TIMEOUT_FALLBACK_MS = 60_000;
 
 /** 帧前实测的超时上限(ms)：探测期间不出帧，故取小值；整批无回包即判定不支持 CPR */
 const WIDTH_PROBE_TIMEOUT_MS = 150;
+/** 启动预探测（按符号列表）的超时上限（ms）：不设严格限制 —— 宁可多等一点换首帧宽度准 */
+const STARTUP_PROBE_TIMEOUT_MS = 1200;
 import {
   parseSlashCommand,
   SESSION_UI_STATE_VERSION,
@@ -306,8 +304,8 @@ export interface AppDeps {
    *  缺省（不传）= 未接线：不复查也不告警（测试与无 guard 的嵌入方保持原行为）。 */
   getGuard?: () => SecurityGuardLike | undefined;
   /** profile 目录（main.ts 从 `ctx.get('profileContext').dir` 接线）：实测宽度表
-   *  落盘位置（`<profile 目录>/tui-width-table.json`）。缺省 / 空串 = 不落盘
-   *  （仍按需实测，只是不跨会话复用）；见 layout/width-table.ts。 */
+   *  落盘位置（`<profile 目录>/tui-width-symbols.json`）。缺省 / 空串 = 不落盘
+   *  （仍按需实测，只是不跨会话复用）；见 layout/width-symbols.ts。 */
   profileDir?: string;
 }
 
@@ -344,12 +342,14 @@ export class App {
   private renderedRuleInjections = new Set<string>();
   /** 待绘制脏标记：同一 tick 内多次标脏合并为一次 render（见 paint/flushPaint） */
   private paintDirty = false;
-  /** 实测宽度表落盘目录（`profileDir`；"" = 不落盘，见 layout/width-table.ts） */
+  /** 实测宽度表落盘目录（`profileDir`；"" = 不落盘，见 layout/width-symbols.ts） */
   private profileDir = "";
   /** 宽度实测在途：同一时刻只发一批，在途期间不再登记新批（避免探测字节叠发） */
   private widthProbeInFlight = false;
   /** 终端不支持 CPR（整批无回包）→ 关闭后续实测，一律沿用静态表 */
   private widthProbeUnavailable = false;
+  /** 「呈现不确定」符号列表（码点，最近出现靠后）：落盘只存它，宽度只存内存 */
+  private widthSymbols: number[] = [];
   /** 已排队待冲刷的合帧标志（与 paintDirty 成对；dispose 时清零使排队帧变 no-op） */
   private paintScheduled = false;
   /** 跨回合最小帧间隔(ms)：0=不限帧（缺省，测试/演示保持立即出帧）；
@@ -754,7 +754,7 @@ export class App {
     // 启动自动清理空会话（tui.config.json session.autoCleanEmpty；main.ts 接线缺省 true，
     // 未接线时为关闭）
     this.autoCleanEmpty = deps.autoCleanEmpty === true;
-    // 实测宽度表落盘目录（缺省 "" = 不落盘；见 layout/width-table.ts）
+    // 符号列表落盘目录（缺省 "" = 不落盘；见 layout/width-symbols.ts）
     this.profileDir = deps.profileDir ?? "";
     this.state = initialState(
       normalizeThemeId(this.deps.initialTheme ?? DEFAULT_THEME),
@@ -775,27 +775,61 @@ export class App {
   setLogger(_fn: (msg: string) => void): void {}
 
   /**
-   * 载入实测宽度表（`<profile 目录>/tui-width-table.json`，见 layout/width-table.ts）：
-   * 上次会话实测过的字符直接按实测值排版，本会话不再探测。表缺失 / 换终端（term 标识
-   * 不匹配）→ 空表，回落静态表。
+   * 首帧前载入「呈现不确定」符号列表（`<profile 目录>/tui-width-symbols.json`）：只记
+   * **哪些码点值得实测**，宽度不落盘（每次会话重新实测）——换终端 / tmux / 字体 / 字号
+   * 因此自动正确（用户 2026-10-12 裁定，见 `layout/width-symbols.ts`）。
    *
-   * `TUI_WIDTH_PROBE=0`：整体关闭按需实测（不载表、不登记、不探测），用于对照排查
-   * 「静态表基线」。
+   * `TUI_WIDTH_PROBE=0`：整体关闭按需实测（不读列表、不登记、不探测、不落盘），用于对照
+   * 排查「静态表基线」。
    */
-  private loadWidthTable(): void {
+  private loadWidthSymbols(): void {
     if (process.env.TUI_WIDTH_PROBE === "0") {
       setWidthProbeEnabled(false);
       return;
     }
     if (this.profileDir === "") return;
-    const entries = readWidthTable(this.profileDir, terminalKey());
-    if (entries.size > 0) setWidthOverrides(entries);
+    this.widthSymbols = readWidthSymbols(this.profileDir);
   }
 
-  /** 实测宽度表落盘（profile 目录；写失败静默——排版已按实测值生效，落盘只是复用手段） */
-  private saveWidthTable(): void {
-    if (this.profileDir === "") return;
-    writeWidthTable(this.profileDir, terminalKey(), widthOverrideEntries());
+  /**
+   * 符号列表原子落盘（文件很小、幂等）：列表只是**下次启动的先验**，实测值当次已生效；
+   * 写失败静默。`TUI_WIDTH_PROBE=0` 时不写。
+   */
+  private recordWidthSymbols(): void {
+    if (process.env.TUI_WIDTH_PROBE === "0") return;
+    if (this.profileDir === "" || this.widthSymbols.length === 0) return;
+    writeWidthSymbols(this.profileDir, this.widthSymbols);
+  }
+
+  /** 新实测到的字符码点并入符号列表并落盘（去重；宽度本身不落盘） */
+  private rememberWidthSymbols(chars: Iterable<string>): void {
+    for (const ch of chars) {
+      const cp = ch.codePointAt(0);
+      if (cp === undefined || this.widthSymbols.includes(cp)) continue;
+      this.widthSymbols.push(cp);
+    }
+    this.recordWidthSymbols();
+  }
+
+  /**
+   * 临时诊断（`TUI_WIDTH_DUMP=<文件路径>`）：把这一批实测到的宽度写成文本，便于真机上
+   * 比对「实测 vs 静态」（排查符号宽度不对；未设开关时零开销、不落盘）。
+   */
+  private dumpProbeResults(widths: Map<string, number>): void {
+    const path = process.env.TUI_WIDTH_DUMP;
+    if (path === undefined || path === "") return;
+    const lines: string[] = [];
+    for (const [ch, w] of widths) {
+      const cp = ch.codePointAt(0) ?? 0;
+      lines.push(
+        `U+${cp.toString(16).toUpperCase()} ${ch} measured=${w} effective=${charWidth(ch)}`,
+      );
+    }
+    try {
+      writeFileSync(path, `${lines.join("\n")}\n`, { mode: 0o600 });
+    } catch {
+      // 诊断写失败不影响运行
+    }
   }
 
   /**
@@ -807,19 +841,24 @@ export class App {
    * 整批无回包 → 判定终端不支持 CPR，关闭后续实测（否则每个新字符都要白等一次超时）。
    * 探测期间不出帧（上限 `WIDTH_PROBE_TIMEOUT_MS`），故只在出现新字符的帧上发生。
    */
-  private probeThenRender(batch: readonly string[]): void {
+  private probeThenRender(
+    batch: readonly string[],
+    timeoutMs = WIDTH_PROBE_TIMEOUT_MS,
+  ): void {
     const probe = this.deps.renderer.probeSymbolWidths;
     if (typeof probe !== "function") return;
     this.widthProbeInFlight = true;
     void probe
-      .call(this.deps.renderer, batch, WIDTH_PROBE_TIMEOUT_MS)
+      .call(this.deps.renderer, batch, timeoutMs)
       .then((widths) => {
         this.widthProbeInFlight = false;
         if (this.disposed) return;
         if (widths.size === 0) {
           this.widthProbeUnavailable = true; // 无 CPR 支持：沿用静态表，不再实测
         } else if (setWidthOverrides(widths)) {
-          this.saveWidthTable(); // 新实测值落盘（跨会话复用）
+          // 新实测到的码点并入符号列表（宽度不落盘）：列表 = 下次启动预探测的先验
+          this.rememberWidthSymbols(widths.keys());
+          this.dumpProbeResults(widths); // 临时诊断（TUI_WIDTH_DUMP）
         }
         this.refresh(); // 重排 + 整帧重绘：按实测宽度出这一帧并覆盖探测残留
         this.maybeProbePendingWidths(); // 重排可能登记了新字符（已测过的不再登记）
@@ -837,6 +876,21 @@ export class App {
     const batch = takePendingWidthProbes();
     if (batch.length === 0) return;
     this.probeThenRender(batch);
+  }
+
+  /**
+   * 启动预探测：首帧**之后**按符号列表整批实测（用户 2026-10-12 定稿）。
+   *
+   * 不放在首帧之前：那时 alt screen / 尺寸尚未落定，CPR 报的列差会错（实测出错的宽度）、
+   * 探测残留也没有帧覆盖 —— 真机表现为符号宽度不对 + 边框行缺失。这里走既有
+   * `probeThenRender`：实测 → 重排 → 整帧重绘覆盖残留（与中途按需实测同一条路径）。
+   */
+  private probeSymbolsAtStartup(): void {
+    if (this.widthProbeUnavailable) return;
+    if (typeof this.deps.renderer.probeSymbolWidths !== "function") return;
+    const batch = this.widthSymbols.map((cp) => String.fromCodePoint(cp));
+    if (batch.length === 0) return;
+    this.probeThenRender(batch, STARTUP_PROBE_TIMEOUT_MS);
   }
 
   start(): void {
@@ -891,12 +945,15 @@ export class App {
       if (this.virtTimer) clearInterval(this.virtTimer);
       this.virtTimer = null;
     });
-    // 首帧前载入实测宽度表（profile 目录；缺表 / 换终端 → 空表，回落静态表）。
+    // 首帧前载入「呈现不确定」符号列表（profile 目录；宽度不落盘）。
     // 本次会话新出现的「呈现不确定」字符在帧绘制前按需实测（见 probeThenRender）
-    this.loadWidthTable();
+    this.loadWidthSymbols();
     // 首帧前同步 renderer 主题（基底色/词槽位随 /theme 切换）
     this.deps.renderer.setTheme(this.state.themeId);
+    // 首帧之后按列表预探测（宽度只存内存）：首帧前屏幕未就绪会测错宽度、残留也没帧覆盖
+    // （见 probeSymbolsAtStartup）；无列表 / 终端不支持 CPR 时它自己早退
     this.paintNow();
+    this.probeSymbolsAtStartup();
     // 拉取权限/agent 预设目录写入 state（原状态列 Mode 块的可选项，P7 移除该块后
     // 暂无渲染消费方；缺默服务则保持降级）
     this.refreshCatalogs();

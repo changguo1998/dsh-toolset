@@ -18,6 +18,7 @@
 // 与旧路径的差异（有意）：围栏配对只看本条目文本，不看其他行——旧实现「未闭合 ⇒ 跳到
 // 窗口末尾」会丢掉其后全部内容（BACKLOG 缺陷条目 / R7），新口径结构上不可能发生。
 
+import { registerCacheReset } from "../cache.ts";
 import { isTableStart, parseTableAt, type TableAlign } from "../table.ts";
 import type { Item, Section, Source } from "./types.ts";
 
@@ -301,8 +302,17 @@ function toolBox(
   };
 }
 
-/** box 缓存：键 = 节对象身份。封闭节对象不可变（迟到回写会换新对象）→ 可安全复用 */
-const boxCache = new WeakMap<Section, LayoutBox[]>();
+/**
+ * box 缓存：键 = 节对象身份。封闭节对象不可变（迟到回写会换新对象）→ 可安全复用。
+ *
+ * **例外（真机踩过）**：终端实测宽度覆盖表变化是「带外输入」——节对象没变，排版宽度却变了
+ * → 必须整体失效，否则那一行会一直按旧的静态宽度出帧（真机症状：一整行符号把边框挤左）。
+ * 注册进 `clearLayoutCaches`（`setWidthOverrides` 变更时调用）即可。
+ */
+let boxCache = new WeakMap<Section, LayoutBox[]>();
+registerCacheReset(() => {
+  boxCache = new WeakMap<Section, LayoutBox[]>();
+});
 
 /** 节 → box 树（纯函数；第一级 = 类型块 LayoutBox，节内条目顺序即块顺序；按节缓存） */
 export function buildBoxes(section: Section): LayoutBox[] {

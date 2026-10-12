@@ -6,6 +6,8 @@
 import { appendFileSync } from "node:fs";
 import {
   Screen,
+  CURSOR_HIDE,
+  CURSOR_SHOW,
   type FrameFocus,
   type FrameRow,
   type FrameSection,
@@ -317,6 +319,9 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
     ): Promise<Map<string, number>> {
       const widths = new Map<string, number>();
       if (closed || chars.length === 0) return widths;
+      // 探测期间隐藏光标（用户 2026-10-12 裁定）：探测报文会把候选字符画在屏幕原点，
+      // 光标跟着乱跳很显眼；结束处恢复显示，随后整帧重绘覆盖残留。
+      write(CURSOR_HIDE);
       const unique = [...new Set(chars)];
       // 按终端宽度分块：一块写入的字符总宽必须落在同一行内（自动换行会让列差作废）。
       // 按每字符最多 2 列估算，留 1 列余量；典型 80/120 列下一次容纳 39/59 个字符。
@@ -364,7 +369,7 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
         }
         if (closed) break;
       }
-      write("\x1b[1;1H"); // 复位光标（调用方随后整帧重绘覆盖探测残留）
+      write("\x1b[1;1H" + CURSOR_SHOW); // 复位光标 + 恢复显示（调用方随后整帧重绘覆盖探测残留）
       return widths;
     },
     onResize(cb: (cols: number, rows: number) => void): void {

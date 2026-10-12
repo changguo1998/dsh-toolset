@@ -28,8 +28,8 @@ const SYNC_END = "\x1b[?2026l";
 // 报文执行期间隐藏硬件光标、末尾定位 caret 后再显示：避免重写过程中光标
 // 在屏幕上跳动（Bubble Tea/pi 同样在渲染期间隐藏光标）。异常收尾时由 reset()
 // 兜底恢复显示，防止光标永久隐藏。
-const CURSOR_HIDE = "\x1b[?25l";
-const CURSOR_SHOW = "\x1b[?25h";
+export const CURSOR_HIDE = "\x1b[?25l";
+export const CURSOR_SHOW = "\x1b[?25h";
 
 // ---------- 行擦除口径：先擦后写 ----------
 // 每行写内容前先 `ESC[K` 擦整行（写到行首时擦到行尾），**不写行尾 `ESC[K`**：

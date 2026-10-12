@@ -402,8 +402,8 @@ const CHAR_WIDTH_TABLE = new Uint8Array(0x110000);
 registerCacheReset(() => CHAR_WIDTH_TABLE.fill(0));
 
 /**
- * 终端实测宽度覆盖表（码点 → 列数）：来源有二——① profile 目录内的实测表
- * （`layout/width-table.ts`，上次会话实测结果复用，启动时载入）；② 运行中按需实测
+ * 终端实测宽度覆盖表（码点 → 列数）：来源有二——① 启动时按 profile 目录内的**符号列表**
+ * 预探测（`layout/width-symbols.ts`；宽度本身不落盘，每次会话重新实测）；② 运行中按需实测
  * （`Renderer.probeSymbolWidths`，见 `takePendingWidthProbes`）。不同终端对
  * 「呈现不确定」字符的解析不同（1 或 2 列），静态表只能保守取值，实测值优先于全部静态判定。
  */
@@ -427,15 +427,6 @@ export function setWidthOverrides(
   }
   if (changed) clearLayoutCaches(); // 宽度变了：已缓存的折行/宽度结果全部失效
   return changed;
-}
-
-/** 当前实测覆盖条目快照（字符 → 列数）：供落盘复用（见 layout/width-table.ts） */
-export function widthOverrideEntries(): Array<readonly [string, number]> {
-  const out: Array<readonly [string, number]> = [];
-  for (const [cp, width] of WIDTH_OVERRIDES) {
-    out.push([String.fromCodePoint(cp), width] as const);
-  }
-  return out;
 }
 
 /** 清空实测覆盖与待实测队列（测试用；同时清排版缓存） */
@@ -469,8 +460,14 @@ export function setWidthProbeEnabled(enabled: boolean): void {
  * （既不实测也不记账，见 scripts/gen-width-table.mts 的 WIDTH_UNCERTAIN_RANGES）。
  */
 export function isWidthUncertainChar(cp: number): boolean {
-  if (isZeroWidthChar(cp)) return false;
-  return inFlatRanges(cp, WIDTH_UNCERTAIN_RANGES);
+  if (cp <= 0x7f) return false; // ASCII：所有终端一致（1 列），无需实测
+  if (isZeroWidthChar(cp)) return false; // 组合符 / 零宽：0 列，无需实测
+  // 无歧义宽字符（CJK 汉字 / 假名 / 全角标点等，EAW ∈ {W,F}）：各终端一致 2 列，无需实测
+  // （用户 2026-10-12：「汉字也没必要」）
+  if (inFlatRanges(cp, EAW_WIDE_RANGES)) return false;
+  // 其余一律实测（用户 2026-10-12「不区分，所有符号都要实测」）——静态表的保守取值曾在
+  // 真机上把 `✅`(U+2705) / `❌`(U+274C) 判成 2 列又从不实测，一整行符号把边框挤左。
+  return true;
 }
 
 /** 登记待实测字符（去重、限量；已发起过的不再登记） */
@@ -517,7 +514,7 @@ function computeCharWidth(cp: number): number {
   // 零宽字符：组合附加符/变体选择符/ZWJ 等（占 0 列，避免提前换行与总宽虚高）
   if (isZeroWidthChar(cp)) return 0;
   // 呈现不确定（EAW 歧义 / emoji 呈现 / 符号块）→ 登记待实测：App 在本帧写屏前
-  // 批量实测（CPR 列差），实测值下一帧起生效（见 width-table.ts）
+  // 批量实测（CPR 列差），实测值下一帧起生效（见 width-symbols.ts）
   if (isWidthUncertainChar(cp)) noteWidthProbeCandidate(cp);
   // 文本呈现符号例外（✓/✗ 等 UI 状态标记按 1 列，见 NARROW_TEXT_SYMBOLS）
   if (NARROW_TEXT_SYMBOLS.has(cp)) return 1;

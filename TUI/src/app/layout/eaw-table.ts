@@ -5,7 +5,7 @@
 // 每两个数字为一对 [lo, hi] 闭区间，按 lo 升序；运行期二分查找。
 // 判定顺序见 markdown.ts computeCharWidth：零宽 → 文本符号例外 → 本表三张 → 默认 1 列。
 // 第四张 WIDTH_UNCERTAIN_RANGES 不进宽度判定，只用于「运行时按需实测」的字符筛选
-// （见 layout/width-table.ts）。
+// （见 layout/width-symbols.ts）。
 
 /** EAW ∈ {W, F}：无歧义宽字符（CJK/全角/多数 emoji），2 列 */
 export const EAW_WIDE_RANGES: readonly number[] = [

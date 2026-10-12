@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRenderer } from "../src/renderer/index.ts";
@@ -21,7 +21,7 @@ import {
   setWidthProbeEnabled,
   takePendingWidthProbes,
 } from "../src/app/layout/markdown.ts";
-import { writeWidthTable, terminalKey } from "../src/app/layout/width-table.ts";
+import { writeWidthSymbols } from "../src/app/layout/width-symbols.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 import { registerApp } from "./helpers/paintFlush.ts";
 import { rowAnsi } from "./helpers/rowText.ts";
@@ -53,8 +53,9 @@ test("probeSymbolWidths：批量写「字符 + CSI 6n」，按列差解析宽度
     exitOnClose: false,
   });
   const pending = renderer.probeSymbolWidths!(["a", "\u4E2D", "b"]);
-  // 探测报文应包含定位与逐字符的 CSI 6n 查询
-  assert.ok(out.startsWith("\x1b[1;1H"), "先定位原点");
+  // 探测报文：先隐藏光标（探测字符画在原点，光标乱跳很显眼）→ 定位原点 → 逐字符 CSI 6n
+  assert.ok(out.startsWith("\x1b[?25l"), "先隐藏光标");
+  assert.ok(out.includes("\x1b[1;1H"), "定位原点");
   assert.equal(
     out.split("\x1b[6n").length - 1,
     3,
@@ -68,6 +69,7 @@ test("probeSymbolWidths：批量写「字符 + CSI 6n」，按列差解析宽度
   assert.equal(widths.get("a"), 1);
   assert.equal(widths.get("\u4E2D"), 2);
   assert.equal(widths.get("b"), 1);
+  assert.ok(out.endsWith("\x1b[?25h"), "探测结束恢复光标显示");
   renderer.close();
 });
 
@@ -120,23 +122,17 @@ test("setWidthOverrides：实测值优先于静态表，并使排版缓存失效
 
 // ---------- 按需实测：候选判定与登记 ----------
 
-test("isWidthUncertainChar：只认「可能判错」的字符（EAW 歧义 / emoji 呈现 / 符号块）", () => {
-  // 用户 2026-10-01 反馈的符号规则行：➡⬅ 静态判 2 列、➠➢➣ 静态判 1 列，实测都可能不同
+test("isWidthUncertainChar：凡非 ASCII 非零宽字符都要实测（用户 2026-10-12「不区分，所有符号都要实测」）", () => {
   for (const ch of [
     "\u27A1", // ➡
-    "\u2B05", // ⬅
-    "\u27A0", // ➠
-    "\u27A2", // ➢
-    "\u27A3", // ➣
+    "\u2705", // ✅ 真机踩过：静态判 2 列却从不实测 → 整行符号把边框挤左
+    "\u274C", // ❌ 同上
     "\u2713", // ✓
-    "\u2022", // •
-    "\u26A0", // ⚠
-    "\u25CB", // ○
-    "\u2500", // ─ 框线（EAW=A）
-    "\u27F3", // ⟳ goal 行开关状态（补充箭头 A，2026-10-04 纳入符号块）
-    "\u27F8", // ⟸ 会话记录符号白名单（同块）
-    "\u27F9", // ⟹
-    "\u27FA", // ⟺
+    "\u4E2D", // 中（CJK：以前不测，现在也测）
+    "\u301C", // 〜
+    "\u{1F680}", // 🚀
+    "\u2500", // ─ 框线
+    "\u27F3", // ⟳ goal 行开关
   ]) {
     assert.equal(
       isWidthUncertainChar(ch.codePointAt(0)!),
@@ -144,12 +140,12 @@ test("isWidthUncertainChar：只认「可能判错」的字符（EAW 歧义 / em
       `${ch} 应列入实测候选`,
     );
   }
-  // 无歧义字符：ASCII / CJK / 全角标点 / 零宽 / 无歧义宽 emoji
-  for (const ch of ["a", "\u4E2D", "\u301C", "\u200D", "\uFE0F", "\u{1F680}"]) {
+  // 只有两类豁免：ASCII（各终端一致 1 列）与零宽 / 组合符（0 列）
+  for (const ch of ["a", "~", "\u200D", "\uFE0F"]) {
     assert.equal(
       isWidthUncertainChar(ch.codePointAt(0)!),
       false,
-      `${ch} 无歧义，不应实测`,
+      `${ch} 无需实测`,
     );
   }
 });
@@ -160,8 +156,9 @@ test("charWidth：不确定字符登记待实测；取走后同一码点不再�
     assert.equal(charWidth("\u27A1"), 2, "静态判定 2 列（认为可能判错才登记）");
     assert.deepEqual(takePendingWidthProbes(), ["\u27A1"], "登记进待实测队列");
     assert.deepEqual(takePendingWidthProbes(), [], "同一码点只发起一次");
+    // 用户 2026-10-12「不区分，所有符号都要实测」：CJK 也登记（此前按「无歧义」跳过）
     charWidth("\u4E2D");
-    assert.deepEqual(takePendingWidthProbes(), [], "无歧义字符不登记");
+    assert.deepEqual(takePendingWidthProbes(), ["\u4E2D"], "非 ASCII 一律登记");
   } finally {
     clearWidthOverrides();
   }
@@ -320,10 +317,11 @@ test("App：TUI_WIDTH_PROBE=0 → 整体关闭探测，照常出帧", () => {
   }
 });
 
-test("App：启动载入 profile 内的实测表（跨会话复用，不再探测该字符）", () => {
+test("App：启动按符号列表预探测（宽度只存内存，不读旧宽度表）", async () => {
   clearWidthOverrides();
   const dir = mkdtempSync(join(tmpdir(), "tui-width-probe-"));
   const renderer = new ProbeRenderer();
+  writeWidthSymbols(dir, [0x27a1]); // 上次会话记下的符号：➡ 值得实测
   const app = new TrackedApp({
     renderer,
     adapter: new FakeAdapter(),
@@ -331,13 +329,25 @@ test("App：启动载入 profile 内的实测表（跨会话复用，不再探�
     profileDir: dir,
   });
   try {
-    writeWidthTable(dir, terminalKey(), [["\u27A1", 1]]); // 上次会话实测：➡ 实为 1 列
     app.start();
-    assert.equal(charWidth("\u27A1"), 1, "载入实测表：➡ 按实测 1 列");
+    assert.deepEqual(
+      renderer.probeCalls,
+      [["\u27A1"]],
+      "启动即按列表预探测（首帧等探测完再出）",
+    );
+    renderer.resolveProbe(new Map([["\u27A1", 1]]));
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(charWidth("\u27A1"), 1, "实测值进内存表：➡ 按实测 1 列");
     assert.equal(
-      readFileSync(join(dir, "tui-width-table.json"), "utf8").includes("27a1"),
+      existsSync(join(dir, "tui-width-symbols.json")),
       true,
-      "表文件就在 profile 目录内",
+      "符号列表文件位于 profile 目录内",
+    );
+    assert.equal(
+      existsSync(join(dir, "tui-width-table.json")),
+      false,
+      "旧的宽度表文件不再产生（宽度不落盘）",
     );
   } finally {
     app.dispose();

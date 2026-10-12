@@ -97,8 +97,8 @@ export function main(opts: {
   restartHandoffPath?: string;
   /** 六步流水线 sink 容器（apply 内创建并传给 adapter） */
   pipelineSink?: { current?: (delivery: BlockDelivery) => void };
-  /** profile 目录（`ctx.get('profileContext').dir`）：实测宽度表落盘位置；缺省不落盘
-   *  （不落盘时仍按需实测，只是不跨会话复用；见 layout/width-table.ts） */
+  /** profile 目录（`ctx.get('profileContext').dir`）：符号列表落盘位置；缺省不落盘
+   *  （不落盘时仍按需实测，只是不跨会话复用；见 layout/width-symbols.ts） */
   profileDir?: string;
 }): () => void {
   // 主题调色板配置解析（tui.config.json theme 段；告警经 logger 输出，避免"改了未生效"）
@@ -681,7 +681,7 @@ export async function apply(
     bootstrapKickoffForNewSession: kickoffForNewSession,
     // 启动器（如用户的 fffdsh 循环）经此变量声明「会处理退出码 75」（BACKLOG #51）
     restartHandoffPath: process.env.DSH_RESTART_FILE,
-    // profile 目录（实测宽度表落盘位置，见 layout/width-table.ts）：宿主启动器提供
+    // profile 目录（符号列表落盘位置，见 layout/width-symbols.ts）：宿主启动器提供
     // profileContext（`dsh --profile` 启动恒有）；独立 main() 启动时无此服务 → 不落盘
     profileDir: readProfileDir(ctx),
     initialTheme:
