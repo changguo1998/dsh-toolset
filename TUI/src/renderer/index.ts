@@ -213,14 +213,23 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
   };
 
   // 退出路径统一钩子：恢复终端后退出
-  const detach = installExitHandlers((r: ExitResult) => {
-    restore();
-    if ("exitCode" in r) process.exit(r.exitCode);
-    process.stderr.write(
-      String((r as { injected?: unknown }).injected ?? r) + "\n",
-    );
-    process.exit(1);
-  });
+  // SIGHUP 走 onHangup（不退出）：终端挂断不等于用户要走——tmux detach / 客户端断开时
+  // 会话必须保活（BACKLOG〈tmux 在 dsh 所在 window 内 detach 会让程序退出〉）；终端真没了
+  // 时后续写 stdout 会失败并落到 uncaughtException 出口退出，故不会留下孤儿进程。
+  const detach = installExitHandlers(
+    (r: ExitResult) => {
+      restore();
+      if ("exitCode" in r) process.exit(r.exitCode);
+      process.stderr.write(
+        String((r as { injected?: unknown }).injected ?? r) + "\n",
+      );
+      process.exit(1);
+    },
+    () => {
+      // 终端挂断：保留会话，等下一次按键 / 重绘（尺寸变化会走 resize → 全帧重绘）
+      prevRows = null;
+    },
+  );
 
   const stdio = terminal.stdin;
   const onResizeEvt = (): void => passToRenderSizes();

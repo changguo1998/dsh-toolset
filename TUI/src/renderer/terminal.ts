@@ -3,6 +3,8 @@
 // 退出生命周期归 renderer 拥有：
 //  - close()                          → 显式关闭，恢复终端
 //  - SIGINT / SIGTERM                 → 恢复终端后以 130/143 退出
+//  - SIGHUP                           → **不退出**：终端挂断（tmux detach / 客户端断开）
+//    只作废全帧缓存，会话保活（Node 无处理器时默认直接终止，退出码 129 且不恢复终端）
 //  - uncaughtException/unhandledRejection → 恢复终端后写 stderr 并以 1 退出
 //    （renderer/index.ts 的处理器口径；错误文本即下沉出口）
 
@@ -36,17 +38,26 @@ export const EXIT_TERM = 143;
 /**
  * 挂载退出处理器到所有退出路径，返回解绑函数。
  * handler 收到 { exitCode }（信号/正常调用）或 { injected }（未捕获异常）。
+ * onHangup（可选）：收到 SIGHUP 时调用。**SIGHUP 不结束会话**——tmux detach / 客户端
+ * 断开 / 父终端收起都会让内核发 SIGHUP，而 Node 对无处理器的 SIGHUP 默认动作是直接终止
+ * （实测退出码 129，且不走终端恢复，画面可能残留在 raw/alt 状态）。终端真没了时 stdout
+ * 写入会失败并落到 uncaughtException 出口，进程照样会退出，故此处不退出不会留下孤儿。
  */
 export function installExitHandlers(
   handler: (r: ExitResult) => void,
+  onHangup?: () => void,
 ): () => void {
   const onSignal = (code: number) => (): void => {
     handler({ exitCode: code });
   };
   const sigint = onSignal(EXIT_INTERRUPT);
   const sigterm = onSignal(EXIT_TERM);
+  const sighup = (): void => {
+    onHangup?.();
+  };
   process.on("SIGINT", sigint);
   process.on("SIGTERM", sigterm);
+  process.on("SIGHUP", sighup);
 
   const onError = (err: unknown): void => {
     handler({ injected: err });
@@ -57,6 +68,7 @@ export function installExitHandlers(
   return () => {
     process.removeListener("SIGINT", sigint);
     process.removeListener("SIGTERM", sigterm);
+    process.removeListener("SIGHUP", sighup);
     process.removeListener("uncaughtException", onError);
     process.removeListener("unhandledRejection", onError);
   };
