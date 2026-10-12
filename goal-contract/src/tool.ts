@@ -143,7 +143,7 @@ export function createGoalContractTool(deps: GoalContractDeps) {
       max_goal_rounds: {
         type: "integer",
         required: false,
-        description: "goal 回合上限（缺省宿主 256；自动化场景建议小值）",
+        description: "goal 回合上限（缺省用宿主默认值；自动化场景建议给小值）",
       },
     }),
     async execute(
