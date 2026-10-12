@@ -779,6 +779,10 @@ export class MockDshAdapter implements DshAdapter {
   private mirrorTurn = 0;
   /** 镜像里 tool-call 的配对 id */
   private mirrorCallSeq = 0;
+  /** 镜像里文本块的序号（每个 `stream` 事件一块，见 `mirror`） */
+  private mirrorStreamSeq = 0;
+  /** 镜像里**当前 step**（由 `step` 事件推进；内容交付跟它对齐，否则 step 头不画） */
+  private mirrorStep = 1;
   private mirrorLastCallId = "call-0";
 
   /** 事件 → 交付镜像（只覆盖内容类；未接 `deliverySink` 时零开销） */
@@ -786,7 +790,9 @@ export class MockDshAdapter implements DshAdapter {
     const sink = this.deliverySink;
     if (sink === undefined) return;
     const turn = Math.max(this.mirrorTurn, 1);
-    const step = 1;
+    // 内容跟着**当前 step**（由 `step` 事件推进）：写死 1 会让 step-start 声明的 (turn,step)
+    // 与内容落地的 (turn,step) 对不上 → 内容驱动的 step 头永远不画（冒烟 `step-header` 红）
+    const step = this.mirrorStep;
     const ev = e as {
       type: string;
       text?: string;
@@ -799,11 +805,14 @@ export class MockDshAdapter implements DshAdapter {
     };
     switch (ev.type) {
       case "stream":
+        // 每个 `stream` 事件 = 一个**新文本块**（真实适配器按块给 index；一律给 0 会让
+        // 同节的相邻文本被节模型直拼成一行 —— 表现为「中间输出混进最终总结」）
+        this.mirrorStreamSeq += 1;
         sink({
           kind: "text",
           turn,
           step,
-          index: 0,
+          index: this.mirrorStreamSeq,
           source: "assistant",
           text: ev.text ?? "",
         });
@@ -844,6 +853,7 @@ export class MockDshAdapter implements DshAdapter {
         // step/start → step-start（流水线据此画 `╌╌ hh:mm:ss ⇆N #M` 分组头）
         const phase = (e as { phase?: string }).phase;
         const stepNo = (e as { step?: number }).step ?? 1;
+        this.mirrorStep = stepNo;
         if (phase !== "end")
           sink({ kind: "step-start", turn, step: stepNo, time: Date.now() });
         break;

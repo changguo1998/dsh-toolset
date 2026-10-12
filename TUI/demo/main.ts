@@ -413,10 +413,12 @@ if (smoke) {
         "status column still shows the removed Mode block",
       );
       // 形制 = `╌╌ hh:mm:ss ⇆N #M `（条目「step 分隔线补回合号」）；step 头**内容驱动**
-      // （条目「孤儿步骤分隔线」）——本场景只有第 1 步有回合区内容，故不再断言 `#2`
+      // （条目「孤儿步骤分隔线」）——本场景里只有 (回合 2, 步 2) 的头会被画出（步 1 的头是
+      // 首个头，被 `suppressFirstHead` 压掉），故断言 `⇆2 #2` 而非旧的 `⇆N #1`
+      // （2026-10-12 期望漂移重设，见 `docs/implementation/2026-10-12-demo-smoke-drift.md`）
       ok(
         "step-header",
-        /\d{2}:\d{2}:\d{2} ⇆\d+ #1 /.test(badgePlain),
+        /\d{2}:\d{2}:\d{2} ⇆2 #2 /.test(badgePlain),
         "no `╌╌ hh:mm:ss ⇆N #M ` step headers in frames",
       );
       ok(
