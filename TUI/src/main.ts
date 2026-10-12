@@ -177,7 +177,7 @@ export const inject = ["agents"];
 export interface DshTuiConfig {
   /** 创建会话时的 cwd(默认 process.cwd()) */
   cwd?: string;
-  /** 审批弹窗超时(ms，默认 30s；tui.config.json 的 approval.timeoutMs 优先) */
+  /** 审批弹窗超时(ms，默认 60s；tui.config.json 的 approval.timeoutMs 优先) */
   approvalTimeoutMs?: number;
   /** 备用模型 route(config 提供了就用它；否则取 agentDefaultModel 选择) */
   provider?: string;
@@ -655,12 +655,12 @@ export async function apply(
     sessionModel,
     // 只读兜底：会话未切换时 /model 目录/状态显示与组装默认取宿主实时值(settings 热更新生效)
     defaultModel: defaultModelSvc,
-    // 审批超时优先级（BACKLOG 3.3.7）：TUI 配置文件 > 宿主插件 config > 缺省 30s
+    // 审批超时优先级（BACKLOG 3.3.7）：TUI 配置文件 > 宿主插件 config > 缺省 60s
     // （此处与插件装配不在同一作用域，故就地读取一次配置文件；启动期一次 IO，代价可忽略）
     approvalTimeoutMs:
       loadTuiConfig().approval?.timeoutMs ??
       config?.approvalTimeoutMs ??
-      30_000,
+      60_000,
     // 历史会话查询服务（ctx.get('sessionQuery')；缺失时 /session 提示不可用）。
     // 读点必须在此（handle 就绪之后）：provider 与 TUI 并发装载，apply 早期读为空
     sessionQuery: readSessionQuery(),
