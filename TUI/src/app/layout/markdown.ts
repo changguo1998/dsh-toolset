@@ -456,17 +456,21 @@ export function setWidthProbeEnabled(enabled: boolean): void {
 
 /**
  * 该码点是否「呈现不确定」——静态表可能判错、值得实测：EAW 歧义（A 类）、
- * emoji 属性字符（≥ U+2190）、符号块，且非零宽。ASCII/CJK/全角等无歧义字符 → false
- * （既不实测也不记账，见 scripts/gen-width-table.mts 的 WIDTH_UNCERTAIN_RANGES）。
+ * emoji 属性字符（≥ U+2190）、符号块，且非零宽。ASCII / CJK 汉字 / 假名 / 全角标点 → false
+ * （汉字等 EAW ∈ {W,F} 的字符不实测：用户 2026-10-12「汉字也没必要」；emoji 类除外）。
  */
 export function isWidthUncertainChar(cp: number): boolean {
   if (cp <= 0x7f) return false; // ASCII：所有终端一致（1 列），无需实测
   if (isZeroWidthChar(cp)) return false; // 组合符 / 零宽：0 列，无需实测
   // 无歧义宽字符（CJK 汉字 / 假名 / 全角标点等，EAW ∈ {W,F}）：各终端一致 2 列，无需实测
-  // （用户 2026-10-12：「汉字也没必要」）
-  if (inFlatRanges(cp, EAW_WIDE_RANGES)) return false;
-  // 其余一律实测（用户 2026-10-12「不区分，所有符号都要实测」）——静态表的保守取值曾在
-  // 真机上把 `✅`(U+2705) / `❌`(U+274C) 判成 2 列又从不实测，一整行符号把边框挤左。
+  // （用户 2026-10-12：「汉字也没必要」）。**emoji 类例外**：`✅`(U+2705) / `❌`(U+274C) 虽被
+  // EAW 判宽，终端常按 1 列渲染 → 必须实测（真机症状：整行符号把边框挤左）。
+  if (
+    inFlatRanges(cp, EAW_WIDE_RANGES) &&
+    !inFlatRanges(cp, EMOJI_CONSERVATIVE)
+  )
+    return false;
+  // 其余一律实测（用户 2026-10-12「不区分，所有符号都要实测」）
   return true;
 }
 

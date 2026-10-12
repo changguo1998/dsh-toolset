@@ -122,15 +122,13 @@ test("setWidthOverrides：实测值优先于静态表，并使排版缓存失效
 
 // ---------- 按需实测：候选判定与登记 ----------
 
-test("isWidthUncertainChar：凡非 ASCII 非零宽字符都要实测（用户 2026-10-12「不区分，所有符号都要实测」）", () => {
+test("isWidthUncertainChar：emoji / 符号实测；汉字 / 假名 / 全角标点不测（用户 2026-10-12）", () => {
   for (const ch of [
     "\u27A1", // ➡
     "\u2705", // ✅ 真机踩过：静态判 2 列却从不实测 → 整行符号把边框挤左
-    "\u274C", // ❌ 同上
+    "\u274C", // ❌ 同上（EAW 判宽但终端常按 1 列 → 仍须实测）
     "\u2713", // ✓
-    "\u4E2D", // 中（CJK：以前不测，现在也测）
-    "\u301C", // 〜
-    "\u{1F680}", // 🚀
+    "\u{1F680}", // 🚀 emoji
     "\u2500", // ─ 框线
     "\u27F3", // ⟳ goal 行开关
   ]) {
@@ -140,8 +138,17 @@ test("isWidthUncertainChar：凡非 ASCII 非零宽字符都要实测（用户 2
       `${ch} 应列入实测候选`,
     );
   }
-  // 只有两类豁免：ASCII（各终端一致 1 列）与零宽 / 组合符（0 列）
-  for (const ch of ["a", "~", "\u200D", "\uFE0F"]) {
+  // 无歧义：ASCII、零宽 / 组合符、CJK 汉字 / 假名 / 全角标点、`〜`（EAW=W 且非 emoji）
+  for (const ch of [
+    "a",
+    "~",
+    "\u200D",
+    "\uFE0F",
+    "\u4E2D",
+    "\u3042",
+    "\uFF0C",
+    "\u301C",
+  ]) {
     assert.equal(
       isWidthUncertainChar(ch.codePointAt(0)!),
       false,
@@ -156,9 +163,9 @@ test("charWidth：不确定字符登记待实测；取走后同一码点不再�
     assert.equal(charWidth("\u27A1"), 2, "静态判定 2 列（认为可能判错才登记）");
     assert.deepEqual(takePendingWidthProbes(), ["\u27A1"], "登记进待实测队列");
     assert.deepEqual(takePendingWidthProbes(), [], "同一码点只发起一次");
-    // 用户 2026-10-12「不区分，所有符号都要实测」：CJK 也登记（此前按「无歧义」跳过）
+    // 用户 2026-10-12：「汉字也没必要」——CJK 汉字不登记（EAW=W，各终端一致 2 列）
     charWidth("\u4E2D");
-    assert.deepEqual(takePendingWidthProbes(), ["\u4E2D"], "非 ASCII 一律登记");
+    assert.deepEqual(takePendingWidthProbes(), [], "汉字不登记");
   } finally {
     clearWidthOverrides();
   }
