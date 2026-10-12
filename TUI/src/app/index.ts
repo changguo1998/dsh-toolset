@@ -1765,6 +1765,8 @@ export class App {
             turn: scope.turn > 0 ? scope.turn : (this.pipelineLastTurn ?? 1),
             step: scope.step,
             text: e.text,
+            // 注入块：`turn-end` 的终态符号优先落给人工输入（见 `Item.injected`）
+            injected: true,
           });
         }
         this.paint();

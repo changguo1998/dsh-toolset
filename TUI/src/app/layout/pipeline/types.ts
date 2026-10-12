@@ -62,6 +62,12 @@ export interface Item {
    */
   readonly steerContinued?: boolean;
   /**
+   * 该用户块是**自动注入**（rule-engine / session-channel / goal 回合等）而非人工输入：
+   * `turn-end` 的终态符号**优先落给人工输入**，注入块不参与争抢（人工输入排在其后时会被
+   * 抢走符号 → 显示 `?`）。归属兜底仍按现状（没有人工输入时落给最后一条用户块）。
+   */
+  readonly injected?: boolean;
+  /**
    * notice 呈现参数（条目 7 选项 1）：本地写入的 notice 行自带的两项排版元数据，随交付
    * 带进节模型——`hanging` = 折行续行停靠列（/help 双列表格），`noCompact` = 紧凑模式
    * 豁免（/help 仍完整折行）。旧路径这两项长在缓冲行上，行不再是内容来源后必须随条目
@@ -117,6 +123,8 @@ export type BlockDelivery =
       status?: "success" | "failure" | "aborted";
       /** 被 steer 续接（恢复路径按缓冲行原样透传）→ 永久 `←` */
       steerContinued?: boolean;
+      /** 自动注入的用户块（rule-engine / channel / goal 回合）→ 终态符号让位给人工输入 */
+      injected?: boolean;
     })
   /** notice（提示 / 自造输出）：行为同用户输入（无 turn/step 时沿用最近一次归属） */
   | (Delivery & {

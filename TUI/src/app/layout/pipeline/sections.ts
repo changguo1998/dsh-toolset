@@ -547,6 +547,11 @@ function applyTurnEnd(
     // 永远落空，用户块会一直停在 `?`（BACKLOG「用户块终态符号始终是 `?`」）。也不能改成
     // 「往回合号之外回溯最后一个未定态块」：上一个以 interrupted / max-tokens / blocked
     // 收尾的回合**不落终态**（设计如此），回溯会把它误标成本回合的 ✓。
+    // 归属优先级：**人工输入优先** —— 注入块（rule-engine / channel / goal 回合）也走用户块
+    // 通道且常排在人工输入之后，按「最新一条未定态用户块」落符号会让注入块抢走符号、人工输入
+    // 留 `?`（真机实例见 BACKLOG 该条）。两轮都只在**本世代**里找；没有人工输入才退回旧口径。
+    let fallback: { section: number; item: number } | undefined;
+    let human: { section: number; item: number } | undefined;
     for (let i = sections.length - 1; i >= 0; i--) {
       const section = sections[i]!;
       const at = section.items.findIndex(
@@ -557,10 +562,18 @@ function applyTurnEnd(
           item.generation === sealed.turnEnds,
       );
       if (at < 0) continue;
+      if (fallback === undefined) fallback = { section: i, item: at };
+      if (section.items[at]!.injected !== true) {
+        human = { section: i, item: at };
+        break;
+      }
+    }
+    const target = human ?? fallback;
+    if (target !== undefined) {
+      const section = sections[target.section]!;
       const items = [...section.items];
-      items[at] = { ...items[at]!, userStatus: status };
-      sections[i] = { ...section, items };
-      break;
+      items[target.item] = { ...items[target.item]!, userStatus: status };
+      sections[target.section] = { ...section, items };
     }
   }
   // 世代推进：本回合的用户块（不论是否落成终态）就此消费，后续 `turn-end` 不再回头标它
@@ -676,6 +689,10 @@ export function applyDelivery(
               : {}),
             ...(delivery.kind === "user" && delivery.steerContinued === true
               ? { steerContinued: true }
+              : {}),
+            // 注入块标记（rule-engine / channel / goal 回合）：`turn-end` 归属时让位给人工输入
+            ...(delivery.kind === "user" && delivery.injected === true
+              ? { injected: true }
               : {}),
             // 回合世代（用户块终态的作用域门，见 `Item.generation`）：自成节，交付即定代
             ...(delivery.kind === "user" ? { generation: state.turnEnds } : {}),

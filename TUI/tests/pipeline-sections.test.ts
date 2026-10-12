@@ -558,6 +558,43 @@ test("用户块终态：steer 续接块（符号恒 `←`）不被终态改写",
   );
 });
 
+test("用户块终态：注入块排在人工输入之后也不抢符号（终态优先人工输入）", () => {
+  const state = applyAll(createSections(), [
+    { kind: "user", turn: 1, step: 0, text: "人工输入" },
+    // rule-engine / channel / goal 回合的注入块（与人工输入同世代、排在其后）
+    { kind: "user", turn: 1, step: 0, text: "[RULE] 注入", injected: true },
+    { kind: "turn-end", turn: 1, step: 1, reason: "completed" },
+  ]);
+  const users = allSections(state)
+    .flatMap((section) => section.items)
+    .filter((item) => item.source === "user");
+  assert.equal(
+    users.find((i) => i.injected !== true)?.userStatus,
+    "success",
+    "符号落在人工输入上（旧口径落给最新一条用户块 → 注入块抢走、人工输入留 ?）",
+  );
+  assert.equal(
+    users.find((i) => i.injected === true)?.userStatus,
+    undefined,
+    "注入块不落终态",
+  );
+});
+
+test("用户块终态：本世代只有注入块时仍按旧口径落符号（没有人工输入可让）", () => {
+  const state = applyAll(createSections(), [
+    { kind: "user", turn: 1, step: 0, text: "[RULE] 只有注入", injected: true },
+    { kind: "turn-end", turn: 1, step: 1, reason: "completed" },
+  ]);
+  const users = allSections(state)
+    .flatMap((section) => section.items)
+    .filter((item) => item.source === "user");
+  assert.equal(
+    users[0]?.userStatus,
+    "success",
+    "兜底：没有人工输入时注入块照旧落终态",
+  );
+});
+
 // —— 辅助行与工具批分槽（BACKLOG「辅助行独立成段」+「辅助行 → 工具调用顺序让辅助行消失」） ——
 test("辅助行独立成条：辅助行 → 工具调用 两个方向都不丢、不并进批", () => {
   const helper = (text: string, index: number): BlockDelivery => ({
