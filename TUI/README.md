@@ -250,7 +250,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 - **notify**：任务运行结束（turn-end）触发终端 bell（BEL `\x07`）**一次**（不再有超时补响）；另外**出现需交互时**（审批 / 问答面板弹出）立即响一声，此后若超过 `idleThresholdMs` 无操作，则按每秒一次催促，直到任意按键或面板关闭（同一次交互只进入一次）。`enabled=false` 全程不响。仅终端 bell，不做桌面通知。
 - **session**：自动清理「空会话」（已持久化 + 非 live + 非当前 + 无用户消息，全目录范围），判据与 `/session` 面板的 `x` 清理一致。启动时后台异步执行；优雅退出（`/quit`、Ctrl+D、双击 Ctrl+C、插件 unload）先把提示渲染到活动区并等待清理完成再退出（5s 超时兜底），信号强退路径不保证。宿主未挂载会话服务、列表不可用或无可清理项时静默跳过。
 - **symbols**：本段已迁至 `symbol-normalizer` 插件 config（见上文「符号规范化」与插件 README）；TUI 不再读取本文件的 `symbols` 段。
-- **theme**：按「内联 `palettes.<id>` 字段 → `paletteDir/<file>.json`（上游配色单一源）→ 内置兜底快照」顺序解析；`paletteDir` 解析链为「配置值 → `$FFF_HOME/config/terminal-colortheme` → `~/fff/config/terminal-colortheme`」，显式设为 `""` 时只用内联 / 内置。语义色槽位 `gray`/`border`/`code`/`focus` 从各主题 `semantics` 解析，可经 `palettes.<id>.semantics` 覆盖。调色板在启动时读取一次（不热重载）；`/theme dark|light|toggle` 仅切换当前会话、不落盘。非法或缺失字段逐级回落并在 `[tui]` 输出告警。
+- **theme**：按「内联 `palettes.<id>` 字段 → `paletteDir/<file>.json`（上游配色单一源）→ 内置兜底快照」顺序解析；`paletteDir` 解析链为「配置值 → `$FFF_HOME/config/terminal-colortheme` → `~/fff/config/terminal-colortheme`」，显式设为 `""` 时只用内联 / 内置。语义色槽位 `gray`/`border`/`code`/`focus` 从各主题 `semantics` 解析，可经 `palettes.<id>.semantics` 覆盖。调色板在启动时读取一次（不热重载）；`/theme dark|light|toggle` 仅切换当前会话、不落盘。非法或缺失字段逐级回落并在 `[tui]` 输出告警。**插件参数 `config.theme` 例外：可热应用**——宿主改写 profile 配置（如 `colortheme dark|light` 改 `~/.dsh/profiles/<p>/cordis.patch.yml`）时 tui 就地切主题、当次生效，不再让 cordis 重建本行插件（重建会走卸载路径并把 dsh 进程一起带退出）；其余参数变更仍走重建。
 
 ## Slash 命令
 
@@ -318,7 +318,7 @@ agent 工作中提交的消息经官方流程立即交给核心（`followup`，`
 | `Ctrl+S` | 切换垂直状态列显隐（隐藏后状态列宽归 0、分隔竖线不画、历史区吃满整区全宽；显隐随会话写入 `tui-state.json`） |
 | 可打印字符（含 CJK）/ 终端粘贴 | 插入输入框；粘贴经 bracketed paste（启动写 `ESC[?2004h`、退出还原）：内容**整段插入**、光标停末尾、**不自动提交**（多行原样进输入框，Enter 才发送）；行尾 CRLF / CR 归一为换行 |
 
-**退出契约**：`Esc` 不触发退出，`Ctrl+C` 单击清空输入区（750ms 窗口内双击才请求退出），常规退出用 `/quit` 或 `Ctrl+D`（仅空闲且输入区为空时）。`Ctrl+D` 与双击 `Ctrl+C` 先弹**退出确认面板**（默认高亮「取消/留在 TUI」，Esc 取消、Enter 确认，确认「退出 dsh」才退出）——防单字节误触直接结束会话；`/quit` 为显式输入，直接退出、不弹面板；`/restart` 同为显式命令、直接执行（写交接文件 + 退出码 `75`），未由启动器启动时只提示不可用。进程生命周期归 renderer，`close()` / SIGINT / SIGTERM 先恢复终端再退出，退出码随底层透传。
+**退出契约**：`Esc` 不触发退出，`Ctrl+C` 单击清空输入区（750ms 窗口内双击才请求退出），常规退出用 `/quit` 或 `Ctrl+D`（仅空闲且输入区为空时）。`Ctrl+D` 与双击 `Ctrl+C` 先弹**退出确认面板**（默认高亮「取消/留在 TUI」，Esc 取消、Enter 确认，确认「退出 dsh」才退出）——防单字节误触直接结束会话；`/quit` 为显式输入，直接退出、不弹面板；`/restart` 同为显式命令、直接执行（写交接文件 + 退出码 `75`），未由启动器启动时只提示不可用。进程生命周期归 renderer，`close()` / SIGINT / SIGTERM 先恢复终端再退出，退出码随底层透传；**SIGHUP 不退出**（终端挂断 = tmux detach / 客户端断开，只作废全帧缓存、会话保活）。
 
 ## 面板
 
