@@ -77,10 +77,17 @@ export type FoldLevel = 0 | 1 | 2 | 3;
 /** 状态列条目（概念名 StatusItem）：持有**未折行**内容，折行归 measure / fill。
  *  `segments` 首段为条目标记（如 `○ `、`● `），续行按 `hanging` 缩进到首行文字起点。 */
 interface StatusItem {
+  /** 首行标题段（**单行不折行**，超宽交拼帧层截断；仅历史 goal 的 `Goal <phase>` 用）。
+   *  与 `segments` 分属两个叶子：标题恒一行，正文按列宽折行——与改造前「标题独立成行
+   *  （超宽截断）+ objective 整段折行」同口径。 */
+  title?: FrameSegment[];
   /** 未折行样式段（样式已内联到各段） */
   segments: FrameSegment[];
   /** 续行缩进列数（= 首行标记宽；0 = 无标记，续行与首行同列） */
   hanging: number;
+  /** false = 单行截断不折行（改造前即「一行一条」的条目：jobs / 阻塞原因；截断交拼帧层）。
+   *  缺省折行——这是改造前的老口径（todo / goal / agents 条目按列宽折行）。 */
+  wrap?: false;
   /** 已完成（L1 先隐藏） */
   done: boolean;
   /** 进行中（L2 只留这些；L3 压 1 行） */
@@ -132,7 +139,7 @@ export function buildStatusColumnBox(
     const folded = foldBlock(block, level);
     const leaves: Node[] = [headLeaf(block.head)];
     if (!folded.titleOnly) {
-      for (const item of folded.items) leaves.push(itemLeaf(item, level));
+      for (const item of folded.items) leaves.push(...itemLeaves(item, level));
       // 隐藏计数提示：合成单行（截断交拼帧层，与旧 StatusRow 同口径）
       if (folded.hiddenNote !== undefined) {
         leaves.push(
@@ -155,12 +162,19 @@ function headLeaf(head: FrameSegment[]): StyledText {
   return styled(head, { wrap: false });
 }
 
-/** 条目叶子：悬挂缩进交 `hanging`；L3「每条压一行」用 `wrap: false`（单行截断不换行） */
-function itemLeaf(item: StatusItem, level: FoldLevel): StyledText {
-  return styled(item.segments, {
+/** 条目叶子（1 或 2 个）：标题（若有）恒单行；正文悬挂缩进交 `hanging`，
+ *  `wrap: false` 的条目（jobs / 阻塞原因）与 L3「每条压一行」同样单行截断不换行
+ *  ——截断交拼帧层，与旧 StatusRow 同口径。
+ *  （历史 goal 条目在 L3 本会是「标题 + 正文」两行，旧实现取 `rows[0]` 只留标题；
+ *   但 goal 块 L2 起即 titleOnly，该分支不可达。） */
+function itemLeaves(item: StatusItem, level: FoldLevel): Node[] {
+  const body = styled(item.segments, {
     hanging: item.hanging,
-    ...(level >= 3 ? { wrap: false } : {}),
+    ...(level >= 3 || item.wrap === false ? { wrap: false } : {}),
   });
+  return item.title === undefined
+    ? [body]
+    : [styled(item.title, { wrap: false }), body];
 }
 
 /** 按折叠等级折叠块：goal 的 items 分「当前 goal 行 + 历史条目」（L1 保留最近 1 条历史、
@@ -323,24 +337,23 @@ function goalObjectiveItem(g: GoalSnapshotLike): StatusItem {
   };
 }
 
-/** blocked 原因条目（黄 tone；单行内容，超宽由拼帧层截断——与旧口径一致） */
+/** blocked 原因条目（黄 tone；改造前即单行，超宽由拼帧层截断——`wrap: false` 保持原表现） */
 function blockedItem(message: string): StatusItem {
   return {
     segments: [seg("阻塞: " + message, { fg: "yellow" })],
     hanging: 0,
+    wrap: false,
     done: false,
     active: false,
   };
 }
 
-/** 历史（旧）goal 条目：标题行「Goal <phase>」（灰）+ objective（灰 + 删除线）。
- *  两段同叶（`\n` 分隔）：物理行切分归排版库，objective 逐行完整折行（不截断）。 */
+/** 历史（旧）goal 条目：标题行「Goal <phase>」（灰，单行）+ objective（灰 + 删除线，折行）。
+ *  标题与 objective 分属两个叶子：旧实现也是两段独立行（标题超宽由拼帧层截断）。 */
 function goalHistoryItem(e: GoalEntry): StatusItem {
   return {
+    title: [seg("Goal ", { fg: "gray" }), seg(e.goal.phase, { fg: "gray" })],
     segments: [
-      seg("Goal ", { fg: "gray" }),
-      seg(e.goal.phase, { fg: "gray" }),
-      seg("\n"),
       seg(e.goal.objective || "（空目标）", { fg: "gray", strike: true }),
     ],
     hanging: 0,
@@ -382,7 +395,8 @@ function todoItem(t: TodoItemLike): StatusItem {
   };
 }
 
-/** job 条目（✓ 完成灰 + 删除线，其余按状态色） */
+/** job 条目（✓ 完成灰 + 删除线，其余按状态色）。改造前口径 = **每任务一行**
+ *  （长 label 由拼帧层截断，不折行）——`wrap: false` 保持该表现，只去掉裸 `\n` 断行风险。 */
 function jobItem(job: JobInfo): StatusItem {
   const mark = statusMark(job.status);
   const label = job.label || job.kind || job.id || "（未命名任务）";
@@ -395,6 +409,7 @@ function jobItem(job: JobInfo): StatusItem {
         seg(label, { fg: "gray", strike: true }),
       ],
       hanging: displayWidth("✓ "),
+      wrap: false,
       done,
       active,
     };
@@ -402,6 +417,7 @@ function jobItem(job: JobInfo): StatusItem {
   return {
     segments: [seg(mark.symbol + " " + label, { fg: mark.color })],
     hanging: displayWidth(mark.symbol + " "),
+    wrap: false,
     done,
     active,
   };

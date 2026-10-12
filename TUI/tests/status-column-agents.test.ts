@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { renderStatusColumn } from "../src/app/layout.ts";
-import { rowWidth2, seg, truncateSegs } from "../src/app/layout.ts";
+import { statusFrameRows } from "./helpers/statusFrame.ts";
 import { displayWidth as prodDisplayWidth } from "../src/app/layout/markdown.ts";
 import { THEMES, ansiNameToHex, hexSgr } from "../src/renderer/theme.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
@@ -38,29 +38,17 @@ function frameRows(
   width: number,
 ): ReturnType<typeof renderStatusColumn> {
   const h = Math.max(1, height);
-  const frameW = Math.max(1, width - 1);
+  const bodyW = Math.max(1, width - 1);
   const rows = renderStatusColumn(
     undefined,
     [],
     undefined,
     0,
     h,
-    frameW,
+    bodyW,
     agents,
-  ).map((l) => {
-    const inner = truncateSegs(l.segments, frameW);
-    const used = rowWidth2(inner);
-    return {
-      segments: [
-        ...inner,
-        seg(" ".repeat(Math.max(0, frameW - used))),
-        seg("│"),
-      ],
-    };
-  });
-  while (rows.length < h)
-    rows.push({ segments: [seg(" ".repeat(frameW)), seg("│")] });
-  return rows;
+  );
+  return statusFrameRows(rows, bodyW, h);
 }
 
 /** 状态列纯文本行（只给 agents 数据） */
