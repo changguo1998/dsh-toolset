@@ -3,6 +3,7 @@
 // 只依赖 ./types.ts 的纯类型；dsh.ts 内部调用并以具名重导保持原导出不变。
 
 import { randomUUID } from "node:crypto";
+import { shortenWorkspacePath } from "../layout/tool-line.ts";
 import type {
   AgentDefaultModelLike,
   AgentStatus,
@@ -112,6 +113,8 @@ export interface ApprovalDetail {
  * 从 DSH ApprovalRequest 构造 app 审批提示文案（3.3.3 起支持多行）：
  * 首行沿用「允许工具 X 执行?<reason>」；带明细时追加「命令：」段（命令全文另起一行）
  * 与「参数：」单行摘要。明细缺失（宿主未给 callId / 已过期）时退化为单行旧文案。
+ * 展示期把工作区根前缀省掉（`shortenWorkspacePath`）——**只影响显示**，
+ * 审批决议与执行用的是宿主原始命令。
  */
 export function buildApprovalPrompt(
   req: ApprovalRequest,
@@ -124,8 +127,8 @@ export function buildApprovalPrompt(
   if (command) lines.push("命令：", command);
   const summary = detail?.summary?.trim();
   if (summary && summary !== command) lines.push("参数：" + summary);
-  if (lines.length === 0) return head;
-  return [head, ...lines].join("\n");
+  if (lines.length === 0) return shortenWorkspacePath(head);
+  return shortenWorkspacePath([head, ...lines].join("\n"));
 }
 
 /**

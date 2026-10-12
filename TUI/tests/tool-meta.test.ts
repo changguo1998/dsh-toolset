@@ -1,7 +1,13 @@
-// tests/tool-meta.test.ts — tool/result.meta 行级 diff 摘要纯函数（宽容解析 + 降级）
+// tests/tool-meta.test.ts — 工具行展示纯函数（tool/result.meta 行级 diff 摘要：
+// 宽容解析 + 降级；以及显示期工作区根前缀缩短 `shortenWorkspacePath`）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toolResultLine } from "../src/app/layout/tool-line.ts";
+import {
+  shortenWorkspacePath,
+  toolCallLine,
+  toolResultLine,
+} from "../src/app/layout/tool-line.ts";
+import { buildApprovalPrompt } from "../src/app/adapter/normalize.ts";
 import {
   allSections,
   applyAll,
@@ -117,4 +123,77 @@ test("reduceState：model-selection → modelBySession 按会话隔离（宽容�
   });
   assert.equal(st.modelBySession["a"]?.provider, "ustc"); // a 会话不受 b 影响
   assert.equal(st.modelBySession["b"]?.reasoningEffort, undefined); // 缺省宽容
+});
+
+// —— 显示期路径缩短（工作区根前缀） ——
+
+const ROOT = "/home/u/proj";
+
+test("shortenWorkspacePath：根 + 斜杠 → 相对路径；裸根 → `.`", () => {
+  assert.equal(
+    shortenWorkspacePath(ROOT + "/TUI/src/x.ts", ROOT),
+    "TUI/src/x.ts",
+  );
+  assert.equal(
+    shortenWorkspacePath("cd " + ROOT + " && ls", ROOT),
+    "cd . && ls",
+  );
+  assert.equal(shortenWorkspacePath("read " + ROOT, ROOT), "read .");
+  assert.equal(
+    shortenWorkspacePath('--path "' + ROOT + '/a b"', ROOT),
+    '--path "a b"',
+    "引号后也算路径起点",
+  );
+});
+
+test("shortenWorkspacePath：同前缀兄弟目录 / 非路径起点 / 空根 → 不动", () => {
+  // `<根>-extra` 是兄弟目录，不是工作区内路径
+  assert.equal(
+    shortenWorkspacePath(ROOT + "-extra/x", ROOT),
+    ROOT + "-extra/x",
+  );
+  // 根出现在长串中间（前面不是路径起点）→ 不动
+  assert.equal(
+    shortenWorkspacePath("x" + ROOT + "/a", ROOT),
+    "x" + ROOT + "/a",
+  );
+  // 根为空 / `/` → 原样返回（避免无意义全局替换）
+  assert.equal(shortenWorkspacePath("/a/b", ""), "/a/b");
+  assert.equal(shortenWorkspacePath("/a/b", "/"), "/a/b");
+  // 尾斜杠书写等价
+  assert.equal(shortenWorkspacePath(ROOT + "/a", ROOT + "/"), "a");
+});
+
+test("toolCallLine / toolResultLine：展示时省掉工作区根前缀（缺省取进程 cwd）", () => {
+  const cwd = process.cwd();
+  assert.equal(
+    toolCallLine("read", cwd + "/TUI/src/x.ts"),
+    "read TUI/src/x.ts",
+  );
+  assert.equal(toolCallLine("bash", "cd " + cwd + " && ls"), "bash cd . && ls");
+  assert.equal(
+    toolResultLine(true, cwd + "/TUI/src/x.ts", { before: "a", after: "a\nb" }),
+    "✓ TUI/src/x.ts (+1/-0)",
+    "结果 detail 同样缩短，diff 摘要照旧",
+  );
+  // 与工作区无关的路径原样保留
+  assert.equal(toolCallLine("read", "/etc/hosts"), "read /etc/hosts");
+});
+
+test("buildApprovalPrompt：命令/参数里的工作区根前缀同样缩短（仅显示）", () => {
+  const cwd = process.cwd();
+  const prompt = buildApprovalPrompt(
+    { agent: null, toolName: "bash", callId: "c1" },
+    { tool: "bash", command: "cd " + cwd + " && npm test" },
+  );
+  assert.ok(prompt.includes("命令："), "保留命令段: " + prompt);
+  assert.ok(prompt.includes("cd . && npm test"), "命令内路径已缩短: " + prompt);
+  assert.ok(!prompt.includes(cwd), "不再出现工作区绝对路径: " + prompt);
+  // 无明细 → 单行旧文案（reason 原样）
+  const single = buildApprovalPrompt({
+    agent: null,
+    toolName: "bash",
+    reason: "写 " + cwd + "/a.txt",
+  });
+  assert.equal(single, "允许工具 bash 执行?：写 a.txt");
 });

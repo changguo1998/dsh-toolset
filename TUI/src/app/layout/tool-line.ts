@@ -4,12 +4,42 @@
 // 渲染层按 BufferKind="tool" + tone 着色。summary/detail 的启发式提取已由
 // adapter（dsh.ts）在归一化时产出（tool/call → summary、tool/result → detail），
 // 本文件只负责展示行组装，避免重复解析。仅依赖 app/clock.ts（时间格式化叶子模块）。
+// 展示期把工作区根前缀省掉（shortenWorkspacePath）——只动**显示文本**，落库/交付原文不变。
 
 import { clockHms } from "../clock.ts";
 
+/** 正则元字符转义（工作区根参与 RegExp 构造） */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * 显示期路径缩短：把**工作区根**（缺省 = dsh 进程 cwd，即状态栏那个项目路径）前缀从
+ * 展示文本里省掉 —— `<根>/TUI/src/x.ts` → `TUI/src/x.ts`；裸 `<根>` → `.`。
+ *
+ * - 只做字面量替换，不解析 shell / JSON：命令、参数、文件路径一视同仁（审批文案里
+ *   的命令同样缩短，但执行与审批记录用的是原始文本）；
+ * - 命中要求**路径起点**（串首或空白 / 引号 / `=` / `(` / `:` / `,` / `[` 之后），
+ *   且根之后是 `/` 或路径终止符 —— 故 `<根>-extra/x` 这类同前缀兄弟目录不受影响；
+ * - 根为 `/` 或空串时原样返回（不做无意义的全局替换）。
+ */
+export function shortenWorkspacePath(
+  text: string,
+  root: string = process.cwd(),
+): string {
+  const r = root.replace(/\/+$/, "");
+  if (r === "" || r === "/") return text;
+  const esc = escapeRe(r);
+  const head = `(^|[\\s"'\`=(:,\\[])`;
+  // 先吃掉「根 + 斜杠」（取相对路径），剩余裸根（后面不是路径字符）替换为 `.`
+  const withSlash = new RegExp(head + esc + "/", "g");
+  const bare = new RegExp(head + esc + "(?![\\w.-])", "g");
+  return text.replace(withSlash, "$1").replace(bare, "$1.");
+}
+
 /** 工具调用行：<name> <summary>（summary 为空时省略；无前导图标前缀） */
 export function toolCallLine(name: string, summary: string): string {
-  return name + (summary ? " " + summary : "");
+  return name + (summary ? " " + shortenWorkspacePath(summary) : "");
 }
 
 /** 工具结果行：成功 `✓ <detail>` / 失败 `✗ <detail>`（detail 空时按「空段省略」处理：
@@ -23,7 +53,7 @@ export function toolResultLine(
   detail: string,
   meta?: unknown,
 ): string {
-  const text = detail || (ok ? "" : "输出错误");
+  const text = shortenWorkspacePath(detail) || (ok ? "" : "输出错误");
   const head = (ok ? "✓ " : "✗ ") + text;
   const d = diffSummary(meta);
   if (!d) return head;

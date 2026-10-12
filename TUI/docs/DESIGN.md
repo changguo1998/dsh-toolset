@@ -147,7 +147,7 @@ activity 的内容 = v( 瞬态行 Box … )    // 思考/工具/notice；面板�
 | `layout/table.ts` | 表格构建器（解析 + 列宽求解 + 压缩/分隔/对齐），产出 Box 子树（`SPEC.md` §3.2） |
 | `layout/panel.ts` | 面板场景原语 `panelTitle`/`panelQuestion`/`panelExplanation`/`panelOptions` |
 | `layout/markdown.ts` | 块识别 + 行内解析，产出 `FrameSegment[]` |
-| `layout/tool-line.ts` | 工具行文本组装（summary/detail 启发式在 adapter 归一化时产出） |
+| `layout/tool-line.ts` | 工具行文本组装（summary/detail 启发式在 adapter 归一化时产出）；展示期 `shortenWorkspacePath` 省掉工作区根前缀（工具行 + 审批文案，只改显示） |
 
 `layout.ts` 保留几何唯一来源 `frameGeometry` 与四区域帧组装（并派生帧段表 `frameSections`）；渲染层 `renderer/index.ts` 按序列化文本逐行比较取变化行游程（先按帧段收敛范围，段内不连续处各自成区间）、`screen.ts` 负责报文组装；`components/*` 为 Box 生成器。模块拆分原则与触发标准见 `TUI/docs/design/REFACTOR.md`。
 
