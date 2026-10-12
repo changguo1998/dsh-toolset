@@ -1,6 +1,6 @@
 # 状态列内容改为 Box 构建（接取条目：TUI/docs/BACKLOG.md「状态列内容改为 Box 构建（复用排版库）」）
 
-状态：决策　　开启：2026-10-12　　关闭：
+状态：规划　　开启：2026-10-12　　关闭：
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -122,6 +122,9 @@ Box 排版库（`measure` → `allocate` → `fillToList`），不再由 `render
 **D1 条目模型改造** —— 现状 `StatusItem = { rows: StatusRow[], done, active }`，其中 `rows` 是
 **在固定宽度下已经折好的行**；折行决策留在状态列里，正是本任务要拆掉的。改为条目持有
 **未折行的内容**（文本 + 样式 + 段前缀），折行归 `measure` / `fill`。
+（代码里没有名为 `StatusItem` 的类型：它是 `StatusBlock` 的内联 `items`（`layout.ts:701-703`），
+本文件把它当**概念名**使用。顺带删掉 `StatusBlock.id` 联合里已死的 `"mode"` 成员
+（`layout.ts:700`，P7 删 Mode 块后无实例）——同文件、同模型、属本任务范围。）
 
 **D2 Box 树形状**：
 
@@ -129,8 +132,12 @@ Box 排版库（`measure` → `allocate` → `fillToList`），不再由 `render
    语义就是「兄弟之间画、首尾不画」（`box.ts:52-54`），与手写 `sep()` 同构；
 2. 每块 = `v([head, ...items])`，head 用 `styled`（今天的样式段直接搬）；
 3. 条目标记改用 **`prefix`**（`box.ts:26-32`，注释里的示例即「列表 • / 任务 [x]」），续行对齐
-   改用 **`hanging`**；顺带删掉 `wrapWithHanging`（`:2416`）这个手写复制品（`agentItemRows`
-   现在就是在手写 `hanging`）。
+   改用 **`hanging`**；`wrapWithHanging`（`:2416`）**本次不删** —— 它还有第二个调用点在
+   输入区 notice（`:2458` `noticeFooterLines`），删函数就越出本范围（「明确不做」不改输入区）。
+   只删状态列那处调用（`:894`），并在函数注释加一行 `TODO`：「仅剩 notice 一处调用，待 notice
+   视图也走 Box 后连同函数一起删」（用户 2026-10-12 裁定：**加删除 TODO，不实际删除**）。
+   顺带说明：宽度公式的完整口径是 `min(max(20, floor(cols / statusDivisor)), max(1, cols - 10))`
+   （`layout.ts:169-172`，`statusDivisor` 可配、默认 3），本文件下文简写为 `max(20, floor(cols/3))`。
 
 **D3 折叠落点**：
 
@@ -176,7 +183,8 @@ Box 排版库（`measure` → `allocate` → `fillToList`），不再由 `render
 ### 任务拆分
 
 1. 按 **D1 / D2** 落地：条目模型改为持有未折行内容；Box 树 = 四块 `v` + `separator`，
-   每块 = `v([head, ...items])`，标记用 `prefix`、续行对齐用 `hanging`；删 `wrapWithHanging`。
+   每块 = `v([head, ...items])`，标记用 `prefix`、续行对齐用 `hanging`；`wrapWithHanging` 只删
+   状态列调用点（`:894`）并加 `TODO`（见 D2.3），函数本身保留。
 2. 按 **D3** 落地：`foldAt` 改为输出条目列表；L3 用 `wrap: false`；`capRows` 移到 `fillToList`
    之后对 `ContentRow[]` 切。
 3. 按 **D4 / D5** 落地出行与接入：`renderStatusColumn` 改为「调 `buildStatusColumnBox` →
@@ -190,6 +198,12 @@ Box 排版库（`measure` → `allocate` → `fillToList`），不再由 `render
    长度），**内容行**宽不超过 `statusBodyW`；行文本不含控制字符（`\n` / `\r` / ESC 等）；
    多行 objective 的历史 goal 不再产生断行；**同 state 快照下新旧实现逐行 diff 一致**
    （`Ctrl+S` 显隐、滚动、折叠分级各取若干档）。
+   等价性做法照仓内既有先例 `TUI/tests/pipeline-equivalence.test.ts`（六步流水线验收：旧路径 vs
+   新路径逐行 diff）：同一批 state 快照分别喂**旧实现**（`git show <改造前提交>:TUI/src/app/layout.ts`
+   取出的 `renderStatusColumn` 与四个行生成器，作为用例内的独立模块固定下来）与**新实现**，断言
+   逐行文本与行数一致；不一致处收窄到批次修复。
+   真机目视（BACKLOG 验收项「多行 objective 的历史 goal」）由用户 2026-10-12 裁定**跳过**（不在），
+   改以离线等价性证据替代；「该验收项未执行」写进「测试与证据」。
 6. 文档对齐：`SPEC.md` 中描述 `renderStatusColumn` 的部分（`:683`）随实现同步更新；
    `SPEC.md:94` 与 `DESIGN.md:173` 属既有过时描述，移「收尾」处理。
 
@@ -198,7 +212,10 @@ Box 排版库（`measure` → `allocate` → `fillToList`），不再由 `render
 - `TUI/src/app/components/StatusColumn.ts`（新增，按 D4）—— 状态列内容层：条目模型、条目构造（现 `statusBlocks`）、`foldAt`、Box 生成器（导出 `buildStatusColumnBox`）；`layout.ts` 内四个行生成器在此改写为条目构造
 - `TUI/src/app/layout.ts` —— 出行与接入：`renderStatusColumn` 改为「调生成器 → `measure` / `allocate` / `fillToList` → `capRows`」（按 D3 / D5），产出 `ContentRow[]`；调整调用点（`:1443-1454`）传参；删除自建竖线（`:1225-1230`）与消费侧剥离（`:1598`）
 - `TUI/tests/status-column.test.ts` —— 既有用例按新实现校准
-- `TUI/tests/`（新增用例）—— 上述帧级断言与新旧逐行 diff
+- `TUI/tests/status-column-agents.test.ts` —— Agents 块条目构造校验（D1 / D2 触及）
+- `TUI/tests/layout4.test.ts`、`TUI/tests/layout-horizontal.test.ts` —— 引 `statusColWidth` /
+  `renderStatusColumn` 的既有断言，随产出契约（`FrameRow[]` → `ContentRow[]`）校准
+- `TUI/tests/status-column-equivalence.test.ts`（新增）—— 任务 5 的帧级断言与新旧逐行 diff
 - `TUI/docs/SPEC.md` —— 仅 `renderStatusColumn` 相关描述（`:683`）
 
 ### 明确不做
@@ -209,6 +226,7 @@ Box 排版库（`measure` → `allocate` → `fillToList`），不再由 `render
 - 不改状态列显隐、滚动、折叠等级语义、块顺序与配色；
 - 不改标题栏 / 输入区 / 提示区 / 工具面板的既有路径（它们是否也有同类裸 `\n` 缺口**未核实**，
   不在本任务）；
+- 本次不删 `wrapWithHanging`（`:2416`）—— 输入区 notice（`:2458`）仍在用，只加 `TODO` 注释（见 D2.3）；
 - 不涉及宽度：既不解决「字符显示宽度不对」，也不增删字形宽度校正留白（状态列无留白列，校正只做在
   会话区 / 回合区 / 工具面板）；
 - 不新增依赖。
@@ -223,6 +241,8 @@ Box 排版库（`measure` → `allocate` → `fillToList`），不再由 `render
 
 ## 收尾
 
-- 回写两处**既有过时描述**（不在实现范围内改，收尾一并更新）：`SPEC.md:94`（状态列写成
-  `ratio 1/3` 分区 Box）与 `DESIGN.md:173`（折叠写成在 fill 阶段执行）。
+- 回写两处**既有过时描述**（不在实现范围内改，收尾一并更新）：`SPEC.md:94`（把状态列当
+  `ratio 1/3` 分区 Box 举例）与 `DESIGN.md:173` **只改「折叠在 fill 阶段执行（依赖可用高度），
+  内容树与尺寸无关」这半句** —— 同句的宽度口径（`statusColumnDivisor`、最低 20 列、历史区保底
+  10 列）与 `layout.ts:169-172` 相符，勿整句重写。
 - 追踪文档移入 `TUI/docs/archived/`；BACKLOG 移除本条目。
