@@ -172,6 +172,12 @@ function typeAndEnter(renderer: FakeRenderer, text: string): void {
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
 }
 
+/** `<` followup 模式提交（模式随每次提交回退默认 → 每次都要重按 `<`） */
+function typeAndEnterFollowup(renderer: FakeRenderer, text: string): void {
+  renderer.press({ name: "<", ctrl: false, meta: false, shift: false });
+  typeAndEnter(renderer, text);
+}
+
 /** 等待 /model 的 async 链路（Promise 微任务 + setTimeout 0）落定 */
 function flush(): Promise<void> {
   return new Promise((r) => setTimeout(r, 0));
@@ -535,7 +541,11 @@ test("Esc idle 时无操作：不触发 interrupt、不关闭 renderer，输入�
   renderer.press({ name: "y", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.equal(adapter.interrupts, 0, "idle 时不打断");
-  assert.deepEqual(adapter.log, ["send:xy"], "输入内容不受 Esc 影响");
+  assert.deepEqual(
+    adapter.log,
+    ["steer:xy"],
+    "输入内容不受 Esc 影响（默认模式=steer）",
+  );
   assert.equal(renderer.closed, 0);
 });
 
@@ -732,13 +742,17 @@ test("subagent 行 @ label os 按 info 蓝着色", () => {
   );
 });
 
-test("模式键：空输入按 $ / / 切换模式且吞键，! 为普通字符；提交后回退 normal", async () => {
+test("模式键：空输入按 $ / / / < 切换模式且吞键，! 为普通字符；提交后回退默认 steer", async () => {
   const { renderer, adapter } = makeApp();
   // ! 不再切模式：空输入也作为普通字符插入
   renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
-  assert.deepEqual(adapter.log, ["send:!x"], "! 为普通字符");
+  assert.deepEqual(
+    adapter.log,
+    ["steer:!x"],
+    "! 为普通字符（按默认 steer 投递）",
+  );
   assert.equal(adapter.interrupts, 0);
   adapter.push({ type: "turn-end" }); // 回合结束回 idle（否则后续 Enter 进排队）
   // $ 切 shell 吞键、提交走**本地执行**（BACKLOG TUI#37：不经模型）、提交后回退 normal
@@ -748,24 +762,24 @@ test("模式键：空输入按 $ / / 切换模式且吞键，! 为普通字符�
   await new Promise((r) => setTimeout(r, 0)); // 本地执行为异步链（假 runner 立即返回）
   assert.deepEqual(
     adapter.log,
-    ["send:!x"],
+    ["steer:!x"],
     "shell 提交不经模型（本地子进程执行，adapter 未收到消息）",
   );
   adapter.push({ type: "turn-end" });
   // 回退后输入普通 z，不残留模式
   renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
-  assert.deepEqual(adapter.log, ["send:!x", "send:z"]);
+  assert.deepEqual(adapter.log, ["steer:!x", "steer:z"]);
 });
 
-test("非 normal 模式空输入按 Backspace 回退至 normal（$ / 切了再退）", () => {
+test("非默认模式空输入按 Backspace 回退至默认 steer（$ / < 切了再退）", () => {
   const { renderer, adapter } = makeApp();
   // $ → shell，空输入 Backspace 回退；再输入普通字符不残留模式
   renderer.press({ name: "$", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "backspace", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
-  assert.deepEqual(adapter.log, ["send:z"], "shell 回退后按普通字符发送");
+  assert.deepEqual(adapter.log, ["steer:z"], "shell 回退后按默认模式发送");
   adapter.push({ type: "turn-end" }); // 回 idle（否则第二次 Enter 进排队）
   // / → slash，同理回退
   renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
@@ -774,7 +788,7 @@ test("非 normal 模式空输入按 Backspace 回退至 normal（$ / 切了再�
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(
     adapter.log,
-    ["send:z", "send:w"],
+    ["steer:z", "steer:w"],
     "slash 回退后也不自动补 /",
   );
 });
@@ -793,7 +807,7 @@ test("slash 提交后回退 normal：再输入普通字符不再自动补 /", ()
   assert.deepEqual(adapter.sent, ["ok"], "回退后为普通消息");
 });
 
-test("Alt+Enter 打断并发送：先 interrupt 再 send，输入清空、模式回退 normal", () => {
+test("Alt+Enter 打断并发送：先 interrupt 再直发（不带 next-step），模式回退默认 steer", () => {
   const { renderer, adapter } = makeApp();
   renderer.press({ name: "h", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "i", ctrl: false, meta: false, shift: false });
@@ -807,10 +821,10 @@ test("Alt+Enter 打断并发送：先 interrupt 再 send，输入清空、模式
   // 提交后输入不残留、模式已回退
   renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
-  assert.deepEqual(adapter.log, ["interrupt", "send:hi", "send:z"]);
+  assert.deepEqual(adapter.log, ["interrupt", "send:hi", "steer:z"]);
 });
 
-test("agent 运行中 Enter → 官方流程：立即发送给核心（逐条不合并），本机只登记排队显示", () => {
+test("agent 运行中 `<` followup 提交 → 官方流程：立即发送给核心（逐条不合并），本机只登记排队显示", () => {
   const { app, renderer, adapter } = makeApp();
   typeAndEnter(renderer, "第一条");
   assert.deepEqual(adapter.sent, ["第一条"], "空闲直发");
@@ -826,9 +840,10 @@ test("agent 运行中 Enter → 官方流程：立即发送给核心（逐条不
         };
       }
     ).state;
-  // 运行中：后续 Enter 立即 followup（核心 next-turn 队列），逐条、不合并
-  typeAndEnter(renderer, "第二条");
-  typeAndEnter(renderer, "第三条");
+  // 运行中：`<` followup 提交立即交给核心 next-turn 队列，逐条、不合并
+  // （2026-10-13 模式交换后：排队等下一回合 = `<` 模式；默认模式是 steer 插话）
+  typeAndEnterFollowup(renderer, "第二条");
+  typeAndEnterFollowup(renderer, "第三条");
   assert.deepEqual(
     adapter.sent,
     ["第一条", "第二条", "第三条"],
@@ -964,8 +979,8 @@ test("P8：压缩期间 Enter 进排队、Ctrl+D 不请求退出确认；压缩�
   typeAndEnter(renderer, "压缩中提问");
   assert.deepEqual(
     st().queued,
-    [{ text: "压缩中提问", kind: "followup" }],
-    "压缩期间 Enter 走排队显示",
+    [{ text: "压缩中提问", kind: "steer" }],
+    "压缩期间 Enter 走排队显示（默认 steer 模式 → 等本回合下一 step）",
   );
   adapter.push({ type: "compaction", phase: "end", sessionId: "s1" });
   assert.deepEqual(st().compactingBySession, {}, "end 后清除标记");
@@ -1118,7 +1133,7 @@ test("非空输入时 ! / $ / / 为普通字符（不切模式）", () => {
   renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(adapter.sent, ["a!"]);
-  assert.deepEqual(adapter.log, ["send:a!"]);
+  assert.deepEqual(adapter.log, ["steer:a!"]);
 });
 
 test("slash 模式提交：自动补 / 前缀转发，不经 sendMessage", () => {

@@ -1,8 +1,9 @@
 // tests/steer-queued-display.test.ts — steer 排队显示（BACKLOG TUI#43）
 //
-// 覆盖：排队项带类型（followup / steer）；忙时 `<` 提交进排队块（独立成行、不写 buffer）、
+// 覆盖：排队项带类型（followup / steer）；忙时提交进排队块（独立成行、不写 buffer）、
 // 空闲时直达回显；渲染顺序 steer 在 followup 之上；右缘竖线 steer 黄 / followup 灰 /
 // 已发出亮红；核心在 step 边界认领（inbox-claim）后 steer 项转入历史流。
+// 2026-10-13 模式交换后：**默认模式 = steer**（直接提交即插话），`<` = followup（排队等下一回合）。
 //
 // 条目 16 段 C2：内容不再有缓冲行形态——「被 steer 续接」标与 steer 留白都改在**节缓存 /
 // pane** 上断言（交付驱动；标记由流水线产出，见 `pipeline/sections.ts` 的 `user-flag` 与
@@ -124,13 +125,13 @@ test("reducer：排队项带类型；认领按类型各取最早一条（互不�
   );
 });
 
-test("忙时 `<` 提交：进排队块（不写 buffer）、steer 排在 followup 之上、右缘竖线黄 vs 灰", () => {
+test("忙时提交：进排队块（不写 buffer）、steer 排在 followup 之上、右缘竖线黄 vs 灰", () => {
   const { renderer, adapter, st, app } = makeApp();
-  typeAndEnter(renderer, "先发一条"); // 使 App 进入 running（本地过渡态）
-  typeAndEnter(renderer, "普通排队"); // followup 排队
-  assert.deepEqual(adapter.steered, [], "此时还没有 steer");
+  typeAndEnter(renderer, "先发一条"); // 默认模式=steer；空闲 → 直发并进入 running
   renderer.press(key("<"));
-  typeAndEnter(renderer, "steer 排队");
+  typeAndEnter(renderer, "普通排队"); // followup 排队（`<` 模式）
+  assert.deepEqual(adapter.steered, ["先发一条"], "空闲那条已按 steer 投递");
+  typeAndEnter(renderer, "steer 排队"); // 默认模式（已回退）→ steer 排队
   try {
     assert.deepEqual(
       st().queued,
@@ -140,7 +141,11 @@ test("忙时 `<` 提交：进排队块（不写 buffer）、steer 排在 followu
       ],
       "两条都进排队（数组按提交顺序）",
     );
-    assert.deepEqual(adapter.steered, ["steer 排队"], "投递目标 next-step");
+    assert.deepEqual(
+      adapter.steered,
+      ["先发一条", "steer 排队"],
+      "默认模式两条都走 next-step",
+    );
     assert.ok(
       !st().local.some((l) => l.text === "steer 排队"),
       "排队中不写历史 buffer（独立成行由排队块渲染）",
@@ -173,8 +178,8 @@ test("忙时 `<` 提交：进排队块（不写 buffer）、steer 排在 followu
 test("核心在 step 边界认领（inbox-claim / next-step）→ 该条转入历史流，排队块只剩 followup", async () => {
   const { renderer, adapter, st, app } = makeApp();
   typeAndEnter(renderer, "先发一条");
-  typeAndEnter(renderer, "普通排队");
   renderer.press(key("<"));
+  typeAndEnter(renderer, "普通排队");
   typeAndEnter(renderer, "steer 排队");
   try {
     adapter.push({ type: "inbox-claim", target: "next-step" });
@@ -273,8 +278,7 @@ test("#4 节缓存：steer 认领给上一条用户块打「被续接」标 + st
 test("#4 渲染：被 steer 续接的用户块显示 ←，steer 块与上一条输入之间留空行", async () => {
   const { renderer, adapter, app } = makeApp();
   typeAndEnter(renderer, "先发一条");
-  renderer.press(key("<"));
-  typeAndEnter(renderer, "steer 排队");
+  typeAndEnter(renderer, "steer 排队"); // 默认模式：忙时插话排队
   adapter.push({ type: "inbox-claim", target: "next-step" });
   await tick();
   try {
@@ -296,10 +300,9 @@ test("#4 渲染：被 steer 续接的用户块显示 ←，steer 块与上一条
   }
 });
 
-test("空闲时 `<` 提交：直达回显（不留排队闪影），投递仍为 next-step", () => {
+test("空闲时默认（steer）提交：直达回显（不留排队闪影），投递为 next-step", () => {
   const { renderer, adapter, st, app } = makeApp();
   try {
-    renderer.press(key("<"));
     typeAndEnter(renderer, "空闲 steer");
     assert.deepEqual(st().queued, [], "空闲无需排队");
     assert.deepEqual(adapter.steered, ["空闲 steer"]);
@@ -326,8 +329,7 @@ test("宿主无 steer + 忙：降级为 followup 排队（灰线）并给提示�
   adapter.steerSupported = false;
   try {
     typeAndEnter(renderer, "先发一条");
-    renderer.press(key("<"));
-    typeAndEnter(renderer, "降级 steer");
+    typeAndEnter(renderer, "降级 steer"); // 默认 steer 路径 + 宿主不支持 → 降级 followup 排队
     assert.deepEqual(st().queued, [{ text: "降级 steer", kind: "followup" }]);
     assert.deepEqual(adapter.sent.includes("降级 steer"), true, "消息仍发出");
     assert.deepEqual(adapter.steered, [], "未走 steer 投递");

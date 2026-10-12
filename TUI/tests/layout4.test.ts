@@ -339,10 +339,10 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   /** 终态用例：turn-end 的 reason 给最新未终态用户块打终态（条目 16 段 C2：终态由 `turn-end`
    *  **交付**落在节条目上，旧路径的 `{type:"turn-end"}` action 只写缓冲、已不承载内容） */
   const ended = (reason?: TurnEndReason): { sym: string; sgr: string } =>
-    mark(withTurnEnd(mk("normal", "idle"), reason));
+    mark(withTurnEnd(mk("steer", "idle"), reason));
   // 单字符提示符 = 当前输入模式符号；提示符不着色（默认前景色，状态符号在用户块首行）
   assert.ok(
-    strip(inputRow(mk("normal", "success"))).startsWith("> "),
+    strip(inputRow(mk("steer", "success"))).startsWith("> "),
     "normal 模式提示符 > ",
   );
   assert.ok(
@@ -360,7 +360,7 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   );
   // 占位提示固定
   assert.ok(
-    strip(inputRow(mk("normal", "success"))).includes("Type a message..."),
+    strip(inputRow(mk("steer", "success"))).includes("Type a message..."),
     "占位提示固定",
   );
 
@@ -370,21 +370,21 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   assert.equal(ended("aborted").sym, "■", "中止 = 实心方块");
   assert.equal(ended("blocked").sym, "?", "未映射收尾原因(blocked) = 回退问号");
   assert.equal(
-    mark(mk("normal", "idle")).sym,
+    mark(mk("steer", "idle")).sym,
     "?",
     "未收到 turn/end = 回退问号",
   );
   assert.equal(
-    mark(mk("normal", "running")).sym,
+    mark(mk("steer", "running")).sym,
     "●",
     "运行中 = 实心圆（相位 0）",
   );
-  assert.equal(mark(mk("normal", "waiting")).sym, "△", "等待交互 = 空心三角");
+  assert.equal(mark(mk("steer", "waiting")).sym, "△", "等待交互 = 空心三角");
   // 着色：成功绿 / 失败红 / 中止灰 / 运行中黄 / 等待交互黄 / 回退占位默认前景
   const green = ended("completed").sgr;
   const red = ended("error").sgr;
   const gray = ended("aborted").sgr;
-  const yellow = mark(mk("normal", "running")).sgr;
+  const yellow = mark(mk("steer", "running")).sgr;
   assert.ok(green, "成功符号为绿");
   assert.ok(red, "失败符号为红");
   assert.ok(gray, "中止符号为灰");
@@ -394,14 +394,14 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   assert.notEqual(gray, green, "中止灰与成功绿互异");
   assert.equal(
     yellow,
-    mark(mk("normal", "waiting")).sgr,
+    mark(mk("steer", "waiting")).sgr,
     "等待交互与运行中同为黄",
   );
   // 回退占位 ? 不着色：符号沿用块默认前景色，紧随用户文本（2 列前缀结构）
-  const idle = mark(mk("normal", "idle"));
+  const idle = mark(mk("steer", "idle"));
   assert.ok(
     histContent(
-      rowAnsi(userRow(mk("normal", "idle"), "用户输入文本")),
+      rowAnsi(userRow(mk("steer", "idle"), "用户输入文本")),
       60,
     ).includes("? 用户输入文本"),
     "回退占位 = 符号 + 空格 + 文本",
@@ -412,7 +412,7 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   assert.notEqual(idle.sgr, gray, "回退占位无灰");
   // 外部活动（thinking/tool）→ 运行中黄●（相位 0）
   const busy = mark(
-    reduceState(mk("normal", "idle"), {
+    reduceState(mk("steer", "idle"), {
       type: "agent-status",
       status: "thinking",
     }),
@@ -424,7 +424,7 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   // 首帧无时间基准不积分（相位 0）；速度为界内起点 MIN。
   const ascii = (chars: number): string => "x".repeat(chars);
   const busyAt = (evs: { t: number; text: string }[]): string => {
-    let s = reduceState(mk("normal", "idle"), {
+    let s = reduceState(mk("steer", "idle"), {
       type: "agent-status",
       status: "thinking",
     });
@@ -443,7 +443,7 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
     stepMs: number,
     text: string,
   ): { sym: string; frames: number } => {
-    let s = reduceState(mk("normal", "idle"), {
+    let s = reduceState(mk("steer", "idle"), {
       type: "agent-status",
       status: "thinking",
     });
@@ -477,7 +477,7 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   );
   // run 边界 = 两次用户输入之间：turn-end（回合结束）**不清零**（同一 run 内），
   // 下次用户输入（turn-begin clearActivity=true）才清零回到相位 0
-  let tb = reduceState(mk("normal", "idle"), {
+  let tb = reduceState(mk("steer", "idle"), {
     type: "agent-status",
     status: "thinking",
   });

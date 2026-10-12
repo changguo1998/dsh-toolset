@@ -63,7 +63,7 @@ test("completeCommandInput：slash 模式下输入框无前导 `/`（归一后�
     LOCAL_COMMANDS.length,
   );
   // 非 slash 模式的裸名字不匹配（避免普通文本误触发）
-  assert.equal(completeCommandInput("mo", [], "normal"), null);
+  assert.equal(completeCommandInput("mo", [], "steer"), null);
   assert.equal(completeCommandInput("mo", [], "shell"), null);
   // slash 模式下带参数（空格后）不再是命令 token
   assert.equal(completeCommandInput("model de", [], "slash"), null);

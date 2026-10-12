@@ -81,8 +81,8 @@ function trimBufferHead(buffer: HistoryRow[]): void {
  *  4：两侧各留 gutter-1 = 3 列 → 输入最长折行左缘对齐回复正文第 3 个字符。 */
 export const DEFAULT_MESSAGE_GUTTER = 4;
 
-/** 输入栏临时模式（$ shell / / slash / < steer；提交后自动回退 normal，不再有 Esc 回退） */
-export type InputMode = "normal" | "shell" | "slash" | "steer";
+/** 输入模式（$ shell / / slash / < followup；提交后自动回退默认 steer，不再有 Esc 回退） */
+export type InputMode = "steer" | "followup" | "shell" | "slash";
 
 /** 活动区**输出内容档位**（BACKLOG #8，`/verbose think|tool|step`；缺省 `think`）：
  *  - `think`：思考 + 正文 + 工具调用（调用行 / 参数 / 结果 / 辅助行全显示）；
@@ -436,13 +436,13 @@ export interface AppState {
   inputHistoryCursor: number;
   /** 进入翻看前的草稿（回到最新条目之下时恢复；非翻看态恒为空串） */
   inputHistoryDraft: string;
-  /** 进入翻看前的草稿模式（随草稿一起恢复；非翻看态为 normal） */
+  /** 进入翻看前的草稿模式（随草稿一起恢复；非翻看态为 steer） */
   inputHistoryDraftMode: InputMode;
   /** 排队项（**已投递给核心、尚未被认领**的文本，按提交顺序存；本机只用于显示）：
    *  `followup` 等下一回合、`steer` 等本回合下一次 step（TUI#43）。核心认领时该条转入
    *  历史流（按类型认领：`queued-claim` 取最早 followup、`queued-claim-steer` 取最早 steer）。 */
   queued: QueuedItem[];
-  /** 输入模式（符号代表模式；提交后自动回退 normal） */
+  /** 输入模式（符号代表模式；提交后自动回退默认 steer） */
   inputMode: InputMode;
   /** 输入状态（用户块首行符号来源；P1 起状态栏不再渲染该符号）：绿✓=成功 /
    *  红✗=失败 / 黄●/○=运行中（按流式输出节奏交替）/
@@ -771,9 +771,9 @@ export function initialState(
     inputHistory: [], // 输入历史：进程内、随会话生命周期（不写入 tui-state.json）
     inputHistoryCursor: 0,
     inputHistoryDraft: "",
-    inputHistoryDraftMode: "normal",
+    inputHistoryDraftMode: "steer",
     queued: [], // 无排队（agent 运行期间 Enter 的文本登记在此，核心认领后转入历史）
-    inputMode: "normal",
+    inputMode: "steer",
     inputStatus: "idle",
     approval: null,
     approvalScroll: 0,
@@ -1241,7 +1241,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
       case "sessions":
         return setSessions(state, action.sessions);
       case "picker-open":
-        // 面板打开保留输入模式；仅真实 Esc（主输入态或关闭面板）才重置为 normal
+        // 面板打开保留输入模式；仅真实 Esc（主输入态或关闭面板）才重置为默认 steer
         return { ...state, picker: action.picker };
       case "picker-move":
         return movePicker(state, action);
@@ -2702,7 +2702,7 @@ export function reduceInputHistory(
       }),
       inputHistoryCursor: 0,
       inputHistoryDraft: "",
-      inputHistoryDraftMode: "normal",
+      inputHistoryDraftMode: "steer",
     };
   }
   const len = state.inputHistory.length;

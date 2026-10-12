@@ -2232,7 +2232,7 @@ export class App {
         // 关闭面板（并重置输入模式为 normal；提交后的自动回退见 submit）
         this.apply((s) => reduceState(s, { type: "picker-close" }));
         this.apply((s) =>
-          reduceState(s, { type: "input-mode", mode: "normal" }),
+          reduceState(s, { type: "input-mode", mode: "steer" }),
         );
         this.paint();
         return;
@@ -2756,10 +2756,10 @@ export class App {
         this.apply((s) => reduceState(s, { type: "move-cursor", delta: 1 }));
         break;
       case "backspace":
-        // 输入为空时 Backspace 回退模式（$ / 切了模式但没输入，用 Backspace 回 >）
-        if (this.state.inputText === "" && this.state.inputMode !== "normal") {
+        // 输入为空时 Backspace 回退模式（$ / < 切了模式但没输入，用 Backspace 回 >）
+        if (this.state.inputText === "" && this.state.inputMode !== "steer") {
           this.apply((s) =>
-            reduceState(s, { type: "input-mode", mode: "normal" }),
+            reduceState(s, { type: "input-mode", mode: "steer" }),
           );
         } else {
           this.apply((s) => this.backspace(s));
@@ -2785,7 +2785,8 @@ export class App {
         }
         break;
       default:
-        // 模式键：输入框为空时按 $ / / / < 切换模式并吞键（同符号幂等；提交后自动回退 >；! 为普通字符）
+        // 模式键：输入框为空时按 $ / / / < 切换模式并吞键（$ shell / / slash / < followup；
+        // 同符号幂等；提交后自动回退默认 >；! 为普通字符）
         if (
           name.length === 1 &&
           !ctrl &&
@@ -2793,7 +2794,7 @@ export class App {
           (name === "$" || name === "/" || name === "<")
         ) {
           const mode: InputMode =
-            name === "$" ? "shell" : name === "/" ? "slash" : "steer";
+            name === "$" ? "shell" : name === "/" ? "slash" : "followup";
           if (this.state.inputMode !== mode) {
             this.apply((s) => reduceState(s, { type: "input-mode", mode }));
           }
@@ -3212,19 +3213,45 @@ export class App {
     if (slashLine.startsWith("/")) {
       this.handleSlash(slashLine);
       this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
-      this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
+      this.apply((s) => reduceState(s, { type: "input-mode", mode: "steer" }));
       return;
     }
-    // steer 模式（BACKLOG TUI#36）：投递到宿主最近 step 边界（官方 agent.steer =
-    // send(m,'next-step',true)；运行中下一 step 认领，空闲时立即起一轮）。语义上仍属**当前
-    // 回合**，故与直发同路径（立即回显用户块、开回合分隔），**不登记排队块**
-    // （排队语义 = 等下一回合）。宿主 agent 无 steer（旧宿主）→ 降级 followup 并明确提示
-    if (mode === "steer") {
+    // `<` followup 模式：排队等**下一回合**（运行中进排队块、走核心 next-turn 队列；
+    // 空闲时直接发送）。Alt+Enter 打断后已空闲 → 直发（排队内容已并回输入框）
+    if (mode === "followup") {
+      if (!interrupt && this.agentBusy()) {
+        this.apply((s) => reduceState(s, { type: "queued-push", text }));
+        this.deps.adapter.sendMessage(
+          text,
+          this.state.activeSessionId ?? undefined,
+        );
+      } else {
+        this.sendUserText(text);
+      }
+      this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
+      this.apply((s) => reduceState(s, { type: "input-mode", mode: "steer" }));
+      return;
+    }
+    // shell 模式（BACKLOG TUI#37）：提交内容按**本地命令**执行（不经模型、不进会话与模型
+    // 上下文、不占审批链）；命令回显与输出进活动区本地行。异步执行、不阻塞输入。
+    if (mode === "shell") {
+      void this.runLocalShell(text);
+      this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
+      this.apply((s) => reduceState(s, { type: "input-mode", mode: "steer" }));
+      return;
+    }
+    // 默认模式（提示符 `>`）= steer（BACKLOG TUI#36）：投递到宿主最近 step 边界
+    // （官方 agent.steer = send(m,'next-step',true)；运行中下一 step 认领，空闲时立即起
+    // 一轮）。语义上仍属**当前回合**，故与直发同路径（立即回显用户块、开回合分隔），
+    // **不登记排队块**（排队语义 = 等下一回合，见上面的 followup 分支）。
+    // 宿主 agent 无 steer（旧宿主）→ 降级 followup 并明确提示。
+    // Alt+Enter（interrupt）：打断后直发，不走 step 边界投递 —— 保住提示行「打断并发送」口径
+    {
       // canSteer 缺省（mock/旧 adapter 未实现）视为「不确定」→ 仍按 steer 投递，
       // 由 adapter 侧按宿主结构面决定 steer/followup（dsh adapter 有 steer 才用）
       const canSteer = this.deps.adapter.canSteer?.() !== false;
       const target = canSteer ? "next-step" : undefined;
-      if (this.agentBusy()) {
+      if (!interrupt && this.agentBusy()) {
         // 本回合在跑 → 进排队块（TUI#43）：独立成行、steer 右缘竖线黄，等下一次 step 认领后
         // 由 `inbox-claim` 转入历史流；宿主无 steer 时按 followup 类型排队（等下一回合）
         this.apply((s) =>
@@ -3240,52 +3267,28 @@ export class App {
           target,
         );
       } else {
-        // 空闲：没有可插队的 step（steer 会直接起一轮）→ 直达回显，不留排队闪影
-        this.sendUserText(text, text, target);
+        // 空闲 / Alt+Enter 打断后：没有可插队的 step（steer 会直接起一轮）→ 直达回显。
+        // 打断后**不带** next-step（打断即放弃当前回合，按提示行口径「打断并发送」直发）
+        this.sendUserText(text, text, interrupt ? undefined : target);
       }
       // 降级提示放在发送**之后**：发送路径可能开回合（turn-begin 清活动区），先提示会被清掉
       if (!canSteer) {
         this.apply((s) =>
           reduceState(s, {
             type: "notice",
-            text: "宿主不支持 steer，已按普通消息发送",
+            text: "宿主不支持 steer，已按 followup 投递",
             tone: "warn",
           }),
         );
         this.deliverLocal({
           kind: "notice",
-          text: "宿主不支持 steer，已按普通消息发送",
+          text: "宿主不支持 steer，已按 followup 投递",
           tone: "warn",
         });
       }
       this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
-      this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
-      return;
+      this.apply((s) => reduceState(s, { type: "input-mode", mode: "steer" }));
     }
-    // shell 模式（BACKLOG TUI#37）：提交内容按**本地命令**执行（不经模型、不进会话与模型
-    // 上下文、不占审批链）；命令回显与输出进活动区本地行。异步执行、不阻塞输入。
-    if (mode === "shell") {
-      void this.runLocalShell(text);
-      this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
-      this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
-      return;
-    }
-    // agent 运行中：发送路径**与官方一致**（立即 followup 交给核心 next-turn 队列，
-    // 逐条、不合并），本机只登记显示——排队块钉在历史区右下角（灰竖线），核心
-    // 开始新回合认领最早一条时该条转入历史流（见 beginTurnIfNeeded/queued-claim）。
-    // Alt+Enter（interrupt）打断后已经空闲 → 直发（排队内容已并回输入框）
-    if (!interrupt && this.agentBusy()) {
-      this.apply((s) => reduceState(s, { type: "queued-push", text }));
-      this.deps.adapter.sendMessage(
-        text,
-        this.state.activeSessionId ?? undefined,
-      );
-    } else {
-      this.sendUserText(text);
-    }
-    this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
-    // 任何提交后自动回退普通模式（提示符回 >）
-    this.apply((s) => reduceState(s, { type: "input-mode", mode: "normal" }));
   }
 
   /**

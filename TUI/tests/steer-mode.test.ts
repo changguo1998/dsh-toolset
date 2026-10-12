@@ -1,8 +1,9 @@
-// tests/steer-mode.test.ts — `<` steer 输入模式（BACKLOG TUI#36）
+// tests/steer-mode.test.ts — 输入模式的投递语义（默认 `>` = steer、`<` = followup）
 //
-// 覆盖：空输入按 `<` 进 steer 模式（同符号幂等、提交后回退 normal）；提示符渲染为 `<`；
-// 提交走 agent.steer（adapter target='next-step'）而非普通 followup；宿主无 steer 时
-// 降级 followup 并给提示；`x` 等普通字符不被 `<` 模式逻辑吞掉。
+// 2026-10-13 交换后：**默认模式**（提示符 `>`）提交走 `agent.steer`（adapter target='next-step'，
+// 运行中下一 step 认领、空闲立即起一轮）；`<` 模式 = followup（运行中进排队块等下一回合、
+// 空闲直接发送）。覆盖：默认即 steer、`<` 进 followup 模式（同符号幂等、提示符 `<`、
+// 提交后回退默认）；宿主无 steer 时默认路径降级 followup 并给提示；Backspace 空输入回退默认。
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -49,7 +50,22 @@ function plainFrame(renderer: FakeRenderer): string {
   return renderer.lastRender.join("\n");
 }
 
-test("空输入按 `<` 进 steer 模式并吞键；提示符渲染为 `<`；同符号幂等", () => {
+test("默认模式即 steer：提示符 `>`，提交走 target='next-step' 且不排队", async () => {
+  const { renderer, adapter, st } = makeApp();
+  assert.ok(
+    plainFrame(renderer).includes("> Type a message..."),
+    "默认提示符应为 `>`: " + JSON.stringify(plainFrame(renderer)),
+  );
+  for (const ch of ["快", "改"]) renderer.press(key(ch));
+  renderer.press(key("enter"));
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(adapter.sent, ["快改"], "消息已投递");
+  assert.deepEqual(adapter.steered, ["快改"], "默认提交即 steer 投递");
+  assert.deepEqual(st().queued, [], "steer 属当前回合，不登记排队块");
+  assert.ok(!plainFrame(renderer).includes("快改 "), "输入区已清空");
+});
+
+test("`<` 进 followup 模式并吞键；提示符渲染为 `<`；同符号幂等", () => {
   const { renderer, adapter } = makeApp();
   renderer.press(key("<"));
   assert.ok(
@@ -63,37 +79,73 @@ test("空输入按 `<` 进 steer 模式并吞键；提示符渲染为 `<`；同�
   // 有输入后 `<` 是普通字符（不被模式逻辑吞掉）
   renderer.press(key("x"));
   renderer.press(key("enter"));
-  assert.deepEqual(adapter.steered, ["x"], "steer 模式提交走 steer 投递");
+  assert.deepEqual(adapter.steered, [], "followup 模式不走 steer 投递");
+  assert.deepEqual(adapter.sent, ["x"], "消息按 followup 发出");
 });
 
-test("steer 提交：走 adapter target='next-step'、立即回显（不排队），提交后回退 normal", async () => {
+test("`<` followup 提交：空闲直发；提交后回退默认 steer", async () => {
   const { renderer, adapter, st } = makeApp();
   renderer.press(key("<"));
-  for (const ch of ["快", "改"]) renderer.press(key(ch));
-  renderer.press(key("enter"));
+  typeAndEnter(renderer, "慢点");
   await new Promise((r) => setTimeout(r, 0));
-  assert.deepEqual(adapter.sent, ["快改"], "消息已投递");
-  assert.deepEqual(adapter.steered, ["快改"], "投递目标为 next-step");
-  assert.deepEqual(st().queued, [], "steer 属当前回合，不登记排队块");
-  // 条目 16 段 C2：立即回显的用户块由「交付 → 节缓存」承载（本例未装 sink，故断言缓冲
-  // 无内容行；生产路径的可见性由 pipeline-app.test.ts 的交付用例覆盖）
-  assert.deepEqual(st().local, [], "用户块不进缓冲（内容单源在节缓存）");
-  assert.ok(!plainFrame(renderer).includes("快改" + " "), "输入区已清空");
-  // 回退 normal：再输入普通字符并按 Enter → 走普通 followup（不进 steered）
-  renderer.press(key("z"));
-  renderer.press(key("enter"));
-  assert.deepEqual(adapter.steered, ["快改"], "回退后不再走 steer");
-  assert.equal(adapter.sent.length, 2);
-  assert.equal(adapter.log.at(-1), "send:z");
+  assert.deepEqual(adapter.sent, ["慢点"]);
+  assert.deepEqual(adapter.steered, [], "followup 不进 next-step 投递");
+  assert.deepEqual(st().queued, [], "空闲时直达，不留排队闪影");
+  // 回退默认 steer：再回车即走 next-step
+  typeAndEnter(renderer, "接着来");
+  assert.deepEqual(adapter.steered, ["接着来"], "提交后已回退默认 steer 模式");
+  assert.equal(adapter.log.at(-1), "steer:接着来");
 });
 
-test("宿主不支持 steer：降级 followup 并给提示（消息不丢）", () => {
+test("运行中：默认模式进 steer 排队块（kind=steer），`<` 进 followup 排队块", () => {
+  const { renderer, adapter, st } = makeApp();
+  // 让 agent 处于运行中（agentBusy 判据 = agentStatus !== idle）
+  st().agentStatus = "thinking";
+  typeAndEnter(renderer, "插话");
+  assert.deepEqual(
+    st().queued.map((q) => q.kind),
+    ["steer"],
+    "默认模式排队类型 = steer（下一 step 认领）",
+  );
+  renderer.press(key("<"));
+  typeAndEnter(renderer, "等下一轮");
+  assert.deepEqual(
+    st().queued.map((q) => q.kind),
+    ["steer", "followup"],
+    "`<` 模式排队类型 = followup（下一回合认领）",
+  );
+  assert.deepEqual(adapter.steered, ["插话"], "只有默认模式那条走 steer 投递");
+  assert.deepEqual(adapter.sent, ["插话", "等下一轮"], "两条都已投递");
+});
+
+test("Alt+Enter（打断并发送）：两种模式下都打断后直发，不走 step 边界投递", async () => {
+  const { renderer, adapter, st } = makeApp();
+  st().agentStatus = "thinking";
+  for (const ch of ["打", "断"]) renderer.press(key(ch));
+  renderer.press({ ...key("enter"), meta: true });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(adapter.interrupts, 1, "先打断当前回合");
+  assert.deepEqual(adapter.steered, [], "打断后直发，不按 step 边界投递");
+  assert.deepEqual(st().queued, [], "不登记排队块");
+  // `<` 模式下同理
+  st().agentStatus = "thinking";
+  renderer.press(key("<"));
+  for (const ch of ["再", "断"]) renderer.press(key(ch));
+  renderer.press({ ...key("enter"), meta: true });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(adapter.interrupts, 2, "followup 模式下也打断");
+  assert.deepEqual(adapter.steered, [], "followup 模式本就不走 next-step");
+});
+
+function typeAndEnter(renderer: FakeRenderer, text: string): void {
+  for (const ch of Array.from(text)) renderer.press(key(ch));
+  renderer.press(key("enter"));
+}
+
+test("宿主不支持 steer：默认路径降级 followup 并给提示（消息不丢）", () => {
   const { renderer, adapter, st } = makeApp();
   adapter.steerSupported = false;
-  renderer.press(key("<"));
-  renderer.press(key("h"));
-  renderer.press(key("i"));
-  renderer.press(key("enter"));
+  typeAndEnter(renderer, "hi");
   assert.deepEqual(adapter.sent, ["hi"], "消息仍发出（降级 followup）");
   assert.deepEqual(adapter.steered, [], "未走 steer 投递");
   // 断言状态而非帧：用户块回显后活动区可能已把提示挤出可视窗
@@ -105,12 +157,10 @@ test("宿主不支持 steer：降级 followup 并给提示（消息不丢）", (
   );
 });
 
-test("Backspace 在空 steer 输入时回退 normal（与 $ / 同机制）", () => {
+test("Backspace 在空 `<` 输入时回退默认 steer（与 $ / 同机制）", () => {
   const { renderer, adapter } = makeApp();
   renderer.press(key("<"));
   renderer.press(key("backspace"));
-  renderer.press(key("a"));
-  renderer.press(key("enter"));
-  assert.deepEqual(adapter.steered, [], "回退后不再走 steer");
-  assert.equal(adapter.log.at(-1), "send:a");
+  typeAndEnter(renderer, "a");
+  assert.deepEqual(adapter.steered, ["a"], "回退默认后走 steer 投递");
 });

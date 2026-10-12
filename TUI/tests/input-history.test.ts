@@ -98,7 +98,7 @@ test("提交入栈：普通输入与 `/` 命令共用一份历史（含各自模
   assert.deepEqual(
     st().inputHistory,
     [
-      { text: "第一条", mode: "normal" },
+      { text: "第一条", mode: "steer" },
       { text: "zzz", mode: "slash" },
     ],
     "条目 = 提示符口径文本 + 提交时的模式",
@@ -115,7 +115,7 @@ test("历史回溯恢复**输入模式**（真机缺陷修复）：slash 命令�
   renderer.press(key("/"));
   typeAndEnter(renderer, "zzz");
   assert.deepEqual(adapter.commands, ["/zzz"]);
-  assert.equal(st().inputMode, "normal", "提交后回退 normal");
+  assert.equal(st().inputMode, "steer", "提交后回退默认 steer");
   // ↑ 回溯：文本与模式**同时**恢复 → 提示符回到 `/`，再次提交仍是 slash 命令
   renderer.press(key("p", { ctrl: true }));
   assert.equal(st().inputText, "zzz");
@@ -128,24 +128,24 @@ test("历史回溯恢复**输入模式**（真机缺陷修复）：slash 命令�
   );
   assert.deepEqual(adapter.sent, [], "没有被当成普通消息发给模型");
 
-  // `$` shell 与 `<` steer 同理：模式随条目恢复
+  // `$` shell 与 `<` followup 同理：模式随条目恢复
   renderer.press(key("$"));
   typeAndEnter(renderer, "ls -la");
   renderer.press(key("<"));
   typeAndEnter(renderer, "快点");
   renderer.press(key("p", { ctrl: true }));
-  assert.equal(st().inputMode, "steer", "最近一条是 steer 条目");
+  assert.equal(st().inputMode, "followup", "最近一条是 < followup 条目");
   assert.equal(st().inputText, "快点");
   renderer.press(key("p", { ctrl: true }));
   assert.equal(st().inputMode, "shell", "再上一条是 shell 条目");
   assert.equal(st().inputText, "ls -la");
   renderer.press(key("n", { ctrl: true }));
-  assert.equal(st().inputMode, "steer");
+  assert.equal(st().inputMode, "followup");
   renderer.press(key("n", { ctrl: true }));
   assert.equal(
     st().inputMode,
-    "normal",
-    "回到最新之下 → 恢复草稿模式（normal）",
+    "steer",
+    "回到最新之下 → 恢复草稿模式（默认 steer）",
   );
   assert.equal(st().inputText, "");
 });
@@ -226,7 +226,7 @@ test("↑ 专用于历史区：历史非空、输入为空时 ↑ 不再回溯�
 });
 
 test("reducer：相邻重复（文本 + 模式）不入栈、模式不同算不同条目、超上限丢最旧", () => {
-  const entry: InputHistoryEntry = { text: "同一句", mode: "normal" };
+  const entry: InputHistoryEntry = { text: "同一句", mode: "steer" };
   const once = inputHistoryPush([], entry);
   assert.deepEqual(
     inputHistoryPush(once, entry),
@@ -240,11 +240,11 @@ test("reducer：相邻重复（文本 + 模式）不入栈、模式不同算不�
   );
   let hist: readonly InputHistoryEntry[] = [];
   for (let i = 0; i < 205; i++)
-    hist = inputHistoryPush(hist, { text: `第${i}条`, mode: "normal" });
+    hist = inputHistoryPush(hist, { text: `第${i}条`, mode: "steer" });
   assert.equal(hist.length, 200, "上限 200");
   assert.equal(hist[0]?.text, "第5条", "超出丢最旧");
   assert.equal(hist.at(-1)?.text, "第204条");
-  assert.equal(hist.at(-1)?.mode, "normal", "模式随条目保存");
+  assert.equal(hist.at(-1)?.mode, "steer", "模式随条目保存");
 });
 
 test("reducer：push 复位翻看态、空历史时 prev/next 为 no-op", () => {
@@ -253,7 +253,7 @@ test("reducer：push 复位翻看态、空历史时 prev/next 为 no-op", () => 
   assert.deepEqual(pushed.inputHistory, [], "空输入不入栈");
   assert.equal(pushed.inputHistoryCursor, 0);
   assert.equal(pushed.inputHistoryDraft, "");
-  assert.equal(pushed.inputHistoryDraftMode, "normal");
+  assert.equal(pushed.inputHistoryDraftMode, "steer");
   // 空历史（且输入为空）：prev/next 不改状态
   assert.equal(
     reduce(pushed, { type: "input-history", action: "prev" }),

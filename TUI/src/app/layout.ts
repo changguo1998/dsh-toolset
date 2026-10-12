@@ -1835,12 +1835,12 @@ function userBlockSymbolResolver(
     return { text: "?" }; // 无终态
   };
 }
-/** 提示符 = 当前输入模式符号（normal > / shell $ / slash / / steer <；默认前景色，不着色） */
+/** 提示符 = 当前输入模式符号（steer > / shell $ / slash / / followup <；默认前景色，不着色） */
 const MODE_SYMBOL: Record<InputMode, string> = {
-  normal: ">",
+  steer: ">",
   shell: "$",
   slash: "/",
-  steer: "<",
+  followup: "<",
 };
 
 /** 当前活跃会话的目标/todo/模式/策略/预设/运行中任务数（状态栏与整页高度共用口径） */
