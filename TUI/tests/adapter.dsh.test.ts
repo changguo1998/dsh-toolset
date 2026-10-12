@@ -6454,6 +6454,99 @@ test("回合边界并回：live 事件无数字 seq → 退回追加（不假排
   );
 });
 
+test("历史归一：同一句话换了 id 再 splice（排队输入重发）→ 按正文去重，不留恒 ? 的重块", () => {
+  const spliced = (
+    seq: number,
+    id: string,
+    text: string,
+  ): Record<string, unknown> => ({
+    type: "agent/inbox/spliced",
+    seq,
+    data: {
+      target: "next-turn",
+      inserted: [{ id, role: "user", content: [{ type: "text", text }] }],
+    },
+  });
+  const msgs = normalizeHistoryMessages([
+    // 真机形态：同一条输入被换 id 记了两次 spliced，只有后一条有对应的 user/message
+    spliced(1, "old-id", "等待一下"),
+    spliced(2, "new-id", "等待一下"),
+    // 只走 spliced 的注入（无对应正文行）→ 必须保留
+    spliced(3, "inj-id", "只走 spliced 的注入"),
+    {
+      type: "user/message",
+      seq: 4,
+      data: { id: "new-id", content: [{ type: "text", text: "等待一下" }] },
+    },
+    { type: "turn/start", seq: 5, data: { turn: 1 } },
+    {
+      type: "turn/end",
+      seq: 6,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+  ]);
+  assert.deepEqual(
+    msgs.filter((m) => m.role === "user").map((m) => [m.text, m.status ?? "-"]),
+    [
+      ["只走 spliced 的注入", "-"],
+      ["等待一下", "success"],
+    ],
+    "换 id 重发的 spliced 副本按正文去重（旧口径多出一个永远等不到 turn/end 的 ? 重块）；无正文行的 spliced 注入仍保留",
+  );
+});
+
+test("历史归一：终态优先落给人工输入，注入块不抢符号（注入排在人工输入之后的真机形态）", () => {
+  const msgs = normalizeHistoryMessages([
+    {
+      type: "user/message",
+      seq: 1,
+      data: {
+        id: "u1",
+        source: { kind: "user" },
+        content: [{ type: "text", text: "人工输入" }],
+      },
+    },
+    { type: "turn/start", seq: 2, data: { turn: 1 } },
+    {
+      type: "user/message",
+      seq: 3,
+      data: {
+        id: "i1",
+        source: { kind: "rule-engine" },
+        content: [{ type: "text", text: "[RULE] 注入" }],
+      },
+    },
+    {
+      type: "agent/inbox/spliced",
+      seq: 4,
+      data: {
+        target: "next-step",
+        inserted: [
+          {
+            id: "a1",
+            role: "user",
+            content: [{ type: "text", text: "子代理结果" }],
+          },
+        ],
+      },
+    },
+    {
+      type: "turn/end",
+      seq: 5,
+      data: { turn: 1, reason: { kind: "completed" } },
+    },
+  ]);
+  assert.deepEqual(
+    msgs.filter((m) => m.role === "user").map((m) => [m.text, m.status ?? "-"]),
+    [
+      ["人工输入", "success"],
+      ["[RULE] 注入", "-"],
+      ["子代理结果", "-"],
+    ],
+    "符号落在人工输入上（旧口径落给该回合最后一个用户块 → 注入块抢走、人工输入留 ?）",
+  );
+});
+
 test("条目 27：用户消息先于 turn/start 落库（真机顺序）→ 终态回填到正确回合", () => {
   const msgs = normalizeHistoryMessages([
     {

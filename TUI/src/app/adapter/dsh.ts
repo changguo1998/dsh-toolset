@@ -357,10 +357,16 @@ export function normalizeHistoryMessages(
   const pendingUsers: number[] = [];
   let awaitingTurnStart = true;
   const userIds = new Set<string>();
+  /** 已在正文里出过的用户输入正文（spliced 副本换 id 重发时的兜底去重，见下） */
+  const userTexts = new Set<string>();
+  /** 人工输入行（`source.kind === "user"`）在 `out` 里的下标：终态回填优先给它们 */
+  const humanUsers: number[] = [];
   for (const e of events) {
     if (e.type !== "user/message") continue;
-    const id = (e.data as { id?: unknown } | undefined)?.id;
-    if (typeof id === "string") userIds.add(id);
+    const data = e.data as { id?: unknown; content?: unknown } | undefined;
+    if (typeof data?.id === "string") userIds.add(data.id);
+    const text = extractTextBlocks(data?.content).trim();
+    if (text !== "") userTexts.add(text);
   }
   for (const e of events) {
     const data = e.data as Record<string, unknown> | undefined;
@@ -450,6 +456,9 @@ export function normalizeHistoryMessages(
       else {
         pushText("user", extractTextBlocks(data.content));
         if (awaitingTurnStart) pendingUsers.push(out.length - 1);
+        // 人工输入（宿主 `source.kind === "user"`）：终态回填时优先给它，别让注入块抢走
+        if ((data.source as { kind?: unknown } | undefined)?.kind === "user")
+          humanUsers.push(out.length - 1);
       }
     } else if (e.type === "llm/retry") {
       // 辅助行还原（BACKLOG #23①）：live 口径是 notice（`state.ts` 的 retry toast），
@@ -512,21 +521,48 @@ export function normalizeHistoryMessages(
         const id = item.id;
         if (role === "user" && typeof id === "string" && userIds.has(id))
           continue;
+        // 同一句话可能被宿主**换一个 id** 再 splice 一次（真机实测：排队中的输入重发 →
+        // 两条 spliced 事件 id 不同、正文相同，而其中一条永远等不到 `turn/end`）→ 画面上
+        // 多出一个恒 `?` 的重块。正文与某条 `user/message` 完全相同也丢弃；真的重复发送
+        // 同一句话不受影响（那两次各自都有 `user/message` 正文行，丢的只是 spliced 副本）。
+        if (role === "user") {
+          const text = extractTextBlocks(item.content).trim();
+          if (text !== "" && userTexts.has(text)) continue;
+        }
         pushText(role, extractTextBlocks(item.content));
+        if (
+          role === "user" &&
+          (item.source as { kind?: unknown } | undefined)?.kind === "user"
+        )
+          humanUsers.push(out.length - 1);
       }
     }
   }
   flushStep(); // 末尾收口（最后一步可能没有 step/end）
-  // 回填用户块终态：`turn/end` 在用户消息之后到达，故此处按回合号从后往前找该回合最后一个用户消息
+  // 回填用户块终态：`turn/end` 在用户消息之后到达，故按回合号回溯该回合的用户块。
+  // **优先人工输入**：宿主把注入（rule-engine / system-reminder / goal 回合 / 子代理结果…）
+  // 也记成 user 行，它们常排在人工输入之后——按「最后一个用户块」落符号会让注入块把符号
+  // 抢走、人工输入留 `?`（真机实例：用户中途发的一条指令显示 `?`，同回合的人工输入反而没有
+  // 符号）。找不到人工输入才退回「最后一个用户块」。
   for (const [turn, status] of turnStatus) {
-    for (let i = out.length - 1; i >= 0; i--) {
-      const m = out[i]!;
-      if (m.role !== "user" || m.turn !== turn) continue;
-      // 已有终态不覆盖：回合号缺失时 `curTurn` 沿用上一个已知值，同一条 `turn/end` 会挂到
-      // 已标过的用户块上（截断 / 旧格式日志），覆盖会把先前正确的符号改错
-      if (m.status === undefined) out[i] = { ...m, status };
-      break;
+    let at = -1;
+    for (const index of humanUsers) {
+      const m = out[index];
+      if (m !== undefined && m.role === "user" && m.turn === turn) at = index;
     }
+    if (at < 0) {
+      for (let i = out.length - 1; i >= 0; i--) {
+        const m = out[i]!;
+        if (m.role !== "user" || m.turn !== turn) continue;
+        at = i;
+        break;
+      }
+    }
+    if (at < 0) continue;
+    const m = out[at]!;
+    // 已有终态不覆盖：回合号缺失时 `curTurn` 沿用上一个已知值，同一条 `turn/end` 会挂到
+    // 已标过的用户块上（截断 / 旧格式日志），覆盖会把先前正确的符号改错
+    if (m.status === undefined) out[at] = { ...m, status };
   }
   return out;
 }
