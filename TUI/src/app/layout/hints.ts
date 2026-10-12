@@ -58,9 +58,9 @@ export function approvalHintLine(state: AppState): string {
   return parts.join("·");
 }
 
-/** 模型选择面板（三列焦点区；空格预选、Enter 提交） */
+/** 模型选择面板（三列焦点区；输入筛选、空格预选、Enter 提交；Esc 两段：先清词再关） */
 export const PICKER_HINT_LINE =
-  "[↑/↓]移动 · [空格]预选 · [←/→/Tab]切列 · [Enter]提交 · [Esc]取消";
+  "[输入]筛选 · [↑/↓]移动 · [空格]预选 · [Tab]切列 · [Enter]提交 · [Esc]清空/取消";
 
 /** 后台任务面板 */
 export const JOBS_HINT_LINE =

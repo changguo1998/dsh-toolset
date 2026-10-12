@@ -23,6 +23,12 @@ import type {
   AgentRowInfo,
 } from "./adapter/dsh.ts";
 import type { ModelSelection, ModelSelectionLike } from "./adapter/dsh.ts";
+import {
+  pickerFilterColumn,
+  pickerFilterText,
+  pickerVisibleModels,
+  pickerVisibleProviders,
+} from "./picker-filter.ts";
 import type { SectionsState } from "./layout/pipeline/sections.ts";
 import { createSections } from "./layout/pipeline/sections.ts";
 import type { ActivityPlacement } from "./config.ts";
@@ -619,6 +625,10 @@ export interface PickerState {
   selectedProvider?: string;
   selectedModel?: string;
   selectedEffort?: string;
+  /** provider 列筛选词（键入选入；空 = 默认序，只作用于本列，见 picker-filter.ts） */
+  providerFilter?: string;
+  /** model 列筛选词（同上，与 provider 列各自独立） */
+  modelFilter?: string;
   /** 当前生效选择（各列浅绿显示） */
   current?: ModelSelection;
 }
@@ -891,7 +901,6 @@ export function appendThinking(
   return appendStream(state, text, "thinking", time);
 }
 
-
 /**
  * 追加一条命令通知(notice)：独立成行，不并入 buffer 末行(与流式 append 不同)。
  * 用于 slash 命令的提示/结果文本(绝不进入模型历史，仅 UI 展示)。
@@ -1001,7 +1010,6 @@ export function appendToolLine(
   return { ...state, local: buffer };
 }
 
-
 /** P8：当前活跃会话是否正在压缩上下文（压缩期间视为活跃：状态符号显示运行中、
  *  新消息走排队、Ctrl+D 退出守卫不触发）。非活跃会话的标记不影响当前视图。 */
 export function isCompacting(state: AppState): boolean {
@@ -1015,7 +1023,6 @@ function statusFor(state: AppState, fallback: InputStatus): InputStatus {
   if (state.approval || state.question) return "waiting";
   return state.agentStatus === "idle" ? fallback : "running";
 }
-
 
 /** 合并更新系统状态区（StatusTicker 每 tick 调用；缺失字段保持原值） */
 export function setSystemStatus(
@@ -1244,6 +1251,8 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return phasePicker(state, action);
       case "picker-select":
         return selectPicker(state);
+      case "picker-filter":
+        return filterPicker(state, action);
       case "picker-efforts":
         return setPickerEfforts(
           state,
@@ -2306,6 +2315,8 @@ export type StateAction =
   | { type: "picker-tab" }
   | { type: "picker-phase"; delta: 1 | -1 }
   | { type: "picker-select" }
+  /** 当前焦点列的筛选词整体替换（键入选入由 picker-filter.ts 逐键算出） */
+  | { type: "picker-filter"; text: string }
   | {
       type: "picker-efforts";
       efforts: { id: string; name: string }[];
@@ -2785,24 +2796,24 @@ function movePicker(
   if (!picker) return state;
   // 分区各自的列表独立 clamp：
   // phase0=provider 列, phase1=model 列, phase2=thinking 列
+  // 前两列按**可见列表**（筛选排序后）clamp —— 与渲染同源, 见 picker-filter.ts
   if (picker.phase === 0) {
-    if (picker.providers.length === 0) return state;
+    const providers = pickerVisibleProviders(picker);
+    if (providers.length === 0) return state;
     const pi = Math.max(
       0,
-      Math.min(
-        picker.providerIndex + action.delta,
-        picker.providers.length - 1,
-      ),
+      Math.min(picker.providerIndex + action.delta, providers.length - 1),
     );
     if (pi === picker.providerIndex) return state;
     // model 列跟随星号（selectedProvider），不随 > 焦点切换（见 selectPicker）
     return { ...state, picker: { ...picker, providerIndex: pi } };
   }
   if (picker.phase === 1) {
-    if (picker.models.length === 0) return state;
+    const models = pickerVisibleModels(picker);
+    if (models.length === 0) return state;
     const mi = Math.max(
       0,
-      Math.min(picker.modelIndex + action.delta, picker.models.length - 1),
+      Math.min(picker.modelIndex + action.delta, models.length - 1),
     );
     if (mi === picker.modelIndex) return state;
     return { ...state, picker: { ...picker, modelIndex: mi } };
@@ -2825,7 +2836,7 @@ function selectPicker(state: AppState): AppState {
   const picker = state.picker;
   if (!picker) return state;
   if (picker.phase === 0) {
-    const v = picker.providers[picker.providerIndex];
+    const v = pickerVisibleProviders(picker)[picker.providerIndex];
     if (!v) return state;
     if (v === picker.selectedProvider) {
       // 幂等：重选同一 provider 不重置 model/思考等级列
@@ -2848,7 +2859,7 @@ function selectPicker(state: AppState): AppState {
     };
   }
   if (picker.phase === 1) {
-    const v = picker.models[picker.modelIndex];
+    const v = pickerVisibleModels(picker)[picker.modelIndex];
     if (!v) return state;
     // 思考等级星号保留（跨模型沿用，如当前 reasoningEffort），effort 列表由 App 重载
     return { ...state, picker: { ...picker, selectedModel: v } };
@@ -2858,6 +2869,34 @@ function selectPicker(state: AppState): AppState {
   const v = picker.efforts[picker.effortIndex];
   if (!v) return state;
   return { ...state, picker: { ...picker, selectedEffort: v.id } };
+}
+
+/**
+ * 筛选词整体替换（当前焦点列）：词变 → 可见列表变 → 焦点行按**值**保持
+ * （原焦点项仍在可见列表内则跟随其新下标, 否则回落 0 = 匹配度最高项）；
+ * 星号选中不动（筛选只改显示与焦点, Enter 语义不变）。effort 列不筛 → 无操作。
+ */
+function filterPicker(
+  state: AppState,
+  action: Extract<StateAction, { type: "picker-filter" }>,
+): AppState {
+  const picker = state.picker;
+  if (!picker) return state;
+  const col = pickerFilterColumn(picker.phase);
+  if (!col) return state;
+  if (pickerFilterText(picker) === action.text) return state;
+  if (col === "provider") {
+    const before = pickerVisibleProviders(picker)[picker.providerIndex];
+    const next = { ...picker, providerFilter: action.text };
+    const at =
+      before === undefined ? -1 : pickerVisibleProviders(next).indexOf(before);
+    return { ...state, picker: { ...next, providerIndex: at >= 0 ? at : 0 } };
+  }
+  const before = pickerVisibleModels(picker)[picker.modelIndex];
+  const next = { ...picker, modelFilter: action.text };
+  const at =
+    before === undefined ? -1 : pickerVisibleModels(next).indexOf(before);
+  return { ...state, picker: { ...next, modelIndex: at >= 0 ? at : 0 } };
 }
 
 /** Tab 循环切换三列焦点区（efforts 为空时切到 thinking 列仍为灰色提示） */

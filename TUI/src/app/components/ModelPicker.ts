@@ -15,9 +15,15 @@
 // （pickerColumnWidths）——空间充足时按比例分配（长 provider 名自然得宽列不截断、
 // 短 effort 列不多占），空间不足时改用水位法（短列保自然宽、只压最长列）；
 // effort 无选项（unsupported）时按标题宽兜底保证列可见。
+// 筛选：provider / model 两列的可见列表 = 原列表按**当前焦点列**的筛选词排序后的
+// 子集（空词 = 默认序；打分与排序见 picker-filter.ts），effort 列不筛。
 
 import type { FrameRow } from "../../renderer/index.ts";
 import type { PickerState } from "../state.ts";
+import {
+  pickerVisibleModels,
+  pickerVisibleProviders,
+} from "../picker-filter.ts";
 import { truncateToWidth, displayWidth } from "../layout.ts";
 import type { Box } from "../layout/box.ts";
 import { fillBoxTree } from "../layout/fill.ts";
@@ -154,9 +160,7 @@ function renderColumnCell(
  */
 export function buildModelPickerBox(view: ModelPickerView): Box {
   const {
-    providers,
     providerIndex,
-    models,
     modelIndex,
     efforts,
     effortIndex,
@@ -165,6 +169,10 @@ export function buildModelPickerBox(view: ModelPickerView): Box {
     selectedModel,
     selectedEffort,
   } = view.picker;
+  // 可见列表 = 原列表按当前焦点列的筛选词排序后的子集（空词 = 默认序）；
+  // 渲染与 reducer / 提交取值同源，见 picker-filter.ts
+  const providers = pickerVisibleProviders(view.picker);
+  const models = pickerVisibleModels(view.picker);
   const height = Math.max(1, view.height);
   const width = Math.max(1, view.width);
   const sep = width >= 32 ? 2 : 1;

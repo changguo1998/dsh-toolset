@@ -18,6 +18,7 @@ import type {
   InputStatus,
   GoalHistory,
   ModeState,
+  PickerState,
 } from "./state.ts";
 import { hintLine } from "./layout/hints.ts";
 import {
@@ -38,6 +39,7 @@ import type {
 } from "./adapter/dsh.ts";
 import { renderTextInput } from "./components/TextInput.ts";
 import { buildModelPickerBox } from "./components/ModelPicker.ts";
+import { pickerFilterColumn, pickerFilterText } from "./picker-filter.ts";
 import { buildHistoryPanelBox } from "./components/HistoryPanel.ts";
 import {
   buildQuestionPanelBox,
@@ -2084,6 +2086,35 @@ function noticeFooterLines(
   });
 }
 
+/**
+ * 模型选择面板态：底部输入区改显**筛选输入行**（用户裁定 —— 筛选词就落在用户输入区，
+ * 面板内不占行）。焦点列 = provider / model 时显示 `筛选 <列>: <词>`（空词显示
+ * placeholder，提示这一行可键入；caret 落在词尾，硬件光标随之）；effort 列不筛 →
+ * 回落空白占位（交互区高度恒不变）。
+ */
+function pickerFooterLines(
+  picker: PickerState,
+  width: number,
+  rows: number,
+): FrameRow[] {
+  const col = pickerFilterColumn(picker.phase);
+  if (col === null) {
+    return Array.from({ length: rows }, () => ({
+      segments: [seg(" ".repeat(width))],
+    }));
+  }
+  const text = pickerFilterText(picker);
+  const prompt: FrameSegment[] = [seg(`筛选 ${col}: `)];
+  return renderTextInput(
+    text,
+    Array.from(text).length, // caret 恒在词尾（筛选词只支持追加 / 删尾）
+    "输入以筛选 (匹配度排序)",
+    width,
+    prompt,
+    rows,
+  );
+}
+
 export function buildFrame(
   state: AppState,
   size: Size,
@@ -2105,14 +2136,17 @@ export function buildFrame(
   let footerLines: FrameRow[];
   // 审批/问答/模型选择/状态选项/任务/历史会话面板 + 输入补全均上移到流输出（活动区）窗口显示；
   // 输入补全不占输入区（输入行与光标必须可见）；问题交互态（问答 / 审批）底部改显最近 notice
-  // （BACKLOG 3.1.1），其余模态面板保持空白占位（交互区高度稳定）。
+  // （BACKLOG 3.1.1）；模型选择面板底部改显**筛选输入行**（筛选词落在用户输入区）；
+  // 其余模态面板保持空白占位（交互区高度稳定）。
   if (modalOpen) {
     footerLines =
       state.approval !== null || state.question !== null
         ? noticeFooterLines(state, fullWidth, geom.footerHeight)
-        : Array.from({ length: geom.footerHeight }, () => ({
-            segments: [seg(" ".repeat(fullWidth))],
-          }));
+        : state.picker !== null
+          ? pickerFooterLines(state.picker, fullWidth, geom.footerHeight)
+          : Array.from({ length: geom.footerHeight }, () => ({
+              segments: [seg(" ".repeat(fullWidth))],
+            }));
   } else {
     // 单字符提示符：当前输入模式符号（MODE_SYMBOL[inputMode]，默认前景色不着色）；
     // 上次命令结果/运行状态符号已移至**用户块首行**（见 userBlockSymbol）。

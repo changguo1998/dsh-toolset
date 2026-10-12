@@ -7,6 +7,7 @@
 
 import type { PickerState } from "./state.ts";
 import type { ModelCatalog, ModelSelection } from "./adapter/dsh.ts";
+import { pickerFocusedValues } from "./picker-filter.ts";
 
 /** 面板初始构建结果：empty = 无可用模型（App 提示后不打开）；open = picker-open 载荷 */
 export type PickerInit = { ok: false } | { ok: true; picker: PickerState };
@@ -93,16 +94,17 @@ export function pickerEffortIndex(
 }
 
 /**
- * 解析面板各列选中值（星号所指，回退焦点位置）为待应用的 ModelSelection；
+ * 解析面板各列选中值（星号所指，回退**焦点行**）为待应用的 ModelSelection；
  * provider/model 缺失返回 undefined（App 仅关闭面板不切换）。
+ * 焦点行按可见列表（筛选排序后）取，与渲染同源（见 picker-filter.ts）。
  * 无等级可选 → 不带 reasoningEffort。
  */
 export function resolvePickerSelection(
   picker: PickerState,
 ): ModelSelection | undefined {
-  const provider =
-    picker.selectedProvider ?? picker.providers[picker.providerIndex];
-  const model = picker.selectedModel ?? picker.models[picker.modelIndex];
+  const focused = pickerFocusedValues(picker);
+  const provider = picker.selectedProvider ?? focused.provider;
+  const model = picker.selectedModel ?? focused.model;
   if (!provider || !model) return undefined;
   const effort = picker.selectedEffort
     ? picker.efforts.find((e) => e.id === picker.selectedEffort)

@@ -133,6 +133,28 @@ test("渲染：长 provider 名完整显示不截断（列宽按最长选项比�
   );
 });
 
+test("渲染：筛选后 `>` 焦点标记落在可见列表的焦点行（下标与可见序同源）", () => {
+  // 可见序（query=`max`）= max-top(前缀) → zzz-max / aaa-max(段首前缀, 同档按原序)
+  const p = picker({
+    phase: 1,
+    models: ["zzz-max", "aaa-max", "max-top"],
+    modelFilter: "max",
+    modelIndex: 1,
+  });
+  const rows = renderModelPicker({ picker: p, height: 6, width: 80 });
+  const text = rows.map((r) => stripAnsi(rowAnsi(r)));
+  // model 列第 1 行（面板第 2 行）= 可见列表的焦点行（zzz-max），不是原列表下标 1（aaa-max）
+  assert.ok(
+    text[2]!.includes("> zzz-max"),
+    "焦点标记落在可见焦点行: " + text[2],
+  );
+  assert.ok(text[1]!.includes("max-top"), "命中排首位: " + text[1]);
+  assert.ok(
+    !text[2]!.includes("aaa-max"),
+    "原列表同下标项不在该行: " + text[2],
+  );
+});
+
 test("面板内不再渲染按键帮助行（提示统一到底部提示区，见 layout/hints.ts）", () => {
   const rows = renderModelPicker({ picker: picker(), height: 6, width: 80 });
   const text = rows.map((r) => stripAnsi(rowAnsi(r))).join("\n");

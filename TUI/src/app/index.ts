@@ -116,6 +116,12 @@ import {
   resolvePickerSelection,
 } from "./model-transition.ts";
 import {
+  pickerFilterColumn,
+  pickerFilterInput,
+  pickerFilterText,
+  pickerFocusedValues,
+} from "./picker-filter.ts";
+import {
   buildFrame,
   WINDOW_GROW_STEP,
   type FrameScrollReport,
@@ -2173,7 +2179,9 @@ export class App {
     // 选中（星号，Enter 提交它，不提交；真实键盘空格为普通字符 " "）；
     // model/思考等级列表跟随星号（选中），不随 > 焦点切换，
     // ←/→ 左右切换三列焦点区（clamp 不循环），Tab 循环切换，Enter 提交各列选中值
-    // Esc 取消；其余按键忽略
+    // Esc 先清空本列筛选词、再按一次才关面板；可打印字符 / Backspace 编辑
+    // **当前焦点列**的筛选词（provider / model 列各记各的；effort 列不筛，吞掉），
+    // 命中项按匹配度排序（见 picker-filter.ts）；其余按键忽略
     if (this.state.picker) {
       if (name === "up" || name === "down") {
         this.apply((s) =>
@@ -2213,6 +2221,14 @@ export class App {
         return;
       }
       if (name === "escape") {
+        // Esc：本列有筛选词时只清空（再按一次才关面板）
+        if (pickerFilterText(this.state.picker) !== "") {
+          this.apply((s) =>
+            reduceState(s, { type: "picker-filter", text: "" }),
+          );
+          this.paint();
+          return;
+        }
         // 关闭面板（并重置输入模式为 normal；提交后的自动回退见 submit）
         this.apply((s) => reduceState(s, { type: "picker-close" }));
         this.apply((s) =>
@@ -2220,6 +2236,18 @@ export class App {
         );
         this.paint();
         return;
+      }
+      // 筛选词编辑：只在可筛列（provider / model）生效
+      if (pickerFilterColumn(this.state.picker.phase) !== null) {
+        const text = pickerFilterInput(
+          pickerFilterText(this.state.picker),
+          name,
+          k.ctrl,
+        );
+        if (text !== null) {
+          this.apply((s) => reduceState(s, { type: "picker-filter", text }));
+          this.paint();
+        }
       }
       return;
     }
@@ -4099,9 +4127,10 @@ export class App {
     const picker = this.state.picker;
     if (!picker) return;
     // 思考等级列表跟随选中（星号）模型，不随 > 焦点变化；未选中回退焦点行
-    const model = picker.selectedModel ?? picker.models[picker.modelIndex];
-    const provider =
-      picker.selectedProvider ?? picker.providers[picker.providerIndex];
+    // （焦点行按可见列表取 —— 与渲染同源，见 picker-filter.ts）
+    const focused = pickerFocusedValues(picker);
+    const model = picker.selectedModel ?? focused.model;
+    const provider = picker.selectedProvider ?? focused.provider;
     if (!model) return;
     try {
       const meta = await this.deps.adapter.modelReasoning?.(
@@ -4111,9 +4140,9 @@ export class App {
       if (this.disposed) return;
       const cur = this.state.picker;
       if (!cur) return;
-      const prevModel = cur.selectedModel ?? cur.models[cur.modelIndex];
-      const prevProvider =
-        cur.selectedProvider ?? cur.providers[cur.providerIndex];
+      const curFocused = pickerFocusedValues(cur);
+      const prevModel = cur.selectedModel ?? curFocused.model;
+      const prevProvider = cur.selectedProvider ?? curFocused.provider;
       if (prevModel !== model || prevProvider !== provider) {
         return; // 已切换选中模型/provider 或面板关闭，丢弃旧结果
       }

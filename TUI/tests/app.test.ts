@@ -80,6 +80,16 @@ function pickerColumnText(frame: string): string {
   return i < 0 ? "" : lines.slice(i, i + 4).join("\n");
 }
 
+/** 同上，但按表头行（同时含 provider / effort 的那行）定位 —— 焦点不在 provider 列时
+ *  表头没有 `[ provider ]`，此变体用于「焦点在别的列」的场景 */
+function pickerPanelText(frame: string): string {
+  const lines = frame.split("\n");
+  const i = lines.findIndex(
+    (l) => l.includes("provider") && l.includes("effort"),
+  );
+  return i < 0 ? "" : lines.slice(i, i + 4).join("\n");
+}
+
 /** 活动区分隔行判定：区域正文段为整行横线——焦点活动区/历史区时两端被焦点框
  *  角字覆写（┌/└/┐/┘），故允许边框类字形收尾，只要足够长的横线主体仍在 */
 function isSepRow(line: string, cols: number): boolean {
@@ -1797,6 +1807,122 @@ test("/model 面板: ←/→ 左右切换焦点区,clamp 不循环", async () =>
   assert.ok(hdr2.includes("[ provider ]"), `焦点应回到 [ provider ]: ${hdr2}`);
 });
 
+test("/model 面板: 键入筛选当前列(按匹配度排序), Esc 先清词再关面板", async () => {
+  const { renderer, adapter } = makeApp();
+  renderer.size = { cols: 120, rows: 24 };
+  adapter.modelCatalogData = {
+    providers: [
+      { provider: "p1", name: "p1" },
+      { provider: "p2", name: "p2" },
+    ],
+    models: [
+      { provider: "p1", id: "m1a", name: "m1a" },
+      { provider: "p1", id: "m1b", name: "m1b" },
+      { provider: "p2", id: "m2a", name: "m2a" },
+    ],
+    current: { provider: "p1", model: "m1a" },
+  };
+  const press = (name: string) =>
+    renderer.press({ name, ctrl: false, meta: false, shift: false });
+  typeAndEnter(renderer, "/model");
+  await flush(); // 初始焦点 model 列（phase 1）
+  // 键入 `m1b`：只筛 model 列（modelFilter），provider 列不受影响
+  for (const ch of ["m", "1", "b"]) press(ch);
+  await flush();
+  const f1 = strippedFrame(renderer);
+  const cols1 = pickerPanelText(f1);
+  assert.ok(cols1.includes("m1b"), `命中项应可见: ${cols1}`);
+  assert.ok(!cols1.includes("m1a"), `不命中项应被筛掉: ${cols1}`);
+  assert.ok(
+    cols1.includes("p1") && cols1.includes("p2"),
+    `provider 列不受 model 列筛选影响: ${cols1}`,
+  );
+  assert.ok(f1.includes("筛选 model: m1b"), "筛选词显示在用户输入区（带列名）");
+  // Backspace 删尾：`m1` → 命中的两项都回来
+  press("backspace");
+  await flush();
+  const f2 = strippedFrame(renderer);
+  assert.ok(
+    pickerPanelText(f2).includes("m1a") && pickerPanelText(f2).includes("m1b"),
+    "删尾后回到 `m1` 的命中集",
+  );
+  assert.ok(f2.includes("筛选 model: m1"), "输入区同步删尾");
+  // Esc 一次：只清筛选词（面板仍在；词空 → placeholder）
+  press("escape");
+  await flush();
+  const f3 = strippedFrame(renderer);
+  assert.ok(pickerPanelText(f3).includes("p1"), "Esc 只清词，面板未关");
+  assert.ok(
+    f3.includes("筛选 model: 输入以筛选"),
+    "词已清空 → 显示 placeholder",
+  );
+  assert.ok(!f3.includes("筛选 model: m1"), "旧词不再显示");
+  // Esc 二次：关面板，输入区回到消息输入（筛选行消失）
+  press("escape");
+  await flush();
+  const f4 = strippedFrame(renderer);
+  assert.equal(pickerPanelText(f4), "", "面板已关");
+  assert.ok(!f4.includes("筛选 model"), "筛选行随面板关闭消失");
+});
+
+test("/model 面板: 各列筛选词独立保留, effort 列键入被吞", async () => {
+  const { renderer, adapter } = makeApp();
+  renderer.size = { cols: 120, rows: 24 };
+  adapter.modelCatalogData = {
+    providers: [
+      { provider: "p1", name: "p1" },
+      { provider: "p2", name: "p2" },
+    ],
+    models: [
+      { provider: "p1", id: "m1a", name: "m1a" },
+      { provider: "p1", id: "m1b", name: "m1b" },
+      { provider: "p2", id: "m2a", name: "m2a" },
+    ],
+    current: { provider: "p1", model: "m1a" },
+  };
+  const press = (name: string) =>
+    renderer.press({ name, ctrl: false, meta: false, shift: false });
+  typeAndEnter(renderer, "/model");
+  await flush(); // phase 1（model 列）
+  press("b");
+  await flush();
+  assert.ok(strippedFrame(renderer).includes("筛选 model: b"));
+  // Tab → effort 列（phase 2，不筛）：输入区回落空白，键入被吞
+  press("tab");
+  await flush();
+  assert.ok(
+    !strippedFrame(renderer).includes("筛选 provider") &&
+      !strippedFrame(renderer).includes("筛选 model"),
+    "effort 列不筛 → 无筛选行",
+  );
+  press("x");
+  await flush();
+  assert.ok(
+    !strippedFrame(renderer).includes("筛选 provider") &&
+      !strippedFrame(renderer).includes("筛选 model"),
+    "effort 列键入被吞",
+  );
+  // Tab → provider 列（phase 0）：本列词为空（各列独立）；输入 `2` 只筛 provider
+  press("tab");
+  await flush();
+  assert.ok(strippedFrame(renderer).includes("筛选 provider: 输入以筛选"));
+  press("2");
+  await flush();
+  const cols = pickerPanelText(strippedFrame(renderer));
+  assert.ok(
+    cols.includes("p2") && !cols.includes("p1"),
+    `provider 被筛: ${cols}`,
+  );
+  assert.ok(strippedFrame(renderer).includes("筛选 provider: 2"));
+  // Tab 回 model 列：该列的词仍是 `b`（独立保留）
+  press("tab");
+  await flush();
+  assert.ok(
+    strippedFrame(renderer).includes("筛选 model: b"),
+    "切列后 model 列的词保留",
+  );
+});
+
 test("/model 面板: 同模型改等级不触发 already-on, 应用 max", async () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/model");
@@ -2871,7 +2997,11 @@ test("history-resume-ok：恢复行交节缓存、关面板、更新 activeSessi
   assert.equal(s.sessionTitle, "我的问题");
   // 条目 16 段 C2：恢复行不再落缓冲（内容单源在节缓存）——缓冲清空即可，重放由
   // App 的 `replaySectionsFromRows` 负责（帧级用例见 pipeline-app.test.ts）
-  assert.deepEqual(s.local, [], "缓冲清空（不带恢复行，也不带上一会话的本地行）");
+  assert.deepEqual(
+    s.local,
+    [],
+    "缓冲清空（不带恢复行，也不带上一会话的本地行）",
+  );
   assert.equal(s.followBottom, true);
   // 过期结果被丢弃
   let s2 = reduceState(initialState(), { type: "history-open" });
