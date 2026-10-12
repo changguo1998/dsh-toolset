@@ -926,7 +926,7 @@ export class App {
     if (this.deps.status) {
       this.statusTicker = new StatusTicker({
         queries: this.deps.status.queries,
-        intervalMs: this.deps.status.intervalMs ?? 5000,
+        intervalMs: this.deps.status.intervalMs ?? 1000,
         apply: (status) => {
           this.apply((s) => reduceState(s, { type: "status", status }));
           this.paint();
@@ -1509,9 +1509,9 @@ export class App {
   }
 
   /**
-   * TUI#39：状态列 Agents 块的**定时**保鲜（随 StatusTicker 节律，缺省 5s）。
+   * TUI#39：状态列 Agents 块的**定时**保鲜（随 StatusTicker 节律，缺省 1s）。
    * 停止条件只留「状态列被 Ctrl+S 隐藏 / 无活跃会话」：不依赖 `subagent-activity` 事件面
-   * （真机 playbook 场景事件不可靠），空数据也轮询——首个有效快照到达即出块（≤5s）；
+   * （真机 playbook 场景事件不可靠），空数据也轮询——首个有效快照到达即出块（≤1s）；
    * 事件路径仍作即时加速（见 `subagent-activity` 分支；BACKLOG TUI#55）。
    */
   /** 会话别名保鲜（TUI#48）：懒读 session-channel 别名清单，值变化才重绘。

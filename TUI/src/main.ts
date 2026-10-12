@@ -121,7 +121,7 @@ export function main(opts: {
       : { pipelineSink: opts.pipelineSink }),
     status: {
       queries: opts.statusQueries ?? createProcessStatusQueries(),
-      intervalMs: 5000,
+      intervalMs: 1000,
     },
     ...tuiConfig.layout,
     notify: tuiConfig.notify,
