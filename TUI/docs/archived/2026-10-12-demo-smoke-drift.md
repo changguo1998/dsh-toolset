@@ -28,11 +28,16 @@
 
 ## 实现记录
 
-（待补）
+1. `demo/mockAdapter.ts` 两处**镜像保真**修正（都不是产品改动）：
+   - `stream` 事件**每块一个自增 `index`**（原来一律 `index: 0`）：同节相邻文本块被节模型按「同块流式续写」直拼成一行——实测帧里出现 `混合中间输出混合最终总结` 正是这个；
+   - 内容交付跟随**当前 step**（新增 `mirrorStep`，由 `step` 事件推进；原来写死 `step: 1`）：`step-start` 声明的 `(turn, step)` 与内容落地的 `(turn, step)` 对不上 → 内容驱动的 step 头永远不画。
+1. `demo/main.ts`：`step-header` 判据按现状重设 —— 本场景只画 `(回合 2, 步 2)` 的头（步 1 的头是首个头，被 `suppressFirstHead` 压掉），断言 `⇆2 #2` 而非旧的 `⇆N #1`。
 
 ## 测试与证据
 
-（待补）
+- 冒烟：**41 PASS / 1 FAIL**（汇总 `n=1`）。三条漂移项（`step-header`、`activity-mixed-ordered`、`activity-mixed-activity-side`）全部转绿；块序号修正还顺带让 `subagent-line`、`policy-notice` 转绿。剩余唯一失败 = `tool-meta-diff`（`BlockDelivery` 的 `tool-result` 无 `meta` → diff 摘要永不显示，属 BACKLOG〈演示冒烟现状〉条目②的范围）。
+- 全量：TUI `npm test` **1470 / 1470**；全仓 `npm test` 退出码 0（21 包全 OK）；`npm run check` / `npm run build` 各 0 条 TS 错。
+- 真机复核：**不需要**（只改 demo 场景与冒烟判据，不动产品行为）。
 
 ## 审阅记录
 
@@ -40,4 +45,10 @@
 
 ## 收尾
 
-（待补）
+- **实现**：`5b3fd88`（mock 镜像两处保真修正 + `step-header` 判据按现状重设）。
+- **验收对照**：
+  1. 「三条漂移项转绿」✓ —— 冒烟 `SMOKE_PASS step-header`、`activity-mixed-ordered`、`activity-mixed-activity-side`；整体 **41 PASS / 1 FAIL**，唯一剩余 `tool-meta-diff` 属第 3 条范围。
+  1. 「不改产品行为」✓ —— 只动 `demo/`（mock 镜像与判据），`src/` 零改动。
+  1. 「全量测试绿 + check 干净 + build 通过」✓ —— TUI 1470 / 1470、全仓 `npm test` 退出码 0、`check` / `build` 各 0 条 TS 错。
+- **遗留（另记 BACKLOG）**：`tool-meta-diff`（第 3 条②）、`subagent-line` 若再现（本次已随块序号修正转绿，未再单独处理）。
+- **归档**：本文件移入 `TUI/docs/archived/`；`TUI/docs/BACKLOG.md` 移除该条。
