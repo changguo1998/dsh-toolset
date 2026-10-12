@@ -3570,6 +3570,18 @@ export class App {
     }
   }
 
+  /**
+   * 就地切换主题（等价 /theme 的落地动作，不打印提示）：状态 + renderer 调色板 + 重绘。
+   * 供 profile 配置热更新（cordis `internal/update` 钩子）调用——配置里改 theme 时无需
+   * 重建 App/renderer（重建会走插件卸载路径并把 dsh 进程一起带退出）。
+   */
+  applyTheme(id: ThemeId): void {
+    if (id === this.state.themeId) return;
+    this.apply((s) => reduceState(s, { type: "set-theme", themeId: id }));
+    this.deps.renderer.setTheme(id);
+    this.paint();
+  }
+
   /** /theme 命令：无参/toggle 在 dark|light 间切换；带参显式设置；非法参数提示 usage */
   private handleThemeCommand(line: string): void {
     const cur = this.state.themeId;
@@ -3579,11 +3591,7 @@ export class App {
       return;
     }
     const next = decision.theme;
-    if (next !== cur) {
-      this.apply((s) => reduceState(s, { type: "set-theme", themeId: next }));
-      this.deps.renderer.setTheme(next);
-      this.paint();
-    }
+    if (next !== cur) this.applyTheme(next);
     this.notice(
       `theme: ${next} (${this.deps.renderer.getTheme?.(next)?.name ?? next})`,
       "success",
