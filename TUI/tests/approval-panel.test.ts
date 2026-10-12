@@ -17,7 +17,17 @@ import {
 import { renderQuestionPanel } from "../src/app/components/QuestionPrompt.ts";
 import { questionKeyDecision } from "../src/app/question-transition.ts";
 import { initialState, reduceState, type AppState } from "../src/app/state.ts";
+import { App } from "../src/app/index.ts";
+import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
+import { registerApp } from "./helpers/paintFlush.ts";
 import { rowAnsi, rowsText } from "./helpers/rowText.ts";
+
+class TrackedApp extends App {
+  constructor(deps: ConstructorParameters<typeof App>[0]) {
+    super(deps);
+    registerApp(this);
+  }
+}
 
 const plain = (rows: Parameters<typeof rowsText>[0]): string[] =>
   rowsText(rows).map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""));
@@ -319,4 +329,40 @@ test("审批草稿：命令段按代码块渲染，内部不被行内语法改�
     "命令原文保留（`*` / 反引号 / `**` 不被行内语法改写）: " + text,
   );
   assert.ok(text.includes("参数：{}"), "命令段之后的草稿行照常渲染: " + text);
+});
+
+test("App：审批倒计时每秒重绘（独立于状态栏 ticker）；应答 / 按键后停", (t) => {
+  // 只 mock setInterval + Date：不依赖状态栏 ticker（本用例不传 status deps）
+  t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const app = new TrackedApp({ renderer, adapter, notify: { enabled: false } });
+  app.start();
+  const frame = (): string =>
+    renderer.lastRender.join("\n").replace(/\u001b\[[0-9;]*m/g, "");
+  adapter.push({ type: "approval", id: "a1", prompt: "允许工具 bash 执行?" });
+  assert.ok(
+    frame().includes("拒绝 (60s)"),
+    "打开时显示 60s 倒计时: " + JSON.stringify(frame().slice(-120)),
+  );
+  const before = renderer.renders;
+  t.mock.timers.tick(1000);
+  assert.ok(renderer.renders > before, "1s 到点重绘一帧");
+  assert.ok(
+    frame().includes("拒绝 (59s)"),
+    "秒数推进到 59s: " + frame().slice(-60),
+  );
+  // 面板内按过任意键（BACKLOG 3.3.5）→ 停止自动超时并隐藏倒计时 → 重绘定时器随之停
+  renderer.emitKey({ name: "x", ctrl: false, meta: false, shift: false });
+  assert.ok(!frame().includes("(59s)"), "按键后倒计时隐藏");
+  const after = renderer.renders;
+  t.mock.timers.tick(3000);
+  assert.equal(renderer.renders, after, "倒计时隐藏后不再每秒重绘");
+  // 应答关闭面板 → 同样不再重绘
+  renderer.emitKey({ name: "y", ctrl: false, meta: false, shift: false });
+  const closed = renderer.renders;
+  t.mock.timers.tick(3000);
+  assert.equal(renderer.renders, closed, "面板关闭后不再重绘");
+  app.dispose();
+  t.mock.timers.reset();
 });

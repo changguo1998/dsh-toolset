@@ -529,7 +529,7 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 - `components/ApprovalPrompt.ts`：描述窗 + 选项窗两窗（2/3 规则）、选项固定「批准 / 拒绝」带编号与焦点标记、拒绝项倒计时；`ApprovalView`（focus / deadline / now / window（焦点窗 3.3.4）/ hint（面板内提示 3.3.6））为渲染参数；焦点窗决定左侧列与选项光标着色（3.2.8 口径），`hint` 行先占 1 行再分配两窗（面板总高不变）。
 - `layout/hints.ts`：`approvalHintLine(state)` 以 `▶草稿` / `▶选项` 前缀标出焦点窗（3.3.4）；无效键提示不占用按键提示区。
 - `layout.ts`：`noticeFooterLines`（3.1.1 的输入区 notice 视图）在 `state.approvalHint` 非空时**优先**用该行显示 `[无效键] …`（黄、左对齐），有效键清空后自动切回 notice 视图（BACKLOG 3.3.8：落点为用户输入区＝屏幕左下、按键提示正上方）。
-- 超时语义（3.3.5）：无操作到点 → `rejected`；面板内按过任意键 → `adapter.stopApprovalTimeout(id)` 停止计时、倒计时隐藏；`Esc` 仍为 `cancelled`。
+- 超时语义（3.3.5）：无操作到点 → `rejected`；面板内按过任意键 → `adapter.stopApprovalTimeout(id)` 停止计时、倒计时隐藏；`Esc` 仍为 `cancelled`。倒计时的**每秒重绘**由 App 的 `syncApprovalTicker()` 专起 1s 定时器驱动（`approvalTimer`，仅「有审批且有 deadline」时存活，在 `apply()` 里按 state 同步）——不依赖状态栏 ticker 节律。
 - `components/QuestionPrompt.ts`：选项行格式 `${光标}${标记} ${编号}. ${正文}`（BACKLOG 3.2.12：编号居中靠左、内容起点 = numW + 6，续行与 `description` 对齐内容起点即数字悬挂）；描述窗顶部来源段（灰、`panel.source`）。审批面板选项同格式。`state.ts` 的 `recentQuestionSource` 按**分块口径**取「最近一块含正文」的整块（`thinking` / `notice` 不切割、不设行数上限；本回合取不到则**先回退**取上一回合的最近一块、不加相关性闸门，两回合皆无返回空串；见 `SPEC.md` §15.5）。
 - `question-transition.ts`：数字键 → `{ kind: "digit", n }`（自定义项上仍 `custom`）。
 - `index.ts`：审批按键白名单（y/1、n/2、Enter、Tab 切焦点窗、←/→、↑/↓ 按焦点窗分派、Esc；其余置 `approval-hint`）；按键分发前统一停止超时计时（3.3.5）；、`approval-closed` 处理（关面板 + notice）、`question-open` 带 `recentQuestionSource`、数字键标记（move + select，不提交）。

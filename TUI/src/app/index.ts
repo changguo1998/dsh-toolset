@@ -67,6 +67,9 @@ import { maxApprovalScroll } from "./components/ApprovalPrompt.ts";
 /** 审批超时回落值（ms）：adapter 未提供 `approvalTimeoutMs()` 时使用（BACKLOG 3.2.5 / 3.3.2） */
 const APPROVAL_TIMEOUT_FALLBACK_MS = 60_000;
 
+/** 审批倒计时重绘间隔（ms）：秒数每秒变 → 独立 1s 定时器（不靠状态栏 ticker 节律） */
+const APPROVAL_COUNTDOWN_TICK_MS = 1000;
+
 /** 帧前实测的超时上限(ms)：探测期间不出帧，故取小值；整批无回包即判定不支持 CPR */
 const WIDTH_PROBE_TIMEOUT_MS = 150;
 /** 启动预探测（按符号列表）的超时上限（ms）：不设严格限制 —— 宁可多等一点换首帧宽度准 */
@@ -375,6 +378,8 @@ export class App {
   /** 运行中闪烁时间驱动定时器（running 期间周期性发 virt-tick：无数据时虚拟速度
    *  衰减回落、虚拟总 token 持续积分——闪烁频率渐降到最低而不断） */
   private virtTimer: ReturnType<typeof setInterval> | null = null;
+  /** 审批倒计时重绘定时器（仅「有审批且有 deadline」时存活；见 syncApprovalTicker） */
+  private approvalTimer: ReturnType<typeof setInterval> | null = null;
   /** 面板定时刷新 timer（/agents、/workflows 共用；仅面板打开期间存活，tick 自检 kind） */
   private panelRefreshTimer: ReturnType<typeof setInterval> | null = null;
   /** 当前定时刷新面板 kind 对应的 refresh + 服务名（stop 前检查） */
@@ -950,6 +955,11 @@ export class App {
     this.unbindEvents.push(() => {
       if (this.virtTimer) clearInterval(this.virtTimer);
       this.virtTimer = null;
+    });
+    // 审批倒计时重绘定时器（按需创建，见 syncApprovalTicker）：随生命周期统一清理
+    this.unbindEvents.push(() => {
+      if (this.approvalTimer) clearInterval(this.approvalTimer);
+      this.approvalTimer = null;
     });
     // 首帧前载入「呈现不确定」符号列表（profile 目录；宽度不落盘）。
     // 本次会话新出现的「呈现不确定」字符在帧绘制前按需实测（见 probeThenRender）
@@ -5509,6 +5519,31 @@ export class App {
       this.state.question === null
     ) {
       this.clearInteractiveBell();
+    }
+    // 审批倒计时：任何状态变化后同步 1s 重绘定时器（唯一真源 = 有审批且有 deadline）
+    this.syncApprovalTicker();
+  }
+
+  /**
+   * 审批倒计时重绘（BACKLOG 3.2.5）：`deadline − now` 的秒数每秒都会变，但重绘不能
+   * 依赖状态栏 ticker 的节律（那个间隔可配、也会因别的需求调整）——有审批且有 deadline
+   * 时单起一个 1s 定时器，到点重绘一帧；审批关闭 / 倒计时隐藏（面板内按过键，3.3.5）
+   * 即停。判据只读 state，故在 `apply()` 里统一同步，覆盖按键与事件两条路径。
+   */
+  private syncApprovalTicker(): void {
+    const want =
+      this.state.approval !== null && this.state.approvalDeadline !== null;
+    if (want === (this.approvalTimer !== null)) return;
+    if (this.approvalTimer !== null) {
+      clearInterval(this.approvalTimer);
+      this.approvalTimer = null;
+    }
+    if (want) {
+      this.approvalTimer = setInterval(
+        () => this.paint(),
+        APPROVAL_COUNTDOWN_TICK_MS,
+      );
+      this.approvalTimer.unref?.(); // 不阻止测试进程退出
     }
   }
 }
