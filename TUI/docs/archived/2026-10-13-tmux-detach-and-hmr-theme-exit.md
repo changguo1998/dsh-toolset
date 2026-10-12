@@ -4,7 +4,7 @@
 - 接取条目（按标题引用）：
   - 〈tmux 在 dsh 所在 window 内 detach 会让程序退出（切到别的 window 再 detach 才保活）〉
   - 〈运行中执行 colortheme 切主题会让 dsh 退出（profile patch 被写 → HMR 重启 tui 行 → dispose 走进程退出）〉
-- 开始：2026-10-13　状态：完成（#1 的「站内 detach」触发面真机复测待用户确认，机制面已实证，见下）
+- 开始：2026-10-13　状态：完成（2026-10-13 重启后真机复测通过：`colortheme` 切主题不再中断会话且当次生效；停在本 window detach 后重新 attach 正常，会话未丢）
 
 ## 目标
 
@@ -74,4 +74,5 @@
 
 - BACKLOG：两条目移除；新增条目〈tui 行非热应用配置变更会重建 fiber 并把 dsh 一起带退出〉（通用重建保护，另立）。
 - 文档回写：`README.md`（`config.theme` 可热应用 + SIGHUP 不退出）、`DESIGN.md`（退出生命周期 SIGHUP 例外）。
-- 遗留：① 真机复测「站内 detach」；② 非热应用配置键的通用保护（新条目）；③ 探针台 `tmp/dshhome` 为临时取证设施，收尾清理（复现方法已完整记于本文件，可重建）。
+- 真机复测（2026-10-13，用户确认）：两条现象都不再出现（`colortheme` 切主题会话不断且当次生效；停在本 window detach → 重新 attach 正常）。
+- 遗留：① 非热应用配置键的通用保护（新条目，BACKLOG 当前 `#1`）；② 探针台 `tmp/dshhome` 已随收尾清理（复现方法已完整记于本文件，可重建）；③ 「站内 detach」的具体触发链仍未定位（真机已不复现，SIGHUP 面已封住）。
