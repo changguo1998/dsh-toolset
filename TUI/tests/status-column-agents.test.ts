@@ -9,6 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { renderStatusColumn } from "../src/app/layout.ts";
+import { rowWidth2, seg, truncateSegs } from "../src/app/layout.ts";
 import { displayWidth as prodDisplayWidth } from "../src/app/layout/markdown.ts";
 import { THEMES, ansiNameToHex, hexSgr } from "../src/renderer/theme.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
@@ -29,21 +30,46 @@ class TrackedApp extends App {
 const sgrOf = (name: "red" | "yellow" | "gray"): string =>
   hexSgr(ansiNameToHex(THEMES.dark, name) ?? "", true);
 
+/** 状态列帧内可见行（内容层只产正文行；按拼帧层口径补白 + 右缘竖线——
+ *  `width` 沿用改造前的「正文 + 分隔竖线」宽，断言继续按屏幕所见写） */
+function frameRows(
+  agents: AgentRowInfo[] | undefined,
+  height: number,
+  width: number,
+): ReturnType<typeof renderStatusColumn> {
+  const h = Math.max(1, height);
+  const frameW = Math.max(1, width - 1);
+  const rows = renderStatusColumn(
+    undefined,
+    [],
+    undefined,
+    0,
+    h,
+    frameW,
+    agents,
+  ).map((l) => {
+    const inner = truncateSegs(l.segments, frameW);
+    const used = rowWidth2(inner);
+    return {
+      segments: [
+        ...inner,
+        seg(" ".repeat(Math.max(0, frameW - used))),
+        seg("│"),
+      ],
+    };
+  });
+  while (rows.length < h)
+    rows.push({ segments: [seg(" ".repeat(frameW)), seg("│")] });
+  return rows;
+}
+
 /** 状态列纯文本行（只给 agents 数据） */
 function rows(
   agents: AgentRowInfo[] | undefined,
   height = 10,
   width = 30,
 ): string[] {
-  return renderStatusColumn(
-    undefined,
-    [],
-    undefined,
-    0,
-    height,
-    width,
-    agents,
-  ).map((l) => rowText(l));
+  return frameRows(agents, height, width).map((l) => rowText(l));
 }
 
 /** 状态列 ANSI 行 */
@@ -52,15 +78,7 @@ function ansiRows(
   height = 10,
   width = 30,
 ): string[] {
-  return renderStatusColumn(
-    undefined,
-    [],
-    undefined,
-    0,
-    height,
-    width,
-    agents,
-  ).map((l) => rowAnsi(l, "dark"));
+  return frameRows(agents, height, width).map((l) => rowAnsi(l, "dark"));
 }
 
 const SAMPLE: AgentRowInfo[] = [

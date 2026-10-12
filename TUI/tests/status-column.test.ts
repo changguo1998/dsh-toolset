@@ -15,7 +15,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderStatusColumn, displayWidth } from "../src/app/layout.ts";
+import {
+  renderStatusColumn,
+  displayWidth,
+  rowWidth2,
+  seg,
+  truncateSegs,
+} from "../src/app/layout.ts";
 import { THEMES, ansiNameToHex, hexSgr } from "../src/renderer/theme.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
 import type { GoalHistory } from "../src/app/state.ts";
@@ -65,6 +71,9 @@ const goalList = (
   })),
 ];
 
+/** 状态列**帧内可见行**：内容层只产正文行（`ContentRow[]`，不含右缘竖线、不补白），
+ *  截断 / 补白 / 分隔竖线由拼帧层（buildTopRegion）构图——此处按同一口径还原成屏幕所见行
+ *  （`width` 沿用改造前的「正文 + 分隔竖线」宽，断言继续按屏幕所见写）。 */
 function col(
   goals: GoalHistory | undefined,
   todos: TodoItemLike[] | undefined,
@@ -77,16 +86,33 @@ function col(
   } = {},
   jobs?: JobInfo[],
 ): string[] {
-  return renderStatusColumn(
+  const h = opts.height ?? 8;
+  const frameW = Math.max(1, (opts.width ?? 20) - 1);
+  const rows = renderStatusColumn(
     goals,
     todos,
     jobs,
     opts.scroll ?? 0,
-    opts.height ?? 8,
-    opts.width ?? 20,
+    h,
+    frameW,
     undefined,
     opts.activation,
-  ).map((l) => rowText(l));
+  );
+  const out = rows.map((l) => {
+    const inner = truncateSegs(l.segments, frameW);
+    const used = rowWidth2(inner);
+    return {
+      segments: [
+        ...inner,
+        seg(" ".repeat(Math.max(0, frameW - used))),
+        seg("│"),
+      ],
+    };
+  });
+  // 帧内恒 height 行（内容不足时拼帧层补空白行）
+  while (out.length < h)
+    out.push({ segments: [seg(" ".repeat(frameW)), seg("│")] });
+  return out.map((l) => rowText(l));
 }
 
 test("renderStatusColumn: 无 goal/todo 直接留空，每行定宽且右缘竖线", () => {
