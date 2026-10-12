@@ -70,6 +70,7 @@ import { allocate } from "./layout/measure.ts";
 import { fillToList, fillBoxTree } from "./layout/fill.ts";
 import { h, styled } from "./layout/box.ts";
 import { focusFrame, focusColor } from "./layout/focus-frame.ts";
+import { dividerGlyph, gridRole, rightEdgeGlyph } from "./layout/grid.ts";
 import type { Box, PaneId, Rect } from "./layout/box.ts";
 import type { ContentRow } from "./layout/fill.ts";
 import { charWidth, displayWidth } from "./layout/markdown.ts";
@@ -1116,9 +1117,7 @@ function buildTopRegion(
     },
   ];
   const rows: FrameRow[] = [];
-  // 右缘边框列保留格（历史/活动区外缘）：无焦点为空白占位（focusFrame history/activity 焦点时覆写）
-  const rightGlyph = (g: string): FrameSegment[] =>
-    g === " " ? [seg(" ")] : [seg(g, { fg: "border" })];
+  // 右缘边框列保留格（历史/活动区外缘）：空白占位由各行拼装，字形由 grid.ts 基线写
   // 内容行（0..contentTopH-1）：标题栏 → 对话区 → 活动区分隔 → 活动区。
   // 中间分隔竖线（状态列右缘/历史区左缘）随焦点面板只亮其垂直边界：
   // status=全行、history=仅对话区、activity=仅分隔行+活动区；模态态全回流边框色。
@@ -1146,15 +1145,8 @@ function buildTopRegion(
     state.question !== null && modalPanel.length > 0
       ? questionCaretFor(state.question, activityH, activityTextW)
       : null;
-  const divFor = (rc: number): FrameSegment[] => {
-    // 焦点中性基线：活动区分隔行 D 列=连接 `├`（竖线贯穿+横线右接入，
-    // 与其他框线同为边框色）；titleRows 下划线行 D 列= `├`、其余内容行 D 列= `│`
-    // 同为边框色；亮角字/亮边由 focusFrame 按焦点态覆写（status 焦点顶边此处 rc0 给空白占位）。
-    if (rc === diaEnd && activityH > 0) return [seg("├", { fg: "border" })];
-    if (titleRows > 1 && rc === diaStart - 1)
-      return [seg("├", { fg: "border" })];
-    return [seg("│", { fg: "border" })];
-  };
+  // 分隔竖线列 / 右缘框列的**字形**由 grid.ts 按行角色写（焦点中性基线），此处只留
+  // 等宽空白占位；亮角字/亮边仍由 buildFrame 末尾的 focusFrame 覆写（DESIGN §8）。
   // 段数组补齐到定宽（横向两 pane 各自补齐，分隔竖线恒落在各自右边界）
   const padTo = (
     segs: FrameSegment[],
@@ -1311,16 +1303,23 @@ function buildTopRegion(
     const borderRow =
       (titleRows > 1 && rc === diaStart - 1) ||
       (rc === diaEnd && activityH > 0);
-    const right = borderRow ? SEPARATOR : ruleRow ? TURN_SEPARATOR_CHAR : " ";
+    // 行角色（grid.ts 据此给 D 列 / 右缘框列字形）：横线行 → border；活动区行 →
+    // activity（不补白、右缘不落字形）；回合分隔行 → rule；其余 → body
+    const role = gridRole({ borderRow, actRow, ruleRow });
+    // 右缘框列字形：null（活动区行）不拼该列；空白占位不带样式
+    const rightGlyph = rightEdgeGlyph(role);
     // 行拼装（自左至右）：状态列外缘框格 ‖ 状态列正文 ‖ 分隔竖线 ‖ 区域正文 ‖ 区域外缘框列
-    // P7：垂直状态列隐藏时，左缘框格 / 状态列正文 / 分隔竖线三段都不拼
+    // P7：垂直状态列隐藏时，左缘框格 / 状态列正文 / 分隔竖线三段都不拼。
+    // D 列与右缘框列先落**等宽空白占位**，字形由 grid 基线按角色写（同 focusFrame 口径）
     const rowSegments: FrameSegment[] = [
       ...(showStatusCol ? left : []),
       ...(showStatusCol ? statusBody : []),
-      ...(showStatusCol ? divFor(rc) : []),
+      ...(showStatusCol ? [seg(dividerGlyph(role), { fg: "border" })] : []),
       ...contentSegs,
       ...padSegs,
-      ...(useRightFrame && !actRow ? rightGlyph(right) : []),
+      ...(useRightFrame && rightGlyph !== null
+        ? [rightGlyph === " " ? seg(" ") : seg(rightGlyph, { fg: "border" })]
+        : []),
     ];
     // 面板内编辑光标（BACKLOG 3.2.7）：命中活动区行时写 caret——列 = 活动区正文
     // 起始列（前缀段实测宽 + 活动区列偏移）+ 面板内列（0 基），行号用帧内 1 基
@@ -1988,31 +1987,88 @@ export interface FrameScrollReport {
 }
 
 /**
- * 帧段表（纯函数，零排版开销）：由几何推导各**行带**的屏幕行范围。
+ * 帧行带（**唯一来源**）：各区域屏幕行范围 + 焦点面板矩形。
+ * `frameSections`（渲染层区间重写边界）与 `buildFrame` 的 `focusFrame` 调用共用本函数，
+ * 取代原先「段表算一遍行数、buildFrame 再写一遍矩形字面量」的两处算术。
  * 行带顺序与 buildFrame 的拼接顺序一致——top（活动/对话区 + 状态列）→
  * status（状态栏含其上下两条分隔行）→ footer（交互区）→ hint（按键提示区）。
- * 渲染层用它把「变化行区间」按段切分：多段同时变化时只重写各自段内的变化行，
- * 不跨越中间未变化的段（窗口偏移只影响 top 段内容）。
  */
-export function frameSections(geom: FrameGeometry): FrameSection[] {
+export function frameBands(geom: FrameGeometry): {
+  bands: FrameSection[];
+  rects: Map<PaneId, Rect>;
+} {
   const top = Math.max(0, geom.contentTopH);
   // 状态段含上下分隔行（视觉同属状态区边界，且底分隔行的交点列随状态栏变化）
   const status = geom.statusHeight + 2;
-  const footer = geom.footerHeight;
-  const hint = geom.hintHeight;
-  const sections: FrameSection[] = [
-    { id: "top", startLine: 0, lineCount: top },
-    { id: "status", startLine: top, lineCount: status },
-    { id: "footer", startLine: top + status, lineCount: footer },
+  const bands: FrameSection[] = [
+    { startLine: 0, lineCount: top },
+    { startLine: top, lineCount: status },
+    { startLine: top + status, lineCount: geom.footerHeight },
   ];
-  if (hint > 0) {
-    sections.push({
-      id: "hint",
-      startLine: top + status + footer,
-      lineCount: hint,
+  if (geom.hintHeight > 0) {
+    bands.push({
+      startLine: top + status + geom.footerHeight,
+      lineCount: geom.hintHeight,
     });
   }
-  return sections;
+  // 焦点矩形：左缘 = 分隔竖线列 D（状态列右缘，与状态列共用该框线；隐藏状态列时
+  // D = -1 → 左缘取 0，区域吃满整宽）、右缘 = R 列（区域外缘框列）——两 pane 正文
+  // 恰在两缘之间（contentW 列）。矩形边界统一 right = x+w-1 / bottom = y+h-1。
+  const underlineRow = Math.max(0, geom.titleRows - 1);
+  const diaEnd = geom.activitySepRow; // 纵向=活动区分隔行；横向=历史 pane 底边下一行
+  const regionX = Math.max(0, geom.dividerCol);
+  const regionW = geom.cols - regionX;
+  const rects: Map<PaneId, Rect> = new Map();
+  if (geom.mode === "horizontal") {
+    // 横向：历史 pane 在左、活动 pane 在右、两 pane 等高——顶=标题栏下划线行，
+    // 底=状态区上方分隔行 contentTopH；内部分隔列 = history 右缘 / activity 左缘
+    const divCol = geom.innerDividerCol ?? geom.cols - 1;
+    const h = Math.max(1, top - underlineRow + 1);
+    rects.set("history", {
+      x: regionX,
+      y: underlineRow,
+      w: divCol - regionX + 1,
+      h,
+    });
+    rects.set("activity", {
+      x: divCol,
+      y: underlineRow,
+      w: geom.cols - divCol,
+      h,
+    });
+  } else {
+    // 纵向：history 顶=标题栏下划线行（titleRows>=2 才有下划线）、底=活动区分隔行
+    rects.set("history", {
+      x: regionX,
+      y: underlineRow,
+      w: regionW,
+      h: Math.max(1, diaEnd - underlineRow + 1),
+    });
+    rects.set("activity", {
+      x: regionX,
+      y: diaEnd,
+      w: regionW,
+      h: Math.max(1, top - diaEnd + 1),
+    });
+  }
+  // status 矩形：x=0（屏幕最左=状态列外缘）、右缘=D 列、顶=帧顶 rc0、底=状态区上方分隔行
+  rects.set("status", {
+    x: 0,
+    y: 0,
+    w: geom.statusColWidth,
+    h: Math.max(1, top + 1),
+  });
+  return { bands, rects };
+}
+
+/**
+ * 帧段表（纯函数，零排版开销）：行带范围，**不带语义**
+ *（决策 6：渲染层只用它做「变化行区间」的切分边界，不读行带含义）。
+ * 渲染层按段各自取变化行游程：多段同时变化时只重写各自段内的变化行，不跨越
+ * 中间未变化的段（窗口偏移只影响 top 段内容）。
+ */
+export function frameSections(geom: FrameGeometry): FrameSection[] {
+  return frameBands(geom).bands;
 }
 
 /** buildFrame 的可选回填输出（与 report 同模式：避免重复计算几何） */
@@ -2207,7 +2263,7 @@ export function buildFrame(
   const topSeams = statusBarSeamCols(geom.statusLines[0]);
   const lastLine = geom.statusLines[geom.statusLines.length - 1];
   const bottomSeams = statusBarSeamCols(lastLine);
-  const rects: Map<PaneId, Rect> = new Map();
+  const { rects } = frameBands(geom);
   const rows: FrameRow[] = [
     ...topRegion,
     buildStatusSeparator(geom, topSeams),
@@ -2220,54 +2276,8 @@ export function buildFrame(
   // 末帧一次扫描按焦点分区矩形（帧坐标，right=x+w-1/bottom=y+h-1）覆写亮
   // 角字/边线（TUI/docs/DESIGN.md §8 / SPEC.md §8 唯一焦点框机制）。模态态（面板打开）
   // 焦点用 null 传入：面板占活动区时无焦点框高亮。
+  // 焦点框上下文所需的标题栏下划线行号（矩形本身来自 frameBands）
   const underlineRow = Math.max(0, titleRows - 1);
-  const diaEnd = geom.activitySepRow; // 纵向=活动区分隔行；横向=历史 pane 底边下一行
-  // 区域矩形：左缘 = 分隔竖线列 D（状态列右缘，与状态列共用该框线；隐藏状态列时
-  // D = -1 → 左缘取 0，区域吃满整宽）、右缘 = R 列（区域外缘框列）——两 pane 正文
-  // 恰在两缘之间（contentW 列）
-  const regionX = Math.max(0, geom.dividerCol);
-  const regionW = geom.cols - regionX;
-  if (geom.mode === "horizontal") {
-    // 横向排列：历史 pane 在左、活动 pane 在右、两 pane 等高——顶=标题栏下划线行，
-    // 底=状态区上方分隔行 contentTopH；内部分隔列 = history 右缘 / activity 左缘
-    const h = Math.max(1, contentTopH - underlineRow + 1);
-    const divCol = innerDividerCol ?? geom.cols - 1;
-    rects.set("history", {
-      x: regionX,
-      y: underlineRow,
-      w: divCol - regionX + 1,
-      h,
-    });
-    rects.set("activity", {
-      x: divCol,
-      y: underlineRow,
-      w: geom.cols - divCol,
-      h,
-    });
-  } else {
-    // history 矩形：顶=标题栏下划线行（titleRows>=2 才有下划线；否则顶=首历史行）、
-    // 底=活动区分隔行 diaEnd
-    rects.set("history", {
-      x: regionX,
-      y: underlineRow,
-      w: regionW,
-      h: Math.max(1, diaEnd - underlineRow + 1),
-    });
-    // activity 矩形：顶=活动区分隔行 diaEnd、底=状态区上方分隔行 contentTopH
-    rects.set("activity", {
-      x: regionX,
-      y: diaEnd,
-      w: regionW,
-      h: Math.max(1, contentTopH - diaEnd + 1),
-    });
-  }
-  // status 矩形：x=0（屏幕最左=状态列外缘）、右缘=D 列、顶=帧顶 rc0、底=状态区上方分隔行
-  rects.set("status", {
-    x: 0,
-    y: 0,
-    w: statusColWidth,
-    h: Math.max(1, contentTopH + 1),
-  });
   focusFrame(
     {
       // P7：状态列隐藏时不聚焦 status（宽 0 的焦点框会压掉内容首列）

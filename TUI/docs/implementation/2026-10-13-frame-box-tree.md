@@ -132,11 +132,53 @@
 
 ## 实现记录
 
-（待填）
+**阶段 1（已实现）**
+
+- 新增 `src/app/layout/grid.ts`：行角色 `GridRole`（`border` / `rule` / `activity` / `body`）+
+  `gridRole()`（判定优先级：横线行 > 活动区行 > 回合分隔行 > 普通行）+ `dividerGlyph()`
+  （`├` / `│`）+ `rightEdgeGlyph()`（`─` / `╌` / `null` 不落字形 / `" "` 空白占位）。
+- `src/app/layout.ts` `buildTopRegion`：删掉内联的 `divFor()` / `rightGlyph()` 字形决策，
+  改为按行角色在行内取字形（D 列与右缘框列）；补齐 / 截断 / 内容来源不变。
+- 新增 `tests/grid.test.ts`（3 例）：角色判定优先级、D 列字形、右缘框列字形（含「不落字形」）。
+
+**阶段 2（已实现，范围按下方偏差调整）**
+
+- `frameBands(geom)` 成为**行带 + 焦点矩形唯一来源**：`frameSections(geom)` 取其中的 `bands`；
+  `buildFrame` 里原先 ~45 行矩形字面量（history / activity / status 三块 + 横向分支）删除，
+  改为 `const { rects } = frameBands(geom)`。「段表算一遍行数、buildFrame 再写一遍矩形」
+  的两处算术合一。
+- **段表去语义（决策 6）**：`renderer/screen.ts` 删 `FrameSectionId` 与 `FrameSection.id`
+  （`FrameSection` 只剩 `startLine` / `lineCount`）；`renderer/index.ts` 的段表一致性校验改比
+  两字段（+ 覆盖行数）；`renderer/index.ts` 的类型再导出同步删除；`tests/layout4.test.ts`
+  的段表用例改为按行带顺序断言行数。
+- 变化行仍由渲染层 `changedRuns` diff 得出，未引入「布局声明脏行」。
+
+## 偏差（未做，需后续裁定）
+
+1. **未做「整窗一棵 Box 树」**。原因：Box 库的叶子是**文本 / 段**（`Paragraph` / `StyledText`），
+   而帧的四区域内容是**行数组**（窗口化内容行 + 逐行补齐差异：活动区行不补白、回合分隔行补 `╌`、
+   横线行铺 `─`）。把行数组塞进树只有两条路：① 新增「预渲染行」叶子类型；② 换行拼接后靠 fill 重排。
+   两条都要动库或把补齐差异挤进内容，而 `measure` / `allocate` 在这里**没有任何尺寸收益**
+   （尺寸唯一来源是 `frameGeometry`，决策 3 已定）：逐行叶子树 = 每帧约 40 个叶子，只把数组拼接
+   换成树遍历，判定为「无收益 + 有逐字节漂移风险」。要做得先裁定是否给库加 `Rows` 叶子（或回退到
+   「整窗一张波段表」的形态）。
+2. **相交点字形不搬进 `grid.ts`**：`teeGlyph` 早已是 `content-rules.ts` 的唯一判定来源，
+   另两处调用点（状态区上分隔行 / 状态栏下横线）的 up / down 列集合本就不同，搬动无收益。
+3. **「事后整帧基线 pass」改为「行内取字形」**：先按计划实现了 `applyGridBaseline`（复用
+   `focus-frame.ts` 的 `setCell` 逐格改写），bench 实测 cache off 档 0.47ms → 1.90ms（约 4×，
+   一行两列共约 80 次 `setCell`），违反 ±10% 门槛 → 改为纯映射函数、行内取值，bench 回到基线。
+   决策 9 的实现随之调整：`buildTopRegion` **不返回** roles（字形在行内取，角色不外部化）；
+   角色词汇与判定仍集中在 `grid.ts` 并有单测。
 
 ## 测试与证据
 
-（待填）
+- `node_modules/.bin/tsc -p tsconfig.json --noEmit`：干净；`npm run build`：干净。
+- 全量测试：**1525 / 1525 通过**（含新增 `tests/grid.test.ts` 3 例；既有帧断言
+  `focus-frame` / `content-mapping` / `layout*` / `app` **一行未改**，逐字节口径守住）。
+- bench A/B（同机同轮，`npm run bench`，cache off / cache on 中位耗时）：
+  - 本改动：0.52 / 0.47 / 0.45 / 0.43 ms（off），0.09 / 0.11 / 0.08 / 0.02 ms（on）
+  - HEAD 基线：0.53 / 0.48 / 0.48 / 0.44 ms（off），0.09 / 0.10 / 0.08 / 0.02 ms（on）
+  - 结论：全部落在 ±10% 内（最大偏差约 4%）；反例见偏差 3（事后 pass 版 off 档 1.90ms）。
 
 ## 收尾
 

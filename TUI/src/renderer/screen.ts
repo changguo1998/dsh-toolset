@@ -85,12 +85,9 @@ export interface RenderInterval {
   rows: FrameRow[];
 }
 
-/** 帧段 id：按屏幕行带划分（渲染层区间重写的边界，见 app/layout 的 frameSections） */
-export type FrameSectionId = "top" | "status" | "footer" | "hint";
-
-/** 帧段：屏幕行范围（0 基 startLine，lineCount 行） */
+/** 帧段：屏幕行范围（0 基 startLine，lineCount 行）——**不带语义**
+ *（2026-10-13 决策 6：只作渲染层区间重写的边界；行带含义见 app/layout 的 frameSections） */
 export interface FrameSection {
-  id: FrameSectionId;
   startLine: number;
   lineCount: number;
 }

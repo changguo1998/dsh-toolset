@@ -211,19 +211,19 @@ tableBox(table: TableSpec, width: number): Box | null
 
 1. **共享缩进**：段内所有行（含软换行续行）以 `indent`（首行）/ `hanging`（续行）为基准；段内不出现缩进变化，需要变化就拆叶子。
 
-1. **前缀占列**：`prefix` 先占列，正文缩进自前缀之后起算；续行是否重复前缀由 `hanging` 决定（引用/列表重复竖线或对齐正文，现状语义保持）。
+2. **前缀占列**：`prefix` 先占列，正文缩进自前缀之后起算；续行是否重复前缀由 `hanging` 决定（引用/列表重复竖线或对齐正文，现状语义保持）。
 
-1. **宽度**：段落可用宽度 = 容器分配宽 − indent − prefix 宽度；换行按显示宽度（`charWidth/displayWidth`，CJK/emoji 零宽表不变）。
+3. **宽度**：段落可用宽度 = 容器分配宽 − indent − prefix 宽度；换行按显示宽度（`charWidth/displayWidth`，CJK/emoji 零宽表不变）。
 
-1. **样式**：段落 `style` 为默认，行内 markdown 解析产生的段样式在其上覆盖（`FrameSegment` 级）。
+4. **样式**：段落 `style` 为默认，行内 markdown 解析产生的段样式在其上覆盖（`FrameSegment` 级）。
 
-1. **产出**：段落摊平后是若干 `FrameRow`，每行若干 `FrameSegment`——与 §11 渲染契约无缝衔接。
+5. **产出**：段落摊平后是若干 `FrameRow`，每行若干 `FrameSegment`——与 §11 渲染契约无缝衔接。
 
-1. **缩进归属（防止两套机制打架）**：**段落内缩进一律走 `indent`/`hanging`/`prefix`**（行级，逐行生效）；`h` + `spacer` 只表达**块间横向位置**（块级，整块一次）——如用户块右对齐 `h([spacer(fill), text])`、右缘留白 `h([text, spacer(fixed gutter)])`。
+6. **缩进归属（防止两套机制打架）**：**段落内缩进一律走 `indent`/`hanging`/`prefix`**（行级，逐行生效）；`h` + `spacer` 只表达**块间横向位置**（块级，整块一次）——如用户块右对齐 `h([spacer(fill), text])`、右缘留白 `h([text, spacer(fixed gutter)])`。
 
    为什么不用 spacer 表达段落缩进：① **悬挂缩进做不到**——`h([space(2), text])` 会让整块（含首行）都缩进 2，而工具行要求首行 0、续行 2（现状 `wrapToolCallText`：首行全宽、续行 `TOOL_CONT_INDENT=2` 且折行宽度扣掉缩进）；② **前缀需逐行重复**（引用 `│`、列表 `•`、思考 `┃`），spacer 只作用于块首；③ **`fixed` spacer 并未消灭那个数字**，只是把 indent 搬进节点，且布局仍须扣除它才能算可用宽。
 
-1. **格式一致性：约束绑定"几何"，不绑定"样式"**——把"格式"拆成两类属性，只对前一类要求叶子内一致：
+7. **格式一致性：约束绑定"几何"，不绑定"样式"**——把"格式"拆成两类属性，只对前一类要求叶子内一致：
 
    | 类别 | 具体项 | 叶子内一致？ | 理由 |
    |---|---|---|---|
@@ -236,7 +236,7 @@ tableBox(table: TableSpec, width: number): Box | null
 
    **例外（该走"每 box 统一格式"的地方）**：**不跨 box 折行的单行组合行**——标题栏符号组（preset 图标 + 名称、最多 6 个状态符号 + 标题）、系统状态栏（环境组 `•` LLM 组，各段按语义着色）、工具行头（工具名黄 + 参数默认）等，用"各自统一格式的 box + `h` 拼接"表达最自然（单行 + 截断，无需 inline flow）。
 
-1. **对齐归属：块级走 `spacer`，行级走 `align`**——两种粒度分开，不要混用：
+8. **对齐归属：块级走 `spacer`，行级走 `align`**——两种粒度分开，不要混用：
 
    | 粒度 | 含义 | 表达 | 例子 |
    |---|---|---|---|
@@ -256,8 +256,8 @@ tableBox(table: TableSpec, width: number): Box | null
 布局不是两个相互独立的阶段，而是**交替细化**，宽度永远先于高度确定（与设计不变量一致）：
 
 1. **宽轴 = 自顶向下（分割）**：根矩形（终端尺寸）→ 逐层按 `Width` 意图切分宽度。该链与内容无关，纯分割（`metricsFor`/`contentW` 的活）。
-1. **高轴 = 自底向上（生长）**：**必须在宽度确定后才能计算**——段落折行必须知道可用宽（来自父链分配），折行行数即高度（`fill` 的活）。
-1. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` 定高度、`positionAt` / `indexOfTop` 按段键位置模型切段）。区域（历史 + 活动区，位于状态列右侧）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane 宽高比距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 `TUI/docs/DESIGN.md`「四区域布局」）。历史区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`windowSections`），视口位置由**段键位置模型**（`DialogueTop{key,row}`：段键 = 节身份 + 节内 box 序号）解析——两者合计使「重排 / 新增内容 / 扩窗插入段」不再移动视口所指的内容（见 `TUI/docs/DESIGN.md`「四区域布局」）。
+2. **高轴 = 自底向上（生长）**：**必须在宽度确定后才能计算**——段落折行必须知道可用宽（来自父链分配），折行行数即高度（`fill` 的活）。
+3. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` 定高度、`positionAt` / `indexOfTop` 按段键位置模型切段）。区域（历史 + 活动区，位于状态列右侧）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane 宽高比距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 `TUI/docs/DESIGN.md`「四区域布局」）。历史区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`windowSections`），视口位置由**段键位置模型**（`DialogueTop{key,row}`：段键 = 节身份 + 节内 box 序号）解析——两者合计使「重排 / 新增内容 / 扩窗插入段」不再移动视口所指的内容（见 `TUI/docs/DESIGN.md`「四区域布局」）。
 
 **次序不变量（长宽不可能同时自由）**：宽度分割先于高度测量；高度永远在宽度确定后计算。`measure(node, constraint)` 的 `constraint` 即「宽度来自父链」的入口——measure 并非无约束累加：宽锁（父分配）→ 高自由（内容生长）。至少一个轴被父链锁死，内容才在另一轴自由生长。
 
@@ -346,8 +346,8 @@ allocate(st: SizeTable, rect: Rect) -> Map<Node, Rect>:
 **算法（单轮）**
 
 1. **按精度逐层满足**：`fixed` 定值 → `min`/`max` 边界 → `ratio` 目标（基数取**容器总宽**，实际受可分配宽封顶）→ `auto` 内容宽（夹 `max`）→ 剩余给 `fill`。
-1. **`ratio` 语义（冻结）**：`value` 是**容器总宽的分数**（`1/3`=三分之一），基数取容器总宽、实际受可分配剩余封顶；**仅当所有 `ratio` 的 `value` 之和 > 1 时按 `value` 和归一**（否则各自按分数直接取，不归一）。`min`/`max` 执行顺序：**先夹 `max` 上限、再抬 `min` 保底**——`min > max` 时 `min` 赢（保底优先，与性质列一致）。
-1. **回流（单轮）**：某盒被 `max` 截断而释放的空间，回流给**更低精度者**（`fill` → `auto` → 受限更小的 `ratio`），最后均分。
+2. **`ratio` 语义（冻结）**：`value` 是**容器总宽的分数**（`1/3`=三分之一），基数取容器总宽、实际受可分配剩余封顶；**仅当所有 `ratio` 的 `value` 之和 > 1 时按 `value` 和归一**（否则各自按分数直接取，不归一）。`min`/`max` 执行顺序：**先夹 `max` 上限、再抬 `min` 保底**——`min > max` 时 `min` 赢（保底优先，与性质列一致）。
+3. **回流（单轮）**：某盒被 `max` 截断而释放的空间，回流给**更低精度者**（`fill` → `auto` → 受限更小的 `ratio`），最后均分。
 
 **性质**
 
@@ -842,7 +842,7 @@ segStyle(seg: FrameSegment, theme: Theme): string
 渲染层五项防闪烁机制（业界对照：Bubble Tea 行级跳过 + 60fps 合帧、pi 的 `firstChanged..lastChanged` 区间重写 + DEC 2026、Textual dirty region、Codewhale 去 `2J` 修复、Claude Code #37283）：
 
 - **变化行游程重写**（`renderer/index.ts` 的 `changedRuns` + `screen.renderRange/renderRanges`）：逐行比较新旧帧（按主题下序列化文本，`caret` 参与比较），把**连续变化行**各合成一段、段间独立绝对定位 + 逐行**先擦后写**重写（行首 `ESC[K` 擦整行，**不写行尾 `ESC[K`**：活动区行不补齐整行，行尾擦不掉新内容右侧的旧字——新回合清空活动区后「最顶上残留几行」即由此而来；且行尾 `ESC[K` 在光标停于右缘待折行时会擦掉整宽行的末字）；新帧更短时末尾以 `ESC[J` 清除下方残留。**只取「首末跨度」是不行的**：状态列（最左纵向窄列，贯穿整个顶部区域）与活动区（底部流式行）常在同一 tick 同时变化，取跨度会把中间大片未变化行一起擦除重写（实测 **18 行/tick** → 改游程后 **2~3 行/tick**，报文 3.1 KB → 0.7 KB）；无 DEC 2026 同步的终端上，逐行擦除+重写正是肉眼可见闪烁的来源。**增量帧绝不 `ESC[2J` 清屏**——这是符号闪烁/流式行内增长场景的主要修复点（旧实现只支持「帧尾纯追加」，其余一律全帧清屏）。
-- **帧段（box）切分**（`app/layout.ts` 的 `frameSections` + `renderer` 的 `changedIntervals`）：由 `FrameGeometry` 纯推导行带表（top / status / footer / hint），`buildFrame` 经 `FrameBuildOutput` 回填、App 随帧传入；段表与上一帧一致时先把范围收敛到各段（多段同时变化只重写各段内变化行，不跨越中间未变化的段），段内再按变化行游程切成若干区间（不取跨度）；段表缺失/不一致（几何或行数变化）退化为整帧游程比较，保证不漏更新。
+- **帧段（box）切分**（`app/layout.ts` 的 `frameBands` / `frameSections` + `renderer` 的 `changedIntervals`）：由 `FrameGeometry` 纯推导行带表（top / status / footer / hint 的**行范围**，不含语义字段——决策 6；行带与焦点矩形同源，见 `frameBands`），`buildFrame` 经 `FrameBuildOutput` 回填、App 随帧传入；段表与上一帧一致时先把范围收敛到各段（多段同时变化只重写各段内变化行，不跨越中间未变化的段），段内再按变化行游程切成若干区间（不取跨度）；段表缺失/不一致（几何或行数变化）退化为整帧游程比较，保证不漏更新。
 - **DEC 2026 同步输出**（`screen.ts`）：整帧与区间报文首尾包 `ESC[?2026h` / `ESC[?2026l`，支持的终端（kitty / iTerm2 / WezTerm / Ghostty / Windows Terminal / tmux 3.4+）原子呈现整块更新；不支持的终端按未知私有模式忽略。`reset()` 补发结束序列兜底。
 - **覆盖式全帧**：仅**首帧**清屏一次（清终端既有内容），后续全帧（resize / 主题切换 / Ctrl+L）改为绝对定位原点 + 逐行覆盖重写（每行同样**先擦后写**）；帧下方残留以「定位到帧下一行行首 + `ESC[J`」清除（不在末行行尾就地 `ESC[J`——末行整宽时同样会吃掉末字），不再破坏性清屏。
 - **渲染期光标隐藏**：报文开头 `ESC[?25l`、定位 caret 后 `ESC[?25h`，消除重写期间硬件光标跳动；`reset()` 兜底补发显示序列。

@@ -35,7 +35,6 @@ export type {
   FrameStyle,
   FrameFocus,
   FrameSection,
-  FrameSectionId,
   RenderInterval,
 } from "./screen.ts";
 export type { Size };
@@ -477,11 +476,7 @@ function changedIntervals(
   for (let i = 0; i < sections.length; i++) {
     const a = sections[i]!;
     const b = prevSections[i]!;
-    if (
-      a.id !== b.id ||
-      a.startLine !== b.startLine ||
-      a.lineCount !== b.lineCount
-    ) {
+    if (a.startLine !== b.startLine || a.lineCount !== b.lineCount) {
       return null;
     }
     covered += a.lineCount;
