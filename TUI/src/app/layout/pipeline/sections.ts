@@ -486,6 +486,8 @@ function applyToolResult(
     ...(callId === undefined ? {} : { callId }),
     ok: delivery.ok,
     detail: delivery.detail,
+    // 行级 diff 摘要（`(+N/-M)`）用：宿主的 `data.meta` 原样透传到行层
+    ...(delivery.meta === undefined ? {} : { meta: delivery.meta }),
   });
   const section: Section = {
     ...located.target.section,

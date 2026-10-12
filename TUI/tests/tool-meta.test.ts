@@ -2,6 +2,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { toolResultLine } from "../src/app/layout/tool-line.ts";
+import {
+  allSections,
+  applyAll,
+  createSections,
+} from "../src/app/layout/pipeline/sections.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 
 test("toolResultLine：before/after 字符串 → 追加 (+N/-M)", () => {
@@ -58,6 +63,40 @@ test("toolResultLine：meta 全量不入 buffer（仅摘要）", () => {
   const line = toolResultLine(true, "ok", big);
   assert.ok(line.length < 64, "摘要行必须短小，绝不外喷全文");
   assert.ok(!line.includes("xxxx") && !line.includes("yyyy"));
+});
+
+test("流水线：工具结果交付带 meta → 节模型透传 → 结果行含 diff 摘要", () => {
+  // 六步流水线上 `rows.ts` 就是这么取 meta 的（`toolResultLine(ok, detail, result.meta)`）：
+  // 交付不带 meta 时这一层拿不到 before/after，摘要永远不显示（BACKLOG〈演示冒烟现状〉②）
+  const meta = { before: "a\nb", after: "a\nb\nc" };
+  const state = applyAll(createSections(), [
+    {
+      kind: "tool-call",
+      turn: 1,
+      step: 1,
+      callId: "c1",
+      name: "write",
+      args: "{}",
+    },
+    {
+      kind: "tool-result",
+      turn: 1,
+      step: 1,
+      callId: "c1",
+      ok: true,
+      detail: "已写入",
+      meta,
+    },
+  ]);
+  const result = allSections(state)
+    .flatMap((section) => section.items)
+    .flatMap((item) => item.results ?? [])[0];
+  assert.deepEqual(result?.meta, meta, "交付的 meta 透传到节模型的 ToolResult");
+  assert.equal(
+    toolResultLine(result?.ok ?? false, result?.detail ?? "", result?.meta),
+    "✓ 已写入 (+1/-0)",
+    "结果行按 ToolResult.meta 渲染出 diff 摘要",
+  );
 });
 
 test("reduceState：model-selection → modelBySession 按会话隔离（宽容字段）", () => {

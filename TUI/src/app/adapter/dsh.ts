@@ -2372,6 +2372,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
               ...(callId === undefined ? {} : { callId }),
               ok: !failed,
               detail,
+              // 行级 diff 摘要（`(+N/-M)`）：宿主 `data.meta` 原样带到行层（旧缓冲路径同源）
+              ...(data.meta === undefined ? {} : { meta: data.meta }),
               ...(raw.seq === undefined ? {} : { seq: raw.seq }),
             });
           }

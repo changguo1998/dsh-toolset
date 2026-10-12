@@ -25,6 +25,8 @@ export interface ToolResult {
   readonly callId?: string;
   readonly ok: boolean;
   readonly detail: string;
+  /** 行级 diff 摘要（`(+N/-M)`）用的宿主 `data.meta`（`{before, after}` 时才算） */
+  readonly meta?: unknown;
 }
 
 /** 节内条目：同类型归并后的结果（文本直拼；工具调用 / 结果成组） */
@@ -189,6 +191,8 @@ export type BlockDelivery =
       callId?: string;
       ok: boolean;
       detail: string;
+      /** 行级 diff 摘要用的 before/after（宿主 `data.meta` 原样透传；缺省不显示摘要） */
+      meta?: unknown;
     })
   /** 该 step 被打断（结果可能永不到齐 → 不再等批结果） */
   | (Delivery & { kind: "interrupted"; turn: number; step: number })

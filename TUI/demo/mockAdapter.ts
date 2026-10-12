@@ -802,6 +802,8 @@ export class MockDshAdapter implements DshAdapter {
       ok?: boolean;
       tone?: string;
       reason?: string;
+      /** 工具结果的行级 diff 摘要（before/after）——真实适配器从宿主 `data.meta` 取 */
+      meta?: unknown;
     };
     switch (ev.type) {
       case "stream":
@@ -847,6 +849,7 @@ export class MockDshAdapter implements DshAdapter {
           callId: this.mirrorLastCallId,
           ok: ev.ok !== false,
           detail: ev.detail ?? ev.summary ?? ev.text ?? "",
+          ...(ev.meta === undefined ? {} : { meta: ev.meta }),
         });
         break;
       case "step": {
