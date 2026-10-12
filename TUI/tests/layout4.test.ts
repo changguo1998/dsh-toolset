@@ -24,6 +24,7 @@ import {
   nextRunVirt,
   TOKEN_CALIB_MAX,
   virtTick,
+  VIRT_RATE_TAU,
   VIRT_SLEW_RATE,
   VIRT_SPEED_MAX,
   VIRT_SPEED_MIN,
@@ -588,7 +589,7 @@ test("nextRunVirt: 窗口速率估计 + 速率化 slew + 上下限 clamp（P1 �
       winSecs: 0.5,
     },
     7100,
-    500, // 单帧 500 token（异常）：窗口 = (10×0.82+500)/(0.5×0.82+0.1)
+    500, // 单帧 500 token（异常）：旧窗口按 exp(−Δt/τ) 稀释后并入 → 目标速率被 clamp
   );
   assert.ok(
     noisy.speed <= 20 + VIRT_SLEW_RATE * 0.1,
@@ -680,19 +681,28 @@ test("运行中无数据：virt-tick 持续积分跨过阈值切换 ●/○，�
       text: ascii(64),
       time: 1050 + i * 50,
     });
-  assert.equal(sym(s), "●", "数据停止时相位 0 实心圆");
+  // 停止时的相位取决于累计虚拟 token（参数一调就变）→ 只记基准相位，
+  // 断言「无数据 tick 仍会跨过阈值翻转」
+  const phaseAtStop = sym(s);
+  assert.ok(
+    phaseAtStop === "●" || phaseAtStop === "○",
+    `停止时符号为两态之一（实际 ${phaseAtStop}）`,
+  );
   const tokensAtStop = s.runVirt.tokens;
   assert.ok(tokensAtStop > 0, "已累计虚拟 token");
-  // 无数据：250ms tick 持续推进（token 单调增长），若干次后跨过阈值 → ○
+  // 无数据：250ms tick 持续推进（token 单调增长），若干次后跨过阈值 → 翻转
   let flipped = -1;
   for (let i = 1; i <= 20; i++) {
     s = reduceState(s, { type: "virt-tick", time: 1400 + i * 250 });
-    if (sym(s) === "○") {
+    if (sym(s) !== phaseAtStop) {
       flipped = i;
       break;
     }
   }
-  assert.ok(flipped > 0, `无数据 tick 最终跨阈值切换 ●→○（第 ${flipped} 次）`);
+  assert.ok(
+    flipped > 0,
+    `无数据 tick 最终跨阈值翻转（第 ${flipped} 次，基准相位 ${phaseAtStop}）`,
+  );
   assert.ok(s.runVirt.tokens > tokensAtStop, "虚拟总 token 持续积分不停止");
   // 长时间无数据：速度回落到下限附近，token 仍持续增长
   const tokensMid = s.runVirt.tokens;
@@ -741,7 +751,7 @@ test("usage 校准（P5）：真值/估算比例 EMA 更新 tokenCalib；无真�
   const calibBefore = s.tokenCalib;
   const before = s.runVirt.winTokens;
   s = reduceState(s, { type: "append", text: "x".repeat(64), time: 1200 });
-  const delta = s.runVirt.winTokens - before * Math.exp(-0.1 / 0.5);
+  const delta = s.runVirt.winTokens - before * Math.exp(-0.1 / VIRT_RATE_TAU);
   assert.ok(
     Math.abs(delta - 16 * calibBefore) < 1e-6,
     `窗口按校正后估算累计（实际 ${delta}）`,

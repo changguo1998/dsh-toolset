@@ -1635,22 +1635,23 @@ export const RUN_TOGGLE_TOKENS = 16;
 export const RUN_TOGGLE_FREQ_MIN = 1;
 /**
  * 符号切换率上限（toggle/s：每秒符号变化次数）：真实速率再高也不超过此切换率
- * （防闪瞎）：相位停留 0.2s，完整周期 0.4s。
+ * （防闪瞎）：相位停留 0.1s，完整周期 0.2s（2026-10-13 由 5 提到 10）。
  */
-export const RUN_TOGGLE_FREQ_MAX = 5;
+export const RUN_TOGGLE_FREQ_MAX = 10;
 /** 虚拟速度下限（估算 token/s）= 最低切换率 × 每切换 token 数（相位停留 1s） */
 export const VIRT_SPEED_MIN = RUN_TOGGLE_FREQ_MIN * RUN_TOGGLE_TOKENS; // 16
-/** 虚拟速度上限（估算 token/s）= 最高切换率 × 每切换 token 数（相位停留 0.2s） */
-export const VIRT_SPEED_MAX = RUN_TOGGLE_FREQ_MAX * RUN_TOGGLE_TOKENS; // 80
+/** 虚拟速度上限（估算 token/s）= 最高切换率 × 每切换 token 数（相位停留 0.1s） */
+export const VIRT_SPEED_MAX = RUN_TOGGLE_FREQ_MAX * RUN_TOGGLE_TOKENS; // 160
 /** 速率估计窗口时间常数（秒）：指数加权窗口（分子分母分别衰减）——速率估计
- *  的时间尺度与事件频率无关（P1 时间一致），且抗单帧 chunk 噪声（P2） */
-export const VIRT_RATE_TAU = 0.5;
+ *  的时间尺度与事件频率无关（P1 时间一致），且抗单帧 chunk 噪声（P2）。
+ *  2026-10-13 由 0.5 拉长到 2：窗口更宽 → 估计更平滑、爬升/回落更慢 */
+export const VIRT_RATE_TAU = 2;
 /** 虚拟速度从下限爬到上限的过渡时长（秒）：slew 速率 = 速度范围 / 该时长，
  *  使"防突变"与时间尺度无关（P1：速率限制而非每帧绝对量） */
 export const RUN_SPEED_RAMP_SECS = 2 / 3;
 /** 虚拟速度最大变化率（估算 token/s²）：目标突变时按此速率平滑逼近 */
 export const VIRT_SLEW_RATE =
-  (VIRT_SPEED_MAX - VIRT_SPEED_MIN) / RUN_SPEED_RAMP_SECS; // 96
+  (VIRT_SPEED_MAX - VIRT_SPEED_MIN) / RUN_SPEED_RAMP_SECS; // 216
 /** 虚拟速度无数据时的指数衰减时间常数（秒）：没有流式数据到达时速度按
  *  v(t) = MIN + (v₀ − MIN)·e^(−t/τ) 回落，虚拟总 token 按衰减中的速度持续积分——
  *  闪烁频率逐渐降到最低而不会停止（前提：agent 仍活跃，App 持续发 virt-tick） */
