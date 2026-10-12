@@ -1,6 +1,6 @@
 # 状态列内容改为 Box 构建（接取条目：TUI/docs/BACKLOG.md「状态列内容改为 Box 构建（复用排版库）」）
 
-状态：规划　　开启：2026-10-12　　关闭：
+状态：完成　　开启：2026-10-12　　关闭：2026-10-12
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -233,16 +233,85 @@ Box 排版库（`measure` → `allocate` → `fillToList`），不再由 `render
 
 ## 实现记录
 
-（待补）
+提交：`4b46d71`（实现）、`e9a0b82`（等价性证据 + 随证据收窄的实现调整）。
+
+- **新增 `src/app/components/StatusColumn.ts`**（内容层，与 8 个工具面板生成器同构）：条目模型
+  `StatusItem`（未折行 `segments` + `hanging` + 可选单行 `title` + 可选 `wrap:false` +
+  `done` / `active`）、条目构造（goal 当前 / 阻塞原因 / 历史、todo、job、agent）、
+  `foldBlock`（取代 `foldAt`：按等级过滤条目 + 算隐藏计数，输出条目列表）、
+  `buildStatusColumnBox`（`v([goal, todo, jobs, agents], { separator: { char:"╌", color:"plain" } })`，
+  每块 `v([标题行, ...条目, 隐藏计数提示?])`）。
+  `layout.ts` 侧删掉四个行生成器 + `foldAt` + 状态列常量与符号表（净减约 370 行），只留
+  组装与拼帧（`foldAt` 的**取舍**搬进 `foldBlock`，**出行**交排版库）。
+- **`renderStatusColumn`**：产出 `FrameRow[]` → **`ContentRow[]`**；新增 `fillStatusColumnBox`
+  （`measure` → `allocate` → `fillToList`，分配高取**自然高**——不让 allocate 按帧高压缩子项，
+  帧高只用于折叠等级与兜底截断）；宽度口径 = `statusBodyW`（计算上移到调用前，内容层排版宽与
+  拼帧层截断/补白宽同源）；删除自建右缘竖线（`:1225-1230`）与消费侧剥离（`cell.segments.slice(0,-1)`）。
+- **相对 D2.3 的实现偏差（1 处，已同步本文件与代码注释）**：条目标记**未**用 Box 的 `prefix`
+  ——`prefix` 在 fill 阶段**逐行重绘**（`fill.ts` 的 `decorateRows`），折行后每行都会再出一次
+  标记，与「续行停在首行文字起点」的既有表现冲突。改为**标记内联进条目首段 + 续行缩进用
+  `hanging`**（与旧 `wrapWithHanging` 同语义）。D2.1 / D2.2（四块 `v` + `separator`、每块
+  `v([head, ...items])`）与 D3 / D4 / D5 按原方案落地；`wrapWithHanging` 按裁定保留，其状态列
+  调用点删除并在函数注释加 `TODO`（「仅剩 notice 一处调用，待 notice 视图也走 Box 后连同函数一起删」）。
+- **等价性驱动的三处收窄**（都是「与旧实现逐字对齐」，均出自任务 5 的逐行 diff）：
+  1. 历史 goal 的**标题与 objective 拆成两个叶子**：标题恒单行、超宽交拼帧层截断——若与 objective
+     同叶（`\n` 分隔），窄列下标题自己会被折成多行，与旧口径（标题独立成行）不符；
+  2. **jobs 与阻塞原因条目 `wrap: false`**：保持改造前「一行一条、超宽截断」的口径（只去掉裸
+     `\n` 断行风险），不因为「统一走库」就变成折行；
+  3. 条目标记内联 + `hanging`（见上）。
+- **顺带发现与处置**：`statusBlocks` 的 `phase: 0|1` 参数是**死参数**（函数体内无引用，被
+  `const phase = current.goal.phase` 遮蔽）→ 随内容层迁移移除（连同 `renderStatusColumn` 里
+  唯一一处 `runPhase(runTokens)` 调用；`runPhase` 本身仍被状态栏 / App 使用）；`StatusBlock.id`
+  联合里已死的 `"mode"` 成员删除（与本任务同文件同模型）；**`statusColumnScroll` 恒被压成 0**
+  （`capRows` 后长度必 ≤ h → `statusStartFor` 恒返回 0，滚动是死路径）——不属本任务，保持原样，
+  另开 BACKLOG 条目交其他 agent。
+- **已知差异（有意变更，均已在等价性测试里钉住）**：
+  1. **completed todo 折行时续行改为悬挂对齐**：旧实现 completed 分支只给首行挂标记、续行**不补
+     缩进**（与 in_progress / pending 两分支不一致，续行还比正文短 2 列）；新实现统一用 `hanging`
+     （= 标记宽）。差异 = 续行前导 2 空格，**折行边界与文本一字不变**；
+  2. **`bodyW ≤ 3`（终端 ≤ 15 列）不保证等价**：旧实现把「标记 + 首个宽字符」拼成超宽行交拼帧层
+     截断，新实现按列宽折行会多出 1 行 → 折叠档位可能不同。生产不可达（状态列可见时
+     `statusColWidth ≥ 20` 或 `cols − 10` → `bodyW ≥ 8`）；
+  3. **空白字符的样式**：悬挂缩进在排版库内以**无样式空格段**产出，旧实现把它并进着色段——空格
+     无字形、状态列无底色，屏幕上不可见（等价性测试比对 ANSI 时按不可见处理）；
+  4. 旧 `wrapWithHanging` 用 `text.slice(head.length)`（UTF-16 长度）切续行，含 CJK 时与「按显示
+     宽切片」不等价——新实现走库的 `hanging` 语义；本批快照未触发差异（`hanging` = 标记宽 = 2，
+     首行切片点一致）。
 
 ## 测试与证据
 
-（待补）
+- `npm run check`（TUI `tsc --noEmit`）干净；`npm run build` 通过；`npm run test:tui` **1479 用例全绿**
+  （改造前 1470）；`npm run demo -- --smoke` 通过（`SMOKE_PASS` / `SMOKE_OK`，含状态列可见帧）。
+- **等价性证据**（新增 `tests/status-column-equivalence.test.ts`）：等价矩阵 = 13 组 goal × 6 组 todo ×
+  4 组 jobs × 5 组 agents = **1560 组 state 快照** × 6 种正文宽（4 / 8 / 18 / 31 / 40 / 60）× 7 档高度
+  （1 / 2 / 3 / 5 / 8 / 14 / 30）= **56160 组**，逐行文本与可见 ANSI 与旧实现完全一致；另加相位开关 ×
+  轮次进度 × 闪烁节拍 189 组、滚动偏移 3 档 × 高度 3 档。旧实现 = `tests/fixtures/status-column-old.ts`
+  （改造前提交 `cca30c3` 的 `renderStatusColumn` + 四个行生成器 + `foldAt` / `capRows` /
+  `wrapWithHanging` 冻结副本，函数体一字未动）。折叠分级（L0-L3 与 `capRows`）由高度档覆盖，
+  块顺序 / 块间 `╌` / 条目顺序 / 配色与删除线由 ANSI 比对覆盖。
+- **帧级断言**（同文件）：`cols ∈ {40, 60, 100, 126}` × `rows ∈ {10, 24, 40}` 下，状态列每行**显示宽
+  恒为 `statusColWidth`**（按 `displayWidth` 量）、行文本**不含控制字符**（`\n` / `\r` / ESC）、分隔列
+  字形（`│` 内容行 / `├` 结构行）、外缘框格恒 1 列；`Ctrl+S` 隐藏后整帧不含状态列内容。
+- **改造点用例**：多行 objective 的历史 goal 不再把一行写断（原真机症状——首 / 第二逻辑行各自独立
+  成行、单元格定宽）；当前 goal 仍只取首个逻辑行；todo / agents 条目内容含裸 `\n` 时按物理行折行、
+  续行悬挂缩进 2 列（= 标记宽）。
+- 既有用例按新契约校准：`tests/status-column.test.ts`（26）、`tests/status-column-agents.test.ts`（8）
+  ——新增 `tests/helpers/statusFrame.ts` 统一「内容层正文行 → 帧内可见行」还原（截断 / 补白 / 右缘
+  竖线按拼帧层口径），断言仍是屏幕所见口径。「计划改动文件清单」里的 `tests/layout4.test.ts` 与
+  `tests/layout-horizontal.test.ts` **实测无需改动**：断言走 `buildFrame` 帧级口径（`statusColWidth` /
+  分隔列 / 正文宽），与产出契约变更无关（其中「满宽 todo 行末字符不被截断」一条继续覆盖本次口径统一）。
+- **未执行**：真机目视（BACKLOG 验收项「多行 objective 的历史 goal」）——用户 2026-10-12 裁定**跳过**
+  （不在），改以离线等价性证据 + 帧级断言替代。
 
 ## 收尾
 
-- 回写两处**既有过时描述**（不在实现范围内改，收尾一并更新）：`SPEC.md:94`（把状态列当
-  `ratio 1/3` 分区 Box 举例）与 `DESIGN.md:173` **只改「折叠在 fill 阶段执行（依赖可用高度），
-  内容树与尺寸无关」这半句** —— 同句的宽度口径（`statusColumnDivisor`、最低 20 列、历史区保底
-  10 列）与 `layout.ts:169-172` 相符，勿整句重写。
-- 追踪文档移入 `TUI/docs/archived/`；BACKLOG 移除本条目。
+- 已回写两处**既有过时描述**：`SPEC.md:94`（该行「模型表达」列加注「当前实现未把它交给分配器——状态列
+  宽仍由 `metricsFor` 算定」；§6 正文的分区举例改为「历史区 `fill+min:10`」并注明状态列 Box 不挂
+  `width`）与 `DESIGN.md:173` **只改「折叠在 fill 阶段执行（依赖可用高度），内容树与尺寸无关」这半句**
+  →「折叠在内容层按等级过滤条目（`foldBlock`），帧高只决定取哪一级；从 L0 到 L3 依次建 Box 并量行数、
+  首次放得下即采用」；同句的宽度口径（`statusColumnDivisor`、最低 20 列、历史区保底 10 列）与
+  `layout.ts` 相符，未动。
+- `SPEC.md` §15.1「状态列」条目同步补内容层 / 出行 / 折叠落点口径，回归清单加入
+  `tests/status-column-equivalence.test.ts`（实现范围内，任务 6）。
+- 追踪文档移入 `TUI/docs/archived/`；BACKLOG 移除本条目（只留未完成项），并新增「状态列滚动为死路径」
+  条目交其他 agent。
