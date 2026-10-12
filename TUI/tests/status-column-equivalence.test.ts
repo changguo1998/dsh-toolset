@@ -1,6 +1,6 @@
 // tests/status-column-equivalence.test.ts — 状态列 Box 改造的**行为等价性**证据（任务 5）
 //
-// 硬约束（追踪文档 docs/implementation/2026-10-12-status-column-boxes.md「口径澄清」）：
+// 硬约束（追踪文档 docs/archived/2026-10-12-status-column-boxes.md「口径澄清」）：
 // 本次是**行为等价改造（视觉零回归）**——四块顺序、块间 `╌`、块内条目顺序、状态符号与配色、
 // 灰色删除线、符号后的悬挂缩进、运行中闪烁、按帧高折叠分级、`Ctrl+S` 显隐、`PgUp`/`PgDn`
 // 滚动都必须与改造前一致。这些细节没有既有自动化覆盖，故以「同一批 state 快照下新旧实现
