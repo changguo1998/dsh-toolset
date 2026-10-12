@@ -1,90 +1,102 @@
 // tests/config-hot-update.test.ts — profile 配置热更新（cordis `internal/update` 钩子）
 //
-// 背景：宿主 profile 的 cordis.patch.yml 被改写（`colortheme dark|light` 改 tui 行的
-// config.theme）时，cordis 默认重启该行 fiber = 卸载插件 → disposeApp() → renderer.close()
-// → process.exit()，整个 dsh 进程随之退出。修法：只含可热应用键（theme）的更新就地生效并
-// **否决重启**；其余更新交回默认路径。两条 happy-path 与「不可热应用」各档由本文件覆盖。
+// 背景：宿主 profile 的 cordis.patch.yml 被改写时，cordis 默认重启本行 fiber = 卸载插件 →
+// disposeApp() → renderer.close() → process.exit()，整个 dsh 进程随之退出。修法：钩子对**任何**
+// 配置变更都否决重启（不调 next）；可热应用的键（theme）就地生效，其余键提示需重启、会话保留。
+// 本文件覆盖分类函数 `planConfigUpdate` 的各档与钩子的落地行为（含「任何变更都不重建」）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  isLiveConfigUpdate,
   makeConfigHotUpdateHandler,
+  planConfigUpdate,
   type DshTuiConfig,
+  type LiveConfigPatch,
 } from "../src/main.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
 
-/** 造一对「当前/新」配置 + 记录 applyTheme/nextStep 调用的钩子 */
+/** 造钩子 + 记录 apply/notice/next 调用 */
 function harness(current: DshTuiConfig | undefined) {
-  const themed: ThemeId[] = [];
+  const applied: LiveConfigPatch[] = [];
+  const notices: string[] = [];
   let nextCalls = 0;
-  const handler = makeConfigHotUpdateHandler(current, (id) => themed.push(id));
-  const run = (next: DshTuiConfig | undefined): unknown =>
-    handler(next, true, () => {
-      nextCalls++;
-      return "restarted";
-    });
+  const handler = makeConfigHotUpdateHandler(current, {
+    apply: (patch) => applied.push(patch),
+    notice: (text) => notices.push(text),
+  });
   return {
-    run,
-    themed,
+    run: (next: DshTuiConfig | undefined): unknown =>
+      handler(next, true, () => {
+        nextCalls++;
+        return "restarted";
+      }),
+    applied,
+    notices,
     nextCalls: () => nextCalls,
   };
 }
 
-test("只改 theme：否决重启（不调 next）并就地切主题", () => {
+test("只改 theme：就地切主题，不重建、无提示", () => {
   const h = harness({ theme: "dark", messageGutter: 6, cwd: "/w" });
   assert.equal(
     h.run({ theme: "light", messageGutter: 6, cwd: "/w" }),
     undefined,
   );
-  assert.deepEqual(h.themed, ["light"], "applyTheme 收到新主题");
-  assert.equal(h.nextCalls(), 0, "未走默认重启路径");
-});
-
-test("theme 值不变：仍否决重启（配置无实质变更，不必重建）", () => {
-  const h = harness({ theme: "light" });
-  assert.equal(h.run({ theme: "light" }), undefined);
+  assert.deepEqual(h.applied, [{ theme: "light" }]);
+  assert.deepEqual(h.notices, []);
   assert.equal(h.nextCalls(), 0);
-  assert.deepEqual(
-    h.themed,
-    ["light"],
-    "幂等应用（App.applyTheme 同值即返回）",
-  );
 });
 
-test("theme 非法值：按默认归一化（dark），仍否决重启", () => {
+test("theme 非法值：按默认归一化（dark）", () => {
   const h = harness({ theme: "light" });
   h.run({ theme: "solarized" as ThemeId });
-  assert.deepEqual(h.themed, ["dark"]);
+  assert.deepEqual(h.applied, [{ theme: "dark" }]);
+});
+
+test("只改非热应用键：不重建（不问 next）、提示需重启、会话保留", () => {
+  const h = harness({ theme: "dark", messageGutter: 4 });
+  assert.equal(h.run({ theme: "dark", messageGutter: 8 }), undefined);
+  assert.deepEqual(h.applied, [], "没有可热应用的变更");
+  assert.equal(h.nextCalls(), 0, "绝不调 next（重建会把 dsh 进程一起带退出）");
+  assert.equal(h.notices.length, 1);
+  assert.match(h.notices[0]!, /messageGutter/);
+  assert.match(h.notices[0]!, /重启/);
+});
+
+test("混合变更：theme 当次生效，其余键只提示", () => {
+  const h = harness({ theme: "dark", messageGutter: 4, cwd: "/a" });
+  h.run({ theme: "light", messageGutter: 8, cwd: "/a" });
+  assert.deepEqual(h.applied, [{ theme: "light" }]);
+  assert.equal(h.notices.length, 1);
+  assert.match(h.notices[0]!, /messageGutter/);
+  assert.doesNotMatch(h.notices[0]!, /theme/, "theme 已生效，不进提示");
   assert.equal(h.nextCalls(), 0);
 });
 
-test("theme 之外还有变更：交回默认重启路径（不抢改）", () => {
-  const h = harness({ theme: "dark", messageGutter: 4 });
-  assert.equal(h.run({ theme: "light", messageGutter: 8 }), "restarted");
-  assert.deepEqual(h.themed, [], "不可热应用时不半途切主题");
-  assert.equal(h.nextCalls(), 1);
-});
-
-test("只改非 theme 键：交回默认重启路径", () => {
-  const h = harness({ theme: "dark", messageGutter: 4 });
-  assert.equal(h.run({ theme: "dark", messageGutter: 10 }), "restarted");
-  assert.equal(h.nextCalls(), 1);
-});
-
-test("新增键 / 删除键：均判为不可热应用", () => {
+test("新增键 / 删除键：都只提示、不重建", () => {
   const added = harness({ theme: "dark" });
-  assert.equal(added.run({ theme: "dark", model: "m" }), "restarted");
+  added.run({ theme: "dark", model: "m" });
+  assert.equal(added.nextCalls(), 0);
+  assert.match(added.notices[0]!, /model/);
   const removed = harness({ theme: "dark", model: "m" });
-  assert.equal(removed.run({ theme: "dark" }), "restarted");
-  assert.equal(added.nextCalls(), 1);
-  assert.equal(removed.nextCalls(), 1);
+  removed.run({ theme: "dark" });
+  assert.equal(removed.nextCalls(), 0);
+  assert.match(removed.notices[0]!, /model/);
 });
 
-test("next 为 undefined（无配置）：交回默认重启路径", () => {
+test("无实质变更：无动作、无提示、不重建", () => {
+  const h = harness({ theme: "dark", messageGutter: 4 });
+  h.run({ theme: "dark", messageGutter: 4 });
+  assert.deepEqual(h.applied, []);
+  assert.deepEqual(h.notices, []);
+  assert.equal(h.nextCalls(), 0);
+});
+
+test("next 为 undefined（配置被清空）：提示、不重建", () => {
   const h = harness({ theme: "dark" });
-  assert.equal(h.run(undefined), "restarted");
-  assert.equal(h.nextCalls(), 1);
+  assert.equal(h.run(undefined), undefined);
+  assert.equal(h.nextCalls(), 0);
+  assert.equal(h.notices.length, 1);
 });
 
 test("嵌套对象键序不同不算变更（键序无关比较）", () => {
@@ -94,15 +106,22 @@ test("嵌套对象键序不同不算变更（键序无关比较）", () => {
     extra: { y: 2, x: 1 },
   } as unknown as DshTuiConfig;
   const h = harness(a);
-  assert.equal(h.run(b), undefined, "只有 theme 变 → 可热应用");
-  assert.equal(h.nextCalls(), 0);
+  h.run(b);
+  assert.deepEqual(h.applied, [{ theme: "light" }]);
+  assert.deepEqual(h.notices, [], "键序差异不算变更");
 });
 
-test("isLiveConfigUpdate：值类型差异（数字 vs 字符串）判为变更", () => {
-  const a = { messageGutter: 4 } as unknown as DshTuiConfig;
-  const b = { messageGutter: "4" } as unknown as DshTuiConfig;
-  assert.equal(isLiveConfigUpdate(a, b), false);
-  assert.equal(isLiveConfigUpdate({ theme: "dark" }, { theme: "light" }), true);
-  assert.equal(isLiveConfigUpdate(undefined, { theme: "light" }), true);
-  assert.equal(isLiveConfigUpdate({ theme: "dark" }, undefined), false);
+test("planConfigUpdate：值类型差异（数字 vs 字符串）判为变更", () => {
+  const plan = planConfigUpdate(
+    { messageGutter: 4 } as unknown as DshTuiConfig,
+    { messageGutter: "4" } as unknown as DshTuiConfig,
+  );
+  assert.deepEqual(plan.restartKeys, ["messageGutter"]);
+  assert.deepEqual(plan.patch, {});
+});
+
+test("planConfigUpdate：仅 theme 变更 → patch 有值、restartKeys 空", () => {
+  const plan = planConfigUpdate({ theme: "dark" }, { theme: "light" });
+  assert.deepEqual(plan.patch, { theme: "light" });
+  assert.deepEqual(plan.restartKeys, []);
 });

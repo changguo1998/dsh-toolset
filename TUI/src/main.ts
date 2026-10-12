@@ -97,9 +97,9 @@ export function main(opts: {
   restartHandoffPath?: string;
   /** 六步流水线 sink 容器（apply 内创建并传给 adapter） */
   pipelineSink?: { current?: (delivery: BlockDelivery) => void };
-  /** 主题热应用出口（apply 内创建并传入）：App 就绪后把「就地切主题」挂上来，
-   *  供 profile 配置热更新（cordis `internal/update` 钩子）调用；见 makeConfigHotUpdateHandler */
-  themeSink?: { current?: (id: ThemeId) => void };
+  /** 配置热更新出口（apply 内创建并传入）：App 就绪后挂上「就地应用」与「提示需重启」两个
+   *  实现，供 cordis `internal/update` 钩子调用；见 makeConfigHotUpdateHandler */
+  configSink?: LiveConfigSink;
   /** profile 目录（`ctx.get('profileContext').dir`）：符号列表落盘位置；缺省不落盘
    *  （不落盘时仍按需实测，只是不跨会话复用；见 layout/width-symbols.ts） */
   profileDir?: string;
@@ -143,9 +143,13 @@ export function main(opts: {
     profileDir: opts.profileDir,
   });
   app.setLogger(opts.logger ?? ((msg) => void msg));
-  // 主题热应用出口：App 就绪后挂上（配置热更新时不再重建 fiber，见 makeConfigHotUpdateHandler）
-  if (opts.themeSink !== undefined) {
-    opts.themeSink.current = (id) => app.applyTheme(id);
+  // 配置热更新出口：App 就绪后挂实现（可热应用的键就地生效；其余键提示需重启，不重建 fiber）
+  const configSink = opts.configSink;
+  if (configSink !== undefined) {
+    configSink.apply = (patch) => {
+      if (patch.theme !== undefined) app.applyTheme(patch.theme);
+    };
+    configSink.notice = (text) => app.appendExternalLog(text, "warn");
   }
   // 运行期 stderr 桥（BACKLOG「rule-engine 的用户提示应显示在活动区」方案 A）：安装后
   // 运行期告警按行进入活动区（避免裸写落在输入区光标处）；启动前写入不受影响，dispose 时还原。
@@ -226,27 +230,48 @@ export function normalizeTuiDisplayConfig(
   };
 }
 
+/** 可热应用的配置键（改动时就地生效，不必重建 fiber） */
+const LIVE_CONFIG_KEYS: readonly string[] = ["theme"];
+
+/** 配置热更新的落地动作（只含真的变了的可热应用键） */
+export interface LiveConfigPatch {
+  theme?: ThemeId;
+}
+
+/** 配置热更新分类结果 */
+export interface ConfigUpdatePlan {
+  /** 就地应用的动作（无 = 没有可热应用的变更） */
+  patch: LiveConfigPatch;
+  /** 需重启 dsh 才生效的键（已保留会话，仅提示；无 = 全部可热应用） */
+  restartKeys: string[];
+}
+
 /**
- * 配置热更新判定（纯函数）：`next` 相对 `current` **只**在可热应用的键（`theme`）上有差异。
- * 键集合逐个比较（含新增/删除键），值用**键序无关**的序列化比较——嵌套对象键序不同不算变更。
- * 返回 false 一律走宿主默认路径（重启 fiber），故宁可判「不可热应用」也不能漏判。
+ * 配置热更新分类（纯函数）：`next` 相对 `current` 有哪些键变了、各归哪一类。
+ * 键集合逐个比较（含新增 / 删除键），值用**键序无关**的序列化比较——嵌套对象键序不同不算变更。
  */
-export function isLiveConfigUpdate(
+export function planConfigUpdate(
   current: DshTuiConfig | undefined,
   next: DshTuiConfig | undefined,
-): boolean {
-  if (next === undefined) return false;
+): ConfigUpdatePlan {
+  const patch: LiveConfigPatch = {};
+  const restartKeys: string[] = [];
+  if (next === undefined) return { patch, restartKeys: ["(配置被清空)"] };
   const keys = new Set([
     ...Object.keys(current ?? {}),
     ...Object.keys(next ?? {}),
   ]);
   for (const key of keys) {
-    if (key === "theme") continue;
     const a = (current as Record<string, unknown> | undefined)?.[key];
     const b = (next as Record<string, unknown>)[key];
-    if (stableJson(a) !== stableJson(b)) return false;
+    if (stableJson(a) === stableJson(b)) continue;
+    if (LIVE_CONFIG_KEYS.includes(key)) {
+      if (key === "theme") patch.theme = normalizeThemeId(b);
+      continue;
+    }
+    restartKeys.push(key);
   }
-  return true;
+  return { patch, restartKeys };
 }
 
 /** 键序无关的 JSON 序列化（配置对象只含标量/数组/纯对象；不可序列化 → 原样字符串） */
@@ -267,31 +292,46 @@ function stableJson(value: unknown): string {
 }
 
 /**
+ * 配置热更新出口（`apply()` 内创建、`main()` 就绪后挂上实现）。
+ * `apply` = 就地应用可热应用的键；`notice` = 需重启的键在活动区提示一句。
+ */
+export interface LiveConfigSink {
+  apply?: (patch: LiveConfigPatch) => void;
+  notice?: (text: string) => void;
+}
+
+/**
  * cordis 每条 fiber 专属的 `internal/update` 钩子（构造纯函数，便于单测）。
  *
- * 背景：宿主 profile 的 `cordis.patch.yml` 被改写时（如 `colortheme` 改 `theme`），
- * dsh-hmr 会重载配置、cordis 对**本行 fiber** 调 `Fiber.update()` → 默认 `restart()`
- * = 卸载插件再重装。卸载会走到本插件的清理路径（`disposeApp()` → `renderer.close()`
- * → `process.exit()`），于是整个 dsh 进程随配置变更一起退出（BACKLOG〈运行中执行
- * colortheme 切主题会让 dsh 退出〉）。
+ * 背景：宿主 profile 的 `cordis.patch.yml` 被改写时，dsh-hmr 重载配置、cordis 对**本行
+ * fiber** 调 `Fiber.update()` → 默认 `restart()` = 卸载插件再重装。卸载会走到本插件的清理
+ * 路径（`disposeApp()` → `renderer.close()` → `process.exit()`），于是整个 dsh 进程随配置
+ * 变更一起退出（BACKLOG〈运行中执行 colortheme 切主题会让 dsh 退出〉与〈tui 行非热应用
+ * 配置变更会重建 fiber 并把 dsh 一起带退出〉）。
  *
- * 钩子语义（cordis 文档：update hooks「can veto or replace the restart」）：
- *  - 只含可热应用键（`theme`）的更新 → 就地切主题并**不调 `next`**（否决重启）；
- *  - 其余更新 → 调 `next()`，交回 cordis 默认重启路径（行为不变）。
- * 注：`ctx.on('internal/update', …)` 不带 `global` 即注册到本 fiber 的专属钩子表，
- * 只会收到本 fiber 的更新。
+ * 钩子语义（cordis 文档：update hooks「can veto or replace the restart」）：**一律不调
+ * `nextStep`**（否决重启）——正在跑的 UI 没有任何理由为「下次启动才需要的配置值」重建，
+ * 重建的代价是整个会话。可热应用的键（`theme`）就地生效；其余键保留会话并提示需重启。
+ *
+ * 注：`ctx.on('internal/update', …)` 不带 `global` 即注册到本 fiber 的专属钩子表，只会收到
+ * 本 fiber 的更新。
  */
 export function makeConfigHotUpdateHandler(
   current: DshTuiConfig | undefined,
-  applyTheme: (id: ThemeId) => void,
+  sink: LiveConfigSink,
 ): (
   next: DshTuiConfig | undefined,
   noSave: unknown,
   nextStep: () => unknown,
 ) => unknown {
-  return (next, _noSave, nextStep) => {
-    if (!isLiveConfigUpdate(current, next)) return nextStep();
-    if (next?.theme !== undefined) applyTheme(normalizeThemeId(next.theme));
+  return (next, _noSave, _nextStep) => {
+    const { patch, restartKeys } = planConfigUpdate(current, next);
+    if (patch.theme !== undefined) sink.apply?.(patch);
+    if (restartKeys.length > 0) {
+      sink.notice?.(
+        `profile 配置变更需重启 dsh 才生效: ${restartKeys.join(", ")}（会话保留）`,
+      );
+    }
     return undefined;
   };
 }
@@ -397,8 +437,8 @@ export async function apply(
 ): Promise<void> {
   // 六步流水线：App 注册 sink 后 adapter 才投递（开关关闭时 sink 恒空、零开销）
   const pipelineSink: { current?: (delivery: BlockDelivery) => void } = {};
-  // 主题热应用出口：main() 在 App 就绪后挂上实现（配置热更新时不重建 fiber）
-  const themeSink: { current?: (id: ThemeId) => void } = {};
+  // 配置热更新出口：main() 在 App 就绪后挂上实现（apply / notice）
+  const configSink: LiveConfigSink = {};
   const runtime: DshRuntime = ctx as DshRuntime;
   const agents = (ctx as { agents?: unknown }).agents as
     | {
@@ -756,7 +796,7 @@ export async function apply(
   const disposeApp = main({
     adapter,
     pipelineSink,
-    themeSink,
+    configSink,
     bootstrapKickoffText: kickoffText,
     bootstrapKickoffForNewSession: kickoffForNewSession,
     // 启动器（如用户的 fffdsh 循环）经此变量声明「会处理退出码 75」（BACKLOG #51）
@@ -779,12 +819,13 @@ export async function apply(
   ctxAny.effect?.(() => () => {
     disposeApp();
   });
-  // 配置热更新：宿主 profile patch 被改写（`colortheme` 改 theme 等）时，cordis 默认重启
-  // 本行 fiber，而重启 = 卸载 → disposeApp() → renderer.close() → process.exit()，整个 dsh
-  // 进程随之退出。此钩子把「只改 theme」的更新就地应用并否决重启（见 makeConfigHotUpdateHandler）。
+  // 配置热更新：宿主 profile patch 被改写时，cordis 默认重启本行 fiber，而重启 = 卸载 →
+  // disposeApp() → renderer.close() → process.exit()，整个 dsh 进程随之退出。此钩子对**任何**
+  // 配置变更都否决重启：可热应用的键（theme）就地生效，其余键提示需重启、会话保留
+  // （见 makeConfigHotUpdateHandler）。
   (ctx as { on?: (name: string, cb: unknown) => unknown }).on?.(
     "internal/update",
-    makeConfigHotUpdateHandler(config, (id) => themeSink.current?.(id)),
+    makeConfigHotUpdateHandler(config, configSink),
   );
   // 信号/退出兜底（renderer 的 SIGINT/TERM/Esc → close() 后进程退出）：
   // 同一清理路径，不再只释放初始 handle。
