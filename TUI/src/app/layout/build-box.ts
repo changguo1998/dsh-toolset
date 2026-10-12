@@ -181,7 +181,10 @@ function wrapCodeRows(
   return out;
 }
 
-export function buildBox(local: HistoryRow[], opts: BuildBoxOptions): BuildBoxResult {
+export function buildBox(
+  local: HistoryRow[],
+  opts: BuildBoxOptions,
+): BuildBoxResult {
   // 块 id 计数器：每次 buildBox 调用内局部，保证纯函数/确定性
   let nextBlockId = 0;
   const freshBlockId = (): number => {
@@ -353,8 +356,8 @@ export function buildBox(local: HistoryRow[], opts: BuildBoxOptions): BuildBoxRe
         dialogueLeaves.push(blank);
       }
       // 整块右对齐 + 右缘竖线：h([spacer(fill), 内容])
-      // 右缘竖线三色（TUI#43）：steer 排队中黄（等本回合下一次 step）/ followup 排队中灰
-      // （等下一回合）/ 已发出亮红
+      // 右缘竖线三色（TUI#43）：steer 排队中**浅黄**（等本回合下一次 step；`brightYellow`
+      // 与状态色 yellow 拉开、又区别于已发出的亮红）/ followup 排队中灰（等下一回合）/ 已发出亮红
       // P1/P7：首行左侧状态符号**独立成格**（固定 2 列 = 符号 + 1 空格）与正文并排——
       // 符号不参与正文换行，故正文首行与续行同列（不再出现"续行与符号对齐"）；符号只在
       // 首行可见（h 合并时其余行按空格补齐该格，缩进不塌）。左侧留白同步扣掉符号宽，
@@ -367,7 +370,7 @@ export function buildBox(local: HistoryRow[], opts: BuildBoxOptions): BuildBoxRe
           style: {
             fg:
               line.queued === "steer"
-                ? "yellow"
+                ? "brightYellow"
                 : line.queued
                   ? "gray"
                   : "brightRed",

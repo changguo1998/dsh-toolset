@@ -75,8 +75,9 @@ function makeApp(): {
 }
 
 /** dark 主题下颜色名的 truecolor 前景 SGR 序列 */
-const sgrOf = (name: "yellow" | "gray" | "brightRed"): string =>
-  hexSgr(ansiNameToHex(THEMES.dark, name) ?? "", true);
+const sgrOf = (
+  name: "yellow" | "brightYellow" | "gray" | "brightRed",
+): string => hexSgr(ansiNameToHex(THEMES.dark, name) ?? "", true);
 
 /** 帧内包含指定文本的行（原始行，含 ANSI） */
 function rawRowOf(renderer: FakeRenderer, text: string): string {
@@ -125,7 +126,7 @@ test("reducer：排队项带类型；认领按类型各取最早一条（互不�
   );
 });
 
-test("忙时提交：进排队块（不写 buffer）、steer 排在 followup 之上、右缘竖线黄 vs 灰", () => {
+test("忙时提交：进排队块（不写 buffer）、steer 排在 followup 之上、右缘竖线浅黄 vs 灰", () => {
   const { renderer, adapter, st, app } = makeApp();
   typeAndEnter(renderer, "先发一条"); // 默认模式=steer；空闲 → 直发并进入 running
   renderer.press(key("<"));
@@ -159,8 +160,8 @@ test("忙时提交：进排队块（不写 buffer）、steer 排在 followup 之
       "steer 排在 followup 之上",
     );
     assert.ok(
-      steerRow.includes(sgrOf("yellow") + "┃"),
-      "steer 排队右缘竖线为黄: " + JSON.stringify(steerRow.slice(-60)),
+      steerRow.includes(sgrOf("brightYellow") + "┃"),
+      "steer 排队右缘竖线为浅黄: " + JSON.stringify(steerRow.slice(-60)),
     );
     assert.ok(
       followRow.includes(sgrOf("gray") + "┃"),
