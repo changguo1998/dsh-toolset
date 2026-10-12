@@ -1,6 +1,6 @@
 # 盒子缓存失效的回归用例（接取条目：TUI/docs/BACKLOG.md「盒子缓存失效的回归用例」）
 
-状态：规划　　开启：2026-10-12　　关闭：
+状态：完成　　开启：2026-10-12　　关闭：2026-10-12
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -43,12 +43,23 @@
 
 ## 实现记录
 
-（待补）
+提交：`449902d`（仅测试文件，不改产品代码）。
+
+- 用例落在 `tests/layout-cache.test.ts`（已有排版缓存口径的宿主文件；新增 import
+  `buildBoxes` / `setWidthOverrides` / `clearWidthOverrides`），节对象用现成 `sectionsFromBuffer`
+  造（`{ history: true }`，取 `sections[0] ?? current`）。
+- 三断言按决策落地：① 同节重复取盒命中**同一对象**；② `setWidthOverrides([["●", 2]])` 后返回
+  **新对象**；③ 同值再写仍命中同一对象。`finally` 里 `clearWidthOverrides()` 清覆盖与缓存，
+  避免污染同文件后续用例（该调用本身也会清 `boxCache`）。
 
 ## 测试与证据
 
-（待补）
+- 绿：`npm run test:tui -- layout-cache.test.ts` → 11 / 11 通过（该文件原 10 条 + 新 1 条）。
+- 红：临时摘掉 `boxes.ts:313-315` 的 `registerCacheReset(...)` 注册 → **只有新用例失败**
+  （10 pass / 1 fail，失败点 = 「宽度覆盖变化后盒子缓存必须失效」）→ `git checkout --` 还原 →
+  11 / 11 绿。红绿对照证明该用例确实锁住这条契约（删注册即变红）。
+- 全量：`npm run test:tui` → **1480 / 1480 通过**（改造前 1479 + 新增 1 条）。
 
 ## 收尾
 
-- 追踪文档移入 `TUI/docs/archived/`；BACKLOG 移除本条目。
+- 追踪文档移入 `TUI/docs/archived/`；BACKLOG 移除本条目（其余条目按惯例重排编号）。
