@@ -19,12 +19,15 @@ import {
 } from "../src/app/layout/cache.ts";
 import { wrapLine } from "../src/app/layout/primitives.ts";
 import {
+  clearWidthOverrides,
   displayWidth,
   parseInlineMarkdown,
+  setWidthOverrides,
   wrapAssistantLine,
   wrapCodeLine,
   wrapInlineMarkdown,
 } from "../src/app/layout/markdown.ts";
+import { buildBoxes } from "../src/app/layout/pipeline/boxes.ts";
 import { sectionsFromBuffer } from "../src/app/layout/pipeline/replay.ts";
 import { rowAnsi, rowsText } from "./helpers/rowText.ts";
 import type { DshAdapter, DshEvent } from "../src/app/adapter/dsh.ts";
@@ -248,6 +251,48 @@ test("buildFrame：同一状态重复排版在两种模式下都稳定（缓存�
   );
   assert.deepEqual(second, first, "热缓存改变了输出");
   assert.deepEqual(third, second, "重复排版不稳定");
+});
+
+test("盒子缓存：宽度覆盖变化必须使 buildBoxes 缓存失效（带外输入）", () => {
+  // 契约（boxes.ts:310-315 注释 / 提交 8a53372）：boxCache 键 = 节对象身份，节不可变 → 可安全
+  // 复用；**例外** = 终端实测宽度覆盖变化（节对象没变、排版宽度却变了）→ 必须整体失效，
+  // 否则那一行会一直按旧的静态宽度出帧（真机症状：一整行符号把边框挤左）。
+  const st = sectionsFromBuffer(
+    [{ text: "● 符号行与边框", kind: "assistant", final: true }],
+    { history: true },
+  );
+  const section = st.sections[0] ?? st.current;
+  assert.ok(section, "回放应产出至少一个节");
+  try {
+    // ① 命中基线：同节重复取盒 = 同一对象（缓存确实在生效）
+    const first = buildBoxes(section);
+    assert.equal(
+      buildBoxes(section),
+      first,
+      "同节重复取盒必须命中缓存（同一对象）",
+    );
+    // ② 覆盖写新值 → 缓存必须失效（返回新对象）
+    assert.equal(
+      setWidthOverrides([["●", 2]]),
+      true,
+      "新值与既有不同 → 报告变化",
+    );
+    assert.notEqual(
+      buildBoxes(section),
+      first,
+      "宽度覆盖变化后盒子缓存必须失效（否则按旧静态宽度一直出帧）",
+    );
+    // ③ 同值再写 → 不无谓失效（锁住 `if (changed)` 语义）
+    const afterChange = buildBoxes(section);
+    assert.equal(setWidthOverrides([["●", 2]]), false, "同值 → 不报告变化");
+    assert.equal(
+      buildBoxes(section),
+      afterChange,
+      "同值时缓存保持命中（不无谓重建）",
+    );
+  } finally {
+    clearWidthOverrides(); // 清覆盖并清缓存，避免污染后续用例
+  }
 });
 
 test("换主题：整帧逐字节一致（生产节缓存路径），主题色只在渲染层加", () => {
