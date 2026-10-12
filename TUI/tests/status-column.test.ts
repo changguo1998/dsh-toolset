@@ -436,12 +436,12 @@ test("renderStatusColumn: 溢出时按折叠等级递减内容（L1 隐藏完成
   assert.ok(!t.includes("目标"), "goal objective 随 L2 标题行折叠");
 });
 
-test("renderStatusColumn: 总高超窗口时折叠而非滚动——隐藏条目滚动不可找回", () => {
+test("renderStatusColumn: 默认折叠、滚动可找回被折叠条目（PgUp 回 0 恢复折叠视图）", () => {
   const todos: TodoItemLike[] = Array.from({ length: 10 }, (_, i) => ({
     content: `任务${i}`,
     status: "pending",
   }));
-  // 高度充足（goal 2 + todo 12 = 14）：全部显示
+  // 高度充足（goal 2 + todo 12 = 14）：L0 直接放得下 → 全部显示
   const full = col(setGoal("active", "目标"), todos, {
     height: 14,
     width: 20,
@@ -449,20 +449,36 @@ test("renderStatusColumn: 总高超窗口时折叠而非滚动——隐藏条目
   });
   const f = full.join("|");
   assert.ok(f.includes("任务0") && f.includes("任务9"), "高度充足全部显示");
-  // 高度不足（6）：折叠到窗口高，靠后条目隐藏；滚动 99 也找不回
-  const collapsed = col(setGoal("active", "目标"), todos, {
+  // 高度不足（6）+ 未滚动：**默认视图 = 折叠视图**（L2 仅进行中 → pending 全折叠 + 计数提示）
+  const folded = col(setGoal("active", "目标"), todos, {
+    height: 6,
+    width: 20,
+    scroll: 0,
+  });
+  const c = folded.join("\n");
+  assert.ok(c.includes("项已隐藏"), "默认视图有折叠提示");
+  assert.ok(
+    !c.includes("任务0") && !c.includes("任务9"),
+    "默认视图看不到被折叠的条目",
+  );
+  assert.ok(c.includes("Todo 0/10"), "计数标题保留 0/10");
+  // 高度不足（6）+ 滚到底：在 **L0 完整行集**上开窗 → 被折叠条目可滚到（用户 2026-10-12 裁定）
+  const scrolled = col(setGoal("active", "目标"), todos, {
     height: 6,
     width: 20,
     scroll: 99,
   });
-  const c = collapsed.join("\n");
-  assert.ok(c.includes("项已隐藏"), "折叠提示出现");
-  assert.ok(
-    !c.includes("任务0"),
-    "L2 仅进行中：pending 待办全折叠（计数标题仍含）",
-  );
-  assert.ok(!c.includes("任务9"), "折叠条目滚动不可找回");
-  assert.ok(c.includes("Todo 0/10"), "计数标题保留 0/10");
+  const sc = scrolled.join("\n");
+  assert.ok(!sc.includes("项已隐藏"), "滚动视图不折叠（无隐藏计数）: " + sc);
+  assert.ok(sc.includes("任务9"), "滚到底可见末条（折叠视图里被隐藏）: " + sc);
+  assert.ok(!sc.includes("任务0"), "滚到底时首条已滚过窗口: " + sc);
+  // PgUp 回 0 = 折叠视图（默认视图可复现）
+  const back = col(setGoal("active", "目标"), todos, {
+    height: 6,
+    width: 20,
+    scroll: 0,
+  });
+  assert.deepEqual(back, folded, "回 0 恢复折叠视图");
 });
 
 test("status-column-scroll reducer: delta 累加且 clamp 非负", () => {

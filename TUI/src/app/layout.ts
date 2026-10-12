@@ -796,7 +796,8 @@ function fillStatusColumnBox(box: Box, width: number): ContentRow[] {
  *  buildTopRegion 统一构图（与其它区域同口径）。
  *  折叠策略：无强制行数上限——从 L0 到 L3 依次尝试折叠等级，首次放下即采用；全部等级
  *  用尽仍放不下（goal 大头）→ 整列行级截断兜底（capRows）。
- *  滚动独立于对话区（statusColumnScroll，↑/↓ 仍滚历史，PgUp/PgDn 滚状态列）。 */
+ *  滚动独立于对话区（statusColumnScroll，↑/↓ 仍滚历史，PgUp/PgDn 滚状态列）：
+ *  `scroll == 0` = 折叠视图（默认视图）；`scroll > 0` = 在 L0 完整行集上开窗（见函数内注释）。 */
 export function renderStatusColumn(
   goals: GoalHistory | undefined,
   todos: TodoItemLike[] | undefined,
@@ -826,14 +827,24 @@ export function renderStatusColumn(
     tick: Math.floor(runTokens / RUN_TOGGLE_TOKENS),
     goalRounds,
   };
+  // 滚动（用户 2026-10-12 裁定「恢复真滚动」+ 口径 A「滚动即展开」）：
+  //  scroll == 0 → 折叠视图（L0→L3 首次放得下即采用 + capRows 兜底）＝ 默认视图，逐字同改造前；
+  //  scroll > 0  → 在 **L0（不折叠）完整行集**上开窗（不 capRows）——被 L1/L2/L3 折叠掉、或被
+  //                capRows 截掉的条目由此全部可滚到；PgUp 回到 0 即恢复折叠视图。
+  //  窗口起点由 statusStartFor clamp 到 [0, len − h]，故状态侧只需非负 clamp（不引入几何耦合）。
+  if (scroll > 0) {
+    const full = fillStatusColumnBox(buildStatusColumnBox(data, 0), w);
+    const start = statusStartFor(full.length, scroll, h);
+    return full.slice(start, start + h);
+  }
   let body: ContentRow[] = [];
   for (const level of [0, 1, 2, 3] as const) {
     body = fillStatusColumnBox(buildStatusColumnBox(data, level), w);
     if (body.length <= h) break;
   }
   if (body.length > h) body = capRows(body, h);
-  const start = statusStartFor(body.length, scroll, h);
-  return body.slice(start, start + h);
+  // 折叠视图长度必 ≤ h（capRows 兜底）→ 起点恒 0
+  return body.slice(0, h);
 }
 /** 顶部区域：最左详细状态列、右侧对话历史+活动区（可独立滚动）；焦点面板四边框亮色 */
 /** 当前激活的活动区面板 Box（approval/question/picker/statusPanel/jobs/

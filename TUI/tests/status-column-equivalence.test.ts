@@ -325,7 +325,7 @@ test("状态列等价性：相位开关 / 轮次进度 / 闪烁节拍各档一�
   }
 });
 
-test("状态列等价性：滚动偏移不影响可见行（折叠优先，与改造前同）", () => {
+test("滚动档位：scroll == 0 仍与旧实现逐行等价，scroll > 0 起为「完整行集窗口」（用户裁定）", () => {
   const s: Snapshot = {
     goals: goalList(
       { phase: "active", objective: "当前" },
@@ -338,15 +338,33 @@ test("状态列等价性：滚动偏移不影响可见行（折叠优先，与�
     jobs: JOBS[2],
     agents: AGENTS[3],
   };
-  for (const scroll of [0, 3, 99])
-    for (const height of [3, 8, 14]) {
-      const ctx = `scroll=${scroll} height=${height}`;
-      assert.deepEqual(
-        newRows({ ...s, scroll }, 31, height).map((r) => rowText(r)),
-        oldRows({ ...s, scroll }, 31, height).map((r) => rowText(r)),
-        `逐行文本不一致：${ctx}`,
-      );
-    }
+  const texts = (rows: readonly FrameRow[]): string[] =>
+    rows.map((r) => rowText(r));
+  // 该状态在 width=31 下 L0 行数 > 14（goal 2 + todo 13 + jobs 8 + agents 4 量级）→ 各档高度都会折叠
+  for (const height of [3, 8, 14]) {
+    assert.deepEqual(
+      texts(newRows({ ...s, scroll: 0 }, 31, height)),
+      texts(oldRows({ ...s, scroll: 0 }, 31, height)),
+      `默认视图（scroll=0）必须与改造前逐行一致：height=${height}`,
+    );
+  }
+  // scroll > 0：旧实现恒忽略偏移（死路径），新实现改在 L0 完整行集上开窗——「被折叠条目可滚到」
+  const height = 8;
+  const folded = new Set(texts(newRows({ ...s, scroll: 0 }, 31, height)));
+  const bottom = texts(newRows({ ...s, scroll: 9999 }, 31, height));
+  const extra = bottom.filter(
+    (t) => !folded.has(t) && t.trim() !== "" && t.trim() !== "│",
+  );
+  assert.ok(
+    extra.length > 0,
+    "滚到底应露出折叠视图里看不到的条目: " + JSON.stringify(bottom),
+  );
+  // 滚动语义 = 逐行下移：相邻档位的窗口恰好错开一行（未到底时）
+  assert.deepEqual(
+    texts(newRows({ ...s, scroll: 3 }, 31, height)).slice(0, height - 1),
+    texts(newRows({ ...s, scroll: 2 }, 31, height)).slice(1),
+    "滚动一行 = 窗口整体上移一行",
+  );
 });
 
 // ---------- A2. 已知差异（有意变更，非等价） ----------
@@ -508,6 +526,42 @@ test("帧级：状态列每行显示宽恒为 statusColWidth、行文本不含�
         assert.equal(displayWidth(cell[0] ?? ""), 1, "外缘框格占 1 列");
       }
     }
+  }
+});
+
+test("帧级：状态列滚动后（PgDn 路径）每行仍定宽、无控制字符", () => {
+  // 滚动经 `status-column-scroll` reducer（与 PgUp/PgDn 转发同一路径）；滚动态走的是
+  // L0 完整行集窗口，帧级不变量（定宽 / 无控制字符 / 分隔列字形）必须同样成立
+  let st = withSession({
+    goals: goalList(
+      { phase: "active", objective: LONG },
+      { phase: "complete", objective: "旧目标" },
+    ),
+    todos: TODOS[5],
+    jobs: JOBS[2],
+    agents: AGENTS[3],
+  });
+  st = reduceState(st, { type: "status-column-scroll", delta: 5 });
+  const size = { cols: 100, rows: 24 };
+  const geom = frameGeometry(st, size);
+  const top = buildFrame(st, size).slice(0, geom.contentTopH);
+  assert.ok(st.statusColumnScroll > 0, "前提：滚动偏移非 0");
+  for (const [ri, r] of top.entries()) {
+    const text = rowText(r);
+    assert.ok(
+      !/[\n\r\x1b]/.test(text),
+      `第${ri}行含控制字符: ${JSON.stringify(text)}`,
+    );
+    const cell = truncateToWidth(text, geom.statusColWidth);
+    assert.equal(
+      displayWidth(cell),
+      geom.statusColWidth,
+      `第${ri}行状态列宽不符: ${JSON.stringify(cell)}`,
+    );
+    assert.ok(
+      /^[│├]$/.test(cell.slice(-1)),
+      `第${ri}行分隔列字形异常: ${JSON.stringify(cell)}`,
+    );
   }
 });
 
