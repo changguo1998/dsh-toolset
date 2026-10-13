@@ -169,6 +169,7 @@ export type SlashRoute =
   | "collapse"
   | "verbose"
   | "symbol-unify"
+  | "detect-char-width"
   | "session"
   | "continue"
   | "new"
@@ -228,6 +229,11 @@ export const LOCAL_COMMANDS: readonly {
     name: "symbol-unify",
     route: "symbol-unify",
     desc: "模型输出符号统一：on=变体替换为推荐符号并提醒 / off=原样（不替换不提醒）",
+  },
+  {
+    name: "detect-char-width",
+    route: "detect-char-width",
+    desc: "重新实测终端字符宽度（符号列宽随终端/字体变；怀疑排版错位时用）",
   },
   { name: "session", route: "session", desc: "历史会话浏览/恢复" },
   {

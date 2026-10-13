@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { createRenderer, PROBE_SETTLE_MS } from "../src/renderer/index.ts";
 import type { ProbeReject } from "../src/renderer/index.ts";
 import type { FrameRow } from "../src/renderer/screen.ts";
+import type { KeyEvent } from "../src/renderer/index.ts";
 import { KeyDecoder } from "../src/renderer/input.ts";
 import { App, type AppDeps } from "../src/app/index.ts";
 import {
@@ -23,6 +24,7 @@ import {
   setWidthProbeEnabled,
   takePendingWidthProbes,
 } from "../src/app/layout/markdown.ts";
+import { clearLayoutCaches } from "../src/app/layout/cache.ts";
 import { writeWidthSymbols } from "../src/app/layout/width-symbols.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 import { registerApp } from "./helpers/paintFlush.ts";
@@ -301,6 +303,14 @@ class TrackedApp extends App {
 /** 等待探测链路（Promise 微任务）落定 */
 const flushAsync = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
+/** 合成按键（命令输入用） */
+const key = (name: string): KeyEvent => ({
+  name,
+  ctrl: false,
+  meta: false,
+  shift: false,
+});
+
 test("App：帧绘制前实测——本帧不出，实测后整帧重绘（只测不确定字符）", async () => {
   clearWidthOverrides();
   const renderer = new ProbeRenderer();
@@ -421,6 +431,56 @@ test("App：启动按符号列表预探测（宽度只存内存，不读旧宽�
   } finally {
     app.dispose();
     rmSync(dir, { recursive: true, force: true });
+    clearWidthOverrides();
+  }
+});
+
+test("App：尺寸变化 / /detect-char-width 都会重新实测", async () => {
+  clearWidthOverrides();
+  // 宽度 memo（CHAR_WIDTH_TABLE）会跳过「登记待测」这一步：前序用例可能留下缓存，
+  // 而 clearWidthOverrides 在覆盖表为空时提前返回、不清缓存 → 这里显式清一次
+  clearLayoutCaches();
+  const renderer = new ProbeRenderer();
+  const app = new TrackedApp({
+    renderer,
+    adapter: new FakeAdapter(),
+    notify: { enabled: false },
+  });
+  const typeCommand = (text: string): void => {
+    for (const ch of Array.from(text)) renderer.press(key(ch));
+    renderer.press(key("enter"));
+  };
+  try {
+    app.start();
+    // 首轮：整批测得 → 进入实测覆盖表
+    renderer.resolveProbe(
+      new Map(renderer.probeCalls[0]!.map((ch) => [ch, 1])),
+    );
+    await flushAsync();
+    assert.equal(renderer.probeCalls.length, 1, "首轮只探测一次");
+    // ① 尺寸变化 → 重新实测已生效的覆盖集合
+    renderer.resize(120, 40);
+    await flushAsync();
+    assert.equal(renderer.probeCalls.length, 2, "尺寸变化触发重新探测");
+    assert.ok(
+      renderer.probeCalls[1]!.includes("\u2500"),
+      "重测集包含已实测过的字符（─ 等框线）",
+    );
+    renderer.resolveProbe(
+      new Map(renderer.probeCalls[1]!.map((ch) => [ch, 1])),
+    );
+    await flushAsync();
+    // ② /detect-char-width → 手动重测（覆盖集 + 符号列表先验）
+    typeCommand("/detect-char-width");
+    await flushAsync();
+    assert.equal(renderer.probeCalls.length, 3, "命令触发重新探测");
+    renderer.resolveProbe(
+      new Map(renderer.probeCalls[2]!.map((ch) => [ch, 1])),
+    );
+    await flushAsync();
+    assert.equal(renderer.probeCalls.length, 3, "手动重测只发一轮");
+  } finally {
+    app.dispose();
     clearWidthOverrides();
   }
 });

@@ -57,9 +57,11 @@ import { type HistoryRow } from "./state.ts";
 import {
   charWidth,
   requeueUnmeasuredProbes,
+  resetWidthProbeTries,
   setWidthOverrides,
   setWidthProbeEnabled,
   takePendingWidthProbes,
+  widthOverrideCodePoints,
 } from "./layout/markdown.ts";
 import { readWidthSymbols, writeWidthSymbols } from "./layout/width-symbols.ts";
 import { maxDescScrollFor } from "./components/QuestionPrompt.ts";
@@ -376,6 +378,8 @@ export class App {
   private widthProbeInFlight = false;
   /** 终端不支持 CPR（整批无回包）→ 关闭后续实测，一律沿用静态表 */
   private widthProbeUnavailable = false;
+  /** /detect-char-width 手动重测：探测回来后回一条结果提示（一次性） */
+  private widthReprobeNotice = false;
   /** 「呈现不确定」符号列表（码点，最近出现靠后）：落盘只存它，宽度只存内存 */
   private widthSymbols: number[] = [];
   /** 已排队待冲刷的合帧标志（与 paintDirty 成对；dispose 时清零使排队帧变 no-op） */
@@ -902,6 +906,14 @@ export class App {
           this.rememberWidthSymbols(widths.keys());
         }
         this.dumpProbeResults(widths, rejects); // 临时诊断（TUI_WIDTH_DUMP）
+        // /detect-char-width：手动重测完成 → 回一条结果提示（尺寸变化触发的重测不提示）
+        if (this.widthReprobeNotice) {
+          this.widthReprobeNotice = false;
+          this.notice(
+            `字符宽度实测完成：本轮测得 ${widths.size} 个字符（未测到 ${rejects.length} 个）`,
+            widths.size > 0 ? "success" : "warn",
+          );
+        }
         // 容错：本轮**没测到**的字符重新入队（每码点最多重试 WIDTH_PROBE_MAX_TRIES 次）——
         // 漏测不再等于本会话永久沿用静态宽度（真机症状见 BACKLOG #1）
         if (widths.size > 0) {
@@ -930,6 +942,22 @@ export class App {
     const batch = takePendingWidthProbes();
     if (batch.length === 0) return;
     this.probeThenRender(batch);
+  }
+
+  /**
+   * 重新实测已生效的宽度覆盖（尺寸变化 / `/detect-char-width` 共用）：
+   * 终端对「呈现不确定」字符的解析随终端/字体/tmux 客户端而变（真机症状见 BACKLOG #1），
+   * 故重置尝试额度后把**已实测的码点**重新入队；在途探测由 `maybeProbePendingWidths`
+   * 的在途守卫合并（连续 resize 只在当前批结束后再发下一批）。
+   */
+  private reprobeWidths(extraCodePoints: Iterable<number> = []): number {
+    resetWidthProbeTries();
+    const queued = requeueUnmeasuredProbes([
+      ...widthOverrideCodePoints(),
+      ...extraCodePoints,
+    ]);
+    if (queued > 0) this.maybeProbePendingWidths();
+    return queued;
   }
 
   /**
@@ -969,6 +997,8 @@ export class App {
     // 尺寸变化重跑检测（决策细节 2）：仍过小 → 再置一次警告；够大 → 不动（不清旧警告）
     this.deps.renderer.onResize(() => {
       this.warnIfSmallTerminal();
+      // 尺寸/客户端变化可能改变终端的宽度解析（真机症状见 BACKLOG #1）→ 已实测的码点重测
+      this.reprobeWidths();
       this.paint();
     });
     this.unbindEvents.push(
@@ -3532,6 +3562,9 @@ export class App {
       case "symbol-unify":
         this.handleSymbolUnifyCommand(line);
         return;
+      case "detect-char-width":
+        this.handleDetectCharWidthCommand();
+        return;
       case "session":
         // 会话列表 + 切换：见 openHistory / resumeToSession；
         // 子命令 clean：打开面板并直达「清理当前项目空会话」二次确认
@@ -3730,6 +3763,26 @@ export class App {
       `模型输出符号统一：${next ? "on（变体替换为推荐符号并提醒）" : "off（原样，不替换不提醒）"}`,
       "success",
     );
+  }
+
+  /**
+   * `/detect-char-width`：手动重新实测终端字符宽度。实测集 = 已生效的覆盖 + 本会话
+   * 记下的符号列表（`tui-width-symbols.json` 的先验），命中盲区：终端/字体/tmux 客户端
+   * 改变导致既有实测值不再成立（真机症状见 BACKLOG #1）。结果经 notice 回报。
+   */
+  private handleDetectCharWidthCommand(): void {
+    if (typeof this.deps.renderer.probeSymbolWidths !== "function") {
+      this.notice("重新探测字符宽度：当前终端不支持实测（无 CPR）", "warn");
+      return;
+    }
+    this.widthReprobeNotice = true;
+    const queued = this.reprobeWidths(this.widthSymbols);
+    if (queued === 0) {
+      this.widthReprobeNotice = false;
+      this.notice("重新探测字符宽度：无可测字符（或在途探测尚未结束）", "info");
+      return;
+    }
+    this.notice(`重新探测字符宽度：已发起 ${queued} 个字符的实测`, "info");
   }
 
   /** 单条会话不可删除原因（可删返回 undefined）；标记/单删共用的护栏文案 */
