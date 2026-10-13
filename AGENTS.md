@@ -47,9 +47,9 @@ scripts/install.sh --help   # --profile/--plugins/--dsh-version/--skip-dsh/--ski
 ## 构建 → 部署到 profile（本地迭代）
 
 1. `npm run build` 编译到 `dist/`（产物性改动后按下方「变更流程」同步构建）。
-1. profile（`~/.dsh/profiles/fff`，参见 `TUI/README.md` 挂载示例）以 `link:` 依赖指向本 TUI 包，构建产物经 symlink 实时可见，**无需** `pnpm install`——直接 `dsh --profile fff` 即生效。
-1. 迭代回合：改代码 → `npm run build` → 重启 `dsh --profile fff`。
-1. 勿用 `file:` 依赖：install 时复制快照且 pnpm v11 不跟踪目录内容变化，源码变更后 profile 报 `ERR_MODULE_NOT_FOUND`（已实测踩坑）。
+2. profile（`~/.dsh/profiles/fff`，参见 `TUI/README.md` 挂载示例）以 `link:` 依赖指向本 TUI 包，构建产物经 symlink 实时可见，**无需** `pnpm install`——直接 `dsh --profile fff` 即生效。
+3. 迭代回合：改代码 → `npm run build` → 重启 `dsh --profile fff`。
+4. 勿用 `file:` 依赖：install 时复制快照且 pnpm v11 不跟踪目录内容变化，源码变更后 profile 报 `ERR_MODULE_NOT_FOUND`（已实测踩坑）。
 
 ## 变更流程
 
@@ -57,16 +57,16 @@ scripts/install.sh --help   # --profile/--plugins/--dsh-version/--skip-dsh/--ski
 
 ## 内容变更规范（简版）
 
-任何改动（不论范围大小与种类：文档 / 代码 / 配置）默认走**标准流程**（本节各项）；**改动量少、逻辑简单直接**的小改动走**快速流程**——免条目与追踪文档（唯一记录是 commit message），验证不减（文档类 `format` + 自查 diff，代码类 `check` + `build` + `test`），提交前复核硬阈值（文件 ≤ 3 且增删合计 ≤ 50 行；不达标用三选一询问：转标准流程 / 维持快速流程 / 停手），完成后问一次是否提交；agent 判定后须先用 `ask_user_question` 是非题问用户，同意才走，入口答否则不做处理、等用户新指示。详版见 `docs/WORKFLOW-STANDARD.md`（标准）与 `docs/WORKFLOW-FAST.md`（快速）。
+任何改动（不论范围大小与种类：文档 / 代码 / 配置）默认走**标准流程**（本节各项）；**改动量少、逻辑简单直接**的小改动走**快速流程**——免条目与追踪文档（唯一记录是 commit message），验证不减（文档类 `format` + 自查 diff，代码类 `check` + `build` + `test`），提交前复核硬阈值（文件 ≤ 3 且增删合计 ≤ 50 行；不达标用三选一询问：转标准流程 / 维持快速流程 / 停手），完成后问一次是否提交；agent 判定后须先问用户（依据与选项写在正文，需要一次是非确认时用 `ask_user_question`；见 `docs/WORKFLOW-STANDARD.md` §5），同意才走，入口答否则不做处理、等用户新指示。详版见 `docs/WORKFLOW-STANDARD.md`（标准）与 `docs/WORKFLOW-FAST.md`（快速）。
 
 分层：`docs/ROADMAP.md`（仅项目级，记方向）→ `<模块>/docs/DESIGN.md`（架构设计；**轻量包豁免**，见「结构与约定」）→ `<层>/docs/BACKLOG.md`（可执行条目）→ `<层>/docs/implementation/<YYYY-MM-DD>-<slug>.md`（追踪文档）→ 关闭后移入 `<层>/docs/archived/`。模块 = TUI 与 20 个包；跨模块条目归项目级。
 
 1. **开工前**：对应层 `BACKLOG.md` 里要有可执行条目。
-1. **开工时**：本次接取的**每个**条目标「进行中」（此后不再切状态）；建追踪文档——**一个任务可同时接取多个条目**，文件头按**条目标题**列出全部条目（**不写编号**），并先写「计划改动文件清单」。
-1. **过程中**：所有文档变更只写这份追踪文档；**计划外文件一律不改**（不做「顺手改」）；途中发现的新问题记进追踪文档，并在 BACKLOG 追加新条目交其他 agent。
-1. **完成时**：所接取的每个条目标「完成」，并在收尾时把对应已完成条目从 BACKLOG 清理移除（只留未完成项）；追踪文档移入 `docs/archived/`；随后按需回写 DESIGN / README / ROADMAP。
-1. **提交询问点**：决策完成后 / 代码实现后 / 测试通过后 / 任务关闭后，各用 `ask_user_question` 以是非题**阻塞**询问一次是否提交（未获同意不提交；答否则合并到关闭后）；**检查点必须经用户明确同意才能继续**（问答面板选择同意继续，或指令中有明确的继续下一步指令），未答 / 答非所问 / 仅提问 → 结束本回合并等待用户指令。各点范围与门禁：决策后仅提交文档；实现后先 `npm run check` + `npm run build` 再提交代码；测试后（人工确认通过之后）提交代码与测试用例；关闭后提交剩余全部相关变更，且为本次变更的**最后一次提交**（之后不得再有相关提交，残留另开条目）。详见 `docs/WORKFLOW-STANDARD.md` §5。
-1. `STATUS.md` 是对照文档（记录已实现内容），由**用户择时更新**，流程内不改。
+2. **开工时**：本次接取的**每个**条目标「进行中」（此后不再切状态）；建追踪文档——**一个任务可同时接取多个条目**，文件头按**条目标题**列出全部条目（**不写编号**），并先写「计划改动文件清单」。
+3. **过程中**：所有文档变更只写这份追踪文档；**计划外文件一律不改**（不做「顺手改」）；途中发现的新问题记进追踪文档，并在 BACKLOG 追加新条目交其他 agent。
+4. **完成时**：所接取的每个条目标「完成」，并在收尾时把对应已完成条目从 BACKLOG 清理移除（只留未完成项）；追踪文档移入 `docs/archived/`；随后按需回写 DESIGN / README / ROADMAP。
+5. **提交询问点**：决策完成后 / 代码实现后 / 测试通过后 / 任务关闭后，各按 `docs/WORKFLOW-STANDARD.md` §5 的提问方式**阻塞**询问一次是否提交（未获同意不提交；答否则合并到关闭后）；**检查点必须经用户明确同意才能继续**（问答面板选择同意继续，或指令中有明确的继续下一步指令），未答 / 答非所问 / 仅提问 → 结束本回合并等待用户指令。各点范围与门禁：决策后仅提交文档；实现后先 `npm run check` + `npm run build` 再提交代码；测试后（人工确认通过之后）提交代码与测试用例；关闭后提交剩余全部相关变更，且为本次变更的**最后一次提交**（之后不得再有相关提交，残留另开条目）。详见 `docs/WORKFLOW-STANDARD.md` §5。
+6. `STATUS.md` 是对照文档（记录已实现内容），由**用户择时更新**，流程内不改。
 
 细则与追踪文档模板见 `docs/WORKFLOW-STANDARD.md`（快速流程见 `docs/WORKFLOW-FAST.md`）。
 
