@@ -187,6 +187,20 @@ const SESSION_STATE_SAVE_MS = 400;
  *  后台重试，启动窗口内静默；连续失败到阈值才留痕一次 */
 const ALIAS_WARN_AFTER_FAILS = 3;
 
+/** 终端过小判据阈值：宽 ≤ SMALL_TERMINAL_COLS 或 高 ≤ SMALL_TERMINAL_ROWS 视为过小 */
+export const SMALL_TERMINAL_COLS = 16;
+export const SMALL_TERMINAL_ROWS = 9;
+/** 终端过小警告文案（不带符号前缀，走既有 notice 渲染） */
+export const SMALL_TERMINAL_NOTICE =
+  "终端尺寸过小（宽 ≤ 16 或高 ≤ 9），显示可能不可用，请调大窗口";
+
+/** 终端尺寸是否过小（启动与 resize 共用判据；纯函数便于测试） */
+export function smallTerminal(size: { cols: number; rows: number }): boolean {
+  // 尺寸未知（0）按正常处理、不误报：renderer 侧另有 80×24 回落（见 renderer/terminal.ts）
+  if (size.cols <= 0 || size.rows <= 0) return false;
+  return size.cols <= SMALL_TERMINAL_COLS || size.rows <= SMALL_TERMINAL_ROWS;
+}
+
 /**
  * 焦点面板行滚动 action 映射：activity 偏移语义=距底部（上滚=+），
  * status 偏移语义=距顶部（上滚=-），方向不可混用。
@@ -923,7 +937,11 @@ export class App {
     // 告警总线懒接线（未挂载则 no-op；见 ruleEngine()）
     this.ruleEngine();
     this.deps.renderer.onKey((k) => this.handleKey(k));
-    this.deps.renderer.onResize(() => this.paint());
+    // 尺寸变化重跑检测（决策细节 2）：仍过小 → 再置一次警告；够大 → 不动（不清旧警告）
+    this.deps.renderer.onResize(() => {
+      this.warnIfSmallTerminal();
+      this.paint();
+    });
     this.unbindEvents.push(
       this.deps.adapter.onEvent((e) => this.handleEvent(e)),
     );
@@ -968,6 +986,8 @@ export class App {
     this.deps.renderer.setTheme(this.state.themeId);
     // 首帧之后按列表预探测（宽度只存内存）：首帧前屏幕未就绪会测错宽度、残留也没帧覆盖
     // （见 probeSymbolsAtStartup）；无列表 / 终端不支持 CPR 时它自己早退
+    // 启动即过小 → 首帧前只置状态（决策 1a）：警告随首帧就位，不额外多绘一帧
+    this.warnIfSmallTerminal();
     this.paintNow();
     this.probeSymbolsAtStartup();
     // 拉取权限/agent 预设目录写入 state（原状态列 Mode 块的可选项，P7 移除该块后
@@ -5229,6 +5249,19 @@ export class App {
       ...(tone === undefined ? {} : { tone }),
     });
     this.paint();
+  }
+
+  /**
+   * 终端过小警告（BACKLOG〈启动时终端尺寸过小警告〉）：过小 → 弹一条 warning notice；
+   * 够大 → 什么都不做（不清旧警告，见决策细节 2）。
+   *
+   * 走 `notice()`（= 置状态 + 写流水线通知节）而非只置状态：流水线下活动区只渲染节缓存，
+   * 只写 `state.local` 的 notice **在真机不可见**（见追踪文档「计划外偏差」）。首帧路径上紧接
+   * `paintNow()` 会清掉这里的待绘标记，故不多绘一帧。
+   */
+  private warnIfSmallTerminal(): void {
+    if (!smallTerminal(this.deps.renderer.getSize())) return;
+    this.notice(SMALL_TERMINAL_NOTICE, "warn");
   }
 
   /** /help 双列表格：命令列定宽对齐、描述列固定起点。折行交给渲染层按

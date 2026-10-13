@@ -2,7 +2,7 @@
 
 - 层：TUI
 - 接取条目（按标题引用）：`TUI/docs/BACKLOG.md`〈启动时终端尺寸过小警告〉
-- 开始：2026-10-13　状态：进行中（决策阶段，等用户审阅）
+- 开始：2026-10-13　状态：进行中（实现完成：check + build + 全量测试通过；真机人工确认待用户）
 
 ## 目标
 
@@ -49,7 +49,7 @@
 3. **尺寸未知按正常处理**（非 TTY / 0 → `terminal.getSize()` 回落 `80×24`，不提示）：**暂时可以，看测试情况**。
 4. **用例含该边界**（回落 `80×24` → 不提示）：**暂时可以，看测试情况**。
 
-## 计划改动文件清单（待决策后定稿）
+## 计划改动文件清单（2026-10-13 定稿）
 
 1. `src/app/index.ts`：新增纯判据 `smallTerminal(size)`（`cols ≤ 16 || rows ≤ 9`，**可导出供测试**）+
    警告文案 / tone 常量；`start()` 的 `paintNow()` **之前**首次检测并置 notice（决策 1a）；
@@ -67,11 +67,37 @@
 
 ## 实现记录
 
-（待决策后填）
+1. `src/app/index.ts`：新增常量 `SMALL_TERMINAL_COLS = 16` / `SMALL_TERMINAL_ROWS = 9` /
+   `SMALL_TERMINAL_NOTICE`（文案）与纯判据 `smallTerminal(size)`（导出供测试）；`start()` 在
+   `paintNow()` **之前**调 `warnIfSmallTerminal()`；`renderer.onResize` 回调改为「重跑检测 + paint」；
+   新增私有方法 `warnIfSmallTerminal()`（够大分支为空，无清空 notice 分支）。
+2. 新增 `tests/small-terminal-warning.test.ts`：7 条（判据边界 / 启动过小·宽 / 启动过小·高 /
+   启动正常 / 尺寸未知 / resize 仍过小 / resize 够大不新增）。
+
+**计划外偏差（2 处，均有实测证据）**
+
+1. **判据对「尺寸未知（0）」短路返回 false**（计划未写）：按阈值判定 `{cols:0,rows:0}` 会得 true
+   （`0 ≤ 16`）→ 误报。真机 `terminal.getSize()` 有 `80×24` 回落故拿不到 0，但未知按正常处理更稳，
+   也正是决策细节 3 的口径。
+2. **警告走 `notice()` 而非「只置状态」（决策 1a + 3a 的原文）**：实测只 `apply(notice)` 时警告
+   **在真机不可见** —— 流水线下活动区内容来源唯一（节缓存，`layout.ts:982`），只写 `state.local`
+   的 notice 仅出现在**模态面板态**的底部行（`noticeFooterLines` 只在 approval / question 打开时
+   接管 footer），而本警告要在普通输入视图可见。改走 `notice()` 后它作为一条**记录**进活动区，与
+   既有启动期提示（「宿主不支持 steer，已按 followup 投递」）同路径；首帧路径上紧随的 `paintNow()`
+   会清掉 `notice()` 的待绘标记，**并未多绘一帧**（决策 1a 的真正关切仍成立）。决策细节 2 亦自述
+   「警告是**记录**而非状态」，与此一致。
 
 ## 测试与证据
 
-（待决策后填）
+- `sh scripts/test.sh tests/small-terminal-warning.test.ts`：**7 通过 / 0 失败**。
+- `npm run check`：通过；`npm run build`：通过。
+- `sh scripts/test.sh`（全量）：**1532 通过 / 0 失败**（无既有帧断言回归，本次未重冻任何断言）。
+- 帧核验（临时探针脚本，跑后已删）：`80×9` → 活动区两行「终端尺寸过小（宽 ≤ 16 或高 ≤ 9），显示
+  可能不可用，请 / 调大窗口」；`16×24` → 逐段折行可见；`80×24` → 无警告；`0×0` → 无警告。
+- resize 核验：`80×24`（先被 `/theme xyz` 的 usage notice 覆盖）→ resize `80×9` → 警告重新出现；
+  `80×9` → resize `80×24` → 帧内警告计数仍为 1（不新增），最新一条仍是 usage notice。
+- **人工确认真机效果：未做**（用户不在场，按授权先提交）。真机复看项：`dsh --profile fff`，
+  把窗口缩到 ≤ 16 列或 ≤ 9 行重启 → 活动区应出现该警告；够大时 resize 到过小也应出现。
 
 ## 收尾
 
