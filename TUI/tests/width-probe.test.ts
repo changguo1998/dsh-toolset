@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRenderer } from "../src/renderer/index.ts";
+import { createRenderer, PROBE_SETTLE_MS } from "../src/renderer/index.ts";
 import type { ProbeReject } from "../src/renderer/index.ts";
 import type { FrameRow } from "../src/renderer/screen.ts";
 import { KeyDecoder } from "../src/renderer/input.ts";
@@ -19,6 +19,7 @@ import {
   clearWidthOverrides,
   isWidthUncertainChar,
   setWidthOverrides,
+  requeueUnmeasuredProbes,
   setWidthProbeEnabled,
   takePendingWidthProbes,
 } from "../src/app/layout/markdown.ts";
@@ -137,6 +138,30 @@ test("probeSymbolWidths：被丢弃的列差进 rejects（跨行 delta=null / �
   renderer.close();
 });
 
+test("探测容错：漏测的码点重新入队，尝试上限用尽后放弃", () => {
+  clearWidthOverrides();
+  setWidthProbeEnabled(true);
+  try {
+    // 排版遇到「呈现不确定且无实测值」的字符 → 登记待测
+    charWidth("\u25CF");
+    assert.deepEqual(takePendingWidthProbes(), ["\u25CF"], "第 1 次取出");
+    // 模拟「本轮没测到」（列差被拒 / 未回包）→ 重新入队
+    assert.equal(requeueUnmeasuredProbes([0x25cf]), 1, "漏测后重新入队");
+    assert.deepEqual(takePendingWidthProbes(), ["\u25CF"], "第 2 次取出");
+    assert.equal(requeueUnmeasuredProbes([0x25cf]), 1, "第 3 次入队");
+    assert.deepEqual(takePendingWidthProbes(), ["\u25CF"], "第 3 次取出");
+    // 尝试上限 3 次：此后放弃重试（避免无 CPR 终端 / 坏字符反复超时）
+    assert.equal(requeueUnmeasuredProbes([0x25cf]), 0, "尝试用尽后放弃重试");
+    assert.deepEqual(takePendingWidthProbes(), [], "队列保持为空");
+    // 已测得的不再重试：写入实测覆盖后，排版不再登记该字符
+    assert.equal(setWidthOverrides([["\u25A0", 2]]), true, "写入实测覆盖");
+    assert.equal(charWidth("\u25A0"), 2, "实测值生效");
+  } finally {
+    clearWidthOverrides();
+    setWidthProbeEnabled(true);
+  }
+});
+
 test("setWidthOverrides：实测值优先于静态表，并使排版缓存失效", () => {
   clearWidthOverrides();
   try {
@@ -234,7 +259,8 @@ test("probeSymbolWidths：超过单行容量时分块探测（每块一次往返
   const queries = (): number => out.split("\x1b[6n").length - 1;
   assert.equal(queries(), perChunk, "首块只写单行容量内的字符");
   for (let i = 0; i < perChunk; i++) renderer.emitCpr!(1, i + 2); // 每字符 1 列
-  await new Promise((r) => setImmediate(r));
+  // 块间静默期后才写第二块（等上一块的迟到应答落地被丢弃）→ 等够再断言
+  await new Promise((r) => setTimeout(r, PROBE_SETTLE_MS + 20));
   assert.equal(queries(), perChunk + 2, "余下字符走第二块");
   renderer.emitCpr!(1, 2);
   renderer.emitCpr!(1, 3);
@@ -246,24 +272,18 @@ test("probeSymbolWidths：超过单行容量时分块探测（每块一次往返
 
 // ---------- App：帧绘制前实测 ----------
 
-/** 探测可控的 renderer：探测挂起直到用例放行；记录 refresh 出的帧 */
+/** 探测可控的 renderer：每次探测各自挂起，用例按轮次放行（容错重试会产生多轮） */
 class ProbeRenderer extends FakeRenderer {
   probeCalls: string[][] = [];
   refreshRows: string[][] = [];
-  private release: ((m: Map<string, number>) => void) | null = null;
-  private readonly gate: Promise<Map<string, number>>;
-  constructor() {
-    super();
-    this.gate = new Promise((r) => {
-      this.release = r;
-    });
-  }
+  private pending: Array<(m: Map<string, number>) => void> = [];
   probeSymbolWidths(chars: readonly string[]): Promise<Map<string, number>> {
     this.probeCalls.push([...chars]);
-    return this.gate;
+    return new Promise((resolve) => this.pending.push(resolve));
   }
+  /** 放行最早一次未回包的探测（多轮重试时逐轮放行） */
   resolveProbe(widths: Map<string, number>): void {
-    this.release?.(widths);
+    this.pending.shift()?.(widths);
   }
   refresh(rows: FrameRow[]): void {
     this.refreshRows.push(rows.map((r) => rowAnsi(r, this.themeId)));
@@ -310,7 +330,14 @@ test("App：帧绘制前实测——本帧不出，实测后整帧重绘（只�
       "实测结果到达 → 整帧重绘（覆盖探测残留）",
     );
     assert.ok(renderer.refreshRows[0]!.length > 0, "重绘的是完整帧");
-    assert.equal(renderer.probeCalls.length, 1, "已实测的字符不再重复探测");
+    // 容错：本轮只测到 ─，其余字符重新入队 → 第二轮回测；整批测得后不再重试
+    assert.equal(renderer.probeCalls.length, 2, "漏测的字符重新发起探测");
+    renderer.resolveProbe(
+      new Map(renderer.probeCalls[1]!.map((ch) => [ch, 1])),
+    );
+    await flushAsync();
+    assert.equal(renderer.refreshes, 2, "第二轮实测到达 → 再整帧重绘");
+    assert.equal(renderer.probeCalls.length, 2, "整批测得后不再重试");
   } finally {
     app.dispose();
     clearWidthOverrides();

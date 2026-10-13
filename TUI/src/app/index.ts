@@ -56,6 +56,7 @@ import {
 import { type HistoryRow } from "./state.ts";
 import {
   charWidth,
+  requeueUnmeasuredProbes,
   setWidthOverrides,
   setWidthProbeEnabled,
   takePendingWidthProbes,
@@ -901,8 +902,20 @@ export class App {
           this.rememberWidthSymbols(widths.keys());
         }
         this.dumpProbeResults(widths, rejects); // 临时诊断（TUI_WIDTH_DUMP）
+        // 容错：本轮**没测到**的字符重新入队（每码点最多重试 WIDTH_PROBE_MAX_TRIES 次）——
+        // 漏测不再等于本会话永久沿用静态宽度（真机症状见 BACKLOG #1）
+        if (widths.size > 0) {
+          const measured = new Set(
+            [...widths.keys()].map((ch) => ch.codePointAt(0) ?? 0),
+          );
+          requeueUnmeasuredProbes(
+            batch
+              .map((ch) => ch.codePointAt(0) ?? 0)
+              .filter((cp) => !measured.has(cp)),
+          );
+        }
         this.refresh(); // 重排 + 整帧重绘：按实测宽度出这一帧并覆盖探测残留
-        this.maybeProbePendingWidths(); // 重排可能登记了新字符（已测过的不再登记）
+        this.maybeProbePendingWidths(); // 重排可能登记了新字符（未测到 / 重试额度未用尽仍会入队）
       })
       .catch(() => {
         this.widthProbeInFlight = false;

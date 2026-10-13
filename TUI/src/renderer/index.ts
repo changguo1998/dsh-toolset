@@ -44,6 +44,10 @@ export type { Size };
 const PASTE_ON = "\x1b[?2004h";
 const PASTE_OFF = "\x1b[?2004l";
 
+/** 宽度探测的**块间静默期**（ms）：等上一块可能迟到的 CPR 应答落地并被丢弃，
+ *  再注册下一块的等待者（应答不带请求标识，靠到达顺序配对 → 跨块会错位）。 */
+export const PROBE_SETTLE_MS = 20;
+
 /** 宽度探测里被**丢弃**的列差（诊断留痕，`TUI_WIDTH_DUMP` 用）：`delta = null` 表示跨行
  *  （自动换行使列差作废），其余为落在 `{1,2}` 之外的异常列差。 */
 export type ProbeReject = {
@@ -389,6 +393,14 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
           prevCol = col;
         }
         if (closed) break;
+        // 块间静默期：迟到的应答（属于上一块的）在无等待者时被丢弃，不会落到下一块的等待者上
+        // 造成「相邻字符宽度错位」——应答不带请求标识，只能按到达顺序配对。仅在还有下一块时
+        // 等待；代价 ≤ `PROBE_SETTLE_MS` × 块数，且只在探测帧发生。
+        if (chunk !== chunks[chunks.length - 1]) {
+          await new Promise<void>((resolve) =>
+            setTimeout(resolve, PROBE_SETTLE_MS),
+          );
+        }
       }
       write("\x1b[1;1H" + CURSOR_SHOW); // 复位光标 + 恢复显示（调用方随后整帧重绘覆盖探测残留）
       return widths;

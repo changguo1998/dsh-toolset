@@ -443,9 +443,6 @@ const WIDTH_PROBE_QUEUE_MAX = 64;
 /** 待实测字符（码点）：排版遇到「呈现不确定且无实测值」的字符时登记 */
 const WIDTH_PROBE_QUEUE = new Set<number>();
 
-/** 已发起过实测的码点（含未回包的）：同一码点只测一次，避免无 CPR 终端反复超时 */
-const WIDTH_PROBE_ATTEMPTED = new Set<number>();
-
 /** 按需实测总开关（`TUI_WIDTH_PROBE=0` 关闭后不再登记字符，沿用静态表） */
 let widthProbeEnabled = true;
 
@@ -474,30 +471,62 @@ export function isWidthUncertainChar(cp: number): boolean {
   return true;
 }
 
-/** 登记待实测字符（去重、限量；已发起过的不再登记） */
+/** 每码点的实测尝试次数：失败（未回包 / 列差被拒）可重试，上限见 `WIDTH_PROBE_MAX_TRIES` */
+const WIDTH_PROBE_TRIES = new Map<number, number>();
+
+/** 单个码点的实测尝试上限（防无 CPR 终端 / 坏字符反复超时；成功测得后不再登记） */
+const WIDTH_PROBE_MAX_TRIES = 3;
+
+/** 登记待实测字符（去重、限量；尝试次数用尽的不再登记） */
 function noteWidthProbeCandidate(cp: number): void {
   if (!widthProbeEnabled) return;
-  if (WIDTH_PROBE_ATTEMPTED.has(cp)) return;
+  if ((WIDTH_PROBE_TRIES.get(cp) ?? 0) >= WIDTH_PROBE_MAX_TRIES) return;
   if (WIDTH_PROBE_QUEUE.size >= WIDTH_PROBE_QUEUE_MAX) return;
   WIDTH_PROBE_QUEUE.add(cp);
 }
 
-/** 取走待实测字符（字符形式，供终端实测）；取走的码点记为「已发起」 */
+/** 取走待实测字符（字符形式，供终端实测）；取走的码点记一次尝试 */
 export function takePendingWidthProbes(): string[] {
   if (WIDTH_PROBE_QUEUE.size === 0) return [];
   const out: string[] = [];
   for (const cp of WIDTH_PROBE_QUEUE) {
-    WIDTH_PROBE_ATTEMPTED.add(cp);
+    WIDTH_PROBE_TRIES.set(cp, (WIDTH_PROBE_TRIES.get(cp) ?? 0) + 1);
     out.push(String.fromCodePoint(cp));
   }
   WIDTH_PROBE_QUEUE.clear();
   return out;
 }
 
-/** 清空待实测队列与「已发起」记录（测试用） */
+/**
+ * 重新入队「本轮没测到」的码点（容错：漏测不再等于本会话永久沿用静态宽度）。
+ * 受每码点尝试上限与队列上限约束；返回实际入队数量（0 = 已放弃或队列满）。
+ */
+export function requeueUnmeasuredProbes(codePoints: Iterable<number>): number {
+  let queued = 0;
+  for (const cp of codePoints) {
+    if ((WIDTH_PROBE_TRIES.get(cp) ?? 0) >= WIDTH_PROBE_MAX_TRIES) continue;
+    if (WIDTH_PROBE_QUEUE.size >= WIDTH_PROBE_QUEUE_MAX) break;
+    if (WIDTH_PROBE_QUEUE.has(cp)) continue;
+    WIDTH_PROBE_QUEUE.add(cp);
+    queued += 1;
+  }
+  return queued;
+}
+
+/** 清空「尝试次数」记录（尺寸变化 / 手动重测用：此前放弃的码点重新获得重试额度） */
+export function resetWidthProbeTries(): void {
+  WIDTH_PROBE_TRIES.clear();
+}
+
+/** 当前已有实测覆盖的码点（尺寸变化 / 手动重测按此集合重新实测） */
+export function widthOverrideCodePoints(): number[] {
+  return [...WIDTH_OVERRIDES.keys()];
+}
+
+/** 清空待实测队列与尝试记录（测试用） */
 export function clearPendingWidthProbes(): void {
   WIDTH_PROBE_QUEUE.clear();
-  WIDTH_PROBE_ATTEMPTED.clear();
+  WIDTH_PROBE_TRIES.clear();
 }
 
 /** 按字符显示宽度计算（CJK/全角 = 2 列，组合符/零宽 = 0，其余 = 1 列） */
