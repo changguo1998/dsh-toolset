@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { SymbolReviewer } from "../src/review.ts";
-import { resolveSymbolRules } from "../src/symbols.ts";
+import { DEFAULT_RECOMMENDED, resolveSymbolRules } from "../src/symbols.ts";
 
 /** 造一个审查器（默认冷却关闭，便于文案断言；冷却用例单独配置）。 */
 function reviewer(
@@ -87,4 +87,25 @@ test("review：代码段与内联代码里的引用示例不判违规（代码�
   const real = r.review("s1", "失败 ❌。");
   assert.ok(real !== null, "散文里的真实使用仍提醒");
   assert.match(real.feedback ?? "", /请将「❌」改为「✗」/);
+});
+
+test("review：警示文案的白名单取自规则面（与 DEFAULT_RECOMMENDED 同源，不硬编码）", () => {
+  const feedback = reviewer().review("s1", "星标 ⭐ 无替代。")?.feedback ?? "";
+  assert.ok(
+    feedback.includes(DEFAULT_RECOMMENDED.join(" ")),
+    "文案应含 DEFAULT_RECOMMENDED 的完整串",
+  );
+  // 配置追加的推荐字符同样进文案 → 证明取自 rules.recommendedSet（同 guide），非写死的内置串
+  const withConfig =
+    reviewer({ recommended: ["§"] }).review("s2", "星标 ⭐ 无替代。")
+      ?.feedback ?? "";
+  assert.ok(withConfig.includes("§"), "配置追加的推荐字符应出现在文案里");
+});
+
+test("review：⇆（TUI 回合号标记）已入白名单，不再触发审查", () => {
+  assert.equal(
+    reviewer().review("s1", "回合分隔线 ⇆3 与 ⇆12。"),
+    null,
+    "⇆ 不再被判「无推荐替代」",
+  );
 });

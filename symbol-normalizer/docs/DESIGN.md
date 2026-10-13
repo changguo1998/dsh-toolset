@@ -19,7 +19,8 @@ main.ts     插件入口：name / inject(["ruleEngine"]) / provide(["symbolNorma
             ├─ registerConsumer({ id: 'symbol-normalizer', decide })   ← 经 ctx.ruleEngine（缺省 turn-end）
             ├─ registerConsumer({ id: 'symbol-normalizer-guide', ... })（session-start / compaction / step-end）
             └─ provide('symbolNormalizer', { normalize, onReview, status })
-review.ts   回合审查：正文 → normalizeSymbols → 逐符号冷却 → notice + 反馈文案（按会话记账）
+review.ts   回合审查：正文 → normalizeSymbols → 逐符号冷却 → notice + 反馈文案（按会话记账；
+            文案白名单取自 rules（与 guide 同源、不硬编码符号表），构造时算一次）
 symbols.ts  纯函数：治理区段 / 推荐白名单 / 别名表 / normalizeSymbols / resolveSymbolRules（自 TUI 迁入）
 guide.ts    会话开局指南文案：白名单 / 变体映射由 config 生成（不硬编码符号表）
 ```
@@ -29,10 +30,10 @@ guide.ts    会话开局指南文案：白名单 / 变体映射由 config 生成
 ## 关键取舍
 
 1. **规则与算法整体迁出 TUI**（用户 2026-09-27 定稿）：代码与配置（`recommended` / `aliases` / `warnModel` / 冷却）随迁；TUI 只经服务消费（见 TUI 追踪文档）。
-1. **消费者接入而非自行注入**：反馈内容由 rule-engine 统一注入（注入消息 `source.kind:'rule-engine'` + `summary`、正文带 `[RULE] ` 前缀；节流闸门 / 推迟宏任务 / 落盘都在 rule-engine）。
-1. **冷却按会话隔离**：迁移前 TUI 为进程级；独立插件服务多会话，故 `Map<sessionId, Map<symbol, rec>>`。冷却语义（双维度任一未过期即冷却、每次审查推进 run 计数、登记时重置）与迁移前一致。
-1. **notice 经服务回调（`onReview`）**：审查只算一次（冷却只消费一次），展示层订阅事件；避免展示层自行计算导致口径不一致。
-1. **硬依赖 rule-engine**（`inject: ["ruleEngine"]`）：插件职责就是消费者接入；rule-engine 缺席时本插件不加载（TUI 回退原文透传）。
-1. **无运行时 schema**：沿用本仓松口径（宿主原样透传配置，缺省由 `resolveSymbolRules` 收敛）。
-1. **可观测性**：apply 写 stderr 自证日志（推荐 / 别名 / 冷却 / warnModel）；`decide` 内异常不外抛（rule-engine 侧也会隔离）。
-1. **开局指南按 rule-engine 统一标准注册**（2026-10-01「注入标准统一与合并」起；2026-10-02「注入时机直写」改为多节点 + 直写）：`sources: ["session-start", "compaction", "step-end"]` + `delivery: "steer"` + `dedupeInRecord: 1` + `directWrite: ["session-start", "compaction"]`——`session-start`（含恢复）与 `compaction` 跳过记录去重判断直接写入，`step-end` 按会话记录（可见投影 + 未消费 inbox）判断（最多 1 条，压缩挤出后补回）；与 skill 自加载规则同节点同组 → 合并成一条注入；不再自管进程内 gate 与历史判空（那份逻辑已删）。`提醒` 类回合反馈仍不走去重（每次违规都该说）。
+2. **消费者接入而非自行注入**：反馈内容由 rule-engine 统一注入（注入消息 `source.kind:'rule-engine'` + `summary`、正文带 `[RULE] ` 前缀；节流闸门 / 推迟宏任务 / 落盘都在 rule-engine）。
+3. **冷却按会话隔离**：迁移前 TUI 为进程级；独立插件服务多会话，故 `Map<sessionId, Map<symbol, rec>>`。冷却语义（双维度任一未过期即冷却、每次审查推进 run 计数、登记时重置）与迁移前一致。
+4. **notice 经服务回调（`onReview`）**：审查只算一次（冷却只消费一次），展示层订阅事件；避免展示层自行计算导致口径不一致。
+5. **硬依赖 rule-engine**（`inject: ["ruleEngine"]`）：插件职责就是消费者接入；rule-engine 缺席时本插件不加载（TUI 回退原文透传）。
+6. **无运行时 schema**：沿用本仓松口径（宿主原样透传配置，缺省由 `resolveSymbolRules` 收敛）。
+7. **可观测性**：apply 写 stderr 自证日志（推荐 / 别名 / 冷却 / warnModel）；`decide` 内异常不外抛（rule-engine 侧也会隔离）。
+8. **开局指南按 rule-engine 统一标准注册**（2026-10-01「注入标准统一与合并」起；2026-10-02「注入时机直写」改为多节点 + 直写）：`sources: ["session-start", "compaction", "step-end"]` + `delivery: "steer"` + `dedupeInRecord: 1` + `directWrite: ["session-start", "compaction"]`——`session-start`（含恢复）与 `compaction` 跳过记录去重判断直接写入，`step-end` 按会话记录（可见投影 + 未消费 inbox）判断（最多 1 条，压缩挤出后补回）；与 skill 自加载规则同节点同组 → 合并成一条注入；不再自管进程内 gate 与历史判空（那份逻辑已删）。`提醒` 类回合反馈仍不走去重（每次违规都该说）。

@@ -32,11 +32,14 @@ export interface ReviewerOptions {
 export class SymbolReviewer {
   readonly #rules: ResolvedSymbolRules;
   readonly #now: () => number;
+  /** 警示文案里的白名单串：取自 rules（与 guide.ts 同源，不硬编码符号表）；规则构造后不变，故算一次。 */
+  readonly #recommendedText: string;
   readonly #bySession = new Map<string, Map<string, CooldownRecord>>();
 
   constructor(options: ReviewerOptions) {
     this.#rules = options.rules;
     this.#now = options.now ?? Date.now;
+    this.#recommendedText = [...options.rules.recommendedSet].join(" ");
   }
 
   /**
@@ -109,7 +112,7 @@ export class SymbolReviewer {
       if (hasWarn) {
         parts.push(
           `你使用的符号「${warnList.join("」 「")}」无推荐替代，请按符号选择规则重新选择：` +
-            `1）状态/方向/几何类符号用推荐符号（✓ ✗ △ → ← ↑ ↓ ↔ ↕ ↖ ↗ ↘ ↙ ▶ ◀ ▲ ▼ ▷ ◁ ▽ ⟸ ⟹ ⟺ • ◦ ○ ● ◯ ■ □ ◇ ◆ ⓘ 〜 …）或文字；` +
+            `1）状态/方向/几何类符号用推荐符号（${this.#recommendedText}）或文字；` +
             `2）有推荐对应关系的变体符号必须使用推荐对应符；` +
             `3）避免 emoji、带颜色/填色符号及终端宽度不确定的字符。`,
         );

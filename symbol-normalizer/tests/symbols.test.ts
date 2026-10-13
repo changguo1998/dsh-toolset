@@ -18,7 +18,7 @@ test("resolveSymbolRules：内置默认白名单与 warnModel", () => {
   }
   assert.equal(rules.warnModel, true);
   assert.equal(rules.aliases["✖"], "✗");
-  // 箭头家族选型：单线八向 + 双向（↔↕）全推荐（A→），B→▶、C→⟸⟹⟺、D 不纳入
+  // 箭头家族选型：单线八向 + 双向（↔↕）全推荐（A→），B→▶、C→⟸⟹⟺、E→⇆（单列族）、D 不纳入
   for (const s of ["→", "←", "↑", "↓", "↔", "↕", "↖", "↗", "↘", "↙"]) {
     assert.ok(rules.recommendedSet.has(s), `方向箭头 ${s} 已推荐`);
   }
@@ -26,6 +26,13 @@ test("resolveSymbolRules：内置默认白名单与 warnModel", () => {
   for (const s of ["⟸", "⟹", "⟺"]) {
     assert.ok(rules.recommendedSet.has(s), `家族 C 代表 ${s}`);
   }
+  // 家族 E（成对箭头 ⇆，U+21C6；TUI 回合号标记）：单列族、入白名单、不建别名
+  assert.ok(rules.recommendedSet.has("⇆"), "家族 E ⇆ 已推荐");
+  assert.equal(
+    rules.aliases["⇆"],
+    undefined,
+    "⇆ 不归一（独立形状身份，非同族修饰变体）",
+  );
   // 三角箭头四向全推荐（与 ▶ 同风格）；方块、菱形也推荐
   for (const s of ["▶", "◀", "▲", "▼"]) {
     assert.ok(rules.recommendedSet.has(s), `三角方向 ${s} 已推荐`);
@@ -359,6 +366,14 @@ test("README 建议的 ✓/✗/△ 与文字替代在 aliases 内可用", () => 
   ] as const) {
     assert.equal(rules.aliases[from], to, `${from} → ${to}`);
   }
+});
+
+test("成对箭头 ⇆：白名单放行、原样保留、不触发提醒（TUI 回合号标记）", () => {
+  const rules = resolveSymbolRules();
+  const r = normalizeSymbols("回合分隔线 ⇆3 与 step 头 ⇆12", rules);
+  assert.equal(r.text, "回合分隔线 ⇆3 与 step 头 ⇆12", "⇆ 不改写");
+  assert.equal(r.replacedCount, 0);
+  assert.deepEqual(r.unrecommended, [], "⇆ 不再被判「无推荐替代」");
 });
 
 test("箭头家族：推荐放行、族内别名归一、D 族（未纳入）触发提醒", () => {
