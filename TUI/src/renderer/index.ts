@@ -44,6 +44,17 @@ export type { Size };
 const PASTE_ON = "\x1b[?2004h";
 const PASTE_OFF = "\x1b[?2004l";
 
+/** 宽度探测里被**丢弃**的列差（诊断留痕，`TUI_WIDTH_DUMP` 用）：`delta = null` 表示跨行
+ *  （自动换行使列差作废），其余为落在 `{1,2}` 之外的异常列差。 */
+export type ProbeReject = {
+  readonly ch: string;
+  readonly delta: number | null;
+  readonly row: number;
+  readonly col: number;
+  readonly prevRow: number;
+  readonly prevCol: number;
+};
+
 export interface Renderer {
   /** 整帧重绘；内含变化行游程重写（sections 提供时先按帧段切分）。
    *  focus（3.1.3）：输入焦点与位置，决定重写结束后光标是否定位回输入位置。 */
@@ -69,6 +80,7 @@ export interface Renderer {
   probeSymbolWidths?(
     chars: readonly string[],
     timeoutMs?: number,
+    rejects?: ProbeReject[],
   ): Promise<Map<string, number>>;
   onResize(cb: (cols: number, rows: number) => void): void;
   getSize(): Size;
@@ -324,6 +336,7 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
     async probeSymbolWidths(
       chars: readonly string[],
       timeoutMs = 500,
+      rejects?: ProbeReject[],
     ): Promise<Map<string, number>> {
       const widths = new Map<string, number>();
       if (closed || chars.length === 0) return widths;
@@ -368,10 +381,10 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
         for (let i = 0; i < responses.length; i++) {
           const { row, col } = responses[i]!;
           const ch = chunk[i]!;
-          if (row === prevRow) {
-            const w = col - prevCol;
-            if (w === 1 || w === 2) widths.set(ch, w); // 仅接受合理值，异常跳过
-          }
+          // 列差只在同一行内有效（跨行 = 自动换行，作废）；仅接受 1 / 2 列
+          const delta = row === prevRow ? col - prevCol : null;
+          if (delta === 1 || delta === 2) widths.set(ch, delta);
+          else rejects?.push({ ch, delta, row, col, prevRow, prevCol }); // 诊断留痕
           prevRow = row;
           prevCol = col;
         }

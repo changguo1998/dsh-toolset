@@ -10,6 +10,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRenderer } from "../src/renderer/index.ts";
+import type { ProbeReject } from "../src/renderer/index.ts";
 import type { FrameRow } from "../src/renderer/screen.ts";
 import { KeyDecoder } from "../src/renderer/input.ts";
 import { App, type AppDeps } from "../src/app/index.ts";
@@ -99,6 +100,40 @@ test("probeSymbolWidths：跨行（自动换行）的字符跳过，同线内仍
   const widths = await pending;
   assert.equal(widths.get("a"), 1);
   assert.equal(widths.has("b"), false);
+  renderer.close();
+});
+
+test("probeSymbolWidths：被丢弃的列差进 rejects（跨行 delta=null / 异常列差留痕）", async () => {
+  const renderer = createRenderer({
+    write: () => {},
+    rawMode: false,
+    exitOnClose: false,
+  });
+  const rejects: ProbeReject[] = [];
+  // a → 1 列；b 与上一应答同列（delta=0，异常）；c 跨行（delta=null）
+  const pending = renderer.probeSymbolWidths!(["a", "b", "c"], 50, rejects);
+  renderer.emitCpr!(1, 2);
+  renderer.emitCpr!(1, 2);
+  renderer.emitCpr!(2, 5);
+  const widths = await pending;
+  assert.equal(widths.get("a"), 1, "正常列差仍记录");
+  assert.equal(widths.has("b"), false, "delta=0 不接受");
+  assert.deepEqual(
+    rejects.map((r) => [r.ch, r.delta]),
+    [
+      ["b", 0],
+      ["c", null],
+    ],
+    "被丢弃的列差按字符留痕（null = 跨行）",
+  );
+  assert.deepEqual(
+    rejects.map((r) => [r.prevRow, r.prevCol, r.row, r.col]),
+    [
+      [1, 2, 1, 2],
+      [1, 2, 2, 5],
+    ],
+    "留痕含前后光标位置",
+  );
   renderer.close();
 });
 

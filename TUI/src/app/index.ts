@@ -3,7 +3,7 @@
 // 只依赖 renderer 公共 API 与 adapter 接口契约，不感知 adapter 实现。
 // 处理按键、接收事件、重绘。
 
-import type { Renderer, KeyEvent } from "../renderer/index.ts";
+import type { Renderer, KeyEvent, ProbeReject } from "../renderer/index.ts";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
@@ -844,7 +844,10 @@ export class App {
    * 临时诊断（`TUI_WIDTH_DUMP=<文件路径>`）：把这一批实测到的宽度写成文本，便于真机上
    * 比对「实测 vs 静态」（排查符号宽度不对；未设开关时零开销、不落盘）。
    */
-  private dumpProbeResults(widths: Map<string, number>): void {
+  private dumpProbeResults(
+    widths: Map<string, number>,
+    rejects: readonly ProbeReject[] = [],
+  ): void {
     const path = process.env.TUI_WIDTH_DUMP;
     if (path === undefined || path === "") return;
     const lines: string[] = [];
@@ -852,6 +855,14 @@ export class App {
       const cp = ch.codePointAt(0) ?? 0;
       lines.push(
         `U+${cp.toString(16).toUpperCase()} ${ch} measured=${w} effective=${charWidth(ch)}`,
+      );
+    }
+    // 被丢弃的列差：跨行（delta=null）或落在 {1,2} 之外 —— 字符会退回静态宽度、
+    // 且本会话不再重测（WIDTH_PROBE_ATTEMPTED），故必须留痕才查得动（见 BACKLOG #1）
+    for (const r of rejects) {
+      const cp = r.ch.codePointAt(0) ?? 0;
+      lines.push(
+        `REJECT U+${cp.toString(16).toUpperCase()} ${r.ch} delta=${r.delta ?? "跨行"} row=${r.row} col=${r.col} prevRow=${r.prevRow} prevCol=${r.prevCol}`,
       );
     }
     try {
@@ -877,8 +888,9 @@ export class App {
     const probe = this.deps.renderer.probeSymbolWidths;
     if (typeof probe !== "function") return;
     this.widthProbeInFlight = true;
+    const rejects: ProbeReject[] = []; // 诊断：被丢弃的列差（仅 TUI_WIDTH_DUMP 落盘）
     void probe
-      .call(this.deps.renderer, batch, timeoutMs)
+      .call(this.deps.renderer, batch, timeoutMs, rejects)
       .then((widths) => {
         this.widthProbeInFlight = false;
         if (this.disposed) return;
@@ -887,8 +899,8 @@ export class App {
         } else if (setWidthOverrides(widths)) {
           // 新实测到的码点并入符号列表（宽度不落盘）：列表 = 下次启动预探测的先验
           this.rememberWidthSymbols(widths.keys());
-          this.dumpProbeResults(widths); // 临时诊断（TUI_WIDTH_DUMP）
         }
+        this.dumpProbeResults(widths, rejects); // 临时诊断（TUI_WIDTH_DUMP）
         this.refresh(); // 重排 + 整帧重绘：按实测宽度出这一帧并覆盖探测残留
         this.maybeProbePendingWidths(); // 重排可能登记了新字符（已测过的不再登记）
       })
