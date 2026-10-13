@@ -1,6 +1,6 @@
 # 会话区 ↑/↓ 撞物化窗口顶时不再多翻十几行（接取条目（现状：仅条目 6 未完成）：`TUI/docs/BACKLOG.md`「会话区 ↑/↓ 撞物化窗口顶时多翻十几行（不是半屏）」）
 
-状态：暂停　　开启：2026-10-07　　关闭：—（暂停中，未关闭）
+状态：已关闭　　开启：2026-10-07　　关闭：2026-10-13
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -14,10 +14,10 @@
    - `:3482-3490` **之后**才用 `top`/`margin` 判 `nearTop` 并 +`WINDOW_GROW_STEP` 组；
    - `:3500-3506` 返回新锚点 + 新 `windowGroups`。
      ⇒ 撞顶那次位移被旧 `maxTop` 夹到窗口首行（= **折叠占位行** `DIALOGUE_MARKER_SEQ`，`layout.ts:166`/`:1647`）；随后扩窗，`dialogueTopIdx`（`layout.ts:243-268`，把占位行视为不可达，`:252`）把视口顶**重钉到新窗口第一条真实内容** → 一次跳掉整批新物化的行（实测跨 ~15 行，应为 4 行）。
-1. **几何来源**：`DialogueGeometry`（`layout.ts:175`）由**布局期**产出，经 `FrameScrollReport.dialogueGeometry`（`:1668`）交回 state（`state.ts:2056` 的 action）。reducer 内**无法**自己按新的 `windowGroups` 重算几何（行数取决于折行宽度）。
-1. **但 App 层可以**：`index.ts:394-400` 的 `paneMaxes()` 以 `this.state` 身份为缓存键，state 一变就 `buildFrame(...)` 重算 → **先 apply 扩窗、再取 `paneMaxes().dialogueGeometry` 即得扩窗后的几何**（同文件 `:2074` 的既有用法）。
-1. ↑/↓ 分派点：`index.ts:2060-2082` —— 无焦点/历史焦点走 `scroll` action（`:2075-2081`），`delta = dir * dialogueHalfPage(viewportH)`，`geom` 取自 `paneMaxes()`。
-1. 扩窗常量与判据：`WINDOW_GROW_STEP`（`state.ts`，+N 组）、`nearTop = top <= margin || g.rows <= g.height`（`state.ts:3486-3487`，`margin = max(1, floor(height/2))`）、窗口组数上限 `turnGroupStarts(buffer).length`。
+2. **几何来源**：`DialogueGeometry`（`layout.ts:175`）由**布局期**产出，经 `FrameScrollReport.dialogueGeometry`（`:1668`）交回 state（`state.ts:2056` 的 action）。reducer 内**无法**自己按新的 `windowGroups` 重算几何（行数取决于折行宽度）。
+3. **但 App 层可以**：`index.ts:394-400` 的 `paneMaxes()` 以 `this.state` 身份为缓存键，state 一变就 `buildFrame(...)` 重算 → **先 apply 扩窗、再取 `paneMaxes().dialogueGeometry` 即得扩窗后的几何**（同文件 `:2074` 的既有用法）。
+4. ↑/↓ 分派点：`index.ts:2060-2082` —— 无焦点/历史焦点走 `scroll` action（`:2075-2081`），`delta = dir * dialogueHalfPage(viewportH)`，`geom` 取自 `paneMaxes()`。
+5. 扩窗常量与判据：`WINDOW_GROW_STEP`（`state.ts`，+N 组）、`nearTop = top <= margin || g.rows <= g.height`（`state.ts:3486-3487`，`margin = max(1, floor(height/2))`）、窗口组数上限 `turnGroupStarts(buffer).length`。
 
 ## 决策
 
@@ -39,11 +39,11 @@
 ## 规划（计划改动文件清单）
 
 1. `TUI/src/app/index.ts`：↑/↓ 历史分支改两段式（判据 → 扩窗 → 取新几何 → 位移）。
-1. `TUI/src/app/state.ts`：新增 `grow-dialogue-window` action；把 `nearTop` 判据抽成导出纯函数（`scrollDialogue` 改为调用它，行为不变）。
-1. `TUI/tests/scroll-anchor.test.ts`（或同族）：新增「撞顶一次只走半屏 + 锚点非占位行」与「旧次序会多跳」两条用例。
-1. `TUI/docs/SPEC.md` / `TUI/docs/DESIGN.md`：若其中写明「上滚撞顶 → 扩窗」的次序，补一句「先扩窗、再位移」；`TUI/README.md` 键位表若含 ↑/↓ 半屏口径则同步。
-1. `TUI/docs/BACKLOG.md`：条目标〔进行中〕→ 关闭时移除（余下条目按编号口径重编）。
-1. 本追踪文档：建 → 关闭时移入 `TUI/docs/archived/`。
+2. `TUI/src/app/state.ts`：新增 `grow-dialogue-window` action；把 `nearTop` 判据抽成导出纯函数（`scrollDialogue` 改为调用它，行为不变）。
+3. `TUI/tests/scroll-anchor.test.ts`（或同族）：新增「撞顶一次只走半屏 + 锚点非占位行」与「旧次序会多跳」两条用例。
+4. `TUI/docs/SPEC.md` / `TUI/docs/DESIGN.md`：若其中写明「上滚撞顶 → 扩窗」的次序，补一句「先扩窗、再位移」；`TUI/README.md` 键位表若含 ↑/↓ 半屏口径则同步。
+5. `TUI/docs/BACKLOG.md`：条目标〔进行中〕→ 关闭时移除（余下条目按编号口径重编）。
+6. 本追踪文档：建 → 关闭时移入 `TUI/docs/archived/`。
 
 ## 实现记录
 
@@ -72,4 +72,10 @@
 
 - **条目 4（落点压在 `seq = -1` 行 → 视口塌到窗口顶）**：已随「排版流程重构」消除并关闭。滚动位置改为「段键 + 段内行」（`DialogueTop` / `positionAt` / `indexOfTop`），边界行（分隔线 / 空行 / 用户块留白）各自有稳定段键，不再退化成 `seq = -1` 的锚点。
 - **条目 5（撞窗口顶多翻十几行）**：已随「排版流程重构」消除并关闭。扩窗次序改为「先扩窗、再按扩窗后的段表施加位移」（`App.scrollDialogueBy`），位移恒等于按键量；单测见 `tests/layout4.test.ts`（扩窗位移恒等于半屏）与 `tests/app.test.ts`（裸 ↑ 一行 / `Ctrl+↑` 半屏、撞窗口顶不多滚）。用户 2026-10-10 真机复检 ↑/↓ 正常。
-- **条目 6（Home / End 语义交换 + Home 分批加载更旧）**：仍未做，本文件继续作为它的过程记录。
+- **条目 6（Home / End 语义交换 + Home 分批加载更旧）**：**已实现**（2026-10-13 复核；此前记为「仍未做」属过期记录）。
+  落点：`src/app/index.ts` 的 `case "home"`（翻到最旧**已加载**内容；已在最旧处再按 → 再物化一批更早回合，
+  并把视口显式钉回原内容行，防扩窗后弹走）与 `case "end"`（回最新 + 渐进窗口复位，语义已交换）。
+  用例：`tests/app.test.ts`「Home / End 语义（2026-10-06 裁定）…Home 分批加载…」「Home / End 在空会话上不崩」、
+  `tests/pipeline-frame.test.ts`「段 D · Home：扩窗上滚后回最新，与一直跟随底部逐字节一致」。
+- **本文件归档（2026-10-13）**：接取条目全部关闭 → 状态改「已关闭」，从 `TUI/docs/implementation/` 移入
+  `TUI/docs/archived/`。
