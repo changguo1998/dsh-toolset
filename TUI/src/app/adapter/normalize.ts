@@ -210,3 +210,38 @@ export function summarizeToolArguments(args: string): string {
   }
   return raw === "" ? "(无参数)" : raw;
 }
+
+/** 工具参数条目（展示用）：`name` 为空 = 无名兜底（非 JSON 参数，值 = 原文） */
+export interface ToolParam {
+  readonly name: string;
+  readonly value: string;
+}
+
+/**
+ * tool/call.arguments（原始 JSON 字符串）→ **参数列表**（工具块逐参数成行用）。
+ * 口径（用户 2026-10-13 裁定）：JSON 对象按**原序**逐项取出，不重排、不设条数上限；
+ * 值：字符串原样、其余 `JSON.stringify`（对象 / 数组 / 数字 / 布尔 / null 一行紧凑）；
+ * 非对象（纯文本 / 数组 / 数字）或解析失败 → 单条**无名兜底**（`name: ""`，值 = 原文）。
+ * 与 `summarizeToolArguments`（取单一关键字段的单行摘要）并存：后者仍是摘要口径的消费者。
+ */
+export function toolParams(args: string): ToolParam[] {
+  const raw = args.trim();
+  if (raw.startsWith("{")) {
+    try {
+      const obj = JSON.parse(raw) as Record<string, unknown>;
+      if (obj !== null && typeof obj === "object" && !Array.isArray(obj)) {
+        const out: ToolParam[] = [];
+        for (const [name, v] of Object.entries(obj)) {
+          out.push({
+            name,
+            value: typeof v === "string" ? v : JSON.stringify(v),
+          });
+        }
+        if (out.length > 0) return out;
+      }
+    } catch {
+      /* 非 JSON：落无名兜底 */
+    }
+  }
+  return [{ name: "", value: raw }];
+}

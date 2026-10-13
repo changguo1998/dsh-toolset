@@ -256,7 +256,12 @@ toolBox = v([
 
 ## 实现记录
 
-（待决策后填）
+> **进行中（2026-10-13）**：清单 **01** 已落地并提交；其余条目待续（本次在此处停下）。
+
+1. `adapter/normalize.ts`：新增 `ToolParam` 类型与 `toolParams(args)` —— JSON 对象按**原序**逐项
+   取 `{name, value}`（值：字符串原样、其余 `JSON.stringify`，均单行紧凑）；非对象 / 解析失败 /
+   空对象 → 单条**无名兜底** `{name: "", value: 原文}`。与 `summarizeToolArguments` 并存。
+   **尚未接线**（`rows.ts` 的消费在清单 03），故本次提交**零行为变化**。
 
 ## 测试与证据
 
