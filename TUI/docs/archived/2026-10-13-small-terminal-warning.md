@@ -101,4 +101,18 @@
 
 ## 收尾
 
-（待填）
+- 关闭（2026-10-13）：条目已从 `TUI/docs/BACKLOG.md` 移除；本文档移入 `TUI/docs/archived/`。
+- 提交：`ef00529`（实现 + 用例 + 文档）。
+- 子代理审阅：**无阻断问题**。唯一分歧「警告走 `notice()`（写流水线通知节）与决策 3a 字面不符」按
+  **无替代解**处理，并留证于「实现记录 → 计划外偏差」第 2 条：只置状态时警告在普通输入视图**真机
+  不可见**（证据链 = `pipeline/frame.ts:250` 的 `sectionsOf` 在未注入 `pipeline` 时返回空节 +
+  `layout.ts` 的 `noticeFooterLines` 只在 approval / question 打开时接管 footer）。
+- 审阅的非阻断项处理：
+  1. 「调研」第 1 条的调用链措辞已按实况更正（`screen.getSize()`；`passToRenderSizes()` 整体包在
+     `terminal.stdin.isTTY` 里）；
+  2. 用例 6 改为「记录条数」口径（两次过小 → 放大后帧内应见**两条**警告），可区分「新增记录」与
+     「旧记录被重新显示」；
+  3. resize 去抖**未加** —— 决策细节 2 的原文是「仍过小 → 再弹一次（新记录）」，加去抖需重新裁定。
+- 遗留（**不在本条目范围**，未登记 BACKLOG）：stdin 非 TTY 时 `passToRenderSizes()` 不触发 →
+  「resize 重跑检测」在该退化场景失效（**非本次引入**，审阅发现）。
+- 文档：`SPEC.md` 无「启动期提示」专节故未改；`DESIGN.md` 启动路径描述未补（避免与命令面描述重复）。

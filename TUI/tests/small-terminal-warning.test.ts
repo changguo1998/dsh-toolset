@@ -100,8 +100,23 @@ test("resize 仍过小 → 警告再次出现（先被别的 notice 覆盖）", 
   renderer.size = { cols: 80, rows: 9 };
   renderer.resize(80, 9);
   app.flushPaint();
-  const f = frame(renderer);
-  assert.ok(f.includes(MARK), "resize 后过小应提示: " + f);
+  assert.ok(
+    frame(renderer).includes(MARK),
+    "resize 后过小应提示: " + frame(renderer),
+  );
+  // 再缩一次（另一个过小尺寸）→ **新增一条记录**；放大回正常尺寸后帧里应能看到两条
+  // （用「记录条数」区分「新增记录」与「旧记录被重新显示」——后者只会是一条）
+  renderer.size = { cols: 80, rows: 8 };
+  renderer.resize(80, 8);
+  app.flushPaint();
+  renderer.size = { cols: 80, rows: 24 };
+  renderer.resize(80, 24);
+  app.flushPaint();
+  assert.equal(
+    markCount(frame(renderer)),
+    2,
+    "两次过小各记一条警告: " + frame(renderer),
+  );
 });
 
 test("resize 已够大 → 不新增警告（旧警告记录不清）", () => {
