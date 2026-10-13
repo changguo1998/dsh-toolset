@@ -154,11 +154,30 @@ function oldBuffer(): HistoryRow[] {
           });
         }
         break;
-      case "tool-call":
-        lines.push({ text: "read /tmp/a.md", kind: "tool" });
+      case "tool-call": {
+        // 工具块改版（2026-10-13）：旧侧按同一**三类行**形态喂行（名字 / 参数 / 结果）——
+        // 老口径的「name + 摘要」单文本行在新形制下与本侧必然不等价
+        lines.push({
+          text: "read",
+          kind: "tool",
+          toolRole: "name",
+          toolOk: true,
+        });
+        lines.push({
+          text: "/tmp/a.md",
+          kind: "tool",
+          toolRole: "param",
+          toolParam: { name: "path", value: "/tmp/a.md" },
+        });
         break;
+      }
       case "tool-result":
-        lines.push({ text: "✓ ok", kind: "tool" });
+        lines.push({
+          text: "ok",
+          kind: "tool",
+          toolRole: "result",
+          toolOk: true,
+        });
         break;
       case "notice":
         lines.push({
@@ -317,8 +336,10 @@ test("box → 旧口径缓冲行：代码块 / 表格 / 工具批的还原形态
     .filter((item) => item.kind === "line")
     .flatMap((item) => (item.kind === "line" ? boxToLines(item.box) : []));
   const texts = lines.map((line) => line.kind + ":" + line.text);
-  assert.ok(texts.includes("tool:read /tmp/a.md"), "工具调用行");
-  assert.ok(texts.includes("tool:✓ ok"), "工具结果行");
+  // 工具块三类行（2026-10-13 改版）：名字行 / 参数行 / 结果行
+  assert.ok(texts.includes("tool:read"), "工具名字行");
+  assert.ok(texts.includes("tool:/tmp/a.md"), "工具参数行（值）");
+  assert.ok(texts.includes("tool:ok"), "工具结果行");
   assert.ok(texts.includes("assistant:```ts"), "代码块围栏还原");
 });
 

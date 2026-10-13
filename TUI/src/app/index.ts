@@ -201,6 +201,10 @@ export function smallTerminal(size: { cols: number; rows: number }): boolean {
   return size.cols <= SMALL_TERMINAL_COLS || size.rows <= SMALL_TERMINAL_ROWS;
 }
 
+/** 已下线命令的统一提示（`/collapse`、`/verbose`）：工具块改版决策 8 第 11 条——两个命令
+ *  从命令目录 / 补全 / 帮助面移除，但仍保留路由，输入时只回这一条且**不改状态**。 */
+const RETIRED_COMMAND_NOTICE = "该命令已下线（待重新设计）";
+
 /**
  * 焦点面板行滚动 action 映射：activity 偏移语义=距底部（上滚=+），
  * status 偏移语义=距顶部（上滚=-），方向不可混用。
@@ -3664,30 +3668,8 @@ export class App {
    * on = 紧凑（状态 2：每条目 1 行 + 行尾省略号）；off = 每条目完整折行（状态 1，缺省）。
    * 无参数/非法参数 → 只提示用法与当前状态，不切换。
    */
-  private handleCollapseCommand(line: string): void {
-    const arg = line.slice("/collapse".length).trim().toLowerCase();
-    const curCompact = this.state.activityCompact; // true = 紧凑
-    let nextCompact: boolean;
-    if (arg === "on" || arg === "true") nextCompact = true;
-    else if (arg === "off" || arg === "false") nextCompact = false;
-    else {
-      this.notice(
-        `usage: /collapse on|off（当前：${curCompact ? "on(紧凑)" : "off(完整折行)"}）`,
-        "info",
-      );
-      return;
-    }
-    if (nextCompact !== curCompact) {
-      this.apply((s) =>
-        reduceState(s, { type: "activity-compact", on: nextCompact }),
-      );
-      this.paint();
-      this.scheduleSessionStateSave();
-    }
-    this.notice(
-      `活动区：${nextCompact ? "collapse on（紧凑：每条目 1 行 + 省略号）" : "collapse off（完整折行）"}`,
-      "success",
-    );
+  private handleCollapseCommand(_line: string): void {
+    this.notice(RETIRED_COMMAND_NOTICE, "info");
   }
 
   /**
@@ -3696,22 +3678,8 @@ export class App {
    * step = 正文 + 工具调用的**调用行**（去结果行 / 辅助行；step 头与 notice 保留）。
    * 无参数 / 非法参数 → 只提示用法与当前档位，不切换（沿用既有口径）。
    */
-  private handleVerboseLevelCommand(line: string): void {
-    const arg = line.slice("/verbose".length).trim().toLowerCase();
-    const cur = this.state.activityVerbose;
-    if (arg !== "think" && arg !== "tool" && arg !== "step") {
-      this.notice(`usage: /verbose think|tool|step（当前：${cur}）`, "info");
-      return;
-    }
-    const next: ActivityLevel = arg;
-    if (next !== cur) {
-      this.apply((s) =>
-        reduceState(s, { type: "activity-verbose", level: next }),
-      );
-      this.paint();
-      this.scheduleSessionStateSave();
-    }
-    this.notice(`verbose → ${next}`, "success");
+  private handleVerboseLevelCommand(_line: string): void {
+    this.notice(RETIRED_COMMAND_NOTICE, "info");
   }
 
   /** `/symbol-unify on|off`：模型输出符号统一开关（变体替换为推荐 + 未推荐提醒）。 */

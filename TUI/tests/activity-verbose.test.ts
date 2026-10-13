@@ -42,38 +42,44 @@ test("活动区完整模式（缺省）：长条目折行成多行", () => {
   }
 });
 
-test("活动区紧凑模式：每条目 1 行 + 行尾省略号", () => {
+test("活动区紧凑模式：非工具条目压 1 行 + 行尾省略号；工具块不受影响（决策 6）", () => {
   const panes = buildContentRows(buf, { activityCompact: true }, W, W);
-  const rows = panes.activity.map(rowText);
-  const texts = rows.filter((t) => t.trim() !== "");
-  assert.equal(texts.length, buf.length, "每条目压成 1 行（类型间隔空行另计）");
+  const texts = panes.activity.map(rowText).filter((t) => t.trim() !== "");
+  const compacted = texts.filter((t) => t.endsWith("…"));
   assert.equal(
-    rows.length,
-    buf.length,
-    "#5：思考↔工具、工具↔正文均不插类型间隔（4 条目 = 4 行）",
+    compacted.length,
+    2,
+    `思考与正文各压 1 行，工具块保持完整：${JSON.stringify(texts)}`,
   );
+  assert.ok(compacted[0]!.startsWith("┃"), "思考保留前缀");
   for (const t of texts) {
     assert.ok(
       displayWidth(t) <= W,
       `行宽 ≤ ${W}（实际 ${displayWidth(t)}）: ${t}`,
     );
-    assert.ok(t.endsWith("…"), `超宽条目行尾省略号: ${t}`);
   }
-  // 前缀（思考/非 final 的 ┃、工具行的 ○/✓）保留，便于区分条目类型
-  assert.ok(texts[0]!.startsWith("┃"), "思考保留前缀");
-  assert.ok(texts[1]!.startsWith("○ bash"), "工具调用保留工具名");
-  assert.ok(texts[2]!.startsWith("✓"), "工具结果保留状态符");
+  // 工具行（调用 + 结果）不被压成 1 行：完整折行后行数明显多于「每条目一行」
+  const joined = texts.join("\n");
+  assert.ok(joined.includes("bash"), `工具调用行保留：${joined}`);
+  assert.ok(joined.includes("✓"), `工具结果行保留：${joined}`);
+  assert.ok(
+    texts.length > buf.length,
+    `工具块完整折行（不止条目数行）：${texts.length}`,
+  );
 });
 
-test("活动区紧凑模式：条目内换行折叠为空格（多行参数压 1 行）", () => {
+test("活动区紧凑模式：工具块逐行与完整模式一致（不折叠换行）", () => {
   const multi: HistoryRow[] = [
     { text: "○ bash 参数甲\n参数乙\n参数丙", kind: "tool" },
   ];
   const full = buildContentRows(multi, {}, W, W);
   const compact = buildContentRows(multi, { activityCompact: true }, W, W);
   assert.ok(full.activity.length > 1, "完整模式保留换行（多行）");
-  assert.equal(compact.activity.length, 1, "紧凑模式折叠为 1 行");
-  assert.equal(rowText(compact.activity[0]!), "○ bash 参数甲 参数乙 参数丙");
+  assert.deepEqual(
+    compact.activity.map(rowText),
+    full.activity.map(rowText),
+    "紧凑模式对工具行不生效（决策 6：工具块恒完整形态）",
+  );
 });
 
 test("活动区紧凑模式：短条目不加省略号（原样）", () => {

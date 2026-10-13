@@ -149,6 +149,7 @@ activity 的内容 = v( 瞬态行 Box … )    // 思考/工具/notice；面板�
 | `layout/markdown.ts` | 块识别 + 行内解析，产出 `FrameSegment[]` |
 | `layout/grid.ts` | 框线网格：行角色（`border` / `rule` / `activity` / `body`）→ 框线字形（D 列 `├`/`│`、右缘框列 `─`/`╌`/不落/空白占位）；行内取值（不做整帧基线 pass，见该文件头注） |
 | `layout/tool-line.ts` | 工具行文本组装（summary/detail 启发式在 adapter 归一化时产出）；展示期 `shortenWorkspacePath` 省掉工作区根前缀（工具行 + 审批文案，只改显示） |
+| 工具块三类行（2026-10-13 改版） | 工具 box（`pipeline/boxes.ts` 的 `ToolBatch`）在行层展开为**名字 / 参数 / 结果**三类逻辑行（`toolUnits()` 是行数模型与实产行的**单一来源**，`frame.ts` 与 `rows.ts` 共用）；参数提取在 `adapter/normalize.ts` 的 `toolParams()`（JSON 原序，非 JSON 无名兜底），逐行排版（缩进 4 / 悬挂 6 / 结果缩进 2、值 5 行上限、失败整行红）在 `build-box.ts`；**在飞标记由帧层写**（`layout.ts` 的 `markToolNameRows`：行按稳定字形排版并缓存，帧层按 1 toggle/s 相位整格改写首列，不新增定时器） |
 
 `layout.ts` 保留几何唯一来源 `frameGeometry` 与四区域帧组装：行带与焦点矩形由 `frameBands`（唯一来源，`frameSections` 取其中的 `bands`，渲染层口径**不带语义**——决策 6）给出，框线字形由 `layout/grid.ts` 按**行角色**（`border` / `rule` / `activity` / `body`）在行内取值（D 列 `├`/`│`、右缘框列 `─`/`╌`/不落/空白占位；事后整帧 pass 会让 cache off 档 4× 慢，故不做）；渲染层 `renderer/index.ts` 按序列化文本逐行比较取变化行游程（先按帧段收敛范围，段内不连续处各自成区间）、`screen.ts` 负责报文组装；`components/*` 为 Box 生成器。模块拆分原则与触发标准见 `TUI/docs/design/REFACTOR.md`。
 

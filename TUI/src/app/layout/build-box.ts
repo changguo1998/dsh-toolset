@@ -12,9 +12,17 @@ import { v, h, text, styled, spacer } from "./box.ts";
 import { hasCellPipe, isTableStart, parseTableAt, tableBox } from "./table.ts";
 import type { ActivityLevel, HistoryRow } from "../state.ts";
 import type { ColorName } from "../../renderer/theme.ts";
-import type { FrameStyle } from "../../renderer/index.ts";
+import type { FrameStyle, FrameSegment } from "../../renderer/index.ts";
 import {
   TOOL_CONT_INDENT,
+  TOOL_FAIL_GLYPH,
+  TOOL_INTERRUPTED_GLYPH,
+  TOOL_LINE_CAP,
+  TOOL_OK_GLYPH,
+  TOOL_PARAM_CONT_INDENT,
+  TOOL_PARAM_INDENT,
+  TOOL_PENDING_GLYPH,
+  TOOL_RESULT_INDENT,
   USER_MIN_LEFT_GUTTER,
   isToolCall,
   isStepHeader,
@@ -24,8 +32,8 @@ import {
 } from "./content-rules.ts";
 import { measure, allocate } from "./measure.ts";
 import { fillToList, type ContentRow, type RowMeta } from "./fill.ts";
-import { displayWidth } from "./markdown.ts";
-import { truncateToWidth } from "./primitives.ts";
+import { charWidth, displayWidth } from "./markdown.ts";
+import { seg, truncateToWidth } from "./primitives.ts";
 import { turnHeaderLine } from "./tool-line.ts";
 
 /** 行元数据（= `fill.ts` 的 `RowMeta`，单一来源；buildBox 产出、fill 传播到 ContentRow） */
@@ -232,12 +240,159 @@ export function buildBox(
   };
   // fence 跨行状态（结构注解：fence 内行 → fillBg 代码块）
   let inFence = false;
-  // tool 连续 run 缓冲（flushToolRun 时分组/折叠/step）
-  const toolRun: { line: { text: string; tone?: string }; meta: RowMeta }[] =
-    [];
+  // tool 连续 run 缓冲（flushToolRun 时分组/成行；`role` = 工具块改版的三类行）
+  const toolRun: {
+    role?: "name" | "param" | "result";
+    text: string;
+    tone?: string;
+    param?: { name: string; value: string };
+    ok?: boolean;
+    meta: RowMeta;
+  }[] = [];
   /** 本批工具行的落点（条目 26：恢复出来的工具批要进会话区）——由**首行**的分流决定，
    *  缺省活动区（旧的写死行为）；批结束时清空 */
   let runTarget: Node[] | undefined;
+
+  /** 按显示宽把一段文本折成物理行（首行 firstW、续行 contW）；`\n` 保留为独立行 */
+  const wrapToolSegments = (
+    text: string,
+    firstW: number,
+    contW: number,
+  ): string[] => {
+    const out: string[] = [];
+    let first = true;
+    for (const part of text.split("\n")) {
+      let line = "";
+      let w = 0;
+      for (const ch of part) {
+        const cw = charWidth(ch);
+        if (w > 0 && w + cw > Math.max(1, first ? firstW : contW)) {
+          out.push(line);
+          line = "";
+          w = 0;
+          first = false;
+        }
+        line += ch;
+        w += cw;
+      }
+      out.push(line);
+      first = false;
+    }
+    return out;
+  };
+
+  /** 折行上限（决策 1 细节 05/06）：超出 → 前 2 + `…` + 后 2 */
+  const capToolLines = (lines: string[]): string[] =>
+    lines.length <= TOOL_LINE_CAP
+      ? lines
+      : [...lines.slice(0, 2), "…", ...lines.slice(lines.length - 2)];
+
+  /** 参数行物理行：缩进 4 / 值续行固定悬挂 6；名字灰、值原色；名字超宽截断加 `…`；
+   *  「值另起一行」取舍见决策 04（另起总行数 ≤ 同行 → 另起） */
+  const toolParamRows = (
+    param: { name: string; value: string },
+    width: number,
+  ): FrameSegment[][] => {
+    const nameBudget = Math.max(1, width - TOOL_PARAM_INDENT);
+    const name =
+      param.name !== "" && displayWidth(param.name) > nameBudget
+        ? takeWidth(param.name, Math.max(1, nameBudget - 1)) + "…"
+        : param.name;
+    const valueFirst = (firstW: number): string[] =>
+      capToolLines(
+        wrapToolSegments(param.value, firstW, width - TOOL_PARAM_CONT_INDENT),
+      );
+    // 无名兜底（非 JSON 参数）：只有值
+    if (name === "") {
+      return valueFirst(width - TOOL_PARAM_INDENT).map((text, i) => [
+        seg(
+          " ".repeat(i === 0 ? TOOL_PARAM_INDENT : TOOL_PARAM_CONT_INDENT) +
+            text,
+        ),
+      ]);
+    }
+    const nameW = displayWidth(name);
+    const same = valueFirst(width - TOOL_PARAM_INDENT - nameW - 1);
+    const own = valueFirst(width - TOOL_PARAM_CONT_INDENT);
+    if (1 + own.length <= same.length) {
+      return [
+        [seg(" ".repeat(TOOL_PARAM_INDENT)), seg(name, { fg: "gray" })],
+        ...own.map((text) => [seg(" ".repeat(TOOL_PARAM_CONT_INDENT) + text)]),
+      ];
+    }
+    return same.map((text, i) =>
+      i === 0
+        ? [
+            seg(" ".repeat(TOOL_PARAM_INDENT)),
+            seg(name, { fg: "gray" }),
+            seg(" "),
+            seg(text),
+          ]
+        : [seg(" ".repeat(TOOL_PARAM_CONT_INDENT) + text)],
+    );
+  };
+
+  /** 结果行物理行：缩进 2（续行同列）、保留详情原始换行、失败整行红 */
+  const toolResultRows = (
+    detail: string,
+    ok: boolean,
+    width: number,
+  ): FrameSegment[][] => {
+    const budget = width - TOOL_RESULT_INDENT;
+    const style: FrameStyle | undefined = ok ? undefined : { fg: "red" };
+    return capToolLines(wrapToolSegments(detail, budget, budget)).map(
+      (text) => [seg(" ".repeat(TOOL_RESULT_INDENT) + text, style)],
+    );
+  };
+
+  /** 工具块逻辑行 → 物理行节点 + `RowMeta.kind`（帧层按 `tool-name` 定位名字行写相位标记） */
+  const toolRowNodes = (
+    item: (typeof toolRun)[number],
+    width: number,
+  ): { node: Node; kind: string }[] => {
+    if (item.role === "name") {
+      const glyph =
+        item.ok === undefined
+          ? TOOL_PENDING_GLYPH
+          : item.ok
+            ? TOOL_OK_GLYPH
+            : TOOL_FAIL_GLYPH;
+      const fg: ColorName =
+        item.ok === undefined ? "yellow" : item.ok ? "green" : "red";
+      const fitted = truncateToWidth(item.text, Math.max(1, width - 3));
+      const name = fitted === item.text ? item.text : fitted + "…";
+      return [
+        {
+          node: styled([
+            seg(glyph, { fg }),
+            seg(" "),
+            seg(name, { fg: "yellow" }),
+          ]),
+          kind: "tool-name",
+        },
+      ];
+    }
+    if (item.role === "param" && item.param !== undefined) {
+      return toolParamRows(item.param, width).map((segs) => ({
+        node: styled(segs),
+        kind: "tool-param",
+      }));
+    }
+    if (item.role === "result") {
+      return toolResultRows(item.text, item.ok === true, width).map((segs) => ({
+        node: styled(segs),
+        kind: "tool-result",
+      }));
+    }
+    // 旧口径行（辅助行：subagent / hook / command；恢复产物）：首词黄 或 ✓ 绿 / ✗ tone
+    const segs = isToolCall(item.text)
+      ? toolCallSegs(item.text)
+      : toolLineSegs(item.text, item.tone);
+    return [
+      { node: styled(segs, { hanging: TOOL_CONT_INDENT }), kind: "tool" },
+    ];
+  };
+
   const flushToolRun = (): void => {
     if (toolRun.length === 0) return;
     const toolTarget = runTarget ?? activityLeaves;
@@ -246,44 +401,34 @@ export function buildBox(
     // 宿主补发 "\n\n" 留下的空白行（同 kind 分片）会让「正文 → 工具」多 1 行空行，
     // 与「工具类不插空行」口径冲突；此处与 step 分割行的吸收同语义。
     absorbActivityBlank(activityLeaves);
-    // 分组：无状态符号前缀行 = 调用（新组起点）
-    const groups: { text: string; tone?: string }[][] = [[]];
+    // 分组：工具名字行（或旧口径的调用行）起新组 —— 一组 = 一个 blockId（跳转 / 折叠粒度）；
+    // 不按组数折叠：历史只受「活动 pane 可视行数」约束（超出部分可上滚回看）
+    const groups: (typeof toolRun)[] = [[]];
     for (const item of toolRun) {
-      if (isToolCall(item.line.text) && groups[groups.length - 1]!.length > 0)
-        groups.push([]);
-      groups[groups.length - 1]!.push(item.line);
+      const starts =
+        item.role === "name" ||
+        (item.role === undefined && isToolCall(item.text));
+      if (starts && groups[groups.length - 1]!.length > 0) groups.push([]);
+      groups[groups.length - 1]!.push(item);
     }
-    // 不按组数折叠：历史只受「活动 pane 可视行数」约束（超出部分可上滚回看），
-    // 见 buildTopRegion 的 act 切片——折叠点 = pane 高，而非固定组数
     for (const group of groups) {
       const bid = freshBlockId();
-      for (let li = 0; li < group.length; li++) {
-        const l = group[li]!;
-        // step 头：虚线整行（tail 铺满）；缓冲文本为 `hh:mm:ss #N`（P6）
-        const isStep = isStepHeader(l.text);
-        if (isStep) {
-          // step 分割行吸收前文拖尾空活动行（notice/thinking 换行锚点等）——
-          // 对齐 legacy：分割行前积的视觉空行直接吞掉，不渲染。
-          // （2026-10-02 收窄后工具类不再插类型间隔空行，故无需再为它豁免。）
+      for (const item of group) {
+        // step 头：虚线整行（tail 铺满）；缓冲文本为 `hh:mm:ss ⇆N #M`
+        if (isStepHeader(item.text)) {
+          // step 分割行吸收前文拖尾空活动行（notice/thinking 换行锚点等）——对齐 legacy
           absorbActivityBlank(activityLeaves);
-        }
-        let node: Node;
-        if (isStep) {
-          node = styled([{ text: `╌╌ ${l.text} ` }], {
+          const node = styled([{ text: `╌╌ ${item.text} ` }], {
             tail: { char: "╌" },
           });
-        } else {
-          const isCall = li === 0 && isToolCall(l.text);
-          // 调用行：首词染黄（renderToolNameLine）；结果行：✓绿/✗tone；其余辅助行原色。
-          // 折行统一悬挂缩进（首行全宽、续行 TOOL_CONT_INDENT，与 wrapToolCallText 一致）；
-          // 紧凑模式：条目压单行（工具行无前缀占列）
-          const segs2 = isCall
-            ? toolCallSegs(actText(l.text))
-            : toolLineSegs(actText(l.text), l.tone);
-          node = styled(segs2, { hanging: TOOL_CONT_INDENT });
+          meta.set(node, { kind: "tool", blockId: bid });
+          toolTarget.push(node);
+          continue;
         }
-        meta.set(node, { kind: "tool", blockId: bid });
-        toolTarget.push(node);
+        for (const row of toolRowNodes(item, actPaneW)) {
+          meta.set(row.node, { ...item.meta, kind: row.kind, blockId: bid });
+          toolTarget.push(row.node);
+        }
       }
     }
     toolRun.length = 0;
@@ -308,20 +453,19 @@ export function buildBox(
       ...(line.queued ? { queued: line.queued } : {}),
     };
     if (line.kind === "tool") {
-      // #8：step 档只留「工具调用的第一行」——结果行 / 辅助行（带状态前缀）整条去掉，
-      // 调用行只取**首个物理行**（去参数续行）；step 头照常显示（活动区时间轴）
-      const isStep = isStepHeader(line.text);
-      if (actLevel === "step" && !isStep && !isToolCall(line.text)) continue;
-      const toolText =
-        actLevel === "step" && !isStep
-          ? (line.text.split("\n")[0] ?? line.text)
-          : line.text;
+      // 工具块三类行（名字 / 参数 / 结果）**恒按完整形态**渲染（决策 6：`/collapse` 与
+      // `/verbose` 两个开关暂时失效，工具块不受 activityCompact / activityLevel 影响）；
+      // 旧口径行（辅助行 / 恢复产物）同样直通——着色与悬挂缩进在 toolRowNodes 里分派。
       // #5：工具类不做类型间隔（2026-10-02 收窄），仅在 noteActKind 上报类型供后续判定
       noteActKind("tool", rowMeta);
-      // 本批落点 = 首行的分流目标（与 `:406` 同一判据；条目 26）
+      // 本批落点 = 首行的分流目标（条目 26）
       runTarget ??= line.final === true ? dialogueLeaves : activityLeaves;
       toolRun.push({
-        line: { text: toolText, tone: line.tone },
+        ...(line.toolRole === undefined ? {} : { role: line.toolRole }),
+        text: line.text,
+        ...(line.tone === undefined ? {} : { tone: line.tone }),
+        ...(line.toolParam === undefined ? {} : { param: line.toolParam }),
+        ...(line.toolOk === undefined ? {} : { ok: line.toolOk }),
         meta: rowMeta,
       });
       continue;

@@ -81,6 +81,9 @@ import {
   STATUS_TOP_SEPARATOR,
   TURN_SEPARATOR_CHAR,
   teeGlyph,
+  TOOL_INTERRUPTED_GLYPH,
+  TOOL_PENDING_GLYPH,
+  TOOL_PENDING_GLYPH_ALT,
 } from "./layout/content-rules.ts";
 export {
   SEPARATOR,
@@ -927,6 +930,48 @@ function fillPanelBox(
  *
  * @param report 回填两 pane 可滚动上限与对话区滚动几何（App 用于收敛偏移）
  */
+/**
+ * 工具名字行的**相位标记**（工具块改版决策 06）：名字行由管线按**稳定字形**排版并进行缓存
+ * （随秒变化的东西不能进缓存，否则命中即冻结），故相位改写放在帧层——只整格改写首列、
+ * 不重排、不新建定时器（随既有 1s ticker 的重绘节律走）：
+ * - 本回合活跃（`agentStatus ≠ idle` 或 `inputStatus = running`）→ `●` / `○` 按 1 toggle/s 相位，黄
+ * - 已不活跃且该调用无结果 → `■`，灰
+ * - `✓` / `✗`（管线按配对结果写死并着色）原样不动
+ */
+function markToolNameRows(
+  rows: readonly ContentRow[],
+  state: AppState,
+): readonly ContentRow[] {
+  const active =
+    state.agentStatus !== "idle" || state.inputStatus === "running";
+  const phase = Math.floor(Date.now() / 1000) % 2;
+  let changed = false;
+  const out = rows.map((row) => {
+    if (row.kind !== "tool-name") return row;
+    const first = row.segments[0];
+    if (first === undefined || first.text[0] !== TOOL_PENDING_GLYPH) return row;
+    const glyph = active
+      ? phase === 0
+        ? TOOL_PENDING_GLYPH
+        : TOOL_PENDING_GLYPH_ALT
+      : TOOL_INTERRUPTED_GLYPH;
+    const fg: ColorName = active ? "yellow" : "gray";
+    changed = true;
+    return {
+      ...row,
+      segments: [
+        {
+          ...first,
+          text: glyph + first.text.slice(1),
+          style: { ...first.style, fg },
+        },
+        ...row.segments.slice(1),
+      ],
+    };
+  });
+  return changed ? out : rows;
+}
+
 function buildTopRegion(
   state: AppState,
   geom: FrameGeometry,
@@ -999,7 +1044,9 @@ function buildTopRegion(
       userStatus: userBlockSymbolResolver(state),
     },
   });
-  const { dialogue, activity } = built;
+  const { dialogue, activity: activityRaw } = built;
+  // 工具名字行的在飞相位标记（决策 06）：帧层整格改写首列，见 markToolNameRows
+  const activity = markToolNameRows(activityRaw, state);
   // 顶部占位行（line = -1）：窗口未覆盖最旧内容时提示更早回复已折叠
   const markerRow: ContentRow | null =
     built.dropped > 0

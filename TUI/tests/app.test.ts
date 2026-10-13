@@ -380,10 +380,11 @@ test("/new：不重启进程新建会话 → 切换活跃会话、缓冲清空�
     { type: "mode", sessionId: "s-new2", kind: "plan", value: "off" },
   ];
   // 旧会话留内容 + 一个待落盘的开关变更（切走前应 flush 给旧会话）
+  typeAndEnter(renderer, "/model deepseek/deepseek-test-b");
+  await flush();
+  await flush();
   typeAndEnter(renderer, "旧会话的问题");
   adapter.push({ type: "stream", sessionId: "s1", text: "旧会话的回答" });
-  typeAndEnter(renderer, "/collapse on");
-  await flush();
   typeAndEnter(renderer, "/new");
   await flush();
   await flush();
@@ -411,9 +412,9 @@ test("/new：不重启进程新建会话 → 切换活跃会话、缓冲清空�
     "切走前把旧会话的 TUI 侧状态落盘",
   );
   assert.equal(
-    adapter.savedUiStates.at(-1)?.state.collapse,
-    true,
-    "落盘内容含 collapse on（紧凑）",
+    adapter.savedUiStates.at(-1)?.state.model?.model,
+    "deepseek-test-b",
+    "落盘内容含切走前的模型变更",
   );
   assert.equal(
     st().modeBySession["s-new2"]?.plan,
@@ -1027,20 +1028,20 @@ test("活动区生命周期：新回合不再清空上一回合内容（2026-10-
   adapter.push({ type: "notice", text: "提示一" });
   adapter.push({ type: "turn-end" });
   assert.ok(
-    shown("思考一") && shown("bash ls") && shown("提示一"),
-    "三类内容同处活动区（帧内可见）",
+    shown("思考一") && shown("bash") && shown("ls") && shown("提示一"),
+    "三类内容同处活动区（帧内可见；工具块 = 名字行 + 参数行）",
   );
   // 核心自发的新回合（无本地提交）：turn-begin 画分隔线但不清活动区
   adapter.push({ type: "stream", sessionId: "s1", text: "自发回合正文" });
   assert.ok(
-    shown("思考一") && shown("bash ls") && shown("提示一"),
+    shown("思考一") && shown("bash") && shown("ls") && shown("提示一"),
     "首回合三类内容持续可见（核心自发回合不改变它）",
   );
   // 自发回合结束后用户输入（空闲直发）→ 活动区整类清空
   adapter.push({ type: "turn-end" });
   typeAndEnter(renderer, "第二问");
   assert.ok(
-    shown("思考一") && shown("bash ls") && shown("提示一"),
+    shown("思考一") && shown("bash") && shown("ls") && shown("提示一"),
     "用户输入新回合后，上一回合内容仍持续可见（不再清空）",
   );
   // 运行中的用户输入（进排队）→ 被核心认领开启新回合时清空
@@ -2192,36 +2193,29 @@ test("/theme 非法参数 → notice usage,不调用 renderer.setTheme", () => {
   );
 });
 
-test("/collapse on|off 切换活动区详略；无参/非法参数只提示用法不动状态", () => {
+test("/collapse 已下线（2026-10-13 决策 8 第 11 条）：只提示、不改状态", () => {
   const { app, renderer } = makeApp();
-  // 状态不可变（apply 替换 state 对象）：每次重新取，避免持有陈旧引用
   const compact = (): boolean =>
     (app as unknown as { state: { activityCompact: boolean } }).state
       .activityCompact;
   assert.equal(compact(), false, "缺省完整折行（collapse off）");
-  typeAndEnter(renderer, "/collapse on");
-  assert.equal(compact(), true, "on → 紧凑模式");
-  assert.ok(
-    renderer.lastRender.join("\n").includes("collapse on"),
-    "切换成功有 notice 回执",
-  );
-  typeAndEnter(renderer, "/collapse off");
-  assert.equal(compact(), false, "off → 完整折行");
-  // 无参 / 非法参数：只提示用法，不改变当前状态
-  typeAndEnter(renderer, "/collapse");
-  assert.equal(compact(), false, "无参不切换");
-  assert.ok(
-    renderer.lastRender.join("\n").includes("usage: /collapse on|off"),
-    `应有 usage 提示，实际:\n${renderer.lastRender.join("\n")}`,
-  );
-  typeAndEnter(renderer, "/collapse 也许");
-  assert.equal(compact(), false, "非法参数不切换");
+  for (const line of [
+    "/collapse on",
+    "/collapse off",
+    "/collapse",
+    "/collapse 也许",
+  ]) {
+    typeAndEnter(renderer, line);
+    assert.equal(compact(), false, `${line} 不改状态`);
+    assert.ok(
+      renderer.lastRender.join("\n").includes("该命令已下线（待重新设计）"),
+      `${line} 给统一下线提示`,
+    );
+  }
 });
 
-test("/collapse on（紧凑）下 /help 仍完整显示，不被压成单行省略号隐藏", () => {
+test("/help 内容完整折行（紧凑开关已下线，不受其影响）", () => {
   const { renderer } = makeApp();
-  typeAndEnter(renderer, "/help");
-  typeAndEnter(renderer, "/collapse on");
   typeAndEnter(renderer, "/help");
   const compactText = renderer.lastRender.join("\n");
   // /help 块在活动区底部对齐，可见尾部应包含最后一行脚注（首部与靠前条目
@@ -3506,10 +3500,9 @@ test("会话状态回填：ui-flags 恢复 collapse / verbose 档位 / symbol-un
   app.dispose();
 });
 
-test("会话状态快照：/collapse 与 /model 变更在退出前落盘（含模型与 TUI 本地开关）", async () => {
+test("会话状态快照：/model 与 /symbol-unify 变更在退出前落盘（含模型与 TUI 本地开关）", async () => {
   const { app, renderer, adapter } = makeApp();
-  typeAndEnter(renderer, "/collapse on");
-  typeAndEnter(renderer, "/verbose step");
+  typeAndEnter(renderer, "/symbol-unify on");
   typeAndEnter(renderer, "/model deepseek/deepseek-test-b");
   await flush();
   await flush();
@@ -3517,12 +3510,7 @@ test("会话状态快照：/collapse 与 /model 变更在退出前落盘（含�
   const rec = adapter.savedUiStates.at(-1);
   assert.ok(rec, "退出前已落盘会话状态快照");
   assert.equal(rec.sessionId, "s1", "快照记在活跃会话上");
-  assert.equal(rec.state.collapse, true, "详略（collapse）记入快照");
-  assert.equal(
-    rec.state.verbose,
-    "step",
-    "输出内容档位（verbose，BACKLOG #8）记入快照",
-  );
+  assert.equal(rec.state.symbolUnify, true, "符号统一开关记入快照");
   assert.deepEqual(
     rec.state.model,
     { provider: "deepseek", model: "deepseek-test-b" },
@@ -3744,7 +3732,7 @@ test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC5
 // ===== 阶段 2：工具行 / usage 状态栏 / retry+compaction toast / notice tone 渲染 =====
 
 // 颜色断言用 dark 主题 24bit 前景码：红 #FD0013 / 黄 #E9C944 / 灰 #272336
-test("tool-call → 缓冲出现工具行 <name> <summary>（无图标前缀）", () => {
+test("tool-call → 工具块名字行 + 参数行（新形制）", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({
     type: "tool-call",
@@ -3756,8 +3744,12 @@ test("tool-call → 缓冲出现工具行 <name> <summary>（无图标前缀）"
     l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
   assert.ok(
-    plain.some((l) => l.includes("bash ls -la src/app")),
-    "工具调用行含 <name> <summary>",
+    plain.some((l) => /[●○■] bash/.test(l)),
+    "名字行 = 标记 + 空格 + 工具名",
+  );
+  assert.ok(
+    plain.some((l) => l.includes("    ls -la src/app")),
+    "参数行缩进 4 列（无名兜底 = 原文）",
   );
 });
 
@@ -3774,7 +3766,7 @@ test("tool-call：summary 含 \\r/\\n/控制符 → 换行保留、\\r/\\t/控�
   assert.equal(s.local[0]!.text, "bash ls -l\n/tmp/a\n第二行x");
 });
 
-test("tool-call：参数显式换行/软折行 → 续行统一 2 空格缩进", () => {
+test("tool-call：参数显式换行/软折行 → 名字行 / 参数行（缩进 4，续行 6）", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({
     type: "tool-call",
@@ -3785,26 +3777,27 @@ test("tool-call：参数显式换行/软折行 → 续行统一 2 空格缩进",
   const plain = renderer.lastRender.map((l) =>
     l.replace(/\u001b\[[0-9;]*m/g, ""),
   );
-  // 首行无缩进（工具名行起点）
+  // 名字行：标记 + 工具名（不缩进）
   assert.ok(
-    plain.some((l) => l.includes("bash echo a")),
-    "首行含 <name> <summary>",
+    plain.some((l) => /[●○■] bash/.test(l)),
+    "名字行 = 标记 + 空格 + 工具名",
   );
-  // 参数内显式换行 → 新行且 2 空格缩进
+  // 参数行：缩进 4；参数内显式换行 → 续行缩进 6
   assert.ok(
-    plain.some((l) => l.includes("  cd /tmp/x")),
-    "显式换行后的续行带 2 空格缩进",
+    plain.some((l) => l.includes("    echo a")),
+    "参数首行缩进 4",
   );
-  // 超宽参数软折行 → 每段续行均 2 空格缩进（窗口宽 80，contentW≈53，续行按 51 折）
-  const cont = plain.filter((l) => l.includes(`  ${"x".repeat(10)}`));
+  assert.ok(
+    plain.some((l) => l.includes("      cd /tmp/x")),
+    "显式换行后的续行缩进 6",
+  );
+  // 超宽参数软折行 → 续行同样 6 空格缩进（窗口宽 80）
+  const cont = plain.filter((l) => l.includes(`      ${"x".repeat(10)}`));
   assert.ok(
     cont.length >= 2,
-    `软折行续行 ≥2 段且均 2 空格缩进，实际=${cont.length}`,
+    `软折行续行 ≥2 段且均 6 空格缩进，实际=${cont.length}`,
   );
-  // 首行不含 2 空格前缀（紧贴左缘框列后直接是工具名）
-  const first = plain.find((l) => l.includes("bash echo a"))!;
-  assert.ok(first.replace(/^.*?(bash echo a)/, "$1").indexOf("bash") >= 0);
-  // 结果行不保留换行（非参数）；此处确认 tone 行仍走既有折叠逻辑
+  // 结果行保留换行结构（决策 8 第 7/8 条）：`ok` 与 `line2` 各占一行、缩进 2
   adapter.push({
     type: "tool-result",
     sessionId: "s1",
@@ -3814,10 +3807,14 @@ test("tool-call：参数显式换行/软折行 → 续行统一 2 空格缩进",
   const plain2 = renderer.lastRender
     .join("\n")
     .replace(/\u001b\[[0-9;]*m/g, "");
-  assert.ok(plain2.includes("✓ ok line2"), "结果行 \n 折叠为空格");
+  assert.ok(
+    plain2.includes("  ok") && plain2.includes("  line2"),
+    "结果详情按原始换行逐行渲染（缩进 2）",
+  );
+  assert.ok(!plain2.includes("ok line2"), "不再把换行折叠成空格");
 });
 
-test("tool-result 成功 → ✓ <detail>；失败 → 红色 ✗ <detail>", () => {
+test("tool-result 落单（无对应调用）→ 行内自带 ✓ / ✗ 且失败整行红", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({
     type: "tool-result",
@@ -3833,15 +3830,15 @@ test("tool-result 成功 → ✓ <detail>；失败 → 红色 ✗ <detail>", () 
   });
   const joined = renderer.lastRender.join("\n");
   const plain = joined.replace(/\u001b\[[0-9;]*m/g, "");
-  assert.ok(plain.includes("✓ done: 0"), "成功结果行 ✓ <detail>");
-  assert.ok(plain.includes("✗ EACCES: 13"), "失败结果行 ✗ <detail>");
+  assert.ok(plain.includes("  ✓ done: 0"), "成功落单结果行（缩进 2 + ✓）");
+  assert.ok(plain.includes("  ✗ EACCES: 13"), "失败落单结果行（缩进 2 + ✗）");
   assert.ok(
-    joined.includes("\x1b[38;2;253;0;19m✗ EACCES: 13"),
-    "失败工具行着红(253;0;19)",
+    joined.includes("\x1b[38;2;253;0;19m  ✗ EACCES: 13"),
+    "失败结果行着红(253;0;19)",
   );
 });
 
-test("tool-result 成功 + 空 detail → 只出 `✓`（无「（无结果）」占位；前缀着色与有 detail 同款）", () => {
+test("tool-result 落单 + 空 detail → 不挂结果行（静默工具口径，决策 1 细节 06）", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({
     type: "tool-result",
@@ -3852,12 +3849,8 @@ test("tool-result 成功 + 空 detail → 只出 `✓`（无「（无结果）�
   const joined = renderer.lastRender.join("\n");
   const plain = joined.replace(/\u001b\[[0-9;]*m/g, "");
   assert.ok(!plain.includes("无结果"), "不再出现空结果占位");
-  const rows = plain.split("\n").map((r) => r.trimEnd());
-  assert.ok(
-    rows.some((r) => r.endsWith("✓")),
-    `空 detail 成功行退化为 \`✓\`：${JSON.stringify(rows.filter((r) => r.includes("✓")))}`,
-  );
-  // 前缀着色：与「有 detail 的成功行」同款 SGR（且非默认无色）
+  assert.ok(!plain.includes("✓"), "空详情不挂结果行（标记只挂名字行）");
+  // 有 detail 时仍按失败/成功着色渲染
   adapter.push({
     type: "tool-result",
     sessionId: "s1",
@@ -3865,13 +3858,9 @@ test("tool-result 成功 + 空 detail → 只出 `✓`（无「（无结果）�
     detail: "done",
   });
   const withDetail = renderer.lastRender.join("\n");
-  const colorOf = (s: string): string =>
-    s.match(/\u001b\[38;[0-9;]*m✓/)?.[0] ?? "";
-  assert.ok(colorOf(joined) !== "", "成功前缀有着色（未退化为默认色）");
-  assert.equal(
-    colorOf(joined),
-    colorOf(withDetail),
-    "空 detail 与有 detail 的成功行前缀着色一致",
+  assert.ok(
+    withDetail.replace(/\u001b\[[0-9;]*m/g, "").includes("  ✓ done"),
+    "有 detail 的落单结果照常渲染",
   );
 });
 

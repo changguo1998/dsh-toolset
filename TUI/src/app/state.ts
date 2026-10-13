@@ -163,6 +163,16 @@ export interface HistoryRow {
   step?: number;
   /** 活跃用户块标记（由节模型 `panes.ts` 打标；解析器直接读本字段） */
   active?: boolean;
+  /**
+   * 工具块行角色（2026-10-13 工具块改版，见 `TUI/docs/implementation/2026-10-13-tool-block-display.md`）：
+   * `name` = 名字行（标记 + 空格 + 工具名）/ `param` = 参数行 / `result` = 结果行。
+   * 缺省 = 旧口径的单文本工具行（辅助行 / 恢复产物）。
+   */
+  toolRole?: "name" | "param" | "result";
+  /** 参数行的名与值（名染灰、值原色；折行 / 悬挂 6 列 / 5 行上限在渲染层按宽度做） */
+  toolParam?: { name: string; value: string };
+  /** 该调用 / 结果的成败（失败：名字行 `✗` 红 + 结果行整行红）；缺省 = 尚无结果（在飞） */
+  toolOk?: boolean;
 }
 
 /** 缓冲行（UI 本地行；`kind` 收窄到 `BufferKind` 的 `HistoryRow`） */

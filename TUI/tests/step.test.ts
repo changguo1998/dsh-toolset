@@ -79,9 +79,11 @@ test("B3 分组头插入：step 内首条工具行前插 `hh:mm:ss ⇆N #M`，�
   ]);
   assert.deepEqual(rows.map(plain), [
     head(1),
-    "bash ls -la src/app",
-    "✓ 总用量 3 目录",
-    "bash pwd",
+    "✓ bash",
+    "    ls -la src/app",
+    "  总用量 3 目录",
+    "● bash",
+    "    pwd",
   ]);
 });
 
@@ -116,10 +118,12 @@ test("B3 头只随声明出：组内后续工具行（含迟到结果）不再�
   ]);
   assert.deepEqual(rows.map(plain), [
     head(1),
-    "bash ls",
-    "✓ ok",
-    "bash pwd",
-    "✗ EACCES: 13",
+    "✓ bash",
+    "    ls",
+    "  ok",
+    "✗ bash",
+    "    pwd",
+    "  EACCES: 13",
   ]);
 });
 
@@ -132,9 +136,11 @@ test("B3 新 step 声明另起分组头：前一 step 未显式结束也一样",
   ]);
   assert.deepEqual(rows.map(plain), [
     head(1),
-    "bash ls",
+    "● bash",
+    "    ls",
     head(2),
-    "bash rm -rf /tmp/tui-demo",
+    "● bash",
+    "    rm -rf /tmp/tui-demo",
   ]);
 });
 
@@ -143,7 +149,7 @@ test("B3 向后兼容：无 step 声明（旧会话/mock）工具行不产线", 
     (s) => withToolCall(s, "bash", "ls", "c1"),
     (s) => withToolResult(s, true, "d", "c1"),
   ]);
-  assert.deepEqual(rows.map(plain), ["bash ls", "✓ d"]);
+  assert.deepEqual(rows.map(plain), ["✓ bash", "    ls", "  d"]);
 });
 
 test("B3 失败工具结果也参与分组：分组头先行", () => {
@@ -151,7 +157,8 @@ test("B3 失败工具结果也参与分组：分组头先行", () => {
     (s) => withStep(s, 2, T0),
     (s) => withToolResult(s, false, "EACCES: 13", "c1"),
   ]);
-  assert.deepEqual(rows.map(plain), [head(2), "✗ EACCES: 13"]);
+  // 落单结果（无对应调用）没有名字行可挂标记 → 行内自带 `✗`（决策 10 落单分支）
+  assert.deepEqual(rows.map(plain), [head(2), "  ✗ EACCES: 13"]);
 });
 
 test("B3 每步一条线：线随 step 声明出，落在未声明 step 上的工具行不产线", () => {
@@ -170,7 +177,13 @@ test("B3 每步一条线：线随 step 声明出，落在未声明 step 上的�
         args: "whoami",
       }),
   ]);
-  assert.deepEqual(bare.map(plain), [head(1), "bash ls", "bash whoami"]);
+  assert.deepEqual(bare.map(plain), [
+    head(1),
+    "● bash",
+    "    ls",
+    "● bash",
+    "    whoami",
+  ]);
 
   // 两个声明 step 各有内容 → 各产一条线（线与 step 一一对应，按声明顺序）
   const two = run([
@@ -179,7 +192,14 @@ test("B3 每步一条线：线随 step 声明出，落在未声明 step 上的�
     (s) => withStep(s, 3, T0),
     (s) => withToolCall(s, "bash", "pwd", "c2"),
   ]);
-  assert.deepEqual(two.map(plain), [head(1), "bash ls", head(3), "bash pwd"]);
+  assert.deepEqual(two.map(plain), [
+    head(1),
+    "● bash",
+    "    ls",
+    head(3),
+    "● bash",
+    "    pwd",
+  ]);
 });
 
 test("B3 思考流式增量：同 block 续写按 `\\n` 断行，行尾空行不渲染", () => {
@@ -203,8 +223,9 @@ test("B3 思考流式增量：同 block 续写按 `\\n` 断行，行尾空行不
   ]);
   assert.deepEqual(mixed.map(plain), [
     head(1),
-    "bash ls",
-    "✓ ok",
+    "✓ bash",
+    "    ls",
+    "  ok",
     "好的，下一步执行",
   ]);
 });
@@ -240,7 +261,7 @@ test("P6 step-start 缺 time：头只出回合号与步号（不再回退当前�
     (s) => withStep(s, 7),
     (s) => withToolCall(s, "bash", "ls", "c1"),
   ]);
-  assert.deepEqual(rows.map(plain), [headNoTime(7), "bash ls"]);
+  assert.deepEqual(rows.map(plain), [headNoTime(7), "● bash", "    ls"]);
   assert.doesNotMatch(
     rows[0]!,
     /\d{2}:\d{2}:\d{2}/,
@@ -267,10 +288,17 @@ test("B3 帧层：回合区渲染出 step 头与工具行（帧行含状态列�
     /╌╌ 03:04:05 ⇆1 #1 ╌+$/,
     "头行由 `╌╌ … ` 前缀 + 尾部 ╌ 铺满整行",
   );
-  const callAt = at("bash ls -la src/app");
-  const resultAt = at("✓ 总用量 3 目录");
-  assert.ok(callAt >= 0 && resultAt >= 0, "工具调用与结果在帧内");
-  assert.ok(headAt < callAt && callAt < resultAt, "帧内顺序：头 → 调用 → 结果");
+  const nameAt = at("✓ bash");
+  const argsAt = at("ls -la src/app");
+  const resultAt = at("总用量 3 目录");
+  assert.ok(
+    nameAt >= 0 && argsAt >= 0 && resultAt >= 0,
+    "工具名字 / 参数 / 结果在帧内",
+  );
+  assert.ok(
+    headAt < nameAt && nameAt < argsAt && argsAt < resultAt,
+    "帧内顺序：头 → 名字行 → 参数行 → 结果行",
+  );
 });
 
 test("#21 step 0（宿主 step/start 缺 step 字段时的回退值）不产 #0 假头", () => {
@@ -288,7 +316,7 @@ test("#21 step 0（宿主 step/start 缺 step 字段时的回退值）不产 #0 
     `不应出现 #0 假头：${JSON.stringify(rows)}`,
   );
   assert.ok(
-    rows.some((row) => row.includes("bash ls")),
-    "工具行仍在（内容驱动，不因该守卫丢失）",
+    rows.some((row) => row.includes("bash") && row.includes("ls") === false),
+    "工具名字行仍在（内容驱动，不因该守卫丢失）",
   );
 });

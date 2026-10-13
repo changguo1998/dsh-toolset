@@ -225,16 +225,6 @@ export const LOCAL_COMMANDS: readonly {
   },
   { name: "theme", route: "theme", desc: "主题切换 dark/light" },
   {
-    name: "collapse",
-    route: "collapse",
-    desc: "活动区详略：on=紧凑（每条目 1 行 + 行尾省略号）/ off=完整折行",
-  },
-  {
-    name: "verbose",
-    route: "verbose",
-    desc: "活动区输出内容：think=思考+正文+工具 / tool=正文+工具 / step=正文+工具调用行",
-  },
-  {
     name: "symbol-unify",
     route: "symbol-unify",
     desc: "模型输出符号统一：on=变体替换为推荐符号并提醒 / off=原样（不替换不提醒）",
@@ -338,10 +328,19 @@ export const LOCAL_COMMANDS: readonly {
   },
 ];
 
+/** 已下线命令的路由（2026-10-13 工具块改版决策 8 第 11 条）：`/collapse` 与 `/verbose`
+ *  从**命令目录**（补全候选与帮助面）移除，但仍要能路由到「该命令已下线（待重新设计）」
+ *  提示——否则会落到宿主 registry 被当成未知命令转发。 */
+const RETIRED_ROUTES: ReadonlyArray<[string, SlashRoute]> = [
+  ["collapse", "collapse"],
+  ["verbose", "verbose"],
+];
+
 /** 命令名 → 路由（模块加载时构建一次；不在目录中的名字落 registry 转发） */
-const LOCAL_ROUTES = new Map<string, SlashRoute>(
-  LOCAL_COMMANDS.map((c) => [c.name, c.route]),
-);
+const LOCAL_ROUTES = new Map<string, SlashRoute>([
+  ...LOCAL_COMMANDS.map((c): [string, SlashRoute] => [c.name, c.route]),
+  ...RETIRED_ROUTES,
+]);
 
 export function routeSlashCommand(name: string): SlashRoute {
   return LOCAL_ROUTES.get(name) ?? "registry";

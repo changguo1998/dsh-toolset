@@ -52,25 +52,28 @@ test("#8 tool：去思考行，正文 / 工具调用 / 结果 / notice 保留", 
     assert.ok(joined.includes(t), `tool 档应含「${t}」：${joined}`);
 });
 
-test("#8 step：只留工具调用行（step 头与 notice 保留；结果行去掉）", () => {
+test("#8 step：工具块恒完整形态（2026-10-13 决策 6：档位对工具块失效）", () => {
   const joined = act(MIXED, "step").join("\n");
-  assert.ok(!joined.includes("思考一段"), "思考被过滤");
-  assert.ok(!joined.includes("✓ ok"), "结果行去掉");
-  for (const t of ["正文一段", "22:31:05 #1", "○ bash ls", "提示行"])
-    assert.ok(joined.includes(t), `step 档应含「${t}」：${joined}`);
+  assert.ok(!joined.includes("思考一段"), "思考行仍被档位过滤（该分支未退休）");
+  for (const t of ["正文一段", "22:31:05 #1", "○ bash ls", "✓ ok", "提示行"])
+    assert.ok(
+      joined.includes(t),
+      `step 档下工具块应完整：缺「${t}」：${joined}`,
+    );
 });
 
-test("#8 step：调用行只取首个物理行（去参数续行），结果行整条去掉", () => {
+test("#8 step：调用行不再截断（参数续行与结果行都保留）", () => {
   const buf: HistoryRow[] = [
     L("bash run cmd\n  参数甲", "tool"),
     L("✓ done", "tool"),
   ];
-  const rows = act(buf, "step")
+  const joined = act(buf, "step")
     .map((t) => t.trim())
-    .filter((t) => t !== "");
-  assert.equal(rows.length, 1, `只剩调用行首行：${JSON.stringify(rows)}`);
-  assert.ok(rows[0]!.includes("bash run cmd"), "留下的是调用行首行");
-  assert.ok(!rows[0]!.includes("参数甲"), "参数续行不显示");
+    .filter((t) => t !== "")
+    .join("\n");
+  assert.ok(joined.includes("bash run cmd"), `调用行保留：${joined}`);
+  assert.ok(joined.includes("参数甲"), `参数续行不再被截掉：${joined}`);
+  assert.ok(joined.includes("✓ done"), `结果行不再被去掉：${joined}`);
 });
 
 // —— 命令面：/verbose think|tool|step ——
@@ -94,7 +97,7 @@ function typeAndEnter(renderer: FakeRenderer, text: string): void {
   renderer.press(key("enter"));
 }
 
-test("#8 命令：/verbose think|tool|step 切换档位；无参 / 非法参数只提示用法不动状态", () => {
+test("#8 命令：/verbose 已下线（2026-10-13 决策 8 第 11 条）——提示且不改状态", () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
   const app = new TrackedApp({ renderer, adapter, notify: { enabled: false } });
@@ -104,32 +107,25 @@ test("#8 命令：/verbose think|tool|step 切换档位；无参 / 非法参数�
       .activityVerbose;
   try {
     assert.equal(level(), "think", "缺省 think");
-    typeAndEnter(renderer, "/verbose tool");
-    assert.equal(level(), "tool", "切到 tool");
-    assert.ok(
-      renderer.lastRender.join("\n").includes("verbose → tool"),
-      "切换有简短回执 `verbose → tool`",
-    );
-    typeAndEnter(renderer, "/verbose step");
-    assert.equal(level(), "step", "切到 step");
-    typeAndEnter(renderer, "/verbose");
-    assert.equal(level(), "step", "无参不切换");
-    assert.ok(
-      renderer.lastRender
-        .join("\n")
-        .includes("usage: /verbose think|tool|step"),
-      "无参给用法提示",
-    );
-    typeAndEnter(renderer, "/verbose 也许");
-    assert.equal(level(), "step", "非法参数不切换");
-    typeAndEnter(renderer, "/verbose think");
-    assert.equal(level(), "think", "切回 think");
+    for (const line of [
+      "/verbose tool",
+      "/verbose step",
+      "/verbose",
+      "/verbose 也许",
+    ]) {
+      typeAndEnter(renderer, line);
+      assert.equal(level(), "think", `${line} 不改状态`);
+      assert.ok(
+        renderer.lastRender.join("\n").includes("该命令已下线（待重新设计）"),
+        `${line} 给统一下线提示`,
+      );
+    }
   } finally {
     app.dispose();
   }
 });
 
-test("#8 命令：档位与 /collapse（紧凑）正交——互不覆盖", () => {
+test("#8 命令：/collapse 与 /verbose 均已下线——两个开关都不再被命令改动", () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
   const app = new TrackedApp({ renderer, adapter, notify: { enabled: false } });
@@ -137,13 +133,14 @@ test("#8 命令：档位与 /collapse（紧凑）正交——互不覆盖", () =
   const st = (): { activityCompact: boolean; activityVerbose: string } =>
     (app as unknown as { state: never }).state;
   try {
-    typeAndEnter(renderer, "/verbose tool");
     typeAndEnter(renderer, "/collapse on");
-    assert.equal(st().activityVerbose, "tool", "紧凑不改内容档位");
-    assert.equal(st().activityCompact, true, "紧凑开关独立");
-    typeAndEnter(renderer, "/verbose step");
-    assert.equal(st().activityCompact, true, "/verbose 不改紧凑开关");
-    assert.equal(st().activityVerbose, "step");
+    assert.equal(st().activityCompact, false, "/collapse 不改紧凑开关");
+    typeAndEnter(renderer, "/verbose tool");
+    assert.equal(st().activityVerbose, "think", "/verbose 不改内容档位");
+    assert.ok(
+      renderer.lastRender.join("\n").includes("该命令已下线（待重新设计）"),
+      "两条命令都给下线提示",
+    );
   } finally {
     app.dispose();
   }

@@ -217,10 +217,10 @@ export function indexOfTop(
 import type { ActivityLevel, HistoryRow } from "../../state.ts";
 import { TURN_SEPARATOR } from "../../state.ts";
 import { buildContentRows, type BuildBoxOptions } from "../build-box.ts";
-import { stepHeaderLine, toolCallLine, toolResultLine } from "../tool-line.ts";
-import { summarizeToolArguments } from "../../adapter/normalize.ts";
+import { stepHeaderLine, toolDiffSummary } from "../tool-line.ts";
+import type { ToolResult } from "./types.ts";
 import type { ContentRow } from "../fill.ts";
-import type { Box, LayoutBox } from "./boxes.ts";
+import { toolUnits, type Box, type LayoutBox } from "./boxes.ts";
 import type { PaneItem } from "./panes.ts";
 
 export interface RenderOptions extends BuildBoxOptions {
@@ -241,6 +241,16 @@ export interface RenderedPane {
   /** 用户块首行的绝对行号（PgUp / PgDn 跳转目标） */
   readonly userRows: readonly number[];
   readonly table: LineTable;
+}
+
+/** 结果行文本：详情（去尾空白）+ `(+N/-M)` 摘要（挂**首行**末尾；详情为空时只出摘要） */
+function toolResultText(result: ToolResult): string {
+  const detail = result.detail.replace(/\s+$/, "");
+  const diff = toolDiffSummary(result.meta);
+  if (diff === undefined) return detail;
+  const at = detail.indexOf("\n");
+  if (at < 0) return detail === "" ? diff : detail + " " + diff;
+  return detail.slice(0, at) + " " + diff + detail.slice(at);
 }
 
 /**
@@ -265,24 +275,42 @@ export function boxToLines(
     // 历史行上屏；实时路径的工具行不带 final → 照旧只在回合区
     const hist = dialogue && box.history === true;
     const lines: HistoryRow[] = [];
-    for (const call of box.batch?.calls ?? []) {
+    for (const unit of toolUnits(box.batch)) {
+      if (unit.role === "name") {
+        const result = unit.result;
+        // 名字行：只有工具名（标记由渲染层按 `toolOk` 定：✓ / ✗ / 在飞 ●）
+        lines.push({
+          text: unit.call.name,
+          kind: "tool",
+          toolRole: "name",
+          ...(result === undefined ? {} : { toolOk: result.ok }),
+          ...(hist ? { final: true } : {}),
+          ...scope,
+        });
+        continue;
+      }
+      if (unit.role === "param") {
+        // 参数行：每个参数一行（名灰 + 值原色；折行 / 悬挂 6 列 / 5 行上限在渲染层）
+        lines.push({
+          text: unit.param.value,
+          kind: "tool",
+          toolRole: "param",
+          toolParam: unit.param,
+          ...(hist ? { final: true } : {}),
+          ...scope,
+        });
+        continue;
+      }
+      // 结果行：只有详情（标记在名字行），**保留原始换行结构**（决策 8 第 7/8 条：按行拆、
+      // 不做 markdown 解析）；折行 / 5 行上限 / 失败整行红都在渲染层。
+      // 落单结果（无对应调用）没有名字行可挂标记 → 行内自带 `✓` / `✗`（决策 10 落单分支）
+      const result = unit.result;
+      const marker = unit.orphan === true ? (result.ok ? "✓ " : "✗ ") : "";
       lines.push({
-        text: toolCallLine(call.name, summarizeToolArguments(call.args)),
+        text: marker + toolResultText(result),
         kind: "tool",
-        ...(hist ? { final: true } : {}),
-        ...scope,
-      });
-    }
-    for (const result of box.batch?.results ?? []) {
-      lines.push({
-        // 结果行不保留换行（非参数）：与缓冲旧路径同口径折成单行。C1 后流水线是唯一渲染源，
-        // 漏了这步会让 detail 里的换行直接进帧（tests/app.test.ts「结果行 \n 折叠为空格」）
-        text: toolResultLine(
-          result.ok,
-          result.detail.replace(/[\r\n]+/g, " "),
-          result.meta,
-        ),
-        kind: "tool",
+        toolRole: "result",
+        toolOk: result.ok,
         ...(!result.ok ? { tone: "error" as const } : {}),
         ...(hist ? { final: true } : {}),
         ...scope,

@@ -76,14 +76,13 @@ test("completeCommandInput：宿主命令并入 + 同名以本地目录优先（
   ];
   const r = completeCommandInput("/co", host, "slash");
   // 本地目录含 /stats 的别名 context（批次 1）、/contract（A5）、/council（P2#18）、
-  // /collapse（TUI BACKLOG #7 由 /verbose 更名）、/continue（TUI#1）：
+  // /continue（TUI#1）；`/collapse` 已于 2026-10-13 工具块改版从命令目录移除（决策 8 第 11 条）：
   // 排序=名称长度优先、同长按字典序
   assert.deepEqual(names(r?.items), [
     "copy",
     "compact",
     "context",
     "council",
-    "collapse",
     "continue",
     "contract",
   ]);

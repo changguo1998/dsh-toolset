@@ -55,13 +55,14 @@ export function toolResultLine(
 ): string {
   const text = shortenWorkspacePath(detail) || (ok ? "" : "输出错误");
   const head = (ok ? "✓ " : "✗ ") + text;
-  const d = diffSummary(meta);
+  const d = toolDiffSummary(meta);
   if (!d) return head;
   return text === "" ? `${head}${d}` : `${head} ${d}`;
 }
 
-/** 行级 diff 摘要：before/after 行集差计 added/removed；非字符串对或零变化返回 undefined */
-function diffSummary(meta: unknown): string | undefined {
+/** 行级 diff 摘要：before/after 行集差计 added/removed；非字符串对或零变化返回 undefined
+ *  （`toolResultLine` 与工具块渲染层共用：后者把摘要挂在结果行首行末尾） */
+export function toolDiffSummary(meta: unknown): string | undefined {
   if (!meta || typeof meta !== "object") return undefined;
   const { before, after } = meta as { before?: unknown; after?: unknown };
   if (typeof before !== "string" || typeof after !== "string") return undefined;

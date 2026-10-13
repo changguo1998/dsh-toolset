@@ -884,8 +884,10 @@ test("turn-begin: 新回合不再清空活动区（内容持续可见），仅�
       .join("\n");
   const before = textOf(s);
   assert.ok(
-    before.includes("bash cmd 1") && before.includes("✓ ok 1"),
-    "turn-end 后工具(*++)与 notice 仍可见",
+    before.includes("bash") &&
+      before.includes("cmd 1") &&
+      before.includes("ok 1"),
+    "turn-end 后工具（名字 / 参数 / 结果三层行）与 notice 仍可见",
   );
   assert.ok(before.includes("思考 1"), "turn-end 后思考仍可见");
   assert.ok(
@@ -895,7 +897,7 @@ test("turn-begin: 新回合不再清空活动区（内容持续可见），仅�
   s = userTurnBegin(s); // 新回合
   const after = textOf(s);
   assert.ok(
-    after.includes("bash cmd 1") && after.includes("✓ ok 1"),
+    after.includes("bash") && after.includes("cmd 1") && after.includes("ok 1"),
     "新回合不再清空旧工具行（内容持续可见）",
   );
   assert.ok(after.includes("思考 1"), "新回合不再清空思考（内容持续可见）");
@@ -1984,12 +1986,15 @@ test("buildFrame: 工具调用/结果行（*/+/x，失败着红）", () => {
     .map((l) => rowAnsi(l))
     .join("\n");
   const plain = joined.replace(/\x1b\[[0-9;]*m/g, "");
-  assert.ok(plain.includes("bash ls"), "工具调用行 ○ name summary");
-  assert.ok(plain.includes("✓ 总用量 0"), "成功结果行 ✓ detail");
-  assert.ok(plain.includes("✗ EACCES: 13"), "失败结果行 ✗ detail");
   assert.ok(
-    joined.includes("\x1b[38;2;253;0;19m✗ EACCES: 13"),
-    "失败工具行着红(253;0;19)",
+    plain.includes("bash") && plain.includes("ls"),
+    "工具块名字行 + 参数行（新形制）",
+  );
+  assert.ok(plain.includes("总用量 0"), "成功结果行（缩进 2 的 detail）");
+  assert.ok(plain.includes("EACCES: 13"), "失败结果行（整行红）");
+  assert.ok(
+    joined.includes("\x1b[38;2;253;0;19m  ✗ EACCES: 13"),
+    "失败结果行着红(253;0;19)（落单结果自带 ✗）",
   );
 });
 
@@ -2077,8 +2082,9 @@ test("buildFrame: step 分组头渲染为 `╌╌ hh:mm:ss ⇆N #M ╌╌╌` �
       JSON.stringify(lines[sep]),
   );
   assert.ok(
-    (lines[sep + 1] ?? "").includes("bash ls"),
-    "step 虚线后紧跟工具行，不再插入空行: " + JSON.stringify(lines[sep + 1]),
+    (lines[sep + 1] ?? "").includes("✓ bash"),
+    "step 虚线后紧跟工具名字行，不再插入空行: " +
+      JSON.stringify(lines[sep + 1]),
   );
 });
 
@@ -2105,8 +2111,8 @@ test("buildFrame: step 分割行前吸收空活动行（前文结束即接分割
     "分割行上一行非空: " + JSON.stringify(lines[sep - 1]),
   );
   assert.ok(
-    (lines[sep + 1] ?? "").includes("bash pwd"),
-    "分割行后紧跟工具行: " + JSON.stringify(lines[sep + 1]),
+    (lines[sep + 1] ?? "").includes("✓ bash"),
+    "分割行后紧跟工具名字行: " + JSON.stringify(lines[sep + 1]),
   );
 });
 
@@ -2150,7 +2156,10 @@ test("buildFrame: notice 纯换行紧贴 step 头被吸收（无视觉空行）"
   const sep = lines.findIndex((l) => l.includes(stepHead(2)));
   assert.ok(sep >= 0, "step 2 分割行存在: " + lines.join("|"));
   assert.ok(!blank(lines[sep - 1]!), "纯换行 notice 被吸收，分割行前无空行");
-  assert.ok((lines[sep + 1] ?? "").includes("bash pwd"), "分割行后紧跟工具行");
+  assert.ok(
+    (lines[sep + 1] ?? "").includes("■ bash"),
+    "分割行后紧跟工具名字行",
+  );
 });
 
 test("buildFrame: notice 尾换行被吸收但正文保留（中间提示场景）", () => {
@@ -2207,7 +2216,10 @@ test("buildFrame: 工具名（黄）独立着色，结果 ✓ 绿 / ✗ 整行�
     "工具名着黄（无前缀图标）",
   );
   assert.ok(joined.includes("\x1b[38;2;97;211;131m✓"), "✓ 前缀着绿");
-  assert.ok(joined.includes("\x1b[38;2;253;0;19m✗ EACCES"), "✗ 失败整行着红");
+  assert.ok(
+    joined.includes("\x1b[38;2;253;0;19m  ✗ EACCES"),
+    "✗ 失败结果整行着红（落单结果自带 ✗，缩进 2）",
+  );
 });
 
 test("buildFrame: 工具调用长参数换行——仅首行工具名着黄，续行不再按首个空格染黄", () => {
@@ -2236,8 +2248,8 @@ test("buildFrame: 工具调用长参数换行——仅首行工具名着黄，�
     .slice(start + 1, start + block.length)
     .filter((l) => l.replace(/\x1b\[[0-9;]*m/g, "") !== "");
   assert.ok(
-    histBody(firstRow, 60).trimStart().startsWith("bash "),
-    "首行为工具调用原始行",
+    histBody(firstRow, 60).trimStart().startsWith("■ bash"),
+    "首行为工具名字行（无结果 + 回合未活跃 → ■）",
   );
   assert.ok(firstRow.includes(YELLOW), "首行工具名着黄");
   for (let i = 0; i < restRows.length; i++) {

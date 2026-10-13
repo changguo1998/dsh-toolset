@@ -49,6 +49,29 @@ export function assistantMaxBodyWidth(
 /** 工具调用参数续行缩进：软换行/参数内显式换行后的续行统一 2 空格对齐 */
 export const TOOL_CONT_INDENT = 2;
 
+// ---------------- 工具块三类行（2026-10-13 改版：名字 / 参数 / 结果） ----------------
+//
+// 形制与裁定见 TUI/docs/implementation/2026-10-13-tool-block-display.md 决策 1 / 8。
+
+/** 名字行的**在飞**标记：管线写死的稳定字形（行缓存友好），帧层按 1 toggle/s 相位改写 */
+export const TOOL_PENDING_GLYPH = "●";
+/** 在飞标记的另一相位（帧层改写用） */
+export const TOOL_PENDING_GLYPH_ALT = "○";
+/** 回合已不活跃且该调用无结果 → 帧层改写为灰 `■` */
+export const TOOL_INTERRUPTED_GLYPH = "■";
+/** 成功 / 失败标记（管线按结果写死，帧层不改色） */
+export const TOOL_OK_GLYPH = "✓";
+export const TOOL_FAIL_GLYPH = "✗";
+
+/** 参数行缩进（决策 1 细节 03） */
+export const TOOL_PARAM_INDENT = 4;
+/** 参数值续行悬挂缩进（决策 8 第 02 条：固定 6 = 参数名缩进 + 2，不随名字宽度变化） */
+export const TOOL_PARAM_CONT_INDENT = 6;
+/** 结果行缩进（决策 1 细节 06 / 决策 8 第 02 条：总计 2 列，对齐工具名列） */
+export const TOOL_RESULT_INDENT = 2;
+/** 参数值与结果行的**折行上限**（决策 1 细节 05/06）：超出 → 前 2 + `…` + 后 2 */
+export const TOOL_LINE_CAP = 5;
+
 /**
  * 工具调用行折行（含续行缩进）：整体首行不缩进、可用全宽；其余行——同段软换行的
  * 续行、参数内显式换行后的各行——统一缩进 TOOL_CONT_INDENT 列，且折行宽度扣掉缩进，

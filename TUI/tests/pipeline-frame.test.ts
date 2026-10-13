@@ -155,7 +155,12 @@ function oldBuffer(turns: number): HistoryRow[] {
         }
         break;
       case "tool-call":
-        push({ text: "read /tmp/" + delivery.turn + ".md", kind: "tool" });
+        // 工具块改版（2026-10-13）：参数由 `toolParams(args)` 从 JSON **原序**取，
+        // 故旧侧也要带原始参数（老口径的「name + 摘要」文本拿不到参数名，两侧必然不等价）
+        push({
+          text: `read {"path":"/tmp/${delivery.turn}.md"}`,
+          kind: "tool",
+        });
         break;
       case "tool-result":
         push({ text: "✓ ok", kind: "tool" });

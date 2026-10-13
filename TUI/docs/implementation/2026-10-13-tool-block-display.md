@@ -2,7 +2,7 @@
 
 - 层：TUI
 - 接取条目（按标题引用）：〈重新设计回合区工具块的显示格式〉
-- 开始：2026-10-13　状态：进行中（方案讨论阶段，等用户审阅）
+- 开始：2026-10-13　状态：进行中（**实现完成**：check + build + 全量 1545 通过 + bench 已比；真机人工确认待用户）
 
 ## 目标
 
@@ -256,16 +256,97 @@ toolBox = v([
 
 ## 实现记录
 
-> **进行中（2026-10-13）**：清单 **01** 已落地并提交；其余条目待续（本次在此处停下）。
+01. `adapter/normalize.ts`：新增 `ToolParam` 类型与 `toolParams(args)` —— JSON 对象按**原序**逐项
+    取 `{name, value}`（值：字符串原样、其余 `JSON.stringify`，均单行紧凑）；非对象 / 解析失败 /
+    空对象 → 单条**无名兜底** `{name: "", value: 原文}`。与 `summarizeToolArguments` 并存。
+02. `pipeline/boxes.ts`：新增 **`toolUnits(batch)`** —— 工具批 → 逻辑行单元序列
+    （`name`（带已配对结果）/ `param` / `result`），内部做**展示配对**（`callId` 优先，缺失按到达
+    顺序）与「空结果不挂行」判据（`isEmptyToolResult`，空详情**且**无 `(+N/-M)` 摘要）。这是
+    **行数模型与实产行的单一来源**：`rows.ts` 按它产行、`frame.ts` 按它推 kinds / owner。
+03. `pipeline/rows.ts`：tool 分支改为按 `toolUnits` 产三类行 —— 名字行（`toolRole: "name"`，
+    `toolOk` = 配对结果成败，缺省 = 在飞）、参数行（`toolRole: "param"` + `toolParam`）、结果行
+    （`toolRole: "result"`，**保留详情原始换行**，失败带 `tone: "error"`）；落单结果带 `orphan`
+    → 行内自带 `✓` / `✗`；`(+N/-M)` 摘要挂结果行首行末尾（`toolDiffSummary` 由 `tool-line.ts`
+    导出，`toolResultLine` 复用同一函数）。
+04. `state.ts`：`HistoryRow` 新增 `toolRole` / `toolParam` / `toolOk` 三个可选字段。
+05. `layout/build-box.ts`：工具行渲染改为三类行 —— 名字行（`标记 + 空格 + 工具名`，标记按
+    `toolOk` 着色：`●` 黄 / `✓` 绿 / `✗` 红，名字恒黄，超宽截断加 `…`）；参数行（缩进 4、
+    `名 值` 单空格不对齐、名字灰 / 值原色、值续行固定悬挂 6、值折行上限 5 行（前 2 + `…` + 后 2）、
+    名字超宽截断、**另起 / 同行**按总行数取舍）；结果行（缩进 2、按原始换行逐行、5 行上限、失败
+    整行红）；工具行**不再受** `activityCompact` / `activityLevel` 影响（决策 6）。
+06. `layout.ts`：新增 `markToolNameRows()` —— 帧层按 1 toggle/s 相位整格改写**名字行**首列
+    （活跃 → `●` / `○` 黄；已不活跃且无结果 → `■` 灰；`✓` / `✗` 由管线写死不动）；不新增定时器。
+07. `layout/content-rules.ts`：新增标记字形（`TOOL_PENDING_GLYPH` / `_ALT` / `TOOL_INTERRUPTED_GLYPH`
+    / `TOOL_OK_GLYPH` / `TOOL_FAIL_GLYPH`）与排版常量（`TOOL_PARAM_INDENT` 4 /
+    `TOOL_PARAM_CONT_INDENT` 6 / `TOOL_RESULT_INDENT` 2 / `TOOL_LINE_CAP` 5）。
+08. `commands.ts` + `index.ts`：`/collapse` 与 `/verbose` 从**命令目录**（补全 / 帮助面）移除，
+    路由经新增的 `RETIRED_ROUTES` 保留 → 两个 handler 只回「该命令已下线（待重新设计）」且
+    **不改状态**（`state` 字段 / reducer / 标题栏指示保留不动）。
+09. `tests/tool-block.test.ts`（新增，13 条）：完成 / 在飞 / 失败（含着色）/ 值 5 行上限 /
+    名字截断 / 长名取舍（另起）/ `toolParams` 单元 / 非 JSON 兜底 / 配对（callId 与到达顺序）/
+    并发多调用 / 静默工具 + `(+N/-M)` / 帧层相位（活跃 `●`·`○`、不活跃 `■`、完成 `✓`）。
+10. 文档：`docs/SPEC.md` §「内容元素 → Box 表达」的工具行一行改写为新形制；`docs/DESIGN.md`
+    模块表新增「工具块三类行」一行（单一来源 `toolUnits` + 帧层相位标记）。
 
-1. `adapter/normalize.ts`：新增 `ToolParam` 类型与 `toolParams(args)` —— JSON 对象按**原序**逐项
-   取 `{name, value}`（值：字符串原样、其余 `JSON.stringify`，均单行紧凑）；非对象 / 解析失败 /
-   空对象 → 单条**无名兜底** `{name: "", value: 原文}`。与 `summarizeToolArguments` 并存。
-   **尚未接线**（`rows.ts` 的消费在清单 03），故本次提交**零行为变化**。
+### 计划外偏差（3 处，均有证据）
+
+1. **`toolBox` 保持平面 `batch`，不拆子树**（计划清单 02）：行由 `rows.ts` 产出、宽度规则在
+   `build-box.ts`，`batch` 的消费者只有 `frame.ts` / `panes.ts` / `rows.ts` 三处 —— 拆子树会多出
+   一层没有消费者的结构定义（两处平行的行模型反而更容易错位）。改为把「批 → 逻辑行」的**模型**
+   放进 `boxes.ts` 的 `toolUnits()`，`rows.ts` 与 `frame.ts` 共用同一函数（即计划想要的「行数
+   对齐」效果的更强形式）。
+2. **参数不经 `ToolCall.params` 透传**（计划清单 01/03 的衔接）：`toolUnits()` 在结构层现算
+   `toolParams(call.args)`，免改 `pipeline/types.ts` 与节缓存（`ToolCall` 是节内容的一部分，
+   加字段会牵动去重 / 剪枝的身份判据）。
+3. **空详情 + `(+N/-M)` 摘要仍挂结果行**（决策 1 细节 06 只说「空详情不挂」）：否则 `hash_edit`
+   这类「详情空但 diff 摘要有用」的结果会整条消失（旧形制里 `✓ (+1/-0)` 是可见信息），
+   判据收敛为 `isEmptyToolResult()`（空详情**且**无摘要才不挂）。
 
 ## 测试与证据
 
-（待决策后填）
+- `npm run check`：通过；`npm run build`：通过。
+
+- `sh scripts/test.sh`（全量）：**1545 通过 / 0 失败**（改动前 1532；新增 13 条）。
+
+- `npm run bench`（同一合成语料，改动前 `ef00529` 用 git worktree 跑基线）：
+
+  | 档位 | 改前 (off/on) | 改后 (off/on) |
+  |---|---|---|
+  | groups(rows=60) | 0.52 / 0.09 ms | 0.53 / 0.10 ms |
+  | groups(rows=120) | 0.46 / 0.13 ms | 0.48 / 0.10 ms |
+  | cold | 0.47 / 0.08 ms | 0.47 / 0.08 ms |
+  | warm | 0.43 / 0.02 ms | 0.45 / 0.02 ms |
+  | incremental | 0.49 / 0.02 ms | 0.51 / 0.02 ms |
+
+  均在 ±10% 内（唯一例外是 `groups(60)` cache on 的 0.09 → 0.10 ms，绝对值 0.01 ms = 打印精度内
+  的抖动；bench 自身不设阈值）。缓存命中路径（warm / incremental）保持 0.02 ms。
+
+- **复核后重冻的既有断言**（重冻许可范围：`content-mapping` / `activity-verbose` / `layout*` / `app`
+  里的工具块场景；实际改动逐条列明「场景 + 原因」）：
+
+  - `tests/activity-level.test.ts`：2 条 step 档用例改写为「档位对工具块失效、工具块恒完整形态」
+    （原因：决策 6 两个开关退休）；2 条命令用例改写为「已下线提示 + 不改状态」（原因：决策 8 第 11）。
+  - `tests/activity-verbose.test.ts`：2 条紧凑模式用例改为「工具块不受紧凑影响」（原因：决策 6）。
+  - `tests/app.test.ts`：3 条工具事件用例改写为新形制（名字行 / 参数行缩进 4·续行 6 / 结果行保留
+    换行、落单结果自带标记）；`/collapse` 用例改「已下线」；2 条状态落盘用例改用 `/model`
+    （原因：`/collapse` 不再改状态）；`/help` 紧凑豁免用例去掉 `/collapse` 前置；活动区生命周期
+    用例的工具断言拆成名字行 + 参数行。
+  - `tests/layout4.test.ts`：工具行 / step 头相邻 / 工具名着色 / 长参数续行 4 条用例的断言按新形制
+    更新（含「未活跃 pending → `■`」）。
+  - `tests/step.test.ts`：10 条分组头用例的工具行期望改为三类行（step 头语义未变）。
+  - `tests/completion.test.ts`：补全候选里去掉 `/collapse`。
+  - `tests/tool-call-wrap.test.ts`：长 detail 折行用例按新形制（结果行缩进 2 + 落单标记）更新。
+  - `tests/pipeline-frame.test.ts` / `tests/pipeline-equivalence.test.ts`：旧侧语料改为带**原始
+    参数**并按三类行喂行（原因：形制改版后「name + 摘要」单文本行与新侧必然不等价）。
+  - **未重冻** `content-mapping.test.ts`（本次未失败）。
+
+- 帧核验（临时探针脚本，跑后已删）：在飞 `● read` / `    path TUI/src/app/layout.ts`；完成
+  `✓ read` + `  2311 行`；失败 `✗ bash` + 红结果行；静默 `✓ write` 无结果行；不活跃 pending
+  帧层改写为 `■`。
+
+- **人工确认真机效果：未做**（用户不在场，按授权先提交）。真机复看项：`dsh --profile fff`，
+  看四态（在飞 / 完成 / 失败 / 静默）+ 相位闪烁 + `/collapse` `/verbose` 的下线提示 +
+  `/help` 里两条命令已消失。
 
 ## 收尾
 

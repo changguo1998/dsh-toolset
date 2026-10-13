@@ -18,7 +18,7 @@ import { buildPanes, sectionIdentities } from "./panes.ts";
 import { createSections } from "./sections.ts";
 import { sectionsFromLocal } from "./replay.ts";
 import { allSections, type SectionsState } from "./sections.ts";
-import { buildBoxes } from "./boxes.ts";
+import { buildBoxes, toolUnits } from "./boxes.ts";
 import { turnGroupStarts } from "../../layout.ts";
 import { sectionsFromBuffer } from "./replay.ts";
 import type { Section } from "./types.ts";
@@ -80,11 +80,9 @@ export function sectionGroupStarts(sections: readonly Section[]): {
       const final = section.final === true;
       for (const box of block.children) {
         if (box.kind === "content" && box.shape === "tool") {
-          for (const _call of box.batch?.calls ?? []) {
-            kinds.push({ kind: "tool" });
-            owner.push(index);
-          }
-          for (const _result of box.batch?.results ?? []) {
+          // 工具块逻辑行 = 名字 / 参数 / 结果（工具块改版决策 1）——与 `rows.ts` 产行
+          // 共用 `toolUnits`，两处行数必须一致（否则 kinds / owner 与行错位）
+          for (const _unit of toolUnits(box.batch)) {
             kinds.push({ kind: "tool" });
             owner.push(index);
           }
