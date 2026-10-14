@@ -60,7 +60,7 @@ DSH（DeepSeek Harness）与 [herdr](https://github.com/Jungod1121/herdr) 面板
 
 2. 在 herdr 面板内启动：`dsh --profile <p>`；可用 `dsh --profile <p> --dump-config` 核对出现 `- id: herdr-integration`。
 
-1. 端到端验证（先 `npm run build`，脚本直接 import `dist/`）：
+3. 端到端验证（先 `npm run build`，脚本直接 import `dist/`）：
 
 ```sh
 node scripts/verify-herdr.mjs blocked "waiting for user"   # 位置参数：state [message]
@@ -98,7 +98,7 @@ cordis.patch.yml          # bundle 挂载行（无注释，加载顺序见上文
 package.json              # dsh.bundle 契约 + build / check / test / watch
 ```
 
-本包为轻量包：无 `docs/` 目录，能力面与边界以本 README 为准。宿主面依据见根 `docs/host/DSH-CTX-API.md`（§1 事件载荷、§3 审批应答链、§4 Agent 注册表与 `agent/status`）；项目文档索引见根 `README.md`。
+本包为轻量包：不写 `DESIGN.md`，能力面与边界以本 README 为准；待办见 `herdr-integration/docs/BACKLOG.md`。宿主面依据见根 `docs/host/DSH-CTX-API.md`（§1 事件载荷、§3 审批应答链、§4 Agent 注册表与 `agent/status`）；项目文档索引见根 `README.md`。
 
 ## 测试
 
