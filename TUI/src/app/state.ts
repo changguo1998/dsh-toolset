@@ -62,8 +62,8 @@ import {
   workflowLine,
 } from "./layout/tool-line.ts";
 
-/** 顶部三面板 Tab 焦点循环顺序（history → activity → status → history） */
-export const PANEL_CYCLE = ["history", "activity", "status"] as const;
+/** 顶部三面板（会话区 / 回合区 / 状态列）：`Ctrl+E` / `Ctrl+T` / `Ctrl+S` 一键一区域 */
+export type PanelId = "history" | "activity" | "status";
 
 /** scrollback 行数上限（纯物理上限；DESIGN:2000 行） */
 export const MAX_BUFFER_LINES = 2000;
@@ -589,7 +589,7 @@ export interface AppState {
   /** P3：顶部状态列纵向滚动偏移（详细 goal/todo；渲染层 clamp） */
   statusColumnScroll: number;
   /** 顶部三面板键盘选中：null=无焦点（新输入/输出后回到无焦点，Tab 才进入）；history=对话历史 / activity=流输出 / status=详细状态列 */
-  focusedPanel: "history" | "activity" | "status" | null;
+  focusedPanel: PanelId | null;
   /** 活动区（流输出）滚动偏移（距活动区底部行数；0=跟随最新，渲染层 clamp） */
   activityScroll: number;
   /** 活动区**紧凑模式**（详略两态）：true=每条目压 1 行 + 行尾省略号；
@@ -601,10 +601,10 @@ export interface AppState {
   /** 模型输出符号统一（symbol-unify）：true=把变体符号替换为推荐符号并提醒（缺省）；
    *  false=关闭（原样展示，不替换不提醒）。`/symbol-unify on|off` 切换 */
   symbolUnify: boolean;
-  /** P7：垂直状态列是否显示（`Ctrl+S` 切换；随会话持久化 tui-state.json；缺省显示）。
+  /** P7：垂直状态列是否显示（`Ctrl+S` = 聚焦 / 收起两态；随会话持久化 tui-state.json；缺省显示）。
    *  隐藏时状态列宽 0、分隔竖线不绘制、历史区变宽 */
   statusColumnVisible: boolean;
-  /** #9：下半区（Turn 流 + Tool 面板区）是否显示（`Ctrl+T` 切换；随会话持久化；缺省显示）。
+  /** #9：下半区（Turn 流 + Tool 面板区）是否显示（`Ctrl+T` = 聚焦 / 收起两态；随会话持久化；缺省显示）。
    *  隐藏时活动区高度/宽度归零、空间并入对话区；输入栏不受影响，
    *  活动区内的交互面板（问答/审批等）仍照常弹出。 */
   lowerPanesVisible: boolean;
@@ -782,7 +782,7 @@ export function initialState(
     jobsPanel: null,
     commandPanel: null,
     statusColumnScroll: 0,
-    focusedPanel: null, // 无焦点；Tab 进入焦点循环
+    focusedPanel: null, // 无焦点（会话区默认）；Ctrl+E / Ctrl+T / Ctrl+S 一键聚焦对应区域
     activityScroll: 0,
     activityCompact: false, // 活动区完整折行（缺省）；/collapse on 切紧凑
     activityVerbose: "think", // 活动区内容档位（缺省最全）；/verbose tool|step 逐步精简
@@ -2273,22 +2273,35 @@ export function reduceState(state: AppState, action: StateAction): AppState {
             state.statusColumnScroll + action.delta,
           ),
         };
-      case "focus-panel-cycle": {
-        // 顶部三面板焦点循环：无焦点(null) → history → activity → status → history；
-        // P7：状态列隐藏（Ctrl+S）时跳过 status——该列宽 0，聚焦会画出退化焦点框并占掉内容首列
-        const cycle: readonly ("history" | "activity" | "status")[] =
-          PANEL_CYCLE.filter(
-            (p) =>
-              (state.statusColumnVisible || p !== "status") &&
-              (state.lowerPanesVisible || p !== "activity"),
-          );
-        const cur = state.focusedPanel;
+      case "focus-panel": {
+        // 「一键一区域」三态（2026-10-14 用户裁定，取代 Tab 焦点循环）：
+        //  未聚焦 → 显示（若已收起）并聚焦；已聚焦 → 收起该区域 + 焦点回会话区（null）。
+        // 可见但未聚焦时首次按键只聚焦（不收起）⟹ 收起可见面板需按两次。
+        // 状态列 / 下半区「隐藏即不聚焦」由本分支与 status-column / lower-panes 各自保证；
+        // 二者隐藏时「再按区域键」应重新显示并聚焦（不是收起），故按可见性分派而非按焦点。
+        const target = action.panel;
+        if (target === "history") {
+          // 会话区恒显示：已聚焦 → 回无焦点；未聚焦 → 聚焦
+          return {
+            ...state,
+            focusedPanel: state.focusedPanel === "history" ? null : "history",
+          };
+        }
+        if (target === "status") {
+          const collapse =
+            state.statusColumnVisible && state.focusedPanel === "status";
+          return {
+            ...state,
+            statusColumnVisible: !collapse,
+            focusedPanel: collapse ? null : "status",
+          };
+        }
+        const collapse =
+          state.lowerPanesVisible && state.focusedPanel === "activity";
         return {
           ...state,
-          focusedPanel:
-            cur === null || !cycle.includes(cur)
-              ? cycle[0]!
-              : cycle[(cycle.indexOf(cur) + 1) % cycle.length]!,
+          lowerPanesVisible: !collapse,
+          focusedPanel: collapse ? null : "activity",
         };
       }
       case "activity-scroll": {
@@ -2463,9 +2476,9 @@ export type StateAction =
   | { type: "activity-compact"; on: boolean }
   /** BACKLOG #8：活动区输出内容档位（think / tool / step） */
   | { type: "activity-verbose"; level: ActivityLevel }
-  /** P7：垂直状态列显隐（visible 缺省 = 取反，供 Ctrl+S 切换） */
+  /** P7：垂直状态列显隐（visible 缺省 = 取反；`Ctrl+S` 走 focus-panel 的聚焦 / 收起两态，本 action 供恢复或显式设值） */
   | { type: "status-column"; visible?: boolean }
-  /** #9：下半区（Turn 流 + Tool 面板区）显隐（visible 缺省 = 取反，供 Ctrl+T 切换） */
+  /** #9：下半区（Turn 流 + Tool 面板区）显隐（visible 缺省 = 取反；`Ctrl+T` 走 focus-panel） */
   | { type: "lower-panes"; visible?: boolean }
   | { type: "symbol-unify"; on: boolean }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }
@@ -2634,7 +2647,8 @@ export type StateAction =
       error?: string;
     }
   | { type: "status-column-scroll"; delta: number }
-  | { type: "focus-panel-cycle" }
+  /** 聚焦指定面板（`Ctrl+E` 会话区 / `Ctrl+T` 回合区 / `Ctrl+S` 状态列）：已聚焦则收起 + 回会话区 */
+  | { type: "focus-panel"; panel: PanelId }
   | { type: "activity-scroll"; delta: number; max?: number }
   /** max = 可视候选数上界（App 按活动区行数给；超出可视区的候选不参与焦点导航） */
   | { type: "completion-move"; delta: number; max?: number }

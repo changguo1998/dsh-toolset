@@ -141,6 +141,53 @@ export const SEPARATOR_ROWS = 2;
 
 // 按键提示区文案见 ./layout/hints.ts（唯一来源；面板内不再画提示，全部走提示区）。
 
+/**
+ * 提示行折行（2026-10-14 用户裁定：提示区允许 2 行、超宽折行，不再截断）。
+ * 优先在 ` · ` 边界折行（键位与标签不被拆开）；单个条目本身超宽时先按显示宽度硬折，
+ * 尾行再继续接纳后续条目（极窄终端下退化得可控：` · ` 允许被拆到两行）。
+ * 空串 → 一行空串（占位语义不变）。
+ */
+export function wrapHintLine(
+  text: string,
+  width: number,
+  /** 提示区最多占几行（契约「1 至 2 行」；超出部分截断——极窄终端下不吞掉正文区） */
+  maxRows = 2,
+): string[] {
+  if (text === "") return [""];
+  if (width <= 0) return [text];
+  const parts = text.split(" · ");
+  const rows: string[] = [];
+  let cur = "";
+  let curW = 0;
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]!;
+    const sep = i > 0 ? " · " : "";
+    const sepW = displayWidth(sep);
+    const partW = displayWidth(part);
+    if (cur === "" || curW + sepW + partW <= width) {
+      cur += sep + part;
+      curW += sepW + partW;
+      continue;
+    }
+    rows.push(cur);
+    cur = part;
+    curW = partW;
+  }
+  if (cur !== "") rows.push(cur);
+  // 单条目本身超宽（极窄终端）：按显示宽度硬折，保证每行都不超宽
+  const out: string[] = [];
+  for (const row of rows) {
+    if (displayWidth(row) <= width) out.push(row);
+    else out.push(...wrapLine(row, width));
+  }
+  return out.length > 0 ? out.slice(0, Math.max(1, maxRows)) : [""];
+}
+
+/** 当前状态提示区占用行数（frameGeometry 用它定提示区高；至少 1 行，空文案也占位） */
+export function hintRowsFor(state: AppState, width: number): number {
+  return Math.max(1, wrapHintLine(hintLine(state), width).length);
+}
+
 export interface FrameMetrics {
   /** 顶部区域行数 = rows - 状态区 - 输入区 - 按键提示区 - 分隔行（剩余高度全给上方两个） */
   topHeight: number;
@@ -148,7 +195,7 @@ export interface FrameMetrics {
   statusHeight: number;
   /** 输入区行数 = interaction − 提示区行数（面板态与输入态同高，不随面板开关变化） */
   footerHeight: number;
-  /** 按键提示区行数（独立区域，位于输入区下方、之间不画横线；恒 1 行，空文案也占位） */
+  /** 按键提示区行数（独立区域，位于输入区下方、之间不画横线；1 至 2 行，空文案也占位） */
   hintHeight: number;
   /** 顶部状态列宽（详细 goal/todo；窄列约 1/3，含右缘分隔竖线，状态列位于最左侧列） */
   statusColWidth: number;
@@ -160,7 +207,8 @@ export function metricsFor(
   size: Size,
   /** 状态区行数（默认 1；可多行溢出时按实际行数压缩顶部区域） */
   statusHeight = 1,
-  /** 按键提示区行数（独立区域，与输入区共同构成交互区；恒 1 行——空文案也占位） */
+  /** 按键提示区行数（独立区域，与输入区共同构成交互区；1 至 2 行——按文案与宽度由
+   *  hintRowsFor 算出，空文案也占位 1 行） */
   hintRows = 1,
   /** 布局配置（tui.config.json；缺省某字段 → 原默认公式） */
   layout?: { footerHeight?: number; statusDivisor?: number },
@@ -578,8 +626,14 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     state.inputStatus,
     state.runVirt.tokens,
   );
-  // 交互区总高恒定（见 metricsFor）：提示区恒 1 行（空文案也占位），面板开关不让顶部上下跳
-  const metrics = metricsFor(size, statusLines.length, 1, state);
+  // 交互区总高恒定（见 metricsFor）：提示区 1 至 2 行（按当前文案与宽度折行；空文案也占位），
+  // 提示行数从 interaction 里反推 footer，面板开关不让顶部上下跳
+  const metrics = metricsFor(
+    size,
+    statusLines.length,
+    hintRowsFor(state, cols),
+    state,
+  );
   const contentTopH = Math.max(0, metrics.topHeight);
   // P7：垂直状态列隐藏时（Ctrl+S）该列宽归 0——状态列内容、右缘分隔竖线与
   // 左缘框格都不再绘制，历史区吃满整宽（高度分配不受影响）
@@ -2270,15 +2324,13 @@ export function buildFrame(
     );
   }
 
-  // 按键提示区（独立区域，与输入区之间不画横线；正常前景色；窄终端按显示宽度截断）。
+  // 按键提示区（独立区域，与输入区之间不画横线；正常前景色；超宽按 ` · ` 边界折成 2 行）。
   // 补全候选打开时改为补全键位（面板本身不再占活动区行放提示）；
   // 历史会话面板的按键提示也在此显示（面板标题行不再内嵌键位，避免活动区顶部堆提示）。
-  // 按键提示区恒占 1 行；当前状态文案由 hints.ts 统一提供。
-  const hintLines: FrameRow[] = [
-    {
-      segments: [seg(truncateToWidth(hintLine(state), fullWidth))],
-    },
-  ];
+  // 行数 = hintRowsFor（与 frameGeometry 同源），当前状态文案由 hints.ts 统一提供。
+  const hintLines: FrameRow[] = wrapHintLine(hintLine(state), fullWidth).map(
+    (line) => ({ segments: [seg(line)] }),
+  );
 
   // 分隔行（边框统一边框色：先纯文本截断再段化）。状态区上方与其余横线同为 `─`；
   // 焦点在底部为流输出/状态列时该行用亮色框（钩到面板底边）。
