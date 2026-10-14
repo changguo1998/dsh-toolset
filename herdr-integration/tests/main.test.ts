@@ -18,6 +18,7 @@ import type {
   HerdrSender,
   SessionRef,
 } from "../src/herdr.ts";
+import { COMPACTING_MESSAGE } from "../src/state.ts";
 
 const ENV_OPTS: HerdrClientOptions = {
   paneId: "p1",
@@ -442,6 +443,155 @@ describe("createHerdrPlugin", () => {
     resolveApproval("rejected");
     await new Promise((r) => setImmediate(r));
     assert.deepEqual(sender.states.at(-1), { state: "working" });
+    plugin!.dispose();
+  });
+
+  test("压缩中上报 working（idle 根 agent），结束后回落", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "idle" }]);
+    const { plugin, sender } = startPlugin(ctx);
+    assert.deepEqual(sender.states.at(-1), { state: "idle" });
+
+    // compaction/start → working + 压缩文案（压缩不翻转 agent/status）
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "compaction/start", data: { compactionId: "c1", turn: null } },
+    );
+    assert.deepEqual(sender.states.at(-1), {
+      state: "working",
+      message: COMPACTING_MESSAGE,
+    });
+
+    // compaction/end → 回落 idle
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "compaction/end", data: { compactionId: "c1", turn: null } },
+    );
+    assert.deepEqual(sender.states.at(-1), { state: "idle" });
+    plugin!.dispose();
+  });
+
+  test("压缩失败（end 带 error）同样回落", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "idle" }]);
+    const { plugin, sender } = startPlugin(ctx);
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "compaction/start", data: { compactionId: "c1", turn: null } },
+    );
+    assert.deepEqual(sender.states.at(-1), {
+      state: "working",
+      message: COMPACTING_MESSAGE,
+    });
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      {
+        type: "compaction/end",
+        data: { compactionId: "c1", turn: null, error: "boom" },
+      },
+    );
+    assert.deepEqual(sender.states.at(-1), { state: "idle" });
+    plugin!.dispose();
+  });
+
+  test("压缩中同时 turn 阻塞 → blocked 优先；解除后回到压缩 working", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "idle" }]);
+    const { plugin, sender } = startPlugin(ctx);
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "compaction/start", data: { compactionId: "c1", turn: null } },
+    );
+    // turn/end{blocked} → blocked 压过压缩的 working
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "turn/end", data: { turn: 1, reason: "blocked" } },
+    );
+    assert.deepEqual(sender.states.at(-1), {
+      state: "blocked",
+      message: "waiting for input",
+    });
+    // 压缩仍在途 → 解除阻塞后回到 working（带压缩文案）
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "turn/start", data: { turn: 2 } },
+    );
+    assert.deepEqual(sender.states.at(-1), {
+      state: "working",
+      message: COMPACTING_MESSAGE,
+    });
+    plugin!.dispose();
+  });
+
+  test("子会话压缩被忽略（不翻转面板状态）", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "idle" }]);
+    const { plugin, sender } = startPlugin(ctx);
+    const before = sender.states.length;
+    ctx.fire(
+      "session/event",
+      { id: "child-1" },
+      { type: "compaction/start", data: { compactionId: "c1", turn: null } },
+    );
+    ctx.fire(
+      "session/event",
+      { id: "child-1" },
+      { type: "compaction/end", data: { compactionId: "c1", turn: null } },
+    );
+    assert.equal(sender.states.length, before);
+    plugin!.dispose();
+  });
+
+  test("未配对 end / 畸形压缩载荷 → 不上报，也不卡在 working", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "idle" }]);
+    const { plugin, sender } = startPlugin(ctx);
+    const before = sender.states.length;
+
+    // 无前置 start 的 end / 缺 compactionId / 重复 start（幂等）后单个 end 即回落
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "compaction/end", data: { compactionId: "c1", turn: null } },
+    );
+    ctx.fire("session/event", { id: "s1" }, { type: "compaction/start" });
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "compaction/start", data: { compactionId: "c1", turn: null } },
+    );
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "compaction/start", data: { compactionId: "c1", turn: null } },
+    );
+    assert.deepEqual(sender.states.at(-1), {
+      state: "working",
+      message: COMPACTING_MESSAGE,
+    });
+    ctx.fire(
+      "session/event",
+      { id: "s1" },
+      { type: "compaction/end", data: { compactionId: "c1", turn: null } },
+    );
+    assert.deepEqual(sender.states.at(-1), { state: "idle" });
+
+    // 压缩事件之外的畸形载荷不产生状态变化
+    ctx.fire("session/event", { id: "s1" }, null);
+    ctx.fire("session/event", { id: "s1" }, { type: "compaction/prune" });
+    assert.deepEqual(sender.states.at(-1), { state: "idle" });
+    assert.equal(
+      sender.states.slice(before).length,
+      2,
+      "只有 start(+1) 与 end(+1) 两次上报",
+    );
     plugin!.dispose();
   });
 

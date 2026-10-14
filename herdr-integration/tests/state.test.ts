@@ -2,7 +2,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { BlockTracker, desiredState } from "../src/state.ts";
+import {
+  BlockTracker,
+  COMPACTING_MESSAGE,
+  desiredState,
+} from "../src/state.ts";
 
 describe("BlockTracker", () => {
   test("begin/end 成对增减，单一来源", () => {
@@ -67,6 +71,27 @@ describe("desiredState", () => {
 
   test("无活跃无阻塞 → idle", () => {
     assert.deepEqual(desiredState(false, false), { state: "idle" });
+  });
+
+  test("压缩中 → working 且带压缩文案（agent 不活跃也成立）", () => {
+    assert.deepEqual(desiredState(false, false, undefined, true), {
+      state: "working",
+      message: COMPACTING_MESSAGE,
+    });
+  });
+
+  test("压缩中 + agent 活跃 → working，仍带压缩文案", () => {
+    assert.deepEqual(desiredState(true, false, undefined, true), {
+      state: "working",
+      message: COMPACTING_MESSAGE,
+    });
+  });
+
+  test("blocked 优先于压缩", () => {
+    assert.deepEqual(desiredState(false, true, "waiting for input", true), {
+      state: "blocked",
+      message: "waiting for input",
+    });
   });
 
   test("blocked 时可带 message，working/idle 不带", () => {

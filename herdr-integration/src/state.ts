@@ -2,7 +2,7 @@
 //
 // 语义对齐 pi 原生扩展 herdr-agent-state.ts 的 desiredState()：
 //   - 任一阻塞来源活跃（blocked 集合非空）→ blocked（携带最近一次阻塞 message）；
-//   - 否则 agent 活跃（working）→ working；
+//   - 否则 agent 活跃或上下文压缩中（两个 working 输入任一成立）→ working；
 //   - 否则 → idle。
 
 export type AgentState = "working" | "blocked" | "idle";
@@ -51,17 +51,27 @@ export class BlockTracker {
   }
 }
 
-/** 由 agent 活跃度与阻塞集合推导最终上报状态（pi 原生 desiredState 语义）。 */
+/** 压缩期 working 文案（与普通 turn step 的 working 区分；仅工作态携带）。 */
+export const COMPACTING_MESSAGE = "compacting context";
+
+/**
+ * 由 agent 活跃度、阻塞集合与压缩中状态推导最终上报状态（pi 原生 desiredState 语义 +
+ * 压缩输入）。compacting 与 agentActive 同为 working 输入（任一成立即 working）；仅压缩
+ * 触发时带 COMPACTING_MESSAGE，blocked / idle 与普通 working 均不带 message。
+ */
 export function desiredState(
   agentActive: boolean,
   blocked: boolean,
   blockedMessage?: string,
+  compacting = false,
 ): DesiredState {
   if (blocked) {
     return { state: "blocked", message: blockedMessage };
   }
-  if (agentActive) {
-    return { state: "working" };
+  if (compacting || agentActive) {
+    return compacting
+      ? { state: "working", message: COMPACTING_MESSAGE }
+      : { state: "working" };
   }
   return { state: "idle" };
 }

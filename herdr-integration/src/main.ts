@@ -30,7 +30,7 @@ import type {
   HerdrSender,
   SessionRef,
 } from "./herdr.ts";
-import { BlockTracker, desiredState } from "./state.ts";
+import { BlockTracker, COMPACTING_MESSAGE, desiredState } from "./state.ts";
 
 /** 根 agent 结构面（只消费 session.id 与 status）。 */
 export interface RootAgentLike {
@@ -145,10 +145,18 @@ export function createHerdrPlugin(
   let lastState: AgentState | undefined;
   let lastMessage: string | undefined;
   let currentSessionRef: SessionRef | undefined;
+  // 压缩在 turn 循环之外执行、不翻转 agent/status，故单独按 compactionId 跟踪在途压缩
+  // （用集合而非计数：未配对的 end 不会误减，重复事件也不会重复计数）。
+  const compactionById = new Set<string>();
 
   /** 变化检测后上报（force 跳过同态判断，用于启动期）；发信失败静默忽略。 */
   const publish = (force: boolean): void => {
-    const next = desiredState(agentActive, blocks.blocked, blocks.message);
+    const next = desiredState(
+      agentActive,
+      blocks.blocked,
+      blocks.message,
+      compactionById.size > 0,
+    );
     if (!force && next.state === lastState && next.message === lastMessage) {
       return;
     }
@@ -171,6 +179,12 @@ export function createHerdrPlugin(
     const session = (agent as { session?: { id?: string } } | undefined)
       ?.session;
     return session?.id ? { id: session.id } : undefined;
+  };
+
+  /** 从 session/event 首参（Session 实例）取会话 id；取不到按未知处理。 */
+  const sessionIdFrom = (session: unknown): string | undefined => {
+    const id = (session as { id?: unknown } | undefined)?.id;
+    return typeof id === "string" ? id : undefined;
   };
 
   // ---- 事件订阅 ----
@@ -203,17 +217,45 @@ export function createHerdrPlugin(
   };
 
   /**
-   * session/event：turn 生命周期 → turn-blocked 阻塞源（第三阻塞源，与 approval/ask-user 共用
-   * 全局 BlockTracker 计数，任一来源 pending 都上报 blocked）。
-   *   - turn/end.data.reason === 'blocked'：进入阻塞（该 turn 被阻塞等待回复）；
-   *   - turn/start：解除上一回合的 turn-blocked（turn 生命周期闭环）。
-   * 生命周期假设：被阻塞的 turn 必然随一个后续 turn/start 重新开始；会话中途放弃不主动解除
-   * （与 pi 原生 approval 长时间 pending 不解除的语义一致）。
+   * session/event：三类信号共用一个订阅——
+   *   - turn/end.data.reason === 'blocked'：进入阻塞（第三阻塞源，与 approval/ask-user 共用全局
+   *     BlockTracker 计数，任一来源 pending 都上报 blocked）；
+   *   - turn/start：解除上一回合的 turn-blocked（turn 生命周期闭环）；
+   *   - compaction/start 与配对 compaction/end：在途压缩计入 working（压缩在 turn 之外执行、
+   *     不翻转 agent/status，故需单独计数；end 带 error 也照常解除）。
+   * 生命周期假设（turn-blocked）：被阻塞的 turn 必然随一个后续 turn/start 重新开始；会话中途
+   * 放弃不主动解除（与 pi 原生 approval 长时间 pending 不解除的语义一致）。
    */
-  const handleSessionEvent = (_session: unknown, event: unknown): void => {
+  const handleSessionEvent = (session: unknown, event: unknown): void => {
     const e = event as
-      { type?: unknown; data?: { reason?: unknown } | null } | undefined;
+      | {
+          type?: unknown;
+          data?: { reason?: unknown; compactionId?: unknown } | null;
+        }
+      | undefined;
     if (!e || typeof e.type !== "string") return;
+    if (e.type !== "turn/end" && e.type !== "turn/start") {
+      if (e.type !== "compaction/start" && e.type !== "compaction/end") return;
+      // 子会话压缩不翻转面板状态；会话 id 取不到时按未知放行，不丢根会话的压缩
+      const sessionId = sessionIdFrom(session);
+      if (
+        sessionId &&
+        currentSessionRef?.id &&
+        sessionId !== currentSessionRef.id
+      ) {
+        return;
+      }
+      const compactionId = e.data?.compactionId;
+      if (typeof compactionId !== "string") return;
+      const changed =
+        e.type === "compaction/start"
+          ? (compactionById.add(compactionId), true)
+          : compactionById.delete(compactionId);
+      if (changed) {
+        publish(false);
+      }
+      return;
+    }
     if (e.type === "turn/end" && reasonKind(e.data?.reason) === "blocked") {
       blocks.begin("turn-blocked", "waiting for input");
       publish(false);

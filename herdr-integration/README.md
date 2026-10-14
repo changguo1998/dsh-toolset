@@ -14,7 +14,9 @@ DSH（DeepSeek Harness）与 [herdr](https://github.com/Jungod1121/herdr) 面板
   | `user-questions/request` | ask_user_question 提问 pending | `waiting for user` |
   | `session/event` | `turn/end` 且 `reason` 为 `blocked`（字符串或 `{kind:'blocked'}`） | `waiting for input` |
 
-  前两者是**观察型 waterfall 监听**（`begin → await next() → finally end`，不认领请求、不影响真实答案者）；第三类由下一次 `turn/start` 解除。
+  前两者是**观察型 waterfall 监听**（`begin → await next() → finally end`，不认领请求、不影响真实答案者）；第三类由下一次 `turn/start` 解除。三类来源都带各自的 message（上表第三列）。
+
+- **压缩期工作中**：`session/event` 的 `compaction/start` 到配对 `compaction/end` 之间上报 `working`（带 message `compacting context`）。上下文压缩在 turn 循环之外执行、不翻转 `agent/status`，不处理的话面板会在压缩全程显示 `idle`。只认当前根会话的压缩（子 agent 会话的压缩不改面板状态）；`compaction/end` 带 `error` 也照常回落；`blocked` 优先级不变（压缩中同时 turn 阻塞仍上报 `blocked`）。
 
 - **会话上报**：首次见到根 agent 的会话或会话 id 变化（如 resume）时发 `pane.report_agent_session`，首次带 `session_start_source: "startup"`。
 
@@ -105,8 +107,8 @@ package.json              # dsh.bundle 契约 + build / check / test / watch
 ```sh
 npm run build   # tsc -p tsconfig.json → dist/
 npm run check   # tsc -p tsconfig.json --noEmit
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（35 例）
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（43 例）
 npm run watch   # tsc -p tsconfig.json --watch
 ```
 
-35 例单测（state 9 + herdr 10 + main 16），覆盖握手判定、协议报文与状态队列合并、状态推导（并发阻塞计数与 `blocked` 优先级）、插件行为（会话切换、子 agent 忽略、观察者 waterfall 的阻塞与解除、dispose 释放）。
+43 例单测（state 12 + herdr 10 + main 21），覆盖握手判定、协议报文与状态队列合并、状态推导（并发阻塞计数、`blocked` 优先级、压缩期 `working`）、插件行为（会话切换、子 agent 忽略、观察者 waterfall 的阻塞与解除、压缩 start/end 配对与子会话压缩过滤、dispose 释放）。
