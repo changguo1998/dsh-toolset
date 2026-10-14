@@ -280,7 +280,7 @@ test("定时保鲜：无数据也轮询（不依赖事件面即可自动出块�
   }
 });
 
-test("定时保鲜：状态列隐藏（Ctrl+S）时停止轮询", async () => {
+test("定时保鲜：状态列收起（Ctrl+S 两态）时停止轮询", async () => {
   const { renderer, adapter, app } = makeApp({ status: { intervalMs: 20 } });
   try {
     adapter.agentsRows = [{ id: "s1", label: "w", status: "running" }];
@@ -292,10 +292,11 @@ test("定时保鲜：状态列隐藏（Ctrl+S）时停止轮询", async () => {
     await sleep(70);
     assert.ok(adapter.refreshAgentsCalls > 0, "可见时轮询");
     const before = adapter.refreshAgentsCalls;
-    // 隐藏状态列（与用户按键同路径：Ctrl+S → status-column 动作）
+    // 收起状态列（与用户按键同路径：Ctrl+S = 聚焦 / 收起两态，按两次才收起）
+    renderer.press({ name: "s", ctrl: true, meta: false, shift: false });
     renderer.press({ name: "s", ctrl: true, meta: false, shift: false });
     await sleep(70);
-    assert.equal(adapter.refreshAgentsCalls, before, "隐藏后不再轮询");
+    assert.equal(adapter.refreshAgentsCalls, before, "收起后不再轮询");
   } finally {
     app.dispose();
   }

@@ -555,19 +555,13 @@ test("接线：面板态提示区换为面板键位（面板内不再内嵌提�
   const app = new App({ renderer, adapter });
   app.start();
   const before = frames(renderer);
-  assert.ok(
-    before.includes("[Alt+Enter]打断并发送"),
-    "输入态显示默认按键提示: " + before,
-  );
+  assert.ok(before.includes("[C-d]退出"), "输入态显示默认按键提示: " + before);
   typeAndEnter(renderer, "/skills");
   await tick();
   const after = frames(renderer);
+  assert.ok(!after.includes("[C-d]退出"), "面板态不再显示默认提示: " + after);
   assert.ok(
-    !after.includes("[Alt+Enter]打断并发送"),
-    "面板态不再显示默认提示: " + after,
-  );
-  assert.ok(
-    after.includes("↑/↓ 选择"),
+    after.includes("[↑/↓]选择"),
     "面板态提示区显示面板键位（见 layout/hints.ts）: " + after,
   );
   app.dispose();
@@ -593,12 +587,12 @@ test("接线：面板态交互区几何不变（底线位置一致，提示区�
     "底线位置一致（footerHeight 不变、提示区恒 1 行）",
   );
   assert.ok(
-    baseRows.some((l) => l.includes("[Alt+Enter]打断并发送")),
+    baseRows.some((l) => l.includes("[C-d]退出")),
     "输入态有按键提示行",
   );
   assert.ok(
-    !openRows.some((l) => l.includes("[Alt+Enter]打断并发送")),
-    "面板态不再显示默认提示（提示区换为面板键位，仍是 1 行）",
+    !openRows.some((l) => l.includes("[C-d]退出")),
+    "面板态不再显示默认提示（提示区换为面板键位，同为 1 行）",
   );
 });
 

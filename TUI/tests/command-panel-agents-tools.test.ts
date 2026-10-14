@@ -448,15 +448,15 @@ test("渲染：agents 的 running 黄、inactive/diagnostic 灰（statusMark 口
 
 test("底部提示按 kind 区分：agents = Enter 中断，skills/tools = Enter 详情", () => {
   assert.ok(
-    commandPanelHint("agents").includes("Enter 中断"),
+    commandPanelHint("agents").includes("[Enter]中断"),
     commandPanelHint("agents"),
   );
   assert.ok(
-    commandPanelHint("skills").includes("Enter 详情"),
+    commandPanelHint("skills").includes("[Enter]详情"),
     commandPanelHint("skills"),
   );
   assert.ok(
-    commandPanelHint("tools").includes("Enter 详情"),
+    commandPanelHint("tools").includes("[Enter]详情"),
     commandPanelHint("tools"),
   );
 });
@@ -548,14 +548,17 @@ test("/agents：子代理生命周期事件 → 状态列即时保鲜；面板�
   app.dispose();
 });
 
-test("/agents：提示含 r 刷新（agents 专属）；skills/tools 不含", () => {
+test("/agents：提示含 [r]刷新（agents 专属）；skills/tools 不含", () => {
   assert.ok(
-    commandPanelHint("agents").includes("r 刷新"),
-    "agents 含 r 刷新: " + commandPanelHint("agents"),
+    commandPanelHint("agents").includes("[r]刷新"),
+    "agents 含 [r]刷新: " + commandPanelHint("agents"),
   );
-  assert.ok(!commandPanelHint("tools").includes("r 刷新"), "tools 不含 r 刷新");
   assert.ok(
-    !commandPanelHint("skills").includes("r 刷新"),
-    "skills 不含 r 刷新",
+    !commandPanelHint("tools").includes("[r]刷新"),
+    "tools 不含 [r]刷新",
+  );
+  assert.ok(
+    !commandPanelHint("skills").includes("[r]刷新"),
+    "skills 不含 [r]刷新",
   );
 });

@@ -94,8 +94,8 @@
         "ansi": ""
       },
       {
-        "text": "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [Ctrl+J]输入换行 · [C",
-        "ansi": "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [Ctrl+J]输入换行 · [C"
+        "text": "[C-d]退出 · [C-l]重绘 · [C-n/p]历史 · [/help]",
+        "ansi": "[C-d]退出 · [C-l]重绘 · [C-n/p]历史 · [/help]"
       }
     ]
   },
@@ -194,8 +194,8 @@
         "ansi": ""
       },
       {
-        "text": "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [Ctrl+J]输入换行 · [C",
-        "ansi": "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [Ctrl+J]输入换行 · [C"
+        "text": "[C-d]退出 · [C-l]重绘 · [C-n/p]历史 · [/help]",
+        "ansi": "[C-d]退出 · [C-l]重绘 · [C-n/p]历史 · [/help]"
       }
     ]
   },
@@ -294,8 +294,8 @@
         "ansi": ""
       },
       {
-        "text": "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [Ctrl+J]输入换行 · [C",
-        "ansi": "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [Ctrl+J]输入换行 · [C"
+        "text": "[C-d]退出 · [C-l]重绘 · [C-n/p]历史 · [/help]",
+        "ansi": "[C-d]退出 · [C-l]重绘 · [C-n/p]历史 · [/help]"
       }
     ]
   },
@@ -394,8 +394,8 @@
         "ansi": ""
       },
       {
-        "text": "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [Ctrl+J]输入换行 · [C",
-        "ansi": "[Alt+Enter]打断并发送 · [Ctrl+L]重绘 · [Ctrl+J]输入换行 · [C"
+        "text": "[C-d]退出 · [C-l]重绘 · [C-n/p]历史 · [/help]",
+        "ansi": "[C-d]退出 · [C-l]重绘 · [C-n/p]历史 · [/help]"
       }
     ]
   },
@@ -490,12 +490,12 @@
         "ansi": ""
       },
       {
-        "text": "",
-        "ansi": ""
+        "text": "[C-d]退出",
+        "ansi": "[C-d]退出"
       },
       {
-        "text": "[Alt+Enter]打断并发 ",
-        "ansi": "[Alt+Enter]打断并发 "
+        "text": "[C-l]重绘",
+        "ansi": "[C-l]重绘"
       }
     ]
   },
@@ -590,12 +590,12 @@
         "ansi": ""
       },
       {
-        "text": "",
-        "ansi": ""
+        "text": "[C-d]退出",
+        "ansi": "[C-d]退出"
       },
       {
-        "text": "[Alt+Enter]打断并发 ",
-        "ansi": "[Alt+Enter]打断并发 "
+        "text": "[C-l]重绘",
+        "ansi": "[C-l]重绘"
       }
     ]
   },
@@ -690,12 +690,12 @@
         "ansi": ""
       },
       {
-        "text": "",
-        "ansi": ""
+        "text": "[C-d]退出",
+        "ansi": "[C-d]退出"
       },
       {
-        "text": "[Alt+Enter]打断并发 ",
-        "ansi": "[Alt+Enter]打断并发 "
+        "text": "[C-l]重绘",
+        "ansi": "[C-l]重绘"
       }
     ]
   },
@@ -790,12 +790,12 @@
         "ansi": ""
       },
       {
-        "text": "",
-        "ansi": ""
+        "text": "[C-d]退出",
+        "ansi": "[C-d]退出"
       },
       {
-        "text": "[Alt+Enter]打断并发 ",
-        "ansi": "[Alt+Enter]打断并发 "
+        "text": "[C-l]重绘",
+        "ansi": "[C-l]重绘"
       }
     ]
   },
@@ -894,8 +894,8 @@
         "ansi": "                                                            "
       },
       {
-        "text": "▶选项·[Enter]提交·[Esc]取消·[↑/↓]选项·[Tab]草稿·[1/2]直答",
-        "ansi": "▶选项·[Enter]提交·[Esc]取消·[↑/↓]选项·[Tab]草稿·[1/2]直答"
+        "text": "[Enter]提交 · [Esc]取消 · [↑/↓]选项 · [Tab]草稿 · [1/2]直答",
+        "ansi": "[Enter]提交 · [Esc]取消 · [↑/↓]选项 · [Tab]草稿 · [1/2]直答"
       }
     ]
   },
@@ -990,12 +990,12 @@
         "ansi": "                                                            "
       },
       {
-        "text": "                                                            ",
-        "ansi": "                                                            "
+        "text": "[Enter]提交 · [Esc]取消 · [↑/↓]选项 · [Space]标记",
+        "ansi": "[Enter]提交 · [Esc]取消 · [↑/↓]选项 · [Space]标记"
       },
       {
-        "text": "▶选项·[Enter]提交·[Esc]取消·[↑/↓]选项·[空格/1-9]标记·[Tab]描",
-        "ansi": "▶选项·[Enter]提交·[Esc]取消·[↑/↓]选项·[空格/1-9]标记·[Tab]描"
+        "text": "[1-9]标记 · [Tab]描述",
+        "ansi": "[1-9]标记 · [Tab]描述"
       }
     ]
   },
@@ -1082,20 +1082,20 @@
         "ansi": "\u001b[38;2;90;152;243m────────────────────────────────────────────────────────────\u001b[38;2;201;220;222m"
       },
       {
-        "text": "                                                            ",
-        "ansi": "                                                            "
+        "text": "筛选 provider: 输入以筛选 (匹配度排序)",
+        "ansi": "筛选 provider: 输入以筛选 (匹配度排序)"
       },
       {
-        "text": "                                                            ",
-        "ansi": "                                                            "
+        "text": "",
+        "ansi": ""
       },
       {
-        "text": "                                                            ",
-        "ansi": "                                                            "
+        "text": "[输入]筛选 · [↑/↓]移动 · [Space]预选 · [Tab]切列",
+        "ansi": "[输入]筛选 · [↑/↓]移动 · [Space]预选 · [Tab]切列"
       },
       {
-        "text": "[↑/↓]移动 · [空格]预选 · [←/→/Tab]切列 · [Enter]提交 · [Esc]",
-        "ansi": "[↑/↓]移动 · [空格]预选 · [←/→/Tab]切列 · [Enter]提交 · [Esc]"
+        "text": "[Enter]提交 · [Esc]清空/取消",
+        "ansi": "[Enter]提交 · [Esc]清空/取消"
       }
     ]
   },
@@ -1194,8 +1194,8 @@
         "ansi": "                                                            "
       },
       {
-        "text": "[Enter]提交 · [空格]预选 · [↑/↓]选项 · [Esc]取消",
-        "ansi": "[Enter]提交 · [空格]预选 · [↑/↓]选项 · [Esc]取消"
+        "text": "[Enter]提交 · [Space]预选 · [↑/↓]选项 · [Esc]取消",
+        "ansi": "[Enter]提交 · [Space]预选 · [↑/↓]选项 · [Esc]取消"
       }
     ]
   },
@@ -1390,12 +1390,12 @@
         "ansi": "                                                            "
       },
       {
-        "text": "                                                            ",
-        "ansi": "                                                            "
+        "text": "[↑/↓]移动 · [Space]标记 · [a]全选 · [c]清空 · [d]删除",
+        "ansi": "[↑/↓]移动 · [Space]标记 · [a]全选 · [c]清空 · [d]删除"
       },
       {
-        "text": "[↑/↓]移动 · [Space]标记 · [a]全选 · [c]清空 · [d]删除 · [Tab",
-        "ansi": "[↑/↓]移动 · [Space]标记 · [a]全选 · [c]清空 · [d]删除 · [Tab"
+        "text": "[Tab]范围 · [Enter]切换 · [x]清理空会话 · [Esc]关闭",
+        "ansi": "[Tab]范围 · [Enter]切换 · [x]清理空会话 · [Esc]关闭"
       }
     ]
   },
@@ -1494,8 +1494,8 @@
         "ansi": ""
       },
       {
-        "text": "[tab]补全 · [↑/↓]选择 · [esc]收起",
-        "ansi": "[tab]补全 · [↑/↓]选择 · [esc]收起"
+        "text": "[Tab]补全 · [↑/↓]选择 · [Esc]收起",
+        "ansi": "[Tab]补全 · [↑/↓]选择 · [Esc]收起"
       }
     ]
   }

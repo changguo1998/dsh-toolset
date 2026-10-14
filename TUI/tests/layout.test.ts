@@ -431,7 +431,11 @@ test("补全面板两态：提示行区分命令补全与文件提及，面板�
   // 提示行两态：文件提及态给「插入」文案（Tab 的语义是插入提及，不是补全命令）
   assert.equal(hintLine(cmd), COMPLETION_HINT_LINE);
   assert.equal(hintLine(file), FILE_MENTION_HINT_LINE);
-  assert.equal(hintLine(base), HINT_LINE, "无候选时回到普通输入提示");
+  assert.equal(
+    hintLine(base),
+    HINT_LINE,
+    "无候选时回到普通输入提示（空输入组）",
+  );
 
   const rows = buildFrame(file, size).map(rowText);
   assert.ok(
@@ -447,7 +451,7 @@ test("补全面板两态：提示行区分命令补全与文件提及，面板�
     "文件候选路径",
   );
   assert.ok(
-    rows.some((l) => l.includes("[tab]插入")),
+    rows.some((l) => l.includes("[Tab]插入")),
     "提示行",
   );
   // 面板与命令补全共用活动区窗口：帧几何不因候选类别改变

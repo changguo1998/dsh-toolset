@@ -2566,20 +2566,35 @@ export class App {
       return;
     }
 
-    // Ctrl+S：切换垂直状态列显隐（P7）。隐藏后历史区变宽，需要整帧重排；
-    // 显隐状态随会话持久化（tui-state.json）。
+    // Ctrl+S：聚焦状态列；该列已聚焦时收起（隐藏）+ 焦点回会话区。
+    // 「一键一区域」（2026-10-14 用户裁定，取代「Tab 焦点循环 + 纯显隐开关」两态）；
+    // 收起后历史区变宽，需要整帧重排；显隐状态随会话持久化（tui-state.json）。
     if (ctrl && name === "s") {
-      this.apply((s) => reduceState(s, { type: "status-column" }));
+      this.apply((s) =>
+        reduceState(s, { type: "focus-panel", panel: "status" }),
+      );
       this.scheduleSessionStateSave();
       this.paint();
       return;
     }
 
-    // Ctrl+T：切换下半区（Turn 流 + Tool 面板区）显隐（#9）。隐藏后对话区变高，
-    // 需要整帧重排；显隐状态随会话持久化（tui-state.json）。
+    // Ctrl+T：聚焦回合区（下半区：Turn 流 + Tool 面板区）；已聚焦时收起 + 焦点回会话区（同上口径）。
+    // 收起后对话区变高，需要整帧重排；显隐状态随会话持久化（tui-state.json）。
     if (ctrl && name === "t") {
-      this.apply((s) => reduceState(s, { type: "lower-panes" }));
+      this.apply((s) =>
+        reduceState(s, { type: "focus-panel", panel: "activity" }),
+      );
       this.scheduleSessionStateSave();
+      this.paint();
+      return;
+    }
+
+    // Ctrl+E：聚焦会话区（历史 pane）；已聚焦时回到无焦点（= 跟随最新）。会话区恒显示，
+    // 无显隐可持久化，故不触发 sessionStateSave。
+    if (ctrl && name === "e") {
+      this.apply((s) =>
+        reduceState(s, { type: "focus-panel", panel: "history" }),
+      );
       this.paint();
       return;
     }
@@ -2641,7 +2656,7 @@ export class App {
         }
         // Esc：排队消息先退回输入框（核心 cancel 会清空自己的 next-turn 队列，
         // 留在本机不丢用户输入）；再打断运行（picker 面板已在上方分支关闭）。
-        // idle + 空输入：退出顶部面板焦点循环（有焦点 → 回到无焦点）
+        // idle + 空输入：退出面板焦点（有焦点 → 回到无焦点；聚焦改用 Ctrl+E / T / S，Tab 不再进焦点）
         const restored = this.restoreQueued();
         if (this.state.agentStatus !== "idle") {
           this.deps.adapter.interrupt();
@@ -2657,12 +2672,9 @@ export class App {
         // 补全候选打开时 Tab 接受默认选中的候选（补全不提交）
         if (this.state.completion) {
           this.acceptCompletion();
-          break;
         }
-        // Tab：仅输入区为空时循环切换顶部面板焦点（编辑输入时保留 Tab 不打断）
-        if (this.state.inputText === "") {
-          this.apply((s) => reduceState(s, { type: "focus-panel-cycle" }));
-        }
+        // 顶部面板焦点已改由 Ctrl+E / Ctrl+T / Ctrl+S 独占（一键一区域），
+        // Tab 不再有全局语义：仅「补全 / 面板内切窗」——编辑输入时也不打断输入
         break;
       case "up":
       case "down": {

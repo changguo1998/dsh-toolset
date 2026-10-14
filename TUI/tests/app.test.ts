@@ -595,7 +595,7 @@ test("审批无效键：提示落在用户输入区（按键提示正上方）�
     "提示应在面板下方（用户输入区）",
   );
   // 用户输入区可能占多行（footerHeight > 1），按键提示区在其**下方**若干行内
-  const keysIdx = lines.findIndex((l) => l.includes("▶选项·"));
+  const keysIdx = lines.findIndex((l) => l.includes("[Enter]提交 · [Esc]取消"));
   assert.ok(
     keysIdx > hintIdx,
     "按键提示区位于提示行下方（屏幕左下）: " +
@@ -622,21 +622,25 @@ test("审批面板：Tab 切焦点窗，↑/↓ 语义随焦点窗分派（BACKL
   // 断言用去色文本（选项行带 SGR 着色；plainFrame 仅去掉行尾填充，故此处再剥一层 SGR）
   const frame = (): string =>
     plainFrame(renderer).replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
-  // 缺省焦点在选项窗：↑/↓ 移动「批准 / 拒绝」
-  assert.ok(frame().includes("▶选项"), "缺省焦点窗 = 选项");
+  // 缺省焦点在选项窗：提示区 `↑/↓` 文案为「选项」；↑/↓ 移动「批准 / 拒绝」
+  // （2026-10-14 起提示行不再放 `▶选项` 前缀，焦点窗由面板内的焦点条呈现）
+  assert.ok(
+    frame().includes("[↑/↓]选项") && !frame().includes("[↑/↓]滚动"),
+    "缺省焦点窗 = 选项",
+  );
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(
     / >  2\. 拒绝/.test(frame()),
     "↓ 移到拒绝项: " + frame().slice(0, 200),
   );
-  // Tab → 描述窗：提示前缀切换，↑/↓ 不再移动选项（改为滚草稿）
+  // Tab → 描述窗：提示区文案切到「滚动」，↑/↓ 不再移动选项（改为滚草稿）
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
-  assert.ok(frame().includes("▶草稿"), "Tab 后焦点窗 = 草稿");
+  assert.ok(frame().includes("[↑/↓]滚动"), "Tab 后焦点窗 = 草稿");
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(/ >  2\. 拒绝/.test(frame()), "焦点在草稿窗时 ↓ 不移动选项");
   // Tab 切回选项窗，焦点项仍在拒绝
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
-  assert.ok(frame().includes("▶选项"), "Tab 切回选项窗");
+  assert.ok(frame().includes("[↑/↓]选项"), "Tab 切回选项窗");
   assert.ok(/ >  2\. 拒绝/.test(frame()), "切回后选项焦点保持");
 });
 
@@ -1552,11 +1556,11 @@ test("输入补全：键位提示在输入区下方提示区, 活动区只放候
   // 提示行唯一且落在最后一行（输入区下方的按键提示区）
   const hintRows = rows
     .map((l, i) => [i, l] as const)
-    .filter(([, l]) => l.includes("[tab]补全"));
+    .filter(([, l]) => l.includes("[Tab]补全"));
   assert.equal(
     hintRows.length,
     1,
-    `[tab]补全 提示应恰好一行: ${plainFrame(renderer)}`,
+    `[Tab]补全 提示应恰好一行: ${plainFrame(renderer)}`,
   );
   assert.equal(
     hintRows[0]![0],
@@ -1569,7 +1573,7 @@ test("输入补全：键位提示在输入区下方提示区, 活动区只放候
     `默认焦点候选应显示: ${plainFrame(renderer)}`,
   );
   assert.ok(
-    !plainFrame(renderer).includes("[Alt+Enter]打断并发送"),
+    !plainFrame(renderer).includes("[C-d]退出"),
     "补全打开时底部提示区不再显示默认提示",
   );
 });
@@ -2400,7 +2404,8 @@ test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多�
   // Tab 切焦点窗（BACKLOG 3.2.1）
   assert.ok(plain.includes("[Enter]下一题"), "非末题 Enter 显示下一题");
   assert.ok(!plain.includes("提交"), "非末题不显示提交");
-  assert.ok(plain.includes("[空格/1-9]标记"), "有预设选项显示空格/数字标记");
+  assert.ok(plain.includes("[Space]标记"), "有预设选项显示空格标记键");
+  assert.ok(plain.includes("[1-9]标记"), "有预设选项显示数字标记键");
   assert.ok(plain.includes("[↑/↓]选项"), "有预设选项显示上下导航");
   assert.ok(plain.includes("[←/→]切题"), "多题显示切题");
   assert.ok(plain.includes("[Tab]描述"), "焦点在选项窗时提示 Tab 切到描述窗");
@@ -2554,8 +2559,8 @@ test("问答面板：Tab 切焦点窗（描述窗 <-> 选项窗），不落入�
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   assert.ok(plainFrame(renderer).includes("[↑/↓]滚动"), "Tab 切到描述窗");
   assert.ok(
-    plainFrame(renderer).includes("▶题干"),
-    "提示区显式标出当前焦点窗（BACKLOG 3.2.8）",
+    plainFrame(renderer).includes("[Tab]选项"),
+    "提示区随焦点窗切换 Tab 文案（BACKLOG 3.2.1）",
   );
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(
@@ -3930,15 +3935,20 @@ test("帮助文案：/help 说明统一中文（命令名与参数标识符保�
   assert.ok(text.includes("/collapse on|off"), "参数标识符保留英文");
 });
 
-test("提示区：Ctrl+S 键位文案为「切换状态列」", () => {
+test("提示区：有输入时只列编辑键（区域键 C-e/C-t/C-s 不露出）", () => {
   const { renderer } = makeApp();
   renderer.size = { cols: 100, rows: 30 };
   renderer.press({ name: "a", ctrl: false, meta: false, shift: false });
-  const hint = renderer.lastRender.find((l) => l.includes("[Ctrl+S]"));
-  assert.ok(hint, `提示区应含 Ctrl+S 键位: ${plainFrame(renderer)}`);
+  const hint = renderer.lastRender.find((l) => l.includes("[C-c]清空"));
+  assert.ok(hint, `有输入时提示区应含编辑键: ${plainFrame(renderer)}`);
+  assert.ok(hint!.includes("[C-j]换行"), `文案应含换行键: ${hint}`);
+  // 用户裁定：区域键不在提示行露出
+  const joined = renderer.lastRender.join("\n");
   assert.ok(
-    hint!.includes("[Ctrl+S]切换状态列"),
-    `文案应说明为切换状态列: ${hint}`,
+    !joined.includes("[C-s]") &&
+      !joined.includes("[C-t]") &&
+      !joined.includes("[C-e]"),
+    `区域键不露出: ${hint}`,
   );
 });
 
@@ -4097,13 +4107,13 @@ test("frameGeometry：页高口径与 buildFrame 一致（rows=24 → 状态列�
   assert.equal(g.viewportH, 6, "无排队块时历史视口 = 对话 pane 高");
 });
 
-test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 ↑/PgUp 滚动帮助", async () => {
+test("顶部面板：Ctrl+T 聚焦活动区，↑/PgUp 滚动帮助", async () => {
   const { renderer } = makeApp();
   const strip = (l: string): string => l.replace(/\u001b\[[0-9;]*m/g, "");
   const hint = (): string => {
     const h = renderer.lastRender
       .map(strip)
-      .find((l) => l?.startsWith("[Alt+Enter]"));
+      .find((l) => l?.startsWith("[C-d]退出"));
     return h ?? "";
   };
   // 活动区正文 = 实线分隔行与状态区上边分隔行之间：取左侧历史/活动区段（右侧为状态列）
@@ -4128,6 +4138,12 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
     meta: false,
     shift: false,
   });
+  const ctrlKey = (name: string): KeyEvent => ({
+    name,
+    ctrl: true,
+    meta: false,
+    shift: false,
+  });
 
   // 焦点标签追加在 hint 行尾，80 列会被截断；加宽到 120 列保证可断言
   const size = { cols: 120, rows: 24 } as const;
@@ -4140,9 +4156,8 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
     "默认（距底部=0）活动区显示帮助尾部（帮助文末行）",
   );
 
-  // 默认无焦点 → Tab 进入历史 → 再 Tab 到流输出：↑ 上滚一行 → 显示更早一行
-  renderer.press(key("tab")); // null → 历史
-  renderer.press(key("tab")); // 历史 → 流输出
+  // 默认无焦点 → Ctrl+T 聚焦流输出：↑ 上滚一行 → 显示更早一行
+  renderer.press(ctrlKey("t")); // Ctrl+T：聚焦回合区（一键一区域）
   const upBefore = actBody()[0];
   renderer.press(key("up"));
   assert.notEqual(
@@ -4159,10 +4174,8 @@ test("顶部面板：Tab 循环焦点（hint 标签更新），焦点活动区 �
   renderer.press(key("pagedown"));
   assert.notEqual(actBody()[0], "本地命令：", "整页下翻离开首行（向尾部翻）");
 
-  // Tab 两圈回到历史（hint 无标签，不再逐项断言；焦点滚动效果已在上面覆盖）
-  renderer.press(key("tab"));
-  renderer.press(key("tab"));
-  renderer.press(key("tab"));
+  // Esc 退出焦点（hint 无标签，不再逐项断言；焦点滚动效果已在上面覆盖）
+  renderer.press(key("escape"));
 });
 
 test("无焦点空输入：↑ 上滚对话区，展开折叠的更早回复", () => {
@@ -4188,7 +4201,7 @@ test("无焦点空输入：↑ 上滚对话区，展开折叠的更早回复", (
   app.dispose();
 });
 
-test("Esc（idle+空输入）退出顶部焦点循环：有焦点 → 无焦点", () => {
+test("Esc（idle+空输入）退出顶部焦点：有焦点 → 无焦点", () => {
   const { app, renderer } = makeApp();
   const key = (name: string): KeyEvent => ({
     name,
@@ -4201,14 +4214,14 @@ test("Esc（idle+空输入）退出顶部焦点循环：有焦点 → 无焦点"
   const hasFocusVBar = (): boolean =>
     renderer.lastRender.some((l) => l.includes("\x1b[38;2;159;238;250m│"));
   assert.ok(!hasFocusVBar(), "初始无焦点：框线为边框色");
-  renderer.press(key("tab")); // null → history
-  assert.ok(hasFocusVBar(), "Tab 后 history 焦点（既有竖线转焦点色）");
+  renderer.press({ name: "e", ctrl: true, meta: false, shift: false }); // Ctrl+E → history
+  assert.ok(hasFocusVBar(), "Ctrl+E 后 history 焦点（既有竖线转焦点色）");
   renderer.press(key("escape")); // idle + 空输入 → 无焦点
   assert.ok(!hasFocusVBar(), "Esc 后回无焦点（框线回边框色）");
   app.dispose();
 });
 
-test("Tab 仅在输入区为空时切换焦点；有输入时不响应（编辑不被打断）", () => {
+test("Tab 不再有全局语义：空输入 / 有输入都不改变焦点，hint 稳定", () => {
   const { renderer } = makeApp();
   // 焦点标签追加在 hint 行尾，80 列会被截断；加宽到 120 列保证可断言
   renderer.size = { cols: 120, rows: 24 };
@@ -4216,7 +4229,7 @@ test("Tab 仅在输入区为空时切换焦点；有输入时不响应（编辑�
   const hint = (): string => {
     const h = renderer.lastRender
       .map(strip)
-      .find((l) => l?.startsWith("[Alt+Enter]"));
+      .find((l) => l?.startsWith("[C-d]退出") || l?.startsWith("[C-c]清空"));
     return h ?? "";
   };
   const key = (name: string): KeyEvent => ({
@@ -4226,13 +4239,16 @@ test("Tab 仅在输入区为空时切换焦点；有输入时不响应（编辑�
     shift: false,
   });
 
-  // 空输入/输入一个字符/清空输入：Tab 切换焦点（标签已隐藏；焦点恢复切换行为
-  // 由上一测试的活动区滚动断言覆盖，此处仅断言 hint 行稳定、无标签）
+  // 空输入 / 输入一个字符 / 清空输入：Tab 都不再切焦点（顶部焦点改用 Ctrl+E / T / S）
   renderer.press(key("tab"));
   renderer.press(key("a"));
   renderer.press(key("backspace"));
   renderer.press(key("tab"));
   assert.ok(!hint().includes("面板"), "任何状态 hint 不带面板标签");
+  const focused = renderer.lastRender.some((l) =>
+    l.includes("\x1b[38;2;159;238;250m│"),
+  );
+  assert.ok(!focused, "Tab 不再产生顶部面板焦点（无焦点竖线）");
 });
 
 test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ 立即回到跟随最新", async () => {
@@ -4266,14 +4282,12 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
     shift: false,
   });
 
-  renderer.press(key("tab")); // null → 历史
-  renderer.press(key("tab")); // 历史 → 流输出焦点
+  renderer.press({ name: "t", ctrl: true, meta: false, shift: false }); // Ctrl+T → 回合区焦点
   for (let i = 0; i < 30; i++)
     adapter.push({ type: "notice", text: `turn1 行 ${i}` } as DshEvent);
   assert.ok(actFirst().startsWith("turn1 行"), "turn1 显示");
-  // 内容推进（notice）后自动回无焦点；滚动活动区需重新 Tab 进入流输出焦点
-  renderer.press(key("tab")); // null → 历史
-  renderer.press(key("tab")); // 历史 → 流输出
+  // 内容推进（notice）后自动回无焦点；滚动活动区需重新 Ctrl+T 聚焦回合区
+  renderer.press({ name: "t", ctrl: true, meta: false, shift: false });
   for (let i = 0; i < 25; i++) renderer.press(key("up")); // 上滚越过可视上限
   assert.ok(actFirst().startsWith("turn1 行 0"), "上滚后钳制到最早行");
   // 新回合：**用户输入**（提交）触发活动区整体清空（activityScroll 归零 + 自动失焦），
@@ -4288,8 +4302,7 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
     adapter.push({ type: "notice", text: `turn2 行 ${i}` } as DshEvent);
   // 修复前：activityScroll=25 残余，↓ 后死区仍钳在最老 turn2 行；
   // 修复后：turn-begin 已归零，↓ 一次即回到跟随最新（显示 turn2 尾部窗口）
-  renderer.press(key("tab")); // null → 历史
-  renderer.press(key("tab")); // 历史 → 流输出
+  renderer.press({ name: "t", ctrl: true, meta: false, shift: false });
   renderer.press(key("down"));
   assert.ok(
     actFirst().startsWith("turn2 行"),
@@ -4608,8 +4621,7 @@ test("活动区滚动：上滚越顶之后 ↓ 立即响应（activityScroll 收
   renderer.size = { cols: 120, rows: 24 };
   for (let i = 0; i < 30; i++)
     adapter.push({ type: "notice", text: `活动区行 ${i}` } as DshEvent);
-  renderer.press(key("tab")); // null → 历史
-  renderer.press(key("tab")); // 历史 → 活动区焦点
+  renderer.press({ name: "t", ctrl: true, meta: false, shift: false }); // Ctrl+T → 回合区焦点
   const activityScroll = (): number =>
     (app as unknown as { state: { activityScroll: number } }).state
       .activityScroll;
@@ -4632,8 +4644,7 @@ test("Turn 面板焦点：Ctrl+↑/↓ = 半屏（此前与裸 ↑ 同效，半�
   renderer.size = { cols: 120, rows: 24 };
   for (let i = 0; i < 30; i++)
     adapter.push({ type: "notice", text: `活动区行 ${i}` } as DshEvent);
-  renderer.press(key("tab")); // null → 历史
-  renderer.press(key("tab")); // 历史 → 活动区焦点
+  renderer.press(key("t", true)); // Ctrl+T → 回合区焦点
   const scroll = (): number =>
     (app as unknown as { state: { activityScroll: number } }).state
       .activityScroll;

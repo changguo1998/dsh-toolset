@@ -880,10 +880,10 @@ test("面板提示行：确认阶段给 y/n 提示，进行中阶段留空（不
     rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
     rec({ id: "tui-empty001", isEmpty: true, cwd: "/proj", title: "空会话" }),
   ];
-  /** 提示区 = 帧末行 */
+  /** 提示区文本：帧末 2 行（提示区 1 至 2 行；历史列表提示 86 列 → 80 列折 2 行） */
   const hintLine = (): string => {
     const lines = frame().split("\n");
-    return lines[lines.length - 1] ?? "";
+    return lines.slice(-2).join(" ");
   };
   typeAndEnter(renderer, "/session");
   await flush();
@@ -892,7 +892,7 @@ test("面板提示行：确认阶段给 y/n 提示，进行中阶段留空（不
 
   press(renderer, "d");
   assert.ok(hintLine().includes("[y/Enter]确认 · [n/Esc]取消"), "删除确认提示");
-  assert.ok(!frame().includes("打断并发送"), "确认阶段不显示默认提示");
+  assert.ok(!frame().includes("[C-d]退出"), "确认阶段不显示默认提示");
 
   // 挂住 deleting：进行中阶段提示行必须留空（且不透传默认提示）
   let release!: () => void;
@@ -900,8 +900,10 @@ test("面板提示行：确认阶段给 y/n 提示，进行中阶段留空（不
   press(renderer, "y");
   await flush();
   assert.ok(frame().includes("删除中"), "面板显示删除中");
-  assert.equal(hintLine().trim(), "", "deleting 阶段提示行留空");
-  assert.ok(!frame().includes("打断并发送"), "进行中不显示默认提示");
+  assert.ok(
+    !frame().includes("[C-d]退出") && !frame().includes("[d]删除"),
+    "deleting 阶段提示区无键位（也不透传默认提示）",
+  );
   release();
   await flush();
   await flush();
@@ -914,7 +916,10 @@ test("面板提示行：确认阶段给 y/n 提示，进行中阶段留空（不
   press(renderer, "y");
   await flush();
   assert.ok(frame().includes("清理中"), "面板显示清理中");
-  assert.equal(hintLine().trim(), "", "cleaning 阶段提示行留空");
+  assert.ok(
+    !frame().includes("[C-d]退出") && !frame().includes("[y/Enter]确认"),
+    "cleaning 阶段提示区无键位（也不透传默认提示）",
+  );
   release();
   await flush();
   await flush();
