@@ -1,6 +1,6 @@
 # @ 文件提及补全（接取条目：TUI/docs/BACKLOG.md「输入 `@` 时按项目目录补全文件提及」）
 
-状态：规划　　开启：2026-10-14　　关闭：
+状态：实现完成（待真机确认与提交）　　开启：2026-10-14　　关闭：
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -135,15 +135,40 @@
 
 ## 实现记录
 
-（待实现后按时间追加，含关键命令与结果）
+任务树（task-engine，一轮 6 叶子，全部 done）：c1-grammar 语法纯函数 → c2-state 状态层泛化 → c3-adapter 宿主接线 → c4-trigger 触发与接受 → c5-render 面板与提示 → c6-regress 全量回归；deps 按实现依赖串接（c2/c3 ← c1，c4 ← c2+c3，c5 ← c2，c6 ← c4+c5）。
+
+1. **c1**：新增 `src/app/file-mention.ts`（纯函数，官方 grammar 同源复刻）+ `tests/file-mention.test.ts`（11 例）。`npm run check` 退出码 0；`node --experimental-transform-types --test tests/file-mention.test.ts` → 11/11。
+2. **c2**：`src/app/state.ts` 新增 `CompletionState`（command | file 联合）、`fileMentionAvailable` 能力位、`completion-data` / `file-mention-available` 两个 action、`recomputeCompletion` 单一漏斗（替换 4 处 `completeCommandInput` 直调）与 `fillFileCompletion` 过期丢弃。`tests/completion.test.ts` 追加 7 例状态机用例。检查 0 错，24/24 绿（含 input-history 既有用例）。
+3. **c3**：`adapter/types.ts` 新增 `FileReferenceLike` 结构面与 `DshAdapter.listFileCandidates?`、`RealAdapterOptions.fileReferences`；`adapter/dsh.ts` 实现归一与三层降级（未挂载 → undefined、抛错/reject/缺 list → 空数组）；`main.ts` 经 `ctx.get("fileReferences")` 注入。`tests/adapter.dsh.test.ts` 追加 4 例（206/206 绿）。
+4. **c4**：`src/app/index.ts` 接入 `syncFileMentionRequest`（apply 单一漏斗点：60ms 去抖 + AbortController + token 变化才重发）、`acceptFileMention`（按 prefix 就地替换、目录续开）、启动探测与 dispose 清理。`tests/completion.test.ts` 追加 8 例 App 层用例（含挂起式假适配器验证 abort 与迟到结果丢弃）。50/50 绿。
+5. **c5**：`components/CommandCompletion.ts` 泛化出 `renderCompletion` / `buildCompletionBox`（文件提及面板：标题「/文件提及」、目录带尾随 `/`、焦点行着色、超宽截断、超出丢弃）；`layout.ts` 去掉 c2 的临时 kind 守卫；`layout/hints.ts` 新增 `FILE_MENTION_HINT_LINE` 两态提示。`tests/completion.test.ts` 追加 3 例渲染用例、`tests/layout.test.ts` 追加 2 例帧级用例。72/72 绿。
+6. **c6**：TUI `check` 退出码 0、`build` 退出码 0（产物 `dist/src/app/file-mention.js` 已生成）、全量 `npm test` → tests 1583 / pass 1583 / fail 0（7.6s）。
 
 ## 偏差
 
-（待实现后如实填写；没有就写「无」）
+1. **调研 §1 一处事实更正**：官方 `FileReferenceCandidate` 的目录 `path` **不带**尾随 `/`（`dsh-file-reference-local/lib/index.js:167` 构造时只有基名拼接），尾随 `/` 是 `formatFileMention` 在拼写阶段补的。本文档「候选类型」条目的表述有误，实现以源码为准（`file-mention.ts` 的 `formatFileMention` 对目录补 `/`，`mentionInsertText` 对目录不补空格）。
+2. **计划外测试文件**：`TUI/tests/adapter.dsh.test.ts` 不在原「计划改动文件清单」内，但 c3 的验收命令指向它（新增 4 例）。属清单遗漏，非范围扩张。
+3. **`tests/completion.test.ts` 超出「尽量不动」**：原计划只在该文件既有断言被泛化波及处同步，实际追加了 18 例（7 例状态机 + 8 例 App 接线 + 3 例面板渲染）——因为 c2/c4/c5 的 mechanical 验收命令都指向它。既有断言只改了一处类型签名（`names()` 参数放宽为 `readonly`），未删改语义。四处合计新增单测 35 例（语法 11 + 状态机 7 + App 接线 8 + 适配层 4 + 渲染与帧 5）。
+4. **`tests/layout.test.ts` 计划外追加**：c5 的验收命令含该文件，追加 2 例帧级用例（两态提示行 + 面板占用活动区且几何不变）。
+5. **实现顺序内的临时守卫**：c2 落地时 `layout.ts` 与 `index.ts`（`acceptCompletion`）曾各留一处 `kind === "command"` 守卫以保证每步可编译，c5 / c4 已分别回收，终态无残留。
 
 ## 测试与证据
 
-（待实现后补：命令 + 输出 / 真机现象 / 残留检查）
+命令与结果（全部在 `TUI/` 下执行）：
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm run check` | 退出码 0（终态） |
+| `npm run build` | 退出码 0，`dist/src/app/file-mention.js` 存在 |
+| `npm test`（全量） | tests 1583 / pass 1583 / fail 0，7.6s，自然退出无悬挂 |
+| `node --experimental-transform-types --test tests/file-mention.test.ts` | 11 / 11 |
+| 同上 + `tests/completion.test.ts tests/input-history.test.ts` | 24 / 24 |
+| 同上 + `tests/adapter.dsh.test.ts` | 206 / 206 |
+| 同上 + `tests/completion.test.ts tests/panel.test.ts tests/layout.test.ts` | 72 / 72 |
+
+覆盖的验收面（对应 BACKLOG 条目验收 ①-⑦）：① `@` 后出候选并按 token 变化查询（App 层用例断言查询词与回填）；② Tab 就地替换（含空格路径走 `@"…"`、尾随空格、光标落位）；③ 目录候选插入 `@dir/` 后自动续开下一级（断言第二次查询词为 `src/`）；④ Esc 收起、↑/↓ clamp 与命令补全同口径；⑤ 服务缺失时无面板无报错（`@` 按普通字符输入）；⑥ 去抖合并 + 新 token abort 在途 + 迟到结果丢弃（挂起式假适配器）；⑦ check / build / 全量测试全绿。
+
+**真机确认（2026-10-14）**：用户重启 `dsh --profile fff` 后实测 `@` 提及补全，确认「可以用了」——验收 ①-④ 的人工确认通过（本记录只陈述用户结论，不代其补充未说明的细节）。
 
 ## 收尾
 

@@ -40,6 +40,7 @@ import {
   type DshUserMessageLike,
   type SessionQueryLike,
   type SessionStoreLike,
+  type FileReferenceLike,
   type AgentRegistryLike,
   type PermissionPresetServiceLike,
   type AgentPresetsLike,
@@ -664,6 +665,11 @@ export async function apply(
     // 历史会话查询服务（ctx.get('sessionQuery')；缺失时 /session 提示不可用）。
     // 读点必须在此（handle 就绪之后）：provider 与 TUI 并发装载，apply 早期读为空
     sessionQuery: readSessionQuery(),
+    // 文件提及服务（ctx.get('fileReferences')，本 profile 由 dsh-file-reference-local 提供）：
+    // 缺失时 `@` 提及补全整体关闭（`@` 按普通字符输入，无面板无报错）
+    fileReferences: (ctx as { get?: (name: string) => unknown }).get?.(
+      "fileReferences",
+    ) as FileReferenceLike | undefined,
     // 会话存储服务（ctx.get('sessions')；live 会话读取原始事件需经它，缺失时降级 readSurface/readSession）
     sessions: (ctx as { get?: (name: string) => unknown }).get?.("sessions") as
       SessionStoreLike | undefined,

@@ -6787,3 +6787,113 @@ test("BACKLOG #23②：steer 认领 → 上一条用户块打 steerContinued（�
     "终态落到该回合最后一个用户块（steer 输入）",
   );
 });
+
+// ---------------------------------------------------------------------------
+// 文件提及候选（ctx.fileReferences.list，TUI#3）
+// ---------------------------------------------------------------------------
+
+test("listFileCandidates: 未挂载 fileReferences → undefined（App 侧关闭该特性）", () => {
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+  });
+  assert.equal(adapter.listFileCandidates, undefined);
+});
+
+test("listFileCandidates: 归一候选（仅取 path/kind、剔除空路径、未知 kind 归 file）", async () => {
+  const seen: { query: string; signal: AbortSignal }[] = [];
+  const fileReferences = {
+    list(_agent: unknown, query: string, signal: AbortSignal) {
+      seen.push({ query, signal });
+      return [
+        { path: "src", kind: "directory" },
+        { path: "src/a.ts", kind: "file" },
+        { path: "", kind: "file" }, // 空路径剔除
+        { kind: "directory" }, // 缺 path 剔除
+        { path: "weird", kind: "???" }, // 未知 kind 归 file（宽松读取）
+      ];
+    },
+  };
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    fileReferences,
+  });
+  const ac = new AbortController();
+  assert.deepEqual(await adapter.listFileCandidates!("sr", ac.signal), [
+    { path: "src", kind: "directory" },
+    { path: "src/a.ts", kind: "file" },
+    { path: "weird", kind: "file" },
+  ]);
+  assert.equal(
+    seen[0]?.query,
+    "sr",
+    "查询词原样透传（provider 侧负责匹配排序）",
+  );
+  assert.equal(
+    seen[0]?.signal,
+    ac.signal,
+    "取消信号原样透传（过期请求可被中止）",
+  );
+});
+
+test("listFileCandidates: 同步抛错与异步 reject 都归一为空数组（静默降级）", async () => {
+  const sync = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    fileReferences: {
+      list() {
+        throw new Error("boom");
+      },
+    },
+  });
+  assert.deepEqual(
+    await sync.listFileCandidates!("x", new AbortController().signal),
+    [],
+  );
+  const async = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    fileReferences: {
+      async list() {
+        throw new Error("boom");
+      },
+    },
+  });
+  assert.deepEqual(
+    await async.listFileCandidates!("x", new AbortController().signal),
+    [],
+  );
+  // 服务对象在场但缺 list 方法：同样降级为空数组（不抛到输入路径上）
+  const noList = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    fileReferences: {} as { list: never },
+  });
+  assert.deepEqual(
+    await noList.listFileCandidates!("x", new AbortController().signal),
+    [],
+  );
+});
+
+test("listFileCandidates: 中止信号触发的 AbortError 也被吞掉（返回空数组）", async () => {
+  const ac = new AbortController();
+  const adapter = createRealDshAdapter({
+    runtime: new FakeRuntime(),
+    sessionId: "s1",
+    agent: new FakeAgent(),
+    fileReferences: {
+      list(_agent, _query, signal) {
+        ac.abort();
+        if (signal.aborted) throw new Error("AbortError");
+        return [];
+      },
+    },
+  });
+  assert.deepEqual(await adapter.listFileCandidates!("x", ac.signal), []);
+});

@@ -30,6 +30,8 @@ import {
   pickerVisibleProviders,
 } from "./picker-filter.ts";
 import type { SectionsState } from "./layout/pipeline/sections.ts";
+import type { ActiveAtToken, FileMentionCandidate } from "./file-mention.ts";
+import { activeAtToken } from "./file-mention.ts";
 import { createSections } from "./layout/pipeline/sections.ts";
 import type { ActivityPlacement } from "./config.ts";
 import {
@@ -415,6 +417,26 @@ export interface CommandPanelState {
   error?: string;
 }
 
+/**
+ * 输入补全候选状态（两类共用一套面板 / 键位 / 可视行口径，见 decisions「面板承载」）：
+ * - `command`：输入仍是首个命令 token（同步可得，本地目录 + 宿主注册表）；
+ * - `file`：提示文本里光标处有活动 `@` token（**异步**：items 首帧为空，App 请求宿主
+ *   `ctx.fileReferences` 后用 completion-data 回填；token 用于接受时就地替换与过期丢弃）。
+ */
+export type CompletionState =
+  | {
+      kind: "command";
+      items: readonly CommandCandidate[];
+      index: number;
+    }
+  | {
+      kind: "file";
+      items: readonly FileMentionCandidate[];
+      index: number;
+      /** 本次候选对应的活动提及 token（prefix = 接受时要替换掉的完整 token） */
+      token: ActiveAtToken;
+    };
+
 export interface AppState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
@@ -558,10 +580,12 @@ export interface AppState {
   jobsPanel: { index: number } | null;
   /** 共享列表面板（/skills、/agents、/tools 共用；null = 未打开） */
   commandPanel: CommandPanelState | null;
-  /** 输入命令补全候选（输入仍处于首个命令 token 时存在；index 0 = 最匹配默认项；null=无候选/未激活） */
-  completion: { items: readonly CommandCandidate[]; index: number } | null;
+  /** 输入补全候选（命令 token 或活动 `@` 提及 token；index 0 = 最匹配默认项；null=无候选/未激活） */
+  completion: CompletionState | null;
   /** 宿主命令注册表目录（ctx.commands.list，启动同步一次；补全候选并入，同名以本地目录优先） */
   registryCommands: readonly CommandCandidate[];
+  /** 宿主文件提及候选服务可用（ctx.fileReferences，启动探测一次）：false 时 `@` 按普通字符输入 */
+  fileMentionAvailable: boolean;
   /** P3：顶部状态列纵向滚动偏移（详细 goal/todo；渲染层 clamp） */
   statusColumnScroll: number;
   /** 顶部三面板键盘选中：null=无焦点（新输入/输出后回到无焦点，Tab 才进入）；history=对话历史 / activity=流输出 / status=详细状态列 */
@@ -796,6 +820,7 @@ export function initialState(
     statusPanel: null,
     completion: null,
     registryCommands: [],
+    fileMentionAvailable: false,
     history: null,
     agentStatus: "idle",
     themeId,
@@ -1286,13 +1311,18 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return moveCompletion(state, action);
       case "completion-close":
         return { ...state, completion: null };
+      case "completion-data":
+        return fillFileCompletion(state, action);
+      case "file-mention-available":
+        return { ...state, fileMentionAvailable: action.available };
       case "command-catalog":
         return {
           ...state,
           registryCommands: action.commands,
-          completion: completeCommandInput(
+          completion: recomputeCompletion(
+            { ...state, registryCommands: action.commands },
             state.inputText,
-            action.commands,
+            state.inputCursor,
             state.inputMode,
           ),
         };
@@ -1718,9 +1748,10 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         return {
           ...state,
           inputMode: action.mode,
-          completion: completeCommandInput(
+          completion: recomputeCompletion(
+            state,
             state.inputText,
-            state.registryCommands,
+            state.inputCursor,
             action.mode,
           ),
         };
@@ -2608,7 +2639,65 @@ export type StateAction =
   /** max = 可视候选数上界（App 按活动区行数给；超出可视区的候选不参与焦点导航） */
   | { type: "completion-move"; delta: number; max?: number }
   | { type: "completion-close" }
+  /** 异步文件候选回填（App 请求宿主 fileReferences 后回写；token 与当前不一致则丢弃） */
+  | {
+      type: "completion-data";
+      token: ActiveAtToken;
+      items: readonly FileMentionCandidate[];
+    }
+  /** 宿主文件提及服务可用性（启动探测一次；false = `@` 按普通字符输入，无面板） */
+  | { type: "file-mention-available"; available: boolean }
   | { type: "command-catalog"; commands: readonly CommandCandidate[] };
+
+/**
+ * 输入变更的单一漏斗点：按「命令 token → 活动 `@` token」顺序重算候选。
+ *
+ * 命令候选同步可得；文件候选是**异步**的——这里只登记活动 token（items 首帧为空），
+ * 由 App 请求宿主服务后用 `completion-data` 回填（回填带过期丢弃）。触发面限提示文本
+ * （steer / followup）：`@` 提及是模型侧提示语法，slash 参数与 shell 命令里无意义
+ * （decisions「触发范围」）；宿主服务未挂载（`fileMentionAvailable=false`）时不产生候选
+ * ——`@` 按普通字符输入，无面板也无报错。
+ */
+function recomputeCompletion(
+  state: AppState,
+  text: string,
+  cursor: number,
+  mode: InputMode,
+): CompletionState | null {
+  const command = completeCommandInput(text, state.registryCommands, mode);
+  if (command) {
+    return { kind: "command", items: command.items, index: command.index };
+  }
+  if (
+    !state.fileMentionAvailable ||
+    (mode !== "steer" && mode !== "followup")
+  ) {
+    return null;
+  }
+  const token = activeAtToken(text, cursor);
+  if (!token) return null;
+  return { kind: "file", items: [], index: 0, token };
+}
+
+/**
+ * 文件候选回填（异步）：只认**仍是同一 token** 的回填——请求期间用户继续输入（token
+ * 变化）或已切到命令候选 / 收起面板时，迟到的结果直接丢弃，面板内容恒与当前 token 一致。
+ */
+function fillFileCompletion(
+  state: AppState,
+  action: Extract<StateAction, { type: "completion-data" }>,
+): AppState {
+  const c = state.completion;
+  if (!c || c.kind !== "file") return state;
+  if (
+    c.token.prefix !== action.token.prefix ||
+    c.token.query !== action.token.query ||
+    c.token.quoted !== action.token.quoted
+  ) {
+    return state;
+  }
+  return { ...state, completion: { ...c, items: action.items, index: 0 } };
+}
 
 function setInput(
   state: AppState,
@@ -2625,9 +2714,10 @@ function setInput(
     inputHistoryCursor: 0,
     inputHistoryDraft: action.text,
     inputHistoryDraftMode: state.inputMode,
-    completion: completeCommandInput(
+    completion: recomputeCompletion(
+      state,
       action.text,
-      state.registryCommands,
+      cursor,
       state.inputMode,
     ),
   };
@@ -2696,11 +2786,7 @@ export function reduceInputHistory(
       inputCursor,
       inputMode,
       inputHistoryCursor,
-      completion: completeCommandInput(
-        inputText,
-        state.registryCommands,
-        inputMode,
-      ),
+      completion: recomputeCompletion(state, inputText, inputCursor, inputMode),
     };
   };
   if (action.action === "push") {

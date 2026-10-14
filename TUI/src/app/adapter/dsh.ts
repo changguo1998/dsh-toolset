@@ -30,6 +30,7 @@
 // signal 中断 → reject。单活动请求守卫：已有待答提问时直接 reject（单面板约束）。
 
 import type { TurnEndReason } from "../state.ts";
+import type { FileMentionCandidate } from "../file-mention.ts";
 import type { BlockDelivery } from "../layout/pipeline/types.ts";
 import { clockHms } from "../clock.ts";
 import type {
@@ -202,6 +203,7 @@ export type {
   AgentPresetsLike,
   JobInfo,
   JobsLike,
+  FileReferenceLike,
 } from "./types.ts";
 export {
   buildApprovalPrompt,
@@ -1305,6 +1307,7 @@ function loopRowDetail(s: LoopSummaryLike): string {
 export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   const { runtime } = opts;
   const sessionQuery = opts.sessionQuery;
+  const fileReferences = opts.fileReferences;
   // 活跃会话引用（可变）：初始来自 opts；resumeTo 切换后指向新 agent/会话。
   // 旧 handle 在切换成功后释放（activeDispose），新 handle 由 adapter.dispose 释放。
   let activeSessionId = opts.sessionId;
@@ -3337,6 +3340,31 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         return undefined;
       }
     },
+    // 提示文本 `@` 提及候选（ctx.fileReferences.list，dsh-file-reference-local 提供实现）：
+    // 服务未挂载 / agent 未就绪 → undefined（App 侧关闭该特性）；查询异常 → 空数组
+    // （静默降级：输入不被补全故障打断，也不弹错）。仅取 path/kind，**不读文件内容**
+    // （宿主契约：选择候选只插入提示文本，读文件由模型侧工具完成）。
+    listFileCandidates: fileReferences
+      ? async (query, signal) => {
+          const agent = activeCommandAgent ?? activeAgent;
+          if (!agent) return [];
+          try {
+            const raw = await fileReferences.list(agent, query, signal);
+            const out: FileMentionCandidate[] = [];
+            for (const r of raw ?? []) {
+              const path = typeof r?.path === "string" ? r.path : "";
+              if (!path) continue;
+              out.push({
+                path,
+                kind: r?.kind === "directory" ? "directory" : "file",
+              });
+            }
+            return out;
+          } catch {
+            return [];
+          }
+        }
+      : undefined,
     // 历史会话列表（宿主挂载 sessionQuery 时可用）：按**编辑时间**从晚到早（TUI#1）；
     // 标题优先官方 session/title 事件（批量折叠），缺失时本地兜底首条用户消息；
     // 同一趟 surface 读取顺带判定 isEmpty（持久化且从未有用户消息 → 可清理）。

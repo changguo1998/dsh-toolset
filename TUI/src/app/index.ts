@@ -64,6 +64,8 @@ import {
   widthOverrideCodePoints,
 } from "./layout/markdown.ts";
 import { readWidthSymbols, writeWidthSymbols } from "./layout/width-symbols.ts";
+import { mentionInsertText, replaceActiveToken } from "./file-mention.ts";
+import type { CompletionState } from "./state.ts";
 import { maxDescScrollFor } from "./components/QuestionPrompt.ts";
 import { maxApprovalScroll } from "./components/ApprovalPrompt.ts";
 
@@ -189,6 +191,9 @@ const SESSION_STATE_SAVE_MS = 400;
 /** 别名段读取失败告警阈值（连续失败次数）：别名段是增强项，session-channel 首连失败会
  *  后台重试，启动窗口内静默；连续失败到阈值才留痕一次 */
 const ALIAS_WARN_AFTER_FAILS = 3;
+/** `@` 提及候选查询的去抖窗口(ms)：连续输入合并为一次宿主查询（provider 侧有索引与缓存，
+ *  窗口取小值——面板要跟手，但不能每个字符都发一次查询） */
+const MENTION_DEBOUNCE_MS = 60;
 
 /** 终端过小判据阈值：宽 ≤ SMALL_TERMINAL_COLS 或 高 ≤ SMALL_TERMINAL_ROWS 视为过小 */
 export const SMALL_TERMINAL_COLS = 16;
@@ -391,6 +396,10 @@ export class App {
   private lastFrameAt = 0;
   /** 窗口末出帧定时器（帧率上限用） */
   private frameTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 提及候选请求：去抖计时器（连续输入合并为一次查询；null=无排队） */
+  private mentionTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 提及候选请求：在途取消句柄（新 token 到来即 abort 上一次；null=无在途） */
+  private mentionAbort: AbortController | null = null;
   private statusTicker: StatusTicker | null = null;
   /** 已渲染的会话别名（TUI#48：值变化才重绘；undefined = 不显示别名段） */
   private aliasCache: string | undefined;
@@ -1054,6 +1063,8 @@ export class App {
     this.refreshCatalogs();
     // 拉取宿主命令注册表目录（输入补全候选；服务缺失时仅本地目录）
     this.refreshCommandCatalog();
+    // 探测宿主文件提及服务（`@` 补全开关；缺失时 `@` 按普通字符输入）
+    this.refreshFileMention();
     // 补会话状态初始值（标题栏状态符号组用；log-only 事件启动不产生，从会话日志折叠一次）
     this.restoreSessionState();
     // 启动自检 kickoff（BACKLOG TUI「启动后自动触发首轮工具调用」）：先挂起，再由下面的
@@ -1469,6 +1480,7 @@ export class App {
     this.stopPanelRefresh();
     this.clearInteractiveBell();
     this.clearFrameTimer();
+    this.cancelMentionRequest();
     // 退出时清理其他空会话（复用 session.autoCleanEmpty 开关）：开启时先打印提示并等待
     // 清理完成，再释放 adapter/关闭渲染器退出；关闭或无可清理服务时保持同步收尾。
     // 注意：仅优雅退出路径（/quit、Ctrl+D、双击 Ctrl+C、插件 unload）覆盖——信号强退
@@ -5458,12 +5470,14 @@ export class App {
   }
   private acceptCompletion(): void {
     const c = this.state.completion;
+    if (!c) return;
+    if (c.kind === "file") {
+      this.acceptFileMention(c);
+      return;
+    }
     // 可见候选内取焦点项（可视行之外的候选已被渲染丢弃，不需也不应被接受）
-    const visible = Math.min(
-      c?.items.length ?? 0,
-      this.completionVisibleRows(),
-    );
-    const item = c?.items[Math.min(c.index, Math.max(0, visible - 1))];
+    const visible = Math.min(c.items.length, this.completionVisibleRows());
+    const item = c.items[Math.min(c.index, Math.max(0, visible - 1))];
     if (!item) return;
     const text =
       (this.state.inputMode === "slash" ? "" : "/") + item.name + " ";
@@ -5471,6 +5485,96 @@ export class App {
       reduceState(s, { type: "input", text, cursor: text.length }),
     );
     this.paint();
+  }
+
+  /**
+   * 接受提及候选（Tab）：按活动 token 的 prefix **就地**替换——`@` 前后的正文都保留
+   * （与命令候选的整串替换不同）。文件补尾随空格收尾该提及；目录不加空格、引号保持打开，
+   * 面板由输入重算自动续开到下一级（新 token 触发下一轮查询）。路径无法安全表示时
+   * （控制字符 / 内嵌引号）不插入、不改输入。
+   */
+  private acceptFileMention(
+    c: Extract<CompletionState, { kind: "file" }>,
+  ): void {
+    const visible = Math.min(c.items.length, this.completionVisibleRows());
+    const item = c.items[Math.min(c.index, Math.max(0, visible - 1))];
+    if (!item) return;
+    const insert = mentionInsertText(item, c.token.quoted);
+    if (insert === undefined) return;
+    const { text, cursor } = replaceActiveToken(
+      this.state.inputText,
+      this.state.inputCursor,
+      c.token.prefix,
+      insert,
+    );
+    this.apply((s) => reduceState(s, { type: "input", text, cursor }));
+    this.paint();
+  }
+
+  /**
+   * 提及候选请求的唯一调度点（每次 apply 后判定）：只认「当前 completion 是 file 类」，
+   * 且 token 与上一状态相比**发生了变化**（连续输入合并到一次查询；同一 token 的重绘
+   * 不重发）。面板收起 / 切到命令候选 → 取消排队与在途请求，不留悬挂。
+   */
+  private syncFileMentionRequest(prev: AppState): void {
+    const c = this.state.completion;
+    if (!c || c.kind !== "file") {
+      this.cancelMentionRequest();
+      return;
+    }
+    const p = prev.completion;
+    const sameToken =
+      p?.kind === "file" &&
+      p.token.prefix === c.token.prefix &&
+      p.token.query === c.token.query &&
+      p.token.quoted === c.token.quoted;
+    if (sameToken) return;
+    const token = c.token;
+    this.cancelMentionRequest();
+    this.mentionTimer = setTimeout(() => {
+      this.mentionTimer = null;
+      const list = this.deps.adapter.listFileCandidates;
+      if (!list) return;
+      const ac = new AbortController();
+      this.mentionAbort = ac;
+      // 服务缺失（旧接线）/ 抛错都已由 adapter 归一为空数组；这里只兜住 Promise 面
+      void list
+        .call(this.deps.adapter, token.query, ac.signal)
+        .then((items) => {
+          if (this.mentionAbort === ac) this.mentionAbort = null;
+          if (this.disposed) return;
+          this.apply((s) =>
+            reduceState(s, { type: "completion-data", token, items }),
+          );
+          this.paint();
+        })
+        .catch(() => {
+          if (this.mentionAbort === ac) this.mentionAbort = null;
+        });
+    }, MENTION_DEBOUNCE_MS);
+    this.mentionTimer.unref?.(); // 不阻止测试进程退出
+  }
+
+  /** 取消提及候选的排队与在途请求（面板收起 / 切类 / 新 token / 释放） */
+  private cancelMentionRequest(): void {
+    if (this.mentionTimer !== null) {
+      clearTimeout(this.mentionTimer);
+      this.mentionTimer = null;
+    }
+    if (this.mentionAbort !== null) {
+      this.mentionAbort.abort();
+      this.mentionAbort = null;
+    }
+  }
+
+  /** 探测宿主文件提及服务（ctx.fileReferences）：可用则打开 `@` 补全；缺失则 `@`
+   *  按普通字符输入（无面板、无报错），与「服务未挂载」的降级口径一致 */
+  private refreshFileMention(): void {
+    const available =
+      typeof this.deps.adapter.listFileCandidates === "function";
+    this.apply((s) =>
+      reduceState(s, { type: "file-mention-available", available }),
+    );
   }
 
   private insertChar(c: string): void {
@@ -5590,6 +5694,9 @@ export class App {
   private apply(fn: (s: AppState) => AppState): void {
     const prev = this.state;
     this.state = fn(prev);
+    // 提及候选（异步）：输入 / 面板变化的唯一漏斗点——token 变了就重排一次查询，
+    // 面板收起或切到命令候选则取消在途请求（覆盖按键路径与事件面路径）
+    this.syncFileMentionRequest(prev);
     // 需交互面板关闭（提交 / 取消 / 超时）→ 停止催促响铃（BACKLOG 3.4.3）；
     // 统一在此判定，覆盖按键路径与事件面路径的全部关闭点
     if (

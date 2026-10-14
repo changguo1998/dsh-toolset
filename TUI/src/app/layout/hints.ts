@@ -21,6 +21,9 @@ export const HINT_LINE =
 /** 补全候选打开（候选面板本身不占活动区行放提示） */
 export const COMPLETION_HINT_LINE = "[tab]补全 · [↑/↓]选择 · [esc]收起";
 
+/** 文件提及候选打开（`@` 补全；Tab 插入提及——目录续开下一级） */
+export const FILE_MENTION_HINT_LINE = "[tab]插入 · [↑/↓]选择 · [esc]收起";
+
 /** 历史会话面板各阶段（list=移动/批量标记/范围切换/开关；view=滚动/翻页；
  *  confirm-*=二次确认；加载类阶段为空串=占位空行） */
 export const HISTORY_LIST_HINT_LINE =
@@ -122,6 +125,7 @@ export function hintLine(state: AppState): string {
   if (state.history) {
     return HISTORY_HINTS[state.history.phase] ?? HISTORY_LOADING_HINT_LINE;
   }
+  if (state.completion?.kind === "file") return FILE_MENTION_HINT_LINE;
   if (state.completion) return COMPLETION_HINT_LINE;
   return HINT_LINE;
 }

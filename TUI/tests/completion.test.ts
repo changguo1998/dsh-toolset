@@ -11,11 +11,21 @@ import {
   isCommandTokenInput,
   LOCAL_COMMANDS,
 } from "../src/app/commands.ts";
-import { renderCommandCompletion } from "../src/app/components/CommandCompletion.ts";
+import {
+  renderCommandCompletion,
+  renderCompletion,
+} from "../src/app/components/CommandCompletion.ts";
+import { initialState, reduceState } from "../src/app/state.ts";
+import { App } from "../src/app/index.ts";
+import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
+import { registerApp } from "./helpers/paintFlush.ts";
+import type { AppState } from "../src/app/state.ts";
+import type { KeyEvent } from "../src/renderer/index.ts";
+import type { ShellRunner } from "../src/app/local-shell.ts";
 import { displayWidth } from "../src/app/layout.ts";
 import { rowAnsi } from "./helpers/rowText.ts";
 
-const names = (items: { name: string }[] | undefined): string[] =>
+const names = (items: readonly { name: string }[] | undefined): string[] =>
   (items ?? []).map((i) => i.name);
 
 test("isCommandTokenInput：仅字面 `/` 开头的单个命令 token", () => {
@@ -191,4 +201,431 @@ test("renderCommandCompletion：候选超出可视行时丢弃多余项（不滚
     completion.items.slice(0, 3).map((i) => i.name),
     "焦点在末尾时仍显示最前面 3 项（不滚动）",
   );
+});
+
+// ---------------------------------------------------------------------------
+// 状态层泛化：命令候选与「@」提及候选走同一套 completion 状态（TUI#3）
+// ---------------------------------------------------------------------------
+
+/** 造一个「宿主文件提及服务可用」的初始状态（缺省探测为 false，`@` 按普通字符输入） */
+function mentionState() {
+  const base = initialState();
+  return reduceState(base, { type: "file-mention-available", available: true });
+}
+
+/** 覆盖：服务未挂载不产生候选、提示文本内 `@` token 触发、shell/slash 不触发、
+ *  命令 token 优先、异步回填与过期丢弃、焦点移动。 */
+test("completion 泛化：服务未挂载时 `@` 不产生候选（无面板无报错）", () => {
+  const s = reduceState(initialState(), {
+    type: "input",
+    text: "@sr",
+    cursor: 3,
+  });
+  assert.equal(s.completion, null);
+});
+
+test("completion 泛化：提示文本里的活动 `@` token 产生文件候选（首帧 items 为空）", () => {
+  const s = reduceState(mentionState(), {
+    type: "input",
+    text: "看下 @sr",
+    cursor: 6,
+  });
+  assert.deepEqual(s.completion, {
+    kind: "file",
+    items: [],
+    index: 0,
+    token: { prefix: "@sr", query: "sr", quoted: false },
+  });
+});
+
+test("completion 泛化：shell / slash 模式不触发提及（`@` 无提示语义）", () => {
+  for (const mode of ["shell", "slash"] as const) {
+    const s = reduceState(mentionState(), { type: "input-mode", mode });
+    const typed = reduceState(s, { type: "input", text: "@sr", cursor: 3 });
+    assert.equal(typed.completion, null, `${mode} 模式不应有提及候选`);
+  }
+  // steer / followup 都触发（followup 为默认输入模式）
+  const fu = reduceState(mentionState(), {
+    type: "input",
+    text: "@a",
+    cursor: 2,
+  });
+  assert.equal(fu.completion?.kind, "file");
+});
+
+test("completion 泛化：命令 token 优先于提及（`/` 开头仍走命令候选）", () => {
+  const s = reduceState(mentionState(), {
+    type: "input",
+    text: "/mo",
+    cursor: 3,
+  });
+  assert.equal(s.completion?.kind, "command");
+  assert.deepEqual(names(s.completion?.items), ["model"]);
+});
+
+test("completion 泛化：异步回填只认同一 token，过期结果丢弃", () => {
+  const s = reduceState(mentionState(), {
+    type: "input",
+    text: "@sr",
+    cursor: 3,
+  });
+  const token = { prefix: "@sr", query: "sr", quoted: false };
+  const filled = reduceState(s, {
+    type: "completion-data",
+    token,
+    items: [
+      { path: "src", kind: "directory" },
+      { path: "src/a.ts", kind: "file" },
+    ],
+  });
+  assert.deepEqual(filled.completion, {
+    kind: "file",
+    items: [
+      { path: "src", kind: "directory" },
+      { path: "src/a.ts", kind: "file" },
+    ],
+    index: 0,
+    token,
+  });
+  // 过期（token 已变）→ 原状态不变
+  const stale = reduceState(filled, {
+    type: "completion-data",
+    token: { prefix: "@srx", query: "srx", quoted: false },
+    items: [{ path: "不该出现", kind: "file" }],
+  });
+  assert.deepEqual(stale.completion, filled.completion);
+  // 引号态不同同样算过期
+  const quoted = reduceState(filled, {
+    type: "completion-data",
+    token: { prefix: "@sr", query: "sr", quoted: true },
+    items: [{ path: "不该出现", kind: "file" }],
+  });
+  assert.deepEqual(quoted.completion, filled.completion);
+});
+
+test("completion 泛化：面板收起 / 切到命令候选后迟到回填被丢弃", () => {
+  const s = reduceState(mentionState(), {
+    type: "input",
+    text: "@sr",
+    cursor: 3,
+  });
+  const closed = reduceState(s, { type: "completion-close" });
+  const afterClose = reduceState(closed, {
+    type: "completion-data",
+    token: { prefix: "@sr", query: "sr", quoted: false },
+    items: [{ path: "src", kind: "directory" }],
+  });
+  assert.equal(afterClose.completion, null, "Esc 收起后不再回填");
+  // 切到命令输入（completion 变 command 类）后文件回填也不生效
+  const cmd = reduceState(s, { type: "input", text: "/m", cursor: 2 });
+  const afterCmd = reduceState(cmd, {
+    type: "completion-data",
+    token: { prefix: "@sr", query: "sr", quoted: false },
+    items: [{ path: "src", kind: "directory" }],
+  });
+  assert.equal(afterCmd.completion?.kind, "command");
+});
+
+test("completion 泛化：焦点移动在可视候选内 clamp（两类同口径）", () => {
+  const s = reduceState(mentionState(), {
+    type: "input",
+    text: "@sr",
+    cursor: 3,
+  });
+  const filled = reduceState(s, {
+    type: "completion-data",
+    token: { prefix: "@sr", query: "sr", quoted: false },
+    items: ["a", "b", "c"].map((p) => ({ path: p, kind: "file" as const })),
+  });
+  const down = reduceState(filled, {
+    type: "completion-move",
+    delta: 1,
+    max: 2,
+  });
+  assert.equal(down.completion?.index, 1);
+  const clamped = reduceState(down, {
+    type: "completion-move",
+    delta: 5,
+    max: 2,
+  });
+  assert.equal(clamped.completion?.index, 1, "可见候选之外的项不参与导航");
+  const up = reduceState(clamped, { type: "completion-move", delta: -5 });
+  assert.equal(up.completion?.index, 0);
+});
+
+// ---------------------------------------------------------------------------
+// App 层接线：`@` 触发（去抖 + 取消）与 Tab 接受（就地替换 / 目录续开）
+// ---------------------------------------------------------------------------
+
+/** 假 shell：本文件不验证 `$` 执行本身，仅需不回真进程 */
+const noopShell: ShellRunner = async () => ({
+  code: 0,
+  signal: null,
+  stdout: "",
+  stderr: "",
+  timedOut: false,
+  truncated: false,
+});
+
+/** 带文件提及服务的假适配器（记录查询词与被取消的请求数；pending=true 时查询挂起等手动放行） */
+class MentionAdapter extends FakeAdapter {
+  queries: string[] = [];
+  aborted = 0;
+  pending = false;
+  candidates: { path: string; kind: "file" | "directory" }[] = [
+    { path: "src", kind: "directory" },
+    { path: "src/app.ts", kind: "file" },
+  ];
+  private resolvers: (() => void)[] = [];
+  listFileCandidates(
+    query: string,
+    signal: AbortSignal,
+  ): Promise<readonly { path: string; kind: "file" | "directory" }[]> {
+    this.queries.push(query);
+    signal.addEventListener("abort", () => {
+      this.aborted += 1;
+    });
+    const items = this.candidates;
+    if (!this.pending) return Promise.resolve(items);
+    return new Promise((resolve) => {
+      this.resolvers.push(() => resolve(items));
+    });
+  }
+  /** 放行全部挂起查询（按发起顺序结算） */
+  releaseAll(): void {
+    const rs = this.resolvers;
+    this.resolvers = [];
+    for (const r of rs) r();
+  }
+}
+
+class TrackedApp extends App {
+  constructor(deps: ConstructorParameters<typeof App>[0]) {
+    super(deps);
+    registerApp(this);
+  }
+}
+
+/** 建 App（真实 start 路径：能力探测在该路径上执行） */
+function makeApp(adapter: FakeAdapter): {
+  app: App;
+  renderer: FakeRenderer;
+  state: () => AppState;
+} {
+  const renderer = new FakeRenderer();
+  const app = new TrackedApp({
+    renderer,
+    adapter,
+    notify: { enabled: false },
+    runShell: noopShell,
+  });
+  app.start();
+  return {
+    app,
+    renderer,
+    state: () => (app as unknown as { state: AppState }).state,
+  };
+}
+
+const key = (name: string): KeyEvent => ({
+  name,
+  ctrl: false,
+  meta: false,
+  shift: false,
+});
+
+/** 逐键输入文本（可打印字符走 insertChar） */
+function type(renderer: FakeRenderer, text: string): void {
+  for (const ch of text) renderer.emitKey(key(ch));
+}
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((r) => setTimeout(r, ms));
+
+/** 等去抖窗口（MENTION_DEBOUNCE_MS=60）过去并让回填落到 state */
+async function settle(): Promise<void> {
+  await sleep(150);
+}
+
+test("App 接线：挂载服务时 `@` 触发查询并回填候选（面板打开）", async () => {
+  const adapter = new MentionAdapter();
+  const { renderer, state } = makeApp(adapter);
+  assert.equal(state().fileMentionAvailable, true, "启动探测到服务可用");
+  type(renderer, "看下 @sr");
+  await settle();
+  assert.deepEqual(adapter.queries, ["sr"], "查询词 = `@` 之后的文本");
+  assert.deepEqual(state().completion, {
+    kind: "file",
+    items: [
+      { path: "src", kind: "directory" },
+      { path: "src/app.ts", kind: "file" },
+    ],
+    index: 0,
+    token: { prefix: "@sr", query: "sr", quoted: false },
+  });
+});
+
+test("App 接线：连续输入合并为一次查询（去抖窗口内只发一次）", async () => {
+  const adapter = new MentionAdapter();
+  const { renderer } = makeApp(adapter);
+  type(renderer, "@s");
+  await sleep(20); // 未到去抖窗口
+  type(renderer, "r");
+  await settle();
+  assert.deepEqual(adapter.queries, ["sr"], "两次输入只在窗口末发一次查询");
+});
+
+test("App 接线：新 token 取消在途请求，迟到的旧结果被丢弃", async () => {
+  const adapter = new MentionAdapter();
+  adapter.pending = true;
+  adapter.candidates = [{ path: "old", kind: "file" }];
+  const { renderer, state } = makeApp(adapter);
+  type(renderer, "@sr");
+  await sleep(90); // 过窗口 → 查询已发出并挂起
+  assert.deepEqual(adapter.queries, ["sr"]);
+  adapter.candidates = [{ path: "new", kind: "file" }];
+  type(renderer, "c"); // 新 token → 取消在途
+  await sleep(90);
+  assert.equal(adapter.aborted, 1, "旧请求被 abort");
+  assert.deepEqual(adapter.queries, ["sr", "src"]);
+  adapter.releaseAll(); // 旧结果（token 已过期）+ 新结果一起放行
+  await sleep(10);
+  const c = state().completion;
+  assert.equal(c?.kind, "file");
+  assert.deepEqual(
+    c?.kind === "file" ? c.items : null,
+    [{ path: "new", kind: "file" }],
+    "面板只认当前 token 的结果",
+  );
+});
+
+test("App 接线：服务缺失时 `@` 按普通字符输入（无面板无报错）", async () => {
+  const adapter = new FakeAdapter(); // 未实现 listFileCandidates
+  const { renderer, state } = makeApp(adapter);
+  assert.equal(state().fileMentionAvailable, false);
+  type(renderer, "@sr");
+  await settle();
+  assert.equal(state().completion, null);
+  assert.equal(state().inputText, "@sr", "文本原样输入");
+});
+
+test("App 接线：Tab 就地替换文件候选（含空格路径走引号 + 尾随空格）", async () => {
+  const adapter = new MentionAdapter();
+  adapter.candidates = [{ path: "my docs/a b.md", kind: "file" }];
+  const { renderer, state } = makeApp(adapter);
+  type(renderer, "看下 @a");
+  await settle();
+  renderer.emitKey(key("tab"));
+  assert.equal(state().inputText, '看下 @"my docs/a b.md" ');
+  assert.equal(state().inputCursor, state().inputText.length);
+  assert.equal(state().completion, null, "文件提及收尾后面板自动收起");
+});
+
+test("App 接线：Tab 接受目录候选 → 保持面板并继续列下一级", async () => {
+  const adapter = new MentionAdapter();
+  adapter.candidates = [{ path: "src", kind: "directory" }];
+  const { renderer, state } = makeApp(adapter);
+  type(renderer, "@s");
+  await settle();
+  renderer.emitKey(key("tab"));
+  assert.equal(state().inputText, "@src/", "目录插入尾随 `/` 且不加空格");
+  await settle();
+  assert.deepEqual(adapter.queries, ["s", "src/"], "自动续开下一级查询");
+  const c = state().completion;
+  assert.equal(c?.kind, "file", "面板保持打开");
+  assert.deepEqual(
+    c?.kind === "file" ? c.token : null,
+    { prefix: "@src/", query: "src/", quoted: false },
+    "活动 token 前进到下一级",
+  );
+});
+
+test("App 接线：Esc 收起面板并取消在途请求", async () => {
+  const adapter = new MentionAdapter();
+  const { renderer, state } = makeApp(adapter);
+  type(renderer, "@sr");
+  await settle();
+  assert.equal(state().completion?.kind, "file");
+  renderer.emitKey(key("escape"));
+  assert.equal(state().completion, null);
+});
+
+test("App 接线：无候选时 Tab 不插入任何文本（不误改输入）", async () => {
+  const adapter = new MentionAdapter();
+  adapter.candidates = [];
+  const { renderer, state } = makeApp(adapter);
+  type(renderer, "@zz");
+  await settle();
+  assert.equal(state().completion?.kind, "file");
+  renderer.emitKey(key("tab"));
+  assert.equal(state().inputText, "@zz", "空候选集下 Tab 不改输入");
+});
+
+// ---------------------------------------------------------------------------
+// 文件提及面板渲染（标题 / 目录尾随 `/` / 焦点高亮 / 超宽截断）
+// ---------------------------------------------------------------------------
+
+test("buildFileMentionCompletionBox：标题 + 目录带 `/` + 焦点行高亮", () => {
+  const items = [
+    { path: "src", kind: "directory" as const },
+    { path: "src/app.ts", kind: "file" as const },
+  ];
+  const rows = renderCompletion({
+    completion: { kind: "file", items, index: 1 },
+    height: 4,
+    width: 40,
+  });
+  assert.equal(rows.length, 4, "输出行数 = height");
+  const text = rows.map((r) => rowAnsi(r));
+  assert.ok(text[0]!.includes("/文件提及"), "标题行");
+  assert.ok(text[1]!.includes("src/"), "目录候选带尾随 `/`（提示可继续下钻）");
+  assert.ok(text[2]!.includes("src/app.ts"), "文件候选路径");
+  // 焦点行：`>` 标记 + yellow 槽位着色（与命令面板同口径；主题把色名映射为真彩 SGR）
+  assert.ok(text[2]!.includes(">"), "焦点行有 `>` 标记");
+  assert.ok(!text[1]!.includes(">"), "非焦点行无标记");
+  assert.ok(text[2]!.includes("\x1b[38;2;"), "焦点行着色");
+  assert.ok(!text[1]!.includes("\x1b["), "非焦点行不额外着色");
+});
+
+test("buildFileMentionCompletionBox：候选超出可视行丢弃、不足补空行", () => {
+  const items = ["a", "b", "c", "d"].map((p) => ({
+    path: p,
+    kind: "file" as const,
+  }));
+  const rows = renderCompletion({
+    completion: { kind: "file", items, index: 0 },
+    height: 3, // 可视候选 = 2
+    width: 20,
+  });
+  assert.equal(rows.length, 3);
+  const body = rows.slice(1).map((r) => rowAnsi(r));
+  assert.ok(body[0]!.includes("a") && body[1]!.includes("b"));
+  assert.ok(
+    !body.some((l) => l.includes("c") || l.includes("d")),
+    "多余候选丢弃",
+  );
+  // 空候选集：只有标题 + 空行（面板仍打开，等异步回填）
+  const empty = renderCompletion({
+    completion: { kind: "file", items: [], index: 0 },
+    height: 3,
+    width: 20,
+  });
+  assert.equal(empty.length, 3);
+  assert.ok(rowAnsi(empty[0]!).includes("/文件提及"));
+});
+
+test("renderCompletion：按 kind 分发（命令候选走命令面板文案）", () => {
+  const cmd = renderCompletion({
+    completion: {
+      kind: "command",
+      items: [{ name: "model", desc: "切换模型" }],
+      index: 0,
+    },
+    height: 3,
+    width: 40,
+  });
+  const text = cmd.map((r) => rowAnsi(r));
+  assert.ok(text[0]!.includes("/命令补全"));
+  assert.ok(text[1]!.includes("/model"));
+  assert.ok(!text[0]!.includes("文件提及"));
 });

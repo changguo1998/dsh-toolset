@@ -12,6 +12,13 @@ import {
 } from "../src/app/layout.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { renderTextInput } from "../src/app/components/TextInput.ts";
+import { buildFrame } from "./helpers/frameWithLocalReplay.ts";
+import {
+  COMPLETION_HINT_LINE,
+  FILE_MENTION_HINT_LINE,
+  HINT_LINE,
+  hintLine,
+} from "../src/app/layout/hints.ts";
 import { rowText, segsAnsi } from "./helpers/rowText.ts";
 
 // ---- charWidth / displayWidth ----
@@ -401,4 +408,70 @@ test("行内 markdown：粗斜/删除线/下划线/转义/自动链接/图片（
   assert.ok(!esc.includes("\x1b[3m"), "\\* 不触发斜体");
   const al = segsAnsi(wrapInlineMarkdown("<https://a.b>", 60)[0]!);
   assert.ok(al.includes("\x1b[4m"), "自动链接下划线");
+});
+
+// ---- 补全面板两态（命令候选 / 文件提及候选，TUI#3）----
+
+test("补全面板两态：提示行区分命令补全与文件提及，面板占用同一活动区窗口", () => {
+  const size = { cols: 100, rows: 30 };
+  const base = initialState();
+  const cmd = reduceState(base, { type: "input", text: "/mo", cursor: 3 });
+  const fileSt = reduceState(
+    reduceState(base, { type: "file-mention-available", available: true }),
+    { type: "input", text: "@sr", cursor: 3 },
+  );
+  const file = reduceState(fileSt, {
+    type: "completion-data",
+    token: { prefix: "@sr", query: "sr", quoted: false },
+    items: [
+      { path: "src", kind: "directory" },
+      { path: "src/app.ts", kind: "file" },
+    ],
+  });
+  // 提示行两态：文件提及态给「插入」文案（Tab 的语义是插入提及，不是补全命令）
+  assert.equal(hintLine(cmd), COMPLETION_HINT_LINE);
+  assert.equal(hintLine(file), FILE_MENTION_HINT_LINE);
+  assert.equal(hintLine(base), HINT_LINE, "无候选时回到普通输入提示");
+
+  const rows = buildFrame(file, size).map(rowText);
+  assert.ok(
+    rows.some((l) => l.includes("/文件提及")),
+    "文件提及面板标题",
+  );
+  assert.ok(
+    rows.some((l) => l.includes("src/")),
+    "目录候选带尾随 `/`",
+  );
+  assert.ok(
+    rows.some((l) => l.includes("src/app.ts")),
+    "文件候选路径",
+  );
+  assert.ok(
+    rows.some((l) => l.includes("[tab]插入")),
+    "提示行",
+  );
+  // 面板与命令补全共用活动区窗口：帧几何不因候选类别改变
+  assert.equal(
+    buildFrame(file, size).length,
+    buildFrame(base, size).length,
+    "帧总行数不变",
+  );
+});
+
+test("文件提及面板：候选超宽按显示列截断（不超框、不切半个 CJK）", () => {
+  const size = { cols: 40, rows: 24 };
+  const st = reduceState(
+    reduceState(initialState(), {
+      type: "file-mention-available",
+      available: true,
+    }),
+    { type: "input", text: "@a", cursor: 2 },
+  );
+  const file = reduceState(st, {
+    type: "completion-data",
+    token: { prefix: "@a", query: "a", quoted: false },
+    items: [{ path: "很长的中文目录名/更长的中文文件名.md", kind: "file" }],
+  });
+  const rows = buildFrame(file, size);
+  assert.equal(rows.length, size.rows, "帧行数 = 终端行数");
 });

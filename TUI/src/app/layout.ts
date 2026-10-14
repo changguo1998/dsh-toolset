@@ -52,7 +52,7 @@ import {
 } from "./components/StatusColumn.ts";
 import { buildCommandListPanelBox } from "./components/CommandListPanel.ts";
 import { buildStatusPanelBox } from "./components/StatusPanel.ts";
-import { buildCommandCompletionBox } from "./components/CommandCompletion.ts";
+import { buildCompletionBox } from "./components/CommandCompletion.ts";
 import type { ColorName } from "../renderer/theme.ts";
 import { buildApprovalBox } from "./components/ApprovalPrompt.ts";
 import {
@@ -902,8 +902,9 @@ function buildActivePanelBox(
       height: activityH,
       width: contentW,
     });
+  // 补全面板（两类共用活动区窗口：命令候选 / 文件提及候选，按 kind 分发渲染）
   if (state.completion)
-    return buildCommandCompletionBox({
+    return buildCompletionBox({
       completion: state.completion,
       height: activityH,
       width: contentW,

@@ -5,6 +5,7 @@
 
 import type { SessionUiState } from "./session-ui-state.ts";
 import type { ActivityLevel, TurnEndReason } from "../state.ts";
+import type { FileMentionCandidate } from "../file-mention.ts";
 import type { BlockDelivery } from "../layout/pipeline/types.ts";
 
 export type AgentStatus = "idle" | "thinking" | "tool" | "done";
@@ -395,6 +396,15 @@ export interface DshAdapter {
   modelCatalog(): Promise<ModelCatalog>;
   /** 宿主命令注册表目录（name+desc，输入补全候选人；服务未挂载/未暴露 list → undefined） */
   commandList?(): readonly { name: string; desc: string }[] | undefined;
+  /**
+   * 提示文本 `@` 提及的候选（ctx.fileReferences.list，服务由 dsh-file-reference-local 提供）。
+   * 服务未挂载 / agent 未就绪 → undefined（App 侧据此关闭该特性：`@` 按普通字符输入）。
+   * `signal` 取消过期请求；查询抛错一律归一为空数组（静默降级，不弹错、不打断输入）。
+   */
+  listFileCandidates?(
+    query: string,
+    signal: AbortSignal,
+  ): Promise<readonly FileMentionCandidate[]>;
   /** 切换当前会话模型（只改会话内 ref，绝不落盘）；返回应用后的选择 */
   setSessionModel(sel: ModelSelection): Promise<ModelSelection>;
   /** 查询指定 provider/model 的可选思考等级；非思考模型或服务缺失返回 undefined */
@@ -1628,6 +1638,22 @@ export interface JobsLike {
     ): () => void;
   };
 }
+/**
+ * 结构面：官方 @deepseek-ai/dsh-file-reference 的 FileReferenceService
+ * （ctx.fileReferences.list）。宿主 provider（dsh-file-reference-local）给的是
+ * **仅路径**候选，带确定性排序与有界索引；本 TUI 只读取路径与类别，不读文件内容。
+ * 字段按宽松口径读取（unknown 收窄，与 commands / sessionQuery 等结构面同构）。
+ */
+export interface FileReferenceLike {
+  list(
+    agent: unknown,
+    query: string,
+    signal: AbortSignal,
+  ):
+    | Promise<readonly { path?: unknown; kind?: unknown }[]>
+    | readonly { path?: unknown; kind?: unknown }[];
+}
+
 export interface RealAdapterOptions {
   runtime: DshRuntime;
   sessionId: string;
@@ -1708,4 +1734,7 @@ export interface RealAdapterOptions {
   /** ctx.get('sessionChannel') 只读面（session-channel 插件 provide）；状态列 Agents 块取
    *  会话别名用，缺失 / 失败静默（不阻塞目录刷新） */
   sessionChannel?: () => SessionChannelLike | undefined;
+  /** ctx.get('fileReferences') 服务（dsh-file-reference，本 profile 由 file-reference-local
+   *  提供实现）；缺失时 `@` 提及补全整体关闭——`@` 按普通字符输入，无面板也无报错 */
+  fileReferences?: FileReferenceLike;
 }
