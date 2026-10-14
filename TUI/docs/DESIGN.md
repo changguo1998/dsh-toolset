@@ -501,12 +501,17 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 - **状态回显**：切换成功后 `systemStatus.model` 更新为 `provider/model` 并写入 notice；`App.start()` 读取 `modelCatalog().current` 写入 `systemStatus.model`。宿主 `agentDefaultModel` 需等 LLM provider 注册后才返回真实路由，故改为常驻跟随 `StatusTicker` 的 1s 周期（值变更才重绘）。
 - **持久化与恢复**：`/model` 只改会话内 `sessionModel.current`（**绝不写宿主 `agentDefaultModel.saveSelection()`**，避免覆盖配置默认模型），同时记入 `state.modelBySession` 供会话状态快照落盘；resume / 启动时按「宿主 `model/selection` → 快照 → 最近 `request/header.config`」恢复并写回引用（详见「会话状态恢复」）。仅内存会话（无持久化目录）没有快照，此时退化为宿主日志口径。
 
-### 命令输入补全
+### 输入补全（命令 / `@` 文件提及）
 
 - `completeCommandInput(text, extra, mode)` 做前缀匹配（名称短 → 长排序，`items[0]` = 最匹配）、**不设硬上限**、同名以本地优先去重；`mode = slash` 时先把「无前导 `/` 的输入框文本」归一为字面 `/name` 再判定（slash 模式的 `/` 由 `App.submit` 提交时才补）。宿主目录经 `adapter.commandList()`（官方 `commands.list(agent)`，仅取 name / description，缺失 / 抛错 → undefined 降级为仅本地命令）。
 - 候选存入 `state.completion`，**唯一计算点在 reducer**：`input` action（`setInput`，所有编辑键的唯一漏斗）、`input-mode`（切换模式重算）、`command-catalog`（宿主目录到达）。
 - 展示复用活动区覆盖层（`components/CommandCompletion.ts`，与审批 / 问答 / picker / 各面板同一渲染链；footer **不**空白占位——补全不占输入区，输入行与光标必须可见）。面板 = 标题 1 行 + (activityH−1) 行候选，候选池足够时铺满活动区（曾设硬上限导致活动区高时底部留白，已移除）；**超出可视行的候选直接丢弃、不滚动窗口**——渲染只取前 activityH−1 项，App 侧 `completionVisibleRows()` 给 `completion-move` 传 `max`，把 `↑/↓` 与 `Tab` 接受也限定在可视范围内。键位提示不放面板内，而在输入区下方的按键提示区（`layout/hints.ts` 的 `COMPLETION_HINT_LINE`；提示区恒 1 行、任何状态都在，文案统一由 `hintLine(state)` 按状态给出）。
 - 按键：`Tab` 接受（写命令名 + 尾随空格，slash 模式不写前导 `/`）、`↑/↓` 移动（在 `handleKey` 的 normal 分支先于面板滚动）、`Esc` 收起（不打断运行）、`Enter` 保持提交语义。
+- **`@` 文件提及**（BACKLOG「输入 `@` 时按项目目录补全文件提及」，2026-10-14）：提示文本（steer / followup）里光标处出现活动 `@` token 时给路径候选，`state.completion` 因此泛化为 `CompletionState = command | file` 联合——面板、键位、`completionVisibleRows()` 口径全部复用，两类只在「候选来源」「标题文案」「接受语义」上分叉。slash 命令参数与 `$` shell 不触发（`@` 只是模型侧提示语法）。
+- token 语法（`activeAtToken`：行首 / 空白后触发、邮箱内 `@` 不触发、光标在 token 中间只取前段）与提及拼写（`formatFileMention` / `mentionInsertText` / `replaceActiveToken`）是本仓对官方 `dsh-file-reference/grammar` 的**同源复刻**（`src/app/file-mention.ts`）：TUI 零运行时依赖、未挂 file-reference 的 profile 静态 import 会整包 `ERR_MODULE_NOT_FOUND`，而本特性本应可降级；漂移由 `tests/file-mention.test.ts` 逐条对齐官方语义兜底（官方 Web 客户端同样把它内联进自己的 bundle）。
+- 候选来源是宿主播缝 `ctx.fileReferences.list(agent, query, signal)`（本 profile 由 `file-reference-local` 提供有界索引与确定性排序），经 `adapter.listFileCandidates()` 归一为 `{path, kind}`（目录 `path` **不带**尾随 `/`，`/` 由拼写阶段补）；服务未挂载 → 启动探测置 `fileMentionAvailable=false`，该特性整体关闭；查询抛错 / reject → 空数组，两者都不弹错，`@` 按普通字符输入。
+- **异步与竞态**：文件候选不能同步得到，reducer 只登记活动 token（items 首帧为空），App 在 `apply()` 的同一漏斗里按「token 变化」重排查询（60ms 去抖合并连续输入）；新 token 到来即 `AbortController.abort()` 上一次在途，回填走 `completion-data` 并**按 token 三元组（prefix / query / quoted）校验**，过期结果直接丢弃——面板内容恒与当前 token 一致（Esc 收起 / 切到命令候选同样取消在途）。
+- **接受语义差异**：命令候选是整串替换，提及候选按 `token.prefix` **就地**替换（保留 `@` 前后的正文）；文件补尾随空格收尾该提及，目录不加空格且引号保持打开（`@"dir/`）→ 输入重算出的新 token 自动续开下一级。提示行两态：`COMPLETION_HINT_LINE`（补全）/ `FILE_MENTION_HINT_LINE`（插入）。
 
 ### 通用状态选项面板（`/policy` `/permission`）
 
