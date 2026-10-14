@@ -56,7 +56,7 @@ test("#5 窗口标题：Session / Turn 各在自己窗口左上角，未聚焦�
 
 test("#5 聚焦时窗口标题转焦点色（青），未聚焦窗口保持边框色", () => {
   let st = initialState();
-  st = reduceState(st, { type: "focus-panel-cycle" }); // null → history
+  st = reduceState(st, { type: "focus-panel", panel: "history" }); // Ctrl+E：聚焦会话区
   let rows = frameOf(st);
   assert.ok(
     rows.some((r) => r.ansi.includes(CYAN + "── Session ──")),
@@ -66,7 +66,7 @@ test("#5 聚焦时窗口标题转焦点色（青），未聚焦窗口保持边�
     !rows.some((r) => r.ansi.includes(CYAN + "── Turn ──")),
     "Turn 标题未聚焦仍边框色",
   );
-  st = reduceState(st, { type: "focus-panel-cycle" }); // history → activity
+  st = reduceState(st, { type: "focus-panel", panel: "activity" }); // Ctrl+T：聚焦回合区
   rows = frameOf(st);
   assert.ok(
     rows.some((r) => r.ansi.includes(CYAN + "── Turn ──")),

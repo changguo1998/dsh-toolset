@@ -27,12 +27,11 @@ function lineColors(rows: string[], symbol: string): string[] {
   return [...set];
 }
 
-/** 构造指定焦点面板的帧（focus-panel-cycle 是 Tab 循环，n 次到达目标） */
+/** 构造指定焦点面板的帧（一键一区域：直接派发 focus-panel，不再走 Tab 循环） */
 function frame(
   themeId: ThemeId,
   focus: "none" | "history" | "activity" | "status",
 ): string[] {
-  const CY = { none: 0, history: 1, activity: 2, status: 3 } as const;
   let s = initialState(themeId);
   // 条目 16 段 A：正文不再写 buffer，改走交付流（帧内容源 = state.pipeline）
   s = {
@@ -51,8 +50,8 @@ function frame(
       },
     ]),
   };
-  for (let i = 0; i < CY[focus]; i++)
-    s = reduceState(s, { type: "focus-panel-cycle" });
+  if (focus !== "none")
+    s = reduceState(s, { type: "focus-panel", panel: focus });
   return buildFrame(s, { rows: 24, cols: 80 }).map((r) => rowAnsi(r, themeId));
 }
 

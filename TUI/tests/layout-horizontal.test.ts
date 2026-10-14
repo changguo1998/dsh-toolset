@@ -178,8 +178,8 @@ test("横向排列：滚动口径与帧内 pane 宽高一致（半屏/翻页/跳
 
 test("横向排列：焦点框落在内部分隔列（历史右缘 / 活动左缘）", () => {
   let s = turnState("auto");
-  // 焦点循环：null → history → activity → status
-  s = reduceState(s, { type: "focus-panel-cycle" });
+  // 一键一区域：Ctrl+E / Ctrl+T 各自聚焦（不再有 Tab 循环）
+  s = reduceState(s, { type: "focus-panel", panel: "history" });
   const hist = buildFrame(s, SIZE).map(rowText);
   assert.equal(
     cols(hist[1]!, 0, 1),
@@ -202,7 +202,7 @@ test("横向排列：焦点框落在内部分隔列（历史右缘 / 活动左�
     "history 底边右端竖线收束",
   );
   assert.equal(cols(hist[12]!, D, D + 1), "┴", "history 底边左端 = D 列 ┴");
-  s = reduceState(s, { type: "focus-panel-cycle" });
+  s = reduceState(s, { type: "focus-panel", panel: "activity" });
   const act = buildFrame(s, SIZE).map(rowText);
   assert.equal(
     cols(act[1]!, DIV_COL, DIV_COL + 1),

@@ -214,7 +214,7 @@ test("P7 标题栏：符号按列宽各占 1 列（窄宽让位计算不因字�
   }
 });
 
-test("P7 Ctrl+S：切换垂直状态列显隐（隐藏 → 列宽 0、历史区吃满整宽）", () => {
+test("P7 Ctrl+S：聚焦 / 收起垂直状态列（收起 → 列宽 0、历史区吃满整宽）", () => {
   const { app, renderer, dispose } = makeApp();
   const size = { rows: 24, cols: 100 };
   const st = (): AppState => (app as unknown as { state: AppState }).state;
@@ -222,26 +222,34 @@ test("P7 Ctrl+S：切换垂直状态列显隐（隐藏 → 列宽 0、历史区�
   const shown = frameGeometry(st(), size);
   assert.ok(shown.statusColWidth > 0, "显示时状态列宽 > 0");
   assert.equal(shown.historyWidth, size.cols - shown.statusColWidth);
+  // 第一次按下：可见但未聚焦 → 只聚焦（不收起）
   renderer.press({ name: "s", ctrl: true, meta: false, shift: false });
-  assert.equal(st().statusColumnVisible, false, "Ctrl+S 隐藏");
+  assert.equal(st().focusedPanel, "status", "Ctrl+S 聚焦状态列");
+  assert.equal(st().statusColumnVisible, true, "首次按键不收起");
+  // 已聚焦再按：收起 + 焦点回会话区
+  renderer.press({ name: "s", ctrl: true, meta: false, shift: false });
+  assert.equal(st().statusColumnVisible, false, "Ctrl+S 再按收起");
+  assert.equal(st().focusedPanel, null, "收起后焦点回会话区");
   const hidden = frameGeometry(st(), size);
-  assert.equal(hidden.statusColWidth, 0, "隐藏后状态列宽 0");
-  assert.equal(hidden.historyWidth, size.cols, "隐藏后历史区吃满整宽");
-  assert.equal(hidden.leftFrame, false, "隐藏后不再画左缘框格");
+  assert.equal(hidden.statusColWidth, 0, "收起后状态列宽 0");
+  assert.equal(hidden.historyWidth, size.cols, "收起后历史区吃满整宽");
+  assert.equal(hidden.leftFrame, false, "收起后不再画左缘框格");
   // 帧内该列不再出现分隔竖线：内容行（历史区）不再以 `│` 起头（原状态列右缘）
   const row = rowText(buildFrame(st(), size)[3]!);
   assert.ok(row.length > 0, "内容行非空");
   assert.ok(
     !row.startsWith("│"),
-    `隐藏后不再有状态列分隔竖线: ${JSON.stringify(row.slice(0, 20))}`,
+    `收起后不再有状态列分隔竖线: ${JSON.stringify(row.slice(0, 20))}`,
   );
   const title = rowText(buildFrame(st(), size)[0]!);
   assert.ok(
     !title.startsWith("│"),
-    `隐藏后标题行同样不再有左缘竖线: ${JSON.stringify(title.slice(0, 20))}`,
+    `收起后标题行同样不再有左缘竖线: ${JSON.stringify(title.slice(0, 20))}`,
   );
+  // 收起态再按：重新显示并聚焦（不可见时无从收起）
   renderer.press({ name: "s", ctrl: true, meta: false, shift: false });
-  assert.equal(st().statusColumnVisible, true, "再按一次恢复显示");
+  assert.equal(st().statusColumnVisible, true, "收起态再按恢复显示");
+  assert.equal(st().focusedPanel, "status", "并聚焦状态列");
   dispose();
 });
 
@@ -306,24 +314,23 @@ test("P7 Ctrl+S：隐藏状态列后分隔行不留旧交点（并排只剩内�
   assert.equal(junctions(hShown).length, 2, "并排显示态：D 列 + 内部分隔列");
 });
 
-test("P7：状态列隐藏时不画退化焦点框（Tab 跳过 status / 隐藏即移开焦点）", () => {
-  // 1) 隐藏后 Tab 循环不再停到 status（该列宽 0）
+test("P7：状态列隐藏时不画退化焦点框（Ctrl+S 重新显示并聚焦 / 隐藏即移开焦点）", () => {
+  // 1) 隐藏态按 Ctrl+S：重新显示并聚焦（不是「收起」——不可见时无从收起）
   let s = initialState();
   s.activeSessionId = "s1";
   s = reduceState(s, { type: "status-column", visible: false });
-  for (let i = 0; i < 4; i++) {
-    s = reduceState(s, { type: "focus-panel-cycle" });
-    assert.notEqual(
-      s.focusedPanel,
-      "status",
-      `第 ${i + 1} 次循环不应停在隐藏的状态列`,
-    );
-  }
+  s = reduceState(s, { type: "focus-panel", panel: "status" });
+  assert.equal(s.statusColumnVisible, true, "隐藏态再按 = 重新显示");
+  assert.equal(
+    s.focusedPanel,
+    "status",
+    "并聚焦状态列（此时列宽恢复 >0，无退化框）",
+  );
   // 2) 已聚焦 status 时隐藏 → 焦点被移开，标题行首列不再有状态列焦点框
   let t = initialState();
   t.activeSessionId = "s1";
-  while (t.focusedPanel !== "status")
-    t = reduceState(t, { type: "focus-panel-cycle" });
+  t = reduceState(t, { type: "focus-panel", panel: "status" });
+  assert.equal(t.focusedPanel, "status", "前提：焦点在状态列");
   t = reduceState(t, { type: "status-column", visible: false });
   assert.equal(t.focusedPanel, null, "隐藏后焦点从状态列移开");
   const rows = buildFrame(t, { rows: 24, cols: 100 }).map((r) => rowText(r));

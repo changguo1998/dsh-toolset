@@ -1,7 +1,8 @@
-// tests/ctrl-t-panes.test.ts — #9 Ctrl+T 切换下半区（Turn 流 + Tool 面板区）显隐
+// tests/ctrl-t-panes.test.ts — #9 Ctrl+T 聚焦 / 收起下半区（Turn 流 + Tool 面板区）
 //
-// 契约：缺省显示；切换后活动区高度/宽度归零、空间并入对话区，输入栏不受影响；
-// 隐藏时焦点从下半区移开且焦点循环跳过 activity；活动区内有交互面板打开时仍照常显示。
+// 契约：缺省显示；`Ctrl+T` 未聚焦时聚焦（可见但未聚焦只聚焦、不隐藏）、已聚焦时收起 +
+// 焦点回会话区；收起后活动区高度/宽度归零、空间并入对话区，输入栏不受影响；
+// 显式隐藏时焦点从下半区移开；活动区内有交互面板打开时仍照常显示。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -26,16 +27,32 @@ test("#9 lower-panes：缺省显示，动作可反复切换", () => {
   assert.equal(st.lowerPanesVisible, false, "显式指定可见性");
 });
 
-test("#9 隐藏时焦点从下半区移开，焦点循环跳过 activity", () => {
+test("#9 隐藏时焦点从下半区移开；Ctrl+T 再按 = 重新显示并聚焦", () => {
   let st = initialState();
-  st = reduceState(st, { type: "focus-panel-cycle" }); // null → history
-  st = reduceState(st, { type: "focus-panel-cycle" }); // history → activity
+  st = reduceState(st, { type: "focus-panel", panel: "activity" });
   assert.equal(st.focusedPanel, "activity");
+  assert.equal(
+    st.lowerPanesVisible,
+    true,
+    "聚焦不隐藏（可见时首次按键只聚焦）",
+  );
+  // 已聚焦再按 = 收起 + 焦点回会话区
+  st = reduceState(st, { type: "focus-panel", panel: "activity" });
+  assert.equal(st.focusedPanel, null, "收起后焦点回会话区");
+  assert.equal(st.lowerPanesVisible, false, "收起 = 隐藏下半区");
+  // 隐藏态下再按 = 重新显示并聚焦（不是「收起」——不可见时无从收起）
+  st = reduceState(st, { type: "focus-panel", panel: "activity" });
+  assert.equal(st.lowerPanesVisible, true, "隐藏态再按重新显示");
+  assert.equal(st.focusedPanel, "activity", "并聚焦回合区");
+});
+
+test("#9 显式隐藏已聚焦的下半区：焦点被移开", () => {
+  let st = reduceState(initialState(), {
+    type: "focus-panel",
+    panel: "activity",
+  });
   st = reduceState(st, { type: "lower-panes", visible: false });
   assert.equal(st.focusedPanel, null, "隐藏即不聚焦");
-  st = reduceState(st, { type: "focus-panel-cycle" }); // null → history
-  st = reduceState(st, { type: "focus-panel-cycle" }); // history →（跳过 activity）status
-  assert.equal(st.focusedPanel, "status", "循环跳过隐藏的下半区");
 });
 
 test("#9 隐藏时几何：活动区高度归零、空间并入对话区", () => {
@@ -60,9 +77,12 @@ test("#9 隐藏时几何：活动区高度归零、空间并入对话区", () =>
   assert.equal(hidden.activityW, 0, "活动区宽归零");
   assert.equal(hidden.dialogueW, hidden.contentW, "会话 pane 整宽");
   assert.equal(hidden.mode, "vertical", "隐藏态按纵向出图");
-  // 隐藏态：内容行都补齐到整屏宽（右缘框线恒在固定列，不贴正文）
+  // 隐藏态：内容行都补齐到整屏宽（右缘框线恒在固定列，不贴正文）；
+  // 提示区（末尾 hintHeight 行）例外——提示文案按实际宽度出帧，右侧留白由渲染层补
   const cols = 80;
+  const hintRows = frameGeometry(st, SIZE).hintHeight;
   const short = rowsOf(st)
+    .slice(0, SIZE.rows - hintRows)
     .map((r, i) => [i, displayWidth(r)] as const)
     .filter(([, w]) => w !== cols && w !== 0 && w > 30);
   assert.deepEqual(

@@ -484,7 +484,7 @@ test("审批描述窗：长草稿可滚动查看末尾（BACKLOG 3.2.1）", () =
   );
 });
 
-test("焦点窗可见性：提示区前缀 + 面板内题干焦点条（BACKLOG 3.2.8 / 修订）", () => {
+test("焦点窗可见性：提示区键位随焦点窗 + 面板内题干焦点条（BACKLOG 3.2.8 / 修订）", () => {
   // 长题干（多行）：既看首行焦点条，也看滚动后焦点条是否仍在
   const s = questionState([
     {
@@ -493,21 +493,27 @@ test("焦点窗可见性：提示区前缀 + 面板内题干焦点条（BACKLOG 
       options: [{ label: "A" }, { label: "B" }],
     },
   ]);
-  // 提示区：显式标出当前焦点窗（此前只有 ↑/↓ 文案细差，看不出焦点）
+  // 提示区：`↑/↓` 文案随焦点窗切换（2026-10-14 起提示行不再放 `▶` 前缀，
+  // 焦点窗由面板内的焦点条 / 滚动条呈现）
   assert.ok(
-    questionHintLine(panelOf(s)).startsWith("▶选项"),
+    questionHintLine(panelOf(s)).includes("[↑/↓]选项"),
     "缺省焦点在选项窗: " + questionHintLine(panelOf(s)),
+  );
+  assert.ok(
+    !questionHintLine(panelOf(s)).includes("▶"),
+    "提示行不放装饰前缀: " + questionHintLine(panelOf(s)),
   );
   const onDesc = reduceState(s, { type: "question-focus" });
   assert.ok(
-    questionHintLine(panelOf(onDesc)).startsWith("▶题干"),
+    questionHintLine(panelOf(onDesc)).includes("[↑/↓]滚动"),
     "Tab 后焦点在描述窗: " + questionHintLine(panelOf(onDesc)),
   );
-  // 面板内：描述窗聚焦时题干首行带黄色 `▶`（不增宽），失焦时不带
-  const optLines = plain(renderQuestionPanel(panelOf(s), 10, 60));
+  // 面板内：描述窗聚焦时题干首行带焦点条（`┃` 着黄；无色断言见下方焦点色用例），
+  // 失焦时该列转灰/走滚动条轨道 —— 此处比对「描述窗焦点条是否随焦点切换」
+  const descLinesEarly = plain(renderQuestionPanel(panelOf(onDesc), 10, 60));
   assert.ok(
-    !optLines.some((l) => l.includes("▶")),
-    "焦点在选项窗时题干无标记: " + JSON.stringify(optLines),
+    descLinesEarly.some((l) => l.startsWith("┃")),
+    "焦点在描述窗时题干首行有焦点条: " + JSON.stringify(descLinesEarly),
   );
   const descLines = plain(renderQuestionPanel(panelOf(onDesc), 10, 60));
   assert.ok(

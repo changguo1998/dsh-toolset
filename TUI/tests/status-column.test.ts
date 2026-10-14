@@ -511,8 +511,8 @@ test("catalog reducer: 目录写入全局 state，且更新后回无焦点（与
   assert.deepEqual(s.presetOptions, ["x", "y"]);
   // 内容推进语义：catalog 更新（外部状态变化）后自动回无焦点
   let f = initialState();
-  f = reduceState(f, { type: "focus-panel-cycle" });
-  assert.ok(f.focusedPanel !== null, "前提：焦点已进入循环");
+  f = reduceState(f, { type: "focus-panel", panel: "history" });
+  assert.ok(f.focusedPanel !== null, "前提：焦点已落在面板上");
   f = reduceState(f, { type: "permission-catalog", names: ["a"] });
   assert.equal(f.focusedPanel, null, "权限目录更新后回无焦点");
 });

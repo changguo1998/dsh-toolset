@@ -277,10 +277,14 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     "idle 显示输入占位提示（输入区首行）",
   );
   assert.ok(plain(frame[22]!).trim() === "", "输入区第 3 行留空");
-  // 按键提示区（独立区域，与输入区之间不画横线）
+  // 按键提示区（独立区域，与输入区之间不画横线；提示区 1 至 2 行，末行起为提示）
+  const hintRows = frameGeometry(initialState(), {
+    rows: 24,
+    cols: 60,
+  }).hintHeight;
   assert.ok(
-    plain(frame[23]!).startsWith("[Alt+Enter]打断并发送"),
-    "末行为按键提示区",
+    plain(frame[24 - hintRows]!).startsWith("[C-d]退出"),
+    "提示区首行为按键提示区",
   );
 });
 
@@ -289,8 +293,12 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "");
   const sgr = (l: FrameRow): string =>
     /\x1b\[38;2;\d+;\d+;\d+m/.exec(rowAnsi(l))?.[0] ?? ""; // 行内首个 SGR（行首为前导空格）
-  const inputRow = (s: ReturnType<typeof initialState>): FrameRow =>
-    buildFrame(s, { rows: 10, cols: 40 }).at(-2)!; // 输入行（末行是按键提示区，之间不画横线）
+  const inputRow = (s: ReturnType<typeof initialState>): FrameRow => {
+    // 输入区行号按几何反推（提示区 1 至 2 行，不能按「倒数第二行」取）
+    const g = frameGeometry(s, { rows: 10, cols: 40 });
+    const top = g.rows - g.statusHeight - 2 - g.footerHeight - g.hintHeight;
+    return buildFrame(s, { rows: 10, cols: 40 })[top + 1 + g.statusHeight + 1]!;
+  };
   /** 探针用户块文本：符号挂在用户块首行，读数前把它补到 buffer 末尾（恒在视口内） */
   const LIVE = "活跃用户块";
   /** 用户块首行所在帧行：历史 pane 正文段含该块文本的首行 */
@@ -2355,16 +2363,16 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
   });
 });
 
-// ===== 顶部三面板焦点与活动区滚动（Tab / activityScroll）=====
+// ===== 顶部三面板焦点与活动区滚动（Ctrl+E/T/S / activityScroll）=====
 
-test("顶部面板：hint 行为隐藏 Enter/Esc 且不带面板标签；Tab 由 reducer 断言", () => {
+test("顶部面板：hint 行为隐藏 Enter/Esc 且不带面板标签；聚焦键由 reducer 断言", () => {
   // 100 列：hint 行完整展示（无面板标签后可整体断言）
   const size = { rows: 12, cols: 100 } as const;
   const hintOf = (st: ReturnType<typeof initialState>): string => {
-    const line = buildFrame(st, size)
-      .map((l) => rowAnsi(l))
-      .find((l) => stripAnsi(l).startsWith("[Alt+Enter]"));
-    return stripAnsi(line ?? "");
+    const out = buildFrame(st, size).map((l) => stripAnsi(rowAnsi(l)));
+    const g = frameGeometry(st, size);
+    const start = size.rows - g.hintHeight;
+    return out.slice(start).join(" ");
   };
   const h0 = hintOf(initialState());
   assert.ok(!h0.includes("面板"), "hint 不含面板标签");
@@ -2373,43 +2381,78 @@ test("顶部面板：hint 行为隐藏 Enter/Esc 且不带面板标签；Tab 由
     "hint 隐藏 Enter/Esc",
   );
   assert.ok(
-    h0.includes("[Alt+Enter]") && h0.includes("[Ctrl+L]"),
-    "hint 保留 Alt+Enter/Ctrl+L",
+    h0.includes("[C-l]重绘") && h0.includes("[C-n/p]历史"),
+    "hint 用 C- 记号列常用键",
   );
-  const hCycle = hintOf(
-    reduceState(reduceState(initialState(), { type: "focus-panel-cycle" }), {
-      type: "focus-panel-cycle",
-    }),
+  // 区域键（C-e / C-t / C-s）按用户裁定不在提示行露出
+  assert.ok(
+    !h0.includes("[C-e]") && !h0.includes("[C-t]") && !h0.includes("[C-s]"),
+    "区域键不在 hint 行露出",
   );
-  assert.equal(h0, hCycle, "切换焦点不改变 hint 行（无标签）");
+  const hFocus = hintOf(
+    reduceState(initialState(), { type: "focus-panel", panel: "activity" }),
+  );
+  assert.equal(h0, hFocus, "切换焦点不改变 hint 行（无标签）");
+  // 有输入内容 → 换另一组键（编辑键优先）
+  const typed = reduceState(initialState(), {
+    type: "input",
+    text: "x",
+    cursor: 1,
+  });
+  const hTyped = hintOf(typed);
+  assert.ok(
+    hTyped.includes("[C-c]清空") && hTyped.includes("[C-j]换行"),
+    "有输入时列编辑键",
+  );
 });
 
-test("focus-panel-cycle / activity-scroll reducer：循环与偏移非负 clamp", () => {
+test("focus-panel / activity-scroll reducer：一键一区域三态与偏移非负 clamp", () => {
   let s = reduceState(initialState(), { type: "activity-scroll", delta: -5 });
   assert.equal(s.activityScroll, 0, "下滚到 0 后 clamp");
   s = reduceState(s, { type: "activity-scroll", delta: 3 });
   assert.equal(s.activityScroll, 3);
   assert.equal(s.focusedPanel, null, "默认无焦点（null）");
+  // Ctrl+E：会话区（恒显示）聚焦 / 再按回无焦点
   assert.equal(
-    reduceState(s, { type: "focus-panel-cycle" }).focusedPanel,
+    reduceState(s, { type: "focus-panel", panel: "history" }).focusedPanel,
     "history",
-    "无焦点 → Tab 进入历史",
+    "Ctrl+E 聚焦会话区",
   );
-  const a = reduceState(reduceState(s, { type: "focus-panel-cycle" }), {
-    type: "focus-panel-cycle",
+  const back = reduceState(
+    reduceState(s, { type: "focus-panel", panel: "history" }),
+    { type: "focus-panel", panel: "history" },
+  );
+  assert.equal(
+    back.focusedPanel,
+    null,
+    "会话区再按一次 → 回无焦点（跟随最新）",
+  );
+  // Ctrl+T：可见但未聚焦只聚焦；已聚焦再按 = 收起 + 回无焦点
+  const act = reduceState(s, { type: "focus-panel", panel: "activity" });
+  assert.equal(act.focusedPanel, "activity", "Ctrl+T 聚焦回合区");
+  assert.equal(act.lowerPanesVisible, true, "首次按键不收起（可见即只聚焦）");
+  const collapsed = reduceState(act, {
+    type: "focus-panel",
+    panel: "activity",
   });
-  assert.equal(a.focusedPanel, "activity", "history → activity");
-  const st = reduceState(
-    reduceState(reduceState(s, { type: "focus-panel-cycle" }), {
-      type: "focus-panel-cycle",
-    }),
-    { type: "focus-panel-cycle" },
-  );
-  assert.equal(st.focusedPanel, "status", "activity → status");
+  assert.equal(collapsed.focusedPanel, null, "已聚焦再按 → 回无焦点");
+  assert.equal(collapsed.lowerPanesVisible, false, "并收起下半区");
+  // Ctrl+S：同上，区域换成状态列
+  const status = reduceState(s, { type: "focus-panel", panel: "status" });
+  assert.equal(status.focusedPanel, "status", "Ctrl+S 聚焦状态列");
+  const statusCollapsed = reduceState(status, {
+    type: "focus-panel",
+    panel: "status",
+  });
+  assert.equal(statusCollapsed.focusedPanel, null, "已聚焦再按 → 回无焦点");
+  assert.equal(statusCollapsed.statusColumnVisible, false, "并收起状态列");
 });
 
 test("reduceState: 新输入/输出（内容推进）后焦点自动回 null；UI action 不重置", () => {
-  const s = reduceState(initialState(), { type: "focus-panel-cycle" }); // null → 历史
+  const s = reduceState(initialState(), {
+    type: "focus-panel",
+    panel: "history",
+  });
   assert.equal(s.focusedPanel, "history");
   // 条目 16 段 C2：内容改由**交付**进节缓存（action 类型 `pipeline-state`），而焦点复位挂在
   // 旧内容 action 上（`FOCUS_RESET_ACTIONS`）——生产里每条内容事件仍是「旧 action + 交付」
@@ -2421,20 +2464,20 @@ test("reduceState: 新输入/输出（内容推进）后焦点自动回 null；U
   assert.equal(afterOut.focusedPanel, null, "模型输出后自动回无焦点");
   const afterIn = reduceState(
     withUser(
-      reduceState(initialState(), { type: "focus-panel-cycle" }),
+      reduceState(initialState(), { type: "focus-panel", panel: "history" }),
       "用户输入",
     ),
     { type: "user-line", text: "用户输入" },
   );
   assert.equal(afterIn.focusedPanel, null, "用户输入后自动回无焦点");
   const afterNotice = reduceState(
-    reduceState(initialState(), { type: "focus-panel-cycle" }),
+    reduceState(initialState(), { type: "focus-panel", panel: "history" }),
     { type: "notice", text: "通知" },
   );
   assert.equal(afterNotice.focusedPanel, null, "notice 后自动回无焦点");
   // UI action（状态列滚动）不重置焦点
   const ui = reduceState(
-    reduceState(initialState(), { type: "focus-panel-cycle" }),
+    reduceState(initialState(), { type: "focus-panel", panel: "history" }),
     { type: "status-column-scroll", delta: 1 },
   );
   assert.equal(ui.focusedPanel, "history", "UI action 不重置焦点");
@@ -2503,15 +2546,11 @@ test("焦点面板：只改既有框线颜色（字形与无焦点态逐行一�
     "无焦点：框线为边框色",
   );
 
-  for (const [name, cycles] of [
-    ["history", 1],
-    ["activity", 2],
-    ["status", 3],
-  ] as const) {
-    let st = initialState();
-    for (let i = 0; i < cycles; i++) {
-      st = reduceState(st, { type: "focus-panel-cycle" });
-    }
+  for (const name of ["history", "activity", "status"] as const) {
+    const st = reduceState(initialState(), {
+      type: "focus-panel",
+      panel: name,
+    });
     const raw = rowsOf(st);
     const rows = plainOf(st);
     // 区域两 pane（分隔竖线右侧 ~ 屏幕最右列）字形逐行一致：焦点只改颜色、
@@ -2858,14 +2897,14 @@ test("/session 历史面板：按键提示在输入区下方提示区，不内�
     !titleRow!.includes("[↑/↓]") && !titleRow!.includes("[Enter]"),
     "标题行不再内嵌按键提示",
   );
-  // 末行 = 输入区下方提示区，显示历史面板键位
-  const last = plain[plain.length - 1]!;
+  // 末尾 1 至 2 行 = 输入区下方提示区（历史列表提示 86 列 → 80 列折 2 行），
+  // 显示历史面板键位；提示行之上为空白占位（输入区）
+  const hints = plain.slice(plain.length - 2).join(" ");
   assert.ok(
-    last.includes("[↑/↓]移动") && last.includes("[Enter]切换"),
-    "提示区显示历史面板按键提示: " + last,
+    hints.includes("[↑/↓]移动") && hints.includes("[Enter]切换"),
+    "提示区显示历史面板按键提示: " + hints,
   );
-  // 提示行之上为空白占位（输入区）
-  const footerRow = plain[plain.length - 2]!;
+  const footerRow = plain[plain.length - 3]!;
   assert.equal(footerRow.trim(), "", "输入区空白占位");
 });
 
@@ -2960,7 +2999,7 @@ test("/session 历史面板：标题标明列表范围（当前目录 可见/全
     !project.some((l) => l.includes("他目录标题")),
     "他目录会话默认隐藏",
   );
-  const hint = project[project.length - 1]!;
+  const hint = project.slice(project.length - 2).join(" ");
   assert.ok(hint.includes("[Tab]范围"), "提示区含 [Tab]范围: " + hint);
 
   const all = historyFrame("list", 24, 80, true);
