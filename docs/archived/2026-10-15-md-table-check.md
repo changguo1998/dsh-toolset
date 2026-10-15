@@ -1,6 +1,6 @@
 # 新插件：检查回复正文中的表格列数是否一致（接取条目：`docs/BACKLOG.md`「新插件：检查回复正文中的表格列数是否一致」）
 
-状态：规划　　开启：2026-10-15　　关闭：
+状态：关闭　　开启：2026-10-15　　关闭：2026-10-15
 本文件是本任务唯一的过程记录与文档变更落点；计划外文件不改。
 
 ## 目标
@@ -220,3 +220,10 @@ export function apply(ctx: unknown, config?: Config): () => void; // 返回注�
 - **残余（未验）**：① **真机 `dsh --profile fff` 注入**（决策 6，留到合并后由用户执行）—— 本机 profile 的 `link:` 指向主仓，本 worktree 不在挂载面；② 合并后需 `scripts/install.sh --sync` 把 `md-table-check` 加进 profile 的 bundle 面并重启 dsh，插件才会生效。
 
 ## 收尾
+
+- **条目清理**：`docs/BACKLOG.md` §2 条目 1（「新插件：检查回复正文中的表格列数是否一致」）先标〔完成: 2026-10-15〕，随后按规范从 BACKLOG 清理移除（BACKLOG 只留未完成项）；§4「插件规划（未建包）」里的 `md-table-check` 行随建包删除。完成记录与证据即本文件 + git 历史。
+- **文档回写**：根 `README.md` / `README.zh.md`（插件表 + 目录树 + 计数 20 → 21）与 `AGENTS.md`（六处清单与计数、轻量包枚举）已在实现提交 `5565707` 内同步；**不**新建 `docs/DESIGN.md`（决策 8，轻量包）；`docs/STATUS.md` 按规范由用户择时更新，本次不动；`docs/ROADMAP.md` 无需改动。
+- **归档**：本追踪文档移入 `docs/archived/2026-10-15-md-table-check.md`。
+- **临时文件**：`tmp/`（npm / pnpm 缓存与 xdg 目录、`sample.mts` 探针、`check.log` / `build.log` / `test.log` / `dep-build.log`）已清理；各包 `node_modules` / `dist` 为构建产物，均不入库。
+- **遗留项**：真机 `dsh --profile fff` 注入验证（决策 6，合并后由用户执行：`scripts/install.sh --sync` 加 bundle → 重启 dsh → 发一条含列数不一致表格的回复，看是否注入 `表格列数提醒`）。
+- **提交**：决策与规划 `faeb11f`；实现与测试 `5565707`；关闭提交 = 本次 BACKLOG 清理 + 归档移动 + 本文件的收尾与状态（本次变更的最后一次提交）。
