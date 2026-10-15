@@ -320,11 +320,14 @@ if (smoke) {
         "approval text absent from frames",
       );
       // 按键提示统一到底部提示区（BACKLOG 3.1.2）：审批键位在最后一行提示区，
-      // 面板内不再内嵌键位（原先面板内的红/绿着色随迁移取消）
+      // 面板内不再内嵌键位（原先面板内的红/绿着色随迁移取消）。
+      // 2026-10-15：提示行格式统一后（去 `▶` 装饰、`[键]标签` + ` · ` 分隔、
+      // `↑/↓` 文案随焦点窗切换）断言文本长期未跟改，改为按 `approvalHintLine()`
+      // 的当前产出断言（选项窗态；真机根本原因是「断言过期」而非渲染缺陷）
       ok(
         "approval-hint-bottom",
         plain.includes(
-          "▶选项·[Enter]提交·[Esc]取消·[↑/↓]选项·[Tab]草稿·[1/2]直答",
+          "[Enter]提交 · [Esc]取消 · [↑/↓]选项 · [Tab]草稿 · [1/2]直答",
         ),
         "approval keys should show on the bottom hint line",
       );

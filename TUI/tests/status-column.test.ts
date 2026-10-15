@@ -503,18 +503,19 @@ test("renderStatusColumn（P7）：不再有 Mode 块——无 goal/todo/jobs �
   assert.deepEqual(body, [], "无内容块时不显示任何行: " + JSON.stringify(body));
 });
 
-test("catalog reducer: 目录写入全局 state，且更新后回无焦点（与 jobs-changed 一致）", () => {
+test("catalog reducer: 目录写入全局 state，更新后焦点保持（2026-10-15 起 catalog 不再清焦点）", () => {
   let s = initialState();
   s = reduceState(s, { type: "permission-catalog", names: ["a", "b"] });
   assert.deepEqual(s.permissionOptions, ["a", "b"]);
   s = reduceState(s, { type: "agent-preset-catalog", ids: ["x", "y"] });
   assert.deepEqual(s.presetOptions, ["x", "y"]);
-  // 内容推进语义：catalog 更新（外部状态变化）后自动回无焦点
+  // 2026-10-15 裁定：catalog 属「无内容载荷的状态刷新」，不再复位焦点
+  // （BACKLOG「模型回复期间区域焦点被内容推进清空」；复位只剩回合边界与用户提交输入）
   let f = initialState();
   f = reduceState(f, { type: "focus-panel", panel: "history" });
   assert.ok(f.focusedPanel !== null, "前提：焦点已落在面板上");
   f = reduceState(f, { type: "permission-catalog", names: ["a"] });
-  assert.equal(f.focusedPanel, null, "权限目录更新后回无焦点");
+  assert.equal(f.focusedPanel, "history", "权限目录更新后焦点保持");
 });
 
 test("renderStatusColumn（P7）：permission 不再出现在状态列（已从展示中移除）", () => {
