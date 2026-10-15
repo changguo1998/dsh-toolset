@@ -3316,7 +3316,14 @@ export class App {
     // 空输入且无排队：`!` 模式（interrupt）= **只打断**（忙时；空闲无可打断的回合 → no-op），
     // 其余模式维持 no-op（打断入口收敛到 `!` 模式，见 BACKLOG「Esc 取消打断」）
     if (this.state.inputText.trim() === "" && this.state.queued.length === 0) {
-      if (interrupt && this.agentBusy()) this.deps.adapter.interrupt();
+      if (interrupt) {
+        if (this.agentBusy()) this.deps.adapter.interrupt();
+        // `!` 模式空输入提交 = 一次「只打断」提交：与其它模式提交同口径回退默认 `>`（2026-10-15
+        // 真机缺陷：此分支早退漏了模式回退，打断后提示符仍停在 `!`）
+        this.apply((s) =>
+          reduceState(s, { type: "input-mode", mode: "steer" }),
+        );
+      }
       return;
     }
     // `!` 模式：先把排队登记并回输入框，再打断当前回合，然后整条直发（普通 Enter 走排队/直发

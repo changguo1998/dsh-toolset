@@ -136,6 +136,29 @@ test("忙时 `!` 提交 = 打断后直发：不走 step 边界、不登记排队
   assert.deepEqual(st().queued, [], "不登记排队块");
 });
 
+test("忙时 `!` 空输入提交 = 只打断，且回退 `>`（2026-10-15 真机缺陷）", () => {
+  const { renderer, adapter, st } = makeApp();
+  typeText(renderer, "先发");
+  renderer.press(key("enter"));
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
+  renderer.press(key("!"));
+  assert.equal(st().inputMode, "interrupt", "空输入按 `!` 切模式");
+  renderer.press(key("enter"));
+  assert.equal(adapter.interrupts, 1, "空输入提交只打断一次");
+  assert.deepEqual(
+    adapter.log,
+    ["steer:先发", "interrupt"],
+    "空输入只打断、不发送任何文本",
+  );
+  assert.equal(st().inputMode, "steer", "提交后回退默认模式（本缺陷点）");
+  assert.ok(
+    plainFrame(renderer).includes("> Type a message..."),
+    "提示符回 `>`",
+  );
+  // 注：不追测「打断后空闲再提交」——打断（cancel）后宿主回 idle 前 `agentBusy()` 仍为真，
+  // 那段属宿主时序，与本缺陷（提交后模式未回退）无关
+});
+
 test("`!` 模式提交后 Ctrl+P 回溯：模式一并恢复为 `!`（草稿模式仍归默认）", () => {
   const { renderer, st } = makeApp();
   renderer.press(key("!"));
