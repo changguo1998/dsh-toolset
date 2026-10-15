@@ -723,8 +723,12 @@ export function buildBox(
           style: { fg: "brightBlue" },
           minWidth: USER_MIN_LEFT_GUTTER + 2,
         };
-        // 可用正文宽（`width` 缺省时退化为"交给 fill 折行"的单节点形态）
-        const avail = width === undefined ? undefined : Math.max(8, width - 1);
+        // 可用正文宽：取宽按**行归属**的 pane（与表格分支同口径）——非 final 正文行属于活动
+        // pane，横向排列下它比对话 pane 窄；用错宽会让预折行超出活动 pane、被 fill 二次折行
+        // 并把靠右补白当成正文换行（续行大片空白、`↩` / `↪` 标记与右缘对齐错位，行号列判据
+        // 也会用错宽）。`width` 缺省时退化为"交给 fill 折行"的单节点形态。
+        const paneW = line.final ? width : (opts.activityWidth ?? width);
+        const avail = paneW === undefined ? undefined : Math.max(8, paneW - 1);
         // 收集围栏内代码行（同为 assistant 行；遇闭栅或非 assistant 行停止）
         const code: string[] = [];
         let j = li + 1;
