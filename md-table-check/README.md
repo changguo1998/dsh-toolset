@@ -58,11 +58,23 @@ bundle 契约：`name` / `inject: ["ruleEngine"]` / `Config` / `apply`；`ctx.ru
 ```sh
 npm run check   # 类型检查
 npm run build   # 编译到 dist/
-npm test        # 三份测试：判定 / 与 TUI 源码互证 / 接线
+npm test        # 六份测试：判定 / 与 TUI 源码互证 / 接线 / 显示面与注入呈现 / 思考与正文分离 / 三面差分对拍
 ```
 
-`tests/tuiParity.test.ts` 用动态 `import` 加载 `TUI/src/app/layout/table.ts` 做同口径互证（同一文本在
-TUI 退回纯文本，本插件同时报出）；TUI 源码不在时（独立分发场景）该文件的用例自动跳过。
+测试文件（`tests/`）：
+
+| 文件 | 覆盖 |
+| --- | --- |
+| `checker.test.ts` | 判定核心：切分口径 / 列数不一致 / 上限裁剪 / 渲染文案 |
+| `main.test.ts` | rule-engine 消费者接线：配置归一 / 注册 / `decide` 两态 / 降级路径 |
+| `tuiParity.test.ts` | 与 TUI 表格模块互证：切分逐条同口径、成表判据、不等时的走向（退回纯文本 / 丢格） |
+| `displaySurface.test.ts` | 显示面与注入呈现实测：`replace` 跳过、纯空白照常显示、step 直接相接、流式补后缀、notice 折叠为摘要 |
+| `reasoningSeparation.test.ts` | 思考 / 正文分离：三条通道分离、`assistant-text` 载荷不含思考、完整消息的 reasoning 不补发 |
+| `surfaceDifferential.test.ts` | 三面差分对拍：独立复刻两侧模型 vs 真实 adapter / rule-engine，定向用例 + 确定性随机序列（300 + 2000 条） |
+
+后四个文件用动态 `import` 加载 `TUI/src/app/adapter/dsh.ts`（及 `normalize.ts`）与 `rule-engine/src/engine.ts`；
+TUI 源码不在时（独立分发场景）其用例自动跳过。`surfaceDifferential.test.ts` 内的两个复刻模型是**按当前实现
+口径重述**的独立实现 —— 任一侧实现口径变化时该文件会变红，属有意的漂移提醒（需重新复刻并对拍）。
 
 接线：根 `package.json` 的 check/build 链、`scripts/test-parallel.sh`、`scripts/install.sh`
 （`canonical_pkgs`）与根 `README.md` / `AGENTS.md` 的包清单；条目与追踪文档见项目级

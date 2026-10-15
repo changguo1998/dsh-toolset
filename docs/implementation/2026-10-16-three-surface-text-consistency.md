@@ -47,7 +47,7 @@
 | 4 | 末步未定型: 实时帧已显示, `assistant/message` 未到达 → 会话区有、插件面无 | `dsh.ts:1335`+ vs `engine.ts:504-508` | 收尾异常时插件完全不派发 |
 | 5 | 注入提示的会话区呈现是摘要行, 逐字正文只在模型上下文 | `normalize.ts:60-70` | 用户看不到完整提示正文 |
 
-#### S3 离线夹具复演（`tmp/three-surface-check.ts`）
+#### S3 离线夹具复演（`tests/displaySurface.test.ts`（原 `tmp/three-surface-check.ts`））
 
 构造事件序列（`assistant/message` × N + `turn/end`）同时喂真实 adapter 与真实 rule-engine（消费者 = 真实 md-table-check）, 逐字节比对 ① 显示文本与 ② 插件实收文本:
 
@@ -61,7 +61,7 @@
 | 异常收尾（`reason=aborted`） | 照常显示（报 1） | 空串（不报, 未派发） | 不同 |
 | ③ 注入呈现 | notice 形态（带 `summary`）→ 显示 `表格列数提醒` | 插件原文 157 字符 | 显示为摘要行, 非全文 |
 
-#### S4 真机历史日志实测（`tmp/three-surface-log-scan.ts` / `tmp/three-surface-probe.ts`）
+#### S4 真机历史日志实测（`tmp/three-surface-log-scan.ts`（真机巡检, 一次性） / `tmp/three-surface-probe.ts`（真机逐回合, 一次性））
 
 扫描 `~/.dsh/sessions` 下 5 份真实 `session.v4.jsonl.zstd`（共 238 条 `assistant/message` / 41 条 `turn/end`）:
 
@@ -70,7 +70,7 @@
 - **纯空白 step 正文: 193 / 238 条（81%）** —— 与工具调用同行的 `"\n\n"`; 逐个 `turn/end` 复算, 22 个回合里 **12 个**的 ① 显示文本与 ② 插件文本不一致, 差值 = 空白 step 条数 × 1~2 字符（例: 6 step 回合显示 825 字符 / 插件 840 字符, 插件文本以 15 个换行开头）。
 - `turn/end` reason 非 {completed, max-tokens}: `aborted` 1 条（该回合插件面为空串）。
 
-#### S5 精确实测: 真实 adapter vs 真实 engine（`tmp/three-surface-adapter-vs-engine.ts` / `tmp/three-surface-display-probe.ts`）
+#### S5 精确实测: 真实 adapter vs 真实 engine（`tmp/three-surface-adapter-vs-engine.ts`（已并入差分对拍） / `tests/displaySurface.test.ts`（原 `tmp/three-surface-display-probe.ts`））
 
 不依赖静态阅读, 直接用真实 TUI adapter 与真实 rule-engine 跑同一串事件并打印两侧文本:
 
@@ -80,37 +80,36 @@
 | 无空白 step 的对照 | 14 字符 | 14 字符 | 逐字节相同 |
 | 空白工具 step + 坏表正文 | 39 字符, 含表格 | 40 字符, 含表格 | 同一张表 |
 
-显示面补充实测（`tmp/three-surface-display-probe.ts`, 8 条断言 7 通过）: `surfaceOp=replace` 的正文**不进入显示**; **纯空白正文照常进入显示**（`"   \n"` 被输出为 stream 事件）; 两条 step 的显示文本**直接相接、无分隔符**; 同条消息多个 text 块直接相接; 无 text 块不产生正文; 已流式部分只补缺失后缀; 无 chunk 时整条输出; `extractTextBlocks` 不 trim。注入侧（真实 `noticeSummaryOf`）: notice 形态 → 一行摘要 `表格列数提醒`（非全文）; 无 `summary` → 正文首行截断 ≤120 字符; 非 notice → `undefined`（调用方显示全文）。
+显示面补充实测（`tests/displaySurface.test.ts`（原 `tmp/three-surface-display-probe.ts`）, 8 条断言 7 通过）: `surfaceOp=replace` 的正文**不进入显示**; **纯空白正文照常进入显示**（`"   \n"` 被输出为 stream 事件）; 两条 step 的显示文本**直接相接、无分隔符**; 同条消息多个 text 块直接相接; 无 text 块不产生正文; 已流式部分只补缺失后缀; 无 chunk 时整条输出; `extractTextBlocks` 不 trim。注入侧（真实 `noticeSummaryOf`）: notice 形态 → 一行摘要 `表格列数提醒`（非全文）; 无 `summary` → 正文首行截断 ≤120 字符; 非 notice → `undefined`（调用方显示全文）。
 
 真机日志反查（22 个回合逐回合比对两种重建口径）: `插件文本 == 各 step 原文用 "\n" 连接` **全部成立**; 而「各非 replace step 原文直接相接」比插件文本少 `(step 数 - 1)` 个字符（例: turn 3 有 20 step → 少 19; turn 11 有 6 step → 少 5）。
 
 **更正（推翻先前结论）**: S3「空白 step: 显示面丢弃」与「① 显示文本 = 非空白 step 直接相接」的重建口径**不成立**; S4「12/22 回合不一致源于显示面跳过空白 step」的**解释错误**。正确口径: ① 显示 = 各非 replace step 原文直接相接（空白 step 照常计入）; ② 插件 = 各 step 原文用 `"\n"` 连接（每个 step 边界多 1 个 `\n`）。差异 2 随之由「口径不一致（高频）」下调为「**仅分隔符差异**（N step 多 N-1 个换行, 判定结论不受影响）」。
 
-### 决策（待裁定候选）
+### 决策
 
-> 结论来自 S1–S6; 每项给出候选选项、代价与风险, 待用户裁定。
+（决策项用数字, 选项用 abcd, 选定项写明字母; 结论均由脚本实测得出）
 
-1. 单 step 超 20000 字符截断（差异 1, 脚本实测）: 候选结论 = 缺陷（可致漏检）。选项: (a) 另开 `rule-engine/docs/BACKLOG.md` 条目（推荐）; (b) 本任务内顺手改上限; (c) 只记录。**代价 / 风险** —— (a) 约 0.5 天（rule-engine 侧）; (b) 改动引擎缓冲与派发口径, 超出本任务范围且需回归全部消费者。
-2. 纯空白 step（差异 2）: **S5 的脚本实测推翻了先前的初判** —— 显示面并不丢弃空白 step, 真实差异只是 step 之间的 `\n` 分隔符（N step 多 N-1 个换行）。候选结论 = 有意不同（低风险）; 选项: (a) 保持现状, 仅在 `rule-engine/README.md` 说明拼接口径（推荐）; (b) 另开条目讨论是否去掉分隔符。**代价 / 风险** —— (a) 文档改动 \<0.1 天; (b) 去掉分隔符会让跨 step 的表格在插件侧不再成立, 需重新评估。
-3. 多 step 拼接方式（差异 3）: 候选结论 = 有意不同（`\n` 连接是整回合正文的既定口径; 跨 step 的表在显示侧本就不成立）。选项: (a) 不改（推荐）; (b) 改口径。**代价 / 风险** —— 与第 2 项同源, 二者应合并裁定。
-4. `replace` 事件（差异 4, 脚本实测）: 候选结论 = 潜在误报（TUI 丢弃被覆盖正文, rule-engine 仍缓冲 → 插件可能要求修正屏幕上不存在的内容）。选项: (a) 另开条目在 rule-engine 侧对齐 TUI（推荐）; (b) 保持现状。**代价 / 风险** —— (a) 约 0.5 天 + 需先确认宿主 replace 语义; 本次样本 0/238 未出现该事件, 优先级可低于第 1 项。
-5. 非 completed / max-tokens 收尾不派发（差异 5）: 候选结论 = 有意不同（异常收尾不唤醒消费者; 实机 `aborted` 1 条）。选项: (a) 不改（推荐）; (b) 另开条目讨论「打断也要检查」。**代价 / 风险** —— (b) 会改变消费者唤醒时机, 影响全部消费者。
-6. TUI 思考 / 正文分离（S6 实测）: 候选结论 = 分离正确（13/13 断言通过）, 思考不入正文通道、也不入 `assistant-text` 载荷; 「完整消息里的 reasoning 不回补思考通道」与设计一致（`TUI/docs/DESIGN.md:395`）。选项: (a) 保持现状（推荐）; (b) 另开条目讨论「非流式 provider 思考不可见」。**代价 / 风险** —— (b) 涉及展示策略与活动区行为, 需单独设计。
-7. 注入提示的会话区呈现（差异 6, 脚本实测 `noticeSummaryOf`）: 候选结论 = 有意不同（notice 摘要行由 TUI 渲染规格决定, 逐字正文在模型上下文与注入记录里）。选项: (a) 不改（推荐）; (b) 讨论「是否在会话区保留完整提示」。**代价 / 风险** —— (b) 会改变注入消息的展示密度, 需重新设计折叠规则。
-8. 本任务产出物范围: (a) 只出结论与建议条目, 不改产品代码（推荐）; (b) 一并修 rule-engine 截断 / replace; (c) 一并修三处。**代价 / 风险** —— (a) 0（改动交由独立条目）; (b)(c) 改动引擎口径, 需全仓回归并重跑真机核对。
-9. 待用户裁定项（规划评审）: ① 第 1 / 4 项的立项落点（rule-engine 包内 vs 项目级）; ② 是否授权改 `rule-engine/src/engine.ts` 缓冲与派发口径; ③ 是否保留「实时真机会话探针」为独立任务（P5）; ④ 临时脚本（`tmp/` 下 4 个）是保留复跑还是随规划清理。
+1. 单 step 超 20000 字符截断（差异 1）: 结论 = **缺陷（可致漏检）**。选项: (a) 另开 `rule-engine/docs/BACKLOG.md` 条目（选定）; (b) 本任务内改引擎; (c) 只记录。理由与证据: 夹具用例「坏表在第 20050 字符后」显示面报 1、插件面不报（`tests/displaySurface.test.ts`（原 `tmp/three-surface-check.ts`））; 巡检 559 条真实 `assistant/message` 未出现超限样本（最长 2875 字符）, 属低频但会让消费者漏检。代价: rule-engine 侧约 0.5 天, 不由本任务实施。
+2. 纯空白 step（差异 2）: 结论 = **口径不同但低风险（有意不同）**, 该差异只是 step 之间的 `\n` 分隔符: 显示面 = 各非 replace step 原文直接相接; 插件面 = 各 step 原文用 `\n` 连接（N step 多 N-1 个换行）。选项: (a) 保持现状, 仅在 `rule-engine/README.md` 写明拼接口径（选定）; (b) 另开条目讨论去掉分隔符。理由: 两侧判定结论在实测中一致; 去掉分隔符会让跨 step 的表格在插件侧不再成立。证据: `tmp/three-surface-adapter-vs-engine.ts`（已并入差分对拍） 两个口径均与真实输出一致; 真机会话 35 个回合逐回合断言「插件面 == 各 step 原文 `\n` 连接」全部成立（34 成立 / 0 不成立 / 1 未收尾）。
+3. 多 step 拼接方式（差异 3）: 结论 = **有意不同**, 与第 2 项同源（`\n` 连接是整回合正文的既定口径; 跨 step 的表在显示侧本就不成立, TUI 逐块建表）。处置: 不改, 随第 2 项一并写入 README。
+4. `replace` 事件（差异 4）: 结论 = **潜在误报（缺陷）**。TUI 丢弃被覆盖正文（`tests/displaySurface.test.ts`（原 `tmp/three-surface-display-probe.ts`） 实测显示为空）, rule-engine 仍缓冲 → 插件可能要求修正屏幕上不存在的内容（夹具实测: 显示面不报 / 插件面报 1）。选项: (a) 另开 `rule-engine/docs/BACKLOG.md` 条目, 在引擎侧对齐 TUI（选定）; (b) 保持现状。代价: 约 0.5 天 + 需先确认宿主 replace 语义; 巡检 559 条真实事件未出现该形态（0 条）, 优先级低于第 1 项。
+5. 非 completed / max-tokens 收尾不派发（差异 5）: 结论 = **有意不同（符合设计）**。夹具与真机各 1 条 `aborted` 均未派发; 属「异常收尾不唤醒消费者」。处置: 不改。
+6. TUI 思考 / 正文分离: 结论 = **正确**（13 条断言全 ✓, `tests/reasoningSeparation.test.ts`（原 `tmp/tui-reasoning-separation.ts`））: 思考不入正文通道、不入 `assistant-text` 载荷; 「完整消息里的 reasoning 不回补思考通道」与设计一致（`TUI/docs/DESIGN.md:395`）。处置: 不改; 「非流式 provider 思考不可见」不单独立项（无用户可见缺陷证据）。
+7. 注入提示的会话区呈现（差异 6）: 结论 = **有意不同**: notice 形态折叠为一行摘要 `表格列数提醒`; 无 summary 时取正文首行截断 ≤120 字符; 非 notice 形态返回 undefined（调用方显示全文）。处置: 不改。
+8. 本任务产出物: (a) 只出结论与建议条目, 不改产品代码（选定）; (b) 一并修引擎。理由: 项目级条目范围是「核对」; 两处引擎改动交由独立条目裁定与实施。
 
 ### 规划
 
 核对方式约束（用户 2026-10-16 指令）: 涉及 TUI 的检查**一律用临时脚本取精确结果**, 不得以模型阅读代码作为结论。
 
-任务拆分（当前均未开工; 开工顺序即 P1 → P6）:
+任务拆分（P1–P5 已完成; P6 收尾待提交点裁定后执行）:
 
-- P1 落地核对范围与方法: 按「调研」S1–S6 复核链路清单与差异候选, 明确 ① 显示面 ② 插件面 ③ 呈现面各自的口径基线（哪些属有意不同）。
-- P2 离线夹具（脚本）: 真实 adapter + 真实 rule-engine 同跑同一事件序列, 逐字节比对; 覆盖单 step / 多 step / 空白 step / replace / 超长 / 异常收尾 6 类, 并补 ③ 提示呈现的 notice 断言。
-- P3 真机核对（脚本）: 扫 `~/.dsh/sessions` 统计差异点频率; 对指定会话逐回合复算两侧文本（重建逻辑按 S5 的口径）。
-- P4 思考 / 正文分离核对（脚本）: 覆盖 S6 的 13 条断言, 并确认「非流式 provider 思考不可见」的展示口径。
-- P5 结论与立项: 按「决策」候选逐条定稿（一致 / 有意不同 / 缺陷）, 需要改动的写成条目并交其他 agent 接取（落点待裁定: rule-engine 包内 vs 项目级）; 可选项: 实时真机会话探针是否独立成任务。
+- P1 落地核对范围与方法（已完成）: 按「调研」S1–S6 复核链路清单与差异候选, 明确 ① 显示面 ② 插件面 ③ 呈现面各自的口径基线（哪些属有意不同）。
+- P2 离线夹具（脚本, 已完成）: 真实 adapter + 真实 rule-engine 同跑同一事件序列, 逐字节比对; 覆盖单 step / 多 step / 空白 step / replace / 超长 / 异常收尾 6 类, 并补 ③ 提示呈现的 notice 断言。
+- P3 真机核对（脚本, 已完成）: 扫 `~/.dsh/sessions` 统计差异点频率; 对指定会话逐回合复算两侧文本（重建逻辑按 S5 的口径）。
+- P4 思考 / 正文分离核对（脚本, 已完成）: 覆盖 S6 的 13 条断言, 并确认「非流式 provider 思考不可见」的展示口径。
+- P5 结论与立项（已完成）: 按「决策」候选逐条定稿（一致 / 有意不同 / 缺陷）, 需要改动的写成条目并交其他 agent 接取（落点待裁定: rule-engine 包内 vs 项目级）; 可选项: 实时真机会话探针是否独立成任务。
 - P6 收尾: 补齐「测试与证据」「偏差」, 追踪文档移入 `docs/archived/`, 清理 BACKLOG 条目与 `tmp/` 脚本（保留与否见「决策」9④）。
 
 计划改动文件清单:
@@ -118,7 +117,7 @@
 - `docs/implementation/2026-10-16-three-surface-text-consistency.md`（本文件; 收尾移入 `docs/archived/`）
 - `docs/BACKLOG.md`（本条目状态: 接取时标「进行中」, 收尾标「完成」并清理移除）
 - `rule-engine/docs/BACKLOG.md`（**待裁定**: 若「决策」1/4 采纳 (a), 按结论追加条目; 目前为空, 未登记）
-- `tmp/three-surface-*.ts` / `tmp/tui-reasoning-separation.ts`（核对脚本; 保留 / 删除见「决策」9④）
+- `tmp/three-surface-*.ts` / `tests/reasoningSeparation.test.ts`（原 `tmp/tui-reasoning-separation.ts`）（核对脚本; 保留 / 删除见「决策」9④）
 - 其余产品代码（`TUI/` / `rule-engine/` / `md-table-check/src`）默认不改; 若用户裁定「本任务内一并修」再补入清单
 
 明确不做:
@@ -126,6 +125,55 @@
 - 不改 `TUI/`、`rule-engine/`、`md-table-check/src` 的产品代码（除非用户在「决策」8 改判）
 - 不改 `docs/STATUS.md`（用户择时更新）
 - 不做「顺手优化」
+
+### 实现记录
+
+- 2026-10-16 接取条目开工（条目已标〔进行中〕, 追踪文档已提交 `fb59bf2`）。
+- 2026-10-16 P2 离线夹具: 修正 `tests/displaySurface.test.ts`（原 `tmp/three-surface-check.ts`） 的 stale 用例名后重跑（6 用例）, 并新增 `tmp/three-surface-adapter-vs-engine.ts`（已并入差分对拍） 用真实 adapter / engine 校验两侧口径（两口径均与真实输出一致）。
+- 2026-10-16 P3 真机核对: 重写 `tmp/three-surface-probe.ts`（真机逐回合, 一次性）（断言「插件面 == 各 step 原文 `\n` 连接」）并对本会话日志跑 35 个回合（34 成立 / 0 不成立 / 1 未收尾）; `tmp/three-surface-log-scan.ts`（真机巡检, 一次性） 巡检 5 份日志 559 条消息 / 61 个回合。
+- 2026-10-16 P4 思考 / 正文分离: `tests/reasoningSeparation.test.ts`（原 `tmp/tui-reasoning-separation.ts`） 13 条断言全 ✓; `tests/displaySurface.test.ts`（原 `tmp/three-surface-display-probe.ts`） 修正 1 条与实测相反的旧断言（纯空白正文照常进入显示）后 8 条断言全 ✓。
+- 2026-10-16 差分对拍（补充取证）: 新增 `tmp/three-surface-differential.ts`, 用独立复刻的两侧模型与真实实现同输入对拍; 首轮暴露复刻模型 2 处错误假设（把显示面误当作「丢弃纯空白 step / 丢弃仅有工具调用的 step」, 实际口径是按 step 键查已输出后只补后缀, 整条空正文才不输出）, 修正后 7 个定向用例 + 300 条与 2000 条随机序列全部一致。顺带实测到引擎的一处缺省口径: `turn/end` 不带 `reason` 时按 `completed` 处理（照常唤醒）, 已写入 `rule-engine/README.md`。
+- 2026-10-16 **脚本转正**: 按用户要求把一次性核对脚本按用途转成正式测试 —— `md-table-check/tests/displaySurface.test.ts`（显示面与注入呈现）、`reasoningSeparation.test.ts`（思考 / 正文分离）、`surfaceDifferential.test.ts`（三面差分对拍, 含确定性随机序列 300 + 2000 条）; 并把 TUI 口径核对并入 `tests/tuiParity.test.ts` 新增「互证 ⑤」; 四个文件在 TUI 源码缺失时整体跳过（沿用 `tuiParity.test.ts` 的降级策略）。`tmp/` 下对应脚本随之删除。
+- 2026-10-16 P5 结论: 两条应修项（超长截断 / replace）写成 `rule-engine/docs/BACKLOG.md` 条目; 「step 分隔符」口径写成 `rule-engine/README.md` 说明（均按「决策」1 / 2 / 4 的选定项执行）。
+
+### 偏差
+
+- 无（P1–P5 按规划执行; 期间只修正了两处脚本自身的 stale 断言 / 模型, 不涉及产品代码）。
+
+### 测试与证据
+
+测试已转正为 `md-table-check/tests/` 下的四个文件（`npm --prefix md-table-check test`, 51 例全绿）; 下表的命令栏给转正前的一次性脚本路径与等价命令。
+
+| 脚本 | 命令（在仓库根） | 结果 |
+| --- | --- | --- |
+| `tests/surfaceDifferential.test.ts`（原 `tmp/three-surface-differential.ts`） | `npm --prefix md-table-check test` | **独立复刻模型 vs 真实实现差分对拍**: 8 个定向用例（单 step / 多 step + 空白 + 工具块 / replace / 异常收尾 / reason 对象形态 / reason 缺省 / 多 text 块与无 text 块 / 超限截断）全部一致; 随机序列 300 条与 2000 条均 **0 处不一致** |
+| `tests/displaySurface.test.ts`（原 `tmp/three-surface-check.ts`） | `node --experimental-transform-types tmp/three-surface-check.ts` | 6 用例: 单 step 两面逐字节相同; 多 step / 空白 step / replace / 超长 / 异常收尾 5 例不同; 「超长」显示报 1 / 插件不报, 「replace」显示不报 / 插件报 1; 提示原文 157 字符 → 显示摘要 `表格列数提醒` |
+| `tmp/three-surface-adapter-vs-engine.ts`（已并入差分对拍） | `node --experimental-transform-types tmp/three-surface-adapter-vs-engine.ts` | 显示面口径与插件面口径**均与真实输出一致**（0 处不符）; 真实形态 2 个空白 step: 显示 18 字符 / 插件 20 字符（差 2 个 `\n`） |
+| `tests/displaySurface.test.ts`（原 `tmp/three-surface-display-probe.ts`） | `node --experimental-transform-types tmp/three-surface-display-probe.ts` | 8 条断言全 ✓（replace 不进显示 / 纯空白照常进显示 / step 直接相接 / 流式只补后缀 / notice 折叠为摘要 等） |
+| `tmp/three-surface-log-scan.ts`（真机巡检, 一次性） | `node --experimental-transform-types tmp/three-surface-log-scan.ts` | 5 份日志 / 559 条 `assistant/message` / 61 个 `turn/end`; 超 20000 字符 0 条（最长 2875）; replace 0 条; 纯空白正文 466 条; 非 {completed,max-tokens} 1 条（`aborted`） |
+| `tmp/three-surface-probe.ts`（真机逐回合, 一次性） | `node --experimental-transform-types tmp/three-surface-probe.ts <日志> [回合]` | 本会话 35 个回合: 口径断言 34 成立 / 0 不成立 / 1 未收尾; ①② 逐字节不同的回合数 = 含空白 step 的回合数 |
+| `tests/reasoningSeparation.test.ts`（原 `tmp/tui-reasoning-separation.ts`） | `node --experimental-transform-types tmp/tui-reasoning-separation.ts` | 13 条断言全 ✓ |
+| `tests/tuiParity.test.ts`「互证 ⑤」（原 `tmp/tui-parity-check.ts`） | `node --experimental-transform-types tmp/tui-parity-check.ts` | 13 条断言全 ✓（任务 B S4 的口径核对证据） |
+
+残留检查: 产品代码（`src/`）未改动; 新增 3 个测试文件与 `tuiParity.test.ts` 的 1 个用例（测试代码, 见「变更清单」）。
+
+**未验证项（如实记录）**: 本 worktree 的 `node_modules` 不存在（worktree 建后未安装依赖）, `tsc` 不可用 → `npm --prefix md-table-check run check` 与全仓 `npm run check` **未运行**; 已运行的是 `npm --prefix md-table-check test`（node 类型擦除, 51 例全绿）。请在有依赖的环境补跑 `npm install` 后执行 `npm run check`。
+
+提交检查点（任务 A 实现/测试后）: 按 `docs/WORKFLOW-STANDARD.md` §5 询问用户是否提交; 因本次改动全为文档与条目定义（无产品代码、无测试用例）, 建议合并到任务关闭后一次提交。
+
+### 变更清单
+
+| 变更 | 位置 | 说明 |
+| --- | --- | --- |
+| 新增测试（脚本转正） | `md-table-check/tests/displaySurface.test.ts` | 显示面与注入呈现 11 例 |
+| 新增测试（脚本转正） | `md-table-check/tests/reasoningSeparation.test.ts` | 思考 / 正文分离 9 例 |
+| 新增测试（脚本转正） | `md-table-check/tests/surfaceDifferential.test.ts` | 三面差分对拍 3 例（含随机序列 300 + 2000 条） |
+| 扩展现有测试 | `md-table-check/tests/tuiParity.test.ts` | 新增「互证 ⑤」成表判据与不等时的走向（原 `tmp/tui-parity-check.ts` 的断言） |
+| 文档 | `md-table-check/README.md` | 测试文件清单与降级说明（三份 → 六份） |
+| 文档 | `rule-engine/README.md` | `assistant-text` 的 `\n` 拼接与 20000 截断口径、`reason` 缺省按 `completed`、观测口径与 TUI 的差异说明 |
+| 条目 | `rule-engine/docs/BACKLOG.md` | 新增 2 条（20000 截断漏检 / replace 语义不一致） |
+| 追踪文档 | 本文件 | 调研 S1–S6、决策定稿、证据表 |
+| 保留的一次性脚本 | `tmp/three-surface-log-scan.ts` / `tmp/three-surface-probe.ts` | 真机日志巡检与逐回合复算（依赖 `~/.dsh/sessions` 实机数据, 不入库） |
 
 ## 任务 B：md-table-check 漏检形态筛查
 
@@ -186,7 +234,7 @@
 
 **结论**: 未发现判定层的实质不一致; 差异集中在「成表判据 + 不等时的报告」, 与 README 声明的唯一放宽项吻合。
 
-**可复现验证脚本**（临时, 放项目根 `tmp/`, 只读）: `tmp/tui-parity-check.ts`; 运行 `node --experimental-transform-types tmp/tui-parity-check.ts` → 13 条断言全 ✓（0 处不符）, 含上方各条证据 （splitCells 9 条夹具无差异、分隔行不等 isTableStart=false、数据行多 1 格 TUI 丢 1 格、围栏 / 引用块 / 空行分隔两侧均不认）。
+**可复现验证脚本**（临时, 放项目根 `tmp/`, 只读）: `tests/tuiParity.test.ts`「互证 ⑤」（原 `tmp/tui-parity-check.ts`）; 运行 `node --experimental-transform-types tmp/tui-parity-check.ts` → 13 条断言全 ✓（0 处不符）, 含上方各条证据 （splitCells 9 条夹具无差异、分隔行不等 isTableStart=false、数据行多 1 格 TUI 丢 1 格、围栏 / 引用块 / 空行分隔两侧均不认）。
 
 ### 决策（待裁定候选）
 
