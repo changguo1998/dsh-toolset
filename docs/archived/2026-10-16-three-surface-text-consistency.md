@@ -1,13 +1,13 @@
 # 追踪文档（同一分支的两项任务: A 助手正文「三面一致」核对 / B md-table-check 漏检形态筛查）
 
-状态：规划　　开启：2026-10-16　　关闭：
-本文件是这两项任务唯一的过程记录与文档变更落点；计划外的文件不改。
+状态：关闭　　开启：2026-10-16　　关闭：2026-10-16
+本文件（已归档）是这三项任务唯一的过程记录；计划外的文件不改。
 
-## 接取范围
+## 接取范围与关闭结果
 
-- 任务 A（项目级条目）: `docs/BACKLOG.md`「助手正文「三面一致」核对（TUI 接收面 / 插件实收文本 / 会话区显示）」——状态〔进行中: 2026-10-16〕。
-- 任务 B（模块级条目）: `md-table-check/docs/BACKLOG.md`「漏检形态筛查（除已证形态外, 哪些坏表格不会被拦下）」——状态〔进行中: 2026-10-16〕。
-- 任务 C（rule-engine 检查流程）: 用户 2026-10-16 指定; **尚未登记 BACKLOG 条目**（规划评审时一并裁定落点与登记方式）。
+- 任务 A（项目级条目）: `docs/BACKLOG.md`「助手正文「三面一致」核对（TUI 接收面 / 插件实收文本 / 会话区显示）」——**完成并清理**（结论: 2 个缺陷登记到 `rule-engine/docs/BACKLOG.md`）。
+- 任务 B（模块级条目）: `md-table-check/docs/BACKLOG.md`「漏检形态筛查（除已证形态外, 哪些坏表格不会被拦下）」——**完成并清理**（2 条缺口条目留在待办区）。
+- 任务 C（rule-engine 检查流程, 用户临时指定, 未登记 BACKLOG 条目）: **完成**（1 个缺陷登记条目; 1 条宿主依赖写入 `rule-engine/README.md`）。
 
 ## 任务 A：助手正文「三面一致」核对
 
@@ -434,3 +434,11 @@
 - 回写: `md-table-check/README.md`（已核查形态表）、`md-table-check/docs/BACKLOG.md`（条目标完成并移除）。
 - 未做: 追踪文档归档（与任务 C 同一份, 待任务 C 完成后移入 `docs/archived/`）。
 - 遗留: 2 条缺口条目（空行分隔表 / 行内代码竖线）留在 `md-table-check/docs/BACKLOG.md` 待办区。
+
+## 全局收尾（2026-10-16）
+
+- 回写文档: `md-table-check/README.md`（已核查形态表 + 七份测试清单）、`rule-engine/README.md`（拼接 / 截断 / `reason` 口径与依赖说明）、`rule-engine/docs/BACKLOG.md`（3 条新条目）、`md-table-check/docs/BACKLOG.md`（条目关闭 + 2 条缺口条目）、`docs/BACKLOG.md`（条目完成并清理）。
+- 归档: 本文件由 `docs/implementation/` 移入 `docs/archived/`（`git mv` 需要 worktree 元数据写权限, 用 `mv` + 提交记录同一效果）; `docs/implementation/` 目录随之空掉并移除。
+- 临时文件: `tmp/` 下 6 个一次性脚本已按用途分流 —— 4 个转正为 `md-table-check/tests/` 的测试, 2 个真机脚本（`three-surface-log-scan.ts` / `three-surface-probe.ts`）随收尾删除; 目录已空。
+- 遗留项: ① `npm run check` / `run build` 未运行（本 worktree 无 `node_modules` / `tsc`）, 请在装依赖的环境补跑; ② `rule-engine/docs/BACKLOG.md` 3 条待办（20000 截断 / replace 语义 / 非字符串 reason）交后续接取; ③ `md-table-check/docs/BACKLOG.md` 2 条缺口条目待裁定或实现。
+- 提交链: `fb59bf2`（规划文档）→ `0bf3be9`（三面测试）→ `0c5783b`（形态断言 + 快照）→ `fc448c6`（rule-engine 核对）→ 本次收尾提交。
