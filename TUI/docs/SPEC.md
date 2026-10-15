@@ -110,7 +110,7 @@ type Height =
 |---|---|---|
 | 一条用户输入 | `h([ spacer(fill), Paragraph(width:auto) ])`（**块级对齐，不用 `align`**） | 整体靠右的收缩块（一次输入 = 一条 buffer 行：显式换行保留在行内、按物理行折行取最大行宽作块宽、块内行首左对齐、右缘贴边） |
 | 一条 LLM 回复段落 | `h([ text(indent), spacer(gutter) ])` | 回复靠左 + 右缘 `messageGutter` 留空 |
-| 思考 | `text(prefix:{┃,紫}, indent:1)` | 左侧紫色竖线区分 |
+| 思考 | `Paragraph(prefix:{┃,紫})`（块级 + 行内 markdown 同正文；围栏代码块走正文共用的构建器 `codeBlockRows`） | 左侧紫色竖线区分；**2026-10-16 起与正文同口径渲染 markdown 子集**（markdown 表格除外，见 §15.5「活动区思考行的 markdown 排版」） |
 | 一条工具调用记录 | `v([名字行, 参数行×N, 结果行?])`（工具块三类行） | **2026-10-13 改版**：名字行 = `标记 + 空格 + 工具名`（标记列 0 / 名字列 2；标记由**帧层**按 1 toggle/s 相位整格改写，管线只写稳定字形）；参数行缩进 4、`名 值` **不对齐**（名字灰 / 值原色），值续行固定悬挂 6、折行上限 5 行（超出 → 前 2 + `…` + 后 2）；结果行缩进 2（标记只在名字行），按详情**原始换行**逐行渲染、同样 5 行上限；失败时名字行 `✗` 红 + 结果行整行红（参数行不染）；空详情且无 `(+N/-M)` 摘要不挂结果行；落单结果（无对应调用）行内自带 `✓` / `✗`。详见 `implementation/2026-10-13-tool-block-display.md` |
 | step 分组头 | `text("╌╌ hh:mm:ss ⇆N #M ", tail:{char:"╌"})` | `stepHeaderLine(step, time, turn)`（本地时区 24 小时制逐段补零；顺序固定为**时间 → 回合号 → 步号**，任一片段缺失即省略——时间缺 → `⇆N #M`、回合号缺 → `hh:mm:ss #M`、都缺 → `#M`；回合号标记 `⇆` 与回合分隔线同款、步号 `#M` 为 step 头独有；**内容驱动**——在该 step 首条回合区内容前渲染，该 step 没有回合区内容（被档位过滤 / 正文归会话区 / 只声明未产出）就不出这一行，「孤儿头」不再发） |
 | 恢复会话的 step 概要行 | 同上形制（buffer `kind = "step"`） | P9：`╌╌ hh:mm:ss #N ╌╌ 工具名[×次数], …[ ✗失败数]`，由 `surfaceToBuffer` 注入、`build-box` 按同形制品渲染 |
@@ -151,6 +151,8 @@ markdown 解析因此分两级：**先切块、再块内做行内解析**。
 | 分隔线 | `Paragraph("─"×w)` |
 
 Box 模型把块判定显式化为"块列表 → 子树"，不再与 `inFence` 状态机等混在一处隐式判定。
+
+**思考行同口径**（2026-10-16「思考内容也进行排版」）：活动区思考行的块级元素与行内 markdown 与正文走**同一套解析**（`wrapAssistantLine`），围栏代码块走同一条构建路径（`codeBlockRows`）；差异只有左缘竖线配色（紫 `brightMagenta`）与**不识别 markdown 表格**（按普通行渲染）。口径与实现见 §15.5。
 
 **注入 notice 行**（BACKLOG TUI#17）：`source.form:'notice'` 的 user 消息（如 rule-engine 注入）**不按用户块渲染**——摘要（`summary`；缺省取正文首个非空行，≤120 字符）渲染为**单行 notice 行**（log 灰、进活动区），不展开、不占用户消息块；实时路径（`agent/inbox/spliced` / `user/message`，按消息 id 去重）与恢复路径（`HistoryMessage.role='notice'` → buffer `kind='notice'`）同一口径，非 notice 形态的注入维持现状（实时不显示、恢复按普通用户块）。
 
@@ -713,6 +715,7 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **文字右缘留白（`PANE_TEXT_MARGIN_COLS=1`，P3）**：留白只作用于**右缘贴着外框列**的文字——横向历史 pane **不留白**（用户块右缘 `┃` 紧贴内部分隔竖线）、横向活动 pane 与纵向两 pane 各让 1 列（`paneTextWidth(paneW, reserve)`：`frameGeometry.dialogueTextW/activityTextW`，`reserve` 只在右缘是外框列时为真；排队块、活动区面板同口径）。**所有横线一概不缩**：标题栏下划线、活动区分隔线、回合分隔线（`╌`，按 `ContentRow.kind === "separator"` 识别并补满）、状态栏上下边框都铺满到屏幕最右列（区域外缘框列在横线行补 `─`/`╌`）。**活动区行尾不补空格、也不画右边框**：`buildTopRegion` 对活动区行跳过 `padSegs` 与外缘框列字形；`FocusFrame` 的 activity 分支只画左缘竖线，顶/底亮线铺到最右列收尾（无角字）。回归：`tests/pane-text-margin.test.ts`。
 - **列口径**：区域右缘框列是焦点框保留格（`FRAME_RIGHT_COLS=1`），正文区自区域正文起始列（状态列与分隔竖线之后，屏幕列 = `statusColWidth`）起算——回复行 `┃` 占正文区第 0 列、正文自第 1 列起；用户块整体右对齐，左缘留白 `gutter−1` 列（`spacer(fill, min)`）、块内右缘 `┃` 贴正文区最后一列。故输入正文起列 = 正文区起始列 + `gutter−1`（屏幕列），令其等于回复第 3 字符所在列（正文区第 3 列）解得 **`gutter = 4`**。
 - **两侧同源**：`gutter` 同时是用户块左缘留白与回复右缘留白（`finalSpace` 的 `spacer(fixed gutter−1)`），故默认 4 时两侧文本上限对称各收 4 列（宽 60 时：正文区 39 列 → 回复正文 35 列、用户文本 35 列）。
+- **只作用于历史 pane**：这套左右对称收窄不落在回合区（活动 pane）——活动区内容左缘贴 pane 第 0 列（逐行的 `┃` 前缀或工具行自身缩进），右侧只让 `PANE_TEXT_MARGIN_COLS=1`，且行尾不补空格、不画右边框。故思考 / 非 final 正文的折行宽 = 活动 pane 文字宽 − 左竖线 1 列（默认比历史区正文宽 4 列；横向排列下两 pane 各自取宽）。
 - **连带**：竖线可见阈值 `USER_MIN_LEFT_GUTTER + 2` 由 6 上移到 8（w ≤ 7 不画竖线）——该常量是**窄列降级用的最小左缘留白**，与 `DEFAULT_MESSAGE_GUTTER` 各自独立（仍为 6，不随本条改动）；`DEFAULT_MESSAGE_GUTTER` 与 `normalizeTuiDisplayConfig` 缺省同步为 4。
 - **回归**：`tests/layout4.test.ts`「输入最长折行左缘与回复正文第 3 个字符同列（gutter=4）」+ `tests/content-mapping.test.ts` 竖线阈值边界（w=6/7 关闭、w=8 开启）+ `tests/fixtures/focus-frame-legacy.json`（w20 四场景按新口径冻结）。
 
@@ -768,6 +771,13 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **语义**：只作用于活动区（历史区不变），与「详略两态」**正交**、可叠加：`think`（缺省）= 思考 + 正文 + 工具调用（调用行 / 参数 / 结果 / 辅助行全显示）；`tool` = 正文 + 工具调用（**去思考行**）；`step` = 正文 + 工具调用的**第一行**（结果行 / 辅助行整条去掉，调用行只取**首个物理行**＝去参数续行；**step 头与 notice 保留**）。
 - **实现**：`state.activityVerbose: ActivityLevel`（缺省 `"think"`）+ action `activity-verbose{level}`；`buildTopRegion` 传 `activityLevel` → `BuildBoxOptions.activityLevel`，过滤在 `build-box.ts` 构建期（thinking 分支跳过；tool 分支按 `isToolCall` / `isStepHeader` 取舍）。无参 / 非法参数只提示用法与当前档位、不切换；档位随会话状态快照持久化（键 `verbose`；旧布尔值按「详略」语义迁移到 `collapse`）。
 - **回归**：`tests/activity-level.test.ts`（三档过滤矩阵 / step 取首行 / 命令切换与正交性）+ `tests/session-ui-state.test.ts`（快照迁移）+ `tests/app.test.ts`（ui-flags 回填与快照落盘）。
+
+#### 活动区思考行的 markdown 排版（2026-10-16）
+
+- **口径**：思考行与正文走**同一套** markdown 解析（`markdown.ts` 的 `wrapAssistantLine`）——块级元素（标题 / 无序与有序列表 / 引用 / 分隔线 / 任务列表）与行内（粗体 / 斜体 / 行内代码 / 链接 / 图片占位 / 删除线 / 下划线 / 转义）逐项同规格，列表项折行同样悬挂缩进对齐正文。**围栏代码块**走正文与思考共用的构建器（`build-box.ts` 的 `codeBlockRows`）：fence 开关行隐藏、语言标记行斜体（与代码列对齐、不占行号）、代码行 `行号 2 列 + 空白 1 列 + 代码`、续行再缩进 4 列并靠右对齐正文右缘、灰底补齐到内容区宽；窄窗（可用正文宽 < 23 列）省略行号列，宽未知时退化为交给 fill 折行的单节点形态。
+- **差异**：左缘竖线配色（思考紫 `brightMagenta` / 正文蓝 `brightBlue`）；思考**不识别 markdown 表格**（按普通行渲染，表格列宽是构建期跨行约束、留作后续可选项）；折行宽 = 活动 pane 文字宽 − 左竖线 1 列（回合区没有历史区的对称留白，见 §15.4「只作用于历史 pane」）。
+- **实现**：`build-box.ts` 思考分支——非紧凑路径建 `Paragraph`（前缀 `┃` + `minWidth`）→ `fillParagraph` → `wrapAssistantLine`；围栏开关行隐藏并逐行前瞻收取围栏内代码行（遇闭栅或非 thinking 行停止，闭栅行被收录消费）。**紧凑路径（`/collapse`）保持单行压缩**（`StyledText` + `actText`，不解析 markdown）；空思考行跳过、`/verbose` 档位过滤、思考 ↔ 正文类型间隔（1 行空行）、正文分片连排的穿透记账均不变。
+- **回归**：`tests/thinking-markdown.test.ts`（块级逐行 / 行内 / 列表折行缩进 / 围栏代码块与未闭栅 / 档位与紧凑与类型间隔）+ `tests/layout4.test.ts`（原「thinking 不渲染」断言改为同口径渲染）+ `tests/content-mapping.test.ts`（纯文本思考行与冻结基线逐行等价）。
 
 #### 活动区排列：黄金分割比自动选上下 / 左右
 
