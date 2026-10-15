@@ -550,12 +550,12 @@ test("Esc idle 时无操作：不触发 interrupt、不关闭 renderer，输入�
   assert.equal(renderer.closed, 0);
 });
 
-test("Esc 打断运行：agent 非 idle(thinking) 时调用 interrupt 一次", () => {
+test("Esc 不打断运行（2026-10-15 起）：agent 非 idle(thinking) 时也不调用 interrupt", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
   renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
-  assert.equal(adapter.interrupts, 1, "非 idle 时 Esc 打断");
-  assert.equal(adapter.log[adapter.log.length - 1], "interrupt");
+  assert.equal(adapter.interrupts, 0, "Esc 不再打断（打断走 `!` 模式）");
+  assert.deepEqual(adapter.log, [], "Esc 不产生任何适配器调用");
   assert.equal(renderer.closed, 0);
 });
 
@@ -747,18 +747,27 @@ test("subagent 行 @ label os 按 info 蓝着色", () => {
   );
 });
 
-test("模式键：空输入按 $ / / / < 切换模式且吞键，! 为普通字符；提交后回退默认 steer", async () => {
+test("模式键：空输入按 $ / / / < / ! 切换模式且吞键；提交后回退默认 steer", async () => {
   const { renderer, adapter } = makeApp();
-  // ! 不再切模式：空输入也作为普通字符插入
+  // ! 自 2026-10-15 起也是模式键（interrupt）：空输入 + Enter = 只打断；此处 idle → 无操作
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(
+    adapter.log,
+    [],
+    "`!` 被吞（不按普通字符插入）、idle 空输入无操作",
+  );
+  assert.equal(adapter.interrupts, 0);
+  // 再按一次 `!` 幂等（模式不变、输入仍空）；随后输入的 x 属于 interrupt 模式 → 打断口径直发
   renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(
     adapter.log,
-    ["steer:!x"],
-    "! 为普通字符（按默认 steer 投递）",
+    ["send:x"],
+    "`!` 模式下直发（不带 next-step）；提交后回退默认模式",
   );
-  assert.equal(adapter.interrupts, 0);
+  assert.deepEqual(adapter.steered, [], "打断口径不带 next-step");
   adapter.push({ type: "turn-end" }); // 回合结束回 idle（否则后续 Enter 进排队）
   // $ 切 shell 吞键、提交走**本地执行**（BACKLOG TUI#37：不经模型）、提交后回退 normal
   renderer.press({ name: "$", ctrl: false, meta: false, shift: false });
@@ -767,14 +776,14 @@ test("模式键：空输入按 $ / / / < 切换模式且吞键，! 为普通字�
   await new Promise((r) => setTimeout(r, 0)); // 本地执行为异步链（假 runner 立即返回）
   assert.deepEqual(
     adapter.log,
-    ["steer:!x"],
+    ["send:x"],
     "shell 提交不经模型（本地子进程执行，adapter 未收到消息）",
   );
   adapter.push({ type: "turn-end" });
   // 回退后输入普通 z，不残留模式
   renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
-  assert.deepEqual(adapter.log, ["steer:!x", "steer:z"]);
+  assert.deepEqual(adapter.log, ["send:x", "steer:z"]);
 });
 
 test("非默认模式空输入按 Backspace 回退至默认 steer（$ / < 切了再退）", () => {
@@ -812,16 +821,19 @@ test("slash 提交后回退 normal：再输入普通字符不再自动补 /", ()
   assert.deepEqual(adapter.sent, ["ok"], "回退后为普通消息");
 });
 
-test("Alt+Enter 打断并发送：先 interrupt 再直发（不带 next-step），模式回退默认 steer", () => {
+test("`!` 模式打断并发送：忙时先 interrupt 再直发（不带 next-step），提交后回退默认 steer", () => {
   const { renderer, adapter } = makeApp();
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "h", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "i", ctrl: false, meta: false, shift: false });
-  renderer.press({ name: "enter", ctrl: false, meta: true, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(
     adapter.log,
     ["interrupt", "send:hi"],
-    "Alt+Enter 先打断再发送",
+    "`!` 模式先打断再发送",
   );
+  assert.deepEqual(adapter.steered, [], "打断后直发，不按 step 边界投递");
   adapter.push({ type: "turn-end" }); // 回合结束回 idle（否则后续 Enter 进排队）
   // 提交后输入不残留、模式已回退
   renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
@@ -1061,7 +1073,7 @@ test("活动区生命周期：新回合不再清空上一回合内容（2026-10-
   app.dispose();
 });
 
-test("排队消息 Esc：退回输入框（保留可编辑）+ 清空登记 + 打断", () => {
+test("排队消息 Esc：不退回、不清登记、不打断（留在核心 next-turn 队列等认领）", () => {
   const { app, renderer, adapter } = makeApp();
   typeAndEnter(renderer, "发出去了");
   adapter.push({
@@ -1079,44 +1091,39 @@ test("排队消息 Esc：退回输入框（保留可编辑）+ 清空登记 + �
   renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
   const st = (
     app as unknown as {
-      state: { inputText: string; queued: string[] };
+      state: { inputText: string; queued: { text: string }[] };
     }
   ).state;
-  assert.deepEqual(st.queued, [], "排队登记已清空");
-  assert.equal(
-    st.inputText,
-    "排队甲\n排队乙",
-    "排队内容按顺序退回输入框，可编辑",
+  assert.deepEqual(
+    st.queued.map((q) => q.text),
+    ["排队甲", "排队乙"],
+    "排队登记原样保留",
   );
-  assert.equal(adapter.interrupts, 1, "Esc 仍打断运行中的 agent");
-  // 退回后再提交（核心已回 idle）→ 直发退回的草稿
+  assert.equal(st.inputText, "", "不退回输入框（否则与核心队列重复发送）");
+  assert.equal(adapter.interrupts, 0, "Esc 不再打断运行中的 agent");
+  // 回合结束（核心认领排队条目）→ 队列照旧转正，无需用户重发
   adapter.push({ type: "turn-end" });
   adapter.push({ type: "agent-status", sessionId: "s1", status: "idle" });
-  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
-  assert.deepEqual(adapter.sent, [
-    "发出去了",
-    "排队甲",
-    "排队乙",
-    "排队甲\n排队乙",
-  ]);
+  assert.deepEqual(adapter.sent, ["发出去了", "排队甲", "排队乙"]);
   app.dispose();
 });
 
-test("Alt+Enter 连带排队登记：按时间顺序并入本次发送（不出现顺序颠倒）", () => {
+test("`!` 模式连带排队登记：按时间顺序并入本次发送（不出现顺序颠倒）", () => {
   const { app, renderer, adapter } = makeApp();
   typeAndEnter(renderer, "先发的");
   adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
   typeAndEnter(renderer, "排队甲");
   typeAndEnter(renderer, "排队乙");
-  // 再输入新文本后按 Alt+Enter（打断并发送）
+  // 进入 `!` 模式后再输入新文本（空输入时按 `!` 切模式，`!` 被吞）
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
   for (const ch of Array.from("现在打断发")) {
     renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
   }
   renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
-  renderer.press({ name: "enter", ctrl: false, meta: true, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   const st = (app as unknown as { state: { queued: string[] } }).state;
-  assert.deepEqual(st.queued, [], "Alt+Enter 已清空排队登记");
-  assert.equal(adapter.interrupts, 1, "Alt+Enter 打断一次");
+  assert.deepEqual(st.queued, [], "`!` 模式已清空排队登记");
+  assert.equal(adapter.interrupts, 1, "`!` 模式打断一次");
   assert.deepEqual(
     adapter.sent,
     ["先发的", "排队甲", "排队乙", "排队甲\n排队乙\n现在打断发z"],
@@ -1125,11 +1132,43 @@ test("Alt+Enter 连带排队登记：按时间顺序并入本次发送（不出�
   app.dispose();
 });
 
-test("Alt+Enter 空输入无操作：不打断不发送", () => {
+test("`!` 模式空输入提交：忙时只打断（不发送），空闲时无操作", () => {
   const { renderer, adapter } = makeApp();
+  // 空闲：不打断、不发送
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.equal(adapter.interrupts, 0, "空闲无可打断的回合 → 不调 interrupt");
+  assert.deepEqual(adapter.sent, [], "空输入不发送");
+  // 忙时：只打断，不发送
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.equal(adapter.interrupts, 1, "忙时 `!` + 空输入 Enter = 只打断");
+  assert.deepEqual(adapter.sent, [], "仍未发送任何消息");
+  assert.deepEqual(adapter.log, ["interrupt"], "只有一个 interrupt 调用");
+});
+
+test("Alt+Enter（meta+enter）自 2026-10-15 起等效普通 Enter：不打断", () => {
+  const { renderer, adapter } = makeApp();
+  // 空闲：直发
+  renderer.press({ name: "h", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "i", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: true, shift: false });
+  assert.equal(adapter.interrupts, 0, "空闲不打断");
+  assert.deepEqual(adapter.log, ["steer:hi"], "按默认 steer 投递");
+  // 忙时：进排队（不再打断）
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
+  renderer.press({ name: "a", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: true, shift: false });
+  assert.equal(adapter.interrupts, 0, "忙时也不打断");
+  assert.deepEqual(
+    adapter.log,
+    ["steer:hi", "steer:a"],
+    "按普通 Enter 排队投递",
+  );
+  // 空输入：无操作（与普通 Enter 一致）
   renderer.press({ name: "enter", ctrl: false, meta: true, shift: false });
   assert.equal(adapter.interrupts, 0);
-  assert.deepEqual(adapter.sent, []);
 });
 
 test("非空输入时 ! / $ / / 为普通字符（不切模式）", () => {
@@ -3906,10 +3945,9 @@ test("本地 slash 分级：/help 内容普通前景（不再 info 蓝）、无�
     hexSgr(THEMES.dark.foreground, true),
     "帮助文本按默认前景色（不再 info 蓝）",
   );
-  // 无效 slash → error 红
-  renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
-  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
-  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  // 无效 slash → error 红（用 `/1`：非 [a-z] 开头 → 本地 `无效命令` 分支；
+  // `!` 自 2026-10-15 起是模式键，空输入按 `!` 会切 interrupt 模式，不能再用来拼非法命令）
+  typeAndEnter(renderer, "/1");
   const badLine = renderer.lastRender.find((l) => l.includes("无效命令"));
   assert.ok(badLine, "无效命令行出现在帧中");
   assert.ok(

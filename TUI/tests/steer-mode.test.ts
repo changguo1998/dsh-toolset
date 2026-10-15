@@ -118,22 +118,26 @@ test("运行中：默认模式进 steer 排队块（kind=steer），`<` 进 foll
   assert.deepEqual(adapter.sent, ["插话", "等下一轮"], "两条都已投递");
 });
 
-test("Alt+Enter（打断并发送）：两种模式下都打断后直发，不走 step 边界投递", async () => {
+test("`!` 模式打断并发送：从默认与 `<` 前置模式进入都直发，不走 step 边界投递", async () => {
   const { renderer, adapter, st } = makeApp();
   st().agentStatus = "thinking";
+  renderer.press(key("!"));
   for (const ch of ["打", "断"]) renderer.press(key(ch));
-  renderer.press({ ...key("enter"), meta: true });
+  renderer.press(key("enter"));
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(adapter.interrupts, 1, "先打断当前回合");
+  assert.deepEqual(adapter.sent, ["打断"], "打断后直发");
   assert.deepEqual(adapter.steered, [], "打断后直发，不按 step 边界投递");
   assert.deepEqual(st().queued, [], "不登记排队块");
-  // `<` 模式下同理
+  // `<` 前置态下按 `!` 也切到 interrupt 模式（模式键全局口径）→ 同样打断后直发
   st().agentStatus = "thinking";
   renderer.press(key("<"));
+  renderer.press(key("!"));
   for (const ch of ["再", "断"]) renderer.press(key(ch));
-  renderer.press({ ...key("enter"), meta: true });
+  renderer.press(key("enter"));
   await new Promise((r) => setTimeout(r, 0));
-  assert.equal(adapter.interrupts, 2, "followup 模式下也打断");
+  assert.equal(adapter.interrupts, 2, "`<` 前置态下也打断");
+  assert.equal(adapter.sent[adapter.sent.length - 1], "再断");
   assert.deepEqual(adapter.steered, [], "followup 模式本就不走 next-step");
 });
 
