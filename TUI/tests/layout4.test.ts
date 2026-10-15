@@ -1834,7 +1834,7 @@ test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代�
   );
 });
 
-test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 >/thinking 不渲染", () => {
+test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 >/thinking 同口径渲染", () => {
   const lines = [
     "- 圆点一",
     "* 圆点二",
@@ -1864,12 +1864,11 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
   const doneIdx = plain.findIndex((l) => l.includes("[x] 完成了"));
   assert.ok(doneIdx >= 0, "已完成任务可见");
   assert.ok(rowAnsi(raw[doneIdx]!).includes("\x1b[9m"), "已完成任务删除线");
-  // thinking 保持纯文本（markdown 只作用于最终正文）
-  // thinking 保持纯文本（markdown 只作用于最终正文）
-  assert.ok(
-    plain.some((l) => l.includes("**粗** 在 thinking")),
-    "thinking 保持原样",
-  );
+  // thinking 同口径渲染 markdown 子集（2026-10-16「思考内容也进行排版」）：行内粗体生效
+  const thinkIdx = plain.findIndex((l) => l.includes("粗 在 thinking"));
+  assert.ok(thinkIdx >= 0, "thinking 行内粗体渲染（** 记号被消费）");
+  assert.ok(!joined.includes("**粗** 在 thinking"), "thinking 不再原样保留 **");
+  assert.ok(rowAnsi(raw[thinkIdx]!).includes("\x1b[1m"), "thinking 粗体 SGR");
 });
 
 test("markdown 列表长项折行：悬挂缩进对齐正文、续行不顶满", () => {
