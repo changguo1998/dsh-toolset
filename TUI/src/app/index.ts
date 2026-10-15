@@ -2658,14 +2658,13 @@ export class App {
           this.paint();
           break;
         }
-        // Esc：排队消息先退回输入框（核心 cancel 会清空自己的 next-turn 队列，
-        // 留在本机不丢用户输入）；再打断运行（picker 面板已在上方分支关闭）。
-        // idle + 空输入：退出面板焦点（有焦点 → 回到无焦点；聚焦改用 Ctrl+E / T / S，Tab 不再进焦点）
-        const restored = this.restoreQueued();
-        if (this.state.agentStatus !== "idle") {
-          this.deps.adapter.interrupt();
-        } else if (
-          !restored &&
+        // Esc：自 2026-10-15 起**不再打断**运行、也**不再退回排队登记**（打断收敛到 `!` 模式，
+        // 见 BACKLOG「Esc 取消打断，打断统一由 `!` 模式承担」）——排队内容留在核心 next-turn
+        // 队列里等下一回合认领，退回输入框会让同一条消息既在队列又在输入框而重复发送。
+        // 剩余语义 = idle + 空输入时退出面板焦点（有焦点 → 回到无焦点；聚焦改用 Ctrl+E / T / S，
+        // Tab 不再进焦点）；补全候选与各面板（picker / 审批 / 问答）已在上方分支处理。
+        if (
+          this.state.agentStatus === "idle" &&
           this.state.inputText === "" &&
           this.state.focusedPanel
         ) {
@@ -2883,8 +2882,11 @@ export class App {
         }
         break;
       case "enter":
-        // Alt+Enter（解码层提供 meta:true）打断并发送；普通 Enter 排队/发送
-        this.submit(k.meta);
+        // Enter 的语义只由**输入模式**决定（2026-10-15 起）：`!` 模式 = 打断并发送（空输入则
+        // 只打断）；其余模式 = 排队 / 发送。Alt+Enter（解码层仍把 `ESC CR` / `ESC LF` 合并为
+        // 单个 meta+enter）不再有独立语义 → 忽略 `meta`，等效普通 Enter（解码层不动：删合并会
+        // 让它退化成「独立 Esc + Enter」两个事件，凭空带出 Esc 的副作用）
+        this.submit(this.state.inputMode === "interrupt");
         break;
       case "paste":
         if (k.text) {
@@ -2902,16 +2904,22 @@ export class App {
         }
         break;
       default:
-        // 模式键：输入框为空时按 $ / / / < 切换模式并吞键（$ shell / / slash / < followup；
-        // 同符号幂等；提交后自动回退默认 >；! 为普通字符）
+        // 模式键：输入框为空时按 $ / / / < / ! 切换模式并吞键（$ shell / / slash / < followup /
+        // ! interrupt（打断并发送）；同符号幂等；提交后自动回退默认 >）
         if (
           name.length === 1 &&
           !ctrl &&
           this.state.inputText === "" &&
-          (name === "$" || name === "/" || name === "<")
+          (name === "$" || name === "/" || name === "<" || name === "!")
         ) {
           const mode: InputMode =
-            name === "$" ? "shell" : name === "/" ? "slash" : "followup";
+            name === "$"
+              ? "shell"
+              : name === "/"
+                ? "slash"
+                : name === "<"
+                  ? "followup"
+                  : "interrupt";
           if (this.state.inputMode !== mode) {
             this.apply((s) => reduceState(s, { type: "input-mode", mode }));
           }
@@ -3288,8 +3296,9 @@ export class App {
   }
 
   /**
-   * 排队消息退回输入框（Esc / Alt+Enter 时用）：按提交顺序排在已有输入之前
+   * 排队消息退回输入框（`!` 模式提交时用）：按提交顺序排在已有输入之前
    * （核心打断时会清空自己的 next-turn 队列，本机登记的先留底，避免静默丢输入）。
+   * 2026-10-15 起 Esc 不再调用它：Esc 不打断运行，核心队列照旧认领，退回会重复发送。
    */
   private restoreQueued(): boolean {
     if (this.state.queued.length === 0) return false;
@@ -3306,15 +3315,19 @@ export class App {
   }
 
   private submit(interrupt = false): void {
-    // 空输入且无排队：no-op（Alt+Enter 空输入也不打断，保持既有语义）
-    if (this.state.inputText.trim() === "" && this.state.queued.length === 0)
+    // 空输入且无排队：`!` 模式（interrupt）= **只打断**（忙时；空闲无可打断的回合 → no-op），
+    // 其余模式维持 no-op（打断入口收敛到 `!` 模式，见 BACKLOG「Esc 取消打断」）
+    if (this.state.inputText.trim() === "" && this.state.queued.length === 0) {
+      if (interrupt && this.agentBusy()) this.deps.adapter.interrupt();
       return;
-    // Alt+Enter：先打断当前 agent，再发送（普通 Enter 走排队/直发分流）。
-    // 已排队内容按时间顺序并入本次提交文本（restoreQueued 前置），避免
-    // 「新文本先发、排队内容后发」的顺序颠倒
+    }
+    // `!` 模式：先把排队登记并回输入框，再打断当前回合，然后整条直发（普通 Enter 走排队/直发
+    // 分流）。已排队内容按时间顺序并入本次提交文本（restoreQueued 前置），避免「新文本先发、
+    // 排队内容后发」的顺序颠倒；**仅忙时打断** —— 空闲没有可打断的回合，而 `interrupt()` 落到
+    // 宿主是 `rawAgent.cancel({kind:'user'})`，会连带清空核心 next-turn 队列（BACKLOG 决策 2）
     if (interrupt) {
       this.restoreQueued();
-      this.deps.adapter.interrupt();
+      if (this.agentBusy()) this.deps.adapter.interrupt();
     }
     const text = this.state.inputText.trim();
     if (!text) return;
@@ -3334,7 +3347,7 @@ export class App {
       return;
     }
     // `<` followup 模式：排队等**下一回合**（运行中进排队块、走核心 next-turn 队列；
-    // 空闲时直接发送）。Alt+Enter 打断后已空闲 → 直发（排队内容已并回输入框）
+    // 空闲时直接发送）。`!` 模式打断后已空闲 → 直发（排队内容已并回输入框）
     if (mode === "followup") {
       if (!interrupt && this.agentBusy()) {
         this.apply((s) => reduceState(s, { type: "queued-push", text }));
@@ -3362,7 +3375,8 @@ export class App {
     // 一轮）。语义上仍属**当前回合**，故与直发同路径（立即回显用户块、开回合分隔），
     // **不登记排队块**（排队语义 = 等下一回合，见上面的 followup 分支）。
     // 宿主 agent 无 steer（旧宿主）→ 降级 followup 并明确提示。
-    // Alt+Enter（interrupt）：打断后直发，不走 step 边界投递 —— 保住提示行「打断并发送」口径
+    // `!` 模式（interrupt）也落到这里：打断后直发，不走 step 边界投递（`interrupt` 为真时
+    // 上面的排队分支不成立），即 BACKLOG「打断并发送」的直发口径
     {
       // canSteer 缺省（mock/旧 adapter 未实现）视为「不确定」→ 仍按 steer 投递，
       // 由 adapter 侧按宿主结构面决定 steer/followup（dsh adapter 有 steer 才用）
@@ -3384,8 +3398,8 @@ export class App {
           target,
         );
       } else {
-        // 空闲 / Alt+Enter 打断后：没有可插队的 step（steer 会直接起一轮）→ 直达回显。
-        // 打断后**不带** next-step（打断即放弃当前回合，按提示行口径「打断并发送」直发）
+        // 空闲 / `!` 模式打断后：没有可插队的 step（steer 会直接起一轮）→ 直达回显。
+        // 打断后**不带** next-step（打断即放弃当前回合，按「打断并发送」口径直发）
         this.sendUserText(text, text, interrupt ? undefined : target);
       }
       // 降级提示放在发送**之后**：发送路径可能开回合（turn-begin 清活动区），先提示会被清掉

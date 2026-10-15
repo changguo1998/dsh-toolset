@@ -83,8 +83,10 @@ function trimBufferHead(buffer: HistoryRow[]): void {
  *  4：两侧各留 gutter-1 = 3 列 → 输入最长折行左缘对齐回复正文第 3 个字符。 */
 export const DEFAULT_MESSAGE_GUTTER = 4;
 
-/** 输入模式（$ shell / / slash / < followup；提交后自动回退默认 steer，不再有 Esc 回退） */
-export type InputMode = "steer" | "followup" | "shell" | "slash";
+/** 输入模式（$ shell / / slash / < followup / ! interrupt（打断并发送）；提交后自动回退默认
+ *  steer，不再有 Esc 回退）。打断的唯一入口是 `interrupt` 模式（2026-10-15 起：Esc 不再打断、
+ *  Alt+Enter 不再有独立语义，见 BACKLOG「Esc 取消打断，打断统一由 `!` 模式承担」）。 */
+export type InputMode = "steer" | "followup" | "shell" | "slash" | "interrupt";
 
 /** 活动区**输出内容档位**（BACKLOG #8，`/verbose think|tool|step`；缺省 `think`）：
  *  - `think`：思考 + 正文 + 工具调用（调用行 / 参数 / 结果 / 辅助行全显示）；

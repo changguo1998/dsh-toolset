@@ -372,7 +372,7 @@ export function isCommandTokenInput(text: string): boolean {
 }
 
 /** 输入模式（与 state.InputMode 结构一致；只关心 slash 与否，避免 commands→state 依赖） */
-type InputModeLike = "steer" | "followup" | "shell" | "slash";
+type InputModeLike = "steer" | "followup" | "shell" | "slash" | "interrupt";
 
 /**
  * 取「命令 token」纯文本（不含前导 `/`）：slash 模式下输入框不含前导 `/`

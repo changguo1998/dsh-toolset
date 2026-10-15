@@ -76,15 +76,34 @@
 
 ## 实现记录
 
-（待实现后按时间追加）
+- `src/app/state.ts`：`InputMode` 增 `"interrupt"`；类型注释写明「打断唯一入口」与 Esc / Alt+Enter 口径。
+- `src/app/layout.ts`：`MODE_SYMBOL` 增 `interrupt: "!"`（`Record<InputMode, string>` 逼出该落点）。
+- `src/app/commands.ts`：`InputModeLike` 增 `"interrupt"`（`recomputeCompletion` 传状态里的模式，不同步会编译失败）。
+- `src/app/index.ts`：
+  - 模式键白名单加 `!`（空输入切 `interrupt` 并吞键、同符号幂等；Backspace 回退与提交回退沿用既有分支）；
+  - `case "enter"` 改为 `this.submit(this.state.inputMode === "interrupt")` —— 不再读 `k.meta`（Alt+Enter 等效普通 Enter；解码层按决策 1.1 不动）；
+  - `case "escape"` 删掉 `restoreQueued()` 与 `interrupt()`，保留「补全候选收起」与「`agentStatus === "idle"` + 空输入 + 有面板焦点 → 清焦点」（与旧 `else if` 分支等价）；
+  - `submit()`：空输入分支改为「`interrupt` 且 `agentBusy()` → 只打断，其余 no-op」；`interrupt` 分支的 `adapter.interrupt()` 加 `agentBusy()` 门（空闲直发不误触宿主 cancel）；`restoreQueued()` 文档注释与「Alt+Enter」措辞同步为 `!` 模式口径。
+- 测试：新增 `tests/interrupt-mode.test.ts`（6 例：进入模式与提示符 / 幂等 / 非空输入里 `!` 为普通字符 / Backspace 与提交后回退 / 空闲直发 / 忙时打断后直发 / 历史回溯恢复模式）；
+  `tests/app.test.ts` 改写 6 处（Esc 不打断、排队消息 Esc 不退回、模式键含 `!`、`!` 模式打断并发送、`!` 连带排队并入、`!` 空输入 + Alt+Enter 等效 Enter）；
+  `tests/steer-mode.test.ts` 1 处（原「Alt+Enter 两种模式都打断」→「`!` 模式从默认与 `<` 前置态进入都打断直发」）；
+  `tests/app.test.ts`「本地 slash 分级」的非法命令由 `/!` 改 `/1`（`!` 已成模式键会被吞；`/1` 仍走本地 `无效命令` 分支）。
+- 冒烟（计划外但必需）：`demo/main.ts` 步骤 2 改「`!` 模式空闲直发 `hello`」、步骤 5 改「忙时 `!` 模式打断并发送 `rm tmp`」并加 5b「Alt+Enter 空输入 no-op」，断言标签 `dash-ordinary` → `interrupt-mode-send`、`alt-enter-send` → `interrupt-mode-send-busy`，两处 userblock 正则的 `!hello` → `hello`，文件头注释同步；`demo/mockAdapter.ts` 的 mock `/help` 文案同步。
+- 文档：`README.md`（布局示意图提示行、排队段、输入模式段、提示区段、按键表 Backspace / Enter / Alt+Enter / Esc 四行）；`DESIGN.md`（输入区模式表 + 新增「打断入口」条、两处压缩期口径、排队段末尾的 `!` 模式 / Esc 条与回归清单）。
 
 ## 偏差
 
-（待收尾时如实填写）
+- **计划外文件 2 个（必需：均为断言旧行为的既有测试 / 演示面）**：`TUI/demo/main.ts`、`TUI/demo/mockAdapter.ts` —— 不改则 `npm run demo -- --smoke` 红（实测 `SMOKE_FAIL n=3`：`dash-ordinary` / `interrupt-exactly-once` / `question-esck-no-interrupt`）。
+- `TUI/docs/SPEC.md` 未改：确认其无输入模式 / 按键表章节（与计划一致）。
+- **真机 `dsh --profile fff` 未做**：该 profile 的 `@dsh-toolset/tui` 是 `link:/home/guochang/Projects/dsh-toolset/TUI`（**主工作区**，不是本 worktree），合并前本分支代码不经该 profile 生效。本地以 `npm run demo -- --smoke` + 全量单测替代；真机确认待用户裁定（临时改 profile 链接 / 合并后再验）。
+- 本 worktree 无 `node_modules`（新建 worktree，依赖未安装），为跑 `check` / `build` / `test` 建了 `TUI/node_modules` → 主工作区 `TUI/node_modules` 的符号链接（`.gitignore` 覆盖、不入库；收尾时按需删除）。
 
 ## 测试与证据
 
-（待测试后补齐）
+- `npm run check`（TUI，`include` 含 `tests`）→ 通过（`tsc -p tsconfig.json --noEmit`，无输出即无错误）。
+- `npm run build`（TUI）→ 通过；`dist/src/app/layout.js` 内含 `interrupt: "!"`（编译产物已核实）。
+- `sh scripts/test.sh`（TUI 全量）→ **1600 / 1600 通过，0 失败**（其中 `tests/interrupt-mode.test.ts` 为本任务新增 6 例；改动前基线未单独测量，按此推算为 1594）。
+- `npm run demo -- --smoke` → **退出码 0、42 个 `SMOKE_PASS`、无 `SMOKE_FAIL`**（改动前该冒烟 3 项红，见「偏差」；本任务已同步演示脚本与断言）。
 
 ## 收尾
 
