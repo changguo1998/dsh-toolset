@@ -25,7 +25,9 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 
 `compaction` 只认一次压缩的**终态** `compaction/end`（`compaction/start` / `compaction/summary` / `compaction/prune` 不触发），避免同一次压缩重复判定。
 
-`turn/end` 的 `reason` 为 `aborted` / `error` / `interrupted` / `forked` 时不唤醒（只认 `completed` / `max-tokens`）；**`reason` 缺省（事件未带该字段）按 `completed` 处理 = 照常唤醒**（2026-10-16 差分对拍实测）；边界类新节点不受 `reason` 限制，到达即按对齐 flag 判据处理。
+`turn/end` 的 `reason` 为 `aborted` / `error` / `interrupted` / `forked` 时不唤醒（只认 `completed` / `max-tokens`）；**`reason` 缺省（事件未带该字段）按 `completed` 处理 = 照常唤醒**（2026-10-16 差分对拍实测）；**注意**：`reason` 只在「非空字符串」时按字面判定, 对象形态（如 `{ kind: "aborted" }`）与 `null` / 数字当前会回退成 `completed` 而照常唤醒 —— 已登记条目（见 `docs/BACKLOG.md`）；边界类新节点不受 `reason` 限制，到达即按对齐 flag 判据处理。
+
+**每回合必须发 `turn/start`**：`*-end` 节点的对齐 flag 只由 `*-start` 节点清零（`#bookkeepStart`）；若宿主省略 `turn/start`，同一会话从第 2 个回合起 `turn/end` 会被当成重复而**不再唤醒**消费者（2026-10-16 实测, 用例见 `tests/bufferBoundary.test.ts` 的「bookkeep 清零点」）。
 
 ### 命中条件（`match`）
 

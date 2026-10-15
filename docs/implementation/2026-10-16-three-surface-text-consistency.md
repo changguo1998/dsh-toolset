@@ -351,11 +351,34 @@
 - 接线层过滤: 子代理会话不参与（`main.ts:41` `isSubagentSession`）。
 - 已由任务 A 的实测量到的两处: 单 step 超 20000 截断; `surfaceOp: "replace"` 仍入缓冲（显示侧丢弃）。
 
+### 实现记录
+
+- 2026-10-16 开工, 先做 **P3 `turn/end` 触发矩阵**: 新增 `rule-engine/tests/turnEndMatrix.test.ts`（4 例）, `npm --prefix rule-engine test` 全绿（92 例, 含新增 4 例）。
+- 2026-10-16 **P3 实测发现 1 个缺陷**: `reason` 只有「非空字符串」按字面判定; 对象形态（`{ kind: "aborted" }` 等）与 `null` / 数字 / 布尔一律回退为 `completed` → **异常收尾仍会唤醒消费者与规则**, 而同语义字符串 `"aborted"` 正确不唤醒。已登记 `rule-engine/docs/BACKLOG.md` 第 3 条, 并在测试里以「已知缺陷固定」用例钉住现状（修复后反转断言）。
+- 2026-10-16 **P1 事件 → 节点映射**: 新增 `rule-engine/tests/nodeMapping.test.ts`（3 例）; 实测到一处既有设计: 同一消费者同时注册 `assistant-text` 与 `turn-end` 时, `turn/end` 只唤醒 `assistant-text`（同尺度 end 对齐合并把 `turn-end` 吞掉）, 只注册 `turn-end` 的消费者不受影响 —— 已在用例里固定。
+- 2026-10-16 **P2 缓冲边界**: 新增 `rule-engine/tests/bufferBoundary.test.ts`（6 例）; 固定截断阈值（19999 / 20000 原样, 20001 截到 20000）、空白与换行串照常入缓冲（只跳过长度 0）、多 step `\n` 连接、跨回合隔离; 并固定一条**依赖**: `*-end` 节点的对齐 flag 只由 `*-start` 清, 缺 `turn/start` 时只有第 1 个回合会唤醒（用例「bookkeep 清零点」）。
+- 2026-10-16 **P4–P7**: 新增 `rule-engine/tests/throttleAndReadonly.test.ts`（6 例）—— 持久化只读降级（版本不符告警 / `add()` 报「未能落盘」/ 磁盘不改写）、只读面（`list` / `status` / `summaries`）无副作用、`dedupeInRecord` = 1 跳过与 = 0 照旧、每回合上限按注册顺序取第一段、`delivery: "inject"` 请求的路径与来源、无 `summary` 时由正文**空白折叠**出摘要。
+- 2026-10-16 另核实两条口径: `turn/end` 的 `reason` 缺省（事件不带 `data` / `data` 非对象）按 `completed` 处理属既有设计（README 已写明）; 真正畸形事件（无 `type` / 空 `type` / 未知 `type` / 无会话 id）安全跳过、不产生注入。
+
+### 偏差
+
+- 无（P1–P7 按规划执行; 未改 `rule-engine/src` 产品代码）。
+
 ### 决策（待裁定候选）
 
-> 结论待任务 C 开工后按 P2–P5 实测补; 决策项用数字、选项用 abcd。
+> 结论待任务 C 的 P1 / P2 / P4–P7 实测补; 决策项用数字、选项用 abcd。
 
-1. 检查结论的落点: (a) 缺陷写 `rule-engine/docs/BACKLOG.md`、口径差异写 `rule-engine/README.md`（推荐）; (b) 全部只写本追踪文档; (c) 跨包问题写项目级 `docs/BACKLOG.md`。
+1. P3 发现的缺陷（非字符串 reason 被当成 completed）: (a) 按上述条目交 rule-engine 侧实现（选定）; (b) 本任务内顺手修; (c) 只记录。理由与任务 A 的处置一致: 本项目级条目的范围是「核对」, 改动交独立条目。
+2. P2 发现的依赖（缺 `turn/start` 时后续回合不唤醒）: (a) 视为宿主要求、只在测试与 README 固定（选定）; (b) 另开条目让引擎在缺 `turn/start` 时兜底清 flag。理由: 宿主每回合必发 `turn/start`（`engine.test.ts` 既有用例同口径）; 兜底会改变对齐合并语义, 需单独设计。
+3. 结论落点: (a) 缺陷写 `rule-engine/docs/BACKLOG.md`（已执行）; 口径写本追踪文档 + `rule-engine/README.md`（已执行）。
+
+### 收尾
+
+- 核对结论: 1 个缺陷（非字符串 reason, 已登记条目）、1 条依赖（缺 `turn/start`, 已在测试与 README 固定）、其余为既有设计或已覆盖。
+- 新增测试 3 个文件（`nodeMapping` / `bufferBoundary` / `throttleAndReadonly`）+ 此前的 `turnEndMatrix`，共 15 例; `npm --prefix rule-engine test` → **107 例全绿**。
+- 未做: 追踪文档归档与 BACKLOG 条目清理（与任务 A / B 的归档一起, 待用户确认关闭）。
+
+2. 检查结论的落点: (a) 缺陷写 `rule-engine/docs/BACKLOG.md`、口径差异写 `rule-engine/README.md`（推荐）; (b) 全部只写本追踪文档; (c) 跨包问题写项目级 `docs/BACKLOG.md`。
 
 ### 规划
 
