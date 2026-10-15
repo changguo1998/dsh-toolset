@@ -227,3 +227,127 @@ test("选项非法值回退缺省（负数 / NaN 不抛）", () => {
   );
   assert.equal(renderFeedback(text, { headerExcerptLimit: -5 }) !== null, true);
 });
+
+// ---------------- 漏检形态筛查（任务 B）: 逐形态断言 ----------------
+// 形态编号沿用 md-table-check/docs/BACKLOG.md 的「待查形态」; 证据与裁定见追踪文档
+// docs/implementation/2026-10-16-three-surface-text-consistency.md 任务 B 的 S2–S4 与「决策」。
+
+test("形态 ①+② 组合：分隔行与数据行同时不符 → 两处不一致且按行号排序", () => {
+  const result = checkTables(
+    lines("| a | b | c |", "| --- | --- |", "| 1 | 2 | 3 | 4 |"),
+  );
+  assert.equal(result.tableTotal, 1);
+  assert.equal(result.lineTotal, 2);
+  const table = result.tables[0]!;
+  assert.equal(table.expected, 3);
+  assert.deepEqual(table.mismatches, [
+    { line: 2, role: "delim", actual: 2 },
+    { line: 3, role: "row", actual: 4 },
+  ]);
+  const feedback = renderFeedback(
+    lines("| a | b | c |", "| --- | --- |", "| 1 | 2 | 3 | 4 |"),
+  );
+  assert.match(feedback!.text, /第 2 行（分隔行）：2 列/);
+  assert.match(feedback!.text, /第 3 行（数据行）：4 列/);
+  assert.doesNotMatch(feedback!.text, /另有/, "未超上限时不出「另有」行");
+});
+
+test("形态 ② 相邻两表（无间隔）→ 与 TUI 同判为一张表、2 处不一致", () => {
+  const result = checkTables(
+    lines(
+      "| a | b |",
+      "| --- | --- |",
+      "| 1 |",
+      "| x | y |",
+      "| --- | ---",
+      "| 2 |",
+    ),
+  );
+  assert.equal(
+    result.tableTotal,
+    1,
+    "连续带竖线的行收进同一张表（与 TUI 同判）",
+  );
+  assert.equal(result.lineTotal, 2);
+  assert.deepEqual(
+    result.tables[0]!.mismatches.map((item) => item.line),
+    [3, 6],
+  );
+});
+
+test("形态 ③ 表格在回复末尾（无尾随空行 / 无末尾换行）→ 照常报出", () => {
+  const text = lines("说明在前。", "| a | b |", "| --- | --- |", "| 1 |");
+  assert.equal(text.endsWith("\n"), false, "文本末尾无换行符");
+  const result = checkTables(text);
+  assert.equal(result.tableTotal, 1);
+  assert.deepEqual(result.tables[0]!.mismatches, [
+    { line: 4, role: "row", actual: 1 },
+  ]);
+});
+
+test("形态 ④ 行内代码含竖线 → 按字面切分（已裁定口径: 多报一处, 不修）", () => {
+  // 表头字面 4 格（反引号里的竖线按字面切分）, 分隔行 / 数据行各 3 格 → 两处不一致。
+  const result = checkTables(
+    lines("| `a | b` | c | d |", "| --- | --- | --- |", "| 1 | 2 | 3 |"),
+  );
+  assert.equal(result.tableTotal, 1);
+  assert.equal(
+    result.lineTotal,
+    2,
+    "已裁定: 保持与 TUI 同口径（不做代码跨度感知）, 多报一处",
+  );
+  assert.equal(result.tables[0]!.expected, 4);
+  assert.deepEqual(result.tables[0]!.mismatches, [
+    { line: 2, role: "delim", actual: 3 },
+    { line: 3, role: "row", actual: 3 },
+  ]);
+});
+
+test("形态 ⑧ 单列表三态：列数一致不报 / 数据行多格报 / 分隔行 1 格报", () => {
+  assert.equal(
+    checkTables(lines("| a |", "| --- |", "| 1 |")).tableTotal,
+    0,
+    "单列表且列数一致 → 不报",
+  );
+  const extra = checkTables(lines("| a |", "| --- |", "| 1 | 2 |"));
+  assert.equal(extra.tableTotal, 1, "单列表数据行多格 → 报");
+  assert.deepEqual(extra.tables[0]!.mismatches, [
+    { line: 3, role: "row", actual: 2 },
+  ]);
+  const shortDelim = checkTables(lines("| a | b |", "| --- |", "| 1 | 2 |"));
+  assert.equal(shortDelim.tableTotal, 1, "分隔行不足 2 单元格 → 报");
+  assert.deepEqual(shortDelim.tables[0]!.mismatches, [
+    { line: 2, role: "delim", actual: 1 },
+  ]);
+});
+
+test("表格位于回复首行（前面无空行）→ 照常识别, 表头行号为 1", () => {
+  const result = checkTables(lines("| a | b |", "| --- | --- |", "| 1 |"));
+  assert.equal(result.tableTotal, 1);
+  assert.equal(result.tables[0]!.headerLine, 1);
+});
+
+test("不报口径（钉住已裁定结论）：表头与分隔行间空行 / 引用块内表", () => {
+  assert.equal(
+    checkTables(lines("| a | b |", "", "| --- | --- |", "| 1 | 2 | 3 |"))
+      .tableTotal,
+    0,
+    "表头与分隔行之间有空行 → 不报（与 TUI 同判, 已登记条目）",
+  );
+  assert.equal(
+    checkTables(lines("> | a | b |", "> | --- | --- |", "> | 1 | 2 | 3 |"))
+      .tableTotal,
+    0,
+    "引用块内表格 → 不报（TUI 引用分支走行内解析, 口径一致）",
+  );
+});
+
+test("列表项内缩进表格 → 报出", () => {
+  const result = checkTables(
+    lines("- 项:", "  | a | b |", "  | --- | --- |", "  | 1 | 2 | 3 |"),
+  );
+  assert.equal(result.tableTotal, 1);
+  assert.deepEqual(result.tables[0]!.mismatches, [
+    { line: 4, role: "row", actual: 3 },
+  ]);
+});

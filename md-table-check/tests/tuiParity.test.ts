@@ -13,6 +13,10 @@ import { checkTables, splitCells } from "../src/checker.ts";
 interface TuiTable {
   splitCells(line: string): string[] | null;
   isTableStart(header: string, delimiter: string): boolean;
+  parseTableAt(
+    lines: readonly string[],
+    start: number,
+  ): { table: { header: string[]; rows: string[][] }; end: number } | null;
 }
 
 let tui: TuiTable | null = null;
@@ -113,6 +117,95 @@ test(
     assert.deepEqual(
       result.tables[0]!.mismatches.map((item) => item.actual),
       [3, 1],
+    );
+  },
+);
+
+test(
+  "互证 ⑤：成表判据与不等时的走向（插件报出 ⇔ TUI 退回纯文本 / 丢格）",
+  { skip },
+  () => {
+    // 围栏守卫按 TUI 渲染入口口径: build-box.ts 的 !inFence + isTableStart 预筛 + parseTableAt
+    const fenceRe = /^ {0,3}(`{3,}|~{3,})[ \t]*([\w.+-]*)[ \t]*$/;
+    const rendersAsTable = (
+      text: string,
+    ): { table: unknown; lostCells: number } => {
+      const lines = text.split("\n");
+      let inFence = false;
+      for (let i = 0; i + 1 < lines.length; i++) {
+        const fence = fenceRe.exec(lines[i]!);
+        if (fence !== null) {
+          inFence = !inFence;
+          continue;
+        }
+        if (inFence) continue;
+        if (!tui!.isTableStart(lines[i]!, lines[i + 1]!)) continue;
+        const parsed = tui!.parseTableAt(lines, i);
+        if (parsed === null) continue;
+        let lostCells = 0;
+        for (let j = i + 2; j < parsed.end; j++) {
+          lostCells += Math.abs(
+            (tui!.splitCells(lines[j]!) ?? []).length -
+              parsed.table.header.length,
+          );
+        }
+        return { table: parsed.table, lostCells };
+      }
+      return { table: null, lostCells: 0 };
+    };
+    const cases: [string, string, { reports: boolean; renders: boolean }][] = [
+      [
+        "列数一致",
+        "| a | b |\n| --- | --- |\n| 1 | 2 |",
+        { reports: false, renders: true },
+      ],
+      [
+        "分隔行少 1 列",
+        "| a | b | c |\n| --- | --- |\n| 1 | 2 | 3 |",
+        { reports: true, renders: false },
+      ],
+      [
+        "数据行多 1 格",
+        "| a | b |\n| --- | --- |\n| 1 | 2 | 3 |",
+        { reports: true, renders: true },
+      ],
+      [
+        "围栏内坏表",
+        "```\n| a | b |\n| --- | --- |\n```",
+        { reports: false, renders: false },
+      ],
+      [
+        "引用块内表格",
+        "> | a | b |\n> | --- | --- |\n> | 1 | 2 | 3 |",
+        { reports: false, renders: false },
+      ],
+      [
+        "表头与分隔行间空行",
+        "| a | b |\n\n| --- | --- |\n| 1 | 2 | 3 |",
+        { reports: false, renders: false },
+      ],
+      [
+        "伪表格（缺分隔行）",
+        "正文 | 带竖线\n| a | b |",
+        { reports: false, renders: false },
+      ],
+    ];
+    for (const [label, text, expected] of cases) {
+      assert.equal(
+        checkTables(text).tableTotal > 0,
+        expected.reports,
+        `插件应 ${expected.reports ? "报出" : "不报"}：${label}`,
+      );
+      assert.equal(
+        rendersAsTable(text).table !== null,
+        expected.renders,
+        `TUI 应 ${expected.renders ? "认表" : "退回纯文本"}：${label}`,
+      );
+    }
+    assert.equal(
+      rendersAsTable("| a | b |\n| --- | --- |\n| 1 | 2 | 3 |").lostCells,
+      1,
+      "TUI 丢格计数",
     );
   },
 );

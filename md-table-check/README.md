@@ -53,16 +53,51 @@ bundle 契约：`name` / `inject: ["ruleEngine"]` / `Config` / `apply`；`ctx.ru
 - **伪表格**（有竖线但缺分隔行）识别 —— 正文里带竖线的普通行很常见，误报代价高于收益。
 - 自动改写回复正文或任何文件；TUI 侧展示 / 命令面。
 
+## 已核查形态（2026-10-16）
+
+逐形态实跑并落断言（`tests/checker.test.ts` 的「漏检形态筛查」用例组 + `tests/tuiParity.test.ts` 互证 ⑤）:
+
+| 形态 | 结论 |
+| --- | --- |
+| 仅数据行列数不符（表头与分隔行一致） | 报 |
+| 分隔行与数据行**同时**不符 | 报两处, 按行号排序（分隔行在前） |
+| 同一回复多张表（隔行 / 隔多行） | 逐张报, 受 `maxTables` 上限约束 |
+| 相邻两表（无间隔） | 与 TUI 同判为**一张表**并报出（连续带竖线的行收进同一张表） |
+| 表格在回复末尾（无尾随空行） | 报 |
+| 单元格含转义竖线 `\|` | 不切分; 列数一致即不报 |
+| 表头含**行内代码里的竖线** | 按字面切分 → 多报一处（**已裁定不修**: 保持与 TUI 同口径, 不做代码跨度感知; 见下条条目） |
+| 表格位于围栏代码块内 | 不报（闭栅后的真表格照常检查） |
+| 分隔行带对齐标记（`:--` / `:-:` / `--:`） | 对齐标记本身不触发; 只看列数 |
+| 表头与分隔行一致但**少于**数据行 | 报（TUI 会忽略多格 / 补空缺格） |
+| 分隔行不足 2 单元格（极短表） | 报; 单列表且列数一致时不报 |
+| 表头与分隔行之间**有空行** | **不报**（TUI 亦不认表）—— 已登记条目, 待裁定是否补判定 |
+| 引用块内的表格 | 不报（TUI 引用分支走行内解析, 口径一致） |
+| 列表项内缩进表格 | 报 |
+| 表格位于回复首行（前面无空行） | 照常检查（表头行号 = 1） |
+
 ## 开发
 
 ```sh
 npm run check   # 类型检查
 npm run build   # 编译到 dist/
-npm test        # 三份测试：判定 / 与 TUI 源码互证 / 接线
+npm test        # 七份测试：判定 / 形态矩阵快照 / 与 TUI 源码互证 / 接线 / 显示面与注入呈现 / 思考与正文分离 / 三面差分对拍
 ```
 
-`tests/tuiParity.test.ts` 用动态 `import` 加载 `TUI/src/app/layout/table.ts` 做同口径互证（同一文本在
-TUI 退回纯文本，本插件同时报出）；TUI 源码不在时（独立分发场景）该文件的用例自动跳过。
+测试文件（`tests/`）：
+
+| 文件 | 覆盖 |
+| --- | --- |
+| `checker.test.ts` | 判定核心：切分口径 / 列数不一致 / 上限裁剪 / 渲染文案 |
+| `main.test.ts` | rule-engine 消费者接线：配置归一 / 注册 / `decide` 两态 / 降级路径 |
+| `formMatrixSnapshot.test.ts` | 形态矩阵快照：19 个形态的判定结果（表数 / 行数 / 表头行号 / 期望与实际列数）与提示文案整体固定, 形态结论漂移即变红 |
+| `tuiParity.test.ts` | 与 TUI 表格模块互证：切分逐条同口径、成表判据、不等时的走向（退回纯文本 / 丢格） |
+| `displaySurface.test.ts` | 显示面与注入呈现实测：`replace` 跳过、纯空白照常显示、step 直接相接、流式补后缀、notice 折叠为摘要 |
+| `reasoningSeparation.test.ts` | 思考 / 正文分离：三条通道分离、`assistant-text` 载荷不含思考、完整消息的 reasoning 不补发 |
+| `surfaceDifferential.test.ts` | 三面差分对拍：独立复刻两侧模型 vs 真实 adapter / rule-engine，定向用例 + 确定性随机序列（300 + 2000 条） |
+
+后四个文件用动态 `import` 加载 `TUI/src/app/adapter/dsh.ts`（及 `normalize.ts`）与 `rule-engine/src/engine.ts`；
+TUI 源码不在时（独立分发场景）其用例自动跳过。`surfaceDifferential.test.ts` 内的两个复刻模型是**按当前实现
+口径重述**的独立实现 —— 任一侧实现口径变化时该文件会变红，属有意的漂移提醒（需重新复刻并对拍）。
 
 接线：根 `package.json` 的 check/build 链、`scripts/test-parallel.sh`、`scripts/install.sh`
 （`canonical_pkgs`）与根 `README.md` / `AGENTS.md` 的包清单；条目与追踪文档见项目级
