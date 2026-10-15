@@ -2448,7 +2448,7 @@ test("focus-panel / activity-scroll reducer：一键一区域三态与偏移非�
   assert.equal(statusCollapsed.statusColumnVisible, false, "并收起状态列");
 });
 
-test("reduceState: 新输入/输出（内容推进）后焦点自动回 null；UI action 不重置", () => {
+test("reduceState: 焦点只在用户提交输入时复位；流式内容 / 回合边界 / UI action 都不复位", () => {
   const s = reduceState(initialState(), {
     type: "focus-panel",
     panel: "history",
@@ -2457,11 +2457,30 @@ test("reduceState: 新输入/输出（内容推进）后焦点自动回 null；U
   // 条目 16 段 C2：内容改由**交付**进节缓存（action 类型 `pipeline-state`），而焦点复位挂在
   // 旧内容 action 上（`FOCUS_RESET_ACTIONS`）——生产里每条内容事件仍是「旧 action + 交付」
   // 成对派发（src/app/index.ts 的 stream / thinking / notice 分支），故这里按生产口径成对调用。
+  // 2026-10-15 裁定：流式内容（append / thinking / tool-* / notice…）**不再复位焦点**，
+  // 否则运行中聚焦的区域键会被每个 chunk 清掉（BACKLOG「模型回复期间区域焦点被内容推进清空」）。
   const afterOut = reduceState(withText(s, "模型输出"), {
     type: "append",
     text: "模型输出",
   });
-  assert.equal(afterOut.focusedPanel, null, "模型输出后自动回无焦点");
+  assert.equal(afterOut.focusedPanel, "history", "流式输出后焦点保持");
+  const afterNotice = reduceState(
+    reduceState(initialState(), { type: "focus-panel", panel: "history" }),
+    { type: "notice", text: "通知" },
+  );
+  assert.equal(afterNotice.focusedPanel, "history", "notice 后焦点保持");
+  // 回合边界（turn-begin / turn-end）：也不复位（一次回复可能跨多个回合）
+  const afterTurnBegin = reduceState(
+    reduceState(initialState(), { type: "focus-panel", panel: "history" }),
+    { type: "turn-begin", clearActivity: false },
+  );
+  assert.equal(afterTurnBegin.focusedPanel, "history", "回合开始后焦点保持");
+  const afterTurnEnd = reduceState(
+    reduceState(initialState(), { type: "focus-panel", panel: "history" }),
+    { type: "turn-end" },
+  );
+  assert.equal(afterTurnEnd.focusedPanel, "history", "回合结束后焦点保持");
+  // 用户提交输入（user-line）：保留复位（条目期望②）
   const afterIn = reduceState(
     withUser(
       reduceState(initialState(), { type: "focus-panel", panel: "history" }),
@@ -2470,11 +2489,6 @@ test("reduceState: 新输入/输出（内容推进）后焦点自动回 null；U
     { type: "user-line", text: "用户输入" },
   );
   assert.equal(afterIn.focusedPanel, null, "用户输入后自动回无焦点");
-  const afterNotice = reduceState(
-    reduceState(initialState(), { type: "focus-panel", panel: "history" }),
-    { type: "notice", text: "通知" },
-  );
-  assert.equal(afterNotice.focusedPanel, null, "notice 后自动回无焦点");
   // UI action（状态列滚动）不重置焦点
   const ui = reduceState(
     reduceState(initialState(), { type: "focus-panel", panel: "history" }),

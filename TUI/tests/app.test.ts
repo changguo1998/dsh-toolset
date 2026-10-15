@@ -4254,7 +4254,7 @@ test("Tab 不再有全局语义：空输入 / 有输入都不改变焦点，hint
 test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ 立即回到跟随最新", async () => {
   // 回归：上滚活动区后新回合清空瞬态，若 activityScroll 不归零则旧偏移超出
   // 新内容可视上限，↓ 需连续按到偏移耗尽才恢复（“向下没反应”死区）。
-  const { renderer, adapter } = makeApp();
+  const { app, renderer, adapter } = makeApp();
   const size = { cols: 120, rows: 24 } as const;
   renderer.size = size;
   const strip = (l: string): string => l.replace(/\u001b\[[0-9;]*m/g, "");
@@ -4286,8 +4286,13 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   for (let i = 0; i < 30; i++)
     adapter.push({ type: "notice", text: `turn1 行 ${i}` } as DshEvent);
   assert.ok(actFirst().startsWith("turn1 行"), "turn1 显示");
-  // 内容推进（notice）后自动回无焦点；滚动活动区需重新 Ctrl+T 聚焦回合区
-  renderer.press({ name: "t", ctrl: true, meta: false, shift: false });
+  // 2026-10-15 起 notice（无内容载荷的状态刷新）**不再清焦点**：焦点仍在回合区，
+  // 直接滚动即可（旧行为是内容推进后自动回无焦点、需重新 Ctrl+T 聚焦）
+  assert.equal(
+    (app as unknown as { state: { focusedPanel: string | null } }).state
+      .focusedPanel,
+    "activity",
+  );
   for (let i = 0; i < 25; i++) renderer.press(key("up")); // 上滚越过可视上限
   assert.ok(actFirst().startsWith("turn1 行 0"), "上滚后钳制到最早行");
   // 新回合：**用户输入**（提交）触发活动区整体清空（activityScroll 归零 + 自动失焦），

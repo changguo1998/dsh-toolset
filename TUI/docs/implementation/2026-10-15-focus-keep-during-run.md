@@ -1,6 +1,6 @@
 # TUI 区域焦点在内容推进期间保持（接取条目：TUI/docs/BACKLOG.md「模型回复期间区域焦点被内容推进清空（运行中切换不保持）」）
 
-状态：规划　　开启：2026-10-15　　关闭：
+状态：实现（待人工确认）　　开启：2026-10-15　　关闭：
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -72,12 +72,14 @@
 
 **选定：用户 2026-10-15 裁定——去掉流式内容（17 项）与无内容载荷的状态刷新（6 项）两类，保留回合边界（2 项）与用户输入（3 项）两类**（即 (b) 与 (c) 的折中：豁免范围同 (c)，用户输入类不改，不需要新增显式清焦点路径）。
 
-- 保留清焦点（5 项）：`turn-begin` / `turn-end` / `user-line` / `queued-push` / `queued-claim`。
-- 不再清焦点（23 项）：流式内容 17 项 + 状态刷新 6 项（`notice` / `goal-change` / `todo-write` / `jobs-changed` / `permission-catalog` / `agent-preset-catalog`）。
-- 结果：28 项 → 5 项；模型流式输出期间焦点不再被清，「回合边界 / 用户提交输入」两个自然分界点仍会清。
-- 实现方式排除了另建 `clear-focus` action：保留的 5 项本身就只在「回合开/合」与「用户提交输入」时派发，收口逻辑可原样保留（只改集合内容），改动面最小。
+**实现中实测推翻了「保留回合边界」与「保留 `queued-claim`」两半（2026-10-15，见「偏差」）**——最终落地为**只保留用户提交输入两项**（`user-line` / `queued-push`）：
 
-**待确认的连带语义**（实现阶段验证并回写本条）：用户输入类保留后，**用户提交输入仍会清焦点**（条目期望②），与提交模式无关；`/` 命令与 `$` shell 不派发保留集合中的任何一项，故这两类提交**不清焦点**（仅当命令开新回合时才经 `turn-begin` 清）。
+- `turn-begin` / `turn-end`：一次回复可能跨多个回合（核心自发续轮），且 `beginTurnIfNeeded` 在**每个**回合开始都派发 `turn-begin`——保留它们 = 回复中途把焦点甩掉，与条目验收①「运行中派发 `append` / `thinking` / `tool-call` / `notice` 后 `focusedPanel` 保持不变」直接冲突（App 端到端用例实测红）。
+- `queued-claim`：`beginTurnIfNeeded`（`src/app/index.ts:2086`）原先**无条件**派发（不只认领排队消息），保持它在集合里等于每回合清焦点；本次一并改为「队列非空才派发」（`:2086-2090`）。
+- 结果：28 项 → **2 项**；焦点只在**用户提交输入**时回无焦点（跟随最新），其余一切（流式 / 回合边界 / 状态刷新 / UI）都保持，退出只靠用户主动动作（`Esc` / 再按区域键）。
+- 实现方式排除了另建 `clear-focus` action：保留的两项本身就只在提交那一刻派发，收口逻辑可原样保留（只改集合内容），改动面最小。
+
+**连带语义**（已验证：`tests/focus-keep.test.ts`「用户提交输入两项」+ `tests/layout4.test.ts` 同名用例）：**用户提交输入仍会清焦点**（条目期望②）；`/` 命令与 `$` shell 不派发保留集合中的任何一项，故这两类提交**不清焦点**。
 
 ### 决策项 2：运行中 `Esc` 是否同时退焦点（已裁定）
 
@@ -127,15 +129,36 @@
 
 ## 实现记录
 
-（待决策定稿后追加）
+2026-10-15（实施过程；行号按工作区实测）：
+
+1. 先补 **App 端到端** 用例（`tests/focus-keep.test.ts`，真 App + 假渲染器/适配器）：聚焦会话区后推 `stream` 事件，焦点框（会话区框线转焦点色）必须保持——该用例当场变红，把隐患从「单测绿、真机红」拉到 CI 可见：
+   - 第一处：`src/app/index.ts:1722` 的 stream 分支**直派 `append`**（原集合里有它），每个 chunk 都清焦点（已从集合删除）。
+   - 第二处：`beginTurnIfNeeded` 在**每个**回合开始都派发 `turn-begin` 与 `queued-claim`（后者原先无条件）——两者都在原保留名单里，于是「新回合一开始就把焦点清掉」（已把两者一并从集合删除，并给 `queued-claim` 加「队列非空才派发」前置，`src/app/index.ts:2086-2090`）。
+2. 由此把集合定稿为 **2 项**（`user-line` / `queued-push`），注释口径重写（`src/app/state.ts:1163-1174`）。
+3. `TUI/src/app/state.ts:1175-1178`：`FOCUS_RESET_ACTIONS` 最终 = `user-line` / `queued-push` 两项；注释（`:1163-1174`）逐类写明为何不复位。收口逻辑与 `focus-panel` reducer **未改**。
+4. `TUI/tests/layout4.test.ts:2451`：原「新输入/输出后焦点自动回 null」用例改写为「焦点只在用户提交输入时复位；流式内容 / 回合边界 / UI action 都不复位」——`append` 与 `notice` 断言反向为**保持**，`turn-begin` / `turn-end` 同样改为保持，`user-line` 保持复位。
+5. `TUI/tests/status-column.test.ts:506`：catalog 用例断言反向为焦点保持（`:518`）。
+6. `TUI/tests/app.test.ts:4254`（活动区滚动回归）：删除「notice 推进后重新 `Ctrl+T` 聚焦」的那一次按键（新语义下它会把面板收起），改为断言焦点仍为 `activity`（`:4292-4297`）。
+7. 新增 `TUI/tests/focus-keep.test.ts`（9 例）：焦点保持清单（23 个「保持」类 action 逐个派发后焦点不变）+ 实战序列 + 回合边界保持 + 用户提交两项复位 + 交付与 UI 滚动 + **App 端到端四例**：①聚焦会话区后流式期间焦点框（会话区框线转焦点色）保持，`turn-end` 后仍保持，`Esc` 才熄灭；②运行中聚焦回合区后↑/↓ 可滚动该区域，且**流式 chunk 到达时滚动位置与焦点都不被重置**（条目验收④的单测替身）；③真实提交路径（输字符 + Enter）后回无焦点且消息已发出，再次聚焦后流式 / 回合边界均不再清（条目验收②）；④运行中 `<` 排队 followup → 新回合被认领且队列清空（覆盖给 `queued-claim` 加的「队列非空才派发」前置）。
+8. `TUI/docs/SPEC.md:685`：补「区域焦点复位时机（2026-10-15 裁定）」口径与回归入口。
+9. `TUI/demo/main.ts`（审批提示断言）：跑 `npm run demo -- --smoke` 时发现 `approval-hint-bottom` 失败。先用 base 快照比对（`git archive <base> | tar -x` 到 `tmp/base-smoke`，挂上 `node_modules` 后同样只挂这一条）确认**与本次改动无关**（base 与当前分支失败集完全一致）；根因是 **demo 断言文本过期**：断言要求 `▶选项·[Enter]提交·…`（带 `▶` 装饰、无 `·` 分隔），而 `approvalHintLine()`（`src/app/layout/hints.ts:66-74`）自 2026-10-14 提示行格式统一后产出 `[Enter]提交 · [Esc]取消 · [↑/↓]选项 · [Tab]草稿 · [1/2]直答`。已把断言改为按当前产出断言，并在注释里写明根因。
 
 ## 偏差
 
-（待实现后填写）
+- **重大偏差（推翻决策项 1 的一半）**：决策项 1 原定「保留回合边界 + 用户输入」，实测证明这两半都会让「运行中切焦点」失效（`turn-begin` 每回合开始必派、`queued-claim` 原先无条件派）——已改为**只保留用户提交输入两项**，并在 App 侧给 `queued-claim` 加「队列非空才派发」前置。理由与证据见「实现记录」第 1 条与「测试与证据」的 App 端到端用例；**需用户复核确认**（不改则条目验收①不可能通过）。
+- 计划里的「`tests/app.test.ts` 无需改动」判断错误：`:4254`（活动区滚动回归）依赖旧语义（notice 后自动失焦 + 重新 `Ctrl+T` 聚焦），已按新语义修正（删掉多余按键 + 加焦点保持断言）；实施前先实测复现该例失败（`:4292` 红），修正后转绿。
+- 新增「实战序列」用例初稿把 `queued-push` 列在「保持」侧，实测红——按其语义属「用户提交输入」（复位类），已从该序列移除。
+- 工作区无 `node_modules`（新建 worktree）：为跑 `check` / `build` / `test`，临时把主仓 21 包的 `node_modules` 软链进本 worktree（均在 `.gitignore`，不入提交；收尾时删除）。
 
 ## 测试与证据
 
-（待实现后填写）
+- `npm run check`（`TUI/`，tsc --noEmit）：无输出（通过）。
+- `npm run build`（`TUI/`）：无输出（通过，产物入 `dist/`）。
+- `npm test`（`TUI/`）：`tests 1593 / pass 1593 / fail 0`（含 `tests/focus-keep.test.ts` 9 例）。
+- 全仓 `npm run test`（仓库根，21 包并行）：全部 `OK`，TUI `pass 1593 fail 0`，其余 20 包 0 fail。
+- 临时调试脚本（`TUI/tmp/dbg-focus.mts`，已删）：把「聚焦 → stream」的焦点变化逐次打点，定位到 `append` / `turn-begin` / `queued-claim` 三个清焦点源。
+- 回归补充：`npm run demo -- --smoke` 退出码 0、`SMOKE_PASS` 42 条、无 `SMOKE_FAIL`（修掉那条过期断言后）。
+- 待人工确认：真机 `dsh --profile fff` 在模型回复中按 `Ctrl+T` / `Ctrl+E`（焦点框保持、方向键可滚动该区域；提交输入 / `Esc` 才回跟随最新）。
 
 ## 收尾
 

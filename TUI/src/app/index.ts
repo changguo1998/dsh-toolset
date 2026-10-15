@@ -2083,7 +2083,11 @@ export class App {
         time: beginTime,
       }),
     );
-    this.apply((s) => reduceState(s, { type: "queued-claim" }));
+    // 只有本回合**确实认领了排队消息**才派发（`queued-claim` 会弹队列 + 复位焦点；
+    // 每回合无条件派发会在核心自发续轮时把用户设定的区域焦点甩掉，2026-10-15）
+    if (this.state.queued.length > 0) {
+      this.apply((s) => reduceState(s, { type: "queued-claim" }));
+    }
     // 认领的用户块交付（符号 / 终态由节模型给出，不再带缓冲行号）
     if (claimed !== undefined && this.sections !== null) {
       this.deliverLocal({
