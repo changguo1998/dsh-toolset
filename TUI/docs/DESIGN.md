@@ -274,7 +274,7 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 
 ## 信号与退出契约
 
-终端 raw mode 开/关与终端恢复由 `renderer/terminal.ts` 负责，对所有退出路径生效（正常 `close()`、SIGINT / SIGTERM、`uncaughtException` / `unhandledRejection`）；进程退出生命周期归 renderer 拥有，app 只在 renderer 分发的事件里做自己的清理。**SIGHUP 是例外：不退出**——内核在终端挂断（tmux detach、客户端断开、父终端收起）时发 SIGHUP，Node 的默认动作是直接终止（实测退出码 129）且不走终端恢复，故 `installExitHandlers` 显式接管它：只作废全帧缓存、会话保活（终端真没了时后续写 stdout 会失败，仍经 `uncaughtException` 出口退出，不留孤儿）。按键层面 `Esc` 与单次 `Ctrl+C` 不触发退出（避免误触丢会话）；退出路径为 `/quit`、`Ctrl+D`（agent 空闲且输入区为空）与 750ms 内双击 `Ctrl+C`。`Ctrl+D` 与双击 `Ctrl+C` **不直接退出**，先弹**退出确认面板**（复用问答面板机制的合成面板，id `exit-confirm`）——默认高亮「取消/留在 TUI」，Esc 取消、Enter 确认高亮项，仅确认「退出 dsh」才走 `dispose()`；合成面板不触达 adapter 的 `answerQuestion` / `cancelQuestion`。该面板防「单字节误触/注入」直接结束会话（BACKLOG「tmux 断连后 dsh 退出」：终端/复用器注入的单个 `0x04` 不再致退）；`/quit` 为显式输入，保持直接退出。本地命令 `/restart` 同为显式命令、不弹面板——等价面板第三项（写交接文件 → 退出码 `75` → 收尾退出，跳过空会话清理）；未声明 `DSH_RESTART_FILE` 时只给 notice 提示不可用、留在 TUI。
+终端 raw mode 开/关与终端恢复由 `renderer/terminal.ts` 负责，对所有退出路径生效（正常 `close()`、SIGINT / SIGTERM、`uncaughtException` / `unhandledRejection`）；进程退出生命周期归 renderer 拥有，app 只在 renderer 分发的事件里做自己的清理。**SIGHUP 是例外：不退出**——内核在终端挂断（tmux detach、客户端断开、父终端收起）时发 SIGHUP，Node 的默认动作是直接终止（实测退出码 129）且不走终端恢复，故 `installExitHandlers` 显式接管它：只作废全帧缓存、会话保活（终端真没了时后续写 stdout 会失败，仍经 `uncaughtException` 出口退出，不留孤儿）。按键层面 `Esc` 与单次 `Ctrl+C` 不触发退出（避免误触丢会话）；退出路径为 `/quit`、`Ctrl+D`（agent 空闲且输入区为空）与 750ms 内双击 `Ctrl+C`。`Ctrl+D` 与双击 `Ctrl+C` **不直接退出**，先弹**退出确认面板**（复用问答面板机制的合成面板，id `exit-confirm`）——默认高亮「取消/留在 TUI」，Esc 取消、Enter 确认高亮项，仅确认「退出 dsh」才走 `dispose()`；合成面板不触达 adapter 的 `answerQuestion` / `cancelQuestion`。该面板防「单字节误触/注入」直接结束会话（BACKLOG「tmux 断连后 dsh 退出」：终端/复用器注入的单个 `0x04` 不再致退）；`/quit` 为显式输入，保持直接退出。面板第三项「清理并退出（删除本会话）」与本地命令 `/cleanquit` 走同一条收尾（`requestCleanQuit()` 置 `cleanQuitPending` → `finishDispose` 里删当前会话）：删除发生在 `adapter.dispose()`（handle 已释放）之后、`renderer.close()` 之前，只删**当前会话**目录（连带其 `tui-state.json`），其他会话（含有内容的与空的）不受影响；`/cleanquit` 因删除不可逆先弹合成确认面板（id `clean-quit-confirm`，默认高亮「取消」，Esc 取消），面板项由退出确认面板本身承担确认。本地命令 `/restart` 同为显式命令、不弹面板——等价面板第四项（写交接文件 → 退出码 `75` → 收尾退出，跳过空会话清理）；未声明 `DSH_RESTART_FILE` 时只给 notice 提示不可用、留在 TUI。
 
 ### 退出确认 ·「重启」方案（2026-09-29 调研 + 定稿：启动器循环）
 
@@ -283,13 +283,15 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 - **契约（TUI 与启动器之间，两个通道各司一职）**：
 
   1. **触发 = 退出码 `75`**：启动器每轮启动前 `export DSH_RESTART_FILE=<唯一路径>`（建议 `$XDG_RUNTIME_DIR/dsh-restart-<pid>-<rand>`；退回 `/tmp` 时文件 `0600`、名字含 pid 与随机数）；子进程退出码为 `75` 即重启，其它码原样返回；每轮读完或非 75 退出都 `rm -f` 清理。
-  2. **载荷 = 交接文件**：TUI 仅在 `DSH_RESTART_FILE` 存在时，于退出确认面板显示第三项「重启 dsh（保留会话）」；选中后把**当前活跃会话 id** 单行同步写入该文件（`mode 0600`），随后 `process.exit(75)`；写失败只打 stderr 仍退 75。
+  2. **载荷 = 交接文件**：TUI 仅在 `DSH_RESTART_FILE` 存在时，于退出确认面板显示第四项「重启 dsh（保留会话）」（前三项为「取消 / 退出 dsh / 清理并退出」）；选中后把**当前活跃会话 id** 单行同步写入该文件（`mode 0600`），随后 `process.exit(75)`；写失败只打 stderr 仍退 75。
   3. **重启轮命令** = 启动器原参数 + `--resume <id>`；读不到 id（文件缺失 / 为空 / 写入失败）退回 `-c`（加载当前目录下最近退出的会话，TUI#40 已支持）。
 
 - **为什么两个通道都要**：退出码与进程退出原子绑定 —— 写文件失败时仍是「重启并退回 `-c`」，而不是静默变成普通退出；文件只回答「恢复哪条会话」。
   **备选（不采用，仅记录）**：单通道「文件非空即重启」更简，但需额外哨兵表达「要重启但拿不到 id」，且写失败会静默丢失重启请求。
 
-- **交互**：沿用现有合成问答面板语义（`EXIT_CONFIRM_PANEL_ID`；回车确认高亮项，不做二次确认）；默认仍高亮「取消」；「取消 / 退出 dsh」既有路径与按键语义不变；多实例互不影响（每轮路径唯一）。本地命令 `/restart` 与面板第三项共用同一收尾方法（`requestRestart()`），但不经面板（显式命令直接执行）。
+- **交互**：沿用现有合成问答面板语义（`EXIT_CONFIRM_PANEL_ID`；回车确认高亮项，不做二次确认）；默认仍高亮「取消」；「取消 / 退出 dsh」既有路径与按键语义不变；多实例互不影响（每轮路径唯一）。本地命令 `/restart` 与面板第四项共用同一收尾方法（`requestRestart()`），但不经面板（显式命令直接执行）。
+
+- **「清理并退出」（2026-10-16 新增，BACKLOG〈增加干净退出功能〉）**：退出确认面板第三项与本地命令 `/cleanquit`（删除不可逆，故先弹合成确认面板 `clean-quit-confirm`）删除**当前会话**的记录与历史后退出。落点：`LOCAL_COMMANDS` 增 `cleanquit` 路由；`App.requestCleanQuit()` 是唯一收尾入口（面板项经 `finishExitConfirm` 分派，命令经确认面板分派）；adapter 新增 `deleteSessionForExit(id)`——刻意**不做** `activeSessionId` / live 守卫，因为调用点固定在 `adapter.dispose()` 之后（handle 已释放、进程即将退出，无并发打开风险），仍然复用文件级 `deleteSessionDir`（单段 id 校验 + realpath 包含性校验）。退出收尾顺序：**flush 状态快照 → 空会话清理（`session.autoCleanEmpty` 开启时，与 5s 超时竞速）→ `adapter.dispose()` → 删当前会话目录 → `renderer.close()`**。边界：删除范围只有当前会话（其他会话一律不动，既有空会话清理照旧）；失败 / 宿主无会话服务时把告警渲染到活动区，不阻断退出；信号强退与崩溃路径不保证（无法可靠等待异步 IO，且 renderer 直接 `process.exit`）。
 
 - **边界**：直接 `dsh ...` 启动（无启动器、无该环境变量）时不显示重启项；用户选「退出 dsh」绝不写文件；未提交输入按既有退出语义丢弃；重启后仅会话内容保留（滚动缓冲 / 输入历史不保留）；`75` 与既有退出码无冲突。
 

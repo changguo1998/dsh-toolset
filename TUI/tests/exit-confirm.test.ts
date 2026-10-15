@@ -148,7 +148,7 @@ test("/quit 保持直接退出（不弹确认面板）", () => {
   );
 });
 
-test("重启项：无 DSH_RESTART_FILE（直接启动）时不显示第三项", () => {
+test("重启项：无 DSH_RESTART_FILE（直接启动）时不显示重启项", () => {
   const { renderer } = makeApp();
   ctrlD(renderer);
   const text = frameText(renderer);
@@ -167,11 +167,11 @@ test("重启项：启动器声明后显示；选中写会话 id 并置退出码 
     ctrlD(renderer);
     assert.ok(
       frameText(renderer).includes("重启 dsh（保留会话）"),
-      "第三项可见",
+      "重启项可见（2026-10-16 起为第 4 项，「清理并退出」排它前面）",
     );
     // start() 自身的空会话扫描计一次；重启路径不应再触发「退出清理」扫描
     const scansAtStart = adapter.listSessionsCalls;
-    renderer.press(key("3"));
+    renderer.press(key("4"));
     renderer.press(key("enter"));
     assert.equal(
       readFileSync(file, "utf8"),
@@ -202,14 +202,14 @@ test("重启项：交接文件写入失败只告警，仍置退出码 75", () =>
     restartHandoffPath: join(tmpdir(), "tui-restart-missing-dir", "handoff"),
   });
   ctrlD(renderer);
-  renderer.press(key("3"));
+  renderer.press(key("4"));
   renderer.press(key("enter"));
   assert.equal(process.exitCode, DSH_RESTART_EXIT_CODE, "写失败仍请求重启");
   assert.equal(renderer.closed, 1, "照常收尾退出");
   process.exitCode = 0;
 });
 
-test("/restart：启动器声明后直接执行（等价第三项）——写会话 id、退出码 75、跳过空会话清理", () => {
+test("/restart：启动器声明后直接执行（等价面板重启项）——写会话 id、退出码 75、跳过空会话清理", () => {
   const dir = mkdtempSync(join(tmpdir(), "tui-restart-cmd-"));
   const file = join(dir, "handoff");
   try {

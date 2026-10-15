@@ -185,6 +185,11 @@ const MEMORY_REVIEW_PANEL_ID = "memory-review";
 export const DSH_RESTART_EXIT_CODE = 75;
 /** 「重启 dsh（保留会话）」选项文案：`finishExitConfirm` 按它分支，测试与文案同源 */
 export const EXIT_CONFIRM_RESTART_LABEL = "重启 dsh（保留会话）";
+/** 退出确认面板「清理并退出」项文案：`finishExitConfirm` 按它分支，测试与文案同源 */
+export const EXIT_CONFIRM_CLEAN_LABEL = "清理并退出（删除本会话）";
+/** `/cleanquit` 的合成确认面板 id 与确认项文案（删除不可逆，显式命令也要二次确认） */
+const CLEAN_QUIT_PANEL_ID = "clean-quit-confirm";
+const CLEAN_QUIT_CONFIRM_LABEL = "清理并退出";
 /** 退出时清理空会话的最长等待(ms)：防会话服务挂起把退出卡死。
  *  正常清理毫秒级即可完成，超时仅放弃清理并继续退出。 */
 const EXIT_CLEAN_TIMEOUT_MS = 5000;
@@ -369,6 +374,11 @@ export class App {
   /** 退出确认面板已打开（合成问答面板 `EXIT_CONFIRM_PANEL_ID`）：确认「退出 dsh」才 dispose，
    *  取消/Esc 只关面板；防止单字节误触（BACKLOG「tmux 断连后 dsh 退出」）直接结束会话 */
   private exitConfirmOpen = false;
+  /** `/cleanquit` 的合成确认面板已打开（取消/Esc 只关面板，不删任何数据） */
+  private cleanQuitConfirmOpen = false;
+  /** 本次退出要删除当前会话（退出确认面板「清理并退出」项、或 `/cleanquit` 确认后置位）：
+   *  收尾时在 adapter.dispose() 之后、renderer.close() 之前删除当前会话目录 */
+  private cleanQuitPending = false;
   /** 退出确认面板选的是「重启 dsh（保留会话）」（BACKLOG #51）：退出收尾跳过空会话清理
    *  ——重启场景不该改动其它会话，且要继续用同一个会话；见 DESIGN「退出确认 ·「重启」方案」 */
   private restartPending = false;
@@ -1543,10 +1553,29 @@ export class App {
     void this.disposeWithExitClean();
   }
 
-  /** 收尾释放：适配器 → 渲染器（close 恢复终端并退出事件循环/进程）。 */
+  /** 收尾释放：适配器 →（「清理并退出」时）删当前会话 → 渲染器（close 恢复终端并退出）。 */
   private finishDispose(): void {
     this.deps.adapter.dispose?.();
+    if (this.cleanQuitPending) this.deleteActiveSessionForExit();
     this.deps.renderer.close();
+  }
+
+  /** 「清理并退出」的删除步骤：只在 `adapter.dispose()` 之后调用（handle 已释放，删目录
+   *  不会被并发写入）。失败只告警、不阻断退出；无活跃会话或宿主无会话服务时同样只告警。 */
+  private deleteActiveSessionForExit(): void {
+    const id = this.state.activeSessionId ?? this.deps.adapter.sessionId ?? "";
+    const del = this.deps.adapter.deleteSessionForExit;
+    if (id === "" || del === undefined) {
+      this.paintExitNotice("清理并退出：会话服务不可用，未删除本会话", "warn");
+      return;
+    }
+    const outcome = del.call(this.deps.adapter, id);
+    this.paintExitNotice(
+      outcome.ok
+        ? "已删除本会话的记录与历史"
+        : `删除本会话失败：${outcome.reason}`,
+      outcome.ok ? "success" : "error",
+    );
   }
 
   /** autoCleanEmpty 开启时的退出收尾：等待清理完成（含超时兜底）后再 finishDispose。 */
@@ -3093,6 +3122,10 @@ export class App {
       { label: "取消", description: "留在 TUI（默认）" },
       { label: "退出 dsh", description: "关闭会话并退出" },
     ];
+    options.push({
+      label: EXIT_CONFIRM_CLEAN_LABEL,
+      description: "删除本会话的记录与历史后退出（不可恢复）",
+    });
     if (this.restartAvailable()) {
       options.push({
         label: EXIT_CONFIRM_RESTART_LABEL,
@@ -3172,11 +3205,71 @@ export class App {
       this.requestRestart();
       return;
     }
+    if (picked === EXIT_CONFIRM_CLEAN_LABEL) {
+      this.requestCleanQuit();
+      return;
+    }
     if (picked !== "退出 dsh") {
       this.paint();
       return;
     }
     this.dispose();
+  }
+
+  /** 请求「清理并退出」（单一来源）：删除当前会话的记录与历史后退出。删除动作不在
+   *  这里执行——先置 `cleanQuitPending`，由 dispose 收尾在 adapter.dispose()（handle 已释放）
+   *  之后、renderer.close() 之前删除（顺序见 `finishDispose`）。
+   *  退出确认面板的「清理并退出」项与 `/cleanquit`（后者先弹确认面板）共用本方法。 */
+  private requestCleanQuit(): void {
+    this.cleanQuitConfirmOpen = false;
+    this.cleanQuitPending = true;
+    this.dispose();
+  }
+
+  /** `/cleanquit`：显式命令也走二次确认（删除不可逆）——弹合成确认面板，默认高亮「取消」，
+   *  Esc 取消；确认后才 `requestCleanQuit()`。 */
+  private openCleanQuitConfirm(): void {
+    if (this.disposed || this.cleanQuitConfirmOpen) return;
+    this.cleanQuitConfirmOpen = true;
+    const sessionId =
+      this.state.activeSessionId ?? this.deps.adapter.sessionId ?? "";
+    this.apply((s) =>
+      reduceState(s, {
+        type: "question-open",
+        id: CLEAN_QUIT_PANEL_ID,
+        questions: [
+          {
+            id: CLEAN_QUIT_PANEL_ID,
+            question:
+              sessionId === ""
+                ? "清理并退出？将删除本会话的记录与历史（不可恢复）"
+                : `清理并退出？将删除会话 ${sessionId} 的记录与历史（不可恢复）`,
+            header: "清理并退出",
+            options: [
+              { label: "取消", description: "留在 TUI（默认）" },
+              {
+                label: CLEAN_QUIT_CONFIRM_LABEL,
+                description: "删除本会话的记录与历史后退出",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    this.paint();
+  }
+
+  /** 合成「清理并退出」确认面板收尾：确认才 `requestCleanQuit()`，否则仅关面板 */
+  private finishCleanQuitConfirm(panel: QuestionPanelState): void {
+    this.cleanQuitConfirmOpen = false;
+    const answer = buildQuestionAnswers(panel);
+    this.apply((s) => reduceState(s, { type: "question-close" }));
+    const picked = answer.answers[0]?.selected[0];
+    if (picked !== CLEAN_QUIT_CONFIRM_LABEL) {
+      this.paint();
+      return;
+    }
+    this.requestCleanQuit();
   }
 
   /** 提交问答：整批 answer 交给 adapter（answerQuestion → resolve ask）并关闭面板 */
@@ -3185,6 +3278,10 @@ export class App {
     if (!panel) return;
     if (panel.id === EXIT_CONFIRM_PANEL_ID) {
       this.finishExitConfirm(panel);
+      return;
+    }
+    if (panel.id === CLEAN_QUIT_PANEL_ID) {
+      this.finishCleanQuitConfirm(panel);
       return;
     }
     if (panel.id === MEMORY_REVIEW_PANEL_ID) {
@@ -3204,6 +3301,12 @@ export class App {
     if (!panel) return;
     if (panel.id === EXIT_CONFIRM_PANEL_ID) {
       this.exitConfirmOpen = false;
+      this.apply((s) => reduceState(s, { type: "question-close" }));
+      this.paint();
+      return;
+    }
+    if (panel.id === CLEAN_QUIT_PANEL_ID) {
+      this.cleanQuitConfirmOpen = false;
       this.apply((s) => reduceState(s, { type: "question-close" }));
       this.paint();
       return;
@@ -3629,6 +3732,10 @@ export class App {
         }
         return;
       }
+      case "cleanquit":
+        // /cleanquit：删除不可逆，先弹合成确认面板；确认后走 requestCleanQuit()
+        this.openCleanQuitConfirm();
+        return;
       case "quit":
         // 走 App.dispose：释放 adapter 与当前活跃 handle（含 resume 后由 adapter
         // 持有的新 handle），再恢复终端退出
@@ -5417,6 +5524,10 @@ export class App {
         desc: "清空缓冲(只清显示，不动上下文)",
       },
       { cmd: "/quit", desc: "退出" },
+      {
+        cmd: "/cleanquit",
+        desc: "清理本会话（删除记录与历史）并退出（需确认）",
+      },
       {
         cmd: "/restart",
         desc: "重启 dsh（保留会话；需由启动器启动，未设置 DSH_RESTART_FILE 时只提示）",

@@ -1,6 +1,6 @@
 # 干净退出（退出时清理当前会话）（接取条目：`TUI/docs/BACKLOG.md`「增加干净退出功能（退出时清理会话；先审计既有路径补缺口）」）
 
-状态：决策　　开启：2026-10-16　　关闭：-
+状态：实现（待人工确认）　　开启：2026-10-16　　关闭：-
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 计划改动文件清单
@@ -87,6 +87,32 @@
 4. 其他有内容的会话在全部路径下都不被改动；空会话清理行为不变。
 5. `npm run check` + `npm run build` + `npm test` 与 `npm run test:tui` 全绿。
 6. 真机 `dsh --profile fff` 复核：面板第四项文案与行为、`/cleanquit` 确认面板、退出后当前会话目录消失。
+
+## 实现记录与证据（2026-10-16）
+
+**代码落点**
+
+- `src/app/commands.ts`：`SlashRoute` 增 `"cleanquit"`；`LOCAL_COMMANDS` 增 `{ name: "cleanquit", route: "cleanquit", desc: "清理本会话（删除记录与历史）并退出（需确认）" }`（目录由 39 条增至 40 条 = 35 命令 + 5 别名）。
+- `src/app/index.ts`：新增导出文案 `EXIT_CONFIRM_CLEAN_LABEL` 与内部常量 `CLEAN_QUIT_PANEL_ID` / `CLEAN_QUIT_CONFIRM_LABEL`；新增状态 `cleanQuitConfirmOpen` / `cleanQuitPending`；`requestExitConfirm()` 增第三项；`finishExitConfirm()` 分派新项；新增 `requestCleanQuit()`（唯一收尾入口）/ `openCleanQuitConfirm()`（`/cleanquit` 的合成确认面板）/ `finishCleanQuitConfirm()`；`submitQuestion()` / `cancelQuestion()` 增面板路由；`handleSlash` 增 `case "cleanquit"`；`finishDispose()` 在 `adapter.dispose()` 与 `renderer.close()` 之间插入 `deleteActiveSessionForExit()`；`helpLines()` 增 `/cleanquit` 行。
+- `src/app/adapter/types.ts` + `src/app/adapter/dsh.ts`：新增 `deleteSessionForExit(id)`（同步返回 `SessionDeleteResult`，复用 `deleteSessionDir`，不做 `activeSessionId` / live 守卫；`sessionQuery` 缺席时为 undefined）。
+- 文档：`TUI/README.md`（面板项说明、命令表、退出契约）、`TUI/docs/DESIGN.md`（退出路径段 + 新增「清理并退出」条 + 重启项改第 4 项 + 交互段）、`TUI/docs/COMMANDS.md`（目录条数与 `/cleanquit` 说明）。
+- 测试：新增 `tests/clean-quit.test.ts`（9 例）；`tests/helpers/appFakes.ts` 增 `deletedForExit` / `deleteSessionForExitResult` / 可置 undefined 的 `deleteSessionForExit`；`tests/exit-confirm.test.ts` 重启项序号 3 → 4 与三处措辞；`tests/completion.test.ts` 的 `/cl` 候选顺序补 `cleanquit`。
+
+**证据（命令与实际输出）**
+
+| 检查 | 命令 | 结果 |
+|---|---|---|
+| 类型检查 | `npm --prefix TUI run check` | 通过（无输出） |
+| 全量单测 | `npm run test:tui` | 1626 例全绿（改动前 1617 例，+9） |
+| 构建 | `npm --prefix TUI run build` | 通过（tsc → dist/） |
+| mock 冒烟 | `npm --prefix TUI run demo -- --smoke` | 各帧 `SMOKE_PASS` + `SMOKE_OK` |
+| 格式 | `format <改动文件>` | 已跑，无额外格式化改动 |
+
+**偏差**
+
+- `TUI/docs/COMMANDS-SPEC.md` 未改：该文档没有本地命令表（`grep "/quit"` 零命中），无落点。
+- 计划外加改两处既有测试（`exit-confirm.test.ts` 的重启项序号、`completion.test.ts` 的 `/cl` 候选顺序）——属本次行为变更的必然回归，非范围外改动。
+- 验收 6（真机）待人工确认：`/cleanquit` 删除**当前会话**，真机只能在临时会话里试，不可在本会话里试。
 
 ## 风险与边界
 

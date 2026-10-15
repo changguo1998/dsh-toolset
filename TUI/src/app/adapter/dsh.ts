@@ -3397,6 +3397,17 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
             : { ok: false as const, reason: outcome.reason };
         }
       : undefined,
+    // 退出前删除**当前活跃会话**（仅 App 的「清理并退出」收尾调用）：与 deleteSession 相反，
+    // 它刻意不做 activeSessionId / live 守卫——调用点固定在 adapter.dispose() 之后（handle
+    // 已释放、进程即将退出，无并发打开风险），且删除必须发生在 renderer.close() 之前。
+    deleteSessionForExit: sessionQuery
+      ? (id: string) => {
+          const outcome = deleteSessionDir(id);
+          return outcome.ok
+            ? { ok: true as const }
+            : { ok: false as const, reason: outcome.reason };
+        }
+      : undefined,
     readSessionSurface: sessionQuery
       ? (id) => {
           // 读取顺序（按 live/persisted 判定，避免走错接口）见 doReadSessionSurface
