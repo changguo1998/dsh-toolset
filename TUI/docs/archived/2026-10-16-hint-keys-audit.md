@@ -1,6 +1,6 @@
 # 按键提示与实际绑定对齐（接取条目：TUI/docs/BACKLOG.md「按键提示信息与实际绑定对齐（审计 + 补齐 + 统一格式）」）
 
-状态：规划　　开启：2026-10-16　　关闭：—
+状态：完成　　开启：2026-10-16　　关闭：2026-10-16
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -144,16 +144,55 @@
 
 ## 实现记录
 
-（待实现阶段追加。）
+2026-10-16（按「规划」的任务拆分逐步落地；命令与输出见「测试与证据」）。
+
+1. **面板态三处文案修正**（`src/app/layout/hints.ts`）：
+   - `approvalHintLine`：`[1/2]直答` → `[y/n/1/2]直答`，并在 `[↑/↓]滚动|选项` 之后插入 `[←/→]选项`（选项窗下与 `↑/↓` 同效、描述窗下是唯一的方向键出口，属冷门键）。
+   - `PICKER_HINT_LINE`：`[Tab]切列` → `[Tab/←/→]切列`（与其它提示的 `←/→` 记号一致；比规划稿的 `[Tab/←→]` 多 1 列，宽度影响见「偏差」）。
+   - `commandPanelHint`：先压公共两项（`[↑/↓]选择` / `[PgUp/PgDn]翻页`）再按 kind 追加——`agents` → `[Enter]中断`、`workflows` → 不追加（`Enter` 显式无操作）、其余 → `[Enter]详情`。
+   - 文件头注释补「收录口径（2026-10-16 用户裁定）」四条：提示行只放冷门 / 易忘键；常用键不因「有绑定」而补齐；完整键表在 `/help` 的「按键：」段；面板态不受此口径约束。
+2. **`/help` 新增「按键：」段**（`src/app/index.ts` 的 `helpLines()`）：新增 17 行键表数据（滚动 → 编辑 → 提交与模式 → 输入历史与清空 → 视图与焦点 → 退出六组，**固定顺序**、不走 `sortHelpRows`），复用 `helpTableLines` 双列排版（键列最长 9 列 < `HELP_CMD_MAX`=10，无长键拆行）；段末一行「面板内按键见底部提示区（随面板切换）。」，其后仍是「本地命令：」段与末尾说明行。
+3. **测试断言**：`tests/layout.test.ts` 新增 2 例（面板态三处文案；80 列折行契约——断言「不超 2 行」且 `rows.join(" · ")` 等于原文，即折行只落在 `·` 边界、不丢条目）；`tests/command-panel.test.ts` 新增 1 例（`/workflows` 不列 `Enter`、`/skills` 列 `[Enter]详情`、`/agents` 列 `[Enter]中断` 与 `[r]刷新`，按帧行文本断言）；`tests/app.test.ts` 新增 1 例（`/help` 含「按键：」段、段末指路行、**17 行键表逐行**「键列 + 描述列起点」断言；见「测试与证据」的加固条目），并把 `makeApp()` 扩为可传尺寸（约 110 行的 `/help` 需超高终端才能一次进活动区窗口）；同文件「顶部面板：Ctrl+T 聚焦活动区，↑/PgUp 滚动帮助」的「帮助首行」期望由 `本地命令：` 改为 `按键：`，PgUp 循环上限 8 → 12 页。
+4. **夹具重冻**（`tests/fixtures/focus-frame-legacy.json`）：先跑全量测试确认失败面恰为 2 个场景，再用 `scripts/freeze-focus-frame.mts` 重冻；`git diff` 复核 = 6 增 6 删，只落在 `panel-approval@w60`（提示 1 → 2 行）与 `panel-picker@w60`（`[Tab]切列` → `[Tab/←/→]切列`），`focus-*` 与其余面板场景**无差异**；冻结脚本「重冻记录」补 2026-10-16 一行（逐场景记因，未删断言、未改 `maxRows`）。
+5. **文档同步**：`TUI/docs/SPEC.md:445`（提示行收录口径 + `/help` 键表规格 + 面板态三处对齐）；`TUI/README.md`（`:97` 状态列说明、`:111` 示意帧提示行补模式图例、`:114` `Ctrl+S` 语义、`:116` 交互区行数、`:173` 提示区段（1 至 2 行 + 口径 + 键名 `[Tab]` 大小写）、`:265` `/help` 条目、`:308-321` 按键表：`Ctrl+↑/↓` 补活动区、`Tab` 改口径、`Ctrl+S` 改聚焦 / 收起、新增 `Ctrl+T` / `Ctrl+E` 两行）；`TUI/docs/DESIGN.md`（`:174` 交互区 / `hintRows` 口径、`:509` 提示区行数、`:539` 审批提示的焦点窗指示方式）。
+6. **连带修正（计划外文件，理由见「偏差」）**：`TUI/demo/main.ts:340-347` 的 `approval-hint-bottom` 冒烟断言随 `approvalHintLine()` 新产出同步（并补原因注释）；`TUI/scripts/freeze-focus-frame.mts` 补重冻记录注释。
 
 ## 偏差
 
-（待补。）
+- **普通输入态提示行本次未加宽**（与规划一致，记因备查）：用户两轮裁定「不补常用键 + 冷门键也都不加」，故 `HINT_LINE` / `HINT_LINE_WITH_INPUT` 零改动、`focus-*` 场景无差异；原条目期望里的「补齐常用键」按裁定作废，冷门键改由 `/help` 键表承载。
+- **审批 / 模型选择提示宽度实测与规划稿不同**：审批 59 → **75** 列（规划稿写 77），模型选择 79 → **83** 列（规划稿写 84，按 `[Tab/←→]` 估算，实现用 `[Tab/←/→]`）。结论不变：审批 80 列单行 / 60 列 2 行；模型选择 80 列 2 行（提示区 1 至 2 行契约内）。
+- **计划外文件 2 个**（均属同一变更面且为通过既有门禁所必需）：
+  1. `TUI/demo/main.ts`：`approval-hint-bottom` 冒烟断言硬编码旧文案，不同步则 `npm run demo -- --smoke` 必失败（同类先例：`TUI/docs/archived/2026-10-15-focus-keep-during-run.md` 第 9 条按当前产出改断言）。
+  2. `TUI/scripts/freeze-focus-frame.mts`：只补「重冻记录」注释——前两次重冻均记于此，属既有约定。
+- **`tests/app.test.ts` 滚动用例期望微调**：`/help` 首行由 `本地命令：` 变为 `按键：`，「整页上翻到首行」断言随之更新（非缺陷，属新增段的必然结果）。
+- **审计漏检一处、本次**未**修**：`TUI/docs/COMMANDS-SPEC.md:44` 仍写「提示区恒 1 行 / `hintRows = 1`」——该文件不在规划的文件清单内，按「计划外文件一律不改」处理；已按「途中发现新问题」规则在 `TUI/docs/BACKLOG.md` 追加 `#7`「同步 COMMANDS-SPEC.md 的提示区旧口径（「提示区恒 1 行」）」交后续接取。
+- **审计再漏检一处、已在同一清单文件内一并修（第 5 处）**：`TUI/docs/DESIGN.md:530` 仍写「`questionHintLine` 以显式前缀 `▶选项` / `▶题干` 标焦点窗」「七项全列在 80 列终端为 70 列（会撑到 82 列并截掉尾项）」——前缀 2026-10-14 已去掉、实测为 **87 列 / 折 2 行不截断**。该文件在规划的文件清单内（原只列 `:174` / `:509` / `:539`），故按同批口径一并同步；同步后全仓（除 `archived/`、`archive/`）grep `▶选项` / `▶题干` / `提示区恒 1 行` / `hintRows = 1` 只剩 `COMMANDS-SPEC.md:44`（已转 `#7` 条目）。
+- **真机核对的自动化边界**：`npm run smoke:pty`（真机 `dsh --profile fff` PTY 冒烟）本次**未跑**——它走真实模型调用、向 `~/.dsh` 写入新会话，且 profile 的 `link:` 指向主检出而非本 worktree，跑它也验证不到本次改动；替代证据 = 在真实 PTY（`script -qec`）里跑本 worktree 构建出的 mock demo（见「测试与证据」）。人工真机目视仍留待用户（验收 ④）。
+- **验证环境**：本 worktree 原本没有 `node_modules`（只有主检出各包有），为跑 `check` / `build` / 全量测试，给 TUI 与各子包建了 `node_modules -> <主检出>/<包>/node_modules` 符号链接（`node_modules` 已在 `.gitignore`，不入版本库）；`npm run build` 产出的 `TUI/dist/` 同样被忽略。移除链接会恢复「worktree 无法自校验」的原始状态，故保留。
 
 ## 测试与证据
 
-（待补：`npm run check`、`test:tui` 相关用例、80 列折行断言、真机 `dsh --profile fff` 目视。）
+（命令均在 `TUI/` 或 worktree 根执行，2026-10-16。）
+
+- `npm run check`（TUI 包，`tsc -p tsconfig.json --noEmit`）：**exit 0，无输出**。
+- `npm run check`（worktree 根，TUI + 21 个子包逐个 `tsc --noEmit`）：**exit 0**，日志中 `error TS` 计数 **0**（`tmp/root-check.log`，收尾时删除）。
+- `npm test`（worktree 根，22 个包并行）：**exit 0，22 行全为 `fail 0`**（TUI 1606 例 + 其余 21 包合计 1114 例 = 2720 例；`tmp/root-test.log`，收尾时删除）。
+- `sh scripts/test.sh`（TUI 全量，`node --experimental-transform-types --test`）：**1606 tests / 1606 pass / 0 fail**（新增 4 例 + 改写 2 例，总数与改动前相同——改写均为在既有用例内换期望，未增删用例）。
+- 夹具重冻前的失败面复核：全量跑出 3 个失败 = `focus-frame 基线：panel-approval@w60`、`focus-frame 基线：panel-picker@w60`（预期，需重冻）与 `顶部面板：Ctrl+T 聚焦活动区，↑/PgUp 滚动帮助`（帮助首行改名，已改断言）；重冻 + 改断言后全绿。
+- `sh scripts/test.sh tests/focus-frame.test.ts`（重冻后单跑）：**17 pass / 0 fail**。
+- `npm run demo -- --smoke`（构建 + 无 DSH 冒烟）：**exit 0；42 × `SMOKE_PASS` + 1 × `SMOKE_OK`，0 × `SMOKE_FAIL`**，其中 `approval-hint-bottom` / `approval-hint-not-colored` 均通过（`tmp/smoke.log`，收尾时删除）。
+- 80 列折行断言（`tests/layout.test.ts`）：普通输入两态、审批（75 列）、模型选择（83 列）、列表族两 kind 全部 ≤ 2 行且折行不丢条目；审批单行、模型选择 2 行。
+- `npm run build`（worktree 根，22 个包逐个 `tsc`）：**exit 0**，日志无 TS 错误；产物校验 = `TUI/dist/src/app/layout/hints.js` 命中 `y/n/1/2` 与 `Tab/←/→`、`TUI/dist/src/app/index.js` 命中 `按键：`（各 1 处）。
+- **真实 PTY 冒烟**（`script -qec "node dist/demo/main.js --smoke" /dev/null`）：**exit 0；42 × `SMOKE_PASS` + `SMOKE_OK`，0 × `SMOKE_FAIL`**；原始 PTY 字节流中直接出现新提示行（普通输入态提示行 3 次、`[Enter]提交 · [Esc]取消 · [↑/↓]选项 · [←/→]选项 · [Tab]草稿 · [y/n/1/2]直答`）——覆盖真实终端的 raw 模式解码与帧写出链路，不只是 ScreenEmu（`tmp/demo-pty.log`，收尾时删除）。
+- 旧文案残留扫描（`grep` 全仓 `.ts` / `.md` / `.json`，排除 `archived/`、`archive/`）：`[1/2]直答` / `[Tab]切列` / `[tab]补全` / `[tab]插入` / `▶草稿` / `▶选项` / `▶题干` / `提示区恒 1 行` / `hintRows = 1` 均无残留，唯余 `TUI/docs/COMMANDS-SPEC.md:44`（已转 BACKLOG `#7`）与本文档自身的审计记录。
+- **提示行全量清单（代码生成，验收 ① 的机械交叉核对）**：以脚本按 **28 种状态**（普通输入两态、补全两态、审批两窗、问答三形态、模型选择、状态选项两态、后台任务、8 个列表族 kind、6 个历史阶段）调用 `hintLine()` 并算显示宽与 80 列折行数——与本文档「调研」§1 的表逐项一致（审批 75 列 / 模型选择 83 列为实现后的值），全部 **≤ 2 行且无截断**；历史 loading 为空串占位 1 行。
+- **`/help` 键表逐行断言（本轮加固）**：`tests/app.test.ts` 的 `/help` 用例由「抽查 8 个键名」升级为对 **17 行键表**逐行断言「键列 + 描述列起点」（正则 `键\s{2,}描述开头`），键表内容与排版同时受测；改后 `test.sh` 全量仍 **1606 / 1606 pass**、`npm run check` exit 0。
+- **真机核对（验收 ④）按用户裁定跳过**：2026-10-16 用户指令「不用真机验证，直接收尾」——不做 `dsh --profile fff` 目视核对；替代证据为真实 PTY 下跑本 worktree 构建产物的 mock demo（默认列宽与显式 80 列各一轮，均 42 × `SMOKE_PASS` + `SMOKE_OK`、0 失败）。故验收 ① / ② / ③ 有机械证据，④ 以「用户裁定跳过」关闭。
 
 ## 收尾
 
-（待补：BACKLOG 条目清理、文档回写、追踪文档移入 `TUI/docs/archived/`。）
+- **接取条目**：`TUI/docs/BACKLOG.md`「按键提示信息与实际绑定对齐（审计 + 补齐 + 统一格式）」已标〔完成: 2026-10-16〕并从清单**清理移除**（BACKLOG 只留未完成项）；本文件从 `TUI/docs/implementation/` 移入 `TUI/docs/archived/`（`implementation/` 目录随之删除，空目录不预建）。
+- **文档回写**：`TUI/docs/SPEC.md`（提示行收录口径 + `/help` 键表规格）、`TUI/README.md`（示意帧 / 交互区 / 提示区段 / `/help` 条目 / 按键表）、`TUI/docs/DESIGN.md`（`:174` / `:509` / `:530` / `:539`）已在本任务内同步；`COMMANDS-SPEC.md` 的旧口径转 BACKLOG `#7`；`STATUS.md` 按流程由用户择时更新，未动。
+- **遗留项**：`TUI/docs/BACKLOG.md` 新增 `#7`「同步 COMMANDS-SPEC.md 的提示区旧口径（「提示区恒 1 行」）」；BACKLOG 剩余条目编号（`#2` 至 `#7`）未重排——按惯例留给下次整理统一重编号。
+- **临时文件**：`tmp/`（调试脚本、冒烟日志、夹具快照）已删除；worktree 各包 `node_modules` 符号链接保留（gitignore，见「偏差 · 验证环境」）。
+- **提交**：收尾提交（本次变更的最后一次提交）随本轮用户指令「直接收尾」一并批准。

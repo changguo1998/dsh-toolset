@@ -337,10 +337,12 @@ if (smoke) {
       // 2026-10-15：提示行格式统一后（去 `▶` 装饰、`[键]标签` + ` · ` 分隔、
       // `↑/↓` 文案随焦点窗切换）断言文本长期未跟改，改为按 `approvalHintLine()`
       // 的当前产出断言（选项窗态；真机根本原因是「断言过期」而非渲染缺陷）
+      // 2026-10-16：提示补齐后随产出同步（补 `y/n` 与 `←/→`，BACKLOG「按键提示信息
+      // 与实际绑定对齐」决策 2）——mock 终端 100 列，仍是单行
       ok(
         "approval-hint-bottom",
         plain.includes(
-          "[Enter]提交 · [Esc]取消 · [↑/↓]选项 · [Tab]草稿 · [1/2]直答",
+          "[Enter]提交 · [Esc]取消 · [↑/↓]选项 · [←/→]选项 · [Tab]草稿 · [y/n/1/2]直答",
         ),
         "approval keys should show on the bottom hint line",
       );

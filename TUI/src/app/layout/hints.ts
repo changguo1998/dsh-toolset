@@ -13,6 +13,10 @@
 //  - 提示行不放装饰符号（`▶` 只在面板内容里标焦点窗，不进提示行）；
 //  - 例外（2026-10-15 用户要求）：普通输入态两态提示行最前加**输入模式提示符图例**
 //    `MODE_HINTS`（`[> / ! $ <]`，只列符号不写文字，` · ` 与后续条目分隔）。
+//  - 收录口径（2026-10-16 用户裁定，BACKLOG「按键提示信息与实际绑定对齐」）：提示行只放**冷门 /
+//    易忘键**（`C-d` / `C-l` / `C-n/p` / `/help` 一类），常用键（`↑/↓` / `Enter` / `Esc` / `←/→`）
+//    不因「有绑定」而补齐——完整键表见 `/help` 的「按键：」段（`App.helpLines()`）；面板态不受此
+//    口径约束，仍按「只列当前实际用到的键」列出该面板键位。
 //
 // 分层：只依赖 state 与适配层类型，**不**引用 components/*（否则 layout →
 // components 反向依赖成环）；components 侧需要文案时反向 import 本文件。
@@ -80,15 +84,16 @@ export function approvalHintLine(state: AppState): string {
     "[Enter]提交",
     "[Esc]取消",
     onDesc ? "[↑/↓]滚动" : "[↑/↓]选项",
+    "[←/→]选项",
     "[Tab]" + (onDesc ? "选项" : "草稿"),
-    "[1/2]直答",
+    "[y/n/1/2]直答",
   ];
   return parts.join(" · ");
 }
 
 /** 模型选择面板（三列焦点区；输入筛选、空格预选、Enter 提交；Esc 两段：先清词再关） */
 export const PICKER_HINT_LINE =
-  "[输入]筛选 · [↑/↓]移动 · [Space]预选 · [Tab]切列 · [Enter]提交 · [Esc]清空/取消";
+  "[输入]筛选 · [↑/↓]移动 · [Space]预选 · [Tab/←/→]切列 · [Enter]提交 · [Esc]清空/取消";
 
 /** 后台任务面板 */
 export const JOBS_HINT_LINE =
@@ -127,10 +132,11 @@ export function questionHintLine(panel: QuestionPanelState): string {
   return parts.join(" · ");
 }
 
-/** 共享列表面板（/agents 另有刷新键与不同的 Enter 语义） */
+/** 共享列表面板（/agents 另有刷新键与不同的 Enter 语义；/workflows 只读、Enter 无操作故不列） */
 export function commandPanelHint(kind: CommandPanelKind): string {
-  const enter = kind === "agents" ? "[Enter]中断" : "[Enter]详情";
-  const parts = ["[↑/↓]选择", "[PgUp/PgDn]翻页", enter];
+  const parts = ["[↑/↓]选择", "[PgUp/PgDn]翻页"];
+  if (kind === "agents") parts.push("[Enter]中断");
+  else if (kind !== "workflows") parts.push("[Enter]详情");
   if (kind === "agents") parts.push("[r]刷新");
   parts.push("[Esc]关闭");
   return parts.join(" · ");

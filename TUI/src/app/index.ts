@@ -5482,7 +5482,57 @@ export class App {
         desc: "网页搜索（多 provider 聚合；Enter 查看来源 URL、Esc 关闭）",
       },
     ];
+    // 按键表（2026-10-16 新增，BACKLOG「按键提示信息与实际绑定对齐」决策 3）：全局键全量，
+    // 含提示行按「只放冷门 / 易忘键」口径不再列出的常用键；**固定顺序**（滚动 → 编辑 →
+    // 提交与模式 → 历史 / 清空 → 视图与焦点 → 退出），不走 sortHelpRows——键位按功能相邻好查。
+    // 键列记号沿用提示区口径（`C-` / `A-` 缩写），并压在 HELP_CMD_MAX 内避免长键拆行。
+    const keys: { cmd: string; desc: string }[] = [
+      {
+        cmd: "↑/↓",
+        desc: "滚动一行（活动区 / 状态列 / 对话区）；补全候选间移动",
+      },
+      { cmd: "C-↑/↓", desc: "半屏滚动（活动区 / 对话区）" },
+      { cmd: "PgUp/PgDn", desc: "面板整页滚动；对话区跳上 / 下一条用户输入" },
+      {
+        cmd: "Home/End",
+        desc: "翻到最旧已加载内容（再按再物化一批）/ 回到最新",
+      },
+      { cmd: "←/→", desc: "输入框光标移动" },
+      {
+        cmd: "Backspace",
+        desc: "删除光标前字符；输入为空时回退输入模式到 `>`",
+      },
+      {
+        cmd: "Enter",
+        desc: "按输入模式提交（`>` 发送 / `<` 排队等下一回合 / `!` 打断并发送）",
+      },
+      {
+        cmd: "$ / < / !",
+        desc: "输入为空时按其中之一切换输入模式（`/` 同时是斜杠命令前缀；Backspace 回退 `>`）",
+      },
+      {
+        cmd: "A-Enter",
+        desc: "等效 `Enter`（旧「打断并发送」入口，2026-10-15 起废弃）",
+      },
+      { cmd: "C-p/n", desc: "输入历史回溯（上一条 / 下一条）" },
+      { cmd: "C-j", desc: "输入框插入换行（Enter 仍为提交）" },
+      { cmd: "C-c", desc: "清空输入框；750ms 内双击请求退出" },
+      { cmd: "C-l", desc: "强制整帧重绘" },
+      {
+        cmd: "C-e/t/s",
+        desc: "聚焦会话区 / 回合区 / 状态列（再按一次收起或退出焦点）",
+      },
+      { cmd: "Tab", desc: "接受补全候选（命令名 / `@` 文件提及）；面板内切窗" },
+      {
+        cmd: "Esc",
+        desc: "关闭面板 / 收起补全候选；输入为空且有焦点时退出焦点",
+      },
+      { cmd: "C-d", desc: "请求退出（仅空闲且输入区为空时）" },
+    ];
     return [
+      { text: "按键：", noCompact: true },
+      ...helpTableLines(keys),
+      { text: "面板内按键见底部提示区（随面板切换）。", noCompact: true },
       { text: "本地命令：", noCompact: true },
       // 条目按命令名字母序展示（口径：整体字母序、不保留手写分组）
       ...helpTableLines(sortHelpRows(commands)),
