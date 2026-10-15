@@ -69,7 +69,7 @@ import type { CompletionState } from "./state.ts";
 import { maxDescScrollFor } from "./components/QuestionPrompt.ts";
 import { maxApprovalScroll } from "./components/ApprovalPrompt.ts";
 
-/** 审批超时回落值（ms）：adapter 未提供 `approvalTimeoutMs()` 时使用（BACKLOG 3.2.5 / 3.3.2） */
+/** 审批超时回落值（ms）= 1 min：adapter 未提供 `approvalTimeoutMs()` 时使用（BACKLOG 3.2.5 / 3.3.2） */
 const APPROVAL_TIMEOUT_FALLBACK_MS = 60_000;
 
 /** 审批倒计时重绘间隔（ms）：秒数每秒变 → 独立 1s 定时器（不靠状态栏 ticker 节律） */

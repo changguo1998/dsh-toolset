@@ -681,6 +681,20 @@ test("审批倒计时取 adapter 实际超时值（同源，BACKLOG 3.3.2）", (
   );
 });
 
+test("审批倒计时回落：adapter 无 approvalTimeoutMs 能力 → 1 min（BACKLOG 3.3.2）", () => {
+  const { renderer, adapter } = makeApp();
+  // 抹掉 adapter 的该能力（实例属性遮蔽原型方法）→ App 走本地回落常量
+  (adapter as { approvalTimeoutMs?: () => number }).approvalTimeoutMs =
+    undefined;
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "tool" });
+  adapter.push({ type: "approval", id: "a1", prompt: "允许执行?" });
+  const frame = renderer.lastRender.join("\n");
+  assert.ok(
+    frame.includes("(60s)"),
+    "回落值应为 1 min（60s）: " + frame.slice(0, 240),
+  );
+});
+
 test("审批超时：approval-closed 关闭面板并给提示（BACKLOG 3.3.2 App 侧）", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "agent-status", sessionId: "s1", status: "tool" });

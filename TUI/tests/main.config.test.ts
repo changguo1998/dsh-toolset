@@ -8,8 +8,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  APPROVAL_TIMEOUT_DEFAULT_MS,
   normalizeTuiDisplayConfig,
   parseTuiStartupArgs,
+  resolveApprovalTimeoutMs,
   waitForHostService,
 } from "../src/main.ts";
 
@@ -161,5 +163,28 @@ test("main.ts：security-guard 服务按惰读 getter 提供（不是 apply 期�
     source,
     /\n    guard: \(ctx as \{ get\?: \(name: string\) => unknown \}\)\.get\?\.\("guard"\)/,
     "不应再有 apply 期的 guard 值快照",
+  );
+});
+
+test("审批超时取用链：配置文件 > 插件 config > 缺省 1 min（BACKLOG 3.3.7）", () => {
+  assert.equal(
+    resolveApprovalTimeoutMs(45_000, 30_000),
+    45_000,
+    "配置文件值优先",
+  );
+  assert.equal(
+    resolveApprovalTimeoutMs(undefined, 30_000),
+    30_000,
+    "配置文件缺失时取插件 config",
+  );
+  assert.equal(
+    resolveApprovalTimeoutMs(undefined, undefined),
+    APPROVAL_TIMEOUT_DEFAULT_MS,
+    "两级都缺失 → 缺省",
+  );
+  assert.equal(
+    APPROVAL_TIMEOUT_DEFAULT_MS,
+    60_000,
+    "缺省 = 1 min（60_000 ms）",
   );
 });

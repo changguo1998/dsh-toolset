@@ -1,6 +1,6 @@
 {
     "approval": {
-        "timeoutMs": 30000
+        "timeoutMs": 60000
     },
     "layout": {
         "activityHeightDivisor": 2,

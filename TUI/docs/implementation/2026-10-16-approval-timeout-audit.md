@@ -1,6 +1,6 @@
 # 审批面板超时时间核查（接取条目：TUI/docs/BACKLOG.md「检查审批面板的超时时间（应当设定为 1 min）」）
 
-状态：规划　　开启：2026-10-16　　关闭：—
+状态：测试　　开启：2026-10-16　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -128,15 +128,80 @@
 
 ## 实现记录
 
-（待实现）
+（时间倒序无关，按计划的任务拆分顺序记录；命令输出见「测试与证据」）
+
+1. **配置面对齐**（2026-10-16）：`TUI/tui.config.json` 的 `approval.timeoutMs` 由 `30000` 改 `60000`；单一行的 diff，未触发整体重排。
+2. **取用链可测化**（2026-10-16）：`src/main.ts` 新增并导出 `APPROVAL_TIMEOUT_DEFAULT_MS = 60_000` 与纯函数 `resolveApprovalTimeoutMs(configFileMs, pluginConfigMs)`（语义 `configFileMs ?? pluginConfigMs ?? 60_000`）；`apply()` 里原先内联的三元链改为调用该函数，注释口径改「> 缺省 1 min」。位置在 `parseTuiStartupArgs` 之后、`readCmdlineArgs` 之前，与既有导出纯函数同级。
+3. **注释口径统一**（2026-10-16，只改注释、无行为变更）：`src/main.ts:181`「默认 60s」→「默认 1 min」；`src/app/config.ts:89` 补「缺省 1 min（取用链见 main.ts 的 `resolveApprovalTimeoutMs`：本文件 > 宿主插件 config > `60_000`）」；`src/app/adapter/types.ts:1672`「缺省 60s」→「缺省 60_000 ms（1 min）」；`src/app/index.ts:72` 回落常量注释补「= 1 min」。
+4. **单测补齐**（2026-10-16，3 例新增 + 1 处注释修正）：`tests/main.config.test.ts` 新增「审批超时取用链」1 例 4 断言（配置文件值优先 / 配置文件缺失取插件 config / 两级缺失落 `APPROVAL_TIMEOUT_DEFAULT_MS` / 缺省常量 = 60_000）；`tests/app.test.ts` 新增「审批倒计时回落」（实例属性遮蔽 fake adapter 的 `approvalTimeoutMs` → 倒计时显示 `(60s)`）；`tests/adapter.dsh.test.ts` 新增「审批超时缺省 = 60_000」（直接以 `createRealDshAdapter` 构造、不给 `approvalTimeoutMs`）；`tests/config.test.ts:264` 陈旧注释「由 main 回落缺省 30s」改 1 min 口径。
+5. **文档回写**（2026-10-16）：`docs/SPEC.md:459` 缺省 `30000` → `60000`（1 min，并注明取用链与仓库自带 config 亦为 60000）；`README.md:251` 消除同句「默认 60000 / 默认 30000」矛盾，统一为「默认 60000（1 min，取用链 `src/main.ts` 的 `resolveApprovalTimeoutMs`）」。
+6. **验证**（2026-10-16）：`format` 全部 11 个改动文件 → TUI `npm run check` exit 0 → TUI `npm run build` exit 0 → TUI `npm test` 1609 例全过（原 1606 + 新增 3）→ 配置 dump 与根级 `npm run check`（22 包）见「测试与证据」。
 
 ## 偏差
 
-（待补）
+- **真机核对未做（可选项）**：条目验收 ② 允许「真机 / 配置 dump」二选一，本次以配置 dump 取证（见「测试与证据」）；真机目视（合并后审批面板倒计时从 `(60s)` 起）未执行 —— profile `fff` 的 symlink 指向主检出 `~/Projects/dsh-toolset/TUI`，本 worktree 的 config 改动未合并前不影响真机（时点 2026-10-16）。
+- **同文件内的注释一并统一**：`src/main.ts:181`（配置项注释）与装配处注释两处「60s」一并改「1 min」，仍在计划清单的同一文件内，未新增文件。
+- 其余与计划一致：13 个文件全部改到，无计划外文件；决策 1 至 4 按用户裁定执行，决策 5（抽纯函数）按复述内容执行。
 
 ## 测试与证据
 
-（待补）
+（本工作区 `/home/guochang/Projects/dsh-toolset/.worktree/tui`，2026-10-16）
+
+### 机械验证
+
+| 命令 | 结果 |
+| --- | --- |
+| `format`（11 个改动文件） | exit 0；TS / MD / JSON 各按扩展名走对应格式化器，diff 无整体重排 |
+| `npm run check`（TUI） | exit 0（无错误输出） |
+| `npm run check`（仓库根，22 包） | exit 0（每包 `tsc --noEmit`，见 job 输出） |
+| `npm run build`（TUI） | exit 0，产物写入 `TUI/dist/` |
+| `npm test`（TUI） | **1609 例全过 / fail 0**（改动前 1606，本次新增 3 例） |
+| 新增 3 例定向运行 | 均 `✔`：`审批超时取用链…`（0.5ms）、`审批超时缺省 = 60_000…`（2.7ms）、`审批倒计时回落…`（18.5ms） |
+| `npm run demo -- --smoke`（mock demo 帧断言） | exit 0：42 个 `SMOKE_PASS` / 0 个 `SMOKE_FAIL`，末行 `SMOKE_OK sent=[…] interrupts=1`（人工确认材料；临时输出文件已删） |
+
+### 生效值核查（验收 ②：配置 dump）
+
+命令（cwd = `TUI/`）：
+
+```sh
+node --experimental-transform-types --input-type=module -e '
+import { loadTuiConfig } from "./src/app/config.ts";
+import { resolveApprovalTimeoutMs, APPROVAL_TIMEOUT_DEFAULT_MS } from "./src/main.ts";
+const cfg = loadTuiConfig();
+console.log("配置 dump: approval.timeoutMs =", cfg.approval?.timeoutMs);
+console.log("生效链结果 (配置 > 插件config > 缺省) =", resolveApprovalTimeoutMs(cfg.approval?.timeoutMs, undefined));
+console.log("缺省常量 APPROVAL_TIMEOUT_DEFAULT_MS =", APPROVAL_TIMEOUT_DEFAULT_MS);
+'
+```
+
+输出：
+
+```
+配置 dump: approval.timeoutMs = 60000
+生效链结果 (配置 > 插件config > 缺省) = 60000
+缺省常量 APPROVAL_TIMEOUT_DEFAULT_MS = 60000
+```
+
+结论：1. 仓库自带 `tui.config.json` → `60000`（改动前 `30000`）；2. 宿主插件 config 档为空（profile `fff` 的 tui 段只设 `theme`，未设 `approvalTimeoutMs`）；3. 两级都缺失时的代码缺省 = `60000`。三级一致 = **1 min**。
+
+### 缺省路径 grep（验收 ①）
+
+```
+TUI/src/main.ts:377:export const APPROVAL_TIMEOUT_DEFAULT_MS = 60_000;
+TUI/src/app/index.ts:73:const APPROVAL_TIMEOUT_FALLBACK_MS = 60_000;
+TUI/src/app/adapter/dsh.ts:2925:      opts.approvalTimeoutMs ?? 60_000,
+TUI/src/app/adapter/dsh.ts:3125:      return opts.approvalTimeoutMs ?? 60_000;
+```
+
+审批范围内已无 30 s 的缺省陈述（残留的 `30_000` / `30s` 命中都在别处：`local-shell.ts` 的 shell 超时、`README.md:171` 的 `$` 模式说明、以及测试里作为「覆盖值 / 解析输入 / 显示注入值」的用例数据，均非缺省口径）。
+
+### 同源（验收 ③）
+
+`app.test.ts` 两条断言并存：既有「取 adapter 值 30 s → 显示 `(30s)`」，本次新增「无该能力 → 显示 `(60s)`」；adapter 侧裁定定时器与 `approvalTimeoutMs()` 共用同一 `opts`（`dsh.ts:2925` 与 `:3123-3126`），无第二真源。
+
+### 真机核对（未做，可选）
+
+合并后重启 `dsh --profile fff`，审批面板倒计时应从 `(60s)` 起；本 worktree 未合并前不影响真机（见「偏差」）。
 
 ## 收尾
 

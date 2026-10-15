@@ -261,7 +261,7 @@ test("审批段：approval.timeoutMs 解析与回落（BACKLOG 3.3.7）", () => 
   assert.equal(
     normalizeConfig({ approval: {} }).approval,
     undefined,
-    "空段 → undefined（由 main 回落缺省 30s）",
+    "空段 → undefined（由 main 回落缺省 1 min）",
   );
   assert.equal(normalizeConfig({}).approval, undefined, "未配置 → undefined");
 });

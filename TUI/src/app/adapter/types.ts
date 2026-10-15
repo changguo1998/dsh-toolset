@@ -1669,7 +1669,7 @@ export interface RealAdapterOptions {
   commandAgent?: unknown;
   /** DSH commands 注册表(来自 ctx.get('commands')，bundle 已挂载) */
   commands?: DshCommandLike;
-  /** 审批弹窗超时（ms），超时未答按默认拒绝裁定（'rejected'）；缺省 60s */
+  /** 审批弹窗超时（ms），超时未答按默认拒绝裁定（'rejected'）；缺省 60_000 ms（1 min） */
   approvalTimeoutMs?: number;
   /** 打断当前思考/turn 的回调（调用 agent.cancel({kind:'user'})）；宿主无 cancel 能力时不传 */
   interrupt?: () => void;
