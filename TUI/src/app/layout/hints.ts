@@ -10,7 +10,9 @@
 //  - 每条提示行一律 `[键]短标签`，条目之间用 ` · `（两侧各一个空格）分隔；
 //  - 修饰键用缩写记号：`Ctrl` → `C-`、`Alt` → `A-`、`Shift` → `S-`（例 `C-s`、`A-Enter`）；
 //  - 键名拼写统一：`Tab` / `Esc` / `Space` / `Enter` / `↑` / `↓` / `PgUp` / `PgDn`（大小写一致）；
-//  - 提示行不放装饰符号（`▶` 只在面板内容里标焦点窗，不进提示行）。
+//  - 提示行不放装饰符号（`▶` 只在面板内容里标焦点窗，不进提示行）；
+//  - 例外（2026-10-15 用户要求）：普通输入态两态提示行最前加**输入模式提示符图例**
+//    `MODE_HINTS`（`[> / ! $ <]`，只列符号不写文字，` · ` 与后续条目分隔）。
 //
 // 分层：只依赖 state 与适配层类型，**不**引用 components/*（否则 layout →
 // components 反向依赖成环）；components 侧需要文案时反向 import 本文件。
@@ -23,14 +25,23 @@ import type {
 import type { CommandPanelKind } from "../adapter/types.ts";
 
 /**
+ * 输入模式提示符图例（2026-10-15 用户要求）：只列模式符号、**不写文字**，常驻普通输入态
+ * 提示行最前（`>` steer / `!` interrupt（打断并发送）/ `$` shell / `/` slash / `<` followup）。
+ * 仅普通输入态两态（空输入 / 有输入）显示；面板态提示行不加（面板提示本身已较宽）。
+ */
+export const MODE_HINTS = "[> / ! $ <]";
+
+/**
  * 普通输入态（空输入）：按状态只列当前可用键（2026-10-14 用户裁定）。
  * 区域键 `C-e` / `C-t` / `C-s` 按同一裁定**不在提示行露出**（用户明确要求）。
- * 宽度 45 列（80 列终端单行放下）。
+ * 宽度 59 列（含模式图例 14 列；80 列终端单行放下）。
  */
-export const HINT_LINE = "[C-d]退出 · [C-l]重绘 · [C-n/p]历史 · [/help]";
+export const HINT_LINE =
+  MODE_HINTS + " · [C-d]退出 · [C-l]重绘 · [C-n/p]历史 · [/help]";
 
-/** 普通输入态（输入非空）：有内容时编辑键优先（宽度 31 列） */
-export const HINT_LINE_WITH_INPUT = "[C-c]清空 · [C-j]换行 · [/help]";
+/** 普通输入态（输入非空）：有内容时编辑键优先（含模式图例，宽度 45 列） */
+export const HINT_LINE_WITH_INPUT =
+  MODE_HINTS + " · [C-c]清空 · [C-j]换行 · [/help]";
 
 /** 补全候选打开（候选面板本身不占活动区行放提示） */
 export const COMPLETION_HINT_LINE = "[Tab]补全 · [↑/↓]选择 · [Esc]收起";

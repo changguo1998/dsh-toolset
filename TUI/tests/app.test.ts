@@ -4151,7 +4151,7 @@ test("顶部面板：Ctrl+T 聚焦活动区，↑/PgUp 滚动帮助", async () =
   const hint = (): string => {
     const h = renderer.lastRender
       .map(strip)
-      .find((l) => l?.startsWith("[C-d]退出"));
+      .find((l) => l?.startsWith("[> / ! $ <]") && l.includes("[C-d]退出"));
     return h ?? "";
   };
   // 活动区正文 = 实线分隔行与状态区上边分隔行之间：取左侧历史/活动区段（右侧为状态列）
@@ -4267,7 +4267,11 @@ test("Tab 不再有全局语义：空输入 / 有输入都不改变焦点，hint
   const hint = (): string => {
     const h = renderer.lastRender
       .map(strip)
-      .find((l) => l?.startsWith("[C-d]退出") || l?.startsWith("[C-c]清空"));
+      .find(
+        (l) =>
+          l?.startsWith("[> / ! $ <]") &&
+          (l.includes("[C-d]退出") || l.includes("[C-c]清空")),
+      );
     return h ?? "";
   };
   const key = (name: string): KeyEvent => ({

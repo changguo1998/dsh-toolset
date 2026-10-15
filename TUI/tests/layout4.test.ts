@@ -282,9 +282,14 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     rows: 24,
     cols: 60,
   }).hintHeight;
+  const hintText = frame
+    .slice(24 - hintRows)
+    .map((l) => plain(l))
+    .join("\n");
   assert.ok(
-    plain(frame[24 - hintRows]!).startsWith("[C-d]退出"),
-    "提示区首行为按键提示区",
+    plain(frame[24 - hintRows]!).startsWith("[> / ! $ <]") &&
+      hintText.includes("[C-d]退出"),
+    "提示区首行为按键提示区（模式图例前缀 + 默认提示）",
   );
 });
 
