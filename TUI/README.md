@@ -354,7 +354,7 @@ npm run watch # tsc --watch 常驻编译到 dist/（仍需重启 dsh 生效）
 
 排版折行 / 宽度纯函数走有界缓存（键含文本 + 列宽，与主题无关；`TUI_LAYOUT_CACHE=0` 可关）；`paint()` 同 tick 合帧（真实链路默认 10Hz 上限，`AppDeps.frameIntervalMs`）。机制与基准见 `docs/SPEC.md` §15.8。
 
-字符宽度按 EAW 精确表判定（N 类 1 列 / W·F 2 列 / A 类保守 2 列）；排版遇到「呈现不确定」字符时**按需实测**（写屏前 `CSI 6n` 光标列差）覆盖其真实列数，实测值落盘 `<profile 目录>/tui-width-table.json` 供后续会话复用（`TUI_WIDTH_PROBE=0` 可关）；见 `docs/SPEC.md` §15.7。
+字符宽度按 EAW 精确表判定（N 类 1 列 / W·F 2 列 / A 类保守 2 列）；排版遇到「呈现不确定」字符时**按需实测**（写屏前 `CSI 6n` 光标列差）覆盖其真实列数 —— **宽度本身不落盘、每次会话重新实测**（首帧先出，帧后把首帧登记的字符与符号列表先验合并成**一轮**实测），落盘的只有「呈现不确定」符号列表 `<profile 目录>/tui-width-symbols.json`（`TUI_WIDTH_PROBE=0` 可关）；见 `docs/SPEC.md` §15.7。
 
 渲染层另有**帧转储**排查开关（定位「帧对但屏幕不对」类问题：画面残留 / 首项被复制 / 错位——这类问题取决于「实际写出的字节 + 当时的尺寸认知」，离线复现不一定命中）：`TUI_FRAME_DUMP=/tmp/tui-frames.jsonl dsh --profile fff` 会把**每帧行文本**、**实际终端报文**与**尺寸来源对比**（渲染器采用的尺寸 vs `process.stdout` 读数）按 JSONL 追加（超 8 MiB 停止并写 `kind:"stop"` 标记）。复盘：把 `kind:"out"` 的报文按序喂给 `tests/helpers/screenEmu.ts` 的 `ScreenEmu.feed()` 重放得到「屏幕实际留下什么」，与同刻 `kind:"frame"` 的 `lines` 逐行比对，差异行即残留位置；`kind:"size"` 用来看认知偏差何时发生。未设该环境变量时不生效（零开销）；转储含屏幕文本，排查完请删除文件。
 
