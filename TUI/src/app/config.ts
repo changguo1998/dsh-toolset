@@ -86,7 +86,8 @@ export interface TuiConfig {
   approval?: TuiApprovalConfig;
 }
 
-/** 审批交互段：`timeoutMs` = 无操作超时（ms，≥ 1000）；面板内按过任意键后不再超时（3.3.5） */
+/** 审批交互段：`timeoutMs` = 无操作超时（ms，≥ 1000）；缺省 1 min（取用链见 main.ts 的
+ *  `resolveApprovalTimeoutMs`：本文件 > 宿主插件 config > `60_000`）；面板内按过任意键后不再超时（3.3.5） */
 export interface TuiApprovalConfig {
   timeoutMs?: number;
 }

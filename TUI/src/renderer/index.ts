@@ -59,6 +59,46 @@ export type ProbeReject = {
   readonly prevCol: number;
 };
 
+/**
+ * 宽度探测里被**整块作废**的批次（诊断留痕，`TUI_WIDTH_DUMP` 用）：一块的应答只要
+ * 命中可疑条件，该块全部字符都不产出宽度（交由调用方重排队重试），因为它们与应答的
+ * 对应关系已不可信。
+ */
+export type ProbeVoid = {
+  /** short = 应答数不足（迟到的应答可能属于别的批次）；row = 有应答不在探测基线行；back = 列倒退（应答错序） */
+  readonly reason: "short" | "row" | "back";
+  readonly chars: readonly string[];
+  /** 实际收到的应答数 / 该块请求数 */
+  readonly responded: number;
+  readonly expected: number;
+};
+
+/** 探测报文的定位行（候选字符画在屏幕原点，应答的行号必与此一致） */
+const PROBE_BASELINE_ROW = 1;
+
+/**
+ * 整块作废判定（BACKLOG「字符宽度探测的触发时机」裁定 ③）：应答数不足 / 有应答偏离
+ * 探测基线行 / 列**倒退** —— 任一命中即整块作废（该块字符与应答的对应关系已不可信，
+ * 由调用方重排队重试）。下列两种**不算**整块可疑：① 列差落在 `{1,2}` 之外但列在递增
+ * （只丢那个字符，避免一个真宽字符废掉同块其余字符）；② 列差为 0（该字符在终端上零宽，
+ * 只丢那个字符）。
+ *
+ * 代价：真的发生自动换行时整块本轮不产出（旧实现只丢换行处那一个字符）。分块按
+ * 「每字符最多 2 列 + 1 列余量」切分（见 `probeSymbolWidths`），正常终端不会换行。
+ */
+function chunkVoidReason(
+  responses: readonly { readonly row: number; readonly col: number }[],
+  expected: number,
+): ProbeVoid["reason"] | null {
+  if (responses.length !== expected) return "short";
+  for (let i = 0; i < responses.length; i++) {
+    const r = responses[i]!;
+    if (r.row !== PROBE_BASELINE_ROW) return "row";
+    if (i > 0 && r.col < responses[i - 1]!.col) return "back";
+  }
+  return null;
+}
+
 export interface Renderer {
   /** 整帧重绘；内含变化行游程重写（sections 提供时先按帧段切分）。
    *  focus（3.1.3）：输入焦点与位置，决定重写结束后光标是否定位回输入位置。 */
@@ -80,11 +120,16 @@ export interface Renderer {
    * 超宽批次按终端宽度分块。终端不支持 CPR 时在 `timeoutMs` 后返回已收集结果（可能为空 Map）。
    * 探测字符会短暂出现在屏幕原点：调用方必须在探测之后出帧，且该帧走整帧重绘（覆盖残留）。
    * 注入型 renderer 可不实现（App 侧判空后跳过探测，沿用静态表）。
+   *
+   * 自校验（BACKLOG「字符宽度探测的触发时机」裁定 ③）：每块先校验应答（数量 / 基线行 /
+   * 列序），命中可疑条件即**整块作废**（不产出宽度，`voids` 留痕），只有零应答才说明
+   * 终端不支持 CPR —— 调用方据此决定「重排队重试」还是「关闭后续实测」。
    */
   probeSymbolWidths?(
     chars: readonly string[],
     timeoutMs?: number,
     rejects?: ProbeReject[],
+    voids?: ProbeVoid[],
   ): Promise<Map<string, number>>;
   onResize(cb: (cols: number, rows: number) => void): void;
   getSize(): Size;
@@ -341,6 +386,7 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       chars: readonly string[],
       timeoutMs = 500,
       rejects?: ProbeReject[],
+      voids?: ProbeVoid[],
     ): Promise<Map<string, number>> {
       const widths = new Map<string, number>();
       if (closed || chars.length === 0) return widths;
@@ -375,34 +421,44 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
           }, budgetMs);
           cprWaiters.add(onCpr);
         });
-        let payload = "\x1b[1;1H";
+        let payload = `\x1b[${PROBE_BASELINE_ROW};1H`;
         for (const ch of chunk) payload += ch + "\x1b[6n";
         write(payload);
         await collected;
-        // 解析：同一行内相邻 CPR 的列差即字符宽度；跨行（自动换行）跳过该字符
-        let prevRow = 1;
-        let prevCol = 1;
-        for (let i = 0; i < responses.length; i++) {
-          const { row, col } = responses[i]!;
-          const ch = chunk[i]!;
-          // 列差只在同一行内有效（跨行 = 自动换行，作废）；仅接受 1 / 2 列
-          const delta = row === prevRow ? col - prevCol : null;
-          if (delta === 1 || delta === 2) widths.set(ch, delta);
-          else rejects?.push({ ch, delta, row, col, prevRow, prevCol }); // 诊断留痕
-          prevRow = row;
-          prevCol = col;
+        // 整块自校验（裁定 ③）：可疑即整块作废 —— 不产出宽度，交由调用方重排队重试
+        const voidReason = chunkVoidReason(responses, chunk.length);
+        if (voidReason !== null) {
+          voids?.push({
+            reason: voidReason,
+            chars: [...chunk],
+            responded: responses.length,
+            expected: chunk.length,
+          });
+        } else {
+          // 解析：同一行内相邻 CPR 的列差即字符宽度（基线行与列序已由上面的校验保证）
+          let prevCol = 1;
+          for (let i = 0; i < responses.length; i++) {
+            const { row, col } = responses[i]!;
+            const ch = chunk[i]!;
+            const delta = col - prevCol; // 仅接受 1 / 2 列，其余留痕退回静态宽度
+            if (delta === 1 || delta === 2) widths.set(ch, delta);
+            else rejects?.push({ ch, delta, row, col, prevRow: row, prevCol });
+            prevCol = col;
+          }
         }
         if (closed) break;
         // 块间静默期：迟到的应答（属于上一块的）在无等待者时被丢弃，不会落到下一块的等待者上
-        // 造成「相邻字符宽度错位」——应答不带请求标识，只能按到达顺序配对。仅在还有下一块时
-        // 等待；代价 ≤ `PROBE_SETTLE_MS` × 块数，且只在探测帧发生。
+        // 造成「相邻字符宽度错位」——应答不带请求标识，只能按到达顺序配对（真漏进来的迟到
+        // 应答会让该块判 `short` 而整块重试，不再错配）。仅在还有下一块时等待；代价
+        // ≤ `PROBE_SETTLE_MS` × 块数，且只在探测帧发生。
         if (chunk !== chunks[chunks.length - 1]) {
           await new Promise<void>((resolve) =>
             setTimeout(resolve, PROBE_SETTLE_MS),
           );
         }
       }
-      write("\x1b[1;1H" + CURSOR_SHOW); // 复位光标 + 恢复显示（调用方随后整帧重绘覆盖探测残留）
+      // 复位光标 + 恢复显示（调用方随后整帧重绘覆盖探测残留）
+      write(`\x1b[${PROBE_BASELINE_ROW};1H` + CURSOR_SHOW);
       return widths;
     },
     onResize(cb: (cols: number, rows: number) => void): void {

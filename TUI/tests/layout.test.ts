@@ -6,6 +6,7 @@ import {
   displayWidth,
   wrapLine,
   wrapLines,
+  wrapHintLine,
   parseInlineMarkdown,
   wrapInlineMarkdown,
   truncateToWidth,
@@ -14,10 +15,14 @@ import { initialState, reduceState } from "../src/app/state.ts";
 import { renderTextInput } from "../src/app/components/TextInput.ts";
 import { buildFrame } from "./helpers/frameWithLocalReplay.ts";
 import {
+  approvalHintLine,
+  commandPanelHint,
   COMPLETION_HINT_LINE,
   FILE_MENTION_HINT_LINE,
   HINT_LINE,
+  HINT_LINE_WITH_INPUT,
   hintLine,
+  PICKER_HINT_LINE,
 } from "../src/app/layout/hints.ts";
 import { rowText, segsAnsi } from "./helpers/rowText.ts";
 
@@ -478,4 +483,72 @@ test("文件提及面板：候选超宽按显示列截断（不超框、不切�
   });
   const rows = buildFrame(file, size);
   assert.equal(rows.length, size.rows, "帧行数 = 终端行数");
+});
+
+// ---- 面板态提示行补齐（2026-10-16，BACKLOG「按键提示信息与实际绑定对齐」决策 2）----
+
+test("面板提示行：审批列 y/n 与 ←/→、模型选择列 ←/→ 切列、workflows 不列 Enter", () => {
+  const base = initialState();
+  assert.equal(
+    approvalHintLine({ ...base, approvalWindow: "options" }),
+    "[Enter]提交 · [Esc]取消 · [↑/↓]选项 · [←/→]选项 · [Tab]草稿 · [y/n/1/2]直答",
+    "选项窗：补 y/n 与 ←/→（SPEC §7.1 白名单）",
+  );
+  assert.equal(
+    approvalHintLine({ ...base, approvalWindow: "desc" }),
+    "[Enter]提交 · [Esc]取消 · [↑/↓]滚动 · [←/→]选项 · [Tab]选项 · [y/n/1/2]直答",
+    "描述窗：↑/↓ 语义切换、←/→ 与 y/n 仍列出",
+  );
+  assert.ok(
+    PICKER_HINT_LINE.includes("[Tab/←/→]切列"),
+    "模型选择：←/→ 与 Tab 同为切列",
+  );
+  assert.ok(
+    !commandPanelHint("workflows").includes("[Enter]"),
+    "workflows 的 Enter 是显式无操作 → 不列（提示不实修正）",
+  );
+  assert.ok(
+    commandPanelHint("agents").includes("[Enter]中断"),
+    "agents 仍列 Enter 中断",
+  );
+  assert.ok(
+    commandPanelHint("skills").includes("[Enter]详情"),
+    "详情型 kind 仍列 Enter 详情",
+  );
+});
+
+test("提示行宽度契约：80 列下 1 至 2 行，折行只按 ` · ` 边界且不丢条目", () => {
+  const base = initialState();
+  const lines: [string, string][] = [
+    ["普通输入（空输入）", HINT_LINE],
+    ["普通输入（有输入）", HINT_LINE_WITH_INPUT],
+    ["审批（描述窗）", approvalHintLine({ ...base, approvalWindow: "desc" })],
+    ["模型选择", PICKER_HINT_LINE],
+    ["列表族（workflows）", commandPanelHint("workflows")],
+    ["列表族（agents）", commandPanelHint("agents")],
+  ];
+  for (const [name, text] of lines) {
+    const rows = wrapHintLine(text, 80);
+    assert.ok(
+      rows.length <= 2,
+      `${name}：80 列不超 2 行（实得 ${rows.length}）`,
+    );
+    assert.equal(
+      rows.join(" · "),
+      text,
+      `${name}：折行只落在 · 边界、不丢条目（超 2 行会被截断）`,
+    );
+  }
+  // 改动后的具体折行结果：审批 75 列单行、模型选择 83 列折 2 行
+  assert.equal(
+    wrapHintLine(approvalHintLine({ ...base, approvalWindow: "desc" }), 80)
+      .length,
+    1,
+    "审批提示 80 列单行（宽度余量足够）",
+  );
+  assert.equal(
+    wrapHintLine(PICKER_HINT_LINE, 80).length,
+    2,
+    "模型选择提示 80 列折 2 行（提示区契约允许）",
+  );
 });

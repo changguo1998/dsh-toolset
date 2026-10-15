@@ -135,8 +135,14 @@ afterEach(() => {
   }
 });
 
-function makeApp(): { app: App; renderer: FakeRenderer; adapter: FakeAdapter } {
+function makeApp(size?: { cols: number; rows: number }): {
+  app: App;
+  renderer: FakeRenderer;
+  adapter: FakeAdapter;
+} {
   const renderer = new FakeRenderer();
+  // 尺寸须在 start() 前定：高终端用例（如 /help 全表断言）要一次拿到完整活动区窗口
+  if (size) renderer.size = size;
   const adapter = new FakeAdapter();
   // 条目 16 段 C1：与生产同路径（`main.ts:322/679` 也传一个空对象，App 自己填 `current`）。
   // 同时把该对象交给假适配器做「事件 → 交付」镜像：生产里内容由适配器产出的交付驱动。
@@ -672,6 +678,20 @@ test("审批倒计时取 adapter 实际超时值（同源，BACKLOG 3.3.2）", (
   assert.ok(
     frame.includes("(30s)"),
     "倒计时应取 adapter 的超时值（而非本地常量）: " + frame.slice(0, 240),
+  );
+});
+
+test("审批倒计时回落：adapter 无 approvalTimeoutMs 能力 → 1 min（BACKLOG 3.3.2）", () => {
+  const { renderer, adapter } = makeApp();
+  // 抹掉 adapter 的该能力（实例属性遮蔽原型方法）→ App 走本地回落常量
+  (adapter as { approvalTimeoutMs?: () => number }).approvalTimeoutMs =
+    undefined;
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "tool" });
+  adapter.push({ type: "approval", id: "a1", prompt: "允许执行?" });
+  const frame = renderer.lastRender.join("\n");
+  assert.ok(
+    frame.includes("(60s)"),
+    "回落值应为 1 min（60s）: " + frame.slice(0, 240),
   );
 });
 
@@ -2402,6 +2422,48 @@ const plainFrame = (renderer: FakeRenderer): string =>
 /** 帧纯文本（去 ANSI）：跨样式段的断言用（段边界处会插入转义序列） */
 const strippedFrame = (renderer: FakeRenderer): string =>
   plainFrame(renderer).replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
+
+test("/help → 含「按键：」全局键表（冷门键与提示行不再列的常用键都在）", () => {
+  // 超高终端：/help 现在约 110 行（按键段 + 命令段），要一次落在活动区窗口内才能断言段标题；
+  // 真机上超出窗口的部分靠 ↑/↓ 滚动查看（与既有命令表同口径）
+  const { renderer } = makeApp({ cols: 120, rows: 240 });
+  typeAndEnter(renderer, "/help");
+  const frame = strippedFrame(renderer);
+  assert.ok(frame.includes("按键："), "按键段标题");
+  assert.ok(
+    frame.includes("本地命令："),
+    "命令段标题仍在（新增段不改原有两段）",
+  );
+  // 键表 17 行逐行对上：键列在左、描述列固定起点（HELP_MARGIN + 键列补白 + HELP_GAP ≥ 2 空格），
+  // 只断言「键 + 描述开头」在同一行，避免依赖描述整体是否折行
+  const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rows: [string, string][] = [
+    ["↑/↓", "滚动一行"],
+    ["C-↑/↓", "半屏滚动"],
+    ["PgUp/PgDn", "面板整页滚动"],
+    ["Home/End", "翻到最旧已加载内容"],
+    ["←/→", "输入框光标移动"],
+    ["Backspace", "删除光标前字符"],
+    ["Enter", "按输入模式提交"],
+    ["$ / < / !", "输入为空时按其中之一切换输入模式"],
+    ["A-Enter", "等效"],
+    ["C-p/n", "输入历史回溯"],
+    ["C-j", "输入框插入换行"],
+    ["C-c", "清空输入框"],
+    ["C-l", "强制整帧重绘"],
+    ["C-e/t/s", "聚焦会话区"],
+    ["Tab", "接受补全候选"],
+    ["Esc", "关闭面板"],
+    ["C-d", "请求退出"],
+  ];
+  for (const [key, desc] of rows) {
+    assert.ok(
+      new RegExp(esc(key) + "\\s{2,}" + esc(desc)).test(frame),
+      `键表行对不上：${key} / ${desc}`,
+    );
+  }
+  assert.ok(frame.includes("面板内按键见底部提示区"), "按键段末指路行");
+});
 
 test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多题动态按键提示", () => {
   const { app, renderer, adapter } = makeApp();
@@ -4203,14 +4265,15 @@ test("顶部面板：Ctrl+T 聚焦活动区，↑/PgUp 滚动帮助", async () =
     upBefore,
     "焦点流输出时 ↑ 滚动到更早行（窗口起点变化）",
   );
-  // PgUp（整页）→ 翻到帮助首行；到顶为幂等——多按几次直到首行（帮助加行不破坏断言）
-  for (let i = 0; i < 8 && actBody()[0] !== "本地命令："; i++) {
+  // PgUp（整页）→ 翻到帮助首行；到顶为幂等——多按几次直到首行（帮助加行不破坏断言，
+  // 故循环上限留足页数：/help 约 110 行、每页约 15 行）
+  for (let i = 0; i < 12 && actBody()[0] !== "按键："; i++) {
     renderer.press(key("pageup"));
   }
-  assert.equal(actBody()[0], "本地命令：", "整页上翻到首行（幂等到顶）");
-  // PgDn（整页）→ activityScroll 9-8=1，窗口起点回到 /theme 行（页向下翻）
+  assert.equal(actBody()[0], "按键：", "整页上翻到首行（幂等到顶）");
+  // PgDn（整页）→ 窗口起点离开首行（页向下翻）
   renderer.press(key("pagedown"));
-  assert.notEqual(actBody()[0], "本地命令：", "整页下翻离开首行（向尾部翻）");
+  assert.notEqual(actBody()[0], "按键：", "整页下翻离开首行（向尾部翻）");
 
   // Esc 退出焦点（hint 无标签，不再逐项断言；焦点滚动效果已在上面覆盖）
   renderer.press(key("escape"));

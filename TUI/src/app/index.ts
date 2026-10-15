@@ -3,7 +3,12 @@
 // 只依赖 renderer 公共 API 与 adapter 接口契约，不感知 adapter 实现。
 // 处理按键、接收事件、重绘。
 
-import type { Renderer, KeyEvent, ProbeReject } from "../renderer/index.ts";
+import type {
+  Renderer,
+  KeyEvent,
+  ProbeReject,
+  ProbeVoid,
+} from "../renderer/index.ts";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
@@ -69,7 +74,7 @@ import type { CompletionState } from "./state.ts";
 import { maxDescScrollFor } from "./components/QuestionPrompt.ts";
 import { maxApprovalScroll } from "./components/ApprovalPrompt.ts";
 
-/** 审批超时回落值（ms）：adapter 未提供 `approvalTimeoutMs()` 时使用（BACKLOG 3.2.5 / 3.3.2） */
+/** 审批超时回落值（ms）= 1 min：adapter 未提供 `approvalTimeoutMs()` 时使用（BACKLOG 3.2.5 / 3.3.2） */
 const APPROVAL_TIMEOUT_FALLBACK_MS = 60_000;
 
 /** 审批倒计时重绘间隔（ms）：秒数每秒变 → 独立 1s 定时器（不靠状态栏 ticker 节律） */
@@ -379,9 +384,14 @@ export class App {
   private paintDirty = false;
   /** 实测宽度表落盘目录（`profileDir`；"" = 不落盘，见 layout/width-symbols.ts） */
   private profileDir = "";
-  /** 宽度实测在途：同一时刻只发一批，在途期间不再登记新批（避免探测字节叠发） */
+  /** 宽度实测在途：同一时刻只发一批，在途期间不再登记新批（探测字节叠发会串台） */
   private widthProbeInFlight = false;
-  /** 终端不支持 CPR（整批无回包）→ 关闭后续实测，一律沿用静态表 */
+  /**
+   * 启动首帧闸门（BACKLOG「字符宽度探测的触发时机」裁定 ②）：首帧只出帧、不发起探测——
+   * 否则屏幕先空等一次探测超时，紧接着的启动轮又并发跟发（两轮应答互相串台）。
+   */
+  private probingSuspended = false;
+  /** 终端不支持 CPR（**零应答**）→ 关闭后续实测，一律沿用静态表（有应答但整块作废不算） */
   private widthProbeUnavailable = false;
   /** /detect-char-width 手动重测：探测回来后回一条结果提示（一次性） */
   private widthReprobeNotice = false;
@@ -861,6 +871,7 @@ export class App {
   private dumpProbeResults(
     widths: Map<string, number>,
     rejects: readonly ProbeReject[] = [],
+    voids: readonly ProbeVoid[] = [],
   ): void {
     const path = process.env.TUI_WIDTH_DUMP;
     if (path === undefined || path === "") return;
@@ -871,12 +882,22 @@ export class App {
         `U+${cp.toString(16).toUpperCase()} ${ch} measured=${w} effective=${charWidth(ch)}`,
       );
     }
-    // 被丢弃的列差：跨行（delta=null）或落在 {1,2} 之外 —— 字符会退回静态宽度、
-    // 且本会话不再重测（WIDTH_PROBE_ATTEMPTED），故必须留痕才查得动（见 BACKLOG #1）
+    // 被丢弃的列差：列差落在 {1,2} 之外 —— 字符会退回静态宽度、且该码点本轮算漏测
+    // （会重新入队，见 probeThenRender 的容错路径）
     for (const r of rejects) {
       const cp = r.ch.codePointAt(0) ?? 0;
       lines.push(
         `REJECT U+${cp.toString(16).toUpperCase()} ${r.ch} delta=${r.delta ?? "跨行"} row=${r.row} col=${r.col} prevRow=${r.prevRow} prevCol=${r.prevCol}`,
+      );
+    }
+    // 整块作废（BACKLOG「字符宽度探测的触发时机」裁定 ③）：该块字符与应答的对应关系
+    // 不可信 → 本块零产出并重排队；reason：short 应答数不足 / row 偏离基线行 / back 列倒退
+    for (const v of voids) {
+      const cps = v.chars
+        .map((ch) => `U+${(ch.codePointAt(0) ?? 0).toString(16).toUpperCase()}`)
+        .join(",");
+      lines.push(
+        `VOID reason=${v.reason} responded=${v.responded}/${v.expected} chars=${cps}`,
       );
     }
     try {
@@ -892,8 +913,13 @@ export class App {
    * 实测（`CSI 6n` 列差，见 renderer.probeSymbolWidths）。实测值写入覆盖表并重新排版，
    * 随后以**整帧重绘**出帧——探测字符画在屏幕原点，由这一帧覆盖；且这一帧即按实测宽度排版。
    *
-   * 整批无回包 → 判定终端不支持 CPR，关闭后续实测（否则每个新字符都要白等一次超时）。
-   * 探测期间不出帧（上限 `WIDTH_PROBE_TIMEOUT_MS`），故只在出现新字符的帧上发生。
+   * 只在**首帧之外**发生（启动时首帧先出、帧后合并一轮，见 `probingSuspended` 与
+   * `probeSymbolsAtStartup`）；发起前经过 `probePendingWidths` 的单飞守卫。
+   *
+   * 整批零应答 → 判定终端不支持 CPR，关闭后续实测（否则每个新字符都要白等一次超时）；
+   * 有应答但**整块作废**（应答数不足 / 行号偏离基线 / 列倒退）不算不支持——该块字符按
+   * 漏测处理，重新入队重试（裁定 ③）。探测期间不出帧（上限 `WIDTH_PROBE_TIMEOUT_MS`），
+   * 故只在出现新字符的帧上发生。
    */
   private probeThenRender(
     batch: readonly string[],
@@ -903,29 +929,33 @@ export class App {
     if (typeof probe !== "function") return;
     this.widthProbeInFlight = true;
     const rejects: ProbeReject[] = []; // 诊断：被丢弃的列差（仅 TUI_WIDTH_DUMP 落盘）
+    const voids: ProbeVoid[] = []; // 诊断：被整块作废的批次（同上）
     void probe
-      .call(this.deps.renderer, batch, timeoutMs, rejects)
+      .call(this.deps.renderer, batch, timeoutMs, rejects, voids)
       .then((widths) => {
         this.widthProbeInFlight = false;
         if (this.disposed) return;
-        if (widths.size === 0) {
+        // 「有应答」包括被拒的列差与被作废的整块：只有**零应答**才说明终端不支持 CPR
+        const answered =
+          widths.size > 0 || rejects.length > 0 || voids.length > 0;
+        if (!answered) {
           this.widthProbeUnavailable = true; // 无 CPR 支持：沿用静态表，不再实测
         } else if (setWidthOverrides(widths)) {
           // 新实测到的码点并入符号列表（宽度不落盘）：列表 = 下次启动预探测的先验
           this.rememberWidthSymbols(widths.keys());
         }
-        this.dumpProbeResults(widths, rejects); // 临时诊断（TUI_WIDTH_DUMP）
+        this.dumpProbeResults(widths, rejects, voids); // 临时诊断（TUI_WIDTH_DUMP）
         // /detect-char-width：手动重测完成 → 回一条结果提示（尺寸变化触发的重测不提示）
         if (this.widthReprobeNotice) {
           this.widthReprobeNotice = false;
           this.notice(
-            `字符宽度实测完成：本轮测得 ${widths.size} 个字符（未测到 ${rejects.length} 个）`,
+            `字符宽度实测完成：本轮测得 ${widths.size} 个字符（未测到 ${batch.length - widths.size} 个）`,
             widths.size > 0 ? "success" : "warn",
           );
         }
         // 容错：本轮**没测到**的字符重新入队（每码点最多重试 WIDTH_PROBE_MAX_TRIES 次）——
-        // 漏测不再等于本会话永久沿用静态宽度（真机症状见 BACKLOG #1）
-        if (widths.size > 0) {
+        // 漏测（无应答 / 列差异常 / 整块作废）不再等于本会话永久沿用静态宽度
+        if (answered) {
           const measured = new Set(
             [...widths.keys()].map((ch) => ch.codePointAt(0) ?? 0),
           );
@@ -936,7 +966,7 @@ export class App {
           );
         }
         this.refresh(); // 重排 + 整帧重绘：按实测宽度出这一帧并覆盖探测残留
-        this.maybeProbePendingWidths(); // 重排可能登记了新字符（未测到 / 重试额度未用尽仍会入队）
+        this.probePendingWidths(); // 重排可能登记了新字符（未测到 / 重试额度未用尽仍会入队）
       })
       .catch(() => {
         this.widthProbeInFlight = false;
@@ -944,19 +974,28 @@ export class App {
       });
   }
 
-  /** 取走待实测字符并探测（无待测 / 在途 / 终端不支持 → 不动） */
-  private maybeProbePendingWidths(): void {
-    if (this.widthProbeInFlight || this.widthProbeUnavailable) return;
-    if (typeof this.deps.renderer.probeSymbolWidths !== "function") return;
+  /**
+   * 单飞发起口（裁定 ④，BACKLOG「字符宽度探测的触发时机」）：取走待测队列整批实测。
+   * 四个入口（按需 / 启动 / 尺寸变化 / `/detect-char-width`）都只经这里发起，故并发批次
+   * 不可能出现——在途 / 终端不支持 / 启动首帧（`probingSuspended`）时一律不动。
+   *
+   * 返回是否**已发起**：`renderFrame` 据此跳过本帧写屏（本帧由实测后的整帧重绘产出）。
+   */
+  private probePendingWidths(timeoutMs = WIDTH_PROBE_TIMEOUT_MS): boolean {
+    if (this.widthProbeInFlight || this.widthProbeUnavailable) return false;
+    if (this.probingSuspended) return false;
+    if (typeof this.deps.renderer.probeSymbolWidths !== "function")
+      return false;
     const batch = takePendingWidthProbes();
-    if (batch.length === 0) return;
-    this.probeThenRender(batch);
+    if (batch.length === 0) return false;
+    this.probeThenRender(batch, timeoutMs);
+    return true;
   }
 
   /**
    * 重新实测已生效的宽度覆盖（尺寸变化 / `/detect-char-width` 共用）：
    * 终端对「呈现不确定」字符的解析随终端/字体/tmux 客户端而变（真机症状见 BACKLOG #1），
-   * 故重置尝试额度后把**已实测的码点**重新入队；在途探测由 `maybeProbePendingWidths`
+   * 故重置尝试额度后把**已实测的码点**重新入队；在途探测由 `probePendingWidths`
    * 的在途守卫合并（连续 resize 只在当前批结束后再发下一批）。
    */
   private reprobeWidths(extraCodePoints: Iterable<number> = []): number {
@@ -965,23 +1004,26 @@ export class App {
       ...widthOverrideCodePoints(),
       ...extraCodePoints,
     ]);
-    if (queued > 0) this.maybeProbePendingWidths();
+    if (queued > 0) this.probePendingWidths();
     return queued;
   }
 
   /**
-   * 启动预探测：首帧**之后**按符号列表整批实测（用户 2026-10-12 定稿）。
+   * 启动轮实测（裁定 ②，BACKLOG「字符宽度探测的触发时机」）：首帧**之后**把「首帧排版
+   * 登记的字符」与「符号列表先验」合并成**一轮**实测，再重排 + 整帧重绘覆盖探测残留。
    *
    * 不放在首帧之前：那时 alt screen / 尺寸尚未落定，CPR 报的列差会错（实测出错的宽度）、
-   * 探测残留也没有帧覆盖 —— 真机表现为符号宽度不对 + 边框行缺失。这里走既有
-   * `probeThenRender`：实测 → 重排 → 整帧重绘覆盖残留（与中途按需实测同一条路径）。
+   * 探测残留也没有帧覆盖（用户 2026-10-12 定稿）。首帧也**不再**单独按需探测：否则首帧被
+   * 吞（屏幕空等一次超时），且紧接着本轮并发跟发、两轮应答互相串台（裁定 ②）。
    */
   private probeSymbolsAtStartup(): void {
-    if (this.widthProbeUnavailable) return;
+    if (this.widthProbeInFlight || this.widthProbeUnavailable) return;
     if (typeof this.deps.renderer.probeSymbolWidths !== "function") return;
-    const batch = this.widthSymbols.map((cp) => String.fromCodePoint(cp));
-    if (batch.length === 0) return;
-    this.probeThenRender(batch, STARTUP_PROBE_TIMEOUT_MS);
+    // 列表先验并入待测队列（与首帧排版登记的字符合并成同一批；去重、受尝试额度与队列上限约束）
+    if (this.widthSymbols.length > 0) {
+      requeueUnmeasuredProbes(this.widthSymbols);
+    }
+    this.probePendingWidths(STARTUP_PROBE_TIMEOUT_MS);
   }
 
   start(): void {
@@ -1056,7 +1098,15 @@ export class App {
     // （见 probeSymbolsAtStartup）；无列表 / 终端不支持 CPR 时它自己早退
     // 启动即过小 → 首帧前只置状态（决策 1a）：警告随首帧就位，不额外多绘一帧
     this.warnIfSmallTerminal();
-    this.paintNow();
+    // 首帧先出（裁定 ②）：首帧若也按需探测，屏幕会先空等至多 WIDTH_PROBE_TIMEOUT_MS，
+    // 且紧接着的启动轮并发跟发 → CPR 应答串台、错值留存。故首帧只出帧：帧内登记的字符
+    // 留在队列里，由 probeSymbolsAtStartup 合并成一轮实测。
+    this.probingSuspended = true;
+    try {
+      this.paintNow();
+    } finally {
+      this.probingSuspended = false;
+    }
     this.probeSymbolsAtStartup();
     // 拉取权限/agent 预设目录写入 state（原状态列 Mode 块的可选项，P7 移除该块后
     // 暂无渲染消费方；缺默服务则保持降级）
@@ -5482,7 +5532,57 @@ export class App {
         desc: "网页搜索（多 provider 聚合；Enter 查看来源 URL、Esc 关闭）",
       },
     ];
+    // 按键表（2026-10-16 新增，BACKLOG「按键提示信息与实际绑定对齐」决策 3）：全局键全量，
+    // 含提示行按「只放冷门 / 易忘键」口径不再列出的常用键；**固定顺序**（滚动 → 编辑 →
+    // 提交与模式 → 历史 / 清空 → 视图与焦点 → 退出），不走 sortHelpRows——键位按功能相邻好查。
+    // 键列记号沿用提示区口径（`C-` / `A-` 缩写），并压在 HELP_CMD_MAX 内避免长键拆行。
+    const keys: { cmd: string; desc: string }[] = [
+      {
+        cmd: "↑/↓",
+        desc: "滚动一行（活动区 / 状态列 / 对话区）；补全候选间移动",
+      },
+      { cmd: "C-↑/↓", desc: "半屏滚动（活动区 / 对话区）" },
+      { cmd: "PgUp/PgDn", desc: "面板整页滚动；对话区跳上 / 下一条用户输入" },
+      {
+        cmd: "Home/End",
+        desc: "翻到最旧已加载内容（再按再物化一批）/ 回到最新",
+      },
+      { cmd: "←/→", desc: "输入框光标移动" },
+      {
+        cmd: "Backspace",
+        desc: "删除光标前字符；输入为空时回退输入模式到 `>`",
+      },
+      {
+        cmd: "Enter",
+        desc: "按输入模式提交（`>` 发送 / `<` 排队等下一回合 / `!` 打断并发送）",
+      },
+      {
+        cmd: "$ / < / !",
+        desc: "输入为空时按其中之一切换输入模式（`/` 同时是斜杠命令前缀；Backspace 回退 `>`）",
+      },
+      {
+        cmd: "A-Enter",
+        desc: "等效 `Enter`（旧「打断并发送」入口，2026-10-15 起废弃）",
+      },
+      { cmd: "C-p/n", desc: "输入历史回溯（上一条 / 下一条）" },
+      { cmd: "C-j", desc: "输入框插入换行（Enter 仍为提交）" },
+      { cmd: "C-c", desc: "清空输入框；750ms 内双击请求退出" },
+      { cmd: "C-l", desc: "强制整帧重绘" },
+      {
+        cmd: "C-e/t/s",
+        desc: "聚焦会话区 / 回合区 / 状态列（再按一次收起或退出焦点）",
+      },
+      { cmd: "Tab", desc: "接受补全候选（命令名 / `@` 文件提及）；面板内切窗" },
+      {
+        cmd: "Esc",
+        desc: "关闭面板 / 收起补全候选；输入为空且有焦点时退出焦点",
+      },
+      { cmd: "C-d", desc: "请求退出（仅空闲且输入区为空时）" },
+    ];
     return [
+      { text: "按键：", noCompact: true },
+      ...helpTableLines(keys),
+      { text: "面板内按键见底部提示区（随面板切换）。", noCompact: true },
       { text: "本地命令：", noCompact: true },
       // 条目按命令名字母序展示（口径：整体字母序、不保留手写分组）
       ...helpTableLines(sortHelpRows(commands)),
@@ -5712,17 +5812,8 @@ export class App {
     this.paneScrollMaxState = this.state;
     this.syncDialoguePos();
     // 帧前按需实测：本次排版登记了「呈现不确定」字符 → 先实测再出帧（探测字节写在原点，
-    // 由随后的整帧重绘覆盖），见 probeThenRender
-    if (!this.widthProbeInFlight && !this.widthProbeUnavailable) {
-      const batch = takePendingWidthProbes();
-      if (
-        batch.length > 0 &&
-        typeof this.deps.renderer.probeSymbolWidths === "function"
-      ) {
-        this.probeThenRender(batch);
-        return; // 本帧由 probeThenRender 的整帧重绘产出（已按实测宽度排版）
-      }
-    }
+    // 由随后的整帧重绘覆盖），见 probeThenRender；首帧不在此列（见 probingSuspended）
+    if (this.probePendingWidths()) return; // 本帧由 probeThenRender 的整帧重绘产出（已按实测宽度排版）
     this.deps.renderer.render(frame, out.sections, out.focus);
   }
 

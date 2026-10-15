@@ -618,3 +618,29 @@ test("接线：面板态焦点置空（modalOpen，接线点 ③）", () => {
     "对照：输入态焦点可见（渲染不同）",
   );
 });
+
+test("接线：/workflows 面板不列 Enter（该 kind 的 Enter 无操作，避免提示不实）", () => {
+  const size: Size = { cols: 80, rows: 24 };
+  const base = initialState();
+  const hintOf = (
+    kind: "workflows" | "skills" | "agents",
+  ): string | undefined =>
+    buildFrame(reduceState(base, { type: "command-panel-open", kind }), size)
+      .map(rowText)
+      .find((l) => l.includes("[↑/↓]选择"));
+  assert.equal(
+    hintOf("workflows"),
+    "[↑/↓]选择 · [PgUp/PgDn]翻页 · [Esc]关闭",
+    "只读运行列表：Enter 无操作 → 提示不列 Enter",
+  );
+  assert.equal(
+    hintOf("skills"),
+    "[↑/↓]选择 · [PgUp/PgDn]翻页 · [Enter]详情 · [Esc]关闭",
+    "详情型 kind 仍列 Enter",
+  );
+  assert.equal(
+    hintOf("agents"),
+    "[↑/↓]选择 · [PgUp/PgDn]翻页 · [Enter]中断 · [r]刷新 · [Esc]关闭",
+    "agents 仍列 Enter 中断与 r 刷新",
+  );
+});
