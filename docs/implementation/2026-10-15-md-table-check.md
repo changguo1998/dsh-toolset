@@ -184,8 +184,39 @@ export function apply(ctx: unknown, config?: Config): () => void; // 返回注�
 
 ## 实现记录
 
+2026-10-15，父会话直接实现。
+
+- **新包 `md-table-check/`**（`@dsh-toolset/md-table-check`，第 21 个插件）：`package.json`（`dsh.bundle.patch`）+ `cordis.patch.yml`（insert 自身，`enabled: true`）+ `index.ts`（透出 `src/main.ts`）+ `src/checker.ts`（判定核心：`splitCells` / `hasCellPipe` / `checkTables` / `renderFeedback` + 类型与缺省常量）+ `src/main.ts`（`name` / `inject` / `Config` / `resolveConfig` / `apply`）+ `tests/{checker,tuiParity,main}.test.ts`（28 例）+ `README.md` + `docs/BACKLOG.md` + 照 ponytail 复制的 `.gitignore` / `LICENSE`。
+- **判定实现要点**（与规划 §2 一致）：围栏守卫（`FENCE_RE` 同 `markdown.ts:775`，闭栅要求同前缀）→ 围栏外「表头行 + 分隔行样」候选（**与 TUI 唯一放宽**：不要求分隔行列数等于表头）→ 逐行比对（数据行收集同 `parseTableAt:168-176`）→ 只收不一致 → 游标推进到表尾；上限裁剪但留全量计数（`tableTotal` / `mismatchTotal` / `lineTotal`）。
+- **注入文案**：按决策 10 的三条硬口径落地（只针对回复正文 / 要求完整重发 / 不改仓库文件），`summary` = `表格列数提醒`；超上限补「另有 N 处不一致未列出。」
+- **接线（逐文件）**：根 `package.json`（check/build 链尾）、`scripts/test-parallel.sh`（`default_pkgs`）、`scripts/install.sh`（`canonical_pkgs`）、`README.md` / `README.zh.md`（插件表 + 目录树 + 计数 20 → 21；安装行 21 → 22 个包）、`AGENTS.md`（首段清单 / 委托列表 / install 包数 / 模块数 21 / 「结构与约定」清单 / `DESIGN.md` 口径的轻量包枚举补 `md-table-check`）。
+- **本 worktree 的依赖环境准备**（非本包改动，但根级验证的前置）：fresh worktree 里其余 21 包无 `node_modules` → 逐个 `npm install --cache ./tmp/npm-cache`（19 包成功）；`memory-base` / `md-map` / `code-map` 的 `link:` 依赖 npm 不支持（`EUNSUPPORTEDPROTOCOL`）→ 改用 `pnpm install --config.store-dir/state-dir/cache-dir` 指向 `tmp/`（否则写工作区外被只读拦下）；根 `check` 前需先 `npm --prefix ast-tools run build` 与 `npm --prefix md-logic run build`（link: 依赖的 `dist` 不存在时下游报 TS2307）。
+- **两处测试夹具自纠**（实现未改）：① 多表汇总用例的分隔行原写成与表头同列（均 2 列）→ 不构成不一致，改为 3 列；② 互证 ③ 的固定数据行在 3 列表格上反而少一列 → 改为按表头列数生成数据行。
+
 ## 偏差
 
+无。计划承诺项全部完成；真机验证按决策 6 留残余（见「测试与证据」），「明确不做」项见规划 §9。计划外只动了本 worktree 的环境（各包 `node_modules` 与 `tmp/` 缓存，均不入库）：安装过程新生成的 `TUI` / `command-template` / `session-title-cutoff` 的 `package-lock.json` 与 `memory-base/pnpm-lock.yaml` 已删除，被改写的 `context-report` / `rule-engine` 两个 lock 已按 HEAD 还原（`git show HEAD:… > …`，因 `git checkout` 要写主仓索引、在工作区外被拒）。
+
 ## 测试与证据
+
+环境：本 worktree `7aba7ae`，2026-10-15；依赖安装见「实现记录」。
+
+- **包内**：`npm run check` exit 0；`npm run build` exit 0（生成 `dist/index.js` 与 `dist/src/{checker,main}.js`）；`npm test` **28/28 通过**（判定 17 例 + 接线 7 例 + 与 TUI 互证 4 例），日志见 `tmp/` 临时目录（收尾清理）。
+- **反向验证**：把 `src/checker.ts` 的 `if (mismatches.length > 0)` 短路为 `if (false)` → **14 例红**（14 pass / 14 fail）；还原后 `sha256sum -c` 逐字节一致（`ff59cd65…`）→ 28/28 绿。
+- **根级**（先构建 link: 依赖 `ast-tools` / `md-logic`，否则下游 TS2307）：`npm run check` exit 0（22 包 0 error）；`npm run build` exit 0；`npm test` **22 包全 OK**（`OK md-table-check 614 ms pass 28 fail 0`；其余包 TUI 1584 / herdr-integration 43 / memory-base 103 / task-engine 136 / ast-tools 38 / md-logic 57 / md-map 49 / fs-digest 66 / goal-contract 41 / hash-edit 53 / metric-loop 45 / output-compress 48 / security-guard 124 / code-map 24 / context-report 41 / rule-engine 87 / symbol-normalizer 43 / session-channel 49 / session-title-cutoff 8 / command-template 27 / ponytail 5，均 fail 0）。
+- **接线一致性**：`sh scripts/test-install.sh` **84 项全通过**，含「canonical_pkgs 与 test-parallel.sh default_pkgs 同序」「与根 check/build 链一致（集合 + check==build 同序）」「每个目录都存在」。
+- **互证（验收 ②）证据**：`tests/tuiParity.test.ts` 动态加载 TUI 源码 —— 三组「TUI 退回纯文本」的两行文本（`isTableStart === false`）全部被本插件报出；三组列数一致的表格 TUI 认表且本插件不报；数据行多格 / 缺格（TUI 容忍但丢格）同样被报出。
+- **注入正文实样**（`renderFeedback` 实测输出，输入为 5 行坏表）：
+
+```text
+[md-table-check] 上一条回复正文里的 markdown 表格列数不一致（本提示只针对回复正文，与仓库文件无关）：
+- 表 1（表头在第 2 行）：`| 包 | 作用 | 状态 |` 期望 3 列
+  - 第 3 行（分隔行）：2 列
+  - 第 4 行（数据行）：4 列
+  - 第 5 行（数据行）：2 列
+请修正这些表格后，把上一条回复完整重发一次；不要修改仓库里的任何文件或文档。
+```
+
+- **残余（未验）**：① **真机 `dsh --profile fff` 注入**（决策 6，留到合并后由用户执行）—— 本机 profile 的 `link:` 指向主仓，本 worktree 不在挂载面；② 合并后需 `scripts/install.sh --sync` 把 `md-table-check` 加进 profile 的 bundle 面并重启 dsh，插件才会生效。
 
 ## 收尾

@@ -8,7 +8,7 @@ For agent-facing collaboration rules, see `AGENTS.md` in the repository root. Fo
 
 ## Composition
 
-The repository contains the `TUI/` terminal UI package and 20 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
+The repository contains the `TUI/` terminal UI package and 21 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
 
 | Package | What it does |
 |----|------|
@@ -30,6 +30,7 @@ The repository contains the `TUI/` terminal UI package and 20 in-process plugins
 | **rule-engine** | Rule-triggered automatic injection: matches model text, tool calls and turn boundaries by keyword/regex/built-in predicate, then injects a user-role message as a new turn (`followup`), onto the nearest pre-step with a wake (`steer`), or without one (`inject`); exposes a per-node consumer registration surface (`registerConsumer`, `sources` defaulting to `turn-end`, asked synchronously, injected centrally) and a read-only `evaluate` |
 | **symbol-normalizer** | Symbol normalization: presentation-layer normalization of symbols in model text (alias substitution) plus turn review (human notice / model feedback), plugged in as a rule-engine consumer; provides the `symbolNormalizer` service for the TUI to consume |
 | **ponytail** | Lazy senior dev mode (on by default since 2026-10-05; set `enabled: false` to turn off): injects a 7-rung ladder (YAGNI → reuse → stdlib → platform → installed deps → one line → minimal code) at session start. |
+| **md-table-check** | Reply-body markdown table check (rule-engine consumer on `assistant-text`): compares the cell counts of header / delimiter / data rows and, on mismatch, injects one consolidated prompt (header line + excerpt + expected vs actual columns) asking the model to resend the corrected reply. Report-only: it never rewrites the reply or any file, ignores column-count-consistent tables, width-driven fallbacks and pseudo-tables |
 | **session-channel** | Cross-session message channel (dedicated Redis instance + unix socket): `peers`/`send`/`inbox`/`status`, with messages injected into the target session's next turn (as `[CHANNEL](来源) 正文`); provides the `sessionChannel` service (aliases, shared KV with last-value + version number, and cross-session delegation: `channel_delegate`/`channel_task`/`channel_task_result` with a task table and automatic or explicit result return) |
 | **session-title-cutoff** | Session title provider: keeps the all-prompts trigger but narrows the reference window to human messages after the most recent `git commit` (falls back to the full set when there are no commits or the window is empty); takes over as the sole provider of `ctx.sessionTitle`, so the official all-prompts implementation must be disabled in the profile |
 | **command-template** | Template system: prompt flows declared as `.md` files (YAML-subset front-matter) and invoked through one slash command (`/playbook <template> [args]`, with `list` / `show` / `reload` subcommands) — dual-source directories (bundled `templates/` + user `~/.dsh/command-templates`, user wins), step types `prompt` (inject into the current session) and `agent` (one-shot subagent with per-run model override), chaining via `{{stepId}}`, `bestOf` + `judge` |
@@ -58,6 +59,7 @@ dsh-toolset/
 ├── rule-engine/          # 规则触发的自动注入（规则 / 消费者面 + 注入器）
 ├── symbol-normalizer/    # 符号规范（展示归一 + 回合审查，rule-engine 消费者）
 ├── ponytail/             # ponytail 模式（决策阶梯注入；rule-engine 消费者；缺省开启）
+├── md-table-check/       # 回复正文表格列数检查（rule-engine 消费者；缺省开启，只报不改）
 ├── session-channel/      # 跨会话消息通道（专用 Redis 实例 + unix socket）
 ├── session-title-cutoff/ # 会话标题 provider（all-prompts 触发不变，参考窗口=最近一次 git commit 之后）
 ├── command-template/     # 模板体系（slash 命令模板 + 模板级模型选择，双源模板目录）
@@ -87,7 +89,7 @@ Inside a single subpackage you can run its own `npm run check / build / test / d
 
 ## Wiring into a DSH profile
 
-One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 21 packages: TUI + 20 plugins):
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 22 packages: TUI + 21 plugins):
 
 ```sh
 git clone <本仓库> && cd dsh-toolset
