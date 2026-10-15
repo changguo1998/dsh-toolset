@@ -2661,13 +2661,11 @@ export class App {
         // Esc：自 2026-10-15 起**不再打断**运行、也**不再退回排队登记**（打断收敛到 `!` 模式，
         // 见 BACKLOG「Esc 取消打断，打断统一由 `!` 模式承担」）——排队内容留在核心 next-turn
         // 队列里等下一回合认领，退回输入框会让同一条消息既在队列又在输入框而重复发送。
-        // 剩余语义 = idle + 空输入时退出面板焦点（有焦点 → 回到无焦点；聚焦改用 Ctrl+E / T / S，
-        // Tab 不再进焦点）；补全候选与各面板（picker / 审批 / 问答）已在上方分支处理。
-        if (
-          this.state.agentStatus === "idle" &&
-          this.state.inputText === "" &&
-          this.state.focusedPanel
-        ) {
+        // 剩余语义 = 空输入时退出面板焦点（有焦点 → 回到无焦点 = 跟随最新；聚焦改用
+        // Ctrl+E / T / S，Tab 不再进焦点）——**运行中同样生效**（2026-10-15 真机裁定：
+        // 忙时 Esc 不打断，但要能回到默认状态）；补全候选与各面板（picker / 审批 / 问答）
+        // 已在上方分支处理。
+        if (this.state.inputText === "" && this.state.focusedPanel) {
           this.apply((s) => ({ ...s, focusedPanel: null }));
         }
         break;

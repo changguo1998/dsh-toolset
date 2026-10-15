@@ -285,6 +285,32 @@ test("App 端到端：聚焦会话区后流式输出期间焦点框保持，提�
   assert.ok(!hasFocusVBar(), "Esc 后焦点框熄灭");
 });
 
+test("App 端到端：运行中（非 idle）Esc 也回无焦点，且不打断运行（2026-10-15 真机裁定）", () => {
+  // 真机现象：忙时按 Esc 整键 no-op → 切了焦点退不出去。裁定 = 忙时 Esc 不打断运行，
+  // 但要回到默认状态（无焦点 = 跟随最新）；打断仍只由 `!` 模式承担。
+  const { app, renderer, adapter } = makeApp();
+  renderer.size = { cols: 100, rows: 24 };
+  const focused = (): unknown =>
+    (app as unknown as { state: { focusedPanel: unknown } }).state.focusedPanel;
+
+  // 忙：agent 处于 thinking（非 idle）
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
+  adapter.push({ type: "stream", sessionId: "s1", text: "回复中\n" });
+
+  // 运行中聚焦回合区 → 焦点在
+  renderer.press({ name: "t", ctrl: true, meta: false, shift: false });
+  assert.equal(focused(), "activity", "运行中 Ctrl+T 聚焦回合区");
+
+  // 忙时 Esc：回无焦点（默认状态），且不调用 interrupt
+  renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
+  assert.equal(focused(), null, "忙时 Esc 也回无焦点");
+  assert.equal(adapter.interrupts, 0, "忙时 Esc 不打断运行（打断走 `!` 模式）");
+
+  // 焦点已回默认：后续流式推进不再影响（无焦点 = 跟随最新）
+  adapter.push({ type: "stream", sessionId: "s1", text: "后续内容\n" });
+  assert.equal(focused(), null, "回默认后保持无焦点");
+});
+
 test("App 端到端：运行中聚焦回合区后方向键可滚该区域，流式推进不重置滚动位置", () => {
   // 条目验收④的单测替身：回复期间 Ctrl+T 聚焦 → ↑ 滚动该区域有效；
   // 期间继续到达的流式 chunk 不清焦点、也不把滚动位置弹回底部。
