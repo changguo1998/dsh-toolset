@@ -3,6 +3,7 @@
 跨模块条目见项目级 `docs/BACKLOG.md`；本文件只收本模块条目。
 
 - **表头与分隔行之间有空行的表格不报**（2026-10-16 登记）：现象 / 现状 见条目详情 1 → 落点 `src/checker.ts` / `src/main.ts` → 验收 见条目详情 1 → 估时 0.5 天 → 优先级 P2 → 来源 漏检形态筛查的实测发现（追踪文档 `docs/implementation/2026-10-16-three-surface-text-consistency.md` 任务 B 的 S3 缺口一）。
+- **跨包对拍用例越出本包 tsconfig 的 rootDir，check / build 失败**（2026-10-16 登记）：现象 / 现状 见条目详情 3 → 落点 `md-table-check/tsconfig.json` / `md-table-check/tests/` → 验收 见条目详情 3 → 估时 0.5 天 → 优先级 P1 → 来源 合并 `worktree/md-table-check` 后的 `npm run check` / `npm run build` 验证。
 
 ## 条目详情（待办）
 
@@ -31,6 +32,18 @@
 **验收** —— ① 口径写进 `README.md` 的形态表; ② 若改：两侧切分都改且互证用例覆盖代码跨度形态, 全量 `npm run check` / `npm test` 全绿。
 
 **估时** —— 0.5 天（含 TUI 侧）至 1 天。**优先级** —— P3。**来源** —— 漏检形态筛查实测发现（追踪文档 `docs/implementation/2026-10-16-three-surface-text-consistency.md` 任务 B 的 S3 缺口二）。
+
+**3. 跨包对拍用例越出本包 tsconfig 的 rootDir，check / build 失败**〔待办〕（2026-10-16 登记）
+
+**现象 / 现状** —— 2026-10-16 合并 `worktree/md-table-check`（`a2102b0`）之后, `npm run check` 与 `npm run build` 在本包失败, 共 7 处类型错误：① `tests/reasoningSeparation.test.ts:13` 与 `tests/surfaceDifferential.test.ts:23` 直接 `import "../../rule-engine/src/engine.ts"`, 递归引入的 6 个 rule-engine 源文件（`engine` / `inject` / `match` / `persist` / `rules` / `types`）不在本包 tsconfig 的 `rootDir: "."` 之内 → TS6059 六处; ② `tests/surfaceDifferential.test.ts:113` 把 `reason` 断言成 `{ kind?: unknown }` 后 `kind` 仍是 `unknown` 就传给 `INJECTABLE.has()` → TS2345 一处。`npm test` 全绿（`node --test` 不做类型检查）, 故单测不暴露此缺陷。**附带影响** —— `tsc` 在报错状态下仍 emit, build 把上述 6 个 rule-engine 源文件的编译产物落到 `rule-engine/src/`（`engine.js` 等 12 个未跟踪文件, 已清理）, 会污染他包工作区。
+
+**期望** —— 先定口径再动手, 二选一：① 给跨包对拍用例单独的 `tests/tsconfig.json`（`rootDir` 上移 / project references 指向 rule-engine, 主 program 排除这两个文件）, 保住「与真实实现同输入对拍」的强度; ② 改为经 rule-engine 的构建产物（`rule-engine/dist`）引用, 代价是对拍对象变成编译后实现且需先 build。无论选哪条, 都要修掉 `tests/surfaceDifferential.test.ts:113` 的类型收窄。
+
+**落点** —— `md-table-check/tsconfig.json`（或新增 `tests/tsconfig.json`）、`md-table-check/package.json` 的 `check` 脚本、`tests/reasoningSeparation.test.ts` / `tests/surfaceDifferential.test.ts`。**接取时裁定** —— ① 单独 tsconfig vs 引用构建产物; ② 这两个对拍用例是否纳入 `npm run check` 的检查面; ③ 是否顺带加一道「build 后 `git status` 必须干净」的自检（防再次往他包 `src/` 落产物）。
+
+**验收** —— ① `npm run check` 与 `npm run build` 全仓绿; ② 两个跨包对拍用例仍在类型检查覆盖内（或写明放弃覆盖的理由）; ③ `npm test` 全绿; ④ build 后 `git status` 干净, 不再往 `rule-engine/src/` 落产物。
+
+**估时** —— 0.5 天。**优先级** —— P1（本仓 check / build 门禁在本包整包红）。**来源** —— 2026-10-16 合并 `worktree/md-table-check` 后的验证（`npm run check` / `npm run build` / `npm test` 三条命令的实际输出）。
 
 ## 已裁定不做（备查）
 
