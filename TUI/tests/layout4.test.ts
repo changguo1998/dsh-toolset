@@ -1386,8 +1386,8 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   assert.equal(between.length, 1, "用户与答案之间应恰有一行");
   assert.equal(
     histContent(between[0]!, 40),
-    "┃",
-    "该行为空行（正文块的竖线延续过来，状态列外无其它内容）",
+    "",
+    "该行为裸空行（留白行不挂正文块竖线，状态列外无其它内容）",
   );
   assert.ok(!between[0]!.startsWith("|"), "空行最左侧无插件竖线");
 

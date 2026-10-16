@@ -319,9 +319,10 @@ test("同源合并的前导 / 拖尾空行不产出可见行（交付驱动，�
   );
 });
 
-test("边界空行带竖线：两侧正文都有竖线时补 `┃`，其余保持裸空行（交付驱动）", () => {
-  // 条目「边界空行丢竖线」：pane 边界空行（会话区「用户块 → 正文」/ 回合区「思考 ↔ 正文」）
-  // 此前是裸空行，把正文块的竖线切断；现按「两侧都有竖线 → 取下一行前导竖线」补段。
+test("边界空行不带竖线：留白空行恒为裸空行（会话区与回合区）", () => {
+  // 条目「取消 pane 边界留白空行的竖线」：pane 边界空行（会话区「用户块 → 正文」/ 回合区
+  // 「思考 ↔ 正文」/ steer 留白）曾按「两侧都有竖线 → 取下一行前导竖线」补段（2026-10-10
+  // 裁定），现改为**恒裸空行**——留白行不再像正文块向下延伸。
   const T = 1_700_000_000_000;
   const content = (deliveries: BlockDelivery[]) =>
     pipelineContent(applyAll(createSections(), deliveries), {
@@ -333,7 +334,7 @@ test("边界空行带竖线：两侧正文都有竖线时补 `┃`，其余保�
   const texts = (rows: readonly { segments: readonly { text: string }[] }[]) =>
     rows.map((row) => row.segments.map((segment) => segment.text).join(""));
 
-  // ① 会话区「用户块 → 正文」：空行取**下一行**（正文首行）的前导竖线段（文字 + 样式）
+  // ① 会话区「用户块 → 正文」：留白空行恒裸空行（不取下一行的前导竖线段）
   const finalTurn: BlockDelivery[] = [
     { kind: "turn-start", turn: 1, time: T },
     { kind: "user", turn: 1, step: 1, text: "第一问" },
@@ -356,18 +357,23 @@ test("边界空行带竖线：两侧正文都有竖线时补 `┃`，其余保�
   assert.ok(userAt >= 0 && blank !== undefined && reply !== undefined);
   assert.equal(
     texts(dialogue)[userAt + 1],
-    "┃",
-    "会话区边界空行带竖线（裸空行 → 竖线段）",
+    "",
+    "会话区边界空行不带竖线（裸空行）",
   );
   assert.equal(
     texts(dialogue)[userAt]!.endsWith("┃"),
     true,
-    "上一行（用户块末行）本身有竖线",
+    "上一行（用户块末行）本身有竖线，但不传导到空行",
+  );
+  assert.equal(
+    texts(dialogue)[userAt + 2]!.startsWith("┃"),
+    true,
+    "下一行（正文首行）仍是带前导竖线的正文行",
   );
   assert.deepEqual(
     blank.segments,
-    [reply.segments[0]],
-    "空行的竖线取下一行（文字与样式原样）",
+    [],
+    "边界空行不带任何段（无 prefix / suffix；reply 与它不同形）",
   );
 
   // ② 回合区「思考 ↔ 正文」：同上（正文非 final 才留回合区）
@@ -393,11 +399,11 @@ test("边界空行带竖线：两侧正文都有竖线时补 `┃`，其余保�
   const activity = content(midTurn).activity;
   assert.deepEqual(
     texts(activity).map((text) => text.replace(/^╌+.*╌+$/, "<step>")),
-    ["<step>", "┃（先想）", "┃", "┃中间正文"],
-    "回合区边界空行带竖线",
+    ["<step>", "┃（先想）", "", "┃中间正文"],
+    "回合区边界空行不带竖线（裸空行）",
   );
-  assert.deepEqual(activity[2]!.segments, [activity[3]!.segments[0]]);
-  // ③ 反例：只有一侧有竖线（空行紧跟在 step 头之后）→ 保持裸空行
+  assert.deepEqual(activity[2]!.segments, []);
+  // ③ 一侧是 step 头（无竖线）：仍为裸空行（不误挂）
   const twoSteps: BlockDelivery[] = [
     { kind: "step-start", turn: 1, step: 1, time: T },
     {
@@ -429,7 +435,7 @@ test("边界空行带竖线：两侧正文都有竖线时补 `┃`，其余保�
     "上一行是 step 头（无竖线）→ 空行保持裸空行",
   );
 
-  // ④ 反例：两侧都有竖线但都在行尾（steer 留白两侧都是用户块右缘竖线）→ 保持裸空行
+  // ④ 两侧竖线都在行尾（steer 留白两侧都是用户块右缘竖线）：仍为裸空行
   const steered: BlockDelivery[] = [
     { kind: "user", turn: 1, step: 1, text: "第一问" },
     { kind: "user", turn: 1, step: 1, text: "插队", queued: "steer" },
