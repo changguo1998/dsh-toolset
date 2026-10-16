@@ -4,6 +4,9 @@
 
 - **表头与分隔行之间有空行的表格不报**（2026-10-16 登记）：现象 / 现状 见条目详情 1 → 落点 `src/checker.ts` / `src/main.ts` → 验收 见条目详情 1 → 估时 0.5 天 → 优先级 P2 → 来源 漏检形态筛查的实测发现（追踪文档 `docs/implementation/2026-10-16-three-surface-text-consistency.md` 任务 B 的 S3 缺口一）。
 - **跨包对拍用例越出本包 tsconfig 的 rootDir，check / build 失败**（2026-10-16 登记）：现象 / 现状 见条目详情 3 → 落点 `md-table-check/tsconfig.json` / `md-table-check/tests/` → 验收 见条目详情 3 → 估时 0.5 天 → 优先级 P1 → 来源 合并 `worktree/md-table-check` 后的 `npm run check` / `npm run build` 验证。
+- **真实 rule-engine 端到端注入无用例**（2026-10-16 登记）：现象 / 现状 见条目详情 4 → 落点 新增 `tests/integration.test.ts` → 验收 见条目详情 4 → 估时 2-3 h → 优先级 P2（依赖条目 3 的口径先定） → 来源 2026-10-16 测试覆盖评估。
+- **配置透传断言过弱（变异存活）**（2026-10-16 登记）：现象 / 现状 见条目详情 5 → 落点 `tests/main.test.ts` → 验收 见条目详情 5 → 估时 40 min → 优先级 P2 → 来源 2026-10-16 测试覆盖评估。
+- **测试覆盖零散补钉（降级分支 / 围栏边界 / 互证复刻 / 文档口径）**（2026-10-16 登记）：现象 / 现状 见条目详情 6 → 落点 `tests/`、`README.md`、本文件 → 验收 见条目详情 6 → 估时 4 h → 优先级 P3 → 来源 2026-10-16 测试覆盖评估。
 
 ## 条目详情（待办）
 
@@ -17,7 +20,7 @@
 
 **落点** —— `src/checker.ts`（候选判定）、`src/main.ts`（配置透传, 如需开关）、`tests/checker.test.ts`。
 
-**验收** —— ① 口径写进 `README.md` 的形态表; ② 若做检出：补判定 + 单测（含「隔多行不合表」的反例）且 `npm --prefix md-table-check run check` 与测试全绿; ③ 真机复验一个该形态的回复。
+**验收** —— ① 口径写进 `README.md` 的形态表; ② 若做检出：补判定 + 单测（含「隔多行不合表」的反例）且 `npm --prefix md-table-check run check` 与测试全绿; ③ 真机复验一个该形态的回复。（2026-10-16 测试覆盖评估补充：若做检出，用例落点 = `tests/checker.test.ts` + `tests/formMatrixSnapshot.test.ts` 快照，断言 = 「恰好一行空行 → `tableTotal === 1` 且表头行号正确」「隔 2 行 → 仍 `tableTotal === 0`」，文案不得与「列数不一致」措辞混淆。）
 
 **估时** —— 0.5 天。**优先级** —— P2。**来源** —— 漏检形态筛查实测发现（追踪文档 `docs/implementation/2026-10-16-three-surface-text-consistency.md` 任务 B 的 S3 缺口一）。
 
@@ -35,7 +38,7 @@
 
 **3. 跨包对拍用例越出本包 tsconfig 的 rootDir，check / build 失败**〔待办〕（2026-10-16 登记）
 
-**现象 / 现状** —— 2026-10-16 合并 `worktree/md-table-check`（`a2102b0`）之后, `npm run check` 与 `npm run build` 在本包失败, 共 7 处类型错误：① `tests/reasoningSeparation.test.ts:13` 与 `tests/surfaceDifferential.test.ts:23` 直接 `import "../../rule-engine/src/engine.ts"`, 递归引入的 6 个 rule-engine 源文件（`engine` / `inject` / `match` / `persist` / `rules` / `types`）不在本包 tsconfig 的 `rootDir: "."` 之内 → TS6059 六处; ② `tests/surfaceDifferential.test.ts:113` 把 `reason` 断言成 `{ kind?: unknown }` 后 `kind` 仍是 `unknown` 就传给 `INJECTABLE.has()` → TS2345 一处。`npm test` 全绿（`node --test` 不做类型检查）, 故单测不暴露此缺陷。**附带影响** —— `tsc` 在报错状态下仍 emit, build 把上述 6 个 rule-engine 源文件的编译产物落到 `rule-engine/src/`（`engine.js` 等 12 个未跟踪文件, 已清理）, 会污染他包工作区。
+**现象 / 现状** —— 2026-10-16 合并 `worktree/md-table-check`（`a2102b0`）之后, `npm run check` 与 `npm run build` 在本包失败, 共 7 处类型错误：① `tests/reasoningSeparation.test.ts:13` 与 `tests/surfaceDifferential.test.ts:23` 直接 `import "../../rule-engine/src/engine.ts"`, 递归引入的 6 个 rule-engine 源文件（`engine` / `inject` / `match` / `persist` / `rules` / `types`）不在本包 tsconfig 的 `rootDir: "."` 之内 → TS6059 六处; ② `tests/surfaceDifferential.test.ts:113` 把 `reason` 断言成 `{ kind?: unknown }` 后 `kind` 仍是 `unknown` 就传给 `INJECTABLE.has()` → TS2345 一处。`npm test` 全绿（`node --test` 不做类型检查）, 故单测不暴露此缺陷。**附带影响** —— `tsc` 在报错状态下仍 emit, build 把上述 6 个 rule-engine 源文件的编译产物落到 `rule-engine/src/`（`engine.js` 等 12 个未跟踪文件, 已清理）, 会污染他包工作区。2026-10-16 测试覆盖评估复测：`npm --prefix md-table-check run check` 退出码 2、`error TS` 计 7 处（TS6059 六处 + `tests/surfaceDifferential.test.ts:113` 的 TS2345 一处）；根仓 `npm run check` 链尾本包失败而其余 21 包通过；`npm test` 61 例全绿（`node --test` 不做类型检查）；`npm run build` 在报错态仍 emit —— 复现时往 `rule-engine/src/` 落了 12 个未跟踪产物（评估后已清理）。
 
 **期望** —— 先定口径再动手, 二选一：① 给跨包对拍用例单独的 `tests/tsconfig.json`（`rootDir` 上移 / project references 指向 rule-engine, 主 program 排除这两个文件）, 保住「与真实实现同输入对拍」的强度; ② 改为经 rule-engine 的构建产物（`rule-engine/dist`）引用, 代价是对拍对象变成编译后实现且需先 build。无论选哪条, 都要修掉 `tests/surfaceDifferential.test.ts:113` 的类型收窄。
 
@@ -44,6 +47,42 @@
 **验收** —— ① `npm run check` 与 `npm run build` 全仓绿; ② 两个跨包对拍用例仍在类型检查覆盖内（或写明放弃覆盖的理由）; ③ `npm test` 全绿; ④ build 后 `git status` 干净, 不再往 `rule-engine/src/` 落产物。
 
 **估时** —— 0.5 天。**优先级** —— P1（本仓 check / build 门禁在本包整包红）。**来源** —— 2026-10-16 合并 `worktree/md-table-check` 后的验证（`npm run check` / `npm run build` / `npm test` 三条命令的实际输出）。
+
+**4. 真实 rule-engine 端到端注入无用例**〔待办〕（2026-10-16 登记）
+
+**现象 / 现状** —— 本包唯一交付物是「经 rule-engine 注入的汇总提示」，但现有最强证据只到「注册参数 + `decide` 返回值」（`tests/main.test.ts` 用假 engine）与「探针消费者收到载荷」（`tests/displaySurface.test.ts` / `tests/reasoningSeparation.test.ts` 注册的是 decide 恒返回 null 的 `probe`）—— `apply` → 真实 `RuleEngine` → injector 的整链路无用例，summary 呈现与 `dedupeInRecord` 去重语义无回归网。`src/` 行覆盖 100% 反映不出该缺口（属集成面）。
+
+**期望** —— 补端到端用例；依赖条目 3 的 tsconfig 口径先定，否则新跨包用例会继续让 `npm run check` 红。
+
+**落点** —— 新增 `tests/integration.test.ts`（或并入 `tests/reasoningSeparation.test.ts`）。
+
+**验收** —— ① 坏表回复 → `inject` 恰好 1 次、`payload.summary === FEEDBACK_SUMMARY`、`payload.delivery === "followup"`、`payload.text` 含表头行号与「完整重发一次」；② 好表 0 次；③ `dedupeInRecord: 0` 下连续两回合各 1 次；④ `npm test` 全绿。
+
+**估时** —— 2-3 h。**优先级** —— P2（依赖条目 3）。**来源** —— 2026-10-16 测试覆盖评估（61 例实测 + 读码）。
+
+**5. 配置透传断言过弱（变异存活）**〔待办〕（2026-10-16 登记）
+
+**现象 / 现状** —— `resolveConfig` 单测齐全，但 `apply(ctx, config)` → `registerConsumer` 参数与 `decide` → `renderFeedback(text, resolved.check)` 的**非缺省**透传无断言（`src/main.ts:126-128` 是唯一配置落地行）：去掉 `resolved.check` 或把 `delivery` 写死，61 例仍全绿（读码判定，未做变异运行）。
+
+**期望** —— 补集成层透传断言。
+
+**落点** —— `tests/main.test.ts`。
+
+**验收** —— ① `apply(engine, {sources:["step-end"], delivery:"steer", dedupeInRecord:2, maxTables:1})` 后注册参数四字段分别等于传入值；② 同一 `decide` 对含 2 张坏表的文本只列 1 张且含「另有 1 处不一致未列出。」（证明 `check` 真的透传）；③ 反向验证：故意改坏 `src/main.ts:127` 时该用例必须失败。
+
+**估时** —— 40 min。**优先级** —— P2。**来源** —— 2026-10-16 测试覆盖评估（同上）。
+
+**6. 测试覆盖零散补钉（降级分支 / 围栏边界 / 互证复刻 / 文档口径）**〔待办〕（2026-10-16 登记）
+
+**现象 / 现状** —— 覆盖率（`src/` 行 100% / 分支 97.56%）之外的一批空洞与弱断言：① `apply()` 不传 ctx 的 `ctx ?? {}` 降级与 `ruleEngine` 无 `registerConsumer` 分支（`src/main.ts:108` 是分支度量里唯一未覆盖区间；`:114` 属度量盲区）；② 围栏**混用标记**（```` ``` ```` 开 / `~~~` 闭）：检查器要求闭栅同前缀（`src/checker.ts:156-157`）而 TUI 是无条件布尔翻转（`TUI/src/app/layout/build-box.ts:702-708`）→ 实测该文本 `tableTotal=0` 而 TUI 已退回纯文本，**两侧都沉默且无用例**（README 宣称「与 TUI 同口径」与实测不符，需先裁定）；③ 行尾裸 `\` 的 `next === undefined` 分支（`src/checker.ts:38-42`，两套覆盖率度量都漏计）；④ 围栏变体（```` ```js ```` info string / 1-3 空格缩进 / 四反引号）无用例（实测行为正确，属钉口径）；⑤ 上限为 0 的语义不一致：`maxTables:0` → `tableTotal=1` 但 `renderFeedback(...) === null`（判定说有、提示为 null）、`headerExcerptLimit:0` 摘录只剩 `…`；⑥ 互证⑤ 的 TUI 围栏守卫是本地复刻（`tests/tuiParity.test.ts:129-141` 自写正则，未走 TUI 真实入口，会掩盖 ②）；⑦ `tests/displaySurface.test.ts:210-213` 硬编码 `"表格列数提醒"` 而未 import `FEEDBACK_SUMMARY`（常量改名不漏红）；⑧ 数据行 / 分隔行含 `\|` 无用例；⑨ 文档口径：条目 2 详情仍标〔待办〕但 `README.md` 形态表与 `tests/checker.test.ts:288` 已写「已裁定不修」，且归档追踪文档被引作 `docs/implementation/…`（实际在 `docs/archived/`）；⑩ 归档文档自述「真机复验 ≥2 个形态」未做（`docs/archived/2026-10-16-three-surface-text-consistency.md:422`）。
+
+**期望** —— 随下次触碰测试时逐项补齐；② 需先裁定（对齐 TUI 的布尔翻转，或把差异写进 README 形态表并用断言钉住当前口径）。
+
+**落点** —— `tests/{checker,main,tuiParity,displaySurface,formMatrixSnapshot}.test.ts`、`README.md`、本文件（条目 2 状态与引用路径）。
+
+**验收** —— ① ② 有裁定结论与对应用例（或 README 形态表新增一行 + 快照钉住）；② ③④⑤⑧ 各有正向断言（含 `tableTotal` 精确值）；⑥ 复刻守卫改为导入 TUI 的 `FENCE_RE` 或注明无法直调的理由；⑦ 改为 import 常量；⑨⑩ 文档对齐；③ 全部完成后 `src/main.ts` 分支覆盖回到 100%。
+
+**估时** —— 4 h。**优先级** —— P3（② 若裁定需改行为则另计）。**来源** —— 2026-10-16 测试覆盖评估（同上）。
 
 ## 已裁定不做（备查）
 
