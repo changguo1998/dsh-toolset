@@ -41,11 +41,11 @@ bundle 契约：`name` / `inject: ["ruleEngine"]` / `Config` / `apply`；`ctx.ru
 | `sources` | `["assistant-text"]` | 唤醒节点（整回合助手正文） |
 | `delivery` | `"followup"` | 注入路径：作为新回合投递给模型 |
 | `dedupeInRecord` | `0` | 按记录去重上限；0 = 不限次（每次出现不一致都注入） |
-| `maxTables` | `5` | 每条反馈最多列出几个表格 |
-| `maxRowsPerTable` | `3` | 每张表最多列出几行不一致 |
+| `maxTables` | `5` | 每条反馈最多列出几个表格；`0` = 不设上限（全部列出） |
+| `maxRowsPerTable` | `3` | 每张表最多列出几行不一致；`0` = 不设上限（全部列出） |
 
 `src/checker.ts` 另外导出纯函数 `checkTables` / `renderFeedback` / `splitCells` / `hasCellPipe` 与
-`CheckOptions.headerExcerptLimit`（缺省 60）；判定核心无依赖、无 IO，可被展示层单独复用。
+`CheckOptions.headerExcerptLimit`（缺省 60，`0` = 不截断）；判定核心无依赖、无 IO，可被展示层单独复用。
 
 ## 边界（明确不做）
 
@@ -81,13 +81,15 @@ bundle 契约：`name` / `inject: ["ruleEngine"]` / `Config` / `apply`；`ctx.ru
 | 列表项内缩进表格 | 报 |
 | 表格位于回复首行（前面无空行） | 照常检查（表头行号 = 1） |
 
-### 上限为 0 的口径（钉住现状, 未改行为）
+### 上限为 0 的口径（2026-10-16 起：0 = 不设上限）
 
-- `maxTables: 0`：`CheckResult.tableTotal` / `lineTotal` 仍按**全量**计数（上限只裁剪 `tables` 列表面），
-  于是出现「判定说有、提示为 `null`」的**语义不一致** —— 用作「全禁」时表现为静默不报。本次按规格只钉
-  口径、**不改行为**；建议另行登记：把 `0` 解释为「用缺省」或让 `decide` 在 `maxTables: 0` 时直接返回
-  `null`，使「判定」与「提示」取同一语义。
-- `headerExcerptLimit: 0`：表头摘录截断到 0 字再加省略号，注入正文里只剩 `…`。
+- 三个上限参数（`maxTables` / `maxRowsPerTable` / `headerExcerptLimit`）**统一**：`0` = **不设上限**
+  ——`maxTables: 0` 列出全部问题表格、`maxRowsPerTable: 0` 列出每张表的全部不一致行、
+  `headerExcerptLimit: 0` 表头摘录不截断；未设 / 负数 / `NaN` 等非法值回退缺省 `5` / `3` / `60`。
+- 实现 = `src/checker.ts` 的 `limitOrInfinity()`（有限非负数按值、`0` 取 `Infinity`、非法值回退缺省）。
+- 沿革：2026-10-16 之前 `0` 被当作合法上限 0 —— `maxTables: 0` 使 `tables` 列表恒空 →
+  `renderFeedback` 返回 `null`（而 `tableTotal` / `lineTotal` 仍全量计数）→ 产品面静默且语义分裂；
+  当日用户裁定统一为「不设上限」。
 
 ## 开发
 

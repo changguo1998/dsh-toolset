@@ -124,11 +124,13 @@ function delimRowCells(line: string): string[] | null {
   return cells.every((cell) => DELIM_CELL_RE.test(cell)) ? cells : null;
 }
 
-/** 非负整数（非法值回退缺省）。 */
-function nonNegativeInt(value: number | undefined, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? Math.floor(value)
-    : fallback;
+/** 上限取值：有限非负数按值 —— **`0` = 不设上限**（取 `Infinity`）；未设 / 负数 / `NaN` 等非法值回退
+ *  `fallback`。三个上限参数（`maxTables` / `maxRowsPerTable` / `headerExcerptLimit`）统一此口径
+ *  （2026-10-16 用户裁定）。 */
+function limitOrInfinity(value: number | undefined, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0)
+    return fallback;
+  return value === 0 ? Number.POSITIVE_INFINITY : Math.floor(value);
 }
 
 /**
@@ -137,8 +139,8 @@ function nonNegativeInt(value: number | undefined, fallback: number): number {
  * 只收有列数不一致的表，游标推进到表尾避免把表内行当成新表头。
  */
 export function checkTables(text: string, options?: CheckOptions): CheckResult {
-  const maxTables = nonNegativeInt(options?.maxTables, DEFAULT_MAX_TABLES);
-  const maxRowsPerTable = nonNegativeInt(
+  const maxTables = limitOrInfinity(options?.maxTables, DEFAULT_MAX_TABLES);
+  const maxRowsPerTable = limitOrInfinity(
     options?.maxRowsPerTable,
     DEFAULT_MAX_ROWS_PER_TABLE,
   );
@@ -216,7 +218,7 @@ export function renderFeedback(
 ): { text: string; summary: string } | null {
   const result = checkTables(text, options);
   if (result.tables.length === 0) return null;
-  const limit = nonNegativeInt(
+  const limit = limitOrInfinity(
     options?.headerExcerptLimit,
     DEFAULT_HEADER_EXCERPT_LIMIT,
   );

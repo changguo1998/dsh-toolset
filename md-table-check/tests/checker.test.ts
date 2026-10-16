@@ -466,31 +466,72 @@ test("转义竖线 `\\|` 出现在数据行 / 分隔行 → 列数按实际格�
   );
 });
 
-test("上限为 0 的边界（钉住当前口径; 与提示语义的不一致见注释, 本次不改行为）", () => {
+test("上限为 0 = 不设上限（三个上限参数统一; 缺省与非法值仍回退）", () => {
   const text = lines("| a | b |", "| --- |");
-  // maxTables: 0 —— 计数不受上限影响（tableTotal / lineTotal 仍全量）, 但列表面为空
+  // maxTables: 0 —— 列出全部问题表格（不再出现「列表恒空 → 提示为 null」的静默）
   const zeroTables = checkTables(text, { maxTables: 0 });
   assert.equal(zeroTables.tableTotal, 1, "计数仍全量");
   assert.equal(zeroTables.lineTotal, 1);
-  assert.equal(zeroTables.tables.length, 0, "列表面受 maxTables 约束");
-  // 於是「判定说有」但提示为 null（**已知语义不一致**: 0 会被非负整数闸门放行, 用作「全禁」时
-  // 表现为静默不报）。本次只钉口径, 不改行为; 建议见 README 与追踪报告。
-  assert.equal(renderFeedback(text, { maxTables: 0 }), null);
-  assert.equal(
-    renderFeedback(text, { maxTables: 1 }) !== null,
-    true,
-    "对照: 1 正常",
+  assert.equal(zeroTables.tables.length, 1, "0 = 不设上限 → 全部列出");
+  assert.notEqual(renderFeedback(text, { maxTables: 0 }), null, "0 不再静默");
+  // 多张表（空行分隔, 每张 1 处不一致）: 0 → 全列; 未设 → 缺省 5; 显式 2 → 2
+  const many = lines(
+    ...[0, 1, 2, 3, 4, 5, 6].flatMap((i) => [
+      `| h${i} | x |`,
+      "| --- | --- |",
+      "| r |",
+      "",
+    ]),
   );
-  // headerExcerptLimit: 0 —— 摘录只剩省略号（截断到 0 字 + `…`）
+  assert.equal(
+    checkTables(many, { maxTables: 0 }).tables.length,
+    7,
+    "0 → 全部 7 张",
+  );
+  assert.equal(checkTables(many).tables.length, 5, "未设 → 缺省 5");
+  assert.equal(
+    checkTables(many, { maxTables: 2 }).tables.length,
+    2,
+    "显式上限",
+  );
+  // maxRowsPerTable: 0 —— 每张表列出全部不一致行（不再切到 0 行）
+  const rows4 = lines(
+    "| a | b |",
+    "| --- | --- |",
+    "| 1 |",
+    "| 2 |",
+    "| 3 |",
+    "| 4 |",
+  );
+  const all = checkTables(rows4, { maxRowsPerTable: 0 });
+  assert.equal(all.tables[0]!.mismatches.length, 4, "0 → 全部 4 行");
+  assert.equal(all.tables[0]!.mismatchTotal, 4);
+  assert.deepEqual(all.tables[0]!.mismatches[0], {
+    line: 3,
+    role: "row",
+    actual: 1,
+  });
+  assert.equal(
+    checkTables(rows4).tables[0]!.mismatches.length,
+    3,
+    "未设 → 缺省 3",
+  );
+  // headerExcerptLimit: 0 —— 摘录不截断（表头原文, 不再只剩 `…`）
   const zeroExcerpt = renderFeedback(text, {
     maxTables: 1,
     headerExcerptLimit: 0,
   });
   assert.notEqual(zeroExcerpt, null);
-  assert.match(zeroExcerpt!.text, /：`…` 期望 2 列/);
-  // 对照: 上限足够时摘录是表头原文
+  assert.match(zeroExcerpt!.text, /：`\| a \| b \|` 期望 2 列/);
+  // 非法值（负数 / NaN）仍回退缺省
+  assert.equal(checkTables(many, { maxTables: -1 }).tables.length, 5);
+  assert.equal(checkTables(many, { maxTables: Number.NaN }).tables.length, 5);
+  assert.equal(
+    checkTables(rows4, { maxRowsPerTable: -1 }).tables[0]!.mismatches.length,
+    3,
+  );
   assert.match(
-    renderFeedback(text, { maxTables: 1, headerExcerptLimit: 60 })!.text,
+    renderFeedback(text, { maxTables: 1, headerExcerptLimit: -1 })!.text,
     /：`\| a \| b \|` 期望 2 列/,
   );
 });
