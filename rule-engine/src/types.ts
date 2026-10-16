@@ -42,7 +42,20 @@ export type PredicateName =
   /** 文本含中日韩字符。 */
   | "has-cjk"
   /** 文本含 Markdown 代码围栏（```）。 */
-  | "has-code-block";
+  | "has-code-block"
+  /** **本进程内新建、无历史**的会话（`ctx.resumed === false`）；与文本无关。
+   *  判定基准是引擎**首次**见到该会话时的宿主状态，会话内稳定（见 README「会话谓词」）。 */
+  | "session-fresh"
+  /** **从记录恢复 / 重载**的会话（`ctx.resumed === true`，含 fork / 种子继承）；与文本无关。 */
+  | "session-resumed";
+
+/** 谓词匹配上下文：文本之外、由调用方（引擎）提供的**会话级**事实。
+ *  纯函数调用 / `rule_test` 干跑不传时按 `{ resumed: false }`（= 全新会话）处理。 */
+export interface MatchContext {
+  /** 本会话是否从记录恢复 / 重载（含 fork 继承）而来：引擎首次见到该会话时判定一次，
+   *  此后会话内稳定（宿主 `seq` 是事件日志长度 getter，会随事件增长，不能现读）。 */
+  resumed: boolean;
+}
 
 /** 命中条件；各档之间是「任一档命中即命中」的或关系（predicates 内部为与关系）。 */
 export interface MatchSpec {
@@ -226,8 +239,9 @@ export interface EvaluateResult {
   disabled: string[];
 }
 
-/** 消费者回调上下文（触发点 = 注册声明的节点）。 */
-export interface ConsumerContext {
+/** 消费者回调上下文（触发点 = 注册声明的节点）。
+ *  继承 `MatchContext`：`ctx` 可直接作为匹配器第三参复用内置谓词口径（含 `session-fresh` / `session-resumed`）。 */
+export interface ConsumerContext extends MatchContext {
   sessionId: string;
   /** 来源回合号（未知时沿用最近已知值）。 */
   turn: number;

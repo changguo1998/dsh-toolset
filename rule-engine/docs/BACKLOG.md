@@ -9,11 +9,6 @@
 
 ## 待办
 
-
-
-
-
-
-
-
 > 2026-10-16 关闭：条目 1-7 全部完成并**从本清单移除** —— 追踪文档归档为 `rule-engine/docs/archived/2026-10-16-test-coverage-and-defects.md`。结论：#1 单条正文上限 20000 → 200000 且超限告警（不再静默截断）；#2 `surfaceOp: "replace"` 的消息丢弃（与 TUI 显示面一致，不进 `turn-end` 载荷）；#3 `turn/end` 的 `reason` 归一（字符串按字面、对象读 `kind`、缺省 `completed`），其余非法值不唤醒 + 告警；#4 新建 `tests/tools.test.ts`（`src/tools.ts` 函数覆盖 33.33% → 100%）；#5 多 `delivery` 分组与段数预算用例；#6 `registerConsumer` / `update` 校验分支用例；#7 零散补钉十点（总行覆盖 93.11% → 100%、函数 89.71% → 97.84%，README 用例数 87 → 140）。证据：`npm --prefix rule-engine run check` 0 错误、`npm test` 140 例全绿、三处修正各做反向验证（撤改即转红）。跨包影响：`md-table-check/tests/surfaceDifferential.test.ts` 的镜像口径待同步（3 例转红，属 md-table-check 任务）。
+
+> 2026-10-16 关闭：「内置谓词层加 `session-fresh` / `session-resumed`（配置可按「是否恢复」筛选）」已完成并**从本清单移除** —— 追踪文档归档为 `rule-engine/docs/archived/2026-10-16-session-predicates.md`。结论：匹配器加会话级上下文（`MatchContext.resumed`）；两个新内置谓词在配置 / 持久化规则 / `rule_add` 工具面（enum 由 `predicateNames()` 派生）直接可用；`resumed` 在**首次见到会话**时按宿主 `session.seq > 0 || inheritedEventCount > 0` 判定一次并在会话内稳定（`src/engine.ts` 的 `#session` / `isResumedSession`），`handle` 各分支兼作「插件后挂载」兜底；`match` 第三参缺省 `{ resumed: false }`（纯函数调用与 `rule_test` 干跑口径）。证据：`npm --prefix rule-engine run check` 0 错误、`npm test` 151 例全绿（+11）、覆盖率 all files 行 100% / 分支 96.96 / 函数 97.90（不回退）、反向验证（`resumed` 恒 false → 6 例转红）。`dedupeInRecord: 1` 仍是「重载不重复注入」的零改动替代（按记录判重, fail-open）。真机验证未做。

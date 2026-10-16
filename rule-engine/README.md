@@ -37,9 +37,23 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 | --- | --- |
 | `keywords` | 关键词列表，大小写不敏感，任一出现即命中 |
 | `regex` + `flags` | 正则源串列表，任一匹配即命中；`flags` 缺省 `"i"`；非法正则只记 warning，该条视为不命中 |
-| `predicates` | 内置谓词名：`always`（恒真）/ `has-non-ascii` / `has-cjk` / `has-code-block` |
+| `predicates` | 内置谓词名：`always`（恒真）/ `has-non-ascii` / `has-cjk` / `has-code-block` / `session-fresh` / `session-resumed`（后两个按**会话级**上下文判定，见下） |
 
 条件为空（无任何有效档位）时：**边界类节点**（`turn-start` / `turn-end` / `step-start` / `step-end` / `session-start` / `compaction`，文本载荷为空）视为无条件命中，其余节点视为**永不命中**（防误配置把每条正文都当命中）。该判定在**判定期按触发节点**裁决，故一条规则挂多节点时各节点语义独立。
+
+#### 会话谓词（`session-fresh` / `session-resumed`）
+
+| 谓词 | 命中条件（与文本无关） |
+| --- | --- |
+| `session-fresh` | 本进程内**新建、无历史**的会话 |
+| `session-resumed` | 从记录**恢复 / 重载**的会话（含 fork / 种子继承） |
+
+- **判据**：宿主 Session 的 `seq`（事件日志长度 getter）`> 0` **或** `inheritedEventCount`（fork 继承前缀长度）`> 0`；字段缺失 / 读取抛错按 fresh 兜底。
+- **判定时机**：引擎**首次见到该会话**时判一次并记住（`session/created` → `session-start`；插件后挂载错过该事件时，用首个事件携带的 session 兜底判定），此后**会话内稳定**——`seq` 会随事件增长，每次现读会让 `session-fresh` 在 `session-start` 之后立刻变假。同一 `sessionId` 再次 `session/created`（宿主重放 / 重复触发）沿用首次判定、不重判。
+- **边界**：`session-fresh` 只表示「本进程内新建、无历史」——**恢复出来的空会话**（`seq === 0` 且无继承）仍算 fresh。
+- **消费者侧同一口径**：`decide(ctx)` 的 `ctx` 继承 `MatchContext`，`ctx.resumed` 可直接作为匹配器第三参（`match(text, trigger, ctx)`）复用这两个谓词。
+- **无会话上下文的判定面**：`rule_test` 干跑与 `evaluate()` 只读判定按缺省 `{ resumed: false }`（= fresh）处理；`session-resumed` 在其中恒不命中。
+- **与 `dedupeInRecord: 1` 的分工**：后者按**会话记录**判重（记录不可读即 fail-open 照旧注入），只回答「这条注入是不是已经发过」；本谓词只回答「这个会话是不是恢复来的」，用于需要**精确区分**或给恢复 / 全新会话不同文案的场景，两者可叠加。
 
 ### 动作（`action`）
 
@@ -145,6 +159,14 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
               type: inject
               text: '[指南] 本会话的规范要点：…'
               summary: 会话开局指南
+          - id: resumed-notice
+            source: session-start
+            match:
+              predicates: ['session-resumed']
+            action:
+              type: inject
+              text: '[提示] 本会话由历史记录恢复：先复核已有上下文，不要重复已完成的工作。'
+              summary: 恢复会话提示
         maxInjectionsPerTurn: 2
 ```
 
@@ -162,7 +184,7 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 | `registerConsumer({ id, sources?, delivery?, cooldownTurns?, cooldownMs?, dedupeInRecord?, directWrite?, decide })` | 注册消费者：在注册的**节点**（`sources`，缺省 `["turn-end"]`）按注册顺序**同步**询问，`decide(ctx)` 返回要注入的内容 `{ text, summary?, reset? }`（null = 不反馈），反馈由本引擎统一注入；`directWrite` 列出的节点跳过投影去重判断；返回注销函数 |
 | `onNotice(listener)` | 订阅插件告警（完整展示行 + tone） |
 
-消费者与规则共用闸门：逐段上限（`maxInjectionsPerTurn` 以「**段**」计）、同文本去重、`dedupeInRecord` 判空；消费者级 `cooldownTurns` / `cooldownMs` 可选（按注入记账），更细粒度冷却由消费者自理。`decide` 运行在 `session/event` 的同步派发窗口内：须廉价，且不得调用宿主 API（注入一律由本引擎推迟宏任务）。`ctx.trigger` 是实际触发的节点 id，`ctx.event` 是原始宿主事件。
+消费者与规则共用闸门：逐段上限（`maxInjectionsPerTurn` 以「**段**」计）、同文本去重、`dedupeInRecord` 判空；消费者级 `cooldownTurns` / `cooldownMs` 可选（按注入记账），更细粒度冷却由消费者自理。`decide` 运行在 `session/event` 的同步派发窗口内：须廉价，且不得调用宿主 API（注入一律由本引擎推迟宏任务）。`ctx.trigger` 是实际触发的节点 id，`ctx.event` 是原始宿主事件（`session-start` 上是宿主 Session），`ctx.resumed` 是本会话是否为恢复 / 重载（会话内稳定，可直接喂给匹配器复用会话谓词）。
 
 ### 合并与对齐点（尺度双 flag）
 
@@ -194,7 +216,7 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # 编译到 dist/
-npm test        # node --test（140 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 模型面工具族 / 插件入口）
+npm test        # node --test（151 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 模型面工具族 / 插件入口）
 npm run demo    # mock 事件流跑「规则命中 → 注入」，不依赖 DSH
 ```
 

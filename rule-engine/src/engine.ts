@@ -15,6 +15,10 @@
  * 返回 `{text, summary?, reset?}`；与规则命中统一走「逐段闸门 → 按 delivery 分组 → 合并成
  * 一条注入」。对齐点合并（尺度 session / turn / step / tool 的双 flag）见 README。
  *
+ * 会话级匹配上下文：`resumed`（本会话是否从记录恢复 / 重载，含 fork 继承）在**首次**见到该
+ * 会话时判定一次并记住（见 #session），规则判定与消费者 `ctx` 都用它——`session-fresh` /
+ * `session-resumed` 两个内置谓词的唯一依据。
+ *
  * 节流与去重（同一会话内）：每规则 `cooldownTurns` / `cooldownMs`；每回合注入条数上限
  * `maxInjectionsPerTurn`；同一回合内相同正文只注入一次（不同规则同文案也只发一条）；
  * `dedupeInRecord` 规则再按**会话记录**去重（可见投影 + 未消费 inbox，读面由接线层合成；
@@ -138,6 +142,9 @@ interface Segment {
 
 /** 单会话内存态（回合号、节流记账、正文缓冲）。 */
 interface SessionState {
+  /** 本会话是否为「恢复 / 重载」（含 fork 继承）：**首次**见到该会话时判定一次，会话内稳定
+   *  （判据见 isResumedSession；供 `session-fresh` / `session-resumed` 谓词与消费者 ctx 使用）。 */
+  resumed: boolean;
   /** 最近一次见到的回合号。 */
   turn: number;
   /** 本会话各回合的注入用量（条数 + 已用正文，用于上限与同内容去重）。 */
@@ -426,6 +433,8 @@ export class RuleEngine {
         disabled.push(item.rule.id);
         continue;
       }
+      // 会话无关的只读判定：不传 ctx → 匹配器按缺省 `{ resumed: false }` 处理
+      // （`session-fresh` 命中、`session-resumed` 不命中；rule_test 干跑同口径）
       if (!item.matcher.match(input.text, source)) continue;
       const text = item.rule.action.text;
       matched.push({
@@ -469,8 +478,14 @@ export class RuleEngine {
     return { ok: true, error: null, rule };
   }
 
-  /** 会话内存态（按需创建；超限淘汰最早插入的会话）。 */
-  #session(sessionId: string): SessionState {
+  /**
+   * 会话内存态（按需创建；超限淘汰最早插入的会话）。
+   *
+   * `session`（宿主 Session，结构面读取）只在**首次**创建该会话状态时参与 `resumed` 判定并记住；
+   * 已有会话不覆盖——宿主 `seq` 会随事件增长，现读会让同一会话内的判定翻转（如 fresh 在
+   * `session-start` 之后立刻变假）。缺省（只给 sessionId）按 fresh 处理。
+   */
+  #session(sessionId: string, session?: unknown): SessionState {
     const existing = this.#sessions.get(sessionId);
     if (existing !== undefined) return existing;
     if (this.#sessions.size >= SESSION_STATE_LIMIT) {
@@ -478,6 +493,7 @@ export class RuleEngine {
       if (!oldest.done) this.#sessions.delete(oldest.value);
     }
     const state: SessionState = {
+      resumed: isResumedSession(session),
       turn: 0,
       injected: new Map(),
       fired: new Map(),
@@ -500,9 +516,11 @@ export class RuleEngine {
     )
       return;
     const data = (event.data ?? {}) as Record<string, unknown>;
+    // 每个分支都把宿主 `session` 传给 #session：错过 `session/created`（插件后挂载）时，
+    // 首个事件就是判定 `resumed` 的兜底时机（此时该会话确有历史，判为 resumed 是正确的）
     switch (event.type) {
       case "assistant/message": {
-        const state = this.#session(sessionId);
+        const state = this.#session(sessionId, session);
         const turn = numberOr(data["turn"], state.turn);
         state.turn = Math.max(state.turn, turn);
         // `surfaceOp: "replace"` 的影子覆盖事件不进回合正文——与 TUI 显示面一致（该 step 正文在
@@ -512,7 +530,7 @@ export class RuleEngine {
         return;
       }
       case "turn/start": {
-        this.#entry(sessionId, data, "turn-start", "", event);
+        this.#entry(sessionId, data, "turn-start", "", event, session);
         return;
       }
       case "user/message": {
@@ -527,15 +545,16 @@ export class RuleEngine {
           "user-message",
           messageText(message),
           event,
+          session,
         );
         return;
       }
       case "step/start": {
-        this.#entry(sessionId, data, "step-start", "", event);
+        this.#entry(sessionId, data, "step-start", "", event, session);
         return;
       }
       case "step/end": {
-        this.#entry(sessionId, data, "step-end", "", event);
+        this.#entry(sessionId, data, "step-end", "", event, session);
         return;
       }
       case "tool/call": {
@@ -545,6 +564,7 @@ export class RuleEngine {
           "tool-call",
           toolCallText(data["name"], data["arguments"]),
           event,
+          session,
         );
         return;
       }
@@ -555,11 +575,12 @@ export class RuleEngine {
           "tool-result",
           messageText(data["message"]),
           event,
+          session,
         );
         return;
       }
       case "turn/end": {
-        const state = this.#session(sessionId);
+        const state = this.#session(sessionId, session);
         const turn = numberOr(data["turn"], state.turn);
         state.turn = Math.max(state.turn, turn);
         const reason = this.#turnEndReason(data["reason"], turn);
@@ -578,7 +599,7 @@ export class RuleEngine {
       case "compaction/end": {
         // 上下文压缩完成（一次压缩一条：summary / prune 都在 start→end 之内，只认终态，
         // 避免同一次压缩触发多次）
-        this.#entry(sessionId, data, "compaction", "", event);
+        this.#entry(sessionId, data, "compaction", "", event, session);
         return;
       }
       default:
@@ -673,15 +694,16 @@ export class RuleEngine {
     }
   }
 
-  /** 事件入口统一形态：取回合号 → 派发。 */
+  /** 事件入口统一形态：取回合号 → 派发。`session` 只在首次建态时参与 `resumed` 判定。 */
   #entry(
     sessionId: string,
     data: Record<string, unknown>,
     trigger: RuleSource,
     text: string,
     event: unknown,
+    session?: unknown,
   ): void {
-    const state = this.#session(sessionId);
+    const state = this.#session(sessionId, session);
     const turn = numberOr(data["turn"], state.turn);
     state.turn = Math.max(state.turn, turn);
     this.#dispatch(trigger, text, sessionId, turn, event);
@@ -699,7 +721,9 @@ export class RuleEngine {
     for (const item of this.#compiled) {
       const rule = item.rule;
       if (!rule.enabled || !rule.sources.includes(trigger)) continue;
-      if (!item.matcher.match(text, trigger)) continue;
+      // 会话级 ctx（resumed 会话内稳定）供 `session-fresh` / `session-resumed` 谓词判定
+      if (!item.matcher.match(text, trigger, { resumed: state.resumed }))
+        continue;
       const now = this.#now();
       const last = state.fired.get(rule.id);
       if (last !== undefined) {
@@ -764,7 +788,15 @@ export class RuleEngine {
       }
       let feedback: ConsumerFeedback | null = null;
       try {
-        feedback = consumer.decide({ sessionId, turn, text, trigger, event });
+        feedback = consumer.decide({
+          sessionId,
+          turn,
+          text,
+          trigger,
+          event,
+          // 消费者 ctx 与规则侧同一口径：可直接喂给匹配器复用内置谓词
+          resumed: state.resumed,
+        });
       } catch (err) {
         this.#warn(`消费者 "${consumer.id}" decide 抛错：${String(err)}`);
         continue;
@@ -866,12 +898,17 @@ export class RuleEngine {
     }
   }
 
-  /** `session/created`（含恢复）→ `session-start` 节点；监听器永不抛。 */
-  sessionCreated(sessionId: string, event?: unknown): void {
+  /**
+   * `session/created`（含恢复）→ `session-start` 节点；监听器永不抛。
+   *
+   * 第二参是宿主 Session（结构面读 `seq` / `inheritedEventCount` 判 `resumed`），同时原样作为
+   * 消费者的 `ctx.event` 透传。只给 sessionId 时（缺省）按 fresh 处理。
+   */
+  sessionCreated(sessionId: string, session?: unknown): void {
     if (typeof sessionId !== "string" || sessionId.length === 0) return;
     try {
-      const state = this.#session(sessionId);
-      this.#dispatch("session-start", "", sessionId, state.turn, event);
+      const state = this.#session(sessionId, session);
+      this.#dispatch("session-start", "", sessionId, state.turn, session);
     } catch (err) {
       this.#warn(`session-start 派发失败：${String(err)}`);
     }
@@ -953,6 +990,30 @@ export class RuleEngine {
 /** 数值字段兜底（非有限数取 fallback）。 */
 function numberOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/** 正整数计数（缺省 / 非法 / ≤ 0 一律算 0）：宿主计数字段的兜底。 */
+function isPositiveCount(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+/**
+ * 「从记录恢复 / 重载」（含 fork 继承）判据，读宿主 Session 的结构面：
+ * - `seq` = 事件日志长度 getter（> 0 = 已有历史，宿主 `dsh-session-projection` 同口径）；
+ * - `inheritedEventCount` = fork 继承前缀长度（> 0 = 继承了历史）。
+ *
+ * 两者任一为正即 resumed。属性读取抛错（会话已释放等）或字段缺失按 fresh 兜底，不向上抛。
+ */
+function isResumedSession(session: unknown): boolean {
+  if (session === null || typeof session !== "object") return false;
+  try {
+    const like = session as { seq?: unknown; inheritedEventCount?: unknown };
+    return (
+      isPositiveCount(like.seq) || isPositiveCount(like.inheritedEventCount)
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
