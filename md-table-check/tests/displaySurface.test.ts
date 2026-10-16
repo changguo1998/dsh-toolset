@@ -10,6 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { FEEDBACK_SUMMARY } from "../src/checker.ts";
 
 interface DshEventShape {
   type: string;
@@ -208,9 +209,9 @@ test("注入呈现: notice 形态折叠为一行摘要（非全文）", { skip }
   const pluginText =
     "[md-table-check] 上一条回复正文里的 markdown 表格列数不一致（本提示只针对回复正文，与仓库文件无关）：\n- 表 1（表头在第 1 行）：`| a | b | c |` 期望 3 列\n请修正这些表格后，把上一条回复完整重发一次；不要修改仓库里的任何文件或文档。";
   const shown = noticeSummaryOf!({
-    source: { form: "notice", summary: "表格列数提醒" },
+    source: { form: "notice", summary: FEEDBACK_SUMMARY },
   });
-  assert.equal(shown, "表格列数提醒");
+  assert.equal(shown, FEEDBACK_SUMMARY, "摘要按常量比对（改名不漏红）");
   assert.notEqual(shown, pluginText);
   assert.equal(
     noticeSummaryOf!({

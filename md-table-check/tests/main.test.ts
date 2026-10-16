@@ -9,6 +9,32 @@ const BAD = ["| a | b | c |", "| --- | --- |", "| 1 | 2 | 3 |"].join("\n");
 const GOOD = ["| a | b | c |", "| --- | --- | --- |", "| 1 | 2 | 3 |"].join(
   "\n",
 );
+/** 两张坏表（中间隔一行无竖线的说明行, 保证判成两张） */
+const TWO_BAD = [
+  "| a | b | c |",
+  "| --- | --- |",
+  "| 1 | 2 | 3 |",
+  "中间说明",
+  "| x | y | z |",
+  "| --- |",
+  "| 1 | 2 | 3 |",
+].join("\n");
+
+/** 捕获 stderr 输出跑一段代码（不改全局状态：结束后恢复） */
+function captureStderr(run: () => void): string[] {
+  const writes: string[] = [];
+  const original = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+    writes.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    run();
+  } finally {
+    process.stderr.write = original;
+  }
+  return writes;
+}
 
 /** rule-engine 消费者注册项的结构面（与 src/main.ts 的声明对齐） */
 interface Registered {
@@ -132,6 +158,70 @@ test("apply：ctx.get('ruleEngine') 回退同样可用", () => {
   });
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.id, "md-table-check");
+});
+
+test("apply：非缺省配置四字段原样透传 + check 真的进 decide", () => {
+  const { engine, calls } = makeEngine();
+  apply(
+    { ruleEngine: engine },
+    {
+      sources: ["step-end"],
+      delivery: "steer",
+      dedupeInRecord: 2,
+      maxTables: 1,
+    },
+  );
+  assert.equal(calls.length, 1);
+  const registered = calls[0]!;
+  assert.deepEqual(registered.sources, ["step-end"], "sources 透传");
+  assert.equal(registered.delivery, "steer", "delivery 透传");
+  assert.equal(registered.dedupeInRecord, 2, "dedupeInRecord 透传");
+
+  // check 透传的判据: maxTables=1 → 两张坏表只列 1 张, 并以「另有 N 处」收尾
+  const hit = registered.decide({
+    sessionId: "s1",
+    turn: 1,
+    text: TWO_BAD,
+    trigger: "step-end",
+  });
+  assert.notEqual(hit, null, "两条表格均不一致应反馈");
+  assert.equal(hit!.summary, FEEDBACK_SUMMARY);
+  assert.equal(
+    hit!.text.split("\n").filter((line) => line.startsWith("- 表 ")).length,
+    1,
+    "maxTables=1：只列 1 张表",
+  );
+  assert.match(hit!.text, /表 1（表头在第 1 行）/);
+  assert.doesNotMatch(hit!.text, /表 2/, "第二张表不列出");
+  assert.match(hit!.text, /另有 1 处不一致未列出。/, "未列出的 1 处要收尾声明");
+});
+
+test("apply：完全不传 ctx（ctx ?? {} 降级）→ 告警 + dispose 可调用不抛", () => {
+  // 宿主可能一个参数都不传（运行期 ctx === undefined）；TS 形参声明为必填，这里按运行期形态调用
+  const applyWithoutCtx = apply as (ctx?: unknown) => () => void;
+  let dispose: (() => void) | null = null;
+  const writes = captureStderr(() => {
+    dispose = applyWithoutCtx();
+  });
+  assert.equal(typeof dispose, "function");
+  (dispose as unknown as () => void)();
+  assert.ok(
+    writes.some((line) => line.includes("ctx.ruleEngine 不可用")),
+    "应写告警",
+  );
+});
+
+test("apply：ruleEngine 无 registerConsumer → 告警 + dispose 可调用不抛", () => {
+  let dispose: (() => void) | null = null;
+  const writes = captureStderr(() => {
+    dispose = apply({ ruleEngine: {} });
+  });
+  assert.equal(typeof dispose, "function");
+  (dispose as unknown as () => void)();
+  assert.ok(
+    writes.some((line) => line.includes("ctx.ruleEngine 不可用")),
+    "应写告警",
+  );
 });
 
 test("apply：rule-engine 缺席 → 告警且不抛（返回空操作 dispose）", () => {

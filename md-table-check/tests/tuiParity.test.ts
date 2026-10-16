@@ -28,8 +28,27 @@ try {
   tui = null;
 }
 
+/**
+ * 围栏守卫用的正则直接取 TUI 的**真实常量**（`TUI/src/app/layout/markdown.ts:775` 的 `FENCE_RE`；
+ * `build-box.ts:696` 内联的是同一个正则但没有 export，无法 import，故取导出侧的真源）。
+ * 仍走动态 `import`：静态 import 会把 TUI 源码拉进本包的 TS program（越出 rootDir）并在 build 时
+ * 把产物落到 `TUI/src/`；这是「复刻守卫」能走到的最强形态 —— 正则与 TUI 同源，只有
+ * `inFence = !inFence` 的翻转逻辑按 `build-box.ts:702-708` 的语义原样重述。
+ */
+let tuiFenceRe: RegExp | null = null;
+try {
+  const markdown = (await import(
+    new URL("../../TUI/src/app/layout/markdown.ts", import.meta.url).href
+  )) as { FENCE_RE?: RegExp };
+  tuiFenceRe = markdown.FENCE_RE ?? null;
+} catch {
+  tuiFenceRe = null;
+}
+
 const skip: boolean | string =
-  tui === null ? "TUI 源码不在（独立分发场景），跳过互证" : false;
+  tui === null || tuiFenceRe === null
+    ? "TUI 源码不在（独立分发场景），跳过互证"
+    : false;
 
 test(
   "互证 ①：splitCells 逐条同口径（转义 / 首尾空单元格 / 无竖线）",
@@ -44,6 +63,9 @@ test(
       "|",
       "no pipes here",
       "",
+      "a\\",
+      "| a\\",
+      "\\",
     ];
     for (const line of fixtures) {
       assert.deepEqual(
@@ -125,8 +147,9 @@ test(
   "互证 ⑤：成表判据与不等时的走向（插件报出 ⇔ TUI 退回纯文本 / 丢格）",
   { skip },
   () => {
-    // 围栏守卫按 TUI 渲染入口口径: build-box.ts 的 !inFence + isTableStart 预筛 + parseTableAt
-    const fenceRe = /^ {0,3}(`{3,}|~{3,})[ \t]*([\w.+-]*)[ \t]*$/;
+    // 围栏守卫按 TUI 渲染入口口径: build-box.ts 的 !inFence + isTableStart 预筛 + parseTableAt;
+    // 栅栏判定用 TUI 的真实 `FENCE_RE`（正则同源）, 翻转为 `inFence = !inFence`（build-box.ts:702-708）
+    const fenceRe = tuiFenceRe!;
     const rendersAsTable = (
       text: string,
     ): { table: unknown; lostCells: number } => {
@@ -173,6 +196,16 @@ test(
         "围栏内坏表",
         "```\n| a | b |\n| --- | --- |\n```",
         { reports: false, renders: false },
+      ],
+      [
+        "围栏混用标记（``` 开 / ~~~ 闭）后的坏表",
+        "```\n| a | b |\n| --- |\n~~~\n| a | b |\n| --- |",
+        { reports: true, renders: false },
+      ],
+      [
+        "围栏混用标记后的好表（两侧都认闭栅已闭合）",
+        "```\n| a | b |\n| --- |\n~~~\n| a | b |\n| --- | --- |",
+        { reports: false, renders: true },
       ],
       [
         "引用块内表格",

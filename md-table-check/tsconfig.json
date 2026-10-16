@@ -17,5 +17,10 @@
     "verbatimModuleSyntax": true,
     "types": ["node"]
   },
-  "include": ["src", "tests", "index.ts"]
+  "include": ["src", "tests/*.test.ts", "index.ts"],
+  "exclude": [
+    "tests/reasoningSeparation.test.ts",
+    "tests/surfaceDifferential.test.ts",
+    "tests/integration.test.ts"
+  ]
 }

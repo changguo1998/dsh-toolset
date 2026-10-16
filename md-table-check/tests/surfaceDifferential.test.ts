@@ -6,12 +6,15 @@
  * 两侧模型是本文件内**按当前实现口径重述**的复刻（不 import 被测实现）:
  * ① 显示面 = `extractTextBlocks`（只收 text 块、直接 join） + 按 `(turn:step)` 查已输出 + 只补缺失后缀
  *    + `surfaceOp: "replace"` 跳过;
- * ② 插件面 = `messageText`（同提取口径） + 空串跳过 + 单条 `TEXT_BUFFER_LIMIT` = 20000 字符截断
- *    + `turn/end` 的 `reason`（缺省视为 `completed`）∈ {completed, max-tokens} 才派发 + `"\n"` 连接。
+ * ② 插件面 = `messageText`（同提取口径） + 空串跳过 + 单条 `TEXT_BUFFER_LIMIT` = 200000 字符截断
+ *    + `surfaceOp: "replace"` 整条丢弃（与显示面一致） + `turn/end` 的 `reason` 归一（字符串按字面 /
+ *    对象读 `kind` / 缺省 `completed` / 其余非法值 → 不唤醒）∈ {completed, max-tokens} 才派发
+ *    + `"\n"` 连接。
  * 任一侧实现口径变化时本文件的断言会变红, 属于**有意**的漂移提醒: 重新复刻并对拍。
  *
- * 已知且已登记的两处真实差异（本文件用断言显式钉住, 不作为「应当修复」的判定）:
- * `surfaceOp: "replace"`（显示面丢弃 / 插件面仍缓冲）与单条 step 超 20000 字符（插件面截断 / 显示面全文）。
+ * 原登记在案的两处真实差异（`surfaceOp: "replace"` / 单条 step 超限截断）已被 rule-engine
+ * 2026-10-16 的变更修复（replace 整条丢弃、上限 200000 + 超限告警）; 本文件据此改为**正向断言**
+ * 钉住新口径（含「截断可观测」的告警断言）。
  * TUI / rule-engine 源码不在（独立分发场景）时对拍用例整体跳过。
  */
 
@@ -54,8 +57,22 @@ const skip: boolean | string =
 
 // ---------------- 复刻模型 ----------------
 
-const TEXT_LIMIT = 20_000;
+const TEXT_BUFFER_LIMIT = 200_000;
 const INJECTABLE = new Set(["completed", "max-tokens"]);
+
+/** `turn/end` 的非法 `reason` 形态（新口径: 不唤醒消费者 + 告警）。 */
+const invalidReasons: readonly unknown[] = [42, {}, [], { kind: 7 }];
+
+/** `turn/end` 的 `reason` 归一（复刻 rule-engine `#turnEndReason`）: 非法值 → null（不唤醒）。 */
+function modelTurnEndReason(value: unknown): string | null {
+  if (value === undefined) return "completed";
+  if (typeof value === "string") return value;
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    const kind = (value as { kind?: unknown }).kind;
+    if (typeof kind === "string") return kind;
+  }
+  return null;
+}
 
 function modelExtractText(content: unknown): string {
   if (!Array.isArray(content)) return "";
@@ -94,23 +111,19 @@ class DisplayModel {
 
 class PluginModel {
   #buffers = new Map<number, string[]>();
-  message(turn: number, content: unknown): void {
+  message(turn: number, content: unknown, surfaceOp?: string): void {
+    if (surfaceOp === "replace") return; // 影子覆盖事件不进回合正文
     const text = modelExtractText(content);
     if (text.length === 0) return;
     const list = this.#buffers.get(turn) ?? [];
-    list.push(text.slice(0, TEXT_LIMIT));
+    list.push(text.slice(0, TEXT_BUFFER_LIMIT));
     this.#buffers.set(turn, list);
   }
   turnEnd(turn: number, reason: unknown): string {
     const list = this.#buffers.get(turn) ?? [];
-    const kind =
-      reason === undefined
-        ? "completed"
-        : typeof reason === "string"
-          ? reason
-          : ((reason as { kind?: unknown } | undefined)?.kind ?? "completed");
+    const kind = modelTurnEndReason(reason);
     this.#buffers.delete(turn);
-    return INJECTABLE.has(kind) ? list.join("\n") : "";
+    return kind !== null && INJECTABLE.has(kind) ? list.join("\n") : "";
   }
 }
 
@@ -138,12 +151,15 @@ const fakeAgent = { session: { id: "s1" }, followup() {} };
 interface Harness {
   send(event: Record<string, unknown>): void;
   pluginText(): string;
+  resetPluginText(): void;
+  warns(): readonly string[];
   shown(): string;
 }
 
 function newHarness(): Harness {
   const runtime = makeRuntime();
   const displayed: string[] = [];
+  const warnings: string[] = [];
   const adapter = createAdapter!({
     runtime,
     sessionId: "s1",
@@ -157,7 +173,7 @@ function newHarness(): Harness {
     baseline: [],
     stateDir: mkdtempSync(join(tmpdir(), "differential-")),
     injector: { inject: () => {} },
-    warn: () => {},
+    warn: (message) => warnings.push(message),
   });
   engine.registerConsumer({
     id: "probe",
@@ -175,6 +191,10 @@ function newHarness(): Harness {
       engine.handle({ id: "s1" }, event as never);
     },
     pluginText: () => pluginText,
+    resetPluginText: () => {
+      pluginText = "";
+    },
+    warns: () => warnings,
     shown: () => displayed.join(""),
   };
 }
@@ -212,11 +232,12 @@ function differ(
   for (const item of steps) {
     harness.send(message(item.turn, item.step, item.content, item.surfaceOp));
     display.message(item.turn, item.step, item.content, item.surfaceOp);
-    plugin.message(item.turn, item.content);
+    plugin.message(item.turn, item.content, item.surfaceOp);
   }
   let realPlugin = "";
   let modelPlugin = "";
   for (const item of ends) {
+    harness.resetPluginText();
     harness.send(turnEnd(item.turn, item.reason));
     realPlugin = harness.pluginText();
     modelPlugin = plugin.turnEnd(item.turn, item.reason);
@@ -283,6 +304,26 @@ test(
         ends: [{ turn: 1 }],
       },
       {
+        label: "reason 非法（数字 / 空对象 / 数组 / kind 非字符串）→ 不唤醒",
+        steps: [{ turn: 1, step: 1, content: [t("W")] }],
+        ends: [{ turn: 1, reason: invalidReasons[0] }],
+      },
+      {
+        label: "reason 非法（空对象）→ 不唤醒",
+        steps: [{ turn: 1, step: 1, content: [t("W")] }],
+        ends: [{ turn: 1, reason: invalidReasons[1] }],
+      },
+      {
+        label: "reason 非法（数组）→ 不唤醒",
+        steps: [{ turn: 1, step: 1, content: [t("W")] }],
+        ends: [{ turn: 1, reason: invalidReasons[2] }],
+      },
+      {
+        label: "reason 非法（kind 非字符串）→ 不唤醒",
+        steps: [{ turn: 1, step: 1, content: [t("W")] }],
+        ends: [{ turn: 1, reason: invalidReasons[3] }],
+      },
+      {
         label: "多 text 块 + 无 text 块",
         steps: [
           { turn: 1, step: 1, content: [t("P"), t("Q")] },
@@ -291,9 +332,9 @@ test(
         ends: [{ turn: 1, reason: "completed" }],
       },
       {
-        label: "超限截断",
+        label: "超限截断（单条 > 200000 字符）",
         steps: [
-          { turn: 1, step: 1, content: [t("x".repeat(20_050) + "| a | b |")] },
+          { turn: 1, step: 1, content: [t("x".repeat(200_050) + "| a | b |")] },
         ],
         ends: [{ turn: 1, reason: "completed" }],
       },
@@ -328,6 +369,7 @@ test("对拍: 随机序列（确定性种子, 300 条 + 2000 条各一轮）", {
       "error",
       { kind: "completed" },
       undefined,
+      ...invalidReasons,
     ];
     const pool = [
       "",
@@ -372,10 +414,10 @@ test("对拍: 随机序列（确定性种子, 300 条 + 2000 条各一轮）", {
 });
 
 test(
-  "已知差异（登记在案, 不属于本次修复）: replace 丢弃 / 超长截断",
+  "已修复差异（原「已知差异（登记在案）」）: replace 丢弃 / 超限截断 + 告警",
   { skip },
   () => {
-    // ① replace: 显示面丢弃、插件面仍缓冲
+    // ① replace: 原为「显示面丢弃、插件面仍缓冲」；现已两侧都丢弃（rule-engine 2026-10-16 变更）
     const replaced = differ(
       [
         { turn: 1, step: 1, content: [t("被覆盖")], surfaceOp: "replace" },
@@ -384,15 +426,45 @@ test(
       [{ turn: 1, reason: "completed" }],
     );
     assert.equal(replaced.shown, "保留");
-    assert.equal(replaced.plugin, "被覆盖\n保留");
-    // ② 超长: 插件面截断到 20000、显示面全文
-    const long = "x".repeat(20_050) + "| a | b |";
+    assert.equal(
+      replaced.plugin,
+      "保留",
+      "replace 事件整条丢弃（原差异①已修复）",
+    );
+    assert.equal(replaced.plugin, replaced.modelPlugin, "replace 口径两侧一致");
+    // ② 超限: 原为「插件面截断到 20000、显示面全文」；现上限 200000，截断口径两侧一致
+    const long = "x".repeat(200_050) + "| a | b |";
     const over = differ(
       [{ turn: 1, step: 1, content: [t(long)] }],
       [{ turn: 1, reason: "completed" }],
     );
-    assert.equal(over.shown.length, long.length);
-    assert.equal(over.plugin.length, TEXT_LIMIT);
-    assert.equal(over.plugin, long.slice(0, TEXT_LIMIT));
+    assert.equal(over.shown.length, long.length, "显示面仍是全文");
+    assert.equal(over.plugin.length, TEXT_BUFFER_LIMIT, "插件面截断到新上限");
+    assert.equal(over.plugin, long.slice(0, TEXT_BUFFER_LIMIT));
+    assert.equal(
+      over.plugin,
+      over.modelPlugin,
+      "截断口径两侧一致（原差异②已修复）",
+    );
   },
 );
+
+test("对拍: 超限截断 / 非法 reason 的告警可观测（不静默）", { skip }, () => {
+  // 超限截断对消费者不透明 → 引擎必须告警，使差异可观测
+  const over = newHarness();
+  over.send(message(1, 1, [t("x".repeat(200_050))]));
+  over.send(turnEnd(1, "completed"));
+  assert.ok(
+    over.warns().some((line) => line.includes("超过上限")),
+    `应有超限告警，实际: ${JSON.stringify(over.warns())}`,
+  );
+  // 非法 reason → 不唤醒 + 告警（不再默默当成正常收尾）
+  const bad = newHarness();
+  bad.send(message(1, 1, [t("Y")]));
+  bad.send(turnEnd(1, 42));
+  assert.equal(bad.pluginText(), "", "非法 reason 不唤醒消费者");
+  assert.ok(
+    bad.warns().some((line) => line.includes("非法")),
+    `应有非法 reason 告警，实际: ${JSON.stringify(bad.warns())}`,
+  );
+});

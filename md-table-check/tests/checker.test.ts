@@ -351,3 +351,146 @@ test("列表项内缩进表格 → 报出", () => {
     { line: 4, role: "row", actual: 3 },
   ]);
 });
+
+// ---------------- 零散补钉: 围栏边界 / 裸反斜杠 / 转义竖线行 / 上限为 0（2026-10-16） ----------------
+
+test("围栏混用标记（``` 开 / ~~~ 闭）→ 栅栏行无条件翻转, 闭栅后的内容照常检查", () => {
+  // 开栅 ``` / 闭栅 ~~~: 与 TUI `build-box.ts:702-708` 同口径（不要求闭栅同前缀）
+  const mixed = lines(
+    "```",
+    "| a | b |",
+    "| --- |",
+    "~~~",
+    "| a | b |",
+    "| --- |",
+  );
+  const result = checkTables(mixed);
+  assert.equal(result.tableTotal, 1, "混用标记的闭栅之后, 真表格要照常报");
+  assert.equal(result.tables[0]!.headerLine, 5);
+  assert.deepEqual(result.tables[0]!.mismatches, [
+    { line: 6, role: "delim", actual: 1 },
+  ]);
+  // 围栏内（同样混用标记）的坏表仍不报
+  assert.equal(
+    checkTables(lines("```", "| a | b |", "| --- |", "~~~")).tableTotal,
+    0,
+    "围栏内的表不报",
+  );
+  // 反方向混用（~~~ 开 / ``` 闭）同判
+  assert.equal(
+    checkTables(
+      lines("~~~", "| a | b |", "| --- |", "```", "| a | b |", "| --- |"),
+    ).tableTotal,
+    1,
+    "~~~ 开 / ``` 闭 同样能闭合",
+  );
+  // 闭栅行本身不再开新围栏: 闭栅后紧跟的表照常检查
+  assert.equal(
+    checkTables(lines("```", "```", "| a | b |", "| --- |")).tableTotal,
+    1,
+  );
+});
+
+test("围栏变体（info string / 1-3 空格缩进 / 四反引号）→ 围栏内不报、闭栅后照常报", () => {
+  const variants: [string, string][] = [
+    ["```js", "```"],
+    [" ~~~", " ~~~"],
+    ["  ```", "  ```"],
+    ["   ```ts", "   ```"],
+    ["````", "````"],
+    ["~~~~", "~~~~"],
+  ];
+  for (const [open, close] of variants) {
+    const inside = lines(open, "| a | b |", "| --- |", close);
+    assert.equal(
+      checkTables(inside).tableTotal,
+      0,
+      `围栏内坏表不报: ${JSON.stringify(open)}`,
+    );
+    const after = checkTables(
+      lines(open, "| a | b |", "| --- |", close, "| a | b |", "| --- |"),
+    );
+    assert.equal(after.tableTotal, 1, `闭栅后照常报: ${JSON.stringify(open)}`);
+    assert.equal(after.tables[0]!.headerLine, 5, `表头行号: ${open}`);
+  }
+  // 4 空格缩进不算围栏（两侧 FENCE_RE 都只认 0-3 空格）→ 该行按普通文本走, 表被检查
+  const indented = checkTables(
+    lines("    ```", "| a | b |", "| --- |", "    ```"),
+  );
+  assert.equal(
+    indented.tableTotal,
+    1,
+    "4 空格缩进的「围栏」不是围栏（FENCE_RE 只认 0-3 空格）",
+  );
+});
+
+test("行尾裸反斜杠（转义吞字符的 next === undefined 分支）→ 不抛、与 TUI 同形", () => {
+  assert.equal(splitCells("a\\"), null, "无未转义竖线 → null");
+  assert.equal(hasCellPipe("a\\"), false, "行尾裸 `\\` 不构成竖线");
+  assert.deepEqual(
+    splitCells("| a\\"),
+    ["a\\"],
+    "行尾裸 `\\` 原样留在单元格里",
+  );
+  assert.deepEqual(splitCells("\\"), null);
+  // 表格里的行尾裸反斜杠: 不抛、列数照常（2 列 → 不报）
+  const text = lines("| a | b |", "| --- | --- |", "| 1 | 2\\");
+  assert.equal(checkTables(text).tableTotal, 0, "行尾裸 `\\` 不影响列数判定");
+});
+
+test("转义竖线 `\\|` 出现在数据行 / 分隔行 → 列数按实际格数判, 不误报", () => {
+  // 数据行 `1 \| 2` 只算 1 格 → 仍 2 列 → 不报
+  assert.equal(
+    checkTables(lines("| a | b |", "| --- | --- |", "| 1 \\| 2 | 3 |"))
+      .tableTotal,
+    0,
+    "数据行里的 `\\|` 不切分 → 仍 2 列",
+  );
+  // 数据行 `1 \| 2` 单独成格 → 1 列 vs 期望 2 列 → 报（转义被正确尊重）
+  const short = checkTables(lines("| a | b |", "| --- | --- |", "| 1 \\| 2 |"));
+  assert.equal(short.tableTotal, 1);
+  assert.deepEqual(short.tables[0]!.mismatches, [
+    { line: 3, role: "row", actual: 1 },
+  ]);
+  // 分隔行含 `\|` → 该格不是分隔格形状（`^:?-+:?$`）→ 整块不算表 → 不误报
+  assert.equal(
+    checkTables(lines("| a | b |", "| --- \\| --- |", "| 1 | 2 |")).tableTotal,
+    0,
+    "分隔行含转义竖线 → 整块不算表",
+  );
+  // 分隔行 `| --- | --- \| --- |` 同理: 第二格非分隔格形状
+  assert.equal(
+    checkTables(lines("| a | b |", "| --- | --- \\| --- |", "| 1 | 2 |"))
+      .tableTotal,
+    0,
+  );
+});
+
+test("上限为 0 的边界（钉住当前口径; 与提示语义的不一致见注释, 本次不改行为）", () => {
+  const text = lines("| a | b |", "| --- |");
+  // maxTables: 0 —— 计数不受上限影响（tableTotal / lineTotal 仍全量）, 但列表面为空
+  const zeroTables = checkTables(text, { maxTables: 0 });
+  assert.equal(zeroTables.tableTotal, 1, "计数仍全量");
+  assert.equal(zeroTables.lineTotal, 1);
+  assert.equal(zeroTables.tables.length, 0, "列表面受 maxTables 约束");
+  // 於是「判定说有」但提示为 null（**已知语义不一致**: 0 会被非负整数闸门放行, 用作「全禁」时
+  // 表现为静默不报）。本次只钉口径, 不改行为; 建议见 README 与追踪报告。
+  assert.equal(renderFeedback(text, { maxTables: 0 }), null);
+  assert.equal(
+    renderFeedback(text, { maxTables: 1 }) !== null,
+    true,
+    "对照: 1 正常",
+  );
+  // headerExcerptLimit: 0 —— 摘录只剩省略号（截断到 0 字 + `…`）
+  const zeroExcerpt = renderFeedback(text, {
+    maxTables: 1,
+    headerExcerptLimit: 0,
+  });
+  assert.notEqual(zeroExcerpt, null);
+  assert.match(zeroExcerpt!.text, /：`…` 期望 2 列/);
+  // 对照: 上限足够时摘录是表头原文
+  assert.match(
+    renderFeedback(text, { maxTables: 1, headerExcerptLimit: 60 })!.text,
+    /：`\| a \| b \|` 期望 2 列/,
+  );
+});

@@ -146,19 +146,19 @@ export function checkTables(text: string, options?: CheckOptions): CheckResult {
   const tables: TableColumnIssue[] = [];
   let tableTotal = 0;
   let lineTotal = 0;
-  /** 非 null = 当前在围栏内（值为开栅标记，闭栅要求同前缀） */
-  let fenceMarker: string | null = null;
+  /** 当前是否在围栏内（栅栏行无条件翻转，见下） */
+  let inFence = false;
   let i = 0;
   while (i < lines.length) {
     const line = lines[i]!;
-    const fence = FENCE_RE.exec(line);
-    if (fence !== null) {
-      if (fenceMarker === null) fenceMarker = fence[1]!;
-      else if (line.trimStart().startsWith(fenceMarker)) fenceMarker = null;
+    if (FENCE_RE.test(line)) {
+      // 栅栏行无条件翻转（不要求闭栅同前缀）——与 TUI `build-box.ts:702-708` 同口径，
+      // 故「``` 开 / ~~~ 闭」这类混用标记也能正确闭合（2026-10-16 用户裁定）。
+      inFence = !inFence;
       i += 1;
       continue;
     }
-    if (fenceMarker !== null) {
+    if (inFence) {
       i += 1;
       continue;
     }

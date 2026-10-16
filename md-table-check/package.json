@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tests/tsconfig.json",
+    "check:no-cross-emit": "test -z \"$(git status --porcelain -- ../rule-engine/src ../TUI/src)\"",
     "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
   },
   "devDependencies": {
