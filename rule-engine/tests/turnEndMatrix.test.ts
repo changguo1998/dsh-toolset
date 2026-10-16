@@ -3,12 +3,10 @@
  *
  * 固定「哪些收尾原因会唤醒消费者 / 规则、哪些不会」的完整矩阵，含：
  * - `assistant-text` 与 `turn-end` 两个文本类节点各自的矩阵；
- * - 字符串形态与对象形态（`{ kind }`）的 `reason`；
+ * - 字符串形态与对象形态（`{ kind }`）的 `reason`（对象按 `kind` 归一，TUI 侧 `turnEndReason` 同口径）；
  * - **`reason` 缺省**（事件不带该字段）→ 按 `completed` 处理（照常唤醒）；
- * - 未知值 / 空串 / 非字符串非对象 → 不唤醒；
- * - **非字符串形态的已知缺陷**（已登记 `rule-engine/docs/BACKLOG.md`）: `reason` 只有「非空字符串」才会被
- *   按字面判定, `{ kind: "aborted" }` / `null` / `42` / `true` 等一律回退缺省 `completed` → **仍会唤醒**;
- *   本文件把该现状显式固定, 待修复（先按 `reason.kind` 归一）后改断言;
+ * - 未知字符串 / 空串 → 不唤醒（不告警）；**非法值**（`{}` / `null` / 数字 / 布尔 / 数组 / `kind` 非字符串）
+ *   → 不唤醒**且告警**（文案含 `reason` 与「非法」，消费者侧可观测）；
  * - 畸形事件（无 `type` / `data` 非对象）安全跳过。
  *
  * 证据与结论见追踪文档 `docs/implementation/2026-10-16-three-surface-text-consistency.md` 任务 C。
@@ -55,9 +53,11 @@ function runOnce(endEvent: SessionEventLike): {
   ruleInjections: number;
   consumerCalls: number;
   consumerText: string;
+  warnings: string[];
 } {
   const dir = mkdtempSync(path.join(tmpdir(), "turn-end-matrix-"));
   const injected: InjectionRequest[] = [];
+  const warnings: string[] = [];
   let consumerCalls = 0;
   let consumerText = "";
   try {
@@ -65,7 +65,7 @@ function runOnce(endEvent: SessionEventLike): {
       baseline: [textRule()],
       stateDir: dir,
       injector: { inject: (request) => injected.push(request) },
-      warn: () => {},
+      warn: (message) => warnings.push(message),
     });
     engine.registerConsumer({
       id: "probe",
@@ -80,7 +80,7 @@ function runOnce(endEvent: SessionEventLike): {
     } satisfies ConsumerRegistration);
     engine.handle(SESSION, assistantMessage(1, "回合正文"));
     engine.handle(SESSION, endEvent);
-    return { ruleInjections: injected.length, consumerCalls, consumerText };
+    return { ruleInjections: injected.length, consumerCalls, consumerText, warnings };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -141,35 +141,58 @@ test("P3 触发矩阵：不可唤醒的收尾原因 → 规则与消费者都不
   }
 });
 
-test("P3 触发矩阵（已知缺陷固定）：非字符串形态的不可注入 reason 仍会唤醒", () => {
-  // 现状: 只有「非空字符串」按字面判定; 对象 / null / 数字 / 布尔一律回退缺省 "completed" → 仍唤醒。
-  // 与字符串形态对照: 同语义的 `"aborted"` 正确不唤醒。已登记条目; 修复后本用例断言需反转。
-  const nonString: [string, unknown][] = [
+test("P3 触发矩阵：reason 归一（对象读 kind；非法值不唤醒且告警）", () => {
+  // 对象形态：读 `kind` 后判定，与同语义的字符串形态一致（不再是「回退 completed」）
+  const kindNotInjectable: [string, unknown][] = [
     ["{ kind: 'aborted' }", { kind: "aborted" }],
     ["{ kind: 'error' }", { kind: "error" }],
     ["{ kind: 'interrupted' }", { kind: "interrupted" }],
     ["{ kind: 'forked' }", { kind: "forked" }],
+  ];
+  for (const [label, reason] of kindNotInjectable) {
+    const result = runOnce({ type: "turn/end", data: { turn: 1, reason } });
+    assert.equal(result.ruleInjections, 0, `${label}: 不注入`);
+    assert.equal(result.consumerCalls, 0, `${label}: 不唤醒消费者`);
+    assert.deepEqual(result.warnings, [], `${label}: 合法形态不告警`);
+  }
+
+  // 非法值：不唤醒 + 一条告警（文案含 `reason` 与「非法」）
+  const hostile = Object.create(null) as Record<string, unknown>;
+  hostile["toJSON"] = () => {
+    throw new Error("json boom");
+  };
+  const illegal: [string, unknown][] = [
     ["{}（无 kind）", {}],
+    ["{ kind: 42 }（kind 非字符串）", { kind: 42 }],
+    ["[]（数组）", []],
     ["null", null],
     ["42", 42],
     ["true", true],
+    ["{ kind: 1n }（不可 JSON 序列化的值）", { kind: 1n }],
+    ["无原型对象（连 String 都抛）", hostile],
   ];
-  for (const [label, reason] of nonString) {
+  for (const [label, reason] of illegal) {
     const result = runOnce({ type: "turn/end", data: { turn: 1, reason } });
-    assert.equal(result.ruleInjections, 1, `已知缺陷固定: ${label} 当前仍注入`);
-    assert.equal(
-      result.consumerCalls,
-      1,
-      `已知缺陷固定: ${label} 当前仍唤醒消费者`,
-    );
+    assert.equal(result.ruleInjections, 0, `${label}: 不注入`);
+    assert.equal(result.consumerCalls, 0, `${label}: 不唤醒消费者`);
+    assert.equal(result.warnings.length, 1, `${label}: 恰一条告警`);
+    assert.match(result.warnings[0] ?? "", /reason/, `${label}: 告警含 reason`);
+    assert.match(result.warnings[0] ?? "", /非法/, `${label}: 告警含「非法」`);
   }
-  // 对照: 同语义的字符串形态
-  for (const reason of ["aborted", "error", "interrupted", "forked"]) {
+
+  // 字符串语义不变：不注入的照旧不注入（且不告警——是合法字符串，只是不可注入）
+  for (const reason of ["aborted", "error", "interrupted", "forked", ""]) {
     const asString = runOnce({ type: "turn/end", data: { turn: 1, reason } });
-    assert.equal(asString.ruleInjections, 0, `字符串形态 ${reason} 正确不注入`);
+    assert.equal(asString.ruleInjections, 0, `字符串形态 ${reason} 不注入`);
+    assert.deepEqual(asString.warnings, [], `字符串形态 ${reason} 不告警`);
   }
-  const empty = runOnce({ type: "turn/end", data: { turn: 1, reason: "" } });
-  assert.equal(empty.ruleInjections, 0, "空串不注入（非空字符串判定的边界）");
+  const completed = runOnce({
+    type: "turn/end",
+    data: { turn: 1, reason: "completed" },
+  });
+  assert.equal(completed.ruleInjections, 1, "字符串 completed 照常注入");
+  assert.equal(completed.consumerCalls, 1, "字符串 completed 照常唤醒");
+  assert.deepEqual(completed.warnings, []);
 });
 
 test("P3 触发矩阵：异常收尾后同一回合的缓冲被清理（下一回合不带旧正文）", () => {

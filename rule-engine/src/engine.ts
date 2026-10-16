@@ -64,7 +64,7 @@ import type {
 } from "./types.ts";
 
 /** 单条 `assistant/message` 正文的缓冲上限（字符），超出截断（防长回复把内存撑大）。 */
-const TEXT_BUFFER_LIMIT = 20_000;
+const TEXT_BUFFER_LIMIT = 200_000;
 
 /** 保留的回合缓冲数（只留最近几回合）。 */
 const TURN_BUFFER_KEEP = 4;
@@ -505,6 +505,9 @@ export class RuleEngine {
         const state = this.#session(sessionId);
         const turn = numberOr(data["turn"], state.turn);
         state.turn = Math.max(state.turn, turn);
+        // `surfaceOp: "replace"` 的影子覆盖事件不进回合正文——与 TUI 显示面一致（该 step 正文在
+        // 画面上被覆盖、不存在），否则消费者会要求「修正」用户看不到的内容。
+        if (surfaceOpOf(event, data) === "replace") return;
         this.#buffer(state, turn, messageText(data["message"]));
         return;
       }
@@ -559,11 +562,10 @@ export class RuleEngine {
         const state = this.#session(sessionId);
         const turn = numberOr(data["turn"], state.turn);
         state.turn = Math.max(state.turn, turn);
-        const reason =
-          typeof data["reason"] === "string" ? data["reason"] : "completed";
+        const reason = this.#turnEndReason(data["reason"], turn);
         const text = (state.buffers.get(turn) ?? []).join("\n");
         this.#pruneBuffers(state, turn);
-        if (INJECTABLE_TURN_REASONS.has(reason)) {
+        if (reason !== null && INJECTABLE_TURN_REASONS.has(reason)) {
           this.#dispatch("assistant-text", text, sessionId, turn, event);
           this.#dispatch("turn-end", text, sessionId, turn, event);
         } else {
@@ -584,11 +586,36 @@ export class RuleEngine {
     }
   }
 
+  /**
+   * `turn/end` 的 `reason` 归一：字符串按字面判定（语义不变）；对象读 `kind`（宿主的结构化
+   * 判别联合形态，TUI 侧 `turnEndReason` 同口径）；缺省（事件不带该字段）按 `completed`。
+   * 其余非法值（`null` / 数字 / 布尔 / 空对象 / 数组 / `kind` 非字符串等）→ 返回 `null`，
+   * 调用方按「不唤醒」处理并在此告警（不再默默当成正常收尾）。
+   */
+  #turnEndReason(value: unknown, turn: number): string | null {
+    if (value === undefined) return "completed";
+    if (typeof value === "string") return value;
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      const kind = (value as { kind?: unknown }).kind;
+      if (typeof kind === "string") return kind;
+    }
+    this.#warn(
+      `回合 ${turn} 的 turn/end reason ${previewValue(value)} 非法（须为字符串或 { kind: string }），本回合不唤醒消费者与规则`,
+    );
+    return null;
+  }
+
   /** 回合正文缓冲（有文本类规则或已注册消费者时才缓冲，超长截断）。 */
   #buffer(state: SessionState, turn: number, text: string): void {
     if (text.length === 0) return;
     if (!this.#needsText()) return;
     const list = state.buffers.get(turn) ?? [];
+    if (text.length > TEXT_BUFFER_LIMIT) {
+      // 截断对消费者不透明（显示面是全文、插件面只有前缀）：显式告警，使差异可观测
+      this.#warn(
+        `回合 ${turn} 的单条 assistant/message 正文 ${text.length} 字符超过上限 ${TEXT_BUFFER_LIMIT}，已截断（消费者只看得到前 ${TEXT_BUFFER_LIMIT} 字符）`,
+      );
+    }
     list.push(text.slice(0, TEXT_BUFFER_LIMIT));
     state.buffers.set(turn, list);
   }
@@ -926,6 +953,32 @@ export class RuleEngine {
 /** 数值字段兜底（非有限数取 fallback）。 */
 function numberOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * `assistant/message` 的表面操作标记：宿主写在**事件顶层**（TUI 同口径读 `raw.surfaceOp`），
+ * 兼容放在 `data` 内的写法；两者都没有 / 非字符串时返回空串（= 非 replace）。
+ */
+function surfaceOpOf(event: unknown, data: Record<string, unknown>): string {
+  const top = (event as { surfaceOp?: unknown } | null)?.surfaceOp;
+  if (typeof top === "string") return top;
+  const inner = data["surfaceOp"];
+  return typeof inner === "string" ? inner : "";
+}
+
+/** 值的一行预览（JSON 优先；循环引用 / BigInt 等不可序列化值退化为 `String`）。 */
+function previewValue(value: unknown): string {
+  try {
+    const text = JSON.stringify(value);
+    if (typeof text === "string") return text;
+  } catch {
+    // 循环引用 / BigInt：落到 String 兜底
+  }
+  try {
+    return String(value);
+  } catch {
+    return "（无法序列化的值）";
+  }
 }
 
 /** 冷却参数兜底（非正有限数取 0）。 */

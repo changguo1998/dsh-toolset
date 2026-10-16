@@ -1,5 +1,6 @@
 /**
- * 持久化单测：round-trip、缺省、损坏 JSON、版本不符（拒载 + 拒写）、原子写无 .tmp 残留。
+ * 持久化单测：round-trip、缺省、损坏 JSON、版本不符（拒载 + 拒写）、原子写无 .tmp 残留、
+ * 缺省状态目录（`RULE_ENGINE_STATE_DIR` 与环境变量优先级）、`removed` 形状告警、写失败降级。
  */
 
 import assert from "node:assert/strict";
@@ -10,11 +11,12 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
 import {
+  defaultStateDir,
   emptyLayer,
   loadLayer,
   saveLayer,
@@ -126,5 +128,55 @@ test("loadLayer：缺 state 段按空层处理", () => {
     const loaded = loadLayer(dir);
     assert.deepEqual(loaded.layer, emptyLayer());
     assert.match(loaded.warnings[0] ?? "", /缺少 state 段/);
+  });
+});
+
+test("defaultStateDir：RULE_ENGINE_STATE_DIR 优先，缺省 ~/.dsh/rule-engine（纯读，不写盘）", () => {
+  withTmpDir((dir) => {
+    const previous = process.env["RULE_ENGINE_STATE_DIR"];
+    const fromEnv = path.join(dir, "env-state");
+    try {
+      process.env["RULE_ENGINE_STATE_DIR"] = fromEnv;
+      assert.equal(defaultStateDir(), fromEnv, "环境变量优先");
+      assert.equal(existsSync(fromEnv), false, "取缺省目录不得真实写盘");
+      delete process.env["RULE_ENGINE_STATE_DIR"];
+      assert.equal(
+        defaultStateDir(),
+        path.join(homedir(), ".dsh", "rule-engine"),
+        "无环境变量 → 用户目录下的插件目录",
+      );
+    } finally {
+      if (previous === undefined) delete process.env["RULE_ENGINE_STATE_DIR"];
+      else process.env["RULE_ENGINE_STATE_DIR"] = previous;
+    }
+  });
+});
+
+test("loadLayer：removed 不是数组 → 记 warning 并忽略（rules 仍照常读）", () => {
+  withTmpDir((dir) => {
+    writeFileSync(
+      statePathFor(dir),
+      JSON.stringify({
+        version: STATE_VERSION,
+        state: { rules: [], removed: "nope" },
+      }),
+      "utf8",
+    );
+    const loaded = loadLayer(dir);
+    assert.deepEqual(loaded.layer, { rules: [], removed: [] });
+    assert.equal(loaded.warnings.length, 1);
+    assert.match(loaded.warnings[0] ?? "", /removed 不是数组/);
+    assert.equal(loaded.readOnly, false);
+  });
+});
+
+test("saveLayer：写失败降级为 { ok: false, warning }（父路径是文件 → mkdir 失败）", () => {
+  withTmpDir((dir) => {
+    const blocking = path.join(dir, "blocked");
+    writeFileSync(blocking, "not a directory", "utf8");
+    const saved = saveLayer(path.join(blocking, "nested"), layer);
+    assert.equal(saved.ok, false);
+    assert.match(saved.warning ?? "", /状态写入失败/);
+    assert.match(saved.warning ?? "", /nested/);
   });
 });

@@ -1,6 +1,7 @@
 /**
  * 注入器单测：消息构造合规（id / content / source.kind 三项硬要求）、推迟宏任务、
  * 三条送达路径（followup / inject / steer；宿主缺 steer 时回退 inject）、
+ * 合并注入的多段 `summaries`、缺省告警出口（stderr）、
  * 宿主面缺失与异常兜底（只 warning 不抛）。
  */
 
@@ -10,6 +11,7 @@ import { test } from "node:test";
 import {
   buildInjectionMessage,
   createAgentInjector,
+  defaultWarn,
   INJECTION_PREFIX,
   SOURCE_KIND,
   type InjectionHost,
@@ -120,6 +122,38 @@ test("buildInjectionMessage：id 非空 / content 数组 / source.kind 非空 + 
   // 两次构造 id 不同（唯一性）
   const other = buildInjectionMessage("x", "x") as { id: string };
   assert.notEqual(message.id, other.id);
+});
+
+test("buildInjectionMessage：多段合并时才带 summaries（单段省略）", () => {
+  const merged = buildInjectionMessage("A\n\nB", "A", [
+    "A",
+    "B",
+  ]) as { source: { summary: string; summaries?: string[] } };
+  assert.equal(merged.source.summary, "A", "合并注入取首段摘要");
+  assert.deepEqual(merged.source.summaries, ["A", "B"]);
+  const single = buildInjectionMessage("A", "A", ["A"]) as {
+    source: { summaries?: string[] };
+  };
+  assert.equal(
+    single.source.summaries,
+    undefined,
+    "单段与 summary 相同 → 省略 summaries",
+  );
+});
+
+test("defaultWarn：缺省告警出口带 [rule-engine] 前缀写 stderr", () => {
+  const chunks: string[] = [];
+  const original = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    defaultWarn("测试告警");
+  } finally {
+    process.stderr.write = original;
+  }
+  assert.deepEqual(chunks, ["[rule-engine] warn: 测试告警\n"]);
 });
 
 test("createAgentInjector：同步不调用宿主，宏任务后 followup + flush", async () => {
@@ -294,4 +328,50 @@ test("createAgentInjector：flush 关闭句柄（SessionHandleClosed）静默；
   await tick();
   assert.equal(warnings2.length, 1, "其它 flush 失败仍 warn");
   assert.match(warnings2[0] ?? "", /flush 失败/);
+});
+
+test("createAgentInjector：agent 不支持 followup → 跳过并记 warning", async () => {
+  const injected: unknown[] = [];
+  const warnings: string[] = [];
+  createAgentInjector(
+    {
+      agents: {
+        get: () => ({
+          session: {},
+          inject: (m: unknown) => injected.push(m),
+        }),
+      },
+      sessions: { flush: () => Promise.resolve() },
+    },
+    { warn: (m) => warnings.push(m) },
+  ).inject(request());
+  await tick();
+  assert.deepEqual(injected, [], "不支持的路径不注入（不回退其它路径）");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /不支持 followup/);
+});
+
+test("createAgentInjector：flush 同步抛错 → 记 warning，注入本身已完成", async () => {
+  const calls: unknown[] = [];
+  const warnings: string[] = [];
+  createAgentInjector(
+    {
+      agents: {
+        get: () => ({
+          session: {},
+          followup: (m: unknown) => calls.push(m),
+        }),
+      },
+      sessions: {
+        flush: () => {
+          throw new Error("flush boom");
+        },
+      },
+    },
+    { warn: (m) => warnings.push(m) },
+  ).inject(request());
+  await tick();
+  assert.equal(calls.length, 1, "注入已追加（不因 flush 抛错回退）");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /flush 抛错/);
 });

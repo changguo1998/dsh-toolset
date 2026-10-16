@@ -2,7 +2,9 @@
  * 插件入口端到端单测：apply 的结构面接线（事件订阅 / 工具族注册 / provide 服务与消费者注册）
  * 与真实注入器链路（session/event → 推迟宏任务 → followup/inject → flush）。
  *
- * 用假 ctx（结构面对象）覆盖 main.ts，无需 DSH 宿主。
+ * 用假 ctx（结构面对象）覆盖 main.ts，无需 DSH 宿主。含降级与兜底分支：ctx 面抛错（created 订阅 /
+ * 工具族注册 / provide / 严格模式读取 / 初始化）、告警展示通道订阅者抛错、装载期告警挂起上限 64、
+ * 记录读面缺失 fail-open。
  */
 
 import assert from "node:assert/strict";
@@ -693,6 +695,229 @@ test("render 形参顺序哨兵：5 个工具逐个覆盖（变异回单形参�
         `${def.name}：第一参（args）不该被当成 value 渲染`,
       );
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ── 降级与兜底分支（catch / 缺省读面 / 装载期告警上限） ─────────────────── */
+
+/** 临时接管 stderr，返回收集到的分片与还原函数。 */
+function captureStderr(): { chunks: string[]; restore: () => void } {
+  const chunks: string[] = [];
+  const original = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  return {
+    chunks,
+    restore: () => {
+      process.stderr.write = original;
+    },
+  };
+}
+
+test("apply：装载期告警挂起上限 64（超出丢弃最早，重放保留最后 64 条）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-pending-cap-"));
+  // 70 条坏规则 → 70 条装载告警（无订阅者时逐条写 stderr，同时挂起待重放）
+  writeFileSync(
+    path.join(dir, "rules.json"),
+    JSON.stringify({
+      version: 1,
+      state: {
+        rules: Array.from({ length: 70 }, () => ({ id: "" })),
+        removed: [],
+      },
+    }),
+    "utf8",
+  );
+  const stderr = captureStderr();
+  try {
+    const fake = fakeCtx();
+    await apply(fake.ctx, { stateDir: dir });
+    const loadingWarnings = stderr.chunks.filter((line) =>
+      /runtime 层规则跳过/.test(line),
+    );
+    assert.equal(loadingWarnings.length, 70, "headless 兜底逐条写 stderr");
+    const service = fake.provided.get("ruleEngine") as {
+      onNotice(listener: (event: { text: string }) => void): () => void;
+    };
+    const notices: string[] = [];
+    service.onNotice((event) => notices.push(event.text));
+    assert.equal(notices.length, 64, "挂起上限 64：超出部分丢弃最早");
+    assert.equal(
+      notices[0],
+      (loadingWarnings[6] ?? "").trimEnd(),
+      "保留的是最后 64 条（第 7 条起）",
+    );
+  } finally {
+    stderr.restore();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("apply：ctx 面抛错只告警不抛（created 订阅 / 工具族注册 / provide / 严格读 / 初始化）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-degrade-"));
+  const stderr = captureStderr();
+  try {
+    // ① session/created 订阅抛错 + 工具族注册抛错：核心事件订阅已生效，只降级告警
+    const fake = fakeCtx();
+    await apply(
+      {
+        ...fake.ctx,
+        on: (event: string, cb: unknown) => {
+          if (event === "session/created") throw new Error("created boom");
+          fake.ctx.on(
+            event,
+            cb as (session: SessionLike, event: SessionEventLike) => void,
+          );
+        },
+        get: (name: string) =>
+          name === "tools"
+            ? {
+                register: () => {
+                  throw new Error("register boom");
+                },
+              }
+            : fake.ctx.get(name),
+      },
+      { stateDir: dir },
+    );
+    const text = stderr.chunks.join("");
+    assert.match(text, /session\/created 订阅失败/);
+    assert.match(text, /工具族注册失败/);
+
+    // ② provide 抛错：查询面降级，不影响其余
+    const fake2 = fakeCtx();
+    await apply(
+      {
+        ...fake2.ctx,
+        provide: () => {
+          throw new Error("provide boom");
+        },
+      },
+      { stateDir: dir },
+    );
+    assert.match(stderr.chunks.join(""), /提供 ruleEngine 服务失败/);
+
+    // ③ 初始化失败（config.rules 取值即抛）→ 外层兜底告警
+    const hostileConfig = {} as Config;
+    Object.defineProperty(hostileConfig, "rules", {
+      get() {
+        throw new Error("config boom");
+      },
+    });
+    await apply(fakeCtx().ctx, hostileConfig);
+    assert.match(stderr.chunks.join(""), /初始化失败/);
+
+    // ④ ctx.get 抛错（cordis 严格模式）→ readOptional 兜底：工具族降级告警，不抛
+    const fake4 = fakeCtx();
+    await apply(
+      {
+        ...fake4.ctx,
+        get: () => {
+          throw new Error("strict mode boom");
+        },
+      },
+      { stateDir: dir },
+    );
+    assert.match(stderr.chunks.join(""), /ctx\.tools 不可用/);
+  } finally {
+    stderr.restore();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("apply：告警展示通道的订阅者抛错被忽略（不影响告警链路与其它订阅者）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-notice-throw-"));
+  // 两条装载期告警（挂起 → 首个订阅者注册时重放）
+  writeFileSync(
+    path.join(dir, "rules.json"),
+    JSON.stringify({
+      version: 1,
+      state: { rules: "nope", removed: "nope" },
+    }),
+    "utf8",
+  );
+  const stderr = captureStderr();
+  try {
+    const fake = fakeCtx();
+    await apply(fake.ctx, { stateDir: dir });
+    const service = fake.provided.get("ruleEngine") as {
+      registerConsumer(input: { id: string; decide(): null }): () => void;
+      onNotice(listener: (event: { text: string }) => void): () => void;
+    };
+    let throwingCalls = 0;
+    assert.doesNotThrow(() => {
+      service.onNotice(() => {
+        throwingCalls += 1;
+        throw new Error("listener boom");
+      });
+    });
+    assert.equal(throwingCalls, 2, "重放两条挂起告警，逐条抛错被忽略");
+
+    // 有订阅者时的实时告警：抛错的订阅者不影响另一个
+    const received: string[] = [];
+    service.onNotice((event) => received.push(event.text));
+    service.registerConsumer({ id: "", decide: () => null });
+    assert.equal(received.length, 1, "另一个订阅者照常收到实时告警");
+    assert.match(received[0] ?? "", /id 必须是非空字符串/);
+  } finally {
+    stderr.restore();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("apply：记录读面缺失 fail-open（缺 sessionProjections / 会话取不到 → 照旧注入）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-readface-"));
+  const registerGuide = (fake: ReturnType<typeof fakeCtx>): void => {
+    const service = fake.provided.get("ruleEngine") as {
+      registerConsumer(input: {
+        id: string;
+        sources: readonly string[];
+        delivery?: string;
+        dedupeInRecord?: number;
+        decide(): { text: string; summary: string } | null;
+      }): () => void;
+    };
+    service.registerConsumer({
+      id: "guide",
+      sources: ["step-end"],
+      delivery: "steer",
+      dedupeInRecord: 1,
+      decide: () => ({ text: "指南", summary: "指南" }),
+    });
+  };
+  try {
+    // ① ctx.get("sessionProjections") 返回 undefined：inbox 读面整个缺失
+    const fakeA = fakeCtx();
+    await apply(
+      {
+        ...fakeA.ctx,
+        get: (name: string) =>
+          name === "tools" ? fakeA.ctx.get(name) : undefined,
+      },
+      { stateDir: dir },
+    );
+    registerGuide(fakeA);
+    fakeA.listener?.({ id: "s1" }, { type: "step/end", data: { turn: 1 } });
+    await tick();
+    assert.equal(fakeA.steers.length, 1, "读面缺失 → 照旧注入（fail-open）");
+
+    // ② 有 projections 但 sessions.get 取不到会话（session 为空）→ 同样 fail-open
+    const fakeB = fakeCtx();
+    await apply(
+      {
+        ...fakeB.ctx,
+        sessions: { ...fakeB.ctx.sessions, get: () => undefined },
+      },
+      { stateDir: dir },
+    );
+    registerGuide(fakeB);
+    fakeB.listener?.({ id: "s1" }, { type: "step/end", data: { turn: 1 } });
+    await tick();
+    assert.equal(fakeB.steers.length, 1, "会话取不到 → 照旧注入（fail-open）");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

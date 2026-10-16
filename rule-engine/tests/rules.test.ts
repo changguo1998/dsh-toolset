@@ -169,6 +169,22 @@ test("normalizeRule：节流字段非法取缺省并记 warning", () => {
   assert.equal(result.warnings.length, 2);
 });
 
+test("normalizeRule：match 非对象 / directWrite 非数组 → 降级为空并记 warning", () => {
+  const matchResult = normalizeRule(ruleInput({ match: "nope" }));
+  assert.equal(matchResult.ok, true);
+  if (!matchResult.ok) return;
+  assert.deepEqual(matchResult.rule.match, {}, "match 非对象按空条件处理");
+  assert.ok(matchResult.warnings.some((w) => /match 不是对象/.test(w)));
+
+  const directWriteResult = normalizeRule(ruleInput({ directWrite: "nope" }));
+  assert.equal(directWriteResult.ok, true);
+  if (!directWriteResult.ok) return;
+  assert.deepEqual(directWriteResult.rule.directWrite, []);
+  assert.ok(
+    directWriteResult.warnings.some((w) => /directWrite 不是数组/.test(w)),
+  );
+});
+
 test("effectiveRules：基线 + 运行时覆盖 + 屏蔽 + 顺序", () => {
   const baseline = [
     ruleInput({ id: "a", action: { type: "inject", text: "A" } }),

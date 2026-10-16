@@ -6,7 +6,9 @@
  *   且磁盘文件不被改写;
  * - **只读面无副作用**：`list()` / `status()` / `summaries()` 调用不产生注入、不影响后续节流记账;
  * - **节流去重**：`dedupeInRecord` = 1 且记录里已有同摘要 → 跳过; = 0 → 照旧注入;
- * - **每回合上限**：`maxInjectionsPerTurn` = 1 时同一回合只写一段（按注册顺序）;
+ * - **每回合上限**：`maxInjectionsPerTurn` = 1 时同一回合只写一段（按注册顺序）并留下上限告警文案；
+ * - **按 delivery 分组**：同回合 `steer` + `followup` 各合一条、互不混段；段数预算按「段」跨组共享
+ *   （上限 2 时第三组整段被丢弃并告警）；
  * - **注入链路**：`delivery: "inject"` 的请求带路径与 `consumer:<id>` 来源、正文/摘要正确;
  *   无 `summary` 时由正文首行折叠。
  *
@@ -167,12 +169,13 @@ test("P5 节流去重：dedupeInRecord = 1 且记录已有同摘要 → 跳过; 
 test("P5 每回合上限：maxInjectionsPerTurn = 1 时同一回合只写一段（按注册顺序）", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-cap-"));
   const injected: InjectionRequest[] = [];
+  const warnings: string[] = [];
   try {
     const engine = new RuleEngine({
       baseline: [],
       stateDir: dir,
       injector: { inject: (request) => injected.push(request) },
-      warn: () => {},
+      warn: (message) => warnings.push(message),
       maxInjectionsPerTurn: 1,
     });
     engine.registerConsumer(fixedConsumer("c1", "第一段"));
@@ -180,6 +183,93 @@ test("P5 每回合上限：maxInjectionsPerTurn = 1 时同一回合只写一段�
     runTurn(engine, 1);
     assert.equal(injected.length, 1, "上限 1 → 只写一段");
     assert.equal(injected[0]!.text, "第一段", "取注册顺序里的第一段");
+    assert.equal(warnings.length, 1, "被跳过的段有且仅有一条告警");
+    assert.match(
+      warnings[0] ?? "",
+      /注入段数已达上限 1/,
+      "上限告警文案（消费者侧可观测）",
+    );
+    assert.match(warnings[0] ?? "", /consumer:c2/, "告警指出被跳过的来源");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("P5 分组注入：同回合 steer + followup 各合一条，段数预算跨组共享", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-group-"));
+  const injected: InjectionRequest[] = [];
+  const warnings: string[] = [];
+  try {
+    // ① 两个消费者分别 steer / followup，同回合触发 → 两条注入，各组合并、互不混段
+    const engine = new RuleEngine({
+      baseline: [],
+      stateDir: dir,
+      injector: { inject: (request) => injected.push(request) },
+      warn: (message) => warnings.push(message),
+    });
+    engine.registerConsumer(
+      fixedConsumer("steer-c", "转向段", { delivery: "steer" }),
+    );
+    engine.registerConsumer(
+      fixedConsumer("follow-c", "后续段", { delivery: "followup" }),
+    );
+    runTurn(engine, 1);
+    assert.equal(injected.length, 2, "两组各注入一条（不是两条合一条）");
+    assert.deepEqual(
+      injected.map((item) => item.delivery),
+      ["steer", "followup"],
+      "组序 = 段产生顺序（注册顺序）",
+    );
+    assert.deepEqual(
+      injected.map((item) => item.sourceId),
+      ["consumer:steer-c", "consumer:follow-c"],
+      "各组内的来源不跨组合并",
+    );
+    assert.equal(injected[0]!.text, "转向段");
+    assert.ok(
+      !injected[0]!.text.includes("后续段"),
+      "steer 组正文不含 followup 段",
+    );
+    assert.ok(
+      !injected[1]!.text.includes("转向段"),
+      "followup 组正文不含 steer 段",
+    );
+    // ② 段数预算按「段」跨组共享：上限 2 → 第三组（inject）整段被丢弃并告警
+    const capped: InjectionRequest[] = [];
+    const cappedWarnings: string[] = [];
+    const cappedEngine = new RuleEngine({
+      baseline: [],
+      stateDir: dir,
+      injector: { inject: (request) => capped.push(request) },
+      warn: (message) => cappedWarnings.push(message),
+      maxInjectionsPerTurn: 2,
+    });
+    cappedEngine.registerConsumer(
+      fixedConsumer("g-steer", "第一段", { delivery: "steer" }),
+    );
+    cappedEngine.registerConsumer(
+      fixedConsumer("g-follow", "第二段", { delivery: "followup" }),
+    );
+    cappedEngine.registerConsumer(
+      fixedConsumer("g-inject", "第三段", { delivery: "inject" }),
+    );
+    runTurn(cappedEngine, 1);
+    assert.deepEqual(
+      capped.map((item) => [item.delivery, item.text]),
+      [
+        ["steer", "第一段"],
+        ["followup", "第二段"],
+      ],
+      "上限 2 → 前两组各占一段，第三组被丢弃",
+    );
+    assert.ok(
+      cappedWarnings.some((w) => /注入段数已达上限 2/.test(w)),
+      `应有段数上限告警, 实际: ${JSON.stringify(cappedWarnings)}`,
+    );
+    assert.ok(
+      cappedWarnings.some((w) => /consumer:g-inject/.test(w)),
+      "告警指出被丢弃的第三段来源",
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

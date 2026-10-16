@@ -12,7 +12,7 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 
 | source | 判定时机 | 判定文本 |
 | --- | --- | --- |
-| `assistant-text`（缺省） | 回合结束（`turn/end`） | 该回合全部 `assistant/message` 正文按 step 顺序 **以 `\n` 连接**; 单条 step 正文超 20 000 字符**被截断**（见「已知限制」） |
+| `assistant-text`（缺省） | 回合结束（`turn/end`） | 该回合全部 `assistant/message` 正文按 step 顺序 **以 `\n` 连接**; `surfaceOp: "replace"` 的影子覆盖事件**不进缓冲**（与 TUI 显示面一致）; 单条 step 正文超 200 000 字符**被截断并发告警**（见「已知限制」） |
 | `user-message` | `user/message` 到达 | 用户消息 text 块（本引擎自己的注入消息被排除，避免自触发） |
 | `tool-call` | `tool/call` 到达 | 工具名 + 模型原始参数 JSON 串 |
 | `tool-result` | `tool/result` 到达 | 工具结果消息的 text 块 |
@@ -25,7 +25,7 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 
 `compaction` 只认一次压缩的**终态** `compaction/end`（`compaction/start` / `compaction/summary` / `compaction/prune` 不触发），避免同一次压缩重复判定。
 
-`turn/end` 的 `reason` 为 `aborted` / `error` / `interrupted` / `forked` 时不唤醒（只认 `completed` / `max-tokens`）；**`reason` 缺省（事件未带该字段）按 `completed` 处理 = 照常唤醒**（2026-10-16 差分对拍实测）；**注意**：`reason` 只在「非空字符串」时按字面判定, 对象形态（如 `{ kind: "aborted" }`）与 `null` / 数字当前会回退成 `completed` 而照常唤醒 —— 已登记条目（见 `docs/BACKLOG.md`）；边界类新节点不受 `reason` 限制，到达即按对齐 flag 判据处理。
+`turn/end` 的 `reason` **先归一**再判定：字符串按字面；对象形态读 `reason.kind`（与 TUI 侧 `turnEndReason` 同口径）。归一到 `aborted` / `error` / `interrupted` / `forked` 时不唤醒（只认 `completed` / `max-tokens`）；**`reason` 缺省（事件未带该字段）按 `completed` 处理 = 照常唤醒**（2026-10-16 差分对拍实测）；**非法值**（`null` / 数字 / 布尔 / 空对象 / `kind` 非字符串等）**按「不唤醒」处理并发一条告警**（文案含 `reason` 与「非法」，2026-10-16 修正，用例见 `tests/turnEndMatrix.test.ts`）；边界类新节点不受 `reason` 限制，到达即按对齐 flag 判据处理。
 
 **每回合必须发 `turn/start`**：`*-end` 节点的对齐 flag 只由 `*-start` 节点清零（`#bookkeepStart`）；若宿主省略 `turn/start`，同一会话从第 2 个回合起 `turn/end` 会被当成重复而**不再唤醒**消费者（2026-10-16 实测, 用例见 `tests/bufferBoundary.test.ts` 的「bookkeep 清零点」）。
 
@@ -187,14 +187,14 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 - `inject` 路径需要宿主 rc.2+（`agent.inject`）；旧宿主上记 warning 跳过（不回退 followup）。`steer` 缺 API 时回退 `inject` 并记 warning（内容不丢，只是不唤醒）。
 - 节流记账是**进程内**内存态：`dsh` 重启后 cooldown 计数清零（规则本身持久化）；需要跨重启不重复的规则用 `dedupeInRecord`（按会话记录去重：可见投影 + 未消费 inbox）。
 - 逐 delta 实时匹配未实现：文本类规则只在回合结束判定（实时需订阅 `agent/assistant-stream`）。
-- **观测口径与 TUI 显示不完全一致（2026-10-16 实测）**：显示面是各 step 正文**直接相接**（TUI 丢弃 `surfaceOp: "replace"` 的正文、但空白 step 照常显示）, 而本引擎的 `assistant-text` 是各 step 正文用 `\n` 连接（N step 多 N-1 个换行）**且不看 `surfaceOp`**。因此: ① 行号 / 片段定位可能与界面差若干字符; ② 被 replace 覆盖的内容仍会被判定（可能要求「修正」屏幕上不存在的内容）; ③ 单条 step 超 20 000 字符时判定只见截断后的前缀。前两项见下条与 BACKLOG, 属已登记问题。
+- **观测口径与 TUI 显示不完全一致（2026-10-16 实测，同日修正并放宽两项）**：显示面是各 step 正文**直接相接**（TUI 丢弃 `surfaceOp: "replace"` 的正文、但空白 step 照常显示）, 而本引擎的 `assistant-text` 是各 step 正文用 `\n` 连接（N step 多 N-1 个换行）。因此行号 / 片段定位可能与界面差若干字符。两项已处理: ① `surfaceOp: "replace"` 的消息**不进缓冲**（与显示面一致，不再要求「修正」屏幕上不存在的内容）; ② 单条 step 超 200 000 字符时判定只见截断后的前缀，**截断时发一条告警**（文案含「截断」与上限数字），不再静默丢内容。
 
 ## 开发
 
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # 编译到 dist/
-npm test        # node --test（87 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 插件入口）
+npm test        # node --test（140 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 模型面工具族 / 插件入口）
 npm run demo    # mock 事件流跑「规则命中 → 注入」，不依赖 DSH
 ```
 
