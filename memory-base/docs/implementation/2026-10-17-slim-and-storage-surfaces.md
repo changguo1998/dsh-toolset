@@ -152,9 +152,7 @@ search(opts: { query: string; kind?: string; tier?: Tier; project?: string; limi
 - a) 保持缺省关闭；单库模式下没有层级，`tier` 参数被忽略（写明口径）
 - b) 要求必须开 `tiers`
 
-**~~选定 a~~（已由 2026-10-17 二 / 三次裁定取代）**。原理由：`README.md:76` 的既有理由 —— 不静默在项目里建 `.dsh/`、不在家目录建库。
-**取代者（2026-10-17 二次裁定）**：层级**缺省开启**，但库文件**惰性创建**（只在实际需要写时才创建） —— 原反对理由（静默建库）由「懒创建」消解，故不再需要「缺省关闭」；同时取消「偏好分析落地前需在 profile 打开 `tiers`」这条前置。
-**再取代（2026-10-17 三次裁定）**：连开关也不加 —— 层级**恒开启**，不存在单库形态，`tiers.enabled` 与 `dbPath` 一并去掉（见「范围裁定」的三次裁定）。
+**~~选定 a~~ → 已被取代（2026-10-17 二 / 三次裁定）**：层级**恒开启**、不存在单库形态，`tiers.enabled` 与 `dbPath` 一并去掉；库文件**惰性创建**（首次写该层才建），原「不静默建库」的反对理由由懒创建消解，连带取消「偏好分析落地前需在 profile 打开 `tiers`」这条前置（见「范围裁定」的二 / 三次裁定）。
 
 决策项 8　瘦身与偏好分析的顺序（沿用 D20）
 
@@ -188,13 +186,11 @@ search(opts: { query: string; kind?: string; tier?: Tier; project?: string; limi
 决策项 11　S 层落点的取得方式（2026-10-17 用户三次追加裁定）
 
 - a) 句柄收 `cwd?`，memory-base 自己经 `session-paths` 推导
-- b) ~~句柄收 `sessionDir?`，调用方经 `session-paths` 取好再传~~
-- c) ~~句柄只收 `tier` + `sessionId`；memory-base 自己取 cwd 并算路径~~
+- b) ~~句柄收 `sessionDir?`，调用方经 `session-paths` 取好再传~~（否）
+- c) ~~句柄只收 `tier` + `sessionId`；memory-base 自己取 cwd 并算路径~~（否）
 - d) **句柄只收 `tier` + `sessionId`；`session-paths` 提供 `sessionDirFor(sessionId)` 直接给出目录（取 cwd 也收在它内部）**
 
-**~~选定 b~~ → ~~选定 c~~ → 选定 d**（用户 2026-10-17 依次裁定：先「可以」采纳 b，再「保留 sessionId 作为参数」定为 c，最后问「为什么 `session-paths` 不能给路径，还需要自己算」并裁定「改成按照这个」）。理由：① 落点仍只在一处解析，**会话内一致性由结构保证**；② 调用方与 memory-base **都不碰路径、也都不认识宿主会话服务** —— memory-base 只把 `sessionId` 交给 `sessionPaths.sessionDirFor`，取 cwd（`ctx.sessions.get(id).header.cwd`，`docs/host/DSH-CTX-API.md:22-30`）这一步收在 `session-paths` 内部，宿主布局知识集中在一个包；③ 同一方法对 `output-compress` 的「`digest.db` 每会话一个文件」同样适用（它处理事件时本来就有 `session.id`，`src/hooks.ts:161-162`，不必再读 `header.cwd`）；④ 纯函数三件（`projectKey` / `projectDir` / `sessionDir`）保留，供显式带 cwd 的调用方与对拍测试。
-
-**代价一条**：`session-paths` 从「零依赖纯函数包」变成「纯函数 + 一个依赖宿主 `sessions` 的解析方法」; `sessions` 缺失时该方法按明示例外报错, 纯函数不受影响。
+**选定 d**（2026-10-17 经 b → c → d 三次追问后的最终口径）。理由：① 落点只在一处解析，**会话内一致性由结构保证**；② 调用方与 memory-base **都不碰路径、也都不认识宿主会话服务**（宿主布局知识集中在一个包）；③ 同一方法对 `output-compress` 的「`digest.db` 每会话一个文件」同样适用（它处理事件时本来就有 `session.id`，`src/hooks.ts:161-162`）；④ 纯函数三件（`projectKey` / `projectDir` / `sessionDir`）保留，供显式带 cwd 的调用方与对拍测试。代价一条：`session-paths` 从「零依赖纯函数包」变成「纯函数 + 一个依赖宿主 `sessions` 的解析方法」，`sessions` 缺失时该方法按明示例外报错、纯函数不受影响。
 
 **为什么身份必须显式给**：同进程内插件实例是**共用**的（组合行每进程挂载一次，会话是运行期 `ctx.sessions.create` / `fork` 产生的对象），同一进程里可以同时存在主会话与它委派的子代理会话（基础组合挂的是 `subagent-spawn-in-process` 与 `subagent-fork-in-process`，见 `dsh-base/cordis.patch.yml:352-358` 与 `dsh-subagent-spawn-in-process/README.md:79`），因此没有「当前会话」这种环境量可以替代 `sessionId`。
 
@@ -278,12 +274,7 @@ interface SearchHit extends Omit<StoreRow, "sourceId" | "sessionId"> { score: nu
 
 **删除面（消费方不要再引用）**: `remember` · 全局 `forget` · `promote` · `candidates.*` · `setLlmCaller` · `consolidate` · `lastConsolidation` · `enforceLimits` · `rescanDenied` · `scanDocs`; `registerKind` 不再返回 `RegisteredKind`（改返回句柄）。
 
-本轮（调研 + 决策 + 接口设计）改动文件清单：
-
-- `memory-base/docs/BACKLOG.md`（本条目：标〔进行中: 2026-10-17〕+ 尾注记录 2026-10-17 的范围重定）
-- `memory-base/docs/implementation/2026-10-17-slim-and-storage-surfaces.md`（本文件）
-- `TUI/docs/BACKLOG.md`（途中发现：TUI 侧条目）
-- `docs/BACKLOG.md`（途中发现：`output-compress` 条目，以及 security-guard 任务追加的一条）
+**途中发现（已登记为条目）**：`TUI/docs/BACKLOG.md` 的「处置 `/memory review` 审阅面板与 `candidates` 适配」；`docs/BACKLOG.md` 的「`output-compress` 接入 memory-base 作用域句柄」与 security-guard 任务追加的一条。
 
 实现阶段（待用户审定本轮设计后执行）改动文件清单：
 
@@ -351,7 +342,7 @@ interface SearchHit extends Omit<StoreRow, "sourceId" | "sessionId"> { score: nu
 
 ## 收尾
 
-- 本轮不归档：条目保持〔进行中: 2026-10-17〕，本文件留在 `memory-base/docs/implementation/`，等用户审定决策后进入实现。
-- 回写文档：本轮无（实现阶段才动 `README.md` / `DESIGN.md`）。
-- 遗留项：范围已由用户 2026-10-17 重定（见「决策」的范围裁定，含同日二 / 三 / 四次裁定：层级恒开启且库惰性创建、旧数据不迁移直接删、不加层级开关且去掉单库模式、去掉冗余闸门与四语义列），旧的「瘦身范围 a/b/c/d」与「D19 四项」不再作为选项；接口设计（决策项 1 至 10）待用户审定后进入实现。两条途中发现的条目：`output-compress` 那条已按指示回写，TUI 那条按指示**暂时不做**（后果见「规划」末条）。原「偏好分析落地前需在 profile 打开 `tiers`」这条前置随层级恒开启而消失。**跨任务发现（2026-10-17，来自 output-compress 任务的调研 11）**：宿主未暴露「会话目录」读取面（`src/router.ts:10-11`），`sessionDirFor` 约定拼接函数存在但全仓无人调用（`router.ts:70-79`）；现行靠 `if (tierConfig.sessionDir === undefined) paths.session = dbPath`（`src/index.ts:346`）兜底，而本重设去掉了 `dbPath`、又恒开启层级 → **S 层将没有可推导的落点**（不配 `tiers.sessionDir` 就写不进 S 层，按三次裁定是「写该层直接报错」而不是退化）。**补充事实**：那个约定函数本身也算错了 —— `router.ts:70-79` 只做「去前导斜杠 + 分隔符换 `-`」，没有宿主那层 `--…--` 外壳与 `~XXXX` 转义，算出的目录不存在（真目录见 `~/.dsh/sessions/--home-guochang-Projects-dsh-toolset--/`）；宿主侧的编码实现在 `@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js` 的 `encodeSegment:853-865` / `projectKey:875-894` / `projectDir:902-905` / `sessionDir:912-914`，均不导出。
-  **用户 2026-10-17 裁定**：新建一个插件复刻宿主函数、供其他插件共用（即在上面的选项里加一条 **e：经新插件 `session-paths` 的服务面取会话目录**，并取代选项 b 的「各自复刻」）。据此本条的 S 层落点改为「经 `sessionPaths.sessionDir(cwd, sessionId)` 推导」；该包未落地之前，S 层按「不可用即明示例外」处理（不退化、不静默）。条目见项目级 `docs/BACKLOG.md`「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」。**该结论已被 2026-10-17 的追加裁定取代三次**（见决策项 11）：先是改为「调用方取好传入」, 最终定为「**`session-paths` 的 `sessionDirFor(sessionId)` 直接给目录**（取 cwd 收在它内部）」。因此本条**仍依赖 `session-paths`、实现顺序仍排在该包之后**; 原先「S 层没有可推导落点」的顾虑由「三条降级报错」与「不动配置 `sessionDir`」收口。
+- 本轮不归档：条目保持〔进行中: 2026-10-17〕，本文件留在 `memory-base/docs/implementation/`，等用户放行后进入实现。
+- 回写文档：本轮无（`README.md` / `DESIGN.md` 留到实现阶段按新定位重写）；仓库外（profile 的 `dbPath` / `tiers` 行）待实现时取得明确要求后清理。
+- 遗留项：**接口设计（决策项 1 至 11）已全部裁定**（含同日二 / 三 / 四次裁定与三轮下游回写），旧选项（「瘦身范围 a/b/c/d」「D19 四项」）不再在案；两条途中发现的条目（`output-compress` 那条按其任务回写、TUI 那条按指示**暂不做**，破损窗口见「规划」末条）；原「偏好分析落地前需在 profile 打开 `tiers`」这条前置随层级恒开启而消失；旧库文件（约 426 MB）交用户择时处理，不静默删。**S 层落点的最终口径**：经 `sessionPaths.sessionDirFor(sessionId)` 解析（决策项 11 选 d；取 cwd 收在 `session-paths` 内部，见其边界语义第 5、6 条）。
+- 依赖与顺序：本条**依赖 `session-paths`**（条目「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」），实现顺序排在它之后；该包未落地时 S 层按「不可用即明示例外」处理（不退化、不静默）。

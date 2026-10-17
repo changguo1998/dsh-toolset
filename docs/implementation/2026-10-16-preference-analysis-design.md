@@ -116,9 +116,6 @@
 附: **模型提议的偏好不自动应用** (`preference_add` 一律落账簿的待审状态): 统计证据是用户自己的重复原话, 模型提议是模型的理解, 两者不该同权.
 
 **D9 审阅与回滚: 原选 (a) 复用 memory-base 候选队列 + TUI `/memory review` —— 已被 D17 取代 (该面随 `candidates` 一起下线)。**
-~~(a) 复用候选队列与现成面板 (零 TUI 改动) (b) 新建 TUI 面板 / `/prefer` 命令 (c) 只靠模型侧工具~~
-~~(a) 的两条路径: (i) **候选态**: `/memory review project` 里 approve / reject / edit; reject 走 memory-base 的 `fact_key` 墓碑, 同模式不再提审; (ii) **生效态**: 模型侧工具 `preference_remove` 把该条记入账簿 `suppressed` 键并调 `forget` 删行~~
-~~已知缺口: TUI 侧没有删除生效记忆行的入口 (`/memory replace|remove` 仍是 `docs/BACKLOG.md`"后续补条目候选"里登记的缺口)~~
 取代后仍成立的部分: 撤销走 `preference_remove` + 账簿 `suppressed` 键; 用户层门禁改由 D18 承担.
 
 **D10 隐私边界: 选 (a) 三层防线.**
@@ -145,9 +142,6 @@
 理由: 存储与候选面缺了本包无意义 (硬依赖); 注入面缺了仍能观测与提议 (软依赖 + warning). 不沿用消费者型插件"硬依赖 ruleEngine"的先例: 那些包没有注入面就什么也不做, 本包不是.
 
 **D15 跨包改动 (本轮只登记, 不实施): 原列"为偏好放开 memory-base 的候选转换闸 (`conclusion` 标记) + 按 kind 枚举行" —— 已被 D19 取代。**
-~~(i) **转换闸放开"成文结论"**: `PromoteItem` 增可选 `conclusion?: true`, `promote` 时写 `summarized = 1`, `approveCandidate` 据此跳过 LLM 概括闸~~
-~~(ii) **按 kind 枚举行**: `KnowledgeService` 增只读 `list({kind, project?, limit?})` 并经服务面透出~~
-~~退路: 偏好改由插件自持账簿为事实源, 审阅面退到模型侧工具 + 提示, 放弃 TUI `/memory review` 复用~~
 取代理由: 用户 2026-10-16 裁定 memory-base 只保留分级结构, 管理逻辑下沉到各插件 -> `conclusion` / `approveCandidate` / `promote` / `candidates` 整套随之下沉, 新的最小要求见 D19.
 
 ## 修订 (2026-10-16, 用户裁定后重定)
@@ -166,7 +160,7 @@
 (a) 归纳可直接写用户层 (b) 归纳默认写 P, 跨 >= 2 个项目才提议升 U, U 只走用户显式动作 (c) 全部只写 P
 理由: `candidates` 带来的"U 层必须用户本人批"闸门随重构消失, 门禁缺口要补上; (b) 把门禁落在插件侧 (写入前判 actor), 并希望 memory-base 保留 `preWrite` 钩子作硬闸; (c) 会丢掉跨项目偏好这一档.
 
-**D19 对 memory-base 的最小要求 (替代 D15): 只要四项纯存储面。**
+**D19 对 memory-base 的最小要求 (替代 D15): 只要四项纯存储面。** **（形态已被 2026-10-17 的 memory-base 重设取代；现行口径见「实现前冻结的接口」——`remember({tier})` 与全局 `forget` 已删，改经作用域句柄 `put` / `forget` + 全局 `list({kind})`；下列四项只作历史要求留档。）**
 (a) 指定层写入: `remember({tier})` 不再要求 `origin: "user"` (b) 按 kind 列出: `list({kind, project?, limit?})` (c) 删除: `forget` 回落单库, 或透出 `evict` (d) 可选: 保留 `registerKind` (按需建表 + 并入检索 + `preWrite` 钩子)
 理由: 这四项都是"分级结构 + 内容读写"的自然组成, 与"memory-base 只提供分层记忆内容"的新定位一致; 不再需要 `conclusion` 标记, `approveCandidate`, `promote`, `candidates` 与 LLM caller (R1 的两处硬缺与三处妥协随之消失). 若 (d) 一并取消, 隐私闸与用户层硬闸全部归插件自担.
 
@@ -319,13 +313,13 @@ TUI 面板 / `/prefer` 命令, `AGENTS.md` 写入, LLM 归纳与概括, 冲突�
 - 依赖顺序：前置 = memory-base 重设（D20 选 (a)）；两包均未落地时本包停在「只观察不写入」（见冻结接口）。
 - 遗留：TUI 面（D17 的 (c)，首期不做）；LLM 归纳与冲突检测（D4 预留注入口）；`AGENTS.md` 追加路径（首期不做，二期另议）。
 
-## 剩余待用户裁定项
+## 已裁定的开口项（原「剩余待用户裁定项」，2026-10-17 全部落定）
 
-1. ~~**顺序依赖**: D20 选 (a) 先做 memory-base 瘦身, 偏好随后按 D19 新面实现~~ **已由上游覆盖（2026-10-17）**：memory-base 重设的决策项 8 同样选了「先瘦身」（沿用 D20），两项一致。
-2. ~~**自动应用缺省档**: D8 选 `confident`~~ **已裁定（2026-10-17，用户「其他的没有问题」）：维持 `confident`**（高置信自动应用并注入，其余留待审；`off` 仍可配）。
-3. ~~**用户层门禁落点**: D18 把门禁放在插件自律~~ **已由上游解决（2026-10-17）**：memory-base 重设**保留 `registerKind` 与 `preWrite`**，且写入只能经句柄 → 门禁改为**能力式**：归纳只持 `writableTiers: ["project"]` 的句柄，用户层用独立 kind `preference_user`（见冻结接口的「门禁三条」与那处待点头项）。
-4. ~~**TUI 面**: 首期零 TUI 改动~~ **已裁定（2026-10-17，用户「其他的没有问题」）：维持零 TUI 改动**（审阅靠 `preference_list`，撤销靠 `preference_remove`）。
-5. ~~**`AGENTS.md` 追加路径**~~ **已裁定（2026-10-17）：首期不做**（只注入）；二期是否列入另议，本文件不承诺。
+1. **顺序依赖**：沿用 D20「先做 memory-base 瘦身」（与 memory-base 决策项 8 一致）。
+2. **自动应用缺省档**：维持 `confident`（高置信自动应用并注入，其余留待审；`off` 仍可配）。
+3. **用户层门禁落点**：改**能力式** —— memory-base 保留 `registerKind` 与 `preWrite`，归纳只持 `writableTiers: ["project"]` 的句柄、用户层用独立 kind `preference_user`（见冻结接口「门禁三条」）。
+4. **TUI 面**：首期零 TUI 改动（审阅靠 `preference_list`，撤销靠 `preference_remove`）。
+5. **`AGENTS.md` 追加路径**：首期不做（只注入），二期另议。
 
 ## 实现记录
 
@@ -336,7 +330,7 @@ TUI 面板 / `/prefer` 命令, `AGENTS.md` 写入, LLM 归纳与概括, 冲突�
 
 - 条目"接取时裁定"列出的信号里, **"用户对模型输出的修改"不可得** (TUI 无消息编辑, `feedback/record` 无生产者, 计数为 0), 首期用"打断 + 纠正性重述 + 审批拒绝"代理; **"快捷键 / 命令使用习惯"与"提交信息风格"未纳入首期** (前者需 TUI 侧新增事件, 后者与静态约定重复). 理由与证据见 R4. 这三条属与条目的偏差, 已并入待裁定项.
 - 条目"落点 (预估)"把"作为 rule-engine 消费者 + memory-base kind 注册"列为可选形态; 本决策选了**独立新包**并仍复用这两面 (理由见 D1).
-- 条目默认建议"先不自动改仓内文件"已遵守 (D7 选 (a), `AGENTS.md` 写入列入待裁定项 5).
+- 条目默认建议"先不自动改仓内文件"已遵守 (D7 选 (a); `AGENTS.md` 写入首期不做, 见「已裁定的开口项」5).
 - 原 D15 承诺的跨包改动 (`conclusion` 标记与按 kind 枚举行) **未实施即作废**: 用户 2026-10-16 改走"memory-base 瘦身"路线, 偏好分析不再依赖候选队列与概括闸; 新版最小要求见 D19, 其本体归属 memory-base 自己的任务, 本任务不记条目, 不改其代码.
 
 ## 测试与证据
@@ -349,7 +343,7 @@ TUI 面板 / `/prefer` 命令, `AGENTS.md` 写入, LLM 归纳与概括, 冲突�
 
 ## 收尾
 
-- 未关闭: 条目仍是〔进行中〕, 本文件留在 `docs/implementation/`; 等用户对「剩余待用户裁定项」答复后进入实现 (或调整决策).
+- 未关闭: 条目仍是〔进行中〕, 本文件留在 `docs/implementation/`; 开口项已全部落定（见「已裁定的开口项」与冻结接口）, 等放行后进入实现.
 - 未改 `docs/BACKLOG.md` (按用户当次指示: 只更新追踪文档, 等检查后再定).
 - 未回写任何包 `README.md` / `DESIGN.md` / `docs/ROADMAP.md` (本任务不产生仓内实现).
 - 归档: 待实现完成, 条目关闭后随收尾提交移入 `docs/archived/`.

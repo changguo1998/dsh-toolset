@@ -86,12 +86,6 @@ PLUGIN_COMMAND_TOOLS.herdr_pane = { commandKeys: ["command", "text"], commandPat
 
 **上游核对点（落地时必做）**：`script_run` 的参数名以 script-interpreter 的冻结值为准（`script` / `description` / `language` / `workdir` / `timeoutMs`）；`herdr_pane` 以 herdr-pane 的冻结值为准（`command` / `text` / `keys`）。两者若与本文不同，**停下来按「偏差」记录并问用户**，不照设计字面改。
 
-本轮（调研 + 决策）改动文件清单：
-
-- `security-guard/docs/BACKLOG.md`（本条目标〔进行中: 2026-10-17〕）
-- `security-guard/docs/implementation/2026-10-17-command-tool-registration.md`（本文件）
-- `docs/BACKLOG.md`（「途中发现新问题」：追加一条项目级条目 —— script-interpreter 设计文档 `:45` 的一致性表述与实况不符）
-
 实现阶段（两包落地后执行；决策项 4 选定 b）改动文件清单：
 
 - `security-guard/src/index.ts`：`PLUGIN_COMMAND_TOOLS` 加 `script_run: { commandKeys: ["script"] }` 与 `herdr_pane: { commandKeys: ["command", "text"], commandPaths: ["keys[]"] }`
@@ -140,5 +134,5 @@ PLUGIN_COMMAND_TOOLS.herdr_pane = { commandKeys: ["command", "text"], commandPat
 ## 收尾
 
 - 本轮不归档：条目保持〔进行中: 2026-10-17〕，本文件留在 `security-guard/docs/implementation/`；决策项 4 已裁定 b（两包落地后随批次登记），本条就此等前置。
-- 回写文档：本轮无（实现阶段才动 `README.md`）。
+- 回写文档：本轮无（登记行与 `README.md` 的那行口径留到实现阶段；两包的设计文档已各自记明本次登记形态）。
 - 遗留项：`script_run` 与 `herdr_pane` 落地时按真实参数面复核两处登记写法（见冻结接口的「上游核对点」）；`scripts/tool-surface-check.mjs` 的覆盖边界属另条条目。

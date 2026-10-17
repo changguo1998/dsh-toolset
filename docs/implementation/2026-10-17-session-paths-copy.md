@@ -130,13 +130,6 @@ interface SessionPathsService {
 4. **接线 7 处** —— 根 `package.json`（check / build 链）、`scripts/install.sh`（`canonical_pkgs`）、`scripts/test-parallel.sh`（`default_pkgs`）、`profiles/example/cordis.patch.yml`（挂载行，**排在 memory-base 之前**，保证服务先注册）、`README.md` + `README.zh.md`（清单与包数）、`AGENTS.md`（插件清单与计数）、`docs/BACKLOG.md` §4 插件规划表。验证：`npm run check` / `npm run build` / `npm run test` 全绿；`scripts/install.sh --dry-run` 的清单含本包。
 5. **消费方接入与联调** —— memory-base 的 S 层改为经服务取目录（删掉 `src/router.ts` 那份错的 `sessionDirFor`）。**归属注明**：这一步的代码落在 memory-base；按用户口径可与本包同批做，若分两批则本包只交付契约与联调用例，接入归 memory-base 的实现。验证：memory-base 的 S 层落点用例 + 真机重启 profile 后确认 S 库落在 `<sessions root>/<projectKey>/<sessionId>/` 下。
 
-### 本轮（调研 + 决策）改动文件清单
-
-- `docs/BACKLOG.md`：新增条目「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」并标〔进行中: 2026-10-17〕
-- `docs/implementation/2026-10-17-session-paths-copy.md`（本文件）
-- `memory-base/docs/implementation/2026-10-17-slim-and-storage-surfaces.md`：在它的「跨任务发现」处记下本条裁定（S 层改为经服务面取目录、实现顺序排在本包之后）
-- `docs/implementation/2026-10-17-output-compress-scope-handle.md`：同上，记下受影响的决策项 2 与 8
-
 ### 实现阶段改动文件清单
 
 - 新包 `session-paths/`：`package.json`、`cordis.patch.yml`、`tsconfig.json`、`tests/tsconfig.json`、`.gitignore`、`LICENSE`、`README.md`、`src/main.ts`（服务注册、配置归一与 `sessionDirFor`）、`src/encode.ts`（复刻的四个纯函数 + 来源注释）、`tests/encode.test.ts`（对拍）、`tests/service.test.ts`（假 ctx 的服务面用例 + `sessionDirFor` 四态）
@@ -184,5 +177,5 @@ interface SessionPathsService {
 
 - **用户审定（2026-10-17）**：决策项 1 至 4「没有问题」，决策项 5 定为「改回去」—— 五项全部落定，可实现。
 - 本轮不归档：条目保持〔进行中: 2026-10-17〕，本文件留在 `docs/implementation/`，等开工后按「规划」清单执行。
-- 回写文档：本轮无（实现阶段才动 README / AGENTS.md / 包计数）。
+- 回写文档：本轮已完成三轮下游回写（`memory-base` 的 S 层落点、`output-compress` 的 `digest.db` 落点、`auto-approve` 的审计落点、`agent-group` 的状态落点与依赖门禁）；`README` / `AGENTS.md` / 包计数留到实现阶段。
 - 遗留项：① memory-base 与本条的实现顺序（本包先，或 memory-base 先按「S 层不可用是明示例外」落地）；② 实现阶段剩一处开口（`ensureSessionDir` 的权限口径；`cwd` 来源已于 2026-10-17 第二轮由 `sessionDirFor` 收口）；③ 条目「五个新插件落地时的仓库清单与包计数统一」的标数需因本包 +1。

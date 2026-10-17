@@ -77,12 +77,7 @@
 
 **选定 a**。理由：重试语义本身有价值（写入失败 / 当时没句柄 / 当时没挂 memory-base），只是载体从「候选队列」换成「本包自己的未推标记」；候选容量自查是 memory-base 候选表的配套，随该表消失。
 
-~~决策项 6　自持 `digest.db` 与旧数据~~（**已撤销，2026-10-17 用户裁定**）
-
-- ~~a) 不动：digest.db 是本包自持库，指纹 / 表 / 上限与 memory-base 重设互不相干~~
-- ~~b) 顺本次改造一并调整 digest.db 的表结构~~
-
-~~**选定 a**~~。**撤销理由**：这一项两条都是「不做改动」，没有可执行的取舍，两半也各有归属 —— 「落点与上限口径」归决策项 9（`digest.db` 改为每会话一个文件，100 MB 上限随之变成每会话每文件），「旧数据怎么处理」归用户既有的通用口径「旧数据不迁移直接删」（留着的旧 `~/.dsh/output-compress/digest.db` 不搬家）。其唯一还有点信息量的一句 —— **表结构与指纹不变**（`0x44494745` / `user_version 1`）—— 已并入决策项 9 的机制条。
+~~决策项 6　自持 `digest.db` 与旧数据~~（**2026-10-17 撤销**：两条都是「不做改动」、无可执行取舍；落点与上限归决策项 9，旧数据归既有口径「不迁移直接删」，其唯一有信息量的一句「表结构与指纹不变（`0x44494745` / `user_version 1`）」已并入决策项 9。）
 
 决策项 7　文档订正范围
 
@@ -150,13 +145,7 @@ const digestDbPath = join(dir, "digest.db");
 
 **前置**：memory-base 重设（提供句柄）与 `session-paths`（提供 `sessionDirFor`）落地之后；未落地时本包按可选依赖缺失降级（决策项 3b）。
 
-本轮（调研 + 决策）改动文件清单：
-
-- `docs/BACKLOG.md`：本条目标〔进行中: 2026-10-17〕；**订正标题与正文前提**（原文写「直写同一 `dbPath` 并用 `category`/`target` 标记归属」，实为自持 `digest.db`，见调研 1、7）
-- `docs/implementation/2026-10-17-output-compress-scope-handle.md`（本文件）
-- `memory-base/docs/implementation/2026-10-17-slim-and-storage-surfaces.md`：**只改两处按标题的交叉引用**（条目改名后原引用失效），不动其决策与规划内容
-- `~/.dsh/profiles/fff/cordis.patch.yml`（**仓库外**，用户裁定一并修）：output-compress 的 `dbPath` 废键换成 `sessionDir`；**已执行**（见决策项 8）
-- `~/.dsh/output-compress/`（**仓库外**）：新建 digest.db 落点目录，0700；**已执行**
+**仓库外两处已执行**（2026-10-17，用户裁定一并修）：`~/.dsh/profiles/fff/cordis.patch.yml` 的 `dbPath` 废键换成 `sessionDir`；新建 `~/.dsh/output-compress/`（0700）作为过渡落点。
 
 实现阶段（两包前置落地后执行；决策已审定）改动文件清单：
 
@@ -215,6 +204,9 @@ const digestDbPath = join(dir, "digest.db");
 ## 收尾
 
 - **用户审定（2026-10-17）**：决策项 1 · 2 · 3 · 4 · 5 · 7「这些都没有问题」，决策项 9 随之视作通过；决策项 6 已撤销；决策项 8 已裁定并执行 —— 全部落定。
+
 - 本轮不归档：条目保持〔进行中: 2026-10-17〕，本文件留在 `docs/implementation/`，等开工后按「规划」清单执行。
-- 回写文档：本轮无（实现阶段才动 DESIGN / README）。
-- 遗留项：① 本机 profile 的 `dbPath` 废键**已修**（改 `sessionDir` + 建 `~/.dsh/output-compress/`，2026-10-17），待重启 profile 后看真机是否真的落库；② 条目标题与正文的前提订正见「规划」，本轮随决策一并落地；**决策项 9 落地时记得删 profile 里那行 `sessionDir`**；③ memory-base 的两处文档漂移（`README.md:112` / `:141-142`）归 memory-base 任务的 README / DESIGN 重写；④ **跨任务发现**：memory-base 重设去掉 `dbPath` 并恒开启层级后，S 层没有可推导的会话目录（宿主未暴露该读取面，`sessionDirFor` 无人调用）—— 见调研 11，属 memory-base 任务的决策范围。
+
+- 回写文档：跨包接口已按三轮下游回写对齐（`sessionDirFor` 落点、`PutResult.skipped` 分档）；`DESIGN.md` / `README.md` 留到实现阶段。
+
+- 遗留项：① 本机 profile 的 `dbPath` 废键**已修**（改 `sessionDir` + 建 `~/.dsh/output-compress/`），待重启 profile 后看真机是否真的落库；**决策项 9 落地时记得删 profile 里那行 `sessionDir`**；② memory-base 的两处文档漂移（`README.md:112` / `:141-142`）归 memory-base 任务的 README / DESIGN 重写；③ 跨任务发现（宿主未暴露会话目录读取面）已由 `session-paths` 插件与 memory-base 决策项 11 收口。

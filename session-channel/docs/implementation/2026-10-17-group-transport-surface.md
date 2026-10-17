@@ -58,9 +58,7 @@
 - b) **本任务一并修**：扩容词表 + 给自动别名加 4 位哈希后缀
 - c) 本任务只把「静默失败」改为可见（日志或 `status()` 暴露），其余另立
 
-~~**选定 a**~~（已由用户 2026-10-17 裁定取代）。原理由：修分配器属行为变更，牵 `src/alias-words.ts`、`#autoAlias` 与 3 处用例（调研 11），且要一并复核 2026-10-01 的既有裁定（词表 ≤8 字符不缩减）。
-
-**选定 b（用户 2026-10-17 裁定：更新词表 + 别名后缀加 4 位哈希 / 随机字符串）**，机制落定如下：
+~~**选定 a**~~ → **选定 b（2026-10-17 用户裁定：更新词表 + 别名后缀加 4 位哈希）**：a 的顾虑（修分配器属行为变更、牵 3 处用例）由用户裁定与既有「词表只增不减」口径覆盖。机制落定如下：
 
 - **词表扩容**：`AUTO_ALIAS_WORDS` 由 148 词扩到 **≥ 256 词**，保持既有约束（≤8 字符、ASCII 字母、不与保留字冲突、无重复；2026-10-01 的「词表不缩减」裁定继续守，只增不减）。
 - **命名规则**：自动别名改为 `<前缀><词>-<4 位 hex>`，例 `ui-otter-3f9a`（总长 ≤ 16，仍在 `[A-Za-z0-9_-]{1,32}` 校验内）。
@@ -139,11 +137,6 @@
 5. **用例与真机** —— 新增：别名与 sessionId 绑定且键无 TTL、同 sessionId 再次出现不重命名、`delegate` → `taskStatus` 往返（含懒超时结算与 `resultSource` 优先级）、后缀确定性（同 sessionId 两次算出同一 `hex4`）；更新 `tests/service.test.ts:296` 的来源标签用例。验证：该包 `test` 全绿（无 `redis-server` 时 `redisTest` 会 skip，要如实记）+ 真机 `dsh --profile fff` 看一眼状态列里别名变长 4 字符后是否被挤。
 6. **工具出口归一（决策项 7，缺陷 #3）** —— `src/index.ts` 新增 `toLosslessJson`（递归去 `undefined`），四个工具的 `execute` 出口套用；顺手改直两处根因（`broker.ts` 的 `sendMessage` 按需拼 `delivered`、`index.ts:296` 改 `delete this.#status.error`）；逐字段核另三个工具的返回体（含失败分支）。验证：新增用例 —— 不带 `waitMs` 的 `send` 返回体**无 `delivered` 键**、重试后 `status()` 返回体、四个工具的返回体（成功与失败两态）一律过本包自带的等价 lossless JSON 判定（宿主那个 `walkJsonValue` 不在本包依赖里，判定函数按同样四条规则自写：嵌套 `undefined` / `NaN` / `Infinity` / `-0` / 非平凡原型均判失败）。
 
-### 本轮（调研 + 决策）改动文件清单
-
-- `session-channel/docs/BACKLOG.md`（本条目标〔进行中: 2026-10-17〕；追加缺陷区条目「自动别名分配在词表耗尽后静默失效」与「工具返回体含 `undefined` 字段, 触发宿主 `INVALID_TOOL_OUTPUT`（`send` 与 `status` 必现）」）
-- `session-channel/docs/implementation/2026-10-17-group-transport-surface.md`（本文件）
-
 ### 实现阶段改动文件清单
 
 - `session-channel/src/alias-words.ts`：`AUTO_ALIAS_WORDS` 扩到 ≥ 256 词（守既有约束）；新增后缀生成（`sha256(sessionId)` 前 4 位 hex）；`pickAutoAlias` 改为拼 `<前缀><词>-<hex4>`
@@ -191,5 +184,5 @@
 ## 收尾
 
 - 本轮不归档：三个条目（「补群组编排（agent-group）所需的传输面：服务面核对 + 别名持久性」与缺陷区的两条）均保持〔进行中: 2026-10-17〕，本文件留在 `session-channel/docs/implementation/`，等用户审定决策后进入实现。
-- 回写文档：本轮无（实现阶段才动 `README.md` / `DESIGN.md`）。
+- 回写文档：下游口径已记入 `agent-group` 的设计（只用 sessionId 或显式别名，不依赖自动别名）；`README.md` / `DESIGN.md` 留到实现阶段（含服务面核表、guard 分工与新别名口径）。
 - 遗留项：缺陷条目「自动别名分配在词表耗尽后静默失效」已按用户 2026-10-17 裁定由本任务**一并接取**（实现阶段随决策项 4 一起做）；缺陷条目「工具返回体含 `undefined` 字段」按用户 2026-10-17 指示并入本模块改动，修法经同日裁定取 **a**（四工具出口统一归一，决策项 7）；`agent-group` 侧需同步「登记目标用 sessionId 或显式别名，不依赖自动别名」这条口径（属该包实现时的事）；实现阶段需真机目视一次别名变长后的 TUI 状态列显示。
