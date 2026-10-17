@@ -24,10 +24,16 @@ import {
 } from "../src/client.ts";
 import {
   aliasPrefixFor,
-  AUTO_ALIAS_WORDS,
+  AUTO_ALIAS_POOL,
+  autoAliasCandidate,
+  autoAliasFor,
   pickAutoAlias,
 } from "../src/alias-words.ts";
-import { apply, getSessionChannelService } from "../src/index.ts";
+import {
+  apply,
+  createSessionChannelService,
+  getSessionChannelService,
+} from "../src/index.ts";
 import { aliasKey } from "../src/keys.ts";
 import type { PeerInfo } from "../src/types.ts";
 import {
@@ -181,12 +187,12 @@ redisTest("clearAliasesOf：按会话清空其全部别名", async () => {
   });
 });
 
-// ---------- F1：会话别名自动生成（≤8 字符名词 / 名字 + 类型前缀） ----------
+// ---------- F1：会话别名自动生成（≤8 字符名词 / 名字 + 类型前缀 + 4 位哈希后缀） ----------
 
-test("F1 词表：≤8 字符 ASCII 名词 / 名字，无重复、不与保留字冲突", () => {
+test("F1 词表：≤8 字符 ASCII 名词 / 名字，无重复、不与保留字冲突，规模 ≥ 256", () => {
   assert.ok(
-    AUTO_ALIAS_WORDS.length >= 64,
-    `词表规模: ${AUTO_ALIAS_WORDS.length}`,
+    AUTO_ALIAS_POOL.length >= 256,
+    `词表规模: ${AUTO_ALIAS_POOL.length}`,
   );
   // 与 broker 的 RESERVED_ALIASES 同口径（该表未导出，此处硬编码校验）
   const reserved = new Set([
@@ -201,7 +207,7 @@ test("F1 词表：≤8 字符 ASCII 名词 / 名字，无重复、不与保留�
     "status",
   ]);
   const seen = new Set<string>();
-  for (const word of AUTO_ALIAS_WORDS) {
+  for (const word of AUTO_ALIAS_POOL) {
     assert.match(word, /^[A-Za-z]{2,8}$/, `词不合法: ${word}`);
     assert.ok(!seen.has(word), `词重复: ${word}`);
     assert.ok(!reserved.has(word), `与保留字冲突: ${word}`);
@@ -229,19 +235,45 @@ test("F1 前缀：子代理会话 sub-，其余（用户启动）ui-", () => {
 });
 
 test("F1 取词：前缀 + 词表随机项（随机源注入；越界 clamp）", () => {
-  assert.equal(
-    pickAutoAlias("ui-", () => 0),
-    `ui-${AUTO_ALIAS_WORDS[0]}`,
-  );
+  assert.equal(pickAutoAlias("ui-", () => 0), `ui-${AUTO_ALIAS_POOL[0]}`);
   assert.equal(
     pickAutoAlias("sub-", () => 0.999999),
-    `sub-${AUTO_ALIAS_WORDS.at(-1)}`,
+    `sub-${AUTO_ALIAS_POOL.at(-1)}`,
   );
   assert.equal(
     pickAutoAlias("ui-", () => 1),
-    `ui-${AUTO_ALIAS_WORDS.at(-1)}`,
+    `ui-${AUTO_ALIAS_POOL.at(-1)}`,
     "随机源返回 1 不越界",
   );
+});
+
+test("F1 确定性：同一 sessionId 恒得同一别名，词与后缀都在词表 / hex 内", () => {
+  const first = autoAliasFor("ui-", "sess-a");
+  assert.equal(first, autoAliasFor("ui-", "sess-a"), "同 id 同名（恢复后不漂移）");
+  assert.notEqual(first, autoAliasFor("ui-", "sess-b"), "不同 id 不同名");
+  assert.match(first, /^ui-[a-z]+-[0-9a-f]{4}$/, `形态: ${first}`);
+  const word = first.slice(3, first.lastIndexOf("-"));
+  assert.ok(
+    (AUTO_ALIAS_POOL as readonly string[]).includes(word),
+    `词来自词表: ${word}`,
+  );
+  // 前缀只换前缀，词与后缀不变
+  assert.equal(
+    autoAliasFor("sub-", "sess-a"),
+    `sub-${first.slice(3)}`,
+    "前缀不影响词与后缀",
+  );
+});
+
+test("F1 候选序列：attempt 递增给出互不相同的候选，且 0 = 确定性名字", () => {
+  assert.equal(autoAliasCandidate("ui-", "sess-a", 0), autoAliasFor("ui-", "sess-a"));
+  const seen = new Set<string>();
+  for (let i = 0; i < 8; i += 1) {
+    const candidate = autoAliasCandidate("ui-", "sess-a", i);
+    assert.match(candidate, /^ui-[a-z]+-[0-9a-f]{4}$/, `候选 ${i}: ${candidate}`);
+    assert.ok(!seen.has(candidate), `候选重复: ${candidate}`);
+    seen.add(candidate);
+  }
 });
 
 redisTest(
@@ -271,10 +303,12 @@ redisTest(
       );
       const userAlias = byId.get("s-user") ?? "";
       const subAlias = byId.get("s-sub") ?? "";
-      assert.match(userAlias, /^ui-[a-z]+$/, `用户会话别名: ${userAlias}`);
-      assert.match(subAlias, /^sub-[a-z]+$/, `子代理别名: ${subAlias}`);
+      assert.match(userAlias, /^ui-[a-z]+-[0-9a-f]{4}$/, `用户会话别名: ${userAlias}`);
+      assert.match(subAlias, /^sub-[a-z]+-[0-9a-f]{4}$/, `子代理别名: ${subAlias}`);
       assert.ok(
-        (AUTO_ALIAS_WORDS as readonly string[]).includes(userAlias.slice(3)),
+        (AUTO_ALIAS_POOL as readonly string[]).includes(
+          userAlias.slice(3, userAlias.lastIndexOf("-")),
+        ),
         `词来自内置词表: ${userAlias}`,
       );
       // 既有显式别名不被自动覆盖
@@ -292,6 +326,93 @@ redisTest(
       );
     } finally {
       await getSessionChannelService()?.stop();
+      await closeConnection(conn);
+      await redis.stop();
+    }
+  },
+);
+
+// ---------- F1 缺陷修复（2026-10-17）：分配失败可见 + 碰撞重试 ----------
+
+redisTest(
+  "F1 碰撞重试：第 1 个候选被占 → 换下一个候选成功，失败不静默",
+  async () => {
+    const redis = await startTempRedis();
+    const conn = await connectSessionChannel({ url: redis.socketPath });
+    const fake = makeFakeHost();
+    // 别人先占掉 s-target 的前两个候选
+    await setAlias(conn.main, "taken-1", "s-other");
+    await setAlias(conn.main, "taken-2", "s-other-2");
+    const service = createSessionChannelService(
+      { url: redis.socketPath, heartbeatMs: 60_000, presenceTtlSec: 60 },
+      fake.host as never,
+      {
+        aliasCandidate: (_prefix, _sessionId, attempt) =>
+          `taken-${attempt + 1}`,
+      },
+    );
+    try {
+      await service.start();
+      await waitUntil(() => service.status().connected === true, 5000);
+      service.noteSession({ id: "s-target", header: { cwd: "/tmp/x" } });
+      await waitUntil(
+        async () =>
+          (await resolveAlias(conn.main, "taken-3")) === "s-target",
+        3000,
+      );
+      const status = service.status();
+      assert.equal(status.aliasesAuto, 1, "成功后计数 +1");
+      assert.equal(status.aliasesFailed, 0);
+      assert.equal(
+        status.aliasesLastError,
+        undefined,
+        "无失败时无该键（lossless JSON）",
+      );
+    } finally {
+      await service.stop();
+      await closeConnection(conn);
+      await redis.stop();
+    }
+  },
+);
+
+redisTest(
+  "F1 失败可见：候选全被占 → 记 aliasesFailed / aliasesLastError + 一条日志",
+  async () => {
+    const redis = await startTempRedis();
+    const conn = await connectSessionChannel({ url: redis.socketPath });
+    const fake = makeFakeHost();
+    for (let i = 0; i < 8; i += 1) {
+      await setAlias(conn.main, `blocked-${i}`, `s-other-${i}`);
+    }
+    const service = createSessionChannelService(
+      { url: redis.socketPath, heartbeatMs: 60_000, presenceTtlSec: 60 },
+      fake.host as never,
+      {
+        aliasCandidate: (_prefix, _sessionId, attempt) =>
+          `blocked-${attempt}`,
+      },
+    );
+    try {
+      await service.start();
+      await waitUntil(() => service.status().connected === true, 5000);
+      service.noteSession({ id: "s-unlucky", header: { cwd: "/tmp/x" } });
+      await waitUntil(() => service.status().aliasesFailed === 1, 3000);
+      const status = service.status();
+      assert.equal(status.aliasesAuto, 0);
+      assert.equal(status.aliasesFailed, 1);
+      assert.equal(status.aliasesLastError, "alias_taken");
+      assert.ok(
+        fake.logs.some((line) => line.includes("自动别名分配失败")),
+        `应有失败日志：${fake.logs.join(" | ")}`,
+      );
+      // 失败后依然可正常寻址（别名只是增强项）
+      assert.equal(
+        (await resolveTarget(conn.main, "s-unlucky"))[0]?.sessionId,
+        "s-unlucky",
+      );
+    } finally {
+      await service.stop();
       await closeConnection(conn);
       await redis.stop();
     }

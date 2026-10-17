@@ -16,7 +16,7 @@ import { randomUUID } from "node:crypto";
 import {
   aliasPrefixFor,
   AUTO_ALIAS_TRIES,
-  pickAutoAlias,
+  autoAliasCandidate,
 } from "./alias-words.ts";
 import {
   closeConnection,
@@ -174,6 +174,12 @@ export interface SessionChannelStatus {
   address: string;
   version: string;
   sessions: string[];
+  /** 本进程自动别名成功分配的次数（2026-10-17：把「静默失效」变成可观测）。 */
+  aliasesAuto: number;
+  /** 本进程自动别名分配失败（重试耗尽 / 抛错）的会话数。 */
+  aliasesFailed: number;
+  /** 最近一次自动别名失败的原因（成功分配不清空；无失败则无此键）。 */
+  aliasesLastError?: string;
   error?: string;
 }
 
@@ -192,8 +198,14 @@ interface SessionState {
 export interface SessionChannelDeps {
   connect?: typeof connectSessionChannel;
   now?: () => number;
-  /** 自动别名的随机源（缺省 `Math.random`；测试注入用）。 */
+  /** 自动别名的随机源（缺省 `Math.random`；保留给 `pickAutoAlias` 的测试路径）。 */
   random?: () => number;
+  /** 自动别名的候选生成器（缺省 `autoAliasCandidate`；测试注入碰撞用）。 */
+  aliasCandidate?: (
+    prefix: "ui-" | "sub-",
+    sessionId: string,
+    attempt: number,
+  ) => string;
   /** 后台重试间隔（缺省 `RETRY_DELAY_MS`；测试注入用）。 */
   retryDelayMs?: number;
 }
@@ -248,6 +260,8 @@ export class SessionChannelService {
       address: "",
       version: "",
       sessions: [],
+      aliasesAuto: 0,
+      aliasesFailed: 0,
     };
   }
 
@@ -293,7 +307,9 @@ export class SessionChannelService {
         this.#status.error = describe(err);
         continue;
       }
-      this.#status.error = undefined;
+      // 删键而非写 `undefined`：`#status` 会被 `status()` 展开成工具返回体，
+      // 值为 `undefined` 的键不是 lossless JSON（宿主 `INVALID_TOOL_OUTPUT`，2026-10-17）。
+      delete this.#status.error;
       this.#log(`重试 ${attempts} 次后连接成功`);
       this.#afterConnect();
       return;
@@ -354,27 +370,44 @@ export class SessionChannelService {
   }
 
   /**
-   * 自动别名（F1）：会话**首次见到**且尚无别名时写入（`ui-` / `sub-` + 词）。
-   * 占用重试 ≤ AUTO_ALIAS_TRIES；其它错误 / 异常静默（别名是增强项，不影响通道）。
+   * 自动别名（F1）：会话**首次见到**且尚无别名时写入 `<前缀><词>-<4 位 hex>`。
+   *
+   * 候选由 `sha256(sessionId)` 决定（`autoAliasCandidate`）：同一会话得同名，
+   * 重试取下一个词，故 `AUTO_ALIAS_TRIES` 次内候选互不重复。失败不再静默：
+   * 重试耗尽或抛错都写日志并累加 `status().aliasesFailed` / `aliasesLastError`
+   * （2026-10-17：原实现静默返回，导致「自动别名不可用」长期不可观测）。
    */
   async #autoAlias(session: unknown, sessionId: string): Promise<void> {
+    const prefix = aliasPrefixFor(session);
     try {
       const conn = this.#conn;
       if (conn === undefined) return;
       if ((await aliasOfSession(conn.main, sessionId)) !== undefined) return;
-      const prefix = aliasPrefixFor(session);
+      let lastError = "";
+      const candidateOf = this.#deps.aliasCandidate ?? autoAliasCandidate;
       for (let i = 0; i < AUTO_ALIAS_TRIES; i++) {
-        const result = await setAlias(
-          conn.main,
-          pickAutoAlias(prefix, this.#deps.random ?? Math.random),
-          sessionId,
-        );
-        if (result.ok) return;
-        if (result.error !== "alias_taken") return;
+        const candidate = candidateOf(prefix, sessionId, i);
+        const result = await setAlias(conn.main, candidate, sessionId);
+        if (result.ok) {
+          this.#status.aliasesAuto += 1;
+          return;
+        }
+        lastError = result.error ?? "unknown";
+        if (result.error !== "alias_taken") break;
       }
-    } catch {
-      /* 别名是增强项：生成失败静默 */
+      this.#failAutoAlias(sessionId, lastError, prefix);
+    } catch (err) {
+      this.#failAutoAlias(sessionId, describe(err), prefix);
     }
+  }
+
+  /** 自动别名失败：计数 + 一条日志（同会话只记一次由首见触发保证）。 */
+  #failAutoAlias(sessionId: string, reason: string, prefix: string): void {
+    this.#status.aliasesFailed += 1;
+    this.#status.aliasesLastError = reason;
+    this.#log(
+      `自动别名分配失败（${sessionId} / ${prefix}，已试 ${AUTO_ALIAS_TRIES} 次）：${reason}`,
+    );
   }
 
   /** 记录（或刷新）一个活跃会话；首次见到立即写在线键。 */
@@ -525,9 +558,20 @@ export class SessionChannelService {
     }
   }
 
-  /** 状态快照。 */
+  /** 状态快照（可选的 `error` / `aliasesLastError` 仅在真有值时出现，不留 `undefined`）。 */
   status(): SessionChannelStatus {
-    return { ...this.#status, sessions: [...this.#sessions.keys()] };
+    const {
+      aliasesLastError,
+      error,
+      sessions: _sessions,
+      ...rest
+    } = this.#status;
+    return {
+      ...rest,
+      ...(aliasesLastError === undefined ? {} : { aliasesLastError }),
+      sessions: [...this.#sessions.keys()],
+      ...(error === undefined ? {} : { error }),
+    };
   }
 
   /** 共享 KV 写入（last-value + 版本号；`expectedVersion` 做 CAS，BACKLOG #55）。 */
@@ -1185,8 +1229,51 @@ function jsonText(value: unknown): string {
   }
 }
 
+/**
+ * 递归去掉 `undefined`（对象键删除、数组项删除；其它值原样返回）：工具返回体须是
+ * lossless JSON。宿主对返回体做 `snapshotToolValue` → `walkJsonValue`，**值为 `undefined`
+ * 的键即判非法**（抛 `ToolOutputError`，code `INVALID_TOOL_OUTPUT`；`JSON.stringify`
+ * 会丢键但校验在其之前，2026-10-17 用户报错实测）。归一在工具出口统一做一次，
+ * 服务面返回值不动（插件内消费方不受影响）。
+ */
+export function pruneUndefined(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return value;
+  if (Array.isArray(value)) {
+    seen.add(value);
+    return value
+      .filter((item) => item !== undefined)
+      .map((item) => pruneUndefined(item, seen));
+  }
+  const proto = Object.getPrototypeOf(value) as unknown;
+  if (proto !== Object.prototype && proto !== null) return value;
+  seen.add(value);
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (item === undefined) continue;
+    out[key] = pruneUndefined(item, seen);
+  }
+  return out;
+}
+
+/** 给工具的 `execute` 出口套一层归一（返回体 → lossless JSON）。 */
+export function withLosslessOutput<T extends { execute: (...args: never[]) => unknown }>(
+  def: T,
+): T {
+  const execute = def.execute;
+  return {
+    ...def,
+    execute: function (this: unknown, ...args: unknown[]) {
+      const result = execute.apply(this, args as never[]);
+      return result instanceof Promise
+        ? result.then((value) => pruneUndefined(value))
+        : pruneUndefined(result);
+    },
+  } as T;
+}
+
 /** `session-channel` 工具定义（action 分派）。 */
-function toToolDef(service: SessionChannelService) {
+export function toToolDef(service: SessionChannelService) {
   return {
     name: "session_channel",
     description:
@@ -1499,7 +1586,7 @@ export function apply(
       toTaskResultTool,
     ]) {
       try {
-        tools.register(build(service));
+        tools.register(withLosslessOutput(build(service)));
       } catch (err) {
         warn(`${build.name} 工具注册失败：${describe(err)}`);
       }
