@@ -444,7 +444,14 @@ export async function sendMessage(
   const waitMs = req.waitMs ?? 0;
   const delivered =
     waitMs > 0 ? await waitForAck(client, messageId, waitMs) : undefined;
-  return { ok: true, messageId, delivered, target };
+  // 不等待回执时**不带** `delivered` 键（不是 `delivered: undefined`）：宿主对工具返回体做
+  // lossless JSON 校验，值为 `undefined` 的键会被判非法（`INVALID_TOOL_OUTPUT`）。
+  return {
+    ok: true,
+    messageId,
+    ...(delivered === undefined ? {} : { delivered }),
+    target,
+  };
 }
 
 /** 收件箱只读视图（新→旧，最多 count 条）。 */

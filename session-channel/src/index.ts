@@ -293,7 +293,9 @@ export class SessionChannelService {
         this.#status.error = describe(err);
         continue;
       }
-      this.#status.error = undefined;
+      // 清空用 delete 而非写 undefined：`status()` 直接展开该对象，值为 undefined 的键
+      // 会让工具返回体过不了宿主的 lossless JSON 校验（决策项 7 的根因之二）
+      delete this.#status.error;
       this.#log(`重试 ${attempts} 次后连接成功`);
       this.#afterConnect();
       return;
@@ -1190,6 +1192,64 @@ function jsonText(value: unknown): string {
   }
 }
 
+/**
+ * 是否平凡对象（`Object.prototype` 或 null 原型）：宿主对工具返回体做 lossless JSON 校验，
+ * 带自定义原型的对象同样被判非法，故归一只重建平凡对象，其余原样返回（不改语义）。
+ */
+function isPlainObject(value: object): boolean {
+  const proto = Object.getPrototypeOf(value) as object | null;
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * 工具返回体归一为 lossless JSON（决策项 7 选 a，缺陷「工具返回体含 `undefined` 字段」）：
+ * 宿主在序列化**之前**用 `walkJsonValue` 校验工具返回体，嵌套 `undefined`（以及 `NaN` /
+ * `Infinity` / `-0` / 非平凡原型）一律抛 `INVALID_TOOL_OUTPUT`——`JSON.stringify` 会丢掉
+ * 值为 `undefined` 的键，救不了这条校验。
+ *
+ * 递归去掉值为 `undefined` 的键；数组里的 `undefined` 视同编程错误，按等价语义**剔除该元素**
+ * （本包返回体不产这种元素，剔除只为保证出口恒合法）。`null` / `false` / `0` / `""` 保留；
+ * 其余非法值不在归一范围（返回体全部来自 Redis 里的 JSON，不会出现）。
+ */
+export function toLosslessJson<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item: unknown) => item !== undefined)
+      .map((item: unknown) => toLosslessJson(item)) as T;
+  }
+  if (value === null || typeof value !== "object" || !isPlainObject(value)) {
+    return value;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (item === undefined) continue;
+    out[key] = toLosslessJson(item);
+  }
+  return out as T;
+}
+
+/** 工具定义的最小形状（四个工具同形：`execute` + `output`）。 */
+interface ToolDefShape {
+  execute: (...args: never[]) => unknown;
+  [key: string]: unknown;
+}
+
+/**
+ * 给工具定义的 `execute` 出口包一层 `toLosslessJson`（决策项 7 选 a）：可选字段散在
+ * `broker.ts` / `index.ts` / `types.ts` 多处（`delivered` / `candidates` / `holder` /
+ * `replaced` / `TaskRecord` 的六个可选字段），逐处拼装是「每次新增可选字段都要记得拼一次」
+ * 的长期负担；出口收口一处，漏一处也不会再报 `INVALID_TOOL_OUTPUT`。
+ */
+function withLosslessOutput<T extends ToolDefShape>(def: T): T {
+  const run = def.execute;
+  return {
+    ...def,
+    async execute(...args: never[]): Promise<unknown> {
+      return toLosslessJson(await run.apply(def, args));
+    },
+  };
+}
+
 /** `session-channel` 工具定义（action 分派）。 */
 function toToolDef(service: SessionChannelService) {
   return {
@@ -1504,7 +1564,8 @@ export function apply(
       toTaskResultTool,
     ]) {
       try {
-        tools.register(build(service));
+        // 出口统一归一（决策项 7）：四个工具的返回体都先过 toLosslessJson 再交给宿主
+        tools.register(withLosslessOutput(build(service)));
       } catch (err) {
         warn(`${build.name} 工具注册失败：${describe(err)}`);
       }
