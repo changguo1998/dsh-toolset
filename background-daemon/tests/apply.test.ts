@@ -40,6 +40,8 @@ interface FakeContext {
   provided: Map<string, unknown>;
   commands: { definitions: unknown[] };
   tools: { registered: unknown[] };
+  /** 宿主 `on("dispose")` 注册的回调（apply 不再返回 runtime, 卸载全靠它）。 */
+  disposeListeners: (() => void)[];
   warns: string[];
 }
 
@@ -47,6 +49,7 @@ function fakeContext(
   options: { withCommands?: boolean; withTools?: boolean } = {},
 ): FakeContext {
   const provided = new Map<string, unknown>();
+  const disposeListeners: (() => void)[] = [];
   const commands = { definitions: [] as unknown[] };
   const tools = { registered: [] as unknown[] };
   const agent: AgentLike = {
@@ -79,9 +82,12 @@ function fakeContext(
     get: (serviceName: string) => services[serviceName],
     provide: (serviceName: string, value: unknown) =>
       provided.set(serviceName, value),
-    on: () => () => {},
+    on: (event: string, listener: () => void) => {
+      if (event === "dispose") disposeListeners.push(listener);
+      return () => {};
+    },
   };
-  return { ctx, provided, commands, tools, warns: [] };
+  return { ctx, provided, commands, tools, disposeListeners, warns: [] };
 }
 
 test("apply：注册服务面 / 命令 / 工具并启动调度", async () => {
@@ -406,15 +412,33 @@ test("apply：memory-base 不可用 → 降级 json, 不注册 kind", async () =
   await runtime.dispose();
 });
 
-test("apply：宿主入口返回 undefined（cordis 不当 effect 收集）", async () => {
+test("apply：宿主加载路径返回 void（undefined）, 不当 effect 收集", async () => {
   const dir = tempDir();
   const fake = fakeContext();
   const result = await apply(fake.ctx, {
     storePath: path.join(dir, "tasks.json"),
     journalPath: path.join(dir, "journal.jsonl"),
   });
+  // 回归守卫：cordis 把 apply 的返回值当 effect, 返回 runtime 普通对象即 Invalid effect
   assert.equal(result, undefined);
+  assert.equal(typeof result, "undefined");
   // 命令面与工具面照常注册
   assert.equal(fake.commands.definitions.length, 1);
   assert.equal(fake.tools.registered.length, 1);
+  // 卸载没有返回值可用, 必须靠宿主 dispose 回调：已注册且可调用
+  assert.equal(fake.disposeListeners.length, 1);
+  assert.doesNotThrow(() => fake.disposeListeners[0]?.());
+});
+
+test("bootDaemon：同一路径下仍返回运行期句柄（与 apply 的分工）", async () => {
+  const dir = tempDir();
+  const fake = fakeContext();
+  const runtime = await bootDaemon(fake.ctx, {
+    storePath: path.join(dir, "tasks.json"),
+    journalPath: path.join(dir, "journal.jsonl"),
+  });
+  assert.equal(typeof runtime, "object");
+  assert.equal(runtime.backend, "json");
+  assert.equal(typeof runtime.dispose, "function");
+  await runtime.dispose();
 });
