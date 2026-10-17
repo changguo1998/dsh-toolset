@@ -1,6 +1,6 @@
 # 偏好分析（接取条目：`docs/BACKLOG.md`「偏好分析（从行为与编辑中归纳用户偏好并自动应用）」）
 
-状态: 决策  |  开启: 2026-10-16  |  关闭: 未关闭
+状态: 决策 | 开启: 2026-10-16 | 关闭: 未关闭
 本文件是本任务唯一的过程记录与文档变更落点; 计划外的文件不改.
 
 ## 目标
@@ -39,10 +39,10 @@
 
 - 订阅形态 `ctx.on('session/event', (session, event) =>...)`: `docs/host/DSH-CTX-API.md:32`; 先例 `memory-base/src/hooks.ts:294-300`, `herdr-integration/src/main.ts:220,307`.
 - 与偏好相关的可得事件: `docs/host/DSH-CTX-API.md:62-63`:
- - `user/message`: 文本块可取, 且带 `message.source.kind`, 可排除 rule-engine 自身注入 (先例 `rule-engine/src/engine.ts:536-550`);
- - `turn/end{reason}`: `completed / aborted / interrupted / max-tokens / blocked / error / forked`;
- - `approval/asked {id, toolName, callId?, reason?}` + `approval/decided {id, outcome}`: 审计对 (log-only), `outcome = allowed-once / rejected / cancelled / unavailable`: `docs/host/DSH-CTX-API.md:89`. **`decided` 只带 id 与 outcome**, 要拿"被拒的是哪个工具 / 什么参数"必须与 `asked` 按 id 配对 (进程内 map), 参数另需与同回合 `tool/call {name, arguments, callId?}` 配对 (`tool/call` 带 `callId`: `TUI/src/app/adapter/dsh.ts:2316-2323`);
- - 另有 `tool/call` / `tool/result`, `command/run` / `command/done`, `workspace/changes {turn}` (每轮 git 快照差公告), `feedback/record` / `feedback/message-put` / `feedback/message-delete`.
+- `user/message`: 文本块可取, 且带 `message.source.kind`, 可排除 rule-engine 自身注入 (先例 `rule-engine/src/engine.ts:536-550`);
+- `turn/end{reason}`: `completed / aborted / interrupted / max-tokens / blocked / error / forked`;
+- `approval/asked {id, toolName, callId?, reason?}` + `approval/decided {id, outcome}`: 审计对 (log-only), `outcome = allowed-once / rejected / cancelled / unavailable`: `docs/host/DSH-CTX-API.md:89`. **`decided` 只带 id 与 outcome**, 要拿"被拒的是哪个工具 / 什么参数"必须与 `asked` 按 id 配对 (进程内 map), 参数另需与同回合 `tool/call {name, arguments, callId?}` 配对 (`tool/call` 带 `callId`: `TUI/src/app/adapter/dsh.ts:2316-2323`);
+- 另有 `tool/call` / `tool/result`, `command/run` / `command/done`, `workspace/changes {turn}` (每轮 git 快照差公告), `feedback/record` / `feedback/message-put` / `feedback/message-delete`.
 - 归纳节奏可复用: memory-base 的巩固链"启动后一次 + `compaction/end` 后一次, 进程内节流 10 min": `memory-base/README.md:60`. 归纳不需要新调度面.
 
 ### R4 不可得 / 名不副实的信号 (决定观测面取舍)
@@ -78,13 +78,14 @@
 (a) 三条机器可判信号 + 显式登记 (b) (a) 再加 TUI 侧命令与快捷键采集 (c) 全量会话事件 (含助手正文与工具结果原文) (d) 只做显式登记
 理由: (a) 三条全部可从 `session/event` 机械提取, 不改宿主, 不改 TUI (R3 / R4); (b) 需 TUI 新增事件; (c) 体积与敏感面不可接受 (见 D3); (d) 放弃"自动归纳"这个条目核心期望.
 三条信号的首期口径:
-- **S1 重复约束**: `user/message` (排除 `source.kind === 'rule-engine'`) 文本含约束标记词 (词表可配, 缺省 `不要 / 不要用 / 别 / 别用 / 不用 / 以后 / 一律 / 统一 / 都 / 记住 / 禁止 / 只能 / 必须 / 优先`) 且句长 <= 120 字 -> 抽出承载该标记的最短句 -> 归一化 key (去空白与标点, 大小写折叠) -> 与账簿已有 key"完全相同, 或 3-gram Jaccard >= 0.8"则合并计数 (相似阈值参考 memory-base 机械合并判据 0.8, `memory-base/README.md:35`), 否则新建.
+
+- **S1 重复约束**: `user/message` (排除 `source.kind === 'rule-engine'`) 文本含约束标记词 (词表可配, 缺省 `不要 / 不要用 / 别 / 别用 / 不用 / 以后 / 一律 / 统一 / 都 / 记住 / 禁止 / 只能 / 必须 / 优先`) 且句长 \<= 120 字 -> 抽出承载该标记的最短句 -> 归一化 key (去空白与标点, 大小写折叠) -> 与账簿已有 key"完全相同, 或 3-gram Jaccard >= 0.8"则合并计数 (相似阈值参考 memory-base 机械合并判据 0.8, `memory-base/README.md:35`), 否则新建.
 - **S2 纠正加权**: 同会话内, 若上一回合 `turn/end{reason: aborted|interrupted}`, 或本消息含纠正标记 (`不对 / 错了 / 不是 / 重来 / 重新 / 我说的是 / 别这样 / 又 / 还是`), 则该消息里的 S1 约束句**权重 x1.5**; 若纠正消息里没有约束句, 只记入账簿的"未成形观察"计数 (不产出, 不上报, 留给后续 LLM 面). 这样避免从纠正里硬造弱偏好.
 - **S3 审批拒绝**: `approval/asked` 与 `approval/decided{outcome: 'rejected'}` 按 id 配对, 参数经同回合 `tool/call{callId}` 取 -> 指纹 = `toolName` + 参数首段 (首个子命令 / 首个路径), 如 `bash:rm` / `write:.env` -> 同指纹被拒 >= 3 次且跨 >= 2 会话 -> 偏好文案"不要直接 `<toolName>` `<参数首段>`; 如确需执行, 先说明影响并取得确认".
 - **显式登记通道**: 用户直接写 (TUI `/memory add <tier> --kind preference <内容>`, `origin: user` 免审直达) 与模型提议 (`preference_add`, 落候选待审, 见 D12).
-**不纳入首期** (各有硬原因, 见 R4): 模型输出被用户修改, 快捷键 / 命令使用, 提交信息风格, 工具选择分布, 打断单独计数.
+  **不纳入首期** (各有硬原因, 见 R4): 模型输出被用户修改, 快捷键 / 命令使用, 提交信息风格, 工具选择分布, 打断单独计数.
 
-**D3 原文留存: 选 (a) 只存用户原话片段 (<= 120 字).**
+**D3 原文留存: 选 (a) 只存用户原话片段 (\<= 120 字).**
 (a) 只存用户原话片段 (作偏好文案与证据) (b) 存消息全文与会话上下文 (c) 只存计数不存文本
 理由: (a) 无 LLM 时偏好文案只能来自用户自己的措辞, 片段也是用户能审阅, 能判断真假的最小单位; (b) 越界 (助手正文 / 工具结果原文体积大, 敏感面宽); (c) 产不出可读偏好, 用户无法审阅.
 
@@ -93,12 +94,14 @@
 理由: R5 (无公开 LLM 通路, 接 LLM 等于新契约与新调研); (a) 可给出"固定埋点序列 -> 一条偏好"的机械断言 (验收条款要求); caller 注入是 memory-base 已验证的形态, 需要时按同一形态接.
 
 **D5 置信分档 (首期数值, 均可配)**
+
 - 观察中: 证据 < 3 或只出现在 1 个会话 -> 只留账簿, 不产候选;
 - 候选: 证据 >= 3 且跨 >= 2 会话 -> 产出候选 (`promote`, pending 待审);
-- 高置信: 满足候选门槛 + 最近一次证据 <= 30 天 -> 可自动应用 (D8);
+- 高置信: 满足候选门槛 + 最近一次证据 \<= 30 天 -> 可自动应用 (D8);
 - `importance` 映射: 候选 3 / 高置信 4 (`importance` 是少数能经服务面写入的元数据位, 见 R1).
 
 **D6 老化与失效: 90 天休眠 / 180 天退休.**
+
 - `lastSeen` 超 90 天无新证据 -> `dormant` (不注入, 条目与账簿保留, 再现即复活);
 - 超 180 天 -> `retired` (调 `forget` 删正式行; 账簿记 `suppressed` 键, 防同一模式被再次归纳出来, 与 memory-base 的 reject 墓碑同语义);
 - 检查挂巩固链节奏 (启动后 + `compaction/end` 后, 节流 10 min), 不新增调度面.
@@ -109,7 +112,7 @@
 
 **D8 自动应用程度: 选 (b) `autoApply: "confident"` (缺省)。**（落地方式原为 `candidates.approve`, 已由 D17 取代）
 (a) `off` (只列建议) (b) `confident` (只有高置信自动应用并注入, 其余留待审) (c) `all` (达候选门槛即自动应用)
-理由: 条目期望"归纳并自动应用", 缺省必须真的会应用; (b) 用四重保险压住误归纳风险: 统计门槛 (>= 3 次 / >= 2 会话 / 30 天内), 注入上限 (每次 <= 5 条, <= 600 字符, 可配), 逐条可撤销 (D17), `enabled: false` 一键关闭; 且**不自动改仓内文件** (与条目默认建议一致).
+理由: 条目期望"归纳并自动应用", 缺省必须真的会应用; (b) 用四重保险压住误归纳风险: 统计门槛 (>= 3 次 / >= 2 会话 / 30 天内), 注入上限 (每次 \<= 5 条, \<= 600 字符, 可配), 逐条可撤销 (D17), `enabled: false` 一键关闭; 且**不自动改仓内文件** (与条目默认建议一致).
 附: **模型提议的偏好不自动应用** (`preference_add` 一律落账簿的待审状态): 统计证据是用户自己的重复原话, 模型提议是模型的理解, 两者不该同权.
 
 **D9 审阅与回滚: 原选 (a) 复用 memory-base 候选队列 + TUI `/memory review` —— 已被 D17 取代 (该面随 `candidates` 一起下线)。**
@@ -120,9 +123,10 @@
 
 **D10 隐私边界: 选 (a) 三层防线.**
 (a) memory-base 内置隐私闸 + `registerKind.preWrite` 钩子 + 账簿侧显式预检与自有敏感模式 (b) 只靠库闸门 (c) 加密存储
-理由: **账簿是插件自有文件, 不经过库闸门**: 若不在写入前显式调 `checkPrivacy(text)` (服务面可得, `memory-base/src/index.ts:818`) 并加自有模式 (`.ssh` / `.env` / `id_rsa` / `credentials` / 家目录绝对路径形态), 隐私底线会被账簿绕过, (b) 因此不成立. 防线: (a1) 证据片段 <= 120 字且写入前 `checkPrivacy` 预检; (a2) `registerKind.preWrite` 再拒一次 (纵深防御); (a3) 不采集助手正文 / 工具结果原文 / 文件内容; 账簿文件 `0o600`, 目录 `0o700` (同 memory-base 约定, `memory-base/README.md:119`). (c) 不必要 (记录本身是用户自己的约束原话).
+理由: **账簿是插件自有文件, 不经过库闸门**: 若不在写入前显式调 `checkPrivacy(text)` (服务面可得, `memory-base/src/index.ts:818`) 并加自有模式 (`.ssh` / `.env` / `id_rsa` / `credentials` / 家目录绝对路径形态), 隐私底线会被账簿绕过, (b) 因此不成立. 防线: (a1) 证据片段 \<= 120 字且写入前 `checkPrivacy` 预检; (a2) `registerKind.preWrite` 再拒一次 (纵深防御); (a3) 不采集助手正文 / 工具结果原文 / 文件内容; 账簿文件 `0o600`, 目录 `0o700` (同 memory-base 约定, `memory-base/README.md:119`). (c) 不必要 (记录本身是用户自己的约束原话).
 
 **D11 与现有件的分工 (避免两套规则系统)**
+
 - `rule-engine`: **注入通道**. 偏好分析只注册消费者, **不往规则表写规则**; 规则表仍归人工与 `rule_add`.
 - `memory-base`: **分层存储面** (`kind = preference` 分类 + 分层 / 隐私闸 / 检索). 候选队列与提升链属被下沉的管理逻辑, 本包不再依赖 (见「修订」D16-D20).
 - `ponytail`: 固定决策阶梯, 不参与归纳, 也不被偏好改写; 同一节点时由 rule-engine 合并成一条注入.
@@ -173,6 +177,49 @@
 **随之作废的具体条款**: 原验收里的"候选 reject 墓碑 (`fact_key`)"与"自动批准调 `candidates.approve` + `reviewer`"不再成立, 改为账簿状态断言 (见「验收细化」); 原"最高只到待审"的分档改由账簿 `status = candidate` 承载.
 
 ## 规划
+
+### 实现前冻结的接口（消费方按此写）
+
+**上游两项**（memory-base 重设后的句柄面 + `rule-engine` 注入消费者）：
+
+```ts
+// ① 归纳路径：只拿项目层权限（能力即闸门）
+const induction = memory.registerKind({
+  kind: "preference",
+  writableTiers: ["project"],
+  preWrite,                       // 纵深防御：内容级再拒一次（D10 a2）
+});
+// ② 用户层：单独 kind，只由显式动作路径调用
+const explicit = memory.registerKind({ kind: "preference_user", writableTiers: ["user"] });
+
+await induction.put({ content, tier: "project", project, title, importance: 3, source: { kind: "manual" }, sessionId });
+await explicit.put({ content, tier: "user", project, title, importance: 4, source: { kind: "manual" } });
+await induction.forget([{ tier: "project", ids: [a, b] }]);   // 撤销 / 退休（返回删条数）
+const rows = await memory.list({ kind: "preference" });        // 全局只读（D16 只把库当副本）
+```
+
+**D19 四项要求 → 重设后的对应形态**（全部满足）：
+
+| D19 的要求 | 重设后的形态 |
+| --- | --- |
+| (a) 指定层写入，不再要 `origin: "user"` | 句柄 `put({tier, ...})`（`origin` 列已删） |
+| (b) 按 kind 列出 | 全局 `list({kind, tier?, project?, limit?, offset?})` |
+| (c) 删除 | 句柄 `forget([{tier, ids}])` → 真删并返回条数 |
+| (d) 保留 `registerKind` + `preWrite` | 保留：`KindSpec = {kind, table?, writableTiers?, preWrite?}` |
+
+**门禁三条（D18 的落地）**：① 归纳只持 `writableTiers: ["project"]` 的句柄 —— 写 U 层会被 memory-base **抛错**（能力式硬闸，不靠自律）；② 用户层用独立 kind `preference_user`（`writableTiers: ["user"]`），**只由显式动作路径调用**；③ 两道隐私闸：写入前 `memory.checkPrivacy(text)` 预检 + 账簿自有敏感模式，再加 `preWrite` 纵深（D10）。
+
+**已裁定（2026-10-17，用户「可以」）**：用「两个 kind」（`preference` / `preference_user`）而不是「同一 kind 声明两层 + 自律」—— 理由是 `preWrite` 的入参（`KindWriteInput = {content, title?, project, kind}`）**不含 `tier`**，按层拦不住；两个 kind 让「用户层只走显式动作」由能力保证。该事实已回写 memory-base 的冻结接口。
+
+**账簿（自持，唯一状态源 D16）**：`<dshHome>/preference-analysis/ledger.json`（**跨会话**账簿，不能用会话目录），目录 0700 / 文件 0600，原子写 + 版本守卫，含 `status`（observe → candidate → active → dormant → retired）与 `suppressed` 键。
+
+**注入（rule-engine 消费者，单个）**：只读账簿的 `active` 条目；每次 ≤ 5 条 / ≤ 600 字符（可配），超限截断并计数。
+
+**模型侧工具三个**：`preference_list`（看账簿与状态）· `preference_add`（模型提议 → 一律落候选待审，不自动应用）· `preference_remove`（撤销 → 记 `suppressed` + 调 `forget`）。
+
+**配置面**：`enabled`（缺省 true）· `autoApply: "confident"`（缺省，D8）· `markers`（S1 词表，缺省 12 词）· `thresholds: {evidence: 3, sessions: 2, recentDays: 30}` · `aging: {dormantDays: 90, retireDays: 180}` · `similarity: 0.8` · `inject: {maxItems: 5, maxChars: 600}`。
+
+**依赖**：`memory-base`（必需，句柄与全局读）+ `rule-engine`（必需，消费者面）；`ctx.get` 取不到 → 记一次明确日志并停在「只观察不写入 / 不注入」（不静默）。
 
 ### 本任务 (调研 + 决策) 的改动文件清单
 
@@ -233,13 +280,37 @@ TUI 面板 / `/prefer` 命令, `AGENTS.md` 写入, LLM 归纳与概括, 冲突�
 
 不含 TUI 面 (另 +2 d) 与 LLM 归纳 (另立调研). **优先级**维持 P2, 可在裁定时上调.
 
+### 任务拆分（6 步，每步带中间验证）
+
+1. **包骨架 + 账簿** —— `package.json` / `cordis.patch.yml` / `tsconfig.json` / `LICENSE` / `.gitignore`；`src/ledger.ts`（版本守卫、原子写、0600、`suppressed` 键、老化扫描）。验证：账簿用例（并发写、坏文件、`suppressed` 命中）。
+2. **观测**（`src/observe.ts`）—— 订阅 `session/event`，抽 S1 / S2 / S3（S1 排除 `source.kind === 'rule-engine'`）。验证：三信号各一例 + 排除例。
+3. **归纳**（`src/induce.ts`）—— 约束句抽取（≤ 120 字）、归一化 key、3-gram Jaccard ≥ 0.8 合并、置信分档（D5）。验证：验收 1、2。
+4. **存储适配**（`src/apply.ts`）—— 两个句柄 + `put` / `forget` / 全局 `list`；隐私双闸。验证：验收 3、4、6、8。
+5. **注入与工具**（`apply.ts` 的消费者 + `src/tools.ts`）—— 注册一个 rule-engine 消费者；三个工具的参数与返回值。验证：验收 7 + 工具用例。
+6. **文档与真机** —— `README.md` + `docs/DESIGN.md`（有状态机与跨包契约，按 DESIGN 口径需建）+ 七处接线。验证：该包 `test` 全绿 + 根三件套 + 真机一次。
+
+### 实现阶段的验证口径（怎么跑）
+
+- **单测**：`npm --prefix preference-analysis run test`（假 memory 与假 ruleEngine 两件可替身）；老化用**注入时钟**推进 91 / 181 天（验收 5）。
+- **机械**：根 `npm run check` + `npm run build` + `npm run test` 三件全绿；`scripts/install.sh --dry-run` 的清单含本包。
+- **真机**：重启 `dsh --profile fff`，连续三次说同一条约束 → 看账簿转 `candidate` / `active`，注入出现在提示里；`preference_remove` 后不再注入；`enabled: false` 全关（零观测、零写入、零注入）。
+- **不做**：不验 TUI 面（首期零改动）；不验 LLM 归纳与冲突检测（D4 只实现统计那一半）；不验 `AGENTS.md` 写入（首期不做）。
+
+### 收尾动作（实现完成时）
+
+- 条目「偏好分析（从行为与编辑中归纳用户偏好并自动应用）」标「完成」并从 `docs/BACKLOG.md` 移除；本文件移入 `docs/archived/`。
+- 文档回写：`preference-analysis/README.md` + `docs/DESIGN.md` + 根 `README.md` / `README.zh.md` + `AGENTS.md` + `docs/BACKLOG.md` §4 插件规划表一行；**包计数与 §4 表的统一**归条目「五个新插件落地时的仓库清单与包计数统一」。
+- **memory-base 侧不写**：D19 的四项已由其重设满足（见冻结接口的对应表），本任务不改它的代码与文档。
+- 依赖顺序：前置 = memory-base 重设（D20 选 (a)）；两包均未落地时本包停在「只观察不写入」（见冻结接口）。
+- 遗留：TUI 面（D17 的 (c)，首期不做）；LLM 归纳与冲突检测（D4 预留注入口）；`AGENTS.md` 追加路径（首期不做，二期另议）。
+
 ## 剩余待用户裁定项
 
-1. **顺序依赖**: D20 选 (a) 先做 memory-base 瘦身, 偏好随后按 D19 新面实现. 是否接受? 备选 (b) 先做偏好 (本期正文也自持, 将来迁一次).
-2. **自动应用缺省档**: D8 选 `confident` (统计门槛达标即自动应用并注入). 是否接受? 备选: 缺省 `off` (先只提示).
-3. **用户层门禁落点**: D18 把门禁放在插件自律, 并希望 memory-base 保留 `preWrite` 钩子作硬闸. 若瘦身把 `registerKind` / `preWrite` 一并取消, 是否接受"用户层只靠插件自律"?
-4. **TUI 面**: 首期零 TUI 改动 (审阅靠模型侧工具, 撤销靠 `preference_remove`). 是否需要 `/prefer` 列表 / 撤销命令?
-5. **`AGENTS.md` 追加路径** (原编号 3, 未答): 首期不做 (只注入); 是否列入二期?
+1. ~~**顺序依赖**: D20 选 (a) 先做 memory-base 瘦身, 偏好随后按 D19 新面实现~~ **已由上游覆盖（2026-10-17）**：memory-base 重设的决策项 8 同样选了「先瘦身」（沿用 D20），两项一致。
+2. ~~**自动应用缺省档**: D8 选 `confident`~~ **已裁定（2026-10-17，用户「其他的没有问题」）：维持 `confident`**（高置信自动应用并注入，其余留待审；`off` 仍可配）。
+3. ~~**用户层门禁落点**: D18 把门禁放在插件自律~~ **已由上游解决（2026-10-17）**：memory-base 重设**保留 `registerKind` 与 `preWrite`**，且写入只能经句柄 → 门禁改为**能力式**：归纳只持 `writableTiers: ["project"]` 的句柄，用户层用独立 kind `preference_user`（见冻结接口的「门禁三条」与那处待点头项）。
+4. ~~**TUI 面**: 首期零 TUI 改动~~ **已裁定（2026-10-17，用户「其他的没有问题」）：维持零 TUI 改动**（审阅靠 `preference_list`，撤销靠 `preference_remove`）。
+5. ~~**`AGENTS.md` 追加路径**~~ **已裁定（2026-10-17）：首期不做**（只注入）；二期是否列入另议，本文件不承诺。
 
 ## 实现记录
 

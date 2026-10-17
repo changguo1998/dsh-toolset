@@ -58,7 +58,7 @@
 **2026-10-17 三次裁定：层级不加开关**（用户口径「不加开关了，一直开启」）：
 
 - 删掉 `tiers.enabled`；层级**恒开启**，不再有「单库形态」，`dbPath` 与 `MEMORY_DB_PATH` 这个单库落点随之失去意义（也失去 `dbPath: ":memory:"` 的不落盘模式；测试改用临时目录）。
-- 层级配置面收敛为路径与项目参数：`dshHome` / `sessionDir` / `projectRoot` / `journalMode`；跨项目 P 库（`crossProjectRoots`）已按用户 2026-10-17 裁定去掉（随提升链一并取消）。
+- 层级配置面收敛为路径与项目参数：`dshHome` / ~~`sessionDir`~~（**后被决策项 11 删除**：S 层落点改由本插件自算，不再需要配置项）/ `projectRoot` / `journalMode`；跨项目 P 库（`crossProjectRoots`）已按用户 2026-10-17 裁定去掉（随提升链一并取消）。
 - 层不可用时（如拿不到宿主会话目录）不再静默退化为单库，而是写该层直接报错（读则跨可用层取）。
 
 **2026-10-17 四次裁定：去掉冗余与语义列，本包只负责存储**（回答 G1 / G2 / G3，用户口径「本插件只负责存储，逻辑和语义交给上层插件」）：
@@ -119,7 +119,7 @@ interface ScopePutInput {
   title?: string;
   importance?: number;  // clamp 1..5，可被 preWrite 建议覆盖
   source?: { kind: string; ref?: string; label?: string };
-  sessionId?: string;
+  sessionId?: string;    // 写 S 层时必需（决策项 11：落点由本插件自算）
 }
 ```
 
@@ -185,7 +185,96 @@ search(opts: { query: string; kind?: string; tier?: Tier; project?: string; limi
 - 安全面：参数里没有文件路径与命令文本，故**不进** `security-guard` 的两张登记表。
   理由：a 与前一日（2026-10-16）herdr-pane 的「单工具 + action」取舍同向（避免工具面膨胀），且 search 与 list 共用同一套过滤参数；b 会把两个近乎同形的 schema 摊成两份；c 与「读全局」的裁定冲突。写侧仍不对模型开放 —— 模型只读，写权限留在各扩展的句柄上，这也让「按扩展隔离」保持可解释。
 
+决策项 11　S 层落点的取得方式（2026-10-17 用户三次追加裁定）
+
+- a) 句柄收 `cwd?`，memory-base 自己经 `session-paths` 推导
+- b) ~~句柄收 `sessionDir?`，调用方经 `session-paths` 取好再传~~
+- c) ~~句柄只收 `tier` + `sessionId`；memory-base 自己取 cwd 并算路径~~
+- d) **句柄只收 `tier` + `sessionId`；`session-paths` 提供 `sessionDirFor(sessionId)` 直接给出目录（取 cwd 也收在它内部）**
+
+**~~选定 b~~ → ~~选定 c~~ → 选定 d**（用户 2026-10-17 依次裁定：先「可以」采纳 b，再「保留 sessionId 作为参数」定为 c，最后问「为什么 `session-paths` 不能给路径，还需要自己算」并裁定「改成按照这个」）。理由：① 落点仍只在一处解析，**会话内一致性由结构保证**；② 调用方与 memory-base **都不碰路径、也都不认识宿主会话服务** —— memory-base 只把 `sessionId` 交给 `sessionPaths.sessionDirFor`，取 cwd（`ctx.sessions.get(id).header.cwd`，`docs/host/DSH-CTX-API.md:22-30`）这一步收在 `session-paths` 内部，宿主布局知识集中在一个包；③ 同一方法对 `output-compress` 的「`digest.db` 每会话一个文件」同样适用（它处理事件时本来就有 `session.id`，`src/hooks.ts:161-162`，不必再读 `header.cwd`）；④ 纯函数三件（`projectKey` / `projectDir` / `sessionDir`）保留，供显式带 cwd 的调用方与对拍测试。
+
+**代价一条**：`session-paths` 从「零依赖纯函数包」变成「纯函数 + 一个依赖宿主 `sessions` 的解析方法」; `sessions` 缺失时该方法按明示例外报错, 纯函数不受影响。
+
+**为什么身份必须显式给**：同进程内插件实例是**共用**的（组合行每进程挂载一次，会话是运行期 `ctx.sessions.create` / `fork` 产生的对象），同一进程里可以同时存在主会话与它委派的子代理会话（基础组合挂的是 `subagent-spawn-in-process` 与 `subagent-fork-in-process`，见 `dsh-base/cordis.patch.yml:352-358` 与 `dsh-subagent-spawn-in-process/README.md:79`），因此没有「当前会话」这种环境量可以替代 `sessionId`。
+
+**降级链（明示例外，不退化、不静默换路径）**：写 S 层而 `sessionId` 缺失 → 报错；`sessionPaths.sessionDirFor(id)` 解析失败（会话取不到 / 宿主 `sessions` 缺失 / `session-paths` 未挂载）→ 报错。配置 `sessionDir` 随之**删除**（要改 sessions 根就改 `session-paths` 的配置，一处生效）。
+
+**同进程多会话的后果（新增口径）**：memory-base 一个实例服务全部会话，S 层必须**按会话惰性打开并缓存**（同一进程可能同时开着主会话与子代理会话的 `session.db`），首次打开写路径日志；缓存策略与上限在实现时定（建议只缓存最近若干个，其余写后关闭）。
+
 ## 规划
+
+### 实现前冻结的接口（消费方按此写）
+
+**分层与落点**: `Tier = "session" | "project" | "user"`; S 库 = `<sessionDir>/session.db`（**经 `sessionPaths.sessionDirFor(sessionId)` 解析**, 取 cwd 在 `session-paths` 内部完成, 决策项 11）· P 库 = `<projectRoot>/.dsh/project.db` · U 库 = `<dshHome>/memory-base/user.db`。层级恒开启、无开关、无单库模式; **库惰性创建**（首次写该层才建）; 首次打开某层库把 `tier` 与解析到的路径写日志。
+
+**写入句柄**（`registerKind` 返回）:
+
+```ts
+interface MemoryScope {
+  readonly kind: string;
+  readonly writableTiers: readonly Tier[];
+  put(input: ScopePutInput): Promise<PutResult>;
+  forget(refs: readonly { tier: Tier; ids: readonly number[] }[]): Promise<number>;
+}
+interface ScopePutInput {
+  content: string;
+  tier?: Tier;            // 缺省 "session"
+  project?: string;
+  title?: string;
+  importance?: number;    // clamp 1..5；可被 preWrite 建议覆盖
+  source?: SourceRef;
+  sessionId?: string;
+}
+interface PutResult {
+  ids: number[];          // 拒写时为空
+  sourceId: number;
+  created: number;
+  skipped?: { reason: string };
+}
+```
+
+**错误形态**（本轮定型）: 参数级与权限级一律**抛错**（`Error`, 文案带 kind 与 tier）—— 未注册 kind · `tier` 不在 `writableTiers` · 写 S 层但拿不到 `sessionDir`; **内容级闸门不抛错**, 走 `PutResult.skipped`（隐私闸命中 / `preWrite` 拒）。`forget` 真删并返回条数。
+
+**声明面**:
+
+```ts
+interface KindSpec {
+  kind: string;
+  table?: string;
+  writableTiers?: readonly Tier[];   // 缺省 ["session"]
+  preWrite?(input: KindWriteInput): KindVerdict | Promise<KindVerdict>;
+}
+interface KindVerdict { accept: boolean; reason?: string; importance?: number }
+```
+
+**给消费方的一条提醒（2026-10-17）**：`preWrite` 的入参 `KindWriteInput = {content, title?, project, kind}` **不含 `tier`** —— 需要「按层拦截」的消费方拿不到层，**只能拆 kind**。先例：`preference-analysis` 用 `preference`（`writableTiers: ["project"]`，归纳路径）+ `preference_user`（`writableTiers: ["user"]`，只由用户显式动作调用）两个 kind，让**句柄本身当闸门**；若将来要给 `preWrite` 加 `tier`，仍需另解「同一层里区分归纳还是显式动作」，所以本轮不改 `KindWriteInput`。
+
+**全局面** `ctx.get('memory')` 八键（无写无删）:
+
+```ts
+interface MemoryService {
+  registerKind(spec: KindSpec): MemoryScope;              // 按需建表，故同步
+  checkPrivacy(text: string): string | null;              // 命中返回原因，否则 null
+  getSummary(opts?: { kind?: string; tier?: Tier; project?: string }): Promise<SummaryReport>;
+  whenReady(): Promise<void>;
+  usage(): Promise<{ tier: Tier; path: string; bytes: number }[]>;   // 只报已创建的库；容量三字段随逐库上限取消而删
+  migrate(opts: { from: "v1"; mode: "drop" }): Promise<MigrateResult>;  // 无 dbPath（无单库模式）
+  list(opts?: { kind?: string; tier?: Tier; project?: string; limit?: number; offset?: number }): Promise<StoreRow[]>;
+  search(opts: { query: string; kind?: string; tier?: Tier; project?: string; limit?: number; fuzzy?: boolean }): Promise<SearchHit[]>;
+}
+interface StoreRow {
+  id: number; kind: string; tier: Tier; project: string; title: string | null;
+  content: string; importance: number; sourceId: number | null; sessionId: string | null; createdAt: number;
+}
+interface SearchHit extends Omit<StoreRow, "sourceId" | "sessionId"> { score: number }
+```
+
+`StoreRow` 与 `SearchHit` 为本轮新定型: 列集随「删无消费方列与四语义列」收敛, 两类都带 `kind` 与 `tier` 标签。`SummaryReport` / `MigrateResult` 形状沿用现行（本轮不改）。
+
+**模型侧工具** `memory_query`（只读）: `action`（`"search"` 缺省 / `"list"`）· `query`（search 必填）· `kind?` · `tier?` · `project?` · `limit?`（缺省 10, clamp 1..100）· `fuzzy?`（仅 search）· `offset?`（仅 list）; 输出带标签行（`title?` / `content` / `importance` / `createdAt`）, 超限截断并在结果里标明; `description` 写明只读与收窄成本; **不进** `security-guard` 登记表。
+
+**删除面（消费方不要再引用）**: `remember` · 全局 `forget` · `promote` · `candidates.*` · `setLlmCaller` · `consolidate` · `lastConsolidation` · `enforceLimits` · `rescanDenied` · `scanDocs`; `registerKind` 不再返回 `RegisteredKind`（改返回句柄）。
 
 本轮（调研 + 决策 + 接口设计）改动文件清单：
 
@@ -197,8 +286,8 @@ search(opts: { query: string; kind?: string; tier?: Tier; project?: string; limi
 实现阶段（待用户审定本轮设计后执行）改动文件清单：
 
 - `memory-base/src/scope.ts`（新增）：`MemoryScope` 实现 —— 绑定 kind 与 `writableTiers`，把 `put` / `forget` 转发到 `kb` / `tiers`，越权层与未注册 kind 一律拒（带原因）
-- `memory-base/src/index.ts`：全局面收到 `registerKind` / `checkPrivacy` / `getSummary` / `whenReady` / `usage` / `migrate` / `list` / `search`（后两者为跨 kind 只读，带 `kind` 过滤）；`registerKind` 返回句柄；删 `remember` / `forget` / `promote` / `candidates.*` / `setLlmCaller` / `consolidate` / `lastConsolidation` / `enforceLimits` / `rescanDenied` / `scanDocs`；**配置面去掉 `tiers.enabled` / `dbPath` / `MEMORY_DB_PATH` / `defaultKind`**（三次裁定：无开关、恒分层、无单库模式；四次裁定 G1：无兜底分类），保留 `dshHome` / `sessionDir` / `projectRoot` / `journalMode`
-- `memory-base/src/tiers.ts`：**层级恒开启 + 库惰性创建**（`TierSet.open` 改为只解析路径、不 `openStore`，首次写到某层时才建 / 打开；`usage()` 只报已创建的库）；写入路由去掉 `origin` 条件，改为「按 `tier` 直写 + 目标层不可用时抛错」；写入口改为只从句柄进；删逐库容量守卫与跨项目 P 库（`otherProjectRoots` / `crossProjectRoots`，已裁定去掉）
+- `memory-base/src/index.ts`：全局面收到 `registerKind` / `checkPrivacy` / `getSummary` / `whenReady` / `usage` / `migrate` / `list` / `search`（后两者为跨 kind 只读，带 `kind` 过滤）；`registerKind` 返回句柄；删 `remember` / `forget` / `promote` / `candidates.*` / `setLlmCaller` / `consolidate` / `lastConsolidation` / `enforceLimits` / `rescanDenied` / `scanDocs`；**配置面去掉 `tiers.enabled` / `dbPath` / `MEMORY_DB_PATH` / `defaultKind`**（三次裁定：无开关、恒分层、无单库模式；四次裁定 G1：无兜底分类），保留 `dshHome` / `projectRoot` / `journalMode`（`sessionDir` 随决策项 11 一并删除）
+- `memory-base/src/tiers.ts`：**层级恒开启 + 库惰性创建**（`TierSet.open` 改为只解析路径、不 `openStore`，首次写到某层时才建 / 打开；`usage()` 只报已创建的库）；**S 层落点经 `sessionPaths.sessionDirFor(sessionId)` 解析（决策项 11），按会话惰性打开并缓存**，首次打开某层库时把解析到的路径写日志；写入路由去掉 `origin` 条件，改为「按 `tier` 直写 + 目标层不可用时抛错」；写入口改为只从句柄进；删逐库容量守卫与跨项目 P 库（`otherProjectRoots` / `crossProjectRoots`，已裁定去掉）
 - `memory-base/src/knowledge.ts`：新增按 kind 列举（`listRows`）；删 `touch` / `setImportance` / 淘汰与压缩族（`staleCandidates` / `budgetCandidates` / `boostCandidates` / `compress` / 相关上限）与 `last_referenced` 的维护写点
 - `memory-base/src/router.ts`：`KindSpec` 收到 `{ kind, table?, writableTiers?, preWrite? }`；删 `eventTypes` 认领、`routes`、兜底分类与 U 层禁落兜底（G1）；检索并集改为「按 `kind` 过滤的全局读」
 - `memory-base/src/schema.ts`：**直接删** `candidates` 表、`doc_index` 表与全部无消费方的列（提升链的 `promoted_to` / `promoted_from` / `reviewer` / `reviewed_at` / `projects`、失去消费方的 `last_referenced`、四语义列 `origin` / `summary` / `category` / `target`），不写数据迁移路径、也不为兼容旧库保列（二次与四次裁定）；保留 `sources` / `chunks` 两表及其 FTS 触发器（`output-compress` 同库直写依赖）；旧库清空走 `migrate({from: "v1", mode: "drop"})`
@@ -213,6 +302,33 @@ search(opts: { query: string; kind?: string; tier?: Tier; project?: string; limi
 
 - `docs/BACKLOG.md`「`output-compress` 接入 memory-base 作用域句柄（`promote` 取消后的 I→S 推送路径重定）」—— **2026-10-17 已按用户指示回写两次**：第一次改标题与正文为「注册自己的 kind + 持句柄 `put`」「`promote` 调用点删除或改写」；第二次按 output-compress 任务的调研**订正前提** —— 该包其实自持 `digest.db`（决策 D60），并不直写 memory-base 的行，「语义列被删导致行归属丢失」这个问题不存在，真正的耦合只有 `registerKind` 与 `promote`（只用于 `is_error` digest）。
 - `TUI/docs/BACKLOG.md`「处置 `/memory review` 审阅面板与 `candidates` 适配（候选队列下沉后失去数据源）」—— **用户 2026-10-17 指示「暂时先不做」**：本轮不回写、也不改其作用域。**已知后果（有意接受的一段窗口）**：memory-base 重设落地后，TUI 的 `/memory add`（走 `remember`）与 `/memory review`（走 `candidates.*`）会指向已删除的服务面键而失效；`/memory search` 不受影响（全局只读查询保留）。要消除这段窗口，就得把该条目的作用域扩为「`/memory` 全命令面适配新接口」（`add` 需持写入句柄）后再做。
+
+### 任务拆分（7 步, 每步带中间验证）
+
+1. **schema 与迁移**（`src/schema.ts`）—— 删 `candidates` / `doc_index` 两表与无消费方列（提升链四列 + `projects` + `last_referenced` + 四语义列 `origin` / `summary` / `category` / `target`）; 保留 `sources` / `chunks` 与 FTS 触发器; 不写迁移路径, 旧库走 `migrate({from: "v1", mode: "drop"})`。验证: 新建内存库能建全表; schema 相关用例通过。
+2. **知识层读写**（`src/knowledge.ts`）—— 新增按 kind 列举 `listRows`（可按层 / 项目过滤）; 删 `touch` / `setImportance` / 淘汰与压缩族 / `last_referenced` 维护写点。验证: 新增读侧用例（枚举本 kind 全部行、按 kind 与层与项目过滤）。
+3. **注册表与句柄**（`src/router.ts` + 新增 `src/scope.ts`）—— `KindSpec` 收窄到四项; `registerKind` 改返回句柄; 按需建表; 拒写路径与错误形态（参数级抛错 / 内容级 `skipped`）; `preWrite` 判定链与 `importance` 建议。验证: 写侧用例（`put` 指定层 · `writableTiers` 拒越权层 · `preWrite` 拒写与建议 importance · `forget` 真删返回条数）。
+4. **层级与落点**（`src/tiers.ts`）—— 恒开启; `TierSet.open` 只解析路径、不 `openStore`; 首次写某层才开库; **S 层落点经 `sessionPaths.sessionDirFor(sessionId)` 解析**（决策项 11）; **按会话惰性打开并缓存**（同进程多会话）; 首次开库写路径日志; 删逐库容量守卫与跨项目 P 库。验证: `tiers` / `bundle-tiers` 用例改写通过 + 新增三例（未给 `sessionId` 写 S 层即报错 · `sessionDirFor` 解析失败（服务缺失 / 会话取不到）即报错 · **同一进程两个会话并写, 各落各库**）。
+5. **服务面与删面**（`src/index.ts` + 删文件）—— 全局面收敛到八键; 删 `remember` / 全局 `forget` / `promote` / `candidates.*` / `setLlmCaller` / `consolidate` / `lastConsolidation` / `enforceLimits` / `rescanDenied` / `scanDocs`; 配置面去掉 `tiers.enabled` / `dbPath` / `MEMORY_DB_PATH` / `defaultKind` / `crossProjectRoots`; 整文件删七个（`promote` / `hooks` / `memory` / `writepolicy` / `consolidate` / `doc-index` / `budget`）, 用例删十个。验证: `npm --prefix memory-base run check` 无残留引用 + 改写后的用例全绿。
+6. **模型侧工具**（新增 `src/tools.ts`）—— `memory_query` 的 `parameters` / `output.schema` / `render` 与只读 `description`; 经 `ctx.tools.register` 注册, `ctx.tools` 缺失时告警降级。验证: 工具侧用例（两种 `action` 各一例 + `limit` clamp + 无参数缺省 + 截断标注）。
+7. **文档与收口**（`README.md` + `docs/DESIGN.md`）—— 按新定位重写（含例数与实施状态订正、改写「本插件不注册模型侧工具」那句）。验证: 人工对读 + 根三件套全绿。
+
+### 实现阶段的验证口径（怎么跑）
+
+- **单测**: `npm --prefix memory-base run test`（用例文件由 19 收敛到约 12; 新增写侧 / 读侧 / 工具侧三组, 其中写侧含「两会话并写各落各库」与三条降级报错）。
+- **机械**: 根 `npm run check` + `npm run build` + `npm run test` 三件全绿; `npm --prefix memory-base run check`。
+- **真机**: 重启 `dsh --profile fff`, 观察日志里的层库路径; 让 `output-compress` 推一条 `is_error` 摘要（或手写一次 S 层写）确认 S 库落在会话目录; 跑一次 `memory_query` 看返回与截断标注。
+- **旧库**: `~/.dsh/memory-base/memory.db`（约 426 MB）按「旧数据不迁移直接删」处理 —— 新落点不同, 旧文件成为孤儿; **不自动删**（不静默删数据）, 由用户择时清理, 需要时在备份后跑 `migrate({from: "v1", mode: "drop"})`。
+- **不做**: 不验数据迁移路径（本轮不写）; 不验模型侧写入（不开放）; 不动 TUI 与 `output-compress` 的代码。
+
+### 收尾动作（实现完成时）
+
+- 条目「按『只提供分层记忆内容』的新定位瘦身，并补四项纯存储面（指定层写入 / 按 kind 列举 / 真删 / `registerKind` 去留）」标「完成」并从 `memory-base/docs/BACKLOG.md` 移除; 本文件移入 `memory-base/docs/archived/`。
+- 文档回写: `memory-base/README.md` + `docs/DESIGN.md`（按新定位重写）; 根 `README.md` + `README.zh.md` 的 memory-base 功能段; `docs/STATUS.md` 由用户择时更新, 本任务不动。
+- 两条下游条目: `output-compress` 那条已按其任务回写（实现归它自己）; TUI 那条按用户指示**暂不做**, 破损窗口（`/memory add` 与 `/memory review` 失效）已在「规划」末条记明。
+- 仓库外: profile 里 memory-base 条目的 `dbPath` 与 `tiers` 行按新配置面清理 —— 属仓库外改动, 实现时取得明确要求后执行。
+- 旧库文件（约 426 MB）不静默删, 交用户择时处理。
+- **待下一轮回写 `session-paths`**（该包文档现仍只有纯函数三件与 `ensureSessionDir`）: 新增 `sessionDirFor(sessionId)`（内部经宿主 `sessions` 取 cwd）, 见本文件决策项 11 —— 归该包的下一轮修订, 不在本轮。
 
 ## 实现记录
 
@@ -236,4 +352,4 @@ search(opts: { query: string; kind?: string; tier?: Tier; project?: string; limi
 - 本轮不归档：条目保持〔进行中: 2026-10-17〕，本文件留在 `memory-base/docs/implementation/`，等用户审定决策后进入实现。
 - 回写文档：本轮无（实现阶段才动 `README.md` / `DESIGN.md`）。
 - 遗留项：范围已由用户 2026-10-17 重定（见「决策」的范围裁定，含同日二 / 三 / 四次裁定：层级恒开启且库惰性创建、旧数据不迁移直接删、不加层级开关且去掉单库模式、去掉冗余闸门与四语义列），旧的「瘦身范围 a/b/c/d」与「D19 四项」不再作为选项；接口设计（决策项 1 至 10）待用户审定后进入实现。两条途中发现的条目：`output-compress` 那条已按指示回写，TUI 那条按指示**暂时不做**（后果见「规划」末条）。原「偏好分析落地前需在 profile 打开 `tiers`」这条前置随层级恒开启而消失。**跨任务发现（2026-10-17，来自 output-compress 任务的调研 11）**：宿主未暴露「会话目录」读取面（`src/router.ts:10-11`），`sessionDirFor` 约定拼接函数存在但全仓无人调用（`router.ts:70-79`）；现行靠 `if (tierConfig.sessionDir === undefined) paths.session = dbPath`（`src/index.ts:346`）兜底，而本重设去掉了 `dbPath`、又恒开启层级 → **S 层将没有可推导的落点**（不配 `tiers.sessionDir` 就写不进 S 层，按三次裁定是「写该层直接报错」而不是退化）。**补充事实**：那个约定函数本身也算错了 —— `router.ts:70-79` 只做「去前导斜杠 + 分隔符换 `-`」，没有宿主那层 `--…--` 外壳与 `~XXXX` 转义，算出的目录不存在（真目录见 `~/.dsh/sessions/--home-guochang-Projects-dsh-toolset--/`）；宿主侧的编码实现在 `@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js` 的 `encodeSegment:853-865` / `projectKey:875-894` / `projectDir:902-905` / `sessionDir:912-914`，均不导出。
-  **用户 2026-10-17 裁定**：新建一个插件复刻宿主函数、供其他插件共用（即在上面的选项里加一条 **e：经新插件 `session-paths` 的服务面取会话目录**，并取代选项 b 的「各自复刻」）。据此本条的 S 层落点改为「经 `sessionPaths.sessionDir(cwd, sessionId)` 推导」；该包未落地之前，S 层按「不可用即明示例外」处理（不退化、不静默）。条目见项目级 `docs/BACKLOG.md`「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」——**本条的实现顺序因此排在该包之后**（或先按明示例外落地、之后再接）。
+  **用户 2026-10-17 裁定**：新建一个插件复刻宿主函数、供其他插件共用（即在上面的选项里加一条 **e：经新插件 `session-paths` 的服务面取会话目录**，并取代选项 b 的「各自复刻」）。据此本条的 S 层落点改为「经 `sessionPaths.sessionDir(cwd, sessionId)` 推导」；该包未落地之前，S 层按「不可用即明示例外」处理（不退化、不静默）。条目见项目级 `docs/BACKLOG.md`「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」。**该结论已被 2026-10-17 的追加裁定取代三次**（见决策项 11）：先是改为「调用方取好传入」, 最终定为「**`session-paths` 的 `sessionDirFor(sessionId)` 直接给目录**（取 cwd 收在它内部）」。因此本条**仍依赖 `session-paths`、实现顺序仍排在该包之后**; 原先「S 层没有可推导落点」的顾虑由「三条降级报错」与「不动配置 `sessionDir`」收口。

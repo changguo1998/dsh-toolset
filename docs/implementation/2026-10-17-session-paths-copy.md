@@ -33,7 +33,7 @@
 
 **选定 a**。理由：这是「宿主约定」这一件事的单一事实源，与任何既有包的职责都不搭（b 会让别的包背上无关契约）；c 已经证明会漂移 —— 仓内那份复刻就是错的。形态照 `md-table-check/` 的轻量包模板。
 
-决策项 2　服务面
+决策项 2　服务面（签名与边界语义见「规划」的「实现前冻结的接口」）
 
 - a) **`root()` / `projectKey(cwd)` / `projectDir(cwd)` / `sessionDir(cwd, sessionId)` 四个纯函数 + `ensureSessionDir(cwd, sessionId)` 一个显式落盘函数**
 - b) 只给 `sessionDir`，其余不暴露
@@ -73,22 +73,81 @@
 
 ## 规划
 
-本轮（调研 + 决策）改动文件清单：
+### 实现前冻结的接口（消费方按此写）
+
+配置面（`cordis.patch.yml` 的 `config`）：
+
+```ts
+interface SessionPathsConfig {
+  /** sessions 根；缺省读环境变量 `DSH_HOME` → `<DSH_HOME>/sessions`，无该变量回落到 `~/.dsh/sessions`。 */
+  root?: string;
+}
+```
+
+服务面（`ctx.get('sessionPaths')`）：
+
+```ts
+interface SessionPathsService {
+  /** 已 resolve 的绝对路径。 */
+  root(): string;
+  /** 宿主 projectKey 的忠实复刻（`--…--` 外壳 / `~XXXX` 转义 / 251 截断）。 */
+  projectKey(cwd: string): string;
+  /** `cwd` 缺失 → `<root>/_no-cwd`。 */
+  projectDir(cwd: string | undefined): string;
+  /** `<projectDir>/<encodeSegment(sessionId)>`。 */
+  sessionDir(cwd: string | undefined, sessionId: string): string;
+  /** 唯一写盘入口：`mkdir -p`（0700）、幂等，返回目录路径。 */
+  ensureSessionDir(cwd: string | undefined, sessionId: string): Promise<string>;
+}
+```
+
+边界语义四条：
+
+1. 四个纯函数**不落盘**、**不因目录不存在报错**；只在入参非法时按宿主同语义抛（空 `cwd` / 空 `sessionId`）。
+2. `ensureSessionDir` 是**唯一写盘入口**，权限 0700、幂等；纯函数永不调用它。
+3. 服务缺失时由调用方自行降级：memory-base → S 层不可用（写该层报错 + 启动日志说一次）；output-compress → `skipped.session-dir-missing`。
+4. 复刻范围与出处写进 `src/encode.ts` 的注释（来源 `@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js:853-914`），宿主升级后按注释复核。
+
+### 依赖读取方式（定案）
+
+消费方**不硬 `inject`，用可选读取**：`memory-base` 在 apply 时 `ctx.get('sessionPaths')` 取一次、需要 S 层落点时复取（服务可能晚挂载）；取不到 → S 层不可用并在启动日志里说一次。理由：硬 `inject` 会让「本包未挂载」直接拦住 memory-base 的加载，而它的 P / U 层本来不依赖本包。
+
+### 任务拆分（5 步，每步带中间验证）
+
+1. **起包骨架** —— 照 `md-table-check/` 复制 `package.json` / `cordis.patch.yml` / `tsconfig.json` / `tests/tsconfig.json` / `.gitignore` / `LICENSE`；`package.json` 的 `dsh.bundle` 与 `provide` 声明服务键 `sessionPaths`。验证：`npm --prefix session-paths run check` 通过（空实现）。
+2. **复刻编码 + 对拍** —— `src/encode.ts` 写四个纯函数（含来源注释）；`tests/encode.test.ts` 表驱动对拍：本机七个真实桶名 + 合成向量（非白名单字符的 `~XXXX`、连续分隔符合并、`_no-cwd`、`.` 与 `..`、超长路径 251 截断、空入参抛错）。验证：`npm --prefix session-paths run test` 全绿。
+3. **服务注册与配置归一** —— `src/main.ts`：配置归一（`root` 缺省读 `DSH_HOME`）、`provide('sessionPaths')`、`ensureSessionDir` 的 0700 与幂等、`README.md`（契约与出处）。验证：`check` + `test` + 一例「假 ctx 拿服务并核对返回值」的用例。
+4. **接线 7 处** —— 根 `package.json`（check / build 链）、`scripts/install.sh`（`canonical_pkgs`）、`scripts/test-parallel.sh`（`default_pkgs`）、`profiles/example/cordis.patch.yml`（挂载行，**排在 memory-base 之前**，保证服务先注册）、`README.md` + `README.zh.md`（清单与包数）、`AGENTS.md`（插件清单与计数）、`docs/BACKLOG.md` §4 插件规划表。验证：`npm run check` / `npm run build` / `npm run test` 全绿；`scripts/install.sh --dry-run` 的清单含本包。
+5. **消费方接入与联调** —— memory-base 的 S 层改为经服务取目录（删掉 `src/router.ts` 那份错的 `sessionDirFor`）。**归属注明**：这一步的代码落在 memory-base；按用户口径可与本包同批做，若分两批则本包只交付契约与联调用例，接入归 memory-base 的实现。验证：memory-base 的 S 层落点用例 + 真机重启 profile 后确认 S 库落在 `<sessions root>/<projectKey>/<sessionId>/` 下。
+
+### 本轮（调研 + 决策）改动文件清单
 
 - `docs/BACKLOG.md`：新增条目「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」并标〔进行中: 2026-10-17〕
 - `docs/implementation/2026-10-17-session-paths-copy.md`（本文件）
 - `memory-base/docs/implementation/2026-10-17-slim-and-storage-surfaces.md`：在它的「跨任务发现」处记下本条裁定（S 层改为经服务面取目录、实现顺序排在本包之后）
 - `docs/implementation/2026-10-17-output-compress-scope-handle.md`：同上，记下受影响的决策项 2 与 8
 
-实现阶段（待用户审定后执行）改动文件清单：
+### 实现阶段改动文件清单
 
-- 新包 `session-paths/`：`package.json`、`cordis.patch.yml`、`tsconfig.json`、`tests/tsconfig.json`、`.gitignore`、`LICENSE`、`README.md`、`src/main.ts`（服务注册与配置归一）、`src/encode.ts`（复刻的四个函数 + 来源注释）、`tests/encode.test.ts`（对拍）
-- 接线 7 处（见项目级条目「五个新插件落地时的仓库清单与包计数统一」）：根 `package.json`（check / build 链）、`scripts/install.sh`（`canonical_pkgs`）、`scripts/test-parallel.sh`（`default_pkgs`）、`profiles/example/cordis.patch.yml`（挂载行）、`README.md` + `README.zh.md`（清单与包数）、`AGENTS.md`（插件清单与计数）、`docs/BACKLOG.md` §4 插件规划表；**该条目的标数会因本包 +1，需一并同步**
-- 消费方：`memory-base/src/router.ts`（删掉那份错的 `sessionDirFor`）、`memory-base/src/index.ts`（向服务要 S 层目录）、`memory-base/package.json`（如声明依赖）、`memory-base/tests/`（S 层落点用例）
+- 新包 `session-paths/`：`package.json`、`cordis.patch.yml`、`tsconfig.json`、`tests/tsconfig.json`、`.gitignore`、`LICENSE`、`README.md`、`src/main.ts`（服务注册与配置归一）、`src/encode.ts`（复刻的四个纯函数 + 来源注释）、`tests/encode.test.ts`（对拍）、`tests/service.test.ts`（假 ctx 的服务面用例）
+- 接线 7 处（见项目级条目「五个新插件落地时的仓库清单与包计数统一」）：根 `package.json`（check / build 链）、`scripts/install.sh`（`canonical_pkgs`）、`scripts/test-parallel.sh`（`default_pkgs`）、`profiles/example/cordis.patch.yml`（挂载行，排在 memory-base 之前）、`README.md` + `README.zh.md`（清单与包数）、`AGENTS.md`（插件清单与计数）、`docs/BACKLOG.md` §4 插件规划表；**该条目的标数会因本包 +1，需一并同步**
+- 消费方（代码落在 memory-base，归它的实现）：`memory-base/src/router.ts`（删掉那份错的 `sessionDirFor`）、`memory-base/src/index.ts`（向服务要 S 层目录）、`memory-base/tests/`（S 层落点用例）
+- `docs/BACKLOG.md`：条目状态回写（完成时标「完成」并移除）
 
-明确不做：不实现本包（本轮只到决策）；不改 output-compress 的 `digest.db` 落点（决策项 5）；不订阅 `session/event`、不猜 cwd（决策项 4）；不动宿主的任何东西；不改 TUI。
+明确不做：不做任何存储或建库（本包只算路径 + 一个显式 `ensureSessionDir`）；不订阅 `session/event`、不猜 `cwd`（决策项 4）；不改 output-compress 的 `digest.db` 落点（决策项 5）；不动宿主的任何东西；不改 TUI。
 
-**实现阶段的两处开口**（实现时定，不在本轮）：① memory-base 的 S 层写入如何拿到 cwd（句柄 `put` 目前只有 `sessionId?`）；② `ensureSessionDir` 的权限口径（照仓内惯例 0700）。
+### 实现阶段的验证口径
+
+- **对拍（单测）**：`tests/encode.test.ts` 表驱动 —— 本机七个真实桶名 + 五类合成向量（`~XXXX` 转义 / 连续分隔符合并 / `_no-cwd` / `.` 与 `..` / 251 截断）；断言用**逐字符相等**，不用「包含」。
+- **接线（机械）**：`npm run check` + `npm run build` + `npm run test` 三件全绿；`scripts/install.sh --dry-run` 的包清单含本包。
+- **真机**：重启一次 `dsh --profile fff`，确认 memory-base 的 S 库落在 `<sessions root>/<projectKey>/<sessionId>/` 下。
+- **不做**：不核对宿主升级后的编码漂移（留到宿主升级时按 `encode.ts` 注释里的出处复核，属另一次任务）。
+
+### 收尾动作（实现完成时）
+
+- 条目「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」标「完成」并从 `docs/BACKLOG.md` 移除；本文件移入 `docs/archived/`。
+- 回写 `docs/BACKLOG.md` §4 与条目「五个新插件落地时的仓库清单与包计数统一」的标数（因本包 **+1**）。
+- 实现期剩下一处开口：memory-base 的 S 层写入如何拿到 `cwd`（属它的实现，见第 5 步）。
 
 ## 实现记录
 

@@ -53,63 +53,63 @@
 
 决策项 = 数字, 选项 = abcd, 选定项写字母与理由.
 
-1. 形态
-   a. 模型侧工具(agent 调用并把结果回上下文)
-   b. 会话内 REPL(多轮状态保持)
-   c. TUI 本地执行模式扩展(`$` 之外的新模式, 不经模型)
-   d. 仅作测试基底
-   **选定 a**. 理由: 用户要的是"让 agent 能用几种脚本语言", 只有模型侧工具能把执行结果回填进上下文; REPL 的状态保持与"能不能执行"正交, 属另一个问题(见决策 9); c 也不做: `$` 模式是 **TUI 内部给人用**的输入模式,**本插件是模型侧工具(给 LLM 用)** —— 两者服务对象不同, 本任务评估后不推荐把执行面塞进 TUI; d 已有 `smokePty.mjs` 与 `demo/`, 无需新包. **用户裁定(2026-10-16): 不做 REPL, 亦不做 TUI 跑脚本模式** —— b / c 在首期与本项目内均不实现.
+01. 形态
+    a. 模型侧工具(agent 调用并把结果回上下文)
+    b. 会话内 REPL(多轮状态保持)
+    c. TUI 本地执行模式扩展(`$` 之外的新模式, 不经模型)
+    d. 仅作测试基底
+    **选定 a**. 理由: 用户要的是"让 agent 能用几种脚本语言", 只有模型侧工具能把执行结果回填进上下文; REPL 的状态保持与"能不能执行"正交, 属另一个问题(见决策 9); c 也不做: `$` 模式是 **TUI 内部给人用**的输入模式,**本插件是模型侧工具(给 LLM 用)** —— 两者服务对象不同, 本任务评估后不推荐把执行面塞进 TUI; d 已有 `smokePty.mjs` 与 `demo/`, 无需新包. **用户裁定(2026-10-16): 不做 REPL, 亦不做 TUI 跑脚本模式** —— b / c 在首期与本项目内均不实现.
 
-2. 语言集合与首期范围
-   a. 首期全上(python / bash / node / sh)
-   b. 首期只 Python; 语言表可扩展, bash 后端随首期实现但**缺省关闭**
-   c. 首期 Python + node
-   d. 首期只做 bash(补齐自有沙箱口径)
-   **选定 b**. 理由: bash 已被官方 `tool-bash` 完整覆盖(含沙箱围栏 / 提权审批 / 后台作业 / spill 输出), 再暴露一个 bash 只会分散模型选择并多一个登记点; node 的定位与官方 `run_code` 的 TypeScript 程序面重叠而后者当前未暴露, 首期不做以免与未来解禁冲突; `sh` 由 Python 的 `subprocess` 覆盖, 单列无收益. 语言后端按"每种语言一个模块 + 统一 `LangBackend` 接口"落地, 二期加语言不动协议.
+02. 语言集合与首期范围
+    a. 首期全上(python / bash / node / sh)
+    b. 首期只 Python; 语言表可扩展, bash 后端随首期实现但**缺省关闭**
+    c. 首期 Python + node
+    d. 首期只做 bash(补齐自有沙箱口径)
+    **选定 b**. 理由: bash 已被官方 `tool-bash` 完整覆盖(含沙箱围栏 / 提权审批 / 后台作业 / spill 输出), 再暴露一个 bash 只会分散模型选择并多一个登记点; node 的定位与官方 `run_code` 的 TypeScript 程序面重叠而后者当前未暴露, 首期不做以免与未来解禁冲突; `sh` 由 Python 的 `subprocess` 覆盖, 单列无收益. 语言后端按"每种语言一个模块 + 统一 `LangBackend` 接口"落地, 二期加语言不动协议.
 
-3. 包的划分
-   a. 一个多语言包带 `language` 参数
-   b. 每种语言一个包
-   c. 双包(核心 + 语言适配包)
-   **选定 a**. 理由: 三者的探测 / 超时 / 截断 / 沙箱 / 回执渲染 / 测试夹具几乎全同, 拆包会让同一套语义复制两三份并有口径漂移风险; 语言差异收进 `langs/<语言>.ts` 模块即可, 真到需要独立发包(如某语言要独立依赖)再拆.
+03. 包的划分
+    a. 一个多语言包带 `language` 参数
+    b. 每种语言一个包
+    c. 双包(核心 + 语言适配包)
+    **选定 a**. 理由: 三者的探测 / 超时 / 截断 / 沙箱 / 回执渲染 / 测试夹具几乎全同, 拆包会让同一套语义复制两三份并有口径漂移风险; 语言差异收进 `langs/<语言>.ts` 模块即可, 真到需要独立发包(如某语言要独立依赖)再拆.
 
-4. 执行环境接入(沙箱 / 硬拒层 / 审批)
-   a. `ctx.sandbox.confine()` + `security-guard` 登记 + 逐次审批
-   b. 复用 `ctx.shell`(即 `bash -c` 包一层)
-   c. 直接 `spawn`, 只过 `security-guard`
-   d. 只走审批, 不进沙箱
-   **选定 a**, 组成: ① 每次执行前 `ctx.sandboxPolicy.resolve()` 取模式与工作区根, 再 `ctx.sandbox.confine(argv, policy)`; 围栏模式拿不到可强制后端 → 按 bash 同款 **fail-closed**(`SANDBOX_UNAVAILABLE`, 不无围栏执行); `ctx.sandbox` 缺失(极简 profile)→ 在结果里标 `sandboxed: false`(能力缺失时**如实标注而不静默**, 与 bash 执行器在无沙箱组合下不激活同口径; 这是模型侧工具, 不沿用 TUI 内部模式的做法). ② `security-guard` 硬拒层: 新工具带代码文本, **必须**在 `PLUGIN_COMMAND_TOOLS` 登记 `script_run` 的 `script` 键(与 `run_code` 的 `code` 同口径, 命中即 deny). ③ 审批链: 逐次审批缺省**关闭**(见决策 7). 理由: bash 的"拒绝 → 提权 → 审批"阶梯是官方既定路径, 而 `confine()` 是官方围栏原语; 用 b 会把 Python 包成 `bash -c`, 语义与错误都变模糊.
+04. 执行环境接入(沙箱 / 硬拒层 / 审批)
+    a. `ctx.sandbox.confine()` + `security-guard` 登记 + 逐次审批
+    b. 复用 `ctx.shell`(即 `bash -c` 包一层)
+    c. 直接 `spawn`, 只过 `security-guard`
+    d. 只走审批, 不进沙箱
+    **选定 a**, 组成: ① 每次执行前 `ctx.sandboxPolicy.resolve()` 取模式与工作区根, 再 `ctx.sandbox.confine(argv, policy)`; 围栏模式拿不到可强制后端 → 按 bash 同款 **fail-closed**(`SANDBOX_UNAVAILABLE`, 不无围栏执行); `ctx.sandbox` 缺失(极简 profile)→ 在结果里标 `sandboxed: false`(能力缺失时**如实标注而不静默**, 与 bash 执行器在无沙箱组合下不激活同口径; 这是模型侧工具, 不沿用 TUI 内部模式的做法). ② `security-guard` 硬拒层: 新工具带代码文本, **必须**在 `PLUGIN_COMMAND_TOOLS` 登记 `script_run` 的 `script` 键(与 `run_code` 的 `code` 同口径, 命中即 deny). ③ 审批链: 逐次审批缺省**关闭**(见决策 7). 理由: bash 的"拒绝 → 提权 → 审批"阶梯是官方既定路径, 而 `confine()` 是官方围栏原语; 用 b 会把 Python 包成 `bash -c`, 语义与错误都变模糊.
 
-5. 依赖探测与缺依赖降级
-   a. 严格: 二进制缺失则不注册该语言
-   b. 全量注册, 缺依赖时返回带安装指引的错误
-   c. 缺失即整个插件不挂载
-   **选定 b**. 理由: 探测顺序 = 显式配置 → 环境变量(如 `SCRIPT_PY_INTERPRETER`)→ PATH(`python3` → `python`)→ 常见绝对路径; 探测结果写进插件 apply 日志(可用语言与解释器路径 / 版本). 缺失时"工具在但调用明确报错"比"工具静默消失"好排障, 与 `ast-tools` 的降级工具做法一致; Python 的 `venv` / `uv` 自动探测列二期, 首期只提供解释器路径覆盖(避免自作主张改 `sys.path`).
+05. 依赖探测与缺依赖降级
+    a. 严格: 二进制缺失则不注册该语言
+    b. 全量注册, 缺依赖时返回带安装指引的错误
+    c. 缺失即整个插件不挂载
+    **选定 b**. 理由: 探测顺序 = 显式配置 → 环境变量(如 `SCRIPT_PY_INTERPRETER`)→ PATH(`python3` → `python`)→ 常见绝对路径; 探测结果写进插件 apply 日志(可用语言与解释器路径 / 版本). 缺失时"工具在但调用明确报错"比"工具静默消失"好排障, 与 `ast-tools` 的降级工具做法一致; Python 的 `venv` / `uv` 自动探测列二期, 首期只提供解释器路径覆盖(避免自作主张改 `sys.path`).
 
-6. 输出口径与截断
-   a. 逐字复刻 bash 口径, **独立**输出上限
-   b. 向宿主 spill 缝注册(dsh-spill), 复用其文件与提示
-   c. 复用 `.dsh/` 会话级目录, 由宿主清理
-   **选定 a**. 理由: stdout → 独立 `[stderr]` 段 → 截断 / 超时 / 信号 / `[exit code: N]` 各一行, 超限**保留尾部**并把全文落盘, 正文附文件路径(便于模型再读); 单次输出上限首期 10 万字符, 可配置; 超时缺省 30s, 上限 10min, 逐次 `timeoutMs` 可覆盖. 全文落盘在**每次执行新建的 0700 临时目录**里, 正文给路径(不自动删, 可审计; 清理责任与残留登记见"规划"). 不选 b 是因为 `spill`(缝)**未挂载**(`docs/host/HOST-PACKAGES.md:21`), 而 `spill-local` + `spill-policy` 虽已挂载, 其语义是"全文落私有会话目录 + 按 token 预算保留头尾", 与本工具"保留尾部 + 全文路径"的口径不同 —— 接它会把两套语义耦合在一起, 故自管落盘.
+06. 输出口径与截断
+    a. 逐字复刻 bash 口径, **独立**输出上限
+    b. 向宿主 spill 缝注册(dsh-spill), 复用其文件与提示
+    c. 复用 `.dsh/` 会话级目录, 由宿主清理
+    **选定 a**. 理由: stdout → 独立 `[stderr]` 段 → 截断 / 超时 / 信号 / `[exit code: N]` 各一行, 超限**保留尾部**并把全文落盘, 正文附文件路径(便于模型再读); 单次输出上限首期 10 万字符, 可配置; 超时缺省 30s, 上限 10min, 逐次 `timeoutMs` 可覆盖. 全文落盘**仿照官方 `spill-local`**: 根 = `mkdtempSync(join(tmpdir(), "<spillPrefix>"))`（缺省 `/tmp/dsh-script-XXXXXX/`, 目录 0700）, 其下按会话分桶 `session-<sha256(sessionId) 前 12 位>/`, 每次新建一个 **0600** 文件; 正文给路径, **不自动删**（可审计）—— 残留交给 `/tmp` 生命周期, 不自造清理策略（落点与残留口径见“规划”的“实现前冻结的接口”; 对照出处 `dsh-spill-local/lib/index.js:17`、`:35`、`:70`、`:73`）. 不选 b 是因为 `spill`(缝)**未挂载**(`docs/host/HOST-PACKAGES.md:21`), 而 `spill-local` + `spill-policy` 虽已挂载, 其语义是"全文落私有会话目录 + 按 token 预算保留头尾", 与本工具"保留尾部 + 全文路径"的口径不同 —— 接它会把两套语义耦合在一起, 故自管落盘.
 
-7. 逐次审批
-   a. 不引入逐次审批(与 bash 对齐)
-   b. 缺省逐次审批, 可配置关闭
-   c. 只对 `danger-full-access` 前的提权审批
-   **选定 a + c**. 理由: 普通执行不弹审批; 首期**不暴露** `sandbox_permissions` 提权参数(要提权就改变会话策略或走官方 bash), 因而不需要提权审批; 审批面在配置里留 `approval: never | ask`(缺省 `never`), 需要更强约束的部署改一个字段即可.
+07. 逐次审批
+    a. 不引入逐次审批(与 bash 对齐)
+    b. 缺省逐次审批, 可配置关闭
+    c. 只对 `danger-full-access` 前的提权审批
+    **选定 a + c**. 理由: 普通执行不弹审批; 首期**不暴露** `sandbox_permissions` 提权参数(要提权就改变会话策略或走官方 bash), 因而不需要提权审批; 审批面在配置里留 `approval: never | ask`(缺省 `never`), 需要更强约束的部署改一个字段即可. **用户裁定(2026-10-17): 缺省和 bash 一致** —— 即保持 `never`(bash 只在提权时经 `ctx.approval` 取同意, 本包无提权参数, 故也无审批面).
 
-8. 与 TUI `$` 模式 / 官方执行面 / `ptcRuntime` 的分工
-   a. 新包同时补齐三者
-   b. 只做 TUI 侧新模式
-   c. 明确分工: 不重复官方 bash, 只补 Python 缺口, 不做 REPL / 持久化, 不改 TUI
-   d. 只做 REPL
-   **选定 c**. 理由: **`$` 模式是给用户(人)用的 TUI 输入模式, 本插件是给 LLM 用的模型侧工具** —— 服务对象不同, 不重叠也不用合并; 官方 bash 已覆盖 shell 命令, 本包**不注册 bash 语言**(策略见决策 2); `ptcRuntime` 是"模型写 TypeScript 程序调用宿主工具"的编排面, 本包是"跑一段脚本拿输出"的执行面, 交集只在都调子进程; 官方若解禁 `run_code`, 本包价值仍在 Python(官方 Python 后端未分发). REPL / 状态保持 / 交互式驱动不做 —— `terminal` + `terminal-bash` 已在 profile 里提供持久 PTY 底座, 真要做属另立条目(见"后续候选条目"). **用户裁定(2026-10-16): 本包不改 TUI, 不做 REPL, 也不做 TUI 侧跑脚本入口**. 两者是**各自独立的实现**: `$` 模式归 TUI, 本插件归本包, 互不引用, 不共享代码与配置, 也不做"常量收敛到一处"的联动.
+08. 与 TUI `$` 模式 / 官方执行面 / `ptcRuntime` 的分工
+    a. 新包同时补齐三者
+    b. 只做 TUI 侧新模式
+    c. 明确分工: 不重复官方 bash, 只补 Python 缺口, 不做 REPL / 持久化, 不改 TUI
+    d. 只做 REPL
+    **选定 c**. 理由: **`$` 模式是给用户(人)用的 TUI 输入模式, 本插件是给 LLM 用的模型侧工具** —— 服务对象不同, 不重叠也不用合并; 官方 bash 已覆盖 shell 命令, 本包**不注册 bash 语言**(策略见决策 2); `ptcRuntime` 是"模型写 TypeScript 程序调用宿主工具"的编排面, 本包是"跑一段脚本拿输出"的执行面, 交集只在都调子进程; 官方若解禁 `run_code`, 本包价值仍在 Python(官方 Python 后端未分发). REPL / 状态保持 / 交互式驱动不做 —— `terminal` + `terminal-bash` 已在 profile 里提供持久 PTY 底座, 真要做属另立条目(见"后续候选条目"). **用户裁定(2026-10-16): 本包不改 TUI, 不做 REPL, 也不做 TUI 侧跑脚本入口**. 两者是**各自独立的实现**: `$` 模式归 TUI, 本插件归本包, 互不引用, 不共享代码与配置, 也不做"常量收敛到一处"的联动.
 
-9. 命名与落点
-   a. 包 `script-interpreter` + 工具 `run_script`
-   b. 包 `python-runner` + 工具 `python_exec`
-   c. 包 `script-interpreter` + 工具 `script_run`
-   **选定 c**. 理由: 包名与条目标题对齐且不锁死语言; 工具名沿用本仓"域在前, 动作在后"的既有风格(`md_logic` / `ast_query` / `hash_edit` / `code_map`), 避免将来与宿主的 `run_code` / `run_script` 撞名. 首期只有 Python, 但 `languages: ["python"]` 是显式配置, 加语言不改工具名.
+09. 命名与落点
+    a. 包 `script-interpreter` + 工具 `run_script`
+    b. 包 `python-runner` + 工具 `python_exec`
+    c. 包 `script-interpreter` + 工具 `script_run`
+    **选定 c**. 理由: 包名与条目标题对齐且不锁死语言; 工具名沿用本仓"域在前, 动作在后"的既有风格(`md_logic` / `ast_query` / `hash_edit` / `code_map`), 避免将来与宿主的 `run_code` / `run_script` 撞名. 首期只有 Python, 但 `languages: ["python"]` 是显式配置, 加语言不改工具名.
 
 10. 工具面与提示词落点
     a. 只注册工具
@@ -118,6 +118,30 @@
     **选定 a**. 理由: 首期只一个工具, schema 自解释, 注入提示是净增 token 与维护面; 若实测发现模型不会用(例如忘了传 `script` 而想跑一行命令), 二期再补 `system-prompt` 段. 工具的 UI 展示走宿主既有工具行渲染(与 `ast_query` 同款最小 render).
 
 ## 规划
+
+### 实现前冻结的接口（消费方按此写）
+
+**工具 `script_run`（唯一注册项）** —— 参数面照官方 bash 工具镜像（键名与描述取自 `dsh-tool-bash/lib/index.js:490-524`）:
+
+| 参数 | 必填 | 口径 |
+| --- | --- | --- |
+| `script` | 是 | 脚本正文; 空串报错（对应 bash 的 `command`） |
+| `description` | 是 | 5 至 10 词, UI 展示用; 空串报错 |
+| `language` | 否 | 取值限于**配置里已启用**的语言; 缺省 = 启用的首个（首期即 `python`）; 传未启用语言（如 `bash`）→ 明确报错, 不静默回落 |
+| `workdir` | 否 | 缺省会话工作区; 相对路径按工作区解析 |
+| `timeoutMs` | 否 | 缺省 30s, 上限 10min |
+
+**不镜像的三项**: `sandbox_permissions` 与 `justification`（决策 7 不暴露提权参数）; `run_in_background`（首期无后台作业面, 要做得二期另立）。
+
+**配置面**: `languages: ["python"]`（启用的语言; bash 后端随首期实现但**不在表内**）· `pythonPath?`（解释器路径覆盖, 对应环境变量 `SCRIPT_PY_INTERPRETER`）· `approval: "never" | "ask"`（缺省 `never` —— 2026-10-17 用户裁定「缺省和 bash 一致」）· `timeoutMs` 缺省与 `maxOutputChars`（缺省 10 万）· `spillPrefix?`（缺省 `dsh-script-`）。
+
+**执行与围栏**: `ctx.sandboxPolicy.resolve()` 取模式与工作区根 → `ctx.sandbox.confine(argv, policy)`; 拿不到可强制后端 → **fail-closed** `SANDBOX_UNAVAILABLE`（绝不无围栏执行）; `ctx.sandbox` 缺失 → 回执标 `sandboxed: false`（如实标注, 不静默）。
+
+**回执**: stdout → 独立 `[stderr]` 段 → 截断 / 超时 / 信号 / `[exit code: N]` 各一行; 超限**保留尾部** + 全文落盘路径。
+
+**溢出落点（仿官方 `spill-local`）**: 见决策 6 的改写段 —— `/tmp/dsh-script-XXXXXX/session-<hash12>/` + 0600 文件 + 不自动删。
+
+**登记（归 `security-guard` 的条目, 本包不重复改）**: `PLUGIN_COMMAND_TOOLS` 加 `script_run: { commandKeys: ["script"] }`; 动作归条目「登记两个新插件工具的命令参数面（`script_run` / `herdr_pane`）」, 本包只保证键名 `script` 与之一致。
 
 ### 落点(实现阶段)
 
@@ -145,9 +169,35 @@
 - 审批: 缺省不产生 `approval/asked`; `approval: ask` 时产生 `approval/asked` + `approval/decided` 审计对.
 - 与官方面不重叠: 断言本包不注册 `bash` / `run_code` 工具名.
 
+### 任务拆分（6 步, 每步带中间验证）
+
+1. **起包骨架 + 既有文件接线** —— `package.json`（`dsh.bundle`）/ `cordis.patch.yml`（照 `ast-tools` / `md-logic`）/ `tsconfig.json` / `README.md` / `docs/BACKLOG.md`; 三处包清单（根 `package.json`、`scripts/test-parallel.sh`、`scripts/install.sh`）+ §4 表补行。验证: 根 `check` / `build` 通过, 空实现时工具表里不出现 `script_run`。
+2. **探测与降级**（`probe.ts`）—— 配置 → 环境变量 → PATH（`python3` → `python`）→ 常见绝对路径; 探测结果写 apply 日志。验证: 验收「语言与降级」两条（一例执行 + 缺失时报错但仍挂载）。
+3. **执行核**（`sandbox.ts` + `run.ts`）—— policy 解析、`confine`、fail-closed 分类、超时与进程组清理（SIGTERM → 宽限 1s → SIGKILL, stdin `ignore`）。验证: 验收「沙箱」两条 + 「输出口径」的非零退出与超时两条。
+4. **溢出落盘（仿官方）** —— 根与 `session-<hash12>` 分桶、0600 文件、回执拼路径。验证: 验收「输出口径」的截断一条（保留尾部 + 路径可读）。
+5. **回执渲染 + 硬拒层联调**（`render.ts`）—— 与 `security-guard` 的登记对拍。验证: 验收「硬拒层」（含提权类命令的脚本被 deny 且**未执行**）+ 「与官方面不重叠」（不注册 `bash` / `run_code`）。
+6. **文档与真机** —— README（模块契约: 参数表、落点与残留口径、审批开关）。验证: 验收「审批」一条 + 该包 `test` 全绿 + 真机一次。
+
 ### 估时
 
 实现 1 至 1.5 天(Python 后端 + 探测降级 + 沙箱 / 守卫接线 + 回执渲染 + 测试); 文档与包骨架另计半天. 条目原判 1 至 2 天仍在区间内; 不选 REPL 是主要省时项.
+
+### 实现阶段的验证口径（怎么跑）
+
+「验收细化」列的是**验什么**, 这里列**怎么跑**:
+
+- **单测**: `npm --prefix script-interpreter run test` —— 假 ctx（`ctx.tools` / `ctx.sandbox` / `ctx.sandboxPolicy` 三件可替身）覆盖降级、围栏分类、回执与截断; 解释器存在时跑一例**真实执行**（`print` 与重定向写文件）, 缺失时 skip 并在输出里注明。
+- **机械**: 根 `npm run check` + `npm run build` + `npm run test` 三件全绿; `scripts/install.sh --dry-run` 的清单含本包。
+- **真机**: 重启 `dsh --profile fff`, 调一次 `script_run` 跑 `print`, 再故意造一次大输出核对回执里的落盘路径可读, 并确认 `/tmp/dsh-script-*` 生成。
+- **不做**: 不验 REPL / 状态保持（首期不做）; 不验提权（未暴露该参数）; 不验 bash 后端执行（缺省关闭, 只断言「传未启用语言即报错」）。
+
+### 收尾动作（实现完成时）
+
+- 条目「脚本语言解释器插件(bash / python 等)」标「完成」并从 `docs/BACKLOG.md` 移除（若实现另立条目, 两处一并处理）; 本文件移入 `docs/archived/`。
+- 文档回写: 根 `README.md` + `README.zh.md`（插件清单与包数）、`AGENTS.md`（第 22 个插件与结构段）、`docs/BACKLOG.md` §4 插件规划表补一行; **包计数与 §4 表的统一**归条目「五个新插件落地时的仓库清单与包计数统一」。
+- `security-guard` 侧的登记行归它自己的条目（「登记两个新插件工具的命令参数面（`script_run` / `herdr_pane`）」）, 本任务不重复改。
+- 临时文件: `/tmp/dsh-script-*` 残留按「不自动删」口径保留, 已在 README 记明落点与残留责任。
+- 遗留: 语言后端二期（bash 打开开关、node / sh）; REPL / 持久 PTY / 交互式驱动（另立条目）; 逐次审批若改为 `ask` 属配置缺省值变更。
 
 ## 待用户裁定
 
@@ -157,9 +207,11 @@
 2. REPL / 状态保持: **首期不做**(决策 1 与 9 的推后结论被确认); 状态跨调用可见性与宿主 `run_code` 的 MVP 拒绝持久 kernel 同口径(见 `dsh-tools/README.md:235`), 若将来要做另立条目.
 3. TUI 侧: **不做**"跑脚本"的本地模式或命令(决策 8 的结论被确认); 将来若要做, 属 TUI 模块条目, 另立.
 
-仍待裁定:
+仍待裁定: **无**(2026-10-17 起全部落定)。
 
-4. 逐次审批: 是否接受"缺省不逐次审批"(决策 7)? 若要 Python 执行**逐次**过审批面板, 把 `approval` 缺省改为 `ask`.
+已裁定(2026-10-17):
+
+4. 逐次审批: 接受"缺省不逐次审批"(决策 7) —— 用户指令「缺省和 bash 一致」; `approval` 缺省 `never`, 普通执行不弹审批, 要逐次过面板的部署自行改成 `ask`(配置项保留)。
 
 ## 后续候选条目(本任务不登记, 供后续裁定)
 
@@ -170,6 +222,7 @@
 - 2026-10-16 用户裁定形态与范围(模型侧工具; 首期只 Python; 单包不拆分; 不做 REPL; 不做 TUI 跑脚本), 已写进"接取范围"与决策 1 / 8 / 9.
 - 2026-10-16 用户澄清"`$` 模式是给用户用的, 本插件是给 LLM 用的": 决策 1 / 8 的定位理由按此改写; 决策 4 与决策 6 里"与 `$` 模式同口径 / 同档"的类比去掉(两者是各自独立的实现, 不共享代码与配置, 不做常量收敛); "后续候选条目"删掉对齐那条.
 - 2026-10-16 用户要求完整复述要点并确认("可以"): 复述与文档一致, 仅补记本条并修正决策 6 关于 spill 的事实(缝包 `spill` 未挂, 但 `spill-local` + `spill-policy` 已挂).
+- 2026-10-17 用户裁定逐次审批缺省「与 bash 一致」(`approval: never`): 决策 7、冻结接口的配置面与「待用户裁定」三处已同步, 该节不再有待裁定项。
 - 本任务不写实现代码.
 
 ## 偏差

@@ -86,20 +86,74 @@
 
 ## 规划
 
-本轮（调研 + 决策）改动文件清单：
+### 实现前冻结的接口（消费方按此写）
+
+**A. 服务面核对表**（本次只把这张表补进 README，**签名一律不动**）：
+
+| 操作 | 方法 | 参数 | 返回 | 备注 |
+| --- | --- | --- | --- | --- |
+| 投递指令 | `delegate(req)` | `{from?, to, text, timeoutSec?, ttlSec?, waitMs?}` | `{ok, task?, messageId?, delivered?, target?, error?}` | `task.id` 即指令 id；worker 下回合被注入 `TASK <id>: <正文>` |
+| 收取回报（主方） | `taskStatus(taskId)` | `taskId: string` | `{ok, task?, error?}` | `task` 含 `status` / `result` / `resultSource` / `error`；**读取时懒判定超时** |
+| 收取回报（批量） | `taskList(opts?)` | `{sessionId?, status?, limit?}` | `{ok, tasks?, error?}` | 按会话索引，新 → 旧 |
+| 从方回报 | `taskResult(input)` | `{taskId, text, failed?, error?}` | `{ok, task?}` | `resultSource: "tool"` 优先于轮末 `auto` |
+| 平等连接（单向） | `send(req)` | `{from?, to, text, waitMs?}` | `SendResult` | 发完即走；无 id 归属、无超时 |
+| 原始消息 | `inbox(sessionId, count?)` | — | `{ok, messages?, error?}` | 拉取式只读 |
+| 成员核对 | `peers()` / `aliasList()` | — | `PeerInfo[]` / `{alias, sessionId, online}[]` | 解析目标前先核在线；`PeerInfo` **不含**别名 |
+| 取消 | `taskCancel(taskId)` | — | `{ok, task?}` | 终态不可回退 |
+| 连接状态 | `status()` | — | `SessionChannelStatus` | 只读排障 |
+
+来源：签名与键清单 `src/index.ts:1459-1477`、`:1514-1541`；类型 `src/types.ts`。
+
+**B. 别名命名规则**（本次唯一会变的对外行为）：
+
+- `alias = <prefix><word>-<hex4>`；`prefix ∈ {"ui-", "sub-"}`（`aliasPrefixFor`：`header.origin === "subagent"` 或 `delegationDepth > 0` → `sub-`）；
+- `word ∈ AUTO_ALIAS_WORDS`（**≥ 256 词**，守 ≤ 8 字符 / ASCII 字母 / 非保留字 / 无重复）；
+- `hex4 = sha256(sessionId)` 前 4 位**小写 hex**（确定性，非随机串）；
+- 总长 ≤ 16，仍在 `[A-Za-z0-9_-]{1,32}` 校验内；`AUTO_ALIAS_TRIES = 8` 与 `alias_taken` 重试保留作安全网，耗尽时补一行 `console.warn`；
+- 既有 295 条旧格式别名（无后缀）**不动**。
+
+**C. 「成功 / 失败 / 受阻」三态不进 `TaskStatus`**：通道不规定语义，由 `agent-group` 在结果正文里自描述，`failed` 位只表达「是否算失败」，成因走 `error`。
+
+**D. 两条硬约束（写进 README）**：① 从方成员会话必须**也挂着本插件**（注入由目标进程自己的 reader 循环完成）；② 目标必须**在线**，离线直接 `target_offline`、不排队。
+
+**E. 不动的部分**：`alias:<名>` 键位与「无 TTL」语义、`setAlias` 的唯一性判定与 `force` 覆盖、既有别名、16 个服务面方法的签名与语义。
+
+### 任务拆分（5 步，每步带中间验证）
+
+1. **词表扩容 + 取名规则** —— `src/alias-words.ts`：`AUTO_ALIAS_WORDS` 扩到 ≥ 256 词；新增后缀函数（`sha256(sessionId)` 前 4 位 hex）；`pickAutoAlias` 改为拼 `<前缀><词>-<hex4>`。验证：`npm --prefix session-channel run check` 通过，且 `tests/alias.test.ts` 的词表规模 / 约束 / 取名用例按新格式更新后过。
+2. **`#autoAlias` 接上** —— `src/index.ts:360-378`：向取名处传入 `sessionId`；重试耗尽补 `console.warn`。验证：该包 `test` 里「首见生成」用例改为断言新格式（`ui-<词>-<4hex>`），并记下例数变化。
+3. **README：核表 + 新节 + 口径** —— 服务面表 `:65-76` 补「参数 → 返回」（照上面 A 表）；新增「群组编排用法与成员寻址口径」一节（含 C 的三态承载、D 的两条硬约束、成员登记用 sessionId 或显式别名）；`边界与限制` 的别名条 `:105` 补自动别名口径（生成时机 = 本进程首次观察到该会话的 `session/event`、键无 TTL、同 sessionId 恢复后同名、新命名规则与 4 位后缀）；`:122` 的例数改为实测值（现写「47 例」，静态计数约 49，以实跑为准）。验证：逐条对着代码读一遍（核表的用途就是这个）。
+4. **DESIGN 同步** —— `:40`（寻址与 `setAlias` 流程）、`:85`（服务面键集合处标注核表所在）、`:95`（会话跟踪）旁补生成时机与持久性口径。验证：diff 自查。
+5. **用例与真机** —— 新增：别名与 sessionId 绑定且键无 TTL、同 sessionId 再次出现不重命名、`delegate` → `taskStatus` 往返（含懒超时结算与 `resultSource` 优先级）、后缀确定性（同 sessionId 两次算出同一 `hex4`）；更新 `tests/service.test.ts:296` 的来源标签用例。验证：该包 `test` 全绿（无 `redis-server` 时 `redisTest` 会 skip，要如实记）+ 真机 `dsh --profile fff` 看一眼状态列里别名变长 4 字符后是否被挤。
+
+### 本轮（调研 + 决策）改动文件清单
 
 - `session-channel/docs/BACKLOG.md`（本条目标〔进行中: 2026-10-17〕；追加缺陷区条目「自动别名分配在词表耗尽后静默失效」）
 - `session-channel/docs/implementation/2026-10-17-group-transport-surface.md`（本文件）
 
-实现阶段（待用户审定本轮决策后执行）改动文件清单：
+### 实现阶段改动文件清单
 
 - `session-channel/src/alias-words.ts`：`AUTO_ALIAS_WORDS` 扩到 ≥ 256 词（守既有约束）；新增后缀生成（`sha256(sessionId)` 前 4 位 hex）；`pickAutoAlias` 改为拼 `<前缀><词>-<hex4>`
 - `session-channel/src/index.ts`：`#autoAlias` 改用新命名规则（传入 sessionId 以算后缀）；重试耗尽时补一行 `console.warn`
-- `session-channel/README.md`：服务面表 `:65-76` 补「参数 → 返回」；新增「群组编排用法与成员寻址口径」一节（含调研 12 的两条硬约束与决策项 2 的三态承载口径）；`边界与限制` 的别名条 `:105` 补自动别名口径（生成时机、无 TTL、恢复后不变、新命名规则与 4 位后缀）；用例数 `:122`
-- `session-channel/docs/DESIGN.md`：`:40`（寻址与 `setAlias` 流程）与 `:95`（会话跟踪）旁补生成时机与持久性口径；`:85` 服务面键集合处标注核对表所在
-- `session-channel/tests/`：新增用例钉住 —— 别名与 sessionId 绑定且键无 TTL、同 sessionId 再次出现不重命名、`delegate` → `taskStatus` 往返（含懒超时结算与 `resultSource` 优先级）；更新 `tests/alias.test.ts` 的词表规模 / 约束 / 取名（含后缀）用例与 `tests/service.test.ts` 的来源标签用例；按需更新 `README.md:122` 的例数
+- `session-channel/README.md`：服务面表 `:65-76` 补「参数 → 返回」；新增「群组编排用法与成员寻址口径」一节（含两条硬约束与三态承载口径）；`边界与限制` 的别名条 `:105` 补自动别名口径；用例数 `:122` 改为实测值
+- `session-channel/docs/DESIGN.md`：`:40` / `:85` / `:95` 三处口径同步
+- `session-channel/tests/alias.test.ts`、`tests/service.test.ts`：词表与取名用例更新 + 新增四条用例（见任务拆分第 5 步）
+- `session-channel/docs/BACKLOG.md`：两条条目完成时标「完成」并移除
 
-明确不做：不新增服务面方法（决策项 1）；不改 `TaskStatus` 与任务状态机（决策项 2）；**修自动别名只改命名规则与词表** —— 不动 `alias:<名>` 的键位与「无 TTL」语义、不改 `setAlias` 的唯一性判定与 `force` 覆盖、不重命名 / 不回收既有 295 条旧别名（决策项 4）；不加 `broadcast`（设计决策项 20 属二期）；不动 TUI 与 `agent-group` 侧代码。
+明确不做：不新增服务面方法（决策项 1）；不改 `TaskStatus` 与任务状态机（决策项 2）；**修自动别名只改命名规则与词表** —— 不动键位与「无 TTL」语义、不改 `setAlias` 的唯一性判定与 `force` 覆盖、不重命名 / 不回收既有 295 条旧别名（决策项 4）；不加 `broadcast`（设计决策项 20 属二期）；不动 TUI 与 `agent-group` 侧代码。
+
+### 实现阶段的验证口径
+
+- **单测**：`npm --prefix session-channel run test` 全绿（`redisTest` 无 `redis-server` 时 skip 要注明）；四条新用例 + 更新的词表 / 取名 / 来源标签用例。
+- **机械**：`npm run check` + `npm run build` + `npm run test` 三件；`README.md:122` 的例数与实跑一致。
+- **人工**：README 的服务面核表逐条对着 `src/index.ts:1514-1541` 与 `src/types.ts` 读一遍；真机看一眼别名变长后的状态列显示。
+- **不做**：不验跨机（本包仅本机）；不验广播（二期）；不去改 `PeerInfo` 加别名字段。
+
+### 收尾动作（实现完成时）
+
+- 两条条目（「补群组编排（agent-group）所需的传输面：服务面核对 + 别名持久性」与缺陷区「自动别名分配在词表耗尽后静默失效」）标「完成」并从 `session-channel/docs/BACKLOG.md` 移除；缺陷区清空后按仓库惯例写「（当前无未完成项）」。
+- 本文件移入 `session-channel/docs/archived/`。
+- 回写下游：`agent-group` 的登记口径（只用 sessionId 或显式别名，不依赖自动别名）—— 属该包的实现，已在它的设计与本文件 D 条里记明。
 
 ## 实现记录
 

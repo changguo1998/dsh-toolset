@@ -91,6 +91,7 @@
 ## 决策
 
 决策项 1　herdr 控制通道
+
 - a) 全走 `herdr` CLI 子进程（`spawn` 参数数组，不拼 shell 字符串）
 - b) 全走 unix socket 协议（扩展现有 `src/herdr.ts` 那类客户端）
 - c) 混合：缺省走 CLI，仅在 socket 有优势处走 socket
@@ -123,6 +124,7 @@
 CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，保持实现面与测试面最小。
 
 决策项 2　产出形态
+
 - a) 模型侧工具（同时导出库面供其它包复用）
 - b) TUI 命令 / 面板
 - c) 仅测试基底（给冒烟与集成测试用）
@@ -131,13 +133,15 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 **选定 a**。理由：驱动的发起方是 agent（条目期望「可被程序化驱动」）；人在 herdr 里有原生界面与 CLI，再包一层 TUI 命令是重复投入；测试基底不可取——仓库测试与 CI 不保证 herdr 存在（现有冒烟用 `script` 分配 PTY，`TUI/demo/smokePty.mjs:1-20`），把测试绑到 herdr 会把偶发外部依赖引进门禁。库面同时导出，供编排类插件与真机验证脚本直接调用（对齐 `ast-tools` 的双出口）。
 
 决策项 3　包划分
+
 - a) 新建独立包 `herdr-pane`（`@dsh-toolset/herdr-pane`），与 tmux 条目各自成包
 - b) 与 tmux 条目共用一个「双底床」包
 - c) 并入现有 `herdr-integration` 包
 
-**选定 a**。理由：本包带执行面与安全闸门，`herdr-integration` 的定位是「观察者、不是应答者」的轻量状态桥（`herdr-integration/README.md:85-87`），并入会把它变成执行插件并搅混两份边界；与 tmux 共包需先抽底床抽象，而两条目正在不同 worktree 并行，共用会互相阻塞且抽象信息不足。**约定最小共性**（不强制对方采纳）：动作名对齐 `create / list / read / wait / send_text / send_keys / run / close`，工具名按底床前缀（本包 `herdr_pane`）。两条目都落地后，抽公共层另立条目。
+**选定 a**。理由：本包带执行面与安全闸门，`herdr-integration` 的定位是「观察者、不是应答者」的轻量状态桥（`herdr-integration/README.md:85-87`），并入会把它变成执行插件并搅混两份边界；与 tmux 共包需先抽底床抽象，而两条目正在不同 worktree 并行，共用会互相阻塞且抽象信息不足。**约定最小共性**（不强制对方采纳）：动作名对齐 `create / list / read / wait / send_text / send_keys / run / close`，工具名按底床前缀（本包 `herdr_pane`）。两条目都落地后，抽公共层另立条目。**用户 2026-10-17 认可独立成包**（问共包问题时答「都可以」）—— 维持「只约定动作名、不建公共层」的口径。
 
 决策项 4　工具面粒度
+
 - a) 单个工具 `herdr_pane` + `action` 分派
 - b) 每个动作一个工具（`herdr_pane_split` / `..._read` / …）
 - c) 两个工具（只读 / 写类分开）
@@ -145,6 +149,7 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 **选定 a**。理由：十个动作共享同一套参数与归属规则，单条描述即可讲清选择成本与安全边界（对齐 `ast_query` / `md_logic` 的既有风格），工具面上下文占用最小；写类动作的闸门由 `action` 值判定，不依赖工具名。
 
 决策项 5　非 herdr 环境的降级
+
 - a) 不注册工具（与 `herdr-integration` 的空转口径一致），只记一行日志
 - b) 注册降级工具（调用返回含指引的错误，对齐 `ast-tools`）
 - c) 注册但标为不可用 / 需确认
@@ -152,6 +157,7 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 **选定 a**。理由：不在 herdr 内是运行位置决定的、本机不可修，注册必然失败的工具只会诱使模型反复试错并污染工具面；与同族插件 `herdr-integration` 的既有口径保持一致。判定用握手三变量（`HERDR_ENV=1` + socket 路径 + pane id），另以 `HERDR_BIN_PATH` 兜底定位二进制（PATH 找不到时用它）。
 
 决策项 6　目标 pane 的选择与归属
+
 - a) 写类动作缺省只作用于**本插件创建并登记**的 pane；读类动作可读任意 pane；缺省永不使用「当前聚焦 pane」
 - b) 允许任意 pane（缺省取调用者 / 聚焦 pane）
 - c) 只允许操作调用者自己所在的 pane
@@ -159,13 +165,15 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 **选定 a**。理由：c 不可行——在 dsh 自己所在 pane 里跑交互式程序会毁掉 TUI 会话（实测也证明该 pane 的回显会污染匹配，见 §2）；b 会误伤用户或其它 agent 的 pane（官方技能明确要求不依赖别的客户端焦点、不动不是自己创建的东西）。a 同时给「读」留了观察能力（只读、无副作用）。
 
 决策项 7　生命周期与残留清理
+
 - a) 缺省在 dsh 退出时关闭本次创建的 pane（配置可关），创建时打 label 便于事后识别；崩溃残留靠 label 识别 + 显式 close
 - b) 退出保留（只登记，靠显式 close）
 - c) 退出关闭全部相关 pane（含非本插件创建）
 
-**选定 a**。理由：驱动方一退出，被驱动的 pane 就没有了控制者（b 会稳定留下孤儿 pane 与孤儿进程）；c 违反官方技能「不要关闭不是自己创建的 pane」。label（如 `dsh-pane`）让崩溃残留可被 `list` 与人工一眼识别；关闭走 `spawnSync` 尽力送达（对齐 `herdr-integration/src/herdr.ts:167-180` 的退出兜底），只针对登记过的 pane。
+**选定 a**。理由：驱动方一退出，被驱动的 pane 就没有了控制者（b 会稳定留下孤儿 pane 与孤儿进程）；c 违反官方技能「不要关闭不是自己创建的 pane」。label（如 `dsh-pane`）让崩溃残留可被 `list` 与人工一眼识别；关闭走 `spawnSync` 尽力送达（对齐 `herdr-integration/src/herdr.ts:167-180` 的退出兜底），只针对登记过的 pane。**用户 2026-10-17 认可缺省关闭**（答「都可以」）—— `closeOnExit` 缺省 `true`，要保留现场供退出后查看的部署把它置 `false`，残留靠 label 与显式 `close` 清理。
 
 决策项 8　取屏口径
+
 - a) 缺省 `--source recent-unwrapped --lines 120 --format text`（剥 ANSI）；TUI 程序改用 `visible`；`ansi` 仅在需要颜色证据时
 - b) 缺省 `visible`
 - c) 缺省全历史 + ANSI
@@ -173,6 +181,7 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 **选定 a**。理由：`recent-unwrapped` 是官方技能给日志与转录的首选（软换行已拼接，便于匹配与阅读）；alternate-screen 程序必须看视口，故保留 `visible`；默认剥色避免把转义序列灌进模型上下文。渲染上限另设（默认 200 行 / 16000 字符，超出截断并提示用 `lines` / `source` 收窄）。
 
 决策项 9　等待与稳定判定
+
 - a) 服务端 `wait-output`（字面量 / 正则）+ `stable` 静默模式（两次读取文本比对，`settle_ms` 缺省 400），缺省 `timeout_ms` 30000，超时返回结构化结果而非抛错
 - b) 只做 `match`
 - c) 自建轮询 + socket `revision` 判稳
@@ -180,6 +189,7 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 **选定 a**。理由：服务端等待已覆盖「等某个提示出现」这一主场景，且先搜既有输出、无自建轮询的竞态；`stable` 覆盖「程序输完了但没有固定标记」的场景（本条目与「同事模型群组的编排协议」都需要）；c 要引入 socket 通道并自建轮询，收益仅一个 `revision` 字段。**随决策项 1 更新（2026-10-16）**：`stable` 的判稳改用 socket `pane.read` 的 `revision`（相邻两次读取 `revision` 相同即判稳，`settle_ms` 间隔 + `timeout_ms` 兜底；取不到 `revision` 时回退文本比对）；`match` / `regex` 仍走 CLI `wait-output`（其成功信封内已含 `read` 与 `revision`）。
 
 决策项 10　安全闸门
+
 - a) 三闸并用：执行前 `guard.inspectCommand(text, "herdr-pane:<action>")` 复查（同 TUI `$` 口径，guard 缺失 / 抛错则告警一次后照常）+ 在 `security-guard` 的插件命令工具登记表登记本工具的命令参数键 + 越界动输入走宿主审批（`tools/pre-execute` 返回 `{kind:"ask"}`）
 - b) 只靠 `security-guard` 登记（宿主侧硬拒层）
 - c) 每次调用都过审批（`always`）
@@ -187,19 +197,22 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 **选定 a**。理由：本插件的命令跑在 dsh 沙箱之外（见 §7），必须有显式闸门；a 的三层各自覆盖不同失败面——guard 复查兜住「策略层命中」（与 TUI `$` 同源文案）、登记表让宿主在派发前就能拦（仓库既有约定要求登记）、审批只在越界时打断人（c 会让每次建 pane 都弹审批，实际不可用）。审批用宿主既有的 `ask` 门（`dsh-tools/lib/index.js:3226`）而不是自己调 `ctx.approval`：审批对（`approval/asked` / `approval/decided`）由宿主写入、无审批服务时自动 fail-closed。
 
 决策项 11　审批缺省档与配置面
+
 - a) `requireApproval: "foreign"`（缺省）——只对**非本插件创建**的 pane 动输入 / 关闭时审批；`"always"` / `"never"` 可选
 - b) 缺省 `"always"`
 - c) 缺省 `"never"`
 
-**选定 a**。理由：缺省动作面已限定在自建 pane（决策项 6），此时与官方 bash 工具同级（命令执行不逐次审批，`dsh-tool-bash/README.zh.md:68`）；一旦要动用户的 pane，打断一次是应该的。`never` 保留给信任场景（此时仍有 guard 硬拒层与归属限制），`always` 保留给高敏场景。
+**选定 a**。理由：缺省动作面已限定在自建 pane（决策项 6），此时与官方 bash 工具同级（命令执行不逐次审批，`dsh-tool-bash/README.zh.md:68`）；一旦要动用户的 pane，打断一次是应该的。`never` 保留给信任场景（此时仍有 guard 硬拒层与归属限制），`always` 保留给高敏场景。**用户 2026-10-17 认可缺省 `foreign`**（问「审批缺省是?」后答「可以」）—— 三档语义保持; 要更高约束的部署把 `requireApproval` 改成 `always`（每次弹）或 `never`（从不弹，仍有 guard 与归属限制兜着）。
 
 决策项 12　沙箱模式联动（会话处于 `read-only` 时拒绝写类动作）
+
 - a) 首期不做，记为二期候选
 - b) 首期做（订阅 `session/event` 的 `sandbox/mode` 折叠当前模式）
 
 **选定 a**。理由：会话初始模式在无事件时无从判定（`sandbox/mode` 是会话事件、不是可查询服务，`docs/host/DSH-CTX-API.md:140`），猜错就是把闸门做成误拦或空设；首期先用「归属 + guard + 审批」三闸覆盖，待实现时确认模式事件的实际时序后再评估（届时另立条目或并入二期）。
 
 决策项 13　文档形态
+
 - a) 首期按**轻量包**：`README.md` + `docs/BACKLOG.md`，不写 `DESIGN.md`
 - b) 首期即写 `docs/DESIGN.md`
 
@@ -207,7 +220,34 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 
 ## 规划
 
-### 任务拆分（实现阶段，待放行）
+### 实现前冻结的接口（消费方按此写）
+
+**工具面**：单个模型侧工具 `herdr_pane`，`action` 取 `create | list | read | wait | send_text | send_keys | run | label | info | close`（写类动作用 `action` 值判闸门，不按工具名）。参数与必填：
+
+| 动作 | 参数 | 通道 |
+| --- | --- | --- |
+| `create` | `direction?`（按 `pane layout` 宽高自动选 `right` / `down`）· `cwd?`（缺省继承进程 cwd）· `label?`（缺省配置 `label`） | CLI |
+| `list` | `workspace?` | CLI |
+| `read` | `pane_id`（必填）· `source?`（缺省 `recent-unwrapped`）· `lines?`（缺省 120）· `format?`（缺省 `text`） | **socket** |
+| `wait` | `pane_id`（必填）· `match?` / `regex?`（二选一）或 `stable?` · `settle_ms?`（缺省 400）· `source?` / `lines?` · `timeout_ms?`（缺省 30000） | CLI（`match` / `regex`）· **socket**（`stable`） |
+| `send_text` | `pane_id`（必填）· `text`（必填） | CLI |
+| `send_keys` | `pane_id`（必填）· `keys`（必填，如 `["ctrl+c"]`） | CLI |
+| `run` | `pane_id`（必填）· `command`（必填，文本 + Enter 一次提交） | CLI |
+| `label` | `pane_id`（必填）· `label?`（缺省写配置值；空串表示清除） | CLI |
+| `info` | `pane_id`（必填） | CLI |
+| `close` | `pane_id`（必填）· `force?`（需 `allowForeignPanes: true`） | CLI |
+
+**配置面**（六键）：`requireApproval`（`foreign` 缺省 / `always` / `never`；**2026-10-17 用户认可保持 `foreign`**）· `allowForeignPanes`（缺省 false）· `closeOnExit`（缺省 true；**2026-10-17 用户认可**）· `label`（缺省 `dsh-pane`）· `timeoutMs`（单次 CLI 调用上限，缺省 10000）· `renderLimit`（缺省 200 行 / 16000 字符）。
+
+**非 herdr 环境**：**不注册工具**，只记一行日志；判定用握手三变量（`HERDR_ENV=1` + socket 路径 + pane id），`HERDR_BIN_PATH` 作 PATH 兜底。
+
+**归属与生命周期**：写类动作缺省只作用于**本插件创建并登记**的 pane（缺省永不使用聚焦 pane），读类可读任意 pane；退出时关闭本次创建的 pane（`closeOnExit`），创建成功后自动打一次 label 便于识别崩溃残留；关闭走 `spawnSync` 尽力送达，只针对登记过的 pane。
+
+**取屏与回执口径**：缺省 `recent-unwrapped` / 120 行 / `text`（剥 ANSI；TUI 类程序用 `visible`）；`read` 回执带 `revision` 与 `truncated`，`info` 回执带 `foreground_processes` / `shell_pid`；herdr 错误信封归一为 `{code, message}`；输出按 `renderLimit` 截断并提示用 `lines` / `source` 收窄。`output.schema` 的具体字段名以实现时定稿为准。
+
+**安全三闸**：① 执行前 `ctx.get("guard")?.inspectCommand(text, "herdr-pane:<action>")` 复查（guard 缺失或抛错时告警一次后照常）；② `security-guard` 登记 —— `PLUGIN_COMMAND_TOOLS.herdr_pane = { commandKeys: ["command", "text"], commandPaths: ["keys[]"] }`（**2026-10-17 订正**：原写 `commandKeys: ["command", "text", "keys"]`，但 `security-guard` 任务的实测结论是 `commandKeys` 会静默忽略数组值，数组参数必须走 `commandPaths`）；③ 越界动输入走宿主审批（`tools/pre-execute` 返回 `{kind: "ask"}`），不用 `ctx.approval`。
+
+### 任务拆分（实现阶段）
 
 1. 包骨架与接线：`package.json`（`dsh.bundle` 契约）、`tsconfig.json`、`index.ts`、`cordis.patch.yml`、`LICENSE`、`.gitignore`、`docs/BACKLOG.md`；根 `package.json`（check / build 两链）、`scripts/test-parallel.sh`、`scripts/install.sh`、`AGENTS.md`、`README.md`、`README.zh.md`。
 2. 库面（不依赖宿主，可单测）：握手判定（三变量 + 二进制定位）、CLI 薄封装 `runHerdr(args, {timeoutMs})`（spawn 参数数组、stdout / stderr 解析、退出码归一）、**socket 读通道**（单请求连接、`pane.read` 报文与响应解析、`id` 生成、超时）、十个动作的参数校验与 argv / 报文拼装、结果解析（`pane list` / `split` / `wait-output` 信封 / 错误信封 / socket `PaneReadResult`）。
@@ -232,7 +272,7 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 
 配置面（`cordis.patch.yml` 的 `config`）：`requireApproval`（`foreign` 缺省 / `always` / `never`）、`allowForeignPanes`（缺省 false）、`closeOnExit`（缺省 true）、`label`（缺省 `dsh-pane`）、`timeoutMs`（单次 CLI 调用上限，缺省 10000）、`renderLimit`（行 / 字符上限，缺省 200 行 / 16000 字符）。
 
-`security-guard` 登记形态：`PLUGIN_COMMAND_TOOLS.herdr_pane = { commandKeys: ["command", "text", "keys"] }`（保守口径：`keys` 一并纳入，误拦代价低于漏拦；参数名与上面一致）。
+`security-guard` 登记形态（**2026-10-17 订正**）：`PLUGIN_COMMAND_TOOLS.herdr_pane = { commandKeys: ["command", "text"], commandPaths: ["keys[]"] }` —— 数组参数 `keys` 走 `commandPaths`（`commandKeys` 静默忽略数组值，见 `security-guard` 任务的实测）；参数名与上面一致。
 
 ### 计划改动文件清单
 
@@ -299,19 +339,37 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 
 0.5 天包骨架与接线；0.6 天库面（握手 + CLI 封装 + socket 读通道 + 十动作 + 解析）；0.25 天归属与生命周期；0.25 天安全闸门（含 `security-guard` 登记与其用例）；0.5 天单测；0.25 天真机验证脚本、人工确认与文档回写；0.15 天可选动作（`label` / `info`）与其用例。合计约 **2.5 天**（2.25 至 2.75 天区间，取决于 `security-guard` 登记与真机验证是否顺；比全 CLI 方案多约 0.25 天用于 socket 读通道，另 0.15 天为可选动作）。
 
+### 实现阶段的验证口径（怎么跑）
+
+「验收（细化）」列的是**验什么**，这里列**怎么跑**：
+
+- **单测**：`npm --prefix herdr-pane run test` —— 七个用例文件（`cli` / `socket` / `actions` / `registry` / `policy` / `main` / `tool`），注入 fake runner 与假时钟；socket 侧注入连接器或起本地假 socket，不依赖真 herdr；断言 argv 与报文拼装、错误信封归一、归属与审批档判定、非 herdr 环境下不注册。
+- **机械**：根 `npm run check` + `npm run build` + `npm run test` 三件全绿；`scripts/install.sh --dry-run` 的清单含本包。
+- **真机**：在 herdr 管理的 pane 内启动 `dsh --profile fff`，执行 `node herdr-pane/scripts/verify-herdr-pane.mjs`（`import dist/`、人工跑、不进 CI）—— 只用自己创建的 pane，逐动作验证（`create` → `read` → `send_text` → `wait` 的 `match` 与 `stable` → `run` → `info` → `label` → `close`），并确认退出时自建 pane 被关闭；在 herdr 之外启动时确认工具不出现。
+- **不做**：不依赖别的客户端焦点、不动非自建 pane；不把真机脚本接进 CI（herdr 不保证存在）；不验 `format=ansi` 的颜色语义（留实现时复核）。
+
+### 收尾动作（实现完成时）
+
+- 条目「基于 herdr 的交互式命令扩展（herdr pane 读写）」标「完成」并从 `docs/BACKLOG.md` 移除；本文件移入 `docs/archived/`。
+- 文档回写：根 `README.md` + `README.zh.md`（插件清单与包数）、`AGENTS.md`（包数与结构段的插件列表）、`docs/BACKLOG.md` §4 插件规划表补一行；**包计数与 §4 表的统一**归条目「五个新插件落地时的仓库清单与包计数统一」。
+- 跨包登记：`security-guard` 侧那行归条目「登记两个新插件工具的命令参数面（`script_run` / `herdr_pane`）」，本任务只保证键名与 `commandPaths: ["keys[]"]` 形态一致。
+- 途中发现两项**已登记**为条目「修正 `docs/BACKLOG.md` §5 对 herdr pane 外部问题取证位置的指向」与「核正条目 5（Docker 交互插件）的〔进行中〕标记」，均归各自条目，本任务不代改。
+- 残留口径：正常退出按 `closeOnExit` 关闭自建 pane；崩溃残留靠 label（缺省 `dsh-pane`）识别 + `list` 查看 + 显式 `close`，README 记明。
+- 与 tmux 条目的「最小共性」只是动作名约定，本任务**不建公共层**；两条目都落地后若要抽公共层，另立条目。
+
 ### 剩余待用户裁定项
 
 1. ~~是否现在进入实现，以及是否按本决策直接实现~~ **已裁定（2026-10-16）**：放行，按本决策实施（单工具 `herdr_pane`、新包 `herdr-pane`、通道按决策项 1 的逐动作划分表），且**可选动作（`label` / `info`）一并做**。实现开始前等本轮文档检查。
-2. 审批缺省档（决策项 11 选定 `foreign`）：是否改为 `always` / `never`。
-3. 与条目「基于 tmux 的交互式命令扩展（模拟交互式命令执行）」是否共包（决策项 3 选定独立）；若要求共包，需要与另一 worktree 协调抽象层后再定。
-4. 退出时是否关闭本次创建的 pane（决策项 7 选定关闭，配置可关）；若希望保留现场供退出后查看，请改为保留并说明残留清理口径。
-5. 优先级：条目现为 P2；若「同事模型群组的编排协议」条目优先，则本条目宜上调至 P1（其底床依赖本条目或 tmux 条目）。
-6. 途中发现（见下）是否登记为新条目。
+2. ~~审批缺省档（决策项 11 选定 `foreign`）：是否改为 `always` / `never`~~ **已裁定（2026-10-17，用户「可以」）：保持 `foreign`**。
+3. ~~与条目「基于 tmux 的交互式命令扩展（模拟交互式命令执行）」是否共包（决策项 3 选定独立）~~ **已裁定（2026-10-17，用户「都可以」）：维持独立成包**，只约定动作名；共包要等另一侧结论与抽公共层，届时另立条目。
+4. ~~退出时是否关闭本次创建的 pane（决策项 7 选定关闭，配置可关）~~ **已裁定（2026-10-17，用户「都可以」）：维持缺省关闭**（`closeOnExit: true`，可配置关）。
+5. 优先级：条目现为 P2；若「同事模型群组的编排协议」条目优先，则本条目宜上调至 P1（其底床依赖本条目或 tmux 条目）。**2026-10-17 用户「后面再说」—— 延后，不在本轮定。**
+6. ~~途中发现（见下）是否登记为新条目~~ **已办（2026-10-17）**：两项已登记为项目级 `docs/BACKLOG.md` 的条目（§5 指向订正 · Docker 条目标记核正），见「途中发现」段的补记。
 
-### 途中发现（建议另立条目，本轮未登记）
+### 途中发现（两项均已登记为条目，2026-10-17）
 
-- `docs/BACKLOG.md` §5 写「herdr pane 外部问题取证在 `TUI/docs/BACKLOG.md`」，但该文件当前无 herdr 字样；取证实际在 `TUI/docs/STATUS.md:12` 与 `TUI/docs/archived/2026-09-27-herdr-pane-size-external-issue.md`。属**指向过期**（文档缺陷，快速流程可改）。建议条目正文：「修正 `docs/BACKLOG.md` §5 对 herdr pane 外部问题取证位置的指向（应为 `TUI/docs/STATUS.md` 与对应 archived 文档）」。
-- `docs/BACKLOG.md` 的 2026-10-16 注记称「接取 5 条……并标〔进行中: 2026-10-16〕」，实测本条目（「基于 herdr 的交互式命令扩展（herdr pane 读写）」）此前**漏标**（本轮已补）；同时「Docker 交互插件（容器状态 / 日志 / 进入 / 生命周期）」条目带着〔进行中: 2026-10-16〕标记，但它不在该注记的接取清单里，`git worktree list` 也无对应 worktree（本机 6 个 worktree：auto-approve / background-daemon / herdr-pane / peer-group / preference-analysis / script-interpreter）。标记归属待核，本轮**未代改**（避免越界改他人条目）。
+- **2026-10-17 已登记为条目**「修正 `docs/BACKLOG.md` §5 对 herdr pane 外部问题取证位置的指向」（〔待办〕）。原文：`docs/BACKLOG.md` §5 写「herdr pane 外部问题取证在 `TUI/docs/BACKLOG.md`」，但该文件当前无 herdr 字样；取证实际在 `TUI/docs/STATUS.md:12` 与 `TUI/docs/archived/2026-09-27-herdr-pane-size-external-issue.md`。属**指向过期**（文档缺陷，快速流程可改）。建议条目正文：「修正 `docs/BACKLOG.md` §5 对 herdr pane 外部问题取证位置的指向（应为 `TUI/docs/STATUS.md` 与对应 archived 文档）」。
+- **2026-10-17 已登记为条目**「核正条目 5（Docker 交互插件）的〔进行中〕标记」（〔待办〕）。原文：`docs/BACKLOG.md` 的 2026-10-16 注记称「接取 5 条……并标〔进行中: 2026-10-16〕」，实测本条目（「基于 herdr 的交互式命令扩展（herdr pane 读写）」）此前**漏标**（本轮已补）；同时「Docker 交互插件（容器状态 / 日志 / 进入 / 生命周期）」条目带着〔进行中: 2026-10-16〕标记，但它不在该注记的接取清单里，`git worktree list` 也无对应 worktree（本机 6 个 worktree：auto-approve / background-daemon / herdr-pane / peer-group / preference-analysis / script-interpreter）。标记归属待核，本轮**未代改**（避免越界改他人条目）。
 
 ## 实现记录
 

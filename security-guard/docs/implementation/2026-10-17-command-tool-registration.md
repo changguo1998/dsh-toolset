@@ -46,14 +46,14 @@
 
 **选定 a**。理由：与 `run_code` 一致（`src/index.ts:1045-1048` 同口径）；b 需要给 `PluginCommandTool` 扩字段、与 `run_code` 分叉，换来的只是「Python 源码里出现 `sudo` 字面词时不拦」这点少误拦。
 
-决策项 4　登记时机（前置未满足，见调研 7）
+决策项 4　登记时机（前置未满足，见调研 7；**已裁定 b**）
 
 - a) 现在登记两条
 - b) 等两个包落地后随其实现批次登记
 - c) 现在只登记 `script_run`，`herdr_pane` 等落地
 
 **选定 b**。理由：`README.md:22` 的既有口径是「按**真实**参数面在对应登记表登记」，而 `keys` 的假覆盖刚证明「照设计字面写」并不可靠 —— 真正能核对的时点是实现落地时（设计自己也写「参数名以两包实现时的真实工具面为准」）。代价照实记：某个包落地到登记生效之间存在无防护窗口，缓解有两条 —— 两份设计的「计划改动文件清单」都已列出这次跨包登记（script-interpreter `:127-128`、herdr-pane `:263`），且 herdr-pane 是三闸并用（`:183`，另有 `guard.inspectCommand` 自查）。
-**若改选 a**：登记形态按决策项 1 至 3 落地，并在 `README.md` 的登记表行注明「登记早于两包实现，落地后核对参数面」。
+**用户裁定（2026-10-17，回「内容现在没有问题」）：维持 b** —— 两包落地后随其实现批次登记；上面「若改选 a」的备用口径不再适用（决策项 1 至 3 的形态仍有效，落地时按真实参数面核对）。
 
 决策项 5　一致性靠什么钉住
 
@@ -65,13 +65,34 @@
 
 ## 规划
 
+### 实现前冻结的接口（消费方按此写）
+
+**登记项的确切形态**（`src/index.ts` 的 `PLUGIN_COMMAND_TOOLS`，加两条）：
+
+```ts
+PLUGIN_COMMAND_TOOLS.script_run = { commandKeys: ["script"] };
+PLUGIN_COMMAND_TOOLS.herdr_pane = { commandKeys: ["command", "text"], commandPaths: ["keys[]"] };
+```
+
+**三条口径**（写进 `README.md` 的登记表说明，便于后人照抄）：
+
+1. `commandKeys` 只收**顶层非空 string**；数组值**静默失效**（`src/index.ts:672-677`）—— 数组参数必须走 `commandPaths`。
+2. `commandPaths` 走点号路径，段名带 `[]` 表示该值逐元素展开（本处 `keys[]`）。
+3. **登记即脱离未登记工具策略**：门禁分支是 `plugin === undefined && commandTool === undefined`（`:1059`），工具名一旦在册，`unknownToolPolicy` 对它不再生效 —— 所以登记等于承诺「这套参数面是真的」，写错就是假覆盖。
+
+**判定面（不改语义）**：命中命令黑名单 → deny；`allowPatterns` 可放行；敏感文件 / 路径面不经本表。判定不需要真实工具存在（引擎按「工具名 + 入参」判定）。
+
+**不改的字段面**：`PLUGIN_FILE_TOOLS`；`unknownToolPolicy` 三态与 allowlist；`TOOL_SURFACE.registered`（`:323-340` 由五组并集自动随动）。
+
+**上游核对点（落地时必做）**：`script_run` 的参数名以 script-interpreter 的冻结值为准（`script` / `description` / `language` / `workdir` / `timeoutMs`）；`herdr_pane` 以 herdr-pane 的冻结值为准（`command` / `text` / `keys`）。两者若与本文不同，**停下来按「偏差」记录并问用户**，不照设计字面改。
+
 本轮（调研 + 决策）改动文件清单：
 
 - `security-guard/docs/BACKLOG.md`（本条目标〔进行中: 2026-10-17〕）
 - `security-guard/docs/implementation/2026-10-17-command-tool-registration.md`（本文件）
 - `docs/BACKLOG.md`（「途中发现新问题」：追加一条项目级条目 —— script-interpreter 设计文档 `:45` 的一致性表述与实况不符）
 
-实现阶段（待决策项 4 裁定后执行）改动文件清单：
+实现阶段（两包落地后执行；决策项 4 选定 b）改动文件清单：
 
 - `security-guard/src/index.ts`：`PLUGIN_COMMAND_TOOLS` 加 `script_run: { commandKeys: ["script"] }` 与 `herdr_pane: { commandKeys: ["command", "text"], commandPaths: ["keys[]"] }`
 - `security-guard/tests/guard.test.ts`：新增用例 —— `script_run`（黑名单命中 deny / 敏感路径 deny / 普通脚本放行 / 参数缺失或非 string 放行 / `allowPatterns` 放行）、`herdr_pane`（`run:command` 命中 / `send_text:text` 命中 / `send_keys:keys[]` 命中 / 非命令键不误拦 / 读类动作放行）、`TOOL_SURFACE` 名单 includes 断言
@@ -79,9 +100,30 @@
 
 明确不做：不改 `unknownToolPolicy` 的语义与缺省值（三态与 allowlist 保持原样）；不加按键白名单校验（新语义，属另议）；不改 `scripts/tool-surface-check.mjs` 的覆盖边界（属另条条目）；不改两份设计文档（其它任务的文件）；不动 `PLUGIN_FILE_TOOLS`。
 
+### 任务拆分（4 步，每步带中间验证）
+
+1. **前置核对**（两包落地后）—— 对着两包的真实工具 schema 逐字复核参数名与类型（`script-interpreter` 与 `herdr-pane` 各自的 `src/tools.ts` 一类落点）。验证：人工对照；有差异记「偏差」并停手。
+2. **登记两条**（`src/index.ts:249-257`）—— 按冻结接口的确切形态写入；`TOOL_SURFACE` 无需手改。验证：`npm --prefix security-guard run check` 通过 + `TOOL_SURFACE` 既有用例仍绿。
+3. **用例**（`tests/guard.test.ts`）—— `script_run` 五例（黑名单命中 deny / 敏感路径 deny / 普通脚本放行 / 参数缺失或非 string 放行 / `allowPatterns` 放行）；`herdr_pane` 五例（`run` 的 `command` 命中 / `send_text` 的 `text` 命中 / `send_keys` 的 `keys[]` 命中 / 非命令键不误拦 / 读类动作放行）。验证：该包 `test` 全绿（基线 124 例）。
+4. **文档与收尾** —— `README.md` 三处（`:13` 表格行、`:21` 插件命令面段、`:228` 例数）同步，登记表说明补上面三条口径。验证：例数与实跑一致。
+
+### 实现阶段的验证口径（怎么跑）
+
+- **单测**：`npm --prefix security-guard run test`；判定面不依赖真实工具（见冻结接口）。
+- **机械**：根 `npm run check` + `npm run build` + `npm run test` 三件全绿。
+- **真机（推荐，两包落地后可做）**：重启 `dsh --profile fff`，让模型调一次含黑名单命令的 `script_run`（应被 deny 且**未执行**）、一次普通脚本（应放行）、一次 `herdr_pane` 的 `send_keys` 传黑名单串（应被 deny）。
+- **不做**：不验 `scripts/tool-surface-check.mjs`（它扫不到本仓插件，属另条条目）；不验按键白名单（该功能不做）。
+
+### 收尾动作（实现完成时）
+
+- 条目「登记两个新插件工具的命令参数面（`script_run` / `herdr_pane`）」标「完成」并从 `security-guard/docs/BACKLOG.md` 移除（清空后写「（当前无未完成项）」）；本文件移入 `security-guard/docs/archived/`。
+- 跨包对齐：两包的「计划改动文件清单」都列了这次登记；落地后本条目关闭即视为两侧对齐；若参数面有变，同时回写两包文档。
+- 途中发现：项目级条目「修正脚本解释器设计文档里『登记一致性由 tool-surface-check 校验』的表述」归它自己，本任务不代改。
+- **时序**：本条落地在两包实现**之后**（决策项 4 选定 b）。
+
 ## 实现记录
 
-（本轮为决策轮，未进入实现；待决策项 4 裁定后按「规划」的清单执行。）
+（本轮为决策轮，未进入实现；决策项 4 已裁定 b —— 两包落地后按「规划」清单执行。）
 
 ## 偏差
 
@@ -97,6 +139,6 @@
 
 ## 收尾
 
-- 本轮不归档：条目保持〔进行中: 2026-10-17〕，本文件留在 `security-guard/docs/implementation/`，等用户对决策项 4 的裁定后再决定「就地实现」或「复位为等前置」。
+- 本轮不归档：条目保持〔进行中: 2026-10-17〕，本文件留在 `security-guard/docs/implementation/`；决策项 4 已裁定 b（两包落地后随批次登记），本条就此等前置。
 - 回写文档：本轮无（实现阶段才动 `README.md`）。
-- 遗留项：决策项 4 待裁定；`herdr_pane` 落地时需按真实参数面复核 `commandKeys` / `commandPaths` 的两处写法。
+- 遗留项：`script_run` 与 `herdr_pane` 落地时按真实参数面复核两处登记写法（见冻结接口的「上游核对点」）；`scripts/tool-surface-check.mjs` 的覆盖边界属另条条目。

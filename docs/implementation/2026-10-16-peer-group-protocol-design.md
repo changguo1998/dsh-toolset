@@ -100,13 +100,47 @@
 - ~~决策项 6（发言权：固定序轮转默认、主席指定可选）~~ → 取代者：决策项 4 与 5（两种连接取代发言权概念）。
 - ~~决策项 7（终止：最大轮数 3 / 每轮 180s / 总预算 20min）~~ → 取代者：决策项 15 与 20（不要轮；等待上限等细节待定）。
 - ~~决策项 8（汇聚：主席汇总默认、投票留配置）~~ → 取代者：决策项 16（不聚合）。
-- ~~决策项 9（落盘：项目根 `tmp/peer-group/<group-id>/`）~~ → 凌空：组与连接状态的**存放位置尚未定**，见「收尾」待定项 2。
+- ~~决策项 9（落盘：项目根 `tmp/peer-group/<group-id>/`）~~ → **已重定（2026-10-17，用户裁定）**：管理者负责记录，落**管理者自己的会话目录**（`<会话目录>/agent-group.json`），可用时再镜像到 memory-base（`kind: agent_group`、`tier: session`）；详见「规划」的冻结接口。
 - ~~决策项 10（可观测性：仅 pane 可见 + 命令面，二期做面板）~~ → 取代者：决策项 17。
 - ~~决策项 11（失败兜底：记缺席继续，quorum ≥ 2）~~ → 取代者：决策项 10 与 14。
 - ~~决策项 12（首期最小闭环：2 至 3 成员、一轮议题、固定序轮转、主席汇总）~~ → 取代者：决策项 20。
-- ~~决策项 13（与 `/council`、`bestOf+judge`、`task-engine`、`session-channel` 的分工表）~~ → **未确认**，见「收尾」待定项 6。
+- ~~决策项 13（与 `/council`、`bestOf+judge`、`task-engine`、`session-channel` 的分工表）~~ → **已确认（2026-10-17，用户「基本没问题」）**：口径见「规划」的「与相邻能力的边界」一节。
 
 ## 规划
+
+### 实现前冻结的接口（消费方按此写）
+
+**动作面**（单个模型侧工具 `agent_group` + `action` 分派；动作名来自决策项 20，**参数名为本轮新冻结**（设计只给了动作名）—— 2026-10-17 用户过目「基本没问题」）：
+
+| 动作 | 参数 | 语义 |
+| --- | --- | --- |
+| `create_group` | `name?` | 建组（只带组级参数，管理者 = 调用方所在会话） |
+| `add_member` | `group` · `name` · `target` | 加成员一次一个；`target` = 别名或 sessionId；组内名字本包自管 |
+| `link` | `group` · `from` · `to` | 建立主从连接（主→从）；校验从方是自由代理、等级严格递增 |
+| `send` | `group` · `to` · `text` · `timeoutMs?` | 发指令（每条主从连接同时只允许一条未结） |
+| `check` | `group` · `to?` | 懒判定结算：成功 / 超时 / 失败（缺 `to` 则全组） |
+| `remove` | `group` · `name` | 移除成员（逐层下推；非叶子被拒并列出剩余从代理） |
+| `status` | `group` | 只读查看：成员、等级与主从关系、未结指令、最近一次回报 |
+
+**回报信封**：`成功 / 失败 / 受阻` + 正文 + 成因；本包**不解析正文**、不做聚合。所有拒绝带**原因 + 下一步**。
+
+**传输（接 session-channel）**：投递 = `delegate({from, to, text, timeoutSec})`（指令 id 用其 `task.id`）；收取 = `taskStatus(id)`（读取时懒判定超时）；成员回传 = `taskResult({taskId, text, failed?, error?})`；平等连接 = `send({to, text})`；成员核对 = `peers()` / `aliasList()`。三条硬约束照 session-channel 的 README（从方也要挂本插件 · 目标必须在线 · 离线不排队）。
+
+**状态落点（用户 2026-10-17 裁定）**：**管理者负责记录，落管理者自己的会话目录** —— `<管理者会话目录>/agent-group.json`（经 `sessionPaths.sessionDirFor(managerSessionId)` 推导），原子写、权限 0600，内含该管理者创建的组（通常一个）。**可选镜像**：经 memory-base 作用域句柄写 `kind: "agent_group"`、`tier: "session"`（与组同寿命，模型可用 `memory_query` 查）；memory-base 不可用 → **跳过**（只记计数 + 一次 warn，不影响协调）。
+
+**依赖**：`session-channel`（必需，传输）+ `session-paths`（必需，状态落点）+ `memory-base`（可选，镜像）。`session-channel` 缺失 → **不注册工具**（没有传输就没有协调）。
+
+### 与相邻能力的边界（分工口径，2026-10-17 用户确认）
+
+| 能力 | 层次 | 干什么 | 与本包的边界 |
+| --- | --- | --- | --- |
+| `session-channel` | **传输层** | 本机跨会话投递与任务表（`delegate` / `taskStatus` / `taskResult`）、别名、TTL、共享 KV | 本包的**上游**（必需依赖）；它不含协调语义 |
+| **`agent-group`（本包）** | **跨会话协调层** | 组、成员、主从连接含等级、指令与回报、懒判定结算、移除下推 | 不采样、不聚合（决策项 16）、不建也不销毁会话 |
+| `task-engine` | **由代码逻辑保证的工作流** | 单会话内的任务骨架：分解 / executor（subagent、workflow、command 等）/ 机械与语义验收 / join —— **骨架与验收由代码强制，不靠提示词约定** | 管「任务与验收」，不管成员关系；管理者把收到的回报交给它验收、还是自己看，是管理者的事 |
+| `bestOf + judge` | 单会话、**prompt 级**采样与裁决 | `command-template` 模板步骤：同一步 prompt 采 N 份再由裁判选一（`src/frontmatter.ts:118-125`） | 不采样、不裁决 |
+| `/council` | 单会话、**人面**并行评审 | TUI 已实现（`TUI/src/app/adapter/dsh.ts:3858-3923`）：`/council <目标> [数量]` 并行拉起 N 个一次性评审子代理，汇总成文本给人看 | 不建组、不向外部会话下指令、不追踪回报 |
+
+**一句话**：链路归 `session-channel`，任务骨架与验收归 `task-engine`，prompt 级采样裁决归 `bestOf + judge`，人面并行评审归 `/council`，**成员与连接**归本包。一处易混：本包与 `task-engine` 都强调「由代码逻辑保证」，区别在**保证的对象** —— 本包保证**连接规则与结算**跨会话成立（等级严格递增、每连接一条未结、懒判定三收场），`task-engine` 保证**任务骨架与验收**在单会话内按序执行。
 
 ### 任务拆分（首期）
 
@@ -145,6 +179,21 @@
 - session-channel 服务面接入 + 动作注册 + 文档：约 0.5 天。**首期合计约 1 至 1.5 天**（比早前估的 2 至 2.5 天少，因为适配器与终端面整块移出）。
 - 二期（广播 + 平等连接记录与校验、TUI 命令或面板、轮次与终止细节）：另约 1 至 2 天。
 
+### 实现阶段的验证口径（怎么跑）
+
+- **单测**：纯逻辑单测（等级与连接校验、懒判定三收场、拒绝提示）+ **假传输**（不依赖真 session-channel）；状态落点用临时目录。
+- **机械**：根 `npm run check` + `npm run build` + `npm run test` 三件全绿；`scripts/install.sh --dry-run` 的清单含本包。
+- **真机**：两个会话各自挂本插件 → 建组 → 加成员 → `link` → `send` → `check` 收到回报 → `status` 查看 → `remove`；确认 `<会话目录>/agent-group.json` 生成；挂了 memory-base 时再用 `memory_query` 按 `kind: "agent_group"` 查到镜像行。
+- **不做**：不验广播与平等连接记录（二期）；不验跨机；不验管理者重开会话后组自动恢复（不在本期语义内）。
+
+### 收尾动作（实现完成时）
+
+- 条目「同事模型群组的编排协议」标「完成」并从 `docs/BACKLOG.md` 移除；本文件移入 `docs/archived/`。
+- 文档回写：`agent-group/README.md` + `docs/DESIGN.md`（含连接规则与状态机）+ 根 `README.md` / `README.zh.md` + `AGENTS.md` + `docs/BACKLOG.md` §4 插件规划表一行；**包计数与 §4 表的统一**归条目「五个新插件落地时的仓库清单与包计数统一」。
+- 条目措辞回写：条目原文的「底床」「每个成员模型跑在各自的 pane 里」「发言权轮转」「轮次与终止」等措辞按现行口径改（本轮未改 `docs/BACKLOG.md`）。
+- 依赖顺序：前置 = `session-channel`（已有）+ `session-paths`（条目「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」）；memory-base 可选。
+- 别名口径：寻址用「别名**或** sessionId」均可；session-channel 的确定性后缀落地后两者都稳，本包不依赖自动别名的具体形态。
+
 ## 实现记录
 
 - 2026-10-16：只读调研与逐条决策，无代码。手段＝读本仓文档与源码、读宿主安装树（`dsh-experimental-agent-team`、`dsh-terminal` 的 README 与类型声明）、读 herdr 官方 skill 文档（`herdr --skill`）、本机只读探测（`herdr --help` / `pane --help` / `agent --help` / `agent list` / `api schema --json`、隔离 socket 下的 `tmux list-commands` 与格式字段、`session_channel peers` / `alias list`）。未创建 pane、未改动任何会话状态。
@@ -168,9 +217,9 @@
 - 本文件留在 `docs/implementation/`（条目仍「进行中」，未归档）；`docs/BACKLOG.md` 本轮不改。
 - **待定项**：
   1. 轮次与终止的三个细节（等待上限、检查间隔、关闭组的边界语义）—— 用户明确「先不写细节」。
-  2. **组与连接状态的存放位置**（本包内存 / session-channel 共享 KV / 其他）—— 决定「管理者重开会话后组还在不在」，尚未讨论。
+  2. ~~**组与连接状态的存放位置**（本包内存 / session-channel 共享 KV / 其他）~~ **已裁定（2026-10-17，用户）**：管理者负责记录，落**管理者自己的会话目录**；可用时再镜像到 memory-base。**后果照实记**：组不跨会话恢复（会话目录随会话生命周期），要跨会话留痕就看 memory-base 那份镜像。
   3. 广播与平等连接的记录、以及「每对至多一条」的校验 —— 二期。
   4. TUI 命令或面板 —— 二期。
   5. session-channel 侧的**别名修补**（全机唯一 + 恢复后不变）：属该模块待办；是否要在 `session-channel/docs/BACKLOG.md` 落一条条目，尚未得到答复。
-  6. 与 `/council`、`bestOf+judge`、`task-engine`、`session-channel` 的分工口径（早前给过一版表，**未确认**）。
+  6. ~~与 `/council`、`bestOf+judge`、`task-engine`、`session-channel` 的分工口径~~ **已确认（2026-10-17，用户「基本没有问题」）**：见「规划」的「与相邻能力的边界」。
 - 条目回写（把「底床」「各自 pane」「发言权轮转」等措辞改成现行口径）留到收尾提交时一并做。

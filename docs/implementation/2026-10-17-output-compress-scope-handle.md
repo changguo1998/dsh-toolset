@@ -115,6 +115,41 @@
 
 ## 规划
 
+### 实现前冻结的接口（消费方按此写）
+
+**上游两处的确切调用**（memory-base 重设后的新面 + `session-paths`）：
+
+```ts
+// ① 取写入句柄（apply 时一次并缓存；缺面 → 记一次性日志后不再试）
+const scope = memory.registerKind({ kind: "digest", writableTiers: ["session"] });
+
+// ② 推 is_error 摘要（hooks 的 pushDigest）
+await scope.put({
+  content,                     // renderSummaryRecord 的概要
+  tier: "session",
+  sessionId,                   // 本会话 id（S 层落点由 memory-base 自算，见其决策项 11）
+  project,                     // cwd 或项目名
+  title: `output-compress ${tool} ${sessionId.slice(0, 8)}#${seq ?? "n"}`,
+  source: { kind: "tool_result", ref: `digest:${sessionId}:${id}`, label: tool },
+});
+
+// ③ digest.db 落点（决策项 9）
+const dir = await sessionPaths.sessionDirFor(sessionId);   // <会话目录>
+const digestDbPath = join(dir, "digest.db");
+```
+
+**七条口径**：
+
+1. `put` 的 `tier` 固定 `session`，`writableTiers` 只声明 `session`；越权层由 memory-base 抛错（属编程错误，不应发生）。
+2. `sessionId` 必给（S 层写入必需）；取不到会话 id → 不写、记 `skipped`。
+3. 内容先过本包既有 `deny-patterns` 闸，再入库（两道闸都要过）。
+4. `digest.db` 落点：配置 `sessionDir` 退为**显式覆盖**（配了优先）；缺省经 `sessionDirFor(sessionId)` 推导；取不到 → `skipped.session-dir-missing` + 计数，**不静默换路径**。
+5. `promotePending()` 保留名字，语义改为「重试未写成功的 digest」，去掉候选容量自查；幂等（同一 digest 不重复写）。
+6. 与 memory-base / `session-paths` 都是**可选依赖**：缺面 → 降级 + 一次性日志，**永不向调用方抛错**。
+7. 不再有任何 `promote` / `candidates.*` 调用（memory-base 已删这些面）。
+
+**前置**：memory-base 重设（提供句柄）与 `session-paths`（提供 `sessionDirFor`）落地之后；未落地时本包按可选依赖缺失降级（决策项 3b）。
+
 本轮（调研 + 决策）改动文件清单：
 
 - `docs/BACKLOG.md`：本条目标〔进行中: 2026-10-17〕；**订正标题与正文前提**（原文写「直写同一 `dbPath` 并用 `category`/`target` 标记归属」，实为自持 `digest.db`，见调研 1、7）
@@ -123,7 +158,7 @@
 - `~/.dsh/profiles/fff/cordis.patch.yml`（**仓库外**，用户裁定一并修）：output-compress 的 `dbPath` 废键换成 `sessionDir`；**已执行**（见决策项 8）
 - `~/.dsh/output-compress/`（**仓库外**）：新建 digest.db 落点目录，0700；**已执行**
 
-实现阶段（待用户审定本轮决策后执行）改动文件清单：
+实现阶段（两包前置落地后执行；决策已审定）改动文件清单：
 
 - `output-compress/src/hooks.ts`：`pushDigest` 改为「句柄可用 → `put({tier: "session", content, title, importance, source})`，不可用 → 记 `skipped` + 未推标记」；`promotePending` 改为重试未推 digest，去掉候选容量自查；删 `PromoteServiceLike` 与 `MemoryPromoteLike.promote`
 - `output-compress/src/index.ts`：`apply` 时 `registerKind({kind: DIGEST_KIND, writableTiers: ["session"]})` 并存下返回的句柄；缺 memory-base 时打一次性明确日志；类型声明随 `MemoryScope` 更新
@@ -135,9 +170,32 @@
 
 明确不做：不改自持 `digest.db` 的指纹、表结构与 100 MB 上限（决策项 6）；不声明 `preWrite`、不改 kind 名（决策项 4）；不动 memory-base 的文档与代码（决策项 7）；不动 TUI；profile 的那行已改（决策项 8）、其删除属决策项 9 的落地动作；不新增模型侧工具（本包的 digest 召回已由 memory-base 新增的全局只读查询与 `memory_query` 覆盖）。
 
+### 任务拆分（5 步，每步带中间验证）
+
+1. **取句柄与降级**（`src/index.ts`）—— `registerKind({kind: DIGEST_KIND, writableTiers: ["session"]})` + 句柄缓存 + 缺面一次性日志；类型声明随 `MemoryScope` 更新。验证：假 memory 服务的单测（有句柄 / 无句柄两态）+ 该包 `check`。
+2. **推送改造**（`src/hooks.ts` 的 `pushDigest`）—— `promote(items)` → `scope.put(...)`，仍仅 `is_error` digest；删 `PromoteServiceLike` 与 `MemoryPromoteLike.promote`。验证：单测断言 `put` 入参形状（tier / sessionId / source.ref / title）。
+3. **`promotePending` 重写** —— 扫「未写成功的 digest」重试，幂等，去掉候选容量自查。验证：重试用例（首次失败 → 第二次成功，计数正确；重复调用不双写）。
+4. **落点改推导**（`src/hooks.ts` + `src/index.ts`）—— 会话视图增读 `header.cwd`（它已有 `session.id`，`src/hooks.ts:161-162`），改调 `sessionDirFor(sessionId)`；`sessionDir` 配置退为覆盖。验证：三例（服务可用 → 落在会话目录 / 服务缺 → `skipped.session-dir-missing` / 配置覆盖优先）。
+5. **文档与真机**（`docs/DESIGN.md` §5/§6 + `README.md`）—— 去掉共库直写与 `promote` 记述，写清句柄、落点与新降级口径。验证：该包 `test` 全绿 + 根三件套 + 真机一次。
+
+### 实现阶段的验证口径（怎么跑）
+
+- **单测**：`npm --prefix output-compress run test`（现有 5 个测试文件）；假 memory 与假 `session-paths` 两件可替身。
+- **机械**：根 `npm run check` + `npm run build` + `npm run test` 三件全绿。
+- **真机**：重启 `dsh --profile fff`，造一次大输出与一次失败命令 → 核对 `<会话目录>/digest.db` 生成、`skipped.session-dir-missing` 不再出现、memory-base 的 `session` 层出现 `kind: "digest"` 的行；**并在此时删掉 profile 里本包那行 `sessionDir`**（过渡覆盖，决策项 9）。
+- **不做**：不动 `digest.db` 的表与指纹（决策项 6 已撤销，其有效句并入决策项 9）；不做历史数据迁移（旧的全机 `digest.db` 成孤儿，不迁移直接删）。
+
+### 收尾动作（实现完成时）
+
+- 条目「`output-compress` 接入 memory-base 作用域句柄（`promote` 取消后的 I→S 推送路径重定）」标「完成」并从 `docs/BACKLOG.md` 移除；本文件移入 `docs/archived/`。
+- 文档回写：本包 `docs/DESIGN.md` 与 `README.md`（见第 5 步）；根 `README.md` / `README.zh.md` 的能力描述若不涉及依赖面则不动。
+- **仓库外**：删掉 profile 里 output-compress 的 `sessionDir` 行（过渡覆盖）—— 需明确要求后执行；删后落点完全由 `sessionDirFor` 推导。
+- 前置顺序：本条排在 memory-base 重设与 `session-paths` 之后；两者未落地时本包保持「可选依赖缺失」的降级态（不报错、不阻塞自身功能）。
+- 旧数据：`~/.dsh/output-compress/digest.db`（全机一个文件时期的残留）按「不迁移直接删」口径成为孤儿，由用户择时清理。
+
 ## 实现记录
 
-（本轮为决策轮，未进入实现；待用户审定后按「规划」清单执行。）
+（本轮为决策轮，未进入实现；决策已审定（含决策项 9），两包前置落地后按「规划」清单执行。）
 
 ## 偏差
 
