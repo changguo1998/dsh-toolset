@@ -422,8 +422,11 @@ export function topPaneHeights(
   return { titleRows, activityH, dialogueH };
 }
 
-/** 黄金分割比 φ：历史区/活动区排列方式的判定基准（分割后各 pane 宽高比尽量贴近 φ） */
+/** 黄金分割比 φ：历史区/活动区排列方式的判定基准（分割后各 pane 的**视觉**宽高比尽量贴近 φ） */
 export const GOLDEN_RATIO = (1 + Math.sqrt(5)) / 2;
+
+/** 终端字符格高宽比（高 ≈ 2 × 宽）：宽高比拟用视觉口径——列数先按它折成等效高度再比 φ */
+export const CELL_ASPECT = 2;
 
 /** 左右排列（横向）时单个 pane 的最小列数：低于此宽度退化回上下排列 */
 export const MIN_HORIZONTAL_PANE_COLS = 20;
@@ -455,10 +458,12 @@ function topTitleRows(contentTopH: number, minRows: number): number {
   return 0;
 }
 
-/** pane 宽高比与 φ 的对数偏差（高或宽 ≤ 0 视为无此 pane，不参与比较） */
+/** pane **视觉**宽高比与 φ 的对数偏差（高或宽 ≤ 0 视为无此 pane，不参与比较）。
+ *  字符格高约为宽的 CELL_ASPECT 倍，故列数先折成等效高度（w / CELL_ASPECT）再比：
+ *  否则判据把字符格当正方形，整体偏向上下排列（等分阈值 φ → 2φ，2026-10-17 校正）。 */
 function aspectDeviation(w: number, h: number): number {
   if (w <= 0 || h <= 0) return 0;
-  return Math.abs(Math.log(w / h / GOLDEN_RATIO));
+  return Math.abs(Math.log(w / h / CELL_ASPECT / GOLDEN_RATIO));
 }
 
 /**
@@ -470,9 +475,9 @@ function aspectDeviation(w: number, h: number): number {
  * - horizontal：两 pane 左右并排、等高（contentTopH − 标题栏）；活动区宽 =
  *   floor(正文宽 / divisor)（与高度同一「总:目标」语义，缺省 1/2），
  *   对话区取剩余，中间保留 1 列内部分隔竖线。
- * - "auto"：比较两种排列下各 pane 宽高比与 φ 的对数偏差（取较差 pane），
- *   小者胜出。等分时判据等价于「左列正文宽/可用行数 > φ → 左右排列」——
- *   区域比 φ 更扁（宽而矮）时左右排列更接近黄金矩形。
+ * - "auto"：比较两种排列下各 pane **视觉**宽高比与 φ 的对数偏差（取较差 pane），
+ *   小者胜出。等分时判据等价于「左列正文宽/可用行数 > 2φ → 左右排列」——
+ *   区域比 2φ 更扁（宽而矮）时左右排列更接近黄金矩形（系数 2 = 字符格高宽比 CELL_ASPECT）。
  * - 不可行时（横向 pane 宽不足 MIN_HORIZONTAL_PANE_COLS、或没有可用行）回落 vertical。
  */
 export function topPaneSplit(
@@ -513,7 +518,7 @@ export function topPaneSplit(
     activityW,
   };
   if (placement === "horizontal") return horizontal;
-  // auto：宽高比偏离 φ 更小者胜（活动区 0 行时不参与比较）
+  // auto：视觉宽高比偏离 φ 更小者胜（活动区 0 行时不参与比较）
   const vDev = Math.max(
     aspectDeviation(w, v.dialogueH),
     v.activityH > 0 ? aspectDeviation(w, v.activityH) : 0,
@@ -1937,12 +1942,14 @@ function userBlockSymbolResolver(
     return { text: "?" }; // 无终态
   };
 }
-/** 提示符 = 当前输入模式符号（steer > / shell $ / slash / / followup <；默认前景色，不着色） */
+/** 提示符 = 当前输入模式符号（steer > / shell $ / slash / / followup < / interrupt !；
+ *  默认前景色，不着色） */
 const MODE_SYMBOL: Record<InputMode, string> = {
   steer: ">",
   shell: "$",
   slash: "/",
   followup: "<",
+  interrupt: "!",
 };
 
 /** 当前活跃会话的目标/todo/模式/策略/预设/运行中任务数（状态栏与整页高度共用口径） */

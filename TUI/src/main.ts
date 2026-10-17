@@ -178,7 +178,7 @@ export const inject = ["agents"];
 export interface DshTuiConfig {
   /** 创建会话时的 cwd(默认 process.cwd()) */
   cwd?: string;
-  /** 审批弹窗超时(ms，默认 60s；tui.config.json 的 approval.timeoutMs 优先) */
+  /** 审批弹窗超时(ms，默认 1 min；tui.config.json 的 approval.timeoutMs 优先) */
   approvalTimeoutMs?: number;
   /** 备用模型 route(config 提供了就用它；否则取 agentDefaultModel 选择) */
   provider?: string;
@@ -371,6 +371,22 @@ export function parseTuiStartupArgs(args: readonly string[]): TuiStartupArgs {
     }
   }
   return { ...(resume === undefined ? {} : { resume }), continueLatest };
+}
+
+/** 审批超时缺省值（ms）：1 min，与 app 侧 `APPROVAL_TIMEOUT_FALLBACK_MS` 同口径 */
+export const APPROVAL_TIMEOUT_DEFAULT_MS = 60_000;
+
+/**
+ * 审批超时取用链（纯函数，便于单测；BACKLOG 3.3.7）：`tui.config.json` 的
+ * `approval.timeoutMs`（归一化后 ≥ 1000，见 config.ts）> 宿主插件 config 的
+ * `approvalTimeoutMs` > 缺省 1 min。结果同时供 adapter 的裁定定时器与 App 的倒计时使用，
+ * 二者同源、不漂移。
+ */
+export function resolveApprovalTimeoutMs(
+  configFileMs: number | undefined,
+  pluginConfigMs: number | undefined,
+): number {
+  return configFileMs ?? pluginConfigMs ?? APPROVAL_TIMEOUT_DEFAULT_MS;
 }
 
 /** 读取宿主内层参数（`ctx.cmdlineArgs.get()` 不可用/异常 → 空列表，启动不因此失败） */
@@ -656,12 +672,12 @@ export async function apply(
     sessionModel,
     // 只读兜底：会话未切换时 /model 目录/状态显示与组装默认取宿主实时值(settings 热更新生效)
     defaultModel: defaultModelSvc,
-    // 审批超时优先级（BACKLOG 3.3.7）：TUI 配置文件 > 宿主插件 config > 缺省 60s
+    // 审批超时优先级（BACKLOG 3.3.7）：TUI 配置文件 > 宿主插件 config > 缺省 1 min
     // （此处与插件装配不在同一作用域，故就地读取一次配置文件；启动期一次 IO，代价可忽略）
-    approvalTimeoutMs:
-      loadTuiConfig().approval?.timeoutMs ??
-      config?.approvalTimeoutMs ??
-      60_000,
+    approvalTimeoutMs: resolveApprovalTimeoutMs(
+      loadTuiConfig().approval?.timeoutMs,
+      config?.approvalTimeoutMs,
+    ),
     // 历史会话查询服务（ctx.get('sessionQuery')；缺失时 /session 提示不可用）。
     // 读点必须在此（handle 就绪之后）：provider 与 TUI 并发装载，apply 早期读为空
     sessionQuery: readSessionQuery(),

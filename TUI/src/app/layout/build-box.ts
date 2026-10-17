@@ -32,7 +32,7 @@ import {
 } from "./content-rules.ts";
 import { measure, allocate } from "./measure.ts";
 import { fillToList, type ContentRow, type RowMeta } from "./fill.ts";
-import { charWidth, displayWidth } from "./markdown.ts";
+import { FENCE_RE, charWidth, displayWidth } from "./markdown.ts";
 import { seg, truncateToWidth } from "./primitives.ts";
 import { turnHeaderLine } from "./tool-line.ts";
 
@@ -189,6 +189,73 @@ function wrapCodeRows(
   return out;
 }
 
+/** 代码块左缘竖线前缀（正文蓝 / 思考紫；`minWidth` = 窄窗降级阈值） */
+type CodeBar = { text: string; style: FrameStyle; minWidth: number };
+
+/**
+ * 围栏代码块出行（正文与思考共用；SPEC §3「代码块」）：语言标记行（斜体、并入块首、
+ * 与代码列对齐、不占行号）+ 逐代码行（`<行号 2 列><空白 1 列><代码>`）。软折行在构建期
+ * 预折——续行再缩进 4 列并靠右对齐正文右缘（每物理行一个节点，避免与 fill 的折行 /
+ * 底色补齐二次叠加），行尾 `↩` / 行首 `↪` 标记由折行阶段预留。窄窗降级：可用宽不足
+ * 23 列时省略行号列；`avail` 缺省（宽未知）时退化为单节点、交给 fill 折行。
+ */
+function codeBlockRows(
+  code: readonly string[],
+  lang: string,
+  avail: number | undefined,
+  bar: CodeBar,
+): Node[] {
+  const out: Node[] = [];
+  const numW = avail === undefined || avail >= 23 ? 3 : 0;
+  const barLine = (t: string, style?: FrameStyle) =>
+    text(t, {
+      fillBg: true,
+      width: { mode: "fill" as const },
+      prefix: bar,
+      ...(style === undefined ? {} : { style }),
+    });
+  if (lang !== "") {
+    // 语言标记行：与代码列对齐（补行号列宽）、不占行号（颜色条不断口）
+    out.push(
+      styled([{ text: " ".repeat(numW) + lang, style: { italic: true } }], {
+        prefix: bar,
+      }),
+    );
+  }
+  for (let i = 0; i < code.length; i++) {
+    // 行号：只数代码正文行、从 1 起、固定 2 列（>99 显示 `99+`）
+    const num =
+      numW === 0 ? "" : (i + 1 > 99 ? "99+" : String(i + 1)).padStart(2) + " ";
+    const src = code[i]!;
+    if (avail === undefined) {
+      // 宽未知：交给 fill 折行（自动换行、续行缩进 = 行号列 + 4，不保证右对齐）
+      out.push(barLine(num + src));
+      continue;
+    }
+    const firstW = Math.max(4, avail - numW);
+    const contW = Math.max(2, firstW - 4);
+    const chunks = wrapCodeRows(src, firstW, contW);
+    for (let k = 0; k < chunks.length; k++) {
+      const { text: piece, cont, lead } = chunks[k]!;
+      const rowW = k === 0 ? firstW : contW;
+      const endMark = cont ? CODE_WRAP_END : "";
+      const leadMark = lead ? CODE_WRAP_LEAD : "";
+      // 续行靠右对齐；标记位已由折行阶段预留（行尾 `↩` / 行首 `↪`）
+      const pad = Math.max(
+        0,
+        rowW -
+          displayWidth(piece) -
+          displayWidth(leadMark) -
+          displayWidth(endMark),
+      );
+      const indent = k === 0 ? num + "" : " ".repeat(numW + 4);
+      const padStr = k === 0 && !cont ? "" : " ".repeat(pad);
+      out.push(barLine(indent + padStr + leadMark + piece + endMark));
+    }
+  }
+  return out;
+}
+
 export function buildBox(
   local: HistoryRow[],
   opts: BuildBoxOptions,
@@ -213,6 +280,14 @@ export function buildBox(
   /** 活动区条目文本：紧凑模式压单行 + 行尾省略号（prefixCols = 该条目前缀占列） */
   const actText = (s: string, prefixCols = 0): string =>
     compact ? compactActivityLine(s, actPaneW, prefixCols) : s;
+  /** 思考行左缘竖线（紫；与正文蓝竖线同形制 / 同窄窗降级阈值） */
+  const thinkingBar: CodeBar = {
+    text: "┃",
+    style: { fg: "brightMagenta" },
+    minWidth: USER_MIN_LEFT_GUTTER + 2,
+  };
+  /** 思考内代码块可用正文宽（活动 pane 文字宽扣左竖线 1 列；宽未知 → 交给 fill 折行） */
+  const thinkAvail = actPaneW <= 0 ? undefined : Math.max(8, actPaneW - 1);
   /** #5：回合区**类型间隔**——仅「思考 ↔ 正文」互切时插 1 行空行（2026-10-02 收窄：
    *  工具类不再与任何类型插空行，step 分割线与内容之间亦不留空行）；
    *  notice / step 头 / shell / 空行**不算**类型边界（不改现有紧排），同类连续只插一次。 */
@@ -238,7 +313,7 @@ export function buildBox(
     }
     lastActKind = kind;
   };
-  // fence 跨行状态（结构注解：fence 内行 → fillBg 代码块）
+  // fence 跨行状态（结构注解：fence 内行 → fillBg 代码块；紧凑模式用）
   let inFence = false;
   // tool 连续 run 缓冲（flushToolRun 时分组/成行；`role` = 工具块改版的三类行）
   const toolRun: {
@@ -478,18 +553,54 @@ export function buildBox(
       if (line.text === "") continue;
       // #8：tool / step 档不显示思考过程
       if (actLevel !== "think") continue;
-      // 紧凑模式：单行（扣 ┃ 前缀 1 列）
-      const node = styled([{ text: actText(line.text, 1) }], {
-        prefix: {
-          text: "┃",
-          style: { fg: "brightMagenta" },
-          minWidth: USER_MIN_LEFT_GUTTER + 2,
-        },
-      });
+      // 紧凑模式：单行（扣 ┃ 前缀 1 列）——markdown 不参与（每条目恒 1 行）
+      if (compact) {
+        const node = styled([{ text: actText(line.text, 1) }], {
+          prefix: thinkingBar,
+        });
+        // #5：本行属「思考」类 → 与「正文」互切时插 1 行空行（与工具相邻不插）
+        noteActKind("thinking", rowMeta);
+        meta.set(node, rowMeta);
+        activityLeaves.push(node);
+        continue;
+      }
+      // 非紧凑：与正文同口径的 markdown 排版（块级元素 + 行内，见 markdown.ts 的
+      // wrapAssistantLine）；围栏代码块按代码块形制出行（开关行隐藏、行号 + 右缩进）。
       // #5：本行属「思考」类 → 与「正文」互切时插 1 行空行（与工具相邻不插）
       noteActKind("thinking", rowMeta);
-      meta.set(node, rowMeta);
-      activityLeaves.push(node);
+      const push = (node: Node): void => {
+        meta.set(node, rowMeta);
+        activityLeaves.push(node);
+      };
+      const fence = FENCE_RE.exec(line.text);
+      if (fence) {
+        // 围栏开关行隐藏（与正文同口径）；收集围栏内代码行（同为 thinking 行；
+        // 遇闭栅或非 thinking 行停止）
+        const code: string[] = [];
+        let j = li + 1;
+        let closed = false;
+        for (; j < local.length; j++) {
+          const l = local[j]!;
+          if (l.kind !== "thinking") break;
+          if (FENCE_RE.test(l.text)) {
+            closed = true;
+            break;
+          }
+          code.push(l.text);
+        }
+        const rows = codeBlockRows(
+          code,
+          fence[2] ?? "",
+          thinkAvail,
+          thinkingBar,
+        );
+        for (const row of rows) push(row);
+        // 消费：闭栅行归循环下一轮；未闭栅（流式中）代码行已全部收录，跳到末行
+        li = closed ? j : local.length - 1;
+        continue;
+      }
+      // 普通思考行：Paragraph → fill 侧 wrapAssistantLine（块级分类 + 行内 markdown）
+      push(text(line.text, { prefix: thinkingBar }));
       continue;
     }
     if (line.kind === "user") {
@@ -607,30 +718,17 @@ export function buildBox(
         // 语言标记行并入块首：带 ┃ 前缀、与代码列对齐、不占行号（颜色条不断口）。
         // 软折行在**这里预折**：续行再缩进 4 列并靠右对齐正文右缘（每物理行一个节点，
         // 避免与 fill 的折行/底色补齐二次叠加）。窄窗降级：不足时省略行号列。
-        const bar = {
+        const bar: CodeBar = {
           text: "┃",
-          style: { fg: "brightBlue" as const },
+          style: { fg: "brightBlue" },
           minWidth: USER_MIN_LEFT_GUTTER + 2,
         };
-        const lang = fence[2] ?? "";
-        // 可用正文宽（`width` 缺省时退化为"交给 fill 折行"的单节点形态）
-        const avail = width === undefined ? undefined : Math.max(8, width - 1);
-        const numW = avail === undefined || avail >= 23 ? 3 : 0;
-        const barLine = (t: string, style?: FrameStyle) =>
-          text(t, {
-            fillBg: true,
-            width: { mode: "fill" as const },
-            prefix: bar,
-            ...(style === undefined ? {} : { style }),
-          });
-        if (lang !== "") {
-          const langNode = styled(
-            [{ text: " ".repeat(numW) + lang, style: { italic: true } }],
-            { prefix: bar },
-          );
-          meta.set(langNode, rowMeta);
-          target.push(langNode);
-        }
+        // 可用正文宽：取宽按**行归属**的 pane（与表格分支同口径）——非 final 正文行属于活动
+        // pane，横向排列下它比对话 pane 窄；用错宽会让预折行超出活动 pane、被 fill 二次折行
+        // 并把靠右补白当成正文换行（续行大片空白、`↩` / `↪` 标记与右缘对齐错位，行号列判据
+        // 也会用错宽）。`width` 缺省时退化为"交给 fill 折行"的单节点形态。
+        const paneW = line.final ? width : (opts.activityWidth ?? width);
+        const avail = paneW === undefined ? undefined : Math.max(8, paneW - 1);
         // 收集围栏内代码行（同为 assistant 行；遇闭栅或非 assistant 行停止）
         const code: string[] = [];
         let j = li + 1;
@@ -647,42 +745,10 @@ export function buildBox(
           }
           code.push(l.text);
         }
-        for (let i = 0; i < code.length; i++) {
-          // 行号：只数代码正文行、从 1 起、固定 2 列（>99 显示 `99+`）
-          const num =
-            numW === 0
-              ? ""
-              : (i + 1 > 99 ? "99+" : String(i + 1)).padStart(2) + " ";
-          const src = code[i]!;
-          if (avail === undefined) {
-            // 宽未知：交给 fill 折行（自动换行、续行缩进 = 行号列 + 4，不保证右对齐）
-            const node = barLine(num + src);
-            meta.set(node, rowMeta);
-            target.push(node);
-            continue;
-          }
-          const firstW = Math.max(4, avail - numW);
-          const contW = Math.max(2, firstW - 4);
-          const chunks = wrapCodeRows(src, firstW, contW);
-          for (let k = 0; k < chunks.length; k++) {
-            const { text: piece, cont, lead } = chunks[k]!;
-            const rowW = k === 0 ? firstW : contW;
-            const endMark = cont ? CODE_WRAP_END : "";
-            const leadMark = lead ? CODE_WRAP_LEAD : "";
-            // 续行靠右对齐；标记位已由折行阶段预留（行尾 `↩` / 行首 `↪`）
-            const pad = Math.max(
-              0,
-              rowW -
-                displayWidth(piece) -
-                displayWidth(leadMark) -
-                displayWidth(endMark),
-            );
-            const indent = k === 0 ? num + "" : " ".repeat(numW + 4);
-            const padStr = k === 0 && !cont ? "" : " ".repeat(pad);
-            const node = barLine(indent + padStr + leadMark + piece + endMark);
-            meta.set(node, rowMeta);
-            target.push(node);
-          }
+        // 出行走正文 / 思考共用构建器（本任务抽出；正文侧行为不变）
+        for (const node of codeBlockRows(code, fence[2] ?? "", avail, bar)) {
+          meta.set(node, rowMeta);
+          target.push(node);
         }
         // 消费：闭栅行归循环下一轮（inFence=false）；未闭栅（流式中）保持 inFence
         li = closed ? j : local.length - 1;

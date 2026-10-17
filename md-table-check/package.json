@@ -1,0 +1,31 @@
+{
+  "name": "@dsh-toolset/md-table-check",
+  "version": "0.1.0",
+  "description": "DSH（DeepSeek Harness）md-table-check 插件：检查回复正文里的 markdown 表格列数是否一致，不一致时经 rule-engine 注入一条汇总提示（只报不改）",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tests/tsconfig.json",
+    "check:no-cross-emit": "test -z \"$(git status --porcelain -- ../rule-engine/src ../TUI/src)\"",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

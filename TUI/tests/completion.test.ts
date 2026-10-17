@@ -59,6 +59,7 @@ test("completeCommandInput：大小写不敏感 + 别名可补全", () => {
   assert.deepEqual(names(completeCommandInput("/thi")?.items), ["thinking"]);
   assert.deepEqual(names(completeCommandInput("/cl")?.items), [
     "cls",
+    "cleanquit",
     "clearscreen",
   ]);
 });

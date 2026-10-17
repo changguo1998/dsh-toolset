@@ -907,6 +907,20 @@ test("审批超时(approvalTimeoutMs 到期) → rejected（默认拒绝，BACKL
   assert.equal(await p, "rejected"); // timer ~50ms 到期 settle（无操作 = 默认拒绝）
 });
 
+test("审批超时缺省 = 60_000（1 min）：opts 未给值时 approvalTimeoutMs() 返回缺省", () => {
+  const rt = new FakeRuntime();
+  const adapter = createRealDshAdapter({
+    runtime: rt,
+    sessionId: "s1",
+    agent: new FakeAgent(),
+  });
+  assert.equal(
+    adapter.approvalTimeoutMs?.(),
+    60_000,
+    "缺省 1 min（与 main.ts 的 resolveApprovalTimeoutMs 同口径）",
+  );
+});
+
 test("审批 signal 中断 → cancelled", async () => {
   const ab = new AbortController();
   const rt = new FakeRuntime();

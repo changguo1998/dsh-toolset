@@ -910,7 +910,7 @@ export class MockDshAdapter implements DshAdapter {
       "  - 第 5 条回复演示 markdown 表格（列分隔/表头横线/三态对齐/超宽折行压缩）",
       "  - 输入 /help /clearscreen /cls /quit 体验本地渲染命令",
       "  - 其他 /xxx 在 demo 模式回提示（真实模式走 commands 注册表）",
-      "  - 输入框为空按 $ / / 切模式（空输入 Backspace 回退）；Esc 打断运行；Alt+Enter 打断并发送；退出用 /quit",
+      "  - 输入框为空按 $ / / / < / ! 切模式（空输入 Backspace 回退）；`!` 模式回车 = 打断并发送（空输入只打断）；退出用 /quit",
       "",
     ].join("\n");
   }

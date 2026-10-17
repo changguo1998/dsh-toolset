@@ -5,7 +5,12 @@
  * 该条正则视为永不命中，规则其余档位照常生效）。
  */
 
-import type { MatchSpec, PredicateName, RuleSource } from "./types.ts";
+import type {
+  MatchContext,
+  MatchSpec,
+  PredicateName,
+  RuleSource,
+} from "./types.ts";
 
 /** 正则缺省 flags（大小写不敏感）。 */
 const DEFAULT_FLAGS = "i";
@@ -13,8 +18,14 @@ const DEFAULT_FLAGS = "i";
 /** 注入摘要上限（`source.summary`，见 boundSummary；对齐宿主 CONTEXT_SUMMARY_MAX_CHARS）。 */
 export const SUMMARY_MAX_CHARS = 120;
 
-/** 内置谓词表：名 → 性质判定（无参数）。 */
-const PREDICATES: Record<PredicateName, (text: string) => boolean> = {
+/** 谓词匹配上下文的缺省值：调用方不给会话信息时按**全新会话**处理（纯函数调用 / 干跑不破）。 */
+const FRESH_CONTEXT: MatchContext = { resumed: false };
+
+/** 内置谓词表：名 → 性质判定（文本 + 会话级上下文；文本类谓词忽略 ctx）。 */
+const PREDICATES: Record<
+  PredicateName,
+  (text: string, ctx: MatchContext) => boolean
+> = {
   always: () => true,
   "has-non-ascii": (text) => /[^\x00-\x7F]/.test(text),
   "has-cjk": (text) =>
@@ -22,6 +33,8 @@ const PREDICATES: Record<PredicateName, (text: string) => boolean> = {
       text,
     ),
   "has-code-block": (text) => text.includes("```"),
+  "session-fresh": (_text, ctx) => !ctx.resumed,
+  "session-resumed": (_text, ctx) => ctx.resumed,
 };
 
 /** 谓词名是否合法（工具面入参校验用）。 */
@@ -36,8 +49,9 @@ export function predicateNames(): PredicateName[] {
 
 /** 编译后的匹配器。 */
 export interface CompiledMatcher {
-  /** 给定文本与**触发节点**，是否命中（空条件语义按节点裁决，见 compileMatcher）。 */
-  match(text: string, source: RuleSource): boolean;
+  /** 给定文本、**触发节点**与会话级上下文，是否命中（空条件语义按节点裁决，见 compileMatcher）。
+   *  `ctx` 缺省 = `{ resumed: false }`（全新会话），故纯函数调用与 `rule_test` 干跑照旧可用。 */
+  match(text: string, source: RuleSource, ctx?: MatchContext): boolean;
   /** 编译期警告（非法正则等），空数组 = 无警告。 */
   warnings: string[];
 }
@@ -60,7 +74,7 @@ export const BOUNDARY_SOURCES: ReadonlySet<RuleSource> = new Set([
  * 视为无条件命中，文本类节点（`assistant-text` / `user-message` / `tool-call` / `tool-result`）
  * 视为永不命中（防误配置把每条正文都当命中）。
  *
- * 一条规则可挂多节点（`sources`），故该判定在**判定期**按触发节点裁决（`match(text, source)`）。
+ * 一条规则可挂多节点（`sources`），故该判定在**判定期**按触发节点裁决（`match(text, source, ctx?)`）。
  */
 export function compileMatcher(spec: MatchSpec | undefined): CompiledMatcher {
   const warnings: string[] = [];
@@ -86,12 +100,19 @@ export function compileMatcher(spec: MatchSpec | undefined): CompiledMatcher {
     return { match: (_text, source) => BOUNDARY_SOURCES.has(source), warnings };
   }
   return {
-    match: (text: string): boolean => {
-      // 任一档命中即命中；predicates 内部为与关系
+    match: (
+      text: string,
+      _source: RuleSource,
+      ctx: MatchContext = FRESH_CONTEXT,
+    ): boolean => {
+      // 任一档命中即命中；predicates 内部为与关系（谓词吃文本 + 会话级 ctx）
       const lower = text.toLowerCase();
       if (keywords.some((k) => lower.includes(k))) return true;
       if (regexes.some((re) => re.test(text))) return true;
-      if (predicates.length > 0 && predicates.every((p) => PREDICATES[p](text)))
+      if (
+        predicates.length > 0 &&
+        predicates.every((p) => PREDICATES[p](text, ctx))
+      )
         return true;
       return false;
     },

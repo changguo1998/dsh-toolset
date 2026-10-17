@@ -1,0 +1,8 @@
+# 本包插入自身（bundle 层）：缺省**开启**（表格列数不一致只报不改，代价低；显式 enabled: false 关闭）。
+# 其余配置项缺省见 src/main.ts 的 resolveConfig（sources = assistant-text、delivery = followup、
+# dedupeInRecord = 0）；要覆盖时在 profile 用户 patch 里按 id 追加同名字段。
+- insert:
+    - id: md-table-check
+      name: '@dsh-toolset/md-table-check'
+      config:
+        enabled: true

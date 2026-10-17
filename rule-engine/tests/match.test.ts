@@ -67,6 +67,66 @@ test("predicates：内部为与关系，与其他档为或关系", () => {
   assert.equal(nonAscii.match("全角：，", NODE), true);
 });
 
+test("session-fresh / session-resumed：按会话级 ctx 判定，与文本无关", () => {
+  const fresh = compileMatcher({ predicates: ["session-fresh"] });
+  const resumed = compileMatcher({ predicates: ["session-resumed"] });
+
+  assert.equal(
+    fresh.match("任意文本", "session-start", { resumed: false }),
+    true,
+  );
+  assert.equal(
+    fresh.match("任意文本", "session-start", { resumed: true }),
+    false,
+  );
+  assert.equal(resumed.match("", "session-start", { resumed: true }), true);
+  assert.equal(resumed.match("", "session-start", { resumed: false }), false);
+
+  // 不传 ctx = { resumed: false }（纯函数调用 / rule_test 干跑口径）
+  assert.equal(fresh.match("", "session-start"), true);
+  assert.equal(resumed.match("", "session-start"), false);
+});
+
+test("会话谓词与其他档位同口径：predicates 内部为与关系，与 keywords / regex 为或关系", () => {
+  const both = compileMatcher({ predicates: ["session-fresh", "has-cjk"] });
+  assert.equal(both.match("中文", "session-start", { resumed: false }), true);
+  assert.equal(both.match("中文", "session-start", { resumed: true }), false);
+  assert.equal(
+    both.match("english", "session-start", { resumed: false }),
+    false,
+  );
+
+  const orWithKeyword = compileMatcher({
+    predicates: ["session-resumed"],
+    keywords: ["urgent"],
+  });
+  assert.equal(
+    orWithKeyword.match("urgent request", "session-start", { resumed: false }),
+    true,
+  );
+  assert.equal(
+    orWithKeyword.match("nothing", "session-start", { resumed: false }),
+    false,
+  );
+  assert.equal(
+    orWithKeyword.match("nothing", "session-start", { resumed: true }),
+    true,
+  );
+
+  const orWithRegex = compileMatcher({
+    predicates: ["session-resumed"],
+    regex: ["^恢复"],
+  });
+  assert.equal(
+    orWithRegex.match("恢复会话", "session-start", { resumed: false }),
+    true,
+  );
+  assert.equal(
+    orWithRegex.match("普通文本", "session-start", { resumed: false }),
+    false,
+  );
+});
+
 test("空条件语义按**触发节点**裁决（一条规则可挂多节点）", () => {
   const matcher = compileMatcher(undefined);
   // 边界类节点：无条件命中
@@ -103,6 +163,8 @@ test("条件里只有非法项（未知谓词名被滤掉）时，空条件语�
 test("isPredicateName / predicateNames", () => {
   assert.equal(isPredicateName("has-cjk"), true);
   assert.equal(isPredicateName("always"), true);
+  assert.equal(isPredicateName("session-fresh"), true);
+  assert.equal(isPredicateName("session-resumed"), true);
   assert.equal(isPredicateName("nope"), false);
   assert.equal(isPredicateName(1), false);
   assert.deepEqual(predicateNames().sort(), [
@@ -110,6 +172,8 @@ test("isPredicateName / predicateNames", () => {
     "has-cjk",
     "has-code-block",
     "has-non-ascii",
+    "session-fresh",
+    "session-resumed",
   ]);
 });
 

@@ -282,9 +282,14 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     rows: 24,
     cols: 60,
   }).hintHeight;
+  const hintText = frame
+    .slice(24 - hintRows)
+    .map((l) => plain(l))
+    .join("\n");
   assert.ok(
-    plain(frame[24 - hintRows]!).startsWith("[C-d]退出"),
-    "提示区首行为按键提示区",
+    plain(frame[24 - hintRows]!).startsWith("[> / ! $ <]") &&
+      hintText.includes("[C-d]退出"),
+    "提示区首行为按键提示区（模式图例前缀 + 默认提示）",
   );
 });
 
@@ -1381,8 +1386,8 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   assert.equal(between.length, 1, "用户与答案之间应恰有一行");
   assert.equal(
     histContent(between[0]!, 40),
-    "┃",
-    "该行为空行（正文块的竖线延续过来，状态列外无其它内容）",
+    "",
+    "该行为裸空行（留白行不挂正文块竖线，状态列外无其它内容）",
   );
   assert.ok(!between[0]!.startsWith("|"), "空行最左侧无插件竖线");
 
@@ -1829,7 +1834,7 @@ test("markdown 子集：标题/任务列表/引用/分隔线/链接/图片/代�
   );
 });
 
-test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 >/thinking 不渲染", () => {
+test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 >/thinking 同口径渲染", () => {
   const lines = [
     "- 圆点一",
     "* 圆点二",
@@ -1859,12 +1864,11 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
   const doneIdx = plain.findIndex((l) => l.includes("[x] 完成了"));
   assert.ok(doneIdx >= 0, "已完成任务可见");
   assert.ok(rowAnsi(raw[doneIdx]!).includes("\x1b[9m"), "已完成任务删除线");
-  // thinking 保持纯文本（markdown 只作用于最终正文）
-  // thinking 保持纯文本（markdown 只作用于最终正文）
-  assert.ok(
-    plain.some((l) => l.includes("**粗** 在 thinking")),
-    "thinking 保持原样",
-  );
+  // thinking 同口径渲染 markdown 子集（2026-10-16「思考内容也进行排版」）：行内粗体生效
+  const thinkIdx = plain.findIndex((l) => l.includes("粗 在 thinking"));
+  assert.ok(thinkIdx >= 0, "thinking 行内粗体渲染（** 记号被消费）");
+  assert.ok(!joined.includes("**粗** 在 thinking"), "thinking 不再原样保留 **");
+  assert.ok(rowAnsi(raw[thinkIdx]!).includes("\x1b[1m"), "thinking 粗体 SGR");
 });
 
 test("markdown 列表长项折行：悬挂缩进对齐正文、续行不顶满", () => {
@@ -2448,7 +2452,7 @@ test("focus-panel / activity-scroll reducer：一键一区域三态与偏移非�
   assert.equal(statusCollapsed.statusColumnVisible, false, "并收起状态列");
 });
 
-test("reduceState: 新输入/输出（内容推进）后焦点自动回 null；UI action 不重置", () => {
+test("reduceState: 焦点只在用户提交输入时复位；流式内容 / 回合边界 / UI action 都不复位", () => {
   const s = reduceState(initialState(), {
     type: "focus-panel",
     panel: "history",
@@ -2457,11 +2461,30 @@ test("reduceState: 新输入/输出（内容推进）后焦点自动回 null；U
   // 条目 16 段 C2：内容改由**交付**进节缓存（action 类型 `pipeline-state`），而焦点复位挂在
   // 旧内容 action 上（`FOCUS_RESET_ACTIONS`）——生产里每条内容事件仍是「旧 action + 交付」
   // 成对派发（src/app/index.ts 的 stream / thinking / notice 分支），故这里按生产口径成对调用。
+  // 2026-10-15 裁定：流式内容（append / thinking / tool-* / notice…）**不再复位焦点**，
+  // 否则运行中聚焦的区域键会被每个 chunk 清掉（BACKLOG「模型回复期间区域焦点被内容推进清空」）。
   const afterOut = reduceState(withText(s, "模型输出"), {
     type: "append",
     text: "模型输出",
   });
-  assert.equal(afterOut.focusedPanel, null, "模型输出后自动回无焦点");
+  assert.equal(afterOut.focusedPanel, "history", "流式输出后焦点保持");
+  const afterNotice = reduceState(
+    reduceState(initialState(), { type: "focus-panel", panel: "history" }),
+    { type: "notice", text: "通知" },
+  );
+  assert.equal(afterNotice.focusedPanel, "history", "notice 后焦点保持");
+  // 回合边界（turn-begin / turn-end）：也不复位（一次回复可能跨多个回合）
+  const afterTurnBegin = reduceState(
+    reduceState(initialState(), { type: "focus-panel", panel: "history" }),
+    { type: "turn-begin", clearActivity: false },
+  );
+  assert.equal(afterTurnBegin.focusedPanel, "history", "回合开始后焦点保持");
+  const afterTurnEnd = reduceState(
+    reduceState(initialState(), { type: "focus-panel", panel: "history" }),
+    { type: "turn-end" },
+  );
+  assert.equal(afterTurnEnd.focusedPanel, "history", "回合结束后焦点保持");
+  // 用户提交输入（user-line）：保留复位（条目期望②）
   const afterIn = reduceState(
     withUser(
       reduceState(initialState(), { type: "focus-panel", panel: "history" }),
@@ -2470,11 +2493,6 @@ test("reduceState: 新输入/输出（内容推进）后焦点自动回 null；U
     { type: "user-line", text: "用户输入" },
   );
   assert.equal(afterIn.focusedPanel, null, "用户输入后自动回无焦点");
-  const afterNotice = reduceState(
-    reduceState(initialState(), { type: "focus-panel", panel: "history" }),
-    { type: "notice", text: "通知" },
-  );
-  assert.equal(afterNotice.focusedPanel, null, "notice 后自动回无焦点");
   // UI action（状态列滚动）不重置焦点
   const ui = reduceState(
     reduceState(initialState(), { type: "focus-panel", panel: "history" }),

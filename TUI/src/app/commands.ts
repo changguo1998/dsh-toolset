@@ -161,6 +161,7 @@ export type SlashRoute =
   | "help"
   | "clearscreen"
   | "quit"
+  | "cleanquit"
   | "restart"
   | "model"
   | "provider"
@@ -207,6 +208,11 @@ export const LOCAL_COMMANDS: readonly {
   { name: "cls", route: "clearscreen", desc: "清屏（同 /clearscreen）" },
   { name: "quit", route: "quit", desc: "退出 TUI" },
   { name: "exit", route: "quit", desc: "退出 TUI（同 /quit）" },
+  {
+    name: "cleanquit",
+    route: "cleanquit",
+    desc: "清理本会话（删除记录与历史）并退出（需确认）",
+  },
   {
     name: "restart",
     route: "restart",
@@ -372,7 +378,7 @@ export function isCommandTokenInput(text: string): boolean {
 }
 
 /** 输入模式（与 state.InputMode 结构一致；只关心 slash 与否，避免 commands→state 依赖） */
-type InputModeLike = "steer" | "followup" | "shell" | "slash";
+type InputModeLike = "steer" | "followup" | "shell" | "slash" | "interrupt";
 
 /**
  * 取「命令 token」纯文本（不含前导 `/`）：slash 模式下输入框不含前导 `/`

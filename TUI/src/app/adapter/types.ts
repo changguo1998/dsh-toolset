@@ -439,6 +439,11 @@ export interface DshAdapter {
   /** 删除持久化会话（文件级：单段安全 id + realpath 包含性校验后删除会话目录）；
    *  当前活跃会话一律拒绝；live 会话由调用方（面板）先拒绝。宿主无会话查询服务时为 undefined。 */
   deleteSession?(id: string): Promise<SessionDeleteResult>;
+  /** 退出前删除**当前活跃会话**（仅「清理并退出」收尾调用）：与 deleteSession 相反，
+   *  刻意允许 activeSessionId —— 调用点固定在 adapter.dispose() 之后（handle 已释放、
+   *  进程即将退出，无并发打开风险）；失败只返回原因，不阻断退出。
+   *  宿主无会话查询服务时为 undefined。 */
+  deleteSessionForExit?(id: string): SessionDeleteResult;
   /** 回填会话状态：启动/恢复会话时从宿主日志（log-only 事件）与 TUI 侧快照折叠
    *  model / plan / sandbox / permission / policy / goal / todo / TUI 本地开关，
    *  并 emit 对应事件（另把模型写回会话内选择引用）；宿主无读取面时静默 */
@@ -1669,7 +1674,7 @@ export interface RealAdapterOptions {
   commandAgent?: unknown;
   /** DSH commands 注册表(来自 ctx.get('commands')，bundle 已挂载) */
   commands?: DshCommandLike;
-  /** 审批弹窗超时（ms），超时未答按默认拒绝裁定（'rejected'）；缺省 60s */
+  /** 审批弹窗超时（ms），超时未答按默认拒绝裁定（'rejected'）；缺省 60_000 ms（1 min） */
   approvalTimeoutMs?: number;
   /** 打断当前思考/turn 的回调（调用 agent.cancel({kind:'user'})）；宿主无 cancel 能力时不传 */
   interrupt?: () => void;

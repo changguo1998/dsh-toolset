@@ -1,5 +1,6 @@
 /**
- * 引擎编排单测：事件分流、回合正文聚合、节流与去重、规则 CRUD 与运行时层落盘。
+ * 引擎编排单测：事件分流、回合正文聚合、节流与去重、规则 CRUD 与运行时层落盘、
+ * 输入校验面（消费者注册 / update patch）、内存态上限（会话数与回合缓冲）与降级兜底。
  *
  * 用假注入器收集注入请求（不碰宿主），状态目录用临时目录。
  */
@@ -13,6 +14,7 @@ import { test } from "node:test";
 import { RuleEngine } from "../src/engine.ts";
 import { loadLayer } from "../src/persist.ts";
 import type {
+  ConsumerRegistration,
   InjectionRequest,
   Rule,
   RuleSource,
@@ -1056,4 +1058,287 @@ test("消费者 dedupeInRecord：投影计数 0（无限制）/ 1 / N", () => {
     },
     { messagesOf: () => messages },
   );
+});
+
+/* ── 输入校验面（消费者注册 / update patch）与内存态上限 ─────────────────── */
+
+test("registerConsumer：非对象 / decide 非函数 / 非法 delivery 的校验分支", () => {
+  bench([], ({ engine, injected, warnings }) => {
+    const disposers = [
+      engine.registerConsumer(null as unknown as ConsumerRegistration),
+      engine.registerConsumer({
+        id: "x",
+        decide: 1,
+      } as unknown as ConsumerRegistration),
+      engine.registerConsumer({
+        id: "later",
+        decide: () => null,
+        delivery: "later",
+      } as unknown as ConsumerRegistration),
+    ];
+    for (const dispose of disposers) {
+      assert.equal(typeof dispose, "function", "非法注册仍返回可调用的 dispose");
+      dispose(); // noop：调用不得抛
+    }
+    const text = warnings.join("\n");
+    assert.match(text, /入参必须是对象/);
+    assert.match(text, /decide 必须是函数/);
+    assert.match(text, /非法，按 followup 处理/);
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, assistantMessage(1, "正文"));
+    engine.handle(SESSION, turnEnd(1));
+    assert.equal(injected.length, 0, "三个非法注册都不产生反馈");
+  });
+});
+
+test("registerConsumer：非法 delivery 回退 followup 注入（内容不丢）", () => {
+  bench([], ({ engine, injected, warnings }) => {
+    engine.registerConsumer({
+      id: "later",
+      decide: () => ({ text: "回退反馈" }),
+      delivery: "later",
+    } as unknown as ConsumerRegistration);
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, assistantMessage(1, "正文"));
+    engine.handle(SESSION, turnEnd(1));
+    assert.equal(injected.length, 1);
+    assert.equal(injected[0]?.delivery, "followup", "非法 delivery → followup");
+    assert.match(warnings.join("\n"), /非法，按 followup 处理/);
+  });
+});
+
+test("消费者 directWrite：非数组 → 忽略并告警", () => {
+  bench([], ({ engine, warnings }) => {
+    engine.registerConsumer({
+      id: "dw",
+      directWrite: "nope",
+      decide: () => null,
+    } as unknown as ConsumerRegistration);
+    assert.match(warnings.join("\n"), /directWrite 不是数组/);
+  });
+});
+
+test("update：source 覆盖匹配面；patch 非对象 / action 非对象报错", () => {
+  bench([rule({ id: "r", match: { keywords: ["hit"] } })], ({ engine }) => {
+    const updated = engine.update("r", { source: "tool-call" });
+    assert.equal(updated.ok, true);
+    assert.deepEqual(
+      engine.summaries()[0]?.sources,
+      ["tool-call"],
+      "patch.source 覆盖匹配面",
+    );
+    assert.equal(engine.list()[0]?.origin, "runtime", "更新后以运行时版本生效");
+
+    const badPatch = engine.update("r", []);
+    assert.equal(badPatch.ok, false);
+    assert.match(String(badPatch.error), /patch 必须是对象/);
+
+    const badAction = engine.update("r", { action: "x" });
+    assert.equal(badAction.ok, false);
+    assert.match(String(badAction.error), /action 必须是对象/);
+  });
+});
+
+test("配置：maxInjectionsPerTurn 非法值（0 / 负数）收敛为 1 并生效", () => {
+  const rules = [
+    rule({
+      id: "a",
+      source: "tool-call",
+      match: { keywords: ["hit"] },
+      action: { type: "inject", text: "A" },
+    }),
+    rule({
+      id: "b",
+      source: "tool-call",
+      match: { keywords: ["hit"] },
+      action: { type: "inject", text: "B" },
+    }),
+  ];
+  bench(
+    rules,
+    ({ engine, injected, warnings }) => {
+      assert.equal(engine.status().maxInjectionsPerTurn, 1, "0 → 1");
+      engine.handle(SESSION, toolCall(1, "x", "hit"));
+      assert.equal(injected.length, 1, "收敛后的上限 1 生效");
+      assert.match(warnings.join("\n"), /注入段数已达上限 1/);
+    },
+    { maxInjectionsPerTurn: 0 },
+  );
+  bench(
+    rules,
+    ({ engine }) => {
+      assert.equal(engine.status().maxInjectionsPerTurn, 1, "-5 → 1");
+    },
+    { maxInjectionsPerTurn: -5 },
+  );
+});
+
+test("内存态上限：SESSION_STATE_LIMIT = 64 淘汰最早会话（节流记账随之清零）", () => {
+  bench(
+    [
+      rule({
+        id: "r",
+        source: "tool-call",
+        match: { keywords: ["hit"] },
+        action: { type: "inject", text: "A" },
+        cooldownTurns: 2,
+      }),
+    ],
+    ({ engine, injected }) => {
+      const fire = (id: string): void => {
+        engine.handle({ id }, toolCall(1, "x", "hit"));
+      };
+      fire("s0");
+      assert.equal(injected.length, 1, "s0 首次命中注入");
+      fire("s0");
+      assert.equal(injected.length, 1, "cooldownTurns=2 → 同回合再命中被节流");
+      for (let i = 1; i <= 64; i += 1) fire(`s${i}`);
+      assert.equal(
+        injected.length,
+        65,
+        "新建 64 个会话各自注入一次（第 65 个会话插入时淘汰最早的 s0）",
+      );
+      fire("s0");
+      assert.equal(
+        injected.length,
+        66,
+        "s0 的内存态已被淘汰 → 节流记账清零，重新注入",
+      );
+      fire("s64");
+      assert.equal(injected.length, 66, "最新会话的内存态仍在 → 节流照常");
+    },
+  );
+});
+
+test("内存态上限：TURN_BUFFER_KEEP = 4 逐出过旧回合缓冲（迟到收尾拿不到旧正文）", () => {
+  const hitRule = rule({
+    id: "keep",
+    match: { keywords: ["旧回合正文"] },
+    action: { type: "inject", text: "命中旧正文" },
+  });
+  bench([hitRule], ({ engine, injected }) => {
+    engine.handle(SESSION, assistantMessage(10, "旧回合正文"));
+    engine.handle(SESSION, turnEnd(11)); // 11 - 4 = 7 → turn 10 的缓冲保留
+    engine.handle(SESSION, turnStart(10));
+    engine.handle(SESSION, turnEnd(10));
+    assert.equal(injected.length, 1, "窗口内的迟到收尾仍能读到缓冲（对照）");
+  });
+  bench([hitRule], ({ engine, injected }) => {
+    engine.handle(SESSION, assistantMessage(10, "旧回合正文"));
+    engine.handle(SESSION, turnEnd(15)); // 15 - 4 = 11 → turn 10 的缓冲被逐出
+    engine.handle(SESSION, turnStart(10));
+    engine.handle(SESSION, turnEnd(10));
+    assert.equal(injected.length, 0, "越过保留窗口后缓冲已逐出 → 无正文可判定");
+  });
+});
+
+test("status()：字段级等值（规则数 / 运行时数 / 屏蔽数 / 目录 / 上限）", () => {
+  bench(
+    [rule({ id: "base", action: { type: "inject", text: "基线" } })],
+    ({ engine, dir }) => {
+      assert.deepEqual(engine.status(), {
+        rules: 1,
+        runtimeRules: 0,
+        removedBaselineRules: 0,
+        stateDir: dir,
+        maxInjectionsPerTurn: 3,
+      });
+      engine.add({
+        id: "rt",
+        action: { type: "inject", text: "运行时" },
+        sources: ["tool-call"],
+      });
+      engine.remove("base");
+      assert.deepEqual(engine.status(), {
+        rules: 1,
+        runtimeRules: 1,
+        removedBaselineRules: 1,
+        stateDir: dir,
+        maxInjectionsPerTurn: 3,
+      });
+    },
+  );
+});
+
+test("缺省告警出口：未注入 warn 时走 stderr（自带 [rule-engine] 前缀）", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-stderr-"));
+  const chunks: string[] = [];
+  const original = process.stderr.write.bind(process.stderr);
+  try {
+    const engine = new RuleEngine({
+      baseline: [],
+      stateDir: dir,
+      injector: { inject: () => {} },
+      // 不传 warn：走引擎兜底（stderr）
+    });
+    process.stderr.write = ((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    engine.registerConsumer(null as unknown as ConsumerRegistration);
+  } finally {
+    process.stderr.write = original;
+    rmSync(dir, { recursive: true, force: true });
+  }
+  assert.deepEqual(chunks, [
+    "[rule-engine] warn: registerConsumer 入参必须是对象\n",
+  ]);
+});
+
+test("dispatch 兜底：记录读面抛错只告警，不向上抛（链路不中断）", () => {
+  bench(
+    [
+      rule({
+        id: "d",
+        match: { keywords: ["hit"] },
+        dedupeInRecord: 1,
+        action: { type: "inject", text: "A" },
+      }),
+    ],
+    ({ engine, injected, warnings }) => {
+      assert.doesNotThrow(() => {
+        engine.handle(SESSION, assistantMessage(1, "hit"));
+        engine.handle(SESSION, turnEnd(1));
+      });
+      assert.equal(injected.length, 0);
+      assert.match(warnings.join("\n"), /节点 "assistant-text" 派发失败/);
+    },
+    {
+      messagesOf: () => {
+        throw new Error("record boom");
+      },
+    },
+  );
+});
+
+test("session-start 兜底：告警出口自身抛错时仍不向宿主抛（监听器永不抛）", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-warn-throw-"));
+  const warnings: string[] = [];
+  try {
+    const engine = new RuleEngine({
+      baseline: [
+        rule({
+          id: "d",
+          source: "session-start",
+          dedupeInRecord: 1,
+          action: { type: "inject", text: "开局" },
+        }),
+      ],
+      stateDir: dir,
+      injector: { inject: () => {} },
+      messagesOf: () => {
+        throw new Error("record boom");
+      },
+      // 告警出口第一次调用即抛错：派发兜底自身的 warn 抛了，才落到 sessionCreated 的外层兜底
+      warn: (message) => {
+        warnings.push(message);
+        if (warnings.length === 1) throw new Error("warn boom");
+      },
+    });
+    assert.doesNotThrow(() => engine.sessionCreated("s1"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  assert.match(warnings[0] ?? "", /节点 "session-start" 派发失败/);
+  assert.match(warnings[1] ?? "", /session-start 派发失败/);
 });

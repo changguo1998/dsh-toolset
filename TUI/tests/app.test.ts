@@ -135,8 +135,14 @@ afterEach(() => {
   }
 });
 
-function makeApp(): { app: App; renderer: FakeRenderer; adapter: FakeAdapter } {
+function makeApp(size?: { cols: number; rows: number }): {
+  app: App;
+  renderer: FakeRenderer;
+  adapter: FakeAdapter;
+} {
   const renderer = new FakeRenderer();
+  // 尺寸须在 start() 前定：高终端用例（如 /help 全表断言）要一次拿到完整活动区窗口
+  if (size) renderer.size = size;
   const adapter = new FakeAdapter();
   // 条目 16 段 C1：与生产同路径（`main.ts:322/679` 也传一个空对象，App 自己填 `current`）。
   // 同时把该对象交给假适配器做「事件 → 交付」镜像：生产里内容由适配器产出的交付驱动。
@@ -550,12 +556,12 @@ test("Esc idle 时无操作：不触发 interrupt、不关闭 renderer，输入�
   assert.equal(renderer.closed, 0);
 });
 
-test("Esc 打断运行：agent 非 idle(thinking) 时调用 interrupt 一次", () => {
+test("Esc 不打断运行（2026-10-15 起）：agent 非 idle(thinking) 时也不调用 interrupt", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
   renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
-  assert.equal(adapter.interrupts, 1, "非 idle 时 Esc 打断");
-  assert.equal(adapter.log[adapter.log.length - 1], "interrupt");
+  assert.equal(adapter.interrupts, 0, "Esc 不再打断（打断走 `!` 模式）");
+  assert.deepEqual(adapter.log, [], "Esc 不产生任何适配器调用");
   assert.equal(renderer.closed, 0);
 });
 
@@ -675,6 +681,20 @@ test("审批倒计时取 adapter 实际超时值（同源，BACKLOG 3.3.2）", (
   );
 });
 
+test("审批倒计时回落：adapter 无 approvalTimeoutMs 能力 → 1 min（BACKLOG 3.3.2）", () => {
+  const { renderer, adapter } = makeApp();
+  // 抹掉 adapter 的该能力（实例属性遮蔽原型方法）→ App 走本地回落常量
+  (adapter as { approvalTimeoutMs?: () => number }).approvalTimeoutMs =
+    undefined;
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "tool" });
+  adapter.push({ type: "approval", id: "a1", prompt: "允许执行?" });
+  const frame = renderer.lastRender.join("\n");
+  assert.ok(
+    frame.includes("(60s)"),
+    "回落值应为 1 min（60s）: " + frame.slice(0, 240),
+  );
+});
+
 test("审批超时：approval-closed 关闭面板并给提示（BACKLOG 3.3.2 App 侧）", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "agent-status", sessionId: "s1", status: "tool" });
@@ -747,18 +767,27 @@ test("subagent 行 @ label os 按 info 蓝着色", () => {
   );
 });
 
-test("模式键：空输入按 $ / / / < 切换模式且吞键，! 为普通字符；提交后回退默认 steer", async () => {
+test("模式键：空输入按 $ / / / < / ! 切换模式且吞键；提交后回退默认 steer", async () => {
   const { renderer, adapter } = makeApp();
-  // ! 不再切模式：空输入也作为普通字符插入
+  // ! 自 2026-10-15 起也是模式键（interrupt）：空输入 + Enter = 只打断；此处 idle → 无操作
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.deepEqual(
+    adapter.log,
+    [],
+    "`!` 被吞（不按普通字符插入）、idle 空输入无操作",
+  );
+  assert.equal(adapter.interrupts, 0);
+  // 再按一次 `!` 幂等（模式不变、输入仍空）；随后输入的 x 属于 interrupt 模式 → 打断口径直发
   renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(
     adapter.log,
-    ["steer:!x"],
-    "! 为普通字符（按默认 steer 投递）",
+    ["send:x"],
+    "`!` 模式下直发（不带 next-step）；提交后回退默认模式",
   );
-  assert.equal(adapter.interrupts, 0);
+  assert.deepEqual(adapter.steered, [], "打断口径不带 next-step");
   adapter.push({ type: "turn-end" }); // 回合结束回 idle（否则后续 Enter 进排队）
   // $ 切 shell 吞键、提交走**本地执行**（BACKLOG TUI#37：不经模型）、提交后回退 normal
   renderer.press({ name: "$", ctrl: false, meta: false, shift: false });
@@ -767,14 +796,14 @@ test("模式键：空输入按 $ / / / < 切换模式且吞键，! 为普通字�
   await new Promise((r) => setTimeout(r, 0)); // 本地执行为异步链（假 runner 立即返回）
   assert.deepEqual(
     adapter.log,
-    ["steer:!x"],
+    ["send:x"],
     "shell 提交不经模型（本地子进程执行，adapter 未收到消息）",
   );
   adapter.push({ type: "turn-end" });
   // 回退后输入普通 z，不残留模式
   renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
-  assert.deepEqual(adapter.log, ["steer:!x", "steer:z"]);
+  assert.deepEqual(adapter.log, ["send:x", "steer:z"]);
 });
 
 test("非默认模式空输入按 Backspace 回退至默认 steer（$ / < 切了再退）", () => {
@@ -812,16 +841,19 @@ test("slash 提交后回退 normal：再输入普通字符不再自动补 /", ()
   assert.deepEqual(adapter.sent, ["ok"], "回退后为普通消息");
 });
 
-test("Alt+Enter 打断并发送：先 interrupt 再直发（不带 next-step），模式回退默认 steer", () => {
+test("`!` 模式打断并发送：忙时先 interrupt 再直发（不带 next-step），提交后回退默认 steer", () => {
   const { renderer, adapter } = makeApp();
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "h", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "i", ctrl: false, meta: false, shift: false });
-  renderer.press({ name: "enter", ctrl: false, meta: true, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(
     adapter.log,
     ["interrupt", "send:hi"],
-    "Alt+Enter 先打断再发送",
+    "`!` 模式先打断再发送",
   );
+  assert.deepEqual(adapter.steered, [], "打断后直发，不按 step 边界投递");
   adapter.push({ type: "turn-end" }); // 回合结束回 idle（否则后续 Enter 进排队）
   // 提交后输入不残留、模式已回退
   renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
@@ -1061,7 +1093,7 @@ test("活动区生命周期：新回合不再清空上一回合内容（2026-10-
   app.dispose();
 });
 
-test("排队消息 Esc：退回输入框（保留可编辑）+ 清空登记 + 打断", () => {
+test("排队消息 Esc：不退回、不清登记、不打断（留在核心 next-turn 队列等认领）", () => {
   const { app, renderer, adapter } = makeApp();
   typeAndEnter(renderer, "发出去了");
   adapter.push({
@@ -1079,44 +1111,39 @@ test("排队消息 Esc：退回输入框（保留可编辑）+ 清空登记 + �
   renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
   const st = (
     app as unknown as {
-      state: { inputText: string; queued: string[] };
+      state: { inputText: string; queued: { text: string }[] };
     }
   ).state;
-  assert.deepEqual(st.queued, [], "排队登记已清空");
-  assert.equal(
-    st.inputText,
-    "排队甲\n排队乙",
-    "排队内容按顺序退回输入框，可编辑",
+  assert.deepEqual(
+    st.queued.map((q) => q.text),
+    ["排队甲", "排队乙"],
+    "排队登记原样保留",
   );
-  assert.equal(adapter.interrupts, 1, "Esc 仍打断运行中的 agent");
-  // 退回后再提交（核心已回 idle）→ 直发退回的草稿
+  assert.equal(st.inputText, "", "不退回输入框（否则与核心队列重复发送）");
+  assert.equal(adapter.interrupts, 0, "Esc 不再打断运行中的 agent");
+  // 回合结束（核心认领排队条目）→ 队列照旧转正，无需用户重发
   adapter.push({ type: "turn-end" });
   adapter.push({ type: "agent-status", sessionId: "s1", status: "idle" });
-  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
-  assert.deepEqual(adapter.sent, [
-    "发出去了",
-    "排队甲",
-    "排队乙",
-    "排队甲\n排队乙",
-  ]);
+  assert.deepEqual(adapter.sent, ["发出去了", "排队甲", "排队乙"]);
   app.dispose();
 });
 
-test("Alt+Enter 连带排队登记：按时间顺序并入本次发送（不出现顺序颠倒）", () => {
+test("`!` 模式连带排队登记：按时间顺序并入本次发送（不出现顺序颠倒）", () => {
   const { app, renderer, adapter } = makeApp();
   typeAndEnter(renderer, "先发的");
   adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
   typeAndEnter(renderer, "排队甲");
   typeAndEnter(renderer, "排队乙");
-  // 再输入新文本后按 Alt+Enter（打断并发送）
+  // 进入 `!` 模式后再输入新文本（空输入时按 `!` 切模式，`!` 被吞）
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
   for (const ch of Array.from("现在打断发")) {
     renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
   }
   renderer.press({ name: "z", ctrl: false, meta: false, shift: false });
-  renderer.press({ name: "enter", ctrl: false, meta: true, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   const st = (app as unknown as { state: { queued: string[] } }).state;
-  assert.deepEqual(st.queued, [], "Alt+Enter 已清空排队登记");
-  assert.equal(adapter.interrupts, 1, "Alt+Enter 打断一次");
+  assert.deepEqual(st.queued, [], "`!` 模式已清空排队登记");
+  assert.equal(adapter.interrupts, 1, "`!` 模式打断一次");
   assert.deepEqual(
     adapter.sent,
     ["先发的", "排队甲", "排队乙", "排队甲\n排队乙\n现在打断发z"],
@@ -1125,11 +1152,43 @@ test("Alt+Enter 连带排队登记：按时间顺序并入本次发送（不出�
   app.dispose();
 });
 
-test("Alt+Enter 空输入无操作：不打断不发送", () => {
+test("`!` 模式空输入提交：忙时只打断（不发送），空闲时无操作", () => {
   const { renderer, adapter } = makeApp();
+  // 空闲：不打断、不发送
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.equal(adapter.interrupts, 0, "空闲无可打断的回合 → 不调 interrupt");
+  assert.deepEqual(adapter.sent, [], "空输入不发送");
+  // 忙时：只打断，不发送
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
+  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  assert.equal(adapter.interrupts, 1, "忙时 `!` + 空输入 Enter = 只打断");
+  assert.deepEqual(adapter.sent, [], "仍未发送任何消息");
+  assert.deepEqual(adapter.log, ["interrupt"], "只有一个 interrupt 调用");
+});
+
+test("Alt+Enter（meta+enter）自 2026-10-15 起等效普通 Enter：不打断", () => {
+  const { renderer, adapter } = makeApp();
+  // 空闲：直发
+  renderer.press({ name: "h", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "i", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: true, shift: false });
+  assert.equal(adapter.interrupts, 0, "空闲不打断");
+  assert.deepEqual(adapter.log, ["steer:hi"], "按默认 steer 投递");
+  // 忙时：进排队（不再打断）
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
+  renderer.press({ name: "a", ctrl: false, meta: false, shift: false });
+  renderer.press({ name: "enter", ctrl: false, meta: true, shift: false });
+  assert.equal(adapter.interrupts, 0, "忙时也不打断");
+  assert.deepEqual(
+    adapter.log,
+    ["steer:hi", "steer:a"],
+    "按普通 Enter 排队投递",
+  );
+  // 空输入：无操作（与普通 Enter 一致）
   renderer.press({ name: "enter", ctrl: false, meta: true, shift: false });
   assert.equal(adapter.interrupts, 0);
-  assert.deepEqual(adapter.sent, []);
 });
 
 test("非空输入时 ! / $ / / 为普通字符（不切模式）", () => {
@@ -2363,6 +2422,48 @@ const plainFrame = (renderer: FakeRenderer): string =>
 /** 帧纯文本（去 ANSI）：跨样式段的断言用（段边界处会插入转义序列） */
 const strippedFrame = (renderer: FakeRenderer): string =>
   plainFrame(renderer).replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
+
+test("/help → 含「按键：」全局键表（冷门键与提示行不再列的常用键都在）", () => {
+  // 超高终端：/help 现在约 110 行（按键段 + 命令段），要一次落在活动区窗口内才能断言段标题；
+  // 真机上超出窗口的部分靠 ↑/↓ 滚动查看（与既有命令表同口径）
+  const { renderer } = makeApp({ cols: 120, rows: 240 });
+  typeAndEnter(renderer, "/help");
+  const frame = strippedFrame(renderer);
+  assert.ok(frame.includes("按键："), "按键段标题");
+  assert.ok(
+    frame.includes("本地命令："),
+    "命令段标题仍在（新增段不改原有两段）",
+  );
+  // 键表 17 行逐行对上：键列在左、描述列固定起点（HELP_MARGIN + 键列补白 + HELP_GAP ≥ 2 空格），
+  // 只断言「键 + 描述开头」在同一行，避免依赖描述整体是否折行
+  const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rows: [string, string][] = [
+    ["↑/↓", "滚动一行"],
+    ["C-↑/↓", "半屏滚动"],
+    ["PgUp/PgDn", "面板整页滚动"],
+    ["Home/End", "翻到最旧已加载内容"],
+    ["←/→", "输入框光标移动"],
+    ["Backspace", "删除光标前字符"],
+    ["Enter", "按输入模式提交"],
+    ["$ / < / !", "输入为空时按其中之一切换输入模式"],
+    ["A-Enter", "等效"],
+    ["C-p/n", "输入历史回溯"],
+    ["C-j", "输入框插入换行"],
+    ["C-c", "清空输入框"],
+    ["C-l", "强制整帧重绘"],
+    ["C-e/t/s", "聚焦会话区"],
+    ["Tab", "接受补全候选"],
+    ["Esc", "关闭面板"],
+    ["C-d", "请求退出"],
+  ];
+  for (const [key, desc] of rows) {
+    assert.ok(
+      new RegExp(esc(key) + "\\s{2,}" + esc(desc)).test(frame),
+      `键表行对不上：${key} / ${desc}`,
+    );
+  }
+  assert.ok(frame.includes("面板内按键见底部提示区"), "按键段末指路行");
+});
 
 test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多题动态按键提示", () => {
   const { app, renderer, adapter } = makeApp();
@@ -3906,10 +4007,9 @@ test("本地 slash 分级：/help 内容普通前景（不再 info 蓝）、无�
     hexSgr(THEMES.dark.foreground, true),
     "帮助文本按默认前景色（不再 info 蓝）",
   );
-  // 无效 slash → error 红
-  renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
-  renderer.press({ name: "!", ctrl: false, meta: false, shift: false });
-  renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
+  // 无效 slash → error 红（用 `/1`：非 [a-z] 开头 → 本地 `无效命令` 分支；
+  // `!` 自 2026-10-15 起是模式键，空输入按 `!` 会切 interrupt 模式，不能再用来拼非法命令）
+  typeAndEnter(renderer, "/1");
   const badLine = renderer.lastRender.find((l) => l.includes("无效命令"));
   assert.ok(badLine, "无效命令行出现在帧中");
   assert.ok(
@@ -4113,7 +4213,7 @@ test("顶部面板：Ctrl+T 聚焦活动区，↑/PgUp 滚动帮助", async () =
   const hint = (): string => {
     const h = renderer.lastRender
       .map(strip)
-      .find((l) => l?.startsWith("[C-d]退出"));
+      .find((l) => l?.startsWith("[> / ! $ <]") && l.includes("[C-d]退出"));
     return h ?? "";
   };
   // 活动区正文 = 实线分隔行与状态区上边分隔行之间：取左侧历史/活动区段（右侧为状态列）
@@ -4165,14 +4265,15 @@ test("顶部面板：Ctrl+T 聚焦活动区，↑/PgUp 滚动帮助", async () =
     upBefore,
     "焦点流输出时 ↑ 滚动到更早行（窗口起点变化）",
   );
-  // PgUp（整页）→ 翻到帮助首行；到顶为幂等——多按几次直到首行（帮助加行不破坏断言）
-  for (let i = 0; i < 8 && actBody()[0] !== "本地命令："; i++) {
+  // PgUp（整页）→ 翻到帮助首行；到顶为幂等——多按几次直到首行（帮助加行不破坏断言，
+  // 故循环上限留足页数：/help 约 110 行、每页约 15 行）
+  for (let i = 0; i < 12 && actBody()[0] !== "按键："; i++) {
     renderer.press(key("pageup"));
   }
-  assert.equal(actBody()[0], "本地命令：", "整页上翻到首行（幂等到顶）");
-  // PgDn（整页）→ activityScroll 9-8=1，窗口起点回到 /theme 行（页向下翻）
+  assert.equal(actBody()[0], "按键：", "整页上翻到首行（幂等到顶）");
+  // PgDn（整页）→ 窗口起点离开首行（页向下翻）
   renderer.press(key("pagedown"));
-  assert.notEqual(actBody()[0], "本地命令：", "整页下翻离开首行（向尾部翻）");
+  assert.notEqual(actBody()[0], "按键：", "整页下翻离开首行（向尾部翻）");
 
   // Esc 退出焦点（hint 无标签，不再逐项断言；焦点滚动效果已在上面覆盖）
   renderer.press(key("escape"));
@@ -4229,7 +4330,11 @@ test("Tab 不再有全局语义：空输入 / 有输入都不改变焦点，hint
   const hint = (): string => {
     const h = renderer.lastRender
       .map(strip)
-      .find((l) => l?.startsWith("[C-d]退出") || l?.startsWith("[C-c]清空"));
+      .find(
+        (l) =>
+          l?.startsWith("[> / ! $ <]") &&
+          (l.includes("[C-d]退出") || l.includes("[C-c]清空")),
+      );
     return h ?? "";
   };
   const key = (name: string): KeyEvent => ({
@@ -4254,7 +4359,7 @@ test("Tab 不再有全局语义：空输入 / 有输入都不改变焦点，hint
 test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ 立即回到跟随最新", async () => {
   // 回归：上滚活动区后新回合清空瞬态，若 activityScroll 不归零则旧偏移超出
   // 新内容可视上限，↓ 需连续按到偏移耗尽才恢复（“向下没反应”死区）。
-  const { renderer, adapter } = makeApp();
+  const { app, renderer, adapter } = makeApp();
   const size = { cols: 120, rows: 24 } as const;
   renderer.size = size;
   const strip = (l: string): string => l.replace(/\u001b\[[0-9;]*m/g, "");
@@ -4286,8 +4391,13 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   for (let i = 0; i < 30; i++)
     adapter.push({ type: "notice", text: `turn1 行 ${i}` } as DshEvent);
   assert.ok(actFirst().startsWith("turn1 行"), "turn1 显示");
-  // 内容推进（notice）后自动回无焦点；滚动活动区需重新 Ctrl+T 聚焦回合区
-  renderer.press({ name: "t", ctrl: true, meta: false, shift: false });
+  // 2026-10-15 起 notice（无内容载荷的状态刷新）**不再清焦点**：焦点仍在回合区，
+  // 直接滚动即可（旧行为是内容推进后自动回无焦点、需重新 Ctrl+T 聚焦）
+  assert.equal(
+    (app as unknown as { state: { focusedPanel: string | null } }).state
+      .focusedPanel,
+    "activity",
+  );
   for (let i = 0; i < 25; i++) renderer.press(key("up")); // 上滚越过可视上限
   assert.ok(actFirst().startsWith("turn1 行 0"), "上滚后钳制到最早行");
   // 新回合：**用户输入**（提交）触发活动区整体清空（activityScroll 归零 + 自动失焦），

@@ -5,8 +5,8 @@
 //   --theme dark|light  显式指定主题（幂等；非法值回退内置默认）
 //   --smoke             无 TTY（管道/CI 等）或带 --smoke 时自动走冒烟脚本：
 //                       合成按键驱动并自断言
-// 新输入交互（! 为普通字符 / $ 切模式 + shell 提交左提示符 $ / 空输入 Backspace
-// 回退 / Alt+Enter 打断并发送 / Esc idle 无操作 / 审批弹窗 Esc 不打断不关闭），
+// 新输入交互（`!` 模式打断并发送 / 非空输入里 `!` 为普通字符 / $ 切模式 + shell 提交左提示符 $ /
+// 空输入 Backspace 回退 / Alt+Enter 等效普通 Enter / Esc 不打断不退回排队 / 审批弹窗 Esc 不打断不关闭），
 // 冒烟信号（BACKLOG TUI#14）：全绿 → `SMOKE_OK` + 退出码 0；有失败项 → 逐项
 // `SMOKE_FAIL <label>` + 汇总 `SMOKE_FAIL n=…`（不再打印 `SMOKE_OK`），退出码非 0
 // （renderer.close 尊重 process.exitCode；此前被 process.exit(0) 覆盖为「看起来通过」）。
@@ -143,9 +143,11 @@ if (smoke) {
       await sleep(150);
       renderer.emitKey(key("enter"));
       await sleep(600);
-      // 2. ! 为普通字符：空输入按 ! 不切模式，直接发送 "!hello"
-      typeLine("!hello");
-      await sleep(2600); // 等 mock 回复 + turn-end（把上次模式落回 normal）
+      // 2. `!` 模式（打断并发送）：空输入按 `!` 进入模式并吞键 → 提交 "hello"（空闲直发、不打断）
+      renderer.emitKey(key("!"));
+      typeText("hello");
+      renderer.emitKey(key("enter"));
+      await sleep(2600); // 等 mock 回复 + turn-end（把上次模式落回普通输入）
       // 3. $ 切 shell 模式 + 提交 → 本地执行 `ls`（TUI#37：不走模型、不进 sent）；提示符单字符
       renderer.emitKey(key("$"));
       typeText("ls");
@@ -156,10 +158,20 @@ if (smoke) {
       renderer.emitKey(key("backspace"));
       typeLine("x");
       await sleep(2600);
-      // 5. Alt+Enter（meta+enter）：先打断再发送 "rm tmp"
+      // 5. `!` 模式（打断并发送）：忙时先 interrupt 再直发 "rm tmp"（不带 next-step）
+      adapter.emitEvent({
+        type: "agent-status",
+        sessionId: "mock-1",
+        status: "thinking",
+      });
+      await sleep(120);
+      renderer.emitKey(key("!"));
       typeText("rm tmp");
-      renderer.emitKey(key("enter", true));
+      renderer.emitKey(key("enter"));
       await sleep(2600);
+      // 5b. Alt+Enter（meta+enter）：自 2026-10-15 起等效普通 Enter —— 空输入 no-op、不打断
+      renderer.emitKey(key("enter", true));
+      await sleep(200);
       // 6. Esc：idle 时无操作（显式推 agent-status idle 保证确定性）
       adapter.emitEvent({
         type: "agent-status",
@@ -254,11 +266,12 @@ if (smoke) {
       adapter.emitEvent({ type: "turn-end", reason: "aborted" });
       await sleep(200);
 
-      // —— 自断言（interrupt 应恰好 1 次：仅 Alt+Enter；Esc idle 与审批 Esc 均不得打断）——
+      // —— 自断言（interrupt 应恰好 1 次：仅 `!` 模式忙时提交；Esc idle / 审批 Esc / Alt+Enter
+      //    均不得打断）——
       const sent = adapter.sent;
       ok(
-        "dash-ordinary",
-        sent.includes("!hello"),
+        "interrupt-mode-send",
+        sent.includes("hello") && !sent.includes("!hello"),
         "sent=" + JSON.stringify(sent),
       );
       // TUI#37：`$ls` 本地执行（不进模型）→ 断言未进 sent + 回显行与退出摘要
@@ -276,7 +289,7 @@ if (smoke) {
         "sent=" + JSON.stringify(sent),
       );
       ok(
-        "alt-enter-send",
+        "interrupt-mode-send-busy",
         sent.includes("rm tmp"),
         "sent=" + JSON.stringify(sent),
       );
@@ -300,7 +313,7 @@ if (smoke) {
       );
       ok(
         "userblock-success-mark",
-        /✓ (rm tmp|ls|!hello)┃/.test(plain),
+        /✓ (rm tmp|ls|hello)┃/.test(plain),
         "no '✓ ' mark on a completed user block",
       );
       ok(
@@ -311,7 +324,7 @@ if (smoke) {
       // 运行中 ●/○ 交替符号（流式输出驱动，相位不定故两相皆可）
       ok(
         "userblock-running-mark",
-        /[●○] (rm tmp|等待审批|!hello|ls)/.test(plain),
+        /[●○] (rm tmp|等待审批|hello|ls)/.test(plain),
         "no '●/○ ' mark on the active user block",
       );
       ok(
@@ -320,11 +333,16 @@ if (smoke) {
         "approval text absent from frames",
       );
       // 按键提示统一到底部提示区（BACKLOG 3.1.2）：审批键位在最后一行提示区，
-      // 面板内不再内嵌键位（原先面板内的红/绿着色随迁移取消）
+      // 面板内不再内嵌键位（原先面板内的红/绿着色随迁移取消）。
+      // 2026-10-15：提示行格式统一后（去 `▶` 装饰、`[键]标签` + ` · ` 分隔、
+      // `↑/↓` 文案随焦点窗切换）断言文本长期未跟改，改为按 `approvalHintLine()`
+      // 的当前产出断言（选项窗态；真机根本原因是「断言过期」而非渲染缺陷）
+      // 2026-10-16：提示补齐后随产出同步（补 `y/n` 与 `←/→`，BACKLOG「按键提示信息
+      // 与实际绑定对齐」决策 2）——mock 终端 100 列，仍是单行
       ok(
         "approval-hint-bottom",
         plain.includes(
-          "▶选项·[Enter]提交·[Esc]取消·[↑/↓]选项·[Tab]草稿·[1/2]直答",
+          "[Enter]提交 · [Esc]取消 · [↑/↓]选项 · [←/→]选项 · [Tab]草稿 · [y/n/1/2]直答",
         ),
         "approval keys should show on the bottom hint line",
       );

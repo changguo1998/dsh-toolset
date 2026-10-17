@@ -16,6 +16,7 @@ import type {
   QuestionAnswer,
   SessionInfo,
   SessionSurfaceView,
+  SessionDeleteResult,
   HistoryMessage,
 } from "../../src/app/adapter/dsh.ts";
 import type { SessionUiState } from "../../src/app/adapter/session-ui-state.ts";
@@ -154,6 +155,14 @@ export class FakeAdapter implements DshAdapter {
   dispose(): void {
     this.disposed++;
   }
+  /** 「清理并退出」删除当前会话（deleteSessionForExit）：记录收到的会话 id */
+  deletedForExit: string[] = [];
+  /** 删除结果（用例可改造成 { ok: false, reason } 断言失败告警）；置 undefined 模拟无会话服务 */
+  deleteSessionForExitResult: SessionDeleteResult = { ok: true };
+  deleteSessionForExit?: (id: string) => SessionDeleteResult = (id) => {
+    this.deletedForExit.push(id);
+    return this.deleteSessionForExitResult;
+  };
   /** TUI#39：状态列 Agents 块数据源；用例置 agentsRows 后（事件或定时）刷新即推送快照 */
   agentsRows: AgentRowInfo[] | null = null;
   refreshAgentsCalls = 0;

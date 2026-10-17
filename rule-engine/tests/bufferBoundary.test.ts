@@ -1,0 +1,295 @@
+/**
+ * 任务 C - P2：回合正文缓冲的边界（rule-engine 检查流程核对）。
+ *
+ * 固定「进缓冲 / 出缓冲」的边界口径：
+ * - 单条 step 正文超 `TEXT_BUFFER_LIMIT` = 200000 字符被截断（199999 不动、200000 恰好保留、200001
+ *   截到 200000），且截断发一条告警（文案含「截断」与上限数字，消费者侧可观测）；
+ * - `surfaceOp: "replace"` 的消息**不进缓冲**（与 TUI 显示面一致），后续 append 照常累积；
+ * - 空白串与换行串**照常入缓冲**（只跳过长度 0）, 因此插件面载荷会带上未显示的空白 step；
+ * - 多 step 按 `"\n"` 连接; 跨回合按 turn 隔离（同一 `step` 号不串味）;
+ * - `#needsText` 快速路径: 正文先到、消费者后注册时**该回合正文不缓冲** → 收尾不派发（现状, 见「偏差/发现」）;
+ * - 空正文（长度 0）不入缓冲;
+ * - **每回合须先有 `turn/start`**: 它是 `*-end` 节点的对齐 flag 清零点, 缺它时只有第 1 个回合会唤醒
+ *   （见下「bookkeep 清零点」用例）—— 本文件的用例都按真实宿主的「turn/start → assistant/message → turn/end」序列发事件。
+ *
+ * 证据与结论见追踪文档 `docs/implementation/2026-10-16-three-surface-text-consistency.md` 任务 C。
+ */
+
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { test } from "node:test";
+
+import { RuleEngine } from "../src/engine.ts";
+import type {
+  ConsumerRegistration,
+  RuleSource,
+  SessionEventLike,
+} from "../src/types.ts";
+
+const SESSION = { id: "s1" };
+const LIMIT = 200_000;
+
+function assistantMessage(
+  turn: number,
+  text: string,
+  step = 0,
+): SessionEventLike {
+  return {
+    type: "assistant/message",
+    data: {
+      turn,
+      step,
+      message: { role: "assistant", content: [{ type: "text", text }] },
+    },
+  };
+}
+
+/** 带表面操作标记的 assistant/message（宿主把 `surfaceOp` 放在事件顶层；TUI 同口径）。 */
+function assistantMessageWithOp(
+  turn: number,
+  text: string,
+  surfaceOp: string,
+): SessionEventLike {
+  return {
+    ...assistantMessage(turn, text),
+    surfaceOp,
+  } as SessionEventLike;
+}
+
+const turnEnd = (
+  turn: number,
+  reason: unknown = "completed",
+): SessionEventLike => ({
+  type: "turn/end",
+  data: { turn, reason },
+});
+
+/** turn/start（真实宿主每回合必发; 对齐 flag 的清零点） */
+const turnStart = (turn: number): SessionEventLike => ({
+  type: "turn/start",
+  data: { turn },
+});
+
+/**
+ * 测试台: 收集消费者收到的载荷（只挂 `assistant-text`, 故每回合恰一次;
+ * 若同时挂 `turn-end` 会因对齐合并各唤醒一次, 记录会重复）。
+ */
+function bench(
+  fn: (b: {
+    engine: RuleEngine;
+    points: [RuleSource, string][];
+    warnings: string[];
+  }) => void,
+): void {
+  const dir = mkdtempSync(path.join(tmpdir(), "buffer-boundary-"));
+  const points: [RuleSource, string][] = [];
+  const warnings: string[] = [];
+  try {
+    const engine = new RuleEngine({
+      baseline: [],
+      stateDir: dir,
+      injector: { inject: () => {} },
+      warn: (message) => warnings.push(message),
+    });
+    engine.registerConsumer({
+      id: "probe",
+      sources: ["assistant-text"] as [RuleSource, ...RuleSource[]],
+      delivery: "followup",
+      dedupeInRecord: 0,
+      decide: (context: { text: string; trigger: string }) => {
+        points.push([context.trigger as RuleSource, context.text]);
+        return null;
+      },
+    } satisfies ConsumerRegistration);
+    fn({ engine, points, warnings });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("P2 缓冲边界：单条 step 正文的截断阈值（199999 / 200000 / 200001）", () => {
+  bench(({ engine, points }) => {
+    // 逐回合按真实序列交错: turn/start → 正文 → turn/end（turn/start 是清零点, 必须每回合各来一次）
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, assistantMessage(1, "y".repeat(LIMIT - 1)));
+    engine.handle(SESSION, turnEnd(1));
+    engine.handle(SESSION, turnStart(2));
+    engine.handle(SESSION, assistantMessage(2, "y".repeat(LIMIT)));
+    engine.handle(SESSION, turnEnd(2));
+    engine.handle(SESSION, turnStart(3));
+    engine.handle(SESSION, assistantMessage(3, "y".repeat(LIMIT + 1)));
+    engine.handle(SESSION, turnEnd(3));
+    assert.deepEqual(
+      points.map(([trigger, text]) => [trigger, text.length]),
+      [
+        ["assistant-text", LIMIT - 1],
+        ["assistant-text", LIMIT],
+        ["assistant-text", LIMIT],
+      ],
+      "200001 截到 200000; 199999 / 200000 原样; 每回合只经 assistant-text 唤醒一次",
+    );
+    assert.equal(points[2]![1], "y".repeat(LIMIT), "截断保留前缀");
+  });
+});
+
+test("P2 缓冲边界：超限截断告警（略超上限有告警且载荷为上限；远低于上限无告警）", () => {
+  // 略超上限（200001 字符）→ 载荷截到上限 + 一条告警（文案含「截断」与上限数字）
+  bench(({ engine, points, warnings }) => {
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, assistantMessage(1, "y".repeat(LIMIT + 1)));
+    engine.handle(SESSION, turnEnd(1));
+    assert.equal(points.length, 1);
+    assert.equal(points[0]![1].length, LIMIT, "载荷长度为上限");
+    assert.equal(warnings.length, 1, "截断恰一条告警");
+    assert.match(warnings[0] ?? "", /截断/);
+    assert.ok(
+      String(warnings[0]).includes(String(LIMIT)),
+      `告警应含上限数字 ${LIMIT}, 实际: ${warnings[0]}`,
+    );
+  });
+  // 远低于上限 → 不告警
+  bench(({ engine, points, warnings }) => {
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, assistantMessage(1, "短正文"));
+    engine.handle(SESSION, turnEnd(1));
+    assert.equal(points[0]?.[1], "短正文");
+    assert.deepEqual(warnings, [], "未截断不告警");
+  });
+});
+
+test("P2 缓冲边界：surfaceOp = \"replace\" 不进缓冲，后续 append 照常累积", () => {
+  bench(({ engine, points }) => {
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, assistantMessage(1, "被覆盖的正文"));
+    engine.handle(SESSION, assistantMessageWithOp(1, "影子覆盖正文", "replace"));
+    engine.handle(SESSION, assistantMessage(1, "追加正文", 1));
+    engine.handle(SESSION, turnEnd(1));
+    assert.deepEqual(
+      points.map(([, text]) => text),
+      ["被覆盖的正文\n追加正文"],
+      "replace 的内容不进回合载荷（与 TUI 显示面一致）",
+    );
+  });
+  // append / 缺省形态不受影响；data 内的 surfaceOp 同样识别
+  bench(({ engine, points }) => {
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, assistantMessageWithOp(1, "A", "append"));
+    engine.handle(SESSION, assistantMessage(1, "B", 1));
+    engine.handle(SESSION, {
+      type: "assistant/message",
+      data: {
+        turn: 1,
+        step: 2,
+        surfaceOp: "replace",
+        message: { role: "assistant", content: [{ type: "text", text: "C" }] },
+      },
+    });
+    engine.handle(SESSION, assistantMessage(1, "D", 3));
+    engine.handle(SESSION, turnEnd(1));
+    assert.deepEqual(
+      points.map(([, text]) => text),
+      ["A\nB\nD"],
+      "append / 缺省照常累积；data 内的 replace 同样丢弃",
+    );
+  });
+});
+
+test("P2 缓冲边界：空白串与换行串照常入缓冲（只跳过长度 0）", () => {
+  bench(({ engine, points }) => {
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, assistantMessage(1, "  ", 0));
+    engine.handle(SESSION, assistantMessage(1, "", 1));
+    engine.handle(SESSION, assistantMessage(1, "\n\n", 2));
+    engine.handle(SESSION, assistantMessage(1, "实体正文", 3));
+    engine.handle(SESSION, turnEnd(1));
+    assert.equal(points.length, 1);
+    assert.equal(points[0]![0], "assistant-text");
+    // 三段非空正文以 "\n" 连接: "  " + "\n" + "\n\n" + "\n" + "实体正文"
+    assert.equal(
+      points[0]![1],
+      "  \n\n\n\n实体正文",
+      "空串被跳过, 空白与换行按 step 顺序以 \\n 连接",
+    );
+  });
+});
+
+test("P2 缓冲边界：多 step 以 \\n 连接、跨回合按 turn 隔离", () => {
+  bench(({ engine, points }) => {
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, assistantMessage(1, "A1", 0));
+    engine.handle(SESSION, assistantMessage(1, "A2", 0)); // 同一 step 键再来一条 → 仍入列
+    engine.handle(SESSION, turnEnd(1));
+    engine.handle(SESSION, turnStart(2));
+    engine.handle(SESSION, assistantMessage(2, "B1", 0)); // 跨回合同 step 号
+    engine.handle(SESSION, turnEnd(2));
+    assert.deepEqual(
+      points.map(([, text]) => text),
+      ["A1\nA2", "B1"],
+      "上一回合正文不带入下一回合",
+    );
+  });
+});
+
+test("P2 缓冲边界：正文先到、消费者后注册 → 该回合不派发（现状）", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "buffer-needs-text-"));
+  const payloads: string[] = [];
+  try {
+    const engine = new RuleEngine({
+      baseline: [],
+      stateDir: dir,
+      injector: { inject: () => {} },
+      warn: () => {},
+    });
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, assistantMessage(1, "先到的正文"));
+    engine.registerConsumer({
+      id: "late",
+      sources: ["assistant-text"],
+      delivery: "followup",
+      dedupeInRecord: 0,
+      decide: (context: { text: string }) => {
+        payloads.push(context.text);
+        return null;
+      },
+    } satisfies ConsumerRegistration);
+    engine.handle(SESSION, turnEnd(1));
+    assert.deepEqual(
+      payloads,
+      [""],
+      "现状: 正文到达时 #needsText 为假 → 未缓冲, 收尾仍唤醒消费者但载荷为空串",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("P2 缓冲边界（bookkeep 清零点）：缺 turn/start 时只有第 1 个回合会唤醒", () => {
+  // 对齐 flag 的 endFired 只由 *-start 节点清（`#bookkeepStart`）; 宿主每回合必发 turn/start,
+  // 省略它则 endFired 常驻 → 后续回合的 turn/end 被当作「重复」吞掉。本用例固定这一依赖。
+  bench(({ engine, points }) => {
+    engine.handle(SESSION, turnStart(1)); // 仅第 1 回合有清零点
+    engine.handle(SESSION, assistantMessage(1, "A"));
+    engine.handle(SESSION, turnEnd(1));
+    engine.handle(SESSION, assistantMessage(2, "B"));
+    engine.handle(SESSION, turnEnd(2));
+    assert.deepEqual(
+      points.map(([, text]) => text),
+      ["A"],
+      "现状: 缺 turn/start 时第 2 个回合不唤醒（宿主必须每回合发 turn/start）",
+    );
+  });
+});
+
+test("P2 缓冲边界：有消费者时缓冲生效（对照上一用例）", () => {
+  bench(({ engine, points }) => {
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, assistantMessage(1, "正文"));
+    engine.handle(SESSION, turnEnd(1));
+    assert.deepEqual(
+      points.map(([, text]) => text),
+      ["正文"],
+    );
+  });
+});
