@@ -1,0 +1,34 @@
+{
+    "name": "@dsh-toolset/herdr-pane",
+    "version": "0.1.0",
+    "description": "DSH (DeepSeek Harness) 进程内集成插件：把 herdr 的 pane 当作可控伪终端层（建 pane / 注入文本与按键 / 取屏 / 等输出 / 进程探活 / 关闭），驱动需要屏幕状态与按键时序的交互式命令",
+    "type": "module",
+    "main": "dist/src/index.js",
+    "types": "./dist/src/index.d.ts",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "check": "tsc -p tsconfig.json --noEmit",
+        "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+        "verify": "node scripts/verify-herdr-pane.mjs",
+        "watch": "tsc -p tsconfig.json --watch"
+    },
+    "dependencies": {},
+    "devDependencies": {
+        "@types/node": "^24.13.3",
+        "typescript": "^5.9.3"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml"
+    ],
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    }
+}
