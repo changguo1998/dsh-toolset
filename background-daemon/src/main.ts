@@ -23,7 +23,15 @@ import {
   type SessionsLike,
 } from "./deliver.ts";
 import { makeCommandGuard } from "./guard.ts";
-import { Journal, DEFAULT_JOURNAL_LIMIT } from "./journal.ts";
+import { Journal, DEFAULT_JOURNAL_LIMIT, type RunSink } from "./journal.ts";
+import {
+  createRunSink,
+  loadTasks,
+  MemoryTaskMirror,
+  registerDaemonKinds,
+  type MemoryServiceLike,
+  type RecordsBackend,
+} from "./records.ts";
 import {
   ChannelRegistry,
   Scheduler,
@@ -83,6 +91,12 @@ export interface DaemonRuntime {
   service: BackgroundDaemonService;
   storePath: string;
   journalPath: string;
+  /** 记录底座：`memory` = memory-base 注册 kind；`json` = 本地快照降级。 */
+  backend: RecordsBackend;
+  /** 任务写透镜像（`backend: "json"` 时为 null）。 */
+  mirror: MemoryTaskMirror | null;
+  /** 启动时被隔离的坏行数（memory 底座才有意义）。 */
+  rejectedRows: number;
   dispose(): Promise<void>;
 }
 
@@ -116,25 +130,71 @@ export function resolveJournalPath(config: DaemonConfig = {}): string {
 /**
  * 组装一条完整的守护链路（不注册命令 / 工具 / 服务；`apply` 与测试共用）。
  *
+ * 记录底座（设计 D19）：`memory` 服务可用 → 注册 `daemon_task` / `daemon_run` 两个 kind，
+ * 任务表从 memory-base 读出并接管、每次变更写一条修订行、流水逐条入库（可搜索）；
+ * 否则降级到本地 JSON 快照与 JSONL（`backend: "json"`）。
+ *
  * @param ctx 宿主 ctx（结构面读取服务；可为 fake）
  * @param clock 时钟注入（测试用；缺省 `Date.now`）
  * @param warn 告警输出
  */
-export function createDaemonRuntime(
+export async function createDaemonRuntime(
   ctx: unknown,
   config: DaemonConfig = {},
   clock: () => number = Date.now,
   warn: (message: string) => void = (message) =>
     process.stderr.write(`[background-daemon] warn: ${message}\n`),
-): DaemonRuntime {
+): Promise<DaemonRuntime> {
   const storePath = resolveStorePath(config);
   const journalPath = resolveJournalPath(config);
   const store = new TaskStore(storePath, clock);
+  // JSON 快照：memory-base 缺席时的降级后端, 也是首次迁移的导入源
+  const snapshot = store.load();
+
+  const memory = readService<MemoryServiceLike>(ctx, "memory");
+  let backend: RecordsBackend = "json";
+  let mirror: MemoryTaskMirror | null = null;
+  let sink: RunSink | undefined;
+  let rejectedRows = 0;
+
+  if (memory !== undefined && typeof memory.registerKind === "function") {
+    try {
+      const kinds = registerDaemonKinds(memory);
+      const loaded = await loadTasks(memory, kinds.task, { warn });
+      rejectedRows = loaded.rejected.length;
+      mirror = new MemoryTaskMirror(kinds.task, {
+        revisions: loaded.revisions,
+        warn,
+        now: clock,
+      });
+      sink = createRunSink(kinds.run, { warn, now: clock });
+      store.attachMirror(mirror);
+      if (loaded.tasks.length > 0) {
+        store.adopt(loaded.tasks);
+      } else if (snapshot.ok && snapshot.tasks.length > 0) {
+        // 首次迁移：把 JSON 快照导入 memory-base（之后 JSON 只作历史）
+        store.adopt(snapshot.tasks);
+        for (const task of snapshot.tasks) mirror.save(task);
+        warn(`已把 ${snapshot.tasks.length} 条 JSON 任务导入 memory-base`);
+      } else {
+        store.adopt([]);
+      }
+      store.disableSnapshot();
+      backend = "memory";
+    } catch (err) {
+      warn(`memory-base 记录底座不可用（降级 JSON 快照）：${String(err)}`);
+      mirror = null;
+      sink = undefined;
+      rejectedRows = 0;
+    }
+  }
+
   const journal = new Journal(journalPath, {
     ...(config.journalLimit === undefined
       ? {}
       : { limit: config.journalLimit }),
     onWarn: warn,
+    ...(sink === undefined ? {} : { sink }),
   });
   journal.load();
 
@@ -179,9 +239,18 @@ export function createDaemonRuntime(
     ...(config.maxDelayMs === undefined
       ? {}
       : { maxDelayMs: config.maxDelayMs }),
+    // memory 底座已在上面读出并接管, 不让调度器再覆盖一遍
+    ...(backend === "memory" ? { loadStore: false } : {}),
   });
 
-  const service = createDaemonService({ store, journal, scheduler, channels });
+  const service = createDaemonService({
+    store,
+    journal,
+    scheduler,
+    channels,
+    records: backend,
+    rejectedRows,
+  });
 
   let disposed = false;
   return {
@@ -192,20 +261,27 @@ export function createDaemonRuntime(
     service,
     storePath,
     journalPath,
+    backend,
+    mirror,
+    rejectedRows,
     async dispose() {
       if (disposed) return;
       disposed = true;
       await scheduler.stop();
+      await mirror?.settle();
     },
   };
 }
 
-/** DSH 宿主按 bundle 契约调用：装载、注册、启动。 */
-export function apply(ctx: unknown, config: DaemonConfig = {}): DaemonRuntime {
+/** DSH 宿主按 bundle 契约调用：装载、注册、启动（memory-base 记录底座是异步读的, 故 apply 异步）。 */
+export async function apply(
+  ctx: unknown,
+  config: DaemonConfig = {},
+): Promise<DaemonRuntime> {
   const warn = (message: string): void => {
     process.stderr.write(`[background-daemon] warn: ${message}\n`);
   };
-  const runtime = createDaemonRuntime(ctx, config, Date.now, warn);
+  const runtime = await createDaemonRuntime(ctx, config, Date.now, warn);
   const host = (ctx ?? {}) as BundleHost;
 
   // 只读服务面（TUI 与将来的状态列块经 ctx.get('backgroundDaemon') 读取）
@@ -266,7 +342,8 @@ export function apply(ctx: unknown, config: DaemonConfig = {}): DaemonRuntime {
   if (status.running) {
     process.stderr.write(
       `[background-daemon] 已启动（任务 ${runtime.store.list().length} 个，` +
-        `store=${runtime.storePath}，journal=${runtime.journalPath}）\n`,
+        `backend=${runtime.backend}，store=${runtime.storePath}，` +
+        `journal=${runtime.journalPath}）\n`,
     );
   }
 

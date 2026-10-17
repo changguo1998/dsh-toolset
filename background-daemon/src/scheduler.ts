@@ -78,6 +78,11 @@ export interface SchedulerOptions {
   catchUpWindowMs?: number;
   /** 目标未活跃时等多久（缺省 0 = 立即 skipped）。 */
   awaitAgentMs?: number;
+  /**
+   * `start()` 是否自己加载任务表（缺省 true）。
+   * memory-base 作权威底座时由装配层先读出并 `adopt`, 这里置 false 以免覆盖。
+   */
+  loadStore?: boolean;
 }
 
 export interface SchedulerStatus {
@@ -146,11 +151,13 @@ export class Scheduler {
 
   /** 启动：加载任务表 → 补算到期 → 排 timer。store 不可用则不启用（不抛）。 */
   start(): SchedulerStatus {
-    const loaded = this.#options.store.load();
-    if (!loaded.ok) {
-      this.#running = false;
-      this.#warn(`任务表面不可用（守护不启用）：${loaded.error}`);
-      return this.status();
+    if (this.#options.loadStore !== false) {
+      const loaded = this.#options.store.load();
+      if (!loaded.ok) {
+        this.#running = false;
+        this.#warn(`任务表面不可用（守护不启用）：${loaded.error}`);
+        return this.status();
+      }
     }
     this.#running = true;
     // 启动补算：到期的任务立即处理（周期只补最近一次, 一次性超窗转 missed）
@@ -462,6 +469,7 @@ export class Scheduler {
     }
     this.#options.journal.append({
       taskId: task.id,
+      tier: task.tier,
       at: now,
       sessionId: task.sessionId,
       mode: task.mode,
@@ -506,6 +514,7 @@ export class Scheduler {
   #applyMissed(task: DaemonTask, reason: string, now: number): void {
     this.#options.journal.append({
       taskId: task.id,
+      tier: task.tier,
       at: now,
       sessionId: task.sessionId,
       mode: task.mode,

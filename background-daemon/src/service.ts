@@ -6,6 +6,7 @@
  */
 
 import type { Journal } from "./journal.ts";
+import type { RecordsBackend } from "./records.ts";
 import type { Scheduler, SchedulerStatus } from "./scheduler.ts";
 import type { TaskStore } from "./store.ts";
 import type { DaemonTask, RunRecord, TaskMode } from "./types.ts";
@@ -14,6 +15,10 @@ import type { DaemonTask, RunRecord, TaskMode } from "./types.ts";
 export interface DaemonStatusView extends SchedulerStatus {
   storeFile: string;
   journalFile: string;
+  /** 记录底座（`memory` = memory-base 注册 kind；`json` = 本地快照降级）。 */
+  records: RecordsBackend;
+  /** 启动时被隔离的坏行数（`records: "json"` 恒 0）。 */
+  rejectedRows: number;
   /** 已注册渠道（`deliver` / `command`）。 */
   channels: TaskMode[];
   taskCount: number;
@@ -35,6 +40,9 @@ export interface DaemonServiceDeps {
   journal: Journal;
   scheduler: Scheduler;
   channels: { list(): { mode: TaskMode }[] };
+  /** 记录底座（缺省 `json`，与降级口径一致）。 */
+  records?: RecordsBackend;
+  rejectedRows?: number;
 }
 
 export function createDaemonService(
@@ -46,6 +54,8 @@ export function createDaemonService(
       ...deps.scheduler.status(),
       storeFile: deps.store.file,
       journalFile: deps.journal.file,
+      records: deps.records ?? "json",
+      rejectedRows: deps.rejectedRows ?? 0,
       channels: deps.channels.list().map((channel) => channel.mode),
       taskCount: deps.store.list().length,
       journalCount: deps.journal.tail(Number.MAX_SAFE_INTEGER).length,

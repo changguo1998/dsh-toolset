@@ -166,3 +166,25 @@ test("limit 非法（0 / NaN）回落缺省", () => {
     );
   });
 });
+
+test("sink：每条流水外送一次；外送抛错不影响本地账本", () => {
+  withTmpDir((dir) => {
+    const delivered: number[] = [];
+    const journal = new Journal(path.join(dir, "journal.jsonl"), {
+      sink: (record) => delivered.push(record.at),
+    });
+    journal.load();
+    journal.append(record(0));
+    journal.append(record(1));
+    assert.deepEqual(delivered, [1_000, 1_001]);
+
+    const failing = new Journal(path.join(dir, "journal2.jsonl"), {
+      sink: () => {
+        throw new Error("sink 炸了");
+      },
+    });
+    failing.load();
+    assert.doesNotThrow(() => failing.append(record(2)));
+    assert.equal(failing.tail(5).length, 1);
+  });
+});

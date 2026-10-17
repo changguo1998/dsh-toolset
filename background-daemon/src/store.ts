@@ -8,10 +8,10 @@
  * - 所有写操作是同步方法：单线程事件循环内每次读-改-写天然串行（设计 §A 时序口径 5
  *   的「单一 FIFO」在这里由同步方法承担, 不需要额外的队列）。
  *
- * 记录底座说明：设计裁定（D19）最终底座是 `memory-base` 的注册 kind, 但其配套改动
- * （直写通道 / durable 免淘汰 / 行级校验 / 变更事件）归 memory-base 模块、尚未落地。
- * 本模块因此先按 D8 的 JSON 路实现, 并把接口收窄成「读写整表」——换成 memory-base
- * 后端时只替换本文件。
+ * 记录底座（设计 D19）：权威记录落 `memory-base` 的注册 kind（`daemon_task`，见
+ * `records.ts`）——本类只保留**内存镜像 + JSON 快照**：JSON 是 memory-base 未挂载时的
+ * 降级后端，也是首次迁移的导入源；`memory` 可用时由 `TaskMirror` 逐次写透
+ * （追加式修订行，读侧取最新一条）。因此本类的同步方法签名不变（调度器不受影响）。
  */
 
 import { randomUUID } from "node:crypto";
@@ -51,7 +51,7 @@ export type TaskStoreLoadResult =
   { ok: true; tasks: DaemonTask[] } | { ok: false; error: string };
 
 /** 已存记录的逐条校验（非法即整表拒绝启用）。 */
-function validateRecord(raw: unknown): DaemonTask {
+export function validateDaemonTask(raw: unknown): DaemonTask {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error("记录不是对象");
   }
@@ -130,16 +130,44 @@ function validateRecord(raw: unknown): DaemonTask {
   };
 }
 
+/**
+ * 写透镜像（memory-base 记录底座; 缺省不接）。
+ *
+ * 方法必须**不抛**且**不阻塞**调用方：TaskStore 是同步面, 镜像内部按任务串成 FIFO,
+ * 失败只累计到 `failures`（与「不重试、只记账」的口径一致）。
+ */
+export interface TaskMirror {
+  save(task: DaemonTask): void;
+  remove(task: DaemonTask): void;
+}
+
 /** 任务表（内存镜像 + 落盘）。 */
 export class TaskStore {
   readonly #file: string;
   readonly #now: () => number;
   readonly #tasks = new Map<string, DaemonTask>();
+  #mirror: TaskMirror | null = null;
+  #snapshot = true;
   #error: string | null = null;
 
   constructor(file: string, now: () => number = Date.now) {
     this.#file = file;
     this.#now = now;
+  }
+
+  /** 接上写透镜像（memory-base 可用时调用；传 null 摘掉）。 */
+  attachMirror(mirror: TaskMirror | null): void {
+    this.#mirror = mirror;
+  }
+
+  /**
+   * 关掉 JSON 快照（memory-base 作权威底座时调用）。
+   *
+   * 此时 JSON 既不是权威记录也不是迁移源, 继续每次写盘只会在只读 HOME 等场景
+   * 引入无关失败。
+   */
+  disableSnapshot(): void {
+    this.#snapshot = false;
   }
 
   /** 落盘路径（`/daemon` 与告警文案用）。 */
@@ -192,7 +220,7 @@ export class TaskStore {
     const loaded: DaemonTask[] = [];
     for (const raw of rawTasks) {
       try {
-        loaded.push(validateRecord(raw));
+        loaded.push(validateDaemonTask(raw));
       } catch (err) {
         const error = `任务表记录非法：${this.#file} — ${
           err instanceof Error ? err.message : String(err)
@@ -204,6 +232,18 @@ export class TaskStore {
     }
     for (const task of loaded) this.#tasks.set(task.id, task);
     return { ok: true, tasks: this.list() };
+  }
+
+  /**
+   * 接管一批已从别的底座（memory-base）读出的任务。
+   *
+   * 不落盘, 也不校验两次（调用方负责校验）; 会清掉 JSON 侧的不可用状态——此时
+   * 权威记录不在这份 JSON 上。
+   */
+  adopt(tasks: readonly DaemonTask[]): void {
+    this.#tasks.clear();
+    for (const task of tasks) this.#tasks.set(task.id, { ...task });
+    this.#error = null;
   }
 
   /** 任务列表（按下次触发升序, `next` 为 null 的排最后；同序按创建时刻）。 */
@@ -247,6 +287,7 @@ export class TaskStore {
     };
     this.#tasks.set(task.id, task);
     this.#persist();
+    this.#mirror?.save({ ...task });
     return { ...task };
   }
 
@@ -258,6 +299,7 @@ export class TaskStore {
     }
     this.#tasks.set(task.id, { ...task });
     this.#persist();
+    this.#mirror?.save({ ...task });
     return { ...task };
   }
 
@@ -269,14 +311,18 @@ export class TaskStore {
     const next: DaemonTask = { ...current, ...patch, id };
     this.#tasks.set(id, next);
     this.#persist();
+    this.#mirror?.save({ ...next });
     return { ...next };
   }
 
   /** 删除一条任务；返回是否真的删掉了。 */
   remove(id: string): boolean {
     this.#assertAvailable();
-    if (!this.#tasks.delete(id)) return false;
+    const existing = this.#tasks.get(id);
+    if (existing === undefined) return false;
+    this.#tasks.delete(id);
     this.#persist();
+    this.#mirror?.remove(existing);
     return true;
   }
 
@@ -286,6 +332,7 @@ export class TaskStore {
 
   /** 原子写整表（tmp + rename）。 */
   #persist(): void {
+    if (!this.#snapshot) return;
     const directory = path.dirname(this.#file);
     mkdirSync(directory, { recursive: true });
     const payload = JSON.stringify(

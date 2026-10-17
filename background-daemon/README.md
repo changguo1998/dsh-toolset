@@ -76,9 +76,17 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
 - **安全边界**：投递是 user 消息，后续工具调用照常受 `security-guard` 与 approval / sandbox 策略约束；本插件**不降级**任何策略、不自动批准、不绕过审批。命令类任务属「命令来自状态文件」一侧 → 引擎侧复查（`guardScope: engine-side`）；复查不可用时 fail-open 但结果标 `guardSkipped`。
 - **单 timer**：任何时刻至多一个待触发定时器；长延迟分段（缺省 24 h）；检测到墙钟回拨按当前时钟重算周期任务的 `next`。
 
-## 记录底座的现状（过渡态）
+## 记录底座（memory-base 冻结接口）
 
-设计裁定（D19）记录底座最终是仓内 `memory-base` 的注册 kind（任务与流水都入库、流水可搜索）。其配套改动（直写通道 / durable 免淘汰 / 行级校验 / 变更事件）归 `memory-base` 模块、**尚未落地**，因此本包先按 D8 的 JSON 路实现：任务表 `store.ts`、流水 `journal.ts`。换底座时只替换这两个文件，接口（读写整表 + 有界追加）保持不变。
+记录底座按设计 D19 落 `memory-base`，接口按 2026-10-17 冻结版实现（`memory-base/docs/implementation/2026-10-17-slim-and-storage-surfaces.md`）：
+
+- 注册两个 kind：`daemon_task`（任务）与 `daemon_run`（运行流水），可写层声明为 `session` / `project` / `user` 三层全集；任务分档 `S / P / U` 映射到这三层。
+- 任务：memory-base 没有 update 面，因此每次状态变更写一条**追加式修订行**（content 是任务快照 JSON，带 `syncedAt` 避免 `content_hash` 去重吃掉重复快照）；启动时 `list({kind})` 读出全部行，按 `(createdAt, id)` 取最新一条为当前状态；删除走 `scope.forget({tier, ids})`。
+- 流水：每条写一行 `daemon_run`，因此进入全文检索（「流水可搜索」）。
+- 写侧隔离：`scope.put` 的越权层会抛错、内容级闸门（隐私 / `preWrite`）走 `PutResult.skipped`；两者都只记入镜像的 `failures` 并告警，**不重试**。
+- 坏行（解码失败 / 行层与任务分档不符）在启动时被**隔离**（不加载、逐条告警），行仍留在库里，由用户决定是否清理。
+
+**降级链**：`ctx.get("memory")` 缺失或注册 / 读取失败 → 退回本地 JSON 快照（`tasks.json`）与 JSONL 流水，`ctx.get("backgroundDaemon").status().records` 报 `"json"`；memory 可用时报 `"memory"` 并关闭 JSON 快照写入。首次启用 memory 底座时，若库里没有任务行而已有 JSON 快照，会把快照一次性导入（导入条数写日志）。
 
 ## 测试
 
@@ -87,6 +95,6 @@ npm --prefix background-daemon run check   # tsc --noEmit
 npm --prefix background-daemon test        # node --test（假时钟 / 假 timer / 假渠道）
 ```
 
-单测覆盖：选择器与 DST、补发口径、任务表损坏拒启、流水有界轮转、两条渠道（含 flush 失败与复查拦截）、调度器（单 timer / 分段 / 同批合并 / skipped / 回拨 / 不重试 / stop）、`/daemon` 六个子命令、只读服务面、模型侧工具、`apply` 装配与降级。
+单测覆盖：选择器与 DST、补发口径、任务表损坏拒启、流水有界轮转、两条渠道（含 flush 失败与复查拦截）、调度器（单 timer / 分段 / 同批合并 / skipped / 回拨 / 不重试 / stop）、`/daemon` 六个子命令、只读服务面、模型侧工具、`apply` 装配与降级、记录底座（假 memory-base：kind 注册 / 取最新修订 / 坏行隔离 / 写透 / 删除 / 流水外送）。
 
 真机验证（`dsh --profile fff`）属实现条目的独立一步，尚未在本包完成。

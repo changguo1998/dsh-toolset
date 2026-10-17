@@ -22,11 +22,16 @@ import type { RunRecord } from "./types.ts";
 /** 流水条数上限缺省值（与宿主 `schedule` 的 200 条对齐）。 */
 export const DEFAULT_JOURNAL_LIMIT = 200;
 
+/** 流水外送口（memory-base 作可搜索流水时的写透; 必须不抛）。 */
+export type RunSink = (record: RunRecord) => void;
+
 export interface JournalOptions {
   /** 条数上限（正整数; 非正 / 非有限取 200）。 */
   limit?: number;
   /** 坏行告警（缺省不输出）。 */
   onWarn?: (message: string) => void;
+  /** 外送口（memory-base 的 `daemon_run` kind; 缺省不外送）。 */
+  sink?: RunSink;
 }
 
 /** 运行流水（内存镜像 + JSONL 落盘）。 */
@@ -34,6 +39,7 @@ export class Journal {
   readonly #file: string;
   readonly #limit: number;
   readonly #onWarn: ((message: string) => void) | undefined;
+  readonly #sink: RunSink | undefined;
   readonly #records: RunRecord[] = [];
   #currentLines = 0;
 
@@ -45,6 +51,7 @@ export class Journal {
         ? Math.floor(limit)
         : DEFAULT_JOURNAL_LIMIT;
     this.#onWarn = options.onWarn;
+    this.#sink = options.sink;
   }
 
   get file(): string {
@@ -92,6 +99,12 @@ export class Journal {
     this.#currentLines += 1;
     this.#records.push(record);
     this.#trim();
+    // 外送口自己保证不抛；这里再兜一层, 不让流水入库失败影响本地账本
+    try {
+      this.#sink?.(record);
+    } catch (err) {
+      this.#onWarn?.(`流水外送失败（已忽略）：${String(err)}`);
+    }
   }
 
   /** 最近 n 条（可按任务 id 过滤; 时间正序返回）。 */
@@ -140,8 +153,12 @@ function parseRecord(line: string): RunRecord | null {
   }
   if (typeof record["outcome"] !== "string") return null;
   if (typeof record["durationMs"] !== "number") return null;
+  const rawTier = record["tier"];
+  const tier =
+    rawTier === "S" || rawTier === "P" || rawTier === "U" ? rawTier : undefined;
   return {
     taskId: record["taskId"],
+    ...(tier === undefined ? {} : { tier }),
     at: record["at"],
     sessionId:
       typeof record["sessionId"] === "string" ? record["sessionId"] : "",

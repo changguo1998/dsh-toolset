@@ -50,6 +50,8 @@ export interface DaemonTask {
 /** 一条运行流水（有界 JSONL）。 */
 export interface RunRecord {
   taskId: string;
+  /** 任务分档（memory-base 的层由它映射；缺省按 S = session 层处理）。 */
+  tier?: TaskTier;
   /** 触发时刻（毫秒）。 */
   at: number;
   sessionId: string;

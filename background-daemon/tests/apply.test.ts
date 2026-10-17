@@ -21,6 +21,8 @@ import type {
 } from "../src/types.ts";
 import { FakeTimer } from "./harness.ts";
 
+const NOW = Date.UTC(2026, 9, 20, 8, 0, 0);
+
 const dirs: string[] = [];
 after(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
@@ -84,7 +86,7 @@ function fakeContext(
 test("apply：注册服务面 / 命令 / 工具并启动调度", async () => {
   const dir = tempDir();
   const fake = fakeContext();
-  const runtime = apply(fake.ctx, {
+  const runtime = await apply(fake.ctx, {
     storePath: path.join(dir, "tasks.json"),
     journalPath: path.join(dir, "journal.jsonl"),
     defaultSessionId: "sess-1",
@@ -103,7 +105,7 @@ test("apply：任务表损坏 → 面不启用但命令面仍注册（错误可�
   const storePath = path.join(dir, "tasks.json");
   writeFileSync(storePath, "{ 半截", "utf8");
   const fake = fakeContext();
-  const runtime = apply(fake.ctx, {
+  const runtime = await apply(fake.ctx, {
     storePath,
     journalPath: path.join(dir, "journal.jsonl"),
   });
@@ -123,7 +125,7 @@ test("apply：commands / tools 缺失 → 降级告警, 不抛", async () => {
     return true;
   };
   try {
-    const runtime = apply(fake.ctx, {
+    const runtime = await apply(fake.ctx, {
       storePath: path.join(dir, "tasks.json"),
       journalPath: path.join(dir, "journal.jsonl"),
     });
@@ -145,7 +147,7 @@ test("createDaemonRuntime：注入时钟, 到期即投递", async () => {
     session: { id: "sess-1" },
     followup: () => {},
   };
-  const runtime = createDaemonRuntime(
+  const runtime = await createDaemonRuntime(
     {
       get: (serviceName: string) =>
         serviceName === "agents"
@@ -212,7 +214,7 @@ test("路径解析：config 优先, 环境变量兜底, 缺省落 DSH_HOME", () 
 test("工具注册：缺省 defaultSessionId 时 create 报 missing_session", async () => {
   const dir = tempDir();
   const fake = fakeContext();
-  const runtime = apply(fake.ctx, {
+  const runtime = await apply(fake.ctx, {
     storePath: path.join(dir, "tasks.json"),
     journalPath: path.join(dir, "journal.jsonl"),
   });
@@ -233,7 +235,7 @@ test("工具注册：缺省 defaultSessionId 时 create 报 missing_session", as
 
 test("dispose 幂等：重复调用不抛", async () => {
   const dir = tempDir();
-  const runtime = createDaemonRuntime(
+  const runtime = await createDaemonRuntime(
     {},
     {
       storePath: path.join(dir, "tasks.json"),
@@ -251,4 +253,146 @@ test("dispose 幂等：重复调用不抛", async () => {
 test("渠道结果类型在装配里被使用（防未使用导出漂移）", () => {
   const result: ChannelResult = { ok: true, durable: true };
   assert.equal(result.ok, true);
+});
+
+/** 极简假 memory-base：够跑通「注册 → 读 → 写透 → 流水入库」这条链。 */
+class FakeMemory {
+  readonly rows: {
+    id: number;
+    kind: string;
+    tier: "session" | "project" | "user";
+    project: string;
+    title: string | null;
+    content: string;
+    importance: number;
+    sourceId: number | null;
+    sessionId: string | null;
+    createdAt: number;
+  }[] = [];
+  readonly specs: { kind: string }[] = [];
+  nextId = 1;
+  clock = { value: Date.UTC(2026, 9, 20, 8, 0, 0) };
+
+  registerKind(spec: { kind: string }) {
+    this.specs.push(spec);
+    const memory = this;
+    return {
+      kind: spec.kind,
+      writableTiers: ["session", "project", "user"] as const,
+      async put(input: {
+        content: string;
+        tier?: "session" | "project" | "user";
+        title?: string;
+        importance?: number;
+        sessionId?: string;
+      }) {
+        const tier = input.tier ?? "session";
+        const id = memory.nextId;
+        memory.nextId += 1;
+        memory.rows.push({
+          id,
+          kind: spec.kind,
+          tier,
+          project: "",
+          title: input.title ?? null,
+          content: input.content,
+          importance: input.importance ?? 3,
+          sourceId: 1,
+          sessionId: input.sessionId ?? null,
+          createdAt: memory.clock.value,
+        });
+        return { ids: [id], sourceId: 1, created: 1 };
+      },
+      async forget() {
+        return 0;
+      },
+    };
+  }
+
+  async list(opts: {
+    kind?: string;
+    tier?: "session" | "project" | "user";
+    limit?: number;
+    offset?: number;
+  } = {}) {
+    const filtered = this.rows
+      .filter((row) => opts.kind === undefined || row.kind === opts.kind)
+      .filter((row) => opts.tier === undefined || row.tier === opts.tier)
+      .sort((left, right) => left.id - right.id);
+    const offset = opts.offset ?? 0;
+    const limit = opts.limit ?? filtered.length;
+    return filtered.slice(offset, offset + limit);
+  }
+}
+
+test("apply：memory-base 可用 → 记录底座为 memory, 任务从库里读出", async () => {
+  const dir = tempDir();
+  const fake = fakeContext();
+  const memory = new FakeMemory();
+  const seededTask = {
+    id: "d-seed01",
+    tier: "S" as const,
+    mode: "deliver" as const,
+    selector: { kind: "every_seconds" as const, seconds: 60 },
+    payload: "库里的任务",
+    sessionId: "sess-1",
+    status: "active" as const,
+    createdAt: NOW,
+    next: NOW + 60_000,
+    lastFireAt: null,
+    lastOutcome: null,
+    lastError: null,
+  };
+  memory.rows.push({
+    id: 1,
+    kind: "daemon_task",
+    tier: "session",
+    project: "",
+    title: seededTask.id,
+    content: JSON.stringify({ task: seededTask, syncedAt: NOW }),
+    importance: 3,
+    sourceId: 1,
+    sessionId: "sess-1",
+    createdAt: NOW,
+  });
+  memory.nextId = 2;
+  const withMemory: Record<string, unknown> = {
+    ...(fake.ctx as Record<string, unknown>),
+    get: (serviceName: string) =>
+      serviceName === "memory" ? memory : (fake.ctx["get"] as (name: string) => unknown)(serviceName),
+  };
+  const runtime = await apply(withMemory, {
+    storePath: path.join(dir, "tasks.json"),
+    journalPath: path.join(dir, "journal.jsonl"),
+    defaultSessionId: "sess-1",
+  });
+  assert.equal(runtime.backend, "memory");
+  assert.deepEqual(memory.specs.map((spec) => spec.kind), [
+    "daemon_task",
+    "daemon_run",
+  ]);
+  assert.equal(runtime.store.list().length, 1);
+  assert.equal(runtime.store.list()[0]?.id, seededTask.id);
+  // 新任务写透：多一行 daemon_task 修订
+  const created = runtime.store.create({
+    mode: "deliver",
+    sessionId: "sess-1",
+    payload: "新任务",
+    selector: { kind: "every_seconds", seconds: 120 },
+  });
+  await runtime.mirror?.settle();
+  assert.ok(memory.rows.some((row) => row.kind === "daemon_task" && row.title === created.id));
+  await runtime.dispose();
+});
+
+test("apply：memory-base 不可用 → 降级 json, 不注册 kind", async () => {
+  const dir = tempDir();
+  const fake = fakeContext();
+  const runtime = await apply(fake.ctx, {
+    storePath: path.join(dir, "tasks.json"),
+    journalPath: path.join(dir, "journal.jsonl"),
+  });
+  assert.equal(runtime.backend, "json");
+  assert.equal(runtime.mirror, null);
+  await runtime.dispose();
 });

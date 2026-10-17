@@ -15,7 +15,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { TASK_STORE_VERSION, TaskStore } from "../src/store.ts";
+import {
+  TASK_STORE_VERSION,
+  TaskStore,
+  type TaskMirror,
+} from "../src/store.ts";
 import type { Selector } from "../src/selectors.ts";
 
 const NOW = Date.UTC(2026, 9, 20, 8, 0, 0);
@@ -239,5 +243,75 @@ test("记录分档：tier 缺省 S, 可指定 P / U", () => {
     });
     assert.equal(task.tier, "U");
     assert.equal(task.mode, "command");
+  });
+});
+
+test("镜像：create / update / remove 各触发一次写透, remove 带上原任务", () => {
+  withTmpDir((dir) => {
+    const saved: string[] = [];
+    const removed: string[] = [];
+    const mirror: TaskMirror = {
+      save: (task) => saved.push(`${task.id}:${task.status}:${task.next}`),
+      remove: (task) => removed.push(task.id),
+    };
+    const store = newStore(dir);
+    store.load();
+    store.attachMirror(mirror);
+    const created = store.create({
+      mode: "deliver",
+      selector: DELIVER_ONCE,
+      payload: "镜像",
+      sessionId: "s",
+    });
+    store.update(created.id, { status: "paused" });
+    store.remove(created.id);
+    assert.equal(saved.length, 2);
+    assert.match(saved[0] ?? "", new RegExp(`^${created.id}:active`));
+    assert.match(saved[1] ?? "", new RegExp(`^${created.id}:paused`));
+    assert.deepEqual(removed, [created.id]);
+  });
+});
+
+test("adopt：接管 memory-base 读出的任务, 并清掉 JSON 侧错误", () => {
+  withTmpDir((dir) => {
+    const file = fileIn(dir);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, "{ 半截", "utf8");
+    const store = newStore(dir);
+    assert.equal(store.load().ok, false);
+    assert.equal(store.available, false);
+
+    const adopted = {
+      id: "d-adopt",
+      tier: "S" as const,
+      mode: "deliver" as const,
+      selector: { kind: "after_seconds" as const, seconds: 60 },
+      payload: "接管",
+      sessionId: "s",
+      status: "active" as const,
+      createdAt: NOW,
+      next: NOW + 60_000,
+      lastFireAt: null,
+      lastOutcome: null,
+      lastError: null,
+    };
+    store.adopt([adopted]);
+    assert.equal(store.available, true);
+    assert.deepEqual(store.list().map((task) => task.id), ["d-adopt"]);
+  });
+});
+
+test("disableSnapshot：关掉快照后不再写盘", () => {
+  withTmpDir((dir) => {
+    const store = newStore(dir);
+    store.load();
+    store.disableSnapshot();
+    store.create({
+      mode: "deliver",
+      selector: DELIVER_ONCE,
+      payload: "不落盘",
+      sessionId: "s",
+    });
+    assert.equal(existsSync(fileIn(dir)), false);
   });
 });
