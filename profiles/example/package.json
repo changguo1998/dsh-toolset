@@ -3,6 +3,7 @@
   "private": true,
   "dependencies": {
     "@dsh-toolset/tui": "link:/path/to/dsh-toolset/TUI",
+    "@dsh-toolset/session-paths": "link:/path/to/dsh-toolset/session-paths",
     "@dsh-toolset/memory-base": "link:/path/to/dsh-toolset/memory-base",
     "@dsh-toolset/security-guard": "link:/path/to/dsh-toolset/security-guard"
   },
@@ -11,6 +12,7 @@
       "bundles": [
         "@deepseek-ai/dsh-base",
         "@dsh-toolset/tui",
+        "@dsh-toolset/session-paths",
         "@dsh-toolset/memory-base",
         "@dsh-toolset/security-guard"
       ]
