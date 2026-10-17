@@ -114,7 +114,7 @@
 | 2 | 修正 `docs/BACKLOG.md` §5 对 herdr pane 外部问题取证位置的指向 | 0 | 5 分钟 | 无 |
 | 3 | 核正条目 5（Docker 交互插件）的〔进行中〕标记 | 0 | 5 分钟 | 无 |
 | 4 | 新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用 | 0 | 0.5 天 | 无 |
-| 5 | session-channel「补群组编排（agent-group）所需的传输面：服务面核对 + 别名持久性」+ 缺陷「自动别名分配在词表耗尽后静默失效」 | 0 | 0.5 至 1 天 | 无 |
+| 5 | session-channel「补群组编排（agent-group）所需的传输面：服务面核对 + 别名持久性」+ 缺陷「自动别名分配在词表耗尽后静默失效」+ 缺陷「工具返回体含 `undefined` 字段, 触发宿主 `INVALID_TOOL_OUTPUT`（`send` 与 `status` 必现）」 | 0 | 0.5 至 1 天 | 无 |
 | 6 | 脚本语言解释器插件（bash / python 等） | 0 | 1 至 1.5 天 | 无 |
 | 7 | 基于 herdr 的交互式命令扩展（herdr pane 读写） | 0 | 2.5 天 | 无 |
 | 8 | security-guard「登记两个新插件工具的命令参数面（`script_run` / `herdr_pane`）」 | 1 | 0.5 小时 | 6、7 |

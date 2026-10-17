@@ -1,4 +1,4 @@
-# 群组编排所需的传输面：服务面核对 + 别名持久性与自动别名分配（接取条目：`session-channel/docs/BACKLOG.md`「补群组编排（agent-group）所需的传输面：服务面核对 + 别名持久性」；「自动别名分配在词表耗尽后静默失效」）
+# 群组编排所需的传输面：服务面核对 + 别名持久性与自动别名分配（接取条目：`session-channel/docs/BACKLOG.md`「补群组编排（agent-group）所需的传输面：服务面核对 + 别名持久性」；「自动别名分配在词表耗尽后静默失效」；「工具返回体含 `undefined` 字段, 触发宿主 `INVALID_TOOL_OUTPUT`（`send` 与 `status` 必现）」）
 
 状态：决策（2026-10-17）　　开启：2026-10-17　　关闭：未关闭
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
@@ -6,7 +6,7 @@
 
 ## 目标
 
-为群组编排插件（`agent-group`）落定传输面口径：出一份对着代码核过的服务面核对表（「投递指令」「收取回报」两个操作各对应哪个方法及其参数 / 返回），并把别名的自动分配时机与持久性从「设计推断」落成有代码依据的结论。按用户 2026-10-17 裁定，本任务还包含**修自动别名的分配**：扩容词表 + 给自动别名加 4 位哈希后缀（见决策项 4），故同时接取缺陷条目「自动别名分配在词表耗尽后静默失效」。
+为群组编排插件（`agent-group`）落定传输面口径：出一份对着代码核过的服务面核对表（「投递指令」「收取回报」两个操作各对应哪个方法及其参数 / 返回），并把别名的自动分配时机与持久性从「设计推断」落成有代码依据的结论。按用户 2026-10-17 裁定，本任务还包含**修自动别名的分配**：扩容词表 + 给自动别名加 4 位哈希后缀（见决策项 4），故同时接取缺陷条目「自动别名分配在词表耗尽后静默失效」；同日用户报「`send` 常报 `INVALID_TOOL_OUTPUT`」并指示把该内容并入本模块的改动，故再并入缺陷条目「工具返回体含 `undefined` 字段」（修法见决策项 7）。
 
 ## 调研
 
@@ -24,6 +24,7 @@
 10. **文档层级**：`README.md:20` 只列方法名；`:65-76` 的服务面表只到「方法 + 一句语义」（仅 `delegate` `:74` 与 `taskResult` `:76` 给了字段形状，`send` / `inbox` / `peers` / `alias*` / `kv*` 都没有参数与返回类型）→ 正是核对表的落点。寻址口径见 `README.md:12`、`:103`、`:105` 与 `DESIGN.md:20`、`:40`。**别名生成时机与持久性在 README 与 DESIGN 里都没有表述**（grep 无命中），只在 `docs/archived/2026-10-01-auto-alias.md:19`、`:21` 有历史口径。
 11. **测试面与牵连**：7 个测试文件 + `helpers.ts`（`README.md:122` 写「47 例」，静态计数约 49 —— 本轮未运行核实）。新增或删除服务面方法必牵 `tests/apply.test.ts:225`（D5 守卫的两处 `deepEqual`：`SERVICE_FACE_METHODS` ↔ `provide` 键 ↔ `SessionChannelService.prototype` 公开方法，`internalOnly` 白名单 `:240`）与 `:55`；别名生成时机 / 词表改动牵 `tests/alias.test.ts:186`（词表规模与字符集）、`:231`（取词）、`:247`（首见生成）、`tests/service.test.ts:296`（来源标签别名优先）；键 TTL / 清理改动牵 `alias.test.ts:68`、`:88`、`:100`、`:114`、`:130`、`:162`、`:173` 与 `broker.test.ts:106`。用例数变动要同步 `README.md:122`。
 12. **两条下游硬约束**：从方成员会话必须**也挂着 session-channel**（注入由目标进程自己的 reader 循环完成，`DESIGN.md:51`）；目标必须在线（`README.md:103`，离线不排队）。
+13. **工具返回体不是 lossless JSON（2026-10-17 用户报错后定位）**：`session_channel` 的 `send` 报 `tool "session_channel" returned invalid output: value is not lossless JSON`。返回链路上有两处产出 `undefined` 字段 —— `src/broker.ts:444-447`（`delivered` 在 `waitMs` 缺省时为 `undefined`，而工具面 `src/index.ts:1248-1250` 缺省不传它 → **不带 `waitMs` 的 send 必失败**）与 `src/index.ts:296`（后台重试连上后写 `#status.error = undefined`，而 `status()` `:529-531` 直接展开该对象 → 经历重试的进程里 `action=status` 必失败）。宿主校验：工具返回体过 `snapshotToolValue`（`dsh-tools/lib/index.js:2577`）→ `dsh-util-values` 的 `walkJsonValue`，**嵌套 `undefined`（以及 `NaN` / `Infinity` / `-0` / 非平凡原型）一律拒绝**，抛 `ToolOutputError`（code `INVALID_TOOL_OUTPUT`）；`JSON.stringify` 会丢该键，但校验在序列化之前。已用宿主校验函数实测对拍：`{ok:true, messageId, delivered: undefined, target}` → 拒绝，`delivered: true` → 通过。另三个工具（`channel_delegate` / `channel_task` / `channel_task_result`）的返回体本轮只做形状判读：`DelegateResult` 与别名结果多用条件展开构造（如 `broker.ts:190-195`），`TaskRecord`（`types.ts:149-178`）有六个可选字段，**待实现时逐字段核**。
 
 ## 决策
 
@@ -84,6 +85,13 @@
 
 **选定 a**。理由：调研 12 的两条是通道自身的性质（从方进程必须也挂本插件；目标必须在线、离线不排队），写在通道文档里才不会随消费方的实现漂移。
 
+决策项 7　工具返回体的 lossless JSON 缺陷怎么修（2026-10-17 用户报错后并入本任务）
+
+- a) **四个工具的 `execute` 出口统一归一**：加一个纯函数递归去掉 `undefined`（并列的 `NaN` / `Infinity` 不许出现），`session_channel` / `channel_delegate` / `channel_task` / `channel_task_result` 的返回体一律先过它再返回；服务面（`provide("sessionChannel")`）不动
+- b) 只按需拼字段：`broker.ts:447` 改成 `...(delivered === undefined ? {} : { delivered })`，`index.ts:296` 改成 `delete this.#status.error`（或 `status()` 按需拼装）
+
+**选定 a**（2026-10-17 用户裁定「保持现状选 a」；b 作为被否的备选保留在案）。理由：可选字段散在 `broker.ts` / `index.ts` / `types.ts` 多处（`delivered` / `candidates` / `holder` / `replaced` / `TaskRecord` 的六个可选字段），逐处拼装是「每次新增可选字段都要记得拼一次」的长期负担，且漏一处就是又一次 `INVALID_TOOL_OUTPUT`；出口归一是一处收口，还能顺带兜住另三个工具尚未逐字段核的返回体。代价一条：归一后的值是**副本**（原对象不再被返回），对只读消费无影响；`output.render` 收到的也是归一后的值（现状本就是它自己 `JSON.stringify`）。
+
 ## 规划
 
 ### 实现前冻结的接口（消费方按此写）
@@ -118,27 +126,32 @@
 
 **E. 不动的部分**：`alias:<名>` 键位与「无 TTL」语义、`setAlias` 的唯一性判定与 `force` 覆盖、既有别名、16 个服务面方法的签名与语义。
 
-### 任务拆分（5 步，每步带中间验证）
+**F. 工具返回体一律 lossless JSON（决策项 7 选 a，本次新增）**：四个模型侧工具（`session_channel` / `channel_delegate` / `channel_task` / `channel_task_result`）的 `execute` 出口先过 `toLosslessJson(value)`（递归去掉值为 `undefined` 的键；数组里的 `undefined` 视同编程错误，按等价语义剔除并在实现时注明）；`output.schema`（`{type:"object", additionalProperties:true}`）与 `output.render` 不动；**服务面返回值、类型声明与工具内部消费方不变**（归一发生在工具边界，不改变 `provide("sessionChannel")` 的任何签名与语义）。两处根因顺手改直：`broker.ts` 的 `sendMessage` 改为按需拼 `delivered`，`index.ts:296` 的清零改用 `delete this.#status.error`。
+
+### 任务拆分（6 步，每步带中间验证）
 
 1. **词表扩容 + 取名规则** —— `src/alias-words.ts`：`AUTO_ALIAS_WORDS` 扩到 ≥ 256 词；新增后缀函数（`sha256(sessionId)` 前 4 位 hex）；`pickAutoAlias` 改为拼 `<前缀><词>-<hex4>`。验证：`npm --prefix session-channel run check` 通过，且 `tests/alias.test.ts` 的词表规模 / 约束 / 取名用例按新格式更新后过。
 2. **`#autoAlias` 接上** —— `src/index.ts:360-378`：向取名处传入 `sessionId`；重试耗尽补 `console.warn`。验证：该包 `test` 里「首见生成」用例改为断言新格式（`ui-<词>-<4hex>`），并记下例数变化。
 3. **README：核表 + 新节 + 口径** —— 服务面表 `:65-76` 补「参数 → 返回」（照上面 A 表）；新增「群组编排用法与成员寻址口径」一节（含 C 的三态承载、D 的两条硬约束、成员登记用 sessionId 或显式别名）；`边界与限制` 的别名条 `:105` 补自动别名口径（生成时机 = 本进程首次观察到该会话的 `session/event`、键无 TTL、同 sessionId 恢复后同名、新命名规则与 4 位后缀）；`:122` 的例数改为实测值（现写「47 例」，静态计数约 49，以实跑为准）。验证：逐条对着代码读一遍（核表的用途就是这个）。
 4. **DESIGN 同步** —— `:40`（寻址与 `setAlias` 流程）、`:85`（服务面键集合处标注核表所在）、`:95`（会话跟踪）旁补生成时机与持久性口径。验证：diff 自查。
 5. **用例与真机** —— 新增：别名与 sessionId 绑定且键无 TTL、同 sessionId 再次出现不重命名、`delegate` → `taskStatus` 往返（含懒超时结算与 `resultSource` 优先级）、后缀确定性（同 sessionId 两次算出同一 `hex4`）；更新 `tests/service.test.ts:296` 的来源标签用例。验证：该包 `test` 全绿（无 `redis-server` 时 `redisTest` 会 skip，要如实记）+ 真机 `dsh --profile fff` 看一眼状态列里别名变长 4 字符后是否被挤。
+6. **工具出口归一（决策项 7，缺陷 #3）** —— `src/index.ts` 新增 `toLosslessJson`（递归去 `undefined`），四个工具的 `execute` 出口套用；顺手改直两处根因（`broker.ts` 的 `sendMessage` 按需拼 `delivered`、`index.ts:296` 改 `delete this.#status.error`）；逐字段核另三个工具的返回体（含失败分支）。验证：新增用例 —— 不带 `waitMs` 的 `send` 返回体**无 `delivered` 键**、重试后 `status()` 返回体、四个工具的返回体（成功与失败两态）一律过本包自带的等价 lossless JSON 判定（宿主那个 `walkJsonValue` 不在本包依赖里，判定函数按同样四条规则自写：嵌套 `undefined` / `NaN` / `Infinity` / `-0` / 非平凡原型均判失败）。
 
 ### 本轮（调研 + 决策）改动文件清单
 
-- `session-channel/docs/BACKLOG.md`（本条目标〔进行中: 2026-10-17〕；追加缺陷区条目「自动别名分配在词表耗尽后静默失效」）
+- `session-channel/docs/BACKLOG.md`（本条目标〔进行中: 2026-10-17〕；追加缺陷区条目「自动别名分配在词表耗尽后静默失效」与「工具返回体含 `undefined` 字段, 触发宿主 `INVALID_TOOL_OUTPUT`（`send` 与 `status` 必现）」）
 - `session-channel/docs/implementation/2026-10-17-group-transport-surface.md`（本文件）
 
 ### 实现阶段改动文件清单
 
 - `session-channel/src/alias-words.ts`：`AUTO_ALIAS_WORDS` 扩到 ≥ 256 词（守既有约束）；新增后缀生成（`sha256(sessionId)` 前 4 位 hex）；`pickAutoAlias` 改为拼 `<前缀><词>-<hex4>`
-- `session-channel/src/index.ts`：`#autoAlias` 改用新命名规则（传入 sessionId 以算后缀）；重试耗尽时补一行 `console.warn`
-- `session-channel/README.md`：服务面表 `:65-76` 补「参数 → 返回」；新增「群组编排用法与成员寻址口径」一节（含两条硬约束与三态承载口径）；`边界与限制` 的别名条 `:105` 补自动别名口径；用例数 `:122` 改为实测值
+- `session-channel/src/index.ts`：`#autoAlias` 改用新命名规则（传入 sessionId 以算后缀）；重试耗尽时补一行 `console.warn`；新增 `toLosslessJson` 并在四个工具的 `execute` 出口套用；`:296` 的 `#status.error` 清零改 `delete`（决策项 7）
+- `session-channel/src/broker.ts`：`sendMessage` 的返回按需拼 `delivered`（`:444-447`，决策项 7）
+- `session-channel/tests/tools.test.ts`（新增，或并入 `tests/service.test.ts`）：工具返回体的 lossless JSON 判定用例（四工具 · 成功与失败两态 · 不带 `waitMs` 的 `send` · 重试后的 `status()`），判定函数按宿主的四条规则自写
+- `session-channel/README.md`：服务面表 `:65-76` 补「参数 → 返回」；新增「群组编排用法与成员寻址口径」一节（含两条硬约束与三态承载口径）；`边界与限制` 的别名条 `:105` 补自动别名口径；用例数 `:122` 改为实测值；工具返回口径补一句（出口归一保 lossless JSON，决策项 7）
 - `session-channel/docs/DESIGN.md`：`:40` / `:85` / `:95` 三处口径同步
 - `session-channel/tests/alias.test.ts`、`tests/service.test.ts`：词表与取名用例更新 + 新增四条用例（见任务拆分第 5 步）
-- `session-channel/docs/BACKLOG.md`：两条条目完成时标「完成」并移除
+- `session-channel/docs/BACKLOG.md`：三条条目完成时标「完成」并移除
 
 明确不做：不新增服务面方法（决策项 1）；不改 `TaskStatus` 与任务状态机（决策项 2）；**修自动别名只改命名规则与词表** —— 不动键位与「无 TTL」语义、不改 `setAlias` 的唯一性判定与 `force` 覆盖、不重命名 / 不回收既有 295 条旧别名（决策项 4）；不加 `broadcast`（设计决策项 20 属二期）；不动 TUI 与 `agent-group` 侧代码。
 
@@ -147,11 +160,12 @@
 - **单测**：`npm --prefix session-channel run test` 全绿（`redisTest` 无 `redis-server` 时 skip 要注明）；四条新用例 + 更新的词表 / 取名 / 来源标签用例。
 - **机械**：`npm run check` + `npm run build` + `npm run test` 三件；`README.md:122` 的例数与实跑一致。
 - **人工**：README 的服务面核表逐条对着 `src/index.ts:1514-1541` 与 `src/types.ts` 读一遍；真机看一眼别名变长后的状态列显示。
+- **lossless JSON（决策项 7 新增）**：单测里四个工具的返回体（成功 / 失败 / 无 `waitMs` / 重试后 `status`）一律过本包自带的等价判定；实现完成后用宿主校验函数对拍一次真实返回体（本轮已对拍过一次失败样本，实现后复做，并补一个通过样本）。
 - **不做**：不验跨机（本包仅本机）；不验广播（二期）；不去改 `PeerInfo` 加别名字段。
 
 ### 收尾动作（实现完成时）
 
-- 两条条目（「补群组编排（agent-group）所需的传输面：服务面核对 + 别名持久性」与缺陷区「自动别名分配在词表耗尽后静默失效」）标「完成」并从 `session-channel/docs/BACKLOG.md` 移除；缺陷区清空后按仓库惯例写「（当前无未完成项）」。
+- 三条条目（「补群组编排（agent-group）所需的传输面：服务面核对 + 别名持久性」与缺陷区「自动别名分配在词表耗尽后静默失效」「工具返回体含 `undefined` 字段, 触发宿主 `INVALID_TOOL_OUTPUT`（`send` 与 `status` 必现）」）标「完成」并从 `session-channel/docs/BACKLOG.md` 移除；缺陷区清空后按仓库惯例写「（当前无未完成项）」。
 - 本文件移入 `session-channel/docs/archived/`。
 - 回写下游：`agent-group` 的登记口径（只用 sessionId 或显式别名，不依赖自动别名）—— 属该包的实现，已在它的设计与本文件 D 条里记明。
 
@@ -174,6 +188,6 @@
 
 ## 收尾
 
-- 本轮不归档：两个条目（「补群组编排（agent-group）所需的传输面：服务面核对 + 别名持久性」与「自动别名分配在词表耗尽后静默失效」）均保持〔进行中: 2026-10-17〕，本文件留在 `session-channel/docs/implementation/`，等用户审定决策后进入实现。
+- 本轮不归档：三个条目（「补群组编排（agent-group）所需的传输面：服务面核对 + 别名持久性」与缺陷区的两条）均保持〔进行中: 2026-10-17〕，本文件留在 `session-channel/docs/implementation/`，等用户审定决策后进入实现。
 - 回写文档：本轮无（实现阶段才动 `README.md` / `DESIGN.md`）。
-- 遗留项：缺陷条目「自动别名分配在词表耗尽后静默失效」已按用户 2026-10-17 裁定由本任务**一并接取**（实现阶段随决策项 4 一起做），不再交其他 agent；`agent-group` 侧需同步「登记目标用 sessionId 或显式别名，不依赖自动别名」这条口径（属该包实现时的事）；实现阶段需真机目视一次别名变长后的 TUI 状态列显示。
+- 遗留项：缺陷条目「自动别名分配在词表耗尽后静默失效」已按用户 2026-10-17 裁定由本任务**一并接取**（实现阶段随决策项 4 一起做）；缺陷条目「工具返回体含 `undefined` 字段」按用户 2026-10-17 指示并入本模块改动，修法经同日裁定取 **a**（四工具出口统一归一，决策项 7）；`agent-group` 侧需同步「登记目标用 sessionId 或显式别名，不依赖自动别名」这条口径（属该包实现时的事）；实现阶段需真机目视一次别名变长后的 TUI 状态列显示。
