@@ -14,6 +14,7 @@ import {
   topPaneHeights,
   topPaneSplit,
   GOLDEN_RATIO,
+  CELL_ASPECT,
 } from "../src/app/layout.ts";
 
 test("normalizeConfig：合法整数保留，非法/越界回落缺省（undefined）", () => {
@@ -189,20 +190,28 @@ test("topPaneSplit：缺省 vertical = 原 topPaneHeights 口径；两 pane 同�
   assert.equal(def.activityW, 60);
 });
 
-test("topPaneSplit：auto 以 φ 为界——区域比 φ 扁 → 左右；比 φ 瘦长 → 上下", () => {
-  // 可用行数 = contentTopH - 2（标题栏）；R = 正文宽/可用行
-  // R = 48/10 = 4.8 > φ → 左右（等分后 pane 宽高比 ≈ 2.3，比纵向的 16 更贴近 φ）
+test("topPaneSplit：auto 以 2φ 为界（含字符格高宽比校正）——区域比 2φ 扁 → 左右；否则上下", () => {
+  // 可用行数 = contentTopH - 2（标题栏）；判定用**视觉**宽高比 = 宽 / 行 / 2（字符格高宽比）
+  // 48 / 10 / 2 = 2.4 < 2φ → 左右（等分后 pane 视觉宽高比 1.15 / 1.2，比纵向的 8 / 4 更贴近 φ）
   const wide = topPaneSplit(12, 48, 2, undefined, "auto");
   assert.equal(wide.mode, "horizontal");
   assert.equal(wide.dialogueH, 10, "横向两 pane 等高 = 可用行数");
   assert.equal(wide.activityH, 10);
   assert.equal(wide.activityW, 24, "活动区宽 = floor(48/2)");
   assert.equal(wide.dialogueW, 23, "48 - 活动区 24 - 1 列内部分隔");
-  // R = 60/58 ≈ 1.03 < φ → 上下（纵向 pane 宽高比 ≈ 2.2，比横向的 0.5 更贴近 φ）
+  // 中间带（φ < 值 < 2φ）：60 / 28 / 2 ≈ 1.07 → 左右的 pane 视觉宽高比掉到 ≈ 0.52，
+  // 纵向（60 / 12 / 2 = 2.5、60 / 15 / 2 = 2.0）更贴近 φ → 校正后判上下（校正前判左右）
+  const mid = topPaneSplit(30, 60, 2, undefined, "auto");
+  assert.equal(mid.mode, "vertical");
+  assert.equal(mid.dialogueH, 12, "纵向：30 - 标题栏 2 - 活动区 15 - 分隔行 1");
+  assert.equal(mid.activityH, 15, "活动区高 = floor(30/2)");
+  assert.equal(mid.dialogueW, 60, "纵向两 pane 共用左列正文宽");
+  // 60 / 58 / 2 ≈ 0.52 ≪ 2φ → 上下（纵向 pane 视觉宽高比 1.11 / 1.0，比横向的 0.25 更贴近 φ）
   const tall = topPaneSplit(60, 60, 2, undefined, "auto");
   assert.equal(tall.mode, "vertical");
-  // 黄金分割比常量自身检查
+  // 黄金分割比与字符格高宽比常量自身检查
   assert.ok(Math.abs(GOLDEN_RATIO - 1.618) < 0.001);
+  assert.equal(CELL_ASPECT, 2);
 });
 
 test("topPaneSplit：固定 placement 直通；横向不可行（太窄/无行）回落上下", () => {
