@@ -72,10 +72,10 @@ redisTest("端到端：A 发送 → B 注入并回执 → A 收到 delivered", a
       source?: { kind?: string };
     };
     assert.equal(injected.role, "user");
-    // F1 起：会话首见自动生成别名（ui- 前缀）→ 来源标签用别名而非会话 id
+    // F1 起：会话首见自动生成别名（ui- 前缀 + 4 位哈希后缀）→ 来源标签用别名而非会话 id
     assert.match(
       injected.content?.[0]?.text ?? "",
-      /^\[CHANNEL\]\(ui-[a-z]+\) hello B$/,
+      /^\[CHANNEL\]\(ui-[a-z]{2,8}-[0-9a-f]{4}\) hello B$/,
     );
     assert.equal(injected.source?.kind, "session-channel");
 

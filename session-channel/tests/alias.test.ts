@@ -24,6 +24,7 @@ import {
 } from "../src/client.ts";
 import {
   aliasPrefixFor,
+  autoAliasSuffix,
   AUTO_ALIAS_WORDS,
   pickAutoAlias,
 } from "../src/alias-words.ts";
@@ -181,11 +182,11 @@ redisTest("clearAliasesOf：按会话清空其全部别名", async () => {
   });
 });
 
-// ---------- F1：会话别名自动生成（≤8 字符名词 / 名字 + 类型前缀） ----------
+// ---------- F1：会话别名自动生成（≤8 字符名词 / 名字 + 类型前缀 + 4 位哈希后缀） ----------
 
-test("F1 词表：≤8 字符 ASCII 名词 / 名字，无重复、不与保留字冲突", () => {
+test("F1 词表：≥ 256 词、≤8 字符 ASCII 名词 / 名字，无重复、不与保留字冲突", () => {
   assert.ok(
-    AUTO_ALIAS_WORDS.length >= 64,
+    AUTO_ALIAS_WORDS.length >= 256,
     `词表规模: ${AUTO_ALIAS_WORDS.length}`,
   );
   // 与 broker 的 RESERVED_ALIASES 同口径（该表未导出，此处硬编码校验）
@@ -228,20 +229,37 @@ test("F1 前缀：子代理会话 sub-，其余（用户启动）ui-", () => {
   assert.equal(aliasPrefixFor(null), "ui-");
 });
 
-test("F1 取词：前缀 + 词表随机项（随机源注入；越界 clamp）", () => {
+test("F1 后缀：sha256(sessionId) 前 4 位小写 hex（确定性、可复现）", () => {
+  // 固定值钉住算法（sha256 + 前 4 位 + 小写 hex），改算法即失败
+  assert.equal(autoAliasSuffix("session-a"), "fa57");
+  assert.equal(autoAliasSuffix("s-user"), "b79a");
   assert.equal(
-    pickAutoAlias("ui-", () => 0),
-    `ui-${AUTO_ALIAS_WORDS[0]}`,
+    autoAliasSuffix("s-user"),
+    autoAliasSuffix("s-user"),
+    "同 id 两次同一值",
+  );
+  assert.match(autoAliasSuffix("任意中文 id"), /^[0-9a-f]{4}$/);
+  assert.notEqual(autoAliasSuffix("s-user"), autoAliasSuffix("s-sub"));
+});
+
+test("F1 取词：`<前缀><词>-<4 位 hex>`（随机源注入；越界 clamp）", () => {
+  assert.equal(
+    pickAutoAlias("ui-", "s1", () => 0),
+    `ui-${AUTO_ALIAS_WORDS[0]}-${autoAliasSuffix("s1")}`,
   );
   assert.equal(
-    pickAutoAlias("sub-", () => 0.999999),
-    `sub-${AUTO_ALIAS_WORDS.at(-1)}`,
+    pickAutoAlias("sub-", "s1", () => 0.999999),
+    `sub-${AUTO_ALIAS_WORDS.at(-1)}-${autoAliasSuffix("s1")}`,
   );
   assert.equal(
-    pickAutoAlias("ui-", () => 1),
-    `ui-${AUTO_ALIAS_WORDS.at(-1)}`,
+    pickAutoAlias("ui-", "s1", () => 1),
+    `ui-${AUTO_ALIAS_WORDS.at(-1)}-${autoAliasSuffix("s1")}`,
     "随机源返回 1 不越界",
   );
+  // 形态与总长（≤ 16）守 2026-10-17 的命名规则
+  const alias = pickAutoAlias("ui-", "session-a");
+  assert.match(alias, /^ui-[a-z]{2,8}-[0-9a-f]{4}$/);
+  assert.ok(alias.length <= 16, `总长: ${alias.length}`);
 });
 
 redisTest(
@@ -271,24 +289,52 @@ redisTest(
       );
       const userAlias = byId.get("s-user") ?? "";
       const subAlias = byId.get("s-sub") ?? "";
-      assert.match(userAlias, /^ui-[a-z]+$/, `用户会话别名: ${userAlias}`);
-      assert.match(subAlias, /^sub-[a-z]+$/, `子代理别名: ${subAlias}`);
+      assert.match(
+        userAlias,
+        /^ui-[a-z]{2,8}-[0-9a-f]{4}$/,
+        `用户会话别名: ${userAlias}`,
+      );
+      assert.match(
+        subAlias,
+        /^sub-[a-z]{2,8}-[0-9a-f]{4}$/,
+        `子代理别名: ${subAlias}`,
+      );
       assert.ok(
-        (AUTO_ALIAS_WORDS as readonly string[]).includes(userAlias.slice(3)),
+        (AUTO_ALIAS_WORDS as readonly string[]).includes(
+          userAlias.slice(3, -5),
+        ),
         `词来自内置词表: ${userAlias}`,
+      );
+      // 后缀可复现：等于该 sessionId 的哈希前 4 位
+      assert.equal(userAlias.slice(-4), autoAliasSuffix("s-user"));
+      assert.equal(subAlias.slice(-4), autoAliasSuffix("s-sub"));
+      // 别名键与 sessionId 绑定，且无 TTL（恢复会话后名字不变的前提）
+      assert.equal(await conn.main.get(aliasKey(userAlias)), "s-user");
+      assert.equal(
+        await conn.main.ttl(aliasKey(userAlias)),
+        -1,
+        "自动别名键无 TTL",
       );
       // 既有显式别名不被自动覆盖
       await setAlias(conn.main, "docs", "s-pre");
       fake.emitSession({ id: "s-pre" });
       await sleep(60);
       assert.equal(await resolveAlias(conn.main, "docs"), "s-pre");
-      // 重复见到同一会话不重复写
+      // 重复见到同一会话不重复写、也不改名
       fake.emitSession({ id: "s-user", header: { cwd: "/tmp/x" } });
       await sleep(60);
       assert.equal(
         (await listAliases(conn.main)).length,
         3,
         "docs + 两条自动别名",
+      );
+      const afterSeen = new Map(
+        (await listAliases(conn.main)).map((a) => [a.sessionId, a.alias]),
+      );
+      assert.equal(
+        afterSeen.get("s-user"),
+        userAlias,
+        "同 sessionId 再次出现不重命名",
       );
     } finally {
       await getSessionChannelService()?.stop();

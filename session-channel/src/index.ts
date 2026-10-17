@@ -354,8 +354,10 @@ export class SessionChannelService {
   }
 
   /**
-   * 自动别名（F1）：会话**首次见到**且尚无别名时写入（`ui-` / `sub-` + 词）。
-   * 占用重试 ≤ AUTO_ALIAS_TRIES；其它错误 / 异常静默（别名是增强项，不影响通道）。
+   * 自动别名（F1）：会话**首次见到**且尚无别名时写入
+   * （`ui-` / `sub-` + 词 + `sha256(sessionId)` 前 4 位 hex，见 `pickAutoAlias`）。
+   * 占用重试 ≤ AUTO_ALIAS_TRIES；耗尽后记一行日志（不再完全静默）；其它错误 / 异常静默
+   * （别名是增强项，不影响通道）。
    */
   async #autoAlias(session: unknown, sessionId: string): Promise<void> {
     try {
@@ -366,12 +368,15 @@ export class SessionChannelService {
       for (let i = 0; i < AUTO_ALIAS_TRIES; i++) {
         const result = await setAlias(
           conn.main,
-          pickAutoAlias(prefix, this.#deps.random ?? Math.random),
+          pickAutoAlias(prefix, sessionId, this.#deps.random ?? Math.random),
           sessionId,
         );
         if (result.ok) return;
         if (result.error !== "alias_taken") return;
       }
+      this.#log(
+        `自动别名分配失败（重试 ${AUTO_ALIAS_TRIES} 次仍冲突）：${sessionId}`,
+      );
     } catch {
       /* 别名是增强项：生成失败静默 */
     }
