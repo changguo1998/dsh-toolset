@@ -141,6 +141,7 @@
 
 | 插件 | 承载清单项 | 复用（不新建） |
 |------|-----------|----------------|
+| `script-interpreter` | 脚本语言解释器插件（bash / python 等） | 宿主 `ctx.sandbox` / `ctx.sandboxPolicy`（围栏）、`security-guard` 硬拒层 |
 | 内容资产（非插件） | 模板体系③ | workflow 脚本 + skill 内容 |
 
 ## 5. TUI 侧
